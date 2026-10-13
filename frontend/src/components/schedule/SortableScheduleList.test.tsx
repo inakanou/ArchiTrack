@@ -8,11 +8,13 @@
  * - REQ-5.2: 並び順リアルタイム反映
  * - REQ-5.3: 並び順の永続化（保存時）
  * - REQ-5.4: 並び順の復元
+ * - REQ-6.7 / REQ-12.2（Task 21.1）: 1 行の入力で他の行を描き直さない
  *
  * @module components/schedule/SortableScheduleList.test
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useCallback, useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SortableScheduleList } from './SortableScheduleList';
 import type { ScheduleItem } from '../../hooks/useScheduleState';
@@ -240,6 +242,80 @@ describe('SortableScheduleList', () => {
 
       // 任意項目（item-2）の削除ボタンが存在する
       expect(screen.getByTestId('remove-item-item-2')).toBeInTheDocument();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 21.1: 1 行の入力で他の行を描き直さない
+  // --------------------------------------------------------------------------
+
+  describe('Task 21.1: 行の描き直し', () => {
+    /**
+     * 項目のプロパティの読み取り（id を除く）を数える Proxy。行の描画は項目名などを読むため、
+     * 読み取りが 0 回であればその項目の行は描き直されていない（id はリストの key に読まれる）
+     */
+    function trackReads(items: ScheduleItem[]): {
+      items: ScheduleItem[];
+      reads: Map<string, number>;
+    } {
+      const reads = new Map<string, number>();
+      const tracked = items.map(
+        (item) =>
+          new Proxy(item, {
+            get(target, prop, receiver) {
+              if (prop !== 'id') reads.set(target.id, (reads.get(target.id) ?? 0) + 1);
+              return Reflect.get(target, prop, receiver);
+            },
+          })
+      );
+      return { items: tracked, reads };
+    }
+
+    /** 項目の状態を持ち、更新の関数を useCallback で安定させる（ScheduleDetailPage と同じ形） */
+    function Harness({ initial }: { initial: ScheduleItem[] }) {
+      const [items, setItems] = useState(initial);
+      const onUpdate = useCallback((itemId: string, updates: Partial<ScheduleItem>) => {
+        setItems((prev) =>
+          prev.map((item) => (item.id === itemId ? { ...item, ...updates } : item))
+        );
+      }, []);
+      const onRemove = useCallback(() => {}, []);
+      const onReorder = useCallback(() => {}, []);
+      return (
+        <SortableScheduleList
+          items={items}
+          onUpdate={onUpdate}
+          onRemove={onRemove}
+          onReorder={onReorder}
+        />
+      );
+    }
+
+    it('1 行の入力で、変わらない他の行は描き直されないこと', () => {
+      const { items, reads } = trackReads(mockItems);
+      render(<Harness initial={items} />);
+      expect(reads.get('item-1'), '前提: 初回の描画で行が項目を読む').toBeGreaterThan(0);
+      reads.clear();
+
+      fireEvent.change(screen.getByTestId('duration-item-2'), { target: { value: '7' } });
+
+      expect(screen.getByTestId('duration-item-2')).toHaveValue(7);
+      expect(reads.get('item-1') ?? 0).toBe(0);
+      expect(reads.get('item-3') ?? 0).toBe(0);
+    });
+
+    it('ドラッグ中の表示が変わる行だけを描き直すこと', () => {
+      const { items, reads } = trackReads(mockItems);
+      render(<Harness initial={items} />);
+      reads.clear();
+
+      fireEvent.dragStart(screen.getByTestId('sortable-row-item-1'), {
+        dataTransfer: { effectAllowed: '', setData: vi.fn() },
+      });
+
+      expect(screen.getByTestId('sortable-row-item-1')).toHaveAttribute('data-dragging', 'true');
+      expect(reads.get('item-2') ?? 0).toBe(0);
+      expect(reads.get('item-3') ?? 0).toBe(0);
     });
   });
 });

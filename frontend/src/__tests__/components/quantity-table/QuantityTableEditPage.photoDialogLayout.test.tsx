@@ -78,28 +78,26 @@ vi.mock('../../../api/quantity-tables', () => ({
   updateItemDisplayOrder: vi.fn(),
 }));
 
-// 写真選択ダイアログは getSiteSurveys → getSiteSurvey(詳細) で写真を集約する。
-// 1つの現場調査に PHOTO_COUNT 枚を持たせて多数枚をレンダリングさせる。
+// 写真選択ダイアログはプロジェクト写真一覧を1リクエストで取得する
+// （Task 75.1、Requirement 49.9）。PHOTO_COUNT 枚を1応答で返して多数枚を描画させる。
 vi.mock('../../../api/site-surveys', () => {
   const count = 36; // PHOTO_COUNT と一致（ファクトリはホイストされ外部参照不可のためリテラル）
-  const photos = Array.from({ length: count }, (_, i) => ({
+  const images = Array.from({ length: count }, (_, i) => ({
     id: `img-${i + 1}`,
     surveyId: 'survey-1',
-    originalPath: `original/${i + 1}.png`,
-    thumbnailPath: `thumb/${i + 1}.png`,
-    originalUrl: `https://example.com/original/${i + 1}.png`,
-    thumbnailUrl: `https://example.com/thumb/${i + 1}.png`,
+    surveyName: 'テスト調査',
     fileName: `photo-${i + 1}.png`,
-    fileSize: 1024,
+    displayUrl: `https://example.com/display/${i + 1}.png`,
+    originalUrl: `https://example.com/original/${i + 1}.png`,
+    comment: null,
     width: 800,
     height: 600,
     displayOrder: i,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    hasAnnotations: false,
   }));
   return {
-    getSiteSurveys: vi.fn().mockResolvedValue({ data: [{ id: 'survey-1' }] }),
-    getSiteSurvey: vi.fn().mockResolvedValue({ id: 'survey-1', images: photos }),
+    getSiteSurveys: vi.fn(),
+    getSiteSurvey: vi.fn(),
+    getProjectSurveyImages: vi.fn().mockResolvedValue({ images, hasMore: false }),
   };
 });
 

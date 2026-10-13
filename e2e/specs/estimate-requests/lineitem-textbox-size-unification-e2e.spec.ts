@@ -26,14 +26,19 @@ import { API_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
 
 /**
- * 数量表画面の対応するテキストボックスサイズ仕様（QuantityInput / TextFieldInput / CalculationFields）
+ * 数量表画面の対応するテキストボックスサイズ仕様
  *
  * 統一仕様:
  * - height: 22px
  * - padding: 2px 4px
  * - fontSize: 12px
  *
- * これらは LineItemEditor.tsx と数量表系コンポーネントの両方で同じ値を採用している。
+ * これらは LineItemEditor.tsx と、数量表画面の対応列を描画する次の部品の両方で同じ値を採用している。
+ * - AutocompleteInput（styles.input）: 任意分類・工種・名称・規格・単位・備考
+ * - EditableQuantityItemRow（styles.input）: 数量
+ * 「単価」は数量表画面に対応列が無い。数量表の CalculationFields（計算用パラメータ欄）は
+ * padding が 0 4px で統一仕様と異なり、対応列でもないため比較の対象に含めない。
+ * 本テストは数量表画面を開かず、受領見積書の明細行の computed style を上の定数と照合する。
  */
 const EXPECTED_INPUT_FONT_SIZE = '12px';
 const EXPECTED_INPUT_PADDING_TOP = '2px';

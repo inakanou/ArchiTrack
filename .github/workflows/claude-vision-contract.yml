@@ -1,0 +1,160 @@
+# 外部AI（Claude Vision）の応答形式に対する日次の契約検証（estimate-request タスク 91.2）
+#
+# 検証の本体は backend の `npm run test:contract`（タスク 91.1、
+# backend/src/__tests__/contract/claude-vision.contract.ts）。固定の画像 2 枚を本番の
+# ClaudeVisionService.extractLineItems に通し、実APIの応答の「構造だけ」を主張する。
+#
+# ## 認証: Workload Identity Federation（長期の API キーは持たない）
+#
+# GitHub Actions が発行する短命の OIDC トークンを、SDK が POST /v1/oauth/token で短命の
+# アクセストークンへ交換する。下の ANTHROPIC_* の識別子は秘密ではない（単体では何の権限も
+# 与えず、交換には main から発行された当該リポジトリの識別トークンが要る）。
+# フェデレーションルールは subject_prefix `repo:inakanou/ArchiTrack:ref:refs/heads/main`、
+# audience `https://api.anthropic.com`、claims `repository_owner=inakanou` / `ref=refs/heads/main`
+# に絞ってある。本ワークフローに pull_request / pull_request_target を入れないことと併せて二重に塞ぐ。
+#
+# ## 通常の CI をブロックしない
+#
+# ci.yml とは別ファイルで、schedule と workflow_dispatch でしか走らない。ci.yml の ci-success の
+# needs にも入らないため、失敗しても PR / push の CI は止まらない（通知に留める）。
+#
+# ## 失敗の通知
+#
+# GitHub の既定の通知（失敗した Actions の実行のメール / Web 通知）に委ねる。schedule の実行の
+# 通知は、この cron を最後に書き換えた利用者へ届く。Issue の起票は行わない（issues: write が要り、
+# 権限を id-token: write / contents: read に絞る方針と両立しないため）。
+# なお公開リポジトリの schedule は、リポジトリに 60 日間動きが無いと GitHub が自動で無効化する。
+#
+# ## 失敗したときに疑う順
+#
+# 1. 交換の拒否（401 Authentication failed）: Console の認証履歴
+#    https://platform.claude.com/settings/workload-identity-federation?tab=history に理由が残る。
+#    多いのは sub の形の不一致（理由 match_subject_prefix）。main 以外から workflow_dispatch した
+#    場合も規則に合致しない（下の「実行ブランチの確認」で先に落とす）。
+#    400 workspace_id_required なら規則が別ワークスペース側にある（tasks.md のタスク91 を参照）。
+# 2. 応答形式の変化（モデルの更新など）: 契約検証の違反の文言を読む（位置と型だけが出る）。
+# 3. 本番の ClaudeVisionService の非公開の名前（client / enabled / extractJsonArray /
+#    parseNumericField）が変わった: 契約検証はこれらを Reflect で借りているため、
+#    リファクタリングだけでも「サービス無効」や「見当たらない」で失敗する。
+#
+# ## ログの公開
+#
+# 公開リポジトリのため実行ログも公開される。応答の本文や抽出した値は出力しない
+# （契約検証の違反の文言は位置と型だけを載せる。識別トークンはマスクし、表示しない）。
+name: Claude Vision Contract (daily)
+
+on:
+  schedule:
+    # 毎日 21:17 UTC（06:17 JST）。毎時 0 分の混雑を避ける
+    - cron: '17 21 * * *'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    name: Claude Vision response contract (WIF)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # 値は .kiro/specs/estimate-request/tasks.md のタスク91の表。秘密ではない。
+      # ANTHROPIC_WORKSPACE_ID は設定しない（規則が複数のワークスペースにまたがる場合だけ要る）
+      ANTHROPIC_FEDERATION_RULE_ID: fdrl_01LWzRPgEgzGpo6MaEav9gY6
+      ANTHROPIC_ORGANIZATION_ID: eebbdfa2-7a4d-4c25-83ac-66ad4d73e386
+      ANTHROPIC_SERVICE_ACCOUNT_ID: svac_0161nEGFCfhfjm3rdZwxNS44
+      # runner コンテキストは jobs.<id>.env では使えないため固定のパスにする（公式の例と同じ）
+      ANTHROPIC_IDENTITY_TOKEN_FILE: /tmp/gha-jwt
+    steps:
+      - name: Check the run is on main (the federation rule matches refs/heads/main only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::この契約検証は main でしか認証できない（フェデレーションルールが refs/heads/main に限る）。実行ブランチ: $GITHUB_REF"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies (backend)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Pin npm to backend/package.json "packageManager" (npm@11.6.2), same as ci.yml.
+          # Default npm 10.x rejects the npm-11-generated lockfile with EUSAGE.
+          npx -y npm@11.6.2 --prefix backend ci
+
+      # 識別トークンは発行から約 5 分で失効するため、依存の導入の後、検証の直前に取得する
+      - name: Fetch GitHub OIDC identity token (audience https://api.anthropic.com)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::ACTIONS_ID_TOKEN_REQUEST_URL / ACTIONS_ID_TOKEN_REQUEST_TOKEN が無い（permissions の id-token: write を確認すること）"
+            exit 1
+          fi
+          response="$(curl -sS --fail --retry 3 --retry-all-errors \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://api.anthropic.com")"
+          token="$(jq -r '.value // empty' <<<"$response")"
+          if [ -z "$token" ]; then
+            echo "::error::OIDC の応答に value が無い"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          # JWT は「.」区切りの 3 つの部分から成る。形が違えば交換まで進めない
+          if ! [[ "$token" =~ ^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::OIDC の応答の value が JWT の形でない"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$token" > "$ANTHROPIC_IDENTITY_TOKEN_FILE"
+          echo "識別トークンを書き出した（$(wc -c < "$ANTHROPIC_IDENTITY_TOKEN_FILE") バイト）"
+
+      # 失敗時の原因候補: 実APIの応答形式の変化、WIF の交換の拒否、または本番の ClaudeVisionService の
+      # 非公開の名前（client / enabled / extractJsonArray / parseNumericField）の変更（冒頭の注記を参照）
+      - name: Run contract test (fails on response-shape change, WIF rejection, or renamed ClaudeVisionService internals)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_PROFILE は空文字でも WIF より優先される。
+          # 設定されていれば別の資格情報で黙って認証しうるため、外すのではなく失敗させる
+          problems=0
+          for name in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_PROFILE; do
+            if [ -n "${!name+set}" ]; then
+              echo "::error::${name} が設定されている（空文字でも WIF より優先される）"
+              problems=1
+            fi
+          done
+          # 識別子が欠けたまま黙って緑にならないよう、ここでも確かめる（契約検証自身も失敗させる）
+          for name in ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID ANTHROPIC_SERVICE_ACCOUNT_ID ANTHROPIC_IDENTITY_TOKEN_FILE; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::${name} が未設定または空である"
+              problems=1
+            fi
+          done
+          if [ ! -s "${ANTHROPIC_IDENTITY_TOKEN_FILE:-}" ]; then
+            echo "::error::ANTHROPIC_IDENTITY_TOKEN_FILE が指すファイルが無いか空である"
+            problems=1
+          fi
+          if [ "$problems" -ne 0 ]; then
+            exit 1
+          fi
+          npm --prefix backend run test:contract
+
+      - name: Remove identity token file
+        if: always()
+        shell: bash
+        run: rm -f "${ANTHROPIC_IDENTITY_TOKEN_FILE:-}"

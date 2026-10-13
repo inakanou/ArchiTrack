@@ -272,6 +272,26 @@ describe('Arrow シリアライズ/復元 (Task 65.2)', () => {
       expect(restored.getOutline()).toEqual({ enabled: true, color: '#ffffff', width: 4 });
     });
 
+    // Task 115.59 (Req 24.7): 縁取り片側幅を本体線幅から算出するようにしても、
+    // 保存済みの縁取り幅は復元時に優先し、既存注釈の見た目を後から変えない。
+    it('保存済みの縁取り幅は本体線幅からの算出値より優先される（本体線幅の上限でも）', async () => {
+      const json = {
+        type: 'arrow' as const,
+        startPoint: { x: 10, y: 20 },
+        endPoint: { x: 200, y: 100 },
+        stroke: '#ff0000',
+        strokeWidth: 20,
+        arrowheadSize: 12,
+        // 算出値（15）とは異なる保存値
+        outline: { enabled: true, color: '#ffffff', width: 2 },
+      };
+
+      const arrow = await Arrow.fromObject(json);
+
+      expect(arrow.getOutline()!.width).toBe(2);
+      expect(getOutlinePath(arrow).strokeWidth).toBe(20 + 2 * 2);
+    });
+
     it('outline.enabled=false の JSON から復元すると outlinePath.opacity が 0 になる', async () => {
       const json = {
         type: 'arrow' as const,
@@ -295,6 +315,36 @@ describe('Arrow シリアライズ/復元 (Task 65.2)', () => {
   // ==========================================================================
 
   describe('outline 未定義の旧データは従来表現で復元する（Req 24.9 後方互換）', () => {
+    /**
+     * Task 115.150 (Req 26.5): 旧データ復元時に渡す白縁取り色も資材から供給する
+     *
+     * この経路の色は `enabled=false` / `width=0` により描画へ現れないが、literal で白を
+     * 書けば白アウトラインの色の供給元が二系統になる。資材を単一の供給元とすることを、
+     * 資材の値を変異させて追随を実測することで示す（値の一致だけでは literal でも通る）。
+     *
+     * @requirement site-survey/REQ-26.5
+     */
+    it('outline 未定義の JSON から復元した Arrow の outline.color は資材の outlineColor から供給される', async () => {
+      const legacyJson = {
+        type: 'arrow' as const,
+        startPoint: { x: 10, y: 20 },
+        endPoint: { x: 200, y: 100 },
+        stroke: '#ff0000',
+        strokeWidth: 3,
+        arrowheadSize: 10,
+      };
+
+      const original = ANNOTATION_DEFAULTS.outlineColor;
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+      try {
+        const restored = await Arrow.fromObject(legacyJson);
+
+        expect(restored.getOutline()!.color).toBe('#00ff00');
+      } finally {
+        ANNOTATION_DEFAULTS.outlineColor = original;
+      }
+    });
+
     it('outline フィールド欠落 JSON でも例外にならず Arrow を返す', async () => {
       const legacyJson = {
         type: 'arrow' as const,

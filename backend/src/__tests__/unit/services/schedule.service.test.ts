@@ -26,6 +26,7 @@ import {
   ScheduleNotFoundError,
   ScheduleConflictError,
   ScheduleValidationError,
+  ScheduleItemLimitExceededError,
 } from '../../../errors/scheduleError.js';
 
 // Prismaモック
@@ -734,11 +735,146 @@ describe('ScheduleService', () => {
         })
       ).rejects.toThrow(ScheduleValidationError);
     });
+
+    /**
+     * @requirement construction-schedule/REQ-12.1: The 工程表管理システム shall 1つの工程表あたり最大200項目までの登録をサポートする
+     *
+     * 数量表からの作成は数量表の項目をそのまま写すため、上限の両側を `ScheduleService.create` で主張する。
+     * 200 項目の数量表からは 200 項目の工程表を作り、201 項目の数量表からは 400 の
+     * `ScheduleItemLimitExceededError` で拒んで工程表も項目も書き込まない（利用者の判断 2026-10-09）。
+     */
+    describe('数量表の項目数の上限 (Req 12.1)', () => {
+      const buildQuantityItems = (count: number) =>
+        Array.from({ length: count }, (_, index) => ({
+          id: `qi-${index + 1}`,
+          quantityGroupId: 'group-1',
+          name: `数量項目${String(index + 1).padStart(3, '0')}`,
+          displayOrder: index,
+          quantityGroup: { displayOrder: 0 },
+        }));
+
+      beforeEach(() => {
+        (mockPrisma.quantityTable.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: quantityTableId,
+          projectId,
+          deletedAt: null,
+        });
+      });
+
+      it('201項目の数量表からの作成は400のエラーで拒み、工程表も項目も作成しないこと', async () => {
+        (mockPrisma.quantityItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+          buildQuantityItems(201)
+        );
+        (mockPrisma.constructionSchedule.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+          ...mockScheduleRecord,
+          quantityTableId,
+        });
+        (mockPrisma.scheduleItem.createMany as ReturnType<typeof vi.fn>).mockResolvedValue({
+          count: 201,
+        });
+
+        const error = await service
+          .create(projectId, { name: '201項目の工程表', quantityTableId })
+          .then(
+            () => null,
+            (err: unknown) => err
+          );
+
+        expect(error).toBeInstanceOf(ScheduleItemLimitExceededError);
+        const limitError = error as ScheduleItemLimitExceededError;
+        expect(limitError.statusCode).toBe(400);
+        expect(limitError.code).toBe('SCHEDULE_ITEMS_LIMIT_EXCEEDED');
+        expect(limitError.message).toBe(
+          '数量表の項目が200件を超えているため工程表を作成できません（201件）'
+        );
+        expect(limitError.details).toEqual({ itemCount: 201, maxItemCount: 200 });
+        expect(mockPrisma.constructionSchedule.create).not.toHaveBeenCalled();
+        expect(mockPrisma.scheduleItem.createMany).not.toHaveBeenCalled();
+      });
+
+      it('200項目の数量表からは200項目の工程表を作成すること', async () => {
+        const quantityItems = buildQuantityItems(200);
+        (mockPrisma.quantityItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+          quantityItems
+        );
+        (mockPrisma.constructionSchedule.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+          ...mockScheduleRecord,
+          quantityTableId,
+        });
+        (mockPrisma.scheduleItem.createMany as ReturnType<typeof vi.fn>).mockResolvedValue({
+          count: 200,
+        });
+        (mockPrisma.constructionSchedule.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          ...mockScheduleRecord,
+          quantityTableId,
+          quantityTable: { name: 'テスト数量表' },
+          items: quantityItems.map((qi, index) => ({
+            id: `si-${index + 1}`,
+            scheduleId,
+            sourceType: 'QUANTITY_TABLE',
+            sourceQuantityItemId: qi.id,
+            itemName: qi.name,
+            labelText: '',
+            detailText: '',
+            startDate: null,
+            duration: null,
+            displayOrder: index,
+            isExportTarget: true,
+            createdAt: new Date('2026-03-01'),
+            updatedAt: new Date('2026-03-01'),
+          })),
+        });
+
+        const result = await service.create(projectId, {
+          name: '200項目の工程表',
+          quantityTableId,
+        });
+
+        expect(mockPrisma.constructionSchedule.create).toHaveBeenCalledTimes(1);
+        const createManyArgs = (mockPrisma.scheduleItem.createMany as ReturnType<typeof vi.fn>).mock
+          .calls[0]![0] as { data: Array<{ itemName: string; displayOrder: number }> };
+        expect(createManyArgs.data).toHaveLength(200);
+        expect(createManyArgs.data.map((d) => d.itemName)).toEqual(
+          quantityItems.map((qi) => qi.name)
+        );
+        expect(createManyArgs.data.map((d) => d.displayOrder)).toEqual(
+          Array.from({ length: 200 }, (_, index) => index)
+        );
+        expect(result.items).toHaveLength(200);
+      });
+    });
   });
 
   // ===== Task 3.3: バルク保存（全項目一括更新） =====
 
   describe('bulkSaveItems', () => {
+    /**
+     * @requirement construction-schedule/REQ-10.4: When ユーザーが工程表を保存する, the 工程表管理システム shall ラベル文字をデータベースに永続化する
+     * @requirement construction-schedule/REQ-11.4: When ユーザーが工程表を保存する, the 工程表管理システム shall 詳細文字をデータベースに永続化する
+     *
+     * 本検証は上の二条文を機構として観測する。保存
+     * （`ScheduleService.bulkSaveItems`）がトランザクション内で `scheduleItem.create` へ渡す
+     * `data` に、項目ごとの `labelText` と `detailText` が載ることを主張する。観測の対象は
+     * 本番モジュール backend/src/services/schedule.service.ts の `bulkSaveItems` の
+     * 書き込みであり、当該サービスは backend/src/routes/schedules.routes.ts が取り込むため
+     * 本番の経路に乗る。
+     *
+     * **この二つの主張は本タスク（115.315）で足した。** 従前この検証は
+     * `updatedItemCount` と `updatedAt` の有無しか見ておらず、書き込みの写しから
+     * `labelText` / `detailText` を落としても緑のままだった。二条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/construction-schedule.model.test.ts の前書きだけで、
+     * 同ファイルは生成された Prisma クライアントのみを取り込むため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     * 観測が無いまま名乗りだけを移すことは禁じられているため、先に観測を足した。
+     *
+     * 空振りでないことの実測（2026-09-07。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/services/schedule.service.test.ts`。
+     * 変異は復元済み）:
+     * - `bulkSaveItems` の `create` の写しから `labelText` を外すと 41件中1件（本検証）が落ちる
+     * - 同じく `detailText` を外すと 41件中1件（本検証）が落ちる
+     * - `detailText` を外したまま本ファイルを HEAD（主張を足す前）の版へ戻すと 41件すべてが
+     *   緑に戻る。すなわち足した二つの主張がこの変異を捕まえている
+     */
     it('既存項目を更新できること', async () => {
       // 既存レコードの取得
       (mockPrisma.constructionSchedule.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -797,6 +933,27 @@ describe('ScheduleService', () => {
 
       expect(result.updatedItemCount).toBe(2);
       expect(result.updatedAt).toBeDefined();
+
+      // ラベル文字・詳細文字が保存時の書き込みへ載ること
+      // （上の JSDoc の @requirement で名乗る二条文の観測点）
+      expect(txMock.scheduleItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            itemName: '基礎工事更新',
+            labelText: '基礎更新',
+            detailText: '更新後詳細',
+          }),
+        })
+      );
+      expect(txMock.scheduleItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            itemName: '鉄骨工事更新',
+            labelText: '鉄骨更新',
+            detailText: '更新後詳細2',
+          }),
+        })
+      );
     });
 
     it('id=nullの項目は新規作成されること', async () => {

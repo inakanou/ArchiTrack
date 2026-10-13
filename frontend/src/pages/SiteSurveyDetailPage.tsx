@@ -13,11 +13,11 @@
  * - 2.3: 現場調査一覧の項目クリックで詳細画面に遷移する（遷移先）
  * - 2.4: 詳細画面の画像クリックで画像ビューア/エディタに遷移する
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
- * - 2.6: ブレッドクラムで「プロジェクト名 > 現場調査一覧 > 現場調査名」の階層を表示する
- * - 2.7: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
- * - 10.1: 報告書出力対象写真の選択
+ * - 2.7: ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧 > 現場調査」を表示する
+ * - 2.10: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
+ * - 10.2: 報告書出力フラグのチェックボックスをONにすると当該写真をPDF出力対象として設定する（未保存状態になる）
  * - 10.5: ドラッグアンドドロップによる写真順序変更
- * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 14.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  * - 31.1: 全件一括エクスポート起動
  * - 31.2: 選択画像エクスポート起動
  * - 31.3: 選択件数の UI 反映
@@ -35,7 +35,13 @@ import {
   deleteSurveyImage,
 } from '../api/survey-images';
 import { isUnsupportedFormatMessage } from '../utils/upload-failure';
+import { logger } from '../utils/logger';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
+// Task 115.105 (Req 15.6): 通信断の告知とサーバー保存の抑止。
+// design.md「ネットワーク状態管理フロー」の Key Decisions に従い、
+// 切断中は警告を出したうえで写真メタデータ・順序の一括保存を実行しない。
+import NetworkStatusIndicator from '../components/NetworkStatusIndicator';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import useMediaQuery from '../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../utils/responsive';
@@ -61,7 +67,7 @@ import type {
   UpdateImageMetadataInput,
   BatchUpdateImageMetadataInput,
 } from '../types/site-survey.types';
-import type { FailedUpload, UploadOutcome } from '../types/upload.types';
+import type { FailedUpload, UploadFailureKind, UploadOutcome } from '../types/upload.types';
 
 // ============================================================================
 // スタイル定義
@@ -82,13 +88,18 @@ const STYLES = {
     padding: '16px 12px',
   } as React.CSSProperties,
   breadcrumbWrapper: {
-    marginBottom: '16px',
     // Task 100.2 root-cause fix (Requirement 35.2): モバイル幅で長いパンくず（非折返しの
     // flex 行 = 長い現場調査名を含む）が device-width を超えて水平 overflow すると、
     // documentElement.scrollWidth がビューポート幅を超え、詳細画面全体に水平スクロールが
     // 発生する。パンくずを水平スクロール内に収め（overflowX:auto）祖先の scrollWidth への
     // 寄与を断つ。overflowX:auto は常時付与でデスクトップ幅も回帰しない。
     overflowX: 'auto',
+    // パンくずの導線（共通の Breadcrumb）が受けるフォーカスの輪（outline-offset 2px と太さ 2px の 4px）は
+    // 導線の外側へ描かれ、overflowX:auto の箱（縦方向も中身を切り取る）の縁で欠ける。輪の分の余白を
+    // 箱の内側に取り、同じ量の負のマージンで外側の位置と下の間隔（16px）を保つ
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
+    padding: '4px',
+    margin: '-4px -4px 12px',
   } as React.CSSProperties,
   loadingContainer: {
     display: 'flex',
@@ -277,6 +288,118 @@ function DeleteConfirmDialog({
 }
 
 /**
+ * 選択集合を、いま画像一覧にある画像だけへ絞り込む (Task 115.56)
+ *
+ * 現場調査の再取得は画像一覧を丸ごと差し替えるため、選択集合が
+ * 現存しない画像の識別子を指したままになりうる。要件31.2 の
+ * 「画像一覧で選択した画像」も要件31.3 の非活性判定も、対象は常に
+ * 現在の画像一覧に存在する画像でなければならない。
+ *
+ * 現存する選択は取り除かない（画像編集画面から戻った場合など、
+ * 同じ画像が引き続き一覧にあるときは選択を保持する）。
+ * 変化が無い場合は引数の集合をそのまま返し、不要な再描画を避ける。
+ *
+ * @requirement site-survey/REQ-31.2
+ * @requirement site-survey/REQ-31.3
+ */
+function pruneSelectionToExistingImages(
+  selected: Set<string>,
+  images: readonly SurveyImageInfo[] | undefined
+): Set<string> {
+  if (selected.size === 0) return selected;
+
+  const existingIds = new Set((images ?? []).map((image) => image.id));
+  const next = new Set<string>();
+  for (const imageId of selected) {
+    if (existingIds.has(imageId)) {
+      next.add(imageId);
+    }
+  }
+
+  return next.size === selected.size ? selected : next;
+}
+
+/**
+ * 捕捉した誤りを監視基盤へ送る (Task 115.84, Requirement 16.8)
+ *
+ * 要件16.8 はエラー時の「表示」と「Sentry へのログ送信」の双方を求める。
+ * 全画面共通の `ErrorBoundary` は描画時の未捕捉例外しか拾わないため、
+ * 画面が捕捉した通信の誤りは、この画面から送らなければ監視へ届かない。
+ * 送出内容は画面と操作の特定に必要な最小限に限り、資格情報・個人情報は含めない。
+ * `logger.exception` を用いるのは、設計書が Sentry 送信の担い手を
+ * `utils/logger.ts` と定めており、同経路が機密情報のマスキングを行うためである。
+ */
+function reportCaughtError(
+  err: unknown,
+  operation: string,
+  context: Record<string, string | number | undefined>
+): void {
+  logger.exception(err instanceof Error ? err : new Error(String(err)), {
+    screen: 'SiteSurveyDetailPage',
+    operation,
+    ...context,
+  });
+}
+
+/**
+ * 画像アップロードの失敗を表す操作名 (Task 115.122, Requirement 16.8)
+ *
+ * アップロードの失敗は二経路（詳細画面の失敗分岐と共有部品の捕捉処理）から
+ * 送出されるため、操作名は共通の定数とし、経路は `failureScope` で区別する。
+ */
+const UPLOAD_FAILURE_OPERATION = 'uploadSurveyImages';
+
+/**
+ * 送信の後処理を保護し、後処理の例外を送信の失敗へ昇格させない
+ * (Task 115.344, Requirement 37.1, 37.5, 37.14)
+ *
+ * `ImageUploader.submitFiles` の catch は、`onUpload` が例外を投げると「試行対象の全ファイル」を
+ * 再送可能な未送信画像として保持へ回す。そのため後処理の例外が `handleImageUpload` の外へ
+ * 伝播すると、サーバー登録済みの画像まで未送信画像として保持され、再送で同一画像が重複登録される。
+ *
+ * 送信そのものは `uploadSurveyImages` が画像ごとに捕捉して失敗の一覧へ集約するため例外を投げない。
+ * したがって塞ぐべき例外経路は、一覧を受けた後の処理（一覧の更新・失敗の通知・監視への送出）に
+ * 限られる。このうち同期的に例外を投げうるのは監視への送出（`logger.exception` →
+ * `captureException`）で、監視 SDK が失敗した場合に当たる。工事写真の `PhotoUploader` の
+ * `notifySafely` と同じく、後処理を一つずつ包み、一つの失敗が他の後処理を止めないようにする。
+ *
+ * 後処理の失敗は無言で握り潰さず、原因を辿れるようコンソールへ記録する。監視への再送出は
+ * 行わない（監視への送出そのものが失敗しうるため）。失敗通知の文言・表示条件は変更しない。
+ *
+ * @param label - コンソールへ記録する後処理の名前
+ * @param step - 保護する後処理
+ */
+function runUploadPostProcessingSafely(label: string, step: () => void): void {
+  try {
+    step();
+  } catch (err) {
+    console.error(`${label}に失敗しました`, err);
+  }
+}
+
+/**
+ * アップロード失敗の発生層を表す許可列挙
+ *
+ * - `perFile`: API 層が集約した個別ファイルの失敗（詳細画面の失敗分岐）
+ * - `request`: 送信そのものが例外で終わった失敗（共有部品の捕捉処理）
+ *
+ * 送出してよい付帯情報は、この許可列挙と識別子・件数に限る。ファイル名や
+ * サーバーの失敗文言など利用者由来の文字列は一切含めない。
+ */
+type UploadFailureScope = 'perFile' | 'request';
+
+/**
+ * 失敗区分の許可列挙を安定した順序の文字列へ畳み込む。
+ *
+ * `UploadFailureKind` は `'retriable' | 'permanent'` の2値のみであり、
+ * 利用者由来の文字列は入り込まない。
+ */
+function summarizeFailureKinds(kinds: readonly UploadFailureKind[]): string {
+  const allowed: readonly UploadFailureKind[] = ['permanent', 'retriable'];
+  return allowed.filter((kind) => kinds.includes(kind)).join(',');
+}
+
+/**
  * 現場調査詳細ページ
  *
  * 現場調査の基本情報と画像一覧を表示し、各画像から
@@ -287,8 +410,18 @@ export default function SiteSurveyDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // 権限チェック (Requirement 12.2)
+  // 権限チェック (Requirement 14.2)
   const { canEdit, canDelete } = useSiteSurveyPermission();
+
+  // Task 115.105 (Req 15.6): 通信状態の購読。
+  // 切断中は写真メタデータ・順序の一括保存（サーバー保存）を抑止する。
+  const { canSave: canSaveToServer, warningMessage: offlineWarningMessage } = useNetworkStatus();
+  const isServerSaveBlocked = !canSaveToServer;
+  // handleSaveMetadata は多くの箇所へ渡るため、購読値の変化で同一性を壊さないよう ref 経由で読む。
+  const isServerSaveBlockedRef = useRef(isServerSaveBlocked);
+  isServerSaveBlockedRef.current = isServerSaveBlocked;
+  const offlineWarningMessageRef = useRef(offlineWarningMessage);
+  offlineWarningMessageRef.current = offlineWarningMessage;
 
   // モバイル幅判定 (Task 100.2, Requirement 35.2): 固定幅の支配を解消するため、
   // ページコンテナの maxWidth/padding をモバイル幅で切り替える。
@@ -320,16 +453,21 @@ export default function SiteSurveyDetailPage() {
   // 未保存の順序変更をトラッキング
   const pendingOrderRef = useRef<ImageOrderItem[] | null>(null);
 
-  // ページ離脱警告フック (Task 33.2: ページ離脱時の確認ダイアログ)
-  const { isDirty, markAsChanged, markAsSaved } = useUnsavedChanges({
+  // ページ離脱警告 (Task 33.2: ページ離脱時の確認ダイアログ)
+  // 未保存判定は本画面が持ち、編集権限がある間だけ共有フックへ渡す
+  // （quantity-table-generation の Task 100.24 でフックが自前の dirty 状態を持たない形へ
+  // 一本化された）。
+  const [isDirty, setIsDirty] = useState(false);
+  const markAsChanged = useCallback(() => setIsDirty(true), []);
+  const markAsSaved = useCallback(() => setIsDirty(false), []);
+  useUnsavedChanges({
     message: '保存されていない変更があります。このページを離れますか？',
-    enabled: canEdit,
+    isDirty: canEdit && isDirty,
   });
 
   // 一括エクスポート関連 state (Task 87.3, Requirements 31.1, 31.2, 31.3)
-  // 選択中の画像 ID 集合。SurveyImageGrid と双方向同期する想定だが、
-  // 本ページの実 UI は PhotoManagementPanel のため、選択 UI の組み込みは
-  // 別タスクの責務とし、本タスクではページ側の state と Props 受け渡し経路を確立する。
+  // 選択中の画像 ID 集合。本ページが描画する画像一覧（PhotoManagementPanel）の
+  // 選択欄と双方向に同期する (Task 115.51)。
   const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
   // 起動中の BulkExportDialog モード（null は閉）
   const [bulkExportMode, setBulkExportMode] = useState<BulkExportDialogMode | null>(null);
@@ -353,8 +491,14 @@ export default function SiteSurveyDetailPage() {
     try {
       const data = await getSiteSurvey(id);
       setSurvey(data);
+      // 画像一覧の差し替えに合わせ、現存しない画像の選択を取り除く (Task 115.56)。
+      // setSurvey と同一の更新でまとめて反映されるため、選択欄・件数表示・
+      // 活性状態・エクスポート対象が食い違う描画は生じない。
+      // 詳細が得られなかった場合は画像一覧そのものが描画されないため、選択も空になる。
+      setSelectedImageIds((prev) => pruneSelectionToExistingImages(prev, data?.images));
     } catch (err) {
       setError(err instanceof Error ? err.message : '現場調査の取得に失敗しました');
+      reportCaughtError(err, 'fetchSiteSurveyDetail', { surveyId: id });
     } finally {
       setIsLoading(false);
     }
@@ -463,6 +607,13 @@ export default function SiteSurveyDetailPage() {
 
     if (!hasMetadataChanges && !hasOrderChanges) return;
 
+    // Task 115.105 (Req 15.6): 通信が切れている間はサーバーへの一括保存を実行しない。
+    // 未保存の変更はそのまま保持し、復帰後に改めて保存できるようにする。
+    if (isServerSaveBlockedRef.current) {
+      setError(offlineWarningMessageRef.current);
+      return;
+    }
+
     setIsSavingMetadata(true);
     setError(null);
 
@@ -493,6 +644,7 @@ export default function SiteSurveyDetailPage() {
       markAsSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存に失敗しました');
+      reportCaughtError(err, 'saveImageMetadata', { surveyId: id });
     } finally {
       setIsSavingMetadata(false);
     }
@@ -525,6 +677,7 @@ export default function SiteSurveyDetailPage() {
       navigate(`/projects/${survey.projectId}/site-surveys`);
     } catch (err) {
       setError(err instanceof Error ? err.message : '削除に失敗しました');
+      reportCaughtError(err, 'deleteSiteSurvey', { surveyId: id });
       setShowDeleteDialog(false);
     } finally {
       setIsDeleting(false);
@@ -584,6 +737,7 @@ export default function SiteSurveyDetailPage() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : '画像の削除に失敗しました');
+      reportCaughtError(err, 'deleteSurveyImage', { imageId });
       throw err; // PhotoManagementPanelにエラーを伝播
     }
   }, []);
@@ -601,7 +755,12 @@ export default function SiteSurveyDetailPage() {
    * 通知はこの画面が従来どおり生成し、保持は戻り値の `UploadOutcome` を通じて
    * `ImageUploader` が行う。
    *
-   * Requirements: 19.11, 19.13, 19.14, 19.15, 19.16, 37.1, 37.16, 37.21
+   * Task 115.344: 送信の後処理（一覧の更新・失敗の通知・監視への送出）は
+   * `runUploadPostProcessingSafely` で一つずつ保護する。後処理の例外が外へ伝播すると
+   * `ImageUploader` が試行対象の全件を保持へ回し、サーバー登録済みの画像まで再送で
+   * 重複登録されうるため、戻り値は後処理の成否によらず送信の失敗の一覧だけを返す。
+   *
+   * Requirements: 19.11, 19.13, 19.14, 19.15, 19.16, 37.1, 37.5, 37.14, 37.16, 37.21
    */
   const handleImageUpload = useCallback(
     async (files: File[]): Promise<UploadOutcome | void> => {
@@ -627,13 +786,15 @@ export default function SiteSurveyDetailPage() {
         // thumbnailUrl）が含まれるため、再取得なしで即座に一覧へ表示できる。
         // 1枚追加するたびに全画像を再取得・再描画する遅延を回避する目的。
         if (results.length > 0) {
-          setSurvey((prev) => {
-            if (!prev) return prev;
-            // 表示順序（サーバ採番済み）でソートして一覧の整合性を保つ
-            const mergedImages = [...prev.images, ...results].sort(
-              (a, b) => a.displayOrder - b.displayOrder
-            );
-            return { ...prev, images: mergedImages };
+          runUploadPostProcessingSafely('アップロードした画像の一覧への反映', () => {
+            setSurvey((prev) => {
+              if (!prev) return prev;
+              // 表示順序（サーバ採番済み）でソートして一覧の整合性を保つ
+              const mergedImages = [...prev.images, ...results].sort(
+                (a, b) => a.displayOrder - b.displayOrder
+              );
+              return { ...prev, images: mergedImages };
+            });
           });
         }
 
@@ -643,29 +804,51 @@ export default function SiteSurveyDetailPage() {
           const successCount = results.length;
           const errorCount = errors.length;
 
-          // エラーメッセージ生成
-          const errorDetails = errors
-            .map((err) => {
-              // エラーカテゴリ判定 (Requirement 19.14, 19.15)
-              // 判定の二重定義を避けるため、形式エラーの述語は
-              // `utils/upload-failure` の `isUnsupportedFormatMessage` に一元化する。
-              // 判定対象の文言集合は従来の3断片と同一であり、表示文言は変わらない。
-              const reason = isUnsupportedFormatMessage(err.error)
-                ? 'サポートされていないファイル形式'
-                : 'サーバーエラー';
-              return `${err.fileName}: ${reason}`;
-            })
-            .join('\n');
+          runUploadPostProcessingSafely('アップロード結果の通知', () => {
+            // エラーメッセージ生成
+            const errorDetails = errors
+              .map((err) => {
+                // エラーカテゴリ判定 (Requirement 19.14, 19.15)
+                // 判定の二重定義を避けるため、形式エラーの述語は
+                // `utils/upload-failure` の `isUnsupportedFormatMessage` に一元化する。
+                // 判定対象の文言集合は従来の3断片と同一であり、表示文言は変わらない。
+                const reason = isUnsupportedFormatMessage(err.error)
+                  ? 'サポートされていないファイル形式'
+                  : 'サーバーエラー';
+                return `${err.fileName}: ${reason}`;
+              })
+              .join('\n');
 
-          if (successCount > 0) {
-            // 部分成功 (Requirement 19.13)
-            setError(
-              `${successCount}件のアップロードに成功しました。${errorCount}件のアップロードに失敗しました。\n${errorDetails}`
+            if (successCount > 0) {
+              // 部分成功 (Requirement 19.13)
+              setError(
+                `${successCount}件のアップロードに成功しました。${errorCount}件のアップロードに失敗しました。\n${errorDetails}`
+              );
+            } else {
+              // 全件失敗 (Requirement 19.14)
+              setError(`全${errorCount}件のアップロードに失敗しました。\n${errorDetails}`);
+            }
+          });
+
+          // 捕捉した誤りを監視基盤へ送る (Task 115.122, Requirement 16.8)。
+          // ここは捕捉処理ではなく、API 層が集約した失敗の一覧を受けた分岐であるため
+          // Task 115.84 の結線対象から外れており、表示だけで監視へ届いていなかった。
+          // 送出する付帯情報は画面・操作・発生層・失敗区分・件数・調査 ID に限り、
+          // ファイル名やサーバーの失敗文言（利用者由来の文字列）は含めない。
+          runUploadPostProcessingSafely('監視基盤への送出', () => {
+            const perFileScope: UploadFailureScope = 'perFile';
+            reportCaughtError(
+              new Error('画像アップロードに失敗しました'),
+              UPLOAD_FAILURE_OPERATION,
+              {
+                surveyId: id,
+                failureScope: perFileScope,
+                failureKinds: summarizeFailureKinds(errors.map((err) => err.kind)),
+                failedCount: errorCount,
+                succeededCount: successCount,
+              }
             );
-          } else {
-            // 全件失敗 (Requirement 19.14)
-            setError(`全${errorCount}件のアップロードに失敗しました。\n${errorDetails}`);
-          }
+          });
         }
 
         // 失敗した画像を ImageUploader へ返し、未送信画像として保持させる（37.1）。
@@ -682,6 +865,39 @@ export default function SiteSurveyDetailPage() {
         setIsUploading(false);
         setUploadProgress(undefined);
       }
+    },
+    [id]
+  );
+
+  /**
+   * アップロードの送信そのものが例外で終わった場合のハンドラ
+   *
+   * `ImageUploader` の捕捉処理は誤りを表示し `onError` へ渡すだけで送出しない。
+   * この画面がその口を受け取らなければ、捕捉処理へ届いた例外は監視へ届かない
+   * (Task 115.122, Requirement 16.8)。
+   *
+   * 捕捉処理へ届くのは送信の失敗以外の想定外の例外に限られる (Task 115.345)。
+   * 送信の失敗（通信断・認証切れ・207 の個別失敗）は `uploadSurveyImages` が画像ごとに
+   * 捕捉して一覧へ集約し、`handleImageUpload` の失敗分岐が `failureScope: 'perFile'` で
+   * 監視へ送る。送信前の圧縮（`compressImagesForUpload`）は失敗時に元ファイルへ戻すため
+   * 例外を投げない。送信の後処理（一覧の更新・失敗の通知・監視への送出）の例外は
+   * `runUploadPostProcessingSafely` が捕捉するため伝播しない (Task 115.344)。
+   *
+   * この口の中の監視への送出はここでは保護しない。`ImageUploader` の捕捉処理は未送信画像の
+   * 保持を `onError` より先に行い、`onError` の例外を `notifyUploadErrorSafely` で捕捉して
+   * コンソールへ記録するため、ここで例外が出ても保持は妨げられず、外へも伝播しない
+   * (Task 115.346)。
+   *
+   * 付帯情報は許可列挙と識別子に限る。`ImageUploader` から渡るのは `Error` のみで
+   * ファイルは渡らないため、ファイル名が混入する経路は構造上存在しない。
+   */
+  const handleUploadError = useCallback(
+    (uploadError: Error) => {
+      const scope: UploadFailureScope = 'request';
+      reportCaughtError(uploadError, UPLOAD_FAILURE_OPERATION, {
+        surveyId: id,
+        failureScope: scope,
+      });
     },
     [id]
   );
@@ -719,6 +935,19 @@ export default function SiteSurveyDetailPage() {
     }
     return [];
   }, [survey, bulkExportMode, selectedImageIds]);
+
+  /**
+   * 画像一覧の選択欄からの選択変更 (Task 115.51)
+   *
+   * 画像一覧（PhotoManagementPanel）で選択された画像 ID 集合をページ側の
+   * state に反映し、「選択画像エクスポート」の対象・活性状態へ結び付ける。
+   *
+   * @requirement site-survey/REQ-31.2
+   * @requirement site-survey/REQ-31.3
+   */
+  const handleSelectionChange = useCallback((next: Set<string>) => {
+    setSelectedImageIds(next);
+  }, []);
 
   /** 「全件一括エクスポート」ボタン押下 (Requirement 31.1) */
   const handleBulkExportAll = useCallback(() => {
@@ -842,7 +1071,12 @@ export default function SiteSurveyDetailPage() {
         <Breadcrumb items={breadcrumbItems} />
       </div>
 
-      {/* 基本情報表示 (Requirement 12.2: 権限に基づくボタン表示制御) */}
+      {/* Task 115.105 (Req 15.6): 通信断の告知。復帰時は復帰通知を出す。 */}
+      <div style={{ marginBottom: '16px' }}>
+        <NetworkStatusIndicator showReconnected />
+      </div>
+
+      {/* 基本情報表示 (Requirement 14.2: 権限に基づくボタン表示制御) */}
       <SiteSurveyDetailInfo
         survey={survey}
         onEdit={handleEdit}
@@ -893,6 +1127,7 @@ export default function SiteSurveyDetailPage() {
             <ImageUploader
               onUpload={handleImageUpload}
               onValidationError={handleValidationError}
+              onError={handleUploadError}
               isUploading={isUploading}
               uploadProgress={uploadProgress}
               compact={true}
@@ -904,6 +1139,7 @@ export default function SiteSurveyDetailPage() {
         {error && (
           <div
             role="alert"
+            data-testid="site-survey-detail-error"
             style={{
               backgroundColor: '#fef2f2',
               border: '1px solid #fecaca',
@@ -931,7 +1167,11 @@ export default function SiteSurveyDetailPage() {
           onSave={canEdit ? handleSaveMetadata : undefined}
           isDirty={isDirty}
           isSaving={isSavingMetadata}
+          saveBlocked={isServerSaveBlocked}
+          saveBlockedReason={offlineWarningMessage ?? undefined}
           onDelete={canDelete ? handleImageDelete : undefined}
+          selectedImageIds={selectedImageIds}
+          onSelectionChange={handleSelectionChange}
         />
       </div>
 

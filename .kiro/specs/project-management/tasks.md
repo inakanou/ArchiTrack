@@ -1618,3 +1618,231 @@
   - 未作成時の新規作成ボタンで作成画面に遷移することを確認
   - 65.1〜67.2完了後に実施
   - _Requirements: 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 40.7_
+
+## Task 69: 除外一覧が名乗る検証道具名を実体へ揃える
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化し、その `### 判定の一覧` の行7「他機能スペックの除外一覧の Jest 道具名」を**後続タスクへ送る**と裁定した。site-survey の Task 115.238 が申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey は自機能分 32 件を Task 115.121 で既に Vitest へ改めており、現場調査スペックの所管は 0 件である。
+
+**測った事実**（いずれもコミット `9e63637`、2026-09-02 にリポジトリルートで実測）:
+
+- **本リポジトリに Jest は存在しない。** `find . -name 'jest.config*' -not -path '*/node_modules/*' | wc -l` の出力が `0`。`package.json` / `backend/package.json` / `frontend/package.json` の依存に `jest` は無く、名前に jest を含むのは `frontend/package.json` の `@testing-library/jest-dom`（Vitest から使う照合子の集まりであって走者ではない）だけである
+- **単体・統合の走者は backend / frontend とも Vitest である。** 両者の `npm test` はいずれも `vitest run` であり、`backend/vitest.config.ts` / `backend/vitest.integration.config.ts` / `frontend/vitest.config.ts` が実在する
+- **利用の実測**: `grep -rlE "from ['\"]vitest['\"]" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` の出力が `757` である。**同じ走査根・同じ glob** で `grep -rlE "from ['\"]@jest/globals['\"]|\bjest\.(fn|mock|spyOn)\(" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` を測ると出力は `0` である。**総数 `757` を併記するのは、`0` だけでは「走査根を読めていない」場合と区別できないためである**——同じ式を実在しないパスへ当てても出力は同じく `0` になる（2026-09-02 に実測）
+- **提案が生きていること**: `node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `64 0`（後の `0` が現場調査スペックの分）
+- **機械保証は無い。断定でなく変異で示す**（115.235 の作法）: `e2e/requirement-exclusions.schema.json` は `tool` を `{ "type": "string", "minLength": 1 }` としか定めず、道具の実在を見ない。実在しない道具名 `Kaboomtest 9000 / Nonexistent Runner` へ一件を差し替える変異を当てても `npm run check:req-exclusions` は 205 件を検査して終了コード 0 のままである（2026-09-02 に実測。変異は複製からの書き戻しで復元し、blob ハッシュが `HEAD` と一致することで確かめた）
+
+**是正すると別の関門が赤くなる。着手前に読むこと**: 上の `node -e` の出力 `64 0` は `scripts/design-measurements.json` の宣言 `jest-alternative-verification-exclusions` に固定されており、`.kiro/specs/site-survey/design.md` の台帳の再現コマンド 5 の行と双方向で突き合わされる。**一件でも道具名から Jest を落とすと `npm run check:design-measurement-freshness` が「expected=`64 0` actual=`63 0`」として終了コード 1 で落ちる**（`company-info/REQ-6.9` の道具名を実在しない `Kaboomtest 9000 / Nonexistent Runner` へ差し替える変異を実際に当てて実測。2026-09-02、コミット `9e63637` にリポジトリルートで実測。変異は事前複製からの `cp` で復元し、`git hash-object e2e/requirement-exclusions.json` が `HEAD` の blob `77d4bb8443f19bc5c2de768c866eae1943175a6d` と一致することで確かめた）。宣言の解除と台帳の追随は**現場調査スペックの Task 115.280 が所管する**。
+
+**同じ変異を当てたまま測った他の関門の実測**（走査の範囲は日本語でなくコマンドで宣言する。2026-09-02、コミット `9e63637` にリポジトリルートで実測）: 測ったのは `npm run` に与える名で `check:req-exclusions` / `check:req-exclusions:selftest` / `check:req-coverage` / `check:trace-coverage` / `check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:cf-evidence` / `check:steering-refs` / `check:steering-idents` / `check:steering-test-tree` / `lint` / `type-check` / `format:check` の **14 本**である。**いずれも基線と同じ終了コードのままであった。ただし `check:req-coverage` は基線から既に終了コード 1 であり（到達被覆 2632/2684 = 98.1%、未カバー 215 件）、変異の前後で変わらない**——「14 本が緑のままであった」のではない。**終了コードが動かないことと出力が動かないことも別である**: 14 本のうち 13 本は基線と出力まで一致したが、`check:req-coverage` だけは除外一覧の監査の内訳が「リポジトリ外の代替検証: 32件 / リポジトリ内検証あり: 22件」から「33件 / 21件」へ変わる（差分はこの 2 行のみで、終了コードも被覆率も動かない）。**着手時にはこの 14 本と `check:design-measurement-freshness` を自分で測り直し、実測日とコミットハッシュを添えること**（115.212 の規約）。
+
+**是正先**:
+
+1. `e2e/requirement-exclusions.json` の下表の `alternativeVerification.tool`
+2. 本スペックの設計文書——**ただし実測では該当が 0 件である。** `for f in .kiro/specs/*/design.md; do printf '%s %s\n' "$f" "$(grep -c Jest "$f")"; done` を走らせると、`Jest` を挙げる設計文書は 13 スペックのうち `site-survey` の 1 件（6 箇所）だけで、他の 12 スペックはいずれも `0` である（2026-09-02 に実測）。台帳の行7 は是正先に「各機能スペックの設計文書」を挙げているが、起票の時点で当たりが無い。**この `0` は着手時に測り直すこと**
+
+**本スペックの所管は 4 件で、全件を次に挙げる**（2026-09-02 に実測。抜き取りではない）:
+
+| id | 現在の `alternativeVerification.tool` |
+|---|---|
+| `project-management/REQ-18.1` | `Jest / Mock Service Worker` |
+| `project-management/REQ-18.2` | `Jest / Mock Service Worker` |
+| `project-management/REQ-18.3` | `Jest / Mock Service Worker` |
+| `project-management/REQ-18.6` | `Jest / Mock` |
+
+- [x] 69.1 除外一覧の道具名を実体へ揃える
+  - 上表 4 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
+  - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
+  - **併記の `Mock Service Worker` も実在しない可能性が高い。** `msw` は root / backend / frontend のいずれの `package.json` の依存にも無い（2026-09-02 に実測）。**依存に無いことは「使っていない」の証明ではない**が、走者と併せて実測してから書くこと。実際に使っているのが Vitest の模倣機構（`vi.mock` / `vi.fn`）であれば、併記ごと実体へ改めること
+  - **`REQ-18.6` の `Jest / Mock` の `Mock` は道具名ではなく手法の記述である。** 走者名との併記としてそのまま残すか、`description` 側へ寄せるかを判断すること
+  - **道具名だけを機械的に置換して終えないこと。** 除外は受入基準を分母から丸ごと外すため、`description` が約束する代替検証が現に存在するかを一件ずつ確かめること。存在しないなら道具名の是正ではなく除外の取り下げが要る
+  - **JSON の整形は `npm run format:check` では見られない。** リポジトリルートの `format:check` は `prettier --check "e2e/**/*.{js,ts}" "playwright.config.{js,ts}" "scripts/**/*.ts"` であって JSON を含まず、`lint-staged` も `*.{js,ts}` だけを対象とする（2026-09-02 に実測）。`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること（現況は整形済みで終了コード 0。同日に実測）
+  - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本スペックの tasks.md は HEAD（コミット `9e63637`）で `_Requirements:` を 174 件持ち、`_Depends:` と `_Boundary:` はいずれも 0 件である（`git show HEAD:.kiro/specs/project-management/tasks.md | grep -c '_Requirements:'` ほか。2026-09-02 にリポジトリルートで実測）。**本節は受入基準を実装せず、除外一覧の記録の道具名を実体へ揃えるだけである。** 上表の id を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
+  - **利用者の判断（2026-09-30）により、Task 71 で 4 件の除外を取り下げる。** 着手時（HEAD `5dec01d9`）の確かめで、Mock Service Worker は依存にも import にも実在せず、除外の理由「E2E範囲外」は同機能の E2E（`project-additional-requirements.spec.ts` の `page.route` と `clearCookies`）と矛盾し、プロジェクト画面は受入基準の文言を表示せず、18.3 / 18.6 は代替検証が実在しなかった。除外を取り下げれば道具名の是正は不要になるため、本項は Task 71 の完了をもって閉じる
+  - _Depends: 71.4_
+  - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+
+## Task 70: 設計文書に残る「未実装・要対応」の状態記録を歴史として書き分ける
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化したが、同タスクが宣言した三つの網（`別途起票|後続タスクの提案|起票すること` ほか）はいずれも「〜すること」型の提案を捕まえる形であり、**状態記録の形は網の外にある**。site-survey の Task 115.240 が状態記録を狙う別の網を掛けて本節の対象を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。** これは 115.213 の全称否定を偽にしない——同タスクは範囲をコマンドで宣言し、範囲外は保証しないと明記している。
+
+**測った事実**（いずれもコミット `5176ee4`、2026-09-02 にリポジトリルートで実測）:
+
+- **状態記録の件数**: `grep -cF '未実装・要対応' .kiro/specs/project-management/design.md` の出力が `7`、`grep -cF '**未実装・要対応**' .kiro/specs/project-management/design.md` の出力が `6` である。**起票元（site-survey の Task 115.240 の起票文）が引く「7 箇所」は太字を求めない側の値であり、逐語の `**未実装・要対応**` を数えると 6 である。** 差の 1 件は太字の外に丸括弧で状態を書く行である
+- **内訳の取り出し方**: `grep -nF '未実装・要対応' .kiro/specs/project-management/design.md` で 7 行が出る。うち 1 行が `**ステータス**: ❌ **未実装・要対応**`（`grep -cF` の出力が `1`）、5 行が `**ステータス**: :x: **未実装・要対応**`（同 `5`）、残る 1 行は `**実装状態（2026-02-13更新）**` の箇条の中で丸括弧に入れて状態を書く行である
+- **同型の状態記録がもう 2 行ある**: `### TradingPartnerSelect（取引先選択コンポーネント）` の責務欄に `:x: **クライアントサイドフィルタリング未対応（差分8で対応）**` と `:x: **未実装（差分9で対応）**` がある（`grep -cF ':x: **クライアントサイドフィルタリング未対応（差分8で対応）**' .kiro/specs/project-management/design.md` と `grep -cF ':x: **未実装（差分9で対応）**' .kiro/specs/project-management/design.md` の出力がいずれも `1`）。**これらは `未実装・要対応` の綴りを持たないため上の 7 件には入らない**
+- **6 件の `**ステータス**` 行が指すのは差分8〜差分13 である**。節名は `grep -nE '^### 差分(8|9|1[0-3])' .kiro/specs/project-management/design.md` で取り出せる
+
+**状態記録は現況ではない。6 差分はいずれも実装済みである**（同日・同コミットで実測）:
+
+| 差分 | 状態記録が主張する未実装の内容 | 現況を測るコマンド | 出力 |
+|---|---|---|---|
+| 差分8 | `TradingPartnerSelect` のクライアントサイドかな変換 | `grep -c "from '../../utils/kana-converter'" frontend/src/components/projects/TradingPartnerSelect.tsx` | `1`（`frontend/src/utils/kana-converter.ts` も実在し、`matchesSearchQuery` が `toKatakana` / `toHiragana` を呼ぶ） |
+| 差分9 | `onSelect` コールバックと住所自動入力 | `grep -c 'setSiteAddress(partner.address)' frontend/src/components/projects/ProjectForm.tsx` | `1`（`TradingPartnerSelect.tsx` は `onSelect?.(partner)` を持つ） |
+| 差分10 | `excludeTerminalStatuses` パラメータ | `grep -c excludeTerminalStatuses backend/src/services/project.service.ts backend/src/schemas/project.schema.ts frontend/src/api/projects.ts` | 3 ファイルとも 1 以上 |
+| 差分11 | デフォルト表示件数 100 件 | `grep -c 'const DEFAULT_LIMIT = 100;' frontend/src/pages/ProjectListPage.tsx` | `1`（`backend/src/schemas/project.schema.ts` も `.default(100)` を持つ） |
+| 差分12 | フィルタクリア時のデフォルト復帰 | `grep -c 'handleClearFilters' frontend/src/components/projects/ProjectSearchFilter.tsx` | 1 以上（`status: []` へのリセットを含む） |
+| 差分13 | `GET /api/projects/status-counts` | `grep -c 'async getStatusCounts' backend/src/services/project.service.ts` | `1`（`backend/src/routes/projects.routes.ts` が `'/status-counts'` を登録し、`frontend/src/api/projects.ts` が呼ぶ） |
+
+- **本 tasks.md の側では既に消化済みである**: 差分8 は Task 32.1〜35.1、差分9 は Task 36.1〜38.1、差分10〜13 は Task 39.1〜45.1 が担い、`grep -nE '^- \[[ x]\] (3[2-9]|4[0-5])(\.[0-9]+)? ' .kiro/specs/project-management/tasks.md` で出る行は**すべて `[x]` である**。**設計文書の状態記録だけが当時のまま残っている**
+
+**機械保証は無い。断定でなく変異で示す**（115.235 の作法）: 設計文書の状態記録が現況と一致しているかを見る関門は存在しない。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` はいずれも参照の形式・識別子の実在・パスの実在・宣言済み実測値の追随を見るだけである。**断定でなく変異で示した実測がこれである**（site-survey の Task 115.240 が 2026-09-02、コミット `5176ee4` にリポジトリルートで実行）——本書の `**ステータス**: :x: **未実装・要対応**` の一行（5 行あるうちの先頭）を `**ステータス**: :x: **未実装・要対応（実在しない差分99）**` へ書き換えたうえで上の 4 本に `npm run check:cf-evidence` を加えた **5 本**を走らせたところ、**5 本とも終了コード 0 であり、標準出力も基線と `diff` して一行も違わなかった**。変異は事前複製からの `cp` で復元し、`git hash-object .kiro/specs/project-management/design.md` が `HEAD` の blob `af819ae1372ae92c36d5de55aea7ceea7c1783e0` と一致することで確かめた。
+
+**是正の作法（消さずに書き分けること）**: site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a) が定める形に揃える——**当時の値（状態記録）を残したうえで、現況の再実測を同じ場所へ並べる**。状態記録を単に「実装済み」へ書き換えると、当時どの範囲が未実装だったかという歴史が失われる。`### 差分8` 〜 `### 差分13` の `**ステータス**` 行と、`### TradingPartnerSelect（取引先選択コンポーネント）` の責務欄の 2 行、`**実装状態（2026-02-13更新）**` の箇条の 1 行が対象である。
+
+**一件を直して「完全になった」と書かないこと**（115.228 の作法）: 本節が挙げるのは上の網が捕まえた 9 行（`未実装・要対応` の 7 行 ＋ 責務欄の 2 行）であり、**網の外の状態記録は保証しない**。走査に使った網は `grep -rncE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/project-management/design.md`（出力 `9`）と `grep -rncE '❌|:x:|⚠️|🚧' .kiro/specs/project-management/design.md`（出力 `8`）の二つであり、**網が数え上げる綴りの外にある状態記録は掛からない**——列挙していない日本語の綴り（たとえば「未完了」は上の網の 7 語に無い。同じ走査で取引先管理スペックの `### テスト未完了` が網から漏れた）、英語で書かれた状態記録、記号だけで状態を表す欄（✅ の側だけを書き未の側を空欄にする形）、表のセル内に埋もれた状態記録がそれである。
+
+- [x] 70.1 「未実装・要対応」の状態記録に現況の再実測を並べる
+  - 対象は上の 9 行である。**削除ではなく、当時の記録を残したまま現況を並べること**
+  - 各行の現況は上表のコマンドで測り直すこと。**本節が引く出力は 2026-09-02・コミット `5176ee4` の実測であり、着手時には陳腐化しうる**
+  - `**実装状態（2026-02-13更新）**` の箇条は既に、取り消し線で囲んだうえで（実装済み）と添える形を 2 件持つ（`grep -cE '^  - ~~.*~~（実装済み）' .kiro/specs/project-management/design.md` の出力が `2`）。**同じ節の中で同じ意味を二通りに書かないこと**——丸括弧の 1 行も同じ形へ揃えるか、揃えない理由を書くこと
+  - **検証**: `grep -cF '未実装・要対応' .kiro/specs/project-management/design.md` の出力が、残した歴史記録の件数と一致すること。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` が基線と同じ終了コードであること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、設計文書の状態記録を現況へ追随させるだけである。差分8〜13 が名乗る受入基準番号（1.6, 1.7, 2.7, 2.8, 3.1, 5.5, 5.7, 5.8, 16.3, 22.5, 23.1-23.6）を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.240（状態記録の走査と申し送り）_
+  - _Boundary: 本スペックの設計文書に残る状態記録_
+
+## Task 71: エラー回復の受入基準（Requirement 18）を画面に実装し、E2E で被覆して除外を取り下げる
+
+**経緯**: Task 69.1 の着手時（2026-09-29、HEAD `5dec01d9`）に、除外 `project-management/REQ-18.1`・`18.2`・`18.3`・`18.6` の代替検証を確かめたところ、次が分かった。利用者の判断（2026-09-30、「実装是正＋E2E で除外取り下げ」）により、画面を受入基準に揃え、E2E で被覆して除外を取り下げる。
+
+- **除外の理由が事実と異なる**: 4 件とも「E2E範囲外」とするが、`e2e/specs/projects/project-additional-requirements.spec.ts` の describe「エラー回復とフィードバック」は既に `page.route` で 500 を返し、`context.clearCookies()` でセッション切れを作っている。ただしそれらの test は被覆の印を掲げず、主張も受入基準に届いていない（18.1 は文言まで、18.2 は再読込の代替の分岐があり失敗したリクエストの再実行を主張しない、18.6 はリダイレクトまで）
+- **プロジェクト画面が受入基準の文言を表示しない**: `frontend/src/pages/ProjectListPage.tsx` のエラー表示は「エラーが発生しました」「プロジェクト一覧を取得できませんでした」と「再試行」ボタンで、18.1 の「通信エラーが発生しました。再試行してください。」も 18.3 の「システムエラーが発生しました。しばらくしてからお試しください。」も無い。両文言を持つ `useNetworkError.ts` / `NetworkErrorDisplay.tsx` は取引先の画面だけが使い、プロジェクトの画面は使っていない
+- **18.6 の文言が上流と食い違う**: 18.6 は「セッションが期限切れになりました。再度ログインしてください。」とするが、ログイン画面を所有する user-authentication の要件 16.8 / 15.13 は「セッションの有効期限が切れました。再度ログインしてください。」であり、実装のログイン画面（`LoginPage.tsx`）もそれを表示する。**利用者の判断（2026-09-30）により、本スペックの 18.6 を上流の文言へ揃える**（ログイン画面は変えない）
+
+- [x] 71.1 要件 18.6 の文言を上流（user-authentication 要件 16.8）へ揃える
+  - `requirements.md` の Requirement 18 の受入基準 6 の文言を「セッションの有効期限が切れました。再度ログインしてください。」へ改める。規約 (a) に従い、改めた経緯（上流との食い違いと利用者の判断）を同じ箇所に記録すること
+  - `design.md` に 18.6 の文言を引く箇所があれば併せて揃えること
+  - _Requirements: 18.6_
+  - _Boundary: 本スペックの要件 18.6 の文言とそれを引く設計の記述_
+
+- [x] 71.2 プロジェクトの画面でネットワークエラーとサーバーエラーを受入基準の文言で表示し、再試行で失敗したリクエストを再実行する
+  - プロジェクトの画面（少なくとも一覧。詳細・作成・編集の画面の取得の失敗も対象とするかを設計と既存の実装から判断し、理由を報告すること）で、ネットワークエラー時に 18.1 の文言と再試行ボタン、サーバーエラー時に 18.3 の文言を表示する。既存の `useNetworkError` / `NetworkErrorDisplay`（取引先の画面が使う）の再利用を優先すること
+  - 再試行ボタンは失敗したリクエストを再実行すること（18.2）。ページの再読込で代替しないこと
+  - 挙動の修正であるため RED → GREEN で進めること。単体で文言と再実行を主張する
+  - _Requirements: 18.1, 18.2, 18.3_
+  - _Boundary: プロジェクトの画面のエラー表示と再試行_
+
+- [x] 71.3 E2E を受入基準どおりの主張へ改め、被覆の印を掲げる
+  - `project-additional-requirements.spec.ts` の describe「エラー回復とフィードバック」の test を、受入基準どおりの主張へ改める: 18.1 は文言の完全一致と再試行ボタンの存在、18.2 は再試行で**失敗したリクエストが再実行される**こと（`page.route` の呼び出し回数などで）、18.3 は 500 で文言、18.6 はログイン画面へのリダイレクトと 71.1 で揃えた文言
+  - 各 test に同じ spec の既存の形の被覆の印を掲げる。`page.route` の一致はパス基準にすること（CI とローカルで API のオリジンが異なる）。代替の分岐（ページの再読込など）で素通りする形を残さないこと
+  - _Requirements: 18.1, 18.2, 18.3, 18.6_
+  - _Boundary: プロジェクトのエラー回復の E2E_
+
+- [x] 71.4 除外 4 件を取り下げ、件数の宣言の追随を site-survey へ依頼する
+  - `e2e/requirement-exclusions.json` から `project-management/REQ-18.1`・`18.2`・`18.3`・`18.6` を削除し、`summary` の件数を揃える。`check:req-coverage` で 4 件が E2E の被覆側に数えられることを確かめる
+  - 除外の総数の宣言（`requirement-exclusions-total`、site-survey の所有）と、E2E の参照の件数の宣言（`t13-anchor-references-after-115303`）が動く見込み。**宣言は書き換えず**、site-survey スペックへ起票して依頼すること（115.337 / 115.338 の前例）
+  - _Depends: 71.2, 71.3_
+  - _Boundary: 本スペックが所管する除外項目_
+
+## Task 72: 機能レベル検証（2026-09-30、HEAD `770714e7`、NO-GO）の指摘の是正
+
+**経緯**: Task 71・70 の完了後の機能レベル検証が NO-GO を返した。今日の変更に退行は無く、テスト（backend 単体 6179・統合 43・frontend 単体 11923・E2E projects 285 / trading-partners 164）と関門は `check:req-coverage` を除き緑。NO-GO の理由は、以前からの E2E の被覆の穴と、設計文書のドリフトである。利用者の判断（2026-09-30、「文書は直し被覆は起票」）により、72.1 はこの実行で直し、72.2・72.3 は起票に留める。
+
+- [x] 72.1 エラー回復の設計の記述を実装と要件 18 へ揃える
+  - design.md の要件対応表（377 行付近）の「18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification」に、Task 71.2 で実際の経路になった `useNetworkError` の `getNetworkOrServerErrorMessage` と、ProjectListPage / ProjectDetailPage / ProjectEditPage の画面内のエラー表示と再試行を加える
+  - design.md の Error Handling（3010 行付近）の「503 Service Unavailable → メンテナンスメッセージ」は実装されておらず（Task 71 より前から）、71.2 以後の 503 は要件 18.3 の文言を表示する。記述を要件 18.3 と実装へ揃える。あわせて、5xx でも再試行ボタンを表示する方針（71.2 の判断。既存の機能の維持）と、`useNetworkError` の分類 `server: canRetry=false` との関係を設計の判断として記す
+  - いずれも規約 (a) に従い、当時の記述を残して現況を併記する
+  - _Requirements: 18.1, 18.2, 18.3_
+  - _Boundary: 本スペックの設計文書のエラー回復の記述_
+
+- [x] 72.2 E2E で被覆されていない受入基準 11 件を被覆する（**起票のみ。着手は利用者の判断による**。2026-10-06 に利用者の判断で着手・完了）
+  - 対象（機能レベル検証の `check:req-coverage` の実測）: 1.5、8.3、22.3、22.6、26.3、27.5、29.6、40.3、40.4、40.5、41.2。いずれも Task 71 より前からの未被覆で、どのタスクも追跡していなかった。22.6 は site-survey の Task 115.188 が番号の誤りを正したときに 22.10 へ名乗り替えられて空いた
+  - 各受入基準について、原文どおりに主張する E2E を置き `@requirement project-management/REQ-N.M` を掲げる。E2E で前提を作れないものは、除外とするか（理由と代替検証の実在を確かめること）を個別に判断する
+  - E2E を足すと site-survey 所有の件数の宣言（t13 など）が動きうる。動いたら site-survey へ起票して依頼すること
+  - **実施（2026-10-06、利用者の判断）**: 11 件すべてを E2E で被覆した。被覆の途中で、製品が受入基準を満たしていない 2 件が見つかった。利用者の判断「製品を修正」に従い、同じタスクの中で直した。(1) 29.6: detail-summary の `siteSurveys` に個別 API（`/site-surveys/latest`）の `annotatedThumbnailUrl` が無かった。署名の処理を `backend/src/utils/site-survey-thumbnail-urls.ts` の `signSiteSurveyThumbnailUrls` へまとめ、両 API で共有するようにした。(2) 40.5: 実行予算のサマリーカードはクリックしても遷移せず、遷移するのは中の「詳細を見る」リンクだけだった。契約書のカードと同じく、カード全体をリンクにした。件数の宣言は動かなかったため、site-survey への起票は要らなかった
+  - _Requirements: 1.5, 8.3, 22.3, 22.6, 26.3, 27.5, 29.6, 40.3, 40.4, 40.5, 41.2_
+  - _Boundary: 本スペックの E2E の被覆_
+
+- [x] 72.3 要件 20.4 の被覆の印が本番から到達しない部品を名乗っている状態を解消する（**起票のみ。着手は利用者の判断による**。2026-10-06 に利用者の判断で着手・完了）
+  - `frontend/src/utils/keyboard-navigation.ts` は本番の経路から到達しない（site-survey の design.md 11021 / 11084 行付近に記載）。本番の経路へ結線するか、撤去して被覆の印を実際に使われている部品へ移すかを決める。site-survey の計画と足並みを揃えること
+  - **実施（2026-10-06、利用者の判断「結線」）**: `frontend/src/index.css` の base 層に `:focus-visible`（2px の実線、#2563eb）を置いた。ProjectForm・TradingPartnerSelect・UserSelect のインラインの outline 打ち消しを外し、検索フィルタのクリアボタンの輪を 3:1 を満たす色にした。`frontend/src/utils/keyboard-navigation.ts` の 20.4 の名乗りを外した（同ファイルは site-survey の自己検査 `checkKnownDeadAndLiveModules` の固定点のため、本番へ取り込まずに残す）。E2E は `project-accessibility.spec.ts` の 4 本。`check:req-coverage` の到達しない被覆源のみの受入基準は 4 件から 3 件に減った
+  - _Requirements: 20.4_
+  - _Boundary: 要件 20.4 の実装とその被覆_
+
+## Task 73: 機能レベル検証（2026-10-07、HEAD `90abbeda`、GO）が Info として挙げた事項の是正（利用者の判断で起票）
+
+**経緯**: Task 72.2・72.3 の完了後の機能レベル検証は GO だったが、判断の観点の検証が Info を挙げた。利用者の判断（2026-10-07、「古くなった記述 4 か所は修正タスクとして起票」「他 2 つも起票」）により、修正タスクとして起票する。73.1〜73.4 は古くなった記述の是正で挙動に影響しない。73.5 はフォーカス表示の規約の記録、73.6 は入力欄の二重のフォーカス表示の整理である
+
+- [x] 73.1 本番から到達しない部品とそのテストに残る「- 20.4」の名乗りを外す
+  - 対象: `frontend/src/hooks/useKeyboardNavigation.ts`（11 行目）、`frontend/src/__tests__/utils/keyboard-navigation.test.ts`（8 行目）、`frontend/src/__tests__/hooks/useKeyboardNavigation.test.tsx`（8 行目）の、機能名を欠く `Requirements:` ヘッダーの下の「- 20.4: フォーカス状態を視覚的に明確に表示」。Task 72.3 で `frontend/src/utils/keyboard-navigation.ts` から外したときと同じく、本番の表示は `frontend/src/index.css` の `:focus-visible` が描くという註に改める
+  - 名乗りを外すと、`check:req-coverage` の眠る名乗りの件数が上限 `MAX_DORMANT_HEADER_NAMES`（5054、`scripts/check-requirement-coverage.ts`）を下回る。出力の案内（「減らしたら … を下げること」）に従って上限を下げるかを確かめ、下げるときは同じ変更の中で行う。`:update` 系の関門は使わない
+  - 両ファイルは site-survey の自己検査 `checkKnownDeadAndLiveModules` の固定点（mustBeDead）であるため、本番へ取り込まない・ファイルを消さないこと
+  - _Requirements: 20.4_
+  - _Boundary: 本番から到達しない keyboard-navigation の部品とテストのヘッダーの記述_
+
+- [x] 73.2 本番から参照されない `CustomerNameInput.tsx` のインラインの outline の打ち消しを扱う
+  - `frontend/src/components/projects/CustomerNameInput.tsx` の 392 行目に `outline: 'none'` が残っている。本番からの利用者は無い（barrel と stories のみ）。design.md の要件 20.1-20.6 の行への追記（Task 72.3）の「部品の側はインラインで `outline: 'none'` を書かない」と字面が合わない
+  - 打ち消しを外す（既存の単体テストと stories を確かめる）か、本番から参照されない部品である旨を design.md の同じ追記に記すかを決めて直す
+  - _Requirements: 20.4_
+  - _Boundary: CustomerNameInput のフォーカス表示の指定と、その記録_
+
+- [x] 73.3 Task 72.2・72.3 の見出しに残る「起票のみ。着手は利用者の判断による」を現況に揃える
+  - 72.2・72.3 は利用者の判断（2026-10-06）で着手して完了した（`[x]`）が、見出しは起票時の「（**起票のみ。着手は利用者の判断による**）」のままである。規約 (a) に従い、起票時の文言は残して「2026-10-06 に利用者の判断で着手・完了」を併記する
+  - _Boundary: 本スペックの tasks.md の Task 72 の見出し_
+
+- [x] 73.4 site-survey の設計文書の「本番から到達しない受入基準 4 件」の記録に、Task 72.3 による決着を追記する
+  - `.kiro/specs/site-survey/design.md` の 11022 行付近と 11085 行付近は、本番の経路から到達しない部品だけを名乗る受入基準を 4 件（estimate-creation の REQ-13.5 / 5.6 / 5.7 と `project-management/REQ-20.4`）と記録している。Task 72.3 の後の `check:req-coverage` の実測は 3 件で、`project-management/REQ-20.4` は本番の `:focus-visible` の規則と E2E（`e2e/specs/projects/project-accessibility.spec.ts`）へ結線して決着した
+  - 規約 (a) に従い 4 件の記録は残し、「**project-management のタスク 72.3 の提出時点の再実測は 3 件である**」の形で決着を併記する。site-survey の文書を書き換える変更であるため、宣言（`scripts/design-measurements.json`）が動く場合は前例（`3b4167b8`、`e43b89c5`）の形で同じ変更の中で貼り直す。設計文書のパスを名指す行に不在の語（撤去・削除・当時・旧 など）を書かないこと
+  - 追記の後に `check:design-measurement-freshness`、`check:design-path-refs`、`check:design-code-refs` を名指しで 1 本ずつ回す
+  - _Requirements: 20.4_
+  - _Boundary: site-survey の設計文書の、本番から到達しない受入基準の記録_
+
+- [x] 73.5 全画面共通のフォーカス表示の規約を steering に記録するかを決め、記録する（利用者の判断で起票。2026-10-07）
+  - Task 72.3 は `frontend/src/index.css` の `@layer base` に全画面共通の `:focus-visible`（2px の実線、#2563eb）を置いた。一方、本番の部品のインラインの `outline: 'none'` は 2026-10-07（HEAD `2ba0198f`）の実測で 50 か所あり、うち 49 か所はプロジェクト以外（quantity-table・site-surveys・trading-partners・estimate-requests・estimate の部品とページ）である。インライン指定は stylesheet の規則に勝つため、これらの部品では共通のフォーカス表示が出ない。要件 20.4 は本スペックの画面に限られるため本スペックの欠陥ではない
+  - 規約（部品の側でインラインの `outline: 'none'` を書かない。独自の輪を描く場合は 2px 以上・コントラスト比 3:1 以上にする）を steering（`.kiro/steering/` の該当文書）へ記録するかを利用者に確かめ、記録する場合は既存の書きぶりに合わせて追記する。他スペックの部品の是正は本タスクの範囲外とし、必要なら各スペックへ起票する
+  - _Requirements: 20.4_
+  - _Boundary: 全画面共通のフォーカス表示の規約の記録_
+
+- [x] 73.6 プロジェクトのフォームの入力欄でフォーカス表示が二重になる状態を整理する（利用者の判断で起票。2026-10-07）
+  - ProjectForm・TradingPartnerSelect・UserSelect の入力欄は、フォーカス時の既存の青い枠線と 3px の淡い影の上に、Task 72.3 の 2px の outline（offset 2px）が重なる。テキスト入力はマウスでクリックしても `:focus-visible` に当たるため、マウス操作でも二重になる。要件 20.4 は満たしており、見た目の整理である
+  - 既存の影を外して共通の outline に一本化するか、入力欄だけ共通の outline を打ち消して既存の表示を 3:1・2px 以上へ強めるかを決めて直す。いずれも `e2e/specs/projects/project-accessibility.spec.ts` の「フォーカス状態の視覚的表示」と `frontend/src/__tests__/accessibility/focus-visible.test.tsx` が緑のままであること（インラインの `outline: 'none'` は書かない）
+  - 挙動（見た目）の変更であるため RED → GREEN で進める
+  - _Requirements: 20.4_
+  - _Boundary: ProjectForm・TradingPartnerSelect・UserSelect のフォーカス時の表示_
+
+## Task 74: trading-partner-management の Task 28.1 からの申し送り（起票のみ。着手は利用者の判断による）
+
+**経緯**: trading-partner-management の Task 28.1（2026-10-07）が、frontend の取引先の型から `branchNameKana` / `representativeNameKana` を外し、同じ変更で本スペックの所有する `frontend/src/components/projects/TradingPartnerSelect.tsx` の `matchesSearchQuery` から、二つの項目を照合する常に偽の 2 分岐を外した（同タスクの本文がこの変更を求めている）。二つの項目は backend の schema.prisma に無く（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）、API は値を返さないため、表示・検索の振る舞いは変わっていない。本スペックの部品を他スペックのタスクが書き換えたため、その事実と、本スペックの設計文書に残る記述を申し送る
+
+- [x] 74.1 設計文書のかな検索のコード例に残る二つの項目の照合を現況へ揃える
+  - `.kiro/specs/project-management/design.md` の差分8（かな検索）の節の `matchesSearchQuery` のコード例（869 行付近と 891 行付近）が、`branchNameKana` / `representativeNameKana` の照合を含んでいる。規約 (a) に従い起票時の記述を残し、現況（trading-partner-management の Task 28.1 で二つの照合を外した。部課名・代表者名は漢字そのもので照合する）を併記する
+  - 設計文書のパスを名指す行に不在の語（撤去・削除・当時・旧 など）を書かないこと。追記の後に `check:design-measurement-freshness`、`check:design-path-refs`、`check:design-code-refs` を名指しで 1 本ずつ回す
+  - _Requirements: 22.4, 22.5_
+  - _Boundary: 本スペックの設計文書の、取引先の選択の照合の記述_
+
+**追加の申し送り（trading-partner-management の Task 31.4、2026-10-07）**: 本スペックが所有する `backend/src/routes/projects.routes.ts` の `GET /api/projects` が、検証を通った `tradingPartnerId` を `projectService.getProjects` の filter に渡していなかった（コミット `6d71e936` の時点から。取引先の詳細に紐付かないプロジェクトが表示されていた）。利用者の判断（2026-10-07、「ここで直す」）により trading-partner-management の Task 31.4 の中で route に 3 行を足して直し、`backend/src/__tests__/unit/routes/projects.routes.test.ts` と `backend/src/__tests__/integration/projects.integration.test.ts` に検証を足した。本スペックの設計文書の `ProjectFilter.tradingPartnerId` の記述は修正後の挙動と一致するため、文書の変更は要らない（記録のみ。タスクは起こさない）
+
+## Task 75: trading-partner-management の機能レベル検証からの申し送り（利用者の判断で起票、2026-10-08）
+
+**経緯**: trading-partner-management の機能レベル検証（2026-10-07、HEAD `28696d26`、GO）が、本スペックの `GET /api/projects` の OpenAPI の記載漏れを挙げた。2026-10-08 の実測で、生成物の `backend/docs/api-spec.json` の `/api/projects` の `get` の parameters は `page`・`limit`・`search`・`status`・`createdFrom`・`createdTo`・`sort`・`order` の 8 件で、`projectFilterSchema` が受け付ける `tradingPartnerId` と `excludeTerminalStatuses` が無い。`backend/src/routes/projects.routes.ts` の route の注釈にも記載が無い。利用者の判断（2026-10-08、「修正タスクとして起票」）により起票する
+
+- [x] 75.1 `GET /api/projects` の OpenAPI の注釈に `tradingPartnerId` と `excludeTerminalStatuses` を加える
+  - route の注釈（OpenAPI の生成元）に二つのクエリ項目を、`projectFilterSchema` の型・検証（`tradingPartnerId` は UUID、`excludeTerminalStatuses` は真偽値）と一致させて加え、`backend/docs/api-spec.json` を既存の生成の手順で作り直す。振る舞いは変えない
+  - 生成物の差分が二つの項目の追加だけであることを確かめる
+  - _Requirements: 2.8, 5.2_
+  - _Boundary: 本スペックのプロジェクト一覧 API の OpenAPI の記述_
+
+- [x] 75.2 steering の「フォーカス表示方針」の既存の逸脱の件数の記録を現況へ揃える（利用者の判断で起票、2026-10-08）
+  - Task 73.5 が `.kiro/steering/tech.md` の「フォーカス表示方針」に、2026-10-07（HEAD `041a0fc8`）の実測として「本番の部品・ページにインラインの `outline: 'none'` が 49 か所」と記録した。その後の是正（trading-partner-management の Task 33.1 など）で、2026-10-08 の同じ grep（`grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx | grep -vE "__tests__|\.test\.|\.stories\." | wc -l`）の出力は `44` である
+  - steering は件数を写すより数える手段を書く規約（`tech.md` の件数の規約 (b)）があるため、件数の扱いをその規約に合わせて決める（日付つきの記録として現況の件数を併記するか、件数を落としてコマンドだけを残すか）。あわせて内訳（どの機能の部品に残っているか）を測り、各機能のスペックへの申し送りが要るかを判断する
+  - 変更後に `check:steering-refs`・`check:steering-command-annotations`・`check:steering-dir-counts` を名指しで 1 本ずつ回す
+  - _Requirements: 20.4_
+  - **実施（2026-10-08、HEAD `c8036acd`）**: 規約 (b) を当て、`tech.md` から件数「49 か所」を落として、件数を数えるコマンドとファイルごとの内訳を出すコマンドを置いた（「主要ジョブ」「監視対象エコシステム」と同型）。同ファイルの冒頭に `Steering Sync` の同期記録を足した。実測は 44 か所・30 ファイルで、スペック別の内訳は user-authentication 8・quantity-table-generation 8・site-survey 7・estimate-request 5・estimate-creation 5・contract-management 3・construction-schedule 3・itemized-statement-generation 3・company-info 1・construction-photo 1（project-management と trading-partner-management は 0）。いずれのスペックもインラインの `outline: 'none'` を外すタスクを持たないため、各スペックへの申し送りが要ると判断した（起票の範囲と順序は利用者の判断を待つ）
+  - _Boundary: steering の「フォーカス表示方針」の既存の逸脱の記録_
+
+## Task 76: プロジェクト API の OpenAPI の既存の食い違い（Task 75.1 のレビューからの起票。利用者の判断で起票、2026-10-08）
+
+**経緯**: Task 75.1 の独立レビュー（2026-10-08）が、`backend/src/routes/projects.routes.ts` の OpenAPI の注釈に、実装と食い違う既存の記述と、生成時に読み込めない注釈ブロックがあることを確かめた。いずれも 75.1 の前からの状態で、振る舞いには影響しないが、生成物 `backend/docs/api-spec.json` が実装と食い違う
+
+- [x] 76.1 `GET /api/projects` の `limit` の既定値と `sort` の選択肢を実装へ揃える
+  - 注釈の `limit` の `default` が `20` だが、`backend/src/schemas/project.schema.ts` の既定値は `100`（要件 3.1）。注釈の `sort` の `enum` は `[id, name, tradingPartnerId, status, createdAt, updatedAt]` だが、実装の `SORTABLE_FIELDS` は `name`・`customerName`・`salesPersonName`・`constructionPersonName`・`status`・`createdAt`・`updatedAt` である
+  - 注釈を `projectFilterSchema` / `SORTABLE_FIELDS` と一致させ、`npm --prefix backend run docs:generate` で生成物を作り直す。生成物の差分が当該の値だけであることを確かめ、`backend/src/__tests__/unit/docs/api-spec.test.ts` に値を主張する検証を足す（RED → GREEN）。振る舞いは変えない
+  - _Requirements: 3.1, 6.1_
+  - _Boundary: 本スペックのプロジェクト一覧 API の OpenAPI の記述_
+
+- [x] 76.2 `GET /api/projects/status-counts` の注釈が OpenAPI の生成で読み込めない状態を正す
+  - `npm --prefix backend run docs:generate` が `src/routes/projects.routes.ts` で `YAMLSemanticError: Implicit map keys need to be followed by map values` を出す（2026-10-08 の実測）。原因は `status-counts` の注釈ブロックの末尾の地の文（「注意: このルートは…」「（Expressのルートマッチング順序により、:idパラメータとの競合を回避）」）が `@swagger` の YAML の中に入っていることとみられる。このブロックは生成物に取り込まれていない可能性がある
+  - 地の文を YAML の外（`@swagger` の前の JSDoc など）へ移すか YAML として正しい形にし、生成物に `status-counts` が載ること、生成時のエラーが本ファイルについて出なくなることを確かめる。api-spec の単体テストで当該エンドポイントの存在を主張する（RED → GREEN）
+  - _Requirements: 23.1_
+  - _Boundary: 本スペックのプロジェクトの状態別件数 API の OpenAPI の記述_

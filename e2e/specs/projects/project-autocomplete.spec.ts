@@ -3,11 +3,31 @@
  *
  * Requirements:
  * - REQ-16: 取引先オートコンプリート連携
+ *
+ * ## 「セレクトボックスなら読み飛ばす」分岐を除いたこと（Task 115.127 段4）
+ *
+ * 各テストの先頭に `const isSelect = await input.evaluate((el) => el.tagName === 'SELECT')`
+ * と `if (isSelect) return;` が置かれ、「現在の実装はセレクトボックスのためオートコンプリートは
+ * 未実装」という注記が添えられていた。実装（`frontend/src/components/projects/
+ * TradingPartnerSelect.tsx`）は `<input role="combobox">` であり、`<select>` ではない。
+ * すなわち `isSelect` は常に偽で、分岐は一度も発火していない。
+ * それでも残っていると、実装がセレクトボックスへ退行した瞬間に REQ-16 の検証が
+ * 丸ごと消えて緑になる。前提が崩れたら失敗するよう、分岐そのものを除いた。
+ *
+ * ## 残っていた全域分岐も除いたこと（Task 115.127 段7・G群）
+ *
+ * REQ-16.11 のテストだけは `if (isSelect) { … } else { … }` の全域分岐として残っていた。
+ * 沈黙はしないが、実装がセレクトボックスへ退行すると REQ-16.11 の検証が
+ * 「選択肢が1件以上ある」という別物へすり替わる。実装形態は観測して分岐せず、
+ * `<input>` であることを無条件に主張してから本来の検証を行う形へ改めた。
  */
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { assertPrepared } from '../../helpers/preconditions';
+import { toObservableApiPath } from '../../helpers/api-request-observer';
+import { seedTradingPartner } from '../../helpers/project-list-preconditions';
 
 /**
  * 取引先オートコンプリート連携のE2Eテスト
@@ -41,14 +61,6 @@ test.describe('取引先オートコンプリート連携', () => {
       // 取引先フィールドの検索入力（コンボボックスを明示的に指定）
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
-      // 取引先がセレクトボックスの場合、オートコンプリート検索は別途入力欄が必要
-      // 現在の実装はセレクトボックスのため、オートコンプリート機能は未実装
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        // セレクトボックスの場合はテストをスキップ
-        return;
-      }
-
       await tradingPartnerInput.fill('テスト');
 
       // オートコンプリート候補が表示されることを確認
@@ -65,45 +77,48 @@ test.describe('取引先オートコンプリート連携', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-16.10 は「候補をクリックすると選択された顧客を設定する」ことを定める。
+      // 「-- 選択なし --」以外の候補が無いと主張が一つも実行されないため、
+      // クリック対象となる取引先をテスト自身が用意する。
+      const partner = await seedTradingPartner(page, 'E2E候補クリック');
+
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
-
-      // コンボボックス（オートコンプリート）の場合
-      // まずフィールドをクリックしてオプションを表示
-      await tradingPartnerInput.click();
+      // 用意した取引先だけが候補に残るよう、その名称で絞り込む
+      await tradingPartnerInput.fill(partner.name);
 
       // オートコンプリート候補が表示されるまで待機
-      const autocompleteList = page.getByRole('listbox');
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
       await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 「-- 選択なし --」以外の実際の取引先オプションを探す
-      const options = autocompleteList.getByRole('option');
-      const optionCount = await options.count();
+      // 用意した取引先が候補として並ぶ（「-- 選択なし --」以外の実在の候補）
+      const seededOption = autocompleteList
+        .locator('[role="option"]')
+        .filter({ hasText: partner.name });
+      await expect(seededOption).toHaveCount(1);
 
-      // 2番目以降のオプション（実際の取引先）がある場合はそれを選択
-      if (optionCount > 1) {
-        const realOption = options.nth(1);
-        await realOption.click();
+      // REQ-1.4 / REQ-16.10: マウスで候補をクリックすると選択された顧客が設定される
+      await seededOption.click();
 
-        // 取引先フィールドに選択した値（の一部）が反映されることを確認
-        // オートコンプリートは表示形式が異なる場合があるため、空でないことを確認
-        const inputValue = await tradingPartnerInput.inputValue();
-        expect(inputValue).toBeTruthy();
-      }
+      // 取引先フィールドに、クリックした候補の取引先名が反映されることを確認
+      // （部課・代表者名を持たない取引先のため、表示形式は「名前」のみとなる）
+      await expect(tradingPartnerInput).toHaveValue(partner.name, { timeout: getTimeout(5000) });
     });
 
     /**
-     * @requirement project-management/REQ-16.3
+     * @requirement project-management/REQ-16.2
+     *
+     * タスク 115.188 の是正: 従前は REQ-16.3 を名乗っていたが、受入基準16.3 の原文は「When ユーザーが顧客名フィールドにフリガナを入力する,
+     * the ArchiTrackシステム shall ひらがな・カタカナどちらの入力でも取引先候補を検索する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準16.2（「When ユーザーが顧客名フィールドにテキストを入力する,
+     * the ArchiTrackシステム shall 入力文字列に部分一致する取引先候補をフィルタリング表示する」
+     * ）である。
      */
-    test('入力文字列に前方一致または部分一致する取引先がオートコンプリート候補として表示される (project-management/REQ-16.3)', async ({
+    test('入力文字列に前方一致または部分一致する取引先がオートコンプリート候補として表示される (project-management/REQ-16.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -112,12 +127,6 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
 
       await tradingPartnerInput.fill('株式会社');
 
@@ -141,12 +150,6 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
 
       // 入力開始
       await tradingPartnerInput.fill('テ');
@@ -172,12 +175,6 @@ test.describe('取引先オートコンプリート連携', () => {
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
-
       await tradingPartnerInput.fill('存在しない取引先XYZ12345');
 
       // オートコンプリートが実装されている場合、該当なしメッセージが表示される
@@ -198,12 +195,6 @@ test.describe('取引先オートコンプリート連携', () => {
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
 
       await tradingPartnerInput.fill('株'); // 多くの候補がヒットしそうなキーワード
 
@@ -226,12 +217,6 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // コンボボックスを明示的に指定（listboxと区別するため）
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
 
       await tradingPartnerInput.fill('テスト');
 
@@ -262,12 +247,6 @@ test.describe('取引先オートコンプリート連携', () => {
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
-      // セレクトボックスの場合はスキップ
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
-      if (isSelect) {
-        return;
-      }
-
       await tradingPartnerInput.fill('テスト');
 
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
@@ -294,50 +273,47 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 取引先フィールドがセレクトボックスかオートコンプリートかを確認
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
+      // REQ-16.1 が定めるオートコンプリート併用UIは <input role="combobox"> で実装されている
+      // （frontend/src/components/projects/TradingPartnerSelect.tsx）。
+      // 「セレクトボックスなら別の検証、そうでなければ本来の検証」という全域分岐は、
+      // 実装がセレクトボックスへ退行した瞬間に REQ-16.11 の検証を別物へすり替えてしまう。
+      // 実装形態は観測して分岐するのではなく、ここで無条件に主張する。
+      const tagName = await tradingPartnerInput.evaluate((el) => el.tagName);
+      expect(tagName, 'REQ-16.1: 顧客名フィールドはオートコンプリート併用の入力欄である').toBe(
+        'INPUT'
+      );
 
-      if (isSelect) {
-        // セレクトボックスであれば自由入力は不可（要件を満たす）
-        expect(isSelect).toBe(true);
+      // 自由入力テキストは値として保存されず、フィルタリング用にのみ使用される。
+      // 入力後にフォーカスを外すと、選択されていない場合は入力がクリアされる。
 
-        // 選択肢として取引先マスタの候補が表示されることを確認
-        const options = await tradingPartnerInput.locator('option').all();
-        // 少なくともプレースホルダーオプションが存在
-        expect(options.length).toBeGreaterThan(0);
-      } else {
-        // オートコンプリート実装の場合:
-        // 自由入力テキストは値として保存されず、フィルタリング用にのみ使用される
-        // 入力後にフォーカスを外すと、選択されていない場合は入力がクリアされる
+      // 存在しない取引先名を入力
+      await tradingPartnerInput.fill('存在しない任意テキスト');
 
-        // 存在しない取引先名を入力
-        await tradingPartnerInput.fill('存在しない任意テキスト');
+      // 入力中はテキストが表示される
+      await expect(tradingPartnerInput).toHaveValue('存在しない任意テキスト');
 
-        // 入力中はテキストが表示される
-        await expect(tradingPartnerInput).toHaveValue('存在しない任意テキスト');
+      // ドロップダウンが表示され、候補がないことを確認。
+      // TradingPartnerSelect は入力で isOpen になり、一致が無い場合も一覧自体は開く
+      // （filteredPartners.length === 0 のとき「該当する取引先がありません」を表示する）。
+      // 以前は「一覧が見えていたら」という関門で包んでいたため、
+      // 一覧が開かなくなっても候補数の主張が実行されず緑のままだった。
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-        // ドロップダウンが表示され、候補がないことを確認
-        const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-        const isListVisible = await autocompleteList.isVisible().catch(() => false);
+      // 一致する候補がないこと（選択できるのは「-- 選択なし --」の高々1件）
+      const options = await autocompleteList.locator('[role="option"]').all();
+      expect(options.length).toBeLessThanOrEqual(1);
 
-        if (isListVisible) {
-          // 候補リストが表示されている場合、一致する候補がないことを確認
-          const options = await autocompleteList.locator('[role="option"]').all();
-          // 候補がないか、「一致なし」のようなメッセージのみ
-          expect(options.length).toBeLessThanOrEqual(1);
-        }
+      // フォーカスを外す（別のフィールドをクリック）
+      await page.getByLabel(/プロジェクト名/i).click();
 
-        // フォーカスを外す（別のフィールドをクリック）
-        await page.getByLabel(/プロジェクト名/i).click();
+      // オートコンプリートは自由入力を値として保持しないため、
+      // 選択されなかった場合は入力がクリアされる（空になるか、プレースホルダーが表示される）
+      const inputValue = await tradingPartnerInput.inputValue();
 
-        // オートコンプリートは自由入力を値として保持しないため、
-        // 選択されなかった場合は入力がクリアされる（空になるか、プレースホルダーが表示される）
-        const inputValue = await tradingPartnerInput.inputValue();
-
-        // 自由入力テキストが値として保持されていないことを確認
-        // （空文字列、または元のプレースホルダーに戻る）
-        expect(inputValue).not.toBe('存在しない任意テキスト');
-      }
+      // REQ-16.11: 自由入力テキストが値として保持されていないことを確認
+      // （空文字列、または元のプレースホルダーに戻る）
+      expect(inputValue).not.toBe('存在しない任意テキスト');
     });
 
     /**
@@ -348,6 +324,13 @@ test.describe('取引先オートコンプリート連携', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-16.4 は候補の表示形式を定める。候補が1件も無いと形式の主張が一つも実行されないため、
+      // 「名前・部課・代表者名」がすべて揃った候補をテスト自身が用意する。
+      const partner = await seedTradingPartner(page, 'E2E候補表示形式', {
+        branchName: '渋谷支店',
+        representativeName: '検証 太郎',
+      });
+
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
@@ -355,27 +338,21 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ドロップダウンを開く
-      await tradingPartnerInput.click();
+      // 作成した取引先に絞り込む
+      await tradingPartnerInput.fill(partner.name);
 
       // オートコンプリート候補が表示されることを確認
       const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
       await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 候補が表示されている場合、表示形式を確認
-      // 各候補には「名前」が必ず表示され、「部課・支店・支社名」「代表者名」が追加で表示される
-      const options = await autocompleteList.locator('[role="option"]').all();
-      if (options.length > 1) {
-        // 「-- 選択なし --」以外の候補を確認
-        const firstOption = options[1];
-        if (firstOption) {
-          const optionText = await firstOption.textContent();
-          // 名前が必ず含まれ、「/」区切りで追加情報がある場合はフォーマットに準拠
-          expect(optionText).toBeTruthy();
-          // 少なくとも名前部分（取引先名）が存在することを確認
-          expect(optionText!.length).toBeGreaterThan(0);
-        }
-      }
+      // REQ-16.4: 候補は「名前 / 部課・支店・支社名 / 代表者名」の組み合わせで表示される
+      const seededOption = autocompleteList
+        .locator('[role="option"]')
+        .filter({ hasText: partner.name });
+      await expect(seededOption).toHaveCount(1);
+      await expect(seededOption).toContainText(partner.name);
+      await expect(seededOption).toContainText('渋谷支店');
+      await expect(seededOption).toContainText('検証 太郎');
     });
 
     /**
@@ -416,11 +393,16 @@ test.describe('取引先オートコンプリート連携', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 取引先APIリクエストを監視
-      let apiCallParams: string | null = null;
+      // 取引先APIリクエストを監視する。
+      // 選別はオリジンではなくパスで行う（ブラウザ側の VITE_API_URL と E2E 側の API_BASE_URL は
+      // 同一とは限らず、オリジンで選別すると観測が常に空になる）。
+      const listRequestUrls: string[] = [];
       page.on('request', (request) => {
-        if (request.url().includes('/api/trading-partners') && request.method() === 'GET') {
-          apiCallParams = request.url();
+        if (
+          toObservableApiPath(request.url()) === '/api/trading-partners' &&
+          request.method() === 'GET'
+        ) {
+          listRequestUrls.push(request.url());
         }
       });
 
@@ -431,13 +413,15 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      // APIリクエストが「顧客」種別でフィルタリングされていることを確認
-      // TradingPartnerSelectコンポーネントは filter: { type: ['CUSTOMER'] } でAPIを呼び出す
-      if (apiCallParams !== null) {
-        // APIリクエストURLに type=CUSTOMER または filter パラメータが含まれる
-        // （実装方式によりパラメータ形式が異なる場合がある）
-        expect(apiCallParams as string).toMatch(/trading-partners/);
-      }
+      // REQ-16.13: 取引先一覧の取得は「顧客」種別で絞り込まれている。
+      // 以前は「要求が観測できていたら URL に trading-partners が含まれる」という
+      // 何も確かめない主張だったため、種別の絞り込みが失われても緑のままだった。
+      // 要求が発生すること自体と、その絞り込み条件の双方を無条件に主張する。
+      expect(listRequestUrls.length, 'REQ-16.13: 取引先一覧APIが呼び出される').toBeGreaterThan(0);
+      const listRequestUrl = listRequestUrls[listRequestUrls.length - 1];
+      assertPrepared(listRequestUrl, '取引先一覧APIのリクエストURL');
+      const requestedTypes = new URL(listRequestUrl).searchParams.get('type');
+      expect(requestedTypes, 'REQ-16.13: 取引先一覧APIは顧客種別で絞り込まれる').toBe('CUSTOMER');
 
       // ドロップダウンを開いて候補が表示されることを確認
       await tradingPartnerInput.click();
@@ -476,8 +460,11 @@ test.describe('取引先オートコンプリート連携', () => {
       const endTime = Date.now();
       const responseTime = endTime - startTime;
 
-      // レスポンスが成功していることを確認（200または304キャッシュ）
-      expect(response.ok() || response.status() === 304).toBe(true);
+      // 取引先選択APIが成功していることを確認。
+      // 以前は「200 または 304（キャッシュ）」の論理和だったが、テストごとに新しい
+      // ブラウザコンテキストが作られるため条件付きリクエストは発生せず、304 の側は
+      // 一度も成立しない。成立する側だけを主張する。
+      expect(response.status()).toBe(200);
 
       // E2Eテスト環境ではページナビゲーション＋ネットワーク条件により変動するため、
       // 5秒以内に応答があることを確認（本番APIの500ms要件は別途APIモニタリングで監視）

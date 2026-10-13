@@ -19,22 +19,57 @@
  * @requirement site-survey/REQ-28.6
  * @requirement site-survey/REQ-36.3
  * @requirement site-survey/REQ-36.5
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-32.5
+ * @requirement site-survey/REQ-8.5
+ * @requirement site-survey/REQ-8.6
+ * @requirement site-survey/REQ-28.8
+ * @requirement site-survey/REQ-29.6
+ * @requirement site-survey/REQ-15.2
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import useMediaQuery from '../../hooks/useMediaQuery';
+// 長押しの判定時間は本番の一元管理された閾値を参照する（Req 27.6 と同一値）。
+import { LONG_PRESS_MS } from './gestures/gesture-thresholds';
 import { MEDIA_QUERIES } from '../../utils/responsive';
 import {
   type ToolType,
   type ToolDefinition,
   type StyleOptions,
+  type OutlineCapableTool,
+  type BalloonStyleType,
   TOOL_DEFINITIONS,
   TOOL_ORDER,
   DEFAULT_STYLE_OPTIONS,
 } from './annotation-toolbar.constants';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 // 型の再エクスポート（後方互換性のため）
-export type { ToolType, ToolDefinition, StyleOptions };
+export type { ToolType, ToolDefinition, StyleOptions, OutlineCapableTool, BalloonStyleType };
+
+/**
+ * 吹き出し形式の選択肢 (Req 8.6)
+ *
+ * 値は `BalloonStyleType` の全要素をちょうど網羅する。
+ */
+const BALLOON_STYLE_CHOICES: ReadonlyArray<{ value: BalloonStyleType; label: string }> = [
+  { value: 'none', label: 'なし' },
+  { value: 'rectangle', label: '四角' },
+  { value: 'rounded', label: '角丸' },
+  { value: 'ellipse', label: '楕円' },
+  { value: 'cloud', label: '雲' },
+];
+
+/**
+ * 背景色を「あり」に切替えた際に用いる初期色 (Req 8.5)
+ *
+ * 背景の既定は透明であり、色そのものを持たない。切替で色が必要になるため、
+ * 最初の 1 回だけこの値を用いる（以降はユーザーが選んだ色を覚える）。
+ */
+const TEXT_BACKGROUND_FALLBACK_COLOR = '#ffffff';
 
 /**
  * AnnotationToolbarのProps
@@ -56,6 +91,17 @@ export interface AnnotationToolbarProps {
   onRedo?: () => void;
   /** 保存操作のコールバック */
   onSave?: () => void;
+  /**
+   * 保存だけを抑止するフラグ（Task 115.105 / Req 15.6）
+   *
+   * 通信断のようにサーバー保存だけが成立しない状況で用いる。
+   * `disabled` と異なり描画ツールやエクスポートは操作可能なまま保つ。
+   * また `disabled` 属性ではなく `aria-disabled` で表すため押下自体は成立し、
+   * 押下時には呼び出し側（AnnotationEditor.handleSave）が理由を提示して抑止する。
+   */
+  saveDisabled?: boolean;
+  /** 保存が抑止されているときにボタンへ添える理由（title 用） */
+  saveDisabledReason?: string;
   /** エクスポート操作のコールバック */
   onExport?: () => void;
   /** Undoが可能かどうか */
@@ -72,12 +118,22 @@ export interface AnnotationToolbarProps {
    * 省略時は発火しない（後方互換: 再タップは従来通り `onToolChange` のみ発火）。
    */
   onActiveToolReTap?: () => void;
+  /**
+   * 詳細属性パネル（StylePanel）を表示するか (Req 28.8)
+   *
+   * 親（AnnotationEditor）が `onActiveToolReTap` と対で与える開閉状態。
+   * 省略時は従来どおり常に表示する（後方互換）。
+   */
+  stylePanelVisible?: boolean;
 }
 
 // ============================================================================
 // スタイル定義
 // ============================================================================
 
+// タップ領域の下限（要件28.3 の 44）は `utils/tap-target` が唯一の宣言元である。
+// 道具のボタン（`button.base`）とモバイル幅の各項目（`mobileTapTarget`）が同じ値を参照する。
+// 検証側が同じ値を自前で持つ理由も当該モジュールに書いてある。
 const STYLES = {
   toolbar: {
     display: 'flex',
@@ -128,6 +184,77 @@ const STYLES = {
     alignItems: 'flex-start',
     gap: '2px',
   },
+  // Req 36.5: モバイル幅では見出しを操作要素の「上」ではなく「横」へ置く。
+  //
+  // 各項目を 44 へ広げる（`mobileTapTarget`）と、見出しを積んだ縦並びのままでは
+  // 1 項目の高さが「見出し + 間隔 + 44」になり、道具のボタン（44）より高くなる。
+  // 単段のツールバーの高さは最も高い項目で決まるため、そのままではツールバーの縦占有が
+  // 増え、要件36.5（ツールバーが縦方向の表示領域を過度に占有しない）と衝突する。
+  // 横並びにすると項目の高さは 44 に収まり、道具のボタンの実高（アイコン + 見出し + padding。
+  // 375x667 の実測で 55）を超えないため、ツールバーの高さは変わらない。増えるのは横幅だけ
+  // であり、単段の横スクロール（Req 28.2）が吸収する。
+  //
+  // 実測（375x667。Task 115.170 が E2E で計測）: 本定義を外すとツールバーの高さは
+  // 71 から 85 へ増える。本定義を効かせている限り、属性パネルを開いても 71 のまま変わらない。
+  styleItemMobile: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: '6px',
+  },
+  // Req 28.3: モバイル幅ツールバーの「各項目」のタップ領域の下限。
+  //
+  // 適用範囲は Task 115.170 で決着させた。条文の「各項目」を文字どおり読み、道具のボタン
+  // だけでなく属性パネルの操作要素（切替・色・線幅・文字サイズ・吹き出し）とアクション
+  // ボタンにも課す。従前は `button.base` だけが 44 を持ち、色 32x24・線幅 60x24・
+  // 吹き出し 高さ24・アクションボタン 高さ32（実測）と、道具のボタン以外は 44 に届いていな
+  // かった。
+  //
+  // タップ領域を「見た目の寸法そのもの」で確保する（擬似要素や重ね合わせで当たり判定だけを
+  // 広げない）。対象の多くが `input[type=color|number|checkbox]` と `select` という置換要素で
+  // あり、置換要素では `::before` / `::after` が描かれないため当たり判定だけを広げる手が
+  // 使えない。負のマージンで重ねる手は隣の項目と当たり判定が重なり、要件28.7（誤選択しにくい
+  // 間隔）を損なう。見た目＝当たり判定にしておくと、検証が測る矩形（getBoundingClientRect）が
+  // そのまま指の当たる領域になり、「実際には押せない領域を測って緑になる」ことも起きない。
+  //
+  // `width` / `height` を持つ定義（色 32x24 等）と併用する。CSS では `min-width` /
+  // `min-height` が `width` / `height` に優先するため、上書きの順序に依らず 44 が下限になる。
+  // 44 を超える寸法（線幅の入力の幅 60）はそのまま残る。
+  //
+  // デスクトップ幅へは課さない。要件28.3 が対象を「モバイル幅ツールバー」と限っているため。
+  mobileTapTarget: {
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
+  },
+  // フォーカスの輪の位置（モバイル幅）。
+  //
+  // フォーカス表示は全画面共通の `:focus-visible` の outline（太さ 2px・outline-offset 2px）に
+  // 任せ、インラインで打ち消さない（steering `tech.md` の「フォーカス表示方針」。タスク 116.1）。
+  // モバイル幅の単段のツールバーは横スクロールの箱（overflowX: auto）であり、箱の縁の近くに
+  // ある項目の外側の輪は箱の縁で欠ける。ブラウザはフォーカスを受けた項目が箱の中に見えている
+  // 間はスクロールしない（375x812 の実測で、縁から 3px の項目の輪が 1px 欠けた）ため、
+  // スクロールの寄せの余白では防げない。モバイル幅では輪の太さ（2px）だけ内側へ寄せ、項目の
+  // 縁の上へ描く。デスクトップ幅は折り返して横スクロールしないため、外側の輪のまま残す。
+  mobileInsetFocusRing: {
+    outlineOffset: '-2px',
+  },
+  // 青や灰の塗りの項目（選択中の道具・保存）は、内側の輪を共通の青のままにすると塗りと
+  // 区別できない（青の塗りとの比は 1:1）。輪の色だけを白に替える（#2563eb の塗りと 5.2:1、
+  // 押せない間の #6b7280 の塗りと 4.8:1）。
+  mobileInsetFocusRingOnFill: {
+    outlineOffset: '-2px',
+    outlineColor: '#ffffff',
+  },
+  // 属性パネルの見出しの体裁。
+  //
+  // Task 115.202: **見出しは必ず `htmlFor` で対応する操作要素へ結び付けること**（項目を足す
+  // ときの規約）。従前は 9 つのうち 3 つしか `htmlFor` を持たず、残る 6 つ（色・線幅・
+  // 塗りつぶし・文字色・サイズ・背景色）は押しても何も起きない不活性な文字だった。
+  // モバイル幅では見出しが操作要素と同じ 44px の行に横並びで置かれる（`styleItemMobile`）
+  // ため、行の左半分に触れた指が無反応になる（要件28.3 のタップ領域を実質的に削る）。
+  // 操作要素側の `aria-label` は accname 仕様上 `<label for>` に優先するため、結び付けても
+  // 読み上げ名は変わらない。検証は
+  // `AnnotationToolbar.style-label-association.test.tsx` と
+  // `site-survey-outline-toggle.spec.ts` の (g)。
   styleLabel: {
     fontSize: '10px',
     color: '#525b6a', // WCAG 2.1 AA準拠: 5.5:1 contrast ratio on #f9fafb
@@ -139,6 +266,29 @@ const STYLES = {
     padding: 0,
     border: '1px solid #d1d5db',
     borderRadius: '4px',
+    cursor: 'pointer',
+  },
+  // 切替の寸法（デスクトップ幅）。Task 115.148 が 18x18 から隣接要素と同じ 32x24 へ広げた。
+  // 従前は隣接する色の選択（32x24）・線幅の入力（60x24）・吹き出しの選択（高さ 24）の
+  // いずれよりも小さく、隣より小さい操作要素は押し間違いを招いていた。
+  //
+  // モバイル幅ではこの値の上に `mobileTapTarget` が重なり、44x44 まで広がる（Req 28.3）。
+  //
+  // 本定義は白縁取り（白アウトライン）の切替と文字の背景の切替が共有する。片方だけ広げると
+  // 隣り合う切替どうしで同じ欠陥が再発するため、両方へ効かせる。
+  outlineToggleCheckbox: {
+    width: '32px',
+    height: '24px',
+    margin: 0,
+    cursor: 'pointer',
+  },
+  balloonStyleSelect: {
+    height: '24px',
+    padding: '0 4px',
+    fontSize: '12px',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    backgroundColor: '#ffffff',
     cursor: 'pointer',
   },
   lineWidthInput: {
@@ -200,15 +350,16 @@ const STYLES = {
       alignItems: 'center',
       justifyContent: 'center',
       // Req 28.3 / design.md AnnotationToolbar (ext): 44x44 論理ピクセルに統一
-      minWidth: '44px',
-      minHeight: '44px',
+      minWidth: `${TAP_TARGET_MIN_PX}px`,
+      minHeight: `${TAP_TARGET_MIN_PX}px`,
       padding: '8px',
       border: '1px solid transparent',
       borderRadius: '6px',
       backgroundColor: 'transparent',
       cursor: 'pointer',
       transition: 'all 0.15s ease',
-      outline: 'none',
+      // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+      // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
     },
     active: {
       backgroundColor: '#2563eb', // WCAG 2.1 AA準拠: 5.2:1 contrast ratio with #fff
@@ -239,7 +390,37 @@ const STYLES = {
     fontWeight: 500,
     whiteSpace: 'nowrap' as const,
   },
+  // ツールヒント (Req 29.6)。ツールバーは `overflowX: 'auto'` を持つため、
+  // 内側に絶対配置するとはみ出した分が切り取られる。body 直下へ Portal で描き、
+  // `position: 'fixed'` でボタンの位置に合わせる。
+  tooltip: {
+    position: 'fixed' as const,
+    zIndex: 2000,
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '2px',
+    maxWidth: '220px',
+    padding: '6px 10px',
+    borderRadius: '6px',
+    backgroundColor: '#1f2937',
+    color: '#ffffff',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
+    pointerEvents: 'none' as const,
+  },
+  tooltipTitle: {
+    fontSize: '12px',
+    fontWeight: 600,
+    whiteSpace: 'nowrap' as const,
+  },
+  tooltipDescription: {
+    fontSize: '11px',
+    lineHeight: 1.4,
+  },
 };
+
+/** ツールヒントをボタンの下に置くときの間隔（ピクセル, Req 29.6） */
+const TOOLTIP_GAP_PX = 8;
 
 // ============================================================================
 // コンポーネント
@@ -253,24 +434,84 @@ interface ToolButtonProps {
   isActive: boolean;
   disabled: boolean;
   onClick: () => void;
+  /** モバイル幅か（フォーカスの輪を内側へ描く。`mobileInsetFocusRing` を参照） */
+  isMobile: boolean;
 }
 
-function ToolButton({ tool, isActive, disabled, onClick }: ToolButtonProps): React.JSX.Element {
+function ToolButton({
+  tool,
+  isActive,
+  disabled,
+  onClick,
+  isMobile,
+}: ToolButtonProps): React.JSX.Element {
   const buttonStyle: React.CSSProperties = {
     ...STYLES.button.base,
     ...(isActive ? STYLES.button.active : STYLES.button.inactive),
     ...(disabled ? STYLES.button.disabled : {}),
+    ...(isMobile
+      ? isActive
+        ? STYLES.mobileInsetFocusRingOnFill
+        : STYLES.mobileInsetFocusRing
+      : {}),
   };
+
+  // ------------------------------------------------------------------
+  // 長押しによるツールヒント表示 (Task 115.104 / Req 29.6)
+  //
+  // `title` 属性はマウスホバーでしか現れず、指で操作する現場端末では説明に到達できない。
+  // 押し当てたまま `LONG_PRESS_MS` 経過したらヒントを出し、指を離す・外れる・
+  // ブラウザが操作を打ち切った時点で消す。判定時間はタッチ操作の一元管理された閾値を使う。
+  // ------------------------------------------------------------------
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ left: number; top: number } | null>(
+    null
+  );
+  const tooltipId = `annotation-tool-tooltip-${tool.id}`;
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handlePointerDown = useCallback(() => {
+    cancelLongPress();
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      const rect = buttonRef.current?.getBoundingClientRect();
+      setTooltipPosition({
+        left: rect ? rect.left + rect.width / 2 : 0,
+        top: rect ? rect.bottom + TOOLTIP_GAP_PX : 0,
+      });
+    }, LONG_PRESS_MS);
+  }, [cancelLongPress]);
+
+  const hideTooltip = useCallback(() => {
+    cancelLongPress();
+    setTooltipPosition(null);
+  }, [cancelLongPress]);
+
+  // アンマウント時にタイマーを残さない
+  useEffect(() => cancelLongPress, [cancelLongPress]);
 
   return (
     <button
       type="button"
+      ref={buttonRef}
       style={buttonStyle}
       onClick={onClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={hideTooltip}
+      onPointerCancel={hideTooltip}
+      onPointerLeave={hideTooltip}
       disabled={disabled}
       title={tool.description}
       aria-label={tool.label}
       aria-pressed={isActive}
+      aria-describedby={tooltipPosition !== null ? tooltipId : undefined}
       data-active={isActive ? 'true' : 'false'}
       data-tool={tool.id}
     >
@@ -288,6 +529,24 @@ function ToolButton({ tool, isActive, disabled, onClick }: ToolButtonProps): Rea
         <path d={tool.icon} />
       </svg>
       <span style={STYLES.label}>{tool.label}</span>
+      {tooltipPosition !== null &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            role="tooltip"
+            id={tooltipId}
+            data-testid={`tool-tooltip-${tool.id}`}
+            style={{
+              ...STYLES.tooltip,
+              left: `${tooltipPosition.left}px`,
+              top: `${tooltipPosition.top}px`,
+            }}
+          >
+            <span style={STYLES.tooltipTitle}>{tool.label}</span>
+            <span style={STYLES.tooltipDescription}>{tool.description}</span>
+          </div>,
+          document.body
+        )}
     </button>
   );
 }
@@ -309,6 +568,8 @@ interface StylePanelProps {
   disabled: boolean;
   /** モバイル幅か（単段化時の flexShrink 抑止に使用, Req 36.5） */
   isMobile: boolean;
+  /** 開閉状態 (Req 28.8)。false のとき描画しない */
+  visible: boolean;
 }
 
 function StylePanel({
@@ -317,6 +578,7 @@ function StylePanel({
   onStyleChange,
   disabled,
   isMobile,
+  visible,
 }: StylePanelProps): React.JSX.Element | null {
   // スタイル変更ハンドラ（Hooksは条件分岐の前に呼び出す必要がある）
   const handleStrokeColorChange = useCallback(
@@ -342,10 +604,90 @@ function StylePanel({
     [onStyleChange]
   );
 
+  /**
+   * テキスト注釈の背景色を選ぶ (Req 8.5)
+   *
+   * 背景の有無は「背景」チェックで切替え、色は色入力で選ぶ。透明は空文字で表すため、
+   * 「あり」へ戻したときに復帰させる色を本コンポーネントが覚えておく。
+   */
+  const [rememberedTextBackgroundColor, setRememberedTextBackgroundColor] = useState<string>(
+    () => styleOptions.textBackgroundColor || TEXT_BACKGROUND_FALLBACK_COLOR
+  );
+
+  const handleTextBackgroundEnabledChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onStyleChange({
+        textBackgroundColor: e.target.checked ? rememberedTextBackgroundColor : '',
+      });
+    },
+    [onStyleChange, rememberedTextBackgroundColor]
+  );
+
+  const handleTextBackgroundColorChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      // 色を選んだ操作は「背景を付ける」意図であるため、そのまま有効化まで行う
+      setRememberedTextBackgroundColor(e.target.value);
+      onStyleChange({ textBackgroundColor: e.target.value });
+    },
+    [onStyleChange]
+  );
+
+  /**
+   * テキスト注釈の吹き出し形式を選ぶ (Req 8.6)
+   */
+  const handleBalloonStyleChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      onStyleChange({ balloonStyle: e.target.value as BalloonStyleType });
+    },
+    [onStyleChange]
+  );
+
+  /**
+   * 白縁取り（テキストは白アウトライン）の有効/無効を切替える (Req 24.5, 25.2, 32.5)
+   *
+   * 切替は当該ツールの描画設定であり、以降に描かれる注釈へ適用される。
+   * 既存の注釈は変更しない（Req 24.9 / 25.10 / 32.9 の後方互換を壊さないため）。
+   */
+  const handleOutlineEnabledChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      // 本パネル自体が選択ツールでは描画されない（下の早期 return）ため、ここへ到達する
+      // `activeTool` は必ず描画ツールである。到達しない分岐を足して黙って何もしないより、
+      // 到達条件を明示して絞り込む。
+      const tool = activeTool as OutlineCapableTool;
+      onStyleChange({
+        outlineEnabled: {
+          ...styleOptions.outlineEnabled,
+          [tool]: e.target.checked,
+        },
+      });
+    },
+    [activeTool, onStyleChange, styleOptions.outlineEnabled]
+  );
+
   // 選択ツールの場合はスタイルパネルを表示しない
   if (!isDrawingTool(activeTool)) {
     return null;
   }
+
+  // Req 28.8: 選択中ツールの再タップで閉じられている間は描画しない
+  if (!visible) {
+    return null;
+  }
+
+  const outlineTool = activeTool as OutlineCapableTool;
+  // テキストは文字の輪郭に沿うため「白アウトライン」、他の形状は線の外側に付くため「白縁取り」。
+  // 要件も 25.2 だけが「白アウトライン」の語を使う。
+  const outlineLabel = outlineTool === 'text' ? '白アウトライン' : '白縁取り';
+  const outlineEnabled = styleOptions.outlineEnabled[outlineTool];
+
+  // Req 28.3: モバイル幅では各項目のタップ領域を 44x44 以上にする（Task 115.170 で決着）。
+  // Req 36.5: 44 化でツールバーの段が高くならないよう、見出しを操作要素の横へ置く。
+  // モバイル幅ではフォーカスの輪を項目の内側へ描く（`mobileInsetFocusRing` を参照。タスク 116.1）。
+  const tapTarget = isMobile ? { ...STYLES.mobileTapTarget, ...STYLES.mobileInsetFocusRing } : {};
+  const itemStyle: React.CSSProperties = {
+    ...STYLES.styleItem,
+    ...(isMobile ? STYLES.styleItemMobile : {}),
+  };
 
   const showLineOptions = activeTool !== 'text';
   const showFontOptions = activeTool === 'text';
@@ -361,16 +703,37 @@ function StylePanel({
         style={{ ...STYLES.stylePanel, ...(isMobile ? STYLES.stylePanelMobile : {}) }}
         data-testid="style-options"
       >
+        {/* 白縁取り / 白アウトラインの有効・無効 (Req 24.5, 25.2, 32.5) */}
+        <div style={itemStyle}>
+          <label style={STYLES.styleLabel} htmlFor="annotation-outline-toggle">
+            {outlineLabel}
+          </label>
+          <input
+            id="annotation-outline-toggle"
+            type="checkbox"
+            checked={outlineEnabled}
+            onChange={handleOutlineEnabledChange}
+            disabled={disabled}
+            style={{ ...STYLES.outlineToggleCheckbox, ...tapTarget }}
+            data-testid="outline-toggle"
+            name="outlineEnabled"
+            aria-label={outlineLabel}
+          />
+        </div>
+
         {/* 線の色 */}
         {showLineOptions && (
-          <div style={STYLES.styleItem}>
-            <label style={STYLES.styleLabel}>色</label>
+          <div style={itemStyle}>
+            <label style={STYLES.styleLabel} htmlFor="annotation-stroke-color">
+              色
+            </label>
             <input
+              id="annotation-stroke-color"
               type="color"
               value={styleOptions.strokeColor}
               onChange={handleStrokeColorChange}
               disabled={disabled}
-              style={STYLES.colorPicker}
+              style={{ ...STYLES.colorPicker, ...tapTarget }}
               data-testid="color-picker"
               aria-label="線の色"
             />
@@ -379,16 +742,19 @@ function StylePanel({
 
         {/* 線の太さ */}
         {showLineOptions && (
-          <div style={STYLES.styleItem}>
-            <label style={STYLES.styleLabel}>線幅</label>
+          <div style={itemStyle}>
+            <label style={STYLES.styleLabel} htmlFor="annotation-stroke-width">
+              線幅
+            </label>
             <input
+              id="annotation-stroke-width"
               type="number"
               value={styleOptions.strokeWidth}
               onChange={handleStrokeWidthChange}
               disabled={disabled}
               min={1}
               max={20}
-              style={STYLES.lineWidthInput}
+              style={{ ...STYLES.lineWidthInput, ...tapTarget }}
               data-testid="line-width"
               name="strokeWidth"
               aria-label="線の太さ"
@@ -398,14 +764,17 @@ function StylePanel({
 
         {/* 塗りつぶし色 */}
         {showFillOptions && (
-          <div style={STYLES.styleItem}>
-            <label style={STYLES.styleLabel}>塗りつぶし</label>
+          <div style={itemStyle}>
+            <label style={STYLES.styleLabel} htmlFor="annotation-fill-color">
+              塗りつぶし
+            </label>
             <input
+              id="annotation-fill-color"
               type="color"
               value={styleOptions.fillColor || '#ffffff'}
               onChange={handleFillColorChange}
               disabled={disabled}
-              style={STYLES.colorPicker}
+              style={{ ...STYLES.colorPicker, ...tapTarget }}
               data-testid="fill-color-picker"
               aria-label="塗りつぶしの色"
             />
@@ -415,38 +784,113 @@ function StylePanel({
         {/* フォントサイズ（テキスト用） */}
         {showFontOptions && (
           <>
-            <div style={STYLES.styleItem}>
-              <label style={STYLES.styleLabel}>文字色</label>
+            <div style={itemStyle}>
+              <label style={STYLES.styleLabel} htmlFor="annotation-text-color">
+                文字色
+              </label>
               <input
+                id="annotation-text-color"
                 type="color"
                 value={styleOptions.strokeColor}
                 onChange={handleStrokeColorChange}
                 disabled={disabled}
-                style={STYLES.colorPicker}
+                style={{ ...STYLES.colorPicker, ...tapTarget }}
                 data-testid="color-picker"
                 aria-label="文字色"
               />
             </div>
-            <div style={STYLES.styleItem}>
-              <label style={STYLES.styleLabel}>サイズ</label>
+            <div style={itemStyle}>
+              <label style={STYLES.styleLabel} htmlFor="annotation-font-size">
+                サイズ
+              </label>
               <input
+                id="annotation-font-size"
                 type="number"
                 value={styleOptions.fontSize}
                 onChange={handleFontSizeChange}
                 disabled={disabled}
                 min={8}
                 max={72}
-                style={STYLES.lineWidthInput}
+                style={{ ...STYLES.lineWidthInput, ...tapTarget }}
                 data-testid="font-size"
                 name="fontSize"
                 aria-label="フォントサイズ"
               />
+            </div>
+
+            {/* 文字の背景色 (Req 8.5)。透明は空文字で表すため、有無はチェックで切替える */}
+            <div style={itemStyle}>
+              <label style={STYLES.styleLabel} htmlFor="annotation-text-background-toggle">
+                背景
+              </label>
+              <input
+                id="annotation-text-background-toggle"
+                type="checkbox"
+                checked={styleOptions.textBackgroundColor !== ''}
+                onChange={handleTextBackgroundEnabledChange}
+                disabled={disabled}
+                style={{ ...STYLES.outlineToggleCheckbox, ...tapTarget }}
+                data-testid="text-background-toggle"
+                name="textBackgroundEnabled"
+                aria-label="文字の背景色を付ける"
+              />
+            </div>
+            <div style={itemStyle}>
+              <label style={STYLES.styleLabel} htmlFor="annotation-text-background-color">
+                背景色
+              </label>
+              <input
+                id="annotation-text-background-color"
+                type="color"
+                value={styleOptions.textBackgroundColor || rememberedTextBackgroundColor}
+                onChange={handleTextBackgroundColorChange}
+                disabled={disabled}
+                style={{ ...STYLES.colorPicker, ...tapTarget }}
+                data-testid="text-background-color-picker"
+                aria-label="文字の背景色"
+              />
+            </div>
+
+            {/* 吹き出し形式 (Req 8.6) */}
+            <div style={itemStyle}>
+              <label style={STYLES.styleLabel} htmlFor="annotation-balloon-style">
+                吹き出し
+              </label>
+              <select
+                id="annotation-balloon-style"
+                value={styleOptions.balloonStyle}
+                onChange={handleBalloonStyleChange}
+                disabled={disabled}
+                style={{ ...STYLES.balloonStyleSelect, ...tapTarget }}
+                data-testid="balloon-style"
+                name="balloonStyle"
+                aria-label="吹き出し形式"
+              >
+                {BALLOON_STYLE_CHOICES.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </>
         )}
       </div>
     </>
   );
+}
+
+/**
+ * 要素が `:focus-visible` に当たるかを返す（タスク 118.1）。
+ * 擬似クラスを解さないブラウザ（Safari 15.4 未満）では `matches` が SyntaxError を投げるため、
+ * 当たらない側（false）へ倒す。
+ */
+function matchesFocusVisible(element: Element): boolean {
+  try {
+    return element.matches(':focus-visible');
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -468,11 +912,14 @@ function AnnotationToolbar({
   onUndo,
   onRedo,
   onSave,
+  saveDisabled = false,
+  saveDisabledReason,
   onExport,
   canUndo = true,
   canRedo = true,
   onRotate,
   onActiveToolReTap,
+  stylePanelVisible = true,
 }: AnnotationToolbarProps): React.JSX.Element {
   /**
    * Req 28.4: 端末回転 (orientation) 時のレイアウト再構成。
@@ -535,12 +982,65 @@ function AnnotationToolbar({
     [onStyleChange]
   );
 
+  /**
+   * Req 28.2 / 36.5: モバイル幅で、フォーカス表示を受けた項目の全体を横スクロールの箱の内側へ寄せる
+   * （タスク 118.1）。
+   *
+   * モバイル幅の単段のツールバーを Tab で送ると、Chromium のフォーカス時の寄せは、横方向に
+   * 一定以上見えている項目を「見えている」と扱ってスクロールしない。375x667 の実測で、末尾の
+   * 「エクスポート」の釦は 105px が見えた状態で止まり、箱の右端で 13px 欠けた（端までの残りは
+   * 21px）。箱の padding・scroll-padding・scroll-margin を足しても寄せは起きない（実測）。
+   * そこで、フォーカスを受けた項目の矩形と箱の内側（枠線の内側・`clientWidth` の幅）を比べ、
+   * 欠けた分だけツールバー自身の `scrollLeft` を動かす。ページや他の祖先はスクロールさせない。
+   *
+   * 寄せるのは `:focus-visible` に当たるフォーカスに限る。キーボードでの移動は常に当たる。
+   * 指のタップで受けたフォーカスの当否はブラウザが要素の種類で決める。375x667・タッチの
+   * Chromium の実測で、数値の入力欄（フォントサイズ）と select（吹き出し形式）はタップでも当たり、
+   * 欠けた分（20px）だけ寄る。釦・チェックボックス・色の入力はタップでは当たらず寄らない
+   * （指で送った位置を利用者の意図に反して変えない）。入力欄の寄せは、入力する欄の全体を
+   * 見せる点で有益であり、許容する（タスク 118.1 の独立レビューの 1 巡目で決定）。
+   * `:focus-visible` を解さないブラウザ（Safari 15.4 未満）では `matches` が例外を投げるため、
+   * 寄せない側へ倒す。デスクトップ幅は折り返して横スクロールしないため寄せない。
+   * フォーカスの輪の位置（`mobileInsetFocusRing`）は変えない。項目の全体が箱の内側に入れば、
+   * 項目の縁の上へ描く内側の輪も欠けない。
+   */
+  const handleMobileFocusReveal = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      if (!isMobile) {
+        return;
+      }
+      const box = event.currentTarget;
+      const item = event.target;
+      if (item === box || !matchesFocusVisible(item)) {
+        return;
+      }
+      const boxRect = box.getBoundingClientRect();
+      const itemRect = item.getBoundingClientRect();
+      const innerLeft = boxRect.left + box.clientLeft;
+      const innerRight = innerLeft + box.clientWidth;
+      if (itemRect.right > innerRight) {
+        box.scrollLeft += itemRect.right - innerRight;
+      } else if (itemRect.left < innerLeft) {
+        box.scrollLeft -= innerLeft - itemRect.left;
+      }
+    },
+    [isMobile]
+  );
+
+  // Req 28.3: モバイル幅ではアクションボタンのタップ領域も 44x44 以上にする
+  // （適用範囲は Task 115.170 で決着。道具のボタンだけでなく「各項目」が対象）。
+  // モバイル幅ではフォーカスの輪を項目の内側へ描く（`mobileInsetFocusRing` を参照。タスク 116.1）。
+  const actionTapTarget = isMobile
+    ? { ...STYLES.mobileTapTarget, ...STYLES.mobileInsetFocusRing }
+    : {};
+
   return (
     <div
       data-testid="annotation-toolbar"
       role="toolbar"
       aria-label="注釈ツール"
       style={{ ...STYLES.toolbar, ...(isMobile ? STYLES.toolbarMobile : {}) }}
+      onFocus={handleMobileFocusReveal}
     >
       {TOOL_ORDER.map((toolId) => {
         const tool = TOOL_DEFINITIONS[toolId];
@@ -553,6 +1053,7 @@ function AnnotationToolbar({
             isActive={isActive}
             disabled={disabled}
             onClick={() => handleToolClick(toolId)}
+            isMobile={isMobile}
           />
         );
       })}
@@ -564,6 +1065,7 @@ function AnnotationToolbar({
         onStyleChange={handleStyleChange}
         disabled={disabled}
         isMobile={isMobile}
+        visible={stylePanelVisible}
       />
 
       {/* アクションボタン */}
@@ -580,6 +1082,7 @@ function AnnotationToolbar({
             type="button"
             style={{
               ...STYLES.actionButton,
+              ...actionTapTarget,
               ...(disabled ? STYLES.actionButtonDisabled : {}),
             }}
             onClick={onRotate}
@@ -612,6 +1115,7 @@ function AnnotationToolbar({
           type="button"
           style={{
             ...STYLES.actionButton,
+            ...actionTapTarget,
             ...(disabled || !canUndo ? STYLES.actionButtonDisabled : {}),
           }}
           onClick={onUndo}
@@ -640,6 +1144,7 @@ function AnnotationToolbar({
           type="button"
           style={{
             ...STYLES.actionButton,
+            ...actionTapTarget,
             ...(disabled || !canRedo ? STYLES.actionButtonDisabled : {}),
           }}
           onClick={onRedo}
@@ -667,17 +1172,25 @@ function AnnotationToolbar({
         <div style={STYLES.separator} />
 
         {/* 保存ボタン */}
+        {/* Task 115.105 (Req 15.6): 通信が切れている間はサーバー保存だけを抑止する。
+            描画やエクスポートは手元で完結するため操作可能なまま残す。
+            抑止は `disabled` ではなく `aria-disabled` で表す。押下自体は成立させ、
+            押下時に抑止の理由（オフラインである旨）を提示するため。 */}
         <button
           type="button"
           style={{
             ...STYLES.actionButton,
+            ...actionTapTarget,
             ...STYLES.actionButtonPrimary,
-            ...(disabled ? STYLES.actionButtonDisabled : {}),
+            ...(disabled || saveDisabled ? STYLES.actionButtonDisabled : {}),
+            ...(isMobile ? STYLES.mobileInsetFocusRingOnFill : {}),
           }}
           onClick={onSave}
           disabled={disabled}
+          aria-disabled={disabled || saveDisabled}
           aria-label="保存"
-          title="保存"
+          title={saveDisabled && saveDisabledReason ? saveDisabledReason : '保存'}
+          data-testid="annotation-save-button"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -702,6 +1215,7 @@ function AnnotationToolbar({
           type="button"
           style={{
             ...STYLES.actionButton,
+            ...actionTapTarget,
             ...(disabled ? STYLES.actionButtonDisabled : {}),
           }}
           onClick={onExport}

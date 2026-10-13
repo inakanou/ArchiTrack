@@ -20,7 +20,7 @@
  */
 
 import nodemailer, { type Transporter } from 'nodemailer';
-import Bull, { type Queue, type Job } from 'bull';
+import Bull, { type Queue, type Job, type JobOptions } from 'bull';
 import Handlebars from 'handlebars';
 import logger from '../utils/logger.js';
 import { readFileSync } from 'fs';
@@ -30,6 +30,45 @@ import { fileURLToPath } from 'url';
 // __dirnameをESモジュールで取得
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+/**
+ * メール再送の backoff 戦略名（Bull の settings.backoffStrategies に登録する名前）
+ */
+const EMAIL_RETRY_BACKOFF_TYPE = 'email-retry-schedule';
+
+/**
+ * リトライ遅延（ミリ秒）: 1分、5分、15分、1時間、6時間（要件24.3）
+ */
+const RETRY_DELAYS: readonly [number, ...number[]] = [
+  60 * 1000, // 1分
+  5 * 60 * 1000, // 5分
+  15 * 60 * 1000, // 15分
+  60 * 60 * 1000, // 1時間
+  6 * 60 * 60 * 1000, // 6時間
+];
+
+/**
+ * メールジョブの試行回数: 初回 1 回 + リトライ 5 回
+ *
+ * 要件24.3「最大5回までリトライ（1分、5分、15分、1時間、6時間後）」は間隔を 5 つ挙げるため、
+ * リトライ 5 回（初回を含めない）と読む（design.md の EmailService 節、2026-09-26 タスク35.1 の決定）。
+ */
+const EMAIL_JOB_ATTEMPTS = 1 + RETRY_DELAYS.length;
+
+/**
+ * メール再送の backoff 戦略（要件24.3）
+ *
+ * Bull 4 は失敗のたびに attemptsMade を 1 増やしてから戦略を呼ぶため、
+ * n 回目の失敗の後の待ち時間は RETRY_DELAYS[n − 1] となる（n = 1..5）。
+ * 試行回数が EMAIL_JOB_ATTEMPTS のとき範囲外では呼ばれないが、念のため両端に丸める。
+ *
+ * @param attemptsMade - これまでに失敗した試行の回数
+ * @returns 次の試行までの待ち時間（ミリ秒）
+ */
+function emailRetryBackoff(attemptsMade: number): number {
+  const index = Math.min(Math.max(attemptsMade, 1), RETRY_DELAYS.length) - 1;
+  return RETRY_DELAYS[index] ?? RETRY_DELAYS[0];
+}
 
 /**
  * メールジョブデータ（招待メール）
@@ -81,17 +120,6 @@ export class EmailService {
   private emailQueue: Queue;
   private readonly frontendUrl: string;
 
-  /**
-   * リトライ遅延（ミリ秒）: 1分、5分、15分、1時間、6時間
-   */
-  private readonly RETRY_DELAYS = [
-    60 * 1000, // 1分
-    5 * 60 * 1000, // 5分
-    15 * 60 * 1000, // 15分
-    60 * 60 * 1000, // 1時間
-    6 * 60 * 60 * 1000, // 6時間
-  ];
-
   constructor(transporter?: Transporter, queue?: Queue) {
     // テスト時は注入されたモックを使用
     if (transporter && queue) {
@@ -130,10 +158,14 @@ export class EmailService {
     this.transporter = nodemailer.createTransport(smtpConfig);
 
     // Bullキュー設定
+    // 再送間隔（要件24.3）はキュー生成時に登録するカスタム backoff 戦略で与える
     this.emailQueue = new Bull('email-queue', {
       redis: {
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      },
+      settings: {
+        backoffStrategies: { [EMAIL_RETRY_BACKOFF_TYPE]: emailRetryBackoff },
       },
     });
 
@@ -169,23 +201,25 @@ export class EmailService {
   }
 
   /**
+   * メールジョブの再送オプション（要件24.3）
+   *
+   * 試行は初回 + リトライ 5 回、間隔はキューに登録した EMAIL_RETRY_BACKOFF_TYPE 戦略が返す。
+   */
+  private retryJobOptions(): JobOptions {
+    return {
+      attempts: EMAIL_JOB_ATTEMPTS,
+      backoff: { type: EMAIL_RETRY_BACKOFF_TYPE },
+    };
+  }
+
+  /**
    * 招待メールを送信（非同期キュー）
    *
    * @param to - 送信先メールアドレス
    * @param invitationToken - 招待トークン
    */
   async sendInvitationEmail(to: string, invitationToken: string): Promise<void> {
-    await this.emailQueue.add(
-      'invitation-email',
-      { to, invitationToken },
-      {
-        attempts: 5,
-        backoff: {
-          type: 'exponential',
-          delay: this.RETRY_DELAYS[0],
-        },
-      }
-    );
+    await this.emailQueue.add('invitation-email', { to, invitationToken }, this.retryJobOptions());
 
     logger.info({ to }, 'Invitation email queued');
   }
@@ -201,17 +235,7 @@ export class EmailService {
       { to, resetToken: resetToken.substring(0, 10) + '...' },
       'Queueing password reset email'
     );
-    await this.emailQueue.add(
-      'password-reset-email',
-      { to, resetToken },
-      {
-        attempts: 5,
-        backoff: {
-          type: 'exponential',
-          delay: this.RETRY_DELAYS[0],
-        },
-      }
-    );
+    await this.emailQueue.add('password-reset-email', { to, resetToken }, this.retryJobOptions());
 
     logger.info({ to }, 'Password reset email queued');
   }
@@ -222,17 +246,7 @@ export class EmailService {
    * @param to - 送信先メールアドレス
    */
   async send2FAEnabledEmail(to: string): Promise<void> {
-    await this.emailQueue.add(
-      '2fa-enabled-email',
-      { to },
-      {
-        attempts: 5,
-        backoff: {
-          type: 'exponential',
-          delay: this.RETRY_DELAYS[0],
-        },
-      }
-    );
+    await this.emailQueue.add('2fa-enabled-email', { to }, this.retryJobOptions());
 
     logger.info({ to }, '2FA enabled email queued');
   }
@@ -256,13 +270,7 @@ export class EmailService {
     await this.emailQueue.add(
       'admin-role-changed-alert',
       { adminEmails, targetUser, action, roleName, performedBy },
-      {
-        attempts: 5,
-        backoff: {
-          type: 'exponential',
-          delay: this.RETRY_DELAYS[0],
-        },
-      }
+      this.retryJobOptions()
     );
 
     logger.info({ adminEmails, targetUser, action }, 'Admin role changed alert queued');

@@ -2,7 +2,33 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-08-05（Steering Sync: 見積明細の編集・保存パターン（domain層の純関数への遷移ロジック分離、ツリー全体の差分適用による一括保存 `PUT /api/estimates/:id/save`、IDを維持する更新とtempIdによる親子解決、楽観ロック、Undo/Redo、未保存プレビュー）と帳票生成方針（フロントエンド生成を既定化、レイアウト計算と描画の分離、`load*ExportService.ts` による動的import分離）を追加。backend jspdf の用途から見積書を除外、Prisma client 7.9.1 / @anthropic-ai/sdk 0.106.0 / jsdom 30 / @testing-library/jest-dom 7 へ版数を是正）_
+_最終更新: 2026-10-08（Steering Sync: project-management のタスク75.2。「フォーカス表示方針」の「既存の逸脱」が持っていた件数（2026-10-07、HEAD `041a0fc8` の実測で 49 か所）は、trading-partner-management のタスク33.1 の是正と quantity-table-generation の到達しない部品の整理で、2026-10-08（HEAD `c8036acd`）の同じ grep では 44 か所になっていた。値を書き換える形は採らず、「主要ジョブ」「監視対象エコシステム」と同じ規約 (b)（数値を落として数える手段を書く）を当て、件数のコマンドにファイルごとの内訳を読み出すコマンドを添えた）_
+
+_最終更新: 2026-10-02（Steering Sync: cc-sdd を 3.1 の Skills モードへ揃え、v2 系の旧コマンド方式（`.claude/commands/kiro/`・`.claude/agents/kiro/`・`.kiro/settings/rules/`）を撤去したことに伴い、「Kiroスキル（スラッシュコマンド）」と「ワークフロー」の旧コマンド表記 `/kiro:*` を現行スキル（`kiro-*`）の表記へ改め、Skills モードで加わった入口・実装・統合検証のスキルを一覧へ加えた）_
+
+_最終更新: 2026-09-29（Steering Sync: user-authentication のタスク37.2。「接続障害への耐性」の「権限の確認も同じ経路へ」が権限キャッシュの読み込み側しか述べていなかったため、無効化の側の Redis の未接続時の振る舞い（送らずに警告して TTL に任せる）と、世代の照合による古い書き戻しの防止、コミット後の処理の順序を追記した）_
+
+_最終更新: 2026-09-28（Steering Sync: user-authentication のタスク36.8。スペック横断で効く DB 接続障害の扱い——接続の取得だけを再試行する `RetryingPool`（タスク35.2 / 35.9）、P1008 を含む接続のタイムアウトの 503（35.8）、サービスの投げ直し（35.11）、対話型トランザクションの `maxWait`（35.12）、`requirePermission` の 503 と共有の RBACService（35.13 / 36.2）、pino の `err` キー（36.8）——が steering に無かったため、「データベース・キャッシュ」節へ「接続障害への耐性」を追加した）_
+
+_最終更新: 2026-09-09（Steering Sync: `/kiro-steering`。「CI/CD」節の二つの列挙が実体から離れていた。(1)「主要ジョブ」の 7 件の列挙に対し `.github/workflows/ci.yml` が定義するジョブは 18 件で、欠けていた 11 件のうち 9 件はスペックと steering の関門ジョブ（`requirement-coverage`・`requirement-exclusions-schema`・`criterion-literal-presence`・`e2e-assertion-guard`・`design-reference-format`・`e2e-in-page-selfjudgement`・`counterfactual-evidence`・`dead-script-env`）と `test-storybook` であった。(2)「監視対象エコシステム（5つ、計85依存関係）」の内訳 7／42／36 に対し実測は root 24・backend 77・frontend 52（計 153）、`5 actions` に対し実測 6、`2 images` に対し実測 3 である（コミット `faa54052`、2026-09-09 にリポジトリルートで実測）。いずれも値を書き換える形は採らず、タスク 115.286 が「Pre-pushフック」節へ掛けた規約 (b)（列挙・数値を落として読み出す手段を書く）を同じ形で当てた。この二箇所が陳腐化したまま残っていたのは、`npm run check:steering-dir-counts` の走査対象が `structure.md` と `product.md` の二件で、本書は誤検出 1 件を避けるため所管の外に置かれているためである（`scripts/check-steering-dir-counts.ts` 冒頭の記述）。本書を所管へ加える案は今回は採っていない——「推奨事項」として起票のみ）_
+
+_最終更新: 2026-09-05（Steering Sync: タスク 115.288。「ES Module Validation」節が frontend 側にも同名の検証スクリプトが在るかのように書いていたが、`frontend/package.json` に `validate:esm` は無い。実測: 実際に叩くと `npm error Missing script: "validate:esm"` を出して終了コード 1 で終わり、`git log --all -S 'validate:esm' -- frontend/package.json` は空である（一度も存在したことがない）。frontend 側の記述を撤去し、併せて backend の `validate:esm` の実体——ビルドと、出力された `.js` を一つずつ `node --check` へ通すこと——へ節の散文を揃えた。同型の食い違いを機械で捕らえるため、steering の述べる検証の実行方法と実挙動の一致を見る関門 `check:steering-command-annotations` を新設し、押下前の関門と統合の両方へ算入した。見るのは `missing-script`（名指した npm スクリプトの実在）・`overclaimed-scope` と `underclaimed-scope`（全件／一部だけの主張と vitest の構成から導いた選択範囲の突き合わせ）・`divergent-executor`（同じ資材を名指す起動コマンドが一つの実行器を名乗ること）の四種である（コミット `511000a7`、2026-09-05 にリポジトリルートで実測））_
+
+_2026-09-05（Steering Sync: タスク 115.287。`e2e/helpers/browser.ts` の起動コマンドについて、本節が `.kiro/steering/` における権威であることを明示し、実行器が `tsx` である根拠（実際に叩いた出力）を併記した。`.kiro/steering/structure.md` は同じ起動を `npx ts-node` と書き写しており（3 行）、タスク 115.199 が本書だけを `npx tsx` へ是正した 2026-08-30 以降ずっと食い違っていた。同書からは値を撤去し、本節を読み出す手段だけを残した（コミット `3e670d6a`、2026-09-05 にリポジトリルートで実測））_
+
+_2026-09-05（Steering Sync: タスク 115.286。「Pre-pushフック」節が持っていた番号付きの列挙を撤去し、`.husky/scripts/pre-push.sh` から手順と検査を読み出す手段だけを残した（`.kiro/steering/structure.md` の「押下前の関門の書き方の規約」と同じ規約）。撤去前の列挙はDocker のテスト環境の構築を先頭（`0.`）に置いていたが実体では Format / 型 / Lint / ビルド / セキュリティ監査 / 単体テスト / Storybook より後に走り、名指していた検査は「要件カバレッジチェック」だけであった（コミット `98744b92`、2026-09-05 にリポジトリルートで実測））_
+
+_2026-09-02（Steering Sync: タスク 115.245。タスク 115.243 が注記に留めた `test:all` の連結を決着させた。`&&` を逐次実行へ改め、既定側が落ちても統合側が走る形にした（終了コードは従来どおり、どちらかが落ちれば非零）。判断の根拠は steering 自身が `test:all` へ「両方を合わせた数を数える手段」という役目を与えている点で、既定側の失敗で統合側の数が出ない形はその役目を果たさない。実測: 是正前は既定側を落とすと統合側が一度も呼ばれず、是正後は四通り（既定のみ失敗・統合のみ失敗・両方失敗・両方成功）すべてで両方が呼ばれる。連結は `backend/src/__tests__/unit/config/test-all-script-connective.test.ts` が実行して固定する）_
+
+_2026-09-02（Steering Sync: タスク 115.243。タスク 115.216 が統合検証を既定の実行から構成として外した結果、`npm --prefix backend run test` に付いていた註「全テスト実行」が偽になっていたため、既定の実行（統合検証を除く）・`test:integration`（統合検証のみ）・`test:all`（両方）を書き分けた。`coverage:check` の註「0%カバレッジファイル検出」も実体——直前のカバレッジ実行が残した結果を読み、低カバレッジのファイルを段階別に報告する——へ是正。frontend の `test` は全件を選ぶことを実測で確かめたうえで、その旨を註に明示した。`test:all` が `&&` 連結で前半の失敗により後半を飛ばす件は注記に留め、繋ぎ方の判断はタスク 115.245 へ送る）_
+
+_2026-08-30（Steering Sync: タスク 115.200。テスト区分の列挙を「網羅」と「代表例」へ書き分け、網羅側だけを印（`<!-- steering:test-dirs <根> -->`）で囲んで `npm run check:steering-test-tree` の検査対象にした。`backend/src/__tests__/`（`unit/` と `integration/`）、`backend/src/__tests__/unit/`（11区分。従来は6区分しか挙げておらず `docs/`／`models/`／`schemas/`／`scripts/`／`types/` が欠落）、`frontend/src/__tests__/`（13区分。従来は2区分）を網羅へ是正。E2Eカテゴリの網羅列挙は `structure.md` の `e2e/` 節へ一本化した。テストの件数・テストファイル数は steering から撤去し、数える手段だけを残した（実測: 3文書に散った数値59個のうち38個が既に陳腐化していた））_
+
+_2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`.github/workflows/e2e-tests.yml` は存在せず、E2E は `.github/workflows/ci.yml` の `Integration & E2E Tests` ジョブで走る）。散文中の `e2e/helpers/browser.js` も実体の `browser.ts` へ是正し、起動を `npx tsx` へ改めた（散文は検査の対象外であり、この一件は手で是正した））_
+
+_2026-08-28（Steering Sync: タスク 115.169。ビューポート制御・two-layer 構成の共有先を実測へ是正（撤去済みの `ImageViewer` ではなく `AnnotationEditor`（閲覧モードは `readOnly` 描画）と `ConstructionPhotoImageViewer`）。`env-validator.test.ts` を `unit/config/env.test.ts` へ、ログアーカイブのテスト件数を実測 15 へ是正。記載ファイルの実在は `npm run check:steering-refs` が検知する）_
+
+_2026-08-05（Steering Sync: 見積明細の編集・保存パターン（domain層の純関数への遷移ロジック分離、ツリー全体の差分適用による一括保存 `PUT /api/estimates/:id/save`、IDを維持する更新とtempIdによる親子解決、楽観ロック、Undo/Redo、未保存プレビュー）と帳票生成方針（フロントエンド生成を既定化、レイアウト計算と描画の分離、`load*ExportService.ts` による動的import分離）を追加。backend jspdf の用途から見積書を除外、Prisma client 7.9.1 / @anthropic-ai/sdk 0.106.0 / jsdom 30 / @testing-library/jest-dom 7 へ版数を是正）_
 
 _2026-07-29（Steering Sync: 工事写真台帳（construction-photo）の技術要素を反映。jspdf/jszip の用途に工事写真台帳を追記、工事看板のサーバサイド合成パターン（構造化テキスト→SVG描画 `signboard-svg.service` → sharp composite `signboard-composite.service` によるオンデマンド看板重畳。クライアント fabric 合成とは別系統のサーバ側合成路）を追加）_
 
@@ -69,7 +95,7 @@ ArchiTrack/
 - `react` ^19.2.3 - UIライブラリ
 - `react-dom` ^19.2.4 - React DOM操作
 - `react-router-dom` ^7.16.0 - React Router v7（ルーティング、7.14.2以下のDoS脆弱性 GHSA-8x6r-g9mw-2r78 対応で7.16.0へ更新）
-- `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応、2本指ピンチでの中点ズーム/パンとフィットを提供。ビューポート制御は `gestures/canvasViewportController`（純粋ロジック）→ `hooks/useCanvasViewport` → `ZoomControls`（表示専用）の一方向依存で構成し、`ImageViewer`/`AnnotationEditor` が共有する）
+- `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応、2本指ピンチでの中点ズーム/パンとフィットを提供。ビューポート制御は `gestures/canvasViewportController`（純粋ロジック）→ `hooks/useCanvasViewport` → `ZoomControls`（表示専用）の一方向依存で構成し、`AnnotationEditor`（閲覧モードは `readOnly` 描画）と `ConstructionPhotoImageViewer` が共有する）
 - `jspdf` ^4.0.0 - PDF帳票生成（現場調査報告書、数量表、見積書帳票＝A4横の表紙/内訳書/明細書、工事写真台帳の看板重畳）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・見積依頼エクスポート、SheetJS。npmレジストリではなくSheetJS公式CDNのtarballから取得）
 - `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像・工事写真の一括エクスポート、型定義同梱）
@@ -133,10 +159,29 @@ ArchiTrack/
 
 - **ブレークポイントの単一情報源**: `utils/responsive.ts` の `BREAKPOINTS` / `MEDIA_QUERIES` に集約する。JS 側は `useMediaQuery(MEDIA_QUERIES.isMobile)`（`max-width: 767px`）で判定し、CSS の `@media` を書く場合も同じ境界値に揃える。コンポーネント内にブレークポイント値をハードコードしない
 - **モバイルスタイルの合成パターン**: 基底の `STYLES` に `...Mobile` サフィックスのオーバーライドを併置し、`{ ...styles.base, ...(isMobile ? styles.baseMobile : {}) }` の spread 合成で適用する（例: `PhotoManagementPanel`、`AnnotationToolbar`）。デスクトップの既存レイアウトは基底側を変更せずに維持する
-- **モバイルの下限値**: 入力系コントロールは `fontSize: 16px` 以上（フォーカス時のモバイルブラウザ自動ズームを抑止）、操作系コントロールのタップ領域は最小 44×44 論理ピクセル（WCAG 2.2 SC 2.5.5 Target Size (Enhanced)）
+- **モバイルの下限値**: 入力系コントロールは `fontSize: 16px` 以上（フォーカス時のモバイルブラウザ自動ズームを抑止）、操作系コントロールのタップ領域は最小 44×44 論理ピクセル（WCAG 2.2 SC 2.5.5 Target Size (Enhanced)）。タップ領域の下限の実装側の単一情報源は `utils/tap-target.ts` の `TAP_TARGET_MIN_PX` であり、コンポーネントは値を直書きせずここから取り込む（テストは実装から独立した立会人として 44 を自前で持つ）
 - **動的ビューポート高**: モバイルのアドレスバー伸縮に追従させるため `svh` を基準にし、非対応ブラウザ向けに `vh` を先に宣言して `svh` で上書きする「二段宣言」でフォールバックする。React のインライン style オブジェクトは同一プロパティを二重宣言できずこのフォールバックを表現できないため、**この用途に限り** CSS ファイルを併置する（例: `pages/SiteSurveyImageViewerPage.css`）
 - **画像フィット倍率**: `utils/imageFitScale` の `computeFitScale`（純関数・React 非依存）に一元化する。`allowUpscale=false`（既定）は原寸頭打ちでデスクトップの現行挙動を維持し、`allowUpscale=true` は `maxUpscale`（既定 3）までフィット拡大して小画像の過小表示を防ぐ。表示領域の実寸は `hooks/useElementSize`（ResizeObserver、非対応環境では購読せず例外も出さない）で購読し、コンテナ寸法の変化に追従して再フィットする
-- **責務の分離**: 「画像→コンテナのフィット」（`computeFitScale` によるキャンバス寸法算出）と「コンテナ内のズーム/パン」（`gestures/canvasViewportController`）は別レイヤとして扱い、混在させない。`ImageViewer` / `AnnotationEditor` はこの two-layer 構成を共有する
+- **責務の分離**: 「画像→コンテナのフィット」（`computeFitScale` によるキャンバス寸法算出）と「コンテナ内のズーム/パン」（`gestures/canvasViewportController`）は別レイヤとして扱い、混在させない。`AnnotationEditor`（閲覧/編集の両モード）と `ConstructionPhotoImageViewer` はこの two-layer 構成を共有する
+
+### フォーカス表示方針
+
+キーボード操作時のフォーカス表示（WCAG 2.1 SC 2.4.7 Focus Visible）を全画面で保つための横断ルール。新規画面・コンポーネントも同じ方針に従う。
+
+- **共通のフォーカス表示の単一情報源**: `frontend/src/index.css` の `@layer base` に置いた `:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }` が全画面の既定である（project-management タスク 72.3）。部品ごとにフォーカス表示を書き足さなくても、この規則で表示される
+- **インラインの `outline: 'none'` を書かない**: React のインライン style は stylesheet の規則に勝つため、部品の側で `outline: 'none'` を書くとその部品では共通のフォーカス表示が出なくなる
+- **独自の輪を描く場合の下限**: 部品が自前のフォーカス表示（Tailwind の `focus:ring`、`box-shadow`、`focus:outline-none` と ring の組など）を描く場合は、太さ 2px 以上、隣接色に対するコントラスト比 3:1 以上（WCAG 2.1 SC 1.4.11 Non-text Contrast）にする
+- **既存の逸脱 — 件数と内訳は本書へ書かない（規約 (b)。「主要ジョブ」「監視対象エコシステム」と同型）**: テストと Storybook を除く本番の部品・ページに、インラインの `outline: 'none'` がまだ残っている。是正は各機能のスペックの責務であり、本方針の記録の範囲外とする。2026-10-08（HEAD `c8036acd`）の実測では、残る箇所に project-management の部品は無い。件数と、どの部品に残っているかは次で読み出す（いずれもリポジトリルートで実行する）
+
+```bash
+# 件数
+grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx \
+  | grep -vE "__tests__|\.test\.|\.stories\." | wc -l
+
+# ファイルごとの内訳（components/ の下のディレクトリ名とページ名が機能の手掛かりになる）
+grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx \
+  | grep -vE "__tests__|\.test\.|\.stories\." | cut -d: -f1 | sort | uniq -c
+```
 
 ### 帳票生成方針（フロントエンド）
 
@@ -271,6 +316,17 @@ ArchiTrack/
 - **接続方式**: ioredisクライアントライブラリ経由
 - **ヘルスチェック**: `redis-cli ping`コマンド
 
+### 接続障害への耐性（backend 全体に効く規約）
+
+DB 接続の障害は、層ごとに次の形で扱う。個々のサービス・ルートに独自の再試行や状態コードの変換を書かない。
+
+- **接続の取得だけを再試行する**: `backend/src/db.ts` の `RetryingPool`（`pg.Pool` の派生）を `PrismaPg` へ渡し、接続の確立がタイムアウトしたとき（`ETIMEDOUT`・pg-pool のタイムアウト文言）に限って再試行する。間隔は `dbConnectRetryDelaysMs()`（`backend/src/utils/db-connect-budget.ts`）が 1000 × 2^(n−1) ms で求める。回数は `DATABASE_RETRY_COUNT`（既定 3、0〜10）、1 回の試行の上限は `DATABASE_CONNECTION_TIMEOUT`（既定 5000ms）で、検証は `backend/src/config/env.ts` の解析関数に一本化する。SQL の実行は再試行しない（送信前に失敗した接続だけを対象にするため、書き込みが二重にならない）
+- **接続のタイムアウトは 503**: 判定は `backend/src/utils/db-connection-timeout.ts` の `isDatabaseConnectionTimeout()`（再試行を使い切った pg-pool のタイムアウトと Prisma の P1008）ひとつに置く。エラーハンドラー（`backend/src/middleware/errorHandler.middleware.ts`）は Prisma の既知のエラーの分岐より**前**でこれを判定し、503 の Problem Details を返す（P1008 を 400「Database Error」にしない）
+- **サービスは接続のタイムアウトを飲み込まない**: DB 例外を `DATABASE_ERROR` などの Result へ変える catch の先頭で `rethrowIfDatabaseConnectionTimeout()` を呼び、ルートの `next(error)` からエラーハンドラーの 503 へ届ける。それ以外の DB 例外の扱いは変えない
+- **対話型トランザクションは接続の予算を待つ**: 認証系のサービスの `$transaction(async (tx) => …)` には `connectBudgetTransactionOptions()` を渡す。`maxWait` を「再試行の予算 + Prisma の既定 2000ms」にし、開始の待ちが先に切れて原因を持たない P2028 になるのを避ける
+- **権限の確認も同じ経路へ**: `backend/src/middleware/authorize.middleware.ts` の `requirePermission()` は、接続のタイムアウトを自前の 500 にせず `next(error)` でエラーハンドラーの 503 へ渡す。権限の取得は `getSharedRBACService()`（`backend/src/services/rbac.service.ts`）が返す共有の `RBACService` を使い、Redis の権限キャッシュとロール・権限の変更時の無効化が同じインスタンスを読み書きする。Redis が `ready` でないときはキャッシュを使わず DB から取得する。無効化の側も同じく、`ready` でないときはコマンドを送らず（ioredis のオフラインキューで変更の API の応答を待たせないため）`err` キー付きの警告ログを残して続行し、残ったエントリはキャッシュの TTL（15 分）で消える。無効化はキャッシュの削除とユーザーごとの世代の `INCR` を不可分に行い、権限の確認は DB を読む前に読んだ世代が書き込みの時点で変わっていないときだけキャッシュへ書き込む（無効化の後に古い権限を書き戻さない）。コミット後の処理では無効化をアラートの送信より先に行い、アラートの失敗はコミット済みの変更を失敗にしない（タスク37.2）
+- **ログのキーは `err`**: Error をログへ載せるときは pino の `err` キーを使う（`logger.error({ err: error, … }, …)`）。`backend/src/utils/logger.ts` のシリアライザは `err` にだけ効き、`error` などの別のキーに載せた Error は本番の JSON で `{}` になり message と stack が失われる
+
 ## 単体テスト
 
 ### 技術スタック
@@ -307,53 +363,102 @@ coverage: {
 ```
 
 **テスト構成:**
-- `backend/src/__tests__/` - テストファイル配置
-  - `unit/errors/` - エラークラステスト（21テスト）
-    - `ApiError.test.ts` - カスタムAPIエラークラスのテスト
-  - `unit/middleware/` - ミドルウェアテスト（91テスト）
-    - `errorHandler.test.ts` - エラーハンドリングミドルウェア（Zod、Prisma、一般エラー）
-    - `httpsRedirect.test.ts` - HTTPS強制リダイレクトとHSTSヘッダー
-    - `validate.test.ts` - Zodバリデーションミドルウェア（body/query/params）
-    - `authenticate.middleware.test.ts` - JWT認証ミドルウェア（10テスト）
-    - `authorize.middleware.test.ts` - 権限チェックミドルウェア（13テスト）
-    - `RedisRateLimitStore.test.ts` - Redisレート制限ストア（14テスト、カバレッジ100%）
-    - `rateLimit.test.ts` - レート制限ミドルウェア（3テスト）
-    - `logger.test.ts` - HTTPロガーミドルウェア（17テスト）
-  - `unit/routes/` - ルートテスト（23テスト）
-    - `admin.routes.test.ts` - 管理者用ルート（ログレベル動的変更）
-    - `jwks.routes.test.ts` - JWKS公開鍵配信エンドポイント（8テスト、カバレッジ100%）
-  - `unit/services/` - サービステスト（324テスト）
-    - `auth.service.test.ts` - 認証統合サービス（24テスト）
-    - `token.service.test.ts` - JWTトークン管理（EdDSA署名、18テスト）
-    - `session.service.test.ts` - セッション管理（19テスト）
-    - `invitation.service.test.ts` - 招待制登録（16テスト）
-    - `password.service.test.ts` - パスワード管理（35テスト）
-    - `two-factor.service.test.ts` - 2FA管理（TOTP + バックアップコード）
-    - `role.service.test.ts` - ロール管理（23テスト）
-    - `permission.service.test.ts` - 権限管理（23テスト）
-    - `role-permission.service.test.ts` - ロール権限紐付け（24テスト）
-    - `user-role.service.test.ts` - ユーザーロール管理（27テスト）
-    - `rbac.service.test.ts` - RBAC統合サービス（21テスト）
-    - `audit-log.service.test.ts` - 監査ログ（35テスト）
-    - `audit-log-archive.service.test.ts` - ログアーカイブ（6テスト）
-    - `email.service.test.ts` - メール送信（Bull非同期キュー、14テスト）
-  - `unit/utils/` - ユーティリティテスト（14テスト）
-    - `sentry.test.ts` - Sentryユーティリティ（カバレッジ94.11%）
-    - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
+
+テストは `backend/src/__tests__/` 以下に置く。**区分（ディレクトリ）の列挙は網羅**であり、
+実体との一致は `npm run check:steering-test-tree` が検査する（印で囲まれていない列挙は代表例）。
+
+<!-- steering:test-dirs backend/src/__tests__ -->
+- `unit/` - 単体テスト（外部依存はモック。既定の `test:unit` が走らせる範囲）
+- `integration/` - 統合テスト（PostgreSQL・Redis を実際に起動して確かめる）
+<!-- /steering:test-dirs -->
+
+<!-- steering:test-dirs backend/src/__tests__/unit -->
+- `unit/config/` - 設定テスト（環境変数バリデーション、ストレージ設定、セキュリティ定数）
+- `unit/docs/` - OpenAPI 仕様生成のテスト
+- `unit/errors/` - カスタムエラークラスのテスト（機能ごとのエラー型を含む）
+- `unit/middleware/` - ミドルウェアのテスト（認証、認可、検証、CSRF、レート制限、ロガー、アップロード）
+- `unit/models/` - Prisma のモデル・マイグレーションのテスト
+- `unit/routes/` - ルートのテスト（supertest で HTTP 経路を通す）
+- `unit/schemas/` - Zod バリデーションスキーマのテスト
+- `unit/scripts/` - 運用スクリプトのテスト（バックフィル、鍵生成）
+- `unit/services/` - サービス層のテスト
+- `unit/types/` - 型定義まわりのテスト
+- `unit/utils/` - ユーティリティのテスト
+<!-- /steering:test-dirs -->
+
+`unit/` 直下には、どの区分にも属さないテストもある。
+
+- `unit/app.test.ts` - Express アプリケーション
+- `unit/health.test.ts` - ヘルスチェック
+
+**代表例**（網羅ではない。全件は各区分のディレクトリを見ること）:
+
+- `unit/errors/ApiError.test.ts` - カスタムAPIエラークラス
+- `unit/middleware/errorHandler.test.ts` - エラーハンドリング（Zod、Prisma、一般エラー）
+- `unit/middleware/httpsRedirect.test.ts` - HTTPS強制リダイレクトとHSTSヘッダー
+- `unit/middleware/validate.test.ts` - Zodバリデーション（body/query/params）
+- `unit/middleware/authenticate.middleware.test.ts` - JWT認証ミドルウェア
+- `unit/middleware/authorize.middleware.test.ts` - 権限チェックミドルウェア
+- `unit/middleware/RedisRateLimitStore.test.ts` - Redisレート制限ストア（カバレッジ100%）
+- `unit/middleware/rateLimit.test.ts` - レート制限ミドルウェア
+- `unit/middleware/logger.test.ts` - HTTPロガーミドルウェア
+- `unit/routes/admin.routes.test.ts` - 管理者用ルート（ログレベル動的変更）
+- `unit/routes/jwks.routes.test.ts` - JWKS公開鍵配信エンドポイント（カバレッジ100%）
+- `unit/services/auth.service.test.ts` - 認証統合サービス
+- `unit/services/token.service.test.ts` - JWTトークン管理（EdDSA署名）
+- `unit/services/session.service.test.ts` - セッション管理
+- `unit/services/invitation.service.test.ts` - 招待制登録
+- `unit/services/password.service.test.ts` - パスワード管理
+- `unit/services/two-factor.service.test.ts` - 2FA管理（TOTP + バックアップコード）
+- `unit/services/role.service.test.ts` - ロール管理
+- `unit/services/permission.service.test.ts` - 権限管理
+- `unit/services/role-permission.service.test.ts` - ロール権限紐付け
+- `unit/services/user-role.service.test.ts` - ユーザーロール管理
+- `unit/services/rbac.service.test.ts` - RBAC統合サービス
+- `unit/services/audit-log.service.test.ts` - 監査ログ
+- `unit/services/audit-log-archive.service.test.ts` - ログアーカイブ
+- `unit/services/email.service.test.ts` - メール送信（Bull非同期キュー）
+- `unit/services/project.service.test.ts` - プロジェクト管理
+- `unit/services/project-status.service.test.ts` - プロジェクトステータス遷移
+- `unit/utils/sentry.test.ts` - Sentryユーティリティ（カバレッジ94.11%）
+- `unit/config/env.test.ts` - 環境変数バリデーション
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 単体テスト167ファイル + 統合テスト31ファイル
+**件数について:** steering にテストの件数・ファイル数は書かない。数える手段だけを書く。件数を書くと
+記録した瞬間から陳腐化し、しかも正しい数と古い数が見た目で区別できなくなる（タスク 115.200）。
+
+backend では**数える手段が一つではない**。タスク 115.216 が統合検証を既定の実行から構成として
+外したため、`npm --prefix backend run test` の出力は**既定側の数であって全部の数ではない**。
+既定側は `npm --prefix backend run test`、統合検証は `npm --prefix backend run test:integration`、
+両方を合わせた数は `npm --prefix backend run test:all` の出力で数える（タスク 115.243）。
 
 **実行方法:**
 ```bash
-npm --prefix backend run test        # 全テスト実行
-npm --prefix backend run test:watch  # ウォッチモード
-npm --prefix backend run test:ui     # UIモード
-npm --prefix backend run test:coverage  # カバレッジレポート（閾値チェック付き）
-npm --prefix backend run test:unit   # ユニットテストのみ
-npm --prefix backend run test:unit:coverage  # ユニットテストカバレッジ
-npm --prefix backend run coverage:check  # カバレッジギャップ検出（0%カバレッジファイル検出）
+# 既定の実行。src/ 配下の検証ファイルのうち統合検証を除いたものを回す
+npm --prefix backend run test
+# 統合検証だけを回す（実データベースと実 Redis を要する。test compose を先に起動しておく）
+npm --prefix backend run test:integration
+# 既定 → 統合の順に両方を回す
+npm --prefix backend run test:all
+npm --prefix backend run test:watch  # ウォッチモード（選ぶ範囲は既定の実行と同じ）
+npm --prefix backend run test:ui     # UIモード（選ぶ範囲は既定の実行と同じ）
+npm --prefix backend run test:coverage  # カバレッジレポート（閾値チェック付き。選ぶ範囲は既定の実行と同じ）
+npm --prefix backend run test:integration:coverage  # 統合検証のカバレッジ
+npm --prefix backend run test:unit   # src/__tests__/unit/ 配下だけを回す
+npm --prefix backend run test:unit:coverage  # 同じ範囲のカバレッジ
+npm --prefix backend run coverage:check  # 直前のカバレッジ実行が残した結果を読み、低カバレッジのファイルを段階別に報告する
 ```
+
+`test:all` は既定側と統合側を**逐次に**回す。**既定側が落ちても統合側は走り**、どちらかが落ちれば
+終了コードは非零になる（タスク 115.245）。`&&` で繋いでいた頃は既定側が落ちた時点で統合側が
+一度も走らず、上で `test:all` に与えている「両方を合わせた数を数える手段」という役目を果たせなかった。
+連結の実体は `backend/scripts/run-all-tests.sh` にあり、`test:all` はそれを呼ぶだけである
+（`package.json` に直接書くと `$?` を受ける変数が `npm run check:dead-script-env` に
+死んだ環境変数と誤判定される。理由は当該スクリプトの冒頭に記した）。
+この連結は `backend/src/__tests__/unit/config/test-all-script-connective.test.ts` が実行して固定する
+（`package.json` の文字列をそのまま `sh -c` へ渡し、`vitest` の代役でどちらが呼ばれたかと
+終了コードを観測する。既定側だけが落ちる場合・統合側だけが落ちる場合・両方が落ちる場合・
+両方が通る場合の四通りを当てる）。
 
 **カバレッジ改善履歴:**
 - 2025-11-03: Statements 79.6%→92.64%, Branches 69.5%→86.7%, Functions 76.59%→88.67%, Lines 80.47%→92.83%
@@ -381,26 +486,53 @@ npm --prefix backend run coverage:check  # カバレッジギャップ検出（0
 - `frontend/vitest.setup.ts` - @testing-library/jest-dom グローバルセットアップ
 
 **テスト構成:**
-- `frontend/src/__tests__/` - テストファイル配置
-  - `api/` - APIクライアントテスト
-    - `client.test.ts` - APIクライアント（fetch、エラーハンドリング）
-  - `components/` - Reactコンポーネントテスト
-    - `ErrorBoundary.test.tsx` - エラーバウンダリコンポーネント
+
+frontend のテストは二方式が併存する。`frontend/src/__tests__/` にまとめる方式と、
+対象の隣へ併置する方式（`components/quantity-table/*.test.tsx` など）である。
+**`frontend/src/__tests__/` 直下の区分の列挙は網羅**であり、`npm run check:steering-test-tree`
+が実体との一致を検査する（併置分は対象外。印で囲まれていない列挙は代表例）。
+
+<!-- steering:test-dirs frontend/src/__tests__ -->
+- `accessibility/` - アクセシビリティテスト
+- `api/` - APIクライアントテスト
+- `components/` - Reactコンポーネントテスト
+- `contexts/` - Context Provider のテスト
+- `hooks/` - カスタムフックのテスト
+- `integration/` - 画面をまたぐ結合テスト
+- `pages/` - ページコンポーネントのテスト
+- `performance/` - 描画性能のテスト
+- `routes/` - ルーティングのテスト
+- `services/` - サービス層のテスト
+- `site-surveys/` - 現場調査機能のテスト
+- `types/` - 型定義まわりのテスト
+- `utils/` - ユーティリティのテスト
+<!-- /steering:test-dirs -->
+
+`__tests__/helpers/` はテスト補助であってテストを含まないため、上の区分には入らない。
+`__tests__/` 直下には、どの区分にも属さないテストもある。
+
+- `__tests__/App.test.tsx` - ルートコンポーネント
+- `__tests__/formatters.test.ts` - 表示整形ユーティリティ
+
+**代表例**（網羅ではない）:
+
+- `__tests__/api/client.test.ts` - APIクライアント（fetch、エラーハンドリング）
+- `__tests__/components/ErrorBoundary.test.tsx` - エラーバウンダリコンポーネント
 
 **実行方法:**
 ```bash
-npm --prefix frontend run test        # 全テスト実行
+npm --prefix frontend run test        # 全テスト実行（frontend には既定の実行から外す検証区分が無い）
 npm --prefix frontend run test:watch  # ウォッチモード
 npm --prefix frontend run test:ui     # UIモード
 npm --prefix frontend run test:coverage  # カバレッジレポート
-npm --prefix frontend run coverage:check  # カバレッジギャップ検出（0%カバレッジファイル検出）
+npm --prefix frontend run coverage:check  # 直前のカバレッジ実行が残した結果を読み、低カバレッジのファイルを段階別に報告する
 ```
 
 **テストカバレッジ:**
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 339テストファイル（包括的なユニットテスト群）
+- 件数は `npm --prefix frontend run test` の出力で数える（steering には書かない）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用
@@ -446,25 +578,25 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - `tsconfig.json` - TypeScript設定（E2Eテスト用、Incremental Build有効）
 - `playwright.config.ts` - Playwright設定（WSL2最適化、タイムスタンプ機能）
 - `package.json` - E2Eテスト用依存関係とスクリプト
-- `.github/workflows/e2e-tests.yml` - CI/CD E2Eテストワークフロー
+- `.github/workflows/ci.yml` - CI/CDワークフロー（`Integration & E2E Tests` ジョブでE2Eを実行）
 
 ### テストカテゴリ
 
-- `e2e/specs/api/` - APIエンドポイントのテスト（ヘルスチェック、JWKS）
-- `e2e/specs/ui/` - UIコンポーネントとページのテスト
-- `e2e/specs/integration/` - システム統合テスト
-- `e2e/specs/auth/` - 認証フローテスト（ログイン、登録、2FA、パスワードリセット、招待）
-- `e2e/specs/admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
-- `e2e/specs/security/` - セキュリティテスト（CSRF、XSS対策等）
-- `e2e/specs/navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
-- `e2e/specs/projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作等）
-- `e2e/specs/performance/` - パフォーマンステスト（ページロード時間、プロジェクト操作）
-- `e2e/helpers/` - テストヘルパー・ユーティリティ
-  - `wait-helpers.ts` - CI環境対応の待機ヘルパー（`getTimeout()`パターン）
-  - `auth-actions.ts` - 認証アクション（ログイン、ログアウト、2FA）
-  - `browser.ts` - Claude Code統合ブラウザ操作
-  - `test-users.ts` - テストユーザー定義
-  - `screenshot.ts` - スクリーンショットヘルパー
+`e2e/specs/` のカテゴリ（ディレクトリ）の**網羅列挙は `.kiro/steering/structure.md` の
+`e2e/` 節「テストカテゴリ」にある**。網羅の権威は根ごとに一箇所だけに置く規約であり、
+二箇所に置くと互いに食い違う（`npm run check:steering-test-tree` が重複を失敗にする）。
+
+`e2e/specs/` 直下には、どのカテゴリにも属さない機能横断のスペックも数件ある
+（例: `project-execution-budget-navigation.spec.ts`）。
+
+**テストヘルパーの代表例**（網羅ではない。全件は `e2e/helpers/` を見ること）:
+
+- `wait-helpers.ts` - CI環境対応の待機ヘルパー（`getTimeout()`パターン）
+- `auth-actions.ts` - 認証アクション（ログイン、ログアウト、2FA）
+- `browser.ts` - Claude Code統合ブラウザ操作
+- `test-users.ts` - テストユーザー定義
+- `screenshot.ts` - スクリーンショットヘルパー
+- `preconditions.ts` - 事前条件の生成（各機能の `*-preconditions.ts` が実体を持つ）
 
 ### タイムスタンプ機能
 
@@ -517,18 +649,37 @@ await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
 ### Claude Code統合
 
-`e2e/helpers/browser.js`により、Claude Codeから直接ブラウザ操作が可能：
+`e2e/helpers/browser.ts`により、Claude Codeから直接ブラウザ操作が可能：
 
 ```bash
 # スクリーンショット撮影
-node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
+npx tsx e2e/helpers/browser.ts screenshot http://localhost:5173 screenshot.png
 
 # ページ情報取得
-node e2e/helpers/browser.js info http://localhost:5173
+npx tsx e2e/helpers/browser.ts info http://localhost:5173
 
 # APIテスト
-node e2e/helpers/browser.js api http://localhost:3000/health
+npx tsx e2e/helpers/browser.ts api http://localhost:3000/health
 ```
+
+**本節が `.kiro/steering/` における起動コマンドの権威である**（タスク 115.287）。
+`.kiro/steering/structure.md` は同じ起動を書き写さず、本節を読み出す手段だけを持つ。
+
+**実行器が `tsx` である根拠（実際に叩いて確かめた。コミット `3e670d6a`、2026-09-05 に
+リポジトリルートで実測）:**
+
+- `npx tsx e2e/helpers/browser.ts info http://localhost:5173` はヘルパーの本体まで届く
+  （開発サーバが起動していない状態では `page.goto` の `ERR_CONNECTION_REFUSED` を報告して
+  終了コード 0。読み込み自体は成功している）。引数を与えない起動は使い方を印字して
+  終了コード 1 を返し、ブラウザは起動しない
+- 同じ引数の `npx ts-node …` は**ヘルパーの本体へ入る前に落ちる**——リポジトリルートの
+  `package.json` は `"type": "module"` であり、`ts-node` は ESM の変換を挟まないため
+  `import { chromium, LaunchOptions, BrowserContextOptions }` の型のみの取り込みが
+  構文エラー（SyntaxError） になる（終了コード 1）。使い方の一行も出ない
+- `ts-node` はルートの `node_modules/.bin/` に無く、`backend/package.json` の
+  devDependency にしかない。**それでも `npx` は失敗しない**——レジストリまたは `npx` の
+  取得済みの控えから解決して起動してしまうため、「コマンドが見つからない」形の分かりやすい
+  失敗にはならず、上の 構文エラー（SyntaxError） として現れる
 
 ## 開発環境
 
@@ -792,19 +943,24 @@ cd backend && npx prettier --write "src/**/*.js"
 ### 単体テスト（Vitest）
 
 ```bash
-# Backend単体テスト
-npm --prefix backend run test        # 全テスト実行
+# Backend単体テスト（既定の実行。統合検証は含まれない）
+npm --prefix backend run test
 npm --prefix backend run test:watch  # ウォッチモード
 npm --prefix backend run test:ui     # UIモード
 npm --prefix backend run test:coverage  # カバレッジレポート
 
+# Backend統合検証（実データベース・実 Redis を要する。既定の実行では選ばれない）
+npm --prefix backend run test:integration
+# Backend の既定＋統合を続けて回す
+npm --prefix backend run test:all
+
 # Frontend単体テスト
-npm --prefix frontend run test        # 全テスト実行
+npm --prefix frontend run test        # 全テスト実行（frontend には既定の実行から外す検証区分が無い）
 npm --prefix frontend run test:watch  # ウォッチモード
 npm --prefix frontend run test:ui     # UIモード
 npm --prefix frontend run test:coverage  # カバレッジレポート
 
-# 全ての単体テストを実行（Backend + Frontend）
+# Backend の既定の実行と Frontend の全件（backend の統合検証は含まれない）
 npm --prefix backend run test && npm --prefix frontend run test
 ```
 
@@ -836,9 +992,9 @@ npx playwright test ui/            # UIテストのみ
 npx playwright test integration/   # 統合テストのみ
 
 # Claude Codeからブラウザ操作
-node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
-node e2e/helpers/browser.js info http://localhost:5173
-node e2e/helpers/browser.js api http://localhost:3000/health
+npx tsx e2e/helpers/browser.ts screenshot http://localhost:5173 screenshot.png
+npx tsx e2e/helpers/browser.ts info http://localhost:5173
+npx tsx e2e/helpers/browser.ts api http://localhost:3000/health
 ```
 
 ### フロントエンド開発ツール
@@ -864,32 +1020,41 @@ npm --prefix backend run test:perf:project     # プロジェクトCRUD
 npm --prefix backend run test:perf:trading-partner  # 取引先CRUD
 ```
 
-### Kiroスラッシュコマンド
+### Kiroスキル（スラッシュコマンド）
 
 ```bash
 # ステアリングドキュメント作成・更新
-/kiro:steering
+/kiro-steering
+
+# 新規作業の入口（スペックの要否・分割の判断）
+/kiro-discovery [アイデア]
 
 # 新規仕様の初期化
-/kiro:spec-init [詳細な説明]
+/kiro-spec-init [詳細な説明]
 
 # 要件定義の生成
-/kiro:spec-requirements [feature-name]
+/kiro-spec-requirements [feature-name]
 
 # 技術設計の作成
-/kiro:spec-design [feature-name]
+/kiro-spec-design [feature-name]
 
 # 実装タスクの生成
-/kiro:spec-tasks [feature-name]
+/kiro-spec-tasks [feature-name]
+
+# タスクの実装
+/kiro-impl [feature-name] [タスク番号]
 
 # 仕様の進捗確認
-/kiro:spec-status [feature-name]
+/kiro-spec-status [feature-name]
 
 # 設計品質レビュー
-/kiro:validate-design [feature-name]
+/kiro-validate-design [feature-name]
 
 # 実装ギャップ分析
-/kiro:validate-gap [feature-name]
+/kiro-validate-gap [feature-name]
+
+# 実装の統合検証
+/kiro-validate-impl [feature-name]
 ```
 
 ### TypeScript開発
@@ -1075,27 +1240,35 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 プッシュ・PR時に自動実行されます。
 
-**主要ジョブ:**
-1. **lint** - フォーマット・構文チェック（backend/frontend/e2e並列）
-   - Matrix strategy活用で並列実行
-   - Prettier + ESLint
-2. **typecheck** - TypeScript型チェック（backend/frontend/e2e並列）
-   - Matrix strategy活用で並列実行
-3. **test-unit** - ユニットテスト（backend/frontend並列）
-   - Matrix strategy活用で並列実行
-   - Codecov連携でカバレッジ自動アップロード
-4. **build** - ビルドテスト（backend/frontend並列）
-   - Matrix strategy活用で並列実行
-   - ビルド成果物をartifactとしてアップロード
-5. **test-integration** - 統合・E2Eテスト（順次実行）
-   - Docker Composeでサービス起動
-   - Backend統合テスト + Playwright E2Eテスト
-   - ヘルスチェック待機（最大120秒）
-   - 失敗時にスクリーンショット・ビデオをartifactとしてアップロード
-6. **security** - セキュリティスキャン（backend/frontend並列）
-   - Matrix strategy活用で並列実行
-   - npm audit実行
-7. **ci-success** - 全ジョブ成功確認ゲート
+**主要ジョブ — ジョブの列挙は本書へ書かない（規約 (b)。「Pre-pushフック」節と同型）:**
+
+権威は `.github/workflows/ci.yml` であり、次の二つで読み出す（いずれもリポジトリルートで実行する）。
+
+```bash
+# 定義されているジョブ名を、ファイル内の順序のまま
+awk '/^jobs:/{f=1;next} f && /^  [a-z][a-z0-9_-]*:$/{print NR": "$0}' .github/workflows/ci.yml
+
+# CI が起動するスペック／steering の関門
+grep -oE 'check:[a-z0-9-]+' .github/workflows/ci.yml | sort -u
+```
+
+一つ目が `jobs:` 以降へ範囲を絞るのは、字下げだけでは足りないためである——`grep -nE '^  [a-z][a-z0-9_-]*:$'`
+を単体で当てると `on:` の下の `push:` と `pull_request:` も同じ二字下げで掛かる（値を持つ
+`concurrency:` の下の `group:` は行末の `:` で落ちる）。**限界は拾い過ぎの向きへ倒してある**——
+`jobs:` 以降に同じ字下げのキーが増えれば現れる。
+
+**ジョブの構成の型（個々の名前ではなく、変わりにくい形だけを述べる）:**
+- **並列の静的検査**: lint / typecheck を backend・frontend・e2e の matrix で回す
+- **スペックと steering の関門**: `scripts/check-*.ts` を独立ジョブとして並列に回す
+  （`structure.md` の `scripts/` 節を見よ）
+- **テスト**: 単体（backend/frontend 並列、Codecov 連携）・Storybook・
+  統合／E2E（順次実行。Docker Compose でサービスを起動し、失敗時にスクリーンショットと
+  ビデオを artifact へ上げる）
+- **セキュリティ**: npm audit（backend/frontend 並列）
+- **合流点**: 全ジョブの成功を確認するゲートジョブが、後段のデプロイの前提になる
+
+**押下前の関門と CI の関門は同一ではない。** どちらか一方だけが走らせる検査があるため、
+「CI が緑＝押下前も緑」は成り立たない。差分は `structure.md` の `scripts/` 節が示す `comm` で見る。
 
 **ワークフローの特徴:**
 - **Matrix Strategy**: 並列実行による高速化
@@ -1140,12 +1313,32 @@ CI成功後、CIワークフロー内でデプロイジョブが実行されま�
 
 `.github/dependabot.yml` と `.github/workflows/dependabot-automerge.yml` で自動依存関係更新を実装しています。
 
-**監視対象エコシステム（5つ、計85依存関係）:**
-1. **NPM Root** - E2Eテスト（7依存関係）
-2. **NPM Backend** - バックエンドAPI（42依存関係）
-3. **NPM Frontend** - フロントエンドUI（36依存関係）
-4. **GitHub Actions** - ワークフロー（5 actions）
-5. **Docker** - ベースイメージ（2 images）
+**監視対象エコシステム（5つ）— 依存関係の件数は本書へ書かない（規約 (b)）:**
+
+1. **NPM Root** - E2Eテスト（対象はリポジトリルート）
+2. **NPM Backend** - バックエンドAPI（対象は `backend/`）
+3. **NPM Frontend** - フロントエンドUI（対象は `frontend/`）
+4. **GitHub Actions** - ワークフロー（対象はリポジトリルート）
+5. **Docker** - ベースイメージ（対象はリポジトリルート）
+
+エコシステムの権威は `.github/dependabot.yml`、監視される件数の権威は各 `package.json` と
+ワークフロー・Dockerfile である。次で読み出す（いずれもリポジトリルートで実行する）。
+
+```bash
+# エコシステムと対象ディレクトリ
+grep -nE 'package-ecosystem|directory:' .github/dependabot.yml
+
+# npm の直接依存の数（root / backend / frontend）
+for d in . backend frontend; do
+  node -e "const p=require('./'+process.argv[1]+'/package.json');
+    console.log(process.argv[1],
+      Object.keys(p.dependencies||{}).length + Object.keys(p.devDependencies||{}).length)" "$d"
+done
+
+# GitHub Actions とベースイメージ
+grep -ohE 'uses: [^ ]+' .github/workflows/*.yml | sort -u
+grep -rhoE '^FROM [^ ]+' */Dockerfile* | sort -u
+```
 
 **更新スケジュール:**
 - 週次月曜 09:00-10:00 UTC（各エコシステムで時間差）
@@ -1191,7 +1384,7 @@ CI成功後、CIワークフロー内でデプロイジョブが実行されま�
 
 1. **Issue作成**: 機能提案・バグ報告を明確に記述
 2. **フォーク**: 自分のGitHubアカウントにリポジトリをフォーク
-3. **ブランチ作成**: 機能ブランチを作成（例: `feature/new-feature`）
+3. **ブランチ作成**: 機能ブランチを作成（例: `feature/<機能名>`）
 4. **セットアップ**: ローカル開発環境をDocker Composeで構築
 5. **実装**: コーディング規約に従って実装
 6. **品質チェック**: Lint、Format、Type Check、Testを実行
@@ -1217,17 +1410,15 @@ ArchiTrackでは、3段階のGit hooksにより品質を自動保証していま
 
 #### ES Module Validation
 
-- `validate:esm` - 包括的なES Moduleバリデーションスクリプト
-- 全importで`.js`拡張子の使用を検証（ES module要件）
-- ビルドプロセスの一部として実行
-- ランタイムモジュール解決エラーを事前に防止
+- `validate:esm` - backend のビルド成果物へ ES Module としての検証を掛けるスクリプト
+- 実体はビルドの実行と、出力された `.js` を一つずつ Node の構文検査（`node --check`）へ通すこと
+- コミット前のフックは同じ検証の入口だけ（ビルドと、出力の入口ファイルへの `node --check`）を
+  走らせ、失敗時に本スクリプトを案内する（`.husky/scripts/pre-commit.sh` の Phase 3）
+- **frontend には同名のスクリプトが無い。** ESM 検証は backend の手段である
 
 ```bash
-# Backend ESM検証
+# Backend ESM検証（frontend に対応するスクリプトは無い）
 npm --prefix backend run validate:esm
-
-# Frontend ESM検証
-npm --prefix frontend run validate:esm
 ```
 
 #### Pre-commitフック（`.husky/pre-commit` + `scripts/pre-commit.sh`）
@@ -1261,30 +1452,35 @@ npm --prefix frontend run validate:esm
 
 **ラッパー構造**: `pre-push`（sh）→ `scripts/pre-push.sh`（bash）の2層構造でpipefail等を使用。
 
-プッシュ前に自動的に以下が実行されます：
+**実行される検査とその順序は本書に列挙しない**（タスク 115.286。`.kiro/steering/structure.md`
+の「押下前の関門の書き方の規約」と同じ規約を本書へも掛けたものである）。権威は
+`.husky/scripts/pre-push.sh` であり、次の二つで読み出す（いずれもリポジトリルートで実行する）。
 
-0. **Docker環境自動構築**: テスト環境（architrack-test）自動起動
-1. **Formatチェック（Backend/Frontend/E2E）**: Prettierによるコードフォーマット検証
-2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
-3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
-4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認 + ES Module検証
-5. **セキュリティ監査**: `scripts/security-audit.mjs`（本番依存high以上でブロック）
-6. **Backend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
-7. **Frontend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
-8. **Storybookテスト**: インタラクションテスト + アクセシビリティ + カバレッジ80%
-9. **Backend統合テスト**: Docker環境（architrack-test）内で実行
-10. **要件カバレッジチェック**: E2E対象の受入基準100%確認
-11. **CI環境変数整合性チェック**: pre-pushとCIの設定一致確認
-12. **コンテナ再起動**: E2E前のメモリリフレッシュ
-13. **E2Eテスト実行**: `CI=true npx playwright test`
+```bash
+# 実行される手順を上から順に（スクリプトが自分で名乗る見出しだけを拾う）
+grep -nE '^[[:space:]]*echo "[^ "✅❌💡🆕📝]+ [A-Z]' .husky/scripts/pre-push.sh
+
+# 起動される検査の名前（:selftest / :verbose の接尾辞は落ちるので検査名だけが並ぶ）
+grep -oE 'npm run check:[a-z0-9-]+' .husky/scripts/pre-push.sh | sort -u
+```
+
+WSL2向けの `NODE_OPTIONS` も同様に書き写さない。値は
+`grep -n 'NODE_OPTIONS' .husky/scripts/pre-push.sh` で読む。
+
+**是正の根拠**（タスク 115.286）: 是正前の本書はここに番号付きの列挙を持っていたが、二つ目の
+コマンドが挙げる検査のうち名指していたのは「要件カバレッジチェック」だけであった。順序も
+食い違っており、Docker のテスト環境の構築を先頭（`0.`）に置いていたが、実際には Format /
+型 / Lint / ビルド / セキュリティ監査 / 単体テスト / Storybook より**後**に走る（コミット
+`98744b92`、2026-09-05 にリポジトリルートで実測）。
 
 型エラー、テスト失敗、カバレッジ不足がある場合、プッシュは中断されます。
 
 **テスト実行順序の理由:**
-- Format/Lint/型チェック（超高速）→ ビルド（高速）→ セキュリティ監査 → 単体テスト（高速）→ Storybook → 統合テスト（中速）→ E2Eテスト（低速）の順で実行
+- 速い検査ほど先に走らせる（fail-fast のため）。**どの検査がどの位置に来るかは書き写さず、
+  上のコマンドで読む**（タスク 115.286）
 - **Fail-fast戦略**: 早期ステージでの失敗で即座に中断（無駄なリソース消費を回避）
 - **Shift-Left原則**: 問題を早期発見し、プッシュ前に品質を保証
-- **Defense in Depth戦略**: 複数レイヤーでの品質保証（Format → Lint → Type → Build → Security → Unit → Storybook → Integration → E2E）
+- **Defense in Depth戦略**: 複数レイヤーでの品質保証
 
 #### lint-staged設定
 
@@ -1323,8 +1519,8 @@ npm --prefix frontend run validate:esm
 
 ### ワークフロー
 
-1. `/kiro:steering` でプロジェクトコンテキストを最新化
-2. `/kiro:spec-init` で新機能の仕様を初期化
+1. スキル `kiro-steering` でプロジェクトコンテキストを最新化（起動の書式は「Kiroスキル（スラッシュコマンド）」を参照）
+2. スキル `kiro-spec-init` で新機能の仕様を初期化（1スペックにすべきか迷う場合は先に `kiro-discovery`）
 3. 要件 → 設計 → タスク → 実装の順に進める
 4. 各フェーズで人間のレビューを実施
 5. タスク完了時にステータスを更新

@@ -26,6 +26,8 @@ import { DeleteObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import logger from '../utils/logger.js';
+import { moveToOrphaned } from '../utils/orphaned-object.js';
+import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 
 /**
  * 画像が見つからないエラー
@@ -130,12 +132,19 @@ export class ImageDeleteService {
     // 画像の存在確認と関連データの取得
     const image = await this.prisma.surveyImage.findUnique({
       where: { id: imageId },
-      include: { annotation: true },
+      include: { annotation: true, survey: { select: { deletedAt: true } } },
     });
 
     if (!image) {
       throw new ImageNotFoundError(imageId);
     }
+
+    // 論理削除された現場調査の画像は削除できない（Requirements 1.5 / Task 115.124）
+    assertSurveyNotDeleted(
+      image.survey,
+      image.surveyId,
+      `削除された現場調査の画像は削除できません: ${image.surveyId}`
+    );
 
     // データベースからの削除（トランザクション）
     await this.prisma.$transaction(async (tx) => {
@@ -277,49 +286,15 @@ export class ImageDeleteService {
    * 削除に失敗したファイルをorphaned/プレフィックスにコピーします。
    * Cloudflare R2のLifecycle Ruleで7日後に自動削除されます。
    *
+   * 実処理は共有ユーティリティ（utils/orphaned-object）へ委譲しており、
+   * 他経路で生じた孤立ファイルも同じ扱いで回収されます。
+   *
    * Task 32.1 (Requirements: 4.8)
    *
    * @param originalPath - 元のファイルパス
    * @param deleteError - 削除時に発生したエラー
    */
   private async moveToOrphaned(originalPath: string, deleteError: unknown): Promise<void> {
-    const orphanedPath = `orphaned/${originalPath}`;
-
-    try {
-      if (this.storageProvider && this.storageProvider.copy) {
-        await this.storageProvider.copy(originalPath, orphanedPath);
-
-        // コピー成功: 警告レベルでログ記録
-        logger.warn(
-          {
-            originalPath,
-            orphanedPath,
-            path: orphanedPath,
-            deleteError: deleteError instanceof Error ? deleteError.message : 'Unknown error',
-          },
-          '孤立ファイル: orphaned/プレフィックスに移動しました。7日後に自動削除されます。'
-        );
-      } else {
-        // StorageProviderにcopyメソッドがない場合は従来のログのみ
-        logger.warn(
-          {
-            path: originalPath,
-            error: deleteError instanceof Error ? deleteError.message : 'Unknown error',
-          },
-          '孤立ファイル: ストレージからのファイル削除に失敗しました。手動での削除が必要です。'
-        );
-      }
-    } catch (copyError) {
-      // コピー失敗: エラーレベルでログ記録（Sentryアラート）
-      logger.error(
-        {
-          originalPath,
-          orphanedPath,
-          error: copyError instanceof Error ? copyError.message : 'Unknown error',
-          deleteError: deleteError instanceof Error ? deleteError.message : 'Unknown error',
-        },
-        '孤立ファイルの移動に失敗しました。手動での確認が必要です。'
-      );
-    }
+    await moveToOrphaned(this.storageProvider, originalPath, deleteError);
   }
 }

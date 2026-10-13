@@ -18,7 +18,14 @@ services:
   autoheal:
     image: willfarrell/autoheal:latest
     container_name: architrack-autoheal-test
-    restart: always
+    # restart ポリシーは WSL2 のメモリ節約のため always を使わない。
+    # always / unless-stopped は WSL 起動のたびにテスト用コンテナ群を自動復帰させ、
+    # 未使用時も常時約 800MB（backend 350MB / postgres 100MB / dockerd 経由分を含む）
+    # を占有していた。E2E 実行時は明示的に `docker compose -f docker-compose.test.yml up -d` する。
+    # autoheal のみ on-failure とし、長時間テスト中の自己クラッシュからは復帰させる
+    # （明示的な stop は exit 0 のため自動復帰の対象外）。
+    # 各サービス自体の異常時復帰は restart ポリシーではなく autoheal の docker restart が担う。
+    restart: on-failure
     environment:
       AUTOHEAL_CONTAINER_LABEL: all
       AUTOHEAL_INTERVAL: 10
@@ -33,7 +40,7 @@ services:
   # PostgreSQL Database (Test) - Ephemeral
   postgres:
     container_name: architrack-postgres-test
-    restart: unless-stopped
+    restart: "no"
     # OOMキラーからの保護（DBは最優先で保護）
     # 参考: https://docs.docker.com/engine/containers/resource_constraints/
     oom_score_adj: -900
@@ -64,7 +71,7 @@ services:
   # Redis (Test) - Ephemeral
   redis:
     container_name: architrack-redis-test
-    restart: unless-stopped
+    restart: "no"
     ports:
       - "6380:6379"
     tmpfs:
@@ -89,7 +96,7 @@ services:
   # Mailhog (Test)
   mailhog:
     container_name: architrack-mailhog-test
-    restart: unless-stopped
+    restart: "no"
     ports:
       - "1026:1025"  # SMTP port
       - "8026:8025"  # Web UI port
@@ -111,7 +118,7 @@ services:
   # Backend API (Test)
   backend:
     container_name: architrack-backend-test
-    restart: unless-stopped
+    restart: "no"
     # OOMキラーからの保護（-1000〜1000、低いほど保護される）
     # 参考: https://docs.docker.com/engine/containers/resource_constraints/
     oom_score_adj: -500
@@ -193,7 +200,7 @@ services:
         VITE_API_URL: http://localhost:3100
     # nginx:alpineはroot権限で実行
     user: "0:0"
-    restart: unless-stopped
+    restart: "no"
     # OOMキラーからの保護（-1000〜1000、低いほど保護される）
     # 参考: https://docs.docker.com/engine/containers/resource_constraints/
     oom_score_adj: -500

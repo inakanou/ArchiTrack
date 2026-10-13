@@ -10,7 +10,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within, act } from '@testing-library/react';
+import { triggerAllIntersections } from '../test-support/intersection-observer';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableEditPage from './QuantityTableEditPage';
@@ -18,7 +19,7 @@ import * as quantityTablesApi from '../api/quantity-tables';
 import * as siteSurveysApi from '../api/site-surveys';
 import { ApiError } from '../api/client';
 import type { QuantityTableDetail } from '../types/quantity-table.types';
-import type { SurveyImageInfo } from '../types/site-survey.types';
+import type { ProjectSurveyImage } from '../types/site-survey.types';
 
 // APIモック
 vi.mock('../api/quantity-tables');
@@ -113,6 +114,63 @@ const mockSaveQuantityTableDraft = vi.mocked(quantityTablesApi.saveQuantityTable
 
 const mockGetSiteSurveys = vi.mocked(siteSurveysApi.getSiteSurveys);
 const mockGetSiteSurvey = vi.mocked(siteSurveysApi.getSiteSurvey);
+const mockGetProjectSurveyImages = vi.mocked(siteSurveysApi.getProjectSurveyImages);
+
+/**
+ * 写真選択ダイアログが一括取得するプロジェクト写真一覧
+ *
+ * 一覧に含まれるのは注釈エディタで編集済みの写真のみであり、注釈の有無による絞り込みは
+ * サーバー側で済んでいる（Requirement 4.3 / 19.2）。表示元は解決済みの `displayUrl`
+ * 1本で、原本URLとは別の値を与えて取り違えを検出できるようにしてある。
+ *
+ * Requirements (quantity-table-generation): 49.9, 49.10
+ */
+const mockProjectSurveyImages: ProjectSurveyImage[] = [
+  {
+    id: 'photo-1',
+    surveyId: 'survey-1',
+    surveyName: 'テスト調査',
+    fileName: 'photo1.jpg',
+    displayUrl: '/images/display-1.jpg',
+    originalUrl: '/images/original-1.jpg',
+    isDisplayUrlAnnotated: true,
+    hasDrawnAnnotations: true,
+    comment: null,
+    width: 800,
+    height: 600,
+    displayOrder: 0,
+  },
+  {
+    id: 'photo-2',
+    surveyId: 'survey-1',
+    surveyName: 'テスト調査',
+    fileName: 'photo2.jpg',
+    displayUrl: '/images/display-2.jpg',
+    originalUrl: '/images/original-2.jpg',
+    isDisplayUrlAnnotated: false,
+    hasDrawnAnnotations: true,
+    comment: null,
+    width: 800,
+    height: 600,
+    displayOrder: 1,
+  },
+  {
+    // 注釈レコードは存在する（回転角度が載る）が、描画された注釈は0件。
+    // 一覧の対象には入るが、ダイアログはこれを他と区別しない
+    id: 'photo-rotate-only',
+    surveyId: 'survey-1',
+    surveyName: 'テスト調査',
+    fileName: 'photo-rotate-only.jpg',
+    displayUrl: '/images/display-rotate-only.jpg',
+    originalUrl: '/images/original-rotate-only.jpg',
+    isDisplayUrlAnnotated: true,
+    hasDrawnAnnotations: false,
+    comment: null,
+    width: 800,
+    height: 600,
+    displayOrder: 2,
+  },
+];
 
 // テストデータ
 const mockQuantityTableDetail: QuantityTableDetail = {
@@ -376,16 +434,30 @@ describe('QuantityTableEditPage', () => {
     });
 
     describe('REQ 3.3: 該当写真の注釈付きサムネイルを関連写真表示エリアに表示する', () => {
-      it('紐付き画像があるグループにサムネイルが表示される', async () => {
+      /**
+       * 表題部の写真表示に原本画像ではなくサムネイル画像を用いること。
+       *
+       * @requirement quantity-table-generation/REQ-49.4
+       */
+      it('紐付き画像があるグループにサムネイルが表示される (quantity-table-generation/REQ-49.4)', async () => {
         mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
 
         renderWithRouter();
 
-        // 注釈表示のためoriginalUrlを使用する仕様に変更
+        // 表題部の写真は表示領域へ入るまで表示元を設定しない。ここで確かめたいのは
+        // 表示元が原寸画像かサムネイルかであるため、表示領域到達を発火してから判定する
+        await waitFor(() => {
+          expect(screen.getByAltText('photo1.jpg')).toBeInTheDocument();
+        });
+        act(() => {
+          triggerAllIntersections(true);
+        });
+
+        // 表題部は縮小表示のため、原寸画像ではなくサムネイルを使用する
+        // （数量グループ数に比例した原寸画像のダウンロードを避ける）
         await waitFor(() => {
           const thumbnail = screen.getByAltText('photo1.jpg');
-          expect(thumbnail).toBeInTheDocument();
-          expect(thumbnail).toHaveAttribute('src', '/images/original-1.jpg');
+          expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
         });
       });
 
@@ -1294,7 +1366,9 @@ describe('QuantityTableEditPage', () => {
               thumbnailUrl: '/images/thumb-1.jpg',
               originalUrl: '/images/original-1.jpg',
               fileName: 'photo1.jpg',
+              // 注釈の目印は「描画された注釈の有無」で判定する（Task 115.13）
               hasAnnotations: true,
+              hasDrawnAnnotations: true,
             },
           },
         ],
@@ -1307,6 +1381,38 @@ describe('QuantityTableEditPage', () => {
         // 注釈バッジが表示されることを確認
         expect(screen.getByTestId('annotation-badge-group-1')).toBeInTheDocument();
       });
+    });
+
+    // Task 115.13: 回転のみを保存した写真は注釈レコードが残るため hasAnnotations が真に
+    // なるが、描画された注釈は0件なので注釈バッジを出してはならない
+    it('回転のみを保存した写真（注釈0件）は注釈バッジを表示しない', async () => {
+      const tableWithRotationOnlyImage: QuantityTableDetail = {
+        ...mockQuantityTableDetail,
+        groups: [
+          {
+            ...mockQuantityTableDetail.groups[0]!,
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/images/thumb-1.jpg',
+              originalUrl: '/images/original-1.jpg',
+              fileName: 'photo1.jpg',
+              // 注釈レコードは存在する（回転角度が載る）が、描画された注釈は0件
+              hasAnnotations: true,
+              hasDrawnAnnotations: false,
+              annotatedThumbnailUrl: '/images/annotated-thumb-1.jpg',
+            },
+          },
+        ],
+      };
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithRotationOnlyImage);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByAltText('photo1.jpg')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId('annotation-badge-group-1')).not.toBeInTheDocument();
     });
 
     it('紐付けられた写真に注釈がない場合、注釈バッジは表示されない', async () => {
@@ -1342,69 +1448,15 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 4.3: 写真選択してグループに紐付け', () => {
-    const mockPhotosWithAnnotations: SurveyImageInfo[] = [
-      {
-        id: 'photo-1',
-        surveyId: 'survey-1',
-        originalPath: '/original/photo1.jpg',
-        thumbnailPath: '/thumb/photo1.jpg',
-        originalUrl: '/images/original-1.jpg',
-        thumbnailUrl: '/images/thumb-1.jpg',
-        fileName: 'photo1.jpg',
-        fileSize: 1024,
-        width: 800,
-        height: 600,
-        displayOrder: 0,
-        createdAt: '2025-01-01T00:00:00Z',
-        hasAnnotations: true,
-      },
-      {
-        id: 'photo-2',
-        surveyId: 'survey-1',
-        originalPath: '/original/photo2.jpg',
-        thumbnailPath: '/thumb/photo2.jpg',
-        originalUrl: '/images/original-2.jpg',
-        thumbnailUrl: '/images/thumb-2.jpg',
-        fileName: 'photo2.jpg',
-        fileSize: 2048,
-        width: 800,
-        height: 600,
-        displayOrder: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-      },
-    ];
-
-    it('写真選択ダイアログで注釈ありの写真には注釈バッジが表示される', async () => {
+    /**
+     * @requirement quantity-table-generation/REQ-49.10
+     */
+    it('写真選択ダイアログの一覧は解決済みの表示用URLを表示元に用いる (quantity-table-generation/REQ-49.10)', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 2,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: mockPhotosWithAnnotations,
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
 
       renderWithRouter();
@@ -1421,43 +1473,68 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
       });
 
-      // 注釈ありの写真には注釈バッジが表示される
-      await waitFor(() => {
-        expect(screen.getByTestId('photo-annotation-badge-photo-1')).toBeInTheDocument();
+      // 写真選択ダイアログの一覧表示は原本ではなく、サーバーが解決済みの表示用URL
+      // （サムネイル解像度）を表示元に用いる（quantity-table-generation/REQ-49.10）。
+      const photoDialog = within(screen.getByRole('dialog', { name: /写真を選択/ }));
+      for (const image of mockProjectSurveyImages) {
+        const candidate = await photoDialog.findByAltText(image.fileName);
+        expect(candidate).toHaveAttribute('src', image.displayUrl);
+        expect(candidate).not.toHaveAttribute('src', image.originalUrl);
+      }
+    });
+
+    // Task 75.1: 一覧の対象が注釈エディタで編集済みの写真のみになったため、写真選択
+    // ダイアログは注釈の有無で表示を分岐しない。回転のみを保存した写真を注釈ありと
+    // 誤表示する余地（site-survey Task 115.13、要件20.2）は分岐そのものの撤去で消える。
+    //
+    // 検証の主眼は「バッジが無いこと」ではなく「描画された注釈の有無によらず全件が
+    // 同じ体裁で並ぶこと」に置く。バッジの不在だけでは絞り込みや分岐の復活を捕まえ
+    // られない。選択後の表題部で注釈の目印が保たれることは
+    // `__tests__/pages/QuantityTableEditPage.photoSelectBulkFetch.test.tsx` が固定する。
+    it('写真選択ダイアログは描画された注釈の有無によらず一覧の全件を同じ体裁で並べる', async () => {
+      const user = userEvent.setup();
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const placeholder = screen.getByTestId('image-placeholder-group-2');
+      await user.click(placeholder);
+
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
+      });
+
+      // 描画された注釈が0件の写真（回転のみの保存）も含めて一覧の全件が並ぶ
+      const photoList = await screen.findByTestId('photo-list');
+      expect(within(photoList).getAllByTestId(/^photo-item-/)).toHaveLength(
+        mockProjectSurveyImages.length
+      );
+      expect(within(photoList).getByTestId('photo-item-photo-rotate-only')).toBeInTheDocument();
+      // 表示元も分岐しない。全件がサーバー解決済みの表示用URLを用いる
+      for (const image of mockProjectSurveyImages) {
+        expect(within(photoList).getByTestId(`photo-item-${image.id}`)).toHaveAttribute(
+          'src',
+          image.displayUrl
+        );
+      }
+      // 注釈の目印による区別も付けない
+      expect(within(photoList).queryByTestId(/^photo-annotation-badge-/)).toBeNull();
     });
 
     it('写真を選択するとドラフトに紐付けられ永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 2,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: mockPhotosWithAnnotations,
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       renderWithRouter();
 
@@ -1492,34 +1569,9 @@ describe('QuantityTableEditPage', () => {
     it('写真選択後、グループのサムネイルが更新される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 2,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: mockPhotosWithAnnotations,
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       mockUpdateQuantityGroup.mockResolvedValue({
         id: 'group-2',
@@ -1637,6 +1689,7 @@ describe('QuantityTableEditPage', () => {
               originalUrl: '/images/original-1.jpg',
               fileName: 'photo1.jpg',
               hasAnnotations: true,
+              hasDrawnAnnotations: true,
             },
           },
         ],
@@ -1668,6 +1721,7 @@ describe('QuantityTableEditPage', () => {
               originalUrl: '/images/original-1.jpg',
               fileName: 'photo1.jpg',
               hasAnnotations: true,
+              hasDrawnAnnotations: true,
             },
           },
         ],
@@ -2023,49 +2077,9 @@ describe('QuantityTableEditPage', () => {
     it('写真紐付けはドラフトへ反映され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 1,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: [
-          {
-            id: 'photo-1',
-            surveyId: 'survey-1',
-            originalPath: '/original/photo1.jpg',
-            thumbnailPath: '/thumb/photo1.jpg',
-            originalUrl: '/images/original-1.jpg',
-            thumbnailUrl: '/images/thumb-1.jpg',
-            fileName: 'photo1.jpg',
-            fileSize: 1024,
-            width: 800,
-            height: 600,
-            displayOrder: 0,
-            createdAt: '2025-01-01T00:00:00Z',
-          },
-        ],
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       renderWithRouter();
 
@@ -2146,49 +2160,9 @@ describe('QuantityTableEditPage', () => {
     it('写真選択ダイアログで写真をEnterキーで選択できる', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 1,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: [
-          {
-            id: 'photo-1',
-            surveyId: 'survey-1',
-            originalPath: '/original/photo1.jpg',
-            thumbnailPath: '/thumb/photo1.jpg',
-            originalUrl: '/images/original-1.jpg',
-            thumbnailUrl: '/images/thumb-1.jpg',
-            fileName: 'photo1.jpg',
-            fileSize: 1024,
-            width: 800,
-            height: 600,
-            displayOrder: 0,
-            createdAt: '2025-01-01T00:00:00Z',
-          },
-        ],
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       renderWithRouter();
 
@@ -2423,49 +2397,9 @@ describe('QuantityTableEditPage', () => {
     it('写真アイテムでEnterキーを押すと選択される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 1,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: [
-          {
-            id: 'photo-1',
-            surveyId: 'survey-1',
-            originalPath: '/original/photo1.jpg',
-            thumbnailPath: '/thumb/photo1.jpg',
-            originalUrl: '/images/original-1.jpg',
-            thumbnailUrl: '/images/thumb-1.jpg',
-            fileName: 'photo1.jpg',
-            fileSize: 1024,
-            width: 800,
-            height: 600,
-            displayOrder: 0,
-            createdAt: '2025-01-01T00:00:00Z',
-          },
-        ],
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       mockUpdateQuantityGroup.mockResolvedValue({
         id: 'group-2',
@@ -2647,6 +2581,40 @@ describe('QuantityTableEditPage', () => {
 
       const header = screen.getByTestId('quantity-table-edit-header');
       expect(header).toContainElement(screen.getByText('未保存の変更があります'));
+    });
+
+    /**
+     * 狭い幅での収まり（Task 115.46）
+     *
+     * ヘッダーの固定は垂直方向のみのため、ページに水平方向のスクロールが生じると
+     * 横へスクロールした時点で固定ヘッダーの操作ボタン群が画面外へ出る。
+     * 狭い幅で操作ボタン群が画面幅を超えないことは REQ-45.1 の前提条件である。
+     *
+     * ヘッダーは main（padding のみのブロック）直下の自動幅ブロックであり、外枠の幅は
+     * 常に親の内容領域に収まる。はみ出しうるのは中の見出し部・操作ボタン群であり、
+     * 収まりを実際に担うのは折り返しの指定である。
+     *
+     * jsdom はレイアウトを計算しない（scrollWidth が常に 0）ため、実際に横方向の
+     * 移動が生じないことは E2E
+     * （e2e/specs/quantity-tables/edit-guard-indicator-sticky-header-e2e.spec.ts）
+     * で幅375 の実ブラウザ上で検証する。
+     */
+    it('ヘッダーの見出し部と操作ボタン群が狭い幅で折り返す', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+
+      renderWithRouter();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
+      });
+
+      const header = screen.getByTestId('quantity-table-edit-header');
+      expect(header.style.flexWrap).toBe('wrap');
+
+      const headerActions = screen.getByTestId('quantity-table-edit-header-actions');
+      expect(headerActions.style.flexWrap).toBe('wrap');
+      // 操作ボタン群が縮まずに右へはみ出す原因となる flexShrink: 0 を持たない
+      expect(headerActions.style.flexShrink).not.toBe('0');
     });
   });
 });

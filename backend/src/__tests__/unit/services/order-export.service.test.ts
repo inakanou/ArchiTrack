@@ -349,6 +349,44 @@ describe('OrderExportService', () => {
       // 金額ありの項目データが含まれる
       expect(flatData.some((cell) => cell.includes('金額あり項目'))).toBe(true);
     });
+
+    it('合計行の実行金額と発注金額を浮動小数点誤差なく計算する (Req 18.1)', async () => {
+      // 実行金額が負の項目は作れる。見積の数量は負を許し（estimate.schema.ts）、実行単価の PATCH には符号の検査が無い。
+      // この fixture は確定発注金額 1 の案分の結果と一致する（各 orderAmount は実行金額と同じ値で、remainder は 0）。
+      // 途中の和 1 + 999999999999999 × 10 = 9999999999999991 は 2^53 を超える奇数で、Number で積み上げると
+      // 9999999999999992 に丸められ、最終の合計は 1 でなく 2 になる。
+      const exportItem = (name: string, amount: string) => ({
+        name,
+        specification: null,
+        unit: null,
+        quantity: null,
+        executionUnitPrice: null,
+        executionAmount: amount,
+        orderAmount: amount,
+      });
+      const data = createTestOrderExportData({
+        status: 'ORDERED',
+        confirmedAmount: '1',
+        items: [
+          exportItem('最終項目', '1'),
+          ...Array.from({ length: 10 }, (_, i) => exportItem(`大型項目${i}`, '999999999999999')),
+          ...Array.from({ length: 10 }, (_, i) =>
+            exportItem(`負の大型項目${i}`, '-999999999999999')
+          ),
+        ],
+      });
+      const buffer = await service.exportToExcel(data);
+
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      const sheet = workbook.Sheets['発注一覧']!;
+      const sheetData = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
+      const totalRow = sheetData.find((row) => Array.isArray(row) && row[0] === '合計');
+
+      expect(totalRow).toBeDefined();
+      // 列: 0=合計ラベル, 5=実行金額, 6=発注金額
+      expect(String(totalRow![5])).toBe('1');
+      expect(String(totalRow![6])).toBe('1');
+    });
   });
 
   // ==========================================================================

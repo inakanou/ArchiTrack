@@ -5,7 +5,7 @@
  * ユーザーはローカルデータの復元、破棄、または後で決定を選択できる。
  *
  * @see tasks.md - Task 18.3
- * @see requirements.md - Requirement 13.5
+ * @see requirements.md - Requirement 15.5
  * @see design.md - AutoSaveManager State Management
  */
 

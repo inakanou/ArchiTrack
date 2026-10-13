@@ -8,9 +8,18 @@
  * - 10.6: PDF報告書のクライアントサイド生成
  */
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import { API_BASE_URL } from '../../config';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * 現場調査注釈エディタのE2Eテスト
@@ -53,16 +62,7 @@ test.describe('現場調査注釈エディタ', () => {
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>
@@ -115,6 +115,55 @@ test.describe('現場調査注釈エディタ', () => {
       throw new Error('現場調査の作成に失敗しました');
     }
 
+    // 画像を1枚登録する（Task 115.127 段6）。
+    // 本ファイルの検証対象（注釈エディタのUI・注釈ツールの選択・調査報告書PDFの出力）は
+    // いずれも「画像が登録されていること」を前提とする。前提を用意しないまま
+    // 「画像があれば検証する」と書くと、画像が無い限り主張が一つも実行されずに緑になる。
+    // 前提はテスト自身が作り、以降の主張は無条件に置く。
+    const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
+    expect(fs.existsSync(testImagePath), 'テスト用画像ファイルが存在しない').toBeTruthy();
+
+    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    assertPrepared(accessToken, 'API直接呼び出し用のアクセストークン');
+
+    const uploadResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        multipart: {
+          images: {
+            name: 'test-image.png',
+            mimeType: 'image/png',
+            buffer: fs.readFileSync(testImagePath),
+          },
+        },
+      }
+    );
+    expect(uploadResponse.ok(), '事前準備の画像アップロードが失敗した').toBeTruthy();
+
+    // 報告書出力フラグを ON にして保存する。
+    // `includeInReport` の既定値は false（backend/prisma/schema.prisma）であり、
+    // ON にしないと調査報告書出力は「報告書出力対象の写真がありません」で終わる（REQ-11.2）。
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}`);
+    await sharedPage.waitForLoadState('networkidle');
+
+    const panelItem = sharedPage.locator('[data-testid="photo-panel-item"]').first();
+    await expect(panelItem).toBeVisible({ timeout: getTimeout(15000) });
+
+    const reportCheckbox = panelItem.getByLabel('報告書に含める');
+    await expect(reportCheckbox).toBeVisible({ timeout: getTimeout(10000) });
+    await reportCheckbox.check();
+
+    const savePromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/site-surveys/images/batch') &&
+        response.request().method() === 'PATCH',
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^保存$/ }).click();
+    const saveResponse = await savePromise;
+    expect([200, 204], '報告書出力フラグの保存が失敗した').toContain(saveResponse.status());
+
     await sharedPage.close();
     await sharedContext.close();
   });
@@ -130,38 +179,36 @@ test.describe('現場調査注釈エディタ', () => {
       await loginAsUser(cleanupPage, 'ADMIN_USER');
 
       // 現場調査を削除
-      if (createdSurveyId) {
-        await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
-        await cleanupPage.waitForLoadState('networkidle');
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
+      await cleanupPage.waitForLoadState('networkidle');
 
-        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: 5000 });
-        await deleteButton.click();
-        // ダイアログ内の確認ボタンを選択（focus-manager-overlayまたはダイアログ要素内）
-        const dialog = cleanupPage
-          .getByTestId('focus-manager-overlay')
-          .or(cleanupPage.getByRole('dialog'));
-        const confirmButton = dialog.getByRole('button', { name: /^削除する$/i });
-        await expect(confirmButton).toBeVisible({ timeout: 5000 });
-        await confirmButton.click();
-        await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
-      }
+      const surveyDeleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+      await expect(surveyDeleteButton).toBeVisible({ timeout: 5000 });
+      await surveyDeleteButton.click();
+      // ダイアログ内の確認ボタンを選択（focus-manager-overlayまたはダイアログ要素内）
+      const dialog = cleanupPage
+        .getByTestId('focus-manager-overlay')
+        .or(cleanupPage.getByRole('dialog'));
+      const surveyConfirmButton = dialog.getByRole('button', { name: /^削除する$/i });
+      await expect(surveyConfirmButton).toBeVisible({ timeout: 5000 });
+      await surveyConfirmButton.click();
+      await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await cleanupPage.goto(`/projects/${createdProjectId}`);
-        await cleanupPage.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await cleanupPage.goto(`/projects/${createdProjectId}`);
+      await cleanupPage.waitForLoadState('networkidle');
 
-        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: 5000 });
-        await deleteButton.click();
-        const confirmButton = cleanupPage
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: 5000 });
-        await confirmButton.click();
-        await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: 5000 });
+      await projectDeleteButton.click();
+      const projectConfirmButton = cleanupPage
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: 5000 });
+      await projectConfirmButton.click();
+      await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     } finally {
       await cleanupPage.close();
       await cleanupContext.close();
@@ -175,131 +222,117 @@ test.describe('現場調査注釈エディタ', () => {
   /**
    * 注釈エディタ機能のテスト
    *
-   * @requirement site-survey/REQ-9.1
+   * @requirement site-survey/REQ-2.4
+   *
+   * タスク 115.188 の是正: 従前は REQ-9.1 を名乗っていたが、受入基準9.1 の原文は「When ユーザーが注釈編集画面で保存ボタンを押す,
+   * the Site Survey Service shall 全ての注釈データをデータベースに保存する」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準2.4（「When ユーザーが現場調査詳細画面で画像をクリックする,
+   * the Site Survey Service shall 画像ビューア/注釈エディタを開く」
+   * ）である。
    */
   test('注釈エディタのUIが表示される', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
-    // 画像ビューアページに直接アクセス
-    // Note: 実際の画像IDがないとアクセスできないため、
-    // まず詳細ページから画像があるか確認する
     await page.goto(`/site-surveys/${createdSurveyId}`);
     await page.waitForLoadState('networkidle');
 
-    // 画像が存在するか確認
-    const imageElement = page
-      .locator('[data-testid="survey-image"], .survey-image img, .image-item')
-      .first();
+    // 段5 の時点では本ファイルの事前準備が画像を登録しておらず、注釈エディタへ進む経路に
+    // 決して入らなかったため「画像の無い詳細画面」を主張する形に留めていた。
+    // 段6 で事前準備が画像を登録するようになったので、本来の主題である
+    // 「注釈エディタのUIが表示される」ことを無条件に主張する。
+    const imageButton = page.getByTestId('photo-image-button').first();
+    await expect(imageButton, '事前準備で登録した画像が写真管理パネルに現れない').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    const imageVisible = await imageElement.isVisible({ timeout: 3000 });
-    if (!imageVisible) {
-      // 画像がない場合は詳細ページが表示されていることを確認
-      // 「画像一覧」または「画像がありません」のテキストで確認
-      const noImageText = page.getByText(/画像がありません|画像一覧/i);
-      await expect(noImageText.first()).toBeVisible();
-      return;
-    }
-
-    // 画像をクリックしてビューアへ遷移
-    await imageElement.click();
-
-    // ビューアページに遷移
+    await imageButton.click();
     await expect(page).toHaveURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
       timeout: getTimeout(10000),
     });
 
-    // 注釈エディタのツールバーが表示されることを確認
-    const toolbar = page.locator(
-      '[data-testid="annotation-toolbar"], .annotation-toolbar, [role="toolbar"]'
-    );
+    const editModeButton = page.getByRole('button', { name: /編集モード/i });
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(10000) });
+    await editModeButton.click();
 
-    // ツールバーまたは編集モードボタンが表示されることを確認
-    const editButton = page.getByRole('button', { name: /編集|注釈|描画/i });
-    const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
-    const hasEditButton = await editButton.isVisible({ timeout: 5000 });
-
-    expect(hasToolbar || hasEditButton).toBeTruthy();
+    // 注釈エディタのツールバーと描画キャンバスが表示される
+    await expect(
+      page.getByTestId('annotation-toolbar'),
+      '注釈ツールバーが表示されない'
+    ).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(
+      page.locator('[data-testid="annotation-editor-container"] canvas').first(),
+      '注釈エディタの描画キャンバスが表示されない'
+    ).toBeVisible({ timeout: getTimeout(15000) });
   });
 
   /**
-   * @requirement site-survey/REQ-9.1
+   * @requirement site-survey/REQ-29.1
+   *
+   * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+   * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
    */
-  test('注釈ツールを選択できる', async ({ page }) => {
+  test('注釈ツールを選択できる (site-survey/REQ-29.1)', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
     await page.goto(`/site-surveys/${createdSurveyId}`);
     await page.waitForLoadState('networkidle');
 
-    // 画像が存在するか確認
-    const imageElement = page
-      .locator('[data-testid="survey-image"], .survey-image img, .image-item')
-      .first();
-
-    const imageVisibleForTools = await imageElement.isVisible({ timeout: 3000 });
-    if (!imageVisibleForTools) {
-      // 画像がない場合は詳細ページが表示されていることを確認
-      const noImageText = page.getByText(/画像がありません|画像一覧/i);
-      await expect(noImageText.first()).toBeVisible();
-      return;
-    }
-
-    await imageElement.click();
+    const imageButton = page.getByTestId('photo-image-button').first();
+    await expect(imageButton, '事前準備で登録した画像が写真管理パネルに現れない').toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await imageButton.click();
 
     await expect(page).toHaveURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
       timeout: getTimeout(10000),
     });
 
-    // 編集モードに入る（必要な場合）
-    const editModeButton = page.getByRole('button', { name: /編集モード|編集開始/i });
-    const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
-    if (editModeVisible) {
-      await editModeButton.click();
-    }
+    // 編集モードに入る
+    const editModeButton = page.getByRole('button', { name: /編集モード/i });
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(10000) });
+    await editModeButton.click();
 
-    // ツールボタンが表示されることを確認
-    const toolButtons = [
-      page.getByRole('button', { name: /選択|select/i }),
-      page.getByRole('button', { name: /寸法線|dimension/i }),
-      page.getByRole('button', { name: /矢印|arrow/i }),
-      page.getByRole('button', { name: /円|circle|ellipse/i }),
-      page.getByRole('button', { name: /四角|rectangle|rect/i }),
-      page.getByRole('button', { name: /テキスト|text/i }),
-      page.getByRole('button', { name: /フリーハンド|pencil|pen/i }),
+    const toolbar = page.getByTestId('annotation-toolbar');
+    await expect(toolbar).toBeVisible({ timeout: getTimeout(15000) });
+
+    // ツールバーは TOOL_ORDER の全項目を常に描画する
+    // （frontend/src/components/site-surveys/annotation-toolbar.constants.ts）。
+    // 「表示されていれば検証する」ではなく、全項目が並ぶことを無条件に主張する。
+    const toolLabels = [
+      '選択',
+      '寸法線',
+      '矢印',
+      '円',
+      '四角形',
+      '多角形',
+      '折れ線',
+      'フリーハンド',
+      'テキスト',
     ];
 
-    // 少なくとも一つのツールボタンが表示されることを確認
-    let hasAtLeastOneTool = false;
-    for (const button of toolButtons) {
-      const buttonVisible = await button.isVisible({ timeout: 2000 });
-      if (buttonVisible) {
-        hasAtLeastOneTool = true;
-        // ツールを選択してアクティブになることを確認
-        await button.click();
-        // アクティブ状態の視覚的フィードバックを確認（aria-pressed または クラス）
-        const ariaPressed = await button.getAttribute('aria-pressed');
-        const classList = await button.getAttribute('class');
-        const isActive =
-          ariaPressed === 'true' || (classList && /active|selected|pressed/i.test(classList));
-        // アクティブ状態が確認できなくてもボタンクリックは成功とみなす
-        expect(isActive !== null).toBeTruthy();
-        break;
-      }
-    }
+    for (const label of toolLabels) {
+      const button = toolbar.getByRole('button', { name: label, exact: true });
+      await expect(button, `注釈ツール「${label}」がツールバーに無い`).toBeVisible();
 
-    // ツールバーが存在する場合のみアサート
-    if (!hasAtLeastOneTool) {
-      // ツールバーがない場合は、ビューアのみのモードかもしれない
-      const viewerImage = page.locator('canvas, [data-testid="viewer-image"], img').first();
-      await expect(viewerImage).toBeVisible();
+      await button.click();
+
+      // 選択中のツールがハイライトされる（aria-pressed で表現される）
+      await expect(
+        button,
+        `注釈ツール「${label}」を選択しても選択中として示されない`
+      ).toHaveAttribute('aria-pressed', 'true');
     }
   });
 
   /**
    * PDF報告書出力のテスト
    *
-   * @requirement site-survey/REQ-10.6
+   * @requirement site-survey/REQ-11.1
+   *
+   * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+   * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
    */
-  test('PDF出力ボタンが表示される', async ({ page }) => {
+  test('PDF出力ボタンが表示される (site-survey/REQ-11.1)', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
     // 詳細ページに移動
@@ -310,19 +343,26 @@ test.describe('現場調査注釈エディタ', () => {
     // 一括エクスポート機能の追加により同一正規表現が複数ボタンに一致するため、
     // strict mode violation を避けて先頭要素（調査報告書出力ボタン）を対象とする
     const pdfButton = page.getByRole('button', { name: /PDF|報告書|エクスポート/i }).first();
-    const pdfLink = page.getByRole('link', { name: /PDF|報告書|エクスポート/i }).first();
 
-    const hasPdfButton = await pdfButton.isVisible({ timeout: 5000 });
-    const hasPdfLink = await pdfLink.isVisible({ timeout: 2000 });
-
-    // PDF出力機能が存在することを確認
-    expect(hasPdfButton || hasPdfLink).toBeTruthy();
+    // REQ-10.6: 調査報告書の出力はボタンで提供される（リンクの実装は無い）。
+    // 以前は「ボタン または リンク」の論理和で、ボタンが失われても
+    // リンクさえあれば通る形だったが、リンクは決して現れない。
+    // 実装が提供する導線そのものを主張する。
+    await expect(pdfButton, '調査報告書の出力ボタンが表示されない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
   });
 
   /**
-   * @requirement site-survey/REQ-10.6
+   * @requirement site-survey/REQ-11.1
+   * @requirement site-survey/REQ-11.8
+   *
+   * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+   * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
    */
-  test('PDF出力をクリックするとダウンロードが開始される', async ({ page }) => {
+  test('PDF出力をクリックするとダウンロードが開始される (site-survey/REQ-11.1, site-survey/REQ-11.8)', async ({
+    page,
+  }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
     await page.goto(`/site-surveys/${createdSurveyId}`);
@@ -332,43 +372,32 @@ test.describe('現場調査注釈エディタ', () => {
     const pdfButton = page.getByRole('button', { name: /PDF|報告書|エクスポート/i }).first();
 
     // PDF出力ボタンが必須
-    await expect(pdfButton).toBeVisible({ timeout: 5000 });
+    await expect(pdfButton).toBeVisible({ timeout: getTimeout(5000) });
 
-    // PDF出力ボタンをクリック
-    await pdfButton.click();
-
-    // 画像がない場合はエラーメッセージが表示される可能性あり
-    const noPhotoError = page.getByText(/報告書出力対象の写真がありません/i);
-    const noPhotoErrorVisible = await noPhotoError.isVisible({ timeout: 3000 });
-    if (noPhotoErrorVisible) {
-      // 画像がない場合のエラーメッセージが表示されることを確認
-      await expect(noPhotoError).toBeVisible();
-      return;
-    }
-
-    // ダウンロードイベントを待機
+    // ダウンロードの購読はクリックより先に置く（クリック後では取りこぼす）
     const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
 
-    // ダウンロードが開始されることを確認
-    try {
-      const download = await downloadPromise;
-      // ダウンロードされたファイル名がPDFであることを確認
-      const filename = download.suggestedFilename();
-      expect(filename).toMatch(/\.pdf$/i);
-    } catch {
-      // ダウンロードではなく、新しいタブで開く場合もある
-      // その場合はPDF生成中の表示を確認
-      const generatingMessage = page.getByText(/生成中|作成中|処理中/i);
-      const generatingVisible = await generatingMessage.isVisible({ timeout: 5000 });
-      if (generatingVisible) {
-        // 生成完了を待機
-        await expect(generatingMessage).not.toBeVisible({ timeout: getTimeout(60000) });
-      }
-    }
+    await pdfButton.click();
+
+    // 事前準備で報告書出力フラグを ON にしているため、出力対象なしのエラーは現れない。
+    // 以前はこのエラーを「出たら主張して return」する形で包んでおり、
+    // 出力対象が無いまま緑になり、以降のダウンロード検証が一度も実行されていなかった。
+    await expect(
+      page.getByText(/報告書出力対象の写真がありません/i),
+      '報告書出力対象の写真が無いと判定された（事前準備の出力フラグが効いていない）'
+    ).toHaveCount(0);
+
+    // ダウンロードが開始され、PDF ファイルが得られる
+    const download = await downloadPromise;
+    expect(download.suggestedFilename(), 'ダウンロードされたファイルが PDF ではない').toMatch(
+      /\.pdf$/i
+    );
   });
 
   /**
-   * @requirement site-survey/REQ-10.6
+   * タスク 115.188 の是正: 従前は REQ-10.6 を名乗っていたが、受入基準10.6 は写真一覧の「上へ移動」
+   * ボタンについての条文であり、調査報告書PDFの出力とは無関係である。報告書PDF生成中の進捗表示を述べる受入基準は要件11 にも
+   * 要件16 にも存在しないため、被覆印は掲げない。
    */
   test('PDF出力中にプログレス表示がされる', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
@@ -379,38 +408,45 @@ test.describe('現場調査注釈エディタ', () => {
     const pdfButton = page.getByRole('button', { name: /PDF|報告書|エクスポート/i }).first();
 
     // PDF出力ボタンが必須
-    await expect(pdfButton).toBeVisible({ timeout: 5000 });
+    await expect(pdfButton).toBeVisible({ timeout: getTimeout(5000) });
 
-    // PDF出力ボタンをクリック
+    // 進捗表示は生成の完了とともに消えるため、クリック後に「見えているか」を観測すると
+    // 取りこぼしうる。出現そのものをクリック前から購読して、出現を無条件に主張する。
+    // 実装の進捗表示は data-testid="pdf-export-progress"
+    // （frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx）。
+    // 従来観測していた [data-testid="pdf-progress"] / .progress-indicator / [role="progressbar"] は
+    // この画面には存在せず、論理和の相方（「生成中」の文言）と併せて
+    // 「どちらも出なければ何も主張しない」形になっていた。
+    await page.evaluate(() => {
+      const state = window as unknown as { __pdfProgressSeen?: boolean };
+      state.__pdfProgressSeen = !!document.querySelector('[data-testid="pdf-export-progress"]');
+      const observer = new MutationObserver(() => {
+        if (document.querySelector('[data-testid="pdf-export-progress"]')) {
+          state.__pdfProgressSeen = true;
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+
+    const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
+
     await pdfButton.click();
 
-    // 画像がない場合はエラーメッセージが表示される可能性あり
-    const noPhotoError = page.getByText(/報告書出力対象の写真がありません/i);
-    const noPhotoErrorVisible = await noPhotoError.isVisible({ timeout: 3000 });
-    if (noPhotoErrorVisible) {
-      // 画像がない場合のエラーメッセージが表示されることを確認
-      await expect(noPhotoError).toBeVisible();
-      return;
-    }
+    await expect(
+      page.getByText(/報告書出力対象の写真がありません/i),
+      '報告書出力対象の写真が無いと判定された（事前準備の出力フラグが効いていない）'
+    ).toHaveCount(0);
 
-    // プログレス表示（ローディングインジケーターまたはメッセージ）を確認
-    const progressIndicator = page.locator(
-      '[data-testid="pdf-progress"], .progress-indicator, [role="progressbar"]'
+    await downloadPromise;
+
+    const progressSeen = await page.evaluate(
+      () => (window as unknown as { __pdfProgressSeen?: boolean }).__pdfProgressSeen === true
     );
-    const loadingText = page.getByText(/生成中|作成中|処理中|ダウンロード中/i);
+    expect(progressSeen, 'PDF生成中に進捗表示が現れなかった').toBe(true);
 
-    const hasProgress = await progressIndicator.isVisible({ timeout: 5000 });
-    const hasLoadingText = await loadingText.isVisible({ timeout: 5000 });
-
-    // 進捗表示がある場合は完了を待機
-    if (hasProgress || hasLoadingText) {
-      // 完了を待機（タイムアウト60秒）
-      if (hasProgress) {
-        await expect(progressIndicator).not.toBeVisible({ timeout: getTimeout(60000) });
-      }
-      if (hasLoadingText) {
-        await expect(loadingText).not.toBeVisible({ timeout: getTimeout(60000) });
-      }
-    }
+    // 生成完了後は進捗表示が残らない
+    await expect(page.getByTestId('pdf-export-progress')).toBeHidden({
+      timeout: getTimeout(60000),
+    });
   });
 });

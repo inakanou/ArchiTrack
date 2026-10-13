@@ -1,24 +1,32 @@
 /**
- * @fileoverview スキャンPDF OCR精度改善の統合確認E2Eテスト
+ * @fileoverview OCR抽出結果のゴミ行フィルタ・集計行除外の統合確認E2Eテスト
  *
- * Task 48.1: スキャンPDF OCR精度改善の統合確認テスト
+ * Task 48.1: スキャンPDF OCR精度改善（要件19・要件20）の統合確認テスト
  *
  * Requirements coverage (estimate-request):
- * - 19.1: Canvas描画スケールを2.0から4.0に引き上げる
- * - 19.6: 画像前処理パイプライン（グレースケール→大津の二値化→水平線除去→垂直線除去）
- * - 19.8: 既存のPDFテキスト抽出フローとの互換性を維持する
  * - 20.1: 漢字・ひらがな・カタカナ・英数字を含まない行をゴミ行として除外
  * - 20.2: 文字数が極端に少ない行（2文字以下）をゴミ行として除外
  * - 20.3: 集計行キーワードを含む行を除外
  * - 20.5: ゴミ行フィルタと集計行除外の適用位置
  *
+ * Task 115.135 の是正: 本ファイルが用いる `e2e/fixtures` の PDF は 2 件ともテキスト入りで
+ * あり、スキャンPDFフォールバック経路（Canvas描画→画像前処理→Tesseract）へ到達しない。
+ * したがって要件19の受入基準 19.1 / 19.6 / 19.8 は本ファイルでは検査できない。
+ * 被覆済みと数えさせないため当該 3 件の `@requirement` タグを外し、
+ * `e2e/requirement-exclusions.json` へ integration-test 区分で登録した。
+ * その後タスク **115.157** が画像のみのPDF fixture を用意し、
+ * `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
+ * 19.1 / 19.6 / 19.8 を被覆して当該除外を解消した。
+ *
  * テストフロー:
  * 1. テスト用前提データ(プロジェクト、取引先、内訳書、見積依頼)をAPI経由で作成
- * 2. スキャンPDFアップロード後のOCR処理完了を確認
+ * 2. テキスト入りPDFアップロード後に抽出結果の表示へ到達することを確認
  * 3. 一括取り込み後の明細行にゴミデータが含まれないことを確認
  * 4. ゴミ行フィルタ・集計行除外が適用されていることを確認
- * 5. OCR処理全体が30秒のタイムアウト内に完了することを確認
- * 6. テストデータをクリーンアップ
+ * 5. テストデータをクリーンアップ
+ *
+ * Task 115.127 段1: 前提の生成を `seedEstimateRequest`（`estimate-request-preconditions`）へ寄せ、
+ * `test.skip(!createdEstimateRequestId, …)` 3 件を `assertPrepared` へ改めた。
  *
  * @module e2e/specs/estimate-requests/ocr-accuracy-improvement-e2e.spec
  */
@@ -27,6 +35,8 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
+import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 
@@ -35,9 +45,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * スキャンPDF OCR精度改善の統合確認E2Eテスト
+ * OCR抽出結果のゴミ行フィルタ・集計行除外の統合確認E2Eテスト
  */
-test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
+test.describe('OCR抽出結果の精度改善 (Task 48.1)', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
@@ -55,130 +65,55 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
   test('テスト前提データを作成する', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    // 認証トークン取得（localStorageから取得）
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-    expect(accessToken).not.toBe('');
-
-    // 担当者候補を取得（salesPersonIdに必要）
-    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    expect(assignableRes.ok()).toBeTruthy();
-    const assignableUsers = await assignableRes.json();
-    expect(assignableUsers.length).toBeGreaterThan(0);
-    const salesPersonId = assignableUsers[0].id;
-
-    // プロジェクト作成
-    const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `OCR精度改善E2Eテスト-${Date.now()}`,
-        salesPersonId,
-        siteAddress: '東京都渋谷区テスト1-1-1',
+    // Task 115.127 段1: プロジェクト〜見積依頼の前提生成は共通の補助へ寄せる。
+    // 3ファイルが同じ約110行を複製していたため、複製したまま個別に直すと再発する。
+    // いずれかの作成に失敗した時点で補助の内側で失敗する。
+    const seed = await seedEstimateRequest(page, {
+      label: 'OCR精度改善E2Eテスト',
+      siteAddress: '東京都渋谷区テスト1-1-1',
+      partnerEmail: 'test-ocr-accuracy@example.com',
+      groupName: '建築工事グループ',
+      item: {
+        workType: '建築工事',
+        name: '外壁塗装',
+        specification: 'シリコン系',
+        unit: 'm2',
+        quantity: 100,
       },
     });
-    expect(projectRes.ok()).toBeTruthy();
-    const project = await projectRes.json();
-    createdProjectId = project.id;
 
-    // 取引先作成
-    const partnerRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `テスト業者-OCR精度-${Date.now()}`,
-        nameKana: 'テストギョウシャ',
-        types: ['SUBCONTRACTOR'],
-        address: '東京都渋谷区テスト1-1-1',
-        email: 'test-ocr-accuracy@example.com',
-      },
-    });
-    expect(partnerRes.ok()).toBeTruthy();
-    const partner = await partnerRes.json();
-    createdTradingPartnerId = partner.id;
-
-    // 数量表作成
-    const qtRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `テスト数量表-OCR精度-${Date.now()}` },
-      }
-    );
-    expect(qtRes.ok()).toBeTruthy();
-    const qt = await qtRes.json();
-
-    // 数量グループ作成
-    const groupRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-tables/${qt.id}/groups`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: '建築工事グループ', displayOrder: 0 },
-      }
-    );
-    expect(groupRes.ok()).toBeTruthy();
-    const group = await groupRes.json();
-
-    // 数量項目作成
-    const itemRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          workType: '建築工事',
-          name: '外壁塗装',
-          specification: 'シリコン系',
-          unit: 'm2',
-          quantity: 100,
-        },
-      }
-    );
-    expect(itemRes.ok()).toBeTruthy();
-
-    // 内訳書作成（数量表から生成）
-    const statementRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト内訳書-OCR精度-${Date.now()}`,
-          quantityTableId: qt.id,
-        },
-      }
-    );
-    expect(statementRes.ok()).toBeTruthy();
-    const statement = await statementRes.json();
-    createdItemizedStatementId = statement.id;
-
-    // 見積依頼作成
-    const erRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト見積依頼-OCR精度-${Date.now()}`,
-          tradingPartnerId: createdTradingPartnerId,
-          itemizedStatementId: createdItemizedStatementId,
-        },
-      }
-    );
-    expect(erRes.ok()).toBeTruthy();
-    const er = await erRes.json();
-    createdEstimateRequestId = er.id;
+    accessToken = seed.accessToken;
+    createdProjectId = seed.projectId;
+    createdTradingPartnerId = seed.tradingPartnerId;
+    createdItemizedStatementId = seed.itemizedStatementId;
+    createdEstimateRequestId = seed.estimateRequestId;
   });
 
   // ============================================================================
-  // 19.1, 19.6: スキャンPDF OCR処理と画像前処理パイプラインの間接的確認
+  // テキスト入りPDFの抽出成立の確認
+  // （要件19のスキャンPDFフォールバック経路の被覆ではない。理由は直下の注記）
   // ============================================================================
 
   /**
-   * @requirement estimate-request/REQ-19.1
-   * @requirement estimate-request/REQ-19.6
-   * @requirement estimate-request/REQ-19.8
+   * 注意（site-survey タスク 115.135 の実測）: 入力に用いる `e2e/fixtures/test-file.pdf` は
+   * `/Font` と 7 個のテキスト描画演算子を持ち `/Image` を持たない**テキスト入り PDF** である。
+   * 抽出される文字数は 97 で `frontend/src/components/estimate-requests/pdf-text-extractor.ts`
+   * の閾値 50 を超えるため `isTextPdf=true` が確定し、`extractPdfWithOcrFallback` へ
+   * **一度も入らない**。したがって REQ-19.1（Canvas 描画スケール 4.0）・REQ-19.6（画像前処理
+   * パイプライン）・REQ-19.8（前処理を含む OCR 全体の 30 秒タイムアウト）は本検証では
+   * 検査できない。
+   *
+   * 115.135 の是正: 到達しない受入基準を被覆済みと数えさせないため、当該 3 件の
+   * `@requirement` タグを外し `e2e/requirement-exclusions.json` へ integration-test 区分で
+   * 登録した。その後タスク **115.157** が画像のみのPDF fixture を用意し、
+   * `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
+   * 当該 3 件を被覆して除外を解消した。
+   *
+   * 本検証に残る主張は「テキスト入り PDF から抽出結果の表示へ到達し、
+   * エラー表示にならないこと」である。
    */
-  test('スキャンPDFアップロード後にOCR処理が完了しテキスト抽出結果が表示される (REQ-19.1, REQ-19.6, REQ-19.8)', async ({
-    page,
-  }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+  test('テキスト入りPDFアップロード後に抽出が完了し結果が表示される', async ({ page }) => {
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -196,50 +131,27 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
     // フォームが表示されるまで待機
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-    // スキャンPDF（画像のみ）をアップロード
-    // test-file.pdf はスキャンPDF（画像のみ）として使用
     const pdfPath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // OCR処理の開始を確認（処理中インジケーター、結果、またはエラーのいずれか）
-    // 画像前処理パイプライン（グレースケール→二値化→罫線除去）とCanvas描画スケール4.0が
-    // 適用されていることは、OCR処理が正常に完了することで間接的に確認される
-    await expect(
-      page
-        .locator('[data-testid="ocr-progress-indicator"]')
-        .or(page.locator('[data-testid="ocr-extracted-text"]'))
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // OCR処理完了を待機（結果またはエラー）
-    // OCR処理全体が30秒のタイムアウト内に完了することの確認
-    // タイムアウト（30秒）+ マージン（30秒）= 最大60秒で完了を待つ
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(90000) });
-
-    // 結果またはエラーのいずれかが表示されていることを確認
+    // 抽出が完了し結果が表示されたことを主張する。
+    // 以前は「インジケーター **または** 結果 **または** エラー」および
+    // 「結果 **または** エラー」の二段の選言で完了を待っており、いずれも
+    // **抽出が失敗しても成立する**判定であった。抽出の成立だけを無条件に主張する。
+    // 待ち時間の上限は Claude Vision 試行（REQ-24.2）を含むパイプライン全体に対するもので、
+    // pdfjs-dist 側の 30 秒のタイムアウト（REQ-17.8）はそのうちの一部である。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
 
-    const hasResult = await extractedText.isVisible({ timeout: 3000 }).catch(() => false);
-    const hasError = await errorMessage.isVisible({ timeout: 3000 }).catch(() => false);
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(90000) });
+    await expect(errorMessage).toHaveCount(0);
 
-    // OCR処理が実行された証拠（結果またはエラーのいずれか）
-    expect(hasResult || hasError).toBeTruthy();
-
-    // テキスト抽出が成功した場合、画像前処理パイプラインが適用されていることの間接的確認
-    // （Canvas描画スケール4.0での高解像度化 + 罫線除去により、テキスト抽出結果の品質が向上）
-    if (hasResult) {
-      const textContent = await extractedText.textContent();
-      // 抽出テキストが空でないことを確認（画像前処理が正常に動作した証拠）
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
-    }
+    // 抽出テキストが空でないことを確認する。
+    // 抽出が成功したことを上で確定させたので、内容の判定は分岐で包まない。
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
   });
 
   // ============================================================================
@@ -255,7 +167,7 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
   test('一括取り込み後の明細行にゴミデータ（罫線文字・記号のみ行・集計行）が含まれない (REQ-20.1, REQ-20.2, REQ-20.3, REQ-20.5)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -273,96 +185,107 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
     // フォームが表示されるまで待機
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-    // スキャンPDFをアップロード
     const pdfPath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
     // OCR処理完了を待機
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(90000) });
-
-    // テキスト抽出が成功した場合のみ一括取り込みテストを実行
+    // 本ファイル冒頭のテキスト入りPDFの検証と同じく、`test-file.pdf` に対しては
+    // 抽出結果が必ず表示される。以前は「抽出できたら」「取り込みボタンが出たら」の
+    // 二重の関門で包んでいたため、抽出が失敗した回は REQ-20.x の主張が一つも実行されなかった。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    const hasResult = await extractedText.isVisible({ timeout: 3000 }).catch(() => false);
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(90000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
 
-    if (hasResult) {
-      // 一括取り込みボタンが表示された場合
-      const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        // 一括取り込みボタンをクリック
-        await importButton.click();
+    // 抽出が成立していれば構造化データも得られるため、一括取り込みボタンは必ず表示される
+    const importButton = page.locator('[data-testid="ocr-import-button"]');
+    await expect(importButton).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 取り込み完了を待機
-        await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
-          timeout: getTimeout(10000),
-        });
+    // 一括取り込みボタンをクリック
+    await importButton.click();
 
-        // 明細行の名称フィールドを全て取得して検証
-        // ゴミ行フィルタ（REQ-20.1, 20.2）と集計行除外（REQ-20.3）が適用されていることを確認
-        const nameInputs = page.locator('input[data-field="name"]');
-        const nameCount = await nameInputs.count();
+    // 取り込み完了を待機
+    await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
-        // ゴミデータパターン（記号のみ、罫線文字、極端に短い文字列）
-        const garbagePatterns = [
-          /^[\|\-\s_=+]+$/, // 罫線文字のみ（|, -, _, =, + のみで構成）
-          /^[^\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]+$/, // 漢字/ひらがな/カタカナ/英数字を含まない
-        ];
+    // 明細行の名称フィールドを全て取得して検証
+    // ゴミ行フィルタ（REQ-20.1, 20.2）と集計行除外（REQ-20.3）が適用されていることを確認
+    const nameInputs = page.locator('input[data-field="name"]');
+    const nameCount = await nameInputs.count();
 
-        // 集計行キーワード
-        const summaryKeywords = [
-          '合計',
-          '小計',
-          '直接工事費',
-          '諸経費',
-          '一般管理費',
-          '値引き',
-          '消費税',
-        ];
+    // ゴミデータパターン（記号のみ、罫線文字、極端に短い文字列）
+    const garbagePatterns = [
+      /^[\|\-\s_=+]+$/, // 罫線文字のみ（|, -, _, =, + のみで構成）
+      /^[^\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]+$/, // 漢字/ひらがな/カタカナ/英数字を含まない
+    ];
 
-        for (let i = 0; i < nameCount; i++) {
-          const nameValue = await nameInputs.nth(i).inputValue();
+    // 集計行キーワード
+    const summaryKeywords = [
+      '合計',
+      '小計',
+      '直接工事費',
+      '諸経費',
+      '一般管理費',
+      '値引き',
+      '消費税',
+    ];
 
-          // 空欄の行はスキップ（初期化された空行の可能性がある）
-          if (!nameValue || nameValue.trim() === '') continue;
+    // 空欄の行は取り込み結果ではない（初期化された空行）ため検査対象にならない。
+    // 除外を繰り返しの内側で `continue` して行うと、母集団から黙って要素が抜け、
+    // 全行が空欄でも 1 件も主張せずに緑で終わる。除外は母集団を作る時点で明示し、
+    // 残った件数を無条件に主張する。
+    const nameValues: string[] = [];
+    for (let i = 0; i < nameCount; i++) {
+      nameValues.push(await nameInputs.nth(i).inputValue());
+    }
+    const importedNames = nameValues.filter((value) => value.trim() !== '');
+    expect(
+      importedNames.length,
+      '一括取り込み後に名称が入った明細行が1件も無い（ゴミ行フィルタ・集計行除外を検査できていない）'
+    ).toBeGreaterThan(0);
 
-          // ゴミ行フィルタの確認（REQ-20.1）: 記号のみの行が含まれていない
-          for (const pattern of garbagePatterns) {
-            expect(
-              pattern.test(nameValue),
-              `明細行の名称「${nameValue}」がゴミ行パターン ${pattern} にマッチしました`
-            ).toBe(false);
-          }
+    for (const nameValue of importedNames) {
+      // ゴミ行フィルタの確認（REQ-20.1）: 記号のみの行が含まれていない
+      for (const pattern of garbagePatterns) {
+        expect(
+          pattern.test(nameValue),
+          `明細行の名称「${nameValue}」がゴミ行パターン ${pattern} にマッチしました`
+        ).toBe(false);
+      }
 
-          // 集計行除外の確認（REQ-20.3）: 集計キーワードを含む行が含まれていない
-          for (const keyword of summaryKeywords) {
-            expect(
-              nameValue.includes(keyword),
-              `明細行の名称「${nameValue}」に集計キーワード「${keyword}」が含まれています`
-            ).toBe(false);
-          }
-        }
+      // 集計行除外の確認（REQ-20.3）: 集計キーワードを含む行が含まれていない
+      for (const keyword of summaryKeywords) {
+        expect(
+          nameValue.includes(keyword),
+          `明細行の名称「${nameValue}」に集計キーワード「${keyword}」が含まれています`
+        ).toBe(false);
       }
     }
-    // テキスト抽出に失敗した場合はテスト自体をスキップしない
-    // （OCR処理のエラーハンドリングが正常に動作していることも確認対象）
   });
 
   // ============================================================================
-  // 19.8: 既存PDFテキスト抽出フローとの互換性確認
+  // 既存PDFテキスト抽出フローとの互換性確認
+  // （REQ-19.8 の被覆ではない。理由は直下の注記）
   // ============================================================================
 
   /**
-   * @requirement estimate-request/REQ-19.8
+   * 115.135 の是正: 従前は `@requirement` で REQ-19.8 を付けていたが、
+   * REQ-19.8 の受入基準は「画像前処理を含む OCR 処理全体のタイムアウトを既存の 30 秒から
+   * 維持する」であり、本検証はタイムアウトを一つも計測していない。加えて入力の
+   * `e2e/fixtures/test-text-pdf.pdf` はテキスト入り PDF であり、画像前処理パイプラインを
+   * 含む経路へ到達しない。被覆済みと数えさせないためタグを外し
+   * `e2e/requirement-exclusions.json` へ登録した。その後タスク **115.157** が
+   * `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
+   * 30 秒の打ち切りを実測して被覆し、当該除外を解消した。
+   *
+   * 本検証に残る主張は「テキスト入り PDF では従来どおり pdfjs-dist の直接抽出で
+   * 抽出結果の表示へ到達し、エラー表示にならないこと」である。
    */
-  test('テキストPDFでは従来通りpdfjs-dist直接テキスト抽出が実行される（互換性確認） (REQ-19.8)', async ({
+  test('テキストPDFでは従来通りpdfjs-dist直接テキスト抽出が実行される（互換性確認）', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -385,25 +308,15 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // テキスト抽出結果が表示されるまで待機
-    // テキストPDFではpdfjs-dist直接抽出のため、OCRフォールバックよりも高速に完了する
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // テキスト抽出が成功した場合、テキスト内容を確認
+    // テキスト入り PDF からは必ずテキストが抽出され、エラー表示にはならない。
+    // これは pdfjs-dist の直接抽出という従来の経路が維持されていることの確認である。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
-      const textContent = await extractedText.textContent();
-      // テキストPDFからテキストが正常に抽出されていることを確認
-      // 画像前処理パイプラインはスキャンPDFフォールバック時のみ適用されるため、
-      // テキストPDFでは従来通りの動作（pdfjs-dist直接抽出）であることの間接的確認
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
-    }
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
+
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
   });
 
   // ============================================================================

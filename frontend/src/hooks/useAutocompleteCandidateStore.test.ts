@@ -10,9 +10,9 @@
  * - 7.1: 初回表示時に候補値を一括取得
  * - 7.2: APIリクエストは初回表示時の1回のみ
  * - 7.3: クライアントサイドでのフィルタリング表示
- * - 7.5: blur時にクライアントサイドで候補追加
- * - 7.6: blur時の候補追加はAPIリクエスト不要
- * - 7.7: 候補を50音順に表示
+ * - 7.6: blur時にクライアントサイドで候補追加
+ * - 7.7: blur時の候補追加はAPIリクエスト不要
+ * - 7.8: 候補を50音順に表示
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -156,7 +156,7 @@ describe('useAutocompleteCandidateStore', () => {
       expect(suggestions).not.toContain('建築工事');
     });
 
-    it('should return all candidates (sorted, excluding empty) for empty input (Req 7.3, 7.3a)', async () => {
+    it('should return all candidates (sorted, excluding empty) for empty input (Req 7.3)', async () => {
       const { result } = renderHook(() => useAutocompleteCandidateStore({ projectId }));
 
       await waitFor(() => {
@@ -174,7 +174,7 @@ describe('useAutocompleteCandidateStore', () => {
       expect(suggestions).toEqual(sorted);
     });
 
-    it('should return all candidates for whitespace-only input (Req 7.3, 7.3a)', async () => {
+    it('should return all candidates for whitespace-only input (Req 7.3)', async () => {
       const { result } = renderHook(() => useAutocompleteCandidateStore({ projectId }));
 
       await waitFor(() => {
@@ -210,7 +210,7 @@ describe('useAutocompleteCandidateStore', () => {
       expect(suggestions).toContain('電気工事');
     });
 
-    it('should sort results in Japanese locale order (50-on) (Req 7.7)', async () => {
+    it('should sort results in Japanese locale order (50-on) (Req 7.8)', async () => {
       mockApiGet.mockResolvedValue({
         candidates: {
           ...mockCandidatesResponse.candidates,
@@ -268,7 +268,7 @@ describe('useAutocompleteCandidateStore', () => {
   });
 
   describe('addCandidateOnBlur - blur時の候補追加', () => {
-    it('should add new candidate to field list on blur (Req 7.5)', async () => {
+    it('should add new candidate to field list on blur (Req 7.6)', async () => {
       const { result } = renderHook(() => useAutocompleteCandidateStore({ projectId }));
 
       await waitFor(() => {
@@ -285,7 +285,7 @@ describe('useAutocompleteCandidateStore', () => {
       expect(suggestions).toContain('新しい工事');
     });
 
-    it('should not make API request on blur (Req 7.6)', async () => {
+    it('should not make API request on blur (Req 7.7)', async () => {
       const { result } = renderHook(() => useAutocompleteCandidateStore({ projectId }));
 
       await waitFor(() => {

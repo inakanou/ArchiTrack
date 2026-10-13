@@ -9,10 +9,35 @@
  * - REQ-17: 担当者ユーザー選択
  */
 
-import { test, expect, type Response } from '@playwright/test';
+import { test, expect, type Locator, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+
+/**
+ * 担当者セレクトの選択肢のうち、実際に選択できるもの（value が空でないもの）を集める。
+ *
+ * 空のプレースホルダー選択肢を母集団から外す処理は営業担当者・工事担当者の双方で必要で、
+ * 分岐として各所に複製すると「候補が無ければ何も検証しない」形へ戻りやすい。
+ * 母集団を返す一つの補助へ寄せ、呼び出し側は件数を無条件に主張してから中身を検証する。
+ *
+ * @param options セレクトの全選択肢
+ * @returns 値を持つ選択肢の値と表示文字列
+ */
+async function collectSelectableOptions(
+  options: Locator[]
+): Promise<Array<{ value: string; text: string }>> {
+  const all = await Promise.all(
+    options.map(async (option) => ({
+      value: (await option.getAttribute('value')) ?? '',
+      text: (await option.textContent()) ?? '',
+    }))
+  );
+  // 値を持つ選択肢だけが実際に選択できる候補（先頭の空プレースホルダーを除く）
+  return all.filter((option) => option.value !== '');
+}
 
 /**
  * プロジェクト管理の追加要件E2Eテスト
@@ -66,9 +91,13 @@ test.describe('プロジェクト管理 追加要件', () => {
    */
   test.describe('データバリデーション', () => {
     /**
-     * @requirement project-management/REQ-13.4
+     * @requirement project-management/REQ-13.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-13.4 を名乗っていたが、受入基準13.4 の原文は「The ArchiTrackシステム
+     * shall 営業担当者を必須とする」である。本区間の表題・本文が述べる内容に対応するのは受入基準13.5（「The ArchiTrackシステム
+     * shall 営業担当者の値が管理者以外の有効なユーザーIDであることを検証する」）である。
      */
-    test('営業担当者がadmin以外の有効なユーザーIDであることを検証する (project-management/REQ-13.4)', async ({
+    test('営業担当者がadmin以外の有効なユーザーIDであることを検証する (project-management/REQ-13.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -87,22 +116,29 @@ test.describe('プロジェクト管理 追加要件', () => {
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
       const options = await salesPersonSelect.locator('option').all();
 
-      // オプションの値がadmin以外であることを確認
-      for (const option of options) {
-        const value = await option.getAttribute('value');
-        const text = await option.textContent();
+      // 検証対象の母集団（値を持つ＝実際に選択できる候補）を先に確定させる。
+      // 以前は分岐の内側でのみ主張していたため、候補が一つも無くても緑になっていた。
+      const selectableOptions = await collectSelectableOptions(options);
+      expect(
+        selectableOptions.length,
+        'REQ-13.4: 営業担当者の選択候補が1件以上存在する'
+      ).toBeGreaterThan(0);
 
-        // 空のプレースホルダーオプション以外をチェック
-        if (value && value !== '') {
-          expect(text?.toLowerCase()).not.toContain('admin');
-        }
+      for (const { value, text } of selectableOptions) {
+        // REQ-17.5: 各ユーザー候補に表示名が表示される
+        expect(text.trim(), `担当者候補(${value})に表示名がある`).not.toBe('');
+        // REQ-13.4: 候補はいずれも管理者(admin)ではない
+        expect(text.toLowerCase()).not.toContain('admin');
       }
     });
 
     /**
-     * @requirement project-management/REQ-13.6
+     * @requirement project-management/REQ-13.7
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('工事担当者が指定された場合、admin以外の有効なユーザーIDであることを検証する (project-management/REQ-13.6)', async ({
+    test('工事担当者が指定された場合、admin以外の有効なユーザーIDであることを検証する (project-management/REQ-13.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -121,15 +157,18 @@ test.describe('プロジェクト管理 追加要件', () => {
       const constructionPersonSelect = page.locator('select[aria-label="工事担当者"]');
       const options = await constructionPersonSelect.locator('option').all();
 
-      // オプションの値がadmin以外であることを確認
-      for (const option of options) {
-        const value = await option.getAttribute('value');
-        const text = await option.textContent();
+      // 検証対象の母集団（値を持つ＝実際に選択できる候補）を先に確定させる
+      const selectableOptions = await collectSelectableOptions(options);
+      expect(
+        selectableOptions.length,
+        'REQ-13.6: 工事担当者の選択候補が1件以上存在する'
+      ).toBeGreaterThan(0);
 
-        // 空のプレースホルダーオプション以外をチェック
-        if (value && value !== '') {
-          expect(text?.toLowerCase()).not.toContain('admin');
-        }
+      for (const { value, text } of selectableOptions) {
+        // REQ-17.5: 各ユーザー候補に表示名が表示される
+        expect(text.trim(), `担当者候補(${value})に表示名がある`).not.toBe('');
+        // REQ-13.6: 候補はいずれも管理者(admin)ではない
+        expect(text.toLowerCase()).not.toContain('admin');
       }
     });
 
@@ -226,16 +265,7 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // APIレスポンスを待機
       const errorPromise = page.waitForResponse(
@@ -329,17 +359,16 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
 
-      // APIレスポンスを確認（200または304はどちらも成功）
+      // 一覧取得APIが成功していることを確認。
+      // テストごとに新しいブラウザコンテキストが作られ、条件付きリクエスト（If-None-Match 等）は
+      // 発生しないため 304 の側は成立しない。成立する側だけを主張し、本文の形式まで検証する。
       const response = await apiPromise;
-      expect([200, 304]).toContain(response.status());
+      expect(response.status()).toBe(200);
 
-      // 304の場合はキャッシュレスポンスなのでjsonがない可能性あり
-      if (response.status() === 200) {
-        const responseData = await response.json();
-        // APIレスポンス形式: { data: [...], pagination: {...} }
-        expect(responseData).toHaveProperty('data');
-        expect(responseData).toHaveProperty('pagination');
-      }
+      const responseData = await response.json();
+      // APIレスポンス形式: { data: [...], pagination: {...} }
+      expect(responseData).toHaveProperty('data');
+      expect(responseData).toHaveProperty('pagination');
     });
 
     /**
@@ -363,16 +392,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // 作成APIを監視
       const createPromise = page.waitForResponse(
@@ -430,16 +450,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(`POSTテスト_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // POST APIを監視
       const createPromise = page.waitForResponse(
@@ -709,18 +720,13 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // 営業担当者を選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const options = await salesPersonSelect.locator('option').all();
+      // 候補が供給されない場合に何もせず素通りしていたため、選択が一度も行われなくても
+      // 緑になっていた。候補の供給と選択の成立を無条件に主張する（Task 115.92）
+      const firstUserOption = await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-
-          // 選択した値が反映されることを確認
-          const selectedValue = await salesPersonSelect.inputValue();
-          expect(selectedValue).toBe(firstUserOption);
-        }
-      }
+      // 選択したユーザーIDが選択欄へ反映されることを確認（REQ-17.8）
+      const selectedValue = await salesPersonSelect.inputValue();
+      expect(selectedValue).toBe(firstUserOption);
     });
 
     /**
@@ -747,8 +753,11 @@ test.describe('プロジェクト管理 追加要件', () => {
       const endTime = Date.now();
       const responseTime = endTime - startTime;
 
-      // レスポンスが成功していることを確認（200または304キャッシュ）
-      expect(response.ok() || response.status() === 304).toBe(true);
+      // 担当者選択APIが成功していることを確認。
+      // 以前は「200 または 304（キャッシュ）」の論理和だったが、テストごとに新しい
+      // ブラウザコンテキストが作られるため条件付きリクエストは発生せず、304 の側は
+      // 一度も成立しない。成立する側だけを主張する。
+      expect(response.status()).toBe(200);
 
       // E2Eテスト環境ではページナビゲーション＋ネットワーク条件により変動するため、
       // 5秒以内に応答があることを確認（本番APIの500ms要件は別途APIモニタリングで監視）
@@ -763,6 +772,21 @@ test.describe('プロジェクト管理 追加要件', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-17.11 は「有効なユーザーが存在しない場合」を条件とする。
+      // テスト環境には常に有効なユーザーが居るため、以前の形（候補が1件以下のときだけ主張する）は
+      // 一度も実行されていなかった。前提そのものをテストが作り、主張を無条件にする。
+      // 選別はオリジンではなくパスで行う（ブラウザ側と E2E 側で API オリジンが異なりうるため）。
+      await page.route(
+        (url) => url.pathname === '/api/users/assignable',
+        async (route) => {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([]),
+          });
+        }
+      );
+
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
@@ -773,15 +797,13 @@ test.describe('プロジェクト管理 追加要件', () => {
         timeout: getTimeout(15000),
       });
 
-      // 営業担当者のオプション数を確認
-      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const options = await salesPersonSelect.locator('option').all();
+      // REQ-17.11: 「選択可能なユーザーがありません」というメッセージが表示される
+      await expect(page.getByText('選択可能なユーザーがありません').first()).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // オプションが存在しない場合（プレースホルダーのみ）、エラーメッセージを確認
-      if (options.length <= 1) {
-        const noUsersMessage = page.getByText(/選択可能なユーザーがいません/i);
-        await expect(noUsersMessage).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // 候補が無いのでセレクトボックス自体が描画されない
+      await expect(page.locator('select[aria-label="営業担当者"]')).toHaveCount(0);
     });
   });
 
@@ -830,16 +852,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(`監査ログテスト_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response: Response) =>
@@ -884,16 +897,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(`更新テスト_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response: Response) =>
@@ -955,16 +959,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       await page.getByLabel(/プロジェクト名/i).fill(`削除テスト_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response: Response) =>
@@ -1020,58 +1015,42 @@ test.describe('プロジェクト管理 追加要件', () => {
     test('すべてのAPIエンドポイントがOpenAPI仕様書に文書化されている (project-management/REQ-14.7)', async ({
       page,
     }) => {
-      // OpenAPI仕様書へのアクセスを試行
-      // フロントエンド経由（プロキシ）またはバックエンド直接
-      const baseUrl = process.env.BASE_URL || 'http://localhost:5174';
-      const backendUrl = process.env.BACKEND_URL || 'http://localhost:3100';
+      // REQ-14.7 は「すべてのAPIをAPI仕様書に文書化する」ことを定める。
+      // 仕様書は backend が Swagger UI として配信しており（backend/src/app.ts の
+      // `swaggerUi.setup(swaggerSpec)`）、仕様(JSON)は初期化スクリプト
+      // `/docs/swagger-ui-init.js` の `swaggerDoc` にそのまま埋め込まれている。
+      //
+      // 以前は `${BASE_URL}/api/docs-json` と `${BACKEND_URL}/api-docs-json` を順に試し、
+      // どちらも存在しない（実測 404）ため**常に**代替経路へ落ちていた。
+      // 代替経路は「プロジェクトAPIが呼べる」ことしか見ておらず、
+      // 文書化を一度も検証していなかった。実在する配信元を直接取得し、無条件に主張する。
+      const specResponse = await page.request.get(`${API_BASE_URL}/docs/swagger-ui-init.js`, {
+        timeout: getTimeout(15000),
+      });
+      expect(
+        specResponse.ok(),
+        `API仕様書が配信されている (status=${specResponse.status()})`
+      ).toBeTruthy();
 
-      let response;
-      let swaggerSpec;
+      const initScript = await specResponse.text();
+      const swaggerDocMatch = initScript.match(
+        /"swaggerDoc":\s*(\{[\s\S]*?\}),\n\s*"customOptions":/
+      );
+      assertPresent(swaggerDocMatch, 'Swagger UI 初期化スクリプトに埋め込まれたAPI仕様(JSON)');
+      const swaggerDocJson = swaggerDocMatch[1];
+      assertPrepared(swaggerDocJson, 'API仕様(JSON)の本文');
+      const swaggerSpec = JSON.parse(swaggerDocJson) as {
+        paths?: Record<string, unknown>;
+      };
 
-      // 1. フロントエンド経由でAPI仕様にアクセスを試行
-      try {
-        response = await page.request.get(`${baseUrl}/api/docs-json`, { timeout: 5000 });
-        if (response.ok()) {
-          swaggerSpec = await response.json();
-        }
-      } catch {
-        // フロントエンド経由でアクセスできない場合は無視
-      }
-
-      // 2. バックエンド直接アクセスを試行
-      if (!swaggerSpec) {
-        try {
-          response = await page.request.get(`${backendUrl}/api-docs-json`, { timeout: 5000 });
-          if (response?.ok()) {
-            swaggerSpec = await response.json();
-          }
-        } catch {
-          // バックエンドにも直接アクセスできない場合
-        }
-      }
-
-      // 3. API仕様が取得できた場合、プロジェクトエンドポイントを検証
-      if (swaggerSpec) {
-        expect(swaggerSpec.paths).toBeDefined();
-        const projectPaths = Object.keys(swaggerSpec.paths || {}).filter((path) =>
-          path.includes('/api/projects')
-        );
-        expect(projectPaths.length).toBeGreaterThan(0);
-      } else {
-        // E2E環境でOpenAPI仕様にアクセスできない場合、
-        // 実際のAPI呼び出しが動作していることで代替検証
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
-
-        // プロジェクトAPIが動作していることを確認
-        const projectResponse = await page.request.get(`${baseUrl}/api/projects`, {
-          headers: {
-            Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
-          },
-        });
-        expect(projectResponse.ok()).toBe(true);
-      }
+      expect(swaggerSpec.paths, 'API仕様書に paths が含まれている').toBeDefined();
+      const projectPaths = Object.keys(swaggerSpec.paths ?? {}).filter((path) =>
+        path.includes('/api/projects')
+      );
+      expect(
+        projectPaths.length,
+        'REQ-14.7: プロジェクトAPIのエンドポイントがAPI仕様書に文書化されている'
+      ).toBeGreaterThan(0);
     });
   });
 
@@ -1079,50 +1058,57 @@ test.describe('プロジェクト管理 追加要件', () => {
    * REQ-18: エラー回復とフィードバックのテスト
    */
   test.describe('エラー回復とフィードバック', () => {
+    /** 受入基準 18.1 の文言（ネットワークエラー） */
+    const NETWORK_ERROR_MESSAGE = '通信エラーが発生しました。再試行してください。';
+    /** 受入基準 18.3 の文言（サーバーエラー） */
+    const SERVER_ERROR_MESSAGE = 'システムエラーが発生しました。しばらくしてからお試しください。';
+    /** 受入基準 18.6 の文言（タスク 71.1 で上流 user-authentication 要件 16.8 へ揃えたもの） */
+    const SESSION_EXPIRED_MESSAGE = 'セッションの有効期限が切れました。再度ログインしてください。';
+    /**
+     * 画面の 1 回の一覧取得が送る GET /api/projects の回数。
+     * apiClient はネットワークの失敗と 5xx を自動で再試行する
+     * （frontend/src/api/client.ts の DEFAULT_RETRY_CONFIG.maxRetries = 3）ため、
+     * 失敗し続ける取得は初回 1 回と自動再試行 3 回の計 4 回を送ってから画面へエラーを返す。
+     */
+    const REQUESTS_PER_FAILED_FETCH = 1 + 3;
+
+    /**
+     * 一覧取得の API（GET /api/projects）かどうか。
+     * CI とローカルで API のオリジンが異なるため、パスで一致させる。
+     */
+    const isProjectListUrl = (url: URL): boolean => url.pathname === '/api/projects';
+
     /**
      * @requirement project-management/REQ-18.1
      * ネットワークエラー発生時にエラーメッセージと再試行ボタンを表示
      */
-    test('ネットワークエラー発生時に「通信エラーが発生しました」メッセージが表示される (project-management/REQ-18.1)', async ({
+    test('ネットワークエラー発生時に「通信エラーが発生しました。再試行してください。」と再試行ボタンを表示する (project-management/REQ-18.1)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // まずプロジェクト一覧に正常にアクセスして、ページが読み込まれることを確認
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
-      await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
-        timeout: getTimeout(10000),
+      // 一覧取得をネットワークの失敗にする（apiClient はこれを ApiError(0) として扱う）
+      const listRequests: string[] = [];
+      await page.route(isProjectListUrl, async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.continue();
+          return;
+        }
+        listRequests.push(route.request().url());
+        await route.abort('internetdisconnected');
       });
 
-      // サーバーエラーをシミュレートするルートを設定（GETリクエストのプロジェクト一覧のみ）
-      await page.route(
-        (url) => url.pathname === '/api/projects',
-        (route) => {
-          if (route.request().method() === 'GET') {
-            route.fulfill({
-              status: 500,
-              contentType: 'application/json',
-              body: JSON.stringify({ error: 'Internal Server Error' }),
-            });
-          } else {
-            route.continue();
-          }
-        }
-      );
+      await page.goto('/projects');
 
-      // ページをリロードしてエラーを発生させる
-      await page.reload();
-      await page.waitForLoadState('domcontentloaded');
+      // 受入基準の文言（完全一致）と再試行ボタンが、同じエラー表示の中に現れる
+      const errorAlert = page.getByRole('alert').filter({ hasText: NETWORK_ERROR_MESSAGE });
+      await expect(errorAlert.getByText(NETWORK_ERROR_MESSAGE, { exact: true })).toBeVisible({
+        timeout: getTimeout(30000),
+      });
+      await expect(errorAlert.getByRole('button', { name: '再試行', exact: true })).toBeVisible();
 
-      // エラーメッセージが表示されることを確認
-      // ProjectListPageは「エラーが発生しました」と「プロジェクト一覧を取得できませんでした」を表示
-      const errorMessage = page.getByText(/エラーが発生しました|取得できませんでした/i).first();
-      await expect(errorMessage).toBeVisible({ timeout: getTimeout(15000) });
-
-      // ルート設定を解除
-      await page.unroute((url) => url.pathname === '/api/projects');
+      // 表示されたのは一覧取得がネットワークの失敗で尽きた結果である（自動再試行を含む送信回数）
+      expect(listRequests).toHaveLength(REQUESTS_PER_FAILED_FETCH);
     });
 
     /**
@@ -1134,67 +1120,93 @@ test.describe('プロジェクト管理 追加要件', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // まずプロジェクト一覧に正常にアクセスして、ページが読み込まれることを確認
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
-      await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
-        timeout: getTimeout(10000),
+      // 最初は一覧取得をネットワークの失敗にし、再試行の前に正常へ戻す
+      let shouldFail = true;
+      const listRequests: string[] = [];
+      await page.route(isProjectListUrl, async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.continue();
+          return;
+        }
+        listRequests.push(route.request().url());
+        if (shouldFail) {
+          await route.abort('internetdisconnected');
+          return;
+        }
+        await route.continue();
       });
 
-      // サーバーエラーをシミュレートするルートを設定
-      let shouldFail = true;
-      await page.route(
-        (url) => url.pathname === '/api/projects',
-        (route) => {
-          if (shouldFail && route.request().method() === 'GET') {
-            route.fulfill({
-              status: 500,
-              contentType: 'application/json',
-              body: JSON.stringify({ error: 'Internal Server Error' }),
-            });
-          } else {
-            route.continue();
-          }
-        }
-      );
+      await page.goto('/projects');
 
-      // ページをリロードしてエラーを発生させる
-      await page.reload();
-      await page.waitForLoadState('domcontentloaded');
+      const errorAlert = page.getByRole('alert').filter({ hasText: NETWORK_ERROR_MESSAGE });
+      const retryButton = errorAlert.getByRole('button', { name: '再試行', exact: true });
+      await expect(retryButton).toBeVisible({ timeout: getTimeout(30000) });
+      expect(listRequests).toHaveLength(REQUESTS_PER_FAILED_FETCH);
+      const failedRequestUrl = new URL(listRequests[listRequests.length - 1]!);
 
-      // エラーメッセージの表示を待機
-      const errorMessage = page.getByText(/エラーが発生しました|取得できませんでした/i).first();
-      await expect(errorMessage).toBeVisible({ timeout: getTimeout(15000) });
+      // ページの再読込が起きないことを確かめるための目印（再読込すると消える）
+      await page.evaluate(() => {
+        (window as unknown as Record<string, unknown>).__e2eRetryMarker = true;
+      });
 
-      // フラグを変更してサーバーを正常化
       shouldFail = false;
 
-      // 再試行ボタンをクリック
-      const retryButton = page.getByRole('button', {
-        name: /再試行|もう一度|再読み込み|リトライ/i,
+      // 待ちはクリックの前に登録する
+      const retriedResponsePromise = page.waitForResponse(
+        (response) =>
+          isProjectListUrl(new URL(response.url())) && response.request().method() === 'GET',
+        { timeout: getTimeout(30000) }
+      );
+      await retryButton.click();
+      const retriedResponse = await retriedResponsePromise;
+
+      // 再試行は、失敗したのと同じ一覧取得（同じ検索条件）を 1 回だけ送り直し、成功する
+      expect(retriedResponse.status()).toBe(200);
+      const retriedUrl = new URL(retriedResponse.url());
+      expect(retriedUrl.pathname).toBe(failedRequestUrl.pathname);
+      expect(retriedUrl.search).toBe(failedRequestUrl.search);
+      expect(listRequests).toHaveLength(REQUESTS_PER_FAILED_FETCH + 1);
+
+      // エラー表示が消え、一覧の画面が表示される
+      await expect(errorAlert).toHaveCount(0, { timeout: getTimeout(15000) });
+      await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible();
+
+      // 再試行はページの再読込で代替されていない
+      const markerSurvived = await page.evaluate(
+        () => (window as unknown as Record<string, unknown>).__e2eRetryMarker === true
+      );
+      expect(markerSurvived).toBe(true);
+    });
+
+    /**
+     * @requirement project-management/REQ-18.3
+     * サーバーエラー（5xx）発生時にシステムエラーのメッセージを表示
+     */
+    test('サーバーエラー発生時に「システムエラーが発生しました。しばらくしてからお試しください。」を表示する (project-management/REQ-18.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 一覧取得をサーバーエラー（500）にする
+      await page.route(isProjectListUrl, async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.continue();
+          return;
+        }
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Internal Server Error' }),
+        });
       });
-      const reloadLink = page.getByRole('link', { name: /再試行|もう一度|再読み込み/i });
 
-      // 再試行ボタンまたはリンクが存在する場合はクリック
-      if (await retryButton.isVisible()) {
-        await retryButton.click();
-      } else if (await reloadLink.isVisible()) {
-        await reloadLink.click();
-      } else {
-        // 再試行ボタンがない場合はページをリロード
-        await page.reload();
-      }
+      await page.goto('/projects');
 
-      await page.waitForLoadState('networkidle');
-
-      // 正常にプロジェクト一覧が表示されることを確認
-      const heading = page.getByRole('heading', { name: /プロジェクト一覧/i });
-      const emptyMessage = page.getByText(/プロジェクトがありません/i);
-      await expect(heading.or(emptyMessage)).toBeVisible({ timeout: getTimeout(15000) });
-
-      // ルートを解除
-      await page.unroute((url) => url.pathname === '/api/projects');
+      // 受入基準の文言（完全一致）が表示される
+      const errorAlert = page.getByRole('alert').filter({ hasText: SERVER_ERROR_MESSAGE });
+      await expect(errorAlert.getByText(SERVER_ERROR_MESSAGE, { exact: true })).toBeVisible({
+        timeout: getTimeout(30000),
+      });
     });
 
     /**
@@ -1219,16 +1231,7 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクトを作成
       const createPromise = page.waitForResponse(
@@ -1272,9 +1275,9 @@ test.describe('プロジェクト管理 追加要件', () => {
 
     /**
      * @requirement project-management/REQ-18.6
-     * セッション期限切れ時にログインページへリダイレクト
+     * セッション期限切れ時にログインページへリダイレクトし、メッセージを表示
      */
-    test('セッション期限切れ時にログインページにリダイレクトする (project-management/REQ-18.6)', async ({
+    test('セッション期限切れ時にログインページにリダイレクトし「セッションの有効期限が切れました。再度ログインしてください。」を表示する (project-management/REQ-18.6)', async ({
       page,
       context,
     }) => {
@@ -1282,24 +1285,30 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // プロジェクト一覧にアクセス
       await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
       await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
-      // セッションをクリア（ログアウト状態をシミュレート）
+      // セッションを期限切れにする: Cookie を消し、保存済みのトークンを失効したもの（無効な値）へ置き換える。
+      // トークンを単に削除すると「未ログイン」として扱われ、期限切れにはならない
       await context.clearCookies();
       await page.evaluate(() => {
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('accessToken');
+        localStorage.setItem('accessToken', 'expired.access.token');
+        localStorage.setItem('refreshToken', 'expired.refresh.token');
       });
 
-      // ページをリロード
+      // 期限切れのセッションのまま、プロジェクト一覧を開き直す
       await page.reload();
 
-      // ログインページにリダイレクトされることを確認
-      await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(15000) });
+      // ログインページへ、元のページを redirectUrl に保ってリダイレクトされる
+      await expect(page).toHaveURL(/\/login\?redirectUrl=%2Fprojects$/, {
+        timeout: getTimeout(15000),
+      });
+
+      // 受入基準の文言（完全一致）が表示される
+      await expect(page.getByText(SESSION_EXPIRED_MESSAGE, { exact: true })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
   });
 });

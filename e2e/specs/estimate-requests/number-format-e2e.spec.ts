@@ -25,6 +25,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -69,16 +70,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       await page.getByLabel(/現場住所/i).fill('東京都渋谷区テスト1-2-3');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response) =>
@@ -568,41 +560,34 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
-      // 編集ボタンをクリック（準備3で作成したデータを編集）
-      const editButton = page.getByRole('button', { name: /編集/i }).first();
-      if (await editButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
-        await editButton.click();
+      // 編集ボタンをクリック
+      // REQ-18.2 の検証（同一 describe・serial 実行）が受領見積書を1件登録済みであるため、
+      // 受領見積書一覧の編集ボタンは必ず存在する。
+      // 以前は「編集ボタンが見えなければ登録画面で検証する」という全域分岐であったが、
+      // else 側は登録画面の検証であり REQ-18.4（編集画面）の主張になっていなかった。
+      const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+      await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+      const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
+      await expect(editButton).toBeVisible({ timeout: getTimeout(5000) });
+      await editButton.click();
 
-        // 編集フォームが表示される
-        await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+      // 編集フォームが表示される
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 行1の単価フィールド
-        const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-        await expect(unitPriceInput).toBeVisible({ timeout: getTimeout(5000) });
+      // 行1の単価フィールド
+      const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
+      await expect(unitPriceInput).toBeVisible({ timeout: getTimeout(5000) });
 
-        // 編集画面で単価が整数表示されていることを確認
-        const currentValue = await unitPriceInput.inputValue();
-        // 小数点が含まれていないことを確認（整数表示）
-        if (currentValue) {
-          expect(currentValue).not.toContain('.');
-        }
+      // REQ-18.4: 編集画面の単価は常に整数表示（小数点を含まない）
+      const currentValue = await unitPriceInput.inputValue();
+      expect(currentValue).not.toContain('.');
 
-        // 小数値を入力して整数化されることを確認
-        await unitPriceInput.fill('3456.8');
-        await page.getByRole('textbox', { name: /行1 数量/i }).click();
+      // 小数値を入力して整数化されることを確認
+      await unitPriceInput.fill('3456.8');
+      await page.getByRole('textbox', { name: /行1 数量/i }).click();
 
-        // 四捨五入で整数表示: '3456.8' -> '3457'
-        await expect(unitPriceInput).toHaveValue('3457', { timeout: getTimeout(5000) });
-      } else {
-        // 編集対象がない場合、登録画面で検証
-        await page.getByRole('button', { name: /受領見積書登録/i }).click();
-        await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
-
-        const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-        await unitPriceInput.fill('3456.8');
-        await page.getByRole('textbox', { name: /行1 数量/i }).click();
-        await expect(unitPriceInput).toHaveValue('3457', { timeout: getTimeout(5000) });
-      }
+      // 四捨五入で整数表示: '3456.8' -> '3457'
+      await expect(unitPriceInput).toHaveValue('3457', { timeout: getTimeout(5000) });
     });
 
     /**
@@ -618,45 +603,52 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       await page.waitForLoadState('networkidle');
 
       // 編集ボタンをクリック
-      const editButton = page.getByRole('button', { name: /編集/i }).first();
-      if (await editButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
-        await editButton.click();
+      // REQ-18.2 の検証（同一 describe・serial 実行）が受領見積書を1件登録済みであるため、
+      // 受領見積書一覧の編集ボタンは必ず存在する。
+      // 以前は「編集ボタンが見えなければ登録画面で検証する」という全域分岐であったが、
+      // else 側は登録画面の検証であり REQ-18.6（編集画面）の主張になっていなかった。
+      const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+      await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+      const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
+      await expect(editButton).toBeVisible({ timeout: getTimeout(5000) });
+      await editButton.click();
 
-        // 編集フォームが表示される
-        await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+      // 編集フォームが表示される
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 行1の数量と単価を入力して金額を計算
-        const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
-        const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
+      // 行1の数量と単価を入力して金額を計算
+      const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
+      const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
 
-        await quantityInput.fill('3.50');
-        await unitPriceInput.fill('1500');
-        await page.getByRole('textbox', { name: /行1 名称/i }).click();
+      await quantityInput.fill('3.50');
+      await unitPriceInput.fill('1500');
+      await page.getByRole('textbox', { name: /行1 名称/i }).click();
 
-        // 金額: 3.50 * 1500 = 5250（整数）
-        // 金額が整数で表示されることを確認（カンマ区切りの整数表示: 5,250）
-        await expect(page.getByText('5,250').first()).toBeVisible({ timeout: getTimeout(5000) });
-      } else {
-        // 編集対象がない場合、登録画面で検証
-        await page.getByRole('button', { name: /受領見積書登録/i }).click();
-        await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
-
-        const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
-        const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-
-        await quantityInput.fill('3.50');
-        await unitPriceInput.fill('1500');
-        await page.getByRole('textbox', { name: /行1 名称/i }).click();
-
-        await expect(page.getByText('5,250').first()).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // 金額: 3.50 * 1500 = 5250（整数）
+      // 金額が整数で表示されることを確認（カンマ区切りの整数表示: 5,250）
+      await expect(page.getByText('5,250').first()).toBeVisible({ timeout: getTimeout(5000) });
     });
 
     /**
      * @requirement estimate-request/REQ-18.10
-     * OCR一括取り込み時の形式適用
+     * 一括取り込み時の形式適用
+     *
+     * REQ-18.10 は「OCR **または** データパースによる一括取り込み」を対象とする。
+     * 資材に Excel（データパース経路・REQ-13.6）を用いるのは、PDF の OCR 経路では
+     * 取り込みに数量・単価が一つも乗らないためである。`extractPdfText` は
+     * ページ内のテキストアイテムを単一スペースで連結し、pdfjs 自身も文字列中の
+     * 連続空白・タブを単一スペースへ畳む。一方 `convertOcrTextToLineItems` の列分割は
+     * タブまたは 2 個以上の連続スペースを必要とするため、テキスト PDF は
+     * 常に 1 行 1 セルへ潰れ、位置ベース推定で全文が「名称」に入る。
+     * その結果、数量・単価は空のままとなり REQ-18.10 の対象そのものが生まれない
+     * （`test-text-pdf.pdf` で実測。行1 数量の受領値は ""）。
+     *
+     * Excel 経路は SheetJS がセルを直接読むため、数量・単価が確実に取り込まれる。
+     * 資材 `test-lineitem-table.xlsx` は次の 2 行を持ち、丸めの上下双方を通す。
+     *   行1: 数量 2.5 → `2.50` / 単価 1234.6 → `1235`（切り上がり）
+     *   行2: 数量 3   → `3.00` / 単価 999.4  → `999`（切り下がり）
      */
-    test('OCR一括取り込み時に数値が正しい形式で適用される (estimate-request/REQ-18.10)', async ({
+    test('一括取り込み時に数値が正しい形式で適用される (estimate-request/REQ-18.10)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -670,50 +662,46 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // PDFファイルをアップロード
-      const pdfPath = path.resolve(__dirname, '../../fixtures/test-text-pdf.pdf');
+      // 明細表を持つ Excel をアップロードする（REQ-13.6: Excel はデータパース）
+      const workbookPath = path.resolve(__dirname, '../../fixtures/test-lineitem-table.xlsx');
       const fileInput = page.locator('input[type="file"]');
-      await fileInput.setInputFiles(pdfPath);
+      await fileInput.setInputFiles(workbookPath);
 
-      // テキスト抽出完了を待機
-      await expect(
-        page
-          .locator('[data-testid="ocr-extracted-text"]')
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
+      // データパース完了を待機（抽出結果が表示される）
+      await expect(page.locator('[data-testid="ocr-extracted-text"]')).toBeVisible({
+        timeout: getTimeout(60000),
+      });
 
-      // 一括取り込みボタンが表示された場合のみ検証
+      // REQ-13.10: 抽出結果から一括取り込みボタンが表示される
       const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        // 一括取り込みボタンをクリック
-        await importButton.click();
+      await expect(importButton).toBeVisible({ timeout: getTimeout(5000) });
+      await importButton.click();
 
-        // 取り込み成功を待機
-        await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
-          timeout: getTimeout(5000),
-        });
+      // 取り込み成功を待機
+      await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-        // 取り込み後の数量フィールドが小数2桁表示であることを確認
-        const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
-        if (await quantityInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-          const quantityValue = await quantityInput.inputValue();
-          if (quantityValue && quantityValue !== '0' && quantityValue !== '') {
-            // 数量が小数2桁表示であることを確認
-            expect(quantityValue).toMatch(/^\d+\.\d{2}$/);
-          }
-        }
+      // REQ-18.10, REQ-18.1: 取り込まれた数量は小数2桁常時表示になる
+      await expect(page.getByRole('textbox', { name: /行1 数量/i })).toHaveValue('2.50', {
+        timeout: getTimeout(5000),
+      });
+      await expect(page.getByRole('textbox', { name: /行2 数量/i })).toHaveValue('3.00', {
+        timeout: getTimeout(5000),
+      });
 
-        // 取り込み後の単価フィールドが整数表示であることを確認
-        const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-        if (await unitPriceInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-          const unitPriceValue = await unitPriceInput.inputValue();
-          if (unitPriceValue && unitPriceValue !== '0' && unitPriceValue !== '') {
-            // 単価が整数表示であることを確認（小数点なし）
-            expect(unitPriceValue).not.toContain('.');
-          }
-        }
-      }
+      // REQ-18.10, REQ-18.3: 取り込まれた単価は小数第1位で四捨五入した整数になる
+      await expect(page.getByRole('textbox', { name: /行1 単価/i })).toHaveValue('1235', {
+        timeout: getTimeout(5000),
+      });
+      await expect(page.getByRole('textbox', { name: /行2 単価/i })).toHaveValue('999', {
+        timeout: getTimeout(5000),
+      });
+
+      // REQ-18.10, REQ-18.5, REQ-18.9: 金額は 数量×単価 を四捨五入した整数で表示される
+      // 行1: 2.50 × 1235 = 3087.5 → 3088 / 行2: 3.00 × 999 = 2997
+      await expect(page.getByText('3,088').first()).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(page.getByText('2,997').first()).toBeVisible({ timeout: getTimeout(5000) });
     });
 
     /**
@@ -730,52 +718,39 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
+      // REQ-18.11 は「項目選択からの一括転記が実行されたとき」の要件である。
+      // 転記が起きたかどうかを観測して主張を包むと、起きなかった回は何も検証されない。
+      // そこで転記の前提（内訳書項目が選択済みであること・REQ-15.2）を先に無条件で作る。
+      const firstSelectionCheckbox = page
+        .locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]')
+        .first();
+      await expect(firstSelectionCheckbox).toBeVisible({ timeout: getTimeout(10000) });
+      await firstSelectionCheckbox.check();
+      await expect(firstSelectionCheckbox).toBeChecked();
+
+      const saveSelectionButton = page.getByTestId('save-selection-button');
+      await expect(saveSelectionButton).toBeVisible({ timeout: getTimeout(5000) });
+      await saveSelectionButton.click();
+      await expect(page.getByText('保存しました')).toBeVisible({ timeout: getTimeout(10000) });
+
       // 受領見積書登録フォームを開く
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 項目選択ボタンが表示される場合（内訳書の項目から転記する機能）
-      const itemSelectButton = page
-        .getByRole('button', { name: /項目選択/i })
-        .or(page.getByRole('button', { name: /内訳書から選択/i }));
+      // REQ-15.1: 「項目選択から転記」ボタンは登録フォームに必ず表示される
+      const transcriptionButton = page.getByTestId('transcription-button');
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(5000) });
+      await transcriptionButton.click();
 
-      if (await itemSelectButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        // 項目選択ボタンをクリック
-        await itemSelectButton.click();
+      // REQ-15.5: 転記完了メッセージが表示される
+      await expect(page.getByText(/項目を転記しました/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-        // 項目選択ダイアログ/モーダルが表示される
-        const dialog = page.locator('[role="dialog"]').or(page.locator('.modal'));
-        if (await dialog.isVisible({ timeout: 5000 }).catch(() => false)) {
-          // 最初の項目のチェックボックスをチェック
-          const firstCheckbox = dialog.locator('input[type="checkbox"]').first();
-          if (await firstCheckbox.isVisible({ timeout: 3000 }).catch(() => false)) {
-            await firstCheckbox.check();
-
-            // 選択確定ボタンをクリック
-            const confirmButton = dialog.getByRole('button', { name: /選択|確定|適用/i });
-            if (await confirmButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-              await confirmButton.click();
-            }
-          }
-        }
-
-        // 転記後の数量フィールドを確認
-        const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
-        if (await quantityInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-          const quantityValue = await quantityInput.inputValue();
-          if (quantityValue && quantityValue !== '0' && quantityValue !== '') {
-            // 数量が小数2桁形式であることを確認
-            expect(quantityValue).toMatch(/^\d+\.\d{2}$/);
-          }
-        }
-      } else {
-        // 項目選択機能がUI上にない場合、手動入力で形式を検証
-        const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
-        await expect(quantityInput).toBeVisible({ timeout: getTimeout(5000) });
-        await quantityInput.fill('1');
-        await page.getByRole('textbox', { name: /行1 単価/i }).click();
-        await expect(quantityInput).toHaveValue('1.00', { timeout: getTimeout(5000) });
-      }
+      // REQ-18.11: 転記された数量は小数2桁常時表示になる
+      const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
+      await expect(quantityInput).toBeVisible({ timeout: getTimeout(3000) });
+      await expect(quantityInput).toHaveValue(/^\d+\.\d{2}$/, { timeout: getTimeout(5000) });
     });
 
     /**
@@ -808,23 +783,21 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       // 金額: 2.50 * 1000 = 2500（カンマ区切り整数表示: 2,500）
       await expect(page.getByText('2,500').first()).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 合計金額エリアを確認
-      // 合計金額テキストが表示されている場合
-      const totalArea = page.locator('[data-testid="total-amount"]').or(page.getByText(/合計/i));
+      // 合計金額エリアを確認（REQ-18.12 の主題は合計金額の表示そのもの）
+      // 見出しの「合計」を含む `.or()` は同一画面で 2 要素に一致し、
+      // strict mode 違反で判定そのものが成立しなかった
+      const totalArea = page.locator('[data-testid="total-amount"]');
 
-      if (await totalArea.isVisible({ timeout: 5000 }).catch(() => false)) {
-        // 合計金額が整数表示（小数点なし）であることを確認
-        const totalText = await totalArea.textContent();
-        if (totalText) {
-          // 合計エリアに含まれる数値が整数であることを確認
-          const numberMatch = totalText.match(/[\d,]+/);
-          if (numberMatch) {
-            // カンマ区切りを除去して整数であることを確認
-            const numStr = numberMatch[0].replace(/,/g, '');
-            expect(numStr).not.toContain('.');
-          }
-        }
-      }
+      // 合計金額エリアは LineItemEditor が常に描画する（`total-amount`）。
+      // REQ-18.12: 合計金額も整数表示（小数第1位で四捨五入・カンマ区切り）である。
+      // 行1に 2.50 × 1000 を入力しているので合計は 2,500 に確定する
+      await expect(totalArea).toBeVisible({ timeout: getTimeout(5000) });
+      // 合計の綴りを厳密に主張する。小数第1位で四捨五入されず `2,500.50` と出れば
+      // この主張が落ちる。同じ欄を読み直して数値を抜き出し「小数点が無い」ことを
+      // 重ねて主張しても、先行の主張の含意で決して失敗せず、主張として何も足さない
+      // （先行の主張が後続を含意する形。Task 115.163。抜き出しの範囲を小数点まで
+      // 広げた Task 115.139 の是正は、この主張の前では飾りに過ぎなかった）
+      await expect(totalArea).toHaveText('2,500', { timeout: getTimeout(5000) });
     });
   });
 

@@ -7,25 +7,33 @@
  * - REQ-38.1: 各数量グループパネルの表題部にコピーボタンを表示
  * - REQ-38.2: コピーボタン押下で同一数量表内に複製
  * - REQ-38.3: 元グループの全数量項目（フィールド値・並び順）を複製
+ * - REQ-38.4: 元グループに紐づく現場調査写真の紐づけを複製先でも維持
  * - REQ-38.5: 複製先グループ名を「{元名}のコピー」とする
  * - REQ-38.6: 名前最大文字数超過時は元名を切り詰めて「のコピー」を付与
  * - REQ-38.7: 複製先を元グループの直下に挿入し、後続グループの並び順を +1 シフト
  * - REQ-38.9: コピー処理中はインジケーター表示・重複操作防止
  * - REQ-38.11: コピー完了後、複製先グループ名を直ちにインライン編集可能な状態で表示
  *
- * 補足:
- * - REQ-38.4（写真紐づけ維持）は、E2E での画像アップロード基盤コストが高いため、
- *   サーバー側のロジックを直接検証する Integration テスト 52.5
- *   (`backend/src/__tests__/integration/quantity-group-copy.integration.test.ts` 想定)
- *   に委譲する。本スペックには含まない。
+ * Task 115.192: 上記一覧の 38.4 はかつて「Integration テスト 52.5 に委譲する。
+ * 本スペックには含まない」と宣言されていたが、委譲先
+ * （backend/src/__tests__/integration/quantity-group-copy.integration.test.ts）は実在せず、
+ * 当該受入基準は実質未検証のまま残っていた。委譲の宣言を撤回し、既存の E2E 前提ヘルパー
+ * （seedSurveyPhotosWithComments / attachPhotoToGroup）を用いて本スペック内で直接検証する。
+ * 「E2E での画像アップロード基盤コストが高い」という当時の理由も、当該ヘルパーの整備により
+ * 既に成り立たない。
  *
  * @module e2e/specs/quantity-tables/quantity-group-copy.spec
  */
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import {
+  attachPhotoToGroup,
+  seedSurveyPhotosWithComments,
+} from '../../helpers/quantity-table-preconditions';
 
 /** GROUP_NAME_MAX_WIDTH = 50 半角単位（全角=2, 半角=1） — REQ-22.4 / REQ-38.6 */
 const GROUP_NAME_MAX_WIDTH = 50;
@@ -34,6 +42,8 @@ const COPY_SUFFIX = 'のコピー';
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
+/** REQ-38.4 の検証で使う現場調査写真の枚数（1枚あれば紐づけの維持は観測できる） */
+const SURVEY_PHOTO_COMMENTS: readonly (string | null)[] = ['グループコピー用の写真'];
 
 /**
  * 文字列の表示幅（半角=1, 全角=2 で集計）。
@@ -106,16 +116,7 @@ async function createTestProject(page: Page, projectName: string): Promise<strin
 
   // 営業担当者は必須（プロジェクト作成のため）
   const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-  const salesPersonValue = await salesPersonSelect.inputValue();
-  if (!salesPersonValue) {
-    const options = await salesPersonSelect.locator('option').all();
-    if (options.length > 1 && options[1]) {
-      const firstUserOption = await options[1].getAttribute('value');
-      if (firstUserOption) {
-        await salesPersonSelect.selectOption(firstUserOption);
-      }
-    }
-  }
+  await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
   const createProjectPromise = page.waitForResponse(
     (response) =>
@@ -305,6 +306,25 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
       // REQ-42.5: ここまでの編集（グループ/項目の追加・名称）はドラフトのため、
       // 後続テストがリロードで参照できるよう明示保存して永続化する。
       await saveQuantityTableDraft(page);
+    });
+
+    test('REQ-38.4 の検証で紐づける現場調査写真を作成する', async ({ page }) => {
+      if (!testProjectId) {
+        throw new Error('testProjectId が未設定です。事前準備テストが正しく実行されていません。');
+      }
+
+      // REQ-38.4 の関心はコピー先での写真紐づけの維持であり注釈の有無ではない。写真選択
+      // ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
+      const { imageIds } = await seedSurveyPhotosWithComments(
+        page,
+        testProjectId,
+        'グループコピーE2E_現場調査',
+        SURVEY_PHOTO_COMMENTS,
+        'all'
+      );
+      expect(imageIds.length, '前提: 紐づけ候補となる写真が作成される').toBe(
+        SURVEY_PHOTO_COMMENTS.length
+      );
     });
   });
 
@@ -555,6 +575,72 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
   });
 
   // ==========================================================================
+  // REQ-38.4: 元グループに紐づく現場調査写真が複製先でも維持される
+  //
+  // Task 115.192: 従来この受入基準は「Integration テスト 52.5 へ委譲」と宣言されていたが、
+  // 委譲先ファイルは実在しなかった。E2E の写真アップロード前提は
+  // `seedSurveyPhotosWithComments` / `attachPhotoToGroup` として既に用意されているため、
+  // ここで直接観測する。ドラフト上の維持と、保存・再読込を経た永続化の双方を主張する。
+  // ==========================================================================
+  /**
+   * @requirement quantity-table-generation/REQ-38.4
+   */
+  test('元グループに紐づく現場調査写真が複製先でも維持される (REQ-38.4)', async ({ page }) => {
+    if (!createdQuantityTableId) {
+      throw new Error('createdQuantityTableId が未設定です。');
+    }
+
+    await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+    await page.waitForLoadState('networkidle');
+
+    const groupCards = page.locator('[data-testid="quantity-group-card"]');
+    await expect(groupCards.first()).toBeVisible({ timeout: getTimeout(15000) });
+    const beforeCount = await groupCards.count();
+
+    // 写真を紐づけた元グループD を用意する（紐づけはドラフト更新に留まる。REQ-42.3）
+    await addAndNameGroup(page, beforeCount, '写真グループD');
+    const sourceCard = groupCards.nth(beforeCount);
+    const fileName = await attachPhotoToGroup(page, sourceCard, 0);
+
+    // コピー実行（REQ-42.4: クライアントサイドのドラフト複製）
+    const copyButton = sourceCard.getByRole('button', { name: 'グループをコピー' });
+    await expect(copyButton).toBeVisible({ timeout: getTimeout(5000) });
+    await copyButton.click();
+    await expect(groupCards).toHaveCount(beforeCount + 2, { timeout: getTimeout(15000) });
+
+    const copiedCard = groupCards.nth(beforeCount + 1);
+    await expect(copiedCard.locator('h3').first()).toHaveText('写真グループDのコピー');
+
+    // REQ-38.4: 複製先にも同一の現場調査写真の紐づけが維持される
+    await expect(
+      copiedCard.locator(`img[alt="${fileName}"]`).first(),
+      'REQ-38.4: 複製先に元と同一の現場調査写真のサムネイルが表示される'
+    ).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(
+      copiedCard.locator('[data-testid^="image-placeholder-"]'),
+      'REQ-38.4: 複製先が写真未紐付けのプレースホルダーにならない'
+    ).toHaveCount(0);
+
+    // 保存・再読込を経ても、元と複製先の双方で紐づけが維持される（REQ-42.5 での永続化）
+    await saveQuantityTableDraft(page);
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(groupCards).toHaveCount(beforeCount + 2, { timeout: getTimeout(15000) });
+
+    const reloadedSource = groupCards.nth(beforeCount);
+    const reloadedCopy = groupCards.nth(beforeCount + 1);
+    await expect(reloadedSource.locator('h3').first()).toHaveText('写真グループD');
+    await expect(reloadedCopy.locator('h3').first()).toHaveText('写真グループDのコピー');
+    await expect(
+      reloadedSource.locator(`img[alt="${fileName}"]`).first(),
+      'REQ-38.4: 再読込後も元グループの写真紐づけが維持される'
+    ).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(
+      reloadedCopy.locator(`img[alt="${fileName}"]`).first(),
+      'REQ-38.4: 再読込後も複製先の写真紐づけが維持される'
+    ).toBeVisible({ timeout: getTimeout(15000) });
+  });
+
+  // ==========================================================================
   // クリーンアップ: 作成したプロジェクトを削除（権限のある ADMIN_USER で実行）
   // ==========================================================================
   test.describe('クリーンアップ', () => {
@@ -573,13 +659,13 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        const hasDeleteButton = await deleteButton.isVisible({ timeout: 5000 });
+        const hasDeleteButton = await isVisibleWithin(deleteButton, 5000);
         if (hasDeleteButton) {
           await deleteButton.click();
           const confirmButton = page
             .getByTestId('focus-manager-overlay')
             .getByRole('button', { name: /^削除$/i });
-          const hasConfirmButton = await confirmButton.isVisible({ timeout: 5000 });
+          const hasConfirmButton = await isVisibleWithin(confirmButton, 5000);
           if (hasConfirmButton) {
             await confirmButton.click();
             await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });

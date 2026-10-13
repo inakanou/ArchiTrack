@@ -145,21 +145,24 @@ describe('RolePermissionService', () => {
       // Act
       await rolePermissionService.addPermissionToRole(mockRoleId, mockPermissionId, actorId);
 
-      // Assert
-      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith({
-        action: 'PERMISSION_ASSIGNED',
-        actorId,
-        targetType: 'role-permission',
-        targetId: mockRoleId,
-        before: null,
-        after: {
-          roleId: mockRoleId,
-          roleName: mockRole.name,
-          permissionId: mockPermissionId,
-          permission: `${mockPermission.resource}:${mockPermission.action}`,
+      // Assert（監査ログは紐付けと同じトランザクションのクライアントで記録する）
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'PERMISSION_ASSIGNED',
+          actorId,
+          targetType: 'role-permission',
+          targetId: mockRoleId,
+          before: null,
+          after: {
+            roleId: mockRoleId,
+            roleName: mockRole.name,
+            permissionId: mockPermissionId,
+            permission: `${mockPermission.resource}:${mockPermission.action}`,
+          },
+          metadata: null,
         },
-        metadata: null,
-      });
+        prismaMock
+      );
     });
 
     it('既に権限が割り当てられている場合はスキップする（重複を無視）', async () => {
@@ -311,21 +314,24 @@ describe('RolePermissionService', () => {
       // Act
       await rolePermissionService.removePermissionFromRole(mockRoleId, mockPermissionId, actorId);
 
-      // Assert
-      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith({
-        action: 'PERMISSION_REVOKED',
-        actorId,
-        targetType: 'role-permission',
-        targetId: mockRoleId,
-        before: {
-          roleId: mockRoleId,
-          roleName: mockRole.name,
-          permissionId: mockPermissionId,
-          permission: `${mockPermission.resource}:${mockPermission.action}`,
+      // Assert（監査ログは紐付けと同じトランザクションのクライアントで記録する）
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'PERMISSION_REVOKED',
+          actorId,
+          targetType: 'role-permission',
+          targetId: mockRoleId,
+          before: {
+            roleId: mockRoleId,
+            roleName: mockRole.name,
+            permissionId: mockPermissionId,
+            permission: `${mockPermission.resource}:${mockPermission.action}`,
+          },
+          after: null,
+          metadata: null,
         },
-        after: null,
-        metadata: null,
-      });
+        prismaMock
+      );
     });
 
     it('システム管理者ロールから*:*権限を削除しようとするとADMIN_WILDCARD_PROTECTEDエラーを返す', async () => {

@@ -9,7 +9,7 @@
  * テキストオブジェクトに日本語フォントを適用する。
  *
  * @see design.md - ExportService日本語フォント埋め込み詳細
- * @see requirements.md - 要件10.5
+ * @see requirements.md - 要件12.5
  */
 
 import type { Canvas as FabricCanvas } from 'fabric';
@@ -81,7 +81,7 @@ interface TextObject {
  * 日本語フォント（Noto Sans JP）を適用する。
  *
  * Requirements:
- * - 10.5: 日本語を含むテキスト注釈を正しくレンダリングしてエクスポートする
+ * - 12.5: 日本語を含むテキスト注釈を正しくレンダリングしてエクスポートする
  */
 export class JapaneseFontRenderer {
   /** フォント読み込みステータス */

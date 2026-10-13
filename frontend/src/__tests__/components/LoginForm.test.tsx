@@ -243,5 +243,24 @@ describe('LoginForm', () => {
       expect(errorContainer).toBeInTheDocument();
       expect(errorContainer).toHaveAttribute('aria-live', 'polite');
     });
+
+    it('フォーカスした入力フィールドにだけアウトラインが表示されること', async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<LoginForm onLogin={mockOnLogin} />);
+
+      const emailInput = screen.getByLabelText(/メールアドレス/i);
+      const passwordInput = screen.getByLabelText(/^パスワード$/i);
+
+      // 自動フォーカスでメールアドレスにアウトラインが出る
+      await waitFor(() => expect(emailInput).toHaveFocus());
+      expect(emailInput.style.outline).toBe('2px solid #2563eb');
+      expect(passwordInput.style.outline).toBe('none');
+
+      // Tab でパスワードへ移すと、アウトラインもパスワードへ移る
+      await user.tab();
+      expect(passwordInput).toHaveFocus();
+      expect(passwordInput.style.outline).toBe('2px solid #2563eb');
+      expect(emailInput.style.outline).toBe('none');
+    });
   });
 });

@@ -103,7 +103,7 @@
   - プロジェクト内の保存済み値の集約
   - 重複除去と50音順ソート
   - 最大100件制限
-  - _Requirements: 7.1, 7.2, 7.3, 7.5_
+  - _Requirements: 7.1, 7.2, 7.3, 7.8_
 
 - [x] 4. フロントエンド基盤コンポーネントの実装
 - [x] 4.1 プロジェクト詳細画面の数量表セクションを実装する
@@ -208,7 +208,7 @@
   - 候補選択時の自動入力
   - 上下キー選択とEnter確定
   - 2文字以上入力での候補表示
-  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
+  - _Requirements: 7.1, 7.2, 7.3, 7.5, 7.6_
 
 - [x] 7.2 各フィールドにオートコンプリートを適用する
   - 大項目フィールド
@@ -279,7 +279,7 @@
   - パンくずナビゲーション
   - オートコンプリート操作
   - 自動保存の動作確認
-  - _Requirements: 2.1, 2.2, 8.1, 8.5, 8.8, 6.1, 6.4, 12.1, 12.4, 7.4, 11.5_
+  - _Requirements: 2.1, 2.2, 8.1, 8.5, 8.8, 6.1, 6.4, 12.1, 12.4, 7.5, 11.5_
 
 - [x] 10. 統合と最終調整
 - [x] 10.1 ルーティングと画面遷移の統合
@@ -295,7 +295,7 @@
   - 数量グループの遅延読み込み
   - 計算結果のメモ化
   - オートコンプリート候補のキャッシュ
-  - _Requirements: 3.2, 7.5, 8.11_
+  - _Requirements: 3.2, 7.1, 8.11_
 
 ## Phase 2: フィールド仕様拡張
 
@@ -314,6 +314,16 @@
   - 数量フィールドの入力可能範囲（-999999.99〜9999999.99）検証を実装する
   - 寸法・ピッチ計算フィールドの入力可能範囲（0.01〜9999999.99）検証を実装する
   - 範囲外入力時のエラーメッセージを定義する
+  - **完了印の粒度についての追記（Task 80.4）。上の箇条は当時の記述であり、一字も削らずに残す。** 以下の実測はすべて `/home/inaka/works/ArchiTrack`（リポジトリルート）を起点に、コミット `03d631ca` の作業ツリーで 2026-09-11 に行った
+    - **当時の「完了」の読みは記録から復元できた。** 本項の印を未完了から完了へ変えたのは PR #235 のブランチ上のコミット `e8b5b17d`「feat: フィールドバリデーションサービスを実装 (Task 11)」である。取り出しは `gh api repos/:owner/:repo/commits/e8b5b17d7f012d519cea94592806de9174eaa851 -q '.files[] | select(.filename|test("tasks.md")) | .patch'` で、出力に本項の見出し行が削除側では未完了印・追加側では完了印として現れる。main 側は squash 済み（`0ee7c796`）であり、`git log --oneline -S'- [x] 11.2' -- .kiro/specs/quantity-table-generation/tasks.md` の出力は `0ee7c796 feat: 数量表作成機能の実装 (#235)` の1件だけで、印の遷移はローカルの履歴だけでは辿れない
+    - **同コミットが触った実装は2ファイルである。** `gh api repos/:owner/:repo/commits/e8b5b17d7f012d519cea94592806de9174eaa851 -q '.files[] | "\(.status) \(.filename)"'` の出力は `.kiro` 配下を除くと `added backend/src/services/quantity-field-validation.service.ts` と `added backend/src/__tests__/unit/services/quantity-field-validation.service.test.ts` の2行である。すなわち**当時の完了は「判定をサービスとして実装した」の意であり、描画される部品への統合は本項の読みに含まれていなかった**。本項の箇条はいずれも「検証を実装する」「エラーメッセージを定義する」であって統合を求めていないため、**復元された読みは本項の文言と整合している**
+    - **したがって完了印は据え置く。** これは「復元できなかったから据え置いた」のではない——上のとおり復元に成功し、復元された読みが文言と整合していることを根拠とする
+    - **ただし2番目の箇条の数値は、層によって現況が分かれる。** 本項は丸め設定を `-99.99〜99.99` と書く。Task 80.1（コミット `ba7040ae`）は REQ-10.3 の条文自体を `0.01〜99.99` へ改め、フロントの正典もそれへ揃えた。条文は `grep -nE '^3\. When 丸め設定フィールドに入力可能範囲' .kiro/specs/quantity-table-generation/requirements.md` で1行が引け、フロントの正典は `grep -n -A3 '^  roundingUnit: {$' frontend/src/utils/numeric-range-validation.ts` が `161:  roundingUnit: {` を頭に `min: 0.01,` / `max: 99.99,` / `label: '丸め設定',` の4行を返す（アンカーを外した `grep -n -A3 'roundingUnit: {' …` は既定値差し替えの表（284行目）にも当たって2箇所8行を返すため、上のアンカー付きで一意にすること）。**すなわち下限 `0.01` はフロントの正典と条文についての言明であって、それ以上ではない**
+    - **バックエンドは 80.1 の対象外であり、本項の `-99.99` はそちらでは今も生きている。** `git show --name-only --format='' ba7040ae | grep -c '^backend/'` の出力は `0` で、80.1 はバックエンドを一行も触っていない。`grep -n 'ROUNDING_UNIT' backend/src/services/quantity-field-validation.service.ts` の出力は3行で、`60:  ROUNDING_UNIT: { min: -99.99, max: 99.99, default: 0.01 },`・`343:    const { min, max } = FIELD_CONSTRAINTS.ROUNDING_UNIT;`・`445:      return FIELD_CONSTRAINTS.ROUNDING_UNIT.default;` である。同じファイルの保存経路の検証は別の値を直書きしており、`grep -n -B1 -A2 'const roundingUnitMin = 0.01;' backend/src/services/quantity-field-validation.service.ts` は `529-    // 丸め設定の範囲検証（フィールド仕様: 0.01〜999.99）`・`530:    const roundingUnitMin = 0.01;`・`531-    const roundingUnitMax = 999.99;` を返す。**本項の完了の実体として2つ上の箇条で名指したファイルは、本項が書いた `-99.99` を今も課している**
+    - **同ファイルは本番の経路である。** `grep -rn 'quantity-field-validation.service' backend/src --include=*.ts | grep -v '__tests__' | grep -v '\.test\.'` の出力は2行で、`backend/src/services/quantity-table.service.ts:37` と `backend/src/services/quantity-item.service.ts:35` がいずれも `QuantityFieldValidationService` を取り込んでいる
+    - **別タスクの起票を要すると判断する。** フロントの正典（下限 `0.01`）とバックエンド（下限 `-99.99`、保存経路の上限 `999.99`）が食い違ったままであり、これは記録の是正では閉じない。80.4 の境界は本スペックのタスク一覧の 11.2 / 12.4 の記述であってバックエンドの実装ではないため、ここでは手を入れない。**この判断は本スペックの設計文書が既に置いている申し送りと同じ結論である**——`grep -nF '**バックエンドは本タスクの境界外であり、二系統が残っている**' .kiro/specs/quantity-table-generation/design.md` が1行を返し、そこに「バックエンドの正典化は別途起票が要る」と書かれている
+    - **範囲定数の出所も当時とは異なる。** Task 80.1（`ba7040ae`）が `frontend/src/utils/numeric-range-validation.ts` の `FIELD_RANGE_CONFIG` を唯一の出所に定めた。`awk '/^export const FIELD_RANGE_CONFIG/,/^};/' frontend/src/utils/numeric-range-validation.ts | grep -oE '^  [a-zA-Z]+: \{'` の出力は `adjustmentFactor` / `roundingUnit` / `quantity` / `dimension` / `count` の5行である
+    - **測った範囲の限り**: 上の実測が見ているのは `frontend/src/utils/numeric-range-validation.ts`・`backend/src/services/quantity-field-validation.service.ts`・`.kiro/specs/quantity-table-generation/requirements.md`・GitHub 上の PR #235 のコミットだけである。丸め設定より他の欄（調整係数・数量・寸法/ピッチ）についてフロントとバックエンドの値が揃っているかは測っておらず、本追記は何も保証しない
   - _Requirements: 9.3, 10.3, 15.1, 15.3_
 
 - [x] 11.3 (P) 空白・デフォルト値の自動設定機能を実装する
@@ -350,6 +360,16 @@
   - 各数値フィールドの入力可能範囲をフィールドごとに設定できる仕組みを実装する
   - エラー状態のフィールドにビジュアルインジケーター（赤枠等）を表示する
   - 既存の計算用フィールドコンポーネントに範囲チェックを統合する
+  - **完了印の粒度についての追記（Task 80.4）。上の箇条は当時の記述であり、一字も削らずに残す。** 以下の実測はすべて `/home/inaka/works/ArchiTrack`（リポジトリルート）を起点に、コミット `03d631ca` の作業ツリーで 2026-09-11 に行った
+    - **当時の「完了」の読みは記録から復元できた。** 本項の印を未完了から完了へ変えたのは PR #235 のブランチ上のコミット `3b1cb5c6`「feat: 数値フィールドコンポーネントを実装 (Task 12.2-12.4)」である（取り出しは `gh api repos/:owner/:repo/commits/3b1cb5c6bb29d674cea3e9e0ca5c4238e83efd1c -q '.files[] | select(.filename|test("tasks.md")) | .patch'`）。main 側は squash 済みで、`git log --oneline -S'- [x] 12.4' -- .kiro/specs/quantity-table-generation/tasks.md` の出力は `0ee7c796 feat: 数量表作成機能の実装 (#235)` の1件だけである
+    - **同コミットは `CalculationFields.tsx` を一行も変えていない。** `gh api repos/:owner/:repo/commits/3b1cb5c6bb29d674cea3e9e0ca5c4238e83efd1c -q '.files[] | "\(.status) \(.filename)"'` の出力は `.kiro` 配下を除くと11行で、`NumericFieldInput.tsx`・`CalculationNumericInput.tsx`（各ストーリーと単体検証）・`numeric-range-validation.ts`（同）の追加と、`field-validation.ts`・`index.ts`・`field-validation.test.ts` の変更である。`CalculationFields.tsx` は当時すでに存在した（`gh api "repos/:owner/:repo/contents/frontend/src/components/quantity-table/CalculationFields.tsx?ref=3b1cb5c6bb29d674cea3e9e0ca5c4238e83efd1c" -q '.size'` の出力は `8268`）
+    - **よって4番目の箇条「既存の計算用フィールドコンポーネントに範囲チェックを統合する」は、印が付いた時点では達成されていなかった。** 復元された当時の読みは「部品を作った」であり、統合は Task 14.1（コミット `fac6eea7`「feat: フィールド仕様を既存コンポーネントに統合 (Task 14)」）へ回っている。ただし 14.1 が追加した `FieldValidatedItemRow.tsx` は本番の描画経路から参照されない部品であったため、**統合は描画される欄には届いていなかった**
+    - **現在は達成されている。結線したのは Task 80.2（コミット `ee9cb8dc`）である。** `git log --oneline -S'rangeFieldType' -- frontend/src/components/quantity-table/CalculationFields.tsx` の出力は `ee9cb8dc` と `01b46ca9`（箇所数の追加）の2件、`git log --oneline -S'numeric-range-validation' -- frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` の出力は `ee9cb8dc` の1件である。結線の当たり数は `grep -oE "rangeFieldType: '[a-zA-Z]+'" frontend/src/components/quantity-table/CalculationFields.tsx | sort | uniq -c` が `1 rangeFieldType: 'count'` と `12 rangeFieldType: 'dimension'` の2行を返す（起票時のコミット `c3f3e9f6`・2026-09-08 は `'count'` の一件のみであった）
+    - **1〜3番目の箇条も現在は満たされている**（測った範囲は下記に限る）。(1) 範囲外の検出とエラー表示は `grep -c 'validateNumericRange(' frontend/src/components/quantity-table/CalculationFields.tsx` が `3`、`grep -c 'validateNumericRange(\|resolveFieldInput(' frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` が `4` を返す。**ただし判定の時点は焦点喪失であって打鍵ごとではない**——日本語入力の変換中に値へ手を入れると変換が壊れるためで、Task 80.3 がその作法を `numeric-range-validation.ts` 冒頭の記述として残している。本項の「入力時に……即座に」は、この意味で焦点喪失の時点と読むべきである。(2) フィールドごとの範囲設定は `FIELD_RANGE_CONFIG` に一本化され、`awk '/^export const FIELD_RANGE_CONFIG/,/^};/' frontend/src/utils/numeric-range-validation.ts | grep -cE '^  [a-zA-Z]+: \{'` の出力は `5` である。(3) 視覚的な指示は `styles.inputWarning` と `aria-invalid` で与えられ、`grep -n -A3 'inputWarning: {' frontend/src/components/quantity-table/CalculationFields.tsx` の出力は `borderColor: '#f59e0b'` と `backgroundColor: '#fffbeb'` である。**枠色は赤ではなく琥珀色である**（本項の箇条は「赤枠等」と書いており色までは定めていない）
+    - **`warningCondition={(v) => v <= 0}` は撤去済みである。** `grep -nF 'warningCondition' frontend/src/components/quantity-table/CalculationFields.tsx` の出力は1行だけで、それは撤去の経緯を述べる説明文であり JSX の属性ではない。起票時（`c3f3e9f6`・2026-09-08）は同じ検索が2件（調整係数と丸め設定）に当たっていた
+    - **したがって完了印は据え置く。** 印が付いた時点では4番目の箇条は未達であったが、`ee9cb8dc` によって現在は達成されている。ここで未完了へ戻すと「今なお未達である」という別の偽を記録することになるため、印は動かさず、**いつ何が達成されたかを上の追記で書き分ける**。据え置きの根拠は復元できた事実そのものであって、「復元できなかったこと」ではない
+    - **死コードは残置のままである。** `grep -rl 'FieldValidatedItemRow' frontend/src --include=*.ts --include=*.tsx | wc -l` の出力は `5` で、起票時と同じである（Task 80.2 が選択肢 (c) を採ったため）
+    - **測った範囲の限り**: 走査根は `frontend/src/components/quantity-table` と `frontend/src/utils` の二つである。その外で範囲を課す実装（HTML の `min` / `max` 属性、バックエンドの検証層）について本追記は何も保証しない
   - _Requirements: 15.1, 15.2, 15.3_
 
 - [x] 13. バリデーションテストの拡張
@@ -362,7 +382,7 @@
 
 - [x] 13.2 (P) 数値フィールドバリデーションの単体テストを実装する
   - 調整係数の範囲検証テスト（-9.99〜9.99）
-  - 丸め設定の範囲検証テスト（-99.99〜99.99）
+  - 丸め設定の範囲検証テスト（0.01〜99.99。起票時は `-99.99〜99.99` と書いたが、Task 80.1 が REQ-10.3 を改訂し Task 85.1 が実装と検証を追随させた）
   - 数量フィールドの範囲検証テスト（-999999.99〜9999999.99）
   - 寸法・ピッチフィールドの範囲検証テスト（0.01〜9999999.99）
   - 空白・0入力時のデフォルト値設定テスト
@@ -429,7 +449,7 @@
   - blur時に確定値をフィールドの候補リストに追加する関数を提供する（重複排除、空文字拒否）
   - blur時の候補追加処理ではAPIリクエストを一切発行しない
   - フィルタリング処理をuseMemoで最適化する
-  - _Requirements: 7.1, 7.2, 7.3, 7.5, 7.6, 7.7_
+  - _Requirements: 7.1, 7.2, 7.3, 7.6, 7.7, 7.8_
 
 - [x] 16.2 オートコンプリート候補ストアの単体テストを実装する
   - 前方一致フィルタリングの正確性テスト
@@ -439,7 +459,7 @@
   - blur時の候補追加テスト（重複排除、空文字拒否）
   - 候補取得APIレスポンスの正しいステート格納テスト
   - 読み込みエラー時のgraceful degradationテスト
-  - _Requirements: 7.1, 7.2, 7.3, 7.5, 7.6, 7.7_
+  - _Requirements: 7.1, 7.2, 7.3, 7.6, 7.7, 7.8_
 
 - [x] 17. オートコンプリート入力コンポーネントの更新
 - [x] 17.1 オートコンプリート入力コンポーネントをクライアントサイド候補ストア方式に更新する
@@ -449,14 +469,14 @@
   - キーボード操作（上下キー選択、Enter確定、Escape閉じ）によるアクセシブルな候補選択を維持する
   - 50音順で候補を表示する
   - 入力開始時に候補表示する（最小文字数制限なし）
-  - _Requirements: 7.3, 7.4, 7.5, 7.6, 7.7_
+  - _Requirements: 7.3, 7.5, 7.6, 7.7, 7.8_
 
 - [x] 17.2 数量表編集画面にオートコンプリート候補ストアを統合する
   - 数量表編集画面のマウント時にuseAutocompleteCandidateStoreフックを初期化する
   - getSuggestionsとaddCandidateOnBlurを各オートコンプリート入力コンポーネントに渡す
   - 候補取得エラー時はオートコンプリート機能を無効化し、手入力のみで運用可能にする（graceful degradation）
   - 対象9フィールド（大項目、中項目、小項目、任意分類、工種、名称、規格、単位、備考）すべてに新方式を適用する
-  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
+  - _Requirements: 7.1, 7.2, 7.3, 7.5, 7.6, 7.7_
 
 - [x] 18. 旧オートコンプリート機能の廃止とテスト
 - [x] 18.1 (P) 旧オートコンプリートエンドポイント・フックを廃止する
@@ -475,7 +495,7 @@
   - 候補追加後に同じフィールドで再入力すると追加された値が候補に表示されることの確認
   - 候補が50音順で表示されることの確認
   - 候補取得エラー時に数量表編集機能自体は正常に動作することの確認
-  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7_
+  - _Requirements: 7.1, 7.2, 7.3, 7.5, 7.6, 7.7, 7.8_
 
 ## Phase 4: フォーカス時入力値全選択
 
@@ -622,27 +642,27 @@
   - getSuggestions関数で、inputTextが空文字またはホワイトスペースのみの場合に全候補（空文字除外、50音順）を返すように変更する
   - 入力値がある場合は従来通り前方一致フィルタリングを維持する
   - 完全一致する入力値自体は引き続き候補から除外する
-  - _Requirements: 7.3, 7.3a_
+  - _Requirements: 7.3, 7.4_
 
 - [x] 25.2 (P) AutocompleteInputのhandleFocusでvalueの有無に関わらずドロップダウンを開くよう修正する
   - handleFocusコールバック内の条件`if (value && suggestions.length > 0)`を`if (suggestions.length > 0)`に変更する
   - フォーカス時に全選択（select()）との共存を維持する
   - 空のフィールドにフォーカスした場合も全候補がドロップダウン表示されることを確認する
-  - _Requirements: 7.3, 7.3a_
+  - _Requirements: 7.3_
 
 - [x] 25.3 (P) フォーカス時候補表示の単体テストを実装する
   - useAutocompleteCandidateStoreのgetSuggestionsが空入力時に全候補を返すことを検証するテストを追加する
   - AutocompleteInputの空フィールドへのフォーカス時にドロップダウンが表示されることを検証するテストを追加する
   - AutocompleteInputの値ありフィールドへのフォーカス時にフィルタリング済み候補が表示されることを検証するテストを追加する
   - フォーカス時の全選択とドロップダウン表示が共存することを検証するテストを追加する
-  - _Requirements: 7.3, 7.3a_
+  - _Requirements: 7.3_
 
 - [x] 25.4 フォーカス時候補表示のE2Eテストを実装する
   - 空の対象フィールドにフォーカスした際に全候補がドロップダウン表示されることの確認
   - 値ありの対象フィールドにフォーカスした際にフィルタリング済み候補が表示されることの確認
   - フォーカス後にテキスト入力するとリアルタイムで候補がフィルタリング更新されることの確認
   - 対象9フィールド（大項目・中項目・小項目・任意分類・工種・名称・規格・単位・備考）すべてでフォーカス時の候補表示が動作することの確認
-  - _Requirements: 7.3, 7.3a_
+  - _Requirements: 7.3, 7.4_
 
 ## Phase 8: 名称・備考フィールドのオートコンプリート適用修正
 
@@ -656,7 +676,7 @@
   - `localName`によるprop同期ロジック（行316-318）を除去する
   - `fieldSpecErrors`と`requiredErrors`内の`localName`参照を`item.name`に変更する
   - `onValidationChange`コールバック内の`localName`参照を`item.name`に変更する
-  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
+  - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8_
 
 - [x] 26.2 (P) FieldValidatedItemRowの備考フィールドをAutocompleteInputに変更する
   - 備考フィールドの通常`<input>`を`AutocompleteInput`コンポーネントに置き換える
@@ -664,18 +684,18 @@
   - `error={errors.remarks}`を維持する
   - `getSuggestions`と`onBlurAddCandidate`をpropsとして渡す
   - インラインの`onChange`ハンドラ（`validateTextLength` + `onUpdate`処理）を除去する（`createTextUpdateHandler`に統一）
-  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
+  - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8_
 
 - [x] 26.3 (P) EditableQuantityItemRowの名称フィールドをAutocompleteInputに変更する
   - FieldValidatedItemRowと同様の変更をEditableQuantityItemRowにも適用する
   - 名称フィールドの通常`<input>`を`AutocompleteInput`コンポーネントに置き換える
   - `localName`ステートと関連ハンドラを除去する
-  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
+  - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8_
 
 - [x] 26.4 (P) EditableQuantityItemRowの備考フィールドをAutocompleteInputに変更する
   - FieldValidatedItemRowと同様の変更をEditableQuantityItemRowにも適用する
   - 備考フィールドの通常`<input>`を`AutocompleteInput`コンポーネントに置き換える
-  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
+  - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8_
 
 - [x] 27. 名称・備考オートコンプリートのテスト
 - [x] 27.1 (P) 名称・備考フィールドのオートコンプリート単体テストを実装する
@@ -686,7 +706,7 @@
   - 名称フィールドでblur時に候補が追加されることを検証する
   - 名称フィールドのrequired属性が維持されることを検証する
   - 名称フィールドの文字数制限バリデーションが維持されることを検証する
-  - _Requirements: 7.1, 7.3, 7.4, 7.5_
+  - _Requirements: 7.1, 7.3, 7.6_
 
 - [x] 27.2 名称・備考オートコンプリートのE2Eテストを実装する
   - 名称フィールドにフォーカスした際にオートコンプリート候補がドロップダウン表示されることの確認
@@ -694,7 +714,7 @@
   - 名称フィールドでテキスト入力時に候補がフィルタリングされることの確認
   - 名称フィールドで候補を選択すると値が自動入力されることの確認
   - 全9フィールド（大項目・中項目・小項目・任意分類・工種・名称・規格・単位・備考）でオートコンプリートが一貫して動作することの確認
-  - _Requirements: 7.1, 7.3, 7.3a, 7.4, 7.5, 7.6, 7.7_
+  - _Requirements: 7.1, 7.3, 7.4, 7.5, 7.6, 7.7_
 
 ## Phase 9: パンくずナビゲーション改善・注釈付き写真統一・写真コメント表示
 
@@ -1344,7 +1364,7 @@
   - 既存 fetcher の認証ヘッダ付与・エラーハンドリング規約に従う
   - 観測可能完了条件: API クライアントから関数を呼び出すと適切なエンドポイントに POST リクエストが発行され、QuantityGroupInfo が返却される
   - _Requirements: 38.2_
-  - _Boundary: api/quantity-groups.ts_
+  - _Boundary: api/quantity-tables.ts_
 
 - [x] 53.2 数量グループカードにコピーボタンを追加する
   - グループパネル表題部の並替↑↓ボタンと削除ボタンの間にコピーボタンを配置する
@@ -1378,7 +1398,7 @@
   - 409 レスポンス時に再試行案内メッセージが表示されることの単体テスト
   - 観測可能完了条件: 上記すべての単体テストが緑、UI コンポーネントの責務が回帰防止される
   - _Requirements: 38.1, 38.7, 38.9, 38.10, 38.11_
-  - _Boundary: QuantityGroupCard, api/quantity-groups.ts, QuantityTableEditPage_
+  - _Boundary: QuantityGroupCard, api/quantity-tables.ts, QuantityTableEditPage_
 
 - [x] 54.2 数量グループコピーの E2E テストを実装する
   - グループ表題部のコピーボタン押下で複製先グループが元グループの直下に出現する
@@ -1651,6 +1671,7 @@
   - 既存 useUnsavedChanges の beforeunload（enabled=isDirty）でタブクローズ/リロード時に標準確認を表示する。isDirty=false 時はガードせず、保存成功後はガードを解除する
   - 観測可能完了条件: 未保存変更時の画面遷移で確認が出て取消で留まり承認で遷移、リロード/タブクローズで標準確認が出る。保存後は確認が出ない
   - _Requirements: 43.1, 43.2, 43.3, 43.4, 43.5, 43.6_
+  - **追補（100.13・2026-09-23）**: **43.2 は本項の提出時点では到達不能であった**——`useUnsavedChanges({ enabled: isDirty })` が内部 dirty を動かさないため `beforeunload` のリスナーが一度も登録されていなかった。100.13 が呼び出し側で `setDirty` を追従させて結線し、実ブラウザでタブを閉じる操作を踏む判定を置いて到達可能にした。**残る5件（43.1 / 43.3〜43.6）は本項の時点から到達可能であったことを独立レビューが実測で確かめている**（100.13 の変異で本番の `beforeunload` 登録を殺しても当該シナリオは緑のまま＝結線に依存していない）。したがって完了印と名乗りはそのまま残す。**緑と見えていた原因は、当時の単体判定がフックをモックして `enabled` に何を渡したかだけを測っていたこと**である
   - _Boundary: QuantityTableEditPage_
   - _Depends: 61.4_
 
@@ -1914,7 +1935,7 @@
   - E2E のフロントエンドは静的ビルドのため、実行前にフロントエンドを再ビルドする
   - 観測可能完了条件: 実ブラウザで REQ-46 の各受入基準が緑になり、Portal 化前の実装では失敗する
   - _Requirements: 46.1, 46.2, 46.3, 46.4, 46.5, 46.6, 46.7, 46.8, 46.9, 46.11_
-  - _Boundary: quantity-tables E2E(quantity-item-action-menu-clipping)_
+  - _Boundary: quantity-tables E2E(計画名 quantity-item-action-menu-clipping、実体 quantity-item-action-menu-clipping-e2e.spec.ts)_
   - _Depends: 69.2_
 
 - [x] 71.2 (P) 計算方法「箇所数」の計算・表示・入力検証の E2E を実装する
@@ -1924,7 +1945,7 @@
   - E2E のフロントエンドは静的ビルドのため、実行前にフロントエンドを再ビルドする
   - 観測可能完了条件: 実ブラウザで REQ-47 の計算・表示・入力検証に関する受入基準が緑になる
   - _Requirements: 47.1, 47.2, 47.3, 47.4, 47.5, 47.6, 47.7, 47.8, 47.9, 47.10, 47.11, 47.12, 47.13, 47.14_
-  - _Boundary: quantity-tables E2E(calculation-method-count)_
+  - _Boundary: quantity-tables E2E(計画名 calculation-method-count、実体 quantity-count-calculation-e2e.spec.ts)_
   - _Depends: 66.1, 67.2, 68.2, 68.3, 68.4, 68.6_
 
 - [x] 71.3 (P) 計算方法「箇所数」の永続化・コピー・PDF出力の E2E を実装する
@@ -1935,7 +1956,7 @@
   - E2E のフロントエンドは静的ビルドのため、実行前にフロントエンドを再ビルドする
   - 観測可能完了条件: 実ブラウザで REQ-47 の永続化・コピー・PDF出力に関する受入基準が緑になる
   - _Requirements: 47.15, 47.16, 47.17, 47.18_
-  - _Boundary: quantity-tables E2E(calculation-method-count-persistence)_
+  - _Boundary: quantity-tables E2E(計画名 calculation-method-count-persistence、実体 quantity-count-persistence-e2e.spec.ts)_
   - _Depends: 67.2, 68.2, 68.3, 68.5, 68.6_
 
 - [x] 71.4 (P) 計算方法切替時のパラメータ整合の E2E を実装する
@@ -1945,7 +1966,7 @@
   - E2E のフロントエンドは静的ビルドのため、実行前にフロントエンドを再ビルドする
   - 観測可能完了条件: 実ブラウザで REQ-48 の各受入基準が緑になり、修正前の実装では箇所数と幅の保持テストが失敗する
   - _Requirements: 48.1, 48.2, 48.3, 48.4, 48.7_
-  - _Boundary: quantity-tables E2E(calculation-method-switch)_
+  - _Boundary: quantity-tables E2E(計画名 calculation-method-switch、実体 quantity-count-method-switch-e2e.spec.ts)_
   - _Depends: 67.2, 68.3, 68.4_
 
 
@@ -1983,3 +2004,2570 @@
 - 68.5 (FYI): `CalculationMethod` 型は `quantity-edit.types.ts:25` / `quantity-table.types.ts:279` / `api/quantity-tables.ts:437`（インライン union）の**3箇所に重複定義**されている。現状は3つとも COUNT を含むため実害はない。PDF のラベル変換に限れば、レジストリのキー型（quantity-edit 由来）とインデックス値の型（quantity-table 由来）が非対称なため、**第5の計算方法を片方だけに足すと必ずコンパイルエラーになる**（双方向の防御が偶然効いている）。ただし `api/quantity-tables.ts` のインライン union だけは型エイリアスを参照しておらず静かにずれ得る。集約は別途検討の価値あり。
 - フロント単体テストのベースライン: **426 files / 9728 tests passed**（68.5 完了時点）。
 - 67.3 (統合テストの実行環境): 統合テストは `.env.test` を前提とする `npm run test:docker` が標準だが、当該ファイルはローカルに存在しない。CI と同等構成（postgres:5433 / redis:6380。`vitest.global-setup.ts` の既定ポート）を素の `docker run` で用意すれば `npm --prefix backend run test:integration` が動く。統合テストのベースラインは **35 files / 710 tests passed**。
+
+## Phase 12: 数量グループ数によらない写真表示の効率（Requirement 49）
+
+- [x] 72. Foundation: 表示に必要な情報の供給
+
+- [x] 72.1 数量表詳細の写真情報を表示可能な形で返す
+  - 数量グループに紐づく写真の表示用URLを、内部パスのままではなく直接参照できる形で返す
+  - 注釈をレンダリングしたサムネイルのURLも同じ経路で変換し、クライアント側の合成へ退行させない
+  - 変換に失敗した場合は元のURLを保持し、写真の表示だけが欠ける状態に留める
+  - 注釈付きサムネイルを持つグループの応答で当該URLが直接参照可能な形になっていることを単体テストで確認できること
+  - _Requirements: 49.1_
+  - _Boundary: 数量表詳細の応答組み立て_
+
+- [x] 72.2 写真情報に画像の実寸を含める
+  - 数量表詳細が返す写真サマリへ画像の幅と高さを追加する
+  - 追加に伴う問い合わせ回数の増加を発生させない
+  - フロントエンドの写真サマリ型にも同じ項目を追加し、型チェックが通ること
+  - 数量表詳細の応答に写真の実寸が含まれることを単体テストで確認できること
+  - _Requirements: 49.8_
+  - _Boundary: 数量表詳細の応答組み立て, 写真サマリ型_
+
+- [x] 73. Core: 表題部と拡大表示の是正
+
+- [x] 73.1 数量グループ表題部の写真表示をサムネイルへ切り替える
+  - 表題部の縮小表示に原本画像ではなくサムネイル画像を用いる
+  - サーバー側で合成済みの注釈付きサムネイルがある場合はそれを最優先で表示し、注釈データの取得とクライアント側の合成を行わない
+  - 合成済みサムネイルが無い場合は従来のクライアント側の合成へ退避し、注釈付き表示の結果を維持する
+  - 表題部の表示元が原本ではなくサムネイルになること、および合成済みサムネイルがある場合はそれが使われることを単体テストで確認できること
+  - _Requirements: 49.2, 49.3, 49.4, 49.5, 49.6_
+  - _Boundary: 数量グループ表題部_
+
+- [x] 73.2 表題部から共有表示部品へ画像の実寸を渡す
+  - 写真サマリが持つ実寸を表題部の表示部品へ引き渡す
+  - 実寸が欠けている場合でも表示が破綻しないこと
+  - 表題部が渡す画像情報に実寸が含まれることを単体テストで確認できること
+  - _Depends: 72.2_
+  - _Requirements: 49.8_
+  - _Boundary: 数量グループ表題部_
+
+- [x] 73.3 (P) 拡大表示で原本画像を用いる
+  - 写真プレビューの表示元を、縮小解像度の合成済みサムネイルから原本画像へ変更する
+  - 注釈の反映は共有表示部品によるクライアント側の合成で行い、注釈付き表示の結果を維持する
+  - 利用者の明示操作を契機とするため即時取得とし、表示領域到達を待たない
+  - プレビューの表示元が合成済みサムネイルではなく原本になること、および即時取得が指定されることを単体テストで確認できること
+  - _Requirements: 49.7_
+  - _Boundary: 写真プレビュー_
+
+- [x] 74. Core: 写真選択の一括取得
+
+- [x] 74.1 プロジェクト単位のアクセス可否判定を利用可能にする
+  - 現場調査単位ではなくプロジェクト単位でアクセス可否を判定する入口を公開する
+  - 判定基準（プロジェクト関係者または管理者）は変更しない
+  - 既存の現場調査単位の判定が同一の基準で動作し続けることを単体テストで確認できること
+  - _Requirements: 49.9_
+  - _Boundary: 署名付きURLとアクセス可否判定_
+
+- [x] 74.2 プロジェクト内の注釈付き写真を一括で取得する経路を追加する
+  - プロジェクトに属する現場調査の写真のうち、注釈が存在するものだけを抽出する
+  - 表示用のURLは注釈付きサムネイルを優先して1件あたり1本に解決し、原本URLと実寸を併せて返す
+  - 現場調査の抽出と写真の抽出をそれぞれ1回で行い、問い合わせ回数を写真枚数・現場調査数に比例させない
+  - アクセス可否の判定はプロジェクト単位で1回のみ行う
+  - 件数の上限を設け、上限に達した場合は切り捨てが起きたことを呼び出し元へ伝える
+  - 並びは現場調査の調査日降順、写真の表示順昇順とする
+  - 注釈のない写真が結果に含まれないこと、表示用URLが1件あたり1本であること、写真30枚でアクセス可否の判定が1回のみ呼ばれ画像ごとの再照会が発生しないことを単体テストで確認できること
+  - _Depends: 74.1_
+  - _Requirements: 49.9, 49.10_
+  - _Boundary: 画像一覧取得_
+
+- [x] 74.3 プロジェクト写真一覧のエンドポイントを公開する
+  - プロジェクトを指定して注釈付き写真の一覧を取得するエンドポイントを追加する
+  - 件数上限をクエリで指定でき、既定値と最大値を超える指定を拒否する
+  - 認証・権限、プロジェクト不在、クエリ不正のそれぞれで適切な応答を返す
+  - 権限のない利用者が拒否されること、上限超過の指定が拒否されること、応答に切り捨ての有無が含まれることを単体テストで確認できること
+  - _Depends: 74.2_
+  - _Requirements: 49.9_
+  - _Boundary: 現場調査ルーティング_
+
+- [x] 75. Integration: 写真選択ダイアログの結線
+
+- [x] 75.1 写真選択ダイアログの取得を一括取得へ置き換える
+  - 現場調査一覧を取得してから各現場調査の詳細を個別に取得する処理を廃止し、プロジェクト写真一覧の取得1回に置き換える
+  - 一覧の表示元は解決済みの表示用URLを用い、注釈の有無による分岐を行わない
+  - 切り捨てが発生した場合は一覧に全件が含まれない旨を利用者へ提示する
+  - 注釈付き写真が0件の場合は、注釈エディタでの編集を促す旨を提示する
+  - 写真を選択した際に必要な情報（表示用URL・原本URL・ファイル名・コメント）が従来どおり保持されること
+  - 新しい取得経路を呼び出すためのAPIクライアント関数を追加する（既存の現場調査APIクライアントの規約に従う）
+  - ダイアログを開いたときに写真一覧の取得が1回だけ発生し、現場調査詳細の取得が発生しないことを単体テストで確認できること
+  - _Depends: 74.3_
+  - _Requirements: 49.9, 49.10_
+  - _Boundary: 数量表編集画面の写真選択, 現場調査APIクライアント_
+
+- [x] 76. Validation: 要件の検証
+
+- [x] 76.1 (P) 写真選択ダイアログの挙動を実操作で確認する
+  - 注釈のない写真がダイアログに現れず、注釈を付けた写真のみ選択できることを確認する
+  - ダイアログを開いた際に現場調査詳細への個別リクエストが発生しないことを確認する
+  - リクエストの観測はパスを基準に行い、接続先の違いで判定が変わらないようにする
+  - 上記を検証するE2Eテストが緑で通ること
+  - _Depends: 75.1_
+  - _Requirements: 49.9, 49.10_
+  - _Boundary: E2E_
+
+- [x] 76.2 数量表編集画面の画像リクエストが数量グループ数に比例しないことを確認する
+  - 数量グループを多数持つ数量表の編集画面を開き、初期表示時点で発生した画像関連リクエストの合計が数量グループ数より少ないことを確認する
+  - スクロール後に追加の画像取得が発生し、遅延であって欠落ではないことを確認する
+  - 上記を検証するE2Eテストが緑で通ること
+  - _Depends: 73.2_
+  - _Requirements: 49.2, 49.3, 49.8_
+  - _Boundary: E2E_
+  - _解除済（2026-09-09 に再実測）: 起票時の理由「表示領域到達までの取得抑止は共有表示部品が所管し、site-survey スペックの Task 111.3 完了までこの検証は成立しない」は現況と食い違う。同タスクは `[x]` であり、かつ共有表示部品の取得の関門は実寸に依存しない。根拠は下の Implementation Notes（Requirement 49）に記す_
+
+## Requirements Coverage（Requirement 49）
+
+| Req   | 対応タスク               |
+|-------|--------------------------|
+| 49.1  | 72.1                     |
+| 49.2  | 73.1, 76.2               |
+| 49.3  | 73.1, 76.2               |
+| 49.4  | 73.1                     |
+| 49.5  | 73.1                     |
+| 49.6  | 73.1                     |
+| 49.7  | 73.3                     |
+| 49.8  | 72.2, 73.2, 76.2         |
+| 49.9  | 74.1, 74.2, 74.3, 75.1, 76.1 |
+| 49.10 | 74.2, 75.1, 76.1         |
+
+## Implementation Notes（Requirement 49）
+
+- **72.1 と 73.1 は着手済み**: 本要件の設計確定前に、リクエスト削減の直接実装として先行して是正した（コミット `be7831d`）。数量表APIが注釈付きサムネイルURLを内部パスのまま返していた欠落の是正と、表題部の原寸画像使用の是正を含む。単体テストも追加済みで、フロントエンド510ファイル/11394件・バックエンド単体178ファイル/5361件がいずれも緑であることを確認している。
+- **76.2 のブロックは解除した（起票時の記録は次のとおり）**: 49.8 の充足機構は共有表示部品 `AnnotatedImageThumbnail` が所管し、site-survey スペックの Task 111.3（表示領域観測の組み込み）完了までこの検証は成立しない。本スペック側の作業（72.2・73.2 の実寸供給）は先行して安全に反映できるが、それだけでは表示領域外の取得は止まらない。**本スペックのタスクを全て完了しても 49.8 は未達である**点に注意すること。
+  - **現況の再実測（2026-09-09、コミット `184d8d08` の直後）**: 起票時の理由は二重に成立しない。(a) `grep -nE '^- \[[x ]\] 111\.3 ' .kiro/specs/site-survey/tasks.md` の出力は `[x]` であり（同 `115.106` も `[x]`）、依存先は完了済みである。(b) そもそも取得抑止は実寸に依存しない——`frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` の関門は `src={isInViewport ? … : undefined}` であり、観測の要否は `enabled: loading === 'lazy'` のみで決まる。`loading` の既定は `'lazy'` で、`QuantityGroupCard` は同 prop を渡していない。したがって数量表編集画面の表題部では抑止が既に働いている。**よって 76.2 は着手可能である。** あわせて「本スペックのタスクを全て完了しても 49.8 は未達である」という起票時の警句も前提が崩れたため妥当しない。実際の充足の可否は 76.2 の E2E が測る
+- **利用者から見える挙動が変わるのは 75.1 のみ**: 写真選択ダイアログに注釈のない写真が表示されなくなる。Requirement 4.3 / 19.2 が選択対象を「注釈エディタで編集済みの画像」と定めており、現行実装が要件に追従していなかったことへの是正である。ただし注釈を付けずに写真を紐づける運用が存在する場合は影響を受けるため、反映前に運用実態を確認すること。
+- **応答サイズを増やさないこと**: 74.2 が返す表示用URLは1件あたり1本に限る。署名付きURLは1本あたり数百バイト規模になり得るため、複数のURLを一覧に含めるとリクエスト削減の効果が通信量の増加で相殺される。Requirement 49 の目的は件数と通信量の双方である。
+- **(P) の根拠**: 73.3 は写真プレビューが対象で 73.1・73.2 の表題部と担当ファイルが重ならない。76.1 は写真選択ダイアログの検証で 76.2 の表題部の検証と対象が異なり、依存する実装タスクも別である。74.x は権限判定→取得経路→エンドポイントの順に積み上がるため並列不可。75.1 は 74.3 の完了を前提とする。
+- **`hasAnnotations` の意味は変更しない**: 現場調査API・数量表APIとも「注釈レコードの存在」で一致させたまま据え置く。74.2 の絞り込みはこの判定を用いる。
+- **境界をまたぐ実装**: 74.1・74.2・74.3 は現場調査機能が所有するファイルへ変更を加える。権限検証と署名付きURL生成の規約を二重に持たないための判断であり、site-survey の Requirement 38.4 が定める「問い合わせ回数を写真枚数に比例させない」規約を満たす形で実装すること。違反した場合は同要件の回帰となる。
+- **74.3 の存在確認は拒否の経路にしか置かない**: `validateProjectAccess` はプロジェクト不在・論理削除でも権限不足でも一様に `false` を返すため、エンドポイントは拒否を捕まえた分岐でだけプロジェクトの存否を引き、不在・論理削除なら 404、存在するなら 403 へ委ねる。**正常な経路へ存在確認を足すと 74.2 が立てた問い合わせ回数の保証が崩れる**ので、「正常な経路では存在確認を行わない」ことを検証で固定してある（同検証は存在確認を正常系へ移す変異で落ちることを実測済み）
+- **件数上限は丸めずに拒否する**: サービス側は防御として 1〜500 へ丸めるが、エンドポイントは範囲外・非整数・非数値をすべて 400 で拒否する。丸めは拒否の代替にならない（タスク本文が「超える指定を拒否する」と定めている）
+- **ルーターが同モジュールの定数を取ると既存の `vi.mock` が壊れる**: 上限・既定値を `image-list.service` から取るようにしたことで、モジュール全体を差し替えていた既存の検証2ファイルが定数の欠落で読込ごと落ちた（`No "PROJECT_SURVEY_IMAGE_MAX_LIMIT" export is defined on the mock`）。**無効化や条件化ではなく `importOriginal` で実物を通し、差し替えたいクラスだけを上書きする**形で解いた。同種の追加をするときはこの形に倣うこと
+- **74.2 の問い合わせ回数は署名付きURLの作り方に依る**: 一括取得はアクセス判定1回・現場調査の抽出1回・写真の抽出1回で閉じている。署名は保管провайダの `getSignedUrl`（局所の署名計算のみでデータベースにも網にも触れない）で行い、**再照会を伴う `SignedUrlService.generateSignedUrl` / `generateBatchSignedUrls` は呼ばない**。ここを取り違えると枚数比例の照会が復活する
+- **「表示用URLは1件1本」の制約は表示用URLにのみ掛かる**: 原本URLと実寸を併せて返すのはタスク本文と設計の契約が明示している。応答へ含めないのは縮小系の別建てのURL（`thumbnailUrl` / `annotatedThumbnailUrl`）である
+- **注釈の有無の判定は三経路で一致している**: 現場調査API（`site-survey.service.ts`）・数量表API（`quantity-table.service.ts`）はいずれも `annotation !== null`、74.2 の絞り込みは Prisma の `annotation: { isNot: null }` で同一である。描画の有無を表す `hasDrawnAnnotations` とは別物なので取り違えないこと
+- **同一の調査日を持つ現場調査の写真が交錯するのは仕様どおり**: 並びの鍵は「調査日降順 → 表示順昇順」の二つだけで、`surveyId` を第二鍵に足すのは承認済みの設計からの逸脱になる。調査ごとにまとめた表示が要るなら、応答が持つ `surveyId` / `surveyName` を使って 75.1 側で組むこと
+- **74.3 が必ず解くべき制約**: `validateProjectAccess` はプロジェクト不在・論理削除でも `false` を返すため、74.2 のサービスはその場合も 403 を送出する。設計のエンドポイントの契約は「404（プロジェクト不在）」を挙げているので、**74.3 は拒否の経路でのみ存在確認を足す**こと（通常の経路の問い合わせ回数は増やさない）。`limit` の 400（クエリ不正）の判定も 74.3 の所管であり、サービス側の 1〜500 への丸めは代替にならない
+- **74.1 は「`private` を外す」だけが設計の指定である**: 設計の File Structure Plan が `signed-url.service.ts` について「既存の内部判定を公開するのみで判定基準は変更しない」と定め、Build vs Adopt も「判定基準を複製しない」と定める。名前付きエクスポートや新規の界面は要求されていない。消費側の `backend/src/services/image-list.service.ts` は既に `SignedUrlService` のインスタンスを保持しているため、74.2 は `validateProjectAccess(projectId, userId)` をそのまま呼べる。**可視性のみの変更なので実行時の RED は原理的に取れない**（TypeScript の `private` は実行時に消える）。RED の実体は型検査の TS2341 であり、これに加えて「委譲を断ち切って判定基準を複製する」変異を当てて委譲の検証だけが落ちることを実装とレビューの双方が実測した
+- **73.1 と 73.3 は同じ部品を逆向きに使う**: 表題部（73.1）は合成済みサムネイルを最優先で使い、拡大表示（73.3）は合成済みサムネイルを一切渡さず原本＋クライアント側合成を使う。前者は縮小表示で通信を減らすため、後者は合成済みサムネイルが縮小解像度で拡大に耐えないためである。共有部品 `AnnotatedImageThumbnail` は `preferThumbnail` 未指定なら `serverRenderedUrl` が `null` になりクライアント合成の経路へ入るので、**渡さないことが指定である**。設計の Error Handling「原本画像の取得に失敗（拡大表示）: 縮小表示用の画像で代替しない」も、縮小系のURLを一切渡さないことで条件分岐ではなく構造で満たしている
+- **即時取得の表明は `loading="eager"` である**: 共有部品の表示領域の観測は `enabled: loading === 'lazy'` でのみ有効になり、既定は `'lazy'` である。利用者の明示操作を契機とする表示は `eager` を渡して観測を経由させない。なお `hasAnnotations` は**明示的に `false` を渡したときだけ**注釈取得を短絡するため、未指定のまま渡さなければ注釈の反映は従来どおり維持される（渡し忘れで注釈が消えることはない）
+- **73.3 が陳腐化させた記述は同時に是正した**: `e2e/specs/quantity-tables/photo-preview-e2e.spec.ts` の「表示元は annotatedThumbnailUrl を優先利用する」という註と、`e2e/requirement-exclusions.json` の `quantity-table-generation/REQ-49.7` の理由文（同じ前提を述べ、かつ「実装前なので目印を付けない」と述べていた）である。理由文は起票時の記述を残したまま現況を併記し、在籍の理由を「未実装」から「実装済みでE2Eの検証が未作成」へ改めた。**除外の在籍そのものは取り下げていない**——取り下げは原本の取得をリクエスト監視で確かめるE2Eの作成をもって行う
+- **73.2 の実寸は取得抑止の成立条件ではない。実際の役割は未読込時の版面の確保である**: 実装とレビューが独立に測り直した結果、共有表示部品 `AnnotatedImageThumbnail` の取得の関門は `isInViewport` のみで（`frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` の `src={isInViewport ? … : undefined}`）、観測の要否は `enabled: loading === 'lazy'` だけで決まり実寸を一切参照しない。同ファイルの註が「実寸の有無は観測の要否に用いない」と述べ、site-survey の Task 115.106 が実寸判定を撤去した経緯を記す。したがって設計文書の「実寸が正の値でない場合、共有コンポーネントは表示領域を確保できず観測を行わない…本フィールドの供給が 49.8 の成立条件である」という根拠文は現況と食い違う。**タスク自体は有効**（版面の確保として有益で、設計の Testing Strategy が求める境界の受け渡しでもある）が、根拠文の是正は本スペックの設計文書に残る課題である
+- **表題部の実寸は描画寸法には効かない**: `styles.thumbnailWrapper` が 640x480 の固定枠を与え `styles.thumbnail` が `width/height: 100%` を当てるため、`img` の寸法属性は上書きされる。本変更の値は共有部品の呼び出し規約を揃える点にあり、この画面での実行時の効果は無い。検証はモック化した共有部品が受け取った prop を照合する境界検証で、実体側が同じフィールドを消費することを確認したうえで採っている
+- **検証の見出しには機能名を名乗らせること**: 72.2 が `// Requirements: 49.8` と機能名を欠いた見出しを加えた結果、`check:req-coverage` の「機能名を欠くヘッダー」の上限を一件超えて検査が落ち、pre-push を塞いだ（コミット `08c43d41` で是正）。形は `Requirements (feature-name):` である。機能名を欠く見出しは配下の名乗りが一件も集計されない
+- **72.2 の実寸は既存の単一問い合わせの取得項目を広げて供給した**: `findById` の `surveyImage` の `select` へ `width` / `height` を加えただけで写真ごとの追加照会は無い。検証は「取得項目に実寸が含まれること」と「応答へ写し取られること」を別々の単体テストで固定しており、変異試験（`select` の撤去／写し取りの撤去）でそれぞれ対応する1件だけが落ちることを実測した。フロントの `SurveyImageSummary` は `width?` / `height?`（任意）とした——写真変更ダイアログ由来のサマリなど実寸を伴わない供給元があり、同型の後付け項目（`hasAnnotations` 等）が全て任意である慣行にも揃う。必須化の再評価は 74.2 の完了後に行うこと。なお `frontend/src/types/quantity-edit.types.ts` の別系統の `SurveyImageSummary` には実寸を足していない（表題部は `quantity-table.types.ts` の型を通るため 73.2 は阻害されない）
+
+## タスク78: 除外一覧が名乗る検証道具名を実体へ揃える
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化し、その `### 判定の一覧` の行7「他機能スペックの除外一覧の Jest 道具名」を**後続タスクへ送る**と裁定した。site-survey の Task 115.238 が申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey は自機能分 32 件を Task 115.121 で既に Vitest へ改めており、現場調査スペックの所管は 0 件である。
+
+**測った事実**（いずれもコミット `9e63637`、2026-09-02 にリポジトリルートで実測）:
+
+- **本リポジトリに Jest は存在しない。** `find . -name 'jest.config*' -not -path '*/node_modules/*' | wc -l` の出力が `0`。`package.json` / `backend/package.json` / `frontend/package.json` の依存に `jest` は無く、名前に jest を含むのは `frontend/package.json` の `@testing-library/jest-dom`（Vitest から使う照合子の集まりであって走者ではない）だけである
+- **単体・統合の走者は backend / frontend とも Vitest である。** 両者の `npm test` はいずれも `vitest run` であり、`backend/vitest.config.ts` / `backend/vitest.integration.config.ts` / `frontend/vitest.config.ts` が実在する
+- **利用の実測**: `grep -rlE "from ['\"]vitest['\"]" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` の出力が `757` である。**同じ走査根・同じ glob** で `grep -rlE "from ['\"]@jest/globals['\"]|\bjest\.(fn|mock|spyOn)\(" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` を測ると出力は `0` である。**総数 `757` を併記するのは、`0` だけでは「走査根を読めていない」場合と区別できないためである**——同じ式を実在しないパスへ当てても出力は同じく `0` になる（2026-09-02 に実測）
+- **提案が生きていること**: `node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `64 0`（後の `0` が現場調査スペックの分）
+- **機械保証は無い。断定でなく変異で示す**（115.235 の作法）: `e2e/requirement-exclusions.schema.json` は `tool` を `{ "type": "string", "minLength": 1 }` としか定めず、道具の実在を見ない。実在しない道具名 `Kaboomtest 9000 / Nonexistent Runner` へ一件を差し替える変異を当てても `npm run check:req-exclusions` は 205 件を検査して終了コード 0 のままである（2026-09-02 に実測。変異は複製からの書き戻しで復元し、blob ハッシュが `HEAD` と一致することで確かめた）
+
+**是正すると別の関門が赤くなる。着手前に読むこと**: 上の `node -e` の出力 `64 0` は `scripts/design-measurements.json` の宣言 `jest-alternative-verification-exclusions` に固定されており、`.kiro/specs/site-survey/design.md` の台帳の再現コマンド 5 の行と双方向で突き合わされる。**一件でも道具名から Jest を落とすと `npm run check:design-measurement-freshness` が「expected=`64 0` actual=`63 0`」として終了コード 1 で落ちる**（`company-info/REQ-6.9` の道具名を実在しない `Kaboomtest 9000 / Nonexistent Runner` へ差し替える変異を実際に当てて実測。2026-09-02、コミット `9e63637` にリポジトリルートで実測。変異は事前複製からの `cp` で復元し、`git hash-object e2e/requirement-exclusions.json` が `HEAD` の blob `77d4bb8443f19bc5c2de768c866eae1943175a6d` と一致することで確かめた）。宣言の解除と台帳の追随は**現場調査スペックの Task 115.280 が所管する**。
+
+**同じ変異を当てたまま測った他の関門の実測**（走査の範囲は日本語でなくコマンドで宣言する。2026-09-02、コミット `9e63637` にリポジトリルートで実測）: 測ったのは `npm run` に与える名で `check:req-exclusions` / `check:req-exclusions:selftest` / `check:req-coverage` / `check:trace-coverage` / `check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:cf-evidence` / `check:steering-refs` / `check:steering-idents` / `check:steering-test-tree` / `lint` / `type-check` / `format:check` の **14 本**である。**いずれも基線と同じ終了コードのままであった。ただし `check:req-coverage` は基線から既に終了コード 1 であり（到達被覆 2632/2684 = 98.1%、未カバー 215 件）、変異の前後で変わらない**——「14 本が緑のままであった」のではない。**終了コードが動かないことと出力が動かないことも別である**: 14 本のうち 13 本は基線と出力まで一致したが、`check:req-coverage` だけは除外一覧の監査の内訳が「リポジトリ外の代替検証: 32件 / リポジトリ内検証あり: 22件」から「33件 / 21件」へ変わる（差分はこの 2 行のみで、終了コードも被覆率も動かない）。**着手時にはこの 14 本と `check:design-measurement-freshness` を自分で測り直し、実測日とコミットハッシュを添えること**（115.212 の規約）。
+
+**是正先**:
+
+1. `e2e/requirement-exclusions.json` の下表の `alternativeVerification.tool`
+2. 本スペックの設計文書——**ただし実測では該当が 0 件である。** `for f in .kiro/specs/*/design.md; do printf '%s %s\n' "$f" "$(grep -c Jest "$f")"; done` を走らせると、`Jest` を挙げる設計文書は 13 スペックのうち `site-survey` の 1 件（6 箇所）だけで、他の 12 スペックはいずれも `0` である（2026-09-02 に実測）。台帳の行7 は是正先に「各機能スペックの設計文書」を挙げているが、起票の時点で当たりが無い。**この `0` は着手時に測り直すこと**
+
+**本スペックの所管は 8 件で、全件を次に挙げる**（2026-09-02 に実測。抜き取りではない）:
+
+| id | 現在の `alternativeVerification.tool` |
+|---|---|
+| `quantity-table-generation/REQ-4.2` | `Jest / React Testing Library` |
+| `quantity-table-generation/REQ-5.3` | `Jest / React Testing Library` |
+| `quantity-table-generation/REQ-6.3` | `Jest / React Testing Library` |
+| `quantity-table-generation/REQ-6.5` | `Jest / React Testing Library` |
+| `quantity-table-generation/REQ-8.7` | `Jest / React Testing Library` |
+| `quantity-table-generation/REQ-8.9` | `Jest` |
+| `quantity-table-generation/REQ-8.10` | `Jest / React Testing Library` |
+| `quantity-table-generation/REQ-11.2` | `Jest / Prisma` |
+
+- [x] 78.1 除外一覧の道具名を実体へ揃える
+  - 上表 8 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
+  - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
+  - **併記の `React Testing Library`（`@testing-library/react@^16.3.0`）と `Prisma`（`backend/package.json`）はいずれも実在する**（2026-09-02 に実測）ため据え置いてよい
+  - **`REQ-8.9` は併記を持たない単独の `Jest` である。** 落とすと欄が空になるため、当該受入基準を現に検証している走者を測って書くこと（`minLength: 1` のため空文字は規約違反になる）
+  - **道具名だけを機械的に置換して終えないこと。** 除外は受入基準を分母から丸ごと外すため、`description` が約束する代替検証が現に存在するかを一件ずつ確かめること。存在しないなら道具名の是正ではなく除外の取り下げが要る
+  - **JSON の整形は `npm run format:check` では見られない。** リポジトリルートの `format:check` は `prettier --check "e2e/**/*.{js,ts}" "playwright.config.{js,ts}" "scripts/**/*.ts"` であって JSON を含まず、`lint-staged` も `*.{js,ts}` だけを対象とする（2026-09-02 に実測）。`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること（現況は整形済みで終了コード 0。同日に実測）
+  - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
+  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
+  - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+
+## 現場調査スペックから越境して実行された是正（Requirements 6, 7, 11, 13, 22, 42, 45）
+
+本スペックが所有するコードと要件に対する是正が、site-survey スペックのタスク一覧（Task 115.29〜115.46）として実行された。site-survey 側の分岐で本スペックの検証を正直化した結果、未実装の本番コードに対して失敗が顕在化し、当該分岐の送出の前提を満たせなくなったための措置である。**所有権は本スペックにあり、site-survey は実行のみを担った。** 以後の変更は本スペックで追跡すること。
+
+実行済み（いずれも独立したレビューの承認を経てコミット済み）:
+
+| 対象要件 | 内容 | site-survey 側のタスク | コミット |
+|---|---|---|---|
+| 6.2, 6.4, 6.5 | 数量項目のグループ間移動と複数選択の一括操作を実装 | 115.29 | `a241d54` |
+| 13.1-13.3 | 入力時点での上限超過の防止を実装 | 115.33 | `f37bdd7` |
+| 13.1-13.3 | 入力上限の検証に残る常に成立する判定を解消 | 115.31 | `afab68e` |
+| 22.5 | グループ名の防止が変換中の入力を壊す状態を解消 | 115.34 | `28f571d` |
+| 22.5 | グループ名の焦点喪失が変換中を考慮しない状態を解消 | 115.40, 115.41 | `16c42e4` |
+| 13.1-13.3, 22.5 | 変換中の記録の寿命を一貫させる | 115.42 | `a66c40a` |
+| 7.3-7.6, 13.1-13.3 | 補完候補の取得時点で上限超過の値を除外 | 115.43 | `5aa8f14` |
+| 13.1-13.3, 22.5, 11, 45 | 空洞化した防護を機械的に守られる形へ組み替え | 115.44 | `fbc067a` |
+| 7.4, 7.5 | 補完候補の注釈が引く要件番号の誤りを是正 | 115.45 | `88e9317` |
+| 11, 42 | 保存対象が当該の数量表に属することを検証 | 115.37 | `b17f075` |
+| 11, 42 | 保存要求内の識別子の重複を検出 | 115.39 | `45e0935` |
+| 42 | 削除された項目が選択状態に残る問題を解消 | 115.35 | `e0faf1e` |
+| 42 | 保存経路の説明が実装と食い違う状態を解消 | 115.36 | — |
+| 6.5, 45 | 一括操作の操作面を選択中は常に見える位置へ置く | 115.38 | `ac5992d` |
+| 45.1-45.4 | 狭い幅で見出しの操作群を折り返して収める | 115.46 | `4347e64` |
+
+未実行の申し送り（本スペックで実装が必要）:
+
+- [x] 77.1 数量項目の入力上限の検証位置の不一致を解消する
+  - 項目を作成する経路が、保存する経路と同じ文字幅の上限を課していない
+  - 上限を超える値のまま作成でき、その後の保存が拒否されるため、**保存できない数量表が残りうる**。site-survey の Task 115.27 の実行中に実際に発生している
+  - 作成の経路にも保存の経路と同一の判定を適用し、判定の定義を二重に持たないこと
+  - **上限を超える値での作成が拒否されることを確かめる検証を用意すること**
+  - _Requirements: 13.1, 13.2, 13.3_
+  - _Boundary: 数量項目の入力検証_
+  - _申し送り元: site-survey スペックの Task 115.30（同スペックでは所管外としてブロック）_
+
+## Implementation Notes（越境して実行された是正）
+
+- **変換中の記録の寿命は「揃えるのは寿命、終端の置き場所は構造に従う」**: 補完候補の入力欄と数量項目の入力欄は焦点を得た時点で初期化し、数量グループ名は焦点を失った時点で消す。グループ名の編集欄は空欄では確定できず焦点喪失後も残るため編集開始側では覆えず、補完候補の入力欄は候補一覧へ焦点が移ると焦点喪失の処理が早期に戻るため焦点喪失側では覆えない。**見た目の対称性を求めて三箇所の機構を揃えると穴が開く。**
+- **入力の拒否は変換中を必ず考慮すること**: 単位欄で「立米」が「りゅう」になる類の破壊は、E2E の入力補助でも単体の変更イベントでも変換を経由しないため構造的に検出できない。変換中の扱いは実装とコードの読みで担保すること。
+- **保存要求の重複検出はグループと項目で集合を分ける**: 別の表の識別子であり、同じ値であっても重複ではない。集合を統合すると正当な要求を誤って拒否する。統合すると失敗する検証が入っている。
+- **補完候補の上限は取得の時点で濾す**: 選択の経路が二つ（クリックと矢印＋確定）あり、いずれも同一の候補配列を参照するため、取得時点が単一の関門になる。
+
+## Task 79: 設計文書の不具合分析に残る状態記録が実在しない実装を指す状態を解消する
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化したが、同タスクが宣言した三つの網（`別途起票|後続タスクの提案|起票すること` ほか）はいずれも「〜すること」型の提案を捕まえる形であり、**状態記録の形は網の外にある**。site-survey の Task 115.240 が状態記録を狙う別の網を掛けて本節の対象を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。**
+
+**測った事実**（いずれもコミット `5176ee4`、2026-09-02 にリポジトリルートで実測）:
+
+- **状態記録の件数**: `grep -cE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/quantity-table-generation/design.md` の出力が `1` である。当たった行は `#### PhotoCommentDisplay修正（REQ-35）` の `**不具合分析**` の箇条 3 で、`grep -cF '3. **写真変更ダイアログでの更新未反映**' .kiro/specs/quantity-table-generation/design.md` の出力が `1` である
+- **同じ箇条の 1 と 2 も同型の状態記録だが、上の網には掛かっていない。** 網が数える 7 語に「未取得」「未伝播」が無いためである（`grep -cF '1. **写真選択時のコメント未取得**' .kiro/specs/quantity-table-generation/design.md` と `grep -cF '2. **初回表示時のコメント未伝播**' .kiro/specs/quantity-table-generation/design.md` の出力はいずれも `1` であり、両行とも実在する）。**これは網の盲点の実例である**——本節が挙げる対象は網の出力そのものではなく、網が当てた行の周辺を読んで拾ったものを含む。取り出しは `grep -nF '**不具合分析**' .kiro/specs/quantity-table-generation/design.md` で節を求め、その直下の 3 箇条を読むこと
+- **この節は `現在の実装では` で始まる。** ``grep -cF '現在の実装では`PhotoCommentDisplay`コンポーネント自体は正しく実装されている' .kiro/specs/quantity-table-generation/design.md`` の出力が `1` である。**「現在」は書かれた時点の現在であって、読まれる時点の現在ではない**
+
+**状態記録は現況ではない。二つの根拠が実装から消えている**（同日・同コミットで実測）:
+
+| 状態記録が名指す実体 | 現況を測るコマンド | 出力 |
+|---|---|---|
+| `linkSurveyImage`（箇条 1 が「レスポンスに含まれる`comment`フィールドをローカルステートに反映していない」と述べる API） | `grep -rn 'linkSurveyImage' frontend/src backend/src e2e` | 当たり `0`（**実装・検証のいずれにも存在しない**） |
+| `PhotoChangeDialog`（箇条 3 が「写真を変更した後……フローが欠落している」と述べる部品） | `grep -rl 'PhotoChangeDialog' frontend/src --include=*.tsx --include=*.ts` | 5 ファイル。内訳は定義ファイル自身 1・単体検証 2・ストーリー 1・`QuantityTableEditPage.test.tsx` の註の中での言及 1 であり、**本番経路からの参照が一つも無い**（表の欄では縦棒を書けないため絞り込みは付けていない。5 行を目視すること） |
+| 箇条 2 が述べるコメントの伝播 | `grep -cF 'PhotoCommentDisplay comment={group.surveyImage.comment ?? null}' frontend/src/components/quantity-table/QuantityGroupCard.tsx` | `1`（伝播は結線済み） |
+
+- **`linkSurveyImage` は本書に 6 回現れ、うち 1 回は逆引用符に囲まれた識別子である**（`grep -cF 'linkSurveyImage' .kiro/specs/quantity-table-generation/design.md` の出力が `6`、``grep -c '`linkSurveyImage`' .kiro/specs/quantity-table-generation/design.md`` の出力が `1`）。**実装側の当たりは `0` である**
+- **本書は同じ `PhotoChangeDialog` について別の場所で矛盾する扱いをしている**: `### Architecture Pattern & Boundary Map` の修正コンポーネント（REQ-39）の行と `#### 写真選択・変更ダイアログのレイアウト修正（REQ-39）` は同部品を「未使用」「残置」と書く（site-survey の Task 115.234 が「参照は単体テストのみ」の側を再実測して併記済み）。**一方で本節の箇条 3 は同部品に修正を要求している。** 同一文書内で同じ部品を「未使用・残置」と「要修正」の両方に置くのは、どちらかが陳腐化している
+
+**機械保証は無い。断定ではなく現況そのもので示す**（115.235 の作法）: **変異を当てるまでもなく、今この時点で証拠が揃っている**——`linkSurveyImage` は本書に逆引用符付きで存在し、実装・検証のいずれにも存在せず、それでも基線（コミット `5176ee4`）で `npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` の**5 本がいずれも終了コード 0 である**（2026-09-02 に実測）。`scripts/check-design-code-reference-format.ts` は**参照の書式**（行番号を伴う参照の形）を見る検査であって識別子の実在は見ない。**設計文書が実在しない識別子を名指しても関門は赤くならない。**
+
+**是正の作法（消さずに書き分けること）**: site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a) が定める形に揃える——**当時の記述を残したうえで、現況の再実測を同じ場所へ並べる**。不具合分析を丸ごと削ると、REQ-35 がどの症状に対して起票されたかという歴史が失われる。site-survey の Task 115.234 が本書の別の行（「参照は単体テストのみ」）へ既に同じ形の併記を施しているので、**その書式に揃えること**（`grep -nF '**「参照は単体テストのみ」は再実測では偽である**' .kiro/specs/quantity-table-generation/design.md` で取り出せる）。
+
+**一件を直して「完全になった」と書かないこと**（115.228 の作法）: 本節が挙げるのは上の網が捕まえた 1 行に、網の盲点として拾った同じ箇条の 2 件を加えたものである。**網の外の状態記録は保証しない**。走査に使った網は `grep -rncE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/quantity-table-generation/design.md`（出力 `1`）、`grep -rncE 'スコープ外|持ち越|先送り|保留|見送' .kiro/specs/quantity-table-generation/design.md`（出力 `4`）、`grep -rncE '❌|:x:|⚠️|🚧' .kiro/specs/quantity-table-generation/design.md`（出力 `0`）の三つであり、**網が数え上げる綴りの外にある状態記録は掛からない**——列挙していない日本語の綴り（本節が実例として挙げた「未取得」「未伝播」、および取引先管理スペックで漏れた「未完了」がそれである）、英語で書かれた状態記録、記号だけで状態を表す欄、表のセル内に埋もれた状態記録がそれである。二つ目の網が当てた 4 件は、site-survey の Task 115.240 が一件ずつ開いて**いずれも「当該要件の境界の宣言」であり消化を待つ持ち越しではない**と判定した（2 件は Task 115.234 が既に再実測を併記済みの `PhotoChangeDialog` の残置、1 件は REQ-47 の取り込みマッピング、1 件は REQ-42 AC10 の参照系API）。
+
+- [x] 79.1 不具合分析の状態記録に現況の再実測を並べる
+  - 対象は `#### PhotoCommentDisplay修正（REQ-35）` の `**不具合分析**` の 3 箇条と、その直前の `現在の実装では` で始まる段落である。**削除ではなく、当時の記録を残したまま現況を並べること**
+  - **`linkSurveyImage` と `PhotoChangeDialog` の現況を測り直してから書くこと。** 本節が引く出力は 2026-09-02・コミット `5176ee4` の実測であり、着手時には陳腐化しうる
+  - **同一文書内の矛盾も併せて解消すること**: `PhotoChangeDialog` を「未使用・残置」と書く 2 箇所と、本節の箇条 3 が「要修正」と書く 1 箇所は両立しない。どちらが現況かを実装を読んで決め、**判断の根拠をコマンドで書くこと**
+  - **`修正対象コンポーネントと変更内容` の表も同じ扱いの対象である**（`PhotoChangeDialog` の行を持つ）。箇条だけ直して表を残さないこと
+  - **検証**: `grep -rn 'linkSurveyImage' frontend/src backend/src e2e` の出力が空であることを再確認したうえで、本書の当該記述がその事実と矛盾しないこと。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` が基線と同じ終了コードであること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、設計文書の状態記録を現況へ追随させるだけである。当該節が名乗る受入基準番号（35.1-35.7）を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.240（状態記録の走査と申し送り）_
+  - _Boundary: 本スペックの設計文書に残る状態記録_
+
+## Task 80: 数量表の範囲外入力にエラー表示が無い状態を解消する
+
+**経緯**: site-survey の Task 115.126 のレビューと是正で、数量表の欄指定E2Eが「範囲外ならエラーが出るか値が制限される」という**恒真の判定**で欠陥を覆っていたことが判明した。同スペックは所管外として Task 115.130 を `_Blocked:_` に置いたが、**本スペックへ起票されないまま滞留していた**。site-survey の機能レベル検証がその断絶（`_Blocked:_` された4件のうち下流へ起票済みは1件だけ）を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey 側は実装コードを一行も変更していない。
+
+**測った事実**（いずれもコミット `c3f3e9f6`、2026-09-08 にリポジトリルートで実測）:
+
+- **要件が課すもの**: REQ-9.3 は調整係数 `-9.99〜9.99`、REQ-10.3 は丸め設定 `-99.99〜99.99`、REQ-15.1 は数量 `-999999.99〜9999999.99`、REQ-15.3 は寸法・ピッチ・箇所数計算の「長さ」「重量」 `0.01〜9999999.99` について、範囲外の入力に対し**エラーメッセージを表示し範囲内の値の入力を求める**ことを課す。取り出しは `grep -nE '^3\. When 丸め設定フィールドに入力可能範囲' .kiro/specs/quantity-table-generation/requirements.md`（出力は1行）ほか、同じ形で 9.3 / 15.1 / 15.3 を引ける
+- **描画される行に範囲判定が無い**: 実際に描画されるのは `EditableQuantityItemRow` である（入口は `grep -nF '<EditableQuantityItemRow' frontend/src/components/quantity-table/QuantityGroupCard.tsx`）。同部品の数量欄の焦点喪失処理は `parseFloat`・`toFixed(2)`・`onUpdate` だけで範囲判定を持たない（`grep -nF 'const handleQuantityBlur = useCallback' frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` で入口を求め、続く12行を読むこと）
+- **判定の実体は実装済みだが死コードである**: `grep -rl 'FieldValidatedItemRow' frontend/src --include=*.ts --include=*.tsx` の出力は **5ファイル**で、内訳は定義ファイル自身1・ストーリー1・単体検証3である。**本番経路からの参照が一つも無い**（表の欄では絞り込みを付けられないため、5行を目視すること）
+- **範囲判定の関数が本番から掛かるのは箇所数だけである**: `CalculationFields.tsx` が `validateNumericRange` を呼ぶのは `rangeFieldType` を宣言した欄に限られ、宣言は `grep -cF "rangeFieldType: 'count'" frontend/src/components/quantity-table/CalculationFields.tsx` の出力が `1`——**箇所数の一件のみ**である
+- **調整係数と丸め設定は範囲判定ではなく警告で処理されている**: `grep -cF 'warningCondition={(v) => v <= 0}' frontend/src/components/quantity-table/CalculationFields.tsx` の出力が `2`（調整係数と丸め設定）。**REQ-9.3 が有効域と定める `-9.99〜0` に対して警告が出る**。これは範囲の要件不整合であり、範囲判定の欠落とは別の欠陥である
+- **定数が要件と食い違い、しかも二系統ある**: `grep -cF 'roundingUnit: { min: 0.01, max: 999.99 }' frontend/src/utils/field-validation.ts` の出力が `1`。一方 `frontend/src/utils/numeric-range-validation.ts` の `FIELD_RANGE_CONFIG` は丸め設定を `min: 0.01` / `max: 99.99` と定める（入口は `grep -nF 'export const FIELD_RANGE_CONFIG' frontend/src/utils/numeric-range-validation.ts`）。**上限が二つの綴りで食い違い、下限は両方とも要件の `-99.99` と食い違う。** 同名の `validateNumericRange` が両ファイルに在り、本番の `CalculationFields` が取り込むのは後者である
+- **E2E は未実装を正直に宣言している**: `grep -cF 'test.fail();' e2e/specs/quantity-tables/quantity-table-crud.spec.ts` の出力が `5`。5件が名乗る受入基準は REQ-8.4 / 9.5 / 10.5 / 15.1 / 15.3 であり、いずれも直前の註が当該受入基準を**未実装**と述べる。**この5件が、是正の完了を測る外形上のラチェットである**
+- **欄指定E2Eの側にも「未検証」の記載が残る**: `e2e/specs/quantity-tables/field-specification.spec.ts` の冒頭。site-survey の Task 115.126 が恒真の判定を削除した際に据えたものである
+
+**完了印の粒度が食い違っている。逐語で示す**（同コミット・同日に実測）:
+
+- `grep -cE '^- \[x\] (11\.2|12\.4) ' .kiro/specs/quantity-table-generation/tasks.md` の出力が `2` である。すなわち **11.2 と 12.4 はいずれも `[x]` である**。当該2項は `grep -nE '^- \[x\] (11\.2|12\.4) ' .kiro/specs/quantity-table-generation/tasks.md` で所在を求め、直下の箇条を読むこと
+- 11.2 は丸め設定・数量・寸法/ピッチ計算の各範囲について「検証を実装する」を、12.4 は「入力時に範囲外の値を検出し、即座にエラーメッセージを表示する」と「既存の計算用フィールドコンポーネントに範囲チェックを統合する」を、それぞれ箇条として挙げている
+- **上の実測が示すのは、判定の実体は在るが描画される部品へ統合されていないことである。** したがって食い違うのは完了印の**粒度**である——「判定を実装した」（11.2 の大半）は現に達成されており、「計算用フィールドコンポーネントへ統合した」（12.4 の末尾の箇条）は箇所数の一件を除いて達成されていない
+- **本節は当該2項の完了印を偽と断定しない。** 断定できるのは上の逐語と当たり数だけであり、当時どこまでを完了の範囲と読んだかは記録に残っていない。**完了印をどう扱うかは 80.4 が判断する**
+
+**着手前に測り直すこと**: 本節が引く件数はいずれも 2026-09-08・コミット `c3f3e9f6` の値である。とくに `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` は他のタスクが並行して編集しうるため、`test.fail()` の当たり数と対応する受入基準は着手時に取り直すこと。**起票が挙げた所在が、着手時には既に直っていることがある**（site-survey の Task 115.155 / 115.317 の学び）。
+
+**一件を直して「完全になった」と書かないこと**: 本節が挙げるのは上の走査が捕まえた範囲だけである。走査根は `frontend/src/components/quantity-table`・`frontend/src/utils`・`e2e/specs/quantity-tables` の三つであり、**その外で範囲を課す実装（HTML の `min` / `max` 属性、バックエンドの検証層）は保証しない**。
+
+- [x] 80.1 範囲の正典を確定させ、定数の二系統を解消する
+  - **結線の前に着手すること。** どちらの定数が正かを決めずに結線すると、要件と食い違う判定が本番へ入る
+  - 決めるべきは三点。(a) 丸め設定の下限は要件どおり `-99.99` か。要件は REQ-10.4 で「0または空白でデフォルト値0.01を自動入力」も課しており、負の丸め単位が何を意味するかは条文からは決まらない。**条文が正であるなら実装を合わせ、条文の側が誤りであるなら要件を改める。どちらへ倒すかを実測と根拠つきで書くこと**、(b) 上限は `99.99`（`numeric-range-validation.ts`）か `999.99`（`field-validation.ts`）か、(c) 同名の `validateNumericRange` を二系統持ち続けるか一本化するか
+  - **「実装が要件に合っていないから要件を書き換える」を既定の解にしないこと。** 番号を直す向きは条文の逐語で決める（site-survey の Task 115.317 の学び）
+  - 結論を採ったら、**採らなかった側をなぜ採らなかったかを同じ場所へ書くこと**。次の担当者が同じ議論を繰り返さないために
+  - _Requirements: 9.3, 10.3, 15.1, 15.3_
+  - _Boundary: 数値欄の範囲の正典と、範囲定数の単一の出所_
+
+- [x] 80.2 範囲判定を実際に描画される部品へ結線する
+  - 対象は `EditableQuantityItemRow`（数量欄）と `CalculationFields`（調整係数・丸め設定・寸法・ピッチ計算の各欄）である。**`FieldValidatedItemRow` を直すのではない**——同部品は本番経路から参照されない
+  - **死コードをどうするかも併せて決めること。** 選択肢は (a) `FieldValidatedItemRow` を描画経路へ据える、(b) 判定だけを `EditableQuantityItemRow` へ移し `FieldValidatedItemRow` とその検証3ファイル・ストーリー1ファイルを撤去する、(c) 現状のまま残す。**(c) を採るなら、なぜ残すかを一箇所へ書くこと**
+  - 調整係数と丸め設定は `warningCondition={(v) => v <= 0}` により **REQ-9.3 の有効域 `-9.99〜0` に対して警告が出る**。範囲判定を足すだけでは解消しないので、警告の条件も併せて是正すること
+  - **判定は単一の出所から得ること。** 検証側が範囲の数値を複製すると、範囲が変わったときに検証だけが古い前提のまま緑になる
+  - **変異検証**: 結線を外すと当該の検証が落ちることを実測し、当てた変異と実出力（落ちた件数／全体の件数）を報告に書くこと
+  - _Depends: 80.1_
+  - _Requirements: 9.3, 10.3, 15.1, 15.3_
+  - _Boundary: 数量・調整係数・丸め設定・寸法/ピッチ計算の各欄の範囲検証の結線_
+
+- [x] 80.3 受入検証からラチェットを外す
+  - `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` の `test.fail()` のうち、80.2 で実装した受入基準に対応するものを外す。**着手時に当該ファイルの現況を取り直すこと**（起票時点は5件で、名乗る受入基準は REQ-8.4 / 9.5 / 10.5 / 15.1 / 15.3）
+  - **数値以外の入力（REQ-8.4 / 9.5 / 10.5）と範囲外の入力（REQ-15.1 / 15.3）は別の規範である。** 片方だけを実装してもう片方のラチェットを外さないこと
+  - `e2e/specs/quantity-tables/field-specification.spec.ts` 冒頭の「未検証」記載を判定へ引き上げ、当該記載を削ること
+  - **主張は要件の具体値と突き合わせる形にすること。** 「エラーが出るか値が制限される」型の選言は恒真になりうる——site-survey の Task 115.126 が是正した欠陥がまさにその形である
+  - **入力の拒否を実装する場合は変換中（IME）の扱いを必ず考慮すること。** E2E の入力補助も単体の変更イベントも変換を経由しないため、この欠陥は構造的に検出できない（本スペックの `## Implementation Notes（越境して実行された是正）` が同じ作法を記録している）
+  - _Depends: 80.2_
+  - _Requirements: 8.4, 9.5, 10.5, 15.1, 15.3_
+  - _Boundary: 数量表CRUDと欄指定のE2Eのラチェットと被覆表記_
+
+- [x] 80.4 (P) 11.2 と 12.4 の完了印の粒度を是正する
+  - **80.2 の完了後に着手すること。** 実装が入る前に印だけを動かすと、記録が二度動く
+  - 上の「完了印の粒度が食い違っている」で示した逐語を**着手時に取り直したうえで**、当該2項の記述を実態へ揃える。**歴史記録は改変せず、追記で現在を示すこと**（site-survey の Task 115.144 の学び）
+  - **`[x]` を `[ ]` へ戻すかは、当時の完了の読みを記録から復元できるかで決めること。** 復元できないなら戻さず、達成された部分と達成されていなかった部分を書き分けて追記すること。**復元できないことを「達成されていた」の根拠にしないこと**
+  - _Depends: 80.2_
+  - _Boundary: 本スペックのタスク一覧の 11.2 / 12.4 の記述_
+
+**この節が `_Requirements:` を全ての子に持つのは意図である**（Task 79 の逆）。80.1〜80.3 は実際に受入基準を実装するため被覆に計上されてよい。80.4 だけは記録の是正であり受入基準を実装しないため、依存と境界だけを書く。
+
+_申し送り元: site-survey スペックの Task 115.130（同スペックでは所管外としてブロック）_
+
+## Task 81: 数量表の経路が親の現場調査の論理削除を見ない状態を解消する
+
+**経緯**: site-survey の Task 115.124 が同スペックの5経路を `assertSurveyNotDeleted` で塞ぎ、Task 115.172 の実装とレビューが全8ルートを一件ずつ辿って**残る2経路が他スペックの所管であること**を確認した。同スペックは Task 115.214 を `_Blocked:_` に置いたが、**本スペックへ起票されないまま滞留していた**。site-survey の機能レベル検証がその断絶を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey 側は実装コードを一行も変更していない。
+
+**もう一方の経路は工事写真スペックが所管する。** 起票は `.kiro/specs/construction-photo/tasks.md` の `## Task 17: 工事写真の現調コピーが親の現場調査の論理削除を見ない状態を解消する` に置いた。**両スペックへ別々に起票したのは、二つの欠陥が別のサービス・別の所有者に属し、互いに依存しないためである**——片方を主として他方を参照だけに留めると、参照する側の所有者の作業キューに何も載らず、**本節が是正しようとしている「行き止まりの申し送り」をそのまま再現する**。共有するのは是正の道具（`assertSurveyNotDeleted`）だけであり、それは site-survey が既に提供している。
+
+**測った事実**（いずれもコミット `c3f3e9f6`、2026-09-08 にリポジトリルートで実測）:
+
+- **本スペックの未検査の経路**: `backend/src/services/quantity-group.service.ts` の `validateSurveyImage` は `tx.surveyImage.findUnique` の `select` に `survey: { select: { projectId: true } }` しか置かず、**親の現場調査の `deletedAt` を読まない**。入口は `grep -nF 'private async validateSurveyImage(' backend/src/services/quantity-group.service.ts` で求め、続く20行を読むこと。判定は「見つからない」と「プロジェクト不一致」の二つだけである
+- **呼び出し元は2箇所**: `grep -cF 'await this.validateSurveyImage(' backend/src/services/quantity-group.service.ts` の出力が `2`。数量グループの新規作成と更新の両方から呼ばれる。外部からの入口は `backend/src/routes/quantity-groups.routes.ts` の `POST /` と `PUT /:id`（いずれも `quantity_table:update` 権限）である
+- **したがって、論理削除した現場調査の画像を数量グループへ今も紐付けられる**。同一プロジェクトでありさえすれば通る
+- **同じファイルの別の経路は既に塞がれている**: 現場調査の写真からグループを一括生成する経路は `siteSurvey` を `select: { id: true, name: true, deletedAt: true, projectId: true }` で読み、`deletedAt !== null` なら `SiteSurveyNotFoundError` を投げる（入口は `grep -nF 'const siteSurvey = await tx.siteSurvey.findUnique({' backend/src/services/quantity-group.service.ts`）。**同一ファイル内で検査の有無が分かれている**
+- **site-survey 側は塞がれている**: `grep -rn 'assertSurveyNotDeleted(' backend/src --include=*.ts | grep -v '__tests__' | grep -v 'survey-deleted-guard.ts'` の当たりが **5行**（`image-metadata.service.ts` 2件・`survey-images.routes.ts` 2件・`image-delete.service.ts` 1件）。**是正には `backend/src/utils/survey-deleted-guard.ts` の `assertSurveyNotDeleted` / `sendSurveyDeletedProblem` をそのまま使える**
+- **破れているのは他スペックの受入基準である**: site-survey の REQ-1.5（`grep -nE '^5\. When ユーザーが現場調査を削除する' .kiro/specs/site-survey/requirements.md` で取り出せる）が課す論理削除の意味が、本スペックの入口で破れている
+- **機械保証は無い。断定でなく現況で示す**: site-survey/REQ-1.5 は `e2e/specs/site-surveys/site-survey-crud.spec.ts` の被覆印を持つ（`grep -cF 'site-survey/REQ-1.5' e2e/specs/site-surveys/site-survey-crud.spec.ts` の出力が `2`）ため、**`npm run check:req-coverage` は当該受入基準を被覆済みと数える**（同検査は基線から既に終了コード1だが、未カバー一覧に site-survey/REQ-1.5 は挙がらない。2026-09-08 に実測）。**被覆の集計は「削除の画面操作が通ること」を見ており、他スペックの入口が同じ不変条件を守っているかは見ない**
+
+**着手前に測り直すこと**: 本節が引く所在と件数は 2026-09-08・コミット `c3f3e9f6` の値である。**起票が挙げた所在は、着手時には既に直っていることがある**（site-survey の Task 115.155 の実例）。
+
+- [x] 81.1 数量グループの現調画像の検証に親の論理削除の検査を加える
+  - 対象は `backend/src/services/quantity-group.service.ts` の `validateSurveyImage` である。`select` へ `survey: { select: { projectId: true, deletedAt: true } }` を加え、`assertSurveyNotDeleted` で塞ぐこと
+  - **道具は既に在る。新たに判定を書き起こさないこと**——`backend/src/utils/survey-deleted-guard.ts` を取り込むこと。site-survey の5経路と同じ応答になることが、この不変条件が一つであることの証拠になる
+  - **応答の形を決めること**: `assertSurveyNotDeleted` が投げる `SurveyDeletedError` を経路の応答へどう写すかは、`sendSurveyDeletedProblem` を使うか本スペックの既存のエラー変換に載せるかで分かれる。**site-survey の経路と食い違う応答にしないこと**
+  - 新規作成（`POST /`）と更新（`PUT /:id`）の**両方**が塞がれることを確かめること。呼び出し元は2箇所である
+  - **変異検証**: 検査を外すと当該の検証が落ちることを実測し、当てた変異と実出力を報告に書くこと。**「塞いだ」を検証なしで書かないこと**
+  - **`_Requirements:` を持たないのは意図である。** 本節が守る不変条件は site-survey の REQ-1.5 であって本スペックの受入基準ではない。本スペックの番号を挙げると偽の被覆申告になり、他スペックの番号を挙げると本スペックの分母に無い番号を名乗ることになる
+  - _Depends: site-survey スペックの Task 115.172（全8ルートの走査と申し送り）_
+  - _Boundary: 数量グループの現調画像紐付けにおける親の論理削除の検査_
+
+_申し送り元: site-survey スペックの Task 115.214（同スペックでは所管外としてブロック。工事写真スペックとの共同所管）_
+
+## Task 82: 数量表E2Eのシード前提が注釈なし写真のままで成立しない状態を解消する
+
+**経緯**: Task 75.1 が写真選択ダイアログの取得経路を `GET /api/projects/:projectId/survey-images` へ置き換えた。同経路は注釈レコードが存在する写真のみを返す（Requirement 4.3 / 19.2 が選択対象を「注釈エディタで編集済みの写真」と定めるため）。**その結果、注釈を保存せずに写真をシードしていた既存の数量表E2Eが、ダイアログの選択候補0件で前提段階から成立しなくなった。** Task 76.1 の実装中に発見し、同タスクの独立レビューが実走で裏を取ったが、いずれのタスクも所管していなかったため本節を起こした。
+
+**これは「動いていた検証が壊れた」のではなく「恒真だった検証が露出した」である。** とくに `photo-change-dialog-e2e.spec.ts` は冒頭で `@requirement quantity-table-generation/REQ-19.2: 注釈付き写真一覧の表示` を名乗りながら注釈を保存していない。**注釈なし写真が一覧に出ることを「注釈付き写真一覧の検証」として記録していた。** シードへ注釈を足すことで、当該受入基準は初めて現に検証される。
+
+**測った事実**（いずれもコミット `b42d4d67`、2026-09-10 にリポジトリルートで実測）:
+
+- **対象は7本で、前提の作り方は二系統ある**。`grep -c` の実測値を併記する:
+
+| ファイル（`e2e/specs/quantity-tables/` 配下） | `seedSurveyPhotosWithComments` | `annotations` |
+|---|---|---|
+| `photo-comment-display.spec.ts` | 2 | 0 |
+| `photo-comment-e2e.spec.ts` | 3 | 0 |
+| `photo-preview-e2e.spec.ts` | 2 | 0 |
+| `quantity-group-copy.spec.ts` | 4 | 0 |
+| `quantity-table-phase9.spec.ts` | 2 | 0 |
+| `photo-select-overlap-e2e.spec.ts` | 0 | 0 |
+| `photo-change-dialog-e2e.spec.ts` | 0 | 0 |
+
+- **共有ヘルパー経由が5本**: `e2e/helpers/quantity-table-preconditions.ts` の `seedSurveyPhotosWithComments`（入口は `grep -nF 'export async function seedSurveyPhotosWithComments' e2e/helpers/quantity-table-preconditions.ts`）は、現場調査を画面から作成し、写真を `POST /api/site-surveys/:surveyId/images` でアップロードし、コメントを `PATCH /api/site-surveys/images/:imageId` で付ける。**注釈の保存は行わない**
+- **自前アップロードが2本**: `photo-select-overlap-e2e.spec.ts` と `photo-change-dialog-e2e.spec.ts` は `multipart` で直接アップロードしており（`grep -c 'multipart'` の出力はそれぞれ 2 と 1）、共有ヘルパーを通らない。**片方だけ直しても残る**
+- **実走で確認済み**: `npm run test:e2e -- e2e/specs/quantity-tables/photo-comment-display.spec.ts` が **1 failed / 5 skipped / 終了コード1**。失敗箇所は `attachPhotoToGroup` の `前提: 1番目の選択候補の写真が表示される`（element(s) not found）
+- **注釈保存の入口は既に在る**: `PUT /api/site-surveys/images/:imageId/annotations`（`grep -n 'annotations（保存）' backend/src/routes/annotation.routes.ts`）。Task 76.1 が新設した `e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts` の `saveAnnotation`（`grep -nF 'const saveAnnotation' e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts`）と、`e2e/specs/site-surveys/site-survey-image-request-scaling.spec.ts` / `site-survey-batch-annotations.spec.ts` が同じ入口を使っている
+- **ただし `e2e/helpers/` に注釈保存の共有ヘルパーは無い**（`grep -rn 'saveAnnotation' e2e/helpers/` の当たりが `0`）。**各specが自前で書き起こしている。** 本タスクで7本へ同じ処理を複製すると、道具の出所が8つになる
+
+**着手前に測り直すこと**: 上の件数は 2026-09-10・コミット `b42d4d67` の値である。**起票が挙げた所在が、着手時には既に直っていることがある。**
+
+- [x] 82.1 数量表E2Eのシードへ注釈保存を加えて選択候補を成立させる
+  - 共有ヘルパー `seedSurveyPhotosWithComments` と、自前アップロードの2本（`photo-select-overlap-e2e.spec.ts` / `photo-change-dialog-e2e.spec.ts`）の**両系統**を対象とすること。**共有ヘルパーだけを直して「7本を直した」と書かないこと**
+  - **注釈保存の道具は一箇所に置くこと。** 既に4箇所（76.1 の spec・site-survey の spec 2本・本タスクが足す分）が同じ `PUT /api/site-surveys/images/:imageId/annotations` を叩いている。`e2e/helpers/` へ共有ヘルパーを設けるか、既存のどれかを正典とするかを決め、**採らなかった側をなぜ採らなかったかを同じ場所へ書くこと**
+  - **注釈の有無を検証の関心に持つテストは、注釈なし写真も併せてシードすること。** 全件を注釈付きにすると「注釈付きのみが現れる」という主張が空集合に対する恒真になる。どのテストが当該の関心を持つかは一件ずつ読んで決めること（少なくとも `photo-change-dialog-e2e.spec.ts` の REQ-19.2 は該当する）
+  - **`photo-change-dialog-e2e.spec.ts` の REQ-19.2 の主張を、注釈付きであることを実際に確かめる形へ引き上げること。** 現状は注釈なし写真が並んでも通る。**目印だけ残して中身を直さないこと**
+  - **変異検証**: シードの注釈保存を外すと当該の検証が落ちることを実測し、当てた変異と実出力（落ちた件数／全体の件数）を報告に書くこと
+  - **検証**: 対象7本がいずれも終了コード0で通ること。`npm run check:e2e-guards` と `npm run check:e2e-selfjudge` が緑であること。**`test.fail()` / `test.skip()` / 条件付きスキップで前提の不成立を回避しないこと**（`.claude/CLAUDE.md` 第3原則）
+  - _Depends: 75.1, 76.1_
+  - _Requirements: 19.2_
+  - _Boundary: 数量表E2Eのシード前提_
+
+**`_Requirements:` に 19.2 だけを挙げるのは意図である。** 本タスクが現に被覆を増やすのは、注釈なしで恒真になっていた REQ-19.2 の一件のみである。他の6本は前提の復旧であって被覆の追加ではなく、当該specが既に名乗る受入基準番号を本タスクの `_Requirements:` に並べると「本タスクが被覆した」という二重計上になる。
+
+## Task 83: 拡大表示で原本を取得する受入基準がE2E未作成のまま除外に在籍する状態を解消する
+
+**経緯**: `REQ-49.7`（拡大表示の時点で原本画像を取得する）は Task 73.3 が実装済みだが、E2E が未作成のため `e2e/requirement-exclusions.json` に `pending-implementation` として在籍し続けている。同エントリの理由欄は「**取得の発生を監視するE2Eの作成をもって除外を取り下げること**」と自ら取り下げ条件を書いているが、Task 76.1（49.9 / 49.10 を所管）も Task 76.2（49.2 / 49.3 / 49.8 を所管）も当該取り下げを所管していない。Task 76.1 の実行中に計画の穴として検出し、本節を起こした。
+
+**測った事実**（コミット `b42d4d67`、2026-09-10 に実測）:
+
+- **除外は在籍している**: `python3` で `e2e/requirement-exclusions.json` を読み、`quantity-table-generation/REQ-49.7` のエントリが `category: "pending-implementation"`、`alternativeVerification.method: "e2e-test"`、`threshold: "original_fetch_on_zoom: 1"` を持つことを確認した
+- **実装は済んでいる**: 同エントリの理由欄が「【2026-09-09 の現況】……タスク 73.3 が当該ダイアログの表示元規則を改め、合成済みサムネイルへ分岐せず常に原本へ解決し、注釈は共有表示部品 `AnnotatedImageThumbnail` のクライアント側合成で維持する形になった（`loading="eager"` で即時取得）」と述べ、在籍理由が「未実装」から「実装済みでE2Eの検証が未作成」へ移ったことを明記している
+- **単体では固定済み**: 同エントリが `frontend/src/__tests__/components/quantity-table/PhotoPreviewDialog.test.tsx` を代替検証として挙げている
+- **Task 76.1 が作った観測器に先例がある**: `e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts` は、拡大表示で原本の取得が発生することを**0件判定の非空証明として既に捉えている**（同ファイルの原本取得の観測。`grep -nF 'originalRequestPaths' e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts` で所在を求めること）。**本タスクはその観測を 49.7 の主張として正面から立てるものであり、一から書き起こす必要は無い**
+
+**着手前に測り直すこと**: 上の所在と件数は 2026-09-10・コミット `b42d4d67` の値である。
+
+- [x] 83.1 拡大表示で原本を取得することをE2Eで確認し、除外を取り下げる
+  - 表題部の写真を拡大表示した**操作の時点で**原本画像の取得が発生することを、リクエスト監視で確認すること
+  - **リクエストの観測はパスを基準に行い、接続先の違いで判定が変わらないようにすること**（`new URL(request.url()).pathname` のみで選別し、ホスト・ポート・スキームを判定条件に入れない）。オリジンを条件に含めると観測が全件除外され「0件」が恒真になる
+  - **「操作の時点で」を主張すること。** 拡大表示の前に原本の取得が発生していないこと（＝一覧・表題部の段階では原本を引かないこと）を併せて確かめないと、取得の契機を固定したことにならない
+  - 上記を検証したうえで、`e2e/requirement-exclusions.json` から `quantity-table-generation/REQ-49.7` を取り下げ、`summary` の集計欄を実体と整合させること。**`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること**（JSON はルートの `format:check` の対象外である）
+  - **49.3 / 49.8 の除外は触らないこと**（Task 76.2 の所管）
+  - **変異検証**: 拡大表示の表示元を原本から合成済みサムネイルへ戻すと当該の検証が落ちることを実測し、当てた変異と実出力を報告に書くこと
+  - **検証**: 新設・改修したE2Eが終了コード0で通ること。`npm run check:req-exclusions` が緑であること。`npm run check:req-coverage` の未カバー一覧から 49.7 が消えること（**同検査は基線で既に終了コード1である**。本スペックに関する項目が悪化していないことを出力内容で判断すること）
+  - _Depends: 73.3, 76.1_
+  - _Requirements: 49.7_
+  - _Boundary: E2E_
+
+_起票元: Task 76.1 の実行中に検出した計画の穴（76.1 / 76.2 のいずれも 49.7 の取り下げを所管していない）_
+
+## Task 84: 数量表CRUDのE2Eが前提段階で止まり後続70件が走らない状態を解消する
+
+**経緯**: Task 80.3 が `e2e/requirement-exclusions.json` から5件（REQ-8.4 / 9.5 / 10.5 / 15.1 / 15.3）の除外を取り下げ、対応する判定を `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` へ実装した。ところが同ファイルは `test.describe.configure({ mode: 'serial' })` 配下にあり、**先行する写真選択の判定が落ちると以降が全件スキップされる**。**起票時に本節が落ちる位置を REQ-4.3-link（`:891`）と書いたのは誤りである**——実際に落ちるのはその一つ前の REQ-4.3（`:828`）であり、84.1 の実装と独立レビューが実走で確定させた。レビューの変異実測では `[18/91] ✘ FAIL`（REQ-4.3）に対し REQ-4.3-link は `[19/91] ○ SKIP` であった。**この誤りは起票者（機能レベル検証）が実走せず先行タスクの報告から推論して書いたことによる**（コミット `9c4dc21e` 時点の記述）。機能レベル検証がこの連鎖を検出した。**取り下げた5件の判定は、通常の全件実行では一度も走らない。** 除外は分母から外れ、検証は走らない——被覆率だけが改善して見える形である。
+
+**所有権は本スペックにある。** 真因は Task 82.1 の走査漏れであり、同タスクは `[x]` である。
+
+**測った事実**（いずれもコミット `9c4dc21e`、2026-09-11 にリポジトリルートで実測）:
+
+- **直列の宣言**: `sed -n '73,76p' e2e/specs/quantity-tables/quantity-table-crud.spec.ts` が `test.describe('数量表CRUD操作', () => {` と `test.describe.configure({ mode: 'serial' });` を返す
+- **落ちる位置と、スキップされる位置の前後関係**: 実際に落ちる REQ-4.3 の `test(` 宣言は `:828`（起票時は `:891` の REQ-4.3-link と誤記。上の経緯を見よ）、取り下げた5件は `:2592`（REQ-8.4）/ `:3026`（REQ-9.5）/ `:3332`（REQ-10.5）/ `:4041`（REQ-15.1）/ `:4165`（REQ-15.3）で、**すべて後方にある**
+- **前提が注釈を保存していない**: `grep -c 'saveAnnotation\|seedSurveyPhotosWithComments' e2e/specs/quantity-tables/quantity-table-crud.spec.ts` の出力が `0`
+- **選択ダイアログの供給元は注釈付きのみを返す**: `grep -n 'annotation: { isNot: null }' backend/src/services/image-list.service.ts` が `386:` を返す
+- **Task 82.1 の表に当該ファイルが無い**: 同節の表は7本を挙げるが `quantity-table-crud.spec.ts` を含まない。**Task 82 自身が「一件を直して『完全になった』と書かないこと」を警告しており、その実例である**
+- **落ちる因果**: 選言の第2項が実装の文言と一致せず（下記）、前提が注釈を保存しないため第1項の `photo-list` も現れない。**選言全体が 20 秒で時間切れになる**。REQ-4.3 と REQ-4.3-link は同じ選言を持つが、直列実行では REQ-4.3 が先に評価される
+- **`.or()` の分岐は既に死んでいる**: `grep -n 'emptyStateText' e2e/specs/quantity-tables/quantity-table-crud.spec.ts` が `:871` と `:937` を返し、いずれも `/利用可能な写真がありません/` を引く。**実装の文言はコミット `b701ad53` で「注釈付きの写真がありません」へ変わっており、この分岐はどの要素にも当たらない**
+- **実走の記録**: Task 80.3 の実行中、同ファイルの除外なしの実走が `1 failed / 20 passed / 70 did not run`、写真関連5件を `--grep-invert` で除いた実走が `107 passed` であった
+
+**着手前に測り直すこと**: 上の行番号と件数は 2026-09-11・コミット `9c4dc21e` の値である。
+
+- [x] 84.1 数量表CRUDのE2Eの前提に注釈保存を加え、REQ-4.3 の判定を恒真から引き上げる
+  - 前提（`:148` 以降の「写真選択テスト用のサイト調査と写真を作成する」）で**注釈を保存すること**。道具は Task 82.1 が置いた共有ヘルパーか、`PUT /api/site-surveys/images/:imageId/annotations` を直接叩く形のいずれかとし、**採らなかった側をなぜ採らなかったかを同じ場所へ書くこと**
+  - **`.or(emptyStateText)` の選言を外すこと。** 現在は文言の陳腐化により当たらないだけで、文言が揃えば「空でも通る」恒真へ戻る。`quantity-table-crud.spec.ts:868-874` と `:936-939` の両方が対象
+  - **注釈の有無を関心に持つ判定には、注釈なし写真も併せてシードすること。** 全件を注釈付きにすると「注釈付きのみが現れる」が空集合に対する恒真へ退化する（Task 82 の同じ作法）
+  - **変異検証**: 前提の注釈保存を外すと当該の判定が落ちることを実測し、当てた変異と実出力（落ちた件数／全体の件数）を報告に書くこと
+  - **検証**: `npm run test:e2e -- e2e/specs/quantity-tables/quantity-table-crud.spec.ts` が**除外なしで**終了コード0であること。とくに `:2592` / `:3026` / `:3332` / `:4041` / `:4165` の5件が `did not run` ではなく**実際に走って緑である**ことを、実行結果の逐語で示すこと。`npm run check:e2e-guards` と `check:e2e-selfjudge` が緑であること
+  - **`test.fail()` / `test.skip()` / 条件付きスキップで前提の不成立を回避しないこと**（`.claude/CLAUDE.md` 第3原則）
+  - _Depends: 82.1, 80.3_
+  - _Requirements: 4.3_
+  - _Boundary: 数量表CRUDのE2Eの前提と写真一覧の判定_
+
+**`_Requirements:` に 4.3 だけを挙げるのは意図である。** 本タスクが現に被覆を増やすのは、選言により恒真だった REQ-4.3 の一件である。前提の復旧によって走るようになる5件は 80.3 が既に `_Requirements:` に挙げており、ここへ並べると二重計上になる。
+
+_起票元: 機能レベル検証（本実行）。Task 82.1 の走査漏れとして検出_
+
+## Task 85: バックエンドの数値欄の範囲が撤廃済みの条文を名乗り続ける状態を解消する
+
+**経緯**: Task 80.1 が丸め設定の範囲の正典をフロントの `FIELD_RANGE_CONFIG` と条文に定め、REQ-10.3 を `0.01〜99.99` へ改訂した。**バックエンドは 80.1 の対象外であり、改訂前の値を課したままである。** 80.1〜80.4 はいずれも境界外として起票を申し送ったが、**タスク節が起こされないまま滞留していた**。機能レベル検証がこれを検出した。
+
+**測った事実**（いずれもコミット `9c4dc21e`、2026-09-11 にリポジトリルートで実測）:
+
+- **バックエンド内で二系統**: `grep -n 'ROUNDING_UNIT\|roundingUnitMin\|roundingUnitMax' backend/src/services/quantity-field-validation.service.ts` が `60:  ROUNDING_UNIT: { min: -99.99, max: 99.99, default: 0.01 },` と `530:    const roundingUnitMin = 0.01;` / `531:    const roundingUnitMax = 999.99;` を返す。**同一ファイルの中で下限も上限も割れている**
+- **撤廃済みの条文を正しいと主張する検証が生きている**: `grep -c -- '-99\.99' backend/src/__tests__/unit/services/quantity-field-validation.service.test.ts` の出力が `8`。**バックエンドを条文へ揃えようとすると、この緑が抵抗する**
+- **ルート層の第三の系統**: `grep -n 'adjustmentFactor: z.number()\|roundingUnit: z.number()' backend/src/routes/quantity-tables.routes.ts` が `197:    adjustmentFactor: z.number().positive(),` と `198:    roundingUnit: z.number().positive(),` を返す。**調整係数の `positive()` は REQ-9.3 の有効域 `-9.99〜9.99` を拒み、丸め設定の `positive()` は上限 `99.99` を持たない**
+- **どちらが先に効くか**: ルート層の zod が検証ミドルウェアで先に走る。サービス層の `FIELD_CONSTRAINTS` は死んだ定数ではなく `validateItemFieldSpecs` → `validateDraft` → `saveDraft` の経路で生きている
+
+**是正の向きは条文ではなく実装である。** 80.1 が条文を改めたのは条文の内部矛盾（REQ-10.2 の「単位」と REQ-10.4 の「0＝未設定」）を根拠としたものであり、同じ根拠はバックエンドを狭める向きを支持する。**「実装が要件に合っていないから要件を書き換える」を既定の解にしないこと。**
+
+- [x] 85.1 バックエンドの丸め設定と調整係数の範囲を条文へ揃える
+  - 三系統（`FIELD_CONSTRAINTS.ROUNDING_UNIT` / `validateItemFieldSpecs` の直書き / ルート層の zod）を**単一の出所へ畳むこと**。採らなかった案とその理由を同じ場所へ書くこと
+  - **撤廃済みの条文を主張する単体検証を同時に是正すること。** 実装だけ直して検証を残すと赤になり、検証だけ直すと実装の陳腐化が隠れる
+  - **調整係数の `positive()` は REQ-9.3 の有効域を拒む。** 80.2 はこれを是正できず、フロント側で「保存できません」と告げる暫定の層（`SAVE_POSITIVE_ONLY_FIELD_TYPES` / `validateSavePersistability`）を置いた。**本タスクで是正したら当該の暫定層を撤去すること**（撤去条件は同定数の説明に書いてある）
+  - **変異検証**: 範囲を条文から外す向きの変異で当該の検証が落ちることを実測すること
+  - _Depends: 80.1, 80.2_
+  - _Requirements: 9.3, 10.3_
+  - _Boundary: バックエンドの数値欄の範囲の正典_
+
+_起票元: Task 80.1 / 80.2 / 80.4 が境界外として申し送り、機能レベル検証が未起票を検出_
+
+## Task 86: 数量表の保存経路が現調画像の所属を検めない状態を解消する
+
+**経緯**: Task 81.1 が `saveDraft` に親の現場調査の論理削除の検査を加えた際、独立レビューが**同じ経路が画像の所属も存在も検めていない**ことをプローブで実測した。81.1 の境界は「親の論理削除の検査」であったため実装せず、実測を添えて申し送った。**本節が受け皿である。**
+
+**測った事実**（いずれもコミット `9c4dc21e`、2026-09-11 に実測。プローブは 81.1 のレビューと実装が独立に再現している）:
+
+- **他プロジェクトの現調画像が紐付く**: `PUT /api/quantity-tables/:id/save` に他プロジェクトの画像IDを載せると `status = 200` で永続化される。プローブ出力は `persisted = [{"id":"84b3c84b-…","surveyImageId":"8703eadb-…"}]`、画像はプロジェクトB・数量表はプロジェクトA
+- **表示まで到達する**: `GET /api/quantity-tables/:id` が当該写真を返す。変換は `backend/src/routes/quantity-tables.routes.ts` の `enrichQuantityTableSignedUrls` がプロジェクト検査なしで行い、本番のストレージ経路では署名付きURLになる
+- **同じ条件を別経路は拒む**: `backend/src/services/quantity-group.service.ts` の `validateSurveyImage` は同じプロジェクト不一致を 400 で拒む。**経路によって守りが割れている**
+- **存在しない画像IDは 500 になる**: プローブ出力は `status = 500` / `code = QUANTITY_TABLE_SAVE_ERROR` / `persisted count = 0`。外部キー制約で ROLLBACK されるためデータは壊れないが、クライアントの誤りに対する応答としては 400 が妥当
+- **入口とスキーマ**: 入口は `backend/src/routes/quantity-tables.routes.ts` の `PUT /:id/save`、権限は `quantity_table:update`。スキーマは同ファイルの `saveDraftGroupSchema` の `surveyImageId: z.string().uuid('写真IDの形式が不正です').nullable()` のみで、形式しか見ない
+- **道具は既に在る**: 81.1 が置いた `assertDraftSurveyImagesNotDeleted` は既に `survey.projectId` を `select` しており、**突き合わせる相手を渡せば追加の問い合わせなしで塞げる**（同関数のコメントが「判定には用いない」と明記している）
+
+**前提条件を添えて読むこと**: 悪用には対象数量表への `quantity_table:update` 権限と、他プロジェクトの画像の UUID の知得が要る。**これが抜けると優先度を過大に見積もる。**
+
+**再現の注意**: 存在しない画像IDを試すときは RFC4122 準拠のUUID（バリアント桁が 8/9/a/b）を使うこと。不正バリアントはスキーマ段階で 400 `VALIDATION_ERROR` になり、別の欠陥と取り違える。
+
+- [x] 86.1 保存経路の現調画像に所属の検査を加える
+  - `assertDraftSurveyImagesNotDeleted` が既に読んでいる `survey.projectId` を判定へ回すこと。**追加の問い合わせを増やさないこと**（グループ数に比例させないこと）
+  - **応答は `validateSurveyImage` と同じ形にすること。** 同じ不変条件に対して経路ごとに違う応答を返さないこと
+  - **変異検証**: 所属の検査を外すと当該の検証が落ちることを実測すること
+  - _Depends: 81.1_
+  - _Boundary: 数量表の保存経路における現調画像の所属の検査_
+
+- [x] 86.2 (P) 保存経路が存在しない現調画像をクライアントの誤りとして拒むようにする
+  - 現状は外部キー制約違反が 500 として表面化する。クライアントの誤りに対する応答へ改めること
+  - **起票時に本項の見出しと本文は「400」と書いたが、これは誤りである。** 同じ不変条件（指した現調画像が実在すること）を `backend/src/services/quantity-group.service.ts` の `validateSurveyImage` が `SurveyImageNotFoundError`（`backend/src/errors/siteSurveyError.ts` の `NotFoundError` 派生）で拒み、`quantity-groups.routes.ts` が **404** へ写している。**400 へ倒すと「同じ不変条件に対して経路ごとに違う応答を返さない」という本節の取り決めを本節自身が破る。** 正しい揃え先は 404 である（コミット `f0cc864d`、2026-09-11 にリポジトリルートで `sed -n '251,266p' backend/src/services/quantity-group.service.ts` と `grep -n 'class SurveyImageNotFoundError' -A 6 backend/src/errors/siteSurveyError.ts` を実測）。**この誤りは起票者が兄弟経路の応答を測らず「500 はクライアントの誤りだから 400」と推論して書いたことによる**
+  - **データが壊れないことは既に成立している**（ROLLBACK される）。本項が変えるのは応答だけである
+  - _Depends: 86.1_
+  - _Boundary: 数量表の保存経路における現調画像の存在の検査_
+
+- [x] 86.3 数量表の取得経路が現調画像の所属を検めない状態を解消する
+  - `backend/src/routes/quantity-tables.routes.ts` の `enrichQuantityTableSignedUrls`（`:70`）は、紐付け済み現調画像のプロジェクトを検めずに署名付きURLへ変換する。同関数は `:531`（取得）と `:745`（保存後の再読込）の二箇所から呼ばれる
+  - **86.1 が書き込みを塞いだため新規の混入は起きない。** 本節が扱うのは **86.1 より前に永続化された既存の紐付け**であり、それらは今も取得経路で返り表示まで到達する
+  - **【現況（86.4 の実装と独立レビューが確認）】上の「新規の混入は起きない」は複製の経路については偽である。** `grep -n 'surveyImageId: sourceGroup.surveyImageId' backend/src/services/quantity-table.service.ts backend/src/services/quantity-group.service.ts` が `quantity-table.service.ts:1681`（数量表のコピー）と `quantity-group.service.ts:683`（数量グループのコピー）の2行を返す（コミット `b775f48f`、2026-09-11、リポジトリルートで実測）。いずれも元の紐付けを検査せずに複製先へ写す。受け皿は `## Task 91`
+  - **測った事実**（コミット `c557cfa2`、2026-09-11 にリポジトリルートで実測）: `sed -n '70,110p' backend/src/routes/quantity-tables.routes.ts | grep -c projectId` の出力が `0`。`grep -n 'enrichQuantityTableSignedUrls' backend/src/routes/quantity-tables.routes.ts` が `70:` / `531:` / `745:` の3行を返す
+  - **応答の形を決めること**: 取得の途中で所属違反に出会ったとき、全体を拒むのか当該の画像だけを落とすのかは別の判断である。**拒む向きに倒すと、既存データを持つ利用者は数量表を開けなくなる**（86.4 と合わせて出口を塞ぐ）。落とす向きに倒すなら、落としたことを利用者に伝えるかを決めること
+  - **変異検証**: 所属の検査を外すと当該の検証が落ちることを実測すること
+  - _Depends: 86.1_
+  - _Boundary: 数量表の取得経路における現調画像の所属の検査_
+
+- [x] 86.4 所属違反の既存紐付けを持つ数量表の保存の出口を作る
+  - **86.1 以降、他プロジェクトの現調画像が1件でも紐付いている数量表は、無関係な編集も含め保存が全面的に 400 で止まる。** 画面から紐付けを解除する導線は無い（`grep -c 'surveyImageId: null' frontend/src/pages/QuantityTableEditPage.tsx` の出力が `0`。コミット `c557cfa2`、2026-09-11 に実測）
+  - **これは Task 90 が扱う二つとは別の第三の形である。** 90.1 は丸め設定の範囲外の既存値（`_Depends: 80.2`、応答は保存中断）、90.2 は論理削除された現調画像（`_Depends: 81.1`、応答は 410）。本節は所属違反（`_Depends: 86.1`、応答は 400・原因はテナント境界）であり、90 のどちらの箇条にも入らない
+  - **(i) 取得では表示され（86.3）・(ii) 保存では拒まれ・(iii) 画面から解除できない、の三つが重なると利用者に出口が無い。** 86.3 と本節はこの一つの詰まりの両側であり、**どちらか一方だけを直すと詰まりは解けない**
+  - **【起票時の前提は 86.3 の完了で覆った。着手前に再スコープすること】** 86.3 は取得経路で所属違反の紐付けを落とす向きに倒し、**写真サマリだけでなく `surveyImageId` も落とす**形にした。その結果 (i) が解消し、画面は違反した識別子を保存へ送り返さなくなったため、**詰まりは 86.3 単独で解けている**（独立レビューが GET → そのまま保存 → 200・`surveyImageId` が `null` になることを実走で確認。コミット `1aa3319c` の作業木で 2026-09-11 に実測）。したがって上の箇条の「どちらか一方だけを直すと詰まりは解けない」は**現況では偽**である
+  - **本節に残る実体は二つある。** ひとつは「保存しない利用者のデータは違反したまま残り、取得のたびに写真が落ち続ける」こと——86.3 は取得経路の写像であって書き込みを行わないため、**恒久的な解除には利用者の保存操作か別の手当てが要る**。もうひとつは「400 の応答がどのグループが原因かを示さない」ことだが、**これは通常の画面操作からは到達しなくなった**（API を直接叩く経路でのみ到達する）ため優先度が下がった
+  - **着手時に、本節がまだ解くべき問題を持つかを測り直すこと。** 持たないなら、その判定と根拠を書いて閉じてよい
+  - **不変条件を緩めないこと。** 保存を通す方向の是正（検査を外す・警告に落とす）は採らないこと
+  - 400 の応答が**どのグループが原因かを利用者へ示す**こと。現在の応答は文言のみである
+  - _Depends: 86.1, 86.3_
+  - _Boundary: 所属違反の既存紐付けを持つ数量表の保存と解除の出口_
+  - **【着手時の再スコープの判定】残る二つのうち、(b)「400 の応答がどのグループが原因かを示さない」は実在したので実装した。(a)「保存しない利用者のデータが違反したまま残る」は本節では手当てしない。** 実測はいずれもコミット `b775f48f` の作業木（本節の未コミットの変更を含む）で、2026-09-11 にリポジトリルートで行った
+  - **(b) の実測（実装前）**: 単体 `npm --prefix backend run test -- src/__tests__/unit/services/quantity-table.service.test.ts -t 'Task 86.4'` が `expected undefined to deeply equal { …(3) }` で落ちた。統合 `npm --prefix backend run test:integration -- src/__tests__/integration/quantity-table-save-survey-image-project.api.integration.test.ts` が 4 件中 2 件落ちた。400 の本文は文言だけで、問題箇所の項目を持たなかった
+  - **実装**: `assertDraftSurveyImagesLinkable` が所属違反を拒むとき、`locateForeignSurveyImageGroups` で違反する全てのグループを `groups[i].surveyImageId`（i は payload 上の位置）のキーで名指す。キーの形は同じ保存経路の `validateDraftOwnership` / `validateDraftDuplicateIds` の `groups[i].id` と揃えた。同じ画像を指す複数のグループもそれぞれ名指す。名指しは検査が既に引いた行を使うため、問い合わせは増えない（単体で `findMany` が 1 回であることを主張している）。`status` / `code` / `detail` は紐付け経路（`POST /api/quantity-tables/:quantityTableId/groups` と `PUT /api/quantity-groups/:id`）と引き続き一致する。両経路は URL で1グループを指すため、位置の名指しを持たない。**不変条件は緩めていない。保存を通す向きの是正も採っていない**
+  - **画面への提示は本節の外（86.5）**: 画面は保存の本文のこの項目を読まない（`grep -c 'QUANTITY_TABLE_VALIDATION_ERROR' frontend/src/pages/QuantityTableEditPage.tsx` の出力が `0`、`grep -c "setOperationError('保存に失敗しました。再度お試しください。')" frontend/src/pages/QuantityTableEditPage.tsx` の出力が `1`）
+  - **変異の実測（独立レビューが全件実行で再現した値）**: 全件実行は `npm --prefix backend run test` と `npm --prefix backend run test:integration`。コミット `b775f48f` の作業木（本節の未コミットの変更を含む）、2026-09-11、リポジトリルートで実行。変異ごとに事前の控えから書き戻し、`git hash-object` の一致（`1593421683a10191dcabae0eac6f15b8158a32db`）を確かめた
+    - M1（例外へ渡す名指しの引数を外す）: 単体 5687 件中 1 件、統合 872 件中 3 件が落ちる
+    - M2（名指しの判定から所属の条件を外し、画像を持つ全グループを名指す）: 単体 5687 件中 1 件、統合 872 件中 2 件が落ちる
+    - M3（最初の違反で名指しを打ち切る）: 単体 5687 件中 1 件、統合 872 件中 1 件（違反グループが複数あるケース）が落ちる。**このケースを足す前の統合は 871 件すべて緑のままだった**（どのケースも違反グループが1件だけのため）
+    - **実装の申告値は統合側で実測と食い違っていた**（申告は M1 = 871 件中 2 件・M2 = 871 件中 1 件）。申告は複数該当のケースを足す前の 871 件の版で測られていた。上の値はレビューの再現で置き換えたもの
+  - **(a) を手当てしない根拠**:
+    - 違反した紐付けは取得時に `surveyImageId` ごと落ちるため、表示には届かない。取得した内容をそのまま保存すれば解除される。後者は 86.3 の統合検証「取得の応答をそのまま保存でき、その保存で所属違反の紐付けが解除される（袋小路にならない）」が最終の統合全件実行（872 件緑）の中で通っている
+    - 現場調査のプロジェクトは更新で動かせないため、既存の紐付けが後から違反に転じることは無い（`sed -n '89,125p' backend/src/schemas/site-survey.schema.ts | grep -c projectId` の出力が `0`）
+    - 本番に違反行が何件あるかは測っていない（本番のデータベースへ到達する手段がこの作業環境に無い）
+  - **(a) で採らなかった案**: 違反した紐付けを一括で `null` にするデータ移行。退けた理由は二つある。第一に、利用者の操作なしに本番データを戻せない形で書き換える。第二に、86.5 の射程である「取得時に黙って落とされたことの提示」から対象を奪う。一括で消すと、写真は恒久的に、しかも黙って落ちた状態になる。これは 86.5 が「利用者には何も告げない」ことを問題として取り上げた、その状態そのものである。告げるかどうか・どう告げるかの判断は 86.5 の領分であり、本節が先取りして閉ざすべきではない
+  - **本節の境界外で見つけたもの（受け皿なし・要起票）**: 数量表のコピー（`QuantityTableService.copy`、本番の呼び出し元は `frontend/src/components/quantity-table/CopyQuantityTableDialog.tsx`）は、元のグループの紐付けを検査せずに複製先へ写す（`grep -n 'surveyImageId: sourceGroup.surveyImageId' backend/src/services/quantity-table.service.ts` が当該行を返す）。所属違反の紐付けを持つ数量表をコピーすると、**複製先に新しい所属違反の行が書き込まれる**。一時プローブの統合検証で、コピーの応答が `201`、複製先のグループの永続化値が他プロジェクトの画像ID、複製先の取得では `surveyImageId` が `null` だった。このプローブは提出前に削除したため、成果物には残っていない。再現するには、他プロジェクトの画像を紐付けたグループを DB へ直接作り、`POST /api/quantity-tables/:id/copy` を叩いて複製先のグループを読めばよい。したがって 86.3 の本文の「86.1 が書き込みを塞いだため新規の混入は起きない」は、コピー経路については偽である。コピーは本節の境界（保存と解除の出口）に入らないため、本節では直していない。**受け皿として `## Task 91` を起こした**（独立レビューが第二の複製経路 `QuantityGroupService.copy` を検出し、同節へ含めた）
+  - **名指しは所属違反（400）に限った**: 存在しない画像（404）と親の論理削除（410）の応答は、グループを名指さないまま据え置いた。本節の境界と箇条が名指すのは所属違反の 400 だけだからである
+  - **記録**: design.md の「### Error Categories and Responses」に、応答の形の変化を追記した。保存経路の統合検証ファイルの `@fileoverview` にも、3経路で揃うのは引き続き `status` / `code` / `detail` の3項目であることを追記した
+
+- [x] 86.5 現調画像の紐付けの失敗が利用者に伝わらない状態を解消する
+  - **86.1 / 86.2 が応答を正した結果、伝わらないのは画面の側だけになった。** `frontend/src/pages/QuantityTableEditPage.tsx` は 409 以外の失敗を一律に `保存に失敗しました。再度お試しください。` へ畳む（コミット `f0cc864d`、2026-09-11 にリポジトリルートで `sed -n '1676,1687p' frontend/src/pages/QuantityTableEditPage.tsx` を実測）。**恒久的に消えた画像に対して「再度お試しください」と促すのは誤った案内である**——再試行しても永久に成功しない
+  - 現調画像は**物理削除**される（`backend/prisma/schema.prisma` の `model SurveyImage` に `deletedAt` が無く、`backend/src/services/image-delete.service.ts` が `delete` / `deleteMany` を呼ぶ）。したがって 404 は「編集中に誰かが画像を消した」を意味し、利用者の行動は再試行ではなく紐付けの解除である
+  - 86.1 の 400（他プロジェクト）・86.2 の 404（不在）・81.1 の 410（親の論理削除）の三つは**それぞれ利用者が取るべき行動が違う**。畳まずに書き分けること
+  - **取得経路で黙って落とされる件も本節の射程に含めること（86.3 の完了で生じた）。** 86.3 は所属違反の紐付けを取得の時点で落とすが、**利用者には何も告げない**（サーバ側の記録にのみ残る）。利用者から見ると写真が理由もなく消える。独立レビューが「本節の現行本文は保存の失敗応答の書き分けだけを扱っており、これを実装するだけでは取得側の提示は生まれない」と指摘した（コミット `1aa3319c` の作業木で 2026-09-11 に実測）。**保存の失敗の書き分けと、取得時に落とされたことの提示は別の設計である。** 片方だけを実装して本節を閉じないこと
+  - **バックエンドの文言も揃っていない**: `SurveyImageNotFoundError` が生む `Survey image not found: <uuid>` は英語＋生UUIDで、同じ関数の兄弟判定（`異なるプロジェクトの現場調査画像は紐付けできません` / `削除された現場調査の画像は紐付けできません`）は日本語である。**3経路まとめて是正すること**——片方だけ日本語化すると 86.2 が揃えた経路間の一致が崩れる
+  - **86.4 で、保存の所属違反の 400 が原因のグループを `groups[i].surveyImageId`（i は payload 上の位置）のキーで名指すようになった。** 画面で 400 を書き分けるときは、この項目を使って原因のグループを示すこと。404（不在）と 410（親の論理削除）は名指しを持たないため、応答の非対称が残っている（86.4 の記録を参照）
+  - _Depends: 86.1, 86.2_
+  - _Boundary: 現調画像の紐付けの失敗に対する利用者向けの提示_
+  - **保存の失敗の書き分け**: 編集画面の保存ハンドラ（`handleSave`）は、現調画像の紐付けの失敗を `frontend/src/utils/survey-image-link-feedback.ts` の `describeSurveyImageLinkSaveFailure` へ渡して書き分ける。見分けは状態コードではなく応答の `code` で行う
+    - 400 `QUANTITY_TABLE_VALIDATION_ERROR` かつ `groups[i].surveyImageId` の名指しあり: i を保存要求の構築元であるドラフトのグループの位置へ引き当て、原因のグループを示す
+    - 404 `SURVEY_IMAGE_NOT_FOUND`: 応答の `surveyImageId` と同じ写真を持つグループをすべて示す
+    - 410 `SURVEY_DELETED`: 現場調査の削除を告げる
+    - 3種とも「写真を変更してから保存してください」と案内し、再試行は促さない。`QUANTITY_TABLE_NOT_FOUND` の 404 や 500 は従来どおり一般の文言とする。**【現況】90.2 が解除の導線を置いたため、案内は「写真を変更するか紐付けを解除してから保存してください。」へ 3 種まとめて改まった**
+    - 410 は原因のグループを名指さない。応答は `surveyId` しか持たず、ドラフトのグループは写真の現場調査を知らないためである。410 の名指しは 90.2 の領分である。**【現況】90.2 が 410 にも `groups[i].surveyImageId` の名指しを加えた**
+  - **取得時に落とした紐付けの提示（保存の失敗とは別の設計）**: `QuantityTableService.findById` の写像が、落とした紐付けを持つグループのIDを `droppedSurveyImageLinkGroupIds` で返す（落としていなければ空配列）
+    - 画面は `role="status"` の告知 `survey-image-link-dropped-notice` で当該グループを名指し、保存すると紐付けが解除されることを告げる。保存の成功で告知は消える
+    - 写真を選び直したグループと、削除したグループは告げない（告知が偽にならないように）
+    - 86.3 の不変条件は保つ。他プロジェクトの画像IDは返さず、文言も「参照できない写真」とだけ告げる
+    - 採らなかった案（件数だけを返す／グループごとの真偽値／一括で `null` へ書き換える）とその理由は、design.md の `### Error Categories and Responses` に書いた
+  - **バックエンドの文言**: `SurveyImageNotFoundError` の文言を「現場調査画像が見つかりません」へ改め、画像IDは例外と応答本文の `surveyImageId` で持つ
+    - 3経路（`PUT /api/quantity-tables/:id/save`、`POST /api/quantity-tables/:quantityTableId/groups`、`PUT /api/quantity-groups/:id`）を同時に改めた。本文の全項目の一致は `quantity-table-save-survey-image-existence.api.integration.test.ts` が突き合わせる
+    - 旧文言の消費者は単体検証4ファイル・統合検証1ファイルで、いずれも追随させた（`git grep -l 'Survey image not found' c1ea1231 -- backend/src/__tests__/unit | wc -l` の出力が `4`。リポジトリルート、2026-09-12 に独立レビューが実測。実装の申告は「5ファイル」で誤っていた）。本番コードとフロントに旧文言やこの `code` の消費者は無い（`grep -rn 'Survey image not found'` と `grep -rn 'SURVEY_IMAGE_NOT_FOUND' frontend/src` をリポジトリルートで実行し、`c1ea1231`、2026-09-11 に確認）
+  - **RED の実測**（コミット `c1ea1231` にテストだけを足した作業木、2026-09-11、リポジトリルートで実行）: `npm --prefix backend run test` で 5688 件中 7 件が失敗、統合（fetch と existence の2ファイル）で 11 件中 6 件が失敗、`npm --prefix frontend run test` で 12035 件中 4 件が失敗し util の検証ファイルは読み込み時点で失敗
+  - **変異の実測（独立レビューが全件実行で再現し、申告値と一致した。2026-09-12、`c1ea1231` の作業木、リポジトリルート）**: backend は `npm --prefix backend run test` / `test:integration`、frontend は `npm --prefix frontend run test` の全件実行。レビューの MF2 は 4 件落ちたが、うち 1 件は `SiteSurveyDetailPage`（Req 15.6）の本件と無関係なタイミング不安定で、関係する分は 3 件だった
+    - MB1（`findById` の `droppedSurveyImageLinkGroupIds.push(g.id)` を外す）: 単体 5688 件中 1 件、統合 874 件中 2 件
+    - MB2（保存経路の 404 本文から `surveyImageId` を外す）: 単体 5688 件中 1 件、統合 874 件中 4 件
+    - MB3（紐付け経路2箇所の 404 本文から `surveyImageId` を外す）: 単体 5688 件中 0 件、統合 874 件中 1 件（3経路の本文の一致）
+    - MB4（文言を英語＋画像IDへ戻す）: 単体 5688 件中 4 件、統合 874 件中 4 件
+    - MF1 / MF2 / MF3（400 / 404 / 410 の分岐を殺す）: 12046 件中 3 / 3 / 2 件、MF4（告知の描画を殺す）: 12046 件中 1 件
+    - E2E（3分岐の条件を `status === 499` へ、告知の入力を `undefined` へ換える）: `e2e/specs/quantity-tables/survey-image-link-failure-e2e.spec.ts` の 4 件中 4 件が失敗。書き戻して再ビルドした後は 4/4 が通る。どちらのビルドでもコンテナの作成時刻の変化で作り直しを確認した
+    - **E2E の1回目の変異は無効だった。** `if (false && …)` の形は本番ビルドで型エラー（TS2769 / TS18047）を起こしてビルドが失敗し、コンテナが作り直されないまま古いバンドルに対して 4/4 通った。この値は被覆に数えない
+  - **前提の作り方（E2E）**: 所属違反の紐付けは Task 86.1 以降 API からは作れないため DB へ直接書いた。400 は保存要求の本文だけを書き換えて実バックエンドへ送った（応答は書き換えていない）。404 と 410 は、編集画面を開いた後に管理者（`ADMIN_USER`）が API で写真・現場調査を削除して作った（一般ユーザーには `site_survey:delete` が無い）
+  - **関門の値の移動（開示）**: `check:design-measurement-freshness` の宣言 `t13-anchor-references-after-115303`（site-survey、基線で既に赤。expected 1295）の実測値が、基線の 1304 から 1305 へ1件動いた。新設の E2E ファイルが原因で、当該ファイルを退避して `npm exec -- tsx scripts/check-e2e-assertion-guards.ts --accessible-names` で測ると 1304 に戻る（`c1ea1231` の作業木、2026-09-11、リポジトリルートで実行）。独立レビューが退避と復帰で両向きを再現し、宣言は基線で既に赤く違反は7行のまま・終了コードも pre-push の挙動も不変で、宣言の測り直しは site-survey の領分として受け入れた
+  - **独立レビュー第1回の差し戻しと是正**（コミット `c1ea1231` の作業木、2026-09-12、リポジトリルートで実施）:
+    - (1) 新規の E2E ファイルが root の `npm run lint` で prettier のエラー5件を出していた。`npx prettier --write` で整形し、`npm run lint` の EXIT 0 を確認した
+    - (2) `backend/docs/api-spec.json` を再生成していなかった。`npm --prefix backend run docs:generate` で再生成し、差分は GET の 200 と保存の 404 の説明の2箇所だった（`git diff -U0 -- backend/docs/api-spec.json | grep -c '^@@'` の出力が `2`）。コミット `1aa3319c` の先例に倣った
+    - (3) design.md の `interface QuantityTableDetail` の定義ブロックへ `droppedSurveyImageLinkGroupIds: string[]` を足した
+    - (4) E2E の `page.content()` による不在の主張は非空証明を持たなかった。**削除でなく、非空証明を足す方を採った。** 一回取得した描画 HTML の中に、所属違反を落としたグループ自身のID（写真枠のプレースホルダの `image-placeholder-<グループID>`）が在ることを先に主張し、同じ HTML に他プロジェクトの画像IDが無いことを主張する形へ改めた。同一プロジェクトの画像IDを非空証明に使わなかったのは、編集画面が画像IDを描画するのは写真選択ダイアログの候補（`photo-item-<画像ID>`）だけで、候補は注釈付きの写真に限られ、本ファイルの前提の写真は注釈を持たないためである
+    - 是正後に E2E の当該 spec が 4/4 passed であることを確認した。frontend のコードは変えていないため、コンテナは作り直していない
+    - **非空証明が効く範囲（独立レビュー第2回が変異で測った。2026-09-12、`c1ea1231` の作業木、リポジトリルート）**: 観測を `page.content()` から `innerText()` へ換える変異（EM1）は非空証明で落ちる。表示中の同一プロジェクトの写真でも画像IDは HTML に出ない（EM2）。バックエンドで 86.3 を戻す変異（EM3a）は**告知の主張**で落ちる。EM3a に加えて告知・写真枠・非空証明の主張を外すと（EM3b）、**不在の主張は通過する**。したがって非空証明が守るのは「観測器が空にならないこと」であり、86.3 の後退を捕まえているのは告知の主張である。不在の主張は、画面が画像IDを描画する経路が将来増えたときに初めて意味を持つ。spec の註「（＝下の不在が恒真でないこと）」はこの範囲を越えて読めるため、観測器についての主張として読むこと
+
+**この節が `_Requirements:` を持たないのは意図である。** 守るのはテナント境界とエラー応答の妥当性であり、本スペックの受入基準として条文化されていない。番号を挙げると偽の被覆申告になる。
+
+_起票元: Task 81.1 の独立レビューがプローブで実測し、境界外として申し送り_
+
+## Task 87: 設計文書に残る三件の陳腐化した記述を現況へ追随させる
+
+**経緯**: Task 79.1 が `#### PhotoCommentDisplay修正（REQ-35）` の不具合分析について規約 (a) の併記を施したが、**同じ節の `**Implementation Notes**` は測定範囲外と明示的に宣言して触れていない**。機能レベル検証が、その2件に加えて別の2件を検出した。
+
+**測った事実**（いずれもコミット `9c4dc21e`、2026-09-11 にリポジトリルートで実測）:
+
+- **(1) 実在しない識別子を名指す状態記録が2件**: `grep -n 'handleLinkImage\|onPhotoChanged' .kiro/specs/quantity-table-generation/design.md` が `1849:` と `1850:` を返す。一方 `grep -rn 'handleLinkImage\|onPhotoChanged' frontend/src backend/src e2e | wc -l` の出力は `0` である
+- **(2) `ProjectSurveyImage` の定義が 75.1 の実装に対して陳腐化**: `grep -c 'isDisplayUrlAnnotated\|hasDrawnAnnotations' .kiro/specs/quantity-table-generation/design.md` の出力が `0` である一方、`grep -rn 'isDisplayUrlAnnotated' frontend/src --include=*.tsx --include=*.ts | wc -l` の出力は `8` である。`## Implementation Notes（Task 75 以降）` が「**76 系の着手前に要是正**」と書いたが、76.1 / 76.2 はいずれも完了しており是正は入っていない
+- **(3) `### Out of Boundary` が自スペックで解決済みの項目を未解決と宣言している**: 同節は「`field-validation.ts` の `NUMERIC_FIELD_RANGES` / `validateNumericRange` 重複定義の統合」を境界外の未解決項目として挙げるが、**Task 80.1 が両者を撤去済み**である。同じ文書の数値フィールド仕様の節は「タスク 80.1 で一本化した」と書いており、**文書が内部で矛盾している**
+
+- [x] 87.1 三件の陳腐化した記述に現況の再実測を併記する
+  - **削除ではなく、当時の記録を残したまま現況を並べること**（規約 (a)）。書式は本書の既存の併記に揃えること（`grep -nF '**「参照は単体テストのみ」は再実測では偽である**' .kiro/specs/quantity-table-generation/design.md` で取り出せる）
+  - **実測値には 再現コマンド・実行の起点・コミットのハッシュ・日付 の4点を揃えること。** 日付だけでは版を分けられない（本リポジトリは同じ日に複数のタスクが着地する）
+  - **上の3件の所在と件数を着手時に取り直してから書くこと。** 起票が挙げた件数をそのまま写さないこと（Task 79.1 が一度これで差し戻された）
+  - **走査を広げたならその網と出力を書くこと。広げないなら範囲を3件に限ると明記すること**
+  - _Depends: 79.1_
+  - _Boundary: 本スペックの設計文書に残る状態記録_
+  - **着手時に3件の所在と件数を取り直した**（コミット `cba1233f`、2026-09-12、リポジトリルートで実測）
+    - (1) 起票が挙げた design.md の `1849:` `1850:` はコミット `9c4dc21e` の行番号で、`cba1233f` では `1862:` `1863:` へ動いていた（`git show <commit>:.kiro/specs/quantity-table-generation/design.md | grep -n 'handleLinkImage\|onPhotoChanged'` で確かめた）。実装側は `grep -rn 'handleLinkImage\|onPhotoChanged' frontend/src backend/src e2e` の出力が空（終了コード 1）。`PhotoChangeDialog` のコールバックは `onClose` と `onSelect` の2つ
+    - (2) `ProjectSurveyImage` は実装のバックエンド・フロントエンドとも12欄、design.md は10欄で、2つの真偽値が欠けていた。ファイル変更表の行は一律の偽ではなく、「一覧の表示元を分岐しない」は真、ファイル全体についての「分岐とバッジ表示は不要」は偽、と書き分けた（選択を確定する処理が `isDisplayUrlAnnotated` で分岐し、`hasDrawnAnnotations` がグループカードの目印を決める）。一覧が注釈レコードを持つ写真に限られるという契約の第一項は、今も真である
+    - (3) `field-validation.ts` の自前の定義は `ba7040ae^` で2件、現在は0件
+  - いずれも規約 (a) に従い記述を残して併記した。**走査は広げておらず、測定範囲は起票の3件に限る**と design.md に明記した
+  - 関門は10本とも基線と同じ終了コードである。唯一動いたのは `check:design-path-refs` の候補の母数（732→733）で、原因はこの文書に初めて書いた実在パス `frontend/src/types/site-survey.types.ts`。免除の面190件と基準190件は動いていない。不在を表す語は、実在パスと同じ行に置かないよう言い換えた（79.1 の学び）
+
+**`_Requirements:` を持たないのは意図である**（Task 79 と同じ）。本節は受入基準を実装せず、状態記録を現況へ追随させるだけである。
+
+_起票元: 機能レベル検証。(1) は Task 79.1 が範囲外と宣言した残り、(2)(3) は本実行が新たに検出_
+
+## Task 88: 数量グループの並行制御が設計の主張に達していない状態を解消する
+
+**経緯**: `## Implementation Notes` の Task 56.5 の注が「add / copy / reorder / from-survey の4種を完全に直列化する」という設計の主張が未達であることを記録し、上位対応の選択肢を挙げたまま**タスク節が起こされていない**。Task 59.4 の注も同根の未決事項を記録している。機能レベル検証が両者を検出した。
+
+**測った事実**（コミット `9c4dc21e`、2026-09-11 にリポジトリルートで実測）:
+
+- `grep -n 'FOR UPDATE' backend/src/services/quantity-group.service.ts` の当たりは `620` / `626`（`copy()`）と `797` / `803`（`createGroupsFromSurvey()`）およびそれらを述べる註 `577` / `757` である。**`create()` と `updateDisplayOrder()` は行ロックを取得しない**
+- 設計文書は今も「`SELECT FOR UPDATE` ロックにより直列化され displayOrder の衝突を防ぐ」旨を述べており、実装と食い違う
+
+- [x] 88.1 並行制御の範囲を実態へ揃えるか、設計の主張へ実装を揃える
+  - **どちらへ倒すかを実測と根拠つきで決めること。** 4種の直列化が要るのか、2種で足りるのかは、displayOrder の衝突が実際に起こりうる経路を数えて決める
+  - 設計文書の主張と実装のどちらかを動かしたら、**採らなかった側をなぜ採らなかったかを同じ場所へ書くこと**
+  - Task 59.4 が挙げる `saveDraft` への行ロックの要否も同じ判断の中で扱うこと
+  - _Boundary: 数量グループの並び順の並行制御_
+  - **【決着】(1) `saveDraft` に数量表の行の `SELECT ... FOR UPDATE` を、差分元と `updatedAt` の読み取りより前に入れた（実装を設計の「並行する保存は後発が 409」へ揃えた）。(2) 4種直列化の主張を copy / from-survey の2種へ狭めた（設計を実装へ揃えた）。** 実測はコミット `36c816dd` の作業木、2026-09-12、リポジトリルートで行った
+  - **画面から displayOrder を書く経路は `saveDraft`（`PUT /api/quantity-tables/:id/save`）だけだった**: `grep -rlw '<関数名>' frontend/src --include=*.ts --include=*.tsx | grep -v '\.test\.\|\.stories\.\|__tests__' | grep -v 'frontend/src/api/quantity-tables.ts'` で `createQuantityGroup` / `updateQuantityGroup` / `updateGroupDisplayOrder` / `createGroupsFromSurvey` は 0 ファイル、`copyQuantityGroup` は 1 ファイル（`handleCopyGroup` の JSDoc の註の言及で呼び出しではない）、`saveQuantityTableDraft` は 3 ファイル
+  - `grep -n 'FOR UPDATE' backend/src/services/quantity-group.service.ts` は `577` / `620` / `626`（copy）と `757` / `797` / `803`（from-survey）で起票値と一致した。`QuantityGroup` は `@@index([quantityTableId, displayOrder])` のみで一意制約を持たない
+  - **一時プローブ（提出物に残していない）の実測**: 行ロック導入前の `saveDraft` へ同一版の保存2本を同時に送ると、5 回とも両方が 200 を返し displayOrder 2 のグループが2件残った（画面から到達する唯一の経路で重なりが実在した）。個別 API は逐次でも重なった（`POST /groups` の displayOrder 省略は zod の `.default(0)` で 0 に作成され 201、`PUT /groups/order` の同値2件は 204、`PUT /api/quantity-groups/:id` は 200。copy は対照で重ならない）
+  - **採らなかった側の理由**は design.md の「並行制御の範囲（Task 88.1 の決着）」に併記した。4種直列化は画面から到達しない経路を対象とし、重なりの原因は並行ではなく呼び出し側の値なので直列化では防げない（採番の契約変更か一意制約が要り境界外）。また第5の経路 `update()` を数えていなかった。主張を逐次だけへ狭める案は、実在する画面経路の重なりを残すため採らなかった
+  - **Task 59.4 の問い（`saveDraft` の行ロックの要否）は「要る」で決着した**
+  - **RED**: 実装前に `npm --prefix backend run test:integration -- quantity-table-save.api` が 31 件中 2 件落ちた（`expected 200 to be 409` / `expected [ 200, 200 ] to deeply equal [ 200, 409 ]`）
+  - **変異の実測（独立レビューが全件実行で再現し、申告と一致した。2026-09-12、`36c816dd` の作業木、リポジトリルート）**: M1（`saveDraft` の行ロックを取り除く）で全統合 `npm --prefix backend run test:integration` の 876 件中 2 件（新設の2件）が落ち、M2（ロックを読み取りと存在確認の後ろへ移す）でも同じ 2 件が落ちる。M1 の下で単体 `npm --prefix backend run test` は 5688 件すべて緑（**単体はロックを固定しない**。固定しているのは統合検証のみ）。新設の2件は同ファイル単独の5回連続実行で5回とも緑だった
+  - **残るリスク**: 個別 API は画面外（認証済み HTTP クライアント）から今も displayOrder を重ねうる（境界外。受け皿は `## Task 92` の 92.1）。後発のロック待ちはトランザクションの時間切れに算入される
+  - **時間切れの応答（独立レビューがコードを読んで判断。実測はしていない）**: `saveDraft` の `$transaction` はオプションを持たず Prisma の既定 5 秒が掛かる。時間切れは P2028 となり `backend/src/middlewares/errorHandler.middleware.ts` が 500「Transaction Timeout」へ写す。**先行が長引くと、後発は 409 ではなく 500 になりうる。** ロック導入前は後発が待たずに重なっていたので退行ではない。また design.md の `##### Concurrency Control` の「失敗ハンドリング」（ロックの時間切れは 409）は copy 向けの記述で、`saveDraft` の時間切れには当てはまらない。受け皿は `## Task 92` の 92.2
+
+_起票元: 機能レベル検証。`## Implementation Notes` の 56.5 / 59.4 が申し送りながら未起票だった_
+
+## Task 89: 数量表画面の未結線の部品と未取り下げの除外を整理する
+
+**経緯**: Task 80.2 が `FieldValidatedItemRow` を (c) 残置と決めた際、撤去を阻む依存2件を実測して記録し、「**解いたうえでの撤去は別タスクとして起票する価値がある**」と書いた。機能レベル検証が、同種の未結線部品が他にもあること、および取り下げの所管が無い除外が1件あることを検出した。
+
+**測った事実**（コミット `9c4dc21e`、2026-09-11 にリポジトリルートで実測）:
+
+- `grep -rl 'FieldValidatedItemRow' frontend/src --include=*.ts --include=*.tsx | wc -l` の出力は `5`（定義1・ストーリー1・単体検証3）で、**本番経路からの参照は無い**
+- 撤去を阻む依存は2件: `scripts/check-requirement-coverage.selftest.ts` が同ファイルを死コードの実データ固定点として名指すこと、および `.kiro/specs/quantity-table-generation/design.md` と `.kiro/specs/site-survey/design.md`（**別スペック**）が同パスを本文で参照すること
+- `e2e/requirement-exclusions.json` の `pending-implementation` に在籍する本スペックの項目は `quantity-table-generation/REQ-40.11` の1件のみ。**理由欄が「実装済み・専用E2E未作成」と自認しており、Task 83 が REQ-49.7 について問題視したのと同型だが、取り下げを所管するタスクが無い**
+
+- [x] 89.1 (P) 未結線の部品の処遇を決める
+  - `FieldValidatedItemRow` の撤去には**別スペックの設計文書への参照**が絡む。site-survey 側を巻き込む是正になるなら、**同スペックへ起票して本項は待つこと**。下流で勝手に上流の文書を書き換えないこと
+  - `QuantityItemRow`・`AdjustmentFactorInput`・`RoundingUnitInput`・`QuantityInput` も同種の疑いがある。**一件ずつ到達可能性を測ってから決めること**——`QuantityItemRow` は本番から import されており「輸入ゼロの死」ではないが、唯一の呼び出し元が分岐の条件を常に真で渡すため枝が到達不能、という別の形である
+  - **撤去が被覆検査を悪化させないことを前後の実測で示すこと**
+  - _Depends: 80.2_
+  - _Boundary: 数量表画面の未結線部品の処遇_
+  - **処遇（コミット `4e560c7f` の作業ツリー、2026-09-12 にリポジトリルートで実測）**: 3部品を撤去し、2部品を残置とした
+  - **撤去: `AdjustmentFactorInput`・`RoundingUnitInput`・`QuantityInput`**（本体・単体検証・ストーリーの計9ファイル）。取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力は空だった。`npm run check:req-coverage:json` の `productionReachability.unreachableProductionModules` にも3部品と `index.ts` が載っていた。再輸出6件を外し、`.kiro/steering/structure.md` のツリー3行とストーリー3行を外した（外さないと `check:steering-refs` が落ちる）。design.md は追跡表を書き換えず、表の直下へ規約 (a) の注を置いた
+  - **残置: `FieldValidatedItemRow`**。5ファイルを外す変異を当てると、`check:design-path-refs` が 0→1（不在パス5件／2ファイル。うち2件は `.kiro/specs/site-survey/design.md` L172）、`check:req-coverage:selftest` の失敗が 1→2件（81件中。「走査対象に含まれない（自己検査の前提が失われた）」）になった。被覆は 316/358、到達しない被覆源のみの受入基準 4件のまま動かなかった。依存は二つとも site-survey 側で解くものなので、**同スペックへ Task 115.325 として起票済みであり、その解決を待つ**（起票は親が行った。下流は同スペックの設計文書も自己検査も書き換えていない）。理由は同ファイルの冒頭の説明へ追記した
+  - **残置: `QuantityItemRow`**。取り込みは本番に在り到達判定は「到達」だが、描画するのは `QuantityGroupCard` の `isEditable` が偽の枝だけで、唯一の本番の呼び出し元 `QuantityTableEditPage.tsx:1926` は常に `isEditable` を渡す。枝を `null` へ置き換える変異では、`npm --prefix frontend run test -- QuantityGroupCard PhotoCommentBugfix QuantityTableBreadcrumb AnnotatedImageThumbnail QuantityItemActionMenu QuantityTableEditPage` が 378 件中 7 件落ちた（いずれも `QuantityGroupCard.test.tsx`）。戻すと 378 件すべて通過した。撤去は `QuantityGroupCard` の読み取り専用表示の作り直しになり境界を越えるため残置とし、理由は同ファイルの冒頭に書いた
+  - **被覆検査の前後（`npm run check:req-coverage`）**: 動かなかった値は、受入基準 2689/2889、到達被覆 2657/2693（98.7%）、到達しない被覆源のみの受入基準 4件（いずれも他スペック）、quantity-table-generation 316/358。動いた値は、本番モジュール 591→588（未到達 52→49）、機能名を欠くヘッダー 2019→2013 件、眠る名乗り 5159→5133 件。削除した検証3件の見出しは機能名を欠く形で、被覆源ではなかった
+  - **関門18本の終了コードは基線と同一**（独立レビューが再現した。2026-09-12、リポジトリルート）。`check:design-measurement-freshness` の7行は id・expected・actual まで同一。`check:req-coverage:selftest` の唯一の失敗は基線と同じ上限ちょうどのラチェットで、値が 2013 / 5133 へ減り上限との遊びが広がった
+  - **撤去した名前が残る記録（境界外なので未変更）**: `e2e/specs/estimate-requests/lineitem-textbox-size-unification-e2e.spec.ts:29` の注釈、`scripts/exclusion-alternative-verification-adjudication.md:267,292`、`.kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md:365`
+  - **範囲外の同型（未処置）**: 到達判定が「到達しない」とする数量表の本番モジュールは、ほかに `CalculationNumericInput`・`NumericFieldInput`・`TextFieldInput`・`PhotoChangeDialog`・`frontend/src/hooks/useQuantityTableSave.ts`、および再輸出ファイル `frontend/src/components/quantity-table/index.ts` がある（`index.ts` は独立レビューが列挙の漏れとして検出。撤去後も取り込み元は0件で、`unreachableProductionModules` の49件に含まれる）
+  - **完了の判定（独立レビューの読み）**: 本文の「同スペックへ起票して本項は待つこと」は起票と待機の両方を課しており、「処遇を決めた」だけでは完了にならない。**`[x]` は site-survey 側の 115.325 の解決後に `FieldValidatedItemRow` の処遇を確定し、被覆の前後を測り直してから付けること**。撤去済みの3部品と残置の判断は独立レビューで承認されている
+  - _Blocked: site-survey スペックの Task 115.325（`FieldValidatedItemRow` の撤去を阻む同スペック側の二つの依存）の解決待ち。3部品の撤去と `QuantityItemRow` の残置は承認・コミット済み_
+  - **`FieldValidatedItemRow` の処遇の確定（HEAD `c6830270` の作業ツリー、2026-09-25 にリポジトリルートで実測）**: 上の `_Blocked:` は当時の記録として残す。site-survey の Task 115.325 が撤去を阻む二つの依存を解いた（`[x]`）ので、`FieldValidatedItemRow` を撤去した。消したのは本体・ストーリー・`FieldValidatedItemRow.test.tsx`・`FieldValidatedItemRow.autocomplete.test.tsx`・`FieldSpecIntegration.test.tsx` の5ファイル。撤去の直前も本番コードからの取り込みは0件で `productionReachability.unreachableProductionModules` に載っていた。**旧 autocomplete 検証は本番の行 `EditableQuantityItemRow` の検証5件も持っていた**ため、本体を変えずに `frontend/src/__tests__/components/quantity-table/EditableQuantityItemRow.autocomplete.test.tsx` へ移した（モック群と describe 本体は旧ファイルと `diff` が空、違いはヘッダーと import のみ。REQ-7.6 は撤去した部品に対してしか確かめていなかったので移設先では名乗らない）。`FieldSpecIntegration.test.tsx` 後半の `validateQuantityItemFields` の検証は失われるが、同関数は本番の呼び出し元が0件で、検証は `frontend/src/utils/field-validation.test.ts` に残る
+  - **文書と台帳**: `.kiro/steering/structure.md` のツリーとストーリーの2行を外し `_最終更新_` 行を加えた。design.md は L68 と L897 の行末へ規約 (a) の注を併記した。L934 は実在する本番パスと同じ行にあり不在の語を置くと面が広がるため注を置かず、同じ文書内の不在の記録（L68）による免除で扱った（`check:design-path-refs` EXIT=0、面 192）。**115.325 の申し送り「下流が撤去時に規約 (a) の注と `--update-baseline --allow-increase` で扱う」に従い、利用者の裁定なしで** `npm run check:design-path-refs:update -- --allow-increase` により台帳を更新した（面 194→192、実体 154→152、免除の延べ 125→132、distinct 31→35）
+  - **被覆検査の前後（独立レビューが HEAD の版を戻して再測定）**: 被覆済みの受入基準の集合の差は失われたもの・得たものとも0件（受入基準 2732/2890、到達被覆 2698/2733、本スペック 359/359、REQ-7.6 も被覆済み）。動いたのは本番モジュール 586→585（未到達 47→46、抜けたのは `FieldValidatedItemRow.tsx` のみ）、機能名を欠くヘッダー 2001→1999、眠る名乗り 5080→5058、被覆印（受入基準レベル）4846→4845。単体検証は `npm --prefix frontend run test -- EditableQuantityItemRow quantity-table` で 1187→1098 件（減った 89件はすべて撤去した検証。移した5件は同名で緑）。type-check / lint EXIT=0
+  - **撤去で赤くなった押下前の関門（HEAD ではいずれも緑。緑の関門を新たに赤くする初めての例）**: `check:req-coverage:selftest` 81/81 → 1/81（ラチェットの二定数を 1999 / 5058 へ下げる必要）、`check:design-measurement-freshness` EXIT 0→1（site-survey の design.md を錨にする6宣言）、`check:design-measurement-freshness:selftest` 56/56 → 1/56。いずれも上流 site-survey の所管であり下流は書き換えていない。**利用者の判断（2026-09-25）で撤去はローカルにコミットし、上流へ起票して待つ**。上流が解決するまで当該ブランチは push できない
+  - **独立レビューの指摘**: 実装者は赤くなる関門を2本と報告したが、`check:design-measurement-freshness:selftest` を含む3本であった
+  - **範囲外の観測**: `validateQuantityItemFields`（`frontend/src/utils/field-validation.ts`）は本番から呼ばれず単体検証からだけ呼ばれる関数として残る（関数単位の死。別途の棚卸しの候補）
+  - _Blocked: site-survey スペックの Task 115.333（`FieldValidatedItemRow` の撤去で赤くなったラチェット定数と6宣言の測り直し。親が上流の tasks.md へ実際に書き込み済み）の解決待ち。撤去そのものは承認・コミット済み。`[x]` は 115.333 の解決後に関門が緑へ戻ったことを確かめてから付けること_
+  - **上流の解決の確認と完了（HEAD `d6027958` の作業ツリー、2026-09-26 にリポジトリルートで実測。独立レビューが再現）**: 上の `_Blocked:` は当時の記録として残す。site-survey の Task 115.333 が解決した（`[x]`、コミット `d6027958`）。撤去で赤くなった押下前の関門3本はいずれも緑へ戻った——`check:req-coverage:selftest` 81/81、`check:design-measurement-freshness` EXIT=0（宣言 149 件）、`check:design-measurement-freshness:selftest` 56/56。ラチェットの二定数は 1996 / 5054 で実測と遊びなしで一致する。`check:design-path-refs`（面 189）と `check:steering-refs`（主張 713 件）も EXIT=0
+  - **被覆の測り直し（撤去前の `c6830270` と HEAD を `check:req-coverage:json` で比較）**: 被覆済みの受入基準の集合の差は失われたもの・得たものとも0件（2732 件）。受入基準 2732/2890、到達被覆 2698/2733、本スペック 359/359（REQ-7.1 / 7.3 / 7.6 も被覆済み）、到達しない被覆源のみの受入基準 4件で不動。本番モジュールは 586→584（未到達 47→45）で、抜けたのは本項の `FieldValidatedItemRow.tsx` と、間に入った 97.14 の `PhotoChangeDialog.tsx` の2件だけ（新たな未到達は0件）
+  - **赤のまま残る関門（本項の所管外）**: `check:req-coverage`（EXIT=1。E2E 適用対象の被覆が閾値 100% に届かない、到達しない受入基準4件、到達被覆 98.7%）と `check:steering-idents:selftest`（41件中1件失敗「(A) 実データが実現する同値類のうち見本を欠くものが零」）。いずれも撤去前の `c6830270` でも同じ失敗で赤い（後者の例示の行番号 `structure.md:9/129` → `:13/133` は本項などが加えた `_最終更新_` 行による移動で、失敗の中身は同じ）。いずれも押下前の関門であり、両者が赤である限り push は止まる
+  - **完了の判定**: 本文の三つの要求（到達可能性を一件ずつ測る／上流の依存は起票して待つ／撤去が被覆検査を悪化させないことを前後の実測で示す）はすべて答えられた（撤去4件・残置1件、115.325 → 115.333）。完了規則の「115.325 の解決後に処遇を確定し被覆を測り直す」と「115.333 の解決後に関門が緑へ戻ったことを確かめる」をともに満たしたので `[x]` とする。親が承認後に `check:req-coverage:selftest` 81/81 と freshness EXIT=0 を新鮮な証拠で再実行した
+
+- [x] 89.3 (P) 未結線の契約 `unlinkGroupImage` の処遇を決める
+  - **経緯**: 90.2 の独立レビューが検出した。`frontend/src/types/quantity-edit.types.ts:284` の `unlinkGroupImage: (groupId: string) => void;` は**リポジトリ全体で唯一の出現**であり、実装も呼び出しも無い死んだ契約である
+  - 90.2 は別名の `onUnlinkImage` を新設して解除の導線を置いたため、動作上の問題は無い。**しかし「描画木から解除の口が無いことを確かめた」という 90.2 の記録は、この宣言に触れていない**
+  - 撤去するか、`onUnlinkImage` に合わせて実体を与えるかを決めること。撤去が被覆検査を悪化させないことを前後の実測で示すこと（89.1 の作法）
+  - _Depends: 90.2_
+  - _Boundary: 数量表画面の未結線の型契約_
+  - **処遇（コミット `44463464` の作業ツリー、2026-09-12 にリポジトリルートで実測）**: 宣言を**撤去**した。`frontend/src/types/quantity-edit.types.ts` の `QuantityTableEditActions` を節見出しごと削除（`git diff --stat` は 1 ファイル / 42 行削除）
+  - **単独の死ではなくインターフェース全体が死んでいた**: `git grep -n 'QuantityTableEditActions'` の出力は**自身の宣言 1 行のみ**（`frontend/src/types/quantity-edit.types.ts:272`）。実装する側も、これに対して型検査される側も存在しない。`unlinkGroupImage` の 1 行だけを外すと「実装者のいない契約」という漂流はそのまま残る
+  - **16 メンバーを一件ずつ測った**: 名前がリポジトリ全体で当該宣言にしか無いものが 5 件（`loadQuantityTable` / `updateGroupName` / `unlinkGroupImage` / `toggleGroupExpansion` / `triggerAutoSave`）。**照合は語境界一致（`\b`）で測った**——素の部分一致では `loadQuantityTable` が 6 件当たる（他 5 件は無関係な `loadQuantityTablePdfExportService`）。残り 11 件の当たりは reducer のアクション種別や無関係な同名識別子であって、このインターフェースの束縛ではない
+  - **採らなかった案 (1)「`onUnlinkImage` に合わせて実体を与える」**: 束縛先が無い。90.2 の導線は既に動いており、この 16 メンバーのインターフェースを実装する部品は一つも無い。実体を与えるには「何も消費しない実装者」を新設するか、90.2 の動いている結線を改名する必要があり、どちらも死んだ宣言を正当化するために構造を発明することになる
+  - **採らなかった案 (2)「該当 1 行だけ削る」**: 実装者のいないインターフェースが残るため、90.2 のレビューが指摘した漂流が解けない
+  - **被覆検査は前後で一切動かなかった**: `npm run check:req-coverage` は前後とも終了コード 1 で、**出力全文が `diff` で無差分**。`check:req-coverage:json` の `productionReachability` も 8 項目すべて不動。**関門 11 本は出力がバイト一致**（`diff -q` が 11 本とも identical）。steering は当該識別子を一度も名指さないため `structure.md` の追随は不要
+  - **design.md に併記すべき記録は無かった**（`grep -n 'unlinkGroupImage\|QuantityTableEditActions' .kiro/specs/quantity-table-generation/design.md` の当たりが 0）
+  - **範囲外の同型（未処置・測定のみ）**: (i) `QuantityTableEditState`（同ファイル `:234`）は reducer 側の同名の生きた型に覆われた別形である。(ii) `SurveyImageSelectorProps` / `createDefaultQuantityItem` / `createDefaultQuantityGroup` は当たりが自身の 1 ファイルのみだが、`scripts/criterion-literal-adjudication.json:194-196` が当該ファイルの「項目の型と既定値」を代替根拠に据えているため、既定値の撤去は裁定の根拠に触れる。(iii) **バックエンド側の双子** `QuantityGroupService.unlinkSurveyImage` は `.kiro/specs/quantity-table-generation/design.md:1080` にしか存在せず実装を持たない（境界が違い、規約 (a) により記録は消さない）。**独立レビューが列挙の不完全を検出した**——兄弟の `linkSurveyImage`（design.md:1079）も `backend/src` への語境界 grep が 0 件で同じく実体を持たない。実体は `update()` が `input.surveyImageId` の設定／null で担っており、**挙動の欠落ではなく設計文書側の名前の乖離**である。受け皿は `## Task 93`。本スペックの学び「1本見つけた時点で探索を打ち切らないこと」と同型の取りこぼしだった
+  - **本項の経緯が指す行番号は撤去で失効した**: `quantity-edit.types.ts:284` は削除済みである。指し先は宣言の逐語（`export interface QuantityTableEditActions`）で辿ること
+
+- [x] 89.2 (P) REQ-40.11 の除外の取り下げ条件を満たすか、在籍理由を改める
+  - 一括生成処理の実行中インジケーター表示・重複実行防止を観測するE2Eを作って取り下げるか、**取り下げられない理由を category と reason の両方へ正確に書き直すこと**
+  - **除外の取り下げは「実装済みか」ではなく「検証が実挙動を固定しているか」で決まる**（Task 83 の学び）
+  - _Requirements: 40.11_
+  - _Boundary: REQ-40.11 の被覆表記_
+  - **取り下げ（コミット `2444afba` の作業ツリー、2026-09-12 にリポジトリルートで実測）**: `e2e/specs/quantity-tables/create-groups-from-survey-in-progress-e2e.spec.ts` を新設し、`e2e/requirement-exclusions.json` から `quantity-table-generation/REQ-40.11` を取り下げた。`summary` は除外 196→195、pending-implementation 5→4、`lastUpdated` 2026-09-12 にし、`summary.note` へ経緯を追記した
+  - **実行中の窓の所在**: REQ-42 以降、グループの生成は reducer の同期操作である。非同期の窓は確定直後の写真一覧の取得（`GET /api/site-surveys/:id`）だけで、条文の「写真一覧取得およびグループ生成」の実行中に含まれる。E2E は固定時間の遅延でなく、この取得をパス基準（`URL.pathname` の完全一致）のゲートで保留し、解放までの本番の状態を観測する。画面は偽装していない
+  - **観測の内容**: 確定前はインジケーター（`role="status"`・名前「生成中」）0件・確定ボタン「実行」・一括追加ボタン `aria-busy="false"`。保留中はインジケーターが現れ、確定ボタン「生成中...」、一括追加ボタン `aria-busy="true"`、確定・キャンセル・閉じる・一括追加の無効化を soft で判定する。保留中に確定ボタンを `force: true` で2回押し Escape を押してもダイアログは閉じない。解放後は完了メッセージ、`aria-busy` が偽へ戻り、写真一覧の取得は1件だけ、グループは写真枚数の2件
+  - **非空証明**: 最初の実行も同じ `force: true` の押下で起こし、確定前に Escape でダイアログが閉じることも示す。確定前のインジケーター0件は、同じロケーターが保留中に一致することで支える
+  - **変異（独立レビューが再現し、イメージIDまで申告と一致した。2026-09-12、`2444afba` の作業ツリー、リポジトリルート）**: 各変異で `npm --prefix frontend run type-check` 0 → `--force-recreate` 再ビルド → イメージIDの変化を確認してから走らせた。レビューは spec を3回連続で走らせ3回とも通過した
+    - M1: `QuantityTableEditPage.tsx` の `handleConfirmCreateFromSurvey` から `setIsCreatingFromSurvey(true);` を外す（イメージ `1a3cc1ad`）→ spec:145 のインジケーター判定で 1/1 失敗
+    - M2: `SurveySelectDialog.tsx` の確定ボタンを `disabled={selectedId === null}` にし、`handleConfirm` の `&& !isCreating` と `handleConfirmCreateFromSurvey` の `|| isCreatingFromSurvey` を外す（イメージ `f1fa52ac`）→ spec:152 の確定ボタン無効化（soft）と spec:177 の取得件数（3件発行）で 1/1 失敗
+    - M3: M2 から disabled だけ戻す（イメージ `1b3e10d7`）→ 1/1 通過。**実際の押下は disabled 属性だけで止まるので、冗長な早期 return の有無は本検証では区別しない**
+    - 復元: 控えからの書き戻しを `git hash-object` の一致で確認し、再ビルドでイメージは `7a9ee3ce` に戻り 1/1 通過
+  - **被覆（`npm run check:req-coverage`、終了コードは基線と同じ 1）**: 受入基準 2689→2690 / 2889、到達被覆 2657/2693→2658/2694（98.7% のまま）、除外を分母へ戻した到達被覆率 92.9%→93.0%、quantity-table-generation 316→317 / 358、未カバー一覧の `REQ-40.11` 1件→0件
+  - **鮮度（`npm run check:design-measurement-freshness`）**: 基線と同じ7行・終了コード1。actual が動いたのは `requirement-exclusions-total` 196→195、`pending-implementation-exclusions-after-115314` 5→4、`t13-anchor-references-after-115303` 1305→1307 の3件（t13 の +2 は新しい spec の名前つき `getByRole` 2件による）。いずれも site-survey 側の宣言で、境界外のため未変更。独立レビューが、基線で緑だった宣言が赤へ変わったものは無いことを確認した
+  - **残る改善余地（独立レビューの Suggestion、未対応）**: spec の `await firstHeld`（`:142`）は期限を持たない。取得が一度も発行されない退行では 180 秒のテスト時間切れまで待ち、診断文が曖昧になる。落ちはするので取り下げの妨げにはならない。期限つきの race にすると原因が読みやすくなる
+
+_起票元: Task 80.2 が撤去の起票を推奨し、機能レベル検証が未起票と REQ-40.11 の滞留を検出_
+
+## Task 90: 既存データを持つ数量表が保存できなくなる袋小路を解消する
+
+**経緯**: 機能レベル検証が、Task 80.2 と Task 81.1 の結線によって**既存データの状態次第で保存が全面的に不能になり、画面から復旧できない**経路を2つ検出した。いずれも不変条件を守った結果の必然だが、利用者に出口が無い。
+
+**測った事実**（コミット `9c4dc21e`、2026-09-11 にリポジトリルートで実測）:
+
+- **(1) 丸め設定が `(99.99, 999.99]` の既存値**: 80.2 が `handleSave` の判定を直書きの `Number(item.roundingUnit) <= 0` から正典の範囲判定へ替えた（`frontend/src/pages/QuantityTableEditPage.tsx` の `:1612` に改める前の形が註として残り、`:1623` が現在の判定）。**改める前は保存できていた値が、保存を無条件で中断させる。** かつバックエンドは `validateItemFieldSpecs` が `0.01〜999.99` を許すため、そうした値が永続化されている可能性がある。さらに計算方法が「標準」の項目では丸め設定の欄そのものが描画されず、**画面から直す手段が無い**
+- **(2) 親が論理削除された現調画像を持つ数量表**: 81.1 の `assertDraftSurveyImagesNotDeleted` は payload の全グループを検査するため、既存の紐付けが1件でも該当すれば**無関係な編集も含め当該数量表の保存が全面的に 410 で止まる**。フロントに 410 の専用処理は無く、紐付けを外す導線も見当たらない（写真は「変更」と「選択」のみで、解除の操作が無い）
+- **(1) の実データの有無は未確認である。** 本節は「そうした値が在りうる」ことまでしか測っていない
+
+**この二つは原因が別で、利用者から見た形が同じである。** 片方を直してもう片方を残さないこと。
+
+**第三の形は本節では扱わない。** Task 86.1 が保存経路に所属の検査を加えたことで、他プロジェクトの現調画像が紐付いた既存の数量表も同じ形の詰まりを起こす。原因（テナント境界）も応答（400）も本節の二つと別であるため、受け皿は `## Task 86` の 86.3 / 86.4 に置いた。**本節の経緯が「2つ検出した」と件数を限定しているのは起票時点の事実であり、その後に増えた分をここへ足さないこと**（Task 86.1 の独立レビューが、本節を受け皿と誤って名指した申し送りを検出した）。
+
+- [x] 90.1 範囲外の既存値を持つ項目を救済する
+  - **まず実データの有無を測ること。** 在るなら移行が要り、無いなら告知の改善だけで足りる。**測らずにどちらかを決めないこと**
+  - 救済の形は、対象項目を名指して該当欄を開かせるか、範囲外の既存値を既定値へ寄せるかで分かれる。**遡及的なデータ是正は入力検証の境界の外であるという本スペックの作法**（`## Implementation Notes` の 77.1 の学び）と衝突しないかを検討し、結論と採らなかった案を同じ場所へ書くこと
+  - _Depends: 80.2_
+  - _Requirements: 10.3, 11.2_
+  - _Boundary: 範囲外の既存値を持つ数量表の保存の出口_
+  - **実データの有無を先に測った。決定的な測定（本番）はこの環境から行えない**（86.4 と同じ）。到達できた範囲の実測（コミット `9bea407d`、2026-09-12、リポジトリルート）: テスト環境は `docker exec architrack-postgres-test psql -U postgres -d architrack_test -At -c "select count(*) from quantity_items"` が `0` で、**母集団が空なので範囲外 0 件は何も示さない**。開発環境（停止中のコンテナを測定のためだけに起動し、測定後に停止へ戻した）は 13 件で、丸め設定・調整係数・数量のいずれも正典の範囲外は 0 件（丸め設定と調整係数は 13 件すべて既定値、最終更新 2026-06-08）。**したがって「範囲外の既存値は無い」とは書けない**
+  - **本番で人が走らせる読み取り専用の問い合わせ（未実行）**: `SELECT count(*) AS total_items, count(*) FILTER (WHERE "roundingUnit" < 0.01 OR "roundingUnit" > 99.99) AS rounding_out, count(*) FILTER (WHERE "adjustmentFactor" < -9.99 OR "adjustmentFactor" > 9.99) AS adjustment_out, count(*) FILTER (WHERE quantity < -999999.99 OR quantity > 9999999.99) AS quantity_out FROM quantity_items;` と、画面から直せない分を切り分ける `SELECT "calculationMethod", count(*) FROM quantity_items WHERE "roundingUnit" < 0.01 OR "roundingUnit" > 99.99 OR "adjustmentFactor" < -9.99 OR "adjustmentFactor" > 9.99 GROUP BY 1;`（`calculationMethod = 'STANDARD'` の行が、既定値へ戻す操作でしか直せない対象である）
+  - **永続化しえた経路は `git show` で当時のコードを読んで確かめた**（経路の実行はしていない）: 保存経路は `4ab87da9` から `c557cfa2` の親まで丸め設定 `(99.99, 999.99]` を通し、作成・更新のスキーマは `c557cfa2` の親の版で丸め設定・調整係数に正値、数量に非負だけを課して上限を持たず、画面は `628fbe96` の直前の版でその作成経路を呼んでいた。**そのため救済の対象は丸め設定に限らない**（調整係数の上限超過・数量の上限超過も在りうる）
+  - **救済の形**: 「移行」でも「告知の改善だけ」でもなく、**実データの有無によらず正しい出口**を採った。告知が項目・欄・現在の値・範囲を名指し、欄が描画される項目は欄から直させ、欄が描画されない計算方法「標準」の調整係数・丸め設定（REQ-10.8）に限り告知へ既定値へ戻す操作を添える。操作は一項目の一欄だけをドラフト上で戻し、保存はしない（REQ-42.7）。数量の範囲判定も同じ層へ加えた（改める前は保存経路の 400 に委ねて一般の「再度お試しください」を出しており、再試行しても成功しない案内だった）
+  - **採らなかった案**（移行による一括是正／黙って既定値へ寄せる／「標準」でも欄を開く／「標準」では範囲判定を省く）と、77.1 の学び（遡及的なデータ是正は入力検証の境界の外）と衝突しない理由は design.md の `### 数値フィールド仕様（計算パラメータ）` に書いた
+  - **変異の実測（独立レビューが再現し、申告値と完全に一致した。2026-09-12、`9bea407d` の作業木、リポジトリルート）**: 単体は対象ファイル 26 件で、M1（救済を一切付けない）4 件、M2（告知から現在の値と範囲を落とす）4 件、M3（数量の範囲判定を殺す）1 件、M4（告知と操作を結ぶ判定を外す）1 件、M5（全計算方法を「欄が描画されない」とみなす）1 件が落ちる。E2E は M1b（描画側の判定を変える）で 3 件中 1 件、M3 で 3 件中 1 件が落ち、復元後は 3/3 通過。レビューは E2E の M3 を再現し、型検査 0・イメージID `2a9b2bd3`→`49548a3c` の実変化・復元後のイメージID復帰まで確かめた（M1b は未再現）
+  - **E2E の最初の変異は無効だった（86.5 の学びの再現）**: 型検査で落ちてビルドが失敗し、コンテナが再作成されないまま古いバンドルに対して 3/3 緑になった。**この緑は変異が当たった証拠にならない**
+  - **本番の件数は未測定のまま残っている。** 多数見つかって一件ずつ直す手間が問題になるなら、移行の再検討は別タスクになる
+
+- [x] 90.2 論理削除された現調画像の紐付けを画面から解除できるようにする
+  - 410 の応答を受けたときに**どのグループが原因かを利用者へ示すこと**。現在の応答は `surveyId` しか持たない
+  - 紐付けの解除の操作が本当に無いかを描画木から確かめてから設計すること
+  - **不変条件を緩めないこと。** 保存を通す方向の是正（検査を外す・警告に落とす）は採らないこと
+  - _Depends: 81.1_
+  - _Requirements: 42.9_
+  - _Boundary: 論理削除された現調画像を持つ数量表の保存の出口_
+  - **描画木からの確認（設計の前に実施。コミット `46fec27b` の作業木、2026-09-12、リポジトリルート）**: 解除の操作は本当に無かった。`QuantityGroupCard` の写真領域の操作は「紐付け画像を表示」「写真を変更」「写真を選択」の3つで、いずれも `onSelectImage?.(group.id)` かプレビューを開くだけで `surveyImageId` を `null` にしない。`QuantityGroupCardProps` に解除の口も無い。なお `PhotoChangeDialog.tsx` は本番から参照されない死コードで、「写真を変更」が開くのは編集画面に直書きされたダイアログである。reducer 側は既に `linkGroupImage` が `surveyImageId: string | null` を受け、`null` の単体検証も在った（**不足していたのは画面の導線だけ**）
+  - **応答（410）**: `assertDraftSurveyImagesLinkable` が親の論理削除で拒むとき、`groups[i].surveyImageId`（i は payload 上の位置）で該当する全グループを名指す。形は 86.4 の 400 と揃えた。**最初に出会った該当で打ち切らない**（打ち切ると利用者は保存のたびに1件ずつ解除することになる）。名指しは検査が既に引いた行を使うため問い合わせは増えない（単体で `findMany` 1回を主張）
+  - **兄弟経路の本文は一字も変えていない**: `SurveyDeletedError` の名指しは任意で、`sendSurveyDeletedProblem` は `...(error.validationErrors ?? {})` を展開するだけ。名指しを与えない紐付け2経路と site-survey の5経路は従来の6項目のまま。`quantity-groups.routes.test.ts` の 410 の `toEqual` 2件を無改変のまま通したことが非漏洩の証拠である
+  - **値の文言に現場調査IDを含めない**: 複数の現場調査が該当しうるため、グループごとの値は `削除された現場調査の画像は紐付けできません`。`detail` と `surveyId` は最初に出会った現場調査を指す（従来どおり）
+  - **画面（出口）**: 数量グループカードに「写真の紐付けを解除」を追加し、`dispatch({ type: 'linkGroupImage', surveyImageId: null })` でドラフトのみ更新（REQ-42.3、永続化は保存時の1回に畳む＝REQ-42.7）。`linkedPhotoSummaries` からは消さない——画像IDを鍵とする描画用キャッシュであり、同じ写真を別グループが指す場合に壊れるため。**論理削除された現場調査の写真は写真選択ダイアログの候補に現れないため「写真を変更」では復旧できず、解除が唯一の出口である**
+  - **案内の文言を3種まとめて改めた（境界をわずかに越える判断。実装が自己申告）**: `CHANGE_PHOTO_GUIDANCE` を `写真を変更するか紐付けを解除してから保存してください。` へ。86.5 は同定数の註に「解除する操作は画面に無い」と書いており、90.2 がその事実を偽にするため据え置けなかった。解除は失敗の種類によらず全グループで可能なので、400/404/410 で同じ案内を用いる（86.5 の書き分けは温存し、410 だけ名指し版の文を追加）。**採らなかった案**: 410 だけ別文言にする
+  - **不変条件は緩めていない**: 検査を外す・警告へ落とす向きの是正は採っていない。保存が通るのは利用者が解除して「論理削除された現調画像を指さない payload」を送ったときだけである
+  - **RED の実測**（コミット `46fec27b` にテストだけを足した作業木、2026-09-12、リポジトリルート）: `npm --prefix backend run test -- src/__tests__/unit/services/quantity-table.service.test.ts src/__tests__/unit/routes/quantity-tables.routes.test.ts` が 132 件中 2 件落ちた（サービス側は `expected undefined to deeply equal { …(3) }`、経路側は 410 本文に名指しが無く `toEqual` が落ちた）。`npm --prefix frontend run test -- src/utils/survey-image-link-feedback.test.ts src/__tests__/components/quantity-table/QuantityGroupCard.unlinkImage.test.tsx src/__tests__/pages/QuantityTableEditPage.surveyImageLinkFailure.test.tsx` が 23 件中 13 件落ちた（`getByRole('button', { name: '写真の紐付けを解除' })` が要素なし）
+  - **変異の実測（独立レビューが再現し、申告値と一致した。2026-09-12、リポジトリルート）**: いずれも全件実行。MB1（サービスの名指しの引数を外す）は単体 5690 件中 1 件・統合 877 件中 3 件、MF1（410 の名指しの分岐を殺す）は frontend 12000 件中 3 件、MF2a（解除ボタンの描画を撤去）は frontend 12000 件中 3 件、ME1（解除の動作だけを殺す。ボタンは描画したまま）は E2E 4 件中 1 件が落ちる。ME1 は型検査 EXIT=0 を先に確かめ、イメージIDの実変化（実装の実測は `1e56d9d7`→`c5ad2c20`、レビューの再現は `1e56d9d7`→`264bfc09`）で作り直しを確認した。復元後は再ビルドでイメージIDが戻り 4/4
+  - **MB1 の統合の再現では 4 件落ちたが、うち1件は本変異と無関係な既知型のタイミング不安定である**（`estimate-request.schema.integration.test.ts` の optimistic locking。清浄な基線では 877 件すべて緑）。変異に帰せられるのは 3 件である（86.5 の MF2 と同型の開示）
+  - **本スペックの到達被覆は変更の前後とも 2658/2694（98.7%）で不動である**
+  - **91.1 には手を付けていない**（複製経路の検査は本項の境界外）
+
+- [x] 90.3 REQ-11.2 の除外を取り下げ、90.1 が固定した画面側の挙動へ被覆印を付ける
+  - **経緯**: 90.1 の独立レビューが検出した。`e2e/requirement-exclusions.json` の `exclusions[59]`（`quantity-table-generation/REQ-11.2`、`data-integrity`）は理由を「データ整合性チェックはバックエンド統合テストで検証」とするが、**90.1 が画面側の保存中断と問題箇所の名指しを実挙動として固定し、レビューの変異でその検出力も実証された**。除外の理由は実態と食い違う
+  - **除外と被覆印は同居できない**（レビューが実験で確認。印を足すと `check:req-exclusions` が EXIT=1 で `exclusions[59].id: 「E2Eでは確かめない」と宣言していますが e2e/specs の被覆印が同じ受入基準を名乗っています` を出す）。したがって取り下げと印の付与は同時に行うこと
+  - 取り下げると分母の除外が 41→40、本スペックの被覆が 317→318 へ動く見込みである（レビューの見積り。**着手時に測り直すこと**）
+  - **取り下げの根拠は「実装済みか」ではなく「検証が実挙動を固定しているか」である**（Task 83 の学び）。`e2e/specs/quantity-tables/out-of-range-existing-value-rescue-e2e.spec.ts` が固定している主張を名指し、変異で落ちることを実測してから取り下げること
+  - _Depends: 90.1_
+  - _Requirements: 11.2_
+  - _Boundary: REQ-11.2 の被覆表記_
+  - **着手時の再実測（いずれもコミット `5efce953`、2026-09-12 にリポジトリルートで実測）**: 除外は在籍しており、`quantity-table-generation/REQ-11.2` は `exclusions[59]`・`category: "data-integrity"`・理由「データ整合性チェックはバックエンド統合テストで検証」であった（起票が名指した添字と分類はそのまま正しかった）。**起票が見込んだ 41→40 / 317→318 は実測と一致した**
+  - **除外と被覆印の同居を自分で再現した**: 被覆印だけを先に足して除外を残すと `npm run check:req-exclusions` が EXIT=1 になり、`exclusions[59].id: 「E2Eでは確かめない」と宣言していますが e2e/specs の被覆印が同じ受入基準を名乗っています（検証が実在するなら除外を取り下げ、名乗るだけなら被覆印を取り下げること）` を出す。**これは検査の出力であってリポジトリ内の逐語ではない**——文言の型は `scripts/check-requirement-exclusions.ts` にあり、`grep -nF '「E2Eでは確かめない」と宣言していますが' scripts/check-requirement-exclusions.ts` の出力は1行（`892:`）である
+  - **取り下げの根拠は「実装済みか」ではなく「検証が実挙動を固定しているか」に置いた**（Task 83 の学び）。`out-of-range-existing-value-rescue-e2e.spec.ts` の3件はいずれも条文の二つの節を主張する——(i) 告知がグループ・項目・欄・現在の値・範囲を名指すこと、(ii) 保存要求がパス基準の観測器で0件であること。直した後に同じ観測器が1件を数えることで、不在の主張に非空証明が置かれている。**被覆印は3件すべてへ置いた**（1件だけに置くと、残る2件が同じ条文を固定している事実が記録から落ちる）
+  - **変異の実測（独立レビューが MR1 を再現し、件数もイメージIDも申告と一致した。MR2 は未再現）**: MR1（`handleSave` の整合性エラー時の早期 `return;` を1行削除＝保存を中断しない）で 3 件中 3 件が失敗、MR2（`const message = '保存できません: ' + firstError.message;` を固定文言へ置換＝問題箇所を名指さない）で 3 件中 3 件が失敗した。いずれも `expect(locator).toContainText(expected)` で、初回・再試行の両方で落ちる。**変異ごとに `npm --prefix frontend run type-check` の EXIT=0 を先に確かめ、`--force-recreate` の再ビルドでイメージIDが実際に動いたことを確認してから走らせた**（`1e56d9d7`→`697d8ae8`→`ee7869b5`→復元で `1e56d9d7`）。復元は `git hash-object` の一致（`bb347d95…`）と `git diff` が空であることで確かめた
+  - **除外の取り下げ**: `exclusions[59]` を削除し、`summary.totalExclusions` 195→194、`byCategory.data-integrity` 31→30 とした。`lastUpdated` は 89.2 が既に `2026-09-12` にしており本日と同じであるため動かしていない。`summary.note` へ 89.2 と同じ形で追記した。JSON はルートの `format:check` の対象外なので `npx prettier --check e2e/requirement-exclusions.json` を直接走らせ EXIT=0 を確認した（83.1 の作法）
+  - **被覆の前後（終了コードは基線と同じ 1）**: 本スペック 317/358 (88.5%)→318/358 (88.8%)、本スペックの除外 41→40、全体の除外数 195→194、適用対象 2694→2695、到達被覆 2658/2694→2659/2695（98.7% のまま）、未カバー一覧の `REQ-11.2` 1件→0件。**FAILED 3行の顔ぶれは基線と同一**。**独立レビューが、本箇条から落ちていた可動値を2つ検出した**——「被覆印の区間」2798→2801 と「原文の写しを持つ」545→546 で、いずれも被覆印を3件足した直接の帰結である（次回同種の取り下げでは全文 `diff` で拾うこと）
+  - **除外一覧の監査が1件減った**: 「リポジトリ内検証を掲げるが不在」が 134 件→133 件へ動いた。**減った1件は本タスクが取り下げたエントリそのものである。** 除外が代替検証として掲げていた「バックエンド統合テストで検証」は、実体を指していなかった
+  - **REQ-11.2 の他の被覆源を調べた（境界は被覆表記なので調査のみ・変更なし）**: 除外の理由が名指す「バックエンド統合テスト」に当たる実体は無かった（`grep -rn 'REQ-11\.2' backend/src/__tests__/integration/` の当たりが 0 件）。`quantity-table-save.api.integration.test.ts` は整合性違反で保存が止まることを確かめているが、名乗るのは 42.9 で、確かめるのは `400` と `code` までであり、**条文の後段「問題箇所の修正を求める」に当たる利用者への提示を持たない**。REQ-11.2 を綴る backend の検証は単体2件だが、いずれも機能名を冠さない裸の番号で被覆源として計数されない。**被覆印をそちらへ広げる是正は行っていない**（境界の外。必要なら別途起票）
+  - **開示**: 取り下げた結果、REQ-11.2 の被覆は E2E 3 件だけが支えている。3 件はいずれも「範囲外の既存値」という一つの入口から条文を固定しており、整合性チェックの他の枝（項目名が空・計算パラメータ未入力・文字数超過）は E2E では条文の番号を名乗っていない。条文は枝を限定していないので被覆としては成立するが、**入口が一つである事実をここに開示する**
+
+- [x] 90.4 REQ-11.2 の被覆が単一の入口に依存する状態を補強する
+  - **経緯**: 90.3 の独立レビューが申し送った。REQ-11.2 の被覆は、90.3 の取り下げ後 `out-of-range-existing-value-rescue-e2e.spec.ts` の3件だけが支えており、**3件はいずれも「範囲外の既存値」という一つの入口から条文を固定している**
+  - 整合性チェックの他の枝（項目名が空・計算パラメータ未入力・文字数超過）は同じ `handleSave` に実装されているが、条文の番号を名乗る検証は裸の番号の backend 単体2件のみで被覆源に計数されない
+  - **その入口が将来変わると、条文が無言で無被覆へ落ちる。** 別の枝を1本 E2E で固定して被覆印を置く形が妥当である
+  - **被覆印を増やすだけでは足りない**——固定した枝を壊す変異で当該の検証が落ちることを実測すること（Task 83 / 90.3 の作法）
+  - _Depends: 90.3_
+  - _Requirements: 11.2_
+  - _Boundary: REQ-11.2 の被覆の入口_
+  - **着手時の再実測**（いずれもコミット `43fe0b34`、2026-09-12 にリポジトリルートで実測）: `REQ-11.2` を名乗る被覆印は `out-of-range-existing-value-rescue-e2e.spec.ts` の 3 件（`:260-261` / `:322-323` / `:369`）だけで、起票の記述と一致した
+  - **`handleSave` の整合性チェックの枝を全数で数え直した**（`frontend/src/pages/QuantityTableEditPage.tsx` の `:1762` 以降）。(1) 項目名が空、(2) 丸め設定の範囲外、(3) 調整係数の範囲外、(4) 数量の範囲外（(2)〜(4) は `describeOutOfRangeSetting` が組み立てる同一の文型）、(5) 計算パラメータ（`validateCalculationParams`）。(5) はさらに 面積・体積のパラメータ未設定／計算用列が1つも未入力、ピッチの必須4項目、箇所数の必須・整数・範囲、未知の計算方法に分かれる。**起票が挙げた「文字数超過」の枝は `handleSave` に存在しない**——同関数の検証ループに `文字数` / `maxLength` / `length` の当たりは 0 件で、REQ-13.1〜13.3 は欄の層の「入力防止」であって保存時の整合性チェックではない。**起票の列挙を写さず数え直した結果である**
+  - **固定した枝と、その入口を選んだ理由**: 主は **(1) 項目名が空**。通常の画面操作（グループ追加 → 項目追加 → 保存）だけで到達し、**前提にデータベースへの直接の書き込みを要さない**（「範囲外の既存値」の3件は丸め設定・数量を DB へ直書きして前提を作る）。また `describeOutOfRangeSetting` を通らない独立の枝であり、範囲判定側の退行に相乗りして緑になることがない。副として **(5) 計算パラメータ未入力（箇所数）** に被覆印を付した——`quantity-count-calculation-e2e.spec.ts` の REQ-47.9 の検証が既に条文の二つの節を固定しており、欠けていたのは印だけだった。あわせて同検証の観測器をパス基準（`new URL(request.url()).pathname`）へ改めた
+  - **新設**: `e2e/specs/quantity-tables/save-integrity-empty-item-name-e2e.spec.ts`（1 件）。**問題のあるグループを2件目に置く**——独立レビューが「先頭のグループしか走査しない実装」の変異（`frontend/src/pages/QuantityTableEditPage.tsx` の `for (const group of draftToSave.groups) {` を `for (const group of draftToSave.groups.slice(0, 1)) {` へ置換）を実行し、型検査 EXIT=0・イメージID `1e56d9d7`→`46b3e68e` の再ビルドの下で新規 spec が 1 件中 1 件失敗することを実測した（2026-09-12、リポジトリルート）。**置き場所は検出力を実際に担っている。** 主張は (i) 告知が当該グループを名指し対照グループを名指さないこと、(ii) 保存要求がパス基準の観測器で0件であること、(iii) 名指された箇所を直すと同じ観測器が1件を数え（非空証明）、対照グループの項目が巻き添えになっていないこと
+  - **変異の実測（再現の範囲を書き分ける。M1 は独立レビューが再現しイメージIDまで一致、M3 は独立レビューが新規に実行、M2 は未再現で実装の申告値のまま）**: **M1**（`handleSave` の項目名が空の枝 6 行を撤去し註 1 行へ置換）で新規 spec が 1 件中 1 件失敗（失敗の診断は `element(s) not found` で、初回と再試行の両方）。**行番号は引かない**——第1回の実測時は `:230` だったが、第2回の是正でコメントを挿入したため現在は `:240` であり、同じ変更集合の中でずれた（site-survey の学び「自分のコミットが動かす行番号を、そのコミットの親を基準に書かないこと」と同型。独立レビューが検出）。**M3**（先頭のグループしか走査しない実装。上の「新設」の箇条に詳細）で新規 spec が 1 件中 1 件失敗。**M2**（`validateCalculationParams` の呼び出しは残し `validationErrors.push` だけを `void issue;` へ置換）で箇所数 spec が 10 件中 1 件失敗・2 件が後続で `SKIP`。**変異ごとに型検査の EXIT=0 を先に確かめ、再ビルドでイメージIDが実際に動いたことを確認してから走らせた**（`1e56d9d7`→`651b4c88`→`d31acf30`→復元で `1e56d9d7`）。復元は `git hash-object` の一致（`bb347d95…`）と `git diff` が空であることで確かめた
+  - **被覆の前後（全文 `diff` で拾った。終了コードは基線と同じ 1）**: **動いたのは 2 値だけで、いずれも 90.3 のレビューが落ちを指摘した値である**——`被覆印の区間` 2801→2804、`原文の写しを持つ` 546→548。**本スペックの 318/358 も、到達被覆も、除外 194 も動かない。** REQ-11.2 は 90.3 が既に被覆済みであるため分子は増えない——**本項が増やすのは分子ではなく入口の本数である**
+  - **他の関門の可動値（終了コードはすべて基線と同一）**: `check:e2e-guards` 走査ファイル数 220→221、`check:e2e-selfjudge` 走査ファイル 223→224 / 画面へ送るスクリプト 462→463、`check:adjudication-pointers` 正典の被覆印 3728→3733、`check:cf-evidence` 走査 1789→1790 ファイル（反実仮想 243 件は不動）。`check:design-measurement-freshness` は基線と同じ 7 行・EXIT=1 で、actual が動いたのは `t13-anchor-references-after-115303` の 1317→1321 のみ（新規 spec の名前つき `getByRole` 4 件による。**基線で緑だった宣言が赤へ変わったものは無い**）
+  - **偽になっていた記録を1件是正した（境界内）**: `quantity-table-crud.spec.ts` の `整合性チェックでエラーが検出されると保存が中断される` の註は「受入基準 11.2 は除外である」と書いていたが、90.3 の取り下げでこの前半は成り立たない。**被覆印を掲げない結論は変えていない**——後半の理由（保存の試行を行っておらず条文が求める保存の中断を主張していない）は現在も真である。規約 (a) に従い当時の記述を残して併記した
+  - **独立レビュー第1回の差し戻しと是正（文書のみ）**: 新規 spec の註2箇所（冒頭の `## 前提の作り方` と配置箇所の行内註）が、**変異を実行しないまま**「1件目に置けば先頭しか見ない実装でも同じ告知が出る」と断じていた。steering の「反実仮想を書く前に変異を実行する」が名指す型である。**当該の文を `check:cf-evidence` は計上しない**——是正後の文はコード上の名前 `draftToSave.groups` を逆引用符で名指しているが、反実仮想の計上は 243 件のまま動かなかった（独立レビューが第2回で実測。`check:cf-evidence:survey` で動いたのは最弱のバケット「判定の語だけ」1069→1070 文のみで、当該ファイルは計上母集団に 0 件）。**計上されない原因は特定していない**（「名前が無いため」と断じた初稿の説明は、名前を足しても計上が動かなかった実測に支持されない）。いずれにせよ機械の受け皿は無く、拘束するのは steering だけである。是正は、**独立レビューが実行した M3 の引用**（置換の綴り・1 件中 1 件失敗・型検査 EXIT=0・イメージID `1e56d9d7`→`46b3e68e`・実測日・実施者を同じ場所に書く）へ置き換え、**未実測の半分（2件目でない配置が緑のままであること）は削除**した。本番コードと検証の論理は一行も変えていない（`git hash-object` が `bb347d95…` のまま）。註の是正の前後で `被覆印の区間` 2804・`原文の写しを持つ` 548・`check:e2e-selfjudge` 224/463・`check:e2e-guards` 221 はいずれも動かない
+  - **開示**: 入口は 1 つから 3 つ（範囲外の既存値／項目名が空／計算パラメータ未入力）へ増えたが、**枝の全数を覆ってはいない**。調整係数の範囲外・面積体積の計算用列未入力・ピッチの必須4項目・未知の計算方法の各枝は、いまも条文の番号を名乗る E2E を持たない
+
+_起票元: 機能レベル検証（本実行）。90.3 は 90.1 の独立レビューが、90.4 は 90.3 の独立レビューが申し送り_
+
+## Task 91: 複製の経路が所属違反の紐付けを検査せずに写す状態を解消する
+
+**経緯**: Task 86.4 の実装が、数量表のコピーは元のグループの紐付けを検査せずに複製先へ写すことを、一時プローブで実測した。独立レビューがもう一本の複製経路を見つけた。どちらも 86.4 の境界（保存と解除の出口）に入らないため、本節を受け皿として起こした。
+
+**測った事実**（コミット `b775f48f`、2026-09-11、リポジトリルートで実測）:
+
+- `grep -n 'surveyImageId: sourceGroup.surveyImageId' backend/src/services/quantity-table.service.ts backend/src/services/quantity-group.service.ts` が2行を返す。`quantity-table.service.ts:1681`（`QuantityTableService.copy`、`POST /api/quantity-tables/:id/copy`）と `quantity-group.service.ts:683`（`QuantityGroupService.copy`、`POST /api/quantity-groups/:id/copy`）である
+- **数量表のコピーは画面から到達する**（`QuantityTableListPage` → `CopyQuantityTableDialog`）。86.4 の一時プローブ（提出前に削除済み）では、所属違反の紐付けを持つ数量表をコピーすると応答が `201` だった。複製先の永続化値は他プロジェクトの画像IDで、複製先を取得すると `surveyImageId` は `null` だった
+- **数量グループのコピーは編集画面から到達しない。** 画面は reducer の `copyGroup` でドラフトとして複製する（`frontend/src/pages/QuantityTableEditPage.tsx` のグループコピーハンドラの註）。直接 API を叩く経路でのみ到達する
+- 取得経路では 86.3 が落とすため、表示には届かない。**害は「違反した行が新たに永続化される」ことに限られる**
+
+- [x] 91.1 複製の2経路で所属違反の紐付けを複製先へ写さないようにする
+  - **REQ-17.7（コピー先でも同じ写真の紐づけを維持する）との関係を先に決めること。** 所属違反の紐付けは取得時に落ちるため、利用者から見れば「紐づけられている写真」ではない。この読みが成り立つかを条文と 86.3 の実装から検討すること。結論と、採らなかった案（コピー全体を拒む／違反分だけ落とす／写したまま据え置く）を同じ場所へ書くこと
+  - 落とす向きに倒す場合、落としたことを利用者へ伝えるかは、86.5 の取得時の提示と同じ設計の問いである。86.5 と食い違わせないこと
+  - 論理削除された現場調査の画像（81.1 の不変条件）が複製でどう扱われるかも、同じ判断の中で測ること
+  - **問い合わせの回数をグループ数に比例させないこと**（81.1 / 86.1 の作法）
+  - **変異検証**: 検査を外すと当該の検証が落ちることを実測すること
+  - _Depends: 86.1, 86.3_
+  - _Boundary: 複製の経路における現調画像の所属の検査_
+  - **【決着】REQ-17.7 / REQ-38.4 との関係を先に決め、違反した紐付けだけを落とす向きに倒した。** 複製そのものは従来どおり 201 で成功し、応答の形も変えていない。根拠は、所属違反の紐付けは取得経路（86.3）が `surveyImageId` ごと落とすため**利用者から見て「紐づけられている写真」ではない**こと。両条文が維持を求めるのは利用者が見ている紐付けであり、落とす向きは条文に反しない。結論と採らなかった案は design.md へ規約 (a) で置いた
+  - **採らなかった案 (i) 複製全体を 4xx で拒む**: 取得経路が落とす向きに倒れている以上、利用者は当該の数量表を開いて編集できる。**開けるのに複製だけできない**という新たな出口の無さを作る（86.3 が退けたのと同じ形）。加えて両経路はこの不変条件に対する応答を持たず、兄弟経路との応答の揃えを新たに設計することになる
+  - **採らなかった案 (j) 写したまま据え置く**: 取得時に落ちるため表示には届かないが、複製のたびに違反した行が増える。本節の是正対象そのものである
+  - **論理削除された現場調査の画像の紐付けは落とさずに写す**（81.1 の不変条件）。取得経路は所属違反だけを落とし論理削除は落とさない。利用者には当該の写真が見えており解除の導線もある（90.2）ため、複製で黙って落とすと**利用者が現に見ている写真が理由もなく消える**。判定に用いるのは `survey.projectId` だけで `deletedAt` は読まない。統合検証2件で固定したが、**この2件は RED の時点から緑であり、現況の追認であって本節の実装を固定していない**（86.3 の学び「変異で緑のままの検証はそのタスクの被覆に数えない」と同型の開示）。**独立レビューが、RED の時点で緑だったのは実装が開示した論理削除2件に加え、同一プロジェクトの対照2件を含む計4件であると実測した**（変異で死ぬのは各経路1件ずつの計2件）。対照はテスト名に「対照」と明記され被覆を主張していないため虚偽の申告ではないが、**開示は4件と書くほうが正確である**
+  - **落としたことは利用者へ告げない。** 86.5 の提示と食い違わない——同節が告知を置いたのは利用者が見ていた写真が取得のたびに黙って消えるためで、複製元の告知は従来どおり出る。告げる側へ倒すと、他プロジェクトの資源の存在を複製の応答でも示唆することになり、86.3 / 86.5 が保った不変条件を崩す
+  - **問い合わせをグループ数に比例させていない**（81.1 / 86.1 の作法）。所属の判定に用いる `survey.projectId` は、数量表のコピーでは元の数量表を引く既存の1回の問い合わせ、グループのコピーではロック取得後の元グループの取得の、いずれも取得項目を広げて得る
+  - **着手時の測り直し**（HEAD `1785c5e5`、2026-09-12、リポジトリルート）: **起票が書いた `quantity-table.service.ts:1681` は `1747` へ動いていた**（起票時のコミット `b775f48f` 基準の値のため）。数量表のコピーは画面から到達する。**数量グループのコピーが画面から到達しないことは推定せず実測した**——`grep -rn 'copyQuantityGroup(' frontend/src` の本番の当たりは定義と用例だけで、呼び出し元は 0 である
+  - **実装の途中で作り込んだ欠陥を開示する**: 判定を `surveyImage !== null` で書いたところ、関係が読み込まれていないモックで `undefined !== null` が真になり、**単体が 2 件失敗から 19 件失敗へ悪化した**。`surveyImage?.survey.projectId` の形へ改めて解消した
+  - **変異検証（独立レビューが2経路を個別に適用して再現し、申告値と完全に一致した。2026-09-12、`1785c5e5` の作業木、リポジトリルート）**: M1（数量表のコピーの判定を外す）で単体 5696 件中 1 件・統合 883 件中 1 件、M2（数量グループのコピーへ同じ変異）でも単体 1 件・統合 1 件が落ちる。**2経路を個別に当てており一括変異で済ませていない**（80.2 の学び）。復元は `git hash-object` の一致で両方確認した
+  - **swagger を触ったので `backend/docs/api-spec.json` を再生成した**（86.5 が落として差し戻された項目）。差分は2箇所で、いずれも複製2経路の `description`
+  - **ラチェットが動いていないことの隔離対照**（80.3 の作法）: 新規の統合検証ファイルを退避して測り直すと「機能名を欠くヘッダー 2014 件」「読まれないままの名乗り 5133 件」はいずれも同値で、本スペックの被覆も 318/358 で同値だった
+  - **残る限界**: 本番のデータベースに所属違反の行が何件あるかは測っていない（86.4 と同じ限界）。**複製先に違反行が無くなる一方、複製元の違反行はそのまま残る**（86.4 が (a) として手当てしないと決めた範囲と同じ。恒久的な解除には利用者の保存操作が要る）
+
+**本節が `_Requirements:` を持たないのは意図である。** 守るのはテナント境界であり（Task 86 と同じ）、REQ-17.7 は判断の材料であって被覆の対象ではない。
+
+_起票元: Task 86.4 の実装が一時プローブで実測し、独立レビューが第二の経路を検出して申し送った_
+
+## Task 92: 並び順の個別 API と保存の時間切れに残る穴を塞ぐ
+
+**経緯**: Task 88.1 は、画面から到達する唯一の書き込み経路 `saveDraft` に行ロックを入れ、4種直列化の主張を2種へ狭めて決着した。その過程で実装が一時プローブで測り、独立レビューがコードを読んで裏づけた穴が二つ残った。どちらも 88.1 の決着の外にあるため、本節を受け皿として起こした。
+
+**測った事実**（コミット `36c816dd`、2026-09-12、リポジトリルート）:
+
+- **個別 API は、並行させなくても逐次の呼び出しで displayOrder を重ねる**（88.1 の一時プローブ。提出物に残していない）。`POST /api/quantity-tables/:quantityTableId/groups` は displayOrder を省くと `createQuantityGroupSchema` の `.default(0)` で 0 に作られる（201）。`PUT /api/quantity-tables/:quantityTableId/groups/order` は同じ値を2件送っても 204 で受け付ける（`updateDisplayOrderSchema` と `updateDisplayOrder()` に重複値の検査が無い）。`PUT /api/quantity-groups/:id` は displayOrder をそのまま書き込む（200）。`QuantityGroup` は `@@index([quantityTableId, displayOrder])` のみで一意制約を持たない
+- いずれも**画面からは到達しない**（88.1 の到達の実測で本番の呼び出し元は 0 ファイル）。認証済みの HTTP クライアントからのみ到達する
+- **原因は並行ではなく呼び出し側の値である**ため、行ロックを足しても消えない
+- **保存の後発がロック待ちで時間切れになると 500 になりうる**（独立レビューがコードを読んだ判断。実測はしていない）。`saveDraft` の `$transaction` は Prisma の既定 5 秒で、P2028 は 500「Transaction Timeout」に写される。design.md の `##### Concurrency Control` の「失敗ハンドリング」は copy 向けに「ロックの時間切れは 409」と書いており、`saveDraft` には当てはまらない
+
+**前提条件を添えて読むこと**: 92.1 の悪用には対象数量表への `quantity_table:update` 権限が要る。重なりが起きても表示の並びが不定になるだけで、データは失われない。**これが抜けると優先度を過大に見積もる。**
+
+- [x] 92.1 並び順の個別 API が displayOrder を重ねない形にする
+  - **是正の向きを実測と根拠つきで決めること。** サーバー側で採番する（`.default(0)` を外し件数から決める）、重複値を 400 で拒む、DB の一意制約を置く、の三つがある。一意制約は `saveDraft` のフル状態同期の書き込み順と衝突しうる（途中状態で重複が生じる）ので、置くなら遅延制約の要否まで測ること
+  - 画面から到達しない経路であることを踏まえ、**撤去という選択肢も並べること**（81.1 の学び「塞ぐ前にその経路が本番から呼ばれるかを測ること」）。撤去するなら公開 API としての利用者の有無を確かめること
+  - 採らなかった案とその理由を同じ場所へ書くこと
+  - **変異検証**: 検査を外すと当該の検証が落ちることを実測すること
+  - _Depends: 88.1_
+  - _Boundary: 数量グループの並び順の個別 API_
+  - **決着（HEAD `4a745c07` の作業ツリー、2026-09-12、リポジトリルートで実測）**: 3経路とも「同一数量表の2つのグループが同じ displayOrder を**逐次の呼び出しで**持つ状態」を作らせない形にした。**閉じたのは逐次の呼び出しに限る**——`create()` / `update()` / `updateDisplayOrder()` に行ロックは無く（88.1 の決着どおり `FOR UPDATE` は `copy()` と `createGroupsFromSurvey()` のみ）、`assertDisplayOrderNotTaken` は件数を数えてから書く形なので、**並行する2要求が両方とも検査を通過して同じ値を書きうる窓が残る**（独立レビューがコードを読んで判定。並行プローブは実行していない）。88.1 が測ったとおり本 3 経路の重なりの原因は並行ではなく呼び出し側の値であり、その逐次の穴を塞いだのが本項である。(1) `createQuantityGroupSchema` の displayOrder から既定値を外して任意化し、(2) 省略時の採番を**件数ではなく最大値+1**とし（`resolveCreateDisplayOrder`）、(3) 明示値が既存と重なる作成・更新を 400 で拒み（`assertDisplayOrderNotTaken`。更新は自分自身を判定から除く）、(4) 並び替えは**適用後の全グループの並び**に重なりが生じる要求を 400 で拒む。文言は `DISPLAY_ORDER_DUPLICATED` 一本で、3経路とも既存の `QuantityTableValidationError` → 400 の写しに乗るため応答の形は変わらない
+  - **起票が挙げていない第4の穴を検出した**: 既存の `create()` は採番に**件数**を使っており、削除が後続の displayOrder を詰めないため、0 と 2 が残る数量表では件数 2 が末尾 2 と重なる。最大値+1 なら 3 になる。**ただし是正前は `.default(0)` が常に値を埋めていたため、件数採番の枝は公開 API からは到達しなかった**（`create()` の呼び出し元はルートのみ。独立レビューが指摘）。**件数採番が実害を持つのは既定値を外した後であり、本項が既定値を外すこととこの是正は不可分である**
+  - **採らなかった案①（`(quantityTableId, displayOrder)` の一意制約）**: 画面から到達する唯一の経路を壊すことを実測して退けた。検証DBへ非遅延の一意索引を当てると `quantity-table-save.api` が 31 件中 **3 件**落ちる（基線は全緑。いずれも 200 のはずが 500）。`saveDraft` は payload の順で displayOrder を詰め直してから payload に無いグループを削除するため、**詰め直しの途中で削除予定のグループと番号が一時的に重なる**。`quantity-table-sort-order.api` も 4 件中 1 件落ちる（204 のはずが 409）。通すには遅延制約が要るが Prisma のスキーマ定義では宣言できない。索引は実測後に落とし、索引が2本へ戻ったことを確認した
+  - **採らなかった案②（撤去）**: 81.1 の学びに従い利用者を先に数えた。`POST /api/quantity-tables/:quantityTableId/groups` は画面からは到達しないが、**E2E の前提条件が 35 箇所で呼んでいる**（共有ヘルパーを含む）。3経路とも `backend/docs/api-spec.json` に載る公開 API であり、単体更新はグループ名変更・写真紐付けを兼ねるため撤去できない
+  - **採らなかった案③（重複を 400 で拒むだけで既定値を残す）**: 既定値が 0 である限り省略した作成が2件目から必ず 400 になり、省略を許す API 契約が使えなくなる
+  - **画面からの到達は 0 のまま**（提出時点で再実測）: `createQuantityGroup` / `updateQuantityGroup` / `updateGroupDisplayOrder` はいずれも 0 ファイル
+  - **RED**: 実装前に統合 `quantity-group-display-order` が 11 件中 6 件、単体 `quantity-group.service` が 59 件中 5 件落ちた（対照はいずれも通過し、観測器が生きていることの非空証明になっている）
+  - **変異の実測（独立レビューが M1〜M4 を個別に再現し、申告値と完全に一致した。2026-09-12、リポジトリルート）**: M1（作成の重複検査を外す）単体 59 件中 1 件・統合 11 件中 1 件、M2（採番を件数へ戻す）1 件・1 件、M3（更新の重複検査を外す）1 件・1 件、M4（並び替えの適用後の重複検査を外す）2 件・2 件。復元は `git hash-object` の一致で確認した。**一意制約を退けた根拠も独立レビューが検証DBへ索引を実際に当てて再現した**（`quantity-table-save.api` 31 件中 3 件、`quantity-table-sort-order.api` 4 件中 1 件。索引は削除して2本へ戻したことを確認済み）
+  - **関門**: 終了コードは基線と一致（**本数は 19 本**。実装の申告は 13 本だったが、`.husky/scripts/pre-push.sh` が起動する `check:*` は 19 本であることを独立レビューが実測し、19 本すべてを実行して出力の一致まで確認した）。動いた値は**3つ**で、`check:criterion-literals`（実装 1576→1577 ファイル）、`check:cf-evidence`（走査 1791→1792 ファイル）、`check:dead-script-env`（走査読み手候補 2032→2033。**実装の申告は2つで、この1件を落としていた。独立レビューが新設ファイルだけを退避する隔離対照で検出**）。いずれも新設検証ファイル1件ぶん走査対象が増えただけで、EXIT=0 かつ指摘内容は不変。テスト件数は単体 5696→5701、統合 883→894（51→52 ファイル）へ動いた
+  - **範囲外の同型（未処置・測定のみ）**: `backend/src/routes/quantity-items.routes.ts` の数量項目の並び順一括更新スキーマと、数量項目作成スキーマの displayOrder の既定値は同じ形である。本項の境界の外なので触れていない
+  - **一意制約を置かない選択のため、Prisma を経由しない直接の SQL 書き込みに対する保証は無い**。守っているのはサービス層の検査だけである
+
+- [x] 92.2 保存の後発がロック待ちで時間切れになったときの応答を測り、設計の記述を揃える
+  - **まず実測すること。** 先行の保存を5秒以上保留させたとき、後発が 409 と 500 のどちらを返すかを統合検証で確かめる（88.1 の `pg_stat_activity` を使う決定的な形が流用できる）
+  - 500 なら、利用者に「再度お試しください」と案内するのが正しいか、409 と同じ「他の利用者が更新しました」へ寄せるべきかを決めること。**時間切れの応答を 409 へ寄せると、先行が確定しなかった場合にも「他の利用者が更新した」と告げる偽の案内になりうる**
+  - design.md の `##### Concurrency Control` の「失敗ハンドリング」に、`saveDraft` の時間切れについての現況を併記すること（規約 (a)）
+  - _Depends: 88.1_
+  - _Boundary: 数量表の保存の並行制御における時間切れの応答_
+  - **決着（HEAD `06feaf7b` の作業ツリー、2026-09-12、リポジトリルートで実測）**: 後発の応答を実測し、**現況（500 / `QUANTITY_TABLE_SAVE_ERROR`）を保つ**と決めた。挙動は一切変えていない（差分は design.md のみ）。測り方は 88.1 の統合検証と同じで、先行のトランザクションを保留したまま後発が数量表の行のロック待ちに入ったことを `pg_stat_activity` で見届け、先行の保持時間を変えて応答を読んだ。プローブは一時的に足して走らせ、控えからの書き戻しで復元した（`git hash-object` の一致を確認。提出物には残していない）
+  - **測った三条件**: 先行が 9 秒（既定の 5 秒超）保持して**コミット**→ 後発は 500 / `QUANTITY_TABLE_SAVE_ERROR`（所要 9082 ms）。9 秒保持して**ロールバック**→ 同じ 500（9052 ms）。対照として 2 秒（5 秒未満）保持してコミット → 409 / `QUANTITY_TABLE_CONFLICT`（2055 ms）。**5 秒を挟んで応答が分かれるので観測は恒真ではない**。三条件とも後発は何も永続化しない
+  - **起票の見込みと違った点①（本文）**: 88.1 は「P2028 は 500『Transaction Timeout』へ写される」と述べたが、**その写しへは到達しない**。保存経路のルートが自前の catch を持ち、見知らぬ例外をすべて `QUANTITY_TABLE_SAVE_ERROR` の 500 へ畳む。`errorHandler.middleware.ts` の P2028 の枝は本経路の応答には効かない
+  - **起票の見込みと違った点②（待機は 5 秒で切れない）**: Prisma の対話トランザクションの時間切れは実行中の問い合わせを中断しない。`SELECT ... FOR UPDATE` は先行が終わるまでブロックし、時間切れはロックが解けた後の次の問い合わせで初めて P2028 として表面化する。先行を 120 秒保持した条件では後発の所要も 120013 ms だった。**所要時間の上限を決めるのは先行の長さであり 5 秒ではない**
+  - **採らなかった案①（409 へ寄せる）**: ロールバックの条件が退けた。先行が巻き戻っても後発は同じ 500 になり、そのとき誰も何も確定していない。409 の文言は起きていない更新を告げる偽の案内になり、再読み込みという無意味な行動へ誘導する。**後発はこの二つを見分けられない**——自分のトランザクションが期限切れになった後は `updatedAt` を読み直せないため、先行が確定したかを知る術が無い
+  - **採らなかった案②（「混雑。時間をおいて再試行」の専用の応答を起こす）**: 先例は `EstimateSaveTimeoutError`。**利用者へ届く文言が現況と変わらない**ため採らなかった。画面は 409 以外を畳んで「保存に失敗しました。再度お試しください。」を出すが、ロック待ちの時間切れは時間をおけば解消するので**再試行を促す案内は正しく**、ドラフトも保持される
+  - **測定の経緯の開示**: 初回のプローブは解放を `finally` に置いたため、後発の待機と先行の解放が相互に待ち合い、先行自身の 120 秒上限まで膠着した。順序を正して測り直している。**上の 120 秒のデータ点はこの初回の形から得たものである**
+  - **関門**: 19 本すべて実行し、終了コードは基線と一致。動いた値は **`check:design-path-refs` の母数 734→736** のみ（合否に用いない値。今回の追記が2ファイルを新たに名指したぶん。面 190・免除は不変）。新規ファイルを足していないため他の走査系の値は動いていない
+  - **本節では閉じない残る穴（要受け皿）**: **待機の長さに上限が無い**。先行が長引けば後発の利用者はその間ずっと待たされ、最後に 500 を受け取る。応答のコードを付け替えてもこれは動かない。上限を入れる判断は応答の設計と不可分であり、**専用の応答の新設は待機の上限と同じ回で決めるのが筋である**
+  - **開示**: 本節は**新しい検証を一つも足していない**。測った挙動はどの検証にも固定されておらず、将来 Prisma の既定値やルートの catch が変わっても関門は赤くならない。記録を支えているのは design.md の散文だけである。**独立レビューが三条件すべてを自分で測り直し、応答・所要・本文の逐語・非永続化まで一致を確認した**（9 秒コミット 9075 ms、9 秒ロールバック 9029 ms、対照 2 秒 2015 ms。120 秒の条件のみ未再実測——9 秒の実測で「5 秒で切れない」は既に立証されるため）。固定の手当ては `## Task 92` の 92.5 へ起票した
+  - **独立レビューが検出した記録の不足**: **120 秒のデータ点の出所（初回の欠陥プローブ由来）が design.md 側に書かれていない**（tasks.md には在る）。design.md の記述は機構を述べるにとどまり、読者が「意図して選んだ第4条件」と読みうる。追記は 92.5 で行う
+
+- [x] 92.3 数量項目の並び順にも同型の穴が残る状態を解消する
+  - **経緯**: 92.1 の実装が測って開示し、その独立レビューが受け皿の不在を検出した。**92.1 が 88.1 から起こされたのと同じ扱いである**
+  - **測った事実**（コミット `4a745c07`、2026-09-12、リポジトリルート）: `backend/src/schemas/quantity-table.schema.ts` の数量項目作成スキーマの displayOrder が `.default(0)` を持ち、数量項目の並び順一括更新（`backend/src/routes/quantity-items.routes.ts`）は重複値を検査しない。**92.1 が数量グループについて塞いだのと同じ形の逐次の重なりを再現する**
+  - **92.1 の決着をそのまま横展開してよいかを測ってから決めること。** 数量項目は数量グループと違い `saveDraft` の詰め直しの対象であり、一意制約の可否も別途測る必要がある（92.1 は非遅延の一意索引が保存経路を壊すことを実測している）
+  - 画面からの到達可能性を経路ごとに測ること（81.1 の学び）。E2E の前提条件からの利用も数えること（92.1 は 35 箇所を数えて撤去を退けた）
+  - **変異検証**: 検査を外すと当該の検証が落ちることを実測すること
+  - _Depends: 92.1_
+  - _Boundary: 数量項目の並び順の個別 API_
+  - **決着（HEAD `8b19d5b3` の作業ツリー、2026-09-12、リポジトリルートで実測）**: 92.1 の決着は**そのまま横展開してよい**と実測で確かめたうえで、数量項目の displayOrder を書く**7経路すべて**（`create` / `update` / `updateDisplayOrder` / `copy` / `move` / `bulkCopy` / `bulkMove`）に「同一グループの2つの項目が同じ displayOrder を**逐次の呼び出しで**持つ状態」を作らせない形にした。既定値を外して任意化し、省略時の採番を件数から最大値+1へ改め、重なる明示値の作成・更新・移動と、適用後に重なる並び替えを 400 で拒む。文言は新設の `ITEM_DISPLAY_ORDER_DUPLICATED` 一本。**数量グループ側の定数を流用しなかったのは、同定数の文言が「他の数量グループと重複」と述べるためである。** 問い合わせは項目数によらず定数である
+  - **92.1 と違った点（測って分かったこと）**: 数量グループでは件数採番の枝が `.default(0)` に隠れて公開 API から到達しなかったが、**数量項目では `copy` / `bulkCopy` / `bulkMove` が displayOrder を受け取らず、本変更の前から件数で採番していた**。削除は後続の displayOrder を詰めないため、0 と 2 が残るグループでは件数 2 が末尾と重なる。この非対称のため、境界の内側にある同じ害への到達経路を全数（7経路）で塞いだ
+  - **採らなかった案①（`(quantityGroupId, displayOrder)` の一意制約）**: 検証DBへ非遅延の一意索引を当てると `quantity-table-save.api` が 31 件中 **4 件**落ちる。**数量グループに同じ索引を当てたときの 3 件（92.1 の実測）より多く、増えた分はグループ間移動を含む条件である**——`saveDraft` は移動してきた項目を移動先の配列順で詰め直すため、移動元が番号を手放す前に移動先の既存項目と一時的に重なる。`quantity-table-sort-order.api` が 4 件中 1 件落ちる。**ここまでの2値は是正済みの作業ツリーでの測定であり、独立レビューが再現した。**
+    - **`quantity-item-calculation-params.api` の 1 件は別の状態での測定である（独立レビューが混成を検出）**: 是正済みのツリーへ索引を当てると同スペックは **16 件すべて緑**である。1 件落ちるのは**是正前（基線 `8b19d5b3`）のコードへ同じ索引を当てたとき**で、落ちるのは「既存3方式の作成が壊れていない（回帰）」の検証である。対照として基線のコードで索引を当てなければ 16 件緑であり、落ちる原因が索引であることは確定している。**この 1 件は是正前の `.default(0)` が同一グループへ複数の項目を 0 で作っていたことを映す証拠であり（当該検証は displayOrder を送らないヘルパーで同一グループへ3件作る）、主張の実質は独立レビューが立証した。** 「同じ当て方で」と一括りに書いた初稿は、別状態の測定を1セットに見せていた。**是正にあたり実装はレビュアーの数値を引き写さず、是正後のツリーへ索引を当てて三条件を自分で測り直した**（save 4/31・sort-order 1/4・calc-params 16 件緑。索引の撤去と2本への復帰も確認）
+    - 索引は実測後に落とし、2本へ戻ったことを `pg_indexes` で確認した
+  - **採らなかった案②（撤去）**: 受入検証の前提条件が **41 箇所**で数量項目の作成を呼ぶ（共有ヘルパーを含む）。並び順の一括更新は受入検証からの呼び出しが 0 件だが、7経路が公開 API として仕様書に載る
+  - **画面からの到達は 0（提出時点で実測）**: 個別の作成・更新・複製・削除・並び順更新はいずれも 0 ファイルで、移動・一括系はクライアント関数自体が無い
+  - **RED**: 実装前に単体が 64 件中 9 件、統合が 14 件中 8 件落ちた（**対照6件はいずれも RED で緑**であり、観測器が生きていることの非空証明になっている）
+  - **変異の実測（M1 / M2 / M5 は独立レビューが個別に再現し申告と一致。M3 / M4 は実装の申告値）**: M1（作成の重複検査を外す）単体 1 件・統合 1 件、M2（採番を件数へ戻す）**4 件・2 件**（`nextDisplayOrder` を4経路が共有するため1つの変異が同時に壊す。**レビューは落ちた4件が `create` / `copy` / `bulkCopy` / `bulkMove` であることを検証名で確認した**）、M3（更新の重複検査を外す）1 件・1 件、M4（並び替えの適用後の検査を外す）2 件・2 件、M5（移動の重複検査を外す）1 件・1 件。復元は `git hash-object` の一致を5回とも確認した
+  - **残る記録の粗さ（独立レビューの FYI、未対応）**: design.md の当該節の前書きは「実測はいずれも HEAD `8b19d5b3` の**作業ツリー**で」のままである。訂正側が「コミット `8b19d5b3` そのものの状態」と書き分けているため矛盾はしないが、**前書きへ一句を足すと将来の読者の躓きが減る**
+  - **既存検証への波及（開示）**: 採番を最大値+1へ改めたことで、件数を前提にモックしていた既存の単体4件が落ちたため、当該4件に `aggregate` のモックを足した（期待値は変えていない）
+  - **関門**: 19 本すべて実行し、終了コードは基線と一致。動いた値は**3つ**（`check:criterion-literals` 1577→1578、`check:cf-evidence` 走査 1792→1793、`check:dead-script-env` 2033→2034）で、いずれも新設検証ファイル1件ぶん。**`check:design-path-refs` は面・母数・免除のいずれも不変**——本項が design.md で名指したパスは 92.1 の記録が同じ文書で既に名指していたものだけだったため。テスト件数は単体 5701→5714、統合 894→908（52→53 ファイル）
+  - **本節では閉じない穴**: **並行の窓は残る。** 検査も採番も**数えてから書く**形で、数量項目の個別 API はいずれも数量表の行ロックを取らない（**コードを読んだ判断で、並行プローブは走らせていない**）。受け皿は 92.4（本項の完了に合わせて境界を数量項目へ広げた）
+  - **`move` が「使用中の displayOrder」を挿入ではなく 400 で拒むのは設計判断である**。画面・受入検証からの呼び出しが 0 件のため利用者への影響は無いが、将来この API を画面へ結線する場合は挿入の意味論を別途決める必要がある
+
+- [x] 92.4 並び順の個別 API に残る「数えてから書く」窓の処遇を決める
+  - **経緯**: 92.1 が逐次の穴を塞いだ結果、残るのは並行の窓だけになった。92.1 の独立レビューが「塞いだ」と読める記録を差し戻し、実装が design.md へ限定を併記した。**88.1 の残るリスク (a) はこの窓について今も開いている**
+  - **測った事実**（コミット `4a745c07`、2026-09-12、リポジトリルート。**コードを読んだ判断であり並行プローブは未実行**）: `create()` / `update()` / `updateDisplayOrder()` は行ロックを取らない（`grep -n 'FOR UPDATE' backend/src/services/quantity-group.service.ts` の当たりは `copy()` と `createGroupsFromSurvey()` のみ）。`assertDisplayOrderNotTaken` と並び替えの適用後の検査はいずれも数えてから書く形で、Read Committed の既定では並行する2要求が両方とも検査を通過して同じ値を書きうる
+  - **前提条件を添えて読むこと**: 到達には、画面から呼ばれない3経路へ認証済みの並行要求を投げることが要る（92.1 が本番の呼び出し元 0 ファイルを実測）。**これが抜けると優先度を過大に見積もる**
+  - **まず実測すること。** 88.1 が `saveDraft` に用いた `pg_stat_activity` で先行を保留する決定的な形が流用できる。**窓が実在することを測ってから塞ぐ向きを決めること**
+  - 塞ぐなら**対象の全経路**（数量グループの3経路と、92.3 が塞いだ数量項目の7経路）にも数量表の行ロックを取らせるか、遅延一意制約を置く（92.1 は非遅延の一意索引が保存経路を壊すことを実測済みで、92.3 は項目側で落ちる件数がグループ側より多いことも実測している）。**「受け入れて記録する」も選択肢である**——その場合は 88.1 の残るリスク (a) に結論と根拠を書くこと
+  - **併せて直すこと（92.1 の独立レビューの Suggestion）**: design.md の「採らなかった案」の行ロックの箇条は、88.1 が退けた**逐次**の重なりについて「直列化では防げない」と述べている。新設節の「塞ぐなら行ロック」は**並行**の窓についてであり、射程が違うだけで両立するが、並置されると矛盾と読まれうる。前者へ「（逐次の重なりについて）」の一句を足すこと
+  - **【境界を広げた（2026-09-12）】数量項目側にも同型の窓が残る。** 92.3 が数量項目の7経路について逐次の穴を塞いだが、検査も採番も数えてから書く形で行ロックを取らないため、同じ並行の窓が残る（92.3 の実装がコードを読んで判定。並行プローブは未実行）。**受け皿を分けると同じ判断を二度行うことになるため、本項の境界を数量グループと数量項目の両方へ広げた**
+  - _Depends: 92.1, 92.3_
+  - _Boundary: 数量グループと数量項目の並び順の個別 API における並行制御_
+  - **決着（HEAD `82a87a56` を起点に 2026-09-12、リポジトリルートで実測）**: 窓の実在を**先に実測してから**塞いだ。対象の**全10経路**（数量グループの `create()` / `update()` / `updateDisplayOrder()`、数量項目の `create` / `update` / `updateDisplayOrder` / `copy` / `move` / `bulkCopy` / `bulkMove`）が、トランザクションの最初に**数量表の行**の `SELECT ... FOR UPDATE` を取る。応答の形は変えていない
+  - **測った事実①（是正前の状態＝`82a87a56` の作業ツリー＋プローブ1ファイルのみ。実装は未変更）**: 数量グループの作成2本（省略）が両方 201・両方採番 `2`、同じ値を明示した2本が**両方とも重複検査を通過**して `[0,1,7,7]`、数量項目の作成2本も両方採番 `2`。**関門を使わない同時送信は 10 回中 10 回重なった**。88.1 の学び「`Promise.all` は確率的にしか落ちない」に対し、本経路では毎回再現した
+  - **測り方**: 88.1 の `pg_stat_activity` の流用だが、本経路はロックを取らないため「ロック待ち」が生じない。そこで第三のトランザクションが親行を `FOR UPDATE` で握り、子行の INSERT が**外部キーの KEY SHARE** で待つ性質を使った。待たされるのは採番・重複検査を終えた後なので、**2本とも検査を通過した状態で停止させられる**
+  - **ロック対象の選定とデッドロックの論証**: 88.1 が `saveDraft` / `copy()` / `createGroupsFromSurvey()` で取るのと同一の行を選び、本スペックのロックを1種類に揃えた。**各経路はこの1行だけを最初に取る**ため、或るロックを保持したまま別のロックを待つ状態が生じず、順序の循環＝デッドロックは構造的に起こらない。**例外は `bulkCopy` のみ**（対象項目が複数の数量表に跨りうる）で、取得順序を数量表 ID の昇順に固定した
+  - **採らなかった案①（数量グループの行をロックする）**: 粒度は細かいが `move` / `bulkMove` が2グループに跨り、複数ロックの取得順序を決める必要が生じる。数量表の行なら1行で足りる
+  - **採らなかった案②（遅延一意制約）**: 92.1 / 92.3 が非遅延の一意索引で `saveDraft` が壊れることを実測済みで、Prisma のスキーマ定義では遅延制約を宣言できない
+  - **採らなかった案③（受け入れて記録する）**: 到達に認証済みの並行要求が要り画面からの呼び出しは 0 という前提は変わらないが、(i) 関門なしで 10 回中 10 回再現し悪用の難度が「並行に2本送る」だけであること、(ii) 是正が既存のロック対象の再利用で済みデッドロックの論証が閉じること、(iii) 受け入れた場合に残せるのは散文だけで **92.2 が開示したとおり散文は関門が見張らない**こと、の三点で塞ぐ側を採った
+  - **変異の実測（独立レビューが M1 / M2 を再現し、経路ごとの選択性まで一致した。さらに単体の波及を M3 として再現し 22 件を確認。是正後の作業ツリー）**: M1（数量グループ `create()` から行ロックの1行を外す）で新設の統合検証が 5 件中 **3 件**落ちる（**数量グループの3件のみ。項目の2件は緑**）。M2（数量項目 `create` から外す）で 5 件中 **2 件**落ちる（項目の2件のみ）。**変異ごとに当該経路の検証だけが落ちる**——観測器が経路を取り違えていないことの証拠である
+  - **デッドロックの論証は独立レビューが全10経路を読んで構造的に成立すると確認した**。あわせて**「この1行だけ」は明示ロックについての主張であり、暗黙の外部キーの行ロックは別に存在する**ことを指摘している（監査ログの挿入が利用者の行に取るもの等。逆順の待ちを作らず 88.1 から続く既存の形で、本項の瑕疵ではない）
+  - **RED と提出する検証は同一のファイルではない（開示）**: RED は4件版の測定用プローブで採った。提出する検証は是正後の挙動を主張する5件版へ作り替えてある（是正後は INSERT ではなくロック取得で待つため、関門の待ち先を変える必要があった）。**5件版を固定しているのは上の M1 / M2 である**
+  - **既存検証への波及（開示）**: 数量項目の単体検証 22 件が一時的に落ちた。原因は単一で、`update` / `copy` / `move` の describe が `quantityItem.findMany` をモックしておらず、ロック対象の先読みが `undefined` を受けたためである。既定を空配列にする1箇所の是正で 22 件とも復し、**期待値は一つも変えていない**
+  - **関門**: 19 本すべて実行し、終了コードは基線と完全一致。動いた値は**5つ**（`check:criterion-literals` 1578→1579、`check:cf-evidence` の走査 1793→1794 と**「引用を照合した反実仮想」243→244**、`check:dead-script-env` 2034→2035、`check:design-path-refs` の**母数 736→737**。面 190・免除は不変）。**実装の申告は4つで、反実仮想の 243→244 を落としていた**（新設検証の冒頭の註が反実仮想を1件持つため。独立レビューが退避による実測で確定）。テスト件数は統合 908→913（53→54 ファイル）、単体は 5714 のまま（単体検証を足していない）
+  - **限界（開示）**: **行ロックを固定できるのは実データベースへ接続する統合検証だけである**（モックの `$queryRaw` は足場にすぎず、単体 5714 件は M1 / M2 のいずれの下でも緑のまま）。一意制約を置かない選択は変えていないので **Prisma を経由しない直接の SQL 書き込みは守らない**。**ロック待ちの上限は本項でも入れていない**（92.5 の境界）。`bulkCopy` の昇順固定という不変条件は**散文とコード註でしか守られていない**（関門は無い）
+  - **開示**: 数量項目の個別 API は E2E の前提条件が 41 箇所で呼ぶため、同一数量表への項目作成が直列化される。E2E は逐次に作るので機能的な影響は無いが、**将来これらを並列化すると待ちが増える**
+
+- [x] 92.5 保存のロック待ちに上限を設け、時間切れの応答を決める
+  - **経緯**: 92.2 が測った本当の欠陥は**応答のコードではなく待機に上限が無いこと**であり、同節の境界（時間切れの応答）では閉じない。独立レビューが受け皿の新設を推奨し、境界と表題まで具体案を出した。92.3 / 92.4 はいずれも並び順の話で受け皿にならない
+  - **測った事実**（92.2 の実測。コミット `06feaf7b`、2026-09-12、リポジトリルート。独立レビューが三条件を再実測して一致）: `SELECT ... FOR UPDATE` は先行が終わるまでブロックし、Prisma の対話トランザクションの時間切れは実行中の問い合わせを中断しない。**先行を 120 秒握らせた条件では後発の所要も 120013 ms だった。** `grep` の当たりは backend 全体で `lock_timeout` が 0 件
+  - **(1) 待機を切る手段を両方測ってから決めること**: `SET LOCAL lock_timeout` で待機を切る案と、`$transaction` の `timeout` / `maxWait` を明示する案。**前者だけがロック待ちを切れる**（後者は 92.2 が実測したとおり実行中の問い合わせを中断しない）
+  - **(2) 上限値は画面の体感と保存の所要時間の実測から決め、根拠を併記すること**
+  - **(3) 92.2 の「採らなかった案②（専用の応答の新設）」をここで再審すること**——上限を入れれば「混雑。時間をおいて再試行」の含意が正しくなるため、**92.2 の不採用理由はここでは成立しない**。現状の観測性はログのみである（ルートが `logger.error` で例外を落とす）
+  - **(4) 上限超過時の画面の文言と、運用側の識別（ログ／コード）まで決めること**
+  - **(5) 併せて 92.2 の決着を安価に固定すること（独立レビューの推奨）**: 退行が現実的なのは「見知らぬ例外が `QUANTITY_TABLE_SAVE_ERROR` へ畳まれる」の一点で、既存のルートの単体検証へ P2028 で落とすモックを 1 件足せば実質ゼロ秒で固定できる。**9 秒級の統合検証は足さないこと**——壁時計を恒久的に払ううえ、Prisma 既定の 5 秒という外部の既定値を暗黙に固定するため、将来 `timeout` を明示した途端に「正しい変更で赤くなる」脆い検証になる。端から端までの証拠を残すならロールバックの条件1件に絞ること
+  - **(7) 92.4 の独立レビューが残した非阻害の指摘2件を併せて処理すること**: (i) 関門を使わない2件の検証は**並行要求の応答コードを主張していない**——重なりが無いことしか見ないため、仮に2本とも 500 で死んでも残る並びが一意になり通過する（M1 / M2 で現に落ちるので死んだ主張ではないが、守りは読み味より弱い）。`[201, 201]` の主張を足すこと。(ii) 92.4 が新設したロックのヘルパーは、既存の `copy()` / `createGroupsFromSurvey()` と異なり `AND "deletedAt" IS NULL` を付さない（論理削除済みの行も握って後続で 404）。無害だが不統一であり、揃えるか、揃えない理由を記録すること
+  - **(6) design.md の 120 秒のデータ点へ出所を併記すること**: 初回のプローブが解放を `finally` に置いて膠着した形から得た値であり、表の三条件は保持時間を明示して解放している旨を、数値が現れる場所へ書く
+  - _Depends: 92.2_
+  - _Boundary: 数量表の保存におけるロック待ちの上限と、その時間切れの応答_
+  - **決着（HEAD `21d95ac1` の作業ツリー、2026-09-12、リポジトリルートで実測）**: `saveDraft` のトランザクション冒頭で `SET LOCAL lock_timeout = '2000ms'` を掛けてから数量表の行を `SELECT ... FOR UPDATE` で取り、上限超過（PostgreSQL の `55P03`）を専用の例外へ写して **503 / `QUANTITY_TABLE_SAVE_BUSY`** で返す。ルートは同時に `logger.warn` で上限値つきの記録を残す。**フロントエンドは一行も変更していない**
+  - **(1) 二つの手段を両方測った**: `$transaction` の `timeout` / `maxWait` を 2000 ms に明示しても、先行が 6 秒握る条件で後発の所要は **6014 ms** で**待機は切れない**。`SET LOCAL lock_timeout` は、設定 1000 ms → 待ち 1021 ms、2000 ms → 3125 ms、3000 ms → 3009 ms で打ち切られ `55P03` を投げる。対照として競合が無ければ同じ取得が 13 ms で成功する。**92.2 の「トランザクションの時間切れは実行中の問い合わせを中断しない」を鵜呑みにせず測り直した**
+  - **(2) 上限値 2000 ms の根拠**: 保存そのものの所要は 2グループ×3項目で中央 18 ms（10 回）、10グループ×200項目で中央 237 ms（5 回）。上限は競合する先行の保存を待つのに十分（大きい保存の 8 倍超）で、かつトランザクションの制限時間（Prisma 既定 5 秒）より確実に手前で効く必要がある。**設定値に対する待ちは環境の揺らぎで最大 1.56 倍（2000 ms に対し 3125 ms）まで伸びた**ため、2000 ms なら最悪約 3.1 秒＋大きな保存 0.3 秒で 5 秒に届かない。3000 ms では約 4.5 秒で余裕が無い
+  - **(3) 専用応答の再審**: 92.2 の不採用理由（利用者に届く文言が変わらない）は**上限が無いことに依っていた**。上限を入れた今は「混雑しており、時間をおけば解消する」が真になり、恒久的な失敗（500）と一時的な失敗を運用側が見分けられる。よって専用応答を起こす側へ裁定を改めた。**503 としたのは、先例 `EstimateSaveTimeoutError`（500）が「件数を減らさない限り再送しても成功しない」終局的な失敗であるのに対し、本エラーは時間をおけば解消するためである**
+  - **(4) 文言と運用側の識別**: 利用者向けの文言は変えない。画面は 409 以外を畳んで「保存に失敗しました。再度お試しください。」を出すが、上限超過に対して取るべき行動はまさに「時間をおいて再試行」であり一致する。増やしたのは応答のコードと `logger.warn` だけである。**開示**: `frontend/src/api/client.ts` は 5xx を最大3回・1/2/4 秒の待ちで自動再試行し、抑止は非再試行コードの一覧に限る。`QUANTITY_TABLE_SAVE_BUSY` は載せていない（再試行が正しい行動であるため）ので、**サーバー側の待機は 1 回 2 秒で切れるが、画面が諦めるまでの体感は最悪およそ 19 秒になりうる**。**この 19 秒は実測でなく、待ちの実測と再試行設定からの算術である**
+  - **(5) 92.2 の決着の固定**: ルートの単体へ P2028 で落とすモックの1件を足した（`code` が `QUANTITY_TABLE_SAVE_ERROR` であり `Transaction Timeout` でないこと、素の `Error` も同じ本文へ畳まれることを併せて主張）。**9 秒級の統合検証は足していない**
+  - **(7-i) `[201, 201]` の主張を追加し、必要性を変異で実証した**: 並行要求の作成だけを失敗させる変異を当てると、主張が在る状態では `expected [ 500, 500 ] to deeply equal [ 201, 201 ]` で 1 件落ち、**同じ変異のまま主張だけを外すと 2 件とも通過した**（重なりの不在だけでは 2 本とも死んでも緑になる）
+  - **(7-ii) ロックのヘルパーに `AND "deletedAt" IS NULL` を付さない理由を記録**: 述語の有無で応答が変わらない（付せば行を握らず、付さねば握るが、いずれも直後の読み取りが論理削除を見て 404）。**付す形にすると「ロックを取らずに検査を通した」経路が新たに生じる**。`saveDraft`（88.1）の行ロックも同じ理由で述語を持たない
+  - **変異の実測（独立レビューが M1 / M3 / M4 / M5 / M6 を再現した。是正後の作業ツリー）**: M1（`SET LOCAL lock_timeout` の1行を外す）単体 1 件・統合 1 件（約 21 秒後）、M2（`55P03` の判定を無効化）単体 1 件・統合 1 件、M3（ルートの 503 分岐を殺す）ルート単体 1 件・統合 1 件、M4（一般の 500 の `code` を別名へ）92.2 固定用の単体 1 件、M5（上記 7-i。**レビューの粗い変異では主張ありで 2 件落ちたが、増えた 1 件は 92.5 が足した主張ではなく既存の主張による失敗であり、新設の主張の必要性そのもの（あり→落ちる／外す→通る）は反証込みで成立した**）、M6（上限値 2000→3000）単体 1 件・**統合は緑のまま**
+  - **上限値と `SET LOCAL` の到達範囲は独立レビューが自分で測り直した**: `lock_timeout='2000ms'` の待ちは `[3237, 2007, 2003, 2006, 2006]` ms で全件 `55P03`、無競合の対照は 1.6 ms。**実装が根拠にした 1.56 倍の伸びは初回サンプルとして再現し（1.62 倍）、定常は約 2006 ms である**。最悪でも待ち 3.2 秒＋大きな保存 0.3 秒で約 3.5 秒となり、Prisma 既定の 5 秒に届かない。`SET LOCAL` はトランザクション内に限定され、プール接続へ漏れないことを実測（`after_tx=0` / `next_tx=0` / `fresh_session=0`）。値は定数で呼び出し側から制御されず注入面は無い。**ただし「大きな保存 237 ms」はレビューでは再測しておらず実装の申告に依拠している**
+  - **再試行との相互作用の裁定（独立レビュー）**: 503 は確かに計4回・1/2/4 秒で再試行される。**再試行可のままが正しい**——上限超過時は何も書かれておらず、版の照合が二重適用を防ぎ、競合相手が確定していれば再送は真正な 409 になる。競合の増幅は各再試行がロック待ちの列へ再参入する分だけ存在するが、1回 2 秒で切れ指数バックオフが入るため有界かつ軽微である。**将来の負荷試験で増幅を再確認すること**
+  - **残る非阻害の指摘（独立レビュー、未対応）**: (i) `QuantityTableSaveBusyError` の `problemType` が内部エラーのままで、ルートが自前で型を組み立てるため本経路では死んでいる。**他経路から共通のエラー処理を経由して描画されると、503 なのに内部エラーの型を名乗る**（当該経由が生じる際に是正すれば足りる）。(ii) 上限値は `logger.warn` にのみ載り応答本文には出ない（意図的と読めるが記録は無い）
+  - **本項が上限を掛けたのは `saveDraft` だけである**（`SET LOCAL` は当該トランザクションの内側にしか効かない）。92.4 が10経路へ入れた行ロックと `copy()` / `createGroupsFromSurvey()` には上限が掛からない。いずれも画面から到達しない経路のため対象外とした
+  - **限界（開示）**: 上限が実際に待機を切ることを固定できるのは統合検証だけである。**上限値の妥当性はどの検証も固定していない**——`2000` を `3000` へ変える変異では単体 1 件（文面に `2000ms` を求める主張）が落ちるが**統合検証は緑のまま**で、統合は 2 秒と 3 秒を区別しない。`logger.warn` に記録が残ることも検証していない
+  - **関門**: 19 本の終了コードは基線と一致。動いた値は **`check:design-path-refs` の母数 737→739 の1本だけ**（面 190・免除は不変）。**新設の検証ファイルが 0 件（既存ファイルへ足した）ため、92.1 / 92.3 / 92.4 が動かした三つの走査系（`criterion-literals` 1579・`cf-evidence` 走査 1794 と反実仮想 244・`dead-script-env` 2035）はいずれも動いていない**。テスト件数は単体 5714→5719、統合 913→914
+
+**本節が `_Requirements:` を持たないのは意図である。** 守るのは並び順の一貫性とエラー応答の妥当性であり、本スペックの受入基準として条文化されていない。
+
+_起票元: Task 88.1 の実装が一時プローブで実測し、独立レビューがコードを読んで裏づけて申し送った_
+
+## Task 93: 設計文書のサービス契約が実体を持たない名前を挙げ続ける状態を解消する
+
+**経緯**: Task 89.3 の実装が `QuantityGroupService.unlinkSurveyImage` の不在を測定し、その独立レビューが兄弟の `linkSurveyImage` も同じく不在であることを検出した。89.3 の境界（数量表画面の未結線の型契約）の外にあるため、本節を受け皿として起こした。
+
+**測った事実**（コミット `44463464`、2026-09-12、リポジトリルートで実測）:
+
+- `.kiro/specs/quantity-table-generation/design.md` の `#### QuantityGroupService` の Service Interface は `linkSurveyImage`（`:1079`）と `unlinkSurveyImage`（`:1080`）を挙げるが、`backend/src` への語境界 grep はどちらも **0 件**である
+- **挙動が欠けているのではない。** 実体は `update()` が `input.surveyImageId` を設定するか `null` にするかで担っており（`PUT /api/quantity-groups/:id`、design.md `:1150`、`UpdateQuantityGroupInput` は既に `surveyImageId?: string | null` を持つ）、**設計文書側の名前が実装と乖離している**
+- 同型の乖離 `reorder` → `updateDisplayOrder` は、design.md が Task 88.1 の注で既に開示済みである（本節の対象外）
+
+- [x] 93.1 実体を持たない二つのメソッド名に現況を併記する
+  - **削除ではなく、当時の記録を残したまま現況を並べること**（規約 (a)。89.1 / 90.1 の先例に倣う）
+  - **実測値には 再現コマンド・実行の起点・コミットのハッシュ・日付 の4点を揃えること**
+  - **着手時に二つの不在と `update()` による実体を測り直してから書くこと。** 起票が挙げた行番号をそのまま写さないこと
+  - 走査を広げたならその網と出力を書くこと。広げないなら範囲を二つのメソッドに限ると明記すること
+  - _Depends: 89.3_
+  - _Boundary: design.md の QuantityGroupService のサービス契約の記述_
+  - **着手時に測り直した**（コミット `e37a84b9`、2026-09-12、リポジトリルートで実測。以降の実測はすべて同一の版・同一の起点）
+  - **起票が挙げた行番号は写していない。写せば誤りだった**: `:1079` / `:1080` はコミット `44463464` の値であり、`e37a84b9` では `:1080` / `:1081` へ1行ずれていた。**併記の指し先には行番号を使わず、宣言の逐語を採った**
+  - **二つの不在**: `grep -rnw -E 'linkSurveyImage|unlinkSurveyImage' backend/src` は当たりを一つも返さない（出力は空、終了コード 1）
+  - **`update()` による実体を、経路・サービス・入力型の三点で確かめた**: `updateQuantityGroupSchema` が `surveyImageId` を nullable かつ optional で受け、`PUT /api/quantity-groups/:id` が `update` へ渡し、`update()` が `input.surveyImageId !== undefined` のときだけ書く。画像IDで紐付け、`null` で紐付けが外れる。**挙動の欠落ではなく、設計文書の側の名前の食い違いである**という起票の判断は実測で支持された
+  - **走査は二つで打ち切っていない（89.3 の学びへの対応）**: Service Interface の**全9メソッド**を一件ずつ測った。出力は6件が実体を持ち、`linkSurveyImage` / `unlinkSurveyImage` / `reorder` の3件が持たない。**二つではなく三つだった**。`reorder` は実体が `updateDisplayOrder()` であることを Task 88.1 の注が既に開示しているため本項の対象外とした
+  - **網は `##### API Contract` の表にも広げた**: `PUT` と `DELETE` の `/api/quantity-groups/:id/survey-image` に対応する経路は登録されていない（登録は8件で `survey-image` を含むものは無い）。**上の二つのメソッドと同じ操作を HTTP の層で述べた行であるため、境界内と判断して併記した**
+  - **逆向きの食い違い（測定のみ・未処置）**: 実装は `copy()` を持つが Service Interface はこれを挙げていない
+  - **範囲外の同型（測定のみ・未処置）**: (i) 表の `/groups/reorder` は実装では `/order` で登録（`reorder` 系のため 88.1 の開示の範囲）。(ii) Service Interface の `update()` は3引数、実装は4引数。(iii) `UpdateQuantityGroupInput` は `displayOrder` を挙げないがスキーマは受ける。(ii)(iii) はメソッド名の不在ではないため触れていない
+  - **錨が自分自身を数えることの開示（版で固定する）**: 2つの宣言の逐語は `e37a84b9` では `grep -cF` がそれぞれ `1` を返したが、**本追記の後はそれぞれ `2` である**（併記が逐語を引いた分）。**件数で生存を判定しないこと**
+  - **関門は19本とも基線と同じ終了コードで、しかも出力がバイト一致**（`diff -q` が19本とも identical）。`check:cf-evidence` の第2の数値（引用を照合した反実仮想 244 件）も不動。**新規の実在パスを一つも書かず**、不在を表す語を実在パスと同じ行に置いていないことも確かめた（79.1 の学び）。**独立レビューが基線を自分で取り直して19本すべての出力のバイト一致を再現し、9メソッドの点呼・経路登録・`update()` の実体・行番号のずれ・錨の自己計数もすべて独立に再測定して一致した**
+  - **残る非阻害の指摘（独立レビュー、未対応）**: (i) 錨の自己計数の開示は本記録にしかなく design.md 側には無い。同文書は件数を引いていないため実害は無いが、後任が `grep -cF` で `2` を得たとき宣言が2件あると誤読する余地は残る。(ii) **89.3 の記録が引く行番号も現在はずれている**（同じ1行の挿入による）。89.3 の記録は本項の境界外であり、触れなかったのは正しい
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 79 / 87 と同じ）。受入基準を実装せず、状態記録を現況へ追随させるだけである。
+
+_起票元: Task 89.3 の実装が不在を測定し、独立レビューが兄弟メソッドの列挙漏れを検出して申し送った_
+
+## Task 94: 機能レベル検証が検出した二件の残り
+
+**経緯**: 本実行の機能レベル検証（`/kiro-validate-impl`）が、per-task のレビューでは見えない二件を検出した。いずれも欠陥ではなく、受け皿の無い測定記録と、実態より狭い注釈である。
+
+- [x] 94.1 到達しない本番モジュールの残りの処遇を決める
+  - **経緯**: 89.1 が「範囲外の同型（未処置）」として6件、89.3 が同節で `SurveyImageSelectorProps` 等を、**いずれも測定のみで受け皿を持たないまま**記録している。機能レベル検証が「89.1 と同じ整理の続きとして起票が望ましい」と申し送った
+  - **測った事実**（機能レベル検証が `npm run check:req-coverage:json` で確認）: `unreachableProductionModules` に 49 件が在籍する。89.1 が名指したのは `CalculationNumericInput` / `NumericFieldInput` / `TextFieldInput` / `PhotoChangeDialog` / `frontend/src/hooks/useQuantityTableSave.ts` / `frontend/src/components/quantity-table/index.ts` である
+  - **89.1 の作法をそのまま使うこと**: 一件ずつ到達可能性を測り、撤去が被覆検査を悪化させないことを前後の実測で示し、steering の追随が要るかを確かめる。**撤去が別スペックの文書や自己検査を巻き込むなら、同スペックへ起票して待つこと**（89.1 が 115.325 で踏んだ手順）
+  - **`index.ts` は再輸出であり、消費者が 0 のまま残っている**（89.1 が撤去後も到達しないと記録）。撤去の可否は他の部品の処遇と連動する
+  - _Depends: 89.3_
+  - _Boundary: 数量表画面の到達しない本番モジュールの処遇_
+  - **処遇（コミット `52879319` の作業ツリー、2026-09-14 にリポジトリルートで実測）**: 1部品を撤去し、6件を残置とした。**境界はコマンドで宣言した**——`check:req-coverage:json` の `unreachableProductionModules` 49件のうち `/quantity-table|QuantityTable/` に当たる7件が境界内で、残る42件は他スペックの所管である。**なお 89.1 の起票文が名指した6件は列挙漏れであった**——`FieldValidatedItemRow` を含めた7件が正しく、独立レビューが再現して確認している
+  - **撤去: `CalculationNumericInput`**（本体・単体検証・ストーリーの計3ファイル・**721行**。内訳は本体 214行 / `.test.tsx` 210行 / `.stories.tsx` 297行。**差分全体の削除行数は725行**で、差の4行は `index.ts` の再輸出2行と `structure.md` の2行である）。取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力は撤去の前後とも空だった。**設計文書はこの部品を一度も名指さない**——撤去の変異で `check:design-path-refs` は 0 のままである。被覆印を一つも持たず被覆の分子に寄与していなかった。再輸出2行と `.kiro/steering/structure.md` のツリー1行・ストーリー1行を外した（外さないと `check:steering-refs` が落ちる）。**design.md には注を置いていない**——名指しが無いため置く対象が無く、置けば免除の面を無用に広げる
+  - **残置: `NumericFieldInput` と `TextFieldInput`（別スペックが阻む。起票して待つ形）**。一式を外す変異（提出ツリー）で `check:design-path-refs` が 0→1 になり、名指しは `.kiro/specs/estimate-creation/design.md` の `L3255: NumericFieldInput.tsx`、および同文書 `L3200` / `L3255` の `TextFieldInput.tsx`（計2件）である。**いずれも下流の本スペックが書き換えてはならない上流の文書**であり、89.1 が `FieldValidatedItemRow` について 115.325 で踏んだ手順と同型である。**起票は親が `.kiro/specs/estimate-creation/tasks.md` の `## タスク59` に `59.1 数量表の部品を名指す 2 行の処遇を決める` として書き込み済みであり、本項はその解決を待つ**（下流は上流の設計文書も tasks.md も書き換えていない）。加えて `TextFieldInput` は生きた検証 `frontend/src/__tests__/components/quantity-table/QuantityItemFieldMaxWidth.test.tsx` が取り込み、同検証の註が存在理由を再輸出に置いている（取り出しは `git show 52879319:frontend/src/__tests__/components/quantity-table/QuantityItemFieldMaxWidth.test.tsx | grep -cF '要件13の入力制御部品としてタスク12.1が規定した部品であり公開APIとして再輸出されている。'` で出力は `1`）
+  - **残置: `PhotoChangeDialog`**。一式を外す変異（提出ツリー）では不在パスは生じないが `check:design-path-refs` が免除機構の側で 0→1 になる——`.kiro/specs/quantity-table-generation/design.md [面] -1件` / `[免除の延べ] 0 → 4` / `[免除の集合] +1件`。撤去すると同文書の当該部品への言及4件が**無言で免除へ移る**形であり、解除には全スペック共通の統治台帳 `scripts/design-path-exemption-baseline.json`（同部品は141行目に在籍）の更新が要る。境界を越えるため残置とした
+  - **残置: `frontend/src/hooks/useQuantityTableSave.ts`**。一式を外す変異（提出ツリー）で `check:design-path-refs` が 0→1 になり、名指しは `.kiro/specs/quantity-table-generation/design.md` の `L301`。**阻むのは自スペックの文書であり、NFI/TFI と違って境界内で解ける**。ただし 68.6 が「design 準拠・テスト十分・境界遵守のため維持し」と意図して残した経緯があるため、先行タスクの明示判断を本節の裁量で覆さず残置とした。**撤去するなら別タスクとして起票すること**
+  - **残置: 再輸出ファイル `frontend/src/components/quantity-table/index.ts`**。**阻んでいるのは設計文書ではない**——同ファイルだけを削除する変異を**基線ツリー**（94.1 の変更を当てる前。`git status --porcelain` が空の状態）へ当てると `check:design-path-refs`=0 / `check:steering-refs`=0（照合主張719件のまま）/ `check:design-code-refs`=0 で、未到達は 49→48 だった。**独立レビューが提出ツリー（94.1 の変更後）へ当て直した実測は 48→47 / 照合主張717件であり、3本とも exit 0＝撤去は関門中立という結論は再現されている。** 残置の理由は 89.1 が書いた「撤去の可否は他の部品の処遇と連動する」の側にある——同ファイルは残置した `TextFieldInput` / `NumericFieldInput` を公開APIとして輸出する唯一の口であり、上記の生きた検証の註がその再輸出を存在理由に据えている
+  - **残置: `FieldValidatedItemRow`**（89.1 の所管。site-survey の Task 115.325 の解決待ちであり、本節は手を触れていない）
+  - **89.3 が測定のみで残した三名も再実測した**: `SurveyImageSelectorProps` / `createDefaultQuantityItem` / `createDefaultQuantityGroup` は語境界の当たりがいずれも自身の1行のみ。ただし**これらは死んだモジュールではなく死んだ名前である**——在籍する `frontend/src/types/quantity-edit.types.ts` は `unreachableProductionModules` に**不在**（＝到達する）。加えて `scripts/criterion-literal-adjudication.json` の `quantity-table-generation/REQ-5.1` が同ファイルの「項目の型と既定値」を `alternativeBasis` に据え `evidence` に同ファイルと `EditableQuantityItemRow.tsx` を挙げる（両者とも実在）。既定値の撤去は裁定の根拠に触れるため残置とした
+  - **被覆検査の前後（`npm run check:req-coverage`。提出時点で測り直した）**: 動かなかった値は、到達を加味した適用対象の被覆 2659/2695（98.66%）、到達しない被覆源のみの受入基準4件（いずれも他スペック＝estimate-creation 3件・project-management 1件）、到達モジュール 539。動いた値は、本番モジュール 588→587（未到達 49→48）、機能名を欠くヘッダー 2014件/958ファイル→2011件/955ファイル、眠る名乗り 5133→5127。撤去した検証1ファイルの見出しは機能名を欠く形で被覆源ではなかった。**数量表の未到達は 7→6 件**である
+  - **関門19本の終了コードは基線と同一**（`diff` が空。取り出しは `grep -oE 'npm run check:[a-z0-9-]+' .husky/scripts/pre-push.sh | sort -u` で、**本日の実測は19本**——89.1 の「18本」は現況では古い）。赤い2本（`check:design-measurement-freshness`・`check:req-coverage`）は**いずれも基線から赤く**、前者は出力が基線とバイト一致である。`check:req-coverage:selftest` の唯一の失敗は基線と同じ上限ちょうどのラチェットで、値が 2011 / 5127 へ減り遊びが広がった。`check:steering-refs` の照合主張は 719→717 件へ減って緑
+  - **挙動不変の実測**: 撤去後の全件は 522ファイル/11983件が緑（基線 523/12000）。差は **-1ファイル / -17件**で削除した検証の `it(` 17件と一致し、他の検証は一件も動いていない。`type-check` exit 0、`lint` exit 0。独立レビューが shard 分割で再現し、1/2＝261ファイル/6088件 exit 0・2/2＝261ファイル/5895件 exit 0 の**合算 522/11983 全緑**を確認している
+  - **撤去した名前が残る記録（境界外なので未変更）**: `grep -rn 'CalculationNumericInput' scripts .kiro e2e` の当たりは本スペック `tasks.md` の3行（`:365`・`:2698`・`:3031`）のみで、`scripts` と `e2e` の当たりは0件。いずれも「当時こうした」と読む歴史記録であり規約 (a) により書き換えていない
+  - **範囲外の同型（未処置・測定のみ）**: `frontend/src/__tests__/pages/SiteSurveyDetailPage.test.tsx` の `SiteSurveyDetailPage - 通信断時の警告と保存抑止 (Req 15.6) > 通信が切れると警告を表示し、保存ボタンへ抑止を示す` が、**全件走行で再現性なく落ちる**（`TestingLibraryElementError: Unable to find an element by: [data-testid="offline-warning"]`）。同一ツリーの全件走3回のうち落ちたのは1回だけで、基線の全件走でも撤去後1回目でも当該ファイルの `FAIL` は0件、**単独実行では緑**である（本実装者の実測は2ファイル/97件 exit 0、独立レビューの実測は1ファイル/85件 exit 0）。当該ファイルは `grep -nE "quantity-table|CalculationNumericInput"` の当たりが**0件**で、撤去した部品にも再輸出にも一切依存しない。**本スペックの境界外（site-survey スペックの所管）であり、受け皿を持たないまま測定のみを記録する**
+  - **完了の判定**: 本項の「撤去が別スペックの文書を巻き込むなら同スペックへ起票して待つこと」は**起票と待機の両方を課している**（89.1 が 115.325 で踏み、Implementation Notes L3120 が「『起票して待つ』は、起票を実際に書き込んでから待機に入ること」と定めた形）。**`[x]` は estimate-creation 側の Task 59.1 が解決し、`NumericFieldInput` / `TextFieldInput` の処遇を確定して被覆の前後を測り直してから付けること。** 撤去1件（`CalculationNumericInput`）と残置6件の判断は独立レビューで承認済みである
+  - **申し送り**: (i) `NumericFieldInput` / `TextFieldInput` の撤去は **estimate-creation の Task 59.1 の解決待ち**である（`design.md` L3200 / L3255 の3件。下流から上流の設計文書を書き換えないこと）。(ii) `useQuantityTableSave` は**境界内で解ける唯一の残置**であり、68.6 の維持判断を覆す是非を含めて別タスクで起票する価値がある。(iii) `PhotoChangeDialog` は統治台帳の更新を伴うため免除の面の扱いを決める節と併せて扱うこと。(iv) 再輸出ファイルは二部品の処遇と連動するので単独では起票しないこと。(v) **`SiteSurveyDetailPage.test.tsx` の `Req 15.6` の非決定性を site-survey スペックへ申し送ること**（上の「範囲外の同型」を見よ。全件走行の緑が回ごとに揺れるため、他タスクの検証結果の読みにも影響する）
+  - _Blocked: estimate-creation スペックの Task 59.1（`NumericFieldInput` / `TextFieldInput` の撤去を阻む上流の設計文書 `design.md` L3200 / L3255 の2行の処遇）の解決待ち。`CalculationNumericInput` の撤去と、残り6件の残置の判断は承認済み_
+  - **解決（2026-10-07、HEAD `c82df39b` の作業ツリーで実測）**: estimate-creation の Task 59.1 が `[x]`（同スペックの design.md L3200 / L3255 の名指しを付け替え済み）となったため、上の `_Blocked:_` は解けた。`NumericFieldInput` と `TextFieldInput` の一式（本体・単体検証・ストーリーの計 6 ファイル）と、消費者が 0 件の再輸出ファイル `frontend/src/components/quantity-table/index.ts` を本番コードから外した。`check:req-coverage:json` の `unreachableProductionModules` は 44→41（数量表の該当は 3→0）、到達モジュール 547 と到達を加味した被覆 2744/2758 は不動である。一部品ずつ外す変異で `check:design-path-refs` は全段で 0、`check:steering-refs` は `.kiro/steering/structure.md` の 4 行を外して 0 に戻った（照合 705→701）。`frontend/src/__tests__/components/quantity-table/QuantityItemFieldMaxWidth.test.tsx` から `TextFieldInput` の検証 15 件を外した（114→99）。外した観点は同ファイルの `AutocompleteInput` と `EditableQuantityItemRow` の検証が 9 列で担っており、要件 13.1〜13.3 の被覆は欠けていない。機能名を欠くヘッダーと眠る名乗りがそれぞれ 6 件・18 件減ったため、`scripts/check-requirement-coverage.ts` の上限を 1996→1990 / 5051→5033 へ下げた。pre-push の関門の終了コードは前後で同一で、独立レビューが HEAD の一時 worktree と並べて再現した。`PhotoChangeDialog`（Task 97.14 で処置済み）、`useQuantityTableSave`、`FieldValidatedItemRow` は本解決の範囲外である
+
+- [x] 94.2 突き合わせの範囲を名乗る注釈を実態へ揃える
+  - **経緯**: 機能レベル検証が検出した。`backend/src/__tests__/integration/quantity-table-save-survey-image-existence.api.integration.test.ts` の注釈が、突き合わせ対象を「`type` / `title` / `status` / `detail` / `code` の5項目（＝応答本文の全項目）」と述べるが、実際の本文と `expectedProblem` は `surveyImageId` を含む **6項目**である
+  - **欠陥ではない**。`toEqual` は本文全体を比較するため 86.2 の経路間の一致そのものは健在で、**注釈だけが実態より狭い**（安全側の誤り）
+  - **同型の先例がある**: 86.1 の初稿が「本文が同一である」と名乗りながら3項目しか比べていなかった件（Implementation Notes に記録）。あちらは実態が主張より狭い危険な向きで、こちらは逆向きである。**どちらも「表題が名乗る範囲と実際の突き合わせを一致させること」の違反である**
+  - 着手時に項目数を測り直してから直すこと
+  - _Boundary: 保存経路の応答本文の突き合わせを述べる注釈_
+  - **処遇（基線コミット `deb800aa` の作業ツリー、2026-09-14 にリポジトリルートで実測）**: 注釈**2箇所**を実態へ揃えた。**実行されるコードは一行も変えていない**——独立レビューが基線と作業ツリーの**非コメント行を全行 diff して完全一致**を確認しており、実行される行への混入は構造的に無い
+  - **項目数は6項目**（`type` / `title` / `status` / `detail` / `code` / `surveyImageId`）。実装は着手時と提出直前の二度測り、**独立レビューが `expectedProblem`（`:172-179`）を直読して再計数した**。数え方は `sed -n '/const expectedProblem = /,/^  });$/p' <file> | grep -cE "^    [a-zA-Z]+:"`。**起票文の「6項目」を写していない**（79.1 / 84.1 の学びへの対応）。独立の裏づけが三つある——(i) 本番3経路のハンドラ（`quantity-tables.routes.ts:804-813` の保存経路、`quantity-groups.routes.ts:188-198` / `:532-542` の作成・更新経路）が**3経路とも同一の6項目**を書くことをレビューが実読で確認、(ii) **6鍵の期待値に対する `toEqual` が基線で緑であること自体が、実本文がちょうど6鍵である証明**（7鍵目があれば既に赤い）、(iii) 下記の変異
+  - **直した2箇所**: ファイル冒頭 JSDoc（旧 `:17-19` → 新 `:17-20`）と、経路間一致の検証の行内コメント（旧 `:383-384` → 新 `:385-386`）。**1箇所だけ直して終えていない**
+  - **直さなかった箇所も測って記録する**: 同ファイルの `:170`（`3経路で本文の全項目が一致することは引き続き下の検証が突き合わせる`）と `:345` の `it` 表題（`…本文の全項目が一致する`）は、`toEqual` が本文全体を比べるため**既に正確**であり無変更とした。したがって**検証の表題は一つも改名しておらず、80.3 の「表題を変えると統治文書が黙って壊れる」型は発火しない**（レビューが `it` 表題の基線との逐語一致を確認し、動いたのは行番号 +1 だけであることを実測した）
+  - **検証は弱めていない**: `expect(` 16件 / `toEqual(` 5件 / `it(` 5件が基線と同数で、`.skip` / `.only` / `it.todo` は0件（レビューの実測）。`toEqual(expectedProblem(...))` は項目単位の比較へ落としていない
+  - **変異は独立レビューが再現した**（Implementation Notes「実装が申告する変異の件数は、レビュアーが再現するまで引き写さないこと」に従い、ここに記すのは**レビューの再現値**である）: `backend/src/routes/quantity-tables.routes.ts` の保存経路 404 本文（唯一の `code: 'SURVEY_IMAGE_NOT_FOUND',` = `:809`）の直後へ 7 項目め `mutationProbe: 'x',` を1行挿入すると **`Tests 4 failed | 1 passed (5)` / `Test Files 1 failed (1)`**。落ちたのは `toEqual(expectedProblem(...))` を持つ4件すべてで、実装の申告と完全一致した。**これは「全項目」という名乗りが飾りでなく、本文に項目が増えれば当該突き合わせが現に赤くなることの実測である。** 緑のまま残った1件は 200 の対照（成功経路は 404 分岐へ入らない）であり、**86.3 の学び「変異で緑のままの検証は被覆に数えない」に従い6項目の主張の被覆には数えない**——被覆を担うのは落ちた4件である。復元は退避した控えからの書き戻しで行い、`git hash-object` が `9a68656e58b735c5538f96076d70e78374255df4` で HEAD と一致、変異の残骸が無いことをレビューが両ルートファイルについて確認した（`git checkout` / `git reset --hard` は不使用）
+  - **全単体スイートは実装ではなく独立レビューが実行した**: `npm --prefix backend run test` が **exit 0 / 190ファイル / 5719件すべて緑**（74.03s、前景1回で完走）。**実装者は「走らせていない」と明記して提出しており、この実行はレビュー側の穴埋めである。** 統合検証 `npm --prefix backend run test:integration -- quantity-table-save-survey-image-existence` は編集前・編集後・変異復元後の三度とも 5 passed。`type-check` exit 0、`lint` exit 0
+  - **関門の前後**: **19本とも基線と同じ終了コードで、しかも出力がバイト一致**（`diff -q` が19本とも identical）。赤い2本（`check:design-measurement-freshness` / `check:req-coverage`）は**いずれも基線から赤い**。被覆の数値は一つも動かず、機能名を欠くヘッダー 2011件 / 955ファイル、眠る名乗り 5127件、上限 2023 / 5170（**遊び 12 / 43 を食い潰していない**）。レビューが `check:req-coverage` を独立に実行して同値を再現した。`check:cf-evidence` は exit 0（走査 1791 ファイル、照合した反実仮想 244 件）
+  - **範囲外の同型（測定のみ・未処置）**: **食い違うものは0件。** 三層で書く——(1) **機械保証は無い**（注釈と実装の範囲一致を見る関門は存在しない）。(2) **人手走査の範囲をコマンドで宣言する**: `grep -rnE '(応答本文|本文).*[0-9０-９]項目|[0-9０-９]項目.*(応答本文|本文)' backend/src frontend/src e2e` の当たりは是正後の当該行1件のみ、`grep -rn '全項目' backend/src frontend/src e2e` の当たりに突き合わせ範囲を名乗る記述は無い。同種の注釈2件をレビューが**実読**して正確と確認した——`quantity-table-save-survey-image-project.api.integration.test.ts` の `:10` / `:33` が名乗る「`status` / `code` / `detail` の3項目に限る」は経路間検証 `:395` が現に3項目だけを主張しており正確（同ファイルの `toEqual` は単一経路の全文比較であって経路間の範囲主張ではない）、`quantity-group-survey-image-deleted-survey.api.integration.test.ts` の `:175-181` と `backend/src/errors/siteSurveyError.ts:30` は件数を名乗らず正確。(3) **未走査の残余**: frontend 単体検証・E2E spec・他スペックの文書は保証しない
+  - **申し送り**: **`5項目` という綴りは当該ファイルに1件残る**——`:20` の歴史注記 `6項目のうち `surveyImageId` は Task 86.5 が加えたもので、それ以前は5項目だった。` である。規約 (a)（当時の記録を消さず現況を併記する）に沿った意図的な残置であり、レビューが `git log -S"surveyImageId: error.surveyImageId"` の初出を `cba1233f`（Task 86.5 のコミット）と特定して内容の正しさを裏づけた。**ただし是正済みかの判定に `grep -c '5項目'` を使うと 1 を返すため未是正と誤読される**（115.324「引用は自分を数える」と同型で、歴史注記自身が母集団に入る）。**判定は `grep -cE 'code( /|の| の)*.*の5項目' <file>` で行うこと**——実装とレビューの双方が **0（exit 1）** を確認している。なお `grep -rn '5項目' scripts .kiro e2e` の当たりに**当該注釈の逐語を指す統治文書は無い**（本スペック `tasks.md` の起票文と他スペックの無関係な記述のみ）ため、80.3 の型は発火しない
+
+**本節が `_Requirements:` を持たないのは意図である。** いずれも受入基準を実装せず、記録と注釈を現況へ揃えるだけである。
+
+_起票元: 本実行の機能レベル検証（`/kiro-validate-impl`）_
+
+## Task 95: 被覆率を支える除外と記帳の実質を検める
+
+**経緯**: 本実行の機能レベル検証が **NO-GO** を出した。機械的検査（全テスト 18,616件・起動の実証・TBD・秘密）、横断結線、設計整合、境界監査はいずれも合格し、本実行の2コミット（`deb800aa` / `ce455dcf`）由来の退行は一件も無い。**判定を分けたのは被覆の実質である**——適用対象 317/318 という数字が、根拠の失効した除外と、代替検証の実体を検査が確かめられない除外に支えられている。**本節の5件はいずれも本実行が持ち込んだものではなく、スペックに元から積まれた負債である。** 利用者が「5件すべてを起票する」ことを選んだ。
+
+**測った事実**（いずれもコミット `ce455dcf`、2026-09-14 にリポジトリルートで実測。親が自ら測り直した値であり、検証サブエージェントの申告を引き写していない）:
+
+- 本スペックの除外は **40件**。`npm run check:req-coverage:json` の `exclusionAudit.entries` を `id` の前置で絞り `verdict` で数えると、**`in-repo-unverified` が 39件・`in-repo-verified` が 1件**（後者は `REQ-5.3` のみ）である。横断の合計は 133件で、**本スペックが単独で 29.3% を占める**
+- **`in-repo-unverified` の定義は `scripts/check-requirement-coverage.ts` の型注釈が逐語で持つ**——「リポジトリ内の自動検証を掲げているが、到達する検証が存在しない」。`--strict` はこれが 1件でもあれば落ちる（`npm run check:req-coverage:strict` の終了コード 1、文言は「本番の経路へ到達する検証が存在しない除外が133件あります」）
+- **数の一致を基準の一致と読まないこと**: 親は当初 `alternativeVerification` にファイルパスを含むかという**自前の基準**でも 39件を得たが、**検査の判定は「本番の経路へ到達する検証が実在するか」であって別物である**。偶然同じ数になっただけであり、着手時は必ず `exclusionAudit.entries` の `verdict` で数えること
+- `REQ-29` は 10件、`REQ-30` は 7件で、**いずれも受入基準の全数が除外**されており、40件すべてが `in-repo-unverified` の側にある
+- `REQ-28.2` は**除外に不在**である。被覆されていないのは除外のためではなく、被覆印の欠落による
+
+**先行タスクとの関係で、着手前に必ず読むこと**:
+
+- **Task 78.1 は `[x]` だが、その所管は 8件であって 39件ではない**（同節の表が `REQ-4.2` / `5.3` / `6.3` / `6.5` / `8.7` / `8.9` / `8.10` / `11.2` を全件挙げている）。78.1 の任務は道具名から実在しない `Jest` を落とすことであり、**同節は既に「道具名だけを機械的に置換して終えないこと。…存在しないなら道具名の是正ではなく除外の取り下げが要る」と課している**。本節はその積み残しを 40件全体へ広げるものであって、78.1 の再実施ではない
+- **Task 78 節の「是正すると別の関門が赤くなる」という警告は、現況では解消している。** 同節は「一件でも道具名から `Jest` を落とすと `check:design-measurement-freshness` が expected=`64 0` actual=`63 0` で落ちる」と実測付きで書くが、`scripts/design-measurements.json` の宣言 `jest-alternative-verification-exclusions` は**読む先が版 `b999b2d` に固定済み**であり（`git show b999b2d:e2e/requirement-exclusions.json | …`）、同宣言の `note` が「作業ツリー読みのままだと…8スペックのいずれかが道具名から `Jest` を落とした瞬間に本検査が終了コード 1 になり、他スペックの是正が止まる」として**上流の Task 115.280 が版固定した経緯**を記録している。もう一方の `jest-alternative-verification-exclusions-site-survey` は作業ツリー読みだが `site-survey` 分だけを数えるため本スペックの是正では動かない。**規約 (a) に従い当時の記録は消さず、現況の再実測をここに併記する。着手時にもう一度測り直すこと**
+- **本節の記録を書き足す行為そのものが `check:req-coverage` の二つの上限を動かしうる。** 現況は機能名を欠くヘッダー 2011件 / 955ファイル、眠る名乗り 5127件で、上限は 2023 / 5170（**遊びは 12 / 43 しかない**）。箇条書きの見出しに `Requirements:` の形を作らないこと
+
+- [x] 95.1 REQ-2.5 の除外の根拠が失効している状態を解消する
+  - `e2e/requirement-exclusions.json` の `quantity-table-generation/REQ-2.5` は、`reason` / `alternativeVerification.description` / `alternativeVerification.threshold` の**3箇所すべてが `REQ-11.5` の自動保存テストを根拠に挙げる**（`threshold` は `covered_by: REQ-11.5`）
+  - **しかし現行の条文は自動保存を禁じている**。`requirements.md:298` は「The 数量表管理システム shall 編集内容の自動保存（一定間隔での保存）を行わず、データの永続化は保存操作時にのみ実行する（Requirement 42 AC 7）」である。**根拠として名指されたテストは、条文が明示的に禁じた挙動のテストである**
+  - **条文の矛盾ではない。** Requirement 2 は画面ごとに書き分けられており、受入基準5が一覧画面で「即座に保存する」、受入基準6が編集画面で「永続化は保存操作時に行う（Requirement 42）」である。**是正の宛先は条文ではなく除外の側**であり、理由の全面書き直しか取り下げのいずれかになる
+  - **取り下げは「実装済みか」ではなく「検証が実挙動を固定しているか」で決めること**（Task 83 / 89.2 の学び）
+  - _Boundary: `REQ-2.5` の除外の在籍理由_
+  - **処遇（基線コミット `317f16a1` の作業ツリー、2026-09-14 にリポジトリルートで実測）**: `quantity-table-generation/REQ-2.5` の除外を**取り下げ**た。`e2e/requirement-exclusions.json` の添字51（基線の `:721-734`）を削除し、`summary.totalExclusions` 194→193、`byCategory.infrastructure` 56→55、`lastUpdated` を `2026-09-14` にし、`summary.note` へ 89.2 / 90.3 と同じ形で経緯を追記した。JSON はルートの `format:check` の対象グロブ外なので `npx prettier --check e2e/requirement-exclusions.json` を直接走らせ EXIT=0 を確認した（78.1 の作法）
+  - **決定の根拠は `pending-implementation` の「肯定条項」である**（独立レビューが実装の初稿の理由づけを精査して確定させた）。同区分の定義文の逐語は `E2Eテストで確かめることが確定している要件。実装済みでE2Eテストが未作成のものと、実装が未了で確定した実装決定（E2Eの test.fail() ラチェット、または所管スペックの未了の番号付き実装タスク）と対になっているものの双方を含む。実装するかどうかが未決の条文は含めない` である。**「単に未実装なら在籍しうるのではないか」という読みは、この肯定条項が塞ぐ**——同区分は実装が未了の場合に**確定した実装決定との対**を要求し、その形を `test.fail()` ラチェットか未了の番号付き実装タスクに限定する。実測では両方とも不在だった: `e2e/specs` 全体に `REQ-2.5` のラチェットは 0件（`quantity-table-crud.spec.ts` の `test.fail` 5件はいずれも別条文のラチェットを**外した**旨の註）、`_Requirements:` に `2.5` を含む3タスク（`tasks.md:33` / `:77` / `:257` ＝ Task 2.1 / 3.1 / 9.2）は**3件とも `[x]`**
+  - **採らなかった案(b) は関門の都合ではなく意味論上の不能だった**: `method: none` + `pending-implementation` へ改める案は、`scripts/check-requirement-exclusions.ts:1147-1158` が `method: "none"` を `verificationPhase` が `e2e-testing` の分類にしか置かせないため（同ファイル `:25-26` の不変条件、タスク 115.314）、**定義文が拒む分類を必須とする**。`e2e-testing` を持つ分類は `pending-implementation` だけである。**鮮度検査を持ち出すまでもなく成立しない。** 台帳冒頭も `実装が無く実装するかどうかも未決の条文は登録しない` と取り下げを命じており、判断は台帳の設計思想と一致する
+  - **採らなかった案(a)**: `category` を `infrastructure` に据え置いて理由だけ書き直す——同区分は検証フェーズが design-review であって一覧画面の UI 挙動の検証先ではなく、分類が偽のまま残る「半分だけの是正」になる
+  - **「取り下げは検証が実挙動を固定しているかで決める」規則（83.1 / 89.2）との関係を明示する**: 同規則が禁じるのは**取り下げて被覆済みと数えさせる**ことである。本件は逆向きで、条文は未カバー側へ移り**被覆率は下がる**。独立レビューが `check:req-coverage:json` を自ら走らせ、当該番号が `coveredAcceptanceCriteria` に**両版とも不在**・作業ツリーの `uncoveredAcceptanceCriteria` に**在籍**・`excludedAcceptanceCriteria` から**消えた**ことを実測している
+  - **条文を固定する検証は存在しない（三層で書く）**: (1) **機械保証**——取り下げ前の判定が `in-repo-unverified` であり、その定義は `scripts/check-requirement-coverage.ts` の型注釈が逐語で持つ（`リポジトリ内の自動検証を掲げているが、到達する検証が存在しない`）。(2) **人手走査（範囲をコマンドで宣言）**——実装は `grep -cE '<input|contentEditable|onBlur|updateQuantityTable'` が `QuantityTableListPage.tsx` / `QuantityTableSectionCard.tsx` とも **0**。独立レビューはより広い網（`grep -nE "input|Input|onChange|contentEditable|PUT|put\(|patch|updateQuantityTable|rename|editing"`）でも **0件**を確認し、さらに**モジュール束縛の側から**裏づけた——`QuantityTableListPage.tsx` の取り込みは `getQuantityTables` / `deleteQuantityTable` / `getProject` / `Breadcrumb` / `CopyQuantityTableDialog` のみで**更新APIを一度も取り込まない**、`QuantityTableSectionCard.tsx` は名称を `:292` の見出し要素で描画するだけである。到達も `routes.tsx:267-268` で当該経路の要素が `QuantityTableListPage` ただ一つであることを確認した。(3) **未走査の残余**——一覧経路から到達する子部品を全数展開してはいない（取り込みは `Breadcrumb` と `CopyQuantityTableDialog` の2件）。反例が在れば本記述は偽になる
+  - **変異は独立レビューが再現した**（Implementation Notes「実装が申告する変異の件数は、レビュアーが再現するまで引き写さないこと」に従い、ここに記すのは**レビューの再現値**である）: **M0**（取り下げ前の台帳に対し `quantity-table-crud.spec.ts` へ `@requirement quantity-table-generation/REQ-2.5` を1行足す）→ `check:req-exclusions` が **EXIT=1 / 1件**で `exclusions[51].id: 「E2Eでは確かめない」と宣言していますが e2e/specs の被覆印が同じ受入基準を名乗っています` を出す（**除外が現に被覆印を締め出していた**ことの実測）。**M1**（取り下げ後に同じ1行）→ **EXIT=0**（193件）になり、本スペックの被覆が **318/358 (88.83%) → 319/358 (89.11%)**、適用対象の被覆率が **99.37% → 99.69%** へ動き、当該番号が未被覆から被覆へ移る（＝**条文は現に分母に在り、いま数えられていないだけである**）。復元は退避した控えからの書き戻しで行い `git hash-object` の一致を確認した（`git checkout` / `git reset --hard` は不使用）
+  - **被覆の前後（終了コードは基線と同じ 1）**: 除外 **194→193**、`byCategory.infrastructure` 56→55、本スペックの除外 40→39、適用対象 **2695→2696**（98.81%→98.78%）、到達を加味した適用対象 **2659/2695→2659/2696**（98.66%→98.63%）、本スペックの適用対象 **318→319** で被覆率 **99.69%→99.37%**。`acceptanceCriteria` 318/358 は**不動**（取り下げは分子を動かさない）。除外一覧の監査は「リポジトリ内検証を掲げるが不在」が **133→132** へ動き、**減った1件は取り下げた当該エントリそのものである**。機能名を欠くヘッダー 2011件 / 955ファイル・眠る名乗り 5127・上限 2023 / 5170 は**いずれも不動**で、**遊び 12 / 43 を食い潰していない**
+  - **関門の前後**: **19本とも基線と同じ終了コードで、うち16本は出力がバイト一致**。赤い2本（`check:design-measurement-freshness` / `check:req-coverage`）は**いずれも基線から赤い**。差分が出た3本は当該の値だけが動いた——鮮度は `[requirement-exclusions-total] expected=205 actual=194`→`actual=193` の**1行のみ**、除外定義は EXIT=0 のまま件数表示が 194→193、被覆は適用対象・除外・到達率・`infrastructure`・`in-repo-unverified` の各行のみ。**鮮度の失敗行数は基線 7・作業ツリー 7 で不変である**——採らなかった案(b) がこれを 8 へ増やす形だったため、**「失敗行を増やしていない」ことは本タスクの合否を分けた実測である**。`check:req-exclusions:selftest` は EXIT=0（70/70）、`check:cf-evidence` は EXIT=0（走査1791ファイル・照合244件）で基線とバイト一致
+  - **自分の変更が偽にした註を同じ変更で閉じた（境界の充填。独立レビューが WITHIN と裁定）**: `e2e/specs/quantity-tables/quantity-table-crud.spec.ts:553` の旧註は `受入基準 2.5 は除外である（e2e/requirement-exclusions.json）。` と**除外の在籍そのものを主張する文**であり、取り下げで偽になる。放置は `_Boundary:` の内側に偽の記述を残すことになるため、取り下げた事実と「一覧画面に名称編集の実装が無く分母に在って未カバーである」旨へ改めた。**被覆印は掲げていない**——本検証が主張するのは編集画面の保存ボタンによる永続化であって一覧画面での即座の保存ではない。変更は1行のみで `check:e2e-guards` / `check:e2e-selfjudge` の出力はバイト一致である。**同ファイル `:4933` の別の偽の註に手を出さなかった判断も正しい**と裁定された——同行は実装状況とテスト節の撤去理由を述べる文であって除外の在籍理由ではなく、直せば「境界外の押し込み」になる（77.1「境界内の未充填は拒否し、境界外の押し込みも拒否する」）
+  - **起票文の所在に誤りが1件あった（規約 (a) に従い起票文本体は書き換えず、ここへ訂正を残す）**: 起票文は「現行の条文 `requirements.md:298`」を Requirement 2 の文脈で引くが、**L298 は Requirement 11 受入基準5 である**（`### Requirement 11: 数量表の保存` は L288 開始）。Requirement 2 は **L156** 開始で、受入基準5（一覧画面・即座保存）が **L164**、受入基準6（編集画面・保存操作時）が **L165** である。実装と独立レビューの双方が行を読んで確認した。**ただし起票文の実質的な論旨（除外が根拠に挙げる REQ-11.5 は自動保存を禁じる条文であり、根拠として失効している）は L298 の条文そのものによって支持されるため、行番号の誤りは結論を動かさない**
+  - **範囲外の同型（測定のみ・未処置）**: (i) `frontend/src/pages/QuantityTableListPage.tsx:10` と `frontend/src/pages/QuantityTableListPage.test.tsx:12` の ` * - 2.5: 数量表名を編集する` は、実装も検証も無いまま条文を名乗る。**両ファイルとも配下は裸の `Requirements:`**（それぞれ `:6` / `:8`）であり、是正すると被覆検査の上限の遊び（12 / 43）を動かすため被覆印の扱いと併せた判断が要る。(ii) `e2e/specs/quantity-tables/quantity-table-crud.spec.ts:4933` の `// NOTE: REQ-2.5とREQ-4.3は実装済みのため、「未実装機能テスト」セクションは削除されました。` は `REQ-2.5` について**偽**である。(iii) `e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts:354` の `（REQ-2.5 / REQ-42.2）` は `page.getByLabel('数量表名')` を操作するヘルパの註で、**編集画面**を指しており一覧画面の条文ではない（裸の番号なので被覆に計数されない）。(iv) `scripts/exclusion-alternative-verification-adjudication.md:398` は取り下げた除外を現存として挙げたままになる。**この行は 95.1・95.2 のいずれの境界にも属さない**——95.2 の境界は「本スペックが所管する除外項目の代替検証の実体」であり、取り下げ後の `REQ-2.5` は同スペックの除外39件の外にある。**据え置きは正しい**が、同記録 §6 の表の行数は `scripts/design-measurements.json` の宣言を通じて `check:design-measurement-freshness` が見ており（同記録 §0 が「見出しの名乗りと表の実体がずれた瞬間に終了コード 1 になる」と明記）、**行だけ落とすと鮮度の失敗行が 7→8 へ増える**。**鮮度検査の宣言と対で扱う必要があるため、別途の起票を要する**
+  - **申し送り**: (i) **`REQ-2.5` の実装も検証も未起票である。** 取り下げで条文は未カバーとして可視化されたが受け皿が無く、実装するか条文を見直すかの判断を別途起票すること。(ii) 上記 (i)(ii) の陳腐化した名乗りは、被覆印の是正（95.4 と同型の「機能名を欠くヘッダー」の問題）と併せて扱うのが安い。(iii) 上記 (iv) の裁定記録の行は、**鮮度検査の宣言 `exclusion-adjudication-covered-rows` の追随と同時でなければ触れない**。95.2 の所管ではないので、そちらへ押し込まないこと
+
+- [x] 95.2 除外が掲げる代替検証の実体を与えるか、取り下げる
+  - 本スペックの除外 40件のうち **39件が `in-repo-unverified`**（上の測った事実を参照）。着手時に `exclusionAudit.entries` の `verdict` で数え直すこと
+  - **一件ずつ、`description` が約束する代替検証が現に存在し本番の経路へ到達するかを確かめること。** 存在するなら `alternativeVerification` へ到達する検証を名指しし、存在しないなら**道具名の是正ではなく除外の取り下げ**が要る（Task 78.1 が既に課している作法）
+  - 被覆担当が取り下げ候補として名指しした2件を出発点にしてよい。ただし**名指しをそのまま信じず自分で測ること**——`REQ-8.9`（ピッチ計算式。`in-repo-unverified` / infrastructure / Vitest。純粋な計算ロジックであり `frontend/src/utils/calculation-engine.test.ts` が実在する）と `REQ-42.10`（`in-repo-unverified` / integration-test / Playwright。reason 自身が `client-side-edit-explicit-save-e2e` のネットワーク監視で担保されると述べ、当該 E2E は実在する）
+  - **`category` と代替検証が食い違う4件がある**（`REQ-4.2` / `6.3` / `6.5` / `8.9` は `category: infrastructure`＝検証フェーズ design-review でありながら `method` が integration-test / unit-test）。分類の是正も併せて判断すること
+  - **39件を一度に扱う必要はない。** 分割して起票し直してよいが、**扱った件と残した件を件数で開示すること**
+  - _Boundary: 本スペックが所管する除外項目の代替検証の実体_
+  - **処遇（基線コミット `fa939d8f` の作業ツリー、2026-09-14 にリポジトリルートで実測）**: 本スペックの除外 **39件**のうち **13件を `in-repo-verified` へ移し、26件を残した**。**取り下げは一件も行っていない**ため、除外の総数 193件と適用対象 2696件は不動である。**本番コードは一行も変更していない**（変更は除外定義の JSON と検証6ファイル）
+  - **母集団は起票文と違っていた**: 起票文は「40件 / うち39件が `in-repo-unverified`」と書くが、これは 95.1 の完了前の値である。着手時の実測は **39件 / `in-repo-unverified` 38件 / `in-repo-verified` 1件（`REQ-5.3`）**であった（79.1 の学びへの対応）
+  - **中核の発見——判定は文面ではなく到達で決まる**: `verdict` は `alternativeVerification` の文面ではなく `scripts/check-requirement-coverage.ts:2423` の `reachabilityByCriterion.get(id)?.reachable === true` で決まる。**38件は一件残らず被覆源そのものが不在**であった。したがって**道具名の是正でも説明の加筆でも判定は動かない**——到達する検証へ被覆印を与えるか、取り下げるかの二択しかない。Task 78.1 が「道具名だけを機械的に置換して終えないこと」と課した理由が、機構の側から裏づけられた形である
+  - **「除外のまま被覆印を与える」形は正常形であり、同居禁止の抜け穴ではない**（独立レビューが裁定）。同居を検出する `scripts/check-requirement-exclusions.ts:892` の走査根は `:673` の `E2E_SPECS_DIR = 'e2e/specs'` と `:789` に限られ、`frontend/src` を走査する経路は同ファイルに無い。さらに同ファイル `:856-874` の JSDoc が逐語で「`frontend/src` / `backend/src` の被覆印は見ない。除外が述べるのは『**E2Eでは**確かめない』であり、単体検証や本番コードが同じ番号を名乗ることは宣言と矛盾しない」と書き、**現存の先例として `site-survey/REQ-1.6` / `REQ-8.5` / `REQ-16.8` を名指している**。除外の宣言は「E2Eでは確かめない」という**限定された否定**であって「どこでも確かめない」ではない。`in-repo-verified` という区分の存在自体が「除外のまま到達する自動検証を持つ」状態を語彙として正規に認めており、基線の `REQ-5.3` が既にその形だった
+  - **13件の処置**（掲げた代替検証は実在し本番の経路へ到達していたが、名乗りが無いため機械に見えていなかった形。検証側へ区間ごとの `@requirement` を13個置き、`description` へファイルと区間を名指しした）: `REQ-8.9` は `frontend/src/utils/calculation-engine.test.ts`、`REQ-8.7` / `8.10` は `frontend/src/utils/calculation-params-validation.test.ts`、`REQ-26.2` / `26.3` / `26.4` / `26.6` / `26.7` / `26.12` は `frontend/src/__tests__/services/export/QuantityTablePdfExportService.test.ts`、`REQ-26.9` / `26.10` は `frontend/src/__tests__/pages/QuantityTableEditPage.pdfExport.test.tsx`、`REQ-43.2` は `frontend/src/__tests__/hooks/useUnsavedChanges.test.ts`、`REQ-6.5` は `frontend/src/__tests__/pages/QuantityTableEditPage.bulkItemOperations.test.tsx`
+  - **採らなかった案（裸の `Requirements:` ヘッダーへ機能名を与える）**: その形は区間の番号を**全件一括**で被覆印へ変える。`calculation-engine.test.ts:6` の裸ヘッダーには `8.5` / `8.8`（入力欄の表示）が並んでおり、機能名を与えれば**当該検証が確かめていない条文まで被覆と数えられる**。区間ごとの `@requirement` に限ったことで、**機能名を欠くヘッダー 2011件 / 955ファイル・眠る名乗り 5127件はいずれも不動**であり、**遊び 12 / 43 を一切食い潰していない**（独立レビューが `featurelessCoverageHeaders` の全項目が基線と同値であることを確認）
+  - **検証を1件強化した。強化は被覆印の正当化に不可分である**: `QuantityTablePdfExportService.test.ts` の「テーブルヘッダーが11列構成で描画される」は**題が11列と名乗りながら5列（大項目・名称・数量・単位・備考）しか突き合わせていなかった**。見落としていたのは中項目・小項目・任意分類・工種・規格・計算方法の6列である。条文が並べる11列を全件突き合わせる形へ改めた。**強化前の版に被覆印を与えることは偽の被覆だった**——独立レビューが強化前の版へ変異 M3 を当てて **14 passed（緑のまま）**であることを実測しており、86.3「変異で緑のままの検証は被覆に数えないこと」に正面から該当する
+  - **意図的に名乗らなかった2件（86.3 への対応。独立レビューが実読で判断の正しさを確認）**: 受入基準 `26.5`（写真・コメントを数量項目一覧の**前に**配置）は、当該区間の4件を全文読むと主張はグループ間の並び順・画像追加の有無・コメント文字列の描画であり、**写真と数量項目一覧の前後関係を主張する検証が一件も無い**。受入基準 `26.8`（改ページ後のヘッダー繰り返し）は、入力がいずれも既定のモックで**ページをまたぐ量の項目を一度も与えていない**（本番側には該当実装が在るが、**実装の存在は被覆ではない**——83.1 の規則）。いずれも名乗れば偽の被覆になるため `in-repo-unverified` のまま据え置き、**名乗らない理由を現地のコメントへ明記した**（115.176「無タグの弁別検証には、無タグである理由を書くこと」）
+  - **`REQ-43.2` の名指し先は二つの候補から選んだ**: `QuantityTableEditPage.leaveGuard.test.tsx` は冒頭 `:22` が逐語で `設計上の理由でテストは useBlocker / useUnsavedChanges をモックする。` と宣言しており、`beforeunload` の実挙動ではなく**配線しか見ない**。実フックで登録・解除・`preventDefault` を確かめる `useUnsavedChanges.test.ts` を名指した。変異 M5 が前者では殺せず後者で10件殺せることと整合する
+  - **分類の是正は2件にとどめ、2件を据え置いた**: `REQ-8.9` と `REQ-6.5` は `category: infrastructure`（検証フェーズ design-review）でありながら `method` が unit-test / integration-test で食い違っていたため `integration-test` へ改めた（`byCategory` は infrastructure 55→53 / integration-test 66→68、**総数193件は不動**）。**起票文は食い違い4件を名指しているが、残る `REQ-4.2` / `REQ-6.3` は据え置いた**——両件は到達する検証が見つからず（`QuantityGroupCard.test.tsx` が名乗るのは 4.1 / 4.3 / 4.5 で 4.2 は無く、`ItemCopyMoveDialog.test.tsx:10` の「6.3」の説明は**現行条文と別の内容**である）取り下げが筋だが、**分類の食い違いと取り下げの判断は対で扱うのが安い**ため13件の処置と混ぜなかった。**分類が偽のまま2件残ることは、95.1 が「採らなかった案(a)」として退けた「半分だけの是正」と同型である**ことを自覚したうえでの据え置きである
+  - **`REQ-26.12` の被覆印が固定する範囲は「経路の実行」までである（限界の明記）**: 当該区間の主張は `expect(mockSetPage).toHaveBeenCalled()` の1行のみで、条文が課す「**表紙を除く**」は固定していない。付した註は「ページ番号を付す経路が実行されること」と実体どおりに書かれており偽の被覆ではないが、**13件のうち最も薄い一件である**
+  - **残した26件の内訳（件数で開示する。独立レビューが 17+1+7+1=26 の整合を検算）**: (a) **17件** `REQ-29.x` 10件・`REQ-30.x` 7件は **95.3 の所管**のため不介入。(b) **1件** `REQ-28.1` は代替検証の実体が `excel-parser.test.ts` にあり、そこへ被覆印を置くことが **95.4 の境界**と重複するため不介入。(c) **7件** `REQ-4.2` / `6.3` / `26.5` / `26.8` / `34.2` / `34.4` / `42.10` は測ったうえで据え置き。(d) `REQ-5.3` は着手時から `in-repo-verified` で処置不要
+  - **`REQ-42.10` は構造上 `in-repo-verified` へ移せない**: 掲げた代替検証が `e2e/specs` 配下の Playwright であり、そこへ被覆印を置けば上記の同居違反に正面から当たる（95.1 の変異 M0 が実証済み）。取り下げの可否は「参照系の取得を**許可する**監視が条文を固定していると言えるか」（許可は主張ではない）の判断を要し、95.3 が扱う同型と併せるのが筋である
+  - **被覆の前後（終了コードは基線と同じ 1）**: **除外 193件・適用対象 2696件・適用対象の被覆率 98.78%・到達を加味した適用対象 2659/2696 (98.63%) はいずれも不動**である。**除外条文は元々分母外であるため、被覆印を与えても適用対象の率は動かない——見かけの改善は生じていない**（独立レビューが基線と作業ツリーの双方で `check:req-coverage:json` を走らせ、`excludedAcceptanceCriteria` の対称差が**空**であることまで確認した）。動いたのは受入基準の被覆 **2691→2704（+13）**・未被覆 198→185 と、除外監査の「リポジトリ内検証を掲げるが不在」**132→119** / 「実在する」26→39（本スペックは 38→25 / 1→14）である。**新たに被覆へ移った13件は処置した13件と完全一致し、被覆を失った条文は0件**
+  - **関門の前後**: **19本とも基線と同じ終了コードで、`diff` は無差分**。赤い2本（`check:design-measurement-freshness` / `check:req-coverage`）はいずれも基線から赤い。**鮮度の失敗行数は前 7・後 7 で不変**である（数え方は `grep -cE "^\s+- \["`）。ただし**既に赤い1行の実測値が動いたことを開示する**——`featureless-headers-resolvable-by-own-feature-after-115308` が `actual` **576→581**。編集した6ファイルのうち**5ファイル**が裸の `Requirements:` ヘッダーを持ち（`useUnsavedChanges.test.ts` のみ0件）、機能名つきの被覆印が同居したことで当該ヘッダーが「自機能で解決可能」と数えられるようになったためで、**増分5はこの5ファイルとちょうど一致する**（独立レビューが5ファイルを名指しで確認）。失敗行は増えておらず、緑の宣言を赤くしてもいない。当該宣言は site-survey の所管で境界外である
+  - **変異は独立レビューが再現した**（Implementation Notes「実装が申告する変異の件数は、レビュアーが再現するまで引き写さないこと」に従い、ここに記すのは**レビューの再現値**である）: **M1** ピッチ本数の `+ 1` を `+ 2` へ → **14 failed**。**M3** PDF の列名 `中項目` を `MIDDLE` へ → 現版で **1 failed / 14**。**M3 を強化前の版（`git show fa939d8f:` の検証ファイル）へ当て直すと 14 passed で緑のまま**——これが強化の必要性の決定的な実測である。**M5** `beforeunload` の事象名を2箇所とも改名 → **10 failed**。復元は退避した控えからの書き戻しで行い、本番3ファイルの `git hash-object` が基線と一致することを確認した（`git checkout` / `git reset --hard` は不使用）
+  - **全単体スイートは実装ではなく独立レビューが実行した**: 実装は編集した6ファイル（204件）しか走らせていない。レビューが `npm --prefix frontend run test` を shard 分割で走らせ、**522ファイル / 11983件が全件 PASS・退行ゼロ**を確認した。`type-check` EXIT=0、`npx prettier --check` は JSON と検証6ファイルとも EXIT=0
+  - **範囲外の同型（測定のみ・未処置）**: (i) 裁定記録 `scripts/exclusion-alternative-verification-adjudication.md` の §4 は `:320` で「PDF生成ロジックを検証」を7件の説明として挙げるが、本タスクはうち**5件（26.2 / 26.3 / 26.9 / 26.10 / 26.12）**の説明を書き直したため、同節の性格づけが現況とずれる。**同ファイルには一行も触れていない**（鮮度の宣言 `exclusion-adjudication-uncorrected-total` が数える件数欄は動かしていないので同宣言は緑のまま）。(ii) 同記録 `:398` の `REQ-2.5` の行は 95.1 の記録どおり未処置。(iii) `ItemCopyMoveDialog.test.tsx:10` の「6.3」の説明文は現行条文と食い違う（裸の番号のため被覆には計数されない）。(iv) **`REQ-34.2`（PDFビューアでのインライン表示）と `REQ-34.4`（ページナビゲーション）は実装そのものが見当たらない**——`frontend/src/components/quantity-table-import/ImportDialog.tsx` の取り込みは `ImportPreviewTable` のみで `react-pdf` の `Document` / `Page` を一度も取り込まず、同ディレクトリ14ファイルに前ページ・次ページの導線は無い。リポジトリ内で `react-pdf` を使うのは `frontend/src/components/estimate-requests/FileInlinePreview.tsx` の1件だけで、数量表インポートからは到達しない。**しかも `tasks.md:1074` の `- [x] 46.2 インラインプレビュー表示を実装する` は、その箇条で当該2機能を掲げ `_Requirements: 34.1, 34.2, 34.3, 34.4, 34.5_` を持ちながら `[x]` である**。加えて `ImportDialog.tsx:12` のファイル冒頭が `- 34.1-34.5: インラインプレビュー` と名乗っており、**本番ファイル側の名乗りも陳腐化している**
+  - **申し送り**: (i) **`REQ-34.2` / `34.4` は「完了印と実体の食い違い」を含むため、取り下げの前に Task 46.2 の `[x]` の是非を決着させること。** 本番ファイル `ImportDialog.tsx:12` の陳腐化した名乗りも同時に扱うこと。(ii) **`REQ-4.2` / `REQ-6.3` は分類の是正と取り下げを対で扱うこと**（起票文が名指した食い違い4件のうち、本タスクが直したのは2件である）。(iii) `REQ-26.5` / `26.8` は主張の新設が要る。`REQ-26.12` は主張を「表紙を除く」まで強めうる。(iv) **`REQ-28.1` は 95.4 が `excel-parser.test.ts` の被覆印を扱う際に同時に解ける**（代替検証の実体は同ファイルに実在する）。(v) 鮮度の `featureless-headers-resolvable-by-own-feature-after-115308` を現況へ測り直す担当者は、本タスクの +5 を織り込むこと
+
+- [x] 95.3 Requirement 29・30 の全数除外の処遇を決める
+  - `REQ-29`（PDF OCR処理による数量項目抽出）は 10件、`REQ-30`（Claude Vision API連携による高精度抽出）は 7件で、**いずれも受入基準の全数が除外**されており、17件すべてが `in-repo-unverified` である。**したがってこの2節は被覆の分子にも分母にも載っていない**
+  - **この形は本スペック自身が最悪形と記録したものである**——`## Implementation Notes（Task 75 以降）` の「直列実行の受入検証では、除外を取り下げる前に『その判定が実際に走るか』を測ること」の項が、「**除外は分母から外れ、検証は走らない——被覆率だけが改善して見える最悪の形である**」と書いている
+  - 実装の有無をまず測ること。実装が在るなら検証を与えて取り下げ、実装が無いなら `method: none`（未実装の明示）へ改めるか、**取り下げられない理由を `category` と `reason` の両方へ正確に書き直すこと**（Task 89.2 の作法）
+  - **17件すべてを一度に解く必要はない。** 分割してよいが、扱った件と残した件を件数で開示すること
+  - _Boundary: `REQ-29` / `REQ-30` の除外の在籍理由_
+  - **処遇（基線コミット `a193b6bc` の作業ツリー、2026-09-14 にリポジトリルートで実測）**: `REQ-29` / `REQ-30` の除外**17件のうち13件を `in-repo-verified` へ移し、4件を三層の形の理由つきで据え置いた**。**取り下げは一件も行っていない**ため、除外の総数193件・`byCategory`・適用対象2696件はいずれも不動である。**本番コードは一行も変更していない**（変更は台帳のJSONと検証7ファイル）。JSON はルートの `format:check` の対象グロブ外なので `npx prettier --check e2e/requirement-exclusions.json` を直接走らせ EXIT=0 を確認した（78.1 / 95.1 の作法）
+  - **母集団は起票文と一致したが、周辺の値は陳腐化していた**: 起票文の「`REQ-29` 10件・`REQ-30` 7件・17件すべて `in-repo-unverified`」は着手時の実測と一致した。一方「本スペックの除外40件・うち39件が unverified」は 95.1 / 95.2 の完了前の値で、着手時は**39件（`in-repo-unverified` 25 / `in-repo-verified` 14）**であった。17件は全件が `category: integration-test` / `method: integration-test` / `tool: Vitest` で、95.2 が直したような分類と道具の食い違いは本節に無い
+  - **起票文が挙げた三択のうち `method: none` は実行不能であり、そのことを実測で示した**: `scripts/check-requirement-exclusions.ts:1147-1158` が `method: "none"` を `verificationPhase` が `e2e-testing` の分類にしか置かせず（同 `:25-26` の不変条件、タスク 115.314）、該当は `pending-implementation` ただ一つである。同区分の定義文は実装が未了の場合に**確定した実装決定との対**を要求し、その形を `test.fail()` ラチェットか所管スペックの未了の番号付き実装タスクに限る。**17件について両方を測ると、いずれも不在であった**——`grep -rn "test\.fail" e2e/specs --include=*.ts` は9件でいずれも別条文、`grep -rn "quantity-table-generation/REQ-29\|quantity-table-generation/REQ-30" e2e/specs` は当たり0（終了コード1）、当該番号を受入基準の欄に含むタスクは8件（Task 43.1 / 43.2 / 44.2 / 44.3 / 44.4 / 48.2 / 48.3 / 48.6）で**8件とも `[x]`** である。**95.1 が `REQ-2.5` で踏んだのと同じ形であり、鮮度検査を持ち出すまでもなく成立しない**（`promiseless-exclusions-after-115314` は expected `3` のまま緑）
+  - **13件の処置**: `REQ-29.1` / `29.2` は `frontend/src/__tests__/components/estimate-requests/extractPdfHybrid.test.ts` の `extractPdfText` の区間、`29.3` は同ファイルの `extractPdfHybrid` の区間、`29.4` / `29.5` は同ファイルの `extractPdfWithOcrFallback` の区間、`29.6` は `frontend/src/components/estimate-requests/pdf-text-extractor.test.ts` の `preprocessImageData` の区間、`29.8` は `frontend/src/components/quantity-table-import/ImportPreviewTable.test.tsx`、`30.1` / `30.4` / `30.5` / `30.6` は `frontend/src/components/quantity-table-import/pdf-ocr-extractor.test.ts`、`30.2` は `renderPdfPagesToBase64.test.ts` と `frontend/src/__tests__/api/claude-vision.test.ts` の二本、`30.3` / `30.4` は `backend/src/__tests__/unit/services/claude-vision-quantity.service.test.ts`
+  - **「除外のまま被覆印を与える」形が採れたのは、本節が 95.2 の `REQ-42.10` と違って `e2e/specs` に名乗りを持たないためである**: 同居を検出する `check-requirement-exclusions.ts:892` の走査根は `:673` の `E2E_SPECS_DIR = 'e2e/specs'` に限られ、17件のいずれも同配下に被覆印を持たない。**独立レビューは共有実装および backend への被覆印を「越境ではなく境界の充填」と裁定した**（機構は機能名で弁別し、95.2 に先例がある）
+  - **採らなかった案（機能名を欠く見出しへ機能名を与える）**: その形は区間の番号を**全件一括**で被覆印へ変える。編集7ファイルの冒頭の見出しには本節が確かめていない番号が並ぶため、機能名を与えれば当該検証が確かめていない条文まで被覆と数えられる。区間ごとの `@requirement` に限ったことで、**機能名を欠くヘッダー 2011件 / 955ファイル・眠る名乗り 5127件はいずれも不動**であり、**遊び 12 / 43 を一切食い潰していない**
+  - **検証を1件強化した。強化は被覆印の正当化に不可分である**: `REQ-29.3` の条文は「抽出テキストをそのまま使用する（**Tesseract OCRは実行しない**）」だが、当該区間は前段しか主張していなかった。ワーカーが生成されないことの主張を足してから名乗った。**当てた変異と実出力を検証の註へ書いた**——`extractPdfHybrid` のテキストPDFの早期 return の直前へ `const { createWorker: cwM2 } = await import('tesseract.js'); await cwM2('jpn');` を挿入すると、**強化後の現版は 1 failed / 14 passed（15件中）で落ち、強化前の版（`a193b6bc`）は 15 passed で緑のまま**である（2026-09-14 実測）。初稿は変異を名指さず出力も引かない断定形であったため差し戻された（`check:cf-evidence` は EXIT=0 だが、同検査は自ら「検査が見るのは文面であって、変異が本当に実行されたかではない」と述べている）
+  - **全数走査で「範囲を宣言しない否定」を出し切った（86.4 / 77.1 への対応）**: 初稿は `REQ-29.10` だけを是正して兄弟へ広げず、二度目の差し戻しを招いた。是正として**本スペックの除外39件 × 2欄＝78欄を全数読んだ**。機械の網が拾ったのは14欄で、うち**8欄は目標外**（条件節や検証の主張そのもの、および本タスクが書いていない既存文であって存在否定ではない）。**本タスクが書いた欄のうち該当は6欄・3項目**で、一件ずつ実読で反例を確かめた——**`REQ-29.7` は反例が在り記述は偽、`REQ-29.9` も反例が在り（記述は `ImportDialog` に限れば真だが実体の在処を伏せており誤読を招く）、`REQ-30.7` は反例が無く真だが無範囲**であった。3項目とも三層の形へ揃え、残した同型は0件である。是正後に自分の網で再走査して残存0件を確認し、**独立レビューも78欄を独立に走査して残存0件を再現した**
+  - **意図的に名乗らなかった4件（86.3 / 115.176 への対応。取り下げではなく据え置き）**: `REQ-29.7` は数量表インポート経路から到達する範囲に抽出結果をテキストデータとして表示する経路が無い——**実体は `OcrDataExtractor.tsx:1284-1288` に在り `:522-530` の `styles.extractedText` が `userSelect: 'text' as const,` を持つが、当該経路からは到達しない**（`grep -rn "extractedText\|<pre" frontend/src/components/quantity-table-import/` は当たり0件）。`REQ-29.9` は同経路に手動入力を促す導線が無い——**実体は `OcrDataExtractor.tsx:895` / `:991` の「OCR処理に失敗しました。手動入力してください」に在り `:1320-1323` が描画するが、当該経路からは到達しない**（`grep -rn "手動入力\|手入力" frontend/src/components/quantity-table-import/` は当たり0件）。`REQ-29.10` は同経路に30秒のタイムアウトの機構が無い——**実体は同ファイル `:82` の `const OCR_TIMEOUT_MS = 30000;` に在り `:858` / `:956` の `Promise.race` で課され、うち `:858` は当該経路が呼ぶ `extractPdfHybrid` そのものを包むが、到達しない**。`REQ-30.7` は宣言した走査範囲に両経路を突き合わせる検証を見つけられず、しかも `pdf-ocr-extractor.ts:141` のフォールバック経路のヘッダーが「列1」…「列N」で Vision 経路の10フィールドと現に異なる。**4件とも理由を `reason` と `description` の両方へ三層の形で書き直し、`30.7` は名乗らない理由を現地のコメントへも明記した**
+  - **`REQ-29.7` / `29.9` / `29.10` は同型であり、いずれも「命じられた再利用から落ちた」形である**: `tasks.md:1023` の Task 44.2 の箇条は逐語で `受領見積書登録機能のpdf-text-extractor.tsとOcrDataExtractor.tsxのパイプラインを再利用する` と命じ、さらに `OCR処理のタイムアウトを30秒に設定する` と `抽出結果テキストをユーザーが選択・コピー可能な状態にする` を掲げている（取り出しはいずれも `git show a193b6bc:.kiro/specs/quantity-table-generation/tasks.md | grep -cF '<逐語>'` で、前二者の出力は 1、最後の一つは同じ綴りが Task 44.1 にも在るため 2）。**すなわち再利用から落ちたのは30秒タイムアウト・抽出テキストの表示・失敗時に手動入力を促す導線の3件であり、実体は「未実装」ではない。** 3件のいずれも取り下げの前に Task 44.2 の完了印の是非と併せて決着させること。**なお3件目（`REQ-29.9`）は実装者が全数走査で自ら発見したものであり、独立レビューも `:895` / `:991` / `:1320-1323` を実読して裏づけた**
+  - **取り下げを選ばなかった理由**: 83.1 は「取り下げは実装済みかではなく検証が実挙動を固定しているかで決まる」と課すが、上記3件は**完了印と実体の食い違いを含む**——`tasks.md:1023` の `- [x] 44.2 PDF OCR処理機能を実装する` が当該番号を掲げながら結線が無い。**95.2 が `REQ-34.2` / `34.4` について「取り下げの前に Task 46.2 の `[x]` の是非を決着させること」と申し送ったのと同型**であり、完了印の裁定は本タスクの境界外である。受け皿の無いまま未カバーへ移すより、理由を正確に記して除外に残す方が負債の所在が見える
+  - **共有欄へ追記した事実を開示する**: `summary.note` へ**1326文字を追記した**（`a193b6bc` の同欄 22811文字 → 作業ツリー 24137文字。再現は両版の `summary.note` の長さを引き算する形で、**提出時に測り直した値である**）。**既存の記述は一字も書き換えていない**（作業ツリーの同欄が HEAD の同欄で始まることを `startsWith` で確認）。追記の作法は 89.2 / 90.3 / 95.1 と同じである。**独立レビューが同じ値（+1326文字 / +2638バイト）を再計測して一致を確認した**
+  - **被覆の前後（終了コードは基線と同じ 1）**: **除外193件・適用対象2696件・適用対象の被覆率98.78%・到達を加味した 2659/2696 (98.63%) はいずれも不動**である。**除外条文は元々分母外であるため、被覆印を与えても適用対象の率は動かない——見かけの改善は生じていない**（独立レビューが `excludedAcceptanceCriteria` の**対称差が空**であることまで検算した）。動いたのは受入基準の被覆 **2704→2717（+13）**・未被覆 185→172、要件の被覆 **352→354（+2）**、本スペックは要件 **46/48 (95.8%)→48/48 (100.0%)**・受入基準 **331/358 (92.5%)→344/358 (96.1%)**、除外監査の「リポジトリ内検証を掲げるが不在」**119→106** /「実在する」**39→52**（本スペックは 25→12 / 14→27）。**新たに被覆へ移った13件は処置した13件と完全一致し、被覆を失った条文は0件である**
+  - **関門の前後**: **19本とも基線と同じ終了コードで、うち17本は出力がバイト一致**。赤い2本（`check:design-measurement-freshness` / `check:req-coverage`）はいずれも基線から赤い。**鮮度の失敗行数は前 7・後 7 で不変**である（数え方は `grep -cE "^\s+- \["`）。**既に赤い1行の実測値が動いたことを開示する**——`featureless-headers-resolvable-by-own-feature-after-115308` が `actual` **581→588**。編集7ファイルが7ファイルとも機能名を欠く見出しを持ち、機能名つきの被覆印が同居したことで「自機能で解決可能」と数えられたためで、**増分7はこの7ファイルとちょうど一致する**（95.2 の +5 と同型。当該宣言は site-survey の所管で境界外）。**記録の書き方の是正を二度行ったが、台帳を読む4本（`check:req-coverage` / `check:req-exclusions` / `check:cf-evidence` / `check:design-measurement-freshness`）はいずれの是正の前後でもバイト一致であり、是正は機械の出力を一つも動かしていない**
+  - **変異は9件を実行した。ここに記すのは実出力である**: **M2**（テキストPDFの早期 return の直前へ tesseract ワーカーの生成を挿入）→ **現版 1 failed / 14 passed（15件中）、強化前の版 15 passed で緑のまま**。**M1** スケール `4.0`→`3.0` → 1 failed / 14 passed。**M3** 前処理から垂直線除去を外す → 2 failed / 14 passed。**M4** Base64 の接頭辞除去をやめる → 2 failed / 7 passed。**M5** `userSelect` を `'none'` へ → 1 failed / 8 passed。**M6** 送信本文の `mode` を差し替える → 1 failed / 16 passed。**M7** 単位と備考の列を入れ替える → 1 failed / 4 passed。**M8** 常にフォールバックさせる → 3 failed / 2 passed。**M9** 送るプロンプトを数量表用から見積書用へ差し替える → 1 failed / 9 passed。**M9 は当初「指示行を1行落とす」形で書いたが実行前に破棄した**——同じ綴りが例示JSONにも在り緑のままになるためである。**再現の残余を明記する——独立レビューが再現したのは M2・M1・M8 の3系統のみで、M3 / M4 / M5 / M6 / M7 / M9 の6本は未再現である。** 復元は退避した控えからの書き戻しで行い、本番5ファイルの `git hash-object` が基線と一致することを確認した（`git checkout` / `git reset --hard` は不使用）
+  - **全単体スイートは shard 分割で前景実行した**: frontend `--shard=1/2` が **261ファイル / 6088件**、`--shard=2/2` が **261ファイル / 5895件**で、合計 **522ファイル / 11983件が全件 PASS・退行ゼロ**。**backend も 190ファイル / 5719件 全緑**。`type-check` は両パッケージ EXIT=0、`npx prettier --check` は8件で EXIT=0。**独立レビューも全単体スイートを自分で再現して同じ値を得ている。** **E2E は走らせていない**
+  - **範囲外の同型（測定のみ・未処置）**: (i) 裁定記録 `scripts/exclusion-alternative-verification-adjudication.md:319` は15件の総称を挙げるが、本タスクは13件の説明を書き直したため性格づけがずれる。**同ファイルには一行も触れていない**（鮮度の宣言 `exclusion-adjudication-uncorrected-total` は §4 の件数欄の合計43を数え除外JSONを読まないため緑のまま不動）。(ii) `pdf-ocr-extractor.ts:14` の 29.10 の名乗りは本番ファイル側の陳腐化であり未処置。(iii) **Task 44.2 の `[x]` は 29.7 / 29.9 / 29.10 の3件について実体を伴わない。** (iv) `REQ-42.10` は境界外のため据え置き。(v) **共有パイプラインの部分的な再利用という同型の欠落が、同じ 44.x 系タスクが所管する他の受入基準にも在りうるが、本タスクの境界外のため測っていない**
+  - **申し送り**: (i) **Task 44.2 が命じた `OcrDataExtractor.tsx` の再利用から落ちたのは3件である**——30秒タイムアウト（`REQ-29.10`）・抽出テキストの表示（`REQ-29.7`）・失敗時に手動入力を促す導線（`REQ-29.9`）。いずれも実体は同ファイルに在り数量表インポート経路から到達しないだけなので、**結線するか条文を見直すかの判断を、同タスクの完了印の是非と併せて決着させること**。(ii) `REQ-30.7` は両経路のヘッダー組み立てを揃えるか条文を見直すかの裁定が要る。(iii) **`REQ-30.2` は被覆源が2ファイルに分かれ連言の片側ずつを固定しているため、片側が消えても被覆と数え続ける構造的な弱さを持つ。対して `REQ-30.4` は両側とも10欄を `toEqual` で一括固定しており同じ弱さを持たない。** (iv) 鮮度の `featureless-headers-resolvable-by-own-feature-after-115308` を測り直す担当者は、95.2 の +5 に加えて**本タスクの +7** を織り込むこと。(v) 上記の範囲外の同型（44.x 系の他の受入基準）は未測であり、起票の要否を別途判断すること
+  - **現況の再実測（Task 96.3、2026-09-15。上の記録は当時のまま残す）**: (i) 手入力の語の走査 `git grep -n "手動入力\|手入力" <commit> -- frontend/src/components/quantity-table-import/` は、本節の実測時点 `a193b6bc` と記録時点 `47a4dde4` では当たり0件（終了コード 1）で**当時の記録は正しい**。`5777b605` と `67097fde` で2件返るのは、後続の 95.4 のコミット `077f3a1d` が `excel-parser.test.ts` へ加えた注釈2行であり本番の導線ではない。**同じ走査で2件以上を得ても「是正済み」とは読まないこと**——96.3 の後は本番の文言定数も当たる。(ii) 上の記録は `REQ-29.10` を「到達しない」形として書くが、**取り込み経路（`frontend/src/components/quantity-table-import/`）と共有部品 `pdf-text-extractor.ts` を対象にした `30000` / `Promise.race` の走査は `5777b605` と `67097fde` のいずれでも当たり0件（終了コード 1）であり、時間切れの機構は取り込み経路に一件も無かった**。機構が在ったのは画面部品 `OcrDataExtractor.tsx` の内側だけで、同部品が `extractPdfHybrid` を包む形は取り込み経路からは通らない。96.3 が取り込み経路に `extractPdfHybridWithTimeout` として新設し、`REQ-29.7` / `29.9` の除外を取り下げた
+
+- [x] 95.4 (P) REQ-28.2 の被覆印の欠落を解消する
+  - **実装も検証も既に存在する。** `frontend/src/components/quantity-table-import/excel-parser.ts:38` が `for (const sheetName of workbook.SheetNames)` で全シートを走査し、`excel-parser.test.ts:47` の検証名は `Excelファイルの全シートを解析してImportExtractionResult形式で返す` で、`:50` のモックは `SheetNames: ['Sheet1', 'Sheet2']` と複数シートを与えている
+  - **被覆に数えられないのは印が無いためである**。同ファイルの被覆印（`スペック名/REQ-番号` の形）は **0件**で、`:6` に**裸の `Requirements:`** がある。これは `check:req-coverage` が「機能名を欠くヘッダー（配下の名乗りは一件も集計されない）」として数える形そのものである
+  - 見出しへ機能名を与えること。形は `Requirements (quantity-table-generation):` である（`## Implementation Notes（Task 75 以降）` の「被覆検査の上限は静かに超える。見出しへ機能名を与えること」の項）。**被覆印は検証側へ付けること**——本番ファイルへ付けると本番コードが受入基準を被覆したと数えられる
+  - **これは本節で唯一、判断を要さず機械的に解ける項である。** 解くと被覆の分子が増え、上限との遊びも広がる向きに動く
+  - _Boundary: `excel-parser.test.ts` の被覆印_
+  - **処遇（基線コミット `47a4dde4` の作業ツリー、2026-09-14 にリポジトリルートで実測）**: `excel-parser.test.ts` の**基線の `:47` の区間（本変更後は `:64`）**へ区間ごとの `@requirement` を**2件**置き、`REQ-28.2` を未被覆から被覆へ、`REQ-28.1` を除外に在籍したまま `in-repo-unverified` から `in-repo-verified` へ移した。**取り下げは一件も行っていない**ため除外の総数193件・`byCategory`・適用対象2696件は不動である。**本番コードは一行も変更していない**（`excel-parser.ts` の `git hash-object` は基線と同値の `e8ba7651636e2686bbd290a399d7918ce7660c7d`）。変更は検証1ファイルと台帳（`description` 1箇所と `summary.note` への追記）である。**以下で引く行番号は、断りの無い限り基線 `47a4dde4` を基準とする**（115.243 の学び「自分のコミットが動かすファイルの行番号を、そのコミットの親を基準に書かないこと」に対し、95.1 が「基線の `:721-734`」と基準を明示した作法に倣う）
+  - **起票文の指示（見出しへ機能名を与える）は採れなかった。実行不能であることを実測で示す**: 裸の見出し `excel-parser.test.ts:6` の配下に並ぶ番号は**全4件で 28.1 / 28.2 / 28.3 / 28.6**。起票文の形を**実際に当てて** `check:req-coverage:json` の `testFiles` を読むと本ファイルへ4件すべてが帰属する（採った形は2件ちょうど）。増える2件は当該検証が確かめていない条文である——**28.3** は10フィールドへのマッピングを課すが `parseExcelFile` は行わず（実体は `field-mapping.ts` の `MAPPING_RULES`）、**基線の `:81` / `:103`（本変更後は `:109` / `:131`）**の区間が主張するのは列見出しの字面と列値の文字列配列である。**28.6** は「エラーメッセージを表示し手動入力を促す」だが**基線の `:144`（本変更後は `:181`）**の区間の主張は `rejects.toThrow()` の1行だけである。**95.2 が `calculation-engine.test.ts:6` の `8.5` / `8.8` について、95.3 が編集7ファイルの見出しについて退けたのと同型である**
+  - **生じるのは分子の水増しではなく帰属の偽りである（言い方を実測に揃える）**: 28.3 / 28.6 は `e2e/specs/quantity-tables/import-e2e.spec.ts:540` および `:615` が実体のある主張（マッピング先ドロップダウンの存在、`[role="alert"]` の可視）で**既に被覆している**ため、起票文の形を当てても**受入基準の被覆総数は 2719 で不動**である。偽になるのは `testFiles` の帰属——確かめていない2件が当該検証の被覆源として記帳される——であり、**86.3 が禁じるのはこの帰属である**。**なお `:540` は再実測で訂正した値である**（初稿は `:538` と書いたが、`:13` はファイル冒頭の一覧、`:540` がタグ行、`:551` はテスト名である。`:615` は初稿から正確）
+  - **ラチェットは阻害要因ではなかった（退けた理由は遊びではない）**: 起票文の形を当てた版では機能名を欠くヘッダーが 2011→**2010**、眠る名乗りが 5127→**5123**、ファイル数が 955→954 と、上限（2023 / 5170）に対して**許される向きへ動く**。それでも採らなかったのは上記の帰属の偽りのためである。**「遊びを食わないから安全」ではなく「確かめていないものを名乗らない」（86.3 / 115.176）が判断の根拠である**
+  - **台帳の共有欄へ追記した（+899字・純粋な追記）。先例は自分で測り直した**: `summary.note` は `47a4dde4` の 24,137字から 25,036字へ**899字の追記**で、**既存の記述は一字も書き換えていない**（作業ツリーの同欄が HEAD の同欄で始まることを `startsWith` で確認）。**初稿は「95.2 は追記していないので本タスクも追記しない」と書いたが、これは偽であった。** 測り直すと **95.1（`fa939d8f`）が 20,908→22,254 で +1,346字、95.2（`a193b6bc`）が 22,254→22,811 で +557字、95.3（`47a4dde4`）が 22,811→24,137 で +1,326字**で、**三件とも `startsWith` が true の純粋な追記**である。再現は、各コミットの親版と当該版の `e2e/requirement-exclusions.json` を `git show <commit>^:<path>` と `git show <commit>:<path>` で取り出し、`JSON.parse` して `summary.note` の長さを引き算する形である。**しかも 95.2 の +557字は本タスクと同型の処置（`verdict` の移動と、意図的に名乗らない件の据え置き）をまさに記帳していた**——先例は初稿の結論の逆を指していた。**「先例を数えるときは自己申告を検算すること」に正面から反した誤りであり、独立レビューと親の双方の実測で差し戻された。** 追記後に測り直した `check:req-coverage` と `check:design-measurement-freshness` の出力は**追記前とバイト一致**で、鮮度の失敗行は 7 のままである
+  - **`REQ-28.1` は 95.2 の申し送りどおり同時に解けた（件数で開示する）**: 解いた1件が `REQ-28.1`、解かなかった0件。代替検証の実体が同ファイルに実在し、境界（`excel-parser.test.ts` の被覆印）の内側で解けた。**除外に在籍したまま被覆印を持つ形は正常形である**（同居検査 `check-requirement-exclusions.ts:892` の走査根は `:673` の `E2E_SPECS_DIR = 'e2e/specs'` に限られ、本件の被覆印は `frontend/src` に在る。`check:req-exclusions` は EXIT=0）。台帳側は `alternativeVerification.description` を検証ファイルと区間を名指しする形へ書き直した（95.2 / 95.3 と同じ作法）
+  - **意図的に名乗らなかった2件（86.3 / 115.176 への対応）**: `REQ-28.3` と `REQ-28.6` は当該検証が確かめていないため名乗らず、**名乗らない理由を現地のコメントへ明記した**。両件の被覆は上記の E2E が担っており、名乗らないことで失う被覆は無い（前後で被覆を失った条文は0件）。**裸の見出し `:6` は一行も変更していない**——変更すれば眠る名乗りの計数に触れるため、遊び 12 / 43 を動かさない側に倒した
+  - **検証の強化は不要であり、そのことを変異で実測した**: 95.2（`REQ-26.7` の5列→11列）・95.3（`REQ-29.3` の括弧書き）と違い、既存の主張がそのまま両条文を固定していた。**M1**（`excel-parser.ts` の `for (const sheetName of workbook.SheetNames)` を `workbook.SheetNames.slice(0, 1)` へ変える）→ **2 failed | 4 passed (6)**。**M2**（`const workbook = XLSX.read(arrayBuffer, { type: 'array' });` を SheetJS を経由しない workbook リテラルへ差し替える）→ **4 failed | 2 passed (6)**。**どちらでも被覆印を置いた区間が落ちる側に入る**ため 86.3 に抵触しない。変異の実出力は検証の註にも書いた。復元は退避した控えからの書き戻しで行い `git hash-object` の一致を確認した（`git checkout` / `git reset --hard` は不使用）
+  - **被覆の前後（終了コードは基線と同じ 1）**: **機能名を欠くヘッダー 2011件 / 955ファイル・眠る名乗り 5127件はいずれも不動**で、**遊び 12 / 43 を一切食い潰していない**。除外193件・適用対象2696件・要件の被覆 354/360・`excludedAcceptanceCriteria` の対称差（空）も不動。動いたのは受入基準の被覆 **2717→2719（+2）**・未被覆 172→170、到達被覆 **2659/2696 (98.6%)→2660/2696 (98.7%)**、除外監査の「リポジトリ内検証あり」**52→53** /「掲げるが不在」**106→105**、本スペックの受入基準 **344/358 (96.1%)→346/358 (96.6%)**。**新たに被覆へ移った2件は処置した2件と完全一致し、被覆を失った条文は0件。** 到達しない被覆源のみの受入基準は前後とも同じ4件で**新たな未到達は生じていない**
+  - **関門の前後**: **19本とも基線と同じ終了コード**で、赤い2本（`check:design-measurement-freshness` / `check:req-coverage`）はいずれも基線から赤い。**鮮度の失敗行数は前 7・後 7 で不変**（数え方は `grep -cE "^\s+- \["`）。**既に赤い1行の実測値が動いたことを開示する**——`featureless-headers-resolvable-by-own-feature-after-115308` の `actual` が **588→589**。本ファイルが機能名をちょうど一つ名乗るようになり裸の見出し1件が「自機能で解決可能」な側へ移ったためで、**増分1はこのファイル1件と一致する**（95.2 の +5・95.3 の +7 と同型。当該宣言は site-survey の所管で境界外）。**`check:cf-evidence` は EXIT=0 だが母集団は前後とも 244文 / 45ファイルで動いておらず、本タスクが書いた反実仮想は同検査の母集団に入っていない**——同検査の緑は当該記述を検めた証拠ではない
+  - **全単体スイートは実装が shard 分割で前景実行した**: frontend `--shard=1/2` **261ファイル / 6088件**、`--shard=2/2` **261ファイル / 5895件**（合計 **522ファイル / 11983件**）、backend **190ファイル / 5719件**、いずれも全件 PASS・退行ゼロ。`type-check` EXIT=0、`npx prettier --check`（変更2ファイル）EXIT=0。**E2E は走らせていない**。**`summary.note` の追記後にスイートを再実行していない理由は実測で示す**——`grep -rln "requirement-exclusions" backend/src frontend/src --include=*.ts --include=*.tsx` の出力が**空**で、台帳を読むのは `scripts` と `e2e/specs` だけである。**なお最初の shard 実行は作業ディレクトリを変えない書式で起動したため backend まで巻き込み 727ファイルを落としたが、これは無効な実行であって退行ではない**（`npm --prefix frontend exec -- vitest` は cwd を移さない。`npm --prefix frontend run test -- --shard=N/2` が正しい起動である）
+  - **範囲外の同型（測定のみ・未処置。走査範囲は `grep -rlE '^\s*\*\s*-\s*28\.[0-9]+:' frontend/src backend/src e2e scripts` で宣言する。10ファイルが挙がる）**: (i) **本番 `excel-parser.ts:7-13` の名乗りが陳腐化している**（28.4 / 28.7 を掲げるが実装していない。95.2 の `ImportDialog.tsx:12`・95.3 の `pdf-ocr-extractor.ts:14` と同型）。(ii) `ImportPreviewTable.tsx` / `ImportPreviewTable.test.tsx` は裸の見出しで 28.4 / 28.5 / 28.7 / 32.1-32.3 / 32.6 を挙げる。当該7件は被覆済みのため偽の帰属の危険は測った範囲では無いが、是正は遊びを動かすため被覆印の扱いと併せた判断が要る。(iii) **`scripts/exclusion-alternative-verification-adjudication.md:326` が陳腐化した**——`REQ-28.1` の説明として旧 `description` の字面を挙げており、本タスクの書き直しでずれた。**同ファイルには一行も触れていない**（`exclusion-adjudication-uncorrected-total` は §4 の件数欄を数え説明文を読まないため不動、`check:adjudication-pointers` は前後とも EXIT=0）。**追記した `summary.note` へ旧字面を写さなかったのは、写すと当該検出が自分を数えて向きが反転するためである**（115.324 の学び）。(iv) 残る4ファイルは site-survey の所管で未測。**未走査の残余**——上記コマンドは ` * - 28.N:` の書式だけを拾い、別書式の名乗りは保証しない
+  - **申し送り**: (i) **本節の処置後、本スペックの未被覆は12件である**（`REQ-2.5` / `4.2` / `6.3` / `26.5` / `26.8` / `29.7` / `29.9` / `29.10` / `30.7` / `34.2` / `34.4` / `42.10`）。いずれも 95.1〜95.3 が理由つきで据え置いた件であり、新たに増えた件は無い。(ii) **本番ファイル側の陳腐化した名乗り（`excel-parser.ts` の 28.4 / 28.7）は、95.2 の `ImportDialog.tsx:12`・95.3 の `pdf-ocr-extractor.ts:14` と併せて一括で扱うのが安い。** (iii) 裁定記録 `:326` の行は、95.1 の `:398`・95.2 の `:320`・95.3 の `:319` と同じ性質の陳腐化であり、**鮮度検査の宣言と対で扱う起票が4件ぶん溜まっている**。(iv) 鮮度の `featureless-headers-resolvable-by-own-feature-after-115308` を測り直す担当者は、95.2 の +5・95.3 の +7 に加えて**本タスクの +1** を織り込むこと。(v) **本タスクは記録の先例を自己申告で援用して一度差し戻された。** 後任は `summary.note` の追記の有無を述べる際、必ず各コミットの親版との長さの差で検算すること。(vi) **`lastUpdated` は `summary` 直下ではなくトップレベルのキーである**（`summary` のキーは `totalExclusions` / `byCategory` / `note` の3つのみ）。本タスクは動かしておらず `2026-09-14` のままである
+
+- [x] 95.5 (P) 設計文書の File Structure Plan が挙げる E2E の名を実体へ揃える
+  - `design.md` の L249-254（File Structure Plan / 新規作成）が挙げる E2E 4本は**いずれも実在しない**——`quantity-item-action-menu-clipping.spec.ts` / `calculation-method-count.spec.ts` / `calculation-method-count-persistence.spec.ts` / `calculation-method-switch.spec.ts`
+  - **実体は別名である**——`quantity-item-action-menu-clipping-e2e.spec.ts` / `quantity-count-calculation-e2e.spec.ts` / `quantity-count-persistence-e2e.spec.ts` / `quantity-count-method-switch-e2e.spec.ts`
+  - **同じ文書の中で食い違っている**。§Testing Strategy の L3357 / L3368 / L3382 は**実体の名**を逆引用符付きで挙げており、計画側の名とは別物である。改名した旨の記録は `design.md` にも `tasks.md` にも無く、`tasks.md` の `_Boundary:` 欄2箇所は今も計画側の名を名乗ったままである
+  - **この食い違いは関門に構造的に見えない。** `scripts/check-design-path-references.ts` の主張の取り出しは**逆引用符で囲まれたトークンだけ**を拾うため、コードフェンス内のツリー表記（`├── …`）は主張を一つも立てない。同じ囲みの中の `frontend/src/utils/calculation-method.ts` が緑なのは囲みが見られているからではなく、別の箇所の逆引用符付きの言及が主張を立てているためである
+  - 規約 (a) に従い、当時の計画の記録を消さずに現況の再実測を併記する形で揃えること。**`tasks.md` の `_Boundary:` 欄の追随も併せて判断すること**
+  - _Boundary: 設計文書の File Structure Plan が挙げる E2E の名と、それを指すタスクの境界欄_
+  - **処遇（基線コミット `077f3a1d` の作業ツリー、2026-09-14 にリポジトリルートで実測）**: `design.md` の `## File Structure Plan` / `### 新規作成` のツリー（基線の `L249-254`）は**一字も書き換えず**、その直下へ規約 (a) の注記を新設して実体の綴りを併記した（**本変更後の `L256-263`**）。併せて `tasks.md` の `_Boundary:` 欄を `計画名 <旧綴り>、実体 <実体の綴り>` の形へ追随させた（`L1937` / `L1947` / `L1958` / `L1968`。基線・本変更後とも同じ行）。**実コードは一行も変更していない。** 変更は文書2ファイルである。**以下で引く行番号は、断りの無い限り基線 `077f3a1d` を基準とする**（115.243 / 95.1 / 95.4 の作法）
+  - **起票文の件数に誤りが1件あった（規約 (a) に従い起票文本体は書き換えず、ここへ訂正を残す）**: 起票文は「`tasks.md` の `_Boundary:` 欄**2箇所**」と書くが、**実測は4箇所**である——`git show 077f3a1d:.kiro/specs/quantity-table-generation/tasks.md | grep -cE '_Boundary: quantity-tables E2E\('` の出力が `4`。内訳は 71.1（接尾辞 `-e2e` の差のみ）と 71.2 / 71.3 / 71.4（全く別の綴り）で、**4本とも計画側の綴りを名乗っていた**。79.1「起票文の数字は起票時点の実測であって着手時の実測ではない」と 95.3「1本見つけた時点で探索を打ち切らないこと」に従い全数を処置した
+  - **`_Boundary:` 欄の書き換えは境界の充填と判断した**: 95.5 の `_Boundary:` が「それを指すタスクの境界欄」を明示的に内側へ含めており、77.1「境界内の未充填は拒否し、境界外の押し込みも拒否する」に照らすと放置が漂流の側になる。**`_Boundary:` を構文解析する検査は存在しない**（`grep -rln "_Boundary" scripts/` の当たり6件はいずれも JSDoc の斜体表記と裁定記録の散文）。115.237「他タスクの記録へ新しい欄を立てるのは現況の記録を超える」を避けるため**欄は増やさず同じ欄の内側で併記**し、計画名のトークンは逐語で残した
+  - **規約 (a) の併記から不在の語彙を排除したのは、実測に基づく判断である**: `ABSENCE_MARKERS` は `改名` / `当時` / `旧` を含むため、常用の書きぶりのまま実在パスと同じ行へ置くと免除の面が広がる（79.1 の型）。**「計画時点の綴り」「着地した実体」へ言い換えて面を 190 件のまま保った**。飾りでないことは変異で実証済み——**当てた変異は、本変更で新設した `design.md` の 258 行目（基線 `077f3a1d` には存在しない行）にある逐語 `REQ-46（クリップ検証）の実体:` を、「REQ-46（クリップ検証）は改名された。実体:」へ置き換えるものである**。置換後の綴りは変異を当てている間しか存在せず、復元済みの現況ではリポジトリのどこからも取れないため、**逆引用符を掛けず鉤括弧で示した**（115.243 の守るべきこと 1「逆引用符は逐語にのみ掛ける」および 4「1 行に収まらないものは引かない」）。取り直せるのは変異前の側だけで、`grep -cF 'REQ-46（クリップ検証）の実体:' .kiro/specs/quantity-table-generation/design.md` の出力は `1`、`grep -cF 'REQ-46（クリップ検証）は改名された。実体:' .kiro/specs/quantity-table-generation/design.md` の出力は `0`（終了コード 1）である（いずれも 2026-09-14 にリポジトリルートで実測）。この変異を当てると**面が 190 → 191 へ動き `check:design-path-refs` が終了コード 1 になる**（同日・同基線で実測）
+  - **食い違いがフェンスの内側で守られている度合いは、起票文が述べたより強い**: 起票文は「逆引用符で囲まれたトークンだけを拾う」ことを理由に挙げるが、**ツリーの行を逆引用符で囲む変異を当てても終了コードは 0 のまま・面も候補 distinct も不動**であった（`scanDocument` はフェンスの内側を丸ごと読み飛ばす）。**同じ逐語をフェンスの外側へ置くと終了コード 1 になり候補 distinct が 739 → 740 へ動く**。ツリーの綴りは書式を変えない限り関門では永久に検出できない
+  - **関門19本は前後で完全に同値**（17本が終了コード 0、`check:design-measurement-freshness` と `check:req-coverage` が 1 で、いずれも本作業以前から赤い）。`check:design-path-refs` は**前後とも延べ 123 件 / distinct 30 件**・面 190 件・候補 distinct 739 件で、**鮮度の失敗行は前後とも 7**。被覆も不動である——**機能名を欠くヘッダー 2011件 / 955ファイル、眠る名乗り 5127**（上限 2023 / 5170、**遊びは 12 / 43 のまま**）、適用対象 2696 / 除外 193 / 到達被覆 2660/2696 (98.7%)。文書のみの変更のためスイートは走らせていない（`grep -rn "readFileSync\|readFile" backend/src frontend/src | grep -F ".kiro"` の出力が空＝実行時に読むソースが無い）
+  - **範囲外の同型（未処置・測定のみ）。件数は実在判定の方式で割れるので方式を併記する**（115.78-115.80）: `.kiro/specs/*/design.md` 全13件の**フェンス内側**のパス様トークンを走査すると、実在判定を**ディスク実体で行うと 71 件**、**`git ls-files` の索引で行うと 79 件**になる（索引側は厳密な上位集合で、差の 8 件はすべて site-survey の1文書にあり、7 件は先頭 `./` を正規化が落とさなかった偽陽性、1 件は `backend/` 起点の相対パスで、いずれも実在する）。**確かなのは両方式が一致する 71 件である。** **本スペックは両方式とも 5 件で完全に一致**し、4 件が本タスクの境界内（`L250-253`）、**残る1件は `frontend/src/api/quantity-groups.ts`（本変更後の `L2263`、`##### Frontend Interface` の typescript フェンス内のコメント行）で実体を持たない**——実際の追記先は同文書が別の箇所で挙げる `frontend/src/api/quantity-tables.ts` である。境界（「File Structure Plan が挙げる **E2E の名**」）の外なので手を触れていない。**なお `scripts/check-design-path-references.selftest.ts` が計画側の綴りを MUST_DETECT の事例として逐語で固定しているが、これは是正前の実物を凍結した対照であり未変更が正しい**（書き換えると対照が主張を失う）
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 79 / 87 / 93 / 94 と同じ）。受入基準を新規に実装せず、除外の在籍理由と記帳を実態へ揃えるだけである。ただし 95.2 / 95.3 は結果として除外の取り下げを伴いうるため、**その場合は分母が動く。前後の被覆を実測して記録すること**。
+
+**着手前の共通の作法**: 上に挙げた件数・行番号はいずれも `ce455dcf`・2026-09-14 の実測である。**起票文の数字は起票時点の実測であって着手時の実測ではない**（79.1 / 84.1 / 85.1 の学び）。所在も件数も、着手時に測り直してから書くこと。
+
+_起票元: 本実行の機能レベル検証（`/kiro-validate-impl`）が NO-GO を出し、利用者が5件すべての起票を選んだ。実装は行っていない_
+
+## Task 96: 機能レベル検証が検出した被覆と記録の残余
+
+**経緯**: Task 95 の5件を処置した後に再実行した機能レベル検証（`/kiro-validate-impl`）が、ふたたび **NO-GO** を出した。機械的検査は全項目が合格している——全単体スイートは失敗 0 件・skip 0 件、型検査とビルドが終了コード 0、関門19本が基線と同値の 17緑 / 2赤、起動の実証は実ブラウザでコンソールエラー 0 件、TBD と秘密の走査も 0 件である。横断結線と共有状態の食い違いも 0 件で、**本実行の8コミット由来の退行は一件も無い**。**判定を分けたのは、完了印と実体の乖離である**——`[x]` を持つ Task 44.2 と Task 46.2 の配下に、実装が存在しない受入基準が 5 件ある。**本節の11件はいずれも本実行が持ち込んだものではなく、スペックに元から積まれた負債である。** 利用者が「11件すべてを起票する」ことを選んだ。実装は行っていない。
+
+**測った事実**（いずれもコミット `5777b605`、2026-09-14 にリポジトリルートで実測）。**出所を書き分ける**——以下の数値は親が自ら測り直したものであり、検証サブエージェントの申告を引き写していない。**ただし全単体スイートの件数（712ファイル / 17,702件）だけは検証担当の実測であって、親は再実行していない**:
+
+- 受入基準の被覆は **346/358**。適用対象 2696 / 除外 193 / 到達被覆 2660/2696 (98.7%) で、閾値 100% に対し `check:req-coverage` は終了コード 1 である
+- 未被覆は **12件**——`REQ-2.5` / `REQ-4.2` / `REQ-6.3` / `REQ-26.5` / `REQ-26.8` / `REQ-29.7` / `REQ-29.9` / `REQ-29.10` / `REQ-30.7` / `REQ-34.2` / `REQ-34.4` / `REQ-42.10`
+- **本スペックの除外は 39件**で、`in-repo-verified` **28件** / `in-repo-unverified` **11件**である。Task 95 の起票時点（40件・`in-repo-unverified` が 39件）から**向きが逆転している**。95.1〜95.4 の処置が効いた側であり、本節が扱うのは残る 11 件の性質である
+- ラチェットは**機能名を欠くヘッダー 2011件 / 955ファイル、眠る名乗り 5127件**（上限 2023 / 5170、**遊びは 12 / 43 しかない**）。**本節の記録を書き足す行為そのものがこの上限を動かしうる。箇条書きの見出しに機能名を欠くヘッダーの形を作らないこと**（Task 95 と同じ警告）
+- 未完了の下位タスクは **89.1 と 94.1 の2件のみ**で、いずれも上流スペック待ちである。起票先は上流の文書に実在し（`site-survey` の `tasks.md:6028`、`estimate-creation` の `tasks.md:1714`）、**両方とも未完了のままである**。**この2件は本節の対象ではない**
+
+- [x] 96.1 計算結果の表の組み立てが二経路で食い違う状態の処遇を決める
+  - `requirements.md:525` は「Claude Vision API使用時もpdfjs-dist + Tesseract.js使用時も、同一のプレビューテーブル形式で抽出結果を表示する」と課す
+  - **実装は現に異なる**。`frontend/src/components/quantity-table-import/pdf-ocr-extractor.ts` の `:86-97` は大項目から備考までの**10欄の名前付きヘッダー**を組み立て、同ファイル `:141` は `rows[0]!.columns.map((_, i) => ` の形で**連番の列名**を組み立てる
+  - **未検証ではなく実装が条文に反する。** したがって被覆印を足して解ける種類ではない。**両経路を揃えるか、条文を実態へ見直すかの判断が要る**
+  - **所管を名乗る完了タスクが存在しない**（`_Requirements:` 行に当該番号を挙げるタスクが 0 件）。是正の受け皿はこの下位タスクが初めてになる
+  - _Boundary: `pdf-ocr-extractor.ts` の二経路のヘッダー組み立てと、対応する条文_
+  - **利用者の裁定（2026-09-15）**: 「実装を揃える」（条文は維持）。列と欄の対応は設計文書に定めが無かったため実装が判断を仰ぎ、「見出し行で当て、無ければ位置で当てる。どの欄にも当たらない列は取り込まない」と裁定された
+  - **処遇（コミット `04c9dc9b` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: フォールバック経路 `extractWithOcrFallback` を、Claude Vision 経路と共有する10欄の定数 `PREVIEW_HEADERS` のヘッダーと、`alignRowsToPreviewFields` で組み替えた行を返す形へ改めた。見出し行の判定は異なる2欄以上（`MIN_HEADER_MATCHES=2`）、同じ欄の重複は左側の列を採る。意味づけは design.md の `##### PDF OCR処理（Claude Vision API優先）` の直下へ追記した。**検証**: フラグを切った状態で 8件失敗 / 5件合格、フラグを入れて・撤去して全件合格。独立レビューが変異7種を当て、6種は検出、見出し判定を「当たった列の数」で数える変異だけが見逃されたため、実装が固定するテストを1件足し、同変異で当該テストだけが落ちることを実測した。`npm --prefix frontend run test -- src/components/quantity-table-import` は 6ファイル / 91件合格（親が再実行）、型検査・lint は終了コード 0。**被覆**: 本スペック 346/358 → **347/358**（REQ-30.7 の除外を取り下げ。二経路を実際に走らせて突き合わせる検証1件だけが名乗る。除外 193→192）。ラチェットは 2011/2023・5127/5170 で不動。関門19本は前後で同一（17緑 / 2赤、赤は基線から）。**96.7 が観測した 347 の出所は本変更のコミット前の作業ツリーであった**（96.6 / 96.7 は被覆印を持たない文書のみの変更）
+
+- [x] 96.2 表示部品の欠落と Task 46.2 の完了印の乖離を決める
+  - Task 46.2 は `[x]` を持ち、`_Requirements:` に 34.1 から 34.5 までを挙げる。しかし `REQ-34.2`（インライン表示）と `REQ-34.4`（ページ送り）に**実装が存在しない**
+  - **実測**: `from 'react-pdf'` の当たりはリポジトリ全体で **1件のみ**で、`frontend/src/components/estimate-requests/FileInlinePreview.tsx:14` である。取り込み経路の `ImportDialog.tsx` が取り込むのは `ImportPreviewTable` だけで、表示部品を一つも取り込まない
+  - **完了印を外すか、実装するかの判断が要る。** 前者は記録の是正、後者は新規機能の追加に相当する
+  - _Boundary: Task 46.2 の完了印と、取り込みダイアログの表示部品_
+  - **利用者の裁定（2026-09-15）**: 「実装する」（96.3 と共に）
+  - **処遇（コミット `db1007f0` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 取り込みダイアログへ受領見積書登録の `FileInlinePreview` を結線し、`REQ-34.2`（PDF ビューアのインライン表示）と `REQ-34.4`（前へ/次へと「ページ N / M」）を達成した。ファイルプレビュー（領域「ファイルプレビュー」）を左、抽出結果（領域「抽出結果」）を右に折り返し可能な横並びで置き、ダイアログの最大幅を 1000px から 1400px へ広げた。種別は拡張子で決め、抽出処理には元のファイルを渡す。**Task 46.2 の `[x]` は据え置く**——完了印の時点で未達だった 34.2 / 34.4 が本タスクで達成されたため、96.3 と同じく時系列で残す
+  - **独立レビューは1回差し戻した**: 転用した `FileInlinePreview` は受領見積書側の決まり（同スペックの tasks.md に由来）で総ページ数1のときページ送りを隠すため、例外を持たない `REQ-34.4` を1ページの PDF で満たさなかった（単体の模擬も E2E の資材も2ページで未検証だった）。`FileInlinePreview` に既定 false の任意 props `showPageNavigationForSinglePage` を足し、取り込みダイアログだけが true を渡す形で是正した。**受領見積書側は既定値により挙動不変**で、既定を true にする変異で同側の既存検証が落ちることを独立レビューが確かめた
+  - **検証**: 単体はフラグを切った状態で 6件失敗、是正分も RED を記録。全単体スイートは3分割の前景実行で 12,014件合格（2回目のレビューが再実行）。E2E は取り込み spec 33件合格（新規3件）、受領見積書の `FileInlinePreview` を描く E2E 12本も1本ずつ全件合格。E2E の変異（PDF を渡さない・次へを無効化・横並びを崩す・1ページの props を外す）はすべて検出。既存 E2E のうち `REQ-28.4` / `28.7` / `32.1` は Excel のインライン表が `table` の先頭に当たるため抽出結果の領域へ限定し、判定の弱かった `REQ-34.1` / `34.3` / `34.5` を書き直した（独立レビューが旧版より強いと判定）
+  - **被覆**: 本スペック 351/359 → **353/359**（`REQ-34.2` / `34.4` の除外を取り下げ、除外 190→188）。機能名を欠くヘッダー 2011件で不動、眠る名乗り 5130（上限 5170。+1 の帰属は未特定で、本差分の4ファイルでは増えていないことを独立レビューが測った）。関門は前後で同一
+  - **観測（96.11 の棚卸しの対象）**: プレビューの高さの保存キー `architrack:received-quotation:preview-height` を受領見積書と共有しており、取り込みダイアログで高さを変えると受領見積書側も変わる（要件は高さの保存に触れない）。ダイアログは閉じても外されないため、開き直すと前回のファイルプレビューが残る（抽出結果も同様に残るので表示は整合する）
+
+- [x] 96.3 再利用の欠落と Task 44.2 の完了印の乖離を決める
+  - Task 44.2 は `[x]` を持ち、`_Requirements:` に 29.1 から 29.10 までを挙げる。しかし **3件が命じられた再利用から落ちている**——`REQ-29.7`（抽出テキストの表示）・`REQ-29.9`（失敗時の手入力の導線）・`REQ-29.10`（処理の時間切れ）
+  - **とくに `REQ-29.10` は「実体は在るが到達しない」ではない。** 取り込み経路の `pdf-ocr-extractor.ts` にも、それが呼ぶ共有部品 `frontend/src/components/estimate-requests/pdf-text-extractor.ts` にも、時間切れの機構が**一件も無い**。機構が在るのは `estimate-requests/OcrDataExtractor.tsx:82` の画面部品の内側だけで、取り込み経路はこれを一度も通らない
+  - **Task 95.3 の記録はこの点を「実体は在るが到達しない」と書いている。着手時に測り直し、記録の側も訂正すること**（規約 (a) に従い当時の記録は消さず、現況の再実測を併記する）
+  - **95.3 が引く測定の一つが現況で再現しない**。同記録は取り込み経路に対する手入力の語の走査を「当たり 0 件」と書くが、`5777b605` では **2件**返る。当たりは `frontend/src/components/quantity-table-import/excel-parser.test.ts:175-176` の**注釈2行**で、本番の導線ではないため結論は変わらない。**しかし後任が同じ走査で 2 を得て「是正済み」と誤読しうる**
+  - _Boundary: Task 44.2 の完了印と、取り込み経路の3つの受入基準_
+  - **利用者の裁定（2026-09-15）**: 「実装する」（96.2 と共に）
+  - **処遇（コミット `9b81ea4e` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 取り込み経路へ `REQ-29.7`（抽出テキストの表示）・`REQ-29.8`（選択・コピー可能）・`REQ-29.9`（失敗時に手動入力を促す文言）・`REQ-29.10`（フォールバックの30秒の時間切れ）を結線した。変更は `pdf-ocr-extractor.ts`（`OCR_TIMEOUT_MS`・文言定数・`extractPdfHybridWithTimeout`・両経路の `extractedText`）、`ImportDialog.tsx`（抽出テキストの領域）、`frontend/src/types/quantity-import.types.ts`、単体検証 +11件、E2E +2件、除外台帳。時間切れの範囲は受領見積書登録と同じくフォールバックのみとし、意味づけは design.md の `##### PDF OCR処理（Claude Vision API優先）` の直下へ追記した。**Task 44.2 の `[x]` は据え置く**——完了印の時点では未達だった3件が本タスクで達成されたため、12.4 の先例（「いつ何が達成されたか」で書き分ける）に倣い、印は戻さず本記録で時系列を残す
+  - **検証**: フラグを切った状態で単体 8件失敗、フラグ撤去後に取り込み経路 6ファイル / 102件合格（親が再実行）。全単体スイートは3分割の前景実行で 522ファイル / 12,003件合格。変異は実装者9種・独立レビュー10種がすべて検出され、E2E の変異（領域を描かない・元の例外文を出す）も `REQ-29.7` / `REQ-29.9` の E2E が検出した。独立レビューが実ビルドのバンドルに新しい文言が入っていることを確かめたうえで E2E を走らせ、`REQ-29.7` / `REQ-29.9` の合格を確認した
+  - **被覆**: 本スペック 347/358 → **350/358**。`REQ-29.7` / `REQ-29.9` の除外を取り下げ（190件）、`REQ-29.10` は30秒の経過を E2E で決定的に作れないため単体検証を代替検証に名指す形で除外に残した。ラチェットは 2011/2023・5127/5170 で不動。関門19本の終了コードは前後で同一。`check:design-measurement-freshness` の失敗行は 7 のままだが、実測値が3件動いた（除外総数 192→190、`t13-anchor-references-after-115303` 1321→1324、`featureless-headers-resolvable-by-own-feature-after-115308` 589→590。いずれも本変更に帰属し、宣言値は HEAD の時点ですでに外れていた）
+  - **本実装が検出した回帰（96.1 由来、別コミットで是正）**: import の E2E `REQ-27.6`（PDF のアップロードで OCR を自動で始める）が落ちる。96.1 以前はフォールバック経路の見出し `列N` が必須欄を割り当てられず、必ず出る必須欄の警告（`role="alert"`）だけを同 E2E のセレクタが拾っていた。96.1 が10欄の名前付き見出しに揃えて警告が出なくなり、セレクタに当たる要素が消えた。**製品の退行ではなく、付随的な挙動に頼った検証の問題である**（独立レビューが分類）。**96.1 を単体検証だけで完了にし、取り込みの E2E を走らせなかったことが見逃しの原因である**
+  - **観測（受け皿は 96.4 / 96.11）**: `ImportDialog.tsx` 冒頭の注釈は 29.7 / 29.8 を掲げない（96.4）。時間切れ後も Tesseract の処理は中断されず裏で完走する（受領見積書登録と同じ構成）。Excel の読み取り失敗（`REQ-28.6`）に手動入力を促す文言が無いのは同型の欠落で境界外
+
+- [x] 96.4 本番ファイルの名乗りが実体と食い違う状態を一括で解消する
+  - **4箇所ある**（いずれも冒頭の注釈が、そのファイルが担っていない受入基準を掲げる）——`pdf-ocr-extractor.ts:14` が 29.10 を、同 `:19` が 30.7 を、`ImportDialog.tsx:12` が 34.1 から 34.5 を、`excel-parser.ts` が 28.4 と 28.7 を掲げる
+  - **被覆の根拠として読まれうる記述が実体と食い違う。** 96.1 から 96.3 の判断が出た後に揃えるのが安い（先に名乗りだけ直すと、実装の判断が出たときに再び書き直すことになる）
+  - **Task 95.2 の申し送り (i)・95.3 の申し送り・95.4 の申し送り (ii) が同じ4箇所を別々に挙げている。** 本下位タスクはそれらを一本化したものである
+  - _Boundary: 本番4ファイルの冒頭の注釈_
+  - **処遇（コミット `0741033c` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 起票の「4箇所」は3ファイル（`pdf-ocr-extractor.ts` に2箇所、`ImportDialog.tsx` と `excel-parser.ts` に1箇所ずつ）で、**うち3箇所は 96.1〜96.3 の実装により名乗りが実体と一致する状態へ変わっていた**（`pdf-ocr-extractor.ts` の 29.10 / 30.7、`ImportDialog.tsx` の 34.1-34.5）。着手時に全番号を条文とコードで判定し直し、注釈だけを改めた——`excel-parser.ts` から担っていない 28.3 / 28.4 / 28.6 / 28.7 の名乗りを外して担当先を散文で示し（28.3 は `field-mapping.ts`、28.4 / 28.7 は `ImportPreviewTable.tsx`、28.6 は例外を `useImportDataExtractor.ts` へ伝えるだけ）、実装しながら名乗っていなかった `pdf-ocr-extractor.ts` の 29.9 / 30.2 / 30.4 と `ImportDialog.tsx` の 29.7-29.9 を足した。機能名は付けていない。**3ファイルの眠る名乗りは 23 → 23 で増減0**（独立レビューが HEAD と作業ツリーを実測）、全体は機能名を欠くヘッダー 2011件・眠る名乗り 5130件で不動、本スペックの被覆 353/359 で不動、関門は前後で同一
+  - **記録の読み方の補足**: `check:design-measurement-freshness` の失敗は **8行・宣言7件**（`req-coverage-selftest-total-after-115314` が2行を出す）。96.3 の記録の「7」は宣言の数であり、行数で数えると 8 になる。いずれも site-survey の design.md に対するもので本スペックの変更とは無関係
+  - **観測（96.11 の棚卸しの対象）**: (i) `REQ-28.6` の条文は「エラーメッセージを表示し手動入力を促す」だが、Excel 経路は例外の文言を出すだけで手動入力を促す文言がどこにも無い。E2E（`import-e2e.spec.ts` の 28.6）はリトライボタンだけでも合格するため、弱い検証のまま被覆扱いになっている。(ii) 検証側の見出しが実体と食い違う——`ImportDialog.test.tsx` は 34.1-34.5 を名乗るが 34.2 / 34.4 の検証は `ImportDialog.inline-preview.test.tsx` 側に在る、`excel-parser.test.ts` の裸の見出しが 28.3 / 28.6 を挙げながら本文が名乗らないと明記する、`pdf-ocr-extractor.test.ts` の見出しが 96.3 で足した 29.9 / 29.10 の検証を挙げない。(iii) `field-mapping.ts` は自身の見出しで 28.3 を名乗らない。(iv) `ImportDialog.tsx` の範囲表記は粒度が粗い（27.8 は処理中に非活性ではなく非表示、31.8 / 31.9 の実体は編集画面の取り込み処理側）
+
+- [x] 96.5 枝つき番号の受入基準が数えられない状態の処遇を決める
+  - `requirements.md:215` に枝つきの番号で書かれた受入基準が **1件**ある（ファイル全体で1件）
+  - **これは検査の取りこぼしではない。** `scripts/requirement-document.ts:185` の `LETTERED_CRITERION_LINE` が当該の行を捕まえ、`:260-262` が**基底の番号だけを `letteredCriterionNumbers` へ記録し、受入基準そのものを作らない**。`scripts/check-requirement-coverage.ts:508` がそれを引き継ぐ。**`check-requirement-coverage.selftest.ts` が4箇所でこの挙動を固定している**（`:3599` / `:3601` / `:6452` / `:6494`）
+  - したがって**分子にも分母にも除外にも載らず、被覆率を一切動かさない**。**問うべきは検査の側ではなく、条文の番号付けである**——枝つきをやめて通し番号にするか、解析器の設計を変えるかの判断が要る。後者は全スペックに及ぶため、上流の所管になる可能性が高い
+  - _Boundary: 当該条文の番号付けと、その処遇の判断_
+  - **利用者の裁定（2026-09-15）**: 「通し番号へ振り直す」（解析器と自己検査は変えない）
+  - **処遇（コミット `c0fae358` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `### Requirement 7` の受入基準 `1, 2, 3, 3a, 4, 5, 6, 7` を `1〜8` へ振り直し（3a→4、4→5、5→6、6→7、7→8）、本スペックの被覆印（E2E 3本・単体6本）、本番の注釈（フロント2・バックエンド1）、design.md の宣言4行、本書の `_Requirements:` 行を追随させた。本スペックの枝つき番号は 0件になった（全スペックでは `project-management` の4行が残るが境界外）。**当時の記録は書き換えていない**——本書の日付入りの是正記録の表2行、`scripts/check-requirement-exclusions.ts` の走査記録2箇所、site-survey の文書3箇所
+  - **独立レビューは1回差し戻した**: 旧 `3a` は解析器に読まれない番号だったため、その下に積もっていた書き違い（空欄へのフォーカスで全候補を出す＝受入基準 3 の中身を `3a` と名乗る注釈2箇所、フォーカスや空入力しか見ない検証の印4箇所）が、振り直しで**解析器の読む `7.4` の偽の名乗り**になった。是正時に 7.4〜7.8 の名乗りを全数で条文と突き合わせ、同型の食い違いを**追加で11件**直した（印の削除5・ラベルの付け替え、完了済みタスク 3.4 / 10.2 / 25.2 / 25.3 / 27.1 / 27.2 の `_Requirements:` の是正を含む）。**2回目のレビューは、印を外した各受入基準に中身を確かめる検証が残ることを 7.1〜7.8 の全件で実読して承認した**
+  - **被覆**: 本スペック 350/358 → **351/359**（新しい `REQ-7.4`＝入力中の前方一致の絞り込みは既存の E2E が被覆しており、検証の追加は不要だった）。`REQ-7.x` の未被覆・除外は 0件。機能名を欠くヘッダー 2011件で不動、眠る名乗り 5127 → 5130（上限 5170）。関門は前後で同一。変更した単体6ファイル 302件合格
+  - **観測（96.11 の棚卸しの対象）**: `quantity-table-crud.spec.ts` の「中項目フィールドでオートコンプリート候補が表示される (REQ-7.2)」と `AutocompleteInput.test.tsx` の「候補表示 (Req 7.1)」は、中身が受入基準 3 である（本タスク以前からの書き違いで、振り直しの対象外）。design.md の AutocompleteInput の行「7.3-7.8」はストアとルートの責務である 7.8 を含む
+  - **関連する是正（コミット `c0fae358`）**: 96.3 の実装が検出した `REQ-27.6` の E2E の失敗は、96.1 が必須欄の警告を出さなくしたことで、付随的な `role="alert"` に頼っていたセレクタが空になったものであった。操作なしで抽出要求が発行され PDF 本文の抽出テキストが表示されることで自動起動を判定する形へ改め、取り込みの E2E 30件の合格を独立レビューが再現した
+
+- [x] 96.6 設計文書の囲みの内側に実体を持たない参照が残る状態を解消する
+  - `design.md` の本変更後 `L2263`（`##### Frontend Interface` の囲みの内側の注釈行）が `frontend/src/api/quantity-groups.ts` を挙げるが、**ディスクにも `git ls-files` の索引にも無い**
+  - **実体は `frontend/src/api/quantity-tables.ts:388` の `copyQuantityGroup` である。** 同じ文書の `L2282` は正しい綴りを挙げており、**文書内で自家撞着している**
+  - **関門はこれを永久に検出しない**。`scripts/check-design-path-references.ts` の走査は囲みの内側を丸ごと読み飛ばすため、書式を変えない限り主張が一つも立たない（95.5 が変異で実証済み）
+  - **Task 95.5 が境界外として測定のみ残した1件である**
+  - _Boundary: 当該注釈行の綴り_
+  - **処遇（コミット `49b72184` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 当該注釈行を `frontend/src/api/quantity-tables.ts（既存 API クライアントに追記）` へ直した（同節 `L2282` と逐語で一致）。`grep -c "quantity-groups.ts" .kiro/specs/quantity-table-generation/design.md` の出力は変更前 `1`・変更後 `0`。囲みが挙げる関数 `copyQuantityGroup` は `frontend/src/api/quantity-tables.ts:388` に実在する。**古い綴りは併記していない**——当該行は経緯の記録ではなくインターフェースの規定であり、併記すれば実体の無い綴りを文書へ戻すことになる（独立レビューが規約 (a) の対象外と判定）。関門19本の終了コードは前後で同一（17緑 / 2赤、赤は基線から）。`check:design-path-refs` は前後とも延べ123 / distinct30 / 面190 / 候補 distinct 739。境界外に残る古い綴りは `research.md:167`（調査記録）・本書の 96.7 の対象2欄・起票記録（`## Task 95` / `## Task 96` の本文）・`scripts/check-design-path-references.selftest.ts` の凍結した対照で、いずれも未変更が正しい
+
+- [x] 96.7 完了済みタスクの境界欄が実体を持たないファイルを名乗る状態を解消する
+  - **2件ある**——`tasks.md:1367`（親は `- [x] 53.1`）と `tasks.md:1401`（親は `- [x] 54.1`）が、いずれも境界欄で `api/quantity-groups.ts` を所有対象として名乗る。**当該ファイルはディスクにも索引にも無い**
+  - **これは Task 95.5 の漏れではない。** 95.5 の境界は「設計文書の構成計画が挙げる E2E の名と、それを指すタスクの境界欄」であり、処置した4欄はすべて E2E の名を名乗る形である（**実測4件**）。本件が名乗るのは取り込み経路ではなく API クライアントの名で、**95.5 の境界の外側である**
+  - **同一ファイルの所有が二つの別名に割れている**（他の多数のタスクは同じ欄で `quantity-tables.ts` を名乗る）。境界欄を構文解析する検査は存在しないため、機械は永久に検出しない
+  - _Boundary: 当該2つの境界欄の綴り_
+  - **処遇（コミット `42f85587` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 53.1（`:1367`）と 54.1（`:1401`）の境界欄の綴りを `api/quantity-tables.ts` へ直した（兄弟タスクの `:1505` / `:1533` / `:1623` と同じ綴り）。`routes.ts` を除いて `quantity-groups.ts` を名乗る境界欄は変更前 2件・変更後 0件で、当該ファイルはディスクにも `git ls-files` の索引にも無い。`copyQuantityGroup` を持ち込んだ唯一のコミット `cecb0fe3` が触った API クライアントは `frontend/src/api/quantity-tables.ts` のみである（独立レビューが `git log -S` で再現）。**古い綴りは併記していない**——境界欄は所有範囲の宣言であり、96.6 と同じ判断である。境界欄を構文解析する関門は存在しないことをスクリプトの実読で確かめ、関門6本の出力は前後で一致した。**観測（本タスク由来ではない）**: `check:req-coverage` の本スペックの値が本節の前置きの 346/358 ではなく **347/358** であり、変更の前後で不動だった。原因は切り分けていない
+
+- [x] 96.8 依存の条項が範囲を絞らず実装と食い違う状態を解消する
+  - `design.md:3491` は編集画面について「現場調査詳細取得を写真収集の目的で呼ばない」と範囲を絞らずに書くが、`frontend/src/pages/QuantityTableEditPage.tsx:1683` が現に呼んでいる
+  - **実装は要件を満たしている。** `requirements.md:827` は一括取得の対象を「写真選択ダイアログまたは写真変更ダイアログを開く」場合に限り、同要件のスコープ節（`:816`）も対象を絞る。一括生成の側の条文（`### Requirement 40`）は**受入基準12件のいずれも写真の取得形態を規定していない**。写真選択ダイアログの経路（同ファイル `:976`）は宣言どおり一本化済みである
+  - **したがって是正の宛先は実装ではなく条項の書きぶりである。** 規約 (a) に従い、当時の記述を消さずに現況の再実測を併記する形が相応しい
+  - _Boundary: 当該条項の書きぶり_
+  - **処遇（コミット `05061bfb` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 条項（`design.md:3491`）は残し、直下 `:3492` に規約 (a) の併記を1行加えた。併記は範囲を写真選択ダイアログ・写真変更ダイアログに絞る読みと根拠、再現コマンド7本と出力、自己言及の注意を含む。**独立レビューが7本すべてを逐語で再実行し出力の一致を確かめた**。編集画面から現場調査詳細取得へ届く本番経路は一括生成の確定ハンドラ `handleConfirmCreateFromSurvey` の1箇所のみで、写真変更も `handleSelectImage` → `getProjectSurveyImages` を通る。同じ禁止を範囲を絞らずに書く条項は本書に他に無い。関門19本は前後で同一（17緑 / 2赤、赤は基線から）。**起票文の訂正**: `### Requirement 40` の受入基準は起票文の12件ではなく **13件**（作業ツリーのファイルで計数）。**受け皿の無い観測（96.11 の棚卸しの対象）**: `design.md:2324`（REQ-39 の節）が `handleSelectImage` を `getSiteSurveys`→`getSiteSurvey` の取得として書くが、現況は `getProjectSurveyImages` の1回呼び出しであり陳腐化している（独立レビューが検出。`:2358` の一括生成側の記述は現況と一致）。併記の1行は約2,000字と長く、可読性の改善余地がある（事実の誤りは無い）
+
+- [x] 96.9 構成図が再設計前のままである状態の処遇を決める
+  - `design.md` の `### Architecture Pattern & Boundary Map` の図（`L104-187`）が、保存の明示化より前の構成のまま残る。**ノード7件が実体名と対応しない**ほか、下書きの保存経路も未保存の印も図に現れず、操作を即座に反映していた時代の辺が残る
+  - **囲みの内側のため、どの関門の対象でもない**（96.6 と同じ不可視性）
+  - 図の更新は範囲が広いため、**書き直すか、現況との差を注記で併記するか**の判断が要る
+  - _Boundary: 当該の図と、その処遇の判断_
+  - **利用者の裁定（2026-09-15）**: 「図を書き直す」
+  - **処遇（コミット `67097fde` の実装を対象、2026-09-15 にリポジトリルートで実測）**: `### Architecture Pattern & Boundary Map` の図を描き直し、図の直後に描き直した事実と旧図の取り出し方（`git show 67097fde:.kiro/specs/quantity-table-generation/design.md | sed -n 104,187p`）を註で残した。**旧図は28ノードのうち実体名に当たらないものが9件**（起票文は7件）で、ほかに `CalculationEngine` がフロントの枠に置かれていた。新図は **51ノード・67辺**で、編集はクライアント側の下書き（reducer）へ入り、永続化は保存操作の `PUT /:id/save` → `saveDraft` の1経路のみ、未保存の印と離脱確認は編集画面の `isDirty` から描く。本番から呼ばれない個別のグループ・項目 API とサービス、読み取り専用の枝の `QuantityItemRow`、到達しない `PhotoChangeDialog` は描かず、理由を註に書いた。**独立レビューは1回差し戻した**——実装に無い辺 `QuantityItemRow → QuantityItemActionMenu` と本番で到達しない辺 `QuantityGroupCard → QuantityItemRow` を検出し、是正時に実装が同型の誤り（reducer から画面部品への辺）をもう1件見つけて直した。**2回目のレビューが67辺すべてを本番コードの行と突き合わせて承認した**。mermaid-cli（Playwright の headless shell）で描画は終了コード 0・ノード51 / 辺67、壊した対照は終了コード 1。design 系の関門5本は終了コード 0、`check:design-path-refs` は 123 / 30 / 190 / 739 で不動。**観測**: 図は `67097fde` の取り込み系を描いており、96.2 / 96.3 が取り込みダイアログを変えたら取り込み系の辺の見直しが要りうる。図の直後の `**Architecture Integration**` の箇条に旧図の名 `AutocompleteCandidateStore` が残る（境界外。96.11 の棚卸しの対象）
+
+- [x] 96.10 命名ヘルパーの配置が実体と違う状態を解消する
+  - `design.md:2448` は命名ヘルパーを `frontend/src/utils/` へ置くと書くが、**そこに実体が無い**
+  - 着地先は `frontend/src/pages/quantityTableEditReducer.ts:442`（ファイル内の非公開関数）と `backend/src/services/quantity-validation.service.ts:668` である
+  - **設計が古い側の食い違いである**（クライアント側での生成へ移した際に配置が動いた）
+  - _Boundary: 当該記述の配置の綴り_
+  - **処遇（コミット `c113b4a9` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `#### 影響ファイル一覧（REQ-39〜41）` の表の行は REQ-39〜41 設計時の計画の記録なので置き換えず、セルの末尾に表の直下への案内を足し、表の直下へ規約 (a) の併記（1項＋下位7項）を置いた。併記は二つの置き場（フロントの reducer 内の非公開関数とバックエンドのサービスメソッド）、再現コマンドと出力、履歴の限界（`git log -S` はいずれも squash コミット `628fbe96` の1行のみで、置き場が動いた時期は履歴から確かめられない）を含む。**独立レビューが再現コマンドをすべて逐語で再実行し一致を確かめた**。`frontend/src/utils` に対する名前の走査は変更の前後とも空（終了コード 1）。design.md 内の関数名の行数は 3 → 8（増分5行は併記自身）。関門19本は前後で同一（17緑 / 2赤、赤は基線から）。**受け皿の無い観測（96.11 の棚卸しの対象）**: `design.md` の REQ-40 の Implementation Notes と命名ヘルパーの囲み、および REQ-42 の更新注記は、`truncateForCopy` を汎用化した命名ヘルパーをフロントとバックエンドで共有すると読めるが、`truncateForCopy` はバックエンドにのみ在り、フロントは自前の `truncateNameWithSuffix` を持つ（同じ仕様の別実装であって共有ではない。実装・独立レビューの双方が検出）。併記の語「輸出しない」「上の三つのファイル」に可読性の改善余地がある（事実の誤りは無い）
+
+- [x] 96.11 受け皿を持たない申し送りを棚卸しして起票する
+  - **本節を起こす直前まで、本スペックのタスク節は `## Task 95` が最後であり、96 以降が存在しなかった**。そのため 95.1 から 95.5 が残した申し送りは**一件も起票されていなかった**
+  - 本節の 96.1 から 96.10 が拾ったのは、機能レベル検証が独立に検出した11件である。**申し送りの側には、それと重ならないものが残る**——除外の分類の是正、主張の新設、被覆源が二つに割れている件、裁定記録の陳腐化と鮮度宣言を対で扱う件、上流の鮮度宣言の累積、境界内で解ける唯一の残置の撤去の是非、統治台帳の更新を伴う撤去、上流へ申し送るべき非決定性の1件などである
+  - **本下位タスクの任務は、それらを全数拾って起票することであって、その場で解くことではない。** 着手時に `## Implementation Notes` と 95.x の各記録を通読し、**受け皿の無いものを一件ずつ数え上げること**
+  - _Boundary: 申し送りの棚卸しと起票_
+  - **処遇（コミット `6261e59b` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 候補55件を棚卸しし、受け皿の無い34件を `## Task 97` の下位タスク18件として起票した（解決はしていない）。起票しなかった21件の理由（是正済み13・受け皿あり2・説明済み2・判断済み2・重複1・無関係1）は同節の表に置いた。**独立レビューが出所の記録を通読して漏れが無いこと、是正済み13行と受け皿あり2行を全件再実測して主張どおりであること、上流の未完了タスクと重複しないことを確かめて承認した**。関門19本の終了コードは前後で同一、ラチェットは 2011 / 5130 で不動
+  - **独立レビューの補足を反映した**: 通読範囲に `## Implementation Notes` の他の3節が入っていなかったが、レビューが実測で後続を求める項がすべて処理済みであることを確かめた。**本スペック宛ての受け皿の無い申し送りが上流 site-survey の Implementation Notes に2件あり**（96.11 の出所の外）、97.19 として追加起票した。97.15〜97.18 は上流の tasks.md へ書き込む任務であり、書き込んで待ちに入る時点で 89.1 / 94.1 と同じく `_Blocked:` に起票先の ID を記すこと
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 79 / 87 / 93 / 94 / 95 と同じ）。受入基準を新規に実装せず、完了印と実体の乖離を決め、記録を実態へ揃えるだけである。ただし 96.1 から 96.3 は判断の結果として実装を伴いうるため、**その場合は前後の被覆を実測して記録すること**。
+
+**着手前の共通の作法**: 上に挙げた件数・行番号はいずれも `5777b605`・2026-09-14 の実測である。**起票文の数字は起票時点の実測であって着手時の実測ではない**（79.1 / 84.1 / 85.1 / 95.4 の学び。95.5 では起票文の「2箇所」が着手時に4箇所であった）。所在も件数も、着手時に測り直してから書くこと。**1件見つけた時点で探索を打ち切らないこと**（86.4 / 95.3）。**件数を出すときは実在判定の方式を併記すること**（115.78-115.80。95.5 では同じ走査がディスク実体で71件・索引で79件に割れた）。
+
+_起票元: Task 95 の処置後に再実行した機能レベル検証（`/kiro-validate-impl`）が NO-GO を出し、利用者が11件すべての起票を選んだ。実装は行っていない_
+
+## Task 97: 申し送りの棚卸しで受け皿が無かった件
+
+**経緯**: Task 96.11 の棚卸しで起票した。対象として通読したのは、94.1 / 94.2 の申し送り、95.1〜95.5 の申し送りと「範囲外の同型」、96.1〜96.10 の観測（96.11 宛てと明記したもの）、`## Implementation Notes（Task 75 以降）` のうち「未起票」「要是正」などの形で後続を求める項、および被覆検査の自己検査が求めている上限の引き下げである。**候補は55件あった。うち21件は、是正済み・説明済み・受け皿ありのいずれかだったので起票していない。残る34件を、問題ごとにまとめて下の18件の下位タスクにした。** 解決はしていない。
+
+**測った事実**（すべてコミット `6261e59b`・2026-09-15 にリポジトリルートで実測。件数はディスク上の作業ツリーで数えた。作業ツリーは HEAD と同一で、`git status --porcelain` は空）:
+
+- **受け皿の有無の判定**: 本スペックの未完了タスクは `grep -n '^- \[ \]' .kiro/specs/quantity-table-generation/tasks.md` で **3件**（89.1 / 94.1 / 96.11）。89.1 と 94.1 は、上流の site-survey 115.325 と estimate-creation 59.1 を待っている。上流で調べたのは `site-survey` / `estimate-request` / `estimate-creation` の各 `tasks.md` である。未完了の項目（`- [ ]` で始まる塊）を、後述の関門名・ファイル名・宣言名で絞った。当たりは site-survey の 115.325（本スペック 89.1 からの起票）と、estimate-request の 91.3 / 93.1、estimate-creation の 58.1 だけだった。後の3件は、自スペックの除外の作業で「関門を測り直せ」と書いている箇所に当たっただけで、下記の件の受け皿ではない。**`_Requirements:` / `_Boundary:` の欄まで含めて、受け皿は見つからなかった**（Implementation Notes「受け皿があるかは、節の見出しではなく子タスクの欄で確かめること」に従った）
+- **被覆**: `npm run -s check:req-coverage:json` で本スペックの受入基準は **359件**、未被覆は **6件**（`REQ-2.5` / `4.2` / `6.3` / `26.5` / `26.8` / `42.10`）。95.4 の申し送り (i) が挙げた12件のうち、`29.7` / `29.9` / `29.10` / `30.7` / `34.2` / `34.4` は 96.1〜96.3 で被覆へ移った。本スペックの除外は **34件**で、`in-repo-verified` が29件、`in-repo-unverified` が5件（`4.2` / `6.3` / `26.5` / `26.8` / `42.10`）。除外の総数は **188件**
+- **ラチェット**: 機能名を欠くヘッダーは **2011件 / 955ファイル**、眠る名乗りは **5130件**。上限は 2023 / 5170 で、遊びは **12 / 40** しかない。**下位タスクの是正で、機能名を欠くヘッダーの形を作ったり動かしたりすると、この上限に触れうる**
+- **関門19本**（`grep -oE 'npm run check:[a-z0-9-]+' .husky/scripts/pre-push.sh | sort -u` から自己検査などの派生を除いた本数）: 17本が緑、2本が赤。赤の `check:design-measurement-freshness` と `check:req-coverage` は基線から赤い。鮮度の失敗は **8行・宣言7件**
+
+**棚卸しの全数**（起票しなかった21件も、なぜ起票しないかを残す）:
+
+| # | 出所 | 件 | 再実測 | 行き先 |
+| --- | --- | --- | --- | --- |
+| 1 | 94.1 (i) | `NumericFieldInput` / `TextFieldInput` の撤去 | 未到達に在籍 | 受け皿あり（estimate-creation 59.1） |
+| 2 | 94.1 (ii) | `useQuantityTableSave` の撤去の是非 | 未到達に在籍・`design.md:370` が名指す | 97.13 |
+| 3 | 94.1 (iii) | `PhotoChangeDialog` の撤去と統治台帳 | 未到達に在籍・台帳 `:141` | 97.14 |
+| 4 | 94.1 (iv) | 再輸出 `index.ts` | 未到達に在籍 | 97.14 に同梱（単独では起票しない指示どおり） |
+| 5 | 94.1 (v) | `SiteSurveyDetailPage.test.tsx` の Req 15.6 の非決定性 | 検証は `:2485` に実在・再走は未実施 | 97.15 |
+| 6 | 89.1 | `FieldValidatedItemRow` | 未到達に在籍 | 受け皿あり（site-survey 115.325） |
+| 7 | 94.2 | `5項目` の判定式の注意 | 判定の作法の記録 | 起票不要（是正の対象ではない） |
+| 8 | 95.1 (i) | `REQ-2.5` の実装も検証も無い | 未被覆・除外に不在 | 97.1 |
+| 9 | 95.1 範囲外 (i)(ii) | 一覧画面2ファイルの ` * - 2.5` と crud spec `:4933` の偽の註 | 3行とも残存 | 97.1 |
+| 10 | 95.1 範囲外 (iv) | 裁定記録 `:398` | 残存 | 97.17 |
+| 11 | 95.2 (i) | `REQ-34.2` / `34.4` と `ImportDialog.tsx:12` | 96.2 / 96.4 で是正 | 是正済み |
+| 12 | 95.2 (ii) | `REQ-4.2` / `6.3` の分類と取り下げ | 分類 infrastructure・未検証のまま | 97.2 |
+| 13 | 95.2 範囲外 (iii) | `ItemCopyMoveDialog.test.tsx` の「6.3」の説明 | `:9` に残存 | 97.2 |
+| 14 | 95.2 (iii) | `REQ-26.5` / `26.8` の主張の新設、`26.12` の強化 | 前2件は未検証、`26.12` は `toHaveBeenCalled()` の1行のまま | 97.3 |
+| 15 | 95.2 (iv) | `REQ-28.1` | 95.4 で是正 | 是正済み |
+| 16 | 95.2 (v)・95.3 (iv)・95.4 (iv)・96.3 | 鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` の累積 | expected 495 / actual 590 | 97.16 |
+| 17 | 95.2 範囲外 (i) | 裁定記録 `:320` の性格づけ | 残存 | 97.17 |
+| 18 | 95.3 (i) | `REQ-29.7` / `29.9` / `29.10` | 96.3 で是正 | 是正済み |
+| 19 | 95.3 (ii) | `REQ-30.7` | 96.1 で是正 | 是正済み |
+| 20 | 95.3 (iii) | `REQ-30.2` の被覆源が2ファイルに分かれる | 2ファイルのまま | 97.5 |
+| 21 | 95.3 (v)・範囲外 (v) | 44.x の他の受入基準での部分的な再利用 | 未測 | 97.6 |
+| 22 | 95.3 範囲外 (i) | 裁定記録 `:319` | 残存 | 97.17 |
+| 23 | 95.3 範囲外 (ii) | `pdf-ocr-extractor.ts:14` の名乗り | 96.4 で是正 | 是正済み |
+| 24 | 95.2 (c)・95.3 範囲外 (iv) | `REQ-42.10` の除外 | 未検証のまま | 97.4 |
+| 25 | 95.4 (i) | 未被覆12件の一覧 | 6件へ減った。残り6件は 97.1〜97.4 に入る | 起票不要（重複） |
+| 26 | 95.4 (ii) | `excel-parser.ts` の 28.4 / 28.7 | 96.4 で是正 | 是正済み |
+| 27 | 95.4 (iii) | 裁定記録 `:326` | 残存 | 97.17 |
+| 28 | 95.4 範囲外 (ii) | `ImportPreviewTable.tsx` と同名の検証の裸の見出し | 2ファイルとも残存 | 97.10 |
+| 29 | 95.4 範囲外 (iv) | 走査で挙がった残りのファイル | 現況は6ファイルで、いずれも site-survey 自身の 28.x を名乗る | 起票不要（本件と無関係） |
+| 30 | 95.5 範囲外 | `frontend/src/api/quantity-groups.ts` の綴り | 96.6 で是正 | 是正済み |
+| 31 | 96.2 観測 | プレビューの高さの保存キーを共有している | 残存 | 97.9 |
+| 32 | 96.2 観測 | 閉じてもダイアログの状態が残る | 残存 | 97.9 |
+| 33 | 96.2 | 眠る名乗りの「+1 の帰属は未特定」 | 5130 は 96.5 の記録（5127→5130）で説明がつく | 起票不要（説明済み） |
+| 34 | 96.3 観測 | 時間切れ後も OCR 処理が続く | 残存 | 97.8 |
+| 35 | 96.3 観測・96.4 (i) | `REQ-28.6` に手動入力の導線が無く、E2E も弱い | 残存 | 97.7 |
+| 36 | 96.4 (ii) | 検証側の見出しが実体と食い違う（3ファイル） | 残存 | 97.10 |
+| 37 | 96.4 (iii) | `field-mapping.ts` が 28.3 を名乗らない | 残存 | 97.10 |
+| 38 | 96.4 (iv) | `ImportDialog.tsx` の範囲表記が粗い | 残存 | 97.10 |
+| 39 | 96.5 観測 | Requirement 7 の検証の表題と設計の行の書き違い | 3箇所とも残存 | 97.11 |
+| 40 | 96.7 観測 | 被覆 347 と 346 の差 | 96.1 の記録が出所を説明している | 起票不要（説明済み） |
+| 41 | 96.8 観測 | REQ-39 の節の `handleSelectImage` の取得方式 | 残存 | 97.12 |
+| 42 | 96.8 観測 | 併記の1行が長すぎて読みにくい | 残存 | 97.12 |
+| 43 | 96.9 観測 | 取り込み系の辺の見直し | `0741033c` が図へ `FileInlinePreview` の辺を足した | 是正済み |
+| 44 | 96.9 観測 | `**Architecture Integration**` に残る旧名 | 残存 | 97.12 |
+| 45 | 96.9 | 本番から呼ばれない個別のグループ・項目の API | `design.md` の該当節が「撤去も採らなかった」と判断を記録済み | 起票不要（判断済み） |
+| 46 | 96.10 観測 | `truncateForCopy` を「共有」と読める記述 | 残存 | 97.12 |
+| 47 | 96.10 観測 | 併記の語の読みにくさ | 残存 | 97.12 |
+| 48 | 自己検査 | ラチェットの上限を引き下げよという要求 | 自己検査の失敗が残存 | 97.18 |
+| 49 | 96.1〜96.3 の記録 | 鮮度宣言 `requirement-exclusions-total` | expected 205 / actual 188 | 97.16 |
+| 50 | Implementation Notes | `PhotoCommentDisplay修正（REQ-35）` の陳腐化 | Task 87 で是正 | 是正済み |
+| 51 | Implementation Notes | crud spec のラチェットと field-specification の偽の緑 | crud spec の `test.fail` の当たり5件は、いずれも外した旨の註。field-specification の `-99.99` の当たり4件は、`:656` が「改める前は…主張していた」と経緯を書き、`:697-701` が範囲外として提示されることを主張する | 是正済み |
+| 52 | Implementation Notes | `handleSave` の丸め設定の直書き | `QuantityTableEditPage.tsx:1800` の註が改めた旨を記す | 是正済み |
+| 53 | `tasks.md:324` | バックエンドの丸め設定の下限 | `quantity-field-validation.service.ts:113` が `min: 0.01` | 是正済み（Task 85） |
+| 54 | 棚卸しで新たに発見 | crud spec `:9` の範囲表記 `REQ-2.1-REQ-2.5` | 残存。2.5 は未被覆のままで、この範囲表記は被覆として数えられていない | 97.1 |
+| 55 | 96.6 | `research.md:167` などに残る旧綴り | 96.6 が「未変更が正しい」と判定済み | 起票不要（判断済み） |
+
+- [x] 97.1 REQ-2.5 の実装も検証も無い状態と、それを名乗り続ける記述の処遇を決める
+  - **出所**: 95.1 の申し送り (i)(ii) と範囲外の同型 (i)(ii)。棚卸しで1行を新たに見つけた
+  - **再実測**: `REQ-2.5` は `uncoveredAcceptanceCriteria` に載り、除外には無い。本スペックの未完了タスク3件は、いずれも `2.5` を担当しない。条文を名乗る記述は4箇所ある——`frontend/src/pages/QuantityTableListPage.tsx:10` と `frontend/src/pages/QuantityTableListPage.test.tsx:12` の ` * - 2.5: 数量表名を編集する`（どちらも裸の見出しの配下）、`e2e/specs/quantity-tables/quantity-table-crud.spec.ts:4933` の `// NOTE: REQ-2.5とREQ-4.3は実装済みのため、…`（2.5 については偽）、同ファイル `:9` の `- REQ-2.1-REQ-2.5: 数量表の作成・管理`（機能名つきの見出しの配下にある範囲表記）
+  - **利用者が決めること**: 一覧画面で名称を即座に保存する機能を実装するか、条文を見直すか。どちらに決まるかで、4箇所の書き方も変わる
+  - 裸の見出しの配下の行を消したり足したりすると、眠る名乗りの数が動く。遊びを前後で測って記録すること
+  - **利用者の裁定（2026-09-15）**: 「実装する」。一覧画面に名称の編集と即時保存を足し、単体と E2E で確かめ、4箇所の記述を実装に合わせて正す
+  - _Boundary: `REQ-2.5` の処遇と、それを名乗る4箇所の記述_
+  - **処遇（コミット `35489f82` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `QuantityTableListPage.tsx` の各カードに「名前を編集」を置き、入力欄で Enter またはフォーカス外しにより `updateQuantityTable`（一覧が保持する `updatedAt` による楽観ロック）を即時に発行し、応答で行を置き換える形で実装した。前後の空白を除き、空と200文字超は確定時に拒否する（変換中の入力と変換中の Enter は妨げない。backend の `updateQuantityTableSchema` と一致）。Escape で取り消し、変更が無ければ API を呼ばない。409 は編集画面と同じ競合の文言、その他の失敗は「数量表名の保存に失敗しました」を入力欄の下に出して入力を保持する。形はグループ名のインライン編集に揃えた。design.md の Boundary Commitments が一覧画面の名称変更を即時 PUT の対象と定めており、Requirement 42 の範囲は編集画面だけである。E2E は serial の crud spec に足さず新規 `e2e/specs/quantity-tables/quantity-table-list-rename-e2e.spec.ts` とした（PUT の応答と再読み込み後の表示で永続化を確かめる）。名乗り4箇所（本番 `:10`・単体 `:12` は行数を変えず文言を改め、crud spec `:9` の範囲表記と偽の NOTE を直した）に加え、本変更で偽になる crud spec の註1件も直した（独立レビューが必要かつ妥当と判定）
+  - **検証**: 単体はフラグを切った状態で 15件失敗、E2E は実装前のバンドルで3件失敗。変異は実装者5種（API を呼ばない、blur で保存しない、変換中の判定を外す、保存中の再確定を許す、保存後の `updatedAt` を反映しない）・独立レビュー4種（trim を外す、201文字を許す、二重送信防止を外す、応答で行を置き換えない）がすべて検出され、E2E の変異（API を呼ばない）も Enter と blur の2件が落ちた。新 spec 3件、crud と copy の spec 98件（独立レビューは copy 7件と crud の該当8件を再走）、全単体スイート3分割がいずれも合格。被覆は本スペック 353/359 → **356/359**（本タスクの分は REQ-2.5 の +1）、ラチェットは 2011 / 5129 で不動。関門の終了コードは前後で同一で、鮮度の既に赤い宣言の実測値が本タスクで2件動いた（`t13-anchor-references-after-115303` 1340→1343、`featureless-headers-resolvable-by-own-feature-after-115308` 590→592。97.16 で上流へ渡す増分に含めること）
+  - **観測（範囲外・未処置）**: 権限不足（403）も一般的な失敗の文言になる（同じカードの削除・コピーも権限で出し分けていない）。空の名前のエラーの後はフォーカスを外しても同じエラーが繰り返され、抜けるのは Escape だけである。IME の単体検証は変換開始イベントと keyCode 229 を同時に送るため、片方の判定だけを外す変異は検出できない
+
+- [x] 97.2 REQ-4.2 / REQ-6.3 の除外について、分類の是正と取り下げを対で決める
+  - **出所**: 95.2 の申し送り (ii) と範囲外の同型 (iii)。起票文が挙げた食い違い4件のうち、95.2 が直したのは2件だけである
+  - **再実測**: 両件とも `category: infrastructure`（検証フェーズは design-review）で、`method: integration-test` と食い違ったままである。判定は `in-repo-unverified`。`frontend/src/components/quantity-table/ItemCopyMoveDialog.test.tsx:9` は ` * - 6.3: 同一数量表内のグループ間のみ移動可能とする` と書くが、現行の条文 6.3 は「同一数量グループ内の位置が選択される」場合の移動である
+  - **取り下げるかは「実装済みか」ではなく、「検証が実挙動を固定しているか」で決めること**（83.1 / 89.2）
+  - _Boundary: `REQ-4.2` / `REQ-6.3` の除外の在籍理由と分類、および `ItemCopyMoveDialog.test.tsx` の 6.3 の説明文_
+  - **処遇（コミット `bcb35690` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 83.1 / 89.2 の規則（取り下げは検証が実挙動を固定しているかで決める）に従い、**2件とも除外を取り下げた**。分類の食い違い（`category: infrastructure` と `method: integration-test`）は除外の消滅で解消した。除外 185→183、infrastructure 53→51、本スペックの除外 31→29、本スペックの被覆 356/359 → **358/359**（未被覆は 42.10 のみ）
+    - **REQ-6.3**（同一グループ内の位置への移動）: 画面での実現は項目のアクションメニューの「上へ移動」「下へ移動」で、本番の `handleMoveItem` が 6.3 を名乗り `reorderItem` を呼ぶ。`ItemCopyMoveDialog` は移動モードで現在のグループを選べない。既存の `e2e/specs/quantity-tables/quantity-item-action-menu.spec.ts` の入れ替わりの検証が名称で見分けた2行の入れ替わりを双方向で主張していたため、機能名つきの被覆印を置いた。**変異 M3**（`reorderItem` で並びを入れ替えない）で当該検証だけが「REQ-36.4: 「下へ移動」で先頭行が入れ替わる」で落ちた（1 failed / 5 passed / 3 did not run、serial のため）
+    - **REQ-4.2**（追加したグループから同一プロジェクトの注釈付き写真を選べる）: 既存の E2E は既存の先頭グループでボタンが見えることしか主張していなかったため、`e2e/specs/quantity-tables/group-add-photo-selection-e2e.spec.ts` を新設した。新規の数量表で画面から追加したグループそのものから写真選択を開き、同一プロジェクトの注釈なし写真と別プロジェクトの注釈付き写真が候補に出ないこと（空集合で恒真にならない3枚構成）、選んだ写真が紐づき保存と再読み込みの後も残ることを主張する。**変異 M1**（追加したばかりのグループでは写真選択を開かない）→「REQ-4.2: 追加した数量グループから写真選択が開かない」、**変異 M2**（backend の候補をプロジェクトで絞らない）→「REQ-4.2: 別プロジェクトの注釈付き写真が選択候補に現れる」、**独立レビューの変異**（`backend/src/services/image-list.service.ts` の `annotation: { isNot: null }` を外す）→「REQ-4.2: 注釈エディタで編集していない写真が選択候補に現れる」で、いずれも 1 failed / 2 passed。戻して 3 passed
+    - `ItemCopyMoveDialog.test.tsx` の 6.3 の名乗り（「同一数量表内のグループ間のみ移動可能とする」）は現行の条文と食い違う偽の名乗りだったため外し、被覆の所在を注記した（眠る名乗り 4→3）。取り下げで偽になる crud spec の註2箇所を被覆の所在を指す文面へ直した（コメントのみ）
+  - **検証**: 新 spec 3件・action-menu spec 9件・`ItemCopyMoveDialog.test.tsx` 11件が合格（独立レビューが再走）。`check:e2e-guards` / `check:e2e-selfjudge` / `check:req-exclusions` / `check:adjudication-pointers` / `check:cf-evidence` は終了コード 0。ラチェットは本タスクのファイルで増やしていない。鮮度の既に赤い宣言の実測値が動いた（`requirement-exclusions-total` 185→183、`t13-anchor-references-after-115303` 1343→1345。後者は新設 spec の分で 97.16 へ渡す増分に含める）
+  - **観測（範囲外・未処置）**: 本番 `ItemCopyMoveDialog.tsx` の冒頭にも同じ陳腐化した 6.3 の名乗りがある。「指定位置」への移動は隣接位置への移動の繰り返しでだけ実現されている。裁定記録 `scripts/exclusion-alternative-verification-adjudication.md` は取り下げた除外を今もあるものとして挙げる（97.17 の対象）
+
+- [x] 97.3 (P) REQ-26.5 / 26.8 の主張を新設し、REQ-26.12 の主張を強めるかを決める
+  - **出所**: 95.2 の申し送り (iii)
+  - **再実測**: `REQ-26.5` と `26.8` は `in-repo-unverified` のまま除外に在籍している。`frontend/src/__tests__/services/export/QuantityTablePdfExportService.test.ts` の `REQ-26.12` の区間（`:314` 以降）が主張するのは、`expect(mockSetPage).toHaveBeenCalled()` の1行だけである。条文の「表紙を除く」は固定していない
+  - 主張を新設したら、変異を当てて落ちることを実測してから被覆印を置くこと（86.3）
+  - **利用者の裁定（2026-09-15）**: 「3件とも検証を入れる」。26.5 / 26.8 の主張を新設し、26.12 は「表紙を除く」まで固定する。変異で落ちることを確かめて除外を取り下げる
+  - _Boundary: PDF 出力の検証のうち `REQ-26.5` / `26.8` / `26.12` の区間と、対応する除外_
+  - **処遇（コミット `19d16c79` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `QuantityTablePdfExportService.test.ts` に、26.5（写真とコメントが数量項目一覧のヘッダーより先に同じページの上側へ描かれる）と 26.8（ページをまたぐと続きのページの先頭が列名の並びで余白直下に描かれる）の主張を新設し、26.12 を「表紙を除く」まで固定した（開くページが 2 以降で表紙を含まず、各ページの番号が「n / 表紙以外のページ数」と一致し、表紙に番号の文字列が描かれない）。本番コードは変えていない。**変異は実装者4種・独立レビュー3種がいずれも当該の1件だけを落とした**。3件とも除外を取り下げ（除外 188→185、integration-test 63→60、本スペックの除外 34→31）、本スペックの適用対象は 325→328 件で被覆率 100%。ラチェットは 2011 / 5129 で不動
+  - **独立レビューは1回差し戻した**: 実装が裁定の「除外を取り下げる」を 26.5 / 26.8 だけに狭めて読み、26.12 の除外を残して台帳の note に「在籍は維持」と記していた。裁定どおり 26.12 も取り下げ、note の当該2文を実測値で書き直した（それ以前の note は一字も変えていない）。**あわせて実装の報告にあった「26.12 はもともと単体の印で被覆に数えられていた」は誤りであった**——除外に在籍する番号は被覆率の分母から外れ、印があっても被覆に数えられない（`scripts/check-requirement-coverage.ts` の除外の扱い）。台帳にはこの誤りを書いていない
+  - **観測**: 26.8 の縦位置の上限は余白とヘッダー高さの数値を直に書く（本番の `LAYOUT` が export されておらず、参照には本番コードの変更が要る）。裁定記録 `scripts/exclusion-alternative-verification-adjudication.md` の「PDF生成ロジックを検証」の行が挙げる7件のうち 26.5 / 26.8 / 26.12 が台帳から消え、陳腐化が進んだ（97.17 の対象）
+
+- [x] 97.4 REQ-42.10 の除外の処遇を決める
+  - **出所**: 95.2 の据え置き (c) と、95.3 の範囲外の同型 (iv)。どちらも「95.3 が扱う同型と併せる」と書いたが、95.3 は扱っていない
+  - **再実測**: `category: integration-test` / `method: e2e-network-monitor` で、判定は `in-repo-unverified`。掲げている代替検証は `e2e/specs` 配下にあり、そこへ被覆印を置くと、同じ条文を除外と被覆印が同時に名乗る（同居違反に当たる。95.1 の変異 M0 で実証済み）
+  - **利用者が決めること**: 参照系の取得を**許可する**だけの監視を、条文を固定する検証と認めるか。認めないなら、主張を新設するか、取り下げるか
+  - **利用者の裁定（2026-09-15）**: 「主張を新設して取り下げる」。参照系の取得が操作時に実際に起き、保存を待たずに表示されることを E2E で主張し、変異で落ちることを確かめて除外を取り下げる
+  - _Boundary: `REQ-42.10` の除外の在籍理由_
+  - **処遇（コミット `1c7f3aa3` 〜 `c3ded654` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `e2e/specs/quantity-tables/reference-reads-independent-of-save-e2e.spec.ts`（2件）を新設し、未保存の変更がある状態（未保存バッジの表示、明示保存 `PUT /api/quantity-tables/:id/save` と `/api/(quantity-tables|quantity-groups|quantity-items)` 配下の個別の書き込みがいずれも0件）で、条文が挙げる参照系5種が保存を待たずに実行・表示されることを主張した——初回表示の読み込み（GET と保存済みの項目名）、オートコンプリート候補（GET と候補一覧）、現場調査写真一覧（写真選択ダイアログを開くと取得がちょうど1回増え写真が並ぶ）、写真コメント（選んだ写真のコメントがグループに表示される。コメントは写真一覧の応答に含まれて届くため表示で固定）、インポートのデータパース（Excel の抽出結果の表）。リクエストはオリジンではなくパスで判定し、最後に同じ観測器で保存1件を捉えて「0件」が恒真でないことを示した。PDF の OCR は Claude Vision の有無で経路が変わるため Excel を代表とした（条文の「OCR/データパース」を「いずれか」と読む。独立レビューが受容）。**被覆印を置く前に除外を取り下げた**（同居違反を避ける、95.1 の M0）。除外 182→181、integration-test 59→58、本スペックの除外 28→27、in-repo-unverified 95→94。**本スペックの受入基準の被覆は 358/359 → 359/359**（未被覆 0件）。ラチェット 2007 / 5112 は不動
+  - **変異**: 実装者 M1（未保存の間は写真一覧を取得しない）→「ダイアログを開いても現場調査写真一覧の取得が発行されない」（Expected 1 / Received 0）、M2（候補を取得しない）→「オートコンプリート候補の取得が発行されない」、M3（ファイル選択時にパースしない）→「ファイル読み込み・データパースの結果が保存を待たずに表示されない」。独立レビュー M4（`draftGroupToDetail` で未保存の紐づけの写真コメントを null にし保存後にだけ出す）→「選んだ写真のコメントが保存を待たずに表示されない」（Received `""`）。いずれも再ビルドとバンドルのハッシュで反映を確かめ、戻して新 spec 2件・`client-side-edit-explicit-save-e2e.spec.ts` 5件が合格
+  - **観測**: 候補取得の主張（発行件数 &gt; 0）は初回表示時の取得でも満たされ、操作時点の発行までは固定しない（条文は「必要に応じて」）。操作時点に固定しているのは写真一覧の +1 だけ。`client-side-edit-explicit-save-e2e.spec.ts:26` に機能名の無い「（REQ-42.10）」が残る（被覆にも同居検査にも数えられない）。裁定記録 `scripts/exclusion-alternative-verification-adjudication.md:149` が REQ-42.10 を除外として挙げたまま陳腐化した（site-survey 115.329 へ追記した）
+
+- [x] 97.5 (P) REQ-30.2 の被覆源が二つのファイルに分かれている状態の処遇を決める
+  - **出所**: 95.3 の申し送り (iii)
+  - **再実測**: `grep -rln 'quantity-table-generation/REQ-30\.2' frontend/src backend/src e2e` を実行すると、検証は `frontend/src/__tests__/components/estimate-requests/renderPdfPagesToBase64.test.ts` と `frontend/src/__tests__/api/claude-vision.test.ts` の2本（ほかに除外台帳1件）。それぞれが連言の片側ずつを固定しているので、片側が消えても被覆と数え続ける構造である
+  - **利用者の裁定（2026-09-15）**: 「両側を一つの検証にまとめる」。取り込み経路で画像化から送信までを通して確かめる検証を1件足し、被覆印をそこだけに移す
+  - **追加の利用者の裁定（2026-09-15）**: 一本化した検証が変異で落ちることを確かめた後、30.2 が除外に在籍したままで被覆に数えられないことを示したところ、「取り下げる」（97.2 / 97.3 と同じ扱い）
+  - _Boundary: `REQ-30.2` の被覆源の構成_
+  - **処遇（コミット `cb350693` 〜 `eef1289c` の作業ツリー、2026-09-15 にリポジトリルートで実測。台帳の数値は `eef1289c` で独立レビューが再現）**: 取り込み経路の入口 `extractPdfData` から、pdfjs-dist の `getDocument`・Canvas（`document.createElement` と `toDataURL`）・HTTP 層の `apiClient.post` だけを差し替え、`renderPdfPagesToBase64` と `extractWithClaudeVisionForQuantityTable` を実物のまま通す検証を新設した（`frontend/src/components/quantity-table-import/pdf-ocr-extractor.vision-request.test.ts`。既存の `pdf-ocr-extractor.test.ts` は画像化の部品と API クライアントをファイル全体で差し替えるため別ファイルにした）。3ページの PDF でページ 1〜3 を順に描画し、`post` が1回だけ `/api/claude-vision/extract` へ `{ images: [各ページ固有の Base64（接頭辞なし）×3、ページ順], mode: 'quantity-table' }` を送り、結果が `pdf-claude-vision` になることを主張する。Canvas は1つを共有し、描画したページを `toDataURL` が読むため、ページ別の区別は描画順に依存する（モックの作り込みではない）。分かれていた2ファイルからは被覆印を外し、検証そのものは部品単独の検証として残した。**追加の裁定により除外も取り下げた**（除外 183→182、integration-test 60→59、本スペックの除外 29→28、本スペックの適用対象 330→331 で被覆率 100%）。本スペックの受入基準は 358/359 で不動、ラチェットは 2007 / 5112 で不動
+  - **変異の実出力（測った者を分けて記す）**
+    - 実装者: (a) 描画を1ページに限定 → `expected [ 1 ] to deeply equal [ 1, 2, 3 ]`／(b) `callApi([])` → `expected "vi.fn()" to be called with arguments: [ '/api/claude-vision/extract', …(2) ]`／(c) API を呼ばずフォールバックへ直行 → フォールバックが `OCR処理に失敗しました。手動入力してください` で投げて失敗（主張ではなく例外で落ちた）／(d) data URL の接頭辞を除かない → (b) と同じ引数不一致
+    - 独立レビュー（(c) が主張で捕まっていない点を補うため強めた）: M1 API を呼ばず成功を装う結果を返す → `post` の呼び出し回数が 1 でなく 0 の主張で失敗／M2 ページを逆順で送る → `toHaveBeenCalledWith` の主張で失敗／M3 描画の前に `toDataURL` を呼ぶ → 失敗（初回は置換対象の文字列が複数あり変異が当たらず合格を観測したため、関数の範囲に絞って当て直した）
+    - 台帳 `summary.note` の「変異（5種）で落ちることを確かめた」は、上の実装者の (a)(b) と独立レビューの M1〜M3 を指す
+  - **観測**: 台帳の note は測った場所を `cb350693` と書くが、取り下げ時の HEAD は `eef1289c`（`requirements.md` と `import-e2e.spec.ts` のみ変更）であり、`eef1289c` で測り直した数値は note と一致した
+
+- [x] 97.6 44.x 系のタスクが担当する他の受入基準で、共有パイプラインの再利用が欠けていないかを測る
+  - **出所**: 95.3 の申し送り (v)。96.3 が扱ったのは、Task 44.2 配下の3件（29.7 / 29.9 / 29.10）だけである
+  - **再実測**: 未測。候補は Task 44.1（`tasks.md:1021`、28.1〜28.7）、44.3（`:1040`、30.1〜30.7）、44.4（`:1048`、27.5 / 27.6 / 27.7 / 29.9 / 33.1 / 33.2）の担当分。**母集団は着手時に確定させること**
+  - **本項の任務は測って件数を示すことである。** 欠けていた件は、個別に起票し直してよい
+  - _Boundary: 44.x 系の完了印と、取り込み経路での再利用の有無の測定_
+  - **測定結果（コミット `e446e6b9` 〜 `ca9819db`、2026-09-15、`git show HEAD:` の読解と `npm run -s check:req-coverage:json` の照合。E2E と変異は実行していない）**: 母集団は `_Requirements:` を読み直して確定した **20件**（44.1: 28.1〜28.7、44.3: 30.1〜30.7、44.4: 27.5 / 27.6 / 27.7 / 29.9 / 33.1 / 33.2）。**44.1 / 44.3 / 44.4 の箇条に再利用の指示は無い**（指示を持つのは 44.2 だけで、96.3 が処置済み）。20件とも実装があり（**実装欠落 0件**）、PDF 経路の8件（29.9 / 30.1〜30.7）は受領見積書登録の `pdf-text-extractor` / `renderPdfPagesToBase64` / 共有エンドポイントとサービスを再利用している。**再利用しないことによる害は 0件**——Excel 経路・フック・ダイアログ系12件の受領見積書側の同等物は `OcrDataExtractor.tsx` の画面部品の内側に閉じていて切り出せず、流用するとかえって 28.2（全シート）と 28.6（手動入力の促し）に反する。判定は、実装・再利用・検証ありが16件、**被覆源の E2E が挙動なしでも合格しうる検証の穴が4件**（27.5 / 27.7 / 28.4 / 33.2）。4件とも実体のある検証は印の無い単体か E2E の別区間に在る。独立レビューが4件すべてに同意し、合格判定の8件を抜き取りで確かめ、見落としが無いことを走査で確かめた。4件は 97.21〜97.24 として起票した
+  - **観測（起票不要）**: 28.3 の印の主張は各列にマッピング先があることまで（推定値は 28.5 / 32.4 が固定）。28.7 の E2E は `auto` を許容するが、既定で選択可能で実害は無い
+
+- [x] 97.7 Excel の読み取りに失敗しても手動入力を促さず、E2E もそれを見ていない状態を解消する
+  - **出所**: 96.3 の観測、96.4 の観測 (i)
+  - **再実測**: 条文 `REQ-28.6` は「エラーメッセージを表示し手動入力を促す」と課す。Excel 経路では、`frontend/src/components/quantity-table-import/useImportDataExtractor.ts` の `catch`（`:84-87`）が例外の文言をそのまま `error` に入れ、`ImportDialog.tsx:380-409` がその文言とリトライボタンを出すだけである。`grep -rn '手動入力\|手入力' frontend/src/components/quantity-table-import/` の当たりは、PDF 経路の `pdf-ocr-extractor.ts`（`:14` / `:45` / `:49`）と検証の注釈だけで、Excel 経路には無い。E2E は `e2e/specs/quantity-tables/import-e2e.spec.ts:657` で、表題は「エラー表示**または**リトライボタン」、主張は `[role="alert"]` の先頭が見えることだけである
+  - **検証を強めるときは、今の実装に対して落ちることを先に確かめること**（弱い検証のまま被覆扱いが続いている）
+  - _Boundary: Excel 経路の読み取り失敗時の表示と、`REQ-28.6` の検証_
+  - **処遇（コミット `09601e6b` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `excel-parser.ts` の `parseExcelFile` が読み取り処理を `try/catch` で包み、失敗時は `EXCEL_READ_FAILURE_MESSAGE`（「Excelファイルの読み取りに失敗しました。手動入力してください」）で失敗させる形にした。元の例外文は利用者へ出さない（96.3 の PDF 経路と同じ形）。フックとダイアログは変えておらず、表示は従来どおり `role="alert"` とリトライボタンの組である（Requirement 33 は既存の E2E で合格）。**検証を先に強めた**——`REQ-28.6` の E2E を、ダイアログ内の alert が読み取り失敗の文言と「手動入力してください」の両方を含むことを主張する形へ改め、変更前のビルドで落ちること（alert の文言は「Unsupported ZIP encryption」）を確かめてから実装した。単体は該当区間を改め、シート変換の失敗1件を足した。変異（手動入力の句を削る）で単体2件と E2E が落ち、独立レビューの変異（元の例外を投げ直す）でも単体2件が落ちた。取り込み spec は 33件合格、全単体スイートは3分割で 12,015件合格。被覆は 353/359 で不動（`REQ-28.6` は元から被覆扱いで、検証が条文を実際に確かめる形になった）、ラチェットと関門は前後で同一
+  - **観測**: 包んだ範囲の失敗（`arrayBuffer` / `XLSX.read` / `sheet_to_json`）以外に別の意味を持つ例外は無い。元の例外はどこにも記録されない（PDF 経路も同じで、揃えるなら両方まとめて扱う）。`useImportDataExtractor.ts` の動的 import 自体が失敗した場合はパーサーの外なので元の文言が出る。design.md の `**インポート関連エラー**` への文言の追記は、並行する 97.11 が同ファイルを編集中のため、97.11 のコミット後に行う
+
+- [x] 97.8 時間切れの後も OCR 処理が裏で走り続ける状態の処遇を決める
+  - **出所**: 96.3 の観測
+  - **再実測**: `frontend/src/components/quantity-table-import/pdf-ocr-extractor.ts:173-203` の `extractPdfHybridWithTimeout` は、`Promise.race` で失敗を返すだけで、処理を止めない。`AbortController|signal|terminate` で走査すると、同ファイルは0件、共有部品 `frontend/src/components/estimate-requests/pdf-text-extractor.ts` は `:396` の `await worker.terminate();`（処理が終わったときの解放）の1件だけである。受領見積書登録の画面部品も同じ構成である
+  - **利用者が決めること**: 要件は時間切れの後の資源の扱いに触れていない。止める仕組みを足すか、現状を記録して据え置くか。止めるなら共有部品に手を入れることになり、estimate-request の所管に及ぶ
+  - **利用者の裁定（2026-09-15）**: 「中断の仕組みを足す」。共有部品 `pdf-text-extractor` に中断の手段を足し、時間切れで OCR の worker を止める。受領見積書登録の挙動は変えない
+  - _Boundary: 取り込み経路の時間切れ後の処理の扱い_
+  - **処遇（コミット `117d0520` 〜 `1c7f3aa3` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 共有部品 `frontend/src/components/estimate-requests/pdf-text-extractor.ts` の `extractPdfHybrid` / `extractPdfWithOcrFallback` に任意の3番目の引数 `options: PdfExtractionOptions = {}`（`{ signal?: AbortSignal }`）を足した。中断されると、テキスト抽出とページ数の取得の後・worker を作る前・各ページの描画の後で打ち切り、認識の待ちは中断と競わせ（`raceWithAbort`）、`finally` で `worker.terminate()` を呼んで `name === 'AbortError'` の `DOMException` で失敗する。**tesseract.js 7.0.0 の `terminate` は実行中の認識の Promise を解決も失敗もさせない**（`node_modules/tesseract.js/src/createWorker.js:188-200`、独立レビューが確認）ため、認識の完了を待たずに失敗させる形にした。シグナルが無ければ確認は同期的に何もせず `raceWithAbort` は元の Promise を返すので、受領見積書登録の `OcrDataExtractor.tsx:859`（シグナルを渡さない唯一の他の呼び出し元）の挙動は不変。取り込み経路の `extractPdfHybridWithTimeout` は `AbortController` を作ってシグナルを渡し、時間切れの拒否の直後に `controller.abort()` を呼ぶ。後から来る `AbortError` は `Promise.race` が購読しているため未処理の拒否にならず、利用者への文言も変わらない。design.md の 96.3 の追記の直下へ現況を併記した。要件に無い挙動のため被覆印は付けていない
+  - **検証**: 単体はフラグを切った状態で4件失敗。変異は実装者4種（シグナルを渡さない、中断時に terminate しない、ページのループで中断を無視、worker を作る前の確認を外す）と独立レビュー2種（`raceWithAbort` を外す、`controller.abort()` を消す）がすべて検出された。**初稿はページの先頭で中断を確かめていたが変異 (c) が生き残り、確認を「描画の後」へ移してテストを「2ページ目の描画中に中断」へ改めた**。対象3ディレクトリ 24ファイル / 607件、全単体スイート3分割がいずれも合格。被覆 359/359・ラチェット 2007 / 5112・関門は前後で同一
+  - **観測（範囲外・未処置）**: worker の作成中（`jpn` の学習データの読み込み）に中断されても作成の直後には確かめず、1ページ目の描画を終えてから止まる（止まりはするが、この経路の検証は無い。`createWorker` の直後に確認を置けば1ページ分の描画を省ける）。描画中（`page.render`）の中断もその工程が終わってから反映する。pdfjs の `doc.destroy` / `page.cleanup` は変更前から呼ばれていない。未処理の拒否を落とす変異は作れない（`Promise.race` がどちらの入力にも購読を付けるため）ので、当該検証は守りとして置いた。**estimate-request の design.md には `pdf-text-extractor` の新しい任意引数が記されていない**（96.2 / 97.9 の `FileInlinePreview` の props と同型で、最終の是正で扱う）
+
+- [x] 97.9 取り込みダイアログが、プレビューの高さの保存キーを他の画面と共有している状態と、閉じた後も状態が残る状態の処遇を決める
+  - **出所**: 96.2 の観測
+  - **再実測**: `frontend/src/components/estimate-requests/FileInlinePreview.tsx:84` の `RESIZE_STORAGE_KEY = 'architrack:received-quotation:preview-height'` は定数で、取り込みダイアログから差し替える口が無い（このキーは estimate-request の `tasks.md:1629` が受領見積書向けに定めたもの）。`ImportDialog.tsx:96` の `previewFile` は、`:213` の `if (!isOpen) return null;` より上で保持される。呼び出し側 `QuantityTableEditPage.tsx:2372-2377` は `isOpen` を渡すだけで、部品を外さない。状態を戻すのは、新しいファイルを受けた `:129` の `extractor.reset()` だけである
+  - **利用者が決めること**: キーを分けるか（96.2 が `FileInlinePreview` に既定値つきの任意 props を足した先例がある）、閉じたときに状態を捨てるか。要件はどちらにも触れていない
+  - **利用者の裁定（2026-09-15）**: 「保存キーを分ける」と「閉じたら状態を捨てる」の両方。`FileInlinePreview` に既定値つきの任意 props を足して取り込みダイアログだけ別のキーを使い、ダイアログを閉じたときにプレビューと抽出結果を捨てる
+  - _Boundary: 取り込みダイアログのプレビューの高さの保存と、閉じたときの状態_
+  - **処遇（コミット `e446e6b9` 〜 `117d0520` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `FileInlinePreview` に既定値つきの任意 props `resizeStorageKey`（既定は受領見積書登録の `RESIZE_STORAGE_KEY`）を足し、`useResizableHeight` / `loadPersistedHeight` へキーを渡した。取り込みダイアログだけが `architrack:quantity-table-import:preview-height` を渡す。`ImportDialog` を外側（`isOpen` が偽なら何も描かない）と中身の `ImportDialogContent` に分け、閉じている間は中身を外して、ファイルのプレビュー・抽出結果・フィールドマッピング・エラー・取り込み先の選択をすべて捨てる。design.md の 96.2 の追記の直下へ現況を併記した。要件に無い挙動のため被覆印は付けていない
+  - **検証**: 単体はフラグを切った状態で 7件失敗（既定キーの1件は挙動不変の番人として合格）。新規 `ImportDialog.close-reset.test.tsx`（抽出フックは実物、`excel-parser` と `pdf-ocr-extractor` だけを模擬）が、抽出完了後・取り込み先の選択中・形式エラー表示中・処理中に閉じて後から結果が届く場合・開き直した後の通常動作の5件と保存キーの1件を主張する。E2E は取り込み spec に2件（受領見積書のキーに `'250'` を置いたうえで取り込みダイアログのキーにだけ保存され開き直すと復元されること、閉じて開き直すとプレビュー・抽出結果の表・一括取り込みボタンが無いこと。不在の主張の前に存在を確かめる）。変異は実装の E2E 変異（キーの props を外し、中身を外さない旧来の形へ戻す）と独立レビューの単体変異2種（キーの props を外す→1件、中身を外さず `hidden` で隠す→5件）がすべて検出された。取り込み spec 36件、受領見積書の `preview-resize-e2e` 10件・`pdf-zoom-control-e2e` 9件・`received-quotation-dialog-improvements-e2e` 10件、全単体スイート3分割 12,016件がいずれも合格。被覆 358/359・ラチェット 2007 / 5112・関門は前後で同一
+  - **観測**: 受領見積書側の `FileInlinePreview` の利用は `ReceivedQuotationForm.tsx` の2か所だけで既定のまま。依存配列に足した `storageKey` は描画中に変わらない定数で、読み書きの回数とタイミングは変わらない。31.6 / 31.7 の完了メッセージは、編集画面が取り込み後にダイアログを閉じないため影響を受けない。閉じた後に届く抽出結果は外れた部品へ向かい、act 警告や外れた部品への setState 警告は出ず、30秒のタイマーも `finally` で解除される。抽出処理そのものは止まらない（97.8 の所管）。**estimate-request の design.md の `FileInlinePreviewProps` には、96.2 の `showPageNavigationForSinglePage` と本タスクの `resizeStorageKey` のどちらも記されていない**（機能レベル検証の指摘と同型。最終の是正で扱う）
+
+- [x] 97.10 取り込み経路の検証の見出しと本番の注釈が実体と食い違う状態を解消する
+  - **出所**: 96.4 の観測 (ii)(iii)(iv)、95.4 の範囲外の同型 (ii)
+  - **再実測**（どれも各ファイルの冒頭20行ほどを読んだ）: `ImportDialog.test.tsx:6-11` は裸の見出しで 34.1-34.5 を掲げるが、34.2 / 34.4 の検証は `ImportDialog.inline-preview.test.tsx` にあり、そちらに見出しは無い。`excel-parser.test.ts:6-10` は裸の見出しで 28.3 / 28.6 を掲げるが、本文はこの2件を名乗らないと明記している。`pdf-ocr-extractor.test.ts:6-8` は 29.1-29.4 / 30.1-30.7 だけを掲げ、96.3 が足した 29.9 / 29.10 の検証を挙げていない。`field-mapping.ts:7-11` は 28.3 を名乗らない。`ImportDialog.tsx` の `:8`（27.1-27.8）と `:11`（31.1-31.9）は範囲表記が粗い。`ImportPreviewTable.tsx` と `ImportPreviewTable.test.tsx` はどちらも `:6-13` が裸の見出しである
+  - **裸の見出しの配下を変えると、眠る名乗りの数が動く。** 前後で遊びを測ること。**機能名を与える形は、区間の番号を一括で被覆印に変える**（95.2 / 95.3 / 95.4 が退けた形）ので、採るなら確かめていない番号が混ざらないことを示すこと
+  - _Boundary: 取り込み経路の検証6ファイルと本番2ファイルの冒頭の注釈_
+  - **処遇（コミット `1da35be6` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 取り込み経路の9ファイル（検証6: `ImportDialog.test.tsx` / `ImportDialog.inline-preview.test.tsx` / `excel-parser.test.ts` / `pdf-ocr-extractor.test.ts` / `ImportPreviewTable.test.tsx` / `field-mapping.test.ts`、本番3: `ImportDialog.tsx` / `ImportPreviewTable.tsx` / `field-mapping.ts`）の冒頭注釈を、各ファイルが実際に検証・実装している番号へ揃えた。機能名はどこにも付けていない。起票文の「本番2ファイル」は再実測で3ファイルであり、6本目の検証には `field-mapping.ts` と対になる `field-mapping.test.ts` を選んだ（独立レビューが境界の趣旨の内側と判定）。検証ごとの `@requirement` の印と重なる2ファイルは裸の一覧を散文にして二重の名乗りを消し、他は一覧を実体どおりに絞った。28.5（各行のマッピング先の表示）は site-survey 115.188 の読みに従い、列ごとのドロップダウン（32.1）を担う `ImportPreviewTable` と `ImportDialog.tsx` から外した。**ラチェットは機能名を欠くヘッダー 2011 → 2009、眠る名乗り 5129 → 5121 と減った**（97.18 の上限の引き下げの材料）。被覆は 356/359 で不動、関門は前後で同一、注釈以外の差分は0行（独立レビューが確認）
+  - **観測（97.20 として起票）**: 28.5 の被覆は `e2e/specs/quantity-tables/import-e2e.spec.ts` の機能名つき見出しの印だけが支えるが、同 spec は区間内で 115.188 により 28.5 を取り下げており、実際に確かめているのは 32.1 である。**本番にも正しい検証にも実体の無い条文が、見出しの印だけで被覆に数えられている**（97.10 が作った問題ではなく、本番の名乗りが消えて見えるようになった）。`ImportDialog.test.tsx` の表題「処理中は一括取り込みボタンが非活性になる」は本文（非表示を確かめる）と食い違ったまま。`useImportDataExtractor.test.ts` の見出しは監査していない
+
+- [x] 97.11 Requirement 7 の検証の表題と設計文書の責務の行の書き違いを解消する
+  - **出所**: 96.5 の観測。96.5 による振り直しの前からある書き違いである
+  - **再実測**: `e2e/specs/quantity-tables/quantity-table-crud.spec.ts:2273` の表題「中項目フィールドでオートコンプリート候補が表示される (quantity-table-generation/REQ-7.2)」と、`frontend/src/components/quantity-table/AutocompleteInput.test.tsx:71` の `describe('候補表示 (Req 7.1)'` は、中身が受入基準 3 である。`design.md:990` の AutocompleteInput の行は「7.3-7.8」と書くが、7.8 はストアとルートの責務である
+  - **表題を変えると、それを逐語で指している統治文書が黙って壊れる**（80.3）。改名したら `grep -rn '<旧表題>' scripts .kiro` を掛けること
+  - _Boundary: 当該の表題2件と、設計文書の当該の行_
+  - **処遇（コミット `88789a84` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: E2E の表題を `(quantity-table-generation/REQ-7.2)` → `(quantity-table-generation/REQ-7.3)` へ、単体の describe を `候補表示 (Req 7.1)` → `候補表示 (Req 7.3)` へ改めた（どちらも中身はフォーカス時の候補のドロップダウン表示＝受入基準 3）。同じ単体ファイルの冒頭見出しに同じ書き違い（`- 7.1: 入力開始時の候補表示`）があり、`7.3` の行と1行へ統合した（眠る名乗り 5130 → 5129）。design.md の AutocompleteInput の行は、部品が並べ替えを持たない（50音順はストアとルートの責務）ため `7.3-7.8` → `7.3-7.7` とした。**旧表題を逐語で指す現役の指し先が `scripts/coverage-mark-adjudication.md` の §4 に在った**（80.3 の型）ため、指し先を新表題へ改め、改名の日付と理由を括弧書きで添えた。右辺の `qtg/7.2` は同文書の規約（右辺はどの関門も検査せず、指し先を直すときも裁定は動かさない）に従い当時の登録として残した。独立レビューが表題と行の正しさ、見出しの統合で正しい主張が失われていないこと、旧表題の残りが日付入りの記録2件だけであることを確かめて承認した。被覆は 353/359 で不動（`REQ-7.2` は E2E の対象から外れた除外に在籍）、関門は前後で同一
+  - **観測（境界外・未処置）**: `AutocompleteInput.tsx` の冒頭注釈に同じ型の書き違い（`7.1` と、責務でない `7.8`）が残る。同じ E2E の `大項目フィールドでオートコンプリート候補が表示される (quantity-table-generation/REQ-7.1)` も中身は受入基準 1 を直接確かめていない。§4 の右辺 `qtg/7.2` は、将来 site-survey 115.189 側で右辺を整理するなら外す候補になる
+
+- [x] 97.12 設計文書に残る三件の陳腐化した記述を現況へ追随させる
+  - **出所**: 96.8 / 96.9 / 96.10 の観測
+  - **再実測 (a)**: `design.md:2401`（`#### 写真選択・変更ダイアログのレイアウト修正（REQ-39）` の節）が「`handleSelectImage` の `getSiteSurveys`→`getSiteSurvey` バッチ取得」と書く。現況は `QuantityTableEditPage.tsx:976` の `getProjectSurveyImages` を1回呼ぶだけである。一括生成の側の `:2435` と `:560` は現況と一致しており、対象外
+  - **再実測 (b)**: `design.md:254`（図の直後の箇条）が、旧名 `AutocompleteCandidateStore` を新規コンポーネントとして挙げる。図のノードは `useAutocompleteCandidateStore`（`:118`）である。`grep -nw 'AutocompleteCandidateStore' design.md` の当たりは8行ある。**どこまで直すかは着手時に決めること**
+  - **再実測 (c)**: `design.md:2426`（REQ-40 の節）は「`truncateForCopy` を汎用化した命名ヘルパーを共有」と書き、`:2525` の表の行も「汎用化・共有」と書く。実際には、`truncateForCopy` はバックエンドの `quantity-validation.service.ts:643` にしか無い。フロントは `frontend/src/pages/quantityTableEditReducer.ts:409` に、自前の `truncateNameWithSuffix` を持つ。96.10 が挙げた REQ-42 の更新注記の所在は、着手時に測り直すこと
+  - **読みやすさ（事実の誤りは無い）**: 96.8 の併記は `design.md:3578` の1行で、`sed -n 3578p .kiro/specs/quantity-table-generation/design.md | wc -c` は `3938` バイト。96.10 の併記には「輸出しない」「上の三つのファイル」という読みにくい語がある。直すかどうかも判断に含めること
+  - 規約 (a) に従い、当時の記述は消さずに現況を併記すること。**実在するパスと同じ行に不在を示す語を置かないこと**（`ABSENCE_MARKERS`、79.1）
+  - _Boundary: 設計文書の上記 (a)(b)(c) の記述と、併記2件の読みやすさ_
+  - **処遇（コミット `cee3619d` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 3件とも当時の記述を残し、規約 (a) で現況を下位項目として併記した（再現コマンド・コミット・日付つき）。(a) REQ-39 の節へ、`handleSelectImage` は `getProjectSurveyImages` を1回呼ぶだけであることを併記。(b) `AutocompleteCandidateStore` の8行は、部品表と詳細節の名前が `check:design-component-reqs` の突き合わせ対象であるため**名前を置き換えず**、図の直後の箇条の下に実体名 `useAutocompleteCandidateStore` と所在、8箇所の読み方を併記。(c) REQ-40 の節へ、フロントとバックエンドに共有のコードは無く、同じ仕様の `truncateNameWithSuffix` を別々に持つことを併記し、REQ-42 の更新注記2件と影響ファイル一覧の併記から案内を置いた。読みやすさとして、96.8 の3,938バイトの1行の併記を見出しと下位項目11件に分け（文言とコマンドは不変、行を分けたため禁止文言の grep は 2行→3行になり記載も改めた）、96.10 の併記の「輸出しない」「上の三つのファイル」を言い換えた
+  - **独立レビューは1回差し戻した**: 96.8 の併記を分けた際に先頭行の箇条記号が落ち、併記の見出しが元の条項の段落に溶け込んで記録と現況の区別が表示上消えていた。記号を戻し、追加・変更した全行の行頭を機械的に走査して同型の崩れが他に無いことを確かめた。2回目のレビューが元の条項の本文が HEAD と一字一句同じであること、再現コマンドの出力が記載どおりであることを確かめて承認した。`check:design-path-refs` は延べ123 / distinct30 / 面190 で不動、候補は新しく書いた実パス1件で 739→740（合否に用いない値）。design 系の関門は出力の差分ゼロ
+
+- [x] 97.13 境界内で解ける残置 `useQuantityTableSave` を撤去するかを決める
+  - **出所**: 94.1 の申し送り (ii)
+  - **再実測**: `frontend/src/hooks/useQuantityTableSave.ts` は `productionReachability.unreachableProductionModules` に載っている（全体48件、数量表に当たるのは6件）。撤去を阻んでいるのは自スペックの `design.md:370` の名指しである（94.1 の時点の `L301` から行が動いた）
+  - **利用者が決めること**: 68.6 が「design 準拠・テスト十分・境界遵守のため維持」とした判断を覆すか
+  - **利用者の裁定（2026-09-15）**: 「撤去する」（68.6 の維持判断を覆す）。フックとその検証を撤去し、設計文書の名指しは規約 (a) で注記する。被覆と関門を前後で測る
+  - _Boundary: `useQuantityTableSave` の撤去の是非と、設計文書の名指し_
+  - **処遇（コミット `7bbf1a38` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `frontend/src/hooks/useQuantityTableSave.ts` と検証ファイルを撤去した。本番からの取り込み・ストーリー・再輸出・steering・他スペックの文書・自己検査からの参照はいずれも0件だった。検証は機能名つきの被覆印を持たず被覆源ではなかったため、失われた受入基準は0件（被覆済みの集合で比較）。design.md は REQ-47 の影響ファイル表の元の行を残し、表の直下へ規約 (a) の注を置いた。撤去で事実に反した `frontend/src/utils/calculation-params-validation.ts` / `.test.ts` の冒頭注釈（「双方から参照」）を現況へ直した（68.6 の移設の経緯の行は残した）。到達しない本番モジュールは 48→47（数量表 6→5）、ラチェットは減少
+  - **関門の扱い（利用者の裁定、2026-09-15）**: 元の行が撤去したパスを挙げるため `check:design-path-refs` が免除の基線超過で赤になり、**「基線を更新する」**との裁定で `npm run check:design-path-refs:update -- --allow-increase` を実行した。基線の変化は本スペックの免除（延べ 0→2、集合 +1）と合計値、および合否に用いない母数 `candidateTotal` 697→740 と `candidateHistory` の追記（ツールが実測から書く値）。これにより、すでに赤い `check:design-measurement-freshness` の失敗行が site-survey の design.md の4宣言分増えた。**利用者の裁定「97.16 の起票に含める」により、site-survey の文書は書き換えず 97.16 の起票内容へ記した**。独立レビューが参照の残り、被覆、基線の差分、関門の変化が想定の4行に限られることを確かめて承認した
+  - **観測**: 撤去した名前は `research.md` と本書の各記録に残る（記録なので未変更）
+
+- [x] 97.14 `PhotoChangeDialog` の撤去を、統治台帳の更新と併せて決める
+  - **出所**: 94.1 の申し送り (iii)(iv)
+  - **再実測**: `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` は未到達に載っている。全スペック共通の統治台帳 `scripts/design-path-exemption-baseline.json` の `:141` に在籍する。94.1 の変異では、撤去すると設計文書の言及4件が黙って免除へ移った
+  - **再輸出 `frontend/src/components/quantity-table/index.ts` は単独で扱わないこと**——`TextFieldInput` / `NumericFieldInput`（estimate-creation 59.1 待ち）の処遇とつながっている
+  - 台帳の更新が他スペックの面に及ぶなら、上流へ起票して待つこと（Implementation Notes「起票して待つ」は、起票を実際に書き込んでから待機に入ること）
+  - **利用者の裁定（2026-09-15）**: 「台帳ごと撤去する」。部品を撤去し、統治台帳の当該行と設計文書の言及を追随させる。台帳は他スペックと共有のため、他の面への影響を測る
+  - _Boundary: `PhotoChangeDialog` の撤去の是非と、統治台帳の当該の行_
+  - **着手時の実測（コミット `eef1289c` 〜 `e446e6b9` の作業ツリー、2026-09-15、リポジトリルート。4ファイルを scratchpad へ一時移動する変異を当て、測った後に元へ戻したことを確認した。作業ツリーは無変更）**: 本番からの取り込み0件、再輸出0件。参照は定義・検証2（`components/quantity-table/PhotoChangeDialog.test.tsx` / `__tests__/components/quantity-table/PhotoChangeDialog.test.tsx`）・ストーリー1、steering の `structure.md` L550 / L767、本スペックの design.md 13行、統治台帳 `scripts/design-path-exemption-baseline.json` の本スペックの面の配列、**そして他スペック `.kiro/specs/site-survey/design.md` L178**。撤去の変異で `check:design-path-refs` が exit 0→1（不在4件/2ファイル。うち2件が site-survey の L178）、`check:steering-refs` も exit 1。検証の一方が `REQ-49.10` の印を持つが、同じ受入基準を他の3ファイルが被覆しており撤去しても被覆は失われない
+  - **89.1 / 94.1 と同じ手順で上流へ起票した**: site-survey の L178 は下流が書き換えられない上流の文書であり、97.13 と同じ基線の更新では消えない。**親が `.kiro/specs/site-survey/tasks.md` へ Task 115.326 として起票を書き込んだ**。解決後の境界内の作業は、部品・検証2・ストーリーの撤去、`structure.md` の2行の削除、design.md への規約 (a) の注、`check:design-path-refs:update -- --allow-increase` による台帳の更新、鮮度の失敗行の再測定（97.16 への追加）である
+  - _Blocked: site-survey スペックの Task 115.326（`PhotoChangeDialog` を名指す同スペックの design.md L178 の処遇）の解決待ち。撤去の変異による影響の実測は完了し、作業ツリーは無変更_
+  - **処遇（HEAD `3d723c78` の作業ツリー、2026-09-25 にリポジトリルートで実測）**: 上の `_Blocked:` は当時の記録として残す。site-survey の Task 115.326 が同スペックの design.md L178 の名指しを解いた（`[x]`）ので、利用者の裁定「台帳ごと撤去する」に従って `PhotoChangeDialog` を撤去した。消したのは本体・ストーリー・`frontend/src/components/quantity-table/PhotoChangeDialog.test.tsx`・`frontend/src/__tests__/components/quantity-table/PhotoChangeDialog.test.tsx` の4ファイル。撤去の直前も本番コードからの取り込みは0件（HEAD の `git grep` の当たりは4ファイル自身だけ）で `productionReachability.unreachableProductionModules` に載っていた。撤去した検証2本は同部品と型しか取り込んでおらず、生きたコードの検証を持たないため移設は無い
+  - **文書と台帳**: `.kiro/steering/structure.md` のツリーとストーリーの2行を外し `_最終更新_` 行を加えた。design.md は L2606 の行末へ規約 (a) の撤去の記録を併記し、ストーリーを裸のファイル名で名指した（ルート相対パスにすると候補の母数が 747→748 に動き上流の `design-path-candidate-recorded` が赤くなるため。同名の実在は一件で site-survey の L178 も同じ表記）。L304 は実在する `QuantityTableEditPage.test.tsx` と同じ行にあり不在の語を置くと面が広がるため注を置かず、同じ文書内の不在の記録（L2606）による免除で扱った（89.1 の L934 と同型）。**115.326 の申し送りに従い、利用者の裁定なしで** `npm run check:design-path-refs:update -- --allow-increase` により台帳を更新した（面 192→189、実体 152→149、免除の延べ 132→141、distinct 35→40。本スペック分は延べ 7→14・集合 +3、site-survey 分は延べ 124→126・集合 +2、母数 747 は不動）
+  - **被覆検査の前後（独立レビューが HEAD の版を戻して再測定）**: 被覆済みの受入基準の集合の差は失われたもの・得たものとも0件（受入基準 2732/2890、到達被覆 2698/2733、本スペック 359/359）。REQ-49.10 は、撤去した検証とは別の `frontend/src/pages/QuantityTableEditPage.test.tsx`・`frontend/src/__tests__/pages/QuantityTableEditPage.photoSelectBulkFetch.test.tsx`・`e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts` の3ファイルが、本番の写真選択ダイアログで画像の src がサムネイルになることを主張して被覆し続ける（撤去した検証が見ていたのは到達しない部品だけだった）。動いたのは本番モジュール 585→584（未到達 46→45）、機能名を欠くヘッダー 1999→1996、眠る名乗り 5058→5054、被覆印（受入基準レベル）4845→4844。単体検証は `npm --prefix frontend run test -- quantity-table PhotoChangeDialog QuantityTableEditPage` で 1275→1251 件（減った24件はすべて撤去した検証。15件と9件）。type-check / lint EXIT=0
+  - **押下前の関門**: exit code は全件で前後同一。上流所管で既に赤い `check:design-measurement-freshness` の中で `featureless-inline-id-headers-after-115308`（840→838）と `featureless-headers-resolvable-by-own-feature-after-115308`（585→584）の2宣言が新たに食い違い、既に赤い5宣言の actual も動いた。ラチェットの引き下げ先は 1996 / 5054 になった。**内訳は親が site-survey の 115.333 へ追記として実際に書き込んだ**。下流は上流の文書も定数も書き換えていない
+  - **観測**: `check:req-coverage`（EXIT 1）と `check:steering-idents:selftest`（1/41 失敗）は、89.1 より前の `c6830270` でも赤だった（独立レビューが撤去前の HEAD でも再現）。いずれも押下前の関門であり、115.333 が解決しても両者が赤である限り push は止まる
+  - _Blocked: site-survey スペックの Task 115.333（89.1 と 97.14 の撤去で動いたラチェット定数と鮮度宣言の測り直し。97.14 の増分は追記として書き込み済み）の解決待ち。撤去そのものは承認・コミット済み。`[x]` は 115.333 の解決後に関門が緑へ戻ったことを確かめてから付けること_
+  - **上流の解決の確認と完了（HEAD `0f1f4b94` の作業ツリー、2026-09-26 にリポジトリルートで実測。独立レビューが再現）**: 上の `_Blocked:` は当時の記録として残す。site-survey の Task 115.333 が解決した（`[x]`、コミット `d6027958`）。本項の撤去で食い違った `featureless-inline-id-headers-after-115308`（838）と `featureless-headers-resolvable-by-own-feature-after-115308`（584）の2宣言、および既に赤く actual が動いた5宣言（`design-path-exemption-tally-total` 141 / `-distinct-total` 40 / `-tally-distinct-gap` 101 / `design-path-reach-total` 189 / `design-path-entity-total` 149）はいずれも expected・actual・文書の字面が一致し、`check:design-measurement-freshness` は EXIT=0（宣言 149 件）、`:selftest` 56/56 へ戻った。`check:req-coverage:selftest` は 81/81 で、ラチェットの二定数 1996 / 5054 は実測と遊びなしで一致する。`check:design-path-refs`（免除の延べ 141・distinct 40 は基準と一致）と `check:steering-refs`（主張 713 件）も EXIT=0
+  - **被覆の測り直し（撤去前の `3d723c78`・本項のコミット `40fc5f81`・HEAD を `check:req-coverage:json` で比較）**: 被覆済みの受入基準の集合の差は、いずれの比較でも失われたもの・得たものとも0件（2732 件）。受入基準 2732/2890、到達被覆 2698/2733、本スペック 359/359、到達しない被覆源のみの受入基準 4件で不動。REQ-49.10 は `frontend/src/pages/QuantityTableEditPage.test.tsx`・`frontend/src/__tests__/pages/QuantityTableEditPage.photoSelectBulkFetch.test.tsx`・`e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts` の3ファイルが被覆し続ける。本番モジュールは 585→584（未到達 46→45）で、抜けたのは `PhotoChangeDialog.tsx` だけ（新たな未到達は0件）。`git ls-files | grep PhotoChangeDialog` は0件、再輸出 `frontend/src/components/quantity-table/index.ts` は `3d723c78` から差分なし
+  - **赤のまま残る関門（本項の所管外）**: `check:req-coverage`（EXIT=1。E2E 適用対象の被覆が閾値 100% に届かない、到達しない受入基準4件、到達被覆 98.7%）と `check:steering-idents:selftest`（41件中1件失敗）。いずれも撤去前の `c6830270` でも同じ失敗で赤く（89.1 の完了記録を参照）、本項の撤去とは関係しない。いずれも押下前の関門であり、両者が赤である限り push は止まる
+  - **完了の判定**: 本文の要求（利用者の裁定「台帳ごと撤去する」に従う部品の撤去、統治台帳の当該行と設計文書・steering の追随、他スペックの面への影響の実測、上流の依存は起票を書き込んでから待つ、再輸出 `index.ts` を単独で扱わない）はすべて答えられた（115.326 → 115.333）。完了規則の「115.333 の解決後に関門が緑へ戻ったことを確かめる」を満たしたので `[x]` とする。親が承認後に freshness EXIT=0 を新鮮な証拠で再実行した
+
+- [x] 97.15 site-survey の単体検証の非決定性を上流へ起票する
+  - **出所**: 94.1 の申し送り (v)
+  - **再実測**: `frontend/src/__tests__/pages/SiteSurveyDetailPage.test.tsx:2485` の `describe('SiteSurveyDetailPage - 通信断時の警告と保存抑止 (Req 15.6)'` は実在する。**本棚卸しでは全件の再走をしていない**。非決定性の確認には全件を何度も走らせる必要があり、94.1 の実測（全件3回のうち1回だけ失敗、単独なら緑）が最新の値である。site-survey の未完了タスクに、この件を担当するものは無い
+  - **本項の任務は、site-survey の `tasks.md` へ起票を書き込み、起票先の番号をここへ記すことである。** 解決するのは上流である
+  - **起票（2026-09-15、コミット `ca9819db` の作業ツリーで対象の所在を測り直した）**: 親が `.kiro/specs/site-survey/tasks.md` へ **Task 115.327** として書き込んだ（`SiteSurveyDetailPage.test.tsx:2485` の区間、`:2543` / `:2561` の `offline-warning` 待ち、94.1 の実測が最新で起票時点では再走していないことを明記）
+  - _Boundary: 上流への起票の書き込み_
+
+- [x] 97.16 上流の鮮度宣言に溜まった差を上流へ起票する
+  - **出所**: 95.2 の申し送り (v)・95.3 の申し送り (iv)・95.4 の申し送り (iv)、96.3 の被覆の記録
+  - **再実測**（`npm run -s check:design-measurement-freshness`）: `featureless-headers-resolvable-by-own-feature-after-115308` は expected `495` / actual `590`。本スペックの記録が名指した増分は、95.2 の +5（576→581）、95.3 の +7（581→588）、95.4 の +1（588→589）、96.3 の +1（589→590）。`requirement-exclusions-total` は expected `205` / actual `188` で、本スペックの取り下げ（95.1 の1件、96.1〜96.3 の計5件）も差に含まれる。**どちらも宣言先は `.kiro/specs/site-survey/design.md` で、site-survey の所管である**
+  - **本項の任務は、測り直しを担当する上流へ増分の内訳を渡す起票を書き込み、起票先の番号をここへ記すことである。** 下流から上流の設計文書を書き換えないこと
+  - **追加の増分（Task 97 の実行中に生じた。2026-09-15）**: 起票にはあわせて次を含めること。(i) 97.1 の新設 spec と 97.2 の新設 spec による `t13-anchor-references-after-115303` の +2 / +2（1340→1343→1345）、97.20 の検証による +2（→1347）、97.1 の2ファイルによる `featureless-headers-resolvable-by-own-feature-after-115308` の +2（590→592）、97.2 / 97.3 の取り下げによる `requirement-exclusions-total` の減少（188→183）。(ii) **97.13 の利用者の裁定（「97.16 の起票に含める」）による4行**——97.13 が `useQuantityTableSave` の撤去に伴い `scripts/design-path-exemption-baseline.json` を関門の案内する経路で更新した結果、site-survey の design.md が基線の旧値を文中で引く宣言4件が新たに不一致になった: `design-path-exemption-tally-total`（123→125）、`design-path-exemption-distinct-total`（30→31）、`design-path-exemption-tally-distinct-gap`（93→94）、`design-path-candidate-recorded`（697→740）。着手時に実測し直してから書くこと
+  - **起票（2026-09-15、コミット `18d884c6` で `npm run -s check:design-measurement-freshness` を実測。97.24 のコミットの前後で値は不変）**: 親が `.kiro/specs/site-survey/tasks.md` へ **Task 115.330** として書き込んだ。失敗は宣言 11件（行 12件）である。宣言ごとに、下流の記録が数値で名指した増分（除外の取り下げ、E2E の新設、見出しの是正）と、97.13 の基線更新で新たに不一致になった4件を渡した。**記録に帰属の記載が無い差分は、帰属が無いと明記し、候補として区別した**（t13 の 1345→1369、featureless の 592→589、除外の差24件のうち11件、pending の 14→5）。着手時に測り直すこと、115.328 / 115.326 の解決後に測れば一度で済むことも添えた
+  - **本文の訂正**: 上の本文の「`t13-anchor-references-after-115303` の +2 / +2（1340→1343→1345）」のうち 97.1 の分は、97.1 の記録どおり **+3** が正しい。97.20 の「+2（→1347）」は 97.20 自身の記録に数値が無く、起票では帰属の無い差分として扱った
+  - **独立レビューは1回差し戻した**: 記録に数値の無いタスクを t13 の増分の源として並べていた。また、97.10 の記録にあるのは別の指標（ラチェットのヘッダー数）なのに、featureless の減少の源としていた。さらに、下流の 89.2 が記録した `pending-implementation-exclusions-after-115314` を「関係が未確認」と分類していた。**上流が判断に使う内訳は、記録が数値で名指した分だけを帰属させ、残りは帰属が無いと明記すること**
+  - _Boundary: 上流への起票の書き込み_
+
+- [x] 97.17 裁定記録の陳腐化した行を、鮮度宣言と対で扱うよう上流へ起票する
+  - **出所**: 95.1 の範囲外の同型 (iv)・申し送り (iii)、95.2 の範囲外の同型 (i)(ii)、95.3 の範囲外の同型 (i)、95.4 の申し送り (iii)
+  - **再実測**: `scripts/exclusion-alternative-verification-adjudication.md` の表の行について、行が挙げる本スペックの番号を `e2e/requirement-exclusions.json` の `exclusions[].id` と突き合わせた。**すでに除外に無い番号を挙げる行**は、§4 に `:319`（29.7 / 29.9 / 30.7）・`:327`（34.2）・`:328`（34.4）、§6 に `:398`（2.5）・`:401`（8.4）・`:402`（15.1）・`:403`（15.3）・`:404`（40.11）・`:406`〜`:409`（49.3 / 49.7 / 49.8 / 49.9）がある。§1・§3 の4行（`:63` / `:166` / `:251` / `:252`）も当たるが、是正の経緯の記録なので対象になるかは上流が決める。**説明の字面がずれた行**は `:320`（26.x）と `:326`（28.1）。鮮度宣言 `exclusion-adjudication-uncorrected-total`（§4 の件数欄の合計 43）と `exclusion-adjudication-covered-rows`（§6 の行数 104）は、どちらも緑である。**行を落とすと後者が赤くなる**（95.1 の記録）
+  - **この記録と宣言は site-survey の 115.189 / 115.301 が置いたものである。** 本項の任務は、現況を記録と見るか是正の対象と見るかの判断を上流へ渡す起票を書き込み、起票先の番号をここへ記すことである
+  - **起票（2026-09-15、コミット `ca9819db` の作業ツリーで測り直した）**: 親が `.kiro/specs/site-survey/tasks.md` へ **Task 115.329** として書き込んだ。表の行が挙げる本スペックの番号を除外の集合と機械的に突き合わせ、すでに除外に無い番号を挙げる行を §4（`:319` / `:320` / `:327` / `:328`）・§6（`:398` / `:399` / `:401`〜`:404` / `:406`〜`:409`）・§1/§3 の記録（`:63` / `:146` / `:166` / `:250` / `:251` / `:252`）に分けて列挙した。起票文の時点から、96.x / 97.x の取り下げで `:319` に 30.2、`:320` に 26.5 / 26.8 / 26.12、`:399` に 6.3 が加わっている。96.5 の振り直しにより記録中の Requirement 7 の番号が振り直し前であることも添えた。**あわせて、除外に残る番号のため突き合わせでは当たらない §4 `:326`（28.1、説明「Excelパーサのロジックを検証」の字面のずれ。95.4 の申し送り (iii)）も起票に含めた**（独立レビューが初稿の抜けとして検出した）
+  - _Boundary: 上流への起票の書き込み_
+
+- [x] 97.18 被覆検査のラチェットの上限の引き下げを上流へ起票する
+  - **出所**: 94.1 以降の記録が毎回「遊び」として測ってきた差と、自己検査の失敗
+  - **再実測**: `npm run -s check:req-coverage:selftest` が `❌ 機能名を欠くヘッダーと眠る名乗りが上限ちょうどである（ラチェット）` を出す。求められているのは、`scripts/check-requirement-coverage.ts:1354` の `MAX_FEATURELESS_COVERAGE_HEADERS = 2023` を 2011 へ、`:1372` の `MAX_DORMANT_HEADER_NAMES = 5170` を 5130 へ下げることである。同ファイルの直近3コミットは、いずれも site-survey の名で入っている
+  - **利用者が決めること**: 下げると、下流の是正（97.1 / 97.10 など）で一件でも増やせば pre-push が止まる（Implementation Notes「上限ちょうどのラチェットは、正しい是正でも赤くする」を上流が記録済み）。下げる時期を下流の是正の前にするか後にするかも含めて、上流へ起票すること
+  - **利用者の裁定（2026-09-15）**: 「下流の是正の後に下げる」。97.1 / 97.10 が終わってから実測値へ下げるよう起票する
+  - **起票（2026-09-15、コミット `ca9819db` の作業ツリーで測り直した）**: 97.1 / 97.10 の完了後に、親が `.kiro/specs/site-survey/tasks.md` へ **Task 115.328** として書き込んだ。自己検査は機能名を欠くヘッダー 2007件・眠る名乗り 5112件への引き下げを求めている（定数は `:1354` の 2023 と `:1372` の 5170）。下流になお作業中のタスクがあるため、下げる時点で測り直すよう明記した
+  - _Boundary: 上流への起票の書き込み_
+
+- [x] 97.19 上流の Implementation Notes に残る本スペック宛ての申し送り2件を処置する
+  - **出所**: 96.11 の独立レビューが、棚卸しの出所の外にある `.kiro/specs/site-survey/tasks.md` の Implementation Notes に、本スペック宛てで受け皿の無い「要処置」が2件あることを検出した（起票元の site-survey 115.133 は `[x]`）
+  - **(a) 設計文書の列幅合計の陳腐化**: 上流の記録は `design.md:2212` と書くが、**`6261e59b` の実測では `grep -n "1264" .kiro/specs/quantity-table-generation/design.md` の当たりは `:2493` の1行**である。同記録によれば `gridConstants.ts` の12列を実加算すると 1168px。着手時に実加算を測り直し、規約 (a) で併記すること
+  - **(b) 並び替えの E2E が並びの入れ替わりを検出できない恐れ**: `e2e/specs/quantity-tables/group-sort-e2e.spec.ts` の `REQ-24.1` / `24.2` は行の `textContent()` を比べる（`6261e59b` の実測で `:614` / `:624`）。同ファイルの `readItemNames` の docblock が「項目行のテキストは入力欄の値を含まない」と述べており、入力欄の値だけが違う行どうしの入れ替わりを見分けられない。**変異（上下ボタンの移動を無効化する）で当該 E2E が落ちるかを実測してから**、主張の是正の要否を決めること
+  - _Boundary: 設計文書の当該行と、当該 E2E の判定_
+  - **処遇（コミット `1fe3d533` の作業ツリー、2026-09-15 にリポジトリルートで実測）**
+    - **(a)**: `gridConstants.ts` の `QUANTITY_ITEM_GRID_COLUMNS` は12列（76・76・76・76・88・202・202・90・80・46・76・80px）で定義値の合計は **1168px**。古い値を書く行は REQ-41 の節の「≈ 1264px」と、**上流の申し送りの外にある同型として** REQ-37 の Layout Strategy の「1180px」の2行だった。どちらも元の記述を残し、規約 (a) で再実測（再現コマンドの出力 `12 1168`、コミット、日付）を併記した。独立レビューがコマンドを逐語で再実行して一致を確かめた
+    - **(b)**: `e2e/specs/quantity-tables/group-sort-e2e.spec.ts` の REQ-24.1 / 24.2 の本体を書き換えた（表題・印は不変）。**起票文が指定した変異（上下ボタンの移動の無効化）は、当該の2件が項目を移動しないため判定に使えなかった**（REQ-24.4 だけが落ちた）。代わりに再読み込み時だけ項目の表示順を逆にする変異で**旧判定（行の `textContent()` の比較）が合格したまま**であることを実測し、懸念が実在すると確かめた。名称欄の値だけで比べる中間案は、先行する REQ-23.7 の保存が逆順を永続化して打ち消すため、読み込み時に逆順にする変異で合格してしまい不採用とした。最終の判定は、再読み込み前に `GET /api/quantity-tables/{id}`（パス名の完全一致）の応答を待ち受け、応答を displayOrder の昇順に並べた名称が再読み込み前の名称欄の値と一致すること（24.1）、再読み込み後の名称欄の値が応答の順と一致すること（24.2）を主張する。変異は実装者の2種（再読み込み時の表示の逆順→24.2 が失敗、読み込み時の逆順→24.1 が失敗）と独立レビューの1種（詳細取得の項目の並びを `displayOrder: 'desc'` にする→24.1 が失敗）がすべて検出された。spec は 18件合格、被覆 359/359・ラチェット 2007 / 5112 は不動
+  - **観測**: この時点では項目の並び替えが行われないため、REQ-24.1 は「読み込んだ画面の並び」と「保存された displayOrder」の一致を見る。保存時に一貫して逆順で書く変異は 24.1 では検出できない見込み（未実行の推論）で、変更後の並びの保存は REQ-24.7 の検証が受け持つ
+
+- [x] 97.20 REQ-28.5 が実体の無いまま見出しの印だけで被覆に数えられている状態の処遇を決める
+  - **出所**: 97.10 の独立レビュー
+  - **再実測**（コミット `1da35be6`、2026-09-15）: 条文 28.5 は「各行のマッピング先フィールドを表示する」。取り込みのプレビューは列ヘッダーごとのドロップダウン（32.1）で、各行ごとの表示は無い。97.10 で本番とテストの名乗りを外した結果、28.5 を名乗るのは `e2e/specs/quantity-tables/import-e2e.spec.ts` の冒頭の機能名つき見出しだけである。同 spec は区間内で site-survey 115.188 が 28.5 を取り下げた旨を記し、失敗時の文言と註にも「REQ-28.5」が残る
+  - **利用者が決めること**: 各行の表示を実装して検証するか、条文を列ごとの表示へ見直すか、除外とするか。**見出しの印を外すだけだと未被覆として表に出る**ので、処遇と一緒に扱うこと
+  - **利用者の裁定（2026-09-15）**: 「条文を列ごとへ見直す」。requirements.md の 28.5 を各列のマッピング先の表示へ改め、列ごとの表示を確かめる E2E を被覆源にする（コードは変えない）
+  - _Boundary: `REQ-28.5` の処遇と、それを名乗る E2E の見出し・文言・註_
+  - **処遇（コミット `cb350693` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: requirements.md の 28.5 を「抽出結果のプレビューテーブルに各列の現在のマッピング先フィールドを表示する」へ改め、条文の直後に日付つきの註（改めた理由、32.1 との書き分け＝28.5 は何が表示されるか・32.1 はどう変えるか、採らなかった案）を置いた（80.1 の先例の形）。`import-e2e.spec.ts` の REQ-28 の区間に、5列それぞれで列見出しの `select` が見えていることと、その `option:checked` の表示名が自動推定の結果と一致することを主張する検証を新設し、機能名つきの印を置いた。28.3/32.1 の区間の註と失敗時の文言は 32.1 へ直し、115.188 の取り下げの註は記録として残して現況の註を添えた。本番と単体の冒頭注釈3件（`ImportPreviewTable.tsx` / `ImportPreviewTable.test.tsx` / `ImportDialog.tsx`）の「各行」の説明を改訂後の条文に合わせた（注釈のみ、機能名なし）。design.md の `#### ImportPreviewTable` の Implementation Notes に 28.5 と 32.1 の関係を1行追記した。本番コードの挙動は変えていない
+  - **独立レビューは1回差し戻した**: 初稿は `option:checked` への `toHaveText` だけで、`select` に `display:'none'` を足しても緑のままだった（「表示される」を固定していない）。是正で可視性を `select` に問う形を足した——**`option` に `toBeVisible` を問うと Playwright は閉じた `<select>` の中の `<option>` を不可視と判定し、変異なしでも落ちる偽の赤になる**ことを実装が実測で見抜いた。変異は実装の `display:'none'` と `mappings[0]`、2回目のレビューの `visibility:'hidden'` と `value` を `'skip'` に固定、の4種すべてが当該の主張で落ちた。import spec は 34件合格。被覆は 358/359 で不動（28.5 は被覆のまま、被覆源が実体を持つ検証になった）、ラチェットは 2007 / 5112 で不動。鮮度の既に赤い `t13-anchor-references-after-115303` の実測値が本タスクの検証で増えた（97.16 へ渡す増分に含める）
+
+- [x] 97.21 REQ-27.5 の被覆源の E2E が、自動起動が無くてもインラインプレビューの読み込み表示で合格しうる状態を解消する
+  - **出所**: 97.6 の測定（独立レビューが同意）
+  - **再実測**（コミット `ca9819db`、2026-09-15、`git show HEAD:` の読解。E2E は未実行）: `e2e/specs/quantity-tables/import-e2e.spec.ts:374` は `[role="status"], [aria-live], [data-testid*="indicator" i], [data-testid*="processing" i], [data-testid*="preview" i], [role="alert"]` の `.first()` が見えることだけを主張する。96.2（`0741033c`）でダイアログ内に `FileInlinePreview` が入り、ファイルを選ぶと `ImportDialog.tsx:135` が抽出と無関係に `previewFile` を設定し、`FileInlinePreview.tsx:1038-1042` / `:874` の `PreviewSkeleton`（`data-testid="preview-skeleton"`）が描かれる。**自動起動を外しても、スケルトンが見えている間に当たれば合格する（確率的な素通り）**。27.6 が 96.1 の後に踏んだ「付随的な要素の選言」と同型である。実体のある検証は印の無い `ImportDialog.test.tsx:155`
+  - **検証を強めるときは、自動起動を外す変異で現行の主張が合格しうることを先に確かめること**
+  - _Boundary: `REQ-27.5` の E2E の主張と被覆印_
+  - **処遇（コミット `1fe3d533` 〜 `06df8b38` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: REQ-27.5 の E2E を 27.6 の是正（`c0fae358`）と同じ方針で書き直した（表題と印は不変）。資材を壊れたバイト列から実在の `TEST_XLSX`（`import-items.xlsx`、見出しとデータ1行）へ改め、ファイルを選んだ後にクリックせず、「抽出結果」の領域に表が出てデータ行 `E2E取込項目` がちょうど1行あり「仮設工 / 標準仕様 / 12 / 式」を持つことを主張する。判定は「抽出結果」の領域に限る（インラインプレビューの「ファイルプレビュー」にも同じ表が出るため）。補助として、選択の前後で開始を促すボタンが無いことを確かめる（HEAD のダイアログのボタンはいずれも当たらないことを独立レビューが洗い出した）
+  - **測定で起票の分析を訂正した**: 旧テストは壊れたバイト列を渡しており、元のビルドでの合格の根拠はパース失敗の `role="alert"` だった。Excel の自動起動を外す変異では、壊れたバイト列だとプレビューもすぐ失敗表示になりスケルトンが残らないため、旧テストは 3回とも失敗した（起票の「スケルトンで素通り」はこの資材では起きない）。**しかし旧選択子に実在の xlsx を渡す一時テストは、同じ変異で 3回とも合格した**（当たりは `preview-resize-handle`、抽出結果の表は0件）——**穴は確率的ではなく、正しく読めるファイルなら確実に素通りする形であった**。一時テストは計測後に削除した
+  - **検証**: 新テストは実装者の変異（`.xlsx/.xls` のときだけ `startExtraction` を飛ばす）と独立レビューの変異（Excel はドロップ領域をクリックしたときだけ抽出を始める）の両方で失敗し、戻して取り込み spec 37件が合格。バンドルのハッシュで変異の反映と基線への復帰を確かめた。被覆 359/359・ラチェット 2007 / 5112 は不動
+  - **観測（範囲外・未処置）**: 印の無い区間「Excel拡張子(.xlsx)のファイルアップロードでExcel処理パスが起動する」にも、壊れたバイト列で progressbar か alert を待つ弱い判定が残る
+
+- [x] 97.22 REQ-27.7 の被覆源の E2E が、処理中インジケーターが無くても結果の表で合格する状態を解消する
+  - **出所**: 97.6 の測定（独立レビューが同意）
+  - **再実測**（同上）: `import-e2e.spec.ts:462` の選言は `table` と `[role="alert"]` を含み、抽出が終わると「抽出結果」の領域に `ImportPreviewTable` の表が出るため、`ImportDialog.tsx:356-384` の `role="progressbar"` を消しても**確実に合格する**。実体のある検証は印の無い `ImportDialog.test.tsx:194`
+  - **利用者が決めること**: 処理が速く progressbar を E2E で決定的に捉えられない場合に、E2E の主張を強める（応答を遅らせる等）か、単体を被覆源にするか
+  - _Boundary: `REQ-27.7` の E2E の主張と被覆印_
+  - **判断点の扱い**: 起票文の「利用者が決めること」（E2E で決定的に捉えられない場合に単体を被覆源にするか）は、**応答を保留して処理中の状態を固定する形で E2E が決定的に書けたため、利用者へ上げる前に解消した**（単体を被覆源にする案は採っていない）
+  - **処遇（コミット `e35983ef` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: REQ-27.7 の E2E を書き直した（表題と印は不変）。`**/api/claude-vision/extract` を横取りしてテストが解放するまで応答を保留し、PDF を選んで `waitForRequest` で要求の発行を確かめてから、保留中に「抽出結果」の領域で `progressbar` が見えること・表が0件であることを主張し、解放後に目印の行を持つ表が出て `progressbar` が0件になることを主張する。解放と `unroute` は `finally` で必ず行い、後続の直列テストに影響しない。付随的な要素の選言は撤去した
+  - **検証**: 実装者の変異（progressbar のブロックを描かない）で**旧テストは合格したまま**、新テストは保留中の progressbar の主張で失敗した。独立レビューの変異2種——(a) 完了後もインジケーターを出し続ける→完了後の `toHaveCount(0)` で失敗、(b) 完了後にだけ出す→保留中の `toBeVisible` で失敗——も検出された。戻してバンドルのハッシュが基線に一致し、取り込み spec 37件が合格。被覆 359/359・ラチェット 2007 / 5112 は不動
+  - **観測**: 保留中に「解析中」の文言を含むことも主張しているが、条文 27.7 が求めるのはインジケーターであり文言は求めていない（`pdf-ocr-extractor.ts` の進捗文言に依存するため、文言の変更だけで壊れうる。独立レビューは外すか補助扱いへ緩めることを推奨した。条文に反しないため据え置いた）
+
+- [x] 97.23 REQ-28.4 の被覆印が「表またはエラー」の選言の検証に付いている状態を解消する
+  - **出所**: 97.6 の測定（独立レビューが同意）
+  - **再実測**（同上）: 印の区間 `import-e2e.spec.ts:702` は `table` か `[role="alert"]` のどちらかが見えれば合格し、表を出さずに alert だけで合格する。条文は「データパース完了時」（Excel）だが、この検証は PDF で走る。**表示を実際に主張しているのは印の無い `:611-616`（28.3 の区間。Excel で「抽出結果」の領域の表を「REQ-28.4: …」の文言つきで主張）**であり、被覆印をそこへ移すのが最短である
+  - _Boundary: `REQ-28.4` の E2E の主張と被覆印_
+  - **処遇（コミット `99a672f8` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 起票文は被覆印を 28.3 の区間へ移すのが最短としたが、同区間の判定は「抽出結果」の領域に表が見えることだけで中身を見ないため、**印の付いた検証そのものを強めた**（境界の範囲内）。表題を「Excelのデータパース完了時に抽出結果がプレビューテーブルとして表示される (REQ-28.4)」へ改め、`TEST_XLSX` を使い、「抽出結果」の領域で表が見え、見出し5列が順に「工種・名称・規格・数量・単位」、本文がちょうど1行で各セルが「仮設工 / E2E取込項目 / 標準仕様 / 12 / 式」、領域内の `alert` が0件であることを主張する。選言と PDF の利用は撤去した。28.3 の区間の失敗文言「REQ-28.4: …」は「前提: …」へ改め、REQ-28.4 を名乗らないようにした。旧表題はどこからも参照されていない
+  - **独立レビューは1回差し戻した**: 見出しの判定を `th` 全体への `toContainText` で行っていたが、`th` の中にはマッピング先の `<select>` があり、その選択肢に5語がすべて含まれるため、**どの列でも常に合格していた**（レビューが見出しの文字を空にする変異で見出しの判定の素通りを実測）。`th` 直下の見出しの `div`（`:scope > div`）への `toHaveText` の完全一致へ改めた——**要素のテキストで判定するときは、同じ要素の中に選択肢やラベルなど同じ語を含む子が無いかを DOM で確かめること**
+  - **検証**: 変異は、実装者の「Excel の結果のときだけ表の代わりに alert を描く」（**旧テストは合格したまま**、新テストは失敗）、是正後の「見出しの `div` を空にする」「1列目と2列目の見出しの文字を入れ替える」（どちらも見出しの判定で失敗）、独立レビューの「表と alert を同時に出す」（alert 0件の判定で失敗）・「本文のセルを1つずらす」（本文の判定で失敗）・「3列目の見出しを『規格列』にする」（完全一致の判定で失敗）がすべて検出された。戻してバンドルのハッシュが基線に一致し、取り込み spec 37件が合格。被覆 359/359・ラチェット 2007 / 5112 は不動
+
+- [x] 97.24 REQ-33.2 の被覆源の E2E が、リトライが何もしなくても合格する状態を解消する
+  - **出所**: 97.6 の測定（独立レビューが同意）
+  - **再実測**（同上）: `import-e2e.spec.ts:1354` はクリック後に `[role="progressbar"]` か `[role="alert"]` が見えることを主張するが、リトライボタンは失敗表示の alert の中にありクリック前から alert が見えているため、`retry` を空にしても**確実に合格する**（状態の変化を待っていない）。「同一ファイルに対する再実行」の実体のある検証は印の無い `useImportDataExtractor.test.ts:161`（読み取りが2回呼ばれることを主張）
+  - **検証を強めるときは、今の実装に対して変異で落ちることを先に確かめること**
+  - _Boundary: `REQ-33.2` の E2E の主張と被覆印_
+  - **処遇（コミット `860ebf25` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: REQ-33.2 の E2E を書き直した（表題と印は不変）。1回目の `**/api/claude-vision/extract` を 503 で返し、Tesseract の資材を遮断してフォールバックもすぐ失敗させる。前提として、リトライボタンが見えること、「抽出結果」の領域の alert が「OCR処理」を含むこと、抽出要求が1回で数量表が0件であることを確かめる。リトライを押したら、2回目の抽出要求が発行され、その本文が1回目と一致すること（同一ファイルの再処理）を主張する。応答を保留している間は `progressbar` が見えて、領域内の alert が0件であることを主張する。解放後は目印の行を持つ表が出て、`progressbar` と alert が0件で、要求が2回のままであることを主張する。資材の遮断・保留の解放・`unroute` は `finally` で必ず行う。要求はパスの末尾で数え、オリジンに依存しない
+  - **検証**: 実装者の変異（`retry` を何もしない形にする）は `waitForRequest` の時間切れで失敗した。独立レビューはフロントを再ビルドし、バンドルのハッシュの変化を確かめてから3種の変異を入れ、すべて失敗した。(a) 空のファイルを処理する→要求待ちの時間切れ。(a') 別の正しい1ページ PDF を処理する→本文一致の主張で失敗。(b) エラーを消さず、alert を `extractor.error` だけで出す→保留中の alert 0件の主張で失敗。戻してバンドルのハッシュが基線 `index-P1cApQzz.js` に一致し、取り込み spec 37件が合格（flaky 0）。`check:e2e-guards` / `check:e2e-selfjudge` / `lint` は exit 0。被覆 359/359・ラチェット 2007 / 5112 は不動
+  - **観測（範囲外・未処置）**: 表題の「インジケーターまたはエラーが再表示される」は、今の主張（インジケーターが出てエラーが消える）より緩い。表題は他から参照されうるため据え置いた
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 79 / 87 / 93 / 94 / 95 / 96 と同じ）。本節は棚卸しで受け皿が無かった件の起票であり、受入基準を新たに実装しない。ただし 97.1〜97.4 と 97.7 は、判断の結果として実装や除外の取り下げを伴いうる。**その場合は前後の被覆とラチェットの遊びを実測して記録すること**。
+
+**着手前の共通の作法**: 上の件数・行番号はすべて `6261e59b`・2026-09-15 の実測である。**起票文の数字は起票時点の実測であって、着手時の実測ではない**（79.1 / 84.1 / 85.1 / 95.4 / 95.5）。所在も件数も、着手時に測り直してから書くこと。**1件見つけた時点で探索を打ち切らないこと**（86.4 / 95.3）。**件数を出すときは、実在判定の方式を併記すること**（115.78-115.80）。**上流へ起票する 97.15〜97.18 は、下流から上流の文書を書き換えないこと**（94.1 / 89.1）。
+
+_起票元: Task 96.11 の棚卸し。実装は行っていない_
+
+## Task 98. 機能レベル検証（HEAD `1b722e5d`、2026-09-15）の NO-GO の是正
+
+**出所**: 最終の `/kiro-validate-impl`。機械検査はすべて緑（frontend 単体 12021件、backend 単体 5719件、`e2e/specs/quantity-tables/` 376件で flaky 0、スモーク、TBD/秘密情報の grep）。判断検査が、被覆印の付いた E2E の判定の空洞（Important・LOCAL）と、Minor 6件を挙げた。**行番号と件数は検証時の読解であって変異による実測ではない。着手時に測り直すこと**
+
+- [x] 98.1 REQ-31.3〜31.9 の被覆印が、取り込みの失敗でも合格する選言の判定に付いている状態を解消する
+  - **出所**: 検証の Finding 1。`import-e2e.spec.ts` の REQ-31.3〜31.9 の区間（検証時 `:1110-1180`）の最後の判定は「完了メッセージか失敗メッセージのどちらかが出る」の選言。31.4 / 31.5 / 31.7 / 31.8 / 31.9 の E2E の被覆印はこの区間にしかない（31.3 は別区間に実体のある判定がある）
+  - **検証を強めるときは、今の実装に対して変異で落ちることを先に確かめること**（97.21〜97.24 と同じ作法）
+  - _Boundary: `REQ-31.3`〜`REQ-31.9` の E2E の主張と被覆印_
+  - **着手時の測り直し（コミット `95b2a87f` の作業ツリー、2026-09-16 にリポジトリルートで実測）**: 被覆印は `import-e2e.spec.ts:1131-1137` の doc コメントに `@requirement quantity-table-generation/REQ-31.3`〜`31.9` の7件。実在判定の方式は `grep -n "@requirement quantity-table-generation/REQ-31\." e2e/` の全件列挙である。31.4 / 31.5 / 31.6 / 31.7 / 31.8 / 31.9 の E2E の印はこの1区間にしかなく、31.3 のみ別区間（`:1324` の REQ-42.4/42.6 の区間）にも印を持つ——起票文の読みは現況でも正しい。起票文の行番号 `:1110-1180` は現況では `:1147` 始まりである。**表題は据え置いた**——`scripts/coverage-mark-adjudication.md:405` が逐語で引いている（97.21〜97.24 と同じ扱い）
+  - **処遇**: 区間の最終判定 `Promise.race([labelWhenVisibleWithin(完了メッセージ), labelWhenVisibleWithin(失敗メッセージ)])` → `expect(result).not.toBeNull()` の選言を撤去し、条文ごとの実体判定へ置き換えた。31.6 は「1件の数量項目を取り込みました」（件数入り）、31.7 は「取り込み結果を確認・修正してください」、31.3 / 31.9 は既存項目1行を前提に置いた上で行数が `既存+2` になること・既存項目の名称が保たれること・取り込んだ行が末尾に在ること、31.4 は10欄（大項目・中項目・小項目・任意分類・工種・名称・規格・数量・単位・備考）への自動入力、31.5 は計算方法が `STANDARD` で表示が「標準」、31.8 は名称（テキスト）・数量（数値）・計算方法（select）の3経路が取り込み後も編集できることを主張する。失敗メッセージが0件であることも併せて主張する。**資材は10欄すべてを見出しに持つ `e2e/fixtures/import-items-all-fields.xlsx` を新設した**——既存の `import-items.xlsx` は5列で、その見出しと中身は REQ-27.5 / REQ-28.4 の判定が固定しているため変えられない
+  - **空洞の実証**: 取り込みを必ず失敗させる変異（`QuantityTableEditPage.handleImport`）の下で、旧判定を写した一時 spec が**「fail 側」を掴んで合格**した。同じビルドで新判定は 31.6 の主張で落ちた。一時 spec は計測後に削除した
+  - **変異による検証（実装者。毎回 `--force-recreate` で再ビルドし、配信バンドルのハッシュの変化を確かめてから実行）**: 基線は `index-P1cApQzz.js`。備考のマッピング規則を消す→31.4 が落ちる、計算方法を `AREA_VOLUME` にする→31.5、件数をメッセージから落とす→31.6、確認・修正の文を落とす→31.7、既存項目を置換する→31.3/31.9（行数が期待2・受領1）、取り込んだ項目を読み取り専用にする→31.8 **のみ**（先行する 31.3〜31.6 は合格＝分離できている）、末尾でなく先頭へ追加する→31.9 の上書き判定。**落ちない変異は無かった**
+  - **独立レビューの再現**: 2種を独立に当て直した。先頭追加（`quantityTableEditReducer.ts` の `importItems`、`index-D2ByVvHU.js`）で 31.9 のみが落ち行数の主張は素通りすること、数量欄へ `readOnly` を付与（`EditableQuantityItemRow.tsx`、`index-DouqvLId.js`）で 31.8 のみが落ち 31.4 の数量判定は素通りすることを実測した。復元後に基線ハッシュと 37/37 緑へ戻ることも確認した
+  - **検証（親が提出時に実測）**: 作業ツリーは spec 1件と新規資材 1件のみ。`git diff frontend/`・`git diff backend/` はいずれも0行、`MUTATION_M` の残骸0件、一時 spec 0件。区間に `Promise.race` / `labelWhenVisibleWithin` / `isVisibleWithin` / `toBeNull` は0件。配信バンドルは基線 `index-P1cApQzz.js`。`npm run test:e2e -- e2e/specs/quantity-tables/import-e2e.spec.ts` は終了コード0・Status PASSED・37/37・Flaky 0。`lint` / `format:check` / `tsc --noEmit` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:trace-coverage` / `check:criterion-literals` はいずれも exit 0。`check:req-coverage` は**基線から赤く**（❌行は construction-photo / estimate-creation / estimate-request 由来で REQ-31 を含まない）、quantity-table-generation の被覆 359/359・ラチェット 2007 / 5112 は不動
+  - **測定で判明した作法（後続の変異検証への申し送り）**: (a) 着手時に配信されていたバンドルは基線ではなく前回実行の変異ビルドだった。**ハッシュだけでなく中身の文言まで照合すること**。(b) `docker compose up --build` は**ビルドが型エラーで失敗しても直前のイメージを配信し続ける**。ビルドの終了コードを必ず見ること（`calculationMethod` が `'STANDARD'` リテラル型のため、素直な変異が `tsc` で落ちてハッシュが動かず、前の変異の結果を誤読しかけた）
+  - **観測（範囲外・未処置）**: (i) `scripts/coverage-mark-adjudication.md:405` の裁定本文が「最終主張が『完了**または**失敗』の選言である」と述べたまま陳腐化した（表題の逐語引用は正しいまま）。境界外のため触っていない。(ii) REQ-31.1 の別区間 `:1074-1095` に `Promise.race` の選言が残る——**これは 98.2 の所管である**。(iii) 新しい前提は既存項目1行を `saveQuantityTableDraft` で永続化するが、`test.beforeAll` がワーカーごとに新規のプロジェクト・数量表・グループを作るため蓄積は1実行内に閉じる。(iv) 31.8 は「各フィールド」の全欄ではなく型の異なる3経路の標本である
+
+- [x] 98.2 REQ-31.1 の被覆印が、PDF の抽出失敗でも合格する競争の判定に付いている状態を解消する
+  - **出所**: 検証の Finding 2。REQ-31.1 の区間（検証時 `:1049-1075`）は「一括取り込みボタンかリトライボタン」のどちらかが見えれば合格する
+  - _Boundary: `REQ-31.1` の E2E の主張と被覆印_
+  - **着手時の測り直し（コミット `48ff250c` の作業ツリー、2026-09-16 にリポジトリルートで実測）**: REQ-31.1 の被覆印は**2件**。実在判定の方式は `grep -rn "quantity-table-generation/REQ-31\.1\b" e2e/ frontend/ backend/ --include=*.ts --include=*.tsx | grep -v node_modules` の全件列挙である。内訳は `import-e2e.spec.ts:20`（ファイル冒頭の `Requirements coverage` の索引）と `:1072`（区間の doc コメント）で、**実体のある判定に付いているものは0件だった**。起票文の `:1049-1075` は現況では `:1071-1095` である。**98.1 の申し送り「31.1 は `:1117` に実体のある判定を別途持つ」は誤りであった**——`:1117` / `:1185` は失敗文言が `REQ-31.1:` を名乗るだけで被覆印ではない（`scripts/check-requirement-coverage.ts:1077-1087` の `buildInlineTagPatterns` は3パターンとも機能名の接頭辞を要求する）。表題は変えてよいことを確認した（`scripts/coverage-mark-adjudication.md` に本区間の表題の逐語引用は無く、`check:adjudication-pointers` は変更後も exit 0）
+  - **条文の逐語（独立レビューが再確認）**: 受入基準 1 は「抽出結果のプレビューテーブル**の下に**「一括取り込み」ボタンを表示する」であり、**位置関係は条文そのもの**である（過剰な足し算ではない）。また Requirement 31 の Objective は「Excelデータパース**または**OCR処理の抽出結果を…」であって条文 31.1 は PDF 経路を名指ししない
+  - **処遇**: 区間（`:1071-1135`）を書き直した。表題を「抽出結果のプレビューテーブルの下に「一括取り込み」ボタンが表示される (REQ-31.1)」へ改め、資材を PDF から**クライアントサイドで決定論的に解析される Excel（`TEST_XLSX`）**へ寄せ（97.22 / 98.1 と同じ手口）、`Promise.race` と `labelWhenVisibleWithin` を撤去して次の4本を無条件に主張する。(1) `section[aria-label="抽出結果"]` 内にプレビューテーブルが見え**ちょうど1つ**である、(2) 同領域に「一括取り込み」ボタンが見える、(3) `:below()` でボタンが表の下に在る（内側のセレクタを文書ルートから綴り、インラインプレビュー側の表と取り違えないようにした）、(4) 同領域の `alert` が0件・`リトライ` ボタンが0件。併せて未使用になった `labelWhenVisibleWithin` の import を外し、**被覆印を持たない他区間（31.2 の `:1117` と 31.3〜31.9 の `:1185`）の前提の失敗文言 `'REQ-31.1: …'` を `'前提: …'` へ改めた**（97.23 の 28.4 と同じ扱い。`toBeVisible` の主張とタイムアウトは不変で、98.1 が書いた判定には触れていない）
+  - **空洞の実証（二通り。いずれも一時 spec で測り、計測後に削除した）**: (a) 実装者——`**/api/claude-vision/extract` を 503 で固定し壊れた PDF を選ぶと、旧判定は `'retry'` 側を掴んで合格し、同時に「一括取り込み」ボタンは `toHaveCount(0)` だった。条文が求める「ボタンの表示」を一度も確かめずに合格する。(b) 独立レビュー——`excel-parser.ts` の `XLSX.read` へ切り詰めた buffer を渡す変異では**例外にならず「見出し0列・本文0行の完了結果」**が出る。`table` は DOM に1件在るが中身が無く不可視で、同じ領域に `alert`「必須フィールドがマッピングされていません: 工種、名称、単位」と**可視の「一括取り込み」ボタン**が並ぶ。この状況で旧判定は `import` 側を掴んで合格した（`race winner = import`）。**(a) とは別の空洞であり、プレビューテーブルが実質不在でも旧判定は通る**
+  - **変異による検証（実装者。毎回 `--force-recreate`・ビルドの終了コード・配信物の中身の3点を照合）**: 基線は `index-P1cApQzz.js`。抽出を失敗させる→(1) が落ちる、一括取り込みボタンを描かない→(2) のみ落ちる（(1) は合格）、ボタンを表の上へ移す→(3) のみ落ちる（(1)(2) は合格）。**落ちない変異は無かった**
+  - **独立レビューの再現**: 2種を独立に当て直した。`excel-parser.ts` の切り詰め（`index-BGp4qN7X.js` / `excel-parser-DQrjCEBU.js` に `slice(0,3),{type:"array"}` を照合）で (1) が落ち、`ImportDialog.tsx` のボタン JSX を `ImportPreviewTable` の前へ移す（`index-DAwCDYGg.js` で minify 後の順序反転を本文照合）と**37件中1件だけ**が (3) の主張で落ちた。**`:below()` の決定性も実装で確認した**——`playwright-core` の `boxBelow` は `box1.top - box2.bottom >= 0` を厳密に要求し、水平の重なりは要求せず既定の `maxDistance` も無い。ブロックフローで表→ボタンの順に積まれる本画面では視覚的ヒューリスティックによる揺らぎは生じない
+  - **検証（親が提出時に実測）**: 作業ツリーは spec 1件のみ。`git diff frontend/`・`git diff backend/` はいずれも0行、`MUTATION_M` の残骸0件、一時 spec 0件。区間に `Promise.race` / `labelWhenVisibleWithin` / `isVisibleWithin` / `toBeNull` は0件。配信バンドルは基線 `index-P1cApQzz.js`。`npm run test:e2e -- e2e/specs/quantity-tables/import-e2e.spec.ts` は終了コード0・Status PASSED・37/37・Flaky 0。`check:req-coverage` は**出力が基線と `diff` で完全一致**（quantity-table-generation 359/359、ラチェット 2007 / 5112、終了コード1 は基線から不動で他機能由来）。`check:e2e-guards` / `check:e2e-selfjudge` / `check:trace-coverage` / `check:criterion-literals` / `check:adjudication-pointers` / `lint` / `format:check` / `tsc --noEmit` はいずれも exit 0
+  - **前書きの索引印の扱い（独立レビューの明示の判定）**: `:20` の索引印が在る限り、区間の印を外しても被覆は落ちない。それでも**据え置きが妥当**である——(a) 起票文が解消を求めた状態は「被覆印が競争の判定に付いている」ことであり、`:1072` の印が実体のある判定に付いた時点で解消している、(b) 前書きの索引は当該ファイルの全要件に対して一律に置かれた既存の慣行（40件超）で 31.1 だけ外すのは規約の局所破壊になる、(c) 115.188 の先例は印を**取り下げる**ときに区間と前書きの双方から外しており、今回は強化であるから双方存置が正しい
+  - **観測（範囲外・未起票）**: (i) `e2e/helpers/wait-helpers.ts:476` の `labelWhenVisibleWithin` が本変更で `e2e/specs` の使用0件になった（export として残るため lint は緑）。選言ヘルパーが呼び出し元ゼロで残ることは再利用を誘う。(ii) 同 spec `:690` の「Excel処理パスが起動する」区間に `Promise.race([isVisibleWithin(progressbar), isVisibleWithin(errorAlert)])` の選言が残る。**115.188 が被覆印を取り下げ済みでどの条文の被覆源でもない**（独立レビューが `:655-696` を読んで確認）。(iii) `:1128-1131` の `alert` 0件の主張は、抽出失敗の表示だけでなく **REQ-32.6 の「必須フィールドがマッピングされていません」警告も拾う**。現行資材では自動推定が成立するため出ないが、資材の列や推定規則が変われば条文外の理由で落ちる（97.23 の 28.4 と同型のため据え置き）。(iv) `scripts/coverage-mark-adjudication.md:405` の陳腐化（98.1 の観測）は今回も境界外のため未処置
+
+- [x] 98.3 設計文書の構成図に、実在する依存の辺と一覧画面の名前変更の API を反映する
+  - **出所**: 検証の Finding 3。`pdf-ocr-extractor.ts` の `field-mapping` の取り込みに当たる辺（`POE` から `IMPMAP`）が図に無い。一覧画面の名前変更（97.1）の `PUT /:id` が QTR ノードと QTL の辺のラベルに無い
+  - _Boundary: `design.md` の構成図と直後の註のノード数・辺数（規約 (a)）_
+  - **境界の確定（コミット `415b1d06` の作業ツリー、2026-09-16 にリポジトリルートで実測）**: 対象は `design.md` の `### Architecture Pattern & Boundary Map`。是正前の Mermaid 囲みは `:108-245`、直後の註は `:247`（＋箇条4件）。**規約 (a) の定義は上流 `.kiro/specs/site-survey/design.md` の `#### 実測値の書き方（タスク 115.212）`** にあり（所在は `grep -rn "規約 (a)" .kiro/` の全件列挙で辿った）、「実測日を数値と同じ場所に添える／再現コマンドと実行の起点を併記／日付は `YYYY-MM-DD`／日付だけを版の手掛かりにせずコミットのハッシュを併記／過去の観測は当時の値を残したうえで現況の再実測を同じ場所へ並べる」を課す。註が名乗っていた値は 96.9 の 51ノード・67辺と 96.2 の 52ノード・68辺で、着手時の実数は **52ノード・68辺**（96.2 と一致）
+  - **欠落が実在したことの実測**: (1) `pdf-ocr-extractor.ts` は `field-mapping` から `autoDetectFieldMapping` を**値として**取り込み実使用するが、図に `POE` → `IMPMAP` の辺は0本だった。(2) 一覧画面の名前変更（97.1）は `QuantityTableListPage` → `api/quantity-tables` の `PUT /api/quantity-tables/:id` → `quantity-tables.routes` の `router.put('/:id')` → `quantityTableService.update` で実在するが、`QTR` のラベルにも `QTL` → `APIQT` の辺のラベルにも `PUT /:id` は0件だった
+  - **処遇**: `QTR` ノードのラベルへ `PUT /:id（数量表名の変更）` を追加し、`QTL -->|一覧取得・削除・名前変更（PUT /:id）| APIQT` へ改め、辺 `POE -->|列の自動判定 autoDetectFieldMapping| IMPMAP` を追加した。直後の註へ、過去の2組（51/67・52/68）を残したまま **52ノード・69辺** を並べ、数え方の `bash` を逐語で置き、**再現コマンド・実行の起点（リポジトリルート）・コミット `415b1d06`・日付 2026-09-16 の4点**を揃えた（規約 (a)）
+  - **「他に同型の欠落は無い」ことの確認**: 図のノードを実ファイルへ写像して実行時依存を全数で突き合わせた。**フロントエンドの実在する node→node 依存はノード単位 42組（ファイル単位 43組）、バックエンドは5組で、いずれも図に無いものは0組**。図のノードが取り込む `frontend/src/api/` のうち図のノードでないのは共通 HTTP クライアント `api/client` のみ（既存の一貫した抽象）。基線の図と突き合わせると**欠けていたのは `POE` → `IMPMAP` の1組だけ**である
+  - **独立レビューが1回差し戻した（是正ラウンド1）**: 初稿の註は走査の限界を「取りこぼすのは2ノード（`CALC` / `LG`）、手で足すと 40 組」と書いていたが、**これは誤りだった**。走査が N（ノード名の集合）を作る `sed` は `APIPJ` / `APIQT` / `APISS` / `APICV` の4ノードをいずれも `api` に潰す。それでも `projects` / `quantity-tables` / `claude-vision` が N に入るのは、**バックエンドのルートノード `PRR` / `QTR` / `CVR` のラベル先頭語が偶然その綴りだから**である。対応するルートノードを持たない `APISS` は救われず（`SSR` のラベルが日本語で始まり `sed` 自体に一致しない）、**実在する `AIT` → `APISS` と `QTE` → `APISS` の2組が母集団から構造的に消えていた**。是正で「取りこぼすのは3ノード（`CALC` / `LG` / `APISS`）、ノード単位 42組（ファイル単位 43組）」へ改め、`APISS` が落ちる理由と、API 4ノードの捕捉が `api` で止まる挙動を註へ明記した。結論「図に無かったのは1組だけ」は維持である
+  - **実害の無い取りこぼしも切り分けた**: `SSR` は `sed` に落ちるがバックエンドノードで frontend ファイルを持たず出元にならない。`ACR` は `frontend/src/api/autocomplete.ts` が**存在せず** `useAutocompleteCandidateStore` が `api/client` の `apiClient` を直に叩くため走査に現れないだけで、**図の `ACS` → `ACR` は実在する HTTP 依存であり在るべき辺である**（他の API 経路が3段なのにここだけ2段なのは 96.9 以来の既存のモデル化で、本タスクの所管ではない）
+  - **検証（親が提出時に実測）**: Mermaid 囲み（`:108-246`）を親が独立に解析し**ノード52・辺69**、`POE→IMPMAP` 1件、`QTR` ラベルの `PUT /:id（…）` 1件、`QTL→APIQT` の名前変更ラベル1件を確認した。作業ツリーは `design.md` 1件のみで `.kiro/specs/site-survey/` の差分は0件（下流から上流を書き換えていない）。追加行の TBD / TODO / FIXME は0件。関門8本（`design-refs` / `design-code-refs` / `design-path-refs` / `design-measurement-freshness` / `design-component-reqs` / `trace-coverage` / `steering-refs` / `req-coverage`）の終了コードは基線 `415b1d06` と一致し、**基線から赤い2本（`design-measurement-freshness` / `req-coverage`）は出力がバイト単位で一致**する。独立レビューは別途 `@mermaid-js/mermaid-cli` で実レンダリングし、SVG 内のノード52・辺69・`id="L_POE_IMPMAP_0"` を確認した（構文は壊れていない）
+  - **観測（範囲外・未処置）**: (i) `check:design-path-refs` の候補 distinct が基線 743 → 746 へ動いた（註が逆引用符つきの本番パスを新たに引いたため）。**判定基準である「面 190 件」は不動で exit 0**。同関門の推移値は 97.16 で上流へ渡す増分に含めるのが妥当。(ii) 註へ証拠を足すとき**本番コードを行番号で指す参照は `check:design-code-refs` が禁じる**（是正ラウンドで一度赤にして気づいた）。パス＋シンボル名の形で書くこと
+
+- [x] 98.4 ダイアログを閉じたときやファイルを差し替えたときに、進行中の OCR を中断しない状態の処遇を決める
+  - **出所**: 検証の Finding 4。97.8 / 97.9 の記録が「範囲外・未処置」とした観測で、起票されていなかった。世代番号で結果の反映は防げているが、Tesseract の worker は時間切れまで残り、2つ同時に走りうる
+  - **利用者が決めること**: 中断の仕組みを足すか、観測として据え置くか
+  - **利用者の裁定（2026-09-16）**: 「中断の仕組みを足す」（`useImportDataExtractor` の `reset` とアンマウントで進行中の OCR の worker を終了させる。検証と変異の確認を伴う）
+  - _Boundary: `useImportDataExtractor` の `reset` とアンマウント、`ImportDialog`_
+  - **着手時の測り直し（コミット `95689211` の作業ツリー、2026-09-16 にリポジトリルートで実測）**: 起票文の3つの主張はいずれも**現況でも真**だった。(1) `useImportDataExtractor.ts` の `generationRef` は `processFile` の冒頭で進み `reset` でも進み、`isCurrent()` が結果・エラー・進捗のすべての `setState` を守る。(2) `extractPdfData` に中断の口が無く（呼び出し元は `useImportDataExtractor.ts` の1件のみ、第2引数まで）、`pdf-ocr-extractor.ts` の `AbortController` は同関数内で閉じていて `abort()` は時間切れの分岐だけが呼ぶ。(3) `ImportDialog` の `handleFile` が `reset()` → `startExtraction()` と続けるが前の処理は止まらない——検証では `createWorker` 2回・`terminate` 0回を実測した
+  - **`ImportDialog.tsx` は変更不要だった**。97.9 が `isOpen` 偽で `ImportDialogContent` を外す形にしてあるため、**閉じる＝フックのアンマウント**であり、フック側の後始末で中断が届く。差し替えの入口も `handleFile` の1本だけで、境界内の未充填は無い（独立レビューが全数走査で確認）
+  - **処遇**: `useImportDataExtractor.ts` が処理ごとに `AbortController` を持ち（`abortControllerRef`）、`extractPdfData` の第3引数へシグナルを渡す。`reset()` と `useEffect` のアンマウントの後始末が、世代番号を進めたうえで `abort()` する。`pdf-ocr-extractor.ts` には任意の `PdfDataExtractionOptions`（`{ signal? }`）を足し、`extractWithOcrFallback` → `extractPdfHybridWithTimeout` へ中継して呼び出し元のシグナルを購読し、内部の `controller` を中断して `finally` で購読を外す（**時間切れの経路は不変**）。Feature Flag Protocol を踏んだ（既定 OFF → RED → ON で GREEN → フラグを撤去して再 GREEN）
+  - **上流の共有部品には1文字も触れていない**。97.8 が `pdf-text-extractor.ts` へ `options.signal` を既に足していたため、本タスクは**時間切れ以外の中断の引き金を足すだけ**で済んだ
+  - **検証の設計**: 新規 `useImportDataExtractor.abort.test.tsx` は、フック → `pdf-ocr-extractor` → 共有部品 `pdf-text-extractor` まで**実物を通し**、外界だけを模擬する（`vi.mock` は `pdfjs-dist` / `pdf-worker-config` / `tesseract.js` / `api/claude-vision` / `react-pdf` の5件で全件。独立レビューが列挙して本番の中断コードを迂回していないことを確認）。主張は `worker.terminate()` が呼ばれることに置いた。4件——差し替え／アンマウント／ダイアログを閉じる／**中断しないときの番人**（完走して `terminate` 1回）
+  - **E2E を使わなかった理由**: 観測対象は `worker.terminate()` の呼び出しであり、**tesseract.js 7.0.0 の `terminate` は認識中の Promise を settle させないため画面の表示には差が出ない**（97.8 の記録どおり）。実ブラウザから worker の生死は観測できないので、配線の全区間を通す単体で観測した
+  - **RED と変異による検証**: フラグ OFF で `3 failed | 1 passed`（`mockTerminate` が0回。番人はフラグ OFF で合格＝挙動不変の証拠）。変異5種がすべて検出された——`reset` から中断を外す→差し替えの1件**のみ**、アンマウントから外す→2件、共有部品で `terminate` しない→4件（番人も落ちる）、シグナルを渡さない→3件、取り込み経路が呼び出し元のシグナルを購読しない→3件
+  - **独立レビューの再現**: 4種の変異を独立に当て直し、(a) 1件のみ／(b) 2件／(d) 3件／(e) 3件を実測した。復元後に `git diff` の md5 が提出時と一致することも確認している
+  - **検証（親が提出時に実測）**: 作業ツリーは5件で、**上流の共有部品 `estimate-requests/pdf-text-extractor.ts` に差分は0件**（変異の戻し残しなし）。追加行の TBD / TODO / FIXME は0件。新規検証4件が合格。**全単体スイート3分割を前景で走らせ 525ファイル・12,025件すべて合格**（shard1 4069 / shard2 3939 / shard3 4017、いずれも終了コード0）。独立レビューは加えて関門19本を走らせ、17本が exit 0、基線から赤い2本は HEAD 版へ戻して出力がバイト一致することを確認した
+  - **被覆印は付けていない**。`requirements.md` を「中断／キャンセル／worker／ワーカー／資源／リソース／解放／メモリ／終了」で走査した当たりは無関係な2件のみで、**要件は処理中の資源の扱いに触れていない**（97.8 と同じ判断。独立レビューが Requirement 33 の受入基準1-5 を逐語で読み、5 は「前回の抽出結果をクリアし新しいファイルに対する処理を開始する」＝状態の規範で資源に触れないことを確認した）
+  - **`design.md` の追記**: 97.8 / 97.9 が同じ箇所へ書いた「追い越された PDF の処理は中断しない（`extractPdfData` が中断のシグナルを受け取らないため…）」が**本タスクで偽になった**ため、その直下へ現況を併記した（97.8 / 97.9 と同型）。追記の主張5点はすべて独立レビューがコードで照合済み
+  - **観測（範囲外・未処置）**: (i) `retry()` を処理中に呼ぶと前の `controller` は中断されないまま置き換わる。ただし**リトライボタンは `status === 'error'` の枝の内側にしか描かれず画面から到達不能**（独立レビューがコードで確認）で、裁定の範囲（`reset` とアンマウント）外として据え置いた。(ii) Excel の経路は中断しない（ワーカーを持たないため）。(iii) 中断された処理は `OCR_FAILURE_MESSAGE` で失敗するが世代番号で捨てられるため利用者への表示は不変。(iv) 閉じたときの中断は 97.9 の「閉じたら中身を外す」構造に依存しており、将来これを `hidden` 等へ戻すと中断も失われる（新規検証の3件目がその退行を捉える）。(v) 新規検証の1件の**表題が「終了してから次の処理を始める」と順序を名乗るが、本文は `terminate` 1回と `createWorker` 2回を独立に待つだけで順序を固定しない**（独立レビューが探針で実際の順序が `create → terminate → create` であることを確かめ、表題は真だが変異では守られないと指摘）。98.5 が扱う「表題と本文の食い違い」と同型である。(vi) `check:design-measurement-freshness` の走査対象は site-survey の design.md のみで、本スペックの design.md を読まない——同検査の「基線と同一」は本追記の妥当性を保証しない
+
+- [x] 98.5 97.10 / 97.11 の起票されていない観測3件を処置する
+  - **出所**: 検証の Finding 5。`ImportDialog.test.tsx` の表題「非活性」と本文（非表示）の食い違い、`AutocompleteInput.tsx` の見出しの `7.1` の書き違い、`quantity-table-crud.spec.ts` の REQ-7.1 の表題の区間が受入基準1を直接確かめていない件
+  - _Boundary: 当該3か所のテストの表題・見出し・被覆印_
+  - **境界の読み（独立レビューの明示の判定）**: 境界文は「表題・見出し・被覆印」であって 98.1 のように「主張」を挙げていない。それでも **(3) の主張の強化は境界内**である——起票文 (3) が求めた状態は「被覆印が付いた区間が受入基準1を直接確かめていない」ことであり、処置の道は「被覆印を取り下げて 359/359 を崩す」か「印が正直になるまで主張を強める」の2つしかない。後者は 97.21〜97.24 / 98.1 / 98.2 が確立した先例であり、**被覆印の是正に主張の強化が内在する**
+  - **(1) `ImportDialog.test.tsx`（コミット `fe925d63` の作業ツリー、2026-09-16 にリポジトリルートで実測）**: 実在判定は `grep -rn "非活性" frontend/src --include=*.tsx --include=*.ts | grep -i import` の全件列挙で当たりは6行、**食い違いは1件だけ**（`:423` の `it('処理中は一括取り込みボタンが非活性になる')` の本文が `not.toBeInTheDocument()`）。同ファイル `:177` の「ファイルアップロードボタンが非活性」は本文が `toBeDisabled()` で一致する。**本番の実体は非活性ではなく非描画である**——一括取り込みボタンは `extractor.status === 'completed' && extractor.result && fieldMapping` の枝の内側にあり処理中は描かれず、`disabled` が見るのは `isImporting` であって `isProcessing` ではない。ファイル選択だけが `disabled={isProcessing}` である。**本文を `toBeDisabled` へ寄せるには本番を変える必要があり境界外**のため、表題を本文（＝実体）へ寄せ、条文 27.8 との関係を検証の直上へ注記した。97.10 が既に本番 `ImportDialog.tsx:15` と検証 `:16` の冒頭注釈へ同じ裁定を逐語で明記しており（導入は `bcb35690`、独立レビューが承認済み）、新たな逸脱の固定ではない。旧表題の逐語の指し先は `tasks.md` の 97.10 の記録1件のみで、現役の統治文書は壊れていない
+  - **(2) `AutocompleteInput.tsx`**: 書き違いは **2件**（`- 7.1: 入力開始時の候補表示` と `- 7.8: 候補を50音順に表示`）。**起票文は 7.1 のみを挙げるが、出所である 97.11 の記録は逐語で「`7.1` と、責務でない `7.8`」の2件を挙げている**——起票文でなく出所に忠実な2件の是正が正しい（独立レビューが確認）。実体は、同ファイルに `sort` / `localeCompare` の実装が0件（当たりは見出しの1行のみ）で、並べ替えは `useAutocompleteCandidateStore` の `localeCompare(…, 'ja')`、初回の一括取得も同フックの `fetchedRef` で1回に固定された `useEffect` が担う。`- N.N:` の箇条から両方を外し、責務の所在を**機能名を持たない散文**で書いた（`grep "quantity-table-generation/REQ\|@requirement"` の当たりは0件＝本番ファイルが受入基準を被覆したと数えられる形にしていない）。design.md の当該行は 97.11 が `7.3-7.8` → `7.3-7.7` へ直した状態と一致する
+  - **(3) `quantity-table-crud.spec.ts` の REQ-7.1**: 被覆印は2件（区間の doc コメントの `@requirement` と表題末尾の名乗り。`grep -rn "quantity-table-generation/REQ-7\.1\b" e2e/ frontend/ backend/ scripts/` の全件列挙）。**表題は据え置いた**（`scripts/coverage-mark-adjudication.md:406` が逐語で引く）。条文の逐語は「同一プロジェクト内の対象フィールド（9件）ごとの入力履歴を **GROUP BY で重複排除して一括取得**し、**クライアントサイドの候補値リストとして保持**する」であり、**旧判定はフォーカス時の候補ドロップダウン表示（＝受入基準 3）しか見ていなかった**
+  - **空洞の実証**: backend へ変異A（`autocomplete.routes.ts` の `groupBy` → `findMany`＝重複排除の撤去）と変異B（応答から `specification` を落とす）を**同時に**当てたまま、**書き換え前の判定は 4 passed で緑**だった。独立レビューが構造的な理由も特定している——**旧判定の種は1件しか播かないため、重複排除を外しても重複が生じず検出は原理的に不可能**だった
+  - **新しい判定**: (i) 候補が表示される (ii) 候補がちょうど1件（重複排除） (iii) 応答が対象フィールド9件のキーを持つ (iv) 大項目と規格の履歴が同じ1回の応答に各キーで現れる (v) 同値2件の履歴が応答上で1件に畳まれている (vi) 候補取得の要求は初回表示の**1回だけ**で入力中に取り直さない（保持）。観測は**オリジンに依らずパスの末尾**で行う。応答のキー欠落は `?? []` で空配列へ落として主張が確実に失敗するようにした
+  - **変異による検証**: 重複排除の撤去→(ii) が落ちる、`remarks` キーの削除→(iii)、`specification` の削除→前提の確認、frontend で初回表示の一括取得を2回発行→(vi)。いずれも従来相当の主張は**通過した上で**新しい主張が落ちている。frontend の変異は (a) `--force-recreate` (b) ビルドの終了コード0 (c) 配信バンドルの中身の文言（変異が入れた literal の有無）の3点を揃えて測った
+  - **独立レビューの再現**: 2種（重複排除の撤去・`remarks` キーの削除）を独立に当て直して失敗を実測し、復元後に `md5sum` が変異前と一致すること・変異の残骸0件を確認した
+  - **検証（親が提出時に実測）**: 作業ツリーは3ファイルのみ。変異の残骸0件、`AutocompleteInput.tsx` に被覆印の形0件。**`quantity-table-crud.spec.ts` を全件走らせ 91/91・Status PASSED・Failed 0・Skipped 0・Flaky 0・終了コード0**（実装者は `-g` で8件に絞っていたため、独立レビューと親がそれぞれ全件を走らせた）。独立レビューは加えて触れた単体58件、`lint` / `format:check` / `tsc --noEmit`、静的関門7本がいずれも exit 0 であることを確認した。**`check:req-coverage` は基線から赤く、基線との差は1行だけ**——「読まれないままの名乗り 5112件 → 5110件」（**減少＝ラチェットの安全な向き**）。「機能名を欠くヘッダー 2007件 / 951ファイル」と quantity-table-generation の被覆 359/359 は不動
+  - **観測（範囲外。Task 99 として起票した）**: (i) **REQ-27.8 の後半（一括取り込みボタンの非活性）は、どこでも「非活性」として確かめられていない**——被覆印が付いた `import-e2e.spec.ts` の区間の主張はファイル選択の `toBeDisabled()` 1本だけで、一括取り込みボタンに一切言及しない。条文の逐語（非活性）と本番（描かない）の乖離は 97.10 の記録の中の観測としてしか存在しない。**`_Blocked:_` には当たらない**（技術的制約ではなく意図した設計判断で、押せる経路が存在しないため機能上の穴も無く、97.10 の裁定は独立レビューが承認済み）が、条文を実体へ改訂するか本番を条文へ寄せるかは利用者の裁定に載せるべきである → **99.1**。(ii) 受入基準 7.1 の「**同一プロジェクト内**」だけが新判定に写っていない。本番は `projectId` でスコープしており、この条件を外す変異は現判定を素通りする → **99.2**。(iii) 98.4 が残した同型（`useImportDataExtractor.abort.test.tsx` の表題が順序を名乗るが本文が順序を固定しない）は 98.5 の起票（「当該3か所」）の後に生じたため境界外 → **99.3**。(iv) 前提の確認が本文の主張を先回りする経路が2つ実在するが、いずれも**偽の緑を生まない**（必ず失敗する側に倒れる）ため実害は無い
+
+- [x] 98.6 根拠の弱い除外3件（REQ-29.8 / 30.5 / 5.3）の処遇を決める
+  - **出所**: 検証の Finding 6。29.8 は同種の 28.7 が E2E で判定済み、30.5 は既存 E2E が 503 からフォールバックへ進む経路を通している、5.3 は代替検証の説明に到達するテストの名前が無い
+  - **利用者が決めること**: 29.8 / 30.5 を E2E へ判定と被覆印を足して取り下げるか、除外を据え置くか。5.3 は代替検証の区間名を明記する
+  - **利用者の裁定（2026-09-16）**: 「29.8 / 30.5 を取り下げる」（E2E へ判定と被覆印を足し、変異で落ちることを確かめてから除外を取り下げる。5.3 は代替検証の区間名を明記する）
+  - _Boundary: `e2e/requirement-exclusions.json` の当該3件と、取り下げる場合の E2E の主張と被覆印_
+  - **着手時の測り直し（コミット `afe2b368` の作業ツリー、2026-09-16 にリポジトリルートで実測）**: 除外の識別子は**機能名を冠する**（`quantity-table-generation/REQ-29.8` の形）。素の `REQ-29.8` では JSON に1件も当たらない。実在判定の方式は JSON を読み `id.startsWith('quantity-table-generation/')` で全件列挙する方式で、**着手時点で 27 件**（全体 181 件）。キーは `id` / `requirement` / `title` / `criterionText` / `reason` / `category` / `alternativeVerification{method,tool,description,threshold}` であって `evidence` や `alternativeBasis` は存在しない。検査は `scripts/check-requirement-exclusions.ts` で、**不変条件5**（除外の宣言と被覆印の同居の禁止）・**不変条件3**（`summary.totalExclusions` と `byCategory` の整合）・**不変条件6**（`alternativeVerification` は `criterionText` の中黒列挙の要素を全て名指し）が効く
+  - **起票文の根拠は3件とも取り下げの根拠にならなかった**（83.1 の先例どおり、根拠は実装の存在ではなく変異の実測である）。(a) 「28.7 が E2E で判定済み」——判定は実在するが**Excel のプレビュー表だけを見て PDF の抽出テキストを一度も見ない**。29.8 の対象は OCR の抽出テキストで別物。(b) 「既存 E2E が 503 からフォールバックへ進む経路を通している」——`forceClaudeVisionUnavailable` を使う区間は実在するが、**どれも「フォールバックの OCR が実行されたこと」を一度も主張していない**（29.7 は抽出テキストの内容、33.2 はリトライの再発行を見る）。(c) 「5.3 は代替検証の説明に到達するテストの名前が無い」——正しい（旧 description は散文でファイル名も区間名も持たなかった）
+  - **REQ-29.8 の判定**: 条文は「抽出結果のテキストをユーザーが選択・コピーできる状態で表示する」。Vision を 503 に固定して得たフォールバックの抽出テキストについて、(1) 算出値 `user-select` が `text` であること、(2) 範囲選択で本文が取り出せることを主張する。画面では文字列を読み出すだけで、合否の判定は Node 側で行う
+  - **REQ-30.5 の判定**（`REQ-30` 節を新設）: 条文は「Claude Vision API が利用できない場合（…HTTP 503 等）、**pdfjs-dist + Tesseract.js** による OCR 処理を実行する」で、**条文が2つの engine を名指ししている**（独立レビューが逐語で確認。両方を観測する設計は条文どおりで過剰ではない）。画像のみの PDF を入力に、前件（Vision への要求が発行され**すべて 503**）を観測で確かめた上で、(1) フォールバックの抽出結果が出る (2) Tesseract の worker 資材と jpn 言語データが取得される (3) 画像の中にしか無い語が抽出テキストに現れる (4) エラー表示0件、を主張する。**テキスト PDF では REQ-29.3 により Tesseract が走らない**ため、2つの engine を両方観測するには画像のみの PDF が要る（その理由を doc コメントに明記した）
+  - **恒真への退化を塞いだ**: 前件の観測 `visionResponseStatuses` は **`not.toHaveLength(0)` で空集合に対する恒真を明示的に塞いだ**上で「503 以外が0件」を主張する。順序も、先に抽出テキストの表示を待ってから前件を検算するため、Vision を一度も呼ばずにフォールバックした経路は前件で落ちる。`alert` の0件も、包摂する `section[aria-label="抽出結果"]` が常に描かれその中に `role="alert"` が実在するため器が無いことによる空洞ではない。`check:e2e-guards` の `T11-empty-population-absence` は0件
+  - **オリジン依存の罠を避けた**: 資材の観測は `new URL(request.url()).pathname` を取り**パスで判定する**（ホスト名を一切見ない）。既存の `scanned-pdf-ocr-fallback-e2e.spec.ts` と同じ作法である
+  - **被覆印は前書きの索引と区間の doc コメントの両方へ置いた**（当ファイルの既存の慣行＝28.7 / 29.7 / 29.9 と同じ）。既存の表題は一つも変えていないため `scripts/coverage-mark-adjudication.md` の逐語引用には触れていない。選言・`Promise.race`・`labelWhenVisibleWithin` / `isVisibleWithin` は使っていない
+  - **変異による検証（実装者4種）**: 基線は `index-DmYNCCjx.js`（md5 `049bf4ff…`。着手時の配信物と再ビルド後が一致＝基線であった）。`userSelect` を `'none'` にする→29.8、フォールバックの撤去→30.5 の (1)、`isTextPdf` を常に真→**(1) は通ったまま (2) だけ**、`page.render` を実行しない→**資材の取得は通ったまま (3) だけ**。落ちない変異は無かった。一時 spec で「計算スタイルの主張を外した複製」を作り、**範囲選択の主張も同じ変異で落ちる**ことを実測して 29.8 の2本とも空洞でないことを示した（一時 spec は削除済み）
+  - **独立レビューの再現**: 3種を独立に当て直し、毎回 (a) `--force-recreate` (b) ビルドの終了コード0 (c) 配信バンドルに注入した目印文字列の実在、の3点を照合した。`userSelect:'none'`→29.8 が落ちる、`isTextPdf` の恒真化→30.5 の**Tesseract 側だけ**、`page.render` の不実行→30.5 の**pdfjs 側だけ**。**対照として REQ-29.7 は前2つの変異下でも緑、REQ-29.8 は3つ目の変異下でも緑**で、落ち方が条文ごとに局在している。復元後にバンドルが基線へ md5 まで完全復帰することも確認した
+  - **98.1 の申し送りが再び効いた**: 実装者の変異の初版が未使用シンボルでビルド exit 1 になり、**その間も直前の変異のイメージが配信され続けた**。終了コードを見ていなければ前の変異の結果を次の変異の結果と誤読していた
+  - **除外の取り下げと 5.3 の明記**: 29.8 / 30.5 の項目を削除（いずれも `integration-test`）。`summary.totalExclusions` 181→**179**、`byCategory.integration-test` 58→**56**、`lastUpdated` を更新し `summary.note` に経緯を追記した。5.3 の `description` は**到達する4区間の表題の逐語**へ書き換えた（`EditableQuantityItemRow.test.tsx` の「必須フィールドのバリデーション」配下3件と `FieldSpecIntegration.test.tsx` の `aria-invalid` のハイライト1件）。**計算方法・数量は未入力の状態を取らない**ことを本番の作り（空の選択肢を持たないドロップダウン／空白が既定値 0 へ差し替えられる）とともに明記した
+  - **検証（親が提出時に実測）**: 作業ツリーは2ファイルのみで `git diff frontend/`・`git diff backend/` はいずれも0行、変異の残骸0件。`totalExclusions` の宣言 179 ＝ 実件数 179、quantity-table-generation の 29.8 / 30.5 はいずれも不在（残る `REQ-30.5` は `project-management/` の別件）、当該機能の除外は 27→**25 件**。`check:req-exclusions` は exit 0。**`import-e2e.spec.ts` を全件走らせ 39/39・Status PASSED・Failed 0・Skipped 0・Flaky 0・終了コード0**（取り下げ前は 37 件）
+  - **被覆の動き（独立レビューが基線と比較して再計測）**: 適用対象 2709→**2711**（除外が2件減った分だけ**分母が増えた**）、到達被覆 2674/2709→**2676/2711**（**分子も +2＝新しい印が現に読まれている**）、被覆印の区間 2862→**2864**、`[integration-test]` 58→56、未検証の除外一覧から当該2行が消滅。**quantity-table-generation の被覆 359/359 とラチェット（2007 / 5110）は不動**
+  - **観測（範囲外。Task 99 として起票した）**: (i) **同型の根拠の弱い除外が残 25 件**ある。最も強い候補は **REQ-29.4**——本タスクで新設した 30.5 の判定が「Canvas 描画→Tesseract 実行」という 29.4 の挙動をそのまま通しており、`page.render` を止める変異で落ちることまで実測されている。ただし**当該区間は 29.4 の被覆印を名乗っていないため不変条件5 には抵触しない**（同居の有無は印の有無で決まる。`check:req-exclusions` は exit 0）。次いで 29.5 / 29.6（同経路を通るが主張されていない）、30.1 / 30.6、6.5 → **99.5**。(ii) `scripts/exclusion-alternative-verification-adjudication.md` が陳腐化した（表に 29.8 が残る）。機械の関門は当該ファイルを読まないため赤くならないが、次に除外を棚卸しする者を誤らせる → **99.4**。(iii) 5.3 の条文は必須フィールドに計算方法・数量を挙げるが本番はこの2欄が未入力を取りえない——条文と実体の乖離で 97.10 / 99.1 と同型（新 description はこの事実を隠さず明記している）。(iv) 30.5 の判定は Tesseract の資材を配信元から取得するため外部到達性に依存し、実行時間も31秒と本 spec 中で突出する（上限は45秒）。**前提が崩れたら失敗する正しい向き**だが、遅い環境での余裕は監視対象である
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 97 と同じ）。Finding 7（共有部品の注釈に下流の名前が入る件と上流の設計文書の記録）は estimate-request 94.1 が受け皿であり、本節では扱わない。
+
+
+## Task 99. 98.4 / 98.5 の処置で新たに測れた観測の是正
+
+**出所**: 98.4 / 98.5 の独立レビュー。いずれも当該タスクの境界の外で、手を出さずに残した。**行番号と件数は起票時点の実測であって着手時の実測ではない。着手時に測り直すこと**
+
+- [x] 99.1 REQ-27.8 の条文（非活性）と本番（描かない）の乖離、および後半の被覆源の不在の処遇を決める
+  - **出所**: 98.5 の独立レビューの Finding 1
+  - **測った事実**: 条文 27.8 は「ファイルアップロードボタン**および**一括取り込みボタンを非活性にする」。本番はファイル選択のみ `disabled={isProcessing}` で、一括取り込みボタンは `extractor.status === 'completed' && extractor.result && fieldMapping` の枝の内側にあり**処理中は描かれない**（`disabled` が見るのは `isImporting`）。被覆印が付いた `import-e2e.spec.ts` の区間の主張は**ファイル選択の `toBeDisabled()` 1本だけ**で、一括取り込みボタンに一切言及しない。97.10 が本番と検証の冒頭注釈へ裁定を明記し独立レビューが承認済み（導入は `bcb35690`）で、押せる経路が無いため機能上の穴は無い
+  - **利用者が決めること**: (a) 条文を実体へ改訂する（「処理中は一括取り込みボタンを表示しない」）か、(b) 本番を条文へ寄せる（処理中も描いて非活性にする）か。いずれを採っても、**条文後半に被覆源を用意すること**が伴う
+  - **利用者の裁定（2026-09-17）**: 「**(a) 条文を実体へ改訂する**」。requirements.md の 27.8 の後半を「一括取り込みボタンを**表示しない**」へ改め、条文後半に被覆源を用意する（コードの挙動は変えない）。100.4 も同じ向き（条文を実体へ改訂）で併せて裁定された
+  - _Boundary: `REQ-27.8` の条文と、その被覆源_
+  - **裁定の根拠（実装者が測り、独立レビューが逐一検算した）**: (i) **改訂前の条文は Requirement 31 受入基準1と両立しない**——31.1 は「抽出結果のプレビューテーブルの**下に**『一括取り込み』ボタンを表示する」と**位置まで**定めるが、処理中はプレビューテーブルが存在しない（REQ-27.7 の既存区間が `results.locator('table')` の `toHaveCount(0)` で現に主張している）。(b) を採ると 31.1 が求める位置関係を満たす場所が本番に無い。**ただしこれは条文の読みとしての議論であって機械的な矛盾ではない**——独立レビューが (b) の形の変異の下で REQ-31.1 の既存区間を走らせ **PASSED** を実測している。(ii) **描かないことは非活性より強い**（押せる経路そのものが存在しない）。(iii) 97.10 の裁定（導入 `bcb35690`、独立レビュー承認済み）を条文へ昇格させるだけで、実装の挙動は一切変わらない
+  - **被覆印の計数（逐語 grep は不使用。99.2 の差し戻しの教訓）**: 実装者・独立レビューがそれぞれ独立に `scripts/check-requirement-coverage.ts` の `extractFileCoverage` / `extractHeaderScopedCoverage` を `npx tsx` で直接呼び、全走査ファイルへ当てて全件列挙した（実装者 1859 ファイル／レビュー 1744 ファイルと走査集合の取り方は違うが結論は一致）。`quantity-table-generation/REQ-27.8` を持つのは **`import-e2e.spec.ts` の1件のみ**（`inline=true` / `headerScoped=false`。同ファイルの前書きは機能名を欠く `Requirements coverage:` 形のためヘッダー由来の印は発生しない）。**是正の前後で被覆集合は不動**（変更3ファイルすべて HEAD 版と `IDENTICAL`）。`requirement-exclusions.json` に 27.8 は0件で**不変条件5に抵触しない**
+  - **成果物**: (1) 条文 `requirements.md` 486行目を改訂し、直下に改訂理由・**採らなかった案**・検証の担い方を追記（97.20 の先例と同形）。(2) 被覆源＝`import-e2e.spec.ts` の REQ-27.8 の区間に**肯定と否定の組**を新設——否定は処理中に `dialog.getByRole('button', { name: '一括取り込み' })` が `toHaveCount(0)`、肯定は抽出完了後に**同一の const を共有する同じロケータ**が `toBeVisible()`（否定が空集合の恒真へ退化していないことの担保）。前半の非活性も完了後の `toBeEnabled()` で恒真でないことを固定。抽出応答は `route.continue()` → **`route.fulfill()` の決定論的な組み立て**へ変え `ANTHROPIC_API_KEY` への依存を外した（REQ-27.7 が HEAD 時点で既に採っていた手口）。前件は `page.waitForRequest` を `setInputFiles` の**前**に仕掛けて確立しており本文の主張を先回りしていない。(3) 本番 `ImportDialog.tsx` と単体 `ImportDialog.test.tsx` の註釈を改訂後の条文へ追随させた
+  - **本番の実行コードは0行の改変**——逐語 diff ではなく `scripts/check-requirement-coverage.ts` の `stripComments` を HEAD 版と作業ツリー版へ当てて比較し、`ImportDialog.tsx` 487行・`ImportDialog.test.tsx` 471行の非空コード行が `diff` で0差であることを独立レビューが実測した。配信バンドルも md5 まで基線一致
+  - **変異による検証（実装者3種＋独立レビューが3種すべてを自分で当て直した。毎回 `--force-recreate` つき再ビルドで (a) ビルド終了コード0 (b) 配信バンドルの md5 変化 (c) 注入した目印文字列の実在 の3点を照合）**: 基線は `index-DmYNCCjx.js` / md5 `049bf4fff3b2de15ea818c84f4698f4f`。**M1**（処理中も同じアクセシブル名のボタンを描いて非活性にする＝**採らなかった案 (b) そのものの形**）→ **否定側**が FAIL。**M2**（一括取り込みボタンを一切描かない）→ **肯定側**が FAIL＝否定が恒真へ退化していないことの実測。**M3**（ファイル選択の `disabled={isProcessing}` を潰す）→ **前半**が FAIL。**落ちない変異は無く、3種はそれぞれ別の主張を落とした**。対照として M1 の下で REQ-31.1 の既存区間は **PASSED**（落ち方が 27.8 に局在）。復元後にバンドルは基線 md5 へ完全復帰し目印0件。レビューは定数畳み込みで目印が消えないよう `window.location.pathname.includes(...)` の実行時に不透明な形で変異を入れている
+  - **検証**: `import-e2e.spec.ts` を `-g` なしファイル単位の全件で **39/39 PASSED・Failed 0・Skipped 0・Flaky 0・exit 0**（実装者2回・レビュー1回）。区間数は基線と同じ39件＝**区間を増やさず既存区間を強めた**。単体 `ImportDialog.test.tsx` 26/26・exit 0。静的関門は `check:req-exclusions` / `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:design-code-refs` / `check:trace-coverage` がいずれも exit 0。`check:req-coverage` は基線どおり exit 1（他機能由来）だが**基線ワークツリーの出力と `diff` でバイト一致**し、`quantity-table-generation: 48要件 / 359受入基準（359/359）` とラチェット（2004件/948ファイル・5085件）は不動。型検査・lint・format は root / frontend とも exit 0
+  - **design.md は変更不要**: 追跡表・部品表・`Requirements` 行のいずれも 27.8 を `27.1-27.8` の**範囲でしか参照せず**、条文の文言や非活性／不表示の別を定めていない（`check:design-code-refs` exit 0 で裏取り）
+  - **観測（範囲外・未処置）**: (i) `check:design-measurement-freshness` の `t13-anchor-references-after-115303` が `actual=1386` → **1388（+2）**。新設した肯定側の主張2本ぶんで**増える向きは正しい**。当該記録の所有は `.kiro/specs/site-survey/design.md` 側（`expected=1295` で基線から既に 91件乖離した赤）で本境界の外。**指摘件数は基線13件／作業ツリー13件で不変＝赤くなる向きの悪化は無い**（独立レビューが `git worktree` で基線ツリーを作って diff で実測）。(ii) 旧条文の逐語「および一括取り込みボタンを非活性」が repo 全体で残るのは **tasks.md 1070行（Task 96.1 の完了済み記述）の1箇所のみ**（design.md には逐語は無い）。履歴の記述であり現役の統治文書ではない。(iii) **全件実行の1回で `REQ-30.5`（Claude Vision 503 時の pdfjs + Tesseract フォールバック）が初回・retry1 とも失敗した**——frontend コンテナ再作成の直後の実行で、外部からの Tesseract 資材取得に依存する既存区間である（98.6 の観測 (iv) が「外部到達性に依存し31秒。遅い環境での余裕は監視対象」と予告済み）。本タスクの変更とは無関係（REQ-30.5 の本番・検証とも未変更）だが **pre-push の全件実行で再発しうる**
+
+- [x] 99.2 受入基準 7.1 の「同一プロジェクト内」が判定に写っていない状態を解消する
+  - **出所**: 98.5 の独立レビューの Finding 2
+  - **測った事実**: 98.5 が強めた REQ-7.1 の判定は「初回表示」「対象フィールド9件ごと」「一括取得」「GROUP BY で重複排除」「クライアントサイドの保持」を捉えるが、**別プロジェクトの入力履歴が候補に混ざらないことを否定側で確かめる主張が無い**。本番は `autocomplete.routes.ts` の `whereCondition.quantityGroup.quantityTable.projectId` でスコープしており、この条件を外す変異は現判定を素通りする
+  - **検証を強めるときは、今の実装に対して変異で落ちることを先に確かめること**（97.21〜97.24 / 98.1 / 98.2 / 98.5 と同じ作法）
+  - _Boundary: `REQ-7.1` の E2E の主張と被覆印_
+  - **条文の逐語**: 「同一プロジェクト内の対象フィールド（…9件）ごとの入力履歴を GROUP BY で重複排除して一括取得し、クライアントサイドの候補値リストとして保持する」。**「同一プロジェクト内の」は入力履歴の範囲に掛かる**（対象フィールドの列挙にではない）
+  - **⚠️ 着手時の被覆印の列挙を逐語 grep で行って誤り、独立レビューが差し戻した（是正ラウンド1）**: 初稿は `grep -rn "quantity-table-generation/REQ-7\.1\b"` で数えて「E2E の被覆印は `quantity-table-crud.spec.ts` の2件のみ」と結論したが、**`autocomplete-optimization.spec.ts` のヘッダーは `Requirements coverage (quantity-table-generation):` と機能名を持ち、その直下の `- REQ-7.1:` は被覆印として読まれる**（`scripts/check-requirement-coverage.ts` の `extractHeaderScopedCoverage`）。**逐語 grep はこの形を構造的に読み落とす**。100.6 の Implementation Notes が既に「`scanCoverageTags` はヘッダー直下の一覧も印として読む」と記録していた作法を、着手時に活かせなかった。**帰結**——独立レビューがスコープ撤去の変異を当てたまま当該区間を走らせ **PASSED / exit 0** を実測し、起票文が名指す「変異を素通りする判定」が境界内に残存していることを示した
+  - **是正で行った測り直し（プロジェクト自身の読み手を使う方式）**: `npx tsx` で `extractFileCoverage` / `extractHeaderScopedCoverage` を `e2e` 配下 **228 ファイル**へ当て、`quantity-table-generation/REQ-7.1` を持つファイルを全件列挙した。**2件**（`autocomplete-optimization.spec.ts` と `quantity-table-crud.spec.ts`、いずれも `headerScoped=true`）
+  - **処遇（2ファイル）**: どちらも**被覆印は動かさず、印が付いた区間そのものを強めた**。主張は**肯定と否定の組**で置く——(a) 別プロジェクトへ播いた値が**そのプロジェクトの候補としては実在する**（無条件）、(b) 同じ値が**自プロジェクトの一括取得の応答には含まれない**。両者は**同じ値・同じフィールド・同じエンドポイントでプロジェクトIDだけが違う**ため、同時に成立しうるのは**エンドポイントがプロジェクトで識別している場合に限られる**（独立レビューの判定）。別プロジェクトの履歴は **API で**作る（Requirement 42 の明示保存の設計上、画面からの追加は保存まで永続化されないため）
+  - **crud 側**: 別PJの値を**自プロジェクトと同じ接頭辞**にした——接頭辞が違えばそもそも前方一致の候補一覧に出ず、否定が**スコープを確かめたことにならない**。独立レビューが**DB を直接照会して**自PJの3件と別PJの1件が同じ接頭辞で共存することを確認し、画面の絞り込みが `startsWith`（件数上限なし）で幅の濾過も通る＝**漏れれば必ず一覧に現れる形**であることも確かめた
+  - **`autocomplete-optimization.spec.ts` 側は自プロジェクトへ履歴を播いていない**。同ファイルの REQ-7.8（50音順）と REQ-7.3（空欄で全候補）の判定が**候補一覧の完全一致**を主張しており、「このファイルは数量表を保存しないのでサーバー側の入力履歴は空」という**母集団の一意性に依っている**ためである（独立レビューが当該4箇所を読んで裏を取り、自PJへ播くと確実に壊れることを確認した）。**否定の識別力は別PJ側の肯定との対が担う**
+  - **変異による検証（3層。実装者・独立レビューの双方が当て直した）**: **M1**（`autocomplete.routes.ts` の `whereCondition` から `projectId` を撤去。backend は tsx watch で即反映）→ **旧判定は両ファイルとも合格したまま、新判定は落ちる**（crud は「別プロジェクトの入力履歴は候補として表示されない」、optimization は「…一括取得の応答に含まれない」）。**M2**（別PJへ識別可能な値を播かない）→ **旧判定は緑のまま、前提の主張が落ちる**（**恒真へ退化していないことの実測**。起票文が言う危険そのもの）。**M2b**（さらに前提の主張自体を削除して恒真化を狙う）→ **組の肯定側が落ちる**＝前提の主張を外しても組そのものが空集合の恒真を捕まえる。落ちない変異は無かった
+  - **Implementation Notes との照合（独立レビューの判定）**: 82.1「前提の成立と検証の恒真は同じ場所で壊れる」は**当たらない**——前提が崩れると肯定側が**否定側と同じテストの中で**落ちるので、両者は同方向に退化せず逆向きに倒れる。98.5「空洞は種の作り方でも生まれる」も**当たらない**——種が播かれない形は M2 / M2b の二層で捕まる
+  - **要求の計数との競合を閉じた**: `seedForeignProjectHistory` は別PJの編集画面に居る状態で戻るため、**その画面が発行する候補取得が遅れて着弾すると 98.5 が置いた「初回表示の1回だけ」の主張を壊しうる**（偽の緑は生まないが間欠の種）。末尾に**中立ページへの退避＋`networkidle` 待ち**を足して、計数器を仕掛けた後に**要求を起こす主体が存在しない**状態にした。`autocomplete-optimization.spec.ts` 側は播種を `事前準備` の**別テスト**に置いたため `page` フィクスチャが分かれ、経路そのものが無い（`e2e/` に `test.extend` は0件、`playwright.config.ts` にページ再利用の設定も無いことを独立レビューがコードで確認）
+  - **検証（親が提出時に実測）**: 作業ツリーは2 spec のみで `git diff frontend/`・`git diff backend/` はいずれも0行、変異の残骸0件、一時 spec の残骸0件。**`autocomplete-optimization.spec.ts` 13/13**（基線12件＋新設1件）・**`quantity-table-crud.spec.ts` 91/91**（いずれも `-g` なし全件・Status PASSED・Flaky 0・終了コード0）。`check:e2e-guards` / `check:e2e-selfjudge` / `check:criterion-literals` / `check:trace-coverage` はいずれも exit 0。`check:req-coverage` は基線から赤く、**qtg 359 受入基準とラチェット 2004 / 5085 は不動**（独立レビューは出力が基線と**バイト一致**であることも実測した）
+  - **観測（範囲外。Task 101 として起票した）**: **逐語 grep が被覆印を構造的に読み落とす組は、この repo 全体で 147 組 / 23 ファイル / 6 機能にわたる**（実装者は5機能と報告したが、独立レビューの検算で `site-survey` の1件が漏れていた。要件レベルも数えると174組）。**「印は N 件」を逐語 grep で測る運用そのものが不適である** → **101.1**
+  - **観測（範囲外・未処置）**: (i) `autocomplete-optimization.spec.ts` 側の否定は、検証用プロジェクトの母集団が**空**であるため crud 側より**構造的に弱い**。ただし識別力は肯定との対が担い三変異で実測済みなので穴ではなく、REQ-7.8 / REQ-7.3 の母集団依存という実在の制約から来る、理由を明記した正当な弱め方である。(ii) **後片付けされない検証用プロジェクトが実行ごとに2件になった**（crud 側1件＋optimization 側1件。独立レビューが DB で実測）。`afterAll` はどちらの spec にも無く既存の慣行どおりで、候補はプロジェクトでスコープされるため他の検証への影響は無い。(iii) 新設の `事前準備` は直列の先頭側にあり、播種が崩れると後続が SKIP される（既存の作法どおり。必ず赤へ倒れるため偽の緑は生まない）
+
+- [x] 99.3 98.4 の検証の表題が、本文が固定していない順序を名乗る状態を解消する
+  - **出所**: 98.4 の独立レビューの Finding 1
+  - **測った事実**: `frontend/src/components/quantity-table-import/useImportDataExtractor.abort.test.tsx` の1件の表題が「先の OCR のワーカーを**終了してから**次の処理を始める」と順序を名乗るが、本文は `terminate` 1回と `createWorker` 2回を**独立に待つだけ**で順序を固定しない。独立レビューが探針で実際の順序が `create → terminate → create` であることを実測しており**表題は事実として真**だが、順序を壊す変異では守られない。98.5 が処置した「表題と本文の食い違い」と同型である
+  - **表題を本文へ寄せるか、順序を主張に加えるかを選ぶこと**。後者を採るなら、順序を壊す変異で落ちることを先に確かめること
+  - _Boundary: 当該検証の表題と主張_
+  - **着手時の測り直し（コミット `98e1b01e` の作業ツリー、2026-09-17 にリポジトリルートで実測）**: 起票文の指摘は現況でも真だった。表題は逐語で「処理中にファイルを差し替えると、先の OCR のワーカーを**終了してから**次の処理を始める」で、本文は `terminate` 1回と `createWorker` 2回を**独立に待つだけ**だった。**被覆印は0件**——逐語 grep ではなく `npx tsx` で `extractFileCoverage` / `extractHeaderScopedCoverage` / `readFeaturelessHeadersInContent` を直接当て、HEAD 版と作業ツリー版を同じ読み手で比較して 0/0 で不動であることを確かめた（**99.2 が逐語 grep で差し戻された教訓を踏まえた方式**）。`scripts/coverage-mark-adjudication.md` に当該4件の表題の逐語引用は0件
+  - **選択: 「順序を主張に加える」を採った**。**98.5 が表題を本文へ寄せたのは「本文を実体へ寄せるには本番を変える必要があり境界外」だったからで、本件は条件が逆である**——順序は現に実装が満たしており、**本番に一切触れずに主張を強められる**。起票文も両方を明示的に許しており、境界文は 98.5 と違って「**主張**」を明記している。98.4 の裁定（`reset` とアンマウントでワーカーを終了させる）を超えて本番の責務を増やしてはいないので、98.2 / 100.2 が審査した「条文を超えた過剰」には当たらない（独立レビューが 98.5 の記録を自分で読んで同意）
+  - **空洞の実証（変異の形が核心）**: `reset()` の中断を `setTimeout(..., 0)` で**マクロタスクへ遅らせる**変異を当てた。**中断そのものは残るので旧ワーカーの `terminate` はちょうど1回起き、「終了する」という旧主張は満たされる**。この下で**是正前の本文は 4 passed・exit 0 で完全に素通り**し、**是正後は当該1件だけが落ちる**（`expected [ 'create', 'create', 'terminate' ] to deeply equal [ 'create', 'terminate', 'create' ]`）。あわせて `reset()` から中断を撤去する変異でも落ちることを確かめ、**旧主張（終了1回）の強度が保たれている**ことも示した
+  - **独立レビューの再現**: 同じ変異を**忠実な形**（`reset()` 内で現行の controller を退避してから遅延して `abort()`）で当て直し、`terminate` が現に1回起きている（列の末尾に出る）ことまで実測した。復元後に `md5sum` が基線と一致することも確認
+  - **処置の実体**: `invocationCallOrder` で生成と終了を一列に並べる補助 `workerLifecycleSequence()` を新設し、`toEqual(['create', 'terminate', 'create'])` を置いた。`mockRecognize` の主張を `waitFor` 包みへ変えて、並びの確定前に読む競合も閉じた（**厳密一致のままで、待つだけで通る形にはなっていない**ことを独立レビューが確認）。**表題は一切変更していない**
+  - **`invocationCallOrder` は内部 API ではなく公開契約である**（独立レビューが型定義と実装を読んで確認）。`@vitest/spy` の型定義が「全モック間で共有される」ことを逐語で明記し、実装の module スコープの採番は `mockClear` / `mockReset` でも戻らないため、**同一テスト内で全モック横断・単調増加・同値なし**が成り立つ。`vi.resetAllMocks()` が `beforeEach` に在るのでテスト間の混入も無い。リポジトリ内に先例が2件ある。**代替（モック実装内で共有配列へ push）を採らなかったのも妥当**——前提の設定が `mockResolvedValue` で実装を差し替えるため push 版は競合する
+  - **検証（親が提出時に実測）**: 作業ツリーは検証1ファイルのみで本番差分0行。表題は不変で、主張 `toEqual(['create','terminate','create'])` が実在する。**`src/components/quantity-table-import/` の 10ファイル・130件すべて合格**（exit 0）。独立レビューは加えて当該ファイル単体を**3連続で実行して間欠が無いこと**、`tsc --noEmit` / `prettier --check` / `eslint`（errors 0）が exit 0 であること、`check:req-coverage` の出力459行が **HEAD 版と `diff` で完全一致**することを実測した
+  - **⚠️ 実装者の論拠のうち1点は誤っており、独立レビューが反例で崩した**: 実装者は同ファイルの4件目（「中断しなければ…ワーカーの終了は**完了時の**1回だけである」）について「早期の `terminate` は `status === 'completed'` と `recognize` 2回を同時に成り立たせられないため本文が**実質的に含意している**」と述べたが、**これは成り立たない**。独立レビューが `pdf-text-extractor.ts` の `finally` の `terminate` を**生成直後へ移す**変異を当てたところ、**4件目は緑のまま通った**（終了1回・完了・認識2回が同時に成立する）。**ただし同ファイルの他3件が前提の `not.toHaveBeenCalled()` で赤になるため、ファイル全体としては捉えられている**。4件目は境界外（起票文が名指すのは1件の表題）であり据え置いた判断そのものは正しい
+  - **観測（範囲外・未処置）**: (i) 上記の4件目の表題「完了時の1回だけ」は**時点を名乗りつつ本文が時点を直接固定していない**。含意は成り立たず、捉えているのは同ファイルの他3件である。**後続の起票候補**。(ii) `invocationCallOrder` に**理論上の穴が1点残る**——将来「モックごとに1から採番」へ退化すると安定ソートが `create` を先に置くため実順序に関わらず畳まれて偽の緑になりうる。現在の公開契約では同値が発生しないため実害は無い。(iii) 表題の「次の処理」は観測上「次の**ワーカーの生成**」である（差し替え後の抽出そのものは `terminate` より前に始まっている）。起票文が**表題は事実として真**と裁定済みであり、冒頭注記が観測の実体を `create → terminate → create` と逐語で名指しているため次の読者を誤らせない
+
+- [x] 99.4 除外の代替検証の裁定文書が、取り下げた除外を残したまま陳腐化した状態を解消する
+  - **出所**: 98.6 の独立レビューの Finding 1
+  - **測った事実**: `scripts/exclusion-alternative-verification-adjudication.md` の表に `quantity-table-generation/REQ-29.8` が残る（`REQ-30.5` は当該ファイルに記載が無いことも確認済み）。98.6 が両者の除外を取り下げたため、当該の行と集計が実態と食い違う。**機械の関門は当該ファイルのこの面を読まないため赤くならない**（`check:adjudication-pointers` は別の節の指し先だけを見る）が、次に除外を棚卸しする者を誤らせる
+  - _Boundary: `scripts/exclusion-alternative-verification-adjudication.md` の当該の行と集計_
+  - **⚠️ 起票文が誤っており、境界も誤って引かれていた（親の起票の誤り。着手時の実測で判明）**
+  - **誤り(1)**: 起票文は「`REQ-30.5` は当該ファイルに記載が無いことも確認済み」と述べたが、**`REQ-30.5` は §4 の `:319` に実在する**。同行は先頭で機能名を冠したあと以降を番号だけで続ける書式（`` `quantity-table-generation/REQ-29.1`・`29.2`・… ``）のため、**逐語 grep には構造的に当たらない**。**99.2 が同型で差し戻された教訓（被覆印を逐語 grep で数えてはならない）の再発である**
+  - **誤り(2)・BLOCKED の理由**: **当該ファイルは上流 site-survey の所管であり、同一の境界を持つ上流タスクが未完のまま開いている**。(a) 当該ファイルのコミット履歴は**全4件がすべて `(site-survey)`** で quantity-table-generation のコミットは一件も無い（親が `git log` で確認）。(b) `.kiro/specs/site-survey/tasks.md` の **`115.329 裁定記録の陳腐化した行を、鮮度宣言と対で扱う`** は `_Boundary:_` が「本スペックの裁定記録の当該行と、それを数える鮮度宣言」で、**99.4 が下そうとしている判断そのものを未決で保持している**。しかも**26件の陳腐化のうち24件を既に列挙済み**である。(c) 本スペックの先例（95.1〜95.4 / 96.x / 97.4）は一貫して「**同ファイルには一行も触れていない**」と記録し、**97.17 の `_Boundary:_` は「上流への起票の書き込み」であって当該ファイルではなかった**。**親が 98.6 のレビュー所見から 99.4 を起票したとき、115.329 の存在を見落としていた**
+  - **着手時の測り直しは全件完了している（作業ツリーは一行も変えていない）**: 記録が名指す相異なる番号 **205件** / 生きた除外 **179件** / 不在 **29件**。うち3件は記録自身が既に不在と述べている。**残る 26件が陳腐化で全件が quantity-table-generation**（他スペックの番号の陳腐化は零件）。**98.6 が生んだ増分はちょうど2件**（§3.1 `:147` の `REQ-29.8` と §4 `:319` の `30.5`）。方式は `e2e/requirement-exclusions.json` を JSON として読み、記録側はバッククォート内の `` `<機能名>/REQ-x.y` `` と**同一行で直前の機能名を継承する** `` `x.y` `` を抽出して差集合を取る形で、**逐語 grep は用いていない**
+  - **機械の関門が赤くならないことの裏取り（起票文の主張は真だった）**: `check:design-measurement-freshness` は基線から赤いが、**当該ファイルを見る三宣言はいずれも失敗行に無く緑**（赤は `.kiro/specs/site-survey/design.md` と `scripts/coverage-mark-adjudication.md` 由来）。`check:adjudication-pointers` と `check:req-exclusions` はいずれも exit 0 で、どちらも当該ファイルのこの面を読まない。**ただし §6 から行を落とすと `exclusion-adjudication-covered-rows` が赤くなる**ため、是正は鮮度宣言と対で動かす必要がある（115.329 が「鮮度宣言と対で扱う」と題している理由そのもの）
+  - **是正の方針（上流への判断材料。上流の規約 `#### 実測値の書き方（タスク 115.212）` に照らした）**: 同規約は「**過去のタスクが何を監査したかという歴史記録は (a) に限る**——値そのものが監査範囲の記録であるため、書き換えると当時の母集団が失われる。当時の値を残し、現況の再実測を並べる」と定める。本記録の §3 / §4 / §6 は 115.189 が当時の母集団に対して行った監査の記録なので、**行の削除も見出しの件数の書き換えも採るべきでない**。採るべきは「当時の値を残し現況の再実測を同じ場所へ並べる」形（§3.3 の後記が同ファイル内の先例）で、行数・件数欄を動かさないため鮮度の三宣言も緑のまま保てる
+  - **親が上流へ増分を書き込んだ（97.15 / 97.17 / 94.1 と同じ形）**: `.kiro/specs/site-survey/tasks.md` の **115.329** へ、(i) 98.6 が生んだ2件の増分、(ii) 突き合わせの再実測（205 / 179 / 不在29 / 陳腐化26）とその方式、(iii) 逐語 grep では `:319` の `30.5` に当たらないこと、(iv) **§0 の説明文の誤り**（§3 の名乗り56と行数51の差を「§3.3 が散文だから」と説明するが、§3.3 は既に §3.1 の2行目として数えられており加数ではない。実際の差5の出所は §3.2 が1行に6件を畳んでいること）、(v) 未走査の残余、(vi) 下流の 99.4 がブロックしていること、を追記した
+  - **観測（範囲外・未処置）**: (i) 「説明の字面がずれた行」（番号は除外に残るため差集合に当たらない形）の**全件は測っていない**。(ii) 96.5 の Requirement 7 の振り直しを当該の走査は考慮していない
+  - **現況の再実測（2026-09-23。親が本項の着手時と同じ方式で測り直した。当時の値は上にそのまま残す）**: 記録が名指す相異なる番号 **205件**（不変）/ 生きた除外 **129件**（当時179件）/ **不在 76件**（当時29件）、**うち quantity-table-generation は 49件**（当時26件）。99.5 と 100.5 の取り下げ、および本日の 100.8 / 100.10 / 100.13 の3件が加わったためである。**本日の3件（`:139` の REQ-5.3・`:140` の REQ-8.7・`:405` の REQ-43.2）は親が上流 115.329 へ書き込み済み**で、`:405` は §6 の全件表＝鮮度宣言 `exclusion-adjudication-covered-rows` が数える母集団の行である
+  - _Blocked: site-survey スペックの Task 115.329（同一の境界を持ち、26件の陳腐化のうち24件を既に列挙している）の解決待ち。**98.6 が生んだ増分2件は親が上流へ書き込み済み**で、下流は当該ファイルに一行も触れていない_
+  - **解決（上流 site-survey の Task 115.329 が処遇した。コミット `bbc0d934`。下流は当該ファイルに一行も触れていない）**: 上の `_Blocked:` は当時の記録として残す。上流は表の行を 115.189 の当時の監査の記録として残し（規約 (a)「当時の値を残し、現況の再実測を並べる」）、現況を `scripts/exclusion-alternative-verification-adjudication.md` の新設 §10 に並べた。**本項の推奨方針と一致する**。本項が名指した `REQ-29.8`（§3.1）と `30.5`（§4 の外部API依存の行）、後から積まれた 5.3 / 8.7 / 43.2 はいずれも §10.3 の陳腐化の表に載り、§0 の説明文の誤りは §0 の後記で正されている。誤り(1)（30.5 は逐語 grep に当たらない）は §10.2 の方式（同じ行で直前の機能名を引き継ぐ抽出）で扱われている
+  - **着手時の確認（HEAD `40fc5f81`、2026-09-25、リポジトリルート。独立レビューが再現）**: §10.2 の版で固定した再現コマンドで `名指す番号 208 / 除外に在る 157 / 除外に無い 51 / 115.189 の版から取り下げ 48 / 版に既に無かった 3` を再現した。除外一覧は `d34f4116` と HEAD でともに 157件で `git log d34f4116..HEAD -- e2e/requirement-exclusions.json` は0件——**上流の測定の後に取り下げは無く、§10 は現況として正しい**。本項の 2026-09-23 の再実測（生きた除外 129 / 不在 76）は方式の差（素の番号の正規化と範囲の展開の有無）による値で、本スペックの不在件数は 49（48 + 7.3）で整合する
+  - **関門**: `check:design-measurement-freshness` は EXIT=1 だが、赤の8宣言はすべて site-survey の design.md 由来で上流 115.333（97.14 の追記を含む）が名指すもの。当該ファイルを見る三宣言（`exclusion-adjudication-uncorrected-total` 43 / `-none-rows` 3 / `-covered-rows` 104）は緑。`check:req-exclusions` / `check:adjudication-pointers` は EXIT=0（親が承認後に新鮮な証拠で再実行）
+  - **下流の変更は無い**: 当該ファイルは上流の所管で、本項が求める是正は上流が済ませた。以後の取り下げで行が陳腐化しても名指して赤くなる関門は無い（§10.5 が残る穴として開示済み）
+
+- [x] 99.5 根拠の弱い除外の残り（REQ-29.4 ほか）の処遇を決める
+  - **出所**: 98.6 の観測と独立レビューの Finding 2。**98.6 の境界は当該3件だったため処置していない**
+  - **測った事実**: quantity-table-generation の除外は 98.6 の取り下げ後で **25 件**（実在判定は `e2e/requirement-exclusions.json` を JSON として読み `id.startsWith('quantity-table-generation/')` で全件列挙する方式）。最も強い候補は **REQ-29.4**（スキャン PDF を Canvas 経由で画像化し Tesseract OCR を実行する）——**98.6 が新設した REQ-30.5 の判定がその挙動をそのまま通しており、`page.render` を止める変異で落ちることまで実測済み**である。ただし当該区間は 29.4 の被覆印を名乗っていないため**不変条件5（除外と被覆印の同居の禁止）には抵触しない**（同居の有無は印の有無で決まる）。次いで **29.5 / 29.6**（Canvas 描画スケール・前処理パイプライン。同経路を通るが主張されていない。`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` が同型の条文を Canvas API の観測で E2E 判定した先例がある）、**30.1 / 30.6**（ルートの差し替えで前件を作れることが 30.5 と同型に示された）、**6.5**（理由は「UI実装に依存」だが実装は在り `quantity-table-crud.spec.ts` が一括操作に触れている）
+  - **取り下げの根拠は「実装済みか」ではなく「検証が実挙動を固定しているか」である**（83.1）。条文を直接主張する判定を置き、**変異で落ちることを実測してから**取り下げること。1件見つけた時点で探索を打ち切らず、25件を一件ずつ measure すること
+  - _Boundary: `e2e/requirement-exclusions.json` の quantity-table-generation の残る除外と、取り下げる場合の E2E の主張と被覆印_
+  - **仕分け（HEAD `32a963ee` の作業ツリー、2026-09-17 にリポジトリルートで実測。25件を一件ずつ measure した）**: **取り下げ 12件 / 根拠文の書き直し 2件 / 据え置き 11件**。除外は quantity-table-generation で **25件 → 13件**、全体で 179件 → 167件
+  - **取り下げ12件（すべて条文を直接主張する判定を置き、変異で落ちることを実測してから取り下げた。83.1 の作法）**: `REQ-6.5`（一括削除・コピー・移動。3行のうち1・3行目だけを選ぶ**真部分集合**で「選択した全てに及ぶ」を主張。新設 spec `bulk-item-operations-e2e.spec.ts`）／`REQ-8.9`（**主張の在る REQ-47.7 の区間へ印を付与**——同区間はピッチ行の最終数量 `75.00` を値で固定しており、本数の算出と任意項目の乗算の**両方**に一意に依存する。新設ではない）／`REQ-8.10`（範囲長だけ空にした保存試行で「範囲長は必須です」と保存 API 0件）／`REQ-29.2`（2ページのテキスト PDF で1ページ目と最終ページの語が**両方**出る）／`REQ-29.3`（テキスト PDF で Tesseract 資材0件・前処理の書き戻し0件を、**同一購読・同一観測器の肯定側と対で**主張）／`REQ-29.4`（画像のみ PDF で資材取得・画素の読み出し／書き戻し／画像化の回数＝ページ数・画像内の語の出現回数＝ページ数）／`REQ-29.5`（スケール 4.0 の寸法 1400x700。Vision の 2.0＝700x350 と弁別）／`REQ-29.6`（書き戻された画素の4性質をページごとに主張）／`REQ-29.10`（**従来の理由「30秒は E2E で決定論的に作れない」が二つの事実で崩れていた**——96.3 が取り込み経路へ打ち切りを結線し、上流 spec が「30秒では終わらない仕事量」で E2E 判定する先例を作っていた。150ページ資材で打ち切りまでを**単調時計 `performance.now()`** で測る）／`REQ-30.1`／`REQ-30.4`（応答の10欄へ互いに異なる目印を入れ、見出し10欄とセル10欄を**一括で**突き合わせる）／`REQ-30.6`（前件を `route.abort('timedout')` で作り、30.5 の 503 とは別の前件にした）
+  - **根拠文の書き直し2件（取り下げ不可。理由は実測）**: **`REQ-43.2`**——従来の理由「Playwright で安定して検証できない」は**誤り**（リポジトリ内に非フレークな先例が在る）だが、**真因は本番の結線の欠落**である。`QuantityTableEditPage.tsx` は `useUnsavedChanges({ enabled: isDirty })` と呼ぶだけで**戻り値を一切使っておらず**（`markAsChanged` / `setDirty` の呼び出しが無く `initialDirty` も渡していない）、`useUnsavedChanges.ts` 内部の `isDirty` は `useState(initialDirty)` の既定 false のまま真にならず、`if (!enabled || !isDirty) return;` で `beforeunload` のリスナーが**一度も登録されない**。独立レビューがコードで裏を取った。**本番の是正は本境界の外**のため取り下げず、失敗する判定は作業ツリーへ残していない。**`REQ-8.7`**——保存経路への結線は在るので「E2E で観測できない」は理由にならない（兄弟の 8.10 は同経路で取り下げた）。取り下げられないのは**条文と実体の乖離**で、本番の文言が条文の「幅(W)・奥行き(D)・高さ(H)」を名指さず、受け入れキーは `width` / `depth` / `height` / **`weight`** の4つ＝**重量だけの入力は本番では通るが条文では不足**である（独立レビューがコードで裏取り）。条文側の裁定が要る
+  - **据え置き11件（いずれも観測点の不在という測れる根拠。25件すべてについて代替検証が名指すファイルと区間表題の逐語の実在を機械で突き合わせ、不在は0件）**: `REQ-5.3`（条文が必須に挙げる「計算方法・数量」を本番の作り上そもそも未入力に取りえないという乖離を 98.6 が記録済みで、**条文側の裁定が先に要る**）／`REQ-26.2` `26.3` `26.4` `26.6` `26.7` `26.9` `26.10` の7件（主題は生成された PDF の内容とレイアウトで、出力が jsPDF の保存物のため画面から観測できない。**97.3 が兄弟3件（26.5 / 26.8 / 26.12）を単体検証の被覆印で取り下げた前例を残る7件へ広げるかは「除外台帳の意味をどう保つか」の方針判断**であり、97.3 自身も利用者の裁定を受けて実行されている → **100.5 が受け皿として名指しで抱えている**）／`REQ-28.1` `REQ-29.1`（条文が名指すのは SheetJS の `read()` / pdfjs-dist の `getTextContent()` という**手段そのもの**で、同じ出力を別の手段で得た場合と外から弁別できない。出力側の 28.2 / 28.4 / 29.2 / 29.3 は既に E2E で固定済み）／`REQ-30.3`（バックエンドから Claude API へ送るプロンプトの中身が主題で、アプリ外への送信のため `page.route` の到達範囲外）
+  - **変異による検証（実装者13種＋独立レビューが取り下げ12条文すべてについて自分で変異を作り直した。毎回 (a) ビルドの終了コード0 (b) 配信バンドルの md5 変化 (c) 実行時に不透明な目印（`window.location.pathname.includes(...)`）の実在 の3点を照合）**: `CANVAS_RENDER_SCALE` 4.0→2.0／垂直線除去の撤去／`page.render` の不実行／`isTextPdf` の恒偽化／テキスト抽出を1ページ目に限定／Vision を呼んだ上で結果を捨てる／フォールバックを断つ／一括操作の対象を `slice(0,1)` に／`OCR_TIMEOUT_MS` を 10000 と 120000 へ／ピッチ本数の `+1` を外す／マッピングの単位と備考を入れ替え／ピッチ必須キーから `rangeLength` を外す。**落ちない変異は一件も無く、無関係な検証が巻き添えで落ちた例も無い**（巻き添えはいずれも同じ描画・同じ成功経路に正当に依存する区間のみ）。**`OCR_TIMEOUT_MS`→10000 の下で 10822ms が現に観測できたことが、単調時計が生きている証拠**である（WSL2 で壁時計が単調時計より約8.6%遅れる既知事象を踏んでいない）。復元後はバンドルの md5 が基線へ復帰し目印0件
+  - **恒真・素通りの口（独立レビューが diff で1件ずつ確認）**: 否定側（`toEqual([])` / `toHaveCount(0)`）はすべて**同じ購読・同じ観測器の肯定側**と対で置かれ、器が死んでいる形では成立しない。前提はいずれも入力側で本文の主張を先回りしていない。**判定側の選言は0件**。要求の弁別は**パス基準**でオリジンを条件に入れていない（CI とローカルのオリジン食い違いで観測が全件外れる既知の罠を踏んでいない）
+  - **除外台帳の改変の外科性（独立レビューが JSON として読み比べ）**: 削除は**ちょうど12件**、追加0件、**他機能の154件は完全に不変**。`totalExclusions` 167＝実件数 167、`byCategory` の7分類も実数と一致。id 重複0。`summary.note` は**純粋な追記**（HEAD の note で `startsWith` が真）。書き直した2件は `reason` フィールドのみの差し替え
+  - **被覆印の計数（逐語 grep は不使用）**: 実装者・独立レビューがそれぞれ `scripts/check-requirement-coverage.ts` の抽出器を `npx tsx` で直接呼び、**取り下げ12件すべてに `e2e/specs` の印が在り、据え置き13件には印が無い**ことを検算した（**不変条件5＝除外と被覆印の同居の禁止**。単体側の印は同居の対象外）。`check:req-exclusions` は exit 0
+  - **検証**: 触れた4 spec をファイル単位の全件で走らせ **`import-e2e` 45/45・`quantity-count-calculation-e2e` 11/11・`bulk-item-operations-e2e`（新設）4/4・`quantity-table-crud` 91/91 の計151件が合格**（すべて Flaky 0・exit 0。実装者・独立レビュー・親がそれぞれ実測）。**`check:req-coverage` は FAILED 行が基線と同じ3本で増減なし**、適用対象 2711→2723（**+12**）・到達被覆 2676→2688（**+12**）＝**分母の増分がすべて被覆され本番到達性も持つ**。率 98.7% は不動、**quantity-table-generation は 48/48 要件・359/359 受入基準で不動**。`check:design-measurement-freshness` は**失敗宣言の集合が基線と完全に同一**（緑だった宣言が赤くなったものは0件）。他の関門・型検査・lint・format はすべて exit 0。**本番コードの差分は0行**
+  - **上流への申し送り（親が実行済み）**: 取り下げた12件は**すべて `scripts/exclusion-alternative-verification-adjudication.md` に行として残る**（§4 `:319` に8件、§3.1 `:141` / `:142` / `:148` に3件、§6 `:400` に1件）。同ファイルは上流 site-survey の所管で本境界の外・機械の関門も赤くならないため実装者が触らなかったのは正しい。**親が自分で測り直したうえで上流の Task 115.329 へ増分を書き込んだ**——記録が名指す相異なる番号 206件 / 生きた除外 167件 / 不在 42件で、記録自身が不在と述べる3件を除く **39件が陳腐化、うち 38件が quantity-table-generation（26件 + 今回の12件）**。残る1件 `user-authentication/REQ-9.5` は素の `REQ-9.5` の正規化に由来し、その当否は上流が決めることとして併記した
+  - **観測（範囲外・未処置）**: (i) **`REQ-43.2` は本番の欠落である**（`useUnsavedChanges` の内部 `isDirty` が真にならず `beforeunload` のリスナーが登録されない）。**1行の結線で直る見込みで、直せば本タスクが撤去した判定をそのまま置き直せる**ため別タスクの起票が望ましい。(ii) `REQ-8.7` は条文と実体の乖離で、条文を直すか実体を直すかの裁定が要る（99.1 / 100.4 と同型）。(iii) 据え置き11件の `reason` フィールドは旧文のままで、測った根拠は `summary.note` にしか無い。次に棚卸しする者が読むのは個々の `reason` であり、弱い根拠文が再び「取り下げ候補」として掘り返される無駄が残る。(iv) **`REQ-29.6` の前提節「前処理前に罫線が在る」は資材の罫線を見届けていない**——描画しない Canvas は透明黒＝R=0 のため前提が資材と無関係に成立する（独立レビューが `page.render` を止める変異で実測）。本体の主張は別の2変異で現に落ちるので空洞ではないが、前処理前の `nonGrayscalePixels > 0` を前提へ足せば塞がる。(v) `import-e2e.spec.ts` の所要が 2分05秒→約3分に伸びた（29.10 の判定が設計上32秒を要するため）。(vi) 29.10 の判定は Tesseract 資材の外部取得に依存する既知の脆さを 30.5 と共有する
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 97 / 98 と同じ）。
+
+
+## Task 100. 機能レベル検証（HEAD `b39eb6b3`、2026-09-16）の NO-GO の是正
+
+**出所**: Task 98 完了後の `/kiro-validate-impl`。**機械検査はすべて緑**（frontend 単体 12,025件／backend 単体 5,719件・統合 914件／`e2e/specs/quantity-tables/` **378/378** で Flaky 0／型検査・lint・format が root・frontend・backend とも 0／TBD 等 0件／秘密情報の誤検出のみ／スモークは `/` 200・`/health` 200・編集画面の起動で console error・warning・pageerror が**いずれも 0件**）。設計の整合・境界監査・タスク横断の統合も Critical / Important 無し。**判断検査（要求の被覆）が、前回 NO-GO と同型の「被覆印は在るが条文固有の内容を判定していない」箇所を別の条文に検出した**
+
+**行番号と件数は検証時の読解であって変異による実測ではない。着手時に測り直すこと**。**検証を強めるときは、今の実装に対して変異で落ちることを先に確かめること**（97.21〜97.24 / 98.1 / 98.2 / 98.5 / 98.6 と同じ作法）
+
+- [x] 100.1 REQ-39.5 の被覆印が、折り返しもスクロールバーも判定していない状態を解消する
+  - **出所**: 検証の Important 1。**本実行で見つかった唯一の確定した空洞である**
+  - **測った事実**: 条文は「収まらない場合、**重ねずに折り返して配置し、収まらない分はスクロールバーを表示して閲覧可能にする**」。被覆源は `photo-select-overlap-e2e.spec.ts` の2区間（検証時 `:326` / `:372`）だけで、両方とも判定は `expectNoThumbnailOverlap`（矩形の非重複＋幅高さ>0）のみ。**折り返しもスクロールバーも一度も主張していない**（重ならないことは 39.3 / 39.4 / 39.6 の所管）。実装側（`QuantityTableEditPage.tsx` の `photoGrid`）は `auto-fill` の折り返しと `overflowY:'auto'` を備えており、**実装は在るが判定が無い**型である
+  - _Boundary: `REQ-39.5` の E2E の主張と被覆印_
+  - **着手時の測り直し（コミット `7f261e26` の作業ツリー、2026-09-16 にリポジトリルートで実測）**: REQ-39.5 の被覆印は `grep -rn "quantity-table-generation/REQ-39\.5\b" e2e/ frontend/ backend/ scripts/` の全件列挙で**3件**（前書きの索引1件と区間の docblock 2件）。**起票文が挙げた `:326` / `:372` は test 行であって印の行ではない**。印が付く2区間はいずれも判定が `expectNoThumbnailOverlap` のみだった。表題は変えてよい（`scripts/` と本スペックに旧表題の逐語引用は0件。`scripts/coverage-mark-adjudication.md` の `REQ-39.5` の当たりは project-management のもの）
+  - **条文の逐語**: 「Where 写真の枚数が増加して写真一覧が表示領域に収まらない場合, the 数量表管理システム shall 写真同士を重ねずに折り返して配置し、収まらない分はスクロールバーを表示して閲覧可能にする」。**「重ならない」は 39.3 / 39.4 / 39.6 の所管**であり、39.5 固有は「折り返し」と「収まらない分の閲覧可能性」である
+  - **処遇**: `measurePhotoListLayout` / `isLastThumbnailFullyInView` / `expectWrappedAndScrollable` の3ヘルパーを新設し、印が付く2区間から呼ぶ。主張は (1) **前件**——一覧が表示領域に収まらないこと（`scrollHeight > clientHeight` の**無条件アサーション**。母集団も `items >= SEED_PHOTO_COUNT=32` を要求し `items > 0` のような弱い形にしていない）、(2) 折り返し——行数が2以上で、かつ横方向へあふれない（`scrollWidth <= clientWidth` と `maxItemRight <= containerRight`）、(3) 閲覧可能性——末尾のサムネイルが初期表示では領域の外にあり、**ホイール操作で領域の中へ入る**こと。**既存の `expectNoThumbnailOverlap` は1文字も変えていない**（兄弟の所管を侵していない）
+  - **「スクロールバーを表示」の観測の設計**: この chromium のスクロールバーは重ね描きで、**基線でも `offsetWidth === clientWidth` が成立する**（独立レビューが一時プローブで実測: 通常幅 752/752、狭幅 290/290）。したがって**物理的な幅では測れない**。`overflow-y` の計算値を読むのは本番の綴りの写しになるため採らず、**利用者が行える操作（ホイール）で収まらない分が表示領域へ入ること**を観測して条文の「閲覧可能にする」を固定した。`scrollTop` への代入は `overflowY:'hidden'` を素通りするため使っていない
+  - **空洞の実証と変異による検証（実装者4種）**: 基線は `index-DmYNCCjx.js`（md5 `049bf4ff…`）。折り返しを壊す（grid→`flexWrap:'nowrap'`）→「行数=1」で落ちる、`overflowY:'hidden'`→ホイールの主張で落ちる、`overflowY:'visible'`→前件の主張で落ちる、**前件を壊す**（`gridAutoRows` を 150px→10px にして32枚が収まるようにする）→前件の主張で落ちる。**4変異すべてで、同じ test 内で先に走る `expectNoThumbnailOverlap` は緑のまま通過し、赤くなったのは新判定だけ**だった
+  - **独立レビューの再現**: 3種を独立に当て直した。`overflowY:'hidden'`（`index-27OCUszT.js`）、**前件破壊**（150px→40px、`index-BPxibTon.js`。「scrollHeight=412, clientHeight=412, items=32」で落ちる）、**横あふれ単独**（`gridTemplateColumns` → `repeat(5, 300px)`、`index-BGHrZz8U.js`。行数7で折り返しの前半は通過したうえで「scrollWidth=1556, clientWidth=752」で落ちる＝**横あふれの主張が単独で歯を持つ**ことを実測）。毎回 `--force-recreate`・ビルドの終了コード・配信バンドルの中身の文言の3点を照合し、復元後に基線へ md5 一致することも確認した
+  - **`mode: 'serial'` の懸念を解消した**: 全件実行では最初に落ちた通常幅の区間で打ち切られ狭幅375px 側が走らない。独立レビューが**変異を当てたまま `-g` で狭幅側だけを走らせ**、狭幅区間も同じ主張で落ちることを実測した。狭幅側は `scrollHeight 5180 / clientHeight 473` と**前件がより強く成立する**ため恒真化の余地は無い
+  - **検証（親が提出時に実測）**: 作業ツリーは spec 1件のみ。`git diff frontend/`・`git diff backend/` はいずれも0行、変異の残骸0件、一時 spec の残骸0件。配信バンドルは基線 `index-DmYNCCjx.js`。被覆印は3件のまま。**`photo-select-overlap-e2e.spec.ts` を全件走らせ 4/4・Status PASSED・Failed 0・Flaky 0・終了コード0**。独立レビューは加えて `check:req-coverage` の出力が**基線とバイト単位で同一**（qtg 359/359、ラチェット 2007 / 5110 が不動＝遊びを食い潰していない）、`check:trace-coverage` / `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:adjudication-pointers` / `lint` / `type-check` / `format:check` がいずれも exit 0 であることを確認した
+  - **観測（範囲外・未処置）**: (i) 狭幅375px では列数が1（行数32）になるため、**狭幅区間の「行数が2以上」は折り返しでなく単なる縦積みでも成立する**。折り返しの歯は通常幅側と、狭幅でも残る横あふれの2主張が担うため処置は不要と判断した。(ii) `overflowY:'visible'` 型の変異は前件の主張で落ちるため、失敗文言が「スクロールバーが無い」ではなく「収まらない状態である必要がある」になる。赤にはなるので空洞ではなく、82.1 の作法（前提が崩れたら沈黙せず失敗させる）に沿った正しい設計である
+
+- [x] 100.2 REQ-12.1 / 12.2 / 12.3 の判定が、パンくずの階層と順序に届いていない状態を解消する
+  - **出所**: 検証の Important 2
+  - **測った事実**: 条文は「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 [> {数量表名} | > 新規作成]」と階層・順序・プロジェクト名まで規定する。`quantity-table-crud.spec.ts` 側は `toContainText(/プロジェクト/)` と `/数量表/` だけで **URL 上ほぼ恒真**。`quantity-table-phase9.spec.ts` 側は「プロジェクト一覧」「数量表一覧」の逐語を見るが**ダッシュボードと {プロジェクト名} と順序は未主張**。とくに **12.3 は唯一の被覆源が「プロジェクト」「新規作成」の2語のみ**
+  - _Boundary: `REQ-12.1`〜`REQ-12.3` の E2E の主張と被覆印_
+  - **着手時の測り直し（コミット `c201598e` の作業ツリー、2026-09-16 にリポジトリルートで実測）**: 条文は受入基準1が**4階層**、2が**5階層**（+ `{数量表名}`）、3が**5階層**（+「新規作成」）。被覆印は **7件 / 2ファイル**（`grep -rn "quantity-table-generation/REQ-12\.[123]\b" e2e/ frontend/ backend/ scripts/` の全件列挙。前書きの索引・区間の docblock・**表題の括弧形式**を数えた）。**REQ-12.3 の唯一の被覆源は `quantity-table-crud.spec.ts` の表題の区間**で、他ファイルに被覆源は無い（4ディレクトリを全走査して打ち切っていない）
+  - **表題は据え置いた**——12.3 の印は**表題そのものに埋まって**おり、動かすと印が消える（`scripts/check-requirement-coverage.ts` のパターン2 `\((feature)/REQ-N\.M\)` が表題の括弧形式を印として読む。独立レビューが確認）。`scripts/coverage-mark-adjudication.md` に quantity-table-generation の REQ-12.x の逐語引用は0件
+  - **本番の欠落は無く、空洞は判定の側だけだった**: `Breadcrumb.tsx`（`<nav aria-label="パンくずナビゲーション">` + `ol/li`、区切りは `>`）と3ページの項目配列は**条文どおりの階層・順序を既に描いている**（プロジェクト名・数量表名は動的）
+  - **処遇**: `e2e/helpers/breadcrumb.ts` を新設し、`breadcrumbNav`（アクセシブルな名前で領域を引く）と `readBreadcrumbTrail`（領域の表示テキストを区切り `>` で割って**利用者が読む順序の配列**にする）を置いた。**本番のマークアップの内部構造（`ol > li`・区切りの要素・`aria-hidden`）は写していない**。5区間すべてを `expect.poll(...).toEqual([...])` の**完全一致**へ改めた。**印は1件も動かしていない**（97.23 / 98.1 / 98.2 の先例どおり「印が付いた区間そのものを強める」）
+  - **`toEqual` の完全一致が過剰でない理由（独立レビューの判定）**: 条文は「**『A > B > {名} > D』のパンくずナビゲーションを表示する**」と、パンくず**そのもの**をその文字列として名指しており、部分集合の要求ではない。したがって「余分な項目が無いこと」まで主張するのは条文の逐語に忠実である
+  - **空洞の実証**: 一時 spec に**旧判定の写しと新判定を並べ**、変異ごとに両方を走らせた。**旧判定は「ダッシュボードの欠落」「プロジェクト一覧と {プロジェクト名} の順序入替」「{プロジェクト名} の固定文字列化」のすべてで3条文とも合格した**——階層の欠落・順序の入替・動的名称の消失を**一つも検出していなかった**。一時 spec は計測後に削除した
+  - **変異による検証（実装者5種）**: 基線は `index-DmYNCCjx.js`。A ダッシュボード欠落／B 順序入替／C プロジェクト名の固定文字列化 → **新判定が3条文とも落ちる**。D 「新規作成」欠落 → 12.3 のみ。E {数量表名} の固定文字列化 → 12.2 のみ。**D / E の回で 12.1 が合格し続けた**のは「何を当てても落ちる」形でないことの対照である
+  - **98.1 / 98.6 の申し送りがまた効いた**: 変異 C の初回ビルドが **TS6133（未使用変数）で失敗し、直前のイメージが配信され続けた**。ビルドの終了コードを見ていなければ偽の測定になっていた
+  - **独立レビューの再現**: 順序入替と {数量表名} の固定文字列化の2種を独立に当て直し（`index-DmYNCCjx.js` → `index-Diix5kwq.js`、配信物の文言を `docker exec grep` で直接照合）、**本物の区間**が落ちること・12.3 は両変異下で合格すること・**旧判定の写しはすべての変異で合格すること**を実測した
+  - **共有ヘルパーの改変とその波及**: `createTestProject` を `createTestProjectWithName` へ分解した（`{プロジェクト名}` を動的な値で照合するために不可分。**署名・戻り値・例外・副作用は不変で、既存の呼び出し元は薄い包みを通る**）。**呼び出し元の実数は、`grep -rn "\bcreateTestProject(" e2e/ --include=*.ts` から定義ファイルと `import` 行を除いた計数で 136 行**（ファイル分布は `quantity-tables` 27・`execution-budget` 9・`projects` 8・`project-status-transition.spec.ts` 1）。**実装者が報告した「139箇所」は誤りである**（独立レビューは別の数え方で「出現138件・実呼び出し118件」を得ている。**数え方によって値が変わるため、方式を併記しない件数は信用しないこと**）
+  - **検証**: 独立レビューが **`e2e/specs/quantity-tables/` を全件 378/378・Flaky 0・終了コード0** で走らせ、加えて波及先として最大の塊 `e2e/specs/projects/` も **283 passed・終了コード0** を実測した（Failed 1 は `test.fail()` による既定の期待された失敗で基線の状態）。親は `quantity-table-phase9.spec.ts` **7/7** と `quantity-table-crud.spec.ts` **91/91**（いずれも exit 0・Flaky 0）を実測し、共有ヘルパーの差分を1行ずつ読んで純粋な抽出であることを確認した。`type-check` / `trace-coverage` / `criterion-literals` / `e2e-guards` / `e2e-selfjudge` / `adjudication-pointers` はいずれも exit 0。`check:req-coverage` は基線から赤く、**ラチェット 2007 / 5110 と qtg の 359 受入基準は不動**（被覆印の増減は0）
+  - **走らせていない範囲（明示）**: 共有ヘルパーの呼び出し元のうち `e2e/specs/execution-budget/` と `e2e/specs/project-status-transition.spec.ts` は**未実行**である。純粋な抽出であること・リポジトリ全体の型検査が緑であること・662件の実行で1件も壊れていないことから影響なしと判定した。**親自身の `e2e/specs/quantity-tables/` 全件実行は WSL のメモリ上限で強制終了されたため、全378件の緑は独立レビューの実測に依る**
+  - **観測（範囲外・未処置）**: (i) `design.md` の追跡表の 12.1-12.5 の行が部品に **`QuantityTableCreatePage` を挙げていない**（12.3 が名指す画面である）。100.6 か別タスクの受け皿が要る。(ii) `QuantityTableCreatePage.tsx` が `<Breadcrumb>` を `<nav aria-label="breadcrumb">` で**二重に包んでおり**、新規作成画面だけ navigation ランドマークが入れ子になっている。**アクセシブル名が異なるため `breadcrumbNav` は曖昧にならず**（12.3 は基線でも変異下でも緑。独立レビューが確認）、撤去は本番の変更になるため見送った。(iii) crud の 12.2 の `{数量表名}` は画面の入力欄から読んだ値で独立生成ではない（同 spec の REQ-42.5 が改名・復元を行うため）。独立生成の主張は phase9 側が担い、**変異 E では両方の形が落ちる**ことを実測済み。(iv) `readBreadcrumbTrail` は**ラベル自体が `>` を含む場合に誤分割する**（現行の試験データでは到達しない）。(v) 前提の主張の書き方が不統一（crud は `expect(...).not.toBe('')`、phase9 は `assertPrepared`。どちらも無条件に失敗するので害は無い）
+
+- [x] 100.3 REQ-13.1 / 13.2 / 13.3 の判定が上界のみで恒真化しうる状態を解消する
+  - **出所**: 検証の Important 3
+  - **測った事実**: 判定は `calculateStringWidth(値) <= 上限` の**上界のみ**で、**欄が空になる変異（値0幅）でも成立する**。下界も「切り詰めが実際に起きたこと」も主張していない。加えて **13.1 の条文は8欄（大項目・中項目・小項目・任意分類・名称・規格・計算方法・備考）を挙げるが判定は名称1欄のみ**。Implementation Notes の「前提の成立と検証の恒真は同じ場所で壊れる」「空洞は種の作り方でも生まれる」が当たる
+  - _Boundary: `REQ-13.1`〜`REQ-13.3` の E2E の主張と被覆印_
+  - **着手時の測り直し（コミット `a6640eb0` の作業ツリー、2026-09-16〜17 にリポジトリルートで実測）**: 条文は 13.1 が**8欄**（大項目・中項目・小項目・任意分類・名称・規格・計算方法・備考）で全角25/半角50、13.2 が工種で全角8/半角16、13.3 が単位で全角3/半角6。**起票文の「8欄」は正しい**（独立レビューも逐語で再確認）。被覆印は **9件 / 1ファイル**（`grep -rn "quantity-table-generation/REQ-13\.[123]\b" e2e/ frontend/ backend/ scripts/` の全件列挙。describe の索引3件・各 test の docblock 3件・**表題の括弧形式**3件）。是正後も9件のままで**印は1件も動かしていない**。表題は変えてよい（`scripts/coverage-mark-adjudication.md` に REQ-13 の当たりは0件）が、括弧部分は印なので逐語で残した
+  - **本番の実装は切り詰めではなく丸ごと拒否である**: 上限の正典は `field-validation.ts` の `FIELD_CONSTRAINTS`、判定は `calculateStringWidth`（ASCII と半角カナ=1、他=2）。`acceptsWidth` が偽なら `onChange` を呼ばず controlled input が直前の値へ戻る。**13.1 の8欄のうち7欄は `AutocompleteInput`、8欄目の計算方法は `CalculationMethodSelect` の `<select>`** で自由入力の余地が無い
+  - **空洞の実証（変異を当てるまでもなく基線で成立していた）**: 一時 spec に旧判定を逐語で写し、判定直前の欄の値を記録したところ **`""`（幅0）** だった。旧判定は空の欄へ51文字を `fill` し、**拒否されて空のままの欄**を見て `expect(0).toBeLessThanOrEqual(50)` で合格していた——**防止が起きたことを一度も観測していない**
+  - **処遇**: 主張を二段にした。(1) **下界**——上限**ちょうど**の幅の入力が**逐語で保たれる**（`toHaveValue(atLimit)`）。欄が空になる変異も上限が不当に厳しくなる変異もここで落ちる。(2) **上界**——上限を超える入力を試みても欄は上限ちょうどの直前の値のまま。**超過の試行を `atLimit + 'x'` のように上限ちょうどの値を接頭辞に持つ文字列で行う**ことで、拒否型・切り詰め型のどちらの実装でも期待値が同一の逐語になり、**選言を使わずに条文だけを固定できる**（実装方式を過剰に固定しない）。境界は**全角のみ・半角のみ・混在**の3種で踏み、混在は欄ごとに異なる半角2文字の目印を持たせて欄をまたいだ取り違えも検出する
+  - **「防止が起きた」と「何も入らなかった」を区別できる構造（独立レビューの判定）**: 判定の順序が `fill(atLimit)` →逐語一致を**先に**通してから `fill(atLimit+extra)` →同じ逐語のまま、になっているため、下界が成立していることが上界の前提条件として効く。**M1（欄が空になる変異）で下界が先に落ちる**ことで裏が取れている。また `幅 <= 上限` より強い「特定の逐語と一致」を要求するので**条文を緩めてもいない**
+  - **8欄目（計算方法）の扱い**: 条文は「**入力する**」と書くが実体は `<select>` である。「選択肢を列挙できる欄であること」「選べる値がすべて上限以内であること」「最も幅の広い選択肢が逐語で保たれること」で防止を固定した。**独立レビューはこれを条文の充足と判定し、99.1 / 100.4 とは同型でないとした**——99.1・100.4 は条文が求める観測可能な結果**そのものが到達不能**な乖離だが、13.1 の計算方法は条文が求める結果「最大文字数を超える入力を防止する」が `<select>` という構造によって**達成されている**（超過入力が構造的に不可能）。置いた3主張はその構造の観測可能な現れであって条文外の追加要求ではない。`optionLabels.length > 1` を先に主張しているので空集合への恒真にもならない
+  - **変異による検証（実装者6種）**: 基線は `index-DmYNCCjx.js`（md5 `049bf4ff…`）。**M1 欄を空にする**→新3条文とも落ち**旧は3件とも合格**／M2 判定の撤廃→新3条文（旧も落ちる）／**M3 上限を半分にする**→新3条文とも落ち**旧は3件とも合格**（＝**下界側の歯**の直接の実測）／**M4 備考1欄だけ判定を外す**→**13.1 のみが、しかも「備考」を名指して**落ち 13.2 / 13.3 は合格（＝欄ごとに分離できている）／M5 計算方法に幅52の選択肢→13.1／M6 計算方法を自由入力欄に→13.1。**落ちない変異は無かった**
+  - **独立レビューの再現**: 3種（欄を空にする・上限を半分にする・備考1欄だけ免除）を独立に当て直し、配信バンドル内のマーカー検出まで確認して同じ結果を得た。**さらに旧判定が上限半減の下でも合格することを自分で実測**し、恒真の実在を両側から裏付けた
+  - **ミニファイでマーカーが消える罠**: 変異の目印に置いた文字列がミニファイで畳まれて配信物から消え、**マーカー0件になった**。`window` への副作用など**畳まれない形**でマーカーを置き直して測った（98.1 / 100.2 の申し送りに続く同型の落とし穴）
+  - **復元は退避した控えからの書き戻しで行った**（`git checkout` / `git reset --hard` は不使用）。`git hash-object` で3ファイルが基線と一致し、再ビルド後の配信バンドルが基線へ md5 まで一致することを確認した
+  - **検証（親が提出時に実測）**: 作業ツリーは spec 1件のみ。`git diff frontend/`・`git diff backend/` はいずれも0行、変異の残骸0件、一時 spec の残骸0件。配信バンドルは基線。被覆印は9件のまま。**`quantity-table-crud.spec.ts` を全件走らせ 91/91・Status PASSED・Failed 0・Flaky 0・終了コード0**。独立レビューは加えて `check:req-coverage` の出力が**基線と `diff` で IDENTICAL**（qtg 359・ラチェット不動・被覆印の増減0）、`check:criterion-literals` / `check:e2e-guards`（**T3-tautology 0件**を含む全カテゴリ0）/ `check:e2e-selfjudge` / `type-check` / `lint` / `format:check` がいずれも exit 0 であることを確認した
+  - **副次的な改善**: 旧 13.2 / 13.3 が持っていた `isVisibleWithin(combobox) ? combobox : getByLabel` の**論理和による取得先の分岐を撤去**した。また旧 13.1〜13.3 は先行テストが保存した項目行に依存しており部分集合で走らせると落ちたが、新形は自前で前提を用意するため**単独実行が可能**になった
+  - **観測（範囲外・未処置）**: (i) **`fill()` は composition を通らないため IME の経路は E2E では踏めない**。長期の知見「入力拒否実装は IME 変換中を考慮しないと日本語が壊れる——`fill()` も `fireEvent.change` も変換を経由せず構造的に検出不能」が当たる面である。**独立レビューが `QuantityItemFieldMaxWidth.test.tsx` を自分で読み、`compositionStart` / 変換中の `change` / `compositionEnd({data:'立米'})` を実発火させて主張していること（単位欄の「りゅうべい→立米」経路を含む約20箇所）を確認した**——単体が composition を現に守っている。新しい docblock も IME 経路を主張しておらず過剰申告は無い。(ii) `field-validation.ts` の `FIELD_CONSTRAINTS.calculationMethod`（25/50）は**本番の自由入力欄から一切参照されていない死んだ設定**であり、条文 13.1 と `<select>` 実体の文面上の乖離の名残である（100.6 か 99.1 / 100.4 の条文裁定の受け皿が妥当）。(iii) 超過の試行が常に「上限ちょうどの値の接頭辞拡張」であるため、**空欄へいきなり超過値を入れる経路**は踏んでいない（現行の拒否型では同値だが、切り詰め型へ変えると主張の意味が変わる）。(iv) 同 describe の **REQ-13.4（左寄せ）は依然として先行テストの保存状態に依存**しており部分集合実行では落ちる（基線から変わらず、全件では緑）。13.1〜13.3 が自立したため、この describe に残る唯一の状態依存となった。(v) 13.1 の `test.setTimeout(180000)` は実測5秒に対し過大（害は無い）
+
+- [x] 100.4 REQ-25.2 / 25.3 の条文と実体の乖離の処遇を決める
+  - **出所**: 検証の Important 5。**99.1（REQ-27.8）と同型である**
+  - **測った事実**: 条文の主語は「**数量項目の表示領域**がビューポートの縦幅を超える場合に垂直スクロールバーを表示する／収まっている状態で非表示にする」。実装は `QuantityGroupCard.tsx` の `itemTableWrapper` で **`overflowY: 'hidden'` を明示宣言**し垂直スクロールをページ側へ委ねているため、**表示領域にはいかなる条件でも垂直スクロールバーが現れない**。E2E もこれを受けて判定先を `document.documentElement` に取り docblock で委譲を説明しているが、**条文の側は書き換えられていない**
+  - **利用者が決めること**: 条文を実体へ改訂するか、実装を条文へ寄せるか。**99.1 と併せて裁定するのが妥当である**
+  - **利用者の裁定（2026-09-17）**: 「**(a) 条文を実体へ改訂する**」。25.2 / 25.3 を「垂直方向のスクロールはページ側が担い、数量項目の表示領域内に垂直スクロールバーは設けない」旨へ改め、`document.documentElement` を判定先に取る既存の E2E を被覆源として正規化する（コードの挙動は変えない）。**99.1 と同じ向きで併せて裁定された**
+  - _Boundary: `REQ-25.2` / `REQ-25.3` の条文と、その被覆源_
+  - **処置の実体（裁定 (a) のとおり条文を実体へ改訂した。本番コードは一行も変えていない）**: AC 2 / AC 3 の垂直方向を「**ページ側**の垂直スクロールバーが担う」へ改め、**前件も後件と同じ『ページの内容がビューポートの縦幅を超える／収まる』へ揃えた**。「数量項目の表示領域の内側には、**収まっているか否かに依らず**垂直スクロールバーを設けない」を**無条件の主張**として併記した。E2E は判定を一行も変えず、冒頭の `@requirement` 行と docblock の条文引用のみを追随させた（コメント行を除いた本文 269 行が是正前後で `diff` 差分0を機械確認）
+  - **⚠️ 最初の改訂は真だった文を偽の文に変えていた（独立レビューが Critical で差し戻し）**: 改訂案は**後件だけをページ側へ付け替えて前件を「表示領域の収まり」に据え置いた**。ページ側スクロールバーの有無を決めるのは**文書全体の高さ**で表示領域の収まりとは**独立**なので、前件が真のまま後件が偽になる領域が実在する。**幅1280・1グループ1項目で高さ 550px / 600px がその反例**——表示領域は矩形 460..513 でビューポート内に完全に収まる（高さ 53px）のに、文書は 92px / 42px 溢れページ側の垂直スクロールバーが出る。**改訂前の AC 3 は垂直方向については真だった**（表示領域が垂直スクロールバーを一切持たない以上「非表示」は常に成立）ため、**乖離を消すはずの改訂が新しい乖離を作っていた**
+  - **見落としの構造（次の読み手への申し送り）**: **表示領域の矩形が折り返しの内へ入る境界（550px 付近）と、文書が溢れなくなる境界（643px）は一致しない**。両端（400px と 900px）だけを測ると独立な二つの量が同じ向きに動いて見えるため、**独立性は境界の間を測って初めて見える**。ビューポート依存の条文一般に当たる
+  - **親の是正指示の例文自体が誤っていた（実装者の逸脱が正しかった）**: 親は AC 3 の前件だけを縦のページ側の量へ置換する例文を渡したが、後件「スクロールバーを非表示にする」を据え置くと**水平方向を巻き込む**。表は REQ-37 により常時 12px 溢れるため、高さ 643/700/900px で前件が真・後件が偽の**新たな偽**が生じる。実装者は指示を外れて後件を「ページ側の**垂直**スクロールバーを非表示にする」へ絞り、水平方向は前件・後件をそろえて括弧内へ規範として残した。**独立レビューが実測のうえ実装者の判断が正しく親の例文が誤りだったと裁定した**
+  - **変異による検証（判定は無変更のため実装者2種＋独立レビュー3種がそのまま有効）**: **M1** `itemTableWrapper` の `overflowY:'hidden'` → `'auto'`+`maxHeight` → **25.2 / 25.3 とも `Expected: 0 / Received: 13` で落ちる**（25.2 を一時 skip して 25.3 の独立の赤も確認）／**M2** ラッパーへ非 passive の `wheel`+`preventDefault` → **是正前の「下方向ホイール＋`scrollY > 0`」は合格し続け空洞が露見**。原因は**`hover()` 自身の scrollIntoView が高さ400pxでページを下端（超過の全量242px）まで送り、下方向に進む余地を残さない**こと。**上方向ホイール＋厳密減少**へ改めて当て直し `Expected: < 242 / Received: 242` で赤／**M3b**（レビュー追加）`item-table-scroll-*` の testid を**中身の無いダミー div へ付け替え**（要素は可視だが測定が死ぬ状況）→ **横方向の対照が先に落ちる**＝否定側（縦超過0）を支える対照が現に歯として働く
+  - **改訂後の条文が真であることの実測（レビューが8点で独立に測った）**: vh=400/500/550/600/641/643/700/900 の全点で **AC 2 / AC 3 とも真**。AC 2 の前件が真なのは 641 以下でそこでは縦へ送れ、AC 3 の前件が真なのは 643 以上でそこでは送れない。**反例だった 550/600 は前件が偽になって消えた**
+  - **検証（親が提出時に実測）**: 作業ツリーは spec 2ファイルのみ、`git diff frontend/ backend/ scripts/` **0行**、変異の残骸 **0件**。配信バンドルは基線 `index-DmYNCCjx.js` で変異目印 0件。**`scrollbar-e2e.spec.ts` 全8件 PASSED / 22.1s / exit 0 / Flaky 0**。`type-check` / `lint` / `format:check` / `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` すべて exit 0。`check:req-coverage` は exit 1 だが**控えへ退避して `git show HEAD:` を書き戻して測り直した基線の出力と `diff` で IDENTICAL**（`git checkout` / `stash` 不使用、控えから復元）
+  - **観測（範囲外・未処置）**: (i) **被覆源は AC 2 を高さ400px、AC 3 を高さ900px の各1点でしか測らず、この2点は差し戻した（偽だった）条文でも同じく合格する**——つまり**判定は今回の是正そのものを守っていない**。両者が食い違う区間（550/600）が改訂後の条文の特徴的な場合である。**利用者の裁定が「既存の E2E を被覆源として正規化する」と範囲を限っており、現在の判定も M1/M2/M3b で赤くなる非空洞であるため本タスクでは処置せず 100.7 として起票した**。(ii) 実装者が独立観測に用いた `window.scrollTo(0,99999)` 後の `scrollY` は**全点で文書の超過量と数値が一致**しており、別 API で同じ量を読んでいるだけで論理的には独立でない（overlay スクロールバーのため `innerWidth - clientWidth` も全点0で占有幅からは観測不能）。**後件の真に独立な証拠は判定側のホイール操作**（25.2 の上方向ホイール、25.6）で、M2 で赤くなることが実測済みのため結論は変わらない。(iii) `ページの内容（数量項目の表示領域を含む）` は同格の説明として読むのが自然だが、連言（両方が超える）と読むと本タスクの Critical が再発する余地が理論上残る。docblock が読みを固定している。(iv) **着手時、ソースは復元済みだったのに test 環境の配信イメージには先行実行の変異が焼き込まれたままだった**（`index-Cww0D8br.js` に `MUT_T1004` 1件）。再ビルドせずに測っていれば緑も赤もすべて偽の測定になっていた。**変異実験の後始末はソースとイメージの両方を確認する必要がある**
+
+
+- [x] 100.5 除外の根拠が同じ機能の中で一貫していない状態を解消する
+  - **出所**: 検証の Important 4。**99.5 の対象の絞り込みでもある**
+  - **測った事実**: (a) **REQ-26.2 / 26.3 / 26.4 / 26.6 / 26.7** は「PDF生成は E2E で確かめられない」を根拠に除外されているが、**同じ Requirement 26 の兄弟 26.5 / 26.8 / 26.12 は除外されず、代替検証に挙がっているのと同一の Vitest ファイルの被覆印だけで被覆済みと数えられている**——根拠が兄弟にも等しく当たるのに扱いが割れている。(b) **REQ-26.9 / 26.10** は同じ根拠だが `quantity-table-phase10.spec.ts` に**実際に動く E2E** が在り `toBeDisabled()` を主張している（足りないのは条文の一部＝インジケーターだけ）。(c) **REQ-8.7 / 8.10** は「入力バリデーションはユニット/統合で検証」が根拠だが、**同種の REQ-9.3 / 10.3 / 15.1 / 15.3 はいずれも E2E で被覆されている**。対応する E2E 区間は現に存在し、判定がエラーメッセージ表示に届いていないため印を掲げていないだけである。(d) **REQ-28.1 / 8.9** も「E2E 不可」ではなく「判定が足りない」が実態（疑い）
+  - **いずれも「E2E 不可」ではなく「判定が条文に届いていない」が実態**である。根拠文の書き換えか判定の追加かを選ぶこと
+  - _Boundary: `e2e/requirement-exclusions.json` の当該群と、判定を足す場合の E2E の主張と被覆印_
+  - **利用者の裁定（2026-09-18。(a) の REQ-26.2 / 26.3 / 26.4 / 26.6 / 26.7 について）**: 「**PDF テキストを主張する E2E を置いて取り下げる**」。**当初 (2026-09-18) は「97.3 の前例を残る群へ広げる」（単体検証の被覆印だけで被覆済みと数える）と裁定されたが、実装者の測定が前提を覆す反例を出したため、それを提示して裁定を取り直した**
+  - **裁定を取り直した理由（親の起票の不備）**: 親が選択肢を示した時点では「PDF 生成は E2E で確かめられない」という除外の根拠を所与としていた。しかし **本機能内に反例が実在する**——`e2e/specs/quantity-tables/quantity-count-persistence-e2e.spec.ts` が REQ-47.17 のために、PDF 出力で生成された jsPDF の生成物を `pdfjs-dist` の `getTextContent()` で読み、計算方法欄の文字列を主張している。26.2（表紙の4要素）・26.3（並び順）・26.4（グループ名・写真コメント・項目一覧）・26.7（11列の見出し）は**いずれも PDF 内のテキスト**であり同じ流儀で到達しうる。**選択肢の前提そのものが誤っていた**
+  - **この裁定は 83.1 の作法に一致する**: 「取り下げの根拠は『実装済みか』ではなく『検証が実挙動を固定しているか』である。条文を直接主張する判定を置き、**変異で落ちることを実測してから**取り下げること」。単体印で数える案は実挙動を固定しないため、83.1 に照らせば本裁定の方が強い
+  - **26.6 の注意**: 「写真なし時に写真・コメントセクションを省略する」は**不在の主張**であり、生成物が空・測定が死んでいる場合にも成立する。**同じ生成物の同じ測り方で肯定側（写真ありのグループのコメント文字列が在る）を対に主張し、測定器が生きていることを示すこと**（100.4 で同型の対照を置いた先例がある）
+  - **是正の内容（(a)(b) は判定を置いて取り下げ、(c)(d) は根拠文の書き換えと解消済みの実測で決着）**: 除外は qtg **13件 → 6件**（残存は 5.3 / 8.7 / 28.1 / 29.1 / 30.3 / 43.2。台帳全体は 167 → 160件、`integration-test` 45 → 38）。**(a)** 26.2 / 26.3 / 26.4 / 26.6 / 26.7 は新規 `e2e/specs/quantity-tables/pdf-export-content-e2e.spec.ts` がダウンロードした jsPDF 生成物を `pdfjs-dist` で読み、**テキストだけでなく各テキスト片の座標（`transform[4]/[5]`）と画像描画命令の件数・配置（`getOperatorList()` の `OPS.transform` / `paintImageXObject` 系）**まで観測して条文を直接主張する。**(b)** 26.9 は `quantity-table-phase10.spec.ts` で条文の連言の両側（インジケーター＝`toHaveText('PDF生成中...')` と重複操作防止＝`toBeDisabled()`）へ届かせ、26.10 は新設した。**(c)(d)** 8.9 / 8.10 は 99.5 で既に解消済みであることを読み手で実測（`quantity-count-calculation-e2e.spec.ts` に E2E 印）、8.7 / 28.1 は**判定も変異も無い取り下げは 83.1 に反するため据え置き、根拠文だけを実測した真の根拠へ書き換えた**
+  - **充足条件4（兄弟の一貫性）も処置した**: 26.5 / 26.8 / 26.12 は除外に在籍しないまま、**除外の代替検証に挙がっているのと同一の Vitest ファイルの被覆印だけ**で被覆済みと数えられていた。(a) の裁定と矛盾するため同じ生成物から主張できる3件を新規 spec へ加えた。26.8 のために写真ありグループの数量項目を12行へ増やし、**テーブルがページをまたぐ前件**を作った（PDF 4ページ）
+  - **26.6 の不在の主張は肯定側と対で組んだ（裁定が明示的に要求した点）**: 同じ生成物・同じ読み取り器で「写真ありグループのページには画像命令が1件以上あり写真コメントが在る」を対照として主張する。**読み取り器を殺すプローブ（`pieces`/`text`/`imagePaintCount` を空にする）と、画像だけ読めない状態のいずれでも、肯定側の対照が先に赤として現れる**ことを独立レビューが実測した
+  - **変異による検証（実装者6種＋独立レビューが別に8変異＋2プローブを本番へ当て直した）**: 基線は `index-DmYNCCjx.js`（md5 `049bf4ff…`）／`QuantityTablePdfExportService-CvYzM_lV.js`（`de8c8a46…`）。**ビルドA**（表紙タイトル差し替え／`sort` の比較子を逆順／ページ番号を表紙込みに／`disabled={false}`／`setOperationError` 除去）→ 26.2・26.3・26.12・26.9(**無効化の側だけ**)・26.10 が落ち、**非対象の 26.4〜26.8 は 8 passed で全緑**。**ビルドB**（`doc.addImage` を no-op／改ページ後の `renderTableHeader` 再描画を除去／行の値の `unit` と `remarks` を入れ替え）→ 26.4・26.5・**26.6（肯定側の対照）**・26.7・26.8 が落ち、非対象の 26.2・26.3・26.12 は緑。**落ちない変異は無かった**。26.9 は片方ずつ分離して落ちる（連言が分離できている証拠）
+  - **第3原則の確認（前件が作れないことを緑にしない）**: 26.10 は動的 import のチャンク（`**/QuantityTablePdfExportService-*.js`）を `route.abort()` で断って「PDF生成の失敗」という前件を作る。**glob を当たらない名前へ差し替えると緑ではなく赤になる**ことを実装者・独立レビューの双方が実測した。配信チャンク名が現に glob に当たることも確認済み
+  - **26.3 の限界は空洞ではなく妥当な限界と判定した（独立レビューの判断）**: 本番の `renumberGroups` は配列の添字で `displayOrder` を採番し保存も配列順を正とするため、「配列順のまま出す」変異は振る舞いを変えない**等価変形**である。判定は画面の「下へ移動」で並び順を作りそれが PDF のページ順と一致することを主張しており、条文「並び順で表示する」の正当な証人になる。**比較子を逆順にする変異で現に落ちる**。docblock が限界を明示しており過剰申告は無い
+  - **被覆印の計数は逐語 grep ではなく読み手で行った**（101.1 の申し送り）。`scripts/check-requirement-coverage.ts` の `extractFileCoverage` / `extractHeaderScopedCoverage` を直接呼び、新規 spec が **26.2〜26.8・26.12**、phase10 が **26.1・26.9・26.10・26.11** を名乗ることを確認した。残存除外6件は `e2e/specs` に印が無く**不変条件5は成立**
+  - **復元は退避した控えからの書き戻しで行った**（`git checkout` / `git reset --hard` は不使用）。実装者・独立レビューともにソースの md5 が控えと一致し、再ビルド後の配信物が基線の md5 へ復帰し、マーカーの残骸が0件であることを確認した
+  - **検証（親が提出時に自分で実測）**: 作業ツリーは e2e/ の3件のみ、**`git diff frontend/ backend/` は 0 行**、変更ファイルに TODO/FIXME 0件。`check:req-exclusions`（160件）/ `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:adjudication-pointers` / `type-check` / `lint` / `format:check` がいずれも **exit 0**。E2E は3スイートを前景で1本ずつ走らせ **pdf-export-content 11/11・phase10 15/15・quantity-count-calculation 11/11、いずれも Status PASSED・Failed 0・Flaky 0・exit 0**。`check:req-coverage` は exit 1 だが**着手前からの他機能由来の赤**で、qtg は**要件 48/48・受入基準 359/359・E2E適用対象 100.0%**、失敗3項目（到達しない4件・未カバー・pending-implementation 4件）の全リストに **qtg の出現は0件**であることを親が直接読んで確かめた
+  - **観測（範囲外。受け皿を 100.8 / 100.9 / 100.10 として起票した）**: (i) **REQ-5.3 の根拠文が旧文言のまま据え置き**——8.7 の書き換えが「それだけでは除外の根拠にならない」と断じた同一文字列が残る。100.5 の「測った事実」は 5.3 を名指しておらず `_Boundary:_` の「当該群」の外だが、文面上の不整合は残る → **100.8**。(ii) **REQ-28.2 も同型の不整合**——除外台帳に在籍せず、被覆印は除外 28.1 の代替検証と同じ単体ファイル `frontend/src/components/quantity-table-import/excel-parser.test.ts` にしかない。**不変条件5が鳴らないのは走査根が `e2e/specs` だからにすぎない** → **100.9**。(iii) **REQ-8.7 の条文と実体の乖離に受け皿タスクが無い**（条文が「幅(W)・奥行き(D)・高さ(H)」を名指すのに `calculation-params-validation.ts` の受け入れキーは `width/depth/height/weight` の4つで、重量のみでも本番は通る） → **100.10**。(iv) 26.12 の判定はページ番号書式 `N / M` を正規表現で受けており、条文を満たしたままの書式変更で赤になりうる（過剰厳格であって空洞ではない。docblock に明記済み）。(v) 新規 spec の `pdfGeneratedAt` はクリック直前に採り本番の `createdDate` はクリック後に採るため、日付境界で偽陰性の余地がある（実害は極小）。(vi) 新規 spec はプロジェクト・現場調査・数量表を作るが削除しない（`e2e-quality` に明文の規約は無い）
+
+- [x] 100.6 Minor の所見をまとめて処置する
+  - **出所**: 検証の Minor 群
+  - **測った事実**: (i) **REQ-11.1** の被覆印が保存の**成否**しか見ていない（条文は「保持された**全ての**…を一括で保存」と中身を規定。実体は別 spec が担保しており実装の欠落ではなく印の配置の問題）。(ii) **REQ-14.1** の判定が3欄のうち調整係数1欄のみ。(iii) **REQ-25.5 / 25.6** は条文が手段を「マウスホイールまたはスクロールバーのドラッグ」と名指すのに判定はプログラム代入（条文の意図の確認が要る）。(iv) `e2e/helpers/wait-helpers.ts` の **`labelWhenVisibleWithin` がリポジトリ全体で呼び出し0件**の死んだ補助（98.2 の観測 (i) と同一。撤去候補）。(v) `photo-comment-display.spec.ts` / `quantity-item-action-menu.spec.ts` / `quantity-table-phase10.spec.ts` の3ファイルが**機能名を欠くヘッダーの下に素の `REQ-N.N` を並べており機械に読まれない名乗り**になっている（個々の docblock に印が在るため被覆の穴ではないが読み手を誤らせる。phase10 のヘッダーは**除外済みの 26.9 を担うと名乗っている**）。(vi) `group-sort-e2e.spec.ts` の表題が `(REQ-36.2, REQ-36.2)` と同じ番号を二度挙げる誤記。(vii) `CalculationFields.tsx` に `react-refresh/only-export-components` の warning 1件（lint は error 0 で緑）。(viii) **98.4 の design.md の追記が、Claude Vision 経路（主経路）は中断されないことに触れていない**——`extractPdfData` は Vision 側を `options` なしで呼ぶため進行中の要求は止まらない。裁定は Tesseract のワーカーが対象でフォールバック限定は正しいが、次の読者を誤らせる
+  - _Boundary: 当該箇所の主張・被覆印・注釈_
+  - **仕分け（コミット `1f294069` の作業ツリー、2026-09-17 にリポジトリルートで実測。12項目を全件測り直した）**: **(A) 境界内で処置 9件**（i / ii / iii / iv / v / vi / viii / ix / xi）、**(B) 境界外で未処置 3件**（vii / x / xii）、**(C) 既に解消していたもの 0件**
+  - **(i) REQ-11.1**: 旧判定の本体は `saveQuantityTableDraft(page)` ただ1本で、保存 API の 200 と「保存しました」の提示しか見ず、条文が規定する**中身に一切触れていなかった**。画面が保持していた全数量グループ・全数量項目を識別子と並び順つきで読み、保存後の `GET` と `toEqual` で突き合わせる形へ改めた。恒真の口は件数の下限の主張で塞いだ。**初回の変異当てが素通りした**——前提の回と判定の回で工種の値が同一だったため残留値に隠れたのである。両回で必ず異なる値を書くよう是正して再測した（**98.5 の「空洞は種の作り方でも生まれる」の再現**）
+  - **(ii) REQ-14.1**: 調整係数1欄のみ → 3欄（調整係数・丸め設定・数量）へ拡張
+  - **(iii) REQ-25.5 / 25.6**: プログラム代入（`scrollLeft += 200` 等）から、**条文が名指すマウスホイール操作**（`hover()` → `page.mouse.wheel()`）へ置き換えた。**条文側の選言の読みについて（独立レビューの判定）**——条文は「マウスホイール**または**スクロールバーのドラッグで」であり、**本プロジェクトが 98.1 / 98.2 で撤去してきたのは判定側の選言**（どちらが起きたか分からないまま緑になる認識上の空洞）である。条文側の選言は別種であり、**選言肢の一方を決定的に主張することは条文成立の十分な証人になる**。副作用として判定は条文より厳格になる（ドラッグのみ対応の実装は赤になる）が、それは穴ではない
+  - **(iv)**: `e2e/helpers/wait-helpers.ts` の `labelWhenVisibleWithin` を撤去した。撤去前の当たりは**定義1件と `tasks.md` の記録のみで、コードの呼び出しは0件**（方式は `--include=*.ts --include=*.tsx --include=*.js --include=*.md` のリポジトリ全体 grep）。撤去後も関門は悪化しない
+  - **(v)**: 3ファイルのヘッダーへ機能名を与えた。あわせて**範囲記法 `REQ-22.1-22.3` 等は識別子欄の先頭1件しか読まれない**ことを `parseHeaderListItemIds` で実測し、逐一列挙へ改めた。**phase10 のヘッダーからは除外済みの 26.9 を外した**——後述
+  - **(vi)**: 表題の `(REQ-36.2, REQ-36.2)` を `(REQ-36.2)` へ畳んだ
+  - **(viii)**: `design.md` へ **Claude Vision 経路（主経路）は中断されない**旨を追記した。`pdf-ocr-extractor.ts` は Vision 側を `options` なしで呼び、フォールバック側だけがシグナルを受ける（独立レビューがコードで裏を取った）。**参照はパス＋シンボル名で書き行番号は使っていない**（98.3 の申し送り）
+  - **(ix)**: `design.md` の追跡表の 12.1-12.5 の行へ `QuantityTableCreatePage` を追加した
+  - **(xi)**: REQ-13.4 を**自立**させ（先行テストの保存状態への依存を解消）、あわせて9欄すべてへ拡張した
+  - **26.9 をヘッダーから外した判断（本タスクで最も重い論点。独立レビューが妥当と判定）**: (a) **不変条件5はヘッダーの名乗りも印として数える**——`scripts/check-requirement-exclusions.ts` の `scanCoverageTags` は `buildInlineTagPatterns` に**加えて** `extractHeaderScopedCoverage`（ヘッダー直下の一覧）を読む。**実測で裏を取った**（26.9 をヘッダーへ戻すと `check:req-exclusions` は exit 1 で「『E2Eでは確かめない』と宣言していますが e2e/specs の被覆印が同じ受入基準を名乗っています」が出る。外すと exit 0）。(b) **実態を隠していない**——describe とテストの表題に残る素の番号はそのままで、さらにヘッダーへ「26.9 は除外に在籍する／本ファイルに `toBeDisabled()` の区間が現に在る／決着は 100.5」を明記する段落を増やした。**読み手への開示は基線より増えている**。(c) **除外を取り下げるより「一覧から外す」が正しい**——条文 26.9 は「インジケーターを**表示し**、重複操作を**防止する**」の連言で、E2E は後半しか主張していない。ここで取り下げれば**条文の半分しか見ない判定で被覆済みを作る**ことになり、本実行が潰してきた空洞そのものになる。受け皿は **100.5 が (b) として 26.9 / 26.10 を名指しで抱えている**
+  - **ラチェットの前後（独立レビューがスクリプト自身の関数を呼んで被覆集合の差を全件で計算）**: 機能名を欠くヘッダー **2007件/951ファイル → 2004件/948ファイル**、眠る名乗り **5110件 → 5085件（−25）**、被覆印の区間 2864→2867。**quantity-table-generation の被覆 359/359 は不動**。**「分子が増えるはず」が起きなかった理由は全件で確かめられた**——読まれるようになった25件は**すべて同一ファイルの各区間に `@requirement` の印が既に在る**（「ヘッダーで新たに読まれるがインラインの裏が無いもの」が**0件**）。内訳も一致する（photo 7＋menu 9＋phase10 の一覧項目 9＝25）。**なお「ラチェットの定数を下げていない」という実装者の懸念は空振りで、`check-requirement-coverage.ts` に当該の閾値定数は存在せず報告値であって関門ではない**
+  - **変異による検証（実装者。毎回 `--force-recreate`・ビルドの終了コード・配信バンドルの中身の3点を照合。目印はミニファイで畳まれない `window` への副作用で置いた）**: **M-III（利用者のホイールだけを殺す——プログラム代入は一切妨げない）→ 新 REQ-25.5 / 25.6 が落ち、同一の変異ビルドに対して旧判定は 8/8 で緑のまま**。すなわち**旧判定は「利用者がホイールで一切スクロールできない実装」を100%見逃していた**。M-I（backend の `saveDraft` から `workType` を落とす）→ REQ-11.1 のみ。M-II（数量欄の `textAlign` を右→左）→ REQ-14.1 のみ（調整係数は別部品なので**旧判定では絶対に赤にならない**変異）。M-XI（大項目に右寄せを足す）→ REQ-13.4
+  - **独立レビューの再現**: 3種（M-III / M-II / M-I）を自分で当て直し、いずれも**落ちるのが当該の1件だけ**であること、**M-III の下で HEAD 版の scrollbar spec が 8/8 PASSED になる**対照が正しいことを実測した。復元後に配信バンドルが基線へ復帰することも確認した
+  - **未処置3件の理由（黙って落としていない）**: **(vii)** 是正には `FIELDS_BY_METHOD` の輸出を別ファイルへ移す**本番の変更**が要る（同 warning はリポジトリ全体で13件あり、1ファイルだけ直すと基準が不揃いになる）。**(x)** 撤去は `TextFieldName` / `FIELD_CONSTRAINTS` の輸出型を動かす**本番の変更**（`TextFieldName` は `TextFieldInput.tsx` が本番の型として使う）。**実測では `calculationMethod` を欄名として渡す部品は0件、`FIELD_CONSTRAINTS.calculationMethod` の直接参照は単体1件、`TextFieldName` の当たりは stories 1件**——**起票文の「実消費は stories 1件のみ」は単体1件を数えていない**。条文 13.1 と `<select>` 実体の乖離の裁定は 99.1 / 100.4 の受け皿が妥当。**(xii)** 起票文自身が境界外と明記。事実は再確認済みで、別タスクとしての起票を推奨する
+  - **検証（親が提出時に実測）**: 作業ツリーは8件のみで、**`frontend/` `backend/` `scripts/` `e2e/requirement-exclusions.json` の差分はいずれも0行**。変異の残骸0件、配信バンドルは基線、`labelWhenVisibleWithin` の残存0件。**触れた6 spec を全件走らせ計148件が合格**（crud 91/91・scrollbar 8/8・group-sort 18/18・photo-comment-display 8/8・quantity-item-action-menu 9/9・phase10 14/14。すべて exit 0・Flaky 0）。`check:req-exclusions` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:design-code-refs` / `check:criterion-literals` はいずれも exit 0。ラチェットは 2004 / 5085（**減少＝安全な向き**）。独立レビューは加えて `check:design-measurement-freshness` が **HEAD の design.md を戻した出力と `diff` で完全一致**することを実測した
+  - **観測（範囲外・未処置。100.5 か別タスクの受け皿が要る）**: (i) REQ-11.1 の失敗文言が条文の「**各フィールド値を含む**」を引くが、実際に突き合わせているのは識別子・並び順・名称・工種・単位の5点で、写真紐づけ・規格・備考・数量等は対象外である（直上の docblock は正直に列挙しているため誤導は限定的だが、**文言と測定の粒度が一致していない**）。文言を測定へ合わせるか対象欄を広げるかの選択として起票するのが望ましい。(ii) REQ-11.1 / 13.4 / 14.1 は `createdQuantityTableId` を介して先行テストへ依存したままで、単体 `-g` 実行は前提で落ちる（基線から不変・100.3 と同水準）。(iii) 新 REQ-11.1 は前提確立のため1グループ1項目を永続化するようになり、同ファイル後段が見る状態の足跡が基線から変わった（回帰は無く 91/91 緑）。(iv) **REQ-14.5（「全ての数値フィールドが右寄せ」）が (xi) と同型の状態依存を持つ**（部分集合実行で落ちる。基線から変わらず、全件では緑）。(v) phase10 の describe 表題とテスト表題には 26.9 が素の番号で残る（機械には読まれず不変条件5には非該当。整地は 100.5 の所管）。(vi) REQ-25.5 / 25.6 の**スクロールバーのドラッグ側の判定**は置いていない（条文側の選言の一方で足りるという読み。追加は任意）
+  - **本実行中に積み上がった追加の観測（100.2 / 100.3 の独立レビューが検出。着手時に測り直すこと）**: (ix) `design.md` の追跡表の **12.1-12.5 の行が部品に `QuantityTableCreatePage` を挙げていない**（12.3 が名指す画面である）。(x) `frontend/src/utils/field-validation.ts` の **`FIELD_CONSTRAINTS.calculationMethod`（25/50）が本番の自由入力欄から一切参照されていない死んだ設定**である（実消費は stories 1件のみ）。条文 13.1 が計算方法に上限を課しているのに実体が `<select>` であることの名残で、読み手を誤らせる。**条文側の裁定が要るなら 99.1 / 100.4 の受け皿へ回すこと**。(xi) `quantity-table-crud.spec.ts` の **REQ-13.4（左寄せ）が先行テストの保存状態に依存**しており、部分集合で走らせると `toBeVisible` で落ちる（基線から変わらず、全件では緑）。100.3 で 13.1〜13.3 が自立したため、同 describe に残る唯一の状態依存となった。(xii) `frontend/src/pages/QuantityTableCreatePage.tsx` が `<Breadcrumb>` を `<nav aria-label="breadcrumb">` で**二重に包んでいる**（新規作成画面だけ navigation ランドマークが入れ子。アクセシブル名が異なるため判定は曖昧にならないが a11y の匂いとして残る。**本番の変更になるため 100.6 の境界外である**——起票するなら別タスク）
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 97 / 98 / 99 と同じ）。**所有は LOCAL である**——`check:req-coverage` と `check:design-measurement-freshness` が赤いのは他機能（construction-photo / estimate-* / itemized-* / project-management / trading-partner-* / user-authentication）と上流の共有 scripts に由来し、quantity-table-generation は被覆 359/359・到達性・除外監査（25件すべて `in-repo-verified`）のいずれも機械的に緑である。
+
+**検証時の環境の申し送り**: E2E のフロントコンテナのイメージは検証時点で HEAD より3コミット古かった。差分がフロント本番ソースでは `AutocompleteInput.tsx` の JSDoc コメントのみ（バンドルに到達しない）と1ファイル単位で実証したため等価と判断したが、**次にフロント本番ソースが動く場合は `--force-recreate` つきの再ビルドが必須である**。
+
+
+- [x] 100.7 REQ-25.2 / 25.3 の判定が、改訂した条文の特徴的な場合を踏んでいない状態を解消する
+  - **出所**: 100.4 の独立レビューの Finding 6（範囲外・後続タスク推奨と判定された）
+  - **測った事実**: 被覆源 `e2e/specs/quantity-tables/scrollbar-e2e.spec.ts` は **REQ-25.2 を高さ 400px、REQ-25.3 を高さ 900px の各1点**でしか測っていない。**この2点は、100.4 が差し戻しで潰した『表示領域の収まりを前件に据えた偽の条文』でも同じように合格する**——400px では表示領域が折り返しより下、900px では文書も表示領域も収まるため、「表示領域の量」と「ページ側の量」が同じ向きに動く点だからである。**つまり判定は 100.4 の是正そのものを守っていない**
+  - **踏むべき区間**: 両者が食い違うのは **高さ 550px / 600px**（文書超過 92px / 42px、表示領域は矩形 460..513 でビューポート内に完全に収まる。100.4 でレビューが8点実測済み）。ここは**改訂後の条文の特徴的な場合**である（前件が真で、かつ表示領域は完全に可視）
+  - **起票時点で用意されている具体形（レビューが提示）**: REQ-25.2 の判定へ高さ 600px の点を足し、(a) `document.documentElement` の縦超過が 0 を上回る、(b) 表示領域の矩形がビューポート内に完全に収まる（`top >= 0 && bottom <= 600`）、(c) 表示領域の内側の縦超過が 0 ——の3つを**同時に**主張する。これで「表示領域が収まっていてもページ側が担う」という改訂の核心が判定として固定され、**是正前の条文では説明できない状態が被覆源に載る**
+  - **100.4 で処置しなかった理由**: 利用者の裁定が「**既存の E2E を被覆源として正規化する**（コードの挙動は変えない）」と範囲を限っており、判定ケースの追加は承認された範囲を超える。また現在の判定は M1（`overflowY:'auto'`+`maxHeight`）/ M2（`wheel`+`preventDefault`）/ M3b（testid をダミー要素へ付け替え）の3変異で現に赤くなる**非空洞**であり、被覆印が実体を伴っていないという不合格事由には当たらない
+  - **着手前に利用者へ確かめること**: 本タスクは**判定ケースの追加**であり、100.4 の裁定が限った範囲の外にある。**着手してよいかの裁定を先に受けること**
+  - **申し送り**: 条文・注記・E2E のみの変更でフロントの再ビルドは不要。追加所要は数秒。`hover()` は scrollIntoView の副作用でページを動かすため、ホイールを主張する判定では前置きに使わないこと（100.4 の M2 で露見した空洞の原因）
+  - **利用者の裁定（2026-09-18）**: 「**着手する**」。起票文が示した具体形（REQ-25.2 の判定へ高さ 600px の点を足し、(a) `document.documentElement` の縦超過が 0 を上回る・(b) 表示領域の矩形がビューポート内に完全に収まる・(c) 表示領域の内側の縦超過が 0 の3つを**同時に**主張する）をそのまま採る。100.4 の裁定が「既存の E2E を被覆源として正規化する（挙動は変えない）」と限った範囲の外にあることを提示したうえでの承認である
+  - _Boundary: `e2e/specs/quantity-tables/scrollbar-e2e.spec.ts` の REQ-25.2 / 25.3 の判定と、その docblock_
+  - **是正の内容**: `e2e/specs/quantity-tables/scrollbar-e2e.spec.ts` に定数 `AREA_FITS_WHILE_PAGE_OVERFLOWS_HEIGHT`（= 600、実測の根拠つき）と新判定「表示領域がビューポート内に完全に収まっていてもページ側が垂直スクロールバーを担う (REQ-25.2)」を置いた。**裁定の具体形どおり (a)(b)(c) を同一テスト内で同時に主張する**——(a) `document.documentElement.scrollHeight - clientHeight > 0`（実測 42px）、(b) 表示領域の矩形が `top >= 0 && bottom <= 600`（実測 460..512.5）、(c) 表示領域の内側の `scrollHeight - clientHeight === 0`。(b) が高さ0の要素で自明に成立する形は `bottom - top > 0` で塞ぎ、(c) の恒真化は**同じ要素の同じ測り方**の横超過 `> 0` を対照に置いて塞いだ。矩形をビューポート座標で読む基準をそろえるため測定前に `window.scrollTo(0, 0)` を置いた（主張ではなく前提整備）
+  - **狙いの達成の直接の証拠（最重要。実装者とレビュアーが別々の機構で再現した）**: **100.4 が差し戻した「表示領域の収まりを前件に据えた偽の条文」の実装**を変異として当てると、**追加した 600px の判定だけが落ち、既存の 8 判定（REQ-25.2 の 400px と REQ-25.3 の 900px を含む）は 8/8 PASSED のまま**であった。実装者は `document.body.style.position='fixed'` で、**独立レビューは実装者の変異をなぞらず `#root` を `height=innerHeight; overflow:hidden` に固定する別機構を自分で設計して**同じ結果を得た。すなわち**偽の条文の実装は既存判定では一切検出できず、新判定だけが捉える**
+  - **独立レビューが追加で当てた変異（いずれも自分で設計）**: **M3b 型**（横超過 1100px・高さ 20px の偽の表示領域へ testid を付け替え）→ 新判定は (c) で落ち、既存 400px も落ちる（`bottom - top > 0` だけに頼っていないことの実測）。**対照の生死**（`width:max-content` で横超過を消す）→ 新判定は**対照の行が先に落ちる**（恒真化防止が現に働いている）。**(b) の生死**（`margin-top:400px` で表示領域を折り返しより下へ押す）→ (b) の下端の主張が落ちる。**`window.scrollTo(0,0)` は座標系の正規化であって、前件が作れない場合は緑ではなく赤で現れる**（AI運用第3原則に抵触しない）
+  - **REQ-25.3 側に点を足していないことは、黙って落とした欠陥ではない（独立レビューの判定）**: 25.3 の偽の条文を偽にする観測は **(a)+(b) at 600px と同一**であり、25.3 の改訂後の条文自体は 600px では**前件が偽（空虚）**なので、600px に 25.3 の印を置くことは「25.3 の検証」にならない。是正を守る実体は 25.2 側に現に載っている。**ただし 25.3 の判定だけを読む後任の誤読を防ぐため、900px の docblock へ「改訂の核心を守る点は 600px の判定（タスク 100.7）である」旨の相互参照を親が1行足した**（独立レビューの提案7。境界内の注記のみで、判定の主張は一切変えていない。追記後に 9/9 PASSED を再実測）
+  - **検証（親が提出時に自分で実測）**: 作業ツリーは `scrollbar-e2e.spec.ts` の1件のみ、**`git diff frontend/ backend/` は 0 行**、リポジトリ全体で `MUT_` 0件、変更ファイルに TODO/FIXME 0件。`check:req-exclusions` / `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:adjudication-pointers` / `type-check` / `lint` / `format:check` がいずれも **exit 0**。E2E は **9/9 PASSED・Failed 0・Flaky 0・exit 0**（docblock 追記の前後で2回）。`check:req-coverage` は exit 1 だが**着手前からの他機能由来の赤**で、qtg は**要件 48/48・受入基準 359/359・E2E適用対象 100.0%**、失敗項目に **qtg の出現は0件**であることを親が直接読んで確かめた。被覆印は読み手（`extractFileCoverage`）で数えて **REQ-25.1〜25.6 の6件で変更前後とも同一**
+  - **観測（範囲外。受け皿を 100.11 として起票した）**: **(a) が測るのは「文書が溢れていること」であって「ページ側の垂直スクロールバーが表示されていること」ではない。** 独立レビューの実測——`body{overflow-y:hidden}` を当てると overflow がビューポートへ伝播してページは実際にスクロール不能（ホイール下方向 200 の後も `scrollY=0`）になるのに、`documentElement.scrollHeight - clientHeight` は **42 のまま**で **(a)(b)(c) は3つとも合格する**。同条件は 400px（前件が発火しない）・900px・25.4・25.6 も緑のままで、**「切り取りで実装した偽の条文」はファイル全体を素通りする** → **100.11**。**本タスクでは差し戻さない**——この測り方は 100.4 で承認された既存判定と同一の proxy であり、**利用者の裁定が (a) を `document.documentElement` の縦超過と名指して具体形を固定している**ため、ここで変えると第2原則（決定権は利用者）に反する
+
+- [x] 100.8 REQ-5.3 の除外の根拠が、同じ台帳の中で否定された文言のまま残っている状態を解消する
+  - **出所**: 100.5 の独立レビューの Finding 1（範囲外・後続タスク推奨と判定された）
+  - **測った事実**: `e2e/requirement-exclusions.json` の `quantity-table-generation/REQ-5.3` の `reason` は「入力バリデーションはユニット/統合テストで検証」のままである。**同じ台帳の中で 8.7 の書き換えがこの同一文字列を「それだけでは除外の根拠にならない」と断じている**ため、文面上の不整合が残る。さらに `summary.note` に実測が記録されている——編集画面の `EditableQuantityItemRow` は `showValidation` の既定が true で必須エラーを常時提示するため、**「E2E から観測できない」は 5.3 の根拠として成り立たない**
+  - **選ぶべきこと**: 判定を追加して取り下げるか、根拠文を実測した真の根拠へ書き換えるか。**取り下げるなら 83.1 の作法（条文を直接主張する判定を置き、変異で落ちることを実測してから取り下げる）を満たすこと**
+  - _Boundary: `e2e/requirement-exclusions.json` の `REQ-5.3` の項と、判定を足す場合の E2E の主張と被覆印_
+  - **着手前に利用者へ確かめること**: 5.3 は 100.5 の「測った事実」が名指していない条文であり、100.5 の裁定が限った範囲の外にある。**着手してよいかの裁定を先に受けること**
+  - **利用者の裁定（2026-09-23）**: 着手してよい。根拠文の書き換えか、判定を置いての取り下げかは実測に基づいて選ぶこと（取り下げるなら 83.1 の作法を満たすこと）
+  - **処遇（2026-09-23、リポジトリルートで実測）**: **根拠文の書き換えではなく、判定を置いての取り下げを採った**。「E2E から観測できない」が実体と合わないことを実測で確かめたため、根拠文を繕う道は採らなかった
+  - **置いた判定**: `e2e/specs/quantity-tables/required-field-validation-e2e.spec.ts`（新規258行）。保存を試行したのち、工種・名称・単位について (a) `aria-invalid="true"`、(b) 枠線の計算済み色が `rgb(220, 38, 38)`、(c) `role="alert"` の文言と警告アイコンのアクセシブルネームを主張する。条文が名指す残る2欄（計算方法・数量）は**未入力の状態を取りえない**ことを散文でなく判定で示した（空値の選択肢が0件かつ既定 `STANDARD`、数量は空にして焦点を外すと `0.00` へ差し替わる）。不在の主張はすべて対照付き（選択肢が読めていること／同じ欄が入力値を保持していること／必須でない備考の欄が同じ測り方で別の色）
+  - **台帳の動き**: `e2e/requirement-exclusions.json` から当該の項を削除し、`totalExclusions` 160→159、`byCategory.data-integrity` 29→28、`lastUpdated` を 2026-09-23 へ。`summary.note` へ取り下げの経緯を追記し、**旧列挙の「5.3 は入力バリデーションのため統合テストで検証」が本是正で失効した旨を明記**した（台帳内の自己矛盾を残さないため）。親が JSON を直接読み、宣言と実数が 159 / 28 で一致することを確認した
+  - **恒真でないことの実測（83.1 の作法）**: 実装者が本番へ6種の変異を当てて全件赤（M4「値に依らず常時エラー提示」で**対照の行が先に落ちる**）。**独立レビューは実装者の変異を採らず自分で2種を設計し、両方向の赤を再現した**——R1（工種を常時エラー）は対照側 `:247` の `aria-invalid="false"` で赤、R2（工種の必須検査を除去）は肯定側 `:193` で赤。いずれも `npm run test:docker:build -- --force-recreate` で実際に配信バンドルが替わったことを確認し、復元後に md5 一致と再ビルドでの緑復帰まで測っている。`test.skip` / `fixme` は皆無（第3原則）
+  - **被覆印は読み手で数えた**（逐語 grep は用いていない）: `npx tsx scripts/count-coverage-marks.ts --feature=quantity-table-generation --root=e2e --json` で、新ファイルは `requirements: ["quantity-table-generation/REQ-5"]` / `acceptanceCriteria: ["quantity-table-generation/REQ-5.3"]` の各1件のみ、`headerScopedAcceptanceCriteria` は空＝**ヘッダー由来の見かけの印ではない**（100.9 が踏んだ罠を回避）
+  - **関門（親が提出時に測り直した）**: `check:req-exclusions`（159件でスキーマ適合）・`check:req-exclusions:selftest`（70/70）・`type-check` がいずれも exit 0。独立レビューの実測では `lint` / `format:check` / `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:adjudication-pointers` / `npx prettier --check e2e/requirement-exclusions.json`（JSON はルートの `format:check` の対象外なので直接当てた）も exit 0。赤2本（`check:req-coverage`・`check:design-measurement-freshness`）は**いずれも基線から赤**で、独立レビューが `git worktree add --detach` で HEAD の基線を別ツリーへ作って測り、失敗行の集合が前後同一であることを確認した（`git stash` は不使用）。qtg は未カバー一覧にも到達不能一覧にも一件も現れない
+  - **E2E**: 該当 spec のみ実行し 1/1 PASSED・exit 0（変異の前後・復元後の計3系統で確認。全件走行は行っていない）。本番コードは一行も変更していない（`git diff frontend/ backend/` は 0 行）
+  - **観測（範囲外・未処置）**: (i) `scripts/exclusion-alternative-verification-adjudication.md:139` が**取り下げ済みの 5.3 を現存する除外として挙げたまま陳腐化した**。§3.1 の経緯記録であり、99.4 / 上流 115.329 が扱う既知の系列と同型なので据え置いた（`check:adjudication-pointers` は exit 0 のまま）。**99.4 の陳腐化26件に1件積まれた**ことを記録する。(ii) `check:design-measurement-freshness` で actual が動く宣言は2件である——`[requirement-exclusions-total]` 160→159 と `[t13-anchor-references-after-115303]` 1412→1413（新 spec が参照を1件増やすため）。**実装者は前者のみと報告したが独立レビューが後者を検出した**。いずれも基線から赤い宣言で新規の失敗行は生じない（宣言は `.kiro/specs/site-survey/design.md` 所管＝下流は触れない）。(iii) 判定の `:186` の保存クリックは API の発行を待っておらず、**契機そのものは観測していない**（本番が `showValidation` 既定 true で常時提示するため、クリックを外しても緑になる）。条文の実質である帰結側は変異で守られているため承認を覆さないが、後任が「保存の試行が引き金である」ことまで主張したいなら足す余地がある
+
+- [x] 100.9 REQ-28.2 が単体印だけで被覆済みと数えられている状態を解消する
+  - **出所**: 100.5 の独立レビューの Finding 2（充足条件4 の射程外と判定された）
+  - **測った事実**: `quantity-table-generation/REQ-28.2` は除外台帳に在籍せず、被覆印は `frontend/src/components/quantity-table-import/excel-parser.test.ts` の単体印にしかない（読み手 `extractFileCoverage` で実装者・独立レビューの双方が確認）。**これは除外 28.1 の代替検証に挙がっているのと同一のファイルであり、100.5 の (a) が兄弟 26.5 / 26.8 / 26.12 について潰したのと同型の不整合である**。**不変条件5が鳴らないのは `scripts/check-requirement-exclusions.ts` の走査根が `e2e/specs` だからにすぎない**（28.1 の `reason` 本文に明記してある）
+  - **参考になる反例**: 同じ SheetJS 依存の 28.4 は `e2e/specs/quantity-tables/import-e2e.spec.ts` に E2E の被覆印を持つ。28.1 は「条文が名指すのは出力ではなく手段そのものであり画面から弁別できない」として据え置いたが、**28.2 が同じ理由に当たるかは測り直しが要る**
+  - _Boundary: `REQ-28.2` の被覆印と、判定を足す場合の E2E の主張_
+  - **(A)（E2E で到達しうる）と判定して判定を置いた**。根拠は**条文の性質の違い**である——28.1「SheetJS（xlsx）ライブラリを使用してExcelデータを直接読み取る」は**手段の名指し**であり、同じ抽出結果を別のパーサで得た場合と画面から区別する観測点が無い（99.5 / 100.5 の据え置きは妥当）。これに対し **28.2「Excelファイルの全シートを解析対象とする」は解析の対象範囲の規定**であり、`frontend/src/components/quantity-table-import/excel-parser.ts` の `readExcelFile` が `workbook.SheetNames` を回して行を積むため、**2枚目以降のシートの本文が抽出結果に現れるか否かとして画面から弁別できる**。独立レビューが条文3件を自分で読み直してこの線引きを是認した
+  - **既存の資材では区別できなかった**: `import-items.xlsx` / `import-items-all-fields.xlsx` はいずれも単一シート（`SheetNames = ["Sheet1"]`）で、**1枚目だけ読む実装と区別できない**。見出しを共有し本文が1行ずつ異なる**3枚シート**の資材 `e2e/fixtures/import-items-multi-sheet.xlsx`（生成器 `e2e/fixtures/generate-multi-sheet-xlsx.mjs`）を新設した。**3枚にしたのは量化子を n=1 / n=2 で済ませないため**である（REQ-29.4 の2ページPDFと同じ理由）。生成器と生成物の双方をコミットする形は先例 `generate-image-only-pdf.mjs` ＋ `test-scanned-pdf-2pages.pdf` に倣った
+  - **変異による検証（実装者3種＋独立レビューが実装者をなぞらず別に3種を設計して当てた）**: **`SheetNames.slice(0, 1)`（1枚目だけ）** → 「本文が3枚のシート分（3行）になっていない」で赤。**`SheetNames.map(() => SheetNames[0])`（行数は3のまま1枚目を3回）** → 「2枚目のシートの本文の1列目に『土工』が表示されない」で赤（**行数だけの判定になっていないことの実測**）。**`SheetNames.slice(0, 2)`（先頭2枚だけ）** → 赤（**n=2 で済ませなかった設計判断が実際に効いている直接の証拠**。非対象の REQ-28 群は同じ変異ビルドで緑のまま）。**`[...SheetNames].reverse()`（順序反転）** → 赤。**落ちない変異は無かった**
+  - **資材が壊れたときに緑にならないこと（第3原則）**: 資材を `PK\x03\x04` で始まる壊れた内容へ差し替えると「プレビューテーブルが表示されない」で**赤**になる。前件が作れないことが緑として現れる形ではない。実装者・独立レビューの双方が実測した
+  - **判定が条文より厳格である点は妥当な限界と判定した（独立レビューの判断）**: 判定は行の並びをシート順に固定しており、条文は順序を求めていない。しかし (i) 本番は `workbook.SheetNames`（ブック内の並び）を回すため**順序は決定的**であり、決定的な一方を主張することは条文「全シートが対象」の十分な証人になる（**100.6 (iii) と同型**）、(ii) 行順の変化はそれ自体が利用者に見える振る舞いの変化である。**親がこの限界を docblock へ明記した**（独立レビューの Suggestion 1。100.5 の 26.12 の先例に倣う。追記後に 7/7 PASSED を再実測）
+  - **踏んだ罠（次の読み手のために記録する）**: docblock の散文に **`quantity-table-generation/REQ-28.1` と機能名を冠して**書いたところ、`scripts/check-requirement-coverage.ts` の `buildInlineTagPatterns` の**パターン3（単独形式）が散文中の綴りも被覆印として読み**、`check:req-exclusions` が**不変条件5（除外 28.1 と被覆印の同居）で exit 1** になった。**除外中の条文を説明のために言及するときは機能名を冠さないこと。** 現在 `e2e/specs/` 配下に機能名を冠した 28.1 の表記は**0件**（親が実測）
+  - **検証（親が提出時に自分で実測）**: 作業ツリーは e2e/ の3件のみ、**`git diff frontend/ backend/` は 0 行**。資材を `exceljs` で自分で開き、**シート名 `1枚目` / `2枚目` / `3枚目`・共通5列の見出し・本文1行ずつ**が spec の期待値と逐語一致することを確かめた。被覆印は読み手（`count:coverage-marks --feature=quantity-table-generation --root=e2e --json`）で数え、**`REQ-28.2` が読まれ `REQ-28.1` は読まれない**ことを確認（不変条件5が成立）。`check:req-exclusions` / `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:adjudication-pointers` / `type-check` / `lint` / `format:check` がいずれも **exit 0**。E2E は `-g "REQ-28"` で **7/7 PASSED・Failed 0・Flaky 0・exit 0**（docblock 追記の前後で2回）。`check:req-coverage` は exit 1 だが**着手前からの他機能由来の赤**で、qtg は**要件 48/48・受入基準 359/359・E2E適用対象 100.0%**、失敗項目に **qtg の出現は0件**
+  - **観測（範囲外。受け皿を 100.12 として起票した）**: **`REQ-29.10`（取り込みのOCR処理は30秒で打ち切られる）が `Test timeout of 60000ms exceeded` で落ちる**。**本変更が原因ではない**——独立レビューが**本変更を退避した素の作業ツリー**（HEAD 版の spec を書き戻し `git diff` 0行の状態）で当該テストを単独実行し、同じ Test timeout で落ちることを実測した（`git stash` は不使用）。**かつ同じ全件を再実行すると緑になる揺れがある**。WSL2 で壁時計が単調時計より遅い既知事象と重なる疑いがある → **100.12**
+  - **観測（範囲外・処置不要）**: 新規 `.mjs` はルートの lint / format の glob（`e2e/**/*.{js,ts}`）の対象外である。先例 `generate-image-only-pdf.mjs` と同じ扱いで、本件固有の問題ではない
+
+- [x] 100.10 REQ-8.7 の条文と本番の実体の乖離の処遇を決める
+  - **出所**: 100.5 の独立レビューの Finding 3。99.5 / 100.5 が据え置きの根拠として実測しながら、**受け皿となるタスク節が起票されていなかった**（`summary.note` 自身がそう書いている）
+  - **測った事実（99.5 / 100.5 で実測）**: (1) 保存経路への結線は在る——`QuantityTableEditPage.tsx` の `handleSave` が `validateCalculationParams` を呼び、検出された問題を「保存できません: …」の告知として画面へ出す。**したがって「E2E から観測できない」ことが除外の理由ではない**（兄弟の 8.10 は同じ経路を E2E で判定できたため 99.5 で取り下げた）。(2) 乖離は二点——本番の文言は「面積・体積モードでは少なくとも1つの計算用列に値を入力してください」であり**条文が求める「幅(W)・奥行き(D)・高さ(H)」を名指さない**。さらに本番が「いずれか1つ」として受け入れるキーは `AREA_VOLUME_ANY_KEYS` の `width` / `depth` / `height` / `weight` の**4つ**（バックエンドの `validateAreaVolumeMode` と揃えてある）で、**重量だけを入力した状態は本番では通るが条文では不足である**
+  - **選ぶべきこと**: **条文を実体へ合わせる（requirements.md の改訂）か、実体を条文へ合わせる（本番の変更）か**。いずれも 100.5 の境界外であったため据え置いた。決着後に判定を置いて除外を取り下げること（83.1 の作法）
+  - _Boundary: `requirements.md` の Requirement 8 の受入基準7、または `frontend/src/utils/calculation-params-validation.ts` と `backend` の対応する検証、および `e2e/requirement-exclusions.json` の `REQ-8.7` の項_
+  - **着手前に利用者へ確かめること**: 条文の改訂と本番の変更のどちらを採るかは**利用者の裁定が要る**（97.10 / 99.1 / 100.4 と同型の、条文と実体の乖離）
+  - **利用者の裁定（2026-09-23）**: **実体を条文へ合わせる（本番の変更）**を採る。フロントエンド・バックエンドの検証と告知の文言を条文（幅(W)・奥行き(D)・高さ(H) のいずれか）へ揃え、決着後に判定を置いて除外を取り下げること
+  - **処遇（2026-09-23、リポジトリルートで実測）**: 裁定どおり**本番を条文へ合わせ**、`requirements.md` は一行も改訂していない。**`design.md:3193` は着手前から「計算方法「面積・体積」では幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力必須」と書いており、条文と設計は最初から一致していて外れていたのは本番の実装だけであった**（したがって design.md の改訂も不要）
+  - **変えた本番**: (i) `frontend/src/utils/calculation-params-validation.ts` の `AREA_VOLUME_ANY_KEYS` を `['width','depth','height']` へ（`weight` を外した）、告知を `面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください` へ。(ii) `backend/src/services/quantity-validation.service.ts` の `validateAreaVolumeMode` を同条件・同文言へ。(iii) `frontend/src/utils/calculation-engine.ts` の `validateAreaVolumeParams` を追随（**境界の縁**。下の Finding を見よ）
+  - **Feature Flag Protocol**: `REQUIRE_DIMENSION_FOR_AREA_VOLUME_SAVE` を3ファイルへ既定 OFF で導入 → RED を実測（frontend 単体6件・backend 単体2件が落ちる出力を取得）→ ON で GREEN → **フラグを完全撤去して再 GREEN**。親が提出時に `grep -rn REQUIRE_DIMENSION_FOR_AREA_VOLUME_SAVE` を当てて **0件**を確認した
+  - **バックエンドが実保存経路に効くことの実測（独立レビューが最も重く検めた点）**: 経路は `quantity-tables.routes.ts:756`（`PUT /:id/save`）→ `saveDraft` → `validateDraft` → `validateQuantityItem` → `switch (calculationMethod)` → `validateAreaVolumeMode`。**Requirement 48 の「計算方法を判別子としてスキーマを選ぶ方式」に沿っており形状からの推測はしていない**。`areaVolumeParamsSchema` は4キーとも `optional` で zod は弾かないため**実効の番人はこのサービスである**。レビュアーは読み取りで済ませず**一時の統合検査を書いて実 API を叩き、測り終えて削除した**——変異を当てた状態では `PUT /:id/save` が **200 を返し `calculationParams:{"weight":3}` を実 DB へ永続化した**（＝改める前の本番が重量だけの面積・体積項目を実際に通していた直接証拠）、復元後は同じ要求が **400** で本文が新しい文言、幅を足すと **200**（非空証明）
+  - **恒真でないことの実測**: 実装者が2系統（変異A=本番を着手前へ差し戻し／変異B=`AREA_VOLUME_ANY_KEYS` にだけ `weight` を戻す）で赤を実測。**独立レビューは実装者の変異を採らず自分で4系統（R1 文言のみ旧へ／R2 キーのみ旧へ／R3 backend のみ旧へ／R2 を当てた E2E）を設計し、いずれも赤を再現した**。特に R2 では**文言の判定は緑のまま「重量だけでは不足」の主張だけが赤くなる**ため、裁定の核心の主張が単独で荷重を持つことが分離して示された。配信バンドルは復元後の縮小コードが `["width","depth","height"]`（`weight` 無し）であることを nginx の配信物へ直接当てて確認している（単純な grep は `resetParamsForMethod`（REQ-48）の別配列に当たるため識別子を解決して確定させた）
+  - **除外の取り下げ（83.1 の作法）**: 判定は `e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts` に置いた（保存APIの発行数を**パス基準で観測**しオリジンを条件に入れない／重量だけでは告知が続く／幅を入れれば保存できる非空証明）。台帳から `quantity-table-generation/REQ-8.7` を撤去し `totalExclusions` 159→158・`byCategory.data-integrity` 28→27。親が JSON を直接読んで宣言と実数の一致を確認し、`npx prettier --check e2e/requirement-exclusions.json` も exit 0。**被覆印は読み手（`count:coverage-marks --json`）で数え、`REQ-8.7` が素の印として1件・`headerScopedAcceptanceCriteria` は空であることを確認した**（逐語 grep は不使用）。兄弟 `quantity-table-crud.spec.ts` の 8.7 の docblock を「除外である」から「100.10 で取り下げた」へ追随させた
+  - **検証**: 単体は**全件**（frontend 525ファイル/12028件、backend 190ファイル/5721件、いずれも exit 0。独立レビューも自分で全件を走らせて同値を得た）。コンテナ内の統合 `quantity-item-calculation-params.api.integration.test.ts` 16/16・`quantity-table.api.integration.test.ts` 38/38。E2E は該当 spec のみ 12/12 PASSED・Flaky 0・exit 0（全件走行なし）。関門は `check:req-exclusions`(158件)・`:selftest`(70/70)・`criterion-literals`・`e2e-guards`・`e2e-selfjudge`・`adjudication-pointers`・`cf-evidence`・`design-refs`・`design-code-refs`・`design-path-refs`・`design-component-reqs`・`trace-coverage`・`steering-refs`・`type-check`・`lint`・`format:check` がいずれも exit 0。赤2本は基線から赤く**失敗行の集合は同一**（独立レビューが `git worktree add --detach` で基線を作って再測。`git stash` 不使用）
+  - **利用者に見える帰結（記録）**: **重量だけを入力した面積・体積項目は保存できなくなる**（計算自体は REQ-8.6 どおり重量を乗数として数え続ける）。既存データに該当項目があれば、幅・奥行き・高さのいずれかを入れるまでその数量表は再保存できない。告知は `保存できません: グループ「…」の項目「…」: …` の形で**何を入れれば直るかを条文の語で名指す**。移行スクリプト等は境界外のため実施していない
+  - **観測（範囲外・受け皿を 100.19 として起票した）**: `frontend/src/utils/calculation-engine.ts` の `validateAreaVolumeParams` は **REQ-8.7 を名乗りながら本番から一度も呼ばれない第二の検証**である（独立レビューが呼び出し元を自分で追跡し、本番 import 4件はいずれも当該関数を取らずバレルも無いことを確認）。片方だけ直せば本タスクが解消した乖離を同じリポジトリ内に作り直すため**逐語の境界の外だが追随させた**（レビューは逸脱を妥当と裁定）。撤去か一本化かは 100.19 で決める
+  - **観測（範囲外・未処置）**: (i) `scripts/exclusion-alternative-verification-adjudication.md:140` の `REQ-8.7` の行が取り下げ済みの除外を現存として挙げたまま陳腐化した（:141 の 8.9・:142 の 8.10 も 99.5 の取り下げ以来同じ状態＝既存の規約どおりの据え置き）。**99.4 / 上流 115.329 の陳腐化一覧にもう1件積まれた**（100.8 の1件と併せて計2件）。(ii) E2E の非空証明は**幅だけを使う**ため「`width` だけを受け入れる」実装でも E2E は緑のままである。条文の「幅・奥行き・高さのうち」は frontend 単体の `it.each` と backend 単体が固定しており被覆の穴ではないが、E2E 単体での締まりは幅に限られる。(iii) `check:design-measurement-freshness` で actual が動くのは基線から赤い2宣言のみ（`requirement-exclusions-total` 159→158、`t13-anchor-references-after-115303` 1413→1414。いずれも `.kiro/specs/site-survey/design.md` 所管＝下流は触れない）
+
+- [x] 100.11 ページ側の垂直スクロールバーの「表示」を、文書の超過量ではなく実際のスクロール可能性で測る
+  - **出所**: 100.7 の独立レビューの Finding 5（申し送り推奨・本タスクでは非阻害と判定された）
+  - **測った事実（独立レビューが実測）**: `e2e/specs/quantity-tables/scrollbar-e2e.spec.ts` の REQ-25.2 / 25.3 の判定は、ページ側のスクロールバーの有無を `document.documentElement.scrollHeight - clientHeight` で測っている。これは**「文書が溢れていること」の proxy であって「スクロールバーが表示されていること」ではない**。`body { overflow-y: hidden }` を当てると overflow がビューポートへ伝播し、**ページは実際に一切スクロールできない**（ホイール下方向 200 の後も `scrollY = 0`）のに、超過量は **42 のまま**で 100.7 が追加した (a)(b)(c) は**3つとも合格する**。同じ変異のもとで 400px（前件が発火しない）・900px・25.4・25.6 も緑のままであり、**「切り取りで実装した偽の条文」はこのファイル全体を素通りする**
+  - **塞ぎ方（レビューが提示）**: 高さ 600px では表示領域がビューポート内にあり **`hover()` が scrollIntoView を起こさない**ため、ホイール下方向による `scrollY` の増加を主張する形が取れる。既存 400px の docblock が挙げる「`hover()` の余地と区別しにくい」という回避理由は、**400px と違い 600px では成り立たない**（100.7 で実測済み）
+  - _Boundary: `e2e/specs/quantity-tables/scrollbar-e2e.spec.ts` の REQ-25.2 / 25.3 の判定と、その docblock_
+  - **着手前に利用者へ確かめること**: 100.4 の裁定は (a) の測り方を承認済みであり、100.7 の裁定は (a) を「`document.documentElement` の縦超過」と**名指しで固定している**。測り方を変えることは**二つの裁定が固定した具体形の変更**にあたる。**着手してよいかの裁定を先に受けること**（第2原則）
+  - **利用者の裁定（2026-09-23）**: 着手してよい。(a) の測り方を、文書の超過量ではなく**実際のスクロール可能性**で測る形へ改めることを承認する（100.4 / 100.7 の裁定が固定した具体形の変更を含む）
+  - **処遇（2026-09-23、リポジトリルートで実測）**: 超過量は条文の**前件**の観測として残し、**後件**を「下方向のマウスホイールで `window.scrollY` が現に動くか」で測る形へ改めた。変更は `e2e/specs/quantity-tables/scrollbar-e2e.spec.ts` の1ファイルのみ（本番コードは一行も変更していない）
+  - **置いた形**: 共有補助 `scrollYAfterWheelDown(page, itemTableScroll)` を新設した——先頭へ戻す → `hover()` → **その時点の `scrollY` が 0 であることをハードに主張**（増減がホイールに帰属することの固定。高さ 600px / 900px では `hover()` が scrollIntoView を起こさないことを実測。400px では成立しないため同補助を使わず既存の上方向ホイールの判定を残した）→ `mouse.wheel(0, 200)` → 増加待ち → `scrollY` を返す。**REQ-25.2（600px）** は既存の (a)(b)(c) を前件と表示領域側の主張として保存し、後件 (d) を足した。**REQ-25.3（900px）** は「600px の対照（同じ補助が `scrollY` を増やす）→ 900px へ戻して前件を再確認 → 後件 `scrollY === 0`」の順に置いた
+  - **改める前が盲目だった範囲は、起票文より狭かった**（独立レビューが実測し、docblock を書き直させた）: 起票文が引いた 100.7 の記録は「同じ変異のもとで 400px・900px・25.4・25.6 も緑のまま＝ファイル全体が素通りする」と読めるが、**変異を遷移をまたいで当て直すと HEAD 版は 400px の REQ-25.2（上方向ホイールの委譲。`Expected: < 242 / Received: 242`）と REQ-25.6（`Expected: > 0 / Received: 0`）で必ず赤になる**。素通りしていたのは **600px の (a)(b)(c) の三点だけ**である。**再現しなかった原因は変異の注入方法にある**——`addStyleTag` は画面遷移で失われるため「変異を当てたのに全件緑」という誤った観測を生む。`test.beforeEach` の `page.addInitScript` で注入すれば遷移をまたいで効く。**この教訓は docblock に残した**
+  - **恒真でないことの実測**: 改めた判定に変異 `body{overflow-y:hidden}` を当てると **600px では (d) だけが赤**（(a)(b)(c) と横方向の陽性対照は緑のまま）。独立レビューは実装者の変異を採らず自分で `html{overflow-y:hidden}` と **M4**（高さ 900px のときだけ hover を契機に `body` 直下へ高さ 2000px の要素を足す。CSS でも `preventDefault` でもない別機構）を設計し、**M4 では前件の poll・900px 復帰後の再確認 poll・600px の対照がすべて通過したまま後件だけが赤**（`Expected: 0 / Received: 200`）になることを実測した
+  - **「25.3 の後件は独立に偽にできない」という実装者の懸念は誤りであった**（独立レビューが M4 で反証し、実装者も再現して撤回した）: **前件は「測った瞬間」の量、後件は「hover とホイールの後」の量であり、両者のあいだに文書を伸ばす事象を差し込めば前件を真に保ったまま後件だけを偽にできる**。しかもこれはこの画面で現に起きうる構造である（補完ドロップダウンは `createPortal(document.body)` で body 直下へ描かれる。レビュアーが `AutocompleteInput.tsx` を読んで裏を取った）。したがって後件は恒真ではなく、非空洞性は 600px から借りた対照だけに依存していない。**この認識は docblock にも書いた**
+  - **差し戻しが一度あった（ラウンド1）**: 理由は判定の中身ではなく、**docblock に「実装者も同じ変異を当てて 9/9 PASSED を再現した」という再現しない実測主張が書かれていたこと**の一点。是正はコメントのみで、独立レビューが**実行コード 368 行の完全一致**（コメント・空行を除いた機械比較）で判定ロジックの無改変を確認している。書き直した主張の4つの具体値（242 / 0 / 0 / 200）は、レビュアーが今回の版へ変異を当て直して**すべて自分の実測で再現した**
+  - **検証**: 該当 spec のみ **9/9 PASSED・Failed 0・Flaky 0・exit 0**（全件走行なし）。既存の 400px / 25.1 / 25.4 / 25.5 / 25.6 は実行コード無改変。関門は `check:e2e-guards` / `check:e2e-selfjudge` / `check:criterion-literals` / `check:req-exclusions` / `check:adjudication-pointers` / `type-check` / `lint` / `format:check` がいずれも exit 0。`check:req-coverage` の exit 1 は **HEAD 版のファイルで測った出力とバイト単位で完全一致**で本変更由来でない。被覆印は読み手（`count:coverage-marks --json`）で数えて **REQ-25.1〜25.6 の6件が前後とも健在**（`headerScopedAcceptanceCriteria` は空）。変異の残骸は実行コード上0件（唯一の該当は教訓を書いた docblock の散文）
+  - **観測（範囲外・未処置）**: (i) 補完ドロップダウンは `position: fixed` で描かれるため**その要素自身は文書を伸ばさない**。docblock の「body 直下へ開く要素が実在する」という経路の実在性の論拠としては成立するが、厳密な読み手は引っ掛かりうる（レビューの FYI）。(ii) `scrollYAfterWheelDown` の `.catch(() => undefined)` は期限切れ以外の例外も握る。判定に使う値は直後の `page.evaluate` の戻りで catch されていないため偽の緑にはならず、据え置きをレビューも妥当と認めた。ただし実装者が述べた「狭めると flake が増える」という理由付けは**厳密には逆向き**である（狭めれば隠れず落ちる方向）と指摘されている
+
+- [x] 100.12 REQ-29.10 の判定が実行時間の上限に掛かって非決定的に落ちる状態を解消する
+  - **出所**: 100.9 の実装者の CONCERNS (1) と独立レビューの Finding 5（いずれも境界外と判定された）
+  - **測った事実（2026-09-18、独立レビューが実測）**: `e2e/specs/quantity-tables/import-e2e.spec.ts` の **REQ-29.10（取り込みのOCR処理は30秒で打ち切られる）が `Test timeout of 60000ms exceeded` で落ちる**。**100.9 の変更が原因ではない**——本変更を退避した素の作業ツリー（HEAD 版の spec を書き戻し `git diff` 0行の状態）で当該テストを**単独実行しても同じ Test timeout で落ちる**（退避は控えへの書き戻しで行い `git stash` は不使用）。**さらに同じ全件を再実行すると `✘ FAIL` が0件になる**——すなわち**決定的な失敗ではなく揺れる**
+  - **疑い**: **WSL2 で壁時計が単調時計より約 8.6% 遅い**既知事象と重なる可能性がある（`setTimeout(30000)` の発火時に `Date.now()` は 27.4 秒しか進まない）。30 秒の打ち切りを 60 秒の上限で測る構成は余裕が 2 倍しかなく、環境の揺れを吸収できていない
+  - **選ぶべきこと**: テストの上限を上げるか、打ち切りの検証を**単調時計**（`performance.now()` 等）で行う形へ改めるか、打ち切り時間そのものを注入可能にするか。**揺れる判定は「緑だから正しい」とも「赤だから壊れている」とも言えないため、被覆印としての価値を損なう**
+  - _Boundary: `e2e/specs/quantity-tables/import-e2e.spec.ts` の REQ-29.10 の判定と、その docblock。打ち切り時間の注入が要る場合は本番の変更を伴うため、その時点で裁定を受けること_
+  - **起票文の疑いは誤りだった（親の起票の不備。記録として残す）**: 起票文は「WSL2 で壁時計が単調時計より約 8.6% 遅い既知事象と重なる可能性がある」と書いたが、**実装者と独立レビューの双方が初版（コミット `1386199e`）のコードを読み、`installImportOcrTimingObservers` が2点とも `performance.now()`（単調時計）で記録していることを確認した**。壁時計は一切使われておらず、疑いは棄却された。**親が推測を「疑い」として起票文へ書いたことが、調査の方向を誤らせかけた**
+  - **真因（実測で特定）**: **150ページ資材の OCR の所要（実測 29882ms）が打ち切りの 30 秒とほぼ同値**で、「完走」と「打ち切り」のどちらが先に着くかが実行ごとに入れ替わっていた。**同一条件で「完走 29882ms（赤）」と「打ち切り 30643ms（緑）」が入れ替わることを実測**。起票時に見えていた `Test timeout of 60000ms exceeded` は、**完走してしまった試行でエラー表示を待ち続けた結果の見え方**であって原因ではない。段階計測では前置きは合計約1秒（observers 2ms / navigate 833ms / ダイアログ 971ms / Vision 無効化 975ms / `setInputFiles` 1013ms）に過ぎず、**時間を使っているのは打ち切りの30秒そのものだけ**である
+  - **是正（時計でも上限でもなく仕事量）**: 既存の生成器 `e2e/fixtures/generate-image-only-pdf.mjs` で **600ページ**の資材 `e2e/fixtures/test-scanned-pdf-ocr-timeout.pdf`（136429 bytes。画像 XObject は全ページ共有）を新設し、REQ-29.10 の判定だけがこれを使う。**打ち切りを外したビルドでは 120 秒以内に抽出が終わらない**ことを独立レビューが実測した（打ち切り30秒の**4倍以上**の余裕）。併せて本検査だけ `test.setTimeout(getTimeout(180000))` とした——既定の上限では**打ち切りが起きない実装のときに判定が自分の文言ではなく `Test timeout` で落ち、「何が壊れたか」を言えなかった**ためである
+  - **上限の引き上げが主張を骨抜きにしていないことの実測**: 本番の `OCR_TIMEOUT_MS` を 30000→600000 にする変異で、落ちたのは `Test timeout` ではなく**判定自身の文言**（`REQ-29.10: 30秒では終わらない量のOCR処理が打ち切られていない`）であった。実装者と独立レビューが別々に再現した。**上限の引き上げは「打ち切り不在のとき何が壊れたかを言える」ようにする働きであって、赤を緑に変える働きはしていない**
+  - **独立レビューが自分で設計した変異（恒真でないことを両側から実測）**: `OCR_TIMEOUT_MS` 30000→**1000** → **赤**（`打ち切りまでが短すぎる（1682ms）`。**下限 29000 が恒真でない**ことの実測）。**資材を移動して取得不能にする** → 赤（`ENOENT`）。**資材を60KBへ切り詰めて破損させる** → 赤（`打ち切りの表示が30秒の超過を告げていない`。**アラートの可視だけでは素通りせず文言の判定が捕まえている**）。すなわち**前件が作れないことが緑として現れる形ではない**（AI運用第3原則）
+  - **既存の共有資材を壊していない**: `e2e/fixtures/test-scanned-pdf-multipage.pdf`（150ページ）は**作り直していない**——md5 は `882fd2f38847fc95c34e0974af844936` で `git diff` 0 行（親が実測）。同資材は `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` が使っており、作り替えれば他機能を壊す。**生成器は決定論的**で、600ページを再生成すると md5 が `f3b6a820593b04b392a4b6a22c79e8d2` で完全一致することを親が実測した
+  - **境界の逸脱は妥当と裁定した（独立レビューの判断）**: 境界は「REQ-29.10 の判定と docblock」であったが、**真因が資材の仕事量にある以上、資材の変更なしに是正はできず不可分**である。取り得た道のうち実装者は**既存の共有資材を作り替えず新規資材を足す**という最も破壊の少ない道を選んだ。生成器の docblock も「生成物は N 件」とコミット済み資材を列挙する契約を持つため資材追加と不可分。いずれも `e2e/` 配下のみで**本番コードは 0 行**
+  - **検証（親が提出時に自分で実測）**: 作業ツリーは `e2e/` の3件のみ、**`git diff frontend/ backend/` は 0 行**。新規資材は **600ページ**（`/Type /Page` が 601 件＝ページ木の `/Type /Pages` を含む）・136429 bytes、再生成で md5 一致。既存資材の md5 は不変。E2E は `-g "REQ-29.10" --retries=0` を **2回連続で 1/1 PASSED・exit 0**、**ファイル全件 46/46 PASSED・Failed 0・Flaky 0・exit 0**（揺れが再現していた「暖まった全件」の文脈）。`check:req-exclusions` / `:selftest`（70/70）/ `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:adjudication-pointers` / `type-check` / `lint` / `format:check` がいずれも **exit 0**。`check:design-measurement-freshness` の食い違いは **14 件で本実行の是正前と同数**（本変更で増えていない）
+  - **観測（範囲外。受け皿を 100.16 として起票した）**: **同じ150ページ資材を `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` が「30秒では終わらない量」として使っており、幅も `>=29000` / `<=34000` と同型で、同じコイン投げの危険を抱える**（同 spec の註が残す実測は 30832 / 30849 / 30903ms で余裕1秒未満）。**estimate-request スペックの所管** → **100.16**
+  - **観測（範囲外・処置不要）**: (i) 受入幅の上限 **40000ms** は条文「30秒」を厳密には締めていない——独立レビューの変異 `OCR_TIMEOUT_MS=35000` で**判定は緑のまま**であった。ただしこの2行は**初版のもので本差分は一行も触っていない**ため据え置いた。将来 34000 程度へ寄せると締まりが増す。(ii) `import-e2e.spec.ts` の註が「2つの spec が150ページ資材を使う」と述べるが、`pdf-text-extraction-e2e.spec.ts` は註で名を挙げるのみで**読み込んでいない**（結論は不変）
+
+- [x] 100.13 REQ-43.2 が除外に在籍したまま本番に実装されていない状態を解消する
+  - **出所**: 機能レベル検証（2026-09-18）の要件被覆の次元。**99.5 が 2026-09-17 に「1行の結線で直る見込みで別タスクの起票が望ましい」と観測したまま、どこにも起票されていなかった**
+  - **測った事実（検証のサブエージェントが測り、親が自分でコードを読んで裏を取った）**: `frontend/src/pages/QuantityTableEditPage.tsx` は `useUnsavedChanges({ enabled: isDirty })` と呼ぶだけで**戻り値を使わず `initialDirty` も渡さない**。`frontend/src/hooks/useUnsavedChanges.ts` の**内部の** `isDirty` は `useState(initialDirty)`（既定 `false`）のまま真にならず、`beforeunload` の登録は `if (!enabled || !isDirty) { return; }` に守られているため**リスナーが一度も登録されない**。すなわち条文 43.2（未保存時のタブ閉じ・リロードに対するブラウザ標準の離脱確認）は**本番の経路に存在しない**
+  - **二重の問題である**: (1) 43.2 は `e2e/requirement-exclusions.json` に在籍しており**分母から外れている**ため、実装の欠落が被覆率に一切現れない。除外の `reason` の記述自体は正確だが、**それは「E2E対象外」の宣言ではなく未実装の告白**である。(2) **Task 62.1「未保存変更時の離脱ガードを実装する」は `[x]` で `_Requirements: 43.1, 43.2, …, 43.6_` を名乗っている**。**完了印が実装の到達可能性を伴っていない**（96.x の教訓「完了印は実装の存在でなく到達可能性で判断する」の再発）
+  - **選ぶべきこと**: 結線して実装を成立させ、判定を置いて除外を取り下げるか（83.1 の作法）、実装しないと決めて条文と 62.1 の完了印の側を正すか。**前者を採るなら本番の変更を伴う**
+  - _Boundary: `frontend/src/pages/QuantityTableEditPage.tsx` の `useUnsavedChanges` の結線、`e2e/requirement-exclusions.json` の `REQ-43.2` の項、Task 62.1 の完了印と `_Requirements:` の名乗り_
+  - **着手前に利用者へ確かめること**: 本番の変更を伴う可能性があり、かつ**既に `[x]` が付いたタスクの完了印を扱う**ため、**着手してよいかの裁定を先に受けること**
+  - **利用者の裁定（2026-09-23）**: **結線して実装を成立させる**を採る。判定を置いて除外を取り下げ、Task 62.1 の完了印と `_Requirements:` の名乗りの扱いも併せて確かめること
+  - **処遇（2026-09-23、リポジトリルートで実測）**: 裁定どおり**結線して実装を成立させた**。`frontend/src/pages/QuantityTableEditPage.tsx` に `const { setDirty: setUnsavedGuardDirty } = useUnsavedChanges({ enabled: isDirty });` と `useEffect(() => { setUnsavedGuardDirty(isDirty); }, [...])` を置いた。**共有フック `useUnsavedChanges.ts` は一行も変えていない**——design.md が同フックを「流用｜既存フックを変更なしで利用」と定めており、`enabled: isDirty` の逐語も残るため設計文と矛盾しない。`EstimateDetailPage` / `SiteSurveyImageViewerPage` が採る確立済みパターンと同形である
+  - **Feature Flag Protocol**: `LEAVE_GUARD_BEFORE_UNLOAD_WIRED` を既定 OFF で導入 → RED（新設の単体2件が赤。失敗時の DOM ダンプに未保存バッジが写っており **dirty には到達したうえで離脱確認だけが出ていない**ことが示された）→ ON で GREEN → **撤去**して再 GREEN。親が提出時に `grep -rn LEAVE_GUARD_BEFORE_UNLOAD_WIRED` を当てて **0件**を確認
+  - **置いた判定**: E2E `edit-guard-indicator-sticky-header-e2e.spec.ts` のシナリオ7——`page.close({ runBeforeUnload: true })` で**タブを閉じる操作そのものを踏み**、Chromium が出す標準確認を Playwright の `dialog`（`type()==='beforeunload'`）として観測し、**取り消し（dismiss）でタブが閉じず編集画面と未保存バッジが残ることまで**主張する。合成イベントの dispatch＋`defaultPrevented`（construction-photo / site-survey の先例）より条文の帰結に一段近い形を選んだ。陰性対照（保存後は確認が出ずタブが閉じる）を同一テスト内に同梱している。加えて**フックをモックしない**単体 `QuantityTableEditPage.beforeUnload.test.tsx` を新設した
+  - **恒真でないことの実測**: 実装者が両方向（A=結線前のバンドルで陽性の腕が赤／B=常時 dirty で陰性対照の腕が赤）で測り、**独立レビューは別形の変異を2系統自分で設計して赤を再現した**——U1（追従の `useEffect` を除去）は**新設の単体が2件赤になる一方、旧 `leaveGuard.test.tsx` は 9件緑のまま**（＝旧判定が盲目だったことの機械的な直接証拠）、M1（`enabled: false` で `setDirty` の追従は残す）は**配信バンドルの E2E でシナリオ7だけが赤**で他7件は緑。復元後は sha256 一致・frontend イメージIDが変異前と同値・9/9 緑を確認している
+  - **なぜ 62.1 が緑に見えていたか（同型の再発防止）**: 当時の単体 `QuantityTableEditPage.leaveGuard.test.tsx` の 43.2 の区間が**フックをモックして `enabled` に何が渡ったかだけ**を測っており、**挙動が完全に欠落していても緑になる proxy** であった。除外の `reason` が挙げていた代替検証（`useUnsavedChanges.test.ts` の「beforeunload イベントの管理」）も同じ性質で、**画面からの到達性を保証していなかった**。同区間に注意書きと、挙動そのものを測る判定への参照を置いた
+  - **Task 62.1 の完了印の処遇**: **`[x]` は剥がさず、名乗りもそのまま残した**。独立レビューが実測で確かめたとおり、62.1 が名乗る6条文のうち**到達できていなかったのは 43.2 のみ**で、残る5件は着手前から到達可能であった（本タスクの変異 M1 で本番の `beforeunload` 登録を殺してもシナリオ1〜6・9 は緑のまま＝結線に依存していない）。**62.1 の直下に当時の欠落と本タスクでの到達化を記す追補を1行加えた**（名乗りから 43.2 を削る形は、当時の主張と誤りの所在が失われるため採らない）
+  - **台帳**: `quantity-table-generation/REQ-43.2` を撤去し `totalExclusions` 158→157・`byCategory.integration-test` 38→37。`summary.note` へ取り下げの経緯と、**「タスク 95.2 の『代替検証が本番経路へ到達する』という記録は 43.2 については誤りであった」**旨を追記した。親が JSON を直接読んで宣言と実数の一致（157 / 37）を確認し、`npx prettier --check e2e/requirement-exclusions.json` も exit 0
+  - **他画面への波及が無いこと**: `useUnsavedChanges` の全6呼び出し箇所を独立レビューが洗い、フック本体が未変更であることと合わせて波及なしと確認した。E2E への波及も機械的に潰している——Playwright はハンドラ不在時の `beforeunload` を **accept する**実装であることをライブラリのコードで確認し、`e2e/specs/quantity-tables/*` の `page.reload()` 全9箇所がいずれも保存後（未保存でない状態）であることも確かめた
+  - **検証**: 単体は全件（frontend 526ファイル/12030件、backend 190ファイル/5721件、いずれも exit 0。独立レビューも自分で全件を走らせた）。E2E は該当 spec のみ 9/9 PASSED・exit 0（全件走行なし）。関門は `check:req-exclusions`(157件)・`:selftest`(70/70)・`criterion-literals`・`e2e-guards`・`e2e-selfjudge`・`cf-evidence`・`adjudication-pointers`(162件/61ファイル)・`dead-script-env`・`trace-coverage`・`design-refs`・`design-code-refs`・`design-path-refs`・`design-component-reqs`・`steering-refs`・`type-check`・`lint`・`format:check` がいずれも exit 0。赤2本は基線と失敗行が完全一致（`check:req-coverage` の差は適用対象 2732→2733・除外 158→157・到達被覆 2698/2733 と除外一覧から当該行が消えたことのみ＝**条文が分母に入りかつ被覆された**）。被覆印は読み手で数えて REQ-43.1〜43.6 の6件が健在
+  - **観測（範囲外・未処置）**: (i) 判定はタブクローズのみを観測しリロード（F5）を代表させている（本番に契機の分岐が無いため妥当だが、その判断が docblock に明記されていない＝レビューの Suggestion）。(ii) 新設の単体の `Requirements:` ヘッダーが機能名を欠くため「機能名を欠くヘッダー」が 2004→2005・名乗り 5085→5087 に増える（上限 2023 / 5170 のため関門は緑）。(iii) **共有フック `useUnsavedChanges` の API そのものが罠である**——`enabled` が真でも内部 dirty が動かなければ黙って無効化される。6箇所のうち3箇所が同じ注意書きを各自コメントで抱えており**同じ罠を3度踏んでいる**。型か実行時警告で禁じる改修は別タスクの価値がある（受け皿は未起票）。(iv) `scripts/exclusion-alternative-verification-adjudication.md:405` の 43.2 の行が陳腐化した（100.8 の 5.3・100.10 の 8.7 と同じ系列。**99.4 / 上流 115.329 の一覧に計3件積まれた**）
+
+- [x] 100.14 裁定文書の読み手の母集団の宣言が、下流の増分で陳腐化した状態を解消する
+  - **出所**: 機能レベル検証（2026-09-18）の Implementation Notes の棚卸し。**`## Implementation Notes` L4063 が記録した「学びを書く行が、別の検査の母集団を増やして関門を後退させる」型の再発**である（80.3 で `coverage-adjudication-reader-files` が 10→11 へ動き、80.4 が測り直した先例がある）
+  - **測った事実（親が実測。2026-09-18）**: `grep -rl coverage-mark-adjudication`（node_modules を除く）の当たりは **12 ファイル**だが、`scripts/design-measurements.json` の `coverage-adjudication-reader-files` の宣言は **expected=11** であり `check:design-measurement-freshness` が現に赤である。**12 件目は `e2e/specs/quantity-tables/import-e2e.spec.ts`** で、**本機能のコミット `3366deca`（2026-09-16）が入れた**
+  - **所管は本スペックである**: 当該ファイルは本機能のコミットが3件触れており、**80.4 が 10→11 へ測り直した先例がある**。`.kiro/specs/` 全体を grep しても `coverage-adjudication-reader-files` を受ける未完タスクは無い（99.4 は別ファイル、101.2 は別宣言）。**境界内で解ける**
+  - **注意**: 宣言の値を動かす前に、**12 件目が読み手として妥当か**（裁定文書を現に参照しているか、単に文字列が出現しただけか）を測ること。妥当でないなら参照の側を直すのが筋である
+  - _Boundary: `scripts/design-measurements.json` の `coverage-adjudication-reader-files` の expected と、その宣言が引く逐語_
+  - **宣言を動かす前に「12件目が読み手として妥当か」を測った（順序が肝である）**: 12件目 `e2e/specs/quantity-tables/import-e2e.spec.ts` の註釈は「表題は `scripts/coverage-mark-adjudication.md` が逐語で引くため据え置く」であり、**単なる文字列の出現ではなく、機械が現に課している制約を記述したもの**である。実装者と独立レビューが別々に**表題の読点を1文字だけ改める変異**を当て、`check:adjudication-pointers` が `[指し先の区間が走査の正典に無い]` で **EXIT=1** になることを実測した（基線は EXIT=0 / 162件・61ファイル）。**妥当でなければ宣言を上げるのではなく参照の側を直すのが筋**であり、その分岐を先に潰した
+  - **独立レビューが見つけた決定的な裏づけ**: 母集団の既存メンバー `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` は、**まったく同じ形**（E2E spec 内の、裁定記録の制約を説明する散文の註釈）で 115.300 の時点から在籍している。裁定文書 §6 自身も「本記録の名を引くファイルは…いずれも散文である」と書いており、**散文の言及を数えるのがこの母集団の確立した規則**である。12件目を除外する側に倒すのは既存の数え方と矛盾する
+  - **親の申し送りは本件に当たらなかった（実装者の反論が正しく、独立レビューも支持した）**: 親は「ラチェットの下限は、減ることが正当な母集団に置いてはならない」（本実行で 101.1 の自己検査から学んだ教訓）を申し送ったが、**本件は逆の型である**。(i) あちらは自己検査の `>= N` という**片側の下限**で、**何も壊れていないのに**正当な取り下げで落ちる形。(ii) 本件の宣言は `expected == actual` の**等値**判定で、増でも減でも止まる。(iii) しかも止まった結果は「定数を下げ直して黙らせる」のではなく、**規約 (a) に従って当時の値を残したまま再実測を並べる監査証跡**になる。`note` が「増減すればその主張を測り直す契機になる」と述べ、§6 の 115.301 の段落が「以後は読み手が増減した押下が測り直しで止まる」と**予告している**（独立レビューが逐語で確認）。すなわち**今回の発火は誤検知ではなく設計どおりの発火**である
+  - **是正（規約 (a) に沿って段落を足した。値を上書きしていない）**: 逐語の所在は `scripts/coverage-mark-adjudication.md`（**別スペックの設計文書ではないので上流所管に当たらない**）。§6 へ新段落を追加し、**80.4 の「11 件」の段落は当時の値として残置**した。新段落は 12 件・増分の出所（`3366deca`、2026-09-16、本機能のコミット。`git log -S` で特定）・妥当性の変異実測を記録する。宣言側は `anchor` を新段落へ、`expected` を 11→12、`documentRendering` を「再実測は 12 件である」へ、`note` を追記。**規約 (a)（`.kiro/specs/site-survey/design.md` の「実測値の書き方」）は「当時の値を残したうえで現況の再実測を同じ場所へ並べる」「歴史記録は (a) に限る——書き換えると当時の母集団が失われる」と定めており、値の上書きではなく段落の追加が正解**である（独立レビューが規約の逐語を読んで確認）
+  - **関門が空洞でないことの実測（片側だけの変異を両方向）**: **文書だけ 13 件へ変異** → `anchor の行が documentFigure を載せていません（文書側が書き換わった疑いがあります）` で赤。**宣言だけ 13 へ変異** → 上記＋`expected=13 actual=12` の2件で赤。実装者と独立レビューが別々に実測した。復元はいずれも控えからの書き戻しで行い `sha256sum` の一致を確認した（`git checkout` / `git reset --hard` は不使用）
+  - **検証（親が提出時に自分で実測）**: 作業ツリーは `scripts/` の2件のみ、**`git diff frontend/ backend/ .kiro/` は 0 行**。`check:design-measurement-freshness` の食い違いは **14 → 13** で、**全文 `diff` は当該1行の削除のみ**（`[coverage-adjudication-reader-files] … expected=11 actual=12` が消え、他は一字も動いていない）。**残る13件に `coverage-mark-adjudication` 由来は0件**——全件が上流 `.kiro/specs/site-survey/design.md` 所管である。`check:adjudication-pointers` / `:selftest` / `check:req-exclusions` / `:selftest`（70/70）/ `check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:trace-coverage` / `check:cf-evidence` / `check:steering-refs` / `check:steering-idents` / `check:steering-dir-counts` / `type-check` / `lint` / `format:check` がいずれも **exit 0**
+  - **観測（範囲外。受け皿を 100.17 として起票した）**: **母集団の取り方に穴がある**——宣言のコマンドの `--include` に `.sh` が無いため、**`.husky/scripts/pre-push.sh` の言及が母集団に入らない**（`--include` 無しの `grep -rln` では 13 件になる）。**押下前の関門を駆動する最も「機械らしい」読み手が、§6 の「本記録を読む機械は」の母集団から漏れている**。これは 115.300 が §6 の逐語へ固定した既存の母集団定義の性質であり、是正はコマンドの書き換え＝母集団定義の変更を伴う → **100.17**
+  - **観測（範囲外・上流所管）**: `check:design-measurement-freshness` の残 13 件はすべて `.kiro/specs/site-survey/design.md` 所管である。うち `selftest-entry-population` / `selftest-failure-default-conforming` の2件は **101.2**（`_Blocked:` site-survey 115.331）が受け皿を持つが、**残る11件には本スペック内にも上流にも受け皿が見当たらない**（`requirement-exclusions-total` expected=205 actual=160、`named-inline-id-headers-after-115308` expected=22 actual=84、`pending-implementation-exclusions-after-115314` expected=14 actual=4 など乖離幅が大きいものを含む）。**上流 site-survey の Task 115.330 が同じ系列を扱っているため、その棚卸しに含まれるかの確認が要る**
+
+- [x] 100.15 除外の自己検査が探針を ID で名指しする箇所を、残る一件についても性質で見つける形へ改める
+  - **出所**: 機能レベル検証（2026-09-18）の是正の途中で親が観測した。**同型の欠陥が本実行で現に発火した**（下記）
+  - **本実行で発火した側（是正済み）**: `scripts/check-requirement-exclusions.selftest.ts` の `ENUMERATION_PROBE_ID` が `quantity-table-generation/REQ-28.2` ではなく `quantity-table-generation/REQ-26.7` を直書きしており、**タスク 100.5 が同条文の除外を取り下げた瞬間に `entryById` が「実物に存在しない」で送出し、陽性対照39件を含む機構全体（70件）が最後まで走らなくなった**。基線 `56a6a164` では exit 0 だったことを一時 worktree で実測して検出した。**除外の取り下げは本検査自身が推奨する営みであり、それが検査を壊す構造は誤りである。** `promiselessEntry` と同じく性質で見つける `enumerationProbeEntry` へ改めた
+  - **残っている側（本タスクの対象）**: 同ファイルの **`NO_ENUMERATION_PROBE_ID = 'estimate-request/REQ-14.5'`**（原文に中黒の列挙が無い除外の探針）が**依然として ID 直書き**である。当該除外が取り下げられた日に、同じ形で機構全体が止まる。**現時点では緑であり本実行の回帰ではない**
+  - **選ぶべきこと**: `enumerationProbeEntry` と対になる「列挙を持たない除外を性質で見つけ、無ければ送出する」関数へ改めること。**改めたうえで、走査を殺す変異（`extractEnumeratedElements` が常に空を返す等）で現に赤くなることを実測すること**（本実行の是正では `MUTANT_EXIT=1` を実測した）
+  - **所管**: 探針が名指すのは estimate-request の除外だが、**欠陥は共有スクリプトの構造にあり、直近で踏んだのは本機能である**。本機能で解いてよいが、estimate-request 側の取り下げ予定と衝突しないか着手時に確かめること
+  - _Boundary: `scripts/check-requirement-exclusions.selftest.ts` の `NO_ENUMERATION_PROBE_ID` とその利用箇所_
+  - **旧探針は ID 直書きであるだけでなく、事実上恒真な陰性対照だった（実装者が発見し独立レビューが実測で確認）**: `NO_ENUMERATION_PROBE_ID` が指す `estimate-request/REQ-14.5` の原文は「The システム shall 受領見積書の削除時に論理削除を行う」で、**読点も中黒も1つも含まれていない**。当該対照は `mustReject: false`（＝弾かれないことを主張する）であるから、**並べるものが何も無い相手を選べば、機構をどれだけ緩めても violation は生まれず、対照は在るだけで何も見ていない**。本タスクは ID 直書きの解消と**恒真な対照の是正**を同時に果たした
+  - **是正**: `promiselessEntry` / `enumerationProbeEntry` と同じ作法（**性質で見つけ、無ければ送出する**）の `noEnumerationProbeEntry(document)` を新設した。選ぶ性質は三つ——(1) 中黒の列挙が0件（＝限界の前件が立つ）、(2) **読点を中黒へ読み替えれば二要素以上が読める**（＝**取り逃がす当てが実在する**。旧探針が恒真だった原因を正面から塞ぐ）、(3) 説明を総称へ置き換えるとその要素の少なくとも一つが代替検証のどの欄にも現れなくなる（＝変異が効いている）。加えて置き換え前の説明が総称と一致しないことも見る（**「変異したつもりの無変異」を作らないため**）
+  - **独立レビューが実装者の CONCERN を反証した（本タスクで最も重い論点）**: 実装者は「変異 (C)（抽出器本体を緩める）では当該対照が『誤って弾かれた』ではなく**探針の前提崩壊の送出**で赤くなる。対照が実質的に自分自身を検査している循環の疑いがある」と自己申告した。**独立レビューは自分で変異 M-F を設計してこれを反証した**——`checkAlternativeCoverage` の**呼び出し側1行だけ**を緩め（`extractEnumeratedElements(entry.criterionText.split('、').join('・'))`）、**探針が使う抽出器本体は無傷に保つ**。すると当該対照は前提崩壊ではなく**「過検出（誤って弾かれた）」として本来の極性で赤くなり、しかも自分の探針が選んだ `exclusions[6]`（REQ-24.3）を名指しした**（欠落要素「最大5回」「1分」「5分」「15分」「1時間」「6時間後」）。同じ実行で他の対照が挙げるのは `[3] [19] [42]` のみで `[6]` は現れないため、**赤の原因はこの対照自身の変異に帰属する**。すなわち循環ではない。**旧探針を同じ M-F に当てるとこの検出は成立しなかった**——恒真性の是正が実効を持つことの直接証拠である
+  - **変異による検証（独立レビューが実装者をなぞらず6種を自分で設計。落ちない壊し方は無かった）**: **A** `namesElement` を常に `true` → 条件3が全件 false で**候補が0件**になり、**新設 `noEnumerationProbeEntry` 自身が前提崩壊を送出**して EXIT=1（**候補が0件のとき緑にならず赤になることの直接の実測**。AI運用第3原則）。**B** `namesElement` を常に `false` → 陽性対照側が検出。**C** 抽出器で読点を中黒へ読み替える → 新設関数が送出。**D** 常に `['甲','乙']` を返す／**E** 常に `[]` を返す → 対の `enumerationProbeEntry` が先に送出。**F** 呼び出し側だけ読点を読む → 当該対照が「過検出」で赤（上記）
+  - **候補の独立計数**: 独立レビューが自前のスクリプトで三条件を再現して数え、**候補15件・先頭 `REQ-24.3`**（実装者の主張と一致）。中黒の列挙を持たない除外は 160 件中 151 件あり、三条件で 15 件へ絞られる。**1件が取り下げられても残る14件へ自動で移るため、ID 直書きの再発は構造的に起きない**
+  - **検証（親が提出時に自分で実測）**: 作業ツリーは `scripts/check-requirement-exclusions.selftest.ts` の1件のみ。**`git diff frontend/ backend/` は 0 行**、**`scripts/check-requirement-exclusions.ts` の `git hash-object` が HEAD と一致**（本体は無変更）、**`git diff e2e/requirement-exclusions.json` は 0 行**（探針を作るために実データを触っていない）。自己検査は **70/70・EXIT=0（陽性対照 39 / 陰性対照 8 / 機構 23）で件数構成は着手前と不変**。`check:req-exclusions` / `check:adjudication-pointers` / `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:dead-script-env` / `type-check` / `lint` / `format:check` がいずれも **exit 0**。`check:design-measurement-freshness` の食い違いは **13 件で着手前と `diff` が空**（増えていない）
+  - **下限の定数を新設していない**（本実行の教訓「ラチェットの下限は、減ることが正当な母集団に置いてはならない」に抵触しないこと。独立レビューが `MIN_` / `MINIMUM` / `下限` / `LOWER_BOUND` の追加が0件であることを実測）
+  - **観測（範囲外。受け皿を 100.18 として起票した）**: **同ファイルに ID 直書きの探針が4つ残っている**——`COVERED_PROBE_ID = 'site-survey/REQ-1.3'`、`SHIFT_TARGET_ID = 'site-survey/REQ-29.2'`、`MUTATION_SOURCE_ID = 'site-survey/REQ-14.4'`、`RETIRED_PROBE_ID = 'quantity-table-generation/REQ-1.3'`。いずれも `entryById` 経由で、**指し先が取り下げられれば同型の「機構全体が止まる」障害を起こしうる** → **100.18**
+  - **観測（範囲外・非ブロッキング）**: `alternativeTextWithDescription` が `alternativeTextOf` の本体を逐語で複製している。`alternativeTextOf({ ...entry, alternativeVerification: { ...altOf(entry), description } })` へ委譲すれば担い手が一箇所に収まる（独立レビューの Suggestion 11）
+
+- [x] 100.16 estimate-request の OCR 打ち切りの判定が、同型のコイン投げを抱えている状態を解消する
+  - **出所**: 100.12 の実装者の CONCERNS (1) と独立レビューの Finding 6（いずれも本タスクの境界外と判定された）
+  - **測った事実（100.12 で実測。着手時に測り直すこと）**: `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` は `e2e/fixtures/test-scanned-pdf-multipage.pdf`（**150ページ**）を「30秒では終わらない量」として使い、経過時間の受入幅も `>=29000` / `<=34000` と同型である。**しかし 100.12 が実測した当該資材の OCR 所要は 29882ms で、打ち切りの30秒と±1秒しか違わない**。同 spec の註が残す実測（30832 / 30849 / 30903ms）も**余裕が1秒未満**であり、**完走が先に着いた試行では判定が赤になる**
+  - **先例（100.12 の是正）**: 時計を替えるのでも上限を上げるのでもなく、**仕事量を増やして完走と打ち切りの順序を確定させた**。600ページの資材を新設して余裕を4倍以上にし、打ち切りを外す変異・打ち切りを1秒にする変異・資材の破損/欠落のいずれでも赤になることを実測した。**同じ道が取れる**（生成器 `e2e/fixtures/generate-image-only-pdf.mjs` は決定論的で、`--pages` を変えるだけでよい）
+  - **注意**: **既存の `test-scanned-pdf-multipage.pdf` を作り替えないこと**。他の spec が同じ資材を参照している。新規資材を足す道を採ること（100.12 の先例）
+  - **所管**: **estimate-request スペック**。本項は下流からの申し送りであり、**着手は当該スペックの `/kiro-impl` で行うのが筋である**。本スペックで解く場合は越境として明示的に記録すること
+  - **利用者の裁定（2026-09-23）**: **越境であることを明示して本スペックで是正してよい**（estimate-request 側の資材を作り替えず、新規資材を足す道を採ること）
+  - **処遇（2026-09-23、リポジトリルートで実測）**: 100.12 の先例どおり、時計でも上限でも受入幅でもなく**仕事量**で解いた。資材を 150 ページから **600 ページ**（新規 `e2e/fixtures/test-scanned-pdf-quotation-ocr-timeout.pdf`）へ差し替えた。本番コードは一行も変更しておらず、`git diff .kiro/ frontend/ backend/` は 0 行である
+  - **着手時に測り直した距離（起票文の値は別経路のものだった）**: 打ち切りを外したビルドで画面側の `performance.now()` で完走まで測ると、**150 ページ資材は 36435ms**（打ち切りの終端 30914ms に対し余裕 5.5 秒＝約1.18倍。1ページ約212ms なので数十ページ分の揺れで消える距離）、**新 600 ページ資材は 127588ms**（約4.1倍）。起票文が引いた「29882ms・±1秒」は数量表インポート側の実測値であり、**本経路の距離は 5.5 秒であった**（危険の型は同じだが数値は測り直して記録する）
+  - **越境の記録**: 変更した spec の**冒頭 docblock と当該検査の docblock の2箇所**に、どのスペックのどのタスクの是正か・裁定の日付・経緯の在り処（本ファイルの 100.16 の節）・先例（100.12）を明記した。指し先の実在は独立レビューが確認し、`check:adjudication-pointers` も exit 0
+  - **恒真でないことの実測**: 実装者が5系統——(a) 打ち切りを外す（`OCR_TIMEOUT_MS` 600000）→ **`Test timeout` ではなく判定自身の文言**で赤、(b) 1秒 → Tesseract 資材の判定で赤、(b') 10秒 → 「エラー表示までが短すぎる（10821ms）」で赤＝**下限 29000 が恒真でないことの直接の実測**、(c1) 資材の欠落 → ENOENT、(c2) 60KB へ切り詰め → 赤。**独立レビューは別形の変異 M-A を自分で設計**（資材を1ページの `test-scanned-pdf.pdf` へ差し替え＝「打ち切られない状態」を作る）して**赤**を再現し、落ちた文言が判定自身のものであることから **`test.setTimeout(getTimeout(180000))` への引き上げが主張を骨抜きにしていない**ことを独立に確かめた
+  - **重複資材の判断（独立レビューが妥当と裁定）**: 新資材は 100.12 が作った `test-scanned-pdf-ocr-timeout.pdf` と**バイト列が完全一致する**（md5 `f3b6a820…`。同じ決定論的生成器・同じ引数のため）。**ただし `git hash-object` も両者 `5ebcdc2809…` で同一であり、git は内容アドレスなので blob は1個しか増えない**——増分は tree エントリ1件で、136KB の二重化は作業ツリーにしか現れない。共有せず各検査が自分の資材を持つ理由は、**150 ページ資材を2スペックが共有したまま片方向けに保たれた仕事量が他方でコイン投げになったのが 100.12→100.16 の連鎖そのもの**であり、しかも当時の註に「両者も同じ理由で揺れうる」と書いてあったのに2タスクを要した＝**散文の注意書きは保護として機能しなかった**という実測にある
+  - **既存資材は作り替えていない**: `test-scanned-pdf-multipage.pdf` の md5 は `882fd2f3…` で、親が `git hash-object` と `git rev-parse HEAD:` を突き合わせて blob が HEAD と同一（`eb26cd13…`）であることを確認した。生成器は**注記のみの変更で生成ロジックは一行も変えていない**
+  - **検証**: E2E は該当 spec のみ **5/5 PASSED・exit 0**（当該検査 35.9s。全件走行なし）。関門は `check:e2e-guards` / `check:e2e-selfjudge` / `check:criterion-literals` / `check:req-exclusions` / `check:adjudication-pointers` / `check:trace-coverage` / `check:dead-script-env` / `check:cf-evidence` / `type-check` / `lint` / `format:check` がいずれも exit 0。赤2本は基線と同一（`check:req-coverage` の未被覆一覧に REQ-17.8 / 19.8 は無い。`check:design-measurement-freshness` の食い違い14件はすべて `.kiro/specs/site-survey/design.md` 所管で **100.12 が記録した基線14件と同数**）。判定は2点とも `performance.now()` の**単調時計**で測っており WSL2 の壁時計のずれは結論を動かさない。被覆印は読み手で数えて **estimate-request の e2e 配下 369件が前後一致**（削除行に REQ トークン0件、追加は 17.8 / 19.8 が各4件）
+  - **観測（範囲外・受け皿を 100.20 として起票した）**: **150 ページ資材 `test-scanned-pdf-multipage.pdf` を読み込む検査が 0 件になった**（残る2件はいずれも散文）。加えて散文が2箇所陳腐化した——`e2e/specs/quantity-tables/import-e2e.spec.ts:1891`（「同じ資材を scanned-pdf-ocr-fallback と pdf-text-extraction が使っており」と述べるが**現在はどちらも読んでいない**）と `e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts:587`
+  - **観測（範囲外・処置不要）**: (i) 当該検査 docblock の「1ページあたり約212ms」は 600ページ実測（127588/600）由来で、150ページ実測から出る率（約237〜243ms）とは一致しない（結論はどちらの率でも成り立つ）。(ii) 旧注記にあった歴史的実測（`120000` へ変えると60秒経っても現れない／当時は壁時計で 28.6秒→11.3秒）が新実測に**置き換えられて消えた**——当時の値を残す本リポジトリの作法に照らすと併記が望ましい。(iii) 生成器の注記が md5 を逐語で書いているため、将来どちらかのページ数を動かすと陳腐化する（機械の検査は当たっていない）
+  - _Boundary: `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` の OCR 打ち切りの判定と、その資材_
+
+- [x] 100.17 裁定文書の読み手の母集団が、押下前の関門を駆動するファイルを取りこぼしている状態を解消する
+  - **出所**: 100.14 の実装者の CONCERNS (3) と独立レビューの Finding 6（いずれも本タスクの境界外と判定された）
+  - **測った事実（100.14 で実測）**: `scripts/design-measurements.json` の `coverage-adjudication-reader-files` が母集団を数えるコマンドは `--include` に `.sh` を持たないため、**`.husky/scripts/pre-push.sh` の裁定文書への言及が母集団に入らない**。`--include` を外した `grep -rln` では **13 件**になる（宣言は 12 件）
+  - **なぜ問題か**: §6 は当該の値を「**本記録を読む機械は**」の母集団として述べている。**押下前の関門を駆動する `pre-push.sh` は、その言い回しに最もよく当てはまる読み手である**。それが母集団から漏れているのは、宣言の文言と実体の乖離である
+  - **選ぶべきこと**: コマンドの `--include` を広げて母集団を定義し直すか（**その場合 `expected` も同時に測り直すこと**。規約 (a) に従い当時の値は残す）、§6 の言い回しを実体へ寄せるか
+  - **注意**: これは **115.300 が §6 の逐語へ固定した既存の母集団定義の変更**にあたる。**母集団の定義を変えるなら、変えた後の値が再び陳腐化しない形か**（拡張子を列挙し続ける運用にならないか）を併せて考えること
+  - _Boundary: `scripts/design-measurements.json` の `coverage-adjudication-reader-files` の `command` と `expected`、および `scripts/coverage-mark-adjudication.md` §6 の当該の言い回し_
+  - **起票文の前提の訂正（着手時の実測）**: 当該宣言は**着手前から緑であった**（100.14 が expected=12 へ測り直し済み）。欠陥は「赤い」ことではなく、**緑のまま実体を代表していない**ことである。したがって完了の主張は「赤を1件減らした」ではなく「**失敗行の集合が基線と一字も変わらないまま、母集団が実体を代表するようになった**」である
+  - **処遇（2026-09-23、リポジトリルートで実測）**: 二択のうち**コマンドを改めて母集団を定義し直す**側を採った。ただし `--include` に `.sh` を足す（＝拡張子を列挙し続ける運用）ではなく、**`git grep -l coverage-mark-adjudication | wc -l`** へ改めた。expected は 12→13、`anchor` と `documentRendering` も 100.17 の時点の値へ揃えた
+  - **再び陳腐化しない根拠（3点とも独立レビューが実測して確認した）**: (i) **拡張子を一つも持たない追跡ファイルが現に在る**（`.husky/pre-push` / `pre-commit` / `commit-msg`。`git ls-files .husky` で実測）ので `--include` はどう足しても挙げられない。(ii) 生成物（`playwright-report/` / `test-results/` / `blob-report/` / `dist/`）と `node_modules/` は `.gitignore` に在るため `git grep` が最初から見ない——旧形が `grep -v` で列挙していた除外は、生成物が増えるたび追記が要る同型の負債であった。(iii) 素の `grep -rln` は**本記録の名を綴るコミットメッセージを書いた瞬間に `.git` 配下で増える**ため採らなかった（レビュアーは `.git/logs/HEAD` も同じ経路で増えるので **+1 では済まず +2 になりうる**と補強した）
+  - **母集団の移り**: 12→13。**落ちたものは 0 件**で、増分は `.husky/scripts/pre-push.sh` の1件のみ（親とレビュアーが `comm` で集合差を実測し、13件を全件列挙して突き合わせた）。増分が「読み手」として妥当であることも確認済み——`pre-push.sh` は `# - 対象は scripts/coverage-mark-adjudication.md の "## 4." から "## 5." の手前まで` と逐語で述べ、直後に `check:adjudication-pointers` を押下前に走らせる
+  - **本タスクの存在意義そのものの実測（M2）**: `.husky/scripts/pre-push.sh` から当該の1行を削る変異を当てると、**新形では `[coverage-adjudication-reader-files] expected=13 actual=12` で赤**（基線出力との差はこの1行の追加のみ）だが、**同じ変異を旧形へ当てた出力は基線とバイト単位で完全一致**であった。すなわち**是正前は、押下前の関門が本記録への言及を丸ごと失っても当該宣言は何も述べなかった**。独立レビューが自分で再現している。ほかに M3（文書側だけ変異）・M4（`expected` だけ変異）でも赤になることを実測した
+  - **規約 (a) の遵守**: 削除行は `design-measurements.json` の当該宣言の5欄のみで、`coverage-mark-adjudication.md` は**追加45行・削除0行**。115.300 の「7件」/ 115.301 の「10件」/ 80.4 の「11件」/ 100.14 の「12件」の各段落と旧コマンドのコードフェンスは**すべて残置**されている（レビュアーが `git diff` で確認）
+  - **検証**: `check:design-measurement-freshness` の出力は**基線と全文一致**（ヘッダの「宣言149件 / 対象文書4件」まで一字も動かない。失敗は13宣言・14行で全件 `.kiro/specs/site-survey/design.md` 所管）。`:selftest` も合否集合が基線と一致（1/56 失敗は既存の「実データの対照」）。自己検査の分類も不変——新コマンドは `isPinnedAdjudicationCommand` の `/ [0-9a-f]{7,40}(?: -- |:)/` に当たらず live のままで、pinned=1 / live=5 の両対照は緑。`check:adjudication-pointers`（162件/61ファイル）と `:selftest`（76/76）は exit 0。本番コード・E2E・スペック文書への波及は 0 行
+  - **上流へ起票した（本変更が新たに作った陳腐化を含む）**: `.kiro/specs/site-survey/design.md:9455` の「**この絞りの外で記録を引くファイルが増えても値は動かない**」は、**本変更で偽になった**（M1 がまさに「絞りの外」である `.sh` の増減で値が動くことの実測である）。同 9442 行の「所管の4文書を指す **124件**の宣言」も既に陳腐化している（現況 **149件**。本変更は件数を動かしていない＝既存の陳腐化）。**どちらもどの宣言の `anchor` でもないため機械は永久に捕まえない**。**親が上流 site-survey の Task 115.330 へ追記の形で書き込んだ**（下流は上流の設計文書も tasks.md の既存の記述も書き換えていない）
+  - **観測（範囲外・受け皿を 100.21 として起票した）**: **新形でも「名を綴らない読み手」は数えない**。具体例は `scripts/check-adjudication-pointers.selftest.ts`——`runCheck` を import して本記録を現に読むが、ファイル名を一度も綴らないので母集団に入らない。§6 の「本記録を**読む機械は**」という言い回しと `note` の「名を**引く**ファイルの数」という定義の乖離は縮んだが閉じていない（100.17 の第二の選択肢「§6 の言い回しを実体へ寄せる」は未着手）
+  - **観測（範囲外・処置不要）**: (i) `git grep` はサブディレクトリから走らせると探索範囲が絞られる（`git -C scripts` → 7、`git -C frontend` → 0）。関門側は `runMeasurement` が `cwd: root` を渡すので機械は安全で、危険なのは人手の再実測だけである。(ii) §6 の NUL バイト開示の段落の「上の宣言コマンド」が新しいコードフェンスの後ろに位置する（主張の真偽は新旧どちらでも変わらないが、同型の曖昧さが残る）。(iii) `scripts/check-design-measurement-freshness.selftest.ts:2390-2397` の註釈の現在形も偽になったが、コミットと日付で固定された歴史記録であり規約 (a) の下では残置にも理がある
+
+- [x] 100.18 除外の自己検査に残る4件の ID 直書きの探針を、性質で見つける形へ改める
+  - **出所**: 100.15 の独立レビューの Finding 12（本タスクの `_Boundary:_` 外と判定された）
+  - **測った事実（100.15 で実測。親も確認済み）**: `scripts/check-requirement-exclusions.selftest.ts` に ID 直書きの探針が**4つ**残っている——`COVERED_PROBE_ID = 'site-survey/REQ-1.3'`、`SHIFT_TARGET_ID = 'site-survey/REQ-29.2'`、`MUTATION_SOURCE_ID = 'site-survey/REQ-14.4'`、`RETIRED_PROBE_ID = 'quantity-table-generation/REQ-1.3'`。いずれも `entryById` / `pointEntryAt` / `pointEntryAtRetired` 経由である
+  - **なぜ急ぐべきか（本実行で同型が現に発火した）**: `ENUMERATION_PROBE_ID` が `quantity-table-generation/REQ-26.7` を直書きしていたため、**タスク 100.5 が同条文の除外を取り下げた瞬間に機構全体（70件・陽性対照39件を含む）が未捕捉例外で止まった**。しかも `check:req-exclusions` 本体は exit 0 のままで**関門の見かけは緑**だった。**除外の取り下げは本検査自身が推奨する営みであり、それが検査を壊す構造は誤りである**
+  - **手本は2件ある**: `enumerationProbeEntry`（本実行の機能レベル検証の是正）と `noEnumerationProbeEntry`（100.15）。いずれも `promiselessEntry` の作法（**性質で見つけ、無ければ送出する**）に倣っている
+  - **注意**: **`RETIRED_PROBE_ID = 'quantity-table-generation/REQ-1.3'` は本機能の条文である**。Requirement 1 は全受入基準が `project-management/Requirement 25` へ移管済み（打ち消し線）であり、**当該除外が台帳に在るのか、既に無いのかを着手時に測ること**。無いなら本タスクは緊急である
+  - **改めるにあたり**: 探針は**当該の対照が何を固定したいか**で選ぶこと。100.15 は陰性対照の探針を「**取り逃がす当てが実在する**相手」で選び直すことで、**ID 直書きの解消と恒真な対照の是正を同時に果たした**。単に性質へ置き換えるだけでなく、**置き換えた探針で対照が現に効くことを変異で実測すること**
+  - _Boundary: `scripts/check-requirement-exclusions.selftest.ts` の `COVERED_PROBE_ID` / `SHIFT_TARGET_ID` / `MUTATION_SOURCE_ID` / `RETIRED_PROBE_ID` とその利用箇所_
+  - **着手時の実測（2026-09-23。台帳は本実行の 100.8 / 100.10 / 100.13 の取り下げで 160→157 件へ動いている）**: `MUTATION_SOURCE_ID = site-survey/REQ-14.4` は**台帳に在る**（取り下げられた瞬間に壊れる）。`SHIFT_TARGET_ID = site-survey/REQ-29.2` は台帳に無い（ずらし先なので正しい）が、**同じ対照が `entryById(d, 'site-survey/REQ-29.3')` という逐語を別に持ち**そちらが壊れうる側であった。`RETIRED_PROBE_ID = quantity-table-generation/REQ-1.3` は**墓標が `requirements.md:150` に今も実在する**——緊急ではなかったが、移管の跡が整理された日に壊れる構造であった
+  - **処遇**: 4定数を**性質で選ぶ関数**へ置き換えた——`mutationSourceEntry`（三欄が現に要件定義書と合い、被覆印がその番号を名乗っていない除外）／`shiftPair`（上に加え、同じ要件の中で除外にも被覆印にも掛からず**原文が変異元と異なる**ずらし先との組。原文が同じ相手を選ぶと対照が恒真になるため4番目の条件を明示した）／`coveredProbeCriterionId`（ラチェットでない被覆印**だけ**が名乗り、除外に載らず、要件定義書に実在し、原文が中黒で列挙していない受入基準）／`retiredProbeCriterionId`（墓標として実在し、題が読め、除外に載らず、原文が中黒で列挙していない受入基準）。派生の逐語（`site-survey/REQ-14.99`・`REQ-99: 架空の要件`・`MUTATION_SOURCE_REQUIREMENT`）も実物から作る形へ改め、**`entryById` は撤去した**（呼び出し元ゼロ。ID で除外を引く受け皿が在る限り直書きはいつでも書き戻せるため関数ごと無くした）
+  - **5つ目の同型も直した（独立レビューが境界内と裁定）**: 機構の固定「撤廃済みの受入基準を指す除外を、番号違いと言い分けて報告する」が**同じ墓標 `quantity-table-generation/REQ-1.3` と `REQ-999.1` を直書きしていた**。レビュアーは**分離して実測**し、墓標を整理する同一の変異が4探針の側（素の HEAD では33件目で中断）と機構の固定の側（分離すると 1/70 が赤）の**両方を壊す**ことを確かめたうえで、`_Boundary:_` の「とその利用箇所」の範囲内と判定した
+  - **RED（是正前は4つとも同型に壊れる。独立レビューが自分で再現した）**: いずれも `check:req-exclusions` **本体は exit 0 のまま（関門の見かけは緑）**、自己検査だけが未捕捉例外で中断した——`site-survey/REQ-14.4` の取り下げで **28/70**、`site-survey/REQ-29.3` の取り下げで **29/70**、墓標の削除で **33/70**、被覆印の付け替えで **35/70**。**この4つの件数はレビュアーの実測と完全に一致した**
+  - **GREEN（本タスクの目的そのもの）**: 是正後は同じ6通りすべてで **70/70 緑**。**新探針自身の指し先（`project-management/REQ-18.1`）を取り下げても緑**で、探針が別の相手へ自動で移ることを確認した。**除外の取り下げは本検査自身が推奨する営みであり、それが検査を壊す構造は解けた**
+  - **恒真でないことの実測**: 実装者が検査本体を丸ごと潰す変異（`checkCriterionCorrespondence` → 7/70 失敗、`checkCoverageTagCoexistence` → 4/70 失敗）で測り、**独立レビューは別形の変異を4本自作した**——逐語比較を**先頭5文字だけ**へ弱める（**1/70 だけを狙撃**）／同居の検査を「3件以上のときだけ報告」へ弱める（4/70）／**探針の相手をラチェット専用の受入基準へ固定**する（1/70）／墓標を黙って見逃す（2/70）
+  - **前提が絶えたら黙らず送出する（第3原則）**: 4つの探針それぞれの述語を潰して候補を絶やすと、**4つとも EXIT=1 で前提の崩壊を送出**した（レビュアーも指示の2件を超えて4件すべてを自分で当てた）
+  - **`assertCoveredByE2E` の撤去は「恒真化するから消した」ではない**（レビュアーの判定）: 固定は**探針の選択述語へ移し替えられ、しかも条件が強くなっている**——旧「ラチェットでない印が1件以上ある」（ラチェット混在を許す）→ 新「**印が1件もラチェットでない**」。その条件が現に効くことを、探針の相手をラチェット専用の受入基準へ固定する変異で実測した
+  - **中身が弱まっていないことの実測**: 件数は **70/70（陽性39 / 陰性8 / 機構23）で是正前と同数・同構成**（親も提出時に自分で走らせて確認した）。加えてレビュアーが**検査本体への同一変異を素の HEAD と是正後の両方へ当てて失敗集合を突き合わせる**行列を作り、5本のうち4本は失敗集合が完全一致、1本（同居を3件以上へ弱める）は**是正後の方が厳密に強かった**（新探針は印が2件で、少件数の弱め方に敏感）
+  - **探針の決定性**: 実装者は「並び順に依存して変わりうる（同一実行内では決定的）」と述べたが、レビュアーは**リポジトリの内容が同じなら実行をまたいでも決定的**であることを確かめた（`discoverFeatureNames` は `.sort()` 済み、`coveredProbeCriterionId` は辞書順 `sort` してから `find`）
+  - **検証**: `check:req-exclusions`（157件）と `:selftest`（70/70）はいずれも exit 0。`check:criterion-literals` / `check:adjudication-pointers` / `check:dead-script-env` / `check:cf-evidence` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:trace-coverage` と各 `:selftest`、`type-check` / `lint` / `format:check` もすべて exit 0。赤2本は**出力が基線とバイト単位で同一**（レビュアーが HEAD 版と入れ替えて両方で実行）。変更は自己検査1ファイルのみで、測定で触れた4ファイル（台帳・検査本体・requirements.md・E2E spec）は `git hash-object` が HEAD と一致し、親も `git status --porcelain --untracked-files=all` が1行であることを確認した
+  - **観測（範囲外・受け皿を 100.22 として起票した）**: **`expectCheck` は検査名の粒度であって枝の粒度ではない**。レビュアーの変異——`shiftPair` のずらし先を**あえて被覆印つき**へ固定しても 70/70 緑、要件番号の食い違いの枝を恒偽化しても素の HEAD・是正後とも 70/70 緑（題の照合が同じ `criterion-correspondence` として代わりに鳴る）——が示すとおり、`checks.has(testCase.expectCheck)` しか見ないため**同時に立つ第二の違反を許す**。素の HEAD と挙動が同一なので本タスクの回帰ではない
+  - **観測（範囲外・処置不要）**: (i) 新設コメントの「当該の一行を消すと 70件中この一件だけが赤になった」は、**4探針を性質へ直したうえで機構の固定だけを直書きのまま残した中間状態**でのみ成立する（素の HEAD では33件目で中断する）。レビュアーはその中間状態を作って 1/70 を再現し値そのものは正しいと確認したうえで、測定の前提を一言添えると読み手が迷わないと述べた。(ii) `scripts/check-counterfactual-evidence.ts:214` と同 `.selftest.ts:435` に撤去された記号への散文の言及が残るが、日付とタスク番号で固定された歴史記録／合成の見本であり機械の依存は無い
+
+- [x] 100.19 REQ-8.7 を名乗る第二の検証が本番から呼ばれないまま残っている状態を解消する
+  - **出所**: 100.10 の独立レビューの Finding 2（逐語の境界外と判定された）
+  - **測った事実（100.10 で実測。独立レビューが呼び出し元を自分で追跡した）**: `frontend/src/utils/calculation-engine.ts` の `validateAreaVolumeParams` は docblock で `Requirements: 8.7` を名乗るが、`grep -rn validateAreaVolumeParams` の当たりは**自身の定義と自分のテストのみ**である。`frontend/src/utils/calculation-engine` を取り込む本番ファイルは4つあるがいずれも `calculate` / 型 / `COUNT_MIN,COUNT_MAX` を取るだけで当該関数を取らず、バレルも存在しない。**すなわち本番から一度も呼ばれない第二の検証である**
+  - **なぜ放置できないか**: 同一条文の検証が二箇所にあると、片方だけが改まって黙って乖離する。100.10 はまさにその乖離（条文 vs 本番）を解消したタスクであり、**同じ罠を同じリポジトリ内に残すことになる**。100.10 は乖離の再生産を避けるため当該関数も条文へ揃えたが、**存在そのものの処遇は決めていない**
+  - **選ぶべきこと**: 撤去するか、`calculation-params-validation.ts` へ一本化するか。**撤去するなら 89.1 / 94.1 の作法を使うこと**——到達可能性を測り、撤去が被覆検査（`check:req-coverage` の被覆印・`check:design-path-refs` の名指し・`check:steering-refs`）を悪化させないことを**前後の実測で示す**こと。設計文書や他スペックの文書が当該の名前を名指すなら、上流へ起票して待つこと
+  - _Boundary: `frontend/src/utils/calculation-engine.ts` の `validateAreaVolumeParams` とその単体検証、および撤去に伴う被覆印・設計文書の追随_
+  - **着手時の測り直し（起票文は正しかった）**: `grep -rn validateAreaVolumeParams` の当たりは自身の定義・自分のテスト・`tasks.md` の歴史記録のみ。`calculation-engine` を取り込む本番4件は `CalculationFields.tsx`（型のみ）／`FieldValidatedItemRow.tsx`（`calculate`）／`EditableQuantityItemRow.tsx`（`calculate`）／`numeric-range-validation.ts`（`COUNT_MIN,COUNT_MAX`）で、当該関数を取るものは零件。**独立レビューはバレル不在（`frontend/src` 全体で `export *` が零件）・動的 import・Storybook・E2E まで自分で追跡し、到達不能を独立に再現した**
+  - **処遇＝撤去（「一本化」は既に済んでいた）**: `design.md:414` が「保存前の計算パラメータ検証は `validateCalculationParams` が単一の情報源として担い、編集画面の保存処理がこれを呼ぶ」と定めており、`calculation-params-validation.ts` の `checkAreaVolumeParams` が同一条件・同一文言を**本番結線で**既に実装している。移設すべき中身が無く、残せば design が宣言した単一情報源に反する第二の検証が残るだけであるため撤去した
+  - **上流の巻き込みは零件（起票して待つ条件に非該当）**: `validateAreaVolumeParams` を名指すのは `tasks.md` の歴史記録4行のみ。全スペックの `design.md`・`.kiro/steering/`・`scripts/*.json` / `*.md`・`e2e/requirement-exclusions.json` のいずれも名指さない（実装者とレビュアーが各々当たった）。`scripts/design-path-exemption-baseline.json` の当たりはファイル名 `calculation-engine.ts` であり、ファイルは存続するので無害。**94.1 の先例に従い design.md に注は置かなかった**（名指しが無く、置けば免除の面を無用に広げるため）
+  - **RED（撤去タスクのため 89.1 / 94.1 の作法。実装者が3本、レビュアーが別形を1本、いずれも自分で変異を当てて実測）**: (1) 当該関数を 100.10 以前の条件（`weight` を許す＝条文から外れる）へ戻しても**本番結線の検証6ファイルは全緑**で、落ちるのは自分のテスト1件のみ——**起票文が言う「第二の検証」の害がそのまま再現した**。(2) 本体を `throw` に置換しても **73ファイル中72ファイルが緑**。(3) 残る単一情報源 `AREA_VOLUME_ANY_KEYS` に `weight` を足す変異で2ファイルが赤。(4) **レビュアーはより強い変異を自作し**、本番の `checkAreaVolumeParams` を恒偽化して**フロント全件**へ当て、`calculation-params-validation.test.ts` と**本番保存経路**の `QuantityTableEditPage.calculationParamsValidation.test.tsx` の2ファイル4件が赤になることを確認した
+  - **REQ-8.7 は撤去後も三層で締まっている（第4原則の基準）**: 本番結線の単体（`calculation-params-validation.test.ts:167` が `@requirement quantity-table-generation/REQ-8.7` を名乗る）／ページの保存経路（`QuantityTableEditPage.tsx` の `handleSave` が `validateCalculationParams` を呼ぶ）／E2E（`quantity-count-calculation-e2e.spec.ts`）。削除した7件が触れていた NaN・0 の面は、本番側 `readNumericParam` が `Number.isFinite` で NaN を弾き 0 を有限値として数えるため**意味論が完全に一致する**
+  - **撤去の関門（前後の実測。`pre-push.sh` 由来の19本＋`count:coverage-marks` の計20本を前後で走らせ出力をバイト比較）**: **19本が出力バイト一致**。赤2本（`check:design-measurement-freshness` / `check:req-coverage`）は**いずれも基線から赤**で、前者は出力まで完全同一。**`count:coverage-marks` はバイト一致＝被覆印は一件も失われていない**——逐語 grep ではなく**プロジェクト自身の読み手で数えた**結果、`calculation-engine.test.ts` が持つ受入基準の印は前後とも1件で不変であり、削除した `describe` の名乗りは機能名を欠くヘッダー配下の**眠る名乗り**で被覆源ではなかった（99.2 / 101.1 の教訓の適用）。動いたのは `check:req-coverage` の**2行だけ、しかも減る向き**（機能名を欠くヘッダー 2005→2004、眠る名乗り 5087→5086。上限は 2023 / 5170 で増加方向のみ失敗するため遊びが広がった）。`check:req-coverage:json` は当該フィールド以外すべて同値で、`productionReachability` の 586/539 も「本番から到達しない受入基準4件」の一覧も不動（REQ-8.7 は前後とも載っていない）
+  - **挙動不変の実測**: フロント全件走行が **前 526ファイル/12030件 緑 → 後 526ファイル/12023件 緑**、差は削除した **-7件ちょうど**。合格テスト名の集合を `comm` で突き合わせ、**消えたのは削除した7件だけ・増えたものは零件**。`type-check` / `lint` / `format:check` はいずれも EXIT=0（lint 警告15件はすべて既存で、触れたファイルには零件）
+  - **検証（親が提出前に新鮮な証拠で再実行）**: `npm --prefix frontend test -- --run calculation-engine calculation-params-validation QuantityTableEditPage.calculationParamsValidation numeric-range-validation CalculationFields FieldValidatedItemRow` が **7ファイル/470件 EXIT=0**、`npm --prefix frontend run type-check` EXIT=0、`npm run count:coverage-marks` EXIT=0。`git status --porcelain --untracked-files=all` は変更2ファイルのみで、リポジトリ全体の当該記号の残存は `tasks.md` の歴史記録のみ
+  - **観測（範囲外・受け皿を 100.27 として起票した）**: 同じ `calculation-engine.ts` に**同型の未到達検証が4つ残っている**——`validatePitchParams`（8.10。`checkPitchParams` との二重化で本タスクと完全同型）／`validateStandardQuantity`（8.3 / 8.4）／`validateAdjustmentFactor`（9.3 / 9.4）／`validateRoundingUnit`（10.3 / 10.4）。いずれも本番から一度も呼ばれず、機能名を欠く docblock で条文を名乗る。本タスクの `_Boundary:_` は当該関数のみを名指すため測定にとどめた
+  - **観測（範囲外・処置不要）**: (i) `design.md:841` の表は 8.1-8.11 の担い手に `CalculationEngine` を挙げるが、同列は**計算**の担い手を指す欄であり、8.7 の**検証**の担い手は `:1029`（BE `QuantityValidationService`）と `:414`（FE `validateCalculationParams`）が定める。設計違反ではない。(ii) `calculation-params-validation.test.ts` は NaN・0 の面を明示的には固定していない（`Number.isFinite` で意味論は保たれる）。本タスクが作った穴ではない。(iii) `check:req-coverage` のラチェット上限（2023 / 5170）は値が減っても引き下げていないが、89.1 / 94.1 の両先例と同じ扱いであり対象は `scripts/` で境界外
+
+- [x] 100.20 150ページのスキャンPDF資材が孤児化し、それを指す散文が陳腐化した状態を解消する
+  - **出所**: 100.16 の独立レビューの Finding 1（本タスクの境界外と判定された）
+  - **測った事実（100.16 で実測。着手時に測り直すこと）**: 100.16 が estimate-request の OCR 打ち切りの判定を 600 ページ資材へ移したため、**`e2e/fixtures/test-scanned-pdf-multipage.pdf`（150ページ）を読み込む検査が 0 件になった**（`grep -rn multipage e2e/ --include=*.ts` の残る2件はいずれも散文）。加えて `e2e/specs/quantity-tables/import-e2e.spec.ts:1891` が「同じ資材を `scanned-pdf-ocr-fallback-e2e.spec.ts` と `pdf-text-extraction-e2e.spec.ts` が使っており」と述べるが、**現在はどちらも読んでいない**（後者は 100.12 の観測 (ii) で既に「名を挙げるのみで読み込んでいない」と判明している）。`e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts:587` も 115.157 当時の履歴記述であり、読み手を実在しない依存へ導きうる
+  - **選ぶべきこと**: 資材を残すか撤去するか、散文をどう扱うか。**撤去するなら 89.1 / 94.1 の作法**（前後の実測で関門が悪化しないことを示す）を使うこと。**ただし他スペックの記録がページ数と実測を逐語で引いているため、撤去は上流の文書を巻き込む可能性が高い**（その場合は起票して待つこと）。散文は規約 (a)（当時の値を残し現況の再実測を並べる）に照らすと、書き換えではなく**現況の併記**が筋である
+  - _Boundary: `e2e/fixtures/test-scanned-pdf-multipage.pdf` の処遇と、`e2e/specs/quantity-tables/import-e2e.spec.ts` / `e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts` の当該の散文_
+  - **着手時の測り直し（起票文は両方とも正しかった）**: `git grep -n test-scanned-pdf-multipage -- e2e/specs` の当たりは4件で、**コードとして綴る行は零件**（資材を投入する `setInputFiles` は repo 全体に存在しない）＝孤児化は成立。名指しされた2 spec が現に読むのは fallback 側が `test-scanned-pdf.pdf` / `test-scanned-pdf-quotation-ocr-timeout.pdf`、pdf-text-extraction 側が `test-text-pdf.pdf` / `test-file.pdf` であり、**`import-e2e.spec.ts` の「両者が使っており」は現況として偽**であった（独立レビューが `setInputFiles` 8箇所を全数確認して再現）
+  - **処遇＝残す（撤去は選べない）**: `e2e/requirement-exclusions.json:2190` の**タスク 115.157 の是正の記録が、estimate-request の除外5件（REQ-17.4 / 17.8 / 19.1 / 19.6 / 19.8）を取り下げた根拠として本資材を逐語で引いている**——`その150ページ版（e2e/fixtures/test-scanned-pdf-multipage.pdf）` と綴り、さらに「150ページ版で30秒では終わらない仕事を与え、エラー表示までの実測が25〜45秒に収まる」という実測まで引く（**独立レビューが当該箇所を自分で開いて実在を確認した**）。規約 (a) により歴史記録は書き換えないため、撤去すれば上流の記録が実在しない資材を指すことになる。残す代償は読み手零件の64KBの静的バイナリのみ。**94.1 / 100.19 の先例に従い design.md に注は置かなかった**（全スペックの `design.md` に名指しが零件のため）
+  - **上流スペックの所管ではない（BLOCKED に非該当）**: `.kiro/specs/estimate-requests/` 配下の文書は資材も「150ページ」も**一度も名指さない**。`.kiro/steering/` 零件、`scripts/*.json` / `*.md` 零件。タスク本文が「起票して待つ」を課したのは**撤去を選んだ場合**の条件であり、「残す」を選んだ本件は該当しない（実装者とレビュアーが各々4系統すべてに当たった）
+  - **散文の是正＝追記のみ（規約 (a) の現況併記）**: `git diff --numstat` が `17 0` / `23 0` で**削除行は一行も無く**、既存の段落（`import-e2e.spec.ts:1875-1893` のタスク 100.12 の記述、`pdf-text-extraction-e2e.spec.ts:571-590` の 115.135 / 115.157 の記述）は逐語で温存されている。追記には実測日と**コミットハッシュ `07b52f0e`** を添えた。`development-discipline.md:299-300`（「当時の値を残したうえで現況の再実測を同じ場所へ並べる」）の形そのものである
+  - **越境の作法（100.16 が確立した形の踏襲）**: `pdf-text-extraction-e2e.spec.ts` は他スペックの領域にある E2E ファイルだが `_Boundary:_` が明示的に含む。追記本文に**どのスペックのどのタスクの是正か・裁定日・先例・経緯の在り処・「`estimate-request` スペックの文書は一行も変更していない」ことを明記**した。`.kiro/specs/estimate-requests/` 配下は一行も変更していない
+  - **自己言及の罠への対処**: 書き足した文章自身が当たり件数を **4→8 に動かす**ため、**前の版(4件)と後の版(8件)を併記し、版に依らず不変な「非散文は零件」を主たる主張に据えた**（レビュアーも 4→8 を自分で再現し、8件すべてが jsdoc の散文であることを目視で確認した）。追記した実測値（完走36435ms / 打ち切り30914ms / 余裕5.5秒 / 600ページ資材）は既存の権威ある記録（`scanned-pdf-ocr-fallback-e2e.spec.ts:648-665` と `generate-image-only-pdf.mjs:39-45`）と**逐語で一致**する
+  - **関門の前後比較（レビュアーが統制比較で独立に検証）**: 未追跡ファイルによる偽の差分を排除するため `git worktree add --detach` で基線の複製を作り、**同一環境でパッチ適用前後の9本を走らせて出力を突き合わせた**——`check:req-coverage`(31825B) / `count:coverage-marks`(100633B) / `check:design-path-refs` / `check:steering-refs` / `check:e2e-guards` / `check:cf-evidence` / `check:trace-coverage` / `check:adjudication-pointers` / `check:criterion-literals` の**9本すべてが出力バイト完全一致**。`check:req-coverage` の EXIT=1 は基線でも同一内容の赤。**被覆印は逐語 grep ではなく `count:coverage-marks` で数えた**（99.2 / 101.1 の教訓）
+  - **検証（親が提出前に新鮮な証拠で再実行）**: `npm run type-check` EXIT=0、`npm run format:check` EXIT=0、`git diff --numstat` が `17 0` / `23 0`（削除零行）、資材の md5 が `882fd2f38847fc95c34e0974af844936` で不変、`git grep ... | grep -cvE ': *[*]'` が **零件**、`e2e/requirement-exclusions.json` に資材名が実在。`npx playwright test --list` は両 spec で **Total tests: 56**、`test(` 宣言数も HEAD と同数（46 + 10）。**E2E の全件実行は行っていない**（追記はすべて jsdoc であり、discovery 件数・宣言数・型検査がいずれも不変であるため振る舞いへの影響は原理的に無い）
+  - **観測（範囲外・処置不要）**: (i) `pdf-text-extraction-e2e.spec.ts` の追記は孤児化の原因を 100.16 のみに帰すが、実際は **100.12（数量表側）と 100.16 の二段**で最後の読み手が消えた（`generate-image-only-pdf.mjs:44` は両方を挙げる）。最後の読み手を外したのは 100.16 なので虚偽ではないが、兄弟の注記より情報が一段浅い。(ii) 資材は孤児のまま残るため将来また同じ起票が立ちうるが、指し手4箇所（両 spec・生成器・除外定義）すべてに「読み込む検査は無い」「作り替えないこと」が記されており、**機械的な保護が無いことも含めて開示されている**。(iii) `scanned-pdf-ocr-fallback-e2e.spec.ts:662` は「`import-e2e.spec.ts` などの注記が参照しており」と述べ、読み込みではなく散文であることを正しく言っている（陳腐化していない）
+  - **未執行の選択肢（利用者の裁定が要る）**: **撤去の側は選ばれていない**。撤去を選ぶなら `e2e/requirement-exclusions.json:2190` の 115.157 の記録の扱いに裁定が要る（規約 (a) と衝突するため）。本タスクの `_Boundary:_` は当該 JSON を含まないため測定にとどめた
+
+- [x] 100.21 裁定文書 §6 の「本記録を読む機械は」の言い回しが、名を綴らない読み手を取りこぼしたままである状態を解消する
+  - **出所**: 100.17 の独立レビューの Finding 2（本タスクの `_Boundary:_` 外と判定された）
+  - **測った事実（100.17 で実測）**: 100.17 は母集団の数え方を `git grep -l coverage-mark-adjudication | wc -l` へ改め、押下前の関門を駆動する `.husky/scripts/pre-push.sh` を母集団へ入れた。**しかし新形でも「名を綴らない読み手」は数えない**——`comm -23 <(git grep -l 裁定記録 | sort) <(git grep -l coverage-mark-adjudication | sort)` の当たりは `scripts/check-adjudication-pointers.selftest.ts` の1件で、同ファイルは `runCheck` を import して**本記録を現に読む機械**でありながら、ファイル名を一度も綴らないので母集団に入らない
+  - **何が残っているか**: §6 は当該の値を「**本記録を読む機械は**」の母集団として述べるが、`note` の定義は「名を**引く**ファイルの数」である。100.17 は「`--include` を広げる」側の二択を解いたが、**「§6 の言い回しを実体へ寄せる」側は採られていない**。乖離は縮んだが閉じていない
+  - **選ぶべきこと**: §6 の言い回しを「名を引くファイル」という実体へ寄せるか、母集団の定義を「本記録を読む機械」へ広げるか（後者を採るなら**どう機械的に数えるか**——import の推移閉包を辿るのか、別の指標を使うのか——を決め、その数え方が再び陳腐化しない形かを 100.17 と同じ水準で論じること）
+  - _Boundary: `scripts/coverage-mark-adjudication.md` §6 の当該の言い回しと、`scripts/design-measurements.json` の `coverage-adjudication-reader-files` の `note`（母集団の定義を変える場合は `command` と `expected` も）_
+  - **⚠️ 起票文の実測値が1点誤っていた（着手時の測り直しで判明。独立レビューが変異で再現）**: 起票は `scripts/check-adjudication-pointers.selftest.ts` を「`runCheck` を import して**本記録を現に読む機械**」と述べたが、**同ファイルは本記録を一度も開かない**。`runCheck` に与えるのは `wrap(…)` が組む**合成文書と合成正典**だけで、`readFileSync` の引数は本体と自分自身の2つのみである。**決定的な変異**: 基線の複製から `scripts/coverage-mark-adjudication.md` を丸ごと取り除いても、同自己検査の出力は**基線とバイト一致**の `76/76 件成功` exit 0 のままであった（同じ複製で `check:adjudication-pointers` は `裁定記録が見つかりません` で exit 1、`check:design-measurement-freshness` は当該三宣言で `file … を読めません` を出す）。すなわち**起票が挙げた唯一の反例は成り立たない**
+  - **乖離の向きは起票と逆であった（過大側が主）**: 当たり13件の内訳を全件判定した結果、**走らせると本記録のバイトを現に開く機械は3件のみ**（`check-adjudication-pointers.ts` / `check-design-measurement-freshness.ts` / 同自己検査〈実データ対照の `judge(ROOT, entries)` が実マニフェスト経由で所管文書を開く〉）、駆動系1件（`.husky/scripts/pre-push.sh`。言及は `:1329` のコメントのみ）、**残る9件は本記録を一切開かない**散文・データ・註釈（スペック3・E2E註釈2・本記録自身・`design-measurements.json`・`exclusion-alternative-verification-adjudication.md`・`scan-coverage-mark-correspondence.ts:21` の `@fileoverview`）。**起票が言う「取りこぼし側」ではなく過大側が乖離の主である**
+  - **「本記録を読むが名を綴らないファイル」は現況で零件**: `comm -23 <(git grep -l 'ADJUDICATION_DOCUMENT\|GOVERNED_DOCUMENTS\|ADJUDICATION_RECORDS' | sort) <(git grep -l coverage-mark-adjudication | sort)` は**空**。レビュアーは加えて、両読み手モジュールを import するファイルが `check-adjudication-pointers.selftest.ts` の1件のみ（＝上記の変異で非読み手と実証済み）であることからも独立に裏づけた
+  - **処遇＝二択の前者（§6 の言い回しを実体へ寄せる）。母集団の定義は動かさない**: `command` / `expected` / `anchor` / `documentRendering` はいずれも不変で、`note` へ追記したのみ（`+1/-1`）。**後者（母集団を「読む機械」へ広げる）を採らない理由を 100.17 と同水準で三つ実測した**——(i) import の推移閉包で数える形は、`pre-push.sh`（`^import` が零件、`require(` の唯一の当たりは `:544` の `echo` 文字列内）へ **npm スクリプト名**経由でしか到達しないため届かず、**100.17 が入れたばかりの1件を落とす**。(ii) 100.14 が変異で妥当と確かめた `e2e/specs/quantity-tables/import-e2e.spec.ts`（註釈で import を持たない）も落ち、**先行2タスクの裁定を静かに覆す**。(iii) 止まる契機の多くを失う——測り直しの契機となった 115.301 の増分3件のうち「読む機械」で拾えるのは2件だけ
+  - **版に依らない主張を受け皿として残した（自己言及の罠への対処）**: 「`git grep -l <名>` は**名を綴らない読み手を原理的に数えられない**」という限界と、「本値を読み手の総数と読んではならない」旨を §6 と `note` の両方に明記した。**書き足し後の `git grep -l coverage-mark-adjudication | wc -l` は 13 で不変**（触れた2ファイルはどちらも既に母集団内のため当たりが動かない。レビュアーも変更後に自分で走らせて 13 を確認し、追記が `ADJUDICATION_DOCUMENT` 等を綴ったことで候補集合側が自己膨張しても本記録は自分の名も綴るため `comm -23` が空のままであることを確かめた）
+  - **所管は本スペック（99.4 型の BLOCKED には該当しない）**: 99.4 は (a) 対象ファイルのコミット全4件が site-survey、(b) 開いている 115.329 の `_Boundary:_` が同じ判断を保持、の二点で BLOCKED になった。本件は**逆**で、`git log` に quantity-table-generation のコミットが5件あり（`03d631ca` / `094c10d5` / `2ea180c0` / `c3ea5d3a` / `2823f9e4`）、**`tasks.md:4055` が既に「所管は本スペックである」と裁定済み**。site-survey の開いている 115.329 / 115.330 / 115.331 の `_Boundary:_` はそれぞれ別の裁定記録の行・上流 `design.md` の散文・特定の `expected` であり、**§6 の当該の言い回しと当該 `note` を保持していない**（実装者とレビュアーが各々 `git log` と上流の `_Boundary:_` に当たった）
+  - **規約 (a) の遵守**: `git diff --numstat` が `77 0` / `1 1`。**md は追加のみで 100.17 の綴りは一字も動いていない**。JSON も `note` が旧文字列を厳密な前置として保持する追記であり、`command` / `expected` / `anchor` / `documentRendering` / `file` / `id` はバイト一致
+  - **関門が今も歯を持つことの実測**: 是正後の複製で `.husky/scripts/pre-push.sh` から本記録の名を綴る1行を落とすと、`check:design-measurement-freshness` に追加される失敗行は `[coverage-adjudication-reader-files] … expected=13 actual=12` の**ちょうど1行**（実装者は `sha256sum -c` で復元照合し、レビュアーも独立に再現した）
+  - **検証（親が提出前に新鮮な証拠で再実行）**: `npm run check:design-measurement-freshness` は exit 1 だが**失敗一覧に `coverage-adjudication-reader-files` は現れない**（赤は全件 `.kiro/specs/site-survey/design.md` 所管の既存分）。`npm run check:adjudication-pointers` は **162件/61ファイル exit 0**（正典の被覆印 3841 件）、`:selftest` は **76/76 exit 0**。`git grep -l coverage-mark-adjudication | wc -l` は **13**、`git worktree list` はリポジトリ本体のみ（統制比較の複製は撤去済み）、`git diff --numstat` は `77 0` / `1 1`。`check:req-coverage` は基線と全文バイト一致の既存の赤、他の関門と `type-check` / `lint` / `format:check` はすべて exit 0。**被覆印は逐語 grep ではなく `count:coverage-marks` で数えた**（99.2 / 101.1 の教訓）。E2E は実行していない
+  - **観測（範囲外・受け皿を 100.28 として起票した）**: **上流 `.kiro/specs/site-survey/design.md:9393` の表の行「§6 が「本記録を読む機械は」を述べるときの母集団」が、本タスクが §6 側で閉じた乖離をそのまま抱えている**。同 `:9455` は既に開いている上流タスク 115.330 の (a) が保持しているが、**`:9393` は 115.330 の本文（`.kiro/specs/site-survey/tasks.md:6085-6096`）に挙がっていない**。上流への起票は親の所管である
+  - **観測（範囲外・処置不要）**: (i) `scripts/check-design-measurement-freshness.ts:482` は当該宣言を「`grep -rl` の終端が `wc -l`」と述べるが、100.17 が `git grep -l` へ改めた後なので綴りが実体と食い違う。ただし値の定義「本記録の名を引くファイルの数」の側は正しく、本タスクの追記が引く根拠としては有効。(ii) 本記録 §0（`:14`）の「§6 が読み手の母集団に採るファイルの数」は軽い同型だが「ファイルの数」と綴っており実害は小さい。(iii) 追記の「本記録のパスを綴らずに開くには、パスを持つ定数を import するほかない」は、`design-measurements.json` の `file` 欄を読んで開く経路（判定者自身がその形）を厳密には覆わないが、直後の「限界」段落が「名を綴らない読み手は原理的に数えられない／現況の零件は現況の実測にすぎない」と明示的に開示している。(iv) `coverage-mark-adjudication.md` は `format:check` の対象外で、素の `npx prettier --check` は**本変更前から** warn（§1 / §3 の表の桁揃え）。本変更が増やした指摘は零件
+
+- [x] 100.22 除外の自己検査の `expectCheck` が、狙った検査「だけ」が挙げたことを求めていない状態を解消する
+  - **出所**: 100.18 の独立レビューの所見1（本変更の回帰ではなく既存の性質と判定された）
+  - **測った事実（100.18 のレビューが実測）**: `scripts/check-requirement-exclusions.selftest.ts` の照合は `checks.has(testCase.expectCheck)` しか見ないため、**検査名の粒度であって枝の粒度ではなく、同時に立つ第二の違反を許す**。(a) `shiftPair` のずらし先を**あえて被覆印つき**へ固定しても **70/70 緑**のままである——すなわち「ずらし先が被覆印に掛からないこと」は注記が述べるほどの機械的な効力を持っていない。(b) 要件番号の食い違いの枝を恒偽化しても**素の HEAD・100.18 の是正後とも 70/70 緑**である（題の照合が同じ `criterion-correspondence` として代わりに鳴るため、枝が死んでも対照が気づかない）
+  - **なぜ問題か**: 陽性対照は「この変異はこの検査に捕まる」ことを固定するための仕掛けだが、現状は「**何かの検査に捕まった**」しか言えない。**検査の枝が一つ死んでも、隣の枝が鳴れば対照は緑のまま**であり、100.15 / 100.18 が積み上げてきた「対照が現に効くこと」の担保に穴が残る
+  - **選ぶべきこと**: `expectCheck` を「**狙った検査だけが挙げた**」へ締めるか（その場合、現に複数の検査が同時に鳴る対照が幾つあるかを先に数え、締めた結果どれが落ちるかを実測すること）、枝の識別子を検査結果へ持たせて**枝の粒度で照合する**か。**いずれを採るにせよ、締めた形で上の (a)(b) の変異が現に赤くなることを実測すること**
+  - _Boundary: `scripts/check-requirement-exclusions.selftest.ts` の `expectCheck` の照合と、必要なら `scripts/check-requirement-exclusions.ts` が返す検査結果の粒度_
+  - **着手時の測り直し（起票文の (a)(b) はいずれも正しかった）**: 基線の複製で (a)「`shiftPair` のずらし先をあえて被覆印つきへ固定」→ **70/70 緑**（`coverage-tag-coexistence, criterion-correspondence` の2検査が挙がり `checks.has` が真のため素通り）、(b)「要件番号の食い違いの枝を恒偽化」→ **70/70 緑**（題の照合が同じ検査名として代わりに鳴る）。**歴代のレビュアーが各々自分で再現した**
+  - **処遇＝`expectCheck`（検査名の包含）を `expectRules`（枝の識別子の集合の完全一致）へ置き換え、本体に枝の語彙 `VIOLATION_RULES`（39枝 / 6検査）を新設した**。**「完全一致」と「枝の粒度」の両方が要る**——(a) は包含→完全一致でしか赤くならず、(b) は検査名→枝でしか赤くならない。`Violation<C>` を総称化して `rule: RuleOf<C>` を必須にし、`RuleOf<C> = Extract<ViolationRule, \`${C}:${string}\`>` により**枝の接頭辞と検査名の食い違いを型で拒む**（`type-check` が門番。レビュアーが枝を取り違える変異で `TS2322` を実測）
+  - **締めた形で (a)(b) が現に赤くなることの実測（本タスクの合否そのもの）**: (a) → **1/70 赤**（`宣言に無い枝が挙がった: coverage-tag-coexistence:no-ratchet`）、(b) → **3/70 赤**（`挙がらなかった枝: criterion-correspondence:requirement-number-mismatch`）。**複数のレビュアーが各々自分で当て直して一致した**。さらにレビュアーが独自に設計した変異でも赤くなることを確認——枝の恒偽化（1件赤）／**枝の識別子を隣と取り違え**（1件赤。**旧の検査名の粒度では両方 `invariant` なので緑だった変異であり、締めた効果の直接証拠**）／`tagViolations` が `rule` を落とす（**34件赤**。第3原則の黙って緑になる経路が無いことの実証）／陽性対照から `expectRules` を削除（1件赤。未指定の素通りが無いこと）
+  - **「同時に複数が鳴る対照」を締める前に全数で数えた**: 陽性対照39件のうち**単一枝36件 / 複数枝3件**（識別子の書式違反2件が3枝、除外を空にする1件が2枝）。3件はいずれも**構造上分けられない**と裁定し、複数枝を逐一宣言する形にした（完全一致なので1つでも鳴らなくなれば赤）。代替案（`categories` も空にする）も実測したが枝が入れ替わるだけで2枝のままであった。**黙って緩めた件・除外した件は零件**
+  - **件数は一件も動かしていない**: 70/70（陽性39 / 陰性8 / 機構23、遊び零）・本体157件。`check:design-measurement-freshness` が `MINIMUM_TOTAL_CASES` / `MINIMUM_MECHANISM_CASES` を上流 site-survey の `design.md` と完全一致で縛るため、**機構を1件足すだけで境界外の文書改訂を強いる**（対照を一件足す変異で点呼が遊び1件で赤くなり確認が一件も走らずに終わることを実測）。よって機構は足さず粒度だけを上げた
+  - **⚠️ 註（コメント）の事実性で5回差し戻され、規定の是正2ラウンドとデバッグ2ラウンドを使い切った**。**実装本体は5回のレビューすべてで健全と認定されている**。差し戻しはすべて「〜だからこの枝には対照が置けない」と書いた理由が、その条件だけを外す変異を当てると偽だったというものである——(1)「スキーマがその語彙を使っていない」→ 偽、(2) 新設した分類「対照を置く相手が無い枝」→ **住人が一人もいなかった**（`mutateSchema` でスキーマ側を変異させれば3枝とも発火する）、(3)「`SUPPORTED_KEYWORDS` に在るため判定に入る」→ 偽（語彙走査は `out.push` するだけで後段を止めない）＋錠として名指した定数の取り違え、(4) 本タスクが枝の粒度を入れたことで**既存の註が現況では偽になった**（「恒偽化しても 70/70 緑」→ 現況は 3/70 赤）、(5) 複数枝の対照を「二件だけ」と要約したが現況は三件
+  - **2回のデバッグ調査が特定した根本原因**: **タスクの `_Boundary:_` が求めていない「対照が無い理由」という反実仮想を註へ書き続けていること自体**。この主張は13枝ごとに個別の変異を要し境界内では測り切れず、実装者は毎回「測れる範囲」を測って**測っていない部分を散文で埋めた**。**是正のたびに新しい因果文を書くので欠陥の面積は減らず場所が移るだけ**である。1回目のデバッグは照準を特定の節に限定したため、同じ節の外に3件（うち1件 Critical）が残った。**2回目のデバッグが節を限定せず全数で掃き出して9件の表を作り、それが閉じ手となった**
+  - **`check:cf-evidence` はこの欠陥を原理的に検出できない（実測）**: 同検査は**一文の中で**（逆引用符の名指し）∧（変異の語彙）∧（判定の語彙）の連言を見る設計で、**主張と引用の帰属の正しさを検証しない**。実物として、偽の因果文が別の変異の実測引用と同じ塊に同居していたため索引203番が「引用あり」と刻印されていた。本タスクが触れた塊で関門が数えるのは9文だが、**反実仮想として読める文が別に19文あり全て網を逃れる**——変異の語（`退行` `恒偽化` `反転` `迂回`）と判定の語（`鳴る` `捕まえる` `効力` `到達しない`）が語彙外であること、および**変異と判定が句点で別の文に分かれると一文連言では原理的に拾えない**こと。加えて `hasExecutionCitation` は「実行の語 ∧ 数字」でしかないため**タスク番号の数字が実測の数字として通る**。**関門の緑を是正の根拠にしてはならない**
+  - **閉じ手＝新しい因果文を一文も足さない形**: 足したのは (a) regime の限定句（「`checks.has(expectCheck)` の**包含の照合**での値」）と (b) 実測値の逐語（「何を当てたら何件赤くなったか」）の二つだけで、(c) **測れない断定は削った**（「題の照合が鳴る**ため**」「陽性対照**だけが**赤くなる」「型を迂回した場合**だけである**」「**対照の側を単一欠陥へ直す道は無い**」×2、「完全一致**なので**いずれか一つでも鳴らなくなれば赤くなる」×2、「この機構**だけが**捕まえる」ほか）。**書き足した文はすべて「何を当てたら何件赤くなったか」であり、その文自身が次の反実仮想にならない**。これが過去4回との構造的な違いである
+  - **最後の是正は親が直接行った（利用者の裁定）**: 規定のラウンド上限に達した時点で利用者へ判断を仰ぎ、**「親が直接修正して完了」**の裁定を得た。残っていたのは (i) `Case.expectRules` の註が複数枝の対照を「二件だけ」と述べる一文（**親が `expectRules` の要素数を機械で数え直して三件を確認**。識別子の書式違反2件＋除外を空にする1件）と、(ii) 引用行番号4件のずれのみ。**親の編集は控えとの `diff -u` で全ハンクがコメント内であることを確認済み**。なお親の編集自身が行を2つずらしたため、**書いた行番号を編集後に測り直して直した**（自己言及の罠の適用）
+  - **検証（親が提出前に新鮮な証拠で再実行）**: `npx tsx scripts/check-requirement-exclusions.selftest.ts` → **70/70（陽性39 / 陰性8 / 機構23）EXIT=0**、`npm run check:req-exclusions` → **157件 EXIT=0**、`npm run check:cf-evidence` → EXIT=0（走査1803ファイル / 照合255件）、`npm run type-check` / `npm run lint` / `npm run format:check` すべて EXIT=0。**件数は一件も動いていない**。引用行番号（`selftest.ts:949-956` / `:2477` / `:2494` / `:2504`）は編集後の現況で `sed -n` / `grep -n` により検算済み
+  - **観測（範囲外・受け皿を 100.29 として起票した）**: `check:cf-evidence` の三つの穴——(i) 変異の語彙の不足、(ii) 判定の語彙の不足、(iii) **一文連言では変異と判定が別の文に分かれた形を原理的に拾えない**——および `hasExecutionCitation` がタスク番号の数字を実測の数字として通すこと。**語彙への追加だけでは閉じない**（(iii) は設計の問題である）。`scripts/check-counterfactual-evidence.ts` は本タスクの `_Boundary:_` 外
+  - **観測（範囲外・処置不要）**: (i) **枝の語彙に下限は掛けていない**。陽性対照の下限は従来どおり検査名の語彙（6件）を全て名指すことであり、39枝のうち対照が名指すのは**26枝・未名指しは13枝**。うち理由を実測したのは5枝で、**残る8枝は未測定であり註でも理由を述べていない**。(ii) `checkOfRule` と `tagViolations` の送出（接頭辞が語彙に無ければ投げる）は `RuleOf<C>` が静的に強制するため**実行時に到達せず、潰しても 70/70 緑**である（註へ実測とともに開示済み。対照で縛るには件数の錠のため境界外の改訂が要る）。(iii) 10枝が複数の対照から名指されている（`schema:required` 4件・`schema:pattern` 4件ほか）。従前も同じ検査名で重複していたため退行ではない
+
+- [x] 100.23 重量だけの面積・体積項目を抱える既存データが保存不能になった状態の処遇を決める
+  - **出所**: 機能レベル検証（2026-09-23）の設計・境界の次元の Finding 2。**100.10 が帰結を記録しながら受け皿が起票されていなかった**
+  - **測った事実（100.10 で実測）**: 100.10 が面積・体積の保存前検証の受け入れキーから `weight` を外したため、**重量だけを入力した面積・体積項目は保存できなくなった**（計算自体は REQ-8.6 どおり重量を乗数として数え続ける）。`saveDraft` は数量表の全項目を検証するため、**該当項目が1件でもあるとその数量表全体が再保存できない**。告知は「保存できません: グループ「…」の項目「…」: 面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください」の形で直し方を名指す
+  - **未測定**: **本番/検証環境に該当データが現に何件あるかは測っていない**。着手時にまず数えること（`calculationMethod` が面積・体積で、`calculationParams` が `weight` のみを持つ数量項目）
+  - **選ぶべきこと**: (a) 棚卸しだけ行い、利用者が手で直す前提とする（告知が直し方を示すため成立しうる）、(b) 移行スクリプトで既存データを埋める（何で埋めるかは自明でないので裁定が要る）、(c) 保存時のみ緩める経過措置を置く。**いずれも利用者の裁定が要る**
+  - _Boundary: 既存データの棚卸しと、採る場合の移行手段_
+  - **利用者の裁定（2026-09-24）**: 「(a) 棚卸しのみ」。移行スクリプトも経過措置も置かない。棚卸しの手段（再実行できる問い合わせ）と実測結果を記録して閉じる。起票時の親の予備実測: 開発DB（`architrack-postgres-dev`）の `quantity_items` は STANDARD 12件・AREA_VOLUME 1件で、`calculationParams` は全件 null＝該当0件。本番/検証環境は親がアクセスを持たず未測定
+  - **処遇（2026-09-24、リポジトリルートで実測）**: 裁定 (a) のとおり**棚卸しだけを行い、移行スクリプトも経過措置も置かない**。重量だけの面積・体積項目は、利用者が告知（`保存できません: グループ「…」の項目「…」: 面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください`）に従って手で直す前提とする
+  - **棚卸しの手段（再実行可能・読み取り専用）**: `npm --prefix backend run inventory:area-volume-weight-only`（`backend/scripts/inventory-area-volume-weight-only.ts`。`DATABASE_URL` の接続先を読む。`--batch-size=N` で区切りを指定できる）。発行するのは `quantityItem.findMany` だけである。**判定は本番の保存時検証そのものを呼ぶ**——`QuantityTableService.validateDraft` と同じく `calculationParams ?? {}` を `QuantityValidationService.validateQuantityItem` へ渡し、`calculationParams` に誤りが出る項目を保存不能とし、`weight` の有無で `weightOnly`（100.10 で新たに保存不能）と `noInput`（100.10 以前から保存不能）に分ける。述語を複製しないので棚卸しと検証がずれない。本番の検証に `weight` を戻す変異で単体4件が赤くなることを実測した。**「保存不能」は `validateDraft` の層での判定であり、その手前の zod スキーマ（`quantity-table.schema.ts` の `areaVolumeParamsSchema`。`positive()` 等）で弾かれる値は `saveable` と数えうる**（独立レビューの所見。いずれも 100.10 以前から保存不能な値で、`weightOnly` の件数には影響しない）。照合用の SQL 版は `SELECT count(*) FROM quantity_items WHERE "calculationMethod"='AREA_VOLUME' AND jsonb_typeof("calculationParams")='object' AND "calculationParams" ? 'weight' AND NOT ("calculationParams" ?| array['width','depth','height']);`（権威はスクリプト）
+  - **実測**: 開発DB（`architrack-postgres-dev`／`architrack_dev`）は面積・体積の項目1件で、保存可能 0・**重量だけ 0**・計算用の値なし 1（`calculationParams` が null。100.10 以前から保存不能であり本タスクの帰結ではない）。SQL の照合も STANDARD 12・AREA_VOLUME 1・`calculationParams` 全件 null・重量だけ 0 で一致した。検証DB（`architrack-postgres-test`／`architrack_test`）はマイグレーション未適用でユーザー表が無く、測れる対象が無かった（状態を変えないため適用していない）。両コンテナとも停止状態へ戻した
+  - **本番は未測定**: 親にも実装者にも本番/検証環境へのアクセス手段が無く、**本番に重量だけの面積・体積項目が何件あるかは測っていない**。本番で棚卸しするには本番の `DATABASE_URL` を与えて上のコマンドを実行する
+  - **裁定 (a) の帰結**: 本番に該当項目があれば、その数量表は幅・奥行き・高さのいずれかを入れるまで再保存できないままである（計算自体は REQ-8.6 どおり重量を乗数として数え続ける）。自動の是正は行わない
+  - **検証**: 新設の単体 17件が緑、backend 単体全件 191ファイル/5738件が緑、backend の type-check / lint / format:check が exit 0、steering 系・`dead-script-env` の関門は前後で終了コード同一（独立レビュー承認）
+
+- [x] 100.24 共有フック `useUnsavedChanges` が「引数を渡しただけでは効かない」形をしている状態を解消する
+  - **出所**: 100.13 の観測 (iii) と、機能レベル検証（2026-09-23）の設計・境界の次元の Finding 3
+  - **測った事実（100.13 で実測）**: 登録条件が「`enabled` かつ**内部の** dirty」であるため、`enabled` だけを渡す呼び出しは**黙って無効化される**。全6箇所を洗った結果、`EstimateDetailPage` / `SiteSurveyImageViewerPage` / `QuantityTableEditPage`（100.13 の是正後）の**3箇所が同じ注意書きを各自のコメントで抱えており、同じ罠を3度踏んでいる**。残る3箇所は `markAsChanged` / `markAsSaved` を呼ぶため健全である
+  - **設計文書の側の欠落（検証が指摘）**: `design.md:2795` は「タブクローズ/リロードは `useUnsavedChanges` の beforeunload ハンドラ（`enabled: isDirty`）で標準確認」と書くが、**`setDirty` の追従が要ることはどこにも書かれていない**（逐語としては今も真だが、同じ欠陥を再生産しうる書き方である）。`design.md:1637` の dirty 追跡の記述（`markAsChanged`/`markAsSaved` で駆動）も、数量表画面の実機構（reducer の `isDirty` を `setDirty` で鏡写しにする）と食い違う
+  - **選ぶべきこと**: (a) フック側で禁じる（`enabled` が真のまま内部 dirty が一度も動かない使い方を型か実行時警告で弾く）、(b) API を一本化する（`enabled` を廃し `isDirty` を直接受ける等）、(c) 設計文書へ現況を併記するに留める（規約 (a)）。**(a)(b) は共有部品の変更なので、design.md の「共有実装の変更は再検証トリガ」に照らして他5画面の再検証が要る**
+  - _Boundary: `frontend/src/hooks/useUnsavedChanges.ts` の API と全6箇所の呼び出し、および `design.md` の離脱ガード／dirty 追跡の記述_
+  - **利用者の裁定（2026-09-24）**: 「(b) API を一本化する」。`enabled` だけ渡すと黙って無効化される罠そのものを API から消し、全6箇所の呼び出しを追随させる。共有部品の変更なので他5画面の再検証（単体・該当E2E）を行うこと。design.md の該当記述は規約 (a) に従い現況を併記する
+  - **処遇（2026-09-24、リポジトリルートで実測）**: フックを**自前の dirty 状態を持たない制御型** `useUnsavedChanges({ isDirty, message? }): void` へ改めた。`isDirty` は必須で、渡した値がそのまま beforeunload の登録条件になる。`enabled` / `initialDirty` / `onDirtyChange` と戻り値（`isDirty` / `setDirty` / `markAsChanged` / `markAsSaved` / `reset` / `confirmNavigation`）、型 `UseUnsavedChangesResult` を撤去した（本番の6箇所で戻り値の `confirmNavigation` / `reset` を使う箇所は無いことを `frontend/src` と `e2e` の走査で確認）。**「`enabled` だけを渡すと黙って無効化される」形は API から消えた**
+  - **全6箇所の追随（旧条件と同値であることを独立レビューが呼び出し点ごとに確認）**: `QuantityTableEditPage` / `EstimateDetailPage` / `SiteSurveyImageViewerPage` は `setDirty` の鏡写しの `useEffect` と注意書きを撤去し dirty 状態を直接渡す。`ItemizedStatementDetailPage` は `isDirty: hasOrderChanges`（冗長な `markAsChanged` / `markAsSaved` を撤去）。`SiteSurveyDetailPage` / `ConstructionPhotoDetailPage` は画面側の `useState` の `isDirty` と `markAsChanged` / `markAsSaved` を持ち `isDirty: canEdit && isDirty` を渡す。各画面の `useBlocker` の引数は不変
+  - **design.md**: 規約 (a) に従い、`##### State Management` の dirty 追跡の箇条、`#### UnsavedChangesBadge / 離脱ガード / 固定ヘッダー（REQ-43, 44, 45）` の離脱ガードの箇条、同節の File Structure Plan の表の下に「現況（タスク 100.24）」を併記した
+  - **検証**: RED はフック単体 14件中10件が赤（例: 「isDirty=true を渡しただけでbeforeunloadイベントリスナーが登録される」が `expected +0 to be 1`）。改修後フック単体 14/14、6画面と関連 43ファイル/636件、frontend 全件 shard 1/2＝263ファイル/6119件・2/2＝263ファイル/5893件が全緑、type-check / lint exit 0。E2E（`--build --force-recreate` で作り直した test 環境）は数量表の離脱ガード 9/9・construction-photo-additional 12/12・site-survey-responsive/phase18 37/37・site-survey-image-order 13/13・site-survey-annotation-tools 44/44 が緑。関門19本の終了コードは基線と同一、`count:coverage-marks:json` は HEAD と差分なし（独立レビューが一時 worktree で実測）。frontend 単体の総数は撤去した API の検証の分だけ 12030→12012 に減った
+  - **E2E で再検証していない画面**: `EstimateDetailPage`（beforeunload を踏む E2E が無い）と `ItemizedStatementDetailPage`（17.12 は `e2e/requirement-exclusions.json` に在籍）は単体検証のみで再検証した
+  - **上流へ起票した（撤去した API を名指す他スペックの設計文書。下流は書き換えていない）**: site-survey の `.kiro/specs/site-survey/tasks.md` へ **Task 115.332**、construction-photo の `.kiro/specs/construction-photo/tasks.md` へ **Task 18（18.1）** を親が書き込んだ。本項の境界内の作業（フック・6箇所・本スペックの design.md）は完了しており、上流の記述の鮮度は上流の所管として扱う
+
+- [x] 100.25 Requirement 8 の受入基準7の条件節が、受入基準5・6 と緊張したまま残っている状態の処遇を決める
+  - **出所**: 機能レベル検証（2026-09-23）の設計・境界の次元の Finding 1
+  - **測った事実**: 100.10 は利用者の裁定どおり**本番を条文の救済節（幅・奥行き・高さのうち最低1項目）と design.md:3193 へ揃えた**が、**条文の条件節は「計算用列に値が1つも入力されていない」のままである**。受入基準5は**重量も計算用列に数える**ため、**重量のみを入力した状態は条件節を満たさない＝逐語では「エラーを出さない」とも読める**。すなわち条文の内部に緊張が残っており、同じ乖離が将来また提起されうる
+  - **選ぶべきこと**: 条件節を救済節と整合する形へ改める（`requirements.md` の改訂＝**利用者の裁定が要る**）か、条文はそのままに註記で読み方を固定するか。**100.10 の裁定は「実体を条文へ合わせる」であって条文の改訂を許していない**ので、着手前に改めて裁定を受けること
+  - _Boundary: `requirements.md` の Requirement 8 の受入基準7の条件節（および 5・6 との関係を述べる註記）_
+  - **利用者の裁定（2026-09-24）**: 「条文を改訂する」。AC7 の条件節を救済節と整合する形（例: 「幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない状態で保存を試行する」）へ改める。requirements.md の改訂を許す
+  - **処遇（2026-09-24）**: `requirements.md` の Requirement 8 AC 7 の条件節を「計算用列に値が1つも入力されていない状態で保存を試行する」から「**幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない状態で保存を試行する**」へ改めた（EARS の形と救済節は不変）。改訂の記録を AC 15 の直後へ既存の記録（80.1 / 100.4 / 99.1 / 97.20）の書式で置き、旧文言・根拠・AC 5・AC 6 との関係（AC 6 は数量の計算、AC 7 は保存の可否を定めるので「重量だけでも数量は計算されるが保存は拒まれる」が両立する）・採らなかった案（条文を据え置き註記で読み方を固定する案）を記した。旧条件は新条件に含まれるので保証は弱まっていない
+  - **本番は既に改訂後の条文どおり（変更なし）**: frontend `calculation-params-validation.ts` の `AREA_VOLUME_ANY_KEYS`（`width`/`depth`/`height`）と `checkAreaVolumeParams`、backend `quantity-validation.service.ts` の `validateAreaVolumeMode` は幅・奥行き・高さだけを見る。受け入れキーへ `weight` を戻す変異で frontend 2件・backend 5件（うち4件は 100.23 の棚卸しの単体）が赤くなることを実測し、元へ戻した
+  - **検証**: 関門19本の終了コードと出力は前後でバイト一致（赤い2本は基線から）。独立レビューが一時 worktree の HEAD と `check:criterion-literals` / `req-coverage` / `trace-coverage` / `design-refs` / `design-measurement-freshness` を比べ結果同一を確認。条文の逐語を固定する台帳（`criterion-literal-adjudication.json` / `requirement-exclusions.json` / `design-measurements.json`）に AC 7 の条件節を固定する項目は無い
+  - **観測（範囲外・受け皿を 100.30 として起票した）**: 旧条件節の逐語の写しがコード・検証・E2E に残る。とくに `e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts:656-657` の「条文は『…計算用列に値が1つも入力されていない…』」は**現行の条文の引用としては偽**になった
+
+- [x] 100.26 tasks.md の `_Requirements:` の名乗りと、条文の現況の食い違いを解消する
+  - **出所**: 機能レベル検証（2026-09-23）の要件被覆の次元の GAPS
+  - **測った事実**: (a) **現役の受入基準8件が、どの `[x]` タスクの `_Requirements:` にも名乗られていない**——2.6 / 5.5 / 9.6 / 9.7 / 9.8 / 10.6 / 10.7 / 10.8。**8件とも E2E で被覆済み**（2.6→`client-side-edit-explicit-save-e2e.spec.ts`、5.5・9.6・9.7・10.6・10.7→`quantity-table-crud.spec.ts`、9.8・10.8→`field-specification.spec.ts`）なので、**実装・検証の欠落ではなくタスク側の名乗りの欠落**である。(b) 逆に**撤廃済みの 1.1〜1.7 が `[x]` タスクの `_Requirements:` に残って名乗られている**（Requirement 1 は全受入基準が `project-management/Requirement 25` へ移管済み。分母外なので採点には影響しない）
+  - **なぜ扱うか**: `_Requirements:` の名乗りは「どのタスクがどの条文を負ったか」の唯一の追跡手段であり、**欠落は「誰も負っていない条文」を、過剰は「存在しない条文を負ったタスク」を生む**。100.13 が示したとおり、名乗りと実体の乖離は完了印の信頼を直接損なう
+  - **注意**: **規約 (a)（歴史記録は書き換えない）との兼ね合いを先に決めること**——過去のタスクの `_Requirements:` は「当時そう負った」という記録でもある。77.1 / 101.1 の裁定 (c) では**遡及的な測り直しは別枠として採られなかった**ので、同じ理屈が当てはまるかを判断すること
+  - _Boundary: `tasks.md` の `_Requirements:` の名乗り（追補の形で現況を並べるか、名乗りを直すかは着手時に決める）_
+  - **処遇（2026-09-24、リポジトリルートで実測）**: **追補で現況を並べる形を採り、完了済みタスクの `_Requirements:` 行は1行も書き換えていない**（規約 (a)。77.1 / 101.1 の裁定 (c) が遡及の是正を採らず、97.7 が 62.1 の名乗りを削らず追補で示した先例に同じ。加えて 5.5 / 9.8 / 10.8 には負ったタスクそのものが無く、タスクごとの注記では表せない）。本書の `## Requirements Coverage の現況の追補（Task 100.26、2026-09-24 実測）` 節に二表を置いた
+  - **測り方**: 受入基準は `scanRequirementsDocument` で現役 359件・撤廃 7件（`check:req-coverage:json` と一致）。名乗りはチェック項目 426件の配下の `- _Requirements:` 行 245行を全数で字句解析した（読めない字句 0件・親の無い行 0件・範囲表記や `Requirement N` の形 0件）。E2E の被覆は `count:coverage-marks:json` で読んだ。独立レビューが別実装のパーサで全値を再導出し一致した
+  - **(a) 名乗られていない現役の受入基準は起票文どおり8件**（2.6 / 5.5 / 9.6 / 9.7 / 9.8 / 10.6 / 10.7 / 10.8）。8件とも起票文の3本の E2E に被覆印がある。中身を負ったのは 2.6 が 60.1 / 61.1（42.2 として）、9.6 / 10.6 が 6.2〜6.4、9.7 / 10.7 が 12.2（14.2 として）。**5.5 / 9.8 / 10.8 は `fa2b66a0`（#236）がタスクを経ずに実装と E2E を足しており、負ったタスクが無い**（現況は 51.4 が 37.7 として負う）
+  - **(b) 撤廃済みの名乗りは5タスク・延べ15件**（2.1: 1.2, 1.3／3.1: 1.2, 1.3／4.1: 1.1〜1.7／9.4: 1.1／10.1: 1.4, 1.5, 1.7）。移管は `a9396948`（#310、2026-02-15）で5タスクの完了（`0ee7c796`、2026-01-16）より後なので、**当時の名乗りは偽ではなく条文の側が後から移った**。後継は project-management の Requirement 25 の同じ番号の AC。存在しない番号の名乗りは0件
+  - **関門**: 19本とも前後で終了コード・出力がバイト一致（赤い2本は基線から。独立レビューが一時 worktree で再現）
+
+- [x] 100.27 `calculation-engine.ts` に残る同型の未到達検証4つの処遇を決める
+  - **出所**: 100.19 の実装者の CONCERNS と独立レビューの Finding 4（いずれも 100.19 の `_Boundary:_` 外と判定された）
+  - **測った事実（100.19 で実測。着手時に測り直すこと）**: `frontend/src/utils/calculation-engine.ts` に、100.19 が撤去した `validateAreaVolumeParams` と**同型の未到達検証が4つ残っている**——`validatePitchParams`（docblock で 8.10 を名乗る）／`validateStandardQuantity`（8.3 / 8.4）／`validateAdjustmentFactor`（9.3 / 9.4）／`validateRoundingUnit`（10.3 / 10.4）。いずれも当たりが**自身の定義と自分のテストのみ**で本番から一度も呼ばれず、機能名を欠く docblock で条文を名乗る。とくに `validatePitchParams` は `calculation-params-validation.ts` の `checkPitchParams` が REQ-8 AC10 を本番結線で担うため、**100.19 と完全同型の二重化**である
+  - **なぜ放置できないか**: 100.19 が解消したのとまったく同じ罠——同一条文の検証が二箇所にあると片方だけが改まって黙って乖離する——を、**同じファイルの中に4つ残すことになる**。100.19 は `design.md:414` が `validateCalculationParams` を保存前検証の**単一の情報源**と定めていることを根拠に撤去を選んだが、その宣言は当該4件にも等しく及ぶ
+  - **選ぶべきこと**: 4件それぞれについて撤去するか `calculation-params-validation.ts` へ一本化するか。**撤去するなら 89.1 / 94.1 / 100.19 の作法を使うこと**——到達可能性を測り、撤去が被覆検査（`check:req-coverage` の被覆印・`check:design-path-refs` の名指し・`check:steering-refs`）を悪化させないことを**前後の実測で示す**こと。被覆印の計数は**逐語 grep ではなく `npm run count:coverage-marks` 等のプロジェクト自身の読み手で行う**こと（99.2 / 101.1 の教訓）。設計文書や他スペックの文書が当該の名前を名指すなら、上流へ起票して待つこと
+  - **注意**: 名乗られた条文（8.3 / 8.4 / 8.10 / 9.3 / 9.4 / 10.3 / 10.4）が**撤去後も現に守られていること**を、100.19 と同じ水準——残る単一情報源へ変異を当てて本番結線の検証が赤くなることの実測——で示すこと。4件は条文が異なるため、**一括ではなく1件ずつ**測ること
+  - _Boundary: `frontend/src/utils/calculation-engine.ts` の `validatePitchParams` / `validateStandardQuantity` / `validateAdjustmentFactor` / `validateRoundingUnit` とその単体検証、および撤去に伴う被覆印・設計文書の追随_
+  - **処遇（2026-09-24、コミット `02330a4f` の作業ツリー、リポジトリルートで実測）**: **4件とも撤去した。一本化は選ばなかった**。変更は `frontend/src/utils/calculation-engine.ts`（4関数、-133行）と `frontend/src/utils/calculation-engine.test.ts`（import 4件と describe 4つ・`it(` 32件、-285行）の2ファイルだけである
+  - **到達可能性（測り直し）**: `calculation-engine` を取り込む本番ファイルは `CalculationFields.tsx`（型のみ）/ `FieldValidatedItemRow.tsx`（`calculate`）/ `EditableQuantityItemRow.tsx`（`calculate`）/ `numeric-range-validation.ts`（`COUNT_MIN` / `COUNT_MAX`）の4件で、4関数を取るものは無い。バレルの `export *` は `frontend/src` に零件。4つの名前は `frontend/src`・`e2e`・`scripts`・`.kiro/steering`・他スペックの文書のいずれにも残らない（独立レビューが repo 全体の grep で再現）
+  - **一本化しなかった理由**: `validateAdjustmentFactor` / `validateRoundingUnit` は**改訂前の条文**（旧 9.3「≤0 で警告」、旧 10.3「≤0 でエラー」、空白をエラーにする）を実装しており、現行の 9.3（範囲 -9.99〜9.99）/ 9.4（空白は既定値 1.00）/ 10.3（範囲 0.01〜99.99）/ 10.4（0 または空白は既定値 0.01）と食い違う。移せば条文から外れるので、移す中身が無い。`validatePitchParams` は `checkPitchParams` と完全に二重化しており（100.19 と同型）、`validateStandardQuantity` の 8.3 / 8.4 は `EditableQuantityItemRow` の負値警告と `resolveFieldInput` / `handleQuantityBlur` が本番結線で担っている
+  - **名乗られた条文は撤去後も締まっている（1件ずつ変異。検証は `npm --prefix frontend run test -- quantity-table QuantityTableEditPage numeric-range-validation calculation-params-validation`、変異なしで 67ファイル/1476件が緑）**: 8.10 `checkPitchParams` の filter に `&& false` → 3件赤（本番の保存経路 `QuantityTableEditPage.calculationParamsValidation.test.tsx` を含む）／8.3 `EditableQuantityItemRow` の `< 0` を `< -1e12` → 2件赤／8.4 `handleQuantityBlur` の `if (!resolution.isNumeric)` を `if (false && …)` → 3件赤／9.3 `FIELD_RANGE_CONFIG.adjustmentFactor.max` 9.99→99.99 → 7件赤／9.4 `FIELD_DEFAULT_SUBSTITUTION.adjustmentFactor.defaultValue` 1.0→2.0 → 4件赤／10.3 `roundingUnit.max` 99.99→999.99 → 10件赤／10.4 `roundingUnit.substitutesZero` true→false → 3件赤。各変異の後は `git hash-object` が基線と一致することを確かめて戻した。**独立レビューが 8.10 / 10.4 / 9.3 / 8.3 の4件を自分で当てて再現した**
+  - **撤去の関門（前後の実測）**: `pre-push.sh` 由来の19本に `count:coverage-marks` / `count:coverage-marks:json` / `check:req-coverage:json` を加えた22本を前後で走らせ、**終了コードの列は完全一致**、**20本が出力バイト一致**（赤の `check:design-measurement-freshness` / `check:req-coverage` はいずれも基線から赤）。動いたのは `check:req-coverage` の2値だけで、いずれも減る向き——機能名を欠くヘッダー 2005→2001（4関数の docblock）、眠る名乗り 5087→5080（8.3 / 8.4 / 9.3 / 9.4 / 10.3 / 10.4 / 8.10）。`productionReachability` は不動。**被覆印は `count:coverage-marks` のテキスト・JSON ともバイト一致で一件も失われていない**。ラチェット上限（`scripts/` 所管）は下げていない
+  - **挙動不変の実測**: フロント全件走行が**前 526ファイル/12012件 緑 → 後 526ファイル/11980件 緑**（後は `--shard=1/2`・`2/2` を前景で順に実行）、差は削除した **-32件ちょうど**。合格テスト名の集合の突き合わせで、消えたのは撤去した4つの describe 配下だけ、増えたものは零件。`type-check` / `lint` / `format:check` は EXIT=0
+  - **設計文書・上流**: 追随不要。`design.md:952` が名指すのは `backend/src/services/quantity-validation.service.ts` の**同名の別メソッド**（本番で生きている）であり、フロントの本件ではない。他スペックの文書に名指しは無く、上流への起票も不要
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix frontend run type-check` EXIT=0 ／ `npm --prefix frontend run test -- calculation-engine calculation-params-validation numeric-range-validation` 3ファイル/202件 緑 ／ `npm run count:coverage-marks`・`check:design-path-refs`・`check:steering-refs` いずれも EXIT=0 ／ 4つの名前の `frontend/src`・`e2e` への grep は零件
+  - **観測（範囲外・受け皿を 100.31 として起票した）**: 撤去の結果、同じファイルの `isValidNumber`（自分のテストだけが使う）とインターフェース `ValidationResult`（利用者零件）が本番からの利用者を失った
+
+- [x] 100.28 上流 site-survey の `design.md:9393` に残る同型の言い回しを、上流へ起票する
+  - **出所**: 100.21 の独立レビューの Finding 1（本タスクの `_Boundary:_` 外と判定された）
+  - **測った事実（100.21 で実測。着手時に測り直すこと）**: 100.21 は `scripts/coverage-mark-adjudication.md` §6 の「**本記録を読む機械は**」という言い回しを、値の実体（**名を引くファイルの数**）へ寄せて閉じた。しかし**上流 `.kiro/specs/site-survey/design.md:9393` の表の行「§6 が「本記録を読む機械は」を述べるときの母集団」が同じ乖離をそのまま抱えている**。同 `:9455` は既に開いている上流タスク **115.330 の (a)** が保持しているが、**`:9393` は 115.330 の本文（`.kiro/specs/site-survey/tasks.md:6085-6096`）に挙がっていない**
+  - **なぜ扱うか**: 100.21 が閉じた乖離が上流の文書に残っていると、次に母集団を棚卸しする者が上流の記述を根拠に誤った読みへ戻りうる。**下流で閉じた判断を上流へ申し送らないと断絶が滞留する**（96.11 / 97.19 が同型の断絶を検出した先例がある）
+  - **所管は上流にある**: 当該行は `.kiro/specs/site-survey/design.md` の記述であり、本スペックは同ファイルを一行も変更していない。**したがって本タスクの任務は「上流の `tasks.md` へ起票して待つ」ことである**——115.330 への追記か新規起票かは上流の形に合わせて決めること
+  - **作法**: 89.1 / 94.1 / 97.15〜97.18 の先例に倣い、**上流の `tasks.md` へ書き込んで待ちに入る時点で本タスクを `_Blocked:` に置き、起票先の ID を記すこと**。上流の実装コードや `design.md` を本スペックから書き換えないこと
+  - _Boundary: `.kiro/specs/site-survey/tasks.md` への起票の書き込み（上流の `design.md` 自体は上流の所管）_
+  - **起票（2026-09-24、HEAD `7ad1fce3` で再実測）**: 上流 `.kiro/specs/site-survey/tasks.md` の **115.330 へ追記 (c) として書き込んだ**（新規タスクは立てていない。追加のみ6行、100.17 の追記 (b) の直後）。`:9393` は 115.330 の (a) が保持する `:9455` と同じ宣言 `coverage-adjudication-reader-files`・同じ 115.301 節の散文であり、上流では下流の増分を既存タスクへ追記する形が先例であるため。再実測: `grep -n '本記録を読む機械' .kiro/specs/site-survey/design.md` の当たりは `:9393` の1行のみ（置いたのはコミット `94a2d344`）、`design-measurements.json` のどの宣言の `anchor` でもなく関門では見つからない。100.21（コミット `a55665ba`）が §6 に置いた「値が数えるのは本記録の名を引く追跡ファイルの数（13件）であって本記録を読む機械（3件）の数ではない」との乖離がそのまま残る。上流の `design.md` と下流のコードには一字も触れていない
+  - **関門（前後でバイト一致。独立レビューが HEAD の版へ差し替えて再現）**: `check:design-path-refs` 0 / `check:steering-refs` 0 / `check:design-code-refs` 0 / `count:coverage-marks` 0 / `check:design-measurement-freshness` 1・`check:req-coverage` 1（いずれも基線から赤で、出力は前後同一）
+  - _Blocked: site-survey スペックの Task 115.330 の追記 (c)（本項の起票先。上流の `tasks.md` へ実際に書き込み済み）の解決待ち_
+  - **処遇（2026-09-25、HEAD `02b00d40` の作業ツリー、リポジトリルートで実測）**: 上の `_Blocked:` は当時の記録として残す。起票先の上流 115.330 の追記 (c) はコミット `f8c42e71` で解決済み（上流の `tasks.md` で `[x]`）。上流は表の行を規約 (a) で残し（旧 `:9393` は一行ずれて現在の `:9392`、blame は `94a2d344` のまま）、表の後の `:9401` に「**追記（タスク 115.330）**」の段落を足して「当該の宣言 `coverage-adjudication-reader-files` の値が数えるのは、被覆印の裁定記録を読む機械の数ではなく、同記録の名を引く追跡ファイルの数である」と定めた。これは 100.21（コミット `a55665ba`）が `scripts/coverage-mark-adjudication.md` §6 に置いた「本節の値が数えるのは「本記録の名を引く追跡ファイルの数」であって、「本記録を読む機械」の数ではない」と同じ読み方で、段落が引く内訳（開く機械 3・駆動系 1・開かないもの 9）も同宣言の `note` と一致する（独立レビューが blame と逐語で再現）
+  - **検証**: `check:design-measurement-freshness:verbose` の当該宣言は `expected=13 actual=13 documentFigure=13` で緑、`git grep -l coverage-mark-adjudication | wc -l` は 13。関門全体は EXIT=1 だが、赤は本件の外の宣言（上流 115.333 が名指すもの）から来ており、**緑と言えるのは当該宣言に限る**。本項の任務は起票して待つことであり残る作業は無い。本スペックからは上流の `design.md` にもコードにも一字も触れていない
+
+- [x] 100.29 反実仮想の関門が「主張と引用の同居」しか見ない状態の処遇を決める
+  - **出所**: 100.22 の2回のデバッグ調査（本タスクの `_Boundary:_` 外と判定された）
+  - **測った事実（100.22 で実測。着手時に測り直すこと）**: `scripts/check-counterfactual-evidence.ts` の判定は **`isCounterfactualSentence` = 一文の中で（逆引用符の名指し）∧（`MUTATION_VOCABULARY`）∧（`VERDICT_VOCABULARY`）の連言**であり、**主張と引用の帰属の正しさを検証しない**。実物として、偽の因果文が別の変異の実測引用と同じ塊に同居していたため**索引203番が「引用あり」と刻印されていた**。100.22 が触れた塊で関門が反実仮想と数えるのは **9文**だが、**反実仮想として読める文が別に19文あり全て網を逃れる**
+  - **逃れる三つの理由（実測）**: (i) **変異の語が語彙外**——`退行` / `恒偽化` / `反転` / `締め` / `迂回` はいずれも `MUTATION_VOCABULARY` に無い。(ii) **判定の語が語彙外**——`鳴る` / `捕まえる` / `効力` / `気づけない` / `到達しない` は `VERDICT_VOCABULARY` に無い。(iii) **語彙を足しても届かない形**——変異の語と判定の語が**句点で別の文に分かれている**塊は、連言が一文単位である限り**どの語彙追加でも拾えない**。加えて `hasExecutionCitation` は「実行の語 ∧ 数字」でしかないため、**タスク番号の数字が実測の数字として通る**
+  - **なぜ放置できないか**: 100.22 は**註の事実性だけで5回差し戻された**が、**関門はその5回とも緑のままであった**。この欠陥は現状すべて人の目でしか捕まらない。デバッグ調査は「節を単位に是正する限り欠陥は毎回場所を移す」と結論しており、**機械の関門が無いことがその構造を支えている**
+  - **選ぶべきこと**: (a) 語彙を広げる、(b) 判定を一文の連言から塊の単位へ改める、(c) 引用の帰属（どの主張がどの実測を引くか）を検証する形へ改める、(d) 現況の限界を開示するに留める。**(a) だけでは閉じない**（上の (iii) は設計の問題である）ことを踏まえて論じること。**いずれを採るにせよ、改めた形で 100.22 が5回すり抜けた文型が現に赤くなることを実測すること**
+  - **注意**: 母集団が広がると既存の註が大量に赤くなりうる。**改める前後で当たり件数を測り、赤くなる既存の註が幾つあるかを先に数えること**（89.1 / 94.1 / 100.19 の前後実測の作法）。`hasExecutionCitation` の数字の判定を締める場合はとくに影響が広い
+  - _Boundary: `scripts/check-counterfactual-evidence.ts` の `isCounterfactualSentence` / `MUTATION_VOCABULARY` / `VERDICT_VOCABULARY` / `hasExecutionCitation` と、その自己検査_
+  - **利用者の裁定（2026-09-24）**: 「(d) 現況の限界を開示するに留める」。関門の判定・語彙は変えない。一文連言であること、引用の帰属を検証しないこと、100.22 で実測した逃れる三つの理由を、関門の自己説明（ファイル冒頭の説明等）と記録に開示する。判定を変えないので「改めた形で赤くなることの実測」は課されない
+  - **処遇＝(d) 現況の限界を開示するに留めた（利用者の裁定）**: `scripts/check-counterfactual-evidence.ts` の冒頭の説明へ節「一文連言と引用の帰属の限界（2026-09-24。タスク 100.29）」を足した（+52行、すべてコメント。差分のうちコメント以外の行は零）。開示したのは (1) 判定が一文の連言であること、(2) 主張と引用の帰属を検証しないこと（索引203番の実例）、(3) 逃れる三つの理由、(4) `hasExecutionCitation` が「実行の語 ∧ 数字」でしかないこと、の四つ。`isCounterfactualSentence` / `MUTATION_VOCABULARY` / `VERDICT_VOCABULARY` / `hasExecutionCitation` は一字も変えていない
+  - **着手時の測り直し（2026-09-24、HEAD `a725d152`。独立レビューが合成のプローブで全件を再現）**: (i) `退行` / `恒偽化` / `反転` / `締め` / `迂回` と (ii) `鳴る` / `捕まえる` / `効力` / `気づけない` / `到達しない` は、いずれも両語彙の語ではなく、どの語彙の語も部分文字列として含まない。**ただし `反転させ` は語彙に在り**、「反転させる」は拾い「反転する」「反転した」は拾わない。合成の文で `isCounterfactualSentence` は十語とも偽、`外す` / `反転させ` の同じ文型では真。句点で二文に分けた塊は `scanSource` 0件、一文にすると1件。引用を欠く文と同じ塊へ別の変異の実測を置くと0件（帰属を見ない）。`hasExecutionCitation` はタスク番号・日付の数字だけで真を返す。**9文は再現した**（コミット `7bc9cda1` と親の差分が掛かるコメント塊59塊）。**19文は 100.22 の記録の人が読んだ値として引き、読み直していない**。**索引203番は `7bc9cda1` とその親のツリーでは別の文であり再現しない**ため、同調査の当時の作業ツリーの番号として開示した
+  - **振る舞い不変の実測**: `npm run check:cf-evidence`（既定 / `--json` / `--survey` / `--verbose`）と `check:cf-evidence:selftest`（82/82）は前後で出力と終了コードが一字一句同じ（255件 / 走査1804ファイル）。`--list` は本ファイルに属する4塊の開始行番号だけが +52 動く（444→496 / 805→857 / 885→937 / 973→1025）。節の文は判定の語を一つも持たないので母集団は動かない。`check:req-coverage` / `count:coverage-marks` / `check:steering-refs` / `check:design-path-refs` / `check:design-measurement-freshness` は前後で出力同一（req-coverage と freshness は基線から赤）。`eslint` / `prettier --check` / `type-check` は EXIT=0
+  - **自己検査ファイルと実行時の出力は変えていない**: 自己検査の冒頭へ足すと全行がずれ、100.22 の記録が引く `.selftest.ts:435` などが陳腐化する。実行時の出力を変えると出力不変と両立しない。節の置き場は 100.22 の記録が引く本体 `:214` をずらさない docblock の末尾近く（「許容リストは置いていない」の直前）とした。独立レビューは裁定の「ファイル冒頭の説明等」を本体の冒頭で満たすと判定した
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm run check:cf-evidence` EXIT=0 ／ `check:cf-evidence:selftest` 82/82 EXIT=0 ／ `npm run type-check` EXIT=0 ／ `git diff -U0` の追加行はすべて ` *` のコメント行
+
+- [x] 100.30 Requirement 8 AC 7 の旧条件節を逐語で写したコード・検証・E2E の記述を、改訂後の条文へ揃える
+  - **出所**: 100.25 の実装者の CONCERNS と独立レビューの Finding 1（いずれも 100.25 の `_Boundary:_`＝`requirements.md` の外と判定された）
+  - **測った事実（2026-09-24。着手時に測り直すこと）**: 旧条件節「計算用列に値が1つも入力されていない」を逐語で写す箇所——docblock: `frontend/src/utils/calculation-params-validation.ts:24`、`backend/src/services/quantity-validation.service.ts:9`、`frontend/src/utils/calculation-params-validation.test.ts:15`、`frontend/src/__tests__/pages/QuantityTableEditPage.calculationParamsValidation.test.tsx:16`、`backend/src/__tests__/unit/services/quantity-validation.service.test.ts:9`／テスト名: `calculation-params-validation.test.ts:180`、`QuantityTableEditPage.calculationParamsValidation.test.tsx:228`／E2E: `e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts:25`・`:654`・`:656-657`
+  - **真偽の区別**: 多くは「その状態を測る」記述であり、測る状態は改訂後の条件にも含まれるため**偽ではなく陳腐化した写し**である。**ただし `:656-657` は「条文は『…』」と現行の条文を引用する形であり、いまは偽**である。優先はこれを直すこと
+  - **注意**: テスト名・`@requirement` の説明文を変えると `check:req-coverage` / `check:e2e-guards` / `check:criterion-literals` 等の読みが動きうる。**前後で関門の終了コードと出力を比べること**。テストが測る状態（全列空・重量のみ）は変えないこと
+  - _Boundary: 上記の docblock・テスト名・E2E の説明文と引用の文言（検証の中身は変えない）_
+  - **処遇（2026-09-24、HEAD `8a59d90b`、リポジトリルートで実測）**: 旧条件節の写しを測り直すと、起票文の10箇所に加えて表記の揺れ2件（`frontend/src/utils/calculation-params-validation.test.ts:159` の「計算用列が一つも入力されていない」、`e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts:651` の「計算用列が1つも入力されていない」）が見つかり、計12件を改訂後の条件節「幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない」へ揃えた（6ファイル、+15/-13行）。**偽だった `:656-657` の条文の引用**は requirements.md の AC 7 の EARS 文をそのまま写す形へ改め、`:659` に条件節が 100.25 で改訂された経緯を注記した（旧文言がここに1件だけ意図して残る）。引用と条文の一致は、`**` の除去・行の連結・入れ子の『』を「」へ戻す正規化の後に文字単位で一致（独立レビューが Python で照合）
+  - **書き換えた文言は測る中身に対して真**: 単体の `check('AREA_VOLUME', {})` と画面の `calculationParams: {}` は W・D・H がすべて空、`:159` の区間の「重量のみ」（`{weight:2}`）も W・D・H がいずれも空に当たる。本番も W・D・H だけを見る（frontend `AREA_VOLUME_ANY_KEYS`、backend `validateAreaVolumeMode`）
+  - **変えなかった記述**: e2e `:663` / `:672` のテスト名・`:708` のアサーション、`backend/src/__tests__/unit/services/quantity-table.service.test.ts:2727` 等、`e2e/specs/quantity-tables/quantity-table-crud.spec.ts:3098` 等は「計算用列が未入力・いずれも空」という**状態**の記述で条文の写しではなく、測る状態は改訂後の条件にも含まれるため偽ではない。`EditableQuantityItemRow.tsx:416` は REQ-8.6 の別条文。アサーション・フィクスチャ・テストロジックは一切変えていない（差分の全行がコメントか `it('…'` のタイトル）
+  - **関門（前後でバイト一致）**: package.json の `check:*` / `count:*` 33本の終了コードと出力は前後で同一（赤4本 `check:req-coverage` / `:json` / `check:design-measurement-freshness` / `:json` は基線から）。独立レビューが HEAD の版へ差し替えて `check:req-coverage` / `count:coverage-marks` / `check:e2e-guards` / `check:criterion-literals`（`:verbose` とも）の一致を再現した。被覆印は一件も失われていない
+  - **検証**: frontend 2ファイル47件・backend 58件は前後同数が緑、テスト名の差分は改名した2件だけ。type-check（frontend / backend / root）と prettier は EXIT=0。E2E `npm run test:e2e -- e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts` は 12/12 緑（実装者・独立レビューの双方）。親が承認後に新鮮な証拠で単体 47件 / 58件、`npm run type-check`、`count:coverage-marks` を再実行して緑
+
+- [x] 100.31 `calculation-engine.ts` で 100.27 の撤去により本番の利用者を失った `isValidNumber` / `ValidationResult` の処遇を決める
+  - **出所**: 100.27 の実装者の CONCERNS と独立レビューの Finding 2（いずれも 100.27 の `_Boundary:_` 外と判定された）
+  - **測った事実（100.27 で実測。着手時に測り直すこと）**: `isValidNumber` は自身の定義と `calculation-engine.test.ts` だけが使い、`ValidationResult` は利用者が零件である。どちらも 100.27 が撤去した4つの検証の部品だった
+  - **作法**: 撤去するなら 89.1 / 94.1 / 100.19 / 100.27 の作法を使うこと——到達可能性を測り、撤去が被覆検査を悪化させないことを前後の実測で示す。被覆印の計数は `npm run count:coverage-marks` で行うこと
+  - _Boundary: `frontend/src/utils/calculation-engine.ts` の `isValidNumber` / `ValidationResult` とその単体検証_
+  - **処遇（2026-09-24、HEAD `0bd0c767` の作業ツリー、リポジトリルートで実測）**: **2件とも撤去した**。変更は `frontend/src/utils/calculation-engine.ts`（`ValidationResult` の interface と `isValidNumber`、および中身が空になる見出しコメント「バリデーション関数」、-23行）と `frontend/src/utils/calculation-engine.test.ts`（import 1件と `describe('isValidNumber')`・`it(` 9件、-46行）の2ファイルだけで、追加行は零
+  - **到達可能性（測り直し）**: `\bisValidNumber\b` の当たりは自身の定義と `calculation-engine.test.ts` の import・自分の9テスト、tasks.md の起票文だけで、ファイル内の生きた関数からの呼び出しも無い。`\bValidationResult\b` のフロントの当たりは定義の1件だけ。backend の `estimate-validation.service.ts` / `quantity-validation.service.ts` 等の `ValidationResult` は**同名の別シンボル**で `calculation-engine` から取り込んでいない。`calculation-engine` を取り込む本番ファイル（`CalculationFields` / `FieldValidatedItemRow` / `EditableQuantityItemRow` / `numeric-range-validation` / `calculation-params-validation`）はどれも2つの名前を取らず、バレルの `export *` も零件。撤去後の `frontend/src`・`e2e`・`scripts` への grep は2つとも零件（独立レビューが再現）
+  - **撤去の関門（前後の実測）**: `check:req-coverage` / `:json` / `count:coverage-marks` / `:json` / `check:design-path-refs` / `check:design-code-refs` / `check:steering-refs` / `check:steering-idents` / `check:design-measurement-freshness` の9本で、**終了コードの列は完全一致、出力は9本ともバイト一致**（赤の3本は基線から赤）。撤去した docblock・テストは条文を名乗らないため、100.27 と異なり「機能名を欠くヘッダー」「眠る名乗り」も動かない。**被覆印は一件も失われていない**。独立レビューが HEAD の版へ差し替えて4本（`check:req-coverage` / `count:coverage-marks` / `check:design-path-refs` / `check:steering-idents`）の一致を再現した
+  - **挙動不変の実測**: `npm --prefix frontend run test -- quantity-table QuantityTableEditPage numeric-range-validation calculation-params-validation calculation-engine` が**前 68ファイル/1566件 緑 → 後 68ファイル/1557件 緑**、差は削除した **-9件ちょうど**。合格テスト名の集合の突き合わせで、消えたのは `isValidNumber` の describe 配下だけ。`type-check` / `lint`（`npm --prefix frontend run lint`、error 0・既存の warning 15件）/ `prettier --check` は EXIT=0
+  - **設計文書・上流**: 追随不要。`.kiro` 配下で2つの名前を名指すのは本タスクと 100.27 の記録だけである
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix frontend run type-check` EXIT=0 ／ `npm --prefix frontend run test -- calculation-engine calculation-params-validation numeric-range-validation` 3ファイル/193件 緑 ／ `npm run count:coverage-marks` EXIT=0 ／ 2つの名前の `frontend/src`・`e2e`・`scripts` への grep は零件
+
+## Task 101. 被覆印の計数の方式そのものの是正
+
+**出所**: 99.2 の是正ラウンド1。**着手時の被覆印の列挙を逐語 grep で行って誤り、独立レビューが差し戻した**。測り直しの過程で、同型の読み落としが repo 全体に及ぶことが判明した
+
+- [x] 101.1 逐語 grep で被覆印を数える運用を、プロジェクト自身の読み手で数える運用へ改める
+  - **測った事実（99.2 の実装者が測り、独立レビューが検算した）**: `scripts/check-requirement-coverage.ts` の `extractFileCoverage` / `extractHeaderScopedCoverage` を `e2e` 配下 **228 ファイル**へ当てると、**逐語 grep（`grep -rn "<feature>/REQ-N.M"`）が構造的に読み落とす (被覆印, ファイル) の組が 147 組 / 23 ファイル**ある。機能は **6件**（quantity-table-generation 72 / itemized-statement-generation 27 / estimate-creation 24 / contract-management 15 / estimate-request 8 / site-survey 1）。要件レベル（`REQ-N`）も数えると **174 組**。**実装者の初報は「5機能」で `site-survey/REQ-8.5 -> e2e/specs/site-surveys/site-survey-annotation-editor-acceptance.spec.ts` を落としていた**
+  - **原因**: ヘッダーが `Requirements coverage (<feature-name>):` の形で機能名を持つとき、**その直下の一覧の素の `- REQ-N.M:` は被覆印として読まれる**。逐語 grep は `<feature>/REQ-N.M` の綴りだけを探すためこの形に当たらない
+  - **害**: (a) 「印は0件」という誤った結論から**空洞が残る**（99.2 で現に起きた）。(b) **タスク記録に残る「印は N 件」の計数の多くが逐語 grep で測られており、その多くが誤っている可能性がある**。(c) 100.6 で判明したとおり、ヘッダーの名乗りは `check:req-exclusions` の**不変条件5（除外と被覆印の同居の禁止）にも掛かる**ため、誤った計数は除外の処遇の判断も誤らせる
+  - **利用者が決めること**: (a) 計数の方式を統一する補助（`npm run` の script 等）を用意するか、(b) 作法として Implementation Notes と skill に明記するに留めるか、(c) 既存のタスク記録の計数を遡って測り直すか（**遡及の是正は 77.1 の先例では「入力検証の境界の外」として拒否されている**——同じ理屈で「記録の遡及的な是正」も別枠の判断になる）
+  - **利用者の裁定（2026-09-17）**: 「**(a) 計数の方式を統一する補助を用意する**」。`scripts/check-requirement-coverage.ts` の `extractFileCoverage` / `extractHeaderScopedCoverage` を呼ぶ計数コマンドを `npm run` の script として新設し、誰が数えても同じ方式になるようにする（自己検査を伴う）。**(c) の遡及的な測り直しは採らない**（77.1 の先例どおり別枠）
+  - _Boundary: 被覆印の計数の方式と、その周知の置き場所_
+  - **是正の内容**: `scripts/count-coverage-marks.ts` と `scripts/count-coverage-marks.selftest.ts` を新設し、`package.json` へ `count:coverage-marks` / `:verbose` / `:json` / `:selftest` を足した。**新設スクリプトは被覆印の読み取り規則を一切持たない**——`scripts/check-requirement-coverage.ts` の `extractFileCoverage` / `extractHeaderScopedCoverage` / `listCoverageScanFiles` / `CODE_DIRS` / `discoverFeatures` を輸出のまま呼ぶだけで、`RegExp` も `exec` / `match` / `matchAll` も**0件**である（独立レビューが grep で実測）。`check-requirement-coverage.ts` 本体は**1文字も変えていない**（`git hash-object` が HEAD と一致。`export` の追加も不要だった）。`--feature` / `--root`（いずれも繰り返し可）/ `--verbose` / `--json` を解釈し、**機能0件・走査対象0件・実在しない機能名は EXIT=1** にする（AI運用第3原則）
+  - **数値が起票の記録と逐語一致することの実測**: 実データ `e2e` で**走査 230 ファイル / 受入基準レベルの印 2436 件 / うち逐語 grep が読めない印 147 件**。`--root=e2e --json` の内訳は **contract-management 15 / estimate-creation 24 / estimate-request 8 / itemized-statement-generation 27 / quantity-table-generation 72 / site-survey 1** で **23ファイル / 6機能**、要件レベル 27 件を足すと **174 組**——いずれも起票文の記録と一致する（走査 230 と記録の 228 の差は、起票後に e2e spec が2本増えたため）。**全走査根では 1746 ファイル / 受入基準 4842 件 / 読めない印 1552 件**で、`e2e` 配下の 147 件よりはるかに大きい（`backend/src` / `frontend/src` にヘッダー形式が多い）
+  - **周知先**: `.kiro/steering/development-discipline.md` へ「被覆印は逐語 grep で数えない」の節を足した。**件数は書かず、数える手段（`npm run count:coverage-marks`）だけを書く形**（同書の規約 (b)「数値を落とし、数える手段を書く」）を採ったため、`check:steering-dir-counts` と `check:design-measurement-freshness` に新しい宣言を要しない。**`.claude/skills/` には追記していない**——被覆印の計数を逐語 grep で行うよう指示する記述が skills 配下に**1件も無い**ことを実装者・独立レビューの双方が実測した
+  - **独立レビューが2度差し戻した（本タスクで最も重い論点）**: **ラウンド1の差し戻し**——自己検査11本が `countMarksInContent` / `decideExit` / `parseArgs` を**部品単位でしか**当てておらず、CLI の入口 `main()` の結線を一度も通していなかった。レビュアーが自分で当てて**緑のまま素通しした変異が4種**——(1-a) `--feature` の絞り込みを入口で無効化（出力が 72 件ではなく **2436 件**に化ける）、(1-b) `--root` を入口で無効化、(1-c) `return code === 0 ? 0 : 0;`（**存在しない走査根が EXIT=0 で「印なし」を返す**＝第3原則の守りが消える）、(2) `DEFAULT_SCAN_ROOTS = CODE_DIRS.slice(0, 1)`（既定の走査が **1746 → 436 ファイル**に縮むのに、正規表現が前方一致のため素通り）
+  - **ラウンド2の差し戻し**: 入口の結線は塞がったが、**人が読む出力 `formatReport` と、プロセスとしての入口（`invokedDirectly` / `process.exit(main())`）が依然として射程外**であった。素通しした変異——(1-a) 受入基準レベルの行が引く値を要件レベルの値へ差し替える（**147 を 27 と読ませる**。99.2 で現に起きた「誤った計数から空洞が残る」と同型）、(1-b) `--verbose` の `!` 印を一律で空白に（逐語 grep の盲点が出力から消える）、(2-a) `process.exit(main())` → `main(); process.exit(0);`（**プロセスの出口で第3原則の守りが消える**）、(2-b) `if (invokedDirectly && false)`（コマンドが**出力0行・EXIT=0 の完全な no-op** に）。**これが境界内である根拠は、周知先の steering が「出力がその時点の値を印字する」「`--verbose` では `!` の印が付く」という二つの反証可能な主張を置いていることである**
+  - **最終的に束縛した実行経路**: 是正2ラウンドで `checkCliEntryNarrowsByFeature` / `checkCliEntryHonorsRoot` / `checkCliEntryPropagatesExitCode` / `checkCliReportPrintsMeasuredValues` / `checkProcessEntryCarriesJudgementToExitCode` を追加し、`function check*` は 12 → **17 本**（`checkStructuralWiring` が宣言17＝呼び出し17 を課す）。`formatReport` は**文言でなく値**で照合し（行中の整数を出現順に拾う）、`--verbose` の `!` 印は**総数・ファイル別の集合・識別子の集合**の三重で束縛する。プロセスの入口は `spawnSync('npx', ['tsx', ...])` で測る（先例は `scripts/check-dead-script-env.selftest.ts`）
+  - **独立レビューが実測した変異（合計10種以上。すべてレビュアー自身が設計・当て直し）**: 差し戻した9変異がすべて赤へ転じたことに加え、**レビュアーが新たに設計した変異もすべて赤**——`spawnSync` の ENOENT とタイムアウト（`status === null` が緑に落ちない＝第3原則）、`!` 印の字下げを 6→4 に変える（0件になったら赤）、要約行へ整数を1つ足す毒入れ、節の見出しの改名、`featureOf` が識別子を丸ごと返す、`[...CODE_DIRS].reverse()`（集合は同じで順序だけ違う）。`finally` による `console` の復帰は **`main` が例外を投げる変異でも赤**、`readCliJson` は `--json` が読めないとき赤、`busiestFeature` は印を持つ機能が2件未満のとき**緑にせず赤**（`REAL_DATA_ROOT` を印が1機能しかない実在の走査根へ差し替えて実測）
+  - **レビュアーが自分の前言を撤回した点（誠実な記録として残す）**: ラウンド2で「この2点で実行可能面は尽きる」と述べたが、最終ラウンドで**それが言い過ぎであった**ことを自ら実測で示した。依然として緑のまま通る変異が3種ある——(a) `countCoverageMarks` の母集団の絞り込みの `&&` を `||` にする（**`e2e` では数値がまったく動かず、全走査根でのみ 628→620 ファイル・要件レベル 1499→1482 と動くため、走査根 `e2e` を見る自己検査には原理的に映らない**）、(b) 機能別の行が引く値の差し替え、(c) ファイル別の見出し行の「読めない印 N 件」の欄の差し替え。**いずれも二次的な内訳の表示**であり、steering が置いた二つの主張は現に束縛されているため、裁定が求めた充足条件は満たすと判定した。将来の是正では (a) は `--root=backend/src` を併せて測る一行で、(b)(c) は既存の `readVerboseFileSections` の見出し行に整数照合を足す数行で閉じられる
+  - **検証（親が提出時に自分で実測）**: 作業ツリーは4件のみ、**`git diff frontend/ backend/` は 0 行**、`check-requirement-coverage.ts` は `git hash-object` が HEAD と一致、変更ファイルに TODO/FIXME 0件、`function check*` 17本、新設スクリプトの読み取り規則の漏れ0件。`count:coverage-marks:selftest` **EXIT=0**、`--feature=quantity-table-generation --root=e2e` が **378 件（うち読めない印 72 件）**、`--root=e2e --verbose | grep -c '^      ! '` が **147**（自己検査の内側の値と外側の目視が一致）。`check:req-exclusions` / `check:criterion-literals` / `check:adjudication-pointers` / `check:dead-script-env` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:steering-refs` / `check:steering-idents` / `check:steering-command-annotations` / `check:steering-dir-counts` / `check:steering-test-tree` / `type-check` / `lint` / `format:check` がいずれも **exit 0**。**`check:req-coverage` の出力が 101.1 着手前と `diff` で完全一致（DIFF-EMPTY）**——完了の定義「既存の関門の出力・終了コードを変えていない」の直接の証拠
+  - **裁定 (c)（既存タスク記録の遡及的な測り直し）は採っていない**（77.1 の先例どおり別枠）
+  - **上流所管（起票済み。受け皿は 101.2）**: 自己検査ファイルを1本増やしたことで `check:design-measurement-freshness` に**ちょうど2件**の食い違いが生じる（`selftest-entry-population` / `selftest-failure-default-conforming`、いずれも expected=`19` actual=`20`）。是正には `.kiro/specs/site-survey/design.md` の逐語「タスク 115.300 の提出時点の再実測は母集団 19 件・適合 19 件である」と `scripts/design-measurements.json` の `expected` を**同時に**動かす必要があり、**前者は別スペックの設計文書＝上流所管**である。**親が上流 site-survey の tasks.md へ Task 115.331 として実際に書き込んだ**（89.1 の教訓「起票して待つ」は起票を実際に書き込んでから待機に入ること）
+  - **観測（範囲外）**: `count:coverage-marks:selftest` は `.husky/scripts/pre-push.sh` にも CI にも組み込まれていない（pre-push が呼ぶのは `check:*:selftest` 系）。所要 5.5 秒はフックの負担にならない一方、**自己検査が黙って腐る経路は残る**。本タスクの裁定は「計数の補助（自己検査を伴う）」であって関門の新設ではないため境界内の欠陥としないが、`check:*` 系と同様に pre-push へ載せるかは別途の判断としてよい
+
+- [x] 101.2 自己検査の母集団を引く上流の鮮度宣言が、101.1 の新設で陳腐化した状態を解消する
+  - **出所**: 101.1 の独立レビューの Finding 3（上流所管と判定された）
+  - **測った事実（親が 2026-09-18 に実測）**: `npm run check:design-measurement-freshness` に 101.1 由来の食い違いが**ちょうど2件**ある——`selftest-entry-population`（expected=`19` actual=`20`）と `selftest-failure-default-conforming`（expected=`19` actual=`20`）。いずれも `.kiro/specs/site-survey/design.md` の逐語「タスク 115.300 の提出時点の再実測は母集団 19 件・適合 19 件である」が引く値である。**101.1 が `scripts/count-coverage-marks.selftest.ts` を1本足したことで `ls scripts/*.selftest.ts | wc -l` が 19→20 になった**
+  - **両者が揃って 20 であることの意味**: 新設の自己検査は失敗既定の形（module 頂の `process.exitCode = 1;`、成功経路にのみ字下げ付きの `process.exitCode = 0;`、`main();` が1箇所）に**適合している**。作法違反による増加ではない
+  - **本項が下流で処置できない理由**: 是正は `design.md` の逐語と `scripts/design-measurements.json` の `expected` を**同時に**動かす必要があり、**前者は別スペックの設計文書である**。独立レビューも境界外と判定した
+  - _Blocked: site-survey スペックの Task 115.331（本項の起票先。親が上流の tasks.md へ実際に書き込み済み）の解決待ち。**115.330 が同じ文書の鮮度宣言の系列を扱っているため、そちらと同時に処理するのが自然である**_
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 97 / 98 / 99 / 100 と同じ）。
+  - **処遇（HEAD `f3ee960d`、2026-09-25 にリポジトリルートで実測）**: 上の `_Blocked:` は当時の記録として残す。本項の要求は上流 site-survey の 115.330（コミット `f8c42e71`）が同時に処理し、115.331（コミット `7f678825`）が `[x]` で閉じた。下流としての編集は無い（是正は上流の設計文書と `scripts/design-measurements.json` の所管で、本項は下流の成果物を求めていない）。上流の `design.md` L8884（115.331 の記録時点の L8885。115.332 の編集で1行繰り上がった）は 115.300 の逐語「母集団 19 件・適合 19 件」を残したうえで「タスク 115.330 の提出時点の再実測は母集団 20 件・適合 20 件である」を並べ（規約 (a)）、増分を本スペック 101.1 のコミット `83d2fdba`（2026-09-18、`scripts/count-coverage-marks.selftest.ts` の新設。`git show --stat` で確認）へ帰属させている。`selftest-entry-population` / `selftest-failure-default-conforming` は錨が同文へ貼り直され expected は `20`
+  - **検証（独立レビューが再現）**: `ls scripts/*.selftest.ts | wc -l` は 20。`npm run check:design-measurement-freshness:verbose` で二宣言とも expected=20 actual=20 documentFigure=20（当該宣言は緑）。関門全体の EXIT=1 は上流 115.333（下流 89.1 / 97.14 の撤去に由来）が扱う別系列の宣言によるもので、本項とは無関係
+
+
+## Requirements Coverage の現況の追補（Task 100.26、2026-09-24 実測）
+
+**本節は完了済みタスクの `_Requirements:` 行を1行も書き換えない。** 過去のタスクの名乗りは「当時そう負った」という記録であり（規約 (a)）、名乗りと条文の現況の食い違いは**ここに並べて示す**。遡及的な書き換えを採らない理由は 77.1 / 101.1 の裁定 (c)（遡及の是正は別枠）と、97.7 が Task 62.1 の名乗りから 43.2 を削らず追補で示した先例に同じである。本節は受入基準を新規に実装しないため、それ自身の `_Requirements:` を持たない。
+
+**測り方（2026-09-24、リポジトリルートで実測）**: 現役・撤廃の受入基準は `scripts/requirement-document.ts` の `scanRequirementsDocument` で requirements.md から読んだ（現役 359 件・撤廃 7 件。`npm run -s check:req-coverage:json` の `features[]` の本スペックの `acceptanceCriteriaCount` / `retiredAcceptanceCriteriaCount` と一致）。名乗りは本書のチェック項目 426 件の配下にある `- _Requirements:` 行 245 行をすべて字句解析し（読めない字句 0 件、親を持たない行 0 件）、`[x]` の 416 件が名乗る番号の集合と突き合わせた。E2E の被覆は `npm run count:coverage-marks:json -- --feature=quantity-table-generation --root=e2e` で読んだ（逐語 grep ではない）。
+
+**(1) 現役なのに、どの `[x]` タスクの `_Requirements:` にも名乗られていない受入基準（8件）**——未完了タスクの名乗りも 0 件。いずれも E2E の被覆印を持ち、実装・検証の欠落ではない。「中身を負った箇所」は当時の本文の箇条か出所のコミットであり、**当該タスクがその番号を名乗ったという意味ではない**
+
+| Req | 条文の要旨 | 条文が入った版 | 中身を負った箇所（現況の読み） | E2E の被覆印 |
+|-----|-----------|----------------|--------------------------------|--------------|
+| 2.6 | 編集画面での数量表名の変更はドラフトへ反映し、保存時に永続化 | `628fbe96`（#609、Requirement 42 と同時） | 60.1（reducer の「数量表名変更」）・61.1（「編集画面での数量表名変更もドラフト更新へ移行する」）。両タスクは同旨の 42.2 を名乗る | `client-side-edit-explicit-save-e2e.spec.ts` |
+| 5.5 | 「標準」ではメイン行に調整係数・丸め設定を表示しない | `fa2b66a0`（#236） | **負ったタスクは無い**。#236 がタスクを経ずに実装と E2E を足した（同 PR の `refactor(quantity-table): 列順序変更と調整係数・丸め設定の表示条件を修正` と `test(e2e): add E2E test for REQ-5.5 ...`）。現況の表示制御は 51.4（同旨の 37.7 を名乗る）が負う | `quantity-table-crud.spec.ts` |
+| 9.6 | 調整係数の設定下で、計算元の変更時に自動再計算 | `0ee7c796`（初版） | 6.2（「入力値変更時の自動再計算」）・6.3（「係数入力と自動再計算」）。6.3 の名乗りは 9.1〜9.5 で止まる | `quantity-table-crud.spec.ts` |
+| 9.7 | 調整係数を小数2桁で常に表示 | `0ee7c796`（初版） | 12.2（「調整係数・丸め設定・数量フィールドを小数2桁で常時表示する機能を追加する」）。12.2 は同旨の 14.2 を名乗る | `quantity-table-crud.spec.ts` |
+| 9.8 | 「標準」では調整係数フィールドを表示しない | `fa2b66a0`（#236） | 5.5 と同じ（タスクを経ずに #236 で実装。現況は 51.4 が 37.7 として負う） | `field-specification.spec.ts` |
+| 10.6 | 丸め設定の適用下で、計算元・調整係数の変更時に自動再計算 | `0ee7c796`（初版） | 6.2・6.4（「丸め単位入力と自動再計算」）。6.4 の名乗りは 10.1〜10.5 で止まる | `quantity-table-crud.spec.ts` |
+| 10.7 | 丸め設定を小数2桁で常に表示 | `0ee7c796`（初版） | 12.2（9.7 と同じ） | `quantity-table-crud.spec.ts` |
+| 10.8 | 「標準」では丸め設定フィールドを表示しない | `fa2b66a0`（#236） | 5.5 と同じ | `field-specification.spec.ts` |
+
+E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下である。
+
+**(2) 撤廃済みなのに `[x]` タスクの `_Requirements:` に残る名乗り（5タスク・延べ 15 件）**——Requirement 1 は全受入基準が `project-management` の Requirement 25（AC 1〜7）へ移管済みで、本スペックの分母の外にある（被覆率は動かない）。移管は `a9396948`（#310、2026-02-15）で、下の5タスクの完了より後である。**当時の名乗りは偽ではなく、条文の側が後から移った**
+
+| タスク | 撤廃済みの名乗り | 現況の後継 |
+|--------|------------------|------------|
+| 2.1 | 1.2, 1.3 | project-management の Requirement 25 AC 2, 3 |
+| 3.1 | 1.2, 1.3 | project-management の Requirement 25 AC 2, 3 |
+| 4.1 | 1.1〜1.7（名乗りの全件） | project-management の Requirement 25 AC 1〜7 |
+| 9.4 | 1.1 | project-management の Requirement 25 AC 1 |
+| 10.1 | 1.4, 1.5, 1.7 | project-management の Requirement 25 AC 4, 5, 7 |
+
+**上の二表の外に食い違いは無い**——名乗りのうち requirements.md に存在しない番号は 0 件、`Requirement N` の形や範囲表記の名乗りも 0 件（全 245 行が `N.M` のカンマ区切り）。Requirement 7 の振り直し（96.5）で動いた名乗りは 96.5 が追随済みで、現役の番号として読める。
+
+
+## Task 102: 部品のインラインの outline の打ち消しを外し、フォーカス表示を steering の方針へ揃える（project-management の Task 75.2 からの申し送り。利用者の判断で起票、2026-10-08）
+
+**経緯**: project-management の Task 73.5 が steering `.kiro/steering/tech.md` に「フォーカス表示方針」を記録した（全画面の既定のフォーカス表示は `frontend/src/index.css` の `@layer base` の `:focus-visible`。部品の側でインラインの `outline: 'none'` を書かない。独自の輪を描く場合は 2px 以上・コントラスト比 3:1 以上。是正は各機能のスペックの責務）。同スペックの Task 75.2（2026-10-08、HEAD `c8036acd`）の実測で、本スペックの部品・ページに、方針から外れたインラインの `outline: 'none'` が 8 か所残っている
+
+- [x] 102.1 本スペックの部品・ページのインラインの `outline: 'none'` を外し、フォーカス表示を 2px 以上・3:1 以上にする
+  - 対象（2026-10-08 の実測。着手時に `grep -rnE "outline: ?['\"]none['\"]"` で測り直すこと）:
+    - `frontend/src/components/quantity-table/AutocompleteInput.tsx`（1 か所）
+    - `frontend/src/components/quantity-table/CalculationFields.tsx`（1 か所）
+    - `frontend/src/components/quantity-table/CalculationMethodSelect.tsx`（1 か所）
+    - `frontend/src/components/quantity-table/CopyQuantityTableDialog.tsx`（1 か所）
+    - `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx`（1 か所）
+    - `frontend/src/components/quantity-table/QuantityGroupCard.tsx`（1 か所）
+    - `frontend/src/pages/QuantityTableCreatePage.tsx`（1 か所）
+    - `frontend/src/pages/QuantityTableListPage.tsx`（1 か所）
+  - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
+  - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
+  - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
+
+## Task 103: 375 幅で数量グループのカードの見出しと紐付け写真がはみ出す（利用者の判断で起票のみ、2026-10-10）
+
+**経緯**: Task 102.1 の独立レビューと機能レベル検証（2026-10-09、GO）が、375 幅で次を確かめた。`frontend/src/components/quantity-table/QuantityGroupCard.tsx` の見出し `styles.header`（127〜134 行付近）は `display:flex` で折り返しの指定が無く、操作の釦の並び `styles.headerActions`（200〜204 行付近）が `flexShrink: 0` のため「グループを削除」がカードの内側の右端から約 75px はみ出す。グループ名の領域 `styles.headerInfo`（185〜188 行付近）はほぼ 0 幅まで潰れ、グループ名が 1 文字ずつ縦に折り返す。紐付け写真の `styles.thumbnailWrapper`（151〜153 行付近）は幅 640px 固定で `flexShrink: 0` のため、はみ出す。`0ee7c796`（2026-01-16）から変わっていない既存の欠陥で、steering `tech.md` の「レスポンシブ・ビューポート方針」に反する。利用者の判断（2026-10-10）により起票のみとし、着手は利用者の判断による
+
+- [x] 103.1 375 幅で数量グループのカードの見出しと紐付け写真がカードからはみ出さないようにする
+  - 見出しを折り返せるようにし、操作の釦とグループ名がカードの幅に収まるようにする。写真は幅に合わせて縮める。長い一語の名前（区切りの無い長い文字列）を含む 3 通りの名前で、全画面の 375 幅を網羅して確かめる
+  - 挙動（表示）の変更であるため RED → GREEN で進め、E2E（375 幅でカードの要素の右端がカードの内側に収まり、ページに水平スクロールが出ない）で主張する。Task 102.1 の E2E（`e2e/specs/quantity-tables/quantity-table-focus-visible.spec.ts`）の 375 幅の期待値への影響を確かめる
+  - _Boundary: 数量グループのカードの 375 幅の配置_
+
+## Implementation Notes（Task 75 以降）
+
+- **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。
+- **設計文書が 75.1 の実装に対して陳腐化している（76 系の着手前に要是正）**: `design.md` の `ProjectSurveyImage` の定義ブロックと、ファイル変更表の `frontend/src/pages/QuantityTableEditPage.tsx` の行（「注釈の有無による分岐とバッジ表示は不要になる（全件が注釈付きのため）」）は、「注釈レコードの存在＝描画あり」「合成済みサムネイルは必ず存在する」という**実装で誤りと確認した前提**で書かれたままである。上の2真偽値の追加が次の読者にドリフトと誤認されうる。**【現況】76 系の着手前には是正されず、Task 87.1 が design.md へ現況の再実測を併記した**（定義ブロックとファイル変更表の行の両方）。
+- **前提の成立と検証の恒真は同じ場所で壊れる**: 82.1 で注釈なし写真をシードし続けたのは、前提を通すためではなく「注釈付きのみが並ぶ」という主張が空集合に対する恒真へ退化しないようにするためである。**全件を注釈付きにすると前提は通るが主張は死ぬ。** 保存を外す向きの変異では生きていることを示せず、**注釈なしを注釈付きへ変える逆向きの変異**で当該主張が落ちることを確かめる必要がある。
+- **件数を「グループ数より少ない」で測ると恒真に近い**: 76.2 の初稿は `合計 < グループ数` を主眼に据えたが、取得抑止を外す変異の下でも `7 < 10` で通過した。ブラウザ自前の遅延読込が残るため**取得件数はグループ数に依存しない定数**になり、グループ数を増やしても2点のグループ数で比較しても歯が立たない。**表示領域に実際に入るグループの表示元キー集合との包含**で主張すること。
+- **遅延読込の検証は「合成済みの画像を渡す経路」で測らないと主経路を外す**: 76.2 の初稿は表示領域外の非取得を、合成済みサムネイルを**持たない**グループ1件だけで主張していた。当該経路はクライアント側合成のため描画部品の判定を通らず、ブラウザ自前の遅延読込も効かないので歯は立つが、**全グループが合成済みを持つ通常状態では変異を一切検出しない**。判定点は主経路側にも置くこと。
+- **除外の取り下げは「実装済みか」ではなく「検証が実挙動を固定しているか」で決まる**: 83.1 の 49.7 は 73.3 の時点で実装済みだったが、取り下げの根拠になったのは実装の存在ではなく、拡大表示の表示元をサムネイルへ戻す変異で当該の主張が落ちることの実測である。**原本とサムネイルは同一のタイムスタンプを持ち `_thumb_` の有無だけで分かれるため、後方一致の設計を誤るとサムネイル取得を原本取得と誤検出して実装が壊れていても緑になる。** 照合キーに `surveys/<id>/<ts>_` までを含めること。
+- **`_Boundary:` の宣言は箇条の文面より広いことがある**: 77.1 の箇条は所在を「項目を**作成する**経路」と書いていたが、`_Boundary:` は「数量項目の入力検証」であって作成に限定されない。独立レビューは**更新経路を直すことは越境ではなく境界の充填**と判定して差し戻した。**箇条が名指す所在を境界と読み替えないこと。** 同じ害へ到達する経路を全数で数え、境界内の未充填を残さないこと（本件では新規値でテキスト欄へ書き込む経路が `create` / `saveDraft` / `update` の3本で、複製系は既存値の逐語コピーなので対象外だった）。
+- **遡及的なデータ是正は入力検証の境界の外**: 既存行に残る上限超過の値は 77.1 では直していない。13.1-13.3 は逐語で「フィールドに**入力する**」時点の規範であり永続化済みの値を述べないためである。**境界内の未充填は拒否し、境界外の押し込みも拒否する**——どちらもスコープ漂流である。
+- **被覆検査の上限は静かに超える。見出しへ機能名を与えること**: 本実行のコミット群が機能名を欠く見出しを10件・その配下の眠る名乗りを12件増やし、`check:req-coverage` の二つの上限（`機能名を欠くヘッダー` / `読まれないままの名乗り`）をいずれも超えて **pre-push を塞いだ**。形は `Requirements (feature-name):` である。**眠る名乗りは箇条書きの項目だけが計数される**ため、インラインの `Requirements: 13.1, 13.2` は見出しの数だけを増やし、箇条を伴う見出しが名乗りの数を増やす。どちらの上限に当たったかを `scripts/check-requirement-coverage.ts` の `readFeaturelessHeadersInContent` で測り分けること。**被覆印は検証側へ付けること**——本番ファイルの見出しへ機能名を与えると、本番コードが受入基準を被覆したと数えられる。
+- **起票文が挙げた件数をそのまま写すと、測っていない件数を新たに埋め込む**: 79.1 の初稿は起票文の「本書の他の 2 箇所」を写したが、着手時に `grep -cE '未使用[の]' .kiro/specs/quantity-table-generation/design.md` で数え直すと `3` であり、`#### 影響ファイル一覧（REQ-39〜41）` が漏れていた。**起票文の数字は起票時点の実測であって、着手時の実測ではない。** タスクが「測り直してから書くこと」を課している以上、本文の所在も件数も同じ扱いである。
+- **`check:design-path-refs` の `ABSENCE_MARKERS` は不在の語と実在パスを同じ行に置くと面を増やす**: 79.1 の追記で「存在しない」「当時」が実在する `frontend/src/pages/QuantityTableEditPage.tsx` と同じ行に並び、面が +2 で一時 exit 1 になった。同スクリプトの JSDoc が同型の先例と是正法（**基準を上げず語を言い換える**）を明記している。基準ファイルを動かすのは他ファイルの変更であり、単一ファイル境界のタスクでは採れない。
+- **状態記録に錨を打つとき、その錨は自分自身を数えうる**: 79.1 で `未使用の` を素の形で引くと、それを書いた文自身が母集団に入り出力が `3` から `4` へ動く。`未使用[の]` と文字クラスで割って回避したが、**この形の錨は「別部品について同じ綴りが書かれれば静かに値が動く」**。錨が数える母集団と、主張したい対象の同一性は、現時点の観測として逐語で開示すること。
+- **実測値の版指定は日付だけでは足りない**: 79.1 の表 3 行が `2026-09-10 に実測` で止まっていたが、当該行が名乗る「4 ファイル」は同日のコミット `b701ad53` で 5 から動いた値であり、同じ 2026-09-10 に 5 の版と 4 の版が両方存在する。site-survey の `#### 実測値の書き方（タスク 115.212）` の (a) が「日付だけを版の手掛かりに使うな」と定めるのはこの型のためである。**再現コマンド・実行の起点・コミット・日付の 4 点を揃えること。**
+- **`#### PhotoCommentDisplay修正（REQ-35）` の `**Implementation Notes**` に同型の陳腐化が残る（未起票）**: `handleLinkImage` と `onPhotoChanged` はいずれも `grep -rn` の当たりが `0` で不在。79.1 は測定範囲を 3 箇条と直下の表に限ると明示宣言しており境界内で完結しているため、当該 2 件は本タスクでは触っていない。**【現況】その後 Task 87 として起票され、87.1 が design.md へ現況の再実測を併記した。**
+- **条文の改訂は、それまで衝突していなかった受入基準どうしを新たに衝突させうる**: 80.1 が丸め設定の下限を `-99.99` から `0.01` へ改めた結果、REQ-10.3（範囲外はエラー）と REQ-10.4（`0` は既定値へ差し替え）が値 `0` で正面衝突した。**改訂前は `0` が範囲内だったためこの衝突は存在せず、改訂そのものが作り出したものである。** 条文を改める向きの裁定を採るときは、改訂後の条文どうしを総当たりで突き合わせること。裁定の是非（条文が誤りか実装が誤りか）だけを検算しても、この型は捕まらない。
+- **範囲判定と既定値差し替えは層であり、順序を条文で決めないと結線が二通りになる**: 80.1 は「既定値へ差し替えてから範囲判定へ渡す」（REQ-10.4 優先）で決着させ、条文・正典の doc・design.md・単体検証の4箇所へ書いた。逆順に結線すると `e2e/specs/quantity-tables/field-specification.spec.ts` の `10.4: 丸め設定が0の時は0.01が自動設定される`（現在緑）が落ちる。**描画される実装は既にこの順序で動いている**——`CalculationFields.tsx` の `AdjustmentField.handleBlur` が `numValue === 0 && defaultValue !== 0` で差し替える（丸め設定は `defaultValue={0.01}`）。
+- **範囲を課す層は焦点喪失だけではない**: `frontend/src/pages/QuantityTableEditPage.tsx` の `handleSave` が `Number(item.roundingUnit) <= 0` を「丸め設定が無効です」として保存を中断する（REQ-11.2 の整合性チェック）。この層は `0` を差し替えず拒否するため、AC 4 の全称的な順序規定と向きが逆である。UI からこの枝へ `0` が届く経路は現状見当たらないが、**「結線先は一つ」と決めてかからないこと。**
+- **同一部品の既定値差し替えが、条文の裏づけの無い欄へ相乗りしていることがある**: `AdjustmentField` の `0 → 既定値` 差し替えは調整係数（`defaultValue={1.0}`）にも掛かるが、REQ-9.4 が既定値差し替えの対象と定めるのは**空白のみ**であり、`0` は REQ-9.3 の有効域 `-9.99〜9.99` の内側である。実装のコメント自身が「0の場合もデフォルト値を設定（丸め設定用）」と書いており意図せぬ波及である。**「AC 4 が先」を他の欄へ横展開しないこと。**
+- **正典を一本化するときは、撤去する輸出の消費者を HEAD で全数列挙すること**: 80.1 は `field-validation.ts` から `validateNumericRange` / `NUMERIC_FIELD_RANGES` を撤去したが、消費者を数え上げていなければ「黙って検証を失った呼び出し側」を見落としうる。実測では本番の消費者は `FieldValidatedItemRow.tsx` の1ファイルのみだった。**撤去後に全件が緑であることは、検証が消えたことを検出しない。**
+- **既定値差し替えを断つと、それまで到達不能だった「保存だけが落ちる」領域が開く**: 80.2 が調整係数の `0 → 1.00` 相乗り差し替えを条文どおり断った結果、`0` がそのまま確定し数量が `0` になり、`backend/src/routes/quantity-tables.routes.ts` の `adjustmentFactor: z.number().positive()` が保存だけを 400 で拒む経路が開いた。**差し替えは条文違反であると同時に、条文と実装の食い違いを覆い隠す蓋でもあった。** 蓋を外すときは、覆われていたものを同時に数えること。
+- **同じバックエンドの中で条文どおりの制約と食い違う制約が併存しうる**: 調整係数は `quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR` が条文どおり `-9.99〜9.99` で、しかも `validateItemFieldSpecs` → `validateDraft` → `saveDraft` の経路で**生きている**。実際に `0` を弾いているのはルート層の zod が先に走るためである。**「バックエンドがこう定めている」を一箇所だけ見て決めないこと**——どちらが少数派かで、条文を狭めるか実装を直すかの向きが変わる。
+- **変異の当て損ないは結線の穴と区別がつかない**: 80.2 の初稿は寸法12欄の `rangeFieldType` を文字列置換で一括除去しようとしたが、整形の都合で `pitchLength` の1件だけ字面が一致せず残り、報告では「ピッチ長は取りこぼした」と書かれた。独立レビューがピッチ長**単独**の変異を当てて 2 failed / 118 を実測し、結線も検出も生きていることが分かった。**一括変異で落ちなかった箇所は、個別に当て直すまで結論を出さないこと。**
+- **12箇所の結線に対し検証が11箇所でも、一括変異では気づけない**: ピッチモードの「重量」だけ検証が無い状態で、12箇所すべてを外す変異は 23 件落ちた。落ちた件数が十分に大きいと穴は隠れる。**欄ごとに1件ずつ変異を当てるか、結線の数と検証ケースの数を突き合わせること。**
+- **範囲外を拒むときの見え方が欄ごとに揃っていない**: 数量欄と調整係数・丸め設定は小数2桁へ整形してから拒み（REQ-14.2 の常時2桁表示に合わせる）、寸法・ピッチ・箇所数の各欄は生入力を保ったまま拒む（箇所数で Task 68.2 が定めた作法）。**この非対称が、ラチェット `quantity-table-crud.spec.ts:4003` / `:4106` が `test.fail()` を外すだけでは緑にならない直接の原因である。** 揃えない判断と材料は design.md に記録した。
+- **結線すると壊れる検証だけでなく、結線しても壊れない「偽の緑」を数えること**: `e2e/specs/quantity-tables/field-specification.spec.ts:600-628` は撤廃済みの範囲 `-99.99〜99.99` を主張し続けるが、拒否時にも整形値が欄へ残るため**緑のまま通る**。80.2 の初稿は「壊れる」と誤って分類し、独立レビューが実読で覆した。**「壊れないから引き継ぎ一覧から落とす」は、次の担当者に見落とさせる。**
+- **検証の表題を変えると、表題の逐語を指す統治文書が黙って壊れる**: 80.3 が crud spec の表題2件を改名した結果、`scripts/coverage-mark-adjudication.md` の裁定記録 §4 の指し先が消失し、**基線で緑だった pre-push 関門 `check:adjudication-pointers` が EXIT=1 へ後退した**（`.husky/scripts/pre-push.sh:1344` が `Push aborted.` する）。テストの表題は検証コードの内部事情ではなく、他所から逐語で指される識別子である。**改名したら `grep -rn '<旧表題>' scripts .kiro` を掛けること。**
+- **「基線と同一」の対照は、疑わしいファイルを戻して取ること**: 80.3 の初稿は `check:design-measurement-freshness` が 8件（基線7件）になったのを「基線と同一」と報告した。対照として戻したのが `e2e/requirement-exclusions.json` で、8件目の原因である `scripts/coverage-mark-adjudication.md` を跨いでいなかったためである。**原因を跨がない対照は何も検出しない。** 是正後は当該1ファイルだけを戻す隔離対照を取り、7↔8 の往復で原因を両向きから確定させた。
+- **`page.locator('#${uuid}')` は UUID が数字で始まると不正な CSS セレクタになる**: 80.3 の最初の緑は英字始まりの UUID を引いた偶然で、変異検証がこれを暴いた。**id で引くときは `[id="..."]` を使うこと。** 一度緑になったことは、セレクタが正しいことの証拠にならない。
+- **不在の主張には非空証明を同じテストの中に置くこと**: 80.3 の REQ-15.1 は「未保存インジケーターが現れない」を主張するが、直後に範囲内の値を入れて同インジケーターが現に出ることを主張している。**観測器が壊れていれば不在は恒真になる。** 同じ作法は Task 76.1 の0件判定でも採られている。
+- **条文は「拒否」と「防止」を書き分けている**: REQ-8.4/9.5/10.5 は「入力を拒否し**エラーメッセージを表示する**」であり、打鍵ごとに文字を落とす形では提示すべきエラーが生じない。REQ-13.1〜13.3 の「入力を**防止する**」とは別の規範である。**焦点喪失時の拒否を採ると IME の面がゼロになる**——変換確定は焦点喪失より前なので、`compositionstart`〜`compositionend` に一切触れない。兄弟条文（REQ-15.2/9.4/10.4 の空白→既定値、REQ-14.2 の常時2桁）も焦点喪失を確定点としており一貫する。
+- **変換の検証は「変換を見ない絞り込み」だけを赤くする形に作れる**: 80.3 は `compositionStart` → 中間かな（り／りゅう／りゅうべい）の `change` → `compositionEnd` を実発火する単体3件を置き、打鍵絞り込みを足す変異で 9 failed / 250 になることを実測した。この形は IME 安全な絞り込みは通すため、実装の自由度を残したまま欠陥だけを捕まえる。
+- **squash されたマージでも、当時の完了の読みは GitHub から復元できる**: 80.4 は「`[x]` を戻すかは当時の読みを記録から復元できるかで決めよ」という条件を課されたが、main は PR #235 を squash しており `git log -S'- [x] 11.2'` は `0ee7c796` の1件しか返さない。**PR の squash 前148コミットは GitHub 側に残っている**——`gh api repos/:owner/:repo/pulls/235/commits --paginate` で列挙し、`gh api repos/:owner/:repo/commits/<sha> -q '.files[] | select(.filename|test("tasks.md")) | .patch'` で印の遷移そのものを取り出せる。**ローカルで辿れないことを「復元できない」の結論にしないこと。**
+- **完了印は「今も偽か」ではなく「いつ何が達成されたか」で書き分ける**: 12.4 の4番目の箇条は印が付いた時点（`3b1cb5c6`）では未達だった——同コミットは `CalculationFields.tsx` を一行も変えておらず、統合は Task 14.1 へ回って死コードへ着地した。だが今日は 80.2 が達成している。**いま `[ ]` へ戻すと「今なお未達」という別の偽を記録することになる。** 印は据え置き、時系列を追記で書き分けた。
+- **完了の実体として名指したファイルは、必ずそれ自身を測ること**: 80.4 の初稿は 11.2 の成果物として `backend/src/services/quantity-field-validation.service.ts` を名指しながら、そのファイルだけを測らずに「現在の下限は `0.01` である」と断じた。**同ファイルは今も `ROUNDING_UNIT: { min: -99.99, max: 99.99 }` を課しており本番経路である**（`quantity-table.service.ts:37` / `quantity-item.service.ts:35` が取り込む）。80.1 はバックエンドを一行も変えていない。範囲の値を語るときは**どの層についての言明か**を確定させること。
+- **学びを書く行が、別の検査の母集団を増やして関門を後退させる**: 80.3 の学びに `scripts/coverage-mark-adjudication.md` を名指しで書いた結果、鮮度検査の宣言 `coverage-adjudication-reader-files`（裁定記録の名を引くファイル数）が 10→11 に動き、`check:design-measurement-freshness` が 7→8 件へ後退した。**当該文書自身が「以後は読み手が増減した押下が測り直しで止まる」と予告していた押下である。** 註を言い換えて数を避ければ機構が空洞化するので、規約 (a) で当時の値を残したうえで測り直した。**記録を直すタスクで記録を壊す型は、この実行で二度起きている。**
+- **追記の挿入位置を誤ると、割られた段落の説明が隣の段落へ持ち去られる**: 上の測り直しで、新段落を 115.301 の段落の途中へ入れてしまい、その増分（3件）の説明が 80.4 の段落（増分1件）へ移って「増分は1件か3件か」が自己矛盾して読める状態になった。**規約 (a) が守るのは数値だけで、説明の帰属は挿入位置が決める。** 段落の境界を確かめてから入れること。
+- **塞ぐ前に「その経路が本番から呼ばれるか」を測ること**: 81.1 の起票は `POST /api/quantity-groups` と `PUT /:id` の2経路を名指したが、`frontend/src/api/quantity-tables.ts` の `createQuantityGroup` / `updateQuantityGroup` は**本番コードからの呼び出しがゼロ**だった（当たりは全てテスト・モック）。画面の紐付けは `QuantityTableEditPage.tsx:877` でドラフトへ入り、永続化は同 `:1674` の `saveQuantityTableDraft`（= `PUT /:id/save`）1回のみ。初稿は2経路を塞いで「塞いだ」と報告したが、**画面操作では今も破れる状態だった**。独立レビューがプローブで 200 での永続化を実測して差し戻した。**80.2 の `FieldValidatedItemRow` と同型である**——起票が名指す所在が本番の到達経路とは限らない。
+- **クライアント編集＋明示保存の設計では、入力検証は保存経路にも要る**: 本スペックは操作ごとにサーバーへ反映せずドラフトへ溜める方式（REQ-42）へ移行している。その結果、個別の CRUD API に検査を置いても**画面はそこを通らない**。`saveDraft` はフル状態同期で本文の値をそのまま永続化するため、**ドラフト経由で入る全ての値が検証の対象になる**。個別 API と保存経路の両方を数えること。
+- **フル状態同期の保存に検査を足すときは N+1 に注意すること**: 81.1 は `new Set` で重複排除した ID 群に対する `findMany` 1回に畳んだ。グループごとに引くと数量表の規模に比例して問い合わせが増える。**「グループ数によらず1回」を主張する単体検証を置き、N+1 化する変異で落ちることを実測すること**（レビュアーが独自に当てて確認済み）。
+- **`select` から検査対象の欄を落とす変異は型検査が捕まえる**: `assertSurveyNotDeleted` の引数型が `{ deletedAt: Date | null }` を要求するため、`select` から `deletedAt: true` を外すと `TS2345` で落ちる（`validateSurveyImage` 側・`saveDraft` 側の両方で成立）。**共有の道具に型を持たせておくと、将来この検査が静かに外れることを型が防ぐ。**
+- **vitest を相対パス引数で起動すると同一ファイルが二重収集され件数が倍加する**: `npm exec -- vitest run src/…` はリポジトリルートを cwd に保つため、同じ相対パターンが `src/…` と `backend/src/…` の両方に一致する（実測: Test Files 2 passed / Tests 102）。81.1 の初回の変異報告「4 failed / 140」はこれで倍加した値だった。**変異検証の件数は `npm --prefix backend run …` の全件実行で測ること。**
+- **直列実行の受入検証では、除外を取り下げる前に「その判定が実際に走るか」を測ること**: Task 80.3 は5件の除外を取り下げ、対応する判定を `quantity-table-crud.spec.ts` へ実装したが、同ファイルは `mode: 'serial'` で、**先行する写真選択の判定が落ちるため後続70件が `did not run` だった**。取り下げた5件はすべてその後方にある。**除外は分母から外れ、検証は走らない**——被覆率だけが改善して見える最悪の形である。80.3 は `--grep-invert` で写真関連5件を除いた実走で緑を確認しており、その形では連鎖が見えなかった。**受入検証の合否は、除外なしの実走で測ること。**
+- **選言の第2項が陳腐化すると、選言全体が時間切れで落ちる**: REQ-4.3 の `photoList.or(emptyStateText)` は、実装の空状態文言が `b701ad53` で変わったため第2項がどの要素にも当たらなくなり、前提が注釈を保存しないため第1項も現れず、20秒の時間切れで落ちていた。**恒真の選言は「常に通る」だけでなく「文言が動くと静かに時間切れへ変わる」**。この形は失敗の原因が選言だと読み取りにくい。
+- **前提を変えると、後続テストの前提記述が偽になる**: 84.1 が前提へ注釈保存を加えた結果、後続の REQ-4.4 / REQ-3.3 の「事前準備でアップロードしただけの写真は注釈を持たない」が偽になった。`toHaveCount(0)` が成立する真の理由は「注釈を持たない」ではなく「**保存した注釈が描画を伴わないため `hasDrawnAnnotations` が偽**」である。うち一つは**失敗時に画面へ出る診断文**で、将来この検証が落ちたとき後任を誤った状態へ探しに行かせる。**前提を動かしたら、その前提に依る記述を全数で洗うこと。**
+- **注釈の「レコードの存在」と「描画の有無」は別の軸である**: 写真一覧の供給元（`backend/src/services/image-list.service.ts`）の絞り込みは `annotation: { isNot: null }` で**レコードの存在のみ**を見る。一方 注釈の目印と合成済みサムネイルは `hasDrawnAnnotations`（`hasDrawnObjects` = `objects.length > 0`）に依る。**描画を伴わない注釈を保存すると、一覧には現れるが目印は出ない**——84.1 はこの状態を使って、候補の成立と後続の前提を両立させた。画像編集画面は注釈0件でも無条件に保存するため、作り物の状態ではない。
+- **起票の事実は、実走せずに先行タスクの報告から推論して書くと誤る**: 本節の起票（機能レベル検証）は落ちる位置を REQ-4.3-link（`:891`）と書いたが、実際は直前の REQ-4.3（`:828`）だった。84.1 の実装と独立レビューが実走で確定させ、レビューの変異実測では `[18/91] ✘ FAIL`（REQ-4.3）に対し REQ-4.3-link は `[19/91] ○ SKIP` であった。**起票が挙げる所在も、着手時に測り直す対象である。**
+- **系統の数は起票の数字を信じず、自分で数え直すこと**: Task 85 の起票（機能レベル検証）は範囲を課す系統を「三系統」と書いたが、実装が `backend/src/schemas/quantity-table.schema.ts` の作成用・更新用スキーマを見つけて五系統とし、独立レビューがさらに `backend/src/services/quantity-validation.service.ts` を見つけて**六系統**だった。**起票者が実測せずに書いた数字が、そのまま探索の打ち切り線になる。**
+- **畳んだつもりの重複は、正典を動かす変異でしか暴けない**: 85.1 の初稿は五系統を畳んで「正典は一箇所」と報告したが、レビュアーが `FIELD_CONSTRAINTS.ROUNDING_UNIT.min` を撤廃済みの値へ戻す変異を当てたところ、**統合検証の `0` と負値は 400 のまま緑**で、落ちたのは `0.005` の1件だけだった。**正典の下限は畳み残した第六の系統が支えていた。** 第六の系統は死コードではなく保存のたびに走り、`validateDraft` の `if (validationErrors[key] === undefined)` に守られて文言が表面化しないだけの隠れた重複だった。**「畳めた」は、正典を動かして挙動が追随することを実測するまで言えない。**
+- **範囲の層は NaN を捕まえない**: 範囲判定は `value < min || value > max` の形で、NaN はどちらの比較も偽になる。したがって数値性の検査と範囲の検査は**別の不変条件**であり、範囲を正典へ畳んでも数値性の検査は残す必要がある。85.1 は第六の系統からこの二つを分離し、範囲だけを外して数値性を残した。
+- **採らなかった案の理由は、書く前に実測すること**: 85.1 の初稿は「zod は `groups[i].items[j]` という位置を名指せないため REQ-11.3 を下回る」と書いたが、レビュアーが同構造のスキーマで `safeParse` を走らせると `path: "groups.0.items.0.adjustmentFactor"` を返し、`validate.middleware.ts` がそれを `details[]` へ載せていた。**名指しは可能である。** 判断自体は別の理由（応答の形とコードを一つに保つ／二重に課すと正典を動かしても片方が追随しない）で支持されたが、**偽の理由は次の読者を誤らせる。**
+- **層を移すと応答のコードが変わる。変わったことを固定すること**: ルート層から範囲を外したことで、範囲違反は zod の `ValidationError`（`code: VALIDATION_ERROR`・`details[]`）ではなくサービス層の `QuantityTableValidationError`（`code: QUANTITY_TABLE_VALIDATION_ERROR`・`validationErrors` を応答本体の直下へ展開）で返るようになった。ステータスは 400 のままなので、`status` だけを主張する検証は何も検知しない。**`code` と問題箇所の名指しを固定すること**（`toHaveProperty` は `.` と `[]` をパスとして解釈するため、`groups[0].items[0].roundingUnit` のようなキーは添字で直接引くこと）。
+- **検証の表題が名乗る範囲は、実際に突き合わせる項目と一致させること**: 86.1 の初稿は「所属違反の応答は紐付け経路と**同一の本文である**」と名乗りながら `status` / `code` / `detail` の3項目しか比較せず、`type` を意図的に除外していた。**決定的だったのは同じファイルの別の箇所が `toEqual(expectedProblem())` で本文全体を比較していたこと**——ファイル自身が「本文」を全フィールドの意味で使っており、表題はファイル内の用法と矛盾して偽だった。**「既に同一である」と読んだ後任が将来の統一タスクを不要と判断しうる。** 報告で開示しても、報告は揮発し検証ファイルは残る。
+- **受け皿があるかは、節の見出しではなく子タスクの `_Depends:` / `_Requirements:` / `_Boundary:` で確かめること**: 86.1 の初稿は副作用の申し送り先を Task 90 と名指したが、90.1 は丸め設定（80.2 由来・保存中断）、90.2 は論理削除（81.1 由来・410）で、**所属違反（86.1 由来・400・テナント境界）は第三の形**だった。論点の**形**が同型でも受け皿とは限らない。節の経緯が「2つ検出した」と件数を限定している場合、**後から増えた分は自動では入らない**。
+- **書き込みを塞いでも、読み出しと解除が残ると利用者に出口が無い**: 86.1 は保存経路の所属違反を 400 で塞いだが、`enrichQuantityTableSignedUrls` にプロジェクト検査は無く（実測 0 件）、画面に紐付けを解除する導線も無い（`surveyImageId: null` の当たり 0 件）。**(i) 取得では表示され・(ii) 保存では拒まれ・(iii) 解除できない、の三つが重なると詰まる。** 受け皿として 86.3 / 86.4 を起こし、**どちらか一方だけでは詰まりが解けない**ことを明記した。
+- **起票が名指した識別子を実装が改名すると、起票と成果物の対応が切れる**: 86.1 は `assertDraftSurveyImagesNotDeleted` を `assertDraftSurveyImagesLinkable` へ改名した（検証内容が広がり旧名が積極的に誤りを教える名になったため）。改名は是と裁定されたが、`tasks.md` の3箇所が旧名を名指したまま残る。**緩和は関数の doc に旧名と改名理由を残すこと**——旧名の grep が新関数へ着地する。なお `check:steering-idents` / `check:design-code-refs` は `tasks.md` を走査しないため関門は緑のままである（走査対象はコードで確認した）。
+- **同じ不変条件の応答は、兄弟経路を measure してから決めること**: 86.2 の起票は「500 はクライアントの誤りだから 400」と推論して書いたが、兄弟経路（`validateSurveyImage`）は同じ条件を `SurveyImageNotFoundError`（`NotFoundError` 派生）で **404** に写していた。**400 へ倒すと、Task 86 自身が掲げた「経路ごとに違う応答を返さない」を本節が破る。** 実装が食い違いを親へ上げて裁定を求め、起票の側を訂正した。
+- **`findMany` の戻り順は未規定である。名指す対象を決める判定は要求順で回すこと**: 86.2 は `orderBy` を持たない `findMany` の行順に依存すると、複数違反時にどの画像を名指すかが不定になるため、payload の出現順（`Set` で重複排除した要求順）で回す形にした。`reverse()` を当てる変異で単体・統合の両層が落ちることを実測している。
+- **既定モックを「正常」へ変えるときは、不変条件を主題とする検証が明示上書きしているかを全数で確かめること**: 86.2 は単体の `surveyImage.findMany` の既定を「該当行なし」から「すべて実在」へ変えた。独立レビューが、画像の不変条件に触れる検証9箇所すべてが既定を明示上書きしていることを行番号つきで確認し、**既定の変更がそれらに届かない**ことを裏づけた。加えて検査を書き込み後へ移す変異で 81.1 の1件・86.1 の2件も落ちることを実測し、既存検証が既定に依存して意味を失っていないことを示した。
+- **応答を正しても、画面が畳んでいれば利用者には届かない**: 86.1 / 86.2 で 400 / 404 を正したが、画面は 409 以外を一律に「保存に失敗しました。再度お試しください。」へ畳む。**物理削除された画像に対して再試行を促すのは誤った案内である**（永久に成功しない）。受け皿として 86.5 を起こした。**応答の是正と提示の是正は別のタスクだが、片方だけでは利用者の問題は解けない。**
+- **「拒む」か「落とす」かは、他のタスクの完了状態まで見て決めること**: 86.3 は取得経路の所属違反を**落とす向き**に倒した。拒む向きは、86.1 が保存を 400 で拒んでいる現況では「表示も保存もできず解除もできない」完全な袋小路を作る。**同じ検査でも、兄弟タスクが既に入っているかで正しい向きが変わる。**
+- **応答から識別子を落とさないと、画面が送り返して詰まりが残る**: 86.3 は写真サマリだけでなく `surveyImageId` も落とした。残す案を変異として当てると、取得の応答をそのまま保存へ送り返す往復が **400 で止まり続ける**（独立レビューが実測）。**「表示から消す」と「送り返させない」は別の操作であり、後者を怠ると出口が塞がったままになる。**
+- **一つのタスクの完了が、別のタスクの前提を偽にすることがある**: 86.4 は起票時「86.3 と本節は詰まりの両側で、どちらか一方だけでは解けない」と書いたが、86.3 が `surveyImageId` まで落としたため**単独で詰まりが解けた**。86.4 の主眼だった「400 の原因のグループを示す」も、画面が違反した識別子を送らなくなったため通常操作からは到達しなくなった。**着手前に「この節がまだ解くべき問題を持つか」を測り直すこと。**
+- **変異で緑のままの検証は、そのタスクの被覆に数えないこと**: 86.3 は「保存後の再読込は所属違反に出会えない」という非対称を検証にしたが、独立レビューが変異A・Bのどちらでも緑のままであることを実測した。**実体としては先行タスク（86.1）の挙動を再確認しているだけで、本タスクの実装を何も固定していない。** 特性の記録としては有用だが、被覆の件数には数えないこと。
+- **実装が申告する変異の件数は、レビュアーが再現するまで引き写さないこと**: 86.3 の実装は変異A=単体4件・変異B=単体2件と申告したが、独立レビューの実測は **A=2件・B=1件**だった（統合側の 3/4 は一致）。変異が殺されること自体は両者一致するので結論は変わらないが、**親が申告値をそのまま記録すると誤った数字が残る。**
+- **検証ケースを足したら、変異の件数はその後の版で測り直すこと**: 86.4 の実装は M3 を捕まえるために統合へ複数該当のケースを足したが、M1 / M2 の統合側の件数は足す前の 871 件の版のまま申告した。独立レビューの再現は 872 件の版で M1 = 3 件・M2 = 2 件であり、申告（2 件・1 件）と食い違った。**件数は、提出する版の全件実行で揃えて測ること。**
+- **境界外の申し送りは、同じ害へ到達する経路を全数で数えてから起票すること**: 86.4 の実装は複製経路を `QuantityTableService.copy` の1本と報告したが、独立レビューが `QuantityGroupService.copy` を見つけた。同じ綴り `surveyImageId: sourceGroup.surveyImageId` を `backend/src/services` 全体へ grep すれば2本とも出る。**1本見つけた時点で探索を打ち切らないこと**（77.1 の「同じ害へ到達する経路を全数で数え」と同型）。
+- **E2E の変異は、本番ビルドが通る形で当てること**: 86.5 の初回の E2E 変異は `if (false && …)` の形で当てたところ、本番ビルドが型エラー（TS2769 / TS18047）で失敗した。コンテナは作り直されず、spec は古いバンドルに対して 4/4 緑になった。**変異を当てたら型検査を先に通し、コンテナの作成時刻かイメージの変化で作り直しを確かめてから spec を走らせること。** 緑になったことは、変異が当たったことの証拠にならない。
+- **応答の形を変えたタスクの検証集合には、root の lint と API 仕様書の再生成を含めること**: 86.5 の初稿は backend / frontend の lint は通したが、root の `npm run lint`（E2E ファイルの prettier）と `npm --prefix backend run docs:generate` を落として差し戻された。後者はコミット `1aa3319c` が同じ漏れを是正した直後の再発である。**swagger の注釈を触ったら `backend/docs/api-spec.json` を生成し直すこと。**
+- **並行制御の穴は、まず「並行で起きるのか、逐次でも起きるのか」を測ること**: 88.1 の起票は displayOrder の衝突を直列化の範囲の問題として立てたが、実測すると個別 API の重なりは**並行を含まない逐次の呼び出しで起きていた**（原因は `.default(0)` と重複値の未検査）。この形はロックを何本足しても消えない。**直列化を足す前に、逐次で再現するかを先に試すこと。** 逆に画面から到達する唯一の経路 `saveDraft` は、並行でのみ重なる本物の競合だった。
+- **行ロックを固定できるのは実データベースへの統合検証だけである**: 88.1 のロックを取り除く変異の下で単体 5688 件はすべて緑のままだった（モックの `$queryRaw` は足場にすぎない）。決定的に検出したのは、先行のトランザクションを保留したまま後発のロック待ちを `pg_stat_activity` で見届ける形の統合検証である。**`Promise.all` で同時に送るだけの形はロックが無いときに確率的にしか落ちない**ので、決定的な形と対にして置くこと。
+- **「起票して待つ」は、起票を実際に書き込んでから待機に入ること**: 89.1 の実装は site-survey への起票文を報告に書き、tasks.md の記録も「同スペックへの起票を待つ」とした。そのため、誰が起票するのかが曖昧なまま完了印へ進みかけた。独立レビューが「本文は起票と待機の両方を課している」と読み、完了にしないよう差し止めた。**親が上流の tasks.md へ実際に書き込み（site-survey Task 115.325）、下流の項は `_Blocked:` で起票先の ID を名指すこと。** 起票は上流の設計文書の書き換えには当たらない。
+- **「表示される」を主張する E2E は可視性まで問うこと。値や文字列の一致は、要素が隠れていても通る**: 97.20 の初稿は列見出しの `option:checked` へ `toHaveText` だけを当て、独立レビューが `select` に `display:'none'` を足す変異でも緑のままであることを実測した。**ただし Playwright は閉じた `<select>` の中の `<option>` を常に不可視と判定する**ため、可視性を `option` に問うと変異なしでも落ちる偽の赤になる。可視性は `select` に、表示名の中身は `select` 配下の `option:checked` に問うこと。**変異で赤を見る前に、同じ版の検証が変異なしで緑であることを先に確かめること**——これを省くと、どんな変異でも落ちる壊れた検証を「検出した」と誤認する。
+- **利用者の裁定の文言は、実装者が狭めて読むことがある**: 97.3 は「3件とも検証を入れる。…変異で落ちることを確かめて除外を取り下げる」を 26.5 / 26.8 だけの取り下げと読み、26.12 の除外を残して台帳の note に「在籍は維持」と記した。**裁定を実装者へ渡すときは、利用者へ示した選択肢の文面ごと逐語で渡すこと**。また除外に在籍する番号は被覆率の分母から外れ、印があっても被覆に数えられない——「除外のまま印で被覆されている」という報告は誤りである。
+- **機能レベル検証の是正2件（2026-09-15、Task 97 の実行中）**: (i) 取り込みダイアログが estimate-request の `FileInlinePreview` / `pdf-text-extractor` に依存し、本実行で既定値つきの差し替え口（96.2 / 97.9 / 97.8）を足したことを design.md の `### Allowed Dependencies` へ宣言し、同スペックの設計文書への記録を estimate-request の Task 94.1 として起票した（コミット `044bea29`。**初稿は 97.8 まで上流の E2E の再走で確かめたと書き、独立レビューが記録との食い違いとして差し戻した**）。(ii) `useImportDataExtractor` に世代番号を持たせ、追い越された処理の結果・エラー・進捗が最後に選んだファイルの状態を上書きしないようにした（コミット `3c35b8f0`、REQ-33.5）。処理中のドロップの可否（Requirement 27 の受入基準 8 と 33 の受入基準 4 の読み方）は利用者の判断として変えていない。**初稿の報告は「ラチェット不変」と書いたが、フックの機能名を欠く見出しに1行足して眠る名乗りを 5112→5113 に増やしており、独立レビューが HEAD 版との比較で検出した**——**ラチェットの不変は、変更したファイルを HEAD 版と `readFeaturelessHeadersInContent` で比べてから書くこと**
+- **基線を更新する関門は、別の関門が引く値を動かす**: 97.13 で `check:design-path-refs` の免除の基線を案内どおり更新した結果、site-survey の design.md が基線の旧値を文中で引く鮮度宣言4件が不一致になった（`check:design-measurement-freshness` はもともと赤で終了コードは変わらない）。**基線ファイルを更新したら、その値を文中で引く文書を `grep` し、鮮度検査の失敗行を前後で数えること**。
+- **変異の実測は「配信されているバンドルの中身」まで照合しないと偽になる**: 98.1 の着手時に配信されていたのは基線ではなく前回実行の変異ビルドだった（ハッシュは基線と違うが、それが「今当てた変異」のものとは限らない）。さらに `docker compose up --build` は**ビルドが型エラーで失敗しても直前のイメージを配信し続ける**ため、ハッシュが動かないことを「変異が効かなかった」と誤読しうる。**(a) `--force-recreate` を明示し、(b) ビルドの終了コードを見て、(c) 配信物の文言まで照合すること。** 98.1 では `ImportQuantityItem.calculationMethod` が `'STANDARD'` リテラル型のため素直な変異が `tsc` で落ち、前の変異の結果を次の変異の結果と誤読しかけた。
+- **失敗文言の `REQ-x.y:` の名乗りは被覆印ではない**: 98.2 の着手時、`import-e2e.spec.ts:1117` / `:1185` は失敗文言が `REQ-31.1:` を名乗るが、`scripts/check-requirement-coverage.ts` の `buildInlineTagPatterns` は3パターンとも**機能名の接頭辞**（`quantity-table-generation/REQ-31.1` の形）を要求するため印として読まれない。98.1 の独立レビューはこれを「31.1 は別区間に実体のある判定を持つ」と読み違えて申し送っていた。**印の実在は `grep` の全件列挙で確かめ、名乗りと印を取り違えないこと。** 逆に、被覆印を持たない場所が条文を名乗ると次の読者が同じ誤読をするため、`'前提: …'` へ改めること（97.23 の 28.4 が先例）。
+- **選言の空洞は一通りとは限らない**: 98.2 の旧判定は、抽出を 503 で固定すると「リトライ側」を掴んで合格し、抽出結果が空（見出し0列・本文0行）のときは「一括取り込みボタン側」を掴んで合格した。**別経路の空洞は別の変異でしか見えない。** 抽出の失敗は例外だけでなく「成功したが中身が空」の形でも起きる（`XLSX.read` は切り詰めた buffer を渡しても例外にならない）。
+- **走査で母集団を作るときは、正規表現が潰す要素を全数で確かめること**: 98.3 の註は図のノード名を `sed` の捕捉で集めていたが、`api: …` の形のラベル4件がすべて `api` に潰れ、そのうち1件（`APISS`）は他ノードのラベル先頭語による偶然の救済も効かず、**実在する辺2組が母集団から構造的に消えていた**。出力の件数を見ているだけでは気づけない。**入力の全数に正規表現を1件ずつ当て、捕捉が実体と食い違うものを列挙してから件数を主張すること。** 併せて、設計文書の註へ証拠を足すとき**本番コードを行番号で指す参照は `check:design-code-refs` が禁じる**（パス＋シンボル名で書くこと）。
+- **判定の空洞は「主張の形」だけでなく「種の作り方」でも生まれる**: 98.5 の REQ-7.1 の旧判定は、重複排除を外す変異を当てても緑のままだった。主張が弱かったのではなく、**前提が同じ値の履歴を1件しか播かないため重複が生じず、検出が原理的に不可能**だったのである。**「この変異で落ちるか」を問う前に「この変異が観測可能な差を生む前提を用意しているか」を問うこと。** 同型の罠は 82.1（注釈なし写真をシードしないと主張が空集合への恒真へ退化する）と 76.2（グループ数を増やしても取得件数が定数のため歯が立たない）にも出ている。
+- **起票文が挙げた「取り下げの根拠」は、表層的に正しくても根拠にならない**: 98.6 の起票文は「同種の 28.7 が E2E で判定済み」「既存 E2E が 503 からフォールバックへ進む経路を通している」を除外取り下げの根拠として挙げたが、実際には 28.7 は Excel のプレビュー表しか見ず PDF の抽出テキストを一度も見ておらず、503 を作る既存3区間はどれも**フォールバックが実行されたこと自体を主張していなかった**。**83.1 の基準（取り下げの根拠は実装の存在ではなく変異の実測）は、「別の場所で判定されている」という形の根拠にもそのまま当たる。** 当該条文そのものを主張する判定を置き、変異で落ちることを実測してから取り下げること。
+- **条文側の選言と判定側の選言は別種である**: 100.6 の REQ-25.5 / 25.6 は条文が「マウスホイール**または**スクロールバーのドラッグで」と選言で述べる。**98.1 / 98.2 が撤去してきたのは判定側の選言**（`Promise.race([A,B])` → `not.toBeNull()`。どちらが起きたか分からないまま緑になり、失敗の言い分が常に同じになる**認識上の空洞**）であって、条文側の選言はこれと違う。**選言肢の一方を決定的に主張することは条文成立の十分な証人になる**（どちらが起きたか分からない状態が発生しない）。副作用として判定は条文より厳格になるが、それは穴ではない。
+- **プログラム代入は利用者の操作を代替しない**: 100.6 の REQ-25.5 / 25.6 の旧判定は `el.scrollLeft += 200` でスクロールさせていたため、**利用者がホイールで一切スクロールできない実装を100%見逃していた**（`wheel` の既定動作を止める変異の下で旧判定は 8/8 で緑のまま）。条文が**手段**を名指しているなら、その手段（`hover()` → `page.mouse.wheel()` 等）で観測すること。同型の罠は IME（`fill()` は composition を通らない）にも出ている。
+- **被覆の名乗りを増やすと除外と衝突しうる**: 100.6 で機能名を欠くヘッダーへ機能名を与えたところ、`scripts/check-requirement-exclusions.ts` の `scanCoverageTags` が**ヘッダー直下の一覧も印として読む**ため、除外に在籍する受入基準を名乗っていた1件が**不変条件5（除外と被覆印の同居の禁止）に抵触した**。名乗りを増やす前に、**その一覧に除外在籍の番号が混ざっていないか**を確かめること。抵触したときは「名乗りを外す」か「除外を取り下げる」かを、**判定が条文の全体を見ているか**で決めること——半分しか見ない判定で除外を取り下げると、被覆済みの印が新しい空洞になる。
+- **被覆印を逐語 grep で数えてはならない**: 99.2 は `grep -rn "<feature>/REQ-N.M"` で「印は0件」と結論して差し戻された。**ヘッダーが `Requirements coverage (<feature-name>):` の形で機能名を持つとき、その直下の素の `- REQ-N.M:` は被覆印として読まれる**（`scripts/check-requirement-coverage.ts` の `extractHeaderScopedCoverage`）。逐語 grep はこの形に構造的に当たらず、**repo 全体で 147 組 / 23 ファイル / 6 機能を読み落とす**。**計数はプロジェクト自身の読み手（`extractFileCoverage` / `extractHeaderScopedCoverage`）を `npx tsx` で直接当てて行うこと。** 100.6 が同じ罠を「名乗りを増やすと除外と衝突しうる」の形で先に記録していたが、99.2 の着手時に活かされなかった——**Implementation Notes は書くだけでなく、着手時の作法として参照されなければ効かない。**
+- **起票する前に、同じ境界を持つ上流タスクが既に開いていないか確かめること**: 99.4 は親が 98.6 のレビュー所見から起票したが、**対象ファイルは上流 site-survey の所管で、同一の境界を持つ 115.329 が未完のまま開いており、26件の陳腐化のうち24件を既に列挙していた**。98.6 が生んだ増分はわずか2件で、下流が単独で是正すれば二重管理になる。**所管は `git log -- <path>` のコミット履歴で測れる**（当該ファイルは全4件が `(site-survey)`）。起票時に (a) そのファイルを誰が書いてきたか、(b) 上流の tasks.md に同型の未完タスクが無いか、の2点を確かめること。95.1〜95.4 / 96.x / 97.4 / 97.17 の先例は一貫して「同ファイルには一行も触れていない」「境界は上流への起票の書き込み」であった。
+- **条文の前件と後件の主語を揃えずに片方だけ改訂してはならない**: 100.4 の最初の改訂は後件だけを「ページ側の垂直スクロールバー」へ付け替え前件を「表示領域の収まり」に据え置いた。両者は独立な量なので、前件が真・後件が偽の領域（高さ550/600px）が生まれ、**真だった文を偽の文に変えた**。条文と実体の乖離を消す改訂が新しい乖離を作りうる
+- **ビューポート依存の条文は両端でなく境界の間を測る**: 100.4 の見落としは 400px と 900px だけを測ったことに起因する。独立な二つの量は両端では同じ向きに動いて見え、**境界が一致しない区間（550〜643px）に入って初めて独立性が見える**
+- **ホイール操作を主張する判定で `hover()` を前置きしてはならない**: `hover()` の scrollIntoView がページを動かすため、100.4 の M2（`wheel`+`preventDefault` で委譲を握り潰す変異）の下でも `scrollY > 0` が `hover()` だけで成立し**恒真化していた**。上方向へ回して厳密減少を主張する形が安全
+- **変異実験の後始末はソースとイメージの両方を確認する**: 100.4 の着手時、ソースは復元済みだったのに test 環境の配信イメージには先行実行の変異が焼き込まれたままだった。**再ビルドせずに測れば緑も赤もすべて偽の測定になる**
+- **親が渡す是正指示の例文も測ってから渡す**: 100.4 の差し戻しで親が示した例文は、前件だけを置換して後件を据え置いたため水平方向に新たな偽を作る誤りだった。実装者が指示を外れて正し、独立レビューが実装者側を正しいと裁定した
+- **「外部ライブラリに依存するから E2E では確かめられない」は、まず同じリポジトリの中に反例を探してから受け入れること**: 100.5 の親は当初「単体印だけで被覆済みと数える」前例を広げる選択肢を利用者へ示したが、実装者が `quantity-count-persistence-e2e.spec.ts` が **jsPDF の生成物を `pdfjs-dist` の `getTextContent()` で現に読んでいる**ことを見つけ、選択肢の前提そのものが誤っていたため**裁定を取り直した**。除外の根拠文を所与にして選択肢を組み立てると、利用者に誤った二択を出す。**起票の時点で根拠文を一度は測ること。**
+- **PDF の生成物はテキストだけでなく座標と描画命令まで読める**: `getTextContent()` の各片の `transform[4]/[5]` で列の対応（テーブル形式）を、`getOperatorList()` の `OPS.transform` / `paintImageXObject` 系で画像の**件数と配置**を主張できる。文字列だけでは「11列のテーブル形式」や「写真の省略」に届かない。**座標の主張はレイアウト定数をテスト側へ写さず、観測したヘッダーの位置を基準に組むこと**（列幅を変えただけで落ちる判定は過剰厳格になる）。
+- **不在の主張は「肯定側の対照」を同じ生成物・同じ読み取り器で対に置くこと**: 26.6（写真なし時にセクションを省略）は、PDF が未生成・読み取り器が死んでいる場合にも成立してしまう。肯定側（写真ありページには画像命令が1件以上あり写真コメントが在る）を対に置くと、**測定器の死が先に赤として現れる**。100.4 の対照と同型で、本スペックで三度目の再現である。
+- **除外台帳の走査根が `e2e/specs` であるため、除外に在籍しない条文の「単体印だけで被覆済み」は不変条件5では鳴らない**: `scripts/check-requirement-exclusions.ts` は `e2e/specs` の被覆印と除外宣言の同居だけを禁じる。**除外台帳に在籍せず、かつ他の条文の代替検証に挙がっているのと同じ単体ファイルの印しか持たない条文**は機械的に緑のまま残る（100.5 で 26.5 / 26.8 / 26.12 を、観測として 28.2 を検出）。兄弟の一貫性は読み手（`extractFileCoverage`）で数えて人が見るしかない。
+- **部品単位の緑は結線の緑を意味しない**: 101.1 の自己検査は11本が `countMarksInContent` / `decideExit` / `parseArgs` を部品単位で当てて全緑だったが、**CLI の入口 `main()` を一度も通していなかった**。独立レビューが当てた4変異——`--feature` の絞り込みを入口で無効化（出力が 72 件ではなく 2436 件に化ける）・`--root` を入口で無効化・`return code === 0 ? 0 : 0;`・既定走査根を `CODE_DIRS.slice(0,1)` に——が**すべて緑のまま通った**。**判定の射程は「部品がどれだけ覆われたか」でなく「入口から出口までの経路のうちどこが未束縛か」で数えること。**
+- **プロセスとしての入口は関数としての入口と別物である**: `export function main` を関数として呼ぶ検査は、末尾の `if (invokedDirectly) { process.exit(main()); }` を一度も通らない。101.1 では `process.exit(main())` を `main(); process.exit(0);` に変えると**プロセスの終了コードが常に 0** になり（第3原則の守りがプロセスの出口で消える）、`invokedDirectly && false` にすると**コマンドが出力0行・EXIT=0 の no-op** になるのに、自己検査はどちらも緑だった。`spawnSync('npx', ['tsx', ENTRY, ...])` で測ること（先例は `scripts/check-dead-script-env.selftest.ts`）。
+- **周知文に書いた反証可能な主張は、そのまま自己検査の課題になる**: 101.1 は steering へ「コマンドの出力がその時点の値を印字する」「`--verbose` では逐語 grep が読めない印に `!` が付く」と書いたが、**そのどちらも自己検査が一行も固定していなかった**。受入基準の欄に要件レベルの値を差し込む変異は **147 を 27 と読ませた**（99.2 で現に起きた「誤った計数から空洞が残る」と同型）。**文書に書いた性質が境界内か否かは、その文書が本タスクの周知先かどうかで決まる。**
+- **「実行可能面は尽きた」は数え直してから言うこと**: 101.1 の独立レビューは「この2点で尽きる」と述べた後、最終ラウンドで**自らそれを撤回**し、依然として緑で通る変異を3種示した。うち1つは **`e2e` を走査根とする自己検査には原理的に映らない**（全走査根でのみ数値が動く）ものであった。**未束縛の列挙は、測る走査根を変えたときに何が動くかまで見てから閉じること。**
+- **充足水準は起票時の裁定へ照らすこと**: 101.1 は2度差し戻されたが、3ラウンド目に親が「完璧さではなく充足で判定すること」を明示するまで、レビューは充足水準を超えて厳しくなりうる状態だった。**裁定が求めたものを起票文から引いてレビュー指示に書くこと。**
+- **除外中の条文を散文で言及するときは機能名を冠さないこと**: 100.9 の実装者が docblock の説明文へ `quantity-table-generation/REQ-28.1` と書いたところ、`scripts/check-requirement-coverage.ts` の `buildInlineTagPatterns` の**パターン3（単独形式）が散文中の綴りも被覆印として読み**、`check:req-exclusions` が不変条件5（除外と被覆印の同居の禁止）で exit 1 になった。**読み手は `@requirement` の行だけを見ているのではない。** 除外に在籍する条文へ言及する必要があるときは機能名を冠さない表記にすること。
+- **資材が単一の形しか持たないと、量化子を含む条文は区別できないまま緑になる**: 100.9 の着手前、Excel の資材は2件とも単一シートだった。条文「**全**シートを解析対象とする」に対し、**1枚目だけ読む実装と区別できる観測点が資材の側に無かった**のである。同型の罠は「全件」「すべての」「各々の」を含むあらゆる条文にある。**資材は n=1 / n=2 で済ませず、少なくとも3つ用意すること**（REQ-29.4 の2ページPDF、100.9 の3枚シートが先例）。
+- **「手段の名指し」と「対象範囲の規定」を条文の中で見分けること**: 100.9 は 28.1（SheetJS で直接読み取る）を据え置き、28.2（全シートを解析対象とする）を E2E で被覆した。**前者は同じ結果を別の手段で得た場合と画面から区別する観測点が無いが、後者は対象範囲が出力に現れる。** 除外の根拠が「外部ライブラリ依存」であっても、**条文が規定しているのが手段なのか範囲なのかで扱いは分かれる**。一括りに「E2E 不可」としないこと。
+- **検査の探針を ID で名指しすると、その検査が推奨する営みが検査自身を壊す**: 100.5 が除外 `REQ-26.7` を取り下げた瞬間、`check-requirement-exclusions.selftest.ts` の `ENUMERATION_PROBE_ID` が指す先が消え、**陽性対照39件を含む機構全体（70件）が未捕捉例外で最後まで走らなくなった**。しかも `check:req-exclusions` 本体は exit 0 のままなので、**関門の見かけは緑**だった。同ファイルには既に正しい作法（`promiselessEntry`＝性質で見つけ、無ければ送出する）が在ったのに、探針だけが ID 直書きだった。**検査が母集団から標本を取るときは、必ず性質で取ること。** **【解消済み（100.18・2026-09-23）】**: 残っていた4つの ID 直書き（`COVERED_PROBE_ID` / `SHIFT_TARGET_ID` / `MUTATION_SOURCE_ID` / `RETIRED_PROBE_ID`）と、同じ墓標を直書きしていた機構の固定1件を、いずれも性質で選ぶ関数へ改めた。除外を取り下げる変異を当てても 70/70 緑のままであることを独立レビューが再現している。**受け皿となる `entryById` も撤去した**——ID で引く手段が在る限り直書きはいつでも書き戻せるためである。
+- **ラチェットの下限は、減ることが正当な母集団に置いてはならない**: 同じ自己検査の「列挙を持つ除外が10件未満なら失敗」という下限は、100.5 の取り下げ（11→9）で落ちた。**何も壊れていないのに落ちる。** 定数を取り下げのたびに下げ直す運用は、ラチェットを名ばかりにするか正当な取り下げを妨げるかのどちらかにしかならない。**「空振りしていないこと」を測りたいなら、母集団の大きさでなく『対照が使う標本が現に見つかること』で測ること。**
+- **中断したレビューの「着手前から赤」は、退避して測らないと信用できない**: 100.5 / 100.7 / 101.1 の各レビューは `check:req-exclusions:selftest` を「着手前から赤」と報告したが、**実際には基線で exit 0 の緑**だった。**変更が作業ツリーに在る状態で走らせた赤を「既存の赤」と呼んでいた**のである。機能レベル検証が一時 worktree で基線を展開して初めて露見した。**「着手前から赤」を主張するなら、基線を実際に展開して測ること。**
+- **非決定的に落ちる判定の真因は、まず「仕事量と閾値の距離」を疑うこと**: 100.12 の REQ-29.10 は、150ページ資材の OCR 所要（29882ms）が打ち切りの30秒と**±1秒しか違わず**、完走と打ち切りのどちらが先に着くかが実行ごとに入れ替わっていた。**見えていた `Test timeout` は完走した試行の見え方であって原因ではない。** 是正は時計を替えるのでも上限を上げるのでもなく、**仕事量を増やして順序を確定させる**ことだった（600ページ＝余裕4倍以上）。閾値を測る判定を書くときは、**前件を作る仕事量が閾値から十分離れているか**を数値で確かめること。
+- **親が起票文へ推測を「疑い」として書くと、調査の方向を誤らせる**: 100.12 の起票文は「WSL2 の壁時計が単調時計より遅い既知事象と重なる可能性がある」と書いたが、**初版のコードは最初から `performance.now()` で測っており壁時計は一切使っていなかった**。実装者と独立レビューの双方がコードを読んで疑いを棄却した。**起票時に確かめられる事実は確かめてから書くこと。** 確かめずに書くなら「未確認の推測」と明示すること。
+- **上限（`test.setTimeout`）の引き上げが許されるのは、赤の文言を守るときだけ**: 100.12 は本検査だけ上限を 180 秒へ上げたが、目的は「打ち切りが起きない実装のとき、判定が `Test timeout` ではなく**自分の文言**で落ちるようにする」ことである。**上限の引き上げが赤を緑に変えていないこと**は、打ち切りを外す変異で判定自身の文言が出ることを実測して示すこと。この確認を伴わない上限の引き上げは、主張を骨抜きにする。
+- **「等値の鮮度宣言」と「片側のラチェット」を混同しないこと**: 本実行は 101.1 の自己検査から「ラチェットの下限は、減ることが正当な母集団に置いてはならない」を学んだが、100.14 の実装者はその申し送りに**正面から反論し、独立レビューが支持した**。両者は逆の型である——**片側の `>= N` は「何も壊れていないのに」落ちるので誤検知**だが、**`expected == actual` の等値の鮮度宣言は「止めて測り直させること」が目的**であり、発火は設計どおりで、結果は規約 (a) の監査証跡になる。**親の申し送りを実装者が測り直して覆すのは正しい振る舞いである。**
+- **母集団の宣言が陳腐化したら、値を上げる前に「新しいメンバーが本当にメンバーか」を測ること**: 100.14 は 12 件目が「単なる文字列の出現」か「機械が課す制約を受けた記述」かを、**表題を1文字改める変異で `check:adjudication-pointers` が赤になる**ことによって判定した。妥当でなければ宣言でなく参照の側を直すのが筋である。**この分岐を先に潰さずに値だけ上げると、辻褄合わせで母集団が膨らむ。**
+- **宣言の母集団を絞る条件（`--include` の拡張子など）は、宣言の言い回しと突き合わせること**: 100.14 の独立レビューは、§6 が「本記録を**読む機械**は」と述べる母集団から、**押下前の関門を駆動する `pre-push.sh` が拡張子の指定漏れで抜けている**ことを見つけた（100.17 として起票）。**言い回しが広く、母集団の取り方が狭い**組み合わせは、宣言が緑でも実体を代表しない。
+- **`mustReject: false` の対照は「何をしても弾かれない相手」を選ぶと恒真になる**: 100.15 が見つけたとおり、陰性対照の探針が「読点も中黒も持たない条文」だったため、機構をどれだけ緩めても violation が生まれず、対照は在るだけで何も見ていなかった。**限界を固定する対照は、「取り逃がす当てが実在する」相手を選ぶこと**——その相手でなお弾かれないことが、限界が現に効いている証拠になる。
+- **「循環している」という自己申告は、変異の入れ方を変えて反証できることがある**: 100.15 の実装者は「対照の探針が被検査関数を使うので、機構を緩める変異では前提崩壊でしか赤くならない＝循環の疑い」と申告した。独立レビューは**呼び出し側1行だけを緩め、探針が使う本体は無傷に保つ**変異を設計し、対照が**本来の極性（過検出の検出）で自分の探針を名指しして赤くなる**ことを実測して反証した。**「循環だから仕方ない」と結論する前に、変異を入れる場所を変えて測ること。**
+- **フックをモックして「何を渡したか」だけを測る単体は、挙動が完全に欠落していても緑になる**: 100.13 が見つけた型。`QuantityTableEditPage.leaveGuard.test.tsx` の REQ-43.2 の区間は `useUnsavedChanges` をモックし `enabled` に何が渡ったかだけを主張していたため、**フック内部の条件（`enabled` かつ**内部の** dirty）によって `beforeunload` が一度も登録されない状態を、Task 62.1 の完了印ごと素通しした**。除外の `reason` が挙げていた代替検証（フックを直接操作した場合の挙動）も同じ性質で、**画面からの到達性を保証していなかった**。**共有フックの利用を測るなら、フックをモックせず、画面から実際に外界の作用（リスナーの登録、ダイアログの提示）が起きることを測ること。**
+- **共有フックの API が「渡した引数だけでは効かない」形をしていると、利用者は黙って無効化される**: `useUnsavedChanges` は `enabled` を受け取りながら、登録条件は「`enabled` かつ**内部の** dirty」である。`setDirty` を呼ばない呼び出しは何も起きないが型は通る。**6箇所の利用のうち3箇所が同じ注意書きを各自のコメントで抱えており、同じ罠を3度踏んでいる**（100.13 の実測）。API の側で禁じる（型か実行時警告）改修は 100.24 として起票した。**同型の共有部品を足すときは、「引数を渡しただけでは効かない」形を避けること。**

@@ -25,6 +25,8 @@ import type {
 import { Ok, Err } from '../types/two-factor.types.js';
 import getPrismaClient from '../db.js';
 import logger from '../utils/logger.js';
+import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 
 /**
@@ -124,7 +126,7 @@ export class TwoFactorService implements ITwoFactorService {
             metadata: {},
           },
         });
-      });
+      }, connectBudgetTransactionOptions());
 
       logger.info({ userId }, '2FA設定を開始しました');
 
@@ -135,7 +137,9 @@ export class TwoFactorService implements ITwoFactorService {
         backupCodes: plainTextBackupCodes,
       });
     } catch (error) {
-      logger.error({ error, userId }, '2FA設定開始中にエラーが発生しました');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error({ err: error, userId }, '2FA設定開始中にエラーが発生しました');
       return Err({ type: 'USER_NOT_FOUND' });
     }
   }
@@ -232,7 +236,7 @@ export class TwoFactorService implements ITwoFactorService {
       logger.debug('TOTP秘密鍵を暗号化しました');
       return result;
     } catch (error) {
-      logger.error({ error }, 'TOTP秘密鍵の暗号化に失敗しました');
+      logger.error({ err: error }, 'TOTP秘密鍵の暗号化に失敗しました');
       throw new Error('秘密鍵の暗号化に失敗しました');
     }
   }
@@ -276,7 +280,7 @@ export class TwoFactorService implements ITwoFactorService {
       logger.debug('TOTP秘密鍵を復号化しました');
       return decrypted;
     } catch (error) {
-      logger.error({ error }, 'TOTP秘密鍵の復号化に失敗しました');
+      logger.error({ err: error }, 'TOTP秘密鍵の復号化に失敗しました');
       throw new Error('秘密鍵の復号化に失敗しました');
     }
   }
@@ -302,7 +306,7 @@ export class TwoFactorService implements ITwoFactorService {
       logger.debug({ email }, 'QRコードを生成しました');
       return qrCodeDataUrl;
     } catch (error) {
-      logger.error({ error, email }, 'QRコード生成に失敗しました');
+      logger.error({ err: error, email }, 'QRコード生成に失敗しました');
       throw new Error('QRコード生成に失敗しました');
     }
   }
@@ -384,7 +388,9 @@ export class TwoFactorService implements ITwoFactorService {
       logger.debug({ userId, isValid }, 'TOTP検証を実行しました');
       return Ok(isValid);
     } catch (error) {
-      logger.error({ error, userId }, 'TOTP検証中にエラーが発生しました');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error({ err: error, userId }, 'TOTP検証中にエラーが発生しました');
       return Err({ type: 'INVALID_TOTP_CODE' });
     }
   }
@@ -467,7 +473,9 @@ export class TwoFactorService implements ITwoFactorService {
       logger.debug({ userId }, 'バックアップコードが無効です');
       return Ok(false);
     } catch (error) {
-      logger.error({ error, userId }, 'バックアップコード検証中にエラーが発生しました');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error({ err: error, userId }, 'バックアップコード検証中にエラーが発生しました');
       return Err({ type: 'INVALID_BACKUP_CODE' });
     }
   }
@@ -569,7 +577,7 @@ export class TwoFactorService implements ITwoFactorService {
             metadata: {},
           },
         });
-      });
+      }, connectBudgetTransactionOptions());
 
       // バックアップコードをXXXX-XXXX形式にフォーマット
       const formattedBackupCodes = plainTextBackupCodes.map(
@@ -579,7 +587,9 @@ export class TwoFactorService implements ITwoFactorService {
       logger.info({ userId }, '2FAを有効化しました');
       return Ok({ backupCodes: formattedBackupCodes });
     } catch (error) {
-      logger.error({ error, userId }, '2FA有効化中にエラーが発生しました');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error({ err: error, userId }, '2FA有効化中にエラーが発生しました');
       return Err({ type: 'INVALID_TOTP_CODE' });
     }
   }
@@ -648,7 +658,9 @@ export class TwoFactorService implements ITwoFactorService {
       logger.info({ userId }, '2FAを無効化しました');
       return Ok(undefined);
     } catch (error) {
-      logger.error({ error, userId }, '2FA無効化中にエラーが発生しました');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error({ err: error, userId }, '2FA無効化中にエラーが発生しました');
       return Err({ type: 'INVALID_PASSWORD' });
     }
   }
@@ -705,7 +717,12 @@ export class TwoFactorService implements ITwoFactorService {
       logger.debug({ userId, count: result.length }, 'バックアップコードステータスを取得しました');
       return Ok(result);
     } catch (error) {
-      logger.error({ error, userId }, 'バックアップコードステータス取得中にエラーが発生しました');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error(
+        { err: error, userId },
+        'バックアップコードステータス取得中にエラーが発生しました'
+      );
       return Err({ type: 'USER_NOT_FOUND' });
     }
   }
@@ -757,12 +774,14 @@ export class TwoFactorService implements ITwoFactorService {
             },
           });
         }
-      });
+      }, connectBudgetTransactionOptions());
 
       logger.info({ userId }, 'バックアップコードを再生成しました');
       return Ok(plainTextCodes);
     } catch (error) {
-      logger.error({ error, userId }, 'バックアップコード再生成中にエラーが発生しました');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error({ err: error, userId }, 'バックアップコード再生成中にエラーが発生しました');
       return Err({ type: 'USER_NOT_FOUND' });
     }
   }

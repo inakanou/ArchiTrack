@@ -15,8 +15,9 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * タイトル行表示最適化のE2Eテスト
@@ -55,16 +56,7 @@ test.describe('タイトル行表示最適化', () => {
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -150,10 +142,10 @@ test.describe('タイトル行表示最適化', () => {
       const itemRows = page.getByTestId('quantity-item-row');
       const itemCount = await itemRows.count();
       for (let i = 0; i < itemCount; i++) {
-        const nameInput = itemRows.nth(i).locator('input[id$="-name"]').first();
-        await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
-        await nameInput.fill(`タイトル行テスト項目${i + 1}`);
-        await nameInput.blur();
+        const itemNameInput = itemRows.nth(i).locator('input[id$="-name"]').first();
+        await expect(itemNameInput).toBeVisible({ timeout: getTimeout(5000) });
+        await itemNameInput.fill(`タイトル行テスト項目${i + 1}`);
+        await itemNameInput.blur();
       }
 
       // REQ-42.5: 後続テストが再ナビゲートで参照できるよう明示保存して永続化する。
@@ -268,14 +260,14 @@ test.describe('タイトル行表示最適化', () => {
       await expect(editArea).toBeVisible({ timeout: getTimeout(10000) });
 
       // 1つ目の項目の計算方法を「面積・体積」に変更
+      //
+      // 事前準備は数量項目を2行作って永続化している（「テスト用数量表を作成して複数の項目を
+      // 追加する」）。REQ-18.4（ピッチ）の検証は2行目を必要とするため、
+      // 「2行目があれば」で包まず、2行あることを前提として無条件に主張する。
       const itemRows = page.getByTestId('quantity-item-row');
-      const itemRowCount = await itemRows.count();
-
-      if (itemRowCount === 0) {
-        throw new Error(
-          'REQ-18.3: 数量項目が存在しません。事前準備テストが正しく実行されていません。'
-        );
-      }
+      await expect(itemRows, '前提: 事前準備で作成した数量項目が2行表示される').toHaveCount(2, {
+        timeout: getTimeout(10000),
+      });
 
       // 計算方法セレクトボックスを取得して「面積・体積」に変更
       const calcMethodSelect = page.getByLabel(/計算方法/).first();
@@ -291,18 +283,28 @@ test.describe('タイトル行表示最適化', () => {
       // メインタイトル行は変わらず1つだけ
       expect(await page.getByTestId('quantity-group-title-row').count()).toBe(1);
 
-      // 2つ目の項目がある場合、そちらも「ピッチ」に変更してテスト
-      if (itemRowCount >= 2) {
-        const secondCalcMethodSelect = page.getByLabel(/計算方法/).nth(1);
-        await expect(secondCalcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
-        await secondCalcMethodSelect.selectOption({ value: 'PITCH' });
+      // 2つ目の項目も「ピッチ」に変更してテスト（REQ-18.4）
+      const secondCalcMethodSelect = page.getByLabel(/計算方法/).nth(1);
+      await expect(secondCalcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+      await secondCalcMethodSelect.selectOption({ value: 'PITCH' });
 
-        // ピッチ計算用フィールドのラベルが表示されることを確認（REQ-18.4）
-        await expect(page.getByText('範囲長')).toBeVisible({ timeout: getTimeout(5000) });
-        await expect(page.getByText('端長1')).toBeVisible();
-        await expect(page.getByText('端長2')).toBeVisible();
-        await expect(page.getByText('ピッチ長')).toBeVisible();
-      }
+      // ピッチ計算用フィールドのラベルが表示されることを確認（REQ-18.4）
+      await expect(
+        page.getByText('範囲長'),
+        'REQ-18.4: ピッチ計算用フィールドが表示される'
+      ).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(
+        page.getByText('端長1'),
+        'REQ-18.4: ピッチ計算用フィールドが表示される'
+      ).toBeVisible();
+      await expect(
+        page.getByText('端長2'),
+        'REQ-18.4: ピッチ計算用フィールドが表示される'
+      ).toBeVisible();
+      await expect(
+        page.getByText('ピッチ長'),
+        'REQ-18.4: ピッチ計算用フィールドが表示される'
+      ).toBeVisible();
 
       // メインタイトル行は依然として1つだけ
       expect(await page.getByTestId('quantity-group-title-row').count()).toBe(1);
@@ -334,7 +336,7 @@ test.describe('タイトル行表示最適化', () => {
 
       // グループを折りたたむ
       const toggleButton = page.getByRole('button', { name: /グループを折りたたむ/ }).first();
-      const isToggleVisible = await toggleButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const isToggleVisible = await isVisibleWithin(toggleButton, 3000);
 
       if (!isToggleVisible) {
         throw new Error(
@@ -397,16 +399,14 @@ test.describe('タイトル行表示最適化', () => {
 
       // 削除ボタンがある場合は削除（テストデータのクリーンアップ）
       const deleteButton = page.getByRole('button', { name: /削除/i });
-      const isDeleteVisible = await deleteButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const isDeleteVisible = await isVisibleWithin(deleteButton, 3000);
 
       if (isDeleteVisible) {
         await deleteButton.click();
 
         // 確認ダイアログが表示される場合
         const confirmButton = page.getByRole('button', { name: /確認|はい|削除する/i });
-        const isConfirmVisible = await confirmButton
-          .isVisible({ timeout: 3000 })
-          .catch(() => false);
+        const isConfirmVisible = await isVisibleWithin(confirmButton, 3000);
         if (isConfirmVisible) {
           await confirmButton.click();
         }

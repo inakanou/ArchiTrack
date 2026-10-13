@@ -51,6 +51,8 @@ export interface UserProfile {
   roles: string[];
   permissions?: string[];
   createdAt: Date;
+  /** 更新日時。プロフィールの更新で楽観的ロックの版（expectedUpdatedAt）として送り返す */
+  updatedAt?: Date;
   twoFactorEnabled: boolean;
 }
 
@@ -71,6 +73,7 @@ export type AuthError =
   | { type: 'INVALID_REFRESH_TOKEN' }
   | { type: 'REFRESH_TOKEN_EXPIRED' }
   | { type: 'USER_NOT_FOUND' }
+  | { type: 'PROFILE_CONFLICT'; expectedUpdatedAt: Date; actualUpdatedAt: Date }
   | { type: 'DATABASE_ERROR'; message: string };
 
 /**
@@ -140,6 +143,22 @@ export interface IAuthService {
    * @returns ユーザープロフィールまたはエラー
    */
   getCurrentUser(userId: string): Promise<Result<UserProfile, AuthError>>;
+
+  /**
+   * 楽観的ロック付きのプロフィール更新
+   *
+   * ユーザーの updatedAt が expectedUpdatedAt と一致する場合に限り更新する（条件付きの更新）。
+   *
+   * @param userId ユーザーID
+   * @param data 更新内容（表示名）
+   * @param expectedUpdatedAt 取得時の updatedAt
+   * @returns 成功、USER_NOT_FOUND（ユーザーが無い）、PROFILE_CONFLICT（版が古い）のいずれか
+   */
+  updateProfileIfUnchanged(
+    userId: string,
+    data: { displayName?: string },
+    expectedUpdatedAt: Date
+  ): Promise<Result<void, AuthError>>;
 
   /**
    * トークンリフレッシュ

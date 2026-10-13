@@ -92,6 +92,12 @@ describe('renderPdfPagesToBase64', () => {
     });
   });
 
+  /**
+   * PDFのページが Base64 エンコードされた画像データへ変換されることを、この部品単独で確かめる。
+   * 数量表取り込みで画像化から Claude Vision API への送信までを通して確かめる検証は
+   * `frontend/src/components/quantity-table-import/pdf-ocr-extractor.vision-request.test.ts` に
+   * 置き、被覆印はそちらだけに付ける（Task 97.5。片側だけの本検証は名乗らない）。
+   */
   it('should convert a single-page PDF to Base64 image array', async () => {
     const file = createMockFile('test.pdf');
 

@@ -138,6 +138,8 @@ graph TB
     Estimate --> ItemizedStatement
 ```
 
+**現況（タスク 61.4、2026-10-11）**: 上の図の NetCalculationPanel の節点と `EstimateDetailPage --> NetCalculationPanel` の辺は書かれた時点の構成であり、そのまま残す。本番の見積書詳細画面（EstimateDetailPage）は同部品を描画しておらず、NET金額の案分は NetAllocationDialog が担う。同部品は本番から使われないまま残っていたため、タスク 61.4 の着手時の利用者の判断（2026-10-11）により、stories・単体テストとともにコードベースから取り除いた（Requirements Traceability の表の後のタスク 61.4 の注記を参照）。
+
 **Architecture Integration**:
 - Selected pattern: レイヤードアーキテクチャ（既存パターン踏襲）
 - Domain boundaries: 見積書はプロジェクトドメインの拡張として配置
@@ -300,7 +302,7 @@ sequenceDiagram
 | 2.1-2.6 | 見積項目ネスト構造 | EstimateItem (parentId), EstimateItemTable | GET /api/estimates/:id/items?hierarchy=true | 階層表示 |
 | 3.1-3.5 | 見積書新規作成と内訳書連携 | EstimateCreatePage, EstimateService | POST /api/projects/:id/estimates | 作成フロー |
 | 4.1-4.5 | 受領見積書転記 | TransferQuotationDialog, EstimateItemService | POST /api/estimates/:id/transfer-quotation | 転記フロー |
-| 5.1-5.7 | NET金額計算と案分 | NetCalculationPanel, EstimateCalculationService | POST /api/estimates/:id/calculate-net | NET計算フロー |
+| 5.1-5.6 | NET金額計算と案分 | NetCalculationPanel, EstimateCalculationService | POST /api/estimates/:id/calculate-net | NET計算フロー |
 | 6.1-6.6 | 利益率による見積金額反映 | ProfitRatePanel, EstimateCalculationService | POST /api/estimates/:id/apply-profit-rate | 利益率適用 |
 | 7.1-7.6 | 共通仮設費プリセット | OverheadCostPanel, OverheadCostService | POST /api/estimates/:id/calculate-overhead | 諸経費計算フロー |
 | 8.1-8.6 | 現場管理費プリセット | OverheadCostPanel, OverheadCostService | POST /api/estimates/:id/calculate-overhead | 諸経費計算フロー |
@@ -312,6 +314,18 @@ sequenceDiagram
 | 14.1-14.10 | 画面構成 | EstimateListPage, EstimateDetailPage, EstimateCard | GET /api/projects/:id/estimates, GET /api/estimates/:id | 画面遷移 |
 | 15.1-15.12 | パンくずナビゲーション | Breadcrumb（共通コンポーネント利用）, EstimateListPage, EstimateCreatePage, EstimateDetailPage | - | ナビゲーション |
 | 16.1-16.13 | プロジェクト詳細画面の見積書セクション | EstimateSectionCard, ProjectDetailPage | GET /api/projects/:id/estimates/latest | セクション表示 |
+
+**現況（タスク 61.1、2026-10-10）**: 上の表の 11.1-11.7 の行は書かれた時点の割り当てであり、そのまま残す。同行が挙げる部品には 11.7（他のユーザーが編集中の警告）に当たる仕組みが無かった。タスク 61.1 の着手時に利用者が三つの選択肢——(a) 編集セッション（在席）の永続化・取得・表示を実装する、(b) 11.6 へ寄せて要件を改訂する、(c) 除外一覧へ登録する——から **(a) を選んだ**（2026-10-10）。11.7 の仕組みは末尾の章「追加設計（REQ-11.7 対応）: 他のユーザーが編集中の警告」に置く。見積書詳細画面（EstimateDetailPage）が開いている間に在席を通知し、編集セッションのサービス（EstimateEditSessionService）が利用者ごとの最終通知時刻を記録して、同じ見積書を開いている他の利用者を返す。11.6 の楽観的排他制御（`expectedUpdatedAt` と 409）とは独立しており、在席の通知は見積書の `updatedAt` を進めない。
+
+**現況（タスク 61.2、2026-10-11）**: 上の表の 13.1-13.6 の行は書かれた時点の割り当てであり、そのまま残す。13.5（金額計算結果のオーバーフロー警告）を名乗っていたのは、本番のコードから import されない見積の検証サービス（EstimateValidationService）と EstimateCalculationService の `checkOverflow` だけで、画面に警告を出す経路は無かった。タスク 61.2 の着手時に利用者が二つの選択肢——(a) 画面の金額計算と明細行の表示に上限超過の警告を実装する、(b) 条文を「保存時に上限超過を拒否して知らせる」へ改訂する——から **(a) を選んだ**（2026-10-11）。
+
+**仕組み（タスク 61.2）**: 金額の上限は `frontend/src/domain/estimate/estimateAmountLimit.ts` の `ESTIMATE_AMOUNT_MAX`（9999999999999.99）である。正は一括保存の検証である `backend/src/schemas/estimate.schema.ts` の `AMOUNT_DECIMAL_PATTERN`（整数部13桁・小数部2桁。永続化先 `EstimateItemLine.amount` の `Decimal(15, 2)`）であり、フロントエンドはバックエンドのモジュールを取り込めないため同じ値を写して持つ。境界値（9999999999999.99 は上限内、10000000000000 は超過）は両側の単体テストが同じ値で固定する。見積書詳細画面（EstimateDetailPage）は、明細の金額（葉の 数量×単価と、`estimateTree.recalculateAncestorAmounts` が求める親の子の合計）とサマリーの合計・差額を判定する。上限を超えた金額欄（EstimateItemRow）とサマリーの値には「⚠」の印・`aria-invalid`・説明を付け、画面上部に `role="alert"` の警告（上限・「上限を超えた金額は保存できません」・明細とサマリーの件数）を出す。上限内へ戻すと警告は消える。親の金額も保存時に永続化されるため明細の件数に含める。サマリーの値は永続化されないが金額計算の結果であるため同じ上限で警告する。保存時の 400 による拒否はそのまま残す。
+
+**本番から使われないコードの扱い（タスク 61.2）**: 利用者の判断（2026-10-11）により、見積の検証サービス（EstimateValidationService）とその単体テスト、EstimateCalculationService の `checkOverflow` と同メソッドの単体テストを、本番のコードベースから取り除いた。EstimateCalculationService の他の部分は、同サービスの冒頭の注記（クライアント計算の照合先として意図して残す）に従いそのまま残す。
+
+**現況（タスク 61.3、2026-10-11）**: 上の表の NET金額計算と案分の行は、書かれた時点では 5.1-5.7 を挙げていた。5.7（案分計算が処理中の場合に計算処理中であることを表示する）は、タスク 61.3 の着手時の利用者の判断（2026-10-11）により、18.9・19.7 と同じ形で requirements.md の番号付きの受入基準から撤廃し、取り消し線の追跡用の記述に置き換えた。49.3 により案分はサーバーへ往復せずクライアント内で同期的に完結するため、処理中として観測できる期間が無く、条文は検証できない。後続の 5.8・5.9 の番号は変えない。追跡表に現役でない番号を残さないという追跡表の検査（`npm run check:trace-coverage`）の求めに従い、同行の番号だけを 5.1-5.6 へ改めた（部品・インターフェース・フローの欄は変えていない）。5.7 を名乗っていたのは本番のコードから使われない NetCalculationPanel の部品とその単体テストだけであり、タスク 61.3 で両者から 5.7 の名乗りを外した（同部品の扱いそのものはタスク 61.4 が決める）。
+
+**現況（タスク 61.4、2026-10-11）**: 上の表の 5.1-5.6 の行が部品に挙げる NetCalculationPanel は本番の見積書詳細画面から使われない部品であり、5.6（案分対象となった業者を識別可能な状態で管理する）を名乗っていたのは同部品とその単体テストだけだった。タスク 61.4 の着手時に利用者は、本番の仕組みが 5.6 を満たすとして本番の経路で検証する判断 (A) を選んだ（2026-10-11）。本番の仕組みは次のとおりである。NET金額案分のダイアログ（NetAllocationDialog）は、業者の選択肢と案分の対象を業者金額行の見積業者（`sourceVendorName`）で引き当て、選んだ業者の項目だけを対象にする。案分（`estimateEditReducer` の `applyNetAllocation`）は実行金額行だけを書き換え、業者金額行の見積業者を残す。見積業者は明細の「見積業者」欄（EstimateItemRow）に出て、一括保存で送られて永続化され、再読み込みで戻る。5.6 の検証は、E2E `e2e/specs/estimate/estimate-transfer-calculation-save-e2e.spec.ts` の「案分対象業者の識別」（業者の異なる2項目を置き、選んだ業者で案分した項目の見積業者と実行金額行の単価、および別業者の項目が自身の見積業者を示したまま変わらないことを、適用直後と保存して開き直した後に主張する）と、単体の `estimateEditReducer.test.ts` と `NetAllocationDialog.test.tsx` が担う。E2E が条文を観測していることは、案分が業者金額行の見積業者を消す変異と、保存が見積業者を送らない変異のそれぞれで同 E2E が赤になることで確かめた（2026-10-11）。同行の部品・インターフェース・フローの欄は変えない。NetCalculationPanel は同じ判断でコードベースから取り除いた（Components and Interfaces の表の後のタスク 61.4 の注記を参照）。
 
 ## Components and Interfaces
 
@@ -341,6 +355,10 @@ sequenceDiagram
 | EstimateExportDialog | Frontend | 出力形式選択UI | 10.1-10.8, 32.1-32.4 | EstimateExportService (P0) | - |
 | LineTypeFilter | Frontend | 行タイプ表示/非表示フィルター | 28.1-28.4 | EstimateItemTable (P0) | State |
 | EstimateItemToolbar | Frontend | 見積項目操作ツールバー | 23.1-23.10 | useEstimateEditor (P0) | Props |
+
+**現況（タスク 61.3、2026-10-11）**: 上の表の EstimateCalculationService と NetCalculationPanel の行が挙げる 5.1-5.7 は書かれた時点の割り当てであり、そのまま残す。5.7 は利用者の判断（2026-10-11）により撤廃した（Requirements Traceability の表の後のタスク 61.3 の注記を参照）ため、両行の 5.1-5.7 のうち現役の受入基準は 5.1-5.6 である。
+
+**現況（タスク 61.4、2026-10-11）**: 上の表の NetCalculationPanel の行は書かれた時点の割り当てであり、そのまま残す。同部品は本番から使われないまま残っていたため、利用者の判断（2026-10-11）により、stories・単体テストとともにコードベースから取り除いた。あわせて、同部品だけが用いていたフロントエンドの EstimateCalculator の `previewNetAllocation` と、その入出力の型 `VendorLineInfo`・`AllocationPreview`、およびそれらの単体テストを取り除いた。NET金額案分のプレビューと反映は `estimateCalculations` の `allocateNet` が単一の実装として担う。バックエンドの EstimateCalculationService の `previewNetAllocation` は、同サービスの冒頭の注記（クライアント計算の照合先として残す）に従いそのまま残す。5.6 の検証の所在は Requirements Traceability の表の後のタスク 61.4 の注記に記す。
 
 ### Data Layer
 
@@ -472,6 +490,8 @@ interface EstimateItemLine {
 - 内訳書からの見積金額行初期作成
 - 楽観的排他制御による同時更新防止
 
+**現況（タスク 61.1、2026-10-10）**: 上の Requirements 欄の 11.1-11.7 は書かれた時点の記述として残す。11.7（他のユーザーが編集中の警告）は本サービスではなく、編集セッションのサービス（EstimateEditSessionService）が担う。利用者の判断（2026-10-10、選択肢 (a)）により新設したもので、仕様は末尾の章「追加設計（REQ-11.7 対応）: 他のユーザーが編集中の警告」にある。
+
 **Dependencies**
 - Inbound: estimate.routes — APIルートから呼び出し (P0)
 - Outbound: Prisma — データベースアクセス (P0)
@@ -557,6 +577,10 @@ interface TransferQuotationParams {
 |-------|--------|
 | Intent | NET金額案分・利益率計算を提供 |
 | Requirements | 5.1-5.7, 6.1-6.6, 13.6 |
+
+**現況（タスク 61.2、2026-10-11）**: 本節の Requirements 欄は 13.5 を挙げていないが、本サービスは 13.5 を名乗る `checkOverflow` を持っていた。同メソッドは本番のコードから呼ばれないため、タスク 61.2 で同メソッドの単体テストとともに取り除いた。13.5 は見積書詳細画面のオーバーフロー警告が担う（Requirements Traceability の表の後のタスク 61.2 の注記を参照）。
+
+**現況（タスク 61.3、2026-10-11）**: 本節の Requirements 欄の 5.1-5.7 は書かれた時点の割り当てであり、そのまま残す。5.7 は利用者の判断（2026-10-11）により撤廃したため、現役の受入基準は 5.1-5.6 である（Requirements Traceability の表の後のタスク 61.3 の注記を参照）。
 
 **Responsibilities & Constraints**
 - NET金額に基づく案分計算（Decimal.jsによる高精度計算）
@@ -813,6 +837,10 @@ interface EstimateItemTableProps {
 |-------|--------|
 | Intent | NET金額計算と案分のUI |
 | Requirements | 5.1-5.7 |
+
+**現況（タスク 61.3、2026-10-11）**: 本節の Requirements 欄の 5.1-5.7 と、下の責務の「計算処理中のインジケーター表示」は書かれた時点の記述であり、そのまま残す。5.7 は利用者の判断（2026-10-11）により撤廃した。案分は本番ではクライアント内で同期的に完結し（49.3）、処理中として観測できる期間が無いためである（Requirements Traceability の表の後のタスク 61.3 の注記を参照）。本部品は処理中のインジケーターを持ち続けるが、5.7 を名乗らない。本部品の扱いはタスク 61.4 が決める。
+
+**現況（タスク 61.4、2026-10-11）**: 本節は書かれた時点の設計であり、そのまま残す。本番の見積書詳細画面は本部品を描画せず、NET金額の案分は NetAllocationDialog が担う（49.3 によりサーバーへの書き込みも行わない）。本部品は本番から使われないまま残っていたため、利用者の判断（2026-10-11）により、stories・単体テストとともにコードベースから取り除いた。下の State Management が挙げる `AllocationPreview` と、Client-Side Preview Strategy が挙げる `EstimateCalculator.previewNetAllocation()` も同じ変更で取り除いた。5.6 の本番の経路での検証は Requirements Traceability の表の後のタスク 61.4 の注記に記す。
 
 **Responsibilities & Constraints**
 - 対象業者の選択
@@ -1089,6 +1117,8 @@ interface EstimateInfo {
 - Outbound: NetCalculationPanel, ProfitRatePanel, OverheadCostPanel — 計算パネル群 (P0)
 - External: estimate.routes — API通信 (P0)
 
+**現況（タスク 61.4、2026-10-11）**: 上の Outbound の NetCalculationPanel は書かれた時点の記述であり、そのまま残す。本番の見積書詳細画面が描画する案分の部品は NetAllocationDialog であり、NetCalculationPanel は利用者の判断（2026-10-11）によりコードベースから取り除いた。
+
 **Contracts**: State [x]
 
 ##### Breadcrumb Configuration
@@ -1315,6 +1345,8 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 - 計算処理時間のパフォーマンスログ
 - 金額オーバーフロー警告のアラート
 
+**現況（タスク 61.2、2026-10-11）**: 上の「金額計算結果のオーバーフロー警告」（422）と「金額オーバーフロー警告のアラート」は、サーバー側の仕組みとしては実装されていない。金額計算はクライアントのドメイン層で行うため、オーバーフロー警告は見積書詳細画面が表示し（13.5）、上限を超えた金額を含む保存は一括保存の検証が 400 で拒む。
+
 ## Testing Strategy
 
 ### Unit Tests
@@ -1323,6 +1355,7 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 - OverheadCostService: 諸経費計算式の正確性、係数値の検証
 - EstimateItemService: 階層構造管理、転記処理
 - バリデーションスキーマ: 数値範囲、文字数制限
+- フォーカス表示（タスク 60.1）: `frontend/src/__tests__/accessibility/estimate-creation-focus-visible.test.tsx` が、見積明細の 3 行 1 セットの行の欄（子を持たない項目・子を持つ項目・選択中の項目・注記行）、キー割当の一覧の入口の釦・閉じる釦・本体、見積書の作成画面の見積書名の欄と内訳書の選択がインラインの style で outline を打ち消さず影の輪も描かないこと、開いたときにフォーカスを受けるキー割当の一覧そのものが輪を内側（白い面の上）へ描くこと（outline-offset が -2px）を主張する（steering `tech.md` の「フォーカス表示方針」）
 
 ### Integration Tests
 
@@ -1337,6 +1370,7 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 - 3行1セット構造の表示・編集
 - NET金額計算・案分の操作フロー
 - 諸経費自動計算の操作フロー
+- フォーカス表示（タスク 60.1。受入基準にフォーカス表示を定める項は無いため要件番号は名乗らない）: `e2e/specs/estimate/estimate-creation-focus-visible.spec.ts` が、作成画面の初期の本文・見積書名を空にした本文・作成の失敗の本文・モバイル幅（375px）の本文と、見積書の画面のツリー表示の初期の本文・階層パネルで項目を選んだ本文・未保存の変更がある本文・保存の失敗の本文・階層の操作のエラーの本文・階層パネルを隠した本文・ドリルダウン表示のルートと子階層の本文・見積書の取得の失敗の本文（再試行の釦）・モバイル幅（375px）の本文、キー割当の一覧・見積書を取り除く確認・受領見積書の転記・業者金額の転記・実行金額の転記・諸経費の計算・出力・未保存の変更の確認のダイアログを Tab で一巡し、止まった要素ごとにフォーカス中の表示が 2px 以上・背景に対して 3:1 以上であることとフォーカスが離れたら消えることを、止まった要素の順序と件数まで主張する。キー操作でフォーカスが移る明細の行（セルから Esc・Shift+↓）と明細の領域（Alt+M）も同じ判定で測る。見積書一覧（EstimateListPage）の本文とモバイル幅（375px）の本文、プロジェクト詳細の見積書のセクション（EstimateSectionCard の region だけを巡り、他のスペックのセクションは範囲の外として読み飛ばす）も、網羅のための見張りとして同じ判定で巡る
 
 ### Performance Tests
 
@@ -2381,7 +2415,7 @@ function buildTargetOptions(items: EstimateItemHierarchy[], depth: number = 0): 
 | Requirements | 31.1, 31.2 |
 
 **現状分析**:
-- 既存のNetAllocationDialogは受領見積書の合計金額とNET金額の表示を実装済み（コード行377, 399-417に確認済み）
+- 既存のNetAllocationDialogは受領見積書の合計金額とNET金額の表示を実装済み（`quotationTotalAmount` の表示部と NET 金額の表示部で確認済み）
 - `quotationTotalAmount`と受領見積書入力値のNET金額が表示されている
 
 **変更点**:
@@ -2534,7 +2568,7 @@ const LINE_TYPE_COLUMNS = {
 | Requirements | 33.1, 33.2, 33.3 |
 
 **現状分析**:
-- NetAllocationDialog（`frontend/src/components/estimate/NetAllocationDialog.tsx`）は案分対象行をチェックボックス付きリストで表示（Line 319-353）
+- NetAllocationDialog（`frontend/src/components/estimate/NetAllocationDialog.tsx`）は案分対象行をチェックボックス付きリストで表示（`selectedLineIds` を持つチェックボックスリスト）
 - 現在は個別行の金額のみ表示し、合計金額の表示がない
 - `targetLines`はuseMemoで業者名によりフィルタ済み
 - `excludeLineIds`で除外行を管理
@@ -2586,7 +2620,7 @@ const selectedLinesTotal = useMemo(() => {
 | Requirements | 31.1, 31.2 |
 
 **現状分析**:
-- NetAllocationDialog（Line 356-419）は受領見積書の合計金額とNET金額を横並び（grid 2列）で表示
+- NetAllocationDialog（`frontend/src/components/estimate/NetAllocationDialog.tsx`）の金額表示部は受領見積書の合計金額とNET金額を横並び（grid 2列）で表示
 - `gridTemplateColumns: hasNetAmount ? 'repeat(2, 1fr)' : '1fr'` で制御
 
 **変更点**:
@@ -2623,12 +2657,12 @@ const selectedLinesTotal = useMemo(() => {
 **根本原因**:
 
 1. **追加・削除が保存されない（REQ-34.1, 34.2, 34.4）**:
-   - `EstimateDetailPage.tsx`の`onSave`コールバック（Line 419-457）が`change.type === 'update'`のみ処理
+   - `EstimateDetailPage.tsx`の`onSave`コールバックが`change.type === 'update'`のみ処理
    - `change.type === 'add'`（新規追加）と`change.type === 'delete'`（削除）が完全に無視されている
    - フロントエンドAPI（`frontend/src/api/estimates.ts`）に見積項目の個別作成・削除関数が存在しない
 
 2. **編集内容が保存されない（REQ-34.3）**:
-   - `useEstimateEditor.ts`の`updateLine`メソッド（Line 504-549）で、`recordChange`呼び出し時にReactの`items`ステートのクロージャ参照がステール（古い状態）
+   - `useEstimateEditor.ts`の`updateLine`メソッドで、`recordChange`呼び出し時にReactの`items`ステートのクロージャ参照がステール（古い状態）
    - `setItems`はコールバック形式で最新の`prevItems`を使用するが、`recordChange`に渡す`item`は`findItemById(items, itemId)`で取得しており、`items`はクロージャ内の古い値
    - 結果として、変更データが常に1つ前の編集状態で記録される
 
@@ -2805,10 +2839,10 @@ const updateLine = useCallback(
 | Requirements | 35.1, 35.2, 35.3 |
 
 **現状分析**:
-- `TransferQuotationDialog.tsx`（Line 366-372）のドロップダウンは `{q.name} ({formatAmount(q.totalAmount)})` 形式で表示
+- `TransferQuotationDialog.tsx` のドロップダウンは `{q.name} ({formatAmount(q.totalAmount)})` 形式で表示
 - `ReceivedQuotationInfo`には`name`（見積書名）と`totalAmount`（合計金額）があるが、協力業者名（`tradingPartnerName`）は含まれていない
-- `findByProjectId`（`received-quotation.service.ts` Line 511-532）は`estimateRequest`をincludeしていないため、`tradingPartnerName`が取得できない
-- 明細行のチェックボックスはデフォルトで未選択状態（Line 240: `useState<string[]>([])`）
+- `findByProjectId`（`received-quotation.service.ts`）は`estimateRequest`をincludeしていないため、`tradingPartnerName`が取得できない
+- 明細行のチェックボックスはデフォルトで未選択状態（`useState<string[]>([])` の初期値）
 
 **変更点**:
 
@@ -2914,7 +2948,7 @@ const handleQuotationChange = useCallback(
 **現状分析**:
 - `NetAllocationDialog.tsx`は対象業者選択時に業者金額行一覧を表示
 - NET金額入力フィールドは手入力のみ
-- `ReceivedQuotationInfo`には`netAmount`フィールドが存在する（`received-quotations.ts` Line 80）
+- `ReceivedQuotationInfo`には`netAmount`フィールドが存在する（`received-quotations.ts`）
 - ダイアログは`getReceivedQuotationsByProject`で受領見積書一覧を取得済み
 
 **変更点**:
@@ -3088,7 +3122,7 @@ function hasLineData(line: EstimateItemLine): boolean {
 | Requirements | 39.1-39.9 |
 
 **現状分析**:
-- `EstimateDetailPage.tsx`（Line 788-825）のサマリーパネルは以下を表示:
+- `EstimateDetailPage.tsx` のサマリーパネルは以下を表示:
   - 見積金額合計、実行金額合計、業者金額合計、利益率、値引率
 - REQ-39では値引額・利益額を追加し、表示順序を変更する
 - 現在の利益率計算式は「見積金額合計÷実行金額合計」だが、REQ-39.8では「利益額÷見積金額合計」に変更
@@ -3197,7 +3231,7 @@ interface SummaryPanelData {
 | Requirements | 40.1, 40.2, 40.3, 40.4 |
 
 **現状分析**:
-- 数量表のテキスト入力フィールド（`TextFieldInput.tsx`）のスタイル:
+- 数量表のテキスト入力フィールド（`AutocompleteInput.tsx`）のスタイル: **参照先の付け替え（タスク 59.1。コミット `c5d3e417` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: 本項は書かれた時点（コミット `e9a16ef2`、2026-03-09）では数量表の部品 `TextFieldInput` を名指していた。同部品は同コミットの時点で既に数量表画面の描画経路に載っておらず（本番コードからの取り込み元は数量表の再輸出の 1 ファイルだけ）、数量表画面のテキスト列（大項目・中項目・小項目・任意分類・工種・名称・規格・単位・備考）が描画に使うのは `AutocompleteInput.tsx` である。直下の 5 項目の値は、現況の付け替え先と付け替え前の部品の `styles` の入力欄とラベルの値にいずれも等しい。付け替えは quantity-table-generation の Task 94.1 が同部品を外すことに備えたもので、直下の値は書き換えていない。
   - `fontSize: '12px'`
   - `padding: '2px 4px'`
   - `height: '22px'`
@@ -3230,6 +3264,8 @@ const compactCellStyle: React.CSSProperties = {
 };
 ```
 
+**現況（タスク 60.1、2026-10-09）**: 上のコード例は入力欄に `outline: 'none'` を指定する。コード例は設計の記述としてそのまま残す。実装の `frontend/src/components/estimate/EstimateItemRow.tsx` の入力欄のスタイル（`styles.input`）はインラインの `outline: 'none'` を持たず、フォーカス中の表示を全画面共通の `:focus-visible` の outline（2px・#2563eb）に任せる（steering `tech.md` の「フォーカス表示方針」）。同ファイルにあった、どの欄にも当てていない淡い影の輪（不透明度 0.2）のスタイル `inputFocus` も同じ変更で外した。高さ・パディング・枠線・角丸・フォントサイズの値は上のコード例のとおりである。
+
 2. **数値フィールドのスタイル統一**:
 
 ```typescript
@@ -3252,7 +3288,7 @@ const compactLabelStyle: React.CSSProperties = {
 ```
 
 **Implementation Notes**
-- 数量表（`TextFieldInput.tsx`、`NumericFieldInput.tsx`）のスタイル定数を参照し、完全に一致させる
+- 数量表（`AutocompleteInput.tsx`、`EditableQuantityItemRow.tsx`）のスタイル定数を参照し、完全に一致させる **参照先の付け替え（タスク 59.1。コミット `c5d3e417` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: 本項は書かれた時点（コミット `e9a16ef2`、2026-03-09）では数量表の部品 `TextFieldInput` と `NumericFieldInput` を名指していた。両部品は同コミットの時点で既に数量表画面の描画経路に載っておらず（本番コードからの取り込み元はいずれも数量表の再輸出の 1 ファイルだけ）、数量表画面でテキスト列が描画に使うのは `AutocompleteInput.tsx` の `styles.input`、数量列が使うのは `EditableQuantityItemRow.tsx` の `styles.input` である。二つの `styles.input` の高さ・パディング・枠線・角丸・フォントサイズは、現況の付け替え前の二部品の入力欄の値と等しい。付け替えは quantity-table-generation の Task 94.1 が両部品を外すことに備えたもので、本項の指示の中身は書き換えていない。
 - EstimateItemTableのgridTemplateColumnsの調整は不要（列幅は変更しない、セル内のコンテンツサイズのみ変更）
 - 備考フィールドも同様にコンパクト化
 - readOnlyフィールド（金額、親項目の単価等）も同じスタイルを適用
@@ -3490,8 +3526,8 @@ async function addDiscountItem(
 #### 1. 単一行項目の不変条件（REQ-41.3）
 
 - **不変条件**: `itemType === 'DISCOUNT'` の `EstimateItem` は **ESTIMATE 行をちょうど1行のみ** 保持し、EXECUTION/VENDOR 行を持たない。
-- **全行走査コードは行欠落を許容する**: `EstimateItemRow` の `LINE_TYPE_ORDER.map(type => lines.find(...))`（現行 379-383行付近）は `undefined` を生むため、フィルタ前に `undefined` を除外する（`sortedLines.filter((line): line is EstimateItemLineEdit => line !== undefined)`）。値引き行は ESTIMATE 行のみを描画する。
-- **再計算時の行再合成を禁止**: `useEstimateEditor` の階層再計算（現行 356-390行付近で3行を再構築する処理）および編集・保存処理は、`DISCOUNT` 項目に対して EXECUTION/VENDOR 行を新規生成してはならない。階層再計算は親項目（子を持つ STANDARD 項目）のみを対象とし、値引き行はルートのリーフ項目として行構成を維持する。
+- **全行走査コードは行欠落を許容する**: `EstimateItemRow` の `LINE_TYPE_ORDER.map(type => lines.find(...))`（`frontend/src/components/estimate/EstimateItemRow.tsx` の `sortedLines` 生成箇所）は `undefined` を生むため、フィルタ前に `undefined` を除外する（`sortedLines.filter((line): line is EstimateItemLineEdit => line !== undefined)`）。値引き行は ESTIMATE 行のみを描画する。 **この現況の記述は再実測でも真である**——`EstimateItemRow.tsx` には `LINE_TYPE_ORDER` の定義と `sortedLines` の生成が現況でもある（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。(a) に従う併記である）。 **再現コマンドは `grep -cE '^const LINE_TYPE_ORDER|^  const sortedLines' frontend/src/components/estimate/EstimateItemRow.tsx` であり、出力は `2` である**（定義の 1 行と生成の 1 行）（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
+- **再計算時の行再合成を禁止**: `useEstimateEditor` の階層再計算（`frontend/src/hooks/useEstimateEditor.ts` の3行を再構築する処理）および編集・保存処理は、`DISCOUNT` 項目に対して EXECUTION/VENDOR 行を新規生成してはならない。階層再計算は親項目（子を持つ STANDARD 項目）のみを対象とし、値引き行はルートのリーフ項目として行構成を維持する。
 - **保存往復の保証**: 追加→保存→再読込の往復後も DISCOUNT 項目が ESTIMATE 1行のままであること（REQ-34 整合）を Integration/E2E で検証する。
 
 #### 2. バッチ保存での itemType 伝播（REQ-41.2, REQ-34.3）
@@ -3559,7 +3595,7 @@ async function addDiscountItem(
 
 - フロントエンドの依存方向: `types` → `api` → `calculations` / `reducer` → `hooks` → `components` → `pages`。逆方向の import を禁止する
 - 帳票サービスは `types` と `calculations` のみに依存し、`hooks` / `components` に依存しない
-- `frontend/src/services/export/` の既存4サービス（`PdfFontService` / `QuantityTablePdfExportService` / `PdfReportService` / `PdfExportService`）を**参照・再利用してよいが変更してはならない**（他機能と共有）
+- `frontend/src/services/export/` の既存4サービス（`PdfFontService` / `QuantityTablePdfExportService` / `PdfReportService` / `PdfExportService`）を**参照・再利用してよいが変更してはならない**（他機能と共有） **「既存4サービス」は再実測でも真である**——列挙された 4 つはいずれも `git ls-files` に現存する。ただしこの 4 は `frontend/src/services/export/` の全数ではなく、ここに列挙した 4 つを指す（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。(a) に従う併記である）。 **再現コマンドは `git ls-files frontend/src/services/export/PdfFontService.ts frontend/src/services/export/QuantityTablePdfExportService.ts frontend/src/services/export/PdfReportService.ts frontend/src/services/export/PdfExportService.ts | wc -l` であり、出力は `4` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 - バックエンドは既存のレイヤード構成（routes → service → Prisma）を維持する
 - `quantity-table.service.ts` の `saveDraft` は**設計の参照元**であり、コードの共有・抽出は行わない（数量表への波及を避ける）
 
@@ -3579,13 +3615,15 @@ async function addDiscountItem(
 
 | 観点 | 現状 | 本改訂での扱い |
 |---|---|---|
-| 編集状態 | `useEstimateEditor.ts`(871行) の `useState` ＋ `pendingChanges: Map`。純粋関数でない | 純粋 reducer へ置換。Undo/Redo の前提を満たす |
-| 保存 | 追加は直列POST、削除は個別DELETE、更新は `PUT /items/batch`。`updatedAt` を読み捨て（`estimates.routes.ts:1021`） | 単一の保存エンドポイントへ集約 |
-| 並び順 | クライアントが採番。`moveItem` は再採番しない（`estimate-item.service.ts:494-539`） | サーバーが受領配列順で再採番 |
-| 更新クエリ | ループUPDATE（`:584-588`, `:631-654`）で明細100件=最大300UPDATE | 一括UPDATEへ |
-| 転記系 | 5経路がサーバー書き込み＋`Estimate.updatedAt` 更新 | 計算のみ／書き込みなしへ。`POST /:id/calculate-overhead`（`:1701`）が同型の先例 |
+| 編集状態 | `useEstimateEditor.ts`（当時 871 行のファイル）の `useState` ＋ `pendingChanges: Map`。純粋関数でない | 純粋 reducer へ置換。Undo/Redo の前提を満たす |
+| 保存 | 追加は直列POST、削除は個別DELETE、更新は `PUT /items/batch`。`updatedAt` を読み捨て（`estimates.routes.ts`） | 単一の保存エンドポイントへ集約 |
+| 並び順 | クライアントが採番。`moveItem` は再採番しない（`estimate-item.service.ts`） | サーバーが受領配列順で再採番 |
+| 更新クエリ | ループUPDATE（`backend/src/services/estimate-item.service.ts` の `reorderItems` / `batchUpdateItems`）で明細100件=最大300UPDATE | 一括UPDATEへ |
+| 転記系 | 5経路がサーバー書き込み＋`Estimate.updatedAt` 更新 | 計算のみ／書き込みなしへ。`POST /:id/calculate-overhead`（`backend/src/routes/estimates.routes.ts`）が同型の先例 |
 | 帳票 | バックエンド `estimate-export.service.ts`。**日本語フォント未埋め込み**、A4縦、5列、罫線なし | フロントエンドへ移設。既存4サービスを再利用 |
 | 階層 | `parentId` 隣接リストのみ。`level`/`path` なし | 維持。深さ・経路はクライアント算出＋メモ化 |
+
+**上の表の帳票の行が「現状」の欄で挙げるバックエンドのサービスは、再実測では版管理下に無い（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) が求める併記をここへ置く。欄そのものは着手前の状態を述べる記録であり書き換えない）。**当該のファイル名を `git ls-files` へ掛けた出力は `0` である——同じ行の変更後の欄が述べる移し替えが実施されたためである（コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）。**同じ表の階層の行が挙げる「`level`/`path` なし」は再実測でも真である**（判定は `backend/prisma/schema.prisma` の `EstimateItem` による。同日に実測）。 **再現コマンドは、版管理下に無いことが `git ls-files '*estimate-export.service.ts' | wc -l` で出力は `0`、「`level`/`path` なし」が `awk '/^model EstimateItem /,/^}/' backend/prisma/schema.prisma | grep -E '^ +(level|path) ' | wc -l` で出力は `0`、`awk '/^model EstimateItem /,/^}/' backend/prisma/schema.prisma | grep -c '^  parentId '` で出力は `1` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 
 #### 新規・変更コンポーネントの境界マップ
 
@@ -3694,7 +3732,7 @@ graph TB
 | Frontend 帳票(PDF) | `jspdf ^4.0.0` ＋ 既存 `PdfFontService` | 日本語埋め込みと罫線描画 | Noto Sans JP（バイナリ 2,255,812 bytes）は既存資産。追加調達なし |
 | Frontend 帳票(Excel) | `xlsx@0.20.3`（SheetJS） | 表計算出力 | **セル単位の罫線を書き出せない**ため 52.14 により罫線は対象外 |
 | Frontend 計算 | `decimal.js` | 案分・利益率・集計 | クライアント・サーバー双方で既に使用中 |
-| Backend 保存 | Prisma 7 `$transaction` | 差分適用・一括UPDATE | `quantity-table.service.ts:945` と同方式 |
+| Backend 保存 | Prisma 7 `$transaction` | 差分適用・一括UPDATE | `quantity-table.service.ts` と同方式 |
 | Data | PostgreSQL | `Estimate` 3列追加、`EstimateItemType` に `NOTE` 追加 | マイグレーション2件 |
 
 #### Dependency Direction（違反は実装レビューでエラー扱い）
@@ -3750,8 +3788,8 @@ prisma/migrations/
 
 #### Modified Files
 
-- `frontend/src/pages/EstimateDetailPage.tsx` — 即時API＋全件再取得の5経路（`:673`, `:723`, `:789`, `:843`, `:886`）を撤去し reducer ディスパッチへ置換。保存は1回のみ、保存後の `fetchData()` を撤去（`:801-805`）
-- `frontend/src/hooks/useEstimateEditor.ts` — `pendingChanges: Map` を廃止し reducer へ委譲。ドラッグ操作の非永続化（`:768-769`）を解消
+- `frontend/src/pages/EstimateDetailPage.tsx` — 即時API＋全件再取得の5経路を撤去し reducer ディスパッチへ置換。保存は1回のみ、保存後の `fetchData()` を撤去
+- `frontend/src/hooks/useEstimateEditor.ts` — `pendingChanges: Map` を廃止し reducer へ委譲。ドラッグ操作の非永続化を解消
 - `frontend/src/components/estimate/EstimateItemRow.tsx` — 注記行（`NOTE`）の描画分岐、範囲選択のハイライト
 - `frontend/src/api/estimates.ts` — `saveEstimateDraft` 追加、旧12関数の撤去
 - `backend/src/routes/estimates.routes.ts` — `PUT /:id/save` 追加。**撤去は段階ごとに分ける。代替実装が存在しないままエンドポイントを消してはならない**
@@ -4081,7 +4119,7 @@ type OverwriteOption = 'all' | 'empty_only' | 'unit_price_only';
 - Preconditions: `rows` は編集中ツリーから収集した値であること（保存済みの値を渡してはならない）
 - Postconditions: `roundMoney` は絶対値で小数第1位を四捨五入し符号を保持する（REQ-41対応節と同一規則）。比率算出時は合計ゼロを 0 として扱う。数量ゼロまたは未設定時は案分金額を単価とする
 - Invariants: `DISCOUNT` と `NOTE` の行は案分・利益率の対象に含めない（41.9, 55.4）
-- Implementation Notes: 現行のプレビュー実装（`NetAllocationDialog.tsx:234-259`）とサーバー実装（`estimates.routes.ts:1403-1461`）を本関数に統合する。移行時は両実装の出力一致を単体テストで固定してから差し替える
+- Implementation Notes: 現行のプレビュー実装（`NetAllocationDialog.tsx`）とサーバー実装（`estimates.routes.ts`）を本関数に統合する。移行時は両実装の出力一致を単体テストで固定してから差し替える
 
 ##### estimateKeymap
 
@@ -4115,7 +4153,7 @@ interface EstimateKeymap {
 
 - Implementation Notes:
   - **ブラウザ標準と衝突するキーは採用しない**（47.4）。参照モデルの F1（ヘルプ）等は使わず、階層移動は `Alt+↑` / `Alt+↓`、行挿入は `Alt+Insert`、範囲選択は `Shift+↑↓` を基準とする。確定値は本設計の実装時に `entries` として固定し、`EstimateKeymapHelp` が同じ定義を表示する（47.3）
-  - `resolve` はセル文字入力中（`cellEditing`）では行操作コマンドを返さない（47.5）。判定には既存 `isTextInputElement`（`useUndoKeyboardShortcuts.ts:45`）と同じロジックを共通ユーティリティとして切り出して用いる
+  - `resolve` はセル文字入力中（`cellEditing`）では行操作コマンドを返さない（47.5）。判定には既存 `isTextInputElement`（`useUndoKeyboardShortcuts.ts`）と同じロジックを共通ユーティリティとして切り出して用いる
   - `undo` / `redo` は既存の Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z、Ctrl+Y と同一割当を維持する
 
 #### Frontend Hooks
@@ -4246,7 +4284,7 @@ interface EstimatePdfExportService {
 - Preconditions: 日本語フォントの登録に成功していること
 - Postconditions: 生成失敗時はファイルを1つも返さず例外を投げる（**部分成功でダウンロードを始めない**）
 - Implementation Notes:
-  - `PdfFontService.initialize(doc)` を用い、**失敗時は helvetica へフォールバックせず例外にする**（10.8）。既存 `PdfReportService` のフォールバック挙動（`:725-728`, `:790-794`）は踏襲しない
+  - `PdfFontService.initialize(doc)` を用い、**失敗時は helvetica へフォールバックせず例外にする**（10.8）。既存 `PdfReportService` のフォールバック挙動（`frontend/src/services/export/PdfReportService.ts` の `generateSurveyReport` / `generateReport` が `initializePdfFonts` の失敗を捕らえて `doc.setFont('helvetica')` する箇所）は踏襲しない
   - 罫線は `QuantityTablePdfExportService` と同じ `doc.rect` / `doc.line` 方式を用いる（コードは共有せず方式を踏襲）
   - ダウンロードは既存 `PdfExportService.downloadPdf` を**ファイル数分呼び出す**（逐次ダウンロード、32.3）。zip 化は行わない
   - 表紙の描画は `ReportFileSpec.hasCoverPage === true` のファイルのみで実行する。実行金額・業者金額のファイルでは表紙描画をスキップする（51.16, 50.12）
@@ -4329,8 +4367,8 @@ interface SaveEstimateLine {
 - Invariants: 保存後の `displayOrder` は各兄弟スコープで 0 起点の連番
 
 **Implementation Notes**
-- Integration: 設計は `quantity-table.service.ts:945-1107` の `saveDraft` を参照元とするが、**コードは共有せず見積書用に独立実装する**（数量表への波及を避ける）
-- Validation: 配列長上限（明細総数）をスキーマで設ける。現行 `batchUpdateItemsSchema` に上限がない問題（`estimate.schema.ts:228-249`）を再発させない
+- Integration: 設計は `quantity-table.service.ts` の `saveDraft` を参照元とするが、**コードは共有せず見積書用に独立実装する**（数量表への波及を避ける）
+- Validation: 配列長上限（明細総数）をスキーマで設ける。現行 `batchUpdateItemsSchema` に上限がない問題（`estimate.schema.ts`）を再発させない
 - Transaction limits: `$transaction` に `timeout: 15000ms` / `maxWait: 5000ms` を明示する（Prisma 既定の 5000ms / 2000ms では上限件数で余裕が足りないため）。超過時は Prisma が `P2028` を投げ、全ロールバックのうえ「保存されていないこと」と原因が分かる 500 応答へ変換する（42.3）
 - Risks（解消済み。Task 57.6）: 明細件数が多い見積書での一括UPDATEの実行計画は実測で確認済み。上限は 2000 項目（＝6000明細行）を据え置く。上限いっぱいの最悪経路（全件新規）でトランザクション本体を計測した独立3ラン（各 n=20、ローカルDB）の観測最悪値は 4244 / 3919 / 3593ms、Task 57.2 の2ラン（3513 / 2733ms）と合わせて最悪 4244ms で、Prisma 既定 5000ms に対する余裕は 1.18 倍しかなかった。発行クエリ数は件数に依らず有界（新規経路10文、分割で最大+3）で `UPDATE` は常に2文のため、件数上限の引き下げではなく制限時間の明示（上記 Transaction limits）で対処する。上限を引き上げる場合は同じ最悪経路で再計測すること
 
@@ -4446,7 +4484,7 @@ erDiagram
 
 - **リクエスト削減の効果**: 階層操作↑↓10回で 20リクエスト → 0リクエスト。保存時は「追加N回POST＋DELETE＋batch＋全件GET」→ 1リクエスト
 - **クエリ削減**: 明細100項目の更新が最大300UPDATE → 一括UPDATE。`getDescendantIds` のBFS（深さ分のクエリ）はクライアント側判定へ移行して消滅
-- **導出計算のコスト**: `level` / `path` を持たない隣接リストのため、深さ・経路・グリッド行列の算出をクライアントで行う。`estimateTree` の結果を `useMemo` でキャッシュし、reducer の state 参照が変わったときのみ再計算する。500項目規模の実測を段階1のリリース前に取る
+- **導出計算のコスト**: `level` / `path` を持たない隣接リストのため、深さ・経路・グリッド行列の算出をクライアントで行う。`estimateTree` の結果を `useMemo` でキャッシュし、reducer の state 参照が変わったときのみ再計算する。500項目規模の実測を段階1のリリース前に取る **この「`level` / `path` を持たない」は再実測でも真である**——`backend/prisma/schema.prisma` の `EstimateItem` は `parentId` を持ち、`level` と `path` のどちらも持たない（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である）。 **再現コマンドは `awk '/^model EstimateItem /,/^}/' backend/prisma/schema.prisma | grep -E '^ +(level|path) ' | wc -l` であり、出力は `0`、`awk '/^model EstimateItem /,/^}/' backend/prisma/schema.prisma | grep -c '^  parentId '` の出力は `1` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 - **帳票のバンドル影響**: Noto Sans JP（2.25MB）は既存3機能と共有する資産で増分はゼロ。帳票サービスは動的 import で初期ロードから切り離す
 
 ### Migration Strategy
@@ -4477,3 +4515,94 @@ flowchart TD
 - **ロールバック**: マイグレーションは加算のみ（列追加・enum値追加）で既存データを変更しないため、アプリのみの切り戻しが可能
 - **検証チェックポイント**: 各段階の完了時に、その段階が担当するE2E項目とバックエンド・フロントエンド双方の全単体スイートを実行する
 - **要件単位の完了判定の例外**: REQ-44（範囲選択と範囲操作）は reducer アクションが段階1、選択UIが段階2に分かれる。段階1の完了判定に REQ-44 のE2Eを含めず、単体テスト（reducer のアクション検証）のみを対象とする
+
+## 追加設計（REQ-11.7 対応）: 他のユーザーが編集中の警告（タスク 61.1）
+
+### 決定の記録
+
+- **決定**: 利用者の判断（2026-10-10）により、tasks.md のタスク 61.1 の選択肢 (a)「編集セッション（在席）の永続化・取得・表示を実装し、複数のセッションの E2E で主張する」を採った。(b)「11.6 へ寄せて要件を改訂する」と (c)「除外一覧へ登録する」は採らない。requirements.md の 11.7 の条文は改訂しない
+- **「編集中」の定義**: 見積書詳細画面は常時編集の画面（27.1）で、閲覧と編集を切り替える編集モードを持たない。したがって**見積書詳細画面を開いている間**を「編集中」とする。保存の権限（`estimate:update`）を持たない利用者は編集できないため、在席を記録しない（通知は 403 で拒まれ、画面は通知をやめる）
+- **11.6 との関係**: 11.6（保存時の楽観的排他制御。`expectedUpdatedAt` の不一致で 409）は保存の時点で競合を検出する。11.7 は保存より前に、同じ見積書を他の利用者が開いていることを知らせる。両者は独立で、在席の通知は見積書の `updatedAt` を進めないため、通知が保存の競合を起こすことはない
+
+### Components
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
+|-----------|--------------|--------|--------------|--------------------------|-----------|
+| EstimateEditSession (Model) | Data | 見積書ごと・利用者ごとの在席（最終通知時刻）の永続化 | 11.7 | Estimate (P0), User (P0) | State |
+| EstimateEditSessionService | Backend | 在席の記録・期限切れの判定・編集中の他の利用者の取得・退出 | 11.7 | Prisma (P0) | Service |
+| useEstimateEditPresence | Frontend | 画面を開いている間の在席の通知と、編集中の他の利用者の保持 | 11.7 | estimates API (P0) | State |
+| EstimateEditPresenceNotice | Frontend | 編集中の他の利用者の表示名を挙げた警告の表示 | 11.7 | - | Props |
+
+置き場所は次のとおり。
+
+- モデル: `backend/prisma/schema.prisma` の `EstimateEditSession`（表 `estimate_edit_sessions`）。移行は `backend/prisma/migrations/20261010000000_add_estimate_edit_sessions/migration.sql`（表の新設だけの純追加）
+- サービス: `backend/src/services/estimate-edit-session.service.ts`
+- ルート: `backend/src/routes/estimates.routes.ts` の `PUT /:id/edit-session` と `DELETE /:id/edit-session`
+- フロントエンドの API 関数: `frontend/src/api/estimates.ts` の `heartbeatEstimateEditSession` と `leaveEstimateEditSession`
+- フック: `frontend/src/hooks/useEstimateEditPresence.ts`
+- 警告の部品: `frontend/src/components/estimate/EstimateEditPresenceNotice.tsx`。見積書詳細画面（`frontend/src/pages/EstimateDetailPage.tsx`）がヘッダーの直下に置く
+
+### Data Model
+
+```prisma
+model EstimateEditSession {
+  id         String   @id @default(uuid())
+  estimateId String
+  userId     String
+  lastSeenAt DateTime // 最終の在席通知の時刻（アプリのサーバー時計で記録）
+  createdAt  DateTime @default(now())
+
+  estimate Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([estimateId, userId])
+  @@index([estimateId, lastSeenAt])
+  @@index([userId])
+  @@map("estimate_edit_sessions")
+}
+```
+
+- 見積書と利用者の組に 1 行。同じ利用者が複数のタブで開いても 1 行で、自分自身は警告の対象にしない（条文は「他のユーザー」）
+- 見積書または利用者の行が物理的に消えると在席の行も連鎖して消える。見積書の論理削除（`deletedAt`）の後は通知が 404 になり、在席は増えない
+- 永続化は Redis ではなく PostgreSQL に置く。在席は見積書・利用者と外部キーで結び付き、統合検証と E2E の初期化（`TRUNCATE ... CASCADE`）の対象に自然に入るためである。書き込みは利用者 1 人あたり 20 秒に 1 回の upsert で、負荷は小さい
+
+### API Contract
+
+| Method | Endpoint | 権限 | Request | Response | Errors |
+|--------|----------|------|---------|----------|--------|
+| PUT | /api/estimates/:id/edit-session | `estimate:update` | なし | 200 `{ otherEditors: { userId, displayName, lastSeenAt }[], ttlSeconds, heartbeatIntervalSeconds }` | 400（ID 不正）, 401, 403, 404（見積書なし・論理削除済み） |
+| DELETE | /api/estimates/:id/edit-session | `estimate:update` | なし | 204（在席が無くても 204。冪等） | 400, 401, 403 |
+
+- ミドルウェアは他の見積書ルートと同じ `authenticate` + `requirePermission` + `validate(estimateIdParamSchema, 'params')`
+- `PUT` は呼び出した利用者の在席を現在時刻で upsert し、TTL を過ぎた行を掃除したうえで、TTL 以内に通知した**自分以外の**利用者を在席の開始順で返す
+- `otherEditors[].lastSeenAt` は ISO 8601 の文字列
+
+### 在席の通知と TTL
+
+- **通知間隔**: 20 秒（`ESTIMATE_EDIT_SESSION_HEARTBEAT_INTERVAL_SECONDS` / `ESTIMATE_EDIT_PRESENCE_HEARTBEAT_INTERVAL_MS`）。画面はマウント時に即時に通知し、以後は 20 秒ごとに通知する。タブが前面に戻ったとき（`visibilitychange`）にも即時に通知する
+- **TTL**: 90 秒（`ESTIMATE_EDIT_SESSION_TTL_SECONDS`）。最終通知から 90 秒を過ぎた利用者は編集中と数えない。TTL を通知間隔の 3 倍以上に取るのは、バックグラウンドのタブでブラウザがタイマーを最大 1 分間隔まで間引いても、在席が途切れないようにするためである
+- **退出**: アプリ内の画面遷移ではフックのアンマウント時に `DELETE` を送る。タブを閉じる・再読み込み・アプリ外への移動ではアンマウントが走らないため、`pagehide` で `keepalive` 付きの `DELETE` を送る（`apiClient` の `keepalive` オプション）。それでも届かない場合（通信断・ブラウザの強制終了）は TTL で失効する
+- **表示の遅れ**: 後から開いた側は開いた直後に警告が出る。先に開いていた側に警告が出る・消えるのは次の通知の時点で、最大で通知間隔（20 秒）遅れる。退出が届かない場合の消える遅れは最大で TTL と通知間隔の和である
+- **同じ利用者の再読み込み**: 再読み込みの退出（`keepalive`）が新しいページの最初の通知より後に届くと、その利用者の在席が次の通知（最大 20 秒後）まで消える。他の利用者の画面で警告が一時的に消えるだけで、編集の内容には影響しない
+
+### 警告の表示
+
+- 警告は見積書詳細画面のヘッダーの直下に置き、編集中の他の利用者がいない間は何も描画しない
+- 文言は「{表示名}さんがこの見積書を編集中です。同時に編集した内容を保存すると、後から保存した側は競合として保存できない場合があります。」とし、複数いれば表示名を読点で列挙する
+- 読み上げは `role="status"`（丁寧な通知）とする。表示は相手の出入りで変わるため、入力中の操作を遮る `role="alert"` は使わない
+- 警告はフォーカスを受ける要素を持たない。インラインで `outline` を打ち消さない（steering `tech.md` の「フォーカス表示方針」）
+- 長い表示名でも 375px 幅で横にはみ出さないよう `overflowWrap: 'anywhere'` で折り返す
+
+### Error Handling
+
+- 通知が 403（`estimate:update` を持たない）・404（見積書なし・論理削除済み）を受けた場合、フックは通知をやめ、警告の対象を空にする。在席を記録できていないため退出も送らない
+- 通信エラー・5xx の場合は直前の表示を保ち、次の通知を続ける（相手の在否について新しい情報が無いため）
+- 退出の失敗は無視する（TTL で失効する）
+- 在席の通知・退出の失敗は、見積書の表示・編集・保存を妨げない
+
+### Testing Strategy
+
+- 単体（backend）: `backend/src/__tests__/unit/services/estimate-edit-session.service.test.ts` が、在席の upsert・TTL による絞り込み・自分の除外・期限切れの掃除・見積書なしの 404・退出を主張する
+- 統合（backend）: `backend/src/__tests__/integration/estimate-edit-session.api.integration.test.ts` が、2 人の利用者で相手が返ること、退出・TTL 超過で返らないこと、同じ利用者の通知が 1 行に収まること、在席の通知が `updatedAt` を進めず保存（11.6）の競合判定を変えないこと、400 / 401 / 403 / 404、見積書の物理的な消去での連鎖を実データベースで主張する
+- 単体（frontend）: `frontend/src/hooks/useEstimateEditPresence.test.ts`（即時・定期・前面復帰の通知、アンマウントと `pagehide` の退出、403 / 404 での停止、通信エラーでの表示の保持）、`frontend/src/components/estimate/EstimateEditPresenceNotice.test.tsx`（文言・列挙・折り返し）、`frontend/src/pages/EstimateDetailPage.editPresence.test.tsx`（実物のページでの警告の表示と退出）
+- E2E: `e2e/specs/estimate/estimate-edit-presence-e2e.spec.ts` が、別々のブラウザコンテキストでログインした 2 人の利用者（`REGULAR_USER` と `REGULAR_USER_2`）が同じ見積書を開き、互いの画面に相手の表示名を挙げた警告が出ること、アプリ内の画面遷移で離れると相手の画面から警告が消えること、開き直すと再び出ること、タブを閉じると TTL を待たずに消えること、375px 幅で警告が画面の横幅に収まることを主張する

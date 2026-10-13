@@ -602,6 +602,22 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(getResponse.status).toBe(404);
       });
 
+      it('削除後もレコードが DB に残り deletedAt が設定される（Req 14.5）', async () => {
+        const response = await request(app)
+          .delete(`/api/quotations/${testQuotationId}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ updatedAt: testQuotationUpdatedAt });
+
+        expect(response.status).toBe(204);
+
+        const stored = await prisma.receivedQuotation.findUnique({
+          where: { id: testQuotationId },
+        });
+
+        expect(stored).not.toBeNull();
+        expect(stored?.deletedAt).not.toBeNull();
+      });
+
       it('存在しない受領見積書を削除しようとすると404を返す', async () => {
         const response = await request(app)
           .delete('/api/quotations/12345678-1234-4234-a234-123456789012')

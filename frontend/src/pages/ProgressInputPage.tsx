@@ -13,6 +13,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'react-router-dom';
+import Decimal from 'decimal.js';
 import {
   getExecutionBudget,
   type ExecutionBudgetWithItems,
@@ -60,11 +61,16 @@ function formatAmount(value: string | number | null | undefined): string {
 
 /**
  * 出来高率を計算する（小数点以下1桁）
- * REQ-11.10, 18.4
+ * REQ-11.10, 18.1, 18.4
+ *
+ * backend（progress.service）と同じ規則で算出する: decimal.js の既定（ROUND_HALF_UP）で
+ * 「割ってから ×100」の順に計算し、toFixed(1) で丸める。Number で計算すると
+ * 23000 / 80000 が '28.7' に落ち、backend の '28.8' と食い違う。
  */
-function calcProgressRate(progressAmount: number, executionAmount: number): string {
-  if (!executionAmount || executionAmount === 0) return '0.0';
-  return ((progressAmount / executionAmount) * 100).toFixed(1);
+function calcProgressRate(progressAmount: Decimal.Value, executionAmount: Decimal.Value): string {
+  const execution = new Decimal(executionAmount);
+  if (execution.isZero()) return '0.0';
+  return new Decimal(progressAmount).dividedBy(execution).times(100).toFixed(1);
 }
 
 /**
@@ -85,10 +91,11 @@ function getLeafItems(items: ExecutionBudgetItem[]): ExecutionBudgetItem[] {
 /**
  * 実行金額合計を算出（リーフ項目のみ）
  */
-function getTotalExecutionAmount(items: ExecutionBudgetItem[]): number {
-  return getLeafItems(items).reduce((sum, item) => {
-    return sum + (item.executionAmount ? parseInt(item.executionAmount, 10) : 0);
-  }, 0);
+function getTotalExecutionAmount(items: ExecutionBudgetItem[]): Decimal {
+  return getLeafItems(items).reduce(
+    (sum, item) => (item.executionAmount ? sum.plus(item.executionAmount) : sum),
+    new Decimal(0)
+  );
 }
 
 // ============================================================================
@@ -308,20 +315,20 @@ export default function ProgressInputPage() {
 
   // 全体の実行金額合計
   const totalExecutionAmount = useMemo(() => {
-    if (!budget) return 0;
+    if (!budget) return new Decimal(0);
     return getTotalExecutionAmount(budget.items);
   }, [budget]);
 
   // 合計出来高金額
   const totalProgressAmount = useMemo(() => {
-    return progressItems.reduce((sum, item) => sum + item.amount, 0);
+    return progressItems.reduce((sum, item) => sum.plus(item.amount), new Decimal(0));
   }, [progressItems]);
 
   // 合計出来高率
-  const totalProgressRate = useMemo(() => {
-    if (totalExecutionAmount === 0) return '0.0';
-    return ((totalProgressAmount / totalExecutionAmount) * 100).toFixed(1);
-  }, [totalProgressAmount, totalExecutionAmount]);
+  const totalProgressRate = useMemo(
+    () => calcProgressRate(totalProgressAmount, totalExecutionAmount),
+    [totalProgressAmount, totalExecutionAmount]
+  );
 
   // パンくずリスト
   const breadcrumbItems = useMemo(
@@ -630,7 +637,7 @@ export default function ProgressInputPage() {
               const executionAmount = item.executionAmount ? parseInt(item.executionAmount, 10) : 0;
               const progressItem = progressItems.find((p) => p.itemId === item.id);
               const amount = progressItem?.amount ?? 0;
-              const rate = calcProgressRate(amount, executionAmount);
+              const rate = calcProgressRate(amount, item.executionAmount || 0);
 
               return (
                 <tr key={item.id}>
@@ -684,10 +691,10 @@ export default function ProgressInputPage() {
             {/* 合計行 */}
             <tr style={styles.totalRow}>
               <td style={styles.td}>合計</td>
-              <td style={styles.tdRight}>{formatAmount(totalExecutionAmount)}</td>
+              <td style={styles.tdRight}>{formatAmount(totalExecutionAmount.toFixed(0))}</td>
               <td style={styles.td}></td>
               <td style={styles.tdRight} data-testid="total-amount">
-                {formatAmount(totalProgressAmount)}
+                {formatAmount(totalProgressAmount.toFixed(0))}
               </td>
               <td style={styles.tdRight} data-testid="total-rate">
                 {totalProgressRate}%

@@ -1,0 +1,1345 @@
+{
+  "$comment": [
+    "設計文書が引く実測値の鮮度を機械で見るための宣言（タスク 115.232）。",
+    "書式・意味・限界の説明はすべて scripts/check-design-measurement-freshness.ts の注釈にある。",
+    "設計文書へ説明を書き足すと、設計文書が自分自身を数える値が動いて再発サイクルが再起動するため、",
+    "説明は検査本体の側に置く（タスク 115.212 / 115.213 が三度と一度差し戻された形）。"
+  ],
+  "entries": [
+    {
+      "id": "design-documents-scanned",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "配下の設計文書 13 ファイルである",
+      "command": "ls .kiro/specs/*/design.md | wc -l",
+      "expected": "13",
+      "documentRendering": "設計文書 13 ファイル",
+      "note": "未起票の提案の走査が対象とする設計文書の数"
+    },
+    {
+      "id": "nonexistent-paths-by-git-index",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**estimate-creation のタスク 61.4 の提出時点の再実測は版管理の一覧を権威にして 20 件",
+      "command": "grep -oE \"$(printf '\\140')[A-Za-z0-9_.@-]+(/[A-Za-z0-9_.@-]+)+/?$(printf '\\140')\" .kiro/specs/site-survey/design.md | tr -d \"$(printf '\\140')\" | sed 's:/$::' | sort -u | awk -F/ 'NR==FNR{f[$0]=1;n=split($0,a,\"/\");p=\"\";for(i=1;i<n;i++){p=(i==1?a[1]:p\"/\"a[i]);d[p]=1}top[a[1]]=1;next} ($1 in top)&&!($0 in f)&&!($0 in d)' <(git ls-files) - | wc -l",
+      "expected": "20",
+      "documentRendering": "版管理の一覧を権威にして 20 件",
+      "note": "版管理の一覧を実在の権威にした非実在パスの数。実ディスクを権威にする対の値は作業ツリーの状態に依存するため宣言しない（本体注釈の「宣言に入れなかった値」を見よ）。タスク 115.342 が錨と値を提出時点へ貼り直した（2026-08-31 の再実測の 16 件は文書に残る）。増えた 2 件は .claude/agents と .claude/commands で、cc-sdd v2 系の旧コマンド方式の残骸を撤去したコミット 5fc03e73（2026-10-02）が消した。5fc03e73 の親の版では両者とも版管理下に在った。同じコミットは .kiro/settings/rules も消したが、本書はそれをバッククォートのパスとして名指さないため件数に入らない。撤去は本書の「なぜ配布物へ書かないか」の行に記録した。本スペックのコミットは 0。estimate-creation のタスク 61.2 の後に錨と値を 19 件へ貼り直した（タスク 115.342 の 18 件は文書に残る）。増えた 1 件は見積の検証サービスのファイルで、コミット 8b52ac65（2026-10-11）が利用者の判断で版管理と実ディスクの双方から外し、本書の取り除きの記録行がそのパスを名指す。8b52ac65 の提出前の検査は外したファイルが索引に残る状態で走ったため 18 件のまま緑に見え、提出後に赤になった。estimate-creation のタスク 61.4 の後に錨と値を 20 件へ貼り直した（タスク 61.2 の 19 件は文書に残る）。増えた 1 件は本番から使われない NET金額計算のパネルの部品のファイルで、同タスクが利用者の判断で版管理（git rm による索引からの除去）と実ディスクの双方から外し、本書の取り除きの記録行がそのパスを名指す。61.2 の教訓に従い、索引から外した状態で測った"
+    },
+    {
+      "id": "requirement-exclusions-total",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**construction-schedule のタスク 20.4 の提出時点の再実測は除外 129 件である**",
+      "command": "node -e \"console.log(require('./e2e/requirement-exclusions.json').exclusions.length)\"",
+      "expected": "129",
+      "documentRendering": "除外 129 件",
+      "note": "除外一覧の全件。同じ行が持つ 261 件は 115.121 が監査した当時の母集団の記録であり書き換えない。タスク 115.330 が錨と値を提出時点へ貼り直した（2026-08-31 の再実測の 205 件は文書に残る）。減った 48 件はいずれも quantity-table-generation の除外で、下流の同スペックの 20 件のコミット（b42d4d67 〜 8fbd6d62）が取り下げた。d74be2f1 の版との exclusions[].id の差集合は消えた側 48 件・増えた側 0 件。タスク 115.334 が錨と値を提出時点へ貼り直した（115.330 の 157 件は文書に残る）。減った 14 件はいずれも user-authentication の除外で、下流の同スペックの Task 32.2 のコミット 8546b446 が公開鍵配布のキャッシュ制御の 2 件を、Task 33.1 のコミット d84f54cb が要件24・25 の 12 件を取り下げた。60edb4da の版との exclusions[].id の差集合は消えた側 14 件・増えた側 0 件。タスク 115.337 が錨と値を提出時点へ貼り直した（115.334 の 143 件は文書に残る）。減った 2 件はいずれも construction-schedule の除外で、下流の同スペックの Task 17.1 のコミット 15c47ac3 が出力の失敗から再試行までの E2E を足して REQ-7.6 / REQ-8.6 を取り下げた。abe99026 の後に台帳を変えたコミットは f7341d93・cab8d05e・15c47ac3 で、各版の件数は 143・143・141。10de8284 の版との exclusions[].id の差集合は消えた側 2 件・増えた側 0 件。本スペックのコミットは 0。タスク 115.339 が錨と値を提出時点へ貼り直した（115.337 の 141 件は文書に残る）。減った 4 件はいずれも project-management の除外（REQ-18.1 / 18.2 / 18.3 / 18.6。エラー回復とフィードバック）で、下流の同スペックの Task 71.4 のコミット 00a52fc8 が、Task 71.3 のコミット a5df1e03 による E2E の被覆を受けて取り下げた。15c47ac3 の後に台帳を変えたコミットは 5dec01d9・8d748e60・00a52fc8 で、各版の件数は 141・141・137。a5df1e03 の版との exclusions[].id の差集合は消えた側 4 件・増えた側 0 件。本スペックのコミットは 0。タスク 115.340 が錨と値を提出時点へ貼り直した（115.339 の 137 件は文書に残る）。減った 5 件はいずれも estimate-request の除外（REQ-11.18 / 11.19 / 13.1 / 13.4 / 13.6。いずれも infrastructure）で、下流の同スペックの Task 95.4 のコミット 212d71f4 が、Task 95.2 のコミット b2086a6c と Task 95.3 のコミット 194be1ff による E2E の被覆を受けて取り下げた。00a52fc8 の後に台帳を変えたコミットは 9ea0a6da・212d71f4 で、各版の件数は 137・132。194be1ff の版との exclusions[].id の差集合は消えた側 5 件・増えた側 0 件。本スペックのコミットは 0。construction-schedule のタスク 20.1 が錨と値を提出時点へ貼り直した（115.340 の 132 件は文書に残る）。減った 1 件は construction-schedule の除外（REQ-12.1。performance）で、下流の同スペックの Task 20.1 の変更がバルク保存の 200 件の上限と統合の検証を足して取り下げた。212d71f4 の後に台帳を変えたコミットは 13d8e9b4 で、その版の件数は 132。77bfad6b の版との exclusions[].id の差集合は消えた側 1 件・増えた側 0 件。本スペックのコミットは 0。construction-schedule のタスク 20.4 が錨と値を提出時点へ貼り直した（20.1 の 131 件は文書に残る）。減った 2 件は construction-schedule の除外（REQ-6.7 / REQ-12.2。いずれも performance）で、下流の同スペックの Task 20.4 の変更がガントチャートの描画性能の E2E（e2e/specs/schedules/construction-schedule-gantt-performance.spec.ts）を足して取り下げた。1178a419 の後に台帳を変えたコミットは 0 件。698daeb1 の版との exclusions[].id の差集合は消えた側 2 件・増えた側 0 件。本スペックのコミットは 0"
+    },
+    {
+      "id": "requirement-exclusions-site-survey",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**現況は除外 205 件、うち現場調査スペックの項目 33 件である**",
+      "command": "node -e \"console.log(require('./e2e/requirement-exclusions.json').exclusions.filter(e=>e.id.startsWith('site-survey/')).length)\"",
+      "expected": "33",
+      "documentRendering": "現場調査スペックの項目 33 件である",
+      "note": "除外一覧のうち現場調査スペックの項目"
+    },
+    {
+      "id": "network-status-indicator-production-refs",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "現在の本番参照は **3 件**である",
+      "command": "grep -rln \"NetworkStatusIndicator\" frontend/src --include=*.ts --include=*.tsx | grep -v __tests__ | grep -v '\\.test\\.' | grep -v '\\.stories\\.' | grep -v 'NetworkStatusIndicator.tsx' | wc -l",
+      "expected": "3",
+      "documentRendering": "**3 件**",
+      "note": "要件15.6 の結線（タスク 115.105）が生きていること"
+    },
+    {
+      "id": "export-annotation-json-production-refs",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "現在の本番参照は **1 件**である",
+      "command": "grep -rln \"exportAnnotationJson\" frontend/src --include=*.ts --include=*.tsx | grep -v __tests__ | grep -v '\\.test\\.' | grep -v '\\.stories\\.' | grep -v 'survey-annotations.ts' | wc -l",
+      "expected": "1",
+      "documentRendering": "**1 件**",
+      "note": "要件9.6 の結線（コミット 1c308a8）が生きていること"
+    },
+    {
+      "id": "traceability-table-headers",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "が返す 7 箇所を表頭とし",
+      "command": "grep -cE '^\\| *Requirement \\| *Summary \\| *Components \\|' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "7",
+      "note": "本書の追跡表の数。表を増減させると動く"
+    },
+    {
+      "id": "mislabeled-self-report-rows",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "上表の**10 件**",
+      "command": "awk '/^\\*\\*\\(2\\) 自己申告の番号が誤っている件/,/^要件12 系の/' .kiro/specs/site-survey/design.md | grep -c '^| `' || test $? -eq 1",
+      "expected": "10",
+      "documentRendering": "上表の**10 件**",
+      "note": "自己申告の番号が誤っている表の行数"
+    },
+    {
+      "id": "unowned-contradiction-columns",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "の再実測は `0` である",
+      "command": "grep -cE '^\\|.*担当なし' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "0",
+      "note": "ImageViewer の撤去で解消した矛盾の欄。当時の値 2 は同じ節に記録として残る"
+    },
+    {
+      "id": "component-summary-sections",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "^#{3,4} Component Summary",
+      "command": "grep -cE '^#{3,4} Component Summary' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "3",
+      "documentRendering": "の出力が `3`",
+      "note": "本書が持つ Component Summary の節の数"
+    },
+    {
+      "id": "sharp-in-survey-image-service",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "は 0 件。`sharp` を保持するのは",
+      "command": "grep -ci sharp backend/src/services/survey-image.service.ts || test $? -eq 1",
+      "expected": "0",
+      "documentRendering": "は 0 件",
+      "note": "SurveyImageService が Sharp を保持しないこと"
+    },
+    {
+      "id": "new-survey-image-service-sites",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "での生成は `new SurveyImageService` の1箇所だけである",
+      "command": "grep -c \"new SurveyImageService\" backend/src/routes/survey-images.routes.ts || test $? -eq 1",
+      "expected": "1",
+      "documentRendering": "の出力が `1`",
+      "note": "生成箇所が一つであること"
+    },
+    {
+      "id": "multer-file-filter",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "grep -c fileFilter backend/src/routes/survey-images.routes.ts",
+      "command": "grep -c fileFilter backend/src/routes/survey-images.routes.ts || test $? -eq 1",
+      "expected": "0",
+      "documentRendering": "の出力が `0`",
+      "note": "multer 構成が fileFilter を持たないこと"
+    },
+    {
+      "id": "r2-request-emitters",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "R2へ要求を出す送出元を含むファイルは **8件**",
+      "command": "grep -rlnE 'storageProvider\\.(upload|delete)|PutObjectCommand|DeleteObjectCommand' backend/src --include=*.ts | grep -v __tests__ | wc -l",
+      "expected": "8",
+      "documentRendering": "**8件**",
+      "note": "R2 へ要求を出す送出元を含む本番ファイルの数"
+    },
+    {
+      "id": "white-outline-literals-in-tools",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "実測の出力は 9 件である",
+      "command": "grep -rn \"#ffffff\" frontend/src/components/site-surveys/tools/ | wc -l",
+      "expected": "9",
+      "documentRendering": "実測の出力は 9 件",
+      "note": "白アウトラインの literal の走査（その1）"
+    },
+    {
+      "id": "white-literals-in-site-surveys",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 116.1 の提出時点の同コマンドの再実測では出力は 95 件である",
+      "command": "grep -rniE \"#fff([^f]|$)|#FFFFFF|white\" frontend/src/components/site-surveys/ | wc -l",
+      "expected": "95",
+      "note": "白系 literal の走査（その2）の現況。同じ行が持つ 105 件は 115.150 時点の母集団の記録であり書き換えない。タスク 116.1（2026-10-09）が錨と値を提出時点へ貼り直した（2026-08-31 の再実測の 94 件は文書に残る）。増分 1 件は同タスクが AnnotationToolbar のモバイル幅の塗りのある項目のフォーカスの輪の色に足した outlineColor: '#ffffff' の 1 行による（HEAD との差分の行に同じ正規表現を掛けて確かめた。増 1・減 0）"
+    },
+    {
+      "id": "resolve-restored-stroke-width-call-sites",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "全域を走査した結果",
+      "command": "grep -rn \"resolveRestoredStrokeWidth\" frontend/src --include=*.ts --include=*.tsx | grep -v __tests__ | grep -vE \"^[^:]+:[0-9]+: *(//|\\*|/\\*)\" | grep -vE \"(import |export (const|function))\" | wc -l",
+      "expected": "6",
+      "documentRendering": "**6 箇所**",
+      "note": "文書が数える適用先。文書側は grep 出力から宣言・import・コメント行を人手で差し引いた数として書かれているが、その差し引きは grep -vE の 2 段で再現でき、残る 6 行は文書が列挙する 6 箇所（AnnotationEditor.tsx / AnnotatedImageThumbnail.tsx / QuantityTableEditPage.tsx / AnnotationRendererService.ts × 3）と一致する（2026-09-01 に実測）"
+    },
+    {
+      "id": "storage-provider-calls-in-survey-image-service",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "1. `grep -cE 'storageProvider",
+      "command": "grep -cE 'storageProvider\\.(upload|delete)|PutObjectCommand|DeleteObjectCommand' backend/src/services/survey-image.service.ts || test $? -eq 1",
+      "expected": "0",
+      "note": "未起票の提案の台帳 #1 の再現コマンド"
+    },
+    {
+      "id": "survey-image-service-in-annotated-thumbnail",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "2. `grep -c SurveyImageService backend/src/services/annotated-thumbnail.service.ts`",
+      "command": "grep -c SurveyImageService backend/src/services/annotated-thumbnail.service.ts || test $? -eq 1",
+      "expected": "0",
+      "note": "未起票の提案の台帳 #2 の再現コマンド"
+    },
+    {
+      "id": "survey-image-service-in-image-metadata",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "3. `grep -c SurveyImageService backend/src/services/image-metadata.service.ts`",
+      "command": "grep -c SurveyImageService backend/src/services/image-metadata.service.ts || test $? -eq 1",
+      "expected": "0",
+      "note": "未起票の提案の台帳 #3 の再現コマンド"
+    },
+    {
+      "id": "survey-image-service-test-describes",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "backend/src/__tests__/unit/services/survey-image.service.test.ts | wc -l` の出力が `13`",
+      "command": "grep -oE \"^  describe\\('[^']*'\" backend/src/__tests__/unit/services/survey-image.service.test.ts | wc -l",
+      "expected": "13",
+      "documentRendering": "の出力が `13`",
+      "note": "未起票の提案の台帳 #4 の再現コマンド"
+    },
+    {
+      "id": "jest-alternative-verification-exclusions",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "5. `node -e \"const j=require",
+      "command": "git show b999b2d:e2e/requirement-exclusions.json | node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)})\"",
+      "expected": "64 0",
+      "documentRendering": "の出力が `64 0`",
+      "note": "未起票の提案の台帳 #7 の再現コマンド。数字二つを空白で連ねた出力。**読む先を記録の版 `b999b2d` に固定した（タスク 115.280。115.273 の作法）**——作業ツリー読みのままだと、#7 の申し送りを 115.238 が起票した 8 スペックのいずれかが道具名から `Jest` を落とした瞬間に本検査が終了コード 1 になり、他スペックの是正が止まる（`project-management/REQ-18.1` の道具名を `Vitest` へ改める変異を当てると expected=`64 0` actual=`63 0` の 1 件で赤くなることを実測。是正後の版で同変異を当て直すと本検査は緑のままである。いずれも 2026-09-05）。総数の現況は文書に持たない（測り直す出口は文書の再現コマンド 5 そのもの）。現場調査スペックの所管の件数は `jest-alternative-verification-exclusions-site-survey` が作業ツリー読みで持つ"
+    },
+    {
+      "id": "jest-alternative-verification-exclusions-site-survey",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "5. `node -e \"const j=require",
+      "command": "node -e \"const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.filter(e=>e.id.startsWith('site-survey/')).length)\"",
+      "expected": "0",
+      "documentRendering": "掛けた現況の出力は `0` である",
+      "note": "台帳の行7 の主張のうち 8 スペックの是正で動かない側——現場調査スペックの所管の項目の件数——を作業ツリー読みで固定する（タスク 115.280）。値が `0` でも宣言に載せられるのは、パイプの終端が `grep -c` ではなく `node -e` の `require` であるためである——リポジトリの外では `Cannot find module` で終了コード 1 になり、runOutsideRepository の対照が区別できる（2026-09-05 に同関数を直に呼んで実測）"
+    },
+    {
+      "id": "unticketed-proposal-scan-net-at-9e63637",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.280。走査の当たり数）**",
+      "command": "git grep -h -cE '論理名|StyleTokens|Jest|除外一覧|追跡表|責務欄|Mermaid' 9e63637 -- .kiro/specs/site-survey/tasks.md",
+      "expected": "82",
+      "documentRendering": "版 `9e63637` では `82` 件",
+      "note": "前提の検証の第二の走査（台帳の #1〜#7 を担うタスクの網）の当たり数を版 `9e63637` に固定して数える（タスク 115.280）。115.213 が走査した版である"
+    },
+    {
+      "id": "unticketed-proposal-scan-net-at-3b3092be",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.280。走査の当たり数）**",
+      "command": "git grep -h -cE '論理名|StyleTokens|Jest|除外一覧|追跡表|責務欄|Mermaid' 3b3092be -- .kiro/specs/site-survey/tasks.md",
+      "expected": "94",
+      "documentRendering": "版 `3b3092be` では `94` 件",
+      "note": "前提の検証の第二の走査（台帳の #1〜#7 を担うタスクの網）の当たり数を版 `3b3092be` に固定して数える（タスク 115.280）。#7 の申し送りを 8 スペックへ起票した 115.238 の版である。起票が測定値を動かした分がここに現れる"
+    },
+    {
+      "id": "unticketed-proposal-scan-net-at-18516005",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.280。走査の当たり数）**",
+      "command": "git grep -h -cE '論理名|StyleTokens|Jest|除外一覧|追跡表|責務欄|Mermaid' 18516005 -- .kiro/specs/site-survey/tasks.md",
+      "expected": "122",
+      "documentRendering": "版 `18516005` では `122` 件",
+      "note": "前提の検証の第二の走査（台帳の #1〜#7 を担うタスクの網）の当たり数を版 `18516005` に固定して数える（タスク 115.280）。本タスクの着手の版である。三つとも版で固定するのは、この網が読む先が `tasks.md` であり、後続の起票のたびに作業ツリー読みの値が動いて記録が偽になるためである"
+    },
+    {
+      "id": "image-order-display-order-writes",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "6. `grep -c 'data: { displayOrder'",
+      "command": "grep -c 'data: { displayOrder' backend/src/services/image-order.service.ts || test $? -eq 1",
+      "expected": "1",
+      "documentRendering": "の出力が `1`（順序の書き込み）",
+      "note": "未起票の提案の台帳 #8 の再現コマンド（順序の書き込み）"
+    },
+    {
+      "id": "image-list-fixed-order-reads",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "6. `grep -c 'data: { displayOrder'",
+      "command": "grep -c 'orderBy: SURVEY_IMAGE_ORDER_BY' backend/src/services/image-list.service.ts || test $? -eq 1",
+      "expected": "1",
+      "documentRendering": "の出力が `1`（固定順序での読み出し）",
+      "note": "未起票の提案の台帳 #8 の再現コマンド（固定順序での読み出し）"
+    },
+    {
+      "id": "unticketed-proposal-net-b",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "現場調査スペック以外で 5 件が挙がる",
+      "command": "grep -rnE 'すべきである|を検討する|要検討|TODO|今後の課題|将来的に|望ましい' .kiro/specs/*/design.md | grep -v 'site-survey' | wc -l",
+      "expected": "5",
+      "documentRendering": "5 件が挙がる",
+      "note": "未起票の提案の人手走査 網B"
+    },
+    {
+      "id": "self-report-audit-implementation-files",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "の合成を `sort -u | wc -l` で数える（53件",
+      "command": "( git ls-files 'frontend/src/components/site-surveys/*' 'frontend/src/components/site-survey/*' 'frontend/src/pages/SiteSurvey*.tsx' 'frontend/src/components/projects/SiteSurveySectionCard.tsx' 'frontend/src/utils/siteSurveyBreadcrumb.ts'; grep -rl '@requirement site-survey/REQ-' frontend/src ) | grep -vE '\\.test\\.tsx?$|\\.stories\\.tsx$' | sort -u | wc -l",
+      "expected": "50",
+      "documentRendering": "2026-10-01 の再実測は 50 件",
+      "note": "部品の自己申告と追跡表の突き合わせ（115.113）が監査した実装ファイルの現況。同じ行が持つ 53 件は 115.113 当時の母集団の記録であり書き換えない。文書の再現手順は brace group ({ ...; ...; }) で書かれているが、READ_ONLY_COMMANDS の先頭語判定が `{` を許さないため、宣言では出力の等しい subshell ( ...; ... ) へ置き換えている（本体注釈の「コマンドを走らせることについて」を見よ） construction-photo スペックのタスク 16.3 が値を提出時点へ貼り直した（2026-09-02 の 51 件は文書に残る）。向きは減であり、減分は 1 件である。同タスクがタップ領域の下限の定数を site-survey の部品フォルダから utils の層へ移し、手順1 の対象から 1 ファイルが外れた（2026-10-01、コミット 3b26ad14 の作業ツリーで実測）。"
+    },
+    {
+      "id": "self-reference-emphasised-net",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.330 の提出時点の再実測は 274 件と 849 件",
+      "command": "grep -cE '出力(が|は)|\\*\\*[0-9]+ *件' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "274",
+      "documentRendering": "の提出時点の再実測は 274 件と 849 件",
+      "note": "自己言及の四値 (1)。強調記号を課す網。錨は現況を述べる字面に採る——同じ行が持つ 80 件は 115.213 の提出時点の記録であり書き換えない（タスク 115.270 が四件の divergence を解消した際の作法。本体注釈の「歴史記録と現況の区別は見ない」を見よ）。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 92 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）。タスク 115.280 が錨と値を提出時点へ貼り直した（115.279 の値は当時の値として文書に残る）。タスク 115.281 が錨と値を提出時点へ貼り直した（115.280 の値は当時の値として文書に残る）。タスク 115.282 が錨と値を提出時点へ貼り直した（115.281 の値は当時の値として文書に残る）。タスク 115.283 が錨と値を提出時点へ貼り直した（115.282 の値は当時の値として文書に残る）。タスク 115.285 が錨と値を提出時点へ貼り直した（115.283 の値は当時の値として文書に残る）。タスク 115.288 が錨と値を提出時点へ貼り直した（115.285 の 121 件は当時の値として文書に残る）。タスク 115.290 が錨と値を提出時点へ貼り直した（115.288 の 124 件は当時の値として文書に残る）。タスク 115.292 が錨と値を提出時点へ貼り直した（115.290 の 127 件は当時の値として文書に残る）。タスク 115.293 が錨と値を提出時点へ貼り直した（115.292 の 129 件は当時の値として文書に残る）。タスク 115.294 が錨と値を提出時点へ貼り直した（115.293 の値は当時の値として文書に残る）。タスク 115.295 が錨と値を提出時点へ貼り直した（115.294 の値は当時の値として文書に残る）。タスク 115.296 が錨と値を提出時点へ貼り直した（115.295 の値は当時の値として文書に残る）。タスク 115.297 が錨と値を提出時点へ貼り直した（115.296 の 152 件は当時の値として文書に残る）。タスク 115.298 が錨と値を提出時点へ貼り直した（115.297 の 155 件は当時の値として文書に残る）。タスク 115.299 が錨と値を提出時点へ貼り直した（115.298 の 162 件は当時の値として文書に残る）。タスク 115.300 が錨と値を提出時点へ貼り直した（115.299 の 166 件は当時の値として文書に残る）。タスク 115.302 が錨と値を提出時点へ貼り直した（115.301 の 170 件は当時の値として文書に残る）。タスク 115.303 が錨と値を提出時点へ貼り直した（115.302 の 170 件は当時の値として文書に残る）。タスク 115.304 が錨と値を提出時点へ貼り直した（115.303 の 176 件は当時の値として文書に残る）。タスク 115.305 が錨と値を提出時点へ貼り直した（115.304 の値は当時の値として文書に残る）。タスク 115.307 が錨と値を提出時点へ貼り直した（115.305 の 184 件は当時の値として文書に残る）。タスク 115.308 が錨と値を提出時点へ貼り直した（115.307 の 185 件は当時の値として文書に残る）。タスク 115.309 が錨と値を提出時点へ貼り直した（115.308 の 188 件は当時の値として文書に残る）。タスク 115.310 が錨と値を提出時点へ貼り直した（115.309 の 192 件は当時の値として文書に残る）。タスク 115.311 が錨と値を提出時点へ貼り直した（115.310 の 198 件は当時の値として文書に残る）。タスク 115.312 が錨と値を提出時点へ貼り直した（115.311 の 209 件は当時の値として文書に残る）。タスク 115.313 が錨と値を提出時点へ貼り直した（115.312 の値は当時の値として文書に残る）。タスク 115.314 が錨と値を提出時点へ貼り直した（115.313 の 230 件は当時の値として文書に残る）。タスク 115.315 が錨と値を提出時点へ貼り直した（115.314 の 246 件は当時の値として文書に残る）。タスク 115.316 が錨と値を提出時点へ貼り直した（115.315 の 250 件 は当時の値として文書に残る）。タスク 115.317 が錨と値を提出時点へ貼り直した（115.316 の 251 件 は当時の値として文書に残る）。タスク 115.323 が錨と値を提出時点へ貼り直した（115.317 の 258 件は当時の値として文書に残る）。タスク 115.324 が錨と値を提出時点へ貼り直した（115.323 の 261 件は当時の値として文書に残る）。第 1 ラウンドのレビューを受けた再提出で、同じ行が引く課さない網の値が 843 件から 844 件へ動いた（強調記号を課す網の 270 件は動いていない）。錨は同じ文であるため併せて貼り直した。第 2 ラウンドのレビューを受けた再提出で 270 件から 271 件へ動いた。動かしたのは、変異の名指しが実体と食い違っていたことを開示する段落そのものである（同じ段落が課さない網・コマンドを持つ行の網も 1 件ずつ動かした。実測日を自ら名乗るため残余の網は動かない）。タスク 115.324 の後の被覆印の是正が錨を提出時点へ貼り直した（値は 115.324 から動いていない）。動いていないことは相殺ではない——網の membership を直前の版と突き合わせ、新たに入った行 0 行・抜けた行 0 行であることを確かめた（字面が変わった行は強調記号を課す網で 4 行・課さない網で 5 行あり、いずれも追記の前後とも網の中にある）。タスク 115.325 が錨と値を提出時点へ貼り直した（115.324 の後の被覆印の是正の 271 件は当時の値として文書に残る）。動いたのは撤去に備えた不在の記録を書き足した 1 行が課す網へ入った分だけであり、網から抜けた行は 0 行である。タスク 115.326 が錨と値を提出時点へ貼り直した（115.325 の 272 件は当時の値として文書に残る）。動いたのは撤去に備えた不在の記録を書き足した 1 行（`#### 他スペックの設計文書の走査（タスク 115.234）` の 9 番目の項目）が課す網へ入った分だけであり、網から抜けた行は 0 行である。 タスク 115.330 が錨と値を提出時点へ貼り直した（115.326 の 273 件は当時の値として文書に残る）。動いたのは、115.301 の節の読み手のファイル数を述べる項へ規約 (a) で現況を並べた記述が強調記号つきの件数を名乗り、同じ 1 行が課す網へ入った分だけであり、網から抜けた行は 0 行である。"
+    },
+    {
+      "id": "self-reference-plain-net",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.330 の提出時点の再実測は 274 件と 849 件",
+      "command": "grep -cE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "849",
+      "documentRendering": "の提出時点の再実測は 274 件と 849 件",
+      "note": "自己言及の四値 (2)。強調記号を課さない網。同じ行が持つ 233 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 268 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）。タスク 115.280 が錨と値を提出時点へ貼り直した（115.279 の値は当時の値として文書に残る）。タスク 115.281 が錨と値を提出時点へ貼り直した（115.280 の値は当時の値として文書に残る）。タスク 115.282 が錨と値を提出時点へ貼り直した（115.281 の値は当時の値として文書に残る）。タスク 115.283 が錨と値を提出時点へ貼り直した（115.282 の値は当時の値として文書に残る）。タスク 115.285 が錨と値を提出時点へ貼り直した（115.283 の値は当時の値として文書に残る）。タスク 115.288 が錨と値を提出時点へ貼り直した（115.285 の 298 件は当時の値として文書に残る）。タスク 115.290 が錨と値を提出時点へ貼り直した（115.288 の 306 件は当時の値として文書に残る）。タスク 115.292 が錨と値を提出時点へ貼り直した（115.290 の 313 件は当時の値として文書に残る）。タスク 115.293 が錨と値を提出時点へ貼り直した（115.292 の 333 件は当時の値として文書に残る）。タスク 115.294 が錨と値を提出時点へ貼り直した（115.293 の値は当時の値として文書に残る）。タスク 115.295 が錨と値を提出時点へ貼り直した（115.294 の値は当時の値として文書に残る）。タスク 115.296 が錨と値を提出時点へ貼り直した（115.295 の値は当時の値として文書に残る）。タスク 115.297 が錨と値を提出時点へ貼り直した（115.296 の 406 件は当時の値として文書に残る）。タスク 115.298 が錨と値を提出時点へ貼り直した（115.297 の 426 件は当時の値として文書に残る）。タスク 115.299 が錨と値を提出時点へ貼り直した（115.298 の 440 件は当時の値として文書に残る）。タスク 115.300 が錨と値を提出時点へ貼り直した（115.299 の 464 件は当時の値として文書に残る）。タスク 115.302 が錨と値を提出時点へ貼り直した（115.301 の 509 件は当時の値として文書に残る）。タスク 115.303 が錨と値を提出時点へ貼り直した（115.302 の 516 件は当時の値として文書に残る）。タスク 115.304 が錨と値を提出時点へ貼り直した（115.303 の 536 件は当時の値として文書に残る）。タスク 115.305 が錨と値を提出時点へ貼り直した（115.304 の値は当時の値として文書に残る）。タスク 115.306 が錨と値を提出時点へ貼り直した（115.305 の値は当時の値として文書に残る）。タスク 115.307 が錨と値を提出時点へ貼り直した（115.306 の 607 件は当時の値として文書に残る）。タスク 115.308 が錨と値を提出時点へ貼り直した（115.307 の 619 件は当時の値として文書に残る）。タスク 115.309 が錨と値を提出時点へ貼り直した（115.308 の 637 件は当時の値として文書に残る）。タスク 115.310 が錨と値を提出時点へ貼り直した（115.309 の 662 件は当時の値として文書に残る）。タスク 115.311 が錨と値を提出時点へ貼り直した（115.310 の 680 件は当時の値として文書に残る）。タスク 115.312 が錨と値を提出時点へ貼り直した（115.311 の 693 件は当時の値として文書に残る）。タスク 115.313 が錨と値を提出時点へ貼り直した（115.312 の値は当時の値として文書に残る）。タスク 115.314 が錨と値を提出時点へ貼り直した（115.313 の 732 件は当時の値として文書に残る）。タスク 115.315 が錨と値を提出時点へ貼り直した（115.314 の 765 件は当時の値として文書に残る）。タスク 115.316 が錨と値を提出時点へ貼り直した（115.315 の 791 件 は当時の値として文書に残る）。タスク 115.317 が錨と値を提出時点へ貼り直した（115.316 の 802 件 は当時の値として文書に残る）。タスク 115.323 が錨と値を提出時点へ貼り直した（115.317 の 813 件は当時の値として文書に残る）。タスク 115.324 が錨と値を提出時点へ貼り直した（115.323 の 821 件は当時の値として文書に残る）。第 1 ラウンドのレビューを受けた再提出で 843 件から 844 件へ動いた（増の向きは変わらず、増分が 22 件から 23 件になった）。動かしたのは是正の記述そのものである。第 2 ラウンドのレビューを受けた再提出で 844 件から 845 件へ動いた（増の向きは変わらず、増分が 23 件から 24 件になった）。動かしたのは変異の名指しの食い違いを開示する段落そのものである。タスク 115.324 の後の被覆印の是正が錨を提出時点へ貼り直した（値は 115.324 から動いていない）。動いていないことは相殺ではない——網の membership を直前の版と突き合わせ、新たに入った行 0 行・抜けた行 0 行であることを確かめた（字面が変わった行は強調記号を課す網で 4 行・課さない網で 5 行あり、いずれも追記の前後とも網の中にある）。タスク 115.325 が錨を提出時点へ貼り直した（値は 115.324 の後の被覆印の是正から動いていない。新たに入った行・抜けた行とも 0 行）。タスク 115.326 が錨を提出時点へ貼り直した（値は 115.325 から動いていない。新たに入った行・抜けた行とも 0 行）。 タスク 115.330 が錨と値を提出時点へ貼り直した（115.326 の 845 件は当時の値として文書に残る）。新たに入ったのは 4 行（115.301 の節の読み手のファイル数を述べる項・加数 56 を述べる項・同節の表の後へ足した段落、115.303 の節の表の後へ足した段落）で、網から抜けた行は 0 行である。"
+    },
+    {
+      "id": "self-reference-command-bearing-lines",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "project-management のタスク 73.4 の提出時点の再実測は 288 件である",
+      "command": "grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -cE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`' || test $? -eq 1",
+      "expected": "288",
+      "documentRendering": "の提出時点の再実測は 288 件",
+      "note": "自己言及の四値 (3)。再現コマンドを同じ行に持つ行。同じ行が持つ 81 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 99 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）。タスク 115.280 が錨と値を提出時点へ貼り直した（115.279 の値は当時の値として文書に残る）。タスク 115.281 が錨と値を提出時点へ貼り直した（115.280 の値は当時の値として文書に残る）。タスク 115.282 が錨と値を提出時点へ貼り直した（115.281 の値は当時の値として文書に残る）。タスク 115.283 が錨と値を提出時点へ貼り直した（115.282 の値は当時の値として文書に残る）。タスク 115.285 が錨と値を提出時点へ貼り直した（115.283 の値は当時の値として文書に残る）。タスク 115.288 が錨と値を提出時点へ貼り直した（115.285 の 128 件は当時の値として文書に残る）。タスク 115.290 が錨と値を提出時点へ貼り直した（115.288 の 135 件は当時の値として文書に残る）。タスク 115.292 が錨と値を提出時点へ貼り直した（115.290 の 138 件は当時の値として文書に残る）。タスク 115.293 が錨と値を提出時点へ貼り直した（115.292 の 144 件は当時の値として文書に残る）。タスク 115.294 が錨と値を提出時点へ貼り直した（115.293 の値は当時の値として文書に残る）。タスク 115.295 が錨と値を提出時点へ貼り直した（115.294 の値は当時の値として文書に残る）。タスク 115.296 が錨と値を提出時点へ貼り直した（115.295 の値は当時の値として文書に残る）。タスク 115.297 が錨と値を提出時点へ貼り直した（115.296 の 167 件は当時の値として文書に残る）。タスク 115.298 が錨と値を提出時点へ貼り直した（115.297 の 171 件は当時の値として文書に残る）。タスク 115.299 が錨と値を提出時点へ貼り直した（115.298 の 179 件は当時の値として文書に残る）。タスク 115.300 が錨と値を提出時点へ貼り直した（115.299 の 186 件は当時の値として文書に残る）。タスク 115.302 が錨と値を提出時点へ貼り直した（115.301 の 195 件は当時の値として文書に残る）。タスク 115.304 が錨と値を提出時点へ貼り直した（115.302 の 196 件は当時の値として文書に残る）。タスク 115.305 が錨と値を提出時点へ貼り直した（115.304 の値は当時の値として文書に残る）。タスク 115.306 が錨と値を提出時点へ貼り直した（115.305 の値は当時の値として文書に残る）。タスク 115.307 が錨を提出時点へ貼り直した（値は 115.306 から動いていない）。タスク 115.307 が錨と値を提出時点へ貼り直した（115.306 の 210 件は当時の値として文書に残る）。タスク 115.308 が錨と値を提出時点へ貼り直した（115.307 の 211 件は当時の値として文書に残る）。タスク 115.309 が錨と値を提出時点へ貼り直した（115.308 の 216 件は当時の値として文書に残る）。タスク 115.310 が錨と値を提出時点へ貼り直した（115.309 の 219 件は当時の値として文書に残る）。タスク 115.311 が錨と値を提出時点へ貼り直した（115.310 の 223 件は当時の値として文書に残る）。タスク 115.312 が錨と値を提出時点へ貼り直した（115.311 の 227 件は当時の値として文書に残る）。タスク 115.313 が錨と値を提出時点へ貼り直した（115.312 の値は当時の値として文書に残る）。タスク 115.314 が錨と値を提出時点へ貼り直した（115.313 の 237 件は当時の値として文書に残る）。タスク 115.315 が錨と値を提出時点へ貼り直した（115.314 の 247 件は当時の値として文書に残る）。タスク 115.316 が錨と値を提出時点へ貼り直した（115.315 の 254 件 は当時の値として文書に残る）。タスク 115.317 が錨と値を提出時点へ貼り直した（115.316 の 257 件 は当時の値として文書に残る）。タスク 115.323 が錨と値を提出時点へ貼り直した（115.317 の 263 件は当時の値として文書に残る）。タスク 115.324 が錨と値を提出時点へ貼り直した（115.323 の 269 件は当時の値として文書に残る）。第 1 ラウンドのレビューを受けた再提出で 279 件から 280 件へ動いた（増の向きは変わらず、増分が 10 件から 11 件になった）。動かしたのは是正の記述そのものである。第 2 ラウンドのレビューを受けた再提出で 280 件から 281 件へ動いた（増の向きは変わらず、増分が 11 件から 12 件になった）。動かしたのは変異の名指しの食い違いを開示する段落そのものである。タスク 115.324 の後の被覆印の是正が錨を提出時点へ貼り直した（値は 115.324 から動いていない）。新たに入った行 0 行・抜けた行 0 行を突き合わせで確かめた（字面が変わった行は 4 行で、強調記号を課す網の 4 行と同一である）。タスク 115.326 が錨と値を提出時点へ貼り直した（115.324 の後の被覆印の是正の 281 件は当時の値として文書に残る。115.325 はこの網を動かしていない）。動いたのは撤去に備えた不在の記録を書き足した 1 行が再現コマンドと出力の値を同じ行に置いた分だけであり、網から抜けた行は 0 行である。 タスク 115.330 が錨と値を提出時点へ貼り直した（115.326 の 282 件は当時の値として文書に残る）。動いたのは、規約 (a) で現況を並べた記述が再現コマンドを同じ行へ持ち込んだ既存の 5 行が網へ入った分だけであり、網から抜けた行は 0 行である。 project-management のタスク 73.4 が錨と値を提出時点へ貼り直した（115.330 の 287 件は文書に残る）。動いたのは、site-survey の設計文書の母集団の実測の production-unreachable の 4 件の項へ規約 (a) で並べた再実測の記述が、再現コマンド（npm run check:req-coverage）を同じ行へ持ち込んだ 1 行が網へ入った分だけであり、網から抜けた行は 0 行である。"
+    },
+    {
+      "id": "self-reference-undated-residue",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "project-management のタスク 73.4 の提出時点の再実測は 650 件である",
+      "command": "grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' | wc -l",
+      "expected": "650",
+      "documentRendering": "の提出時点の再実測は 650 件",
+      "note": "自己言及の四値 (4)。実測日を持たない残余。同じ行が持つ 184 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 199 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）。タスク 115.280 が錨と値を提出時点へ貼り直した（115.279 の値は当時の値として文書に残る）。タスク 115.281 が錨を提出時点へ貼り直した（値は 115.280 から動いていない）。タスク 115.282 が錨を提出時点へ貼り直した（値は 115.281 から動いていない）。タスク 115.283 が錨と値を提出時点へ貼り直した（115.282 の値は当時の値として文書に残る）。タスク 115.285 が錨を提出時点へ貼り直した（値は 115.283 から動いていない）。タスク 115.288 が錨と値を提出時点へ貼り直した（115.285 の 214 件は当時の値として文書に残る）。タスク 115.290 が錨と値を提出時点へ貼り直した（115.288 の 216 件は当時の値として文書に残る）。タスク 115.292 が錨と値を提出時点へ貼り直した（115.290 の 222 件は当時の値として文書に残る）。タスク 115.293 が錨と値を提出時点へ貼り直した（115.292 の 239 件は当時の値として文書に残る）。タスク 115.294 が錨と値を提出時点へ貼り直した（115.293 の値は当時の値として文書に残る）。タスク 115.295 が錨と値を提出時点へ貼り直した（115.294 の値は当時の値として文書に残る）。タスク 115.296 が錨と値を提出時点へ貼り直した（115.295 の値は当時の値として文書に残る）。タスク 115.297 が錨と値を提出時点へ貼り直した（115.296 の 297 件は当時の値として文書に残る）。タスク 115.298 が錨と値を提出時点へ貼り直した（115.297 の 314 件は当時の値として文書に残る）。タスク 115.299 が錨と値を提出時点へ貼り直した（115.298 の 321 件は当時の値として文書に残る）。タスク 115.300 が錨と値を提出時点へ貼り直した（115.299 の 339 件は当時の値として文書に残る）。タスク 115.302 が錨と値を提出時点へ貼り直した（115.301 の 377 件は当時の値として文書に残る）。タスク 115.303 が錨と値を提出時点へ貼り直した（115.302 の 383 件は当時の値として文書に残る）。タスク 115.304 が錨と値を提出時点へ貼り直した（115.303 の 399 件は当時の値として文書に残る）。タスク 115.305 が錨と値を提出時点へ貼り直した（115.304 の値は当時の値として文書に残る）。タスク 115.306 が錨と値を提出時点へ貼り直した（115.305 の値は当時の値として文書に残る）。タスク 115.307 が錨と値を提出時点へ貼り直した（115.306 の 456 件は当時の値として文書に残る）。タスク 115.308 が錨と値を提出時点へ貼り直した（115.307 の 467 件は当時の値として文書に残る）。タスク 115.309 が錨と値を提出時点へ貼り直した（115.308 の 483 件は当時の値として文書に残る）。タスク 115.310 が錨と値を提出時点へ貼り直した（115.309 の 506 件は当時の値として文書に残る）。タスク 115.311 が錨と値を提出時点へ貼り直した（115.310 の 524 件は当時の値として文書に残る）。タスク 115.312 が錨と値を提出時点へ貼り直した（115.311 の 535 件は当時の値として文書に残る）。タスク 115.313 が錨と値を提出時点へ貼り直した（115.312 の値は当時の値として文書に残る）。タスク 115.314 が錨と値を提出時点へ貼り直した（115.313 の 567 件は当時の値として文書に残る）。タスク 115.315 が錨と値を提出時点へ貼り直した（115.314 の 598 件は当時の値として文書に残る）。タスク 115.316 が錨と値を提出時点へ貼り直した（115.315 の 622 件 は当時の値として文書に残る）。タスク 115.317 が錨と値を提出時点へ貼り直した（115.316 の 631 件 は当時の値として文書に残る）。タスク 115.322 が錨と値を提出時点へ貼り直した（115.317 の 634 件は当時の値として文書に残る。値が減ったのは、115.322 が `#### 対照の追加` の段落へ実測日を書き添えて当該行が残余から外れたためである）。タスク 115.323 が錨と値を提出時点へ貼り直した（115.322 の 633 件は当時の値として文書に残る。今回は減ではなく **増**であり、増分は 5 件である。増えた 5 行はいずれも `### 関門の総数を引く二値の陳腐化を決着させた記録（タスク 115.323）` の本文であり、版を固定した観測か、実測日を冒頭で名乗る節の中にある——内訳は文書の当該行に書いた）。タスク 115.324 が錨と値を提出時点へ貼り直した（115.323 の 638 件は当時の値として文書に残る。今回も増であり、増分は 19 件である。増えた 19 行はいずれも `### 部品の一覧の行の自足性と本番の前書きの移管済みの番号の決着（タスク 115.324）` の中にあり、内訳は文書の当該行に書いた）。第 1 ラウンドのレビューを受けた再提出で 657 件から 658 件へ動いた（増の向きは変わらず、増分が 19 件から 20 件になった）。動かしたのは是正の記述そのものである。第 2 ラウンドのレビューを受けた再提出では動いていない（658 件のまま。増分も 20 件のまま）——本ラウンドが書き足した段落は実測日を自ら名乗るため、この網には入らない。他の三つの網は同じ段落で 1 件ずつ増えた。タスク 115.324 の後の被覆印の是正が錨と値を提出時点へ貼り直した（115.324 の 658 件は当時の値として文書に残る）。向きは減であり、減分は 1 件である。減ったのは同じ是正が「識別子をヘッダー行へ同居させた形」を述べる項へ実測日 2026-09-08 を書き添えたためで、当該の 1 行が残余から外れた（115.322 と同型）。新たにこの残余へ入った行は 0 行である。 タスク 115.330 が錨と値を提出時点へ貼り直した（115.324 の後の被覆印の是正の 657 件は当時の値として文書に残る）。向きは減であり、減分は 3 件である。規約 (a) の追記で実測日 2026-09-25 を書き添えた 3 行が残余から外れた。新たにこの残余へ入った行は 0 行である。 タスク 115.334 が錨と値を提出時点へ貼り直した（115.330 の 654 件は文書に残る）。向きは減であり、減分は 2 件である。規約 (a) の追記で実測日 2026-09-27 を書き添えた 2 行が残余から外れた。新たにこの残余へ入った行は 0 行である。 タスク 115.341 が錨と値を提出時点へ貼り直した（115.334 の 652 件は文書に残る）。向きは減であり、減分は 1 件である。規約 (a) の追記で実測日 2026-10-01 を書き添えた 1 行（115.292 の「候補の件数は欠落の件数ではない」の項）が残余から外れた。新たにこの残余へ入った行は 0 行である。 project-management のタスク 73.4 が錨と値を提出時点へ貼り直した（115.341 の 651 件は文書に残る）。向きは減であり、減分は 1 件である。規約 (a) の追記で実測日 2026-10-07 を書き添えた 1 行（母集団の実測の production-unreachable の 4 件の項）が残余から外れた。新たにこの残余へ入った行は 0 行である。"
+    },
+    {
+      "id": "foreign-design-scan-net1-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "走査範囲は下の囲みの**一本目**が挙げる行であり",
+      "command": "git grep -nE '出力(が|は)|[0-9]+ *件' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "143",
+      "documentRendering": "**143 件**",
+      "note": "他スペックの設計文書の走査（115.234）の一本目＝走査範囲。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net1-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "走査範囲は下の囲みの**一本目**が挙げる行であり",
+      "command": "git grep -nE '出力(が|は)|[0-9]+ *件' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "150",
+      "documentRendering": "是正を入れた後の同じ式は 150 件を返す",
+      "note": "同一本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net2-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "45",
+      "documentRendering": "それぞれ **45 件**",
+      "note": "他スペックの設計文書の走査（115.234）の二本目＝現況断言その1。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net2-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "61",
+      "documentRendering": "是正を入れた後は **61 件**",
+      "note": "同二本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net3-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|母集団|コミット `[0-9a-f]{7}`' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "7",
+      "documentRendering": "対する出力は **7 件**にとどまる",
+      "note": "他スペックの設計文書の走査（115.234）の三本目＝その1から二語を外した対照。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net3-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|母集団|コミット `[0-9a-f]{7}`' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "24",
+      "documentRendering": "是正後は **24 件**",
+      "note": "同三本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net4-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "49",
+      "documentRendering": "と **49 件**、本タスクの是正",
+      "note": "他スペックの設計文書の走査（115.234）の四本目＝現況断言その2。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net4-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "54",
+      "documentRendering": "**61 件**と **54 件**である",
+      "note": "同四本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net5-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "比の百分率を足した網は囲みの**五本目**",
+      "command": "git grep -nE '[0-9]+ *(箇所|行|経路|個|ファイル|枚)|[0-9]+(\\.[0-9]+)?%' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "151",
+      "documentRendering": "対する出力は **151 件**",
+      "note": "他スペックの設計文書の走査（115.234）の五本目＝未走査の残余。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net5-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "比の百分率を足した網は囲みの**五本目**",
+      "command": "git grep -nE '[0-9]+ *(箇所|行|経路|個|ファイル|枚)|[0-9]+(\\.[0-9]+)?%' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "154",
+      "documentRendering": "是正を入れた後は **154 件**",
+      "note": "同五本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net6-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**このうち再現コマンドを同じ行に持つ行は 0 件である。**",
+      "command": "git grep -nE '出力(が|は)|[0-9]+ *件' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | grep -cE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`'",
+      "expected": "1",
+      "documentRendering": "重ねると12件の合計は 1 件挙がる",
+      "note": "他スペックの設計文書の走査（115.234）の六本目＝走査範囲へ絞りを重ねた網。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net6-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**このうち再現コマンドを同じ行に持つ行は 0 件である。**",
+      "command": "git grep -nE '出力(が|は)|[0-9]+ *件' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | grep -cE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`'",
+      "expected": "8",
+      "documentRendering": "是正を入れた後の同じ式は 8 件を返す",
+      "note": "同六本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net7-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**同じ絞りを走査範囲で切らずに12件の全行へ掛けると",
+      "command": "git grep -nE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "62",
+      "documentRendering": "12件の全行へ掛けると 62 件挙がる",
+      "note": "他スペックの設計文書の走査（115.234）の七本目＝絞りだけを十二件の全行へ掛けた網。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net7-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**同じ絞りを走査範囲で切らずに12件の全行へ掛けると",
+      "command": "git grep -nE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "73",
+      "documentRendering": "是正を入れた後は 73 件",
+      "note": "同七本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net8-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**同じ絞りを走査範囲で切らずに12件の全行へ掛けると",
+      "command": "git grep -nE 'wc -l|\\| *grep |git ls-files|git grep|npm run check:' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "1",
+      "documentRendering": "`6b84be3` では 1 件だけ挙がり",
+      "note": "他スペックの設計文書の走査（115.234）の八本目＝再現コマンドの別の綴りを挙げる網。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net8-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**同じ絞りを走査範囲で切らずに12件の全行へ掛けると",
+      "command": "git grep -nE 'wc -l|\\| *grep |git ls-files|git grep|npm run check:' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "5",
+      "documentRendering": "是正後は 5 件で",
+      "note": "同八本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net9-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`|既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "91",
+      "documentRendering": "`6b84be3` で 91 行である",
+      "note": "他スペックの設計文書の走査（115.234）の九本目＝現況断言の二本の網の和。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net9-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`|既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "99",
+      "documentRendering": "是正後は 99 行",
+      "note": "同九本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net10-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**取り出しの基準を先に書く。**",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`|既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | grep -cE '`[^`]+`'",
+      "expected": "38",
+      "documentRendering": "対する出力は **38 行**",
+      "note": "他スペックの設計文書の走査（115.234）の十本目＝その和のうち名指しを持つ行。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net10-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**取り出しの基準を先に書く。**",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`|既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | grep -cE '`[^`]+`'",
+      "expected": "46",
+      "documentRendering": "是正後は 46 行",
+      "note": "同十本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "steering-design-path-refs-exemptions-record",
+      "file": ".kiro/steering/development-discipline.md",
+      "anchor": "提出時点の再実測は 123 件である",
+      "command": "git grep -h -oE '再実測は [0-9]+ 件である' 114e3179 -- .kiro/steering/development-discipline.md | grep -oE '[0-9]+'",
+      "expected": "123",
+      "documentRendering": "123 件",
+      "note": "「記録が引く件数は提出時に測り直す」節が引く `check:design-path-refs` の免除件数。記録が書き込まれた版 `114e3179` に固定（タスク 115.276）"
+    },
+    {
+      "id": "steering-design-path-refs-exemptions-record-restated",
+      "file": ".kiro/steering/development-discipline.md",
+      "anchor": "測ったところ、いずれも 123 件であった",
+      "command": "git grep -h -oE 'いずれも [0-9]+ 件であった' 114e3179 -- .kiro/steering/development-discipline.md | grep -oE '[0-9]+'",
+      "expected": "123",
+      "documentRendering": "123 件",
+      "note": "同じ免除件数を追記の前後で測った旨を述べる再掲。同じ版 `114e3179` に固定（タスク 115.276）"
+    },
+    {
+      "id": "steering-cf-evidence-sentences-record",
+      "file": ".kiro/steering/development-discipline.md",
+      "anchor": "再実測は 62 文 / 18 ファイルである",
+      "command": "git grep -h -oE '再実測は [0-9]+ 文' 114e3179 -- .kiro/steering/development-discipline.md | grep -oE '[0-9]+'",
+      "expected": "62",
+      "documentRendering": "62 文",
+      "note": "`check:cf-evidence:survey` の母集団（文の数）の記録。版 `114e3179` に固定。現況は 162 文であり、作業ツリー読みでは記録が偽になる（タスク 115.276）"
+    },
+    {
+      "id": "steering-cf-evidence-files-record",
+      "file": ".kiro/steering/development-discipline.md",
+      "anchor": "再実測は 62 文 / 18 ファイルである",
+      "command": "git grep -h -oE '[0-9]+ ファイルである' 114e3179 -- .kiro/steering/development-discipline.md | grep -oE '[0-9]+'",
+      "expected": "18",
+      "documentRendering": "18 ファイル",
+      "note": "同じ母集団のファイル数の記録。版 `114e3179` に固定。現況は 28 ファイル（タスク 115.276）"
+    },
+    {
+      "id": "self-report-pairs-at-4a52754",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.278。提案は消化済み）**",
+      "command": "git grep -nE '^ \\* - [0-9]+\\.[0-9]+: ' 4a52754 -- frontend/src/components/site-surveys/ImageUploader.tsx frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx frontend/src/pages/SiteSurveyDetailPage.tsx frontend/src/pages/SiteSurveyListPage.tsx | grep -cE 'ImageUploader\\.tsx:[0-9]+: \\* - 13\\.3: |SiteSurveyResponsiveView\\.tsx:[0-9]+: \\* - 13\\.1: |SiteSurveyDetailInfo\\.tsx:[0-9]+: \\* - (10\\.6|12\\.1|12\\.2): |SiteSurveyDetailPage\\.tsx:[0-9]+: \\* - (2\\.6|10\\.1|12\\.2): |SiteSurveyListPage\\.tsx:[0-9]+: \\* - (2\\.7|12\\.2): '",
+      "expected": "10",
+      "documentRendering": "作業ツリーで走らせると `10` を返し",
+      "note": "追跡表10件の自己申告（部品と番号の組）を是正前の版 `4a52754` に固定して数える（タスク 115.278）。是正後の版 `0afd85e9` と現作業ツリーで同じ網が `0` を返すことは宣言に載せられない——値が `0` の宣言はパイプの終端が `grep -c` になるため、リポジトリの外でも同じ `0` を出して hollowCommandFailures が正当な宣言を告発する（2026-09-05 に写しの --manifest で実測）"
+    },
+    {
+      "id": "self-report-numbers-at-4a52754",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.278。提案は消化済み）**",
+      "command": "git grep -hE '^ \\* - [0-9]+\\.[0-9]+: ' 4a52754 -- frontend/src/components/site-surveys/ImageUploader.tsx frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx frontend/src/pages/SiteSurveyDetailPage.tsx frontend/src/pages/SiteSurveyListPage.tsx | grep -cE '^ \\* - (2\\.6|2\\.7|10\\.1|10\\.6|12\\.1|12\\.2|13\\.1|13\\.3): '",
+      "expected": "12",
+      "documentRendering": "同じ二つの版で `12` と",
+      "note": "同じ 5 ファイルを部品と組にせず番号だけで数えた網。是正前の版 `4a52754` に固定（タスク 115.278）"
+    },
+    {
+      "id": "self-report-numbers-at-0afd85e9",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.278。提案は消化済み）**",
+      "command": "git grep -hE '^ \\* - [0-9]+\\.[0-9]+: ' 0afd85e9 -- frontend/src/components/site-surveys/ImageUploader.tsx frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx frontend/src/pages/SiteSurveyDetailPage.tsx frontend/src/pages/SiteSurveyListPage.tsx | grep -cE '^ \\* - (2\\.6|2\\.7|10\\.1|10\\.6|12\\.1|12\\.2|13\\.1|13\\.3): '",
+      "expected": "2",
+      "documentRendering": "`12` と `2`。2026-09-05",
+      "note": "同じ網を是正後の版 `0afd85e9` に固定（タスク 115.278）。10 から 0 への変化と違い、こちらは値が `0` にならないため宣言に載せられる"
+    },
+    {
+      "id": "self-report-numbers-at-worktree",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.278。提案は消化済み）**",
+      "command": "grep -hE '^ \\* - [0-9]+\\.[0-9]+: ' frontend/src/components/site-surveys/ImageUploader.tsx frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx frontend/src/pages/SiteSurveyDetailPage.tsx frontend/src/pages/SiteSurveyListPage.tsx | grep -cE '^ \\* - (2\\.6|2\\.7|10\\.1|10\\.6|12\\.1|12\\.2|13\\.1|13\\.3): '",
+      "expected": "2",
+      "documentRendering": "を掛けた現況の出力は `2` である",
+      "note": "同じ網の現況（版に固定せず作業ツリーを読む）。タスク 115.278"
+    },
+    {
+      "id": "collision-11-1-at-4a52754",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "1. **上表のとおり付け替えると二ファイルで番号が衝突する。**",
+      "command": "git show 4a52754:frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx | grep -cE '^ \\* - 11\\.1: '",
+      "expected": "1",
+      "documentRendering": "の出力がどちらも `1`",
+      "note": "付け替え先 11.1 が是正前の版で既に同じ `Requirements:` ブロックに在ったこと（タスク 115.278）"
+    },
+    {
+      "id": "collision-2-7-at-4a52754",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "1. **上表のとおり付け替えると二ファイルで番号が衝突する。**",
+      "command": "git show 4a52754:frontend/src/pages/SiteSurveyDetailPage.tsx | grep -cE '^ \\* - 2\\.7: '",
+      "expected": "1",
+      "documentRendering": "の出力がどちらも `1`",
+      "note": "付け替え先 2.7 が是正前の版で既に同じ `Requirements:` ブロックに在ったこと（タスク 115.278）"
+    },
+    {
+      "id": "table-rows-without-target",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "3. **上表は十行のうち二行で付け替え先を示していない。**",
+      "command": "awk '/^\\*\\*\\(2\\) 自己申告の番号が誤っている件/,/^要件12 系の/' .kiro/specs/site-survey/design.md | grep -E '^\\| .(ImageUploader|SiteSurvey)' | grep -v '実体は要件' | grep -cvE '\\| (12|13)\\.[0-9]+ \\|'",
+      "expected": "2",
+      "documentRendering": "の出力が `2` で、該当は",
+      "note": "上表十行のうち付け替え先を示していない行（タスク 115.278）"
+    },
+    {
+      "id": "table-rows-total",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "3. **上表は十行のうち二行で付け替え先を示していない。**",
+      "command": "awk '/^\\*\\*\\(2\\) 自己申告の番号が誤っている件/,/^要件12 系の/' .kiro/specs/site-survey/design.md | grep -cE '^\\| .(ImageUploader|SiteSurvey)'",
+      "expected": "10",
+      "documentRendering": "上表の全行 `10` を返す",
+      "note": "同じ網の絞りを外した対照＝上表の全行（タスク 115.278）"
+    },
+    {
+      "id": "backend-requirement12-residue",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**したがって是正は上表の十組では閉じず、115.236 は十二箇所を是正した。**",
+      "command": "git grep -hE '^ \\* - 12\\.[0-9]' a1e4f4b6 -- backend/src/routes/site-surveys.routes.ts backend/src/routes/survey-images.routes.ts backend/src/services/site-survey.service.ts backend/src/services/signed-url.service.ts | wc -l",
+      "expected": "4",
+      "documentRendering": "の出力は **4 行**である",
+      "note": "115.277 が据え置いた backend 側の同型の残余（タスク 115.278）。タスク 115.284 が是正したため、宣言は記録が書き込まれた版 a1e4f4b6 を名指す形へ固定した（タスク 115.273 の作法。作業ツリーを読む形のままにすると記録そのものが偽になる）"
+    },
+    {
+      "id": "backend-requirement14-corrected",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**したがって是正は上表の十組では閉じず、115.236 は十二箇所を是正した。**",
+      "command": "grep -rhE '^ \\* - 14\\.[1-5]' backend/src/routes/site-surveys.routes.ts backend/src/routes/survey-images.routes.ts backend/src/services/site-survey.service.ts backend/src/services/signed-url.service.ts | wc -l",
+      "expected": "4",
+      "documentRendering": "の出力が **4 行**である",
+      "note": "タスク 115.284 の是正が生きていること。上の a1e4f4b6 を名指す宣言と対になる現況の側である。網を 14.[1-5] に絞るのは、同じ signed-url.service.ts に要件14 の受入基準として存在しない 14.6 が残っているためであり、その所管は本タスクの外である"
+    },
+    {
+      "id": "task-115-277-deferred-families",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**したがって是正は上表の十組では閉じず、115.236 は十二箇所を是正した。**",
+      "command": "git log -1 --format=%B a1e4f4b6 | grep -c '据え置いた'",
+      "expected": "1",
+      "documentRendering": "の出力が `1`。据え置かれたのは",
+      "note": "115.277 自身が二つの族を据え置いたと述べていること（タスク 115.278）"
+    },
+    {
+      "id": "component-reqs-gate-ignores-requirements-doc",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**したがって是正は上表の十組では閉じず、115.236 は十二箇所を是正した。**",
+      "command": "grep -c 'requirements\\.md' scripts/check-design-component-requirements.ts || test $? -eq 1",
+      "expected": "0",
+      "documentRendering": "の出力が `0`",
+      "note": "追跡表と自己申告を突き合わせる関門が要件定義書を読まないこと（タスク 115.278）。単一の grep へファイルを引数で渡す形は、リポジトリの外ではファイルが無くて終了コード 2 になるため、値が `0` でも空洞化の判定を通る（同日に --manifest の写しで実測した二件のパイプ形と対照）"
+    },
+    {
+      "id": "auto-save-acceptance-draw-calls-now",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 直前の三つの値",
+      "command": "awk '/自動保存される \\(site-survey\\/REQ-15\\.4\\)/,/^    \\}\\);$/' e2e/specs/site-surveys/site-survey-responsive.spec.ts | grep -c 'await drawRectangleAnnotation('",
+      "expected": "2",
+      "documentRendering": "**現在は `2` を返す**",
+      "note": "115.237 が受入検証を拡張したことで動いた描画回数の現況（タスク 115.279）。115.119 が記録した `1` は同じ行に残す（規約 (a)）。この値が動けば、同節の追随がふたたび必要になる"
+    },
+    {
+      "id": "auto-save-acceptance-draw-calls-at-bf38984f",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 直前の三つの値",
+      "command": "git show bf38984f:e2e/specs/site-surveys/site-survey-responsive.spec.ts | awk '/自動保存される \\(site-survey\\/REQ-15\\.4\\)/,/^    \\}\\);$/' | grep -c 'await drawRectangleAnnotation('",
+      "expected": "1",
+      "documentRendering": "`bf38984f` に対しては `1` を返すが",
+      "note": "115.237 の親の版に対する対照（タスク 115.279）。記録の側は版で固定する（115.273 / 115.276 の作法）"
+    },
+    {
+      "id": "auto-save-acceptance-unfiltered-now",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 直前の三つの値",
+      "command": "awk '/自動保存される \\(site-survey\\/REQ-15\\.4\\)/,/^    \\}\\);$/' e2e/specs/site-surveys/site-survey-responsive.spec.ts | grep -c 'drawRectangleAnnotation'",
+      "expected": "3",
+      "documentRendering": "**現在は `3` である**",
+      "note": "語を絞らない数え方の現況（タスク 115.279）。115.119 が記録した `2` は同じ行に残す"
+    },
+    {
+      "id": "auto-save-acceptance-timeout-now",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 直前の三つの値",
+      "command": "awk '/自動保存される \\(site-survey\\/REQ-15\\.4\\)/,/^    \\}\\);$/' e2e/specs/site-surveys/site-survey-responsive.spec.ts | grep -o 'test\\.setTimeout([A-Za-z0-9_]*)'",
+      "expected": "test.setTimeout(AUTO_SAVE_ACCEPTANCE_TIMEOUT_MS)",
+      "documentRendering": "**現在は `test.setTimeout(AUTO_SAVE_ACCEPTANCE_TIMEOUT_MS)` を返す**",
+      "note": "115.119 が境界外として据え置いた実行時間の上限の現況（タスク 115.279）。数値でない字面も逐語で束縛できる"
+    },
+    {
+      "id": "auto-save-acceptance-timeout-at-bf38984f",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 直前の三つの値",
+      "command": "git show bf38984f:e2e/specs/site-surveys/site-survey-responsive.spec.ts | awk '/自動保存される \\(site-survey\\/REQ-15\\.4\\)/,/^    \\}\\);$/' | grep -o 'test\\.setTimeout([A-Za-z0-9_]*)'",
+      "expected": "test.setTimeout(180_000)",
+      "documentRendering": "`bf38984f` では `test.setTimeout(180_000)` を、",
+      "note": "実行時間の上限の対照を 115.237 の親の版で固定する（タスク 115.279）"
+    },
+    {
+      "id": "auto-save-acceptance-timeout-whole-file",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 直前の三つの値",
+      "command": "grep -c 'test.setTimeout(180_000)' e2e/specs/site-surveys/site-survey-responsive.spec.ts",
+      "expected": "8",
+      "documentRendering": "他の `test` も数えて `8` を返す",
+      "note": "探針を区間へ限らないと他の test を数えることの実測（タスク 115.279）。ファイルを引数で渡す形はリポジトリの外で終了コード 2 になる"
+    },
+    {
+      "id": "task-115-237-changed-files",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 直前の三つの値",
+      "command": "git show --name-only --format= fce5b844 | grep -c .",
+      "expected": "2",
+      "documentRendering": "の出力が `2` であり、その二つは",
+      "note": "是正の範囲をコマンドで宣言したもの（タスク 115.279）。115.237 の変更が 2 ファイルに限られ本書を含まないこと。件数を `0` で名乗る形（design.md への当たりを数える形）はリポジトリの外でも `0` を返すため空洞化の判定に巻き込まれる。ここでは遷移を件数の側で固定する"
+    },
+    {
+      "id": "auto-save-acceptance-repeat-count-refs",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 上の断言は 115.119 の提出時点の記録",
+      "command": "awk '/自動保存される \\(site-survey\\/REQ-15\\.4\\)/,/^    \\}\\);$/' e2e/specs/site-surveys/site-survey-responsive.spec.ts | grep -c 'AUTO_SAVE_REPEAT_COUNT'",
+      "expected": "3",
+      "documentRendering": "の出力が `3`。コミット `523daae8`",
+      "note": "受入レベルにも識別力があることの根拠（タスク 115.279）。反復の下限を定める定数を当該 test の区間が引く箇所の数"
+    },
+    {
+      "id": "task-115-237-completed",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 上の判定欄と理由 (i)(ii)",
+      "command": "grep -c '^- \\[x\\] 115\\.237 ' .kiro/specs/site-survey/tasks.md",
+      "expected": "1",
+      "documentRendering": "の出力が `1`。コミット `523daae8`",
+      "note": "115.213 の判定 (i) が現況ではないことの根拠（タスク 115.279）。同タスクが未完了へ戻れば赤くなる"
+    },
+    {
+      "id": "auto-save-acceptance-draw-calls-now-at-judgement",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 上の判定欄と理由 (i)(ii)",
+      "command": "awk '/自動保存される \\(site-survey\\/REQ-15\\.4\\)/,/^    \\}\\);$/' e2e/specs/site-surveys/site-survey-responsive.spec.ts | grep -c 'await drawRectangleAnnotation('",
+      "expected": "2",
+      "documentRendering": "の出力も `1` ではなく `2` である",
+      "note": "判定の根拠の側へ並べた現況（タスク 115.279）。同じ値を三箇所へ書いたため、箇所ごとに宣言を置く"
+    },
+    {
+      "id": "ledger-row6-draw-calls-now",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 判定欄は書き換えない。",
+      "command": "awk '/自動保存される \\(site-survey\\/REQ-15\\.4\\)/,/^    \\}\\);$/' e2e/specs/site-surveys/site-survey-responsive.spec.ts | grep -c 'await drawRectangleAnnotation('",
+      "expected": "2",
+      "documentRendering": "の再現コマンドの出力は `1` から `2` へ変わった",
+      "note": "台帳の行6 の根拠欄へ並べた現況（タスク 115.279）。判定欄は 115.213 の記録であるため書き換えず、追記の側だけを宣言で守る"
+    },
+    {
+      "id": "ledger-row6-timeout-now",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.279）**: 判定欄は書き換えない。",
+      "command": "awk '/自動保存される \\(site-survey\\/REQ-15\\.4\\)/,/^    \\}\\);$/' e2e/specs/site-surveys/site-survey-responsive.spec.ts | grep -o 'test\\.setTimeout([A-Za-z0-9_]*)'",
+      "expected": "test.setTimeout(AUTO_SAVE_ACCEPTANCE_TIMEOUT_MS)",
+      "documentRendering": "`test.setTimeout(180_000)` から `test.setTimeout(AUTO_SAVE_ACCEPTANCE_TIMEOUT_MS)` へ動いている",
+      "note": "台帳の行6 が起票時の境界として引く実行時間の上限の現況（タスク 115.279）"
+    },
+    {
+      "id": "traceability-10-9-image-order-service",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**要件10.9 の行の欠落を捕まえる関門も無い（断定ではなく変異で示す）**",
+      "command": "awk -F'|' '/^\\| \\*\\*10\\.9\\*\\* \\|/{print $4}' .kiro/specs/site-survey/design.md | grep -c 'ImageOrderService'",
+      "expected": "1",
+      "documentRendering": "の出力が `1`。",
+      "note": "追跡表の要件10.9 の行の Components 列が順序の永続化の担い手 ImageOrderService を挙げていること（タスク 115.282）。同行の欠落を捕まえる関門は他に無く、六つの関門は落とす変異でも終了コード 0 のままである（本文の当該項に実測がある）。宣言が固定するのは名前が在ることだけで、実装に対応を持たない名前の追加は固定しない。末尾に `|| test $? -eq 1` を付けないのは赤緑を変えるためではない（付けても赤になる。変異C・変異D を当てて実測済み。本文の当該項を見よ）——付けると外側の終了コードが 0 へ均され、名前が落ちて内側の値も 0 になった瞬間に内外が一致して runOutsideRepository の対照が偽の「空洞化の経路」を報告するため、報告を値の食い違い一本に絞る目的で付けていない"
+    },
+    {
+      "id": "traceability-4-10-order-and-list-service",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "例示が指した状態はもう無い",
+      "command": "awk -F'|' '/^\\| \\*\\*4\\.10\\*\\* \\|/{print $4}' .kiro/specs/site-survey/design.md | grep -c 'ImageOrderService, ImageListService'",
+      "expected": "1",
+      "documentRendering": "grep -c 'ImageOrderService, ImageListService'` の出力が `1`",
+      "note": "追跡表の要件4.10 の行の Components 列が順序と一覧の担い手 ImageOrderService / ImageListService を挙げていること（タスク 115.239 の是正。タスク 115.285 が宣言へ載せた）。`#### 機械の関門（タスク 115.228 が新設）` の「見ないこと」の項は、この行の欠落を check:trace-coverage の対象外の例として現在形で挙げていたが、115.239 の消化で例示が指す状態が消えたため過去の事実として書き分けた。過去形の記録は指し先が元の姿へ復した場合に黙って現況とずれるため、この宣言がその行を固定する。末尾に `|| test $? -eq 1` を付けないのは traceability-10-9-image-order-service と同じ理由であり、断定の前に接尾辞を足す変異を当てて確かめた——接尾辞を足すだけの版（変異D）は終了コード 0 のまま、接尾辞を足したうえで当該行から両名を落とした版（変異C）は終了コード 1 で 2 件（値の食い違い expected=`1` actual=`0` と「リポジトリの外でも同じ値 `0` を出します」）を報告し、接尾辞の無い版で同じ落とす変異を当てると報告は「コマンドが終了コード 1 で失敗しました」の 1 件であった（起点はコミット `c7093fc2`。2026-09-05 にリポジトリルートで実測。変異は控えからの書き戻しで復元した）。すなわち接尾辞は赤緑を変えず、現況を測っている宣言へ偽の「空洞化の経路」の指摘を一つ増やすだけである。宣言が固定するのは名前が在ることだけで、実装に対応を持たない名前の追加は固定しない"
+    },
+    {
+      "id": "traceability-1-1-1-7-survey-deleted-guard",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "Components 列に `backend/src/utils/survey-deleted-guard.ts` の名が在ることの再現",
+      "command": "awk -F'|' '/^\\| 1\\.1-1\\.7 \\|/{print $4}' .kiro/specs/site-survey/design.md | grep -c 'survey-deleted-guard.ts'",
+      "expected": "1",
+      "documentRendering": "の出力が `1`",
+      "note": "追跡表の要件1.1-1.7 の行の Components 列が、要件1.5 の画像側の遮断機構 survey-deleted-guard.ts を挙げていること（タスク 115.283）。宣言が固定するのは名前が当該行に在ることだけであり、実装に対応を持たない名前の追加は固定しない（本文の当該項が同じ限界を明記する）。末尾に `|| test $? -eq 1` を付けないのは 115.282 の判定に揃えた——付けると外側の終了コードが 0 へ均され、名前が落ちて内側の値も 0 になった瞬間に内外が一致してrunOutsideRepository の対照が偽の「空洞化の経路」を報告するためである"
+    },
+    {
+      "id": "traceability-3-1-3-5-site-survey-schema",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "Components 列に `backend/src/schemas/site-survey.schema.ts` の名が在ることの再現",
+      "command": "awk -F'|' '/^\\| 3\\.1-3\\.5 \\|/{print $4}' .kiro/specs/site-survey/design.md | grep -c 'site-survey.schema.ts'",
+      "expected": "1",
+      "documentRendering": "の出力が `1`",
+      "note": "追跡表の要件3.1-3.5 の行の Components 列が、要件3.1-3.4 の頁・検索・絞り込み・並びの受け口 site-survey.schema.ts を挙げていること（タスク 115.283）。宣言が固定するのは名前が当該行に在ることだけであり、実装に対応を持たない名前の追加は固定しない（本文の当該項が同じ限界を明記する）。末尾に `|| test $? -eq 1` を付けないのは 115.282 の判定に揃えた——付けると外側の終了コードが 0 へ均され、名前が落ちて内側の値も 0 になった瞬間に内外が一致してrunOutsideRepository の対照が偽の「空洞化の経路」を報告するためである"
+    },
+    {
+      "id": "traceability-4-8-orphaned-object",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "Components 列に `backend/src/utils/orphaned-object.ts` の名が在ることの再現",
+      "command": "awk -F'|' '/^\\| \\*\\*4\\.8\\*\\* \\|/{print $4}' .kiro/specs/site-survey/design.md | grep -c 'orphaned-object.ts'",
+      "expected": "1",
+      "documentRendering": "の出力が `1`",
+      "note": "追跡表の要件4.8 の行の Components 列が、孤立ファイルの回収先の接頭辞を持つ orphaned-object.ts を挙げていること（タスク 115.283）。宣言が固定するのは名前が当該行に在ることだけであり、実装に対応を持たない名前の追加は固定しない（本文の当該項が同じ限界を明記する）。末尾に `|| test $? -eq 1` を付けないのは 115.282 の判定に揃えた——付けると外側の終了コードが 0 へ均され、名前が落ちて内側の値も 0 になった瞬間に内外が一致してrunOutsideRepository の対照が偽の「空洞化の経路」を報告するためである"
+    },
+    {
+      "id": "traceability-9-1-annotation-service",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "Components 列に `AnnotationService` が在ることの再現",
+      "command": "awk -F'|' '/^\\| \\*\\*9\\.1\\*\\* \\|/{print $4}' .kiro/specs/site-survey/design.md | grep -c 'AnnotationService'",
+      "expected": "1",
+      "documentRendering": "の出力が `1`",
+      "note": "追跡表の要件9.1 の行の Components 列が、注釈データの保存を行う AnnotationService を挙げていること（タスク 115.283）。宣言が固定するのは名前が当該行に在ることだけであり、実装に対応を持たない名前の追加は固定しない（本文の当該項が同じ限界を明記する）。末尾に `|| test $? -eq 1` を付けないのは 115.282 の判定に揃えた——付けると外側の終了コードが 0 へ均され、名前が落ちて内側の値も 0 になった瞬間に内外が一致してrunOutsideRepository の対照が偽の「空洞化の経路」を報告するためである"
+    },
+    {
+      "id": "traceability-10-9-image-metadata-service",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "Components 列に `ImageMetadataService` が在ることの再現",
+      "command": "awk -F'|' '/^\\| \\*\\*10\\.9\\*\\* \\|/{print $4}' .kiro/specs/site-survey/design.md | grep -c 'ImageMetadataService'",
+      "expected": "1",
+      "documentRendering": "の出力が `1`",
+      "note": "追跡表の要件10.9 の行の Components 列が、コメントと報告書出力フラグの一括保存を行う ImageMetadataService を挙げていること（タスク 115.283。115.282 が送った申し送りの消化）。宣言が固定するのは名前が当該行に在ることだけであり、実装に対応を持たない名前の追加は固定しない（本文の当該項が同じ限界を明記する）。末尾に `|| test $? -eq 1` を付けないのは 115.282 の判定に揃えた——付けると外側の終了コードが 0 へ均され、名前が落ちて内側の値も 0 になった瞬間に内外が一致してrunOutsideRepository の対照が偽の「空洞化の経路」を報告するためである"
+    },
+    {
+      "id": "backend-self-report-population",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.330 の提出時点の再実測は 107 件である",
+      "command": "( grep -rlE '^ \\* - [0-9]+\\.[0-9]+: ' backend/src --include='*.ts'; grep -rl '@requirement site-survey/REQ-' backend/src --include='*.ts' ) | grep -vE '__tests__|\\.test\\.ts$' | sort -u | wc -l",
+      "expected": "107",
+      "documentRendering": "再実測は 107 件である",
+      "note": "タスク 115.283 のバックエンド走査の母集団。手順1 が対象外とした「バックエンドの資材」の全体であり、走査したのはこのうち本書が逐語で引く 26 件である（残る 80 件は同項の第3層の残余）。タスク 115.330 が錨と値を提出時点へ貼り直した（115.283 の 106 件は文書に残る）。増分 1 件は backend/src/routes/autocomplete.routes.ts で、下流 quantity-table-generation の Task 96.5 のコミット db1007f0 が範囲の一行 7.1-7.7 を一行一番号の形へ改めたため第1項の網に掛かった"
+    },
+    {
+      "id": "backend-self-report-population-quoted-in-design",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "うち本書が逐語で引くパスに限ると",
+      "command": "( grep -rlE '^ \\* - [0-9]+\\.[0-9]+: ' backend/src --include='*.ts'; grep -rl '@requirement site-survey/REQ-' backend/src --include='*.ts' ) | grep -vE '__tests__|\\.test\\.ts$' | sort -u | grep -Fof - .kiro/specs/site-survey/design.md | sort -u | wc -l",
+      "expected": "32",
+      "documentRendering": "**32 件**",
+      "note": "タスク 115.283 が一件ずつ判定した走査範囲。母集団 106 件のうち本書が逐語でパスを引くもの。本書へパスを書き足すと増えるため、判定の件数を書き換えるときは同時に測り直すこと。タスク 115.311 が値を提出時点へ測り直した（115.283 の 26 件は当時の値として文書に残る）。タスク 115.312 が値を提出時点へ測り直した（115.311 の 30 件は当時の値として文書に残る）。タスク 115.313 が錨と値を提出時点へ貼り直した（115.312 の値は当時の値として文書に残る）。"
+    },
+    {
+      "id": "criterion-literal-ledger-entries",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**タスク 115.341 の提出時点の再実測は台帳の裁定 25 件である**",
+      "command": "node -e \"console.log(require('./scripts/criterion-literal-adjudication.json').entries.length)\"",
+      "expected": "25",
+      "documentRendering": "裁定 25 件である",
+      "note": "受入基準が名指す逐語の実在の裁定台帳の全件。ラチェットは scripts/check-criterion-literal-presence.ts の LEDGER_ENTRY_LIMIT が完全一致で持つ（タスク 115.292）。タスク 115.341 が錨と値を提出時点へ貼り直した（115.292 の 27 件は文書に残る）。減った 2 件はいずれも implementation-divergence の裁定 estimate-request/REQ-6.9 / REQ-39.9 で、下流の同スペックの Task 93.1 のコミット 4707f82c が本文生成を是正したうえで台帳から取り下げ、LEDGER_ENTRY_LIMIT を 27→25 へ下げた。0e515287 の後に台帳を変えたコミットは 4707f82c だけで、b85e9833 の版は 27 件、4707f82c の版は 25 件。entries[].id の差集合は消えた側 2 件・増えた側 0 件。本スペックのコミットは 0"
+    },
+    {
+      "id": "criterion-literal-ledger-unverified",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.341 の提出時点の再実測で欠陥として残るのは `unverified` が真の",
+      "command": "node -e \"console.log(require('./scripts/criterion-literal-adjudication.json').entries.filter(e=>e.unverified).length)\"",
+      "expected": "2",
+      "documentRendering": "が真の 2 件",
+      "note": "裁定台帳のうち支えが無いと裁定した件数。是正されて減っても増えても赤くなる（タスク 115.292）。タスク 115.341 が錨と値を提出時点へ貼り直した（115.292 の 4 件は文書に残る）。減った 2 件は estimate-request/REQ-6.9 / REQ-39.9 で、下流の同スペックの Task 93.1 のコミット 4707f82c が是正して裁定を取り下げた。b85e9833 の版は 4 件、4707f82c の版は 2 件で、残るのは user-authentication/REQ-28.12 / REQ-29.12。本スペックのコミットは 0"
+    },
+    {
+      "id": "criterion-literal-survey-production-absent",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "本番の非註釈行に一度も現れないものが 61 組",
+      "command": "npx tsx scripts/check-criterion-literal-presence.ts --survey --tsv | grep -E '^production-noncomment-absent' | grep -oE '[0-9]+'",
+      "expected": "61",
+      "documentRendering": "現れないものが 61 組",
+      "note": "註釈の抜け道の実額（タスク 115.292）。本関門が通した組のうち本番の非註釈行に一度も無いもの。関門の判定には影響しない走査の出口の値であり、走査の出口が壊れれば宣言が赤くなる"
+    },
+    {
+      "id": "criterion-literal-survey-comment-backed",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "内訳は**本番の註釈行には在るもの",
+      "command": "npx tsx scripts/check-criterion-literal-presence.ts --survey --tsv | grep -E '^comment-backed' | grep -oE '[0-9]+'",
+      "expected": "43",
+      "documentRendering": "本番の註釈行には在るもの 43 組",
+      "note": "註釈の抜け道の実額（タスク 115.292）。条文の逐語を JSDoc へ写すだけで緑になっている組。61 組の内訳のうち註釈が支えているもの"
+    },
+    {
+      "id": "design-path-exemption-tally-total",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "estimate-creation のタスク 61.4 の提出時点の再実測は延べ 147 件・distinct 42 件・差 105 件である",
+      "command": "node -e \"console.log(require('./scripts/design-path-exemption-baseline.json').exemptedTotal)\"",
+      "expected": "147",
+      "documentRendering": "延べ 147 件",
+      "note": "免除の延べ件数の基準（タスク 115.293）。設計文書が撤去の記録を足すと動くため、判断の記録が引く値は基準と同時に測り直すこと。タスク 115.330 が錨と値を提出時点へ貼り直した（115.293 の 123 / 30 / 93 は文書に残る）。増分は延べ 2・distinct 1 で、いずれも quantity-table-generation の設計文書の側にあり、下流の同スペックの Task 97.13 のコミット cb350693 が基準を関門の案内する経路で更新したことによる（本書の側は延べ 122・distinct 29 のまま）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.330 の 125 / 31 / 94 は文書に残る）。増分は延べ 16・distinct 9 で、下流 quantity-table-generation の Task 89.1 のコミット 3d723c78 が延べ 7・distinct 4、同 Task 97.14 のコミット 40fc5f81 が延べ 9・distinct 5 を、部品を取り除いて基準を関門の案内する経路で更新したことにより動かした（本書の側は延べ 126・distinct 33 へ。各版の基準ファイルの文書ごとの件数で測った）。estimate-creation のタスク 61.2 が錨と値を提出時点へ貼り直した（115.333 の 141 / 40 / 101 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない見積の検証サービスの本体を取り除き、本書の「後任へ送る起票候補」の節にその記録を足したことで、同サービスの本体を名指す本書の 3 行が免除の側へ入ったことによる（本書の側は延べ 129・distinct 34 へ。基準ファイルは関門の案内する増分と同じ値を同じ変更で書き写した）。estimate-creation のタスク 61.4 が錨と値を提出時点へ貼り直した（61.2 の 144 / 41 / 103 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない NET金額計算のパネルの部品を取り除き、本書の起票候補の節に記録を足したため、同部品のファイルを名指す 3 行が免除へ入った"
+    },
+    {
+      "id": "design-path-exemption-distinct-total",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "estimate-creation のタスク 61.4 の提出時点の再実測は延べ 147 件・distinct 42 件・差 105 件である",
+      "command": "node -e \"console.log(require('./scripts/design-path-exemption-baseline.json').exemptedDistinctTotal)\"",
+      "expected": "42",
+      "documentRendering": "distinct 42 件",
+      "note": "免除の distinct の集合の基準（タスク 115.293）。延べとは別に持つ値であり、両者の差が判断の根拠である。タスク 115.330 が錨と値を提出時点へ貼り直した（115.293 の 123 / 30 / 93 は文書に残る）。増分は延べ 2・distinct 1 で、いずれも quantity-table-generation の設計文書の側にあり、下流の同スペックの Task 97.13 のコミット cb350693 が基準を関門の案内する経路で更新したことによる（本書の側は延べ 122・distinct 29 のまま）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.330 の 125 / 31 / 94 は文書に残る）。増分は延べ 16・distinct 9 で、下流 quantity-table-generation の Task 89.1 のコミット 3d723c78 が延べ 7・distinct 4、同 Task 97.14 のコミット 40fc5f81 が延べ 9・distinct 5 を、部品を取り除いて基準を関門の案内する経路で更新したことにより動かした（本書の側は延べ 126・distinct 33 へ。各版の基準ファイルの文書ごとの件数で測った）。estimate-creation のタスク 61.2 が錨と値を提出時点へ貼り直した（115.333 の 141 / 40 / 101 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない見積の検証サービスの本体を取り除き、本書の「後任へ送る起票候補」の節にその記録を足したことで、同サービスの本体を名指す本書の 3 行が免除の側へ入ったことによる（本書の側は延べ 129・distinct 34 へ。基準ファイルは関門の案内する増分と同じ値を同じ変更で書き写した）。estimate-creation のタスク 61.4 が錨と値を提出時点へ貼り直した（61.2 の 144 / 41 / 103 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない NET金額計算のパネルの部品を取り除き、本書の起票候補の節に記録を足したため、同部品のファイルを名指す 3 行が免除へ入った"
+    },
+    {
+      "id": "design-path-exemption-tally-distinct-gap",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "estimate-creation のタスク 61.4 の提出時点の再実測は延べ 147 件・distinct 42 件・差 105 件である",
+      "command": "node -e \"const j=require('./scripts/design-path-exemption-baseline.json');console.log(j.exemptedTotal-j.exemptedDistinctTotal)\"",
+      "expected": "105",
+      "documentRendering": "差 105 件",
+      "note": "延べと distinct の差（タスク 115.293）。数え方を distinct へ置き換えた場合に見えなくなる分の実額であり、判断の却下理由が引く値。タスク 115.330 が錨と値を提出時点へ貼り直した（115.293 の 123 / 30 / 93 は文書に残る）。増分は延べ 2・distinct 1 で、いずれも quantity-table-generation の設計文書の側にあり、下流の同スペックの Task 97.13 のコミット cb350693 が基準を関門の案内する経路で更新したことによる（本書の側は延べ 122・distinct 29 のまま）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.330 の 125 / 31 / 94 は文書に残る）。増分は延べ 16・distinct 9 で、下流 quantity-table-generation の Task 89.1 のコミット 3d723c78 が延べ 7・distinct 4、同 Task 97.14 のコミット 40fc5f81 が延べ 9・distinct 5 を、部品を取り除いて基準を関門の案内する経路で更新したことにより動かした（本書の側は延べ 126・distinct 33 へ。各版の基準ファイルの文書ごとの件数で測った）。estimate-creation のタスク 61.2 が錨と値を提出時点へ貼り直した（115.333 の 141 / 40 / 101 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない見積の検証サービスの本体を取り除き、本書の「後任へ送る起票候補」の節にその記録を足したことで、同サービスの本体を名指す本書の 3 行が免除の側へ入ったことによる（本書の側は延べ 129・distinct 34 へ。基準ファイルは関門の案内する増分と同じ値を同じ変更で書き写した）。estimate-creation のタスク 61.4 が錨と値を提出時点へ貼り直した（61.2 の 144 / 41 / 103 は文書に残る）。増分は延べ 3・distinct 1 で、いずれも本書の側にあり、同タスクが利用者の判断で本番から使われない NET金額計算のパネルの部品を取り除き、本書の起票候補の節に記録を足したため、同部品のファイルを名指す 3 行が免除へ入った"
+    },
+    {
+      "id": "design-path-candidate-origin",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "基準の履歴の起点は 2026-08-31 の母数",
+      "command": "node -e \"console.log(require('./scripts/design-path-exemption-baseline.json').candidateHistory[0].candidateTotal)\"",
+      "expected": "574",
+      "documentRendering": "574 件",
+      "note": "母数の追記のみの履歴の起点（タスク 115.293）。起点からの薄まりを述べる記録が引く値であり、履歴の先頭が書き換わると赤くなる"
+    },
+    {
+      "id": "design-path-candidate-recorded",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.326 の提出時点の再実測では、基準に記録された母数は 747 件",
+      "command": "node -e \"console.log(require('./scripts/design-path-exemption-baseline.json').candidateTotal)\"",
+      "expected": "747",
+      "documentRendering": "母数は 747 件（面 194 件",
+      "note": "基準に記録された母数（タスク 115.293。115.294 が面の定義を変えたため測り直した）。母数は合否に用いないため関門は動かないが、記録の側が陳腐化しても誰も気付かない状態を避けるために宣言する。タスク 115.299 が錨と値を提出時点へ貼り直した（115.294 の 619 件は当時の値として文書に残る）。タスク 115.302 が錨と値を提出時点へ貼り直した（115.299 の値は当時の値として文書に残る）。タスク 115.309 が錨と値を提出時点へ貼り直した（115.302 の値は当時の値として文書に残る）。タスク 115.310 が錨と値を提出時点へ貼り直した（115.309 の 672 件は当時の値として文書に残る）。タスク 115.311 が錨と値を提出時点へ貼り直した（115.310 の 677 件は当時の値として文書に残る）。タスク 115.312 が錨と値を提出時点へ貼り直した（115.311 の 687 件は当時の値として文書に残る）。タスク 115.313 が錨と値を提出時点へ貼り直した（115.312 の値は当時の値として文書に残る）。タスク 115.325 が錨と値を提出時点へ貼り直した（115.313 の 697 件は当時の値として文書に残る。2026-09-15 の基準の更新が母数を 740 件へ動かした後、本宣言は貼り直されないまま赤であった）。タスク 115.326 が錨を提出時点へ貼り直した（値は 115.325 から動いていない。面だけが 192 件から 194 件へ広がった）。同じ行に 115.325 の「母数は 747 件」が当時の値として残るため、字面を面の件数まで延ばして一箇所に定めた。"
+    },
+    {
+      "id": "design-path-reach-total",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.333 の提出時点の再実測は面 189 件・実体 149 件・曖昧 5 件・母数 747 件である",
+      "command": "node -e \"console.log(require('./scripts/design-path-exemption-baseline.json').reachTotal)\"",
+      "expected": "189",
+      "documentRendering": "面 189 件・実体 149 件・曖昧 5 件・母数 747 件",
+      "note": "曖昧な裸のファイル名を面から外した後の面の件数（タスク 115.294）。設計文書の記述が動くと変わるため、判断の記録が引く値は基準と同時に測り直すこと。タスク 115.299 が錨と値を提出時点へ貼り直した（115.294 の値は当時の値として文書に残る）。タスク 115.302 が錨と値を提出時点へ貼り直した（115.299 の値は当時の値として文書に残る）。タスク 115.309 が錨と値を提出時点へ貼り直した（115.302 の値は当時の値として文書に残る）。タスク 115.310 が錨と値を提出時点へ貼り直した（115.309 の 174 件は当時の値として文書に残る）。タスク 115.311 が錨と値を提出時点へ貼り直した（115.310 の 177 件は当時の値として文書に残る）。タスク 115.312 が錨と値を提出時点へ貼り直した（115.311 の 183 件は当時の値として文書に残る）。タスク 115.313 が錨と値を提出時点へ貼り直した（115.312 の値は当時の値として文書に残る）。タスク 115.325 が錨と値を提出時点へ貼り直した（115.313 の 190 件は当時の値として文書に残る）。タスク 115.326 が錨と値を提出時点へ貼り直した（115.325 の 192 件は当時の値として文書に残る）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.326 の 194 件は当時の値として文書に残る。減分 5 件は下流 quantity-table-generation の Task 89.1 のコミット 3d723c78 の 2 件と Task 97.14 のコミット 40fc5f81 の 3 件）。documentRendering を母数まで広げて宣言したのは、同じ行のタスク 115.312 の再実測が面 189 件・実体 149 件で同じ字面を持ち（同タスクの母数は 696 件）、値だけの字面では行に 2 箇所現れるためである。"
+    },
+    {
+      "id": "design-path-entity-total",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.333 の提出時点の再実測は面 189 件・実体 149 件・曖昧 5 件・母数 747 件である",
+      "command": "node -e \"console.log(require('./scripts/design-path-exemption-baseline.json').entityTotal)\"",
+      "expected": "149",
+      "documentRendering": "実体 149 件・曖昧 5 件・母数 747 件",
+      "note": "面が指す実体のファイル数（タスク 115.241）。115.294 が曖昧を外した分だけ減った値であり、判断の記録が引く値。タスク 115.299 が錨と値を提出時点へ貼り直した（115.294 の値は当時の値として文書に残る）。タスク 115.302 が錨と値を提出時点へ貼り直した（115.299 の値は当時の値として文書に残る）。タスク 115.309 が錨と値を提出時点へ貼り直した（115.302 の値は当時の値として文書に残る）。タスク 115.310 が錨と値を提出時点へ貼り直した（115.309 の 135 件は当時の値として文書に残る）。タスク 115.311 が錨と値を提出時点へ貼り直した（115.310 の 138 件は当時の値として文書に残る）。タスク 115.312 が錨と値を提出時点へ貼り直した（115.311 の 143 件は当時の値として文書に残る）。タスク 115.313 が錨と値を提出時点へ貼り直した（115.312 の値は当時の値として文書に残る）。タスク 115.325 が錨と値を提出時点へ貼り直した（115.313 の 150 件は当時の値として文書に残る）。タスク 115.326 が錨と値を提出時点へ貼り直した（115.325 の 152 件は当時の値として文書に残る）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.326 の 154 件は当時の値として文書に残る。減分 5 件は下流 quantity-table-generation の Task 89.1 のコミット 3d723c78 の 2 件と Task 97.14 のコミット 40fc5f81 の 3 件）。documentRendering を母数まで広げて宣言したのは、同じ行のタスク 115.312 の再実測が面 189 件・実体 149 件で同じ字面を持ち（同タスクの母数は 696 件）、値だけの字面では行に 2 箇所現れるためである。"
+    },
+    {
+      "id": "design-path-ambiguous-total",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.310 の提出時点の再実測は面 177 件・実体 138 件・曖昧 5 件・母数 677 件である",
+      "command": "node -e \"console.log(require('./scripts/design-path-exemption-baseline.json').ambiguousTotal)\"",
+      "expected": "5",
+      "documentRendering": "実体 138 件・曖昧 5 件",
+      "note": "曖昧のため面から外した裸のファイル名の基準（タスク 115.294）。面から外した側も基準で見張るという判断そのものの実額。タスク 115.299 が錨と値を提出時点へ貼り直した（115.294 の値は当時の値として文書に残る）。タスク 115.302 が錨と値を提出時点へ貼り直した（115.299 の値は当時の値として文書に残る）。タスク 115.309 が錨と値を提出時点へ貼り直した（115.302 の値は当時の値として文書に残る。値そのものは動いていない）。タスク 115.310 が錨を提出時点へ貼り直した（値は 115.309 から動いていない）"
+    },
+    {
+      "id": "selftest-entry-population",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.330 の提出時点の再実測は母集団 20 件・適合 20 件である",
+      "command": "ls scripts/*.selftest.ts | wc -l | tr -d ' '",
+      "expected": "20",
+      "documentRendering": "母集団 20 件",
+      "note": "失敗既定の形を課した自己検査の母集団（タスク 115.295）。適合の件数と並べて初めて、失敗既定を持たない一本の追加が食い違いとして現れる。タスク 115.300 が錨と値を提出時点へ貼り直した（115.295 の 18 件は当時の値として文書に残る。増分は本タスクが新設した check:adjudication-pointers:selftest）。タスク 115.330 が錨と値を提出時点へ貼り直した（115.300 の 19 件は当時の値として文書に残る）。増分は下流 quantity-table-generation の Task 101.1 のコミット 83d2fdba が新設した scripts/count-coverage-marks.selftest.ts で、失敗既定の形を備えるため母集団と適合は一致したままである"
+    },
+    {
+      "id": "selftest-failure-default-conforming",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.330 の提出時点の再実測は母集団 20 件・適合 20 件である",
+      "command": "node -e \"const fs=require('fs');const d='scripts';let n=0;for(const f of fs.readdirSync(d).filter(x=>x.endsWith('.selftest.ts'))){const L=fs.readFileSync(d+'/'+f,'utf8').split('\\n');const b=L.findIndex(x=>x==='main();'||x==='void main();');const e=L.filter(x=>x==='main();'||x==='void main();').length;const a=L.indexOf('process.exitCode = 1;');const z=L.filter(x=>x==='process.exitCode = 0;').length;const r=L.filter(x=>x.trim()==='process.exitCode = 0;'&&x!==x.trim()).length;if(e===1&&a!==-1&&a<b&&z===0&&r===1)n++;}console.log(n)\"",
+      "expected": "20",
+      "documentRendering": "適合 20 件",
+      "note": "module 直下の入口がちょうど一つ・その前に失敗既定・module 直下の解除は無し・main の中に解除が一つ、をすべて満たす件数（タスク 115.295）。タスク 115.300 が錨と値を提出時点へ貼り直した（115.295 の 18 件は当時の値として文書に残る。新設した自己検査は失敗既定の形を備えるため母集団と適合は一致したままである）。タスク 115.330 が錨と値を提出時点へ貼り直した（115.300 の 19 件は当時の値として文書に残る）。増分は下流 quantity-table-generation の Task 101.1 のコミット 83d2fdba が新設した scripts/count-coverage-marks.selftest.ts で、失敗既定の形を備えるため母集団と適合は一致したままである"
+    },
+    {
+      "id": "dead-script-env-scan-root-symlinks",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "走査根 `.` の直下のシンボリックリンクは",
+      "command": "find . -maxdepth 1 -type l | wc -l",
+      "expected": "2",
+      "documentRendering": "リンクは 2 本である",
+      "note": "読み手コーパスの走査根が二度降りうる本数。訪問済み集合が受け持つ母集団そのものであり、リンクが増減すれば 115.296 の記録を測り直す契機になる（タスク 115.296）"
+    },
+    {
+      "id": "dead-script-env-homomorph-scan-population",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "母集団は `grep -l readdirSync scripts/*.ts`",
+      "command": "grep -l readdirSync scripts/*.ts | wc -l",
+      "expected": "26",
+      "documentRendering": "**26 件**",
+      "note": "同型の走査器を探した母集団。走査器が増えたら 115.296 の全称否定を測り直す契機になる（タスク 115.296）。タスク 115.306 が `listCitationSurveyFiles` を置いたため母集団が 24 件から 25 件へ動いた。増えた 1 件は一階層を並べるだけで再帰しないため、115.296 の全称否定は成立したままである。タスク 115.322 が `scripts/survey-retry-exhaustion-exclusion-population.ts` を置いたため 25 件から 26 件へ動いた（115.306 の 25 件は当時の値として同じ行に残る）。増えた 1 件は withFileTypes と Dirent.isDirectory() の形でリンクを降りないため、115.296 の全称否定は成立したままである"
+    },
+    {
+      "id": "ci-success-gated-jobs",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "実測ちょうどの **14** である",
+      "command": "awk '/^  [^A-Za-z0-9#]*ci-success[^A-Za-z0-9]*:/{f=1;next} f&&/^  [^ #]/{if(b){print c+0;done=1} exit} f&&/^    needs:[[:space:]]*(#.*)?$/{b=1;next} f&&/^    needs:[[:space:]]*\\[/{s=$0;sub(/^[^[]*\\[/,\"\",s);sub(/\\].*$/,\"\",s);n=split(s,a,/,/);c=0;for(i=1;i<=n;i++){t=a[i];gsub(/^[[:space:]]+|[[:space:]]+$/,\"\",t);if(t!=\"\")c++}print c;done=1;exit} b&&/^ *- /{c++;next} b&&/^[[:space:]]*$/{next} b&&/^[[:space:]]*#/{next} b{print c+0;done=1;exit} END{if(!done)print c+0}' .github/workflows/ci.yml",
+      "expected": "14",
+      "documentRendering": "**14**",
+      "note": "ci-success が関門にしているジョブ数。scripts/check-dead-script-env.selftest.ts の MINIMUM_GATED_JOBS と同じ値を保つ（タスク 115.297）。コマンドは綴りの完全一致でなく構造で読む——初出は grep -oE '^    needs: \\[...dead-script-env\\]' の流れ記法の綴りだけを見ており、同タスクが (2) で塞いだのと同じ欠陥を宣言の側へ再導入していた（needs をブロック記法へ直すと expected=14 actual=0 で押下が止まる。2026-09-05 にレビューが実測）。awk で ci-success のブロックを字下げで切り出し、流れ記法・ブロック記法・要素の引用・行末注釈のいずれでも同じ値を出す"
+    },
+    {
+      "id": "component-reqs-policy-knobs",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**実測ちょうどと突き合わせるつまみは 51 件である**",
+      "command": "npx tsx scripts/check-design-component-requirements.ts | grep -oE '宣言のつまみ [0-9]+ 件' | grep -oE '[0-9]+'",
+      "expected": "51",
+      "documentRendering": "つまみは 51 件である",
+      "note": "check-design-component-requirements.ts が実測ちょうどと突き合わせる上限・下限の総数（上限 12 / 下限 39）。機能が増減すれば動く（タスク 115.298）"
+    },
+    {
+      "id": "selftest-control-floor-declarations",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.305 の提出時点の再実測は 48 件であり、宣言の側も同じだけ増えた",
+      "command": "grep -hE '（遊び \\$\\{' scripts/*.selftest.ts | grep -vE \"^ *'\" | wc -l",
+      "expected": "48",
+      "documentRendering": "再実測は 48 件であり",
+      "note": "自己検査が持つ現況の基線の宣言のうち、緩める向きを赤くする対の関門を置いた数。除く `^ *'` の一行は `check-design-measurement-freshness.selftest.ts` が本体の判定を逐語で引いた文字列である（タスク 115.298。初版は三つの名前に限った網で 31 件と数え、7 件を落としていた）。タスク 115.304 が錨と値を提出時点へ貼り直した（115.298 の 38 件は当時の値として文書に残る。増分の 4 件は同タスクが除外定義の自己検査へ置いた四つの下限であり、補助関数へ畳まず一件ずつ書き下ろすことで宣言と対の関門の対応を保った）。タスク 115.305 が錨と値を提出時点へ貼り直した（115.304 の 42 件は当時の値として文書に残る。増分の 6 件はパス参照検査の自己検査へ置いた六つの下限であり、同じ理由から一件ずつ書き下ろした。同タスクは註へ当該の綴りを置かない判断も採った——走査は註と実行される行を区別しない）"
+    },
+    {
+      "id": "selftest-control-floor-mirrored-guards",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "対の関門は 115.305 の提出時点で 48 件である",
+      "command": "grep -hE '（遊び \\$\\{' scripts/*.selftest.ts | grep -vE \"^ *'\" | wc -l",
+      "expected": "48",
+      "documentRendering": "115.305 の提出時点で 48 件",
+      "note": "同上の数を別の錨から見る。宣言の数と対の関門の数が一致することが「一方向のまま残った宣言は無い」の機械保証である（タスク 115.298）。タスク 115.304 が錨と値を提出時点へ貼り直した（115.298 の 38 件は当時の値として文書に残る）。タスク 115.305 が錨と値を提出時点へ貼り直した（115.304 の 42 件は当時の値として文書に残る）"
+    },
+    {
+      "id": "selftest-control-floor-files",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "対の関門を持つ自己検査は 115.305 の提出時点で 15 本である",
+      "command": "grep -lE '（遊び \\$\\{' scripts/*.selftest.ts | wc -l",
+      "expected": "15",
+      "documentRendering": "115.305 の提出時点で 15 本",
+      "note": "対の関門を持つ自己検査の本数（タスク 115.298）。タスク 115.304 が錨と値を提出時点へ貼り直した（115.298 の 13 本は当時の値として文書に残る）。タスク 115.305 が錨と値を提出時点へ貼り直した（115.304 の 14 本は当時の値として文書に残る）"
+    },
+    {
+      "id": "production-check-baseline-comparison-sites",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.308 の提出時点の再実測は 31 件・母集団 19 本である",
+      "command": "grep -nE '(<|>) *(policy\\.|[A-Z][A-Z_0-9]{3,})' scripts/check-*.ts | grep -v selftest | grep -vE ':[0-9]+: \\*' | wc -l",
+      "expected": "31",
+      "documentRendering": "再実測は 31 件・母集団 19 本である",
+      "note": "押下前の関門の本体で、宣言した基線と実測を不等号で突き合わせる箇所の数。走査 (1) の母集団そのものであり、増えたら 115.298 の全称否定を測り直す契機になる（タスク 115.298）。タスク 115.300 が錨と値を提出時点へ貼り直した（115.298 の 26 件は当時の値として文書に残る。増分 3 件は新設した check-adjudication-pointers.ts の両方向の突き合わせ 2 件と母集団の空を赤くする 1 件で、いずれも一方向の残余ではない）。タスク 115.308 が錨と値を提出時点へ貼り直した（115.300 の 29 件は当時の値として文書に残る。増えた 2 件は機能名を欠くヘッダーの上限を超えたときだけ赤くするラチェットであり、一方向の残余である。二方向で締める側は自己検査 checkFeaturelessHeaderCountIsBounded が持つ）。タスク 115.308 が「押下前の 18 本」の字面を落とした（錨も実測も母集団 19 本であり、note の 18 本は HEAD 以前からの齟齬であった）"
+    },
+    {
+      "id": "selftest-baseline-comparison-sites",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.309 の提出時点の再実測は 105 件であり",
+      "command": "grep -nE '[^=](<|>) *[A-Z][A-Z_0-9]{3,}' scripts/*.selftest.ts | grep -vE ':[0-9]+: \\*' | wc -l",
+      "expected": "105",
+      "documentRendering": "再実測は 105 件であり",
+      "note": "自己検査で大文字の識別子と突き合わせる箇所の数。走査 (2) の母集団そのものであり、増えたら 115.298 の全称否定を測り直す契機になる（タスク 115.298）。タスク 115.303 が錨と値を提出時点へ貼り直した（115.300 の 82 件は当時の値として文書に残る。増えた 1 件は宣言の下限ではなく繰り返しの上限であり、この網の過検出である）。タスク 115.305 が錨と値を提出時点へ貼り直した（115.303 の 83 件は当時の値として文書に残る。増えた 12 件は六つの下限を上下の二方向から突き合わせる箇所であり、一方向の残余ではない）。タスク 115.306 が錨と値を提出時点へ貼り直した（115.305 の 95 件は当時の値として文書に残る。増えた 3 件は開示の台帳の件数を上下の二方向から突き合わせる箇所であり、一方向の残余ではない）。タスク 115.307 が錨と値を提出時点へ貼り直した（115.306 の 98 件は当時の値として文書に残る。増分は本タスクが GUARDED_CITATION_DOCS の件数を上下の二方向から突き合わせた箇所であり、一方向の残余ではない）。タスク 115.308 が錨と値を提出時点へ貼り直した（115.307 の 100 件は当時の値として文書に残る。増えた 4 件は機能名を欠くヘッダーと眠る名乗りの上限を上下の二方向から突き合わせる箇所であり、一方向の残余ではない）。タスク 115.309 が錨と値を提出時点へ貼り直した（115.308 の 104 件は当時の値として文書に残る。増えた 1 件は基線ではなく算法の引数との比較であり、一方向の残余ではない）"
+    },
+    {
+      "id": "struck-component-rows-in-design-docs",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "走査 (1): 取り消し線で母集団から外れる表の行",
+      "command": "grep -rhE '^\\|[^|]*~~' --include=design.md .kiro/specs | wc -l",
+      "expected": "2",
+      "documentRendering": "の出力が `2` である",
+      "note": "タスク 115.299 の走査 (1)。取り消し線で `normalizeComponentName` が母集団から外す表の行の数。`check:design-component-reqs` はこの件数を宣言に持たないため、増えても本検査は沈黙する——本宣言だけが記録の陳腐化を捕らえる"
+    },
+    {
+      "id": "prose-assignment-lines-site-survey",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "本節を書き足した提出時点の再実測は 19 件である",
+      "command": "grep -nE '要件[0-9]+(\\.[0-9]+)?([^。]{0,40})?(の担当|の担い手|を担う|担当を|担当は)' .kiro/specs/site-survey/design.md | grep -vcE '^[0-9]+:\\|'",
+      "expected": "19",
+      "documentRendering": "提出時点の再実測は 19 件である",
+      "note": "タスク 115.299 の走査 (2)。設計文書の散文が担い手と要件番号を同一行で述べる箇所の数。この母集団が増えたら同型の食い違いを測り直す契機になる（本節を一件ずつ読んだのはこの出力に対してである）"
+    },
+    {
+      "id": "adjudication-section4-pointer-count",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "162 件 / 61 ファイルがすべて走査の正典に実在します",
+      "command": "npx tsx scripts/check-adjudication-pointers.ts | grep -oE '指し先: [0-9]+ 件' | grep -oE '[0-9]+'",
+      "expected": "162",
+      "documentRendering": "「162 件 / 61 ファイルがすべて",
+      "note": "タスク 115.300。裁定記録 §4 が引く指し先（ファイルと区間の組。冒頭註釈は 1 件）の数。同じ値を check-adjudication-pointers.ts の DECLARED_POINTER_COUNT が完全一致で課しており、片方だけを書き換えると本検査か同関門のどちらかが赤くなる"
+    },
+    {
+      "id": "adjudication-section4-duplicate-titles",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "を追試の出口として置いた（現況の出力は 0 件）",
+      "command": "npx tsx scripts/check-adjudication-pointers.ts --duplicate-titles | grep -oE '重複する指し先: [0-9]+ 件' | grep -oE '[0-9]+'",
+      "expected": "0",
+      "documentRendering": "現況の出力は 0 件",
+      "note": "タスク 115.300。§4 の指し先のうち、同一ファイル内で表題が重複するもの（＝表題だけでは区間を一つに絞れないもの）の数。本検査はこれを判定に使わない——0 件であることは実データの性質であり、増えたことを知らせるためだけに宣言する"
+    },
+    {
+      "id": "coverage-adjudication-reader-files",
+      "file": "scripts/coverage-mark-adjudication.md",
+      "anchor": "2026-10-09 の時点の再実測は",
+      "command": "git grep -l coverage-mark-adjudication | wc -l",
+      "expected": "14",
+      "documentRendering": "再実測は 14 件である",
+      "note": "2026-10-09（起点は 115.301、直前は 100.17 / 100.21）。裁定記録の名を引くファイルの数。§6 が「本記録を読む機械は」を述べるときの読み手の母集団であり、増減すればその主張を測り直す契機になる（母集団の取り方は §6 の当該段落が逐語で持つ）。 80.4 で 11 件へ。増分は数量表作成スペックのタスク一覧が本記録を名指したことによる（規約 (a) により 115.301 の 10 件は文書に残す）。 100.14 で 12 件へ。増分は数量表作成スペックの E2E `e2e/specs/quantity-tables/import-e2e.spec.ts` が、§4 に逐語で引かれる区間の表題を据え置く理由を註釈へ綴ったことによる（規約 (a) により 80.4 の 11 件は文書に残す）。読み手として妥当であることは、表題を一字改める変異で `check:adjudication-pointers` が赤くなることで測った。 100.17 で 13 件へ。増分は読み手が増えたのではなく、数え方を実体へ寄せたことによる——`--include` で五つの拡張子へ絞る形は `.sh` を持たないため、押下前の関門を駆動する `.husky/scripts/pre-push.sh` を最初から挙げていなかった。拡張子の列挙を続ける運用に陥らないよう `git grep -l` へ改める（生成物と `node_modules` は `.gitignore` が、`.git/` の内部は追跡対象でないことが除く。追跡されていないファイルは数えない）。新しい 1 件が数え方の変更で現に入ったことは、pre-push.sh の当該行を落とすと 13→12 で本検査が赤くなり、同じ変異を旧形へ当てても 12 件のまま緑であることで測った（規約 (a) により 100.14 の 12 件は文書に残す）。 タスク 100.21。**母集団の定義は変えない**（`command` と `expected` は 100.17 のまま）。本宣言が数えるのは「本記録の名を引く追跡ファイルの数」であって「本記録を読む機械」の数ではない——§6 の 100.17 の段落が当該の値を「本記録を読む機械は」の母集団として述べていた食い違いを、§6 へ 100.21 の段落を並べて閉じた（規約 (a) により 100.17 の綴りは残す）。13 件の内訳を実測した——走らせると本記録のバイトが開かれる機械は 3 件（`scripts/check-adjudication-pointers.ts` / `scripts/check-design-measurement-freshness.ts` / 同自己検査）、押下前にそれらを走らせる駆動系が 1 件（`.husky/scripts/pre-push.sh`）、残る 9 件は本記録を一切開かない散文・データ・註釈である。起票が反例として挙げた `scripts/check-adjudication-pointers.selftest.ts` は本記録を開かない——`git worktree add --detach HEAD` の複製から本記録を丸ごと取り除いても出力は基線とバイト一致で `76/76 件成功`・終了コード 0 であった（同じ複製で `check:adjudication-pointers` は `裁定記録が見つかりません` で終了コード 1）。**「読むが名を綴らないファイル」は現況 0 件**で、パスを持つ定数（`ADJUDICATION_DOCUMENT` / `GOVERNED_DOCUMENTS` / `ADJUDICATION_RECORDS`）を引くファイルの集合から当たりの 13 件を差し引いても空である。定義を「読む機械」へ広げる側は採らなかった——import の推移閉包では `pre-push.sh`（module の import を一つも持たず npm スクリプト名で到達する）が落ち、100.14 が変異で妥当と確かめた `e2e/specs/quantity-tables/import-e2e.spec.ts` も落ちるため、100.14 / 100.17 の裁定を覆す。**限界（版に依らない）**: `git grep -l` は名を綴らない読み手を原理的に数えないため、本値を「読み手の総数」と読んではならない。本タスクが触れる二ファイルはどちらも既に当たりに在るため、書き足しで当たりは動かない（13 件で不変）。 2026-10-09 で 14 件へ。増分はコミット `5d529dd8` が `.kiro/specs/itemized-statement-generation/tasks.md` の Task 26 の経緯に本記録の行番号（504 行付近）を引いたことによる。本記録を開く機械ではなくタスクの記録に置かれた散文の引用であり、本記録が当該ファイルへ課す制約も無い（`check:adjudication-pointers` は §4 だけ、`check:design-path-refs` は `design.md` だけを見る）が、母集団は名を引く追跡ファイルの数であって読み手の性質で取捨しないため測り直す。引用を消して 13 件へ戻す道は本宣言の目的を外すため採らない（規約 (a) により 100.17 / 100.21 の 13 件は文書に残す）。"
+    },
+    {
+      "id": "coverage-adjudication-settled-bullets",
+      "file": "scripts/coverage-mark-adjudication.md",
+      "anchor": "→ **1 行**。出力は",
+      "command": "grep -c '^- \\*\\*.*決着済み' scripts/coverage-mark-adjudication.md",
+      "expected": "1",
+      "documentRendering": "**1 行**",
+      "note": "タスク 115.301。§6 の「同型が他に無いか」の走査が母集団に採る「決着済み」の箇条書きの数。この値が増えたのに走査が本項一つだけを読んだままなら、網羅の主張が静かにずれる"
+    },
+    {
+      "id": "coverage-adjudication-section4-pointers-before-115300",
+      "file": "scripts/coverage-mark-adjudication.md",
+      "anchor": "150 件、そのうち 55 件が走査の正典に無かった",
+      "command": "git show a639d314:scripts/coverage-mark-adjudication.md | awk '/^## 4\\./,/^## 5\\./' | grep -oE '[A-Za-z0-9_./-]+[.]spec[.]ts:[0-9]+(,[0-9]+)*' | awk -F: '{n=split($2,a,\",\"); for(i=1;i<=n;i++) print $1\":\"a[i]}' | sort -u | wc -l",
+      "expected": "150",
+      "documentRendering": "150 件",
+      "note": "タスク 115.301。115.300 が §4 を改める前の指し先の数。過去の版についての記録であるため版 a639d314 で固定する（115.273 の作法）。同じ行が持つ 55 件は現況の走査の正典との差であり、正典が動けば値も動くため宣言に載せていない"
+    },
+    {
+      "id": "exclusion-adjudication-uncorrected-total",
+      "file": "scripts/exclusion-alternative-verification-adjudication.md",
+      "anchor": "## 4. 本タスクで是正しなかった 43 件",
+      "command": "awk '/^## 4\\. 本タスクで是正しなかった/,/^## 5\\./' scripts/exclusion-alternative-verification-adjudication.md | awk -F'|' '/^\\| / { s += $3 + 0 } END { print s + 0 }'",
+      "expected": "43",
+      "documentRendering": "43 件",
+      "note": "タスク 115.301。§4 の見出しが名乗る Z の件数と、同節の表が件数の列で合計する値の一致。§2 の機械集計 206 = 56 + 43 + 3 + 104 の加数のひとつ"
+    },
+    {
+      "id": "exclusion-adjudication-none-rows",
+      "file": "scripts/exclusion-alternative-verification-adjudication.md",
+      "anchor": "## 5. 代替検証を掲げていないと明示している 3 件",
+      "command": "awk '/^## 5\\. 代替検証を掲げていない/,/^## 6\\./' scripts/exclusion-alternative-verification-adjudication.md | grep -c '^| `'",
+      "expected": "3",
+      "documentRendering": "3 件",
+      "note": "タスク 115.301。§5 の見出しが名乗る N の件数と、同節の全件表の行数の一致。§2 の機械集計の加数のひとつ"
+    },
+    {
+      "id": "exclusion-adjudication-covered-rows",
+      "file": "scripts/exclusion-alternative-verification-adjudication.md",
+      "anchor": "## 6. 覆っている 104 件（F）の全件表",
+      "command": "awk '/^## 6\\. 覆っている/,/^## 7\\./' scripts/exclusion-alternative-verification-adjudication.md | grep -c '^| `'",
+      "expected": "104",
+      "documentRendering": "104 件",
+      "note": "タスク 115.301。§6 の見出しが名乗る F の件数と、同節の全件表の行数の一致。§2 の機械集計の加数のうち最大のものであり、行を無言で足し引きすると本検査が赤くなる"
+    },
+    {
+      "id": "t13-unanchored-accessible-name-current",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "| 錨の無い箇所（T13 の検出） |",
+      "command": "npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names | sed -nE 's/.*錨の無い箇所（T13 の検出）: ([0-9]+) 件.*/\\1/p'",
+      "expected": "0",
+      "documentRendering": "0 件",
+      "note": "タスク 115.302。115.251 が露出させた未錨のアクセシブル名 2 件を是正した後の現況。基線 e2e/assertion-guard-baseline.json の目標値 0 と同じ値であり、肯定側の錨を消すか名前を緩めるとこの値が動いて赤くなる"
+    },
+    {
+      "id": "t13-anchor-references-after-115303",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "site-survey の pre-push の間欠失敗の是正（2026-10-13）の提出時点の再実測は肯定側から指す参照 1937 件",
+      "command": "npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names | sed -nE 's/.*肯定側から指す参照: ([0-9]+) 件.*/\\1/p'",
+      "expected": "1937",
+      "documentRendering": "参照 1937 件",
+      "note": "タスク 115.303。錨の要件を「名前が零件なら失敗する参照」へ狭めた後の肯定側の参照の数。要件を緩める向きにも狭める向きにも動くため、規則の書き換えが記録の側へ現れる。タスク 115.330 が錨と値を提出時点へ貼り直した（115.303 の 1295 件は表に残る）。増分 119 件はすべて下流 quantity-table-generation の 34 件のコミットによる（2be5b8fc の後に e2e を変えたコミットごとに、各版の e2e へ作業ツリーの規則を掛けて測った。増 120・減 1。本スペックのコミットは 0）。タスク 115.334 が錨と値を提出時点へ貼り直した（115.330 の 1414 件は文書に残る）。増分 1 件は下流 user-authentication のコミット abe99026（プロフィール画面の E2E へ検証を足した）による（60edb4da の後に e2e を変えた 6 件のコミットごとに、各版の e2e へ作業ツリーの規則を掛けて測った。edc68558 の版まで 1414、abe99026 の版で 1415。本スペックのコミットは 0）。タスク 115.335 が錨と値を提出時点へ貼り直した（115.334 の 1415 件は文書に残る）。増分 8 件はすべて下流 user-authentication のコミットによる（abe99026 の後に e2e を変えた 6 件のコミットごとに、各版の e2e へ作業ツリーの規則を掛けて測った。eeee7977（Task 36.1）の版で 1416（+1）、ea9b8141 の版まで 1416、8e4efd4c（Task 36.7）の版で 1423（+7）。本スペックのコミットは 0）。タスク 115.336 が錨と値を提出時点へ貼り直した（115.335 の 1423 件は文書に残る）。増分 7 件はすべて下流 user-authentication のコミット 586919cc（Task 37.3。role-management.spec.ts へ getByLabel('ロール名 *') 3 件・「新しいロールを作成」1 件・「ロールを作成」exact 1 件・「ロールを更新」exact 1 件・「adminを編集」1 件を足した。新しい名前は 3 つ＝「工事担当者」「概要」「現場住所」）による（8e4efd4c の後に e2e を変えたコミットは 586919cc の 1 件だけで、各版の e2e へ作業ツリーの規則を掛けて測った。ee192e29 の版で 1423 / 281、586919cc の版で 1430 / 284。本スペックのコミットは 0）。タスク 115.337 が錨と値を提出時点へ貼り直した（115.336 の 1430 件は文書に残る）。増分 2 件はすべて下流 construction-schedule のコミット 15c47ac3（Task 17.1。construction-schedule-e2e.spec.ts の補助関数 verifyExportFailureAndRetry へ「出力」exact 1 件・「再試行」exact 1 件を足した。新しい名前は「再試行」の 1 つ）による（586919cc の後に e2e を変えたコミットは cab8d05e と 15c47ac3 の 2 件で、各版の e2e へ作業ツリーの規則を掛けて測った。cab8d05e と 10de8284 の版で 1430 / 284、15c47ac3 の版で 1432 / 285。本スペックのコミットは 0）。タスク 115.338 が錨と値を提出時点へ貼り直した（115.337 の 1432 件は文書に残る）。増分 1 件は下流 execution-budget-management のコミット c59e3e07（Task 16.3。progress-input-e2e.spec.ts へ page.getByRole('button', { name: '保存' }) 1 件を足した。名前「保存」は既に数えられているため相異なる名前は 285 のまま）による（15c47ac3 の後に e2e を変えたコミットは cb04eeb5・c59e3e07・5dec01d9 の 3 件で、各版の e2e へ作業ツリーの規則を掛けて測った。cb04eeb5 と 552f806a の版で 1432 / 285、c59e3e07 と 5dec01d9 の版で 1433 / 285。本スペックのコミットは 0）。タスク 115.339 が錨と値を提出時点へ貼り直した（115.338 の 1433 件は文書に残る）。増分 2 件はすべて下流 project-management のコミット a5df1e03（Task 71.3。project-additional-requirements.spec.ts の 18.1 と 18.2 のテストへ errorAlert.getByRole('button', { name: '再試行', exact: true }) 2 件を足した。外れた再試行の参照は名前が正規表現のため数えられていない。名前「再試行」は既に数えられているため相異なる名前は 285 のまま）による（3d0e9ff2 の後に e2e を変えたコミットは 8d748e60・a5df1e03・00a52fc8 の 3 件で、各版の e2e へ作業ツリーの規則を掛けて測った。8d748e60 と 276a6289 の版で 1433 / 285、a5df1e03 と 00a52fc8 の版で 1435 / 285。本スペックのコミットは 0）。タスク 115.340 が錨と値を提出時点へ貼り直した（115.339 の 1435 件は文書に残る）。増分 1 件は下流 estimate-request のコミット 194be1ff（Task 95.3。structured-data-ocr-e2e.spec.ts の 13.1 / 13.4 のテストへ .filter({ has: page.getByRole('columnheader', { name: '#', exact: true }) }) 1 件を足した。名前「#」は新しい名前のため相異なる名前も 285→286）による（86b89517 の後に e2e を変えたコミットは 9ea0a6da・b2086a6c・194be1ff・212d71f4 の 4 件で、各版の e2e へ作業ツリーの規則を掛けて測った。86b89517・9ea0a6da・b2086a6c の版で 1435 / 285、194be1ff と 212d71f4 の版で 1436 / 286。本スペックのコミットは 0）。construction-photo のタスク 19.1 が錨と値を提出時点へ貼り直した（115.340 の 1436 件は文書に残る）。増分 3 件はすべて下流 construction-photo のタスク 19.1 の変更（construction-photo-additional.spec.ts へ編集権限の無いロールの E2E を足した。getByRole の textbox「コメント」1 件・checkbox「印刷対象に含める」1 件・button「保存」exact 1 件。新しい名前は「コメント」の 1 つ）による（212d71f4 の後に e2e を変えたコミットは無く、911820d2 の版で 1436 / 286、同タスクの作業ツリーで 1439 / 287。2026-10-01 に実測。本スペックのコミットは 0）。construction-photo のタスク 19.2 が錨と値を提出時点へ貼り直した（19.1 の 1439 件は文書に残る）。増分 1 件は下流 construction-photo のタスク 19.2 の変更（construction-photo-additional.spec.ts へモバイル幅のブレッドクラムの E2E を足した。getByRole の navigation「パンくずナビゲーション」1 件。既に数えている名前のため相異なる名前は動かない）による（2d9466ca の版で 1439 / 287、同タスクの作業ツリーで 1440 / 287。2026-10-01 に実測。本スペックのコミットは 0）。construction-photo のタスク 20.3 が錨と値を提出時点へ貼り直した（19.2 の 1440 件は文書に残る）。増分 1 件は下流 construction-photo のタスク 20.3 の変更（construction-photo-additional.spec.ts へモバイル幅の長いファイル名の E2E を足した。getByRole の button「キャンセル」1 件。既に数えている名前のため相異なる名前は動かない）による（19.2 の後に e2e を変えたコミットは 764f6888（タスク 20.1）で、a2e62866 の版で 1440 / 287、同タスクの作業ツリーで 1441 / 287。2026-10-01 に実測。本スペックのコミットは 0）。construction-photo のタスク 20.4 が錨と値を提出時点へ貼り直した（20.3 の 1441 件は文書に残る）。増分 7 件は下流 construction-photo のタスク 20.4 の変更（construction-photo-additional.spec.ts へモバイル幅の看板配置ダイアログの操作列の E2E を足した。工事看板の登録の手順の heading「工事看板マスタ」・button「新規登録」・label「工事件名」・label「工事場所」・button「登録」の 5 件と、dialog「看板を配置」・button「保存」の 2 件。既に数えている名前のため相異なる名前は動かない）による（20.3 の後に e2e を変えたコミットは無く、5d22661d の版で 1441 / 287、同タスクの作業ツリーで 1448 / 287。2026-10-01 に実測。本スペックのコミットは 0）。construction-photo のタスク 20.5 が錨と値を提出時点へ貼り直した（20.4 の 1448 件は文書に残る）。増分 3 件は下流 construction-photo のタスク 20.5 の変更（construction-photo-additional.spec.ts へモバイル幅のアルバムを取り除く確認ダイアログの E2E を足した。詳細画面のアルバムを取り除く操作の button（exact）1 件・その確認の dialog 1 件・button「キャンセル」1 件。新しい名前は dialog の名前の 1 つ）による（20.4 の後に e2e を変えたコミットは無く、3b9fe880 の版で 1448 / 287、同タスクの作業ツリーで 1451 / 288。2026-10-01 に実測。本スペックのコミットは 0）。construction-photo のタスク 20.7 が錨と値を提出時点へ貼り直した（20.5 の 1451 件は文書に残る）。増分 2 件は下流 construction-photo のタスク 20.7 の変更（construction-photo-additional.spec.ts へモバイル幅の現場調査写真の選択ダイアログの E2E を足した。dialog「現場調査写真から選択」1 件・button「キャンセル」1 件。新しい名前は dialog の名前の 1 つ）による（20.5 の後に e2e を変えたコミットは無く、75ba6117 の版で 1451 / 288、同タスクの作業ツリーで 1453 / 289。2026-10-02 に実測。本スペックのコミットは 0）。construction-photo のタスク 20.8 が錨と値を提出時点へ貼り直した（20.7 の 1453 件は文書に残る）。増分 1 件は下流 construction-photo のタスク 20.8 の変更（construction-photo-additional.spec.ts へモバイル幅の通知とエラー表示の E2E を足した。取得エラーの表示の button「再試行」1 件。既に数えている名前のため相異なる名前は動かない）による（20.7 の後に e2e を変えたコミットは無く、変更前は 1453 / 289、同タスクの作業ツリーで 1454 / 289。2026-10-02 に実測。本スペックのコミットは 0）。user-authentication のタスク 39.1 が錨と値を提出時点へ貼り直した（20.8 の 1454 件は文書に残る）。増分 7 件は下流 user-authentication のタスク 39.1 の変更（app-header.spec.ts へモバイル幅の共通ヘッダの E2E を足した。menuitem「プロフィール」「ログアウト」「ユーザー管理」「招待管理」「ロール管理」「権限管理」「監査ログ」各 1 件。7 件とも新しい名前）による（20.8 の後に e2e を変えたコミットは無く、変更前は 1454 / 289、同タスクの作業ツリーで 1461 / 296。2026-10-02 に実測。本スペックのコミットは 0）。trading-partner-management のタスク 30.1 が錨と値を提出時点へ貼り直した（39.1 の 1461 件は文書に残る）。増分 3 件は下流 trading-partner-management のタスク 30.1 の変更（trading-partner-navigation.spec.ts へモバイル幅の共通の Breadcrumb の E2E を足した。取引先を作る補助関数の label「取引先名」・label「フリガナ」（exact）・label「住所」各 1 件。既に数えている名前のため相異なる名前は動かない）による（39.1 の後に e2e を変えたコミットは無く、変更前は 1461 / 296、同タスクの作業ツリーで 1464 / 296。2026-10-02 に実測。本スペックのコミットは 0）。construction-photo のタスク 20.6 が錨と値を提出時点へ貼り直した（30.1 の 1464 件は文書に残る）。増分 2 件は下流 construction-photo のタスク 20.6 の変更（construction-photo-additional.spec.ts へモバイル幅のブレッドクラムと取得エラーの表示の E2E を足した。navigation「パンくずナビゲーション」1 件・button「削除」（exact）1 件。既に数えている名前のため相異なる名前は動かない）による（30.1 の後に e2e を変えたコミットは 8dc658bf だけで肯定側の参照を動かさず、変更前は 1464 / 296、同タスクの作業ツリーで 1466 / 296。2026-10-02 に実測。本スペックのコミットは 0）。construction-photo のタスク 21.2 が錨と値を提出時点へ貼り直した（20.6 の 1466 件は文書に残る）。増分 8 件は下流 construction-photo のタスク 21.2 の変更（construction-photo-additional.spec.ts へモバイル幅の看板の操作ボタンのタップ領域の E2E を足した。工事看板の登録の手順の heading「工事看板マスタ」・button「新規登録」・label「工事件名」・label「工事場所」・button「登録」の 5 件と、dialog「看板を配置」・button「保存」2 件の 3 件。既に数えている名前のため相異なる名前は動かない）による（20.6 の後に e2e を変えたコミットは無く、変更前は 1466 / 296、同タスクの作業ツリーで 1474 / 296。2026-10-03 に実測。本スペックのコミットは 0）。construction-photo のタスク 21.3 が錨と値を提出時点へ貼り直した（21.2 の 1474 件は文書に残る）。増分 3 件は下流 construction-photo のタスク 21.3 の変更（construction-photo-additional.spec.ts へ写真項目を取り除く操作が失敗したときの通知の E2E を足した。heading「写真項目」1 件・確認ダイアログの確定のボタン 2 件。新しい名前は見出しの名前の 1 つ）による（21.2 の後に e2e を変えたコミットは無く、変更前は 1474 / 296、同タスクの作業ツリーで 1477 / 297。2026-10-03 に実測。本スペックのコミットは 0）。construction-photo のタスク 23.1 が錨と値を提出時点へ貼り直した（21.3 の 1477 件は文書に残る）。増分 4 件は下流 construction-photo のタスク 23.1 の変更（construction-photo-additional.spec.ts へ担当でない一般ユーザーの操作の E2E を足した。textbox「コメント」2 件・button「保存」（exact）1 件・button「上へ移動」1 件。既に数えている名前のため相異なる名前は動かない）による（21.3 の後に e2e を変えたコミットは ed7f9614 で、肯定側の参照を動かさず、変更前は 1477 / 297、同タスクの作業ツリーで 1481 / 297。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 23.2 が錨と値を提出時点へ貼り直した（23.1 の 1481 件は文書に残る）。増分 26 件は下流 construction-photo のタスク 23.2 の変更（construction-photo-workflow.spec.ts へ看板マスタへの導線と看板の一覧の取得の失敗・取得中の E2E を足した。新しい名前は link「工事看板マスタを開く」の 1 つ）による（23.1 の後に e2e を変えたコミットは無く、変更前は 1481 / 297、同タスクの作業ツリーで 1507 / 298。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 23.6 が錨と値を提出時点へ貼り直した（23.2 の 1507 件は文書に残る）。増分 6 件は下流 construction-photo のタスク 23.6 の変更（construction-photo-additional.spec.ts へ写真項目を取り除いた後の未保存の状態の E2E を足した。既に数えている名前の 6 件）による（23.2 の後に e2e を変えたコミットは無く、変更前は 1507 / 298、同タスクの作業ツリーで 1513 / 298。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 23.9 が錨と値を提出時点へ貼り直した（23.6 の 1513 件は文書に残る）。増分 2 件は下流 construction-photo のタスク 23.9 の変更（construction-photo-additional.spec.ts へ写真項目を取り除く操作の失敗の表示の E2E を 2 件足した。既に数えている名前の 2 件）による（23.6 の後に e2e を変えたコミットは無く、変更前は 1513 / 298、同タスクの作業ツリーで 1515 / 298。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 23.4 が錨と値を提出時点へ貼り直した（23.9 の 1515 件は文書に残る）。増分 14 件は下流 construction-photo のタスク 23.4 の変更（construction-photo-additional.spec.ts へ ZIP の一部失敗時の選択の E2E を 6 件足した。新しい名前は 6 つ）による（23.9 の後に e2e を変えたコミットは無く、変更前は 1515 / 298、同タスクの作業ツリーで 1529 / 304。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 24.5 が錨と値を提出時点へ貼り直した（23.4 の 1529 件は文書に残る）。増分 9 件は下流 construction-photo のタスク 24.5 の変更（construction-photo-additional.spec.ts へ保存の要求の実行中の編集が保存の成功の後も未保存として残る E2E を足した。button「保存」（exact）4 件・button「保存中...」1 件・link「工事写真一覧」1 件・button「このページにとどまる」1 件・placeholder「コメントを入力...」2 件。新しい名前は「保存中...」の 1 つ）による（23.4 の後に e2e を変えたコミットは 7214f033 で肯定側の参照を動かさず、変更前は 1529 / 304、同タスクの作業ツリーで 1538 / 305。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 22.3 が錨と値を提出時点へ貼り直した（24.5 の 1538 件は文書に残る）。増分 5 件は下流 construction-photo のタスク 22.3 の変更（construction-photo-additional.spec.ts へ写真項目を取り除く操作の実行中に確認ダイアログが閉じないことの E2E を足した。確認ダイアログの実行中の表示のボタン 1 件・button「キャンセル」1 件・確認ダイアログの確定のボタン 3 件。新しい名前は実行中の表示のボタンの名前の 1 つ）による（24.5 の後に e2e を変えたコミットは無く、変更前は 1538 / 305、同タスクの作業ツリーで 1543 / 306。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 24.3 が錨と値を提出時点へ貼り直した（22.3 の 1543 件は文書に残る）。増分 7 件は下流 construction-photo のタスク 24.3 の変更（construction-photo-additional.spec.ts へ看板の配置のダイアログの操作ボタンのタップ領域の E2E を足した。heading「工事看板マスタ」1 件・button「新規登録」1 件・label「工事件名」1 件・label「工事場所」1 件・button「登録」1 件・dialog「看板を配置」1 件・button「キャンセル」1 件。新しい名前は無い）による（22.3 の後に e2e を変えたコミットは無く、変更前は 1543 / 306、同タスクの作業ツリーで 1550 / 306。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 23.8 が錨と値を提出時点へ貼り直した（24.3 の 1550 件は文書に残る）。増分 8 件は下流 construction-photo のタスク 23.8 の変更（construction-photo-additional.spec.ts へ看板マスタの権限の出し分けの E2E を足した。heading「工事看板マスタ」1 件・button「新規登録」1 件・label「工事件名」1 件・label「工事場所」1 件・button「登録」1 件・button「編集」（exact）1 件・各行の取り除く操作の button（exact）1 件・columnheader「操作」1 件。新しい名前は columnheader「操作」の 1 つ）による（24.3 の後に e2e を変えたコミットは無く、変更前は 1550 / 306、同タスクの作業ツリーで 1558 / 307。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 24.4 が錨と値を提出時点へ貼り直した（23.8 の 1558 件は文書に残る）。増分 3 件は下流 construction-photo のタスク 24.4 の変更（construction-photo-workflow.spec.ts へ看板を選んで配置を動かさずに保存すると既定の配置が保存され印字画像に看板が重なる E2E を足した。dialog「看板を配置」1 件・button「保存」1 件・button「保存」（exact）1 件。新しい名前は無い）による（23.8 の後に e2e を変えたコミットは無く、変更前は 1558 / 307、同タスクの作業ツリーで 1561 / 307。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 22.1 が錨と値を提出時点へ貼り直した（24.4 の 1561 件は文書に残る）。増分 3 件は下流 construction-photo のタスク 22.1 の変更（construction-photo-additional.spec.ts へ詳細画面の通知の枠で通知と保存の失敗が互いに置き換わる E2E を足した。button「保存」（exact）1 件・button「PDF出力」1 件・placeholder「コメントを入力...」1 件。新しい名前は無い）による（24.4 の後に e2e を変えたコミットは無く、変更前は 1561 / 307、同タスクの作業ツリーで 1564 / 307。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 22.2 が錨と値を提出時点へ貼り直した（22.1 の 1564 件は文書に残る）。増分 3 件は下流 construction-photo のタスク 22.2 の変更（construction-photo-additional.spec.ts へ保存の失敗が保存ボタンを押した直後の位置に見える E2E を足した。region「写真項目管理パネル」1 件・button「保存」（exact）1 件・placeholder「コメントを入力...」1 件。新しい名前は region「写真項目管理パネル」の 1 件）による（22.1 の後に e2e を変えたコミットは無く、変更前は 1564 / 307、同タスクの作業ツリーで 1567 / 308。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 24.2 が錨と値を提出時点へ貼り直した（22.2 の 1567 件は文書に残る）。増分 9 件は下流 construction-photo のタスク 24.2 の変更（construction-photo-additional.spec.ts へ詳細画面を開いた後に看板が取り除かれると、その看板の配置の保存の失敗に日本語の文言が出る E2E を足した。heading「工事看板マスタ」1 件・button「新規登録」1 件・label「工事件名」1 件・label「工事場所」1 件・button「登録」1 件・dialog「看板を配置」1 件・button「保存」1 件・button「保存」（exact）1 件・region「写真項目管理パネル」1 件。新しい名前は無い）による（22.2 の後に e2e を変えたコミットは無く、変更前は 1567 / 308、同タスクの作業ツリーで 1576 / 308。2026-10-04 に実測。本スペックのコミットは 0）。construction-photo のタスク 25.1 が錨と値を提出時点へ貼り直した（24.2 の 1576 件は文書に残る）。増分 9 件は下流 construction-photo のタスク 25.1 の変更（construction-photo-additional.spec.ts へ実寸の写真でもモバイル幅で看板の配置のエディタの画像の枠がダイアログの本体に収まり、動かさずに保存した配置が画像の座標で既定の比率になる E2E を足した。heading「工事看板マスタ」1 件・button「新規登録」1 件・label「工事件名」1 件・label「工事場所」1 件・button「登録」1 件・dialog「看板を配置」1 件・button「キャンセル」1 件・button「保存」1 件・button「保存」（exact）1 件。新しい名前は無い）による（24.2 の後に e2e を変えたコミットは無く、変更前は 1576 / 308、同タスクの作業ツリーで 1585 / 308。2026-10-04 に実測。本スペックのコミットは 0）construction-photo のタスク 26.1・26.2（2026-10-05）が貼り直した。増分 13 件は同タスクが足した E2E 2 件（背景の原本・未保存の出力）と 22.1 の E2E の経路 2 の通知の差し替えによる。construction-photo のタスク 27.1（2026-10-05）が貼り直した。増分 2 件は同タスクが足した ZIP の連番の E2E による。user-authentication のタスク 40.2（2026-10-05）が貼り直した。増分 1 件は同タスクが app-header.spec.ts へ足した共通ヘッダのアクセシブルネームの E2E（button「管理メニュー」（exact）1 件。新しい名前は無い）による（変更前は 1600 / 308、同タスクの作業ツリーで 1601 / 308。本スペックのコミットは 0）。estimate-request のタスク 98.1（2026-10-06）が貼り直した。増分 2 件は同タスクが estimate-request-e2e.spec.ts へ足した E2E（見積依頼文を開いたまま項目を選択・保存する。checkbox「テスト項目1を選択」1 件・button「見積依頼文を閉じる」1 件。新しい名前は 2 つ）による（変更前は 1601 / 308、同タスクの作業ツリーで 1603 / 310。本スペックのコミットは 0）。project-management のタスク 73.6（2026-10-07）が貼り直した。増分 6 件は同タスクが project-accessibility.spec.ts のフォーカス表示の E2E へ足した参照（作成フォームの入力欄 6 つ。textbox「プロジェクト名」「現場住所」「概要」・combobox「顧客名」「営業担当者」「工事担当者」各 1 件。新しい名前は 3 つ）による（変更前は 1603 / 310、同タスクの作業ツリーで 1609 / 313。本スペックのコミットは 0）。タスク 29.1（trading-partner-management、2026-10-07）が貼り直した。増分 7 件は同タスクが trading-partner-navigation.spec.ts の共通ヘッダーの E2E へ足した参照（heading「取引先一覧」「取引先の新規作成」「基本情報」「取引先の編集」・link「ArchiTrack」「ダッシュボード」「取引先」各 1 件。新しい名前は 3 つ＝「ArchiTrack」「取引先の新規作成」「取引先の編集」）による（変更前は 1609 / 313、同タスクの作業ツリーで 1616 / 316。本スペックのコミットは 0）。タスク 31.1（trading-partner-management、2026-10-07）が貼り直した。増分 2 件は同タスクが trading-partner-navigation.spec.ts の支払日の入力のモバイル幅の E2E の補助 measurePaymentDateLayout へ足した参照（combobox「支払日 - 月」「支払日 - 日」各 1 件。新しい名前は 2 つ）による（変更前は 1616 / 316、同タスクの作業ツリーで 1618 / 318。本スペックのコミットは 0）。タスク 31.2（trading-partner-management、2026-10-07）が貼り直した。増分 11 件は同タスクが trading-partner-navigation.spec.ts の詳細画面の文字列のモバイル幅の E2E の補助 createTradingPartnerWithAllTextFields と measureDetailTextLayout へ足した参照（入力欄の label 9 件・heading「基本情報」「関連プロジェクト」各 1 件。新しい名前は 5 つ）による（変更前は 1618 / 318、同タスクの作業ツリーで 1629 / 323。本スペックのコミットは 0）。タスク 31.3（trading-partner-management、2026-10-07）が貼り直した。増分 2 件は同タスクが trading-partner-navigation.spec.ts の詳細画面の関連プロジェクトの表のモバイル幅の E2E へ足した参照（補助 measureRelatedProjectsLayout の table「プロジェクト一覧」1 件・試験本体の region「関連プロジェクト」1 件。新しい名前は 0）による（変更前は 1629 / 323、同タスクの作業ツリーで 1631 / 323。本スペックのコミットは 0）。タスク 31.4（trading-partner-management、2026-10-07）が貼り直した。増分 2 件は同タスクが trading-partner-crud.spec.ts の関連プロジェクトの取引先での絞り込みの E2E へ足した参照（補助 openDetailAndWaitRelatedProjects の heading「関連プロジェクト」1 件・試験本体の table「プロジェクト一覧」1 件。新しい名前は 0）による（変更前は 1631 / 323、同タスクの作業ツリーで 1633 / 323。本スペックのコミットは 0）。タスク 31.5（trading-partner-management、2026-10-07）が貼り直した。増分 2 件は同タスクが trading-partner-navigation.spec.ts の削除確認ダイアログの収まりの E2E へ足した参照（補助 deleteDialog の dialog「取引先の削除」1 件・補助 cancelDeleteDialog の button「キャンセル」1 件。新しい名前は 0）による（変更前は 1633 / 323、同タスクの作業ツリーで 1635 / 323。本スペックのコミットは 0）。タスク 33.1（trading-partner-management、2026-10-08）が貼り直した。増分 3 件は同タスクが trading-partner-focus-visible.spec.ts の取引先のフォームのフォーカス表示の E2E へ足した参照（補助 walkFormControls の textbox「取引先名」1 件・作成と編集の試験本体の textbox「取引先名」各 1 件。新しい名前は 0）による（変更前は 1635 / 323、同タスクの作業ツリーで 1638 / 323。本スペックのコミットは 0）。タスク 33.4（trading-partner-management、2026-10-08）が貼り直した。増分 3 件は同タスクが trading-partner-focus-visible.spec.ts の取引先の一覧画面のフォーカス表示の E2E へ足した参照（試験本体の heading「取引先一覧」・table「取引先一覧」・button「ページ 2」各 1 件。新しい名前は 0）による（変更前は 1638 / 323、同タスクの作業ツリーで 1641 / 323。本スペックのコミットは 0）。タスク 42.1（user-authentication、2026-10-08）が貼り直した。増分 6 件は同タスクが新設した session-expired-modal-focus-visible.spec.ts のセッション切れのモーダルのフォーカス表示の E2E の参照（補助 submitPassword の label「パスワード」・button「再ログイン」各 1 件、試験本体の button「再ログイン」・button「ログイン画面へ移動」・button「リトライ」・label「認証コード」各 1 件。新しい名前は「認証コード」の 1）による（変更前は 1641 / 323、同タスクの作業ツリーで 1647 / 324。本スペックのコミットは 0）。タスク 101.1（estimate-request、2026-10-08）が貼り直した。増分 19 件は同タスクが新設した estimate-request-focus-visible.spec.ts の見積依頼の作成・編集・詳細の画面と受領見積書のフォームのフォーカス表示の E2E の参照（補助 openReceivedQuotationCreateDialogByKeyboard の button「受領見積書登録」・heading「受領見積書の登録」各 1 件、試験本体の heading「見積依頼 新規作成」・combobox「内訳書」・heading「見積依頼 編集」・textbox「名前」・textbox「受領見積書名」3 件・button「一括取り込み」・button「行を追加」・textbox「行2 任意分類」・button「行1の操作メニュー」・menuitem「下に移動」・button「ステータスを依頼済に変更する」・list「受領見積書一覧」2 件・button「編集」・heading「受領見積書の編集」各 1 件。新しい名前は 10）による（変更前は 1647 / 324、同タスクの作業ツリーで 1666 / 334。本スペックのコミットは 0）。タスク 43.1（user-authentication、2026-10-08）が貼り直した。増分 25 件は同タスクが新設した auth-forms-focus-visible.spec.ts のログイン・2FA の確認・ユーザー登録・パスワードリセットの要求と再設定・2FA の設定の画面のフォーカス表示の E2E の参照（補助 openTwoFactorVerificationByKeyboard の label「メールアドレス」・label「パスワード」・label「認証コード 1桁目」各 1 件、補助 openTwoFactorSetupPage の label「認証コード 1桁目」1 件、補助 typeTotpCode の label「認証コード 1桁目」・label「認証コード 6桁目」各 1 件、試験本体の label「メールアドレス」4 件・label「認証コード 1桁目」3 件・label「認証コード 6桁目」1 件・button「バックアップコードを使用する」1 件・label「バックアップコード」1 件・label「表示名」2 件・heading「招待トークンが必要です」1 件・label「新しいパスワード」2 件・label「パスワード (確認)」2 件・button「ダウンロード」1 件・checkbox「バックアップコードを安全な場所に保存しました」1 件。新しい名前は 10）による（変更前は 1666 / 334、同タスクの作業ツリーで 1691 / 344。本スペックのコミットは 0）。タスク 28.1（construction-photo、2026-10-09）が貼り直した。増分 9 件は同タスクが新設した construction-photo-focus-visible.spec.ts の工事写真の一覧画面のフォーカス表示の E2E の参照（補助 openListPage の heading「工事写真一覧」1 件、補助 searchByKeyboard の searchbox「検索キーワード」1 件、試験本体の table「工事写真一覧」3 件・button「次のページ」・button「焦点削除を削除」・dialog「アルバムの削除」・button「キャンセル」各 1 件。新しい名前は 2）による（変更前は 1691 / 344、同タスクの作業ツリーで 1700 / 346。本スペックのコミットは 0）。タスク 29.1（construction-photo、2026-10-09）が貼り直した。増分 6 件は同タスクが construction-photo-focus-visible.spec.ts へ足した工事写真の詳細画面と ZIP の一括エクスポートの進捗のダイアログのフォーカス表示の E2E の参照（補助 startExportAllByKeyboard の button「全件エクスポート」・button「開始」各 1 件、試験本体の dialog「一括エクスポート処理中」・button「中断」・dialog「一括エクスポート完了」・button「閉じる」各 1 件。新しい名前は 0）による（変更前は 1700 / 346、同タスクの作業ツリーで 1706 / 346。本スペックのコミットは 0）。タスク 9.1（company-info、2026-10-09）が貼り直した。増分 10 件は同タスクが新設した company-info-focus-visible.spec.ts の自社情報の画面のフォーカス表示の E2E の参照（補助 openCompanyInfoPage の heading「自社情報」・textbox「会社名」各 1 件、補助 editCompanyNameByKeyboard の textbox「会社名」1 件、補助 pressSaveByKeyboard の button「保存」1 件、試験本体の textbox「会社名」・dialog「編集の競合」・button「再読み込み」・link「ダッシュボード」・dialog「変更が保存されていません」・button「このページにとどまる」各 1 件。新しい名前は 3）による（変更前は 1706 / 346、同タスクの作業ツリーで 1716 / 349。本スペックのコミットは 0）。タスク 19.1（construction-schedule、2026-10-09）が貼り直した。増分 13 件は同タスクが新設した construction-schedule-focus-visible.spec.ts の工程表の画面のフォーカス表示の E2E の参照（補助 openScheduleCreatePage の heading「工程表作成」・combobox「数量表」各 1 件、補助 pressCreateByKeyboard の button「作成」1 件、補助 openPopulatedListPage の heading「工程表一覧」1 件、補助 openSeededDetailPage の textbox「項目名」1 件、試験本体の textbox「工程表名称」2 件・button「作成」1 件・button「キャンセル」2 件・button「再試行」2 件・button「出力」1 件。新しい名前は 1）による（変更前は 1716 / 349、同タスクの作業ツリーで 1729 / 350。本スペックのコミットは 0）。タスク 17.1（contract-management、2026-10-09）が貼り直した。増分 36 件は同タスクが新設した contract-management-focus-visible.spec.ts の契約書の画面のフォーカス表示の E2E の参照（補助 waitForFormReady の combobox「見積書」・combobox「監理者」各 1 件、補助 openCreatePage の heading「契約書作成」1 件、補助 openEditPage の heading「契約書編集」・label「契約日」・button「選択をクリア」各 1 件、補助 openDetailPage の heading「契約書詳細」1 件、補助 openPopulatedListPage の heading「契約書一覧」1 件、試験本体の button「再試行」4 件・label「契約日」4 件・button「キャンセル」3 件・dialog「この契約書を削除しますか?」2 件・button「削除する」2 件・heading「契約書作成」・heading「契約書詳細」・radio「新規契約」・radio「変更契約」・combobox「基となる契約書」・combobox「見積書」・button「選択をクリア」・label「工期着手日」・label「工期完成日」・label「引渡日」・button「作成」・button「保存」・button「契約済にする」各 1 件。新しい名前は 9）による（変更前は 1729 / 350、同タスクの作業ツリーで 1765 / 359。本スペックのコミットは 0）。タスク 20.2（construction-schedule、2026-10-09）が貼り直した。増分 2 件は同タスクが construction-schedule-e2e.spec.ts へ足した工程表の項目数の上限の E2E の参照（試験本体の button「+ 項目追加」の exact 1 件と、200 件目の項目を取り除く操作の button の exact 1 件。新しい名前は 1——後者の名前）による（変更前は 1765 / 359、同タスクの作業ツリーで 1767 / 360。一つずつ正規表現へ置き換えるといずれも 1766 へ戻り、相異なる名前は後者のときだけ 359 へ戻る。本スペックのコミットは 0）。タスク 20.3（construction-schedule、2026-10-09）が貼り直した。増分 6 件は同タスクが construction-schedule-e2e.spec.ts へ足した数量表の項目数の上限を超える作成の E2E の参照（label「工程表名称」2 件・label「数量表」2 件・button「作成」2 件。いずれも既存の名前で新しい名前は 0）による（変更前は 1767 / 360、同タスクの作業ツリーで 1773 / 360。3 組を一組ずつ正規表現へ置き換えるといずれも 1771 へ戻り、相異なる名前は 360 のまま。本スペックのコミットは 0）。タスク 60.1（estimate-creation、2026-10-09）が貼り直した。増分 22 件は同タスクが新設した estimate-creation-focus-visible.spec.ts の参照（heading「見積書作成」・combobox「内訳書を選択」各 1 件、label「見積書名」2 件、radio「ドリルダウン表示」4 件、dialog「キーボード操作の割り当て一覧」・combobox「転記先見積項目」・combobox「対象業者を選択」各 1 件、button「作成」2 件、button「再試行」・見積書を取り除く操作の確認のダイアログの button・button「適用」・label「計算金額」・button「出力」・link「見積書一覧」・dialog「変更が保存されていません」・button「このページにとどまる」各 1 件、見積書一覧の見張りの heading「見積書一覧」1 件。新しい名前は前半の 7）による（変更前は 1773 / 360、同タスクの作業ツリーで 1795 / 367。22 件をすべて正規表現へ置き換えると 1773 / 360 へ戻り、新しい 7 名の 11 件だけを置き換えると 1784 / 360、見張りの 1 件だけを置き換えると 1794 / 367 になる。本スペックのコミットは 0）。タスク 25.1（itemized-statement-generation、2026-10-09）が貼り直した。増分 25 件は同タスクが新設した itemized-statement-focus-visible.spec.ts の参照（heading「内訳書を新規作成」1 件、combobox「数量表」3 件、heading「内訳書一覧」・link「内訳書一覧」各 1 件、button「並び順を保存」3 件、label「内訳書名」2 件、button「作成」2 件、textbox「名称」・textbox「単位」各 1 件、navigation「ページネーション」2 件、内訳書を取り除く操作の確認の dialog の名前と取り除く操作の button 各 1 件、button「キャンセル」1 件、button「再試行」2 件、dialog「変更が保存されていません」・button「このページにとどまる」各 1 件、一覧の同じ確認の heading の名前 1 件。新しい名前は「内訳書一覧」「並び順を保存」「内訳書名」と二つの確認の dialog と heading の名前の 5）による（変更前は 1795 / 367、同タスクの作業ツリーで 1820 / 372。25 件をすべて正規表現へ置き換えると 1795 / 367 へ戻り、新しい 5 名の 9 件だけを置き換えると 1811 / 367、一覧の見張りの 3 件だけを置き換えると 1817 / 371 になる。本スペックのコミットは 0）タスク 102.1（quantity-table-generation、2026-10-09）が貼り直した。増分 25 件は同タスクが新設した quantity-table-focus-visible.spec.ts の参照（heading「数量表一覧」・heading「数量表を新規作成」各 1 件、textbox「数量表名」3 件、button「再試行」2 件、textbox「数量表名を編集」1 件、数量表を取り除く操作の確認の heading の名前 1 件、dialog「数量表をコピー」2 件、button「コピーを作成」2 件、button「作成」2 件、label「幅（W）」1 件、textbox「グループ名を編集」1 件、checkbox「項目を選択」2 件、listbox「工種の候補」1 件、button「アクション」1 件、グループを取り除く操作の確認の dialog の名前 1 件、dialog「1件の項目を移動」1 件、button「写真を選択」・dialog「写真を選択」各 1 件。新しい名前は「数量表を新規作成」「数量表をコピー」「コピーを作成」「工種の候補」「1件の項目を移動」と二つの確認の heading と dialog の名前の 7）による（変更前は 1820 / 372、同タスクの作業ツリーで 1845 / 379。25 件をすべて正規表現へ置き換えると 1820 / 372 へ戻り、新しい 7 名の 9 件だけを置き換えると 1836 / 372 になる。本スペックのコミットは 0）タスク 116.1（site-survey、2026-10-09）が貼り直した。増分 32 件は本スペックの同タスクが新設した site-survey-focus-visible.spec.ts の参照（heading「現場調査一覧」1 件、textbox「調査名」4 件、label「調査日」1 件、textbox「メモ」2 件、button「編集モード」1 件、button「全体表示」2 件、button「編集終了」1 件、application「注釈エディタ」1 件、dialog「全件一括エクスポート」1 件、button「再試行」3 件、button「作成」1 件、button「保存」2 件、checkbox「報告書に含める」1 件、現場調査を取り除く操作の確認の dialog の名前 1 件、button「キャンセル」2 件、button「開始」2 件、dialog「一括エクスポート処理中」1 件、一部失敗の案内の alertdialog の名前 1 件、dialog「画像エクスポート」1 件、dialog「未保存のデータがあります」1 件、dialog「寸法値入力」1 件、spinbutton「寸法値」1 件。新しい名前は「調査名」「調査日」「メモ」「注釈エディタ」「画像エクスポート」「未保存のデータがあります」と確認の dialog と一部失敗の案内の名前の 8）による（変更前は 1845 / 379、同タスクの作業ツリーで 1877 / 387。32 件をすべて正規表現へ置き換えると 1845 / 379 へ戻り、新しい 8 名の 12 件だけを置き換えると 1865 / 379 になる。増分はすべて本スペックのタスク 116.1 による）タスク 18.1（contract-management、2026-10-10）が貼り直した。増分 13 件は同タスクが新設した contract-amendment-edit.spec.ts の参照（heading「契約書編集」1 件、combobox「見積書」2 件、label「契約日」「工期着手日」「工期完成日」「引渡日」「消費税率（%）」「支払条件」「別途工事」「その他」各 1 件、heading「契約書詳細」1 件、button「保存」1 件。新しい名前は 0）による（変更前は 1877 / 387、同タスクの作業ツリーで 1890 / 387。同ファイルを走査の対象から外すと 1877 / 387 へ戻る。本スペックのコミットは 0）タスク 18.2（contract-management、2026-10-10）が貼り直した。増分 3 件は同タスクが新設した contract-detail-contractor.spec.ts の参照（heading「契約書詳細」1 件、heading「プロジェクト情報」2 件。新しい名前は「プロジェクト情報」の 1）による（変更前は 1890 / 387、同タスクの作業ツリーで 1893 / 388。同ファイルを走査の対象から外すと 1890 / 387 へ戻る。本スペックのコミットは 0）タスク 18.4（contract-management、2026-10-10）が貼り直した。増分 10 件は同タスクが新設した contract-list-pagination.spec.ts の参照 8 件（heading「契約書一覧」1 件、navigation「ページネーション」3 件、button「ページ 2」1 件、link「￥11,000」2 件、combobox「表示件数」1 件。新しい名前は「￥11,000」の 1）と、同タスクが巡回の状態を加えた contract-management-focus-visible.spec.ts の参照 2 件（heading「契約書一覧」1 件、navigation「ページネーション」1 件）による（変更前は 1893 / 388、同タスクの作業ツリーで 1903 / 389。新設のファイルを走査の対象から外すと 1895 / 388、さらに後者を e438ee9f の版へ戻すと 1893 / 388。本スペックのコミットは 0）タスク 18.5（contract-management、2026-10-10）が貼り直した。増分 15 件は同タスクが新設した contract-supervisor-select.spec.ts の参照（combobox「監理者」1 件、listbox「取引先候補」1 件、heading「契約書詳細」「契約書編集」「契約書作成」各 1 件、combobox「見積書」2 件、button「作成」1 件、label「契約日」「工期着手日」「工期完成日」「引渡日」各 1 件、radio「変更契約」1 件、combobox「基となる契約書」1 件、button「保存」1 件。新しい名前は「取引先候補」の 1）による（変更前は 1903 / 389、同タスクの作業ツリーで 1918 / 390。同ファイルを走査の対象から外すと 1903 / 389 へ戻る。本スペックのコミットは 0）タスク 26.1（itemized-statement-generation、2026-10-10）が貼り直した。増分 10 件は同タスクが itemized-statement-crud.spec.ts に足した参照（navigation「パンくずナビゲーション」3 件、link「ダッシュボード」2 件、link「プロジェクト一覧」1 件、link「内訳書一覧」3 件、内訳書を取り除く操作の button の名前 1 件。新しい名前は 0）による（変更前は 1918 / 390、同タスクの作業ツリーで 1928 / 390。同ファイルを 27842063 の版へ戻すと 1918 / 390 へ戻る。本スペックのコミットは 0）タスク 26.2（itemized-statement-generation、2026-10-10）が貼り直した。増分 3 件は同タスクが itemized-statement-crud.spec.ts に足した参照（数量表一覧の数量表を取り除く操作の button の名前 1 件、その確認のダイアログの heading の名前 1 件、確認のダイアログの取り除く操作を確定する button の名前 1 件。新しい名前は 0）による（変更前は 1928 / 390、同タスクの作業ツリーで 1931 / 390。同ファイルを f00b2162 の版へ戻すと 1928 / 390 へ戻る。本スペックのコミットは 0）タスク 26.4（itemized-statement-generation、2026-10-10）が貼り直した。増分 1 件は同タスクが itemized-statement-reorder.spec.ts に足した参照（列見出しのソートボタンへ Tab で進む起点に置くフィルタの textbox「単位」1 件。新しい名前は 0）による（変更前は 1931 / 390、同タスクの作業ツリーで 1932 / 390。同ファイルを 932b47d6 の版へ戻すと 1931 / 390 へ戻る。26.3 はこの値を動かしていない。本スペックのコミットは 0）estimate-creation のタスク 61.1 が錨と値を提出時点へ貼り直した（itemized-statement-generation のタスク 26.4 の 1932 件は文書に残る）。増分 1 件は同タスクが新設した e2e/specs/estimate/estimate-edit-presence-e2e.spec.ts の link「見積書一覧」1 件による（既に数えている名前のため相異なる名前は 390 のまま。同ファイルを作業ツリーから外すと 1932 / 390 へ戻る。本スペックのコミットは 0）。estimate-creation のタスク 61.2 が錨と値を提出時点へ貼り直した（estimate-creation のタスク 61.1 の 1933 件は文書に残る）。増分 1 件は同タスクが新設した e2e/specs/estimate/estimate-amount-overflow-e2e.spec.ts の button「保存」1 件による（既に数えている名前のため相異なる名前は 390 のまま。同ファイルを作業ツリーから外すと 1933 / 390 へ戻る。本スペックのコミットは 0）。。estimate-creation のタスク 61.4 が錨と値を提出時点へ貼り直した（61.2 の 1934 件は文書に残る）。増分 2 件は同タスクが e2e/specs/estimate/estimate-transfer-calculation-save-e2e.spec.ts に足した案分対象業者の識別の test の参照（button「案分実行」「キャンセル」。既存の名前）で、同ファイルを HEAD の版へ戻すと 1934 件へ戻る。site-survey の pre-push の間欠失敗の是正（2026-10-13）が錨と値を提出時点へ貼り直した（61.4 の 1936 件は文書に残る）。増分 1 件は同じ是正が site-survey-annotation-tools.spec.ts に足した、注釈の復元中の status「読み込み中」（exact）を肯定側から観測する test の参照（新しい名前で相異なる名前は 390→391）で、e2e/ の変更を外すと 1936 件へ戻る"
+    },
+    {
+      "id": "e2e-guards-selftest-total-after-115303",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "自己検査は 196 件から",
+      "command": "npx tsx scripts/check-e2e-assertion-guards.selftest.ts | sed -nE 's/^✅ ([0-9]+)\\/[0-9]+ 件の確認に成功しました$/\\1/p'",
+      "expected": "210",
+      "documentRendering": "**210 件**",
+      "note": "タスク 115.303。錨の要件と開示（印字）の対照を足した後の自己検査の総数。MINIMUM_TOTAL_CASES の完全一致と重ねて掛かり、対照を無言で削ると記録の側も赤くなる。タスク 115.322 が値と documentRendering を提出時点へ貼り直した（115.303 の 209 件は当時の値として同じ行に残る。増えた 1 件は待機の対象外の規則の条件 (a) を単独で固定する対照 `段7-5`）"
+    },
+    {
+      "id": "req-exclusions-selftest-total-after-115314",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "除外定義の自己検査は **70/70 緑**である",
+      "command": "npx tsx scripts/check-requirement-exclusions.selftest.ts | sed -nE 's/^✅ 自己検査に合格しました（([0-9]+)\\/[0-9]+ 件.*$/\\1/p'",
+      "expected": "70",
+      "documentRendering": "**70/70 緑**",
+      "note": "タスク 115.304。対照群の関門と開示の対照を足した後の自己検査の総数。MINIMUM_TOTAL_CASES の完全一致と重ねて掛かり、対照を無言で削ると記録の側も赤くなるタスク 115.314 が錨と値を提出時点へ貼り直した（115.304 の 67 件は当時の値として文書に残る）。115.314 が足した 3 件は、代替検証を持たない除外の置き場所を検証フェーズで縛る不変条件の陽性対照二件と、その判定が区分の説明文には依らないことを固定する陰性対照一件である。タスク 115.334 が再実測した（値は 70 のまま動いていないため錨は据え置く）。下流 user-authentication の Task 32.2 のコミット 8546b446 の後、代替検証を持たない除外が実物から零になり、その相手を実物から探していた対照三つが前提の崩壊として送出して自己検査が中断し、本宣言の出力は空になっていた。115.334 は三つの相手を変異の中での合成へ改めて件数を変えずに緑へ戻した。"
+    },
+    {
+      "id": "req-exclusions-selftest-mechanism-after-115304",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "機構の固定は 20 件から",
+      "command": "npx tsx scripts/check-requirement-exclusions.selftest.ts | sed -nE 's/^.*機構 ([0-9]+)）$/\\1/p'",
+      "expected": "23",
+      "documentRendering": "**23 件**",
+      "note": "タスク 115.304。機構の固定の件数。この群は 115.222 が置いた構造の下限を要素として抱えており、群ごと空にする変異が真空パスであった。MINIMUM_MECHANISM_CASES の完全一致と重ねて掛かる。タスク 115.334 が再実測した（値は 23 のまま動いていないため錨は据え置く）。下流 Task 32.2 のコミット 8546b446 の後は自己検査が途中で中断して出力が空になっていた。115.334 が対照三つの相手を合成へ改めて戻した"
+    },
+    {
+      "id": "design-path-refs-selftest-total-after-115305",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "是正で自己検査の総数は 51 件から",
+      "command": "npx tsx scripts/check-design-path-references.selftest.ts | sed -nE 's/^✅ ([0-9]+)\\/[0-9]+ 件の確認に成功しました$/\\1/p'",
+      "expected": "53",
+      "documentRendering": "**53 件**",
+      "note": "タスク 115.305。件数の関門と開示の二方向の対照を足した後の自己検査の総数。MINIMUM_TOTAL_CASES の完全一致と重ねて掛かり、対照を無言で削ると記録の側も赤くなる"
+    },
+    {
+      "id": "req-coverage-selftest-total-after-115314",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "被覆率検査の自己検査は **81/81 緑・EXIT=0** である",
+      "command": "npx tsx scripts/check-requirement-coverage.selftest.ts | sed -nE 's/^✅ ([0-9]+)\\/[0-9]+ 件の確認に成功しました$/\\1/p'",
+      "expected": "81",
+      "documentRendering": "**81/81 緑・EXIT=0**",
+      "note": "タスク 115.307 が置き、115.308 / 115.309 / 115.314 が錨と値を提出時点へ貼り直した。自己検査の確認の総数。MINIMUM_TOTAL_CASES の完全一致と重ねて掛かり、確認を無言で削ると記録の側も赤くなる。115.307 の 74 件・115.308 の 77 件・115.309 の 78 件は当時の値として文書に残る。115.314 が足した 2 件は、除外の区分の見出しが台帳の定義文を逐語のとおり並べること（開示の対照）と、その定義文が台帳から集計結果まで運ばれること（結線の対照）を見る確認である。タスク 115.316 が錨と値を提出時点へ貼り直した（115.314 の 80 件は当時の値として文書に残る）。115.316 が足した 1 件は、反実仮想が自己検査の総数を引かないことを見る確認である"
+    },
+    {
+      "id": "req-coverage-guarded-citation-docs-after-115307",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "守る限界の記述が 8 件しかない（宣言の下限は 9 件）",
+      "command": "grep -oE 'MINIMUM_GUARDED_CITATION_DOCS = [0-9]+' scripts/check-requirement-coverage.selftest.ts | grep -oE '[0-9]+'",
+      "expected": "9",
+      "documentRendering": "（宣言の下限は 9 件）",
+      "note": "タスク 115.307。実データ引用の禁止を掛ける限界の記述の件数。MINIMUM_GUARDED_CITATION_DOCS が台帳の長さへ遊び 0 で課しており、台帳を縮めると自己検査と記録の両方が赤くなる"
+    },
+    {
+      "id": "unreadable-header-vocabulary-after-115308",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "読み手の語彙に無い見出しは 24 件",
+      "command": "grep -rInE '^[ \\t]*(/\\*+|\\*|//)?[ \\t]*(要件|Requirement)[ \\t]*[:：]' --include=*.ts --include=*.tsx backend/src frontend/src e2e | wc -l",
+      "expected": "24",
+      "documentRendering": "読み手の語彙に無い見出しは 24 件",
+      "note": "タスク 115.308。`要件:` / `Requirement:`（単数）の形で宣言位置に置かれた見出しの数。機能名を与えても読まれない別種の欠陥であり、本タスクの境界（機能名の解決）の外にある。下界である——網は二つの綴りしか見ない"
+    },
+    {
+      "id": "featureless-inline-id-headers-after-115308",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "機能名を欠く側は 838 件",
+      "command": "grep -rInE '^[ \\t]*(/\\*+|\\*|//)?[ \\t]*Requirements([ \\t]*coverage)?[ \\t]*[:：][ \\t]*[0-9]' --include=*.ts --include=*.tsx backend/src frontend/src e2e | wc -l",
+      "expected": "838",
+      "documentRendering": "機能名を欠く側は 838 件",
+      "note": "タスク 115.308。ヘッダー行そのものに識別子を同居させた形のうち機能名を欠くもの。一覧の印を持たないため findListItemMarker が印なしと読み、眠る名乗りの計数にも入らない。下界である。タスク 115.324 の後の被覆印の是正（機能レベル検証で見つかった被覆の穴の是正）が錨と値を提出時点へ貼り直した（115.308 の 842 件は当時の値として文書に残る）。向きは減であり、減分は 2 件である。動かしたのは backend/src/__tests__/unit/services/survey-image.service.test.ts の被覆印の書式の是正で、同形の 2 行のうち一方が Requirements (site-survey): と一覧形へ、他方が被覆印を持たない散文へ書き換えられて網から外れた。因果はコミット c3f3e9f6 の写しへ当該の 2 ファイルだけを重ねる変異で確かめた（842 → 840。重ねる前は 842）。機能名つきの 22 件は前後とも動いていない。タスク 115.333 が錨と値を提出時点へ貼り直した（115.324 の後の被覆印の是正の 840 件は当時の値として文書に残る）。減分 2 件は下流 quantity-table-generation の Task 97.14 のコミット 40fc5f81 による（同じ正規表現を各版へ git grep で掛けて、3d723c78 の親 c6830270 と 3d723c78 は 840、40fc5f81 は 838）"
+    },
+    {
+      "id": "named-inline-id-headers-after-115308",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.330 の提出時点の再実測では、機能名つきの側は 84 件である",
+      "command": "grep -rInE '^[ \\t]*(/\\*+|\\*|//)?[ \\t]*Requirements([ \\t]*coverage)?[ \\t]*\\([A-Za-z0-9_-]+\\)[ \\t]*[:：][ \\t]*[0-9]' --include=*.ts --include=*.tsx backend/src frontend/src e2e | wc -l",
+      "expected": "84",
+      "documentRendering": "機能名つきの側は 84 件",
+      "note": "タスク 115.308。機能名を持ちながら識別子をヘッダー行へ同居させたため読まれない形。機能名の解決とは独立の取りこぼしであり、後任の起票候補に挙げた。下界である。タスク 115.330 が錨と値を提出時点へ貼り直した（115.308 の 22 件は文書に残る）。増分 62 件はすべて下流 quantity-table-generation の 11 件のコミットによる（aea6dcad の後に三つの走査根を変えたコミットごとに git grep で測った。本スペックのコミットは 0）"
+    },
+    {
+      "id": "featureless-headers-resolvable-by-own-feature-after-115308",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "estimate-creation のタスク 61.4 の提出時点の再実測は 583 件（29.4%）である",
+      "command": "npx tsx -e \"import * as fs from 'fs'; import { listCoverageScanFiles as L, isDeclaredCoverageHeader as D, ANY_COVERAGE_HEADER_REGEX as H, FEATURELESS_COVERAGE_HEADER_REGEX as F, buildInlineTagPatterns as B, discoverFeatures as G } from './scripts/check-requirement-coverage.ts'; const g = G(); let one = 0; for (const f of L()) { const c = fs.readFileSync(f, 'utf8'); const n = new Set<string>(); for (const m of c.matchAll(new RegExp(H.source, 'g'))) if (m.index !== undefined && D(c, m.index)) { const x = /\\\\(([A-Za-z0-9_-]+)\\\\)/.exec(m[0]); if (x && x[1] && g.includes(x[1])) n.add(x[1]); } for (const p of B(g)) for (const m of c.matchAll(new RegExp(p.source, p.flags))) if (m[1]) n.add(m[1]); let k = 0; for (const m of c.matchAll(new RegExp(F.source, 'g'))) if (m.index !== undefined && D(c, m.index)) k++; if (n.size === 1) one += k; } console.log(one);\"",
+      "expected": "583",
+      "documentRendering": "583 件（29.4%）",
+      "note": "タスク 115.308。機能名を欠く宣言ヘッダーのうち、同一ファイルが他所で名乗る機能名がちょうど一つであるもの（＝ファイルの所在からの推定を使わずに機能名を解決できるもの）の数。是正の費用を測るときの母集団であり、走査規則は check-requirement-coverage.ts の export をそのまま使う（自己検査の側へ規則を複製しない）。分母 2025 は同じ関門が毎回印字する。タスク 115.311 が錨と値を提出時点へ貼り直し、タスク 115.315 が同じ作法でもう一度貼り直した（115.308 の 465 件・115.311 の 471 件はいずれも当時の値として文書に残る）。115.315 は本番未到達の被覆源で名乗られていた受入基準 13 件を、本番へ到達する検証ファイル 8 つへ機能名つきで移したため、それらのファイルの機能名を欠くヘッダー 21 件が解決可能な側へ移った。タスク 115.324 の後の被覆印の是正（機能レベル検証で見つかった被覆の穴の是正）が錨と値を提出時点へ貼り直した（115.315 の 492 件は当時の値として文書に残る）。向きは増であり、増分は 3 件である。同時に分母が減っており、注記の冒頭が名乗る分母 2025 は 115.308 時点の値である——現況の分母は同じ関門が毎回印字し、本是正の提出時点では 2023 件である（2025 = 492 + 1527 + 6 に対し 2023 = 495 + 1522 + 6）。割合が 24.3% から 24.5% へ動いたのは分子の増と分母の減の合成による。動かしたのは backend/src/__tests__/unit/services/survey-image.service.test.ts の被覆印の書式の是正で、同ファイルの機能名を欠く宣言ヘッダー 5 件のうち 2 件が消え、残る 3 件が Requirements (site-survey): の名乗りにより解決可能な側へ移った。因果はコミット c3f3e9f6 の写しへ当該の 2 ファイルだけを重ねる変異で確かめた。image-upload.service.test.ts へ足された @requirement site-survey/REQ-21.7 はこの三値のいずれも動かしていない（同ファイルは是正の前から site-survey を一意に名乗る）。タスク 115.330 が錨と値を提出時点へ貼り直した（115.324 の後の被覆印の是正の 495 件は当時の値として文書に残る）。分母は 2001 件で 2001 = 585 + 1406 + 10（曖昧は 6 件から 10 件へ増えた）。四値を動かしたのはすべて下流 quantity-table-generation の 31 件のコミットである（35d45701 の後に三つの走査根を変えたコミットごとに、各版の三つの走査根と .kiro/specs へ作業ツリーの規則を掛けて測った。本スペックのコミットは 0）。タスク 115.333 が錨と値を提出時点へ貼り直した（115.330 の 585 件は当時の値として文書に残る）。分母は 1996 件で 1996 = 584 + 1402 + 10。分母の減 5 件と分子の減 1 件は下流 quantity-table-generation の Task 89.1 のコミット 3d723c78（2001 = 585 + 1406 + 10 → 1999 = 585 + 1404 + 10）と Task 97.14 のコミット 40fc5f81（→ 1996 = 584 + 1402 + 10）による（各版の三つの走査根と .kiro/specs へ作業ツリーの規則を掛けて測った）。タスク 115.334 が錨と値を提出時点へ貼り直した（115.333 の 584 件は文書に残る）。分母は 1996 件のままで 1996 = 588 + 1398 + 10。分子の増 4 件は下流 user-authentication の四つのコミットによる（60edb4da から abe99026 までの各版の三つの走査根と .kiro/specs へ作業ツリーの規則を掛けて測った）——Task 35.1 の 5a485c1f（584 → 585）、Task 35.3 の 6638f436（→ 586）、Task 35.4 の cec9756a（→ 587）、Task 35.7 の 86ce8cc0（→ 588）。本スペックのコミットは 0。construction-photo のタスク 23.4 が錨と値を提出時点へ貼り直した（115.334 の 588 件は文書に残る）。分母は 1996 件のままで 1996 = 589 + 1397 + 10。分子の増 1 件は下流 construction-photo のタスク 23.4 が BulkExportProgressDialog.test.tsx（機能名を一つも名乗っていなかった単体検証のファイル）へ REQ-15.10 の被覆印を足し、同ファイルの機能名を欠くヘッダーが自機能で解決できる側へ移ったことによる（2026-10-04 に作業ツリーで実測。本スペックのコミットは 0）。construction-schedule のタスク 20.1 が錨と値を提出時点へ貼り直した（construction-photo のタスク 23.4 の 589 件は文書に残る）。分母は 1990 件で 1990 = 590 + 1390 + 10。分母の減 6 件は下流 quantity-table-generation のコミット fde9cda6 による（同コミットが機能名を欠くヘッダーの上限を 1996 から 1990 へ下げた）。77bfad6b の版は 1990 = 589 + 1391 + 10。分子の増 1 件は下流 construction-schedule のタスク 20.1 が schedule.api.integration.test.ts（機能名を一つも名乗っていなかった統合検証のファイル）へ REQ-12.1 の被覆印を足し、同ファイルの機能名を欠くヘッダーが自機能で解決できる側へ移ったことによる（2026-10-09 に作業ツリーで実測。本スペックのコミットは 0）。estimate-creation のタスク 61.2 が錨と値を提出時点へ貼り直した（construction-schedule のタスク 20.1 の 590 件は文書に残る）。分母は 1984 件で 1984 = 584 + 1390 + 10。分母と分子の減 6 件は同タスクが利用者の判断で、本番から使われない見積の検証サービスの本体（機能名を欠く Requirements: ブロック 5 件）と見積の計算サービスの checkOverflow（同 1 件）を取り除いたことによる。6 件はいずれも同じファイルが estimate-creation を一意に名乗るため自機能で解決できる側に数えられていた。同タスクは機能名を欠くヘッダーの上限を 1990 から 1984 へ下げた（2026-10-11 に作業ツリーで実測。本スペックのコミットは 0）。estimate-creation のタスク 61.4 が錨と値を提出時点へ貼り直した（61.2 の 584 件は文書に残る）。減 1 件は同タスクが利用者の判断で取り除いたフロントエンドの EstimateCalculator.previewNetAllocation の JSDoc の機能名を欠くヘッダーで、frontend/src/utils/estimate-calculation.ts だけを HEAD から戻すと 584 件へ戻る"
+    },
+    {
+      "id": "project-trading-partner-existence-check-sites",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "本番の実在確認の照会は",
+      "command": "grep -c 'validateTradingPartner' backend/src/services/project.service.ts",
+      "expected": "3",
+      "documentRendering": "**3 件**",
+      "note": "タスク 115.311 が足した取引先IDの実在検証。定義 1 件と作成・更新の呼び出し 2 件の計 3 件。減れば条文 13.3 の被覆が名乗りだけになる"
+    },
+    {
+      "id": "transition-type-labels-naming-a-transition",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "すなわち遷移を名乗る本番のラベル値は",
+      "command": "cat backend/src/types/project.types.ts frontend/src/types/project.types.ts | grep -c \"遷移',\"",
+      "expected": "6",
+      "documentRendering": "出力は **6** である",
+      "note": "タスク 115.312。要件10の11が定義する遷移種別3種類がバックエンドとフロントエンドの二つのラベル表に写った数。initial へ「〜遷移」の文言を戻すと 8 になって赤くなる"
+    },
+    {
+      "id": "transition-type-initial-label-pinning-assertions",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**単体の固定**（production の文言を逐語で固定する表明）",
+      "command": "cat backend/src/__tests__/unit/types/project.types.test.ts frontend/src/__tests__/types/project.types.test.ts | grep -c \"toBe('初期登録')\"",
+      "expected": "4",
+      "documentRendering": "**4 件**",
+      "note": "タスク 115.312。initial の表示文言を逐語で固定する単体の表明。バックエンド2件・フロントエンド2件。減れば本番の文言が誰にも束縛されない状態へ戻る"
+    },
+    {
+      "id": "initial-transition-wording-residue-outside-record",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "末尾を `| wc -l` へ替えれば",
+      "command": "git grep -o '初期遷移' | grep -vE '^(\\.kiro/specs/site-survey/design\\.md|scripts/design-measurements\\.json):' | wc -l",
+      "expected": "14",
+      "documentRendering": "**14** が出る",
+      "note": "タスク 115.312。表示文言の是正の外に残した旧文言「初期遷移」の箇所数。本節自身の引用は除く（除かないと記録を書く行為が値を動かす）。タスク 115.313 が所管スペックの設計文書を直せばこの値は減るため、そのとき同時に測り直すこと。タスク 115.313 は所管スペックの設計文書のうち「件数」を述べる現況の記述二箇所だけを改めたため、この値は 14 のままで動かなかった（旧文言には「初期遷移」の綴りが無い）。同書に残る 4 箇所はコードブロックの中の設計当時の素描であり本番の写しではないため、歴史記録として残した（判断の全文は 115.313 の記録の節にある）。"
+    },
+    {
+      "id": "project-management-design-transition-kind-count-claims",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "是正後の名乗りは二箇所で、**出力は 2** である",
+      "command": "grep -c '遷移種別は3種類' .kiro/specs/project-management/design.md",
+      "expected": "2",
+      "documentRendering": "**出力は 2** である",
+      "note": "タスク 115.313。所管スペックの設計文書が遷移種別を 3 種類と名乗る箇所の数。旧文言「4種類」へ戻すと 1 へ落ちて赤くなる（二箇所の両方を戻すと 0 になり、コマンドの終了コードも 1 になる）"
+    },
+    {
+      "id": "status-transition-table-distinct-kinds",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**実装の遷移表が用いる相異なる種別**。出力は **3** である",
+      "command": "grep -oE \"type: '[a-z]+'\" backend/src/services/project-status.service.ts | sort -u | wc -l",
+      "expected": "3",
+      "documentRendering": "出力は **3** である",
+      "note": "タスク 115.313。本番の遷移表 STATUS_TRANSITIONS が用いる相異なる遷移種別の数。設計文書の「3種類」の名乗りを支える実装側の根拠であり、表へ initial を足すと 4 になって赤くなる"
+    },
+    {
+      "id": "project-management-design-transition-diagram-edges",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**設計文書の状態遷移図が名前を付けた辺**。出力は **22** である",
+      "command": "awk '/^### ステータス遷移フロー$/,/^\\*\\*Key Decisions\\*\\*:$/' .kiro/specs/project-management/design.md | grep -cE ': (forward|backward|terminate)$'",
+      "expected": "22",
+      "documentRendering": "出力は **22** である",
+      "note": "タスク 115.313。状態遷移図が名前を付けた辺の本数。内訳は forward 9 / backward 8 / terminate 5 で、initial の名を持つ辺は無い。条文の要件10 の 3〜6 が名前を付ける遷移の本数とも実装の遷移表の要素数とも一致する。錨は本書（現場調査スペックの設計文書）に採る——本検査の自己検査が所管の文書だけを宣言の宛先に許すため、所管スペックの設計文書を file に採れない。"
+    },
+    {
+      "id": "requirement-10-11-four-kind-claims-in-code",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "網 (A) は是正の後に **4 件**を返し",
+      "command": "git grep -nE '4 ?種類|４種類|四種類|4 ?つの種別|four transition' -- ':!.kiro/specs/site-survey/design.md' ':!.kiro/specs/site-survey/tasks.md' ':!.kiro/specs/project-management/tasks.md' ':!scripts/design-measurements.json' | grep -cE '遷移|[Tt]ransition'",
+      "expected": "4",
+      "documentRendering": "**4 件**を返し",
+      "note": "タスク 115.313。条文が定める遷移種別の件数を、列挙値の数で言い換えているコード側の記述の数（本番 1 件・単体検証 3 件）。条文は 3 種類であるからこれは誤引用であり、本タスクの境界（設計文書）の外として開示した残余である。コマンドは記録の網 (A) と同じ形にしてある——対象を backend/src と frontend/src に絞る狭い代替でも今日は同じ 4 を返すが、e2e など網の内側の他の場所に同型が現れると散文だけが偽になるため採らない。後任が直せばこの値は減るので、そのとき同時に測り直すこと"
+    },
+    {
+      "id": "exclusion-categories-count-after-115314",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "台帳が定義する区分は **7 件**である",
+      "command": "node -e \"console.log(Object.keys(require('./e2e/requirement-exclusions.json').categories).length)\"",
+      "expected": "7",
+      "documentRendering": "**7 件**",
+      "note": "タスク 115.314。除外台帳が定義する区分の数。「未実装かつ方針未決」を表す区分を新設しないと決めたため、この値が増えたときは判断が覆ったことを意味する"
+    },
+    {
+      "id": "pending-implementation-exclusions-after-115314",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.334 の提出時点の再実測は 1 件である",
+      "command": "node -e \"console.log(require('./e2e/requirement-exclusions.json').exclusions.filter(e=>e.category==='pending-implementation').length)\"",
+      "expected": "1",
+      "documentRendering": "再実測は 1 件である",
+      "note": "タスク 115.314。定義文と実データの乖離を測った母集団。11 対 3 の切り分けは散文の読みであり機械では決まらないため、母集団の側だけを宣言に載せる。タスク 115.330 が錨と値を提出時点へ貼り直した（115.314 の 14 件は文書に残る）。減った 10 件はいずれも quantity-table-generation の除外で、下流の同スペックの 5 件のコミット（b42d4d67 / c93d47c4 / 3f3cad85 / 03d631ca / 9bea407d）が取り下げた。タスク 115.334 が錨と値を提出時点へ貼り直した（115.330 の 4 件は文書に残る）。減った 3 件は公開鍵配布のキャッシュ制御の条文で、下流 user-authentication の Task 32.2 のコミット 8546b446 が REQ-31.4 / 31.5 を取り下げ、REQ-31.6 を integration-test へ移した。残る 1 件は project-management/REQ-21.13"
+    },
+    {
+      "id": "promiseless-exclusions-after-115314",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.334 の提出時点の再実測は 0 件である",
+      "command": "node -e \"console.log(require('./e2e/requirement-exclusions.json').exclusions.filter(e=>e.alternativeVerification.method==='none').length)\"",
+      "expected": "0",
+      "documentRendering": "再実測は 0 件である",
+      "note": "タスク 115.314。代替検証を持たないと自ら申告する除外の数。この形が「未実装かつ方針未決」の除外が取る姿であり、置き場所を検証フェーズで縛る不変条件の対象である。タスク 115.334 が錨と値を提出時点へ貼り直した（115.314 の 3 件は文書に残る）。3 件はいずれも下流 user-authentication の Task 32.2 のコミット 8546b446 が解消し、現況は 0 件である。したがって文書の当該の文の主張の母集団は現況で 0 件である。零件になると自己検査の対照三つが前提の崩壊として送出して中断していたが、115.334 が対照の相手を変異の中での合成へ改めたため、本宣言の値は自己検査の成否に関わらない"
+    },
+    {
+      "id": "citation-net-population-at-abbde115",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**当時の値は版を固定して残す**",
+      "command": "git ls-tree -r --name-only abbde115 -- scripts .kiro/specs/site-survey/design.md | grep -cE '^scripts/[^/]+\\.ts$|^\\.kiro/specs/site-survey/design\\.md$'",
+      "expected": "51",
+      "documentRendering": "の出力は `51` である",
+      "note": "タスク 115.323。実データ引用の禁止の偽陽性を測った母集団（`scripts/*.ts` と本書）の大きさ。115.306 の提出時点（起点はコミット `abbde115` の作業ツリー）の観測であり、版を固定してあるため増減しない。初版は同じ値を現在形で `51 ファイル` と書いており、`scripts/*.ts` が増えるたびに黙って古くなる形であった。現況の値は本書に書かない（同じ行が示す `ls` に `| wc -l` を足せば出る）"
+    },
+    {
+      "id": "citation-net-population-at-78148369",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "同じコマンドの版を 115.322 の親 `78148369` へ替えると",
+      "command": "git ls-tree -r --name-only 78148369 -- scripts .kiro/specs/site-survey/design.md | grep -cE '^scripts/[^/]+\\.ts$|^\\.kiro/specs/site-survey/design\\.md$'",
+      "expected": "52",
+      "documentRendering": "出力は `52` であり",
+      "note": "タスク 115.323。直上の母集団が本タスクの着手前から現況と離れていたことを示す対照。115.322 の親の版で既に 51 ではなく 52 であった。版を固定してあるため増減しない"
+    }
+  ]
+}

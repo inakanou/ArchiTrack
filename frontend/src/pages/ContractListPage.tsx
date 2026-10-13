@@ -12,6 +12,8 @@
  * - REQ-1.6: 一覧画面にパンくずナビゲーションを表示する
  * - REQ-13.5: contract:create権限がない場合、新規作成ボタンを非表示にする
  *
+ * Task 18.4: ページ送り（project-management の PaginationUI）を付け、21 件目以降に到達できるようにする
+ *
  * @module pages/ContractListPage
  */
 
@@ -20,6 +22,8 @@ import { useParams, Link } from 'react-router-dom';
 import { getContracts } from '../api/contracts';
 import type { ContractsResponse, ContractListItem } from '../api/contracts';
 import { Breadcrumb } from '../components/common';
+import PaginationUI from '../components/projects/PaginationUI';
+import type { PaginationInfo } from '../types/project.types';
 import { usePermission } from '../hooks/usePermission';
 
 // ============================================================================
@@ -307,6 +311,10 @@ export default function ContractListPage() {
   // 権限チェック (REQ-13.5)
   const canCreate = hasPermission('contract:create');
 
+  // ページ送りの状態 (REQ-1.1, Task 18.4)
+  const [page, setPage] = useState(DEFAULT_PAGE);
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
+
   // データ状態
   const [data, setData] = useState<ContractsResponse | null>(null);
 
@@ -325,22 +333,36 @@ export default function ContractListPage() {
     setError(null);
 
     try {
-      const result = await getContracts(projectId, {
-        page: DEFAULT_PAGE,
-        limit: DEFAULT_LIMIT,
-      });
+      const result = await getContracts(projectId, { page, limit });
       setData(result);
     } catch {
       setError('契約書の取得に失敗しました');
     } finally {
       setIsLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, page, limit]);
 
-  // 初回読み込み
+  // 初回読み込み・ページ送りの操作での再取得
   useEffect(() => {
     fetchContracts();
   }, [fetchContracts]);
+
+  /**
+   * ページ変更ハンドラー
+   * Requirements (contract-management): REQ-1.1（21 件目以降への到達。Task 18.4）
+   */
+  const handlePageChange = useCallback((newPage: number) => {
+    setPage(newPage);
+  }, []);
+
+  /**
+   * 表示件数変更ハンドラー。表示件数を変えたら 1 ページ目に戻る
+   * Requirements (contract-management): REQ-1.1（Task 18.4）
+   */
+  const handleLimitChange = useCallback((newLimit: number) => {
+    setLimit(newLimit);
+    setPage(DEFAULT_PAGE);
+  }, []);
 
   // ローディング表示
   if (isLoading) {
@@ -378,6 +400,13 @@ export default function ContractListPage() {
 
   const contracts = data?.contracts ?? [];
   const totalCount = data?.total ?? 0;
+  // 一覧の API は総数（total）だけを返すため、総ページ数はここで求める
+  const pagination: PaginationInfo = {
+    page,
+    limit,
+    total: totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+  };
 
   return (
     <main role="main" style={styles.container} data-testid="contract-list-page">
@@ -415,54 +444,67 @@ export default function ContractListPage() {
       {totalCount === 0 ? (
         <EmptyState projectId={projectId!} canCreate={canCreate} />
       ) : (
-        <table style={styles.table} data-testid="contract-list-table">
-          <thead>
-            <tr>
-              <th style={styles.th}>契約種類</th>
-              <th style={styles.th}>契約日</th>
-              <th style={styles.th}>ステータス</th>
-              <th style={styles.th}>請負代金額</th>
-            </tr>
-          </thead>
-          <tbody>
-            {contracts.map((contract) => (
-              <tr key={contract.id} data-testid={`contract-row-${contract.id}`}>
-                <td style={styles.td}>
-                  <Link
-                    to={`/projects/${projectId}/contracts/${contract.id}`}
-                    style={styles.tableRow}
-                  >
-                    {getContractTypeLabel(contract.contractType)}
-                  </Link>
-                </td>
-                <td style={styles.td}>
-                  <Link
-                    to={`/projects/${projectId}/contracts/${contract.id}`}
-                    style={styles.tableRow}
-                  >
-                    {formatContractDate(contract.contractDate)}
-                  </Link>
-                </td>
-                <td style={styles.td}>
-                  <Link
-                    to={`/projects/${projectId}/contracts/${contract.id}`}
-                    style={styles.tableRow}
-                  >
-                    <StatusBadge status={contract.status} />
-                  </Link>
-                </td>
-                <td style={styles.td}>
-                  <Link
-                    to={`/projects/${projectId}/contracts/${contract.id}`}
-                    style={styles.tableRow}
-                  >
-                    {formatAmount(contract.contractAmount)}
-                  </Link>
-                </td>
+        <>
+          <table style={styles.table} data-testid="contract-list-table">
+            <thead>
+              <tr>
+                <th style={styles.th}>契約種類</th>
+                <th style={styles.th}>契約日</th>
+                <th style={styles.th}>ステータス</th>
+                <th style={styles.th}>請負代金額</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {contracts.map((contract) => (
+                <tr key={contract.id} data-testid={`contract-row-${contract.id}`}>
+                  <td style={styles.td}>
+                    <Link
+                      to={`/projects/${projectId}/contracts/${contract.id}`}
+                      style={styles.tableRow}
+                    >
+                      {getContractTypeLabel(contract.contractType)}
+                    </Link>
+                  </td>
+                  <td style={styles.td}>
+                    <Link
+                      to={`/projects/${projectId}/contracts/${contract.id}`}
+                      style={styles.tableRow}
+                    >
+                      {formatContractDate(contract.contractDate)}
+                    </Link>
+                  </td>
+                  <td style={styles.td}>
+                    <Link
+                      to={`/projects/${projectId}/contracts/${contract.id}`}
+                      style={styles.tableRow}
+                    >
+                      <StatusBadge status={contract.status} />
+                    </Link>
+                  </td>
+                  <td style={styles.td}>
+                    <Link
+                      to={`/projects/${projectId}/contracts/${contract.id}`}
+                      style={styles.tableRow}
+                    >
+                      {formatAmount(contract.contractAmount)}
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* ページ送り (REQ-1.1, Task 18.4)。他の一覧画面と同じく、契約書が 1 件以上あれば表示する */}
+          {pagination.totalPages > 0 && (
+            <div style={{ marginTop: '24px' }}>
+              <PaginationUI
+                pagination={pagination}
+                onPageChange={handlePageChange}
+                onLimitChange={handleLimitChange}
+              />
+            </div>
+          )}
+        </>
       )}
     </main>
   );

@@ -24,6 +24,8 @@
  * - REQ-11.4: 確認ダイアログを表示後に削除を実行する
  * - REQ-11.5: 見積書に見積名称を設定可能とする
  * - REQ-11.6: 楽観的排他制御により競合を検出する
+ * - REQ-11.7: 見積書が他のユーザーによって編集中の場合、編集中であることを警告表示する
+ *   （編集セッションの在席通知 `PUT /:id/edit-session` と退出 `DELETE /:id/edit-session`）
  * - REQ-1.1-1.6: 見積書基本構造
  * - REQ-2.1-2.6: 見積項目ネスト構造
  * - REQ-7.2-9.2: 諸経費自動計算（書き込みを伴わない計算のみ）
@@ -36,6 +38,7 @@
  * Task 4.2: 見積項目CRUD APIエンドポイントの実装
  * Task 55.7: 転記系エンドポイントの撤去
  * Task 56.10: 出力エンドポイントの撤去
+ * Task 61.1: 編集セッション（在席情報）のエンドポイントの追加
  *
  * @module routes/estimates
  */
@@ -48,6 +51,11 @@ import {
   type SavedEstimateItemNode,
 } from '../services/estimate-draft.service.js';
 import { OverheadCostService, OverheadCostType } from '../services/overhead-cost.service.js';
+import {
+  EstimateEditSessionService,
+  ESTIMATE_EDIT_SESSION_TTL_SECONDS,
+  ESTIMATE_EDIT_SESSION_HEARTBEAT_INTERVAL_SECONDS,
+} from '../services/estimate-edit-session.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -87,6 +95,7 @@ const estimateService = new EstimateService({
 const estimateItemService = new EstimateItemService({ prisma });
 const estimateDraftService = new EstimateDraftService({ prisma });
 const overheadCostService = new OverheadCostService();
+const estimateEditSessionService = new EstimateEditSessionService({ prisma });
 
 // ==========================================
 // 見積書CRUD API (Task 4.1)
@@ -1093,6 +1102,132 @@ router.post(
         });
         return;
       }
+      next(error);
+    }
+  }
+);
+
+// ==========================================
+// 編集セッション（在席情報）API（Task 61.1, REQ-11.7）
+// ==========================================
+
+/**
+ * @swagger
+ * /api/estimates/{id}/edit-session:
+ *   put:
+ *     summary: 見積書の編集セッションの在席通知
+ *     description: |
+ *       見積書詳細画面を開いている間、画面が一定間隔で呼び出す。呼び出した利用者の在席を
+ *       記録し、TTL 以内に在席を通知した**他の**利用者（編集中の利用者）を返す（REQ-11.7）。
+ *       見積書の updatedAt は進めないため、保存の楽観的排他制御（REQ-11.6）に影響しない。
+ *     tags:
+ *       - Estimates
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: 在席を記録し、編集中の他の利用者を返す
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 otherEditors:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       userId:
+ *                         type: string
+ *                       displayName:
+ *                         type: string
+ *                       lastSeenAt:
+ *                         type: string
+ *                         format: date-time
+ *                 ttlSeconds:
+ *                   type: integer
+ *                 heartbeatIntervalSeconds:
+ *                   type: integer
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 見積書が見つからない
+ *   delete:
+ *     summary: 見積書の編集セッションの退出
+ *     description: 見積書詳細画面を離れたときに呼び出し、呼び出した利用者の在席を消す（冪等）
+ *     tags:
+ *       - Estimates
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       204:
+ *         description: 在席を消した（既に無い場合も含む）
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ */
+router.put(
+  '/:id/edit-session',
+  authenticate,
+  requirePermission('estimate:update'),
+  validate(estimateIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const userId = req.user!.userId;
+
+      const otherEditors = await estimateEditSessionService.heartbeat(id, userId);
+
+      res.json({
+        otherEditors: otherEditors.map((editor) => ({
+          userId: editor.userId,
+          displayName: editor.displayName,
+          lastSeenAt: editor.lastSeenAt.toISOString(),
+        })),
+        ttlSeconds: ESTIMATE_EDIT_SESSION_TTL_SECONDS,
+        heartbeatIntervalSeconds: ESTIMATE_EDIT_SESSION_HEARTBEAT_INTERVAL_SECONDS,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.delete(
+  '/:id/edit-session',
+  authenticate,
+  requirePermission('estimate:update'),
+  validate(estimateIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.validatedParams as { id: string };
+      const userId = req.user!.userId;
+
+      await estimateEditSessionService.leave(id, userId);
+
+      res.status(204).send();
+    } catch (error) {
       next(error);
     }
   }

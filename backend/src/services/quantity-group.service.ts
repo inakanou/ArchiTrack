@@ -21,6 +21,7 @@ import type {
   CreateQuantityGroupInput,
   UpdateQuantityGroupInput,
 } from '../schemas/quantity-table.schema.js';
+import { QUANTITY_TABLE_VALIDATION_MESSAGES } from '../schemas/quantity-table.schema.js';
 import {
   QuantityTableNotFoundError,
   QuantityGroupNotFoundError,
@@ -30,6 +31,7 @@ import {
 } from '../errors/quantityTableError.js';
 import { SurveyImageNotFoundError, SiteSurveyNotFoundError } from '../errors/siteSurveyError.js';
 import { ForbiddenError } from '../errors/apiError.js';
+import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 import { QUANTITY_GROUP_TARGET_TYPE } from '../types/audit-log.types.js';
 import { QuantityValidationService } from './quantity-validation.service.js';
 
@@ -155,9 +157,14 @@ export class QuantityGroupService {
    * @throws QuantityTableNotFoundError 数量表が存在しない、または論理削除済みの場合
    * @throws SurveyImageNotFoundError 現場調査画像が存在しない場合
    * @throws QuantityTableValidationError 異なるプロジェクトの画像を指定した場合
+   * @throws SurveyDeletedError 指定した現場調査画像の親の現場調査が論理削除済みの場合（410）
    */
   async create(input: CreateQuantityGroupInput, actorId: string): Promise<QuantityGroupInfo> {
     return await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。採番・重複検査より前に取る）
+      await this.lockQuantityTableRow(tx, input.quantityTableId);
+
       // 1. 数量表存在確認
       const quantityTable = await this.validateQuantityTableExists(tx, input.quantityTableId);
 
@@ -166,10 +173,12 @@ export class QuantityGroupService {
         await this.validateSurveyImage(tx, input.surveyImageId, quantityTable.projectId);
       }
 
-      // 3. 次の表示順序を取得
-      const maxDisplayOrder = await tx.quantityGroup.count({
-        where: { quantityTableId: input.quantityTableId },
-      });
+      // 3. 表示順序の決定（明示された値は重なりを拒み、省略時は末尾へ採番する）
+      const displayOrder = await this.resolveCreateDisplayOrder(
+        tx,
+        input.quantityTableId,
+        input.displayOrder
+      );
 
       // 4. 数量グループ作成
       const quantityGroup = await tx.quantityGroup.create({
@@ -177,7 +186,7 @@ export class QuantityGroupService {
           quantityTableId: input.quantityTableId,
           name: input.name?.trim() ?? null,
           surveyImageId: input.surveyImageId ?? null,
-          displayOrder: input.displayOrder ?? maxDisplayOrder,
+          displayOrder,
         },
         include: {
           _count: {
@@ -229,15 +238,120 @@ export class QuantityGroupService {
   }
 
   /**
+   * 当該数量表の行を `SELECT ... FOR UPDATE` で排他ロックする
+   *
+   * 並び順の個別 API が持つのは「数えてから書く」形の検査だけなので、行ロックが無いと
+   * 並行する2要求が互いの書き込みを見ないまま同じ検査を通過し、同じ displayOrder を
+   * 書きうる（Task 92.4 が実測した）。
+   *
+   * ロックの対象は Task 88.1 が `saveDraft` / `copy()` / `createGroupsFromSurvey()` で
+   * 取るのと同一の「数量表の行」である。**本スペックの書き込み経路はこの1行だけを、
+   * トランザクションの最初に取る。** 一つのトランザクションが或るロックを保持したまま
+   * 別のロックを待つ状態が生じないため、ロック順序の循環＝デッドロックは構造的に
+   * 起こらない。
+   *
+   * 行が無い／論理削除済みの判定は後続の読み取りに任せる（応答は従来どおり 404）。
+   *
+   * ## `AND "deletedAt" IS NULL` を付さない理由（Task 92.5 で明文化）
+   *
+   * 同じファイルの `copy()` / `createGroupsFromSurvey()` が取る行ロックは述語に
+   * `AND "deletedAt" IS NULL` を含むが、本ヘルパーは含まない。揃えなかったのは、
+   * **述語の有無で応答が変わらない**ためである。論理削除済みの数量表に対しては、
+   * 述語を付ければ行を握らずに進み、付けなければ行を握って進むが、いずれも直後の
+   * 読み取りが論理削除を見て 404 を返す。付す形にすると「ロックを取らずに検査を通した」
+   * 経路が新たに生じ、論理削除と同時に走る要求の扱いを別途考える必要が出る。
+   * `saveDraft` の行ロック（Task 88.1）も同じ理由で述語を持たず、本ヘルパーはそれと
+   * 同形である。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityTableId - 数量表ID
+   */
+  private async lockQuantityTableRow(
+    tx: PrismaTransactionClient,
+    quantityTableId: string
+  ): Promise<void> {
+    await tx.$queryRaw`
+      SELECT id FROM "quantity_tables"
+      WHERE id = ${quantityTableId}
+      FOR UPDATE
+    `;
+  }
+
+  /**
+   * 作成時の表示順序を決める
+   *
+   * 明示された値は当該数量表の既存グループと重ならないことを確かめる。省略時は末尾
+   * （最大値 + 1）へ採番し、グループが1件も無ければ 0 から始める。
+   *
+   * 採番に「件数」を使ってはならない。削除は後続グループの表示順序を詰めないため、
+   * 空き番号のある数量表では件数が既存の最大値と一致し、末尾と重なる（Task 92.1）。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityTableId - 数量表ID
+   * @param requested - 呼び出し側が明示した表示順序（未指定なら undefined）
+   * @returns 実際に書き込む表示順序
+   * @throws QuantityTableValidationError 明示された値が既存グループと重なる場合
+   */
+  private async resolveCreateDisplayOrder(
+    tx: PrismaTransactionClient,
+    quantityTableId: string,
+    requested: number | undefined
+  ): Promise<number> {
+    if (requested !== undefined) {
+      await this.assertDisplayOrderNotTaken(tx, quantityTableId, requested);
+      return requested;
+    }
+
+    const aggregated = await tx.quantityGroup.aggregate({
+      where: { quantityTableId },
+      _max: { displayOrder: true },
+    });
+
+    return (aggregated._max.displayOrder ?? -1) + 1;
+  }
+
+  /**
+   * 指定した表示順序が当該数量表の他のグループに使われていないことを確かめる
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityTableId - 数量表ID
+   * @param displayOrder - 判定する表示順序
+   * @param excludeGroupId - 判定から除くグループID（自分自身の現在値を指す更新を通すため）
+   * @throws QuantityTableValidationError 他のグループが同じ表示順序を持つ場合
+   */
+  private async assertDisplayOrderNotTaken(
+    tx: PrismaTransactionClient,
+    quantityTableId: string,
+    displayOrder: number,
+    excludeGroupId?: string
+  ): Promise<void> {
+    const taken = await tx.quantityGroup.count({
+      where: {
+        quantityTableId,
+        displayOrder,
+        ...(excludeGroupId !== undefined ? { id: { not: excludeGroupId } } : {}),
+      },
+    });
+
+    if (taken > 0) {
+      throw new QuantityTableValidationError(
+        QUANTITY_TABLE_VALIDATION_MESSAGES.DISPLAY_ORDER_DUPLICATED
+      );
+    }
+  }
+
+  /**
    * 現場調査画像の検証
    *
-   * 画像が存在し、同一プロジェクトに属していることを確認する。
+   * 画像が存在し、同一プロジェクトに属し、かつ親の現場調査が論理削除されて
+   * いないことを確認する。
    *
    * @param tx - Prismaトランザクションクライアント
    * @param surveyImageId - 現場調査画像ID
    * @param projectId - プロジェクトID
    * @throws SurveyImageNotFoundError 現場調査画像が存在しない場合
    * @throws QuantityTableValidationError 異なるプロジェクトの画像を指定した場合
+   * @throws SurveyDeletedError 親の現場調査が論理削除済みの場合
    */
   private async validateSurveyImage(
     tx: PrismaTransactionClient,
@@ -248,8 +362,9 @@ export class QuantityGroupService {
       where: { id: surveyImageId },
       select: {
         id: true,
+        surveyId: true,
         survey: {
-          select: { projectId: true },
+          select: { projectId: true, deletedAt: true },
         },
       },
     });
@@ -261,6 +376,15 @@ export class QuantityGroupService {
     if (surveyImage.survey.projectId !== projectId) {
       throw new QuantityTableValidationError('異なるプロジェクトの現場調査画像は紐付けできません');
     }
+
+    // 親の現場調査が論理削除済みなら紐付けを拒む（site-survey スペックの不変条件）。
+    // 判定は survey-deleted-guard の共通機構をそのまま用い、site-survey の5経路と
+    // 同じ SurveyDeletedError を投げる。応答（410）への写しは経路側が行う。
+    assertSurveyNotDeleted(
+      surveyImage.survey,
+      surveyImage.surveyId,
+      `削除された現場調査の画像は紐付けできません: ${surveyImage.surveyId}`
+    );
   }
 
   /**
@@ -356,6 +480,9 @@ export class QuantityGroupService {
    * @returns 更新された数量グループ情報
    * @throws QuantityGroupNotFoundError 数量グループが存在しない場合
    * @throws QuantityGroupConflictError 楽観的排他制御エラー
+   * @throws SurveyImageNotFoundError 指定した現場調査画像が存在しない場合
+   * @throws QuantityTableValidationError 異なるプロジェクトの画像を指定した場合
+   * @throws SurveyDeletedError 指定した現場調査画像の親の現場調査が論理削除済みの場合（410）
    */
   async update(
     id: string,
@@ -364,6 +491,17 @@ export class QuantityGroupService {
     expectedUpdatedAt: Date
   ): Promise<QuantityGroupInfo> {
     return await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4）。ロック対象を知るための先読みはロックの外で行うが、グループの
+      //    所属数量表は変わらない（数量表をまたぐ移動を許す経路が無い）ので安全である。
+      const owner = await tx.quantityGroup.findUnique({
+        where: { id },
+        select: { quantityTableId: true },
+      });
+      if (owner) {
+        await this.lockQuantityTableRow(tx, owner.quantityTableId);
+      }
+
       // 1. 数量グループの存在確認
       const quantityGroup = await tx.quantityGroup.findUnique({
         where: { id },
@@ -412,6 +550,13 @@ export class QuantityGroupService {
         updateData.surveyImageId = input.surveyImageId;
       }
       if (input.displayOrder !== undefined) {
+        // 他のグループが同じ表示順序を持つ状態を作らせない（自分自身は判定から除く。Task 92.1）
+        await this.assertDisplayOrderNotTaken(
+          tx,
+          quantityGroup.quantityTableId,
+          input.displayOrder,
+          id
+        );
         updateData.displayOrder = input.displayOrder;
       }
 
@@ -461,6 +606,10 @@ export class QuantityGroupService {
     actorId: string
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。適用後の重なりの検査より前に取る）
+      await this.lockQuantityTableRow(tx, quantityTableId);
+
       // 1. 数量表存在確認
       await this.validateQuantityTableExists(tx, quantityTableId);
 
@@ -476,7 +625,29 @@ export class QuantityGroupService {
         throw new QuantityTableValidationError('異なる数量表のグループが含まれています');
       }
 
-      // 3. 各グループの表示順序を更新
+      // 3. 適用後の並びに重なりが生じないことを確かめる。
+      //    要求の中の重複だけでなく、要求に含めなかった既存グループとの重なりも見る
+      //    （一部のグループだけを動かす要求でも重なりうるため。Task 92.1）
+      const currentGroups = await tx.quantityGroup.findMany({
+        where: { quantityTableId },
+        select: { id: true, displayOrder: true },
+      });
+
+      const resultingOrders = new Map<string, number>(
+        currentGroups.map((g) => [g.id, g.displayOrder])
+      );
+      for (const update of orderUpdates) {
+        resultingOrders.set(update.id, update.displayOrder);
+      }
+
+      const orderValues = [...resultingOrders.values()];
+      if (new Set(orderValues).size !== orderValues.length) {
+        throw new QuantityTableValidationError(
+          QUANTITY_TABLE_VALIDATION_MESSAGES.DISPLAY_ORDER_DUPLICATED
+        );
+      }
+
+      // 4. 各グループの表示順序を更新
       for (const update of orderUpdates) {
         await tx.quantityGroup.update({
           where: { id: update.id },
@@ -484,7 +655,7 @@ export class QuantityGroupService {
         });
       }
 
-      // 4. 監査ログの記録
+      // 5. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'QUANTITY_GROUP_UPDATED',
         actorId,
@@ -570,7 +741,9 @@ export class QuantityGroupService {
    * Requirements:
    * - 38.2: 数量グループのコピーボタンクリックで同一数量表内に複製する
    * - 38.3: 配下の全数量項目（各フィールド・並び順）を複製する
-   * - 38.4: 元の写真紐づけ（surveyImageId）を複製先でも維持する
+   * - 38.4: 元の写真紐づけ（surveyImageId）を複製先でも維持する。ただし他プロジェクトの
+   *   現調画像を指す紐付けは複製先へ写さない（Task 91.1。取得経路が同じ紐付けを落とす
+   *   ため、利用者から見て「紐づけられている写真」ではない。判断の経緯は複製の箇所の註）
    * - 38.5: 複製先のグループ名は「{元のグループ名}のコピー」
    * - 38.6: 上限超過時は元名を切り詰めてサフィックスを末尾に付与
    * - 38.7: 元グループの直下（displayOrder = 元 + 1）に挿入する
@@ -621,7 +794,18 @@ export class QuantityGroupService {
         where: { id: groupId },
         include: {
           quantityTable: {
-            select: { id: true, deletedAt: true },
+            // projectId は複製の経路の現調画像の所属の検査（Task 91.1）の突き合わせ先。
+            // 既に引いている行の取得項目が広がるだけで、問い合わせは増えない
+            select: { id: true, deletedAt: true, projectId: true },
+          },
+          // 所属の判定に用いる（Task 91.1）。取得経路（Task 86.3）と同じ取得項目である
+          surveyImage: {
+            select: {
+              id: true,
+              survey: {
+                select: { projectId: true },
+              },
+            },
           },
           items: {
             orderBy: { displayOrder: 'asc' },
@@ -659,11 +843,26 @@ export class QuantityGroupService {
       );
 
       // 6. 複製グループの挿入
+      //
+      // 複製の経路の現調画像の所属の検査（Task 91.1）。判断は
+      // `QuantityTableService.copy` と同一である——所属違反の紐付けは取得経路
+      // （Task 86.3）が `surveyImageId` ごと落とすため、利用者から見て「紐づけられて
+      // いる写真」ではなく、REQ-38.4 が維持を求める対象に当たらない。写したままにすると
+      // 複製先に新しい所属違反の行が永続化される。
+      //
+      // 複製全体を拒む向きは採らない。親の現場調査が論理削除された画像の紐付けは
+      // 落とさずに写す（Task 81.1 の不変条件。理由は数量表のコピーの註に書いた）。
+      // 紐付けを持たないグループでは `surveyImage` が無いため所属を判定しない
+      const linkedSurveyProjectId = sourceGroup.surveyImage?.survey.projectId;
+      const violatesProjectBoundary =
+        linkedSurveyProjectId !== undefined &&
+        linkedSurveyProjectId !== sourceGroup.quantityTable.projectId;
+
       const copiedGroup = await tx.quantityGroup.create({
         data: {
           quantityTableId,
           name: copiedName,
-          surveyImageId: sourceGroup.surveyImageId,
+          surveyImageId: violatesProjectBoundary ? null : sourceGroup.surveyImageId,
           displayOrder: sourceGroup.displayOrder + 1,
         },
         include: {
@@ -794,6 +993,13 @@ export class QuantityGroupService {
       }
 
       // 3. 対象現場調査の存在確認とプロジェクト所属検証
+      //
+      // Task 81.1 の判断: 本経路の判定は assertSurveyNotDeleted へ寄せない。
+      // 現調画像の紐付け（validateSurveyImage）と違い、ここが扱うのは現場調査そのもの
+      // を起点とする一括生成であり、応答は「対象が見つからない」意味の 404
+      // （SITE_SURVEY_NOT_FOUND）で既に確立している。共通機構は 410 を返すため、
+      // 寄せると一括生成 API の確立済みの応答が変わり、既存の統合検証も崩れる。
+      // 共通機構の適用範囲は「画像の親の状態を見る経路」に留める。
       const siteSurvey = await tx.siteSurvey.findUnique({
         where: { id: siteSurveyId },
         select: { id: true, name: true, deletedAt: true, projectId: true },

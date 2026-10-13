@@ -6,7 +6,7 @@
  *
  * # Props 設計の補足
  *
- * design.md L5296-5320 では Props を `{ open, promise, controller, onClose(result) }`
+ * design.md「BulkExportProgressDialog」では Props を `{ open, promise, controller, onClose(result) }`
  * と定義しているが、本実装では「進捗情報」を親（呼び出し元の BulkExportDialog 等）が
  * `bulkExportService.execute(input, onProgress, signal)` の `onProgress` で受け取って
  * state 管理し、本ダイアログには `progress: BulkExportProgress | null` として渡す
@@ -28,11 +28,15 @@
  * @requirement site-survey/REQ-31.11 進行中処理のキャンセル可能性
  * @requirement site-survey/REQ-31.13 部分失敗の明示
  * @requirement site-survey/REQ-31.14 成功分のみダウンロードと中止の選択
- * @see .kiro/specs/site-survey/design.md BulkExportProgressDialog (5296-5320)
+ * @see .kiro/specs/site-survey/design.md `##### BulkExportProgressDialog`
  */
 
 import React, { useEffect, useId, useState } from 'react';
-import type { BulkExportProgress, BulkExportResult } from '../../services/export/bulkExportService';
+import type {
+  BulkExportFailure,
+  BulkExportProgress,
+  BulkExportResult,
+} from '../../services/export/bulkExportService';
 
 // ============================================================================
 // 型定義
@@ -41,7 +45,7 @@ import type { BulkExportProgress, BulkExportResult } from '../../services/export
 /**
  * 部分失敗時のユーザー選択
  *
- * design.md L5313 の `PartialFailureChoice` と一致させる。
+ * design.md「BulkExportProgressDialog」の `PartialFailureChoice` と一致させる。
  */
 export type PartialFailureChoice = 'download-partial' | 'cancel';
 
@@ -88,6 +92,24 @@ export interface BulkExportProgressDialogProps {
    */
   onComplete: (result: BulkExportResult, downloadDecision?: PartialFailureChoice) => void;
 }
+
+/**
+ * 失敗理由の種別を利用者向けの文言へ写す。
+ *
+ * `BulkExportFailure.reason` は失敗が起きた工程を表す内部語であり、そのままでは
+ * 画面に出せない。要件31.13 が求める「どの理由で失敗したか」を、利用者が次の
+ * 行動を決められる粒度の日本語で示す。
+ */
+const failureReasonLabel = (reason: BulkExportFailure['reason']): string => {
+  switch (reason) {
+    case 'render':
+      return '注釈の描画に失敗しました';
+    case 'fetch':
+      return '画像の取得に失敗しました';
+    default:
+      return '原因を特定できない失敗です';
+  }
+};
 
 // ============================================================================
 // スタイル定義（ImageExportDialog と概ね統一）
@@ -221,6 +243,42 @@ const styles = {
     display: 'flex',
     justifyContent: 'flex-end',
     gap: '12px',
+  },
+  // 失敗一覧（要件31.13）
+  failureList: {
+    listStyle: 'none',
+    margin: '0 0 16px 0',
+    padding: '8px',
+    maxHeight: '200px',
+    overflowY: 'auto' as const,
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '6px',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '8px',
+  },
+  failureItem: {
+    fontSize: '13px',
+    lineHeight: 1.5,
+  },
+  failureName: {
+    display: 'block',
+    fontWeight: 600,
+    color: '#111827',
+    overflowWrap: 'anywhere' as const,
+  },
+  failureReason: {
+    display: 'block',
+    color: '#b91c1c',
+    overflowWrap: 'anywhere' as const,
+  },
+  failureMessage: {
+    display: 'block',
+    // 失敗一覧の薄赤の地（#fef2f2）の上で 4.5:1 以上を保つ（#6b7280 は 4.42:1 で届かない）
+    color: '#4b5563',
+    fontSize: '12px',
+    overflowWrap: 'anywhere' as const,
   },
 };
 
@@ -406,6 +464,23 @@ const BulkExportProgressDialog: React.FC<BulkExportProgressDialogProps> = ({
               {partialFailureCount} 件 失敗しました。 成功した {partialSuccessCount}{' '}
               件のみダウンロードしますか?
             </p>
+            {/*
+              どの画像がどの理由で失敗したかを 1 件ずつ提示する（要件31.13）。
+              件数だけでは利用者が原因の当たりを付けられず、再実行の判断もできない。
+            */}
+            <ul style={styles.failureList} data-testid="bulk-export-failure-list">
+              {result.failures.map((failure) => (
+                <li
+                  key={failure.imageId}
+                  style={styles.failureItem}
+                  data-testid={`bulk-export-failure-${failure.imageId}`}
+                >
+                  <span style={styles.failureName}>{failure.imageName}</span>
+                  <span style={styles.failureReason}>{failureReasonLabel(failure.reason)}</span>
+                  {failure.message && <span style={styles.failureMessage}>{failure.message}</span>}
+                </li>
+              ))}
+            </ul>
             <div style={styles.subFooter}>
               <button
                 type="button"

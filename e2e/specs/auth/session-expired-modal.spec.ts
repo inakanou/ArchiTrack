@@ -4,6 +4,7 @@ import { createTestUser, createAllTestUsers } from '../../fixtures/auth.fixtures
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * セッション切れモーダル再認証のE2Eテスト
@@ -304,8 +305,6 @@ test.describe('セッション切れモーダル再認証', () => {
     await passwordInput.fill('Password123!');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
-    // APIが呼び出されたことを確認
-    await page.waitForFunction(() => true, {}, { timeout: getTimeout(5000) });
     // 短い待機でAPIコールの完了を待つ
     await page.waitForTimeout(1000);
     expect(loginApiCalled).toBe(true);
@@ -378,13 +377,13 @@ test.describe('セッション切れモーダル再認証', () => {
       timeout: getTimeout(10000),
     });
 
-    // フォームの表示名フィールドを探して入力データを変更
+    // フォームの表示名フィールドに入力する。
+    // 表示名はプロフィール編集フォームの入力欄であり、必ず表示される（`ProfileForm`）。
+    // 観測して包むと、欄が出ない状態では入力も保持の検証も行われず緑になる。
     const displayNameInput = page.getByLabel(/表示名/i);
-    const isDisplayNameVisible = await displayNameInput.isVisible().catch(() => false);
-    if (isDisplayNameVisible) {
-      await displayNameInput.clear();
-      await displayNameInput.fill('テスト変更名');
-    }
+    await expect(displayNameInput).toBeVisible({ timeout: getTimeout(10000) });
+    await displayNameInput.clear();
+    await displayNameInput.fill('テスト変更名');
 
     // セッション切れモーダルをトリガー
     const dialog = await triggerSessionExpiredModal(page);
@@ -414,11 +413,8 @@ test.describe('セッション切れモーダル再認証', () => {
     // URLがプロフィールページのままであることを確認
     expect(page.url()).toContain('/profile');
 
-    // フォーム入力が保持されていることを確認
-    if (isDisplayNameVisible) {
-      const currentValue = await displayNameInput.inputValue();
-      expect(currentValue).toBe('テスト変更名');
-    }
+    // REQ-30.10: フォーム入力が保持されていることを無条件に確認する
+    await expect(displayNameInput).toHaveValue('テスト変更名');
   });
 
   /**
@@ -908,12 +904,10 @@ test.describe('セッション切れモーダル再認証', () => {
 
     // モーダルのサイズがビューポートに近いことを確認（フルスクリーン）
     const modalBoundingBox = await dialog.boundingBox();
-    expect(modalBoundingBox).not.toBeNull();
-    if (modalBoundingBox) {
-      // モバイル表示ではモーダルの幅がビューポート幅に近い
-      expect(modalBoundingBox.width).toBeGreaterThanOrEqual(375 * 0.9);
-      // モバイル表示ではmin-h-[80vh]で最小高さ80%のビューポート高さ
-      expect(modalBoundingBox.height).toBeGreaterThanOrEqual(667 * 0.7);
-    }
+    assertPresent(modalBoundingBox, 'セッション切れモーダルの境界ボックス');
+    // モバイル表示ではモーダルの幅がビューポート幅に近い
+    expect(modalBoundingBox.width).toBeGreaterThanOrEqual(375 * 0.9);
+    // モバイル表示ではmin-h-[80vh]で最小高さ80%のビューポート高さ
+    expect(modalBoundingBox.height).toBeGreaterThanOrEqual(667 * 0.7);
   });
 });

@@ -46,7 +46,10 @@ test.describe('ロールへの権限割り当て', () => {
    * 要件19.7: 複数権限の一括割り当てをトランザクション処理
    * 要件22.2: 権限追加・削除時の監査ログ記録
    * 要件22.7: 監査ログに変更前後の値を含める
-   * @requirement user-authentication/REQ-19.1 @requirement user-authentication/REQ-19.5 @requirement user-authentication/REQ-19.7
+   * @requirement user-authentication/REQ-19.1 @requirement user-authentication/REQ-19.5
+   *
+   * タスク 115.188 の是正: 従前は REQ-19.7 も名乗っていたが、本区間の表題・本文が述べる内容に対応するのは、
+   * 同じ区間が既に名乗っている受入基準19.1 である。重複する名乗りを取り下げた（REQ-19.7 は本区間の主張と別の事柄を述べている）。
    * @requirement user-authentication/REQ-22.2 @requirement user-authentication/REQ-22.7
    */
   test('管理者はロールに権限を追加できる', async ({ request }) => {

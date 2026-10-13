@@ -334,6 +334,20 @@ if [ -d "backend" ]; then
   fi
 
   echo "✅ All ES modules are valid (no import errors detected)"
+
+  # ============================================================================
+  # ビルドの出力の実行時資産の検証（CIと同一: ci.yml build job）
+  # ============================================================================
+  # 本番のイメージは dist だけを運ぶため、fs で読むメールのテンプレートが
+  # dist に在り、dist の EmailService から描画できることを確かめる
+  # ============================================================================
+  echo "🔍 Checking runtime assets in backend build output..."
+  npm --prefix backend run check:dist-assets
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend build output is missing runtime assets. Push aborted."
+    echo "💡 Hint: Files read via fs at runtime must be copied into dist by 'npm run build'"
+    exit 1
+  fi
 fi
 
 # Frontend build
@@ -679,9 +693,60 @@ release_memory "統合テスト"
 # ============================================================================
 # ベストプラクティス: E2Eテスト実行前に要件カバレッジを検証
 # - E2E対象の受入基準が100%カバーされていることを確認
-# - 除外リスト（e2e/requirement-exclusions.json）の要件は代替検証方法で対応
+# - 番号を持つ検証が本番の経路（index.html の入口 / サーバ起動 / 投入処理）から
+#   到達する本番シンボルを参照していることを確認（未結線コードに番号を付ける形を塞ぐ）
+# - 除外リスト（e2e/requirement-exclusions.json）は被覆ではなく分母外である。
+#   二重登録・記述欠落・要件に存在しない項目は失敗、代替検証の不在は --strict で失敗
 # - カバレッジ不足の場合、E2Eテストを実行せずに早期失敗
 # ============================================================================
+
+# ============================================================================
+# 除外定義の形式検査（要件カバレッジ検査の前提条件）
+# ============================================================================
+# 除外は被覆率の分母から受入基準を外す。定義が壊れていれば被覆の主張は空洞化する。
+# e2e/requirement-exclusions.json は長らく無検査のキャストだけで読まれ、$schema は
+# 存在しないファイルを指していた（タスク 115.144）。スキーマを実在させて適合を確かめる。
+# 検証器が壊れたまま本検査が「合格」を出すことを防ぐため、自己検査を先に走らせる。
+# ============================================================================
+
+echo "🔍 Checking requirement exclusions schema self-test..."
+npm run check:req-exclusions:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Requirement exclusions schema self-test failed. Push aborted."
+  echo ""
+  echo "   除外定義の形式検査そのものが壊れています。この状態では適合の判定は信用できません。"
+  echo "   固定資料: scripts/check-requirement-exclusions.selftest.ts"
+  echo ""
+  exit 1
+fi
+
+echo "📐 Checking requirement exclusions against schema..."
+npm run check:req-exclusions
+if [ $? -ne 0 ]; then
+  echo "❌ Requirement exclusions schema check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. e2e/requirement-exclusions.schema.json の必須項目・書式に合わせてください"
+  echo "  2. 分類を増やす場合は categories にも定義を加えてください"
+  echo "  3. 除外を増減した場合は summary の集計も合わせてください"
+  echo ""
+  echo "詳細確認: npm run check:req-exclusions:verbose"
+  exit 1
+fi
+
+echo "✅ Requirement exclusions schema check passed"
+echo ""
+
+echo "🔍 Checking requirement coverage self-test (reachability judgement)..."
+npm run check:req-coverage:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Requirement coverage self-test failed. Push aborted."
+  echo ""
+  echo "   本番到達性の判定が壊れています。この状態では被覆の検査結果は信用できません。"
+  echo "   固定資料: scripts/check-requirement-coverage.selftest.ts"
+  echo ""
+  exit 1
+fi
 
 echo "📋 Checking requirement coverage (prerequisite for E2E tests)..."
 echo "   This ensures all E2E-applicable acceptance criteria are covered."
@@ -695,12 +760,614 @@ if [ $? -ne 0 ]; then
   echo "  1. 未カバー受入基準に対応するE2Eテストを作成してください"
   echo "  2. テストに @REQ-N.M タグを追加してください"
   echo "  3. E2E対象外の場合は e2e/requirement-exclusions.json に追加してください"
+  echo "  4. 番号を付けた検証が本番未参照の部品だけを見ている場合は、本番へ結線するか死コードを撤去してください"
   echo ""
   echo "詳細確認: npm run check:req-coverage:verbose"
   exit 1
 fi
 
 echo "✅ Requirement coverage check passed"
+echo ""
+
+# ============================================================================
+# 受入基準が名指す逐語の実在チェック（タスク 115.292）
+# ============================================================================
+# 被覆を数える関門は「番号を名乗る検証が在るか」までしか見ない。名乗った検証が条文と
+# 反対のことを確かめていても被覆と数えられる（タスク 115.240 が他スペックの実測で露出させ、
+# 115.292 の起票時に親が変異で実証した。押下前の関門 17 本すべてが基線と同じ終了コード）。
+# - 機械で判定できる一形だけを関門化する: 条文が「」『』"" で名指す 3 文字以上の逐語が
+#   backend/src と frontend/src に一度も現れない組
+# - 赤の解除条件は二択（是正するか、裁定台帳へ理由と代替の根拠を書いて登録するか）
+# - 台帳の件数はラチェット（LEDGER_ENTRY_LIMIT との完全一致）で固定する
+# - 逐語を持たない条文と、主張の中身と条文の食い違い一般は本検査の外である
+# ============================================================================
+
+echo "🔍 Checking criterion literal detector self-test..."
+npm run check:criterion-literals:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Criterion literal detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:criterion-literals:selftest"
+  exit 1
+fi
+npm run check:criterion-literals
+if [ $? -ne 0 ]; then
+  echo "❌ Criterion literal presence check failed. Push aborted."
+  echo ""
+  echo "対応方法（赤の解除条件は二択です）:"
+  echo "  1. 是正する——実装へ逐語を入れるか、条文を実装の綴りへ揃えてください"
+  echo "  2. 台帳へ登録する——scripts/criterion-literal-adjudication.json へ"
+  echo "     理由（なぜ逐語が実装に無いのか）と代替の根拠（何が受入基準を支えているか）を書き、"
+  echo "     scripts/check-criterion-literal-presence.ts の LEDGER_ENTRY_LIMIT を同時に更新してください"
+  echo ""
+  echo "詳細確認: npm run check:criterion-literals:verbose"
+  exit 1
+fi
+
+echo "✅ Criterion literal presence check passed"
+echo ""
+
+# ============================================================================
+# E2E検証無効化チェック（E2Eテスト実行の前提条件）
+# ============================================================================
+# 書かれてはいるが実質的に何も検証しないE2Eテスト構造の再発を検知する
+# - 五つの型（条件分岐で検証本体を包む / 待機の指定を尊重しない判定 /
+#   常に真になる判定 / 応答の項目の有無を条件にする / 自ら観測した結果を条件にする）
+#   および補助規則（条件付きスキップ）
+# - 局所変数を挟んだ形も初期化子を辿って同等に分類する
+# - e2e/assertion-guard-baseline.json の既知件数を超えた場合に失敗
+# - 除外（e2e-guard-allow）が増えた場合、理由の無い除外がある場合も失敗
+# - 検出器の退行は検出器自身の検査でしか捕まらないため、本検査の前に自己検査を走らせる
+# ============================================================================
+
+echo "🔍 Checking for disabled E2E assertions..."
+npm run check:e2e-guards:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ E2E assertion guard detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:e2e-guards:selftest"
+  exit 1
+fi
+npm run check:e2e-guards
+if [ $? -ne 0 ]; then
+  echo "❌ E2E assertion guard check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 検証を無条件にしてください（前提が満たせない場合は失敗させる）"
+  echo "  2. 正当な分岐であれば該当行の直前に '// e2e-guard-allow: <理由>' を付けてください"
+  echo "  3. 是正して件数が減った場合は 'npm run check:e2e-guards:update' で基準を更新してください"
+  echo ""
+  echo "詳細確認: npm run check:e2e-guards:verbose"
+  exit 1
+fi
+
+echo "✅ E2E assertion guard check passed"
+echo ""
+
+# ============================================================================
+# 設計文書への行番号参照チェック
+# ============================================================================
+# 設計文書を行番号で指す形の再発を、二つの母集団で検知する
+# - 設計文書は追記・改訂で行数が変わるため、行番号の参照は原理的に維持できない
+#   （タスク 115.71 のレビューで、参照先が全く別の内容を指す状態が判明した）
+# - 節の題とシンボル名で指す形へ改めること
+# - 走査対象(1): frontend/src / backend/src の本番コード（テストコードは対象外）
+# - 走査対象(2): .kiro/specs/*/design.md 自身（タスク 115.211）
+#   設計文書が自分自身を行番号で指す形は、上の(1)にも check:design-code-refs にも
+#   掛からない死角だった。タスク 115.172 が撤去した 12 件は撤去の時点で全件失効しており
+#   （ずれ幅 27〜51 行）、文書が育つ限り行番号は失効し続ける
+# ============================================================================
+
+echo "🔍 Checking design document line references (production code and design docs)..."
+npm run check:design-refs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design reference detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:design-refs:selftest"
+  exit 1
+fi
+npm run check:design-refs
+if [ $? -ne 0 ]; then
+  echo "❌ Design reference format check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 設計文書の該当箇所を開き、その内容を含む節の題を確認してください"
+  echo "  2. 行番号ではなく『節の題』と『シンボル名』で指す形へ書き換えてください"
+  echo ""
+  echo "詳細確認: npm run check:design-refs:verbose"
+  exit 1
+fi
+
+echo "✅ Design reference format check passed"
+echo ""
+
+# ============================================================================
+# 追跡表の受入基準の網羅チェック（タスク 115.228）
+# ============================================================================
+# 設計文書の Requirements Traceability 表が、要件定義書の受入基準を取りこぼしていないかを見る
+# - タスク 115.208 が site-survey の要件4 へ受入基準14 を新設したとき、追跡表の該当行は
+#   `4.1-4.6, 4.9` のままで 4.14 を含まなかった。この漏れは既存のどの検査にも掛からなかった
+#   （check:design-refs は参照の形式、check:design-path-refs はパスの実在しか見ない）
+# - 判定は「機能ごとに宣言した状態から悪化していないこと」（scripts の FEATURE_POLICIES）
+# - 受入基準を新設したのに追跡表へ番号を足していない場合に落ちる
+# - 検出器が壊れたまま「合格」を出すことを防ぐため、本検査の前に自己検査を走らせる
+# ============================================================================
+
+echo "🔍 Checking traceability table coverage self-test..."
+npm run check:trace-coverage:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Traceability coverage detector self-test failed. Push aborted."
+  echo ""
+  echo "   追跡表の網羅の検出規則そのものが壊れています。この状態では判定は信用できません。"
+  echo "   固定資料: scripts/check-traceability-coverage.selftest.ts"
+  echo ""
+  exit 1
+fi
+npm run check:trace-coverage
+if [ $? -ne 0 ]; then
+  echo "❌ Traceability table coverage check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 受入基準を新設したなら design.md の追跡表の Requirement 列へ番号を加えてください"
+  echo "     （併合行なら \`4.1-4.6, 4.9, 4.14\` のように列へ足せば行数は動きません）"
+  echo "  2. 受入基準を撤廃したなら追跡表の側の番号も落としてください"
+  echo "  3. 行を起こせない事情があるなら scripts/check-traceability-coverage.ts の"
+  echo "     FEATURE_POLICIES へ理由と併せて宣言してください"
+  echo ""
+  echo "詳細確認: npm run check:trace-coverage:verbose"
+  exit 1
+fi
+
+echo "✅ Traceability table coverage check passed"
+echo ""
+
+# ============================================================================
+# 追跡表と部品別の自己申告の突き合わせ（タスク 115.247）
+# ============================================================================
+# 同じ設計文書の中で、担い手の要件が二様に書かれていないかを見る
+# - タスク 115.217 のレビューが site-survey の design.md に、追跡表の行は
+#   AnnotationContextMenu へ要件28 を割り当てる一方、同じ章の Component Summary の行と
+#   詳細節の Requirements 欄は要件27 しか挙げていない食い違いを見つけた
+# - 上の check:trace-coverage は追跡表の Requirement 列しか見ない（Components 列の中身は
+#   対象外だと自身の限界に明記している）。この面を見る検査はリポジトリに無かった
+# - 判定は「機能ごとに宣言した状態から悪化していないこと」（FEATURE_POLICIES）
+# - 検出器が壊れたまま「合格」を出すことを防ぐため、本検査の前に自己検査を走らせる
+# ============================================================================
+
+echo "🔍 Checking design component requirement consistency self-test..."
+npm run check:design-component-reqs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design component requirement detector self-test failed. Push aborted."
+  echo ""
+  echo "   突き合わせの検出規則そのものが壊れています。この状態では判定は信用できません。"
+  echo "   固定資料: scripts/check-design-component-requirements.selftest.ts"
+  echo ""
+  exit 1
+fi
+npm run check:design-component-reqs
+if [ $? -ne 0 ]; then
+  echo "❌ Design component requirement consistency check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. どちらが正かを決めてください（要件定義書の条文へ当たること）"
+  echo "  2. 追跡表が正なら、部品表の Req Coverage 欄と詳細節の Requirements 欄へ番号を足す"
+  echo "  3. 部品別の自己申告が正なら、追跡表の Components 列から当該部品を外し、"
+  echo "     再び割り当て直さないための注記を添える（タスク 115.246 の先例）"
+  echo "  4. 是正できない事情があるなら scripts/check-design-component-requirements.ts の"
+  echo "     FEATURE_POLICIES へ理由と併せて宣言してください"
+  echo ""
+  echo "詳細確認: npm run check:design-component-reqs:verbose"
+  exit 1
+fi
+
+echo "✅ Design component requirement consistency check passed"
+echo ""
+
+# ============================================================================
+# 本番コードへの行番号参照チェック（上のチェックの対偶）
+# ============================================================================
+# 設計文書が本番コードを `パス:行` で指す形の再発を検知する
+# - 本番コードは改修で行数が変わるため、行番号の参照は原理的に維持できない
+#   （タスク 115.149 の実測で、実体対照表 69 件のうち 16 件が失効していた）
+# - パス（行番号なし）とシンボル名で指す形へ改めること
+# - 走査対象は .kiro/specs/*/design.md（テストコードを指す参照は対象外）
+# ============================================================================
+
+echo "🔍 Checking production code references in design documents..."
+npm run check:design-code-refs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design-to-code reference detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:design-code-refs:selftest"
+  exit 1
+fi
+npm run check:design-code-refs
+if [ $? -ne 0 ]; then
+  echo "❌ Design-to-code reference format check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 設計文書の該当箇所を開き、その行番号が指していた宣言の名前を確認してください"
+  echo "  2. 行番号を消し、『パス』と『シンボル名』で指す形へ書き換えてください"
+  echo "     例: \`frontend/src/types/site-survey.types.ts\` の \`AnnotationData\`"
+  echo ""
+  echo "詳細確認: npm run check:design-code-refs:verbose"
+  exit 1
+fi
+
+echo "✅ Design-to-code reference format check passed"
+echo ""
+
+# ============================================================================
+# 設計文書の実在参照チェック
+# ============================================================================
+# 設計文書が挙げるパス・ファイル名が実在しない状態を検知する
+# - check:design-code-refs は参照の「形式」だけを見るため、実在しないファイルを
+#   指す参照は形式が正しければ通過する（タスク 115.173 の実測で 7 件が残っていた）
+# - 設計文書は歴史記録を保存してよい文書であるため、当該ファイルの不在を述べる行が
+#   同じ文書内にあれば免除する（撤去の記録と失効した参照の区別）
+# - 走査対象は .kiro/specs/*/design.md のバッククォート付きパス・ファイル名
+# ============================================================================
+
+echo "🔍 Checking design document path references..."
+npm run check:design-path-refs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design path reference detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:design-path-refs:selftest"
+  exit 1
+fi
+npm run check:design-path-refs
+if [ $? -ne 0 ]; then
+  echo "❌ Design document path reference check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. いま在るものを指している記述なら、実在するパスへ指し直してください"
+  echo "  2. 当時こうしたという記録なら、当該ファイルを名指したうえで不在を述べる行を"
+  echo "     同じ設計文書に一つ置いてください（「撤去済み」「削除」「実在しない」など）"
+  echo ""
+  echo "詳細確認: npm run check:design-path-refs:verbose"
+  exit 1
+fi
+
+echo "✅ Design document path reference check passed"
+echo ""
+
+# ============================================================================
+# 設計文書の実測値の鮮度チェック
+# ============================================================================
+# 設計文書が引く件数が現況と一致しない状態を検知する（タスク 115.232）
+# - check:design-refs は参照の形式、check:design-path-refs はパスの実在しか見ないため、
+#   本書が引く「N 件」が古くなっても、どの関門にも掛からなかった
+# - scripts/design-measurements.json が {file, anchor, command, expected} を宣言し、
+#   リポジトリルートで各コマンドを走らせて突き合わせる
+# - 宣言と現況の一致だけでなく、宣言した字面が文書の当該行に在ることも見る（双方向）
+# - 実行時間は約 1.2 秒（2026-09-02 に実測。自己検査は約 2.2 秒。いずれも npm 経由で計測）
+# ============================================================================
+
+echo "🔍 Checking design document measurement freshness..."
+npm run check:design-measurement-freshness:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design measurement freshness detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:design-measurement-freshness:selftest"
+  exit 1
+fi
+npm run check:design-measurement-freshness
+if [ $? -ne 0 ]; then
+  echo "❌ Design document measurement freshness check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 現況が動いたなら、設計文書の数値と宣言の expected を同時に測り直してください"
+  echo "  2. 文書側だけが古いなら documentFigure と divergence を宣言してください"
+  echo "     （DECLARED_STALE_DOCUMENT_FIGURES も同時に動かすこと）"
+  echo ""
+  echo "詳細確認: npm run check:design-measurement-freshness:verbose"
+  exit 1
+fi
+
+echo "✅ Design document measurement freshness check passed"
+echo ""
+
+# ============================================================================
+# steering の実在参照チェック
+# ============================================================================
+# steering が現存物として挙げるファイルが実在しない状態を検知する
+# - .kiro/steering/ は毎セッション読み込まれる「現在の構成」の記述であり、
+#   撤去・改名に追随していない記載は後任を存在しないファイルへ導く
+#   （タスク 115.169 の実測で、撤去済み 7 件が structure.md / tech.md に残っていた）
+# - 走査対象は .kiro/steering/*.md のツリーの葉と先頭逆引用符の箇条書き
+# ============================================================================
+
+echo "🔍 Checking steering file references..."
+npm run check:steering-refs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering reference detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-refs:selftest"
+  exit 1
+fi
+npm run check:steering-refs
+if [ $? -ne 0 ]; then
+  echo "❌ Steering file reference check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 報告されたファイル名が撤去・改名されていないか確認してください"
+  echo "  2. steering の記載を落とすか、移管先のファイル名へ指し直してください"
+  echo ""
+  echo "詳細確認: npm run check:steering-refs:verbose"
+  exit 1
+fi
+
+echo "✅ Steering file reference check passed"
+echo ""
+
+# ============================================================================
+# steering が現存物として挙げる識別子が実在しない状態を検知する
+# - 115.169 の検査は「ファイル名」を見るが、ファイル名を伴わない識別子
+#   （部品名・関数名・拡張子なしのモジュール経路）の失効は網に掛からない
+#   （タスク 115.198。実測では tech.md の2箇所が撤去済み ImageViewer を
+#   現存の共有先として挙げていた）
+# - 走査対象は .kiro/steering/*.md のインラインコードのうち、
+#   PascalCase の裸の識別子・受け手なしの呼び出し形・拡張子なしのスラッシュ付き経路
+# ============================================================================
+
+echo "🔍 Checking steering identifier references..."
+npm run check:steering-idents:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering identifier detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-idents:selftest"
+  exit 1
+fi
+npm run check:steering-idents
+if [ $? -ne 0 ]; then
+  echo "❌ Steering identifier reference check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 報告された識別子が撤去・改名されていないか確認してください"
+  echo "  2. steering の記載を落とすか、移管先の識別子へ指し直してください"
+  echo ""
+  echo "詳細確認: npm run check:steering-idents:verbose"
+  exit 1
+fi
+
+echo "✅ Steering identifier reference check passed"
+echo ""
+
+# ============================================================================
+# steering のテスト区分の列挙が実体とずれた状態を検知する
+# - 115.169 / 115.198 / 115.199 の検査はいずれも「挙げたものが実在するか」を見る。
+#   「挙げていないものがある」＝過小の側はどれも見ていなかった
+#   （タスク 115.200。tech.md の unit/utils/ は 8ファイル中1件しか挙げていなかった）
+# - 印（<!-- steering:test-dirs <根> -->）で囲まれた列挙だけを網羅と見なし、
+#   その根の直下でテストを含むディレクトリ集合と過不足なく一致することを要求する
+# - あわせて、steering にテストの件数・テストファイル数を書かない規約を強制する
+#   （是正前の実データは数値59個のうち38個が既に陳腐化していた）
+# ============================================================================
+
+echo "🔍 Checking steering test tree enumeration..."
+npm run check:steering-test-tree:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering test tree detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-test-tree:selftest"
+  exit 1
+fi
+npm run check:steering-test-tree
+if [ $? -ne 0 ]; then
+  echo "❌ Steering test tree check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 網羅宣言（印で囲んだ列挙）の中身を実体へ揃えてください"
+  echo "  2. 件数の指摘は数値を落とし、数える手段（npm --prefix backend run test 等）を書いてください"
+  echo "  3. 網羅を主張しない列挙は印で囲まず「代表例」と明記してください"
+  echo ""
+  echo "詳細確認: npm run check:steering-test-tree:verbose"
+  exit 1
+fi
+
+echo "✅ Steering test tree check passed"
+echo ""
+
+# ============================================================================
+# steering の実体の件数が版の手掛かりを持たないまま凍る状態を検知する
+# - check:steering-test-tree の件数の規約は「テスト」を含む行だけを見るため、
+#   ディレクトリ注記（注釈ツール（11ファイル）等）は網の外だった（タスク 115.275）
+# - 是正前の structure.md には実測日を持たない件数が30行あり、再現コマンドを書ける
+#   21行のうち13行が既に食い違っていた（quantity-table/ 22→68 など。2026-09-05 実測）
+# - 数値 + 実体の単位語を含む行に YYYY-MM-DD の実測日が無ければ落とす（規約 (a)）。
+#   数値を落として数える手段を書けば（規約 (b)）網に掛からない
+# ============================================================================
+
+echo "🔍 Checking steering artifact counts..."
+npm run check:steering-dir-counts:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering artifact count detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-dir-counts:selftest"
+  exit 1
+fi
+npm run check:steering-dir-counts
+if [ $? -ne 0 ]; then
+  echo "❌ Steering artifact count check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 実測日（YYYY-MM-DD）と再現コマンドを数値と同じ行へ添えてください（規約 (a)）"
+  echo "  2. または数値を落とし、数える手段（git ls-files <dir> | wc -l 等）を書いてください（規約 (b)）"
+  echo ""
+  echo "詳細確認: npm run check:steering-dir-counts:verbose"
+  exit 1
+fi
+
+echo "✅ Steering artifact count check passed"
+echo ""
+
+# ============================================================================
+# steering が述べる「検証の実行方法」と実挙動の一致を検知する（タスク 115.288）
+# - タスク 115.243 が変異で実証: 是正した註を偽の形へ戻しても既存の五つの関門
+#   （steering-refs / -idents / -test-tree / -dir-counts / design-measurement-freshness）
+#   はすべて終了コード 0 のままだった（コミット 511000a7 で再現。2026-09-05 実測）
+# - 見るのは三つだけ: (i) 名指した npm スクリプトの実在、(ii)「全件」「〜だけ」の主張と
+#   vitest の構成から導いた選択範囲の一致、(iii) 同じ資材を名指す起動コマンドの実行器の一致
+# - 註の主張と実挙動の一致は一般には機械判定できない。残りは
+#   .kiro/steering/development-discipline.md の作法が拘束する
+# ============================================================================
+
+echo "🔍 Checking steering command annotations..."
+npm run check:steering-command-annotations:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering command annotation detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-command-annotations:selftest"
+  exit 1
+fi
+npm run check:steering-command-annotations
+if [ $? -ne 0 ]; then
+  echo "❌ Steering command annotation check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 名指した npm スクリプトが当該 package.json に実在するか確かめてください"
+  echo "  2. 「全件」「〜だけ」と述べた註は、vitest の構成が実際に選ぶ範囲と揃えてください"
+  echo "  3. 同じ資材の起動コマンドは文書間で実行器を揃えてください（実際に叩いて正否を決める）"
+  echo ""
+  echo "詳細確認: npm run check:steering-command-annotations:verbose"
+  exit 1
+fi
+
+echo "✅ Steering command annotation check passed"
+echo ""
+
+# ============================================================================
+# E2E画面内自前判定チェック（E2Eテスト実行の前提条件）
+# ============================================================================
+# 画面の中で本番の判定を自前で書き起こし、その書き起こしへ主張する構造を検知する
+# - R1: 引数を取らず画面の状態へ触れないまま返した値へ主張する形
+# - R2: 同じスクリプトの中で自分が書いた鍵だけを読み返した値へ主張する形
+# - いずれも返り値が呼び出し側で消費される場合に限る（主張の無い呼び出しは対象外）
+# - 既存の check:e2e-guards は恒真式と条件包みを見るため、この形は素通りする
+# ============================================================================
+
+echo "🔍 Checking for in-page self-judgement in E2E..."
+npm run check:e2e-selfjudge:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ In-page self-judgement detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:e2e-selfjudge:selftest"
+  exit 1
+fi
+npm run check:e2e-selfjudge
+if [ $? -ne 0 ]; then
+  echo "❌ E2E in-page self-judgement check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 本番の経路を通る観測（画面の描画・本番が置いた値・APIの応答）へ主張を向けてください"
+  echo "  2. 要件が未実装であることが露見した場合は、検証を失敗したまま残して起票してください"
+  echo ""
+  echo "詳細確認: npm run check:e2e-selfjudge:verbose"
+  exit 1
+fi
+
+echo "✅ E2E in-page self-judgement check passed"
+echo ""
+
+# ============================================================================
+# 反実仮想の引用チェック（記録の信頼性の前提条件）
+# ============================================================================
+# 「この変異を当てれば赤くなる／緑のままである」という反実仮想を、実際に変異を
+# 実行せずに書くと、後任が誤診する（タスク 115.168 / 115.170 / 115.171 で三度発生）
+# - コード注釈の中で、コード上の名前を名指しし、変異の語と検査の判定の語を同じ文に
+#   持つ記述を「反実仮想」として取り出す
+# - 同じ注釈の塊に「実行を述べる語 + 数字」が無ければ失格
+# - 本検査は文面だけを見る。実行そのものは保証しない（限界は本体の注釈に明記）
+# ============================================================================
+
+echo "🔍 Checking counterfactual claims cite an executed mutation..."
+npm run check:cf-evidence:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Counterfactual evidence detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:cf-evidence:selftest"
+  exit 1
+fi
+npm run check:cf-evidence
+if [ $? -ne 0 ]; then
+  echo "❌ Counterfactual evidence check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 記述した変異を実際に当て、落ちた件数・比・日付を同じ注釈へ書いてください"
+  echo "  2. 変異を実行できないなら、反実仮想そのものを書かないでください"
+  echo ""
+  echo "詳細確認: npm run check:cf-evidence:verbose"
+  exit 1
+fi
+
+echo "✅ Counterfactual evidence check passed"
+echo ""
+
+# ============================================================================
+# 死んだ環境変数チェック（設定しても何も変わらない環境変数の再発防止）
+# ============================================================================
+# npm スクリプトが `VAR=value` で設定する環境変数に、読む側がリポジトリのどこにも
+# 無い状態を検出する（タスク 115.216 / 115.244）
+# - 定義元は 3 つの package.json（ルート / backend / frontend）
+# - 読み手はリポジトリ全体。コード注釈と行頭 `#` の注釈は照合前に除去する
+# - `const { X } = process.env` の分割代入も読み手として数える
+# - 母集団（設定される環境変数）が空なら合格にしない（第3原則）
+# ============================================================================
+
+echo "🔍 Checking npm scripts do not set unread environment variables..."
+npm run check:dead-script-env:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Dead script env detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:dead-script-env:selftest"
+  exit 1
+fi
+npm run check:dead-script-env
+if [ $? -ne 0 ]; then
+  echo "❌ Dead script env check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 設定した環境変数を読む側を実装するか、設定そのものを撤去してください"
+  echo "  2. 読んでいるのに検出される場合は判定器の限界です。本体の注釈を確認してください"
+  echo ""
+  echo "詳細確認: npm run check:dead-script-env:verbose"
+  exit 1
+fi
+
+echo "✅ Dead script env check passed"
+echo ""
+
+# ============================================================================
+# 裁定記録 §4 の指し先が走査の正典に実在することを検出する（タスク 115.300）
+# - 対象は scripts/coverage-mark-adjudication.md の "## 4." から "## 5." の手前まで
+# - 指し先は `e2e/specs/...` のパスと区間の表題の逐語で持つ（行番号は追記で動くため禁止）
+# - 走査の正典は scripts/scan-coverage-mark-correspondence.ts が出す
+# - 節が消えた・正典が空・登録件数が宣言とずれた場合も合格にしない（第3原則）
+# - 記録が引く「実測値の鮮度」は見ない（その判断はタスク 115.301 の所管）
+# ============================================================================
+
+echo "🔍 Checking adjudication record pointers exist in the coverage-mark canon..."
+npm run check:adjudication-pointers:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Adjudication pointer detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:adjudication-pointers:selftest"
+  exit 1
+fi
+npm run check:adjudication-pointers
+if [ $? -ne 0 ]; then
+  echo "❌ Adjudication pointer check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 区間が動いた場合は表題の逐語へ指し先を引き直してください（行番号は使いません）"
+  echo "  2. 被覆印を取り下げた場合は §4 の登録も外し、DECLARED_POINTER_COUNT を合わせてください"
+  echo ""
+  echo "詳細確認: npm run check:adjudication-pointers:verbose"
+  exit 1
+fi
+
+echo "✅ Adjudication pointer check passed"
 echo ""
 
 # ============================================================================
@@ -860,6 +1527,11 @@ E2E_EXIT_CODE=$?
 if [ $E2E_EXIT_CODE -ne 0 ]; then
   echo ""
   echo "❌ E2E tests failed. Push aborted."
+  echo ""
+  echo "   失敗には「再試行で回復した検証（flaky）」も含まれる。"
+  echo "   playwright.config.ts の failOnFlakyTests により、再試行のみで緑になった実行は"
+  echo "   失敗として扱う（緑であることと、一度で緑になることは別の主張である）。"
+  echo "   該当があれば上の RETRY-RECOVERED FAILURES (FLAKY) にテスト名と試行結果が出る。"
   npm run test:docker:down > /dev/null 2>&1
   exit 1
 fi

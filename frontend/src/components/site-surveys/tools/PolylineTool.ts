@@ -25,7 +25,11 @@
 
 import { Group, Polyline } from 'fabric';
 
-import { ANNOTATION_DEFAULTS, type ShapeOutlineAttribute } from '../annotation-style-tokens';
+import {
+  ANNOTATION_DEFAULTS,
+  resolveShapeOutlineWidth,
+  type ShapeOutlineAttribute,
+} from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -115,7 +119,7 @@ const MIN_POINT_COUNT = 2;
  * の 2 つの子 Polyline を持つ。
  *
  * 開放形状のため両 Polyline の `fill` は `'transparent'` を維持する
- * （design.md 5347 行: 「開放形状 2 種（Polyline/Freehand）は両 path とも fill 未使用」）。
+ * （design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」: 「開放形状 2 種（Polyline/Freehand）は両 path とも `fill` 未使用」）。
  *
  * `type === 'polylineShape'` は維持（classRegistry 後方互換）。
  *
@@ -166,7 +170,12 @@ export class PolylineShape extends Group {
     const mergedOptions = { ...DEFAULT_POLYLINE_OPTIONS, ...options };
 
     // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
-    const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.polylineOutline };
+    // Task 115.53 (Req 32.2): 片側幅は既定線幅由来の固定値ではなく本体線幅から算出し、
+    // 描画される縁取り線幅が本体線幅の 1.5 倍以上となる比率を全線幅で満たす。
+    const outline: ShapeOutlineAttribute = {
+      ...ANNOTATION_DEFAULTS.polylineOutline,
+      width: resolveShapeOutlineWidth(mergedOptions.strokeWidth),
+    };
 
     // 点配列のコピー
     const pointsCopy = points.map((p) => ({ ...p }));
@@ -176,7 +185,7 @@ export class PolylineShape extends Group {
     // 親 Group が位置決めし、子は points で形状を保持することで
     // 移動・リサイズ・回転・頂点編集時に同期する（Req 32.4）。
     //
-    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    // 開放形状のため fill は 'transparent'（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
     const outlinePolyline = new Polyline(pointsCopy, {
       stroke: outline.color,
       strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
@@ -194,7 +203,7 @@ export class PolylineShape extends Group {
     });
 
     // 本体 Polyline を生成
-    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    // 開放形状のため fill は 'transparent'（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
     // 既存 PolylineOptions の `fill` は API 上維持するが、実描画では使用しない。
     const bodyPolyline = new Polyline(pointsCopy, {
       stroke: mergedOptions.stroke,
@@ -383,6 +392,8 @@ export class PolylineShape extends Group {
   setStrokeWidth(width: number): void {
     this.strokeWidth = width;
     this._bodyPolyline.set('strokeWidth', width);
+    // Task 115.53 (Req 32.2): 本体線幅の変更に追随して片側幅も再算出する
+    this._outline = { ...this._outline, width: resolveShapeOutlineWidth(width) };
     this._outlinePolyline.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }
@@ -392,7 +403,7 @@ export class PolylineShape extends Group {
    *
    * Task 80.1: 折れ線は開放形状のため実描画では fill は使用しないが、
    * 既存 API 互換のために Group プロパティのみ更新する。
-   * 両子 Polyline の fill は 'transparent' のまま維持する（design.md 5347 行）。
+   * 両子 Polyline の fill は 'transparent' のまま維持する（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
    */
   setFill(color: string): void {
     this.fill = color;
@@ -505,7 +516,7 @@ export class PolylineShape extends Group {
    * - 必須フィールド（points 配列・各点の x/y・stroke/strokeWidth/fill）欠落や
    *   null/undefined 受領時は安全な既定値（最低 2 点の水平線、stroke 黒、strokeWidth 2、
    *   fill 'transparent'）で復元し、console.warn を送出する（防御的フォールバック）。
-   *   折れ線は開放形状のため fill 既定は 'transparent' を採用（design.md 5347 行）。
+   *   折れ線は開放形状のため fill 既定は 'transparent' を採用（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
    *
    * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたPolylineShapeインスタンス
@@ -584,7 +595,7 @@ export class PolylineShape extends Group {
       // Req 32.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
       //   既存の ANNOTATION_DEFAULTS.polylineOutline（enabled=true）を無効化し、
       //   outlinePolyline.opacity=0 + width=0 で「白縁取り無し」状態にする。
-      polyline.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+      polyline.setOutline({ enabled: false, color: ANNOTATION_DEFAULTS.outlineColor, width: 0 });
     }
 
     return Promise.resolve(polyline);

@@ -368,4 +368,26 @@ describe('Dashboard', () => {
       expect(screen.queryByText('管理機能')).not.toBeInTheDocument();
     });
   });
+  /**
+   * 見出しの長い表示名の折り返し（Task 40.3）
+   *
+   * 区切りの無い英数字一語の長い表示名でも、見出しが画面幅を超えて文書を水平にはみ出させないよう、
+   * 見出しは任意の位置での折り返し（overflowWrap: anywhere）を持つ。
+   * 実際の折り返しと文書幅は E2E（e2e/specs/auth/dashboard-responsive.spec.ts）で測る。
+   */
+  describe('見出しの長い表示名の折り返し', () => {
+    it('区切りの無い長い表示名でも見出しが任意の位置で折り返す指定を持つ', () => {
+      const longName = 'Abcdefghij0123456789'.repeat(5);
+      useAuthMock.mockReturnValue({
+        user: { ...mockUser, displayName: longName },
+        isLoading: false,
+        error: null,
+      });
+      renderWithRouter();
+
+      const heading = screen.getByRole('heading', { level: 1 });
+      expect(heading).toHaveTextContent(`ようこそ、${longName}さん`);
+      expect(heading.style.overflowWrap).toBe('anywhere');
+    });
+  });
 });

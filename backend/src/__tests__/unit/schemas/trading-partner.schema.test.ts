@@ -4,7 +4,7 @@
  * Requirements:
  * - 2.2, 2.3, 2.4, 2.5, 2.6: 必須・任意項目のバリデーション
  * - 2.9, 2.10: メールアドレス形式、重複エラー
- * - 11.1-11.13: 各フィールドの文字数制限・形式バリデーション
+ * - 11.1-11.11: 各フィールドの文字数制限・形式バリデーション
  */
 
 import { describe, it, expect } from 'vitest';
@@ -77,6 +77,26 @@ describe('createTradingPartnerSchema', () => {
       }
     });
 
+    /**
+     * @requirement trading-partner-management/REQ-6.2: The 取引先管理サービス shall 取引先種別を取引先登録時の必須選択項目として提供する
+     *
+     * 本検証は当該条文を機構として観測する。登録用スキーマ
+     * `createTradingPartnerSchema` が種別の空配列を拒み `TYPES_REQUIRED` を返すことを
+     * 主張しており、「登録時の必須選択項目」がそのまま主張である。観測の対象は本番モジュール
+     * backend/src/schemas/trading-partner.schema.ts の `createTradingPartnerSchema` の
+     * `types`（`.min(1, TYPES_REQUIRED)`）であり、当該スキーマは
+     * backend/src/routes/trading-partners.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * 空振りでないことの実測: `types` の `.min(1, ...)` を `.min(0, ...)` へ緩めると、
+     * 本検証を含む 162件中1件が落ちる（2026-09-07 実測。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/schemas/trading-partner.schema.test.ts`。
+     * 変異は復元済み）。
+     *
+     * 従前この条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/trading-partner.model.test.ts の前書きだけで、
+     * 同ファイルは本番モジュールを一つも取り込まないため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     */
     it('typesが空配列の場合エラーになること', () => {
       const result = createTradingPartnerSchema.safeParse({
         ...validData,
@@ -424,6 +444,22 @@ describe('createTradingPartnerSchema', () => {
     });
   });
 
+  /**
+   * @requirement trading-partner-management/REQ-11.9: The 取引先管理サービス shall 請求締日を1〜31の整数値または「末日」（計32オプション）として管理する
+   *
+   * 本群は請求締日が 1〜31 の整数と末日の印（`BILLING_CLOSING_DAY_END_OF_MONTH` = 99）の
+   * 計 32 値だけを受け、範囲の外側（0・32）と末日の印以外の値（50）を拒むことを主張する。
+   * 観測の対象は本番モジュール backend/src/schemas/trading-partner.schema.ts の
+   * `billingClosingDaySchema`（`1〜31 || BILLING_CLOSING_DAY_END_OF_MONTH` の refine）であり、
+   * 当該スキーマは backend/src/routes/trading-partners.routes.ts が取り込むため本番の経路に乗る。
+   *
+   * 空振りでないことの実測（2026-10-07、タスク 29.1）: refine の上限 31 を 32 へ緩めると
+   * 162 件中 1 件（本群の「32を拒否すること」）が落ち、末日の印の照合
+   * `=== BILLING_CLOSING_DAY_END_OF_MONTH` を `=== 98` へ変えると 162 件中 2 件（本群の
+   * 「末日（99）を受け入れること」と更新側の「請求締日を末日（99）で更新できること」）が落ちる。採取は
+   * `npm --prefix backend exec -- vitest run --root backend src/__tests__/unit/schemas/trading-partner.schema.test.ts`。
+   * 変異は復元済み。
+   */
   describe('請求締日のバリデーション', () => {
     it('1日〜31日の値を受け入れること', () => {
       for (let day = 1; day <= 31; day++) {
@@ -535,6 +571,30 @@ describe('createTradingPartnerSchema', () => {
     });
   });
 
+  /**
+   * @requirement trading-partner-management/REQ-11.10: The 取引先管理サービス shall 支払日を月オフセット（1=翌月、2=翌々月、3=3ヶ月後）と日（1〜31または「末日」）の組み合わせとして管理する
+   *
+   * 本群と直前の `支払月オフセットのバリデーション` の群が対になって当該条文を機構として
+   * 観測する。前者は月オフセットが 1・2・3 のみを受け、0 と 4 を拒むことを主張し、本群は
+   * 日が 1〜31 と末日の印（`PAYMENT_DAY_END_OF_MONTH` = 99）のみを受け、0 と 32 を拒むことを
+   * 主張する。両者は同じ `createTradingPartnerSchema` の一つの入力に対する主張であるため、
+   * 「月オフセットと日の組み合わせ」として管理されていることがそのまま観測されている。
+   * 観測の対象は本番モジュール backend/src/schemas/trading-partner.schema.ts の
+   * `paymentMonthOffsetSchema`（`.min(1).max(3)`）と `paymentDaySchema`
+   * （`1〜31 || PAYMENT_DAY_END_OF_MONTH` の refine）であり、当該スキーマは
+   * backend/src/routes/trading-partners.routes.ts が取り込むため本番の経路に乗る。
+   *
+   * 空振りでないことの実測: `paymentMonthOffsetSchema` の `.max(3)` を `.max(4)` へ、
+   * `paymentDaySchema` の上限 31 を 32 へ同時に緩めると、両群の「4を拒否すること」と
+   * 「32を拒否すること」の 162件中2件が落ちる（2026-09-07 実測。採取は
+   * `npm --prefix backend run test -- src/__tests__/unit/schemas/trading-partner.schema.test.ts`。
+   * 変異は復元済み）。
+   *
+   * 従前この条文を名乗っていたのは
+   * backend/src/__tests__/unit/models/trading-partner.model.test.ts の前書きだけで、
+   * 同ファイルは本番モジュールを一つも取り込まないため
+   * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+   */
   describe('支払日のバリデーション', () => {
     it('1日〜31日の値を受け入れること', () => {
       for (let day = 1; day <= 31; day++) {
@@ -714,7 +774,7 @@ describe('電話番号・FAX番号正規表現', () => {
  * 取引先更新スキーマのテスト
  * Requirements:
  * - 4.2, 4.3, 4.4: 更新時の必須・任意項目バリデーション
- * - 11.1-11.13: 各フィールドの文字数制限・形式バリデーション
+ * - 11.1-11.11: 各フィールドの文字数制限・形式バリデーション
  */
 describe('updateTradingPartnerSchema', () => {
   // 動的インポートで更新スキーマを取得
@@ -1515,8 +1575,11 @@ describe('tradingPartnerSearchQuerySchema', () => {
 /**
  * branchNameKana / representativeNameKana フィールド除外テスト
  * Requirements:
- * - 11.3: 部課/支店/支社名（branchName）は100文字制限、フリガナは不要
- * - 11.4: branchNameKanaとrepresentativeNameKanaはスキーマに含まない
+ * - 11.3: 部課/支店/支社名の最大文字数を100文字に制限する（branchName のみを持ち、フリガナは持たない）
+ * - 11.4: 代表者名の最大文字数を100文字に制限する（representativeName のみを持ち、フリガナは持たない）
+ *
+ * フリガナ 2 項目（branchNameKana / representativeNameKana）は要件定義書から削除されており、
+ * スキーマに含まない
  *
  * これらのフィールドが誤って追加されないことを保証するテスト
  */

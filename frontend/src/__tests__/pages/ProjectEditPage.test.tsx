@@ -20,7 +20,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '../../contexts/AuthContext';
@@ -444,6 +444,50 @@ describe('ProjectEditPage', () => {
       });
 
       expect(projectsApi.getProject).toHaveBeenCalledTimes(2);
+    });
+
+    it('サーバーエラー時に「システムエラーが発生しました。しばらくしてからお試しください。」を表示する', async () => {
+      vi.mocked(projectsApi.getProject).mockRejectedValue(new ApiError(500, 'サーバーエラー'));
+
+      renderProjectEditPage();
+
+      const alert = await screen.findByRole('alert');
+      expect(
+        within(alert).getByText('システムエラーが発生しました。しばらくしてからお試しください。')
+      ).toBeInTheDocument();
+      expect(within(alert).queryByText('サーバーエラー')).not.toBeInTheDocument();
+    });
+
+    it('ネットワークエラー時に「通信エラーが発生しました。再試行してください。」と再試行ボタンを表示する', async () => {
+      vi.mocked(projectsApi.getProject).mockRejectedValue(new ApiError(0, 'Network error'));
+
+      renderProjectEditPage();
+
+      const alert = await screen.findByRole('alert');
+      expect(
+        within(alert).getByText('通信エラーが発生しました。再試行してください。')
+      ).toBeInTheDocument();
+      expect(within(alert).getByRole('button', { name: '再試行' })).toBeInTheDocument();
+    });
+
+    it('ネットワークエラー後に再試行ボタンを押すと、失敗した取得を同じプロジェクトで再実行する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProject)
+        .mockRejectedValueOnce(new ApiError(0, 'Network error'))
+        .mockResolvedValueOnce(mockProject);
+
+      renderProjectEditPage();
+
+      const alert = await screen.findByRole('alert');
+      const failedRequestArgs = vi.mocked(projectsApi.getProject).mock.calls[0];
+
+      await user.click(within(alert).getByRole('button', { name: '再試行' }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/プロジェクト名/)).toBeInTheDocument();
+      });
+      expect(projectsApi.getProject).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(projectsApi.getProject).mock.calls[1]).toEqual(failedRequestArgs);
     });
 
     it('ApiError以外のエラー時にデフォルトエラーメッセージを表示する', async () => {

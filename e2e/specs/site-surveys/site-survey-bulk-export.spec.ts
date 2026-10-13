@@ -1,167 +1,798 @@
 /**
  * @fileoverview 現場調査画像の一括エクスポート E2E テスト
  *
- * Task 89.1: 詳細画面からの「全件一括エクスポート」「選択画像エクスポート」
- * 「進捗中キャンセル」の 3 シナリオを Playwright で検証する。
+ * Requirements coverage (site-survey):
+ * - 31.1: 詳細画面の「全件一括エクスポート」で全画像を対象に開始する
+ * - 31.2: 画像を選択した状態の「選択画像エクスポート」で選択画像のみを対象に開始する
+ * - 31.3: 1 件も選択していない間は「選択画像エクスポート」を非活性として表示する
+ * - 31.7: 対象画像群を単一の ZIP ファイルとしてダウンロード可能にする
+ * - 31.8: ZIP 内の各画像ファイル名を個別エクスポートと整合する規則に統一する
+ * - 31.9: ZIP ファイル名を現場調査名と実行日時が識別可能な形式で生成する
+ * - 31.10: 進行中の進捗状況（件数・割合）を可視化する
+ * - 31.11: 進行中の処理をキャンセル可能にする
+ * - 31.12: キャンセル時は処理を中断し ZIP を生成しない
+ * - 31.13: 一部の画像が失敗したとき、どの画像がどの理由で失敗したかを通知する
  *
- * Requirements:
- * - 31.1: 全件一括エクスポート起動
- * - 31.2: 選択画像エクスポート起動
- * - 31.7: ZIP ファイルとしてダウンロード可能
- * - 31.10: 進捗状況の可視化
- * - 31.11: 進行中処理のキャンセル可能性
- * - 31.12: キャンセル時に ZIP を生成しない
+ * Task 115.48（AI運用7原則 第3原則）:
+ *   本 spec は以前 `E2E_SURVEY_ID` / `E2E_IMAGE_IDS` の有無で `test.skip` する構成であり、
+ *   当該環境変数はリポジトリのどこにも設定されていないため全件が恒久的に飛ばされていた。
+ *   前提となるプロジェクト・現場調査・画像は検証の中で用意する。用意できない場合は
+ *   飛ばさずに失敗させる。
  *
- * 実行要件:
- *   1. `npm run test:docker` で architrack-test 環境を起動する
- *   2. `npx playwright test site-survey-bulk-export` を実行する
+ * 進捗・キャンセルの観測は、画像本体（署名付き URL）の応答を検証側から明示的に
+ * 解放するまで保留させることで決定的にする（時間待ちに依存しない）。
  *
- * 注: 共通の事前準備（プロジェクト・現場調査作成、画像アップロード）は
- *     `site-survey-export.spec.ts` の beforeAll パターンを踏襲する。
- *     30 枚規模の負荷検証は `bulk-export-memory.perf.test.ts` の手動ベンチ
- *     セクションを参照する。
+ * Task 115.66:
+ *   要件31.2 / 31.3 の「選択」は常に *いま開いている現場調査* の画像一覧に対するものである。
+ *   別の現場調査へ移ったときに選択が持ち越されないことは単体の検証しか無かったため、
+ *   実ブラウザで調査A → 調査B の画面遷移を通す検証 (e) を追加する。
+ *   遷移は利用者が実際に通る導線（詳細のパンくず「現場調査一覧」→ 一覧で調査Bを選ぶ）を
+ *   使い、途中で画面が再読み込みされていない（SPA 内遷移である）ことも併せて確かめる。
+ *
+ * Task 115.86:
+ *   115.66 が足した検証 (e) は *最終状態* しか主張していなかった。選択を画面より上へ
+ *   持ち上げ、移動先の一覧を取得し終えてから整理して消す実装へ退行すると、移動先では
+ *   「選択画像エクスポート」が一瞬だけ活性で描画されてしまう。要件31.3 は「1 件も
+ *   選択していない間」の非活性を求めており、この一瞬も違反である。にもかかわらず
+ *   最終状態だけを見る検証は緑のままになる。
+ *   そこで移動先の調査の詳細取得の応答を保留し、保留したまま
+ *     (1) 活性な「選択画像エクスポート」が一つも提示されていないこと
+ *     (2) 以降に描かれる「選択画像エクスポート」を漏れなく記録する観測を仕掛けること
+ *   を行ってから応答を解放する。記録は移動先の画面が何かを描くより前に必ず仕掛かるため、
+ *   「最初に描かれた状態が 0 件かつ非活性であること」を取りこぼしなく主張できる。
+ *   時間待ちで過渡状態を狙い撃つ必要が無く、間欠的な失敗を作らない。
  *
  * @requirement site-survey/REQ-31.1
  * @requirement site-survey/REQ-31.2
+ * @requirement site-survey/REQ-31.3
  * @requirement site-survey/REQ-31.7
+ * @requirement site-survey/REQ-31.8
+ * @requirement site-survey/REQ-31.9
  * @requirement site-survey/REQ-31.10
  * @requirement site-survey/REQ-31.11
  * @requirement site-survey/REQ-31.12
+ * @requirement site-survey/REQ-31.13
  */
 
-import { test, expect, type Page, type BrowserContext, type Download } from '@playwright/test';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { test, expect, type Page, type BrowserContext, type Route } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/** 検証で用意する画像枚数（選択エクスポートの 3 件検証に足りる枚数） */
+const FIXTURE_IMAGE_COUNT = 3;
+
+/**
+ * ZIP の中央ディレクトリを解析して収録エントリ名を取り出す。
+ *
+ * 解凍ライブラリを新規に導入せず、ZIP の終端レコード（EOCD）と中央ディレクトリを
+ * 直接読むことで、収録件数と命名規則（Req 31.7 / 31.8）を厳密に検証する。
+ */
+function readZipEntryNames(buffer: Buffer): string[] {
+  const EOCD_SIGNATURE = 0x06054b50;
+  const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
+
+  let eocdOffset = -1;
+  for (let i = buffer.length - 22; i >= 0; i--) {
+    if (buffer.readUInt32LE(i) === EOCD_SIGNATURE) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset < 0) {
+    throw new Error('ZIP の終端レコード（EOCD）が見つかりません');
+  }
+
+  const entryCount = buffer.readUInt16LE(eocdOffset + 10);
+  let offset = buffer.readUInt32LE(eocdOffset + 16);
+  const names: string[] = [];
+
+  for (let i = 0; i < entryCount; i++) {
+    if (buffer.readUInt32LE(offset) !== CENTRAL_DIRECTORY_SIGNATURE) {
+      throw new Error(`ZIP の中央ディレクトリが不正です（entry ${i}）`);
+    }
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    names.push(buffer.toString('utf8', offset + 46, offset + 46 + nameLength));
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+
+  return names;
+}
+
+/**
+ * 画像一覧 API の応答から画像の配列を取り出す。
+ *
+ * 応答の包み方（配列そのもの / `data` / `data.images`）に依存せず取り出す。
+ * 想定外の形なら空配列を返し、呼び出し側の件数の主張で失敗させる。
+ */
+function extractImageList(body: unknown): Array<{
+  id: string;
+  fileName: string;
+  originalUrl?: string | null;
+}> {
+  const candidates: unknown[] = [];
+  if (Array.isArray(body)) {
+    candidates.push(body);
+  } else if (body && typeof body === 'object') {
+    const record = body as Record<string, unknown>;
+    candidates.push(record.images);
+    const data = record.data;
+    if (Array.isArray(data)) {
+      candidates.push(data);
+    } else if (data && typeof data === 'object') {
+      candidates.push((data as Record<string, unknown>).images);
+    }
+  }
+  const found = candidates.find((candidate) => Array.isArray(candidate));
+  return (found as Array<{ id: string; fileName: string; originalUrl?: string | null }>) ?? [];
+}
 
 test.describe('現場調査画像の一括エクスポート', () => {
   test.describe.configure({ mode: 'serial' });
 
   let sharedPage: Page;
   let sharedContext: BrowserContext;
-  // 事前に用意した検証対象の現場調査 ID（環境変数 or beforeAll で生成した値）
-  let surveyId: string | null = null;
-  // 選択画像エクスポート用に控える画像 ID リスト（少なくとも 3 件想定）
-  let imageIds: string[] = [];
+  let createdProjectId: string | null = null;
+  let createdSurveyId: string | null = null;
+  let createdSurveyName = '';
+  /** アップロードした画像 ID（選択エクスポートの対象指定に使う） */
+  const uploadedImageIds: string[] = [];
+  /** 現場調査をまたぐ遷移先（調査B）。同一プロジェクト配下に用意する (Task 115.66) */
+  let secondSurveyId: string | null = null;
+  let secondSurveyName = '';
+  /** 調査B の画像 ID（調査B でも選択欄が描画される状態を作るために 1 枚用意する） */
+  let secondSurveyImageId: string | null = null;
+
+  /**
+   * 一括エクスポートが読み出す画像本体（`/storage/surveys/<surveyId>/...` の原本）だけを
+   * 対象に、応答を検証側の合図まで保留する関門を仕掛ける。
+   *
+   * サムネイル（`_thumb_` を含むキー）は詳細画面の表示に必要なため対象外にする。
+   *
+   * @param passThroughCount 保留せずに素通しする先頭リクエスト数
+   * @returns 保留を解放する関数（呼ぶまで以降のリクエストは応答しない）
+   */
+  async function holdOriginalImageResponses(passThroughCount: number): Promise<() => void> {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let seen = 0;
+
+    await sharedPage.route(
+      (url) =>
+        url.pathname.includes(`/surveys/${createdSurveyId}/`) && !url.pathname.includes('_thumb_'),
+      async (route) => {
+        seen += 1;
+        if (seen > passThroughCount) {
+          await gate;
+        }
+        await route.continue();
+      }
+    );
+
+    return release;
+  }
 
   test.beforeAll(async ({ browser }) => {
     sharedContext = await browser.newContext();
     sharedPage = await sharedContext.newPage();
     await loginAsUser(sharedPage, 'REGULAR_USER');
 
-    // NOTE:
-    //   完全な事前準備（プロジェクト/現場調査/画像 3 件以上アップロード）は
-    //   既存 site-survey-export.spec.ts の beforeAll を踏襲する想定。
-    //   本 spec では runtime 環境変数または直前の準備ステップで以下を解決する。
-    surveyId = process.env.E2E_SURVEY_ID ?? null;
-    imageIds = (process.env.E2E_IMAGE_IDS ?? '').split(',').filter((id) => id.length > 0);
-  });
+    // --- プロジェクト作成 ---
+    await sharedPage.goto('/projects');
+    await sharedPage.waitForLoadState('networkidle');
+    await sharedPage.getByRole('button', { name: /新規作成/i }).click();
+    await expect(sharedPage).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
+    await expect(sharedPage.getByText(/読み込み中/i).first()).not.toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-  test.afterAll(async () => {
-    await sharedContext?.close();
-  });
+    const projectName = `一括エクスポートE2E用PJ_${Date.now()}`;
+    await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
+    const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
-  test.beforeEach(async () => {
-    test.skip(
-      !surveyId || imageIds.length < 3,
-      'E2E_SURVEY_ID / E2E_IMAGE_IDS (>=3) 未設定のためスキップ'
+    const createProjectPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/projects') &&
+        response.request().method() === 'POST' &&
+        response.status() === 201,
+      { timeout: getTimeout(30000) }
     );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createProjectPromise;
+
+    await sharedPage.waitForURL(/\/projects\/[0-9a-f-]+$/);
+    createdProjectId = sharedPage.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdProjectId).toBeTruthy();
+
+    // --- 現場調査作成 ---
+    await sharedPage.goto(`/projects/${createdProjectId}/site-surveys/new`);
+    await sharedPage.waitForLoadState('networkidle');
+    await expect(sharedPage.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
+
+    createdSurveyName = `一括エクスポートE2E用調査_${Date.now()}`;
+    await sharedPage.getByLabel(/調査名/i).fill(createdSurveyName);
+    await sharedPage.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
+
+    const createSurveyPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/') &&
+        response.url().includes('site-surveys') &&
+        response.request().method() === 'POST',
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createSurveyPromise;
+
+    await sharedPage.waitForURL(/\/site-surveys\/[0-9a-f-]+$/);
+    createdSurveyId = sharedPage.url().match(/\/site-surveys\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdSurveyId).toBeTruthy();
+
+    // --- 画像を API で直接アップロード（一括エクスポートの対象を用意する） ---
+    const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
+    expect(fs.existsSync(testImagePath)).toBeTruthy();
+    const imageBuffer = fs.readFileSync(testImagePath);
+    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+
+    for (let i = 0; i < FIXTURE_IMAGE_COUNT; i++) {
+      const uploadResponse = await sharedPage.request.post(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          multipart: {
+            images: {
+              name: `bulk-export-${i + 1}.png`,
+              mimeType: 'image/png',
+              buffer: imageBuffer,
+            },
+          },
+        }
+      );
+      expect(uploadResponse.ok()).toBeTruthy();
+
+      const uploadBody = (await uploadResponse.json()) as {
+        successful?: Array<{ id?: string }>;
+      };
+      const uploadedId = uploadBody.successful?.[0]?.id;
+      expect(uploadedId).toBeTruthy();
+      uploadedImageIds.push(uploadedId!);
+    }
+
+    expect(uploadedImageIds).toHaveLength(FIXTURE_IMAGE_COUNT);
+
+    // --- 調査B（現場調査をまたぐ遷移先）を用意する (Task 115.66) ---
+    // 用意できなければこの場で失敗させる（後段の検証へ失敗をずらさない）。
+    secondSurveyName = `一括エクスポートE2E用調査B_${Date.now()}`;
+    const secondSurveyResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/projects/${createdProjectId}/site-surveys`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: {
+          name: secondSurveyName,
+          surveyDate: new Date().toISOString().split('T')[0]!,
+        },
+      }
+    );
+    expect(
+      secondSurveyResponse.status(),
+      `調査Bの作成に失敗した: ${await secondSurveyResponse.text()}`
+    ).toBe(201);
+    const secondSurveyBody = (await secondSurveyResponse.json()) as { id?: string };
+    expect(secondSurveyBody.id, '調査Bの作成応答に id が含まれない').toBeTruthy();
+    secondSurveyId = secondSurveyBody.id!;
+
+    // 調査B にも画像を 1 枚置く。
+    // 「選択できる画像がそもそも無いから 0 件」ではないことを担保する。
+    const secondUploadResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/${secondSurveyId}/images`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        multipart: {
+          images: {
+            name: 'bulk-export-second-survey.png',
+            mimeType: 'image/png',
+            buffer: imageBuffer,
+          },
+        },
+      }
+    );
+    expect(
+      secondUploadResponse.ok(),
+      `調査Bへの画像アップロードに失敗した: ${await secondUploadResponse.text()}`
+    ).toBeTruthy();
+    const secondUploadBody = (await secondUploadResponse.json()) as {
+      successful?: Array<{ id?: string }>;
+    };
+    expect(secondUploadBody.successful?.[0]?.id, '調査Bの画像 ID が得られない').toBeTruthy();
+    secondSurveyImageId = secondUploadBody.successful![0]!.id!;
+  });
+
+  test.afterAll(async ({ browser }) => {
+    // 後始末: 作成したデータを ADMIN 権限の API 呼び出しで削除する。
+    const cleanupContext = await browser.newContext();
+    const cleanupPage = await cleanupContext.newPage();
+    try {
+      await loginAsUser(cleanupPage, 'ADMIN_USER');
+      const adminToken = await cleanupPage.evaluate(() => localStorage.getItem('accessToken'));
+      const headers = { Authorization: `Bearer ${adminToken}` };
+      if (createdSurveyId) {
+        await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {
+          headers,
+        });
+      }
+      if (secondSurveyId) {
+        await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${secondSurveyId}`, {
+          headers,
+        });
+      }
+      if (createdProjectId) {
+        await cleanupPage.request.delete(`${API_BASE_URL}/api/projects/${createdProjectId}`, {
+          headers,
+        });
+      }
+    } catch {
+      // 後始末の失敗は検証結果に影響させない
+    } finally {
+      await cleanupPage.close();
+      await cleanupContext.close();
+      await sharedContext?.close();
+    }
+  });
+
+  test.afterEach(async () => {
+    await sharedPage.unrouteAll({ behavior: 'ignoreErrors' });
   });
 
   /**
    * (a) 全件一括エクスポート: 詳細画面 → 設定 → 開始 → 進捗 → ZIP ダウンロード
-   *     Requirement 31.1, 31.7, 31.10
+   *     Requirement 31.1, 31.7, 31.8, 31.9, 31.10
    */
-  test('(a) 全件一括エクスポートで ZIP がダウンロードされる', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}`);
+  test('(a) 全件一括エクスポートで進捗が可視化され全画像を含む ZIP がダウンロードされる', async () => {
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}`);
     await sharedPage.waitForLoadState('networkidle');
+
+    // 1 枚目だけ素通しし、2 枚目以降を保留する。
+    // これにより「1 / 3 件」の進捗が観測可能な状態で確実に留まる。
+    const releaseImages = await holdOriginalImageResponses(1);
 
     // 起動ボタン押下 (Requirement 31.1)
     await sharedPage.getByTestId('bulk-export-all-button').click();
 
-    // BulkExportDialog: ExportSettingsForm が表示される
-    const dialog = sharedPage.getByRole('dialog');
-    await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
+    // BulkExportDialog（設定フォーム）が全件モードで開く
+    const settingsDialog = sharedPage.getByRole('dialog', { name: '全件一括エクスポート' });
+    await expect(settingsDialog).toBeVisible({ timeout: getTimeout(10000) });
 
-    // デフォルト設定のまま「開始」 (Requirement 31.5)
-    await dialog.getByRole('button', { name: /開始|エクスポート/i }).click();
+    // 既定設定のまま開始 (Requirement 31.5)
+    const downloadPromise = sharedPage.waitForEvent('download', { timeout: getTimeout(120000) });
+    await settingsDialog.getByRole('button', { name: '開始' }).click();
 
-    // 進捗ダイアログの可視化を確認 (Requirement 31.10)
-    const progressDialog = sharedPage.getByRole('dialog', { name: /エクスポート中|進捗/i });
-    await expect(progressDialog).toBeVisible({ timeout: getTimeout(5000) });
+    // 進捗ダイアログの可視化 (Requirement 31.10)
+    const progressDialog = sharedPage.getByRole('dialog', { name: '一括エクスポート処理中' });
+    await expect(progressDialog).toBeVisible({ timeout: getTimeout(15000) });
 
-    // ZIP ダウンロード受信を待機 (Requirement 31.7)
-    const download: Download = await sharedPage.waitForEvent('download', {
-      timeout: getTimeout(60000),
+    // 件数と割合が実際に表示される（Requirement 31.10）
+    await expect(progressDialog.getByText(`1 / ${FIXTURE_IMAGE_COUNT} 件`)).toBeVisible({
+      timeout: getTimeout(30000),
     });
+    const progressBar = progressDialog.getByRole('progressbar', { name: '一括エクスポート進捗' });
+    await expect(progressBar).toHaveAttribute(
+      'aria-valuenow',
+      String(Math.floor((1 / FIXTURE_IMAGE_COUNT) * 100))
+    );
 
-    // ファイル名規則: <surveyName>_<実行日時>.zip 相当 (Requirement 31.9)
+    // 保留を解放して残りを処理させる
+    releaseImages();
+
+    // ZIP ダウンロード受信 (Requirement 31.7)
+    const download = await downloadPromise;
+
+    // ファイル名規則: <調査名>_<YYYYMMDD_HHmmss>.zip (Requirement 31.9)
     const suggested = download.suggestedFilename();
     expect(suggested).toMatch(/\.zip$/i);
+    expect(suggested).toMatch(
+      new RegExp(
+        `^${createdSurveyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d{8}_\\d{6}\\.zip$`
+      )
+    );
+
+    // ZIP 内に全画像が収録される (Requirement 31.7 / 31.8)
+    const downloadPath = await download.path();
+    const entryNames = readZipEntryNames(fs.readFileSync(downloadPath));
+    expect(entryNames).toHaveLength(FIXTURE_IMAGE_COUNT);
+    for (const entryName of entryNames) {
+      expect(entryName).toMatch(/^\d{3}_.+\.(jpg|png)$/i);
+    }
   });
 
   /**
-   * (b) 選択画像エクスポート: 3 件選択 → ZIP 内が 3 件のみであること
-   *     Requirement 31.2, 31.7
+   * (b) 未選択時は「選択画像エクスポート」が非活性
+   *     Requirement 31.3
    */
-  test('(b) 選択画像エクスポートで ZIP 内が選択件数と一致する', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}`);
+  test('(b) 画像を 1 件も選択していない間は選択画像エクスポートが非活性である', async () => {
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}`);
     await sharedPage.waitForLoadState('networkidle');
 
-    // 先頭 3 件の画像をチェックする（実 UI のチェックボックス locator に置換）
-    for (const id of imageIds.slice(0, 3)) {
-      await sharedPage.getByTestId(`image-select-${id}`).click();
-    }
-
-    // 選択画像エクスポート起動 (Requirement 31.2)
     const trigger = sharedPage.getByTestId('bulk-export-selected-button');
-    await expect(trigger).toBeEnabled();
-    await trigger.click();
-
-    const dialog = sharedPage.getByRole('dialog');
-    await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
-    await dialog.getByRole('button', { name: /開始|エクスポート/i }).click();
-
-    const download: Download = await sharedPage.waitForEvent('download', {
-      timeout: getTimeout(60000),
-    });
-
-    // ZIP 内容の枚数検証は Download.saveAs → fflate 等の解凍で実施する。
-    // 本 spec では契約面でファイル名を確認し、ZIP 解凍検証は補助ヘルパに委ねる。
-    const path = await download.path();
-    expect(path).not.toBeNull();
-    // TODO(89.1): ヘルパ `assertZipImageCount(path, 3)` で枚数を厳密検証する。
+    await expect(trigger).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(trigger).toBeDisabled();
+    await expect(trigger).toHaveAttribute('aria-disabled', 'true');
+    await expect(trigger).toHaveText('選択画像エクスポート（0 件）');
   });
 
   /**
-   * (c) 進捗中のキャンセル: ZIP がダウンロードされないこと
+   * (c) 進捗中のキャンセル: ZIP がダウンロードされない
    *     Requirement 31.11, 31.12
    */
   test('(c) 進捗中にキャンセルすると ZIP がダウンロードされない', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}`);
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}`);
     await sharedPage.waitForLoadState('networkidle');
 
+    // 1 枚目から保留する（処理が確実に進行中の状態でキャンセルを当てる）
+    const releaseImages = await holdOriginalImageResponses(0);
+
     await sharedPage.getByTestId('bulk-export-all-button').click();
-    const dialog = sharedPage.getByRole('dialog');
-    await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
-    await dialog.getByRole('button', { name: /開始|エクスポート/i }).click();
+    const settingsDialog = sharedPage.getByRole('dialog', { name: '全件一括エクスポート' });
+    await expect(settingsDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await settingsDialog.getByRole('button', { name: '開始' }).click();
 
-    const progressDialog = sharedPage.getByRole('dialog', { name: /エクスポート中|進捗/i });
-    await expect(progressDialog).toBeVisible({ timeout: getTimeout(5000) });
+    const progressDialog = sharedPage.getByRole('dialog', { name: '一括エクスポート処理中' });
+    await expect(progressDialog).toBeVisible({ timeout: getTimeout(15000) });
 
-    // 進捗が観測可能になった直後に「キャンセル」 (Requirement 31.11)
-    await progressDialog.getByRole('button', { name: /キャンセル/i }).click();
+    // 進行中に「キャンセル」(Requirement 31.11)
+    await progressDialog.getByRole('button', { name: 'キャンセル' }).click();
 
-    // ZIP が降ってこないことを timeout 経由で確認 (Requirement 31.12)
-    let downloadReceived = false;
-    try {
-      await sharedPage.waitForEvent('download', { timeout: getTimeout(5000) });
-      downloadReceived = true;
-    } catch {
-      downloadReceived = false;
+    // 保留していた画像応答を解放し、中断が実際に効いていることを確かめる
+    releaseImages();
+
+    // Requirement 31.12: ZIP は生成・ダウンロードされない
+    // 事象待ちを素手の `catch` で畳むと、待機切れ以外の失敗（切断・本体終了による
+    // 中断）まで「ダウンロードは起きなかった」に化ける。直下の主張は不在を求めて
+    // いるため、その化けは**そのまま合格になる**。
+    // 待機切れのみを畳み、それ以外は送出する共有の補助を通す。
+    const download = await nullWhenTimedOut(
+      sharedPage.waitForEvent('download', { timeout: getTimeout(10000) })
+    );
+    expect(download).toBeNull();
+
+    // 進捗ダイアログが閉じる（中断の完了）
+    await expect(progressDialog).toBeHidden({ timeout: getTimeout(15000) });
+  });
+
+  /**
+   * (d) 選択画像エクスポート: 画像一覧で選択した画像だけが ZIP に入る
+   *     Requirement 31.2, 31.7
+   *
+   * 選択操作を伴うため他シナリオの検証結果を巻き込まないよう最後に置く。
+   */
+  test('(d) 画像一覧で選択した画像のみが ZIP に入る', async () => {
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}`);
+    await sharedPage.waitForLoadState('networkidle');
+
+    // Requirement 31.2: 画像一覧で対象を選択する
+    const selectedIds = uploadedImageIds.slice(0, 2);
+    for (const imageId of selectedIds) {
+      const checkbox = sharedPage.getByTestId(`image-checkbox-${imageId}`);
+      await expect(checkbox, '画像一覧に選択用チェックボックスが表示されない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await checkbox.check();
     }
-    expect(downloadReceived).toBe(false);
 
-    // 進捗ダイアログが閉じられるか、キャンセル状態が表示されることを確認
-    await expect(progressDialog).toBeHidden({ timeout: getTimeout(5000) });
+    // 選択件数がボタン表記に反映され、活性化する
+    const trigger = sharedPage.getByTestId('bulk-export-selected-button');
+    await expect(trigger).toBeEnabled();
+    await expect(trigger).toHaveText(`選択画像エクスポート（${selectedIds.length} 件）`);
+    await trigger.click();
+
+    const settingsDialog = sharedPage.getByRole('dialog', {
+      name: `${selectedIds.length} 件選択画像エクスポート`,
+    });
+    await expect(settingsDialog).toBeVisible({ timeout: getTimeout(10000) });
+
+    const downloadPromise = sharedPage.waitForEvent('download', { timeout: getTimeout(120000) });
+    await settingsDialog.getByRole('button', { name: '開始' }).click();
+    const download = await downloadPromise;
+
+    // ZIP 内が選択件数と一致する (Requirement 31.2 / 31.7)
+    const downloadPath = await download.path();
+    const entryNames = readZipEntryNames(fs.readFileSync(downloadPath));
+    expect(entryNames).toHaveLength(selectedIds.length);
+  });
+
+  /**
+   * (f) 一部の画像が失敗したとき、どの画像がどの理由で失敗したかが画面に出る
+   *     Requirement 31.13
+   *
+   * 失敗の件数だけでは、利用者はどの写真を撮り直すべきかも、再実行で直る失敗かも
+   * 判断できない。要件31.13 は「どの画像が」「どの理由で」失敗したかの明示を求める。
+   *
+   * 検証は 3 枚のうち 1 枚だけを失敗させて行う。対象は画像一覧 API が返す原本の
+   * 保存先パスで特定し、そのパスへの応答だけを 500 に置き換える。オリジンは環境
+   * （CI／ローカル）で食い違うため、判定はパスのみで行う。
+   *
+   * 画像本体の取得は他の検証で既に成功しているため、同一の閲覧文脈のままだと
+   * ブラウザのキャッシュから返り、差し替えた応答が使われない可能性がある。
+   * そこで本検証は専用の閲覧文脈（新しい context）で行う。
+   */
+  test('(f) 一部が失敗したとき失敗した画像と理由が画像ごとに提示される', async ({ browser }) => {
+    const failureContext = await browser.newContext();
+    const failurePage = await failureContext.newPage();
+
+    try {
+      await loginAsUser(failurePage, 'REGULAR_USER');
+      const accessToken = await failurePage.evaluate(() => localStorage.getItem('accessToken'));
+
+      // 画像一覧から「どの画像を失敗させるか」を決める。
+      const listResponse = await failurePage.request.get(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      expect(
+        listResponse.ok(),
+        `画像一覧の取得に失敗した: ${await listResponse.text()}`
+      ).toBeTruthy();
+      const listBody = (await listResponse.json()) as unknown;
+      const images = extractImageList(listBody);
+      expect(
+        images.length,
+        `画像一覧が想定の件数で返らない: ${JSON.stringify(listBody).slice(0, 300)}`
+      ).toBe(FIXTURE_IMAGE_COUNT);
+
+      const targetImage = images[1]!;
+      expect(targetImage.fileName, '失敗させる画像のファイル名が得られない').toBeTruthy();
+      expect(targetImage.originalUrl, '失敗させる画像の原本URLが得られない').toBeTruthy();
+      const targetPath = new URL(targetImage.originalUrl!).pathname;
+      const survivingNames = images
+        .filter((image) => image.id !== targetImage.id)
+        .map((image) => image.fileName);
+
+      // 対象画像の原本だけを 500 応答へ差し替える（他の 2 枚は素通し）。
+      let interceptedCount = 0;
+      await failurePage.route(
+        (url) => url.pathname === targetPath,
+        async (route: Route) => {
+          interceptedCount += 1;
+          await route.fulfill({ status: 500, body: 'forced failure for REQ-31.13' });
+        }
+      );
+
+      await failurePage.goto(`/site-surveys/${createdSurveyId}`);
+      await failurePage.waitForLoadState('networkidle');
+
+      await failurePage.getByTestId('bulk-export-all-button').click();
+      const settingsDialog = failurePage.getByRole('dialog', { name: '全件一括エクスポート' });
+      await expect(settingsDialog).toBeVisible({ timeout: getTimeout(10000) });
+      await settingsDialog.getByRole('button', { name: '開始' }).click();
+
+      // 部分失敗の案内（alertdialog）が出る
+      const partialDialog = failurePage.getByRole('alertdialog');
+      await expect(partialDialog, '部分失敗の案内が表示されない').toBeVisible({
+        timeout: getTimeout(120000),
+      });
+
+      // 差し替えた応答が実際に使われたこと（＝検証が素通りしていないこと）
+      expect(interceptedCount, '失敗させる画像への要求が観測されていない').toBeGreaterThan(0);
+
+      // Requirement 31.13: どの画像が失敗したか
+      const failureList = partialDialog.getByTestId('bulk-export-failure-list');
+      await expect(failureList, '失敗した画像の一覧が表示されない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(
+        failureList.getByRole('listitem'),
+        '失敗した画像の件数と一覧の件数が一致しない'
+      ).toHaveCount(1);
+
+      const failureItem = partialDialog.getByTestId(`bulk-export-failure-${targetImage.id}`);
+      await expect(failureItem, '失敗した画像が一覧に現れない').toBeVisible();
+      await expect(failureItem).toContainText(targetImage.fileName);
+      // Requirement 31.13: どの理由で失敗したか
+      await expect(failureItem, '失敗の理由が示されていない').toContainText('失敗しました');
+
+      // 成功した画像は失敗一覧に現れない
+      for (const name of survivingNames) {
+        await expect(
+          failureList,
+          `成功した画像 ${name} が失敗一覧に混ざっている`
+        ).not.toContainText(name);
+      }
+
+      // 後始末: 中止を選び、ZIP を受け取らずに閉じる
+      await partialDialog.getByRole('button', { name: '中止' }).click();
+      await expect(partialDialog).toBeHidden({ timeout: getTimeout(15000) });
+    } finally {
+      await failurePage.close();
+      await failureContext.close();
+    }
+  });
+
+  /**
+   * (e) 現場調査をまたいでも選択が持ち越されない（移った直後の過渡状態を含む）
+   *     Requirement 31.2, 31.3
+   *
+   * 調査A で選択して「選択画像エクスポート」が活性になることを確かめたうえで、
+   * 利用者の導線（詳細のパンくず「現場調査一覧」→ 一覧で調査B を選ぶ）で調査B へ移り、
+   * 調査B では 0 件かつ非活性へ戻ることを確かめる。
+   * 途中で画面が再読み込みされていないこと（＝選択状態が持ち越されうる SPA 内遷移で
+   * あること）を window 上の目印で確かめ、検証が素通りしないようにする。
+   *
+   * さらに Task 115.86 として、移動先の調査の詳細取得を保留したまま「活性な
+   * 選択画像エクスポートが一つも無い」ことを主張し、保留中に観測を仕掛けてから解放する。
+   * これにより移動先で *最初に* 描かれた「選択画像エクスポート」まで遡って
+   * 0 件かつ非活性であることを主張でき、一瞬だけ活性化する退行を取り逃がさない。
+   */
+  test('(e) 別の現場調査へ移ると選択が持ち越されず選択画像エクスポートが非活性へ戻る', async () => {
+    expect(secondSurveyId, '調査Bが用意されていない').toBeTruthy();
+    expect(secondSurveyImageId, '調査Bの画像が用意されていない').toBeTruthy();
+
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}`);
+    await sharedPage.waitForLoadState('networkidle');
+
+    // --- 調査A: 選択すると活性になる（反対の状態へ実際に遷移できることの確認）---
+    const trigger = sharedPage.getByTestId('bulk-export-selected-button');
+    await expect(trigger).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(trigger).toBeDisabled();
+
+    const checkbox = sharedPage.getByTestId(`image-checkbox-${uploadedImageIds[0]}`);
+    await expect(checkbox, '調査Aの画像一覧に選択用チェックボックスが表示されない').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await checkbox.check();
+    await expect(trigger).toBeEnabled();
+    await expect(trigger).toHaveText('選択画像エクスポート（1 件）');
+    await expect(trigger).toHaveAttribute('aria-disabled', 'false');
+
+    // 画面の再読み込みを検知するための目印を置く
+    await sharedPage.evaluate(() => {
+      (window as unknown as { __crossSurveyProbe?: string }).__crossSurveyProbe = 'survey-a';
+    });
+
+    // 移動先（調査B）の詳細取得を、検証側の合図まで保留する関門を仕掛ける (Task 115.86)。
+    // 経路（パス）で照合する。オリジンは実行環境によって異なり、照合に用いると何も掛からない。
+    let releaseDestinationDetail: () => void = () => {};
+    const destinationDetailGate = new Promise<void>((resolve) => {
+      releaseDestinationDetail = resolve;
+    });
+    let destinationDetailRequests = 0;
+    const destinationDetailMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/site-surveys/${secondSurveyId}`);
+    const holdDestinationDetail = async (route: Route): Promise<void> => {
+      destinationDetailRequests += 1;
+      await destinationDetailGate;
+      await route.continue();
+    };
+    await sharedPage.route(destinationDetailMatcher, holdDestinationDetail);
+
+    try {
+      // --- 調査A → 現場調査一覧 → 調査B（利用者の導線を通る）---
+      const breadcrumb = sharedPage.getByRole('navigation', { name: /パンくず|breadcrumb/i });
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+      await breadcrumb.getByRole('link', { name: '現場調査一覧' }).click();
+      await expect(sharedPage).toHaveURL(
+        new RegExp(`/projects/${createdProjectId}/site-surveys$`),
+        {
+          timeout: getTimeout(15000),
+        }
+      );
+
+      const secondSurveyLink = sharedPage.getByText(secondSurveyName).first();
+      await expect(secondSurveyLink, '現場調査一覧に調査Bが表示されない').toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await secondSurveyLink.click();
+      await expect(sharedPage).toHaveURL(new RegExp(`/site-surveys/${secondSurveyId}$`), {
+        timeout: getTimeout(15000),
+      });
+
+      // 関門に掛かった＝移動先の画像一覧はまだ画面へ届いていない (Task 115.86)
+      await expect
+        .poll(() => destinationDetailRequests, { timeout: getTimeout(15000) })
+        .toBeGreaterThan(0);
+
+      // 移動先の一覧を得る前から、選択は 0 件でなければならない (Requirement 31.3)。
+      // 活性な「選択画像エクスポート」がこの時点で一つでもあれば、
+      // それは前の調査の選択を持ち越したまま操作を許している。
+      await expect(
+        sharedPage.locator('[data-testid="bulk-export-selected-button"]:not([disabled])'),
+        '移動先の画像一覧を得る前に「選択画像エクスポート」が活性で提示された'
+      ).toHaveCount(0);
+
+      // 応答を保留したまま観測を仕掛ける。移動先の画面はまだ何も描いていないため、
+      // 以降に描かれる「選択画像エクスポート」を最初の一つ目から漏れなく記録できる。
+      await sharedPage.evaluate(() => {
+        const holder = window as unknown as {
+          __selectedExportStates?: Array<{ present: boolean; text: string; disabled: boolean }>;
+          __selectedExportObserver?: MutationObserver;
+        };
+        const states: Array<{ present: boolean; text: string; disabled: boolean }> = [];
+        holder.__selectedExportStates = states;
+        // 変化のたびに無条件で記録する（記録側で選り分けない）。
+        // 未描画の間は present:false として残し、絞り込みと突き合わせは検証側で行う。
+        const record = (): void => {
+          const button = document.querySelector<HTMLButtonElement>(
+            '[data-testid="bulk-export-selected-button"]'
+          );
+          states.push({
+            present: button !== null,
+            text: button === null ? '' : String(button.textContent).trim(),
+            disabled: button === null ? true : button.disabled,
+          });
+        };
+        record();
+        const observer = new MutationObserver(record);
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true,
+        });
+        holder.__selectedExportObserver = observer;
+      });
+    } finally {
+      // 主張の成否によらず必ず解放する。関門そのものの取り外しは afterEach の
+      // `unrouteAll` に委ねる（解放した応答の処理中に取り外すと競合するため）。
+      releaseDestinationDetail();
+    }
+
+    // 遷移が SPA 内で行われた（＝ページ状態が持ち越されうる経路である）ことを確かめる。
+    // 再読み込みが挟まっていた場合、以下の検証は選択の整理と無関係に成立してしまう。
+    const probeAfterNavigation = await sharedPage.evaluate(
+      () => (window as unknown as { __crossSurveyProbe?: string }).__crossSurveyProbe
+    );
+    expect(
+      probeAfterNavigation,
+      '調査A → 調査B の遷移で画面が再読み込みされており、選択の持ち越しを検証できていない'
+    ).toBe('survey-a');
+
+    // --- 調査B: 選択は持ち越されず 0 件かつ非活性 (Requirement 31.2, 31.3) ---
+    const secondSurveyCheckbox = sharedPage.getByTestId(`image-checkbox-${secondSurveyImageId}`);
+    await expect(secondSurveyCheckbox, '調査Bの画像一覧が描画されない').toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(secondSurveyCheckbox).not.toBeChecked();
+
+    await expect(trigger).toHaveText('選択画像エクスポート（0 件）');
+    await expect(trigger).toBeDisabled();
+    await expect(trigger).toHaveAttribute('aria-disabled', 'true');
+
+    // --- 移った直後の過渡状態: 一瞬たりとも活性化していない (Requirement 31.3, Task 115.86) ---
+    const observedStates = await sharedPage.evaluate(() => {
+      const holder = window as unknown as {
+        __selectedExportStates?: Array<{ present: boolean; text: string; disabled: boolean }>;
+        __selectedExportObserver?: MutationObserver;
+      };
+      holder.__selectedExportObserver?.disconnect();
+      return holder.__selectedExportStates;
+    });
+    expect(
+      observedStates,
+      '移動先で「選択画像エクスポート」の観測が仕掛かっていない'
+    ).toBeDefined();
+    const renderedStates = (
+      observedStates as Array<{ present: boolean; text: string; disabled: boolean }>
+    ).filter((state) => state.present === true);
+    expect(
+      renderedStates.length,
+      '移動先で「選択画像エクスポート」が一度も描画されていない'
+    ).toBeGreaterThan(0);
+    expect(
+      renderedStates[0],
+      '移動先で最初に描画された「選択画像エクスポート」が 0 件かつ非活性ではない'
+    ).toEqual({ present: true, text: '選択画像エクスポート（0 件）', disabled: true });
+    expect(
+      renderedStates.filter((state) => state.disabled === false),
+      '移動先で「選択画像エクスポート」が一瞬でも活性化した'
+    ).toEqual([]);
   });
 });

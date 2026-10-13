@@ -20,6 +20,9 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import { seedProject } from '../../helpers/project-list-preconditions';
 
 /**
  * プロジェクトCRUD機能のE2Eテスト
@@ -72,10 +75,14 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.7
-     * @requirement project-management/REQ-1.8
+     * @requirement project-management/REQ-1.10
+     * @requirement project-management/REQ-1.11
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.10 は必須項目を入力しての保存、1.11 は保存成功時の詳細画面遷移。旧 1.7・1.8 は現行では顧客選択時の住所保持と営業担当者の既定値）。
      */
-    test('フォーム入力→送信→詳細画面遷移が正常に行われる (project-management/REQ-1.7, REQ-1.8)', async ({
+    test('フォーム入力→送信→詳細画面遷移が正常に行われる (project-management/REQ-1.10, REQ-1.11)', async ({
       page,
     }) => {
       // 一般ユーザーでログイン（管理者は営業担当者として選択できないため）
@@ -123,22 +130,9 @@ test.describe('プロジェクトCRUD操作', () => {
       await page.getByLabel(/現場住所/i).fill(siteAddress);
       await page.getByLabel(/概要/i).fill(description);
 
-      // 営業担当者セレクトボックスの現在の値を確認
-      // （ログインユーザーがデフォルトで選択されているはず）
-      const salesPersonValue = await salesPersonSelect.inputValue();
-
-      // salesPersonIdが設定されていることを確認（空でないこと）
-      if (!salesPersonValue) {
-        // デフォルト選択が設定されていない場合、最初のオプションを選択
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          // 最初のオプションはプレースホルダーなので、2番目を選択
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      // 営業担当者は必須項目である。既定値の解決に依存せず候補から選び直し、
+      // 前提が崩れた場合はこの場で失敗させる（Task 115.92）
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // APIレスポンスを待機しながら作成ボタンをクリック
       const createPromise = page.waitForResponse(
@@ -205,10 +199,14 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.5
-     * @requirement project-management/REQ-1.6
+     * @requirement project-management/REQ-1.8
+     * @requirement project-management/REQ-1.9
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.8 が営業担当者、1.9 が工事担当者の既定値。旧 1.5・1.6 は現行では取引先IDの設定と現場住所の自動入力）。
      */
-    test('営業担当者・工事担当者フィールドにログインユーザーがデフォルト設定される (project-management/REQ-1.5, REQ-1.6)', async ({
+    test('営業担当者・工事担当者フィールドにログインユーザーがデフォルト設定される (project-management/REQ-1.8, REQ-1.9)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -233,9 +231,13 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.9
+     * @requirement project-management/REQ-1.12
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.12 が必須項目未入力時の該当フィールドへのエラー表示。旧 1.9 は現行では工事担当者の既定値）。
      */
-    test('必須項目未入力時にバリデーションエラーが表示される (project-management/REQ-1.9)', async ({
+    test('必須項目未入力時にバリデーションエラーが表示される (project-management/REQ-1.12)', async ({
       page,
     }) => {
       // 一般ユーザーでログイン
@@ -255,9 +257,13 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.10
+     * @requirement project-management/REQ-1.13
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.13 が「プロジェクト名は必須です」の表示。旧 1.10 は現行では必須項目を入力しての保存）。
      */
-    test('プロジェクト名未入力時にバリデーションエラーが表示される (project-management/REQ-1.10)', async ({
+    test('プロジェクト名未入力時にバリデーションエラーが表示される (project-management/REQ-1.13)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -276,9 +282,13 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.11
+     * @requirement project-management/REQ-1.14
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.14 が255文字超過時のエラー。旧 1.11 は現行では保存成功時の詳細画面遷移）。
      */
-    test('プロジェクト名が255文字を超える場合にバリデーションエラーが表示される (project-management/REQ-1.11)', async ({
+    test('プロジェクト名が255文字を超える場合にバリデーションエラーが表示される (project-management/REQ-1.14)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -299,14 +309,20 @@ test.describe('プロジェクトCRUD操作', () => {
       });
     });
 
-    // Note: REQ-1.12 は「営業担当者未選択時のバリデーション」であり、
-    // 以下のテスト（REQ-1.12）で実施済み。
+    // Note: 「営業担当者未選択時のバリデーション」を述べるのは受入基準1.15 であり、
+    // 直後のテストで実施済み（従前この註釈は 1.12 と書いていたが、原文1.12 は
+    // 「必須項目を入力せずに『作成』ボタンをクリックしたとき入力エラーメッセージを
+    // 該当フィールドに表示する」であり、タスク 115.188 で現況へ改めた）。
     // 取引先（顧客名）は任意フィールドのため、バリデーションテスト不要。
 
     /**
-     * @requirement project-management/REQ-1.12
+     * @requirement project-management/REQ-1.15
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.15 が「営業担当者は必須です」の表示。旧 1.12 は現行では必須項目未入力時の該当フィールドへのエラー表示）。
      */
-    test('営業担当者未選択時にバリデーションエラーが表示される (project-management/REQ-1.12)', async ({
+    test('営業担当者未選択時にバリデーションエラーが表示される (project-management/REQ-1.15)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -339,10 +355,14 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.13
-     * @requirement project-management/REQ-1.14
+     * @requirement project-management/REQ-1.16
+     * @requirement project-management/REQ-1.17
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.16 が作成日時と作成者の自動記録、1.17 が一意IDの自動付与。旧 1.13・1.14 は現行ではプロジェクト名の必須・文字数のエラー）。
      */
-    test('プロジェクト作成時に作成日時・作成者・IDが自動記録される (project-management/REQ-1.13, REQ-1.14)', async ({
+    test('プロジェクト作成時に作成日時・作成者・IDが自動記録される (project-management/REQ-1.16, REQ-1.17)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -360,16 +380,7 @@ test.describe('プロジェクトCRUD操作', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクト作成
       const createPromise = page.waitForResponse(
@@ -411,63 +422,27 @@ test.describe('プロジェクトCRUD操作', () => {
     /**
      * @requirement project-management/REQ-8.1
      * @requirement project-management/REQ-8.2
-     * @requirement project-management/REQ-8.3
+     * @requirement project-management/REQ-8.7
+     *
+     * タスク 115.188 の是正: 従前は REQ-8.3 を名乗っていたが、受入基準8.3 の原文は「When ユーザーが顧客名フィールドで検索テキストを入力する,
+     * the ArchiTrackシステム shall 取引先管理機能で登録された取引先を検索フィルタリングして表示する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準8.7（「When プロジェクトが正常に更新される, the ArchiTrackシステム
+     * shall 更新日時を自動的に記録し、成功メッセージを表示する」）である。
      */
-    test('編集ボタン→フォーム表示→保存→成功メッセージが正常に行われる (project-management/REQ-8.1, REQ-8.2, REQ-8.3)', async ({
+    test('編集ボタン→フォーム表示→保存→成功メッセージが正常に行われる (project-management/REQ-8.1, REQ-8.2, REQ-8.7)', async ({
       page,
     }) => {
       // 一般ユーザーでログイン（編集は一般ユーザーでも可能）
       await loginAsUser(page, 'REGULAR_USER');
 
-      // テスト用プロジェクトが存在しない場合は作成
-      if (!createdProjectId) {
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
-
-        await page.getByRole('button', { name: /新規作成/i }).click();
-        await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-
-        // ユーザー一覧の読み込み完了を待機（複数のUserSelectがあるため.first()を使用）
-        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-          timeout: getTimeout(15000),
-        });
-
-        const projectName = `編集テスト用プロジェクト_${Date.now()}`;
-        await page.getByLabel(/プロジェクト名/i).fill(projectName);
-
-        // 営業担当者を確認・選択
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        const salesPersonValue = await salesPersonSelect.inputValue();
-        if (!salesPersonValue) {
-          const options = await salesPersonSelect.locator('option').all();
-          if (options.length > 1 && options[1]) {
-            const firstUserOption = await options[1].getAttribute('value');
-            if (firstUserOption) {
-              await salesPersonSelect.selectOption(firstUserOption);
-            }
-          }
-        }
-
-        const createPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createPromise;
-
-        // URLからプロジェクトIDを取得
-        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-        const url = page.url();
-        const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-        createdProjectId = match?.[1] ?? null;
-      }
+      // 編集対象のプロジェクトを前提として無条件に用意する。
+      // 「先行テストが ID を残していれば使い、無ければ画面から作る」という復旧分岐は、
+      // 先行テストが壊れたときに何を編集しているのかが定まらず、
+      // 前提の崩れが REQ-8.x の失敗として現れないため置かない。
+      const editTargetProjectId = (await seedProject(page, '編集テスト用プロジェクト')).id;
 
       // 詳細ページに移動
-      await page.goto(`/projects/${createdProjectId}`);
+      await page.goto(`/projects/${editTargetProjectId}`);
       await page.waitForLoadState('networkidle');
 
       // 「編集」ボタンをクリック
@@ -490,7 +465,7 @@ test.describe('プロジェクトCRUD操作', () => {
       // APIレスポンスを待機しながら保存ボタンをクリック
       const updatePromise = page.waitForResponse(
         (response) =>
-          response.url().includes(`/api/projects/${createdProjectId}`) &&
+          response.url().includes(`/api/projects/${editTargetProjectId}`) &&
           response.request().method() === 'PUT' &&
           response.status() === 200,
         { timeout: getTimeout(30000) }
@@ -561,9 +536,14 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-8.4
+     * @requirement project-management/REQ-8.8
+     *
+     * タスク 115.188 の是正: 従前は REQ-8.4 を名乗っていたが、受入基準8.4 は「顧客名フィールドでフリガナを検索
+     * する…ひらがな・カタカナどちらの入力でも取引先候補を検索する」であり、本検証が主張するバリデーションエラーの表示を述べるのは受入
+     * 基準8.8（バリデーションエラーが発生した場合、エラーメッセージを該当フィールドに表示する）
+     * である。
      */
-    test('編集時にバリデーションエラーが発生するとエラーメッセージが表示される (project-management/REQ-8.4)', async ({
+    test('編集時にバリデーションエラーが発生するとエラーメッセージが表示される (project-management/REQ-8.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -666,16 +646,7 @@ test.describe('プロジェクトCRUD操作', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response) =>
@@ -775,70 +746,19 @@ test.describe('プロジェクトCRUD操作', () => {
       page,
       context,
     }) => {
-      // テスト用プロジェクトが存在しない場合は一般ユーザーで作成
-      let testProjectId = createdProjectId;
-      if (!testProjectId) {
-        await loginAsUser(page, 'REGULAR_USER');
+      // 削除対象のプロジェクトを前提として無条件に用意する。
+      // 先行テストが残した ID を再利用する復旧分岐は、先行テストが壊れたときに
+      // 「どのプロジェクトの削除をキャンセルしたのか」が定まらないため置かない。
+      await loginAsUser(page, 'REGULAR_USER');
+      const testProjectId = (await seedProject(page, 'キャンセルテスト')).id;
 
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
+      // 管理者ユーザーに切り替え（削除ボタンを表示するため）
+      await context.clearCookies();
+      await page.evaluate(() => {
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('accessToken');
+      });
 
-        // ユーザーAPI応答待機を開始してからボタンをクリック
-        const usersApiPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/users/assignable') &&
-            response.request().method() === 'GET' &&
-            response.status() === 200,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /新規作成/i }).click();
-        await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-
-        // ユーザー一覧APIの応答を待機
-        await usersApiPromise;
-        await page.waitForTimeout(500);
-
-        await page.getByLabel(/プロジェクト名/i).fill(`キャンセルテスト_${Date.now()}`);
-
-        // 営業担当者を確認・選択
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        const salesPersonValue = await salesPersonSelect.inputValue();
-        if (!salesPersonValue) {
-          const options = await salesPersonSelect.locator('option').all();
-          if (options.length > 1 && options[1]) {
-            const firstUserOption = await options[1].getAttribute('value');
-            if (firstUserOption) {
-              await salesPersonSelect.selectOption(firstUserOption);
-            }
-          }
-        }
-
-        const createPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createPromise;
-
-        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-        const url = page.url();
-        const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-        testProjectId = match?.[1] ?? null;
-
-        // 管理者ユーザーに切り替え
-        await context.clearCookies();
-        await page.evaluate(() => {
-          localStorage.removeItem('refreshToken');
-          localStorage.removeItem('accessToken');
-        });
-      }
-
-      // 管理者ユーザーでログイン（削除ボタンを表示するため）
       await loginAsUser(page, 'ADMIN_USER');
 
       // 詳細ページに移動
@@ -891,16 +811,7 @@ test.describe('プロジェクトCRUD操作', () => {
       await page.getByLabel(/プロジェクト名/i).fill(`関連データテスト_${Date.now()}`);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response) =>
@@ -915,6 +826,15 @@ test.describe('プロジェクトCRUD操作', () => {
 
       await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
 
+      // URLからプロジェクトIDを取得する。
+      // ここで取らずに再ログインの後で取ると、ログインは /dashboard へ遷移するため
+      // 詳細URLは失われ、ID が取れなくなる。
+      // 直前に作成したプロジェクトの詳細URLに居るため、IDは必ず取れる。
+      // 取れない場合は前提が崩れているのでここで失敗させる。
+      const match = page.url().match(/\/projects\/([0-9a-f-]+)$/);
+      const relatedTestProjectId = match?.[1] ?? null;
+      assertPrepared(relatedTestProjectId, '作成した関連データ検証用プロジェクトのID');
+
       // 管理者ユーザーに切り替え
       await context.clearCookies();
       await page.evaluate(() => {
@@ -924,26 +844,19 @@ test.describe('プロジェクトCRUD操作', () => {
 
       await loginAsUser(page, 'ADMIN_USER');
 
-      // URLからプロジェクトIDを取得
-      const url = page.url();
-      const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-      const relatedTestProjectId = match?.[1] ?? null;
+      await page.goto(`/projects/${relatedTestProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-      if (relatedTestProjectId) {
-        await page.goto(`/projects/${relatedTestProjectId}`);
-        await page.waitForLoadState('networkidle');
+      // 削除ボタンをクリック
+      await page.getByRole('button', { name: /削除/i }).click();
 
-        // 削除ボタンをクリック
-        await page.getByRole('button', { name: /削除/i }).click();
+      // 削除確認ダイアログが表示されることを確認
+      await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 削除確認ダイアログが表示されることを確認
-        await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-
-        // 削除確認ダイアログが表示されたらキャンセルする
-        await page.getByRole('button', { name: /キャンセル/i }).click();
-      }
+      // 削除確認ダイアログが表示されたらキャンセルする
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
   });
 });

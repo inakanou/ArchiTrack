@@ -3,6 +3,7 @@
  *
  * Task 15.6: フリーハンドツールを実装する
  * Task 81.1: Freehand クラスを Group ベースへ再設計（白縁取りダブルストローク）
+ * Task 115.50: 本番の描画完了経路（PencilBrush.createPath）から FreehandPath を生成する
  *
  * Fabric.js PencilBrushの活用、描画の滑らかさ調整、
  * 白縁取り付き Group 構造のカスタム Fabric.js オブジェクト実装を行うモジュールです。
@@ -13,6 +14,9 @@
  * - 32.2: 白縁取り線幅を本体線幅の 1.5 倍以上に設定する
  * - 32.3: 本体色を変更しても白縁取りは白のまま維持する
  * - 32.4: 移動・リサイズ・回転・形状変形（パスデータ変更）時に本体と同期して白縁取りを変形する
+ * - 32.6: 白縁取り属性を注釈データに含めて永続化する
+ * - 32.7: 保存された白縁取り属性を復元して表示する
+ * - 32.11: 初回にフリーハンドツールを選択したとき白縁取りが有効な初期状態で起動する
  *
  * @requirement site-survey/REQ-26.1
  * @requirement site-survey/REQ-26.2
@@ -21,12 +25,27 @@
  * @requirement site-survey/REQ-32.2
  * @requirement site-survey/REQ-32.3
  * @requirement site-survey/REQ-32.4
+ * @requirement site-survey/REQ-32.6
+ * @requirement site-survey/REQ-32.7
+ * @requirement site-survey/REQ-32.11
  */
 
-import { Group, Path, PencilBrush, type Canvas, type TPointerEvent, type TEvent } from 'fabric';
-import type { Point as FabricPoint } from 'fabric';
+import {
+  Group,
+  Path,
+  PencilBrush,
+  util,
+  type Canvas,
+  type TPointerEvent,
+  type TEvent,
+} from 'fabric';
+import type { Point as FabricPoint, TSimplePathData } from 'fabric';
 
-import { ANNOTATION_DEFAULTS, type ShapeOutlineAttribute } from '../annotation-style-tokens';
+import {
+  ANNOTATION_DEFAULTS,
+  resolveShapeOutlineWidth,
+  type ShapeOutlineAttribute,
+} from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -56,6 +75,17 @@ export interface FreehandOptions {
   strokeLineCap: 'butt' | 'round' | 'square';
   /** 線の結合スタイル */
   strokeLineJoin: 'bevel' | 'round' | 'miter';
+  /**
+   * 白縁取りを有効にするか (Req 32.5)
+   *
+   * Task 115.96: 道具帯の白縁取り切替をフリーハンドへ届けるための入口。
+   * フリーハンドは他の 5 形状と違い、描画完了時にブラシ (`FreehandBrush.createPath`)
+   * が `FreehandPath` を組み立てるため、生成後に `setOutline` を呼ぶ隙が無い。
+   * 生成オプションとして受け取り、コンストラクタで反映する。
+   *
+   * 省略時は `ANNOTATION_DEFAULTS.freehandOutline.enabled`（Req 32.11: 有効）。
+   */
+  outlineEnabled?: boolean;
 }
 
 /**
@@ -97,6 +127,8 @@ export const DEFAULT_FREEHAND_OPTIONS: FreehandOptions = {
   decimate: 8,
   strokeLineCap: 'round',
   strokeLineJoin: 'round',
+  // Req 32.11: 初回起動時は白縁取りが有効
+  outlineEnabled: ANNOTATION_DEFAULTS.freehandOutline.enabled,
 };
 
 /**
@@ -117,7 +149,7 @@ const MIN_POINT_COUNT = 2;
  * の 2 つの子 Path を持つ。
  *
  * 開放形状のため両 Path の `fill` は `'transparent'` を維持する
- * （design.md 5347 行: 「開放形状 2 種（Polyline/Freehand）は両 path とも fill 未使用」）。
+ * （design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」: 「開放形状 2 種（Polyline/Freehand）は両 path とも `fill` 未使用」）。
  *
  * `type === 'freehand'` は維持（classRegistry 後方互換）。
  *
@@ -174,14 +206,21 @@ export class FreehandPath extends Group {
     const mergedOptions = { ...DEFAULT_FREEHAND_OPTIONS, ...options };
 
     // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
-    const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.freehandOutline };
+    // Task 115.53 (Req 32.2): 片側幅は既定線幅由来の固定値ではなく本体線幅から算出し、
+    // 描画される縁取り線幅が本体線幅の 1.5 倍以上となる比率を全線幅で満たす。
+    const outline: ShapeOutlineAttribute = {
+      ...ANNOTATION_DEFAULTS.freehandOutline,
+      // Task 115.96 (Req 32.5): 道具帯の切替が無効を指しているときは無効で起動する。
+      enabled: mergedOptions.outlineEnabled ?? ANNOTATION_DEFAULTS.freehandOutline.enabled,
+      width: resolveShapeOutlineWidth(mergedOptions.strokeWidth),
+    };
 
     // 外側 Path（白縁取り）を生成
     // 子の left/top は Group 原点（0,0）からの相対座標。
     // 親 Group が位置決めし、子は path で形状を保持することで
     // 移動・リサイズ・回転・パスデータ変更時に同期する（Req 32.4）。
     //
-    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    // 開放形状のため fill は 'transparent'（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
     const outlinePath = new Path(pathData, {
       stroke: outline.color,
       strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
@@ -199,7 +238,7 @@ export class FreehandPath extends Group {
     });
 
     // 本体 Path を生成
-    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    // 開放形状のため fill は 'transparent'（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
     // 既存 FreehandOptions の `fill` は API 上維持するが、実描画では使用しない。
     const bodyPath = new Path(pathData, {
       stroke: mergedOptions.stroke,
@@ -287,6 +326,8 @@ export class FreehandPath extends Group {
   setStrokeWidth(width: number): void {
     this.strokeWidth = width;
     this._bodyPath.set('strokeWidth', width);
+    // Task 115.53 (Req 32.2): 本体線幅の変更に追随して片側幅も再算出する
+    this._outline = { ...this._outline, width: resolveShapeOutlineWidth(width) };
     this._outlinePath.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }
@@ -296,7 +337,7 @@ export class FreehandPath extends Group {
    *
    * Task 81.1: フリーハンドは開放形状のため実描画では fill は使用しないが、
    * 既存 API 互換のために Group プロパティのみ更新する。
-   * 両子 Path の fill は 'transparent' のまま維持する（design.md 5347 行）。
+   * 両子 Path の fill は 'transparent' のまま維持する（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
    */
   setFill(color: string): void {
     this.fill = color;
@@ -411,7 +452,7 @@ export class FreehandPath extends Group {
    * - 必須フィールド（pathData 文字列・stroke/strokeWidth/fill）欠落や
    *   null/undefined 受領時は安全な既定値（最小限の水平線パス、stroke 黒、strokeWidth 2、
    *   fill 'transparent'）で復元し、console.warn を送出する（防御的フォールバック）。
-   *   フリーハンドは開放形状のため fill 既定は 'transparent' を採用（design.md 5347 行）。
+   *   フリーハンドは開放形状のため fill 既定は 'transparent' を採用（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
    *
    * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたFreehandPathインスタンス
@@ -500,7 +541,7 @@ export class FreehandPath extends Group {
       // Req 32.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
       //   既存の ANNOTATION_DEFAULTS.freehandOutline（enabled=true）を無効化し、
       //   outlinePath.opacity=0 + width=0 で「白縁取り無し」状態にする。
-      freehand.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+      freehand.setOutline({ enabled: false, color: ANNOTATION_DEFAULTS.outlineColor, width: 0 });
     }
 
     return Promise.resolve(freehand);
@@ -592,6 +633,15 @@ export class FreehandBrush extends PencilBrush {
 
   /**
    * マウスアップイベント（描画終了）
+   *
+   * Task 115.50: `ev` を伴う本番経路では、親 `PencilBrush.onMouseUp` が
+   * `_finalizeAndAddPath()` → `createPath()` → `canvas.add()` を実行する。
+   * 生成と canvas への追加はその一本の経路に委ね、本メソッドで別途 FreehandPath を
+   * 組み立てることはしない（同一ストロークから 2 つの形状が作られるのを避ける）。
+   *
+   * `ev` を伴わない呼出（ブラシ単体の利用）は Fabric の描画完了経路を通らないため、
+   * 従来どおり収集済みポイント列から FreehandPath を組み立てて保持する。
+   *
    * @returns Fabric.jsのonMouseUpはbooleanを返すが、テスト用にFreehandPathも返せるようにする
    */
   override onMouseUp(ev?: TEvent<TPointerEvent>): boolean {
@@ -607,6 +657,12 @@ export class FreehandBrush extends PencilBrush {
       return false;
     }
 
+    // 本番経路: 平滑化済みパスから createPath() が FreehandPath を生成し canvas へ追加する
+    if (ev) {
+      this._freehandPoints = [];
+      return super.onMouseUp(ev);
+    }
+
     // パスデータを生成
     const pathData = this._generatePathData();
 
@@ -614,11 +670,37 @@ export class FreehandBrush extends PencilBrush {
     this._lastCreatedPath = new FreehandPath(pathData, this._options);
     this._freehandPoints = [];
 
-    // 親クラスのonMouseUpを呼ぶ
-    if (ev) {
-      return super.onMouseUp(ev);
-    }
     return true;
+  }
+
+  /**
+   * 描画完了時に canvas へ追加する形状を生成する
+   *
+   * Task 115.50 (Req 32.1, 32.6, 32.7, 32.11):
+   * Fabric の `PencilBrush._finalizeAndAddPath()` は `createPath()` の戻り値を
+   * そのまま `canvas.add()` する。ここで白縁取り付きの `FreehandPath`（Group:
+   * outlinePath + bodyPath）を返すことで、本番のフリーハンド描画が要件 32 の
+   * 対象形状として作成される。
+   *
+   * - パスデータは親クラスが平滑化・デシメート済みのものを受け取る（描画品質を維持）。
+   *   `FreehandPath` は `pathData` を文字列として保持・永続化する契約のため
+   *   `util.joinPath` で文字列へ変換する（`fromObject` は文字列以外を不正データとして扱う）。
+   * - 本体色・本体線幅はブラシの現在値（`color` / `width`）を採用する。
+   *   スタイル変更は `canvas.freeDrawingBrush.color/width` へ直接反映されるため、
+   *   コンストラクタ引数の複製ではなく現在値を参照する必要がある。
+   *
+   * 戻り値型は Fabric の契約（`Path`）に合わせる。`FreehandPath` は `Group` 派生で
+   * あり型としては `Path` ではないが、`_finalizeAndAddPath` が戻り値に要求するのは
+   * `canvas.add()` と `setCoords()` のみで、いずれも Group が満たす。
+   */
+  override createPath(pathData: TSimplePathData): Path {
+    const freehand = new FreehandPath(util.joinPath(pathData), {
+      ...this._options,
+      stroke: this.color,
+      strokeWidth: this.width,
+    });
+    this._lastCreatedPath = freehand;
+    return freehand as unknown as Path;
   }
 
   /** 最後に作成されたパス */
@@ -672,6 +754,19 @@ export class FreehandBrush extends PencilBrush {
   setDecimate(value: number): void {
     this.decimate = value;
     this._options.decimate = value;
+  }
+
+  /**
+   * 白縁取りの有効/無効を更新する (Req 32.5)
+   *
+   * Task 115.96: 描画中のブラシは `createPath` で `FreehandPath` を組み立てるため、
+   * 以降のストロークへ反映させるにはブラシが保持する生成オプションを更新する必要がある。
+   * ツール選択中に切替えても次の一筆から効くようにする。
+   *
+   * @param enabled 白縁取りを有効にするか
+   */
+  setOutlineEnabled(enabled: boolean): void {
+    this._options.outlineEnabled = enabled;
   }
 
   // ==========================================================================

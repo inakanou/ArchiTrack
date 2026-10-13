@@ -3,7 +3,8 @@
  *
  * プロジェクト単位の工事看板（電子小黒板調・構造化テキスト）マスタの CRUD・一覧・
  * 楽観的排他制御・論理削除を担当する。使用中看板の削除では、当該看板を参照する
- * 写真項目の件数（inUseCount）を返す。既存の工事写真アルバムサービス
+ * 写真項目の看板の指定と配置を同じトランザクションで解除し、解除した件数（inUseCount）を
+ * 返す。既存の工事写真アルバムサービス
  * （construction-photo-album.service.ts）の実装パターンを踏襲する。
  *
  * Requirements:
@@ -16,24 +17,33 @@
  * - 8.8: 使用中の看板削除時に使用件数（inUseCount）を返す
  * - 8.9: 工事看板を当該プロジェクト配下でのみ選択・参照可能とする
  * - 8.10: 当該プロジェクトに登録済みの工事看板を一覧表示する
- * - 13.2: 取得・更新・削除は対象が要求プロジェクト配下であることを検証する
+ * - 13.2: 取得・更新・削除は対象が要求プロジェクト配下であることを検証する。一覧・更新・削除は、
+ *   所属プロジェクトが実在し取り除かれていない（論理削除されていない）ときだけ行う（Task 23.1 の
+ *   利用者の判断。判定は construction-photo-availability の共通の判定を用いる）
  *
  * @module services/construction-signboard
  */
 
-import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
+import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
 import { NotFoundError, ConflictError } from '../errors/apiError.js';
 import type {
   ConstructionSignboardDto,
   SignboardFreeItem,
 } from '../types/construction-photo.types.js';
+import {
+  AVAILABILITY_IN_PROJECT_SELECT,
+  PROJECT_LIVENESS_SELECT,
+  isAvailableInLiveProject,
+  isProjectLive,
+} from './construction-photo-availability.js';
 
 // ============================================================================
 // エラークラス（本ドメイン境界内で定義）
 // ============================================================================
 
 /**
- * プロジェクトが見つからない場合のエラー（看板作成時）
+ * プロジェクトが見つからない、または取り除かれている（論理削除済み）場合のエラー
+ * （看板の作成・一覧）
  * 404 Not Found
  *
  * Requirements: 8.9
@@ -110,7 +120,10 @@ export interface UpdateSignboardInput {
  * Requirements: 8.8
  */
 export interface DeleteSignboardResult {
-  /** 当該看板を参照している写真項目の件数（>0 は使用中） */
+  /**
+   * 削除の時点で当該看板を参照していた写真項目の件数（>0 は使用中）。
+   * 削除はこれらの写真項目の看板の指定を解除するため、解除した件数と一致する。
+   */
   inUseCount: number;
 }
 
@@ -190,7 +203,7 @@ export class ConstructionSignboardService {
    * @param input - 更新入力（updatedAt必須）
    * @param projectId - （任意）要求プロジェクトID。指定時は配下検証を行う
    * @returns 更新された看板DTO
-   * @throws ConstructionSignboardNotFoundError 存在しない、論理削除済み、または要求プロジェクト外の場合
+   * @throws ConstructionSignboardNotFoundError 存在しない・看板かプロジェクトが論理削除済み・要求プロジェクト外の場合
    * @throws ConstructionSignboardConflictError 楽観的排他制御エラー（競合）
    */
   async update(
@@ -210,11 +223,12 @@ export class ConstructionSignboardService {
           footerText: true,
           createdAt: true,
           updatedAt: true,
-          deletedAt: true,
+          ...AVAILABILITY_IN_PROJECT_SELECT,
         },
       });
 
-      if (!signboard || signboard.deletedAt !== null) {
+      // 看板かその所属プロジェクトが論理削除済みなら 404（Requirements: 13.2, 13.3）
+      if (!signboard || !isAvailableInLiveProject(signboard)) {
         throw new ConstructionSignboardNotFoundError(id);
       }
 
@@ -259,12 +273,24 @@ export class ConstructionSignboardService {
   }
 
   /**
-   * 看板論理削除（使用件数を返す）
+   * 看板論理削除（参照する写真項目の看板の指定を解除し、使用件数を返す）
    *
-   * deletedAt を設定して論理削除する。削除に先立ち、当該看板を参照する写真項目
-   * （ConstructionPhoto.signboardId）の件数を数えて返す。呼び出し側（ルート/UI）は
-   * inUseCount>0 のとき使用中である旨を警告する（Requirements: 8.8）。看板削除後の
-   * 写真項目は看板なしとして扱われる（参照側の解決は印字画像生成時に行う）。
+   * deletedAt を設定して論理削除する。論理削除ではスキーマの `onDelete: SetNull` が
+   * 発火しないため、同じトランザクションの中で、当該看板を参照する写真項目
+   * （ConstructionPhoto.signboardId）の看板の指定と配置（signboardPlacement）を明示的に
+   * 解除する（Requirements: 9.7。design.md「看板削除時は参照側を SetNull」）。配置は看板の
+   * 指定に従属する値であり、看板なしの写真項目に残さない。
+   *
+   * 返す inUseCount は、解除した写真項目の件数（＝削除の時点で当該看板を参照していた件数）
+   * である。件数の取得と解除を1文（updateMany）で行うため、両者が食い違わない。削除前の
+   * 警告（Requirements: 8.8）は一覧の inUseCount が担い、本メソッドの値は結果の報告である。
+   *
+   * 写真項目（ConstructionPhoto）は更新日時の列を持たず、メタの一括更新は版の照合をしない
+   * （送られた項目だけを書く）。したがって本メソッドが写真項目の版を進める必要は無く、
+   * 削除をまたいだ保存は次のようになる:
+   * - 看板に触れていない未保存の変更（コメント・印刷対象・順序）の保存は成功し、解除は保たれる
+   * - 取り除いた看板を指定する保存は、メタの一括更新の検証が 404（SIGNBOARD_NOT_ALLOWED）で
+   *   拒否し、同じ保存の他の変更も書き込まない（未保存の変更は画面に残る）
    *
    * Requirements:
    * - 8.7: 工事看板を削除する（論理削除）
@@ -274,16 +300,18 @@ export class ConstructionSignboardService {
    * @param id - 看板ID
    * @param projectId - （任意）要求プロジェクトID。指定時は配下検証を行う
    * @returns 使用件数（inUseCount）
-   * @throws ConstructionSignboardNotFoundError 存在しない、論理削除済み、または要求プロジェクト外の場合
+   * @throws ConstructionSignboardNotFoundError 存在しない・看板かプロジェクトが論理削除済み・要求プロジェクト外の場合
    */
   async delete(id: string, projectId?: string): Promise<DeleteSignboardResult> {
     return await this.prisma.$transaction(async (tx) => {
       const signboard = await tx.constructionSignboard.findUnique({
         where: { id },
-        select: { id: true, projectId: true, deletedAt: true },
+        select: { id: true, projectId: true, ...AVAILABILITY_IN_PROJECT_SELECT },
       });
 
-      if (!signboard || signboard.deletedAt !== null) {
+      // 看板かその所属プロジェクトが論理削除済みなら 404 とし、参照する写真項目にも触れない
+      // （Requirements: 13.2, 13.3）
+      if (!signboard || !isAvailableInLiveProject(signboard)) {
         throw new ConstructionSignboardNotFoundError(id);
       }
 
@@ -292,17 +320,19 @@ export class ConstructionSignboardService {
         throw new ConstructionSignboardNotFoundError(id);
       }
 
-      // 使用件数（当該看板を参照する写真項目）を数える（Requirements: 8.8）
-      const inUseCount = await tx.constructionPhoto.count({
-        where: { signboardId: id },
-      });
-
       await tx.constructionSignboard.update({
         where: { id },
         data: { deletedAt: new Date() },
       });
 
-      return { inUseCount };
+      // 参照する写真項目の看板の指定と配置を解除する（Requirements: 9.7）。
+      // 解除した件数が使用件数である（Requirements: 8.8）
+      const released = await tx.constructionPhoto.updateMany({
+        where: { signboardId: id },
+        data: { signboardId: null, signboardPlacement: Prisma.JsonNull },
+      });
+
+      return { inUseCount: released.count };
     });
   }
 
@@ -314,12 +344,22 @@ export class ConstructionSignboardService {
    * Requirements:
    * - 8.9: 工事看板を当該プロジェクト配下でのみ選択・参照可能とする
    * - 8.10: 当該プロジェクトに登録済みの工事看板を一覧表示する
-   * - 13.2: 指定プロジェクト配下の看板のみを返す
+   * - 13.2: 指定プロジェクト配下の看板のみを返す。プロジェクトが存在しない、または取り除かれて
+   *   いる（論理削除済み）ときは、看板を一件も読まずに ProjectNotFound（404）とする
    *
    * @param projectId - プロジェクトID
    * @returns 看板DTO配列
+   * @throws ProjectNotFoundForSignboardError プロジェクトが存在しない、または論理削除済みの場合
    */
   async findByProject(projectId: string): Promise<ConstructionSignboardDto[]> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      ...PROJECT_LIVENESS_SELECT,
+    });
+    if (!isProjectLive(project)) {
+      throw new ProjectNotFoundForSignboardError(projectId);
+    }
+
     const signboards = await this.prisma.constructionSignboard.findMany({
       where: { projectId, deletedAt: null },
       orderBy: { createdAt: 'desc' },

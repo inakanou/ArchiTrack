@@ -12,10 +12,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import QuantityGroupCard from '../../../components/quantity-table/QuantityGroupCard';
 import type { QuantityGroupDetail } from '../../../types/quantity-table.types';
+import { calculateStringWidth } from '../../../utils/field-validation';
 
 // AnnotatedImageThumbnailをモックして、Fabric.jsの依存関係を回避する
 vi.mock('../../../components/site-surveys/AnnotatedImageThumbnail', () => ({
@@ -240,5 +241,442 @@ describe('QuantityGroupCard インライン編集', () => {
 
     // input要素が表示されない
     expect(screen.queryByRole('textbox', { name: /グループ名を編集/i })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * グループ名の入力時点での上限超過防止（REQ-22.5）
+ *
+ * Task 115.34 (site-survey)
+ *
+ * 上限は全角25文字（半角換算50）。日本語入力（IME）の変換中は幅の判定を行わず、
+ * 確定時に評価して超過時のみ変換開始直前の値へ戻す。変換中の読みは確定語より長くなるため、
+ * 変換中に幅で拒否すると正当な語を確定できなくなる。
+ */
+describe('QuantityGroupCard グループ名の上限超過防止 (REQ-22.5)', () => {
+  /** グループ名の最大文字幅（半角換算）。権威は QuantityGroupCard の GROUP_NAME_MAX_WIDTH */
+  const GROUP_NAME_MAX_WIDTH = 50;
+  /** 上限ちょうどとなる全角文字数 */
+  const ZENKAKU_AT_LIMIT = 25;
+
+  /**
+   * 編集モードを開き、グループ名の入力欄を返す。
+   */
+  async function openNameEditor(displayName: string) {
+    const user = userEvent.setup();
+    render(
+      <QuantityGroupCard
+        group={createMockGroup({ name: displayName })}
+        groupDisplayName={displayName}
+        isEditable={true}
+        onRenameGroup={vi.fn()}
+      />
+    );
+    await user.click(screen.getByText(displayName));
+    return screen.getByRole('textbox', { name: /グループ名を編集/i });
+  }
+
+  it('全角で上限ちょうどの入力は受け付ける', async () => {
+    const input = await openNameEditor('テストグループ');
+
+    const atLimit = 'あ'.repeat(ZENKAKU_AT_LIMIT);
+    fireEvent.change(input, { target: { value: atLimit } });
+
+    expect(input).toHaveValue(atLimit);
+    expect(calculateStringWidth((input as HTMLInputElement).value)).toBe(GROUP_NAME_MAX_WIDTH);
+  });
+
+  it('全角で上限を1文字超える入力は受け付けない', async () => {
+    const input = await openNameEditor('テストグループ');
+
+    const atLimit = 'あ'.repeat(ZENKAKU_AT_LIMIT);
+    fireEvent.change(input, { target: { value: atLimit } });
+    fireEvent.change(input, { target: { value: 'あ'.repeat(ZENKAKU_AT_LIMIT + 1) } });
+
+    expect(input).toHaveValue(atLimit);
+    expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(
+      GROUP_NAME_MAX_WIDTH
+    );
+  });
+
+  it('半角で上限ちょうどを受け付け、1文字超過は受け付けない', async () => {
+    const input = await openNameEditor('テストグループ');
+
+    const atLimit = 'a'.repeat(GROUP_NAME_MAX_WIDTH);
+    fireEvent.change(input, { target: { value: atLimit } });
+    expect(input).toHaveValue(atLimit);
+
+    fireEvent.change(input, { target: { value: 'a'.repeat(GROUP_NAME_MAX_WIDTH + 1) } });
+    expect(input).toHaveValue(atLimit);
+  });
+
+  /**
+   * 実ブラウザと同じイベント順序（compositionstart → 変換中の input → compositionend）で
+   * 読みの幅が上限を超える語を確定できることを確かめる。
+   * 一括投入では変換中の状態を再現できないため、この欠陥は構造的に検出できない。
+   */
+  it('読みが上限を超えても変換を経て確定できる', async () => {
+    // 現場名と工種を含む命名。読みは上限超過、確定語は上限以内
+    const reading = 'こくどうよんじゅうごごうせんどうろどこうこうじいっしき';
+    const word = '国道四十五号線道路土工工事一式';
+    expect(calculateStringWidth(reading)).toBeGreaterThan(GROUP_NAME_MAX_WIDTH);
+    expect(calculateStringWidth(word)).toBeLessThanOrEqual(GROUP_NAME_MAX_WIDTH);
+
+    const input = await openNameEditor('テストグループ');
+    fireEvent.change(input, { target: { value: '' } });
+
+    fireEvent.compositionStart(input);
+    // かなを1文字ずつ入力していく（変換中）
+    for (let i = 1; i <= reading.length; i += 1) {
+      fireEvent.change(input, { target: { value: reading.slice(0, i) } });
+    }
+    // 読みが途中で切り捨てられていないこと（変換途中のかなが残らないこと）
+    expect(input).toHaveValue(reading);
+
+    // 変換候補を選び確定する
+    fireEvent.change(input, { target: { value: word } });
+    fireEvent.compositionEnd(input, { data: word });
+
+    expect(input).toHaveValue(word);
+  });
+
+  it('変換終了後は再び入力時点で幅を判定する', async () => {
+    const input = await openNameEditor('テストグループ');
+
+    const committed = 'あ'.repeat(ZENKAKU_AT_LIMIT);
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: committed } });
+    fireEvent.compositionEnd(input, { data: committed });
+    expect(input).toHaveValue(committed);
+
+    fireEvent.change(input, { target: { value: 'あ'.repeat(ZENKAKU_AT_LIMIT + 1) } });
+    expect(input).toHaveValue(committed);
+  });
+
+  it('変換の確定値が上限を超える場合は変換開始直前の値へ戻す', async () => {
+    const before = 'テストグループ';
+    const input = await openNameEditor(before);
+
+    const reading = 'あ'.repeat(ZENKAKU_AT_LIMIT + 3);
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: reading } });
+    // 変換せずそのまま確定した（＝確定値が上限超過）
+    fireEvent.compositionEnd(input, { data: reading });
+
+    expect(input).toHaveValue(before);
+    expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(
+      GROUP_NAME_MAX_WIDTH
+    );
+  });
+
+  /**
+   * 変換中の確定・取消キーは IME のものであり、名前編集の確定・取消として扱ってはならない。
+   *
+   * 変換中は幅を判定しない（上限超過の読みを保持する）ため、変換中の Enter を素通しすると
+   * 上限を超えた名前がそのまま確定されてしまう。実ブラウザでは幅 80 のグループ名が確定し
+   * 見出しに表示された。
+   *
+   * 変換中の現れ方は環境によって異なるため、手掛かりごとに個別のケースを用意する。
+   */
+  /**
+   * 編集モードを開き、入力欄と onRenameGroup のモックを返す。
+   */
+  async function openNameEditorWithMock(displayName: string) {
+    const user = userEvent.setup();
+    const onRenameGroup = vi.fn();
+    render(
+      <QuantityGroupCard
+        group={createMockGroup({ name: displayName })}
+        groupDisplayName={displayName}
+        isEditable={true}
+        onRenameGroup={onRenameGroup}
+      />
+    );
+    await user.click(screen.getByText(displayName));
+    return {
+      user,
+      input: screen.getByRole('textbox', { name: /グループ名を編集/i }),
+      onRenameGroup,
+    };
+  }
+
+  /** 上限超過（幅 80）の読みを変換中の入力欄へ投入する */
+  function typeOverLimitReadingWhileComposing(input: HTMLElement) {
+    const overLimit = 'あ'.repeat(40); // 幅 80（上限 50 を超過）
+    expect(calculateStringWidth(overLimit)).toBe(80);
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: overLimit } });
+    // 変換中なので切り詰められず保持されている
+    expect(input).toHaveValue(overLimit);
+    return overLimit;
+  }
+
+  it('変換中のEnterでは上限超過の名前が確定されない', async () => {
+    const { input, onRenameGroup } = await openNameEditorWithMock('テストグループ');
+    typeOverLimitReadingWhileComposing(input);
+
+    // 変換を確定する Enter。ここでは compositionstart/end の追跡だけが手掛かりとなる
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onRenameGroup).not.toHaveBeenCalled();
+  });
+
+  it('変換中のEnterでは名前の編集欄が閉じない', async () => {
+    const { input } = await openNameEditorWithMock('テストグループ');
+    typeOverLimitReadingWhileComposing(input);
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(screen.getByRole('textbox', { name: /グループ名を編集/i })).toBeInTheDocument();
+  });
+
+  it('変換中のEscapeでは名前の編集欄が閉じない', async () => {
+    const { input } = await openNameEditorWithMock('テストグループ');
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: 'こうじ' } });
+
+    // 変換を取り消す Escape。取り消すのは変換であって名前の編集ではない
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(screen.getByRole('textbox', { name: /グループ名を編集/i })).toBeInTheDocument();
+  });
+
+  it('確定が先に届く環境でも変換中を示すkeyCodeのEnterでは編集欄が閉じない', async () => {
+    // compositionend が keydown より先に届く環境では compositionstart/end の追跡だけでは
+    // 変換中と判定できない。keyCode 229 を手掛かりに抑止する必要がある。
+    const { input } = await openNameEditorWithMock('テストグループ');
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: 'こうじ' } });
+    fireEvent.compositionEnd(input, { data: '工事' });
+
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+
+    expect(screen.getByRole('textbox', { name: /グループ名を編集/i })).toBeInTheDocument();
+  });
+
+  it('keyCodeを持たない環境でもisComposingのEnterでは編集欄が閉じない', async () => {
+    // keyCode を提供しない環境では KeyboardEvent.isComposing が唯一の手掛かりになる
+    const { input } = await openNameEditorWithMock('テストグループ');
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: 'こうじ' } });
+    fireEvent.compositionEnd(input, { data: '工事' });
+
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+    expect(screen.getByRole('textbox', { name: /グループ名を編集/i })).toBeInTheDocument();
+  });
+
+  it('上限を超えた名前は短くする編集を受け付ける', async () => {
+    // 幅の検証を持たない経路で作られた既存データを想定する
+    const overLimit = 'a'.repeat(GROUP_NAME_MAX_WIDTH + 5);
+    const input = await openNameEditor(overLimit);
+    expect(input).toHaveValue(overLimit);
+
+    // まだ上限を超えているが、短くなる編集は受け付ける（編集不能にしない）
+    const shorter = 'a'.repeat(GROUP_NAME_MAX_WIDTH + 2);
+    fireEvent.change(input, { target: { value: shorter } });
+    expect(input).toHaveValue(shorter);
+
+    // 幅が変わらない編集は上限を超えたままなので受け付けない
+    fireEvent.change(input, { target: { value: 'b'.repeat(GROUP_NAME_MAX_WIDTH + 2) } });
+    expect(input).toHaveValue(shorter);
+  });
+
+  /**
+   * 焦点喪失による確定（Task 115.40、REQ-22.5）
+   *
+   * 変換中は幅の判定を迂回するため、入力欄の値には上限を超えた読みが残りうる。
+   * 焦点喪失の確定がその値をそのまま通すと、上限を超えた名前が確定される。
+   */
+  describe('焦点喪失による確定', () => {
+    it('変換中に焦点を失っても上限超過の名前は確定されない', async () => {
+      const { input, onRenameGroup } = await openNameEditorWithMock('テストグループ');
+      typeOverLimitReadingWhileComposing(input);
+
+      // 変換の確定（compositionend）が届かないまま焦点を失う
+      fireEvent.blur(input);
+
+      expect(onRenameGroup).not.toHaveBeenCalled();
+    });
+
+    /**
+     * 変換の確定と焦点喪失が同一の実行単位に入る場合。
+     *
+     * compositionend の戻し処理は状態の更新であり、同じ実行単位に入った焦点喪失からは
+     * 反映前の値（＝上限を超えた読み）が見える。利用者の操作では両者は別の実行単位に
+     * なるため再現しない。検証側で 2 つの通知を同一の実行単位へ入れて再現する。
+     */
+    it('確定の通知と焦点喪失が同一の実行単位でも上限超過の名前は確定されない', async () => {
+      const { input, onRenameGroup } = await openNameEditorWithMock('テストグループ');
+
+      // 変換開始直前の値を表示名と別にしておく。焦点喪失で確定されるのがこの値であることを
+      // 確かめれば、確定が「幅の判定を通った値」で行われたことまで示せる。
+      const beforeComposition = '変換前の名前';
+      fireEvent.change(input, { target: { value: beforeComposition } });
+
+      const overLimit = typeOverLimitReadingWhileComposing(input);
+
+      act(() => {
+        // fireEvent は 1 回ごとに act で囲われて状態が反映されるため、ここでは DOM へ
+        // 直接発火して 2 つの通知を同一の実行単位に入れる。発火順に処理されるため、
+        // 確定の通知による戻し（状態の更新）が反映される前に焦点喪失が処理される。
+        // React は onBlur を focusout で捕捉するため、焦点喪失は focusout で発火する。
+        input.dispatchEvent(
+          new CompositionEvent('compositionend', { bubbles: true, data: overLimit })
+        );
+        input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      });
+
+      expect(onRenameGroup).toHaveBeenCalledTimes(1);
+      expect(onRenameGroup).toHaveBeenCalledWith('group-1', beforeComposition);
+      expect(onRenameGroup).not.toHaveBeenCalledWith('group-1', overLimit);
+    });
+
+    it('変換で確定した上限以内の名前は焦点喪失で確定される', async () => {
+      const { input, onRenameGroup } = await openNameEditorWithMock('テストグループ');
+      const word = '国道四十五号線道路土工工事一式';
+
+      fireEvent.compositionStart(input);
+      fireEvent.change(input, {
+        target: { value: 'こくどうよんじゅうごごうせんどうろどこうこうじいっしき' },
+      });
+      fireEvent.change(input, { target: { value: word } });
+      fireEvent.compositionEnd(input, { data: word });
+
+      fireEvent.blur(input);
+
+      expect(onRenameGroup).toHaveBeenCalledWith('group-1', word);
+    });
+
+    it('上限を超えた既存の名前を短くした編集は焦点喪失で確定される', async () => {
+      // 幅の検証を持たない経路で作られた既存データを想定する。上限内へ収まらなくても
+      // 短くする編集は受け付けるため、焦点喪失でもその値が確定されなければならない。
+      const overLimit = 'a'.repeat(GROUP_NAME_MAX_WIDTH + 5);
+      const shorter = 'a'.repeat(GROUP_NAME_MAX_WIDTH + 2);
+      const { input, onRenameGroup } = await openNameEditorWithMock(overLimit);
+
+      fireEvent.change(input, { target: { value: shorter } });
+      fireEvent.blur(input);
+
+      expect(onRenameGroup).toHaveBeenCalledWith('group-1', shorter);
+    });
+  });
+
+  /**
+   * 変換中の記録の寿命（Task 115.41 / 115.42 / 115.44、REQ-22.5）
+   *
+   * 変換中に確定の通知（compositionend）が届かないまま焦点を失うと、変換中の記録が
+   * 残ったままになる。記録が残ると以後の確定・取り消しが抑止され、幅の判定も迂回され続ける。
+   *
+   * 記録の寿命は「一回の焦点セッション」とする。この編集欄では焦点喪失（handleNameBlur）が
+   * 唯一の終了点であり、以下の検証はいずれもその一行が失われると失敗する（Task 115.44 で
+   * 二重の初期化を外し、防護が機械的に守られる状態にした）。
+   */
+  describe('変換中の記録の寿命', () => {
+    /**
+     * 空欄で焦点を失うと編集欄が残る経路（Task 115.42）
+     *
+     * 変換中の読みが上限を超える場合、焦点喪失の確定は幅の判定で変換開始直前の値へ戻す。
+     * その値が空欄なら確定できず、誤りの表示とともに編集欄が残る。このとき変換中の記録が
+     * 残っていると、その編集欄では以後の確定・取り消しも幅の判定も働かなくなる。
+     */
+    describe('空欄で焦点を失い編集欄が残った後', () => {
+      /** 名前を消したうえで、上限超過の読みを変換中のまま焦点喪失させる */
+      function loseFocusWhileComposingOverLimit(input: HTMLElement) {
+        fireEvent.change(input, { target: { value: '' } });
+        typeOverLimitReadingWhileComposing(input);
+        fireEvent.blur(input);
+        // 幅の判定で戻された値は空欄のため確定できず、編集欄が残る
+        expect(screen.getByRole('textbox', { name: /グループ名を編集/i })).toBeInTheDocument();
+        expect(screen.getByText('グループ名を入力してください')).toBeInTheDocument();
+      }
+
+      it('編集の確定が働く', async () => {
+        const { input, onRenameGroup } = await openNameEditorWithMock('テストグループ');
+        loseFocusWhileComposingOverLimit(input);
+
+        fireEvent.change(input, { target: { value: '新しいグループ名' } });
+        fireEvent.keyDown(input, { key: 'Enter' });
+
+        expect(onRenameGroup).toHaveBeenCalledWith('group-1', '新しいグループ名');
+        expect(
+          screen.queryByRole('textbox', { name: /グループ名を編集/i })
+        ).not.toBeInTheDocument();
+      });
+
+      it('編集の取り消しが働く', async () => {
+        const { input } = await openNameEditorWithMock('テストグループ');
+        loseFocusWhileComposingOverLimit(input);
+
+        fireEvent.change(input, { target: { value: '取り消される値' } });
+        fireEvent.keyDown(input, { key: 'Escape' });
+
+        expect(
+          screen.queryByRole('textbox', { name: /グループ名を編集/i })
+        ).not.toBeInTheDocument();
+        expect(screen.getByText('テストグループ')).toBeInTheDocument();
+      });
+
+      it('入力時点の幅の判定が働く', async () => {
+        const { input } = await openNameEditorWithMock('テストグループ');
+        loseFocusWhileComposingOverLimit(input);
+
+        // 変換と無関係の直接入力。上限を超える幅は受け付けてはならない
+        fireEvent.change(input, { target: { value: 'あ'.repeat(ZENKAKU_AT_LIMIT + 1) } });
+
+        expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(
+          GROUP_NAME_MAX_WIDTH
+        );
+      });
+    });
+  });
+
+  /**
+   * 変換中の記録が固着する経路（Task 115.41 / 115.44、REQ-22.5）
+   *
+   * 変換中に入力欄が外れると確定の通知（compositionend）が届かず、変換中の記録が
+   * 残ったままになる。記録が残ると以後の確定・取り消しが抑止され続けるため、
+   * 焦点を失う時点で記録を終了させる必要がある。
+   *
+   * 当初は編集開始時の初期化を守る検証だったが、焦点喪失で記録を終了させるようにした
+   * 時点（Task 115.42）でその一行は空洞化した。Task 115.44 で初期化を外したため、
+   * この検証は焦点喪失側の終了（handleNameBlur）を守るものになっている。
+   */
+  describe('変換中に編集が閉じた後の再編集', () => {
+    /**
+     * 変換中のまま焦点を失わせて編集を閉じる（変換中の記録が残った状態を作る）。
+     */
+    function closeEditorWhileComposing(input: HTMLElement) {
+      fireEvent.compositionStart(input);
+      fireEvent.change(input, { target: { value: 'こうじ' } });
+      fireEvent.blur(input);
+      expect(screen.queryByRole('textbox', { name: /グループ名を編集/i })).not.toBeInTheDocument();
+    }
+
+    it('変換中に編集が閉じた後でも次の編集の確定が働く', async () => {
+      const { user, input, onRenameGroup } = await openNameEditorWithMock('テストグループ');
+      closeEditorWhileComposing(input);
+
+      await user.click(screen.getByText('テストグループ'));
+      const reopened = screen.getByRole('textbox', { name: /グループ名を編集/i });
+      fireEvent.change(reopened, { target: { value: '新しいグループ名' } });
+      fireEvent.keyDown(reopened, { key: 'Enter' });
+
+      expect(onRenameGroup).toHaveBeenLastCalledWith('group-1', '新しいグループ名');
+      expect(screen.queryByRole('textbox', { name: /グループ名を編集/i })).not.toBeInTheDocument();
+    });
+
+    it('変換中に編集が閉じた後でも次の編集の取り消しが働く', async () => {
+      const { user, input } = await openNameEditorWithMock('テストグループ');
+      closeEditorWhileComposing(input);
+
+      await user.click(screen.getByText('テストグループ'));
+      const reopened = screen.getByRole('textbox', { name: /グループ名を編集/i });
+      fireEvent.change(reopened, { target: { value: '取り消される値' } });
+      fireEvent.keyDown(reopened, { key: 'Escape' });
+
+      expect(screen.queryByRole('textbox', { name: /グループ名を編集/i })).not.toBeInTheDocument();
+      expect(screen.getByText('テストグループ')).toBeInTheDocument();
+    });
   });
 });

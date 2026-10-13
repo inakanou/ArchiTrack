@@ -7,14 +7,12 @@
  * - REQ-11.1: 取引先名（名前）の最大文字数を200文字に制限
  * - REQ-11.2: フリガナの最大文字数を200文字に制限し、カタカナのみを許可
  * - REQ-11.3: 部課/支店/支社名の最大文字数を100文字に制限
- * - REQ-11.4: 部課/支店/支社フリガナの最大文字数を100文字に制限し、カタカナのみを許可
- * - REQ-11.5: 代表者名の最大文字数を100文字に制限
- * - REQ-11.6: 代表者フリガナの最大文字数を100文字に制限し、カタカナのみを許可
- * - REQ-11.10: 住所の最大文字数を500文字に制限
- * - REQ-11.11: 請求締日を1〜31の整数値または「末日」（99）として管理
- * - REQ-11.12: 支払日を月オフセット（1=翌月、2=翌々月、3=3ヶ月後）と日（1〜31または99=末日）の組み合わせとして管理
- * - REQ-11.13: 備考の最大文字数を2000文字に制限
- * - REQ-11.14: 各取引先レコードに作成日時と更新日時を自動記録
+ * - REQ-11.4: 代表者名の最大文字数を100文字に制限
+ * - REQ-11.8: 住所の最大文字数を500文字に制限
+ * - REQ-11.9: 請求締日を1〜31の整数値または「末日」（99）として管理
+ * - REQ-11.10: 支払日を月オフセット（1=翌月、2=翌々月、3=3ヶ月後）と日（1〜31または99=末日）の組み合わせとして管理
+ * - REQ-11.11: 備考の最大文字数を2000文字に制限
+ * - REQ-11.12: 各取引先レコードに作成日時と更新日時を自動記録
  */
 
 import { describe, it, expect } from 'vitest';
@@ -81,7 +79,7 @@ describe('TradingPartner Model Schema', () => {
     });
 
     it('should allow 末日 (99) for billingClosingDay', () => {
-      // REQ-11.11: 請求締日として「末日」（99）を許可
+      // REQ-11.9: 請求締日として「末日」（99）を許可
       const input: Prisma.TradingPartnerCreateInput = {
         name: '株式会社テスト',
         nameKana: 'カブシキガイシャテスト',
@@ -96,7 +94,7 @@ describe('TradingPartner Model Schema', () => {
     });
 
     it('should allow 末日 (99) for paymentDay', () => {
-      // REQ-11.12: 支払日として「末日」（99）を許可
+      // REQ-11.10: 支払日として「末日」（99）を許可
       const input: Prisma.TradingPartnerCreateInput = {
         name: '株式会社テスト',
         nameKana: 'カブシキガイシャテスト',
@@ -123,7 +121,7 @@ describe('TradingPartner Model Schema', () => {
     });
 
     it('should have createdAt and updatedAt fields', () => {
-      // REQ-11.14: 作成日時と更新日時を自動記録
+      // REQ-11.12: 作成日時と更新日時を自動記録
       const partnerSelect: Prisma.TradingPartnerSelect = {
         createdAt: true,
         updatedAt: true,

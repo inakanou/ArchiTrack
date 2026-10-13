@@ -2,6 +2,7 @@
  * @fileoverview 内訳書詳細ページ - ソート機能テスト
  *
  * Task 8: 内訳項目のソート機能実装
+ * Task 26.4: 列見出しの中のソートボタンをキーボード（Tab・Enter・Space）で操作できるようにする
  *
  * Requirements:
  * - 5.1: 各カラムヘッダーにソートボタンを表示する
@@ -13,6 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ItemizedStatementDetailPage from '../../pages/ItemizedStatementDetailPage';
 import * as itemizedStatementsApi from '../../api/itemized-statements';
@@ -155,6 +157,13 @@ function getRow(rows: RowData[], index: number): RowData {
   return row;
 }
 
+/**
+ * 列見出しの中のソートボタンを取得（並べ替えは見出しのセルではなく中のボタンが受ける）
+ */
+function sortButtonOf(header: HTMLElement): HTMLElement {
+  return within(header).getByRole('button');
+}
+
 describe('ItemizedStatementDetailPage - ソート機能', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -164,46 +173,108 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
   });
 
   describe('Requirement 5.1: 各カラムヘッダーにソートボタンを表示', () => {
-    it('任意分類カラムヘッダーがクリック可能である', async () => {
+    it.each(['任意分類', '工種', '名称', '規格', '数量', '単位'])(
+      '%sカラムヘッダーの中にソートボタン（type="button"）が置かれている',
+      async (label) => {
+        renderComponent();
+        const header = await screen.findByRole('columnheader', { name: new RegExp(label) });
+        // 見出しのセル自身はクリックの受け口にせず、中のボタンがクリックとキー操作を受ける
+        const button = within(header).getByRole('button', { name: label });
+        expect(button).toHaveAttribute('type', 'button');
+        expect(button).toHaveStyle({ cursor: 'pointer' });
+        // ボタンは見出しの中に一つだけで、aria-sort は見出しのセル（th）が持つ
+        expect(within(header).getAllByRole('button')).toHaveLength(1);
+        expect(header.tagName).toBe('TH');
+        expect(header).toHaveAttribute('aria-sort', 'none');
+        expect(button).not.toHaveAttribute('aria-sort');
+      }
+    );
+
+    it('ソートボタンはインラインで outline を打ち消さない（共通の :focus-visible の輪に任せる）', async () => {
       renderComponent();
-      const header = await screen.findByRole('columnheader', { name: /任意分類/i });
-      expect(header).toBeInTheDocument();
-      expect(header).toHaveStyle({ cursor: 'pointer' });
+      await screen.findByRole('table');
+      const headers = screen.getAllByRole('columnheader').filter((h) => h.textContent !== '');
+      expect(headers).toHaveLength(6);
+      for (const header of headers) {
+        const button = within(header).getByRole('button');
+        expect(button.style.outline).toBe('');
+        expect(button.style.outlineStyle).toBe('');
+        expect(button.style.outlineWidth).toBe('');
+      }
+    });
+  });
+
+  describe('Requirement 5.1〜5.3: ソートボタンのキーボード操作', () => {
+    it('フィルタの最後の欄から Tab で先頭の列見出しのソートボタンへ進み、以降の Tab で列見出しを順に巡る', async () => {
+      const user = userEvent.setup();
+      renderComponent();
+      await screen.findByRole('table');
+
+      screen.getByRole('textbox', { name: '単位' }).focus();
+      const expected = ['任意分類', '工種', '名称', '規格', '数量', '単位'];
+      for (const label of expected) {
+        await user.tab();
+        const header = screen.getByRole('columnheader', { name: new RegExp(label) });
+        expect(document.activeElement).toBe(within(header).getByRole('button'));
+      }
     });
 
-    it('工種カラムヘッダーがクリック可能である', async () => {
+    it('ソートボタンで Enter を押すと昇順、もう一度 Enter を押すと降順に切り替わる', async () => {
+      const user = userEvent.setup();
       renderComponent();
-      const header = await screen.findByRole('columnheader', { name: /工種/i });
-      expect(header).toBeInTheDocument();
-      expect(header).toHaveStyle({ cursor: 'pointer' });
+      await screen.findByRole('table');
+
+      const header = screen.getByRole('columnheader', { name: /数量/ });
+      within(header).getByRole('button').focus();
+
+      await user.keyboard('{Enter}');
+      expect(header).toHaveAttribute('aria-sort', 'ascending');
+      expect(getTableRows().map((row) => row.quantity)).toEqual([
+        '10.25',
+        '20.00',
+        '50.50',
+        '100.00',
+        '200.00',
+      ]);
+
+      await user.keyboard('{Enter}');
+      expect(header).toHaveAttribute('aria-sort', 'descending');
+      expect(getTableRows().map((row) => row.quantity)).toEqual([
+        '200.00',
+        '100.00',
+        '50.50',
+        '20.00',
+        '10.25',
+      ]);
     });
 
-    it('名称カラムヘッダーがクリック可能である', async () => {
+    it('ソートボタンで Space を押すと昇順、もう一度 Space を押すと降順に切り替わる', async () => {
+      const user = userEvent.setup();
       renderComponent();
-      const header = await screen.findByRole('columnheader', { name: /名称/i });
-      expect(header).toBeInTheDocument();
-      expect(header).toHaveStyle({ cursor: 'pointer' });
-    });
+      await screen.findByRole('table');
 
-    it('規格カラムヘッダーがクリック可能である', async () => {
-      renderComponent();
-      const header = await screen.findByRole('columnheader', { name: /規格/i });
-      expect(header).toBeInTheDocument();
-      expect(header).toHaveStyle({ cursor: 'pointer' });
-    });
+      const header = screen.getByRole('columnheader', { name: /名称/ });
+      within(header).getByRole('button').focus();
 
-    it('数量カラムヘッダーがクリック可能である', async () => {
-      renderComponent();
-      const header = await screen.findByRole('columnheader', { name: /数量/i });
-      expect(header).toBeInTheDocument();
-      expect(header).toHaveStyle({ cursor: 'pointer' });
-    });
+      await user.keyboard(' ');
+      expect(header).toHaveAttribute('aria-sort', 'ascending');
+      expect(getTableRows().map((row) => row.name)).toEqual([
+        'ケーブル',
+        'コンセント',
+        'パイプ',
+        'ペイント',
+        'ボルト',
+      ]);
 
-    it('単位カラムヘッダーがクリック可能である', async () => {
-      renderComponent();
-      const header = await screen.findByRole('columnheader', { name: /単位/i });
-      expect(header).toBeInTheDocument();
-      expect(header).toHaveStyle({ cursor: 'pointer' });
+      await user.keyboard(' ');
+      expect(header).toHaveAttribute('aria-sort', 'descending');
+      expect(getTableRows().map((row) => row.name)).toEqual([
+        'ボルト',
+        'ペイント',
+        'パイプ',
+        'コンセント',
+        'ケーブル',
+      ]);
     });
   });
 
@@ -213,7 +284,7 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       await screen.findByRole('table');
 
       const header = screen.getByRole('columnheader', { name: /任意分類/i });
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
 
       const rows = getTableRows();
       // null値は末尾に配置される
@@ -229,7 +300,7 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       await screen.findByRole('table');
 
       const header = screen.getByRole('columnheader', { name: /工種/i });
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
 
       const rows = getTableRows();
       // 昇順でソート（日本語localeCompareの順序: 電気工事 < 塗装工事 < 配管工事）
@@ -245,7 +316,7 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       await screen.findByRole('table');
 
       const header = screen.getByRole('columnheader', { name: /名称/i });
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
 
       const rows = getTableRows();
       // 昇順でソート
@@ -261,7 +332,7 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       await screen.findByRole('table');
 
       const header = screen.getByRole('columnheader', { name: /数量/i });
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
 
       const rows = getTableRows();
       // 数値の昇順でソート
@@ -281,9 +352,9 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       const header = screen.getByRole('columnheader', { name: /任意分類/i });
 
       // 1回目クリック: 昇順
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
       // 2回目クリック: 降順
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
 
       const rows = getTableRows();
       // null値は末尾に配置される（降順でも）
@@ -301,9 +372,9 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       const header = screen.getByRole('columnheader', { name: /数量/i });
 
       // 1回目クリック: 昇順
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
       // 2回目クリック: 降順
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
 
       const rows = getTableRows();
       // 数値の降順でソート
@@ -320,11 +391,11 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
 
       // 任意分類で昇順ソート
       const customCategoryHeader = screen.getByRole('columnheader', { name: /任意分類/i });
-      fireEvent.click(customCategoryHeader);
+      fireEvent.click(sortButtonOf(customCategoryHeader));
 
       // 名称カラムをクリック（新しいカラムでの昇順ソート）
       const nameHeader = screen.getByRole('columnheader', { name: /名称/i });
-      fireEvent.click(nameHeader);
+      fireEvent.click(sortButtonOf(nameHeader));
 
       const rows = getTableRows();
       // 名称の昇順でソート
@@ -342,7 +413,7 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       await screen.findByRole('table');
 
       const header = screen.getByRole('columnheader', { name: /任意分類/i });
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
 
       // 昇順アイコン（上向き矢印）が表示される
       expect(within(header).getByText('▲')).toBeInTheDocument();
@@ -353,8 +424,8 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       await screen.findByRole('table');
 
       const header = screen.getByRole('columnheader', { name: /任意分類/i });
-      fireEvent.click(header); // 昇順
-      fireEvent.click(header); // 降順
+      fireEvent.click(sortButtonOf(header)); // 昇順
+      fireEvent.click(sortButtonOf(header)); // 降順
 
       // 降順アイコン（下向き矢印）が表示される
       expect(within(header).getByText('▼')).toBeInTheDocument();
@@ -366,7 +437,7 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
 
       // 任意分類でソート
       const customCategoryHeader = screen.getByRole('columnheader', { name: /任意分類/i });
-      fireEvent.click(customCategoryHeader);
+      fireEvent.click(sortButtonOf(customCategoryHeader));
 
       // 他のカラムにはアイコンが表示されない
       const workTypeHeader = screen.getByRole('columnheader', { name: /工種/i });
@@ -380,12 +451,12 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
 
       // 任意分類でソート
       const customCategoryHeader = screen.getByRole('columnheader', { name: /任意分類/i });
-      fireEvent.click(customCategoryHeader);
+      fireEvent.click(sortButtonOf(customCategoryHeader));
       expect(within(customCategoryHeader).getByText('▲')).toBeInTheDocument();
 
       // 名称でソート
       const nameHeader = screen.getByRole('columnheader', { name: /名称/i });
-      fireEvent.click(nameHeader);
+      fireEvent.click(sortButtonOf(nameHeader));
 
       // 任意分類のアイコンが消える
       expect(within(customCategoryHeader).queryByText('▲')).not.toBeInTheDocument();
@@ -463,7 +534,7 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
 
       // 数量でソート
       const header = screen.getByRole('columnheader', { name: /数量/i });
-      fireEvent.click(header);
+      fireEvent.click(sortButtonOf(header));
 
       // ソート後も1ページ目の表示が維持される
       expect(screen.getByText(/1 \/ 2/)).toBeInTheDocument();
@@ -480,7 +551,7 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       await screen.findByRole('table');
 
       const header = screen.getByRole('columnheader', { name: /任意分類/i });
-      fireEvent.click(header); // 昇順
+      fireEvent.click(sortButtonOf(header)); // 昇順
 
       const rows = getTableRows();
       // null値（表示: -）は末尾
@@ -493,8 +564,8 @@ describe('ItemizedStatementDetailPage - ソート機能', () => {
       await screen.findByRole('table');
 
       const header = screen.getByRole('columnheader', { name: /任意分類/i });
-      fireEvent.click(header); // 昇順
-      fireEvent.click(header); // 降順
+      fireEvent.click(sortButtonOf(header)); // 昇順
+      fireEvent.click(sortButtonOf(header)); // 降順
 
       const rows = getTableRows();
       // null値（表示: -）は末尾

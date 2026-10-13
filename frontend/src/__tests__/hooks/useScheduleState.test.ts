@@ -23,7 +23,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useScheduleState, calculateEndDate } from '../../hooks/useScheduleState';
+import {
+  useScheduleState,
+  calculateEndDate,
+  MAX_SCHEDULE_ITEMS,
+} from '../../hooks/useScheduleState';
 import type { ScheduleDetail } from '../../api/schedules';
 
 // schedules APIをモック
@@ -160,6 +164,69 @@ describe('useScheduleState', () => {
   });
 
   // ==========================================================================
+  // 項目数の上限 (Req 12.1)
+  // ==========================================================================
+  describe('項目数の上限', () => {
+    /** 指定件数の項目を持つ工程表データを作る */
+    const buildDetailWithItems = (count: number): ScheduleDetail => ({
+      ...mockScheduleDetail,
+      items: Array.from({ length: count }, (_, index) => ({
+        ...mockScheduleDetail.items[1]!,
+        id: `item-${index + 1}`,
+        itemName: `項目${index + 1}`,
+        displayOrder: index,
+      })),
+    });
+
+    it('上限はバックエンドの MAX_SCHEDULE_ITEMS と同じ 200 件である', () => {
+      expect(MAX_SCHEDULE_ITEMS).toBe(200);
+    });
+
+    it('199項目では上限に達しておらず、追加すると200項目になって上限に達する', () => {
+      const { result } = renderHook(() => useScheduleState(buildDetailWithItems(199)));
+
+      expect(result.current.isItemLimitReached).toBe(false);
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      expect(result.current.state.items).toHaveLength(200);
+      expect(result.current.isItemLimitReached).toBe(true);
+    });
+
+    it('200項目では上限に達しており、addItemを呼んでも項目は増えずdirtyにもならない', () => {
+      const { result } = renderHook(() => useScheduleState(buildDetailWithItems(200)));
+
+      expect(result.current.isItemLimitReached).toBe(true);
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      expect(result.current.state.items).toHaveLength(200);
+      expect(result.current.state.isDirty).toBe(false);
+    });
+
+    it('200項目から1項目を削除すると上限を下回り、再び追加できる', () => {
+      const { result } = renderHook(() => useScheduleState(buildDetailWithItems(200)));
+
+      act(() => {
+        result.current.removeItem('item-200');
+      });
+
+      expect(result.current.isItemLimitReached).toBe(false);
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      expect(result.current.state.items).toHaveLength(200);
+      expect(result.current.isItemLimitReached).toBe(true);
+    });
+  });
+
+  // ==========================================================================
   // 項目削除 (REQ-4.3)
   // ==========================================================================
   describe('removeItem', () => {
@@ -199,6 +266,22 @@ describe('useScheduleState', () => {
   // 項目更新 (REQ-4.2, REQ-6.1, REQ-6.6)
   // ==========================================================================
   describe('updateItem', () => {
+    it('更新しても変わらない項目と、行へ渡す関数は同じ参照のままであること（Task 21.1: 行の memo の前提）', () => {
+      const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+      const before = result.current;
+      const untouched = before.state.items[1];
+
+      act(() => {
+        result.current.updateItem('item-1', { duration: 3 });
+      });
+
+      expect(result.current.state.items[0]).not.toBe(before.state.items[0]);
+      expect(result.current.state.items[1]).toBe(untouched);
+      expect(result.current.updateItem).toBe(before.updateItem);
+      expect(result.current.removeItem).toBe(before.removeItem);
+      expect(result.current.reorderItems).toBe(before.reorderItems);
+    });
+
     it('項目のフィールドを更新する', () => {
       const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
 

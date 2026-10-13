@@ -3,15 +3,25 @@
  *
  * Task 46.1-46.5 + 48.5: インポートダイアログ
  *
+ * 下の一覧は本ファイルの検証が確かめる受入基準だけを挙げる（Task 97.10 で実体に揃えた）。
+ * 抽出テキストの表示（29.7 / 29.8）は各検証に `@requirement` の印を付けてあるため一覧に重ねない。
+ * インラインプレビュー（34.1〜34.5）の検証は `ImportDialog.inline-preview.test.tsx` に在る。
+ * 本ファイルが確かめないもの: 27.1（編集画面の操作でダイアログを開くこと）、32.1〜32.6
+ * （マッピングの表示と調整。`ImportPreviewTable.test.tsx` / `field-mapping.test.ts` が担う）、
+ * 31.4 / 31.5（`field-mapping.test.ts`）、31.7（完了メッセージの確認・修正を促す句を主張していない）、
+ * 31.8 / 31.9（編集画面の取り込み処理の責務）、33.3（リトライ中のインジケーター）。
+ *
  * Requirements:
- * - 27.1-27.8: ファイルアップロード・処理起動
- * - 31.1-31.9: 一括取り込み
- * - 32.1-32.6: フィールドマッピング調整
- * - 33.1-33.5: リトライ・再アップロード
- * - 34.1-34.5: インラインプレビュー
+ * - 27.2-27.7: ファイルアップロードエリア・対応形式・非対応形式のエラー・処理の自動開始・処理中インジケーター
+ * - 27.8: 処理中のファイル選択の非活性（一括取り込みボタンは非活性ではなく非表示であることを確かめる）
+ * - 28.4: 抽出完了後のプレビューテーブル表示
+ * - 31.1-31.3: 一括取り込みボタン・取り込み先グループ選択・選択したグループへの取り込み要求
+ * - 31.6: 取り込んだ件数を含む完了メッセージ
+ * - 33.1-33.2: リトライボタンの表示と再実行
+ * - 33.4-33.5: 成否にかかわらない別ファイルのアップロードと前回結果のクリア
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ImportDialog } from './ImportDialog';
 import type { QuantityGroupDetail } from '../../types/quantity-table.types';
@@ -410,7 +420,13 @@ describe('ImportDialog', () => {
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
-  it('処理中は一括取り込みボタンが非活性になる', () => {
+  // 条文 27.8 は Task 99.1 で「ファイルアップロードボタンを非活性にし、一括取り込みボタンを
+  // 表示しない」へ改訂された（改訂前の後半は「一括取り込みボタンを非活性にする」）。本番
+  // （`ImportDialog.tsx`）は処理中に一括取り込みボタンを描画せず、条文と実体は一致している。
+  // 描画しないことは「押せない」をより強く満たす。本検証は非活性ではなく不在を確かめる
+  // （表題も不在で名乗る）。条文の受入判定は E2E（`import-e2e.spec.ts` の REQ-27.8 の区間）が
+  // 肯定と否定の組で担い、本検証はその単体側の対照である。
+  it('処理中は一括取り込みボタンが描画されない', () => {
     vi.mocked(useImportDataExtractor).mockReturnValue({
       status: 'processing',
       progress: 30,
@@ -423,7 +439,7 @@ describe('ImportDialog', () => {
     });
 
     render(<ImportDialog {...defaultProps} />);
-    // processing中は一括取り込みボタンが表示されない
+    // processing中は一括取り込みボタンが文書のどこにも存在しない（押せる経路が無い）
     expect(screen.queryByRole('button', { name: '一括取り込み' })).not.toBeInTheDocument();
   });
 
@@ -526,5 +542,80 @@ describe('ImportDialog', () => {
     render(<ImportDialog {...defaultProps} />);
     const fileInput = screen.getByLabelText('ファイルを選択');
     expect(fileInput).not.toBeDisabled();
+  });
+});
+
+describe('ImportDialog: 抽出結果のテキストデータ表示', () => {
+  const defaultProps = {
+    isOpen: true,
+    onClose: vi.fn(),
+    onImport: vi.fn(),
+    groups: mockGroups,
+  };
+
+  function mockCompleted(extractedText: string | undefined): void {
+    vi.mocked(useImportDataExtractor).mockReturnValue({
+      status: 'completed',
+      progress: 100,
+      progressMessage: '完了',
+      result: {
+        headers: ['工種', '名称', '数量', '単位'],
+        rows: [{ columns: ['土工', '掘削工', '150', 'm3'], sourceRowIndex: 0 }],
+        extractionType: extractedText === undefined ? 'excel-parse' : 'pdf-text',
+        ...(extractedText === undefined ? {} : { extractedText }),
+      },
+      error: null,
+      startExtraction: mockStartExtraction,
+      retry: mockRetry,
+      reset: mockReset,
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * OCR処理の完了時、抽出結果をテキストデータ（抽出テキストの領域）とプレビューテーブルの
+   * 両方として同じダイアログに表示することを確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-29.7
+   */
+  it('抽出テキストを持つ抽出結果は、抽出テキストとプレビューテーブルを併せて表示する', () => {
+    mockCompleted('工種 名称 数量 単位\n土工 掘削工 150 m3');
+
+    render(<ImportDialog {...defaultProps} />);
+
+    const region = screen.getByRole('region', { name: '抽出テキスト' });
+    expect(within(region).getByTestId('import-extracted-text').textContent).toBe(
+      '工種 名称 数量 単位\n土工 掘削工 150 m3'
+    );
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('掘削工')).toBeInTheDocument();
+  });
+
+  /**
+   * 抽出テキストはユーザーが選択・コピーできる状態（user-select: text）で表示することを確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-29.8
+   */
+  it('抽出テキストは選択・コピーできる状態で表示する', () => {
+    mockCompleted('土工 掘削工 150 m3');
+
+    render(<ImportDialog {...defaultProps} />);
+
+    const text = within(screen.getByRole('region', { name: '抽出テキスト' })).getByTestId(
+      'import-extracted-text'
+    );
+    expect(text.style.userSelect).toBe('text');
+  });
+
+  it('抽出テキストを持たない抽出結果（Excel）では抽出テキストの領域を表示しない', () => {
+    mockCompleted(undefined);
+
+    render(<ImportDialog {...defaultProps} />);
+
+    expect(screen.queryByRole('region', { name: '抽出テキスト' })).not.toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
   });
 });

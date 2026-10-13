@@ -332,7 +332,6 @@ function TwoFactorSetupForm({
                   fontSize: '20px',
                   border: '2px solid #ccc',
                   borderRadius: '4px',
-                  outline: 'none',
                 }}
               />
             ))}

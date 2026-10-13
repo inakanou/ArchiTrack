@@ -32,7 +32,7 @@ import { isNoAnnotationResponse } from '../types/site-survey.types';
  * @throws ApiError
  *   - 認証エラー（401）
  *   - 権限不足（403）
- *   - 画像が見つからない（404）- `isAnnotationImageNotFoundErrorResponse(error.response)`で識別可能
+ *   - 画像が見つからない（404）- `error.response.code === 'ANNOTATION_IMAGE_NOT_FOUND'`で識別可能
  *
  * Requirements: 9.2
  *
@@ -68,11 +68,11 @@ export async function getAnnotation(imageId: string): Promise<AnnotationInfo | n
  * @param input - 注釈保存入力（data, expectedUpdatedAt）
  * @returns 保存された注釈情報
  * @throws ApiError
- *   - バリデーションエラー（400）- `isInvalidAnnotationDataErrorResponse(error.response)`で識別可能
+ *   - バリデーションエラー（400）- `error.response.code === 'INVALID_ANNOTATION_DATA'`で識別可能
  *   - 認証エラー（401）
  *   - 権限不足（403）
- *   - 画像が見つからない（404）- `isAnnotationImageNotFoundErrorResponse(error.response)`で識別可能
- *   - 競合（409）- 楽観的排他制御エラー、`isAnnotationConflictErrorResponse(error.response)`で識別可能
+ *   - 画像が見つからない（404）- `error.response.code === 'ANNOTATION_IMAGE_NOT_FOUND'`で識別可能
+ *   - 競合（409）- 楽観的排他制御エラー、`error.response.code === 'ANNOTATION_CONFLICT'`で識別可能
  *
  * Requirements: 9.1, 9.4
  *
@@ -98,10 +98,8 @@ export async function getAnnotation(imageId: string): Promise<AnnotationInfo | n
  *   await saveAnnotation(imageId, input);
  * } catch (error) {
  *   if (error instanceof ApiError && error.statusCode === 409) {
- *     if (isAnnotationConflictErrorResponse(error.response)) {
- *       // 競合エラー - データを再読み込みしてリトライ
- *       console.log('データが更新されています。再読み込みしてください。');
- *     }
+ *     // 競合エラー - データを再読み込みしてリトライ
+ *     console.log('データが更新されています。再読み込みしてください。');
  *   }
  * }
  */
@@ -131,8 +129,8 @@ export async function saveAnnotation(
  * @throws ApiError
  *   - 認証エラー（401）
  *   - 権限不足（403）
- *   - 画像が見つからない（404）- `isAnnotationImageNotFoundErrorResponse(error.response)`で識別可能
- *   - 注釈が見つからない（404）- `isAnnotationNotFoundErrorResponse(error.response)`で識別可能
+ *   - 画像が見つからない（404）- `error.response.code === 'ANNOTATION_IMAGE_NOT_FOUND'`で識別可能
+ *   - 注釈が見つからない（404）- `error.response.code === 'ANNOTATION_NOT_FOUND'`で識別可能
  *
  * Requirements: 9.6
  *
@@ -153,7 +151,19 @@ export async function saveAnnotation(
  * URL.revokeObjectURL(url);
  */
 export async function exportAnnotationJson(imageId: string): Promise<string> {
-  return apiClient.get<string>(`/api/site-surveys/images/${imageId}/annotations/export`);
+  const response = await apiClient.get<unknown>(
+    `/api/site-surveys/images/${imageId}/annotations/export`
+  );
+
+  // Task 115.102 (Req 9.6): サーバーは整形済みの JSON 文字列を Content-Type:
+  // application/json で返すため、`apiClient` は本文を解析した**オブジェクト**を返す。
+  // 従来の `apiClient.get<string>` は型の上でだけ文字列を名乗っており、実際に呼び出すと
+  // オブジェクトが返っていた（呼び出す本番コードが 0 件だったため露見していなかった）。
+  // 受け取った形に依らず JSON 文字列を返す契約へ揃える。
+  if (typeof response === 'string') {
+    return response;
+  }
+  return JSON.stringify(response, null, 2);
 }
 
 // ============================================================================
@@ -196,22 +206,26 @@ export async function getBatchAnnotations(
 }
 
 /**
- * サムネイル更新レスポンス
+ * 合成済みサムネイル更新レスポンス
  */
-export interface UpdateThumbnailResponse {
+export interface UpdateAnnotatedThumbnailResponse {
   success: boolean;
-  thumbnailPath: string;
+  /** 保存された注釈付きサムネイルのストレージキー */
+  annotatedThumbnailPath: string;
+  /** 注釈付きサムネイルの署名付きURL（生成できなかった場合は null） */
+  annotatedThumbnailUrl: string | null;
 }
 
 /**
- * 注釈付き画像からサムネイルを更新する
+ * 画像編集画面で合成した画像を注釈付きサムネイルとして保存する
  *
- * キャンバスからエクスポートした画像データを使用してサムネイルを再生成します。
- * 注釈が保存された後に呼び出すことで、サムネイルに注釈を反映できます。
+ * キャンバスからエクスポートした合成済み画像を送信し、注釈付きサムネイル
+ * （annotatedThumbnailPath）を更新します。通常サムネイル（thumbnailPath）は
+ * アップロード時の素の画像として不変であり、この操作では書き換わりません。
  *
  * @param imageId - 画像ID（UUID）
  * @param imageData - Base64エンコードされた画像データ（data:image/...形式）
- * @returns サムネイル更新結果
+ * @returns 合成済みサムネイル更新結果（更新後の表示元を含む）
  * @throws ApiError
  *   - バリデーションエラー（400）
  *   - 認証エラー（401）
@@ -219,16 +233,53 @@ export interface UpdateThumbnailResponse {
  *   - 画像が見つからない（404）
  *
  * @example
- * // キャンバスからサムネイルを更新
+ * // キャンバスから合成済みサムネイルを更新
  * const canvas = fabricCanvas;
  * const imageData = canvas.toDataURL({ format: 'jpeg', quality: 0.9 });
- * await updateThumbnail('image-id', imageData);
+ * const { annotatedThumbnailUrl } = await updateAnnotatedThumbnail('image-id', imageData);
  */
-export async function updateThumbnail(
+export async function updateAnnotatedThumbnail(
   imageId: string,
   imageData: string
-): Promise<UpdateThumbnailResponse> {
-  return apiClient.patch<UpdateThumbnailResponse>(`/api/site-surveys/images/${imageId}/thumbnail`, {
-    imageData,
-  });
+): Promise<UpdateAnnotatedThumbnailResponse> {
+  return apiClient.patch<UpdateAnnotatedThumbnailResponse>(
+    `/api/site-surveys/images/${imageId}/annotated-thumbnail`,
+    { imageData }
+  );
+}
+
+/**
+ * 合成済みサムネイル取り消しレスポンス
+ */
+export interface DeleteAnnotatedThumbnailResponse {
+  success: boolean;
+  /** 取り消し後の保存先（常に null） */
+  annotatedThumbnailPath: null;
+  /** 取り消し後の表示元（常に null） */
+  annotatedThumbnailUrl: null;
+}
+
+/**
+ * 合成済みサムネイルが存在しない状態へ収束させる
+ *
+ * 注釈も回転も無い状態で保存された画像は、合成しても素のサムネイルと同じ
+ * 内容にしかならない。この場合は合成済みサムネイル（annotatedThumbnailPath）を
+ * 空にして、表示を素のサムネイルへ退避させる。通常サムネイル（thumbnailPath）は
+ * この操作でも書き換わらない。既に空の場合も成功する（冪等）。
+ *
+ * @param imageId - 画像ID（UUID）
+ * @returns 取り消し結果（保存先・表示元はいずれも null）
+ * @throws ApiError
+ *   - 認証エラー（401）
+ *   - 権限不足（403）
+ *   - 画像が見つからない（404）
+ *
+ * Requirements: 22.5, 23.2, 23.8
+ */
+export async function deleteAnnotatedThumbnail(
+  imageId: string
+): Promise<DeleteAnnotatedThumbnailResponse> {
+  return apiClient.delete<DeleteAnnotatedThumbnailResponse>(
+    `/api/site-surveys/images/${imageId}/annotated-thumbnail`
+  );
 }

@@ -3,14 +3,14 @@
  *
  * Task 4.2: 画像圧縮・サムネイル生成機能を実装する
  * - Sharpによる画像処理
- * - 300KB超過時の段階的圧縮（品質を10%ずつ下げながらリサイズ、250KB〜350KB範囲に収める）
+ * - 300KB超過時の段階的圧縮（品質を10%ずつ下げながらリサイズ、350KB以下で打ち切る）
  * - サムネイル生成（200x200px）
  * - 画像メタデータ（幅・高さ・サイズ）の取得
  *
  * Requirements:
  * - 4.4: 画像アップロード完了時にサムネイルを自動生成する
- * - 4.6: ファイルサイズが上限（300KB）を超える場合、画像サイズと品質を段階的に下げて
- *        250KB〜350KBの範囲に圧縮した上で登録する
+ * - 4.6: ファイルサイズが上限（300KB）を超える場合、画像サイズと品質を段階的に下げ、
+ *        350KB以下に収まった時点で圧縮を打ち切って登録する
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
@@ -254,7 +254,7 @@ describe('ImageProcessorService', () => {
         const result = await service.compressImage(buffer);
 
         expect(result.buffer).toBe(buffer);
-        expect(result.wasCompressed).toBe(false);
+        expect(result.originalExceededSizeLimit).toBe(false);
       });
 
       it('should include original metadata for uncompressed image', async () => {
@@ -271,14 +271,14 @@ describe('ImageProcessorService', () => {
 
         expect(result.metadata.width).toBe(800);
         expect(result.metadata.height).toBe(600);
-        expect(result.wasCompressed).toBe(false);
+        expect(result.originalExceededSizeLimit).toBe(false);
       });
     });
 
     describe('when image is over 300KB', () => {
       it('should compress JPEG image by reducing quality', async () => {
         const originalBuffer = createTestBuffer(400 * 1024); // 400KB
-        const compressedBuffer = createTestBuffer(280 * 1024); // 280KB (within 250-350KB)
+        const compressedBuffer = createTestBuffer(280 * 1024); // 280KB (350KB以下)
 
         // First call for original metadata
         (mockSharpInstance.metadata as Mock)
@@ -300,7 +300,7 @@ describe('ImageProcessorService', () => {
 
         const result = await service.compressImage(originalBuffer);
 
-        expect(result.wasCompressed).toBe(true);
+        expect(result.originalExceededSizeLimit).toBe(true);
         expect(mockSharpInstance.jpeg).toHaveBeenCalled();
       });
 
@@ -337,7 +337,7 @@ describe('ImageProcessorService', () => {
 
         const result = await service.compressImage(originalBuffer);
 
-        expect(result.wasCompressed).toBe(true);
+        expect(result.originalExceededSizeLimit).toBe(true);
         // jpeg should be called multiple times with decreasing quality
         expect(mockSharpInstance.jpeg).toHaveBeenCalledTimes(2);
       });
@@ -424,7 +424,7 @@ describe('ImageProcessorService', () => {
 
         const result = await service.compressImage(originalBuffer);
 
-        expect(result.wasCompressed).toBe(true);
+        expect(result.originalExceededSizeLimit).toBe(true);
         expect(mockSharpInstance.resize).toHaveBeenCalled();
       });
 
@@ -450,7 +450,7 @@ describe('ImageProcessorService', () => {
 
         const result = await service.compressImage(originalBuffer);
 
-        expect(result.wasCompressed).toBe(true);
+        expect(result.originalExceededSizeLimit).toBe(true);
         expect(mockSharpInstance.png).toHaveBeenCalled();
       });
 
@@ -476,86 +476,415 @@ describe('ImageProcessorService', () => {
 
         const result = await service.compressImage(originalBuffer);
 
-        expect(result.wasCompressed).toBe(true);
+        expect(result.originalExceededSizeLimit).toBe(true);
         expect(mockSharpInstance.webp).toHaveBeenCalled();
       });
     });
 
-    describe('compression target range (250KB - 350KB)', () => {
-      it('should accept result within 250KB-350KB range', async () => {
-        const originalBuffer = createTestBuffer(400 * 1024);
-        const compressedBuffer = createTestBuffer(300 * 1024); // 300KB - in range
+    describe('compression stop condition (350KB以下で打ち切る)', () => {
+      const KB = 1024;
 
-        (mockSharpInstance.metadata as Mock)
-          .mockResolvedValueOnce({
+      /**
+       * 圧縮の各段階が返すサイズを順に与える
+       *
+       * 先頭が元画像のサイズ、以降が再エンコード1回ごとの結果サイズである。
+       * 実装は再エンコードのたびに getMetadata を呼ぶため、この並びが
+       * そのまま「何段階まで圧縮したか」を決める。
+       *
+       * 並びを使い切ったあとは最後のサイズを返し続ける。実装が打ち切りを
+       * 誤って圧縮を続けた場合に、モックの枯渇による別種の失敗ではなく
+       * 段階数そのものの主張で赤くするためである。
+       *
+       * @param sizes - 元画像サイズと各段階の結果サイズ
+       */
+      function giveCompressionStages(sizes: number[]): void {
+        const mock = mockSharpInstance.metadata as Mock;
+        for (const size of sizes) {
+          mock.mockResolvedValueOnce({
             width: 1920,
             height: 1080,
             format: 'jpeg',
-            size: 400 * 1024,
-          })
-          .mockResolvedValueOnce({
-            width: 1920,
-            height: 1080,
-            format: 'jpeg',
-            size: 300 * 1024,
+            size,
           });
+        }
+        mock.mockResolvedValue({
+          width: 1920,
+          height: 1080,
+          format: 'jpeg',
+          size: sizes[sizes.length - 1],
+        });
+        (mockSharpInstance.toBuffer as Mock).mockImplementation(() =>
+          Promise.resolve(createTestBuffer(1))
+        );
+      }
 
-        (mockSharpInstance.toBuffer as Mock).mockResolvedValue(compressedBuffer);
+      it('打ち切りサイズを大きく下回っても、その結果をそのまま登録する', async () => {
+        // 従前の検証は sharp をモックして 250KB〜350KB の値だけを与えており、
+        // 打ち切りサイズを大きく下回る経路を一度も通していなかった。
+        // 61,638 バイトは 2MB / 1920x1080 の JPEG をE2Eで実測した値である。
+        const originalBuffer = createTestBuffer(2048 * KB);
+        giveCompressionStages([2048 * KB, 61_638]);
 
         const result = await service.compressImage(originalBuffer);
 
-        expect(result.metadata.size).toBe(300 * 1024);
-        expect(result.wasCompressed).toBe(true);
+        expect(result.originalExceededSizeLimit).toBe(true);
+        expect(result.metadata.size, '打ち切りサイズを下回った結果が採用されていない').toBe(61_638);
+        // 品質を上げ直す・拡大するといった「容量を増やし直す」段階が無いこと。
+        expect(
+          (mockSharpInstance.toBuffer as Mock).mock.calls.length,
+          '350KB以下に収まったのに再エンコードが続いた'
+        ).toBe(1);
+        expect((mockSharpInstance.jpeg as Mock).mock.calls).toEqual([[{ quality: 90 }]]);
+        expect(
+          (mockSharpInstance.resize as Mock).mock.calls.length,
+          '350KB以下に収まったのにリサイズが行われた'
+        ).toBe(0);
       });
 
-      it('should accept result at lower boundary (250KB)', async () => {
-        const originalBuffer = createTestBuffer(400 * 1024);
-        const compressedBuffer = createTestBuffer(250 * 1024);
-
-        (mockSharpInstance.metadata as Mock)
-          .mockResolvedValueOnce({
-            width: 1920,
-            height: 1080,
-            format: 'jpeg',
-            size: 400 * 1024,
-          })
-          .mockResolvedValueOnce({
-            width: 1920,
-            height: 1080,
-            format: 'jpeg',
-            size: 250 * 1024,
-          });
-
-        (mockSharpInstance.toBuffer as Mock).mockResolvedValue(compressedBuffer);
+      it('ちょうど350KBに収まった時点で打ち切る', async () => {
+        const originalBuffer = createTestBuffer(400 * KB);
+        giveCompressionStages([400 * KB, 350 * KB]);
 
         const result = await service.compressImage(originalBuffer);
 
-        expect(result.metadata.size).toBe(250 * 1024);
+        expect(result.metadata.size).toBe(350 * KB);
+        expect(
+          (mockSharpInstance.toBuffer as Mock).mock.calls.length,
+          'ちょうど350KBなのに再エンコードが続いた'
+        ).toBe(1);
       });
 
-      it('should accept result at upper boundary (350KB)', async () => {
-        const originalBuffer = createTestBuffer(400 * 1024);
-        const compressedBuffer = createTestBuffer(350 * 1024);
-
-        (mockSharpInstance.metadata as Mock)
-          .mockResolvedValueOnce({
-            width: 1920,
-            height: 1080,
-            format: 'jpeg',
-            size: 400 * 1024,
-          })
-          .mockResolvedValueOnce({
-            width: 1920,
-            height: 1080,
-            format: 'jpeg',
-            size: 350 * 1024,
-          });
-
-        (mockSharpInstance.toBuffer as Mock).mockResolvedValue(compressedBuffer);
+      it('350KBを超える間は品質を10%ずつ下げ、収まった最初の段階で打ち切る', async () => {
+        const originalBuffer = createTestBuffer(900 * KB);
+        // 品質90 → 360KB（超過）、品質80 → 340KB（収まる）、以降は与えない
+        giveCompressionStages([900 * KB, 360 * KB, 340 * KB]);
 
         const result = await service.compressImage(originalBuffer);
 
-        expect(result.metadata.size).toBe(350 * 1024);
+        expect(result.metadata.size).toBe(340 * KB);
+        expect((mockSharpInstance.jpeg as Mock).mock.calls).toEqual([
+          [{ quality: 90 }],
+          [{ quality: 80 }],
+        ]);
+        expect(
+          (mockSharpInstance.toBuffer as Mock).mock.calls.length,
+          '収まった段階を越えて圧縮が続いた'
+        ).toBe(2);
+      });
+
+      it('品質だけで収まらない場合は画像サイズも段階的に下げ、収まった時点で打ち切る', async () => {
+        const originalBuffer = createTestBuffer(8192 * KB);
+        // 品質90〜30 の7段階はいずれも超過し、続くリサイズ 1/2 でも超過、1/4 で収まる
+        giveCompressionStages([
+          8192 * KB,
+          800 * KB,
+          780 * KB,
+          760 * KB,
+          740 * KB,
+          720 * KB,
+          700 * KB,
+          680 * KB,
+          400 * KB,
+          300 * KB,
+        ]);
+
+        const result = await service.compressImage(originalBuffer);
+
+        expect(result.metadata.size).toBe(300 * KB);
+        expect(result.metadata.size, '打ち切りサイズを超えたまま登録された').toBeLessThanOrEqual(
+          ImageProcessorService.TARGET_MAX_SIZE_BYTES
+        );
+        expect((mockSharpInstance.jpeg as Mock).mock.calls.map((call) => call[0])).toEqual([
+          { quality: 90 },
+          { quality: 80 },
+          { quality: 70 },
+          { quality: 60 },
+          { quality: 50 },
+          { quality: 40 },
+          { quality: 30 },
+          { quality: 30 },
+          { quality: 30 },
+        ]);
+        // リサイズは品質段階が尽きたあとにのみ、1/2 → 1/4 の順で適用される
+        expect(
+          (mockSharpInstance.resize as Mock).mock.calls.map((call) => [call[0], call[1]])
+        ).toEqual([
+          [960, 540],
+          [480, 270],
+        ]);
+        expect(
+          (mockSharpInstance.toBuffer as Mock).mock.calls.length,
+          '収まった段階を越えて圧縮が続いた'
+        ).toBe(9);
+      });
+    });
+
+    describe('品質のループはリサイズを行わない (Task 115.171 (a))', () => {
+      const KB = 1024;
+
+      /**
+       * 圧縮の各段階が返すサイズを順に与える（上の節と同じ仕掛け）
+       *
+       * @param sizes - 元画像サイズと各段階の結果サイズ
+       */
+      function giveCompressionStages(sizes: number[]): void {
+        const mock = mockSharpInstance.metadata as Mock;
+        for (const size of sizes) {
+          mock.mockResolvedValueOnce({ width: 1920, height: 1080, format: 'jpeg', size });
+        }
+        mock.mockResolvedValue({
+          width: 1920,
+          height: 1080,
+          format: 'jpeg',
+          size: sizes[sizes.length - 1],
+        });
+        (mockSharpInstance.toBuffer as Mock).mockImplementation(() =>
+          Promise.resolve(createTestBuffer(1))
+        );
+      }
+
+      it('品質段階が複数回まわってもリサイズは一度も行われない', async () => {
+        // 撤去した `if (resizeRatio < 1.0)` は恒偽であり、逐語的に復元しても
+        // 本テストは緑のままである。それが (a) の等価性そのものであって、
+        // 本テストはその復元を検出しない。
+        // 本テストが捉えるのは、品質のループへ新たにリサイズが混入した場合である
+        // （実測: 無条件の `instance.resize(...)` を差し込むと赤くなる）。
+        // 段階を複数回まわして 0 件を主張する。
+        giveCompressionStages([900 * KB, 400 * KB, 380 * KB, 340 * KB]);
+
+        await service.compressImage(createTestBuffer(900 * KB));
+
+        expect((mockSharpInstance.jpeg as Mock).mock.calls.map((call) => call[0])).toEqual([
+          { quality: 90 },
+          { quality: 80 },
+          { quality: 70 },
+        ]);
+        expect(
+          (mockSharpInstance.resize as Mock).mock.calls,
+          '品質のループがリサイズを行った'
+        ).toEqual([]);
+      });
+
+      it('最初のリサイズは等倍ではなく 1/2 から始まる', async () => {
+        // リサイズの初出は、品質段階を7回使い切ったあとの [960, 540] である。
+        // 品質のループへリサイズが混入すると初出が等倍 [1920, 1080] へ変わり赤くなる。
+        // 撤去した恒偽の分岐の逐語復元では本体に入らないため、本テストは緑のままである。
+        giveCompressionStages([
+          8192 * KB,
+          800 * KB,
+          780 * KB,
+          760 * KB,
+          740 * KB,
+          720 * KB,
+          700 * KB,
+          680 * KB,
+          300 * KB,
+        ]);
+
+        await service.compressImage(createTestBuffer(8192 * KB));
+
+        const resizeCalls = (mockSharpInstance.resize as Mock).mock.calls.map((call) => [
+          call[0],
+          call[1],
+        ]);
+        expect(
+          resizeCalls,
+          'リサイズの初出が 1/2 でない（品質のループへリサイズが混入している）'
+        ).toEqual([[960, 540]]);
+      });
+    });
+
+    describe('返り値 originalExceededSizeLimit の意味 (Task 115.171 (b))', () => {
+      const KB = 1024;
+
+      it('300KB超〜350KB以下は再エンコードを一度も行わず、入力そのものを返す', async () => {
+        // 従前の呼称 `wasCompressed` が実態を表していなかった区間。
+        // 打ち切りサイズ（350KB）を既に満たすため圧縮のループが一度も回らない。
+        const buffer = createTestBuffer(320 * KB);
+        (mockSharpInstance.metadata as Mock).mockResolvedValue({
+          width: 1920,
+          height: 1080,
+          format: 'jpeg',
+          size: 320 * KB,
+        });
+
+        const result = await service.compressImage(buffer);
+
+        expect(result.originalExceededSizeLimit, '300KB超なのに経路を通っていない').toBe(true);
+        expect(result.buffer, '再エンコードしていないのに別のバッファを返した').toBe(buffer);
+        expect(
+          (mockSharpInstance.toBuffer as Mock).mock.calls.length,
+          '350KB以下なのに再エンコードが行われた'
+        ).toBe(0);
+        expect((mockSharpInstance.resize as Mock).mock.calls.length).toBe(0);
+        expect((mockSharpInstance.jpeg as Mock).mock.calls.length).toBe(0);
+      });
+
+      it('300KBちょうどは経路を通らず false を返す', async () => {
+        const buffer = createTestBuffer(300 * KB);
+        (mockSharpInstance.metadata as Mock).mockResolvedValue({
+          width: 1920,
+          height: 1080,
+          format: 'jpeg',
+          size: 300 * KB,
+        });
+
+        const result = await service.compressImage(buffer);
+
+        expect(result.originalExceededSizeLimit).toBe(false);
+        expect(result.buffer).toBe(buffer);
+        expect((mockSharpInstance.toBuffer as Mock).mock.calls.length).toBe(0);
+      });
+
+      it('300KB+1バイトから経路を通り true になる', async () => {
+        const buffer = createTestBuffer(300 * KB + 1);
+        (mockSharpInstance.metadata as Mock).mockResolvedValue({
+          width: 1920,
+          height: 1080,
+          format: 'jpeg',
+          size: 300 * KB + 1,
+        });
+
+        const result = await service.compressImage(buffer);
+
+        expect(result.originalExceededSizeLimit).toBe(true);
+        expect(result.buffer).toBe(buffer);
+      });
+
+      it('300KB境界の両側は、この印を除く観測がすべて一致する（本項目が在る理由 / Task 115.207）', async () => {
+        // この項目に本番コードの読み手は一件も無く、要件4.6 の引き金（300KB超）を
+        // 観測できる唯一の点として、検証のためだけに本番の型へ置いている。
+        // その根拠は「印を除くと分岐の痕跡が残らない」ことである。本番でこの分岐が
+        // 観測できるようになれば、この表明が赤くなって置き所の見直しを促す。
+        const observe = async (size: number) => {
+          const instance: SharpInstance = {
+            metadata: vi.fn().mockResolvedValue({
+              width: 1920,
+              height: 1080,
+              format: 'jpeg',
+              size,
+            }),
+            resize: vi.fn().mockReturnThis(),
+            jpeg: vi.fn().mockReturnThis(),
+            png: vi.fn().mockReturnThis(),
+            webp: vi.fn().mockReturnThis(),
+            toBuffer: vi.fn(),
+          };
+          const sharp = vi.fn().mockReturnValue(instance) as unknown as SharpStatic;
+          const buffer = createTestBuffer(size);
+          const result = await new ImageProcessorService(sharp).compressImage(buffer);
+          return {
+            flag: result.originalExceededSizeLimit,
+            metadata: result.metadata,
+            // 印以外に観測できるもの（入力サイズに由来する metadata.size を除く）
+            observableExceptFlag: {
+              returnsInputItself: result.buffer === buffer,
+              sharpCalls: (sharp as unknown as Mock).mock.calls.length,
+              toBufferCalls: (instance.toBuffer as Mock).mock.calls.length,
+              resizeCalls: (instance.resize as Mock).mock.calls.length,
+              jpegCalls: (instance.jpeg as Mock).mock.calls.length,
+              width: result.metadata.width,
+              height: result.metadata.height,
+              format: result.metadata.format,
+            },
+          };
+        };
+
+        const atLimit = await observe(300 * KB); // 経路を通らない側
+        const overLimit = await observe(300 * KB + 1); // 経路を通る側
+
+        expect(atLimit.flag, '300KBちょうどで経路を通っている').toBe(false);
+        expect(overLimit.flag, '300KB+1バイトで経路を通っていない').toBe(true);
+
+        expect(
+          overLimit.observableExceptFlag,
+          '印以外に分岐の痕跡が現れた。本項目を検証のためだけに本番の型へ置く根拠が失効している'
+        ).toEqual(atLimit.observableExceptFlag);
+        expect(
+          overLimit.metadata.size - atLimit.metadata.size,
+          'metadata.size の差が入力サイズの差と一致しない'
+        ).toBe(1);
+      });
+
+      it('品質もリサイズも尽きて350KBを超えたままでも true を返す', async () => {
+        // `true` は「打ち切りサイズ以下に収まった」ことを意味しない、という但し書きの実測。
+        const over = 800 * KB;
+        (mockSharpInstance.metadata as Mock).mockResolvedValue({
+          width: 1920,
+          height: 1080,
+          format: 'jpeg',
+          size: over,
+        });
+        (mockSharpInstance.toBuffer as Mock).mockImplementation(() =>
+          Promise.resolve(createTestBuffer(1))
+        );
+
+        const result = await service.compressImage(createTestBuffer(over));
+
+        expect(result.originalExceededSizeLimit).toBe(true);
+        expect(
+          result.metadata.size,
+          '打ち切りサイズを超えたまま返っていない（前提が崩れている）'
+        ).toBeGreaterThan(ImageProcessorService.TARGET_MAX_SIZE_BYTES);
+        // 品質7段階 + リサイズ2段階を使い切る
+        expect((mockSharpInstance.toBuffer as Mock).mock.calls.length).toBe(9);
+      });
+    });
+
+    describe('下限まで下げても350KB以下に収まらない場合 (要件4.14 / Task 115.208)', () => {
+      /**
+       * 要件4.6 は「350KB以下に収まった時点で打ち切る」とだけ定めており、
+       * 下げ切っても収まらなかった場合を規定していなかった。要件4.14 は
+       * その欠落を現行の挙動どおりに埋めたものである（挙動は変えていない）。
+       *
+       * 本検証が単独で捉える変異: 収まらない場合に**入力をそのまま返す**改変。
+       * 上の「品質もリサイズも尽きて350KBを超えたままでも true を返す」は
+       * `result.buffer` を見ないため、その改変では緑のままである。
+       *
+       * @requirement site-survey/REQ-4.14
+       */
+      it('圧縮を打ち切り、最後の段階まで圧縮した結果を350KBを超えたまま返す', async () => {
+        // 各段階の結果がいずれも打ち切りサイズを1バイト超える（358,401 バイト）
+        const over = ImageProcessorService.TARGET_MAX_SIZE_BYTES + 1;
+        const input = createTestBuffer(over);
+        const lastStageBuffer = createTestBuffer(1);
+        (mockSharpInstance.metadata as Mock).mockResolvedValue({
+          width: 1920,
+          height: 1080,
+          format: 'jpeg',
+          size: over,
+        });
+        (mockSharpInstance.toBuffer as Mock).mockResolvedValue(lastStageBuffer);
+
+        // 拒否しない。await が拒否されれば本検証は落ちる（要件4.14 は (b)「拒否する」を採らない）
+        const result = await service.compressImage(input);
+
+        expect(result.metadata.size, '打ち切りサイズを超えたまま返っていない').toBe(over);
+        expect(
+          result.metadata.size,
+          '前提が崩れている（358,401 が 350KB 以下になっている）'
+        ).toBeGreaterThan(ImageProcessorService.TARGET_MAX_SIZE_BYTES);
+        expect(result.buffer, '圧縮を打ち切らず入力をそのまま返した').toBe(lastStageBuffer);
+        expect(result.buffer, '入力そのものを返した').not.toBe(input);
+        expect(result.originalExceededSizeLimit).toBe(true);
+        // 段階は使い切る（品質 90→30 の7段階、続いてリサイズ 1/2 → 1/4 の2段階）
+        expect((mockSharpInstance.jpeg as Mock).mock.calls.map((call) => call[0])).toEqual([
+          { quality: 90 },
+          { quality: 80 },
+          { quality: 70 },
+          { quality: 60 },
+          { quality: 50 },
+          { quality: 40 },
+          { quality: 30 },
+          { quality: 30 },
+          { quality: 30 },
+        ]);
+        expect(
+          (mockSharpInstance.resize as Mock).mock.calls.map((call) => [call[0], call[1]])
+        ).toEqual([
+          [960, 540],
+          [480, 270],
+        ]);
       });
     });
 
@@ -592,7 +921,7 @@ describe('ImageProcessorService', () => {
       const result = await service.processImage(buffer);
 
       expect(result.original.buffer).toBe(buffer);
-      expect(result.original.wasCompressed).toBe(false);
+      expect(result.original.originalExceededSizeLimit).toBe(false);
       expect(result.thumbnail).toBe(thumbnailBuffer);
       expect(result.metadata.width).toBe(1920);
       expect(result.metadata.height).toBe(1080);
@@ -644,15 +973,14 @@ describe('ImageProcessorService', () => {
 
       const result = await service.processImage(originalBuffer);
 
-      expect(result.original.wasCompressed).toBe(true);
+      expect(result.original.originalExceededSizeLimit).toBe(true);
       expect(result.thumbnail).toBe(thumbnailBuffer);
     });
   });
 
   describe('constants', () => {
     it('should define correct size thresholds', () => {
-      expect(ImageProcessorService.MAX_SIZE_BYTES).toBe(300 * 1024);
-      expect(ImageProcessorService.TARGET_MIN_SIZE_BYTES).toBe(250 * 1024);
+      expect(ImageProcessorService.COMPRESSION_START_THRESHOLD_BYTES).toBe(300 * 1024);
       expect(ImageProcessorService.TARGET_MAX_SIZE_BYTES).toBe(350 * 1024);
     });
 
@@ -706,7 +1034,7 @@ describe('ImageProcessorService', () => {
 
       const result = await service.compressImage(buffer);
 
-      expect(result.wasCompressed).toBe(true);
+      expect(result.originalExceededSizeLimit).toBe(true);
       expect(mockSharpInstance.jpeg).toHaveBeenCalled();
     });
 
@@ -732,7 +1060,7 @@ describe('ImageProcessorService', () => {
 
       const result = await service.compressImage(buffer);
 
-      expect(result.wasCompressed).toBe(true);
+      expect(result.originalExceededSizeLimit).toBe(true);
       expect(mockSharpInstance.jpeg).toHaveBeenCalled();
     });
   });
@@ -807,5 +1135,76 @@ describe('ImageProcessorService', () => {
 
       await expect(service.compressImage(buffer)).rejects.toThrow(ImageProcessingError);
     });
+  });
+});
+
+/**
+ * サムネイルの出力形式の指定（Task 115.18）
+ *
+ * 保存キーの拡張子と Content-Type を特定の形式で申告する呼び出し元があるため、
+ * 生成する実体の形式を申告へ合わせられる必要がある。
+ * ここでは実体の形式を確かめる必要があるため、モックではなく実 sharp を用いる。
+ */
+describe('ImageProcessorService: サムネイルの出力形式（実 sharp / Task 115.18）', () => {
+  /**
+   * 実 sharp を結線した ImageProcessorService を組み立てる
+   */
+  async function createRealService(): Promise<ImageProcessorService> {
+    const sharp = (await import('sharp')).default;
+    return new ImageProcessorService(((input: Buffer) => sharp(input)) as unknown as SharpStatic);
+  }
+
+  /**
+   * 指定形式の実画像を生成する
+   */
+  async function createImage(format: 'png' | 'webp' | 'jpeg'): Promise<Buffer> {
+    const sharp = (await import('sharp')).default;
+    const base = sharp({
+      create: { width: 320, height: 240, channels: 3, background: { r: 12, g: 34, b: 56 } },
+    });
+    if (format === 'png') return await base.png().toBuffer();
+    if (format === 'webp') return await base.webp().toBuffer();
+    return await base.jpeg().toBuffer();
+  }
+
+  /**
+   * バッファの実体の形式を読み出す
+   */
+  async function detectFormat(buffer: Buffer): Promise<string | undefined> {
+    const sharp = (await import('sharp')).default;
+    return (await sharp(buffer).metadata()).format;
+  }
+
+  it('出力形式に jpeg を指定すると、元がPNGでも実体はJPEGになる', async () => {
+    const service = await createRealService();
+    const source = await createImage('png');
+    expect(await detectFormat(source), '前提: 元画像はPNGである').toBe('png');
+
+    const thumbnail = await service.generateThumbnail(source, 200, 200, {
+      outputFormat: 'jpeg',
+    });
+
+    expect(await detectFormat(thumbnail), 'jpeg指定時の実体はJPEGである').toBe('jpeg');
+  });
+
+  it('出力形式に jpeg を指定すると、元がWebPでも実体はJPEGになる', async () => {
+    const service = await createRealService();
+    const source = await createImage('webp');
+    expect(await detectFormat(source), '前提: 元画像はWebPである').toBe('webp');
+
+    const thumbnail = await service.generateThumbnail(source, 200, 200, {
+      outputFormat: 'jpeg',
+    });
+
+    expect(await detectFormat(thumbnail), 'jpeg指定時の実体はJPEGである').toBe('jpeg');
+  });
+
+  it('出力形式を指定しない場合は元画像の形式を保つ（アップロード時の素のサムネイル）', async () => {
+    const service = await createRealService();
+    const source = await createImage('png');
+
+    const thumbnail = await service.generateThumbnail(source);
+
+    expect(await detectFormat(thumbnail), '未指定時は元の形式を保つ').toBe('png');
   });
 });

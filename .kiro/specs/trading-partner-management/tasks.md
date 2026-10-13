@@ -540,3 +540,186 @@
 | 12.18, 12.19, 12.20                                                         | 12.3, 12.4, 12.9, 15.4                   |
 | 12.21, 12.22, 12.23                                                         | 12.3, 12.4, 12.5, 15.4                   |
 | 12.24, 12.25, 12.26, 12.27                                                  | 12.6, 15.4                               |
+
+**現況（2026-10-07、機能レベル検証の指摘による併記）**: 上の表は起票時の記録として残す。要件 11 は Task 19 でフリガナ 2 項目を外した後の 11.1〜11.12 であり、表の 11.13・11.14 は現在の番号に当たらない（現在の 11.11 / 11.12 に当たる）。表の作成後に足したタスクの対応は次のとおりである: 28.1 → 11、29.1 → 11.9・12.19・12.26、29.2 → 11、31.1〜31.3・31.5 → 12（モバイル表示）、31.4 → 3.4、32.1（未着手） → 11
+
+## Task 27: 設計文書末尾の「未実装」「テスト未完了」の状態記録を歴史として書き分ける
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化したが、同タスクが宣言した三つの網（`別途起票|後続タスクの提案|起票すること` ほか）はいずれも「〜すること」型の提案を捕まえる形であり、**状態記録の形は網の外にある**。site-survey の Task 115.240 が状態記録を狙う別の網を掛けて本節の対象を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。**
+
+**測った事実**（いずれもコミット `5176ee4`、2026-09-02 にリポジトリルートで実測）:
+
+- **状態記録の件数**: `grep -cE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/trading-partner-management/design.md` の出力が `5` である。内訳は見出し 1 本（`### 未実装コンポーネント（Requirement 12関連）`。`grep -cF` の出力が `1`）と、`### テスト未完了` の表の `| 未実装 |` を持つ行 4 件（`grep -cF '| 未実装 |' .kiro/specs/trading-partner-management/design.md` の出力が `4`）である。**取り出しは `grep -nE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/trading-partner-management/design.md` で行うこと**
+- **見出し `### テスト未完了` は上の網に掛かっていない。** 網は「未完了」の綴りを持たないためである（`grep -cF '### テスト未完了' .kiro/specs/trading-partner-management/design.md` の出力は `1` であり、当該見出しは実在する）。**これは網の盲点の実例である**——本節が挙げる対象は網の出力そのものではなく、網が当てた行の周辺を読んで拾ったものを含む
+- **`### 未実装コンポーネント（Requirement 12関連）` の表が挙げる 8 件は全件が実在する**（同日・同コミットで実測。**抜き取りではなく 8 行すべてを開いた**）:
+
+| 表が挙げる Component | 現況を測るコマンド | 出力 |
+|---|---|---|
+| Breadcrumb（共通） | `test -f frontend/src/components/common/Breadcrumb.tsx` | 終了コード `0` |
+| ResourceNotFound（共通） | `test -f frontend/src/components/common/ResourceNotFound.tsx` | 終了コード `0` |
+| TradingPartnerDetailPage | `test -f frontend/src/pages/TradingPartnerDetailPage.tsx` | 終了コード `0` |
+| TradingPartnerCreatePage | `test -f frontend/src/pages/TradingPartnerCreatePage.tsx` | 終了コード `0` |
+| TradingPartnerEditPage | `test -f frontend/src/pages/TradingPartnerEditPage.tsx` | 終了コード `0` |
+| routes.tsx 拡張 | `grep -c "'/trading-partners'" frontend/src/routes.tsx` | `1`（`/trading-partners/new` と `/trading-partners/:id` も同ファイルにある） |
+| AppHeader 拡張 | `grep -c 'trading-partners' frontend/src/components/Navigation/AppHeader.tsx` | `1` |
+| Dashboard 拡張 | `grep -c 'trading-partners' frontend/src/pages/Dashboard.tsx` | `3` |
+
+- **`### テスト未完了` の表が挙げる 4 件も全件が実在する**（同日・同コミットで実測。**4 行すべてを開いた**）:
+
+| 表の Category | 現況を測るコマンド | 出力 |
+|---|---|---|
+| Unit Tests（KanaConverter） | `test -f backend/src/__tests__/unit/utils/kana-converter.test.ts` と `test -f frontend/src/__tests__/utils/kana-converter.test.ts` | どちらも終了コード `0` |
+| Unit Tests（サービス層かな変換） | `grep -c 'toKatakana\|toHiragana' backend/src/services/trading-partner.service.ts` | `5`（単体検証は `backend/src/__tests__/unit/services/trading-partner.service.test.ts` にある） |
+| Integration Tests（かな変換検索） | `test -f backend/src/__tests__/integration/trading-partner-kana-search.integration.test.ts` | 終了コード `0` |
+| E2E Tests（かな変換検索） | `test -f e2e/specs/trading-partners/trading-partner-kana-search.spec.ts` | 終了コード `0` |
+
+- **本 tasks.md の側では既に消化済みである**: `grep -nE '^- \[ \] (1[6-9]|2[0-6])(\.[0-9]+)? ' .kiro/specs/trading-partner-management/tasks.md` の出力は空であり、Task 16〜26 は**すべて `[x]`** である。**設計文書の状態記録だけが当時のまま残っている**
+- **`### 次のステップ` の Phase 1〜8 も同じ性質の記録である。** ただし **8 つの Phase が上の 2 つの表と一対一に対応するわけではない**。指し先は次のとおり分かれる:
+  - **Phase 5〜7**（共通コンポーネント実装・ページコンポーネント実装・ナビゲーション統合）は `### 未実装コンポーネント（Requirement 12関連）` の 8 行が担い、上の表の実測で全件が実在する
+  - **Phase 8**（テスト実装）は `### テスト未完了` の 4 行が担い、上の表の実測で全件が実在する
+  - **Phase 1〜4**（かな変換ユーティリティ実装・フィールド削除マイグレーション・サービス層更新・フロントエンド更新）は、上の 2 つの表ではなく **Task 16〜26 がすべて `[x]` であること**が担う（Phase 1 = Task 16.1/16.2、Phase 2 = Task 17.1、Phase 3 = Task 18.1/18.2、Phase 4 = Task 19.1〜19.4）
+  - **Phase 2 と Phase 4 は上の 2 つの表のどちらにも対応行を持たない。** 補強の実測は次のとおり（2026-09-02、コミット `5176ee4` にリポジトリルートで実測）——Phase 2 は `ls -d backend/prisma/migrations/*remove_kana_fields*` が `backend/prisma/migrations/20251212105900_remove_kana_fields_from_trading_partner` を返し、`grep -cE 'branchNameKana|representativeNameKana' backend/prisma/schema.prisma` の出力が `0` である。Phase 4 は Task 19.1〜19.4 が `[x]` であることによる
+  - **この節は上の 5 件の網には掛からない**（「未」の綴りを持たない）ため、是正の対象に含めるかを着手時に判断すること
+
+**機械保証は無い。断定でなく変異で示す**（115.235 の作法）: 設計文書の状態記録が現況と一致しているかを見る関門は存在しない。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` はいずれも参照の形式・識別子の実在・パスの実在・宣言済み実測値の追随を見るだけである。**断定でなく変異で示した実測がこれである**（site-survey の Task 115.240 が 2026-09-02、コミット `5176ee4` にリポジトリルートで実行）——`| Unit Tests（KanaConverter） | 未実装 | 新規コンポーネント |` の行を `| Unit Tests（KanaConverter） | 未実装（実在しない部品 NonexistentKanaThing） | 新規コンポーネント |` へ書き換えたうえで上の 4 本に `npm run check:cf-evidence` を加えた **5 本**を走らせたところ、**5 本とも終了コード 0 であり、標準出力も基線と `diff` して一行も違わなかった**。変異は事前複製からの `cp` で復元し、`git hash-object .kiro/specs/trading-partner-management/design.md` が `HEAD` の blob `a377dbbfecd901ec7bb9555e726ad5b627620bd8` と一致することで確かめた。
+
+**是正の作法（消さずに書き分けること）**: site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a) が定める形に揃える——**当時の値（状態記録）を残したうえで、現況の再実測を同じ場所へ並べる**。表を丸ごと削ると、Requirement 12 の実装がどの範囲を未実装として起票されたかという歴史が失われる。
+
+**一件を直して「完全になった」と書かないこと**（115.228 の作法）: 本節が挙げるのは上の網が捕まえた 5 行に、網の盲点として拾った `### テスト未完了` と `### 次のステップ` を加えたものであり、**網の外の状態記録は保証しない**。走査に使った網は `grep -rncE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/trading-partner-management/design.md`（出力 `5`）と `grep -rncE '❌|:x:|⚠️|🚧' .kiro/specs/trading-partner-management/design.md`（出力 `0`）の二つであり、**網が数え上げる綴りの外にある状態記録は掛からない**——列挙していない日本語の綴り（本節が実例として挙げた「未完了」がまさにそれである）、英語で書かれた状態記録、記号だけで状態を表す欄、表のセル内に埋もれた状態記録がそれである。
+
+- [x] 27.1 「未実装」「テスト未完了」の状態記録に現況の再実測を並べる
+  - 対象は `### 未実装コンポーネント（Requirement 12関連）` の表 8 行と `### テスト未完了` の表 4 行、および二つの見出しである。**削除ではなく、当時の記録を残したまま現況を並べること**
+  - 各行の現況は上表のコマンドで測り直すこと。**本節が引く出力は 2026-09-02・コミット `5176ee4` の実測であり、着手時には陳腐化しうる**
+  - `### 次のステップ` の Phase 1〜8 を同じ扱いにするかを判断し、判断の理由を書くこと
+  - **見出しの語も現況ではない。** `### 未実装コンポーネント` という見出しの下に「全件実装済み」と書く形は読み手を誤らせる。見出しの側も書き分けること
+  - **検証**: `grep -cE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/trading-partner-management/design.md` の出力が、残した歴史記録の件数と一致すること。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` が基線と同じ終了コードであること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、設計文書の状態記録を現況へ追随させるだけである。表が名乗る受入基準番号（12.1-12.27 ほか）を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.240（状態記録の走査と申し送り）_
+  - _Boundary: 本スペックの設計文書に残る状態記録_
+
+## タスク28: frontend の型に残るフリガナの項目を本書のインターフェースへ揃える（27.1 のレビューからの起票。着手は利用者の判断による）
+
+**経緯**: Task 27.1 の独立レビュー（2026-10-01、HEAD `e09cd61b`）が、`frontend/src/types/trading-partner.types.ts` の `TradingPartnerInfo`（必須の `string | null`）と `CreateTradingPartnerInput`（任意）が `branchNameKana` / `representativeNameKana` を持ち続けていることを確かめた（grep の出力 4）。本書の TradingPartnerService の「Service Interface」の節の `TradingPartnerInfo` はこの二つを持たず、backend の schema.prisma にも無い（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）。API は値を返さないため、project-management が所有する `frontend/src/components/projects/TradingPartnerSelect.tsx` の絞り込みの照合（`?.… ?? false` の 2 箇所）は常に偽の死んだ分岐であり、表示・検索への実害は無い。約 15 のテスト・stories の fixture が二つの項目を使い続けて、ずれを覆い隠している
+
+- [x] 28.1 型から二つの項目を外し、fixture と照合の死んだ分岐を揃える
+  - 型から外すと `TradingPartnerSelect.tsx` が型エラーになるため、同じ変更で照合の死んだ分岐を外す（project-management の所有。同スペックへ申し送ること）。fixture と stories からも二つの項目を外す
+  - 取引先の選択の振る舞い（かな検索を含む）が変わらないことを、既存の単体と E2E で確かめる
+  - _Requirements: 11_
+  - **実施（2026-10-07、利用者が `/kiro-impl` で着手）**: `frontend/src/types/trading-partner.types.ts` の `TradingPartnerInfo` と `CreateTradingPartnerInput` から二つの項目を外し、`frontend/src/components/projects/TradingPartnerSelect.tsx` の `matchesSearchQuery` の常に偽の 2 分岐と、17 ファイルの fixture・stories の二つの項目の行を外した。同部品の単体テストのうち、外した分岐だけを主張していた 2 件（ひらがなで部課名・代表者名のフリガナを検索する）は、本番で届く部課名・代表者名そのものの照合を主張する 2 件へ置き換えた（件数は不変。分岐を外す変異で赤になることを確かめた）。要件 11 と project-management の要件 22 のいずれも部課名・代表者名のかな検索を求めていない。E2E（`trading-partner-select-kana`・`project-trading-partner`・`project-kana-search`）と frontend の全件は緑。project-management への申し送りは同スペックの tasks.md の Task 74 に起票した。backend の `backend/src/__tests__/unit/services/trading-partner.service.test.ts` の mock に二つの項目が残るが、本項の境界（frontend）の外であり触れていない
+  - _Boundary: frontend の取引先の型と、それを使う fixture・照合_
+
+## タスク29: 機能レベル検証（2026-10-01、HEAD `7258ce26`、NO-GO）で残った被覆の穴と被覆印の番号のずれ（起票のみ。着手は利用者の判断による）
+
+**経緯**: Task 27.1 の後の機能レベル検証が NO-GO を返した。テスト（backend 単体 6187・統合 100・frontend 単体 11924・E2E trading-partners 164）と関門は `check:req-coverage` を除き緑。NO-GO の理由は、site-survey の Task 115.188（`86882dd6`、2026-08-29）が被覆印の指し先を是正したときに露見して以来どのタスクも追跡していない被覆の穴 3 件である。project-management の Task 72.2・estimate-request の Task 97.1 と同じ扱い（利用者の判断「文書は直し被覆は起票」に倣う）として、起票に留める
+
+- [x] 29.1 受入基準 11.9・12.19・12.26 を被覆する
+  - 11.9（請求締日を 1〜31 または末日として管理する）: `backend/src/__tests__/unit/schemas/trading-partner.schema.test.ts` の「請求締日のバリデーション」群が検証しているが被覆の印が無い。印を掲げる
+  - 12.19（一覧から選ぶと詳細ページへ遷移する）: 単体（`TradingPartnerListPage.test.tsx` の行クリックで遷移）に印を掲げるか、一覧の行のクリックで `/trading-partners/:id` へ遷移することを主張する E2E を足す
+  - 12.26（取引先の画面群に ProtectedLayout（AppHeader 付き）を当てる）: 4 ページで AppHeader が表示されることを主張する E2E を足す
+  - 印を掲げるたびに変異でテストが赤になることを確かめ、`check:req-coverage` で本スペックが 104/104 になることを実測する。E2E を足して site-survey 所有の件数の宣言が動いたら、site-survey へ起票して追随する
+  - _Requirements: 11.9, 12.19, 12.26_
+  - _Boundary: 本スペックの被覆_
+
+- [x] 29.2 テストの見出しの要件番号を現在の要件定義書へ揃える
+  - `backend/src/__tests__/unit/models/trading-partner.model.test.ts` の見出し（フリガナ 2 項目の削除前の 14 項目の番号のまま。実在しない 11.13 / 11.14 を名乗る）と、`trading-partner.integration.test.ts` の `REQ-11.14`（正しくは 11.12）を揃える
+  - _Requirements: 11_
+  - _Boundary: 本スペックのテストの被覆印の番号_
+
+## タスク30: 共通の Breadcrumb がモバイル幅で項目を縦長に潰す状態を正す
+
+**経緯**: construction-photo の機能レベル検証（2026-10-01 と 2026-10-02）が、共通の Breadcrumb のモバイル幅での崩れを実測した。利用者の判断（2026-10-02、「共通部品を直す」）により本スペックへ起票する。`frontend/src/components/common/Breadcrumb.tsx` は本スペックが共通部品として導入した（コミット `6d71e936`、design.md の「Breadcrumb (共通新規)」）
+
+**測った事実**（同検証、test 環境の実ブラウザ）:
+
+- 375 幅では、普通の名前でも「ダッシュボード」が幅 32px・高さ 80px の縦長になり、ブレッドクラム全体の高さが 160px になる。320 幅では現在項目が 40×180 になる。原因は、Breadcrumb の ol に flex-wrap が無く、各項目が一行の中で縮められることである
+- 区切りの無い長い英数字一語の名前を与えると、項目の最小幅の和が行を押し広げる。construction-photo の一覧では main が 913/375、作成・編集では 959/375 になった。同スペックの詳細画面だけは、包む側に `overflowWrap: 'anywhere'` を置いて回避している（Task 19.2）
+
+- [x] 30.1 共通の Breadcrumb をモバイル幅で折り返せるようにする
+  - `Breadcrumb.tsx` の一覧を折り返せるようにし、短い項目が一行の中で縦長に潰れないようにすること。区切りの無い長い名前の項目は、項目の中で折り返して行を押し広げないこと。区切り記号と現在項目の `aria-current` など、既存のマークアップとアクセシビリティの属性は変えない
+  - 挙動（表示）の修正であるため RED → GREEN で進めること。本スペックの取引先の画面（要件 12 の受入基準 14〜17 の 4 画面）について、375 幅と 320 幅の E2E で、短い項目が縦長にならないこと（項目の高さが一行ぶんであること）と、長い一語の取引先名で nav と main に水平のはみ出しが無いこと（文字列の右端は Range で測る）を主張する。是正前に赤になることを実測すること
+  - 共通部品であり、ブレッドクラムを持つ全画面に及ぶ。デスクトップ幅（1280）で表示が変わらないことを是正の前後の実測で示すこと。ブレッドクラムを主張する既存の E2E と単体テストを回すこと。下流の construction-photo は Task 20.2・20.6 で自スペックの画面を測り直す
+  - _Requirements: 12.14, 12.15, 12.16, 12.17_
+  - _Boundary: 共通の Breadcrumb のモバイル幅の折り返し_
+  - **【完了時の注記（2026-10-02）】** `Breadcrumb.tsx` へクラスを足しただけで、要素・属性・区切り・`aria-current`・`aria-label` は変えていない。足したのは ol の `flex-wrap` と、Link・現在項目・最後でないパス無しの項目の `wrap-anywhere`（`overflow-wrap: anywhere`）の 2 種である。flex-wrap は収まらない項目を縮める前に次の行へ送り、`overflow-wrap: anywhere` は最小内容幅を下げて長い一語を項目の中で折り返させる。初稿が足していた `min-w-0`（2 箇所）・`max-w-full`・`shrink-0` は、独立レビューの変異（108 測定で矩形が一致し、E2E も全通過）で効果が無いと分かり、外した。取引先の詳細（375 幅）で「ダッシュボード」は 69.41×40 から 98×20 へ、長い一語の名前では nav が 598/311 から 311/311 へ、名前の文字列の右端が 629.86 から 342.63 へ動いた。E2E 4 件のうち作成・詳細・編集は是正前に赤で、`flex-wrap` を外す変異で 3 件、`wrap-anywhere` を外す変異で詳細と編集が赤になる（Link の側と現在項目の側を別々に検出する）。ブレッドクラムに触れる E2E 21 ファイルは、初稿の構成で全件緑だった。最終の構成では取引先・プロジェクト・現場調査・工事写真の 4 本を回した
+  - **例外 (a)（本文の「nav と main に水平のはみ出しが無いこと」について）**: main 自体の scrollWidth は主張していない。取引先の画面には Breadcrumb の境界の外の原因が独立に在るためである（作成・編集の「支払日 - 日」の select で 400/343、詳細の関連プロジェクトの表、`TradingPartnerDetailView` の表題と「取引先名」の値で 987/343）。nav を消しても main の scrollWidth は変わらない。代わりに、パンくずが main のはみ出しに寄与しないこと（nav・ol の scrollWidth が clientWidth 以下、各項目の箱と文字列の右端が main と画面幅の内側）を主張している。これらの原因はタスク31 に起票した
+  - **例外 (b)（本文の「デスクトップ幅（1280）で表示が変わらないこと」について）**: 一行に収まっていた画面は矩形が変わらない（独立レビューの 56 件中 45 件）。既に収まらず項目が潰れていた 11 件は折り返しに変わる。construction-photo の作成・編集に限らず、普通の名前の `/site-surveys/:id/edit`（6 項目）、長い名前の現場調査の作成・数量表の作成・見積依頼の作成・工事看板を含む。768 幅は 56 件中 31 件が同じく変わる。語の途中で折られた項目は 1280・768 幅とも 0 件、main のはみ出しが悪化した画面は 4 幅（1280・768・375・320）で 0 件である。いずれも潰れからの改善であり、回帰とは扱わない
+  - 一覧の E2E（12.14）は 2 項目が是正の前後とも一行に収まるため、本是正に対する検出力を持たない（回帰の番としてのみ置く）。最後でないパス無しの項目の `wrap-anywhere` は、単体でも E2E でも守られていない——この分岐を通る画面は `frontend/src/pages/ProgressInputPage.tsx`（`path` でなく `href` を渡しており、3 項目がリンクにならない。既存の不具合で本タスクの外、未起票）だけで、3 項目とも短い固定の語のため観測できる差が出ない
+  - site-survey が所有する宣言 `t13-anchor-references-after-115303` が 1461 から 1464 へ動いたため、同じコミットで貼り直した
+  - **追記（2026-10-03）**: 本項が足した E2E の補助 `expectSingleLineItems` の、先頭の項目の主張を `if (index === 0)` の内側に置いた 1 箇所が、pre-push の関門 `check:e2e-guards` の `T1-conditional-expect` に当たっていた（完了時にこの関門を回していなかった）。construction-photo の Task 21.6 が、先頭の項目と二番目以降を分けて取り、二番目以降が 1 件以上であることを主張してから無条件に回す形へ改めた。主張の中身と題名は変わらず、34 件が緑である
+
+## タスク31: タスク30 の実装と独立レビューで判明した、取引先の画面の既存の欠陥（起票のみ。着手は利用者の判断による）
+
+**経緯**: Task 30.1 の実装と独立レビュー（2026-10-02、起点 `d7701b08`）が、Breadcrumb の境界の外に既存の欠陥を実測した。いずれも 30.1 の是正の前後で同じ値である。他スペックの画面の同型（`/projects/:id` の詳細が長い名前で 940/343、現場調査の一覧の `#dateTo` で 414/343、契約の作成で 640/343）は測定のみで、起票していない
+
+- [x] 31.1 「支払日 - 日」の select がモバイル幅で main を広げる状態を扱う（起票のみ）
+  - 作成・編集の画面で、`PaymentDateSelect` の「支払日 - 日」の select の右端が 416 になり、main が 375 幅で 400/343、320 幅で 400/288 になる。データに依らない
+  - _Requirements: 12_
+  - _Blocked: 30.1 の境界の外であり、着手は利用者の判断を待つ_
+  - **解決（2026-10-07、利用者の判断「直す」で上の `_Blocked:_` は解けた）**: `frontend/src/components/trading-partners/PaymentDateSelect.tsx` の月と日の select を並べる flex の入れ物に `flexWrap: 'wrap'` を足した（Task 30.1 の Breadcrumb と同じく、画面幅の分岐ではなく中身の幅で折り返す）。main は 375 幅で 400/343→343/343、320 幅で 400/288→288/288 になり、1280 幅と 768 幅の配置は前後で同じである。E2E は `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の「作成・編集フォームの支払日の入力のモバイル幅での収まり」の 2 件（要件 12 にフォームのモバイル表示を定める受入基準が無いため印は掲げない）。site-survey の宣言 `t13-anchor-references-after-115303` を 1616 から 1618 へ貼り直した
+  - _Boundary: 取引先のフォームの支払日の入力のモバイル表示_
+
+- [x] 31.2 詳細画面の表題と「取引先名」の値が長い一語を折り返さない状態を扱う（起票のみ）
+  - `frontend/src/components/trading-partners/TradingPartnerDetailView.tsx` の表題と「取引先名」の値に折り返しの指定が無い。74 文字の英数字一語の名前で、表題の文字列の右端が 1003、値の右端が 602 になり、main が 375 幅で 987/343、320 幅で 987/288、768 幅でも 987/720 になる。関連プロジェクトの表を消しても変わらない。あわせて、320 幅では基本情報の各欄（幅 250）の右端が 307 で、main の右端 304 を越える
+  - _Requirements: 12_
+  - _Blocked: 30.1 の境界の外であり、着手は利用者の判断を待つ_
+  - **解決（2026-10-07、利用者の判断「直す」で上の `_Blocked:_` は解けた）**: `frontend/src/components/trading-partners/TradingPartnerDetailView.tsx` の表題・フリガナ・各欄の値・備考に `overflowWrap: 'anywhere'` を置き、欄の格子を `repeat(auto-fit, minmax(min(250px, 100%), 1fr))` にした（320 幅で幅 250 の欄が節の右端を越える状態も、名前に依らず在ったため同じ変更で直した）。長い英数字の名前で main は 375 幅 987/343→343/343、普通の名前で 320 幅 291/288→288/288。普通の名前の 1280・768・375 幅の配置は前後で同じである。E2E は `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の「詳細画面の文字列のモバイル幅での収まり」の 3 件（普通の日本語・長い英数字・長いカタカナ × 4 幅。関連プロジェクトの節は 31.3・31.4 の領域のため main の測定の間だけ隠す。印は掲げない）。site-survey の宣言 `t13-anchor-references-after-115303` を 1618 から 1629 へ貼り直した。独立レビューが、詳細画面から開く削除確認ダイアログの名前に折り返しの指定が無く、長い英数字の名前がダイアログの中で横にはみ出すことを実測した（31.2 の境界の外）
+  - _Boundary: 取引先の詳細表示のモバイル表示_
+
+- [x] 31.3 詳細画面の関連プロジェクトの表がモバイル幅ではみ出す状態を扱う（起票のみ）
+  - 表に行があると、375 幅で表の幅が 608・右端が 665 になり、main が 649/343（別のデータでは 695/343）になる。表が無い状態は 343/343 である
+  - _Requirements: 12_
+  - _Blocked: 表のモバイル表示は設計の判断を伴うため、利用者の判断を待つ_
+  - **解決（2026-10-07、利用者の判断「表を横スクロールにする」で上の `_Blocked:_` は解けた）**: `frontend/src/pages/TradingPartnerDetailPage.tsx` の関連プロジェクトの表を、名前付きでキーボードからフォーカスできる横スクロールの領域（region「関連プロジェクト」、`overflowX: auto`）で包んだ（行が無いときは置かない）。長い英数字のプロジェクト名を含む 2 件で、main は 375 幅 723/343→343/343、320 幅 723/288→288/288、768 幅 723/720→720/720 になり、表は領域の中だけで横にスクロールする。1280 幅の表の矩形は前後で同じである。独立レビューが、縦方向のクリップで共通の `:focus-visible` の輪が切れないことを実ブラウザで確かめた。E2E は `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の「詳細画面の関連プロジェクトの表のモバイル幅での収まり」（印は掲げない）。site-survey の宣言 `t13-anchor-references-after-115303` を 1629 から 1631 へ貼り直した。design.md の TradingPartnerDetailPage の Implementation Notes に現況を併記した
+  - _Boundary: 取引先の詳細の関連プロジェクトの表のモバイル表示_
+
+- [x] 31.4 取引先での絞り込みが効かずに紐付いていないプロジェクトが詳細に出る疑いを調べる（起票のみ）
+  - 作ったばかりで紐付くプロジェクトの無い取引先の詳細に、`tradingPartnerId` が null のプロジェクト 10 件が表示された（実装者と独立レビューの双方が観測）。`GET /api/projects?tradingPartnerId=<id>` の絞り込みが効いていない疑いがある。backend の service は `where.tradingPartnerId` を組むため、レビューは route から絞り込みへの受け渡しを疑っている。**原因は未調査である**。プロジェクトの API は project-management の所有でありうるため、調べたうえで所有スペックへ移すこと
+  - _Requirements: 3.4_
+  - _Blocked: 原因が未調査で所有スペックも未確定のため、利用者の判断を待つ_
+  - **解決（2026-10-07、利用者の判断「調査して不具合なら直す」「ここで直す」で上の `_Blocked:_` は解けた）**: 疑いは事実だった。根本原因は project-management が所有する `backend/src/routes/projects.routes.ts` の `GET /api/projects` が、検証を通った `tradingPartnerId` を `projectService.getProjects` の filter に渡していなかったことである（コミット `6d71e936` の customerName→tradingPartnerId の移行の時点から）。本スペックの画面・API クライアント・クエリの検証・service はいずれも正しかった。利用者の承認により本項の中で route に 3 行を足して渡すようにし、他の検索条件に同じ取りこぼしが無いことも確かめた。単体（filter に渡ること）・統合（取引先 A で絞ると A の分だけ、紐付く無い取引先では 0 件）・E2E（`e2e/specs/trading-partners/trading-partner-crud.spec.ts`、`@requirement trading-partner-management/REQ-3.4`）を足し、route の変更を外す変異で 3 層とも赤になることを確かめた。site-survey の宣言 `t13-anchor-references-after-115303` を 1631 から 1633 へ貼り直した。project-management への申し送りは同スペックの tasks.md の Task 74 に記した。31.2 の E2E の「関連プロジェクトの節を測る間だけ隠す」回避は残した（理由の註のうち 31.4 の疑いに触れる部分は古くなった）
+  - _Boundary: 取引先の詳細の関連プロジェクトの取得_
+
+- [x] 31.5 削除確認ダイアログの取引先名が長い一語を折り返さない状態を直す（利用者の判断で起票・着手。2026-10-07）
+  - Task 31.2 の独立レビュー（2026-10-07）が実測した。詳細画面から開く削除確認ダイアログ `frontend/src/components/trading-partners/TradingPartnerDeleteDialog.tsx` の `styles.partnerName` に折り返しの指定が無く、区切りの無い長い英数字の名前で、名前の右端が 375 幅で 650・320 幅で 647 になり、ダイアログの scrollWidth/clientWidth が 375 幅で 631/338、320 幅で 631/288 になる（文書全体と main は広げない）
+  - 31.2 と同じく、ダイアログの中で利用者の入力した文字列を表示する要素を 3 通りの名前（普通の日本語・長い英数字・長いカタカナ）× 4 幅で網羅して測り、まとめて直すこと。挙動（表示）の修正であるため RED → GREEN で進め、デスクトップ幅の表示が変わらないことを前後の実測で示すこと
+  - _Requirements: 12_
+  - **実施（2026-10-07）**: `frontend/src/components/trading-partners/TradingPartnerDeleteDialog.tsx` の `styles.partnerName` に `overflowWrap: 'anywhere'` を置いた。ダイアログの中で利用者の入力した文字列を表示するのは取引先名だけで、表題・説明文・ボタン・エラーメッセージ（使用中の 409 を含む）は固定の文言である。長い英数字の名前でダイアログは 375 幅 611/338→338/338 になり、普通の名前の表示は 4 幅とも前後で同じである。E2E は `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の「削除確認ダイアログの取引先名のモバイル幅での収まり」の 3 件（3 通りの名前 × 4 幅、使用中のエラー表示を含む。ダイアログは「キャンセル」で閉じる。印は掲げない）。site-survey の宣言 `t13-anchor-references-after-115303` を 1633 から 1635 へ貼り直した
+  - _Boundary: 取引先の削除確認ダイアログのモバイル表示_
+
+## タスク32: 本番の schema の注記に残る削除前の要件番号（29.2 のレビューからの起票。着手は利用者の判断による）
+
+**経緯**: Task 29.2 の独立レビュー（2026-10-07）が、テストの見出しを現在の要件定義書（11.1〜11.12）へ揃えた後も、本番の `backend/src/schemas/trading-partner.schema.ts` の注記がフリガナ 2 項目の削除前の 14 項目の番号のまま残っていることを確かめた。L19-29 の 11.5〜11.13（現在の 11.4〜11.11 に当たる）、L43 / L114 / L128 / L141 の請求締日・支払日の 11.11 / 11.12（現在の 11.9 / 11.10）、L167 / L262 の範囲 `11.1-11.13`（現在の 11.1-11.11）である。いずれも機能名を欠く `Requirements:` の形で、被覆の計数には影響しない。あわせて `backend/src/__tests__/unit/schemas/trading-partner.schema.test.ts` の 1578 行付近の見出しが「11.4: branchNameKanaとrepresentativeNameKanaはスキーマに含まない」と条文でない言い換えで名乗っている。利用者の判断（2026-10-07、「後続タスクとして起票」）により起票に留める
+
+- [x] 32.1 本番の schema の注記と schema のテストの見出しの要件番号を現在の要件定義書へ揃える
+  - 上の各行の番号を、条文の意味で現在の 11.1〜11.12 へ揃える。コメントのみの変更とし、振る舞いを変えない
+  - 機能名を欠く見出しの名乗りの件数が動いた場合は、`check:req-coverage:selftest` の求めに従い上限を実測の差だけ下げる
+  - _Requirements: 11_
+  - _Boundary: 本スペックの本番の schema の注記と、schema のテストの見出しの要件番号_
+
+## タスク33: 機能レベル検証（2026-10-07、HEAD `28696d26`、GO）が挙げた事項の是正（利用者の判断で起票、2026-10-08）
+
+**経緯**: タスク 28〜31 の完了後の機能レベル検証は GO だったが、判断の観点の検証が次の 3 件を挙げた。利用者の判断（2026-10-08、「修正タスクとして起票」）により起票する
+
+- [x] 33.1 取引先のフォームの部品のインラインの outline の打ち消しを外し、フォーカス表示を steering の方針へ揃える
+  - 2026-10-08 の実測で、`frontend/src/components/trading-partners/PaymentDateSelect.tsx:204`・`BillingClosingDaySelect.tsx:191`・`TradingPartnerForm.tsx:520` がインラインで `outline: 'none'` を指定し、全画面共通の `:focus-visible`（`frontend/src/index.css` の `@layer base`）を打ち消している。前二者は代わりのフォーカス表示を持たず、キーボード操作でフォーカスが見えない。`TradingPartnerForm` の代わりの表示（3px の `rgba(37,99,235,0.1)` の影）はコントラスト比 3:1 を満たさないとみられる。steering `tech.md` の「フォーカス表示方針」（project-management の Task 73.5）に沿っていない
+  - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6 と同じ方針。自前の影は外す）。挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（作成・編集フォームの各入力で、フォーカス中に 2px 以上・3:1 以上の表示があること。`e2e/specs/projects/project-accessibility.spec.ts` の判定の作法に倣う）で主張する
+  - _Requirements: 12_
+  - **実施（2026-10-08）**: 3 部品のインラインの `outline: 'none'` を外し、`TradingPartnerForm` の自前の影の輪も外した（フォーカス時の枠線の青とエラー時の赤枠は残す）。作成・編集フォームの入力部品 14 個（チェックボックス 2・select 3 を含む）すべてで、共通の `:focus-visible` の outline（実線・2px・#2563eb）が出て、フォーカスが離れると消える。単体 `frontend/src/__tests__/accessibility/trading-partner-focus-visible.test.tsx` と E2E `e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts`（要件 12 にフォーカス表示を定める受入基準が無いため印は掲げない）を足した。site-survey の宣言 `t13-anchor-references-after-115303` を 1635 から 1638 へ貼り直した
+  - _Boundary: 取引先のフォームの入力部品のフォーカス時の表示_
+
+- [x] 33.2 E2E の註に残る「31.4 の疑い」の記述を現況へ揃える
+  - `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の 451・1775・1921 行付近の註が、タスク 31.4 を「紐付かないプロジェクトが表に出る疑い」として、関連プロジェクトの節を測る間だけ隠す回避や、表の有無が実行順で変わることの理由に挙げている。31.4 は 2026-10-07 にコミット `e9b976e2` で直り、31.3 も表のはみ出しを直した。註を現況（回避は詳細表示の寄与だけを測るために残す）へ改める。コメントのみの変更とし、主張は変えない
+  - _Requirements: 12_
+  - _Boundary: 本スペックの E2E の註_
+
+- [x] 33.3 backend の取引先 service の単体テストの mock に残る二つのフリガナの項目を外す
+  - `backend/src/__tests__/unit/services/trading-partner.service.test.ts` の mock に `branchNameKana` / `representativeNameKana` が 36 件残る（2026-10-08 の実測）。二つの項目は schema.prisma に無く（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）、Task 28.1 は frontend だけを扱った。mock の行を外し、テストの振る舞いが変わらないことを確かめる。`backend/src/__tests__/unit/schemas/trading-partner.schema.test.ts` の「スキーマに含まない」ことを主張する検証は正当であり外さない
+  - _Requirements: 11_
+  - _Boundary: backend の取引先 service の単体テストの mock_
+
+- [x] 33.4 一覧の検索フィルタの「フィルタをクリア」のフォーカスの輪を 3:1 以上にする（33.1 の実装からの起票。利用者の判断で起票、2026-10-08）
+  - Task 33.1 の実装担当が、範囲外として報告した。`frontend/src/components/trading-partners/TradingPartnerSearchFilter.tsx:295` のボタン（`aria-label="フィルタをクリア"`）が `focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2` を持ち、gray-400 の輪は白の背景に対してコントラスト比が約 2.5:1 で、steering `tech.md` の「フォーカス表示方針」（自前の輪は 2px 以上・3:1 以上）を下回るとみられる。project-management の Task 72.3 が同じ形の検索フィルタのクリアボタンを `focus:ring-blue-500` へ改めた前例がある（`frontend/src/components/projects/ProjectSearchFilter.tsx`）
+  - 輪の色を 3:1 を満たす色へ改めるか、共通の `:focus-visible` の輪に任せるかを、前例と揃えて決めて直す。挙動（表示）の変更であるため RED → GREEN で進め、取引先の一覧画面で Tab でクリアボタンへフォーカスしたときに 2px 以上・3:1 以上の表示があることを E2E で主張する。一覧画面の他のフォーカスを受ける要素（検索欄・フィルタの select・ソートの見出しなど）も同じ判定で網羅して測り、満たさないものがあれば同じ変更でまとめて直す
+  - _Requirements: 12_
+  - **実施（2026-10-08）**: 前例（project-management の Task 72.3）と同じく `focus:ring-gray-400` を `focus:ring-blue-500` へ改めた（白に対して 2.60:1 → 3.76:1）。一覧画面の main の中でフォーカスを受ける 22 要素を同じ判定で網羅して測り、基準を満たさないのはこのボタンだけだった（修正後は全要素が 2px 以上・3:1 以上）。単体（`frontend/src/__tests__/accessibility/trading-partner-focus-visible.test.tsx`）と E2E（`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` の「取引先の一覧画面のフォーカス表示」）を足した。site-survey の宣言 `t13-anchor-references-after-115303` を 1638 から 1641 へ貼り直した
+  - _Boundary: 取引先の一覧画面の検索フィルタのフォーカス時の表示_

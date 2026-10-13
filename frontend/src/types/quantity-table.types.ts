@@ -308,12 +308,29 @@ export interface SurveyImageSummary {
   thumbnailUrl: string;
   originalUrl: string;
   fileName: string;
-  /** 注釈の有無 */
+  /** 注釈の有無（注釈レコードの存在から導出。回転のみの保存でも真になる） */
   hasAnnotations?: boolean;
+  /**
+   * 描画された注釈の有無（要件20.2）
+   *
+   * 画像編集画面は注釈0件（回転のみ）でも保存するため、hasAnnotations では
+   * 描画の有無を判定できない。注釈の目印の判定にはこちらを用いる。
+   */
+  hasDrawnAnnotations?: boolean;
   /** 注釈付きサムネイルURL（REQ-3.3, 4.2, 19.2, 20.2） */
   annotatedThumbnailUrl?: string | null;
   /** 写真コメント（REQ-21.1, 21.2） */
   comment?: string | null;
+  /**
+   * 画像の実寸（ピクセル・幅）。
+   *
+   * 表示部品が画像の未読込時にも表示領域を確保するために用いる（Requirement 49.8）。
+   * 数量表詳細APIは常に返すが、写真選択・変更ダイアログが供給するサマリなど
+   * 実寸を伴わない供給元があるため任意項目とする（欠落時は共有部品が領域確保を行わない）。
+   */
+  width?: number;
+  /** 画像の実寸（ピクセル・高さ）。用途は width と同じ（Requirement 49.8） */
+  height?: number;
 }
 
 /**
@@ -422,6 +439,17 @@ export interface QuantityTableDetail {
   groupCount: number;
   itemCount: number;
   groups: QuantityGroupDetail[];
+  /**
+   * 取得時に紐付けを落としたグループのID（Task 86.5）
+   *
+   * バックエンドの取得は、他プロジェクトの現調画像を指す既存の紐付けを写真サマリと
+   * `surveyImageId` ごと落とし（Task 86.3）、当該グループをここで名指す。他プロジェクトの
+   * 画像IDは含まない。編集画面はこれを読んで利用者へ告げる。
+   *
+   * バックエンドは常に返す（落としていなければ空配列）が、本項目を持たない応答
+   * （本項目を足す前の版のバックエンド）でも画面が壊れないよう任意とする。
+   */
+  droppedSurveyImageLinkGroupIds?: string[];
   createdAt: string;
   updatedAt: string;
 }

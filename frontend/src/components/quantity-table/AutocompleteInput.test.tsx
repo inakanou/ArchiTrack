@@ -6,12 +6,9 @@
  * Task 18.1: 旧オートコンプリートフックを廃止し新モード専用に統合する
  *
  * Requirements:
- * - 7.1: 入力開始時の候補表示
- * - 7.3: クライアントサイドでのフィルタリング表示
- * - 7.4: 候補選択時の自動入力
- * - 7.5: 上下キー選択とEnter確定
- * - 7.6: blur時の候補追加はAPIリクエスト不要
- * - 7.7: 候補を50音順に表示
+ * - 7.3: フォーカス時の候補表示（クライアントサイドでのフィルタリング表示）
+ * - 7.5: 候補選択時の自動入力（上下キー選択とEnter確定を含む）
+ * - 7.6: blur時にクライアントサイドで候補追加
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -70,7 +67,7 @@ describe('AutocompleteInput', () => {
     });
   });
 
-  describe('候補表示 (Req 7.1)', () => {
+  describe('候補表示 (Req 7.3)', () => {
     it('候補がある場合にドロップダウンが表示される', async () => {
       getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
@@ -131,7 +128,7 @@ describe('AutocompleteInput', () => {
     });
   });
 
-  describe('候補選択 (Req 7.4)', () => {
+  describe('候補選択 (Req 7.5)', () => {
     it('候補クリック時にonChangeが呼ばれる', async () => {
       const onChange = vi.fn();
       getSuggestions.mockReturnValue(['建築工事', '建設工事']);
@@ -381,7 +378,7 @@ describe('AutocompleteInput', () => {
       expect(onChange).toHaveBeenCalledWith('建');
     });
 
-    it('blur時にonBlurAddCandidateが呼ばれる (Req 7.5, 7.6)', async () => {
+    it('blur時にonBlurAddCandidateが呼ばれる (Req 7.6)', async () => {
       render(
         <div>
           <AutocompleteInput {...defaultProps} value="新しい工事" />
@@ -416,7 +413,7 @@ describe('AutocompleteInput', () => {
       expect(onBlurAddCandidate).not.toHaveBeenCalled();
     });
 
-    it('候補選択時にonChangeが呼ばれる (Req 7.4)', async () => {
+    it('候補選択時にonChangeが呼ばれる (Req 7.5)', async () => {
       const onChange = vi.fn();
       getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
@@ -470,6 +467,21 @@ describe('AutocompleteInput', () => {
       await vi.advanceTimersByTimeAsync(200);
 
       expect(onBlurAddCandidate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('焦点を失った後の遅延タイマー', () => {
+    it('ドロップダウンを閉じる前にアンマウントされたら、閉じるタイマーを解除する', () => {
+      const { unmount } = render(<AutocompleteInput {...defaultProps} value="基礎工事" />);
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+      const timersBeforeBlur = vi.getTimerCount();
+
+      fireEvent.blur(input);
+      expect(vi.getTimerCount()).toBe(timersBeforeBlur + 1);
+
+      unmount();
+      expect(vi.getTimerCount()).toBe(timersBeforeBlur);
     });
   });
 });

@@ -18,11 +18,20 @@
  * - REQ-10.3: ラベル文字リアルタイム更新
  * - REQ-11.2: 詳細文字のバー上表示
  * - REQ-11.3: 詳細文字リアルタイム更新
+ * - REQ-6.7: 入力変更から200ms以内の表示更新
+ * - REQ-12.2: 200項目でのスムーズな描画
+ *
+ * Task 21.1（描画の性能）: 本体の行は日付ごとのセルを持たず、ラベルのセルと、全日付にまたがる
+ * 1つのタイムラインのセル（colSpan）だけで描く。土日祝の色分けと日付の区切り線はタイムラインの
+ * セルの背景（区間の少ない gradient の層の重ね合わせ）で描き、背景の値は表示期間と祝日から一度だけ
+ * 作り、パネルごとの1つのスタイル規則（<style>）として全行で共有する（行ごとのインラインスタイルに
+ * 長い値を持たせない）。
+ * 行は React.memo で包み、入力で変わった項目の行だけを描き直す。
  *
  * @module components/schedule/GanttChartPanel
  */
 
-import { useMemo } from 'react';
+import { memo, useId, useMemo } from 'react';
 import type { ScheduleItem } from '../../hooks/useScheduleState';
 import type { HolidayMap } from '../../hooks/useHolidayCalendar';
 
@@ -35,6 +44,19 @@ export interface GanttChartPanelProps {
   items: ScheduleItem[];
   /** 祝日マップ */
   holidays: HolidayMap;
+}
+
+/** 日種別 */
+type DayType = 'weekday' | 'saturday' | 'sunday' | 'holiday';
+
+/** 表示期間の1日（日付キーと日種別を一度だけ求めて共有する） */
+interface DisplayDay {
+  date: Date;
+  key: string;
+  /** 祝日を優先した日種別（表示の色） */
+  dayType: DayType;
+  /** 曜日だけによる日種別（祝日かどうかは問わない） */
+  weekType: Exclude<DayType, 'holiday'>;
 }
 
 /** 年月グループ */
@@ -132,7 +154,7 @@ const styles = {
     zIndex: 1,
     height: `${ROW_HEIGHT}px`,
   } as React.CSSProperties,
-  barCell: {
+  timelineCell: {
     padding: 0,
     borderBottom: '1px solid #e5e7eb',
     borderRight: '1px solid #f3f4f6',
@@ -159,8 +181,11 @@ const styles = {
   } as React.CSSProperties,
 } as const;
 
+/** 日付の区切り線の色（日付ごとのセルだったときの右罫線と同じ色） */
+const DAY_DIVIDER_COLOR = '#f3f4f6';
+
 /** 日種別ごとの背景色 */
-const dayTypeColors: Record<string, string> = {
+const dayTypeColors: Record<DayType, string> = {
   weekday: '#ffffff',
   saturday: '#e0f2fe', // 薄い青
   sunday: '#fee2e2', // 薄い赤
@@ -202,13 +227,116 @@ function generateDateRange(startDate: Date, endDate: Date): Date[] {
 }
 
 /**
- * 日種別を判定する
+ * 表示期間の1日の日種別を判定する（祝日を優先した日種別と、曜日だけによる日種別）
  */
-function getDayType(date: Date, holidays: HolidayMap): string {
-  if (holidays.isHoliday(date)) return 'holiday';
-  if (holidays.isSunday(date)) return 'sunday';
-  if (holidays.isSaturday(date)) return 'saturday';
-  return 'weekday';
+function toDisplayDay(date: Date, holidays: HolidayMap): DisplayDay {
+  const weekType = holidays.isSunday(date)
+    ? 'sunday'
+    : holidays.isSaturday(date)
+      ? 'saturday'
+      : 'weekday';
+  return {
+    date,
+    key: formatDateKey(date),
+    dayType: holidays.isHoliday(date) ? 'holiday' : weekType,
+    weekType,
+  };
+}
+
+/** 曜日の周期（日） */
+const DAYS_PER_WEEK = 7;
+
+/**
+ * タイムラインの1セルがまたぐ日数の上限
+ *
+ * HTML の colspan の上限は 1000 で、超える値は 1000 に切り詰められる。表示期間が 1000 日を
+ * 超えるときはタイムラインをこの日数ごとのセルに分ける（分けないと 1000 日目より後の本体が
+ * 背景・区切り線・下罫線を持たない）。
+ */
+const MAX_TIMELINE_COLSPAN = 1000;
+
+/** タイムラインのセル1つが受け持つ日付の区間 */
+interface TimelineSegment {
+  /** 表示期間の先頭からの日数 */
+  start: number;
+  /** 日数（colSpan） */
+  length: number;
+}
+
+/** 表示期間を MAX_TIMELINE_COLSPAN 日以下の区間に分ける */
+function splitTimelineSegments(dayCount: number): TimelineSegment[] {
+  const segments: TimelineSegment[] = [];
+  for (let start = 0; start < dayCount; start += MAX_TIMELINE_COLSPAN) {
+    segments.push({ start, length: Math.min(MAX_TIMELINE_COLSPAN, dayCount - start) });
+  }
+  return segments;
+}
+
+/** 塗りつぶし1色の背景の層 */
+function solidLayer(color: string): string {
+  return `linear-gradient(${color}, ${color})`;
+}
+
+/** 表示期間の先頭から index 日目の、曜日だけによる背景の色（平日は透明） */
+function weekColorAt(days: readonly DisplayDay[], index: number): string {
+  const weekType = days[index]?.weekType ?? 'weekday';
+  return weekType === 'weekday' ? 'transparent' : dayTypeColors[weekType];
+}
+
+/**
+ * タイムラインのセルの背景（土日祝の色分けと日付の区切り線）の宣言を作る
+ *
+ * 色の区間が多い1本の gradient は描画（ラスタライズ）が重いため、区間の少ない層を重ねる。
+ * 上から順に、
+ * - 日付の区切り線: 各日付の右端の 1px（repeating-linear-gradient、2 区間）
+ * - 祝日: 連続する祝日ごとに1色の層を、その日付の位置と幅に置く（年に十数層）
+ * - 土日: 曜日は 7 日で繰り返すため、表示期間の先頭の 7 日の並びを 7 日周期の
+ *   repeating-linear-gradient で描く（祝日の層が上に重なるため、祝日の土日は祝日の色になる）
+ * - 平日: 背景色
+ */
+function buildTimelineBackgroundDeclarations(days: readonly DisplayDay[]): string {
+  const period = DAYS_PER_WEEK * DAY_CELL_WIDTH;
+
+  // 土日の 7 日周期の並び（祝日かどうかは問わない）。連続する同じ色は1つの区間にまとめる
+  const weekStops: string[] = [];
+  let weekRunStart = 0;
+  for (let k = 1; k <= DAYS_PER_WEEK; k++) {
+    const runColor = weekColorAt(days, weekRunStart);
+    if (k < DAYS_PER_WEEK && weekColorAt(days, k) === runColor) continue;
+    weekStops.push(`${runColor} ${weekRunStart * DAY_CELL_WIDTH}px ${k * DAY_CELL_WIDTH}px`);
+    weekRunStart = k;
+  }
+  const weekLayer = `repeating-linear-gradient(to right, ${weekStops.join(', ')})`;
+
+  // 連続する祝日ごとの層
+  const holidayLayers: { x: number; width: number }[] = [];
+  let runStart: number | null = null;
+  for (let i = 0; i <= days.length; i++) {
+    const isHoliday = days[i]?.dayType === 'holiday';
+    if (isHoliday && runStart === null) runStart = i;
+    if (!isHoliday && runStart !== null) {
+      holidayLayers.push({ x: runStart * DAY_CELL_WIDTH, width: (i - runStart) * DAY_CELL_WIDTH });
+      runStart = null;
+    }
+  }
+
+  const dividerLayer = `repeating-linear-gradient(to right, transparent 0px ${DAY_CELL_WIDTH - 1}px, ${DAY_DIVIDER_COLOR} ${DAY_CELL_WIDTH - 1}px ${DAY_CELL_WIDTH}px)`;
+  const images = [
+    dividerLayer,
+    ...holidayLayers.map(() => solidLayer(dayTypeColors.holiday)),
+    weekLayer,
+  ];
+  const positions = ['0px 0px', ...holidayLayers.map((h) => `${h.x}px 0px`), '0px 0px'];
+  const sizes = ['auto', ...holidayLayers.map((h) => `${h.width}px 100%`), `${period}px 100%`];
+  const repeats = ['repeat', ...holidayLayers.map(() => 'no-repeat'), 'repeat'];
+
+  return [
+    `background-color: ${dayTypeColors.weekday};`,
+    `background-image: ${images.join(', ')};`,
+    `background-position: ${positions.join(', ')};`,
+    `background-size: ${sizes.join(', ')};`,
+    `background-repeat: ${repeats.join(', ')};`,
+  ].join(' ');
 }
 
 /**
@@ -269,6 +397,80 @@ function calculateDateRange(items: ScheduleItem[]): { start: Date; end: Date } |
 // コンポーネント
 // ============================================================================
 
+interface GanttRowProps {
+  item: ScheduleItem;
+  /** タイムラインのセルの区間（表示期間が 1000 日以下なら1つ） */
+  segments: readonly TimelineSegment[];
+  /** バーの開始位置（表示期間の先頭からの日数）。バーが無い場合は null */
+  barStartIndex: number | null;
+  /** バーの日数。バーが無い場合は null */
+  barDays: number | null;
+  /** タイムラインのセルの背景の規則を当てる識別子（パネルごと） */
+  timelineId: string;
+}
+
+/**
+ * ガントチャートの1行
+ *
+ * props が変わらない行は描き直さない（入力で変わった項目の行だけを描き直す）。
+ */
+const GanttRow = memo(function GanttRow({
+  item,
+  segments,
+  barStartIndex,
+  barDays,
+  timelineId,
+}: GanttRowProps) {
+  return (
+    <tr data-testid={`gantt-row-${item.id}`}>
+      {/* ラベル列 */}
+      <td data-testid={`gantt-label-${item.id}`} style={styles.labelCell} title={item.labelText}>
+        {item.labelText}
+      </td>
+
+      {/* タイムライン（日付の区間ごとのセル。土日祝の色分けは背景で描く） */}
+      {segments.map((segment, index) => {
+        const hasBar =
+          barStartIndex !== null &&
+          barDays !== null &&
+          segment.start <= barStartIndex &&
+          barStartIndex < segment.start + segment.length;
+        return (
+          <td
+            key={segment.start}
+            data-testid={
+              index === 0 ? `gantt-timeline-${item.id}` : `gantt-timeline-${item.id}-${index}`
+            }
+            data-gantt-timeline={timelineId}
+            data-gantt-segment-start={segment.start}
+            colSpan={segment.length}
+            style={styles.timelineCell}
+          >
+            {/* バーは開始日を含むセルに置き、後ろの区間のセルへは重ねて伸ばす */}
+            {hasBar && (
+              <div
+                data-testid={`gantt-bar-${item.id}`}
+                style={{
+                  ...styles.bar,
+                  left: `${(barStartIndex - segment.start) * DAY_CELL_WIDTH}px`,
+                  width: `${barDays * DAY_CELL_WIDTH - 2}px`,
+                }}
+              >
+                {/* 詳細文字（バーの上に表示） */}
+                {item.detailText && (
+                  <span data-testid={`gantt-detail-${item.id}`} style={styles.detailText}>
+                    {item.detailText}
+                  </span>
+                )}
+              </div>
+            )}
+          </td>
+        );
+      })}
+    </tr>
+  );
+});
+
 /**
  * ガントチャートパネル
  *
@@ -279,12 +481,17 @@ function calculateDateRange(items: ScheduleItem[]): { start: Date; end: Date } |
 export function GanttChartPanel({ items, holidays }: GanttChartPanelProps) {
   // 表示期間を自動算出
   const dateRange = useMemo(() => calculateDateRange(items), [items]);
+  const rangeStart = dateRange?.start.getTime() ?? null;
+  const rangeEnd = dateRange?.end.getTime() ?? null;
 
-  // 日付配列を生成
+  // 日付配列を生成（表示期間が変わったときだけ作り直す）
   const dates = useMemo(() => {
-    if (!dateRange) return [];
-    return generateDateRange(dateRange.start, dateRange.end);
-  }, [dateRange]);
+    if (rangeStart === null || rangeEnd === null) return [];
+    return generateDateRange(new Date(rangeStart), new Date(rangeEnd));
+  }, [rangeStart, rangeEnd]);
+
+  // 日付ごとの区分（日付ごとに一度だけ判定し、ヘッダーと全行で共有する）
+  const days = useMemo(() => dates.map((date) => toDisplayDay(date, holidays)), [dates, holidays]);
 
   // 年月グループを生成
   const monthGroups = useMemo(() => generateMonthGroups(dates), [dates]);
@@ -292,11 +499,66 @@ export function GanttChartPanel({ items, holidays }: GanttChartPanelProps) {
   // 日付キー → インデックスマップ
   const dateIndexMap = useMemo(() => {
     const map = new Map<string, number>();
-    dates.forEach((date, index) => {
-      map.set(formatDateKey(date), index);
+    days.forEach((day, index) => {
+      map.set(day.key, index);
     });
     return map;
-  }, [dates]);
+  }, [days]);
+
+  // 全行で共有するタイムラインのセルの背景の規則（表示期間と祝日が変わったときだけ作り直す）
+  // 区間ごとの規則は、その区間の日付だけから背景を作る（区間の先頭を原点に、土日の 7 日周期の
+  // 並びと祝日の層の位置を区間の先頭からの日数で置く）
+  const timelineId = useId();
+  const segments = useMemo(() => splitTimelineSegments(days.length), [days.length]);
+  const timelineRule = useMemo(
+    () =>
+      segments
+        .map(
+          (segment) =>
+            `[data-gantt-timeline="${timelineId}"][data-gantt-segment-start="${segment.start}"] { ${buildTimelineBackgroundDeclarations(
+              days.slice(segment.start, segment.start + segment.length)
+            )} }`
+        )
+        .join('\n'),
+    [timelineId, days, segments]
+  );
+
+  // ヘッダー（表示期間と祝日が変わったときだけ作り直す）
+  const header = useMemo(
+    () => (
+      <thead>
+        {/* 年月ヘッダー行 */}
+        <tr>
+          <th style={styles.labelHeaderCell} rowSpan={2}>
+            ラベル
+          </th>
+          {monthGroups.map((group, i) => (
+            <th key={`month-${i}`} colSpan={group.colSpan} style={styles.monthHeaderCell}>
+              {group.label}
+            </th>
+          ))}
+        </tr>
+
+        {/* 日ヘッダー行 */}
+        <tr>
+          {days.map(({ date, key, dayType }) => (
+            <th
+              key={key}
+              data-testid={`gantt-date-${key}`}
+              data-day-type={dayType}
+              style={{
+                ...styles.dayHeaderCell,
+                backgroundColor: dayTypeColors[dayType],
+              }}
+            >
+              {date.getDate()}
+            </th>
+          ))}
+        </tr>
+      </thead>
+    ),
+    [days, monthGroups]
+  );
 
   // 項目なし
   if (items.length === 0) {
@@ -317,110 +579,42 @@ export function GanttChartPanel({ items, holidays }: GanttChartPanelProps) {
   }
 
   return (
-    <div data-testid="gantt-chart-panel" style={styles.container}>
-      <table style={styles.table}>
-        <thead>
-          {/* 年月ヘッダー行 */}
-          <tr>
-            <th style={styles.labelHeaderCell} rowSpan={2}>
-              ラベル
-            </th>
-            {monthGroups.map((group, i) => (
-              <th key={`month-${i}`} colSpan={group.colSpan} style={styles.monthHeaderCell}>
-                {group.label}
-              </th>
-            ))}
-          </tr>
+    <>
+      {/* 背景の規則はパネルの外に置く（パネルの文字列に規則の文字が混ざらないように） */}
+      <style>{timelineRule}</style>
+      <div data-testid="gantt-chart-panel" style={styles.container}>
+        <table style={styles.table}>
+          {header}
 
-          {/* 日ヘッダー行 */}
-          <tr>
-            {dates.map((date) => {
-              const key = formatDateKey(date);
-              const dayType = getDayType(date, holidays);
+          <tbody>
+            {items.map((item) => {
+              // バー位置の計算
+              let barStartIndex: number | null = null;
+              let barDays: number | null = null;
+
+              if (item.startDate && item.endDate) {
+                const startIdx = dateIndexMap.get(item.startDate);
+                const endIdx = dateIndexMap.get(item.endDate);
+                if (startIdx !== undefined && endIdx !== undefined) {
+                  barStartIndex = startIdx;
+                  barDays = endIdx - startIdx + 1;
+                }
+              }
+
               return (
-                <th
-                  key={key}
-                  data-testid={`gantt-date-${key}`}
-                  data-day-type={dayType}
-                  style={{
-                    ...styles.dayHeaderCell,
-                    backgroundColor: dayTypeColors[dayType] || '#ffffff',
-                  }}
-                >
-                  {date.getDate()}
-                </th>
+                <GanttRow
+                  key={item.id}
+                  item={item}
+                  segments={segments}
+                  barStartIndex={barStartIndex}
+                  barDays={barDays}
+                  timelineId={timelineId}
+                />
               );
             })}
-          </tr>
-        </thead>
-
-        <tbody>
-          {items.map((item) => {
-            // バー位置の計算
-            let barStartIndex: number | null = null;
-            let barWidth: number | null = null;
-
-            if (item.startDate && item.endDate) {
-              const startIdx = dateIndexMap.get(item.startDate);
-              const endIdx = dateIndexMap.get(item.endDate);
-              if (startIdx !== undefined && endIdx !== undefined) {
-                barStartIndex = startIdx;
-                barWidth = endIdx - startIdx + 1;
-              }
-            }
-
-            return (
-              <tr key={item.id} data-testid={`gantt-row-${item.id}`}>
-                {/* ラベル列 */}
-                <td
-                  data-testid={`gantt-label-${item.id}`}
-                  style={styles.labelCell}
-                  title={item.labelText}
-                >
-                  {item.labelText}
-                </td>
-
-                {/* 日付セル */}
-                {dates.map((date, colIndex) => {
-                  const key = formatDateKey(date);
-                  const dayType = getDayType(date, holidays);
-                  const isBarStart = barStartIndex === colIndex;
-
-                  return (
-                    <td
-                      key={key}
-                      style={{
-                        ...styles.barCell,
-                        backgroundColor: dayTypeColors[dayType] || '#ffffff',
-                      }}
-                      data-day-type={dayType}
-                    >
-                      {/* バー描画（バー開始セルに描画） */}
-                      {isBarStart && barWidth !== null && (
-                        <div
-                          data-testid={`gantt-bar-${item.id}`}
-                          style={{
-                            ...styles.bar,
-                            left: 0,
-                            width: `${barWidth * DAY_CELL_WIDTH - 2}px`,
-                          }}
-                        >
-                          {/* 詳細文字（バーの上に表示） */}
-                          {item.detailText && (
-                            <span data-testid={`gantt-detail-${item.id}`} style={styles.detailText}>
-                              {item.detailText}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

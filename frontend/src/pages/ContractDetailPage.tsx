@@ -2,9 +2,11 @@
  * @fileoverview 契約書詳細画面
  *
  * Task 7.1: ContractDetailPageの実装
+ * Task 18.2: 契約書の詳細画面に請負者（自社）を表示する
  *
  * Requirements (contract-management):
  * - REQ-8.1: 契約書詳細画面に新規作成時に入力した全項目と自動表示項目を表示する
+ * - REQ-4.5: 請負者として自社情報を自動表示する（詳細画面の自動表示項目として）
  * - REQ-8.2: ステータス遷移ボタン（「契約前」→「契約済」）を提供する
  * - REQ-8.3: ステータスの双方向遷移（「契約前」⇔「契約済」）
  * - REQ-8.4: 基となった見積書へのリンクを表示する
@@ -21,6 +23,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getContractDetail, updateContractStatus } from '../api/contracts';
 import type { ContractDetail } from '../api/contracts';
+import { getCompanyInfo } from '../api/company-info';
+import type { CompanyInfo } from '../types/company-info.types';
 import { Breadcrumb } from '../components/common';
 import { DeleteConfirmDialog } from '../components/contracts/DeleteConfirmDialog';
 import { useToast } from '../hooks/useToast';
@@ -57,6 +61,18 @@ function getStatusLabel(status: ContractDetail['status']): string {
     default:
       return status;
   }
+}
+
+/**
+ * CompanyInfoかどうか判定する型ガード（未登録時の空オブジェクトを除く）
+ */
+function isCompanyInfo(data: unknown): data is CompanyInfo {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'companyName' in data &&
+    typeof (data as CompanyInfo).companyName === 'string'
+  );
 }
 
 /**
@@ -315,6 +331,7 @@ export default function ContractDetailPage() {
 
   // データ状態
   const [contract, setContract] = useState<ContractDetail | null>(null);
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
 
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
@@ -349,6 +366,29 @@ export default function ContractDetailPage() {
   useEffect(() => {
     fetchContract();
   }, [fetchContract]);
+
+  /**
+   * 自社情報を取得（請負者の表示: REQ-8.1, REQ-4.5）
+   * 契約書フォームと同じく、未登録・取得の失敗は「未設定」の表示とし、
+   * 契約書の詳細の表示は妨げない（エラー表示・トーストにしない）
+   */
+  useEffect(() => {
+    let mounted = true;
+    const fetchCompanyInfo = async () => {
+      try {
+        const result = await getCompanyInfo();
+        if (mounted && isCompanyInfo(result)) {
+          setCompanyInfo(result);
+        }
+      } catch {
+        // 取得の失敗は請負者の「未設定」の表示に留める
+      }
+    };
+    fetchCompanyInfo();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   /**
    * ステータス遷移処理
@@ -572,6 +612,13 @@ export default function ContractDetailPage() {
             <div style={styles.infoItem}>
               <span style={styles.infoLabel}>発注者</span>
               <span style={styles.infoValue}>{contract.project.tradingPartner?.name || '-'}</span>
+            </div>
+            {/* 請負者（自社情報）(REQ-8.1, REQ-4.5) */}
+            <div style={styles.infoItem}>
+              <span style={styles.infoLabel}>請負者</span>
+              <span style={styles.infoValue} data-testid="contractor-name">
+                {companyInfo?.companyName ?? '未設定'}
+              </span>
             </div>
             <div style={styles.infoItem}>
               <span style={styles.infoLabel}>監理者</span>

@@ -26,6 +26,7 @@ import {
   QuantityTableNotFoundError,
   QuantityTableConflictError,
   QuantityTableValidationError,
+  QuantityTableSaveBusyError,
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
 import { QUANTITY_TABLE_TARGET_TYPE } from '../types/audit-log.types.js';
@@ -35,7 +36,68 @@ import {
   type CalculationParamsType,
 } from './quantity-validation.service.js';
 import { QuantityFieldValidationService } from './quantity-field-validation.service.js';
+import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
+import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
+import logger from '../utils/logger.js';
 import Decimal from 'decimal.js';
+
+/**
+ * `saveDraft` が数量表の行ロックを待つ上限（ミリ秒）
+ *
+ * ## なぜ上限が要るか
+ *
+ * `saveDraft` は同一数量表への保存を直列化するため数量表の行を `SELECT ... FOR UPDATE` で
+ * 握る（Task 88.1）。Prisma の対話トランザクションの時間切れは**実行中の問い合わせを
+ * 中断しない**ため、待機はトランザクションの制限時間では切れない。上限を入れない限り、
+ * 後発の利用者は先行が終わるまで待たされる（Task 92.2 の実測: 先行を 120 秒握らせた条件で
+ * 後発の所要も 120013 ms）。待機を切れるのは PostgreSQL 側の `lock_timeout` だけである。
+ *
+ * ## なぜ 2000 ms か（Task 92.5 の実測に基づく）
+ *
+ * - 保存そのものの所要は、2グループ×3項目で中央 18 ms（10 回の最小 13 / 最大 73 ms）、
+ *   10グループ×200項目で中央 237 ms（5 回の最小 196 / 最大 291 ms）である。上限は
+ *   実際に競合する保存が終わるのを待つに十分な長さ（大きな保存の 8 倍超）が要る
+ * - 上限はトランザクションの制限時間（Prisma 既定 5 秒）より確実に手前で効かなければ
+ *   ならない。効かなければ待機が制限時間を食い潰し、応答は P2028 由来の 500 になって
+ *   本エラーの識別が失われる。設定値に対する待機の実測は環境の揺らぎで最大 1.56 倍まで
+ *   伸びたため、2000 ms なら最悪でも約 3.1 秒で、大きな保存の所要（約 0.3 秒）を足しても
+ *   5 秒に届かない。3000 ms では同じ揺らぎで 4.5 秒となり余裕が無い
+ *
+ * 実測はいずれも 2026-09-12、コミット `21d95ac1` の作業ツリー（本タスクの変更を入れる前の
+ * 状態）で、リポジトリルートから統合検証の一時プローブとして行った。
+ */
+export const SAVE_DRAFT_LOCK_TIMEOUT_MS = 2000;
+
+/** 生SQLの失敗を表す Prisma のエラーコード */
+const PRISMA_RAW_QUERY_ERROR_CODE = 'P2010';
+
+/** ロック待ちの打ち切りを表す PostgreSQL の SQLSTATE（`canceling statement due to lock timeout`） */
+const POSTGRES_LOCK_TIMEOUT_SQLSTATE = '55P03';
+
+/**
+ * ロック待ちの上限超過（PostgreSQL の `lock_timeout`）による失敗かを判定する
+ *
+ * `lock_timeout` で切られた `SELECT ... FOR UPDATE` は、Prisma からは
+ * `PrismaClientKnownRequestError`（`code: 'P2010'`）として届く。SQLSTATE は
+ * メッセージ（``Raw query failed. Code: `55P03`.``）と `meta` の driver adapter の
+ * 情報の両方に現れるため、どちらかに現れれば上限超過と判定する。
+ *
+ * @param error - 判定対象
+ * @returns ロック待ちの上限超過なら true
+ */
+function isLockWaitTimeoutError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const { code, meta, message } = error as { code?: unknown; meta?: unknown; message?: unknown };
+  if (code !== PRISMA_RAW_QUERY_ERROR_CODE) {
+    return false;
+  }
+  if (typeof message === 'string' && message.includes(POSTGRES_LOCK_TIMEOUT_SQLSTATE)) {
+    return true;
+  }
+  return meta !== undefined && JSON.stringify(meta).includes(POSTGRES_LOCK_TIMEOUT_SQLSTATE);
+}
 
 /**
  * QuantityTableService依存関係
@@ -99,10 +161,20 @@ export interface SurveyImageSummary {
    * フロントは false の場合に注釈取得APIの呼び出しを省略できる（画面オープン時のN+1抑止）。
    */
   hasAnnotations: boolean;
+  /** 描画された注釈の有無（Requirement 20.2、Task 115.13） */
+  hasDrawnAnnotations: boolean;
   /** 注釈付きサムネイルURL（REQ-3.3, 4.2, 19.2, 20.2） */
   annotatedThumbnailUrl: string | null;
   /** 写真コメント（REQ-21.1, 21.2） */
   comment: string | null;
+  /**
+   * 画像の実寸（ピクセル・幅）。
+   * 表示部品が画像の未読込時にも表示領域を確保するために用いる（Requirement 49.8）。
+   * 数量表詳細と同一の問い合わせで取得し、写真ごとの追加の問い合わせを発生させない。
+   */
+  width: number;
+  /** 画像の実寸（ピクセル・高さ）。用途は width と同じ（Requirement 49.8） */
+  height: number;
 }
 
 /**
@@ -152,6 +224,14 @@ export interface QuantityGroupDetailInfo {
 export interface QuantityTableDetailWithItems extends QuantityTableInfo {
   project: { id: string; name: string };
   groups: QuantityGroupDetailInfo[];
+  /**
+   * 取得時に紐付けを落としたグループのID（落としていなければ空配列）
+   *
+   * 他プロジェクトの現調画像を指す既存の紐付けは、取得の写像が写真サマリと `surveyImageId`
+   * ごと落とす（Task 86.3）。落としたことを編集画面が利用者へ告げられるよう、当該グループを
+   * 名指す（Task 86.5）。名指すのは当該数量表のグループIDだけで、他プロジェクトの画像IDは返さない。
+   */
+  droppedSurveyImageLinkGroupIds: string[];
 }
 
 /**
@@ -458,15 +538,26 @@ export class QuantityTableService {
             surveyImage: {
               select: {
                 id: true,
+                // 取得経路の所属の検査（Task 86.3）に用いる。写真1枚ごとの追加の
+                // 問い合わせにはならず、数量表詳細の同一の問い合わせの取得項目が広がるだけである。
+                survey: {
+                  select: { projectId: true },
+                },
                 thumbnailPath: true,
                 originalPath: true,
                 annotatedThumbnailPath: true,
                 fileName: true,
                 comment: true,
+                // 表示領域の確保に用いる実寸（Requirement 49.8）。
+                // 既存の取得項目を広げて得るため、写真ごとの追加の問い合わせは発生しない。
+                width: true,
+                height: true,
                 // 注釈の有無のみ判定する（重いdataは取得しない）。
                 // 注釈なしの画像でフロントが注釈APIを叩かないようにするためのフラグ供給。
+                // hasDrawnAnnotations は描画された注釈の有無の派生値で、これも data を
+                // 読まずに判定するためレコード側から取得する（Requirement 20.2、Task 115.13）。
                 annotation: {
-                  select: { id: true },
+                  select: { id: true, hasDrawnAnnotations: true },
                 },
               },
             },
@@ -912,12 +1003,25 @@ export class QuantityTableService {
    * 本メソッドが編集画面の唯一の書き込み手段となり、既存 bulkSave（項目更新のみ）の
    * 役割を包含・置換する。
    *
+   * トランザクション開始前に全フィールドの整合性検証（文字数・数値範囲・計算整合）を行い、
+   * 違反があれば DB へ一切アクセスせず保存を中断する。
+   *
    * トランザクション内で以下を実行:
+   * 0. 当該数量表の行を `SELECT ... FOR UPDATE` で行ロックし、同一数量表への保存を直列化する
+   *    （Task 88.1。後発は先行の確定を待ってから updatedAt を読むため、1 の照合で 409 となる）
    * 1. 数量表の存在確認・楽観的排他制御（expectedUpdatedAt 不一致は 409）
-   * 2. 全フィールドの整合性検証（文字数・数値範囲・計算整合）。違反時は保存中断
+   * 2. ID検証（いずれも書き込み前に保存を中断, 400）:
+   *    - 重複検証: payload 内で同じ既存ID（グループ・項目）が複数回現れないことを確認
+   *    - 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認
+   * 2-1. 現調画像の紐付け可否の検証（書き込み前に保存を中断）:
+   *    - payload が指す現調画像が実在することを確認（404）
+   *    - 当該数量表と同じプロジェクトに属することを確認（400）
+   *    - 親の現場調査が論理削除済みでないことを確認（410）
    * 3. DB現状と payload の差分適用:
-   *    - グループ: 削除（payload にない既存）→ 更新（id一致）→ 作成（id=null）
-   *    - 項目: グループ単位で同様に削除→更新→作成
+   *    - グループ・項目とも payload の配列順に「更新（id一致）/ 作成（id=null）」を先に適用する
+   *    - 削除はその後段でまとめて行う。判定はグループ単位ではなく数量表全体のID集合の差分で
+   *      行い、payload のどこにも現れない既存グループ・既存項目を削除する
+   *      （グループ間移動した項目を移動元からの消失と誤認しないため。REQ-6.4）
    *    - displayOrder は payload の配列順を正とする
    *    - グループ名・写真紐づけ（surveyImageId）・数量表名を反映
    * 4. 数量表の updatedAt 更新・監査ログ記録
@@ -940,7 +1044,14 @@ export class QuantityTableService {
    * @returns 最新の数量表詳細（項目を含む）
    * @throws QuantityTableNotFoundError 数量表が存在しない、または論理削除済みの場合
    * @throws QuantityTableConflictError 楽観的排他制御エラー（他ユーザーによる更新との競合, 409）
-   * @throws QuantityTableValidationError 整合性検証エラー（文字数・数値範囲・計算整合, 400）
+   * @throws QuantityTableValidationError 整合性検証エラー（文字数・数値範囲・計算整合）、
+   *         同一のグループ・項目IDが複数回含まれる場合、当該数量表に属さない
+   *         グループ・項目IDが含まれる場合、または他プロジェクトの現調画像を
+   *         指した場合（400）
+   * @throws SurveyImageNotFoundError payload が実在しない現調画像を指した場合（404）
+   * @throws SurveyDeletedError payload が指す現調画像の親の現場調査が論理削除済みの場合（410）
+   * @throws QuantityTableSaveBusyError 先行の保存が長引き、行ロックの待機が上限
+   *         （{@link SAVE_DRAFT_LOCK_TIMEOUT_MS}）を超えた場合（503。Task 92.5）
    */
   async saveDraft(
     id: string,
@@ -954,6 +1065,31 @@ export class QuantityTableService {
     const expectedUpdatedAt = new Date(input.expectedUpdatedAt);
 
     await this.prisma.$transaction(async (tx) => {
+      // 0. 当該数量表の行を SELECT ... FOR UPDATE で行ロックし、同一数量表への保存を直列化する
+      //    （Task 88.1）。差分元と updatedAt を読む前に取るので、後発の保存は先行の確定を
+      //    待ってから確定後の updatedAt を読み、下の楽観的排他制御の照合で 409 となる。
+      //    行が無い／論理削除済みの判定は直後の読み取りに任せる（応答は従来どおり 404）。
+      //
+      //    待機には上限を掛ける（Task 92.5）。掛けないと待機はトランザクションの制限時間では
+      //    切れず、後発は先行が終わるまで待たされる。SET LOCAL なので本トランザクションの
+      //    間だけ効き、接続を共有する他の処理には及ばない。値の根拠は
+      //    SAVE_DRAFT_LOCK_TIMEOUT_MS の註に置いた。
+      await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '${SAVE_DRAFT_LOCK_TIMEOUT_MS}ms'`);
+      try {
+        await tx.$queryRaw`
+          SELECT id FROM "quantity_tables"
+          WHERE id = ${id}
+          FOR UPDATE
+        `;
+      } catch (error) {
+        // 上限超過は混雑による一時的な失敗であり、時間をおけば解消する。恒久的な失敗
+        // （ルートが 500 QUANTITY_TABLE_SAVE_ERROR へ畳むもの）と別のコードで返す。
+        if (isLockWaitTimeoutError(error)) {
+          throw new QuantityTableSaveBusyError(SAVE_DRAFT_LOCK_TIMEOUT_MS);
+        }
+        throw error;
+      }
+
       // 1. 数量表の存在確認・現状取得（差分元となるグループ/項目IDを含む）
       const current = await tx.quantityTable.findUnique({
         where: { id },
@@ -992,24 +1128,43 @@ export class QuantityTableService {
       );
       const dbGroupIds = current.groups.map((g) => g.id);
 
-      // 2-1. 削除: payload に存在しない既存グループ（項目は onDelete: Cascade で連鎖削除）
-      const groupIdsToDelete = dbGroupIds.filter((gid) => !payloadGroupIds.has(gid));
-      if (groupIdsToDelete.length > 0) {
-        await tx.quantityGroup.deleteMany({
-          where: { id: { in: groupIdsToDelete } },
-        });
-      }
+      // 既存項目IDの全集合（数量表全体）
+      const dbItemIds = current.groups.flatMap((g) => g.items.map((it) => it.id));
 
-      // 残存グループ（削除されなかった既存グループ）の項目ID集合
-      const dbItemIdsByGroup = new Map<string, string[]>();
-      for (const g of current.groups) {
-        dbItemIdsByGroup.set(
-          g.id,
-          g.items.map((it) => it.id)
-        );
-      }
+      // payload に残っている既存項目IDの全集合（数量表全体）。
+      // 数量項目のグループ間移動（REQ-6.4）では、移動元グループの payload から当該項目が
+      // 消える一方で移動先グループの payload に同じ id が現れる。削除判定をグループ単位で
+      // 行うと「移動元から消えた」ことだけを見て移動した項目を削除してしまうため、
+      // 数量表全体の集合で判定する。
+      const payloadItemIds = new Set(
+        input.groups
+          .flatMap((g) => g.items.map((it) => it.id))
+          .filter((iid): iid is string => iid !== null)
+      );
 
-      // 2-2. グループを payload 配列順に処理（displayOrder は配列順を正とする）
+      // 2-0-1. 重複検証: payload 内で同じ既存ID（グループ・項目）が複数回現れないことを確認する。
+      //      重複を受け入れると同じ行が複数回更新されるうえ、上の payload*Ids 集合には
+      //      1件としてしか入らないため削除判定からも外れ、どちらの指定が反映されたのか
+      //      定まらない状態が残る（グループの重複では他グループが巻き添えで削除される）。
+      //      所属検証と同じく、書き込み前に中断する（REQ-42.9, 11.2, 11.4）。
+      this.validateDraftDuplicateIds(input);
+
+      // 2-0-2. 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認する。
+      //      属さないIDを受け入れると、他の数量表のグループ・項目が本数量表の配下へ
+      //      付け替えられてしまう（既存項目の更新は quantityGroupId を明示するため）。
+      //      書き込み前に検証し、違反時は保存を中断する（REQ-42.9, 11.2, 11.4）。
+      this.validateDraftOwnership(input, dbGroupIds, dbItemIds);
+
+      // 2-0-3. 現調画像の紐付け可否の検証: payload が指す現調画像が実在し、当該数量表と同じ
+      //      プロジェクトに属し、かつ親の現場調査が論理削除済みでないことを確認する。
+      //      突き合わせ先の projectId は 1 で読んだ当該数量表の値をそのまま渡すため、
+      //      問い合わせは増えない。他の検証と同じく書き込み前に中断し、未反映のまま
+      //      保存を止める。
+      await this.assertDraftSurveyImagesLinkable(tx, input, current.projectId);
+
+      // 2-1. グループを payload 配列順に処理（displayOrder は配列順を正とする）
+      //      削除（グループ・項目）は本ループの後段でまとめて行う。所属変更（グループ間移動）を
+      //      先に確定させないと、移動元グループの Cascade 削除に移動済み項目が巻き込まれる。
       for (const [groupIndex, group] of input.groups.entries()) {
         const groupName = group.name.trim() === '' ? null : group.name.trim();
 
@@ -1039,23 +1194,7 @@ export class QuantityTableService {
           persistedGroupId = group.id;
         }
 
-        // 3. 項目の差分適用（グループ単位）
-        const payloadItemIds = new Set(
-          group.items.map((it) => it.id).filter((iid): iid is string => iid !== null)
-        );
-
-        // 3-1. 削除: payload に存在しない既存項目（既存グループのみ対象）
-        if (group.id !== null) {
-          const dbItemIds = dbItemIdsByGroup.get(group.id) ?? [];
-          const itemIdsToDelete = dbItemIds.filter((iid) => !payloadItemIds.has(iid));
-          if (itemIdsToDelete.length > 0) {
-            await tx.quantityItem.deleteMany({
-              where: { id: { in: itemIdsToDelete } },
-            });
-          }
-        }
-
-        // 3-2. 項目を payload 配列順に処理（displayOrder は配列順を正とする）
+        // 2-2. 項目を payload 配列順に処理（displayOrder は配列順を正とする）
         for (const [itemIndex, item] of group.items.entries()) {
           const itemData = this.buildItemPersistData(item, itemIndex);
 
@@ -1067,12 +1206,35 @@ export class QuantityTableService {
               },
             });
           } else {
+            // 既存項目の更新。quantityGroupId を明示することで、数量項目のグループ間移動
+            // （REQ-6.4）が保存時に所属グループの変更として確定する。
             await tx.quantityItem.update({
               where: { id: item.id },
-              data: itemData,
+              data: {
+                quantityGroupId: persistedGroupId,
+                ...itemData,
+              },
             });
           }
         }
+      }
+
+      // 3-1. 削除: payload に存在しない既存グループ（残存項目は onDelete: Cascade で連鎖削除）
+      //      グループ間移動した項目は 2-2 で移動先グループへ付け替え済みのため巻き込まれない。
+      const groupIdsToDelete = dbGroupIds.filter((gid) => !payloadGroupIds.has(gid));
+      if (groupIdsToDelete.length > 0) {
+        await tx.quantityGroup.deleteMany({
+          where: { id: { in: groupIdsToDelete } },
+        });
+      }
+
+      // 3-2. 削除: payload に存在しない既存項目（数量表全体で判定）
+      //      グループ削除で Cascade 済みのIDが含まれても deleteMany は無害。
+      const itemIdsToDelete = dbItemIds.filter((iid) => !payloadItemIds.has(iid));
+      if (itemIdsToDelete.length > 0) {
+        await tx.quantityItem.deleteMany({
+          where: { id: { in: itemIdsToDelete } },
+        });
       }
 
       // 4. 数量表名・updatedAt を更新
@@ -1167,6 +1329,293 @@ export class QuantityTableService {
         validationErrors
       );
     }
+  }
+
+  /**
+   * フル状態同期保存（saveDraft）の識別子重複検証
+   *
+   * payload 内で同じ既存ID（グループ・項目）が複数回現れないことを検証する。
+   * 重複を受け入れると、同じ行が payload の出現回数だけ更新され（最後の指定が勝つ）、
+   * かつ削除判定に用いるID集合には1件としてしか入らないため削除対象からも外れる。
+   * グループIDの重複では、重複分の位置に本来置かれるはずだったグループが payload から
+   * 消えたものと扱われ、配下項目ごと削除される。いずれも利用者の意図しない状態を生む。
+   *
+   * 新規のグループ・項目は id を持たない（null）ため対象外である。クライアント仮ID
+   * （tempId）は永続化にも応答にも用いないため、重複しても状態には影響しない。
+   *
+   * 項目IDはグループを跨いで判定するが、グループIDとは別の集合で判定する。両者は
+   * 別の表の識別子であり、同じ値であっても重複ではない（Task 115.44 で分離を検証で固定）。
+   *
+   * Requirements:
+   * - 42.9: 整合性エラー時はエラーを返し保存を中断する
+   * - 11.2: 整合性チェックエラー時は保存を中断する
+   * - 11.4: 不整合がある場合は問題箇所を明示する
+   *
+   * @param input - フル状態同期保存入力
+   * @throws QuantityTableValidationError 同一IDが複数回現れる場合
+   */
+  private validateDraftDuplicateIds(input: SaveQuantityTableDraftInput): void {
+    // グループIDと項目IDは別の表の識別子であるため、集合を分けて判定する。
+    // 同じ集合で判定すると、両者が同じ値になった要求を誤って重複として拒否する。
+    const seenGroupIds = new Set<string>();
+    const seenItemIds = new Set<string>();
+    const validationErrors: Record<string, string> = {};
+
+    for (const [groupIndex, group] of input.groups.entries()) {
+      if (group.id !== null) {
+        if (seenGroupIds.has(group.id)) {
+          validationErrors[`groups[${groupIndex}].id`] =
+            '同一の数量グループが複数回指定されています';
+        }
+        seenGroupIds.add(group.id);
+      }
+      for (const [itemIndex, item] of group.items.entries()) {
+        if (item.id !== null) {
+          if (seenItemIds.has(item.id)) {
+            validationErrors[`groups[${groupIndex}].items[${itemIndex}].id`] =
+              '同一の数量項目が複数回指定されています';
+          }
+          seenItemIds.add(item.id);
+        }
+      }
+    }
+
+    if (Object.keys(validationErrors).length > 0) {
+      throw new QuantityTableValidationError(
+        '同一のグループまたは項目が重複して含まれています。最新データを再取得してください。',
+        validationErrors
+      );
+    }
+  }
+
+  /**
+   * フル状態同期保存（saveDraft）の所属検証
+   *
+   * payload に含まれる既存ID（グループ・項目）が、保存対象の数量表に属することを検証する。
+   * 形式（UUID）が正しくても他の数量表のIDであれば、更新時に quantityGroupId を明示する
+   * 実装上、他の数量表の項目が本数量表のグループへ付け替えられる。属さないIDは
+   * QuantityTableValidationError で拒否し、書き込み前に保存を中断する。
+   *
+   * Requirements:
+   * - 42.9: 整合性エラー時はエラーを返し保存を中断する
+   * - 11.2: 整合性チェックエラー時は保存を中断する
+   * - 11.4: 不整合がある場合は問題箇所を明示する
+   *
+   * @param input - フル状態同期保存入力
+   * @param dbGroupIds - 保存対象の数量表に属する既存グループIDの全集合
+   * @param dbItemIds - 保存対象の数量表に属する既存項目IDの全集合
+   * @throws QuantityTableValidationError 属さないIDが1件以上含まれる場合
+   */
+  private validateDraftOwnership(
+    input: SaveQuantityTableDraftInput,
+    dbGroupIds: string[],
+    dbItemIds: string[]
+  ): void {
+    const groupIdSet = new Set(dbGroupIds);
+    const itemIdSet = new Set(dbItemIds);
+    const validationErrors: Record<string, string> = {};
+
+    for (const [groupIndex, group] of input.groups.entries()) {
+      if (group.id !== null && !groupIdSet.has(group.id)) {
+        validationErrors[`groups[${groupIndex}].id`] =
+          'この数量表に属さない数量グループが指定されています';
+      }
+      for (const [itemIndex, item] of group.items.entries()) {
+        if (item.id !== null && !itemIdSet.has(item.id)) {
+          validationErrors[`groups[${groupIndex}].items[${itemIndex}].id`] =
+            'この数量表に属さない数量項目が指定されています';
+        }
+      }
+    }
+
+    if (Object.keys(validationErrors).length > 0) {
+      throw new QuantityTableValidationError(
+        'この数量表に属さないグループまたは項目が含まれています。最新データを再取得してください。',
+        validationErrors
+      );
+    }
+  }
+
+  /**
+   * フル状態同期保存（saveDraft）が指す現調画像の紐付け可否の検証
+   *
+   * payload の各グループが指す現調画像について、(1) 実在すること、(2) 当該数量表と
+   * 同じプロジェクトに属すること、(3) 親の現場調査が論理削除済みでないこと、の3点を
+   * 検証する。いずれも画像の行そのものには印が無く（実在しない画像に至っては行が無く）、
+   * 画像を書き込む経路が明示的に確かめるほかない。
+   *
+   * 判定と応答は QuantityGroupService.validateSurveyImage と同じ形に揃える。
+   * 同じ不変条件に対して経路ごとに違う応答を返さないためである。実在しない画像は同経路と
+   * 同じ SurveyImageNotFoundError（404）・同じ文言で拒み、所属違反は同じ
+   * QuantityTableValidationError（400）・同じ文言で拒み、親の論理削除は同じ共通機構
+   * （survey-deleted-guard）の SurveyDeletedError（410）で拒む。検査の相対順序も同経路に
+   * 揃え、存在・所属・論理削除の順で見る（複数に該当する画像はどちらの経路でも同じ応答になる）。
+   *
+   * 問い合わせは重複排除した ID 群に対する 1 回の findMany に限る。グループごとに
+   * 引くとグループ数に比例した問い合わせが並ぶため、件数によらず 1 回で済ませる。
+   * 存在の判定は「要求した ID の集合」と「返ってきた行の集合」の差で行うため、
+   * 同じ 1 回の結果から導ける。所属の判定に用いる projectId は saveDraft が既に
+   * 読んでいる当該数量表の値を受け取るため、本検証のために問い合わせを増やすことはない。
+   *
+   * 判定は要求した ID の並び（payload の出現順）で行う。findMany の戻り値の並びは
+   * 指定していないため、行の並びで回すと複数の違反があるときに名指す画像が定まらない。
+   *
+   * Task 81.1 では親の論理削除だけを見たため `assertDraftSurveyImagesNotDeleted` と
+   * 名乗っていた。Task 86.1 で所属の検査を加えたのに伴い、名を検証内容へ揃えた。
+   * Task 86.2 で存在の検査を加えた。それ以前は行が返らない ID に何も主張せず、
+   * 外部キー制約違反として書き込み時に表面化して 500 になっていた（ROLLBACK される
+   * ためデータは壊れないが、クライアントの誤りに対する応答として妥当でない）。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param input - フル状態同期保存入力
+   * @param projectId - 当該数量表が属するプロジェクトID（所属の突き合わせ先）
+   * @throws SurveyImageNotFoundError 実在しない現調画像が含まれる場合（404）
+   * @throws QuantityTableValidationError 他プロジェクトの現調画像が含まれる場合（400）
+   * @throws SurveyDeletedError 親の現場調査が論理削除済みの現調画像が含まれる場合（410）
+   */
+  private async assertDraftSurveyImagesLinkable(
+    tx: PrismaTransactionClient,
+    input: SaveQuantityTableDraftInput,
+    projectId: string
+  ): Promise<void> {
+    const surveyImageIds = [
+      ...new Set(
+        input.groups
+          .map((group) => group.surveyImageId)
+          .filter((surveyImageId): surveyImageId is string => surveyImageId !== null)
+      ),
+    ];
+
+    if (surveyImageIds.length === 0) {
+      return;
+    }
+
+    // select の形は QuantityGroupService.validateSurveyImage と揃える。
+    // projectId は同経路がプロジェクト境界の判定に用いる項目であり、本保存経路でも
+    // 引数で受け取った当該数量表の projectId との突き合わせに用いる。
+    const surveyImages = await tx.surveyImage.findMany({
+      where: { id: { in: surveyImageIds } },
+      select: {
+        id: true,
+        surveyId: true,
+        survey: {
+          select: { projectId: true, deletedAt: true },
+        },
+      },
+    });
+
+    // 判定は「要求した ID の並び」で行う。findMany が返す行の並びは指定していないため、
+    // 行の並びで判定すると複数の違反があるときに名指す画像が定まらない。
+    const surveyImageById = new Map(surveyImages.map((image) => [image.id, image]));
+
+    for (const surveyImageId of surveyImageIds) {
+      const surveyImage = surveyImageById.get(surveyImageId);
+
+      if (!surveyImage) {
+        // 要求した ID のうち行が返らなかったものは実在しない。文言・例外の型は
+        // QuantityGroupService.validateSurveyImage と同一にする。
+        throw new SurveyImageNotFoundError(surveyImageId);
+      }
+
+      if (surveyImage.survey.projectId !== projectId) {
+        // 文言・例外の型は QuantityGroupService.validateSurveyImage と同一にする。
+        // 加えて原因のグループを payload の位置で名指す（Task 86.4）。
+        throw new QuantityTableValidationError(
+          '異なるプロジェクトの現場調査画像は紐付けできません',
+          this.locateForeignSurveyImageGroups(input, surveyImageById, projectId)
+        );
+      }
+
+      assertSurveyNotDeleted(
+        surveyImage.survey,
+        surveyImage.surveyId,
+        `削除された現場調査の画像は紐付けできません: ${surveyImage.surveyId}`,
+        // 名指しは拒むときにだけ組み立てる（Task 90.2）。生存する画像の走査で
+        // グループ数に比例した無駄な走査を並べないため、値ではなく組み立てを渡す
+        () => this.locateDeletedSurveyImageGroups(input, surveyImageById)
+      );
+    }
+  }
+
+  /**
+   * 親の現場調査が論理削除済みの現調画像を指すグループを payload の位置で名指す（Task 90.2）
+   *
+   * 改める前の 410 は `surveyId` しか持たず、利用者は数量表のどこを直せばよいかを知る
+   * 手段を持たなかった。画面のドラフトのグループは写真の現場調査を知らないため、
+   * 応答の `surveyId` からは引き当てられない（Task 86.5 が記録した非対称）。
+   *
+   * 名指しの形は所属違反の 400（{@link locateForeignSurveyImageGroups}）と揃え、
+   * `groups[i].<欄>` をキーとする。該当する全てのグループを名指し、同じ画像を複数の
+   * グループが指す場合も、グループごとに名指す。**最初に出会った該当で打ち切らない**——
+   * 打ち切ると利用者は保存のたびに1件ずつ解除することになる。
+   *
+   * 判定には assertDraftSurveyImagesLinkable が既に引いた行をそのまま使うため、
+   * 問い合わせは増えない。行が返らなかった画像（実在しない画像）は親を判定できない
+   * ため名指さない。それは存在の検査（404）の領分である。
+   *
+   * 値の文言に現場調査IDを含めないのは、複数の現場調査が該当しうるためである。
+   * 応答の `detail` と `surveyId` は最初に出会った現場調査を指す（従来どおり）。
+   *
+   * @param input - フル状態同期保存入力
+   * @param surveyImageById - 要求した現調画像の行（ID をキーとする）
+   * @returns `groups[i].surveyImageId` をキー、利用者向けの文言を値とする問題箇所
+   */
+  private locateDeletedSurveyImageGroups(
+    input: SaveQuantityTableDraftInput,
+    surveyImageById: ReadonlyMap<string, { survey: { deletedAt: Date | null } }>
+  ): Record<string, string> {
+    const validationErrors: Record<string, string> = {};
+
+    for (const [groupIndex, group] of input.groups.entries()) {
+      if (group.surveyImageId === null) {
+        continue;
+      }
+      const surveyImage = surveyImageById.get(group.surveyImageId);
+      if (surveyImage !== undefined && surveyImage.survey.deletedAt !== null) {
+        validationErrors[`groups[${groupIndex}].surveyImageId`] =
+          '削除された現場調査の画像は紐付けできません';
+      }
+    }
+
+    return validationErrors;
+  }
+
+  /**
+   * 他プロジェクトの現調画像を指すグループを payload の位置で名指す（Task 86.4）
+   *
+   * 所属違反の 400 は文言だけでは原因のグループが分からず、利用者は数量表のどこを
+   * 直せばよいかを知る手段を持たなかった。同じ保存経路の validateDraftOwnership /
+   * validateDraftDuplicateIds と同じく `groups[i].<欄>` をキーとし、違反する全ての
+   * グループを名指す。同じ画像を複数のグループが指す場合も、グループごとに名指す。
+   *
+   * 所属の判定には assertDraftSurveyImagesLinkable が既に引いた行をそのまま使うため、
+   * 問い合わせは増えない。行が返らなかった画像（実在しない画像）は所属を判定できない
+   * ため名指さない。それは存在の検査（404）の領分である。
+   *
+   * @param input - フル状態同期保存入力
+   * @param surveyImageById - 要求した現調画像の行（ID をキーとする）
+   * @param projectId - 当該数量表が属するプロジェクトID
+   * @returns `groups[i].surveyImageId` をキー、利用者向けの文言を値とする問題箇所
+   */
+  private locateForeignSurveyImageGroups(
+    input: SaveQuantityTableDraftInput,
+    surveyImageById: ReadonlyMap<string, { survey: { projectId: string } }>,
+    projectId: string
+  ): Record<string, string> {
+    const validationErrors: Record<string, string> = {};
+
+    for (const [groupIndex, group] of input.groups.entries()) {
+      if (group.surveyImageId === null) {
+        continue;
+      }
+      const surveyImage = surveyImageById.get(group.surveyImageId);
+      if (surveyImage !== undefined && surveyImage.survey.projectId !== projectId) {
+        validationErrors[`groups[${groupIndex}].surveyImageId`] =
+          '異なるプロジェクトの現場調査画像は紐付けできません';
+      }
+    }
+
+    return validationErrors;
   }
 
   /**
@@ -1320,6 +1769,11 @@ export class QuantityTableService {
    * - 17.5: コピー中にエラーが発生した場合、不完全なコピーデータが残らないようにする
    * - 17.7: 元の数量表に写真が紐づけられている場合、コピー先でも同じ写真の紐づけを維持する
    *
+   * Task 91.1: 他プロジェクトの現調画像を指す紐付けは複製先へ写さない（`surveyImageId`
+   * は `null` になる）。取得経路（Task 86.3）が同じ紐付けを落とすため、利用者から見て
+   * 「紐づけられている写真」ではなく、17.7 の維持の対象に当たらない。親の現場調査が
+   * 論理削除された画像の紐付けは落とさずに写す（判断の経緯は複製の箇所の註を参照）。
+   *
    * @param id - コピー元の数量表ID
    * @param input - コピー先の名前
    * @param actorId - 実行ユーザーID
@@ -1342,6 +1796,17 @@ export class QuantityTableService {
           groups: {
             orderBy: { displayOrder: 'asc' },
             include: {
+              // 複製の経路の現調画像の所属の検査（Task 91.1）に用いる。取得経路
+              // （Task 86.3）と同じ取得項目であり、写真1枚ごとの追加の問い合わせには
+              // ならない。元の数量表を引く同一の問い合わせの取得項目が広がるだけである。
+              surveyImage: {
+                select: {
+                  id: true,
+                  survey: {
+                    select: { projectId: true },
+                  },
+                },
+              },
               items: {
                 orderBy: { displayOrder: 'asc' },
               },
@@ -1367,11 +1832,31 @@ export class QuantityTableService {
       let totalItemCount = 0;
 
       for (const sourceGroup of sourceTable.groups) {
+        // 複製の経路の現調画像の所属の検査（Task 91.1）。
+        //
+        // 所属違反の紐付けは取得経路（Task 86.3）が `surveyImageId` ごと落とすため、
+        // 利用者から見て「紐づけられている写真」ではない。REQ-17.7 が維持を求めるのは
+        // 利用者が見ている紐付けであり、落とす向きは同条文に反しない。写したままにすると
+        // 複製先に**新しい**所属違反の行が永続化される（それが本タスクの是正対象である）。
+        //
+        // **複製全体を拒む向きは採らない。** 取得経路が落とす向きに倒れている以上、
+        // 利用者は当該の数量表を開いて編集できる。複製だけを拒むと、開けるのに複製は
+        // できないという新たな出口の無さを作る。
+        //
+        // **親の現場調査が論理削除された画像の紐付けは落とさない**（Task 81.1 の不変条件）。
+        // 取得経路は論理削除を落とさず、画面には解除の導線がある（Task 90.2）。ここで
+        // 黙って落とすと、利用者が現に見ている写真が理由もなく消える。判定に用いるのは
+        // 所属（`survey.projectId`）だけで、`deletedAt` は読まない。
+        // 紐付けを持たないグループでは `surveyImage` が無いため所属を判定しない
+        const linkedSurveyProjectId = sourceGroup.surveyImage?.survey.projectId;
+        const violatesProjectBoundary =
+          linkedSurveyProjectId !== undefined && linkedSurveyProjectId !== sourceTable.projectId;
+
         const copiedGroup = await tx.quantityGroup.create({
           data: {
             quantityTableId: copiedTable.id,
             name: sourceGroup.name,
-            surveyImageId: sourceGroup.surveyImageId,
+            surveyImageId: violatesProjectBoundary ? null : sourceGroup.surveyImageId,
             displayOrder: sourceGroup.displayOrder,
           },
         });
@@ -1476,12 +1961,15 @@ export class QuantityTableService {
       updatedAt: Date;
       surveyImage: {
         id: string;
+        survey: { projectId: string };
         thumbnailPath: string;
         originalPath: string;
         annotatedThumbnailPath: string | null;
         fileName: string;
         comment: string | null;
-        annotation: { id: string } | null;
+        width: number;
+        height: number;
+        annotation: { id: string; hasDrawnAnnotations: boolean | null } | null;
       } | null;
       items: Array<{
         id: string;
@@ -1508,50 +1996,107 @@ export class QuantityTableService {
     }>;
     _count: { groups: number };
   }): QuantityTableDetailWithItems {
-    const groups: QuantityGroupDetailInfo[] = quantityTable.groups.map((g) => ({
-      id: g.id,
-      quantityTableId: g.quantityTableId,
-      name: g.name,
-      surveyImageId: g.surveyImageId,
-      surveyImage: g.surveyImage
-        ? {
-            id: g.surveyImage.id,
-            thumbnailUrl: `/api/storage/${g.surveyImage.thumbnailPath}`,
-            originalUrl: `/api/storage/${g.surveyImage.originalPath}`,
-            fileName: g.surveyImage.fileName,
-            hasAnnotations: g.surveyImage.annotation !== null,
-            annotatedThumbnailUrl: g.surveyImage.annotatedThumbnailPath
-              ? `/api/storage/${g.surveyImage.annotatedThumbnailPath}`
-              : null,
-            comment: g.surveyImage.comment ?? null,
-          }
-        : null,
-      displayOrder: g.displayOrder,
-      itemCount: g._count.items,
-      items: g.items.map((item) => ({
-        id: item.id,
-        quantityGroupId: item.quantityGroupId,
-        majorCategory: item.majorCategory,
-        middleCategory: item.middleCategory,
-        minorCategory: item.minorCategory,
-        customCategory: item.customCategory,
-        workType: item.workType,
-        name: item.name,
-        specification: item.specification,
-        unit: item.unit,
-        calculationMethod: item.calculationMethod,
-        calculationParams: item.calculationParams as Record<string, number> | null,
-        adjustmentFactor: Number(item.adjustmentFactor),
-        roundingUnit: Number(item.roundingUnit),
-        quantity: Number(item.quantity),
-        remarks: item.remarks,
-        displayOrder: item.displayOrder,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      })),
-      createdAt: g.createdAt,
-      updatedAt: g.updatedAt,
-    }));
+    // 取得時に紐付けを落としたグループのID（Task 86.5）。落とした事実を応答で名指す
+    const droppedSurveyImageLinkGroupIds: string[] = [];
+
+    const groups: QuantityGroupDetailInfo[] = quantityTable.groups.map((g) => {
+      // 取得経路の現調画像の所属の検査（Task 86.3）。
+      //
+      // Task 86.1 が保存経路を塞いだため新規の混入は起きないが、それ以前に永続化された
+      // 所属違反の紐付けは残っており、取得経路はそれをそのまま返していた。
+      //
+      // **落とす向きに倒し、拒む向きは採らない。** 取得を 4xx で拒むと、既存の違反紐付けを
+      // 持つ利用者は数量表を開けなくなる。Task 86.1 が保存を 400 で拒んでいるため、表示も
+      // 保存もできず画面から解除もできない袋小路になる。落とす向きなら数量表は開ける。
+      //
+      // **`surveyImageId` も併せて落とす。** 画面は取得した `surveyImageId` をそのまま
+      // 保存へ送り返すため、これを残すと 86.1 の 400 で保存が止まり続け、袋小路が解けない。
+      // 落とすことで、Task 86.4（解除の出口）が未着手の時点でも保存が通り、その保存で
+      // 違反の紐付けが解除される。`surveyImage` だけを落として `surveyImageId` を残すと
+      // 「紐付いているが中身が無い」という、画面が解釈できない応答にもなる。
+      //
+      // **落としたことは、当該グループのIDだけで利用者へ伝える（Task 86.5）。** Task 86.3 の
+      // 時点ではサーバ側のログにのみ残していたため、利用者から見ると写真が理由もなく消えていた。
+      // 応答の `droppedSurveyImageLinkGroupIds` で当該グループを名指し、編集画面が告げる。
+      // 名指すのは当該数量表のグループIDだけで、他プロジェクトの画像IDもプロジェクトも返さない。
+      // 他プロジェクトの画像が紐付いていた事実を告げると、利用者の権限の外にある資源の存在を
+      // 示唆するためである（画面の文言も「参照できない写真」とだけ告げる）。
+      //
+      // 所属の検査をここ（取得の正典）に置き、ルータの enrichQuantityTableSignedUrls に
+      // 置かない理由は同関数のコメントに書いた。
+      const violatesProjectBoundary =
+        g.surveyImage !== null && g.surveyImage.survey.projectId !== quantityTable.projectId;
+
+      if (violatesProjectBoundary) {
+        // 利用者へは応答の名指しで伝え（Task 86.5）、運用側には画像IDを含む記録を残す
+        droppedSurveyImageLinkGroupIds.push(g.id);
+        logger.warn(
+          {
+            quantityTableId: quantityTable.id,
+            quantityTableProjectId: quantityTable.projectId,
+            quantityGroupId: g.id,
+            surveyImageId: g.surveyImageId,
+          },
+          'Dropped survey image link that belongs to another project'
+        );
+      }
+
+      const linkedSurveyImage = violatesProjectBoundary ? null : g.surveyImage;
+
+      return {
+        id: g.id,
+        quantityTableId: g.quantityTableId,
+        name: g.name,
+        surveyImageId: violatesProjectBoundary ? null : g.surveyImageId,
+        surveyImage: linkedSurveyImage
+          ? {
+              id: linkedSurveyImage.id,
+              thumbnailUrl: `/api/storage/${linkedSurveyImage.thumbnailPath}`,
+              originalUrl: `/api/storage/${linkedSurveyImage.originalPath}`,
+              fileName: linkedSurveyImage.fileName,
+              hasAnnotations: linkedSurveyImage.annotation !== null,
+              // 描画された注釈の有無（Requirement 20.2、Task 115.13）。
+              // 回転のみの保存でも注釈レコードは残るため hasAnnotations とは一致しない。
+              // 未算出（バックフィル未実施）のレコードは従来どおり注釈ありとして扱う。
+              hasDrawnAnnotations: linkedSurveyImage.annotation
+                ? (linkedSurveyImage.annotation.hasDrawnAnnotations ?? true)
+                : false,
+              annotatedThumbnailUrl: linkedSurveyImage.annotatedThumbnailPath
+                ? `/api/storage/${linkedSurveyImage.annotatedThumbnailPath}`
+                : null,
+              comment: linkedSurveyImage.comment ?? null,
+              // 表示領域の確保に用いる実寸（Requirement 49.8）
+              width: linkedSurveyImage.width,
+              height: linkedSurveyImage.height,
+            }
+          : null,
+        displayOrder: g.displayOrder,
+        itemCount: g._count.items,
+        items: g.items.map((item) => ({
+          id: item.id,
+          quantityGroupId: item.quantityGroupId,
+          majorCategory: item.majorCategory,
+          middleCategory: item.middleCategory,
+          minorCategory: item.minorCategory,
+          customCategory: item.customCategory,
+          workType: item.workType,
+          name: item.name,
+          specification: item.specification,
+          unit: item.unit,
+          calculationMethod: item.calculationMethod,
+          calculationParams: item.calculationParams as Record<string, number> | null,
+          adjustmentFactor: Number(item.adjustmentFactor),
+          roundingUnit: Number(item.roundingUnit),
+          quantity: Number(item.quantity),
+          remarks: item.remarks,
+          displayOrder: item.displayOrder,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        })),
+        createdAt: g.createdAt,
+        updatedAt: g.updatedAt,
+      };
+    });
 
     const itemCount = groups.reduce((sum, g) => sum + g.itemCount, 0);
 
@@ -1565,6 +2110,7 @@ export class QuantityTableService {
       updatedAt: quantityTable.updatedAt,
       project: quantityTable.project,
       groups,
+      droppedSurveyImageLinkGroupIds,
     };
   }
 }

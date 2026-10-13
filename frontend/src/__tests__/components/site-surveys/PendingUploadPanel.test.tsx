@@ -256,6 +256,9 @@ describe('PendingUploadPanel', () => {
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
+    // この主張の根拠は要件37 の受入基準ではなく、`.kiro/steering/tech.md` の
+    // 「レスポンシブ・ビューポート方針」の「モバイルの下限値」という横断ルールである
+    // （タスク 115.246 で決着）。**`@requirement` タグを付けないこと。**
     it('操作要素のタップ領域を44x44論理ピクセル以上とする', () => {
       renderPanel();
 

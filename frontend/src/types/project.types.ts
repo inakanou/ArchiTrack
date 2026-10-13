@@ -34,7 +34,7 @@ export const PROJECT_STATUSES = [
 
 /**
  * ステータス遷移種別
- * - initial: 初期遷移（プロジェクト作成時、fromStatusなし）
+ * - initial: 初期登録（プロジェクト作成時、fromStatusなし。ステータス間の遷移ではない）
  * - forward: 順方向遷移（ワークフロー進行）
  * - backward: 差し戻し遷移（1つ前のステータスへ戻る）
  * - terminate: 終端遷移（完了・中止・失注）
@@ -63,7 +63,7 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
  * 遷移種別の日本語ラベルマッピング
  */
 export const TRANSITION_TYPE_LABELS: Record<TransitionType, string> = {
-  initial: '初期遷移',
+  initial: '初期登録',
   forward: '順方向遷移',
   backward: '差し戻し遷移',
   terminate: '終端遷移',
@@ -172,9 +172,9 @@ export interface PaginatedProjects {
 export interface StatusHistoryResponse {
   /** 履歴ID */
   id: string;
-  /** 変更前ステータス（初期遷移時はnull） */
+  /** 変更前ステータス（初期登録の履歴ではnull） */
   fromStatus: ProjectStatus | null;
-  /** 変更前ステータスラベル（初期遷移時はnull） */
+  /** 変更前ステータスラベル（初期登録の履歴ではnull） */
   fromStatusLabel: string | null;
   /** 変更後ステータス */
   toStatus: ProjectStatus;

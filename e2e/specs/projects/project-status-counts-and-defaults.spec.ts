@@ -15,6 +15,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { seedProject } from '../../helpers/project-list-preconditions';
 
 test.describe('ステータス別件数・終端ステータス除外・デフォルト表示件数', () => {
   test.describe.configure({ mode: 'serial' });
@@ -119,6 +120,11 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // StatsSummary は projects.length > 0 のときだけ描画される（ProjectListPage）。
+      // 検索結果が 0 件だと節ごと消えて主張が一つも実行されないため、
+      // 「必ず1件は一致する」検索語を前提として自分で用意する。
+      const seeded = await seedProject(page, 'E2E件数不変検索');
+
       await page.goto('/projects');
       await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
@@ -131,25 +137,22 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
       // 合計件数を記録
       const totalText = await summarySection.getByText(/全.*件/).textContent();
 
-      // 検索を実行
+      // 検索を実行（作成したプロジェクトに必ず一致する名称で検索する）
       const searchInput = page.getByRole('searchbox');
-      await searchInput.fill('テスト');
+      await searchInput.fill(seeded.name);
       await page.getByRole('button', { name: '検索' }).click();
 
       // 検索結果のロード完了を待機
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // ステータス別件数が変化していないことを確認
-      // 一覧が表示されている場合のみStatsSummaryが表示される
+      // REQ-23.3: 検索を適用してもステータス別件数は全プロジェクトのままで変化しない
       const summaryAfterSearch = page.locator('.mb-6').filter({
         has: page.getByText(/ステータス別件数（全プロジェクト）/),
       });
+      await expect(summaryAfterSearch).toBeVisible({ timeout: getTimeout(15000) });
 
-      const isVisible = await summaryAfterSearch.isVisible().catch(() => false);
-      if (isVisible) {
-        const totalTextAfter = await summaryAfterSearch.getByText(/全.*件/).textContent();
-        expect(totalTextAfter).toBe(totalText);
-      }
+      const totalTextAfter = await summaryAfterSearch.getByText(/全.*件/).textContent();
+      expect(totalTextAfter).toBe(totalText);
     });
   });
 
@@ -193,9 +196,13 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
 
     /**
      * @requirement project-management/REQ-2.8
-     * @requirement project-management/REQ-5.7
+     * @requirement project-management/REQ-5.5
+     *
+     * タスク 115.188 の是正: 従前は要件定義書に存在しない REQ-5.7 を名乗っていた。
+     * 要件5の受入基準は6件までであり、本検証が主張する内容は受入基準5.5
+     * （「完了」「中止」「失注」のいずれかを選択したとき、当該ステータスのプロジェクトを一覧に表示する）である。
      */
-    test('ステータスフィルタで「完了」を選択すると完了ステータスのプロジェクトが表示される (project-management/REQ-2.8, REQ-5.7)', async ({
+    test('ステータスフィルタで「完了」を選択すると完了ステータスのプロジェクトが表示される (project-management/REQ-2.8, REQ-5.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -237,30 +244,37 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
       // フィルタクリア
-      const clearButton = page.getByRole('button', { name: /クリア/ });
-      if (await clearButton.isVisible()) {
-        // クリアボタンをクリックしてAPIレスポンスを待機
-        const apiPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            !response.url().includes('status-counts') &&
-            response.status() === 200,
-          { timeout: getTimeout(15000) }
-        );
+      // 「フィルタをクリア」ボタンは ProjectSearchFilter が常に描画する（条件付きではない）。
+      // 「表示されていれば」で包むと、ボタンが描画されなくなった時点で
+      // 終端ステータスの再除外という要件の検証が一つも実行されないまま緑になる。
+      const clearButton = page.getByRole('button', { name: 'フィルタをクリア' });
+      await expect(clearButton).toBeVisible({ timeout: getTimeout(10000) });
 
-        await clearButton.click();
-        const response = await apiPromise;
-        const url = response.url();
+      // クリアボタンをクリックしてAPIレスポンスを待機
+      const apiPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/projects') &&
+          !response.url().includes('status-counts') &&
+          response.status() === 200,
+        { timeout: getTimeout(15000) }
+      );
 
-        // excludeTerminalStatuses=true が再び含まれる
-        expect(url).toContain('excludeTerminalStatuses=true');
-      }
+      await clearButton.click();
+      const response = await apiPromise;
+      const url = response.url();
+
+      // excludeTerminalStatuses=true が再び含まれる
+      expect(url).toContain('excludeTerminalStatuses=true');
     });
 
     /**
-     * @requirement project-management/REQ-5.8
+     * @requirement project-management/REQ-5.6
+     *
+     * タスク 115.188 の是正: 従前は要件定義書に存在しない REQ-5.8 を名乗っていた。
+     * 本検証の表題は受入基準5.6（ステータスフィルタに「完了」「中止」「失注」を含む
+     * すべてのステータスを選択肢として提供する）の逐語である。
      */
-    test('ステータスフィルタに「完了」「中止」「失注」を含むすべてのステータスが選択肢として存在する (project-management/REQ-5.8)', async ({
+    test('ステータスフィルタに「完了」「中止」「失注」を含むすべてのステータスが選択肢として存在する (project-management/REQ-5.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -312,21 +326,22 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // ページネーションは projects.length > 0 のときだけ描画される。前提を自分で用意する。
+      await seedProject(page, 'E2E表示件数オプション');
+
       await page.goto('/projects');
       await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
-      // ページネーションが表示されるまで待機
+      // プロジェクトが1件以上存在するため、ページネーションは必ず表示される
       const paginationControls = page.getByTestId('pagination-controls');
+      await expect(paginationControls).toBeVisible({ timeout: getTimeout(15000) });
 
-      const isVisible = await paginationControls.isVisible().catch(() => false);
-      if (isVisible) {
-        // 表示件数セレクトに100件オプションが存在する
-        const limitSelect = page.getByLabel('表示件数');
-        await expect(limitSelect).toBeVisible();
+      // 表示件数セレクトに100件オプションが存在する
+      const limitSelect = page.getByLabel('表示件数');
+      await expect(limitSelect).toBeVisible();
 
-        const option100 = limitSelect.locator('option[value="100"]');
-        await expect(option100).toBeAttached();
-      }
+      const option100 = limitSelect.locator('option[value="100"]');
+      await expect(option100).toBeAttached();
     });
   });
 });

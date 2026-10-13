@@ -12,7 +12,7 @@ import {
   type MockInstance,
 } from 'vitest';
 import * as jose from 'jose';
-import jwksRouter from '../../../routes/jwks.routes.js';
+import jwksRouter, { JWKS_CACHE_MAX_AGE_SECONDS } from '../../../routes/jwks.routes.js';
 
 describe('JWKS Endpoint', () => {
   let app: express.Application;
@@ -90,6 +90,9 @@ describe('JWKS Endpoint', () => {
       expect(response.headers['content-type']).toMatch(/application\/json/);
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.2: 環境変数 JWT_PUBLIC_KEY_OLD が設定されているとき旧公開鍵を同一の応答に併載する
+     */
     it('should include old public key when JWT_PUBLIC_KEY_OLD is set', async () => {
       // 旧公開鍵を設定（jose v6ではextractable: trueが必要）
       const { publicKey: oldPublicKey } = await jose.generateKeyPair('EdDSA', {
@@ -148,6 +151,31 @@ describe('JWKS Endpoint', () => {
 
       // 元の値に戻す
       process.env.JWT_PUBLIC_KEY = originalKey;
+    });
+  });
+
+  describe('キャッシュ制御', () => {
+    /**
+     * @requirement user-authentication/REQ-31.4: 公開鍵配布の応答に Cache-Control ヘッダーを設定する
+     * @requirement user-authentication/REQ-31.5: キャッシュの有効期間を300秒（5分）とする
+     */
+    it('応答に Cache-Control が含まれ、有効期間が300秒であること', async () => {
+      const response = await request(app).get('/.well-known/jwks.json');
+
+      expect(response.status).toBe(200);
+      // 期待値は具体値で書く（本番の算出を再実行しない）
+      expect(response.headers['cache-control']).toBe('public, max-age=300');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-31.5: キャッシュの有効期間を300秒（5分）とする
+     * @requirement user-authentication/REQ-31.6: 鍵の入れ替えの猶予期間より十分に短い値を用いる
+     */
+    it('有効期間の定数が300秒であり、鍵の入れ替えの猶予期間（30日）とアクセストークン既定有効期限（15分）より短いこと', () => {
+      expect(JWKS_CACHE_MAX_AGE_SECONDS).toBe(300);
+      // 猶予期間は設計上 T日目〜T+30日目（2,592,000秒）。アクセストークンの既定は15分（900秒）
+      expect(JWKS_CACHE_MAX_AGE_SECONDS).toBeLessThan(2_592_000);
+      expect(JWKS_CACHE_MAX_AGE_SECONDS).toBeLessThan(900);
     });
   });
 });

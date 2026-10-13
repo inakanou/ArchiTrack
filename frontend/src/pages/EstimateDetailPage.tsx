@@ -6,7 +6,9 @@
  * Requirements (estimate-creation):
  * - REQ-11.2: 見積書を選択した場合、見積書の詳細を表示する
  * - REQ-11.3: 見積書を編集した場合、変更内容を保存する
- * - REQ-11.7: 同一見積書を複数ユーザーが編集した場合、楽観的排他制御により競合を検出する
+ * - REQ-11.6: 同一見積書を複数ユーザーが編集した場合、楽観的排他制御により競合を検出する
+ * - REQ-11.7: 見積書が他のユーザーによって編集中の場合、編集中であることを警告表示する
+ * - REQ-13.5: 金額計算結果が数値の最大値を超えた場合にオーバーフロー警告を表示する
  * - REQ-14.8: 見積書画面を提供する
  * - REQ-14.9: 見積書の詳細情報（見積項目一覧、合計金額等）を表示する
  * - REQ-14.10: 編集・削除・出力ボタンを提供する
@@ -28,7 +30,7 @@
  * @module pages/EstimateDetailPage
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, useId } from 'react';
 import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import {
   getEstimateDetail,
@@ -54,6 +56,7 @@ import type {
 // `EstimateDetailPage.test.tsx` が barrel を丸ごとモックしており、
 // 結線漏れが検知されない死角に入るため（53.14 / 54.2 / 54.10 の再発防止）。
 import { EstimateReportFieldsPanel } from '../components/estimate/EstimateReportFieldsPanel';
+import { EstimateEditPresenceNotice } from '../components/estimate/EstimateEditPresenceNotice';
 import { Breadcrumb } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import {
@@ -63,12 +66,18 @@ import {
 } from '../components/estimate';
 import type { EstimateRowRevealRequest } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
+import { useEstimateEditPresence } from '../hooks/useEstimateEditPresence';
 import { useEstimateNavigation } from '../hooks/useEstimateNavigation';
 import { useEstimateKeyboard } from '../hooks/useEstimateKeyboard';
 import { useEstimateUndo } from '../hooks/useEstimateUndo';
 import type { UseEstimateUndoReturn } from '../hooks/useEstimateUndo';
 import type { EstimateViewMode } from '../hooks/useEstimateNavigation';
 import type { NodeKey } from '../domain/estimate/estimateTree';
+import {
+  ESTIMATE_AMOUNT_MAX_DISPLAY,
+  countOverflowingAmountLines,
+  isAmountOverflow,
+} from '../domain/estimate/estimateAmountLimit';
 import { useEstimateViewModePreference } from '../hooks/useEstimateViewModePreference';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import type {
@@ -189,6 +198,34 @@ const styles = {
     fontSize: '18px',
     fontWeight: 700,
     color: '#1f2937',
+  } as React.CSSProperties,
+  /** 上限を超えたサマリーの金額（13.5）。桁の多い値でも横にはみ出さないよう折り返す */
+  summaryValueOverflow: {
+    color: '#b91c1c',
+    overflowWrap: 'anywhere',
+  } as React.CSSProperties,
+  /**
+   * 金額の上限超過（オーバーフロー）の警告（13.5）
+   *
+   * 375px 幅でも横にはみ出さないよう、任意の位置で折り返す。
+   */
+  amountOverflowWarning: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fca5a5',
+    borderRadius: '6px',
+    padding: '12px 16px',
+    marginBottom: '16px',
+    color: '#991b1b',
+    fontSize: '14px',
+    lineHeight: 1.5,
+    minWidth: 0,
+    overflowWrap: 'anywhere',
+  } as React.CSSProperties,
+  amountOverflowWarningText: {
+    margin: 0,
   } as React.CSSProperties,
   card: {
     backgroundColor: '#ffffff',
@@ -498,7 +535,8 @@ function toDecimalPayloadValue(value: string | null | undefined): string | null 
 /**
  * 編集中のツリーを一括保存のリクエスト形式へ変換する
  *
- * ワイヤ契約（design.md `SaveEstimateItemNode` / `SaveEstimateLine`、4305-4324）は
+ * ワイヤ契約（design.md `##### estimate-draft.service` の API Contract にある
+ * `SaveEstimateItemNode` / `SaveEstimateLine`）は
  * **null 許容だが省略不可**のため、子を持たない項目も `children: []` を、
  * 空欄のセルも `null` を明示的に載せる。キーを落とすと 400 になる。
  *
@@ -851,6 +889,15 @@ export default function EstimateDetailPage() {
   });
 
   /**
+   * 他のユーザーが編集中であることの把握（11.7）
+   *
+   * 本画面は常時編集（27.1）のため、開いている間を「編集中」として在席を通知し、
+   * 同じ見積書を開いている他の利用者を受け取る。保存の競合検出（11.6 / 42.5）とは独立で、
+   * 見積書の `updatedAt` を進めない。
+   */
+  const editPresence = useEstimateEditPresence(id);
+
+  /**
    * 取り消し・やり直し（48.1〜48.7）
    *
    * 取り消しの単位は編集状態のスナップショット。復元は reducer の state を
@@ -1046,15 +1093,10 @@ export default function EstimateDetailPage() {
   //   `useUnsavedChanges` の `beforeunload` ハンドラでブラウザ標準の確認を出す。
   //
   // 未保存判定の正は `estimateEditReducer` 側の `editor.isDirty`（53.4）であり、
-  // `useUnsavedChanges` は自前の dirty state を持つため、`setDirty` で追従させる。
-  // `enabled` オプションだけを渡してもフック内部の dirty は false のままで
-  // `beforeunload` が登録されないことに注意（`useUnsavedChanges.ts:216-239`）。
+  // フックへ直接渡す（quantity-table-generation の Task 100.24 でフックが自前の
+  // dirty state を持たない形へ一本化された）。
   // ==========================================================================
-  const { setDirty: setUnsavedGuardDirty } = useUnsavedChanges();
-
-  useEffect(() => {
-    setUnsavedGuardDirty(editor.isDirty);
-  }, [editor.isDirty, setUnsavedGuardDirty]);
+  useUnsavedChanges({ isDirty: editor.isDirty });
 
   // 削除完了後の遷移先（27.6 の離脱ガードの対象外とするため state で保持する）
   //
@@ -1112,6 +1154,30 @@ export default function EstimateDetailPage() {
     const currentIndex = siblings.findIndex((s) => s.id === selectedItemId);
     return currentIndex > 0;
   }, [editor.items, selectedItemId, selectedItem]);
+
+  // 金額の上限超過（オーバーフロー）の集計（13.5）
+  //
+  // 明細の金額（葉は 数量×単価、親は子の合計）は保存時に永続化されるため、上限を超えると
+  // 保存が 400 で拒まれる。サマリーの合計・差額は永続化されないが金額計算の結果であり、
+  // 同じ上限で警告する（上限の出どころは `domain/estimate/estimateAmountLimit`）。
+  const amountOverflowMessageId = useId();
+  const amountOverflow = useMemo(() => {
+    const vendorTotal = calculateTotalByLineType(editor.items, 'VENDOR');
+    const executionTotal = calculateTotalByLineType(editor.items, 'EXECUTION');
+    const estimateTotal = calculateTotalByLineType(editor.items, 'ESTIMATE');
+    const summaryValues = [
+      vendorTotal,
+      executionTotal,
+      estimateTotal,
+      executionTotal.sub(vendorTotal),
+      estimateTotal.sub(executionTotal),
+    ];
+    return {
+      lineCount: countOverflowingAmountLines(editor.items),
+      summaryCount: summaryValues.filter((value) => isAmountOverflow(value)).length,
+    };
+  }, [editor.items]);
+  const hasAmountOverflow = amountOverflow.lineCount > 0 || amountOverflow.summaryCount > 0;
 
   // 同一階層内での並び替え可否を計算（REQ-12.2: ↑/↓ボタン）
   const reorderSiblingInfo = useMemo(() => {
@@ -1448,6 +1514,27 @@ export default function EstimateDetailPage() {
         </div>
       </div>
 
+      {/* 他のユーザーが編集中であることの警告 (REQ-11.7) */}
+      <EstimateEditPresenceNotice otherEditors={editPresence.otherEditors} />
+
+      {/* 金額の上限超過（オーバーフロー）の警告 (REQ-13.5) */}
+      {hasAmountOverflow && (
+        <div
+          role="alert"
+          data-testid="estimate-amount-overflow-warning"
+          style={styles.amountOverflowWarning}
+        >
+          <p id={amountOverflowMessageId} style={styles.amountOverflowWarningText}>
+            金額が上限（{ESTIMATE_AMOUNT_MAX_DISPLAY}
+            円）を超えています。上限を超えた金額は保存できません。数量・単価を見直してください。
+          </p>
+          <p style={styles.amountOverflowWarningText}>
+            上限を超えた金額: 明細 {amountOverflow.lineCount} 件、サマリー{' '}
+            {amountOverflow.summaryCount} 件
+          </p>
+        </div>
+      )}
+
       {/* コンテンツ */}
       <div style={styles.content}>
         {/* 基本情報 */}
@@ -1497,22 +1584,40 @@ export default function EstimateDetailPage() {
               ? '-'
               : profitAmount.div(estimateTotal).mul(100).toDecimalPlaces(2).toString() + '%';
 
+            // 上限を超えた金額にはオーバーフロー警告の印を付け、警告文を説明として結び付ける（13.5）
+            const renderSummaryAmount = (value: Decimal) => {
+              if (!isAmountOverflow(value)) {
+                return <span style={styles.summaryValue}>{formatAmount(value.toString())}</span>;
+              }
+              return (
+                <span
+                  style={{ ...styles.summaryValue, ...styles.summaryValueOverflow }}
+                  aria-invalid={true}
+                  aria-describedby={amountOverflowMessageId}
+                  data-amount-overflow="true"
+                >
+                  <span aria-hidden="true">⚠ </span>
+                  {formatAmount(value.toString())}
+                </span>
+              );
+            };
+
             return (
               <div style={styles.summaryGrid}>
                 {/* REQ-39.2: 業者金額合計 */}
                 <div style={styles.summaryItem}>
                   <span style={styles.summaryLabel}>業者金額合計</span>
-                  <span style={styles.summaryValue}>{formatAmount(vendorTotal.toString())}</span>
+                  {renderSummaryAmount(vendorTotal)}
                 </div>
                 {/* REQ-39.3: 実行金額合計 */}
                 <div style={styles.summaryItem}>
                   <span style={styles.summaryLabel}>実行金額合計</span>
-                  <span style={styles.summaryValue}>{formatAmount(executionTotal.toString())}</span>
+                  {renderSummaryAmount(executionTotal)}
                 </div>
                 {/* REQ-39.4: 値引額 */}
                 <div style={styles.summaryItem}>
                   <span style={styles.summaryLabel}>値引額</span>
-                  <span style={styles.summaryValue}>{formatAmount(discountAmount.toString())}</span>
+                  {renderSummaryAmount(discountAmount)}
                 </div>
                 {/* REQ-39.5: 値引率 */}
                 <div style={styles.summaryItem}>
@@ -1522,12 +1627,12 @@ export default function EstimateDetailPage() {
                 {/* REQ-39.6: 見積金額合計 */}
                 <div style={styles.summaryItem}>
                   <span style={styles.summaryLabel}>見積金額合計</span>
-                  <span style={styles.summaryValue}>{formatAmount(estimateTotal.toString())}</span>
+                  {renderSummaryAmount(estimateTotal)}
                 </div>
                 {/* REQ-39.7: 利益額 */}
                 <div style={styles.summaryItem}>
                   <span style={styles.summaryLabel}>利益額</span>
-                  <span style={styles.summaryValue}>{formatAmount(profitAmount.toString())}</span>
+                  {renderSummaryAmount(profitAmount)}
                 </div>
                 {/* REQ-39.8: 利益率 */}
                 <div style={styles.summaryItem}>

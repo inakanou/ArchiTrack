@@ -35,6 +35,12 @@
  * @requirement site-survey/REQ-29.7
  * @requirement site-survey/REQ-29.8
  * @requirement site-survey/REQ-30.1
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-24.10
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-25.11
+ * @requirement site-survey/REQ-32.5
+ * @requirement site-survey/REQ-32.10
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -42,12 +48,24 @@ import {
   Canvas as FabricCanvas,
   FabricImage,
   FabricObject,
-  PencilBrush,
   Polyline,
   type TPointerEventInfo,
   type TPointerEvent,
 } from 'fabric';
-import AnnotationToolbar, { type ToolType, type StyleOptions } from './AnnotationToolbar';
+import AnnotationToolbar, {
+  type ToolType,
+  type StyleOptions,
+  type OutlineCapableTool,
+} from './AnnotationToolbar';
+// Task 115.60 (Req 26.1, 26.5): 既定スタイルは一元管理の資材から供給する。
+// 本画面で局所に宣言すると中央の値を影で覆い、実際に描かれる注釈が中央の意図と食い違う。
+import { DEFAULT_STYLE_OPTIONS } from './annotation-toolbar.constants';
+// Task 115.96 (Req 25.2, 32.5): 白アウトラインの幅比率など、切替以外の既定は
+// 一元管理の資材から引く（切替のためにここで別の既定値を持たない）。
+import { ANNOTATION_DEFAULTS } from './annotation-style-tokens';
+// Task 115.73 (Req 32.2): 復元時の表示倍率は座標系ごとに適用先が異なる。
+// 集合体へ複写された線幅は実描画から導出し直す（詳細は annotation-restore-scale.ts）。
+import { resolveRestoredStrokeWidth } from './annotation-restore-scale';
 import { AnnotationContextMenu, type ContextMenuAction } from './AnnotationContextMenu';
 import { AnnotationGuide } from './AnnotationGuide';
 import { GUIDE_IDLE_MS, COOLDOWN_MS } from './gestures/gesture-thresholds';
@@ -56,12 +74,19 @@ import { createCircle } from './tools/CircleTool';
 import { createRectangle } from './tools/RectangleTool';
 import { PolygonBuilder, createPolygon } from './tools/PolygonTool';
 import { PolylineBuilder, createPolyline } from './tools/PolylineTool';
-import { DEFAULT_FREEHAND_OPTIONS } from './tools/FreehandTool';
-import { createDimensionLine } from './tools/DimensionTool';
+import { DEFAULT_FREEHAND_OPTIONS, createFreehandBrush, FreehandBrush } from './tools/FreehandTool';
+import { createDimensionLine, type DimensionLine } from './tools/DimensionTool';
+import DimensionValueInput from './tools/DimensionValueInput';
 import { createTextAnnotation } from './tools/TextTool';
 import { UndoManager } from '../../services/UndoManager';
 import { useFabricUndoIntegration } from '../../hooks/useFabricUndoIntegration';
-import { saveAnnotation, getAnnotation, updateThumbnail } from '../../api/survey-annotations';
+import {
+  saveAnnotation,
+  getAnnotation,
+  updateAnnotatedThumbnail,
+  deleteAnnotatedThumbnail,
+  exportAnnotationJson,
+} from '../../api/survey-annotations';
 import { ApiError } from '../../api/client';
 import { exportImage, downloadFile, downloadOriginalImage } from '../../services/ExportService';
 import { useToast } from '../../hooks/useToast';
@@ -83,6 +108,22 @@ import ZoomControls from './ZoomControls';
 // フィット計算は computeFitScale（原寸頭打ち/拡大許容を allowUpscale で制御）へ移行し、
 // useElementSize でコンテナ実寸の変化に追従して再フィットする。
 import { computeFitScale } from '../../utils/imageFitScale';
+// Task 115.81 (Req 15.4, 15.5, 15.7-15.10): 自動保存・復元基盤の画面結線。
+// design.md「AutoSaveManager」の Dependencies が Inbound: AnnotationEditor と定めるため、
+// 基盤の生成・購読・UI 表示はいずれも本コンポーネントが担う。
+import { AutoSaveManager } from '../../services/AutoSaveManager';
+import type { AnnotationData as AnnotationDraftData } from '../../services/AutoSaveManager';
+import { isLocalStorageAvailable } from '../../utils/storage-error';
+import { useAnnotationRestoration } from '../../hooks/useAnnotationRestoration';
+import RestoreAnnotationDialog from '../site-survey/RestoreAnnotationDialog';
+import StorageWarningBanner from './StorageWarningBanner';
+import type { StorageWarningType } from './StorageWarningBanner';
+// Task 115.105 (Req 15.6): 通信断の告知とサーバー保存の抑止。
+// design.md「ネットワーク状態管理フロー」の Key Decisions が
+// 「ネットワーク切断時は警告を表示し、サーバー保存をブロック」「localStorage への一時保存は継続」
+// と定めるため、告知は NetworkStatusIndicator、抑止は useNetworkStatus の canSave が担う。
+import NetworkStatusIndicator from '../NetworkStatusIndicator';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import useElementSize from '../../hooks/useElementSize';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
@@ -92,6 +133,82 @@ declare global {
   interface Window {
     __fabricCanvas?: FabricCanvas | null;
   }
+}
+
+/**
+ * 復元した注釈オブジェクトへ表示倍率と操作可否を適用してキャンバスへ追加する
+ *
+ * サーバー保存済み注釈の復元（Req 9.2）とローカル下書きの復元（Req 15.5）で同じ変換を使う。
+ * 二重実装にすると倍率適用先（Task 115.73, Req 32.2）の是正が片側にしか効かないため共有する。
+ *
+ * @param canvas 対象キャンバス
+ * @param enlivenedObjects `util.enlivenObjects` で実体化済みのオブジェクト
+ * @param savedCanvasWidth 保存時のキャンバス幅（不明なら倍率1）
+ * @param savedCanvasHeight 保存時のキャンバス高さ（不明なら倍率1）
+ * @param interactive 選択・操作を許可するか
+ * @returns 適用した倍率と追加件数
+ */
+function addRestoredAnnotationObjects(
+  canvas: FabricCanvas,
+  enlivenedObjects: unknown[],
+  savedCanvasWidth: number | undefined,
+  savedCanvasHeight: number | undefined,
+  interactive: boolean
+): { addedCount: number; scaleX: number; scaleY: number; needsScaling: boolean } {
+  const currentCanvasWidth = canvas.getWidth();
+  const currentCanvasHeight = canvas.getHeight();
+  const scaleX =
+    savedCanvasWidth && savedCanvasWidth > 0 ? currentCanvasWidth / savedCanvasWidth : 1;
+  const scaleY =
+    savedCanvasHeight && savedCanvasHeight > 0 ? currentCanvasHeight / savedCanvasHeight : 1;
+  const needsScaling = scaleX !== 1 || scaleY !== 1;
+  const avgScale = (scaleX + scaleY) / 2;
+
+  let addedCount = 0;
+
+  enlivenedObjects.forEach((obj) => {
+    // FabricObjectであることを確認
+    if (obj && typeof obj === 'object' && 'set' in obj && 'type' in obj) {
+      const fabricObj = obj as FabricObject;
+
+      // スケール変換が必要な場合は適用
+      if (needsScaling) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const objAny = fabricObj as any;
+        const left = objAny.left ?? 0;
+        const top = objAny.top ?? 0;
+        fabricObj.set({
+          left: left * scaleX,
+          top: top * scaleY,
+          scaleX: (objAny.scaleX ?? 1) * scaleX,
+          scaleY: (objAny.scaleY ?? 1) * scaleY,
+        });
+
+        // ストローク幅の解決（Task 115.73, Req 32.2）
+        // 集合体（Group）の注釈は実描画を子が保持し、表示倍率は上の scaleX/scaleY
+        // 経由で子へ伝搬する。集合体自身の strokeWidth は子から複写された後方互換用の
+        // 値であり、ここへ重ねて倍率を掛けると複写元（実描画）と座標系が食い違う。
+        // resolveRestoredStrokeWidth は集合体なら実描画から導出し直し、集合体でない
+        // 注釈（テキストの白アウトラインは strokeUniform のため拡大率が線幅へ伝搬
+        // しない）は従来どおり平均倍率を掛ける。
+        if (objAny.strokeWidth) {
+          fabricObj.set({
+            strokeWidth: resolveRestoredStrokeWidth(fabricObj, objAny.strokeWidth, avgScale),
+          });
+        }
+      }
+
+      // 閲覧モードでは選択不可、それ以外は選択ツールの場合のみ選択可能
+      fabricObj.set({
+        selectable: interactive,
+        evented: interactive,
+      });
+      canvas.add(fabricObj);
+      addedCount += 1;
+    }
+  });
+
+  return { addedCount, scaleX, scaleY, needsScaling };
 }
 
 /**
@@ -105,16 +222,6 @@ interface DragState {
 // ============================================================================
 // 型定義
 // ============================================================================
-
-/**
- * デフォルトのスタイルオプション
- */
-const DEFAULT_STYLE_OPTIONS: StyleOptions = {
-  strokeColor: '#ff0000',
-  strokeWidth: 2,
-  fillColor: '',
-  fontSize: 16,
-};
 
 /**
  * Task 96.3 (Req 33.8): 空き領域ダブルタップによるズームトグルの拡大倍率。
@@ -136,6 +243,31 @@ const DOUBLE_TAP_ZOOM_EPSILON = 0.01;
 const REFIT_IDENTITY_ZOOM_EPSILON = 0.01;
 
 /**
+ * Task 96.3 / 115.47 (Req 27.1, 27.2, 27.9, 27.10, 33.8):
+ * ジェスチャー通知（`custom:dbltap` / `custom:longpress`）の座標から実対象を解決する。
+ *
+ * `GesturePayload` は操作対象を持たない（Task 115.49 で使われない宣言を除去済み）。
+ * `touchGestureManager.buildPayload` は対象を設定せず、Fabric の `canvas.fire` も
+ * カスタムイベントに `target` を付与しないため、通知から対象を読む実装は必ず空振りする。
+ * 対象は通知の clientX/clientY から Fabric の実ヒットテストで解決しなければならない。
+ *
+ * Fabric v7 の `findTarget` は clientX/clientY を持つイベント様オブジェクトから
+ * `getScenePoint` 経由で対象を解決し、`{ target?, subTargets, ... }` を返す。
+ *
+ * ダブルタップ側と長押し側で判定を二重に持たないよう、両者はこの 1 箇所を共用する。
+ */
+const resolveGestureTarget = (
+  canvas: FabricCanvas,
+  payload: GesturePayload
+): FabricObject | undefined => {
+  const eventLike = {
+    clientX: payload.clientX,
+    clientY: payload.clientY,
+  } as unknown as TPointerEvent;
+  return canvas.findTarget(eventLike).target;
+};
+
+/**
  * AnnotationEditorの状態
  */
 interface AnnotationEditorState {
@@ -155,8 +287,21 @@ interface AnnotationEditorState {
   isSaving: boolean;
   /** 保存成功メッセージ */
   saveSuccess: boolean;
+  /**
+   * 直近の誤りが保存の失敗によるものか（Req 9.5）
+   *
+   * Task 115.102: 誤りの表示は以前からあったが、やり直す手段が無かった。
+   * 保存の失敗のときだけ再試行の導線を出すため、誤りの出所を区別する。
+   */
+  saveFailed: boolean;
   /** 背景画像の回転角度 */
   imageRotation: 0 | 90 | 180 | 270;
+  /**
+   * 詳細属性パネル（スタイルパネル）を開いているか（Req 28.8）
+   *
+   * 選択中ツールの再タップで反転する。ツールを切替えたときは開いた状態へ戻す。
+   */
+  isStylePanelVisible: boolean;
 }
 
 /**
@@ -175,6 +320,19 @@ export interface AnnotationEditorProps {
   initialRotation?: number;
   /** 初期パン位置（REQ-5.6: ビューアとの状態共有用） */
   initialPan?: { x: number; y: number };
+  /**
+   * 表示状態（ズーム・回転・位置）の変化通知（REQ-5.6）。
+   *
+   * Task 115.83: 閲覧モードと編集モードの切り替えでは canvas を作り直すため、
+   * 表示状態は本コンポーネントの外（ホスト画面）が保持しなければ共有が成立しない。
+   * 変化のたびに最新値を通知し、ホストが `initialZoom` / `initialRotation` /
+   * `initialPan` として次のモードへ渡し戻す。
+   */
+  onViewStateChange?: (state: {
+    zoom: number;
+    rotation: number;
+    pan: { x: number; y: number };
+  }) => void;
   /** 閲覧専用モード（REQ-9.2: 注釈を表示するが編集は不可） */
   readOnly?: boolean;
   /** 画像情報（ImageExportDialog用、REQ-12.2, 12.3, 12.4） */
@@ -183,11 +341,51 @@ export interface AnnotationEditorProps {
   onAnnotationSaved?: (result: { annotatedThumbnailUrl: string | null }) => void;
   /** 画像一覧の強制再取得コールバック（REQ-23.6: サムネイル再生成失敗時の旧状態残留防止） */
   onRequestRefresh?: () => void;
+  /**
+   * 未保存の編集の有無の変化通知（REQ-9.3）
+   *
+   * Task 115.102: 離脱を捕捉する仕組み（`useBlocker` / `beforeunload`）は画面（ルート）側に
+   * 置く必要があるため、未保存かどうかの判定だけを本コンポーネントが担い、離脱の確認は
+   * ホスト画面が行う。読み込み・復元由来の変更は未保存として数えない。
+   */
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
 // ============================================================================
 // スタイル定義
 // ============================================================================
+
+/**
+ * Task 115.82 (Req 6.2): ポインタイベントからクライアント座標（ビューポート基準）を取り出す。
+ *
+ * 寸法値入力欄は position: fixed の重ね合わせ層へ配置するため、キャンバス内部座標ではなく
+ * ビューポート基準の座標が要る。マウス／ペンは event 自身が、タッチは changedTouches が持つ。
+ *
+ * @param event Fabric から渡される元の DOM イベント
+ * @returns クライアント座標。取り出せない場合は null
+ */
+function resolveClientPoint(event: TPointerEvent | undefined): { x: number; y: number } | null {
+  if (!event) {
+    return null;
+  }
+  const mouseLike = event as { clientX?: number; clientY?: number };
+  if (typeof mouseLike.clientX === 'number' && typeof mouseLike.clientY === 'number') {
+    return { x: mouseLike.clientX, y: mouseLike.clientY };
+  }
+  const touchLike = event as { changedTouches?: ArrayLike<{ clientX: number; clientY: number }> };
+  const touch = touchLike.changedTouches?.[0];
+  if (touch) {
+    return { x: touch.clientX, y: touch.clientY };
+  }
+  return null;
+}
+
+/**
+ * Task 115.82 (Req 6.2): 寸法値入力欄が最初に示す単位。
+ *
+ * `DimensionValueInput` が選べる単位（mm / cm / m）の先頭に合わせる。
+ */
+const DEFAULT_DIMENSION_UNIT = 'mm';
 
 const STYLES = {
   wrapper: {
@@ -202,6 +400,19 @@ const STYLES = {
     borderBottom: '1px solid #e5e7eb',
     zIndex: 20,
   },
+  // Task 115.81 (Req 15.8, 15.9): ストレージ警告帯の配置。ツールバーの直上に置き、
+  // 「今すぐ保存」への導線が編集領域を覆わないようにする。
+  storageWarningContainer: {
+    padding: '8px',
+    backgroundColor: '#ffffff',
+    zIndex: 21,
+  },
+  // Task 115.105 (Req 15.6): 通信状態の告知帯。ストレージ警告帯と同じくツールバーの直上に置く。
+  networkStatusContainer: {
+    padding: '8px',
+    backgroundColor: '#ffffff',
+    zIndex: 21,
+  },
   container: {
     position: 'relative' as const,
     flex: 1,
@@ -211,6 +422,27 @@ const STYLES = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    // 注釈エディタの領域（role="application"）が受けるフォーカスの輪は、ホストの画面の枠
+    // （SiteSurveyImageViewerPage の editorContainer。角丸のため overflow:hidden）の縁に接し、
+    // 外側へ描くと欠ける。輪の太さ（2px）だけ内側へ寄せて領域の縁の上へ描く
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
+    outlineOffset: '-2px',
+  },
+  // Task 115.82 (Req 6.2): 寸法値入力欄を載せる重ね合わせ層。
+  // キャンバス要素の DOM は Fabric が所有するため、その内側へ React で描画せず
+  // ビューポート基準の固定層に置く（AnnotationContextMenu と同じ方式）。
+  // 層自体はポインタを透過させ、入力欄だけが操作を受け取る。
+  dimensionInputOverlay: {
+    position: 'fixed' as const,
+    inset: 0,
+    pointerEvents: 'none' as const,
+    zIndex: 1000,
+  },
+  dimensionInputAnchor: {
+    position: 'absolute' as const,
+    left: 0,
+    top: 0,
+    pointerEvents: 'auto' as const,
   },
   canvasWrapper: {
     position: 'relative' as const,
@@ -252,6 +484,23 @@ const STYLES = {
     color: '#991b1b',
     textAlign: 'center' as const,
     maxWidth: '400px',
+  },
+  // Req 9.5: 保存に失敗したとき、同じ操作をやり直すための導線
+  errorRetryButton: {
+    marginTop: '12px',
+    padding: '8px 20px',
+    border: '1px solid #991b1b',
+    borderRadius: '6px',
+    backgroundColor: '#991b1b',
+    color: '#ffffff',
+    fontSize: '14px',
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  errorRetryButtonDisabled: {
+    backgroundColor: '#6b7280',
+    borderColor: '#6b7280',
+    cursor: 'not-allowed',
   },
   savingOverlay: {
     position: 'absolute' as const,
@@ -299,6 +548,100 @@ const STYLES = {
 };
 
 // ============================================================================
+// ヘルパー
+// ============================================================================
+
+/**
+ * 回転角度を 0 以上 360 未満へ正規化する
+ *
+ * 保存済みデータ由来の回転角度は 0/90/180/270 に限られない値（360度、負の値、
+ * 数値でない値）を含み得るため、合成済みサムネイルの生成要否を判定する前に
+ * 正規化する。正規化結果が 0 の場合は「回転が加えられていない」とみなす。
+ *
+ * @param rotation - 回転角度（度）
+ * @returns 0 以上 360 未満へ正規化した回転角度（判定不能な値は 0）
+ *
+ * @requirement 22.8
+ */
+function normalizeImageRotation(rotation: number): number {
+  if (!Number.isFinite(rotation)) {
+    return 0;
+  }
+  return ((rotation % 360) + 360) % 360;
+}
+
+/**
+ * 白縁取りの有効/無効を切替えられる注釈の最小構造
+ *
+ * 矢印（`Arrow`）と 6 形状（`Rectangle` / `Circle` / `Polygon` / `Polyline` /
+ * `Freehand` / `DimensionLine`）がいずれも実装する。テキストは `setTextOutline` を
+ * 持つ別系統であり、生成時に `textOutline` を渡す経路を使う。
+ */
+interface OutlineToggleableAnnotation {
+  setOutline(next: { enabled: boolean }): void;
+}
+
+/**
+ * 生成直後の注釈へ、当該ツールの白縁取り切替状態を適用する (Req 24.5, 32.5)
+ *
+ * Task 115.96: 道具帯の切替は「以降に描かれる注釈へ適用する描画設定」である。
+ * 既存の注釈へは適用しない（Req 24.9 / 25.10 / 32.9 の後方互換を壊さないため）。
+ *
+ * `setOutline` は canvas へアタッチ済みのとき `object:modified` を発火するため、
+ * 本関数は必ず `canvas.add` の**前**に呼ぶこと。追加後に呼ぶと、注釈の追加と
+ * 白縁取りの適用が二つの取り消し単位として履歴に積まれる。
+ *
+ * 生成の失敗（座標が退化しているなど、ファクトリが `null` を返す場合）は呼び出し側で
+ * 判定する。ここで `null` を受け付けると、生成できていないことを黙って見逃す。
+ *
+ * @param shape 生成直後の注釈
+ * @param tool 生成に使ったツール
+ * @param outlineEnabled ツール別の白縁取り切替状態
+ */
+function applyOutlineEnabled(
+  shape: OutlineToggleableAnnotation,
+  tool: OutlineCapableTool,
+  outlineEnabled: Record<OutlineCapableTool, boolean>
+): void {
+  shape.setOutline({ enabled: outlineEnabled[tool] });
+}
+
+/** 表示へ適用できる回転角度（度） */
+type ImageRotation = 0 | 90 | 180 | 270;
+
+/** 表示へ適用できる回転角度の一覧（インデックス = 90度単位の象限） */
+const IMAGE_ROTATION_QUADRANTS: readonly [
+  ImageRotation,
+  ImageRotation,
+  ImageRotation,
+  ImageRotation,
+] = [0, 90, 180, 270];
+
+/**
+ * 保存済みの回転角度を表示へ適用できる角度へ検証・正規化する
+ *
+ * 表示への適用（applyImageRotation）は 90度/270度のときだけ表示領域の縦横を入れ替えるため、
+ * 想定外の値（負の値・360度以上・90度単位でない値・数値でない値）をそのまま渡すと、
+ * 角度だけが適用されて縦横が入れ替わらず画像が切れる、あるいは角度指定自体が破綻する。
+ * 破損データ・旧データ・外部からの直接更新に備え、表示へ適用する前に想定内の4つの角度へ
+ * 丸める。normalizeImageRotation（生成要否の判定と同一の規則）で 0 以上 360 未満へ
+ * 正規化したうえで、最も近い90度単位の象限へ丸めることで、適用する角度と表示領域の
+ * 縦横が常に整合する。
+ *
+ * @param rotation - 保存済みデータ由来の回転角度（値の妥当性は保証されない）
+ * @returns 表示へ適用できる回転角度（0/90/180/270）
+ *
+ * @requirement 22.5, 22.8
+ */
+function toDisplayImageRotation(rotation: unknown): ImageRotation {
+  const numeric = typeof rotation === 'number' ? rotation : Number.NaN;
+  const normalized = normalizeImageRotation(numeric);
+  // normalized は 0 以上 360 未満のため、象限は 0..4 に収まる（4 は一周＝0 と等価）
+  const quadrant = Math.round(normalized / 90) % IMAGE_ROTATION_QUADRANTS.length;
+  return IMAGE_ROTATION_QUADRANTS[quadrant] ?? IMAGE_ROTATION_QUADRANTS[0];
+}
+
+// ============================================================================
 // コンポーネント
 // ============================================================================
 
@@ -330,14 +673,22 @@ function AnnotationEditor({
   imageId,
   surveyId,
   initialZoom,
+  initialRotation,
   initialPan,
   readOnly = false,
   imageInfo,
   onAnnotationSaved,
   onRequestRefresh,
+  onViewStateChange,
+  onDirtyChange,
 }: AnnotationEditorProps): React.JSX.Element {
   // Toast通知フック（REQ-23.6: サムネイル再生成失敗時のエラー通知用）
   const toast = useToast();
+
+  // Task 115.105 (Req 15.6): 通信状態の購読。
+  // canSave はサーバー保存の可否のみを表す。localStorage への自動保存は切断中も継続する。
+  const { canSave: canSaveToServer, warningMessage: offlineWarningMessage } = useNetworkStatus();
+  const isServerSaveBlocked = !canSaveToServer;
   // DOM参照 - Canvas要素を動的に挿入するコンテナ
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -353,6 +704,13 @@ function AnnotationEditor({
 
   /** 背景画像の累積回転角度を管理するRef (Req 22.1, 22.8) */
   const imageRotationRef = useRef<0 | 90 | 180 | 270>(0);
+
+  // Task 115.83 (Req 5.6): 表示状態の共有。canvas 生成のたびに「ホストが保持している
+  // 最新の回転角度」を参照する必要があるため、props を ref で追随させる。
+  const initialRotationRef = useRef(initialRotation);
+  initialRotationRef.current = initialRotation;
+  const onViewStateChangeRef = useRef(onViewStateChange);
+  onViewStateChangeRef.current = onViewStateChange;
 
   // Canvas要素参照（動的に生成）
   const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
@@ -378,13 +736,28 @@ function AnnotationEditor({
     canRedo: false,
     isSaving: false,
     saveSuccess: false,
+    saveFailed: false,
     imageRotation: 0,
+    isStylePanelVisible: true,
   });
+
+  // 閲覧⇄編集の切り替えは描画面を作り直し、画像と注釈を読み直す（Canvas 初期化の effect）。
+  // 読み込み中への移行をその effect の中だけで行うと、切り替えた最初の描画は直前の
+  // 「読み込み済み」を引き継ぎ、空の描画面の上で道具が押せる描画が一度だけ出る。
+  // 切り替えたその描画から読み込み中とするため、描画の中で直前の readOnly と比べて
+  // 状態を合わせる（props の変化に応じた state の調整）。
+  const [loadStateReadOnly, setLoadStateReadOnly] = useState(readOnly);
+  if (loadStateReadOnly !== readOnly) {
+    setLoadStateReadOnly(readOnly);
+    setState((prev) => ({ ...prev, isLoading: true, error: null }));
+  }
 
   // エクスポートダイアログの状態管理（REQ-12.2, 12.3, 12.4）
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  /** 注釈データ（JSON）のエクスポート処理中フラグ（Task 115.102 / Req 9.6） */
+  const [isExportingAnnotationJson, setIsExportingAnnotationJson] = useState(false);
 
   // Task 72.2 (Req 27.10): 長押し由来コンテキストメニューの表示状態。
   // 実際の描画は Task 72.3 で AnnotationContextMenu コンポーネントをマウントする際に行う。
@@ -395,6 +768,21 @@ function AnnotationEditor({
     targetObject: FabricObject | null;
   }>({ visible: false, position: null, targetObject: null });
 
+  // ---------------------------------------------------------------------------
+  // Task 115.82 (Req 6.2, 6.3): 寸法値入力欄の表示状態
+  //
+  // 寸法線が描画された直後に、その線を対象とする入力欄をポップアップで開く（Req 6.2）。
+  // 確定すると対象の寸法線へ数値と単位を書き込み、線上のラベルとして描画する（Req 6.3）。
+  // 位置はクライアント座標で保持し、position: fixed の重ね合わせ層の中へ配置する
+  // （AnnotationContextMenu と同じ方式。キャンバス要素の DOM を React が触らないため）。
+  // ---------------------------------------------------------------------------
+  const [dimensionValueInput, setDimensionValueInput] = useState<{
+    target: DimensionLine;
+    position: { x: number; y: number };
+    initialValue: string;
+    initialUnit: string;
+  } | null>(null);
+
   // Task 72.4 (Req 29.7, 29.8): AnnotationGuide の表示状態と idle タイマ参照。
   // ツール選択後 GUIDE_IDLE_MS (=3000ms) 間描画操作が無ければ guideVisible=true にし、
   // 描画開始 (mouse:down) もしくは別ツールへの切替で dismiss する。
@@ -403,6 +791,99 @@ function AnnotationEditor({
 
   // 保存成功メッセージを 3 秒後に消すための timer 参照（unmount 後の setState を防止）
   const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Task 115.81: 自動保存・復元基盤（Req 15.4, 15.5, 15.7-15.10）
+  // ---------------------------------------------------------------------------
+
+  /**
+   * AutoSaveManager インスタンス（コンポーネントのライフサイクル間で維持）
+   *
+   * Req 15.9: localStorage が使えない（プライベートブラウジング等の SecurityError）環境では
+   * 生成時点で自動保存を無効化し、手動保存のみで動作させる。検出は utils/storage-error に
+   * 一元化した `isLocalStorageAvailable` が担う（Req 15.10 のクロスブラウザ判定を含む）。
+   */
+  const autoSaveManagerRef = useRef<AutoSaveManager | null>(null);
+  if (!autoSaveManagerRef.current) {
+    autoSaveManagerRef.current = new AutoSaveManager({
+      disableAutoSave: !isLocalStorageAvailable(),
+    });
+  }
+  const autoSaveManager = autoSaveManagerRef.current;
+
+  /** ストレージ警告帯の表示種別（Req 15.8: 容量超過 / Req 15.9: プライベートモード） */
+  const [storageWarning, setStorageWarning] = useState<StorageWarningType | null>(null);
+
+  /**
+   * プライベートモード警告の「今後表示しない」選択（Req 15.9）
+   *
+   * 選択の永続化先は localStorage だが、この警告が出ている環境ではその localStorage が
+   * 使えない。選択を無視すると UI の申し出が嘘になるため、編集セッションの間だけ尊重する。
+   */
+  const suppressPrivateWarningRef = useRef(false);
+
+  /** サーバー保存済み注釈（ローカル下書きとの比較材料。Req 15.5） */
+  const [serverAnnotation, setServerAnnotation] = useState<{
+    data: AnnotationDraftData | null;
+    updatedAt: string | null;
+  }>({ data: null, updatedAt: null });
+
+  /** 画像・注釈の読み込みが完了し、以後の変更をユーザー編集として扱ってよいか（Req 15.4） */
+  const autoSaveReadyRef = useRef(false);
+
+  // ---------------------------------------------------------------------------
+  // Task 115.102 (Req 9.3): 未保存の編集の有無
+  // ---------------------------------------------------------------------------
+
+  /** 未保存の編集があるか。Fabric のイベントハンドラから読むため参照で持つ。 */
+  const isDirtyRef = useRef(false);
+
+  /** ホストへの通知先。props の同一性に依存させないため参照で追随させる。 */
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+
+  /**
+   * 未保存状態を更新し、変化したときだけホストへ通知する（Req 9.3）
+   *
+   * @param next 未保存があるか
+   */
+  const setDirty = useCallback((next: boolean) => {
+    if (isDirtyRef.current === next) {
+      return;
+    }
+    isDirtyRef.current = next;
+    onDirtyChangeRef.current?.(next);
+  }, []);
+
+  /** 復元要求（ダイアログで「復元する」が押された）を描画側へ受け渡す参照 */
+  const pendingRestoreRef = useRef<AnnotationDraftData | null>(null);
+  const [restoreRequestId, setRestoreRequestId] = useState(0);
+
+  /**
+   * 復元フックの戻り値への参照
+   *
+   * フックの呼び出しは handleSave の定義より後ろに置く必要がある（onRestore が
+   * キャンバス適用を伴うため）。手動保存の完了から再チェックを呼ぶ経路だけを参照で繋ぐ。
+   */
+  const restorationRef = useRef<{ recheckLocalData: () => void } | null>(null);
+
+  /**
+   * 現在のキャンバス内容から注釈データを構築する
+   *
+   * サーバー保存（Req 9.1）とローカル自動保存（Req 15.4）で同じ形を使う。形が食い違うと
+   * 復元時の倍率算出（canvasWidth/canvasHeight）と回転復元（imageRotation）が片側で失われる。
+   */
+  const buildAnnotationData = useCallback((canvas: FabricCanvas): AnnotationDraftData => {
+    const objects = canvas.getObjects().filter((obj) => obj !== backgroundImageRef.current);
+
+    return {
+      version: '1.0',
+      objects: objects.map((obj) => obj.toObject()),
+      canvasWidth: canvas.getWidth(),
+      canvasHeight: canvas.getHeight(),
+      imageRotation: imageRotationRef.current,
+    };
+  }, []);
 
   // UndoManagerインスタンス（コンポーネントのライフサイクル間で維持）
   const undoManagerRef = useRef<UndoManager | null>(null);
@@ -444,6 +925,13 @@ function AnnotationEditor({
   // Task 96.1: initialZoom/initialPan を canvas ごとに一度だけ適用するためのガード参照。
   const initialViewAppliedRef = useRef(false);
 
+  // Task 115.83 (Req 5.6): 初期ビュー適用が済み、表示状態の通知を開始してよいかの参照。
+  const viewReadyRef = useRef(false);
+
+  // Task 115.83 (Req 5.4): 閲覧モードの単一ポインタ・ドラッグによるパン操作の進行状態。
+  const viewerPanPointersRef = useRef<Set<number>>(new Set());
+  const viewerPanOriginRef = useRef<{ x: number; y: number } | null>(null);
+
   // Task 96.2 (Req 33.5, 30.1): 2本指ジェスチャー突入時に退避する描画モード（isDrawingMode）。
   // cooldown→idle 復帰時に、退避値と選択中ツールに応じて isDrawingMode を復元する。
   const prevDrawingModeRef = useRef(false);
@@ -473,6 +961,36 @@ function AnnotationEditor({
   // handleDoubleTap の依存を空に保ち、canvas 初期化 effect の再実行（dispose/再生成）を避ける。
   const viewportControllerRef = useRef(viewportController);
   viewportControllerRef.current = viewportController;
+
+  /**
+   * Task 115.83 (Req 5.6): 現在の表示状態（ズーム・回転・位置）をホストへ通知する。
+   *
+   * ホスト（`SiteSurveyImageViewerPage`）はこれを保持し、閲覧⇄編集の切り替えで
+   * 作り直される canvas へ `initialZoom` / `initialRotation` / `initialPan` として
+   * 渡し戻す。依存を持たない ref 経由の実装にして、イベントハンドラや effect から
+   * 安全に呼べるようにする。
+   */
+  const reportViewState = useCallback((): void => {
+    // canvas 生成直後〜初期ビュー適用前は、新しい canvas の等倍値（zoom=1）が一時的に
+    // 見えている。この途中経過を通知するとホストが保持している共有状態を等倍で
+    // 上書きしてしまうため、初期ビュー適用が済むまで通知しない。
+    if (!viewReadyRef.current) return;
+    const notify = onViewStateChangeRef.current;
+    if (!notify) return;
+    const controller = viewportControllerRef.current;
+    if (!controller) return;
+    const { zoom: currentZoom, panX, panY } = controller.getState();
+    notify({
+      zoom: currentZoom,
+      rotation: imageRotationRef.current,
+      pan: { x: panX, y: panY },
+    });
+  }, []);
+
+  // ズーム倍率の変化（ボタン操作・ピンチ・フィット・初期ビュー適用）をホストへ通知する（Req 5.6）。
+  useEffect(() => {
+    reportViewState();
+  }, [zoom, reportViewState]);
   const { setProgrammaticOperation } = useFabricUndoIntegration({
     canvas: fabricCanvas,
     undoManager,
@@ -572,8 +1090,19 @@ function AnnotationEditor({
    */
   const handleToolChange = useCallback((tool: ToolType) => {
     // ツールを変更
-    setState((prev) => ({ ...prev, activeTool: tool }));
+    //
+    // Task 115.104 (Req 28.8): 別のツールへ切替えたときは、そのツールの詳細属性パネルを
+    // 開いた状態で見せる。開閉のトグルは「選択中ツールの再タップ」だけの責務であり、
+    // 同じツールが再び渡された場合は開閉状態をそのまま保つ。
+    setState((prev) => ({
+      ...prev,
+      activeTool: tool,
+      isStylePanelVisible: prev.activeTool === tool ? prev.isStylePanelVisible : true,
+    }));
     activeToolRef.current = tool;
+
+    // Task 115.82 (Req 6.2): 未確定の寸法値入力欄はツール切替で閉じる
+    setDimensionValueInput(null);
 
     // Task 13.3: 選択ツール以外に切り替える場合、現在の選択を解除
     if (tool !== 'select' && fabricCanvasRef.current) {
@@ -600,12 +1129,22 @@ function AnnotationEditor({
 
       // フリーハンドモードの設定
       if (tool === 'freehand') {
-        // PencilBrushを設定してフリーハンドモードを有効化
+        // Task 115.50 (Req 32.1, 32.11): 素の PencilBrush ではなく FreehandBrush を設定する。
+        // FreehandBrush は描画完了時（PencilBrush._finalizeAndAddPath → createPath）に
+        // 白縁取り付きの FreehandPath（outlinePath + bodyPath の Group）を生成するため、
+        // 本番の描画で作られるフリーハンド注釈が要件 32 の対象形状となる。
         canvas.isDrawingMode = true;
-        const brush = new PencilBrush(canvas);
-        brush.color = styleOptionsRef.current.strokeColor;
-        brush.width = styleOptionsRef.current.strokeWidth;
-        brush.decimate = DEFAULT_FREEHAND_OPTIONS.decimate;
+        const brush = createFreehandBrush(
+          {
+            stroke: styleOptionsRef.current.strokeColor,
+            strokeWidth: styleOptionsRef.current.strokeWidth,
+            decimate: DEFAULT_FREEHAND_OPTIONS.decimate,
+            // Task 115.96 (Req 32.5): フリーハンドは描画完了時にブラシが形状を組み立てるため、
+            // 切替はブラシの生成オプションとして渡す
+            outlineEnabled: styleOptionsRef.current.outlineEnabled.freehand,
+          },
+          canvas
+        );
         canvas.freeDrawingBrush = brush;
       } else {
         // フリーハンドモードを無効化
@@ -638,35 +1177,88 @@ function AnnotationEditor({
   }, []);
 
   /**
+   * ツール別の白縁取り切替状態を画面・参照・描画中のブラシへ反映する
+   *
+   * Task 115.96 (Req 24.5, 25.2, 32.5, 24.10, 25.11, 32.10):
+   * 切替の適用と、その取り消し・やり直しで同じ経路を通す。取り消しだけ別経路にすると
+   * 「画面のチェックは戻るがブラシは戻らない」といった片側だけの復元になる。
+   *
+   * @param outlineEnabled 適用するツール別の切替状態
+   */
+  const applyOutlineEnabledSetting = useCallback(
+    (outlineEnabled: Record<OutlineCapableTool, boolean>) => {
+      setState((prev) => ({
+        ...prev,
+        styleOptions: { ...prev.styleOptions, outlineEnabled },
+      }));
+      styleOptionsRef.current = { ...styleOptionsRef.current, outlineEnabled };
+
+      // フリーハンドは描画完了時にブラシが形状を組み立てるため、ブラシ側にも反映する
+      const brush = fabricCanvasRef.current?.freeDrawingBrush;
+      if (brush instanceof FreehandBrush) {
+        brush.setOutlineEnabled(outlineEnabled.freehand);
+      }
+    },
+    []
+  );
+
+  /**
    * スタイル変更ハンドラ
    */
-  const handleStyleChange = useCallback((options: Partial<StyleOptions>) => {
-    setState((prev) => ({
-      ...prev,
-      styleOptions: { ...prev.styleOptions, ...options },
-    }));
-    styleOptionsRef.current = { ...styleOptionsRef.current, ...options };
+  const handleStyleChange = useCallback(
+    (options: Partial<StyleOptions>) => {
+      const { outlineEnabled: nextOutlineEnabled, ...restOptions } = options;
 
-    // フリーハンドモードの場合はブラシの設定も更新
-    if (
-      fabricCanvasRef.current &&
-      activeToolRef.current === 'freehand' &&
-      fabricCanvasRef.current.freeDrawingBrush
-    ) {
-      if (options.strokeColor !== undefined) {
-        fabricCanvasRef.current.freeDrawingBrush.color = options.strokeColor;
+      // Req 24.10 / 25.11 / 32.10: 白縁取りの有効化/無効化の切替は Undo/Redo 履歴に記録する。
+      // 色・線幅・文字サイズの変更は要件が履歴記録を求めていないため従来どおり記録しない。
+      if (nextOutlineEnabled !== undefined) {
+        const previousOutlineEnabled = styleOptionsRef.current.outlineEnabled;
+        applyOutlineEnabledSetting(nextOutlineEnabled);
+        undoManager.pushWithoutExecute({
+          type: 'outline-toggle',
+          execute: () => applyOutlineEnabledSetting(nextOutlineEnabled),
+          undo: () => applyOutlineEnabledSetting(previousOutlineEnabled),
+        });
       }
-      if (options.strokeWidth !== undefined) {
-        fabricCanvasRef.current.freeDrawingBrush.width = options.strokeWidth;
+
+      if (Object.keys(restOptions).length === 0) {
+        return;
       }
-    }
-  }, []);
+
+      setState((prev) => ({
+        ...prev,
+        styleOptions: { ...prev.styleOptions, ...restOptions },
+      }));
+      styleOptionsRef.current = { ...styleOptionsRef.current, ...restOptions };
+
+      // フリーハンドモードの場合はブラシの設定も更新
+      if (
+        fabricCanvasRef.current &&
+        activeToolRef.current === 'freehand' &&
+        fabricCanvasRef.current.freeDrawingBrush
+      ) {
+        if (restOptions.strokeColor !== undefined) {
+          fabricCanvasRef.current.freeDrawingBrush.color = restOptions.strokeColor;
+        }
+        if (restOptions.strokeWidth !== undefined) {
+          fabricCanvasRef.current.freeDrawingBrush.width = restOptions.strokeWidth;
+        }
+      }
+    },
+    [applyOutlineEnabledSetting, undoManager]
+  );
 
   /**
    * 画像を読み込んでCanvasに表示
    */
   const loadImage = useCallback(
     async (canvas: FabricCanvas, url: string) => {
+      // Task 115.81 (Req 15.4): 読み込み・復元でキャンバスへ載る注釈をユーザー編集と
+      // 取り違えないよう、読み込みの開始時点で自動保存の受付を閉じる。編集モードの
+      // 切り替えでは canvas が作り直されて本関数が再実行されるため、初回だけでは足りない。
+      autoSaveReadyRef.current = false;
+      // Req 9.3: 画像の読み込みをやり直す時点では、まだユーザーの編集は無い
+      setDirty(false);
       setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
       try {
@@ -756,11 +1348,30 @@ function AnnotationEditor({
         // Fabric の選択（マーキー）/ object:moving（scenePoint=viewport 考慮）への委譲が成立する。
         canvas.selection = !readOnly && activeToolRef.current === 'select';
 
+        // Task 115.83 (Req 5.6): ホストが保持している共有回転角度を初期表示へ適用する。
+        // 閲覧⇄編集の切り替えでは canvas を作り直すため、これが無いと直前の回転が失われる。
+        // 共有値は「この画面で今表示している向き」であり、保存済みの回転（Req 22.5）より
+        // 新しいので、指定されている場合はそちらを優先する。
+        const sharedRotation = toDisplayImageRotation(initialRotationRef.current);
+        const hasSharedRotation = initialRotationRef.current !== undefined;
+        if (hasSharedRotation) {
+          imageRotationRef.current = sharedRotation;
+          if (sharedRotation !== 0) {
+            applyImageRotation(canvas, img, sharedRotation);
+          }
+          setState((prev) => ({ ...prev, imageRotation: sharedRotation }));
+        }
+
         canvas.renderAll();
 
         // REQ-9.2: 保存された注釈データを復元
         try {
           const annotationData = await getAnnotation(imageId);
+          // Task 115.81 (Req 15.5): ローカル下書きとの比較材料をフックへ渡すため保持する
+          setServerAnnotation({
+            data: annotationData?.data ?? null,
+            updatedAt: annotationData?.updatedAt ?? null,
+          });
           if (annotationData && annotationData.data) {
             // 再度disposeチェック
             /* istanbul ignore if -- @preserve React StrictModeでの非同期処理キャンセル */
@@ -773,9 +1384,13 @@ function AnnotationEditor({
               return;
             }
 
-            // 回転状態の復元 (Req 22.4, 22.5)
-            const savedRotation = (annotationData.data.imageRotation ?? 0) as 0 | 90 | 180 | 270;
-            if (savedRotation !== 0 && backgroundImageRef.current) {
+            // 回転状態の復元 (Req 22.4, 22.5, 22.8)
+            // Task 115.11: 保存済みの値は 0/90/180/270 に限られない（破損データ・旧データ・
+            // 外部からの直接更新）。想定外の値のまま表示へ適用すると画像が切れる／角度指定が
+            // 破綻するため、表示へ適用する前に想定内の角度へ検証・正規化する。
+            // Task 115.83 (Req 5.6): 共有された回転が指定されている場合は上書きしない。
+            const savedRotation = toDisplayImageRotation(annotationData.data.imageRotation);
+            if (!hasSharedRotation && savedRotation !== 0 && backgroundImageRef.current) {
               imageRotationRef.current = savedRotation;
               applyImageRotation(canvas, backgroundImageRef.current, savedRotation);
               setState((prev) => ({ ...prev, imageRotation: savedRotation }));
@@ -798,59 +1413,20 @@ function AnnotationEditor({
                 return;
               }
 
-              // スケール係数を計算（保存時のキャンバスサイズと現在のキャンバスサイズの比率）
-              const savedCanvasWidth = annotationData.data.canvasWidth;
-              const savedCanvasHeight = annotationData.data.canvasHeight;
-              const currentCanvasWidth = canvas.getWidth();
-              const currentCanvasHeight = canvas.getHeight();
-              const scaleX =
-                savedCanvasWidth && savedCanvasWidth > 0
-                  ? currentCanvasWidth / savedCanvasWidth
-                  : 1;
-              const scaleY =
-                savedCanvasHeight && savedCanvasHeight > 0
-                  ? currentCanvasHeight / savedCanvasHeight
-                  : 1;
-              const needsScaling = scaleX !== 1 || scaleY !== 1;
-
-              // 復元したオブジェクトをキャンバスに追加
-              enlivenedObjects.forEach((obj) => {
-                // FabricObjectであることを確認
-                if (obj && typeof obj === 'object' && 'set' in obj && 'type' in obj) {
-                  const fabricObj = obj as FabricObject;
-
-                  // スケール変換が必要な場合は適用
-                  if (needsScaling) {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const objAny = fabricObj as any;
-                    const left = objAny.left ?? 0;
-                    const top = objAny.top ?? 0;
-                    fabricObj.set({
-                      left: left * scaleX,
-                      top: top * scaleY,
-                      scaleX: (objAny.scaleX ?? 1) * scaleX,
-                      scaleY: (objAny.scaleY ?? 1) * scaleY,
-                    });
-
-                    // ストローク幅もスケール（平均スケールを使用）
-                    const avgScale = (scaleX + scaleY) / 2;
-                    if (objAny.strokeWidth) {
-                      fabricObj.set({ strokeWidth: objAny.strokeWidth * avgScale });
-                    }
-                  }
-
-                  // readOnlyモードでは選択不可、それ以外は選択ツールの場合のみ選択可能
-                  fabricObj.set({
-                    selectable: !readOnly && activeToolRef.current === 'select',
-                    evented: !readOnly && activeToolRef.current === 'select',
-                  });
-                  canvas.add(fabricObj);
-                }
-              });
+              // 復元したオブジェクトをキャンバスに追加（倍率適用は共有ヘルパーが担う）
+              const restored = addRestoredAnnotationObjects(
+                canvas,
+                enlivenedObjects,
+                annotationData.data.canvasWidth,
+                annotationData.data.canvasHeight,
+                !readOnly && activeToolRef.current === 'select'
+              );
               canvas.renderAll();
               console.log(
-                `Restored ${enlivenedObjects.length} annotation objects` +
-                  (needsScaling ? ` (scaled: ${scaleX.toFixed(2)}x${scaleY.toFixed(2)})` : '')
+                `Restored ${restored.addedCount} annotation objects` +
+                  (restored.needsScaling
+                    ? ` (scaled: ${restored.scaleX.toFixed(2)}x${restored.scaleY.toFixed(2)})`
+                    : '')
               );
             }
           }
@@ -859,6 +1435,9 @@ function AnnotationEditor({
           console.warn('注釈データの読み込みに失敗しました:', annotationErr);
         }
 
+        // Task 115.81 (Req 15.4): 読み込み・復元由来の object:added では自動保存を起動しない。
+        // ここから先の変更だけをユーザー編集とみなす。
+        autoSaveReadyRef.current = true;
         setState((prev) => ({ ...prev, isLoading: false, error: null }));
         /* istanbul ignore next -- @preserve 画像読み込みエラーのキャッチ（ネットワークエラー等） */
       } catch (err) {
@@ -873,7 +1452,7 @@ function AnnotationEditor({
         }
       }
     },
-    [imageId, readOnly]
+    [imageId, readOnly, setDirty]
   );
 
   /**
@@ -952,6 +1531,20 @@ function AnnotationEditor({
             initialText: 'テキスト',
             fontSize: currentStyle.fontSize,
             fill: currentStyle.strokeColor,
+            // Task 115.102 (Req 8.5): 道具帯で選んだ背景色を反映する。
+            // 道具帯は透明を空文字で表し、テキストツール側は 'transparent' で表すため橋渡しする。
+            backgroundColor:
+              currentStyle.textBackgroundColor === ''
+                ? 'transparent'
+                : currentStyle.textBackgroundColor,
+            // Task 115.102 (Req 8.6): 道具帯で選んだ吹き出し形式を反映する。
+            balloonStyle: currentStyle.balloonStyle,
+            // Task 115.96 (Req 25.2): 道具帯の白アウトライン切替を反映する。
+            // 幅比率は一元管理の資材から引く（切替は有効/無効だけを決める）。
+            textOutline: {
+              enabled: currentStyle.outlineEnabled.text,
+              widthRatio: ANNOTATION_DEFAULTS.textOutline.widthRatio,
+            },
           }
         );
         canvas.add(textAnnotation);
@@ -1074,34 +1667,56 @@ function AnnotationEditor({
       }
 
       // ツールに応じてプレビュー図形を作成
+      // Task 115.96 (Req 24.5, 32.5): プレビューにも白縁取り切替を反映する。
+      // 反映しないと、ドラッグ中に見えている姿と確定後の姿が食い違う。
       let previewShape: FabricObject | null = null;
       switch (activeTool) {
-        case 'arrow':
-          previewShape = createArrow(startPoint, endPoint, {
+        case 'arrow': {
+          const previewArrow = createArrow(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
           });
+          if (previewArrow) {
+            applyOutlineEnabled(previewArrow, 'arrow', currentStyle.outlineEnabled);
+          }
+          previewShape = previewArrow;
           break;
-        case 'circle':
-          previewShape = createCircle(startPoint, endPoint, {
+        }
+        case 'circle': {
+          const previewCircle = createCircle(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
             fill: currentStyle.fillColor || 'transparent',
           });
+          if (previewCircle) {
+            applyOutlineEnabled(previewCircle, 'circle', currentStyle.outlineEnabled);
+          }
+          previewShape = previewCircle;
           break;
-        case 'rectangle':
-          previewShape = createRectangle(startPoint, endPoint, {
+        }
+        case 'rectangle': {
+          const previewRectangle = createRectangle(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
             fill: currentStyle.fillColor || 'transparent',
           });
+          if (previewRectangle) {
+            applyOutlineEnabled(previewRectangle, 'rectangle', currentStyle.outlineEnabled);
+          }
+          previewShape = previewRectangle;
           break;
-        case 'dimension':
-          previewShape = createDimensionLine(startPoint, endPoint, {
+        }
+        case 'dimension': {
+          const previewDimension = createDimensionLine(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
           });
+          if (previewDimension) {
+            applyOutlineEnabled(previewDimension, 'dimension', currentStyle.outlineEnabled);
+          }
+          previewShape = previewDimension;
           break;
+        }
         default:
           break;
       }
@@ -1166,33 +1781,58 @@ function AnnotationEditor({
 
       // ツールに応じて図形を作成
       let shape = null;
+      // Task 115.82 (Req 6.2): 寸法線が作成されたときだけ寸法値入力欄を開くための参照
+      let createdDimension: DimensionLine | null = null;
       switch (activeTool) {
-        case 'arrow':
-          shape = createArrow(startPoint, endPoint, {
+        case 'arrow': {
+          const arrow = createArrow(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
           });
+          // Task 115.96 (Req 24.5): canvas へ載せる前に切替を反映する
+          if (arrow) {
+            applyOutlineEnabled(arrow, 'arrow', currentStyle.outlineEnabled);
+          }
+          shape = arrow;
           break;
-        case 'circle':
-          shape = createCircle(startPoint, endPoint, {
+        }
+        case 'circle': {
+          const circle = createCircle(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
             fill: currentStyle.fillColor || 'transparent',
           });
+          if (circle) {
+            applyOutlineEnabled(circle, 'circle', currentStyle.outlineEnabled);
+          }
+          shape = circle;
           break;
-        case 'rectangle':
-          shape = createRectangle(startPoint, endPoint, {
+        }
+        case 'rectangle': {
+          const rectangle = createRectangle(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
             fill: currentStyle.fillColor || 'transparent',
           });
+          if (rectangle) {
+            applyOutlineEnabled(rectangle, 'rectangle', currentStyle.outlineEnabled);
+          }
+          shape = rectangle;
           break;
-        case 'dimension':
-          shape = createDimensionLine(startPoint, endPoint, {
+        }
+        case 'dimension': {
+          // Task 115.82 (Req 6.2): 作成した寸法線は入力欄の対象として保持する
+          const dimension = createDimensionLine(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
           });
+          if (dimension) {
+            applyOutlineEnabled(dimension, 'dimension', currentStyle.outlineEnabled);
+          }
+          shape = dimension;
+          createdDimension = dimension;
           break;
+        }
         default:
           // テキストなどは別途実装
           break;
@@ -1202,6 +1842,23 @@ function AnnotationEditor({
       if (shape) {
         canvas.add(shape);
         canvas.renderAll();
+      }
+
+      // Task 115.82 (Req 6.2): 寸法線が描画されたら寸法値入力用のテキストフィールドを開く。
+      // 本ハンドラ自体が readOnly でない場合にのみ登録されるため、閲覧モードでは到達しない。
+      if (createdDimension) {
+        const clientPoint = resolveClientPoint(options.e);
+        // 退避先のキャンバス座標は入力欄を置く position: fixed 層とは座標系が異なり、
+        // 位置がずれうる。Fabric は mouse:up へ必ず元の DOM イベントを渡すため
+        // 実際には到達しないが、位置の欠落で入力欄自体を出さない方が要件6.2 に反する。
+        const anchorPoint = clientPoint ?? { x: endPoint.x, y: endPoint.y };
+        setDimensionValueInput({
+          target: createdDimension,
+          // 入力欄がポインタ位置と重ならないよう少しずらす
+          position: { x: anchorPoint.x + 12, y: anchorPoint.y + 12 },
+          initialValue: createdDimension.customData.dimensionValue ?? '',
+          initialUnit: createdDimension.customData.dimensionUnit || DEFAULT_DIMENSION_UNIT,
+        });
       }
     });
 
@@ -1226,6 +1883,8 @@ function AnnotationEditor({
           fill: currentStyle.fillColor || 'transparent',
         });
         if (polygon) {
+          // Task 115.96 (Req 32.5): canvas へ載せる前に切替を反映する
+          applyOutlineEnabled(polygon, 'polygon', currentStyle.outlineEnabled);
           canvas.add(polygon);
           canvas.renderAll();
         }
@@ -1242,6 +1901,8 @@ function AnnotationEditor({
           fill: 'transparent',
         });
         if (polyline) {
+          // Task 115.96 (Req 32.5): canvas へ載せる前に切替を反映する
+          applyOutlineEnabled(polyline, 'polyline', currentStyle.outlineEnabled);
           canvas.add(polyline);
           canvas.renderAll();
         }
@@ -1320,18 +1981,11 @@ function AnnotationEditor({
       return;
     }
 
-    // Task 96.3 (round 1 修正): payload.target には依存しない。
-    // touchGestureManager の buildPayload は target を設定せず、Fabric の canvas.fire は
-    // カスタムイベントに target を付与しないため、本番タッチ dbltap では payload.target が
-    // 常に undefined になる。ここでタップ点のクライアント座標から実ヒットテストを行い対象を得る。
-    // Fabric v7 の findTarget は clientX/clientY を持つイベント様オブジェクトから
-    // getScenePoint 経由で対象を解決し、{ target?, subTargets, ... } を返す。
-    const eventLike = {
-      clientX: payload.clientX,
-      clientY: payload.clientY,
-    } as unknown as TPointerEvent;
-    const hit = canvas.findTarget(eventLike);
-    const target = hit.target as { type?: string; enterEditing?: () => void } | undefined;
+    // Task 96.3 (round 1 修正) / 115.47: payload.target には依存せず、タップ点の座標から
+    // 実ヒットテストで対象を得る（判定は resolveGestureTarget の 1 箇所のみ。長押し側と共用）。
+    const target = resolveGestureTarget(canvas, payload) as
+      | { type?: string; enterEditing?: () => void }
+      | undefined;
 
     // Req 27.1: テキスト注釈上は従来どおり編集モードへ（後方互換）。ズームはしない。
     // これにより、従来 payload.target=undefined→no-op で実質壊れていたタッチのテキスト編集も
@@ -1356,7 +2010,13 @@ function AnnotationEditor({
     }
 
     // controller に新メソッドを足さず、現在ズームを見て拡大↔全体表示を排他に切り替える。
-    const tapPoint = { x: payload.clientX, y: payload.clientY };
+    //
+    // Task 115.145 (Req 33.8): 拡大の基準点は描画面（canvas 要素の左上が原点）基準で渡す。
+    // GesturePayload の clientX/clientY は画面基準であり、そのまま渡すと canvas 要素が画面
+    // 上端から離れている配置（モバイルのヘッダ＋パンくず＋ツールバー下）では拡大の中心が
+    // 要素オフセットぶん下（右）へずれる。115.129 が2本指ピンチ経路へ入れた変換と同一の
+    // `toCanvasPoint` を通し、ダブルタップ経路でも基準を揃える。
+    const tapPoint = controller.toCanvasPoint({ x: payload.clientX, y: payload.clientY });
     if (controller.getState().zoom <= 1 + DOUBLE_TAP_ZOOM_EPSILON) {
       controller.zoomToPoint(tapPoint, DOUBLE_TAP_ZOOM_SCALE);
     } else {
@@ -1365,25 +2025,37 @@ function AnnotationEditor({
   }, []);
 
   /**
-   * Task 72.2 (Req 27.9, 27.10): 長押しハンドラ
+   * Task 72.2 / 115.47 (Req 27.2, 27.9, 27.10): 長押しハンドラ
    *
-   * 選択ツール選択中かつ target がある場合のみコンテキストメニュー state を visible にする。
+   * 選択ツール選択中に、長押し点の座標をヒットテスト（`resolveGestureTarget`）して対象が
+   * 得られた場合のみコンテキストメニュー state を visible にする（Req 27.2, 27.10）。
+   * 通知（GesturePayload）は target を含まないため、対象は必ず座標から解決する。
    * 描画ツール選択中は Req 17 (描画ツール使用中のオブジェクト選択防止) と Req 27.9 に従い
-   * コンテキストメニューを表示せず何もしない。
+   * コンテキストメニューを表示せず何もしない（ヒットテストも行わない）。
    */
   const handleLongPress = useCallback((payload: GesturePayload) => {
     // Req 27.9 / Req 17: 描画ツール選択中は長押しによるメニュー表示を行わない
     if (activeToolRef.current !== 'select') {
       return;
     }
-    // 防御的: target が無い長押しはメニューを開かない
-    if (!payload.target) {
+
+    const canvas = fabricCanvasRef.current;
+    if (canvas === null) {
+      return;
+    }
+
+    // Task 115.47: payload.target には依存せず、長押し点の座標から実ヒットテストで対象を得る
+    // （ダブルタップ側と同一方式。判定は resolveGestureTarget の 1 箇所のみ）。
+    const target = resolveGestureTarget(canvas, payload);
+
+    // 防御的: 長押し点に対象が無ければメニューを開かない
+    if (!target) {
       return;
     }
     setContextMenu({
       visible: true,
       position: { x: payload.clientX, y: payload.clientY },
-      targetObject: payload.target as FabricObject,
+      targetObject: target,
     });
   }, []);
 
@@ -1394,6 +2066,56 @@ function AnnotationEditor({
    */
   const handleContextMenuClose = useCallback(() => {
     setContextMenu({ visible: false, position: null, targetObject: null });
+  }, []);
+
+  /**
+   * Task 115.104 (Req 28.8): 選択中ツールの再タップで詳細属性パネルを開閉する
+   *
+   * `AnnotationToolbar` は「現在選択中のツールがもう一度押された」ことだけを通知する。
+   * 開閉の状態を持つのは編集画面側であり、ここでトグルする。ツールの選択状態は
+   * `handleToolChange` が従来どおり同じツールで更新するため維持される。
+   */
+  const handleActiveToolReTap = useCallback(() => {
+    setState((prev) => ({ ...prev, isStylePanelVisible: !prev.isStylePanelVisible }));
+  }, []);
+
+  /**
+   * Task 115.82 (Req 6.3): 寸法値の確定
+   *
+   * 入力された数値と単位を対象の寸法線へ書き込み、線上のラベルとして描画する。
+   * `object:modified` を発火して Undo 履歴と自動保存（Task 115.81 の結線）へ反映させる。
+   *
+   * 数値が空（未入力・空白のみ）の場合は単位も書き込まない。要件6.3 が表示を求めるのは
+   * 「数値とオプションの単位」であり、単位は数値に付随する任意要素だからである。
+   * `DimensionLine.setDimensionWithLabel` はラベルを `` `${value} ${unit}` `` で組み立てるため、
+   * 空の数値をそのまま渡すと `" mm"` のような単位だけのラベルが描かれてしまう。
+   * 空の値と空の単位を明示して渡すことで、既に値を持つ寸法線を空で確定した場合も
+   * ラベルが確実に消える（`_hasLabel` が false へ戻る）。
+   */
+  const handleDimensionValueConfirm = useCallback(
+    (value: string, unit: string) => {
+      const canvas = fabricCanvasRef.current;
+      const target = dimensionValueInput?.target ?? null;
+      if (canvas && target) {
+        const trimmedValue = value.trim();
+        const hasValue = trimmedValue !== '';
+        target.setDimensionWithLabel(canvas, hasValue ? trimmedValue : '', hasValue ? unit : '');
+        target.setCoords();
+        canvas.fire('object:modified', { target });
+        canvas.renderAll();
+      }
+      setDimensionValueInput(null);
+    },
+    [dimensionValueInput]
+  );
+
+  /**
+   * Task 115.82 (Req 6.2): 寸法値入力のキャンセル
+   *
+   * 入力欄を閉じるだけで、描画済みの寸法線は残す（値なしの寸法線として扱う）。
+   */
+  const handleDimensionValueCancel = useCallback(() => {
+    setDimensionValueInput(null);
   }, []);
 
   /**
@@ -1480,7 +2202,8 @@ function AnnotationEditor({
       canvasElementRef.current = canvasElement;
 
       // Canvasを初期化（サイズを初期化時に指定）
-      // Task 72.1 / design.md §4611: enablePointerEvents を有効化し、
+      // Task 72.1 / design.md「touchGestureManager」の Service Interface の Risks / Decisions
+      // （`enablePointerEvents: true` を初手から採用する）: enablePointerEvents を有効化し、
       // touchGestureManager が PointerEvent ベースで多指ジェスチャーを厳密判定できるようにする
       canvas = new FabricCanvas(canvasElement, {
         selection: false, // 背景画像が選択されないように
@@ -1499,6 +2222,9 @@ function AnnotationEditor({
       // 実際の touchGestureManager アタッチと初期ビュー適用は viewportController が
       // 生成された後（setFabricCanvas による再レンダー後）の専用 effect で行う。
       initialViewAppliedRef.current = false;
+      // Task 115.83 (Req 5.6): 新しい canvas の等倍値をホストへ通知しないよう、
+      // 初期ビュー適用が済むまで表示状態の通知を止める。
+      viewReadyRef.current = false;
 
       // Task 72.2 (Req 27.1, 27.9, 27.10): touchGestureManager が fire する
       // custom:dbltap / custom:longpress に React 側ハンドラを配線する。
@@ -1768,6 +2494,12 @@ function AnnotationEditor({
    * canvas 初期化後に viewportController 経由で一度だけ適用する（REQ-5.6 のビュー状態共有）。
    * ズーム範囲は controller.clampZoom（ZOOM_CONSTANTS）に準拠し、パンは等倍時抑止
    * （isPanEnabled, Req 34.7）に従う。initialZoom/initialPan が未指定の場合は何もしない。
+   *
+   * Task 115.83 (Req 5.6): 適用の契機を「画像の読み込み完了後」へ改めた。canvas 生成直後は
+   * 表示寸法が暫定（コンテナ実寸の当て込み）で、その中心を基準にズームすると復元位置が
+   * ずれるためである。あわせてパンを**絶対位置の復元**として扱う。`controller.pan` は
+   * 相対量を足す API であり、ズーム適用後の translate は 0 とは限らないため、
+   * 現在位置との差分を渡さないと共有された位置を再現できない。
    */
   useEffect(() => {
     const canvas = fabricCanvas;
@@ -1777,7 +2509,8 @@ function AnnotationEditor({
     if (initialViewAppliedRef.current) {
       return;
     }
-    if (initialZoom === undefined && initialPan === undefined) {
+    // 画像読み込み中は表示寸法が確定していないため、確定後に適用する。
+    if (state.isLoading) {
       return;
     }
     initialViewAppliedRef.current = true;
@@ -1788,12 +2521,17 @@ function AnnotationEditor({
       viewportController.zoomToPoint(center, initialZoom);
     }
     if (initialPan) {
-      // 原点（等倍時 translate=0）からの平行移動量として適用（等倍時は内部で抑止）。
-      viewportController.pan(initialPan.x, initialPan.y);
+      // 絶対位置として復元する（等倍時は controller 内部で抑止, Req 34.7）。
+      const current = viewportController.getState();
+      viewportController.pan(initialPan.x - current.panX, initialPan.y - current.panY);
     }
+
+    // ここまでで新しい canvas の表示状態が確定した。以後の変化はホストへ通知してよい。
+    viewReadyRef.current = true;
+    reportViewState();
     // initialZoom/initialPan は「初期」値のため、canvas/controller の確定時のみ適用する。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fabricCanvas, viewportController]);
+  }, [fabricCanvas, viewportController, state.isLoading, reportViewState]);
 
   /**
    * 画像URLが変更された場合の再読み込み
@@ -1982,7 +2720,79 @@ function AnnotationEditor({
 
     // 5. 状態を更新
     setState((prev) => ({ ...prev, imageRotation: newRotation }));
-  }, [undoManager, applyImageRotation]);
+
+    // 6. Task 115.83 (Req 5.6): 回転もモード間で共有する表示状態のひとつ
+    reportViewState();
+
+    // 7. Task 115.102 (Req 9.3): 回転角度は注釈データとして保存される（Req 22.4）ため、
+    //    保存前に画面を離れると失われる。未保存の編集として数える。
+    if (!readOnly) {
+      setDirty(true);
+    }
+  }, [undoManager, applyImageRotation, reportViewState, readOnly, setDirty]);
+
+  /**
+   * Task 115.83 (Req 5.4): 閲覧モードの単一ポインタ・ドラッグによるパン操作。
+   *
+   * design.md「Requirements 33-34」の「既存 ImageViewer（閲覧モード）との差異」は、
+   * 1本指（単一ポインタ）パンを閲覧モードの入力割当と定めている（編集モードは1本指を
+   * 描画/移動に充てるため2本指パンで代替する）。節の題は design.md の歴史記録であるため
+   * 逐語で引くが、そこにある `ImageViewer.tsx` はタスク 115.146 で撤去済みであり、現在の
+   * 閲覧モードは本コンポーネントを `readOnly` で描画したものである。
+   * 本ハンドラはその閲覧モード側の割当であり、`readOnly` のときだけコンテナへ結線する。
+   *
+   * 2本指以上のときは `touchGestureManager` のピンチ/2本指パンに委ね、二重にビューポートを
+   * 動かさないよう自前のパンを中断する。移動量は前フレームからの差分で与え、等倍時の抑止と
+   * 範囲補正は `canvasViewportController` が担う（Req 34.7）。
+   */
+  const handleViewerPanPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    viewerPanPointersRef.current.add(event.pointerId);
+    if (viewerPanPointersRef.current.size !== 1) {
+      // 2本指以上に増えた時点で単一ポインタのパンは中断する。
+      viewerPanOriginRef.current = null;
+      return;
+    }
+    // マウスは主ボタンのみ（右クリック等でパンを始めない）。
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+    const controller = viewportControllerRef.current;
+    if (!controller || !controller.isPanEnabled()) {
+      return;
+    }
+    viewerPanOriginRef.current = { x: event.clientX, y: event.clientY };
+  }, []);
+
+  const handleViewerPanPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const origin = viewerPanOriginRef.current;
+    if (!origin || viewerPanPointersRef.current.size !== 1) {
+      return;
+    }
+    const controller = viewportControllerRef.current;
+    if (!controller) {
+      return;
+    }
+    // 前フレームからの差分で動かし、基準点を現在位置へ進める。
+    controller.pan(event.clientX - origin.x, event.clientY - origin.y);
+    viewerPanOriginRef.current = { x: event.clientX, y: event.clientY };
+  }, []);
+
+  /**
+   * Task 115.83 (Req 5.4, 5.6): ポインタ操作の終了。
+   *
+   * 単一ポインタのパンを終了させるだけでなく、**両モードで**確定した表示状態を
+   * ホストへ通知する。`touchGestureManager` は 2本指パンの終了コールバックを公開せず、
+   * パンは倍率も変えないため、ここで拾わないと編集モードで動かした表示位置が
+   * モード切り替えで失われる。倍率の変化は別途 `zoom` の effect が通知する。
+   */
+  const handleViewerPanPointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      viewerPanPointersRef.current.delete(event.pointerId);
+      viewerPanOriginRef.current = null;
+      reportViewState();
+    },
+    [reportViewState]
+  );
 
   /**
    * 保存操作ハンドラ
@@ -1990,53 +2800,130 @@ function AnnotationEditor({
    * REQ-9.1: 全ての注釈データをデータベースに保存する
    * REQ-9.4: 保存中インジケーターを表示する
    * REQ-9.5: エラーメッセージを表示してリトライを促す
-   * 注釈保存後、サムネイルも更新する（注釈付き画像をサムネイルに反映）
+   * 注釈保存後、合成済み画像を注釈付きサムネイルへ反映する
+   * REQ-23.4: 合成済みサムネイルの更新完了を保証してから保存完了とみなす
+   * REQ-23.6: 更新に失敗した場合はエラーを提示し、旧状態が残らないよう再取得を要求する
    */
   const handleSave = useCallback(async () => {
     if (!fabricCanvasRef.current || state.isSaving) return;
 
+    // Task 115.105 (Req 15.6): 通信が切れている間はサーバー保存を実行しない。
+    // ボタンの無効化だけでは、無効化されない導線（保存失敗後の再試行、ストレージ警告帯の
+    // 「今すぐ保存」）から到達しうるため、実行側でも抑止して理由を提示する。
+    if (isServerSaveBlocked) {
+      setState((prev) => ({
+        ...prev,
+        isSaving: false,
+        saveSuccess: false,
+        saveFailed: false,
+        error: offlineWarningMessage,
+      }));
+      return;
+    }
+
     const canvas = fabricCanvasRef.current;
 
     // 保存中状態に設定
-    setState((prev) => ({ ...prev, isSaving: true, error: null, saveSuccess: false }));
+    setState((prev) => ({
+      ...prev,
+      isSaving: true,
+      error: null,
+      saveSuccess: false,
+      saveFailed: false,
+    }));
 
     try {
-      // Canvasからオブジェクトを取得（背景画像を除く）
-      const objects = canvas.getObjects().filter((obj) => obj !== backgroundImageRef.current);
-
       // 注釈データを構築（キャンバス寸法と回転角度を含める - PDF/サムネイルでのスケール変換・回転用）
-      const annotationData = {
-        version: '1.0',
-        objects: objects.map((obj) => obj.toObject()),
-        canvasWidth: canvas.getWidth(),
-        canvasHeight: canvas.getHeight(),
-        imageRotation: imageRotationRef.current,
-      };
+      const annotationData = buildAnnotationData(canvas);
+      const objects = annotationData.objects;
 
       // APIを呼び出して保存
       const saveResponse = await saveAnnotation(imageId, { data: annotationData });
 
-      // REQ-23.5: レスポンスのannotatedThumbnailUrlをコールバックで通知
-      if (onAnnotationSaved) {
-        onAnnotationSaved({
-          annotatedThumbnailUrl: saveResponse.annotatedThumbnailUrl ?? null,
-        });
+      // Task 115.102 (Req 13.5): 保存が成功した時点で操作履歴を捨てる。
+      // 保存後も履歴が残っていると、保存前の状態へ「元に戻す」ことができてしまい、
+      // その状態のまま次に保存すると、保存済みの注釈がサーバー上から消える。
+      // 合成済みサムネイルの更新可否より前に置く。注釈本体は既に確定しており、
+      // サムネイル更新の失敗で早期 return する経路でも履歴を残してはならないため。
+      undoManager.clear();
+
+      // Task 115.102 (Req 9.3): サーバーへ確定したので未保存の編集は無くなる
+      setDirty(false);
+
+      // Task 115.1: 合成済み画像は注釈付きサムネイル（annotatedThumbnailPath）へ保存する。
+      // 通常サムネイルはアップロード時の素の画像として不変。
+      //
+      // Task 115.3 (Req 22.4, 23.2, 23.3): 回転は原本を書き換えず注釈データとして保存される。
+      // 回転を反映した画像を持つのは編集画面のキャンバスだけであるため、注釈が0件でも
+      // 回転が加えられていれば合成済みサムネイルを生成・更新する必要がある。
+      // 逆に注釈も回転も無い場合、合成結果は素のサムネイルと同一の内容にしかならない。
+      // この場合は合成済みサムネイルが存在しない状態へ収束させ、表示を素のサムネイルへ
+      // 退避させる（Req 22.5, 23.8）。
+      const hasRotation = normalizeImageRotation(annotationData.imageRotation ?? 0) !== 0;
+      const requiresAnnotatedThumbnail = objects.length > 0 || hasRotation;
+
+      // Task 115.107: 合成済みサムネイルの表示元は、この直後の合成済みサムネイル更新
+      // （クライアント合成）だけが決める。注釈保存の応答は表示元を持たない。
+      let annotatedThumbnailUrl: string | null = null;
+      try {
+        if (requiresAnnotatedThumbnail) {
+          // キャンバスを画像としてエクスポート（JPEG形式、品質0.9）
+          const imageData = canvas.toDataURL({
+            format: 'jpeg',
+            quality: 0.9,
+            multiplier: 1,
+          });
+          const thumbnailResponse = await updateAnnotatedThumbnail(imageId, imageData);
+          annotatedThumbnailUrl = thumbnailResponse.annotatedThumbnailUrl ?? null;
+        } else {
+          // 既存の合成済みサムネイルを残さない。既に無い場合も成功する（冪等）
+          await deleteAnnotatedThumbnail(imageId);
+          annotatedThumbnailUrl = null;
+        }
+      } catch (thumbnailErr) {
+        // Task 115.2 / REQ-23.4: 合成済みサムネイルの更新完了を保存完了の条件とするため、
+        // 更新に失敗した場合は保存完了（saveSuccess）とみなさない。
+        // Task 115.3: 取り消し（存在しない状態への収束）も同じく表示の最新化であるため、
+        // 失敗時の扱いは更新と同一とする。
+        // REQ-23.6: 失敗を握り潰さず、エラー提示と再取得要求を行う。
+        // なお注釈本体は既に保存済みであるため、注釈保存の契約（保存成功）は巻き戻さない。
+        console.error('合成済みサムネイルの更新に失敗しました:', thumbnailErr);
+
+        setState((prev) => ({ ...prev, isSaving: false, saveSuccess: false }));
+
+        toast.error(
+          '注釈は保存されましたがサムネイル再生成に失敗しました。画面を再読み込みしてください。',
+          { duration: 8000 }
+        );
+
+        // 旧状態のサムネイルを最新として通知しない
+        if (onAnnotationSaved) {
+          onAnnotationSaved({ annotatedThumbnailUrl: null });
+        }
+
+        // 画像一覧を強制再取得して旧状態残留を防止
+        if (onRequestRefresh) {
+          onRequestRefresh();
+        }
+
+        return;
       }
 
-      // サムネイルを更新（注釈付き画像を反映）
-      try {
-        // キャンバスを画像としてエクスポート（JPEG形式、品質0.9）
-        const imageData = canvas.toDataURL({
-          format: 'jpeg',
-          quality: 0.9,
-          multiplier: 1,
-        });
-        await updateThumbnail(imageId, imageData);
-        console.log('Thumbnail updated with annotations');
-      } catch (thumbnailErr) {
-        // サムネイル更新に失敗しても注釈保存は成功しているので警告のみ
-        console.warn('サムネイルの更新に失敗しました:', thumbnailErr);
+      // REQ-23.5: 更新後の annotatedThumbnailUrl をコールバックで通知
+      if (onAnnotationSaved) {
+        onAnnotationSaved({ annotatedThumbnailUrl });
       }
+
+      // Task 115.81 (Req 15.5): サーバーへ確定したのでローカル下書きは未保存ではなくなる。
+      // 残したままにすると次回訪問時に復元確認が常時出て、実際の未保存編集と区別できなくなる。
+      autoSaveManager.clearLocal(imageId);
+      setServerAnnotation({
+        data: annotationData,
+        updatedAt: saveResponse.updatedAt,
+      });
+      restorationRef.current?.recheckLocalData();
+      // 容量超過の警告帯は手動保存の完了をもって役目を終える（Req 15.8）
+      setStorageWarning((prev) => (prev === 'quota-exceeded' ? null : prev));
 
       // 保存成功
       setState((prev) => ({ ...prev, isSaving: false, saveSuccess: true }));
@@ -2051,46 +2938,179 @@ function AnnotationEditor({
         setState((prev) => ({ ...prev, saveSuccess: false }));
       }, 3000);
     } catch (err) {
-      // REQ-23.6: THUMBNAIL_REGENERATION_FAILED エラーの判定
-      // 注釈保存自体は成功しているが、サムネイル再生成のみ失敗したケース
-      if (
-        err instanceof ApiError &&
-        err.response &&
-        typeof err.response === 'object' &&
-        (err.response as Record<string, unknown>).code === 'THUMBNAIL_REGENERATION_FAILED'
-      ) {
-        console.warn('サムネイル再生成に失敗しました:', err);
-
-        // 保存中状態を解除（注釈保存自体は成功しているのでエラー状態にしない）
-        setState((prev) => ({ ...prev, isSaving: false }));
-
-        // エラー Toast を表示
-        toast.error(
-          '注釈は保存されましたがサムネイル再生成に失敗しました。画面を再読み込みしてください。',
-          { duration: 8000 }
-        );
-
-        // onAnnotationSaved を null で通知（サムネイルURLは取得できなかった）
-        if (onAnnotationSaved) {
-          onAnnotationSaved({ annotatedThumbnailUrl: null });
-        }
-
-        // 画像一覧を強制再取得して旧状態残留を防止
-        if (onRequestRefresh) {
-          onRequestRefresh();
-        }
-
-        return;
-      }
-
       console.error('注釈の保存に失敗しました:', err);
+      // Req 9.5: 誤りを伝えたうえで、同じ操作をやり直す導線（再試行）を出す
       setState((prev) => ({
         ...prev,
         isSaving: false,
+        saveFailed: true,
         error: err instanceof Error ? err.message : '注釈の保存に失敗しました',
       }));
     }
-  }, [imageId, state.isSaving, onAnnotationSaved, onRequestRefresh, toast]);
+  }, [
+    imageId,
+    state.isSaving,
+    isServerSaveBlocked,
+    offlineWarningMessage,
+    onAnnotationSaved,
+    onRequestRefresh,
+    toast,
+    buildAnnotationData,
+    autoSaveManager,
+    undoManager,
+    setDirty,
+  ]);
+
+  // ---------------------------------------------------------------------------
+  // Task 115.81: 自動保存・復元基盤の結線（Req 15.4, 15.5, 15.7-15.10）
+  // ---------------------------------------------------------------------------
+
+  /**
+   * ローカル下書きをキャンバスへ適用する要求を受け取る（Req 15.5）
+   *
+   * ダイアログ確定時点ではキャンバスや背景画像がまだ準備中でありうるため、要求を参照へ退避し、
+   * 準備完了を待つ effect が実際の適用を行う。
+   */
+  const handleRestoreLocalDraft = useCallback((data: AnnotationDraftData) => {
+    pendingRestoreRef.current = data;
+    setRestoreRequestId((prev) => prev + 1);
+  }, []);
+
+  /**
+   * 未保存データ復元フック（Req 15.5）
+   *
+   * localStorage の下書きとサーバー保存済み注釈を比較し、復元確認ダイアログの表示可否を決める。
+   */
+  const restoration = useAnnotationRestoration({
+    imageId,
+    serverAnnotationData: serverAnnotation.data,
+    serverUpdatedAt: serverAnnotation.updatedAt,
+    autoSaveManager,
+    onRestore: handleRestoreLocalDraft,
+  });
+  // 参照の更新はレンダー中に行わない（React Compiler の制約）。描画後に最新値を載せ替える
+  useEffect(() => {
+    restorationRef.current = restoration;
+  }, [restoration]);
+
+  /**
+   * Req 15.8 / 15.9: ストレージ警告帯の購読
+   *
+   * - QuotaExceededError のリトライ後も保存できなかった場合に容量超過の警告を出す（15.8）
+   * - localStorage が使えない環境（SecurityError 等）では自動保存無効の警告を出す（15.9）
+   */
+  useEffect(() => {
+    if (readOnly) {
+      return;
+    }
+
+    if (
+      !suppressPrivateWarningRef.current &&
+      (autoSaveManager.isAutoSaveDisabled() || !autoSaveManager.isAutoSaveAvailable())
+    ) {
+      setStorageWarning('private-browsing');
+    }
+
+    autoSaveManager.setOnQuotaExceeded(() => {
+      setStorageWarning('quota-exceeded');
+    });
+
+    return () => {
+      autoSaveManager.setOnQuotaExceeded(null);
+    };
+  }, [autoSaveManager, readOnly]);
+
+  /**
+   * Req 15.4: 注釈編集中の自動保存
+   *
+   * 注釈の追加・変更・削除を検知し、編集中は一定間隔（既定30秒）で localStorage へ保存する。
+   * 描き続けている最中にも保存が起こる（発火条件は AutoSaveManager 側が持つ）。
+   * 読み込み・復元由来の object:added は autoSaveReadyRef で除外する。
+   */
+  useEffect(() => {
+    const canvas = fabricCanvas;
+    if (!canvas || readOnly) {
+      return;
+    }
+
+    const scheduleAutoSave = () => {
+      if (!autoSaveReadyRef.current) {
+        return;
+      }
+      // Req 9.3: 読み込み・復元由来ではないキャンバス変更は未保存の編集である
+      setDirty(true);
+      autoSaveManager.saveToLocal(imageId, surveyId, buildAnnotationData(canvas));
+    };
+
+    canvas.on('object:added', scheduleAutoSave);
+    canvas.on('object:modified', scheduleAutoSave);
+    canvas.on('object:removed', scheduleAutoSave);
+
+    return () => {
+      canvas.off('object:added', scheduleAutoSave);
+      canvas.off('object:modified', scheduleAutoSave);
+      canvas.off('object:removed', scheduleAutoSave);
+    };
+  }, [fabricCanvas, readOnly, imageId, surveyId, autoSaveManager, buildAnnotationData, setDirty]);
+
+  /**
+   * Req 15.5: 復元確定後にローカル下書きをキャンバスへ適用する
+   */
+  useEffect(() => {
+    if (restoreRequestId === 0 || state.isLoading) {
+      return;
+    }
+
+    const canvas = fabricCanvasRef.current;
+    const draft = pendingRestoreRef.current;
+    if (!canvas || !draft) {
+      return;
+    }
+    pendingRestoreRef.current = null;
+
+    let cancelled = false;
+
+    void (async () => {
+      // 既存の注釈のみ除去する（背景画像は保持する）
+      canvas
+        .getObjects()
+        .filter((obj) => obj !== backgroundImageRef.current)
+        .forEach((obj) => canvas.remove(obj));
+
+      const objects = draft.objects ?? [];
+      if (objects.length > 0) {
+        const enlivenedObjects = await util.enlivenObjects(objects);
+        if (cancelled || isDisposedRef.current || fabricCanvasRef.current !== canvas) {
+          return;
+        }
+        addRestoredAnnotationObjects(
+          canvas,
+          enlivenedObjects,
+          draft.canvasWidth,
+          draft.canvasHeight,
+          !readOnly && activeToolRef.current === 'select'
+        );
+      }
+      canvas.renderAll();
+      // Req 9.3: 復元した下書きはサーバーへ未確定の編集である
+      if (!readOnly) {
+        setDirty(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [restoreRequestId, state.isLoading, readOnly, setDirty]);
+
+  /**
+   * アンマウント時に保留中の自動保存タイマーを破棄する
+   */
+  useEffect(() => {
+    return () => {
+      autoSaveManager.destroy();
+    };
+  }, [autoSaveManager]);
 
   /**
    * エクスポートダイアログを開く
@@ -2211,6 +3231,39 @@ function AnnotationEditor({
   }, [imageInfo?.originalUrl, imageInfo?.fileName]);
 
   /**
+   * 注釈データを JSON 形式でエクスポートする（Task 115.102 / Req 9.6）
+   *
+   * 保存済みの注釈データをサーバーから取得し、JSON ファイルとしてダウンロードさせる。
+   * 画像の書き出し（Req 12）とは別の導線であり、注釈そのものの受け渡しに用いる。
+   * 保存前の編集内容ではなくサーバー上の確定内容を出す（要件9.6 の対象は「注釈データ」）。
+   */
+  const handleExportAnnotationJson = useCallback(async () => {
+    setIsExportingAnnotationJson(true);
+
+    try {
+      const jsonString = await exportAnnotationJson(imageId);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const baseName = imageInfo?.fileName?.replace(/\.[^/.]+$/, '') || `annotation_${imageId}`;
+      downloadFile(blob, `${baseName}_annotations.json`);
+      setIsExportDialogOpen(false);
+    } catch (err) {
+      console.error('注釈データのエクスポートに失敗しました:', err);
+      const isNotFound = err instanceof ApiError && err.statusCode === 404;
+      setState((prev) => ({
+        ...prev,
+        saveFailed: false,
+        error: isNotFound
+          ? '保存された注釈データがありません。先に保存してください。'
+          : err instanceof Error
+            ? err.message
+            : '注釈データのエクスポートに失敗しました',
+      }));
+    } finally {
+      setIsExportingAnnotationJson(false);
+    }
+  }, [imageId, imageInfo?.fileName]);
+
+  /**
    * エクスポートダイアログを閉じる
    */
   const handleCloseExportDialog = useCallback(() => {
@@ -2297,18 +3350,49 @@ function AnnotationEditor({
 
       {/* 全体ラッパー */}
       <div style={STYLES.wrapper}>
+        {/* Task 115.105 (Req 15.6): 通信断の告知。切断中は警告を、復帰時は復帰通知を出す。
+            閲覧のみのときは保存操作自体が無いため出さない。 */}
+        {!readOnly && (
+          <div style={STYLES.networkStatusContainer}>
+            <NetworkStatusIndicator showReconnected />
+          </div>
+        )}
+
+        {/* Task 115.81 (Req 15.8, 15.9): ストレージ警告帯。
+            - quota-exceeded: 自動保存に失敗したので手動の「今すぐ保存」を促す（15.8）
+            - private-browsing: 自動保存を無効化し手動保存のみで動作することを伝える（15.9） */}
+        {!readOnly && storageWarning && (
+          <div style={STYLES.storageWarningContainer}>
+            <StorageWarningBanner
+              type={storageWarning}
+              onDismiss={(doNotShowAgain) => {
+                if (doNotShowAgain) {
+                  suppressPrivateWarningRef.current = true;
+                }
+                setStorageWarning(null);
+              }}
+              onSaveNow={storageWarning === 'quota-exceeded' ? handleSave : undefined}
+              showDoNotShowAgain={storageWarning === 'private-browsing'}
+            />
+          </div>
+        )}
+
         {/* ツールバー（readOnlyモードでは非表示） */}
         {!readOnly && (
           <div style={STYLES.toolbarContainer}>
             <AnnotationToolbar
               activeTool={state.activeTool}
               onToolChange={handleToolChange}
+              onActiveToolReTap={handleActiveToolReTap}
+              stylePanelVisible={state.isStylePanelVisible}
               disabled={state.isLoading || state.isSaving}
               styleOptions={state.styleOptions}
               onStyleChange={handleStyleChange}
               onUndo={handleUndo}
               onRedo={handleRedo}
               onSave={handleSave}
+              saveDisabled={isServerSaveBlocked}
+              saveDisabledReason={offlineWarningMessage ?? undefined}
               onExport={handleExport}
               canUndo={state.canUndo}
               canRedo={state.canRedo}
@@ -2327,6 +3411,15 @@ function AnnotationEditor({
           aria-label={readOnly ? '注釈ビューア' : '注釈エディタ'}
           tabIndex={readOnly ? -1 : 0}
           onKeyDown={readOnly ? undefined : handleKeyDown}
+          /* Task 115.83 (Req 5.4): 閲覧モードのみ単一ポインタ・ドラッグをパンに割り当てる。
+             編集モードの1本指は描画/選択に充てるため結線しない（2本指パンで代替）。 */
+          onPointerDown={readOnly ? handleViewerPanPointerDown : undefined}
+          onPointerMove={readOnly ? handleViewerPanPointerMove : undefined}
+          /* 終了側は両モードで結線する。2本指パン（touchGestureManager）の終了もここで
+             拾い、確定した表示状態をホストへ共有する（Req 5.6）。 */
+          onPointerUp={handleViewerPanPointerUp}
+          onPointerCancel={handleViewerPanPointerUp}
+          onPointerLeave={handleViewerPanPointerUp}
         >
           {/* Canvas - 動的に生成されるCanvas要素のコンテナ */}
           {/* Task 96.2 (Req 33.5, 30.1): touch-action:none でブラウザ既定ジェスチャーを抑止 */}
@@ -2361,8 +3454,31 @@ function AnnotationEditor({
           {/* エラー表示 */}
           {state.error && (
             <div style={STYLES.errorContainer}>
-              <div role="alert" style={STYLES.errorMessage}>
+              <div role="alert" style={STYLES.errorMessage} data-testid="annotation-save-error">
                 {state.error}
+                {/* Task 115.102 (Req 9.5): 保存に失敗したときは再実行の手段を添える。
+                    誤りの表示だけでは、ユーザーはもう一度保存する導線を持てない。 */}
+                {!readOnly && state.saveFailed && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      disabled={state.isSaving}
+                      /* Task 115.105 (Req 15.6): 通信断中は押下を成立させたうえで
+                         handleSave が理由を提示して抑止する（aria-disabled で状態を伝える） */
+                      aria-disabled={state.isSaving || isServerSaveBlocked}
+                      style={{
+                        ...STYLES.errorRetryButton,
+                        ...(state.isSaving || isServerSaveBlocked
+                          ? STYLES.errorRetryButtonDisabled
+                          : {}),
+                      }}
+                      data-testid="save-retry-button"
+                    >
+                      再試行
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2379,19 +3495,24 @@ function AnnotationEditor({
       </div>
 
       {/* Task 96.1 (Req 34.1, 34.2, 34.6, 34.8): ズーム操作コントロール。
-          - 編集モードでのみ表示（readOnly では非表示）。canvas/画像準備中（isLoading）は非表示。
+          - Task 115.83 (Req 5.2, 5.3): 閲覧モードでも表示する。要件5 は閲覧時の拡大・縮小・
+            回転の手段を求めており、従来の `!readOnly` 条件では閲覧のみの状態で操作手段が
+            一切現れず要件を満たさなかった。canvas/画像準備中（isLoading）は非表示。
+          - 回転ボタンは閲覧モードのときだけ本コントロールへ載せる。編集モードの回転ボタンは
+            Req 22.7 が「既存のツールバーに配置する」と定めており、二重に置かない。
           - position: fixed の下部オーバーレイで、背景 canvas の描画ヒット領域外に配置し、
             stopPropagation/preventDefault により描画の誤発火を防ぐ（ZoomControls 内で実装）。
           - 片手到達（Req 34.6）はレイアウトビューポート＝デバイス幅であることが前提。
             ホスト画面側でページ水平 overflow を抑止すること（SiteSurveyImageViewerPage の
             breadcrumbContainer.overflowX を参照）。
           - controller 未生成（canvas 初期化前）は disabled とする。 */}
-      {!readOnly && !state.isLoading && (
+      {!state.isLoading && (
         <ZoomControls
           zoom={zoom}
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           onFit={fit}
+          onRotate={readOnly ? handleRotate : undefined}
           disabled={!viewportController}
         />
       )}
@@ -2404,9 +3525,44 @@ function AnnotationEditor({
           onExport={handleExportWithOptions}
           onClose={handleCloseExportDialog}
           onDownloadOriginal={handleDownloadOriginal}
+          onExportAnnotationJson={handleExportAnnotationJson}
           exporting={isExporting}
           downloading={isDownloading}
+          exportingAnnotationJson={isExportingAnnotationJson}
         />
+      )}
+
+      {/* Task 115.81 (Req 15.5): 未保存データ復元確認ダイアログ。
+          localStorage に自動保存された下書きがある状態で再訪問・リロードすると表示する。 */}
+      {!readOnly && (
+        <RestoreAnnotationDialog
+          isOpen={restoration.showRestoreDialog}
+          localSavedAt={restoration.localSavedAtFormatted}
+          serverUpdatedAt={restoration.serverUpdatedAtFormatted}
+          isLocalNewer={restoration.isLocalNewer}
+          hasServerConflict={restoration.hasServerConflict}
+          localObjectCount={restoration.localObjectCount}
+          serverObjectCount={restoration.serverObjectCount}
+          onRestore={restoration.confirmRestore}
+          onDiscard={restoration.discardLocal}
+          onDismiss={restoration.dismissDialog}
+        />
+      )}
+
+      {/* Task 115.82 (Req 6.2, 6.3): 寸法値入力欄。
+          寸法線を描画した直後に表示し（6.2）、確定した数値と単位を寸法線上へ描く（6.3）。 */}
+      {dimensionValueInput && (
+        <div style={STYLES.dimensionInputOverlay}>
+          <div style={STYLES.dimensionInputAnchor}>
+            <DimensionValueInput
+              position={dimensionValueInput.position}
+              initialValue={dimensionValueInput.initialValue}
+              initialUnit={dimensionValueInput.initialUnit}
+              onConfirm={handleDimensionValueConfirm}
+              onCancel={handleDimensionValueCancel}
+            />
+          </div>
+        </div>
       )}
 
       {/* 注釈コンテキストメニュー (Task 72.3, Req 27.2-27.5, 27.7) */}

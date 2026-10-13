@@ -6,10 +6,14 @@
  * 数量グループに紐づけられた写真を拡大プレビューするモーダルダイアログ。
  * 注釈付き写真（注釈エディタで編集済みの画像）を拡大表示する。
  *
+ * Task 73.3: 拡大表示で原本画像を用いる
+ *
  * Requirements: 20.1, 20.2, 20.3
+ * Requirements (quantity-table-generation): 49.7
  */
 
 import { useCallback, useEffect } from 'react';
+import { AnnotatedImageThumbnail } from '../site-surveys/AnnotatedImageThumbnail';
 import type { SurveyImageSummary } from '../../types/quantity-table.types';
 
 // ============================================================================
@@ -106,9 +110,6 @@ export default function PhotoPreviewDialog({ isOpen, onClose, image }: PhotoPrev
 
   if (!isOpen) return null;
 
-  // REQ-20.2, 20.3: 注釈付きサムネイルURLを優先使用、存在しない場合はオリジナル画像にフォールバック
-  const displayUrl = image.annotatedThumbnailUrl || image.originalUrl;
-
   return (
     <div data-testid="photo-preview-overlay" style={styles.overlay} onClick={handleOverlayClick}>
       <div
@@ -126,7 +127,24 @@ export default function PhotoPreviewDialog({ isOpen, onClose, image }: PhotoPrev
         >
           ×
         </button>
-        <img src={displayUrl} alt={image.fileName} style={styles.image} />
+        {/*
+          REQ-20.2, 20.3 / Requirement 49.7:
+          拡大表示の表示元は原本画像とし、注釈は共有表示部品がクライアント側で合成する。
+          合成済みサムネイル（`annotatedThumbnailUrl`）は縮小解像度であり拡大表示には
+          足りないため渡さない。縮小表示指定（`preferThumbnail`）も与えない。
+          利用者の明示操作を契機とする表示のため `loading="eager"` で即時取得とし、
+          共有部品の表示領域観測（既定の `loading="lazy"`）を経由させない。
+        */}
+        <AnnotatedImageThumbnail
+          image={{
+            id: image.id,
+            originalUrl: image.originalUrl,
+            fileName: image.fileName,
+          }}
+          alt={image.fileName}
+          style={styles.image}
+          loading="eager"
+        />
       </div>
     </div>
   );

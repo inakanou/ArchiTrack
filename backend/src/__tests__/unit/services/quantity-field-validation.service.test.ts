@@ -8,7 +8,7 @@
  * - 13.2: 工種フィールド（全角8文字/半角16文字）超過を防止
  * - 13.3: 単位フィールド（全角3文字/半角6文字）超過を防止
  * - 9.3: 調整係数の入力可能範囲（-9.99〜9.99）検証
- * - 10.3: 丸め設定の入力可能範囲（-99.99〜99.99）検証
+ * - 10.3: 丸め設定の入力可能範囲（0.01〜99.99）検証
  * - 15.1: 数量フィールドの入力可能範囲（-999999.99〜9999999.99）検証
  * - 15.3: 寸法・ピッチ計算フィールドの入力可能範囲（0.01〜9999999.99）検証
  * - 9.4: 調整係数フィールドの空白時に「1.00」を自動設定
@@ -269,13 +269,13 @@ describe('QuantityFieldValidationService', () => {
     });
 
     describe('validateRoundingUnit - 丸め設定検証 (Requirements: 10.3)', () => {
-      it('範囲内（-99.99〜99.99）の値は有効', () => {
-        const result = service.validateRoundingUnit(0.01);
+      it('範囲内（0.01〜99.99）の値は有効', () => {
+        const result = service.validateRoundingUnit(1.0);
         expect(result.isValid).toBe(true);
       });
 
-      it('最小値-99.99は有効', () => {
-        const result = service.validateRoundingUnit(-99.99);
+      it('最小値0.01は有効', () => {
+        const result = service.validateRoundingUnit(0.01);
         expect(result.isValid).toBe(true);
       });
 
@@ -284,8 +284,8 @@ describe('QuantityFieldValidationService', () => {
         expect(result.isValid).toBe(true);
       });
 
-      it('最小値未満（-100）は無効', () => {
-        const result = service.validateRoundingUnit(-100);
+      it('最小値未満（0.009）は無効', () => {
+        const result = service.validateRoundingUnit(0.009);
         expect(result.isValid).toBe(false);
         expect(result.errors).toContainEqual(
           expect.objectContaining({
@@ -482,7 +482,7 @@ describe('QuantityFieldValidationService', () => {
         default: 1.0,
       });
       expect(FIELD_CONSTRAINTS.ROUNDING_UNIT).toEqual({
-        min: -99.99,
+        min: 0.01,
         max: 99.99,
         default: 0.01,
       });
@@ -676,7 +676,7 @@ describe('QuantityFieldValidationService', () => {
       });
     });
 
-    describe('丸め設定の範囲検証テスト（-99.99〜99.99）', () => {
+    describe('丸め設定の範囲検証テスト（0.01〜99.99）', () => {
       it('一般的な丸め値（0.25）は有効', () => {
         const result = service.validateRoundingUnit(0.25);
         expect(result.isValid).toBe(true);
@@ -687,13 +687,30 @@ describe('QuantityFieldValidationService', () => {
         expect(result.isValid).toBe(true);
       });
 
-      it('負の丸め値（-0.5）は有効', () => {
+      /*
+       * Requirements (quantity-table-generation): 10.3
+       *
+       * 負の切り上げ単位は REQ-10.3 の改訂（タスク 80.1）で有効域から外れた。
+       * `applyRounding()` が単位 `0` 以下で例外を投げる以上、通してはならない値である。
+       */
+      it('負の丸め値（-0.5）は無効', () => {
         const result = service.validateRoundingUnit(-0.5);
-        expect(result.isValid).toBe(true);
+        expect(result.isValid).toBe(false);
       });
 
-      it('境界値テスト: -99.98は有効', () => {
-        const result = service.validateRoundingUnit(-99.98);
+      /*
+       * Requirements (quantity-table-generation): 10.3, 10.4
+       *
+       * `0` は REQ-10.4 が「未設定」の意味を与えた番兵であり、入力値ではない。
+       * 差し替えは欄の層の責務であり、ここまで残った `0` は範囲外として拒む。
+       */
+      it('丸め値0は無効（REQ-10.4 の番兵であって入力値ではない）', () => {
+        const result = service.validateRoundingUnit(0);
+        expect(result.isValid).toBe(false);
+      });
+
+      it('境界値テスト: 0.011は有効', () => {
+        const result = service.validateRoundingUnit(0.011);
         expect(result.isValid).toBe(true);
       });
 
@@ -702,8 +719,8 @@ describe('QuantityFieldValidationService', () => {
         expect(result.isValid).toBe(true);
       });
 
-      it('境界値テスト: -99.991は無効（微小超過）', () => {
-        const result = service.validateRoundingUnit(-99.991);
+      it('境界値テスト: 0.009は無効（微小不足）', () => {
+        const result = service.validateRoundingUnit(0.009);
         expect(result.isValid).toBe(false);
       });
 
@@ -1052,23 +1069,53 @@ describe('QuantityFieldValidationService', () => {
           expect(result.errors.some((e) => e.field === 'adjustmentFactor')).toBe(true);
         });
 
-        it('丸め設定が範囲外（0.01〜999.99）の場合、エラーが返される', () => {
+        it('丸め設定が範囲外（0.01〜99.99）の場合、エラーが返される', () => {
           const item = { ...createValidItem(), roundingUnit: 0.001 };
           const result = service.validateItemFieldSpecs(item);
           expect(result.isValid).toBe(false);
           expect(result.errors).toContainEqual({
             field: 'roundingUnit',
-            message: '丸め設定は0.01から999.99の範囲で入力してください',
+            message: '丸め設定は0.01から99.99の範囲で入力してください',
             value: 0.001,
           });
         });
 
-        it('丸め設定が上限超過の場合、エラーが返される', () => {
-          const item = { ...createValidItem(), roundingUnit: 1000.0 };
+        /*
+         * Requirements (quantity-table-generation): 10.3
+         *
+         * 改める前の保存経路は直書きの上限 `999.99` を課しており、REQ-10.3 が定める
+         * `99.99` を超える値を通していた。上限は正典 `FIELD_CONSTRAINTS` から引く。
+         */
+        it('丸め設定が上限超過（100）の場合、エラーが返される', () => {
+          const item = { ...createValidItem(), roundingUnit: 100.0 };
           const result = service.validateItemFieldSpecs(item);
           expect(result.isValid).toBe(false);
-          expect(result.errors.some((e) => e.field === 'roundingUnit')).toBe(true);
+          expect(result.errors).toContainEqual({
+            field: 'roundingUnit',
+            message: `丸め設定は${FIELD_CONSTRAINTS.ROUNDING_UNIT.min}から${FIELD_CONSTRAINTS.ROUNDING_UNIT.max}の範囲で入力してください`,
+            value: 100.0,
+          });
         });
+
+        /*
+         * Requirements (quantity-table-generation): 9.3
+         *
+         * REQ-9.3 の有効域 `-9.99〜9.99` は `0` と負値を内側に含む。保存経路が
+         * これを拒んでいたためフロント側に暫定の層が置かれていた（タスク 80.2）。
+         * 本検証がその層の撤去の前提である。
+         */
+        it.each([
+          ['0', 0],
+          ['負の有効値', -0.5],
+          ['下限', -9.99],
+        ])(
+          '調整係数の有効域の内側の値（%s）は保存経路でも受け付けられる',
+          (_label, adjustmentFactor) => {
+            const item = { ...createValidItem(), adjustmentFactor };
+            const result = service.validateItemFieldSpecs(item);
+            expect(result.errors.filter((e) => e.field === 'adjustmentFactor')).toEqual([]);
+          }
+        );
 
         it('数量が範囲外（-999999.99〜9999999.99）の場合、エラーが返される', () => {
           const item = { ...createValidItem(), quantity: 10000000.0 };

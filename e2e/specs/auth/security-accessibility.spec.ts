@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
+import { getTimeout, nullWhenTimedOut, waitForApiResponse } from '../../helpers/wait-helpers';
 import AxeBuilder from '@axe-core/playwright';
 
 /**
@@ -13,6 +13,18 @@ import AxeBuilder from '@axe-core/playwright';
  *
  * このテストスイートは、セキュリティとアクセシビリティ要件を検証します。
  */
+
+/**
+ * トーストが最低限表示され続けているべき時間（ミリ秒）。
+ *
+ * 本番の自動非表示までの既定時間（`ToastNotification.tsx` の `toast.duration ?? 5000`）
+ * そのものではなく、**それより十分に小さい下限**である。閾値の複製ではないため、
+ * 本番の既定時間が変わっても「出た瞬間に消えた」を捉える性質は失われない。
+ * 観測の開始点は `toBeVisible` が成立した時点であり、実際の表示開始より後になりうるため、
+ * その分の余裕を見込んでいる。実測（Task 115.183）では消滅までが 5378ms で、下限に対して
+ * 2.7 倍の余裕があった。
+ */
+const TOAST_MIN_VISIBLE_MS = 2000;
 
 test.describe('セキュリティテスト', () => {
   test.beforeEach(async ({ context, page }) => {
@@ -101,14 +113,10 @@ test.describe('セキュリティテスト', () => {
       timeout: getTimeout(15000),
     });
 
-    // 認証状態を確認（ログインページにリダイレクトされていないか）
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/profile', { waitUntil: 'networkidle' });
-      await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
-        timeout: getTimeout(15000),
-      });
-    }
+    // 認証状態を無条件に主張する。直前でプロフィール画面のヘッダーが見えているため
+    // ログイン画面へ落ちていないはずだが、「落ちていたら黙って再ログインする」形では
+    // 認証が維持されない欠陥をそのまま埋め合わせてしまう。
+    await expect(page).not.toHaveURL(/\/login/);
 
     // XSS ペイロードを含む表示名を設定
     const xssPayload = '<script>alert("XSS")</script>';
@@ -160,10 +168,13 @@ test.describe('セキュリティテスト', () => {
     expect(displayedValue).toBe(xssPayload);
 
     // ページにアラートダイアログが表示されていないことを確認
-    const dialogPromise = page
-      .waitForEvent('dialog', { timeout: getTimeout(1000) })
-      .catch(() => null);
-    const dialog = await dialogPromise;
+    // 事象待ちを素手の `catch` で畳むと、待機切れ以外の失敗（述語の送出・切断・
+    // 本体終了による中断）まで「ダイアログは出なかった」に化ける。直下の主張は
+    // 不在を求めているため、その化けは**そのまま合格になる**。
+    // 待機切れのみを畳み、それ以外は送出する共有の補助を通す。
+    const dialog = await nullWhenTimedOut(
+      page.waitForEvent('dialog', { timeout: getTimeout(1000) })
+    );
     expect(dialog).toBeNull();
   });
 
@@ -207,21 +218,26 @@ test.describe('セキュリティテスト', () => {
     const email = 'user@example.com';
     const wrongPassword = 'WrongPassword123!';
 
-    // 5回連続でログイン失敗
-    for (let i = 0; i < 5; i++) {
+    const submitWrongPassword = async () => {
       await page.getByLabel(/メールアドレス/i).fill(email);
       await page.locator('input#password').fill(wrongPassword);
       await page.getByRole('button', { name: /ログイン/i }).click();
+    };
 
-      if (i < 4) {
-        await expect(
-          page.getByText(/メールアドレスまたはパスワードが正しくありません/i)
-        ).toBeVisible();
-        await page.reload();
-      }
+    // 1〜4回目の失敗: 認証エラーのみが表示され、まだロックされない。
+    // 添字で分岐して最終回だけ扱いを変える形は、周回ごとに何が主張されるのかを
+    // 読めなくするため、ロックが起きる5回目をループの外へ出す。
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await submitWrongPassword();
+      await expect(
+        page.getByText(/メールアドレスまたはパスワードが正しくありません/i),
+        `${attempt}回目の失敗で認証エラーが表示されない`
+      ).toBeVisible();
+      await page.reload();
     }
 
-    // 5回目の失敗後、アカウントロックメッセージが表示される
+    // 要件4.6: 5回目の失敗でアカウントロックメッセージが表示される
+    await submitWrongPassword();
     await expect(
       page.getByText(/アカウントがロックされています.*\d+分後に再試行できます/i)
     ).toBeVisible();
@@ -624,8 +640,16 @@ test.describe('モーダルとトーストメッセージテスト', () => {
     const toast = page.getByText(/更新しました|成功|保存しました/i);
     await expect(toast).toBeVisible({ timeout: getTimeout(15000) });
 
-    // 5秒後にトーストが非表示になる（CI用に余裕を持たせる）
-    await page.waitForTimeout(6000);
-    await expect(toast).not.toBeVisible({ timeout: getTimeout(5000) });
+    // 自動非表示は「一定時間が経てば消えているはず」という前提を置かず、消えるまでを条件待ちする。
+    // あわせて表示から消滅までの経過を実測し、「出た瞬間に消えた」（＝自動非表示ではなく
+    // 即時消滅）の経路を弾く。固定待機だけの形は、この経路を一切捉えられなかった。
+    // 経過の計測は単調時計で行う（WSL2 では壁時計が単調時計より遅く進むため Date.now は使わない）。
+    const shownAt = performance.now();
+    await expect(toast).not.toBeVisible({ timeout: getTimeout(15000) });
+    const hiddenAfterMs = performance.now() - shownAt;
+    expect(
+      hiddenAfterMs,
+      'トーストが表示直後に消えており、一定時間後の自動非表示になっていない'
+    ).toBeGreaterThanOrEqual(TOAST_MIN_VISIBLE_MS);
   });
 });

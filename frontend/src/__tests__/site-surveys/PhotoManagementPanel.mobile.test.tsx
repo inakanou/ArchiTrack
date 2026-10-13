@@ -156,6 +156,20 @@ describe('PhotoManagementPanel モバイル表示最適化 (Task 100.1)', () => 
       expect(tapHeight(deleteButton)).toBeGreaterThanOrEqual(44);
     });
 
+    it('Req35.5: エクスポート対象の選択チェックボックスのタップ領域を44px以上にすること (Requirement 31.2)', () => {
+      render(
+        <PhotoManagementPanel
+          {...baseProps}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      const checkbox = screen.getByTestId('image-checkbox-img-1');
+      expect(tapWidth(checkbox)).toBeGreaterThanOrEqual(44);
+      expect(tapHeight(checkbox)).toBeGreaterThanOrEqual(44);
+    });
+
     it('Req35.6: モバイル幅でも報告書出力フラグ操作が Req10 挙動（メタデータ変更通知）を維持すること', () => {
       const onImageMetadataChange = vi.fn();
       render(<PhotoManagementPanel {...baseProps} onImageMetadataChange={onImageMetadataChange} />);

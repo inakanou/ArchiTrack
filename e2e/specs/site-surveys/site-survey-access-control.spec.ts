@@ -5,15 +5,23 @@
  * - REQ-14.1: プロジェクトへのアクセス権を持つユーザーが現場調査を閲覧可能
  * - REQ-14.2: プロジェクトへの編集権限を持つユーザーが現場調査の作成・編集・削除を許可
  * - REQ-14.3: 適切な権限を持たないユーザーの操作拒否とエラーメッセージ表示
- * - REQ-14.4: 画像URLの署名付きURLの有効期限とアクセス権限を検証
- * - REQ-14.5: 現場調査の操作履歴を監査ログに記録
+ * - REQ-38.9: 画面表示の効率化（画像一覧のリクエスト削減）にあたり REQ-14 の
+ *   アクセス可否の判定結果を変更しないこと
+ *
+ * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
+ *   要件14.4: アクセス権限の側は主張するが、署名付きURLの有効期限を主張していない
+ *   要件14.5: APIリクエストが発生したことを主張するもので、監査ログへの記録を主張していない
  */
 
 import { test, expect } from '@playwright/test';
+import { API_BASE_URL } from '../../config';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
+import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -44,20 +52,13 @@ test.describe('現場調査アクセス制御', () => {
         timeout: getTimeout(15000),
       });
 
-      const projectName = `アクセス制御テスト用プロジェクト_${Date.now()}`;
+      // 接尾辞は 36 進にして長い数字の列を作らない。数字の列は「403」等の文言の探索に偶然当たりうる
+      // （Task 117.1）。下の否定の確認は名前に依存しない表示領域で行う
+      const projectName = `アクセス制御テスト用プロジェクト_${Date.now().toString(36)}`;
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -82,7 +83,7 @@ test.describe('現場調査アクセス制御', () => {
 
       await expect(page.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
 
-      const surveyName = `アクセス制御テスト用現場調査_${Date.now()}`;
+      const surveyName = `アクセス制御テスト用現場調査_${Date.now().toString(36)}`;
       await page.getByLabel(/調査名/i).fill(surveyName);
       await page.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
 
@@ -167,8 +168,14 @@ test.describe('現場調査アクセス制御', () => {
         timeout: getTimeout(10000),
       });
 
-      // エラーメッセージが表示されないことを確認
-      await expect(page.getByText(/アクセス拒否|権限がありません|403/i)).not.toBeVisible({
+      // エラーの表示領域（role="alert"）が出ていないことを確認する。
+      // この画面は権限不足（403）を含む取得の失敗を role="alert" の領域へ出す
+      // （SiteSurveyDetailPage のエラー表示。本文はサーバーのエラーコード等）。
+      // 文言の正規表現でページ全体を探すと、テストデータの名前（パンくず等）に偶然当たり
+      // strict mode violation で落ちる（Task 117.1）ため、表示領域へ絞り、文言を問わず
+      // 「出ていないこと」を主張する。なお 403 の実際の表示の本文は「FORBIDDEN」であり、
+      // 旧来の文言の探索（アクセス拒否|権限がありません|403）には当たっていなかった。
+      await expect(page.getByRole('alert')).toHaveCount(0, {
         timeout: getTimeout(3000),
       });
     });
@@ -341,101 +348,181 @@ test.describe('現場調査アクセス制御', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-14.4
+   * 受入基準 14.4 は除外である（e2e/requirement-exclusions.json）。アクセス権限の側は主張するが、署名付きURLの有効期限を主張していないため、被覆印は掲げない。
    */
   test.describe('署名付きURL', () => {
-    test('画像URLが署名付きURLで提供される (site-survey/REQ-14.4)', async ({ page }) => {
+    /**
+     * 画像URLの払い出し契約（要件14.4）
+     *
+     * 【このテスト環境で検証すること / しないこと】
+     * 本番の `STORAGE_TYPE` は `r2`（docs/deployment/environment-variables.md）であり、
+     * 画像URLは R2 の署名付きURL（既定900秒）として認証済みAPIから払い出される。
+     * このとき `backend/src/app.ts` の `/storage` 静的配信はマウントされない。
+     *
+     * 一方 E2E のテスト環境は `STORAGE_TYPE: local`（docker-compose.test.yml）であり、
+     * `/storage` の静的配信が有効になる。この静的配信は dev/test 専用の構成で
+     * 署名を伴わないため、「署名パラメータが付与されていること」「有効期限切れの
+     * 署名付きURLが拒否されること」といった本番相当の署名付きURL契約は
+     * テスト環境では再現できない。よって本テストではそれらを検証しない
+     * （検証しようとすると、テスト環境固有の構成に対する偽の合否判定になる）。
+     *
+     * 代わりに、ストレージ種別に依存しない契約
+     * 「画像URLは認証済みAPI経由でのみ払い出され、その払い出しはアクセス権限の
+     * 検証を経る」ことを検証する。`request` フィクスチャはブラウザコンテキストとは
+     * 独立した認証情報を持たないAPIコンテキストであり、未認証状態を再現できる。
+     */
+    test('画像URLは認証済みAPI経由でのみ払い出される', async ({ page, request }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
+      // 未認証では現場調査（画像URLを含む）を取得できない
+      const unauthenticatedSurvey = await request.get(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}`
+      );
+      expect(unauthenticatedSurvey.status()).toBe(401);
+
+      // 未認証では画像一覧（署名付きURLの払い出し口）を取得できない
+      const unauthenticatedImages = await request.get(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`
+      );
+      expect(unauthenticatedImages.status()).toBe(401);
+
+      // 認証済みかつアクセス権限を持つユーザーには画像URLが払い出される
       await loginAsUser(page, 'REGULAR_USER');
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      expect(accessToken, 'ログイン後にアクセストークンが保持されている').toBeTruthy();
 
-      // 現場調査詳細ページにアクセス
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const authenticatedImages = await request.get(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      expect(authenticatedImages.status()).toBe(200);
 
-      // 認証済みユーザーとして画像にアクセスできることを確認
-      // R2ストレージからの画像取得は認証を経由し、署名付きURLにリダイレクトされる
+      const images = (await authenticatedImages.json()) as Array<{
+        id: string;
+        originalUrl: string | null;
+      }>;
+      expect(Array.isArray(images)).toBe(true);
+      expect(images.length).toBeGreaterThan(0);
 
-      // 画像が表示されていることを確認
-      // 認証が正しく機能していれば画像が表示される（署名付きURLが提供される）
-      const imageElements = page.locator('img').first();
-      await expect(imageElements).toBeVisible({ timeout: getTimeout(15000) });
-
-      // 画像APIリクエストが成功することを確認
-      // 署名付きURLは認証ヘッダーまたはURLパラメータで検証される
-      const imageApiResponse = await page
-        .waitForResponse(
-          (response) =>
-            (response.url().includes('/api/site-surveys/') && response.url().includes('/images')) ||
-            response.url().includes('r2.cloudflarestorage.com') ||
-            response.url().includes('storage.googleapis.com') ||
-            response.request().resourceType() === 'image',
-          { timeout: getTimeout(15000) }
-        )
-        .catch(() => null);
-
-      // 画像APIが成功ステータスを返す、または既にキャッシュされた画像が表示されている
-      const isImageAccessible =
-        imageApiResponse === null || // 既にキャッシュされている
-        imageApiResponse.ok() || // 成功
-        imageApiResponse.status() === 304; // Not Modified
-
-      expect(isImageAccessible).toBeTruthy();
+      // 原画像URLは現場調査へのアクセス権限検証を通過した場合のみ払い出される
+      // （backend/src/services/image-list.service.ts の validateSurveyAccess）
+      expect(images[0]!.originalUrl).toBeTruthy();
     });
 
-    test('未認証状態で画像URLに直接アクセスすると拒否される (site-survey/REQ-14.4)', async ({
-      page,
-      context,
+    /**
+     * アクセス権限の検証（要件14.4）
+     *
+     * 【このテストが引き受ける範囲】
+     * REQ-14.4 は「署名付きURLの有効期限とアクセス権限を検証する」と規定する。
+     * このうち **有効期限** は本番の `STORAGE_TYPE=r2` に固有の性質であり、
+     * `STORAGE_TYPE=local` のテスト環境では `LocalStorageProvider.getSignedUrl` が
+     * 署名も期限も伴わない静的配信URLを返すため、E2Eでは原理的に再現できない。
+     * 有効期限側は `e2e/requirement-exclusions.json` の当該の除外（要件14.4）に
+     * E2E対象外として登録済みで、バックエンドの単体・統合テストとセキュリティ監査の所管とする。
+     *
+     * 一方 **アクセス権限の検証** はストレージ種別に依存しない。原画像URLの払い出しは
+     * `ImageListService.findBySurveyIdWithUrls` が `validateSurveyAccess` の結果で
+     * 分岐しており、この分岐はローカルストレージ構成でもそのまま働く。
+     * よってE2Eはこちらを引き受ける。直前のテストが「未認証では払い出されない」を、
+     * 本テストが「認証済みでもプロジェクトの関係者でなければ払い出されない」を検証する。
+     *
+     * 【観測の判別能力】
+     * 「原画像URLが null であること」は、権限検証が働いた結果ではなく
+     * ストレージ未構成やURL生成失敗でも成立し得る。そのため同一の画像一覧に対して
+     * 関係者（プロジェクト作成者）の払い出しを対照として同時に観測し、
+     * 同じ画像レコードに対して払い出しの有無が利用者によって分かれることを確認する。
+     *
+     * 【前提】
+     * 事前準備でプロジェクトを作成したのは REGULAR_USER であり、営業担当者・工事担当者は
+     * ログインユーザーが既定値となる（project-management の Requirement 1.5 / 1.6）。
+     * したがって REGULAR_USER_2 は当該プロジェクトの関係者ではない。この前提
+     * （別人であること・admin ロールを持たないこと）はテスト内で明示的に検証し、
+     * 崩れた場合は検証本体を素通りさせずに失敗させる。
+     *
+     * 【REQ-38.9（効率化が判定結果を変えないこと）を引き受ける理由】
+     * Requirement 38 は画像一覧のリクエスト・クエリ削減として、権限検証を画像ごとから
+     * 現場調査ごと1回へ集約した（`ImageListService.findBySurveyIdWithUrls`）。
+     * 本テストは**その集約後の実装**に対して、関係者には原画像URLが払い出され、
+     * 非関係者には同じ画像レコードでも払い出されないことを観測する。すなわち
+     * 削減の前後で REQ-14 の判定結果（誰に払い出すか）が変わっていないことを、
+     * 対照付きで確認している。集約が「1回だけ・同じ引数で」行われることは
+     * backend/src/__tests__/unit/services/image-list.service.test.ts が併せて固定する。
+     *
+     * @requirement site-survey/REQ-38.9
+     */
+    test('アクセス権限を持たないユーザーには原画像URLが払い出されない (site-survey/REQ-38.9)', async ({
+      request,
     }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
-      await loginAsUser(page, 'REGULAR_USER');
-
-      // 現場調査詳細ページにアクセス
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
-
-      // 画像URLを取得
-      const imageElement = page
-        .locator('img[src*="storage"], img[src*="blob"], img[src*="api"]')
-        .first();
-      const imageCount = await imageElement.count();
-      const imageSrc = imageCount > 0 ? await imageElement.getAttribute('src') : null;
-
-      if (imageSrc && !imageSrc.startsWith('blob:') && !imageSrc.startsWith('data:')) {
-        // ログアウト
-        await page.goto('/');
-        await context.clearCookies();
-        await page.evaluate(() => {
-          localStorage.removeItem('refreshToken');
-          localStorage.removeItem('accessToken');
+      const loginViaApi = async (
+        user: (typeof TEST_USERS)[keyof typeof TEST_USERS]
+      ): Promise<{ userId: string; roles: string[]; accessToken: string }> => {
+        const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
+          data: { email: user.email, password: user.password },
         });
+        expect(response.status(), `${user.email} のログインが成功する`).toBe(200);
+        const body = (await response.json()) as {
+          accessToken: string;
+          user: { id: string; roles: string[] };
+        };
+        return { userId: body.user.id, roles: body.user.roles, accessToken: body.accessToken };
+      };
 
-        // 画像URLに直接アクセス
-        const response = await page.request.get(imageSrc);
+      const fetchImages = async (
+        accessToken: string
+      ): Promise<Array<{ id: string; originalUrl: string | null }>> => {
+        const response = await request.get(
+          `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        expect(response.status(), '画像一覧の取得が成功する').toBe(200);
+        return (await response.json()) as Array<{ id: string; originalUrl: string | null }>;
+      };
 
-        // 署名が無効になった場合は401/403または画像データが取得できない
-        const status = response.status();
-        // 署名付きURLが有効な場合は一定時間はアクセス可能なので、どちらの結果もOK
-        expect(typeof status === 'number').toBeTruthy();
+      const member = await loginViaApi(TEST_USERS.REGULAR_USER);
+      const outsider = await loginViaApi(TEST_USERS.REGULAR_USER_2);
+
+      // 前提の検証: 別人であり、かつ関係者でなくても払い出されるadminロールを持たないこと
+      expect(outsider.userId, '非関係者はプロジェクト作成者とは別のユーザーである').not.toBe(
+        member.userId
+      );
+      expect(outsider.roles, '非関係者はadminロールを持たない').not.toContain('admin');
+
+      // 対照: プロジェクトの関係者には原画像URLが払い出される
+      const memberImages = await fetchImages(member.accessToken);
+      expect(memberImages.length, '事前準備でアップロードした画像が存在する').toBeGreaterThan(0);
+      for (const image of memberImages) {
+        expect(
+          image.originalUrl,
+          `関係者には原画像URLが払い出される (image=${image.id})`
+        ).toBeTruthy();
       }
 
-      // テストが完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      // 本体: 同じ画像レコードでも、関係者でないユーザーには原画像URLが払い出されない
+      const outsiderImages = await fetchImages(outsider.accessToken);
+      expect(
+        outsiderImages.map((image) => image.id),
+        '非関係者にも同じ画像レコードが返る（払い出しの有無だけが分かれる）'
+      ).toEqual(memberImages.map((image) => image.id));
+      for (const image of outsiderImages) {
+        expect(
+          image.originalUrl,
+          `非関係者には原画像URLが払い出されない (image=${image.id})`
+        ).toBeNull();
+      }
     });
   });
 
   /**
-   * @requirement site-survey/REQ-14.5
+   * 受入基準 14.5 は除外である（e2e/requirement-exclusions.json）。APIリクエストが発生したことを主張するもので、監査ログへの記録を主張していないため、被覆印は掲げない。
    */
   test.describe('監査ログ', () => {
-    test('現場調査の作成操作がAPIリクエストとして記録される (site-survey/REQ-14.5)', async ({
-      page,
-    }) => {
+    test('現場調査の作成操作がAPIリクエストとして記録される', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -474,9 +561,7 @@ test.describe('現場調査アクセス制御', () => {
       expect(createRequestMade).toBeTruthy();
     });
 
-    test('現場調査の編集操作がAPIリクエストとして記録される (site-survey/REQ-14.5)', async ({
-      page,
-    }) => {
+    test('現場調査の編集操作がAPIリクエストとして記録される', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -528,34 +613,32 @@ test.describe('現場調査アクセス制御', () => {
 
       await loginAsUser(page, 'ADMIN_USER');
 
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        // 確認ダイアログの「削除する」ボタンを正確に指定
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
-      }
+      const surveyDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(surveyDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await surveyDeleteButton.click();
+      // 確認ダイアログの「削除する」ボタンを正確に指定
+      const surveyConfirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(surveyConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await surveyConfirmButton.click();
+      await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
 
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

@@ -4,18 +4,18 @@
  * 現場調査のCRUD操作とビジネスロジックを担当します。
  *
  * Requirements:
- * - 1.1: プロジェクトに紐付く新規現場調査レコードを作成する
- * - 1.2: 現場調査の基本情報と関連する画像一覧を表示する
- * - 1.3: 楽観的排他制御を用いて現場調査レコードを更新する
- * - 1.4: 現場調査と関連する画像データを論理削除する
- * - 1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
- * - 1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない
+ * - 1.2: プロジェクトに紐付く新規現場調査レコードを作成する
+ * - 1.3: 現場調査の基本情報と関連する画像一覧を表示する
+ * - 1.4: 楽観的排他制御を用いて現場調査レコードを更新する
+ * - 1.5: 現場調査と関連する画像データを論理削除する
+ * - 1.6: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
+ * - 1.7: プロジェクトが存在しない場合、現場調査の作成を許可しない
  * - 3.1: プロジェクト単位でのページネーション
  * - 3.2: キーワード検索（名前・メモの部分一致）
  * - 3.3: 調査日によるフィルタリング
  * - 3.4: ソート機能（調査日・作成日・更新日）
  * - 3.5: サムネイル画像URLの取得
- * - 12.5: 現場調査の作成・更新・削除時に監査ログを記録する
+ * - 14.5: 現場調査の作成・更新・削除時に監査ログを記録する
  *
  * @module services/site-survey
  */
@@ -32,6 +32,7 @@ import {
   SiteSurveyConflictError,
 } from '../errors/siteSurveyError.js';
 import { SITE_SURVEY_TARGET_TYPE } from '../types/audit-log.types.js';
+import { SURVEY_IMAGE_ORDER_BY } from '../utils/survey-image-order.js';
 
 /**
  * SiteSurveyService依存関係
@@ -56,8 +57,6 @@ export interface SiteSurveyInfo {
   thumbnailOriginalPath: string | null;
   /** 代表画像の注釈付きサムネイルパス（要件20.3対応） */
   annotatedThumbnailPath: string | null;
-  /** 代表画像ID（AnnotatedImageThumbnailフォールバック用、要件20.3対応） */
-  representativeImageId: string | null;
   imageCount: number;
   createdAt: Date;
   updatedAt: Date;
@@ -88,10 +87,12 @@ export interface SurveyImageInfo {
    * フロントは false の場合に注釈取得APIの呼び出しを省略できる（画面オープン時のN+1抑止）。
    */
   hasAnnotations: boolean;
+  /** 描画された注釈の有無（Requirement 20.2、Task 115.13） */
+  hasDrawnAnnotations: boolean;
 }
 
 /**
- * 現場調査詳細情報（Requirements: 1.2）
+ * 現場調査詳細情報（Requirements: 1.3）
  * 基本情報に加えて、プロジェクト情報と画像一覧を含む
  */
 export interface SiteSurveyDetail extends SiteSurveyInfo {
@@ -191,9 +192,9 @@ export class SiteSurveyService {
    * 現場調査作成
    *
    * トランザクション内で以下を実行:
-   * 1. プロジェクト存在確認 (Requirements: 1.6)
-   * 2. 現場調査作成 (Requirements: 1.1)
-   * 3. 監査ログの記録 (Requirements: 12.5)
+   * 1. プロジェクト存在確認 (Requirements: 1.7)
+   * 2. 現場調査作成 (Requirements: 1.2)
+   * 3. 監査ログの記録 (Requirements: 14.5)
    *
    * @param input - 作成入力
    * @param actorId - 実行者ID
@@ -202,7 +203,7 @@ export class SiteSurveyService {
    */
   async createSiteSurvey(input: CreateSiteSurveyInput, actorId: string): Promise<SiteSurveyInfo> {
     return await this.prisma.$transaction(async (tx) => {
-      // 1. プロジェクト存在確認 (Requirements: 1.6)
+      // 1. プロジェクト存在確認 (Requirements: 1.7)
       await this.validateProjectExists(tx, input.projectId);
 
       // 2. 現場調査作成
@@ -223,7 +224,7 @@ export class SiteSurveyService {
         },
       });
 
-      // 3. 監査ログの記録 (Requirements: 12.5)
+      // 3. 監査ログの記録 (Requirements: 14.5)
       await this.auditLogService.createLog({
         action: 'SITE_SURVEY_CREATED',
         actorId,
@@ -272,14 +273,14 @@ export class SiteSurveyService {
    * SiteSurveyConflictErrorをスロー。
    *
    * トランザクション内で以下を実行:
-   * 1. 現場調査の存在確認・楽観的排他制御 (Requirements: 1.3, 1.5)
+   * 1. 現場調査の存在確認・楽観的排他制御 (Requirements: 1.4, 1.6)
    * 2. 現場調査更新
-   * 3. 監査ログの記録 (Requirements: 12.5)
+   * 3. 監査ログの記録 (Requirements: 14.5)
    *
    * Requirements:
-   * - 1.3: 楽観的排他制御を用いて現場調査レコードを更新する
-   * - 1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
-   * - 12.5: 現場調査の更新時に監査ログを記録する
+   * - 1.4: 楽観的排他制御を用いて現場調査レコードを更新する
+   * - 1.6: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
+   * - 14.5: 現場調査の更新時に監査ログを記録する
    *
    * @param id - 現場調査ID
    * @param input - 更新入力
@@ -315,7 +316,7 @@ export class SiteSurveyService {
         throw new SiteSurveyNotFoundError(id);
       }
 
-      // 楽観的排他制御: updatedAtの比較 (Requirements: 1.5)
+      // 楽観的排他制御: updatedAtの比較 (Requirements: 1.6)
       if (siteSurvey.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
         throw new SiteSurveyConflictError(
           '現場調査は他のユーザーによって更新されました。最新データを確認してください。',
@@ -349,7 +350,7 @@ export class SiteSurveyService {
         data: updateData,
       });
 
-      // 4. 監査ログの記録 (Requirements: 12.5)
+      // 4. 監査ログの記録 (Requirements: 14.5)
       await this.auditLogService.createLog({
         action: 'SITE_SURVEY_UPDATED',
         actorId,
@@ -378,7 +379,7 @@ export class SiteSurveyService {
    * 論理削除されたレコードは除外される。
    *
    * Requirements:
-   * - 1.2: 現場調査の基本情報と関連する画像一覧を表示する
+   * - 1.3: 現場調査の基本情報と関連する画像一覧を表示する
    *
    * @param id - 現場調査ID
    * @returns 現場調査詳細情報、存在しない場合はnull
@@ -397,14 +398,16 @@ export class SiteSurveyService {
           },
         },
         images: {
-          orderBy: {
-            displayOrder: 'asc',
-          },
+          // displayOrderは重複し得るため、一意な鍵まで含めて並びを確定させる
+          // （Task 115.20 / Requirements 4.10）。
+          orderBy: SURVEY_IMAGE_ORDER_BY,
           // 注釈の有無のみ判定する（重いdataは取得しない）。
           // 注釈なしの画像でフロントが注釈APIを叩かないようにするためのフラグ供給。
+          // hasDrawnAnnotations は描画された注釈の有無の派生値で、これも data を
+          // 読まずに判定するためレコード側から取得する（Requirement 20.2、Task 115.13）。
           include: {
             annotation: {
-              select: { id: true },
+              select: { id: true, hasDrawnAnnotations: true },
             },
           },
         },
@@ -427,11 +430,11 @@ export class SiteSurveyService {
    * 1. 現場調査の存在確認
    * 2. 関連画像の論理削除
    * 3. 現場調査の論理削除
-   * 4. 監査ログの記録 (Requirements: 12.5)
+   * 4. 監査ログの記録 (Requirements: 14.5)
    *
    * Requirements:
-   * - 1.4: 現場調査と関連する画像データを論理削除する
-   * - 12.5: 現場調査の削除時に監査ログを記録する
+   * - 1.5: 現場調査と関連する画像データを論理削除する
+   * - 14.5: 現場調査の削除時に監査ログを記録する
    *
    * @param id - 現場調査ID
    * @param actorId - 実行者ID
@@ -475,7 +478,7 @@ export class SiteSurveyService {
         data: { deletedAt },
       });
 
-      // 3. 監査ログの記録 (Requirements: 12.5)
+      // 3. 監査ログの記録 (Requirements: 14.5)
       await this.auditLogService.createLog({
         action: 'SITE_SURVEY_DELETED',
         actorId,
@@ -519,7 +522,6 @@ export class SiteSurveyService {
       thumbnailImageId: firstImage ? firstImage.id : null,
       thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
       annotatedThumbnailPath: firstImage ? firstImage.annotatedThumbnailPath : null,
-      representativeImageId: firstImage ? firstImage.id : null,
       imageCount: images.length,
       createdAt: siteSurvey.createdAt,
       updatedAt: siteSurvey.updatedAt,
@@ -552,7 +554,7 @@ export class SiteSurveyService {
       comment: string | null;
       includeInReport: boolean;
       createdAt: Date;
-      annotation: { id: string } | null;
+      annotation: { id: string; hasDrawnAnnotations: boolean | null } | null;
     }>;
   }): SiteSurveyDetail {
     const images: SurveyImageInfo[] = siteSurvey.images.map((img) => ({
@@ -570,6 +572,10 @@ export class SiteSurveyService {
       includeInReport: img.includeInReport,
       createdAt: img.createdAt,
       hasAnnotations: img.annotation !== null,
+      // 描画された注釈の有無（Requirement 20.2、Task 115.13）。
+      // 回転のみの保存でも注釈レコードは残るため hasAnnotations とは一致しない。
+      // 未算出（バックフィル未実施）のレコードは従来どおり注釈ありとして扱う。
+      hasDrawnAnnotations: img.annotation ? (img.annotation.hasDrawnAnnotations ?? true) : false,
     }));
 
     return {
@@ -648,7 +654,10 @@ export class SiteSurveyService {
         take,
         include: {
           images: {
-            orderBy: { displayOrder: 'asc' },
+            // 先頭1件を代表画像に使うため、displayOrderが重複しても
+            // 同じ画像が選ばれるよう一意な鍵まで含めて並び替える
+            // （Task 115.20 / Requirements 4.10）。
+            orderBy: SURVEY_IMAGE_ORDER_BY,
             take: 1, // サムネイル用に最初の1件のみ取得
           },
         },
@@ -669,7 +678,6 @@ export class SiteSurveyService {
         thumbnailImageId: firstImage ? firstImage.id : null,
         thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
         annotatedThumbnailPath: firstImage ? firstImage.annotatedThumbnailPath : null,
-        representativeImageId: firstImage ? firstImage.id : null,
         imageCount: survey.images.length, // includeで取得した件数を使用
         createdAt: survey.createdAt,
         updatedAt: survey.updatedAt,
@@ -740,7 +748,10 @@ export class SiteSurveyService {
         take: limit,
         include: {
           images: {
-            orderBy: { displayOrder: 'asc' },
+            // 先頭1件を代表画像に使うため、displayOrderが重複しても
+            // 同じ画像が選ばれるよう一意な鍵まで含めて並び替える
+            // （Task 115.20 / Requirements 4.10）。
+            orderBy: SURVEY_IMAGE_ORDER_BY,
             take: 1, // サムネイル用に最初の1件のみ取得
             select: {
               id: true,
@@ -770,7 +781,6 @@ export class SiteSurveyService {
         thumbnailImageId: firstImage ? firstImage.id : null,
         thumbnailOriginalPath: firstImage ? firstImage.originalPath : null,
         annotatedThumbnailPath: firstImage ? firstImage.annotatedThumbnailPath : null,
-        representativeImageId: firstImage ? firstImage.id : null,
         imageCount: survey._count.images,
         createdAt: survey.createdAt,
         updatedAt: survey.updatedAt,

@@ -76,6 +76,47 @@ import type {
 } from '../types/estimate-request.types';
 
 // ============================================================================
+// 見積依頼文の取得失敗の解釈
+// ============================================================================
+
+/**
+ * 「内訳書を本文に含める」が ON で項目が 0 件のとき（422 `NO_ITEMS_SELECTED`）の案内（Task 97.2）
+ */
+const NO_ITEMS_SELECTED_TEXT_GUIDANCE =
+  '本文に含める項目が選択されていません。項目を選択してください';
+
+/**
+ * 見積依頼文の取得失敗を、パネルへ渡す表示内容に解釈する
+ *
+ * - 422 `MISSING_CONTACT_INFO`: 宛先欄にメールアドレス／FAX番号の未登録を表示する（従来どおり）
+ * - 422 `NO_ITEMS_SELECTED`: 「内訳書を本文に含める」が ON で項目が 0 件。backend は 422 を保ち
+ *   （Task 93.1 / 利用者の判断 2026-10-06）、frontend は理由を案内する（Task 97.2）
+ * - それ以外: 汎用の「見積依頼文を取得できませんでした」（errorMessage を null とする）
+ */
+function resolveTextFetchFailure(error: unknown): {
+  text: EstimateRequestText | null;
+  errorMessage: string | null;
+} {
+  if (error instanceof ApiError && error.response) {
+    const response = error.response as { code?: string; contactType?: string };
+    if (response.code === 'MISSING_CONTACT_INFO') {
+      const recipientError =
+        response.contactType === 'email'
+          ? 'メールアドレスが登録されていません'
+          : 'FAX番号が登録されていません';
+      return {
+        text: { recipient: '', subject: '', body: '', recipientError },
+        errorMessage: null,
+      };
+    }
+    if (response.code === 'NO_ITEMS_SELECTED') {
+      return { text: null, errorMessage: NO_ITEMS_SELECTED_TEXT_GUIDANCE };
+    }
+  }
+  return { text: null, errorMessage: null };
+}
+
+// ============================================================================
 // スタイル定義
 // ============================================================================
 
@@ -445,6 +486,8 @@ export default function EstimateRequestDetailPage() {
   const [request, setRequest] = useState<EstimateRequestInfo | null>(null);
   const [items, setItems] = useState<ItemWithSelectionInfo[]>([]);
   const [estimateText, setEstimateText] = useState<EstimateRequestText | null>(null);
+  // 見積依頼文を取得できなかった理由の案内（Task 97.2）。null なら汎用の文言を表示する
+  const [textErrorMessage, setTextErrorMessage] = useState<string | null>(null);
   const [quotations, setQuotations] = useState<ReceivedQuotationInfo[]>([]);
 
   // プロジェクト名（パンくず表示用）
@@ -545,26 +588,11 @@ export default function EstimateRequestDetailPage() {
     try {
       const textData = await getEstimateRequestText(id);
       setEstimateText(textData);
+      setTextErrorMessage(null);
     } catch (error) {
-      // MISSING_CONTACT_INFO エラーの場合は適切なエラーメッセージを表示
-      if (error instanceof ApiError && error.response) {
-        const response = error.response as { code?: string; contactType?: string };
-        if (response.code === 'MISSING_CONTACT_INFO') {
-          const contactType = response.contactType;
-          const errorMessage =
-            contactType === 'email'
-              ? 'メールアドレスが登録されていません'
-              : 'FAX番号が登録されていません';
-          setEstimateText({
-            recipient: '',
-            subject: '',
-            body: '',
-            recipientError: errorMessage,
-          });
-          return;
-        }
-      }
-      setEstimateText(null);
+      const failure = resolveTextFetchFailure(error);
+      setEstimateText(failure.text);
+      setTextErrorMessage(failure.errorMessage);
     } finally {
       setIsTextLoading(false);
     }
@@ -577,16 +605,37 @@ export default function EstimateRequestDetailPage() {
     async (selections: ItemSelectionInput[]) => {
       if (!id) return;
 
+      // 保存の失敗は握りつぶさずに呼び出し元（ItemSelectionPanel）へ伝える。
+      // パネルはそれを受けてエラーメッセージを表示し、選択状態をサーバー側の状態へ戻す（4.9）
+      await updateItemSelection(id, selections);
+
+      // 保存は成功している。再取得の失敗を保存の失敗として扱わない
       try {
-        await updateItemSelection(id, selections);
         // アイテムを再取得して状態を同期
         const updatedItems = await getEstimateRequestItems(id);
         setItems(updatedItems);
       } catch {
-        // エラー処理（必要に応じて）
+        // 再取得に失敗しても保存済みの選択状態はパネルが保持している
+      }
+
+      // テキストパネルが開いている場合は本文を再取得し、【内容】を保存後の選択へ揃える（6.8 / Task 98.1）。
+      // 本文の再取得の失敗はパネル側に表示し、保存の失敗として扱わない（4.8）
+      if (showTextPanel) {
+        setIsTextLoading(true);
+        try {
+          const textData = await getEstimateRequestText(id);
+          setEstimateText(textData);
+          setTextErrorMessage(null);
+        } catch (error) {
+          const failure = resolveTextFetchFailure(error);
+          setEstimateText(failure.text);
+          setTextErrorMessage(failure.errorMessage);
+        } finally {
+          setIsTextLoading(false);
+        }
       }
     },
-    [id]
+    [id, showTextPanel]
   );
 
   /**
@@ -605,28 +654,11 @@ export default function EstimateRequestDetailPage() {
           try {
             const textData = await getEstimateRequestText(id);
             setEstimateText(textData);
+            setTextErrorMessage(null);
           } catch (error) {
-            // MISSING_CONTACT_INFO エラーの場合は適切なエラーメッセージを表示
-            if (error instanceof ApiError && error.response) {
-              const response = error.response as { code?: string; contactType?: string };
-              if (response.code === 'MISSING_CONTACT_INFO') {
-                const contactType = response.contactType;
-                const errorMessage =
-                  contactType === 'email'
-                    ? 'メールアドレスが登録されていません'
-                    : 'FAX番号が登録されていません';
-                setEstimateText({
-                  recipient: '',
-                  subject: '',
-                  body: '',
-                  recipientError: errorMessage,
-                });
-              } else {
-                setEstimateText(null);
-              }
-            } else {
-              setEstimateText(null);
-            }
+            const failure = resolveTextFetchFailure(error);
+            setEstimateText(failure.text);
+            setTextErrorMessage(failure.errorMessage);
           } finally {
             setIsTextLoading(false);
           }
@@ -658,28 +690,11 @@ export default function EstimateRequestDetailPage() {
           try {
             const textData = await getEstimateRequestText(id);
             setEstimateText(textData);
+            setTextErrorMessage(null);
           } catch (error) {
-            // MISSING_CONTACT_INFO エラーの場合は適切なエラーメッセージを表示
-            if (error instanceof ApiError && error.response) {
-              const response = error.response as { code?: string; contactType?: string };
-              if (response.code === 'MISSING_CONTACT_INFO') {
-                const contactType = response.contactType;
-                const errorMessage =
-                  contactType === 'email'
-                    ? 'メールアドレスが登録されていません'
-                    : 'FAX番号が登録されていません';
-                setEstimateText({
-                  recipient: '',
-                  subject: '',
-                  body: '',
-                  recipientError: errorMessage,
-                });
-              } else {
-                setEstimateText(null);
-              }
-            } else {
-              setEstimateText(null);
-            }
+            const failure = resolveTextFetchFailure(error);
+            setEstimateText(failure.text);
+            setTextErrorMessage(failure.errorMessage);
           } finally {
             setIsTextLoading(false);
           }
@@ -1203,6 +1218,7 @@ export default function EstimateRequestDetailPage() {
           <EstimateRequestTextPanel
             text={estimateText}
             loading={isTextLoading}
+            errorMessage={textErrorMessage}
             showIncludeBreakdownToggle={hasItemizedStatement}
             method={request.method}
           />

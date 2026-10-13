@@ -289,21 +289,6 @@ export async function createTestExecutionBudget(
 }
 
 /**
- * 実行予算を取得する
- */
-export async function getExecutionBudget(
-  request: APIRequestContext,
-  token: string,
-  projectId: string
-): Promise<unknown> {
-  const res = await request.get(`${API_BASE_URL}/api/projects/${projectId}/execution-budget`, {
-    headers: authHeaders(token),
-  });
-  if (!res.ok()) return null;
-  return res.json();
-}
-
-/**
  * 発注を作成する
  */
 export async function createTestOrder(

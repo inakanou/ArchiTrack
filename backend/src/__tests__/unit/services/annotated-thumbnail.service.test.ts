@@ -1,488 +1,100 @@
 /**
- * @fileoverview AnnotatedThumbnailService 単体テスト
+ * @fileoverview サーバー側注釈描画による注釈付きサムネイル生成の封鎖テスト
  *
- * Task 53.2: AnnotatedThumbnailServiceを実装する
- * Task 55.1: AnnotatedThumbnailServiceの単体テストを実装する
+ * Task 53.2 / 55.1 で AnnotatedThumbnailService の生成挙動を検証していたが、
+ * Task 115.6 でサーバー側描画による生成の位置づけが「本番データを生成してはならない」
+ * に確定したため、生成の成否を検証するテストを、生成が起動できないことを固定する
+ * テストへ置き換えた。SVG 生成関数そのもののテスト（後半）は、描画器が対応している
+ * 図形の範囲を記録として残すためそのまま維持する。
  *
  * Requirements:
- * - 20.4: 注釈保存時にサーバーサイドで注釈付きサムネイル画像を生成・更新する
+ * - 20.4: 注釈をレンダリングしたサムネイル画像の生成契機
+ * - 38.6: 注釈付きサムネイルが利用できない場合の代替手段を維持する
  */
 
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   AnnotatedThumbnailService,
+  ServerSideAnnotatedThumbnailDisabledError,
   type AnnotatedThumbnailServiceDependencies,
   generateSvgFromAnnotation,
 } from '../../../services/annotated-thumbnail.service.js';
 import type { AnnotationData } from '../../../services/annotation.service.js';
 
-// Sharp モック
-const mockSharpInstance = {
-  metadata: vi.fn(),
-  composite: vi.fn(),
-  resize: vi.fn(),
-  jpeg: vi.fn(),
-  toBuffer: vi.fn(),
-};
-
-// 各メソッドがチェーンを返すように設定
-mockSharpInstance.composite.mockReturnValue(mockSharpInstance);
-mockSharpInstance.resize.mockReturnValue(mockSharpInstance);
-mockSharpInstance.jpeg.mockReturnValue(mockSharpInstance);
-
-vi.mock('sharp', () => ({
-  default: vi.fn(() => mockSharpInstance),
-}));
-
-describe('AnnotatedThumbnailService', () => {
-  let service: AnnotatedThumbnailService;
-  let mockPrisma: {
-    surveyImage: {
-      findUnique: Mock;
-      update: Mock;
-    };
-  };
-  let mockStorageProvider: {
-    get: Mock;
-    upload: Mock;
-    delete: Mock;
-    getSignedUrl: Mock;
-    type: string;
-  };
-
-  const testAnnotationData: AnnotationData = {
-    version: '1.0',
-    objects: [
-      {
-        type: 'rect',
-        left: 100,
-        top: 100,
-        width: 200,
-        height: 150,
-        fill: 'transparent',
-        stroke: '#ff0000',
-        strokeWidth: 2,
+describe('AnnotatedThumbnailService: サーバー側描画による生成の封鎖 (Task 115.6)', () => {
+  function buildDeps() {
+    return {
+      prisma: {
+        surveyImage: { findUnique: vi.fn(), update: vi.fn() },
       },
-      {
-        type: 'circle',
-        left: 300,
-        top: 200,
-        radius: 50,
-        fill: 'transparent',
-        stroke: '#00ff00',
-        strokeWidth: 3,
-      },
-    ],
-  };
-
-  const testImage = {
-    id: 'image-123',
-    surveyId: 'survey-456',
-    originalPath: 'surveys/survey-456/original.jpg',
-    thumbnailPath: 'surveys/survey-456/thumb.jpg',
-    annotatedThumbnailPath: null,
-    width: 1920,
-    height: 1080,
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-
-    mockPrisma = {
-      surveyImage: {
-        findUnique: vi.fn(),
-        update: vi.fn(),
+      storageProvider: {
+        get: vi.fn(),
+        upload: vi.fn(),
+        delete: vi.fn(),
+        getSignedUrl: vi.fn(),
+        type: 'local',
       },
     };
+  }
 
-    mockStorageProvider = {
-      get: vi.fn(),
-      upload: vi.fn(),
-      delete: vi.fn(),
-      getSignedUrl: vi.fn(),
-      type: 'local',
-    };
-
-    service = new AnnotatedThumbnailService({
-      prisma: mockPrisma as unknown as AnnotatedThumbnailServiceDependencies['prisma'],
+  function construct(deps: ReturnType<typeof buildDeps>): AnnotatedThumbnailService {
+    return new AnnotatedThumbnailService({
+      prisma: deps.prisma as unknown as AnnotatedThumbnailServiceDependencies['prisma'],
       storageProvider:
-        mockStorageProvider as unknown as AnnotatedThumbnailServiceDependencies['storageProvider'],
+        deps.storageProvider as unknown as AnnotatedThumbnailServiceDependencies['storageProvider'],
     });
+  }
 
-    // デフォルトのモック設定
-    mockPrisma.surveyImage.findUnique.mockResolvedValue(testImage);
-    mockStorageProvider.get.mockResolvedValue(Buffer.from('fake-image-data'));
-    mockStorageProvider.upload.mockResolvedValue({
-      key: 'annotated-thumbnails/image-123.jpg',
-      size: 1024,
-    });
-    mockPrisma.surveyImage.update.mockResolvedValue({
-      ...testImage,
-      annotatedThumbnailPath: 'annotated-thumbnails/image-123.jpg',
-    });
-    mockSharpInstance.metadata.mockResolvedValue({ width: 1920, height: 1080 });
-    mockSharpInstance.toBuffer.mockResolvedValue(Buffer.from('composite-result'));
+  it('生成サービスを構築しようとすると失敗し、生成を実行できる実体が得られない', () => {
+    expect(() => construct(buildDeps())).toThrow(ServerSideAnnotatedThumbnailDisabledError);
   });
 
-  describe('generateAnnotatedThumbnail', () => {
-    it('正常系: SVG生成、Sharp合成、R2保存、DB更新が行われること', async () => {
-      const result = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
+  it('構築の失敗はストレージにもデータベースにも触れない（本番データを生成しない）', () => {
+    const deps = buildDeps();
 
-      // 画像メタデータ取得
-      expect(mockPrisma.surveyImage.findUnique).toHaveBeenCalledWith({
-        where: { id: 'image-123' },
-        select: {
-          id: true,
-          surveyId: true,
-          originalPath: true,
-          width: true,
-          height: true,
-          annotatedThumbnailPath: true,
-        },
-      });
+    expect(() => construct(deps)).toThrow();
 
-      // オリジナル画像取得
-      expect(mockStorageProvider.get).toHaveBeenCalledWith('surveys/survey-456/original.jpg');
-
-      // Sharp composite が呼ばれる（SVGオーバーレイ）
-      expect(mockSharpInstance.composite).toHaveBeenCalled();
-
-      // リサイズ
-      expect(mockSharpInstance.resize).toHaveBeenCalledWith(400, 300, { fit: 'inside' });
-
-      // JPEG変換
-      expect(mockSharpInstance.jpeg).toHaveBeenCalledWith({ quality: 80 });
-
-      // R2にアップロード（タイムスタンプ付き新キー）
-      expect(mockStorageProvider.upload).toHaveBeenCalledWith(
-        expect.stringMatching(/^annotated-thumbnails\/image-123\.\d+\.jpg$/),
-        expect.any(Buffer),
-        { contentType: 'image/jpeg' }
-      );
-
-      const uploadedKey = mockStorageProvider.upload.mock.calls[0]![0] as string;
-
-      // DB更新
-      expect(mockPrisma.surveyImage.update).toHaveBeenCalledWith({
-        where: { id: 'image-123' },
-        data: { annotatedThumbnailPath: uploadedKey },
-      });
-
-      // 結果パスの返却
-      expect(result).toBe(uploadedKey);
-    });
-
-    it('異常系: 画像が見つからない場合nullを返すこと', async () => {
-      mockPrisma.surveyImage.findUnique.mockResolvedValue(null);
-
-      const result = await service.generateAnnotatedThumbnail('nonexistent', testAnnotationData);
-
-      expect(result).toBeNull();
-      expect(mockStorageProvider.get).not.toHaveBeenCalled();
-    });
-
-    it('異常系: R2保存失敗時は例外を throw し、DB 更新を行わないこと', async () => {
-      mockStorageProvider.upload.mockRejectedValue(new Error('R2 upload failed'));
-
-      await expect(
-        service.generateAnnotatedThumbnail('image-123', testAnnotationData)
-      ).rejects.toThrow('R2 upload failed');
-
-      // DB更新は行われない
-      expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
-    });
-
-    it('冪等性: 連続呼び出しで毎回異なるタイムスタンプ付きパスが返ること', async () => {
-      mockPrisma.surveyImage.findUnique.mockResolvedValue({
-        ...testImage,
-        annotatedThumbnailPath: null,
-      });
-
-      const first = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
-      // Date.now() の粒度差を確保
-      await new Promise((resolve) => setTimeout(resolve, 5));
-      const second = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
-
-      expect(first).toMatch(/^annotated-thumbnails\/image-123\.\d+\.jpg$/);
-      expect(second).toMatch(/^annotated-thumbnails\/image-123\.\d+\.jpg$/);
-      expect(first).not.toBe(second);
-    });
-
-    it('冪等性: 既存 annotatedThumbnailPath が存在する場合、DB 更新後に旧キーを best-effort で削除すること', async () => {
-      const oldPath = 'annotated-thumbnails/image-123.1700000000000.jpg';
-      mockPrisma.surveyImage.findUnique.mockResolvedValue({
-        ...testImage,
-        annotatedThumbnailPath: oldPath,
-      });
-      mockStorageProvider.delete.mockResolvedValue(undefined);
-
-      const result = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
-
-      // DB 更新が先に行われている
-      expect(mockPrisma.surveyImage.update).toHaveBeenCalled();
-      // 旧キーの削除が呼ばれる
-      expect(mockStorageProvider.delete).toHaveBeenCalledWith(oldPath);
-      // 新 path が返る
-      expect(result).toMatch(/^annotated-thumbnails\/image-123\.\d+\.jpg$/);
-      expect(result).not.toBe(oldPath);
-    });
-
-    it('冪等性: 旧キー削除が失敗しても本メソッドは正常完了し新 path を返すこと', async () => {
-      const oldPath = 'annotated-thumbnails/image-123.1700000000000.jpg';
-      mockPrisma.surveyImage.findUnique.mockResolvedValue({
-        ...testImage,
-        annotatedThumbnailPath: oldPath,
-      });
-      mockStorageProvider.delete.mockRejectedValue(new Error('R2 delete failed'));
-
-      const result = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
-
-      expect(result).toMatch(/^annotated-thumbnails\/image-123\.\d+\.jpg$/);
-      expect(mockPrisma.surveyImage.update).toHaveBeenCalled();
-      // delete は試みられる
-      expect(mockStorageProvider.delete).toHaveBeenCalledWith(oldPath);
-      // best-effort のため非同期 reject がテスト終了前に解決されるのを待つ
-      await new Promise((resolve) => setImmediate(resolve));
-    });
-
-    it('異常系: オリジナル画像取得失敗時にnullを返すこと', async () => {
-      mockStorageProvider.get.mockResolvedValue(null);
-
-      const result = await service.generateAnnotatedThumbnail('image-123', testAnnotationData);
-
-      expect(result).toBeNull();
-    });
-
-    it('注釈オブジェクトが空配列の場合はサムネイルを削除すること', async () => {
-      const emptyAnnotation: AnnotationData = {
-        version: '1.0',
-        objects: [],
-      };
-
-      mockPrisma.surveyImage.findUnique.mockResolvedValue({
-        ...testImage,
-        annotatedThumbnailPath: 'annotated-thumbnails/image-123.jpg',
-      });
-
-      await service.generateAnnotatedThumbnail('image-123', emptyAnnotation);
-
-      // 既存サムネイルの削除
-      expect(mockStorageProvider.delete).toHaveBeenCalledWith('annotated-thumbnails/image-123.jpg');
-
-      // DB更新（nullに設定）
-      expect(mockPrisma.surveyImage.update).toHaveBeenCalledWith({
-        where: { id: 'image-123' },
-        data: { annotatedThumbnailPath: null },
-      });
-    });
-
-    it('注釈オブジェクトが空配列で既存サムネイルがない場合はストレージ削除をスキップすること', async () => {
-      const emptyAnnotation: AnnotationData = {
-        version: '1.0',
-        objects: [],
-      };
-
-      // 1回目: generateAnnotatedThumbnailでimage取得 → annotatedThumbnailPath: null
-      // 2回目: removeAnnotatedThumbnailForImage内でfindUnique
-      mockPrisma.surveyImage.findUnique
-        .mockResolvedValueOnce(testImage) // image lookup
-        .mockResolvedValueOnce({ annotatedThumbnailPath: null }); // removal lookup
-
-      await service.generateAnnotatedThumbnail('image-123', emptyAnnotation);
-
-      // ストレージ削除は呼ばれない
-      expect(mockStorageProvider.delete).not.toHaveBeenCalled();
-      // DB更新はnullに設定
-      expect(mockPrisma.surveyImage.update).toHaveBeenCalledWith({
-        where: { id: 'image-123' },
-        data: { annotatedThumbnailPath: null },
-      });
-    });
-
-    it('注釈オブジェクトが空配列でストレージ削除に失敗した場合もDB更新は行われること', async () => {
-      const emptyAnnotation: AnnotationData = {
-        version: '1.0',
-        objects: [],
-      };
-
-      mockPrisma.surveyImage.findUnique.mockResolvedValueOnce(testImage).mockResolvedValueOnce({
-        annotatedThumbnailPath: 'annotated-thumbnails/image-123.jpg',
-      });
-
-      mockStorageProvider.delete.mockRejectedValue(new Error('Storage delete failed'));
-
-      await service.generateAnnotatedThumbnail('image-123', emptyAnnotation);
-
-      // ストレージ削除は試みられる
-      expect(mockStorageProvider.delete).toHaveBeenCalledWith('annotated-thumbnails/image-123.jpg');
-      // エラーが発生してもDB更新は行われる
-      expect(mockPrisma.surveyImage.update).toHaveBeenCalledWith({
-        where: { id: 'image-123' },
-        data: { annotatedThumbnailPath: null },
-      });
-    });
+    expect(deps.storageProvider.upload).not.toHaveBeenCalled();
+    expect(deps.storageProvider.delete).not.toHaveBeenCalled();
+    expect(deps.prisma.surveyImage.findUnique).not.toHaveBeenCalled();
+    expect(deps.prisma.surveyImage.update).not.toHaveBeenCalled();
   });
 
-  describe('removeAnnotatedThumbnail', () => {
-    it('正常系: R2削除とDB更新が行われること', async () => {
-      mockPrisma.surveyImage.findUnique.mockResolvedValue({
-        ...testImage,
-        annotatedThumbnailPath: 'annotated-thumbnails/image-123.jpg',
-      });
+  it('失敗は判別可能な code を持ち、有効化してはならない理由を伝える', () => {
+    let caught: unknown;
+    try {
+      construct(buildDeps());
+    } catch (error) {
+      caught = error;
+    }
 
-      await service.removeAnnotatedThumbnail('image-123');
-
-      // R2から削除
-      expect(mockStorageProvider.delete).toHaveBeenCalledWith('annotated-thumbnails/image-123.jpg');
-
-      // DB更新
-      expect(mockPrisma.surveyImage.update).toHaveBeenCalledWith({
-        where: { id: 'image-123' },
-        data: { annotatedThumbnailPath: null },
-      });
-    });
-
-    it('注釈付きサムネイルが存在しない場合は何もしないこと', async () => {
-      mockPrisma.surveyImage.findUnique.mockResolvedValue(testImage);
-
-      await service.removeAnnotatedThumbnail('image-123');
-
-      expect(mockStorageProvider.delete).not.toHaveBeenCalled();
-      expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
-    });
-
-    it('画像が見つからない場合は何もしないこと', async () => {
-      mockPrisma.surveyImage.findUnique.mockResolvedValue(null);
-
-      await service.removeAnnotatedThumbnail('nonexistent');
-
-      expect(mockStorageProvider.delete).not.toHaveBeenCalled();
-      expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
-    });
-
-    it('R2削除失敗時はDB更新が行われずエラーログが出力されること', async () => {
-      mockPrisma.surveyImage.findUnique.mockResolvedValue({
-        ...testImage,
-        annotatedThumbnailPath: 'annotated-thumbnails/image-123.jpg',
-      });
-      mockStorageProvider.delete.mockRejectedValue(new Error('R2 delete failed'));
-
-      await service.removeAnnotatedThumbnail('image-123');
-
-      expect(mockStorageProvider.delete).toHaveBeenCalledWith('annotated-thumbnails/image-123.jpg');
-      // エラー時はDB更新されない（catchブロック内でDB更新なし）
-      expect(mockPrisma.surveyImage.update).not.toHaveBeenCalled();
-    });
+    expect(caught).toBeInstanceOf(ServerSideAnnotatedThumbnailDisabledError);
+    const error = caught as ServerSideAnnotatedThumbnailDisabledError;
+    expect(error.code).toBe('SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED');
+    // 有効化しようとした者が欠陥に気づけること（描画されない注釈・座標の換算・回転）
+    expect(error.message).toContain('矢印');
+    expect(error.message).toContain('座標');
+    expect(error.message).toContain('回転');
+    expect(error.message).toContain('design.md');
   });
 
-  /**
-   * Task 59.3: サムネイル・PDF出力での回転反映の単体テスト
-   * Requirements: 22.4, 22.5
-   */
-  describe('画像回転反映 (Requirement 22)', () => {
-    it('imageRotationが90度の場合にSharp.rotateが呼ばれること', async () => {
-      const sharp = (await import('sharp')).default;
+  // 構築を迂回して生成メソッドへ到達した場合の二重の封鎖。
+  // 「構築できないから安全」だけに依存すると、prototype 経由やサブクラス化で
+  // 合成済みサムネイルの生成・永続化が復活しうる。
+  it('構築を迂回して生成メソッドへ到達しても合成済みサムネイルを生成しない', async () => {
+    const detached = AnnotatedThumbnailService.prototype.generateAnnotatedThumbnail;
 
-      const mockRotate = vi.fn().mockReturnValue(mockSharpInstance);
-      mockSharpInstance.composite.mockReturnValue(mockSharpInstance);
-      mockSharpInstance.resize.mockReturnValue(mockSharpInstance);
-      mockSharpInstance.jpeg.mockReturnValue(mockSharpInstance);
-      mockSharpInstance.toBuffer.mockResolvedValue(Buffer.from('thumbnail'));
-      (mockSharpInstance as Record<string, unknown>).rotate = mockRotate;
+    await expect(
+      detached.call({} as AnnotatedThumbnailService, 'image-123', { version: '1.0', objects: [] })
+    ).rejects.toBeInstanceOf(ServerSideAnnotatedThumbnailDisabledError);
+  });
 
-      mockPrisma.surveyImage.findUnique.mockResolvedValue({
-        id: 'image-1',
-        surveyId: 'survey-1',
-        originalPath: 'surveys/survey-1/original.jpg',
-        width: 800,
-        height: 600,
-        annotatedThumbnailPath: null,
-      });
+  it('構築を迂回して削除メソッドへ到達しても保存先の項目を書き換えない', async () => {
+    const detached = AnnotatedThumbnailService.prototype.removeAnnotatedThumbnail;
 
-      mockStorageProvider.get.mockResolvedValue(Buffer.from('image-data'));
-      mockStorageProvider.upload.mockResolvedValue(undefined);
-      mockPrisma.surveyImage.update.mockResolvedValue({});
-
-      const annotationData: AnnotationData = {
-        version: '1.0',
-        objects: [{ type: 'rect', left: 10, top: 20, width: 100, height: 50 }],
-        imageRotation: 90,
-      };
-
-      await service.generateAnnotatedThumbnail('image-1', annotationData);
-
-      expect(sharp).toHaveBeenCalled();
-      expect(mockRotate).toHaveBeenCalledWith(90);
-    });
-
-    it('imageRotationが0度の場合にSharp.rotateが呼ばれないこと', async () => {
-      const sharp = (await import('sharp')).default;
-
-      const mockRotate = vi.fn().mockReturnValue(mockSharpInstance);
-      mockSharpInstance.composite.mockReturnValue(mockSharpInstance);
-      mockSharpInstance.resize.mockReturnValue(mockSharpInstance);
-      mockSharpInstance.jpeg.mockReturnValue(mockSharpInstance);
-      mockSharpInstance.toBuffer.mockResolvedValue(Buffer.from('thumbnail'));
-      (mockSharpInstance as Record<string, unknown>).rotate = mockRotate;
-
-      mockPrisma.surveyImage.findUnique.mockResolvedValue({
-        id: 'image-1',
-        surveyId: 'survey-1',
-        originalPath: 'surveys/survey-1/original.jpg',
-        width: 800,
-        height: 600,
-        annotatedThumbnailPath: null,
-      });
-
-      mockStorageProvider.get.mockResolvedValue(Buffer.from('image-data'));
-      mockStorageProvider.upload.mockResolvedValue(undefined);
-      mockPrisma.surveyImage.update.mockResolvedValue({});
-
-      const annotationData: AnnotationData = {
-        version: '1.0',
-        objects: [{ type: 'rect', left: 10, top: 20, width: 100, height: 50 }],
-        imageRotation: 0,
-      };
-
-      await service.generateAnnotatedThumbnail('image-1', annotationData);
-
-      expect(sharp).toHaveBeenCalled();
-      expect(mockRotate).not.toHaveBeenCalled();
-    });
-
-    it('imageRotationが未定義の場合にSharp.rotateが呼ばれないこと', async () => {
-      const sharp = (await import('sharp')).default;
-
-      const mockRotate = vi.fn().mockReturnValue(mockSharpInstance);
-      mockSharpInstance.composite.mockReturnValue(mockSharpInstance);
-      mockSharpInstance.resize.mockReturnValue(mockSharpInstance);
-      mockSharpInstance.jpeg.mockReturnValue(mockSharpInstance);
-      mockSharpInstance.toBuffer.mockResolvedValue(Buffer.from('thumbnail'));
-      (mockSharpInstance as Record<string, unknown>).rotate = mockRotate;
-
-      mockPrisma.surveyImage.findUnique.mockResolvedValue({
-        id: 'image-1',
-        surveyId: 'survey-1',
-        originalPath: 'surveys/survey-1/original.jpg',
-        width: 800,
-        height: 600,
-        annotatedThumbnailPath: null,
-      });
-
-      mockStorageProvider.get.mockResolvedValue(Buffer.from('image-data'));
-      mockStorageProvider.upload.mockResolvedValue(undefined);
-      mockPrisma.surveyImage.update.mockResolvedValue({});
-
-      const annotationData: AnnotationData = {
-        version: '1.0',
-        objects: [{ type: 'rect', left: 10, top: 20, width: 100, height: 50 }],
-      };
-
-      await service.generateAnnotatedThumbnail('image-1', annotationData);
-
-      expect(sharp).toHaveBeenCalled();
-      expect(mockRotate).not.toHaveBeenCalled();
-    });
+    await expect(
+      detached.call({} as AnnotatedThumbnailService, 'image-123')
+    ).rejects.toBeInstanceOf(ServerSideAnnotatedThumbnailDisabledError);
   });
 });
 

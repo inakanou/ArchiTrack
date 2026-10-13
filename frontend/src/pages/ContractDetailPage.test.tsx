@@ -3,9 +3,11 @@
  *
  * Task 7.1: ContractDetailPageの実装
  * Task 15.1: 各画面にusePermissionフックを統合してUI要素を制御する
+ * Task 18.2: 契約書の詳細画面に請負者（自社）を表示する
  *
  * Requirements (contract-management):
  * - REQ-8.1: 契約書詳細画面に新規作成時に入力した全項目と自動表示項目を表示する
+ * - REQ-4.5: 請負者として自社情報を自動表示する（詳細画面の自動表示項目として）
  * - REQ-8.2: ステータス遷移ボタン（「契約前」→「契約済」）を提供する
  * - REQ-8.3: ステータスの双方向遷移（「契約前」⇔「契約済」）
  * - REQ-8.4: 基となった見積書へのリンクを表示する
@@ -19,11 +21,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ContractDetailPage from './ContractDetailPage';
 import * as contractsApi from '../api/contracts';
+import * as companyInfoApi from '../api/company-info';
+import type { CompanyInfo } from '../types/company-info.types';
 import type { ContractDetail } from '../api/contracts';
 import { ApiError } from '../api/client';
 import { ToastContext } from '../hooks/useToast';
@@ -31,6 +35,7 @@ import type { ToastContextValue } from '../hooks/useToast';
 
 // モック
 vi.mock('../api/contracts');
+vi.mock('../api/company-info');
 
 // usePermissionフックのモック
 const mockHasPermission = vi.fn().mockReturnValue(true);
@@ -81,6 +86,21 @@ const mockNewContractDetail: ContractDetail = {
   version: 0,
   createdAt: '2026-03-13T00:00:00Z',
   updatedAt: '2026-03-13T00:00:00Z',
+};
+
+/** 登録済みの自社情報のテストデータ */
+const mockCompanyInfo: CompanyInfo = {
+  id: 'company-1',
+  companyName: '株式会社自社建設',
+  address: '東京都千代田区自社1-1-1',
+  representative: '自社 太郎',
+  phone: null,
+  fax: null,
+  email: null,
+  invoiceRegistrationNumber: null,
+  version: 0,
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
 };
 
 /** 変更契約の詳細テストデータ */
@@ -278,6 +298,77 @@ describe('ContractDetailPage', () => {
 
       // 消費税率 10%
       expect(screen.getByText('10%')).toBeInTheDocument();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Task 18.2 / REQ-8.1, REQ-4.5: 請負者（自社情報）の自動表示
+  // 表示の規則は契約書フォーム（ContractForm）に揃える: 会社名、未登録・取得の失敗は「未設定」
+  // --------------------------------------------------------------------------
+  describe('REQ-8.1, REQ-4.5: 請負者（自社情報）の表示', () => {
+    /** 「請負者」の見出しと同じ項目に並ぶ値の要素を返す */
+    function getContractorValue(): HTMLElement {
+      const label = screen.getByText('請負者');
+      const item = label.parentElement;
+      if (!item) {
+        throw new Error('請負者の項目が見つかりません');
+      }
+      return within(item).getByTestId('contractor-name');
+    }
+
+    it('自社情報が登録済みの場合、請負者として会社名を表示する', async () => {
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+      vi.mocked(companyInfoApi.getCompanyInfo).mockResolvedValue(mockCompanyInfo);
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(getContractorValue()).toHaveTextContent('株式会社自社建設');
+      });
+      expect(companyInfoApi.getCompanyInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it('自社情報が未登録（空オブジェクト）の場合、請負者に「未設定」を表示する', async () => {
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+      vi.mocked(companyInfoApi.getCompanyInfo).mockResolvedValue({});
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(companyInfoApi.getCompanyInfo).toHaveBeenCalledTimes(1);
+      });
+
+      expect(getContractorValue()).toHaveTextContent('未設定');
+    });
+
+    it('自社情報の取得に失敗した場合、請負者に「未設定」を表示し、他の項目の表示を妨げない', async () => {
+      vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+      vi.mocked(companyInfoApi.getCompanyInfo).mockRejectedValue(
+        new ApiError(500, 'Internal Server Error')
+      );
+
+      renderContractDetailPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('contract-detail-page')).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(companyInfoApi.getCompanyInfo).toHaveBeenCalledTimes(1);
+      });
+
+      expect(getContractorValue()).toHaveTextContent('未設定');
+      // 契約書の他の項目は表示され、画面全体のエラー表示・トーストにはならない
+      expect(screen.getByText('テストプロジェクト')).toBeInTheDocument();
+      expect(screen.getByText('株式会社テスト顧客')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(mockToastContext.error).not.toHaveBeenCalled();
     });
   });
 

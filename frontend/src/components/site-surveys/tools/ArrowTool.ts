@@ -30,7 +30,11 @@
 
 import { Group, Path } from 'fabric';
 
-import { ANNOTATION_DEFAULTS, type ArrowOutlineAttribute } from '../annotation-style-tokens';
+import {
+  ANNOTATION_DEFAULTS,
+  resolveArrowOutlineWidth,
+  type ArrowOutlineAttribute,
+} from '../annotation-style-tokens';
 
 // ============================================================================
 // 型定義
@@ -245,7 +249,12 @@ export class Arrow extends Group {
     const pathData = generateArrowPath(startPoint, endPoint, mergedOptions.arrowheadSize);
 
     // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
-    const outline: ArrowOutlineAttribute = { ...ANNOTATION_DEFAULTS.arrowOutline };
+    // Task 115.59 (Req 24.2): 片側幅は既定線幅由来の固定値ではなく本体線幅から算出し、
+    // 描画される縁取り線幅が本体線幅の 1.5 倍以上となる比率を全線幅で満たす。
+    const outline: ArrowOutlineAttribute = {
+      ...ANNOTATION_DEFAULTS.arrowOutline,
+      width: resolveArrowOutlineWidth(mergedOptions.strokeWidth),
+    };
 
     // 外側 Path（白縁取り）を生成
     const outlinePath = new Path(pathData, {
@@ -470,6 +479,8 @@ export class Arrow extends Group {
    */
   setStrokeWidth(width: number): void {
     this._bodyPath.set('strokeWidth', width);
+    // Task 115.59 (Req 24.2): 本体線幅の変更に追随して片側幅も再算出する
+    this._outline = { ...this._outline, width: resolveArrowOutlineWidth(width) };
     this._outlinePath.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }
@@ -661,7 +672,7 @@ export class Arrow extends Group {
       // Req 24.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
       //   既存の ANNOTATION_DEFAULTS.arrowOutline（enabled=true）を無効化し、
       //   outlinePath.opacity=0 + width=0 で「白縁取り無し」状態にする。
-      arrow.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+      arrow.setOutline({ enabled: false, color: ANNOTATION_DEFAULTS.outlineColor, width: 0 });
     }
 
     return Promise.resolve(arrow);

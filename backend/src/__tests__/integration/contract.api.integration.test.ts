@@ -534,4 +534,188 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
       expect(response.body).toHaveProperty('id');
     });
   });
+
+  // =================================================================
+  // POST / PUT - 参照先（プロジェクト・見積書）の検証（タスク 18.3）
+  // design.md の ContractService の Preconditions と Error Handling（404 / 422）に基づく
+  // =================================================================
+  describe('POST・PUT - 参照先（プロジェクト・見積書）の検証', () => {
+    const missingId = '00000000-0000-4000-8000-000000000000';
+
+    const buildBody = (estimateId: string): Record<string, unknown> => ({
+      contractType: 'NEW',
+      parentContractId: null,
+      estimateId,
+      contractDate: '2026-04-01',
+      constructionStartDate: '2026-05-01',
+      constructionEndDate: '2026-12-31',
+      deliveryDate: '2027-01-15',
+      taxRate: 0.1,
+      paymentTerms: '',
+      separateConstruction: '',
+      otherNotes: '',
+      supervisorTradingPartnerId: null,
+      contractAmount: 11000000,
+      constructionPrice: 10000000,
+      taxAmount: 1000000,
+    });
+
+    /** 別プロジェクトとその見積書を作る */
+    const createForeignEstimate = async (): Promise<string> => {
+      const foreign = await prisma.project.create({
+        data: {
+          name: 'テスト用別プロジェクト_契約書参照先検証',
+          status: 'PREPARING',
+          salesPersonId: testUserId,
+          createdById: testUserId,
+        },
+      });
+      const estimate = await prisma.estimate.create({
+        data: { projectId: foreign.id, name: 'テスト見積書_別プロジェクト' },
+      });
+      return estimate.id;
+    };
+
+    /** 同じプロジェクトの論理削除済みの見積書を作る */
+    const createDeletedEstimate = async (): Promise<string> => {
+      const estimate = await prisma.estimate.create({
+        data: {
+          projectId: testProjectId,
+          name: 'テスト見積書_論理削除済み',
+          deletedAt: new Date(),
+        },
+      });
+      return estimate.id;
+    };
+
+    const countContracts = async (): Promise<number> =>
+      prisma.contract.count({ where: { projectId: testProjectId } });
+
+    it('POST: プロジェクトが存在しない場合は404（PROJECT_NOT_FOUND）が返り、契約書は作成されないこと', async () => {
+      const before = await prisma.contract.count();
+
+      const response = await request(app)
+        .post(`/api/projects/${missingId}/contracts`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(buildBody(testEstimateId));
+
+      expect(response.status).toBe(404);
+      expect(response.body.code).toBe('PROJECT_NOT_FOUND');
+      expect(response.body.status).toBe(404);
+      expect(await prisma.contract.count()).toBe(before);
+    });
+
+    it('POST: 見積書が存在しない場合は404（ESTIMATE_NOT_FOUND）が返り、契約書は作成されないこと', async () => {
+      const response = await request(app)
+        .post(`/api/projects/${testProjectId}/contracts`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(buildBody(missingId));
+
+      expect(response.status).toBe(404);
+      expect(response.body.code).toBe('ESTIMATE_NOT_FOUND');
+      expect(response.body.status).toBe(404);
+      expect(await countContracts()).toBe(0);
+    });
+
+    it('POST: 他プロジェクトの見積書の場合は422が返り、契約書は作成されないこと', async () => {
+      const foreignEstimateId = await createForeignEstimate();
+
+      const response = await request(app)
+        .post(`/api/projects/${testProjectId}/contracts`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(buildBody(foreignEstimateId));
+
+      expect(response.status).toBe(422);
+      expect(response.body.code).toBe('CONTRACT_VALIDATION_ERROR');
+      expect(response.body.detail).toBe(
+        '契約の基となる見積書は同じプロジェクトの見積書である必要があります'
+      );
+      expect(await countContracts()).toBe(0);
+    });
+
+    it('POST: 論理削除済みの見積書の場合は422が返り、契約書は作成されないこと', async () => {
+      const deletedEstimateId = await createDeletedEstimate();
+
+      const response = await request(app)
+        .post(`/api/projects/${testProjectId}/contracts`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(buildBody(deletedEstimateId));
+
+      expect(response.status).toBe(422);
+      expect(response.body.code).toBe('CONTRACT_VALIDATION_ERROR');
+      expect(response.body.detail).toBe('削除された見積書は契約の基として選択できません');
+      expect(await countContracts()).toBe(0);
+    });
+
+    describe('PUT', () => {
+      const putBody = (estimateId: string): Record<string, unknown> => {
+        const { contractType: _t, parentContractId: _p, ...rest } = buildBody(estimateId);
+        return { ...rest, paymentTerms: '更新後の支払条件', version: 0 };
+      };
+
+      const expectUnchanged = async (contractId: string): Promise<void> => {
+        const contract = await prisma.contract.findUnique({ where: { id: contractId } });
+        expect(contract!.estimateId).toBe(testEstimateId);
+        expect(contract!.version).toBe(0);
+        expect(contract!.paymentTerms).not.toBe('更新後の支払条件');
+      };
+
+      it('PUT: 見積書を存在しないものに変えると404（ESTIMATE_NOT_FOUND）が返り、更新されないこと', async () => {
+        const contractId = await createTestContract();
+
+        const response = await request(app)
+          .put(`/api/contracts/${contractId}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(putBody(missingId));
+
+        expect(response.status).toBe(404);
+        expect(response.body.code).toBe('ESTIMATE_NOT_FOUND');
+        await expectUnchanged(contractId);
+      });
+
+      it('PUT: 見積書を他プロジェクトのものに変えると422が返り、更新されないこと', async () => {
+        const contractId = await createTestContract();
+        const foreignEstimateId = await createForeignEstimate();
+
+        const response = await request(app)
+          .put(`/api/contracts/${contractId}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(putBody(foreignEstimateId));
+
+        expect(response.status).toBe(422);
+        expect(response.body.code).toBe('CONTRACT_VALIDATION_ERROR');
+        expect(response.body.detail).toBe(
+          '契約の基となる見積書は同じプロジェクトの見積書である必要があります'
+        );
+        await expectUnchanged(contractId);
+      });
+
+      it('PUT: 見積書を論理削除済みのものに変えると422が返り、更新されないこと', async () => {
+        const contractId = await createTestContract();
+        const deletedEstimateId = await createDeletedEstimate();
+
+        const response = await request(app)
+          .put(`/api/contracts/${contractId}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(putBody(deletedEstimateId));
+
+        expect(response.status).toBe(422);
+        expect(response.body.code).toBe('CONTRACT_VALIDATION_ERROR');
+        expect(response.body.detail).toBe('削除された見積書は契約の基として選択できません');
+        await expectUnchanged(contractId);
+      });
+
+      it('PUT: 見積書を変えなければ、他の項目は更新できること', async () => {
+        const contractId = await createTestContract();
+
+        const response = await request(app)
+          .put(`/api/contracts/${contractId}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(putBody(testEstimateId));
+
+        expect(response.status).toBe(200);
+        expect(response.body.paymentTerms).toBe('更新後の支払条件');
+      });
+    });
+  });
 });

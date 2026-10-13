@@ -51,12 +51,8 @@ export interface TradingPartnerInfo {
   nameKana: string;
   /** 部課/支店/支社名 */
   branchName: string | null;
-  /** 部課/支店/支社フリガナ */
-  branchNameKana: string | null;
   /** 代表者名 */
   representativeName: string | null;
-  /** 代表者フリガナ */
-  representativeNameKana: string | null;
   /** 取引先種別（複数選択可） */
   types: TradingPartnerType[];
   /** 住所 */
@@ -145,12 +141,8 @@ export interface CreateTradingPartnerInput {
   address: string;
   /** 部課/支店/支社名（最大100文字、任意） */
   branchName?: string | null;
-  /** 部課/支店/支社フリガナ（最大100文字、カタカナのみ、任意） */
-  branchNameKana?: string | null;
   /** 代表者名（最大100文字、任意） */
   representativeName?: string | null;
-  /** 代表者フリガナ（最大100文字、カタカナのみ、任意） */
-  representativeNameKana?: string | null;
   /** 電話番号（任意） */
   phoneNumber?: string | null;
   /** FAX番号（任意） */

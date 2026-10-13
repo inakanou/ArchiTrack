@@ -35,8 +35,11 @@ import {
   QuantityTableNotFoundError,
   QuantityTableConflictError,
   QuantityTableValidationError,
+  QuantityTableSaveBusyError,
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
+import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
+import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
 import type {
   SaveQuantityTableDraftInput,
   QuantityTableDetailWithItems,
@@ -55,10 +58,25 @@ const quantityTableService = new QuantityTableService({
 /**
  * 数量グループに紐づく surveyImage の URL を署名付きURLへ変換する。
  *
- * findById が返す surveyImage の thumbnailUrl/originalUrl は `/api/storage/<path>` 形式の
- * 内部パスである。ストレージ設定時はこれを署名付きURLへ変換しないと、フロントの <img> から
- * 直接参照できずリンク切れになる。詳細取得（GET /:id）と保存（PUT /:id/save）で表示経路を
- * 一致させるため、両エンドポイントでこの変換を共通適用する。
+ * findById が返す surveyImage の thumbnailUrl/originalUrl/annotatedThumbnailUrl は
+ * `/api/storage/<path>` 形式の内部パスである。ストレージ設定時はこれを署名付きURLへ
+ * 変換しないと、フロントの <img> から直接参照できずリンク切れになる。詳細取得（GET /:id）と
+ * 保存（PUT /:id/save）で表示経路を一致させるため、両エンドポイントでこの変換を共通適用する。
+ *
+ * 注釈付きサムネイル（annotatedThumbnailUrl）は、数量グループ表題部の写真表示で
+ * クライアントサイドの注釈合成（グループごとの注釈取得APIとFabric.jsレンダリング）を
+ * 省略するために用いる。変換対象から漏れると表示できずクライアント合成へ退行するため、
+ * thumbnailUrl/originalUrl と同じ経路で変換する。
+ * Requirements: quantity-table-generation 49.1（写真表示に必要な情報をまとめて取得する）
+ *
+ * **現調画像の所属（テナント境界）はここでは検めない。** 検査は取得の正典である
+ * `QuantityTableService.findById` の写像に置いてある（Task 86.3）。ここに置かなかった理由は
+ * 二つある。(1) 本関数はストレージ未設定時に冒頭で早期 return するため、ストレージの設定に
+ * よって検査の有無が変わってしまう。テナント境界をストレージの設定に依存させてはならない。
+ * (2) 本関数が受け取る `QuantityTableDetailWithItems` の写真サマリは所属プロジェクトを
+ * 持たないため、ここで検めるには追加の問い合わせが要る。`findById` の側なら既存の問い合わせの
+ * 取得項目を広げるだけで済む。
+ * したがって本関数へ届く時点で所属違反の紐付けは既に落ちている。
  */
 async function enrichQuantityTableSignedUrls(
   quantityTable: QuantityTableDetailWithItems
@@ -78,33 +96,35 @@ async function enrichQuantityTableSignedUrls(
         return group;
       }
 
-      // 元のURLを保持（署名付きURL生成失敗時のフォールバック）
-      let thumbnailUrl: string = group.surveyImage.thumbnailUrl;
-      let originalUrl: string = group.surveyImage.originalUrl;
+      /**
+       * `/api/storage/<path>` 形式の内部パスを署名付きURLへ変換する。
+       * 生成に失敗した場合は元のURLをそのまま返す（既存のフォールバック挙動を維持）。
+       */
+      const toSignedUrl = async <T extends string | null>(
+        internalUrl: T,
+        label: string
+      ): Promise<T> => {
+        if (!internalUrl) {
+          return internalUrl;
+        }
+        try {
+          // /api/storage/ プレフィックスを除去してパスのみを取得
+          const objectKey = internalUrl.replace(/^\/api\/storage\//, '');
+          return (await storageProvider.getSignedUrl(objectKey)) as T;
+        } catch (error) {
+          logger.warn(
+            { groupId: group.id, internalUrl, error },
+            `Failed to generate signed URL for ${label}`
+          );
+          return internalUrl;
+        }
+      };
 
-      // サムネイルURLを署名付きURLに変換
-      try {
-        // /api/storage/ プレフィックスを除去してパスのみを取得
-        const thumbnailPath = group.surveyImage.thumbnailUrl.replace(/^\/api\/storage\//, '');
-        thumbnailUrl = await storageProvider.getSignedUrl(thumbnailPath);
-      } catch (error) {
-        logger.warn(
-          { groupId: group.id, thumbnailUrl: group.surveyImage.thumbnailUrl, error },
-          'Failed to generate signed URL for thumbnail'
-        );
-      }
-
-      // オリジナル画像URLを署名付きURLに変換
-      try {
-        // /api/storage/ プレフィックスを除去してパスのみを取得
-        const originalPath = group.surveyImage.originalUrl.replace(/^\/api\/storage\//, '');
-        originalUrl = await storageProvider.getSignedUrl(originalPath);
-      } catch (error) {
-        logger.warn(
-          { groupId: group.id, originalUrl: group.surveyImage.originalUrl, error },
-          'Failed to generate signed URL for original image'
-        );
-      }
+      const [thumbnailUrl, originalUrl, annotatedThumbnailUrl] = await Promise.all([
+        toSignedUrl(group.surveyImage.thumbnailUrl, 'thumbnail'),
+        toSignedUrl(group.surveyImage.originalUrl, 'original image'),
+        toSignedUrl(group.surveyImage.annotatedThumbnailUrl, 'annotated thumbnail'),
+      ]);
 
       return {
         ...group,
@@ -112,6 +132,7 @@ async function enrichQuantityTableSignedUrls(
           ...group.surveyImage,
           thumbnailUrl,
           originalUrl,
+          annotatedThumbnailUrl,
         },
       };
     })
@@ -184,8 +205,12 @@ const saveDraftItemSchema = withCalculationParams(
     unit: z.string().max(50),
     calculationMethod: z.enum(CALCULATION_METHODS),
     calculationParams: z.record(z.string(), z.number()).nullable(),
-    adjustmentFactor: z.number().positive(),
-    roundingUnit: z.number().positive(),
+    // 数値欄の範囲はここでは課さない。範囲の唯一の出所は
+    // `quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS` であり、
+    // 検証は `validateDraft` → `validateItemFieldSpecs` が担う（Task 85.1）。
+    // `quantity` が以前からこの層立てである（下行）。
+    adjustmentFactor: z.number(),
+    roundingUnit: z.number(),
     quantity: z.number(),
     remarks: z.string().nullable(),
     displayOrder: z.number().int().min(0),
@@ -482,7 +507,11 @@ router.get(
  *         description: 数量表ID
  *     responses:
  *       200:
- *         description: 数量表詳細
+ *         description: |
+ *           数量表詳細。他プロジェクトの現調画像を指す既存の紐付けは写真サマリと surveyImageId を
+ *           落として返し（Task 86.3）、落とした紐付けを持つグループのIDを
+ *           droppedSurveyImageLinkGroupIds（落としていなければ空配列）で返す（Task 86.5）。
+ *           他プロジェクトの画像IDは返さない。
  *       401:
  *         description: 認証エラー
  *       403:
@@ -707,9 +736,21 @@ router.put(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 数量表が見つからない
+ *         description: |
+ *           数量表が見つからない（code: QUANTITY_TABLE_NOT_FOUND）、または指定した現調画像が
+ *           存在しない（code: SURVEY_IMAGE_NOT_FOUND。見つからなかった画像IDを surveyImageId で返す）
  *       409:
  *         description: 楽観的排他制御エラー（競合）
+ *       410:
+ *         description: |
+ *           指定した現調画像の親の現場調査が論理削除済み（code: SURVEY_DELETED）。
+ *           削除された現場調査IDを surveyId で返し、原因のグループを
+ *           groups[i].surveyImageId（i は payload 上のグループの位置）で名指す（Task 90.2）
+ *       503:
+ *         description: |
+ *           同一数量表への先行の保存が長引き、行ロックの待機が上限（2 秒）を超えた
+ *           （code: QUANTITY_TABLE_SAVE_BUSY。Task 92.5）。変更は一切保存されていない。
+ *           時間をおいて再送すれば解消する種類の失敗である
  */
 router.put(
   '/:id/save',
@@ -741,6 +782,11 @@ router.put(
 
       res.json(enrichedQuantityTable);
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（site-survey の5経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof QuantityTableNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/quantity-table-not-found',
@@ -748,6 +794,21 @@ router.put(
           status: 404,
           detail: error.message,
           code: 'QUANTITY_TABLE_NOT_FOUND',
+        });
+        return;
+      }
+      // 実在しない現調画像を指した保存は 404 で拒む。写しは数量グループの紐付け経路
+      // （POST /api/quantity-tables/:quantityTableId/groups, PUT /api/quantity-groups/:id）と
+      // 同一にする。同じ不変条件に対して経路ごとに違う応答を返さないためである（Task 86.2）
+      if (error instanceof SurveyImageNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/survey-image-not-found',
+          title: 'Survey Image Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'SURVEY_IMAGE_NOT_FOUND',
+          // 画面が原因のグループを引き当てるための画像ID（Task 86.5。3経路で同じ項目を返す）
+          surveyImageId: error.surveyImageId,
         });
         return;
       }
@@ -776,6 +837,29 @@ router.put(
         });
         return;
       }
+      // ロック待ちの上限超過（Task 92.5）は混雑による一時的な失敗であり、時間をおけば
+      // 解消する。恒久的な失敗（下の 500）と同じ文言・同じコードへ畳むと、運用側が
+      // 「混雑しているだけ」と「本当に壊れている」を区別できない。画面に届く文言は
+      // 一般の失敗と同じ（再試行を促す案内）であり、増えるのは運用側の識別である。
+      if (error instanceof QuantityTableSaveBusyError) {
+        logger.warn(
+          {
+            userId: req.user?.userId,
+            quantityTableId: (req.validatedParams as { id?: string })?.id,
+            code: 'QUANTITY_TABLE_SAVE_BUSY',
+            details: error.details,
+          },
+          'Quantity table draft save aborted by lock wait timeout'
+        );
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/quantity-table-save-busy',
+          title: 'Service Unavailable',
+          status: 503,
+          detail: error.message,
+          code: 'QUANTITY_TABLE_SAVE_BUSY',
+        });
+        return;
+      }
       // 予期しないエラー（トランザクションエラー含む）は500として返却（REQ-42.9）
       logger.error(
         { error, quantityTableId: (req.validatedParams as { id?: string })?.id },
@@ -797,7 +881,10 @@ router.put(
  * /api/quantity-tables/{id}/copy:
  *   post:
  *     summary: 数量表コピー
- *     description: 既存の数量表を全データ（グループ・項目・写真紐づけ）含めてディープコピーする
+ *     description: |
+ *       既存の数量表を全データ（グループ・項目・写真紐づけ）含めてディープコピーする。
+ *       ただし当該数量表と別のプロジェクトの現場調査画像を指す紐づけは複製先へ写さない
+ *       （複製先の surveyImageId は null になる。複製自体は成功する）。
  *     tags:
  *       - Quantity Tables
  *     security:

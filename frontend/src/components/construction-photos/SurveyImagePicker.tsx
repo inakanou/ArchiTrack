@@ -87,6 +87,16 @@ const styles = {
     color: '#374151',
     textAlign: 'left' as const,
   } as React.CSSProperties,
+  // overflowWrap:anywhere は区切りの無い長い語にも折り返し位置を与える。調査名は最大 200 文字まで
+  // 入力でき、英数字一語の名前はこれが無いと折り返されず、モバイル幅で候補一覧を水平に広げて右の
+  // 枚数表示を見えない位置へ押し出す（タスク 20.7 の E2E で実測, R19.1）
+  surveyName: {
+    overflowWrap: 'anywhere' as const,
+  } as React.CSSProperties,
+  // 枚数表示は縮めない。長い調査名と同じ行で縮められると「1」と「枚」が縦に割れる（タスク 20.7）
+  surveyImageCount: {
+    flexShrink: 0,
+  } as React.CSSProperties,
   backLink: {
     background: 'none',
     border: 'none',
@@ -196,7 +206,7 @@ const styles = {
  * 現調写真選択モーダル
  *
  * 1. モーダルを開くと同一プロジェクトの現場調査一覧を読み込む
- * 2. 現場調査を選ぶと当該調査の画像一覧（サムネ優先）を読み込む
+ * 2. 現場調査を選ぶと当該調査の画像一覧（合成済みサムネイル > 素のサムネイル）を読み込む
  * 3. 追加したい画像を複数選択して「追加」で onSelect に画像IDを渡す
  */
 export function SurveyImagePicker({
@@ -330,8 +340,8 @@ export function SurveyImagePicker({
                     style={styles.surveyButton}
                     onClick={() => handleSelectSurvey(survey.id)}
                   >
-                    <span>{survey.name}</span>
-                    <span>{survey.imageCount} 枚</span>
+                    <span style={styles.surveyName}>{survey.name}</span>
+                    <span style={styles.surveyImageCount}>{survey.imageCount} 枚</span>
                   </button>
                 ))}
               </div>
@@ -352,6 +362,12 @@ export function SurveyImagePicker({
                 <div style={styles.imageGrid}>
                   {surveyImages.map((image) => {
                     const isSelected = selectedImageIds.has(image.id);
+                    // 候補の表示元は工事写真への取り込み時の複製元と同じ規則で選ぶ。
+                    // 取り込み側（construction-photo-image.service）は
+                    // annotatedThumbnailPath ?? thumbnailPath を複製するため、
+                    // ここで素のサムネイルのみを表示すると選択時と取り込み後で
+                    // 見た目が食い違う（Task 115.16 / Requirements 20.2, 20.3）。
+                    const displayUrl = image.annotatedThumbnailUrl ?? image.thumbnailUrl;
                     return (
                       <div
                         key={image.id}
@@ -367,9 +383,9 @@ export function SurveyImagePicker({
                           onChange={() => toggleImage(image.id)}
                           aria-label={`${image.fileName} を選択`}
                         />
-                        {image.thumbnailUrl ? (
+                        {displayUrl ? (
                           <img
-                            src={image.thumbnailUrl}
+                            src={displayUrl}
                             alt={image.fileName}
                             style={styles.image}
                             loading="lazy"

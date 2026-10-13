@@ -306,4 +306,20 @@ describe('TradingPartnerDeleteDialog', () => {
       expect(screen.getByRole('button', { name: '削除中...' })).toBeDisabled();
     });
   });
+
+  // ==========================================================================
+  // 長い一語の取引先名の折り返し（Task 31.5）
+  // ==========================================================================
+
+  describe('長い一語の取引先名の折り返し（Task 31.5）', () => {
+    it('区切りの無い長い取引先名を表示する要素が overflow-wrap: anywhere を持つ', () => {
+      const unbrokenName =
+        'TradingPartnerRedevelopmentSkyscraperConstructionUnbrokenName1700000000000';
+      render(<TradingPartnerDeleteDialog {...defaultProps} partnerName={unbrokenName} />);
+
+      const nameElements = screen.getAllByText(unbrokenName);
+      expect(nameElements).toHaveLength(1);
+      expect(nameElements[0]!.style.overflowWrap).toBe('anywhere');
+    });
+  });
 });

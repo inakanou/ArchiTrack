@@ -44,12 +44,15 @@ import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { getScheduleDetail } from '../api/schedules';
 import type { ScheduleDetail } from '../api/schedules';
-import { useScheduleState } from '../hooks/useScheduleState';
+import { useScheduleState, MAX_SCHEDULE_ITEMS } from '../hooks/useScheduleState';
 import { useHolidayCalendar } from '../hooks/useHolidayCalendar';
 import { SortableScheduleList } from '../components/schedule/SortableScheduleList';
 import { GanttChartPanel } from '../components/schedule/GanttChartPanel';
 import { Breadcrumb } from '../components/common';
 import { ExportDialog } from '../components/schedule/ExportDialog';
+
+/** 項目数の上限に達した旨の表示の要素 ID（項目追加の釦の説明として参照する） */
+const ITEM_LIMIT_MESSAGE_ID = 'schedule-item-limit-message';
 
 // ============================================================================
 // スタイル定義
@@ -105,6 +108,23 @@ const styles = {
     borderRadius: '6px',
     fontSize: '14px',
     cursor: 'pointer',
+  } as React.CSSProperties,
+  addButtonDisabled: {
+    padding: '8px 16px',
+    backgroundColor: '#9ca3af',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+    cursor: 'not-allowed',
+  } as React.CSSProperties,
+  itemLimitMessage: {
+    color: '#92400e',
+    fontSize: '14px',
+    marginBottom: '16px',
+    padding: '8px 12px',
+    backgroundColor: '#fef3c7',
+    borderRadius: '4px',
   } as React.CSSProperties,
   contentLayout: {
     display: 'flex',
@@ -182,6 +202,7 @@ function ScheduleDetailContent({ data }: { data: ScheduleDetail }) {
     save,
     isLoading: isSaving,
     error: saveError,
+    isItemLimitReached,
   } = useScheduleState(data);
 
   // 出力ダイアログの表示状態
@@ -233,8 +254,10 @@ function ScheduleDetailContent({ data }: { data: ScheduleDetail }) {
           <button
             type="button"
             data-testid="add-item-button"
-            style={styles.addButton}
+            style={isItemLimitReached ? styles.addButtonDisabled : styles.addButton}
             onClick={addItem}
+            disabled={isItemLimitReached}
+            aria-describedby={isItemLimitReached ? ITEM_LIMIT_MESSAGE_ID : undefined}
           >
             + 項目追加
           </button>
@@ -248,6 +271,19 @@ function ScheduleDetailContent({ data }: { data: ScheduleDetail }) {
             {isSaving ? '保存中...' : '保存'}
           </button>
         </div>
+      </div>
+
+      {/* 項目数の上限に達した旨（Req 12.1） */}
+      <div role="status">
+        {isItemLimitReached && (
+          <p
+            id={ITEM_LIMIT_MESSAGE_ID}
+            style={styles.itemLimitMessage}
+            data-testid="item-limit-message"
+          >
+            {`工程表の項目は上限の${MAX_SCHEDULE_ITEMS}件に達しているため、これ以上追加できません`}
+          </p>
+        )}
       </div>
 
       {/* エラーメッセージ */}

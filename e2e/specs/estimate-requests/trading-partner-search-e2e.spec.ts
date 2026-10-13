@@ -381,16 +381,15 @@ test.describe('見積依頼新規作成画面 宛先検索選択UI（REQ-30）',
       await expect(submitButton).toBeVisible({ timeout: getTimeout(10000) });
       await submitButton.click();
 
-      // role="alert" のエラーメッセージ、または combobox の aria-invalid="true"
+      // REQ-30.9: 宛先未選択のまま保存すると、宛先欄にエラーを提示する。
+      // TradingPartnerSelect は error を受け取ると combobox に aria-invalid="true" を付け、
+      // 同時に role="alert" のエラーメッセージを描画する（projects/TradingPartnerSelect.tsx）。
+      // 以前は「alert がある、または aria-invalid が true」の論理和だったが、
+      // 実装は両方を同時に与えるため、片方が失われても気づけない主張になっていた。
       const combobox = page.locator('input[role="combobox"][aria-label="宛先（取引先）"]');
-      // 厳密に：宛先必須のエラーが alert として表示される
       const alerts = page.locator('[role="alert"]');
       await expect(alerts.first()).toBeVisible({ timeout: getTimeout(10000) });
-      // または combobox に aria-invalid="true" が付与される
-      const ariaInvalid = await combobox.getAttribute('aria-invalid').catch(() => null);
-      // どちらかの条件が満たされていれば OK（実装の方針に追従）
-      const alertCount = await alerts.count();
-      expect(alertCount > 0 || ariaInvalid === 'true').toBe(true);
+      await expect(combobox).toHaveAttribute('aria-invalid', 'true');
     });
   });
 

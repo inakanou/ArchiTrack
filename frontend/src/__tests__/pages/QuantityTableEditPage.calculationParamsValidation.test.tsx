@@ -13,7 +13,7 @@
  * - 47.9 / 8.15: 「箇所数」が未入力のまま保存を試行する場合、エラーメッセージを表示し箇所数の入力を求める
  * - 8.10: 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）のいずれかが未入力で
  *   保存を試行する場合、エラーメッセージを表示し必須項目の入力を求める
- * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する場合、
+ * - 8.7: 「面積・体積」モードで幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない状態で保存を試行する場合、
  *   エラーメッセージを表示する
  * - 11.2: 整合性チェックでエラーが検出された場合、保存を中断し問題箇所の修正を求める
  */
@@ -39,6 +39,7 @@ vi.mock('react-router-dom', async () => {
 import QuantityTableEditPage from '../../pages/QuantityTableEditPage';
 import * as quantityTablesApi from '../../api/quantity-tables';
 import type { QuantityItemDetail, QuantityTableDetail } from '../../types/quantity-table.types';
+import { FIELD_RANGE_CONFIG } from '../../utils/numeric-range-validation';
 
 // APIモック
 vi.mock('../../api/quantity-tables');
@@ -224,7 +225,7 @@ describe('QuantityTableEditPage - 保存前の計算パラメータ検証（Task
   });
 
   describe('計算方法「面積・体積」（REQ-8 AC7）', () => {
-    it('計算用列に値が1つも入力されていない状態で保存すると、サーバーへ送信されずにエラーが表示される', async () => {
+    it('幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない状態で保存すると、サーバーへ送信されずにエラーが表示される', async () => {
       await loadAndSave(
         buildDetail([
           {
@@ -237,7 +238,34 @@ describe('QuantityTableEditPage - 保存前の計算パラメータ検証（Task
 
       await waitFor(() => {
         expect(
-          screen.getByText(/面積・体積モードでは少なくとも1つの計算用列に値を入力してください/)
+          screen.getByText(
+            /面積・体積モードでは幅\(W\)・奥行き\(D\)・高さ\(H\)のうち最低1項目を入力してください/
+          )
+        ).toBeInTheDocument();
+      });
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+    });
+
+    /**
+     * タスク 100.10（2026-09-23、利用者の裁定）: 条文は幅(W)・奥行き(D)・高さ(H) のみを数える。
+     * 改める前の実体は重量も「いずれか1つ」に数えており、重量だけの状態が保存できていた。
+     */
+    it('重量だけが入力されている状態で保存すると、サーバーへ送信されずにエラーが表示される', async () => {
+      await loadAndSave(
+        buildDetail([
+          {
+            ...baseItem,
+            calculationMethod: 'AREA_VOLUME',
+            calculationParams: { weight: 3 },
+          },
+        ])
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /面積・体積モードでは幅\(W\)・奥行き\(D\)・高さ\(H\)のうち最低1項目を入力してください/
+          )
         ).toBeInTheDocument();
       });
       expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
@@ -322,6 +350,338 @@ describe('QuantityTableEditPage - 保存前の計算パラメータ検証（Task
         expect(screen.getByText(/丸め設定が無効です/)).toBeInTheDocument();
       });
       expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 10.3, 11.2
+     *
+     * Task 80.2: 保存前の整合性チェックが引く範囲を正典へ一本化したことを固定する。
+     * 上限は正典から取り出す。検証側へ数値を書き写すと、範囲が変わったとき
+     * 検証だけが古い前提のまま緑になる。
+     */
+    it('丸め設定が上限を超える場合もサーバーへ送信されずにエラーが表示される', async () => {
+      const aboveMax = FIELD_RANGE_CONFIG.roundingUnit.max + 0.01;
+      await loadAndSave(buildDetail([{ ...baseItem, roundingUnit: aboveMax }]));
+
+      await waitFor(() => {
+        expect(screen.getByText(/丸め設定が無効です/)).toBeInTheDocument();
+      });
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 10.3, 11.2
+     *
+     * 下限側の退行（旧実装の `<= 0` は `0 < v < 0.01` を素通りさせていた）を固定する。
+     * 境界は正典から導く。
+     */
+    it('丸め設定が下限を下回る正の値の場合もサーバーへ送信されずにエラーが表示される', async () => {
+      const belowMin = FIELD_RANGE_CONFIG.roundingUnit.min / 2;
+      expect(belowMin).toBeGreaterThan(0);
+      await loadAndSave(buildDetail([{ ...baseItem, roundingUnit: belowMin }]));
+
+      await waitFor(() => {
+        expect(screen.getByText(/丸め設定が無効です/)).toBeInTheDocument();
+      });
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 9.3, 11.2
+     *
+     * 調整係数の `0` と負値は REQ-9.3 の有効域の内側である。タスク 80.2 の時点では
+     * 保存経路（backend の `saveDraftItemSchema` の `z.number().positive()`）が拒んでいたため、
+     * 保存前に止めて名指していた。**タスク 85.1 がバックエンドを有効域へ揃えたため
+     * 向きが反転した**——止めずにサーバーへ送る。
+     */
+    it.each([
+      ['0', 0],
+      ['負の値', -0.5],
+      ['下限', FIELD_RANGE_CONFIG.adjustmentFactor.min],
+    ])('調整係数が%sの場合も保存は中断されずサーバーへ送信される', async (_label, value) => {
+      const detail = buildDetail([{ ...baseItem, adjustmentFactor: value }]);
+      mockSaveQuantityTableDraft.mockResolvedValue({
+        ...detail,
+        updatedAt: '2026-02-02T00:00:00Z',
+      });
+
+      await loadAndSave(detail);
+
+      await waitFor(() => {
+        expect(mockSaveQuantityTableDraft).toHaveBeenCalled();
+      });
+      const calls = mockSaveQuantityTableDraft.mock.calls as unknown as [
+        string,
+        { groups: { items: { adjustmentFactor: number }[] }[] },
+      ][];
+      const sentItems = calls[calls.length - 1]?.[1]?.groups?.[0]?.items;
+      expect(sentItems?.[0]?.adjustmentFactor).toBe(value);
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 9.3, 11.2
+     *
+     * 上の「中断しない」が、保存前の検査そのものが死んでいるだけで成立していないことを
+     * 同じ欄で確かめる。有効域の外は引き続き中断する。
+     */
+    it.each([
+      ['下限未満', FIELD_RANGE_CONFIG.adjustmentFactor.min - 0.01],
+      ['上限超過', FIELD_RANGE_CONFIG.adjustmentFactor.max + 0.01],
+    ])(
+      '調整係数が有効域の外（%s）の場合はサーバーへ送信されずにエラーが表示される',
+      async (_label, value) => {
+        await loadAndSave(buildDetail([{ ...baseItem, adjustmentFactor: value }]));
+
+        await waitFor(() => {
+          expect(screen.getByText(/調整係数が無効です/)).toBeInTheDocument();
+        });
+        expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+      }
+    );
+
+    it('丸め設定が有効域の上限のときはサーバーへ送信される', async () => {
+      const detail = buildDetail([
+        { ...baseItem, roundingUnit: FIELD_RANGE_CONFIG.roundingUnit.max },
+      ]);
+      mockSaveQuantityTableDraft.mockResolvedValue({
+        ...detail,
+        updatedAt: '2026-02-02T00:00:00Z',
+      });
+
+      await loadAndSave(detail);
+
+      await waitFor(() => {
+        expect(screen.getByText(/保存しました/)).toBeInTheDocument();
+      });
+      expect(mockSaveQuantityTableDraft).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /*
+   * Requirements (quantity-table-generation): 10.3, 11.2
+   *
+   * Task 90.1: 範囲外の既存値を持つ項目を救済する。
+   *
+   * 正典の範囲（0.01〜99.99）より広い範囲で永続化された丸め設定（例: 旧保存経路の上限
+   * 999.99 の内側の 500）は、保存前の整合性チェックで保存を中断させる。計算方法「標準」の
+   * 項目では丸め設定・調整係数の欄が描画されない（REQ-10.8）ため、名指すだけでは
+   * 直す手段が無い。**告知が項目・欄・現在の値・範囲を名指し、描画されない欄に限って
+   * 利用者の操作で既定値へ戻す出口を持つこと**を固定する。値を黙って書き換えないことも併せて固定する。
+   */
+  describe('範囲外の既存値の救済（Task 90.1）', () => {
+    /** 旧保存経路（上限 999.99）なら永続化できた、正典の上限を超える丸め設定 */
+    const LEGACY_ROUNDING_UNIT = 500;
+    /** 旧作成経路（上限なしの正値）なら永続化できた、正典の上限を超える調整係数 */
+    const LEGACY_ADJUSTMENT_FACTOR = 50;
+
+    const roundingRange = `${FIELD_RANGE_CONFIG.roundingUnit.min}〜${FIELD_RANGE_CONFIG.roundingUnit.max}`;
+    const adjustmentRange = `${FIELD_RANGE_CONFIG.adjustmentFactor.min}〜${FIELD_RANGE_CONFIG.adjustmentFactor.max}`;
+
+    type SentItem = {
+      name: string;
+      roundingUnit: number;
+      adjustmentFactor: number;
+      quantity: number;
+    };
+
+    /** 最後に送られた保存要求の項目群 */
+    function lastSentItems(): SentItem[] | undefined {
+      const calls = mockSaveQuantityTableDraft.mock.calls as unknown as [
+        string,
+        { groups: { items: SentItem[] }[] },
+      ][];
+      return calls[calls.length - 1]?.[1]?.groups?.[0]?.items;
+    }
+
+    it('前提: 救済の対象とする既存値は正典の範囲の外にある', () => {
+      expect(LEGACY_ROUNDING_UNIT).toBeGreaterThan(FIELD_RANGE_CONFIG.roundingUnit.max);
+      expect(LEGACY_ADJUSTMENT_FACTOR).toBeGreaterThan(FIELD_RANGE_CONFIG.adjustmentFactor.max);
+    });
+
+    it('「標準」の項目の丸め設定が範囲外なら、項目・欄・現在の値・範囲と、欄が表示されないことを名指して保存を中断する', async () => {
+      await loadAndSave(buildDetail([{ ...baseItem, roundingUnit: LEGACY_ROUNDING_UNIT }]));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(
+        `保存できません: グループ「グループ1」の項目「掘削」の丸め設定が無効です（現在の値: 500.00）。${roundingRange}の範囲外ですが、計算方法「標準」ではこの欄は表示されません。既定値に戻してから保存してください`
+      );
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+    });
+
+    it('「標準」の項目の丸め設定は告知の操作で既定値へ戻り、名指した項目だけが変わって保存できる', async () => {
+      const user = userEvent.setup();
+      const detail = buildDetail([
+        { ...baseItem, roundingUnit: LEGACY_ROUNDING_UNIT },
+        { ...baseItem, id: 'item-2', name: '埋戻し', roundingUnit: 0.5, displayOrder: 1 },
+      ]);
+      mockSaveQuantityTableDraft.mockResolvedValue({
+        ...detail,
+        updatedAt: '2026-02-02T00:00:00Z',
+      });
+      await loadAndSave(detail);
+
+      const resetButton = await screen.findByRole('button', {
+        name: '丸め設定を既定値（0.01）に戻す',
+      });
+      // 押す前は何も送られていない（値を黙って書き換えて保存しないこと）
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+
+      await user.click(resetButton);
+      await waitFor(() => {
+        expect(screen.queryByText(/丸め設定が無効です/)).not.toBeInTheDocument();
+      });
+      // 戻す操作そのものは保存しない（永続化は保存操作時のみ。REQ-42.7）
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(mockSaveQuantityTableDraft).toHaveBeenCalledTimes(1);
+      });
+      expect(lastSentItems()).toEqual([
+        expect.objectContaining({ name: '掘削', roundingUnit: 0.01, quantity: 10 }),
+        expect.objectContaining({ name: '埋戻し', roundingUnit: 0.5, quantity: 10 }),
+      ]);
+    });
+
+    it('「標準」の項目の調整係数が範囲外なら、同じ形で名指し、告知の操作で既定値へ戻して保存できる', async () => {
+      const user = userEvent.setup();
+      const detail = buildDetail([{ ...baseItem, adjustmentFactor: LEGACY_ADJUSTMENT_FACTOR }]);
+      mockSaveQuantityTableDraft.mockResolvedValue({
+        ...detail,
+        updatedAt: '2026-02-02T00:00:00Z',
+      });
+      await loadAndSave(detail);
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(
+        `保存できません: グループ「グループ1」の項目「掘削」の調整係数が無効です（現在の値: 50.00）。${adjustmentRange}の範囲外ですが、計算方法「標準」ではこの欄は表示されません。既定値に戻してから保存してください`
+      );
+
+      await user.click(screen.getByRole('button', { name: '調整係数を既定値（1.00）に戻す' }));
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(mockSaveQuantityTableDraft).toHaveBeenCalledTimes(1);
+      });
+      expect(lastSentItems()).toEqual([
+        expect.objectContaining({ name: '掘削', adjustmentFactor: 1, roundingUnit: 0.01 }),
+      ]);
+    });
+
+    it('欄が描画される計算方法では、既定値へ戻す操作を出さず、範囲内の値の入力を求めて欄から直させる', async () => {
+      const user = userEvent.setup();
+      const detail = buildDetail([
+        {
+          ...baseItem,
+          calculationMethod: 'AREA_VOLUME',
+          calculationParams: { width: 10 },
+          roundingUnit: LEGACY_ROUNDING_UNIT,
+        },
+      ]);
+      mockSaveQuantityTableDraft.mockResolvedValue({
+        ...detail,
+        updatedAt: '2026-02-02T00:00:00Z',
+      });
+      await loadAndSave(detail);
+
+      const alert = await screen.findByText(/丸め設定が無効です/);
+      expect(alert).toHaveTextContent(
+        `保存できません: グループ「グループ1」の項目「掘削」の丸め設定が無効です（現在の値: 500.00）。${roundingRange}の範囲で入力してください`
+      );
+      expect(screen.queryByRole('button', { name: /既定値.*に戻す/ })).not.toBeInTheDocument();
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+
+      // 名指された欄は描画されており、既存値のまま直せる
+      const roundingInput = screen.getByLabelText('丸め設定');
+      expect(roundingInput).toHaveValue('500.00');
+      await user.clear(roundingInput);
+      await user.type(roundingInput, '1');
+      await user.tab();
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(mockSaveQuantityTableDraft).toHaveBeenCalledTimes(1);
+      });
+      expect(lastSentItems()?.[0]?.roundingUnit).toBe(1);
+    });
+
+    /*
+     * 数量も同じ出口を持つ。旧作成経路（タスク 85.1 より前）は数量に上限を課さず（非負であることのみ）、
+     * 保存前の整合性チェックは数量の範囲を見ていなかった。そのため範囲外の既存値は保存経路の 400 で初めて
+     * 止まり、画面は一般の「再度お試しください」を出していた——再試行しても成功せず、問題箇所も名指さない。
+     * 数量の欄は計算方法によらず描画されるため、既定値へ戻す操作は出さず、範囲内の値の入力を求める。
+     */
+    it('数量が範囲外の既存値なら、サーバーへ送らず項目・現在の値・範囲を名指し、欄から直すと保存できる', async () => {
+      const user = userEvent.setup();
+      const aboveMax = 100000000;
+      expect(aboveMax).toBeGreaterThan(FIELD_RANGE_CONFIG.quantity.max);
+      const detail = buildDetail([{ ...baseItem, quantity: aboveMax }]);
+      mockSaveQuantityTableDraft.mockResolvedValue({
+        ...detail,
+        updatedAt: '2026-02-02T00:00:00Z',
+      });
+      await loadAndSave(detail);
+
+      const alert = await screen.findByText(/数量が無効です/);
+      expect(alert).toHaveTextContent(
+        `保存できません: グループ「グループ1」の項目「掘削」の数量が無効です（現在の値: 100000000.00）。${FIELD_RANGE_CONFIG.quantity.min}〜${FIELD_RANGE_CONFIG.quantity.max}の範囲で入力してください`
+      );
+      expect(screen.queryByRole('button', { name: /既定値.*に戻す/ })).not.toBeInTheDocument();
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+
+      const quantityInput = screen.getByRole('textbox', { name: '数量' });
+      await user.clear(quantityInput);
+      await user.type(quantityInput, '5');
+      await user.tab();
+
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(mockSaveQuantityTableDraft).toHaveBeenCalledTimes(1);
+      });
+      expect(lastSentItems()?.[0]?.quantity).toBe(5);
+    });
+
+    it('先頭に告げる誤りが別の問題なら、既定値へ戻す操作は出さない（告げていない欄を書き換えない）', async () => {
+      await loadAndSave(
+        buildDetail([{ ...baseItem, name: '', roundingUnit: LEGACY_ROUNDING_UNIT }])
+      );
+
+      await screen.findByText(/項目名が空の項目があります/);
+      expect(screen.queryByRole('button', { name: /既定値.*に戻す/ })).not.toBeInTheDocument();
+    });
+
+    it('告知を閉じると、既定値へ戻す操作も消える', async () => {
+      const user = userEvent.setup();
+      await loadAndSave(buildDetail([{ ...baseItem, roundingUnit: LEGACY_ROUNDING_UNIT }]));
+
+      await screen.findByRole('button', { name: '丸め設定を既定値（0.01）に戻す' });
+      await user.click(screen.getByRole('button', { name: 'エラーを閉じる' }));
+      expect(
+        screen.queryByRole('button', { name: '丸め設定を既定値（0.01）に戻す' })
+      ).not.toBeInTheDocument();
+    });
+
+    /*
+     * 操作は、それを名指した告知が表示されている間だけ出る。告知を閉じた後に別の操作エラー
+     * （ここでは PDF 出力の失敗）が出たとき、その告知の下に丸め設定を書き換える操作が
+     * 並ばないことを固定する——利用者が読んでいる告知が名指していない欄を書き換えさせない。
+     */
+    it('告知を閉じた後に別の操作エラーが出ても、既定値へ戻す操作はその下に並ばない', async () => {
+      const user = userEvent.setup();
+      await loadAndSave(buildDetail([{ ...baseItem, roundingUnit: LEGACY_ROUNDING_UNIT }]));
+
+      await screen.findByRole('button', { name: '丸め設定を既定値（0.01）に戻す' });
+      await user.click(screen.getByRole('button', { name: 'エラーを閉じる' }));
+
+      const { generateQuantityTablePdf } =
+        await import('../../services/export/QuantityTablePdfExportService');
+      vi.mocked(generateQuantityTablePdf).mockRejectedValue(new Error('PDF generation failed'));
+      await user.click(screen.getByRole('button', { name: /PDF/ }));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('PDF生成中にエラーが発生しました');
+      expect(
+        screen.queryByRole('button', { name: '丸め設定を既定値（0.01）に戻す' })
+      ).not.toBeInTheDocument();
     });
   });
 });

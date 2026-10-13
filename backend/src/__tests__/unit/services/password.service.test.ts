@@ -8,6 +8,7 @@ import type {
   PasswordHistory,
 } from '../../../generated/prisma/client.js';
 import { EmailService } from '../../../services/email.service.js';
+import logger from '../../../utils/logger.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {
@@ -27,6 +28,9 @@ const mockPrismaClient = {
   },
   refreshToken: {
     deleteMany: vi.fn(),
+  },
+  auditLog: {
+    create: vi.fn(),
   },
   $transaction: vi.fn(),
 } as unknown as PrismaClient;
@@ -304,6 +308,20 @@ describe('PasswordService', () => {
       (mockPrismaClient.passwordResetToken.create as ReturnType<typeof vi.fn>).mockResolvedValue(
         mockResetToken
       );
+      (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        (callback: (tx: PrismaClient) => Promise<unknown>) => callback(mockPrismaClient)
+      );
+      (mockPrismaClient.auditLog.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'audit-1',
+        action: 'PASSWORD_RESET_REQUESTED',
+        actorId: 'user-1',
+        targetType: 'user',
+        targetId: 'user-1',
+        before: null,
+        after: null,
+        metadata: null,
+        createdAt: new Date(),
+      });
 
       const result = await passwordService.requestPasswordReset(email);
 
@@ -325,6 +343,106 @@ describe('PasswordService', () => {
 
       expect(result.ok).toBe(true);
       expect(mockPrismaClient.passwordResetToken.create).not.toHaveBeenCalled();
+      expect(mockEmailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('requestPasswordReset のトークン・監査ログ・メール投入の組み方', () => {
+    const email = 'reset-order@example.com';
+    const userId = 'user-reset-order';
+    const txClient = {
+      passwordResetToken: { create: vi.fn() },
+      auditLog: { create: vi.fn() },
+    };
+
+    beforeEach(() => {
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: userId,
+        email,
+      });
+      txClient.passwordResetToken.create.mockResolvedValue({ id: 'reset-token-1' });
+      txClient.auditLog.create.mockResolvedValue({
+        id: 'audit-1',
+        action: 'PASSWORD_RESET_REQUESTED',
+        actorId: userId,
+        targetType: 'user',
+        targetId: userId,
+        before: null,
+        after: null,
+        metadata: null,
+        createdAt: new Date(),
+      });
+      (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        (callback: (tx: unknown) => Promise<unknown>) => callback(txClient)
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-25.6
+     */
+    it('トークンと監査ログを同じトランザクションで書き、コミット後にメールを投入する', async () => {
+      (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mockResolvedValue(
+        undefined
+      );
+
+      const result = await passwordService.requestPasswordReset(email);
+
+      expect(result).toEqual({ ok: true, value: undefined });
+      expect(mockPrismaClient.$transaction).toHaveBeenCalledTimes(1);
+      // トークンも監査ログもトランザクションのクライアントで書く
+      expect(txClient.passwordResetToken.create).toHaveBeenCalledTimes(1);
+      expect(mockPrismaClient.passwordResetToken.create).not.toHaveBeenCalled();
+      expect(txClient.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'PASSWORD_RESET_REQUESTED',
+            actorId: userId,
+            targetId: userId,
+          }),
+        })
+      );
+      const token = txClient.passwordResetToken.create.mock.calls[0]![0].data.token;
+      expect(mockEmailService.sendPasswordResetEmail).toHaveBeenCalledWith(email, token);
+      // 投入はトランザクションの完了（コミット）の後
+      const txDone = (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mock.results[0]!
+        .value as Promise<unknown>;
+      await txDone;
+      expect(
+        (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mock
+          .invocationCallOrder[0]
+      ).toBeGreaterThan(txClient.auditLog.create.mock.invocationCallOrder[0]!);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-25.6
+     */
+    it('メールの投入が失敗しても Ok を返し、err キーで警告ログを残す', async () => {
+      const queueError = new Error('Redis connection refused');
+      (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mockRejectedValue(
+        queueError
+      );
+      const warnSpy = vi.spyOn(logger, 'warn');
+
+      const result = await passwordService.requestPasswordReset(email);
+
+      expect(result).toEqual({ ok: true, value: undefined });
+      expect(txClient.passwordResetToken.create).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        { err: queueError, userId },
+        'Failed to queue password reset email; reset token was created'
+      );
+      warnSpy.mockRestore();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-25.6
+     */
+    it('トランザクションが失敗すると RESET_TOKEN_INVALID を返し、メールを投入しない', async () => {
+      txClient.auditLog.create.mockRejectedValue(new Error('audit insert failed'));
+
+      const result = await passwordService.requestPasswordReset(email);
+
+      expect(result).toEqual({ ok: false, error: { type: 'RESET_TOKEN_INVALID' } });
       expect(mockEmailService.sendPasswordResetEmail).not.toHaveBeenCalled();
     });
   });

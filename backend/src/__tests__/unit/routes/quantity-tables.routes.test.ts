@@ -306,6 +306,57 @@ describe('QuantityTablesRoutes', () => {
       expect(response.body.project).toBeDefined();
     });
 
+    // Requirements: site-survey/20.2
+    // Task 115.13: 数量表編集画面が実際に用いる取得経路の応答に、描画された注釈の有無が
+    // 現れることを確認する。署名付きURL変換の再構築で項目が落ちると画面へ届かない。
+    it('surveyImageに描画された注釈の有無（hasDrawnAnnotations）を含めて返却する', async () => {
+      const tableId = '123e4567-e89b-12d3-a456-426614174001';
+      const detail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テスト数量表',
+        groupCount: 1,
+        itemCount: 0,
+        project: { id: '123e4567-e89b-12d3-a456-426614174000', name: 'テストプロジェクト' },
+        groups: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174010',
+            quantityTableId: tableId,
+            name: 'グループA',
+            surveyImageId: 'img-1',
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/api/storage/thumbnails/img-1.jpg',
+              originalUrl: '/api/storage/originals/img-1.jpg',
+              fileName: 'img-1.jpg',
+              // 回転のみを保存した写真: 注釈レコードは残るが描画された注釈は0件
+              hasAnnotations: true,
+              hasDrawnAnnotations: false,
+              annotatedThumbnailUrl: null,
+              comment: null,
+            },
+            displayOrder: 0,
+            itemCount: 0,
+            items: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockService.findById.mockResolvedValue(detail);
+
+      const response = await request(app).get(`/api/quantity-tables/${tableId}`).expect(200);
+
+      const surveyImage = response.body.groups[0].surveyImage;
+      expect(Object.keys(surveyImage)).toContain('hasDrawnAnnotations');
+      expect(surveyImage.hasDrawnAnnotations).toBe(false);
+      // 既存項目の意味は変更しない
+      expect(surveyImage.hasAnnotations).toBe(true);
+    });
+
     it('should return 404 when quantity table not found', async () => {
       const tableId = '123e4567-e89b-12d3-a456-426614174001';
       mockService.findById.mockResolvedValue(null);
@@ -584,6 +635,83 @@ describe('QuantityTablesRoutes', () => {
       );
     });
 
+    /*
+     * Requirements (quantity-table-generation): 9.3
+     *
+     * ルート層の `z.number().positive()` は REQ-9.3 の有効域 `-9.99〜9.99` が内側に含む
+     * `0` と負値を 400 で拒んでいた。範囲の正典は
+     * `quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS` 一つであり、
+     * ルート層は範囲を課さない（タスク 85.1）。
+     *
+     * **サービスへ届くことまで主張する。** 400 が出ないことだけでは、経路が別の理由で
+     * 素通りしている場合と区別できない。
+     */
+    it.each([
+      ['0', 0],
+      ['負の有効値', -0.5],
+      ['下限', -9.99],
+    ])(
+      '調整係数が有効域の内側（%s）のときルート層で拒まれずサービスへ届く',
+      async (_label, adjustmentFactor) => {
+        const body = buildSaveBody();
+        const targetItem = body.groups[0]?.items[0];
+        if (!targetItem) {
+          throw new Error('前提: 検証対象の項目がペイロードに存在しない');
+        }
+        targetItem.adjustmentFactor = adjustmentFactor;
+        mockService.saveDraft.mockResolvedValue({
+          id: tableId,
+          projectId: '123e4567-e89b-12d3-a456-426614174000',
+          name: '編集後の数量表名',
+          groups: [],
+          createdAt: new Date(),
+          updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+        });
+
+        await request(app).put(`/api/quantity-tables/${tableId}/save`).send(body).expect(200);
+
+        const calls = mockService.saveDraft.mock.calls as unknown as [
+          string,
+          { groups: { items: { adjustmentFactor: number }[] }[] },
+        ][];
+        const sentItems = calls[calls.length - 1]?.[1]?.groups?.[0]?.items;
+        expect(sentItems?.[0]?.adjustmentFactor).toBe(adjustmentFactor);
+      }
+    );
+
+    /*
+     * Requirements (quantity-table-generation): 10.3
+     *
+     * 丸め設定も同じく範囲をルート層で課さない。範囲判定はサービス層
+     * （`validateDraft` → `validateItemFieldSpecs`）が一手に担い、違反は項目の位置を
+     * 名指すエラーとして返る。素通しではないことは下の検証が示す。
+     */
+    it('丸め設定が0のときルート層で拒まれずサービスへ届く', async () => {
+      const body = buildSaveBody();
+      const targetItem = body.groups[0]?.items[0];
+      if (!targetItem) {
+        throw new Error('前提: 検証対象の項目がペイロードに存在しない');
+      }
+      targetItem.roundingUnit = 0;
+      mockService.saveDraft.mockResolvedValue({
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      });
+
+      await request(app).put(`/api/quantity-tables/${tableId}/save`).send(body).expect(200);
+
+      const calls = mockService.saveDraft.mock.calls as unknown as [
+        string,
+        { groups: { items: { roundingUnit: number }[] }[] },
+      ][];
+      const sentItems = calls[calls.length - 1]?.[1]?.groups?.[0]?.items;
+      expect(sentItems?.[0]?.roundingUnit).toBe(0);
+    });
+
     it('保存レスポンスのsurveyImage URLを署名付きURLに変換して返却する（保存後リンク切れ防止）', async () => {
       // 保存直後の応答でも詳細取得（GET /:id）と同様に署名付きURL変換を適用することで、
       // 保存後にグループ画像がリンク切れになる事象を防ぐ。
@@ -634,6 +762,59 @@ describe('QuantityTablesRoutes', () => {
       );
     });
 
+    /**
+     * 数量グループの写真表示に必要な情報（表示元URL）を、グループごとの個別リクエストに
+     * 分割せず数量表の応答へまとめて載せること。
+     *
+     * @requirement quantity-table-generation/REQ-49.1
+     */
+    it('surveyImageのannotatedThumbnailUrlも署名付きURLに変換して返却する (quantity-table-generation/REQ-49.1)', async () => {
+      // 注釈付きサムネイルは数量グループ表題部の写真表示でクライアントサイドの注釈合成
+      // （グループごとの注釈取得API呼び出し）を省略するために用いる。変換されないと
+      // `/api/storage/...` のままとなり表示できず、クライアント合成へ退行する。
+      const body = buildSaveBody();
+      const latestDetail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174010',
+            quantityTableId: tableId,
+            name: 'グループA',
+            surveyImageId: 'img-1',
+            surveyImage: {
+              id: 'img-1',
+              thumbnailUrl: '/api/storage/thumbnails/img-1.jpg',
+              originalUrl: '/api/storage/originals/img-1.jpg',
+              fileName: 'img-1.jpg',
+              hasAnnotations: true,
+              annotatedThumbnailUrl: '/api/storage/annotated-thumbnails/img-1.jpg',
+              comment: null,
+            },
+            displayOrder: 0,
+            itemCount: 0,
+            items: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      };
+
+      mockService.saveDraft.mockResolvedValue(latestDetail);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(body)
+        .expect(200);
+
+      expect(response.body.groups[0].surveyImage.annotatedThumbnailUrl).toBe(
+        'https://signed.example.com/annotated-thumbnails/img-1.jpg?sig=test'
+      );
+    });
+
     it('バリデーションエラー（整合性検証）時に400を返却する（Req 42.9）', async () => {
       const { QuantityTableValidationError } =
         await import('../../../errors/quantityTableError.js');
@@ -681,6 +862,125 @@ describe('QuantityTablesRoutes', () => {
         .expect(409);
 
       expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_CONFLICT');
+    });
+
+    it('ロック待ちの上限超過は503（QUANTITY_TABLE_SAVE_BUSY）を返却する（Task 92.5）', async () => {
+      const { QuantityTableSaveBusyError } = await import('../../../errors/quantityTableError.js');
+      mockService.saveDraft.mockRejectedValue(new QuantityTableSaveBusyError());
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(503);
+
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_SAVE_BUSY');
+    });
+
+    it('見知らぬ例外（Prisma の P2028 を含む）は500 QUANTITY_TABLE_SAVE_ERROR へ畳まれる（Task 92.2 の決着の固定）', async () => {
+      // Task 92.2 が実測した「保存経路のルートが自前の catch を持ち、見知らぬ例外をすべて
+      // QUANTITY_TABLE_SAVE_ERROR の 500 へ畳む。errorHandler の P2028 の枝（500
+      // 『Transaction Timeout』）は本経路の応答には効かない」を、壁時計を払わずに固定する。
+      const { Prisma } = await import('../../../generated/prisma/client.js');
+      const transactionTimeout = new Prisma.PrismaClientKnownRequestError(
+        'Transaction API error: Transaction already closed',
+        { code: 'P2028', clientVersion: 'test' }
+      );
+      mockService.saveDraft.mockRejectedValue(transactionTimeout);
+
+      const timedOut = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(500);
+
+      expect(timedOut.body).toHaveProperty('code', 'QUANTITY_TABLE_SAVE_ERROR');
+      expect(timedOut.body).toHaveProperty('title', 'Internal Server Error');
+      expect(timedOut.body).not.toHaveProperty('title', 'Transaction Timeout');
+
+      // P2028 に限らない。素の Error も同じ 500 の本文へ畳まれる（非空証明）
+      mockService.saveDraft.mockRejectedValue(new Error('想定外の失敗'));
+      const unknown = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(500);
+
+      expect(unknown.body).toHaveProperty('code', 'QUANTITY_TABLE_SAVE_ERROR');
+    });
+
+    it('親の現場調査が論理削除済みの現調画像を含む場合410を返却する（Task 81.1）', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+      const { SurveyDeletedError } = await import('../../../utils/survey-deleted-guard.js');
+      mockService.saveDraft.mockRejectedValue(
+        new SurveyDeletedError(surveyId, `削除された現場調査の画像は紐付けできません: ${surveyId}`)
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(410);
+
+      expect(response.body).toEqual({
+        type: 'https://architrack.example.com/problems/survey-deleted',
+        title: 'SURVEY DELETED',
+        status: 410,
+        detail: `削除された現場調査の画像は紐付けできません: ${surveyId}`,
+        code: 'SURVEY_DELETED',
+        surveyId,
+      });
+    });
+
+    it('410 が原因のグループの名指しを伴う場合、本文の直下へ展開する（Task 90.2）', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+      const { SurveyDeletedError } = await import('../../../utils/survey-deleted-guard.js');
+      mockService.saveDraft.mockRejectedValue(
+        new SurveyDeletedError(
+          surveyId,
+          `削除された現場調査の画像は紐付けできません: ${surveyId}`,
+          {
+            'groups[0].surveyImageId': '削除された現場調査の画像は紐付けできません',
+            'groups[2].surveyImageId': '削除された現場調査の画像は紐付けできません',
+          }
+        )
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(410);
+
+      // 名指しは所属違反の 400（Task 86.4）と同じく本文の直下に置く。
+      // 既存の項目（type/title/status/detail/code/surveyId）は据え置く
+      expect(response.body).toEqual({
+        type: 'https://architrack.example.com/problems/survey-deleted',
+        title: 'SURVEY DELETED',
+        status: 410,
+        detail: `削除された現場調査の画像は紐付けできません: ${surveyId}`,
+        code: 'SURVEY_DELETED',
+        surveyId,
+        'groups[0].surveyImageId': '削除された現場調査の画像は紐付けできません',
+        'groups[2].surveyImageId': '削除された現場調査の画像は紐付けできません',
+      });
+    });
+
+    it('指した現調画像が存在しない場合404を返却する（Task 86.2）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174006';
+      const { SurveyImageNotFoundError } = await import('../../../errors/siteSurveyError.js');
+      mockService.saveDraft.mockRejectedValue(new SurveyImageNotFoundError(surveyImageId));
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(404);
+
+      // 写しは数量グループの紐付け経路（quantity-groups.routes.ts）と同一にする
+      expect(response.body).toEqual({
+        type: 'https://architrack.example.com/problems/survey-image-not-found',
+        title: 'Survey Image Not Found',
+        status: 404,
+        detail: '現場調査画像が見つかりません',
+        code: 'SURVEY_IMAGE_NOT_FOUND',
+        // Task 86.5: 画面が原因のグループを引き当てられるよう、画像IDを構造化して返す
+        surveyImageId,
+      });
     });
 
     it('認証なしの場合401を返却する', async () => {

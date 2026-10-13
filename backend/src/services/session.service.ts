@@ -21,6 +21,7 @@ import { UAParser } from 'ua-parser-js';
 import { Result, Ok, Err } from '../types/result.js';
 import type { ISessionService, SessionInfo, SessionError } from '../types/session.types.js';
 import logger from '../utils/logger.js';
+import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 export class SessionService implements ISessionService {
   // リフレッシュトークンの有効期限（デフォルト: 7日間）
@@ -63,7 +64,7 @@ export class SessionService implements ISessionService {
 
       return `${browserName} on ${osName}`;
     } catch (error) {
-      logger.warn({ error, userAgent }, 'Failed to parse User-Agent');
+      logger.warn({ err: error, userAgent }, 'Failed to parse User-Agent');
       return userAgent; // パース失敗時は元の文字列を返す
     }
   }
@@ -133,6 +134,8 @@ export class SessionService implements ISessionService {
       logger.info({ refreshToken }, 'Session deleted successfully');
       return Ok(undefined);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       // Prisma P2025: Record not found
       if (
         typeof error === 'object' &&
@@ -220,6 +223,8 @@ export class SessionService implements ISessionService {
 
       return Ok(sessionInfo);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       logger.error(
         {
           error: error instanceof Error ? error.message : String(error),
@@ -314,6 +319,8 @@ export class SessionService implements ISessionService {
 
       return Ok(undefined);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       logger.error(
         {
           error: error instanceof Error ? error.message : String(error),

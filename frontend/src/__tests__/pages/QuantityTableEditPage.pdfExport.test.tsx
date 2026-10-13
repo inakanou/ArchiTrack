@@ -145,6 +145,13 @@ function renderPage() {
   );
 }
 
+/**
+ * 生成中のボタン無効化（重複操作の防止）と、生成失敗時のエラーメッセージ表示を
+ * この区間が確かめる。
+ *
+ * @requirement quantity-table-generation/REQ-26.9
+ * @requirement quantity-table-generation/REQ-26.10
+ */
 describe('数量表編集画面 PDF出力ボタン (REQ-26.1, 26.9, 26.10)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

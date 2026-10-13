@@ -933,6 +933,30 @@ describe('estimate.schema', () => {
         expect(result.success).toBe(true);
       });
 
+      // 金額の上限（整数部13桁・小数部2桁）。画面の上限超過の警告は同じ上限を
+      // `frontend/src/domain/estimate/estimateAmountLimit.ts` の `ESTIMATE_AMOUNT_MAX` に写して持つため、
+      // 両者の境界値（9999999999999.99 は受理、10000000000000 は拒否）をここでも固定する
+      it.each(['9999999999999.99', '-9999999999999.99'])(
+        '金額の上限ちょうど（%s）は受け入れる',
+        (amount) => {
+          const result = saveEstimateDraftSchema.safeParse(
+            draft([existingNode({ lines: [estimateLine({ amount })] })])
+          );
+          expect(result.success).toBe(true);
+        }
+      );
+
+      it.each(['10000000000000', '-10000000000000', '10000000000000.00'])(
+        '金額の上限を超える値（%s）は拒否する',
+        (amount) => {
+          const result = saveEstimateDraftSchema.safeParse(
+            draft([existingNode({ lines: [estimateLine({ amount })] })])
+          );
+          expect(result.success).toBe(false);
+          expect(issuePaths(result)).toContain('items.0.lines.0.amount');
+        }
+      );
+
       it('名称が200文字を超える場合は拒否する', () => {
         const result = saveEstimateDraftSchema.safeParse(
           draft([existingNode({ lines: [estimateLine({ name: 'あ'.repeat(201) })] })])

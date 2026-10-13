@@ -21,7 +21,7 @@
  * - REQ-5.2: 案分から除外する諸経費行を指定した場合、案分対象から除外する
  * - REQ-5.3: NET金額を入力した場合、除外された諸経費行以外を実行金額行に転記する
  * - REQ-5.4: NET金額が入力された場合、各実行金額行の単価をNET金額に基づいて案分計算する
- * - REQ-5.5: 案分計算が実行された場合、案分後の金額を自動計算して表示する
+ * - REQ-5.5: 案分計算が実行された場合、案分後の金額を自動計算して実行金額行に表示する
  * - REQ-6.1: 利益率を指定した場合、全実行金額行に対して利益率を適用した単価を計算する
  * - REQ-6.2: 「すべて上書き」オプションを選択した場合、名称・規格・単位・数量・単価を上書きする
  * - REQ-6.3: 「空の場合のみ上書き」オプションを選択した場合、空の項目のみ上書きする
@@ -87,14 +87,6 @@ export interface ProfitRatePreview {
 }
 
 /**
- * オーバーフローチェック結果
- */
-export interface OverflowCheckResult {
-  isOverflow: boolean;
-  warning?: string;
-}
-
-/**
  * 階層金額計算用の項目
  */
 export interface HierarchyItem {
@@ -113,11 +105,6 @@ export interface HierarchyItem {
  * Decimal.jsを使用して高精度な10進数計算を実現します。
  */
 export class EstimateCalculationService {
-  /**
-   * Decimal(15, 2)の最大値（金額オーバーフロー検出用）
-   */
-  private readonly MAX_AMOUNT = new Decimal('9999999999999.99');
-
   /**
    * 金額を計算する（数量 x 単価）
    *
@@ -326,26 +313,5 @@ export class EstimateCalculationService {
       // 数値変換エラー
       return false;
     }
-  }
-
-  /**
-   * 金額のオーバーフローをチェックする
-   *
-   * Requirements: REQ-13.5
-   *
-   * @param amount - チェックする金額
-   * @returns オーバーフローチェック結果
-   */
-  checkOverflow(amount: Decimal): OverflowCheckResult {
-    if (amount.abs().gt(this.MAX_AMOUNT)) {
-      return {
-        isOverflow: true,
-        warning: `金額が最大値（${this.MAX_AMOUNT.toString()}）を超えています`,
-      };
-    }
-
-    return {
-      isOverflow: false,
-    };
   }
 }

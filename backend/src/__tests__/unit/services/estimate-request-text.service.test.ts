@@ -189,8 +189,9 @@ describe('EstimateRequestTextService', () => {
       expect(result.body).toContain('100');
     });
 
-    it('項目が選択されていない場合、エラーを発生させる（Requirements: 7.3）', async () => {
-      // Arrange
+    it('項目を1件も選んでいなくても「内訳書を本文に含める」が未チェックなら、本文の【内容】に「添付内訳書の通り」と表示する（Requirements: 6.9）', async () => {
+      // Arrange: 内訳書に紐付いているが項目を1件も選んでおらず、「含めない」の見積依頼
+      // （Task 93.1 の利用者の判断 (2): この状態でも本文を生成する）
       const mockRequest = {
         id: 'er-001',
         name: 'テスト見積依頼',
@@ -214,6 +215,81 @@ describe('EstimateRequestTextService', () => {
 
       vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
       vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue([] as never); // 選択項目なし
+
+      // Act
+      const result = await service.generateEmailText('er-001');
+
+      // Assert: 例外にならず、【内容】の見出しの直後に「添付内訳書の通り」が来る
+      expect(result.body).toContain('【内容】\n添付内訳書の通り');
+      expect(result.body).not.toContain('【見積対象項目】');
+    });
+
+    it('項目を選んでいても「内訳書を本文に含める」が未チェックなら、項目は本文に出さず【内容】に「添付内訳書の通り」と表示する（Requirements: 6.9）', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: false,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: 'test@example.com',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: '東京都渋谷区' },
+      };
+      const mockSelectedItems = [
+        {
+          id: 'eri-001',
+          selected: true,
+          itemizedStatementItem: {
+            id: 'isi-001',
+            workType: '電気工事',
+            name: '配線工事',
+            specification: 'VVFケーブル',
+            unit: 'm',
+            quantity: new Decimal('100.00'),
+          },
+        },
+      ];
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(
+        mockSelectedItems as never
+      );
+
+      // Act
+      const result = await service.generateEmailText('er-001');
+
+      // Assert
+      expect(result.body).toContain('【内容】\n添付内訳書の通り');
+      expect(result.body).not.toContain('配線工事');
+      expect(result.body).not.toContain('【見積対象項目】');
+    });
+
+    it('「内訳書を本文に含める」がチェックされているのに項目が1件も選ばれていない場合は、従来どおりエラーを発生させる', async () => {
+      // Arrange: 要件 6.8 は【内容】へ「チェックされた内訳書項目」を出すと定めるだけで、
+      // 0 件のときの内容を定めない。6.9 の文言はチェックされていないときに限られるため、
+      // ここで「添付内訳書の通り」を出すと 6.9 の条件と食い違う。従来の挙動を保つ。
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'EMAIL',
+        includeBreakdownInBody: true,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: 'test@example.com',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト' },
+      };
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue([] as never);
 
       // Act & Assert
       await expect(service.generateEmailText('er-001')).rejects.toThrow(NoItemsSelectedError);
@@ -685,13 +761,42 @@ describe('EstimateRequestTextService', () => {
       expect(result.body).not.toContain('現場住所');
     });
 
-    it('項目が選択されていない場合、エラーを発生させる', async () => {
+    it('項目を1件も選んでいなくても「内訳書を本文に含める」が未チェックなら、FAX 本文の【内容】に「添付内訳書の通り」と表示する（Requirements: 6.9）', async () => {
       // Arrange
       const mockRequest = {
         id: 'er-001',
         name: 'テスト見積依頼',
         method: 'FAX',
         includeBreakdownInBody: false,
+        deletedAt: null,
+        tradingPartner: {
+          id: 'tp-001',
+          name: 'テスト協力業者',
+          email: null,
+          faxNumber: '03-1234-5678',
+        },
+        itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: null },
+      };
+
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue([] as never);
+
+      // Act
+      const result = await service.generateFaxText('er-001');
+
+      // Assert
+      expect(result.body).toContain('【内容】\n添付内訳書の通り');
+      expect(result.body).not.toContain('【見積対象項目】');
+    });
+
+    it('「内訳書を本文に含める」がチェックされているのに項目が1件も選ばれていない場合は、従来どおりエラーを発生させる（FAX）', async () => {
+      // Arrange
+      const mockRequest = {
+        id: 'er-001',
+        name: 'テスト見積依頼',
+        method: 'FAX',
+        includeBreakdownInBody: true,
         deletedAt: null,
         tradingPartner: {
           id: 'tp-001',
@@ -814,14 +919,56 @@ describe('EstimateRequestTextService', () => {
     //   場合に【見積対象項目】セクションが省略されること」を private メソッド直叩きで検証する。
     // public API（generateEmailText/generateFaxText）では入口で NoItemsSelectedError が
     // 先に投げられるため、本文生成ロジック自体の検証には private 直叩きが必要。
+    //
+    // Task 93.1（R-39-1 の消化）: 内訳書未紐付けの見積依頼は入口の NoItemsSelectedError に
+    // 掛からなくなり、public API で本文を生成できる。本文の【内容】には「添付内訳書の通り」が入る。
 
-    it('内訳書なし（itemizedStatement=null）かつ items=[] の見積依頼で generateText() を呼び出すと NoItemsSelectedError を投げる（メール）', async () => {
-      // Arrange: 内訳書未紐付け かつ EstimateRequestItem 0 件（83.2 で auto-init スキップ）
+    it.each([
+      ['EMAIL', 'test@example.com', null],
+      ['FAX', null, '03-1234-5678'],
+    ] as const)(
+      '内訳書なし（itemizedStatement=null）かつ items=[] の見積依頼（%s）で generateText() が本文を生成し、【内容】に「添付内訳書の通り」と表示する（Requirements: 39.9）',
+      async (method, email, faxNumber) => {
+        // Arrange: 内訳書未紐付け かつ EstimateRequestItem 0 件（83.2 で auto-init スキップ）
+        const mockRequest = {
+          id: 'er-001',
+          name: 'クイックリクエスト',
+          method,
+          includeBreakdownInBody: false, // 83.2/83.3 由来の強制 false
+          deletedAt: null,
+          tradingPartner: {
+            id: 'tp-001',
+            name: 'テスト協力業者',
+            email,
+            faxNumber,
+          },
+          itemizedStatement: null, // 内訳書未紐付け（Prisma optional relation）
+          project: {
+            id: 'proj-001',
+            name: 'テストプロジェクト',
+            siteAddress: '東京都渋谷区',
+          },
+        };
+
+        vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
+        vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue([] as never);
+
+        // Act: 例外にならずに解決する
+        const result = await service.generateText('er-001');
+
+        // Assert
+        expect(result.body).toContain('【内容】\n添付内訳書の通り');
+        expect(result.body).not.toContain('【見積対象項目】');
+      }
+    );
+
+    it('内訳書なしの見積依頼は includeBreakdownInBody=true が残っていても【内容】に「添付内訳書の通り」と表示する（Requirements: 39.9）', async () => {
+      // Arrange: update() の正規化より前に保存された値が残っている場合の防御
       const mockRequest = {
         id: 'er-001',
         name: 'クイックリクエスト',
         method: 'EMAIL',
-        includeBreakdownInBody: false, // 83.2/83.3 由来の強制 false
+        includeBreakdownInBody: true,
         deletedAt: null,
         tradingPartner: {
           id: 'tp-001',
@@ -829,19 +976,18 @@ describe('EstimateRequestTextService', () => {
           email: 'test@example.com',
           faxNumber: null,
         },
-        itemizedStatement: null, // 内訳書未紐付け（Prisma optional relation）
-        project: {
-          id: 'proj-001',
-          name: 'テストプロジェクト',
-          siteAddress: '東京都渋谷区',
-        },
+        itemizedStatement: null,
+        project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: null },
       };
 
       vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(mockRequest as never);
       vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue([] as never);
 
-      // Act & Assert: 既存の NoItemsSelectedError 振る舞いは維持されるため例外を投げる
-      await expect(service.generateText('er-001')).rejects.toThrow(NoItemsSelectedError);
+      // Act
+      const result = await service.generateEmailText('er-001');
+
+      // Assert
+      expect(result.body).toContain('【内容】\n添付内訳書の通り');
     });
 
     it('includeBreakdownInBody=true でも selectedItems が空なら【見積対象項目】セクションを含めない（メール本文）', async () => {
@@ -920,6 +1066,7 @@ describe('EstimateRequestTextService', () => {
         id: 'er-001',
         name: 'クイックリクエスト',
         includeBreakdownInBody: false, // 強制 false
+        itemizedStatement: null, // 内訳書未紐付け
         tradingPartner: {
           id: 'tp-001',
           name: 'テスト協力業者',
@@ -941,6 +1088,7 @@ describe('EstimateRequestTextService', () => {
 
       // Assert
       expect(body).not.toContain('【見積対象項目】');
+      expect(body).toContain('【内容】\n添付内訳書の通り');
       // ヘッダ・物件情報・フッタは正常に生成されていること
       expect(body).toContain('テスト協力業者 御中');
       expect(body).toContain('テストプロジェクト');
@@ -953,6 +1101,7 @@ describe('EstimateRequestTextService', () => {
         id: 'er-001',
         name: 'クイックリクエスト',
         includeBreakdownInBody: false, // 強制 false
+        itemizedStatement: null, // 内訳書未紐付け
         tradingPartner: {
           id: 'tp-001',
           name: 'テスト協力業者',
@@ -974,6 +1123,7 @@ describe('EstimateRequestTextService', () => {
 
       // Assert
       expect(body).not.toContain('【見積対象項目】');
+      expect(body).toContain('【内容】\n添付内訳書の通り');
       // FAX ヘッダ・物件情報・フッタは正常に生成されていること
       expect(body).toContain('FAX送信票');
       expect(body).toContain('テスト協力業者 御中');
@@ -1068,6 +1218,136 @@ describe('EstimateRequestTextService', () => {
       expect(body).toContain('配線工事');
       expect(body).toContain('VVFケーブル');
       expect(body).toContain('100m');
+    });
+  });
+
+  describe('「内訳書を本文に含める」がチェックされ項目がある本文は Task 93.1 の前後で変わらない（Requirements: 39.12 回帰）', () => {
+    const linkedRequest = (method: 'EMAIL' | 'FAX') => ({
+      id: 'er-001',
+      name: 'テスト見積依頼',
+      method,
+      includeBreakdownInBody: true,
+      deletedAt: null,
+      tradingPartner: {
+        id: 'tp-001',
+        name: 'テスト協力業者',
+        email: 'test@example.com',
+        faxNumber: '03-1234-5678',
+      },
+      itemizedStatement: { id: 'is-001', name: 'テスト内訳書' },
+      project: { id: 'proj-001', name: 'テストプロジェクト', siteAddress: '東京都渋谷区' },
+    });
+    const selectedItems = [
+      {
+        id: 'eri-001',
+        selected: true,
+        itemizedStatementItem: {
+          id: 'isi-001',
+          workType: '電気工事',
+          name: '配線工事',
+          specification: 'VVFケーブル',
+          unit: 'm',
+          quantity: new Decimal('100.00'),
+        },
+      },
+      {
+        id: 'eri-002',
+        selected: true,
+        itemizedStatementItem: {
+          id: 'isi-002',
+          workType: null,
+          name: '照明器具',
+          specification: null,
+          unit: '台',
+          quantity: new Decimal('3'),
+        },
+      },
+    ];
+
+    it('メール本文が変更前の実装の出力と一字一句一致する', async () => {
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(
+        linkedRequest('EMAIL') as never
+      );
+      vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(selectedItems as never);
+
+      const result = await service.generateEmailText('er-001');
+
+      expect(result.body).toBe(
+        [
+          'テスト協力業者 御中',
+          '',
+          'お世話になっております。',
+          '',
+          '下記の通り、お見積りをお願いいたします。',
+          '',
+          '【物件情報】',
+          '物件名：テストプロジェクト',
+          '現場住所：東京都渋谷区',
+          '',
+          '【見積対象項目】',
+          '',
+          '・電気工事 / 配線工事 / VVFケーブル / 100m',
+          '・照明器具 / 3台',
+          '',
+          'ご多忙のところ恐れ入りますが、',
+          'ご確認の程、よろしくお願いいたします。',
+          '',
+          '以上',
+        ].join('\n')
+      );
+    });
+
+    it('FAX 本文が変更前の実装の出力と一字一句一致する', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        const now = new Date('2026-10-01T03:00:00Z');
+        vi.setSystemTime(now);
+        vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(
+          linkedRequest('FAX') as never
+        );
+        vi.mocked(mockPrisma.estimateRequestItem.findMany).mockResolvedValue(
+          selectedItems as never
+        );
+
+        const result = await service.generateFaxText('er-001');
+
+        expect(result.body).toBe(
+          [
+            '━━━━━━━━━━━━━━━━━━━━━━━━',
+            '　　　　　　FAX送信票',
+            '━━━━━━━━━━━━━━━━━━━━━━━━',
+            '',
+            `送信日：${now.toLocaleDateString('ja-JP')}`,
+            '宛先：テスト協力業者 御中',
+            '',
+            '━━━━━━━━━━━━━━━━━━━━━━━━',
+            '',
+            '【件名】お見積りご依頼',
+            '',
+            'お世話になっております。',
+            '',
+            '下記の通り、お見積りをお願いいたします。',
+            '',
+            '【物件情報】',
+            '物件名：テストプロジェクト',
+            '現場住所：東京都渋谷区',
+            '',
+            '【見積対象項目】',
+            '',
+            '・電気工事 / 配線工事 / VVFケーブル / 100m',
+            '・照明器具 / 3台',
+            '',
+            'ご多忙のところ恐れ入りますが、',
+            'ご確認の程、よろしくお願いいたします。',
+            '',
+            '以上',
+            '',
+            '━━━━━━━━━━━━━━━━━━━━━━━━',
+          ].join('\n')
+        );
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

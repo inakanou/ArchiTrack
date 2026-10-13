@@ -7,7 +7,7 @@
  * - 4.1: 画像アップロード（FormData対応）
  * - 4.2: バッチアップロード対応
  * - 4.7: 画像削除
- * - 4.10: 画像順序変更
+ * - 4.11: 画像順序変更
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

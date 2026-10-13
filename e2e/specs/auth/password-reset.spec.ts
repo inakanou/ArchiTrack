@@ -3,7 +3,8 @@ import { getPrismaClient } from '../../fixtures/database';
 import { hashPassword, TEST_USERS } from '../../helpers/test-users';
 import { loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { FRONTEND_BASE_URL } from '../../config';
+import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * パスワード管理機能のE2Eテスト
@@ -12,6 +13,19 @@ import { FRONTEND_BASE_URL } from '../../config';
  *
  * このテストスイートは、パスワードリセット機能をEnd-to-Endで検証します。
  */
+
+/**
+ * 成功メッセージが最低限表示され続けているべき時間（ミリ秒）。
+ *
+ * 本番の自動非表示までの既定時間（`ToastNotification.tsx` の `toast.duration ?? 5000`）
+ * そのものではなく、**それより十分に小さい下限**である。閾値の複製ではないため、
+ * 本番の既定時間が変わっても「出た瞬間に消えた」を捉える性質は失われない。
+ * 観測の開始点は `toBeVisible` が成立した時点であり、実際の表示開始より後になりうるため、
+ * その分の余裕を見込んでいる。実測（Task 115.183）では消滅までが 5381ms で、下限に対して
+ * 2.7 倍の余裕があった。
+ */
+const SUCCESS_MESSAGE_MIN_VISIBLE_MS = 2000;
+
 test.describe('パスワード管理機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
@@ -223,7 +237,10 @@ test.describe('パスワード管理機能', () => {
    * 要件7.2: パスワードリセットフォームのUI/UX（トークン有効時）
    * WHEN 有効なリセットトークンでアクセスする
    * THEN パスワード入力フォームが表示される
-   * @requirement user-authentication/REQ-7.2 @requirement user-authentication/REQ-29.10 @requirement user-authentication/REQ-29.11 @requirement user-authentication/REQ-28.11
+   * @requirement user-authentication/REQ-29.10 @requirement user-authentication/REQ-29.11 @requirement user-authentication/REQ-28.11
+   *
+   * タスク 115.188 の是正: 従前は REQ-7.2 も名乗っていたが、本区間の表題・本文が述べる内容に対応するのは、
+   * 同じ区間が既に名乗っている受入基準29.10 である。重複する名乗りを取り下げた（REQ-7.2 は本区間の主張と別の事柄を述べている）。
    */
   test('有効なトークンでパスワード入力フォームが表示される', async ({ page }) => {
     // リセットトークンを生成
@@ -377,9 +394,17 @@ test.describe('パスワード管理機能', () => {
     );
     await expect(successMessage).toBeVisible();
 
-    // 5秒後にメッセージが非表示になる
-    await page.waitForTimeout(5500);
-    await expect(successMessage).not.toBeVisible();
+    // 自動非表示は「一定時間が経てば消えているはず」という前提を置かず、消えるまでを条件待ちする。
+    // あわせて表示から消滅までの経過を実測し、「出た瞬間に消えた」（＝自動非表示ではなく
+    // 即時消滅）の経路を弾く。固定待機だけの形は、この経路を一切捉えられなかった。
+    // 経過の計測は単調時計で行う（WSL2 では壁時計が単調時計より遅く進むため Date.now は使わない）。
+    const shownAt = performance.now();
+    await expect(successMessage).not.toBeVisible({ timeout: getTimeout(15000) });
+    const hiddenAfterMs = performance.now() - shownAt;
+    expect(
+      hiddenAfterMs,
+      '成功メッセージが表示直後に消えており、一定時間後の自動非表示になっていない'
+    ).toBeGreaterThanOrEqual(SUCCESS_MESSAGE_MIN_VISIBLE_MS);
   });
 
   /**
@@ -532,17 +557,36 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
   });
 
   // Mailpit API URL
-  const mailpitApiUrl = 'http://localhost:8025/api/v1';
+  //
+  // 公開ポートは環境ごとに違い、backend の公開ポートと組で決まる。
+  //   テスト環境（docker-compose.test.yml）: backend `3100:3000` / Mailpit `8026:8025`
+  //   CI 環境（docker-compose.ci.yml）:      backend `3000:3000` / Mailpit `8025:8025`
+  //   開発環境（docker-compose.dev.yml）:    backend `3000:3000` / Mailpit `8025:8025`
+  //
+  // 従来は 8025 に固定していた。テスト環境（`npm run test:docker`）では
+  // そこに居るのは**開発環境の Mailpit** であり、開発環境が落ちていれば接続すらできない。
+  // どちらにせよ本テストが送らせたメールは見つからず、取得結果は常に null になる。
+  // その null を「メールが取れた場合のみ検証する」分岐で受けていたため、
+  // メール経由の検証は一度も実行されていなかった。
+  //
+  // `process.env.CI` では判別できない。`.husky/scripts/pre-push.sh` はテスト環境に対して
+  // `CI=true npx playwright test` を実行するためである。判別できるのは接続先そのもの、
+  // すなわち {@link API_BASE_URL} のポートである。
+  const MAILPIT_HOST_PORT = new URL(API_BASE_URL).port === '3100' ? 8026 : 8025;
+  const mailpitApiUrl =
+    process.env.MAILPIT_API_URL ?? `http://localhost:${MAILPIT_HOST_PORT}/api/v1`;
 
   /**
    * Mailpitから全メールを削除
    */
   async function clearMailpit(): Promise<void> {
-    try {
-      await fetch(`${mailpitApiUrl}/messages`, { method: 'DELETE' });
-    } catch {
-      // Mailpitが利用できない場合はスキップ
-      console.warn('Mailpit not available, skipping email clear');
+    // 消せなかった場合に黙って続けると、前のテストが残したメールを
+    // 「今回送られたメール」として読んでしまう。前提が崩れた地点で失敗させる。
+    const response = await fetch(`${mailpitApiUrl}/messages`, { method: 'DELETE' });
+    if (!response.ok) {
+      throw new Error(
+        `Mailpit のメールを消去できない: ${mailpitApiUrl} が ${response.status} を返した`
+      );
     }
   }
 
@@ -550,17 +594,21 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * Mailpitから特定の宛先に送信されたメールを取得
    * @param toEmail - 宛先メールアドレス
    * @param maxRetries - 最大リトライ回数
-   * @returns メール情報（見つからない場合はnull）
+   * @returns メール情報（届かない場合は例外を投げる）
    */
   async function getEmailFromMailpit(
     toEmail: string,
-    maxRetries = 5
+    // メール送信は BullMQ のキュー経由（`backend/src/services/email.service.ts`）であり、
+    // 要求の応答が返ってから実際に届くまでに間がある。1周1秒で待つ。
+    maxRetries = 15
   ): Promise<{
     id: string;
     subject: string;
     html: string;
     text: string;
-  } | null> {
+  }> {
+    let lastFailure = 'メールが届いていない';
+
     for (let i = 0; i < maxRetries; i++) {
       try {
         // メール一覧を取得
@@ -584,32 +632,37 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
         if (email) {
           // メール本文を取得
           const messageResponse = await fetch(`${mailpitApiUrl}/message/${email.ID}`);
-          if (messageResponse.ok) {
-            const messageData = (await messageResponse.json()) as {
-              ID: string;
-              Subject: string;
-              HTML: string;
-              Text: string;
-            };
-            return {
-              id: messageData.ID,
-              subject: messageData.Subject,
-              html: messageData.HTML,
-              text: messageData.Text,
-            };
+          if (!messageResponse.ok) {
+            throw new Error(`Failed to fetch message body: ${messageResponse.statusText}`);
           }
+          const messageData = (await messageResponse.json()) as {
+            ID: string;
+            Subject: string;
+            HTML: string;
+            Text: string;
+          };
+          return {
+            id: messageData.ID,
+            subject: messageData.Subject,
+            html: messageData.HTML,
+            text: messageData.Text,
+          };
         }
 
         // メールが見つからない場合は少し待ってリトライ
         await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (error) {
-        if (i === maxRetries - 1) {
-          console.warn('Failed to get email from Mailpit:', error);
-        }
+        lastFailure = error instanceof Error ? error.message : String(error);
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
-    return null;
+
+    // 取得できないまま null を返すと、呼び出し側が「取れたときだけ検証する」形になり、
+    // リセットメールが一通も送られていない欠陥が緑のまま通る。
+    // 要件7.1（リセットトークンをメールで送信する）が満たされていない地点で失敗させる。
+    throw new Error(
+      `リセットメールを取得できない（宛先: ${toEmail} / Mailpit: ${mailpitApiUrl}）: ${lastFailure}`
+    );
   }
 
   /**
@@ -674,67 +727,43 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       page.getByText(/パスワードリセットリンクを送信しました.*メールをご確認ください/i)
     ).toBeVisible({ timeout: getTimeout(10000) });
 
-    // Step 4: Mailpitからリセットメールを取得
+    // Step 4: Mailpitからリセットメールを取得する。
+    // 「取得できた場合のみ続行」の形は、メールが一通も届かない欠陥
+    // （要件7.1 の未達）を DB から直接トークンを読む代替経路で埋め合わせて緑にしていた。
+    // 本テストが掲げる「完全フロー」はメール経由の受け取りを含むため、
+    // 取得できなければ `getEmailFromMailpit` がその場で失敗する。
     const email = await getEmailFromMailpit(userEmail);
+    expect(email.subject).toContain('パスワードリセット');
 
-    // メールが取得できた場合のみ続行
-    if (email) {
-      expect(email.subject).toContain('パスワードリセット');
+    // メール本文からリセットトークンを抽出
+    // 変数名は同ファイル内の固定文字列のトークン（`const resetToken = 'valid-ui-test-token'` 等）と
+    // 衝突させない。名前が同じだと、抽出結果ではなく固定文字列を主題と誤って読み取れてしまう。
+    const tokenFromEmail = extractResetTokenFromEmail(email.text || email.html);
+    assertPrepared(tokenFromEmail, 'リセットメールから抽出したトークン');
+    expect(tokenFromEmail).toMatch(/^[A-Za-z0-9_-]{16,}$/);
 
-      // メール本文からリセットトークンを抽出
-      const resetToken = extractResetTokenFromEmail(email.text || email.html);
-      expect(resetToken).toBeTruthy();
+    // Step 5: リセットURLにアクセス
+    await page.goto(`/password-reset?token=${tokenFromEmail}`);
 
-      // Step 5: リセットURLにアクセス
-      await page.goto(`/password-reset?token=${resetToken}`);
+    // トークン検証が完了するまで待機
+    await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
 
-      // トークン検証が完了するまで待機
-      await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
+    // Step 6: 新しいパスワードを入力
+    await page.locator('input#password').fill(newPassword);
+    await page.locator('input#passwordConfirm').fill(newPassword);
+    await page.getByRole('button', { name: /パスワードをリセット/i }).click();
 
-      // Step 6: 新しいパスワードを入力
-      await page.locator('input#password').fill(newPassword);
-      await page.locator('input#passwordConfirm').fill(newPassword);
-      await page.getByRole('button', { name: /パスワードをリセット/i }).click();
+    // Step 7: ログインページにリダイレクト
+    await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
+    await expect(page.getByText(/パスワードがリセットされました/i)).toBeVisible();
 
-      // Step 7: ログインページにリダイレクト
-      await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
-      await expect(page.getByText(/パスワードがリセットされました/i)).toBeVisible();
+    // Step 8: 新しいパスワードでログイン
+    await page.getByLabel(/メールアドレス/i).fill(userEmail);
+    await page.locator('input#password').fill(newPassword);
+    await page.getByRole('button', { name: /ログイン/i }).click();
 
-      // Step 8: 新しいパスワードでログイン
-      await page.getByLabel(/メールアドレス/i).fill(userEmail);
-      await page.locator('input#password').fill(newPassword);
-      await page.getByRole('button', { name: /ログイン/i }).click();
-
-      // Step 9: ログイン成功（ダッシュボードへリダイレクト）
-      await expect(page).toHaveURL(/\//, { timeout: getTimeout(15000) });
-    } else {
-      // メールが取得できない場合（Mailpitが利用不可）はDBのトークンで検証
-      const prisma = getPrismaClient();
-      const user = await prisma.user.findUnique({
-        where: { email: userEmail },
-        include: { passwordResetRequests: { orderBy: { createdAt: 'desc' }, take: 1 } },
-      });
-
-      expect(user?.passwordResetRequests).toHaveLength(1);
-      const dbToken = user!.passwordResetRequests[0]!.token;
-
-      // DBから取得したトークンでリセット実行
-      await page.goto(`/password-reset?token=${dbToken}`);
-      await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
-
-      await page.locator('input#password').fill(newPassword);
-      await page.locator('input#passwordConfirm').fill(newPassword);
-      await page.getByRole('button', { name: /パスワードをリセット/i }).click();
-
-      await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
-      await expect(page.getByText(/パスワードがリセットされました/i)).toBeVisible();
-
-      await page.getByLabel(/メールアドレス/i).fill(userEmail);
-      await page.locator('input#password').fill(newPassword);
-      await page.getByRole('button', { name: /ログイン/i }).click();
-
-      await expect(page).toHaveURL(/\//, { timeout: getTimeout(15000) });
-    }
+    // Step 9: ログイン成功（ダッシュボードへリダイレクト）
+    await expect(page).toHaveURL(/\//, { timeout: getTimeout(15000) });
   });
 
   /**

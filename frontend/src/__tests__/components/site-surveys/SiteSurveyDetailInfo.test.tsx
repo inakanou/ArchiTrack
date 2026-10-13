@@ -7,11 +7,12 @@
  *
  * Requirements:
  * - 1.2: 現場調査詳細画面を表示する際、現場調査の基本情報と関連する画像一覧を表示する
- * - 11.1: 報告書出力対象写真の選択
+ * - 11.1: 調査報告書出力ボタンの押下で注釈付き画像一覧をPDFドキュメントとして生成する
+ * - 11.2: PDF出力対象として報告書出力フラグがONの写真のみを含める
  * - 11.8: 調査報告書出力UIを実装する
- * - 12.1: プロジェクトへのアクセス権を持つユーザーは現場調査を閲覧可能
- * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
- * - 12.3: 適切な権限を持たない場合、操作を拒否してエラーメッセージを表示
+ * - 14.1: プロジェクトへのアクセス権を持つユーザーは現場調査を閲覧可能
+ * - 14.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 14.3: 適切な権限を持たない場合、操作を拒否してエラーメッセージを表示
  *
  * テスト対象:
  * - 調査名、調査日、メモの表示
@@ -344,11 +345,11 @@ describe('SiteSurveyDetailInfo', () => {
   });
 
   // ==========================================================================
-  // 権限によるUI制御 (Requirements 12.1, 12.2, 12.3)
+  // 権限によるUI制御 (Requirements 14.1, 14.2, 14.3)
   // ==========================================================================
 
   describe('権限によるUI制御', () => {
-    describe('編集権限がない場合 (Requirement 12.2)', () => {
+    describe('編集権限がない場合 (Requirement 14.2)', () => {
       it('編集ボタンが非表示になる', () => {
         renderComponent({ canEdit: false });
 
@@ -362,7 +363,7 @@ describe('SiteSurveyDetailInfo', () => {
       });
     });
 
-    describe('削除権限がない場合 (Requirement 12.2)', () => {
+    describe('削除権限がない場合 (Requirement 14.2)', () => {
       it('削除ボタンが非表示になる', () => {
         renderComponent({ canDelete: false });
 
@@ -376,7 +377,7 @@ describe('SiteSurveyDetailInfo', () => {
       });
     });
 
-    describe('編集・削除両方の権限がない場合 (Requirement 12.2)', () => {
+    describe('編集・削除両方の権限がない場合 (Requirement 14.2)', () => {
       it('編集ボタンと削除ボタンの両方が非表示になる', () => {
         renderComponent({ canEdit: false, canDelete: false });
 
@@ -384,7 +385,7 @@ describe('SiteSurveyDetailInfo', () => {
         expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
       });
 
-      it('基本情報は引き続き表示される (Requirement 12.1)', () => {
+      it('基本情報は引き続き表示される (Requirement 14.1)', () => {
         renderComponent({ canEdit: false, canDelete: false });
 
         // 調査名、調査日、プロジェクト名は表示される
@@ -424,7 +425,7 @@ describe('SiteSurveyDetailInfo', () => {
       });
     });
 
-    describe('報告書出力対象の検証 (Requirement 11.1)', () => {
+    describe('報告書出力対象の検証 (Requirement 11.2)', () => {
       it('報告書出力対象の写真が0件の場合、エラーメッセージを表示する', async () => {
         const user = userEvent.setup();
         const surveyNoExportImages = {
@@ -459,7 +460,7 @@ describe('SiteSurveyDetailInfo', () => {
       });
     });
 
-    describe('PDF生成処理 (Requirement 10.6)', () => {
+    describe('PDF生成処理 (Requirement 11.1)', () => {
       beforeEach(() => {
         // getSiteSurveyのモック（最新のURLを取得するAPI呼び出し）
         vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);

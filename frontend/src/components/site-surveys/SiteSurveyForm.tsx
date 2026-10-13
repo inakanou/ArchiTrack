@@ -18,6 +18,11 @@
  */
 
 import { useState, useCallback, useId, FormEvent, ChangeEvent, FocusEvent } from 'react';
+// Task 115.105 (Req 15.6): 通信断の告知とサーバー保存の抑止。
+// design.md「ネットワーク状態管理フロー」の Key Decisions に従い、
+// 切断中は警告を出したうえで現場調査の作成・更新（サーバー保存）を実行しない。
+import NetworkStatusIndicator from '../NetworkStatusIndicator';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 
 // ============================================================================
 // 型定義
@@ -74,9 +79,7 @@ const STYLES = {
     primary: '#1d4ed8',
     primaryHover: '#1e40af',
     error: '#dc2626',
-    errorLight: 'rgba(220, 38, 38, 0.1)',
     focus: '#2563eb',
-    focusLight: 'rgba(37, 99, 235, 0.1)',
     border: '#d1d5db',
     label: '#374151',
     text: '#111827',
@@ -85,7 +88,7 @@ const STYLES = {
     white: '#ffffff',
   },
   borderRadius: '0.375rem',
-  transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out',
+  transition: 'border-color 0.15s ease-in-out',
 } as const;
 
 /** フィールドエラー型 */
@@ -137,6 +140,12 @@ function SiteSurveyForm({
 }: SiteSurveyFormProps) {
   // _submitError は将来の拡張用に受け取るが、現在は使用しない
   void _submitError;
+
+  // Task 115.105 (Req 15.6): 通信状態の購読。切断中はサーバー保存を抑止する。
+  const { canSave: canSaveToServer, warningMessage: offlineWarningMessage } = useNetworkStatus();
+  const isServerSaveBlocked = !canSaveToServer;
+  /** 通信断で保存を抑止したことを押下時に伝える文言 */
+  const [saveBlockedNotice, setSaveBlockedNotice] = useState<string | null>(null);
   // フォームの値
   const [name, setName] = useState(initialData?.name ?? '');
   const [surveyDate, setSurveyDate] = useState(initialData?.surveyDate ?? getTodayDate());
@@ -255,6 +264,15 @@ function SiteSurveyForm({
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    // Task 115.105 (Req 15.6): 通信が切れている間はサーバーへの保存を実行しない。
+    // aria-disabled は押下自体を止めないため、押下時に理由を提示して抑止する。
+    if (isServerSaveBlocked) {
+      setSaveBlockedNotice(offlineWarningMessage);
+      return;
+    }
+
+    setSaveBlockedNotice(null);
+
     // 全フィールドをタッチ済みにする
     setTouched({
       name: true,
@@ -290,15 +308,6 @@ function SiteSurveyForm({
     return STYLES.colors.border;
   };
 
-  /**
-   * 入力フィールドのボックスシャドウを計算
-   */
-  const getBoxShadow = (fieldName: string, hasError: boolean): string => {
-    if (focusedField !== fieldName) return 'none';
-    if (hasError) return `0 0 0 3px ${STYLES.colors.errorLight}`;
-    return `0 0 0 3px ${STYLES.colors.focusLight}`;
-  };
-
   const submitButtonText = mode === 'create' ? '作成' : '保存';
   const submitButtonLoadingText = mode === 'create' ? '作成中...' : '保存中...';
 
@@ -308,6 +317,11 @@ function SiteSurveyForm({
 
   return (
     <form id={formId} onSubmit={handleSubmit} role="form" style={{ maxWidth: '600px' }}>
+      {/* Task 115.105 (Req 15.6): 通信断の告知 */}
+      <div style={{ marginBottom: '1rem' }}>
+        <NetworkStatusIndicator showReconnected />
+      </div>
+
       {/* 調査名 */}
       <div style={{ marginBottom: '1rem' }}>
         <label
@@ -360,10 +374,11 @@ function SiteSurveyForm({
             lineHeight: '1.5',
             color: isSubmitting ? STYLES.colors.disabled : STYLES.colors.text,
             backgroundColor: isSubmitting ? STYLES.colors.disabledBg : STYLES.colors.white,
-            outline: 'none',
+            // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない。
+            // フォーカス中は枠の色だけを変え、背景に対して 3:1 に届かない淡い影の輪は重ねない
+            // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
             cursor: isSubmitting ? 'not-allowed' : 'text',
             transition: STYLES.transition,
-            boxShadow: getBoxShadow('name', !!errors.name),
           }}
         />
         {errors.name && (
@@ -435,10 +450,11 @@ function SiteSurveyForm({
             lineHeight: '1.5',
             color: isSubmitting ? STYLES.colors.disabled : STYLES.colors.text,
             backgroundColor: isSubmitting ? STYLES.colors.disabledBg : STYLES.colors.white,
-            outline: 'none',
+            // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない。
+            // フォーカス中は枠の色だけを変え、背景に対して 3:1 に届かない淡い影の輪は重ねない
+            // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
             cursor: isSubmitting ? 'not-allowed' : 'default',
             transition: STYLES.transition,
-            boxShadow: getBoxShadow('surveyDate', !!errors.surveyDate),
           }}
         />
         {errors.surveyDate && (
@@ -498,10 +514,11 @@ function SiteSurveyForm({
             lineHeight: '1.5',
             color: isSubmitting ? STYLES.colors.disabled : STYLES.colors.text,
             backgroundColor: isSubmitting ? STYLES.colors.disabledBg : STYLES.colors.white,
-            outline: 'none',
+            // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない。
+            // フォーカス中は枠の色だけを変え、背景に対して 3:1 に届かない淡い影の輪は重ねない
+            // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
             cursor: isSubmitting ? 'not-allowed' : 'text',
             transition: STYLES.transition,
-            boxShadow: getBoxShadow('memo', !!errors.memo),
             resize: 'vertical',
             minHeight: '100px',
           }}
@@ -521,6 +538,22 @@ function SiteSurveyForm({
           </p>
         )}
       </div>
+
+      {/* Task 115.105 (Req 15.6): 押下時に保存を抑止した理由を示す */}
+      {saveBlockedNotice && (
+        <p
+          role="alert"
+          aria-live="polite"
+          data-testid="site-survey-form-save-blocked"
+          style={{
+            marginBottom: '0.75rem',
+            fontSize: '0.875rem',
+            color: STYLES.colors.error,
+          }}
+        >
+          {saveBlockedNotice}
+        </p>
+      )}
 
       {/* ボタン */}
       <div
@@ -549,15 +582,18 @@ function SiteSurveyForm({
         <button
           type="submit"
           disabled={isSubmitting}
+          aria-disabled={isSubmitting || isServerSaveBlocked}
+          title={isServerSaveBlocked && offlineWarningMessage ? offlineWarningMessage : undefined}
           style={{
             padding: '0.75rem 1.5rem',
-            backgroundColor: isSubmitting ? STYLES.colors.disabled : STYLES.colors.primary,
+            backgroundColor:
+              isSubmitting || isServerSaveBlocked ? STYLES.colors.disabled : STYLES.colors.primary,
             color: STYLES.colors.white,
             border: 'none',
             borderRadius: STYLES.borderRadius,
             fontSize: '1rem',
             fontWeight: 600,
-            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+            cursor: isSubmitting || isServerSaveBlocked ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

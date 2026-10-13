@@ -77,6 +77,12 @@ const { mockCanvasInstance, mockFromURL, createTouchGestureManagerSpy, configure
         registeredHandlers.delete(eventName);
       }),
       setViewportTransform: vi.fn(),
+      // Task 115.47: 長押しの対象は payload ではなく canvas.findTarget の実ヒットテストで
+      // 解決される（Fabric v7 形状: { target?, subTargets, ... }）。
+      findTarget: vi.fn((): { target: unknown; subTargets: unknown[] } => ({
+        target: undefined,
+        subTargets: [],
+      })),
       getObjects: vi.fn(() => []),
       requestRenderAll: vi.fn(),
       getActiveObject: vi.fn((): unknown => null),
@@ -133,7 +139,16 @@ vi.mock('../../../api/survey-annotations', () => ({
   getAnnotation: vi.fn().mockResolvedValue(null),
   saveAnnotation: vi.fn().mockResolvedValue({ id: 'test-annotation-id' }),
   exportAnnotationJson: vi.fn().mockResolvedValue('{}'),
-  updateThumbnail: vi.fn().mockResolvedValue({ success: true, thumbnailPath: '/test/path' }),
+  updateAnnotatedThumbnail: vi.fn().mockResolvedValue({
+    success: true,
+    annotatedThumbnailPath: 'annotated-thumbnails/test.jpg',
+    annotatedThumbnailUrl: null,
+  }),
+  deleteAnnotatedThumbnail: vi.fn().mockResolvedValue({
+    success: true,
+    annotatedThumbnailPath: null,
+    annotatedThumbnailUrl: null,
+  }),
 }));
 
 const mockToast = {
@@ -305,6 +320,10 @@ const getRegisteredHandler = (eventName: string): ((payload: unknown) => void) |
 
 /**
  * 選択ツール中に target に対して長押しを発火してメニューを開く共通処理
+ *
+ * Task 115.47: 本番の GesturePayload は target を含まない（touchGestureManager.buildPayload は
+ * target を設定せず、Fabric の canvas.fire もカスタムイベントに target を付与しない）。
+ * したがって対象は「長押し点に居るオブジェクト」を canvas.findTarget のヒットテストで与える。
  */
 const openMenuWith = async (
   target: Record<string, unknown>,
@@ -315,12 +334,15 @@ const openMenuWith = async (
   if (!longpressHandler) {
     throw new Error('custom:longpress handler is not registered');
   }
+  (mockCanvasInstance.findTarget as ReturnType<typeof vi.fn>).mockReturnValue({
+    target,
+    subTargets: [],
+  });
   await act(async () => {
     longpressHandler({
       pointerType: 'touch',
       clientX,
       clientY,
-      target,
       currentTool: 'select',
     });
   });

@@ -5,7 +5,8 @@
  *
  * site-survey の ImageUploader を踏襲し、以下3系統で写真項目を追加する。
  *   (1) ローカルファイル選択（jpg/png/webp, multiple）— ImageUploader のドロップゾーン
- *   (2) カメラ撮影（capture="environment"）— ImageUploader のカメラ入力
+ *   (2) カメラ撮影（capture="environment"）— ImageUploader のカメラ入力。
+ *       カメラの無い端末（enumerateDevices が videoinput を列挙しない）では出さない（R5.3）
  *   (3) 現場調査写真の参照 — SurveyImagePicker モーダルで選択し from-surveys API でコピー
  *
  * ローカル/カメラのアップロードは uploadFilesInWaves により最大5並列（R11.5）で実行し、
@@ -33,6 +34,7 @@ import {
 import { ApiError } from '../../api/client';
 import { toFailedUpload } from '../../utils/upload-failure';
 import { SurveyImagePicker } from './SurveyImagePicker';
+import { useCameraAvailability } from '../../hooks/useCameraAvailability';
 import type { ConstructionPhotoWithUrls } from '../../types/construction-photo.types';
 import type { FailedUpload, UploadOutcome } from '../../types/upload.types';
 
@@ -251,6 +253,12 @@ export function PhotoUploader({
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
 
+  // カメラの無い端末ではカメラ撮影の導線を出さない（R5.3, タスク 23.5）。
+  // 判定できない（unknown）ときは出す側へ倒す。カメラの導線は capture 付きのファイル入力で
+  // あり、カメラの無い端末で押されてもファイルの選択が開くだけだが、誤って隠すとカメラを
+  // 持つ端末から撮影の手段（R5.1, R5.2）を奪うためである。
+  const cameraAvailability = useCameraAvailability();
+
   // ローカル/カメラのアップロード（ImageUploader が圧縮済みファイルを渡す）
   //
   // 失敗した画像は `UploadOutcome` として ImageUploader へ返し、未送信画像として
@@ -332,6 +340,7 @@ export function PhotoUploader({
         uploadProgress={uploadProgress}
         disabled={disabled}
         compact
+        showCameraCapture={cameraAvailability !== 'unavailable'}
       />
 
       {/* 現調写真参照 */}

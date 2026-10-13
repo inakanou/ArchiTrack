@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { assertPrepared } from '../../helpers/preconditions';
 import {
   waitForSessionDataLoaded,
   waitForLoadingComplete,
@@ -67,7 +68,7 @@ test.describe('セッション管理機能', () => {
     await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
     // セッションデータの読み込み完了を待機（リトライ付き、CI用に増加）
-    let sessionDataLoaded = await waitForSessionDataLoaded(page, {
+    const sessionDataLoaded = await waitForSessionDataLoaded(page, {
       timeout: getTimeout(30000),
       maxRetries: 7,
     });
@@ -84,25 +85,26 @@ test.describe('セッション管理機能', () => {
         await page.goto('/sessions');
         await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
         await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
-        sessionDataLoaded = await waitForSessionDataLoaded(page, {
+        // 再ログイン後の読み込みも前提である。戻り値を捨てると、前提が崩れたときの失敗は
+        // 前提の地点ではなく各テストの操作段階に現れる（Task 115.141）。
+        const reloadedAfterRelogin = await waitForSessionDataLoaded(page, {
           timeout: getTimeout(30000),
           maxRetries: 3,
         });
+        assertPrepared(reloadedAfterRelogin, '再ログイン後のセッション管理画面の読み込み');
       }
     }
 
-    if (!sessionDataLoaded) {
-      // フォールバック：最終確認（タイムアウト延長）
-      await Promise.race([
-        expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(15000) }),
-        expect(page.getByText(/全デバイスからログアウト/i)).toBeVisible({
-          timeout: getTimeout(15000),
-        }),
-        expect(page.getByText(/アクティブなセッションがありません/i)).toBeVisible({
-          timeout: getTimeout(15000),
-        }),
-      ]);
-    }
+    // 読み込みの成否によらず、セッション管理画面が実際に描けていることを無条件に主張する。
+    // 従来は「読み込めなかったときだけ」確認しており、`waitForSessionDataLoaded` が
+    // 誤って真を返すと前提の崩れが一切露見せず、各テストの操作段階まで持ち越されていた。
+    await expect(
+      page
+        .getByText(/現在のデバイス/i)
+        .or(page.getByText(/全デバイスからログアウト/i))
+        .or(page.getByText(/アクティブなセッションがありません/i))
+        .first()
+    ).toBeVisible({ timeout: getTimeout(15000) });
   });
 
   /**
@@ -110,8 +112,13 @@ test.describe('セッション管理機能', () => {
    * 要件8.2: アクティブユーザーのセッション有効期限延長
    * @requirement user-authentication/REQ-8.1 @requirement user-authentication/REQ-8.2
    * @requirement user-authentication/REQ-28.30 セッション管理リンククリック → セッション管理画面遷移
-   * @requirement user-authentication/REQ-28.31 プロフィール画面表示 → セッション管理リンク表示
    * @requirement user-authentication/REQ-28.34 セッション管理画面表示 → アクティブセッション一覧と他デバイスログアウトボタン表示
+   *
+   * タスク 115.188 の是正: user-authentication の受入基準28.31 を名乗る被覆印を取り下げた。
+   * 原文28.31 は「プロフィール画面が表示されるとき、セッション管理へのリンクを含める」で
+   * あり、主題はプロフィール画面である。本区間は beforeEach で `/sessions` へ直接移動し、
+   * プロフィール画面を一度も開かないため、原文の前件に入らない。付け替え先も要件28 に無い。
+   * 28.31 は `auth/navigation.spec.ts:148` のプロフィール画面の検証が引き続き名乗る。
    */
   test('セッション一覧が正しく表示される', async ({ page }) => {
     // セッション一覧のヘッダー（タイムアウト追加）
@@ -132,33 +139,10 @@ test.describe('セッション管理機能', () => {
    * @requirement user-authentication/REQ-8.3 デバイス毎の独立セッション管理
    */
   test('個別デバイスログアウトボタンが表示される', async ({ page }) => {
-    // セッション情報がAPIから読み込まれるまで待機（リトライロジック付き）
-    let sessionLoaded = false;
-    for (let retry = 0; retry < 5; retry++) {
-      try {
-        await expect(page.getByText(/現在のデバイス/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-        sessionLoaded = true;
-        break;
-      } catch {
-        if (retry < 4) {
-          await page.reload({ waitUntil: 'networkidle' });
-
-          // ログインページにリダイレクトされた場合は再ログイン
-          if (page.url().includes('/login')) {
-            await loginAsUser(page, 'REGULAR_USER');
-            await page.goto('/sessions');
-            await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
-          }
-
-          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: getTimeout(10000),
-          });
-        }
-      }
-    }
-    expect(sessionLoaded).toBe(true);
+    // 要件8.1: ログインでセッションが永続化されるため、ログイン直後は必ず1件以上のセッションがある。
+    // 「表示されなければリロードして再ログインする」復旧は、セッションが1件も返らない欠陥を
+    // 黙って埋め合わせてしまうため置かない。`toBeVisible` の待機自体が再試行を担う。
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(30000) });
 
     // ログアウトボタンが表示される（現在のデバイス以外）
     const logoutButtons = page.getByRole('button', { name: /ログアウト/i });
@@ -169,37 +153,10 @@ test.describe('セッション管理機能', () => {
    * @requirement user-authentication/REQ-8.4 対象デバイスのみのセッション削除
    */
   test('個別デバイスログアウトができる', async ({ page }) => {
-    // セッション情報がAPIから読み込まれるまで待機（リトライロジック付き）
-    let sessionLoaded = false;
-    const maxRetries = 5;
-    for (let retry = 0; retry < maxRetries; retry++) {
-      try {
-        await expect(page.getByText(/現在のデバイス/i)).toBeVisible({
-          timeout: getTimeout(15000),
-        });
-        sessionLoaded = true;
-        break;
-      } catch {
-        if (retry < maxRetries - 1) {
-          // ページをリロードして再試行
-          await page.reload({ waitUntil: 'networkidle' });
-
-          // ログインページにリダイレクトされた場合は再ログイン
-          if (page.url().includes('/login')) {
-            await loginAsUser(page, 'REGULAR_USER');
-            await page.goto('/sessions');
-            await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
-          }
-
-          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: getTimeout(15000),
-          });
-          // ローディング完了を待機
-          await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
-        }
-      }
-    }
-    expect(sessionLoaded).toBe(true);
+    // 要件8.1: ログイン直後は必ずセッションが1件以上あるため、無条件に主張する。
+    // 観測して再ログインする復旧は、セッションが返らない欠陥を隠したうえで
+    // 「何回目の試行を検証したのか」も読めなくしていた。
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(30000) });
 
     // 個別デバイスのログアウトボタンが表示されるまで待機
     const logoutButton = page.getByRole('button', { name: /^ログアウト$/i }).first();
@@ -223,7 +180,13 @@ test.describe('セッション管理機能', () => {
   });
 
   /**
-   * @requirement user-authentication/REQ-8.5 全デバイスログアウト機能の提供
+   * @requirement user-authentication/REQ-28.34 全デバイスログアウト機能の提供
+   *
+   * タスク 115.188 の是正: 従前は REQ-8.5 を名乗っていたが、受入基準8.5 の原文は「WHEN 管理者が全デバイスログアウト機能を使用する
+   * THEN Authentication Serviceは全てのセッションを削除しなければならない」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準28.34（「WHEN セッション管理画面が表示される THEN Frontend
+   * UIはアクティブなセッション一覧と「他のデバイスからログアウト」ボタンを表示しなければならない」
+   * ）である。
    */
   test('全デバイスログアウトボタンが表示される', async ({ page }) => {
     await expect(page.getByRole('button', { name: /全デバイスからログアウト/i })).toBeVisible({
@@ -243,11 +206,10 @@ test.describe('セッション管理機能', () => {
     // ページをリロードしてセッション状態をリフレッシュ
     await page.reload({ waitUntil: 'networkidle' });
 
-    // ログインページにリダイレクトされた場合は再ログイン
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/sessions', { waitUntil: 'networkidle' });
-    }
+    // リロードで認証が失われないことは要件8.1（セッションの永続化）そのものである。
+    // 従来はログインページへ落ちていたら黙って再ログインしていたため、
+    // セッションが永続化されていなくても検証は緑のまま通っていた。
+    await expect(page).not.toHaveURL(/\/login/);
 
     // セッション管理ページが表示されるまで待機
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
@@ -258,46 +220,17 @@ test.describe('セッション管理機能', () => {
     await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
     // セッションデータの読み込み完了を待機
-    await waitForSessionDataLoaded(page, {
+    const sessionDataLoaded = await waitForSessionDataLoaded(page, {
       timeout: getTimeout(30000),
       maxRetries: 7,
     });
+    expect(sessionDataLoaded, 'セッション情報を読み込めていない（要件8.1）').toBe(true);
 
-    // 全デバイスログアウトボタンが表示されるのをリトライ付きで待機
+    // 要件8.5: 全デバイスログアウトボタンが提供される。
+    // 表示されなければリロードして再ログインする復旧は置かない
+    // （ボタンが出ない欠陥をそのまま隠すため）。待機は `toBeVisible` が担う。
     const logoutAllButton = page.getByRole('button', { name: /全デバイスからログアウト/i });
-    let buttonVisible = false;
-    const maxRetries = 7;
-    for (let retry = 0; retry < maxRetries; retry++) {
-      try {
-        await expect(logoutAllButton).toBeVisible({ timeout: getTimeout(15000) });
-        buttonVisible = true;
-        break;
-      } catch {
-        if (retry < maxRetries - 1) {
-          // ページをリロードして再試行
-          await page.reload({ waitUntil: 'networkidle' });
-
-          // ログインページにリダイレクトされた場合は再ログイン
-          if (page.url().includes('/login')) {
-            await loginAsUser(page, 'REGULAR_USER');
-            await page.goto('/sessions');
-            await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
-          }
-
-          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: getTimeout(15000),
-          });
-          // ローディング完了を待機
-          await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
-          // セッションデータ再読み込み
-          await waitForSessionDataLoaded(page, {
-            timeout: getTimeout(30000),
-            maxRetries: 3,
-          });
-        }
-      }
-    }
-    expect(buttonVisible).toBe(true);
+    await expect(logoutAllButton).toBeVisible({ timeout: getTimeout(30000) });
 
     await logoutAllButton.click();
 

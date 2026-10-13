@@ -17,7 +17,11 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import CalculationFields, { FIELDS_BY_METHOD } from './CalculationFields';
 import type { AreaVolumeParams, PitchParams, CountParams } from '../../utils/calculation-engine';
 import { CALCULATION_METHOD_ORDER, PARAM_KEYS_BY_METHOD } from '../../utils/calculation-method';
-import { FIELD_RANGE_CONFIG } from '../../utils/numeric-range-validation';
+import {
+  FIELD_RANGE_CONFIG,
+  validateNumericRange,
+  type NumericRangeFieldType,
+} from '../../utils/numeric-range-validation';
 import type { CalculationMethod, CalculationParams } from '../../types/quantity-edit.types';
 
 describe('CalculationFields', () => {
@@ -1169,10 +1173,11 @@ describe('CalculationFields', () => {
 
     it('箇所数モードのフィールドが「箇所数（必須・整数）→ 長さ → 重量」で定義されている', () => {
       // Task 68.2: 箇所数は整数表示（integer）と入力検証（rangeFieldType）の両方を宣言する
+      // Task 80.2: 長さ・重量も範囲検証（dimension）を宣言する（REQ-15.3 の結線）
       expect(FIELDS_BY_METHOD.COUNT).toEqual([
         { key: 'count', label: '箇所数', required: true, integer: true, rangeFieldType: 'count' },
-        { key: 'length', label: '長さ', step: 0.01 },
-        { key: 'weight', label: '重量', step: 0.01 },
+        { key: 'length', label: '長さ', step: 0.01, rangeFieldType: 'dimension' },
+        { key: 'weight', label: '重量', step: 0.01, rangeFieldType: 'dimension' },
       ]);
     });
 
@@ -1298,6 +1303,555 @@ describe('CalculationFields', () => {
 
       expectSelectAllOnFocus(screen.getByLabelText('調整係数') as HTMLInputElement);
       expectSelectAllOnFocus(screen.getByLabelText('丸め設定') as HTMLInputElement);
+    });
+  });
+
+  // ============================================================================
+  // 範囲判定の結線（Task 80.2）
+  //
+  // Requirements (quantity-table-generation): 9.3, 9.4, 10.3, 10.4, 15.3
+  //
+  // 期待する文言と境界の数値は `FIELD_RANGE_CONFIG` / `validateNumericRange` から
+  // 取り出す。検証側へ範囲を書き写すと、範囲が変わったとき検証だけが古い前提のまま
+  // 緑になる（Task 80.2 の「判定は単一の出所から得ること」）。
+  // ============================================================================
+
+  describe('範囲判定の結線', () => {
+    const rangeErrorOf = (value: number, fieldType: NumericRangeFieldType): string => {
+      const result = validateNumericRange(value, fieldType);
+      if (result.isValid || result.error === undefined) {
+        throw new Error(
+          `前提が崩れている: ${String(value)} は ${fieldType} の範囲内であり、期待する文言を作れない`
+        );
+      }
+      return result.error;
+    };
+
+    describe('調整係数（REQ-9.3 / REQ-9.4）', () => {
+      it('下限を下回る値でエラーを表示し、親へ通知しない', () => {
+        const onAdjustmentFactorChange = vi.fn();
+        const belowMin = FIELD_RANGE_CONFIG.adjustmentFactor.min - 0.01;
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onAdjustmentFactorChange={onAdjustmentFactorChange}
+          />
+        );
+
+        const input = screen.getByLabelText('調整係数');
+        fireEvent.change(input, { target: { value: String(belowMin) } });
+        fireEvent.blur(input);
+
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          rangeErrorOf(belowMin, 'adjustmentFactor')
+        );
+        expect(input).toHaveAttribute('aria-invalid', 'true');
+        expect(onAdjustmentFactorChange).not.toHaveBeenCalled();
+      });
+
+      it('上限を上回る値でエラーを表示し、親へ通知しない', () => {
+        const onAdjustmentFactorChange = vi.fn();
+        const aboveMax = FIELD_RANGE_CONFIG.adjustmentFactor.max + 0.01;
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onAdjustmentFactorChange={onAdjustmentFactorChange}
+          />
+        );
+
+        const input = screen.getByLabelText('調整係数');
+        fireEvent.change(input, { target: { value: String(aboveMax) } });
+        fireEvent.blur(input);
+
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          rangeErrorOf(aboveMax, 'adjustmentFactor')
+        );
+        expect(onAdjustmentFactorChange).not.toHaveBeenCalled();
+      });
+
+      // 範囲外の文言が出ていないことの主張。保存経路の告知（別の層）とは区別する
+      const expectNoRangeError = () => {
+        for (const alert of screen.queryAllByRole('alert')) {
+          expect(alert).not.toHaveTextContent('範囲で入力してください');
+        }
+      };
+
+      it.each([
+        ['下限', FIELD_RANGE_CONFIG.adjustmentFactor.min],
+        ['上限', FIELD_RANGE_CONFIG.adjustmentFactor.max],
+      ])('有効域の%s（%s）は範囲エラーにならず親へ通知される', (_label, value) => {
+        const onAdjustmentFactorChange = vi.fn();
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onAdjustmentFactorChange={onAdjustmentFactorChange}
+          />
+        );
+
+        const input = screen.getByLabelText('調整係数');
+        fireEvent.change(input, { target: { value: String(value) } });
+        fireEvent.blur(input);
+
+        expectNoRangeError();
+        expect(onAdjustmentFactorChange).toHaveBeenCalledWith(value);
+      });
+
+      it('0 は有効域の内側であり、既定値へ差し替えられずそのまま確定する（REQ-9.4 は空白のみを対象とする）', () => {
+        const onAdjustmentFactorChange = vi.fn();
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onAdjustmentFactorChange={onAdjustmentFactorChange}
+          />
+        );
+
+        const input = screen.getByLabelText('調整係数');
+        fireEvent.change(input, { target: { value: '0' } });
+        fireEvent.blur(input);
+
+        expectNoRangeError();
+        expect(input).toHaveValue('0.00');
+        expect(onAdjustmentFactorChange).toHaveBeenCalledWith(0);
+      });
+
+      /*
+       * Requirements (quantity-table-generation): 9.3
+       *
+       * REQ-9.3 の有効域は `0` と負値を内側に含むため、これらは**範囲外ではない**。
+       * タスク 80.2 の時点では保存経路（`z.number().positive()`）が拒んでいたため、
+       * 欄は「保存できません」という別の層の文言を告げていた。**タスク 85.1 が
+       * バックエンドを有効域へ揃えたため、その層は撤去され、向きが反転した**——
+       * いまは何の提示も出さず、そのまま確定する。
+       */
+      it.each([
+        ['0', 0],
+        ['負の有効値', -0.5],
+        ['下限', FIELD_RANGE_CONFIG.adjustmentFactor.min],
+      ])('有効域の内側の値（%s）は何も告げずそのまま確定する', (_label, value) => {
+        const onAdjustmentFactorChange = vi.fn();
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onAdjustmentFactorChange={onAdjustmentFactorChange}
+          />
+        );
+
+        const input = screen.getByLabelText('調整係数');
+        fireEvent.change(input, { target: { value: String(value) } });
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(input).not.toHaveAttribute('aria-invalid', 'true');
+
+        // 有効域の内側であるため確定する（REQ-9.3 / REQ-9.2）
+        fireEvent.blur(input);
+        expect(onAdjustmentFactorChange).toHaveBeenCalledWith(value);
+      });
+
+      /*
+       * Requirements (quantity-table-generation): 9.3
+       *
+       * 上の「何も告げない」が、提示の経路そのものが死んでいるだけで成立していないことを
+       * 同じ欄で確かめる。範囲の外は引き続き範囲の文言で拒む。
+       */
+      it.each([
+        ['下限未満', FIELD_RANGE_CONFIG.adjustmentFactor.min - 0.01],
+        ['上限超過', FIELD_RANGE_CONFIG.adjustmentFactor.max + 0.01],
+      ])('有効域の外の値（%s）は範囲の文言で拒む', (_label, value) => {
+        const onAdjustmentFactorChange = vi.fn();
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onAdjustmentFactorChange={onAdjustmentFactorChange}
+          />
+        );
+
+        const input = screen.getByLabelText('調整係数');
+        fireEvent.change(input, { target: { value: String(value) } });
+
+        const expected = validateNumericRange(value, 'adjustmentFactor').error;
+        expect(expected).toBeDefined();
+        expect(screen.getByRole('alert')).toHaveTextContent(expected as string);
+        expect(input).toHaveAttribute('aria-invalid', 'true');
+      });
+
+      it('正の有効値でも何も告げない', () => {
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            adjustmentFactor={1.5}
+            onAdjustmentFactorChange={vi.fn()}
+          />
+        );
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      });
+
+      it('空白のときだけ既定値「1.00」が設定される（REQ-9.4）', () => {
+        const onAdjustmentFactorChange = vi.fn();
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            adjustmentFactor={2}
+            onAdjustmentFactorChange={onAdjustmentFactorChange}
+          />
+        );
+
+        const input = screen.getByLabelText('調整係数');
+        fireEvent.change(input, { target: { value: '' } });
+        fireEvent.blur(input);
+
+        expect(input).toHaveValue('1.00');
+        expect(onAdjustmentFactorChange).toHaveBeenCalledWith(1);
+      });
+    });
+
+    describe('丸め設定（REQ-10.3 / REQ-10.4）', () => {
+      it('下限を下回る値でエラーを表示し、親へ通知しない', () => {
+        const onRoundingUnitChange = vi.fn();
+        const belowMin = -1;
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onRoundingUnitChange={onRoundingUnitChange}
+          />
+        );
+
+        const input = screen.getByLabelText('丸め設定');
+        fireEvent.change(input, { target: { value: String(belowMin) } });
+        fireEvent.blur(input);
+
+        expect(screen.getByRole('alert')).toHaveTextContent(rangeErrorOf(belowMin, 'roundingUnit'));
+        expect(input).toHaveAttribute('aria-invalid', 'true');
+        expect(onRoundingUnitChange).not.toHaveBeenCalled();
+      });
+
+      it('上限を上回る値でエラーを表示し、親へ通知しない', () => {
+        const onRoundingUnitChange = vi.fn();
+        const aboveMax = FIELD_RANGE_CONFIG.roundingUnit.max + 0.01;
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onRoundingUnitChange={onRoundingUnitChange}
+          />
+        );
+
+        const input = screen.getByLabelText('丸め設定');
+        fireEvent.change(input, { target: { value: String(aboveMax) } });
+        fireEvent.blur(input);
+
+        expect(screen.getByRole('alert')).toHaveTextContent(rangeErrorOf(aboveMax, 'roundingUnit'));
+        expect(onRoundingUnitChange).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['0', 'REQ-10.4 の番兵'],
+        ['', '空白'],
+      ])(
+        '%s は範囲判定より先に既定値「0.01」へ差し替えられ、エラーにならない（REQ-10.4 が REQ-10.3 に優先する）',
+        (value) => {
+          const onRoundingUnitChange = vi.fn();
+          render(
+            <CalculationFields
+              method="AREA_VOLUME"
+              params={{} as AreaVolumeParams}
+              onChange={vi.fn()}
+              disabled={false}
+              roundingUnit={5}
+              onRoundingUnitChange={onRoundingUnitChange}
+            />
+          );
+
+          const input = screen.getByLabelText('丸め設定');
+          fireEvent.change(input, { target: { value } });
+          fireEvent.blur(input);
+
+          expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+          expect(input).toHaveValue('0.01');
+          expect(onRoundingUnitChange).toHaveBeenCalledWith(FIELD_RANGE_CONFIG.roundingUnit.min);
+        }
+      );
+
+      it.each([
+        ['下限', FIELD_RANGE_CONFIG.roundingUnit.min],
+        ['上限', FIELD_RANGE_CONFIG.roundingUnit.max],
+      ])('有効域の%s（%s）はエラーにならず親へ通知される', (_label, value) => {
+        const onRoundingUnitChange = vi.fn();
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onRoundingUnitChange={onRoundingUnitChange}
+          />
+        );
+
+        const input = screen.getByLabelText('丸め設定');
+        fireEvent.change(input, { target: { value: String(value) } });
+        fireEvent.blur(input);
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(onRoundingUnitChange).toHaveBeenCalledWith(value);
+      });
+    });
+
+    describe('寸法・ピッチ計算・箇所数計算の「長さ」「重量」（REQ-15.3）', () => {
+      // 必須欄のラベルは末尾に必須記号（*）を持つため、前方一致で引く
+      const labelMatcher = (label: string): RegExp =>
+        new RegExp('^' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+      const dimensionCases: Array<[CalculationMethod, string, string]> = [
+        ['AREA_VOLUME', '幅（W）', 'width'],
+        ['AREA_VOLUME', '奥行き（D）', 'depth'],
+        ['AREA_VOLUME', '高さ（H）', 'height'],
+        ['AREA_VOLUME', '重量', 'weight'],
+        ['PITCH', '範囲長', 'rangeLength'],
+        ['PITCH', '端長1', 'endLength1'],
+        ['PITCH', '端長2', 'endLength2'],
+        ['PITCH', 'ピッチ長', 'pitchLength'],
+        ['PITCH', '長さ', 'length'],
+        ['PITCH', '重量', 'weight'],
+        ['COUNT', '長さ', 'length'],
+        ['COUNT', '重量', 'weight'],
+      ];
+
+      it.each(dimensionCases)(
+        '%s モードの「%s」は下限未満（0）でエラーを表示し、親へ通知しない',
+        (method, label) => {
+          const onChange = vi.fn();
+          render(
+            <CalculationFields method={method} params={{}} onChange={onChange} disabled={false} />
+          );
+
+          const input = screen.getByLabelText(labelMatcher(label));
+          fireEvent.change(input, { target: { value: '0' } });
+          fireEvent.blur(input);
+
+          expect(screen.getByRole('alert')).toHaveTextContent(rangeErrorOf(0, 'dimension'));
+          expect(input).toHaveAttribute('aria-invalid', 'true');
+          expect(onChange).not.toHaveBeenCalled();
+        }
+      );
+
+      it.each(dimensionCases)(
+        '%s モードの「%s」は上限超過でエラーを表示し、親へ通知しない',
+        (method, label) => {
+          const onChange = vi.fn();
+          const aboveMax = FIELD_RANGE_CONFIG.dimension.max + 0.01;
+          render(
+            <CalculationFields method={method} params={{}} onChange={onChange} disabled={false} />
+          );
+
+          const input = screen.getByLabelText(labelMatcher(label));
+          fireEvent.change(input, { target: { value: String(aboveMax) } });
+          fireEvent.blur(input);
+
+          expect(screen.getByRole('alert')).toHaveTextContent(rangeErrorOf(aboveMax, 'dimension'));
+          expect(onChange).not.toHaveBeenCalled();
+        }
+      );
+
+      it.each(dimensionCases)(
+        '%s モードの「%s」は有効域の下限をそのまま受け付ける',
+        (method, label, key) => {
+          const onChange = vi.fn();
+          const min = FIELD_RANGE_CONFIG.dimension.min;
+          render(
+            <CalculationFields method={method} params={{}} onChange={onChange} disabled={false} />
+          );
+
+          const input = screen.getByLabelText(labelMatcher(label));
+          fireEvent.change(input, { target: { value: String(min) } });
+          fireEvent.blur(input);
+
+          expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+          expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ [key]: min }));
+        }
+      );
+
+      it('空白は範囲判定の対象外であり、未設定として親へ通知される（REQ-14.4）', () => {
+        const onChange = vi.fn();
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{ width: 10 } as AreaVolumeParams}
+            onChange={onChange}
+            disabled={false}
+          />
+        );
+
+        const input = screen.getByLabelText(labelMatcher('幅（W）'));
+        fireEvent.change(input, { target: { value: '' } });
+        fireEvent.blur(input);
+
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ width: undefined }));
+      });
+    });
+  });
+  // ============================================================================
+  // 数値以外の入力の拒否（Task 80.3）
+  //
+  // Requirements (quantity-table-generation): 9.5, 10.5
+  //
+  // **変換中（IME）の面をここで固定する。** 打鍵ごとに値を弾く実装にすると、
+  // 日本語入力の変換途中の文字列が壊れる。`fireEvent.change` も Playwright の
+  // `fill()` も変換イベントを発生させないため、通常の入力を模した検証では
+  // この欠陥を一切捕まえられない。ゆえに変換イベントを明示的に起こして確かめる。
+  // ============================================================================
+
+  describe('数値以外の入力の拒否', () => {
+    const nonNumericCases: Array<[string, string, string, 'adjustment' | 'rounding']> = [
+      ['調整係数', '調整係数', '調整係数は数値で入力してください', 'adjustment'],
+      ['丸め設定', '丸め設定', '丸め設定は数値で入力してください', 'rounding'],
+    ];
+
+    const renderField = (
+      which: 'adjustment' | 'rounding',
+      handler: (value: number) => void
+    ): void => {
+      render(
+        <CalculationFields
+          method="AREA_VOLUME"
+          params={{} as AreaVolumeParams}
+          onChange={vi.fn()}
+          disabled={false}
+          adjustmentFactor={2.5}
+          roundingUnit={0.25}
+          onAdjustmentFactorChange={which === 'adjustment' ? handler : vi.fn()}
+          onRoundingUnitChange={which === 'rounding' ? handler : vi.fn()}
+        />
+      );
+    };
+
+    it.each(nonNumericCases)(
+      '%s は数値以外を入力して焦点を外すと直前の確定値へ戻り、エラーを表示し、親へ通知しない',
+      (_name, label, expectedError, which) => {
+        const handler = vi.fn();
+        renderField(which, handler);
+
+        const input = screen.getByLabelText(label);
+        const committed = which === 'adjustment' ? '2.50' : '0.25';
+        expect(input).toHaveValue(committed);
+
+        fireEvent.change(input, { target: { value: 'abc' } });
+        fireEvent.blur(input);
+
+        // 「拒否」は直前の確定値が保たれることである。既定値（1.00 / 0.01）へ倒すと、
+        // 拒否されたのか既定値に戻されたのかを区別できない
+        expect(input).toHaveValue(committed);
+        expect(screen.getByRole('alert')).toHaveTextContent(expectedError);
+        expect(input).toHaveAttribute('aria-invalid', 'true');
+        expect(handler).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(nonNumericCases)(
+      '%s の拒否の提示は入力を直し始めた時点で消え、直した値は確定する',
+      (_name, label, expectedError, which) => {
+        const handler = vi.fn();
+        renderField(which, handler);
+
+        const input = screen.getByLabelText(label);
+        fireEvent.change(input, { target: { value: 'abc' } });
+        fireEvent.blur(input);
+        expect(screen.getByRole('alert')).toHaveTextContent(expectedError);
+
+        fireEvent.change(input, { target: { value: '3' } });
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+        fireEvent.blur(input);
+        expect(handler).toHaveBeenCalledWith(3);
+      }
+    );
+
+    it.each(nonNumericCases)(
+      '%s は変換中（IME）に値へ一切手を入れない——変換途中の文字列がそのまま残る',
+      (_name, label, expectedError, which) => {
+        const handler = vi.fn();
+        renderField(which, handler);
+
+        const input = screen.getByLabelText(label);
+        const committed = which === 'adjustment' ? '2.50' : '0.25';
+
+        fireEvent.compositionStart(input);
+        fireEvent.change(input, { target: { value: 'り' } });
+        expect(input).toHaveValue('り');
+        fireEvent.change(input, { target: { value: 'りゅう' } });
+        expect(input).toHaveValue('りゅう');
+        fireEvent.change(input, { target: { value: '立米' } });
+        fireEvent.compositionEnd(input, { data: '立米' });
+        expect(input).toHaveValue('立米');
+
+        // 変換中は拒否の提示も出さない
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(handler).not.toHaveBeenCalled();
+
+        // 焦点を外した時点で初めて拒否する（REQ-9.5 / REQ-10.5）
+        fireEvent.blur(input);
+        expect(screen.getByRole('alert')).toHaveTextContent(expectedError);
+        expect(input).toHaveValue(committed);
+        expect(handler).not.toHaveBeenCalled();
+      }
+    );
+
+    it('空白は数値以外ではなく既定値の自動設定として扱われる（REQ-9.4 / REQ-10.4）', () => {
+      const onAdjustmentFactorChange = vi.fn();
+      const onRoundingUnitChange = vi.fn();
+      render(
+        <CalculationFields
+          method="AREA_VOLUME"
+          params={{} as AreaVolumeParams}
+          onChange={vi.fn()}
+          disabled={false}
+          adjustmentFactor={2.5}
+          roundingUnit={0.25}
+          onAdjustmentFactorChange={onAdjustmentFactorChange}
+          onRoundingUnitChange={onRoundingUnitChange}
+        />
+      );
+
+      const adjustment = screen.getByLabelText('調整係数');
+      fireEvent.change(adjustment, { target: { value: '' } });
+      fireEvent.blur(adjustment);
+      expect(adjustment).toHaveValue('1.00');
+      expect(onAdjustmentFactorChange).toHaveBeenCalledWith(1.0);
+
+      const rounding = screen.getByLabelText('丸め設定');
+      fireEvent.change(rounding, { target: { value: '' } });
+      fireEvent.blur(rounding);
+      expect(rounding).toHaveValue('0.01');
+      expect(onRoundingUnitChange).toHaveBeenCalledWith(0.01);
     });
   });
 });

@@ -9,7 +9,7 @@
  * - 4.2: 複数ファイル選択対応
  * - 4.5: エラー表示（形式不正）
  * - 4.6: エラー表示（サイズ超過）
- * - 13.3: モバイル環境でのカメラ連携
+ * - 15.3: モバイル環境でのカメラ連携
  * - 37.1: 失敗した画像を未送信画像として画面に保持する
  * - 37.3: 保持中の再送可能な画像をまとめて再送する
  * - 37.4: 再送では初回送信と同一の画像データを送り、再圧縮しない
@@ -96,6 +96,14 @@ export interface ImageUploaderProps {
   compact?: boolean;
   /** カスタムクラス名 */
   className?: string;
+  /**
+   * カメラ撮影の導線（「カメラで撮影」ボタンと capture 付きの入力）を描くかどうか。
+   *
+   * 既定は `true`（従来どおり描く）。`false` のときはどちらも描かず、ファイル選択と
+   * ドラッグ＆ドロップだけを残す。工事写真がカメラの無い端末で導線を出さないために
+   * 追加した任意の口である（construction-photo 5.3, タスク 23.5）。
+   */
+  showCameraCapture?: boolean;
 }
 
 // ============================================================================
@@ -105,6 +113,30 @@ export interface ImageUploaderProps {
 /** 未送信画像の破棄を確認する文言（37.8） */
 const DISCARD_CONFIRM_MESSAGE =
   '未送信の画像をすべて破棄します。破棄した画像は元に戻せません。よろしいですか？';
+
+// ============================================================================
+// 補助関数
+// ============================================================================
+
+/**
+ * 送信の失敗の通知（`onError`）を保護し、通知の例外を外へ伝播させない
+ * (Task 115.346, Requirement 37.1)
+ *
+ * 通知の例外が `submitFiles` の外へ伝播すると、呼び出し元のイベントハンドラで
+ * 未処理の rejection になる。工事写真の `PhotoUploader` の `notifySafely` と
+ * 現場調査詳細画面の `runUploadPostProcessingSafely` と同じく、通知の失敗は無言で
+ * 握り潰さず、原因を辿れるようコンソールへ記録する。誤りの表示と未送信画像の保持は
+ * 通知より前に済ませるため、通知の失敗はそれらに影響しない。
+ *
+ * @param notify - 保護する通知
+ */
+function notifyUploadErrorSafely(notify: () => void): void {
+  try {
+    notify();
+  } catch (err) {
+    console.error('アップロードの失敗の通知に失敗しました', err);
+  }
+}
 
 // ============================================================================
 // スタイル定義
@@ -127,7 +159,9 @@ const styles = {
     backgroundColor: '#f9fafb',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-    outline: 'none',
+    // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）。本部品は工事写真の詳細画面の
+    // 写真の追加の枠（construction-photo の PhotoUploader）でも描かれ、同じ輪が出る
   } as React.CSSProperties,
   uploadAreaActive: {
     borderColor: '#2563eb',
@@ -283,6 +317,7 @@ export function ImageUploader({
   disabled = false,
   compact = false,
   className = '',
+  showCameraCapture = true,
 }: ImageUploaderProps) {
   // 状態管理
   const [isDragActive, setIsDragActive] = useState(false);
@@ -333,11 +368,26 @@ export function ImageUploader({
    * 初回送信と再送の後処理（失敗の記録・エラー表示）を1箇所に集約し、
    * 「試行して失敗しなかった画像は保持に残らない」という不変条件を共通化する。
    *
-   * 例外で失敗した場合も試行対象の File を保持へ回す（37.1）。呼び出し側の
-   * `onUpload`（`SiteSurveyDetailPage.handleImageUpload` /
-   * `PhotoUploader.handleUpload`）は catch を持たず、通信断・認証切れ・
-   * `onPhotosAdded` の例外がそのままここへ伝播する。ここで File 参照を捨てると
-   * 撮影済みの画像が復元不能に失われるため、メッセージの state 化だけでは足りない。
+   * 例外で失敗した場合も試行対象の File を保持へ回す（37.1）。`onUpload` の契約は
+   * 例外の送出を禁じておらず、例外がここへ届いた時点で File 参照を捨てると撮影済みの
+   * 画像が復元不能に失われるため、メッセージの state 化だけでは足りない。
+   * 保持は呼び出し側への通知（`onError`）より先に行い、通知は
+   * `notifyUploadErrorSafely` で保護する。通知が例外を投げても試行対象は保持の区分の
+   * まま残り、その例外は外へ伝播しない（Task 115.346）。
+   *
+   * 現行の呼び出し側はいずれも catch を持たない（try/finally のみ）が、送信の失敗
+   * （通信断・認証切れ・207 の個別失敗）は API 層が画像ごとに捕捉して戻り値の
+   * `failed` へ集約するため、ここへは伝播しない。呼び出し側ごとの現況は次のとおり。
+   * - `SiteSurveyDetailPage.handleImageUpload`: 送信の失敗は `uploadSurveyImages` が
+   *   集約する。送信後の後処理（一覧の state 更新・失敗の通知・監視への送出）の例外は
+   *   `runUploadPostProcessingSafely` が捕捉して伝播させない（Task 115.344）。ここへ
+   *   伝播しうるのは、それらの保護の外に残る想定外の例外に限られる。
+   * - `PhotoUploader.handleUpload`: 送信の失敗は `uploadFilesInWaves` が集約し、
+   *   親への通知（`onPhotosAdded` / `onNotify`）の例外は `notifySafely` が捕捉して
+   *   伝播させない。ここへ伝播しうるのは、それらの保護の外に残る想定外の例外
+   *   （通知文の組み立てなど）に限られる。
+   * 送信前の圧縮（`compressImagesForUpload`）も失敗時は元ファイルへ戻すため例外を
+   * 投げない。
    *
    * @param files - 送信対象の画像
    * @param compress - 送信前に圧縮するかどうか。再送では false を指定する（37.4）
@@ -364,19 +414,20 @@ export function ImageUploader({
         const errorMessage =
           error instanceof Error ? error.message : 'アップロードに失敗しました。';
         setUploadError(errorMessage);
-        if (error instanceof Error) {
-          onError?.(error);
-        } else {
-          onError?.(new Error(errorMessage));
-        }
 
         // 試行対象をすべて未送信画像として保持する（37.1）。`toFailedUpload` は
         // 400 / 413 のみを permanent とし、通信エラーや ApiError でない例外は
         // retriable に分類するため、例外時は既定で再送可能な状態で残る（37.3, 37.16）。
+        // 通知（`onError`）より先に保持し、通知の例外が保持を妨げないようにする。
         record(
           attempted,
           attempted.map((file) => toFailedUpload(file, error))
         );
+
+        if (onError) {
+          const notifiedError = error instanceof Error ? error : new Error(errorMessage);
+          notifyUploadErrorSafely(() => onError(notifiedError));
+        }
       }
     },
     [onUpload, onError, record]
@@ -593,31 +644,33 @@ export function ImageUploader({
       </div>
 
       {/* カメラボタン - アップロードエリア外に配置（nested-interactive回避） */}
-      <div style={styles.buttonContainer}>
-        <button
-          type="button"
-          data-testid="camera-button"
-          style={styles.cameraButton}
-          onClick={handleCameraClick}
-          disabled={disabled || isBusy}
-        >
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-            />
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-            />
-          </svg>
-          カメラで撮影
-        </button>
-      </div>
+      {showCameraCapture && (
+        <div style={styles.buttonContainer}>
+          <button
+            type="button"
+            data-testid="camera-button"
+            style={styles.cameraButton}
+            onClick={handleCameraClick}
+            disabled={disabled || isBusy}
+          >
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            </svg>
+            カメラで撮影
+          </button>
+        </div>
+      )}
 
       {/* 隠しファイル入力 */}
       <input
@@ -633,17 +686,19 @@ export function ImageUploader({
       />
 
       {/* カメラ入力（モバイル対応） */}
-      <input
-        ref={cameraInputRef}
-        type="file"
-        data-testid="camera-input"
-        accept="image/*"
-        capture="environment"
-        disabled={disabled || isBusy}
-        onChange={handleFileChange}
-        style={styles.hiddenInput}
-        aria-label="カメラで撮影"
-      />
+      {showCameraCapture && (
+        <input
+          ref={cameraInputRef}
+          type="file"
+          data-testid="camera-input"
+          accept="image/*"
+          capture="environment"
+          disabled={disabled || isBusy}
+          onChange={handleFileChange}
+          style={styles.hiddenInput}
+          aria-label="カメラで撮影"
+        />
+      )}
 
       {/* アップロード進捗表示 */}
       {isUploading && (

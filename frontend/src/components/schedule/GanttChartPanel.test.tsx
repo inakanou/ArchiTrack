@@ -3,6 +3,7 @@
  *
  * Task 10: ガントチャートコンポーネントの実装
  * Task 15.3: GanttChartPanelの単体テスト作成
+ * Task 21.1: 200 項目の描画の性能（本体の行のセルの削減・日付ごとの区分の一度だけの計算）
  *
  * Requirements (construction-schedule):
  * - REQ-6.1: ガントチャートリアルタイム更新
@@ -108,6 +109,96 @@ const itemExportOff: ScheduleItem = {
   displayOrder: 3,
   isExportTarget: false,
 };
+
+// ============================================================================
+// タイムラインの背景の読み取り（Task 21.1）
+// ============================================================================
+
+/** 日種別の色（jsdom は style の色を rgb() へ正規化して返す） */
+const COLOR = {
+  weekday: 'rgb(255, 255, 255)',
+  saturday: 'rgb(224, 242, 254)',
+  sunday: 'rgb(254, 226, 226)',
+  holiday: 'rgb(254, 249, 195)',
+} as const;
+
+const DAY_WIDTH = 32;
+
+/** 括弧の外のカンマで分ける */
+function splitTopLevel(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of value) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+/** gradient の層の位置 x（層の原点から）の色。透明なら null */
+function layerColorAt(image: string, x: number): string | null {
+  const solid = /^linear-gradient\((rgb\([^)]*\)), (rgb\([^)]*\))\)$/.exec(image);
+  if (solid) return solid[1] === solid[2] ? (solid[1] ?? null) : null;
+  const repeating = /^repeating-linear-gradient\(to right, (.*)\)$/.exec(image);
+  if (!repeating?.[1]) throw new Error(`想定外の背景の層: ${image}`);
+  const stops = splitTopLevel(repeating[1]).map((stop) => {
+    const m = /^(.*) (-?[\d.]+)px (-?[\d.]+)px$/.exec(stop);
+    if (!m?.[1] || m[2] === undefined || m[3] === undefined) {
+      throw new Error(`想定外の色の区間: ${stop}`);
+    }
+    return { color: m[1], from: Number(m[2]), to: Number(m[3]) };
+  });
+  const period = stops[stops.length - 1]?.to ?? 0;
+  const local = ((x % period) + period) % period;
+  const hit = stops.find((stop) => stop.from <= local && local < stop.to);
+  return hit && hit.color !== 'transparent' ? hit.color : null;
+}
+
+/**
+ * タイムラインのセルの、表示期間の先頭から index 日目の中央の色を computed style から読む
+ */
+function timelineColorAt(cell: HTMLElement, index: number): string {
+  const style = getComputedStyle(cell);
+  const images = splitTopLevel(style.backgroundImage);
+  const positions = splitTopLevel(style.backgroundPosition);
+  const sizes = splitTopLevel(style.backgroundSize);
+  const repeats = splitTopLevel(style.backgroundRepeat);
+  const x = index * DAY_WIDTH + DAY_WIDTH / 2;
+  for (let i = 0; i < images.length; i++) {
+    const image = images[i] ?? '';
+    const originX = parseFloat(positions[i] ?? '0');
+    const width = parseFloat(sizes[i] ?? 'auto');
+    const local = x - originX;
+    if (repeats[i] === 'no-repeat' && (local < 0 || local >= width)) continue;
+    const color = layerColorAt(image, local);
+    if (color) return color;
+  }
+  return style.backgroundColor;
+}
+
+/**
+ * 行の本体で、表示期間の先頭から index 日目の色を読む。タイムラインは colspan の上限（1000）を
+ * 超えないよう複数のセルに分かれるため、index を含むセルを data-gantt-segment-start と colSpan で探す
+ */
+function rowColorAt(row: HTMLElement, index: number): string {
+  const cells = Array.from(
+    row.querySelectorAll<HTMLTableCellElement>('td[data-gantt-segment-start]')
+  );
+  const cell = cells.find((td) => {
+    const start = Number(td.getAttribute('data-gantt-segment-start'));
+    return start <= index && index < start + td.colSpan;
+  });
+  if (!cell) throw new Error(`${index} 日目を含むタイムラインのセルがありません`);
+  return timelineColorAt(cell, index - Number(cell.getAttribute('data-gantt-segment-start')));
+}
 
 // ============================================================================
 // テスト
@@ -365,17 +456,24 @@ describe('GanttChartPanel', () => {
   // Task 15.3: 土日祝の色分け表示テスト（追加）
   // ==========================================================================
   describe('Task 15.3: 土日祝の色分け表示テスト（詳細）', () => {
+    // Task 21.1 で本体の行は日付ごとのセルを持たず、行ごとに1つのタイムラインのセルの背景
+    // （gradient の層の重ね合わせ）で土日祝を色分けする。日付 i の色は、背景の層を上から見て
+    // 位置 i × 32px + 16px（日付の中央）で最初に透明でない色、無ければ背景色で決まる。
+    // timelineColorAt はその規則で computed style から日付ごとの色を読み取る
     it('ボディセルにも土曜日の色分けが適用されること', () => {
+      // 表示期間 2026-04-01〜04-09 の 4/4（先頭から 3 日目）は土曜日
       render(<GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={mockHolidayMap} />);
-      // ボディ内の土曜日セル（data-day-type属性）を確認
-      const bodyCells = document.querySelectorAll('td[data-day-type="saturday"]');
-      expect(bodyCells.length).toBeGreaterThan(0);
+      for (const id of ['item-1', 'item-2']) {
+        const timeline = screen.getByTestId(`gantt-timeline-${id}`);
+        expect(timelineColorAt(timeline, 3)).toBe(COLOR.saturday);
+      }
     });
 
     it('ボディセルにも日曜日の色分けが適用されること', () => {
+      // 4/5（先頭から 4 日目）は日曜日
       render(<GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={mockHolidayMap} />);
-      const bodyCells = document.querySelectorAll('td[data-day-type="sunday"]');
-      expect(bodyCells.length).toBeGreaterThan(0);
+      const timeline = screen.getByTestId('gantt-timeline-item-1');
+      expect(timelineColorAt(timeline, 4)).toBe(COLOR.sunday);
     });
 
     it('祝日がボディセルにも色分けされること', () => {
@@ -386,14 +484,220 @@ describe('GanttChartPanel', () => {
         endDate: '2026-04-30',
       };
       render(<GanttChartPanel items={[longRangeItem]} holidays={mockHolidayMap} />);
-      const holidayCells = document.querySelectorAll('td[data-day-type="holiday"]');
-      expect(holidayCells.length).toBeGreaterThan(0);
+      // 4/29（先頭から 28 日目）は祝日（昭和の日）。前後の 4/28・4/30 は平日
+      const timeline = screen.getByTestId('gantt-timeline-item-1');
+      expect(timelineColorAt(timeline, 28)).toBe(COLOR.holiday);
+      expect(timelineColorAt(timeline, 27)).toBe(COLOR.weekday);
+      expect(timelineColorAt(timeline, 29)).toBe(COLOR.weekday);
     });
 
     it('平日のセルにはweekdayのday-typeが適用されること', () => {
+      // 4/1〜4/3（水〜金）は平日
       render(<GanttChartPanel items={[itemWithDates]} holidays={mockHolidayMap} />);
-      const weekdayCells = document.querySelectorAll('td[data-day-type="weekday"]');
-      expect(weekdayCells.length).toBeGreaterThan(0);
+      const timeline = screen.getByTestId('gantt-timeline-item-1');
+      for (const index of [0, 1, 2]) {
+        expect(timelineColorAt(timeline, index)).toBe(COLOR.weekday);
+      }
+    });
+
+    it('土日に重なる祝日は祝日の色で表示されること（Task 21.1）', () => {
+      // 4/5（日曜）と 4/11・4/12（土日）を祝日とする祝日マップ
+      const weekendHolidays = new Set(['2026-04-05', '2026-04-11', '2026-04-12']);
+      const keyOf = (date: Date) =>
+        `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const map: HolidayMap = {
+        ...mockHolidayMap,
+        isHoliday: (date) => weekendHolidays.has(keyOf(date)),
+      };
+      const item: ScheduleItem = { ...itemWithDates, duration: 14, endDate: '2026-04-14' };
+      render(<GanttChartPanel items={[item]} holidays={map} />);
+      const timeline = screen.getByTestId('gantt-timeline-item-1');
+      expect(screen.getByTestId('gantt-date-2026-04-05')).toHaveAttribute(
+        'data-day-type',
+        'holiday'
+      );
+      expect(timelineColorAt(timeline, 3)).toBe(COLOR.saturday); // 4/4
+      expect(timelineColorAt(timeline, 4)).toBe(COLOR.holiday); // 4/5
+      expect(timelineColorAt(timeline, 10)).toBe(COLOR.holiday); // 4/11
+      expect(timelineColorAt(timeline, 11)).toBe(COLOR.holiday); // 4/12
+      expect(timelineColorAt(timeline, 12)).toBe(COLOR.weekday); // 4/13
+    });
+
+    it('全ての日付でボディの色がヘッダーの日付の色と一致すること（Task 21.1）', () => {
+      // 2026-04-01〜2026-06-30（祝日 4/29 を含む 91 日）
+      const longRangeItem: ScheduleItem = {
+        ...itemWithDates,
+        startDate: '2026-04-01',
+        duration: 91,
+        endDate: '2026-06-30',
+      };
+      render(<GanttChartPanel items={[longRangeItem, itemWithDates2]} holidays={mockHolidayMap} />);
+      const headers = screen.getAllByTestId(/^gantt-date-/);
+      expect(headers).toHaveLength(91);
+      for (const id of ['item-1', 'item-2']) {
+        const timeline = screen.getByTestId(`gantt-timeline-${id}`);
+        headers.forEach((header, index) => {
+          const dayType = header.getAttribute('data-day-type') as keyof typeof COLOR;
+          expect(header.style.backgroundColor).toBe(COLOR[dayType]);
+          expect(timelineColorAt(timeline, index), header.getAttribute('data-testid') ?? '').toBe(
+            COLOR[dayType]
+          );
+        });
+      }
+    });
+
+    it('本体の各行は日付の数によらずラベルとタイムラインの2つのセルだけを持つこと（Task 21.1）', () => {
+      const longRangeItem: ScheduleItem = {
+        ...itemWithDates,
+        startDate: '2026-04-01',
+        duration: 30,
+        endDate: '2026-04-30',
+      };
+      render(<GanttChartPanel items={[longRangeItem, itemWithDates2]} holidays={mockHolidayMap} />);
+      for (const id of ['item-1', 'item-2']) {
+        const row = screen.getByTestId(`gantt-row-${id}`);
+        expect(row.querySelectorAll('td')).toHaveLength(2);
+        expect(screen.getByTestId(`gantt-timeline-${id}`)).toHaveAttribute('colspan', '30');
+      }
+    });
+  });
+
+  // ==========================================================================
+  // Task 21.1（レビュー是正）: colspan の上限（1000）を超える表示期間
+  // ==========================================================================
+  describe('Task 21.1: 1000 日を超える表示期間', () => {
+    const keyOf = (date: Date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    // 1000 日目より後にも祝日を置く（2029-02-12 は月曜、2029-02-23 は金曜）
+    const longHolidays = new Set(['2026-04-29', '2029-02-12', '2029-02-23']);
+    const longHolidayMap: HolidayMap = {
+      ...mockHolidayMap,
+      isHoliday: (date) => longHolidays.has(keyOf(date)),
+    };
+    /** 2026-04-01 から 1100 日（2029-04-04 まで） */
+    const longItem: ScheduleItem = {
+      ...itemWithDates,
+      id: 'long',
+      startDate: '2026-04-01',
+      duration: 1100,
+      endDate: '2029-04-04',
+    };
+    /** 1050 日目（2029-02-14）から 10 日 */
+    const lateItem: ScheduleItem = {
+      ...itemWithDates,
+      id: 'late',
+      startDate: '2029-02-14',
+      duration: 10,
+      endDate: '2029-02-23',
+    };
+
+    it('タイムラインのセルはどれも colSpan が 1000 以下で、合計が表示期間の日数と一致すること', () => {
+      render(<GanttChartPanel items={[longItem, lateItem]} holidays={longHolidayMap} />);
+      expect(screen.getAllByTestId(/^gantt-date-/)).toHaveLength(1100);
+      for (const id of ['long', 'late']) {
+        const cells = Array.from(
+          screen
+            .getByTestId(`gantt-row-${id}`)
+            .querySelectorAll<HTMLTableCellElement>('td[data-gantt-segment-start]')
+        );
+        expect(cells.length).toBeGreaterThan(1);
+        for (const cell of cells) expect(cell.colSpan).toBeLessThanOrEqual(1000);
+        expect(cells.reduce((sum, cell) => sum + cell.colSpan, 0)).toBe(1100);
+      }
+    });
+
+    it('1000 日目より後も、全ての日付でボディの色がヘッダーの日付の色と一致すること', () => {
+      render(<GanttChartPanel items={[longItem, lateItem]} holidays={longHolidayMap} />);
+      const headers = screen.getAllByTestId(/^gantt-date-/);
+      expect(screen.getByTestId('gantt-date-2029-02-23')).toHaveAttribute(
+        'data-day-type',
+        'holiday'
+      );
+      for (const id of ['long', 'late']) {
+        const row = screen.getByTestId(`gantt-row-${id}`);
+        headers.forEach((header, index) => {
+          const dayType = header.getAttribute('data-day-type') as keyof typeof COLOR;
+          expect(rowColorAt(row, index), header.getAttribute('data-testid') ?? '').toBe(
+            COLOR[dayType]
+          );
+        });
+      }
+    });
+
+    it('1000 日目より後に始まるバーは、その日を含むセルの中の位置から描かれること', () => {
+      render(<GanttChartPanel items={[longItem, lateItem]} holidays={longHolidayMap} />);
+      const bar = screen.getByTestId('gantt-bar-late');
+      const cell = bar.closest('td');
+      const start = Number(cell?.getAttribute('data-gantt-segment-start'));
+      expect(start).toBeLessThanOrEqual(1050);
+      expect(start + (cell?.colSpan ?? 0)).toBeGreaterThan(1050);
+      expect(bar.style.left).toBe(`${(1050 - start) * 32}px`);
+      expect(bar.style.width).toBe('318px');
+      // 全期間のバーは先頭のセルから始まり、幅は日数分
+      expect(screen.getByTestId('gantt-bar-long').style.width).toBe(`${1100 * 32 - 2}px`);
+      expect(screen.getByTestId('gantt-bar-long').style.left).toBe('0px');
+    });
+  });
+
+  // ==========================================================================
+  // Task 21.1: 描画の性能（日付ごとの区分の一度だけの計算・バーの位置）
+  // ==========================================================================
+  describe('Task 21.1: 日付ごとの区分の計算とバーの位置', () => {
+    function countingHolidayMap(): { map: HolidayMap; calls: () => number } {
+      let count = 0;
+      return {
+        map: {
+          ...mockHolidayMap,
+          isHoliday(date: Date): boolean {
+            count++;
+            return mockHolidayMap.isHoliday(date);
+          },
+        },
+        calls: () => count,
+      };
+    }
+
+    it('日付ごとの区分は行の数によらず日付ごとに一度だけ判定すること', () => {
+      const { map, calls } = countingHolidayMap();
+      // 表示期間 4/1〜4/9 の 9 日、3 行
+      render(
+        <GanttChartPanel items={[itemWithDates, itemWithDates2, itemExportOff]} holidays={map} />
+      );
+      expect(calls()).toBe(9);
+    });
+
+    it('表示期間が変わらない入力では日付ごとの区分を判定し直さないこと', () => {
+      const { map, calls } = countingHolidayMap();
+      const { rerender } = render(
+        <GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={map} />
+      );
+      const before = calls();
+      // item-1 の日数を 5 → 3 に変える（表示期間は item-2 により 4/1〜4/9 のまま）
+      const updated: ScheduleItem = { ...itemWithDates, duration: 3, endDate: '2026-04-03' };
+      rerender(<GanttChartPanel items={[updated, itemWithDates2]} holidays={map} />);
+      expect(calls()).toBe(before);
+      expect(screen.getByTestId('gantt-bar-item-1').style.width).toBe('94px');
+    });
+
+    it('バーは表示期間の先頭からの日数 × 32px の位置から始まること', () => {
+      // item-2 の着工日 4/3 は表示期間の先頭 4/1 から 2 日目
+      render(<GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={mockHolidayMap} />);
+      expect(screen.getByTestId('gantt-bar-item-1').style.left).toBe('0px');
+      expect(screen.getByTestId('gantt-bar-item-2').style.left).toBe('64px');
+      expect(screen.getByTestId('gantt-bar-item-2').style.width).toBe('222px');
+    });
+
+    it('着工日を変えるとバーの位置が移ること', () => {
+      const { rerender } = render(
+        <GanttChartPanel items={[itemWithDates, itemWithDates2]} holidays={mockHolidayMap} />
+      );
+      const moved: ScheduleItem = {
+        ...itemWithDates2,
+        startDate: '2026-04-02',
+        endDate: '2026-04-08',
+      };
+      rerender(<GanttChartPanel items={[itemWithDates, moved]} holidays={mockHolidayMap} />);
+      expect(screen.getByTestId('gantt-bar-item-2').style.left).toBe('32px');
     });
   });
 

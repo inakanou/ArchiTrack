@@ -11,15 +11,54 @@
  * - 29.2: PDFの全ページを対象にテキスト抽出を行う
  * - 29.3: テキストPDFの場合は抽出テキストをそのまま使用する
  * - 29.4: スキャンPDFの場合はCanvas→Tesseract OCRフォールバック
- * - 29.10: OCR処理のタイムアウトを30秒とする
+ * - 29.9: OCR処理の失敗・タイムアウト時に手動入力を促すエラーメッセージで失敗する（表示は ImportDialog.tsx）
+ * - 29.10: OCR処理（フォールバック）のタイムアウトを30秒とする
  * - 30.1: Claude Vision APIが利用可能な場合は優先使用
+ * - 30.2: PDFの各ページをBase64画像に変換してClaude Vision APIエンドポイントへ送信する
+ * - 30.4: APIレスポンスの表データを10欄の数量項目フィールドの並びへ変換する
  * - 30.5: API利用不可時のpdfjs-dist + Tesseract.jsフォールバック
  * - 30.6: APIタイムアウト時のフォールバック
- * - 30.7: 同一プレビューテーブル形式での表示
+ * - 30.7: 両経路で同一のプレビューテーブル形式（10欄の名前付きヘッダー）を返す
  */
 
-import type { ImportExtractionResult, ImportExtractedRow } from '../../types/quantity-import.types';
-import type { ProgressCallback } from '../estimate-requests/pdf-text-extractor';
+import type {
+  ImportExtractionResult,
+  ImportExtractedRow,
+  ImportTargetField,
+} from '../../types/quantity-import.types';
+import type {
+  ProgressCallback,
+  PdfTextExtractionResult,
+} from '../estimate-requests/pdf-text-extractor';
+import { autoDetectFieldMapping } from './field-mapping';
+
+/**
+ * OCR処理（pdfjs-dist + Tesseract.js フォールバック）のタイムアウト（ミリ秒）。
+ *
+ * 受領見積書登録機能の `OcrDataExtractor.tsx` の `OCR_TIMEOUT_MS` と同じく、`extractPdfHybrid` の
+ * 呼び出しを包む。Claude Vision API の応答待ちには課さない（同 API は自身のタイムアウトで失敗し、
+ * REQ-30.6 によりフォールバックへ進む。計時はフォールバックの開始から始まる）。
+ */
+export const OCR_TIMEOUT_MS = 30000;
+
+/** OCR処理が失敗した場合のエラーメッセージ（REQ-29.9。受領見積書登録機能と同じ文言） */
+export const OCR_FAILURE_MESSAGE = 'OCR処理に失敗しました。手動入力してください';
+
+/** OCR処理がタイムアウトした場合のエラーメッセージ（REQ-29.10 / REQ-29.9） */
+export const OCR_TIMEOUT_MESSAGE =
+  'OCR処理がタイムアウトしました（30秒超過）。手動入力してください';
+
+/**
+ * `extractPdfData` の任意の設定（Task 98.4）。
+ *
+ * `signal` は共有部品 `extractPdfHybrid` の `options.signal`（Task 97.8）へ中継する。
+ * 中断されると、フォールバック経路で走っている Tesseract のワーカーが終了する。
+ * 省略時は中断の手段を持たない従来どおりの振る舞いになる。
+ */
+export interface PdfDataExtractionOptions {
+  /** 進行中の OCR を中断するためのシグナル */
+  signal?: AbortSignal;
+}
 
 /**
  * PDFファイルからOCR処理でデータを抽出する（Claude Vision API優先）
@@ -31,11 +70,13 @@ import type { ProgressCallback } from '../estimate-requests/pdf-text-extractor';
  *
  * @param file PDFファイル
  * @param onProgress 進捗コールバック
+ * @param options `signal` を渡すと、フォールバック経路の OCR を中断できる（Task 98.4）
  * @returns 抽出結果
  */
 export async function extractPdfData(
   file: File,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options: PdfDataExtractionOptions = {}
 ): Promise<ImportExtractionResult> {
   // Claude Vision API優先で試行
   try {
@@ -51,7 +92,7 @@ export async function extractPdfData(
       onProgress(15, 'OCRフォールバック処理を開始...');
     }
 
-    return extractWithOcrFallback(file, onProgress);
+    return extractWithOcrFallback(file, onProgress, options.signal);
   }
 }
 
@@ -83,18 +124,7 @@ async function extractWithClaudeVisionForQuantityTable(
   }
 
   // Claude Vision結果をImportExtractionResult形式に変換
-  const headers = [
-    '大項目',
-    '中項目',
-    '小項目',
-    '任意分類',
-    '工種',
-    '名称',
-    '規格',
-    '数量',
-    '単位',
-    '備考',
-  ];
+  const headers = [...PREVIEW_HEADERS];
 
   const rows: ImportExtractedRow[] = response.lineItems.map((item, index) => ({
     columns: [
@@ -120,6 +150,7 @@ async function extractWithClaudeVisionForQuantityTable(
     headers,
     rows,
     extractionType: 'pdf-claude-vision',
+    extractedText: JSON.stringify(response.lineItems, null, 2),
   };
 }
 
@@ -128,23 +159,147 @@ async function extractWithClaudeVisionForQuantityTable(
  */
 async function extractWithOcrFallback(
   file: File,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal
 ): Promise<ImportExtractionResult> {
   const { extractPdfHybrid } = await import('../estimate-requests/pdf-text-extractor');
 
-  const pdfResult = await extractPdfHybrid(file, onProgress);
+  const pdfResult = await extractPdfHybridWithTimeout(extractPdfHybrid, file, onProgress, signal);
 
   // テキストから表構造を解析して行データに変換
-  const rows = parseTextToRows(pdfResult.text);
+  const rawRows = parseTextToRows(pdfResult.text);
 
-  // ヘッダーの推定（行の最初のデータから）
-  const headers = rows.length > 0 ? rows[0]!.columns.map((_, i) => `列${i + 1}`) : [];
-
+  // Claude Vision 経路と同一のプレビューテーブル形式（10欄の名前付きヘッダー）へ揃える
   return {
-    headers,
-    rows,
+    headers: [...PREVIEW_HEADERS],
+    rows: alignRowsToPreviewFields(rawRows),
     extractionType: pdfResult.isTextPdf ? 'pdf-text' : 'pdf-ocr',
+    extractedText: pdfResult.text,
   };
+}
+
+/**
+ * `extractPdfHybrid` に30秒のタイムアウトを課して実行する（REQ-29.10）。
+ *
+ * - 30秒を超えたら `OCR_TIMEOUT_MESSAGE` で失敗する。以後に届く進捗は通知しない
+ * - 30秒を超えたら `extractPdfHybrid` へ渡した中断のシグナルを中断し、裏で走り続ける OCR の
+ *   ワーカーを止めさせる（Task 97.8）。中断された処理は後から `AbortError` で失敗するが、
+ *   `Promise.race` がその拒否を購読しているため未処理の拒否は残らず、利用者へ出すメッセージも変わらない
+ * - 呼び出し元の `signal`（Task 98.4）が中断されたときも、同じシグナルを中断して OCR の
+ *   ワーカーを止める。ファイルの差し替え（`reset`）とダイアログを閉じたとき（アンマウント）が
+ *   これを使い、時間切れの30秒を待たずに止める
+ * - それ以外の失敗は `OCR_FAILURE_MESSAGE` で失敗する（REQ-29.9。元のエラーの文言は利用者へ出さない）
+ * - 完了・失敗のいずれでもタイマーを解除し、呼び出し元のシグナルの購読を外す
+ */
+async function extractPdfHybridWithTimeout(
+  extractPdfHybrid: typeof import('../estimate-requests/pdf-text-extractor').extractPdfHybrid,
+  file: File,
+  onProgress?: ProgressCallback,
+  callerSignal?: AbortSignal
+): Promise<PdfTextExtractionResult> {
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort();
+    } else {
+      callerSignal.addEventListener('abort', abortFromCaller, { once: true });
+    }
+  }
+
+  const guardedProgress: ProgressCallback | undefined = onProgress
+    ? (progress, message) => {
+        if (!timedOut) onProgress(progress, message);
+      }
+    : undefined;
+
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(OCR_TIMEOUT_MESSAGE));
+      controller.abort();
+    }, OCR_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      extractPdfHybrid(file, guardedProgress, { signal: controller.signal }),
+      timeout,
+    ]);
+  } catch {
+    throw new Error(timedOut ? OCR_TIMEOUT_MESSAGE : OCR_FAILURE_MESSAGE);
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', abortFromCaller);
+  }
+}
+
+/**
+ * プレビューテーブルの10欄（並び順）。Claude Vision 経路とフォールバック経路が共有する。
+ */
+const PREVIEW_FIELDS: ReadonlyArray<{ field: ImportTargetField; header: string }> = [
+  { field: 'majorCategory', header: '大項目' },
+  { field: 'middleCategory', header: '中項目' },
+  { field: 'minorCategory', header: '小項目' },
+  { field: 'customCategory', header: '任意分類' },
+  { field: 'workType', header: '工種' },
+  { field: 'name', header: '名称' },
+  { field: 'specification', header: '規格' },
+  { field: 'quantity', header: '数量' },
+  { field: 'unit', header: '単位' },
+  { field: 'remarks', header: '備考' },
+];
+
+const PREVIEW_HEADERS: readonly string[] = PREVIEW_FIELDS.map((f) => f.header);
+
+/**
+ * 1行目を見出し行とみなすのに必要な、見出し語で当たった欄の種類の最小数。
+ *
+ * 1列だけの一致はデータ中の語（例: 「数量は概算」という備考）でも起こりうる。
+ * 誤って見出し行とみなすと、当たらない列を捨てる規則によりデータの大半を失うため、
+ * 異なる2欄以上の一致を見出し行の条件とする（同じ欄に当たった複数列は1欄と数える）。
+ */
+const MIN_HEADER_MATCHES = 2;
+
+/**
+ * フォールバック経路で得た行を、Claude Vision 経路と同じ10欄の並びへ組み替える。
+ *
+ * - 1行目の各列を `autoDetectFieldMapping`（`field-mapping.ts` の見出し語の規則）で判定し、
+ *   当たった欄の種類が `MIN_HEADER_MATCHES` 以上なら見出し行とみなす。各行を判定した欄へ並べ替え、
+ *   見出し行はデータから外す。どの欄にも当たらない列は捨てる。同じ欄に2列以上が当たった
+ *   場合は左側（先に現れた列）を採り、後の列は捨てる。
+ * - 見出し行とみなさない場合は位置で当てる（第1列→大項目 … 第10列→備考）。
+ *   1行目もデータとして扱い、10列を超える列は切り詰め、不足は空欄で埋める。
+ */
+function alignRowsToPreviewFields(rows: ImportExtractedRow[]): ImportExtractedRow[] {
+  const firstRow = rows[0];
+  if (!firstRow) return [];
+
+  const detected = autoDetectFieldMapping(firstRow.columns, []).mappings;
+  const columnForField = new Map<ImportTargetField, number>();
+  firstRow.columns.forEach((_, colIndex) => {
+    const field = detected[colIndex];
+    if (field && field !== 'skip' && !columnForField.has(field)) {
+      columnForField.set(field, colIndex);
+    }
+  });
+
+  if (columnForField.size >= MIN_HEADER_MATCHES) {
+    return rows.slice(1).map((row) => ({
+      columns: PREVIEW_FIELDS.map(({ field }) => {
+        const colIndex = columnForField.get(field);
+        return colIndex === undefined ? '' : (row.columns[colIndex] ?? '');
+      }),
+      sourceRowIndex: row.sourceRowIndex,
+    }));
+  }
+
+  return rows.map((row) => ({
+    columns: PREVIEW_FIELDS.map((_, i) => row.columns[i] ?? ''),
+    sourceRowIndex: row.sourceRowIndex,
+  }));
 }
 
 /**

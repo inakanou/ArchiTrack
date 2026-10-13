@@ -9,7 +9,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, act } from '@testing-library/react';
+import { triggerAllIntersections } from '../../../test-support/intersection-observer';
 import userEvent from '@testing-library/user-event';
 import SiteSurveyListTable from '../../../components/site-surveys/SiteSurveyListTable';
 import type {
@@ -183,6 +184,39 @@ describe('SiteSurveyListTable', () => {
       expect(img).toHaveAttribute('src', 'https://example.com/thumbnail1.jpg');
       // annotated-thumbnail testidは存在しないこと
       expect(within(row).queryByTestId('annotated-thumbnail')).not.toBeInTheDocument();
+    });
+
+    /**
+     * 一覧画面の縮小表示に原本ではなくサムネイルを用いること。詳細画面側は
+     * e2e/specs/site-surveys/site-survey-thumbnail-request-per-image.spec.ts が
+     * 原本の取得が1件も発生しないことを併せて観測する。
+     *
+     * @requirement site-survey/REQ-38.7
+     */
+    it('クライアント合成へ退避する場合も原本ではなくサムネイルを表示すること (site-survey/REQ-38.7)', () => {
+      // 注釈付きサムネイルが無く代表画像がある場合はクライアント側で注釈を合成する。
+      // その経路でも縮小表示には原本ではなくサムネイルを用いる（Requirement 38.7）
+      const surveysWithRepresentative: SiteSurveyInfo[] = [
+        {
+          ...mockSiteSurveys[0]!,
+          thumbnailImageId: 'img-1',
+          thumbnailOriginalUrl: 'https://example.com/original1.jpg',
+          thumbnailUrl: 'https://example.com/thumbnail1.jpg',
+        },
+      ];
+
+      render(<SiteSurveyListTable {...defaultProps} surveys={surveysWithRepresentative} />);
+
+      // 退避経路は表示領域へ入るまで表示元を設定しない（site-survey/REQ-38.6, 38.8）。
+      // ここで確かめたいのは表示元が原本かサムネイルかであるため、表示領域到達を
+      // 発火してから判定する
+      act(() => {
+        triggerAllIntersections(true);
+      });
+
+      const row = screen.getByTestId('survey-row-survey-1');
+      const img = within(row).getByRole('img');
+      expect(img).toHaveAttribute('src', 'https://example.com/thumbnail1.jpg');
     });
   });
 

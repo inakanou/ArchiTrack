@@ -26,6 +26,16 @@ import {
   QuantityTableNotFoundError,
   QuantityTableValidationError,
 } from '../../../errors/quantityTableError.js';
+import { SurveyDeletedError } from '../../../utils/survey-deleted-guard.js';
+import { SurveyImageNotFoundError } from '../../../errors/siteSurveyError.js';
+
+/**
+ * 既定の現調画像モックが名乗る所属プロジェクトID
+ *
+ * 各 describe の `projectId`（= 現状DB状態が返す数量表の projectId）と同じ値である。
+ * 既定では所属違反にならないようにするため、同じ値をここに置く。
+ */
+const DEFAULT_SURVEY_IMAGE_PROJECT_ID = '123e4567-e89b-12d3-a456-426614174000';
 
 // Mock Prisma型の定義
 type MockPrismaClient = {
@@ -49,7 +59,12 @@ type MockPrismaClient = {
   project: {
     findUnique: Mock;
   };
+  surveyImage: {
+    findMany: Mock;
+  };
   $transaction: Mock;
+  $queryRaw: Mock;
+  $executeRawUnsafe: Mock;
 };
 
 describe('QuantityTableService', () => {
@@ -80,7 +95,31 @@ describe('QuantityTableService', () => {
       project: {
         findUnique: vi.fn(),
       },
+      surveyImage: {
+        // 既定は「要求した画像がすべて実在し、当該数量表と同じプロジェクトに属し、
+        // 親の現場調査も生きている」。存在・所属・論理削除のいずれの検査にも掛からない
+        // 状態を既定に置き、各検査を確かめる検証だけが個別に上書きする。
+        // （Task 81.1 当時の既定は「該当する画像が無い」であった。存在の検査を加えた
+        //   Task 86.2 以降、その既定では画像を指す全ての保存が 404 で止まってしまう。）
+        findMany: vi.fn(({ where }: { where: { id: { in: string[] } } }) =>
+          Promise.resolve(
+            where.id.in.map((id) => ({
+              id,
+              surveyId: `survey-of-${id}`,
+              survey: { projectId: DEFAULT_SURVEY_IMAGE_PROJECT_ID, deletedAt: null },
+            }))
+          )
+        ),
+      },
       $transaction: vi.fn((callback) => callback(mockPrisma)),
+      // saveDraft が差分元を読む前に取る数量表の行ロック（SELECT ... FOR UPDATE。Task 88.1）。
+      // ロックが直列化することは単体では確かめられないため、統合検証
+      // （quantity-table-save.api.integration.test.ts の「同時並行保存の直列化」）が担う。
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      // saveDraft が行ロックの前に掛けるロック待ちの上限（SET LOCAL lock_timeout。Task 92.5）。
+      // 上限が実際に待機を切ることは単体では確かめられないため、統合検証
+      // （quantity-table-save.api.integration.test.ts の「ロック待ちの上限」）が担う。
+      $executeRawUnsafe: vi.fn().mockResolvedValue(0),
     };
 
     // Mock AuditLogService
@@ -212,7 +251,9 @@ describe('QuantityTableService', () => {
 
     // 画面オープン時の注釈N+1リクエスト抑止のため、
     // surveyImage.hasAnnotations を注釈リレーションの有無から導出して返すことを検証する。
-    const buildGroupWithImage = (annotation: { id: string } | null) => ({
+    const buildGroupWithImage = (
+      annotation: { id: string; hasDrawnAnnotations?: boolean | null } | null
+    ) => ({
       id: '123e4567-e89b-12d3-a456-426614174010',
       quantityTableId,
       name: null,
@@ -222,9 +263,12 @@ describe('QuantityTableService', () => {
       updatedAt: new Date('2026-01-06T00:00:00.000Z'),
       surveyImage: {
         id: 'img-1',
+        survey: { projectId: DEFAULT_SURVEY_IMAGE_PROJECT_ID },
         thumbnailPath: 'surveys/s/thumb.jpg',
         originalPath: 'surveys/s/orig.jpg',
         annotatedThumbnailPath: null,
+        width: 4032,
+        height: 3024,
         fileName: 'orig.jpg',
         comment: null,
         annotation,
@@ -233,7 +277,9 @@ describe('QuantityTableService', () => {
       _count: { items: 0 },
     });
 
-    const buildTableWithGroup = (annotation: { id: string } | null) => ({
+    const buildTableWithGroup = (
+      annotation: { id: string; hasDrawnAnnotations?: boolean | null } | null
+    ) => ({
       id: quantityTableId,
       projectId: '123e4567-e89b-12d3-a456-426614174000',
       name: 'テスト数量表',
@@ -265,6 +311,327 @@ describe('QuantityTableService', () => {
 
       // Assert
       expect(result!.groups[0]!.surveyImage!.hasAnnotations).toBe(false);
+    });
+
+    // ========================================================================
+    // Task 115.13: 描画された注釈の有無を示す項目を設ける
+    //
+    // 既存の hasAnnotations は「注釈レコードの存在」から導出されるため、注釈0件
+    // （回転のみ）の保存でも真になる。描画された注釈の有無は派生項目
+    // hasDrawnAnnotations として、重い data を取得せずに供給する。
+    //
+    // Requirements: 20.2
+    // ========================================================================
+    it('注釈0件（回転のみ）で保存された画像は surveyImage.hasDrawnAnnotations が false になる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithGroup({ id: 'ann-1', hasDrawnAnnotations: false })
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasDrawnAnnotations).toBe(false);
+      // 既存項目の意味は変更しない
+      expect(result!.groups[0]!.surveyImage!.hasAnnotations).toBe(true);
+    });
+
+    it('描画された注釈がある画像は surveyImage.hasDrawnAnnotations が true になる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithGroup({ id: 'ann-1', hasDrawnAnnotations: true })
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasDrawnAnnotations).toBe(true);
+    });
+
+    it('注釈リレーションが存在しない場合は surveyImage.hasDrawnAnnotations が false になる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithGroup(null));
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasDrawnAnnotations).toBe(false);
+    });
+
+    it('未算出（バックフィル未実施）の既存注釈は従来どおり注釈ありとして扱う', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithGroup({ id: 'ann-1', hasDrawnAnnotations: null })
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage!.hasDrawnAnnotations).toBe(true);
+    });
+
+    it('判定に重い注釈データ（data）を取得しない', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithGroup(null));
+
+      // Act
+      await service.findById(quantityTableId);
+
+      // Assert
+      const args = mockPrisma.quantityTable.findUnique.mock.calls[0]![0];
+      const annotationSelect = args.include.groups.include.surveyImage.select.annotation.select;
+      expect(annotationSelect).toEqual({ id: true, hasDrawnAnnotations: true });
+      expect(annotationSelect).not.toHaveProperty('data');
+    });
+  });
+
+  // ==========================================================================
+  // Task 72.2: 写真情報に画像の実寸を含める
+  //
+  // 数量グループ表題部の写真は、共有表示部品が表示領域に入るまで取得を遅らせる。
+  // 遅延させる間も版面を崩さずに領域を確保するには画像の実寸が要るため、数量表詳細の
+  // 写真サマリで実寸を供給する。実寸は既存の問い合わせの取得項目を広げて得るものとし、
+  // 写真1枚あたりの追加の問い合わせを発生させない。
+  //
+  // Requirements (quantity-table-generation): 49.8
+  // ==========================================================================
+  describe('findById - 写真サマリの実寸', () => {
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174002';
+
+    const buildTableWithSizedImage = () => ({
+      id: quantityTableId,
+      projectId: '123e4567-e89b-12d3-a456-426614174000',
+      name: 'テスト数量表',
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+      deletedAt: null,
+      project: { id: '123e4567-e89b-12d3-a456-426614174000', name: 'テストプロジェクト' },
+      groups: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174010',
+          quantityTableId,
+          name: null,
+          surveyImageId: 'img-1',
+          displayOrder: 0,
+          createdAt: new Date('2026-01-06T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+          surveyImage: {
+            id: 'img-1',
+            survey: { projectId: DEFAULT_SURVEY_IMAGE_PROJECT_ID },
+            thumbnailPath: 'surveys/s/thumb.jpg',
+            originalPath: 'surveys/s/orig.jpg',
+            annotatedThumbnailPath: null,
+            fileName: 'orig.jpg',
+            comment: null,
+            width: 4032,
+            height: 3024,
+            annotation: null,
+          },
+          items: [],
+          _count: { items: 0 },
+        },
+      ],
+      _count: { groups: 1 },
+    });
+
+    it('写真サマリに画像の実寸（幅・高さ）が含まれる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithSizedImage());
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      const surveyImage = result!.groups[0]!.surveyImage!;
+      expect(surveyImage.width).toBe(4032);
+      expect(surveyImage.height).toBe(3024);
+    });
+
+    it('実寸は既存の問い合わせの取得項目から得る（写真ごとの追加の問い合わせを発生させない）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithSizedImage());
+
+      // Act
+      await service.findById(quantityTableId);
+
+      // Assert: 実寸は数量表詳細の同一の問い合わせで取得する
+      const args = mockPrisma.quantityTable.findUnique.mock.calls[0]![0];
+      const imageSelect = args.include.groups.include.surveyImage.select;
+      expect(imageSelect.width).toBe(true);
+      expect(imageSelect.height).toBe(true);
+
+      // Assert: 問い合わせの回数が増えていないこと
+      expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.quantityTable.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // Task 86.3: 数量表の取得経路が現調画像の所属を検めない状態を解消する
+  //
+  // Task 86.1 が保存経路を塞いだため、他プロジェクトの現調画像を新たに紐付けることは
+  // できない。しかし 86.1 より前に永続化された紐付けは残っており、取得経路はそれを
+  // そのまま返していた。取得経路は当該の紐付けだけを落とし、数量表そのものは返す。
+  //
+  // 本 describe は受入基準を名乗らない。守るのはテナント境界であり、本スペックの
+  // 受入基準として条文化されていないためである（tasks.md の Task 86 節末尾に明記）。
+  // ==========================================================================
+  describe('findById - 現調画像の所属の検査', () => {
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174002';
+    const ownerProjectId = '123e4567-e89b-12d3-a456-426614174000';
+    const foreignProjectId = '123e4567-e89b-12d3-a456-4266141740ff';
+
+    const buildTableWithImageOwnedBy = (imageProjectId: string) => ({
+      id: quantityTableId,
+      projectId: ownerProjectId,
+      name: 'テスト数量表',
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+      deletedAt: null,
+      project: { id: ownerProjectId, name: 'テストプロジェクト' },
+      groups: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174010',
+          quantityTableId,
+          name: 'グループ',
+          surveyImageId: 'img-1',
+          displayOrder: 0,
+          createdAt: new Date('2026-01-06T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+          surveyImage: {
+            id: 'img-1',
+            survey: { projectId: imageProjectId },
+            thumbnailPath: 'surveys/s/thumb.jpg',
+            originalPath: 'surveys/s/orig.jpg',
+            annotatedThumbnailPath: null,
+            fileName: 'orig.jpg',
+            comment: null,
+            width: 4032,
+            height: 3024,
+            annotation: null,
+          },
+          items: [],
+          _count: { items: 0 },
+        },
+      ],
+      _count: { groups: 1 },
+    });
+
+    it('他プロジェクトの現調画像を指す紐付けは写真サマリを落として返す', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage).toBeNull();
+    });
+
+    it('他プロジェクトの現調画像を指す紐付けは surveyImageId も落として返す（保存の出口を塞がないため）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImageId).toBeNull();
+    });
+
+    it('落とすのは当該の紐付けだけで、数量表とグループそのものは返す', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(quantityTableId);
+      expect(result!.groups).toHaveLength(1);
+      expect(result!.groups[0]!.name).toBe('グループ');
+    });
+
+    it('同一プロジェクトの現調画像は従来どおり写真サマリを返す（対照）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(ownerProjectId)
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImageId).toBe('img-1');
+      expect(result!.groups[0]!.surveyImage!.id).toBe('img-1');
+      expect(result!.groups[0]!.surveyImage!.thumbnailUrl).toBe('/api/storage/surveys/s/thumb.jpg');
+    });
+
+    // Task 86.5: 落としたことを画面が利用者へ告げられるよう、落とした紐付けを持つ
+    // グループを応答で名指す。名指すのは当該数量表のグループIDだけで、他プロジェクトの
+    // 画像IDは返さない（86.3 が落とした識別子を別の項目から再び露出させない）。
+    it('落とした紐付けのグループを droppedSurveyImageLinkGroupIds で名指し、画像IDは返さない（Task 86.5）', async () => {
+      // Arrange / Act: 所属違反の紐付け
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+      const dropped = await service.findById(quantityTableId);
+
+      // Assert: 当該グループを名指す
+      expect(dropped!.droppedSurveyImageLinkGroupIds).toEqual([
+        '123e4567-e89b-12d3-a456-426614174010',
+      ]);
+      // 他プロジェクトの画像IDは応答のどこにも現れない
+      expect(JSON.stringify(dropped)).not.toContain('img-1');
+
+      // Arrange / Act: 同一プロジェクトの紐付け（対照。上の名指しが恒真でないこと）
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        buildTableWithImageOwnedBy(ownerProjectId)
+      );
+      const kept = await service.findById(quantityTableId);
+
+      // Assert: 落としていないので名指さない。画像IDは従来どおり返る（観測器の非空証明）
+      expect(kept!.droppedSurveyImageLinkGroupIds).toEqual([]);
+      expect(JSON.stringify(kept)).toContain('img-1');
+    });
+
+    it('所属の判定は既存の問い合わせの取得項目から得る（写真ごとの追加の問い合わせを発生させない）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+
+      // Act
+      await service.findById(quantityTableId);
+
+      // Assert: 所属は数量表詳細の同一の問い合わせで取得する
+      const args = mockPrisma.quantityTable.findUnique.mock.calls[0]![0];
+      const imageSelect = args.include.groups.include.surveyImage.select;
+      expect(imageSelect.survey).toEqual({ select: { projectId: true } });
+
+      // Assert: 問い合わせの回数が増えていないこと
+      expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityTable.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
   });
 
@@ -793,6 +1160,7 @@ describe('QuantityTableService', () => {
             surveyImageId: 'img-1',
             surveyImage: {
               id: 'img-1',
+              survey: { projectId: DEFAULT_SURVEY_IMAGE_PROJECT_ID },
               thumbnailPath: 'thumbnails/img-1.jpg',
               originalPath: 'originals/img-1.jpg',
               fileName: 'survey.jpg',
@@ -1795,6 +2163,132 @@ describe('QuantityTableService', () => {
         })
       );
     });
+
+    /**
+     * Task 91.1: 複製の経路が所属違反の紐付けを複製先へ写さない
+     *
+     * 取得経路（Task 86.3）は所属違反の紐付けを `surveyImageId` ごと落とすため、
+     * 利用者から見て「紐づけられている写真」ではない。REQ-17.7 が維持を求めるのは
+     * 利用者が見ている紐付けであり、落とす向きは同条文に反しない。
+     *
+     * 所属を判定する `survey.projectId` は元の数量表を引く既存の1回の問い合わせの
+     * 取得項目を広げて得る。グループ数に比例した問い合わせは足さない。
+     */
+    describe('現調画像の所属の検査（Task 91.1）', () => {
+      /** 元の数量表とは別のプロジェクト（所属違反の供給元） */
+      const foreignProjectId = '123e4567-e89b-12d3-a456-4266141749ff';
+      const timestamp = new Date('2026-01-06T00:00:00.000Z');
+
+      /**
+       * 所属違反のグループと同一プロジェクトのグループを1件ずつ持つ元の数量表
+       *
+       * `surveyImage.survey.projectId` は取得経路（Task 86.3）と同じ取得項目である。
+       */
+      const buildSourceTableWithLinks = () => ({
+        id: sourceTableId,
+        projectId: sourceTable.projectId,
+        name: 'コピー元数量表',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        deletedAt: null,
+        groups: [
+          {
+            id: 'group-foreign',
+            quantityTableId: sourceTableId,
+            name: '他プロジェクトの写真を持つグループ',
+            surveyImageId: 'foreign-image',
+            surveyImage: {
+              id: 'foreign-image',
+              survey: { projectId: foreignProjectId },
+            },
+            displayOrder: 0,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            items: [],
+          },
+          {
+            id: 'group-own',
+            quantityTableId: sourceTableId,
+            name: '同一プロジェクトの写真を持つグループ',
+            surveyImageId: 'own-image',
+            surveyImage: {
+              id: 'own-image',
+              survey: { projectId: sourceTable.projectId },
+            },
+            displayOrder: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            items: [],
+          },
+        ],
+      });
+
+      /** 複製先の数量表・グループ生成のモックを敷く */
+      const arrangeCopyMocks = (): void => {
+        mockPrisma.quantityTable.findUnique.mockResolvedValue(buildSourceTableWithLinks());
+        mockPrisma.quantityTable.create.mockResolvedValue({
+          id: 'copied-table-id',
+          projectId: sourceTable.projectId,
+          name: copyName,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+        mockPrisma.quantityGroup.create
+          .mockResolvedValueOnce({ id: 'copied-group-foreign' })
+          .mockResolvedValueOnce({ id: 'copied-group-own' });
+      };
+
+      it('他プロジェクトの現調画像を指すグループは、紐付けを外して複製する', async () => {
+        // Arrange
+        arrangeCopyMocks();
+
+        // Act
+        await service.copy(sourceTableId, { name: copyName }, actorId);
+
+        // Assert: 違反した紐付けは複製先へ写さない
+        expect(mockPrisma.quantityGroup.create).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            data: expect.objectContaining({
+              name: '他プロジェクトの写真を持つグループ',
+              surveyImageId: null,
+            }),
+          })
+        );
+      });
+
+      it('同一プロジェクトの現調画像の紐付けは複製先でも維持する（REQ-17.7 の対照）', async () => {
+        // Arrange
+        arrangeCopyMocks();
+
+        // Act
+        await service.copy(sourceTableId, { name: copyName }, actorId);
+
+        // Assert: 違反しない紐付けは従来どおり写す
+        expect(mockPrisma.quantityGroup.create).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            data: expect.objectContaining({
+              name: '同一プロジェクトの写真を持つグループ',
+              surveyImageId: 'own-image',
+            }),
+          })
+        );
+      });
+
+      it('所属の判定で問い合わせを増やさない（元の数量表の取得1回に畳む）', async () => {
+        // Arrange
+        arrangeCopyMocks();
+
+        // Act
+        await service.copy(sourceTableId, { name: copyName }, actorId);
+
+        // Assert: 元の数量表を引く1回だけで判定する。グループ数に比例する問い合わせも、
+        // 現調画像を別途引く問い合わせも足さない
+        expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+      });
+    });
   });
 
   /**
@@ -1876,6 +2370,70 @@ describe('QuantityTableService', () => {
         .mockResolvedValueOnce(current)
         .mockResolvedValueOnce(reloaded);
     };
+
+    describe('ロック待ちの上限（Task 92.5）', () => {
+      /** payload は最小構成（グループ無し）。見るのはロック取得の手前の挙動だけである */
+      const minimalInput = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [],
+      };
+
+      it('行ロックを取る前に SET LOCAL lock_timeout で待機の上限を掛ける', async () => {
+        setupFindUnique(currentState(), reloadedDetail());
+
+        await service.saveDraft(quantityTableId, minimalInput as never, actorId);
+
+        const statements = mockPrisma.$executeRawUnsafe.mock.calls.map(
+          (call: unknown[]) => call[0] as string
+        );
+        expect(statements).toHaveLength(1);
+        expect(statements[0]).toContain('SET LOCAL lock_timeout');
+        expect(statements[0]).toContain('2000ms');
+
+        // 上限は行ロックの取得より前に掛かっていなければ意味が無い。
+        // 呼び出しが無い場合は主張が成立しない側の既定を置く（恒真にしない）
+        const limitOrder =
+          mockPrisma.$executeRawUnsafe.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+        const lockOrder =
+          mockPrisma.$queryRaw.mock.invocationCallOrder[0] ?? Number.NEGATIVE_INFINITY;
+        expect(limitOrder).toBeLessThan(lockOrder);
+      });
+
+      it('上限超過（PostgreSQL 55P03）は QuantityTableSaveBusyError へ写す', async () => {
+        const { Prisma } = await import('../../../generated/prisma/client.js');
+        const { QuantityTableSaveBusyError } =
+          await import('../../../errors/quantityTableError.js');
+        setupFindUnique(currentState(), reloadedDetail());
+        mockPrisma.$queryRaw.mockRejectedValueOnce(
+          new Prisma.PrismaClientKnownRequestError(
+            'Raw query failed. Code: `55P03`. Message: `canceling statement due to lock timeout`',
+            { code: 'P2010', clientVersion: 'test' }
+          )
+        );
+
+        await expect(
+          service.saveDraft(quantityTableId, minimalInput as never, actorId)
+        ).rejects.toBeInstanceOf(QuantityTableSaveBusyError);
+      });
+
+      it('上限超過でない生SQLの失敗は写さずそのまま投げる（非空証明）', async () => {
+        const { Prisma } = await import('../../../generated/prisma/client.js');
+        const { QuantityTableSaveBusyError } =
+          await import('../../../errors/quantityTableError.js');
+        setupFindUnique(currentState(), reloadedDetail());
+        mockPrisma.$queryRaw.mockRejectedValueOnce(
+          new Prisma.PrismaClientKnownRequestError(
+            'Raw query failed. Code: `42P01`. Message: `relation does not exist`',
+            { code: 'P2010', clientVersion: 'test' }
+          )
+        );
+
+        await expect(
+          service.saveDraft(quantityTableId, minimalInput as never, actorId)
+        ).rejects.not.toBeInstanceOf(QuantityTableSaveBusyError);
+      });
+    });
 
     it('数量表名・グループ名・写真紐づけ・新規グループ/項目をフル状態で保存できる（REQ-42.5, 11.1）', async () => {
       // Arrange: DBは空の数量表。payloadで1グループ+1項目を新規作成
@@ -2362,6 +2920,716 @@ describe('QuantityTableService', () => {
       expect(keys).toEqual(expect.arrayContaining([expect.stringContaining('groups[1].items[0]')]));
       // いずれの場合も書き込みは行われない
       expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    /**
+     * 保存対象の所属検証。
+     *
+     * payload の既存ID（グループ・項目）が当該数量表に属することを検証する。
+     * 属さないIDを受け入れると、他の数量表の項目が所属ごと付け替えられる。
+     */
+    it('当該数量表に属さない項目IDを含む場合は保存を中断し書き込みを行わない（REQ-42.9, 11.2）', async () => {
+      // Arrange: DB には group-1(item-1) のみ存在する
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        currentState({ groups: [{ id: 'group-1', items: [{ id: 'item-1' }] }] })
+      );
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: 'group-1',
+            name: 'グループ1',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [
+              validItem({ id: 'item-1', displayOrder: 0 }),
+              // 他の数量表に属する項目ID
+              validItem({ id: 'item-of-other-table', displayOrder: 1 }),
+            ],
+          },
+        ],
+      };
+
+      // Act & Assert
+      let caught: unknown;
+      try {
+        await service.saveDraft(quantityTableId, input, actorId);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(QuantityTableValidationError);
+      // REQ-11.4: 問題箇所を明示する
+      expect((caught as QuantityTableValidationError).validationErrors).toHaveProperty([
+        'groups[0].items[1].id',
+      ]);
+      // 書き込みは一切行われない（部分反映なし）
+      expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityTable.update).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('当該数量表に属さないグループIDを含む場合は保存を中断し書き込みを行わない（REQ-42.9, 11.2）', async () => {
+      // Arrange: DB には group-1 のみ存在する
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        currentState({ groups: [{ id: 'group-1', items: [] }] })
+      );
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            // 他の数量表に属するグループID
+            id: 'group-of-other-table',
+            name: '乗っ取りグループ',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [validItem({ id: null, displayOrder: 0 })],
+          },
+        ],
+      };
+
+      let caught: unknown;
+      try {
+        await service.saveDraft(quantityTableId, input, actorId);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(QuantityTableValidationError);
+      expect((caught as QuantityTableValidationError).validationErrors).toHaveProperty([
+        'groups[0].id',
+      ]);
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityTable.update).not.toHaveBeenCalled();
+    });
+
+    /**
+     * 保存要求内の識別子重複検証。
+     *
+     * 同一IDが payload に複数回現れると、同じ行が複数回更新されるうえ、
+     * 削除判定の集合にも含まれるため削除対象から外れ、意図しない状態が生じる。
+     */
+    it('同一の項目IDが複数回現れる場合は保存を中断し書き込みを行わない（REQ-42.9, 11.2）', async () => {
+      // Arrange: DB には group-1(item-1, item-2), group-2 が存在する
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        currentState({
+          groups: [
+            { id: 'group-1', items: [{ id: 'item-1' }, { id: 'item-2' }] },
+            { id: 'group-2', items: [] },
+          ],
+        })
+      );
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: 'group-1',
+            name: 'グループ1',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [validItem({ id: 'item-1', displayOrder: 0 })],
+          },
+          {
+            id: 'group-2',
+            name: 'グループ2',
+            surveyImageId: null,
+            displayOrder: 1,
+            // 同一項目IDの再出現（二重更新かつ削除対象からの脱落を招く）
+            items: [validItem({ id: 'item-1', displayOrder: 0 })],
+          },
+        ],
+      };
+
+      let caught: unknown;
+      try {
+        await service.saveDraft(quantityTableId, input, actorId);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(QuantityTableValidationError);
+      // REQ-11.4: 問題箇所（2件目の出現位置）を明示する
+      expect((caught as QuantityTableValidationError).validationErrors).toHaveProperty([
+        'groups[1].items[0].id',
+      ]);
+      // 書き込みは一切行われない（部分反映なし）
+      expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityTable.update).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('同一のグループIDが複数回現れる場合は保存を中断し書き込みを行わない（REQ-42.9, 11.2）', async () => {
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        currentState({
+          groups: [
+            { id: 'group-1', items: [] },
+            { id: 'group-2', items: [] },
+          ],
+        })
+      );
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: 'group-1',
+            name: '重複1回目',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [],
+          },
+          {
+            // 同一グループIDの再出現（group-2 が削除対象になる副作用も伴う）
+            id: 'group-1',
+            name: '重複2回目',
+            surveyImageId: null,
+            displayOrder: 1,
+            items: [],
+          },
+        ],
+      };
+
+      let caught: unknown;
+      try {
+        await service.saveDraft(quantityTableId, input, actorId);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(QuantityTableValidationError);
+      expect((caught as QuantityTableValidationError).validationErrors).toHaveProperty([
+        'groups[1].id',
+      ]);
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityTable.update).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('新規（id=null）が複数含まれても重複とはみなさず保存する（過剰な拒否の防止）', async () => {
+      // Arrange: 新規は識別子を持たないため、複数現れても重複ではない
+      setupFindUnique(currentState({ groups: [{ id: 'group-1', items: [] }] }), reloadedDetail());
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-new' });
+      mockPrisma.quantityItem.create.mockResolvedValue({ id: 'item-db-new' });
+      mockPrisma.quantityTable.update.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: newUpdatedAt,
+      });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: 'group-1',
+            name: 'グループ1',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [
+              validItem({ id: null, displayOrder: 0 }),
+              validItem({ id: null, displayOrder: 1 }),
+            ],
+          },
+          {
+            id: null,
+            name: '新規グループA',
+            surveyImageId: null,
+            displayOrder: 1,
+            items: [validItem({ id: null, displayOrder: 0 })],
+          },
+          {
+            id: null,
+            name: '新規グループB',
+            surveyImageId: null,
+            displayOrder: 2,
+            items: [],
+          },
+        ],
+      };
+
+      await expect(service.saveDraft(quantityTableId, input, actorId)).resolves.toBeDefined();
+      expect(mockPrisma.quantityItem.create).toHaveBeenCalledTimes(3);
+      expect(mockPrisma.quantityGroup.create).toHaveBeenCalledTimes(2);
+    });
+
+    /**
+     * グループIDと項目IDは別の表の識別子であり、別々の集合で判定する（Task 115.44）。
+     *
+     * 両者を同じ集合で判定すると、グループIDと項目IDが同じ値になった要求を「重複」と
+     * 誤って拒否する。実データはいずれも UUID のため衝突は事実上起きないが、
+     * 集合を分けているという判断が検証で守られていない状態だった（同じ集合にしても
+     * 全ての検証が成功していた）。ここで名前空間の分離そのものを検証する。
+     */
+    it('グループIDと項目IDが同じ値でも重複とはみなさず保存する（識別子の集合を分けて判定する）', async () => {
+      // Arrange: グループと項目が同じ識別子を持つ状態（別の表の識別子であり衝突ではない）
+      const sharedId = 'same-id-in-different-tables';
+      setupFindUnique(
+        currentState({ groups: [{ id: sharedId, items: [{ id: sharedId }] }] }),
+        reloadedDetail()
+      );
+      mockPrisma.quantityGroup.update.mockResolvedValue({ id: sharedId });
+      mockPrisma.quantityItem.update.mockResolvedValue({ id: sharedId });
+      mockPrisma.quantityTable.update.mockResolvedValue({
+        id: quantityTableId,
+        updatedAt: newUpdatedAt,
+      });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          {
+            id: sharedId,
+            name: 'グループ1',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [validItem({ id: sharedId, name: '更新名称', displayOrder: 0 })],
+          },
+        ],
+      };
+
+      // Act & Assert: 拒否されず、グループ・項目とも更新される
+      await expect(service.saveDraft(quantityTableId, input, actorId)).resolves.toBeDefined();
+      expect(mockPrisma.quantityGroup.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: sharedId } })
+      );
+      expect(mockPrisma.quantityItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: sharedId } })
+      );
+    });
+
+    it('親の現場調査が論理削除済みの現調画像を含む保存は書き込み前に中断する（Task 81.1）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174010';
+      const surveyId = '123e4567-e89b-12d3-a456-426614174011';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        {
+          id: surveyImageId,
+          surveyId,
+          survey: { projectId, deletedAt: new Date('2026-09-01T00:00:00.000Z') },
+        },
+      ]);
+      // 検査が無ければ書き込みが通ることを露わにするため、後続の経路も用意しておく
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      await expect(service.saveDraft(quantityTableId, input, actorId)).rejects.toBeInstanceOf(
+        SurveyDeletedError
+      );
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
+    it('現調画像の問い合わせはグループ数によらず1回で、重複を排除した集合を引く（Task 81.1）', async () => {
+      const firstImageId = '123e4567-e89b-12d3-a456-426614174010';
+      const secondImageId = '123e4567-e89b-12d3-a456-426614174012';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: firstImageId, surveyId: 'survey-1', survey: { projectId, deletedAt: null } },
+        { id: secondImageId, surveyId: 'survey-2', survey: { projectId, deletedAt: null } },
+      ]);
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      // 5グループ・参照する画像は2種（うち1種は3グループが重複して指す）・1グループは未紐付け
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g1', surveyImageId: firstImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g2', surveyImageId: firstImageId, displayOrder: 1, items: [] },
+          { id: null, name: 'g3', surveyImageId: secondImageId, displayOrder: 2, items: [] },
+          { id: null, name: 'g4', surveyImageId: firstImageId, displayOrder: 3, items: [] },
+          { id: null, name: 'g5', surveyImageId: null, displayOrder: 4, items: [] },
+        ],
+      };
+
+      await service.saveDraft(quantityTableId, input, actorId);
+
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: { in: [firstImageId, secondImageId] } },
+          select: expect.objectContaining({
+            surveyId: true,
+            survey: { select: { projectId: true, deletedAt: true } },
+          }),
+        })
+      );
+    });
+
+    it('現調画像を一つも指さない保存では画像の問い合わせを行わない（Task 81.1）', async () => {
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId: null, displayOrder: 0, items: [] }],
+      };
+
+      await service.saveDraft(quantityTableId, input, actorId);
+
+      expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+    });
+
+    /*
+     * 存在の検査（Task 86.2）
+     *
+     * Task 81.1 の時点では、行が返らなかった画像IDには何も主張せず保存を通していた
+     * （旧検証「指した現調画像が見つからない場合は論理削除の判定を適用しない」）。
+     * その挙動は外部キー制約違反として書き込み時に表面化し 500 になっていたため、
+     * Task 86.2 で向きを反転させ、書き込み前に中断させる。
+     *
+     * 反転した主張が恒真でないことは、直後の対（行が返る場合）が示す。
+     * 同じ入力・同じ枠で findMany の戻り値だけを変え、一方は中断し他方は保存が通る。
+     */
+    it('指した現調画像が見つからない場合は書き込み前に中断する（Task 86.2）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174013';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      // 要求した ID に対して行が1件も返らない = 実在しない
+      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+      // 検査が無ければ書き込みが通ることを露わにするため、後続の経路も用意しておく
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      // 応答の形は QuantityGroupService.validateSurveyImage と同一にする
+      // （404・同じ code・同じ文言）
+      expect(thrown).toBeInstanceOf(SurveyImageNotFoundError);
+      // Task 86.5: 文言は日本語で画像IDを含まない。画像IDは surveyImageId で持つ
+      expect((thrown as SurveyImageNotFoundError).message).toBe('現場調査画像が見つかりません');
+      expect((thrown as SurveyImageNotFoundError).surveyImageId).toBe(surveyImageId);
+      expect((thrown as SurveyImageNotFoundError).statusCode).toBe(404);
+      expect((thrown as SurveyImageNotFoundError).code).toBe('SURVEY_IMAGE_NOT_FOUND');
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
+    it('同じ入力でも行が返れば保存は通る（存在の検査が恒真でないことの対・Task 86.2）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174013';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      // 直前の検証と異なるのは findMany の戻り値だけである
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: surveyImageId, surveyId: 'survey-1', survey: { projectId, deletedAt: null } },
+      ]);
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      await expect(service.saveDraft(quantityTableId, input, actorId)).resolves.toBeDefined();
+      expect(mockPrisma.quantityGroup.create).toHaveBeenCalled();
+    });
+
+    it('一部の現調画像だけが見つからない場合も保存全体を中断する（Task 86.2）', async () => {
+      const existingImageId = '123e4567-e89b-12d3-a456-426614174018';
+      const missingImageId = '123e4567-e89b-12d3-a456-426614174019';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      // 要求は2件、返るのは1件だけ
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: existingImageId, surveyId: 'survey-1', survey: { projectId, deletedAt: null } },
+      ]);
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g1', surveyImageId: existingImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g2', surveyImageId: missingImageId, displayOrder: 1, items: [] },
+        ],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      // 名指すのは見つからなかった側の画像である
+      expect(thrown).toBeInstanceOf(SurveyImageNotFoundError);
+      expect((thrown as SurveyImageNotFoundError).surveyImageId).toBe(missingImageId);
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      // 存在の判定は「要求した ID の集合」と「返った行の集合」の差で行うため、
+      // 存在を確かめるための問い合わせは増えていない
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('存在しない画像が複数あるときは payload で先に現れたものを名指す（Task 86.2）', async () => {
+      const firstMissingImageId = '123e4567-e89b-12d3-a456-426614174020';
+      const secondMissingImageId = '123e4567-e89b-12d3-a456-426614174021';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      // 2件とも行が返らない
+      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g1', surveyImageId: firstMissingImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g2', surveyImageId: secondMissingImageId, displayOrder: 1, items: [] },
+        ],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      // 判定は要求した ID の並び（payload の出現順）で行う。findMany の戻り値の並びは
+      // 指定していないため、行の並びで回すと名指す画像が定まらない
+      expect((thrown as SurveyImageNotFoundError).surveyImageId).toBe(firstMissingImageId);
+    });
+
+    it('他プロジェクトの現調画像を含む保存は書き込み前に中断する（Task 86.1）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174014';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        {
+          id: surveyImageId,
+          surveyId: 'survey-other-project',
+          // 親の現場調査は生きているが、当該数量表とは別のプロジェクトに属する
+          survey: { projectId: 'other-project-id', deletedAt: null },
+        },
+      ]);
+      // 検査が無ければ書き込みが通ることを露わにするため、後続の経路も用意しておく
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      // 応答の形は QuantityGroupService.validateSurveyImage と同一にする（400・同じ文言）
+      expect(thrown).toBeInstanceOf(QuantityTableValidationError);
+      expect((thrown as QuantityTableValidationError).message).toBe(
+        '異なるプロジェクトの現場調査画像は紐付けできません'
+      );
+      expect((thrown as QuantityTableValidationError).statusCode).toBe(400);
+      expect((thrown as QuantityTableValidationError).code).toBe('QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
+    it('親の論理削除の 410 は原因のグループを payload の位置で名指し、該当しないグループは名指さない（Task 90.2）', async () => {
+      const liveImageId = '123e4567-e89b-12d3-a456-426614174030';
+      const firstDeletedImageId = '123e4567-e89b-12d3-a456-426614174031';
+      const secondDeletedImageId = '123e4567-e89b-12d3-a456-426614174032';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: liveImageId, surveyId: 'survey-live', survey: { projectId, deletedAt: null } },
+        {
+          id: firstDeletedImageId,
+          surveyId: 'survey-deleted-1',
+          survey: { projectId, deletedAt: new Date('2026-09-01T00:00:00.000Z') },
+        },
+        {
+          id: secondDeletedImageId,
+          surveyId: 'survey-deleted-2',
+          survey: { projectId, deletedAt: new Date('2026-09-02T00:00:00.000Z') },
+        },
+      ]);
+
+      // 該当するグループ（1・3・4）と該当しないグループ（0 = 生存する現場調査の画像、
+      // 2 = 画像なし）を混ぜる。3 は 1 と同じ画像を指すため、画像の重複排除の後でも
+      // グループ単位で名指せることを確かめる。4 は別の論理削除済みの現場調査の画像を
+      // 指すため、最初に出会った該当で名指しを打ち切らないことを確かめる。
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g0', surveyImageId: liveImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g1', surveyImageId: firstDeletedImageId, displayOrder: 1, items: [] },
+          { id: null, name: 'g2', surveyImageId: null, displayOrder: 2, items: [] },
+          { id: null, name: 'g3', surveyImageId: firstDeletedImageId, displayOrder: 3, items: [] },
+          { id: null, name: 'g4', surveyImageId: secondDeletedImageId, displayOrder: 4, items: [] },
+        ],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      expect(thrown).toBeInstanceOf(SurveyDeletedError);
+      // 文言と surveyId は紐付け経路（validateSurveyImage）と同一のまま据え置く。
+      // surveyId は最初に出会った該当の現場調査を指す
+      expect((thrown as SurveyDeletedError).message).toBe(
+        '削除された現場調査の画像は紐付けできません: survey-deleted-1'
+      );
+      expect((thrown as SurveyDeletedError).surveyId).toBe('survey-deleted-1');
+      // 問題箇所の名指しは所属違反の 400（Task 86.4）と同じ `groups[i].<欄>` の形にする。
+      // キーの集合まで一致させ、過不足の双方を捕まえる
+      expect((thrown as SurveyDeletedError).validationErrors).toEqual({
+        'groups[1].surveyImageId': '削除された現場調査の画像は紐付けできません',
+        'groups[3].surveyImageId': '削除された現場調査の画像は紐付けできません',
+        'groups[4].surveyImageId': '削除された現場調査の画像は紐付けできません',
+      });
+      // 名指しのために問い合わせを増やしていない
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
+    it('所属違反の 400 は原因のグループを payload の位置で名指し、違反しないグループは名指さない（Task 86.4）', async () => {
+      const ownImageId = '123e4567-e89b-12d3-a456-426614174022';
+      const firstForeignImageId = '123e4567-e89b-12d3-a456-426614174023';
+      const secondForeignImageId = '123e4567-e89b-12d3-a456-426614174024';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: ownImageId, surveyId: 'survey-own', survey: { projectId, deletedAt: null } },
+        {
+          id: firstForeignImageId,
+          surveyId: 'survey-other-1',
+          survey: { projectId: 'other-project-id', deletedAt: null },
+        },
+        {
+          id: secondForeignImageId,
+          surveyId: 'survey-other-2',
+          survey: { projectId: 'another-project-id', deletedAt: null },
+        },
+      ]);
+
+      // 違反するグループ（1・3・4）と違反しないグループ（0 = 同一プロジェクトの画像、
+      // 2 = 画像なし）を混ぜる。3 は 1 と同じ画像を指すため、画像の重複排除の後でも
+      // グループ単位で名指せることを確かめる。4 は別の他プロジェクトの画像を指すため、
+      // 最初に出会った違反で名指しを打ち切らないことを確かめる。
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g0', surveyImageId: ownImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g1', surveyImageId: firstForeignImageId, displayOrder: 1, items: [] },
+          { id: null, name: 'g2', surveyImageId: null, displayOrder: 2, items: [] },
+          { id: null, name: 'g3', surveyImageId: firstForeignImageId, displayOrder: 3, items: [] },
+          { id: null, name: 'g4', surveyImageId: secondForeignImageId, displayOrder: 4, items: [] },
+        ],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      expect(thrown).toBeInstanceOf(QuantityTableValidationError);
+      // 全体の文言は紐付け経路（validateSurveyImage）と同一のまま据え置く
+      expect((thrown as QuantityTableValidationError).message).toBe(
+        '異なるプロジェクトの現場調査画像は紐付けできません'
+      );
+      // 問題箇所の名指しは validateDraftOwnership / validateDraftDuplicateIds と同じ
+      // `groups[i].<欄>` の形にする。キーの集合まで一致させ、過不足の双方を捕まえる
+      expect((thrown as QuantityTableValidationError).validationErrors).toEqual({
+        'groups[1].surveyImageId': '異なるプロジェクトの現場調査画像は紐付けできません',
+        'groups[3].surveyImageId': '異なるプロジェクトの現場調査画像は紐付けできません',
+        'groups[4].surveyImageId': '異なるプロジェクトの現場調査画像は紐付けできません',
+      });
+      // 名指しのために問い合わせを増やしていない
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+    });
+
+    it('所属違反と親の論理削除の双方に該当する現調画像は所属違反として拒む（Task 86.1）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174015';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        {
+          id: surveyImageId,
+          surveyId: 'survey-other-project-deleted',
+          survey: {
+            projectId: 'other-project-id',
+            deletedAt: new Date('2026-09-01T00:00:00.000Z'),
+          },
+        },
+      ]);
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      // 検査の相対順序も validateSurveyImage に揃える（所属を先に見るため 410 ではなく 400）
+      await expect(service.saveDraft(quantityTableId, input, actorId)).rejects.toBeInstanceOf(
+        QuantityTableValidationError
+      );
+    });
+
+    it('所属の検査を加えても現調画像の問い合わせは1回のままである（Task 86.1）', async () => {
+      const firstImageId = '123e4567-e89b-12d3-a456-426614174016';
+      const secondImageId = '123e4567-e89b-12d3-a456-426614174017';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: firstImageId, surveyId: 'survey-1', survey: { projectId, deletedAt: null } },
+        { id: secondImageId, surveyId: 'survey-2', survey: { projectId, deletedAt: null } },
+      ]);
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g1', surveyImageId: firstImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g2', surveyImageId: secondImageId, displayOrder: 1, items: [] },
+          { id: null, name: 'g3', surveyImageId: firstImageId, displayOrder: 2, items: [] },
+        ],
+      };
+
+      await service.saveDraft(quantityTableId, input, actorId);
+
+      // 突き合わせ先の projectId は数量表の読み出し（findUnique）で既に得ているため、
+      // 所属の判定のために増える問い合わせは無い
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      // 数量表の読み出しも従来どおり2回（現状取得・再読込）のままである
+      expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(2);
     });
   });
 });

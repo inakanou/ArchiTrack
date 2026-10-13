@@ -33,6 +33,7 @@ const mockPrisma = {
   surveyImage: {
     create: vi.fn(),
     count: vi.fn(),
+    aggregate: vi.fn(),
   },
   $transaction: vi.fn(),
 };
@@ -53,7 +54,7 @@ const mockImageProcessorService = {
     original: {
       buffer: Buffer.from('processed'),
       metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-      wasCompressed: false,
+      originalExceededSizeLimit: false,
     },
     thumbnail: Buffer.from('thumbnail'),
     metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -106,6 +107,8 @@ describe('画像アップロードバリデーション統合テスト (Task 49)
       deletedAt: null,
     });
     mockPrisma.surveyImage.count.mockResolvedValue(0);
+    // 採番は既存の最大表示順序を参照する（Task 115.20 / Requirements 4.10）
+    mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: null } });
   });
 
   describe('Requirement 19.1, 19.2: ICCプロファイル付きJPEG（4バイト目0xE2）のアップロード', () => {

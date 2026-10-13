@@ -6,14 +6,14 @@
  * 編集状態（`estimateEditReducer` の state）のスナップショットを既存の
  * `UndoManager` に載せ、取り消し・やり直しをサーバーへの問い合わせ無しで行います。
  *
- * ## 取り消しの単位は state スナップショット（design.md:4149）
+ * ## 取り消しの単位は state スナップショット（design.md `##### useEstimateUndo` の Implementation Notes）
  *
  * reducer が純粋であるため、遷移の**直前の state を保持するだけ**で復元でき、
  * 操作ごとの逆操作を実装する必要がない。やり直しに必要な「操作後の state」は
  * 記録時点では存在しない（まだ遷移していない）ため、取り消しを行う瞬間に
  * その時点の state を捉えてコマンドへ持たせる。
  *
- * ## Build-vs-Adopt: Adopt（design.md:4148）
+ * ## Build-vs-Adopt: Adopt（design.md `##### useEstimateUndo` の Implementation Notes）
  *
  * 履歴の保持・上限・状態通知は既存の `UndoManager`（コマンドパターン、
  * 上限はコンストラクタ引数）と `useUndoState` をそのまま用いる。
@@ -37,7 +37,7 @@
  *   （適用の直前に `recordSnapshot` を呼べばよい。段階3（55.5, 55.6）でこれらが
  *   クライアント計算へ移る際も、`useEstimateEditor` を経由する限り自動的に含まれる）
  *
- * Design: design.md `##### useEstimateUndo`（:4123-4151）
+ * Design: design.md `##### useEstimateUndo`
  *
  * @module hooks/useEstimateUndo
  */

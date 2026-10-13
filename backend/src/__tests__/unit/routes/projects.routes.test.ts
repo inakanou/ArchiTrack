@@ -373,6 +373,43 @@ describe('Projects Routes', () => {
       );
     });
 
+    it('should pass tradingPartnerId filter to the service', async () => {
+      const mockResult = {
+        data: [],
+        pagination: { page: 1, limit: 10, total: 0, totalPages: 0 },
+      };
+
+      (mockProjectService.getProjects as ReturnType<typeof vi.fn>).mockResolvedValue(mockResult);
+
+      const tradingPartnerId = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+      const response = await request(app).get(
+        `/api/projects?tradingPartnerId=${tradingPartnerId}&limit=10&sort=updatedAt&order=desc`
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockProjectService.getProjects).toHaveBeenCalledWith(
+        expect.objectContaining({ tradingPartnerId }),
+        expect.any(Object),
+        expect.any(Object)
+      );
+    });
+
+    it('should not pass tradingPartnerId to the service when it is not specified', async () => {
+      const mockResult = {
+        data: [],
+        pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+      };
+
+      (mockProjectService.getProjects as ReturnType<typeof vi.fn>).mockResolvedValue(mockResult);
+
+      const response = await request(app).get('/api/projects');
+
+      expect(response.status).toBe(200);
+      const filterArg = (mockProjectService.getProjects as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[0] as Record<string, unknown>;
+      expect(filterArg.tradingPartnerId).toBeUndefined();
+    });
+
     it('should support sorting parameters', async () => {
       const mockResult = {
         data: [],
@@ -1048,6 +1085,88 @@ describe('Projects Routes', () => {
       expect(survey.thumbnailOriginalUrl).toBeNull();
       // getSignedUrlは呼ばれない（パスがnullのため）
       expect(mockStorageProvider.getSignedUrl).not.toHaveBeenCalled();
+    });
+
+    // ------------------------------------------------------------------------
+    // Task 72.2: 個別API（GET /api/projects/:projectId/site-surveys/latest）と同じく
+    // annotatedThumbnailUrl を返す（Requirements: 29.6）
+    // ------------------------------------------------------------------------
+    const mockSurveyWithAnnotatedThumbnail = {
+      ...mockSurveyWithThumbnail,
+      annotatedThumbnailPath: 'uploads/annotated/annotated-1.webp',
+    };
+
+    it('ストレージ設定済み時: annotatedThumbnailUrl が合成済みサムネイルの署名付きURLになること (29.6)', async () => {
+      defaultSectionsSetup();
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 1,
+        latestSurveys: [mockSurveyWithAnnotatedThumbnail],
+      });
+
+      mockIsStorageConfigured.mockReturnValue(true);
+      const mockStorageProvider = {
+        getSignedUrl: vi.fn((key: string) => Promise.resolve(`https://signed.example.com/${key}`)),
+      };
+      mockGetStorageProvider.mockReturnValue(mockStorageProvider);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      const survey = response.body.sections.siteSurveys.latestSurveys[0];
+      expect(survey.annotatedThumbnailUrl).toBe(
+        'https://signed.example.com/uploads/annotated/annotated-1.webp'
+      );
+      expect(survey.thumbnailUrl).toBe(
+        'https://signed.example.com/uploads/thumbnails/thumb-1.webp'
+      );
+      expect(survey.thumbnailOriginalUrl).toBe(
+        'https://signed.example.com/uploads/originals/orig-1.jpg'
+      );
+    });
+
+    it('ストレージ未設定時: annotatedThumbnailUrl を省かず null として返すこと (29.6)', async () => {
+      defaultSectionsSetup();
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 1,
+        latestSurveys: [mockSurveyWithAnnotatedThumbnail],
+      });
+
+      mockIsStorageConfigured.mockReturnValue(false);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      const survey = response.body.sections.siteSurveys.latestSurveys[0];
+      expect(Object.keys(survey)).toContain('annotatedThumbnailUrl');
+      expect(survey.annotatedThumbnailUrl).toBeNull();
+    });
+
+    it('合成済みサムネイルの署名に失敗した時: annotatedThumbnailUrl が null で他の値は返ること (29.6)', async () => {
+      defaultSectionsSetup();
+      (mockSiteSurveyService.findLatestByProjectId as ReturnType<typeof vi.fn>).mockResolvedValue({
+        totalCount: 1,
+        latestSurveys: [mockSurveyWithAnnotatedThumbnail],
+      });
+
+      mockIsStorageConfigured.mockReturnValue(true);
+      const mockStorageProvider = {
+        getSignedUrl: vi.fn((key: string) =>
+          key.includes('annotated')
+            ? Promise.reject(new Error('Storage error'))
+            : Promise.resolve(`https://signed.example.com/${key}`)
+        ),
+      };
+      mockGetStorageProvider.mockReturnValue(mockStorageProvider);
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}/detail-summary`);
+
+      expect(response.status).toBe(200);
+      const survey = response.body.sections.siteSurveys.latestSurveys[0];
+      expect(Object.keys(survey)).toContain('annotatedThumbnailUrl');
+      expect(survey.annotatedThumbnailUrl).toBeNull();
+      expect(survey.thumbnailUrl).toBe(
+        'https://signed.example.com/uploads/thumbnails/thumb-1.webp'
+      );
     });
   });
 

@@ -5,7 +5,10 @@
  *
  * Requirements (project-management):
  * - REQ-10.10: ステータス変更履歴（変更前後のステータス、変更日時、変更したユーザー、遷移種別）を記録
- * - REQ-10.11: 遷移種別として4種類を定義: initial, forward, backward, terminate
+ * - REQ-10.11: 遷移種別として「順方向遷移」「差し戻し遷移」「終端遷移（完了・中止・失注）」の
+ *   3種類を定義（forward / backward / terminate）。TransitionType の4値目 initial は
+ *   ステータス間の遷移ではなく、プロジェクト作成時に fromStatus=null で記録される
+ *   初期履歴の印であり、当該条文が定義する遷移種別には含まれない。
  * - REQ-10.15: ステータス変更履歴に差し戻し理由を記録
  */
 
@@ -263,7 +266,9 @@ describe('ProjectStatusHistory Model Schema', () => {
 
   describe('TransitionType usage in ProjectStatusHistory', () => {
     it('should support initial transition type (project creation)', () => {
-      // Requirement 10.11: initial - プロジェクト作成時、fromStatusなし
+      // initial は要件10 の 11 が定義する遷移種別（順方向・差し戻し・終端）ではなく、
+      // プロジェクト作成時に fromStatus=null で記録される初期履歴の印である。
+      // 本 it が確かめるのはその印を格納できるスキーマ形状であり、条文の被覆ではない。
       const initialHistory: Prisma.ProjectStatusHistoryCreateInput = {
         project: { connect: { id: 'project-id' } },
         fromStatus: null,

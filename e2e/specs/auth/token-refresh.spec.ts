@@ -229,23 +229,24 @@ test.describe('トークンリフレッシュ機能', () => {
       const token2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));
       expect(token2).toBeTruthy();
 
+      // 両タブを閉じるのは本テストの `finally` だけであり、この時点では必ず開いている。
+      // 「開いていれば確認する」形は、タブが落ちた場合に要件16.11 の検証を
+      // 一件も実行しないまま緑になるため、前提として無条件に主張する。
+      expect(page1.isClosed(), 'タブ1が閉じている（要件16.11 の同期を確認できない）').toBe(false);
+      expect(page2.isClosed(), 'タブ2が閉じている（要件16.11 の同期を確認できない）').toBe(false);
+
       // 要件16.11: 両方のタブが同じlocalStorageを参照しているため、
       // トークンは常に同期されている（最新のトークンローテーション結果を共有）
-      // タブ1がまだ開いているか確認してからトークンを取得
-      if (!page1.isClosed()) {
-        const token1Final = await page1.evaluate(() => localStorage.getItem('refreshToken'));
-        expect(token1Final).toBe(token2);
+      const token1Final = await page1.evaluate(() => localStorage.getItem('refreshToken'));
+      expect(token1Final).toBe(token2);
 
-        // タブ1でダッシュボードに移動して認証が有効であることを確認
-        await page1.goto('/dashboard');
-        await expect(page1.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
-      }
+      // タブ1でダッシュボードに移動して認証が有効であることを確認
+      await page1.goto('/dashboard');
+      await expect(page1.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
 
       // タブ2でもダッシュボードに移動して認証が有効であることを確認
-      if (!page2.isClosed()) {
-        await page2.goto('/dashboard');
-        await expect(page2.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
-      }
+      await page2.goto('/dashboard');
+      await expect(page2.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
     } finally {
       // クリーンアップ（ページが開いている場合のみ閉じる）
       if (!page1.isClosed()) {
@@ -321,15 +322,6 @@ test.describe('トークンリフレッシュ機能', () => {
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
     // バックグラウンドリフレッシュが実行されたことを確認
-    // waitForFunctionでリフレッシュ完了をポーリング
-    await page.waitForFunction(
-      () => {
-        // リフレッシュが実行されたかどうかをチェック
-        // 注: 実際にはrouteハンドラーで検出されるため、このチェックは補助的
-        return true;
-      },
-      { timeout: getTimeout(10000) }
-    );
     expect(backgroundRefreshCalled).toBe(true);
   });
 
@@ -495,17 +487,11 @@ test.describe('トークンリフレッシュ機能', () => {
       consoleLogs.push(msg.text());
     });
 
-    // トークンリフレッシュ試行・401レスポンスを監視
+    // トークンリフレッシュ試行を監視
     let hasRefreshAttempt = false;
-    let has401Response = false;
     page.on('request', (request) => {
       if (request.url().includes('/auth/refresh') || request.url().includes('/auth/token')) {
         hasRefreshAttempt = true;
-      }
-    });
-    page.on('response', (response) => {
-      if (response.status() === 401) {
-        has401Response = true;
       }
     });
 
@@ -524,27 +510,26 @@ test.describe('トークンリフレッシュ機能', () => {
     // ネットワーク通信完了を待機
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
-    // 要件16.21: トークン期限切れの検出を確認
-    // E2E環境は本番ビルド（nginx）のため、logger.debugのコンソール出力は抑制される
-    // 以下のいずれかが真であればトークン期限切れが適切に処理されている
-    const hasTokenExpiredLog = consoleLogs.some(
+    // 要件16.21（開発環境ではトークン有効期限切れをコンソールにログ出力する）は
+    // 本E2E環境では観測できない。E2E のフロントは本番ビルド（nginx 配信）であり、
+    // 開発時のみのログ出力は意図どおり抑止されるためである。
+    // 「ログ／リダイレクト／メッセージ／更新試行／401」の論理和は、更新試行だけで
+    // 常に成立し、要件の成否を一切確かめていなかった。
+    // この環境で観測できることだけを主張する: 期限切れのアクセストークンで保護画面を
+    // 開くと、フロントはトークン更新を試みる。
+    // 開発ビルドでのコンソール出力そのものの検証は本E2Eの範囲外であり、別タスクとする。
+    const expiredTokenLogs = consoleLogs.filter(
       (log) =>
         log.includes('token') &&
         (log.includes('expired') || log.includes('期限切れ') || log.includes('refresh'))
     );
-
-    const isRedirectedToLogin = page.url().includes('/login');
-    const hasSessionExpiredMessage = await page
-      .getByText(/セッション.*期限|再度ログイン|ログインし直して/i)
-      .isVisible()
-      .catch(() => false);
+    console.log(
+      `[REQ-16.21] 本番ビルドのためログ出力は抑止される（観測されたログ: ${expiredTokenLogs.length}件）`
+    );
 
     expect(
-      hasTokenExpiredLog ||
-        isRedirectedToLogin ||
-        hasSessionExpiredMessage ||
-        hasRefreshAttempt ||
-        has401Response
+      hasRefreshAttempt,
+      '期限切れのアクセストークンで保護画面を開いてもトークン更新が試行されない'
     ).toBe(true);
   });
 
@@ -584,9 +569,73 @@ test.describe('トークンリフレッシュ機能', () => {
   });
 
   /**
+   * 要件5.6: トークンに含めるユーザー情報
+   * @requirement user-authentication/REQ-5.6
+   * WHEN トークンにユーザー情報を含める
+   * THEN Authentication ServiceはユーザーID、メールアドレス、ロール情報を含めなければならない
+   *
+   * 画面からログインし、アプリが実際に受け取ったアクセストークンのペイロードをデコードして、
+   * データベース上のユーザーID・メールアドレス・割り当て済みロールと一致することを確かめる。
+   * ロールが複数あるユーザー（admin と user）で、ロール情報の欠落・取り違えを検出できるようにする。
+   */
+  test('アクセストークンにユーザーID・メールアドレス・ロールが含まれる', async ({ page }) => {
+    const user = await createTestUser('ADMIN_USER');
+    const assignedRoles = await getPrismaClient().userRole.findMany({
+      where: { userId: user.id },
+      include: { role: true },
+    });
+    const expectedRoles = assignedRoles.map((ur) => ur.role.name).sort();
+    // 前提: 複数のロールが割り当てられている（ロールの欠落を検出できる状態）
+    expect(expectedRoles).toEqual(['admin', 'user']);
+
+    await page.goto('/login');
+    await page.getByLabel(/メールアドレス/i).fill(user.email);
+    await page.locator('input#password').fill('AdminPass123!');
+
+    // オリジンに依存しないよう、パスで照合する
+    const loginResponsePromise = page.waitForResponse(
+      (res) =>
+        new URL(res.url()).pathname === '/api/v1/auth/login' && res.request().method() === 'POST'
+    );
+    await page.getByRole('button', { name: /ログイン/i }).click();
+    const loginResponse = await loginResponsePromise;
+    expect(loginResponse.status()).toBe(200);
+
+    const body = (await loginResponse.json()) as { accessToken?: string };
+    const accessToken = body.accessToken;
+    expect(typeof accessToken).toBe('string');
+
+    // JWT（header.payload.signature）のペイロードをデコードする
+    const segments = (accessToken as string).split('.');
+    expect(segments).toHaveLength(3);
+    const payload = JSON.parse(
+      Buffer.from(segments[1] as string, 'base64url').toString('utf8')
+    ) as {
+      userId?: unknown;
+      email?: unknown;
+      roles?: unknown;
+    };
+
+    expect(payload.userId).toBe(user.id);
+    expect(payload.email).toBe(user.email);
+    expect(Array.isArray(payload.roles)).toBe(true);
+    expect([...(payload.roles as string[])].sort()).toEqual(expectedRoles);
+
+    // アプリが保持したトークンも同じもの（画面の後続の要求がこのペイロードで認証される）
+    await expect(page).toHaveURL(/\/dashboard|\/$/);
+    const storedToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    expect(storedToken).toBe(accessToken);
+  });
+
+  /**
    * リフレッシュトークンのHTTPOnly Cookie検証
    * 要件26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
-   * @requirement user-authentication/REQ-5.4 @requirement user-authentication/REQ-5.5 @requirement user-authentication/REQ-5.6
+   * @requirement user-authentication/REQ-26.5
+   *
+   * タスク 115.188 の是正: 従前は REQ-5.4 / 5.5 / 5.6 を名乗っていたが、
+   * 直上の散文が述べるとおり本検証が主張するのは Cookie の属性であり、保護APIのトークン検証（5.4）
+   * ・改ざんトークンの拒否（5.5）・トークンに含めるユーザー情報（5.6）はいずれも主張していない。
+   * 5.4・5.5 は他の検証が名乗っており、5.6 は本件で被覆が外れる。
    */
   test('リフレッシュトークンがHTTPOnly Cookieで送信される', async ({ page }) => {
     await createTestUser('REGULAR_USER');

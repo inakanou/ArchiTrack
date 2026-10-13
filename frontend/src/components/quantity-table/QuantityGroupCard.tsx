@@ -20,6 +20,10 @@
  * - 22.3: 空白名前でのエラーメッセージ表示
  * - 22.4: グループ名の最大文字数（全角25文字/半角50文字）
  * - 22.5: 最大文字数超過入力防止
+ *
+ * Task 103.1: モバイル幅（`MEDIA_QUERIES.isMobile`）では、見出しを折り返して操作の釦と
+ * グループ名をカードの幅に収め、紐付け写真を幅に合わせて縮める（steering `tech.md` の
+ * 「レスポンシブ・ビューポート方針」。基底のスタイルは変えず `...Mobile` を spread 合成する）
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -33,6 +37,8 @@ import SortOrderButtons from './SortOrderButtons';
 import { AnnotatedImageThumbnail } from '../site-surveys/AnnotatedImageThumbnail';
 import PhotoCommentDisplay from './PhotoCommentDisplay';
 import PhotoPreviewDialog from './PhotoPreviewDialog';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../../utils/responsive';
 
 // デフォルトのオートコンプリート関数（isEditable=false時のフォールバック）
 const defaultGetSuggestions = () => [] as string[];
@@ -60,6 +66,12 @@ export interface QuantityGroupCardProps {
   onDeleteGroup?: (groupId: string) => void;
   /** 画像選択コールバック */
   onSelectImage?: (groupId: string) => void;
+  /** 写真の紐付け解除コールバック（Task 90.2: REQ-42.3）
+   *  - 指定時、写真が紐付いているグループにのみ解除ボタンが表示される
+   *  - 親の現場調査が論理削除された写真は選択候補に現れず「変更」では復旧できないため、
+   *    解除が当該グループを含む数量表を保存できる状態へ戻す唯一の操作である
+   */
+  onUnlinkImage?: (groupId: string) => void;
   /** 項目更新コールバック */
   onUpdateItem?: (itemId: string, updates: Partial<QuantityItemDetail>) => void;
   /** 項目削除コールバック */
@@ -68,6 +80,12 @@ export interface QuantityGroupCardProps {
   onCopyItem?: (itemId: string) => void;
   /** 項目移動コールバック（REQ-6.3） */
   onMoveItem?: (itemId: string, direction: 'up' | 'down') => void;
+  /** 別の数量グループへの移動を開始するコールバック（REQ-6.2, 6.4） */
+  onMoveItemToGroup?: (itemId: string) => void;
+  /** 一括操作の対象として選択中の項目ID一覧（REQ-6.5） */
+  selectedItemIds?: string[];
+  /** 一括操作の選択状態変更コールバック（REQ-6.5） */
+  onItemSelectionChange?: (itemId: string, selected: boolean) => void;
   /** 注釈ビューアを開くコールバック（REQ-4.4） */
   onOpenAnnotationViewer?: (groupId: string) => void;
   /** オートコンプリート候補取得関数（Task 18.1: isEditable時に必須） */
@@ -350,12 +368,52 @@ const styles = {
     backgroundColor: '#ffffff',
     width: '100%',
     maxWidth: '300px',
-    outline: 'none',
+    // 編集中の青い枠は常時の装飾で、フォーカス表示は全画面共通の `:focus-visible` の outline に
+    // 任せ、インラインで打ち消さない（steering `tech.md` の「フォーカス表示方針」。タスク 102.1）
   } as React.CSSProperties,
   groupNameError: {
     fontSize: '11px',
     color: '#dc2626',
     margin: '2px 0 0 0',
+  } as React.CSSProperties,
+  // 写真と、その下の写真の変更・紐付け解除の釦を縦に並べる列
+  photoColumn: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+  } as React.CSSProperties,
+  // ==========================================================================
+  // モバイル表示のスタイル（Task 103.1）
+  // 基底のスタイルはデスクトップの配置のまま変えず、isMobile のときだけ spread 合成で上書きする
+  // ==========================================================================
+  /** 見出しを折り返し、操作の釦をグループ名の下の行へ送る */
+  headerMobile: {
+    flexWrap: 'wrap' as const,
+    gap: '8px 12px',
+  } as React.CSSProperties,
+  /** グループ名の領域が、折りたたみの釦（32px）と列の間隔（12px）を除いた 1 行を占める */
+  headerInfoMobile: {
+    flex: '1 1 calc(100% - 44px)',
+  } as React.CSSProperties,
+  /** 区切りの無い長い名前（英数字の一語など）も、カードの幅で折り返す */
+  groupNameMobile: {
+    overflowWrap: 'anywhere' as const,
+  } as React.CSSProperties,
+  /** 操作の釦の並びも縮められるようにし、入り切らなければ釦を次の行へ折り返す */
+  headerActionsMobile: {
+    flexWrap: 'wrap' as const,
+    flexShrink: 1,
+    minWidth: 0,
+  } as React.CSSProperties,
+  /** 写真の列が写真領域の幅の 2/3 を、写真コメントが残りを占める（コメントは写真の右側のまま。REQ-21.2） */
+  photoColumnMobile: {
+    flex: '2 1 0%',
+    minWidth: 0,
+  } as React.CSSProperties,
+  /** 写真の枠の 640×480 の固定を解き、列の幅に合わせて 4:3 のまま縮める */
+  thumbnailWrapperMobile: {
+    width: '100%',
+    height: 'auto',
+    aspectRatio: '4 / 3',
   } as React.CSSProperties,
 };
 
@@ -515,10 +573,14 @@ export default function QuantityGroupCard({
   onAddItem,
   onDeleteGroup,
   onSelectImage,
+  onUnlinkImage,
   onUpdateItem,
   onDeleteItem,
   onCopyItem,
   onMoveItem,
+  onMoveItemToGroup,
+  selectedItemIds,
+  onItemSelectionChange,
   onOpenAnnotationViewer: _onOpenAnnotationViewer,
   getSuggestions,
   onBlurAddCandidate,
@@ -531,14 +593,36 @@ export default function QuantityGroupCard({
   isCopying = false,
 }: QuantityGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
+  // Task 103.1: モバイル幅の判定（ブレークポイントは utils/responsive に一元化されたものを使う）
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const hasAnnotations = group.surveyImage?.hasAnnotations ?? false;
+  // 注釈の目印は「描画された注釈の有無」で判定する（site-survey Task 115.13、要件20.2）。
+  // hasAnnotations は注釈レコードの存在から導出されるため、回転のみを保存した写真でも
+  // 真になり、目印の判定には使えない。
+  const hasDrawnAnnotations = group.surveyImage?.hasDrawnAnnotations ?? false;
 
   // Task 35.1: インライン編集ステート
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState(groupDisplayName);
   const [nameError, setNameError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * IME 変換中かどうか（変換中は幅の判定を行わない: Task 115.34、REQ-22.5）
+   *
+   * 記録の寿命は「一回の焦点セッション」とする（Task 115.42）。この編集欄では
+   * 変換の確定（compositionend）または焦点喪失（handleNameBlur）で終了させる。
+   * 焦点喪失側だけで全ての焦点セッションの開始前に初期化された状態を保証できるため、
+   * 編集開始時の初期化は置かない（Task 115.44）。
+   */
+  const isNameComposingRef = useRef(false);
+  /**
+   * 幅の判定を通した直前の値（判定を経ていない値が確定されそうな場合の戻り先）
+   *
+   * 編集を開始した時点と変換を開始した時点で更新する。編集開始時にも更新するのは、
+   * 変換を一度も行っていない編集で焦点を失った場合の戻り先を持たせるため（Task 115.40）。
+   */
+  const preCompositionNameRef = useRef(groupDisplayName);
 
   /**
    * 展開/折りたたみを切り替え
@@ -598,6 +682,15 @@ export default function QuantityGroupCard({
     onSelectImage?.(group.id);
   }, [group.id, onSelectImage]);
 
+  /**
+   * 写真の紐付け解除ボタンハンドラ（Task 90.2: REQ-42.3）
+   *
+   * 解除はドラフトにのみ反映される（永続化は保存操作時の1回に畳まれる）。
+   */
+  const handleUnlinkPhoto = useCallback(() => {
+    onUnlinkImage?.(group.id);
+  }, [group.id, onUnlinkImage]);
+
   // =========================================================================
   // Task 35.1: グループ名インライン編集ハンドラ
   // =========================================================================
@@ -607,6 +700,12 @@ export default function QuantityGroupCard({
    */
   const handleNameClick = useCallback(() => {
     if (!isEditable || !onRenameGroup) return;
+    // 変換中の記録はここでは初期化しない（Task 115.44）。編集開始時の初期化は
+    // 焦点喪失時の終了（handleNameBlur）に完全に含まれる。編集欄は焦点喪失後も
+    // 残りうる（空欄で確定できない場合）ため、全ての焦点セッションを覆えるのは
+    // 焦点喪失側だけであり、編集開始側は一度も単独では効かない。
+    // 幅の判定を通った戻り先を編集開始時の値で初期化する（Task 115.40）
+    preCompositionNameRef.current = groupDisplayName;
     setEditNameValue(groupDisplayName);
     setNameError(null);
     setIsEditingName(true);
@@ -625,23 +724,30 @@ export default function QuantityGroupCard({
   /**
    * グループ名の変更を確定する（REQ-22.2）
    */
-  const handleNameConfirm = useCallback(() => {
-    const trimmed = editNameValue.trim();
-    // 空白チェック（REQ-22.3）
-    if (!trimmed) {
-      setNameError('グループ名を入力してください');
-      return;
-    }
-    // 変更なしの場合はAPIを呼ばない
-    if (trimmed === groupDisplayName) {
+  const confirmNameValue = useCallback(
+    (rawValue: string) => {
+      const trimmed = rawValue.trim();
+      // 空白チェック（REQ-22.3）
+      if (!trimmed) {
+        setNameError('グループ名を入力してください');
+        return;
+      }
+      // 変更なしの場合はAPIを呼ばない
+      if (trimmed === groupDisplayName) {
+        setIsEditingName(false);
+        setNameError(null);
+        return;
+      }
+      onRenameGroup?.(group.id, trimmed);
       setIsEditingName(false);
       setNameError(null);
-      return;
-    }
-    onRenameGroup?.(group.id, trimmed);
-    setIsEditingName(false);
-    setNameError(null);
-  }, [editNameValue, groupDisplayName, group.id, onRenameGroup]);
+    },
+    [groupDisplayName, group.id, onRenameGroup]
+  );
+
+  const handleNameConfirm = useCallback(() => {
+    confirmNameValue(editNameValue);
+  }, [confirmNameValue, editNameValue]);
 
   /**
    * 編集キャンセル（Escapeキー）
@@ -653,10 +759,39 @@ export default function QuantityGroupCard({
   }, [groupDisplayName]);
 
   /**
+   * このキー操作が日本語入力（IME）の変換中のものかを判定する（Task 115.34、REQ-22.5）
+   *
+   * 変換中の Enter は「変換の確定」、Escape は「変換の取り消し」であって、
+   * 名前編集の確定・取り消しではない。変換中は幅の判定を行わない（上限を超えた読みを
+   * 保持する）ため、変換中の Enter をそのまま確定へ通すと上限超過の名前が確定してしまう。
+   *
+   * 変換中の現れ方はブラウザ・IME によって異なるため、複数の手掛かりを併用する:
+   * - compositionstart/compositionend で自前に追跡した状態（isNameComposingRef）
+   * - KeyboardEvent.isComposing（標準。keydown が compositionend より先に届く環境で有効）
+   * - keyCode === 229（IME 変換中を示す旧来の値。compositionend が keydown より先に
+   *   届く環境や isComposing を提供しない環境で唯一の手掛かりとなる）
+   */
+  const isNameKeyEventComposing = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    const nativeEvent = e.nativeEvent as KeyboardEvent;
+    return (
+      isNameComposingRef.current ||
+      nativeEvent.isComposing === true ||
+      e.keyCode === 229 ||
+      nativeEvent.keyCode === 229
+    );
+  }, []);
+
+  /**
    * キー操作ハンドラ
    */
   const handleNameKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
+      // 変換中のキーは IME のもの。確定も取り消しも行わず IME に委ねる
+      // （preventDefault もしない。ここで抑止すると変換操作そのものを妨げるため）
+      if (isNameKeyEventComposing(e)) {
+        return;
+      }
+
       if (e.key === 'Enter') {
         e.preventDefault();
         handleNameConfirm();
@@ -665,28 +800,109 @@ export default function QuantityGroupCard({
         handleNameCancel();
       }
     },
-    [handleNameConfirm, handleNameCancel]
+    [handleNameConfirm, handleNameCancel, isNameKeyEventComposing]
   );
 
   /**
-   * グループ名入力変更ハンドラ（REQ-22.4, 22.5: 最大文字数制限）
+   * 入力を受け付けてよいかを判定する。
+   *
+   * 上限以内なら受け付ける。上限を超える場合は原則拒否するが、
+   * 現在値が既に上限を超えている（幅の検証を持たない経路で作られた既存データ等）ときに
+   * 編集不能とならないよう、値が短くなる編集だけは受け付ける。
    */
-  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    const width = calculateStringWidth(newValue);
-    // 最大文字数を超えない場合のみ更新（REQ-22.5）
-    if (width <= GROUP_NAME_MAX_WIDTH) {
-      setEditNameValue(newValue);
-      setNameError(null);
-    }
+  const acceptsNameWidth = useCallback((nextValue: string, baseValue: string) => {
+    const nextWidth = calculateStringWidth(nextValue);
+    return nextWidth <= GROUP_NAME_MAX_WIDTH || nextWidth < calculateStringWidth(baseValue);
   }, []);
 
   /**
-   * blurイベントで確定
+   * グループ名入力変更ハンドラ（REQ-22.4, 22.5: 最大文字数制限）
+   *
+   * 日本語入力（IME）の変換中は判定を行わずそのまま通す。変換中の読みは確定語より
+   * 長くなることがあり、この段階で拒否すると変換が中断されて上限以内の正当な名前を
+   * 確定できなくなるため。判定は確定時（compositionend）に行う。
+   */
+  const handleNameChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newValue = e.target.value;
+
+      // 変換中は幅を判定しない（compositionend で確定値を判定する）
+      const nativeIsComposing = (e.nativeEvent as InputEvent).isComposing === true;
+      if (isNameComposingRef.current || nativeIsComposing) {
+        setEditNameValue(newValue);
+        setNameError(null);
+        return;
+      }
+
+      // 上限を超える入力は状態へ反映しない（＝controlled input の表示も直前の値のまま
+      // 戻る）。DOM を直接書き換えないためカーソル位置も保たれる。
+      if (!acceptsNameWidth(newValue, editNameValue)) {
+        return;
+      }
+
+      setEditNameValue(newValue);
+      setNameError(null);
+    },
+    [acceptsNameWidth, editNameValue]
+  );
+
+  /**
+   * 変換開始ハンドラ。戻り先となる直前の確定値を控える。
+   */
+  const handleNameCompositionStart = useCallback(() => {
+    isNameComposingRef.current = true;
+    preCompositionNameRef.current = editNameValue;
+  }, [editNameValue]);
+
+  /**
+   * 変換確定ハンドラ（REQ-22.5）
+   *
+   * 変換で確定した値の幅を評価し、上限を超える場合のみ変換開始直前の確定値へ戻す。
+   */
+  const handleNameCompositionEnd = useCallback(
+    (e: React.CompositionEvent<HTMLInputElement>) => {
+      isNameComposingRef.current = false;
+      const committed = e.currentTarget.value;
+      const base = preCompositionNameRef.current;
+      setEditNameValue(acceptsNameWidth(committed, base) ? committed : base);
+      setNameError(null);
+    },
+    [acceptsNameWidth]
+  );
+
+  /**
+   * blurイベントで確定（Task 115.40、REQ-22.5）
+   *
+   * 焦点喪失の時点では、editNameValue が幅の判定を経ていない場合がある。
+   * - 変換中に焦点を失った場合。変換中は幅の判定を行わないため上限超過の読みが残る
+   * - 変換の確定（compositionend）と焦点喪失が同一の実行単位に入った場合。戻し処理は
+   *   状態の更新であり、同じ実行単位から見える値は反映前（＝上限超過）のままになる
+   *
+   * このため、変換の確定と同じ判定（acceptsNameWidth と変換開始直前の値）を改めて適用し、
+   * 上限を超える場合は戻り先の値で確定する。判定は compositionend と共通の実装を用いる。
+   *
+   * 変換中でも確定を先送りにはしない。先送りにすると、確定の通知が届かないまま焦点を
+   * 失った場合に、確定されないまま残る編集が生じるため。
+   *
+   * あわせて変換中の記録をここで終了させる（Task 115.42）。記録の寿命は「一回の焦点
+   * セッション」であり、確定の通知（compositionend）か焦点喪失の早い方で終了する。
+   * 焦点喪失で消さないと、空欄のため確定できず編集欄が残った場合に記録が固着し、
+   * その編集欄では以後の確定・取り消しも幅の判定も働かなくなる。
+   *
+   * この編集欄では焦点喪失側が唯一の終了点である（Task 115.44）。編集開始時にも
+   * 初期化していたが、編集欄は焦点喪失後も残りうる（空欄で確定できない場合）ため
+   * 編集開始側では覆えない焦点セッションがあり、逆に焦点喪失側は全ての焦点セッションを
+   * 覆う。変換中は確定も取り消しも抑止されるため、焦点喪失以外に編集欄を閉じる経路も無い。
    */
   const handleNameBlur = useCallback(() => {
-    handleNameConfirm();
-  }, [handleNameConfirm]);
+    const base = preCompositionNameRef.current;
+    const valueToConfirm = acceptsNameWidth(editNameValue, base) ? editNameValue : base;
+    isNameComposingRef.current = false;
+    preCompositionNameRef.current = valueToConfirm;
+    // 編集欄が開いたまま残る場合（空白でエラーになる場合）に備えて表示も戻す
+    setEditNameValue(valueToConfirm);
+    confirmNameValue(valueToConfirm);
+  }, [acceptsNameWidth, confirmNameValue, editNameValue]);
 
   const items = group.items ?? [];
 
@@ -696,7 +912,7 @@ export default function QuantityGroupCard({
           inline <style> として一度だけ宣言する。複数カード描画でも同じ名前なら重複は無害） */}
       <style>{`@keyframes quantity-group-card-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       {/* ヘッダー */}
-      <div style={styles.header}>
+      <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
         {/* 展開/折りたたみボタン */}
         <button
           type="button"
@@ -712,7 +928,7 @@ export default function QuantityGroupCard({
         </button>
 
         {/* グループ情報 */}
-        <div style={styles.headerInfo}>
+        <div style={{ ...styles.headerInfo, ...(isMobile ? styles.headerInfoMobile : {}) }}>
           {isEditingName ? (
             <div>
               <input
@@ -720,6 +936,8 @@ export default function QuantityGroupCard({
                 type="text"
                 value={editNameValue}
                 onChange={handleNameChange}
+                onCompositionStart={handleNameCompositionStart}
+                onCompositionEnd={handleNameCompositionEnd}
                 onKeyDown={handleNameKeyDown}
                 onBlur={handleNameBlur}
                 style={styles.groupNameInput}
@@ -729,7 +947,10 @@ export default function QuantityGroupCard({
             </div>
           ) : (
             <h3
-              style={isEditable && onRenameGroup ? styles.groupNameEditable : styles.groupName}
+              style={{
+                ...(isEditable && onRenameGroup ? styles.groupNameEditable : styles.groupName),
+                ...(isMobile ? styles.groupNameMobile : {}),
+              }}
               onClick={handleNameClick}
               role={isEditable && onRenameGroup ? 'button' : undefined}
               tabIndex={isEditable && onRenameGroup ? 0 : undefined}
@@ -765,7 +986,7 @@ export default function QuantityGroupCard({
           )}
 
         {/* アクションボタン */}
-        <div style={styles.headerActions}>
+        <div style={{ ...styles.headerActions, ...(isMobile ? styles.headerActionsMobile : {}) }}>
           {/* グループコピーボタン（Task 53.2: REQ-38.1, 38.9, 38.12）
               並替ボタンと削除ボタンの間に配置し、中立色で視覚的に削除と区別する */}
           {isEditable && onCopyGroup && (
@@ -812,10 +1033,11 @@ export default function QuantityGroupCard({
         {/* 関連画像 / プレースホルダー + コメント表示（REQ-3.3, 21.2, 21.5） */}
         {group.surveyImage ? (
           <div style={styles.photoArea}>
-            <div style={{ display: 'flex', flexDirection: 'column' as const }}>
+            <div style={{ ...styles.photoColumn, ...(isMobile ? styles.photoColumnMobile : {}) }}>
               <div
                 style={{
                   ...styles.thumbnailWrapper,
+                  ...(isMobile ? styles.thumbnailWrapperMobile : {}),
                   position: 'relative' as const,
                 }}
                 onClick={handleImageClick}
@@ -832,14 +1054,24 @@ export default function QuantityGroupCard({
                 <AnnotatedImageThumbnail
                   image={{
                     id: group.surveyImage.id,
+                    thumbnailUrl: group.surveyImage.thumbnailUrl,
+                    annotatedThumbnailUrl: group.surveyImage.annotatedThumbnailUrl,
                     originalUrl: group.surveyImage.originalUrl,
+                    // 未読込でも表示領域を確保できるよう実寸を渡す（Requirement 49.8）。
+                    // 実寸を伴わないサマリでは undefined のままとし、共有部品側の
+                    // 縮退（領域確保を行わず即時取得）に委ねる。
+                    width: group.surveyImage.width,
+                    height: group.surveyImage.height,
                   }}
                   alt={group.surveyImage.fileName}
                   style={styles.thumbnail}
                   hasAnnotations={hasAnnotations}
+                  // 表題部の縮小表示。原寸画像ではなくサムネイルを使い、
+                  // サーバー生成の注釈付きサムネイルがあれば注釈取得APIも省略する
+                  preferThumbnail
                 />
                 {/* 注釈バッジ（REQ-3.3） */}
-                {hasAnnotations && (
+                {hasDrawnAnnotations && (
                   <span
                     data-testid={`annotation-badge-${group.id}`}
                     style={{
@@ -869,6 +1101,19 @@ export default function QuantityGroupCard({
               >
                 写真を変更
               </button>
+              {/* 写真の紐付け解除ボタン（Task 90.2: REQ-42.3）。
+                  親の現場調査が論理削除された写真は選択候補に現れないため、
+                  「変更」では 410 で止まる数量表を保存できる状態へ戻せない。 */}
+              {onUnlinkImage && (
+                <button
+                  type="button"
+                  style={styles.photoChangeButton}
+                  onClick={handleUnlinkPhoto}
+                  aria-label="写真の紐付けを解除"
+                >
+                  写真の紐付けを解除
+                </button>
+              )}
             </div>
             {/* 写真コメント表示（REQ-21.2） */}
             <PhotoCommentDisplay comment={group.surveyImage.comment ?? null} />
@@ -927,6 +1172,9 @@ export default function QuantityGroupCard({
                       onCopy={onCopyItem}
                       onMoveUp={(itemId) => onMoveItem?.(itemId, 'up')}
                       onMoveDown={(itemId) => onMoveItem?.(itemId, 'down')}
+                      onMoveToGroup={onMoveItemToGroup}
+                      isSelected={selectedItemIds?.includes(item.id) ?? false}
+                      onSelectionChange={onItemSelectionChange}
                       canMoveUp={index > 0}
                       canMoveDown={index < items.length - 1}
                       getSuggestions={getSuggestions || defaultGetSuggestions}

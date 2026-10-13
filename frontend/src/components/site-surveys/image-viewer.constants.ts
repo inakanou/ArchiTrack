@@ -1,7 +1,10 @@
 /**
  * @fileoverview 画像ビューアの定数と型定義
  *
- * react-refresh/only-export-components 対応のため分離
+ * react-refresh/only-export-components 対応のため、定数・型をコンポーネント本体から切り出した
+ * 共有モジュール。現在の参照元は `gestures/canvasViewportController`・`gestures/gesture-thresholds`・
+ * `hooks/useCanvasViewport`・`construction-photos/ConstructionPhotoImageViewer` である
+ * （切り出し元だった `ImageViewer.tsx` はタスク 115.146 で撤去済みである）。
  */
 
 // ============================================================================
@@ -52,7 +55,7 @@ export const PAN_CONSTANTS = {
  * タッチ操作関連の定数
  * @description ピンチズームと2本指パン操作の設定を定義
  * Requirements: 5.5 - ピンチ操作を行う（タッチデバイス）とズームレベルを変更する
- * Requirements: 13.2 - タッチ操作に最適化された注釈ツールを提供する
+ * Requirements: 15.2 - タッチ操作に最適化された注釈ツールを提供する
  */
 export const TOUCH_CONSTANTS = {
   /** ピンチズームの最小距離閾値（ピクセル） */
@@ -60,32 +63,3 @@ export const TOUCH_CONSTANTS = {
   /** ピンチズームの感度係数 */
   PINCH_ZOOM_FACTOR: 0.01,
 } as const;
-
-// ============================================================================
-// 型定義
-// ============================================================================
-
-/**
- * 外部公開用の表示状態（注釈エディタとの共有用）
- * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
- */
-export interface ImageViewerViewState {
-  /** 現在のズーム倍率 */
-  zoom: number;
-  /** 現在の回転角度（度） */
-  rotation: RotationAngle;
-  /** パン位置X */
-  panX: number;
-  /** パン位置Y */
-  panY: number;
-}
-
-/**
- * ImageViewerのref経由で公開するメソッド
- */
-export interface ImageViewerRef {
-  /** 現在の表示状態を取得 */
-  getViewState: () => ImageViewerViewState;
-  /** 表示状態を設定 */
-  setViewState: (state: Partial<ImageViewerViewState>) => void;
-}

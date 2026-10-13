@@ -132,7 +132,8 @@ export async function uploadConstructionPhotos(
  * @param surveyImageIds - 複製元の現場調査画像ID配列（1〜10件）
  * @returns 成功分（写真項目）と失敗分（現調画像ID・エラー）を含む結果
  * @throws ApiError バリデーションエラー（400）、認証エラー（401）、権限不足（403）、
- *   アルバム/現調写真が見つからない（404）、ストレージ未設定（503）
+ *   アルバム/現調写真が見つからない（404）、親の現場調査が論理削除済み（410 SURVEY_DELETED）、
+ *   ストレージ未設定（503）
  *
  * Requirements: 6.1, 6.2, 12.5
  */

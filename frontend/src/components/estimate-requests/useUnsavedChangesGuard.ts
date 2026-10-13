@@ -10,8 +10,9 @@
  *          ブラウザ標準の beforeunload 確認ダイアログを表示する
  *
  * Design Reference:
- * - design.md「カスタムフック: 未保存変更ガード」(4812-4835)
- * - design.md「ReceivedQuotationForm - 改訂4 Implementation Notes - isDirty 判定」(4905-4911)
+ * - design.md「ReceivedQuotationForm - 改訂4（保存リトライ・未保存変更ガード）」の §State Management にある
+ *   「カスタムフック: 未保存変更ガード」（`useUnsavedChangesGuard`）
+ * - design.md「ReceivedQuotationForm - 改訂4（保存リトライ・未保存変更ガード）」の §Implementation Notes「isDirty 判定」
  *
  * Notes:
  * - 本モジュールは ReceivedQuotationForm の dirty 判定とダイアログ離脱ガードを
@@ -166,7 +167,7 @@ function lineItemsAreEqual(a: LineItemFormData[], b: LineItemFormData[]): boolea
 /**
  * 現在の form state が初期スナップショットと差分があるかを判定する純粋関数。
  *
- * 比較規則（design.md 4905-4911）:
+ * 比較規則（design.md「ReceivedQuotationForm - 改訂4（保存リトライ・未保存変更ガード）」の §Implementation Notes「isDirty 判定」）:
  * - **scalar フィールド**（`name`/`submittedAt`/`netAmount`）: 文字列等価で比較。
  *   `null`/`undefined`/`''` の差異は正規化してから比較し、空入力同士は等価。
  *   `submittedAt` が `Date` の場合は ISO 文字列化、`netAmount` が number の場合は `String(...)` で文字列化。

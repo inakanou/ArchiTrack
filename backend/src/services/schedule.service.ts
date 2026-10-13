@@ -28,10 +28,12 @@ import type {
   BulkSaveScheduleItemsInput,
   ScheduleListQuery,
 } from '../schemas/schedule.schema.js';
+import { MAX_SCHEDULE_ITEMS, SCHEDULE_VALIDATION_MESSAGES } from '../schemas/schedule.schema.js';
 import {
   ScheduleNotFoundError,
   ScheduleConflictError,
   ScheduleValidationError,
+  ScheduleItemLimitExceededError,
 } from '../errors/scheduleError.js';
 
 /**
@@ -248,9 +250,13 @@ export class ScheduleService {
    * - 2.2: 数量表なしで空の工程表作成
    * - 2.3: 数量表指定時の項目自動取得（スナップショットコピー）
    * - 9.2: 出力対象チェックボックスの初期値ON
+   *
+   * 数量表の項目が {@link MAX_SCHEDULE_ITEMS} 件を超える場合は、何も書き込まずに
+   * {@link ScheduleItemLimitExceededError}（400）で拒む（Req 12.1）。
    */
   async create(projectId: string, data: CreateScheduleInput): Promise<ScheduleDetail> {
-    // 数量表指定時のバリデーション
+    // 数量表指定時: 数量表を検証し、写す項目を工程表の作成より前に取得する
+    let quantityItems: Array<{ id: string; name: string }> = [];
     if (data.quantityTableId) {
       const quantityTable = await this.prisma.quantityTable.findUnique({
         where: { id: data.quantityTableId },
@@ -262,6 +268,29 @@ export class ScheduleService {
 
       if (quantityTable.projectId !== projectId) {
         throw new ScheduleValidationError('指定された数量表は同一プロジェクトに属していません');
+      }
+
+      quantityItems = await this.prisma.quantityItem.findMany({
+        where: {
+          quantityGroup: {
+            quantityTableId: data.quantityTableId,
+          },
+        },
+        include: {
+          quantityGroup: {
+            select: { displayOrder: true },
+          },
+        },
+        orderBy: [{ quantityGroup: { displayOrder: 'asc' } }, { displayOrder: 'asc' }],
+      });
+
+      // 1つの工程表あたりの上限を超える数量表からは作成しない（Req 12.1）。
+      // 書き込みより前に拒むため、工程表も項目も作られない
+      if (quantityItems.length > MAX_SCHEDULE_ITEMS) {
+        throw new ScheduleItemLimitExceededError(
+          `${SCHEDULE_VALIDATION_MESSAGES.QUANTITY_TABLE_ITEMS_MAX_COUNT}（${quantityItems.length}件）`,
+          { itemCount: quantityItems.length, maxItemCount: MAX_SCHEDULE_ITEMS }
+        );
       }
     }
 
@@ -276,37 +305,21 @@ export class ScheduleService {
     });
 
     // 数量表指定時: QuantityItemからScheduleItemを生成
-    if (data.quantityTableId) {
-      const quantityItems = await this.prisma.quantityItem.findMany({
-        where: {
-          quantityGroup: {
-            quantityTableId: data.quantityTableId,
-          },
-        },
-        include: {
-          quantityGroup: {
-            select: { displayOrder: true },
-          },
-        },
-        orderBy: [{ quantityGroup: { displayOrder: 'asc' } }, { displayOrder: 'asc' }],
+    if (quantityItems.length > 0) {
+      await this.prisma.scheduleItem.createMany({
+        data: quantityItems.map((qi, index) => ({
+          scheduleId: schedule.id,
+          sourceType: 'QUANTITY_TABLE',
+          sourceQuantityItemId: qi.id,
+          itemName: qi.name,
+          labelText: '',
+          detailText: '',
+          startDate: null,
+          duration: null,
+          displayOrder: index,
+          isExportTarget: true,
+        })),
       });
-
-      if (quantityItems.length > 0) {
-        await this.prisma.scheduleItem.createMany({
-          data: quantityItems.map((qi, index) => ({
-            scheduleId: schedule.id,
-            sourceType: 'QUANTITY_TABLE',
-            sourceQuantityItemId: qi.id,
-            itemName: qi.name,
-            labelText: '',
-            detailText: '',
-            startDate: null,
-            duration: null,
-            displayOrder: index,
-            isExportTarget: true,
-          })),
-        });
-      }
     }
 
     // 作成後の詳細を取得して返却

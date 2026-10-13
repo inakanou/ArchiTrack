@@ -32,8 +32,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -117,16 +118,7 @@ async function createTestProject(page: Page, projectName: string): Promise<strin
   await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
   const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-  const salesPersonValue = await salesPersonSelect.inputValue();
-  if (!salesPersonValue) {
-    const options = await salesPersonSelect.locator('option').all();
-    if (options.length > 1 && options[1]) {
-      const firstUserOption = await options[1].getAttribute('value');
-      if (firstUserOption) {
-        await salesPersonSelect.selectOption(firstUserOption);
-      }
-    }
-  }
+  await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
   const createProjectPromise = page.waitForResponse(
     (response) =>
@@ -623,13 +615,13 @@ test.describe('REQ-42: クライアントサイド編集・明示保存モデル
         await page.waitForLoadState('networkidle');
 
         const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        const hasDeleteButton = await deleteButton.isVisible({ timeout: 5000 });
+        const hasDeleteButton = await isVisibleWithin(deleteButton, 5000);
         if (hasDeleteButton) {
           await deleteButton.click();
           const confirmButton = page
             .getByTestId('focus-manager-overlay')
             .getByRole('button', { name: /^削除$/i });
-          const hasConfirmButton = await confirmButton.isVisible({ timeout: 5000 });
+          const hasConfirmButton = await isVisibleWithin(confirmButton, 5000);
           if (hasConfirmButton) {
             await confirmButton.click();
             await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });

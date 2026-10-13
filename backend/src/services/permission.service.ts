@@ -18,6 +18,7 @@ import type {
 } from '../types/permission.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
  * 権限管理サービスの実装
@@ -117,7 +118,9 @@ export class PermissionService implements IPermissionService {
         createdAt: permission.createdAt,
       });
     } catch (error) {
-      logger.error({ error, input }, 'Failed to create permission');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error({ err: error, input }, 'Failed to create permission');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -157,7 +160,9 @@ export class PermissionService implements IPermissionService {
         createdAt: permission.createdAt,
       });
     } catch (error) {
-      logger.error({ error, permissionId }, 'Failed to get permission');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error({ err: error, permissionId }, 'Failed to get permission');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -222,7 +227,9 @@ export class PermissionService implements IPermissionService {
 
       return Ok(undefined);
     } catch (error) {
-      logger.error({ error, permissionId }, 'Failed to delete permission');
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      logger.error({ err: error, permissionId }, 'Failed to delete permission');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',

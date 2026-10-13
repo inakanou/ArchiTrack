@@ -9,19 +9,21 @@
  * - REQ-27.5: ステータス管理・基本情報・アクションセクションの表示位置を維持
  * - REQ-27.6: レイアウト変更後も既存機能が正常に動作
  * - REQ-27.7: レスポンシブデザインでフルワイド化セクションが適切に表示
- * - REQ-28.1: 受領見積書登録画面の明細行にNET金額入力フィールド表示
- * - REQ-28.2: 受領見積書編集画面の明細行にNET金額入力フィールド表示
- * - REQ-28.3: NET金額入力フィールドを金額列の右隣に配置
- * - REQ-28.4: NET金額入力フィールドをユーザーが手動入力可能
- * - REQ-28.5: NET金額フィールドを任意入力（必須ではない）
- * - REQ-28.6: NET金額の表示形式を整数表示
- * - REQ-28.7: NET金額フォーカスアウト時に整数値にフォーマット
- * - REQ-28.8: 構造化データ入力エリア下部にNET金額合計を自動計算して表示
- * - REQ-28.9: NET金額合計を既存の金額合計の右隣に配置
- * - REQ-28.10: OCR一括取り込み時にNET金額を空欄のまま
- * - REQ-28.11: 項目選択からの一括転記時にNET金額を空欄のまま
- * - REQ-28.12: NET金額データをDBに永続化
- * - REQ-28.13: 編集画面で既存のNET金額データを表示
+ * - REQ-28.1: 受領見積書登録画面の合計金額表示エリアにNET金額入力フィールドを表示する
+ * - REQ-28.2: 受領見積書編集画面の合計金額表示エリアにNET金額入力フィールドを表示する
+ * - REQ-28.3: NET金額入力フィールドを明細行の外側（合計金額の近傍）に配置する
+ * - REQ-28.4: NET金額は受領見積書1件につき1つのフィールドとする
+ * - REQ-28.5: 明細行にNET金額列を含めない
+ * - REQ-28.6: NET金額入力フィールドをユーザーが手動で入力可能なフィールドとする
+ * - REQ-28.7: NET金額フィールドを任意入力（必須ではない）とする
+ * - REQ-28.8: NET金額の表示形式を整数表示とする
+ * - REQ-28.9: NET金額の入力フィールドにおいてフォーカスアウト時に整数値にフォーマットする
+ * - REQ-28.10: NET金額データをデータベースに永続化する
+ * - REQ-28.11: 受領見積書の編集画面で既存のNET金額データを表示する
+ *
+ * タスク 115.188 の是正: 従前の一覧は要件28が改訂される前の番号（28.1〜28.13）を
+ * そのまま残しており、28.12・28.13 は要件定義書に存在しない番号だった。
+ * 現行の要件28は受入基準11件であり、一覧と本文の被覆印を現行番号へ揃えている。
  *
  * @module e2e/specs/estimate-requests/estimate-request-layout-net-e2e.spec
  */
@@ -30,6 +32,8 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * 見積依頼詳細画面レイアウト変更・NET金額入力欄のE2Eテスト
@@ -68,16 +72,7 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       await page.getByLabel(/現場住所/i).fill('東京都中央区テスト1-1-1');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response) =>
@@ -289,12 +284,10 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       const itemSelectionBbox = await itemSelectionHeading.boundingBox();
       const selectionStatusBbox = await selectionStatusHeading.boundingBox();
 
-      expect(itemSelectionBbox).toBeTruthy();
-      expect(selectionStatusBbox).toBeTruthy();
+      assertPresent(itemSelectionBbox, '数量項目選択セクションの境界ボックス');
+      assertPresent(selectionStatusBbox, '選択状況セクションの境界ボックス');
 
-      if (itemSelectionBbox && selectionStatusBbox) {
-        expect(selectionStatusBbox.y).toBeGreaterThan(itemSelectionBbox.y);
-      }
+      expect(selectionStatusBbox.y).toBeGreaterThan(itemSelectionBbox.y);
     });
 
     /**
@@ -326,12 +319,10 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       const selectionStatusBbox = await selectionStatusHeading.boundingBox();
       const receivedQuotationBbox = await receivedQuotationSection.boundingBox();
 
-      expect(selectionStatusBbox).toBeTruthy();
-      expect(receivedQuotationBbox).toBeTruthy();
+      assertPresent(selectionStatusBbox, '選択状況セクションの境界ボックス');
+      assertPresent(receivedQuotationBbox, '受領見積書セクションの境界ボックス');
 
-      if (selectionStatusBbox && receivedQuotationBbox) {
-        expect(receivedQuotationBbox.y).toBeGreaterThan(selectionStatusBbox.y);
-      }
+      expect(receivedQuotationBbox.y).toBeGreaterThan(selectionStatusBbox.y);
     });
 
     /**
@@ -405,14 +396,12 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
       const basicInfoBbox = await page.getByRole('heading', { name: '基本情報' }).boundingBox();
       const actionBbox = await page.getByRole('heading', { name: 'アクション' }).boundingBox();
 
-      expect(statusBbox).toBeTruthy();
-      expect(basicInfoBbox).toBeTruthy();
-      expect(actionBbox).toBeTruthy();
+      assertPresent(statusBbox, 'ステータスセクションの境界ボックス');
+      assertPresent(basicInfoBbox, '基本情報セクションの境界ボックス');
+      assertPresent(actionBbox, 'アクションセクションの境界ボックス');
 
-      if (statusBbox && basicInfoBbox && actionBbox) {
-        expect(basicInfoBbox.y).toBeGreaterThan(statusBbox.y);
-        expect(actionBbox.y).toBeGreaterThan(basicInfoBbox.y);
-      }
+      expect(basicInfoBbox.y).toBeGreaterThan(statusBbox.y);
+      expect(actionBbox.y).toBeGreaterThan(basicInfoBbox.y);
     });
 
     /**
@@ -612,8 +601,9 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
     });
 
     /**
+     * @requirement estimate-request/REQ-28.4
      * @requirement estimate-request/REQ-28.5
-     * 明細行テーブルにNET金額列が存在しないことの確認
+     * 明細行テーブルにNET金額列が存在せず、NET金額欄が受領見積書1件につき1つであることの確認
      */
     test('明細行テーブルにNET金額列が存在しないこと (estimate-request/REQ-28.5)', async ({
       page,
@@ -652,9 +642,10 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
     });
 
     /**
-     * @requirement estimate-request/REQ-28.4
+     * @requirement estimate-request/REQ-28.6
+     * NET金額入力フィールドをユーザーが手動で入力可能なフィールドとする（自動計算ではない）
      */
-    test('NET金額入力フィールドがユーザーが手動入力可能なフィールドである (estimate-request/REQ-28.4)', async ({
+    test('NET金額入力フィールドがユーザーが手動入力可能なフィールドである (estimate-request/REQ-28.6)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -688,9 +679,10 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
     });
 
     /**
-     * @requirement estimate-request/REQ-28.5
+     * @requirement estimate-request/REQ-28.7
+     * NET金額フィールドを任意入力（必須ではない）とする
      */
-    test('NET金額フィールドが任意入力（必須ではない）である (estimate-request/REQ-28.5)', async ({
+    test('NET金額フィールドが任意入力（必須ではない）である (estimate-request/REQ-28.7)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -722,10 +714,11 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
     });
 
     /**
-     * @requirement estimate-request/REQ-28.6
-     * @requirement estimate-request/REQ-28.7
+     * @requirement estimate-request/REQ-28.8
+     * @requirement estimate-request/REQ-28.9
+     * NET金額の表示形式を整数表示とし、フォーカスアウト時に整数値にフォーマットする
      */
-    test('NET金額がフォーカスアウト時に整数値にフォーマットされる (estimate-request/REQ-28.6, REQ-28.7)', async ({
+    test('NET金額がフォーカスアウト時に整数値にフォーマットされる (estimate-request/REQ-28.8, REQ-28.9)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -762,12 +755,13 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
     });
 
     /**
-     * @requirement estimate-request/REQ-28.8
      * NET金額が受領見積書レベルのフィールドとして初期状態で空欄であること
+     *
+     * タスク 115.188 の是正: 従前は REQ-28.8 を名乗っていたが、現行の受入基準28.8 は「表示形式を整数表示とす
+     * る」であり本検証の内容と対応しない。改訂後の要件28に「初期状態で空欄」を述べる受入基準は存在しないため、
+     * 被覆印を取り下げた。
      */
-    test('NET金額フィールドが初期状態で空欄である (estimate-request/REQ-28.8)', async ({
-      page,
-    }) => {
+    test('NET金額フィールドが初期状態で空欄である', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -795,10 +789,10 @@ test.describe('見積依頼詳細画面レイアウト・NET金額 (REQ-27～REQ
     });
 
     /**
-     * @requirement estimate-request/REQ-28.9
-     * NET金額を空欄のまま保存→編集画面でNET金額が空欄であることを確認
+     * @requirement estimate-request/REQ-28.10
+     * NET金額データをデータベースに永続化する（空欄のまま保存した場合の往復を確かめる）
      */
-    test('NET金額を空欄のまま保存→編集画面でNET金額が空欄であることを確認 (estimate-request/REQ-28.9)', async ({
+    test('NET金額を空欄のまま保存→編集画面でNET金額が空欄であることを確認 (estimate-request/REQ-28.10)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();

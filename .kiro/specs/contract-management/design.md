@@ -288,6 +288,10 @@ stateDiagram-v2
 | 13.4 | 403 Forbidden返却 | contracts.routes（requirePermission） | - | - |
 | 13.5 | UI要素の権限制御 | usePermission, ContractListPage, ContractDetailPage | - | - |
 
+**要件 4.5・8.1 の行への追記（タスク 18.2）**: 起票時の行は、4.5（請負者自動表示）の部品を ContractForm だけ、8.1（詳細画面全項目表示）の経路を `GET /contracts/:id` だけで挙げていた。いずれも現況でも誤りではないため書き換えずに残し、現況を併記する（規約 (a)。`site-survey` の design.md「実測値の書き方（タスク 115.212）」に従う併記である）。**現況では詳細画面（ContractDetailPage）も、8.1 の自動表示項目として請負者を自社情報（`GET /api/company-info`）から表示する**——本書の構成図が描く詳細画面から CompanyInfo への依存は、タスク 18.2 までは実装に無かった。未登録・取得の失敗のときは「未設定」を表示し、契約書の詳細の表示を妨げない（「ContractDetailPage」の節の Responsibilities を参照）。再現コマンドは `grep -c 'getCompanyInfo()' frontend/src/pages/ContractDetailPage.tsx` であり、出力は `1` である（コミット `5338ee29` の作業ツリーにタスク 18.2 の変更を載せた状態。2026-10-10 にリポジトリルートで実測）。下の Components and Interfaces の表の ContractDetailPage の Key Dependencies も起票時の記述のまま残し、CompanyInfo への依存は同節の Dependencies に併記した
+
+**要件 1.1 の行への追記（タスク 18.4）**: 起票時の行は、1.1（契約書リスト表示）の部品を ContractListPage と ContractService、経路を `GET /contracts` で挙げていた。現況でも誤りではないため書き換えずに残し、現況を併記する（規約 (a)。上の要件 4.5・8.1 の行への追記と同じ併記である）。**現況では一覧画面（ContractListPage）はページ送り（project-management の部品 PaginationUI）を持ち、既定は 1 ページ 20 件（表示件数は 10・20・50・100 件から選べ、変えると 1 ページ目に戻る）で、一覧の API へ `page` と `limit` を送って取得する**——タスク 18.4 までは `page=1, limit=20` で固定して取得し、ページ送りの操作も持たなかったため、21 件目以降の契約書は一覧に表示されなかった（総数の「全N件」は表示していた）。全件を一度に取得する形ではなくページ送りを付けたのは利用者の判断（2026-10-09）であり、他の一覧画面（見積書・見積依頼・プロジェクトの一覧）のページ送りの部品と作法（契約書が 1 件以上あれば表示する）に揃えた。一覧の API は総数（`total`）だけを返すため、総ページ数は画面の側で求める（「ContractListPage」の節の Implementation Notes を参照）。再現コマンドは `grep -c '<PaginationUI' frontend/src/pages/ContractListPage.tsx` であり、出力は `1` である（コミット `e438ee9f` の作業ツリーにタスク 18.4 の変更を載せた状態。2026-10-10 にリポジトリルートで実測）。下の Components and Interfaces の表の ContractListPage の Key Dependencies も起票時の記述のまま残し、PaginationUI への依存は同節の Implementation Notes に併記した
+
 ## Components and Interfaces
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
@@ -539,6 +543,7 @@ interface ContractDetail {
 **Implementation Notes**
 - Integration: プロジェクト詳細ページからの遷移。`/projects/:projectId/contracts` パス
 - Validation: 一覧データのローディング・エラー状態のハンドリング。新規作成ボタンはcontract:create権限がない場合は非表示
+- Pagination（タスク 18.4、要件 1.1）: project-management の部品 PaginationUI（`frontend/src/components/projects/PaginationUI.tsx`）でページ送りを表示する。ページ番号と表示件数（既定 20 件。10・20・50・100 件）を画面の状態に持ち、変わるたびに一覧の API（`page`・`limit`）で取り直す。表示件数を変えたら 1 ページ目に戻る。一覧の API は `{ contracts, total }` を返すため、総ページ数は `Math.ceil(total / limit)` で画面の側が求める。ページ送りは契約書が 1 件以上あるときに表示する（他の一覧画面と同じ作法）
 - Risks: なし（標準CRUDパターン）
 
 #### ContractCreatePage
@@ -568,9 +573,11 @@ interface ContractDetail {
 - 編集ボタンの権限制御（contract:update権限）
 - ステータス遷移ボタンの権限制御（contract:update権限）
 - ネットワークエラー/5xxエラーの種別に応じたエラーメッセージ表示
+- 自動表示項目の請負者（8.1、4.5）は、自社情報（`GET /api/company-info`）を契約書の詳細とは別に取得し、会社名を「プロジェクト情報」のカードに表示する。自社情報が未登録（空オブジェクトの応答）・取得の失敗（ネットワークエラー・4xx・5xx）のときは、ContractForm の請負者の表示と同じく「未設定」を表示し、画面全体のエラー表示・トーストにはしない（契約書の詳細の表示を妨げない）（タスク 18.2）
 
 **Dependencies**
 - Outbound: DeleteConfirmDialog — 削除確認UI (P0)
+- Outbound: CompanyInfo（`frontend/src/api/company-info.ts` の `getCompanyInfo`）— 請負者の表示 (P1)（タスク 18.2 で追加）
 - Outbound: usePermission — 権限チェック (P1)
 - Outbound: ToastNotification — 成功/エラーフィードバック (P0)
 
@@ -606,6 +613,7 @@ interface ContractDetail {
 - プロジェクト情報の自動表示（発注者、請負者、工事名、工事場所）
 - 監理者取引先のTradingPartnerSelect統合
 - 変更契約時の基契約書選択とComparisonPanel連携
+- 基契約書によるデフォルト値の設定（5.2）は、作成のとき、または初期値と異なる基契約書を選び直したときに限る。編集のときは、初期化で入った基契約書の詳細を比較表示（6.1）のために取得するだけで、保存済みの入力値（9.1）を基契約書の値で上書きしない（タスク 18.1）
 - 金額自動計算（請負代金額、工事価格、消費税額）
 - 消費税率デフォルト値10%
 - **クライアントサイドバリデーション**: 送信前にフォーム全体を検証し、エラーのあるフィールドにインラインエラーメッセージを表示
@@ -954,9 +962,13 @@ model TradingPartner {
 - ContractService: CRUD操作、ステータス遷移ロジック、バリデーション境界値、**削除制約チェック（子契約存在、ステータスCONTRACTED）**
 - contract.validators: Zodスキーマの各フィールドバリデーション
 - ContractForm: フォーム状態管理、金額自動計算、契約種類切り替え、**クライアントサイドバリデーション（必須チェック、範囲チェック、論理チェック、条件付きチェック）**
+- 変更契約の編集の初期化（タスク 18.1）: `frontend/src/components/contract/ContractForm.test.tsx` が、編集の表示の変更契約で基契約書の詳細の取得の後も入力欄が保存済みの値を保つこと、比較表示が基契約書の値を変更前に並べること、変更せずに保存すると保存済みの値で送信すること、作成のときは基契約書の値が既定値として入ることを主張する
 - ComparisonPanel: 変更前後の値表示、変更ハイライト
 - **DeleteConfirmDialog**: 削除確認表示、削除実行、エラーメッセージ表示、二重送信防止
+- 一覧のページ送り（タスク 18.4、要件 1.1）: `frontend/src/pages/ContractListPage.test.tsx` が、全 25 件・表示件数 20 件のとき 1 ページ目に 20 件とページ送りを表示して 21 件目を出さないこと、次のページ（またはキーボードで押したページ番号の釦）で `page=2, limit=20` で取得して 21 件目から 25 件目を表示すること、表示件数を 50 件へ変えると 1 ページ目から取り直すこと、契約書が 0 件ならページ送りを表示しないことを主張する
+- 詳細画面の請負者（タスク 18.2、要件 8.1・4.5）: `frontend/src/pages/ContractDetailPage.test.tsx` が、自社情報が登録済みなら請負者に会社名を表示すること、未登録（空オブジェクト）と取得の失敗（500）では「未設定」を表示し、取得の失敗でも契約書の他の項目を表示して画面全体のエラー表示・トーストにしないことを主張する
 - **usePermission**: 権限チェック（hasPermission/hasAllPermissions/hasAnyPermission）、権限未ロード時のデフォルト動作
+- フォーカス表示（タスク 17.1）: `frontend/src/__tests__/accessibility/contract-management-focus-visible.test.tsx` が、契約書のフォーム（ContractForm）のキーボードで止まる部品（契約種類の radio・基となる契約書と見積書の選択・消費税率と日付の欄・3 つの文章の欄・キャンセルと作成（保存）の釦）が、新規作成の初期の表示・変更契約の表示・検証エラーの表示中・編集の表示のいずれでもインラインの style で outline を打ち消さず影の輪も描かないこと、検証エラーの表示中も必須の欄の赤い枠と文言が残ることを主張する（steering `tech.md` の「フォーカス表示方針」）
 
 ### Integration Tests
 - 契約書CRUD APIエンドポイント（認証・権限込み）
@@ -970,11 +982,15 @@ model TradingPartner {
 - 変更契約の作成フロー（基契約書選択 → デフォルト値設定 → 比較表示 → 作成）
 - ステータス遷移（契約前 → 契約済 → 契約前）
 - 編集フロー（詳細画面 → 編集 → 保存 → 詳細画面 → **成功トースト表示**）
+- 変更契約の編集の初期化（タスク 18.1、要件 9.1・9.2）: `e2e/specs/contracts/contract-amendment-edit.spec.ts` が、変更契約の編集画面で基契約書の詳細の取得の後も保存済みの変更後の値（見積書・日付・税率・文章の欄）が表示され、比較表示に基契約書の値が変更前として並ぶこと、変更せずに保存しても DB の変更契約の値が基契約書の値に書き換わらないことを主張する
+- 一覧のページ送り（タスク 18.4、要件 1.1）: `e2e/specs/contracts/contract-list-pagination.spec.ts` が、作成日時の異なる契約書 21 件を DB へ直接作ったプロジェクトで、1 ページ目に新しい 20 件だけが並び、最後の行の導線から Tab でページ送りの「ページ 2」の釦へ進んで Enter で押すと `page=2, limit=20` の取得の後に 21 件目が表示され、その導線から詳細画面へ進めること、表示件数を 50 件へ変えると 21 件がすべて 1 ページに並ぶことを主張する。フォーカス表示（タスク 17.1 の `e2e/specs/contracts/contract-management-focus-visible.spec.ts`）は、契約書が 2 件ある一覧の巡回の末尾に表示件数の選択を加え、21 件ある一覧の 1 ページ目と 2 ページ目の巡回（ページ送りの釦を含む）を加えた
+- 詳細画面の請負者（タスク 18.2、要件 8.1）: `e2e/specs/contracts/contract-detail-contractor.spec.ts` が、契約書の詳細画面の「プロジェクト情報」に請負者として DB の自社情報の会社名が表示されること、`GET /api/company-info` を page.route で未登録（空オブジェクト）と取得の失敗（500）に差し替えると請負者が「未設定」になり、発注者・工事名は表示されたままであることを主張する。自社情報は 1 件だけの共有データであるため、測定前の値（会社名・版・更新日時）を退避して afterAll で戻し、未登録だった場合は作った 1 件を消す
 - パンくずナビゲーション（全画面）
 - **バリデーションフロー**: 必須項目未入力での送信 → エラーメッセージ表示 → 修正 → 送信成功
 - **削除フロー**: 削除ボタン → 確認ダイアログ → 削除成功 → トースト表示 → 一覧遷移
 - **削除制約フロー**: 子契約が存在する契約書の削除 → エラーメッセージ表示
 - **権限制御フロー**: 権限のないユーザーでの新規作成ボタン/編集ボタン/削除ボタンの非表示確認
+- フォーカス表示（タスク 17.1、要件 1〜12 の画面。受入基準にフォーカス表示を定める項は無いため要件番号は名乗らない）: `e2e/specs/contracts/contract-management-focus-visible.spec.ts` が、一覧画面（契約書が無い本文・2 件ある本文・取得の失敗の本文（再試行の釦）・2 件ある本文のモバイル幅（375px）・21 件ある本文の 1 ページ目と 2 ページ目（ページ送りの釦。タスク 18.4 で追加））、作成画面（初期の本文・変更契約で基となる契約書を選んだ本文・検証エラーの表示中・作成の失敗の表示中とトースト・プロジェクトの取得の失敗の本文（再試行の釦）・モバイル幅（375px））、編集画面（初期の本文・検証エラーの表示中・保存の失敗の表示中とトースト・契約書の取得の失敗の本文（再試行の釦）・モバイル幅（375px））、詳細画面（変更契約の本文と確認のダイアログ・確認のダイアログでの失敗の後とトースト・ステータスの変更の失敗の後の本文とトースト・契約済の新規契約の本文・取得の失敗の本文（再試行の釦）とトースト・モバイル幅（375px））を、文書の先頭から Tab だけで一巡し、止まった要素の並びを順序と件数まで主張したうえで、どの要素もフォーカス中に 2px 以上・背景とのコントラスト比 3:1 以上の表示を持ち、離れると消えることを主張する（steering `tech.md` の「フォーカス表示方針」）。失敗は page.route でその要求だけをパスで判定して差し替え、テスト用の DB の契約書を書き換えない
 
 ## Security Considerations
 

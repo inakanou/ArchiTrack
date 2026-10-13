@@ -18,6 +18,9 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import { observeDialogs } from '../../helpers/dialog-observer';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -58,16 +61,7 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -209,9 +203,14 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement project-management/REQ-24.1
+     * @requirement project-management/REQ-24.2
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('「すべて見る」リンクから一覧画面に遷移できる', async ({ page }) => {
+    test('「すべて見る」リンクから一覧画面に遷移できる (project-management/REQ-24.2)', async ({
+      page,
+    }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -274,7 +273,12 @@ test.describe('現場調査 Phase 18 追加要件', () => {
 
   test.describe('写真一覧管理パネルの手動保存 (REQ-10.8, REQ-10.9)', () => {
     /**
-     * @requirement site-survey/REQ-10.8
+     * @requirement site-survey/REQ-10.4
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.8 を名乗っていたが、受入基準10.8 の原文は「The Site Survey
+     * Service shall 写真一覧を保存された表示順序の通りに表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準10.4（「When
+     * ユーザーがコメント入力用テキストエリアにテキストを入力する, the Site Survey Service shall 入力内容を当該写真に紐付ける（未保存状態になる）
+     * 」）である。
      */
     test('コメント入力後に未保存インジケーターが表示される', async ({ page }) => {
       if (!createdSurveyId) {
@@ -304,7 +308,12 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-10.8
+     * @requirement site-survey/REQ-10.9
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.8 を名乗っていたが、受入基準10.8 の原文は「The Site Survey
+     * Service shall 写真一覧を保存された表示順序の通りに表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準10.9（「When
+     * ユーザーが「保存」ボタンをクリックする, the Site Survey Service shall 各写真のコメント、
+     * 報告書出力フラグ、表示順序の状態をデータベースに一括保存する」）である。
      */
     test('保存ボタンで変更を保存できる', async ({ page }) => {
       if (!createdSurveyId) {
@@ -364,9 +373,14 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-10.9
+     * @requirement site-survey/REQ-10.10
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('未保存の変更がある状態でページ離脱時に確認ダイアログが表示される', async ({ page }) => {
+    test('未保存の変更がある状態でページ離脱時に確認ダイアログが表示される (site-survey/REQ-10.10)', async ({
+      page,
+    }) => {
       if (!createdSurveyId || !createdProjectId) {
         throw new Error('createdSurveyIdまたはcreatedProjectIdが未設定です。');
       }
@@ -392,11 +406,11 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         timeout: getTimeout(5000),
       });
 
-      // beforeunloadイベントをリッスン
-      page.on('dialog', async (dialog) => {
-        expect(dialog.type()).toBe('beforeunload');
-        await dialog.accept(); // ダイアログを承認してナビゲーションを続行
-      });
+      // beforeunloadダイアログの観測を開始する（Task 115.178）。
+      // 主張をリスナの中に置くと、その失敗が本体の終了後に届いた場合は誰も観測せず、
+      // 緑のまま素通りする。観測だけをリスナで行い、主張は本体に置く。
+      // 応答は accept（ダイアログを承認してナビゲーションを続行する）。
+      const dialogs = observeDialogs(page);
 
       // ページを離脱しようとする
       // beforeunloadダイアログが表示されると、Playwrightは自動的にナビゲーションを中断する可能性があるため
@@ -410,14 +424,21 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         if (!errorMessage.includes('ERR_ABORTED')) {
           throw error;
         }
+      } finally {
+        // 本体の終了前にリスナを外す。以降の対話で新たな応答は始まらない。
+        dialogs.detach();
       }
 
-      // ダイアログが表示されたか、または未保存インジケーターが消えた（保存せずに離脱した）ことを確認
-      // Note: Playwrightのbeforeunloadダイアログの動作は実装依存
-      const currentUrl = page.url();
-      // ナビゲーションが成功した場合は新しいURLに移動
-      // beforeunloadがキャンセルされた場合は元のURLに留まる
-      expect(currentUrl).toBeTruthy();
+      // 外したうえで保留中の応答を待ち合わせ、控えた失敗を送出する（飲まない）。
+      await dialogs.settle();
+
+      // REQ-10.9: 未保存の変更があるまま画面を離れようとしたとき、確認ダイアログを表示する。
+      // 以前は離脱後の URL が空でないことだけを見ていた。URL はどの経路でも空にならないため、
+      // 確認ダイアログの有無を一度も確かめていなかった。要件が求める確認ダイアログそのものを主張する。
+      expect(
+        dialogs.observed.map((observation) => observation.type),
+        'REQ-10.9: 未保存の変更があるままページを離脱しようとしても beforeunload の確認ダイアログが表示されない'
+      ).toContain('beforeunload');
     });
   });
 
@@ -427,7 +448,13 @@ test.describe('現場調査 Phase 18 追加要件', () => {
 
   test.describe('画像削除機能 (REQ-10.10, REQ-10.11)', () => {
     /**
-     * @requirement site-survey/REQ-10.10
+     * @requirement site-survey/REQ-10.11
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.10 を名乗っていたが、受入基準10.10 の原文は「While 未保存の変更がある状態でユーザーがページを離れようとする,
+     * the Site Survey Service shall 確認ダイアログを表示して変更が失われることを警告する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準10.11（「When ユーザーが写真の削除ボタンをクリックする,
+     * the Site Survey Service shall 確認ダイアログを表示する」）
+     * である。
      */
     test('削除ボタンクリックで確認ダイアログが表示される', async ({ page }) => {
       if (!createdSurveyId) {
@@ -468,7 +495,13 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-10.10
+     * @requirement site-survey/REQ-10.11
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.10 を名乗っていたが、受入基準10.10 の原文は「While 未保存の変更がある状態でユーザーがページを離れようとする,
+     * the Site Survey Service shall 確認ダイアログを表示して変更が失われることを警告する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準10.11（「When ユーザーが写真の削除ボタンをクリックする,
+     * the Site Survey Service shall 確認ダイアログを表示する」）
+     * である。
      */
     test('削除確認ダイアログでキャンセルすると画像は削除されない', async ({ page }) => {
       if (!createdSurveyId) {
@@ -626,42 +659,18 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       const photoPanel = page.locator('[aria-label="写真管理パネル"]');
       await expect(photoPanel).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 画像をクリックしてビューア/エディタを開く
+      // 画像をクリックしてビューア/エディタを開く。
+      // 本ファイルは直列実行であり、事前準備が1枚アップロードし、
+      // 直前の「削除確認後に画像が削除される」が1枚追加して1枚削除している。
+      // したがってこの時点の写真は必ず1枚である。
+      // 「無ければアップロードし直す」復旧経路は、写真が失われた欠陥を隠して緑にするため置かない。
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(photoPanelItems).toHaveCount(1, { timeout: getTimeout(10000) });
+
       const imageButton = page.locator('[data-testid="photo-image-button"]').first();
-      const hasImages = await imageButton.isVisible({ timeout: 5000 });
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (!hasImages) {
-        // 前のテストで画像が削除された可能性があるため、新しい画像をアップロード
-        let fileInput = page.locator('input[type="file"]').first();
-        const fileInputCount = await fileInput.count();
-        if (fileInputCount === 0) {
-          const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
-          await expect(uploadButton).toBeVisible({ timeout: getTimeout(5000) });
-          await uploadButton.click();
-          fileInput = page.locator('input[type="file"]').first();
-        }
-
-        const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
-        const uploadPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/site-surveys/') &&
-            response.url().includes('/images') &&
-            response.request().method() === 'POST',
-          { timeout: getTimeout(60000) }
-        );
-
-        await fileInput.setInputFiles(testImagePath);
-        await uploadPromise;
-
-        await page.reload();
-        await page.waitForLoadState('networkidle');
-      }
-
-      // 画像ボタンを再取得
-      const imageButtonAfterUpload = page.locator('[data-testid="photo-image-button"]').first();
-      await expect(imageButtonAfterUpload).toBeVisible({ timeout: getTimeout(10000) });
-
-      await imageButtonAfterUpload.click();
+      await imageButton.click();
 
       // ビューアページに遷移
       await expect(page).toHaveURL(
@@ -705,34 +714,34 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       await loginAsUser(page, 'ADMIN_USER');
 
       // 現場調査を削除
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /^削除$/ }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
-      }
+      const deleteButton = page.getByRole('button', { name: /^削除$/ }).first();
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+      const confirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await confirmButton.click();
+      await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

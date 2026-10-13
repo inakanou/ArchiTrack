@@ -12,16 +12,19 @@
  * - 出力対象チェックボックスの操作
  * - ラベル文字・詳細文字の入力と表示確認
  * - Excel/PDF出力のダウンロード
+ * - Excel/PDF出力の失敗時のエラーメッセージと再試行（Task 17.1）
  *
  * Requirements:
  * 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3,
- * 4.1, 4.2, 5.1, 5.2, 6.1, 6.2, 6.3, 6.4, 7.1, 8.1, 9.1,
- * 9.3, 9.5, 10.1, 10.2, 11.1, 11.2
+ * 4.1, 4.2, 5.1, 5.2, 6.1, 6.2, 6.3, 6.4, 7.1, 7.6, 8.1,
+ * 8.6, 9.1, 9.3, 9.5, 10.1, 10.2, 11.1, 11.2
  *
  * @module e2e/specs/schedules/construction-schedule-e2e
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page, type Response, type Route } from '@playwright/test';
+import * as fs from 'fs';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { getPrismaClient, disconnectDatabase } from '../../fixtures/database';
@@ -31,6 +34,26 @@ import { getPrismaClient, disconnectDatabase } from '../../fixtures/database';
 // ============================================================================
 
 let testProjectId: string;
+
+/** テスト用プロジェクトの名称（PDF 出力のヘッダーに日本語のまま読めることを確かめる） */
+const TEST_PROJECT_NAME = 'E2E工程表テスト用プロジェクト';
+
+/**
+ * ダウンロードした PDF の全ページから、描かれた文字列を pdfjs-dist で読み取る。
+ * 日本語フォントを埋め込んでいない PDF では、日本語は元の文字列に戻らない（Task 18.5）。
+ */
+async function readPdfTexts(pdfFilePath: string): Promise<string[]> {
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(pdfFilePath)) })
+    .promise;
+  const texts: string[] = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const content = await (await pdf.getPage(pageNumber)).getTextContent();
+    for (const item of content.items) {
+      if ('str' in item && item.str.trim() !== '') texts.push(item.str);
+    }
+  }
+  return texts;
+}
 
 /**
  * テスト用プロジェクトを作成
@@ -82,7 +105,7 @@ async function setupTestProject(): Promise<string> {
   // テスト用プロジェクトを作成
   const project = await prisma.project.create({
     data: {
-      name: 'E2E工程表テスト用プロジェクト',
+      name: TEST_PROJECT_NAME,
       status: 'PREPARING',
       salesPersonId: testUser.id,
       createdById: testUser.id,
@@ -120,6 +143,22 @@ async function cleanupTestData(): Promise<void> {
       where: { id: testProjectId },
     });
   }
+}
+
+/**
+ * 工程表の一括保存（PUT /api/schedules/{id}/bulk-save）の応答を待つ Promise を返す。
+ *
+ * 保存ボタンの click より前に呼び、click の後に await すること。
+ * bulk-save は十数ミリ秒で返るため、click の後に待ち始めると応答を取り逃す。
+ * 一致はパス基準にする。CI とローカルで API のオリジンが違う（localhost と 127.0.0.1）ため。
+ */
+function waitForBulkSaveResponse(page: Page): Promise<Response> {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PUT' &&
+      /^\/api\/schedules\/[^/]+\/bulk-save$/.test(new URL(response.url()).pathname),
+    { timeout: getTimeout(15000) }
+  );
 }
 
 // ============================================================================
@@ -454,47 +493,49 @@ test.describe('工程表機能 E2Eテスト', () => {
       const firstCheckbox = page.locator('[data-testid^="export-target-"]').first();
       await expect(firstCheckbox).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 現在のチェック状態を取得
-      const wasChecked = await firstCheckbox.isChecked();
+      // 現在の状態を観測して「トグル後はこうなるはず」と分岐する形は、初期状態が変われば
+      // 主張する内容も入れ替わり、どちらの向きも検証されないまま通りうる。
+      // 既知の状態（チェック済み。既定値であることは直前のテストが主張している）へ揃えてから
+      // 外し、外れたことを無条件に主張する。
+      // `check()` は既にチェック済みなら何もしないため、既定の状態を壊さない。
+      await firstCheckbox.check();
+      await expect(firstCheckbox, '前提: 出力対象をチェック済みの状態に揃える').toBeChecked({
+        timeout: getTimeout(5000),
+      });
 
-      // チェック状態をトグル
-      await firstCheckbox.click();
-      const toggledState = !wasChecked;
+      // チェックを外す
+      await firstCheckbox.uncheck();
+      await expect(firstCheckbox, 'REQ-9.5: 出力対象のチェックを外せる').not.toBeChecked({
+        timeout: getTimeout(5000),
+      });
 
-      // トグル後の状態が反映されていることを確認
-      if (toggledState) {
-        await expect(firstCheckbox).toBeChecked({ timeout: getTimeout(5000) });
-      } else {
-        await expect(firstCheckbox).not.toBeChecked({ timeout: getTimeout(5000) });
-      }
-
-      // 保存ボタンをクリック
+      // 保存ボタンをクリックし、保存の応答を待つ。
+      // bulk-save は十数ミリ秒で返るため、応答待ちは click の前に登録しないと取り逃す。
+      // 一致はパス基準にする（CI とローカルで API のオリジンが localhost と 127.0.0.1 で違う）。
+      const saveResponsePromise = waitForBulkSaveResponse(page);
       await page.getByTestId('save-button').click();
-
-      // 保存完了を待機（成功通知またはネットワークアイドル）
-      await page.waitForResponse(
-        (response) => response.url().includes('/schedules') && response.status() === 200,
-        { timeout: getTimeout(15000) }
-      );
+      const saveResponse = await saveResponsePromise;
+      expect(saveResponse.status(), '前提: 出力対象の変更の保存が成功する').toBe(200);
 
       // ページをリロードして永続化を検証
       await page.reload({ waitUntil: 'networkidle' });
 
-      // リロード後のチェック状態が保存した状態と一致すること
+      // リロード後のチェック状態が保存した状態（未チェック）と一致すること
       const reloadedCheckbox = page.locator('[data-testid^="export-target-"]').first();
-      if (toggledState) {
-        await expect(reloadedCheckbox).toBeChecked({ timeout: getTimeout(10000) });
-      } else {
-        await expect(reloadedCheckbox).not.toBeChecked({ timeout: getTimeout(10000) });
-      }
+      await expect(
+        reloadedCheckbox,
+        'REQ-9.5: 保存した「出力対象から外した」状態がリロード後も保持される'
+      ).not.toBeChecked({ timeout: getTimeout(10000) });
 
-      // テストデータのクリーンアップ: 元の状態に戻す
-      await reloadedCheckbox.click();
+      // テストデータのクリーンアップ: 既定の状態（チェック済み）へ戻す
+      await reloadedCheckbox.check();
+      await expect(reloadedCheckbox, '後始末: 出力対象を既定のチェック済みへ戻す').toBeChecked({
+        timeout: getTimeout(5000),
+      });
+      const cleanupResponsePromise = waitForBulkSaveResponse(page);
       await page.getByTestId('save-button').click();
-      await page.waitForResponse(
-        (response) => response.url().includes('/schedules') && response.status() === 200,
-        { timeout: getTimeout(15000) }
-      );
+      const cleanupResponse = await cleanupResponsePromise;
+      expect(cleanupResponse.status(), '後始末: 既定の状態への保存が成功する').toBe(200);
     });
   });
 
@@ -626,7 +667,9 @@ test.describe('工程表機能 E2Eテスト', () => {
       expect(download.suggestedFilename()).toContain('.xlsx');
     });
 
-    test('PDFファイルのダウンロードが開始される (Req 8.1)', async ({ page }) => {
+    test('PDFファイルのダウンロードが開始され、日本語のプロジェクト名が読める (Req 8.1, 8.2)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
       await page.goto(`/projects/${testProjectId}/schedules`, {
         waitUntil: 'networkidle',
@@ -659,6 +702,243 @@ test.describe('工程表機能 E2Eテスト', () => {
       // ダウンロードが開始されることを確認
       const download = await downloadPromise;
       expect(download.suggestedFilename()).toContain('.pdf');
+
+      // 実際の API が出力した PDF のヘッダーに、日本語のプロジェクト名が文字化けせずに読める
+      const downloadPath = await download.path();
+      expect(downloadPath).toBeTruthy();
+      expect(await readPdfTexts(downloadPath!)).toContain(TEST_PROJECT_NAME);
+    });
+
+    /**
+     * 出力の失敗から再試行でダウンロードが成功するまでを、形式ごとに通しで確かめる。
+     *
+     * export API への応答だけを 500 に差し替えて失敗の前提を作り、エラーメッセージと
+     * 「再試行」ボタンが出ることを確かめる。差し替えを外してから再試行を押し、
+     * 直前に選んだ形式でダウンロードが成功することまでを見る。
+     *
+     * 差し替えの一致はパス基準である。CI とローカルで API のオリジンが違う
+     * （localhost と 127.0.0.1）ため、オリジンを含めると CI で一致せず空振りする。
+     * 空振りを見逃さないよう、差し替えた応答を返した回数を数えて主張する。
+     */
+    async function verifyExportFailureAndRetry(page: Page, format: 'xlsx' | 'pdf'): Promise<void> {
+      const exportRoutePattern = '**/api/schedules/*/export**';
+      let failedResponses = 0;
+      const failExport = async (route: Route): Promise<void> => {
+        failedResponses += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'forced failure for construction-schedule export E2E' }),
+        });
+      };
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}/schedules`, {
+        waitUntil: 'networkidle',
+      });
+
+      await page.getByText('E2Eテスト工程表').first().click();
+      await page.waitForURL(/\/schedules\//, { timeout: getTimeout(15000) });
+
+      // 1. export API を 500 にする
+      await page.route(exportRoutePattern, failExport);
+
+      await page.getByTestId('export-button').click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
+
+      const formatRadio = page.locator(`input[value="${format}"]`);
+      await formatRadio.click();
+      await expect(formatRadio).toBeChecked({ timeout: getTimeout(5000) });
+
+      // 2. 出力を押す
+      await dialog.getByRole('button', { name: '出力', exact: true }).click();
+
+      // 3. エラーメッセージと「再試行」ボタンが出る
+      const alert = dialog.getByRole('alert');
+      await expect(alert).toHaveText(/工程表の出力に失敗しました/, {
+        timeout: getTimeout(10000),
+      });
+      const retryButton = alert.getByRole('button', { name: '再試行', exact: true });
+      await expect(retryButton).toBeVisible({ timeout: getTimeout(5000) });
+      expect(failedResponses).toBe(1);
+
+      // 4. 差し替えを外す（登録時と同じハンドラ参照で外す）
+      await page.unroute(exportRoutePattern, failExport);
+
+      // 5. 再試行を押す。再試行が直前の形式で出力を要求し直すことも確かめる
+      const retryRequestPromise = page.waitForRequest(
+        (request) =>
+          new URL(request.url()).pathname.endsWith('/export') &&
+          new URL(request.url()).searchParams.get('format') === format,
+        { timeout: getTimeout(30000) }
+      );
+      const downloadPromise = page.waitForEvent('download', {
+        timeout: getTimeout(30000),
+      });
+      await retryButton.click();
+
+      // 6. ダウンロードが成功する
+      await retryRequestPromise;
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toContain(`.${format}`);
+      expect(await download.failure()).toBeNull();
+      await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+      expect(failedResponses).toBe(1);
+    }
+
+    /**
+     * @requirement construction-schedule/REQ-7.6
+     */
+    test('Excel出力の失敗時にエラーメッセージと再試行が現れ、再試行でダウンロードできる (construction-schedule/REQ-7.6)', async ({
+      page,
+    }) => {
+      await verifyExportFailureAndRetry(page, 'xlsx');
+    });
+
+    /**
+     * @requirement construction-schedule/REQ-8.6
+     */
+    test('PDF出力の失敗時にエラーメッセージと再試行が現れ、再試行でダウンロードできる (construction-schedule/REQ-8.6)', async ({
+      page,
+    }) => {
+      await verifyExportFailureAndRetry(page, 'pdf');
+    });
+  });
+
+  // =================================================================
+  // 項目数の上限 (Req 12.1)
+  // =================================================================
+  test.describe('項目数の上限', () => {
+    /**
+     * @requirement construction-schedule/REQ-12.1
+     */
+    test('200項目の工程表では項目追加が無効になり上限に達した旨が表示され、1項目を削除すると再び追加できる (construction-schedule/REQ-12.1)', async ({
+      page,
+    }) => {
+      // 200 項目の工程表をテスト用の DB へ直接作る（画面から 200 回追加する形は遅いため）
+      const prisma = getPrismaClient();
+      const schedule = await prisma.constructionSchedule.create({
+        data: {
+          projectId: testProjectId,
+          name: '上限200項目E2Eテスト',
+          version: 0,
+        },
+      });
+      await prisma.scheduleItem.createMany({
+        data: Array.from({ length: 200 }, (_, index) => ({
+          scheduleId: schedule.id,
+          sourceType: 'MANUAL',
+          itemName: `上限項目${String(index + 1).padStart(3, '0')}`,
+          startDate: new Date('2026-04-01T00:00:00Z'),
+          duration: 1 + (index % 5),
+          displayOrder: index,
+        })),
+      });
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/schedules/${schedule.id}`, { waitUntil: 'networkidle' });
+
+      const limitMessage = '工程表の項目は上限の200件に達しているため、これ以上追加できません';
+
+      // 前提: 200 項目が画面に出ている
+      await expect(page.getByTestId(/^item-row-/)).toHaveCount(200, {
+        timeout: getTimeout(15000),
+      });
+
+      // 項目追加の釦が無効になり、上限に達した旨が見え、釦の説明として辿れる
+      const addButton = page.getByRole('button', { name: '+ 項目追加', exact: true });
+      await expect(addButton, 'REQ-12.1: 200 項目で項目追加の釦が無効になる').toBeDisabled({
+        timeout: getTimeout(10000),
+      });
+      await expect(
+        page.getByText(limitMessage, { exact: true }),
+        'REQ-12.1: 上限に達した旨が表示される'
+      ).toBeVisible();
+      await expect(
+        addButton,
+        'REQ-12.1: 無効の釦から上限の説明を辿れる'
+      ).toHaveAccessibleDescription(limitMessage);
+
+      // 1 項目を削除すると上限を下回り、上限の表示が消えて再び追加できる
+      await page.getByRole('button', { name: '上限項目200を削除', exact: true }).click();
+      await expect(page.getByTestId(/^item-row-/)).toHaveCount(199, {
+        timeout: getTimeout(10000),
+      });
+      await expect(addButton, 'REQ-12.1: 199 項目では項目追加の釦が有効').toBeEnabled();
+      await expect(page.getByText(limitMessage, { exact: true })).toHaveCount(0);
+
+      // 追加して 200 項目に戻ると、再び無効になる
+      await addButton.click();
+      await expect(page.getByTestId(/^item-row-/)).toHaveCount(200, {
+        timeout: getTimeout(10000),
+      });
+      await expect(addButton, 'REQ-12.1: 追加で 200 項目に達すると再び無効になる').toBeDisabled();
+      await expect(page.getByText(limitMessage, { exact: true })).toBeVisible();
+    });
+
+    /**
+     * @requirement construction-schedule/REQ-12.1
+     */
+    test('201項目の数量表を選んで作成すると400で拒まれ、作成画面に上限超過のエラーが表示され工程表は作られない (construction-schedule/REQ-12.1)', async ({
+      page,
+    }) => {
+      // 201 項目の数量表をテスト用の DB へ直接作る（利用者の判断 2026-10-09: 作成を 400 で拒む）
+      const prisma = getPrismaClient();
+      const quantityTable = await prisma.quantityTable.create({
+        data: { projectId: testProjectId, name: '上限超過E2E数量表' },
+      });
+      const group = await prisma.quantityGroup.create({
+        data: { quantityTableId: quantityTable.id, name: '上限超過グループ', displayOrder: 0 },
+      });
+      await prisma.quantityItem.createMany({
+        data: Array.from({ length: 201 }, (_, index) => ({
+          quantityGroupId: group.id,
+          name: `上限超過数量項目${String(index + 1).padStart(3, '0')}`,
+          workType: '上限',
+          unit: '式',
+          quantity: 1,
+          displayOrder: index,
+        })),
+      });
+      const scheduleName = '上限超過の数量表からの工程表E2E';
+      const detail = '数量表の項目が200件を超えているため工程表を作成できません（201件）';
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}/schedules/new`, { waitUntil: 'networkidle' });
+
+      await page.getByLabel('工程表名称').fill(scheduleName);
+      await page.getByLabel('数量表').selectOption({ label: '上限超過E2E数量表' });
+
+      // 作成の要求（POST /api/projects/:projectId/schedules）の応答を、click より前に待ち始める
+      // （一致はパス基準。CI とローカルで API のオリジンが異なるため）
+      const createPath = `/api/projects/${testProjectId}/schedules`;
+      const createResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' && new URL(response.url()).pathname === createPath,
+        { timeout: getTimeout(15000) }
+      );
+      await page.getByRole('button', { name: '作成' }).click();
+      const createResponse = await createResponsePromise;
+
+      expect(createResponse.status(), 'REQ-12.1: 201 項目の数量表からの作成は 400').toBe(400);
+      expect((await createResponse.json()).detail).toBe(detail);
+
+      // 作成画面に留まり、サーバーの detail がエラーとして見え、入力は保たれて再び操作できる
+      await expect(
+        page.getByRole('main').getByRole('alert'),
+        'REQ-12.1: 作成画面に上限超過のエラーが表示される'
+      ).toHaveText(detail, { timeout: getTimeout(10000) });
+      await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/schedules/new$`));
+      await expect(page.getByLabel('工程表名称')).toHaveValue(scheduleName);
+      await expect(page.getByLabel('数量表')).toHaveValue(quantityTable.id);
+      await expect(page.getByRole('button', { name: '作成' })).toBeEnabled();
+
+      // 工程表は作られていない
+      const created = await prisma.constructionSchedule.findMany({
+        where: { projectId: testProjectId, name: scheduleName },
+      });
+      expect(created, 'REQ-12.1: 拒まれた作成で工程表は作られない').toEqual([]);
     });
   });
 
@@ -680,6 +960,36 @@ test.describe('工程表機能 E2Eテスト', () => {
       await loginAsUser(page, 'REGULAR_USER');
       await page.goto(`/projects/${testProjectId}/schedules`, {
         waitUntil: 'networkidle',
+      });
+
+      // 削除の前に、一覧へ当該工程表のリンクが**出ている**ことを完全一致で確かめる。
+      // **下の「消えたこと」の主張が指すアクセシブル名の錨はこの一行である**
+      // （タスク 115.302。是正の形はタスク 115.251 に倣う）。名前は `aria-label` ではなく
+      // `ScheduleListPage.tsx` の名称欄のリンクの表示文言に由来し、`getByLabel` が指す
+      // `削除テスト工程表を削除` は**別綴りなので錨にならない**。
+      //
+      // 実行した変異と出力（2026-09-06 に実測。frontend は test 環境で再ビルドし、
+      // 変異前と復元後の配信バンドルが `assets/index-D5RUevcK.js` で一致することを照合した）:
+      //   - M1 名称欄のリンクの表示を `{schedule.name}（工程表）` へ変える変異
+      //     （配信 `assets/index-BMZGJ3l-.js`）を当てても、**是正前は本区間が
+      //     1 passed / 0 failed で緑のまま**であった。削除の主張は一致が零件でも真になるため、
+      //     リンクの綴りが変わると静かに空振りへ変わる。
+      //   （M1 が入れる綴りは復元済みであり、いまのリポジトリには無い。逆引用符は変異が置く
+      //     字面を示すものであって、作業ツリーに実在することの主張ではない。）
+      //   - 同じ M1 を当てたまま本行を足すと、**本区間は 0 passed / 1 failed で赤になる**。
+      //     復元後は 1 passed / 0 failed に戻る。
+      //   実行したコマンドは
+      //   `npm run test:e2e -- e2e/specs/schedules/construction-schedule-e2e.spec.ts -g "一覧画面から工程表を削除できる"`。
+      //
+      // **検出されないのは E2E 層に限った話である。** 単体側には錨があり、
+      // `frontend/src/pages/ScheduleListPage.test.tsx` が名称欄の表示を `getByText` で
+      // 完全一致に固定している。M1 を当てて同ファイルを走らせると 17 件のうち 1 件が落ちる
+      // （1 failed / 16 passed。2026-09-06 に実測）。ここで塞ぐのは E2E 層の空振りである。
+      //
+      // 固定が緩められたら `npm run check:e2e-guards` の `T13-unanchored-accessible-name` が
+      // 赤になる（走査は `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names`）。
+      await expect(page.getByRole('link', { name: '削除テスト工程表', exact: true })).toBeVisible({
+        timeout: getTimeout(10000),
       });
 
       // 削除ボタンをクリック

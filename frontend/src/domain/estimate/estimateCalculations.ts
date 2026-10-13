@@ -160,7 +160,8 @@ export interface EstimateCalculations {
  *
  * 負数は絶対値で四捨五入し符号を保持する（例: -566.5 → -567）。
  * `Decimal.ROUND_HALF_UP` は「等距離ならゼロから離れる方向」であり、
- * 正の無限大方向へ丸める `Math.round` とは負数で異なる（design.md:3504）。
+ * 正の無限大方向へ丸める `Math.round` とは負数で異なる
+ * （design.md「実装上の不変条件・補足（設計レビュー反映）」の「負数の丸め方向（REQ-41.6, REQ-22）」）。
  *
  * Requirements: 22.2, 22.3, 22.4, 22.5, 22.6, 22.9, 41.6
  */

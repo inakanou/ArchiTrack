@@ -106,12 +106,13 @@ const styles = {
     color: '#ef4444',
     marginLeft: '4px',
   },
+  // 内訳書名の欄と数量表の選択のフォーカス表示は全画面共通の `:focus-visible` の outline に任せ、
+  // インラインで打ち消さない（steering `tech.md` の「フォーカス表示方針」。タスク 25.1）
   input: {
     padding: '8px 12px',
     borderRadius: '6px',
     border: '1px solid #d1d5db',
     fontSize: '14px',
-    outline: 'none',
     transition: 'border-color 0.2s',
   },
   inputError: {
@@ -122,7 +123,6 @@ const styles = {
     borderRadius: '6px',
     border: '1px solid #d1d5db',
     fontSize: '14px',
-    outline: 'none',
     backgroundColor: '#ffffff',
     cursor: 'pointer',
   },

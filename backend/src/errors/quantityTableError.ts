@@ -133,6 +133,38 @@ export class QuantityTableValidationError extends ApiError {
 }
 
 /**
+ * 数量表の保存がロック待ちの上限を超えたエラー
+ * 503 Service Unavailable
+ *
+ * Task 92.5。`saveDraft` は同一数量表への保存を直列化するため数量表の行を
+ * `SELECT ... FOR UPDATE` で握る（Task 88.1）。先行の保存が長引くと後発はその行のロックを
+ * 待つが、Task 92.2 の実測では待機に上限が無く、所要時間の上限を決めるのは先行の長さで
+ * あった。Task 92.5 が `SET LOCAL lock_timeout` で待機を打ち切る上限を入れ、その打ち切りを
+ * 本エラーで表す。
+ *
+ * 409（`QuantityTableConflictError`）と書き分けるのは、**上限超過の時点では誰も何も
+ * 確定していない**ためである。先行が巻き戻った場合も後発は同じ上限超過になるので、
+ * 「他の利用者が更新しました」は起きていない更新を告げる偽の案内になる（Task 92.2 の裁定）。
+ * 一方、上限を入れた後は「混雑しており、時間をおけば解消する」が真になるため、
+ * 恒久的な失敗（500）とは別のコードで表し、運用側が両者を見分けられるようにする。
+ * 先例は `estimateError.ts` の `EstimateSaveTimeoutError`（500 / `ESTIMATE_SAVE_TIMEOUT`）だが、
+ * あちらは「件数を減らさない限り再送しても成功しない」終局的な失敗であり、本エラーは
+ * 時間をおけば解消する一時的な失敗なので、状態コードは 503 とする。
+ */
+export class QuantityTableSaveBusyError extends ApiError {
+  constructor(lockTimeoutMs?: number) {
+    super(
+      503,
+      '他の保存処理と競合したため保存できませんでした。時間をおいて再度お試しください。',
+      'QUANTITY_TABLE_SAVE_BUSY',
+      lockTimeoutMs === undefined ? undefined : { lockTimeoutMs },
+      PROBLEM_TYPES.INTERNAL_SERVER_ERROR
+    );
+    this.name = 'QuantityTableSaveBusyError';
+  }
+}
+
+/**
  * 計算パラメータ不整合エラー
  * 400 Bad Request
  *

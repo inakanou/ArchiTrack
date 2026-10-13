@@ -39,6 +39,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * 契約書管理機能E2Eテスト
@@ -92,16 +93,7 @@ test.describe('契約書管理機能', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクト作成
       const createPromise = page.waitForResponse(
@@ -258,12 +250,11 @@ test.describe('契約書管理機能', () => {
       await expect(page.getByText(/消費税額/)).toBeVisible();
       await expect(page.getByText(/請負代金額/)).toBeVisible();
 
-      // 消費税率デフォルト10%の確認（REQ-3.2）
+      // REQ-3.5: 消費税率の入力フィールドが提供される（表示の有無で包まない）
+      // REQ-3.6: 消費税率のデフォルト値が 10% である
       const taxRateInput = page.getByLabel('消費税率（%）');
-      if (await taxRateInput.isVisible()) {
-        const taxRateValue = await taxRateInput.inputValue();
-        expect(taxRateValue).toContain('10');
-      }
+      await expect(taxRateInput).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(taxRateInput).toHaveValue(/10/);
 
       // 契約日を入力（REQ-3.1）
       const contractDateInput = page.getByLabel('契約日');

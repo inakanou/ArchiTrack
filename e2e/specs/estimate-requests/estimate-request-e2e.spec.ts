@@ -4,9 +4,10 @@
  * Task 10: E2Eテスト実装
  *
  * Requirements coverage (estimate-request):
- * - REQ-1.1 ~ REQ-1.5: 見積依頼セクション表示
+ * - 見積依頼セクション表示（旧 Requirement 1）は project-management/Requirement 27 へ移管済み。
+ *   本ファイルの被覆印は移管先の番号で名乗る（表題に残る旧番号は移管前の呼称である）
  * - REQ-2.1 ~ REQ-2.7: 見積依頼一覧画面
- * - REQ-3.1 ~ REQ-3.9: 見積依頼新規作成
+ * - REQ-3.1 ~ REQ-3.8: 見積依頼新規作成（旧 AC 9 は Requirement 39 AC 5 へ改訂済み）
  * - REQ-4.1 ~ REQ-4.20: 見積依頼詳細画面 - 項目選択
  * - REQ-5.1 ~ REQ-5.3: 内訳書Excel出力
  * - REQ-6.1 ~ REQ-6.10: 見積依頼文表示
@@ -20,8 +21,11 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import { observeDialogs } from '../../helpers/dialog-observer';
 
 /**
  * 保存ボタンをクリックして保存完了を待機するヘルパー
@@ -112,16 +116,7 @@ test.describe('見積依頼機能', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクト作成
       const createPromise = page.waitForResponse(
@@ -355,11 +350,16 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement project-management/REQ-27.2
-     * @requirement estimate-request/REQ-1.2
-     * 見積依頼セクションに「新規作成」ボタンを表示する
+     * @requirement project-management/REQ-27.3
+     * 見積依頼が存在しない場合、メッセージの下に「新規作成」ボタンを表示する
+     *
+     * タスク 115.188 の是正: 本ブロックの被覆印は project-management 要件27 へ集約される前の
+     * 番号（estimate-request 要件1 の 1.2〜1.5）をそのまま 27.2〜27.5 に読み替えたもので、
+     * 条文の内容と対応していなかった。表題・本文が述べる内容に合わせて名乗り直している。
      */
-    test('REQ-1.2: 見積依頼セクションに「新規作成」ボタンが表示される', async ({ page }) => {
+    test('REQ-1.2: 見積依頼セクションに「新規作成」ボタンが表示される (project-management/REQ-27.3)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -376,11 +376,16 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement project-management/REQ-27.3
-     * @requirement estimate-request/REQ-1.3
-     * 見積依頼が存在しない場合、セクション右上の「すべて見る」リンクを非表示にする（要件4）
+     * @requirement project-management/REQ-27.4
+     * 見積依頼が存在しない場合、セクション右上の「新規作成」ボタンと「すべて見る」リンクを非表示にする
+     *
+     * タスク 115.188 の是正: 本ブロックの被覆印は project-management 要件27 へ集約される前の
+     * 番号（estimate-request 要件1 の 1.2〜1.5）をそのまま 27.2〜27.5 に読み替えたもので、
+     * 条文の内容と対応していなかった。表題・本文が述べる内容に合わせて名乗り直している。
      */
-    test('REQ-1.3: 見積依頼がない場合、「すべて見る」リンクが非表示である', async ({ page }) => {
+    test('REQ-1.3: 見積依頼がない場合、「すべて見る」リンクが非表示である (project-management/REQ-27.4)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -397,11 +402,16 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement project-management/REQ-27.4
-     * @requirement estimate-request/REQ-1.4
-     * 「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
+     * @requirement project-management/REQ-27.7
+     * ユーザーが「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
+     *
+     * タスク 115.188 の是正: 本ブロックの被覆印は project-management 要件27 へ集約される前の
+     * 番号（estimate-request 要件1 の 1.2〜1.5）をそのまま 27.2〜27.5 に読み替えたもので、
+     * 条文の内容と対応していなかった。表題・本文が述べる内容に合わせて名乗り直している。
      */
-    test('REQ-1.4: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する', async ({ page }) => {
+    test('REQ-1.4: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する (project-management/REQ-27.7)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -421,10 +431,23 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement project-management/REQ-27.5
-     * @requirement estimate-request/REQ-1.5
-     * 見積依頼が存在しない場合、セクション右上の「新規作成」ボタンも非表示である（要件4）
+     * @requirement project-management/REQ-27.2
+     * @requirement project-management/REQ-27.3
+     * @requirement project-management/REQ-27.4
+     * 見積依頼が存在しない場合、「見積依頼はまだありません」というメッセージとその下の
+     * 「新規作成」ボタンを表示し、セクション右上の「新規作成」ボタンと
+     * 「すべて見る」リンクを非表示にする
      * 注: 「すべて見る」リンクのクリック遷移テストはREQ-1.8（見積依頼存在時）でカバー
+     *
+     * タスク 115.188 の是正: 本ブロックの被覆印は project-management 要件27 へ集約される前の
+     * 番号（estimate-request 要件1 の 1.2〜1.5）をそのまま 27.2〜27.5 に読み替えたもので、
+     * 条文の内容と対応していなかった。表題・本文が述べる内容に合わせて名乗り直している。
+     *
+     * タスク 115.220 の是正: 表題は「セクション右上の『新規作成』ボタンが非表示である」と
+     * 名乗りながら、本文が確かめていたのは空状態の「新規作成」リンクの表示と
+     * 「すべて見る」リンクの非表示だけで、右上のボタンの非表示は一度も見ていなかった。
+     * 右上のボタンだけが持つアクセシブル名（`EstimateRequestSectionCard.tsx` の
+     * `aria-label="見積依頼を新規作成"`）を exact で指し、空状態のリンクと区別して確かめる。
      */
     test('REQ-1.5: 見積依頼がない場合、セクション右上の「新規作成」ボタンが非表示である', async ({
       page,
@@ -445,6 +468,32 @@ test.describe('見積依頼機能', () => {
         .filter({ hasText: /見積依頼はまだありません/ })
         .getByRole('link', { name: /新規作成/i });
       await expect(emptyStateNewButton).toBeVisible();
+
+      // しかしセクション右上の「新規作成」ボタンは非表示。
+      // この主張は**一致が零件でも真になる**。名前が実在することの錨は本区間には無く、
+      // 同名を `exact: true` の `toBeVisible()` で指す肯定側——本ファイルの
+      // 「見積依頼が存在する場合」の区間——に置いてある（タスク 115.251）。
+      //
+      // 実行した変異と出力（2026-09-03 に実測。frontend は test 環境で再ビルドし、復元後の
+      // 配信バンドルが `assets/index-D5RUevcK.js` へ戻ることを `sha256sum` で照合した）:
+      //   - M1 `aria-label` の値を `見積依頼をあたらしく作成` へ変える変異を当てても
+      //     **本区間は緑のまま**である（本区間を含む 7 件は 6 passed / 1 failed で、
+      //     落ちたのは肯定側だけであった）。
+      //   - M2 `aria-label` の行そのものを消す変異を当てても、同じく**本区間は緑のまま**である。
+      //   つまり本区間の緑は「右上のボタンが出ていないこと」を保証しない。保証しているのは
+      //   肯定側の完全一致であり、**それが緩められると本区間は静かに空振りへ変わる**。
+      //   - M3 肯定側の locator を `{ name: /新規作成/i }` へ戻す変異を当てると
+      //     `npm run check:e2e-guards` が赤になる（EXIT=1。本区間を `0 → 1` 件として
+      //     名指しする。2026-09-03 に実測）。
+      //   詳細な出力と実行したコマンドは肯定側の区間の注記に置いた。
+      //
+      // 他の区間を表題で引かないのは、表題の末尾の被覆印を散文へ綴ると
+      // `scripts/scan-coverage-mark-correspondence.ts` が拾って帳簿を水増しするためである。
+      const headerNewButton = section.getByRole('link', {
+        name: '見積依頼を新規作成',
+        exact: true,
+      });
+      await expect(headerNewButton).not.toBeVisible();
 
       // しかしセクション右上の「すべて見る」リンクは非表示
       const headerAllLink = section.getByRole('link', { name: /すべて見る|見積依頼一覧/i });
@@ -712,7 +761,6 @@ test.describe('見積依頼機能', () => {
   test.describe('Requirement 1: 見積依頼セクション表示（見積依頼存在時）', () => {
     /**
      * @requirement project-management/REQ-27.6
-     * @requirement estimate-request/REQ-1.6
      * 見積依頼が存在する場合、セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する
      */
     test('REQ-1.6: 見積依頼が存在する場合、セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する (project-management/REQ-27.6)', async ({
@@ -730,8 +778,60 @@ test.describe('見積依頼機能', () => {
       const section = page.getByTestId('estimate-request-section');
       await expect(section).toBeVisible({ timeout: getTimeout(10000) });
 
-      // セクションヘッダー内に「新規作成」リンクが表示される
-      const headerNewButton = section.getByRole('link', { name: /新規作成/i });
+      // セクションヘッダー内に「新規作成」リンクが表示される。
+      //
+      // タスク 115.251 の是正: 従前は `{ name: /新規作成/i }` の部分一致で locate していた。
+      // 部分一致は表示文言「新規作成」だけで成立するため、右上のボタンだけが持つ
+      // アクセシブル名（`EstimateRequestSectionCard.tsx` の `aria-label="見積依頼を新規作成"`）を
+      // 別の綴りへ変えても、また消しても、本区間は緑のまま通っていた。
+      // 一方、同じ名前を `not.toBeVisible()` で指す否定側は二件ある。本ファイルの
+      // 「見積依頼がない場合」の区間と、`e2e/specs/projects/project-detail-sections.spec.ts` の
+      // 「見積依頼が存在しない場合」の区間である。どちらも**一致が零件でも真になる**形であり、
+      // `aria-label` を変えれば両方が空振りで緑になる。つまり改名は E2E の誰にも検出されず、
+      // 115.220 が塞いだ穴が静かに再び開く。
+      //
+      // 実行した変異と出力（いずれも 2026-09-03 に実測。frontend は test 環境で再ビルドし、
+      // 変異前と復元後の配信バンドルが `assets/index-D5RUevcK.js`（sha256 e4b9948…）で
+      // 一致することを `sha256sum` で照合した）:
+      //   - M1 `aria-label` の値を `見積依頼をあたらしく作成` へ変える変異
+      //     （配信 `assets/index-B7raFDWN.js`）を当てると本区間は赤になる（7 件が
+      //     6 passed / 1 failed になり、落ちるのは本区間だけである）。
+      //   - M2 `aria-label` の行そのものを消す変異（配信 `assets/index-YHhOgCER.js`）を
+      //     当てても同じで、6 passed / 1 failed になり本区間だけが赤になる。
+      //   - **否定側の二件は M1 でも M2 でも緑のまま**であり、`aria-label` を変えても
+      //     消しても検出されない。
+      //   - 変異前と復元後はいずれも 7 passed / 0 failed である。
+      //   実行したコマンドは次の二つ（後者は否定側の一件を単独で回したもので、いずれの変異でも
+      //   1 passed / 0 failed であった）。
+      //     npm run test:e2e -- e2e/specs/estimate-requests/estimate-request-e2e.spec.ts \
+      //       -g "準備|REQ-1\.5:|REQ-3\.6:|REQ-1\.6:"
+      //     npm run test:e2e -- e2e/specs/projects/project-detail-sections.spec.ts \
+      //       -g "見積依頼が存在しない場合、セクション右上"
+      //
+      // 本区間はアクセシブル名を `exact: true` で完全一致に固定し、改名・削除を
+      // **肯定側の失敗**として表面化させる。否定側二件が依存する名前の錨はここに在る。
+      // 本区間が名乗る受入基準（`.kiro/specs/project-management/requirements.md` の
+      // 要件27 の受入基準6）が求める「セクション右上の『新規作成』ボタン」はこの名前を持つ
+      // 要素そのものであり、完全一致で指すことは条文の観測を狭めない。
+      //
+      // **肯定側の完全一致を緩めると否定側二件は静かに空振りへ変わる。** この関係は散文では
+      // なく機械が拘束する。`npm run check:e2e-guards` の `T13-unanchored-accessible-name` が
+      // 「零件で真になる主張が指すアクセシブル名は、同名を肯定側から指す箇所を e2e 内に
+      // 持たねばならない」を検査する。
+      //   - M3 本区間の locator を是正前の `{ name: /新規作成/i }` へ戻す変異を当てると
+      //     `npm run check:e2e-guards` が赤になる（EXIT=1。否定側の二ファイルを `0 → 1` 件と
+      //     して名指しする。2026-09-03 に実測。変異前と復元後はいずれも EXIT=0 である）。
+      //   走査そのものは `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names` が
+      //   印字する（走査根・母集団・比較できなかった名前の内訳・未錨の一覧）。
+      //
+      // 注: 上で他の区間を指すときに表題を逐語で引かないのは、表題の末尾の被覆印を散文へ
+      // 綴ると `scripts/scan-coverage-mark-correspondence.ts` が本区間を当該受入基準の
+      // 被覆印として拾い、帳簿を水増しするためである（`scripts/coverage-mark-adjudication.md`
+      // §4.5 が「散文の言及」として挙げる形）。同じ理由で受入基準は原典の節番号表記で述べる。
+      const headerNewButton = section.getByRole('link', {
+        name: '見積依頼を新規作成',
+        exact: true,
+      });
       await expect(headerNewButton).toBeVisible();
 
       // 「すべて見る」リンクが表示される
@@ -741,7 +841,6 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement project-management/REQ-27.7
-     * @requirement estimate-request/REQ-1.7
      * ユーザーが「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
      */
     test('REQ-1.7: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する (project-management/REQ-27.7)', async ({
@@ -768,7 +867,6 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement project-management/REQ-27.8
-     * @requirement estimate-request/REQ-1.8
      * ユーザーが「すべて見る」リンクをクリックしたとき、見積依頼一覧画面に遷移する
      */
     test('REQ-1.8: 「すべて見る」リンクをクリックで見積依頼一覧画面に遷移する (project-management/REQ-27.8)', async ({
@@ -882,10 +980,15 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-4.6
+     * @requirement estimate-request/REQ-4.10
      * 項目一覧の下に「内訳書を本文に含める」チェックボックスを表示する
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.6: 「内訳書を本文に含める」チェックボックスが表示される', async ({ page }) => {
+    test('REQ-4.6→4.10: 「内訳書を本文に含める」チェックボックスが表示される (estimate-request/REQ-4.10)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdEstimateRequestId).toBeTruthy();
 
@@ -900,10 +1003,15 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-4.8
+     * @requirement estimate-request/REQ-4.12
      * 見積依頼方法としてラジオボタン（メール/FAX）を表示する
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.8: 見積依頼方法ラジオボタン（メール/FAX）が表示される', async ({ page }) => {
+    test('REQ-4.8→4.12: 見積依頼方法ラジオボタン（メール/FAX）が表示される (estimate-request/REQ-4.12)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdEstimateRequestId).toBeTruthy();
 
@@ -919,10 +1027,15 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-4.9
+     * @requirement estimate-request/REQ-4.13
      * 見積依頼方法のデフォルト値をメールとする
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.9: 見積依頼方法のデフォルト値がメールである', async ({ page }) => {
+    test('REQ-4.9→4.13: 見積依頼方法のデフォルト値がメールである (estimate-request/REQ-4.13)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdEstimateRequestId).toBeTruthy();
 
@@ -1522,9 +1635,10 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 3: 見積依頼新規作成（追加テスト）', () => {
     /**
-     * @requirement estimate-request/REQ-3.9
      * @requirement estimate-request/REQ-39.5
      * @requirement estimate-request/REQ-39.1
+     * 旧 REQ-3.9（内訳書未登録メッセージ）は要件定義書上で取り消し線により撤廃され、
+     * Requirement 39 AC 5 が文言と挙動を引き取った。被覆印は移管先の番号だけで名乗る。
      * Task 85.5: 内訳書任意化に伴うメッセージ更新
      * - メッセージ文言が「内訳書が登録されていません（任意）。」に変更されたことを確認
      * - 内訳書任意化により「作成」ボタンが活性であることを確認
@@ -1547,16 +1661,7 @@ test.describe('見積依頼機能', () => {
       await page.getByLabel(/プロジェクト名/i).fill(newProjectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response) =>
@@ -1605,7 +1710,11 @@ test.describe('見積依頼機能', () => {
     /**
      * @requirement estimate-request/REQ-4.4
      * @requirement estimate-request/REQ-4.5
+     * @requirement estimate-request/REQ-4.6
+     * @requirement estimate-request/REQ-4.7
      * Task 30改修: チェックボックス変更時はクライアントサイド状態のみ更新し、保存ボタンで一括保存する
+     * タスク 115.188 の追記: 本検証は保存ボタンが表示・活性であること（受入基準4.6）と、
+     * クリックで選択状態がサーバーへ永続化されること（受入基準4.7）を実際に主張している。
      * Task 37.1: 保存ボタン方式E2Eテスト
      */
     test('REQ-4.4, REQ-4.5: チェックボックス変更後に保存ボタンで一括保存される', async ({
@@ -1679,10 +1788,15 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-4.7
+     * @requirement estimate-request/REQ-4.11
      * 項目一覧の下にExcel出力ボタンを表示する
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.7: Excel出力ボタンが表示される', async ({ page }) => {
+    test('REQ-4.7→4.11: Excel出力ボタンが表示される (estimate-request/REQ-4.11)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdTradingPartnerId).toBeTruthy();
       expect(createdItemizedStatementId).toBeTruthy();
@@ -1951,7 +2065,7 @@ test.describe('見積依頼機能', () => {
      * @requirement estimate-request/REQ-6.9
      * 「内訳書を本文に含める」がチェックされていないとき、本文の【内容】セクションに「添付内訳書の通り」と表示する
      */
-    test('REQ-6.9: 「内訳書を本文に含める」未チェック時に「添付内訳書の通り」が表示される', async ({
+    test('REQ-6.9: 「内訳書を本文に含める」未チェック時に本文の【内容】へ「添付内訳書の通り」が表示される', async ({
       page,
     }) => {
       expect(createdProjectId).toBeTruthy();
@@ -2000,30 +2114,255 @@ test.describe('見積依頼機能', () => {
       // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
       await clickSaveSelectionButton(page);
 
-      // 「内訳書を本文に含める」がチェックされていないことを確認し、チェックされている場合は外す
+      // 「内訳書を本文に含める」は新規作成時に未チェックである（作成フォームはこの値を送らず、
+      // サーバーは false で保存する）。前提を分岐で吸収せず、未チェックであることを主張する
       const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
-      const isChecked = await includeBreakdownCheckbox.isChecked().catch(() => false);
-      if (isChecked) {
-        await includeBreakdownCheckbox.click();
-        await page.waitForTimeout(500);
-      }
+      await expect(includeBreakdownCheckbox).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(includeBreakdownCheckbox).not.toBeChecked();
 
-      // 見積依頼文表示ボタンをクリック
+      // 見積依頼文表示ボタンをクリックし、本文の取得が成功することを待つ
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
       await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      const textResponsePromise = page.waitForResponse(
+        (response) =>
+          /\/estimate-requests\/[0-9a-f-]+\/text$/.test(new URL(response.url()).pathname) &&
+          response.request().method() === 'GET',
+        { timeout: getTimeout(30000) }
+      );
       await showTextButton.click();
+      const textResponse = await textResponsePromise;
+      expect(textResponse.status()).toBe(200);
 
       // 見積依頼文パネルが表示されるまで待機
       const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
       await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 本文が表示されていることを確認
-      const bodySection = panel.locator('text=本文').locator('..').locator('..');
-      await expect(bodySection).toBeVisible({ timeout: getTimeout(10000) });
+      // 本文（pre）の【内容】セクションに「添付内訳書の通り」が表示される
+      const bodyPre = panel.locator('pre');
+      await expect(bodyPre).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(bodyPre).toContainText('【内容】\n添付内訳書の通り');
 
-      // 「内訳書を本文に含める」がオフの場合、項目詳細（テスト項目）が本文に含まれないことを確認
-      // 現在の実装では「添付内訳書の通り」というテキストは表示されない
-      await expect(panel.getByText(/テスト項目1/i)).not.toBeVisible({ timeout: getTimeout(5000) });
+      // 未チェックなので、選択した項目（テスト項目）は本文に並ばない
+      await expect(bodyPre).not.toContainText('テスト項目');
+    });
+
+    /**
+     * Task 97.2: 「内訳書を本文に含める」が ON で項目が 0 件のときの扱い
+     * （利用者の判断 2026-10-06: backend は 422 NO_ITEMS_SELECTED を維持し、frontend はこれを判別して
+     * 「項目を選択してください」と案内する）。
+     * 要件 6 のどの受入基準も 0 件の場合の表示を文面で定めていないため、被覆印は掲げない
+     * （6.8 はチェックされた項目を並べること、6.9 は未チェックのときに限られる）。
+     * 実在の backend の状態（項目未選択の見積依頼）で前提を作り、応答の差し替えは行わない。
+     */
+    test('Task 97.2: 「内訳書を本文に含める」ON で項目 0 件のとき、見積依頼文の表示で「項目を選択してください」と案内される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 見積依頼を作成（内訳書を紐付ける）
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.locator('input#name').fill('Task97.2項目0件テスト見積依頼');
+
+      await selectTradingPartnerByName(page, tradingPartnerName);
+
+      const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
+      await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
+
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /作成/i }).click();
+      const createResponse = await createPromise;
+      const createdId = ((await createResponse.json()) as { id: string }).id;
+      expect(createdId).toBeTruthy();
+
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+      await page.waitForLoadState('networkidle');
+
+      // 前提: 項目は 1 件も選択されていない（作成直後は未選択であり、選択の操作も行わない）
+      const itemCheckboxes = page.locator(
+        'table[aria-label="内訳書項目一覧"] input[type="checkbox"]'
+      );
+      await expect(itemCheckboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const checkboxCount = await itemCheckboxes.count();
+      expect(checkboxCount).toBeGreaterThan(0);
+      for (let i = 0; i < checkboxCount; i++) {
+        await expect(itemCheckboxes.nth(i)).not.toBeChecked();
+      }
+
+      // 「内訳書を本文に含める」を ON にし、サーバーへの保存の完了を待つ
+      const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
+      await expect(includeBreakdownCheckbox).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(includeBreakdownCheckbox).not.toBeChecked();
+      const updatePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith(`/estimate-requests/${createdId}`) &&
+          ['PUT', 'PATCH'].includes(response.request().method()),
+        { timeout: getTimeout(30000) }
+      );
+      await includeBreakdownCheckbox.click();
+      const updateResponse = await updatePromise;
+      expect(updateResponse.status()).toBe(200);
+      expect(
+        ((await updateResponse.json()) as { includeBreakdownInBody: boolean })
+          .includeBreakdownInBody
+      ).toBe(true);
+      await expect(includeBreakdownCheckbox).toBeChecked();
+
+      // 見積依頼文を表示する。backend は 422 NO_ITEMS_SELECTED を返す（維持の判断）
+      const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
+      await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      const textResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith(`/estimate-requests/${createdId}/text`) &&
+          response.request().method() === 'GET',
+        { timeout: getTimeout(30000) }
+      );
+      await showTextButton.click();
+      const textResponse = await textResponsePromise;
+      expect(textResponse.status()).toBe(422);
+      expect(((await textResponse.json()) as { code?: string }).code).toBe('NO_ITEMS_SELECTED');
+
+      // パネルは汎用の「見積依頼文を取得できませんでした」ではなく、項目の選択を案内する
+      const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
+      await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(panel).toContainText('項目を選択してください', {
+        timeout: getTimeout(10000),
+      });
+      await expect(panel.getByText('見積依頼文を取得できませんでした')).toHaveCount(0);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-6.8
+     * 「内訳書を本文に含める」がチェックされているとき、本文の【内容】セクションにチェックされた内訳書項目を成形して表示する
+     *
+     * Task 98.1: 見積依頼文を開いたまま項目の選択を保存すると、パネルを開き直さずに本文が再取得され、
+     * 保存後にチェックされている項目が本文に並ぶ（Task 97.2 の案内も消える）。
+     * 本文は「含める」のとき【見積対象項目】の見出しで項目を並べる（design.md の Task 93.1 の項）。
+     * 実在の backend の状態で前提を作り、応答の差し替えは行わない。
+     */
+    test('REQ-6.8 / Task 98.1: 見積依頼文を開いたまま項目を選択・保存すると、開き直さずに案内が消えてチェックした項目が本文に並ぶ', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 見積依頼を作成（内訳書を紐付ける）
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.locator('input#name').fill('Task98.1保存後の本文再取得テスト見積依頼');
+
+      await selectTradingPartnerByName(page, tradingPartnerName);
+
+      const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
+      await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
+
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /作成/i }).click();
+      const createResponse = await createPromise;
+      const createdId = ((await createResponse.json()) as { id: string }).id;
+      expect(createdId).toBeTruthy();
+
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+      await page.waitForLoadState('networkidle');
+
+      // 前提: 項目は 1 件も選択されていない（作成直後は未選択）
+      const itemTable = page.locator('table[aria-label="内訳書項目一覧"]');
+      const itemCheckboxes = itemTable.locator('input[type="checkbox"]');
+      await expect(itemCheckboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const checkboxCount = await itemCheckboxes.count();
+      expect(checkboxCount).toBeGreaterThan(1);
+      for (let i = 0; i < checkboxCount; i++) {
+        await expect(itemCheckboxes.nth(i)).not.toBeChecked();
+      }
+
+      // 「内訳書を本文に含める」を ON にし、サーバーへの保存の完了を待つ
+      const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
+      await expect(includeBreakdownCheckbox).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(includeBreakdownCheckbox).not.toBeChecked();
+      const updatePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith(`/estimate-requests/${createdId}`) &&
+          ['PUT', 'PATCH'].includes(response.request().method()),
+        { timeout: getTimeout(30000) }
+      );
+      await includeBreakdownCheckbox.click();
+      const updateResponse = await updatePromise;
+      expect(updateResponse.status()).toBe(200);
+      await expect(includeBreakdownCheckbox).toBeChecked();
+
+      // 見積依頼文を表示し、項目 0 件の案内が出ることを確かめる（Task 97.2 の挙動）
+      const isTextResponse = (response: import('@playwright/test').Response) =>
+        new URL(response.url()).pathname.endsWith(`/estimate-requests/${createdId}/text`) &&
+        response.request().method() === 'GET';
+      const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
+      await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      const firstTextResponsePromise = page.waitForResponse(isTextResponse, {
+        timeout: getTimeout(30000),
+      });
+      await showTextButton.click();
+      const firstTextResponse = await firstTextResponsePromise;
+      expect(firstTextResponse.status()).toBe(422);
+
+      const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
+      await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(panel).toContainText('項目を選択してください', {
+        timeout: getTimeout(10000),
+      });
+      const closeTextButton = page.getByRole('button', { name: '見積依頼文を閉じる' });
+      await expect(closeTextButton).toBeVisible();
+
+      // パネルを開いたまま「テスト項目1」だけを選択して保存する
+      await itemTable.getByRole('checkbox', { name: 'テスト項目1を選択' }).click();
+      const secondTextResponsePromise = page.waitForResponse(isTextResponse, {
+        timeout: getTimeout(30000),
+      });
+      await clickSaveSelectionButton(page);
+
+      // パネルを開き直さずに本文が再取得される
+      const secondTextResponse = await secondTextResponsePromise;
+      expect(secondTextResponse.status()).toBe(200);
+      await expect(closeTextButton).toBeVisible();
+
+      // 案内は消え、本文にチェックした項目が成形されて並び、チェックしていない項目は並ばない
+      await expect(panel.getByText('項目を選択してください')).toHaveCount(0, {
+        timeout: getTimeout(10000),
+      });
+      const bodyPre = panel.locator('pre');
+      await expect(bodyPre).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(bodyPre).toContainText('・工種A / テスト項目1 / 規格A / ');
+      await expect(bodyPre).not.toContainText('テスト項目2');
+      await expect(bodyPre).not.toContainText('テスト項目3');
     });
   });
 
@@ -2247,12 +2586,16 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 4: 他の見積依頼との重複表示', () => {
     /**
-     * @requirement estimate-request/REQ-4.10
-     * @requirement estimate-request/REQ-4.11
-     * @requirement estimate-request/REQ-4.12
-     * 他の見積依頼で選択済みの項目の背景色変更と依頼先取引先名表示
+     * @requirement estimate-request/REQ-4.15
+     * @requirement estimate-request/REQ-4.16
+     * @requirement estimate-request/REQ-4.17
+     * 内訳書項目が他の見積依頼で選択済みのとき、該当行の背景色を変更して視覚的に区別し、
+     * 該当行の一番右の列に依頼先取引先名（複数のときはすべての依頼先名）を表示する
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.10, REQ-4.11, REQ-4.12: 他の見積依頼で選択済み項目が視覚的に区別される', async ({
+    test('REQ-4.10-4.12→4.15-4.17: 他の見積依頼で選択済み項目が視覚的に区別される (estimate-request/REQ-4.15, REQ-4.16, REQ-4.17)', async ({
       page,
     }) => {
       expect(createdProjectId).toBeTruthy();
@@ -2656,8 +2999,16 @@ test.describe('見積依頼機能', () => {
 
       const responseData = await response.json();
 
-      // バージョン情報が含まれていることを確認（楽観的排他制御）
-      expect(responseData.version !== undefined || responseData.updatedAt).toBeTruthy();
+      // REQ-8.5: 楽観的排他制御。EstimateRequest に version 列は存在せず、更新・削除は
+      // 期待する updatedAt との突き合わせで競合を検出し 409 を返す
+      // （estimate-request.service.ts / estimate-requests.routes.ts）。
+      // したがって排他制御の拠り所は updatedAt であり、「version または updatedAt」の
+      // 論理和は version が無くても成立するため何も確かめていなかった。
+      // 作成応答が排他制御に使える更新時刻を返すことを主張する。
+      // 競合時に 409 が返ることは session-expired-protection-extra-e2e.spec.ts で検証している。
+      expect(responseData.version, 'version 列は存在しないはず').toBeUndefined();
+      expect(responseData.updatedAt, '作成応答に updatedAt が含まれない').toBeTruthy();
+      expect(Date.parse(responseData.updatedAt)).toBeGreaterThan(0);
     });
   });
 
@@ -2683,16 +3034,15 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // ページネーションUIが存在するか確認（ページ情報またはページネーションボタン）
-      // データが少ない場合でもページネーションコントロールの存在を確認
-      const paginationArea = page.locator('[aria-label*="ページ"]').or(page.getByText(/ページ/i));
-      const hasPagination = (await paginationArea.count()) > 0;
+      // REQ-2.6: 一覧表示にページネーションを提供する。
+      // 以前は「ページネーションがある、または『見積依頼はまだありません』が出ている」の
+      // 論理和で判定していた。空状態を許す側があるため、ページネーションが失われても
+      // 通ってしまう。要件が求めているのはページネーションの提供そのものである。
+      // 本テストは事前準備で見積依頼を作成済みの一覧を開いているため、空状態にはならない。
+      await expect(page.getByText(/見積依頼はまだありません/i)).toHaveCount(0);
 
-      // ページネーション機能が実装されていればUIが存在するはず
-      // データが10件未満でページネーションが表示されない場合も許容
-      expect(hasPagination || (await page.getByText(/見積依頼はまだありません/i).count()) > 0).toBe(
-        true
-      );
+      const paginationArea = page.locator('[aria-label*="ページ"]').or(page.getByText(/ページ/i));
+      expect(await paginationArea.count()).toBeGreaterThan(0);
     });
   });
 
@@ -2751,14 +3101,16 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 4: 内訳書項目なし', () => {
     /**
-     * @requirement estimate-request/REQ-4.13
+     * @requirement estimate-request/REQ-4.18
      * 参照内訳書に項目が存在しない場合、「内訳書に項目がありません」というメッセージを表示する
      *
      * Note: 現在のAPI設計では空の数量表から内訳書を作成することは許可されていない
      * （EmptyQuantityItemsError）。このテストでは、空の数量表を選択した際の
      * フロントエンドバリデーションエラーメッセージを検証する。
      */
-    test('REQ-4.13: 内訳書に項目がない場合のメッセージ表示', async ({ page }) => {
+    test('REQ-4.13→4.18: 内訳書に項目がない場合のメッセージ表示 (estimate-request/REQ-4.18)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -2987,18 +3339,30 @@ test.describe('見積依頼機能', () => {
         blockEstimateRequestId = idMatch[1]!;
       }
 
-      // メールラジオがデフォルトで選択されていることを確認
       const emailRadio = page.getByRole('radio', { name: /メール/i });
       const faxRadio = page.getByRole('radio', { name: /FAX/i });
-      await expect(emailRadio).toBeChecked({ timeout: getTimeout(10000) });
 
-      // FAXラジオをクリック（サーバーリクエストが発生しないことを確認）
-      let requestSent = false;
+      // 見積依頼エンドポイントへの通信を**方法で絞り込まずに**記録する。
+      // 絞り込みを観測子の中に置くと、その絞り込み自体が一度も的中しない場合でも
+      // 「送信されていない」が成立し、不在の主張が何も述べない恒真式になる。
+      const estimateRequestCallMethods: string[] = [];
       page.on('request', (request) => {
-        if (request.url().includes('/estimate-requests') && request.method() === 'PUT') {
-          requestSent = true;
+        if (request.url().includes('/estimate-requests')) {
+          estimateRequestCallMethods.push(request.method());
         }
       });
+
+      // 陽性対照: 画面の再読込で観測子が実際に発火することを示す（実測: GET 7件を記録）。
+      // これが無いと、以降の「更新系が無い」は観測子の沈黙と区別できない。
+      await page.reload({ waitUntil: 'networkidle' });
+      expect(
+        estimateRequestCallMethods,
+        '観測子が見積依頼エンドポイントへの通信を一件も捉えていない（不在の主張が空振りする）'
+      ).toContain('GET');
+
+      // メールラジオがデフォルトで選択されていることを確認
+      await expect(emailRadio).toBeChecked({ timeout: getTimeout(10000) });
+      const methodsBeforeClick = estimateRequestCallMethods.length;
 
       await faxRadio.click();
 
@@ -3006,9 +3370,30 @@ test.describe('見積依頼機能', () => {
       await expect(faxRadio).toBeChecked();
       await expect(emailRadio).not.toBeChecked();
 
-      // 短い待機後もサーバーリクエストが発生していないことを確認
-      await page.waitForTimeout(1000);
-      expect(requestSent).toBe(false);
+      // 「1秒待てば送信され終えているはず」という前提を置かず、
+      // **不在を否定する事象そのもの**（更新系の要求）を待つ。
+      // 要求が飛べばその時点で捉えて主張が落ち、飛ばなければ待機切れで null になる。
+      // 待機切れ以外の失敗は `nullWhenTimedOut` が送出するため「起きなかった」に化けない。
+      //
+      // `page.waitForLoadState('networkidle')` は代わりにならない。現在の文書では
+      // 既に networkidle が発火済みで、以降の呼び出しは**即座に解決する**
+      // （Task 115.183 の実測: 0ms）。窓を一切作らないため、遅れて飛ぶ要求を取り逃す。
+      const updateAfterClick = await nullWhenTimedOut(
+        page.waitForRequest(
+          (request) =>
+            request.url().includes('/estimate-requests') &&
+            (request.method() === 'PUT' || request.method() === 'PATCH'),
+          { timeout: getTimeout(1000) }
+        )
+      );
+      expect(updateAfterClick, 'ラジオ押下だけでサーバーへの更新が送信された').toBeNull();
+
+      // 押下より後に更新系（PUT/PATCH）の通信が一件も無い（上の窓の外で飛んだ分も含める）
+      const methodsAfterClick = estimateRequestCallMethods.slice(methodsBeforeClick);
+      expect(
+        methodsAfterClick.filter((method) => method === 'PUT' || method === 'PATCH'),
+        'ラジオ押下だけでサーバーへの更新が送信された'
+      ).toEqual([]);
     });
 
     /**
@@ -3232,22 +3617,23 @@ test.describe('見積依頼機能', () => {
         }
       }
 
-      if (emptyTableValue) {
-        await quantityTableSelect.selectOption(emptyTableValue);
-        await page.waitForTimeout(500);
+      // 直前で空の数量表を作成しているため、選択肢は必ず見つかる。
+      // 以前は `if (emptyTableValue) { … } else { expect(emptyTableValue).toBeTruthy(); }` と
+      // 書いていたが、値の絞り込みと失敗の主張が分かれており、else 側を消しても型検査が通った。
+      // 主張と絞り込みを一つの呼び出しへ畳む。
+      assertPrepared(emptyTableValue, 'REQ-4.18 検証用に作成した空の数量表の選択肢');
 
-        await page.getByRole('button', { name: /^作成$/i }).click();
+      await quantityTableSelect.selectOption(emptyTableValue);
+      await expect(quantityTableSelect).toHaveValue(emptyTableValue);
 
-        // 項目がない数量表選択時のエラーメッセージが表示される
-        await expect(
-          page.getByText(/選択された数量表に項目がありません|項目がありません/i)
-        ).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-      } else {
-        // 数量表が見つからない場合はテスト失敗
-        expect(emptyTableValue).toBeTruthy();
-      }
+      await page.getByRole('button', { name: /^作成$/i }).click();
+
+      // 項目がない数量表選択時のエラーメッセージが表示される
+      await expect(
+        page.getByText(/選択された数量表に項目がありません|項目がありません/i)
+      ).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
@@ -3323,20 +3709,149 @@ test.describe('見積依頼機能', () => {
       });
       expect(hasBeforeUnload).toBe(true);
 
-      // dialogイベントリスナーを設定して、ダイアログが表示されることを確認
-      let dialogShown = false;
-      page.on('dialog', async (dialog) => {
-        expect(dialog.type()).toBe('beforeunload');
-        dialogShown = true;
-        // acceptで遷移を許可（dismissだとpage.gotoがERR_ABORTEDになる）
-        await dialog.accept();
-      });
+      // ダイアログの観測を開始する（Task 115.178）。
+      // 主張をリスナの中に置くと、その失敗が本体の終了後に届いた場合は誰も観測せず、
+      // 緑のまま素通りする。観測だけをリスナで行い、主張は本体に置く。
+      // 応答は accept（dismiss だと page.goto が ERR_ABORTED になる）。
+      const dialogs = observeDialogs(page);
 
-      // ページ離脱を試行（別のURLに遷移）
-      await page.goto(`/projects/${createdProjectId}`);
+      try {
+        // ページ離脱を試行（別のURLに遷移）
+        await page.goto(`/projects/${createdProjectId}`);
+      } finally {
+        // 本体の終了前にリスナを外す。以降の対話で新たな応答は始まらない。
+        dialogs.detach();
+      }
+
+      // 外したうえで保留中の応答を待ち合わせ、控えた失敗を送出する（飲まない）。
+      await dialogs.settle();
 
       // beforeunloadダイアログが表示されたことを確認
-      expect(dialogShown).toBe(true);
+      expect(
+        dialogs.observed.map((observation) => observation.type),
+        'REQ-4.20: 未保存の変更があるままページを離脱しようとしても beforeunload の確認ダイアログが表示されない'
+      ).toContain('beforeunload');
+    });
+
+    /**
+     * 受入基準4.8「When 選択状態の保存が成功したとき, the システム shall 保存完了のフィードバックを表示する」
+     * @requirement estimate-request/REQ-4.8
+     */
+    test('REQ-4.8: 選択状態の保存が成功すると保存完了のフィードバックが表示される', async ({
+      page,
+    }) => {
+      expect(blockEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/estimate-requests/${blockEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const initialState = await checkboxes.first().isChecked();
+      await checkboxes.first().click();
+
+      // 変更前はフィードバックが出ていない
+      const feedback = page.getByTestId('save-feedback');
+      await expect(feedback).toHaveCount(0);
+
+      // 保存の要求が成功したことを確かめたうえで、フィードバックを主張する
+      const saveResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname ===
+            `/api/estimate-requests/${blockEstimateRequestId}/items` &&
+          response.request().method() === 'PATCH',
+        { timeout: getTimeout(15000) }
+      );
+      await page.getByTestId('save-selection-button').click();
+      expect((await saveResponse).ok(), '前提: 選択状態の保存の要求が成功する').toBe(true);
+
+      await expect(feedback).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(feedback).toHaveAttribute('role', 'status');
+      await expect(feedback).toHaveText('保存しました');
+
+      // 保存が完了したので未保存の変更は無い（保存ボタンは非活性に戻る）
+      await expect(page.getByTestId('save-selection-button')).toBeDisabled();
+
+      // 永続化された選択状態は変更後の値である（成功の表示が実際の成功と一致する）
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      expect(await checkboxes.first().isChecked()).toBe(!initialState);
+    });
+
+    /**
+     * 受入基準4.9「If 選択状態の保存が失敗した場合, then the システム shall エラーメッセージを表示し
+     * 選択状態をサーバー側の最新状態に復元する」
+     * 保存の要求（PATCH /api/estimate-requests/:id/items）だけを 500 で失敗させる。
+     * @requirement estimate-request/REQ-4.9
+     */
+    test('REQ-4.9: 選択状態の保存が失敗するとエラーメッセージを表示し選択状態をサーバーの状態に戻す', async ({
+      page,
+    }) => {
+      expect(blockEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/estimate-requests/${blockEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const serverState = await checkboxes.first().isChecked();
+
+      const itemsPath = `/api/estimate-requests/${blockEstimateRequestId}/items`;
+      let failedSaveRequests = 0;
+      await page.route(
+        (url) => url.pathname === itemsPath,
+        async (route) => {
+          if (route.request().method() !== 'PATCH') {
+            await route.fallback();
+            return;
+          }
+          failedSaveRequests++;
+          await route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              type: 'about:blank',
+              title: 'Internal Server Error',
+              status: 500,
+              detail: 'E2E: 選択状態の保存を失敗させる',
+            }),
+          });
+        }
+      );
+
+      // 選択状態を変更して保存する
+      await checkboxes.first().click();
+      await expect(checkboxes.first()).toBeChecked({ checked: !serverState });
+      await page.getByTestId('save-selection-button').click();
+
+      // 前提: 保存の要求が、失敗させた経路を通った
+      await expect
+        .poll(() => failedSaveRequests, {
+          message: '前提: 保存の要求（PATCH）が失敗させた経路を通った',
+          timeout: getTimeout(10000),
+        })
+        .toBeGreaterThan(0);
+
+      // エラーメッセージが表示される（クライアントの再試行を含めて待つ）
+      const feedback = page.getByTestId('save-feedback');
+      await expect(feedback).toBeVisible({ timeout: getTimeout(30000) });
+      await expect(feedback).toContainText('失敗', { timeout: getTimeout(30000) });
+      await expect(feedback).not.toHaveText('保存しました');
+
+      // 選択状態がサーバー側の最新状態に復元される
+      await expect(checkboxes.first()).toBeChecked({ checked: serverState });
+      // 未保存の変更は残らない（保存ボタンは非活性）
+      await expect(page.getByTestId('save-selection-button')).toBeDisabled();
+
+      // サーバー側の状態は変わっていない
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(checkboxes.first()).toBeChecked({ checked: serverState });
     });
   });
 
@@ -3364,7 +3879,6 @@ test.describe('見積依頼機能', () => {
      * @requirement estimate-request/REQ-39.4 データモデルで参照内訳書を任意（NULL 許容）として扱う（API レスポンスの itemizedStatementId === null で担保）
      * @requirement estimate-request/REQ-39.7
      * @requirement estimate-request/REQ-39.8
-     * @requirement estimate-request/REQ-39.9 内訳書未紐付け時の見積依頼文表示（「内訳書を本文に含める」非表示で担保）
      * @requirement estimate-request/REQ-39.10
      * @requirement estimate-request/REQ-39.11
      * シナリオ 1: クイック作成→詳細
@@ -3437,19 +3951,18 @@ test.describe('見積依頼機能', () => {
 
       // 「内訳書を本文に含める」チェックボックスが非表示（Req 39.8）
       // 見積依頼文パネルを開いてもチェックボックスが現れないことを確認
+      // 「見積依頼文を表示」ボタンは REQ-5.1 のとおり常に描画される
+      // （`EstimateRequestDetailPage` のアクションカードで無条件にレンダリングされる）。
+      // 以前は「ボタンが見えなければパネルを開かずに判定する」という全域分岐であったが、
+      // else 側はパネルを開かないため「展開後も非表示である」ことを確かめていなかった。
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
-      if (await showTextButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
-        await showTextButton.click();
-        // パネル展開後も「内訳書を本文に含める」は非表示
-        await expect(page.getByLabel(/内訳書を本文に含める/i)).not.toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      } else {
-        // 「見積依頼文を表示」ボタンが存在しない場合でも、最低限のチェックは行う
-        await expect(page.getByLabel(/内訳書を本文に含める/i)).not.toBeVisible({
-          timeout: getTimeout(3000),
-        });
-      }
+      await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      await showTextButton.click();
+
+      // パネル展開後も「内訳書を本文に含める」は非表示
+      await expect(page.getByLabel(/内訳書を本文に含める/i)).not.toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
       // 参照内訳書表示が「-」（Req 39.7 関連 / 一覧含む全体方針）
       // 基本情報カード内の「参照内訳書」ラベルに対応する値が「-」
@@ -3466,6 +3979,54 @@ test.describe('見積依頼機能', () => {
       await expect(page.getByText(/受領見積書/).first()).toBeVisible({
         timeout: getTimeout(5000),
       });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-39.9
+     * シナリオ 1b: 内訳書未紐付けの見積依頼の見積依頼文
+     * シナリオ 1 でクイック作成した見積依頼の詳細画面で見積依頼文を表示し、
+     * 本文の取得が成功して（「見積依頼文を取得できませんでした」ではない）、
+     * 本文の【内容】セクションに「添付内訳書の通り」が表示されることを確認する
+     */
+    test('REQ-39.9: 内訳書未紐付けの見積依頼で本文の【内容】に「添付内訳書の通り」が表示される', async ({
+      page,
+    }) => {
+      expect(quickEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${quickEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 前提: 内訳書未紐付けであり、項目選択セクションが無い（Req 39.7）
+      await expect(page.locator('table[aria-label="内訳書項目一覧"]')).toHaveCount(0);
+
+      const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
+      await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      const textResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith(
+            `/estimate-requests/${quickEstimateRequestId}/text`
+          ) && response.request().method() === 'GET',
+        { timeout: getTimeout(30000) }
+      );
+      await showTextButton.click();
+      const textResponse = await textResponsePromise;
+      // 本文の取得が成功する（項目が無いことによる 422 NO_ITEMS_SELECTED ではない）
+      expect(textResponse.status()).toBe(200);
+
+      const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
+      await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(panel.getByText('見積依頼文を取得できませんでした')).toHaveCount(0);
+
+      // 本文の【内容】セクションに「添付内訳書の通り」が表示される
+      const bodyPre = panel.locator('pre');
+      await expect(bodyPre).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(bodyPre).toContainText('【内容】\n添付内訳書の通り');
     });
 
     /**
@@ -3713,17 +4274,16 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
 
-      // FAX 方法の場合は FAX ラジオを選択
-      if (method === 'FAX') {
-        const faxRadio = page.getByRole('radio', { name: /FAX/i });
-        await faxRadio.click();
-        await expect(faxRadio).toBeChecked({ timeout: getTimeout(5000) });
-      } else {
-        // メール方法（デフォルト）の確認
-        await expect(page.getByRole('radio', { name: /メール/i })).toBeChecked({
-          timeout: getTimeout(10000),
-        });
-      }
+      // 見積依頼方法のラジオを明示的に選択する。
+      // 以前は `if (method === 'FAX') { 選択して確認 } else { 既定の確認だけ }` と
+      // 経路ごとに手順が違ったため、経路によって行われる検証が食い違っていた。
+      // どちらの方法でも「選ぶ → 選ばれている」を同じ手順で行う
+      // （メールは既定で選択済みだが、明示的に選び直しても状態は変わらない）。
+      const methodRadio = page.getByRole('radio', {
+        name: method === 'FAX' ? /FAX/i : /メール/i,
+      });
+      await methodRadio.click();
+      await expect(methodRadio).toBeChecked({ timeout: getTimeout(10000) });
 
       // 保存ボタンで項目選択・見積依頼方法をサーバーに永続化（Task 30改修）
       await clickSaveSelectionButton(page);

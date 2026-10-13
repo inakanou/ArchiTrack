@@ -16,6 +16,9 @@ import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
 
 test.describe('プロジェクト詳細画面 - セクション表示とAPI効率化', () => {
   test.describe.configure({ mode: 'serial' });
@@ -77,16 +80,7 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     await page.getByLabel(/プロジェクト名/i).fill(projectName);
     await page.getByLabel(/現場住所/i).fill('東京都渋谷区セクションテスト1-2-3');
 
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createPromise = page.waitForResponse(
       (response: Response) =>
@@ -112,6 +106,114 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     await page.goto(`/projects/${projectId}`);
     await page.waitForLoadState('networkidle');
     await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(15000) });
+  }
+
+  /**
+   * 内訳書を1件持つプロジェクトを API で用意するヘルパー
+   *
+   * REQ-26.10 は「作成済み内訳書へのリンクをリスト表示する」ことを定める。
+   * 内訳書が1件も無ければリンクの主張は一つも実行できないため、
+   * 「内訳書があれば…無ければ空状態を…」と観測して分岐するのではなく、
+   * 前提そのものをテストが作る。
+   * 空状態（REQ-25.6 / REQ-26.4 / REQ-26.5）を主張する他のテストの前提を壊さないよう、
+   * 共有の `testProjectId` とは別のプロジェクトを用いる。
+   *
+   * @param page Playwrightのページ（`loginAsUser` 済みであること）
+   * @param label 作成するデータの名称に含める識別子
+   * @returns 作成したプロジェクトのIDと内訳書名
+   */
+  async function seedProjectWithItemizedStatement(
+    page: Page,
+    label: string
+  ): Promise<{
+    projectId: string;
+    statementName: string;
+    statementCreatedAt: string;
+    quantityTableId: string;
+    headers: { Authorization: string };
+  }> {
+    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    assertPrepared(accessToken, '認証トークン');
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const stamp = Date.now();
+
+    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
+      headers,
+    });
+    expect(
+      assignableRes.ok(),
+      `前提: 担当者候補を取得できる (status=${assignableRes.status()})`
+    ).toBeTruthy();
+    const assignableUsers = (await assignableRes.json()) as Array<{ id: string }>;
+    const salesPersonId = assignableUsers[0]?.id;
+    assertPrepared(salesPersonId, '担当者候補のID');
+
+    const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
+      headers,
+      data: { name: `${label}_${stamp}`, salesPersonId },
+    });
+    expect(
+      projectRes.ok(),
+      `前提: プロジェクトが作成される (status=${projectRes.status()})`
+    ).toBeTruthy();
+    const project = (await projectRes.json()) as { id: string };
+    assertPrepared(project.id, '作成したプロジェクトのID');
+
+    const quantityTableRes = await page.request.post(
+      `${API_BASE_URL}/api/projects/${project.id}/quantity-tables`,
+      { headers, data: { name: `${label}数量表_${stamp}` } }
+    );
+    expect(
+      quantityTableRes.ok(),
+      `前提: 数量表が作成される (status=${quantityTableRes.status()})`
+    ).toBeTruthy();
+    const quantityTable = (await quantityTableRes.json()) as { id: string };
+    assertPrepared(quantityTable.id, '作成した数量表のID');
+
+    const groupRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-tables/${quantityTable.id}/groups`,
+      { headers, data: { name: `${label}グループ`, displayOrder: 0 } }
+    );
+    expect(
+      groupRes.ok(),
+      `前提: 数量グループが作成される (status=${groupRes.status()})`
+    ).toBeTruthy();
+    const group = (await groupRes.json()) as { id: string };
+    assertPrepared(group.id, '作成した数量グループのID');
+
+    const itemRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
+      {
+        headers,
+        data: {
+          workType: '内装工事',
+          name: `${label}項目`,
+          specification: '標準',
+          unit: 'm2',
+          quantity: 10,
+        },
+      }
+    );
+    expect(itemRes.ok(), `前提: 数量項目が作成される (status=${itemRes.status()})`).toBeTruthy();
+
+    const statementName = `${label}内訳書_${stamp}`;
+    const statementRes = await page.request.post(
+      `${API_BASE_URL}/api/projects/${project.id}/itemized-statements`,
+      { headers, data: { name: statementName, quantityTableId: quantityTable.id } }
+    );
+    expect(
+      statementRes.ok(),
+      `前提: 内訳書が作成される (status=${statementRes.status()})`
+    ).toBeTruthy();
+    const statement = (await statementRes.json()) as { createdAt: string };
+
+    return {
+      projectId: project.id,
+      statementName,
+      statementCreatedAt: statement.createdAt,
+      quantityTableId: quantityTable.id,
+      headers,
+    };
   }
 
   // ============================================================================
@@ -226,9 +328,15 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     });
 
     /**
-     * @requirement project-management/REQ-25.7
+     * @requirement project-management/REQ-25.6
+     *
+     * タスク 115.188 の是正: 従前は REQ-25.7 を名乗っていたが、受入基準25.7 の原文は「When 新規作成ボタンをクリックする,
+     * the ArchiTrackシステム shall 数量表新規作成画面（/projects/{projectId}/quantity-tables/new）
+     * に遷移する」である。本区間の表題・本文が述べる内容に対応するのは受入基準25.6（「Where プロジェクトに数量表が存在しない場合,
+     * the ArchiTrackシステム shall 「数量表はまだありません」メッセージと新規作成ボタンを表示する」
+     * ）である。
      */
-    test('数量表が存在しない場合に新規作成ボタンが表示される (project-management/REQ-25.7)', async ({
+    test('数量表が存在しない場合に新規作成ボタンが表示される (project-management/REQ-25.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -354,6 +462,18 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
     /**
      * @requirement project-management/REQ-27.4
+     *
+     * 原文（`.kiro/specs/project-management/requirements.md` 要件27 の 4）は
+     * 「セクション右上の『新規作成』ボタン**と**『すべて見る』リンクを非表示にする」であり、
+     * 二つの規範を連言で述べる。タスク 115.220 の是正までは本区間も含め当該IDを名乗る三件が
+     * 「すべて見る」リンクの非表示しか主張しておらず、右上の「新規作成」ボタンの非表示を
+     * 確かめる検証は一件も無かった。
+     *
+     * 右上のボタンと空状態のリンクはいずれも表記が「新規作成」で遷移先も同じ
+     * （`/projects/:id/estimate-requests/new`）ため、`name: /新規作成/i` では区別できない。
+     * 本区間は右上のボタンだけが持つアクセシブル名
+     * （`EstimateRequestSectionCard.tsx` の `aria-label="見積依頼を新規作成"`）を
+     * `exact: true` で指して区別する。
      */
     test('見積依頼が存在しない場合、セクション右上の「新規作成」ボタンと「すべて見る」リンクが非表示である (project-management/REQ-27.4)', async ({
       page,
@@ -375,9 +495,125 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
         timeout: getTimeout(5000),
       });
 
+      // 空状態のメッセージ下の「新規作成」リンクは表示される（REQ-27.3）。
+      // 右上のボタンだけが `aria-label="見積依頼を新規作成"` を持つため、
+      // その名前を exact で指せば空状態のリンクと取り違えない。
+      const emptyStateCreateLink = erSection.getByRole('link', {
+        name: '新規作成',
+        exact: true,
+      });
+      await expect(emptyStateCreateLink).toBeVisible({ timeout: getTimeout(5000) });
+
+      // セクション右上の「新規作成」ボタンが非表示であることを確認。
+      // この主張は**一致が零件でも真になる**。名前が実在することの錨は本ファイルには無く、
+      // `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の
+      // 「見積依頼が存在する場合」の区間が同名を `exact: true` の `toBeVisible()` で
+      // 指している（タスク 115.251）。
+      //
+      // 実行した変異と出力（2026-09-03 に実測。frontend は test 環境で再ビルドし、復元後の
+      // 配信バンドルが `assets/index-D5RUevcK.js` へ戻ることを `sha256sum` で照合した）:
+      //   - M1 `aria-label` の値を `見積依頼をあたらしく作成` へ変える変異を当てても、本区間を
+      //     単独で回すと **1 passed / 0 failed で緑のまま**である（落ちたのは別ファイルの
+      //     肯定側だけであった）。
+      //   - M2 `aria-label` の行そのものを消す変異を当てても、同じく **1 passed / 0 failed で
+      //     緑のまま**である。
+      //   実行したコマンドは
+      //   `npm run test:e2e -- e2e/specs/projects/project-detail-sections.spec.ts -g "見積依頼が存在しない場合、セクション右上"`。
+      //
+      // **このファイルだけを回しても改名は見えない。** したがって本区間の錨は散文ではなく
+      // 機械で拘束する。`npm run check:e2e-guards` の `T13-unanchored-accessible-name` が
+      // 「零件で真になる主張が指すアクセシブル名は、同名を肯定側から指す箇所を e2e 内に
+      // 持たねばならない」を検査する。
+      //   - M3 別ファイルの肯定側の locator を是正前の `{ name: /新規作成/i }` へ戻す変異を
+      //     当てると `npm run check:e2e-guards` が赤になる（EXIT=1。**本ファイルを `0 → 1` 件と
+      //     して名指しする**。2026-09-03 に実測。変異前と復元後はいずれも EXIT=0 である）。
+      //   走査そのものは `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names` が
+      //   印字する（走査根・母集団・比較できなかった名前の内訳・未錨の一覧）。
+      //
+      // 他の区間を表題で引かないのは、表題の末尾の被覆印を散文へ綴ると
+      // `scripts/scan-coverage-mark-correspondence.ts` が拾って帳簿を水増しするためである。
+      const headerCreateButton = erSection.getByRole('link', {
+        name: '見積依頼を新規作成',
+        exact: true,
+      });
+      await expect(headerCreateButton).not.toBeVisible({ timeout: getTimeout(3000) });
+
       // 「すべて見る」リンクが非表示であることを確認
       const viewAllLink = erSection.getByRole('link', { name: /すべて見る/i });
       await expect(viewAllLink).not.toBeVisible({ timeout: getTimeout(3000) });
+    });
+
+    /**
+     * @requirement project-management/REQ-27.5: If 見積依頼が存在する場合, then the ArchiTrackシステム shall セクション内に見積依頼を一覧表示する
+     *
+     * 前件に入るため、見積依頼を2件持つプロジェクトをテスト自身が API で作る
+     * （`seedEstimateRequest` が1件目までを作り、2件目は同じ取引先・内訳書で追加する）。
+     */
+    test('見積依頼が存在する場合、セクション内に見積依頼が一覧表示される (project-management/REQ-27.5)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      const seed = await seedEstimateRequest(page, {
+        label: 'REQ-27.5一覧',
+        siteAddress: '東京都渋谷区見積依頼一覧1-2-3',
+        partnerEmail: `req-27-5-${stamp}@example.com`,
+        groupName: 'REQ-27.5グループ',
+        item: {
+          workType: '内装工事',
+          name: 'REQ-27.5項目',
+          specification: '標準',
+          unit: 'm2',
+          quantity: 5,
+        },
+      });
+      const headers = { Authorization: `Bearer ${seed.accessToken}` };
+
+      const firstRes = await page.request.get(
+        `${API_BASE_URL}/api/estimate-requests/${seed.estimateRequestId}`,
+        { headers }
+      );
+      expect(firstRes.ok(), `前提: 1件目の見積依頼を取得できる (status=${firstRes.status()})`).toBe(
+        true
+      );
+      const first = (await firstRes.json()) as { id: string; name: string };
+
+      const secondName = `REQ-27.5二件目_${stamp}`;
+      const secondRes = await page.request.post(
+        `${API_BASE_URL}/api/projects/${seed.projectId}/estimate-requests`,
+        {
+          headers,
+          data: {
+            name: secondName,
+            tradingPartnerId: seed.tradingPartnerId,
+            itemizedStatementId: seed.itemizedStatementId,
+          },
+        }
+      );
+      expect(
+        secondRes.ok(),
+        `前提: 2件目の見積依頼が作成される (status=${secondRes.status()})`
+      ).toBe(true);
+      const second = (await secondRes.json()) as { id: string };
+
+      await navigateToProjectDetail(page, seed.projectId);
+
+      const erSection = page.getByTestId('estimate-request-section');
+      await expect(erSection).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 見積依頼が存在するので空状態ではない
+      await expect(erSection.getByText('見積依頼はまだありません')).toHaveCount(0);
+
+      // REQ-27.5: 2件の見積依頼がセクション内に並ぶ（各行は見積依頼詳細へのリンク）
+      const requestLinks = erSection.getByRole('link', { name: /の見積依頼詳細を見る$/ });
+      await expect(requestLinks).toHaveCount(2, { timeout: getTimeout(10000) });
+      await expect(
+        erSection.getByRole('link', { name: `${first.name}の見積依頼詳細を見る`, exact: true })
+      ).toHaveAttribute('href', `/estimate-requests/${first.id}`);
+      await expect(
+        erSection.getByRole('link', { name: `${secondName}の見積依頼詳細を見る`, exact: true })
+      ).toHaveAttribute('href', `/estimate-requests/${second.id}`);
     });
   });
 
@@ -453,7 +689,6 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
   test.describe('Task 50.3 追加: 内訳書セクション追加テスト', () => {
     /**
      * @requirement project-management/REQ-26.5
-     * @requirement itemized-statement-generation/REQ-3.1
      */
     test('数量表は存在するが内訳書が存在しない場合、「内訳書はまだありません」メッセージが表示される (project-management/REQ-26.5)', async ({
       page,
@@ -503,7 +738,6 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
     /**
      * @requirement project-management/REQ-26.9
-     * @requirement itemized-statement-generation/REQ-11.4
      */
     test('内訳書セクションの新規作成ボタンをクリックすると内訳書新規作成画面に遷移する (project-management/REQ-26.9)', async ({
       page,
@@ -532,43 +766,83 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
     /**
      * @requirement project-management/REQ-26.10
-     * @requirement itemized-statement-generation/REQ-11.5
      */
     test('内訳書セクションに作成済み内訳書へのリンクがリスト表示される (project-management/REQ-26.10)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      if (!testProjectId) {
-        testProjectId = await createTestProject(page);
-      }
+      // REQ-26.10 の主題は「作成済み内訳書へのリンク」である。
+      // 内訳書が1件も無い状態では検証すべきリンクが存在しないため、前提を自分で用意する。
+      const { projectId, statementName } = await seedProjectWithItemizedStatement(
+        page,
+        'REQ-26.10リンク'
+      );
 
-      await navigateToProjectDetail(page, testProjectId);
+      await navigateToProjectDetail(page, projectId);
 
       // 内訳書セクション
       const isSection = page.getByTestId('itemized-statement-section');
       await expect(isSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 内訳書が存在する場合はリンクがリスト表示される
-      // 存在しない場合は空状態メッセージが表示される
-      // いずれの場合でもセクションが表示されていればこの要件は満たされる
-      const hasStatements = await isSection
-        .getByRole('link', { name: /詳細/i })
-        .first()
-        .isVisible()
-        .catch(() => false);
-      if (hasStatements) {
-        // 内訳書へのリンクが表示されていることを確認
-        const statementLinks = isSection.getByRole('link', { name: /詳細/i });
-        const count = await statementLinks.count();
-        expect(count).toBeGreaterThanOrEqual(1);
-      } else {
-        // 内訳書がない場合は空状態メッセージまたは「まず数量表を作成してください」が表示される
-        const emptyMessage = isSection.getByText(
-          /内訳書はまだありません|まず数量表を作成してください|まだ作成されていません/i
-        );
-        await expect(emptyMessage).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // REQ-26.10: 作成済み内訳書へのリンクがリスト表示される
+      // （ItemizedStatementSectionCard の StatementCard は
+      //   aria-label="<内訳書名>の内訳書詳細を見る" のリンクを描画する）
+      const statementLink = isSection.getByRole('link', {
+        name: `${statementName}の内訳書詳細を見る`,
+      });
+      await expect(statementLink).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(statementLink).toHaveAttribute('href', /\/itemized-statements\/[0-9a-f-]+$/);
+
+      // 一覧として並ぶこと（リンクが1件以上存在する）
+      const statementLinks = isSection.getByRole('link', { name: /の内訳書詳細を見る$/ });
+      expect(await statementLinks.count()).toBeGreaterThanOrEqual(1);
+    });
+
+    /**
+     * @requirement project-management/REQ-26.3: The ArchiTrackシステム shall 内訳書セクションに作成済み内訳書を作成日時の降順で一覧表示する
+     *
+     * 作成日時の異なる内訳書を2件用意し、後に作った内訳書が先に並ぶことを主張する。
+     * 並びの観測は、各内訳書の行（aria-label が「<内訳書名>の内訳書詳細を見る」のリンク）の DOM 上の順序で行う。
+     */
+    test('内訳書セクションに作成済み内訳書が作成日時の降順で一覧表示される (project-management/REQ-26.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const older = await seedProjectWithItemizedStatement(page, 'REQ-26.3降順');
+      const newerName = `REQ-26.3降順後発内訳書_${Date.now()}`;
+      const newerRes = await page.request.post(
+        `${API_BASE_URL}/api/projects/${older.projectId}/itemized-statements`,
+        {
+          headers: older.headers,
+          data: { name: newerName, quantityTableId: older.quantityTableId },
+        }
+      );
+      expect(newerRes.ok(), `前提: 2件目の内訳書が作成される (status=${newerRes.status()})`).toBe(
+        true
+      );
+      const newer = (await newerRes.json()) as { createdAt: string };
+      // 前提: 2件の作成日時が異なり、後発が新しい（同時刻だと降順の主張が意味を持たない）
+      expect(
+        new Date(newer.createdAt).getTime(),
+        '前提: 後に作った内訳書の作成日時が先の内訳書より新しい'
+      ).toBeGreaterThan(new Date(older.statementCreatedAt).getTime());
+
+      await navigateToProjectDetail(page, older.projectId);
+
+      const isSection = page.getByTestId('itemized-statement-section');
+      await expect(isSection).toBeVisible({ timeout: getTimeout(10000) });
+      const statementLinks = isSection.getByRole('link', { name: /の内訳書詳細を見る$/ });
+      await expect(statementLinks).toHaveCount(2, { timeout: getTimeout(10000) });
+
+      const labels = await statementLinks.evaluateAll((links) =>
+        links.map((link) => link.getAttribute('aria-label'))
+      );
+      expect(labels).toEqual([
+        `${newerName}の内訳書詳細を見る`,
+        `${older.statementName}の内訳書詳細を見る`,
+      ]);
     });
   });
 
@@ -667,11 +941,13 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
       await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(15000) });
 
-      // detail-summary APIが呼ばれたこと、または基本情報が正常に表示されたことを確認
-      // ページが正常に表示されていればデータ取得方法は問わない
-      if (detailSummaryRequests.length > 0) {
-        expect(detailSummaryRequests.length).toBeGreaterThanOrEqual(1);
-      }
+      // REQ-29.2: プロジェクト詳細画面の表示は一括取得APIで行う。
+      // 以前は「呼ばれていた場合にだけ件数を主張する」形だったため、
+      // 一括取得APIが一度も呼ばれなくなっても緑のままだった。呼ばれること自体を主張する。
+      expect(
+        detailSummaryRequests.length,
+        'プロジェクト詳細表示で detail-summary API が呼び出される'
+      ).toBeGreaterThanOrEqual(1);
 
       // 個別セクションAPIが呼ばれていないことを確認（API効率化の検証）
       // フロントエンドのコンポーネントコードは個別APIを直接呼んでいないが、
@@ -746,11 +1022,93 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     });
 
     /**
-     * @requirement project-management/REQ-29.6
+     * @requirement project-management/REQ-29.6: The ArchiTrackシステム shall 一括取得APIのレスポンス形式を、既存の個別APIと互換性のあるデータ構造で提供する
+     *
+     * 一括取得APIが置き換えた個別API（プロジェクト基本情報・ステータス変更履歴・要件 29.1 の5セクション）を
+     * 同じプロジェクトについて呼び、detail-summary の該当部分と深い等価で比べる。
+     * 空配列どうしの一致は互換の証明にならないため、5セクションとも1件以上のデータをテスト自身が用意する。
      */
-    test('各セクションのリンク・ボタンが正常に動作する (project-management/REQ-29.6)', async ({
+    test('detail-summary の各部分が既存の個別APIと同じデータ構造で返る (project-management/REQ-29.6)', async ({
       page,
     }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      // 数量表・内訳書・見積依頼までを用意する
+      const seed = await seedEstimateRequest(page, {
+        label: 'REQ-29.6互換',
+        siteAddress: '東京都渋谷区互換1-2-3',
+        partnerEmail: `req-29-6-${stamp}@example.com`,
+        groupName: 'REQ-29.6グループ',
+        item: {
+          workType: '内装工事',
+          name: 'REQ-29.6項目',
+          specification: '標準',
+          unit: 'm2',
+          quantity: 5,
+        },
+      });
+      const headers = { Authorization: `Bearer ${seed.accessToken}` };
+      const projectId = seed.projectId;
+
+      // 現場調査と見積書を用意する
+      const surveyRes = await page.request.post(
+        `${API_BASE_URL}/api/projects/${projectId}/site-surveys`,
+        { headers, data: { name: `REQ-29.6現場調査_${stamp}`, surveyDate: '2026-01-01' } }
+      );
+      expect(surveyRes.ok(), `前提: 現場調査が作成される (status=${surveyRes.status()})`).toBe(
+        true
+      );
+      const estimateRes = await page.request.post(
+        `${API_BASE_URL}/api/projects/${projectId}/estimates`,
+        { headers, data: { name: `REQ-29.6見積書_${stamp}` } }
+      );
+      expect(estimateRes.ok(), `前提: 見積書が作成される (status=${estimateRes.status()})`).toBe(
+        true
+      );
+
+      const getJson = async (path: string) => {
+        const res = await page.request.get(`${API_BASE_URL}${path}`, { headers });
+        expect(res.ok(), `${path} を取得できる (status=${res.status()})`).toBe(true);
+        return res.json();
+      };
+
+      const summary = await getJson(`/api/projects/${projectId}/detail-summary`);
+
+      const individual = {
+        siteSurveys: await getJson(`/api/projects/${projectId}/site-surveys/latest`),
+        quantityTables: await getJson(`/api/projects/${projectId}/quantity-tables/summary`),
+        itemizedStatements: await getJson(`/api/projects/${projectId}/itemized-statements/latest`),
+        estimateRequests: await getJson(`/api/projects/${projectId}/estimate-requests/latest`),
+        estimates: await getJson(`/api/projects/${projectId}/estimates/latest`),
+      };
+
+      // 前提: 5セクションとも比べるデータが実在する
+      expect(individual.siteSurveys.latestSurveys).toHaveLength(1);
+      expect(individual.quantityTables.latestTables).toHaveLength(1);
+      expect(individual.itemizedStatements.latestStatements).toHaveLength(1);
+      expect(individual.estimateRequests.latestRequests).toHaveLength(1);
+      expect(individual.estimates.latestEstimates).toHaveLength(1);
+
+      expect(summary.project).toEqual(await getJson(`/api/projects/${projectId}`));
+      expect(summary.statusHistory).toEqual(
+        await getJson(`/api/projects/${projectId}/status-history`)
+      );
+      expect(summary.sections.siteSurveys).toEqual(individual.siteSurveys);
+      expect(summary.sections.quantityTables).toEqual(individual.quantityTables);
+      expect(summary.sections.itemizedStatements).toEqual(individual.itemizedStatements);
+      expect(summary.sections.estimateRequests).toEqual(individual.estimateRequests);
+      expect(summary.sections.estimates).toEqual(individual.estimates);
+    });
+
+    /**
+     * タスク 115.188 の是正: 従前は REQ-29.6 を名乗っていたが、受入基準29.6 は「一括取得APIのレスポンス形
+     * 式を、既存の個別APIと互換性のあるデータ構造で提供する」であり、本検証が主張する各セクションの「新規作成」
+     * リンクの表示とは無関係である。本検証は現場調査・数量表・見積依頼・見積書の四セクションにまたがっており、
+     * 単一の受入基準に対応しない（要件24〜28 はセクションごとに分かれている）。ゆえに被覆印を**取り下げる**。
+     * 受入基準29.6 を名乗る検証は他に無く、取り下げにより 29.6 は未被覆として指標に現れる。
+     */
+    test('各セクションのリンク・ボタンが正常に動作する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!testProjectId) {

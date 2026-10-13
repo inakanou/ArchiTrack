@@ -3,16 +3,30 @@
  *
  * TDD: GREEN Phase - Prismaスキーマで定義したProjectモデルの型検証
  *
+ * 一覧の説明文は要件定義書の原文（`shall` 以降）の逐語複製である。
+ * 番号だけを並べると指し先の当否は読み手にしか確かめられないが、原文を並置すれば
+ * 条文が繰り上がったときに字面の食い違いとして現れる。
+ * ただし機械が支えるのは**目印として使える原文を持つ行だけ**である。**除外は二つあり、
+ * 長さだけではない**——(a) `shall` 以降が `MIN_CRITERION_QUOTE_LENGTH`
+ * （scripts/check-requirement-coverage.ts）に満たない条文、(b) 同じ語句が同一機能の
+ * 他の条文の本文にも現れる条文。いずれもどの条文を名指すかの証拠にならないため検査の
+ * 対象外であり、その行の指し先は依然として読み手が確かめるほかない。
+ * (a) に落ちる条文の量は `npm run check:req-coverage` が「目印として採る原文の最小長」の
+ * 行で毎回印字する（散文へ写せばその出力の二重帳簿になる）。(b) の量を出す機構は無い。
+ *
  * Requirements (project-management):
- * - REQ-1.14: プロジェクトに一意のIDを自動付与
- * - REQ-1.15: 作成日時と作成者を自動的に記録
- * - REQ-9.7: 削除されたプロジェクトは一覧に表示しない（論理削除）
- * - REQ-13.1: プロジェクト名を必須かつ1〜255文字
- * - REQ-13.2: 顧客名を必須かつ1〜255文字
- * - REQ-13.3: 営業担当者を必須
- * - REQ-13.5: 工事担当者を任意
- * - REQ-13.7: 現場住所を任意かつ最大500文字
- * - REQ-13.8: 概要を任意かつ最大5000文字
+ * - REQ-1.16: 作成日時と作成者を自動的に記録する
+ * - REQ-1.17: プロジェクトに一意のIDを自動付与する
+ * - REQ-9.7: 削除されたプロジェクトは一覧に表示しない
+ * - REQ-13.1: プロジェクト名を必須かつ1〜255文字とする
+ * - REQ-13.4: 営業担当者を必須とする
+ * - REQ-13.6: 工事担当者を任意とする
+ * - REQ-13.8: 現場住所を任意かつ最大500文字とする
+ * - REQ-13.9: 概要を任意かつ最大5000文字とする
+ *
+ * 従前この一覧が掲げていた「顧客名を必須かつ1〜255文字」は、現行の要件定義書に
+ * 対応する条文が無い。顧客名は取引先へ移り、作成・編集フォームでも任意である。
+ * 付け替え先が存在しないため、当該の被覆印は取り下げた。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -45,7 +59,15 @@ describe('Project Model Schema', () => {
 
   describe('TransitionType Enum', () => {
     it('should have all 4 transition type values defined', () => {
-      // Requirement 10.11: 4種類の遷移種別
+      // 要件10 の 11 が「遷移種別」として定義するのは「順方向遷移」「差し戻し遷移」
+      // 「終端遷移（完了・中止・失注）」の3種類であり、initial は含まれない。
+      // initial はステータス間の遷移ではなく、プロジェクト作成時に fromStatus=null で
+      // 記録される初期履歴の印である（本番で書き込むのは ProjectService.createProject だけ。
+      // 遷移表 STATUS_TRANSITIONS は要素の型を Exclude<TransitionType, 'initial'> とし、
+      // 遷移の判定を担う getTransitionType が initial を返す経路を持たない）。
+      // したがってここで確かめる4値は「要件10 の 11 の3種類 + 履歴の印 initial」であり、
+      // 要件が4種類を定義しているという意味ではない。
+      // Requirement 10.11: forward / backward / terminate の3種類（initial は対象外）
       expect(TransitionType.initial).toBe('initial');
       expect(TransitionType.forward).toBe('forward');
       expect(TransitionType.backward).toBe('backward');
@@ -53,6 +75,7 @@ describe('Project Model Schema', () => {
     });
 
     it('should have exactly 4 transition type values', () => {
+      // 4 は要件の件数ではなく列挙の値数である（上の it の注釈を参照）。
       const transitionTypeValues = Object.values(TransitionType);
       expect(transitionTypeValues).toHaveLength(4);
     });
@@ -60,7 +83,7 @@ describe('Project Model Schema', () => {
 
   describe('Project CreateInput type structure', () => {
     it('should require mandatory fields', () => {
-      // Requirement 13.1, 13.3: 必須フィールドの検証
+      // Requirement 13.1, 13.4: 必須フィールドの検証
       // この型テストはコンパイル時に検証される
       const validInput: Prisma.ProjectCreateInput = {
         name: 'テストプロジェクト',
@@ -72,7 +95,10 @@ describe('Project Model Schema', () => {
     });
 
     it('should allow optional fields', () => {
-      // Requirement 13.5, 13.7, 13.8, 22.1-22.5: 任意フィールドの検証
+      // Requirement 13.2, 13.6, 13.8, 13.9: 任意フィールドの検証
+      // 取引先（tradingPartner）を任意とするのは要件13 の 2 である。従前この行が名乗って
+      // いた 22.1-22.5 は、現行の要件22 では顧客候補のドロップダウン・オートコンプリート
+      // （UI の候補提示）であり、Prisma の任意リレーションの検証とは対応しない。
       const inputWithOptionalFields: Prisma.ProjectCreateInput = {
         name: 'テストプロジェクト',
         tradingPartner: { connect: { id: 'trading-partner-id' } },
@@ -103,7 +129,7 @@ describe('Project Model Schema', () => {
 
   describe('Project fields validation', () => {
     it('should have id field as UUID', () => {
-      // Requirement 1.14: プロジェクトに一意のIDを自動付与
+      // Requirement 1.17: プロジェクトに一意のIDを自動付与する
       // Prismaスキーマで @id @default(uuid()) が設定されていることを型で確認
       const projectSelect: Prisma.ProjectSelect = {
         id: true,
@@ -112,7 +138,7 @@ describe('Project Model Schema', () => {
     });
 
     it('should have createdAt and createdById fields', () => {
-      // Requirement 1.15: 作成日時と作成者を自動的に記録
+      // Requirement 1.16: 作成日時と作成者を自動的に記録する
       const projectSelect: Prisma.ProjectSelect = {
         createdAt: true,
         createdById: true,

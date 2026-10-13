@@ -6,7 +6,7 @@
  * Requirements coverage:
  * - 14.6: ビューアで表示する原本画像を必要時にのみ取得する
  * - 15.4: ZIPの「アップロード原本そのまま」モードを成立させる非合成原本の取得元
- * - 13.2, 13.4: プロジェクト境界の検証・署名付きURLではなく専用エンドポイント経由の配信
+ * - 13.2, 13.4: 担当でない一般ユーザーも権限があれば取得できる・署名付きURLではなく専用エンドポイント経由の配信
  *
  * Scope:
  * - flat マウント GET /api/construction-photos/images/:imageId/original
@@ -304,17 +304,32 @@ describe('Construction Photo Original Image API Integration Tests', () => {
     expect(res.status).toBe(404);
   });
 
-  it('アクセス権のないプロジェクトの写真の原本取得は404を返す（Requirements: 13.2）', async () => {
+  it('担当でない一般ユーザーも、閲覧の権限（construction_photo:read）があれば原本を取得できる', async () => {
+    // outsider は当該プロジェクトの作成者・営業担当・工事担当のいずれでもない user ロールの利用者。
+    // アクセスはロールの権限の表（RBAC）だけで判定する（Task 23.1 の利用者の判断）
+    const asOwner = await request(app)
+      .get(`/api/construction-photos/images/${plainPhotoId}/original`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .responseType('blob');
+    expect(asOwner.status).toBe(200);
+
     const res = await request(app)
       .get(`/api/construction-photos/images/${plainPhotoId}/original`)
-      .set('Authorization', `Bearer ${outsiderToken}`);
-    expect(res.status).toBe(404);
+      .set('Authorization', `Bearer ${outsiderToken}`)
+      .responseType('blob');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('image/');
+    expect((res.body as Buffer).length).toBeGreaterThan(0);
+    expect(Buffer.compare(res.body as Buffer, asOwner.body as Buffer)).toBe(0);
   });
 });
 
 /**
  * Requirements coverage (construction-photo) — requirement-coverage tags.
  * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
- * @requirement construction-photo/REQ-13.2
+ * 13.2（リソースが、実在し取り除かれていないプロジェクトに属することの確認）の被覆印は、
+ * 取り除かれたプロジェクトとプロジェクトの境界を確かめる
+ * construction-photo-access.api.integration.test.ts が掲げる。
  * @requirement construction-photo/REQ-13.4
  */

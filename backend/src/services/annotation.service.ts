@@ -27,8 +27,6 @@
 
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { Prisma } from '../generated/prisma/client.js';
-import logger from '../utils/logger.js';
-import { ThumbnailRegenerationError } from './errors.js';
 
 /**
  * 現在のスキーマバージョン
@@ -101,22 +99,14 @@ export class AnnotationNotFoundError extends Error {
 }
 
 /**
- * 注釈付きサムネイル生成サービスのインターフェース（オプショナル依存）
- */
-export interface IAnnotatedThumbnailService {
-  generateAnnotatedThumbnail(
-    imageId: string,
-    annotationData: AnnotationData
-  ): Promise<string | null>;
-}
-
-/**
  * サービス依存関係
+ *
+ * 合成済みサムネイルの再生成は本サービスの責務ではない（Task 115.107）。
+ * 生成の実行主体は画像編集画面（クライアント）であり、保存先は
+ * `PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail` が更新する。
  */
 export interface AnnotationServiceDependencies {
   prisma: PrismaClient;
-  /** 注釈付きサムネイル生成サービス（オプショナル、Task 53.3） */
-  annotatedThumbnailService?: IAnnotatedThumbnailService;
 }
 
 /**
@@ -158,6 +148,22 @@ export interface AnnotationData {
 }
 
 /**
+ * 描画された注釈が存在するかを判定する（Requirement 20.2、Task 115.13）
+ *
+ * 画像編集画面は注釈が0件でも無条件に保存し、回転角度も同じレコードへ載るため、
+ * 注釈レコードの存在では描画の有無を判定できない。判定は描画オブジェクトの件数で行う。
+ *
+ * 保存済みデータには `objects` が配列でない壊れた値が混ざり得るため、その場合は
+ * 描画なし（false）として扱う。
+ *
+ * @param data - 注釈データ（Fabric.js JSON形式）
+ * @returns 描画された注釈が1件以上ある場合 true
+ */
+export function hasDrawnObjects(data: { objects?: unknown }): boolean {
+  return Array.isArray(data.objects) && data.objects.length > 0;
+}
+
+/**
  * 注釈保存入力
  */
 export interface SaveAnnotationInput {
@@ -177,13 +183,13 @@ export interface AnnotationInfo {
   createdAt: Date;
   updatedAt: Date;
   /**
-   * 注釈付きサムネイルのR2オブジェクトパス。
-   * `save()` 実行直後に同期再生成された最新パス（Task 60.3）。
-   * - 再生成成功時: 新しいタイムスタンプ付きパス
-   * - ソースなし/空注釈で削除された場合: null
-   * - `save()` 以外の経路（findByImageId等）で取得した場合は未設定
+   * 描画された注釈が存在するか（Requirement 20.2、Task 115.13）。
+   *
+   * 画像編集画面は注釈が0件（回転のみ）でも無条件に保存するため、注釈レコードの存在
+   * （`hasAnnotations`）では描画の有無を判定できない。保存のたびに `data.objects` の
+   * 件数から算出して永続化し、取得側が重い `data` を読まずに判定できるようにする。
    */
-  annotatedThumbnailPath?: string | null;
+  hasDrawnAnnotations: boolean;
 }
 
 /**
@@ -201,11 +207,9 @@ type PrismaTransactionClient = Omit<
  */
 export class AnnotationService {
   private readonly prisma: PrismaClient;
-  private readonly annotatedThumbnailService?: IAnnotatedThumbnailService;
 
   constructor(deps: AnnotationServiceDependencies) {
     this.prisma = deps.prisma;
-    this.annotatedThumbnailService = deps.annotatedThumbnailService;
   }
 
   /**
@@ -234,7 +238,7 @@ export class AnnotationService {
       version: input.data.version || ANNOTATION_SCHEMA_VERSION,
     };
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    return await this.prisma.$transaction(async (tx) => {
       // 1. 画像の存在確認
       await this.validateImageExists(tx, input.imageId);
 
@@ -257,32 +261,6 @@ export class AnnotationService {
         return await this.createAnnotation(tx, input.imageId, dataWithVersion);
       }
     });
-
-    // 注釈付きサムネイル生成（同期化: Task 60.3）
-    // Req 23.1-23.4: 注釈/画像編集が終わった時点で最新のサムネイルパスを保証する。
-    // imageRotation のみ変更された場合も dataWithVersion 経由で同じフローを通る。
-    if (this.annotatedThumbnailService) {
-      try {
-        const newPath = await this.annotatedThumbnailService.generateAnnotatedThumbnail(
-          input.imageId,
-          dataWithVersion
-        );
-        // newPath が null の場合（元画像なし/空注釈でサムネイル削除済み等）もそのまま反映する。
-        result.annotatedThumbnailPath = newPath;
-      } catch (error) {
-        logger.error({
-          action: 'annotated_thumbnail_regeneration_failed',
-          imageId: input.imageId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        throw new ThumbnailRegenerationError(
-          '注釈の保存には成功しましたが、サムネイルの再生成に失敗しました。画面を再読み込みしてください。',
-          { cause: error }
-        );
-      }
-    }
-
-    return result;
   }
 
   /**
@@ -330,6 +308,8 @@ export class AnnotationService {
         imageId,
         data: data as unknown as Prisma.InputJsonValue,
         version: data.version,
+        // 描画された注釈の有無を保存時に維持する（Requirement 20.2、Task 115.13）
+        hasDrawnAnnotations: hasDrawnObjects(data),
       },
     });
 
@@ -366,6 +346,8 @@ export class AnnotationService {
       data: {
         data: data as unknown as Prisma.InputJsonValue,
         version: data.version,
+        // 注釈をすべて削除した保存でも false へ戻す（Requirement 20.2、Task 115.13）
+        hasDrawnAnnotations: hasDrawnObjects(data),
       },
     });
 
@@ -601,6 +583,7 @@ export class AnnotationService {
     imageId: string;
     data: unknown;
     version: string;
+    hasDrawnAnnotations?: boolean | null;
     createdAt: Date;
     updatedAt: Date;
   }): AnnotationInfo {
@@ -609,6 +592,8 @@ export class AnnotationService {
       imageId: annotation.imageId,
       data: annotation.data as AnnotationData,
       version: annotation.version,
+      // 未算出（バックフィル未実施）のレコードは従来どおり注釈ありとして扱う
+      hasDrawnAnnotations: annotation.hasDrawnAnnotations ?? true,
       createdAt: annotation.createdAt,
       updatedAt: annotation.updatedAt,
     };

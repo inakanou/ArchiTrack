@@ -1202,7 +1202,7 @@ async loginHandler(req: Request, res: Response, next: NextFunction) {
 
 **既存ApiErrorクラスとの統合**:
 
-既存のApiErrorクラス（`backend/src/errors/ApiError.ts`）を活用し、エラーハンドリングの一貫性を保ちます。
+既存のApiErrorクラス（`backend/src/errors/apiError.ts`）を活用し、エラーハンドリングの一貫性を保ちます。
 
 ```typescript
 // 既存のApiErrorクラス
@@ -1435,7 +1435,7 @@ async function registerHandler(req: Request, res: Response, next: NextFunction) 
 ```
 
 **実装のメリット**:
-- **コード重複削減**: `mapResultToApiError`により、エラーマッピングロジックが1箇所に集約
+- **コード重複削減**: `mapResultToApiError`により、エラーマッピングロジックが1箇所に集約。**この「1箇所に集約」は再実測でも真である**——`mapResultToApiError` の定義は `backend/src/utils/result-mapper.ts` の 1 箇所だけである（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である） **再現コマンドは `git grep -c 'export function mapResultToApiError' -- 'backend/src/**/*.ts' | wc -l` であり、出力は `1` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 - **保守性向上**: 新規エラー種別の追加時、`mapResultToApiError`のみ修正すればよい
 - **型安全性強化**: サービス層のエラー型（`AuthError`, `InvitationError`等）が統一的に定義される
 - **テスト容易性**: `mapResultToApiError`, `handleServiceResult`を単独でテスト可能
@@ -1559,6 +1559,14 @@ type InvitationError =
   | { type: 'INVITATION_ALREADY_USED' }
   | { type: 'EMAIL_ALREADY_REGISTERED' };
 ```
+
+**招待メールの結線とメール送信からの切り離し（要件1.3・24.8）**（2026-09-26 タスク35.4 で追記）:
+- **結線の決定**: 要件1.3「招待トークンが生成される THEN 招待メールを対象メールアドレスに送信しなければならない」と、上記「ユーザー招待フロー」の `Backend->>Queue: メール送信ジョブをキュー` に従い、`createInvitation` は招待レコードの作成後に `EmailService.sendInvitationEmail` を呼ぶ。タスク35.4 着手前の実装はこれを呼んでおらず、`sendInvitationEmail` の本番からの呼び出しは 0 件だった。管理者画面の招待URLコピー（要件13.3・13.5）はメールと併存する
+- **切り離しの決定**: 要件24.8「外部サービス（メール送信）が利用不可である THEN ユーザー登録・招待処理を非同期キューで処理」を、**メール送信（キューへの投入を含む）の成否が招待の作成・登録の成否を左右しない**ことと読む。`createInvitation` は投入の完了を待たずに `Ok` を返し、投入の失敗（Redis の障害など）は `logger.warn`（`'Failed to queue invitation email; invitation was created'`、`invitationId` と障害を添える。障害は pino の標準シリアライザが効く `err` キーに載せ、message と stack を残す）に残す。待たないのは、Redis が応答しないとき投入の `await` が接続の再試行の間だけ招待のレスポンスを止めるためである。SMTP の障害はキューの処理側（要件24.3 の再送）で扱われ、招待の作成には届かない
+- **登録**: `AuthService.register` はメールを送らない（EmailService を呼ばない）ため、登録の成否はもともとメール送信に依存しない。統合検証で、投入が失敗した招待を使った登録が成立することを確かめる
+- **送信口の注入**: `InvitationService` のコンストラクタは第2引数に送信口（`InvitationEmailSender` = `Pick<EmailService, 'sendInvitationEmail'>`）を任意で取る。招待APIの `createInvitationRoutes` は既定で `EmailService` を渡す。送信口の無い構成（招待の検証だけに使う `AuthService` 内部のインスタンス）で招待を作成した場合は、未送信を警告ログに残す
+- **範囲外**: パスワードリセット要求（`PasswordService.requestPasswordReset`）は投入を `await` し、失敗すると `RESET_TOKEN_INVALID` を返す。条文24.8 は「ユーザー登録・招待処理」に限るため本決定の対象としない（リセットのトークン生成・メール・ログの組み方は要件25.6、タスク35.5 で決める）
+- **実装と検証**: `backend/src/services/invitation.service.ts`（`queueInvitationEmail`）、`backend/src/routes/invitation.routes.ts`、`backend/src/__tests__/unit/services/invitation.service.test.ts`、`backend/src/__tests__/unit/routes/invitation.routes.test.ts`、`backend/src/__tests__/integration/invitation-email-decoupling.integration.test.ts`
 
 #### RBACService
 
@@ -1699,6 +1707,69 @@ const permissions = user.userRoles.flatMap((ur) =>
   ur.role.rolePermissions.map((rp) => rp.permission)
 );
 ```
+
+**認証系の書き込みの原子性（要件25.1・25.2・25.3・25.5・25.6・25.7）**（2026-09-27 タスク35.5 で追記）:
+- **登録（25.1・25.2）**: `AuthService.register` は既にユーザー作成・招待の使用済み化・既定ロール（user）の割り当てを一つの `$transaction` で行っており、実装は変えていない。実 DB のトリガーで既定ロールの割り当てを失敗させ、ユーザー行が残らず招待が pending のまま（usedAt・userId も空）であることを統合検証で主張する
+- **監査ログとトランザクション（25.5）**: `AuditLogService.createLog` は任意の第2引数に呼び出し元のトランザクションのクライアントを取る（省略時は従来どおり単独で書き込む）。`UserRoleService` と `RolePermissionService` は紐付けの書き込みと同じトランザクションのクライアントを渡して記録する。これにより監査ログの保存に失敗すれば元の変更もロールバックされ、逆に後続の書き込みが失敗すれば先に記録した監査ログも残らない
+- **一括操作（25.3）**: `addRolesToUser`・`removeRolesFromUser`・`addPermissionsToRole`・`removePermissionsFromRole` は全件を一つのトランザクションで処理し、途中の失敗（ユーザー・ロール・権限の不在などの業務エラーを含む）で全件をロールバックして最初のエラーを返す。着手前は1件ずつ別々に書き込み、`DATABASE_ERROR` は読み捨てて続行していた。1件の操作（`addRoleToUser` など）も要素1件の同じ経路を通る。本番の入口であるユーザーへのロール追加API（POST /api/v1/users/:id/roles）とロールへの権限追加API（POST /api/v1/roles/:id/permissions）は、1件ずつ呼ぶループをやめて一括メソッドを1回呼ぶ
+- **紐付け変更の整合性（25.7）**: 「変更前後の整合性を検証」を、変更前の検証（ロール・権限・ユーザーの存在、重複、紐付けの存在、システム管理者ロールの `*:*` 保護、最後の管理者の保護）と書き込み・監査ログを同じトランザクションで行い、1件でも失敗すればロールの権限（ユーザーのロール）が変更前の状態のまま残る——中間の状態がコミットされない——ことと読む。変更後に不変条件を読み直す検証は加えていない（変更前の検証で排除済みの状態であり、失敗注入でも到達できない分岐になるため）。並行する変更の間の分離は、最後の管理者の保護の直列化をタスク35.6（下記「認証系の書き込みの ACID 特性」）で、楽観的ロックをタスク35.7 で扱う
+- **コミット後に行うもの**: 権限キャッシュの無効化と、システム管理者ロールの変更アラート（メール・Sentry）はコミットの後に行う。ロールバックされうる変更について外部へ通知しないためである
+- **権限削除の監査**: ロールからの権限削除API（DELETE /api/v1/roles/:id/permissions/:permissionId）は実行者を渡しておらず、権限削除の監査ログ（要件22.2）が記録されていなかった。実行者を渡すよう改め、削除と監査ログを同じトランザクションで記録する。ユーザーからのロール削除（`removeRoleFromUser`）には監査ログの記録そのものが無い（要件22.3。本項の範囲外として残す）。**2026-09-28 タスク36.4 で記録するよう改めた**（下の「ロールの作成・更新・削除と割り当ての削除の監査ログ」）
+- **パスワードリセット（25.6）**: 利用者の裁定（2026-09-27）は「(A) コミット後に投入」。`PasswordService.requestPasswordReset` は、リセットトークンの作成と監査ログ `PASSWORD_RESET_REQUESTED`（実行者・対象とも本人、targetType は user）の記録を一つの `$transaction` で行い、コミットの後にリセットメールをキューへ投入する。条文の「ログ記録」は、この同じトランザクションで書く監査ログと読む
+  - **条文からの逸脱**: 条文は「メール送信」も「トランザクション内で」処理するよう求めるが、メールのキュー（Redis）は DB のトランザクションに参加できない。そこで DB 側の整合性（トークンと監査ログは両方残るか両方残らない）を保証し、メールはコミットの後に高々1回投入する。コミットに失敗した（ロールバックされた）トークンのメールは送られない。代わりに、投入が失敗するとトークンは残るがメールは届かない（利用者は再度リセットを要求できる）
+  - **失敗時の応答**: 投入の失敗は `logger.warn`（`'Failed to queue password reset email; reset token was created'`、障害を `err` キー、`userId` を添える）に残し、`Ok` を返す。着手前は投入の失敗で `RESET_TOKEN_INVALID` を返していた（タスク35.4 からの申し送り）。DB のトランザクションが失敗した場合は従来どおり `RESET_TOKEN_INVALID` を返し、メールは投入しない
+  - **ユーザー列挙の防止**: 未登録のメールアドレスには、トークンも監査ログも作らず、投入もせずに同じ成功（`Ok`）を返す従来の挙動を保つ。ルートは結果にかかわらず同じ 200 応答を返す
+  - **注入**: `PasswordService` のコンストラクタは第3引数に監査ログサービスを任意で取る（省略時は同じ Prisma クライアントで `AuditLogService` を生成する）
+- **検証**: 統合検証（auth-write-atomicity の統合テスト）は PostgreSQL のトリガーで各フローの途中の書き込み（監査ログを含む）を失敗させ、全変更がロールバックされることを主張する。パスワードリセットではコミットの時点で失敗する遅延制約トリガーも使い、ロールバックされたときにメールが投入されないことを主張する。トランザクションを外す変異・監査ログにトランザクションを渡さない変異・投入をコミット前へ移す変異・監査ログを外す変異のいずれでも赤くなることを実測した
+
+**ロールの作成・更新・削除と割り当ての削除の監査ログ（要件22.1・22.3・25.5）**（2026-09-28 タスク36.4 で追記）:
+- **着手前**: ユーザーからのロールの削除は監査ログを記録せず、`USER_ROLE_REVOKED` は型にあるだけだった。ロールの監査ログはロールのルートがロールの作成の後に単独で書く `ROLE_CREATED` だけで、書き込みのトランザクションの外にあり、監査ログの保存に失敗してもロールは作成されたまま 500 を返していた。`ROLE_UPDATED` / `ROLE_DELETED` を記録する本番コードは無かった
+- **記録の場所**: 35.5 と同じ作法で、サービスが書き込みと同じ `$transaction` のクライアントを `AuditLogService.createLog` の第2引数に渡して記録する。ルートは実行者（`req.user.userId`）をサービスへ渡すだけとし、ルートでの `ROLE_CREATED` の記録は取り除いた
+  - `RoleService` はコンストラクタの第2引数に監査ログサービスを任意で取り、`createRole(input, actorId?)`・`updateRole(roleId, input, actorId?)`・`deleteRole(roleId, actorId?)` は監査ログサービスと実行者の両方があるときに記録する（`UserRoleService` の `actorId` と同じ規則）
+  - `UserRoleService.removeRoleFromUser(userId, roleId, actorId?, performedBy?)` と `removeRolesFromUser(userId, roleIds, actorId?, performedBy?)` は、`addRoleToUser` と同じ引数の並びに揃えた（実行者の後にアラート用の実行者情報）。1件・一括とも同じ `removeRoleInTransaction` を通り、ロールごとに紐付けの削除の直後に記録する。DELETE /api/v1/users/:id/roles/:roleId は実行者を渡す。アラート用の実行者情報は着手前と同じく渡さない（要件22.9 のアラートの経路は本タスクで変えない）
+- **記録の内容**: いずれも実行者（actorId）・対象（ロールは targetType `role`・targetId にロールID、割り当ては targetType `user-role`・targetId にユーザーID）・変更前後の値を持つ。ロールの値は `{ id, name, description, priority }`。`ROLE_CREATED` は before が null、`ROLE_DELETED` は after が null。`USER_ROLE_REVOKED` は before に `USER_ROLE_ASSIGNED` の after と同じ形（`{ userId, userEmail, roleId, roleName }`）を置き、after は null とする。metadata は既存の紐付けの監査ログと同じく null
+- **トランザクション**: ロールの作成・版なしの更新・削除は、着手前はトランザクションを持たない単独の書き込みだったため、書き込みと監査ログを一つの `$transaction` にした。版つきの更新は既存の `$transaction`（条件付きの更新）の中で記録する。新しい 3 か所にも上の「対話型トランザクションの開始の待ち」（タスク35.12）と同じ `connectBudgetTransactionOptions()` を渡し、既存の版つきの更新と割り当ての削除の `maxWait` は変えない
+- **変更前の値の読み出し**: 版なしの更新は、同じトランザクションで対象の行を `SELECT ... FOR NO KEY UPDATE`（UPDATE 自身が取るのと同じロック。外部キーの検査が取る `FOR KEY SHARE` と衝突せず、ロールの割り当てを待たせない）で読んでから更新し、読み出しから更新までの間に並行する更新が割り込まないようにする。版つきの更新は条件付きの更新の前に同じトランザクションで行を読む。条件付きの更新が 1 件に当たったなら版（updatedAt）は読み出しから変わっていないため、読んだ行が更新の直前の値である（並行する更新があれば updatedAt が進み、条件付きの更新は 0 件になって記録しない）。削除は `delete` が返す削除した行を変更前の値とする
+- **記録しない場合**: 業務エラー（ロールの不在・名前の重複・版の競合・システムロールの保護・使用中・紐付けの不在・最後の管理者の保護）では書き込みも記録も行わない
+- **権限キャッシュの無効化**: 割り当ての削除の無効化はこれまでどおりコミットの後に行う（タスク36.2）。ロールの作成・更新・削除は既存のキャッシュの内容を変えないため無効化しない（「キャッシング戦略」のタスク36.2 の項のとおり）
+- **検証**: 統合検証（role-audit-log-atomicity の統合テスト、19件）は実データベースで、各操作が監査ログを実行者・対象・変更前後の値とともに記録すること（要件22.1・22.3）、PostgreSQL のトリガーで監査ログの保存を失敗させると書き込みごとロールバックされること、書き込みをコミットの時点で失敗させる遅延制約トリガーで取り消された書き込みの監査ログが残らないこと（要件25.5）を主張する。監査ログは各経路の最後の書き込みのため、監査ログをトランザクションの外で記録しても監査ログの失敗では書き込みが巻き戻る。トランザクションの外での記録を検出するのはコミットの時点の失敗の検証である。`USER_ROLE_REVOKED` の記録を外す変異、ロールの監査ログを更新・削除で記録しない変異、ロールの監査ログ・`USER_ROLE_REVOKED` に tx を渡さない変異のいずれでも赤くなることを実測した。監査ログの E2E は要件22.1 の検証にロールの更新・削除、要件22.3 の検証にユーザーからのロールの削除の監査ログを加えた
+- **削除の使用中の確認の直列化（要件17.5・21.8・22.3）**（2026-09-29 タスク37.1 で追記）: 36.4 の時点の `RoleService.deleteRole` は、使用中の確認（`userRole.count`）をトランザクションの外で行い、その後の `$transaction` で削除していた。`UserRole.role` は `onDelete: Cascade` のため、確認から削除までの間に割り当てがコミットされると、割り当てのあるロールが削除され、その割り当てはカスケードで黙って消えていた（`USER_ROLE_REVOKED` の監査ログも権限キャッシュの無効化も伴わない）。そこで次のとおり改めた
+  - **方式**: ロールの存在・システムロールの確認、使用中の確認、削除、監査ログの記録をすべて一つの `$transaction`（`connectBudgetTransactionOptions()` はそのまま）で行い、使用中の件数を数える前に `roles` の行を `SELECT id FROM roles WHERE id = $1 FOR UPDATE` でロックする。割り当て（`user_roles` への INSERT）は外部キーの検査で同じ行に `FOR KEY SHARE` を取るため、`FOR UPDATE` と衝突する。ロックの前から未コミットの割り当てがあれば削除はそのコミット（またはロールバック）まで待ち、READ COMMITTED では待ちが明けた後の件数の数え直しが新しいスナップショットで読むため、コミットされた割り当てを数えて `ROLE_IN_USE` を返す。ロックの後に始まった割り当ては削除のコミットまで待つ。ロックの行が無い（確認とロックの間に他の要求が削除した）ときは `ROLE_NOT_FOUND` とする。システムロールの判定はロックの前に行う（`isSystem` は API から変えられず、システムロールの行を `FOR UPDATE` でロックして admin ロールの割り当てを待たせないため）。業務上の拒否（不在・システムロール・使用中）は `UserRoleService` の `UserRoleRollback` と同じ作法の合図の例外でトランザクションを打ち切り、`$transaction` の外で `Err` へ戻す。接続のタイムアウトは従来どおり `rethrowIfDatabaseConnectionTimeout` で 503 へ届ける（35.11〜35.13）
+  - **割り当ての側が負けたときの応答**: `UserRoleService` の割り当て（1件・一括の共通処理 `assignRoleInTransaction`）は、ロールの存在の確認の前に同じ行を `SELECT id FROM roles WHERE id = $1 FOR KEY SHARE` でロックする。削除が先にロックを取っていれば、割り当てはここで削除のコミットまで待ち、続く存在の確認（新しいスナップショット）が削除を反映して `ROLE_NOT_FOUND`（404）を返し、割り当ても `USER_ROLE_ASSIGNED` の監査ログもロールバックされる。このロックを取らないと、割り当ては存在の確認を通った後の INSERT の外部キーの検査で同じ待ちに入り、削除のコミットの後に外部キー違反（P2003）となって `DATABASE_ERROR`（500）になる（変異で実測）。`FOR KEY SHARE` は外部キーの検査が取るのと同じロックのため、割り当て同士・最後の管理者の判定（`FOR NO KEY UPDATE`）・ロールの更新（`FOR NO KEY UPDATE`）とは衝突せず、待つのはロールの削除とだけである。削除のトランザクションはロールの行を1行しかロックしないため、一括の割り当てとの間にロックの循環は生じない
+  - **外部キーを `Restrict` に改める案を採らない理由**: 並行する割り当てのあるロールの削除は外部キー違反として失敗するようになるが、マイグレーションを要し、競合の結果が `ROLE_IN_USE` ではなく汎用の DB 例外となるため、削除の側で例外を読み分ける分岐が別に要る。割り当てが未コミットの間の待ちは同じく生じる。行ロックの方式は既存の最後の管理者の判定（35.6）と同じ作法で、スキーマを変えずに `ROLE_IN_USE` をそのまま返せる
+  - **権限キャッシュ**: 割り当てのあるロールの削除は常に拒否されるため、「キャッシング戦略」のタスク36.2 の項の「ロールの削除は無効化が要らない」の前提が並行する割り当てに対しても成り立つ
+  - **検証**: 統合検証（role-delete-in-use-race の統合テスト、2件、`@requirement user-authentication/REQ-17.5`）は実データベースで、(i) 削除のサービスへ渡す PrismaClient の `userRole.count` を包み、使用中の件数（0 件）が返った直後・削除の前に割り当てを始め、割り当てが終わるかロック待ちに入る（pg_stat_activity で観測）まで削除を進めない競合を再現し、削除が成功し、割り当てが `ROLE_NOT_FOUND` で失敗し、割り当ても `USER_ROLE_ASSIGNED` も残らないこと、(ii) 割り当てのトランザクションを監査ログの記録の後で止めて未コミットのまま削除を始め、削除がロック待ちに入ってから割り当てをコミットさせると、削除が `ROLE_IN_USE`（件数 1）で拒否され、割り当てと監査ログが残ることを主張する。使用中の確認をトランザクションの外へ戻す変異・`FOR UPDATE` のロックを外す変異では 2 件とも（削除も割り当ても成功し、割り当てがカスケードで消える）、割り当ての側の `FOR KEY SHARE` を外す変異では (i) が `DATABASE_ERROR` となって赤くなることを実測した
+
+**認証系の書き込みの ACID 特性（要件25.4）**（2026-09-27 タスク35.6 で追記）:
+- **方針**: 条文の「ACID特性を保証」を、PostgreSQL が提供する ACID の上で、アプリケーションが各特性を弱めずに使うことと読む。分離レベルの引き上げ（SERIALIZABLE など）は条文が求めておらず、行わない。取り下げた除外の description にあった「READ COMMITTED 以上」は条文には無い
+- **原子性（A）**: 複数の書き込みから成るフロー（登録、ロール・権限の紐付けの変更と監査ログ、パスワードリセット、2FA の有効化・無効化など）は一つの `$transaction` で行う（要件25.1〜25.3・25.5〜25.7、タスク35.5）。単一の書き込みは PostgreSQL の暗黙のトランザクションで原子的である
+- **一貫性（C）**: データベースの制約（主キー・外部キー・一意制約。例: `user_roles` の (userId, roleId)、`role_permissions` の (roleId, permissionId)）と、書き込みと同じトランザクション内での事前の検証で保つ。並行する書き込みの間の重複は、事前の確認ではなく一意制約が防ぐ（READ COMMITTED ではコミット前の他の書き込みが見えず、並行する同じ割り当ては事前の確認をどちらも通り抜けるため）。後から来た書き込みは先の書き込みのコミットを待って一意制約違反で失敗し、そのトランザクション（監査ログを含む）はロールバックされる
+- **分離性（I）**: PostgreSQL の既定の READ COMMITTED に依拠する。アプリケーションは `$transaction` にも Prisma クライアントの `transactionOptions` にも分離レベルを指定しない。保証されるのはダーティリードが無いこと（コミット前の書き込みは他のトランザクションから見えない）と、同じ行への書き込みが行ロックで直列化されることである
+  - **最後の管理者の保護の直列化**（利用者の裁定 2026-09-27「35.6 の中で直す」）: 複数の行にまたがる不変条件を事前の検証だけで守る箇所は、READ COMMITTED では並行する書き込みの間で守られない。最後の管理者の保護（admin ロールの割り当て件数を数えてから削除する）がこれに当たり、異なる2人の管理者から admin ロールを同時に外すと、双方が件数 2 を読んで双方が削除し、管理者が 0 人になっていた（write skew。統合検証で実測）。そこで、件数を数えるトランザクションの中で、紐付けの確認より前に admin ロールの `roles` の行を `SELECT ... FOR NO KEY UPDATE` でロックする。同じ判定を行う並行トランザクションは先行のコミット（またはロールバック）まで待ち、READ COMMITTED では待ちが明けた後の文が新しいスナップショットで読むため、数え直した件数は先行の削除を反映する
+    - **`roles` の行を選んだ理由**: `user_roles` の admin の行を `FOR UPDATE` でロックする方式は、ロックする行の集合が読んだ時点の割り当てに依存し、待ちが明けた後に先行が削除した行は読み飛ばされるなど、判定の直列化が行の集合の変化に左右される。admin ロールの行は判定ごとに必ず1行で、同じ判定を行うすべてのトランザクションが同じ1行を取り合うため、判定を漏れなく直列化できる。`FOR NO KEY UPDATE` は外部キーの検査が取る `FOR KEY SHARE` と衝突しないため、admin ロールの割り当て（`user_roles` への INSERT）は待たせない（割り当ては管理者を減らさない）
+    - **適用する経路**: ユーザーからの admin ロールの削除（`UserRoleService` の1件の削除と一括の削除。両者は同じ `removeRoleInTransaction` を通る）と、ユーザーの削除（DELETE /api/v1/users/:id）。ユーザーの削除はルートがトランザクションの外で件数を数えてから別のトランザクションで削除しており、同じ競合があった。`UserRoleService.deleteUser` へ移し、admin ロールの行をロックしてから、対象の割り当ての確認・件数の確認・招待の後始末・ユーザーの削除を一つのトランザクションで行う
+    - **ロックの順序**: 一括の削除は、admin ロールを含むなら、どの紐付けを削除するよりも先に admin ロールの行をロックする。ループの中だけでロックすると、先に他のロールの紐付けを削除（行ロック）してから admin ロールの行を待つことになり、admin ロールの行を先に取ってから同じユーザーの紐付けをカスケード削除する `deleteUser` と取得の順序が逆になって、デッドロックしうるためである。すべての経路で admin ロールの行を最初に取る
+    - **ユーザー削除の応答**: `deleteUser` は業務上の結果（`USER_NOT_FOUND`・`LAST_ADMIN_PROTECTED`）だけを `Err` で返し、データベースの例外は捕まえずに投げる。ルートは前者を従来どおり 404 `USER_NOT_FOUND` / 400 `LAST_ADMIN_PROTECTED` で返し、後者は従来どおり `next(error)` でエラーハンドラーへ渡す。これにより Prisma の例外の分類（P2025→404、P2028→500 Transaction Timeout、その他の既知のエラー→400、初期化エラー・パニック→503）は変更前と同じである。自分自身の削除の 400 `CANNOT_DELETE_SELF` はルートに残した
+    - **適用しない経路**: ロールの削除（`RoleService.deleteRole`）は admin ロールがシステムロール（`isSystem`）のため削除できず、該当しない。admin ロールからの `*:*` 権限の削除（`RolePermissionService`）は件数を数えずに常に拒否する規則で、並行による抜け道が無い
+    - 分離レベルは上げていない（認証系の書き込みはすべて READ COMMITTED のまま）
+- **永続性（D）**: PostgreSQL の既定（`fsync` と `synchronous_commit` が on）に依拠し、アプリケーションは接続の設定（接続文字列やプールの `options`）で緩めない。コミットが成功を返した書き込みは WAL が永続化された後である。本番のデータベース（マネージドの PostgreSQL）の設定はリポジトリの外にあり、ここでは検証しない。E2E・統合用のデータベースは tmpfs 上にあり物理的な永続性は無いが、設定値は既定のままである
+- **検証**: 統合検証（auth-write-acid の統合テスト）は実データベースで次を主張する。(1) アプリケーションの Prisma クライアントで開いたトランザクションの `transaction_isolation` が read committed、`synchronous_commit` と `fsync` が on。(2) 登録・ロールの一括割り当てと一括削除・権限の一括追加と一括削除・パスワードリセット要求が書き込んだ各表（users・invitations・user_roles・role_permissions・password_reset_tokens・audit_logs）の文を、PostgreSQL のトリガーがそのトランザクションの中で観測し、分離レベルがすべて read committed であること。(3) コミット前の割り当ては他の接続から見えず、並行する同じ割り当ての後続は一意制約の待ちに入った後に失敗し、重複も後続の監査ログも残らないこと（待ちに入ったことを `pg_stat_activity` で観測してから先行をコミットするため、順序は時間に依らず決まる）。(4) 管理者が2人のとき、X からの admin の削除をコミット前に止めた（削除の文を PostgreSQL のトリガーでアドバイザリロックの解放まで待たせた）まま、Y からの admin の一括削除、または Y のユーザーの削除を行うと、後続は行ロックの待ちに入り、先行のコミット後に `LAST_ADMIN_PROTECTED` で失敗して管理者が1人残ること。ロックの導入前はこの検証で後続が成功し、管理者が 0 人になった。ロールの割り当てとパスワードリセットのトランザクションへ分離レベルを指定する変異、Prisma クライアントの `transactionOptions` に SERIALIZABLE を与える変異、接続プールに `synchronous_commit=off` を与える変異、`user_roles` の一意索引を外す変異、admin ロールの行のロックを外す変異のいずれでも赤くなることを実測した
+
+**楽観的ロックの競合（要件25.8）**（2026-09-27 タスク35.7 で追記）:
+- **裁定**: 利用者の裁定（2026-09-27）は「任意・バックエンドのみ」。版（`expectedUpdatedAt`）は任意とし、送らない既存のクライアントの振る舞いを変えない。フロントエンドの版の送信・409 の表示・E2E はタスク35.10 へ送る
+- **対象**: 認証領域で既存の行を上書きする更新 API の2つ。ロールの更新（PATCH /api/v1/roles/:id、名前・説明・優先順位）とプロフィールの更新（PATCH /api/v1/auth/me、表示名）。ユーザーのロールとロールの権限の紐付けは追加・削除だけで上書きが無く、版の列（updatedAt）も持たないため対象外とする（並行する重複は一意制約が、最後の管理者の保護は上記の直列化が防ぐ）。招待・セッション・権限には更新 API が無い
+- **契約**:
+  - 要求の本文は任意の `expectedUpdatedAt`（ISO 8601 の日時。オフセット付きも可）を取る。日時でなければ 400 の検証エラー
+  - 送られないときは従来どおり版を比べずに更新する（応答・エラーも従来どおり）
+  - 送られ、対象の updatedAt と一致すれば更新し、200 で更新後の内容（新しい updatedAt を含む）を返す
+  - 送られ、一致しなければ更新せず、409 Conflict を Problem Details（RFC 7807）で返す。`code` はロールが `ROLE_CONFLICT`、プロフィールが `PROFILE_CONFLICT`、`details` に `expectedUpdatedAt` と `actualUpdatedAt`（いずれも ISO 8601）を載せる。既存の 409 `ROLE_NAME_CONFLICT`（ロール名の重複）とは `code` で区別する
+  - 送られ、対象が無ければ 409 ではなく 404 を返す（ロールは従来の `ROLE_NOT_FOUND`、プロフィールは Problem Details の `USER_NOT_FOUND`）
+  - 条文の「リトライまたはエラーレスポンス」のうち、エラーレスポンス（409）を採る。版はクライアントが取得した時点の内容を表すため、サーバーが自動で再試行すると他者の変更を黙って上書きすることになり、楽観的ロックの目的に反する。再試行（最新を取得し直して再送）はクライアントの判断とする
+  - 版の取得: ロールは既存の一覧・更新の応答の updatedAt。プロフィールは GET /api/v1/auth/me と PATCH /api/v1/auth/me の応答に updatedAt を加えた（既存のフィールドは変えない追加のみ）
+- **検出の方式（条件付きの更新）**: 版を与えられたときは、updatedAt を WHERE に含めた更新（`updateMany({ where: { id, updatedAt: 版 } })`）を行い、更新件数が 0 なら読み直して、行が無ければ不在、あれば競合とする。ロールは更新後の行を同じトランザクションの中で読み（自身の行ロックを保持している間に読むため、返すのは自身が書いた版）、応答に使う
+  - **読んでから比べる方式を採らない理由**: 取引先管理の先例は、トランザクションの中で行を読んで updatedAt を比べてから更新する。READ COMMITTED では、同じ版から並行する2件がどちらも先行のコミット前に読むと、どちらも比較を通り、後続は先行の行ロックを待った後に id だけを条件に上書きする（失われた更新）。条件を UPDATE の WHERE に置けば、後続は先行の行ロックを待ち、待ちが明けた後に PostgreSQL が条件を最新の行で評価し直すため、先行が updatedAt を進めた行は条件に合わず 0 件になる。分離レベルは上げない（上記の分離性の方針のまま）
+  - **プロフィールの版の粒度**: users の updatedAt は表示名の変更だけでなく、ログインの失敗回数のリセット・2FA・パスワードの変更など同じ行への書き込みでも進む。そのため、取得後にそれらが起きると表示名が変わっていなくても 409 になる（安全側の誤検出）。列ごとの版は設けない
+- **検証**: 統合検証（role-profile-optimistic-lock の統合テスト）は実データベースで、ロールとプロフィールのそれぞれについて次を主張する。(1) 同じ版からの2件を順に行うと、後の1件が競合になり、先の1件の内容が残ること。(2) 同じ版からの2件が本当に並行するとき（先行の UPDATE を PostgreSQL の BEFORE UPDATE のトリガーでアドバイザリロックの解放まで止め、その間に後続を送る）、後続は行ロックの待ちに入り（`pg_stat_activity` で観測）、先行のコミット後に競合になって先行の内容が残ること。(3) HTTP で、GET /api/v1/auth/me の updatedAt を送り返す更新は 200、同じ古い版での更新は 409 の Problem Details、版なしの更新は従来どおり 200 であること。条件付きの更新を「読んでから比べる」方式へ置き換える変異は、(1) を通るが (2) で後続が成功して後続の内容が残り、赤くなることを実測した。WHERE から updatedAt を外す変異、ルートの対応づけ（409・版の受け渡し）を外す変異、プロフィールの応答から updatedAt を外す変異でも赤くなることを実測した
 
 #### TokenService
 
@@ -1983,6 +2054,11 @@ interface EmailService {
   send2FAEnabledEmail(to: string): Promise<void>;
 }
 ```
+
+**再送（要件24.3）**（2026-09-26 タスク35.1 で追記）:
+- **回数の決定**: 条文「最大5回までリトライ（1分、5分、15分、1時間、6時間後）」は間隔を 5 つ挙げるため、**初回の送信に続くリトライを 5 回**と読む。Bull の `attempts` は初回を含む試行回数なので `attempts: 6`（初回 1 + リトライ 5）とする。`attempts: 5` では 5 つ目の間隔（6時間）が使われない
+- **間隔の与え方**: Bull 4 の組み込み `exponential` は `(2^n − 1) × delay` で、`delay` = 1分では 1分・3分・7分・15分となり条文と一致しない（タスク35.1 着手前の実装はこれだった）。そこでキュー生成時に `settings.backoffStrategies` へカスタム戦略 `email-retry-schedule` を登録し、n 回目の失敗の後に `RETRY_DELAYS[n − 1]`（60000 / 300000 / 900000 / 3600000 / 21600000 ms）を返す。招待・パスワードリセット・2FA有効化・管理者ロール変更アラートの 4 種のジョブすべてを `attempts: 6, backoff: { type: 'email-retry-schedule' }` で投入する
+- **実装と検証**: `backend/src/services/email.service.ts`（`emailRetryBackoff` / `retryJobOptions`）、`backend/src/__tests__/unit/services/email.service.test.ts`
 
 #### AuditLogService
 
@@ -3380,6 +3456,43 @@ model AuditLog {
 - `INVITATION_EMAIL_ALREADY_REGISTERED`: 招待メールアドレスが既に登録済み
 - `PASSWORD_REUSED`: パスワード履歴との重複
 
+**データベース接続タイムアウト時の再試行（要件24.6）**（2026-09-26 タスク35.2 で追記）:
+- **範囲の決定**: 条文「WHEN データベース接続がタイムアウトする THEN … 最大3回までリトライ（1回目: 1秒後、2回目: 2秒後、3回目: 4秒後）」の対象は「接続」であり、クエリの失敗一般ではない。そこで**再試行するのは接続の確立（pg のプールからの接続の取得）だけ**とし、クエリ単位の再試行は行わない。接続が得られる前は SQL が一度も送られていないため、書き込み（非冪等な操作）を二重に実行する危険は生じない。クエリ単位の再試行は、送信後にタイムアウトした書き込みを再実行しうるため採らない
+- **実装**: Prisma の driver adapter（PrismaPg）へ、pg.Pool を継承した `RetryingPool` を渡す（`disposeExternalPool: true` で切断時にプールも閉じる）。`RetryingPool` は接続の取得を上書きし、タイムアウトを示すエラー（`ETIMEDOUT`、pg-pool の「timeout exceeded when trying to connect」「Connection terminated due to connection timeout」）のときに限り、生成時の再試行回数 `retryCount`（省略時 3）から `backend/src/utils/db-connect-budget.ts` の `dbConnectRetryDelaysMs(retryCount)` で求めた間隔で再試行し（既定の 3 回なら 1000・2000・4000 ms）、使い切った後は最後のエラーを返す。認証失敗など他の接続エラーは再試行しない。pool.query と対話型トランザクションの開始はどちらも接続の取得を経由するため、両方に効く（2026-09-28 タスク36.8 で実装へ揃えた。35.2 の時点の記述は固定の `DB_CONNECT_RETRY_DELAYS_MS` を使うとしていたが、35.9 で再試行回数を環境変数から受けるようになってからは、`RetryingPool` は同関数で間隔を求める。`backend/src/db.ts` の `DB_CONNECT_RETRY_DELAYS_MS` は既定の回数での列として再輸出されるだけで、`RetryingPool` は参照しない）
+- **接続タイムアウトの値**: 要件の環境変数表の `DATABASE_CONNECTION_TIMEOUT`（既定 5000ms、正の整数のミリ秒。単位 ms を付けた表記（例: 5000ms）も受け付ける）を pg のプールの connectionTimeoutMillis に与える。pg の既定 0 は無制限で、プールが満杯のときは無期限に待ち、到達しない宛先では OS の ETIMEDOUT（約 127 秒）まで待つため、再試行が実質的に働かない。そこで表の既定値 5000ms をそのまま採る。値の検証（0・負数・小数・非数値を拒否）は環境変数の検証へ置き、DB クライアントの生成時にも同じ解析関数を通す（統合テストなど、環境変数の検証を経ずに生成する経路があるため）
+- **実測**（2026-09-26、使い捨てのスクリプト）: タイムアウトを 200ms とし、到達しない宛先（10.255.255.1:5432）へ PrismaClient 経由で問い合わせると、1000 / 2000 / 4000ms の間隔で 3 回再試行した後、約 8000ms で失敗した。Prisma から投げられたのは素の Error（「Connection terminated due to connection timeout」、code なし）だった。実時間で約 8 秒かかるため、単体の検証には入れず、再試行の回数と間隔は偽の時計で検証する
+- **再試行回数**: 条文どおり 3 回に固定する。要件の環境変数表の `DATABASE_RETRY_COUNT`（既定 3、0〜10）は本タスクでは実装せず、後続（タスク35.9）へ残す
+- **再試行回数の環境変数**（2026-09-27 タスク35.9 で追記、利用者の裁定「0〜10 を受け、間隔を倍々で延ばす」）: 要件の環境変数表の `DATABASE_RETRY_COUNT` を 0〜10 の整数として受け付け、未設定なら条文 24.6 どおり 3 回とする。n 回目（1 始まり）の再試行までの間隔は 1000 × 2^(n−1) ms とし、条文が挙げる 3 回の 1000ms・2000ms・4000ms をそのまま 4 回目以降へ延ばす（5 回なら 1000ms・2000ms・4000ms・8000ms・16000ms、10 回目は 512000 ms）。0 は再試行しない。範囲外（11・-1）・小数・非数値は拒否する。検証は `backend/src/config/env.ts` の `parseDatabaseRetryCount` に置き、環境変数の検証（validateEnv）と DB クライアントの生成（`backend/src/db.ts` の getPrismaClient）の両方が同じ関数を通す。`RetryingPool` は設定の `retryCount`（省略時 3）から間隔列を求める。上限の 10 回では待ち時間の総和が 1000 × (2^10 − 1) = 1023000 ms（1023 秒、約 17 分）になり、これに各試行の接続タイムアウト（既定 5000 ms × 11 試行 = 55 秒）が加わるため、失敗の応答まで約 18 分かかる。大きな値は応答を長く待たせることを踏まえて設定する
+- **24.1 との関係**: 24.6 の再試行を使い切った後の失敗が 24.1 の「タイムアウト以内に確立できない」に当たる。上の実測のとおり、そのエラーは素の Error として返り、現在のエラーハンドラの分岐（503 は Prisma の初期化エラー等に限る）では 503 ではなく既定の 500 になる。これを 503 へ対応づけることは 24.1 の範囲とし、後続（タスク35.8）として起票する
+- **認証系のエンドポイントでの 503（要件24.1）**（2026-09-27 タスク35.11 で追記）: 接続のタイムアウトは**サービス層で `DATABASE_ERROR` へ飲み込まず投げ直し**、ルートの `next(error)` からエラーハンドラーの 503「Service Unavailable」（Problem Details、`detail: 'Database connection error'`）へ届ける。ルートごとに 503 へ変換する方式は採らない。変換をルートへ置くと、`DATABASE_ERROR` を個別に扱うルート（ログイン・2FA 検証）と扱わずに汎用の 500 を返すルート（現在のユーザーの取得・トークンの更新・登録など）のすべてへ同じ分岐を書き足すことになり、応答の形もエラーハンドラーの 503 と二重に定義されるため
+  - **判定の置き場所**: 判定は `backend/src/utils/db-connection-timeout.ts` の `isDatabaseConnectionTimeout`（pg-pool の2つのタイムアウト文言の完全一致・`code === 'ETIMEDOUT'`・P1008 の `PrismaClientKnownRequestError`）ひとつに置き、エラーハンドラーとサービス層が同じ関数を使う。サービス層は同じモジュールの `rethrowIfDatabaseConnectionTimeout(error)` を、DB 例外を `DATABASE_ERROR` へ変える catch の先頭で呼ぶ（auth 8・permission 3・role-permission 3・role 4・session 3・user-role 3 の計 24 か所）
+  - **それ以外の DB 例外**: 接続のタイムアウトでない例外（一般の Error、P1001 など）は何も変えず、各サービスの既存のログと `DATABASE_ERROR`、各ルートの既存の状態コードと本文のまま返す
+  - **伝播の前提**: 上の 6 サービスを呼ぶルート（auth / roles / permissions / session / user-roles）のハンドラーはすべて `try { … } catch (error) { next(error); }` で投げられた例外をエラーハンドラーへ渡す（Express 5.2）。6 サービスの該当メソッドを呼ぶのはこれらのルートだけである
+  - **この方式で 503 になるエンドポイント**: 対話型トランザクションを開始する前に DB へ問い合わせるもの——ログイン、現在のユーザーの取得（GET /api/v1/auth/me）、トークンの更新、ログアウト、全デバイスからのログアウト、登録（招待の検証が最初の問い合わせ）。いずれも統合検証 `backend/src/__tests__/integration/auth-db-connection-timeout-503.integration.test.ts` で、応答しない TCP サーバーへ向けた本物のアプリに対して 503 と Problem Details を確かめる
+  - **この方式だけでは 503 にならない経路**: (a) 最初の DB への到達が対話型トランザクションの開始であるもの（ロール・権限の紐付けの変更など）は、Prisma の `maxWait` が先に切れて P2028 となり 500「Transaction Timeout」を返す（タスク35.12 の範囲）。(b) `requirePermission` を通るエンドポイント（roles / permissions / user-roles）は、権限の判定が Redis のキャッシュに無く RBACService が DB を引く場合、その例外を `authorize.middleware.ts` が捕まえて自前の 500（`INTERNAL_ERROR`）を返すため、サービスへ届く前に応答が決まる（本タスクの範囲外。キャッシュに当たった場合はサービスまで届き、上の投げ直しで 503 になる。この経路はタスク35.13 で 503 へ改めた。下の「権限の確認での 503」を参照）
+- **対話型トランザクションの開始の待ち（要件24.1）**（2026-09-27 タスク35.12 で追記）: 認証系のサービスの対話型トランザクションには、Prisma の `maxWait` として**接続の再試行の予算に Prisma の既定の 2000ms を足した値**を明示し、DB に到達できないときは接続の取得の失敗（pg-pool の接続タイムアウト）をそのまま上の投げ直しとエラーハンドラーの 503 へ届ける
+  - **実測**（2026-09-27、Prisma 7.9.1・@prisma/adapter-pg・`RetryingPool`（再試行 1 回・接続タイムアウト 1000ms、予算 3000ms）を応答しない TCP サーバーへ向けた使い捨てのスクリプト）: `maxWait` を渡さない `$transaction(async (tx) => …)` は約 2.3 秒で P2028 の `PrismaClientKnownRequestError`（message「Transaction API error: Unable to start a transaction in the given time.」、`meta` は空）となる。`maxWait: 5000` を渡すと約 3.0 秒で素の Error（「Connection terminated due to connection timeout」）となり、`isDatabaseConnectionTimeout` が真を返す。配列を渡す `$transaction([...])` は開始の待ちの打ち切りを持たず、素の Error が届く。Prisma の実装（`@prisma/client` の runtime の TransactionManager）は、アダプタのトランザクションの開始と `maxWait` のタイマーを競わせ、タイマーが先なら P2028 を投げる。開始が先に失敗すればその例外をそのまま投げる
+  - **予算の式**: 接続の取得が失敗を返すまでの最長は「再試行の間隔の総和 + (再試行回数 + 1) × 接続タイムアウト」である。既定（3 回・5000ms）で 1000 + 2000 + 4000 + 5000 × 4 = 27000ms、`maxWait` は 29000ms になる。上限の 10 回では 1023000 + 5000 × 11 = 1078000ms、`maxWait` は 1080000ms（約 18 分）になる。足す 2000ms は、接続の取得の直後の BEGIN を待つ分として Prisma の既定値をそのまま使う。予算と `maxWait` は `backend/src/utils/db-connect-budget.ts` の `dbConnectBudgetMs` と `connectBudgetTransactionOptions` が、DB クライアントの生成（getPrismaClient）と同じ環境変数（`DATABASE_RETRY_COUNT`・`DATABASE_CONNECTION_TIMEOUT`）と同じ解析関数から呼び出しの時点で求める。再試行の間隔の列（`dbConnectRetryDelaysMs`）も同じモジュールに置き、`backend/src/db.ts` は再輸出する（`db.ts` は多くの単体検証で丸ごとモックされるため、サービスが使う関数は `db.ts` に依存しないモジュールに置く）
+  - **大きな `maxWait` の妥当性**: `maxWait` は打ち切りの上限にすぎず、実際の待ちは `RetryingPool` が予算の内に必ず終える（各試行は pg-pool の connectionTimeoutMillis で打ち切られ、これは空きの接続を待つ時間と接続を確立する時間の両方に掛かる）。また Prisma は `maxWait` で打ち切った後も接続の取得を取り消さず、得られた接続でロールバックしてから返すため、`maxWait` を短くしてもプールの接続が早く空くわけではない。`maxWait` を延ばしてもプールの取り合いは増えず、変わるのは呼び出し元が受け取る結果（P2028 か接続タイムアウトか）と、それが届く時点だけである。待ちの長さはトランザクションを使わない問い合わせ（上の「再試行回数の環境変数」の約 18 分の注記）と同じになる。プールが満杯で接続が空かない場合も、pg-pool の「timeout exceeded when trying to connect」を再試行した後に 503 となり、トランザクションを使わない問い合わせと同じ扱いになる
+  - **P2028 の判定を区別する案を採らない理由**: P2028 は原因の情報を持たず（`meta` は空、文言はプールの満杯・BEGIN の遅延などと共通）、文言の照合では接続を確立できなかったことを確かめられない。P2028 を 500「Transaction Timeout」相当の応答とすることは estimate-creation の要件42.3 の約束（同スペックの design.md の Transaction limits）であり、エラーハンドラーの P2028 の分岐を変えると他スペックの振る舞いが変わりうる（quantity-table-generation の design.md は、数量表の保存経路ではルートの catch が先に 500 を返し、この分岐に届かないと記録している）。PrismaClient の既定の `transactionOptions` で `maxWait` を与える案も、他スペックのトランザクションの開始の待ちを変えるため採らない
+  - **適用する箇所**（7 か所。**2026-09-28 タスク36.4 で**ロールの作成・版なしの更新・削除を監査ログと同じトランザクションにしたため 3 か所を加えて 10 か所）: AuthService.register、RoleService.updateRole（版を与えたとき）、RolePermissionService の権限の追加・削除（1 件・一括の共通処理）、UserRoleService のロールの追加・削除（1 件・一括の共通処理）とユーザーの削除（deleteUser）。`timeout`（トランザクションの本体の上限、既定 5000ms）は変えず、本体が上限を超えた P2028 はこれまでどおり 500「Transaction Timeout」を返す。PasswordService・TwoFactorService のトランザクションは開始の前に DB へ問い合わせ、catch が DB 例外を自前のエラーへ変えるため（上の 6 サービスの外）、本項では変えない。**2026-09-28 タスク36.3 で改めた**: 開始の前の問い合わせの後に接続が失われると開始が新しい接続の確立を待ち、既定の `maxWait` が先に切れて P2028 になることを実測したため、PasswordService・TwoFactorService の対話型トランザクション 6 か所にも同じ `maxWait` を渡す（下の「パスワードと二要素認証の経路での 503」）。estimate-creation の `ESTIMATE_SAVE_TRANSACTION_OPTIONS` など認証系の外のトランザクションは変えない
+  - **これで 503 になるエンドポイント**: 最初の DB への到達がトランザクションの開始であるもの——ユーザーへのロールの追加（POST /api/v1/users/:id/roles）、ユーザーからのロールの削除（DELETE /api/v1/users/:id/roles/:roleId）、ユーザーの削除（DELETE /api/v1/users/:id）、ロールへの権限の追加（POST /api/v1/roles/:id/permissions）、ロールからの権限の削除（DELETE /api/v1/roles/:id/permissions/:permissionId）。いずれも `requirePermission` を通り、`requirePermission` は Redis を持たない RBACService を都度生成して必ず DB を引くため、実際の障害では権限の確認の 500（上の (b)、タスク35.13 の範囲）が先に返っていた。タスク35.13 の後は権限の確認の段階で 503 が返る。登録とロールの更新（版つき）はトランザクションの前の問い合わせで 503 になり（35.11）、開始の時点で接続が得られない場合も同じ 503 になる。タスク36.2 の後は `requirePermission` が権限のキャッシュを使うため、キャッシュに当たる間は権限の確認が DB を引かずに通り、最初の DB への到達はトランザクションの開始となって本項の `maxWait` の経路で 503 になる（下の「キャッシング戦略」のタスク36.2 の項）
+  - **統合検証**: `backend/src/__tests__/integration/auth-transaction-db-connection-timeout-503.integration.test.ts` は、上の 5 つのエンドポイントについて、本物のルート・`requirePermission`・RBACService・サービス・PrismaClient・`RetryingPool`・エラーハンドラーで 503 と Problem Details、応答が予算（3000ms）の後であることを確かめる。要件24.1 の印を付けた 5 件は RBACService を差し替えないため、応答しない DB では権限の判定が最初の DB への到達となり、503 は下の「権限の確認での 503」の経路で返る。そのためこの 5 件は、トランザクションの開始の `maxWait` が予算を覆わなくても緑のままになる。トランザクションの開始の経路は、同じファイルの別の describe（印を付けず、被覆を名乗らない）が RBACService の `hasPermission` だけを「権限あり」に差し替えて通し、同じ 5 つのエンドポイントが予算（3000ms）の後に 503 を返すことを確かめて守る（deleteUser の `connectBudgetTransactionOptions()` を外す変異で赤くなることを実測）。式の正しさは単体検証 `auth-transaction-connect-budget.test.ts` が守る（2026-09-27 タスク35.13 で改めた）。**2026-09-28 タスク36.2 で改めた**: `hasPermission` の差し替えをやめ、実 Redis に全権限のキャッシュを置いて権限の確認を DB を引かずに通す（実運用でキャッシュが残っている間の経路）。この 5 件にも要件24.1 の印を付け、キャッシュを消した 5 件（権限の判定が最初の DB への到達）と合わせて両方の経路を確かめる。deleteUser の `connectBudgetTransactionOptions()` を外す変異では、キャッシュに当たる側の 1 件が約 2 秒の P2028 による 500 で赤くなることを実測した
+- **権限の確認での 503（要件24.1）**（2026-09-27 タスク35.13 で追記）: `backend/src/middleware/authorize.middleware.ts` の `requirePermission` の catch は、権限の判定（RBACService の `hasPermission` → `getUserPermissions` → `prisma.user.findUnique`）が投げた例外のうち、`isDatabaseConnectionTimeout` が真のものを `next(error)` でエラーハンドラーへ渡し、上と同じ 503「Service Unavailable」（Problem Details、`detail: 'Database connection error'`）を返す。これで上の (b) の経路（roles / permissions / user-roles など `requirePermission` を通るエンドポイント）も 503 になる
+  - **伝播の前提**: RBACService の `hasPermission` と `getUserPermissions` は DB の例外を捕まえない（catch は Redis の読み書きだけを囲む）。`requirePermission` は Redis を持たない RBACService を都度生成するため権限のキャッシュに当たらず、判定は必ず DB を引き、接続のタイムアウトは包まれずに catch へ届く。**2026-09-28 タスク36.2 で改めた**: `requirePermission` は Redis の権限キャッシュを持つ共有の RBACService を使う。キャッシュに当たらないときは従来どおり判定が DB を引いて本項の 503 になり、当たるときは判定が DB を引かず、ハンドラーのサービス層の DB 到達で 503 になる（下の「キャッシング戦略」のタスク36.2 の項）
+  - **それ以外の例外**: 接続のタイムアウトでない例外（一般の Error、P1001 など）は、これまでどおり自前の 500（`{ error: 'INTERNAL_ERROR', message: 'Failed to check permissions' }`）を返し、`next` を呼ばない。本文は変えない
+  - **ログ**: 接続のタイムアウトはエラーハンドラーが `err` キーでログと Sentry に残すため、`requirePermission` では記録しない。自前の 500 を返す例外と監査ログの記録の失敗のログは、障害を `err` キーで渡す。logger の設定は `err` キーにだけ pino の `stdSerializers.err` を当てるため、`error` キーで渡すと本番の JSON では `"error":{}` となり message と stack が失われる（2026-09-27 に pino の同じ設定で実測。タスク35.4 と同じ問題）
+  - **適用の範囲**: `requirePermission` は認証系の外（projects・estimates など）のルートでも使われるため、それらのエンドポイントも権限の判定の DB 接続タイムアウトで 503 を返す。接続のタイムアウト以外の応答（401・403・500・権限ありの通過）は変わらない
+  - **統合検証**: `backend/src/__tests__/integration/authorize-db-connection-timeout-503.integration.test.ts` は、RBACService を差し替えない本物のアプリを応答しない TCP サーバーへ向け（`DATABASE_RETRY_COUNT=0`・`DATABASE_CONNECTION_TIMEOUT=200`）、GET /api/v1/roles、GET /api/v1/roles/:id/permissions、GET /api/v1/permissions、GET /api/v1/users、GET /api/v1/users/:id/roles が 503 と Problem Details を返すことを確かめる。上の 5 つの書き込みも同じく差し替えなしで 503 を確かめる（トランザクションの開始の経路の退行検出は、上の 35.12 の「統合検証」のとおり差し替えた別の describe が担う）
+- **パスワードと二要素認証の経路での 503（要件24.1）**（2026-09-28 タスク36.3 で追記）: PasswordService と TwoFactorService も、上の「認証系のエンドポイントでの 503」と同じく、DB 例外を自前のエラーへ変える catch の先頭で `rethrowIfDatabaseConnectionTimeout(error)` を呼び、接続のタイムアウトをルートの `next(error)` からエラーハンドラーの 503「Service Unavailable」（Problem Details、`detail: 'Database connection error'`）へ届ける。35.11 の時点ではこの 2 サービスを対象外とし、DB 障害が利用者には「パスワード／コードが違う」と見えていた（パスワードの変更は「Current password is incorrect」の 400、リセットの確定は「Invalid reset token」の 400、リセットの要求は 200、2FA は 400 / 404）
+  - **適用する箇所**: PasswordService の catch 3 か所（リセットの要求・リセットの確定・パスワードの変更）、TwoFactorService の catch 7 か所（設定の開始・TOTP の検証・バックアップコードの検証・有効化・無効化・バックアップコードの状態の取得・再生成）。設定の開始（`setupTwoFactor`）の catch はタスク36.3 の実測の一覧に無かったが、同じく DB 例外を `USER_NOT_FOUND` の 404 へ変えるため含めた
+  - **2FA のログインの失敗回数**: `AuthService.verify2FA` と `verify2FABackupCode` は、TwoFactorService の検証が返した失敗を「コードの不一致」として失敗回数（`twoFactorFailures`）を加算する。検証の中の接続のタイムアウトは上の投げ直しで検証の結果にならずに外側の catch（35.11 で投げ直し済み）へ届くため、失敗回数を加算しない。失敗回数の更新自体を囲む内側の catch も、接続のタイムアウトは投げ直す（それ以外の更新の失敗は従来どおりログに残して検証の失敗の 401 を返す）。DB に到達できないときの 401 は利用者に「コードが違う」と誤認させ、失敗回数も記録されないため、503 に揃える
+  - **対話型トランザクションの開始の待ち**: この 2 サービスの対話型トランザクション（リセットの要求・リセットの確定・パスワードの変更・2FA の設定の開始・有効化・バックアップコードの再生成の 6 か所）は開始の前に同じ要求の中で DB へ問い合わせるが、その問い合わせの後に接続が失われると、開始は新しい接続の確立を待つ。実測（2026-09-28、Prisma 7.9.1・`RetryingPool`（再試行 1 回・接続タイムアウト 1000ms、予算 3000ms）、実データベースへの中継で先行の問い合わせの後に確立済みの接続を切り無応答にした使い捨ての検証）で、`maxWait` なしでは約 2.0 秒で P2028（catch が自前のエラーへ変える）、`connectBudgetTransactionOptions()` を渡すと約 3.0 秒で pg-pool の接続タイムアウトの素の Error となった。既定の設定（3 回・5000ms、予算 27000ms）でも同じく P2028 が先に来るため、上の「対話型トランザクションの開始の待ち」と同じ `maxWait` を 6 か所に渡す。配列を渡す `$transaction([...])`（バックアップコードの検証・2FA の無効化）は開始の待ちの打ち切りを持たないため変えない。P2028 を接続のタイムアウトとして区別しない方針（上の「P2028 の判定を区別する案を採らない理由」）は変えない
+  - **それ以外の DB 例外**: 接続のタイムアウトでない例外（一般の Error、P1001、P2028 など）は、各サービスの既存のログと自前のエラー、各ルートの既存の状態コードと本文のまま返す
+  - **リセットの要求の応答の差（列挙の観点）**: DB に最初から到達できないときは、メールアドレスの有無に関わらず 503 となり差は出ない。差が出るのは、ユーザーの検索の成功の直後に接続が失われた場合だけで、存在するアカウントは 503（トークンの保存が届かない）、存在しないアカウントは 200 となる。攻撃者が意図して起こせる状況ではなく、既存の処理量の差（トランザクションの有無）以上の手がかりにならないため、受け入れる（タスク36.3 の独立レビューの指摘）
+  - **伝播の前提**: 2 サービスを呼ぶ認証ルート（`/password/*`・`/2fa/*`・`/verify-2fa`・`/verify-2fa/backup`）のハンドラーはすべて投げられた例外を `next(error)` でエラーハンドラーへ渡す。`authenticate` は DB を引かず、`requirePermission` は通らない
+  - **統合検証**: `backend/src/__tests__/integration/password-two-factor-db-connection-timeout-503.integration.test.ts`（`DATABASE_RETRY_COUNT=0`・`DATABASE_CONNECTION_TIMEOUT=200`）は、最初から DB に到達できないとき、パスワードの変更・リセットの要求と確定・2FA の設定の開始・有効化・無効化・バックアップコードの再生成と状態の取得・2FA のログインの検証が 503 と Problem Details を返すことを確かめる。2FA のログインの検証（TOTP・バックアップコード）は、TwoFactorService の検証メソッドの呼び出しの間だけ DB を無応答にし（メソッドは本物）、503 を返して失敗回数が 0 のままであることを、検証の後の失敗回数の更新だけを無応答にし 503 を返すことと合わせて確かめる。`backend/src/__tests__/integration/password-two-factor-transaction-db-connection-timeout-503.integration.test.ts`（再試行 1 回・1000ms、予算 3000ms）は、トランザクションの直前のメソッド（`hashPassword`・`generateQRCode`・`decryptSecret`）の後に DB を無応答にし、パスワードの変更・リセットの確定・2FA の設定の開始・有効化が予算の後に 503 を返し、書き込みが残らないことを確かめる。接続の転送と無応答の切り替えは、実データベースへの TCP の中継 `backend/src/__tests__/integration/switchable-database-relay.ts` が担う（無応答へ切り替えるときは確立済みの接続も切り、次の問い合わせに新しい接続の確立を強いる）
+
 ## Testing Strategy
 
 ### Storybook（コンポーネントドキュメント・視覚的テスト）
@@ -3624,6 +3737,21 @@ model AuditLog {
 - キャッシュ無効化: ロール・権限の変更時、ユーザー・ロール変更時
 - Graceful Degradation: Redis障害時にDB fallback
 
+**本番の権限確認の経路での権限キャッシュ（要件21.8 / 21.9 / 24.2 / 24.7）**（2026-09-28 タスク36.2 で追記）:
+- **生成の方針**: 共有インスタンスの注入を採る。`backend/src/services/rbac.service.ts` の `getSharedRBACService()` が RBACService をひとつ生成し、`requirePermission`（RBACService の注入が無いとき）と、キャッシュを無効化するルート（`roles.routes.ts` の RolePermissionService、`user-roles.routes.ts` の UserRoleService）が同じインスタンスを使う。権限の確認と無効化が同じ Redis クライアント・同じキーを読み書きすることを、生成の箇所ひとつで保証するためである。要求ごとに Redis を持つ RBACService を生成する方式は、キーの形式がクラスに閉じているため機能はするが、確認側と無効化側で組み立てが分かれ、Redis の渡し忘れ（タスク36.2 の前の状態）を再び招きうるため採らない。db.ts の PrismaClient が作り直されたとき（`disconnectPrisma` の後）は新しいクライアントで作り直す。PrismaClient だけを注入したとき（単体検証用）は、そのクライアントで同じ Redis を解決する RBACService を生成する
+- **Redis の解決の時点**: RBACService は Redis クライアントを呼び出しの時点で返す関数も受け、共有インスタンスは `redis.ts` の `getClient()` を呼び出しごとに評価する。`backend/src/index.ts` は `app.js` を静的に読み込んだ後で `initRedis()` を呼ぶため、ルートのモジュールの読み込みの時点では Redis は未初期化（null）である。タスク36.2 より前のルートは読み込みの時点で `getClient()` を評価して Redis を持たない RBACService を作っており、ロール・権限の変更時の無効化も本番では何もしていなかった（ルートを読み込み時の評価へ戻す変異で、ロールの権限を API で取り消した後もキャッシュが残ることを統合検証で実測）。`rateLimit.middleware.ts` の RedisRateLimitStore が関数で受けるのと同じ作法である
+- **キーと TTL**: キーは `rbac:permissions:{userId}`、値は権限の配列の JSON、TTL は 15 分。上の「キーパターン」の `user:{userId}:permissions` は当初の設計の表記で、実装のキーはこちらである。`user:{userId}:roles` のキャッシュは実装していない
+- **無効化**: いずれもコミットの後に行う。ロールへの権限の追加・削除はそのロールを持つ全ユーザーのキー、ユーザーへのロールの追加・削除はそのユーザーのキー、ユーザーの削除はそのユーザーのキー（タスク36.2 で追加。アクセストークンは削除の後も有効期限まで検証を通るため、残ったキャッシュで権限の確認を通さない）を消す。ロールの削除は割り当てのあるロールを、権限の削除はロールに割り当てのある権限を拒否するため、いずれも既存のキャッシュの内容を変えず無効化は要らない。ロールの削除の拒否は、並行する割り当てに対しても使用中の確認と削除を同じトランザクションで直列化して保つ（2026-09-29 タスク37.1、上の「ロールの作成・更新・削除と割り当ての削除の監査ログ」の「削除の使用中の確認の直列化」）。ロールの更新（名前・説明・優先度）は権限を変えない
+- **無効化の限界**: (1) API を通さない DB の直接の変更（シード、運用の SQL、テストのフィクスチャ）はキャッシュを無効化しない。(2) Redis の障害中の無効化は失敗し（警告ログを残して続行する）、復旧の後もキーの残りの TTL の間は古い権限が残りうる。(3) Cache-Aside の既知の競合として、権限の確認が DB から古い権限を読んだ直後に無効化が走り、その後に確認が古い権限を書き込むと残る。いずれも TTL の 15 分（アクセストークンの有効期限と同じ）で上限が付く。**2026-09-29 タスク37.2 で改めた**: (3) は世代の照合で防ぐ（下の「無効化の確かさ」）。(2) の無効化は、接続が `ready` でないときは送らずに警告ログを残す（同）。(1) と (2) は引き続き TTL で上限が付く
+- **障害時（要件24.2 / 24.7）**: 権限の読み書きは Redis クライアントの状態が `ready` のときだけ行う。切断中・再接続中のクライアントへコマンドを送ると、ioredis はオフラインキューに積んで再接続の試行（`redis.ts` の `maxRetriesPerRequest: 3`、間隔は最大 2000ms）を待ってから失敗させるため、権限の確認ごとに数秒の遅延が生じうる。`ready` でないとき、または読み出しが失敗したときは、警告ログ（`Failed to get permissions from Redis cache`）を障害を `err` キーに載せて残し、DB から直接取得する。その要求ではキャッシュへ書き込まない。書き込みと無効化の失敗も `err` キーで警告ログを残して続行する。`error` キーでは pino の err シリアライザが効かず、本番の JSON で障害の中身が失われる（Error Handling の「権限の確認での 503」のログの項と同じ）。無効化は状態を確かめずに送る（頻度が低く、オフラインキューが再接続の後に届けうるため）。**2026-09-29 タスク37.2 で改めた**: 無効化も `ready` のときだけ送る（下の「無効化の確かさ」の (ii)）
+- **無効化の確かさ（要件21.8 / 24.2 / 24.7）**（2026-09-29 タスク37.2 で追記）:
+  - **(i) 無効化の後の古い書き戻しの防止（世代の照合）**: ユーザーごとに世代のキー `rbac:permissions-generation:{userId}` を置く。無効化は、キャッシュのキーの削除と世代のキーの `INCR`（と `EXPIRE`）を一つの Lua スクリプト（`EVAL`）で不可分に行う。ロール単位の無効化（`invalidateUserPermissionsCacheForRole`）は、そのロールを持つ全ユーザーのキャッシュのキーと世代のキーの組を一回の `EVAL` で処理する。権限の確認（`getUserPermissions`）は、キャッシュに無いとき **DB を読む前に** 世代を読み、DB から権限を得た後の書き込みを「世代が読んだときのままなら `SET … EX`」とする Lua スクリプトで行う（世代が進んでいれば書き込まず、その要求は DB から得た権限で判定する）。無効化はコミットの後に世代を進めるため、確認が読んだ世代が書き込みの時点まで変わらなければ、確認の DB の読み出しはその時点までにコミットされた変更を反映している。確認が世代を読んだ後に無効化が走れば、書き込みは行われない。照合と書き込みを同じスクリプトで行うのは、共有の一本の接続では `WATCH` / `MULTI` が他の要求のコマンドと混ざり、接続単位の監視が成り立たないためである。値に世代を埋め込み読み出しで照合する方式は、キャッシュの値の形式（権限の配列の JSON）を変え、既存の検証が置く値と両立しないため採らなかった。世代のキーの TTL はキャッシュと同じ 15 分で、無効化のたびに延びる。読んだ世代がキーの失効で消えた場合は照合が一致せず書き込まない（安全側）。キーが無い状態から、確認の読み出しの間に作られて失効まで戻るには 15 分を要し、確認の読み出しの時間（DB の接続の予算を含めて秒の単位）より十分に長い
+  - **(ii) Redis が `ready` でないときの無効化**: 接続の状態が `ready` でなければ、コマンドを送らずに警告ログ（`Failed to invalidate permission cache` / `Failed to invalidate permission cache for role`、障害は `err` キー）を残して続行する。ロール単位の無効化は対象のユーザーの DB の問い合わせも行わない。送れば ioredis のオフラインキューに積まれ、再接続まで（再接続できなければ `maxRetriesPerRequest` を使い切るまで）変更の API の応答を待たせるためである。オフラインキューを使わない呼び出し（`enableOfflineQueue: false` の別接続など）も、`ready` でない接続では直ちに失敗するため結果は同じで、接続を増やす分だけ複雑になるため採らない。送らなかった無効化の分は、障害の前のエントリがキーの残りの TTL（最大 15 分）の間残りうる（「無効化の限界」の (2)）。状態を確かめた後・応答の前に接続が失われた場合の待ちは、読み込み側と同じく ioredis の再試行（`maxRetriesPerRequest: 3`）で上限が付く
+  - **(iii) コミット後の処理の順序と失敗**: `UserRoleService` のロールの割り当て・解除のコミット後の処理（`afterCommit`）は、権限キャッシュの無効化を先に行い、その後にシステム管理者ロールの変更のアラート（管理者の一覧の取得・メールの送信・Sentry への通知）を送る。アラートの失敗は警告ログ（`Failed to send admin role change alert`、`err` キー）に留め、コミット済みの変更を `DATABASE_ERROR`（500。接続のタイムアウトなら 503）として返さない。無効化の実装が投げた場合も警告ログ（`Failed to invalidate permission cache after commit`）に留めてアラートへ進む。アラートの送信の失敗や遅延が無効化を妨げないための順序である
+  - **検証**: 統合検証 `backend/src/__tests__/integration/rbac-permission-cache-invalidation.integration.test.ts`（実 Redis・実 DB・本物の `requirePermission`）が、(i) 共有の PrismaClient の権限の問い合わせを一度だけ包み、本物の結果を得た後・返す前にロールの割り当ての解除またはロールの権限の取り消しを API で行って、無効化の後に古い権限が書き戻されず次の確認が拒否になること、(ii) 接続は確立したが応答しないサーバーへの ioredis のクライアント（状態は `ready` にならない）へ差し替えたとき、2 つの無効化の経路の変更の API が待たずに応答し、`err` 付きの警告ログを残すこと、(iii) アラートの送信が投げても割り当て・解除が成功として返り、アラートの時点でキャッシュが無効化済みで、次の確認が新しい権限で判定されることを確かめる。アラートは `NODE_ENV=test` で抑制されるため、(iii) はその呼び出しの間だけ `NODE_ENV` を `development` にしてサービスを直接呼ぶ（HTTP を通すと CSRF の検査が `NODE_ENV` で変わるため）
+- **DB 接続タイムアウトとの関係（要件24.1）**: キャッシュに当たらないときは権限の判定が DB を引き、接続のタイムアウトは `requirePermission` からエラーハンドラーの 503 へ渡る（Error Handling のタスク35.13 の項）。当たるときは判定が DB を引かずに通り、ルートのハンドラー（サービス層）が最初に DB へ到達する。読み出しはサービス層の投げ直し（タスク35.11）で、対話型トランザクションから始まる書き込みは `maxWait`（タスク35.12）で、いずれも 503 になる。統合検証 `authorize-db-connection-timeout-503.integration.test.ts` と `auth-transaction-db-connection-timeout-503.integration.test.ts` は実 Redis を初期化し、各エンドポイントを当たる場合・当たらない場合の両方で確かめる。当たる場合は、キャッシュが「権限なし」を示すと権限の判定が DB を引かずに 403 になる対照（拒否の監査ログの記録は DB へ届いて失敗するが応答は変わらない）で、判定がキャッシュを読んでいることを確かめる
+- **統合検証**: `backend/src/__tests__/integration/rbac-permission-cache.integration.test.ts` が、実 Redis と本物の `requirePermission` の経路で次を確かめる。1 回目の確認が権限を TTL 付きで保存し、2 回目は DB を引かない（1 回目の後に DB の権限を無効化の経路を通さずに消しても許可のまま、キーを消すと拒否になる）。ロールの権限の取り消し・ユーザーのロールの割り当ての解除・ユーザーの消去を API で行った後の確認は拒否になる。Redis の接続を落とすと、キャッシュに置いた「権限なし」ではなく DB の権限で許可し、`err` 付きの警告ログを 1 回残す。Redis に接続できないときは前提の確認で赤くなる
+
 **データベースインデックス**:
 - `users.email`: ログイン時の高速検索
 - `invitations.token`: 招待検証時の高速検索
@@ -3856,6 +3984,8 @@ graph TB
 
 ### 共通ヘッダーナビゲーション
 
+> **注記（2026-10-06 タスク41.2 で追記）**: 下のコードは設計の初期の下書きであり、Tailwind のクラス・shadcn の DropdownMenu・ダッシュボードだけのリンクなど、現在の実装と異なる。下書きと実装が異なる点は、実装（`frontend/src/components/Navigation/AppHeader.tsx` と `frontend/src/components/Navigation/AppHeader.css`）を正とする。全画面に効く応答性とアクセシブルネームの決定は、コードの後の「レスポンシブ表示とアクセシブルネーム」に記す。
+
 ```typescript
 // frontend/src/components/Navigation/AppHeader.tsx
 
@@ -3944,6 +4074,21 @@ export function AppHeader({ user, permissions }: AppHeaderProps): ReactElement {
   );
 }
 ```
+
+#### レスポンシブ表示とアクセシブルネーム（要件15.1・15.4・28.21・28.22）
+
+（2026-10-06 タスク41.2 で追記。決定はタスク39.1・40.1・40.2・41.1 による）共通ヘッダーは保護された全画面に出るため、以下の決定は全画面に効く。幅の境界は、768px（下の項で述べる利用者の判断による例外）を除き `frontend/src/utils/responsive.ts` の定数を単一情報源とし（steering の tech.md「ブレークポイントの単一情報源」）、CSS の `@media` は TS の定数を読めないため同じ値を書き写す。
+
+- **アイコンのみの表示（1199px 以下）**: `APP_HEADER_ICON_ONLY_MAX_WIDTH`（1199）以下では、四つのリンク（ダッシュボード・プロジェクト・取引先・自社情報）と管理メニューのボタンをアイコンのみで表示し、1200px 以上で文言を出す（タスク40.1）
+  - **境界の根拠**: 文言を出したままでは、769px〜1147px（test 環境の /profile の実測。管理者の長い表示名が最悪）でリンクの文言が縦に折り返し、ナビゲーションがヘッダーの高さ 64px を超えていた。実測の上端にフォントの差の余裕を足して 1200px を境にした。利用者の判断（2026-10-05）の「文言を隠す閾値を上げる」（約 1100px 以下）より広いのは、長い表示名の実測による
+- **モバイルの表示（768px 以下）**: ロゴの文字とユーザー名もアイコンのみの表示と同じ指定で隠し、区切りの線を出さず、ヘッダーの高さを 56px にする（769px 以上は 64px）。ナビゲーションが残りの幅を受け取り、リンクの幅を縮めて一行に収める（二段に折り返すと sticky のヘッダーの高さが全画面で変わり、項目を畳むとリンクが見えなくなるため、一行のまま全リンクと両メニューが見えて押せる形を選んだ。タスク39.1）
+  - **境界の値**: 768 は `MEDIA_QUERIES.isMobile`（767px 以下）と 1px ずれる。利用者の判断（2026-10-06）で据え置く。既存の E2E が 768 幅をモバイルとして扱うためである。768 幅ちょうどは要件15.1 の区分ではタブレットの下端に当たるが、ヘッダーはモバイルの表示になる
+- **狭いモバイルの表示（479px 以下）**: `MEDIA_QUERIES.isSmallMobile` と同じ境界で、ヘッダーの左右の余白（24px → 12px）と項目の間隔（8px → 4px）を詰め、320 幅の管理者（項目が最も多い）でもリンクが押せる大きさを保つ（タスク39.1 で導入し、タスク41.1 で境界を 480 から 479 へ揃えた）
+- **ユーザー名の省略表示（769px〜1199px）**: ユーザー名は隠さず、デスクトップ幅と同じ上限幅 120px と省略記号（text-overflow: ellipsis）で出す。長い表示名でもヘッダーが一行に収まり、文書を水平にはみ出させない（タスク40.1）
+- **見た目だけ隠す指定とアクセシブルネーム（要件15.4）**: 上の各幅で隠す文言（リンクと管理メニューのボタンの文言、ロゴの文字、ユーザー名）は `display: none` にせず、見た目だけを隠して支援技術には残す指定（position: absolute・1px の箱・margin -1px・overflow hidden・clip・clip-path・nowrap・border 0・padding 0）にする。アイコンの SVG は aria-hidden のため、`display: none` ではリンクとボタンがアクセシブルネームを失う。見えている文言をそのまま名前の出どころに残すため、名前は全幅でデスクトップの文言と同じになり（WCAG 2.5.3 Label in Name）、aria-label で同じ文字列を二重に持たない（タスク40.2）
+  - **E2E への影響**: 名前は全幅で同じため、狭い幅でもリンクと管理メニューのボタンを名前で指せる。一方で Playwright は 1×1 の要素を可視と判定するため、隠した文言へ `not.toBeVisible()` を向ける検証は成り立たない。隠れていることは描かれる箱の大きさで判定する
+- **検証**: CSS の `@media` の値と `responsive.ts` の定数（`APP_HEADER_ICON_ONLY_MAX_WIDTH`・`MEDIA_QUERIES.isSmallMobile`）の一致と、各ブロックが持つ規則は、単体 `frontend/src/__tests__/components/AppHeader.css.test.ts` が突き合わせる。表示の挙動（モバイル幅・タブレット幅で文書全体を水平にはみ出させず、ヘッダーが一行に収まり、リンクとメニューの項目が画面幅の内側にあって届くこと、アイコンのみの表示でも名前がデスクトップと同じであること）は E2E `e2e/specs/navigation/app-header.spec.ts` が 2 ロール × 複数の表示名 × 複数の幅で主張する
+- **フォーカス表示（タスク 43.1、2026-10-08）**: ロゴのリンク・四つのリンク・管理メニューとユーザーメニューの釦は、フォーカス中に 2px の白い実線の outline（offset 2px）を描く。ヘッダーの背景は紫のグラデーション（#667eea〜#764ba2）で、白はその両端に対して 3.66:1・6.37:1 である。全画面共通の青い outline（#2563eb）はこの背景に対して 3:1 に届かないため、ロゴのリンクにも `.app-header-logo:focus-visible` で白い輪を与えた。両メニューの釦の白い輪は、詳細度の高い `.app-header-dropdown > button:focus-visible { outline: none }` に打ち消されてフォーカス中の表示が無かったため、その打ち消しの規則を外した（`frontend/src/components/Navigation/AppHeader.css`）。規則は単体 `frontend/src/__tests__/accessibility/user-authentication-focus-visible.test.tsx` が原本の CSS で、表示は E2E `e2e/specs/auth/auth-forms-focus-visible.spec.ts` が 2FA の設定の画面の Tab の一巡（一般ユーザーと管理者）で主張する。開いたメニューの項目は DOM のフォーカスを移さず `is-focused` の見た目で示す作りのため、この一巡の対象に含めていない
 
 ### ProtectedRouteコンポーネント
 
@@ -4346,6 +4491,8 @@ export function PasswordResetPage(): ReactElement {
 }
 ```
 
+**現況（タスク 43.1、2026-10-08）**: 上の二つのコード例は入力欄に `focus:outline-none focus:ring-blue-500` を指定するが、輪の幅（`focus:ring-2` など）を持たないため、この指定どおりではフォーカス中の表示が出ない。コード例は設計の記述としてそのまま残す。実装のパスワードリセットの画面は `frontend/src/pages/PasswordResetPage.tsx` が `frontend/src/components/PasswordResetForm.tsx` を要求と再設定の両方のモードで描く構成で、入力欄はインラインのスタイルで描く。タスク 43.1 がその入力欄のインラインの `outline: 'none'`（3 か所）を外し、フォーカス中の表示を全画面共通の `:focus-visible`（`frontend/src/index.css` の `@layer base`、2px・#2563eb）に一本化した。同じタスクで、ユーザー登録・2FA の設定・2FA の確認のフォーム（`frontend/src/components/RegisterForm.tsx` の 3 か所・`frontend/src/components/TwoFactorSetupForm.tsx` と `frontend/src/components/TwoFactorVerificationForm.tsx` の各 1 か所）の同じ打ち消しも外した。単体 `frontend/src/__tests__/accessibility/user-authentication-focus-visible.test.tsx` が打ち消しの無いことを状態ごとに、E2E `e2e/specs/auth/auth-forms-focus-visible.spec.ts` がログイン・2FA の確認・ユーザー登録・パスワードリセットの要求と再設定・2FA の設定の画面を状態ごとに Tab で一巡し、2px 以上・3:1 以上の表示とフォーカスが離れたら消えることを主張する
+
 ### パスワードリセットフロー
 
 ```mermaid
@@ -4517,7 +4664,7 @@ tokenRefreshCallback が存在する？
            → ApiError をスロー
 ```
 
-**変更箇所（`client.ts` 200-214行付近）:**
+**変更箇所（`client.ts` の該当箇所）:**
 
 ```typescript
 } catch (refreshError) {
@@ -4556,7 +4703,7 @@ if (!isAuthenticated && !sessionExpiredDuringOperation) {
 
 #### 5. SessionExpiredModal の配置
 
-**ファイルパス:** `frontend/src/App.tsx` または `frontend/src/layouts/AuthenticatedLayout.tsx`
+**ファイルパス:** `frontend/src/components/ProtectedLayout.tsx`（当初は `frontend/src/App.tsx` との二択で計画したが、認証済みレイアウトを担う当該コンポーネントへ配置した）
 
 認証済みユーザーのレイアウト内にグローバルに配置する:
 

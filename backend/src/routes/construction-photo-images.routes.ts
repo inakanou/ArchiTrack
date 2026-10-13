@@ -21,7 +21,9 @@
  * - 11.3: サムネ優先（一覧では原本URLを返さない）
  * - 12.1, 12.2, 12.3: 最大10件/10MBの制約と超過拒否
  * - 12.5: 部分失敗は成功分維持
- * - 13.1, 13.2, 13.3: 認証・認可・プロジェクト境界の検証
+ * - 13.1, 13.2, 13.3: 認証・認可・プロジェクト境界の検証。認可はロールの権限（requirePermission）
+ *   だけで行い、プロジェクトの担当者での絞り込みはしない。取り除かれたプロジェクトや論理削除済みの
+ *   アルバム配下は、サービスが 404 とする
  *
  * @module routes/construction-photo-images
  */
@@ -34,6 +36,7 @@ import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import logger from '../utils/logger.js';
+import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
 
 import { SurveyImageService } from '../services/survey-image.service.js';
 import { ImageProcessorService } from '../services/image-processor.service.js';
@@ -155,6 +158,18 @@ initializeConstructionPhotoImageServices().catch((error) => {
 });
 
 /**
+ * 写真項目の操作をアルバムの配下（nested マウント `/api/construction-photos/:id/images`）として
+ * 指したときのアルバムIDを返す。flat マウント（`/api/construction-photos/images`）では undefined。
+ *
+ * 写真項目の操作（メタの一括更新・削除・印字画像・原本）は flat マウントで提供するが、同じルーターを
+ * nested にも載せているため、nested として指したときは写真項目がそのアルバムに属することをサービスで
+ * 検証する（プロジェクトの境界, Requirements: 13.2）。
+ */
+function addressedAlbumId(req: Request): string | undefined {
+  return typeof req.params.id === 'string' ? req.params.id : undefined;
+}
+
+/**
  * multer のアップロードミドルウェアをラップし、制約超過（件数/サイズ）を
  * 適切なHTTPステータスへ変換する（Requirements: 12.3）。
  * - サイズ超過: 413
@@ -219,7 +234,7 @@ function uploadImages(req: Request, res: Response, next: NextFunction): void {
  *       403:
  *         description: 権限不足
  *       404:
- *         description: アルバムが見つからない、またはアクセス権のないプロジェクト
+ *         description: アルバムが見つからない、またはアルバムかプロジェクトが論理削除済み
  *       503:
  *         description: ストレージ未設定
  */
@@ -244,7 +259,7 @@ router.get(
         return;
       }
 
-      const images = await imageService.listWithUrls(albumId, userId);
+      const images = await imageService.listWithUrls(albumId);
 
       logger.debug({ userId, albumId, imageCount: images.length }, 'Construction photos listed');
 
@@ -308,7 +323,7 @@ router.get(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: アルバムが見つからない
+ *         description: アルバムが見つからない、またはアルバムかプロジェクトが論理削除済み
  *       413:
  *         description: ファイルサイズ超過
  *       503:
@@ -429,6 +444,8 @@ router.post(
  *         description: 権限不足
  *       404:
  *         description: アルバムが見つからない、または他プロジェクト/存在しない現調写真を含む
+ *       410:
+ *         description: 親の現場調査が論理削除済みの現調写真を含む（code SURVEY_DELETED。複製は一切行わない）
  *       503:
  *         description: ストレージ未設定
  */
@@ -492,6 +509,11 @@ router.post(
         });
         return;
       }
+      // 親の現場調査が論理削除済み: site-survey・数量表の経路と同じ 410 本文で返す
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       next(error);
     }
   }
@@ -531,7 +553,7 @@ router.post(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 写真項目/看板が見つからない、またはアクセス権のないプロジェクト
+ *         description: 写真項目/看板が見つからない、またはアルバムかプロジェクトが論理削除済み
  *       503:
  *         description: ストレージ未設定
  */
@@ -558,7 +580,7 @@ router.patch(
 
       const result = await metadataService.updateMetadataBatch(
         items as BatchUpdatePhotoMetadataInput[],
-        userId
+        addressedAlbumId(req)
       );
 
       logger.info({ userId, itemCount: items.length }, 'Construction photo metadata batch updated');
@@ -614,7 +636,7 @@ router.patch(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 写真項目が見つからない、またはアクセス権のないプロジェクト
+ *         description: 写真項目が見つからない、またはアルバムかプロジェクトが論理削除済み
  *       503:
  *         description: ストレージ未設定
  */
@@ -641,7 +663,7 @@ router.put(
         return;
       }
 
-      await metadataService.updateOrder(albumId, orders, userId);
+      await metadataService.updateOrder(albumId, orders);
 
       logger.info(
         { userId, albumId, orderCount: orders.length },
@@ -683,7 +705,7 @@ router.put(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 写真項目が見つからない、またはアクセス権のないプロジェクト
+ *         description: 写真項目が見つからない、またはアルバムかプロジェクトが論理削除済み
  *       503:
  *         description: ストレージ未設定
  */
@@ -708,7 +730,7 @@ router.delete(
         return;
       }
 
-      await imageService.delete(imageId, userId);
+      await imageService.delete(imageId, addressedAlbumId(req));
 
       logger.info({ userId, imageId }, 'Construction photo deleted');
 
@@ -753,7 +775,7 @@ router.delete(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 写真項目が見つからない、またはアクセス権のないプロジェクト
+ *         description: 写真項目が見つからない、またはアルバムかプロジェクトが論理削除済み
  *       503:
  *         description: ストレージ未設定
  */
@@ -778,7 +800,7 @@ router.get(
         return;
       }
 
-      const buffer = await imageService.getPrintImage(imageId, userId);
+      const buffer = await imageService.getPrintImage(imageId, addressedAlbumId(req));
 
       logger.debug(
         { userId, imageId, size: buffer.length },
@@ -838,7 +860,7 @@ router.get(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 写真項目が見つからない、またはアクセス権のないプロジェクト
+ *         description: 写真項目が見つからない、またはアルバムかプロジェクトが論理削除済み
  *       503:
  *         description: ストレージ未設定
  */
@@ -863,7 +885,7 @@ router.get(
         return;
       }
 
-      const buffer = await imageService.getOriginalImage(imageId, userId);
+      const buffer = await imageService.getOriginalImage(imageId, addressedAlbumId(req));
 
       // 保存時の実体形式をマジックバイトから判定して Content-Type に反映する
       // （print-image と異なり原本は常に image/jpeg とは限らないため）。

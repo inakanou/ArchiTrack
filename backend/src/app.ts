@@ -28,7 +28,7 @@ import jwksRoutes from './routes/jwks.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import projectsRoutes from './routes/projects.routes.js';
 import tradingPartnersRoutes from './routes/trading-partners.routes.js';
-import siteSurveysRoutes from './routes/site-surveys.routes.js';
+import siteSurveysRoutes, { projectSurveyImagesRouter } from './routes/site-surveys.routes.js';
 import constructionPhotosRoutes from './routes/construction-photos.routes.js';
 import constructionPhotoImagesRoutes from './routes/construction-photo-images.routes.js';
 import constructionSignboardsRoutes from './routes/construction-signboards.routes.js';
@@ -333,6 +333,10 @@ app.use('/api/trading-partners', tradingPartnersRoutes);
 // Site survey management routes
 app.use('/api/projects/:projectId/site-surveys', siteSurveysRoutes);
 app.use('/api/site-surveys', siteSurveysRoutes);
+
+// プロジェクト配下の注釈付き写真一覧（Requirements (quantity-table-generation): 49.9）
+// 写真選択・変更ダイアログが現場調査ごとの個別リクエストを発生させないための入口。
+app.use('/api/projects/:projectId/survey-images', projectSurveyImagesRouter);
 
 // Survey images management routes
 app.use('/api/site-surveys/:id/images', surveyImagesRoutes);

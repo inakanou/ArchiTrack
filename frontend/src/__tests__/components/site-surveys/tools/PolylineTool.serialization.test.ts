@@ -351,6 +351,35 @@ describe('Polyline シリアライズ/復元 (Task 80.2)', () => {
   // ==========================================================================
 
   describe('outline 未定義の旧データは従来表現で復元する（Req 32.9 後方互換）', () => {
+    /**
+     * Task 115.150 (Req 26.5): 旧データ復元時に渡す白縁取り色も資材から供給する
+     *
+     * この経路の色は `enabled=false` / `width=0` により描画へ現れないが、literal で白を
+     * 書けば白アウトラインの色の供給元が二系統になる。資材を単一の供給元とすることを、
+     * 資材の値を変異させて追随を実測することで示す（値の一致だけでは literal でも通る）。
+     *
+     * @requirement site-survey/REQ-26.5
+     */
+    it('outline 未定義の JSON から復元した PolylineShape の outline.color は資材の outlineColor から供給される', async () => {
+      const legacyJson = {
+        type: 'polylineShape' as const,
+        points: POLYLINE_POINTS,
+        stroke: '#ff0000',
+        strokeWidth: 3,
+        fill: 'transparent',
+      };
+
+      const original = ANNOTATION_DEFAULTS.outlineColor;
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+      try {
+        const restored = await PolylineShape.fromObject(legacyJson);
+
+        expect(restored.getOutline()!.color).toBe('#00ff00');
+      } finally {
+        ANNOTATION_DEFAULTS.outlineColor = original;
+      }
+    });
+
     it('outline フィールド欠落 JSON でも例外にならず PolylineShape を返す', async () => {
       const legacyJson = {
         type: 'polylineShape' as const,

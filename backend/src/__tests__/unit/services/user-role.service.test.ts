@@ -6,7 +6,7 @@
  * - 22.9: センシティブな操作（システム管理者ロールの変更）実行時のアラート通知
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PrismaClient, User, Role, UserRole } from '../../../generated/prisma/client.js';
 import { UserRoleService } from '../../../services/user-role.service.js';
 import { Err, Ok } from '../../../types/result.js';
@@ -14,6 +14,7 @@ import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import type { IRBACService } from '../../../types/rbac.types.js';
 import type { EmailService } from '../../../services/email.service.js';
 import * as Sentry from '../../../utils/sentry.js';
+import logger from '../../../utils/logger.js';
 
 // Sentryモジュールをモック
 vi.mock('../../../utils/sentry.js', () => ({
@@ -96,6 +97,8 @@ describe('UserRoleService', () => {
       },
       role: {
         findUnique: vi.fn(),
+        // 一括削除が admin ロールを含むかの確認（既定は含まない）
+        findFirst: vi.fn().mockResolvedValue(null),
       },
       userRole: {
         findFirst: vi.fn(),
@@ -105,6 +108,8 @@ describe('UserRoleService', () => {
         count: vi.fn(),
         deleteMany: vi.fn(),
       },
+      // 最後の管理者の判定の前に取る admin ロールの行のロック（SELECT ... FOR NO KEY UPDATE）
+      $queryRaw: vi.fn().mockResolvedValue([]),
       $transaction: vi.fn((callback) => callback(prismaMock)),
     } as unknown as PrismaClient;
 
@@ -221,21 +226,24 @@ describe('UserRoleService', () => {
       // Act
       await userRoleService.addRoleToUser(mockUserId, mockRoleId, actorId);
 
-      // Assert
-      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith({
-        action: 'USER_ROLE_ASSIGNED',
-        actorId,
-        targetType: 'user-role',
-        targetId: mockUserId,
-        before: null,
-        after: {
-          userId: mockUserId,
-          userEmail: mockUser.email,
-          roleId: mockRoleId,
-          roleName: mockRole.name,
+      // Assert（監査ログは紐付けと同じトランザクションのクライアントで記録する）
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'USER_ROLE_ASSIGNED',
+          actorId,
+          targetType: 'user-role',
+          targetId: mockUserId,
+          before: null,
+          after: {
+            userId: mockUserId,
+            userEmail: mockUser.email,
+            roleId: mockRoleId,
+            roleName: mockRole.name,
+          },
+          metadata: null,
         },
-        metadata: null,
-      });
+        prismaMock
+      );
     });
 
     it('システム管理者ロール追加時にメールアラートとSentryアラートを送信する', async () => {
@@ -361,6 +369,38 @@ describe('UserRoleService', () => {
       });
     });
 
+    it('ロール削除時に監査ログ（USER_ROLE_REVOKED）を紐付けと同じトランザクションで記録する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(mockUserRole);
+      vi.mocked(prismaMock.userRole.delete).mockResolvedValue(mockUserRole);
+
+      // Act
+      const result = await userRoleService.removeRoleFromUser(mockUserId, mockRoleId, actorId);
+
+      // Assert（監査ログは紐付けの削除と同じトランザクションのクライアントで記録する）
+      expect(result).toEqual(Ok(undefined));
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'USER_ROLE_REVOKED',
+          actorId,
+          targetType: 'user-role',
+          targetId: mockUserId,
+          before: {
+            userId: mockUserId,
+            userEmail: mockUser.email,
+            roleId: mockRoleId,
+            roleName: mockRole.name,
+          },
+          after: null,
+          metadata: null,
+        },
+        prismaMock
+      );
+    });
+
     it('最後の管理者からadminロールを削除しようとするとLAST_ADMIN_PROTECTEDエラーを返す', async () => {
       // Arrange
       vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
@@ -377,6 +417,16 @@ describe('UserRoleService', () => {
       // Assert
       expect(result).toEqual(Err({ type: 'LAST_ADMIN_PROTECTED' }));
       expect(prismaMock.userRole.delete).not.toHaveBeenCalled();
+      // 件数を数える前に admin ロールの行をロックしている（並行する削除との直列化）
+      const lock = vi.mocked(prismaMock.$queryRaw);
+      expect(lock).toHaveBeenCalledTimes(1);
+      expect((lock.mock.calls[0]![0] as TemplateStringsArray).join('?')).toMatch(
+        /FROM roles WHERE id = \? FOR NO KEY UPDATE/
+      );
+      expect(lock.mock.calls[0]![1]).toBe(mockAdminRoleId);
+      expect(lock.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(prismaMock.userRole.count).mock.invocationCallOrder[0]!
+      );
     });
 
     it('紐付けが存在しない場合はASSIGNMENT_NOT_FOUNDエラーを返す', async () => {
@@ -445,6 +495,7 @@ describe('UserRoleService', () => {
       const result = await userRoleService.removeRoleFromUser(
         mockUserId,
         mockAdminRoleId,
+        'actor-123',
         performedBy
       );
 
@@ -486,7 +537,12 @@ describe('UserRoleService', () => {
       emailServiceMock.sendAdminRoleChangedAlert = sendAdminRoleChangedAlertMock;
 
       // Act
-      const result = await userRoleService.removeRoleFromUser(mockUserId, mockRoleId, performedBy);
+      const result = await userRoleService.removeRoleFromUser(
+        mockUserId,
+        mockRoleId,
+        'actor-123',
+        performedBy
+      );
 
       // Assert
       expect(result).toEqual(Ok(undefined));
@@ -525,6 +581,7 @@ describe('UserRoleService', () => {
       const result = await userRoleService.removeRoleFromUser(
         mockUserId,
         mockAdminRoleId,
+        'actor-123',
         performedBy
       );
 
@@ -672,6 +729,34 @@ describe('UserRoleService', () => {
       expect(result).toEqual(Ok(undefined));
     });
 
+    it('admin ロールを含む一括削除は、どの紐付けを削除するよりも先に admin ロールの行をロックする', async () => {
+      // Arrange: 先に一般ロール、後に admin ロールを削除する（ロックがループ内だけだと一般ロールの削除が先になる）
+      const roleIds = [mockRoleId, mockAdminRoleId];
+      vi.mocked(prismaMock.role.findFirst).mockResolvedValue({ id: mockAdminRoleId } as Role);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique)
+        .mockResolvedValueOnce(mockRole)
+        .mockResolvedValueOnce(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(mockUserRole);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(2); // 他にもadminユーザーが存在
+
+      // Act
+      const result = await userRoleService.removeRolesFromUser(mockUserId, roleIds);
+
+      // Assert
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.role.findFirst).toHaveBeenCalledWith({
+        where: { id: { in: roleIds }, name: 'admin' },
+        select: { id: true },
+      });
+      const lock = vi.mocked(prismaMock.$queryRaw);
+      expect(lock).toHaveBeenCalled();
+      expect(lock.mock.calls[0]![1]).toBe(mockAdminRoleId);
+      const deleteCalls = vi.mocked(prismaMock.userRole.delete).mock.invocationCallOrder;
+      expect(deleteCalls).toHaveLength(2);
+      expect(lock.mock.invocationCallOrder[0]).toBeLessThan(deleteCalls[0]!);
+    });
+
     it('途中でユーザーが見つからない場合は即座にエラーを返す', async () => {
       // Arrange
       const roleIds = [mockRoleId, 'role-456'];
@@ -701,6 +786,49 @@ describe('UserRoleService', () => {
     });
   });
 
+  describe('deleteUser() の権限キャッシュの無効化（タスク36.2）', () => {
+    beforeEach(() => {
+      const tx = prismaMock as unknown as Record<string, unknown>;
+      tx.invitation = { deleteMany: vi.fn(), updateMany: vi.fn() };
+      (tx.user as Record<string, unknown>).delete = vi.fn();
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null);
+    });
+
+    it('削除をコミットした後に、削除したユーザーの権限キャッシュを無効化する', async () => {
+      const order: string[] = [];
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue({
+        id: mockUserId,
+        email: 'deleted@example.com',
+        userRoles: [],
+      } as unknown as never);
+      vi.mocked(prismaMock.$transaction).mockImplementation((async (
+        callback: (tx: PrismaClient) => Promise<unknown>
+      ) => {
+        const value = await callback(prismaMock);
+        order.push('commit');
+        return value;
+      }) as never);
+      rbacServiceMock.invalidateUserPermissionsCache.mockImplementation(async () => {
+        order.push('invalidate');
+      });
+
+      const result = await userRoleService.deleteUser(mockUserId);
+
+      expect(result.ok).toBe(true);
+      expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
+      expect(order).toEqual(['commit', 'invalidate']);
+    });
+
+    it('ユーザーが存在しないときは無効化しない', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(null);
+
+      const result = await userRoleService.deleteUser(mockUserId);
+
+      expect(result.ok).toBe(false);
+      expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
+    });
+  });
+
   describe('hasUserRole()', () => {
     it('ユーザーがロールを持っている場合trueを返す', async () => {
       // Arrange
@@ -722,6 +850,146 @@ describe('UserRoleService', () => {
 
       // Assert
       expect(result).toBe(false);
+    });
+  });
+
+  describe('コミット後の処理の失敗（タスク37.2）', () => {
+    const performedBy = { email: 'performer@example.com', displayName: 'Performer' };
+    let originalNodeEnv: typeof process.env.NODE_ENV;
+
+    beforeEach(() => {
+      // アラートは NODE_ENV=test で抑制されるため、本物の経路へ到達させる
+      originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      vi.mocked(logger.warn).mockClear();
+    });
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    /** admin ロールの割り当てがコミットまで進む状態にする */
+    function arrangeAdminAssignment(): void {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.userRole.create).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.user.findMany).mockResolvedValue([
+        { email: 'admin1@example.com', displayName: 'Admin 1' } as User,
+      ]);
+    }
+
+    function alertWarnings(): unknown[][] {
+      return vi
+        .mocked(logger.warn)
+        .mock.calls.filter(([, message]) => message === 'Failed to send admin role change alert');
+    }
+
+    it('アラートの送信が投げても成功を返し、無効化はアラートより先に行う', async () => {
+      arrangeAdminAssignment();
+      const failure = new Error('alert delivery failed');
+      vi.mocked(emailServiceMock.sendAdminRoleChangedAlert).mockRejectedValue(failure);
+
+      const result = await userRoleService.addRoleToUser(
+        mockUserId,
+        mockAdminRoleId,
+        'actor-123',
+        performedBy
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
+      expect(emailServiceMock.sendAdminRoleChangedAlert).toHaveBeenCalledTimes(1);
+      expect(
+        rbacServiceMock.invalidateUserPermissionsCache.mock.invocationCallOrder[0]!
+      ).toBeLessThan(
+        vi.mocked(emailServiceMock.sendAdminRoleChangedAlert).mock.invocationCallOrder[0]!
+      );
+      expect(alertWarnings()).toEqual([
+        [
+          { err: failure, userId: mockUserId, roleId: mockAdminRoleId, action: 'assigned' },
+          'Failed to send admin role change alert',
+        ],
+      ]);
+    });
+
+    it('管理者の一覧の取得（prisma.user.findMany）が投げても成功を返し、キャッシュを無効化する', async () => {
+      arrangeAdminAssignment();
+      const failure = new Error('Connection terminated');
+      vi.mocked(prismaMock.user.findMany).mockRejectedValue(failure);
+
+      const result = await userRoleService.addRoleToUser(
+        mockUserId,
+        mockAdminRoleId,
+        'actor-123',
+        performedBy
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
+      expect(emailServiceMock.sendAdminRoleChangedAlert).not.toHaveBeenCalled();
+      expect(alertWarnings()).toHaveLength(1);
+      expect(alertWarnings()[0]![0]).toMatchObject({ err: failure });
+    });
+
+    it('Sentry への通知が投げても、解除は成功を返しキャッシュを無効化する', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(2);
+      vi.mocked(prismaMock.userRole.delete).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.user.findMany).mockResolvedValue([
+        { email: 'admin1@example.com', displayName: 'Admin 1' } as User,
+      ]);
+      const failure = new Error('sentry transport failed');
+      vi.mocked(Sentry.captureMessage).mockImplementationOnce(() => {
+        throw failure;
+      });
+
+      const result = await userRoleService.removeRoleFromUser(
+        mockUserId,
+        mockAdminRoleId,
+        'actor-123',
+        performedBy
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
+      expect(alertWarnings()).toEqual([
+        [
+          { err: failure, userId: mockUserId, roleId: mockAdminRoleId, action: 'revoked' },
+          'Failed to send admin role change alert',
+        ],
+      ]);
+    });
+
+    it('無効化が投げても成功を返し、警告ログを残してアラートを送る', async () => {
+      arrangeAdminAssignment();
+      const failure = new Error('cache down');
+      rbacServiceMock.invalidateUserPermissionsCache.mockRejectedValue(failure);
+
+      const result = await userRoleService.addRoleToUser(
+        mockUserId,
+        mockAdminRoleId,
+        'actor-123',
+        performedBy
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(emailServiceMock.sendAdminRoleChangedAlert).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        { err: failure, userId: mockUserId },
+        'Failed to invalidate permission cache after commit'
+      );
     });
   });
 });

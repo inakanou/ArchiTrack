@@ -171,6 +171,85 @@ describe('canvasViewportController', () => {
     });
   });
 
+  describe('toCanvasPoint 座標基準の変換 (Req 33.3)', () => {
+    /**
+     * bounding rect を明示した canvas 要素を作る（jsdom はレイアウトしないため）。
+     */
+    const makeElement = (rect: {
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+    }): HTMLCanvasElement => {
+      const element = document.createElement('canvas');
+      element.getBoundingClientRect = (): DOMRect =>
+        ({
+          x: rect.left,
+          y: rect.top,
+          left: rect.left,
+          top: rect.top,
+          right: rect.left + rect.width,
+          bottom: rect.top + rect.height,
+          width: rect.width,
+          height: rect.height,
+          toJSON: () => ({}),
+        }) as DOMRect;
+      return element;
+    };
+
+    it('画面座標から canvas 要素のオフセットを除いた描画面座標を返す', () => {
+      const canvas = makeCanvas(360, 300);
+      const element = makeElement({ left: 12, top: 220, width: 360, height: 300 });
+      const ctl = createCanvasViewportController({ ...canvas, upperCanvasEl: element });
+
+      expect(ctl.toCanvasPoint({ x: 192, y: 370 })).toEqual({ x: 180, y: 150 });
+    });
+
+    it('upper-canvas が無い場合は getElement() の bounding rect を基準にする', () => {
+      const canvas = makeCanvas(360, 300);
+      const element = makeElement({ left: 0, top: 100, width: 360, height: 300 });
+      const ctl = createCanvasViewportController({ ...canvas, getElement: () => element });
+
+      expect(ctl.toCanvasPoint({ x: 40, y: 160 })).toEqual({ x: 40, y: 60 });
+    });
+
+    it('要素が CSS で拡縮されている場合は論理サイズとの比を掛ける', () => {
+      // 論理 360x300 の canvas が 180x150 で表示されている（比 2.0）
+      const canvas = makeCanvas(360, 300);
+      const element = makeElement({ left: 10, top: 50, width: 180, height: 150 });
+      const ctl = createCanvasViewportController({ ...canvas, upperCanvasEl: element });
+
+      expect(ctl.toCanvasPoint({ x: 100, y: 125 })).toEqual({ x: 180, y: 150 });
+    });
+
+    it('要素を持たない最小サーフェスでは変換せずそのまま返す（後方互換）', () => {
+      const ctl = createCanvasViewportController(makeCanvas(360, 300));
+
+      expect(ctl.toCanvasPoint({ x: 192, y: 370 })).toEqual({ x: 192, y: 370 });
+    });
+
+    it('変換した中点を基準にズームすると、その中点のシーン座標が保たれる (Req 33.3)', () => {
+      const canvas = makeCanvas(360, 300);
+      const element = makeElement({ left: 12, top: 220, width: 360, height: 300 });
+      const ctl = createCanvasViewportController({ ...canvas, upperCanvasEl: element });
+
+      // 描画面中央 (180,150) に相当する画面座標 (192,370) を中点としてズームする。
+      const sceneBefore = {
+        x: (180 - canvas.viewportTransform[4]) / canvas.viewportTransform[0],
+        y: (150 - canvas.viewportTransform[5]) / canvas.viewportTransform[0],
+      };
+      ctl.zoomToPoint(ctl.toCanvasPoint({ x: 192, y: 370 }), 2);
+
+      const sceneAfter = {
+        x: (180 - canvas.viewportTransform[4]) / canvas.viewportTransform[0],
+        y: (150 - canvas.viewportTransform[5]) / canvas.viewportTransform[0],
+      };
+      expect(canvas.viewportTransform[0]).toBeCloseTo(2, 5);
+      expect(sceneAfter.x).toBeCloseTo(sceneBefore.x, 5);
+      expect(sceneAfter.y).toBeCloseTo(sceneBefore.y, 5);
+    });
+  });
+
   describe('pan と isPanEnabled (Req 34.7)', () => {
     it('ズーム時はパンが反映される', () => {
       const canvas = makeCanvas(800, 600, [2, 0, 0, 2, 0, 0]);

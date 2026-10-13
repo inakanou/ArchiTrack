@@ -3,20 +3,161 @@
  *
  * Task 26.2: 現場調査のE2Eテストを実装する
  *
- * Requirements:
- * - 4.1: POST /api/site-surveys/:id/images 画像アップロード
- * - 4.7: DELETE /api/site-surveys/images/:imageId 画像削除
+ * Requirements coverage (site-survey):
+ * - REQ-4.1: POST /api/site-surveys/:id/images 画像アップロード
+ * - REQ-4.2: 複数画像のバッチアップロード
+ * - REQ-4.4: サムネイル自動生成
+ * - REQ-4.6: 300KB超の圧縮
+ * - REQ-4.7: DELETE /api/site-surveys/images/:imageId 画像削除
+ * - REQ-4.9: 対応形式（PNG）のアップロード
+ * - REQ-4.10: 画像一覧を固定の表示順序で表示する
+ * - REQ-4.11: ドラッグアンドドロップで表示順序を変更する（未保存状態になる）
+ * - REQ-10.8: 写真一覧を保存された表示順序の通りに表示する
+ * - REQ-10.9: 保存ボタンで表示順序をデータベースへ一括保存する
+ *
+ * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
+ *   要件4.3: 6件のアップロードが完了することは主張するが、5件ずつのキュー処理を主張していない
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
+import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * 写真パネルの表示元URLを取得する
+ *
+ * 詳細画面の写真は表示領域へ入るまで表示元URL（img の src）を設定しない
+ * （site-survey/REQ-38.8 の遅延読み込み）。そのため対象を表示領域へ入れたうえで、
+ * 表示元URLが設定されるまで待ってから読み出す。
+ *
+ * @param panelItem - `photo-panel-item` のロケータ
+ * @returns 設定された表示元URL
+ */
+async function getPanelImageSrc(panelItem: Locator): Promise<string> {
+  const image = panelItem.locator('img');
+  await image.scrollIntoViewIfNeeded();
+  // 表示領域到達後に表示元URLが設定されるまで待つ
+  await expect(image).toHaveAttribute('src', /.+/, { timeout: getTimeout(10000) });
+  const src = await image.getAttribute('src');
+  expect(src, '写真パネルの表示元URLが設定されている').toBeTruthy();
+  return src as string;
+}
+
+/**
+ * 写真パネルの画像IDを取得する
+ *
+ * 並びの識別には画像ID（`data-image-id`）を用いる。表示元URLは署名付きURLであり
+ * 署名部や有効期限が要求ごとに変動しうるため、リロードを挟む検証では同一の画像でも
+ * 値が一致せず判定が成立しなくなる。画像IDは要求ごとに変動しない。
+ *
+ * @param panelItem - `photo-panel-item` のロケータ
+ * @returns 画像ID
+ */
+async function getPanelImageId(panelItem: Locator): Promise<string> {
+  await expect(panelItem).toHaveAttribute('data-image-id', /.+/, {
+    timeout: getTimeout(10000),
+  });
+  const imageId = await panelItem.getAttribute('data-image-id');
+  expect(imageId, '写真パネルの画像IDが設定されている').toBeTruthy();
+  return imageId as string;
+}
+
+/**
+ * ドラッグ操作の再現時に観測したUI側の前提（site-survey/REQ-4.11）
+ */
+interface DragAndDropObservation {
+  /** ドラッグ起点要素（ドラッグハンドル）の `draggable` 属性値 */
+  sourceDraggable: string | null;
+  /** `dragover` の既定動作が抑止されたか（ドロップを許可するために必須） */
+  dragOverDefaultPrevented: boolean;
+  /** `drop` の既定動作が抑止されたか（ブラウザ既定の処理を止めるために必須） */
+  dropDefaultPrevented: boolean;
+}
+
+/**
+ * 写真パネルの並び替えをHTML5ネイティブDnDのイベント送出で再現する
+ *
+ * 並び替えの実装（`frontend/src/components/site-surveys/PhotoManagementPanel.tsx`）は
+ * HTML5ネイティブDnD（`draggable` 属性 + `dataTransfer`）であり、DnDライブラリを使っていない。
+ * Playwright の `locator.dragTo()` や `mouse.down/move/up` が送出するのはポインタ入力であって
+ * `dragstart` / `drop` ではないため、これらの操作では本実装のハンドラは一切起動しない
+ * （実測でも並び順・未保存状態ともに変化しないことを確認済み）。
+ *
+ * そこで `dragstart` → `dragenter` → `dragover` → `drop` → `dragend` を、同一の
+ * `DataTransfer` インスタンスを共有したうえで明示的に送出する。`handleDragStart` が
+ * `dataTransfer.setData('text/plain', imageId)` で書き込んだ値を `handleDrop` が
+ * `getData('text/plain')` で読むため、同一インスタンスの共有が必須となる。
+ *
+ * イベントを明示送出する方式は、UI側の前提（起点要素の `draggable` 指定、ドロップ許可に
+ * 必要な既定動作の抑止）が失われても並びだけは変わってしまうため、前提が壊れたことを
+ * 並びの検証では検出できない。そこで送出結果から前提の成否を観測して呼び出し元へ返し、
+ * 呼び出し元で検証できるようにする（site-survey/REQ-4.11）。
+ *
+ * @param page - 対象ページ
+ * @param sourcePanelIndex - ドラッグ元の写真パネルの位置（0起点）
+ * @param targetPanelIndex - ドロップ先の写真パネルの位置（0起点）
+ * @returns ドラッグ操作の前提に関する観測結果
+ */
+async function reorderPhotoByDragAndDrop(
+  page: Page,
+  sourcePanelIndex: number,
+  targetPanelIndex: number
+): Promise<DragAndDropObservation> {
+  return await page.evaluate(
+    ({ sourceIndex, targetIndex }) => {
+      const items = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-testid="photo-panel-item"]')
+      );
+      const source = items[sourceIndex];
+      const target = items[targetIndex];
+
+      if (!source || !target) {
+        throw new Error(
+          `写真パネルが不足しています（必要: ${Math.max(sourceIndex, targetIndex) + 1}件 / 実際: ${items.length}件）`
+        );
+      }
+
+      const handle = source.querySelector<HTMLElement>('[data-testid="photo-drag-handle"]');
+      if (!handle) {
+        throw new Error('ドラッグハンドル（photo-drag-handle）が見つかりません');
+      }
+
+      const dataTransfer = new DataTransfer();
+      /**
+       * イベントを送出し、既定動作が抑止された（= ハンドラが preventDefault を呼んだ）かを返す
+       * `dispatchEvent` は cancelable なイベントが取り消された場合に false を返す
+       */
+      const dispatch = (element: HTMLElement, type: string): boolean => {
+        const cancelled = !element.dispatchEvent(
+          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer })
+        );
+        return cancelled;
+      };
+
+      dispatch(handle, 'dragstart');
+      dispatch(target, 'dragenter');
+      const dragOverDefaultPrevented = dispatch(target, 'dragover');
+      const dropDefaultPrevented = dispatch(target, 'drop');
+      dispatch(handle, 'dragend');
+
+      return {
+        sourceDraggable: handle.getAttribute('draggable'),
+        dragOverDefaultPrevented,
+        dropDefaultPrevented,
+      };
+    },
+    { sourceIndex: sourcePanelIndex, targetIndex: targetPanelIndex }
+  );
+}
 
 /**
  * 現場調査画像管理のE2Eテスト
@@ -56,16 +197,7 @@ test.describe('現場調査画像管理', () => {
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -188,7 +320,13 @@ test.describe('現場調査画像管理', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.1
+     * @requirement site-survey/REQ-4.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-4.1 を名乗っていたが、受入基準4.1 の原文は「When ユーザーが画像ファイルを選択してアップロードする,
+     * the Site Survey Service shall 画像をストレージに保存し現場調査に紐付ける」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準4.5（「If アップロードされたファイルが許可された形式でない,
+     * then the Site Survey Service shall エラーメッセージを表示してアップロードを拒否する」
+     * ）である。
      */
     test('サポートされていない形式の画像をアップロードするとエラーが表示される', async ({
       page,
@@ -299,7 +437,7 @@ test.describe('現場調査画像管理', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.8
+     * @requirement site-survey/REQ-4.9
      */
     test('PNG形式の画像をアップロードできる', async ({ page }) => {
       if (!createdSurveyId) {
@@ -381,10 +519,18 @@ test.describe('現場調査画像管理', () => {
       expect(responseData.images).toBeDefined();
       expect(responseData.images.length).toBeGreaterThan(0);
 
-      // 最初の画像にthumbnailUrlまたはthumbnailPathが存在することを確認
+      // REQ-4.4: アップロード完了時にサムネイルを自動生成する。
+      // 実装は原本とは別のオブジェクト（`_thumb_` を含むパス）を保存し
+      // （image-upload.service.ts）、詳細取得ではそれを署名付きURL（thumbnailUrl）にして返す。
+      // 以前は `thumbnailUrl || thumbnailPath` を主題にしていたが、thumbnailPath は
+      // 非NULLの必須項目であり常に真である。すなわちサムネイルの生成を確かめていなかった。
+      // 生成されたこと（原本と別のパス）と、表示に使えること（署名付きURL）を主張する。
       const firstImage = responseData.images[0];
-      const hasThumbnail = firstImage.thumbnailUrl || firstImage.thumbnailPath;
-      expect(hasThumbnail).toBeTruthy();
+      expect(firstImage.thumbnailPath, 'サムネイルのパスが無い').toBeTruthy();
+      expect(firstImage.thumbnailPath, 'サムネイルが原本と同じオブジェクトを指している').not.toBe(
+        firstImage.originalPath
+      );
+      expect(firstImage.thumbnailUrl, 'サムネイルの署名付きURLが返らない').toBeTruthy();
     });
 
     /**
@@ -432,12 +578,24 @@ test.describe('現場調査画像管理', () => {
       // アップロードが成功することを確認
       expect(uploadResult).toBeDefined();
 
-      // 圧縮されたファイルサイズが250KB〜350KBの範囲内であることを確認
-      // （バックエンドが圧縮を行う場合）
-      if (uploadResult.compressedSize) {
-        expect(uploadResult.compressedSize).toBeGreaterThanOrEqual(250 * 1024);
-        expect(uploadResult.compressedSize).toBeLessThanOrEqual(350 * 1024);
-      }
+      // REQ-4.6: 300KB を超えるファイルは画像サイズと品質を段階的に下げ、
+      // 350KB以下に収まった時点で圧縮を打ち切って登録する。
+      // 応答本体は { successful, failed }（backend/src/routes/survey-images.routes.ts）であり、
+      // `compressedSize` という項目は存在しない。したがって従来の
+      // `if (uploadResult.compressedSize)` は決して成立せず、圧縮後サイズは
+      // 一度も検証されていなかった。登録された画像の fileSize（圧縮後のサイズ）を主張する。
+      expect(Array.isArray(uploadResult.successful), 'アップロード結果に successful が無い').toBe(
+        true
+      );
+      expect(uploadResult.successful.length, '大きい画像の登録に失敗した').toBe(1);
+
+      const originalSize = fs.statSync(largeImagePath).size;
+      expect(originalSize, '前提: 素材が上限（300KB）を超えていない').toBeGreaterThan(300 * 1024);
+
+      const compressedSize: number = uploadResult.successful[0].fileSize;
+      expect(compressedSize, '圧縮後のサイズが 350KB 超').toBeLessThanOrEqual(350 * 1024);
+      expect(compressedSize, '圧縮されずに素材のまま登録された').toBeLessThan(originalSize);
+      expect(compressedSize, '圧縮後のサイズが空').toBeGreaterThan(0);
 
       // 画像が表示されることを確認
       await page.reload();
@@ -448,7 +606,7 @@ test.describe('現場調査画像管理', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.3
+     * 受入基準 4.3 は除外である（e2e/requirement-exclusions.json）。6件のアップロードが完了することは主張するが、5件ずつのキュー処理を主張していないため、被覆印は掲げない。
      */
     test('5件以上のファイルをアップロードするとキュー処理される', async ({ page }) => {
       if (!createdSurveyId) {
@@ -518,7 +676,8 @@ test.describe('現場調査画像管理', () => {
    * 画像表示順序テスト
    *
    * REQ-4.10: 画像一覧を固定の表示順序で表示する
-   * REQ-4.11: ドラッグアンドドロップで表示順序を変更して保存する
+   * REQ-4.11: ドラッグアンドドロップで表示順序を変更する（未保存状態になる）
+   * REQ-10.8/REQ-10.9: 保存ボタンで表示順序を一括保存し、保存された順序で表示する
    */
   test.describe('画像表示順序', () => {
     /**
@@ -531,11 +690,14 @@ test.describe('現場調査画像管理', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // ネットワークレスポンスをキャプチャするPromiseを先に作成
+      // 詳細取得のレスポンスをキャプチャするPromiseを先に作成
+      // （URLはパス完全一致で判定する。`/images` など下位パスの応答を取り違えないため）
+      const detailPath = `/api/site-surveys/${createdSurveyId}`;
       const responsePromise = page.waitForResponse(
         (response) =>
-          response.url().includes(`/api/site-surveys/${createdSurveyId}`) &&
-          response.request().method() === 'GET',
+          new URL(response.url()).pathname === detailPath &&
+          response.request().method() === 'GET' &&
+          response.ok(),
         { timeout: getTimeout(30000) }
       );
 
@@ -544,34 +706,60 @@ test.describe('現場調査画像管理', () => {
 
       // APIレスポンスを待機
       const apiResponse = await responsePromise;
-      const responseData = await apiResponse.json();
+      const responseData = (await apiResponse.json()) as {
+        images: Array<{ id: string; displayOrder: number }>;
+      };
 
-      if (responseData.images.length < 2) {
-        // 画像が2枚未満の場合はテストをパス（順序の確認ができない）
-        return;
-      }
+      // 前提: 順序を判定するには2枚以上の画像が必要
+      // （第3原則: 前提が満たせない場合は沈黙せず失敗させる）
+      expect(
+        responseData.images.length,
+        'REQ-4.10: 表示順序の検証には2枚以上の画像が必要（前段のアップロードテストが未実行の可能性）'
+      ).toBeGreaterThanOrEqual(2);
 
-      // displayOrder順にソートされていることを確認
-      const sortedByOrder = [...responseData.images].sort(
-        (a: { displayOrder: number }, b: { displayOrder: number }) =>
-          a.displayOrder - b.displayOrder
+      // 画像の識別には画像IDを用いる
+      // （画像IDはリクエストごとに変動しない。署名付きURLは署名部が変動しうるため識別に用いない）
+      const displayOrderByImageId = new Map(
+        responseData.images.map((image) => [image.id, image.displayOrder] as const)
       );
 
       // UIに表示される画像の順序を取得
       await page.waitForLoadState('networkidle');
       const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
-      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(photoPanelItems).toHaveCount(responseData.images.length, {
+        timeout: getTimeout(10000),
+      });
 
-      const displayedCount = await photoPanelItems.count();
+      const displayedImageIds = await photoPanelItems.evaluateAll((items) =>
+        items.map((item) => item.getAttribute('data-image-id'))
+      );
 
-      // 表示されている画像数がAPI結果と一致することを確認
-      expect(displayedCount).toBe(sortedByOrder.length);
+      // 表示された画像が応答の画像と過不足なく一致すること
+      expect([...displayedImageIds].sort(), 'REQ-4.10: 応答の画像がすべて表示される').toEqual(
+        [...displayOrderByImageId.keys()].sort()
+      );
+
+      // 表示順序がdisplayOrder昇順であること
+      // （displayOrderは同値が混在しうる（バッチアップロードで同値が割り当てられる）ため、
+      //   同値内の並びには依存しない「昇順であること」で判定する）
+      const displayedOrders = displayedImageIds.map(
+        (imageId) => displayOrderByImageId.get(imageId ?? '') as number
+      );
+      expect(displayedOrders, 'REQ-4.10: 画像一覧がdisplayOrder昇順で表示される').toEqual(
+        [...displayedOrders].sort((a, b) => a - b)
+      );
     });
 
     /**
      * @requirement site-survey/REQ-4.11
+     *
+     * REQ-4.11 は「ドラッグアンドドロップで表示順序を変更する（未保存状態になる）」であり、
+     * 永続化は含まない。ドラッグ＆ドロップの結果はローカル状態にのみ反映され、
+     * データベースへの保存は保存ボタン（REQ-10.9）で行われる。
+     * したがって本テストはリロードを挟まず、その場での並び替えと未保存化のみを検証する。
+     * 永続化は「並び替え後に保存すると表示順序が永続化される」テストで別途検証する。
      */
-    test('ドラッグ＆ドロップで画像の表示順序を変更できる', async ({ page }) => {
+    test('ドラッグ＆ドロップで画像の表示順序を変更すると未保存状態になる', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -584,55 +772,134 @@ test.describe('現場調査画像管理', () => {
       const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
       await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ドラッグハンドルを取得（PhotoManagementPanelのドラッグ要素）
-      const dragHandles = page.locator('[data-testid="photo-drag-handle"]');
-      const imageCount = await dragHandles.count();
+      // 画像が2枚未満の場合はテスト失敗（第3原則: 前提条件でテストを自動的に無効化しない）
+      const imageCount = await photoPanelItems.count();
+      expect(
+        imageCount,
+        'REQ-4.11: ドラッグ＆ドロップの検証には2枚以上の画像が必要（前段のアップロードテストが未実行の可能性）'
+      ).toBeGreaterThanOrEqual(2);
 
-      if (imageCount < 2) {
-        // 画像が2枚未満の場合はテスト失敗（第3原則: 前提条件でテストを除外してはならない）
-        throw new Error(
-          `REQ-4.11: 画像が${imageCount}枚しかありません。ドラッグ＆ドロップテストには2枚以上の画像が必要です。前のテスト（複数画像アップロード）が正しく実行されていません。`
-        );
+      // 並び替え前の順序を記録
+      // （表示領域へ入れてから表示元URLの設定を待つ。site-survey/REQ-38.8 の遅延読み込み対応）
+      const firstImageSrc = await getPanelImageSrc(photoPanelItems.nth(0));
+      const secondImageSrc = await getPanelImageSrc(photoPanelItems.nth(1));
+      expect(firstImageSrc, '並び替えを判別するには先頭2枚の表示元URLが異なる必要がある').not.toBe(
+        secondImageSrc
+      );
+
+      // 操作前は未保存インジケーターが出ていないこと
+      const dirtyIndicator = page.getByTestId('dirty-indicator');
+      await expect(dirtyIndicator).toBeHidden();
+
+      // (前提1) ドラッグの起点がドラッグ可能である指定を保持していること
+      // イベント送出による再現は `draggable` が失われても成立してしまうため、明示的に検証する
+      const sourceDragHandle = photoPanelItems.nth(0).getByTestId('photo-drag-handle');
+      await expect(
+        sourceDragHandle,
+        'REQ-4.11: ドラッグの起点はドラッグ可能である指定を保持する'
+      ).toHaveAttribute('draggable', 'true');
+
+      // 1枚目を2枚目の位置へドラッグ＆ドロップ
+      const dragObservation = await reorderPhotoByDragAndDrop(page, 0, 1);
+
+      // (前提2) 起点要素の `draggable` はイベント送出時点でも保持されていること
+      expect(
+        dragObservation.sourceDraggable,
+        'REQ-4.11: ドラッグ送出時も起点はドラッグ可能である'
+      ).toBe('true');
+
+      // (前提3) ドロップ許可に必要な既定動作の抑止が働いていること
+      // 抑止が失われるとブラウザはドロップを受け付けない（実ブラウザ操作では並び替えが成立しない）
+      expect(
+        dragObservation.dragOverDefaultPrevented,
+        'REQ-4.11: dragover の既定動作が抑止されドロップが許可される'
+      ).toBe(true);
+      expect(dragObservation.dropDefaultPrevented, 'REQ-4.11: drop の既定動作が抑止される').toBe(
+        true
+      );
+
+      // (b) 未保存状態になること（REQ-4.11 の「未保存状態になる」）
+      await expect(dirtyIndicator).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(dirtyIndicator).toContainText('未保存の変更があります');
+
+      // (a) リロードせずに並び順が入れ替わっていること
+      expect(await getPanelImageSrc(photoPanelItems.nth(0))).toBe(secondImageSrc);
+      expect(await getPanelImageSrc(photoPanelItems.nth(1))).toBe(firstImageSrc);
+    });
+
+    /**
+     * @requirement site-survey/REQ-10.9
+     * @requirement site-survey/REQ-10.8
+     *
+     * REQ-10.9: 保存ボタンで表示順序をデータベースへ一括保存する
+     * REQ-10.8: 写真一覧を保存された表示順序の通りに表示する
+     */
+    test('並び替え後に保存すると表示順序が永続化される', async ({ page }) => {
+      if (!createdSurveyId) {
+        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
-      // 最初と2番目のドラッグハンドルを取得
-      const firstHandle = dragHandles.nth(0);
-      const secondHandle = dragHandles.nth(1);
+      await loginAsUser(page, 'REGULAR_USER');
 
-      // 画像のsrcを取得して順序確認用に保存
-      const firstImageSrc = await photoPanelItems.nth(0).locator('img').getAttribute('src');
-      const secondImageSrc = await photoPanelItems.nth(1).locator('img').getAttribute('src');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-      // ドラッグ＆ドロップ操作
-      await firstHandle.dragTo(secondHandle);
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ページをリロードして順序が保存されていることを確認
+      const imageCount = await photoPanelItems.count();
+      expect(
+        imageCount,
+        'REQ-10.9: 表示順序の永続化検証には2枚以上の画像が必要（前段のアップロードテストが未実行の可能性）'
+      ).toBeGreaterThanOrEqual(2);
+
+      // 並び替え前の順序を画像IDで記録する
+      // （画像IDは要求ごとに変動しない。署名付きURLは署名部が変動しうるため識別に用いない）
+      const firstImageId = await getPanelImageId(photoPanelItems.nth(0));
+      const secondImageId = await getPanelImageId(photoPanelItems.nth(1));
+      expect(firstImageId, '並び替えを判別するには先頭2枚の画像IDが異なる必要がある').not.toBe(
+        secondImageId
+      );
+
+      await reorderPhotoByDragAndDrop(page, 0, 1);
+
+      const dirtyIndicator = page.getByTestId('dirty-indicator');
+      await expect(dirtyIndicator).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 保存ボタンで表示順序を一括保存（REQ-10.9）
+      const orderSavePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/site-surveys/${createdSurveyId}/images/order`) &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+
+      await page
+        .getByRole('region', { name: '写真管理パネル' })
+        .getByRole('button', { name: '保存', exact: true })
+        .click();
+
+      const orderSaveResponse = await orderSavePromise;
+      expect(orderSaveResponse.ok()).toBeTruthy();
+
+      // 保存完了により未保存状態が解消されること
+      await expect(dirtyIndicator).toBeHidden({ timeout: getTimeout(15000) });
+
+      // リロード後も保存された表示順序で表示されること（REQ-10.8）
       await page.reload();
       await page.waitForLoadState('networkidle');
 
-      // 順序が変更されたことを確認
-      const newPhotoPanelItems = page.locator('[data-testid="photo-panel-item"]');
-      await expect(newPhotoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const reloadedItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(reloadedItems.first()).toBeVisible({ timeout: getTimeout(10000) });
 
-      const newFirstImageSrc = await newPhotoPanelItems.nth(0).locator('img').getAttribute('src');
-      const newSecondImageSrc = await newPhotoPanelItems.nth(1).locator('img').getAttribute('src');
-
-      // 順序が入れ替わったか、少なくとも操作が完了したことを確認
-      // 注: ドラッグ＆ドロップの結果は実装に依存する
-      expect(newFirstImageSrc).toBeTruthy();
-      expect(newSecondImageSrc).toBeTruthy();
-
-      // 順序変更が成功した場合は、元の順序と異なることを確認
-      // （ただし、実装によっては順序が変わらない場合もある）
-      if (firstImageSrc !== secondImageSrc) {
-        // 元々異なる画像だった場合のみ、順序変更を確認
-        const orderChanged =
-          newFirstImageSrc === secondImageSrc || newSecondImageSrc === firstImageSrc;
-        // 順序が変わっていれば成功、変わっていなくても操作は完了
-        if (orderChanged) {
-          expect(newFirstImageSrc).toBe(secondImageSrc);
-        }
-      }
+      expect(
+        await getPanelImageId(reloadedItems.nth(0)),
+        'REQ-10.8: 保存した表示順序の先頭は並び替え後の先頭（元の2枚目）である'
+      ).toBe(secondImageId);
+      expect(
+        await getPanelImageId(reloadedItems.nth(1)),
+        'REQ-10.8: 保存した表示順序の2枚目は並び替え後の2枚目（元の1枚目）である'
+      ).toBe(firstImageId);
     });
   });
 
@@ -644,34 +911,98 @@ test.describe('現場調査画像管理', () => {
   test.describe('画像削除', () => {
     /**
      * @requirement site-survey/REQ-4.7
+     *
+     * 削除の検証は「画像が見えていること」では成立しない。削除の操作を実際に行い、
+     * 削除要求が送出されて成功したこと、および一覧から当該画像が消えたことまでを確かめる。
+     * 削除対象は本テスト自身がアップロードして用意し、他テストの成果物には依存しない。
+     *
+     * 本テストだけ ADMIN_USER で操作する。削除権限は設計上 admin のみに与えられており
+     * （useSiteSurveyPermission の canDelete = isAdmin）、REGULAR_USER には削除ボタンが
+     * 描画されないためである。役割を上げているのではなく、要件4.7 の操作主体を正しく
+     * 選んでいる。REGULAR_USER に削除を許すことは要件の意図ではない。
      */
     test('画像を削除できる', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, 'ADMIN_USER');
 
       // 詳細ページに移動
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 画像パネルアイテムが存在するか確認
       const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
       await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const countBeforeUpload = await photoPanelItems.count();
 
-      const imageButton = page.locator('[data-testid="photo-image-button"]').first();
-      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
+      // 前提の確立: 削除対象の画像を本テストで用意する
+      const input = page.locator('input[type="file"]').first();
+      await expect(input).toBeAttached({ timeout: getTimeout(10000) });
 
-      // 画像が表示されていることを確認（UIテスト）
-      const imageElement = photoPanelItems.first().locator('img');
-      await expect(imageElement).toBeVisible();
+      // 宛先の判定はオリジンではなくパスで行う（CIとローカルでAPIオリジンが異なるため）
+      const uploadPromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/site-surveys/${createdSurveyId}/images` &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(60000) }
+      );
+      await input.setInputFiles(path.join(__dirname, '../../fixtures/test-image.jpg'));
+      const uploadResponse = await uploadPromise;
+      expect(uploadResponse.status(), '削除対象とする画像のアップロードが成功する').toBe(201);
 
-      // 注: 現在のUIでは画像削除機能は詳細ページに実装されていない
-      // 削除機能のUIが実装されたら、以下のテストを追加:
-      // 1. 削除ボタンをクリック
-      // 2. 確認ダイアログで削除を確認
-      // 3. 画像が削除されることを確認
+      const uploadBody = (await uploadResponse.json()) as { successful: { id: string }[] };
+      const targetImageId = uploadBody.successful[0]?.id ?? '';
+      expect(targetImageId, 'アップロード応答から削除対象の画像IDを取得できる').toMatch(
+        /^[0-9a-fA-F-]{36}$/
+      );
+
+      // 前提の確認: 削除対象が一覧に存在する
+      await expect(photoPanelItems).toHaveCount(countBeforeUpload + 1, {
+        timeout: getTimeout(15000),
+      });
+      const targetItem = page.locator(
+        `[data-testid="photo-panel-item"][data-image-id="${targetImageId}"]`
+      );
+      await expect(targetItem).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 削除操作: 削除ボタンを押す
+      const deleteButton = targetItem.getByRole('button', { name: /^画像を削除: / });
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      const deletePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/site-surveys/images/${targetImageId}` &&
+          response.request().method() === 'DELETE',
+        { timeout: getTimeout(30000) }
+      );
+
+      await deleteButton.click();
+
+      // 削除操作: 確認ダイアログで削除を確定する
+      const confirmDialog = page.getByRole('dialog', { name: '画像を削除' });
+      await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
+      await confirmDialog.getByRole('button', { name: '削除する' }).click();
+
+      // 削除要求が実際に送出され、成功していること（REQ-4.7）
+      const deleteResponse = await deletePromise;
+      expect(deleteResponse.status(), 'REQ-4.7: 画像削除APIが204を返す').toBe(204);
+
+      // 結果: 確認ダイアログが閉じ、一覧から当該画像が消える（REQ-4.7）
+      await expect(confirmDialog).toBeHidden({ timeout: getTimeout(15000) });
+      await expect(targetItem).toHaveCount(0, { timeout: getTimeout(15000) });
+      await expect(photoPanelItems).toHaveCount(countBeforeUpload, {
+        timeout: getTimeout(15000),
+      });
+
+      // 削除が永続化されていること（再読込しても復活しない）
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(photoPanelItems.first()).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(targetItem).toHaveCount(0, { timeout: getTimeout(15000) });
+      await expect(photoPanelItems).toHaveCount(countBeforeUpload, {
+        timeout: getTimeout(15000),
+      });
     });
   });
 
@@ -728,35 +1059,33 @@ test.describe('現場調査画像管理', () => {
       await loginAsUser(page, 'ADMIN_USER');
 
       // 現場調査を削除
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        // 削除確認ダイアログが表示されるのを待機
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
-      }
+      const surveyDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(surveyDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await surveyDeleteButton.click();
+      // 削除確認ダイアログが表示されるのを待機
+      const surveyConfirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(surveyConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await surveyConfirmButton.click();
+      await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

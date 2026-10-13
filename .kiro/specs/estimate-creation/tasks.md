@@ -1649,6 +1649,135 @@
   - _Boundary: frontend（見積書詳細画面のエラー表示・APIクライアント）_
   - _Depends: 57.6_
 
+## タスク58: 除外一覧が名乗る検証道具名を実体へ揃える
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化し、その `### 判定の一覧` の行7「他機能スペックの除外一覧の Jest 道具名」を**後続タスクへ送る**と裁定した。site-survey の Task 115.238 が申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey は自機能分 32 件を Task 115.121 で既に Vitest へ改めており、現場調査スペックの所管は 0 件である。
+
+**測った事実**（いずれもコミット `9e63637`、2026-09-02 にリポジトリルートで実測）:
+
+- **本リポジトリに Jest は存在しない。** `find . -name 'jest.config*' -not -path '*/node_modules/*' | wc -l` の出力が `0`。`package.json` / `backend/package.json` / `frontend/package.json` の依存に `jest` は無く、名前に jest を含むのは `frontend/package.json` の `@testing-library/jest-dom`（Vitest から使う照合子の集まりであって走者ではない）だけである
+- **単体・統合の走者は backend / frontend とも Vitest である。** 両者の `npm test` はいずれも `vitest run` であり、`backend/vitest.config.ts` / `backend/vitest.integration.config.ts` / `frontend/vitest.config.ts` が実在する
+- **利用の実測**: `grep -rlE "from ['\"]vitest['\"]" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` の出力が `757` である。**同じ走査根・同じ glob** で `grep -rlE "from ['\"]@jest/globals['\"]|\bjest\.(fn|mock|spyOn)\(" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` を測ると出力は `0` である。**総数 `757` を併記するのは、`0` だけでは「走査根を読めていない」場合と区別できないためである**——同じ式を実在しないパスへ当てても出力は同じく `0` になる（2026-09-02 に実測）
+- **提案が生きていること**: `node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `64 0`（後の `0` が現場調査スペックの分）
+- **機械保証は無い。断定でなく変異で示す**（115.235 の作法）: `e2e/requirement-exclusions.schema.json` は `tool` を `{ "type": "string", "minLength": 1 }` としか定めず、道具の実在を見ない。実在しない道具名 `Kaboomtest 9000 / Nonexistent Runner` へ一件を差し替える変異を当てても `npm run check:req-exclusions` は 205 件を検査して終了コード 0 のままである（2026-09-02 に実測。変異は複製からの書き戻しで復元し、blob ハッシュが `HEAD` と一致することで確かめた）
+
+**是正すると別の関門が赤くなる。着手前に読むこと**: 上の `node -e` の出力 `64 0` は `scripts/design-measurements.json` の宣言 `jest-alternative-verification-exclusions` に固定されており、`.kiro/specs/site-survey/design.md` の台帳の再現コマンド 5 の行と双方向で突き合わされる。**一件でも道具名から Jest を落とすと `npm run check:design-measurement-freshness` が「expected=`64 0` actual=`63 0`」として終了コード 1 で落ちる**（`company-info/REQ-6.9` の道具名を実在しない `Kaboomtest 9000 / Nonexistent Runner` へ差し替える変異を実際に当てて実測。2026-09-02、コミット `9e63637` にリポジトリルートで実測。変異は事前複製からの `cp` で復元し、`git hash-object e2e/requirement-exclusions.json` が `HEAD` の blob `77d4bb8443f19bc5c2de768c866eae1943175a6d` と一致することで確かめた）。宣言の解除と台帳の追随は**現場調査スペックの Task 115.280 が所管する**。
+
+**同じ変異を当てたまま測った他の関門の実測**（走査の範囲は日本語でなくコマンドで宣言する。2026-09-02、コミット `9e63637` にリポジトリルートで実測）: 測ったのは `npm run` に与える名で `check:req-exclusions` / `check:req-exclusions:selftest` / `check:req-coverage` / `check:trace-coverage` / `check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:cf-evidence` / `check:steering-refs` / `check:steering-idents` / `check:steering-test-tree` / `lint` / `type-check` / `format:check` の **14 本**である。**いずれも基線と同じ終了コードのままであった。ただし `check:req-coverage` は基線から既に終了コード 1 であり（到達被覆 2632/2684 = 98.1%、未カバー 215 件）、変異の前後で変わらない**——「14 本が緑のままであった」のではない。**終了コードが動かないことと出力が動かないことも別である**: 14 本のうち 13 本は基線と出力まで一致したが、`check:req-coverage` だけは除外一覧の監査の内訳が「リポジトリ外の代替検証: 32件 / リポジトリ内検証あり: 22件」から「33件 / 21件」へ変わる（差分はこの 2 行のみで、終了コードも被覆率も動かない）。**着手時にはこの 14 本と `check:design-measurement-freshness` を自分で測り直し、実測日とコミットハッシュを添えること**（115.212 の規約）。
+
+**是正先**:
+
+1. `e2e/requirement-exclusions.json` の下表の `alternativeVerification.tool`
+2. 本スペックの設計文書——**ただし実測では該当が 0 件である。** `for f in .kiro/specs/*/design.md; do printf '%s %s\n' "$f" "$(grep -c Jest "$f")"; done` を走らせると、`Jest` を挙げる設計文書は 13 スペックのうち `site-survey` の 1 件（6 箇所）だけで、他の 12 スペックはいずれも `0` である（2026-09-02 に実測）。台帳の行7 は是正先に「各機能スペックの設計文書」を挙げているが、起票の時点で当たりが無い。**この `0` は着手時に測り直すこと**
+
+**本スペックの所管は 8 件で、全件を次に挙げる**（2026-09-02 に実測。抜き取りではない）:
+
+| id | 現在の `alternativeVerification.tool` |
+|---|---|
+| `estimate-creation/REQ-8.2` | `Jest / React Testing Library` |
+| `estimate-creation/REQ-8.4` | `Jest / React Testing Library` |
+| `estimate-creation/REQ-8.5` | `Jest / React Testing Library` |
+| `estimate-creation/REQ-8.6` | `Jest / React Testing Library` |
+| `estimate-creation/REQ-9.2` | `Jest / React Testing Library` |
+| `estimate-creation/REQ-9.4` | `Jest / React Testing Library` |
+| `estimate-creation/REQ-9.5` | `Jest / React Testing Library` |
+| `estimate-creation/REQ-9.6` | `Jest / React Testing Library` |
+
+- [x] 58.1 除外一覧の道具名を実体へ揃える
+  - 上表 8 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
+  - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
+  - **併記の `React Testing Library` は実在する**（`frontend/package.json` に `@testing-library/react@^16.3.0` と `@testing-library/user-event@^14.6.1`。2026-09-02 に実測）ため据え置いてよい。8 件はいずれも同じ `Jest / React Testing Library` である
+  - **道具名だけを機械的に置換して終えないこと。** 除外は受入基準を分母から丸ごと外すため、`description` が約束する代替検証が現に存在するかを一件ずつ確かめること。存在しないなら道具名の是正ではなく除外の取り下げが要る
+  - **JSON の整形は `npm run format:check` では見られない。** リポジトリルートの `format:check` は `prettier --check "e2e/**/*.{js,ts}" "playwright.config.{js,ts}" "scripts/**/*.ts"` であって JSON を含まず、`lint-staged` も `*.{js,ts}` だけを対象とする（2026-09-02 に実測）。`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること（現況は整形済みで終了コード 0。同日に実測）
+  - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
+  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
+  - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+  - **処遇（コミット `0e5c95d1` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: `e2e/requirement-exclusions.json` の本スペック所管 8 件（`estimate-creation/REQ-8.2` / `8.4` / `8.5` / `8.6` / `9.2` / `9.4` / `9.5` / `9.6`）の `alternativeVerification.tool` を `Jest / React Testing Library` から `Vitest / React Testing Library` へ改めた（site-survey の Task 115.121 の形に揃え、併記の `React Testing Library` は据え置いた。`description` / `reason` / `method` / `threshold` は不変）
+  - **代替検証の実在（道具名を置換する前に一件ずつ確かめた。独立レビューが再確認）**: 8.2 / 9.2 は `frontend/src/pages/EstimateDetailPage.overheadCost.test.tsx` の it.each（現場管理費・一般管理費で手入力の単価が明細行へ反映されることを実物の画面で主張）と `frontend/src/components/estimate/OverheadCostPanel.test.tsx` の種別ごとの `unitPrice` の受け渡し、8.4 / 9.4 は同パネルの検証（現場管理費で純工事費欄、一般管理費で工事原価欄）、8.5 / 9.5 は計算結果の上書きの検証、8.6 / 9.6 は計算中の表示とボタンの無効化の検証である（2 ファイル 38 件が緑）。いずれも実在するため取り下げは要しない。ただし 8.5 / 9.5 / 8.6 / 9.6 の検証は既定の共通仮設費で走り費目を明示していない（上書き欄の `calculatedAmount` と `isCalculating` は費目に依存しない単一の状態で、費目切替でも保持されるため機構として代替検証は実在すると判断した）。8.4 の `description` が挙げる「共通仮設費」の単独欄は画面に無く、現場管理費の画面は直接工事費と純工事費（＝直接工事費＋共通仮設費。`backend/src/services/overhead-cost.service.ts`）を提供する。文言は受入基準 8.4 の例示（「等」付き）の写しであり偽とは言えない
+  - **関門（前後の実測）**: `node -e` の出力は `56 0` → `48 0`（第一値が本スペックの 8 件だけ減り、本スペック分の `Jest` は 0 件）。`check:req-exclusions`（157 件）・`:selftest`（70/70）・`check:design-measurement-freshness`（`jest-alternative-verification-exclusions` は site-survey 115.280 によりコミット `b999b2d` へ版固定され `64 0` のまま一致）・`npx prettier --check e2e/requirement-exclusions.json` はいずれも終了コード 0。`check:req-coverage` は基線から終了コード 1 で、出力は前後で一致する。本スペックの設計文書の `grep -c Jest` は 0
+  - **道具名の是正は機械監査の判定を動かさない**: `npm run check:req-coverage:verbose` は 8 件を是正の前後とも「リポジトリ内検証を掲げるが不在」に数える（上の検証に `@requirement estimate-creation/REQ-…` の印が無いため。`--strict` 時のみ失敗）
+  - **範囲外の観測（起票はしていない）**: (i) 上記の検証に被覆印を付けること、(ii) 8.4 の `description` を画面の実体（純工事費）へ精密化すること、(iii) 費目ごとの it.each で「計算→上書き」「計算中表示」を回すこと、はいずれも本項の `_Boundary:_` の外の後続候補である
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `check:req-exclusions` EXIT=0、`npx prettier --check e2e/requirement-exclusions.json` EXIT=0、本スペック分の `Jest` を名乗る除外は 0 件
+
+## タスク59: 数量表の未結線部品 `NumericFieldInput` / `TextFieldInput` の撤去を阻む本スペックの名指しを解く
+
+**経緯**: quantity-table-generation の Task 94.1 が、数量表画面の到達しない本番モジュールを一件ずつ測り、`frontend/src/components/quantity-table/NumericFieldInput.tsx` と同 `TextFieldInput.tsx` の2件について**撤去を阻むのは本スペックの設計文書の名指しだけである**ことを変異で確定させた。同タスクは「撤去が別スペックの文書や自己検査を巻き込むなら、同スペックへ起票して待つこと」と定めており、**下流は本スペックの文書を一行も書き換えていない**。**所有権は本スペックにある。** これは Task 89.1 が `FieldValidatedItemRow` について site-survey へ Task 115.325 を起こしたのと同型の手順である。
+
+**測った事実**（コミット `52879319` の作業ツリー、2026-09-14 にリポジトリルートで実測。下流の実装が変異を当て、**独立レビューが別の作業ツリーで再現して行番号まで一致を確認した**。変異はいずれも控えからの書き戻しで復元し、`git hash-object` の一致で確かめている）:
+
+- (1) `NumericFieldInput` 一式（本体・単体検証・ストーリー＋数量表側の再輸出2文）を外すと `npm run check:design-path-refs` が exit 0 から **exit 1**（合計 1 件 / 1 ファイル）へ転じる。名指しは `.kiro/specs/estimate-creation/design.md` の `L3255: NumericFieldInput.tsx [bare-filename]` である
+- (2) `TextFieldInput` 一式を外すと同検査が **exit 1**（合計 2 件 / 1 ファイル）になる。名指しは同文書の `L3200: TextFieldInput.tsx [bare-filename]` と `L3255: TextFieldInput.tsx [bare-filename]` である
+- (3) **阻んでいるのは本スペックの設計文書だけである。** `grep -rn 'NumericFieldInput\|TextFieldInput' .kiro/specs/quantity-table-generation/design.md` の当たりは 0 件であり、`grep -n 'NumericFieldInput\|TextFieldInput' scripts/design-path-exemption-baseline.json` の当たりも 0 件である（いずれも親が同日に実測）
+- (4) 当該 2 行はいずれも `### 見積項目テキストフィールドのコンパクト化（REQ-40）` の配下にあり、数量表の部品を**スタイル定数の参照元**として名指している（`L3200` は「現状分析」、`L3255` は「Implementation Notes」）
+- (5) `scripts/design-measurements.json` に `estimate-creation` の当たりは 0 件であり、本件の是正で `npm run check:design-measurement-freshness` の宣言は動かない（親が同日に実測）
+
+**依頼**: 上の 2 行が数量表の部品を参照している状態を、撤去に備えた形へ改めてよいかを判断すること。選択肢は少なくとも三つある——(a) 規約 (a) による不在の記録を併記する（**本スペックは既にこの作法を持つ**。`design.md` の L3493 が再現コマンド・コミット・実測日を添えて規約 (a) に従う併記であると明記している）、(b) 参照を実体のあるスタイル定数の所在へ付け替える、(c) `scripts/design-path-exemption-baseline.json` へ登録する（同台帳は本スペックの設計文書について既に 8 名を `documents` に持ち、`exempted` が**延べ** 1 件を、`exemptedReferences` が**その名** `estimate-export.service.ts` を保持する。同検査は延べと集合の両方で見張るため、二つのキーの区別は判断の入力になる）。**どれを採るかは本スペックの判断である。** 二つが解ければ、下流（quantity-table-generation の Task 94.1）が撤去を実施する。
+
+**撤去しても被覆は動かない**: 下流の実測では、両部品の変異で到達被覆 2659/2695（98.66%）と、到達しない被覆源のみの受入基準 4 件はいずれも不動であった。動くのは本番モジュールの未到達数だけである。
+
+**あわせて申し送る**: 数量表側の再輸出 `frontend/src/components/quantity-table/index.ts` は、残置したこの 2 部品を公開 API として輸出する唯一の口である。**ただし再輸出の撤去を阻むのは機械的な制約ではない**——独立レビューが同ファイル単体の削除を変異として当てたところ、`check:design-path-refs` / `check:steering-refs` / `check:design-code-refs` の 3 本がいずれも exit 0 であり、取り込み元も 0 件だった。生きた検証 `frontend/src/__tests__/components/quantity-table/QuantityItemFieldMaxWidth.test.tsx` は `TextFieldInput` を**再輸出経由ではなく直接**取り込んでいる（`:20`）。阻んでいるのは同検証の `:301` の註が「公開 API として再輸出されている」と述べていることであり、再輸出を撤去すると**その註が偽になる**。したがって数量表側は、**註の是正と同時でなければ再輸出を撤去できない**。
+
+- [x] 59.1 数量表の部品を名指す 2 行の処遇を決める
+  - `.kiro/specs/estimate-creation/design.md` の `L3200` と `L3255` について、上の (a) / (b) / (c) のいずれを採るかを決め、実施すること
+  - **着手時に行番号と件数を測り直すこと。** 上の値は 2026-09-14 の実測であり、本書が動けば行番号も動く。再現は数量表側の 2 部品を外す変異を当てて `npm run check:design-path-refs` を読む形である
+  - **是正が被覆検査と鮮度検査を悪化させないことを前後の実測で示すこと**
+  - _Boundary: 本スペックの設計文書が数量表の入力部品を名指す箇所_
+  - **処遇（コミット `c5d3e417` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: **(b) を採った**。`design.md` の L3200 と L3255 の名指しを、数量表画面の対応列を実際に描画する部品へ付け替えた——テキスト列（大項目・中項目・小項目・任意分類・工種・名称・規格・単位・備考の 9 列）は `AutocompleteInput.tsx`、数量列は `EditableQuantityItemRow.tsx` の `styles.input` である（本番の描画経路は `QuantityTableEditPage.tsx` → `QuantityGroupCard.tsx` → `EditableQuantityItemRow`）。行を挿入せず行の中で書き換えたため行番号は動かない（行数 4481 のまま）。2 行を書いたコミット `e9a16ef2`（2026-03-09）の時点で付け替え前の二部品を名指していたことは同じ行の註に部品名（拡張子なし）で残し、直下の値と指示の中身は書き換えていない。**二部品は `e9a16ef2` の時点で既に描画経路に無く**、本番コードからの取り込み元は数量表の再輸出 `index.ts` の 1 ファイルだけだった（`git grep` で実測。各部品自身の単体検証・ストーリーを除く）。付け替え先の値（入力欄の高さ 22px・パディング 2px 4px・枠線 1px solid #d1d5db・角丸 0px・フォント 12px、ラベルのフォント 11px・行の高さ 14px）は、design.md が挙げる値および付け替え前の二部品の値と逐語で一致する（独立レビューが照合）
+  - **採らなかった案**: (a) は試したが差し戻した——両行へ不在の記録を置くと免除の面が 189→191（実体 149→151）に広がり、`--allow-increase` で基準を記録すると `check:design-measurement-freshness` が 0→1 になる（site-survey の宣言 `design-path-reach-total` / `-entity-total`。本スペックの境界外で、本項の「鮮度検査を悪化させない」に反する）。基準ファイルと design.md は元へ戻し、基準ファイルは HEAD と同一。(c) は基準ファイルが実在の判定に関わらず許容リストも持たないため機構として成立しない。規約 (a)「本文は書き換えない」が守るのは実測値の履歴であり、本件は一度も描画経路に載らなかった部品への参照で、名指しの経緯は註と git 履歴に残した
+  - **証明（二部品の本体・単体検証・ストーリーの 6 ファイルを外す変異。独立レビューが HEAD 版の design.md を対照に再現）**: 本スペック側の不在パスは修正前 3 件（L3200 の `TextFieldInput.tsx`、L3255 の `TextFieldInput.tsx` と `NumericFieldInput.tsx`）→ 修正後 0 件で、`check:design-path-refs` は EXIT 0、面 189・免除の延べ 141 / distinct 40 は不動。下流（quantity-table-generation 94.1）に残るのは `.kiro/steering/structure.md` の 4 行（`check:steering-refs`）、`check:req-coverage:selftest` のラチェット（撤去時に測り直すこと）、`index.ts` の再輸出と `QuantityItemFieldMaxWidth.test.tsx` の直接の取り込みと註である。基準の更新と下流の design.md の注は不要。復元後 6 ファイルとも `git hash-object` 一致。二部品の撤去は下流 94.1 の所管として行っていない
+  - **関門**: `check:design-path-refs`（`:selftest` 53/53）/ `check:design-refs` / `check:design-code-refs` / `check:steering-refs` / `check:design-measurement-freshness`（宣言 149 件、赤 0）/ `count:coverage-marks` / `check:req-coverage:selftest`（81/81）は前後で EXIT 0。`scripts/design-measurements.json` に本スペックの当たりは 0 件
+  - **承認後の文言の精密化（親）**: 独立レビューの minor 指摘 2 点に従い、註の「取り込み元」を「本番コードからの取り込み元」へ、「現況の両部品」「現況の二部品」を「現況の付け替え先と付け替え前の部品」「現況の付け替え前の二部品」へ改めた。最初の改稿で「旧」の語を使ったところ、不在の語として読まれて `check:design-path-refs` と `check:design-measurement-freshness` が赤くなったため、同語を使わない字面へ改め直した。改稿後に上の関門 7 本を再実行していずれも EXIT 0、面 189・免除の延べ 141 は不動であることを確かめた
+  - **下流への申し送り**: quantity-table-generation の 94.1 は、本項の解決により `NumericFieldInput` / `TextFieldInput` の撤去へ進める
+
+_起票元: quantity-table-generation の Task 94.1。独立レビューが行番号まで再現して確定させた_
+
+## タスク60: 部品のインラインの outline の打ち消しを外し、フォーカス表示を steering の方針へ揃える（project-management の Task 75.2 からの申し送り。利用者の判断で起票、2026-10-08）
+
+**経緯**: project-management の Task 73.5 が steering `.kiro/steering/tech.md` に「フォーカス表示方針」を記録した（全画面の既定のフォーカス表示は `frontend/src/index.css` の `@layer base` の `:focus-visible`。部品の側でインラインの `outline: 'none'` を書かない。独自の輪を描く場合は 2px 以上・コントラスト比 3:1 以上。是正は各機能のスペックの責務）。同スペックの Task 75.2（2026-10-08、HEAD `c8036acd`）の実測で、本スペックの部品・ページに、方針から外れたインラインの `outline: 'none'` が 5 か所残っている
+
+- [x] 60.1 本スペックの部品・ページのインラインの `outline: 'none'` を外し、フォーカス表示を 2px 以上・3:1 以上にする
+  - 対象（2026-10-08 の実測。着手時に `grep -rnE "outline: ?['\"]none['\"]"` で測り直すこと）:
+    - `frontend/src/components/estimate/EstimateItemRow.tsx`（2 か所）
+    - `frontend/src/components/estimate/EstimateKeymapHelp.tsx`（1 か所）
+    - `frontend/src/pages/EstimateCreatePage.tsx`（2 か所）
+  - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
+  - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
+  - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
+
+## タスク61: 機能レベル検証の NO-GO の 4 件を正す（利用者の判断で起票、2026-10-09）
+
+**経緯**: Task 60.1 の完了後の機能レベル検証（2026-10-09、HEAD `a8f3f3b7`、NO-GO）が、ブロッキング関門 `check:req-coverage` の赤のうち本スペック自身の受入基準 4 件に、処遇の決定が本スペックの tasks.md・design.md に記録されていないことを確かめた。テスト（backend 単体 6237・frontend 単体 12199・統合 1087・E2E 241）はすべて緑。4 件は前回の検証（Task 57.9、被覆率 100.0%）の後に、site-survey のコミット `7b0b156a`（REQ-11.7 の中身の無い名乗りの撤去）と本番到達性の検査（REQ-13.5 / 5.6 / 5.7）で露出した。site-survey の設計文書（11022 行付近・11085 行付近）は所管を本スペックへ送っている。利用者の判断（2026-10-09）により、要件の改訂を伴う選択は**各タスクの着手時に利用者に確かめる**
+
+- [x] 61.1 REQ-11.7（他のユーザーが編集中の警告）の処遇を決めて実装または改訂する（着手時に利用者の判断を得る）
+  - **事実**: 実装も検証も無い。design.md の 309 行付近・323 行付近は 11.1〜11.7 を EstimateService などへ割り当てるが、11.7 に当たる仕組みは無い
+  - 選択肢: (a) 編集セッション（在席）の永続化・取得・表示を実装し、複数のセッションの E2E で主張する / (b) 11.6（保存時の競合の通知）へ寄せて要件を改訂する / (c) 除外一覧へ登録する。着手時に利用者に確かめ、決定を design.md へ規約 (a) の形で記録する
+  - _Requirements: 11.7_
+  - _Boundary: 見積書の同時編集の警告の処遇_
+  - **決定と結果（2026-10-10）**: 利用者が (a) を選んだ。見積書詳細画面を開いている間を「編集中」とし、在席を `EstimateEditSession` に記録する（通知 20 秒ごと・期限 90 秒、`PUT` / `DELETE /api/estimates/:id/edit-session`）。他の利用者の名前を挙げた警告を `role="status"` で表示する。design.md の末尾の章「追加設計（REQ-11.7 対応）」と各所の現況の注記に記録した。レビューの任意の提案 2 件（`estimate-hierarchy-move-e2e.spec.ts` の書き込みの数え方が `/edit-session` を拾いうる件、`estimate-features-e2e.spec.ts` の保存待ちの条件が広い件）は起票していない
+
+- [x] 61.2 REQ-13.5（オーバーフローの警告）を本番の経路で満たす（着手時に利用者の判断を得る）
+  - **事実**: 実装は `backend/src/services/estimate-validation.service.ts`（80 行付近・320 行付近）と `estimate-calculation.service.ts`（340 行付近）だけで、どちらも本番のコードから import されていない。保存時に 13 桁を超えると 400 で拒む処理（`backend/src/schemas/estimate.schema.ts` の 298 行付近・366〜369 行付近）はあるが、条文の言う警告ではない
+  - 選択肢: (a) 画面の金額計算と明細行の表示に上限超過の警告を実装し、E2E で主張する / (b) 条文を「保存時に上限超過を拒否して知らせる」へ改訂し、400 と画面の表示を E2E で主張する。あわせて本番から使われない `estimate-validation.service.ts`（と `estimate-calculation.service.ts` の到達しない部分）を結線するか取り除くかを決める
+  - _Requirements: 13.5_
+  - _Boundary: 見積の金額の上限超過の知らせ方_
+  - **決定と結果（2026-10-11）**: 利用者が (a) を選んだ。見積書詳細画面で、明細の金額・親の合計・サマリーの合計と差額が保存の上限（9999999999999.99）を超えると、金額欄に印を付け、画面上部に `role="alert"` の警告を出す。保存時の 400 は残した。本番から使われない検証サービスとそのテストを取り除き、計算サービスは上限の判定だけを取り除いた（利用者の判断で、残りは画面側の計算の照合先として残す）。レビューの任意の提案（サマリーの合計を警告の判定と描画の 2 か所で別々に計算している件）は起票していない
+
+- [x] 61.3 REQ-5.7（処理中表示）の条文を実装と揃える（着手時に利用者の判断を得る）
+  - **事実**: 名乗りは本番から使われない `frontend/src/components/estimate/NetCalculationPanel.tsx` にしか無い。`NetAllocationDialog.tsx` の 25〜26 行付近の注記は「処理中の期間が存在しない」とする。同じ理由の 18.9 / 19.7 は requirements.md（373 行付近・388 行付近）で撤廃済み
+  - 18.9 / 19.7 と同じ形で撤廃する案を着手時に利用者へ示し、承認を得て requirements.md を改訂する（または実装する）
+  - _Requirements: 5.7_
+  - _Boundary: REQ-5.7 の条文と検証_
+  - **決定と結果（2026-10-11）**: 利用者が撤廃を承認した。requirements.md の 5.7 を 18.9 / 19.7 と同じ取り消し線の追跡用の記述に置き換え（5.8・5.9 の番号は不変）、未使用の NetCalculationPanel から 5.7 の名乗りを外した。design.md の追跡表の行は、死語の上限（`maxOrphans: 24`）を超えないよう 5.1-5.6 へ改め、もとが 5.1-5.7 だったことを現況の注記に残した
+
+- [x] 61.4 REQ-5.6（案分対象業者の識別管理）を本番の経路で検証し、未使用の NetCalculationPanel の扱いを決める
+  - **事実**: 名乗りは本番から使われない `NetCalculationPanel.tsx`（import は stories と test だけ）にしか無い。本番の到達経路（`NetAllocationDialog` か保存データ）で満たされているかは未確認
+  - 本番の経路で条文を満たす箇所を特定し、そこを検証して名乗り直す（移し先が条文を実際に観測していることを変異で確かめる）。無ければ実装か改訂（着手時に利用者に確かめる）。その後 `NetCalculationPanel.tsx` と stories・test の扱いを決め、design.md（80・115・338・810 行付近）を規約 (a) の形で追随させる
+  - _Requirements: 5.6_
+  - _Boundary: REQ-5.6 の検証と NetCalculationPanel の扱い_
+  - **決定と結果（2026-10-11）**: 利用者が (A)（今の仕組みで満たすとして本番の経路で検証する）と NetCalculationPanel の取り除きを選んだ。業者金額行の見積業者（`sourceVendorName`）で案分対象が引き当たり、案分後も保存・再読込後も別業者の項目と区別されて保たれることを、`estimate-transfer-calculation-save-e2e.spec.ts` と単体テストで 5.6 として主張した。NetCalculationPanel の 3 ファイルと、それだけが使うフロントの `previewNetAllocation` 系を取り除き、design.md・structure.md・計測の宣言を追随させた（バックエンドの計算サービスは 61.2 の判断どおり残す）
+
+**検証が記録した警告（起票していない）**: (a) 明細行の入力に 13.1 / 13.2 / 13.4 の入力時のエラー・警告の表示が無く、不正な値は保存時の 400 で初めて出る。(b) 内訳書からの作成（`estimate.service.ts` の 331〜412 行付近）に 2000 件の上限が無い。(c) `app.ts` の `express.json` の 5mb の上限で 2000 件近い保存が汎用の 500 になる恐れ。(d) PUT / DELETE `/:id` の楽観ロックが並行の要求に耐えない。(e) 保存・読込の変換が再帰のまま。(f) 2001 件 → 422 の検証が schema の単体だけ。(g) 1819 行付近の注記が 53.16 で解消済みなのに「未配線」のまま
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。

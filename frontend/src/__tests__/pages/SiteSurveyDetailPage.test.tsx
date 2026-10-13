@@ -12,11 +12,11 @@
  * - 2.6: ブレッドクラムで階層を表示する
  * - 10.1: 報告書出力対象写真の選択
  * - 10.5: ドラッグアンドドロップによる写真順序変更
- * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 14.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import SiteSurveyDetailPage from '../../pages/SiteSurveyDetailPage';
 import * as siteSurveysApi from '../../api/site-surveys';
@@ -28,13 +28,28 @@ import type { SiteSurveyDetail, SurveyImageInfo } from '../../types/site-survey.
 // モックナビゲート
 const mockNavigate = vi.fn();
 
+// Task 115.56 / 115.87: 画像一覧が差し替わる契機（同一の現場調査の再取得＝location.key の
+// 変化）をテストから再現できるようにする。ルートパラメータは useParams の戻り値として
+// 必要なため保持するが、単体検証では既定の survey-123 から動かさない。調査またぎを
+// この差し替えで模すと本番の導線に無い筋書きになるため（後述「再取得時の選択整合」節）。
+// 既定値は従来どおり survey-123 / 固定キーであり、他のテストの前提は変わらない。
+let mockRouteSurveyId = 'survey-123';
+let mockLocationKey = 'default';
+
 // モック設定
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
-    useParams: () => ({ id: 'survey-123' }),
+    useParams: () => ({ id: mockRouteSurveyId }),
     useNavigate: () => mockNavigate,
+    useLocation: () => ({
+      key: mockLocationKey,
+      pathname: `/site-surveys/${mockRouteSurveyId}`,
+      search: '',
+      hash: '',
+      state: null,
+    }),
   };
 });
 
@@ -48,17 +63,17 @@ vi.mock('../../hooks/useMediaQuery', () => ({
   default: vi.fn(() => false),
 }));
 // useUnsavedChangesのモック
-const mockUseUnsavedChanges = {
-  isDirty: false,
-  markAsChanged: vi.fn(),
-  markAsSaved: vi.fn(),
-  setDirty: vi.fn(),
-  reset: vi.fn(),
-  confirmNavigation: vi.fn().mockReturnValue(true),
-};
+// Task 100.24（quantity-table-generation）でフックは未保存判定 `isDirty` を受け取るだけの形へ
+// 一本化され、戻り値を持たない。未保存判定は画面が持つため、画面がフックへ渡した `isDirty` を
+// 記録して「変更で未保存になる／保存で解消する」ことを測る。
+const mockUseUnsavedChanges = vi.fn((_options: { isDirty: boolean; message?: string }) => {});
+/** 直近の描画で画面がフックへ渡した isDirty */
+const lastUnsavedDirty = (): boolean | undefined =>
+  mockUseUnsavedChanges.mock.calls[mockUseUnsavedChanges.mock.calls.length - 1]?.[0].isDirty;
 
 vi.mock('../../hooks/useUnsavedChanges', () => ({
-  useUnsavedChanges: () => mockUseUnsavedChanges,
+  useUnsavedChanges: (options: { isDirty: boolean; message?: string }) =>
+    mockUseUnsavedChanges(options),
 }));
 
 // PDF出力サービスのモック（ページテストではUI動作のみをテストし、実際のPDF生成は行わない）
@@ -184,6 +199,9 @@ afterEach(() => {
 describe('SiteSurveyDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Task 115.56: ルートパラメータ / location.key を既定へ戻す
+    mockRouteSurveyId = 'survey-123';
+    mockLocationKey = 'default';
     vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue(
       mockPermission
     );
@@ -525,7 +543,7 @@ describe('SiteSurveyDetailPage', () => {
     });
   });
 
-  describe('権限によるUI制御 (Requirement 12.2)', () => {
+  describe('権限によるUI制御 (Requirement 14.2)', () => {
     it('編集権限がある場合、編集ボタンが表示される', async () => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
@@ -604,7 +622,7 @@ describe('SiteSurveyDetailPage', () => {
       expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
     });
 
-    it('権限がなくても基本情報は表示される (Requirement 12.1)', async () => {
+    it('権限がなくても基本情報は表示される (Requirement 14.1)', async () => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
         ...mockPermission,
@@ -810,13 +828,11 @@ describe('SiteSurveyDetailPage', () => {
       vi.mocked(surveyImagesApi.updateSurveyImageOrder).mockResolvedValue(undefined);
     });
 
-    it('報告書出力フラグを変更するとmarkAsChangedが呼ばれる', async () => {
+    it('報告書出力フラグを変更すると未保存状態になる（フックへ isDirty=true が渡る）', async () => {
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
         ...mockPermission,
         canEdit: true,
       });
-      mockUseUnsavedChanges.isDirty = false;
-      mockUseUnsavedChanges.markAsChanged.mockClear();
 
       renderComponent();
 
@@ -832,9 +848,9 @@ describe('SiteSurveyDetailPage', () => {
       const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
       fireEvent.click(checkboxes[0] as HTMLElement);
 
-      // markAsChangedが呼ばれることを確認（手動保存方式）
+      // 未保存状態になることを確認（手動保存方式）
       await waitFor(() => {
-        expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
+        expect(lastUnsavedDirty()).toBe(true);
       });
     });
 
@@ -1017,7 +1033,7 @@ describe('SiteSurveyDetailPage', () => {
       });
     });
 
-    describe('権限制御 (Requirement 12.2)', () => {
+    describe('権限制御 (Requirement 14.2)', () => {
       it('閲覧権限のみでも報告書出力ボタンは表示される', async () => {
         vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
           ...mockPermission,
@@ -1131,7 +1147,6 @@ describe('SiteSurveyDetailPage', () => {
   describe('メタデータ変更エラーハンドリング (Task 33.1: 手動保存方式)', () => {
     beforeEach(() => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
-      mockUseUnsavedChanges.isDirty = true;
     });
 
     it('メタデータ一括保存失敗時にエラーメッセージが表示される', async () => {
@@ -1486,8 +1501,6 @@ describe('SiteSurveyDetailPage', () => {
         ...mockPermission,
         canEdit: true,
       });
-      mockUseUnsavedChanges.isDirty = true;
-      mockUseUnsavedChanges.markAsChanged.mockClear();
     });
 
     it('メタデータ変更成功時に楽観的UI更新が行われる', async () => {
@@ -1523,11 +1536,11 @@ describe('SiteSurveyDetailPage', () => {
         expect(checkboxes[0]).not.toBeChecked();
       });
 
-      // markAsChangedが呼ばれたことを確認
-      expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
+      // 未保存状態になったことを確認
+      expect(lastUnsavedDirty()).toBe(true);
     });
 
-    it('コメント変更時に楽観的UI更新が行われ、markAsChangedが呼ばれる', async () => {
+    it('コメント変更時に楽観的UI更新が行われ、未保存状態になる', async () => {
       renderComponent();
 
       await waitFor(() => {
@@ -1544,9 +1557,9 @@ describe('SiteSurveyDetailPage', () => {
         fireEvent.change(commentInputs[0] as HTMLElement, { target: { value: '新しいコメント' } });
         fireEvent.blur(commentInputs[0] as HTMLElement);
 
-        // markAsChangedが呼ばれたことを確認（手動保存方式）
+        // 未保存状態になったことを確認（手動保存方式）
         await waitFor(() => {
-          expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
+          expect(lastUnsavedDirty()).toBe(true);
         });
       }
     });
@@ -1564,16 +1577,13 @@ describe('SiteSurveyDetailPage', () => {
       });
       vi.mocked(surveyImagesApi.updateSurveyImageOrder).mockResolvedValue(undefined);
       vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockResolvedValue([]);
-      mockUseUnsavedChanges.isDirty = false;
-      mockUseUnsavedChanges.markAsChanged.mockClear();
-      mockUseUnsavedChanges.markAsSaved.mockClear();
     });
 
     // -------------------------------------------------------------------------
     // Task 37.3: pendingOrderRefパターン
     // -------------------------------------------------------------------------
     describe('pendingOrderRefパターン (Task 37.3)', () => {
-      it('順序変更時にmarkAsChangedが呼ばれること (要件4.11, 10.5)', async () => {
+      it('順序変更時に未保存状態になること (要件4.11, 10.5)', async () => {
         renderComponent();
 
         await waitFor(() => {
@@ -1597,15 +1607,13 @@ describe('SiteSurveyDetailPage', () => {
           dataTransfer: { getData: () => 'img-1' },
         });
 
-        // markAsChangedが呼ばれることを確認
+        // 未保存状態になることを確認
         await waitFor(() => {
-          expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
+          expect(lastUnsavedDirty()).toBe(true);
         });
       });
 
       it('保存ボタンクリック時に順序変更APIが呼ばれること (要件10.6, 10.7)', async () => {
-        mockUseUnsavedChanges.isDirty = true;
-
         renderComponent();
 
         await waitFor(() => {
@@ -1639,9 +1647,7 @@ describe('SiteSurveyDetailPage', () => {
         });
       });
 
-      it('保存成功後にmarkAsSavedが呼ばれること', async () => {
-        mockUseUnsavedChanges.isDirty = true;
-
+      it('保存成功後に未保存状態が解消すること', async () => {
         renderComponent();
 
         await waitFor(() => {
@@ -1665,13 +1671,19 @@ describe('SiteSurveyDetailPage', () => {
           dataTransfer: { getData: () => 'img-1' },
         });
 
+        // 変更で未保存になったことを確認（保存後の解消を測る前提）
+        await waitFor(() => {
+          expect(lastUnsavedDirty()).toBe(true);
+        });
+
         // 保存ボタンをクリック
         const saveButton = screen.getByRole('button', { name: /保存/i });
         fireEvent.click(saveButton);
 
-        // markAsSavedが呼ばれることを確認
+        // 保存成功で未保存状態が解消し、フックへ isDirty=false が渡ることを確認
         await waitFor(() => {
-          expect(mockUseUnsavedChanges.markAsSaved).toHaveBeenCalled();
+          expect(surveyImagesApi.updateSurveyImageOrder).toHaveBeenCalled();
+          expect(lastUnsavedDirty()).toBe(false);
         });
       });
     });
@@ -1690,8 +1702,6 @@ describe('SiteSurveyDetailPage', () => {
       });
 
       it('画像削除後もエラーなく保存できること (要件10.11, 10.12)', async () => {
-        mockUseUnsavedChanges.isDirty = true;
-
         renderComponent();
 
         await waitFor(() => {
@@ -2192,6 +2202,395 @@ describe('SiteSurveyDetailPage', () => {
       });
 
       alertSpy.mockRestore();
+    });
+  });
+
+  // ==========================================================================
+  // 画像一覧からの選択操作（Task 115.51, Requirements 31.2, 31.3）
+  //
+  // 選択欄が画面に描画されない限り選択状態は恒久的に空となり、
+  // 選択画像エクスポートは常に実行不可のままになる。
+  // 「非活性である」ことの検証（Requirement 31.3）も、選択できて初めて
+  // 実質の検証になる。
+  // ==========================================================================
+
+  describe('画像一覧からの選択操作 (Task 115.51, Requirements 31.2, 31.3)', () => {
+    beforeEach(() => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+    });
+
+    it('詳細画面が描画する画像一覧に選択チェックボックスが存在すること (Requirement 31.2)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      for (const image of mockImages) {
+        expect(screen.getByTestId(`image-checkbox-${image.id}`)).toBeInTheDocument();
+      }
+    });
+
+    it('画像を選択すると選択画像エクスポートが活性化し件数が反映されること (Requirement 31.2, 31.3)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      // 未選択時は非活性（Requirement 31.3）
+      expect(selectedButton).toBeDisabled();
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-1'));
+
+      await waitFor(() => {
+        expect(selectedButton).toHaveTextContent('選択画像エクスポート（1 件）');
+      });
+      expect(selectedButton).toBeEnabled();
+      expect(selectedButton).toHaveAttribute('aria-disabled', 'false');
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-2'));
+
+      await waitFor(() => {
+        expect(selectedButton).toHaveTextContent('選択画像エクスポート（2 件）');
+      });
+    });
+
+    it('選択を全て解除すると選択画像エクスポートが再び非活性になること (Requirement 31.3)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      const checkbox = screen.getByTestId('image-checkbox-img-1');
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+
+      fireEvent.click(checkbox);
+      await waitFor(() => {
+        expect(selectedButton).toBeEnabled();
+      });
+
+      fireEvent.click(checkbox);
+      await waitFor(() => {
+        expect(selectedButton).toBeDisabled();
+      });
+      expect(selectedButton).toHaveTextContent('選択画像エクスポート（0 件）');
+      expect(selectedButton).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('選択した画像のみを対象に BulkExportDialog が開くこと (Requirement 31.2)', async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'テスト現場調査' })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-2'));
+
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      await waitFor(() => {
+        expect(selectedButton).toBeEnabled();
+      });
+      fireEvent.click(selectedButton);
+
+      // BulkExportDialog が選択モード（選択件数付きの見出し）で開く
+      await waitFor(() => {
+        expect(
+          screen.getByText('1 件選択画像エクスポート', { selector: 'h2' })
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 再取得時の選択整合（Task 115.56, 115.87, Requirements 31.2, 31.3）
+  //
+  // 現場調査の再取得は画像一覧を差し替えるため、選択集合が現存しない画像の
+  // 識別子を指したままになりうる。要件31.3 の非活性判定と要件31.2 の対象は
+  // いずれも「いま画像一覧にある画像の選択」を基準としなければならない。
+  //
+  // 【担当の境界（Task 115.87）】
+  // 選択の整理（pruneSelectionToExistingImages）が担うのは *同一の現場調査の再取得* に
+  // 対する二次の防護である。ここではその範囲だけを検証する。
+  // 別の現場調査へ移る場合の一次の防護は画面（SiteSurveyDetailPage）の作り直しであり、
+  // 選択状態は React が破棄する。同一の実体を保ったままルートパラメータだけ差し替える
+  // 筋書きは本番の導線からは到達しないため、この節では扱わない。調査またぎは実ブラウザ
+  // 検証 e2e/specs/site-surveys/site-survey-bulk-export.spec.ts の
+  // 「(e) 別の現場調査へ移ると選択が持ち越されず選択画像エクスポートが非活性へ戻る」が担う。
+  // ==========================================================================
+  describe('再取得時の選択整合 (Task 115.56, 115.87, Requirements 31.2, 31.3)', () => {
+    /** 指定した画像だけを持つ現場調査詳細を組み立てる */
+    const buildDetail = (surveyId: string, images: SurveyImageInfo[]): SiteSurveyDetail => ({
+      ...mockSurveyDetail,
+      id: surveyId,
+      imageCount: images.length,
+      images,
+    });
+
+    /** 再取得後に同一の現場調査へ新たに現れた画像（選択済みの画像とは別物） */
+    const refreshedImage: SurveyImageInfo = {
+      ...(mockImages[0] as SurveyImageInfo),
+      id: 'img-9',
+      fileName: 'image9.jpg',
+    };
+
+    /** 同一ツリーで再描画し、location.key の変化（＝同一調査の再取得）を反映させる */
+    const rerenderPage = (view: ReturnType<typeof renderComponent>) => {
+      view.rerender(
+        <BrowserRouter>
+          <SiteSurveyDetailPage />
+        </BrowserRouter>
+      );
+    };
+
+    it('同一調査の再取得で選択画像が全て失われると選択画像エクスポートが非活性へ戻る (Requirement 31.2, 31.3)', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-123', mockImages)
+      );
+
+      const view = renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('image-checkbox-img-1')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-1'));
+      fireEvent.click(screen.getByTestId('image-checkbox-img-2'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('bulk-export-selected-button')).toHaveTextContent(
+          '選択画像エクスポート（2 件）'
+        );
+      });
+
+      // 同一の現場調査を再取得する。他の利用者が選択済みの 2 件を削除し、
+      // 別の画像が追加された後の一覧が返る（画面は作り直されず、選択集合だけが残る）。
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-123', [refreshedImage])
+      );
+      mockLocationKey = 'refetched-after-remote-deletion';
+      rerenderPage(view);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('image-checkbox-img-9')).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('image-checkbox-img-1')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('image-checkbox-img-2')).not.toBeInTheDocument();
+
+      // 選択していた画像は一覧に存在しないため、選択は 0 件となり非活性へ戻る（要件31.3）
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      expect(selectedButton).toHaveTextContent('選択画像エクスポート（0 件）');
+      expect(selectedButton).toBeDisabled();
+      expect(selectedButton).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getByTestId('image-checkbox-img-9')).not.toBeChecked();
+    });
+
+    it('再取得で消えた画像の選択だけが取り除かれ対象件数と一致する (Requirement 31.2, 31.3)', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-123', mockImages)
+      );
+
+      const view = renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('image-checkbox-img-1')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-1'));
+      fireEvent.click(screen.getByTestId('image-checkbox-img-2'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('bulk-export-selected-button')).toHaveTextContent(
+          '選択画像エクスポート（2 件）'
+        );
+      });
+
+      // 他の利用者による削除等で img-1 が失われた状態を再取得する
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-123', [mockImages[1] as SurveyImageInfo])
+      );
+      mockLocationKey = 'after-edit';
+      rerenderPage(view);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('image-checkbox-img-1')).not.toBeInTheDocument();
+      });
+
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      expect(selectedButton).toHaveTextContent('選択画像エクスポート（1 件）');
+      expect(selectedButton).toBeEnabled();
+      expect(screen.getByTestId('image-checkbox-img-2')).toBeChecked();
+
+      // ボタンの件数とエクスポート対象が一致すること（要件31.2）
+      fireEvent.click(selectedButton);
+      await waitFor(() => {
+        expect(
+          screen.getByText('1 件選択画像エクスポート', { selector: 'h2' })
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('画像編集画面から戻っても現存する画像の選択は保持される (Requirement 31.2)', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(
+        buildDetail('survey-123', mockImages)
+      );
+
+      const view = renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByTestId('image-checkbox-img-1')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('image-checkbox-img-1'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('bulk-export-selected-button')).toHaveTextContent(
+          '選択画像エクスポート（1 件）'
+        );
+      });
+
+      // 画像編集画面から戻る（location.key が変わり再取得されるが画像は同一）
+      mockLocationKey = 'returned-from-editor';
+      rerenderPage(view);
+
+      await waitFor(() => {
+        expect(vi.mocked(siteSurveysApi.getSiteSurvey).mock.calls.length).toBeGreaterThan(1);
+      });
+
+      const selectedButton = screen.getByTestId('bulk-export-selected-button');
+      expect(selectedButton).toHaveTextContent('選択画像エクスポート（1 件）');
+      expect(selectedButton).toBeEnabled();
+      expect(screen.getByTestId('image-checkbox-img-1')).toBeChecked();
+    });
+  });
+});
+
+// ============================================================================
+// Task 115.105 (Req 15.6): 通信断時の警告と保存抑止
+//
+// 要件15.6「ネットワーク接続が切断される場合は警告を表示し保存操作をブロックする」を
+// 現場調査詳細（写真メタデータ・順序の一括保存）の結線として検証する。
+// ============================================================================
+
+describe('SiteSurveyDetailPage - 通信断時の警告と保存抑止 (Req 15.6)', () => {
+  /** navigator.onLine を差し替える（jsdom の既定は true） */
+  function setNavigatorOnLine(value: boolean): void {
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      get: () => value,
+    });
+  }
+
+  function goOffline(): void {
+    setNavigatorOnLine(false);
+    fireEvent(window, new Event('offline'));
+  }
+
+  function goOnline(): void {
+    setNavigatorOnLine(true);
+    fireEvent(window, new Event('online'));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRouteSurveyId = 'survey-123';
+    mockLocationKey = 'default';
+    setNavigatorOnLine(true);
+    vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue(
+      mockPermission
+    );
+    vi.mocked(useMediaQuery).mockReturnValue(false);
+    vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+    vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    setNavigatorOnLine(true);
+  });
+
+  /**
+   * 詳細画面を表示し、写真管理パネルの描画と通信状態の購読の登録まで完了させる
+   *
+   * Task 115.327: 通信断の告知（NetworkStatusIndicator）は `offline` の購読を useEffect で
+   * 登録する。取得の解決に続く描画を act の外（waitFor の待機中）でコミットさせると、
+   * 描画は見えても副作用が React の後続タスクに残ったまま waitFor が解決しうる。その間に
+   * 通信断を起こすと告知が購読前のため取りこぼし、`offline-warning` が現れない
+   * （全件走行で非決定的に落ちた真因）。取得の解決・描画・副作用を act の中で完了させ、
+   * 購読の登録を検証の前提として確定させる。
+   */
+  async function renderDetail(): Promise<void> {
+    await act(async () => {
+      renderComponent();
+    });
+    expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
+  }
+
+  it('通信が切れると警告を表示し、保存ボタンへ抑止を示す', async () => {
+    await renderDetail();
+
+    // 未保存の変更を作る（保存ボタンが有効になる前提条件を満たす）
+    const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
+    fireEvent.click(checkboxes[0] as HTMLElement);
+
+    // 既定（オンライン）では警告は無く、保存は抑止されていない
+    expect(screen.queryByTestId('offline-warning')).not.toBeInTheDocument();
+    expect(screen.getByTestId('photo-management-save-button')).toHaveAttribute(
+      'aria-disabled',
+      'false'
+    );
+
+    goOffline();
+
+    const warning = await screen.findByTestId('offline-warning');
+    expect(warning).toHaveTextContent('ネットワーク接続がありません');
+    await waitFor(() => {
+      expect(screen.getByTestId('photo-management-save-button')).toHaveAttribute(
+        'aria-disabled',
+        'true'
+      );
+    });
+  });
+
+  it('通信が切れている間は写真メタデータの一括保存を実行せず、理由を提示する', async () => {
+    await renderDetail();
+
+    // 未保存の変更を作る（保存の前提条件を満たす）
+    const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
+    fireEvent.click(checkboxes[0] as HTMLElement);
+
+    goOffline();
+    await screen.findByTestId('offline-warning');
+
+    fireEvent.click(screen.getByTestId('photo-management-save-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('site-survey-detail-error')).toHaveTextContent(
+        'ネットワーク接続がありません。保存操作は接続復帰後に行えます。'
+      );
+    });
+    expect(surveyImagesApi.updateImageMetadataBatch).not.toHaveBeenCalled();
+  });
+
+  it('通信が復帰すると写真メタデータの一括保存を実行できる', async () => {
+    await renderDetail();
+
+    const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
+    fireEvent.click(checkboxes[0] as HTMLElement);
+
+    goOffline();
+    await screen.findByTestId('offline-warning');
+
+    goOnline();
+    await waitFor(() => {
+      expect(screen.queryByTestId('offline-warning')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('photo-management-save-button'));
+
+    await waitFor(() => {
+      expect(surveyImagesApi.updateImageMetadataBatch).toHaveBeenCalled();
     });
   });
 });

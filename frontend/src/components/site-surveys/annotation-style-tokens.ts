@@ -6,6 +6,8 @@
  * - 26.2: 初期本体色を赤系またはオレンジ系の有彩色に設定する
  * - 26.3: 初回選択時に白縁取り/白アウトラインが有効な初期状態で起動する
  * - 26.5: 各ツールの既定色・既定線幅・既定白縁取り有無を一元管理する
+ * - 24.2: 矢印の白縁取り線幅を本体線幅の 1.5 倍以上の太さで付与する（比率を全線幅で満たす）
+ * - 32.2: 白縁取り線幅を本体線幅の 1.5 倍以上の太さで付与する（比率を全線幅で満たす）
  * - 32.11: 寸法線・円・四角形・多角形・折れ線・フリーハンドの各ツール初回起動時に
  *          白縁取りが有効な初期状態でツールを起動する
  * - 32.13: 各対象ツールの既定白縁取り有無を Req 26 の設定資材一元管理の枠組みで管理する
@@ -18,11 +20,18 @@
  * @requirement site-survey/REQ-26.2
  * @requirement site-survey/REQ-26.3
  * @requirement site-survey/REQ-26.5
+ * @requirement site-survey/REQ-24.2
+ * @requirement site-survey/REQ-32.2
  * @requirement site-survey/REQ-32.11
  * @requirement site-survey/REQ-32.13
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-32.5
+ * @requirement site-survey/REQ-8.5
+ * @requirement site-survey/REQ-8.6
  */
 
-import type { ToolType } from './annotation-toolbar.constants';
+import type { ToolType, OutlineCapableTool } from './annotation-toolbar.constants';
 
 // ============================================================================
 // 型定義
@@ -47,11 +56,23 @@ export interface ShapeOutlineAttribute {
 /**
  * 矢印の白縁取り属性
  *
- * design.md 5485 行の指針に従い、`ShapeOutlineAttribute` の型エイリアスとして定義。
+ * design.md「Requirements 31-32」の「Modified Files（主要変更点サマリー）」が示す
+ * 「`ArrowOutlineAttribute` は同型を維持（型エイリアス化で重複排除可）」に従い、
+ * `ShapeOutlineAttribute` の型エイリアスとして定義。
  * 既存 `ArrowTool` の import 元は `ShapeOutlineAttribute` と同一の構造を受け取るため
  * 破壊変更にはならない。
  */
 export type ArrowOutlineAttribute = ShapeOutlineAttribute;
+
+/**
+ * 吹き出しの形式（Req 8.6）
+ *
+ * Task 115.102: 従来この宣言は `tools/TextTool.ts` にあったが、道具帯のスタイル設定
+ * （`annotation-toolbar.constants.ts` の `StyleOptions`）が形式を保持するには、資材側に
+ * 型が無いと参照できない。`TextTool.ts` は本ファイルを import しているため、逆向きの
+ * import は循環参照になる。宣言を資材へ移し、`TextTool.ts` は再エクスポートで受ける。
+ */
+export type BalloonStyleType = 'none' | 'rectangle' | 'rounded' | 'ellipse' | 'cloud';
 
 /**
  * テキストの白アウトライン属性
@@ -66,6 +87,24 @@ export interface TextOutlineAttribute {
 }
 
 /**
+ * 寸法値ラベルの既定スタイル属性
+ *
+ * Task 115.98 (Req 26.5): 従来は `DimensionTool.ts` の `DEFAULT_LABEL_STYLE` が
+ * 一元管理の外で literal を持っていた。同じラベルの白アウトライン
+ * （`dimensionLabelOutline`）は既に本ファイルにあり、`fontSize × widthRatio` という
+ * 一つの算出式が二つの供給元をまたいでいた。型と既定値の双方を本ファイルへ移し、
+ * 供給元を一つにする。宣言の移設であり既定値そのものは変えない。
+ */
+export interface DimensionLabelStyle {
+  /** フォントサイズ */
+  fontSize: number;
+  /** フォント色 */
+  fontColor: string;
+  /** 背景色（Task 82.1 以降は子 labelText の背景描画なし。Task 82.3 のシリアライズ互換のため保持） */
+  backgroundColor: string;
+}
+
+/**
  * ツール横断の既定スタイル値
  *
  * design.md `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合。
@@ -77,8 +116,25 @@ export interface AnnotationToolDefaults {
   strokeWidth: number;
   /** 既定フォントサイズ */
   fontSize: number;
+  /**
+   * テキスト注釈の既定背景色（Req 8.5）
+   *
+   * 透明は空文字で表す（`fill` と同じ表現）。
+   */
+  textBackgroundColor: string;
+  /** テキスト注釈の既定の吹き出し形式（Req 8.6） */
+  balloonStyle: BalloonStyleType;
   /** 既定塗りつぶし（通常 '' 透明） */
   fill: string;
+  /**
+   * 白縁取り/白アウトラインの色（ツール横断で共通、Req 26.5）
+   *
+   * Task 115.150: 矢印・六形状は `ShapeOutlineAttribute.color` として資材から色を引くのに、
+   * テキストと寸法値ラベルの白アウトライン色だけが各ツールの literal だった。要件24.3 /
+   * 25.4 が定めるとおり本体色を変えても白のまま維持される固定色であり、部位ごとに違える
+   * 余地が無い。全経路の供給元を本項目へ一本化する。
+   */
+  outlineColor: string;
   /** 矢印の既定白縁取り（enabled: true） */
   arrowOutline: ArrowOutlineAttribute;
   /** テキストの既定白アウトライン（enabled: true） */
@@ -97,6 +153,8 @@ export interface AnnotationToolDefaults {
   dimensionOutline: ShapeOutlineAttribute;
   /** 寸法値ラベルの既定白アウトライン（Req 32.12, 32.13） */
   dimensionLabelOutline: TextOutlineAttribute;
+  /** 寸法値ラベルの既定スタイル（フォントサイズ・文字色・背景色、Req 26.5） */
+  dimensionLabel: DimensionLabelStyle;
 }
 
 // ============================================================================
@@ -130,13 +188,155 @@ const DEFAULT_FONT_SIZE = 16;
 const DEFAULT_FILL = '';
 
 /**
- * 形状白縁取りの既定幅
+ * テキスト注釈の既定背景色（透明）
+ *
+ * Req 8.5: 背景色は選択できることが要件であり、既定は従来どおり背景なし
+ * （`DEFAULT_TEXT_OPTIONS.backgroundColor = 'transparent'` と同じ意味）。
+ */
+const DEFAULT_TEXT_BACKGROUND_COLOR = '';
+
+/**
+ * テキスト注釈の既定の吹き出し形式（吹き出しなし）
+ *
+ * Req 8.6: 形式は選択できることが要件であり、既定は従来どおり吹き出しを付けない。
+ */
+const DEFAULT_BALLOON_STYLE: BalloonStyleType = 'none';
+
+/**
+ * 寸法値ラベルの既定フォントサイズ（ピクセル）
+ *
+ * Task 115.98: `DimensionTool.ts` の `DEFAULT_LABEL_STYLE.fontSize` が持っていた値を
+ * そのまま移設した。ツール横断の `DEFAULT_FONT_SIZE`（16）とは別値である。寸法値ラベルは
+ * 寸法線の中央に重ねて描く従属表示であり、テキスト注釈と同じ大きさにすると線を覆う。
+ * 値の統一は既定の見た目を変える別の判断であり、本タスクの範囲外とする。
+ */
+const DIMENSION_LABEL_FONT_SIZE = 12;
+
+/**
+ * 寸法値ラベルの既定文字色
+ *
+ * Task 115.98: 本体色（`DEFAULT_STROKE` = 赤系）とは異なる値を維持する。要件26.2 が
+ * 赤系/橙系を求めるのは「新規矢印・テキスト注釈の初期本体色」であり、寸法値ラベルの
+ * 文字色はその対象ではない。ラベルは白アウトライン（`dimensionLabelOutline`）を伴って
+ * 描画されるため、黒文字＋白縁で暗/明どちらの背景でも読める。
+ */
+const DIMENSION_LABEL_FONT_COLOR = '#000000';
+
+/**
+ * 寸法値ラベルの既定背景色
+ *
+ * Task 82.1 以降ラベルの背景は描画しないが、シリアライズ互換のため既定値を保持する。
+ */
+const DIMENSION_LABEL_BACKGROUND_COLOR = '#ffffff';
+
+/**
+ * 白縁取り/白アウトラインの色（白、固定）
+ *
+ * Req 24.3 / 25.4: 本体色を変更しても縁取り部分の色は常に白のまま維持する。
+ * Task 115.150 (Req 26.5): 従来この白は矢印・六形状では資材（`ShapeOutlineAttribute.color`）、
+ * テキストと寸法値ラベルでは各ツールの literal と、二系統から供給されていた。本定数を
+ * 唯一の供給元とし、`ANNOTATION_DEFAULTS.outlineColor` として公開する。
+ */
+const OUTLINE_COLOR = '#ffffff';
+
+/**
+ * 白縁取りの片側幅を本体線幅から算出する比率
+ *
+ * design.md「Service Interface（5 ツール共通形）」（6 形状）と「Service Interface (Arrow)」（矢印）:
+ * 「片側幅。本体 strokeWidth * 0.75 を推奨既定」。
+ * 矢印と 6 形状で同一の推奨既定が示されているため、比率は一つの定数として共有する。
+ *
+ * 「本体線幅の 1.5 倍以上」は描画される縁取り線幅の総幅を指す
+ * （design.md「AnnotationStyleTokens (ext)」の Validation が示す検証条件
+ * `width >= bodyStrokeWidth * 0.75` に従う）。片側幅そのものを 1.5 倍と解すると、設計が示す
+ * 推奨既定 0.75 倍が恒久的に要件違反となるため。
+ */
+const OUTLINE_WIDTH_RATIO = 0.75;
+
+/**
+ * 形状白縁取りの片側幅の下限（論理ピクセル）
  *
  * design.md: 本体 strokeWidth * 0.75 を推奨既定（最低 2px を保証）。
- * 既存 arrowOutline と同パターンで、本体線幅 3 に対し ceil(3 * 0.75) = 3 を最低 2px と合わせて 3px。
- * 注釈: タスク指示では「2.25 切り上げで最低 2px」と明記されているため Math.ceil を採用し最低 2 を保証。
  */
-const DEFAULT_SHAPE_OUTLINE_WIDTH = Math.max(2, Math.ceil(DEFAULT_STROKE_WIDTH * 0.75));
+const MIN_SHAPE_OUTLINE_WIDTH = 2;
+
+/**
+ * 本体線幅から形状白縁取りの片側幅を算出する（Req 32.2）
+ *
+ * Task 115.53: 従来は既定線幅 3 から算出した固定値を全形状・全線幅で共有していたため、
+ * 縁取りの太さが「本体線幅への固定値の加算」で決まっていた。要件 32.2 が定めるのは
+ * 比率（本体線幅の 1.5 倍以上）であり、固定値の加算では本体線幅が大きくなるほど比率が
+ * 下がる。線幅の入力範囲は 1〜20（AnnotationToolbar / StylePanel）であり、固定値 3 の
+ * 加算では本体線幅 13 以上で 1.5 倍を下回っていた。
+ *
+ * 本体線幅に比例させることで、描画される白縁取り線幅
+ * （design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」の
+ * `outlineShape.strokeWidth = bodyStrokeWidth + outlineWidth * 2`）は
+ * 本体線幅の 2.5 倍となり、選択可能な全線幅で 1.5 倍以上を満たす。
+ *
+ * @param bodyStrokeWidth 本体線幅（論理ピクセル）
+ * @returns 白縁取りの片側幅（論理ピクセル）
+ */
+export function resolveShapeOutlineWidth(bodyStrokeWidth: number): number {
+  const effectiveBodyStrokeWidth =
+    Number.isFinite(bodyStrokeWidth) && bodyStrokeWidth > 0
+      ? bodyStrokeWidth
+      : DEFAULT_STROKE_WIDTH;
+
+  return Math.max(
+    MIN_SHAPE_OUTLINE_WIDTH,
+    Math.ceil(effectiveBodyStrokeWidth * OUTLINE_WIDTH_RATIO)
+  );
+}
+
+/**
+ * 矢印白縁取りの片側幅の下限（論理ピクセル）
+ *
+ * 矢印は 6 形状とは独立した既定項目であり、従来から下限 1px・四捨五入で運用してきた。
+ * 既定線幅 3 に対する算出値（round(2.25) = 2）を維持するため、この丸め方を変えない。
+ */
+const MIN_ARROW_OUTLINE_WIDTH = 1;
+
+/**
+ * 本体線幅から矢印白縁取りの片側幅を算出する（Req 24.2）
+ *
+ * Task 115.59: 矢印の片側幅は既定線幅 3 から一度だけ算出した固定値 2 を全線幅で共有していたため、
+ * 描画される縁取り線幅は「本体線幅 + 4」という固定値の加算で決まっていた。要件 24.2 が定めるのは
+ * 比率（本体線幅の 1.5 倍以上）であり、固定値の加算では本体線幅が大きくなるほど比率が下がる。
+ * 線幅の入力範囲は 1〜20（AnnotationToolbar / StylePanel）であり、本体線幅 8 でちょうど 1.5 倍、
+ * 9 以上で下回っていた（6 形状の 13 より早く破綻していた）。
+ *
+ * 本体線幅に比例させることで、描画される白縁取り線幅
+ * （design.md「Arrow (Group)」の
+ * `outlinePath.strokeWidth = bodyStrokeWidth + outlineWidth * 2`）は
+ * 概ね本体線幅の 2.5 倍となり、選択可能な全線幅で 1.5 倍以上を満たす。
+ *
+ * 丸めは 6 形状の `Math.ceil` ではなく矢印従来の `Math.round`、下限も 2 ではなく 1 を維持する。
+ * これにより既定線幅 3 での片側幅は 2 のままとなり、既定の見た目を変えずに比率を満たせる。
+ * 四捨五入による最悪ケースでも片側幅は `0.75 * body - 0.5` 以上であり、描画幅は
+ * `2.5 * body - 1`（本体線幅 1 以上で常に `1.5 * body` 以上）となる。
+ *
+ * @param bodyStrokeWidth 本体線幅（論理ピクセル）
+ * @returns 白縁取りの片側幅（論理ピクセル）
+ */
+export function resolveArrowOutlineWidth(bodyStrokeWidth: number): number {
+  const effectiveBodyStrokeWidth =
+    Number.isFinite(bodyStrokeWidth) && bodyStrokeWidth > 0
+      ? bodyStrokeWidth
+      : DEFAULT_STROKE_WIDTH;
+
+  return Math.max(
+    MIN_ARROW_OUTLINE_WIDTH,
+    Math.round(effectiveBodyStrokeWidth * OUTLINE_WIDTH_RATIO)
+  );
+}
+
+/**
+ * 形状白縁取りの既定幅
+ *
+ * 既定線幅 3 に対する算出値（ceil(3 * 0.75) = 3、下限 2px と合わせて 3px）。
+ */
+const DEFAULT_SHAPE_OUTLINE_WIDTH = resolveShapeOutlineWidth(DEFAULT_STROKE_WIDTH);
 
 /**
  * 形状白縁取りの既定オブジェクトを生成するファクトリ
@@ -146,7 +346,7 @@ const DEFAULT_SHAPE_OUTLINE_WIDTH = Math.max(2, Math.ceil(DEFAULT_STROKE_WIDTH *
 function makeDefaultShapeOutline(): ShapeOutlineAttribute {
   return {
     enabled: true,
-    color: '#ffffff',
+    color: OUTLINE_COLOR,
     width: DEFAULT_SHAPE_OUTLINE_WIDTH,
   };
 }
@@ -159,11 +359,16 @@ export const ANNOTATION_DEFAULTS: AnnotationToolDefaults = {
   strokeWidth: DEFAULT_STROKE_WIDTH,
   fontSize: DEFAULT_FONT_SIZE,
   fill: DEFAULT_FILL,
+  textBackgroundColor: DEFAULT_TEXT_BACKGROUND_COLOR,
+  balloonStyle: DEFAULT_BALLOON_STYLE,
+  // Req 26.5 / Task 115.150: 白縁取り・白アウトラインの色は全経路が本項目を参照する
+  outlineColor: OUTLINE_COLOR,
   arrowOutline: {
     enabled: true,
-    color: '#ffffff',
-    // design.md: 本体 strokeWidth * 0.75 を推奨既定（最低 1px を保証）
-    width: Math.max(1, Math.round(DEFAULT_STROKE_WIDTH * 0.75)),
+    color: OUTLINE_COLOR,
+    // Task 115.59 (Req 24.2): 既定線幅に対する算出値（round(3 * 0.75) = 2、下限 1px）。
+    // 実際の片側幅は本体線幅から都度算出する（resolveArrowOutlineWidth）。
+    width: resolveArrowOutlineWidth(DEFAULT_STROKE_WIDTH),
   },
   textOutline: {
     enabled: true,
@@ -182,7 +387,37 @@ export const ANNOTATION_DEFAULTS: AnnotationToolDefaults = {
     enabled: true,
     widthRatio: 0.12,
   },
+  // Req 26.5 / Task 115.98: 寸法値ラベルの既定スタイルも本資材が単一の供給元となる
+  dimensionLabel: {
+    fontSize: DIMENSION_LABEL_FONT_SIZE,
+    fontColor: DIMENSION_LABEL_FONT_COLOR,
+    backgroundColor: DIMENSION_LABEL_BACKGROUND_COLOR,
+  },
 };
+
+/**
+ * ツール別の既定白縁取り有無を生成する（Req 26.3 / 26.5 / 32.11 / 32.13）
+ *
+ * Task 115.96: 道具帯のスタイルパネルが持つ白縁取り切替の初期状態は、ツールごとの
+ * 既定値を単一情報源である `ANNOTATION_DEFAULTS` から引く。切替UI側で真偽値を
+ * literal として持つと、一元管理の資材と値が食い違う二つ目の供給元ができるため。
+ *
+ * 呼び出し側が値を変更しても内部状態が壊れないよう、毎回新しいオブジェクトを返す。
+ *
+ * @returns ツール別の白縁取り有効状態
+ */
+export function createDefaultOutlineEnabled(): Record<OutlineCapableTool, boolean> {
+  return {
+    arrow: ANNOTATION_DEFAULTS.arrowOutline.enabled,
+    text: ANNOTATION_DEFAULTS.textOutline.enabled,
+    dimension: ANNOTATION_DEFAULTS.dimensionOutline.enabled,
+    circle: ANNOTATION_DEFAULTS.circleOutline.enabled,
+    rectangle: ANNOTATION_DEFAULTS.rectangleOutline.enabled,
+    polygon: ANNOTATION_DEFAULTS.polygonOutline.enabled,
+    polyline: ANNOTATION_DEFAULTS.polylineOutline.enabled,
+    freehand: ANNOTATION_DEFAULTS.freehandOutline.enabled,
+  };
+}
 
 // ============================================================================
 // API
@@ -203,6 +438,9 @@ export function getToolDefaults(_tool: ToolType): AnnotationToolDefaults {
     strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
     fontSize: ANNOTATION_DEFAULTS.fontSize,
     fill: ANNOTATION_DEFAULTS.fill,
+    outlineColor: ANNOTATION_DEFAULTS.outlineColor,
+    textBackgroundColor: ANNOTATION_DEFAULTS.textBackgroundColor,
+    balloonStyle: ANNOTATION_DEFAULTS.balloonStyle,
     arrowOutline: { ...ANNOTATION_DEFAULTS.arrowOutline },
     textOutline: { ...ANNOTATION_DEFAULTS.textOutline },
     rectangleOutline: { ...ANNOTATION_DEFAULTS.rectangleOutline },
@@ -212,5 +450,6 @@ export function getToolDefaults(_tool: ToolType): AnnotationToolDefaults {
     freehandOutline: { ...ANNOTATION_DEFAULTS.freehandOutline },
     dimensionOutline: { ...ANNOTATION_DEFAULTS.dimensionOutline },
     dimensionLabelOutline: { ...ANNOTATION_DEFAULTS.dimensionLabelOutline },
+    dimensionLabel: { ...ANNOTATION_DEFAULTS.dimensionLabel },
   };
 }

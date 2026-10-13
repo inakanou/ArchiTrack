@@ -4,15 +4,15 @@
  * Task 68.7: 保存前の計算パラメータ検証を編集画面の保存処理へ配線する（TDDテストファースト）
  *
  * 本ユーティリティは保存前の計算パラメータ検証の単一情報源であり、
- * 数量表編集画面（QuantityTableEditPage.handleSave）と useQuantityTableSave の
- * 双方から参照される。文言はバックエンド（quantity-validation.service.ts /
+ * 数量表編集画面（QuantityTableEditPage.handleSave）から参照される
+ * （useQuantityTableSave は Task 97.13 で撤去した）。文言はバックエンド（quantity-validation.service.ts /
  * quantity-table.schema.ts）と一致させ、バックエンドより厳しくしない。
  *
  * Requirements:
  * - 47.9 / 8.15: 「箇所数」が未入力のまま保存を試行する場合、箇所数の入力を求める
  * - 47.10 / 47.11: 「箇所数」の整数・範囲の検証
  * - 8.10: 「ピッチ」モードの必須項目（範囲長・端長1・端長2・ピッチ長）の検証
- * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない場合の検証
+ * - 8.7: 「面積・体積」モードで幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない場合の検証
  * - 11.2: 整合性チェックでエラーが検出される場合は保存を中断する
  */
 
@@ -89,6 +89,12 @@ describe('calculation-params-validation', () => {
     });
   });
 
+  /**
+   * 範囲長・端長1・端長2・ピッチ長の四つについて、未入力時に入力を求める問題が
+   * 記録されることをこの区間が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-8.10
+   */
   describe('計算方法「ピッチ」（REQ-8 AC10）', () => {
     it('計算パラメータが未設定の場合に警告が記録されること', () => {
       expect(check('PITCH', null)).toEqual([
@@ -149,6 +155,17 @@ describe('calculation-params-validation', () => {
     });
   });
 
+  /**
+   * 幅(W)・奥行き(D)・高さ(H)のいずれも入力されていないときのエラーと、幅・奥行き・高さのいずれか一つで
+   * 解消されることの双方をこの区間が確かめる。
+   *
+   * タスク 100.10（2026-09-23、利用者の裁定）: 条文（REQ-8 AC7）は
+   * 「幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める」であり重量を数えない。
+   * 改める前の実体は `weight` も「いずれか1つ」に数えており、**重量だけの状態が通っていた**。
+   * 実体を条文へ合わせたため、重量だけでは解消されないことをこの区間が固定する。
+   *
+   * @requirement quantity-table-generation/REQ-8.7
+   */
   describe('計算方法「面積・体積」（REQ-8 AC7）', () => {
     it('計算パラメータが未設定の場合に警告が記録されること', () => {
       expect(check('AREA_VOLUME', null)).toEqual([
@@ -160,11 +177,11 @@ describe('calculation-params-validation', () => {
       ]);
     });
 
-    it('計算用列に値が1つも入力されていない場合に問題が記録されること', () => {
+    it('幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない場合に問題が記録されること', () => {
       expect(check('AREA_VOLUME', {})).toEqual([
         {
           pathSuffix: 'calculationParams',
-          message: '面積・体積モードでは少なくとも1つの計算用列に値を入力してください',
+          message: '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください',
           severity: 'warning',
         },
       ]);
@@ -174,13 +191,26 @@ describe('calculation-params-validation', () => {
       ['幅', { width: 2 }],
       ['奥行き', { depth: 2 }],
       ['高さ', { height: 2 }],
-      ['重量', { weight: 2 }],
     ])(
       '計算用列（%s）に1つでも値が入力されていれば問題が記録されないこと',
       (_label, params: CalculationParams) => {
         expect(check('AREA_VOLUME', params)).toEqual([]);
       }
     );
+
+    it('重量だけが入力されていても問題が記録されること（条文は幅・奥行き・高さのみを数える）', () => {
+      expect(check('AREA_VOLUME', { weight: 2 })).toEqual([
+        {
+          pathSuffix: 'calculationParams',
+          message: '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください',
+          severity: 'warning',
+        },
+      ]);
+    });
+
+    it('重量に加えて高さが入力されていれば問題が記録されないこと（重量の同席は妨げにならない）', () => {
+      expect(check('AREA_VOLUME', { weight: 2, height: 3 })).toEqual([]);
+    });
   });
 
   describe('未知の計算方法の fail-fast', () => {

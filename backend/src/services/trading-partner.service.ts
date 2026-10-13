@@ -38,6 +38,7 @@ import {
   PartnerInUseError,
 } from '../errors/tradingPartnerError.js';
 import { toKatakana, toHiragana } from '../utils/kana-converter.js';
+import { resolveUpdatedAt } from '../utils/timestamps.js';
 
 /**
  * TradingPartnerService依存関係
@@ -503,6 +504,12 @@ export class TradingPartnerService {
       if (input.notes !== undefined) updateData.notes = input.notes;
 
       // 5. 取引先レコードの更新
+      // Requirements: 11.12 - 作成日時と更新日時を自動記録する。
+      // 更新日時は Prisma の `@updatedAt` に任せず明示する。壁時計は時刻同期で
+      // 後ろへ跳ぶことがあり（E2E で 444ms の逆転を観測）、任せたままだと
+      // 更新日時が作成日時より前の行が生まれる。
+      updateData.updatedAt = resolveUpdatedAt(existingPartner.createdAt);
+
       await tx.tradingPartner.update({
         where: { id },
         data: updateData,
@@ -629,10 +636,22 @@ export class TradingPartnerService {
       }
 
       // 3. 論理削除の実行（deletedAtの設定）
+      // Requirements: 11.12 / 5.2 - 論理削除も 1 回の更新であり `updatedAt` を伴う。
+      // 更新と同じ規則で作成日時より前へ落ちない瞬間を 1 つだけ採り、両方に使う。
+      //
+      // 意味の変更を明示する: 本タスクの境界が名指すのは作成日時と更新日時の 2 列だが、
+      // ここでは `deletedAt` の値も壁時計そのままから押し上げ後の瞬間へ変えている。
+      // 理由は、論理削除が `deletedAt` と `updatedAt` を同時に動かす 1 回の更新であり、
+      // 片方だけ押し上げると「削除された時刻が作成より前」という同種の逆転が
+      // 削除済みの行に残るためである。2 列を別々の瞬間から採ると
+      // `deletedAt` < `updatedAt` という第 3 の逆転も生むため、瞬間は 1 つに揃える。
+      const deletedAt = resolveUpdatedAt(existingPartner.createdAt);
+
       await tx.tradingPartner.update({
         where: { id },
         data: {
-          deletedAt: new Date(),
+          deletedAt,
+          updatedAt: deletedAt,
         },
       });
 

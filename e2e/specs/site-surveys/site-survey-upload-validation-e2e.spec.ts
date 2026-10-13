@@ -32,6 +32,8 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 // ESモジュールでの __dirname 代替
 const __filename = fileURLToPath(import.meta.url);
@@ -115,16 +117,7 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -316,14 +309,33 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
     const status = response.status();
     expect([201, 207]).toContain(status);
 
-    if (status === 207) {
-      const body = await response.json();
-      const failureReason: string =
-        Array.isArray(body.failed) && body.failed.length > 0 ? (body.failed[0].error ?? '') : '';
-      expect(failureReason).not.toMatch(
-        /サポートされていないファイル形式|ファイルの内容がMIMEタイプと一致しません/
-      );
-    }
+    // 応答は成功と失敗の双方を返す形である（REQ-19.10 / REQ-19.12）。
+    // 失敗の理由は状態コードに関わらず取り出せるため、観測で分岐せず無条件に主張する。
+    // 以前は 207 のときにだけ判定していたため、201 でも 207 でも
+    // 「マジックバイト判定で拒否されていないこと」は一度も主張されない経路があった。
+    const body = await response.json();
+    expect(Array.isArray(body.successful), '応答の successful が配列でない').toBe(true);
+    expect(Array.isArray(body.failed), '応答の failed が配列でない').toBe(true);
+    const successful = body.successful as unknown[];
+    const failed = body.failed as { error?: string }[];
+
+    // 母集団が空でないことを先に固定する（Task 115.162）。
+    // 失敗の理由は失敗の一覧を連結して作る。連結の元が空なら結果は空文字となり、
+    // 「拒否の理由が現れない」という主張は**一件も処理されなかった場合にも成立する**。
+    // アップロードしたのは 1 件であるから、成功と失敗の合計は必ず 1 件でなければならない。
+    // これを先に固定してはじめて、後続の不在の主張が「拒否されなかったこと」を述べる。
+    expect(
+      successful.length + failed.length,
+      'アップロードした1件が成功にも失敗にも現れていない（母集団が空）'
+    ).toBe(1);
+
+    const failureReasons: string = failed
+      .map((failure: { error?: string }) => failure.error ?? '')
+      .join(' / ');
+    expect(
+      failureReasons,
+      'マジックバイト判定（先頭3バイト）以外の理由で形式が拒否された'
+    ).not.toMatch(/サポートされていないファイル形式|ファイルの内容がMIMEタイプと一致しません/);
   });
 
   // ==========================================================================
@@ -366,14 +378,33 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
     const status = response.status();
     expect([201, 207]).toContain(status);
 
-    if (status === 207) {
-      const body = await response.json();
-      const failureReason: string =
-        Array.isArray(body.failed) && body.failed.length > 0 ? (body.failed[0].error ?? '') : '';
-      expect(failureReason).not.toMatch(
-        /サポートされていないファイル形式|ファイルの内容がMIMEタイプと一致しません/
-      );
-    }
+    // 応答は成功と失敗の双方を返す形である（REQ-19.10 / REQ-19.12）。
+    // 失敗の理由は状態コードに関わらず取り出せるため、観測で分岐せず無条件に主張する。
+    // 以前は 207 のときにだけ判定していたため、201 でも 207 でも
+    // 「マジックバイト判定で拒否されていないこと」は一度も主張されない経路があった。
+    const body = await response.json();
+    expect(Array.isArray(body.successful), '応答の successful が配列でない').toBe(true);
+    expect(Array.isArray(body.failed), '応答の failed が配列でない').toBe(true);
+    const successful = body.successful as unknown[];
+    const failed = body.failed as { error?: string }[];
+
+    // 母集団が空でないことを先に固定する（Task 115.162）。
+    // 失敗の理由は失敗の一覧を連結して作る。連結の元が空なら結果は空文字となり、
+    // 「拒否の理由が現れない」という主張は**一件も処理されなかった場合にも成立する**。
+    // アップロードしたのは 1 件であるから、成功と失敗の合計は必ず 1 件でなければならない。
+    // これを先に固定してはじめて、後続の不在の主張が「拒否されなかったこと」を述べる。
+    expect(
+      successful.length + failed.length,
+      'アップロードした1件が成功にも失敗にも現れていない（母集団が空）'
+    ).toBe(1);
+
+    const failureReasons: string = failed
+      .map((failure: { error?: string }) => failure.error ?? '')
+      .join(' / ');
+    expect(
+      failureReasons,
+      'マジックバイト判定（先頭3バイト）以外の理由で形式が拒否された'
+    ).not.toMatch(/サポートされていないファイル形式|ファイルの内容がMIMEタイプと一致しません/);
   });
 
   // ==========================================================================
@@ -519,18 +550,21 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
     await input.setInputFiles(invalidPath);
 
     const response = await uploadPromise;
-    // REQ-19.10: API がエラー情報を含む結果を返却
-    // 207 Multi-Status または 4xx エラー
-    const status = response.status();
-    expect([207, 400, 415]).toContain(status);
+    // REQ-19.10: API がエラー情報を含む結果を返却する。
+    // multer にファイル種別の絞り込みは無く（survey-images.routes.ts の upload 設定）、
+    // マジックバイト判定は uploadBatch の内側で行われる。したがって 1 件だけ不正な
+    // ファイルを送った場合の応答は必ず 207 Multi-Status（successful=0 / failed=1）であり、
+    // 「207 なら検証する」という関門は不要である。
+    expect(response.status(), 'バッチアップロードの部分失敗が 207 で返らない').toBe(207);
 
-    if (status === 207) {
-      // 207 の場合は failed 配列にエラー情報が含まれること
-      const body = await response.json();
-      expect(body).toHaveProperty('failed');
-      expect(Array.isArray(body.failed)).toBe(true);
-      expect(body.failed.length).toBeGreaterThan(0);
-    }
+    const body = await response.json();
+    expect(body).toHaveProperty('failed');
+    expect(Array.isArray(body.failed)).toBe(true);
+    expect(body.failed.length).toBeGreaterThan(0);
+    // REQ-19.12: 成功分は保持しつつ失敗分のエラー情報も返す（本件は成功 0 件）
+    expect(body).toHaveProperty('successful');
+    expect(Array.isArray(body.successful)).toBe(true);
+    expect(body.successful.length).toBe(0);
 
     // REQ-19.11: UI でエラーメッセージを表示
     const errorAlert = page.locator('[role="alert"]');
@@ -772,34 +806,34 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
       await loginAsUser(page, 'ADMIN_USER');
 
       // 現場調査削除
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
-      }
+      const deleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+      const confirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await confirmButton.click();
+      await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
 
       // プロジェクト削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

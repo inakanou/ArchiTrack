@@ -11,16 +11,122 @@
  * @module e2e/specs/estimate-requests/structured-data-ocr-e2e.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import {
+  startOcrProgressIndicatorWatch,
+  waitForOcrProgressIndicator,
+  hasOcrProgressIndicatorAppeared,
+} from '../../helpers/ocr-observations';
+import { expectPdfPreviewRendered, PDF_PAGE_CANVAS_SELECTOR } from '../../helpers/pdf-preview';
+import { expectImagePreviewRendered } from '../../helpers/image-preview';
+import ExcelJS from 'exceljs';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * 明細表を持つ Excel の資材（REQ-13.1 / 13.4 / 13.6）
+ *
+ * 先頭シート「明細」は見出し行（名称・規格・単位・数量・単価）と 2 行のデータを持つ。
+ * `number-format-e2e.spec.ts` の REQ-18.10 と同じ資材である。
+ */
+const LINE_ITEM_WORKBOOK_PATH = path.resolve(__dirname, '../../fixtures/test-lineitem-table.xlsx');
+
+/**
+ * Excel の先頭シートを、各セルの値をそのまま文字列にした行の配列として読む。
+ *
+ * 期待値を資材そのものから導くための補助である。実装（SheetJS）とは別のライブラリ（exceljs）で
+ * 読むため、実装の読み取りの誤りを期待値へ持ち込まない。
+ *
+ * @param filePath 読み込む .xlsx のパス
+ * @returns 行ごとのセルの文字列
+ */
+async function readFirstSheetCellTexts(filePath: string): Promise<string[][]> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) {
+    throw new Error(`資材 ${filePath} にシートが無い`);
+  }
+  const rows: string[][] = [];
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    const cells: string[] = [];
+    for (let column = 1; column <= row.cellCount; column++) {
+      const value = row.getCell(column).value;
+      cells.push(value === null || value === undefined ? '' : String(value));
+    }
+    rows.push(cells);
+  });
+  return rows;
+}
+
+/**
+ * OCR の処理が走ったことを示す通信（パスで判定する）
+ *
+ * - `/api/claude-vision/`: PDF・画像の抽出が最初に試みる Claude Vision（REQ-24）
+ * - `tesseract` / `tessdata` / `traineddata`: Tesseract.js のワーカー・コア・言語資材（REQ-25 のフォールバック）
+ *
+ * オリジンでは判定しない（CI とローカルで API のオリジンが食い違うため）。
+ */
+const OCR_REQUEST_PATH_PATTERN = /\/api\/claude-vision\/|tesseract|tessdata|traineddata/i;
+
+/**
+ * Claude Vision の抽出結果として固定で返す明細行
+ *
+ * REQ-13.10 の一括取り込みボタンは「構造化データが1件以上検出された」ときにだけ現れる
+ * （`OcrDataExtractor.tsx` の `parsedLineItems.length > 0`）。
+ * 実画像のOCR結果に依存させると検出件数が定まらず、
+ * 「検出できたら検証する」という沈黙する関門を書かざるを得なくなる。
+ * 抽出結果を固定すれば、REQ-13.10〜13.13 を無条件に主張できる。
+ */
+const STUBBED_EXTRACTED_LINE_ITEMS = [
+  {
+    customCategory: null,
+    workType: '土工',
+    name: '掘削工',
+    specification: 'バックホウ',
+    unit: 'm3',
+    quantity: 100.5,
+    unitPrice: 2500,
+    amount: 251250,
+    remarks: null,
+  },
+  {
+    customCategory: null,
+    workType: '土工',
+    name: '埋戻し',
+    specification: null,
+    unit: 'm3',
+    quantity: 50,
+    unitPrice: 1500,
+    amount: 75000,
+    remarks: '再利用土',
+  },
+] as const;
+
+/**
+ * 画像アップロード時のOCR抽出結果を {@link STUBBED_EXTRACTED_LINE_ITEMS} に固定する。
+ *
+ * 画面遷移の前に呼ぶこと。
+ *
+ * @param page Playwright のページ
+ */
+async function stubExtractionResult(page: Page): Promise<void> {
+  await page.route('**/api/claude-vision/extract', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ lineItems: STUBBED_EXTRACTED_LINE_ITEMS, pageCount: 1 }),
+    })
+  );
+}
 
 /**
  * 受領見積書フォームを確実に初期状態で開く
@@ -29,7 +135,7 @@ const __dirname = path.dirname(__filename);
 async function openReceivedQuotationForm(page: import('@playwright/test').Page) {
   // フォームが開いている場合は一度閉じる（キャンセルボタンの存在で判定）
   const cancelButton = page.getByRole('button', { name: /^キャンセル$/i });
-  if (await cancelButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+  if (await isVisibleWithin(cancelButton, 1000)) {
     await cancelButton.click();
     await page.waitForTimeout(500); // 閉じるアニメーションを待つ
   }
@@ -91,16 +197,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクト作成
       const createPromise = page.waitForResponse(
@@ -290,9 +387,14 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
   test.describe('29.1 受領見積書構造化データ入力', () => {
     /**
      * @requirement estimate-request/REQ-11.9
+     * @requirement estimate-request/REQ-11.15
+     * @requirement estimate-request/REQ-11.16
      * 構造化データ入力エリアに明細行フィールドを表示する
+     *
+     * タスク 115.188 の追記: 本検証は明細行の追加ボタンが表示されること（受入基準11.15）と、
+     * 押下で空の明細行が末尾に追加されること（受入基準11.16）も実際に主張している。
      */
-    test('REQ-11.9: 明細行エディタが表示され、行追加ができる', async ({ page }) => {
+    test('REQ-11.9/15/16: 明細行エディタが表示され、行追加ができる', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -334,10 +436,13 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.13
-     * フォーム初期表示時に1行の空明細行を表示する
+     * @requirement estimate-request/REQ-11.14
+     * フォーム初期表示時に1行の空の明細行を表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.13 を名乗っていたが、受入基準11.13 は金額合計の自動計算・表示を
+     * 述べるものであり、初期表示の空明細行を述べるのは受入基準11.14 である。
      */
-    test('REQ-11.13: 初期表示で1行の空明細行が表示される', async ({ page }) => {
+    test('REQ-11.13→11.14: 初期表示で1行の空明細行が表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -359,7 +464,11 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
      * @requirement estimate-request/REQ-11.10
      * @requirement estimate-request/REQ-11.11
      * @requirement estimate-request/REQ-11.12
+     * @requirement estimate-request/REQ-11.13
      * 数値入力と金額自動計算・合計計算の動作確認
+     *
+     * タスク 115.188 の追記: 本検証は全明細行の金額合計が自動計算されて表示されること
+     * （受入基準11.13）も実際に主張している。
      */
     test('REQ-11.10/11/12: 数量・単価入力で金額が自動計算され、合計も更新される', async ({
       page,
@@ -412,9 +521,16 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
     /**
      * @requirement estimate-request/REQ-11.17
      * @requirement estimate-request/REQ-11.18
-     * 明細行の削除と削除ボタン非活性
+     * @requirement estimate-request/REQ-11.19
+     * 明細行の削除と合計金額の再計算、削除ボタン非活性
+     *
+     * タスク 95.2 の是正: 従前は合計金額の再計算を主張しておらず、受入基準 11.18 の被覆印を掲げていなかった。
+     * 削除する行と残る行に異なる金額を入れ、削除の前後の合計金額を具体的な値で主張する（受入基準 11.18）。
+     * 1 行のみのときに削除が非活性であること（受入基準 11.19）は従前から主張していたが、印が無かった。
      */
-    test('REQ-11.17/18: 行削除が機能し、1行のみの場合は削除ボタンが非活性', async ({ page }) => {
+    test('REQ-11.17/18/19: 行削除で合計金額が再計算され、1行のみの場合は削除ボタンが非活性', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -425,7 +541,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       await openReceivedQuotationForm(page);
 
       // REQ-37.7 で削除はスタンドアロンボタンから「行N の操作メニュー」内 menuitem に集約された。
-      // REQ-11.17/18 の本質「行削除機能 + 1 行時の非活性」をメニュー UI ベースで検証する。
+      // REQ-11.17〜11.19（削除導線・削除と合計金額の再計算・1 行時の非活性）をメニュー UI ベースで検証する。
       const lineItemTable = page.locator('form table');
       const rowMenuButtons = lineItemTable.getByRole('button', { name: /行\d+の操作メニュー/ });
 
@@ -435,9 +551,23 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       await expect(page.getByRole('menuitem', { name: '削除' })).toBeDisabled();
       await page.keyboard.press('Escape'); // メニュー閉じる
 
+      // 1 行目に削除する行の金額（10 * 1000 = 10,000）を入れる
+      await page.locator('[data-row="0"][data-field="name"]').fill('削除する品目');
+      await page.locator('[data-row="0"][data-field="quantity"]').fill('10');
+      await page.locator('[data-row="0"][data-field="unitPrice"]').fill('1000');
+
       // 行を追加 → 行 2 つ
       await page.getByRole('button', { name: /行を追加/i }).click();
       await expect(rowMenuButtons).toHaveCount(2);
+
+      // 2 行目に残る行の金額（5 * 3000 = 15,000）を入れる
+      await page.locator('[data-row="1"][data-field="name"]').fill('残る品目');
+      await page.locator('[data-row="1"][data-field="quantity"]').fill('5');
+      await page.locator('[data-row="1"][data-field="unitPrice"]').fill('3000');
+
+      // 削除前の合計金額（10,000 + 15,000 = 25,000）
+      const totalAmount = page.locator('[data-testid="total-amount"]');
+      await expect(totalAmount).toHaveText('25,000');
 
       // 2 行の場合 → 「削除」menuitem は enabled で、押すと該当行が削除される
       await rowMenuButtons.first().click();
@@ -445,8 +575,15 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       await expect(deleteMenuItem).toBeEnabled();
       await deleteMenuItem.click();
 
-      // 1 行に戻る + 削除 menuitem は再び disabled
+      // 1 行に戻り、残ったのは 2 行目だった行である
       await expect(rowMenuButtons).toHaveCount(1);
+      await expect(page.locator('[data-row="0"][data-field="name"]')).toHaveValue('残る品目');
+
+      // 削除した行の金額（10,000）の分だけ合計金額が減る（25,000 → 15,000）
+      await expect(page.locator('[data-testid="line-item-amount"]')).toHaveText(['15,000']);
+      await expect(totalAmount).toHaveText('15,000');
+
+      // 削除 menuitem は再び disabled
       await rowMenuButtons.first().click();
       await expect(page.getByRole('menuitem', { name: '削除' })).toBeDisabled();
     });
@@ -526,10 +663,14 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // プレビューが表示されることを確認
-      await expect(
-        page.locator('img[alt="test-image.png"], [data-testid="preview-skeleton"]').first()
-      ).toBeVisible({ timeout: getTimeout(10000) });
+      // 画像プレビューが表示されたことを主張する（Task 115.175）
+      // 以前は「`img` **または** 読み込み中の骨組み」の合併選択子 + `.first()` だった。
+      // 画像では `img` と骨組みが排他に描かれるため合併候補は常に1件で、
+      // `.first()` は「そのとき存在するほう」を掴む。骨組みは PDF と違って
+      // 幅0に潰れず可視になるため（実測 1166x200）、画像が一切無い終状態で
+      // **8〜11ミリ秒で緑**になっていた。実測値と再現手順は
+      // `e2e/helpers/image-preview.ts` の冒頭に置いた。
+      await expectImagePreviewRendered(page, 'test-image.png');
 
       // 登録
       const createPromise = page.waitForResponse(
@@ -586,8 +727,12 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
   test.describe('29.2 ファイルインラインプレビュー', () => {
     /**
+     * @requirement estimate-request/REQ-13.1
      * @requirement estimate-request/REQ-13.3
      * 画像ファイルアップロード後のインライン画像表示確認
+     *
+     * タスク 95.3 の追記: 受入基準13.1 は「登録フォーム内に」表示することを求めるため、
+     * 表示に成功した画像が受領見積書の登録フォームの内側にあることも主張する。
      */
     test('REQ-13.3: 画像ファイルアップロード後にインライン画像が表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -604,14 +749,28 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // 画像プレビューが表示される
-      const imagePreview = page.locator('img[alt="test-image.png"]');
-      await expect(imagePreview).toBeVisible({ timeout: getTimeout(10000) });
+      // REQ-13.3: 画像がインライン表示されたことを主張する（Task 115.175）
+      // 以前は素の `img` の可視だけを問うていたが、`FileInlinePreview` は
+      // `<img>` の `onError` を扱わないため復号に失敗しても失敗表示が出ず、
+      // Chromium が描く代替テキストの箱（実測 124x368・`naturalWidth` は 0）が
+      // 可視条件を満たして **6〜7ミリ秒で緑**になっていた。
+      // 実測値と再現手順は `e2e/helpers/image-preview.ts` の冒頭に置いた。
+      await expectImagePreviewRendered(page, 'test-image.png');
+
+      // REQ-13.1: プレビューは登録フォームの内側に表示される
+      const registrationForm = page
+        .locator('form')
+        .filter({ has: page.locator('#quotation-name') });
+      await expect(registrationForm.locator('img[alt="test-image.png"]')).toBeVisible();
     });
 
     /**
+     * @requirement estimate-request/REQ-13.1
      * @requirement estimate-request/REQ-13.2
      * PDFファイルアップロード後のインラインプレビュー表示確認
+     *
+     * タスク 95.3 の追記: 受入基準13.1 の「登録フォーム内に」を、
+     * 描画されたページの canvas が登録フォームの内側にあることで主張する。
      */
     test('REQ-13.2: PDFファイルアップロード後にインラインプレビューが表示される', async ({
       page,
@@ -630,14 +789,83 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // PDFプレビュー（react-pdf）またはスケルトンが表示される
-      // Note: react-pdfのロードに時間がかかる場合があるため、スケルトンも許容
-      await expect(
-        page
-          .locator('.react-pdf__Document, [data-testid="preview-skeleton"]')
-          .or(page.getByText(/PDFの読み込み/i))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(15000) });
+      // REQ-13.2: PDFビューアでインライン表示されることを主張する（Task 115.158）
+      // 以前は「react-pdf の外枠 **または** 読み込み中の骨組み **または**
+      // `/PDFの読み込み/`」の選言で成立としていた。最後の枝は失敗表示
+      // 「PDFの読み込みに失敗しました」に一致するが、`.or(...).first()` は
+      // **DOM順の先頭の要素がひとつ可視か**を問う形であり、先頭は常に幅0の骨組みである
+      // （実測: `.first()` が掴むのは矩形 0x368 の `preview-skeleton`）。
+      // よってこの枝には到達せず、失敗を成立として受理してはいなかった
+      // （実測: 読み込み失敗の終状態でこの形は 12.5〜15.0 秒の待機切れで赤）。
+      // 閉じた穴は (1) 外枠の可視が読み込みの成否を何も述べないこと、
+      // (2) 外枠の可視からページの canvas の可視までの窓
+      //     （CPU 8 倍抑制の実測で 0.7〜1.4 秒）、の2点である。
+      // 実測値と再現手順は `e2e/helpers/pdf-preview.ts` の冒頭に置いた。
+      await expectPdfPreviewRendered(page);
+
+      // REQ-13.1: プレビューは登録フォームの内側に表示される
+      const registrationForm = page
+        .locator('form')
+        .filter({ has: page.locator('#quotation-name') });
+      await expect(registrationForm.locator(PDF_PAGE_CANVAS_SELECTOR).first()).toBeVisible();
+    });
+
+    /**
+     * @requirement estimate-request/REQ-13.1
+     * @requirement estimate-request/REQ-13.4
+     * Excelファイルアップロード後に表データがテーブル形式で登録フォーム内に表示されることの確認
+     *
+     * タスク 95.3 で追加。受入基準13.4 は「表データをテーブル形式でインライン表示する」ことを求める。
+     * 表であること（表・列見出し・行・セルの役割）と、表の中身が資材のセルの値と一致することの両方を主張する。
+     * 期待値は資材を exceljs で読んで導く（実装は SheetJS で読むため、実装の読み取りを期待値へ持ち込まない）。
+     * `FileInlinePreview.tsx` の Excel のプレビューは先頭列に行番号の列「#」を置き、
+     * 先頭行を見出しとして扱う。明細行エディタの表（先頭列「No」）とは「#」の列見出しで区別する。
+     */
+    test('REQ-13.1/4: Excelファイルアップロード後に表データがテーブル形式で登録フォーム内に表示される', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      // 資材の中身。見出し行と 1 行以上のデータ行が無ければ以降の主張が空振りするため、先に確かめる
+      const sheetRows = await readFirstSheetCellTexts(LINE_ITEM_WORKBOOK_PATH);
+      const [headerRow, ...dataRows] = sheetRows;
+      expect(headerRow?.length ?? 0).toBeGreaterThan(0);
+      expect(dataRows.length).toBeGreaterThan(0);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      await openReceivedQuotationForm(page);
+
+      const registrationForm = page
+        .locator('form')
+        .filter({ has: page.locator('#quotation-name') });
+      const previewTable = registrationForm
+        .getByRole('table')
+        .filter({ has: page.getByRole('columnheader', { name: '#', exact: true }) });
+
+      // 前提: アップロード前にはプレビューの表は無い（アップロードが表示を生んだことを主張するため）
+      await expect(previewTable).toHaveCount(0);
+
+      await page.locator('input[type="file"]').setInputFiles(LINE_ITEM_WORKBOOK_PATH);
+
+      // REQ-13.1 / 13.4: 登録フォームの内側に表として表示される
+      await expect(previewTable).toBeVisible({ timeout: getTimeout(15000) });
+
+      // REQ-13.4: 列見出しは行番号の列「#」と、資材の先頭行のセルの値
+      await expect(previewTable.getByRole('columnheader')).toHaveText(['#', ...headerRow!]);
+
+      // REQ-13.4: 各行は行番号と、資材のデータ行のセルの値を順に持つ
+      const bodyRows = previewTable.locator('tbody').getByRole('row');
+      await expect(bodyRows).toHaveCount(dataRows.length);
+      for (const [index, cells] of dataRows.entries()) {
+        await expect(bodyRows.nth(index).getByRole('cell')).toHaveText([
+          String(index + 1),
+          ...cells,
+        ]);
+      }
     });
   });
 
@@ -663,34 +891,147 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       await openReceivedQuotationForm(page);
 
+      // REQ-13.5 / REQ-13.7 の主張の準備。
+      // 以前は「インジケーター **または** 抽出結果 **または** エラー表示」の選言で
+      // 判定していたため、OCR が失敗しても成立し、かつ本要件が定めるインジケーターを
+      // 一度も検査していなかった。DOM 変更と同期に出現を記録する形へ改める。
+      // 本要件が定めるのは「処理を自動的に開始すること」と「実行中に表示すること」までであり、
+      // 抽出の成否は REQ-13.8（成功）と REQ-13.14（失敗）が別に定めているため、
+      // ここで完了の姿を主張することはしない。
+      await startOcrProgressIndicatorWatch(page);
+
       // 画像ファイルをアップロード
       const testFilePath = path.resolve(__dirname, '../../fixtures/test-image.png');
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始され、進行中インジケーターが表示される
-      // Note: OCRの初期化やプログレスバーが表示されることを確認
-      // テスト画像が小さいため処理が早く終わる可能性があるので、
-      // 処理中または完了のいずれかを確認
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
+      // REQ-13.5 / REQ-13.7: アップロードだけで OCR 処理が始まり、
+      // 実行中であることを示すインジケーターが表示される
+      await waitForOcrProgressIndicator(page, getTimeout(60000));
+      expect(
+        await hasOcrProgressIndicatorAppeared(page),
+        '画像アップロード後にOCR処理中インジケーターが一度も表示されなかった'
+      ).toBe(true);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-13.6
+     * Excelファイルアップロード時にOCRではなくデータパースで構造化データを抽出することの確認
+     *
+     * タスク 95.3 で追加。「OCR ではなくデータパース（直接データ読み取り）」を次の 3 点で観測する。
+     *
+     * 1. **直接読み取りであること**: 抽出結果のテキストが、資材の各セルの値をタブと改行で
+     *    つないだものと**文字単位で一致**する。OCR（Tesseract の文字認識・Claude Vision の JSON）では
+     *    この形は生まれない。期待値は資材を exceljs で読んで導く。
+     * 2. **構造化データの抽出**: 一括取り込みで、見出し（名称・規格・単位・数量）の列のセルの値が
+     *    同じ行の明細行のフィールドへ入る。
+     * 3. **OCR が走らないこと**: アップロードから取り込み完了まで、OCR の処理が必ず発する通信
+     *    （Claude Vision の `/api/claude-vision/`、Tesseract のワーカー・コア・言語資材）が 1 件も無く、
+     *    Web Worker（Tesseract.js はワーカーで認識する）も 1 つも作られない。
+     *    Claude Vision の成否を示す表示（`claude-vision-info-banner`・`fallback-warning-banner`）も出ない。
+     *
+     * 限界: 3 は「OCR の経路が外部資材・API・ワーカーを使う」ことに依拠する。同一スレッドで
+     * 通信なしに動く OCR があったとしても、この観測では検出できない（現実装にそのような経路は無い）。
+     */
+    test('REQ-13.6: ExcelファイルはOCRではなくデータパースでセルの値を直接読み取る', async ({
+      page,
+      context,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      // 資材の中身。見出し行と 1 行以上のデータ行が無ければ以降の主張が空振りするため、先に確かめる
+      const sheetRows = await readFirstSheetCellTexts(LINE_ITEM_WORKBOOK_PATH);
+      const [headerRow, ...dataRows] = sheetRows;
+      expect(dataRows.length).toBeGreaterThan(0);
+      const columnOf = (label: string): number => {
+        const column = headerRow?.indexOf(label) ?? -1;
+        expect(column, `資材の見出しに「${label}」が無い`).toBeGreaterThanOrEqual(0);
+        return column;
+      };
+      const nameColumn = columnOf('名称');
+      const specificationColumn = columnOf('規格');
+      const unitColumn = columnOf('単位');
+      const quantityColumn = columnOf('数量');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      await openReceivedQuotationForm(page);
+
+      // OCR の処理が発する通信と Web Worker の生成を、アップロードの前から記録する
+      const ocrRequests: string[] = [];
+      context.on('request', (request) => {
+        const url = request.url();
+        const pathname = url.startsWith('http') ? new URL(url).pathname : url;
+        if (OCR_REQUEST_PATH_PATTERN.test(pathname)) {
+          ocrRequests.push(url);
+        }
+      });
+      const createdWorkers: string[] = [];
+      page.on('worker', (worker) => createdWorkers.push(worker.url()));
+
+      await page.locator('input[type="file"]').setInputFiles(LINE_ITEM_WORKBOOK_PATH);
+
+      // Excel のデータパースとして処理される
+      await expect(page.getByText('データ抽出（Excelパース）')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 1. 抽出結果は資材のセルの値を直接読み取ったもの（タブ・改行を含め文字単位で一致）
+      const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
+      await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+      expect(await extractedText.textContent()).toBe(
+        sheetRows.map((cells) => cells.join('\t')).join('\n')
+      );
+
+      // 2. 構造化データとして抽出され、一括取り込みで各行のフィールドに入る
+      const importButton = page.locator('[data-testid="ocr-import-button"]');
+      await expect(importButton).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(page.getByText(`${dataRows.length}件のデータが検出されました`)).toBeVisible();
+      await importButton.click();
+      await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      for (const [index, cells] of dataRows.entries()) {
+        const row = index + 1;
+        await expect(page.getByRole('textbox', { name: `行${row} 名称` })).toHaveValue(
+          cells[nameColumn] ?? ''
+        );
+        await expect(page.getByRole('textbox', { name: `行${row} 規格` })).toHaveValue(
+          cells[specificationColumn] ?? ''
+        );
+        await expect(page.getByRole('textbox', { name: `行${row} 単位` })).toHaveValue(
+          cells[unitColumn] ?? ''
+        );
+        // 数量は小数2桁の表示へ整形される（REQ-18.10）ため、数値として一致を問う
+        const quantityValue = await page
+          .getByRole('textbox', { name: `行${row} 数量` })
+          .inputValue();
+        expect(Number(quantityValue)).toBe(Number(cells[quantityColumn]));
+      }
+
+      // 3. OCR の処理は走っていない
+      expect(ocrRequests, 'Excel の取り込みで OCR の通信が発生した').toEqual([]);
+      expect(createdWorkers, 'Excel の取り込みで Web Worker が作られた').toEqual([]);
+      await expect(page.locator('[data-testid="claude-vision-info-banner"]')).toHaveCount(0);
+      await expect(page.locator('[data-testid="fallback-warning-banner"]')).toHaveCount(0);
+      await expect(page.getByText('データ抽出（OCR）')).toHaveCount(0);
     });
 
     /**
      * @requirement estimate-request/REQ-13.8
      * @requirement estimate-request/REQ-13.9
      * 抽出結果テキストの表示と選択・コピー可能状態の確認
-     * Note: OCR処理は実際のファイル内容に依存するため、
-     *       処理中、結果表示、エラーのいずれかを確認
-     *       E2E環境ではOCR処理に時間がかかるため、処理開始を確認後、
-     *       完了を待たずにUI要素の存在を検証
+     *
+     * REQ-13.8/13.9 は「抽出が完了したとき、結果をテキストとして表示し、選択・コピーできる」
+     * ことを求める。入力にテキスト入り PDF（`test-file.pdf`）を用いると、
+     * Claude Vision 経路（`setExtractedText` に JSON を格納）でも
+     * pdfjs フォールバック経路（閾値 50 文字を超えるテキストを抽出）でも
+     * 抽出結果が必ず表示されるため、経路によらず無条件に主張できる。
      */
-    test('REQ-13.8/9: 抽出結果またはエラーメッセージが表示される', async ({ page }) => {
+    test('REQ-13.8/9: 抽出結果がテキストとして表示され選択できる', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -700,31 +1041,21 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       await openReceivedQuotationForm(page);
 
-      // テキストが含まれる画像をアップロード
-      const testFilePath = path.resolve(__dirname, '../../fixtures/test-image.png');
+      // テキストを含む PDF をアップロードする
+      const testFilePath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始され、処理中・完了・エラーのいずれかの状態になることを確認
-      // E2E環境ではOCR処理完了まで時間がかかる場合があるため、処理中も含めて確認
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
-
-      // 抽出結果テキストのdata-testidと選択可能スタイルがコンポーネントに定義されていることを確認
-      // （OcrDataExtractor.tsxのコード検証で、user-select: textが設定されていることを確認済み）
-      // 実際のOCR完了を待たず、UIコンポーネントの実装を検証
+      // REQ-13.8: 抽出結果がテキストデータとして表示される
       const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-      if (await extractedText.isVisible({ timeout: 5000 }).catch(() => false)) {
-        const userSelect = await extractedText.evaluate((el) => {
-          return window.getComputedStyle(el).userSelect;
-        });
-        expect(userSelect).not.toBe('none');
-      }
+      await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+      await expect(extractedText).not.toBeEmpty();
+
+      // REQ-13.9: 抽出結果は選択・コピーできる状態で表示される
+      const userSelect = await extractedText.evaluate((el) => {
+        return window.getComputedStyle(el).userSelect;
+      });
+      expect(userSelect).not.toBe('none');
     });
 
     /**
@@ -732,16 +1063,15 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
      * @requirement estimate-request/REQ-13.11
      * @requirement estimate-request/REQ-13.12
      * 一括取り込みボタンによる明細行自動入力と金額自動計算の確認
-     * Note: 一括取り込みはデータが検出された場合のみ表示される
-     *       E2E環境ではOCR処理完了を保証できないため、処理開始を確認後、
-     *       一括取り込みボタンが表示された場合のみ動作を検証
      */
-    test('REQ-13.10/11/12: 一括取り込みボタンで明細行にデータが入力される（データ検出時）', async ({
-      page,
-    }) => {
+    test('REQ-13.10/11/12: 一括取り込みボタンで明細行にデータが入力される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
+
+      // 検出件数を実画像のOCR結果に委ねると「検出できたら検証する」形になり、
+      // REQ-13.10〜13.12 の主張が一度も実行されない回が生じる。抽出結果を固定する。
+      await stubExtractionResult(page);
 
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
@@ -753,38 +1083,46 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始されることを確認（処理中・完了・エラーのいずれか）
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
-
-      // 一括取り込みボタンが表示された場合のみテスト（OCR完了かつデータ検出時）
+      // REQ-13.10: 抽出結果から一括取り込みボタンが表示される
       const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await importButton.click();
+      await expect(importButton).toBeVisible({ timeout: getTimeout(60000) });
+      await expect(page.getByText('2件のデータが検出されました')).toBeVisible();
 
-        // 取り込み成功メッセージが表示される
-        await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      await importButton.click();
+
+      // 取り込み成功メッセージが表示される
+      await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // REQ-13.11: 工種・名称・規格・単位・数量・単価が各明細行のフィールドに自動入力される
+      await expect(page.getByRole('textbox', { name: '行1 名称' })).toHaveValue('掘削工');
+      await expect(page.getByRole('textbox', { name: '行1 工種' })).toHaveValue('土工');
+      await expect(page.getByRole('textbox', { name: '行1 規格' })).toHaveValue('バックホウ');
+      await expect(page.getByRole('textbox', { name: '行1 単位' })).toHaveValue('m3');
+      await expect(page.getByRole('textbox', { name: '行1 数量' })).toHaveValue('100.50');
+      await expect(page.getByRole('textbox', { name: '行1 単価' })).toHaveValue('2500');
+      await expect(page.getByRole('textbox', { name: '行2 名称' })).toHaveValue('埋戻し');
+
+      // REQ-13.12: 取り込まれた各行の金額が自動計算される（数量 × 単価）
+      const amountCells = page.locator('[data-testid="line-item-amount"]');
+      await expect(amountCells.nth(0)).toHaveText('251,250');
+      await expect(amountCells.nth(1)).toHaveText('75,000');
     });
 
     /**
      * @requirement estimate-request/REQ-13.13
      * 取り込み結果の確認・修正メッセージ表示の確認
-     * Note: E2E環境ではOCR処理完了を保証できないため、処理開始を確認後、
-     *       一括取り込みボタンが表示された場合のみ動作を検証
      */
     test('REQ-13.13: 一括取り込み後に確認・修正メッセージが表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
 
+      // 一括取り込みボタンは構造化データが検出されたときにだけ現れる。
+      // 検出件数を実画像のOCR結果に委ねると REQ-13.13 の主張が一度も実行されない回が生じる。
+      await stubExtractionResult(page);
+
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
@@ -795,25 +1133,16 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始されることを確認（処理中・完了・エラーのいずれか）
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
-
-      // 一括取り込みボタンが表示された場合（OCR完了かつデータ検出時）
+      // 抽出結果を固定しているため、一括取り込みボタンは必ず表示される
       const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await importButton.click();
+      await expect(importButton).toBeVisible({ timeout: getTimeout(60000) });
 
-        // 確認・修正メッセージが表示される
-        await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      await importButton.click();
+
+      // REQ-13.13: 確認・修正を促すメッセージが表示される
+      await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
 
     /**
@@ -834,25 +1163,29 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       await openReceivedQuotationForm(page);
 
+      // REQ-13.14 は「失敗した場合」の要件である。失敗するかどうかを観測して主張を包むと
+      // 成功した回には何も検証されないため、失敗そのものを前提として無条件に作り出す。
+      // Claude Vision を利用不可（503）に固定してフォールバックへ落とし（REQ-25.1）、
+      // Tesseract のワーカー資材（CDN 配信の core/traineddata）の取得を遮断することで、
+      // 抽出の両経路が必ず失敗する状態にする
+      await page.route('**/api/claude-vision/extract', (route) =>
+        route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'テスト用に強制した利用不可' }),
+        })
+      );
+      await page.route(/tessdata|tesseract\.js-core/, (route) => route.abort());
+
       // 画像をアップロード
       const testFilePath = path.resolve(__dirname, '../../fixtures/test-image.png');
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始されることを確認（処理中・完了・エラーのいずれか）
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
-
-      // エラーが発生した場合、手動入力を促すメッセージが表示される
+      // REQ-13.14: 抽出に失敗したときはエラーメッセージを表示し手動入力を促す
       const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-      if (await errorMessage.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await expect(page.getByText(/手動で明細行にデータを入力してください/i)).toBeVisible();
-      }
+      await expect(errorMessage).toBeVisible({ timeout: getTimeout(60000) });
+      await expect(page.getByText(/手動で明細行にデータを入力してください/i)).toBeVisible();
 
       // 明細行エディタは常に表示されており、手動入力が可能（OCR状態に関わらず）
       const lineItemTable = page.locator('form table');

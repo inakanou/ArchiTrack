@@ -86,7 +86,7 @@ describe('PROJECT_STATUS_LABELS', () => {
 
 describe('TRANSITION_TYPE_LABELS', () => {
   it('should provide Japanese labels for all transition types', () => {
-    expect(TRANSITION_TYPE_LABELS.initial).toBe('初期遷移');
+    expect(TRANSITION_TYPE_LABELS.initial).toBe('初期登録');
     expect(TRANSITION_TYPE_LABELS.forward).toBe('順方向遷移');
     expect(TRANSITION_TYPE_LABELS.backward).toBe('差し戻し遷移');
     expect(TRANSITION_TYPE_LABELS.terminate).toBe('終端遷移');
@@ -163,7 +163,7 @@ describe('getProjectStatusLabel', () => {
 
 describe('getTransitionTypeLabel', () => {
   it('should return the correct Japanese label for valid transition types', () => {
-    expect(getTransitionTypeLabel('initial')).toBe('初期遷移');
+    expect(getTransitionTypeLabel('initial')).toBe('初期登録');
     expect(getTransitionTypeLabel('forward')).toBe('順方向遷移');
     expect(getTransitionTypeLabel('backward')).toBe('差し戻し遷移');
     expect(getTransitionTypeLabel('terminate')).toBe('終端遷移');

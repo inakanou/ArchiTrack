@@ -6,7 +6,7 @@
  * Requirements (estimate-creation):
  * - REQ-11.2: 見積書を選択した場合、見積書の詳細を表示する
  * - REQ-11.3: 見積書を編集した場合、変更内容を保存する
- * - REQ-11.7: 同一見積書を複数ユーザーが編集した場合、楽観的排他制御により競合を検出する
+ * - REQ-11.6: 同一見積書を複数ユーザーが編集した場合、楽観的排他制御により競合を検出する
  * - REQ-14.8: 見積書画面を提供する
  * - REQ-14.9: 見積書の詳細情報（見積項目一覧、合計金額等）を表示する
  * - REQ-14.10: 編集・削除・出力ボタンを提供する
@@ -533,6 +533,19 @@ const READ_ONLY_ESTIMATE_APIS = new Set([
 ]);
 
 /**
+ * 見積書の内容を書き込まない在席通知の API（estimate-creation 11.7、タスク 61.1）
+ *
+ * 見積書詳細画面は開いている間、編集セッションへ在席を通知し（`PUT /:id/edit-session`）、
+ * 離れるときに退出を通知する（`DELETE /:id/edit-session`）。いずれも見積書・明細を
+ * 書き換えず `updatedAt` も進めないため、ここで数える「書き込み」から外す。名指しで外すので、
+ * これ以外の関数が足されて当該経路から呼ばれれば従来どおり落ちる。
+ */
+const EDIT_PRESENCE_APIS: ReadonlySet<string> = new Set([
+  'heartbeatEstimateEditSession',
+  'leaveEstimateEditSession',
+]);
+
+/**
  * 書き込み系の見積書APIが一つも呼ばれていないことを確かめる（49.3）
  *
  * かつては撤去対象の `transferFromQuotation` / `addOverheadItem` / `addDiscountItem` を
@@ -546,6 +559,7 @@ const expectNoEstimateWriteApiCall = (): void => {
       ([name, value]) =>
         vi.isMockFunction(value) &&
         !READ_ONLY_ESTIMATE_APIS.has(name) &&
+        !EDIT_PRESENCE_APIS.has(name) &&
         value.mock.calls.length > 0
     )
     .map(([name]) => name);
@@ -3717,6 +3731,10 @@ describe('EstimateDetailPage', () => {
    *
    * 54.3 の時点では切替UIが無く、`viewMode` はフックの既定値を渡すだけだったため
    * `viewMode="tree"` のリテラル直書きへ変異させてもテストが緑のままだった。
+   * 切替UIが入った現在は同じ変異——`EstimateDetailPage.tsx` が表とツールバーへ渡す
+   * `viewMode={navigation.viewMode}` を二箇所ともリテラル `"tree"` へ直書きする——を
+   * 当てると、本ファイル 91 件のうち 2 件（下の「往復」と「引き継ぎ」）が落ちる
+   * （2026-08-31 に実測。タスク 115.210）。
    * 切替UIが入る本タスクでは「切替を通知する → 表へ届く `viewMode` が変わる」で
    * 結線を固定し、53.14 の死んだ `onDragStart` / `onDrop` と同型の
    * 沈黙する失敗を防ぐ。実物のコンポーネントを描画した経路は

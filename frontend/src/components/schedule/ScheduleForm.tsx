@@ -43,6 +43,10 @@ export interface ScheduleFormProps {
 // スタイル定義
 // ============================================================================
 
+// 入力欄と選択のフォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで
+// 打ち消さない（steering `tech.md` の「フォーカス表示方針」。タスク 19.1）。
+// 名称の検証エラーは赤い枠（inputError）と文言で示す
+
 const styles = {
   form: {
     maxWidth: '600px',
@@ -70,7 +74,6 @@ const styles = {
     fontSize: '14px',
     border: '1px solid #d1d5db',
     borderRadius: '6px',
-    outline: 'none',
     boxSizing: 'border-box' as const,
   } as React.CSSProperties,
   inputError: {
@@ -79,7 +82,6 @@ const styles = {
     fontSize: '14px',
     border: '1px solid #ef4444',
     borderRadius: '6px',
-    outline: 'none',
     boxSizing: 'border-box' as const,
   } as React.CSSProperties,
   select: {
@@ -88,7 +90,6 @@ const styles = {
     fontSize: '14px',
     border: '1px solid #d1d5db',
     borderRadius: '6px',
-    outline: 'none',
     boxSizing: 'border-box' as const,
     backgroundColor: '#ffffff',
   } as React.CSSProperties,

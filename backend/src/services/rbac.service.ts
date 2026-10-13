@@ -9,12 +9,69 @@
  * - Cache-Aside Pattern: Redisキャッシュを使用した権限情報のキャッシング（15分TTL）
  * - Graceful Degradation: Redisが利用できない場合はDBフォールバック
  * - N+1 Prevention: Prisma includeを使用した効率的なクエリ
+ *
+ * 本番の権限確認（requirePermission）と、ロール・権限の変更時のキャッシュの無効化
+ * （roles.routes.ts / user-roles.routes.ts）は、getSharedRBACService() が返す同じインスタンスを使う
+ * （タスク36.2）。Redis のクライアントは呼び出しの時点で解決するため、ルートのモジュールの読み込みが
+ * Redis の初期化（index.ts の initRedis）より先でもキャッシュが効く。
+ *
+ * 無効化はキャッシュの削除とユーザーごとの世代の INCR を不可分に行い、権限の確認は DB を読む前に
+ * 読んだ世代が書き込みの時点で変わっていないときだけキャッシュへ書き込む（無効化の後に古い権限を
+ * 書き戻さない）。無効化も読み書きと同じく、接続が ready でないときはコマンドを送らない（タスク37.2）。
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type Redis from 'ioredis';
 import type { IRBACService, PermissionInfo } from '../types/rbac.types.js';
+import getPrismaClient from '../db.js';
+import redisConnection from '../redis.js';
 import logger from '../utils/logger.js';
+
+/**
+ * Redis クライアントを呼び出しの時点で返す関数（未初期化・未設定なら null / undefined）
+ */
+export type RedisClientProvider = () => Redis | null | undefined;
+
+/** 権限キャッシュのキー（値は権限の配列の JSON） */
+function permissionCacheKey(userId: string): string {
+  return `rbac:permissions:${userId}`;
+}
+
+/**
+ * 権限キャッシュの世代のキー（タスク37.2）。無効化のたびに INCR で進める。
+ * 権限の確認は DB を読む前に世代を読み、書き込みの時点で世代が変わっていなければだけ書き込む
+ */
+function permissionGenerationKey(userId: string): string {
+  return `rbac:permissions-generation:${userId}`;
+}
+
+/**
+ * 世代が読んだときのままならキャッシュへ書き込む（読み出しと書き込みを Redis の中で不可分に行う）。
+ * KEYS[1]: キャッシュのキー、KEYS[2]: 世代のキー
+ * ARGV[1]: DB を読む前に読んだ世代（無ければ空文字）、ARGV[2]: TTL（秒）、ARGV[3]: 値
+ * 書き込んだら 1、世代が変わっていて書き込まなかったら 0 を返す
+ */
+const WRITE_IF_GENERATION_UNCHANGED = `
+local current = redis.call('GET', KEYS[2])
+if (current or '') ~= ARGV[1] then
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[3], 'EX', tonumber(ARGV[2]))
+return 1
+`;
+
+/**
+ * キャッシュを消して世代を進める（ユーザーごとに不可分に行う）。
+ * KEYS: キャッシュのキーと世代のキーの組の並び、ARGV[1]: 世代のキーの TTL（秒）
+ */
+const DELETE_AND_ADVANCE_GENERATION = `
+for i = 1, #KEYS, 2 do
+  redis.call('DEL', KEYS[i])
+  redis.call('INCR', KEYS[i + 1])
+  redis.call('EXPIRE', KEYS[i + 1], tonumber(ARGV[1]))
+end
+return #KEYS / 2
+`;
 
 /**
  * RBACサービスの実装
@@ -23,10 +80,26 @@ export class RBACService implements IRBACService {
   /** 権限キャッシュのTTL（秒） */
   private readonly PERMISSION_CACHE_TTL = 15 * 60; // 15分
 
+  /** 権限キャッシュに使う Redis クライアントの取得（呼び出しの時点で解決する） */
+  private readonly redisProvider: RedisClientProvider;
+
+  /**
+   * @param prisma - PrismaClient
+   * @param redis - Redis クライアント、またはそれを呼び出しの時点で返す関数。省略時はキャッシュを使わない
+   */
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly redis?: Redis
-  ) {}
+    redis?: Redis | RedisClientProvider
+  ) {
+    this.redisProvider = typeof redis === 'function' ? redis : () => redis;
+  }
+
+  /**
+   * 現在の Redis クライアント（無ければ undefined）
+   */
+  private get redis(): Redis | undefined {
+    return this.redisProvider() ?? undefined;
+  }
 
   /**
    * ユーザーが持つ全ての権限を取得
@@ -39,19 +112,43 @@ export class RBACService implements IRBACService {
    */
   async getUserPermissions(userId: string): Promise<PermissionInfo[]> {
     // キャッシュキー
-    const cacheKey = `rbac:permissions:${userId}`;
+    const cacheKey = permissionCacheKey(userId);
 
     // Redisキャッシュをチェック（Cache-Aside Pattern）
-    if (this.redis) {
-      try {
-        const cached = await this.redis.get(cacheKey);
-        if (cached) {
-          logger.debug({ userId }, 'Permission cache hit');
-          return JSON.parse(cached) as PermissionInfo[];
+    const redis = this.redis;
+    // 接続が使える状態のときだけキャッシュを読み書きする（要件24.2）。切断中・再接続中の
+    // クライアントへコマンドを送ると、ioredis はオフラインキューに積んで再接続の試行を待つため、
+    // 権限の確認ごとに数秒の遅延が生じうる。その場合は障害として扱い、直ちに DB から取得する
+    let cacheAvailable = false;
+    // DB を読む前の世代（無ければ空文字）。書き込みの時点で変わっていれば、読み出しの間に
+    // 無効化が走ったため書き込まない（無効化の後の古い権限の書き戻しを防ぐ。タスク37.2）
+    let generation = '';
+    if (redis) {
+      if (redis.status === 'ready') {
+        cacheAvailable = true;
+        try {
+          const cached = await redis.get(cacheKey);
+          if (cached) {
+            logger.debug({ userId }, 'Permission cache hit');
+            return JSON.parse(cached) as PermissionInfo[];
+          }
+          // 世代は DB を読む前に読む（無効化はコミットの後に世代を進めるため、ここで読んだ世代が
+          // 書き込みの時点まで変わらなければ、続く DB の読み出しはその無効化の元の変更を反映している）
+          generation = (await redis.get(permissionGenerationKey(userId))) ?? '';
+        } catch (error) {
+          // Graceful Degradation: Redisエラー時はログを出してDBフォールバック（要件24.2 / 24.7）
+          cacheAvailable = false;
+          logger.warn({ err: error, userId }, 'Failed to get permissions from Redis cache');
         }
-      } catch (error) {
-        // Graceful Degradation: Redisエラー時はログを出してDBフォールバック
-        logger.warn({ error, userId }, 'Failed to get permissions from Redis cache');
+      } else {
+        // Graceful Degradation: 接続が使えないときはログを出してDBフォールバック（要件24.2 / 24.7）
+        logger.warn(
+          {
+            err: new Error(`Redis connection is not ready (status: ${redis.status})`),
+            userId,
+          },
+          'Failed to get permissions from Redis cache'
+        );
       }
     }
 
@@ -110,14 +207,29 @@ export class RBACService implements IRBACService {
 
     const permissions = Array.from(permissionMap.values());
 
-    // Redisにキャッシュ（Cache-Aside Pattern）
-    if (this.redis) {
+    // Redisにキャッシュ（Cache-Aside Pattern）。読み出しで障害が起きたときは書き込まない
+    if (redis && cacheAvailable) {
       try {
-        await this.redis.setex(cacheKey, this.PERMISSION_CACHE_TTL, JSON.stringify(permissions));
-        logger.debug({ userId, count: permissions.length }, 'Permissions cached to Redis');
+        const written = await redis.eval(
+          WRITE_IF_GENERATION_UNCHANGED,
+          2,
+          cacheKey,
+          permissionGenerationKey(userId),
+          generation,
+          this.PERMISSION_CACHE_TTL,
+          JSON.stringify(permissions)
+        );
+        if (written === 1) {
+          logger.debug({ userId, count: permissions.length }, 'Permissions cached to Redis');
+        } else {
+          logger.debug(
+            { userId },
+            'Permission cache not written: invalidated while reading permissions'
+          );
+        }
       } catch (error) {
         // Graceful Degradation: キャッシュ失敗してもエラーにしない
-        logger.warn({ error, userId }, 'Failed to cache permissions to Redis');
+        logger.warn({ err: error, userId }, 'Failed to cache permissions to Redis');
       }
     }
 
@@ -230,19 +342,37 @@ export class RBACService implements IRBACService {
    * @param userId - ユーザーID
    */
   async invalidateUserPermissionsCache(userId: string): Promise<void> {
-    if (!this.redis) {
+    const redis = this.redis;
+    if (!redis) {
       // Redisが注入されていない場合は何もしない
       return;
     }
 
-    const cacheKey = `rbac:permissions:${userId}`;
+    if (redis.status !== 'ready') {
+      // 接続が使えないときはコマンドを送らない。送るとオフラインキューに積まれ、再接続まで
+      // 変更の API の応答を待たせる。残ったエントリは TTL（15 分）で消える（タスク37.2）
+      logger.warn(
+        { err: new Error(`Redis connection is not ready (status: ${redis.status})`), userId },
+        'Failed to invalidate permission cache'
+      );
+      return;
+    }
+
+    const cacheKey = permissionCacheKey(userId);
 
     try {
-      await this.redis.del(cacheKey);
+      // キャッシュを消し、世代を進める（読み出しの途中の確認が古い権限を書き戻さないように）
+      await redis.eval(
+        DELETE_AND_ADVANCE_GENERATION,
+        2,
+        cacheKey,
+        permissionGenerationKey(userId),
+        this.PERMISSION_CACHE_TTL
+      );
       logger.debug({ userId }, 'Permission cache invalidated');
     } catch (error) {
       // Graceful Degradation: キャッシュ無効化失敗してもエラーにしない
-      logger.warn({ error, userId }, 'Failed to invalidate permission cache');
+      logger.warn({ err: error, userId }, 'Failed to invalidate permission cache');
     }
   }
 
@@ -255,8 +385,18 @@ export class RBACService implements IRBACService {
    * @param roleId - ロールID
    */
   async invalidateUserPermissionsCacheForRole(roleId: string): Promise<void> {
-    if (!this.redis) {
+    const redis = this.redis;
+    if (!redis) {
       // Redisが注入されていない場合は何もしない
+      return;
+    }
+
+    if (redis.status !== 'ready') {
+      // 接続が使えないときはコマンドを送らない（invalidateUserPermissionsCache と同じ。タスク37.2）
+      logger.warn(
+        { err: new Error(`Redis connection is not ready (status: ${redis.status})`), roleId },
+        'Failed to invalidate permission cache for role'
+      );
       return;
     }
 
@@ -272,11 +412,17 @@ export class RBACService implements IRBACService {
         return;
       }
 
-      // 全ユーザーのキャッシュキーを生成
-      const cacheKeys = userRoles.map((ur) => `rbac:permissions:${ur.userId}`);
-
-      // 一括削除
-      await this.redis.del(...cacheKeys);
+      // 全ユーザーのキャッシュを消し、世代を進める（キャッシュのキーと世代のキーの組）
+      const keys = userRoles.flatMap((ur) => [
+        permissionCacheKey(ur.userId),
+        permissionGenerationKey(ur.userId),
+      ]);
+      await redis.eval(
+        DELETE_AND_ADVANCE_GENERATION,
+        keys.length,
+        ...keys,
+        this.PERMISSION_CACHE_TTL
+      );
 
       logger.debug(
         { roleId, userCount: userRoles.length },
@@ -284,7 +430,26 @@ export class RBACService implements IRBACService {
       );
     } catch (error) {
       // Graceful Degradation: キャッシュ無効化失敗してもエラーにしない
-      logger.warn({ error, roleId }, 'Failed to invalidate permission cache for role');
+      logger.warn({ err: error, roleId }, 'Failed to invalidate permission cache for role');
     }
   }
+}
+
+/** 共有のインスタンス（生成に使った PrismaClient と組で持つ） */
+let shared: { prisma: PrismaClient; service: RBACService } | null = null;
+
+/**
+ * 本番の経路で共有する RBACService を返す（タスク36.2）
+ *
+ * 権限の確認（requirePermission）とキャッシュの無効化（roles.routes.ts / user-roles.routes.ts）が
+ * 同じインスタンスを使うことで、同じ Redis クライアント・同じキャッシュキーを読み書きする。
+ * Redis のクライアントは呼び出しの時点で redis.ts から解決する（未初期化ならキャッシュを使わない）。
+ * db.ts の PrismaClient が作り直されたとき（disconnectPrisma の後）は、新しいクライアントで作り直す。
+ */
+export function getSharedRBACService(): RBACService {
+  const prisma = getPrismaClient();
+  if (!shared || shared.prisma !== prisma) {
+    shared = { prisma, service: new RBACService(prisma, () => redisConnection.getClient()) };
+  }
+  return shared.service;
 }

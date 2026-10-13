@@ -8,7 +8,9 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { TEST_USERS } from '../../helpers/test-users';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * プロジェクト管理ナビゲーションのE2Eテスト
@@ -82,16 +84,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     await page.getByLabel(/現場住所/i).fill('東京都渋谷区テスト1-2-3');
 
     // 営業担当者を確認・選択
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createPromise = page.waitForResponse(
       (response: Response) =>
@@ -153,9 +146,13 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.3
+     * @requirement project-management/REQ-21.4
+     *
+     * タスク 115.188 の是正: 従前は REQ-21.3 を名乗っていたが、受入基準21.3 は「『プロジェクト』リンクにアイ
+     * コンを付与して視認性を高める」であり、配置を述べるのは受入基準21.4（『プロジェクト』リンクを『ダッシュボード』リンクの次に配
+     * 置する）である。直後のアイコンの検証と名乗りが入れ替わっていた。
      */
-    test('「プロジェクト」リンクが「ダッシュボード」リンクの右側に配置されている (project-management/REQ-21.3)', async ({
+    test('「プロジェクト」リンクが「ダッシュボード」リンクの右側に配置されている (project-management/REQ-21.4)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -172,17 +169,20 @@ test.describe('プロジェクト管理ナビゲーション', () => {
 
       const dashboardBox = await dashboardLink.boundingBox();
       const projectBox = await projectLink.boundingBox();
+      assertPresent(dashboardBox, 'ダッシュボードリンクの境界ボックス');
+      assertPresent(projectBox, 'プロジェクトリンクの境界ボックス');
 
-      if (dashboardBox && projectBox) {
-        // プロジェクトリンクがダッシュボードリンクの右側にあることを確認
-        expect(projectBox.x).toBeGreaterThan(dashboardBox.x);
-      }
+      // プロジェクトリンクがダッシュボードリンクの右側にあることを確認
+      expect(projectBox.x).toBeGreaterThan(dashboardBox.x);
     });
 
     /**
-     * @requirement project-management/REQ-21.4
+     * @requirement project-management/REQ-21.3
+     *
+     * タスク 115.188 の是正: 従前は REQ-21.4 を名乗っていたが、受入基準21.4 はリンクの配置であり、
+     * アイコンの付与を述べるのは受入基準21.3 である。直前の配置の検証と名乗りが入れ替わっていた。
      */
-    test('「プロジェクト」リンクにプロジェクトを表すアイコンが表示される (project-management/REQ-21.4)', async ({
+    test('「プロジェクト」リンクにプロジェクトを表すアイコンが表示される (project-management/REQ-21.3)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -243,9 +243,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.7
+     * @requirement project-management/REQ-21.8
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('「プロジェクト管理」カードがクイックアクセスセクションの先頭に配置されている (project-management/REQ-21.7)', async ({
+    test('「プロジェクト管理」カードがクイックアクセスセクションの先頭に配置されている (project-management/REQ-21.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -257,18 +260,21 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       const cards = page.getByRole('link').filter({ hasText: /管理/ });
       const firstCard = cards.first();
 
+      await expect(firstCard).toBeVisible({ timeout: getTimeout(10000) });
       const firstCardText = await firstCard.textContent();
+      assertPrepared(firstCardText, 'クイックアクセス先頭カードのテキスト');
 
       // 最初のカードが「プロジェクト管理」であることを確認
-      if (firstCardText) {
-        expect(firstCardText).toMatch(/プロジェクト管理/i);
-      }
+      expect(firstCardText).toMatch(/プロジェクト管理/i);
     });
 
     /**
-     * @requirement project-management/REQ-21.8
+     * @requirement project-management/REQ-21.7
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('「プロジェクト管理」カードに「工事案件の作成・管理」という説明文が表示される (project-management/REQ-21.8)', async ({
+    test('「プロジェクト管理」カードに「工事案件の作成・管理」という説明文が表示される (project-management/REQ-21.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -379,6 +385,17 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     test('存在しないプロジェクトIDにアクセス時にエラーメッセージと戻るリンクを表示 (project-management/REQ-21.13)', async ({
       page,
     }) => {
+      // REQ-21.13 のうち「プロジェクト一覧への戻るリンク」は未実装である。
+      // ProjectDetailPage のエラー表示は再試行ボタンだけを置く
+      // （取引先詳細が使う ResourceNotFound のような戻る導線が無い）。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+
+      test.fail();
+
       await loginAsUser(page, 'REGULAR_USER');
 
       // 存在しないUUID
@@ -391,15 +408,18 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       );
       await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 戻る手段の確認（リンクまたは再試行ボタン）
+      // REQ-21.13 はエラーメッセージの表示に加えて「プロジェクト一覧への戻るリンク」を
+      // 提供することを求めている。
+      // 以前は「戻るリンク または 再試行ボタン」の論理和で判定していた。
+      // 実装（ProjectDetailPage のエラー表示）が置くのは再試行ボタンだけで、
+      // 戻るリンクは存在しない。論理和は再試行ボタンだけで成立するため、
+      // 要件のうち戻るリンクの部分を一度も確かめていなかった。
+      // 要件が求める戻るリンクそのものを主張する。
       const backLink = page.getByRole('link', { name: /一覧に戻る|プロジェクト一覧/i });
-      const retryButton = page.getByRole('button', { name: /再試行/i });
-
-      const hasBackLink = await backLink.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasRetryButton = await retryButton.isVisible({ timeout: 3000 }).catch(() => false);
-
-      // 少なくとも1つのナビゲーション手段があることを確認
-      expect(hasBackLink || hasRetryButton).toBeTruthy();
+      await expect(
+        backLink,
+        'REQ-21.13: 存在しないプロジェクトIDのエラー画面にプロジェクト一覧への戻るリンクが無い'
+      ).toBeVisible({ timeout: getTimeout(3000) });
     });
   });
 
@@ -522,16 +542,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       // 取引先は任意フィールドのため未選択のまま進める
 
       // 営業担当者を選択
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // APIレスポンスを待機しながら作成ボタンをクリック
       const createPromise = page.waitForResponse(
@@ -649,11 +660,13 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.25
+     * タスク 115.188 の是正: 従前は REQ-21.25 を名乗っていたが、原文 21.25 は
+     * 「プロジェクト管理ページ群を保護し、認証済みユーザーのみアクセスを許可する」であり、
+     * 「一覧に戻る」リンクとは主題が別である。要件21 に「一覧に戻る」リンクの遷移を述べる
+     * 条文は無いため（21.13 は存在しないIDにアクセスした場合の戻るリンクに限る）、
+     * 被覆印を取り下げる。`project-detail.spec.ts` の同種の検証と同じ裁定である。
      */
-    test('詳細ページで「一覧に戻る」リンクをクリック時に一覧ページに遷移 (project-management/REQ-21.25)', async ({
-      page,
-    }) => {
+    test('詳細ページで「一覧に戻る」リンクをクリック時に一覧ページに遷移', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // テスト用プロジェクトを作成
@@ -682,9 +695,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
    */
   test.describe('認証・認可', () => {
     /**
-     * @requirement project-management/REQ-21.26
+     * @requirement project-management/REQ-21.25
+     *
+     * タスク 115.188 の是正: 群が一律に一つ後ろへずれていた。原文 21.25 は
+     * 「プロジェクト管理ページ群を保護し、認証済みユーザーのみアクセスを許可する」である。
      */
-    test('プロジェクト管理ページがProtectedRouteで保護されている (project-management/REQ-21.26)', async ({
+    test('プロジェクト管理ページがProtectedRouteで保護されている (project-management/REQ-21.25)', async ({
       page,
     }) => {
       // 未認証状態でプロジェクト一覧ページにアクセス
@@ -696,9 +712,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.27
+     * @requirement project-management/REQ-21.26
+     *
+     * タスク 115.188 の是正: 原文 21.26 は「プロジェクト管理ページ群に共通レイアウト
+     * （ナビゲーションヘッダー付き）を適用する」であり、本検証の主題と一致する。
      */
-    test('プロジェクト管理ページにProtectedLayoutが適用されている (project-management/REQ-21.27)', async ({
+    test('プロジェクト管理ページにProtectedLayoutが適用されている (project-management/REQ-21.26)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -725,9 +744,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.28
+     * @requirement project-management/REQ-21.27
+     *
+     * タスク 115.188 の是正: 原文 21.27 は「未認証ユーザーがプロジェクト管理ページに
+     * アクセスした場合、ログインページにリダイレクトする」であり、本検証の主題と一致する。
      */
-    test('未認証ユーザーアクセス時にログインページにリダイレクト (project-management/REQ-21.28)', async ({
+    test('未認証ユーザーアクセス時にログインページにリダイレクト (project-management/REQ-21.27)', async ({
       page,
     }) => {
       // 未認証状態で各ページにアクセスし、ログインページにリダイレクトされることを確認
@@ -743,9 +765,13 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.29
+     * @requirement project-management/REQ-21.28
+     *
+     * タスク 115.188 の是正: 従前は要件定義書に存在しない REQ-21.29 を名乗っていた。
+     * 要件21の受入基準は28件までであり、本検証が主張する内容は受入基準21.28
+     * （ログイン後、元のページ（リダイレクト元のプロジェクトページ）に遷移する）である。
      */
-    test('ログイン後に元のページに遷移 (project-management/REQ-21.29)', async ({ page }) => {
+    test('ログイン後に元のページに遷移 (project-management/REQ-21.28)', async ({ page }) => {
       // 未認証状態でプロジェクト一覧ページにアクセス
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');

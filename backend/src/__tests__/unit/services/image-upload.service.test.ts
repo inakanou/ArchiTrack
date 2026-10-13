@@ -30,6 +30,7 @@ const mockPrisma = {
   surveyImage: {
     create: vi.fn(),
     count: vi.fn(),
+    aggregate: vi.fn(),
   },
   $transaction: vi.fn(),
 };
@@ -64,12 +65,16 @@ import {
   MaxImagesExceededError,
   type UploadInput,
 } from '../../../services/image-upload.service.js';
+import { ImageProcessorService } from '../../../services/image-processor.service.js';
 
 describe('ImageUploadService', () => {
   let service: ImageUploadService;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // 採番は既存の最大表示順序を参照する（Task 115.20 / Requirements 4.10）。
+    // 既定は画像なし（最大値なし）とし、必要なテストで上書きする。
+    mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: null } });
     service = new ImageUploadService({
       prisma: mockPrisma as never,
       s3Client: mockS3Client as never,
@@ -102,7 +107,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -250,16 +255,103 @@ describe('ImageUploadService', () => {
       expect(results.failed[0]?.error).toContain('上限');
       expect(results.failed[1]?.error).toContain('上限');
     });
+
+    /**
+     * Task 115.20 / Requirements 4.10
+     *
+     * 実データでは同一現場調査内に表示順序の重複が観測されている。
+     * まとめて登録する経路の採番が既存の値と衝突しないことを確認する。
+     */
+    it('既存の最大表示順序の次から一意に採番すること（Requirements: 4.10）', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      const files = [1, 2, 3].map((index) => ({
+        buffer: Buffer.from(`test${index}`),
+        mimetype: 'image/jpeg',
+        originalname: `test${index}.jpg`,
+        size: 1024,
+      }));
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: surveyId,
+        deletedAt: null,
+      });
+      // 表示順序1〜6のうち1件を削除した状態（件数5・最大6）。
+      // 件数起点の採番だと既存の6と重複してしまう。
+      mockPrisma.surveyImage.count.mockResolvedValue(5);
+      mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: 6 } });
+      mockSurveyImageService.validateFile.mockReturnValue(undefined);
+      mockSurveyImageService.sanitizeFileName.mockImplementation((name: string) => name);
+      mockImageProcessorService.processImage.mockResolvedValue({
+        original: {
+          buffer: Buffer.from('processed'),
+          metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
+          originalExceededSizeLimit: false,
+        },
+        thumbnail: Buffer.from('thumbnail'),
+        metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
+      });
+      mockS3Client.send.mockResolvedValue({});
+      mockPrisma.surveyImage.create.mockImplementation(
+        (args: { data: { displayOrder: number; fileName: string } }) =>
+          Promise.resolve({
+            id: `img-${args.data.displayOrder}`,
+            surveyId,
+            fileName: args.data.fileName,
+            fileSize: 1024,
+            width: 800,
+            height: 600,
+            displayOrder: args.data.displayOrder,
+            originalPath: 'surveys/123/original.jpg',
+            thumbnailPath: 'surveys/123/thumb.jpg',
+            createdAt: new Date(),
+          })
+      );
+
+      const results = await service.uploadBatch(surveyId, files);
+
+      expect(results.failed).toHaveLength(0);
+      const assignedOrders = results.successful.map((image) => image.displayOrder);
+      expect(assignedOrders).toEqual([7, 8, 9]);
+      expect(new Set(assignedOrders).size).toBe(assignedOrders.length);
+    });
   });
 
+  /**
+   * Task 115.20 / Requirements 4.10
+   *
+   * 採番は「件数+1」だと削除でできた欠番により既存の値と衝突する。
+   * 既存の最大値+1とすることで、同一現場調査内で値が重複しないようにする。
+   */
   describe('getNextDisplayOrder', () => {
-    it('現在の画像数+1を返すこと', async () => {
-      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+    const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+
+    it('既存の最大表示順序+1を返すこと', async () => {
       mockPrisma.surveyImage.count.mockResolvedValue(5);
+      mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: 5 } });
 
       const result = await service.getNextDisplayOrder(surveyId);
 
       expect(result).toBe(6);
+    });
+
+    it('画像が1件もない場合は1を返すこと', async () => {
+      mockPrisma.surveyImage.count.mockResolvedValue(0);
+      mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: null } });
+
+      const result = await service.getNextDisplayOrder(surveyId);
+
+      expect(result).toBe(1);
+    });
+
+    it('削除により欠番が生じても既存の値と重複しない番号を返すこと', async () => {
+      // 表示順序1〜6のうち1件を削除した状態。件数は5だが最大値は6。
+      // 件数+1では既存の6と重複してしまう。
+      mockPrisma.surveyImage.count.mockResolvedValue(5);
+      mockPrisma.surveyImage.aggregate.mockResolvedValue({ _max: { displayOrder: 6 } });
+
+      const result = await service.getNextDisplayOrder(surveyId);
+
+      expect(result).toBe(7);
     });
   });
 
@@ -285,7 +377,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -333,7 +425,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -386,7 +478,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -434,6 +526,66 @@ describe('ImageUploadService', () => {
       // S3アップロードは呼ばれていないこと
       expect(mockS3Client.send).not.toHaveBeenCalled();
     });
+
+    /**
+     * @requirement site-survey/REQ-21.7
+     *
+     * 条文が述べるのは「Content-Type を**設定する**」ことである。判定そのものは
+     * `SurveyImageService.validateFile` の担当で、その返り値を Content-Type として
+     * 実際に置くのは本サービスであるため、被覆印をここへ置く。
+     *
+     * 申告 MIME（`image/png`）と判定結果（`image/webp`）を食い違わせることで、
+     * 設定元が申告値ではなく判定結果であることを弁別する。原画像とサムネイルの
+     * 二回とも判定結果が置かれることを、順序を含めて固定する。
+     */
+    it('Content-Typeにマジックバイト判定結果を用いること (site-survey/REQ-21.7)', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      const file = {
+        buffer: Buffer.from('test'),
+        mimetype: 'image/png',
+        originalname: 'photo.png',
+        size: 1024,
+      };
+      const input: UploadInput = { surveyId, file };
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: surveyId,
+        deletedAt: null,
+      });
+      mockPrisma.surveyImage.count.mockResolvedValue(0);
+      // マジックバイト判定は申告 MIME と異なる形式を返す
+      mockSurveyImageService.validateFile.mockReturnValue('image/webp');
+      mockSurveyImageService.sanitizeFileName.mockReturnValue('photo.png');
+      mockImageProcessorService.processImage.mockResolvedValue({
+        original: {
+          buffer: Buffer.from('processed'),
+          metadata: { width: 800, height: 600, size: 1024, format: 'webp' },
+          originalExceededSizeLimit: false,
+        },
+        thumbnail: Buffer.from('thumbnail'),
+        metadata: { width: 800, height: 600, size: 1024, format: 'webp' },
+      });
+      mockS3Client.send.mockResolvedValue({});
+      mockPrisma.surveyImage.create.mockResolvedValue({
+        id: 'img-new',
+        surveyId,
+        fileName: 'photo.png',
+        fileSize: 1024,
+        width: 800,
+        height: 600,
+        displayOrder: 1,
+        originalPath: 'surveys/123/photo.png',
+        thumbnailPath: 'surveys/123/thumb_photo.png',
+        createdAt: new Date(),
+      });
+
+      await service.upload(input);
+
+      const contentTypes = mockS3Client.send.mock.calls.map(
+        ([command]) => (command as { params: { ContentType: string } }).params.ContentType
+      );
+      expect(contentTypes).toStrictEqual(['image/webp', 'image/webp']);
+    });
   });
 
   describe('uploadBatch (Requirements: 4.2, 4.3)', () => {
@@ -471,7 +623,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -540,7 +692,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -602,7 +754,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -659,7 +811,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -689,6 +841,69 @@ describe('ImageUploadService', () => {
       // 既存5件 + 新規1件目 = 6, 既存5件 + 新規2件目 = 7
       expect(result.successful[0]!.displayOrder).toBe(6);
       expect(result.successful[1]!.displayOrder).toBe(7);
+    });
+  });
+
+  describe('upload（圧縮しきれない画像の登録 / 要件4.14）', () => {
+    /**
+     * 要件4.14 の「登録する」を保存経路で固定する。
+     * `ImageProcessorService` 側の検証（`image-processor.service.test.ts`）は
+     * 圧縮が打ち切られて 350KB 超の結果が返ることまでしか見ない。
+     *
+     * 本検証が単独で捉える変異: 保存経路へ「圧縮後のサイズが 350KB を超えたら拒否する」
+     * を足す改変（要件4.14 が採らなかった案 (b) の実装）。
+     *
+     * @requirement site-survey/REQ-4.14
+     */
+    it('圧縮後も350KBを超えたままの画像を拒否せず、そのサイズで登録すること', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      // 打ち切りサイズを1バイト超える。下限まで下げても収まらなかった場合の値。
+      // 実装の定数を参照する（自前の数値を持つと定数が動いたとき片方だけ追随しない）
+      const overLimitSize = ImageProcessorService.TARGET_MAX_SIZE_BYTES + 1;
+      const file = {
+        buffer: Buffer.from('huge'),
+        mimetype: 'image/jpeg',
+        originalname: 'huge.jpg',
+        size: 10 * 1024 * 1024,
+      };
+      const input: UploadInput = { surveyId, file };
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({ id: surveyId, deletedAt: null });
+      mockPrisma.surveyImage.count.mockResolvedValue(0);
+      mockSurveyImageService.validateFile.mockReturnValue('image/jpeg');
+      mockSurveyImageService.sanitizeFileName.mockReturnValue('huge.jpg');
+      mockImageProcessorService.processImage.mockResolvedValue({
+        original: {
+          buffer: Buffer.from('compressed-but-still-over'),
+          metadata: { width: 480, height: 270, size: overLimitSize, format: 'jpeg' },
+          originalExceededSizeLimit: true,
+        },
+        thumbnail: Buffer.from('thumbnail'),
+        metadata: { width: 480, height: 270, size: overLimitSize, format: 'jpeg' },
+      });
+      mockS3Client.send.mockResolvedValue({});
+      mockPrisma.surveyImage.create.mockImplementation((args: { data: Record<string, unknown> }) =>
+        Promise.resolve({
+          id: 'img-over-limit',
+          createdAt: new Date(),
+          ...args.data,
+        })
+      );
+
+      // 拒否しない。await が拒否されれば本検証は落ちる
+      const result = await service.upload(input);
+
+      expect(mockPrisma.surveyImage.create, '350KB超のまま登録されていない').toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ fileSize: overLimitSize }),
+        })
+      );
+      expect(result.fileSize, '登録されたサイズが圧縮後のサイズと違う').toBe(overLimitSize);
+      expect(result.fileSize, '前提が崩れている（打ち切りサイズ以下になっている）').toBeGreaterThan(
+        ImageProcessorService.TARGET_MAX_SIZE_BYTES
+      );
+      // 原画像とサムネイルの両方がストレージへ送られている（登録が完了している）
+      expect(mockS3Client.send).toHaveBeenCalledTimes(2);
     });
   });
 

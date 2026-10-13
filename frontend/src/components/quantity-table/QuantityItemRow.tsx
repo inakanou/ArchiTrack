@@ -8,6 +8,25 @@
  * - 5.3: 必須フィールド（大項目・工種・名称・単位・数量）が未入力で保存を試行する
  * - 5.4: 数量項目を選択して削除操作を行う
  * - 6.1: 選択した数量項目をコピーする
+ *
+ * ## 本番の画面ではこの部品を描画する枝を通らない。撤去せずに残すと決めた（Task 89.1）
+ *
+ * 本部品を描画するのは `QuantityGroupCard` の `isEditable` が偽の枝だけである。本番で
+ * `QuantityGroupCard` を描画するのは `QuantityTableEditPage` の1箇所で、常に `isEditable` を
+ * 渡すため、**本番の画面ではこの枝を通らない**。取り込みの有無だけを見る検査
+ * （`npm run check:req-coverage` の本番到達性）は本部品を到達と数えるので、この形は
+ * 「取り込みゼロの死」としては現れない。
+ *
+ * 一方で `isEditable` の既定値は偽であり、読み取り専用の表示は `QuantityGroupCard` の
+ * 単体検証が既定値のまま描画して確かめている。当該の枝を `null` へ置き換える変異を当てると、
+ * `npm --prefix frontend run test -- QuantityGroupCard PhotoCommentBugfix QuantityTableBreadcrumb AnnotatedImageThumbnail QuantityItemActionMenu QuantityTableEditPage`
+ * が 378 件中 7 件（2 ファイル。いずれも `QuantityGroupCard.test.tsx`）落ちた。
+ * 変異を戻した同じ実行は 378 件すべて通った（コミット `4e560c7f` の作業ツリー、2026-09-12 に
+ * リポジトリルートで実測。復元は控えからの書き戻しで行い `git hash-object` の一致で確認した）。
+ *
+ * **撤去は本部品の削除にとどまらず、`QuantityGroupCard` の読み取り専用の表示そのものを
+ * 作り直す変更になる。** それは未結線部品の処遇という Task 89.1 の境界を越えるため残置とした。
+ * 読み取り専用の表示を廃するなら、`isEditable` の扱いを含めて別タスクとして起こすこと。
  */
 
 import { useState, useCallback } from 'react';

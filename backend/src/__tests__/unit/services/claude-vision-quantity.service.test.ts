@@ -86,6 +86,13 @@ describe('ClaudeVisionService - 数量表抽出', () => {
   });
 
   describe('extractQuantityTableData', () => {
+    /**
+     * Claude API のレスポンスから取り出した JSON 形式の表データが、大項目・中項目・
+     * 小項目・任意分類・工種・名称・規格・数量・単位・備考の各数量項目フィールドへ
+     * 対応づけられることをこの検証が確かめる。
+     *
+     * @requirement quantity-table-generation/REQ-30.4
+     */
     it('数量表用プロンプトでClaude Vision APIを呼び出し、数量項目フィールドにマッピングされた結果を返す', async () => {
       // Arrange
       const mockResponseJson: ClaudeVisionQuantityLineItem[] = [
@@ -146,6 +153,13 @@ describe('ClaudeVisionService - 数量表抽出', () => {
       });
     });
 
+    /**
+     * Claude API へのリクエストに、数量表の表構造を解析するためのプロンプトが
+     * 含まれることをこの検証が確かめる（送信した内容ブロックのテキストを読み、
+     * 数量表の各欄の抽出指示が在り、見積書用の欄が無いことまで見る）。
+     *
+     * @requirement quantity-table-generation/REQ-30.3
+     */
     it('数量表用プロンプトに数量項目フィールド（大項目・中項目・小項目・任意分類・工種・名称・規格・数量・単位・備考）の抽出指示が含まれる', async () => {
       mockCreate.mockResolvedValue({
         content: [{ type: 'text', text: '[]' }],

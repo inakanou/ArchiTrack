@@ -15,14 +15,71 @@
  * - 12.28: ログイン後に元のページに遷移
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { getPrismaClient } from '../../fixtures/database';
+import { seedTradingPartner } from '../../helpers/project-list-preconditions';
+
+/**
+ * 取引先操作が監査ログに記録されていることを主張する。
+ *
+ * REQ-7.4 / REQ-7.6 の監査ログはサーバ側で記録される
+ * （`TradingPartnerService` が `AuditLogService.createLog` を呼ぶ）。
+ * ブラウザは監査ログAPIを呼ばないため、画面側のリクエスト観測では記録の有無を判定できない。
+ * 記録先である `audit_logs` を直接参照する。
+ *
+ * @param partnerId 対象の取引先ID
+ * @param action 期待する操作（`TRADING_PARTNER_UPDATED` / `TRADING_PARTNER_DELETED` など）
+ */
+async function expectAuditLogRecorded(partnerId: string, action: string): Promise<void> {
+  const prisma = getPrismaClient();
+  await expect
+    .poll(
+      async () =>
+        prisma.auditLog.count({
+          where: { targetType: 'TradingPartner', targetId: partnerId, action },
+        }),
+      {
+        timeout: getTimeout(10000),
+        message: `REQ-7.4/REQ-7.6: ${action} が監査ログに記録される (targetId=${partnerId})`,
+      }
+    )
+    .toBeGreaterThan(0);
+}
 
 /**
  * 取引先管理の追加要件テスト
  */
+
+/**
+ * リダイレクトされたログイン画面で、その画面を離れずにログインする。
+ *
+ * `loginAsUser` は `/login` へ改めて遷移するため、ProtectedRoute が付けた
+ * `redirectUrl` クエリを捨ててしまう。それではログイン後の戻り先（REQ-12.28）を
+ * 確かめられないため、表示されているログイン画面のまま認証する。
+ *
+ * @param page Playwright のページ（ログイン画面にリダイレクト済みであること）
+ */
+async function loginOnRedirectedLoginPage(page: Page): Promise<void> {
+  const user = TEST_USERS.REGULAR_USER;
+
+  const emailInput = page.getByLabel(/メールアドレス/i);
+  await expect(emailInput, '前提: リダイレクト先のログイン画面が表示される').toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await emailInput.fill(user.email);
+  await page.locator('input#password').fill(user.password);
+  await page.getByRole('button', { name: /ログイン/i }).click();
+
+  await page.waitForURL((url) => !url.pathname.includes('/login'), {
+    timeout: getTimeout(15000),
+  });
+  await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
+}
+
 test.describe('取引先管理の追加要件', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -139,15 +196,6 @@ test.describe('取引先管理の追加要件', () => {
         { timeout: getTimeout(30000) }
       );
 
-      // 監査ログAPIの呼び出しを監視（存在しない場合はtimeoutで終了）
-      const auditLogListener = page
-        .waitForResponse(
-          (response) =>
-            response.url().includes('/api/audit-logs') && response.request().method() === 'POST',
-          { timeout: 5000 }
-        )
-        .catch(() => null);
-
       // 保存ボタンをクリック
       await page.getByRole('button', { name: /保存/i }).click();
 
@@ -160,12 +208,12 @@ test.describe('取引先管理の追加要件', () => {
         timeout: getTimeout(10000),
       });
 
-      // 監査ログAPIの結果を確認（オプション - 実装されていなくても成功）
-      const auditLogResponse = await auditLogListener;
-      if (auditLogResponse) {
-        expect(auditLogResponse.status()).toBe(201);
-      }
-      // 注: 監査ログ機能は将来的に実装予定。現時点では更新操作の成功のみを確認
+      // REQ-7.4, REQ-7.6: 更新操作が監査ログに記録されていることを確認。
+      // 監査ログはサーバ側で記録される（TradingPartnerService が AuditLogService.createLog を呼ぶ）ため、
+      // ブラウザからの `POST /api/audit-logs` は原理的に発生しない。
+      // 以前はその発生しない要求を関門にしていたため、この主張は一度も実行されていなかった。
+      // 記録先である監査ログそのものを参照して無条件に主張する。
+      await expectAuditLogRecorded(partnerId, 'TRADING_PARTNER_UPDATED');
     });
 
     /**
@@ -224,15 +272,6 @@ test.describe('取引先管理の追加要件', () => {
         { timeout: getTimeout(30000) }
       );
 
-      // 監査ログAPIの呼び出しを監視（存在しない場合はtimeoutで終了）
-      const auditLogListener = page
-        .waitForResponse(
-          (response) =>
-            response.url().includes('/api/audit-logs') && response.request().method() === 'POST',
-          { timeout: 5000 }
-        )
-        .catch(() => null);
-
       // ダイアログ内の「削除」ボタンをクリック
       await page
         .getByTestId('focus-manager-overlay')
@@ -247,12 +286,8 @@ test.describe('取引先管理の追加要件', () => {
         timeout: getTimeout(10000),
       });
 
-      // 監査ログAPIの結果を確認（オプション - 実装されていなくても成功）
-      const auditLogResponse = await auditLogListener;
-      if (auditLogResponse) {
-        expect(auditLogResponse.status()).toBe(201);
-      }
-      // 注: 監査ログ機能は将来的に実装予定。現時点では削除操作の成功のみを確認
+      // REQ-7.4, REQ-7.6: 削除操作が監査ログに記録されていることを確認（記録先を直接参照する）
+      await expectAuditLogRecorded(partnerId, 'TRADING_PARTNER_DELETED');
     });
   });
 
@@ -324,9 +359,16 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-8.4
+     * @requirement trading-partner-management/REQ-2.8
+     *
+     * タスク 115.188 の是正: 従前は REQ-8.4 を名乗っていた。原文8.4 の前件は
+     * 「**エラーメッセージ**を表示するとき」であり、本検証が確定させるのはその逆の
+     * 「取引先を作成しました」という**成功**メッセージである。成功メッセージの表示を
+     * 述べるのは原文2.8（作成に成功したとき成功メッセージを表示し一覧ページに遷移する）
+     * である。8.4 は同ファイル 301 行および `trading-partner-error-handling.spec.ts:409`
+     * のエラー表示検証が引き続き名乗る。
      */
-    test('成功メッセージもToastNotificationで表示される (trading-partner-management/REQ-8.4)', async ({
+    test('成功メッセージもToastNotificationで表示される (trading-partner-management/REQ-2.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -441,6 +483,10 @@ test.describe('取引先管理の追加要件', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-10.4 は検索結果の各項目を定める。結果が0件だと項目の主張が一つも実行されないため、
+      // 検索語「テスト」に必ず一致する取引先をこのテスト自身が用意する。
+      await seedTradingPartner(page, 'テスト取引先検索');
+
       // APIトークンを取得
       const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
 
@@ -464,14 +510,13 @@ test.describe('取引先管理の追加要件', () => {
       // 最大10件までであることを確認
       expect(searchData.length).toBeLessThanOrEqual(10);
 
-      // 各結果に必要な情報が含まれていることを確認
-      if (searchData.length > 0) {
-        const firstResult = searchData[0];
-        expect(firstResult).toHaveProperty('id');
-        expect(firstResult).toHaveProperty('name');
-        expect(firstResult).toHaveProperty('nameKana');
-        expect(firstResult).toHaveProperty('types');
-      }
+      // REQ-10.4: 検索結果には取引先ID・取引先名・フリガナ・種別が含まれる
+      expect(searchData.length, 'REQ-10.4: 検索結果が1件以上返る').toBeGreaterThan(0);
+      const firstResult = searchData[0];
+      expect(firstResult).toHaveProperty('id');
+      expect(firstResult).toHaveProperty('name');
+      expect(firstResult).toHaveProperty('nameKana');
+      expect(firstResult).toHaveProperty('types');
     });
 
     /**
@@ -567,15 +612,22 @@ test.describe('取引先管理の追加要件', () => {
   /**
    * データインテグリティのテスト
    *
-   * REQ-11.7: 電話番号の形式バリデーション
-   * REQ-11.8: FAX番号の形式バリデーション
-   * REQ-11.9: メールアドレスの形式バリデーション
+   * REQ-11.5: 電話番号の形式バリデーション
+   * REQ-11.6: FAX番号の形式バリデーション
+   * REQ-11.7: メールアドレスの形式バリデーション
+   *
+   * タスク 115.188 の是正: この群の三つの名乗りは一律に一つ後ろへずれていた
+   * （原文の要件11は 5=電話番号・6=FAX番号・7=メールアドレス・8=住所の最大文字数・
+   * 9=請求締日）。表題・本文が述べる内容と原文を一件ずつ突き合わせて名乗り直した。
    */
   test.describe('データインテグリティ - 形式バリデーション', () => {
     /**
-     * @requirement trading-partner-management/REQ-11.7
+     * @requirement trading-partner-management/REQ-11.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.7 を名乗っていたが、受入基準11.7 は「メールアドレスの形式バリデー
+     * ションを実行する」であり、電話番号の形式バリデーションを述べるのは受入基準11.5 である。
      */
-    test('電話番号の形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.7)', async ({
+    test('電話番号の形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -595,9 +647,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.7
+     * @requirement trading-partner-management/REQ-11.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.7 を名乗っていたが、受入基準11.7 は「メールアドレスの形式バリデー
+     * ションを実行する」であり、電話番号の形式バリデーションを述べるのは受入基準11.5 である。
      */
-    test('正しい電話番号形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.7)', async ({
+    test('正しい電話番号形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -623,9 +678,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.8
+     * @requirement trading-partner-management/REQ-11.6
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.8 を名乗っていたが、受入基準11.8 は「住所の最大文字数を500文字
+     * に制限する」であり、FAX番号の形式バリデーションを述べるのは受入基準11.6 である。
      */
-    test('FAX番号の形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.8)', async ({
+    test('FAX番号の形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -645,9 +703,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.8
+     * @requirement trading-partner-management/REQ-11.6
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.8 を名乗っていたが、受入基準11.8 は「住所の最大文字数を500文字
+     * に制限する」であり、FAX番号の形式バリデーションを述べるのは受入基準11.6 である。
      */
-    test('正しいFAX番号形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.8)', async ({
+    test('正しいFAX番号形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -675,9 +736,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.9
+     * @requirement trading-partner-management/REQ-11.7
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.9 を名乗っていたが、受入基準11.9 は「請求締日を1〜31の整数値ま
+     * たは『末日』（計32オプション）として管理する」であり、メールアドレスの形式バリデーションを述べるのは受入基準11.7 である。
      */
-    test('メールアドレスの形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.9)', async ({
+    test('メールアドレスの形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -697,9 +761,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.9
+     * @requirement trading-partner-management/REQ-11.7
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.9 を名乗っていたが、受入基準11.9 は「請求締日を1〜31の整数値ま
+     * たは『末日』（計32オプション）として管理する」であり、メールアドレスの形式バリデーションを述べるのは受入基準11.7 である。
      */
-    test('正しいメールアドレス形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.9)', async ({
+    test('正しいメールアドレス形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -773,21 +840,19 @@ test.describe('取引先管理の追加要件', () => {
       // ログインページにリダイレクトされることを確認
       await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
 
-      // ログイン実行
-      await loginAsUser(page, 'REGULAR_USER');
+      // REQ-12.28: ログイン後は元のページ（リダイレクト元の取引先ページ）に遷移する。
+      // 以前は `loginAsUser` を呼んでいたが、この補助は `/login` へ改めて遷移するため
+      // ProtectedRoute が付けた `redirectUrl` を捨ててしまい、常に既定の遷移先に着く。
+      // そのうえで「元のページ または ダッシュボード または 取引先一覧」を許していたため、
+      // どこへ遷移しても成立し、要件の戻り先を一度も確かめていなかった
+      // （`/trading-partners` は元のページのURLにも含まれるため、三項目は互いに重なる）。
+      // リダイレクトされたログイン画面のまま認証し、戻り先そのものを主張する。
+      await loginOnRedirectedLoginPage(page);
 
-      // 元のページ（取引先詳細）または一覧にリダイレクトされることを確認
-      // 注: 実装により元のページに戻るか、ダッシュボードに戻るかが異なる場合がある
-      await page.waitForLoadState('networkidle');
-
-      // 元のページまたはダッシュボードに遷移していることを確認
-      const currentUrl = page.url();
-      const isOnOriginalPage = currentUrl.includes(`/trading-partners/${partnerId}`);
-      const isOnDashboard = currentUrl.includes('/dashboard') || currentUrl === '/';
-      const isOnTradingPartnersList = currentUrl.includes('/trading-partners');
-
-      // いずれかのページに遷移していればOK
-      expect(isOnOriginalPage || isOnDashboard || isOnTradingPartnersList).toBe(true);
+      await expect(page, 'REQ-12.28: ログイン後に元の取引先詳細へ戻らない').toHaveURL(
+        new RegExp(`/trading-partners/${partnerId}$`),
+        { timeout: getTimeout(15000) }
+      );
     });
 
     /**
@@ -802,18 +867,15 @@ test.describe('取引先管理の追加要件', () => {
       // ログインページにリダイレクトされることを確認
       await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
 
-      // ログイン実行
-      await loginAsUser(page, 'REGULAR_USER');
+      // REQ-12.28: ログイン後は元のページ（取引先一覧）に遷移する。
+      // 以前は `loginAsUser` が `redirectUrl` を捨てるうえ、「元のページ または
+      // ダッシュボード」を許していたため、どこへ遷移しても成立していた。
+      await loginOnRedirectedLoginPage(page);
 
-      // 元のページ（取引先一覧）またはダッシュボードに遷移していることを確認
-      await page.waitForLoadState('networkidle');
-
-      const currentUrl = page.url();
-      const isOnOriginalPage = currentUrl.includes('/trading-partners');
-      const isOnDashboard = currentUrl.includes('/dashboard') || currentUrl === '/';
-
-      // いずれかのページに遷移していればOK
-      expect(isOnOriginalPage || isOnDashboard).toBe(true);
+      await expect(page, 'REQ-12.28: ログイン後に元の取引先一覧へ戻らない').toHaveURL(
+        /\/trading-partners$/,
+        { timeout: getTimeout(15000) }
+      );
     });
   });
 });

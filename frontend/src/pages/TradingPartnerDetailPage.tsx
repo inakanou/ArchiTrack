@@ -125,6 +125,16 @@ const styles = {
     textAlign: 'center' as const,
     padding: '24px 0',
   } as React.CSSProperties,
+  // タスク 31.3: 関連プロジェクトの表だけを水平スクロールさせる領域。表の最小幅が画面幅を
+  // 超えるモバイル幅でも main を押し広げず、表がこの領域の中で横にスクロールする
+  // （数量表の REQ-41 の itemTableWrapper と同じ方式）。デスクトップ幅では表が領域の幅に
+  // 収まるため、スクロールせず従来と同じ配置になる。overflowX だけを指定すると overflowY が
+  // 暗黙に auto へ昇格して入れ子の縦スクロールが生じうるため、縦方向はクリップを明示する。
+  // 表の中に絶対配置のポップアップは無く、領域のクリップで切られるものは無い。
+  projectsTableScroll: {
+    overflowX: 'auto' as const,
+    overflowY: 'hidden' as const,
+  } as React.CSSProperties,
   projectsTable: {
     width: '100%',
     borderCollapse: 'collapse' as const,
@@ -395,32 +405,41 @@ export default function TradingPartnerDetailPage() {
         ) : relatedProjects.length === 0 ? (
           <p style={styles.projectsEmptyMessage}>関連するプロジェクトはありません</p>
         ) : (
-          <table style={styles.projectsTable} aria-label="プロジェクト一覧">
-            <thead>
-              <tr>
-                <th style={styles.projectsTableHeader}>プロジェクト名</th>
-                <th style={styles.projectsTableHeader}>ステータス</th>
-                <th style={styles.projectsTableHeader}>営業担当者</th>
-              </tr>
-            </thead>
-            <tbody>
-              {relatedProjects.map((project) => (
-                <tr key={project.id}>
-                  <td style={styles.projectsTableCell}>
-                    <Link to={`/projects/${project.id}`} style={styles.projectLink}>
-                      {project.name}
-                    </Link>
-                  </td>
-                  <td style={styles.projectsTableCell}>
-                    <span style={styles.statusBadge}>
-                      {PROJECT_STATUS_LABELS[project.status] || project.status}
-                    </span>
-                  </td>
-                  <td style={styles.projectsTableCell}>{project.salesPerson.displayName}</td>
+          // タスク 31.3: キーボードでも横にスクロールできるよう、名前付きの領域としてフォーカスを
+          // 受け取る（WCAG 2.1 SC 2.1.1）。フォーカス表示は共通の :focus-visible に任せる。
+          <div
+            role="region"
+            aria-label="関連プロジェクト"
+            tabIndex={0}
+            style={styles.projectsTableScroll}
+          >
+            <table style={styles.projectsTable} aria-label="プロジェクト一覧">
+              <thead>
+                <tr>
+                  <th style={styles.projectsTableHeader}>プロジェクト名</th>
+                  <th style={styles.projectsTableHeader}>ステータス</th>
+                  <th style={styles.projectsTableHeader}>営業担当者</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {relatedProjects.map((project) => (
+                  <tr key={project.id}>
+                    <td style={styles.projectsTableCell}>
+                      <Link to={`/projects/${project.id}`} style={styles.projectLink}>
+                        {project.name}
+                      </Link>
+                    </td>
+                    <td style={styles.projectsTableCell}>
+                      <span style={styles.statusBadge}>
+                        {PROJECT_STATUS_LABELS[project.status] || project.status}
+                      </span>
+                    </td>
+                    <td style={styles.projectsTableCell}>{project.salesPerson.displayName}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 

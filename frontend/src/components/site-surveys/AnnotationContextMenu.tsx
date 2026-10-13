@@ -3,15 +3,21 @@
  *
  * Task 68.1: AnnotationContextMenu.tsx 新規作成
  *
+ * Task 115.52: 長押し解放時の互換クリックでメニューが閉じる問題の是正
+ *
  * 長押しまたは右クリック時に選択オブジェクトのアクションを提示するメニュー。
  * メニュー外タップ検知のため透明オーバーレイを背景に配置する。
+ * オーバーレイは自身が押下（pointerdown）を受けたクリックのみをメニュー外タップとして扱う。
  *
  * Requirements:
  * - 27.2: 長押しで選択状態に遷移し、編集・複製・削除を含むコンテキストメニューを表示する
  * - 27.3: コンテキストメニュー各項目のタップで対応する操作を実行する
  * - 27.4: メニュー表示中は背景画像への新規描画操作を受け付けない（UI 層では透明オーバーレイで担保）
  * - 27.5: メニュー外タップでコンテキストメニューを閉じる
- * - 28.3: タップ領域は最小 44x44 論理ピクセル以上
+ *
+ * タップ領域の下限（44x44 論理ピクセル）は**要件の受入基準ではなく**、`.kiro/steering/tech.md`
+ * の「レスポンシブ・ビューポート方針」の「モバイルの下限値」を根拠とする横断ルールである
+ * （要件27・要件28.3 のいずれも本メニューを対象にしていない。`STYLES.button` の注釈を参照）。
  *
  * Design: design.md "AnnotationContextMenu" セクション参照
  *
@@ -21,8 +27,9 @@
  * @requirement site-survey/REQ-27.5
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import type { FabricObject } from 'fabric';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 // ============================================================================
 // 型定義
@@ -61,12 +68,6 @@ export interface AnnotationContextMenuProps extends BaseAnnotationOverlayProps {
 // スタイル定義
 // ============================================================================
 
-/**
- * メニュー各アクションボタンの最小タップ領域（論理ピクセル）。
- * Req 28.3: タップ領域は最小 44x44 論理ピクセル以上。
- */
-const MIN_TAP_TARGET_PX = 44;
-
 const STYLES = {
   overlay: {
     position: 'fixed' as const,
@@ -92,8 +93,17 @@ const STYLES = {
     zIndex: 1001,
   } satisfies React.CSSProperties,
   button: {
-    minWidth: `${MIN_TAP_TARGET_PX}px`,
-    minHeight: `${MIN_TAP_TARGET_PX}px`,
+    // タップ領域の下限。宣言元は `utils/tap-target`。
+    // 要件28.3 の条文の対象は同要件の注記により「モバイル幅ツールバー」に限られ、本メニュー
+    // は含まない。本メニューを所管する要件27 もタップ領域の条項を持たない。
+    // **根拠は受入基準ではなく、`.kiro/steering/tech.md` の「レスポンシブ・ビューポート方針」
+    // が定める「モバイルの下限値」**（操作系コントロールのタップ領域は最小 44×44 論理ピクセル。
+    // WCAG 2.2 SC 2.5.5）である（タスク 115.246 で決着。requirements.md の要件28 の注記を参照）。
+    // かつては design.md の追跡表が要件28.1-28.8 の担い手に本部品を挙げていたが、同表の当該行
+    // だけが外れ値であり（他の二箇所は 27.x のみを割り当てていた）、115.246 で当該行から本部品
+    // を外した。**要件28 を本部品の根拠として引き直さないこと。**
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
     padding: '8px 16px',
     border: '1px solid transparent',
     borderRadius: '6px',
@@ -156,6 +166,41 @@ export function AnnotationContextMenu({
     e.stopPropagation();
   }, []);
 
+  /**
+   * Task 115.52 (Req 27.3, 27.5): オーバーレイ自身が押下を受けたか
+   *
+   * 長押し（Req 27.2）でメニューが開くとき、押下（pointerdown）を受けているのはキャンバスであり、
+   * オーバーレイはまだ存在しない。指を離すとブラウザは touchend のあとに互換のクリックを
+   * 接触点の要素＝オーバーレイへ配送するため、クリックだけを見て閉じると、メニューは
+   * 指を離した瞬間に必ず閉じ、項目をタップする機会（Req 27.3）が存在しなくなる。
+   *
+   * そこでオーバーレイは「自分が押下を受けたクリック」だけをメニュー外タップとみなす。
+   * 互換のマウスイベントからポインタイベントは生成されない（Pointer Events 仕様）ため、
+   * 長押し解放の互換クリックはこの押下を伴わず、確実に区別できる。時間による抑制ではないため、
+   * メニューが開いた直後の本物のタップ（Req 27.5）も従来どおり閉じる。
+   */
+  const overlayPressedRef = useRef(false);
+
+  // メニューの開閉ごとに押下の記録を初期化する（前回の開閉の記録を持ち越さない）
+  useEffect(() => {
+    if (!visible) {
+      overlayPressedRef.current = false;
+    }
+  }, [visible]);
+
+  const handleOverlayPointerDown = useCallback(() => {
+    overlayPressedRef.current = true;
+  }, []);
+
+  const handleOverlayClick = useCallback(() => {
+    if (!overlayPressedRef.current) {
+      // 長押し解放にブラウザが付随させた互換クリック。メニュー外タップではない。
+      return;
+    }
+    overlayPressedRef.current = false;
+    onClose();
+  }, [onClose]);
+
   const handleAction = useCallback(
     (action: ContextMenuAction) => {
       if (!targetObject) {
@@ -202,7 +247,8 @@ export function AnnotationContextMenu({
         data-testid="annotation-context-menu-overlay"
         role="presentation"
         style={STYLES.overlay}
-        onClick={onClose}
+        onPointerDown={handleOverlayPointerDown}
+        onClick={handleOverlayClick}
       />
       {/* メニューパネル */}
       <div

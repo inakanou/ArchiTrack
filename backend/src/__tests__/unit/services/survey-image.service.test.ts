@@ -649,7 +649,12 @@ describe('SurveyImageService', () => {
   /**
    * Task 57.1: detectMimeTypeByMagicBytesの単体テスト
    *
-   * Requirements: 21.1, 21.2, 21.3, 21.4, 21.6
+   * 本区間が通すのは判定の原始機構（バイト列から MIME 型を決める部分）だけである。
+   * 引数はバッファのみで、ファイル名も申告 MIME も渡らないため、Requirement 21 の
+   * 各条文が述べる「拡張子と実体が食い違うファイルのアップロードの可否」は一度も
+   * 通らない。したがって被覆印は本区間に置かず、条文どおりの入力（拡張子・申告
+   * MIME・実体の三つ）を組み立てている下の
+   * `validateFile - extension mismatch tolerance` の区間へ置く。
    */
   describe('detectMimeTypeByMagicBytes (Requirement 21)', () => {
     it('should detect JPEG by FF D8 FF prefix with JFIF 4th byte (0xE0)', () => {
@@ -727,7 +732,20 @@ describe('SurveyImageService', () => {
   /**
    * Task 57.2: validateFileの拡張子不一致許容テスト
    *
-   * Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 21.8
+   * Requirements (site-survey):
+   * - REQ-21.1
+   * - REQ-21.2
+   * - REQ-21.3
+   * - REQ-21.4
+   * - REQ-21.5
+   * - REQ-21.6
+   * - REQ-21.8
+   *
+   * REQ-21.7（Content-Type をマジックバイトによる実際の画像形式に基づいて設定する）は
+   * 本区間に置かない。ここで確かめられるのは `validateFile` が判定結果を返すことまでで、
+   * 返り値を Content-Type として実際に設定するのは `ImageUploadService` である。
+   * 条文が述べる「設定する」の被覆印は
+   * `backend/src/__tests__/unit/services/image-upload.service.test.ts` に置いた。
    */
   describe('validateFile - extension mismatch tolerance (Requirement 21)', () => {
     it('should return image/jpeg for .png extension with JPEG content (Req 21.2)', () => {
@@ -765,6 +783,18 @@ describe('SurveyImageService', () => {
         buffer: createValidWebpBuffer(),
         mimetype: 'text/plain',
         originalname: 'file.txt',
+        size: 1000,
+      };
+      expect(service.validateFile(file)).toBe('image/webp');
+    });
+
+    // 条文 21.4 は拡張子 `.jpeg` × 実体 WEBP を名指しする。従前の当該区間には
+    // `.txt` × WEBP しか無く、条文の組み合わせそのものを一度も通していなかった。
+    it('should return image/webp for .jpeg extension with WEBP content (Req 21.4)', () => {
+      const file = {
+        buffer: createValidWebpBuffer(),
+        mimetype: 'image/jpeg',
+        originalname: 'photo.jpeg',
         size: 1000,
       };
       expect(service.validateFile(file)).toBe('image/webp');

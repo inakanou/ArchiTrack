@@ -12,7 +12,7 @@ ArchiTrackは **Claude Code** を活用した **Kiro-style Spec Driven Developme
 
 - **AI支援開発**: Claude Codeによる体系的な開発ワークフロー
 - **スペック駆動**: 要件定義 → 設計 → タスク分解 → 実装の明確なフェーズ管理
-- **カスタムコマンド**: `/kiro:spec-init`, `/kiro:spec-requirements` などの開発支援コマンド
+- **カスタムスキル**: `/kiro-spec-init`, `/kiro-spec-requirements` などの開発支援スキル（スラッシュコマンドとして起動）
 
 ---
 
@@ -58,15 +58,15 @@ hotfix/* (緊急修正)   ← mainから分岐
 
 ### 基本ワークフロー
 
-1. **ステアリング更新** - `/kiro:steering` でプロジェクトコンテキストを最新化（任意）
-2. **仕様初期化** - `/kiro:spec-init` で新機能の仕様を作成
-3. **要件定義** - `/kiro:spec-requirements` で詳細な要件を生成
-4. **設計** - `/kiro:spec-design` で技術設計を作成
-5. **タスク分解** - `/kiro:spec-tasks` で実装タスクに分解
+1. **ステアリング更新** - `/kiro-steering` でプロジェクトコンテキストを最新化（任意）
+2. **仕様初期化** - `/kiro-spec-init` で新機能の仕様を作成（1スペックにすべきか迷う場合は先に `/kiro-discovery`）
+3. **要件定義** - `/kiro-spec-requirements` で詳細な要件を生成
+4. **設計** - `/kiro-spec-design` で技術設計を作成
+5. **タスク分解** - `/kiro-spec-tasks` で実装タスクに分解
 6. **実装** - タスクに従って段階的に実装（要件タグ `@requirement` を付与）
 7. **Storybookストーリー作成** - 実装したコンポーネントのストーリーを作成（実装後ドキュメント化アプローチ）
 8. **要件カバレッジ確認** - `npx tsx scripts/check-requirement-coverage.ts` でカバレッジを検証
-9. **進捗確認** - `/kiro:spec-status` で進捗を追跡
+9. **進捗確認** - `/kiro-spec-status` で進捗を追跡
 
 各フェーズで人間のレビューを実施し、品質を確保します。
 
@@ -120,7 +120,7 @@ docker-compose up -d
 Claude Codeで以下のコマンドを実行：
 
 ```
-/kiro:steering
+/kiro-steering
 ```
 
 これにより、プロジェクトの最新状態がAIに共有されます。
@@ -139,7 +139,7 @@ git checkout -b feature/user-auth
 Claude Codeで新機能の概要を詳しく説明して初期化：
 
 ```
-/kiro:spec-init ユーザー認証機能を追加します。JWT形式のトークンベース認証を実装し、ログイン・ログアウト・トークン更新の機能を提供します。フロントエンドはReact、バックエンドはExpressで実装します。
+/kiro-spec-init ユーザー認証機能を追加します。JWT形式のトークンベース認証を実装し、ログイン・ログアウト・トークン更新の機能を提供します。フロントエンドはReact、バックエンドはExpressで実装します。
 ```
 
 これにより `.kiro/specs/user-auth/` ディレクトリが作成されます。
@@ -147,7 +147,7 @@ Claude Codeで新機能の概要を詳しく説明して初期化：
 #### 4-2. 要件定義の生成
 
 ```
-/kiro:spec-requirements user-auth
+/kiro-spec-requirements user-auth
 ```
 
 生成された `requirements.md` を確認し、必要に応じて手動で修正・追記します。
@@ -155,25 +155,25 @@ Claude Codeで新機能の概要を詳しく説明して初期化：
 #### 4-3. 技術設計の作成
 
 ```
-/kiro:spec-design user-auth
+/kiro-spec-design user-auth
 ```
 
-対話形式で要件を確認済みか聞かれるので、確認後に `y` で進めます。
+要件が未承認のままだと停止します。`requirements.md` を確認済みであれば、`-y` を付けて実行すると要件を承認して設計へ進みます。
 生成された `design.md` をレビューし、アーキテクチャや技術選定が適切か確認します。
 
 #### 4-4. 実装タスクの生成
 
 ```
-/kiro:spec-tasks user-auth
+/kiro-spec-tasks user-auth
 ```
 
-対話形式で要件と設計の確認を経て、実装タスクが `tasks.md` に生成されます。
+要件と設計が承認済みであることが前提です（確認済みであれば `-y` で承認して進められます）。実装タスクが `tasks.md` に生成されます。
 各タスクは小さな単位に分割されており、段階的に実装できます。
 
 #### 4-5. 仕様の進捗確認
 
 ```
-/kiro:spec-status user-auth
+/kiro-spec-status user-auth
 ```
 
 現在のフェーズ（要件/設計/タスク/実装）と進捗状況を確認できます。
@@ -234,7 +234,7 @@ gh pr create --title "Spec: ユーザー認証機能" --body "## 概要
 Claude Codeに以下のように依頼：
 
 ```
-/kiro:spec-impl user-auth 1,2,3
+/kiro-impl user-auth 1,2,3
 ```
 
 または、個別に指示：
@@ -431,11 +431,11 @@ gh pr merge --squash
 
 ## チーム開発での注意点
 
-1. **仕様を必ず作成**: 中規模以上の機能は必ず `/kiro:spec-init` から開始
+1. **仕様を必ず作成**: 中規模以上の機能は必ず `/kiro-spec-init` から開始
 2. **レビューを依頼**: PRは必ず他のメンバーにレビューを依頼
 3. **コミットは小さく**: 1つのコミットで1つの変更
-4. **ステアリング更新**: 大きな変更後は `/kiro:steering` を実行
-5. **進捗共有**: `/kiro:spec-status` で進捗を共有
+4. **ステアリング更新**: 大きな変更後は `/kiro-steering` を実行
+5. **進捗共有**: `/kiro-spec-status` で進捗を共有
 
 ---
 

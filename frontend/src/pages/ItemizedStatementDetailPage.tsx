@@ -296,11 +296,29 @@ const styles = {
     backgroundColor: '#f9fafb',
     borderBottom: '2px solid #e5e7eb',
     whiteSpace: 'nowrap' as const,
-    cursor: 'pointer',
     userSelect: 'none' as const,
   } as React.CSSProperties,
   thQuantity: {
     textAlign: 'right' as const,
+  } as React.CSSProperties,
+  /**
+   * 列見出しの中のソートボタン（Req 5.1）。見出しの文字の見た目（色・太さ・大きさ・揃え）を
+   * そのまま受け継ぎ、見出しのセルの内容の幅いっぱいに広げてクリックの受け口を保つ。
+   * フォーカス表示は全画面共通の :focus-visible の輪に任せ、outline をインラインで打ち消さない
+   * （セルの余白 12px / 16px の内側に輪の 2px と隙間の 2px が収まる）
+   */
+  sortButton: {
+    display: 'block',
+    width: '100%',
+    padding: 0,
+    margin: 0,
+    border: 'none',
+    background: 'transparent',
+    color: 'inherit',
+    font: 'inherit',
+    textAlign: 'inherit' as const,
+    whiteSpace: 'inherit' as const,
+    cursor: 'pointer',
   } as React.CSSProperties,
   sortIcon: {
     marginLeft: '4px',
@@ -423,14 +441,15 @@ const styles = {
     fontWeight: '500',
     color: '#6b7280',
   } as React.CSSProperties,
+  // フィルタの欄のフォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+  // （steering `tech.md` の「フォーカス表示方針」。タスク 25.1）
   filterInput: {
     padding: '8px 12px',
     fontSize: '14px',
     border: '1px solid #d1d5db',
     borderRadius: '6px',
     backgroundColor: '#ffffff',
-    outline: 'none',
-    transition: 'border-color 0.2s, box-shadow 0.2s',
+    transition: 'border-color 0.2s',
   } as React.CSSProperties,
   clearButton: {
     padding: '6px 12px',
@@ -641,6 +660,9 @@ function FilterArea({ filters, onFilterChange, onClear }: FilterAreaProps) {
 
 /**
  * ソート可能なカラムヘッダー
+ *
+ * 見出しのセル（th）が aria-sort を持ち、並べ替えの操作は中の `<button type="button">` が受ける
+ * （Req 5.1〜5.3）。ネイティブのボタンのため、Tab で届き、クリックと Enter / Space で並べ替えられる
  */
 interface SortableHeaderProps {
   column: ColumnDefinition;
@@ -663,11 +685,16 @@ function SortableHeader({ column, sortState, onSort }: SortableHeaderProps) {
         ...(column.isQuantity ? styles.thQuantity : {}),
       }}
       role="columnheader"
-      onClick={handleClick}
       aria-sort={isActive ? (sortState.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
-      {column.label}
-      {sortIcon && <span style={styles.sortIcon}>{sortIcon}</span>}
+      <button type="button" onClick={handleClick} style={styles.sortButton}>
+        {column.label}
+        {sortIcon && (
+          <span style={styles.sortIcon} aria-hidden="true">
+            {sortIcon}
+          </span>
+        )}
+      </button>
     </th>
   );
 }
@@ -874,11 +901,8 @@ export default function ItemizedStatementDetailPage() {
   const [saveOrderSuccess, setSaveOrderSuccess] = useState(false);
   const [saveOrderError, setSaveOrderError] = useState<string | null>(null);
 
-  // 未保存変更の検出（Req 17.12）
-  const { markAsChanged, markAsSaved } = useUnsavedChanges({
-    initialDirty: false,
-    enabled: hasOrderChanges,
-  });
+  // 未保存変更時のタブクローズ/リロードの確認（Req 17.12）
+  useUnsavedChanges({ isDirty: hasOrderChanges });
 
   // ページ離脱時のブロック（Req 17.12）
   const blocker = useBlocker(hasOrderChanges);
@@ -1066,39 +1090,31 @@ export default function ItemizedStatementDetailPage() {
     return sortState.column === null && !isFilterActive;
   }, [sortState.column, isFilterActive]);
 
-  // 上移動ハンドラ (Req 17.4)
-  const handleMoveUp = useCallback(
-    (globalIndex: number) => {
-      if (globalIndex <= 0) return;
-      setOrderedItems((prev) => {
-        const next = [...prev];
-        const temp = next[globalIndex - 1]!;
-        next[globalIndex - 1] = next[globalIndex]!;
-        next[globalIndex] = temp;
-        return next;
-      });
-      setHasOrderChanges(true);
-      markAsChanged();
-    },
-    [markAsChanged]
-  );
+  // 上移動ハンドラ (Req 17.2)
+  const handleMoveUp = useCallback((globalIndex: number) => {
+    if (globalIndex <= 0) return;
+    setOrderedItems((prev) => {
+      const next = [...prev];
+      const temp = next[globalIndex - 1]!;
+      next[globalIndex - 1] = next[globalIndex]!;
+      next[globalIndex] = temp;
+      return next;
+    });
+    setHasOrderChanges(true);
+  }, []);
 
-  // 下移動ハンドラ (Req 17.5)
-  const handleMoveDown = useCallback(
-    (globalIndex: number) => {
-      setOrderedItems((prev) => {
-        if (globalIndex >= prev.length - 1) return prev;
-        const next = [...prev];
-        const temp = next[globalIndex + 1]!;
-        next[globalIndex + 1] = next[globalIndex]!;
-        next[globalIndex] = temp;
-        return next;
-      });
-      setHasOrderChanges(true);
-      markAsChanged();
-    },
-    [markAsChanged]
-  );
+  // 下移動ハンドラ (Req 17.3)
+  const handleMoveDown = useCallback((globalIndex: number) => {
+    setOrderedItems((prev) => {
+      if (globalIndex >= prev.length - 1) return prev;
+      const next = [...prev];
+      const temp = next[globalIndex + 1]!;
+      next[globalIndex + 1] = next[globalIndex]!;
+      next[globalIndex] = temp;
+      return next;
+    });
+    setHasOrderChanges(true);
+  }, []);
 
   // 並び順保存ハンドラ (Req 17.8, 17.9, 17.14)
   const handleSaveOrder = useCallback(async () => {
@@ -1121,7 +1137,6 @@ export default function ItemizedStatementDetailPage() {
       const sorted = [...updatedDetail.items].sort((a, b) => a.displayOrder - b.displayOrder);
       setOrderedItems(sorted);
       setHasOrderChanges(false);
-      markAsSaved();
       setSaveOrderSuccess(true);
       setTimeout(() => {
         setSaveOrderSuccess(false);
@@ -1138,7 +1153,7 @@ export default function ItemizedStatementDetailPage() {
     } finally {
       setIsSavingOrder(false);
     }
-  }, [statement, isSavingOrder, orderedItems, markAsSaved]);
+  }, [statement, isSavingOrder, orderedItems]);
 
   // クリップボードコピーハンドラ (Req 14.1, 14.5, 14.6, 14.7)
   const handleCopyToClipboard = useCallback(async () => {

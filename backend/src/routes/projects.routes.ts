@@ -34,12 +34,17 @@ import {
   ConstructionPhotoSummaryService,
   type ConstructionPhotoAlbumSummaryInfo,
 } from '../services/construction-photo-summary.service.js';
+import { SIGNED_URL_EXPIRES_IN as CONSTRUCTION_PHOTO_SIGNED_URL_EXPIRES_IN } from '../services/construction-photo-image.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import logger from '../utils/logger.js';
 import { isStorageConfigured, getStorageProvider } from '../storage/index.js';
+import {
+  NULL_SITE_SURVEY_THUMBNAIL_URLS,
+  signSiteSurveyThumbnailUrls,
+} from '../utils/site-survey-thumbnail-urls.js';
 import {
   createProjectSchema,
   updateProjectSchema,
@@ -117,7 +122,7 @@ const updateProjectRequestSchema = updateProjectSchema.extend({
  *         name: limit
  *         schema:
  *           type: integer
- *           default: 20
+ *           default: 100
  *           maximum: 100
  *         description: 1ページあたりの表示件数（1〜100）
  *       - in: query
@@ -143,10 +148,21 @@ const updateProjectRequestSchema = updateProjectSchema.extend({
  *           format: date
  *         description: 作成日終了（ISO8601形式）
  *       - in: query
+ *         name: tradingPartnerId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 取引先IDフィルタ（UUID形式、指定した取引先のプロジェクトのみ）
+ *       - in: query
+ *         name: excludeTerminalStatuses
+ *         schema:
+ *           type: boolean
+ *         description: "true の場合、終端ステータス（完了・中止・失注）のプロジェクトを除外する。status を指定した場合は status を優先し本項目は適用しない。値は true または false のみ受け付ける"
+ *       - in: query
  *         name: sort
  *         schema:
  *           type: string
- *           enum: [id, name, tradingPartnerId, status, createdAt, updatedAt]
+ *           enum: [name, customerName, salesPersonName, constructionPersonName, status, createdAt, updatedAt]
  *           default: updatedAt
  *         description: ソートフィールド
  *       - in: query
@@ -194,6 +210,7 @@ router.get(
         status?: import('../types/project.types.js').ProjectStatus[];
         createdFrom?: string;
         createdTo?: string;
+        tradingPartnerId?: string;
         excludeTerminalStatuses?: boolean;
       };
 
@@ -206,6 +223,7 @@ router.get(
         status,
         createdFrom,
         createdTo,
+        tradingPartnerId,
         excludeTerminalStatuses,
       } = validatedQuery;
 
@@ -215,6 +233,7 @@ router.get(
           status,
           createdFrom,
           createdTo,
+          tradingPartnerId,
           excludeTerminalStatuses,
         },
         { page, limit },
@@ -234,6 +253,10 @@ router.get(
 );
 
 /**
+ * Requirements: 23.1-23.6
+ * 注意: このルートは/api/projects/:idより前に定義する必要がある
+ * （Expressのルートマッチング順序により、:idパラメータとの競合を回避）
+ *
  * @swagger
  * /api/projects/status-counts:
  *   get:
@@ -253,7 +276,9 @@ router.get(
  *               properties:
  *                 counts:
  *                   type: object
- *                   description: 全12ステータスの件数
+ *                   description: 全12ステータスの件数（キーはステータス、該当0件のステータスも0で含む）
+ *                   additionalProperties:
+ *                     type: integer
  *                 total:
  *                   type: integer
  *                   description: 全ステータス合計件数
@@ -261,10 +286,6 @@ router.get(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
- *
- * Requirements: 23.1-23.6
- * 注意: このルートは/api/projects/:idより前に定義する必要がある
- * （Expressのルートマッチング順序により、:idパラメータとの競合を回避）
  */
 router.get(
   '/status-counts',
@@ -309,53 +330,21 @@ async function getProjectSections(projectId: string) {
   const siteSurveysResult =
     results[0].status === 'fulfilled' ? results[0].value : { totalCount: 0, latestSurveys: [] };
 
-  // thumbnailUrl と thumbnailOriginalUrl を署名付きURLに変換
-  // site-surveys.routes.ts の /latest エンドポイントと同一のロジックパターン
+  // thumbnailUrl・thumbnailOriginalUrl・annotatedThumbnailUrl を署名付きURLに変換する。
+  // 規則は個別API（site-surveys.routes.ts の /latest）と共有し（Requirements: 29.6）、
+  // ストレージ未設定時は3つとも null とする（Requirements: 30.3）。
   let enrichedSurveys = siteSurveysResult.latestSurveys.map((survey: SiteSurveyInfo) => ({
     ...survey,
-    thumbnailUrl: null as string | null,
-    thumbnailOriginalUrl: null as string | null,
+    ...NULL_SITE_SURVEY_THUMBNAIL_URLS,
   }));
   if (isStorageConfigured()) {
     const storageProvider = getStorageProvider();
     if (storageProvider) {
       enrichedSurveys = await Promise.all(
-        siteSurveysResult.latestSurveys.map(async (survey: SiteSurveyInfo) => {
-          let thumbnailUrl: string | null = null;
-          let thumbnailOriginalUrl: string | null = null;
-
-          // サムネイルURLを生成
-          if (survey.thumbnailUrl) {
-            try {
-              thumbnailUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl as string);
-            } catch (error) {
-              logger.warn(
-                { surveyId: survey.id, thumbnailPath: survey.thumbnailUrl, error },
-                'Failed to generate signed URL for thumbnail'
-              );
-            }
-          }
-
-          // 元画像URLを生成（注釈レンダリング用）
-          if (survey.thumbnailOriginalPath) {
-            try {
-              thumbnailOriginalUrl = await storageProvider.getSignedUrl(
-                survey.thumbnailOriginalPath as string
-              );
-            } catch (error) {
-              logger.warn(
-                { surveyId: survey.id, originalPath: survey.thumbnailOriginalPath, error },
-                'Failed to generate signed URL for original image'
-              );
-            }
-          }
-
-          return {
-            ...survey,
-            thumbnailUrl,
-            thumbnailOriginalUrl,
-          };
-        })
+        siteSurveysResult.latestSurveys.map(async (survey: SiteSurveyInfo) => ({
+          ...survey,
+          ...(await signSiteSurveyThumbnailUrls(survey, storageProvider)),
+        }))
       );
     }
   }
@@ -380,7 +369,10 @@ async function getProjectSections(projectId: string) {
             let thumbnailUrl: string | null = null;
             if (album.thumbnailUrl) {
               try {
-                thumbnailUrl = await storageProvider.getSignedUrl(album.thumbnailUrl);
+                // 写真一覧・アルバム一覧と同じ有効期限（15 分。工事写真の受入基準 11.6）
+                thumbnailUrl = await storageProvider.getSignedUrl(album.thumbnailUrl, {
+                  expiresIn: CONSTRUCTION_PHOTO_SIGNED_URL_EXPIRES_IN,
+                });
               } catch (error) {
                 logger.warn(
                   { albumId: album.id, thumbnailPath: album.thumbnailUrl, error },

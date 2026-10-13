@@ -69,13 +69,14 @@ const styles = {
     fontSize: '14px',
     border: '1px solid #d1d5db',
     borderRadius: '6px',
-    outline: 'none',
-    transition: 'border-color 0.2s, box-shadow 0.2s',
+    // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 102.1）
+    transition: 'border-color 0.2s',
     boxSizing: 'border-box' as const,
   } as React.CSSProperties,
+  // フォーカス中は枠の色だけを変える。背景に対して 3:1 に届かない淡い影の輪は重ねない（タスク 102.1）
   inputFocused: {
     borderColor: '#2563eb',
-    boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.1)',
   } as React.CSSProperties,
   buttonGroup: {
     display: 'flex',

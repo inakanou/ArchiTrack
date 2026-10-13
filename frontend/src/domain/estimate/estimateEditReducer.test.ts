@@ -1899,6 +1899,38 @@ describe('estimateEditReducer / applyNetAllocation', () => {
     expect(lineOf(findItem(after.items, 'tmp-new'), 'EXECUTION').unitPrice).toBe('700000');
   });
 
+  /**
+   * @requirement estimate-creation/REQ-5.6 案分対象となった業者を識別可能な状態で管理する
+   */
+  it('案分後も案分した項目の業者金額行が見積業者を保ち、別業者の項目は変わらない (5.6)', () => {
+    const before = stateOf([
+      detailedItem('A', {
+        VENDOR: { quantity: '2', amount: '80000', sourceVendorName: '業者A' },
+      }),
+      detailedItem('B', {
+        EXECUTION: { quantity: '1', unitPrice: '12345', amount: '12345' },
+        VENDOR: { quantity: '1', amount: '25000', sourceVendorName: '業者B' },
+      }),
+    ]);
+
+    // ダイアログは選んだ業者（業者A）の項目だけを対象キーに渡す
+    const after = estimateEditReducer(before, {
+      type: 'applyNetAllocation',
+      payload: { targetKeys: ['A'], netAmount: '400000' },
+    });
+
+    const a = findItem(after.items, 'A');
+    expect(lineOf(a, 'EXECUTION').unitPrice).toBe('200000');
+    expect(lineOf(a, 'EXECUTION').amount).toBe('400000');
+    // 案分した項目は業者金額行の見積業者で識別できるまま残る
+    expect(lineOf(a, 'VENDOR')).toEqual(lineOf(findItem(before.items, 'A'), 'VENDOR'));
+    expect(lineOf(a, 'VENDOR').sourceVendorName).toBe('業者A');
+
+    // 別業者の項目は見積業者も実行金額行も変わらない
+    expect(findItem(after.items, 'B')).toEqual(findItem(before.items, 'B'));
+    expect(lineOf(findItem(after.items, 'B'), 'VENDOR').sourceVendorName).toBe('業者B');
+  });
+
   it('子項目への案分後も親項目の実行金額が子の合計と一致する (43.5, 55.1申し送り)', () => {
     const before = stateOf([
       detailedItem(

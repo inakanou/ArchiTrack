@@ -8,10 +8,28 @@
  * 既存 consumer 向けのフィールド名ブリッジ（`strokeColor` ← `stroke`,
  * `fillColor` ← `fill`）のみを提供し、値そのものはトークン側で管理する。
  *
+ * Task 115.96 (Req 24.5, 25.2, 32.5): `StyleOptions` へ `outlineEnabled` を追加した。
+ * 従来この型には白縁取りに相当する項目が無く、道具帯のスタイルパネルは白縁取りの
+ * 切替を表現できなかった（型の水準で切替が不可能だった）。既定値はツール別に
+ * `ANNOTATION_DEFAULTS`（Req 26.5 / 32.13 の一元管理資材）から供給する。
+ *
  * @requirement site-survey/REQ-26.5
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-32.5
+ * @requirement site-survey/REQ-8.5
+ * @requirement site-survey/REQ-8.6
  */
 
-import { ANNOTATION_DEFAULTS } from './annotation-style-tokens';
+import {
+  ANNOTATION_DEFAULTS,
+  createDefaultOutlineEnabled,
+  type BalloonStyleType,
+} from './annotation-style-tokens';
+
+// 吹き出し形式の型は資材（`annotation-style-tokens.ts`）が単一の宣言元。
+// 道具帯の consumer が本ファイル経由で参照できるよう再エクスポートする。
+export type { BalloonStyleType };
 
 // ============================================================================
 // 型定義
@@ -30,6 +48,14 @@ export type ToolType =
   | 'polyline'
   | 'freehand'
   | 'text';
+
+/**
+ * 白縁取り（テキストは白アウトライン）を持ちうるツール
+ *
+ * 選択ツールは注釈を描かないため対象外。要件 24.5（矢印）・25.2（テキスト）・
+ * 32.5（寸法線・円・四角形・多角形・折れ線・フリーハンド）の対象がちょうどこの集合になる。
+ */
+export type OutlineCapableTool = Exclude<ToolType, 'select'>;
 
 /**
  * ツール定義
@@ -57,6 +83,27 @@ export interface StyleOptions {
   fillColor: string;
   /** フォントサイズ（テキスト用） */
   fontSize: number;
+  /**
+   * テキスト注釈の背景色 (Req 8.5)
+   *
+   * 透明は空文字で表す（`fillColor` と同じ表現）。文字色（`strokeColor`）とは独立した
+   * 項目であり、テキストの矩形領域の背後を塗る。
+   */
+  textBackgroundColor: string;
+  /**
+   * テキスト注釈の吹き出し形式 (Req 8.6)
+   *
+   * 描画設定の一部であり、以降に描かれるテキスト注釈へ適用される。
+   * 既存の注釈は変更しない。
+   */
+  balloonStyle: BalloonStyleType;
+  /**
+   * ツール別の白縁取り（テキストは白アウトライン）の有効/無効 (Req 24.5, 25.2, 32.5)
+   *
+   * 描画設定の一部であり、以降に描かれる注釈へ適用される。既存の注釈は変更しない
+   * （Req 24.9 / 25.10 / 32.9 の後方互換を切替の導入で壊さないため）。
+   */
+  outlineEnabled: Record<OutlineCapableTool, boolean>;
 }
 
 // ============================================================================
@@ -151,4 +198,10 @@ export const DEFAULT_STYLE_OPTIONS: StyleOptions = {
   strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
   fillColor: ANNOTATION_DEFAULTS.fill,
   fontSize: ANNOTATION_DEFAULTS.fontSize,
+  // Req 8.5 / 8.6: 既定は「背景なし」「吹き出しなし」。値は一元管理の資材から供給する。
+  textBackgroundColor: ANNOTATION_DEFAULTS.textBackgroundColor,
+  balloonStyle: ANNOTATION_DEFAULTS.balloonStyle,
+  // Req 26.3 / 32.11: 初回選択時は白縁取り/白アウトラインが有効な状態で起動する。
+  // 値はツール別に一元管理の資材から供給し、本ファイルは独自の既定値を持たない。
+  outlineEnabled: createDefaultOutlineEnabled(),
 };

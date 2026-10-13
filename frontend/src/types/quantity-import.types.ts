@@ -38,6 +38,13 @@ export interface ImportExtractionResult {
   extractionType: 'excel-parse' | 'pdf-text' | 'pdf-ocr' | 'pdf-claude-vision';
   /** シート名（Excelの場合） */
   sheetNames?: string[];
+  /**
+   * 抽出結果のテキストデータ（PDFの場合。REQ-29.7）
+   *
+   * フォールバック経路は pdfjs-dist / Tesseract.js が返したテキスト、Claude Vision 経路は
+   * 抽出した表データを整形したJSONテキスト（受領見積書登録機能の OcrDataExtractor.tsx と同じ表示）。
+   */
+  extractedText?: string;
 }
 
 // ============================================================================

@@ -8,7 +8,7 @@ import { NetworkStatusIndicator } from '../../components/NetworkStatusIndicator'
  * Task 18.4: ネットワーク状態監視 - UI表示
  *
  * @see design.md - ネットワーク状態管理フロー
- * @see requirements.md - 要件13.6
+ * @see requirements.md - 要件15.6
  */
 describe('NetworkStatusIndicator', () => {
   // navigator.onLineのモック

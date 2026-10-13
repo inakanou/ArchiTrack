@@ -122,9 +122,7 @@ const STYLES = {
     primary: '#1d4ed8',
     primaryHover: '#1e40af',
     error: '#dc2626',
-    errorLight: 'rgba(220, 38, 38, 0.1)',
     focus: '#2563eb',
-    focusLight: 'rgba(37, 99, 235, 0.1)',
     border: '#d1d5db',
     label: '#374151',
     text: '#111827',
@@ -133,7 +131,7 @@ const STYLES = {
     white: '#ffffff',
   },
   borderRadius: '0.375rem',
-  transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out',
+  transition: 'border-color 0.15s ease-in-out',
 } as const;
 
 // ============================================================================
@@ -495,15 +493,6 @@ function TradingPartnerForm({
   };
 
   /**
-   * 入力フィールドのボックスシャドウを計算
-   */
-  const getBoxShadow = (fieldName: string, hasError: boolean): string => {
-    if (focusedField !== fieldName) return 'none';
-    if (hasError) return `0 0 0 3px ${STYLES.colors.errorLight}`;
-    return `0 0 0 3px ${STYLES.colors.focusLight}`;
-  };
-
-  /**
    * テキスト入力フィールドの共通スタイル
    */
   const getInputStyle = (fieldName: string, hasError: boolean): React.CSSProperties => ({
@@ -517,10 +506,8 @@ function TradingPartnerForm({
     lineHeight: '1.5',
     color: isSubmitting ? STYLES.colors.disabled : STYLES.colors.text,
     backgroundColor: isSubmitting ? STYLES.colors.disabledBg : STYLES.colors.white,
-    outline: 'none',
     cursor: isSubmitting ? 'not-allowed' : 'text',
     transition: STYLES.transition,
-    boxShadow: getBoxShadow(fieldName, hasError),
   });
 
   // ============================================================================

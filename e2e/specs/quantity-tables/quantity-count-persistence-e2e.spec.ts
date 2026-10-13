@@ -40,8 +40,9 @@ import { test, expect, type Page, type Locator } from '@playwright/test';
 import * as fs from 'fs';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const RUN_ID = Date.now();
 
@@ -112,16 +113,7 @@ async function createTestProject(page: Page, projectName: string): Promise<strin
   await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
   const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-  const salesPersonValue = await salesPersonSelect.inputValue();
-  if (!salesPersonValue) {
-    const options = await salesPersonSelect.locator('option').all();
-    if (options.length > 1 && options[1]) {
-      const firstUserOption = await options[1].getAttribute('value');
-      if (firstUserOption) {
-        await salesPersonSelect.selectOption(firstUserOption);
-      }
-    }
-  }
+  await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
   const createProjectPromise = page.waitForResponse(
     (response) =>
@@ -468,12 +460,12 @@ test.describe('REQ-47: 計算方法「箇所数」の永続化・コピー・PDF
       await page.waitForLoadState('networkidle');
 
       const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-      if (await deleteButton.isVisible({ timeout: getTimeout(5000) })) {
+      if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
         await deleteButton.click();
         const confirmButton = page
           .getByTestId('focus-manager-overlay')
           .getByRole('button', { name: /^削除$/i });
-        if (await confirmButton.isVisible({ timeout: getTimeout(5000) })) {
+        if (await isVisibleWithin(confirmButton, getTimeout(5000))) {
           await confirmButton.click();
           await page.waitForLoadState('networkidle');
         }

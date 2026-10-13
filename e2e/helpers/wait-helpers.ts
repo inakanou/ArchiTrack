@@ -261,11 +261,10 @@ export async function waitForLoadingComplete(
     ? page.locator(options.loadingSelector)
     : page.getByText(/読み込み中/i);
 
-  // ローディングインジケーターが存在する場合のみ待機
-  const loadingCount = await loadingLocator.count();
-  if (loadingCount > 0) {
-    await expect(loadingLocator).toBeHidden({ timeout });
-  }
+  // 存在の有無を条件にしない。`toBeHidden` は要素が存在しない場合も成立するため、
+  // 「出ていれば消えるまで待つ」という意味は保ったまま、観測結果による関門だけが消える。
+  // 件数で包んでいた従来の形は、観測が偽（描画前・別名）になった瞬間に待機ごと消えていた。
+  await expect(loadingLocator).toBeHidden({ timeout });
 }
 
 /**
@@ -308,22 +307,23 @@ export async function waitForSessionDataLoaded(
         return false;
       }
 
+      // 周回ごとに、セッション管理画面が描けていることを無条件に主張する。
+      // 従来はこの主張を「エラーが出ていた場合の再試行の準備」の内側に置いていたため、
+      // エラーが出ない周回では一度も確かめられていなかった。
+      await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
       // APIエラーが発生していないかチェック
       const hasError = await page.getByText(/セッション情報を取得できませんでした/i).isVisible();
       if (hasError) {
-        // エラー状態の場合はリトライ（再ログインが必要な場合がある）
-        if (retry < maxRetries - 1) {
-          await page.reload({ waitUntil: 'networkidle' });
-          // リロード後にログインページにリダイレクトされた場合
-          if (page.url().includes('/login')) {
-            return false;
-          }
-          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: getTimeout(15000),
-          });
-          continue;
+        // 最終周回でエラーが残っているなら、これ以上の再試行は無い
+        if (retry === maxRetries - 1) {
+          return false;
         }
-        return false;
+        // エラー状態の場合はリトライ（再ログインが必要な場合がある）
+        await page.reload({ waitUntil: 'networkidle' });
+        continue;
       }
 
       // セッションデータまたは空状態メッセージのいずれかが表示されるまで待機
@@ -348,21 +348,25 @@ export async function waitForSessionDataLoaded(
         return false;
       }
 
-      if (retry < maxRetries - 1) {
-        try {
-          // ページがまだ開いている場合のみリロード
-          if (!page.isClosed()) {
-            await page.reload({ waitUntil: 'networkidle' });
+      // 最終周回では再試行の準備をしない
+      if (retry === maxRetries - 1) {
+        return false;
+      }
+      // ページが閉じていればリロードできない
+      if (page.isClosed()) {
+        return false;
+      }
 
-            // セッション管理ページのヘッダーが表示されるまで待機
-            await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-              timeout: getTimeout(15000),
-            });
-          }
-        } catch {
-          // リロードに失敗した場合は終了
-          return false;
-        }
+      try {
+        await page.reload({ waitUntil: 'networkidle' });
+
+        // 再試行の前提として、セッション管理画面が描けていることを無条件に主張する
+        await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+      } catch {
+        // リロードに失敗した場合は終了
+        return false;
       }
     }
   }
@@ -395,4 +399,92 @@ export async function waitForAuthRedirect(
 
   // ネットワークアイドルを待機
   await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
+}
+
+/**
+ * 失敗が「待機切れ」であるかを判別する
+ *
+ * Playwright の待機切れは `TimeoutError` という名前を持つ。待機切れだけを
+ * 「成立しなかった」として畳み、それ以外（strict mode 違反、ページ切断、
+ * 本体終了による中断、述語の送出など）は呼び出し元へ送出するための判別子。
+ *
+ * **この判別を各所で手書きしないこと。** 手書きの `catch` は判別を持たないため、
+ * あらゆる失敗を同じ値へ畳み、受け手の主張が「不在」を求めている場合は
+ * **失敗がそのまま合格へ化ける**。判別は本補助ただ一つに集約する。
+ *
+ * @param error - `catch` が受け取った値
+ * @returns 待機切れなら true
+ */
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TimeoutError';
+}
+
+/**
+ * 指定した待機時間の内に要素が表示されるかを待ち、真偽で返す
+ *
+ * `locator.isVisible()` へ渡した待機時間の指定は Playwright に無視され、
+ * 呼び出した瞬間の状態が即時に返る。描画が間に合わなければ必ず false になり、
+ * その結果で分岐すると検証そのものが飛ぶ。本補助は `waitFor({ state: 'visible' })`
+ * を用いるため、**指定した待機時間が実際に効く**。
+ *
+ * 表示された時点で直ちに解決するため、要素が現れる場合の所要時間は増えない。
+ * 現れない場合は `timeout` を待ち切ってから false を返すため、
+ * 「無いことを確かめる」用途に長い待機を与えてはならない。
+ *
+ * 待機切れ以外の失敗（strict mode 違反、ページ切断など）は握り潰さずに送出する。
+ * 偽の false を返すことは、この補助が解消しようとしている欠陥そのものであるため。
+ *
+ * @param locator - 判定対象の要素ロケーター
+ * @param timeout - 待機時間（ミリ秒）。CI 環境で伸ばす場合は `getTimeout()` を通すこと
+ * @returns 待機時間内に表示されれば true、待機切れなら false
+ */
+export async function isVisibleWithin(locator: Locator, timeout: number): Promise<boolean> {
+  try {
+    await locator.waitFor({ state: 'visible', timeout });
+    return true;
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * 事象待ちの結果を返し、**待機切れのときだけ** null へ畳む
+ *
+ * `page.waitForEvent('dialog' | 'download' | 'page', ...)` のような事象待ちを
+ * `.catch(() => null)` と手書きで畳むと、**待機切れ以外の失敗まで null に化ける**。
+ * 述語の送出、ページやコンテキストの切断、本体終了による中断のいずれも、
+ * 「事象が起きなかった」と同じ null になる。
+ *
+ * 畳んだ先の主張が `toBeNull()`（＝**不在の主張**）である場合、この化けは
+ * **失敗をそのまま合格へ変える**。実測（Task 115.179）では、実際にダイアログが
+ * 発火している状況で待機切れ以外の失敗を注入したところ、握り潰しにより
+ * 「ダイアログは出なかった」が成立し、検証は緑のまま通過した。
+ * 主張が `not.toBeNull()` のときは握り潰しが赤を招くため気づけるが、
+ * 不在の主張では**誰も気づけない**。真の原因も出力のどこにも残らない。
+ *
+ * 本補助は `isTimeoutError` を通すため、**待機切れのみ null**、それ以外は送出する。
+ * 解決の時刻は元の事象待ちと同一であるため、待機の意味は変わらない。
+ *
+ * ロケーターの表示を待つ `isVisibleWithin` とは対象が異なる（あちらは `Locator`、
+ * こちらは既に走り始めた事象待ちの `Promise`）ため別の入口を設けているが、
+ * 待機切れの判別は `isTimeoutError` ただ一つを共有する。
+ *
+ * 待機の生成と本補助の適用は**同一の式で行うこと**。生成だけ先に行って後から
+ * 適用すると、その間に生じた却下が未処理として扱われうる。
+ *
+ * @param pending - 走り始めている事象待ちの Promise
+ * @returns 事象が起きればその値、待機切れなら null
+ */
+export async function nullWhenTimedOut<T>(pending: Promise<T>): Promise<T | null> {
+  try {
+    return await pending;
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      return null;
+    }
+    throw error;
+  }
 }

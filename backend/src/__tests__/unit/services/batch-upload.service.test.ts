@@ -80,6 +80,7 @@ describe('BatchUploadService', () => {
           createdAt: new Date(),
         })),
         count: vi.fn().mockResolvedValue(0),
+        aggregate: vi.fn().mockResolvedValue({ _max: { displayOrder: null } }),
       },
       $transaction: vi.fn((callback) => callback(mockPrisma)),
     } as unknown as PrismaClient;
@@ -95,7 +96,7 @@ describe('BatchUploadService', () => {
         original: {
           buffer: createValidJpegBuffer(50 * 1024),
           metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: createValidJpegBuffer(10 * 1024),
         metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
@@ -220,7 +221,7 @@ describe('BatchUploadService', () => {
             original: {
               buffer: createValidJpegBuffer(50 * 1024),
               metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
-              wasCompressed: false,
+              originalExceededSizeLimit: false,
             },
             thumbnail: createValidJpegBuffer(10 * 1024),
             metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
@@ -247,12 +248,39 @@ describe('BatchUploadService', () => {
 
       it('should continue display order from existing images', async () => {
         (mockPrisma.surveyImage.count as Mock).mockResolvedValue(5);
+        (mockPrisma.surveyImage.aggregate as Mock).mockResolvedValue({
+          _max: { displayOrder: 5 },
+        });
         const input = createBatchInput(2);
 
         const result = await service.uploadBatch(input);
 
         expect(result.results[0]?.displayOrder).toBe(6);
         expect(result.results[1]?.displayOrder).toBe(7);
+      });
+
+      /**
+       * Task 115.22 / Requirements 4.10
+       *
+       * 採番の起点が「件数+1」だと、途中の画像が削除されて生じた欠番の分だけ
+       * 番号が巻き戻り、既存の画像と同じ表示順序を割り当ててしまう。
+       * 起点を既存の最大表示順序にすることで衝突を避ける。
+       */
+      it('削除で欠番が生じても既存の表示順序と衝突しない番号を採番すること（Requirements: 4.10）', async () => {
+        // 表示順序1〜6のうち1件を削除した状態（件数5・最大6）。
+        // 件数起点の採番だと既存の6と重複してしまう。
+        (mockPrisma.surveyImage.count as Mock).mockResolvedValue(5);
+        (mockPrisma.surveyImage.aggregate as Mock).mockResolvedValue({
+          _max: { displayOrder: 6 },
+        });
+        const input = createBatchInput(3);
+
+        const result = await service.uploadBatch(input);
+
+        expect(result.failed).toBe(0);
+        const assignedOrders = result.results.map((image) => image.displayOrder);
+        expect(assignedOrders).toEqual([7, 8, 9]);
+        expect(new Set(assignedOrders).size).toBe(assignedOrders.length);
       });
 
       it('should assign display order correctly for large batch', async () => {
@@ -350,7 +378,7 @@ describe('BatchUploadService', () => {
             original: {
               buffer: createValidJpegBuffer(),
               metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
-              wasCompressed: false,
+              originalExceededSizeLimit: false,
             },
             thumbnail: createValidJpegBuffer(10 * 1024),
             metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
@@ -360,7 +388,7 @@ describe('BatchUploadService', () => {
             original: {
               buffer: createValidJpegBuffer(),
               metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
-              wasCompressed: false,
+              originalExceededSizeLimit: false,
             },
             thumbnail: createValidJpegBuffer(10 * 1024),
             metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },

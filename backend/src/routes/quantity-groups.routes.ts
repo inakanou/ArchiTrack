@@ -34,6 +34,7 @@ import {
 } from '../errors/quantityTableError.js';
 import { SurveyImageNotFoundError, SiteSurveyNotFoundError } from '../errors/siteSurveyError.js';
 import { ForbiddenError } from '../errors/apiError.js';
+import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
 
 // mergeParams: true を設定してネストされたルートからquantityTableIdを取得できるようにする
 const router = Router({ mergeParams: true });
@@ -121,11 +122,12 @@ const createGroupsFromSurveyBodySchema = z.object({
  *               displayOrder:
  *                 type: integer
  *                 minimum: 0
+ *                 description: 表示順序（任意）。省略時は当該数量表の末尾へ採番する。既存グループと同じ値は 400 で拒否する
  *     responses:
  *       201:
  *         description: 数量グループ作成成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（表示順序が既存グループと重複する場合を含む）
  *       401:
  *         description: 認証エラー
  *       403:
@@ -146,7 +148,7 @@ router.post(
       const validatedBody = req.validatedBody as {
         name?: string | null;
         surveyImageId?: string | null;
-        displayOrder: number;
+        displayOrder?: number;
       };
 
       const input = {
@@ -168,6 +170,11 @@ router.post(
 
       res.status(201).json(quantityGroup);
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（site-survey の5経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof QuantityTableNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/quantity-table-not-found',
@@ -185,6 +192,8 @@ router.post(
           status: 404,
           detail: error.message,
           code: 'SURVEY_IMAGE_NOT_FOUND',
+          // 保存経路（PUT /api/quantity-tables/:id/save）と同じ項目を返す（Task 86.5）
+          surveyImageId: error.surveyImageId,
         });
         return;
       }
@@ -293,7 +302,7 @@ router.get(
  *       204:
  *         description: 更新成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（適用後の表示順序が重複する場合を含む）
  *       401:
  *         description: 認証エラー
  *       403:
@@ -447,6 +456,7 @@ router.get(
  *                 format: uuid
  *               displayOrder:
  *                 type: integer
+ *                 description: 表示順序。当該数量表の他のグループが使っている値は 400 で拒否する
  *               expectedUpdatedAt:
  *                 type: string
  *                 format: date-time
@@ -454,7 +464,7 @@ router.get(
  *       200:
  *         description: 数量グループ更新成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（表示順序が他のグループと重複する場合を含む）
  *       401:
  *         description: 認証エラー
  *       403:
@@ -492,6 +502,11 @@ router.put(
 
       res.json(quantityGroup);
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（site-survey の5経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof QuantityGroupNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/quantity-group-not-found',
@@ -521,6 +536,8 @@ router.put(
           status: 404,
           detail: error.message,
           code: 'SURVEY_IMAGE_NOT_FOUND',
+          // 保存経路（PUT /api/quantity-tables/:id/save）と同じ項目を返す（Task 86.5）
+          surveyImageId: error.surveyImageId,
         });
         return;
       }
@@ -606,6 +623,8 @@ router.delete(
  *     description: |
  *       指定された数量グループを同一数量表内に複製し、元グループの直下に挿入する。
  *       配下の全数量項目と現場調査写真の紐づけも複製される。
+ *       ただし当該数量表と別のプロジェクトの現場調査画像を指す紐づけは複製先へ写さない
+ *       （複製先の surveyImageId は null になる。複製自体は成功する）。
  *     tags:
  *       - Quantity Groups
  *     security:

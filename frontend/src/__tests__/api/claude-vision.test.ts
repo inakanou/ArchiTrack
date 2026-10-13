@@ -207,6 +207,13 @@ describe('claude-vision API client', () => {
   });
 
   describe('extractWithClaudeVisionForQuantityTable()', () => {
+    /**
+     * 渡した画像データがバックエンドの Claude Vision API エンドポイント
+     * （`/api/claude-vision/extract`）へ数量表モードで送られることを、このクライアント単独で確かめる。
+     * 数量表取り込みで PDF の画像化から送信までを通して確かめる検証は
+     * `frontend/src/components/quantity-table-import/pdf-ocr-extractor.vision-request.test.ts` に
+     * 置き、被覆印はそちらだけに付ける（Task 97.5。片側だけの本検証は名乗らない）。
+     */
     it('should call apiClient.post with mode quantity-table', async () => {
       const mockResponse: ClaudeVisionQuantityExtractResponse = {
         lineItems: [

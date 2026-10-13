@@ -86,7 +86,7 @@ const mockStatusHistory: StatusHistoryResponse[] = [
     fromStatusLabel: null,
     toStatusLabel: '準備中',
     transitionType: 'initial',
-    transitionTypeLabel: '初期設定',
+    transitionTypeLabel: '初期登録',
     reason: null,
     changedBy: { id: 'user-1', displayName: 'ユーザー1' },
     changedAt: '2025-01-01T00:00:00Z',

@@ -86,6 +86,13 @@ function setupPdfMock(opts: { numPages: number; pageTexts: string[][] }) {
   });
 }
 
+/**
+ * pdfjs-dist の getTextContent() 経由でテキストを組み立てることと、1ページ目から
+ * 最終ページまでを対象にすることの双方をこの区間が確かめる。
+ *
+ * @requirement quantity-table-generation/REQ-29.1
+ * @requirement quantity-table-generation/REQ-29.2
+ */
 describe('extractPdfText', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -130,6 +137,15 @@ describe('extractPdfText', () => {
   });
 });
 
+/**
+ * テキストPDFと判定したときに抽出テキストをそのまま使い、かつ Tesseract OCR を
+ * 実行しないことをこの区間が確かめる。
+ *
+ * スキャンPDF側の分岐（Canvas → Tesseract）は下の `extractPdfWithOcrFallback` の
+ * 区間が確かめるため、ここでは名乗らない。
+ *
+ * @requirement quantity-table-generation/REQ-29.3
+ */
 describe('extractPdfHybrid', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -153,6 +169,16 @@ describe('extractPdfHybrid', () => {
     expect(result.numPages).toBe(1);
     expect(onProgress).toHaveBeenCalledWith(10, 'PDFテキスト抽出中...');
     expect(onProgress).toHaveBeenCalledWith(100, 'テキスト抽出完了');
+    // 条文（REQ-29.3）の括弧書き「Tesseract OCRは実行しない」の側を固定する。
+    //
+    // 当てた変異: extractPdfHybrid のテキストPDFの早期 return の直前へ
+    //   const { createWorker: cwM2 } = await import('tesseract.js');
+    //   await cwM2('jpn');
+    // を挿入する（返り値は変えずにOCRだけが余計に走る実装を模す）。
+    // この変異を実行すると、本主張を含む現版は 1 failed / 14 passed（15件中）で
+    // 落ち、同じ変異を強化前の版（a193b6bc）へ当て直すと 15 passed で緑のまま
+    // である。2026-09-14 にリポジトリルートで実測した。
+    expect(mockCreateWorker).not.toHaveBeenCalled();
   });
 
   it('テキスト量が閾値未満の場合はスキャンPDFと判定し、OCRフォールバックを実行する', async () => {
@@ -218,6 +244,19 @@ describe('extractPdfHybrid', () => {
   });
 });
 
+/**
+ * スキャンPDFの各ページを Canvas 経由で画像に変換して Tesseract.js OCR を実行すること
+ * （REQ-29.4）と、そのときの Canvas 描画スケールが 4.0 であること（REQ-29.5）を
+ * この区間が確かめる。
+ *
+ * 前処理パイプラインの中身（グレースケール→大津の二値化→水平線除去→垂直線除去）は
+ * `frontend/src/components/estimate-requests/pdf-text-extractor.test.ts` の
+ * `preprocessImageData` の区間が確かめるため、ここでは名乗らない——本区間が見るのは
+ * `getImageData` / `putImageData` が呼ばれることまでである。
+ *
+ * @requirement quantity-table-generation/REQ-29.4
+ * @requirement quantity-table-generation/REQ-29.5
+ */
 describe('extractPdfWithOcrFallback', () => {
   let mockContext: {
     getImageData: ReturnType<typeof vi.fn>;
@@ -366,5 +405,124 @@ describe('extractPdfWithOcrFallback', () => {
     // getImageDataとputImageDataが呼ばれる（前処理パイプライン適用の証拠）
     expect(mockContext.getImageData).toHaveBeenCalled();
     expect(mockContext.putImageData).toHaveBeenCalled();
+  });
+});
+
+/**
+ * 中断のシグナル（Task 97.8）を渡したときの振る舞いをこの区間が確かめる。
+ *
+ * 数量表の取り込みが時間切れになった後に OCR のワーカーを止めるための手段であり、受入基準の
+ * 番号は名乗らない（要件は時間切れの後の資源の扱いに触れていない）。シグナルを渡さないときの
+ * 振る舞いが変わらないことは、上の各区間（シグナルを渡さない呼び出し）が確かめる。
+ */
+describe('中断のシグナル（Task 97.8）', () => {
+  function setupScanPdf(numPages: number): void {
+    const mockContext = {
+      getImageData: vi.fn().mockReturnValue({
+        data: new Uint8ClampedArray(16),
+        width: 2,
+        height: 2,
+      }),
+      putImageData: vi.fn(),
+    };
+    const mockCanvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn().mockReturnValue(mockContext),
+      toBlob: vi.fn().mockImplementation((cb: (b: Blob | null) => void) => {
+        cb(new Blob(['fake-image'], { type: 'image/png' }));
+      }),
+    };
+    vi.spyOn(document, 'createElement').mockReturnValue(mockCanvas as unknown as HTMLElement);
+
+    setupPdfMock({ numPages, pageTexts: Array.from({ length: numPages }, () => ['ab']) });
+    mockGetViewport.mockReturnValue({ width: 800, height: 1200 });
+    mockRender.mockReturnValue({ promise: Promise.resolve() });
+    mockRecognize.mockResolvedValue({ data: { text: 'OCRテキスト' } });
+    mockTerminate.mockResolvedValue(undefined);
+    mockCreateWorker.mockResolvedValue({
+      recognize: mockRecognize,
+      terminate: mockTerminate,
+    });
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.restoreAllMocks();
+  });
+
+  it('OCRの認識中に中断されると、認識の完了を待たずにワーカーを終了してAbortErrorで失敗する', async () => {
+    setupScanPdf(3);
+    // 本物の tesseract.js（7.0.0）の terminate は認識中の Promise を settle させない。
+    // それを模して、認識は永久に終わらないものとする
+    mockRecognize.mockImplementation(() => new Promise(() => {}));
+    const controller = new AbortController();
+
+    const settled = extractPdfWithOcrFallback(createMockFile('scan.pdf'), undefined, {
+      signal: controller.signal,
+    }).then(
+      () => 'resolved' as const,
+      (error: unknown) => error
+    );
+    await vi.waitFor(() => expect(mockRecognize).toHaveBeenCalledTimes(1));
+    expect(mockTerminate).not.toHaveBeenCalled();
+
+    controller.abort();
+
+    expect(await settled).toMatchObject({ name: 'AbortError' });
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
+    expect(mockRecognize).toHaveBeenCalledTimes(1);
+  });
+
+  it('ページの描画中に中断されると、そのページを認識せず以降のページも処理しない', async () => {
+    setupScanPdf(3);
+    const controller = new AbortController();
+    mockRender.mockReturnValueOnce({ promise: Promise.resolve() }).mockImplementationOnce(() => {
+      // 2ページ目の描画中に中断する
+      controller.abort();
+      return { promise: Promise.resolve() };
+    });
+
+    const outcome = extractPdfWithOcrFallback(createMockFile('scan.pdf'), undefined, {
+      signal: controller.signal,
+    });
+
+    await expect(outcome).rejects.toMatchObject({ name: 'AbortError' });
+    expect(mockRender).toHaveBeenCalledTimes(2);
+    expect(mockRecognize).toHaveBeenCalledTimes(1);
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('テキスト抽出の途中で中断されていれば、OCRのワーカーを作らずAbortErrorで失敗する', async () => {
+    setupScanPdf(1);
+    const controller = new AbortController();
+    mockGetTextContent.mockImplementationOnce(async () => {
+      controller.abort();
+      return { items: [{ str: 'ab' }] };
+    });
+
+    const outcome = extractPdfHybrid(createMockFile('scan.pdf'), undefined, {
+      signal: controller.signal,
+    });
+
+    await expect(outcome).rejects.toMatchObject({ name: 'AbortError' });
+    expect(mockCreateWorker).not.toHaveBeenCalled();
+  });
+
+  it('シグナルを渡しても中断しなければ、結果とワーカーの終了は渡さないときと変わらない', async () => {
+    setupScanPdf(2);
+    mockRecognize
+      .mockResolvedValueOnce({ data: { text: 'Page1' } })
+      .mockResolvedValueOnce({ data: { text: 'Page2' } });
+    const onProgress = vi.fn();
+
+    const result = await extractPdfHybrid(createMockFile('scan.pdf'), onProgress, {
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toEqual({ text: 'Page1\nPage2', isTextPdf: false, numPages: 2 });
+    expect(mockRecognize).toHaveBeenCalledTimes(2);
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith(90, '2/2ページ処理中...');
   });
 });

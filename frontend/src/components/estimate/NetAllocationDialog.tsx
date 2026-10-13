@@ -24,6 +24,7 @@
  *
  * 18.9 / 5.7 の「処理中の表示」は、案分がクライアント内で同期的に完結するように
  * なったため成立する処理中の期間が存在しない（49.3 でサーバーへの往復が無くなった）。
+ * この理由で requirements.md は 18.9 / 5.7 をともに撤廃している（5.7 はタスク 61.3）。
  *
  * Design: design.md `#### Frontend Domain` > `##### estimateCalculations`,
  *         Requirements Traceability `5.8, 5.9`（`allocateNet` を NetAllocationDialog が用いる）

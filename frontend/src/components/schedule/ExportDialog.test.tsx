@@ -6,12 +6,13 @@
  * Requirements (construction-schedule):
  * - REQ-7.1: Excel出力ボタン押下時にExcel形式（.xlsx）のファイルをダウンロード
  * - REQ-8.1: PDF出力ボタン押下時にPDF形式のファイルをダウンロード
+ * - REQ-7.6 / REQ-8.6: 出力失敗時にエラーメッセージを表示し、再試行を促す（Task 18.1）
  *
  * @module components/schedule/ExportDialog.test
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ExportDialog } from './ExportDialog';
 
@@ -35,6 +36,31 @@ describe('ExportDialog', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
+
+  /**
+   * 応答を保留した出力 API を差し込む。
+   *
+   * 出力中の表示を検める試験は、応答を返さないまま終えると、試験の後に出力が完了して
+   * 共有の onClose を呼び、後続の試験の「閉じない」主張を負荷次第で壊す。
+   * そこで試験の末尾で応答を返し、出力が閉じるところまで見届けてから終える。
+   */
+  const stubPendingExport = () => {
+    let respond: (response: { ok: boolean; blob: () => Promise<Blob> }) => void = () => {};
+    globalThis.fetch = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        })
+    );
+    return {
+      settle: async () => {
+        respond({ ok: true, blob: () => Promise.resolve(new Blob(['test'])) });
+        await waitFor(() => {
+          expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+        });
+      },
+    };
+  };
 
   // ============================================================================
   // ダイアログ表示/非表示
@@ -210,19 +236,7 @@ describe('ExportDialog', () => {
 
   it('出力処理中はローディングインジケーターを表示する', async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn().mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          setTimeout(
-            () =>
-              resolve({
-                ok: true,
-                blob: () => Promise.resolve(new Blob(['test'])),
-              }),
-            1000
-          );
-        })
-    );
+    const pending = stubPendingExport();
 
     render(<ExportDialog {...defaultProps} />);
 
@@ -234,23 +248,13 @@ describe('ExportDialog', () => {
     });
 
     expect(screen.getByRole('button', { name: /出力中/i })).toBeDisabled();
+
+    await pending.settle();
   });
 
   it('出力処理中はキャンセルボタンが無効化される', async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn().mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          setTimeout(
-            () =>
-              resolve({
-                ok: true,
-                blob: () => Promise.resolve(new Blob(['test'])),
-              }),
-            1000
-          );
-        })
-    );
+    const pending = stubPendingExport();
 
     render(<ExportDialog {...defaultProps} />);
 
@@ -261,23 +265,13 @@ describe('ExportDialog', () => {
       const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
       expect(cancelButton).toBeDisabled();
     });
+
+    await pending.settle();
   });
 
   it('出力処理中はラジオボタンが無効化される', async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn().mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          setTimeout(
-            () =>
-              resolve({
-                ok: true,
-                blob: () => Promise.resolve(new Blob(['test'])),
-              }),
-            1000
-          );
-        })
-    );
+    const pending = stubPendingExport();
 
     render(<ExportDialog {...defaultProps} />);
 
@@ -290,6 +284,8 @@ describe('ExportDialog', () => {
         expect(radio).toBeDisabled();
       });
     });
+
+    await pending.settle();
   });
 
   // ============================================================================
@@ -325,6 +321,175 @@ describe('ExportDialog', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+  });
+
+  // ============================================================================
+  // REQ-7.6 / REQ-8.6: 出力失敗時の再試行の促し
+  // ============================================================================
+
+  describe.each([
+    { req: 'REQ-7.6', label: 'Excel', format: 'xlsx' },
+    { req: 'REQ-8.6', label: 'PDF', format: 'pdf' },
+  ] as const)('$req: $label 出力の失敗時の再試行', ({ format }) => {
+    const exportUrl = `http://localhost:3000/api/schedules/schedule-001/export?format=${format}`;
+
+    const selectFormat = async (user: ReturnType<typeof userEvent.setup>) => {
+      const radio = screen
+        .getAllByRole('radio')
+        .find((r) => (r as HTMLInputElement).value === format)!;
+      await user.click(radio);
+      expect(radio).toBeChecked();
+    };
+
+    const spyDownloadLink = () => {
+      const originalCreateElement = document.createElement.bind(document);
+      const mockClick = vi.fn();
+      const downloaded: string[] = [];
+      vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
+        const element = originalCreateElement(tagName);
+        if (tagName === 'a') {
+          element.click = mockClick;
+          let name = '';
+          Object.defineProperty(element, 'download', {
+            set: (value: string) => {
+              name = value;
+              downloaded.push(value);
+            },
+            get: () => name,
+          });
+        }
+        return element;
+      });
+      return { mockClick, downloaded };
+    };
+
+    it.each([
+      {
+        cause: '通信が失敗した場合',
+        failure: () => Promise.reject(new Error('network error')),
+      },
+      {
+        cause: 'API が 500 を返した場合',
+        failure: () => Promise.resolve({ ok: false, status: 500 }),
+      },
+    ])(
+      '$cause、エラーメッセージとともに再試行ボタンを表示し、再試行で同じ形式の出力を再度要求する',
+      async ({ failure }) => {
+        const user = userEvent.setup();
+        const { mockClick, downloaded } = spyDownloadLink();
+        const fetchMock = vi
+          .fn()
+          .mockImplementationOnce(failure)
+          .mockResolvedValueOnce({
+            ok: true,
+            blob: () => Promise.resolve(new Blob(['test'])),
+          });
+        globalThis.fetch = fetchMock;
+
+        render(<ExportDialog {...defaultProps} />);
+        await selectFormat(user);
+        await user.click(screen.getByRole('button', { name: '出力' }));
+
+        // 失敗時: エラーメッセージと再試行ボタンが現れる
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('工程表の出力に失敗しました');
+        const retryButton = within(alert).getByRole('button', { name: '再試行' });
+        expect(retryButton).toBeEnabled();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(defaultProps.onClose).not.toHaveBeenCalled();
+        expect(mockClick).not.toHaveBeenCalled();
+
+        // 再試行: 直前の形式で出力が再度要求される
+        await user.click(retryButton);
+
+        await waitFor(() => {
+          expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+        expect(fetchMock).toHaveBeenNthCalledWith(
+          2,
+          exportUrl,
+          expect.objectContaining({ method: 'GET' })
+        );
+
+        // 再試行の成功: ダウンロードしてダイアログを閉じ、エラーは消える
+        await waitFor(() => {
+          expect(mockClick).toHaveBeenCalledTimes(1);
+          expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+        });
+        expect(downloaded).toEqual([`テスト工程表.${format}`]);
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      }
+    );
+
+    it('失敗の後にもう一方の形式を選び直しても、再試行は失敗した形式で出力を再度要求する', async () => {
+      const otherFormat = format === 'xlsx' ? 'pdf' : 'xlsx';
+      const user = userEvent.setup();
+      const { mockClick, downloaded } = spyDownloadLink();
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 500 })
+        .mockResolvedValueOnce({
+          ok: true,
+          blob: () => Promise.resolve(new Blob(['test'])),
+        });
+      globalThis.fetch = fetchMock;
+
+      render(<ExportDialog {...defaultProps} />);
+      await selectFormat(user);
+      await user.click(screen.getByRole('button', { name: '出力' }));
+
+      const alert = await screen.findByRole('alert');
+      const retryButton = within(alert).getByRole('button', { name: '再試行' });
+
+      // 失敗の後に、もう一方の形式へ選択を変える
+      const otherRadio = screen
+        .getAllByRole('radio')
+        .find((r) => (r as HTMLInputElement).value === otherFormat)!;
+      await user.click(otherRadio);
+      expect(otherRadio, '前提: 失敗の後に選択をもう一方の形式へ変えられる').toBeChecked();
+
+      // 再試行は、いま選んでいる形式ではなく、失敗した形式で要求し直す
+      await user.click(retryButton);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        exportUrl,
+        expect.objectContaining({ method: 'GET' })
+      );
+      await waitFor(() => {
+        expect(mockClick).toHaveBeenCalledTimes(1);
+      });
+      expect(downloaded).toEqual([`テスト工程表.${format}`]);
+    });
+
+    it('再試行がまた失敗した場合、エラーメッセージと再試行ボタンを表示し続ける', async () => {
+      const user = userEvent.setup();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+      globalThis.fetch = fetchMock;
+
+      render(<ExportDialog {...defaultProps} />);
+      await selectFormat(user);
+      await user.click(screen.getByRole('button', { name: '出力' }));
+
+      const alert = await screen.findByRole('alert');
+      await user.click(within(alert).getByRole('button', { name: '再試行' }));
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        exportUrl,
+        expect.objectContaining({ method: 'GET' })
+      );
+      const alertAfterRetry = await screen.findByRole('alert');
+      expect(alertAfterRetry).toHaveTextContent('工程表の出力に失敗しました');
+      expect(within(alertAfterRetry).getByRole('button', { name: '再試行' })).toBeEnabled();
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
     });
   });
 

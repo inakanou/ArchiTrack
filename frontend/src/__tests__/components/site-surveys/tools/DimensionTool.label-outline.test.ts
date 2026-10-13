@@ -29,7 +29,25 @@ const { mockSetCoords, mockSet } = vi.hoisted(() => {
 });
 
 // Fabric.jsのモック（DimensionTool.outline.test.ts と同形）
-vi.mock('fabric', () => {
+vi.mock('fabric', async () => {
+  // Task 115.104 (Req 6.5): 寸法線が端点ハンドル（Fabric `Control`）を持つようになったため、
+  // 幾何演算とハンドル生成に必要な最小の代替を `fabric-geometry-mock` から取り込む。
+  // Task 115.152 (Req 6.3): 寸法値の設定がパス空間と局所座標の対応（`_pathSpaceOrigin`）を
+  // 参照するようになったため、`Path` の `pathOffset` / `getRelativeCenterPoint` も
+  // 実際に計算して与える。決め打ちの値を返すとモックの都合で常に緑になるため、
+  // Task 115.104 が用意した共有ヘルパーの計算をそのまま用いる。
+  const { MockPoint, mockFabricUtil, applyPathBounds, relativeCenterOf } =
+    await import('../../../helpers/fabric-geometry-mock');
+
+  /** Fabric `Control` の代替（端点ハンドル生成でのみ用いる） */
+  class MockControl {
+    constructor(options?: Record<string, unknown>) {
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+  }
+
   class MockPath {
     path: string;
     stroke?: string;
@@ -46,6 +64,12 @@ vi.mock('fabric', () => {
     hasBorders?: boolean;
     objectCaching?: boolean;
 
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    pathOffset?: InstanceType<typeof MockPoint>;
+
     constructor(pathData?: string, options?: Record<string, unknown>) {
       this.path = pathData || '';
       this.opacity = 1;
@@ -53,6 +77,11 @@ vi.mock('fabric', () => {
       if (options) {
         Object.assign(this, options);
       }
+      applyPathBounds(this, this.path, true);
+    }
+
+    getRelativeCenterPoint(): InstanceType<typeof MockPoint> {
+      return relativeCenterOf(this);
     }
 
     set(options: Record<string, unknown> | string, value?: unknown): this {
@@ -69,8 +98,9 @@ vi.mock('fabric', () => {
       mockSetCoords();
     }
 
-    _setPath(pathData: string): void {
+    _setPath(pathData: string, adjustPosition?: boolean): void {
       this.path = pathData;
+      applyPathBounds(this, pathData, adjustPosition);
     }
 
     toObject(): Record<string, unknown> {
@@ -117,6 +147,10 @@ vi.mock('fabric', () => {
       }
       mockSet(options, value);
       return this;
+    }
+
+    setCoords(): void {
+      mockSetCoords();
     }
   }
 
@@ -213,12 +247,18 @@ vi.mock('fabric', () => {
     Rect: MockRect,
     Group: MockGroup,
     Canvas: MockCanvas,
+    Control: MockControl,
+    Point: MockPoint,
+    util: mockFabricUtil,
   };
 });
 
 import { Canvas } from 'fabric';
 
-import { DimensionLine } from '../../../../components/site-surveys/tools/DimensionTool';
+import {
+  DimensionLine,
+  DEFAULT_LABEL_STYLE,
+} from '../../../../components/site-surveys/tools/DimensionTool';
 import { ANNOTATION_DEFAULTS } from '../../../../components/site-surveys/annotation-style-tokens';
 
 // ============================================================================
@@ -300,12 +340,14 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       expect(label.strokeUniform).toBe(true);
     });
 
-    it('labelText の strokeWidth は fontSize * labelOutline.widthRatio である', () => {
+    it('labelText の strokeWidth は既定 fontSize 12 × widthRatio 0.12 = 1.44 である', () => {
       const dim = new DimensionLine(START, END);
 
       const label = getLabel(dim);
-      const expected = (label.fontSize ?? 0) * ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: 期待値は本番の算出（fontSize × widthRatio）を再実行せず具体値で固定する。
+      // 算出を両辺で走らせると中央の既定値が変わっても両辺が同時に動き主張が落ちない。
+      expect(label.fontSize).toBe(12);
+      expect(label.strokeWidth).toBeCloseTo(1.44, 10);
     });
   });
 
@@ -365,8 +407,9 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       dim.setLabelOutline({ enabled: true, widthRatio: 0.15 });
 
       const label = getLabel(dim);
-      const expected = (label.fontSize ?? 0) * 0.15;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: 既定 fontSize 12 × 0.15 = 1.8 を具体値で固定する
+      expect(label.fontSize).toBe(12);
+      expect(label.strokeWidth).toBeCloseTo(1.8, 10);
       expect(dim.getLabelOutline()!.widthRatio).toBe(0.15);
     });
 
@@ -389,8 +432,9 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       dim.setDimensionWithLabel(canvas, '200', 'mm');
 
       const label = getLabel(dim);
-      const expected = (label.fontSize ?? 0) * ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: 既定 fontSize 12 × widthRatio 0.12 = 1.44 を具体値で固定する
+      expect(label.fontSize).toBe(12);
+      expect(label.strokeWidth).toBeCloseTo(1.44, 10);
     });
 
     it('setDimensionWithLabel でフォントサイズも変更された場合、strokeWidth = 新fontSize * widthRatio で再計算される', () => {
@@ -400,8 +444,9 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       dim.setDimensionWithLabel(canvas, '200', 'mm', { fontSize: 24 });
 
       const label = getLabel(dim);
-      const expected = 24 * ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: fontSize 24 × 既定 widthRatio 0.12 = 2.88 を具体値で固定する
+      expect(label.fontSize).toBe(24);
+      expect(label.strokeWidth).toBeCloseTo(2.88, 10);
     });
 
     it('setLabelStyle({fontSize}) でも labelText.strokeWidth が再計算される', () => {
@@ -410,8 +455,9 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       dim.setLabelStyle({ fontSize: 20 });
 
       const label = getLabel(dim);
-      const expected = 20 * ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: fontSize 20 × 既定 widthRatio 0.12 = 2.4 を具体値で固定する
+      expect(label.fontSize).toBe(20);
+      expect(label.strokeWidth).toBeCloseTo(2.4, 10);
     });
 
     it('labelOutline.enabled=false のとき setDimensionWithLabel しても strokeWidth は 0 のまま', () => {
@@ -478,6 +524,117 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
 
       const [outlineAfter] = getOutlineBodyLabel(dim);
       expect(outlineAfter.strokeWidth).toBe(outlineStrokeWidthBefore);
+    });
+  });
+
+  /**
+   * Task 115.98 (Req 26.5): 寸法値ラベルの既定スタイルを一元管理の資材へ寄せる
+   *
+   * 従来 `DEFAULT_LABEL_STYLE` は `DimensionTool.ts` が literal で持ち、同じラベルの
+   * 白アウトライン（`ANNOTATION_DEFAULTS.dimensionLabelOutline`）だけが資材側にあった。
+   * 供給元を `ANNOTATION_DEFAULTS.dimensionLabel` へ一本化しても**既定値は変わらない**ことを
+   * 具体値で固定する（移設の過程で値がずれる事故を検出するため）。
+   *
+   * @requirement site-survey/REQ-26.5
+   */
+  describe('寸法値ラベルの既定スタイルの供給元（Task 115.98 / Req 26.5）', () => {
+    it('DEFAULT_LABEL_STYLE の既定値は fontSize=12 / fontColor=#000000 / backgroundColor=#ffffff である', () => {
+      expect(DEFAULT_LABEL_STYLE).toEqual({
+        fontSize: 12,
+        fontColor: '#000000',
+        backgroundColor: '#ffffff',
+      });
+    });
+
+    it('DEFAULT_LABEL_STYLE は ANNOTATION_DEFAULTS.dimensionLabel から供給される（単一情報源）', () => {
+      expect(DEFAULT_LABEL_STYLE).toEqual(ANNOTATION_DEFAULTS.dimensionLabel);
+    });
+
+    it('新規寸法線の labelText には資材の既定フォントサイズ 12 が適用される', () => {
+      const dim = new DimensionLine(START, END);
+
+      const label = getLabel(dim);
+
+      expect(label.fontSize).toBe(12);
+    });
+
+    it('新規寸法線の labelText には資材の既定文字色 #000000 が適用される', () => {
+      const dim = new DimensionLine(START, END);
+
+      const label = getLabel(dim);
+
+      expect(label.fill).toBe('#000000');
+    });
+
+    it('新規寸法線の getLabelStyle() は資材の既定と同じ具体値を返す', () => {
+      const dim = new DimensionLine(START, END);
+
+      expect(dim.getLabelStyle()).toEqual({
+        fontSize: 12,
+        fontColor: '#000000',
+        backgroundColor: '#ffffff',
+      });
+    });
+
+    it('ラベル白アウトラインの strokeWidth は既定 fontSize 12 × widthRatio 0.12 = 1.44 である', () => {
+      const dim = new DimensionLine(START, END);
+
+      const label = getLabel(dim);
+
+      expect(label.strokeWidth).toBeCloseTo(1.44, 10);
+    });
+  });
+
+  /**
+   * Task 115.150 (Req 26.5): ラベル白アウトラインの色の供給元を資材へ一本化する
+   *
+   * 従来、ラベル白アウトラインの線幅は `fontSize × widthRatio` で決まり、両因子とも資材
+   * （`ANNOTATION_DEFAULTS.dimensionLabel.fontSize` / `dimensionLabelOutline.widthRatio`）から
+   * 供給されていたのに、**同じ算出式が適用する色だけが `DimensionTool.ts` の literal** だった。
+   * 供給元を `ANNOTATION_DEFAULTS.outlineColor` へ一本化する。
+   *
+   * 既定値は従来と同じ `#ffffff` であり描画結果は変わらない。単一情報源であることは
+   * 資材の値を変異させて追随を実測することで示す（値の一致だけでは literal でも通るため）。
+   *
+   * @requirement site-survey/REQ-26.5
+   */
+  describe('ラベル白アウトラインの色の供給元（Task 115.150 / Req 26.5）', () => {
+    const ORIGINAL_OUTLINE_COLOR = ANNOTATION_DEFAULTS.outlineColor;
+
+    afterEach(() => {
+      ANNOTATION_DEFAULTS.outlineColor = ORIGINAL_OUTLINE_COLOR;
+    });
+
+    it('新規寸法線の labelText の stroke は従来と同じ #ffffff である（挙動不変）', () => {
+      const dim = new DimensionLine(START, END);
+
+      expect(getLabel(dim).stroke).toBe('#ffffff');
+    });
+
+    it('資材の outlineColor を変えると新規寸法線の labelText の stroke が追随する', () => {
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+
+      const dim = new DimensionLine(START, END);
+
+      expect(getLabel(dim).stroke).toBe('#00ff00');
+    });
+
+    it('資材の outlineColor を変えると setLabelOutline の再適用でも stroke が追随する', () => {
+      const dim = new DimensionLine(START, END);
+
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+      dim.setLabelOutline({ widthRatio: 0.15 });
+
+      expect(getLabel(dim).stroke).toBe('#00ff00');
+    });
+
+    it('無効化した場合は色に関わらず stroke が空文字になる（Req 32.12 既存挙動）', () => {
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+      const dim = new DimensionLine(START, END);
+
+      dim.setLabelOutline({ enabled: false });
+
+      expect(getLabel(dim).stroke).toBe('');
     });
   });
 });

@@ -22,21 +22,42 @@ import type { QuantityGroupDetail } from '../../types/quantity-table.types';
 // アンマウント後に発火する logger.warn）を抑止する。これがないと
 // vitest-worker teardown 中に onUserConsoleLog が pending のまま rpc が閉じられ、
 // EnvironmentTeardownError として Unhandled Rejection になり test:coverage が失敗する。
+// 実コンポーネントのURL選択規則（preferThumbnail 指定時は
+// annotatedThumbnailUrl > thumbnailUrl > originalUrl）をモックでも再現し、
+// 呼び出し側が渡すURLの誤りを検出できるようにする。
 vi.mock('../site-surveys/AnnotatedImageThumbnail', () => ({
   AnnotatedImageThumbnail: ({
     image,
     alt,
     style,
+    preferThumbnail,
   }: {
-    image: { id: string; originalUrl?: string | null };
+    image: {
+      id: string;
+      thumbnailUrl?: string | null;
+      annotatedThumbnailUrl?: string | null;
+      originalUrl?: string | null;
+      width?: number;
+      height?: number;
+    };
     alt: string;
     style?: React.CSSProperties;
+    preferThumbnail?: boolean;
   }) => (
     <img
-      src={image.originalUrl || ''}
+      src={
+        (preferThumbnail
+          ? (image.annotatedThumbnailUrl ?? image.thumbnailUrl ?? image.originalUrl)
+          : image.originalUrl) || ''
+      }
       alt={alt}
       style={style}
       data-testid="annotated-image-thumbnail"
+      data-prefer-thumbnail={preferThumbnail ? 'true' : 'false'}
+      // 呼び出し側が引き渡した実寸をそのまま露出する（Requirement 49.8）。
+      // 未指定のときは属性を付けず、共有部品が領域確保を行わない縮退を表す。
+      data-image-width={image.width}
+      data-image-height={image.height}
     />
   ),
 }));
@@ -289,15 +310,156 @@ describe('QuantityGroupCard', () => {
     });
 
     describe('REQ 3.3: 該当写真の注釈付きサムネイル表示', () => {
-      it('紐付き画像があるグループにサムネイルが表示される', () => {
+      /**
+       * 表題部の写真表示に原本ではなくサムネイルを用いること（REQ-49.4）。
+       * あわせて縮小表示であることの申告（preferThumbnail）を表示側へ渡していることを
+       * 固定する。これは注釈取得APIを省略する条件であり、注釈取得が発生しないことは
+       * AnnotatedImageThumbnail のテストが引き受ける（REQ-49.2）。
+       *
+       * @requirement quantity-table-generation/REQ-49.4
+       * @requirement quantity-table-generation/REQ-49.2
+       */
+      it('紐付き画像があるグループにサムネイルが表示される (quantity-table-generation/REQ-49.4, quantity-table-generation/REQ-49.2)', () => {
         renderWithRouter(
           <QuantityGroupCard group={mockGroupWithImage} groupDisplayName="テストグループ" />
         );
 
-        // 注釈表示のためoriginalUrlを使用する仕様に変更
+        // 表題部は縮小表示のため、原寸画像ではなくサムネイルを使用する
+        // （グループ数に比例した原寸画像のダウンロードを避ける）
         const thumbnail = screen.getByAltText('photo1.jpg');
         expect(thumbnail).toBeInTheDocument();
-        expect(thumbnail).toHaveAttribute('src', '/images/original-1.jpg');
+        expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
+        expect(thumbnail).toHaveAttribute('data-prefer-thumbnail', 'true');
+      });
+
+      /**
+       * 注釈をレンダリングしたサムネイルが利用可能なときは表題部の表示元に当該画像を用いる。
+       *
+       * @requirement quantity-table-generation/REQ-49.5
+       */
+      it('サーバー生成の注釈付きサムネイルがある場合はそれを表示する (quantity-table-generation/REQ-49.5)', () => {
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{
+              ...mockGroupWithImage,
+              surveyImage: {
+                ...mockGroupWithImage.surveyImage!,
+                hasAnnotations: true,
+                annotatedThumbnailUrl: '/images/annotated-thumb-1.jpg',
+              },
+            }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        const thumbnail = screen.getByAltText('photo1.jpg');
+        expect(thumbnail).toHaveAttribute('src', '/images/annotated-thumb-1.jpg');
+      });
+
+      /**
+       * 表題部が共有表示部品へ渡す画像情報に、写真サマリの実寸が含まれること。
+       *
+       * 共有部品は実寸が正の値のときだけ `width` / `height` 属性を与え、未読込の状態でも
+       * 表示領域を確保する（`AnnotatedImageThumbnail` の `reservationSize`）。表示領域到達
+       * までの取得抑止そのものは共有部品と site-survey スペックの所管であり、実寸の有無に
+       * 依存しない（同スペックの「実寸が0でも表示領域へ入るまで表示元URLを設定せず注釈取得
+       * APIも呼ばない」で固定済み）。本テストの対象は引き渡しに限る。
+       *
+       * @requirement quantity-table-generation/REQ-49.8
+       */
+      it('表題部が渡す画像情報に写真サマリの実寸が含まれる (quantity-table-generation/REQ-49.8)', () => {
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{
+              ...mockGroupWithImage,
+              surveyImage: {
+                ...mockGroupWithImage.surveyImage!,
+                width: 4032,
+                height: 3024,
+              },
+            }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        const thumbnail = screen.getByAltText('photo1.jpg');
+        expect(thumbnail).toHaveAttribute('data-image-width', '4032');
+        expect(thumbnail).toHaveAttribute('data-image-height', '3024');
+      });
+
+      /**
+       * 実寸を伴わない写真サマリ（写真変更ダイアログ由来など）でも表示が破綻しないこと。
+       *
+       * 実寸が欠落した写真は、共有部品が寸法属性を与えず領域確保を行わない縮退となる。
+       * 表示そのものは成立させる（design.md の Error Handling「実寸が欠落した写真」）。
+       *
+       * @requirement quantity-table-generation/REQ-49.8
+       */
+      it('実寸が欠けていても表題部の写真表示は成立する (quantity-table-generation/REQ-49.8)', () => {
+        const summaryWithoutSize = { ...mockGroupWithImage.surveyImage! };
+        delete summaryWithoutSize.width;
+        delete summaryWithoutSize.height;
+
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{ ...mockGroupWithImage, surveyImage: summaryWithoutSize }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        const thumbnail = screen.getByAltText('photo1.jpg');
+        // 表示は成立する（表示元の選択規則は 49.4 / 49.5 のテストが固定する）
+        expect(thumbnail).toBeInTheDocument();
+        expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
+        // 実寸が無いことは属性を付けないことで表す（零を渡して領域を潰さない）
+        expect(thumbnail).not.toHaveAttribute('data-image-width');
+        expect(thumbnail).not.toHaveAttribute('data-image-height');
+      });
+
+      // ====================================================================
+      // Task 115.13: 注釈の目印は「描画された注釈の有無」で判定する
+      //
+      // 画像編集画面は注釈0件でも無条件に保存するため、回転のみを保存した写真にも
+      // 注釈レコードと合成済みサムネイルが残る。既存の hasAnnotations は注釈レコードの
+      // 存在から導出されるため、目印の判定には使えない。
+      //
+      // Requirements: site-survey/20.2
+      // ====================================================================
+      it('描画された注釈がある場合は注釈バッジを表示する', () => {
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{
+              ...mockGroupWithImage,
+              surveyImage: {
+                ...mockGroupWithImage.surveyImage!,
+                hasAnnotations: true,
+                hasDrawnAnnotations: true,
+              },
+            }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        expect(screen.getByTestId('annotation-badge-group-1')).toBeInTheDocument();
+      });
+
+      it('回転のみを保存した写真（注釈レコードあり・描画0件）は注釈バッジを表示しない', () => {
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{
+              ...mockGroupWithImage,
+              surveyImage: {
+                ...mockGroupWithImage.surveyImage!,
+                hasAnnotations: true,
+                hasDrawnAnnotations: false,
+                annotatedThumbnailUrl: '/images/annotated-thumb-1.jpg',
+              },
+            }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        expect(screen.queryByTestId('annotation-badge-group-1')).not.toBeInTheDocument();
       });
 
       it('紐付き画像がないグループには画像プレースホルダーが表示される', () => {
@@ -434,6 +596,113 @@ describe('QuantityGroupCard', () => {
 
         expect(screen.getByText(/項目がありません/)).toBeInTheDocument();
       });
+    });
+  });
+
+  // ====================================================================
+  // Task 103.1: モバイル幅の見出しと紐付け写真の配置
+  // （実寸の収まりは E2E の quantity-group-card-mobile-layout-e2e.spec.ts が測る。
+  //   ここではブレークポイントの判定と、基底へのモバイル用の上書きの合成だけを確かめる）
+  // ====================================================================
+
+  describe('Task 103.1: モバイル幅の配置', () => {
+    const originalMatchMedia = window.matchMedia;
+
+    /** 与えた幅の判定（max-width の問い合わせだけを評価する）で matchMedia を差し替える */
+    function mockViewportWidth(width: number) {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: vi.fn().mockImplementation((query: string) => {
+          const maxWidth = /max-width:\s*(\d+)px/.exec(query);
+          return {
+            matches: maxWidth ? width <= Number(maxWidth[1]) : false,
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+          };
+        }),
+      });
+    }
+
+    afterEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: originalMatchMedia,
+      });
+    });
+
+    function renderEditableCard() {
+      return renderWithRouter(
+        <QuantityGroupCard
+          group={mockGroupWithImage}
+          groupDisplayName="IMG_20261010_143052_EXTERIOR_NORTH_WALL_PANEL_0001"
+          isEditable
+          onDeleteGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onCopyGroup={vi.fn()}
+          groupIndex={0}
+          groupTotalCount={2}
+          onMoveGroupUp={vi.fn()}
+          onMoveGroupDown={vi.fn()}
+        />
+      );
+    }
+
+    /** グループ名の見出しを含む行（見出しの行）とグループ名の領域を返す */
+    function headerParts() {
+      const groupName = screen.getByText('IMG_20261010_143052_EXTERIOR_NORTH_WALL_PANEL_0001');
+      const headerInfo = groupName.parentElement as HTMLElement;
+      const header = headerInfo.parentElement as HTMLElement;
+      const actions = screen.getByRole('button', { name: 'グループを削除' })
+        .parentElement as HTMLElement;
+      return { groupName, headerInfo, header, actions };
+    }
+
+    it('375 幅では見出しが折り返し、グループ名が 1 行を占め、長い一語の名前も折り返せる', () => {
+      mockViewportWidth(375);
+      renderEditableCard();
+      const { groupName, headerInfo, header, actions } = headerParts();
+
+      expect(header.style.flexWrap).toBe('wrap');
+      expect(headerInfo.style.flex).toBe('1 1 calc(100% - 44px)');
+      expect(groupName.style.overflowWrap).toBe('anywhere');
+      expect(actions.style.flexWrap).toBe('wrap');
+      expect(actions.style.minWidth).toBe('0px');
+    });
+
+    it('375 幅では紐付け写真の枠が 640×480 の固定を解き、列の幅に合わせて 4:3 で縮む', () => {
+      mockViewportWidth(375);
+      renderEditableCard();
+      const photo = screen.getByRole('button', { name: '紐付け画像を表示' });
+
+      expect(photo.style.width).toBe('100%');
+      expect(photo.style.height).toBe('auto');
+      expect(photo.style.aspectRatio).toBe('4 / 3');
+      expect((photo.parentElement as HTMLElement).style.minWidth).toBe('0px');
+    });
+
+    it('デスクトップ幅（1280）では見出しも写真の枠も従来の配置のまま', () => {
+      mockViewportWidth(1280);
+      renderEditableCard();
+      const { groupName, headerInfo, header, actions } = headerParts();
+      const photo = screen.getByRole('button', { name: '紐付け画像を表示' });
+
+      expect(header.style.flexWrap).toBe('');
+      expect(header.style.gap).toBe('16px');
+      expect(headerInfo.style.minWidth).toBe('0px');
+      expect(headerInfo.style.flex).not.toBe('1 1 calc(100% - 44px)');
+      expect(groupName.style.overflowWrap).toBe('');
+      expect(actions.style.flexShrink).toBe('0');
+      expect(actions.style.flexWrap).toBe('');
+      expect(photo.style.width).toBe('640px');
+      expect(photo.style.height).toBe('480px');
+      expect(photo.style.aspectRatio).toBe('');
     });
   });
 });

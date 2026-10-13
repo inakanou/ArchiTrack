@@ -9,7 +9,22 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, User } from '../../../generated/prisma/client.js';
 import type Redis from 'ioredis';
-import { RBACService } from '../../../services/rbac.service.js';
+import { RBACService, getSharedRBACService } from '../../../services/rbac.service.js';
+import getPrismaClient from '../../../db.js';
+import redisConnection from '../../../redis.js';
+import logger from '../../../utils/logger.js';
+
+vi.mock('../../../utils/logger.js', () => ({
+  default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
+vi.mock('../../../db.js', () => ({
+  default: vi.fn(),
+}));
+
+vi.mock('../../../redis.js', () => ({
+  default: { getClient: vi.fn(() => null) },
+}));
 
 // モックデータ
 const mockUserId = 'user-123';
@@ -207,6 +222,283 @@ describe('RBACService', () => {
     });
   });
 
+  describe('getUserPermissions() の権限キャッシュ障害時', () => {
+    let redisMock: Redis;
+    let rbacServiceWithRedis: RBACService;
+
+    beforeEach(() => {
+      vi.mocked(logger.warn).mockClear();
+      vi.mocked(logger.debug).mockClear();
+      redisMock = {
+        status: 'ready',
+        get: vi.fn(),
+        setex: vi.fn().mockResolvedValue('OK'),
+        eval: vi.fn().mockResolvedValue(1),
+      } as unknown as Redis;
+      rbacServiceWithRedis = new RBACService(prismaMock, redisMock);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-24.7: キャッシュ障害で DB から取るフォールバックが実行されたとき警告ログを記録する
+     */
+    it('権限キャッシュの読み出しが失敗するとWARNレベルのログを1回だけ記録し、DBから取得した権限を返す', async () => {
+      // Arrange: キャッシュ（Redis）の読み出しが接続障害で失敗する
+      const cacheError = new Error('Redis connection failed');
+      vi.mocked(redisMock.get).mockRejectedValue(cacheError);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      // Act
+      const permissions = await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      // Assert: 警告ログが WARN レベルで 1 回だけ、対象ユーザーと障害を添えて記録される
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        { err: cacheError, userId: mockUserId },
+        'Failed to get permissions from Redis cache'
+      );
+      expect(logger.debug).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Failed to get permissions from Redis cache'
+      );
+
+      // Assert: フォールバックとして DB から取得した権限が返る
+      expect(redisMock.get).toHaveBeenCalledWith(`rbac:permissions:${mockUserId}`);
+      expect(prismaMock.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: mockUserId } })
+      );
+      expect(permissions.map((p) => p.id).sort()).toEqual(
+        [mockAdrReadPermission.id, mockAdrCreatePermission.id, mockUserReadPermission.id].sort()
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-24.7: キャッシュ障害が無くフォールバックが実行されないときは警告ログを記録しない
+     */
+    it('権限キャッシュが正常に読めるときは警告ログを記録せずDBにも問い合わせない', async () => {
+      // Arrange
+      const cached = [
+        { id: mockAdrReadPermission.id, resource: 'adr', action: 'read', description: 'ADRの閲覧' },
+      ];
+      vi.mocked(redisMock.get).mockResolvedValue(JSON.stringify(cached));
+
+      // Act
+      const permissions = await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      // Assert
+      expect(permissions).toEqual(cached);
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-24.7: 接続が使えない状態でフォールバックしたとき警告ログを記録する
+     */
+    it('Redis の接続が使える状態でないときはコマンドを送らず、警告ログを残して DB から取得する', async () => {
+      // Arrange: 再接続中のクライアント（コマンドを送るとオフラインキューで再接続を待つ）
+      const reconnecting = {
+        status: 'reconnecting',
+        get: vi.fn(),
+        setex: vi.fn(),
+      } as unknown as Redis;
+      const service = new RBACService(prismaMock, reconnecting);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      // Act
+      const permissions = await service.getUserPermissions(mockUserId);
+
+      // Assert: コマンドは送らない
+      expect(reconnecting.get).not.toHaveBeenCalled();
+      expect(reconnecting.setex).not.toHaveBeenCalled();
+      // Assert: 警告ログを err キーで 1 回だけ残す
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        { err: expect.any(Error), userId: mockUserId },
+        'Failed to get permissions from Redis cache'
+      );
+      const [fields] = vi.mocked(logger.warn).mock.calls[0]!;
+      expect((fields as { err: Error }).err.message).toContain('reconnecting');
+      // Assert: DB から取得した権限を返す
+      expect(permissions).toHaveLength(3);
+    });
+
+    it('読み出しが失敗したときはキャッシュへ書き込まない', async () => {
+      vi.mocked(redisMock.get).mockRejectedValue(new Error('Redis connection failed'));
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      expect(redisMock.setex).not.toHaveBeenCalled();
+      expect(redisMock.eval).not.toHaveBeenCalled();
+    });
+
+    it('キャッシュに無いときは DB から取得した権限を 15 分の TTL で、DB を読む前の世代が変わっていなければ保存する', async () => {
+      // キャッシュは無く、世代は 7
+      vi.mocked(redisMock.get).mockImplementation((async (key: string) =>
+        key === `rbac:permissions-generation:${mockUserId}` ? '7' : null) as never);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      const permissions = await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      // 世代は DB を読む前に読む
+      expect(redisMock.get).toHaveBeenNthCalledWith(1, `rbac:permissions:${mockUserId}`);
+      expect(redisMock.get).toHaveBeenNthCalledWith(2, `rbac:permissions-generation:${mockUserId}`);
+      const generationReadOrder = vi.mocked(redisMock.get).mock.invocationCallOrder[1]!;
+      const dbReadOrder = vi.mocked(prismaMock.user.findUnique).mock.invocationCallOrder[0]!;
+      expect(generationReadOrder).toBeLessThan(dbReadOrder);
+
+      // 書き込みは世代の照合と不可分（キャッシュのキー・世代のキー・読んだ世代・TTL・値）
+      expect(redisMock.setex).not.toHaveBeenCalled();
+      expect(redisMock.eval).toHaveBeenCalledWith(
+        expect.stringContaining("redis.call('SET', KEYS[1], ARGV[3], 'EX'"),
+        2,
+        `rbac:permissions:${mockUserId}`,
+        `rbac:permissions-generation:${mockUserId}`,
+        '7',
+        15 * 60,
+        JSON.stringify(permissions)
+      );
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('世代のキーが無いときは空文字を読んだ世代として照合する', async () => {
+      vi.mocked(redisMock.get).mockResolvedValue(null);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      expect(vi.mocked(redisMock.eval).mock.calls[0]![4]).toBe('');
+    });
+
+    it('読み出しの間に世代が進んで書き込まなかったときも、DB の権限を返し警告ログは残さない', async () => {
+      vi.mocked(redisMock.get).mockResolvedValue(null);
+      vi.mocked(redisMock.eval).mockResolvedValue(0);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      const permissions = await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      expect(permissions).toHaveLength(3);
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(logger.debug).toHaveBeenCalledWith(
+        { userId: mockUserId },
+        'Permission cache not written: invalidated while reading permissions'
+      );
+    });
+
+    it('世代の読み出しが失敗したときは警告ログを 1 回残し、キャッシュへ書き込まずに DB の権限を返す', async () => {
+      const generationError = new Error('Redis connection failed');
+      vi.mocked(redisMock.get).mockImplementation((async (key: string) => {
+        if (key === `rbac:permissions-generation:${mockUserId}`) {
+          throw generationError;
+        }
+        return null;
+      }) as never);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      const permissions = await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      expect(permissions).toHaveLength(3);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        { err: generationError, userId: mockUserId },
+        'Failed to get permissions from Redis cache'
+      );
+      expect(redisMock.eval).not.toHaveBeenCalled();
+    });
+
+    it('キャッシュへの書き込みが失敗したときは err キーで警告ログを残し、DB の権限を返す', async () => {
+      const writeError = new Error('Redis write failed');
+      vi.mocked(redisMock.get).mockResolvedValue(null);
+      vi.mocked(redisMock.eval).mockRejectedValue(writeError);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      const permissions = await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        { err: writeError, userId: mockUserId },
+        'Failed to cache permissions to Redis'
+      );
+      expect(permissions).toHaveLength(3);
+    });
+  });
+
+  describe('Redis クライアントの解決', () => {
+    it('関数で渡した Redis クライアントは呼び出しの時点で解決する', async () => {
+      let current: Redis | null = null;
+      const lateRedis = {
+        status: 'ready',
+        get: vi.fn().mockResolvedValue(null),
+        eval: vi.fn().mockResolvedValue(1),
+      } as unknown as Redis;
+      const service = new RBACService(prismaMock, () => current);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      // 生成の時点では未初期化（null）: キャッシュを使わない
+      await service.getUserPermissions(mockUserId);
+      await service.invalidateUserPermissionsCache(mockUserId);
+      expect(lateRedis.get).not.toHaveBeenCalled();
+      expect(lateRedis.eval).not.toHaveBeenCalled();
+
+      // 後から初期化されたクライアントを使う
+      current = lateRedis;
+      await service.getUserPermissions(mockUserId);
+      await service.invalidateUserPermissionsCache(mockUserId);
+      expect(lateRedis.get).toHaveBeenCalledWith(`rbac:permissions:${mockUserId}`);
+      // 1 回目は書き込み、2 回目は無効化（どちらも eval）
+      expect(lateRedis.eval).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(lateRedis.eval).mock.calls[1]).toContain(`rbac:permissions:${mockUserId}`);
+    });
+  });
+
+  describe('getSharedRBACService()', () => {
+    it('同じ PrismaClient の間は同じインスタンスを返し、redis.ts のクライアントを呼び出しの時点で使う', async () => {
+      const prismaA = { user: { findUnique: vi.fn() } } as unknown as PrismaClient;
+      vi.mocked(getPrismaClient).mockReturnValue(prismaA);
+      const sharedRedis = {
+        status: 'ready',
+        get: vi.fn().mockResolvedValue(JSON.stringify([])),
+      } as unknown as Redis;
+
+      const first = getSharedRBACService();
+      const second = getSharedRBACService();
+      expect(second).toBe(first);
+
+      // 生成の後に初期化された Redis を使う
+      vi.mocked(redisConnection.getClient).mockReturnValue(sharedRedis);
+      await first.getUserPermissions(mockUserId);
+      expect(sharedRedis.get).toHaveBeenCalledWith(`rbac:permissions:${mockUserId}`);
+      expect(prismaA.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('PrismaClient が作り直されたときは新しいクライアントで作り直す', () => {
+      const prismaA = { user: { findUnique: vi.fn() } } as unknown as PrismaClient;
+      const prismaB = { user: { findUnique: vi.fn() } } as unknown as PrismaClient;
+      vi.mocked(getPrismaClient).mockReturnValue(prismaA);
+      const first = getSharedRBACService();
+      vi.mocked(getPrismaClient).mockReturnValue(prismaB);
+      const second = getSharedRBACService();
+      expect(second).not.toBe(first);
+      expect(getSharedRBACService()).toBe(second);
+    });
+  });
+
   describe('hasPermission()', () => {
     it('完全一致する権限を持つ場合はtrueを返す', async () => {
       // Arrange
@@ -377,31 +669,60 @@ describe('RBACService', () => {
     beforeEach(() => {
       // Redisモックの作成
       redisMock = {
-        del: vi.fn(),
+        status: 'ready',
+        eval: vi.fn(),
       } as unknown as Redis;
 
       rbacServiceWithRedis = new RBACService(prismaMock, redisMock);
+      vi.mocked(logger.warn).mockClear();
     });
 
-    it('Redisが利用可能な場合、指定されたユーザーのキャッシュを削除する', async () => {
+    it('Redisが利用可能な場合、指定されたユーザーのキャッシュを削除し世代を進める', async () => {
       // Arrange
-      vi.mocked(redisMock.del).mockResolvedValue(1);
+      vi.mocked(redisMock.eval).mockResolvedValue(1);
 
       // Act
       await rbacServiceWithRedis.invalidateUserPermissionsCache(mockUserId);
 
-      // Assert
-      expect(redisMock.del).toHaveBeenCalledWith(`rbac:permissions:${mockUserId}`);
+      // Assert: キャッシュの削除と世代の INCR を不可分に行う
+      expect(redisMock.eval).toHaveBeenCalledWith(
+        expect.stringMatching(/DEL[\s\S]*INCR[\s\S]*EXPIRE/),
+        2,
+        `rbac:permissions:${mockUserId}`,
+        `rbac:permissions-generation:${mockUserId}`,
+        15 * 60
+      );
     });
 
     it('Redisが利用できない場合、エラーをログに記録して続行する', async () => {
       // Arrange
-      vi.mocked(redisMock.del).mockRejectedValue(new Error('Redis connection failed'));
+      const failure = new Error('Redis connection failed');
+      vi.mocked(redisMock.eval).mockRejectedValue(failure);
 
       // Act & Assert - エラーをスローしないこと
       await expect(
         rbacServiceWithRedis.invalidateUserPermissionsCache(mockUserId)
       ).resolves.toBeUndefined();
+      expect(logger.warn).toHaveBeenCalledWith(
+        { err: failure, userId: mockUserId },
+        'Failed to invalidate permission cache'
+      );
+    });
+
+    it('Redis の接続が使える状態でないときはコマンドを送らず、err 付きの警告ログを残して続行する', async () => {
+      const reconnecting = { status: 'reconnecting', eval: vi.fn() } as unknown as Redis;
+      const service = new RBACService(prismaMock, reconnecting);
+
+      await expect(service.invalidateUserPermissionsCache(mockUserId)).resolves.toBeUndefined();
+
+      expect(reconnecting.eval).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      const [fields, message] = vi.mocked(logger.warn).mock.calls[0]!;
+      expect(message).toBe('Failed to invalidate permission cache');
+      expect(fields).toEqual({ err: expect.any(Error), userId: mockUserId });
+      expect((fields as unknown as { err: Error }).err.message).toBe(
+        'Redis connection is not ready (status: reconnecting)'
+      );
     });
 
     it('Redisが注入されていない場合、何も実行しない', async () => {
@@ -422,8 +743,10 @@ describe('RBACService', () => {
     beforeEach(() => {
       // Redisモックの作成
       redisMock = {
-        del: vi.fn(),
+        status: 'ready',
+        eval: vi.fn(),
       } as unknown as Redis;
+      vi.mocked(logger.warn).mockClear();
 
       // Prismaモックを再作成（userRoleを含む）
       prismaMock = {
@@ -444,7 +767,7 @@ describe('RBACService', () => {
       const mockUserRoles = [{ userId: 'user-1' }, { userId: 'user-2' }, { userId: 'user-3' }];
 
       vi.mocked(prismaMock.userRole.findMany).mockResolvedValue(mockUserRoles as unknown as never);
-      vi.mocked(redisMock.del).mockResolvedValue(3);
+      vi.mocked(redisMock.eval).mockResolvedValue(3);
 
       // Act
       await rbacServiceWithRedis.invalidateUserPermissionsCacheForRole(roleId);
@@ -454,10 +777,18 @@ describe('RBACService', () => {
         where: { roleId },
         select: { userId: true },
       });
-      expect(redisMock.del).toHaveBeenCalledWith(
+      // 全ユーザーのキャッシュの削除と世代の INCR を 1 回で不可分に行う（キャッシュのキーと世代のキーの組）
+      expect(redisMock.eval).toHaveBeenCalledTimes(1);
+      expect(redisMock.eval).toHaveBeenCalledWith(
+        expect.stringMatching(/DEL[\s\S]*INCR[\s\S]*EXPIRE/),
+        6,
         'rbac:permissions:user-1',
+        'rbac:permissions-generation:user-1',
         'rbac:permissions:user-2',
-        'rbac:permissions:user-3'
+        'rbac:permissions-generation:user-2',
+        'rbac:permissions:user-3',
+        'rbac:permissions-generation:user-3',
+        15 * 60
       );
     });
 
@@ -471,7 +802,26 @@ describe('RBACService', () => {
 
       // Assert
       expect(prismaMock.userRole.findMany).toHaveBeenCalled();
-      expect(redisMock.del).not.toHaveBeenCalled();
+      expect(redisMock.eval).not.toHaveBeenCalled();
+    });
+
+    it('Redis の接続が使える状態でないときは DB もコマンドも使わず、err 付きの警告ログを残して続行する', async () => {
+      const connecting = { status: 'connecting', eval: vi.fn() } as unknown as Redis;
+      const service = new RBACService(prismaMock, connecting);
+
+      await expect(
+        service.invalidateUserPermissionsCacheForRole('role-123')
+      ).resolves.toBeUndefined();
+
+      expect(prismaMock.userRole.findMany).not.toHaveBeenCalled();
+      expect(connecting.eval).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      const [fields, message] = vi.mocked(logger.warn).mock.calls[0]!;
+      expect(message).toBe('Failed to invalidate permission cache for role');
+      expect(fields).toEqual({ err: expect.any(Error), roleId: 'role-123' });
+      expect((fields as unknown as { err: Error }).err.message).toBe(
+        'Redis connection is not ready (status: connecting)'
+      );
     });
 
     it('Redisが利用できない場合、エラーをログに記録して続行する', async () => {
@@ -479,12 +829,17 @@ describe('RBACService', () => {
       const roleId = 'role-123';
       const mockUserRoles = [{ userId: 'user-1' }];
       vi.mocked(prismaMock.userRole.findMany).mockResolvedValue(mockUserRoles as unknown as never);
-      vi.mocked(redisMock.del).mockRejectedValue(new Error('Redis connection failed'));
+      const failure = new Error('Redis connection failed');
+      vi.mocked(redisMock.eval).mockRejectedValue(failure);
 
       // Act & Assert - エラーをスローしないこと
       await expect(
         rbacServiceWithRedis.invalidateUserPermissionsCacheForRole(roleId)
       ).resolves.toBeUndefined();
+      expect(logger.warn).toHaveBeenCalledWith(
+        { err: failure, roleId },
+        'Failed to invalidate permission cache for role'
+      );
     });
 
     it('Redisが注入されていない場合、何も実行しない', async () => {

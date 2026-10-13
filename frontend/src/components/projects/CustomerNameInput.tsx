@@ -389,7 +389,6 @@ function CustomerNameInput({
           lineHeight: '1.5',
           color: disabled ? STYLES.colors.disabled : STYLES.colors.text,
           backgroundColor: disabled ? STYLES.colors.disabledBg : STYLES.colors.white,
-          outline: 'none',
           cursor: disabled ? 'not-allowed' : 'text',
           transition: STYLES.transition,
           boxShadow: getBoxShadow(),

@@ -10,7 +10,7 @@
  * - 4.2: 複数ファイル選択対応
  * - 4.5: エラー表示（形式不正）
  * - 4.6: エラー表示（サイズ超過）
- * - 13.3: モバイル環境でのカメラ連携
+ * - 15.3: モバイル環境でのカメラ連携
  *
  * Task 108.1（Requirement 37）:
  * - 37.1: 失敗した画像を未送信画像として画面に保持する
@@ -33,6 +33,7 @@ import ImageUploader, {
   MAX_FILE_SIZE_MB,
 } from '../../../components/site-surveys/ImageUploader';
 import { compressImagesForUpload } from '../../../utils/image-compression';
+import { ApiError } from '../../../api/client';
 import type { FailedUpload, UploadFailureKind } from '../../../types/upload.types';
 
 // ============================================================================
@@ -581,6 +582,37 @@ describe('ImageUploader', () => {
 
       expect(clickSpy).toHaveBeenCalled();
     });
+
+    // 任意の口 showCameraCapture（construction-photo のタスク 23.5 が追加）。
+    // 既定（未指定）は従来どおりカメラの導線を描き、false を渡したときだけ描かない。
+    it('showCameraCapture を指定しなければ、従来どおりカメラのボタンと入力を描く', () => {
+      render(<ImageUploader {...defaultProps} />);
+      expect(screen.getByRole('button', { name: 'カメラで撮影' })).toBeInTheDocument();
+      expect(screen.getByTestId('camera-input')).toHaveAttribute('capture', 'environment');
+    });
+
+    it('showCameraCapture={true} はカメラのボタンと入力を描く', () => {
+      render(<ImageUploader {...defaultProps} showCameraCapture />);
+      expect(screen.getByTestId('camera-button')).toBeInTheDocument();
+      expect(screen.getByTestId('camera-input')).toBeInTheDocument();
+    });
+
+    it('showCameraCapture={false} はカメラのボタンと入力を描かず、ファイル選択とドロップは残す', async () => {
+      const onUpload = vi.fn().mockResolvedValue(undefined);
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} showCameraCapture={false} />);
+
+      expect(screen.queryByRole('button', { name: 'カメラで撮影' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('camera-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('camera-input')).not.toBeInTheDocument();
+      expect(document.querySelectorAll('input[capture]')).toHaveLength(0);
+
+      expect(screen.getByTestId('upload-area')).toBeInTheDocument();
+      const file = createMockFile('local.jpg', 1024);
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+      await waitFor(() => {
+        expect(onUpload).toHaveBeenCalledWith([file]);
+      });
+    });
   });
 
   // ==========================================================================
@@ -1061,6 +1093,84 @@ describe('ImageUploader', () => {
       expect(screen.getAllByTestId('pending-upload-reason')[0]).toHaveTextContent(
         'ネットワークエラーが発生しました'
       );
+    });
+
+    /**
+     * @requirement site-survey/REQ-37.1: 送信の失敗の通知が例外を投げても、試行した画像を未送信画像として保持する
+     */
+    it('should keep the attempted images as pending even when onError throws (37.1, Task 115.346)', async () => {
+      // onUpload が例外で終わり、通知（onError。現調では監視への送出）も例外を投げる。
+      // 通知の例外が保持を妨げると撮影済みの画像が失われ、外へ伝播すると未処理の
+      // rejection になる（vitest は未処理の rejection を失敗として扱う）。
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const first = createMockFile('notify-fails-1.jpg', 1024);
+      const second = createMockFile('notify-fails-2.jpg', 2048);
+      const uploadError = new Error('ネットワークエラーが発生しました');
+      const notifyError = new Error('監視への送出に失敗しました');
+      const onUpload = vi.fn().mockRejectedValue(uploadError);
+      const onError = vi.fn(() => {
+        throw notifyError;
+      });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} onError={onError} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), {
+        target: { files: [first, second] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+      // 試行した画像が全件、再送可能な区分のまま保持される（37.1, 37.3）
+      expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 2 件');
+      const fileNames = screen
+        .getAllByTestId('pending-upload-filename')
+        .map((element) => element.textContent);
+      expect(fileNames).toEqual(['notify-fails-1.jpg', 'notify-fails-2.jpg']);
+      const kinds = screen
+        .getAllByTestId('pending-upload-item')
+        .map((element) => element.getAttribute('data-kind'));
+      expect(kinds).toEqual(['retriable', 'retriable']);
+      expect(screen.getByTestId('pending-upload-retry-button')).toBeEnabled();
+      expect(screen.queryByTestId('pending-upload-permanent-note')).not.toBeInTheDocument();
+      // 誤りの表示と onError へ渡す値は変わらない
+      expect(screen.getByTestId('upload-error')).toHaveTextContent(
+        'ネットワークエラーが発生しました'
+      );
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(uploadError);
+      // 通知の失敗は無言で握り潰さずコンソールへ記録する
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'アップロードの失敗の通知に失敗しました',
+        notifyError
+      );
+    });
+
+    /**
+     * @requirement site-survey/REQ-37.1: 送信の失敗の通知が例外を投げても、試行した画像を保持の区分のまま保持する
+     */
+    it('should keep the permanent classification when onError throws for a rejected upload (37.1, 37.16, Task 115.346)', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const file = createMockFile('too-large.jpg', 1024);
+      const onUpload = vi
+        .fn()
+        .mockRejectedValue(new ApiError(413, 'ファイルサイズが上限を超えています'));
+      const onError = vi.fn(() => {
+        throw new Error('監視への送出に失敗しました');
+      });
+
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} onError={onError} />);
+
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pending-upload-panel')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('pending-upload-filename')).toHaveTextContent('too-large.jpg');
+      expect(screen.getByTestId('pending-upload-item')).toHaveAttribute('data-kind', 'permanent');
+      // 413 は toFailedUpload の分類どおり再送不可として保持される（37.16）
+      expect(screen.getByTestId('pending-upload-permanent-note')).toBeInTheDocument();
+      expect(screen.getByTestId('pending-upload-retry-unavailable')).toBeInTheDocument();
     });
 
     it('should retry the pending images captured from a rejected upload (37.1, 37.3)', async () => {

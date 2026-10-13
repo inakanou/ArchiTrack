@@ -405,9 +405,14 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
   test.describe('Req 37: 明細行アクションメニュー（上下移動・削除集約）', () => {
     /**
      * task 81.5 シナリオ3
-     * @requirement estimate-request/REQ-37.7
+     * @requirement estimate-request/REQ-37.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-37.7 を名乗っていたが、受入基準37.7 の原文は「When ユーザーがアクションメニューの「上に移動」
+     * ボタンをクリックしたとき, the システム shall 該当行を1つ上の位置に移動する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準37.5（「The システム shall アクションメニュー内に「上に移動」
+     * ボタン、「下に移動」ボタン、「削除」ボタンを表示する」）である。
      */
-    test('アクションメニューが3項目（上に移動・下に移動・削除）を表示し、行内に旧削除ボタンが存在しない (REQ-37.7)', async ({
+    test('アクションメニューが3項目（上に移動・下に移動・削除）を表示し、行内に旧削除ボタンが存在しない (REQ-37.5)', async ({
       page,
     }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -816,15 +821,15 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       const ocrBody = page.locator('#received-quotation-ocr-section-body');
       await expect(ocrBody).toBeVisible();
 
-      // OCR 処理開始の証拠（progress/extracted/error のいずれかが OCR セクション内に出現）
-      const progressIndicator = ocrBody.locator('[data-testid="ocr-progress-indicator"]');
+      // OCR セクション内に抽出結果が現れることを、折りたたみの前提として確かめる。
+      // 以前は「progress **または** extracted **または** error のいずれか」で判定しており、
+      // 抽出が常に失敗しても成立していた。本検証は Claude Vision を成功応答に固定しており、
+      // pdfjs-dist 直接抽出の経路でも抽出は成立するため、成功のみを主張する。
       const extractedText = ocrBody.locator('[data-testid="ocr-extracted-text"]');
       const errorMessage = ocrBody.locator('[data-testid="ocr-error-message"]');
 
-      // 処理開始（progress 表示）または直接結果到達のいずれか
-      await expect(progressIndicator.or(extractedText).or(errorMessage).first()).toBeVisible({
-        timeout: getTimeout(60000),
-      });
+      await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+      await expect(errorMessage).toHaveCount(0);
 
       // ヘッダクリックで折りたたみ（Req 40.4）
       await ocrHeader.click();
@@ -835,11 +840,11 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       await expect(ocrBody).toHaveAttribute('hidden', '');
 
       // 折りたたみ中も OCR 処理が継続し、完了結果が内部状態に保持される（Req 40.11/40.12）
-      // 抽出結果または失敗のいずれかが OCR セクション本体内に出現するまで待機する。
+      // 抽出結果が OCR セクション本体内に存在し続けることを主張する。
       // 本体は hidden 属性で視覚的に隠れているが、要素自体は DOM に存在する。
-      await expect(extractedText.or(errorMessage).first()).toBeAttached({
-        timeout: getTimeout(90000),
-      });
+      // 以前は「抽出結果または失敗のいずれか」で待っており、抽出が失敗しても成立していた。
+      await expect(extractedText).toBeAttached({ timeout: getTimeout(90000) });
+      await expect(errorMessage).toHaveCount(0);
 
       // 視覚的には非表示（hidden 属性により body が toBeHidden）
       await expect(ocrBody).toBeHidden();
@@ -850,10 +855,10 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       await expect(ocrBody).toBeVisible();
       await expect(ocrBody).not.toHaveAttribute('hidden', /.*/);
 
-      // 展開後に OCR 結果（抽出テキスト or エラー）が視覚的に再表示される（Req 40.12）
-      await expect(extractedText.or(errorMessage).first()).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+      // 展開後に OCR の抽出結果が視覚的に再表示される（Req 40.12）
+      // 以前は「抽出テキスト or エラー」の選言であり、失敗表示でも成立していた。
+      await expect(extractedText).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(errorMessage).toHaveCount(0);
     });
 
     /**

@@ -109,9 +109,7 @@ export interface TradingPartnerSelectProps {
 const STYLES = {
   colors: {
     error: '#dc2626',
-    errorLight: 'rgba(220, 38, 38, 0.1)',
     focus: '#2563eb',
-    focusLight: 'rgba(37, 99, 235, 0.1)',
     border: '#d1d5db',
     label: '#374151',
     text: '#111827',
@@ -123,7 +121,7 @@ const STYLES = {
     selectedBg: '#e5edff',
   },
   borderRadius: '0.375rem',
-  transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out',
+  transition: 'border-color 0.15s ease-in-out',
 } as const;
 
 // ============================================================================
@@ -176,24 +174,55 @@ function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean
   // 部課名
   const branchMatches = partner.branchName?.toLowerCase().includes(lowerQuery) ?? false;
 
-  // 部課名フリガナ（カタカナで登録されているため、カタカナ変換後で検索）
-  const branchKanaMatches = partner.branchNameKana?.toLowerCase().includes(queryKatakana) ?? false;
-
   // 代表者名
   const repMatches = partner.representativeName?.toLowerCase().includes(lowerQuery) ?? false;
 
-  // 代表者名フリガナ（カタカナで登録されているため、カタカナ変換後で検索）
-  const repKanaMatches =
-    partner.representativeNameKana?.toLowerCase().includes(queryKatakana) ?? false;
+  return nameMatches || nameKanaMatches || branchMatches || repMatches;
+}
 
-  return (
-    nameMatches ||
-    nameKanaMatches ||
-    branchMatches ||
-    branchKanaMatches ||
-    repMatches ||
-    repKanaMatches
-  );
+/** 取引先一覧の 1 回の取得の件数の上限 */
+const TRADING_PARTNER_FETCH_LIMIT = 100;
+
+/**
+ * フリガナの昇順で比べる（一覧の API の sort=nameKana, order=asc に揃える）
+ */
+function compareByNameKana(a: TradingPartnerInfo, b: TradingPartnerInfo): number {
+  return a.nameKana.localeCompare(b.nameKana, 'ja');
+}
+
+/**
+ * 指定された取引先種別を含む取引先を取得する（種別ごとに最大100件）
+ *
+ * 一覧の API（GET /api/trading-partners）の種別 type は単一の値だけを受け付けるため、
+ * 種別が 1 つ以下のときは 1 回の要求で取得し、複数のときは種別ごとに取得して
+ * ID で重複を除き、フリガナの昇順に並べ直してまとめる
+ * （契約書のフォームの監理者の候補は顧客と協力業者の両方の種別から取る）。
+ */
+async function fetchTradingPartnersByTypes(
+  filterTypes: TradingPartnerType[]
+): Promise<TradingPartnerInfo[]> {
+  const fetchByTypes = async (types: TradingPartnerType[]) =>
+    (
+      await getTradingPartners({
+        limit: TRADING_PARTNER_FETCH_LIMIT,
+        filter: { type: types },
+        sort: 'nameKana',
+        order: 'asc',
+      })
+    ).data;
+
+  if (filterTypes.length <= 1) {
+    return fetchByTypes(filterTypes);
+  }
+
+  const results = await Promise.all(filterTypes.map((type) => fetchByTypes([type])));
+  const partnersById = new Map<string, TradingPartnerInfo>();
+  for (const partner of results.flat()) {
+    if (!partnersById.has(partner.id)) {
+      partnersById.set(partner.id, partner);
+    }
+  }
+  return [...partnersById.values()].sort(compareByNameKana);
 }
 
 // ============================================================================
@@ -273,17 +302,11 @@ export default function TradingPartnerSelect({
         setIsLoading(true);
         setFetchError(null);
 
-        // 指定された取引先種別を含む取引先を取得（最大100件）
-        const result = await getTradingPartners({
-          limit: 100,
-          filter: { type: filterTypes },
-          sort: 'nameKana',
-          order: 'asc',
-        });
+        const partners = await fetchTradingPartnersByTypes(filterTypes);
 
         if (mounted) {
-          setTradingPartners(result.data);
-          onLoadComplete?.(result.data.length);
+          setTradingPartners(partners);
+          onLoadComplete?.(partners.length);
         }
       } catch {
         if (mounted) {
@@ -436,15 +459,6 @@ export default function TradingPartnerSelect({
     return STYLES.colors.border;
   };
 
-  /**
-   * ボックスシャドウを計算
-   */
-  const getBoxShadow = (): string => {
-    if (!isFocused) return 'none';
-    if (error) return `0 0 0 3px ${STYLES.colors.errorLight}`;
-    return `0 0 0 3px ${STYLES.colors.focusLight}`;
-  };
-
   // 表示用の値（選択中は取引先名、未選択時は検索クエリ）
   const displayValue = isOpen
     ? searchQuery
@@ -500,10 +514,8 @@ export default function TradingPartnerSelect({
             lineHeight: '1.5',
             color: disabled || isLoading ? STYLES.colors.disabled : STYLES.colors.text,
             backgroundColor: disabled || isLoading ? STYLES.colors.disabledBg : STYLES.colors.white,
-            outline: 'none',
             cursor: disabled || isLoading ? 'not-allowed' : 'text',
             transition: STYLES.transition,
-            boxShadow: getBoxShadow(),
           }}
         />
 

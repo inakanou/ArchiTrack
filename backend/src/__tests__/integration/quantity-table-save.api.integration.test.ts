@@ -520,6 +520,110 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
       expect(deletedItem3).toBeNull();
     });
 
+    it('数量項目を別の数量グループへ移し替えた状態を保存できる（quantity-table-generation Req 6.4）', async () => {
+      // Arrange: group1(item1,item2) / group2(item3)
+      const seeded = await createSeededTable(testProjectId, 'グループ間移動テスト');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+      // Act: item1 を group1 から group2 の末尾へ移す（他は変更しない）
+      const response = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: 'グループ間移動テスト',
+          groups: [
+            {
+              id: seeded.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: seeded.item2Id, name: '型枠', displayOrder: 0 })],
+            },
+            {
+              id: seeded.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: seeded.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+                itemPayload({ id: seeded.item1Id, name: '外部足場', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+          ],
+        });
+
+      // Assert: 保存が成功する（移動元からの消失を削除と誤認して 500 にならない）
+      expect(response.status).toBe(200);
+
+      // Assert: item1 は削除されず group2 に所属し直している（同一IDのまま移動）
+      const movedItem = await prisma.quantityItem.findUnique({ where: { id: seeded.item1Id } });
+      expect(movedItem).not.toBeNull();
+      expect(movedItem?.quantityGroupId).toBe(seeded.group2Id);
+      expect(movedItem?.displayOrder).toBe(1);
+
+      // Assert: 再取得でも移動が保持される（移動元1件・移動先2件）
+      const detailResponse = await request(app)
+        .get(`/api/quantity-tables/${seeded.tableId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(detailResponse.status).toBe(200);
+      const groups = [...detailResponse.body.groups].sort(
+        (a: { displayOrder: number }, b: { displayOrder: number }) =>
+          a.displayOrder - b.displayOrder
+      );
+      expect(groups[0].items.map((i: { id: string }) => i.id)).toEqual([seeded.item2Id]);
+      expect(
+        [...groups[1].items]
+          .sort(
+            (a: { displayOrder: number }, b: { displayOrder: number }) =>
+              a.displayOrder - b.displayOrder
+          )
+          .map((i: { id: string }) => i.id)
+      ).toEqual([seeded.item3Id, seeded.item1Id]);
+    });
+
+    it('移動元グループを同時に削除しても移動した数量項目は失われない（Req 6.4）', async () => {
+      // Arrange: group1(item1,item2) / group2(item3)
+      const seeded = await createSeededTable(testProjectId, 'グループ間移動＋移動元削除テスト');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+      // Act: item1 を group2 へ移したうえで group1 ごと削除する（item2 は道連れで削除される）
+      const response = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: 'グループ間移動＋移動元削除テスト',
+          groups: [
+            {
+              id: seeded.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [
+                itemPayload({ id: seeded.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+                itemPayload({ id: seeded.item1Id, name: '外部足場', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+          ],
+        });
+
+      // Assert
+      expect(response.status).toBe(200);
+
+      const movedItem = await prisma.quantityItem.findUnique({ where: { id: seeded.item1Id } });
+      expect(movedItem).not.toBeNull();
+      expect(movedItem?.quantityGroupId).toBe(seeded.group2Id);
+
+      // 移動元グループと、移動しなかった配下項目は削除される
+      const deletedGroup = await prisma.quantityGroup.findUnique({
+        where: { id: seeded.group1Id },
+      });
+      expect(deletedGroup).toBeNull();
+      const deletedItem = await prisma.quantityItem.findUnique({ where: { id: seeded.item2Id } });
+      expect(deletedItem).toBeNull();
+    });
+
     it('保存成功で updatedAt が更新され、返却された updatedAt で再度保存できる（42.8 同期）', async () => {
       const { tableId } = await createSeededTable(testProjectId, '同期テスト');
       const firstExpected = await getExpectedUpdatedAt(tableId);
@@ -572,6 +676,520 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
     });
   });
 
+  describe('数値欄の範囲（Req 9.3, 10.3）', () => {
+    /*
+     * Requirements (quantity-table-generation): 9.3
+     *
+     * REQ-9.3 の有効域 `-9.99〜9.99` は `0` と負値を内側に含む。改める前の保存経路は
+     * `z.number().positive()` でこれを 400 で拒んでおり、フロント側に「保存できません」と
+     * 告げる暫定の層（タスク 80.2）を要していた。**永続化されて読み戻せることまで主張する**
+     * ——200 が返るだけでは、値が黙って既定値へ倒されている場合と区別できない。
+     */
+    it.each([
+      ['0', 0],
+      ['負の有効値', -0.5],
+      ['下限', -9.99],
+    ])('調整係数が有効域の内側（%s）のとき保存され読み戻せる', async (_label, adjustmentFactor) => {
+      const seeded = await createSeededTable(testProjectId, `調整係数保存_${adjustmentFactor}`);
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '調整係数保存',
+          groups: [
+            {
+              id: seeded.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: seeded.item1Id, adjustmentFactor, displayOrder: 0 })],
+            },
+          ],
+        });
+
+      expect(response.status).toBe(200);
+
+      const persisted = await prisma.quantityItem.findUniqueOrThrow({
+        where: { id: seeded.item1Id },
+        select: { adjustmentFactor: true },
+      });
+      expect(Number(persisted.adjustmentFactor)).toBe(adjustmentFactor);
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 10.3
+     *
+     * 丸め設定の有効域は `0.01〜99.99` である（REQ-10.3、タスク 80.1 が改訂）。
+     * 改める前は保存経路が直書きの上限 `999.99` を課しており、`100` を通していた。
+     * 拒むときは項目の位置を名指すこと（REQ-11.3）。
+     */
+    it.each([
+      ['上限超過', 100],
+      ['下限未満の正値', 0.005],
+      ['0（番兵は欄の層で差し替わる。ここまで残れば不整合）', 0],
+      ['負値', -0.5],
+    ])(
+      '丸め設定が有効域の外（%s）のとき400で拒まれ永続化されない',
+      async (_label, roundingUnit) => {
+        const seeded = await createSeededTable(testProjectId, `丸め設定拒否_${roundingUnit}`);
+        const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+        const response = await request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            expectedUpdatedAt,
+            name: '丸め設定拒否',
+            groups: [
+              {
+                id: seeded.group1Id,
+                name: '初期グループ1',
+                surveyImageId: null,
+                displayOrder: 0,
+                items: [itemPayload({ id: seeded.item1Id, roundingUnit, displayOrder: 0 })],
+              },
+            ],
+          });
+
+        expect(response.status).toBe(400);
+
+        // **応答の形まで主張する（REQ-11.3 / 11.4）。** 400 と永続化の不在だけでは、
+        // 範囲の判定がルート層の zod へ戻って `code: VALIDATION_ERROR` になっても、
+        // 問題箇所の名指しが失われても緑のまま通る。範囲はサービス層が一手に担い、
+        // 項目の位置を名指して返すことが本タスクの層立てそのものである（Task 85.1）
+        expect(response.body.code).toBe('QUANTITY_TABLE_VALIDATION_ERROR');
+        // 問題箇所は応答本体の直下へ `groups[i].items[j].<欄>` のキーで展開される
+        // （`quantity-tables.routes.ts` の `QuantityTableValidationError` の分岐）。
+        // `toHaveProperty` は角括弧と点をパスとして解釈するため、キーは添字で直接引く
+        const named = (response.body as Record<string, string>)['groups[0].items[0].roundingUnit'];
+        expect(named).toBeDefined();
+        expect(named).toContain('丸め設定');
+
+        // 値は永続化されていない（保存は中断する。REQ-42.9）
+        const persisted = await prisma.quantityItem.findUniqueOrThrow({
+          where: { id: seeded.item1Id },
+          select: { roundingUnit: true },
+        });
+        expect(Number(persisted.roundingUnit)).toBe(0.01);
+      }
+    );
+
+    /*
+     * Requirements (quantity-table-generation): 10.3
+     *
+     * 有効域の両端は通ること。上の拒否だけでは、経路が丸め設定を一律に拒んでいる場合と
+     * 区別できない。
+     */
+    it.each([
+      ['下限', 0.01],
+      ['上限', 99.99],
+    ])('丸め設定が有効域の端（%s）のとき保存される', async (_label, roundingUnit) => {
+      const seeded = await createSeededTable(testProjectId, `丸め設定許可_${roundingUnit}`);
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '丸め設定許可',
+          groups: [
+            {
+              id: seeded.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: seeded.item1Id, roundingUnit, displayOrder: 0 })],
+            },
+          ],
+        });
+
+      expect(response.status).toBe(200);
+
+      const persisted = await prisma.quantityItem.findUniqueOrThrow({
+        where: { id: seeded.item1Id },
+        select: { roundingUnit: true },
+      });
+      expect(Number(persisted.roundingUnit)).toBe(roundingUnit);
+    });
+  });
+
+  describe('保存対象の所属検証（Req 42.9）', () => {
+    it('他の数量表に属する数量項目IDを含む保存は 400 で拒否され、当該項目の所属は変わらない', async () => {
+      // Arrange: 保存対象の数量表（A）と、無関係な別の数量表（B）
+      const target = await createSeededTable(testProjectId, '所属検証テスト_対象');
+      const other = await createSeededTable(testProjectId, '所属検証テスト_別数量表');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      // Act: A の保存ペイロードに、B に属する項目の id を混入させる
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '所属検証テスト_対象',
+          groups: [
+            {
+              id: target.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [
+                itemPayload({ id: target.item1Id, name: '外部足場', unit: 'm2', displayOrder: 0 }),
+                // 別数量表（B）の項目 id。所属検証がなければ B の項目が A のグループへ付け替わる
+                itemPayload({ id: other.item1Id, name: '乗っ取り項目', displayOrder: 1 }),
+              ],
+            },
+            {
+              id: target.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: target.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+              ],
+            },
+          ],
+        });
+
+      // Assert: 400 で拒否される（問題箇所をフィールドパスで明示する）
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(Object.keys(response.body)).toContain('groups[0].items[1].id');
+
+      // Assert: 別数量表（B）の項目は所属も名称も変わっていない
+      const untouched = await prisma.quantityItem.findUnique({ where: { id: other.item1Id } });
+      expect(untouched?.quantityGroupId).toBe(other.group1Id);
+      expect(untouched?.name).toBe('外部足場');
+
+      // Assert: 保存対象（A）にも部分反映がない（item2 が削除されていない）
+      const survivingItem = await prisma.quantityItem.findUnique({ where: { id: target.item2Id } });
+      expect(survivingItem).not.toBeNull();
+      expect(survivingItem?.quantityGroupId).toBe(target.group1Id);
+    });
+
+    it('他の数量表に属する数量グループIDを含む保存は 400 で拒否され、当該グループは変更されない', async () => {
+      // Arrange: 保存対象の数量表（A）と、無関係な別の数量表（B）
+      const target = await createSeededTable(testProjectId, 'グループ所属検証テスト_対象');
+      const other = await createSeededTable(testProjectId, 'グループ所属検証テスト_別数量表');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      // Act: A の保存ペイロードに、B に属するグループの id を混入させる
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: 'グループ所属検証テスト_対象',
+          groups: [
+            {
+              id: other.group1Id,
+              name: '乗っ取りグループ',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: null, name: '注入項目', displayOrder: 0 })],
+            },
+          ],
+        });
+
+      // Assert: 400 で拒否される
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(Object.keys(response.body)).toContain('groups[0].id');
+
+      // Assert: 別数量表（B）のグループは名称も配下項目数も変わっていない
+      const untouchedGroup = await prisma.quantityGroup.findUnique({
+        where: { id: other.group1Id },
+        include: { items: true },
+      });
+      expect(untouchedGroup?.name).toBe('初期グループ1');
+      expect(untouchedGroup?.items).toHaveLength(2);
+
+      // Assert: 保存対象（A）は一切変更されていない（グループ2件が残存）
+      const targetGroups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: target.tableId },
+      });
+      expect(targetGroups).toHaveLength(2);
+    });
+
+    it('新規（id=null）・同一数量表内の更新・グループ間移動は所属検証で拒否されない', async () => {
+      // Arrange: 別数量表が併存していても、正当な保存は成功する
+      const target = await createSeededTable(testProjectId, '正当保存テスト_対象');
+      await createSeededTable(testProjectId, '正当保存テスト_別数量表');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      // Act: 新規グループ＋新規項目の作成、既存項目の更新、group1→group2 への移動を同時に行う
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '正当保存テスト_対象',
+          groups: [
+            {
+              id: target.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: target.item2Id, name: '型枠更新後', displayOrder: 0 })],
+            },
+            {
+              id: target.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: target.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+                // group1 から group2 への移動
+                itemPayload({ id: target.item1Id, name: '外部足場', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+            {
+              id: null,
+              name: '新規グループ',
+              surveyImageId: null,
+              displayOrder: 2,
+              items: [itemPayload({ id: null, name: '新規項目', displayOrder: 0 })],
+            },
+          ],
+        });
+
+      // Assert: 保存が成功する
+      expect(response.status).toBe(200);
+
+      const movedItem = await prisma.quantityItem.findUnique({ where: { id: target.item1Id } });
+      expect(movedItem?.quantityGroupId).toBe(target.group2Id);
+      const updatedItem = await prisma.quantityItem.findUnique({ where: { id: target.item2Id } });
+      expect(updatedItem?.name).toBe('型枠更新後');
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: target.tableId },
+      });
+      expect(groups).toHaveLength(3);
+    });
+  });
+
+  describe('保存要求内の識別子重複検証（Req 42.9）', () => {
+    it('同一の数量項目IDが複数回現れる保存は 400 で拒否され、部分反映も削除も生じない', async () => {
+      // Arrange
+      const target = await createSeededTable(testProjectId, '項目重複検証テスト');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      // Act: item1 を group1 と group2 の双方に出現させる。
+      //      重複を検出しない場合、item1 は二重に更新されたうえ削除判定からも外れ、
+      //      さらに payload に現れない item2 のみが削除されるという意図しない状態になる。
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '項目重複検証テスト',
+          groups: [
+            {
+              id: target.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [
+                itemPayload({ id: target.item1Id, name: '重複1回目', unit: 'm2', displayOrder: 0 }),
+              ],
+            },
+            {
+              id: target.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: target.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+                itemPayload({ id: target.item1Id, name: '重複2回目', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+          ],
+        });
+
+      // Assert: 400 で拒否され、2件目の出現箇所がフィールドパスで明示される（REQ-11.4）
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(Object.keys(response.body)).toContain('groups[1].items[1].id');
+
+      // Assert: 重複指定された項目は所属も名称も変わっていない
+      const duplicated = await prisma.quantityItem.findUnique({ where: { id: target.item1Id } });
+      expect(duplicated?.quantityGroupId).toBe(target.group1Id);
+      expect(duplicated?.name).toBe('外部足場');
+
+      // Assert: payload に現れない既存項目も削除されていない（部分反映なし）
+      const survivingItem = await prisma.quantityItem.findUnique({ where: { id: target.item2Id } });
+      expect(survivingItem).not.toBeNull();
+      expect(survivingItem?.quantityGroupId).toBe(target.group1Id);
+    });
+
+    it('同一グループ内で同一の数量項目IDが複数回現れる保存も 400 で拒否される', async () => {
+      const target = await createSeededTable(testProjectId, '項目重複検証テスト_同一グループ');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '項目重複検証テスト_同一グループ',
+          groups: [
+            {
+              id: target.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [
+                itemPayload({ id: target.item1Id, name: '重複1回目', unit: 'm2', displayOrder: 0 }),
+                itemPayload({ id: target.item1Id, name: '重複2回目', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+            {
+              id: target.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: target.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+              ],
+            },
+          ],
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(Object.keys(response.body)).toContain('groups[0].items[1].id');
+
+      const duplicated = await prisma.quantityItem.findUnique({ where: { id: target.item1Id } });
+      expect(duplicated?.name).toBe('外部足場');
+    });
+
+    it('同一の数量グループIDが複数回現れる保存は 400 で拒否され、既存グループは削除されない', async () => {
+      const target = await createSeededTable(testProjectId, 'グループ重複検証テスト');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      // Act: group1 を 2 回出現させる。重複を検出しない場合、group1 は二重に更新され、
+      //      payload に現れない group2 は配下項目ごと削除される。
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: 'グループ重複検証テスト',
+          groups: [
+            {
+              id: target.group1Id,
+              name: '重複1回目',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [
+                itemPayload({ id: target.item1Id, name: '外部足場', unit: 'm2', displayOrder: 0 }),
+                itemPayload({ id: target.item2Id, name: '型枠', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+            {
+              id: target.group1Id,
+              name: '重複2回目',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: target.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+              ],
+            },
+          ],
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(Object.keys(response.body)).toContain('groups[1].id');
+
+      // Assert: グループ名は上書きされず、既存グループも削除されていない
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: target.tableId },
+        orderBy: { displayOrder: 'asc' },
+      });
+      expect(groups).toHaveLength(2);
+      expect(groups[0]?.name).toBe('初期グループ1');
+      expect(groups[1]?.name).toBe('初期グループ2');
+
+      // Assert: 移動対象にされた item3 も元のグループに残る
+      const item3 = await prisma.quantityItem.findUnique({ where: { id: target.item3Id } });
+      expect(item3?.quantityGroupId).toBe(target.group2Id);
+    });
+
+    it('新規（id=null）が複数含まれる保存・更新・グループ間移動は重複検証で拒否されない', async () => {
+      // Arrange: id=null は新規を表すため、複数現れても重複ではない（過剰な拒否の防止）
+      const target = await createSeededTable(testProjectId, '重複検証_正当保存テスト');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(target.tableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${target.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '重複検証_正当保存テスト',
+          groups: [
+            {
+              id: target.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [
+                itemPayload({ id: target.item2Id, name: '型枠更新後', displayOrder: 0 }),
+                itemPayload({ id: null, name: '新規項目A', displayOrder: 1 }),
+                itemPayload({ id: null, name: '新規項目B', displayOrder: 2 }),
+              ],
+            },
+            {
+              id: target.group2Id,
+              name: '初期グループ2',
+              surveyImageId: null,
+              displayOrder: 1,
+              items: [
+                itemPayload({ id: target.item3Id, name: '鉄筋', unit: '本', displayOrder: 0 }),
+                // group1 から group2 への移動（同一IDが1回だけ現れる）
+                itemPayload({ id: target.item1Id, name: '外部足場', unit: 'm2', displayOrder: 1 }),
+              ],
+            },
+            {
+              id: null,
+              name: '新規グループA',
+              surveyImageId: null,
+              displayOrder: 2,
+              items: [itemPayload({ id: null, name: '新規項目C', displayOrder: 0 })],
+            },
+            {
+              id: null,
+              name: '新規グループB',
+              surveyImageId: null,
+              displayOrder: 3,
+              items: [],
+            },
+          ],
+        });
+
+      expect(response.status).toBe(200);
+
+      const movedItem = await prisma.quantityItem.findUnique({ where: { id: target.item1Id } });
+      expect(movedItem?.quantityGroupId).toBe(target.group2Id);
+      const updatedItem = await prisma.quantityItem.findUnique({ where: { id: target.item2Id } });
+      expect(updatedItem?.name).toBe('型枠更新後');
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: target.tableId },
+      });
+      expect(groups).toHaveLength(4);
+      const createdItems = await prisma.quantityItem.findMany({
+        where: {
+          quantityGroup: { quantityTableId: target.tableId },
+          name: { startsWith: '新規項目' },
+        },
+      });
+      expect(createdItems).toHaveLength(3);
+    });
+  });
+
   describe('楽観的排他制御（Req 42.9）', () => {
     it('expectedUpdatedAt が一致しない場合は 409（QUANTITY_TABLE_CONFLICT）が返り、保存が中断される', async () => {
       const { tableId } = await createSeededTable(testProjectId, '競合テスト');
@@ -621,12 +1239,13 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
     });
 
     it('後発 save の競合（stale token）で後発が 409 となり、部分反映なし・displayOrder 衝突が起きない', async () => {
-      // 並行/後発 save の競合は楽観ロック（expectedUpdatedAt）で検出される。
-      // 実装に SELECT ... FOR UPDATE の行ロックは存在せず（design.md L2073: OPTIONAL）、
-      // 真の同時並行リクエストでは READ COMMITTED 下で両者が読み取り段階を通過しうるため
-      // 結果が非決定的（200/500/200 双方成功 等）になる。
-      // そこで REQ-42.9 の「後発が 409・部分反映なし」は、先行 save 成功で updatedAt を
-      // 進めた後、stale（陳腐化）な expectedUpdatedAt で後発 save を行う決定的手法で検証する。
+      // 後発 save の競合は楽観ロック（expectedUpdatedAt）で検出される。
+      // 本検証は、先行 save 成功で updatedAt を進めた後に stale（陳腐化）な
+      // expectedUpdatedAt で後発 save を行う逐次の競合を決定的に扱う。
+      // Task 59.4 の時点の saveDraft は行ロックを取らず、真の同時並行では両者が読み取り段階を
+      // 通過しえたため、逐次の形に限って検証していた。Task 88.1 が saveDraft へ数量表の行の
+      // SELECT ... FOR UPDATE を加えたので、同時並行の競合は下の describe
+      // 「同時並行保存の直列化（Task 88.1）」が検証する。
       const seeded = await createSeededTable(testProjectId, '後発競合テスト');
       const staleExpected = await getExpectedUpdatedAt(seeded.tableId);
 
@@ -732,5 +1351,293 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
         expect(new Set(itemOrders).size).toBe(itemOrders.length);
       }
     });
+  });
+
+  /**
+   * 真の同時並行保存の直列化（Task 88.1）
+   *
+   * 上の「楽観的排他制御」は、先行の保存が確定した後に後発が読み取る逐次の競合だけを
+   * 検証している。ここでは後発が読み取りを終えた時点で先行がまだ確定していない
+   * 同時並行の競合を扱う。
+   */
+  describe('同時並行保存の直列化（Task 88.1）', () => {
+    /**
+     * 数量表の行に対してロック待ちに入った接続が現れるまで待つ。
+     * 期限内に現れなければ失敗させる（前提が崩れたときに検証を素通りさせない）。
+     * 時間の計測は単調時計で行う（WSL2 では壁時計が単調時計より遅れるため）。
+     */
+    const waitForLockWaiterOnQuantityTables = async (): Promise<void> => {
+      const deadline = performance.now() + 10_000;
+      while (performance.now() < deadline) {
+        const rows = await prisma.$queryRaw<Array<{ n: number }>>`
+          SELECT count(*)::int AS n
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND wait_event_type = 'Lock'
+            AND query ILIKE '%quantity_tables%'
+        `;
+        if ((rows[0]?.n ?? 0) > 0) return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error('保存要求が数量表の行のロック待ちに入るのを 10 秒以内に観測できなかった');
+    };
+
+    /**
+     * 既存の2グループを残したまま末尾へ新規グループを1件足す保存要求の本文
+     */
+    const appendGroupPayload = (
+      seeded: { group1Id: string; group2Id: string },
+      expectedUpdatedAt: string,
+      label: string
+    ): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      name: label,
+      groups: [
+        {
+          id: seeded.group1Id,
+          name: '初期グループ1',
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [],
+        },
+        {
+          id: seeded.group2Id,
+          name: '初期グループ2',
+          surveyImageId: null,
+          displayOrder: 1,
+          items: [],
+        },
+        { id: null, name: `${label}-末尾追加`, surveyImageId: null, displayOrder: 2, items: [] },
+      ],
+    });
+
+    it('先行の保存が確定する前に読み取りを終えうる後発の保存も 409 となり、displayOrder が衝突しない', async () => {
+      const seeded = await createSeededTable(testProjectId, '同時保存テスト');
+      const baseExpected = await getExpectedUpdatedAt(seeded.tableId);
+
+      let releaseFirst!: () => void;
+      const firstMayCommit = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let signalFirstWritten!: () => void;
+      const firstWritten = new Promise<void>((resolve) => {
+        signalFirstWritten = resolve;
+      });
+
+      // 先行の保存を模す: 末尾へグループを1件足し、数量表の updatedAt を進めたまま確定を保留する。
+      // saveDraft と同じく数量表の行を UPDATE で書くので、この行の書き込みロックを握り続ける。
+      const firstSave = prisma.$transaction(
+        async (tx) => {
+          await tx.quantityGroup.create({
+            data: { quantityTableId: seeded.tableId, name: '先行-末尾追加', displayOrder: 2 },
+          });
+          await tx.quantityTable.update({
+            where: { id: seeded.tableId },
+            data: { name: '先行確定', updatedAt: new Date() },
+          });
+          signalFirstWritten();
+          await firstMayCommit;
+        },
+        { timeout: 20_000 }
+      );
+
+      try {
+        await firstWritten;
+
+        // 後発の保存: 先行と同じ版（baseExpected）から出た保存。先行は未確定なので、
+        // 読み取り時点では updatedAt は旧値のまま見える。
+        const secondSave = request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(appendGroupPayload(seeded, baseExpected, '後発'))
+          .then((res) => res);
+
+        // 後発が数量表の行のロック待ちに入ったのを見届けてから先行を確定させる
+        await waitForLockWaiterOnQuantityTables();
+        releaseFirst();
+        await firstSave;
+
+        const second = await secondSave;
+        expect(second.status).toBe(409);
+        expect(second.body).toHaveProperty('code', 'QUANTITY_TABLE_CONFLICT');
+      } finally {
+        releaseFirst();
+        await firstSave.catch(() => undefined);
+      }
+
+      // 最終状態は先行の確定結果のみ（後発の作成・改名は反映されない）
+      const table = await prisma.quantityTable.findUniqueOrThrow({
+        where: { id: seeded.tableId },
+      });
+      expect(table.name).toBe('先行確定');
+
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: seeded.tableId },
+        orderBy: { displayOrder: 'asc' },
+      });
+      expect(groups.map((g) => g.name)).toEqual([
+        '初期グループ1',
+        '初期グループ2',
+        '先行-末尾追加',
+      ]);
+
+      // displayOrder に衝突（重複）が無いこと
+      const orders = groups.map((g) => g.displayOrder);
+      expect(new Set(orders).size).toBe(orders.length);
+    }, 30_000);
+
+    it('同じ版から出た2本の保存を同時に送ると、一方だけが成功し他方は 409 となり、displayOrder が衝突しない', async () => {
+      const seeded = await createSeededTable(testProjectId, '同時保存テスト2');
+      const baseExpected = await getExpectedUpdatedAt(seeded.tableId);
+
+      const [a, b] = await Promise.all([
+        request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(appendGroupPayload(seeded, baseExpected, '保存A')),
+        request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(appendGroupPayload(seeded, baseExpected, '保存B')),
+      ]);
+
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      const loser = a.status === 409 ? a : b;
+      expect(loser.body).toHaveProperty('code', 'QUANTITY_TABLE_CONFLICT');
+
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: seeded.tableId },
+        orderBy: { displayOrder: 'asc' },
+      });
+      expect(groups).toHaveLength(3);
+      expect(groups.map((g) => g.displayOrder)).toEqual([0, 1, 2]);
+    }, 30_000);
+  });
+
+  /**
+   * ロック待ちの上限（Task 92.5）
+   *
+   * Task 92.2 は、先行が数量表の行を握り続けると後発の待機に上限が無く、所要時間の上限を
+   * 決めるのは先行の長さであることを実測した（先行を 120 秒握らせた条件で後発の所要も
+   * 120013 ms）。本節は上限を固定する。
+   *
+   * ## なぜ関門を「解放しない」形で書くか
+   *
+   * 先行を一定時間だけ握らせる形にすると、検証は壁時計をその時間ぶん必ず払ううえ、
+   * 上限が効かなくなる退行でも「先行が解放された後に応答が返る」ため緑になりうる。
+   * 関門を握ったまま応答を待てば、**上限が効いているときだけ応答が返る**。上限を外す
+   * 変異の下では下の期限つきの待ち合わせが失敗する。
+   */
+  describe('ロック待ちの上限（Task 92.5）', () => {
+    /** 数量表の行を FOR UPDATE で握り、release されるまで保持し続ける関門を開く */
+    const openBarrier = (
+      quantityTableId: string
+    ): { started: Promise<void>; release: () => void; done: Promise<unknown> } => {
+      let release!: () => void;
+      const mayRelease = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let signalStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        signalStarted = resolve;
+      });
+      const done = prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`
+            SELECT id FROM "quantity_tables" WHERE id = ${quantityTableId} FOR UPDATE
+          `;
+          signalStarted();
+          await mayRelease;
+        },
+        { timeout: 120_000 }
+      );
+      return { started, release, done };
+    };
+
+    /** 既存の2グループを残したまま末尾へ新規グループを1件足す保存要求の本文 */
+    const appendGroupPayload = (
+      seeded: { group1Id: string; group2Id: string },
+      expectedUpdatedAt: string,
+      label: string
+    ): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      name: label,
+      groups: [
+        {
+          id: seeded.group1Id,
+          name: '初期グループ1',
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [],
+        },
+        {
+          id: seeded.group2Id,
+          name: '初期グループ2',
+          surveyImageId: null,
+          displayOrder: 1,
+          items: [],
+        },
+        { id: null, name: `${label}-末尾追加`, surveyImageId: null, displayOrder: 2, items: [] },
+      ],
+    });
+
+    it('先行が行を握り続けても、後発の保存は上限で打ち切られ 503 を返す（解放後は 200 になる）', async () => {
+      const seeded = await createSeededTable(testProjectId, 'ロック待ちの上限');
+      const baseExpected = await getExpectedUpdatedAt(seeded.tableId);
+
+      const barrier = openBarrier(seeded.tableId);
+      let blocked: request.Response;
+      let elapsedMs: number;
+      let guardTimer: NodeJS.Timeout | undefined;
+      try {
+        await barrier.started;
+
+        const started = performance.now();
+        const pending = request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(appendGroupPayload(seeded, baseExpected, '後発'))
+          .then((res) => res);
+
+        // 上限が無ければ応答は返らない（関門は握ったままである）。期限つきで待ち合わせ、
+        // 期限内に返らなければ失敗させる。時間は単調時計で測る（WSL2 の壁時計はずれる）
+        const guard = new Promise<never>((_, reject) => {
+          guardTimer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  'ロック待ちの上限が効いていない: 関門を保持したまま 20 秒以内に応答が返らなかった'
+                )
+              ),
+            20_000
+          );
+        });
+
+        blocked = await Promise.race([pending, guard]);
+        elapsedMs = performance.now() - started;
+      } finally {
+        if (guardTimer) clearTimeout(guardTimer);
+        barrier.release();
+        await barrier.done.catch(() => undefined);
+      }
+
+      expect(blocked.status).toBe(503);
+      expect(blocked.body).toHaveProperty('code', 'QUANTITY_TABLE_SAVE_BUSY');
+      // 上限（2 秒）で切れていること。観測環境の揺らぎを見込んでも 15 秒には遠く及ばない
+      expect(elapsedMs).toBeLessThan(15_000);
+
+      // 後発は何も書いていない（先行の状態のまま）
+      const groupsWhileBlocked = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: seeded.tableId },
+      });
+      expect(groupsWhileBlocked).toHaveLength(2);
+
+      // 非空証明: 競合が解けた同じ要求は通る。503 は恒常の応答ではない
+      const afterRelease = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(appendGroupPayload(seeded, baseExpected, '解放後'));
+      expect(afterRelease.status).toBe(200);
+    }, 60_000);
   });
 });

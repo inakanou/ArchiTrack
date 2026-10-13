@@ -28,9 +28,14 @@ export class AuditLogService implements IAuditLogService {
   /**
    * 監査ログを記録する
    * @param input - 監査ログ作成入力
+   * @param tx - 呼び出し元のトランザクション（渡すと記録が元の操作と同じトランザクションに入り、
+   *   記録の失敗で元の操作もロールバックされる。省略時は単独で書き込む）
    * @returns 作成された監査ログ情報
    */
-  async createLog(input: CreateAuditLogInput): Promise<AuditLogInfo> {
+  async createLog(
+    input: CreateAuditLogInput,
+    tx?: Prisma.TransactionClient
+  ): Promise<AuditLogInfo> {
     // nullをPrisma.JsonNullに変換
     const data = {
       action: input.action,
@@ -42,7 +47,8 @@ export class AuditLogService implements IAuditLogService {
       metadata: input.metadata === null ? Prisma.JsonNull : input.metadata,
     };
 
-    const log = await this.deps.prisma.auditLog.create({
+    const client = tx ?? this.deps.prisma;
+    const log = await client.auditLog.create({
       data,
       select: {
         id: true,

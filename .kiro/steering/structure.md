@@ -2,7 +2,37 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-08-05（Steering Sync: 見積書作成の行操作・ネスト構造・帳票書式の再設計を反映。UI非依存の `frontend/src/domain/`（estimateEditReducer/estimateTree/estimateCalculations/estimateKeymap）を新設層として追加、`services/export/` の `load*ExportService.ts` 動的import分離、`components/estimate/` の表示・俯瞰・キー割当・帳票入力コンポーネント、backend `estimate-draft.service.ts` 追加と `estimate-export.service.ts` 撤去、`estimates.routes.ts` の経路整理、hooks件数を実測値32に是正）_
+_最終更新: 2026-10-07（Steering Sync: quantity-table-generation のタスク 94.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない二部品（数値入力・テキスト入力）の行を外した。同部品と、消費者が 0 件の再輸出ファイルは同タスクで本番コードから外した——撤去を阻んでいた estimate-creation の設計文書の名指しは同スペックの Task 59.1 が付け替えた）_
+
+_最終更新: 2026-10-02（Steering Sync: cc-sdd を 3.1 の Skills モードへ揃え、v2 系の旧コマンド方式（`.claude/commands/kiro/`・`.claude/agents/kiro/`・`.kiro/settings/rules/`）を撤去したことに伴い、ルートのツリーと「主要ディレクトリの詳細」の `.claude/commands/kiro/` の記載を、現行の `.claude/skills/` の記載へ改めた）_
+
+_最終更新: 2026-09-28（Steering Sync: user-authentication のタスク36.8。backend の `utils/` のツリーに、DB 接続障害の扱いを担う二つのモジュール（再試行の予算と対話型トランザクションの `maxWait`、接続のタイムアウトの判定と投げ直し）を加え、「主要ファイルの説明」の `db.ts`（`RetryingPool`）とエラーハンドラー（P1008 を含む接続のタイムアウトの 503）へ注記を足した。層ごとの規約は `.kiro/steering/tech.md` の「接続障害への耐性」節に一本化した）_
+
+_最終更新: 2026-09-25（Steering Sync: quantity-table-generation のタスク 97.14。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない一部品（写真変更ダイアログ）の行を外した。同部品は同タスクで撤去した——本番コードからの取り込みは0件で、撤去を阻んでいた site-survey の設計文書の名指しは同スペックの Task 115.326 が解いた。下の 2026-09-14 の項が「残置とした」「本書の列挙は残す」と書くのは当時の記録である）_
+
+_最終更新: 2026-09-25（Steering Sync: quantity-table-generation のタスク 89.1 の続き。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない一部品（バリデーション付き項目行）の行を外した。同部品は同タスクで撤去した——本番コードからの取り込みは0件で、撤去を阻んでいた site-survey 側の二つの依存は同スペックの Task 115.325 が解いた。下の 2026-09-12 の項が「残置であり、本書の列挙も残す」と書くのは当時の記録である）_
+
+_最終更新: 2026-09-14（Steering Sync: quantity-table-generation のタスク 94.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない一部品（計算用数値入力）の行を外した。同部品は同タスクで撤去した——取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、その再輸出を取り込むファイルは一つも無かった（`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力が空。コミット `52879319` の作業ツリー、2026-09-14 にリポジトリルートで実測）。同じく到達しないテキストフィールド入力・数値フィールド入力・写真変更ダイアログ・数量表の保存フックは、設計文書の参照が撤去を阻むため残置とした。再輸出ファイルを阻むのは設計文書ではない——同ファイルは残置した二部品を公開 API として輸出する唯一の口であるため、二部品の処遇と連動して残置である。いずれも本書の列挙は残す）_
+
+_最終更新: 2026-09-12（Steering Sync: quantity-table-generation のタスク 89.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない三部品（調整係数入力・丸め単位入力・数量入力）の行を外した。三部品は同タスクで撤去した——取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、その再輸出を取り込むファイルは一つも無かった（`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力が空。コミット `4e560c7f`、2026-09-12 にリポジトリルートで実測）。同じく到達しない `FieldValidatedItemRow.tsx` と、唯一の呼び出し元が読み取り専用の枝へ入らない `QuantityItemRow.tsx` は残置であり、本書の列挙も残す）_
+
+_最終更新: 2026-09-09（Steering Sync: `/kiro-steering`。ルートツリーが `scripts/`・`docs/`・`data/`・`.vscode/` の四つを一つも挙げていなかった（実測: `git ls-files | awk -F/ 'NF>1{print $1}' | sort -u` が返すルート直下の 11 件のうち、本書のツリーに現れるのは 7 件。コミット `faa54052`、2026-09-09 にリポジトリルートで実測）。とりわけ `scripts/` は押下前の関門（`npm run check:*` が 19 件、対の `:selftest` が 19 件）と CI の関門ジョブがすべてそこから起動する所でありながら、ツリーにも「主要ディレクトリの詳細」の節にも一度も現れていなかった。ツリーへ四件を加え、`scripts/` には節を新設した。節は一覧も件数も持たず、命名で役割が決まること（`check-*.ts` と対の `check-*.selftest.ts`、判定しない `survey-*`/`scan-*`/`list-*`、根拠を持つ `*-adjudication.*` と `*-baseline.json`）という規約だけを述べ、実体は `git ls-files` と `grep` で読み出す形にした——規約 (b)（数値を落として数える手段を書く）をディレクトリの内訳へ掛けたものである。対の自己検査は `check-*.ts` の 19 件すべてに在り、例外は `check-staged-coverage.cjs` の一件（対を持たず、押下前の関門からも CI からも呼ばれない。`package.json` の `coverage:staged:*` に定義があるだけ）。併せて「押下前の関門と CI の関門は同一ではない」ことを `comm` で読み出す形で明示した——実測では押下前だけが走らせる検査が 4 件（`check:adjudication-pointers`・`check:design-component-reqs`・`check:design-measurement-freshness`・`check:trace-coverage`）、CI だけが 1 件（`check:env`）である）_
+
+_最終更新: 2026-09-05（Steering Sync: タスク 115.287。`e2e/helpers/browser.ts` の起動コマンドが二文書で違う実行器を名指していた（本書 `npx ts-node` が 3 行、`.kiro/steering/tech.md` `npx tsx` が 2 箇所で 6 行）。実際に叩いて正否を決めた——`npx tsx …` はヘルパー本体まで届くが、`npx ts-node …` はルートの `package.json` が `"type": "module"` であるため型のみの取り込みが `SyntaxError` になりヘルパーへ入る前に落ちる。`ts-node` はルートの `node_modules/.bin/` に無く `backend/package.json` の devDependency にしかないが、`npx` はレジストリまたは取得済みの控えから解決するため「見つからない」形では失敗しない（コミット `3e670d6a`、2026-09-05 にリポジトリルートで実測）。値を書き換えて揃える形は採らず、タスク 115.275 / 115.286 と同じ規約 (b)（書き写さず読み出す手段を書く）を掛けた——起動コマンドの権威は `.kiro/steering/tech.md` の「Claude Code統合」節に一本化し、本書は `grep` で読み出す手段だけを持つ）_
+
+_2026-09-05（Steering Sync: タスク 115.286。押下前の関門について本書が述べていた「初期化処理」と「品質チェック（順次実行）」の記述を、実体（`.husky/scripts/pre-push.sh`）へ揃えた。`NODE_OPTIONS` の割り当ては本書の二箇所が `--max-old-space-size=1024` と述べていたが実体は `--max-old-space-size=2048` であり、番号付きの列挙は「Formatチェック」から始まっていたが実体はその前に `docker-compose.yml` の環境変数が `backend/.env.example` に載っているかの検査（警告のみで中断しない）を走らせる。値を書き換える形は採らず、タスク 115.275 が実体の件数に対して採った規約 (b)（数値を落として数える手段を書く）を関門の列挙へも掛けた——列挙が名指していた検査は `npm run check:req-coverage` の一つだけで、`check:design-*` / `check:steering-*` / `check:e2e-*` / `check:cf-evidence` / `check:dead-script-env` / `check:req-exclusions` は一つも現れていなかった（コミット `98744b92`、2026-09-05 にリポジトリルートで実測）。以後は `grep -nE` で手順の見出しを、`grep -oE` で検査の npm スクリプト名を読み出す。同型の列挙が `.kiro/steering/tech.md` にもあったため同じ形へ揃えた）_
+
+_2026-09-05（Steering Sync: タスク 115.275。ディレクトリ注記・見出し・スペック状態が名乗っていた実体の件数 30 行を、規約 (b)（数値を落として数える手段を書く）へ置き換えた。再現コマンドを書ける 21 行のうち 13 行が既に食い違っており（`quantity-table/` 22→68、`frontend/src/utils/` 22→37、Storybook 132→157、`backend/src/routes/` 34→37 など。コミット `b84137b9`、2026-09-05 にリポジトリルートで実測）、残る 9 行（`全46タスク完了` の形）は、下記の 6 通りの走査規則（深さを問わないチェック項目・最上位の番号付き項目・相異なる最上位番号・見出し・完了印の付いた項目・深さを問わない相異なる番号）を当てた範囲では書かれた値を再現できなかった（導入時のコミットまで遡ると `project-management` と `itemized-statement-generation` の 2 行だけは「相異なる最上位番号」が一致する。これ以外の数え方は当てていない）。値の書き換えでは同じ陳腐化が繰り返されるため「実体の件数の書き方の規約」節を新設し、`npm run check:steering-dir-counts` が実測日を伴わない件数を検知する）_
+
+_2026-09-02（Steering Sync: タスク 115.243。「テストの件数は書かず数える手段を書く」規約が名指していた `npm --prefix backend run test` が、タスク 115.216 の分離以降は既定側しか数えないため、手段ごとに何を選ぶかを併記する形へ是正した（backend は既定の実行・`test:integration`・`test:all`、frontend は `test` が全件）。併せて「数える手段を書くときは、その手段が何を選ぶかまで書く」——数値を撤去しても手段の指し先が変われば記述は同じように偽になる——を「テスト区分の列挙の規約」へ加えた）_
+
+_2026-08-30（Steering Sync: タスク 115.200。`e2e/specs/` のテストカテゴリを網羅列挙へ是正し（20区分。従来は19区分で `execution-budget/` が欠落）、印で囲んで `npm run check:steering-test-tree` の検査対象にした。ディレクトリツリーの図は代表例である旨を明記して網羅の重複を解消（backend のテスト木は tech.md、frontend のテスト木も tech.md が権威）。「テスト区分の列挙の規約」節を新設。テストの件数・テストファイル数は撤去し、数える手段だけを残した）_
+
+_2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`App.jsx`／`main.jsx` は実体が `.tsx`、`vite.config.js` は `vite.config.ts`）。「特殊ファイル」は規則の**例示**であって現存の主張ではないため、一般規則と同じくラベルを前置した形へ揃え、拡張子も実態（`index.ts`／`*.test.ts`／`*.spec.ts`）へ是正。同じ理由でE2E/Storybookの命名規則の例示もラベル前置へ揃えた。散文の `errors/ApiError.ts` は実体が `errors/apiError.ts` で大小文字が食い違っていたため是正）_
+
+_2026-08-28（Steering Sync: タスク 115.169。撤去・改名に追随していなかった記載を是正（`ImageViewer.tsx`／`ImageViewer.stories.tsx` は 115.146、`LazyImage.tsx`／`LazyImage.stories.tsx` は 112.1 で撤去。`archive.service.test.ts` は `audit-log-archive.service.test.ts` へ改名、`env-validator.test.ts` は `unit/config/env.test.ts` へ移動・改名）。再発は `npm run check:steering-refs` が検知する）_
+
+_2026-08-05（Steering Sync: 見積書作成の行操作・ネスト構造・帳票書式の再設計を反映。UI非依存の `frontend/src/domain/`（estimateEditReducer/estimateTree/estimateCalculations/estimateKeymap）を新設層として追加、`services/export/` の `load*ExportService.ts` 動的import分離、`components/estimate/` の表示・俯瞰・キー割当・帳票入力コンポーネント、backend `estimate-draft.service.ts` 追加と `estimate-export.service.ts` 撤去、`estimates.routes.ts` の経路整理、hooks件数を実測値32に是正）_
 
 _2026-07-29（Steering Sync: 新ドメイン construction-photo（工事写真台帳）を反映。spec カタログ・`ConstructionPhotoSectionCard`・`pages/ConstructionPhoto*`/`ConstructionSignboardListPage`・`components/construction-photos/`・`api/construction-photo*`/`construction-signboards`・backend `services/signboard-*`（SVG描画・sharp合成）・e2e `construction-photos/` を追加）_
 
@@ -18,8 +48,8 @@ _2026-04-08（Steering Sync: テストファイル数・Storybookカウント・
 ArchiTrack/
 ├── .claude/                 # Claude Codeカスタマイズ
 │   ├── CLAUDE.md           # プロジェクト固有AI運用ルール（AI運用7原則）
-│   ├── commands/           # カスタムスラッシュコマンド
-│   │   └── kiro/           # Kiro開発コマンド群
+│   ├── skills/             # スキル（スラッシュコマンドとして起動）
+│   │   └── kiro-*/         # Kiro開発スキル群（ほかにプロジェクト固有スキル）
 │   └── hooks/              # Claude Code フック
 │       └── hook_pre_commands.sh  # コマンド実行前フック
 ├── .github/                # GitHub設定
@@ -39,15 +69,15 @@ ArchiTrack/
 │   ├── steering/           # プロジェクトステアリング
 │   │   ├── product.md      # プロダクト概要
 │   │   ├── tech.md         # 技術スタック
-│   │   └── structure.md    # プロジェクト構造
+│   │   ├── structure.md    # プロジェクト構造
+│   │   └── development-discipline.md # 開発規律（反実仮想の作法など）
 │   └── specs/              # 機能仕様（動的生成）
+├── .vscode/                # エディタ共有設定（推奨拡張・デバッグ構成・タスク）
 ├── e2e/                    # E2Eテスト（Playwright）
-│   ├── specs/              # テスト仕様（カテゴリ分け）
+│   ├── specs/              # テスト仕様（カテゴリ別ディレクトリ。以下は代表例）
 │   │   ├── api/            # APIエンドポイントテスト
-│   │   ├── ui/             # UIコンポーネントテスト
-│   │   ├── integration/    # システム統合テスト
 │   │   ├── auth/           # 認証フローテスト
-│   │   └── performance/    # パフォーマンステスト
+│   │   └── （他のカテゴリは e2e/ 節「テストカテゴリ」に網羅列挙）
 │   ├── helpers/            # テストヘルパー・ユーティリティ
 │   │   ├── wait-helpers.ts # CI環境対応の待機ヘルパー
 │   │   ├── auth-actions.ts # 認証アクション（ログイン、ログアウト）
@@ -63,11 +93,11 @@ ArchiTrack/
 │   │   ├── main.ts         # Storybook設定ファイル
 │   │   └── preview.ts      # グローバルパラメータ・デコレータ
 │   ├── src/                # ソースコード
-│   │   ├── App.jsx         # メインAppコンポーネント
-│   │   └── main.jsx        # エントリーポイント
+│   │   ├── App.tsx         # メインAppコンポーネント
+│   │   └── main.tsx        # エントリーポイント
 │   ├── public/             # 公開静的ファイル
 │   ├── package.json        # 依存関係
-│   ├── vite.config.js      # Vite設定
+│   ├── vite.config.ts      # Vite設定
 │   ├── nginx.conf          # 本番環境nginx設定
 │   ├── Dockerfile          # 本番環境Dockerイメージ
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
@@ -105,13 +135,16 @@ ArchiTrack/
 │   ├── eslint.config.js    # ESLint設定（Flat Config形式）
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
+├── scripts/                # リポジトリ全域のスクリプト（スペック／steering の関門群・調査用・環境準備）
+├── docs/                   # 人間向けドキュメント（`api/`・`architecture/` ほか）
+├── data/                   # スクリプトが読む静的データ
 ├── docker-compose.yml      # 基本サービス定義（環境非依存）
 ├── docker-compose.dev.yml  # 開発環境オーバーライド
 ├── docker-compose.test.yml # テスト環境オーバーライド（ポートオフセット、nginx本番イメージ）
 ├── docker-compose.debug.yml # デバッグオーバーライド（Node.js inspector）
 ├── docker-compose.ci.yml   # CI環境オーバーライド（nginx本番イメージ）
-├── .env.dev                # 開発環境変数
-├── .env.test               # テスト環境変数
+├── .env.dev.example        # 開発環境変数の雛形（.env.dev へ複製する。.env.dev は追跡外）
+├── .env.test.example       # テスト環境変数の雛形（.env.test へ複製する。.env.test は追跡外）
 ├── package.json            # E2Eテスト依存関係
 ├── tsconfig.json           # TypeScript設定（E2Eテスト用）
 ├── playwright.config.ts    # Playwright設定（TypeScript）
@@ -125,22 +158,31 @@ ArchiTrack/
 
 ## 主要ディレクトリの詳細
 
-### `.claude/commands/kiro/`
+### `.claude/skills/`
 
-Kiro-styleスペック駆動開発のカスタムコマンドを格納します。
+Claude Codeのスキルを格納します。各スキルは `SKILL.md` を持つディレクトリで、ディレクトリ名の先頭にスラッシュを付けたコマンドとして起動します（起動の書式は `tech.md` の「Kiroスキル（スラッシュコマンド）」を参照）。
 
-**主要コマンド:**
+**Kiro-styleスペック駆動開発のスキル（`kiro-*/`。cc-sdd の Skills モードが配置）:**
 
-- `steering.md` - ステアリングドキュメント管理
-- `steering-custom.md` - カスタムステアリング作成
-- `spec-init.md` - 新規仕様初期化
-- `spec-requirements.md` - 要件定義生成
-- `spec-design.md` - 技術設計作成
-- `spec-tasks.md` - 実装タスク生成
-- `spec-impl.md` - タスク実装実行
-- `spec-status.md` - 仕様進捗確認
-- `validate-design.md` - 設計品質レビュー
-- `validate-gap.md` - 実装ギャップ分析
+- `kiro-discovery/` - 新規作業の入口（スペックの要否・分割の判断）
+- `kiro-steering/` - ステアリングドキュメント管理
+- `kiro-steering-custom/` - カスタムステアリング作成
+- `kiro-spec-init/` - 新規仕様初期化
+- `kiro-spec-requirements/` - 要件定義生成
+- `kiro-spec-design/` - 技術設計作成
+- `kiro-spec-tasks/` - 実装タスク生成
+- `kiro-spec-quick/` - 仕様の一括生成（初期化からタスク生成まで）
+- `kiro-spec-batch/` - ロードマップに基づく複数仕様の一括生成
+- `kiro-impl/` - タスク実装実行（実装・レビュー・デバッグのサブエージェントを起動）
+- `kiro-spec-status/` - 仕様進捗確認
+- `kiro-validate-design/` - 設計品質レビュー
+- `kiro-validate-gap/` - 実装ギャップ分析
+- `kiro-validate-impl/` - 実装の統合検証
+- `kiro-review/`・`kiro-debug/`・`kiro-verify-completion/` - レビュー・デバッグ・完了確認の手順（`kiro-impl/` などから用いる）
+
+各スキルが読むルールはそのスキル配下の `rules/` に、仕様・ステアリングのテンプレートは `.kiro/settings/templates/` にあります。
+
+**プロジェクト固有のスキル:** `create-branch/`・`create-pr/`・`merge-pr/`・`fix-push-hook/`・`e2e-quality/`・`local-dev-env/`・`readme-update/`・`verify-requirements/`
 
 ### `.claude/hooks/`
 
@@ -171,18 +213,13 @@ Gitフック管理ディレクトリ（Husky v9使用）。
   - subject: 小文字始まり、100文字以内、末尾にピリオド不要
 - `pre-push` + `scripts/pre-push.sh` - プッシュ前に自動実行されるスクリプト
   - **ラッパー構造**: `pre-push`（sh）→ `scripts/pre-push.sh`（bash）でpipefail等を使用
-  - **WSL2メモリ最適化**: `NODE_OPTIONS="--max-old-space-size=1024"` でOOM防止
+  - **WSL2メモリ最適化**: 冒頭で `NODE_OPTIONS` を export してOOMを防ぐ。**割り当てる値は
+    本書に書き写さない**（規約 (b)。タスク 115.286）。読むには
+    `grep -n 'NODE_OPTIONS' .husky/scripts/pre-push.sh`
   - **Git操作検出**: ブランチ削除時はスキップ、新規ブランチ/更新時は全チェック
-  - Format check、Lint、TypeScript型チェック（Backend/Frontend/E2E）
-  - ビルド（Backend/Frontend）+ ES Module検証
-  - **セキュリティ監査**: `scripts/security-audit.mjs` による脆弱性チェック
-  - Backend単体テスト（カバレッジチェック付き）、Frontend単体テスト
-  - **Storybookテスト**: インタラクション + アクセシビリティ + カバレッジチェック
-  - Backend統合テスト（Docker環境: architrack-test）
-  - **要件カバレッジチェック**: E2E対象の受入基準100%確認
-  - **CI環境変数整合性チェック**: pre-pushとCIの設定一致確認
-  - **コンテナ再起動**: E2E前のメモリリフレッシュ
-  - E2Eテスト実行（Docker環境: architrack-test、ポート3100/5174）
+  - **実行される検査とその順序は本書に列挙しない**（規約 (b)。タスク 115.286）。
+    読み出す手段は下の「Pre-pushフック（ラッパー構造）」の節に置く
+  - E2Eテストは Docker のテスト環境（architrack-test、ポート3100/5174）で実行する
   - **同期実行**: すべてのテストを完了してからプッシュ実行
   - 失敗時はプッシュを中断、テスト環境を自動クリーンアップ
 
@@ -204,6 +241,8 @@ git config core.hooksPath .husky
 
 **カスタムファイル（必要に応じて）:**
 
+- `development-discipline.md` - 開発規律（反実仮想を書く前に変異を実行する作法、全称否定の書き方）
+
 プロジェクト固有のガイドラインを追加可能。
 
 ### `.kiro/specs/[feature-name]/`
@@ -222,46 +261,56 @@ git config core.hooksPath .husky
 
 **完了した仕様:**
 
+**各スペックのタスク総数と完了数は本書に書かない**（タスク 115.275。数値を書くと、タスクが
+一つ積まれただけで無言のうちに偽になる）。数える手段は次のとおりで、いずれもリポジトリルートで
+実行する。スペック名の部分を数えたいスペックへ置き換える。
+
+- 総数: `grep -cE "^[[:space:]]*- \[[ x]\]" .kiro/specs/site-survey/tasks.md`
+- 完了数: `grep -cE "^[[:space:]]*- \[x\]" .kiro/specs/site-survey/tasks.md`
+
+`✅実装完了` は**当初の実装範囲が終わったことを表す印**であり、完了数が総数と一致することは
+意味しない（着地後に品質・是正のタスクが積まれるため）。
+
 - `.kiro/specs/user-authentication/` - ユーザー認証機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全46タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 招待制ユーザー登録、ロールベースアクセス制御（RBAC）、JWT認証フロー、2FA、監査ログ
 
 **実装完了の仕様:**
 
 - `.kiro/specs/project-management/` - プロジェクト管理機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: プロジェクトCRUD、ステータス遷移管理（12種類のステータス）、担当者割り当て、検索・フィルタリング・ページネーション、取引先選択時の現場住所自動入力
 
 - `.kiro/specs/trading-partner-management/` - 取引先管理機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全15タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 取引先CRUD、種別管理（顧客/協力業者）、請求締日・支払日管理、検索・フィルタリング・ページネーション
 
 - `.kiro/specs/site-survey/` - 現場調査機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全26タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 現場調査CRUD、画像アップロード・管理（R2）、Canvas注釈編集（寸法線・矢印・図形・テキスト）、PDF報告書エクスポート
 
 - `.kiro/specs/quantity-table-generation/` - 数量表作成機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全48タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 数量表CRUD、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援、現場調査写真紐づけ、フィールドバリデーション（文字数制限・数値範囲・表示書式）、数量表インポート（Excel/PDF、Claude Vision OCR連携）
 
 - `.kiro/specs/itemized-statement-generation/` - 内訳書作成機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全16タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 内訳書CRUD、数量表項目のピボット集計、分類軸（任意分類・工種・名称・規格・単位）によるグループ化、スナップショット独立性、ソート・フィルタリング・ページネーション、楽観的排他制御、Excel出力（.xlsx形式）、クリップボードコピー（タブ区切りテキスト）
 
 - `.kiro/specs/estimate-request/` - 見積依頼機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全24タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 見積依頼CRUD、内訳書項目選択（クライアントサイド状態管理+保存ボタン方式、任意分類・工種列対応）、見積依頼文生成（メール/FAX対応）、クリップボードコピー、Excel出力、受領見積書登録（OCR構造化データ抽出、項目選択からの一括転記、customCategory・workTypeフィールド対応、NET金額は受領見積書単位で管理）、ステータス管理（依頼前/依頼済/見積受領済）
 
 - `.kiro/specs/company-info/` - 自社情報登録機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全22タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 会社名・住所・連絡先管理（シングルトンパターン）、見積依頼文への自動挿入、楽観的排他制御
 
 - `.kiro/specs/estimate-creation/` - 見積書作成機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（tasks.md のチェック項目245件すべて完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、諸経費行管理、**明細編集のクライアント完結＋一括保存（行操作・階層移動・範囲操作・Undo/Redo・キーボード操作・階層表示モード・俯瞰パネル・注記行）**、**帳票出力のフロントエンド生成（A4横の表紙/内訳書/明細書 PDF・Excel、未保存プレビュー）**
 
 - `.kiro/specs/contract-management/` - 契約書管理機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 契約書CRUD、新規契約・変更契約種別管理、見積書連動金額自動計算、ステータス管理（契約前/契約済）、変更前後比較表示、楽観的排他制御
 
 - `.kiro/specs/construction-schedule/` - 工程表作成機能 ✅実装完了
@@ -284,45 +333,15 @@ Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可�
 
 ```
 e2e/
-├── specs/                 # テスト仕様（カテゴリ分け）
+├── specs/                 # テスト仕様（カテゴリ別ディレクトリ。以下は代表例）
 │   ├── api/              # APIエンドポイントテスト
 │   │   └── *.spec.ts
-│   ├── ui/               # UIコンポーネント・ページテスト
-│   │   └── *.spec.ts
-│   ├── auth/             # 認証フローテスト
-│   │   └── *.spec.ts
-│   ├── admin/            # 管理機能テスト
-│   │   └── *.spec.ts
-│   ├── integration/      # システム統合テスト
-│   │   └── *.spec.ts
-│   ├── performance/      # パフォーマンステスト
-│   │   └── *.spec.ts
-│   ├── security/         # セキュリティテスト
-│   │   └── *.spec.ts
-│   ├── navigation/       # ナビゲーションテスト
-│   │   └── *.spec.ts
-│   ├── projects/         # プロジェクト管理テスト
-│   │   └── *.spec.ts
-│   ├── trading-partners/ # 取引先管理テスト
-│   │   └── *.spec.ts
-│   ├── site-surveys/     # 現場調査テスト（12ファイル）
-│   │   └── *.spec.ts
-│   ├── construction-photos/ # 工事写真台帳テスト（workflow・additional）
+│   ├── site-surveys/     # 現場調査テスト
 │   │   └── *.spec.ts
 │   ├── quantity-tables/  # 数量表テスト
 │   │   └── *.spec.ts
-│   ├── itemized-statements/  # 内訳書テスト
-│   │   └── *.spec.ts
-│   ├── estimate-requests/  # 見積依頼テスト
-│   │   └── *.spec.ts
-│   ├── company-info/       # 自社情報テスト
-│   │   └── *.spec.ts
-│   ├── estimate/           # 見積書テスト
-│   │   └── *.spec.ts
-│   ├── contracts/          # 契約書テスト
-│   │   └── *.spec.ts
-│   └── schedules/          # 工程表テスト
-│       └── *.spec.ts
+│   ├── （他のカテゴリは下記「テストカテゴリ」に網羅列挙）
+│   └── *.spec.ts         # カテゴリに属さない機能横断のスペック
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
 │   ├── auth-actions.ts   # 認証アクション（ログイン、ログアウト）
@@ -338,25 +357,35 @@ e2e/
 
 **テストカテゴリ:**
 
-- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
-- `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
-- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、セッション期限切れモーダル、招待、パスワードリセット等）
+以下は `e2e/specs/` 直下の**網羅列挙**である（`npm run check:steering-test-tree` が実体との
+一致を検査する。`e2e/specs/` の網羅の権威はここ一箇所だけに置く）。
+
+<!-- steering:test-dirs e2e/specs -->
 - `admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
-- `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
-- `performance/` - パフォーマンステスト（ページロード時間、プロジェクト操作のパフォーマンス等）
-- `security/` - セキュリティテスト（CSRF、XSS対策等）
-- `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
-- `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
-- `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
-- `site-surveys/` - 現場調査テスト（12ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈、phase18追加機能）
-- `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様、数量表コピー、タイトル行最適化、フォーカス全選択、オートコンプリート最適化、インポート機能）
-- `itemized-statements/` - 内訳書テスト（CRUD操作、ピボット集計、ソート・フィルタリング）
-- `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書、OCR構造化データ、OCR再実行/リトライ、PDFテキスト抽出、数値表示形式、受領見積書ステータス）
+- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
+- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、セッション期限切れモーダル、招待、パスワードリセット等）
 - `company-info/` - 自社情報テスト（CRUD、アクセス制御、楽観的排他制御）
-- `estimate/` - 見積書テスト（CRUD、階層構造、受領見積書転記、NET金額案分）
+- `construction-photos/` - 工事写真台帳テスト（アルバム、写真登録、看板合成）
 - `contracts/` - 契約書テスト（CRUD操作、新規契約・変更契約、金額自動計算、比較表示、ステータス管理）
+- `estimate/` - 見積書テスト（CRUD、階層構造、受領見積書転記、NET金額案分）
+- `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書、OCR構造化データ、OCR再実行/リトライ、PDFテキスト抽出、数値表示形式、受領見積書ステータス）
+- `execution-budget/` - 実行予算テスト（予算作成、原価入力、月次締め、実行予算比較）
+- `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
+- `itemized-statements/` - 内訳書テスト（CRUD操作、ピボット集計、ソート・フィルタリング）
+- `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
+- `performance/` - パフォーマンステスト（ページロード時間、プロジェクト操作のパフォーマンス等）
+- `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
+- `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様、数量表コピー、タイトル行最適化、フォーカス全選択、オートコンプリート最適化、インポート機能）
 - `schedules/` - 工程表テスト（CRUD操作、ガントチャート表示、エクスポート）
-- `project-execution-budget-navigation.spec.ts` - 実行予算ナビゲーションテスト（ルートレベル配置）
+- `security/` - セキュリティテスト（CSRF、XSS対策等）
+- `site-surveys/` - 現場調査テスト（CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、サムネイル再生成等）
+- `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
+- `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
+<!-- /steering:test-dirs -->
+
+カテゴリに属さず `e2e/specs/` 直下に置かれた機能横断のスペックもある（代表例）。
+
+- `project-execution-budget-navigation.spec.ts` - 実行予算ナビゲーションテスト
 
 **テストヘルパー:**
 
@@ -369,16 +398,28 @@ e2e/
 
 `e2e/helpers/browser.ts` により、AIアシスタントから直接ブラウザ操作が可能：
 
+**起動コマンドは本書に書き写さない**（規約 (b)。タスク 115.287）。同じ起動を二文書が
+別々に書き写した結果、本書だけが実行器の是正に追随できていなかった——
+`.kiro/steering/tech.md` はタスク 115.199（2026-08-30）で `npx tsx` へ改められたのに対し、
+本書は `npx ts-node` の形を 3 行のまま残していた。**権威は `.kiro/steering/tech.md` の
+「Claude Code統合」節**であり、読み出す手段は次のとおり（いずれもリポジトリルートで実行する）。
+
 ```bash
-# スクリーンショット撮影
-npx ts-node e2e/helpers/browser.ts screenshot http://localhost:5173 screenshot.png
+# 起動コマンドを権威の側から読み出す（実行器の綴りを本書に持たない）
+grep -n 'e2e/helpers/browser.ts' .kiro/steering/tech.md
 
-# ページ情報取得
-npx ts-node e2e/helpers/browser.ts info http://localhost:5173
-
-# APIテスト
-npx ts-node e2e/helpers/browser.ts api http://localhost:3000/health
+# 権威が名指す実行器を取り出し、ローカルの依存で解決することを確かめる
+grep -oE 'npx [a-z0-9-]+ e2e/helpers/browser\.ts' .kiro/steering/tech.md | awk '{print $2}' | sort -u
+ls node_modules/.bin
 ```
+
+二つ目が**二行以上を返したら、権威が二種類以上の実行器を名乗っている**（本タスクが是正した
+食い違いの再発である）。**行数は本書に書き写さない**——書き写した瞬間に規約 (b) を破り、
+守る機械の関門も無い（`check:design-measurement-freshness` の
+`LIVE_STEERING_RECORD_DECLARATIONS` はタスク 115.276 の判断で空に固定されており、
+steering の現況の数値を宣言へ載せる道は開いていない）。**限界は拾い漏れの向きへ倒してある**
+——`npx <実行器> <経路>` の綴りしか拾わないため、`node --import` を挟む形や実行器名に
+大文字・記号を含む形は掛からない。
 
 **テスト実行結果:**
 
@@ -402,7 +443,7 @@ frontend/
 │   ├── preview.ts         # グローバルパラメータ・デコレータ
 │   └── test-runner.ts     # test-runner設定（外部URLモック）
 ├── src/
-│   ├── __tests__/         # 単体テスト
+│   ├── __tests__/         # 単体テスト（以下は代表例。区分の網羅列挙は tech.md「テスト構成」）
 │   │   ├── api/           # APIクライアントテスト
 │   │   │   └── client.test.ts  # APIクライアントテスト（fetch、エラーハンドリング）
 │   │   └── components/    # Reactコンポーネントテスト
@@ -474,30 +515,22 @@ frontend/
 │   │       ├── BillingClosingDaySelect.tsx # 請求締日選択
 │   │       └── PaymentDateSelect.tsx # 支払日選択
 │   │   ├── site-survey/              # 現場調査共通コンポーネント（注釈復元ダイアログ等）
-│   │   │   ├── RestoreAnnotationDialog.tsx # 注釈復元ダイアログ
-│   │   │   └── index.ts              # エクスポート集約
+│   │   │   └── RestoreAnnotationDialog.tsx # 注釈復元ダイアログ
 │   │   ├── site-surveys/            # 現場調査コンポーネント
 │   │       ├── SiteSurveyForm.tsx   # 現場調査作成・編集フォーム
 │   │       ├── SiteSurveyListTable.tsx # 現場調査一覧テーブル
 │   │       ├── SiteSurveyListCard.tsx # 現場調査一覧カード（モバイル）
-│   │       ├── SiteSurveyListView.tsx # 現場調査一覧ビュー
-│   │       ├── SiteSurveySearchFilter.tsx # 検索・フィルタUI
 │   │       ├── SiteSurveyResponsiveView.tsx # レスポンシブビュー切り替え
 │   │       ├── SiteSurveyDetailInfo.tsx # 現場調査詳細情報表示
-│   │       ├── SiteSurveyErrorDisplay.tsx # エラー表示
 │   │       ├── ImageUploader.tsx    # 画像アップロードUI
-│   │       ├── SurveyImageGrid.tsx  # 画像グリッド表示
-│   │       ├── ImageViewer.tsx      # 画像ビューア（Fabric.js）
-│   │       ├── LazyImage.tsx        # 遅延読み込み画像
 │   │       ├── AnnotationEditor.tsx # 注釈エディタ（Fabric.js）
 │   │       ├── AnnotationToolbar.tsx # 注釈ツールバー（モバイル幅は単段横スクロール（nowrap）で縦占有を抑制）
-│   │       ├── StylePanel.tsx       # スタイル設定パネル
 │   │       ├── PhotoManagementPanel.tsx # 写真管理パネル
 │   │       ├── AnnotatedImageThumbnail.tsx # 注釈付き画像サムネイル
 │   │       ├── ImageExportDialog.tsx # 画像エクスポートダイアログ
 │   │       ├── StorageWarningBanner.tsx # ストレージ警告バナー
 │   │       ├── ZoomControls.tsx     # ズーム操作UI（ズームイン/アウト/全体表示・倍率バッジ、44px下部配置の表示専用）
-│   │       ├── tools/               # 注釈ツール（12ファイル）
+│   │       ├── tools/               # 注釈ツール
 │   │       │   ├── ArrowTool.ts     # 矢印ツール
 │   │       │   ├── CircleTool.ts    # 円・楕円ツール
 │   │       │   ├── DimensionTool.ts # 寸法線ツール
@@ -508,47 +541,38 @@ frontend/
 │   │       │   ├── PolylineTool.ts  # 折れ線ツール
 │   │       │   ├── RectangleTool.ts # 四角形ツール
 │   │       │   ├── TextTool.ts      # テキストツール
-│   │       │   ├── registerCustomShapes.ts # カスタムシェイプ登録
-│   │       │   └── index.ts         # エクスポート集約
-│   │       └── gestures/            # タッチジェスチャー・ビューポート制御（3ファイル）
+│   │       │   └── registerCustomShapes.ts # カスタムシェイプ登録
+│   │       └── gestures/            # タッチジェスチャー・ビューポート制御
 │   │           ├── canvasViewportController.ts # 中点ズーム/パン/フィットの状態制御（純粋ロジック、UI非依存）
 │   │           ├── touchGestureManager.ts # マルチタッチ調停（2本指ピンチ/3本指以上の描画抑止/cooldown）
 │   │           └── gesture-thresholds.ts # ジェスチャー判定閾値の定義
-│   │   ├── quantity-table-import/    # 数量表インポートコンポーネント（8ファイル）
+│   │   ├── quantity-table-import/    # 数量表インポートコンポーネント
 │   │       ├── ImportDialog.tsx    # インポートダイアログ（Excel/PDFファイル選択、プレビュー、確定）
 │   │       ├── ImportPreviewTable.tsx # インポートプレビューテーブル
 │   │       ├── excel-parser.ts     # Excelファイルパーサー（SheetJS）
 │   │       ├── field-mapping.ts    # フィールドマッピングロジック
 │   │       ├── pdf-ocr-extractor.ts # PDF OCR抽出（Claude Vision API連携）
 │   │       └── useImportDataExtractor.ts # データ抽出カスタムフック
-│   │   ├── quantity-table/          # 数量表コンポーネント（22ファイル）
-│   │       ├── QuantityInput.tsx    # 数量入力
+│   │   ├── quantity-table/          # 数量表コンポーネント
 │   │       ├── QuantityGroupCard.tsx # 数量グループカード
 │   │       ├── QuantityGroupTitleRow.tsx # グループタイトル行（最適化表示）
 │   │       ├── QuantityItemRow.tsx  # 数量項目行
 │   │       ├── CalculationFields.tsx # 計算フィールド群
 │   │       ├── CalculationMethodSelect.tsx # 計算方法選択
-│   │       ├── AdjustmentFactorInput.tsx # 調整係数入力
-│   │       ├── RoundingUnitInput.tsx # 丸め単位入力
 │   │       ├── AutocompleteInput.tsx # オートコンプリート入力（フォーカス時ドロップダウン表示）
 │   │       ├── ItemCopyMoveDialog.tsx # コピー・移動ダイアログ
 │   │       ├── CopyQuantityTableDialog.tsx # 数量表コピーダイアログ
-│   │       ├── NumericFieldInput.tsx # 数値フィールド入力
-│   │       ├── TextFieldInput.tsx   # テキストフィールド入力
-│   │       ├── CalculationNumericInput.tsx # 計算用数値入力
 │   │       ├── EditableQuantityItemRow.tsx # 編集可能項目行
-│   │       ├── FieldValidatedItemRow.tsx # バリデーション付き項目行
-│   │       ├── PhotoChangeDialog.tsx # 写真変更ダイアログ
 │   │       ├── PhotoCommentDisplay.tsx # 写真コメント表示
 │   │       ├── PhotoPreviewDialog.tsx # 写真プレビューダイアログ
 │   │       ├── SortOrderButtons.tsx # 並び順変更ボタン
 │   │       └── gridConstants.ts     # グリッド定数定義
-│   │   ├── itemized-statement/      # 内訳書コンポーネント（6ファイル）
+│   │   ├── itemized-statement/      # 内訳書コンポーネント
 │   │       ├── CreateItemizedStatementForm.tsx # 内訳書作成フォーム
 │   │       ├── CreateItemizedStatementForm.stories.tsx # Storybook
 │   │       ├── ItemizedStatementDeleteDialog.tsx # 削除確認ダイアログ
 │   │       └── ItemizedStatementDeleteDialog.stories.tsx # Storybook
-│   │   ├── estimate-request/        # 見積依頼コンポーネント（10+ファイル）
+│   │   ├── estimate-request/        # 見積依頼コンポーネント
 │   │       ├── EstimateRequestForm.tsx # 見積依頼フォーム
 │   │       ├── ItemSelectionPanel.tsx # 内訳書項目選択パネル（クライアントサイド状態管理+保存ボタン方式、任意分類・工種列対応）
 │   │       ├── EstimateRequestTextPanel.tsx # 見積依頼文表示パネル
@@ -557,7 +581,7 @@ frontend/
 │   │       ├── StatusBadge.tsx       # ステータスバッジ
 │   │       ├── StatusTransitionButton.tsx # ステータス遷移ボタン
 │   │       └── index.ts              # エクスポート集約
-│   │   ├── estimate-requests/       # 受領見積書コンポーネント（8+ファイル）
+│   │   ├── estimate-requests/       # 受領見積書コンポーネント
 │   │       ├── ReceivedQuotationForm.tsx # 受領見積書フォーム（一括転記対応）
 │   │       ├── ReceivedQuotationList.tsx # 受領見積書一覧
 │   │       ├── LineItemEditor.tsx    # 明細行エディタ（customCategory・workType・数値表示形式対応）
@@ -567,7 +591,7 @@ frontend/
 │   │       ├── pdf-worker-config.ts  # pdfjs-dist worker共通設定モジュール
 │   │       ├── number-format.ts      # 数値表示形式・丸め規則ユーティリティ
 │   │       └── index.ts              # エクスポート集約
-│   │   ├── estimate/                # 見積書コンポーネント（18+ファイル）
+│   │   ├── estimate/                # 見積書コンポーネント
 │   │       ├── EstimateCard.tsx      # 見積書カード
 │   │       ├── EstimateItemRow.tsx   # 見積項目行
 │   │       ├── EstimateItemTable.tsx # 見積項目テーブル
@@ -580,17 +604,16 @@ frontend/
 │   │       ├── EstimateReportFieldsPanel.tsx # 帳票用入力項目（別途工事・有効期限・提出日）
 │   │       ├── useEstimateRowDrag.ts # 行のドラッグ&ドロップ
 │   │       ├── TransferQuotationDialog.tsx # 受領見積書転記ダイアログ
-│   │       ├── NetCalculationPanel.tsx # NET金額案分パネル
 │   │       ├── NetAllocationDialog.tsx # NET案分ダイアログ（プロジェクト単位受領見積書選択）
 │   │       ├── OverheadCostPanel.tsx # 諸経費パネル
 │   │       ├── ProfitRatePanel.tsx   # 利益率パネル
 │   │       ├── ProfitRateDialog.tsx  # 利益率適用ダイアログ
 │   │       ├── EstimateExportDialog.tsx # 帳票出力ダイアログ（PDF/Excel、行タイプ選択）
 │   │       └── index.ts              # エクスポート集約
-│   │   ├── contract/                # 契約書コンポーネント（5ファイル）
+│   │   ├── contract/                # 契約書コンポーネント
 │   │       ├── ContractForm.tsx     # 契約書作成・編集フォーム（新規/変更契約対応、見積書連動金額計算）
 │   │       └── ComparisonPanel.tsx  # 変更契約の変更前後比較パネル
-│   │   ├── schedule/               # 工程表コンポーネント（10ファイル）
+│   │   ├── schedule/               # 工程表コンポーネント
 │   │       ├── ScheduleForm.tsx    # 工程表作成・編集フォーム
 │   │       ├── ScheduleItemRow.tsx # 工程項目行
 │   │       ├── SortableScheduleList.tsx # 並び替え可能な工程項目リスト
@@ -668,7 +691,7 @@ frontend/
 │   │   ├── ConstructionPhotoImageViewerPage.tsx # 工事写真フルスクリーンビューア（ズーム/回転/パン）
 │   │   └── ConstructionSignboardListPage.tsx # 工事看板マスタ管理ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
-│   ├── utils/             # ユーティリティ関数（22ファイル）
+│   ├── utils/             # ユーティリティ関数
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
 │   │   ├── image-compression.ts # 送信前の画像縮小・再エンコード（長辺2048px/JPEG0.85、非対応時は元ファイルへフォールバック）
 │   │   ├── imageFitScale.ts # 画像フィット倍率算出の純関数（computeFitScale、allowUpscale/maxUpscaleで原寸頭打ちを制御）
@@ -712,7 +735,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（132ファイル）:**
+**Storybookストーリーファイル:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -731,17 +754,10 @@ frontend/
 - `SiteSurveyForm.stories.tsx` - 現場調査フォーム
 - `SiteSurveyListTable.stories.tsx` - 一覧テーブル
 - `SiteSurveyListCard.stories.tsx` - 一覧カード（モバイル）
-- `SiteSurveyListView.stories.tsx` - 一覧ビュー
-- `SiteSurveySearchFilter.stories.tsx` - 検索・フィルタ
 - `SiteSurveyResponsiveView.stories.tsx` - レスポンシブビュー
 - `SiteSurveyDetailInfo.stories.tsx` - 詳細情報表示
-- `SiteSurveyErrorDisplay.stories.tsx` - エラー表示
 - `ImageUploader.stories.tsx` - 画像アップロード
-- `SurveyImageGrid.stories.tsx` - 画像グリッド
-- `ImageViewer.stories.tsx` - 画像ビューア
-- `LazyImage.stories.tsx` - 遅延読み込み画像
 - `AnnotationToolbar.stories.tsx` - 注釈ツールバー
-- `StylePanel.stories.tsx` - スタイル設定パネル
 - `PhotoManagementPanel.stories.tsx` - 写真管理パネル
 - `AnnotatedImageThumbnail.stories.tsx` - 注釈付きサムネイル
 - `ImageExportDialog.stories.tsx` - エクスポートダイアログ
@@ -752,21 +768,13 @@ frontend/
 - `RestoreAnnotationDialog.stories.tsx` - 注釈復元ダイアログ
 
 数量表コンポーネント（quantity-table/）:
-- `AdjustmentFactorInput.stories.tsx` - 調整係数入力
 - `AutocompleteInput.stories.tsx` - オートコンプリート入力
 - `CalculationFields.stories.tsx` - 計算フィールド群
 - `CalculationMethodSelect.stories.tsx` - 計算方法選択
-- `CalculationNumericInput.stories.tsx` - 計算用数値入力
 - `EditableQuantityItemRow.stories.tsx` - 編集可能項目行
-- `FieldValidatedItemRow.stories.tsx` - バリデーション付き項目行
 - `ItemCopyMoveDialog.stories.tsx` - コピー・移動ダイアログ
-- `NumericFieldInput.stories.tsx` - 数値フィールド入力
 - `QuantityGroupCard.stories.tsx` - 数量グループカード
-- `QuantityInput.stories.tsx` - 数量入力
 - `QuantityItemRow.stories.tsx` - 数量項目行
-- `RoundingUnitInput.stories.tsx` - 丸め単位入力
-- `TextFieldInput.stories.tsx` - テキストフィールド入力
-- `PhotoChangeDialog.stories.tsx` - 写真変更ダイアログ
 - `PhotoCommentDisplay.stories.tsx` - 写真コメント表示
 - `PhotoPreviewDialog.stories.tsx` - 写真プレビューダイアログ
 - `SortOrderButtons.stories.tsx` - 並び順変更ボタン
@@ -794,7 +802,7 @@ frontend/
 
 ```
 frontend/src/
-├── api/               # APIクライアント（20ファイル）
+├── api/               # APIクライアント
 │   ├── auth.ts        # 認証API
 │   ├── client.ts      # 共通クライアント
 │   ├── projects.ts    # プロジェクトAPI
@@ -823,8 +831,9 @@ frontend/src/
 │       ├── estimateEditReducer.ts # 編集状態の遷移関数（行操作・階層移動・範囲操作）
 │       ├── estimateTree.ts # ツリー導出・祖先金額の再計算
 │       ├── estimateCalculations.ts # 案分・利益率・集計のクライアント計算
+│       ├── estimateAmountLimit.ts # 金額の上限（保存スキーマの写し）と上限超過の判定
 │       └── estimateKeymap.ts # キー割当の単一定義（画面のヘルプ表示と共用）
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useEstimateKeyboard、useEstimateUndo、useEstimateNavigation、useEstimateViewModePreference、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）等 32ファイル）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useEstimateKeyboard、useEstimateUndo、useEstimateNavigation、useEstimateViewModePreference、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）等）
 ├── services/          # サービス層（TokenRefreshManager.ts、AutoSaveManager.ts、UndoManager.ts）
 │   └── export/        # 帳票・エクスポート生成（jsPDF/SheetJS。`load*ExportService.ts` の動的importで初期チャンクから分離）
 ├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
@@ -859,43 +868,45 @@ backend/
 ├── prisma/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
-│   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（167テストファイル）
+│   ├── __tests__/         # テスト（ブランチカバレッジ80%達成✅）
+│   │   ├── integration/   # 統合テスト（PostgreSQL・Redisを実起動）
+│   │   └── unit/          # 単体テスト（以下は代表例。区分の網羅列挙は tech.md「テスト構成」）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
 │   │       │   ├── errorHandler.test.ts        # エラーハンドリング（Zod、Prisma、一般エラー）
 │   │       │   ├── httpsRedirect.test.ts       # HTTPS強制とHSTSヘッダー
 │   │       │   ├── validate.test.ts            # Zodバリデーション（body/query/params）
-│   │       │   ├── authenticate.middleware.test.ts # JWT認証ミドルウェア（10テスト）
-│   │       │   ├── authorize.middleware.test.ts    # 権限チェックミドルウェア（13テスト）
-│   │       │   ├── RedisRateLimitStore.test.ts # Redisレート制限ストア（14テスト）
-│   │       │   ├── rateLimit.test.ts           # レート制限ミドルウェア（3テスト）
-│   │       │   └── logger.test.ts              # HTTPロガーミドルウェア（17テスト）
+│   │       │   ├── authenticate.middleware.test.ts # JWT認証ミドルウェア
+│   │       │   ├── authorize.middleware.test.ts    # 権限チェックミドルウェア
+│   │       │   ├── RedisRateLimitStore.test.ts # Redisレート制限ストア
+│   │       │   ├── rateLimit.test.ts           # レート制限ミドルウェア
+│   │       │   └── logger.test.ts              # HTTPロガーミドルウェア
 │   │       ├── routes/    # ルートテスト
 │   │       │   ├── admin.routes.test.ts  # 管理者ルート（ログレベル動的変更）
-│   │       │   └── jwks.routes.test.ts   # JWKS公開鍵配信（8テスト）
-│   │       ├── services/  # サービステスト（324テスト）
-│   │       │   ├── auth.service.test.ts  # 認証統合（24テスト）
-│   │       │   ├── token.service.test.ts # JWTトークン管理（EdDSA、18テスト）
-│   │       │   ├── session.service.test.ts # セッション管理（19テスト）
-│   │       │   ├── invitation.service.test.ts # 招待制登録（16テスト）
-│   │       │   ├── password.service.test.ts # パスワード管理（35テスト）
+│   │       │   └── jwks.routes.test.ts   # JWKS公開鍵配信
+│   │       ├── services/  # サービステスト
+│   │       │   ├── auth.service.test.ts  # 認証統合
+│   │       │   ├── token.service.test.ts # JWTトークン管理（EdDSA署名）
+│   │       │   ├── session.service.test.ts # セッション管理
+│   │       │   ├── invitation.service.test.ts # 招待制登録
+│   │       │   ├── password.service.test.ts # パスワード管理
 │   │       │   ├── two-factor.service.test.ts # 2FA管理（TOTP + バックアップコード）
-│   │       │   ├── role.service.test.ts # ロール管理（23テスト）
-│   │       │   ├── permission.service.test.ts # 権限管理（23テスト）
-│   │       │   ├── role-permission.service.test.ts # ロール権限紐付け（24テスト）
-│   │       │   ├── user-role.service.test.ts # ユーザーロール管理（27テスト）
-│   │       │   ├── rbac.service.test.ts # RBAC統合（21テスト）
-│   │       │   ├── audit-log.service.test.ts # 監査ログ（35テスト）
-│   │       │   ├── archive.service.test.ts # ログアーカイブ（6テスト）
-│   │       │   ├── email.service.test.ts # メール送信（Bull、14テスト）
+│   │       │   ├── role.service.test.ts # ロール管理
+│   │       │   ├── permission.service.test.ts # 権限管理
+│   │       │   ├── role-permission.service.test.ts # ロール権限紐付け
+│   │       │   ├── user-role.service.test.ts # ユーザーロール管理
+│   │       │   ├── rbac.service.test.ts # RBAC統合
+│   │       │   ├── audit-log.service.test.ts # 監査ログ
+│   │       │   ├── audit-log-archive.service.test.ts # ログアーカイブ
+│   │       │   ├── email.service.test.ts # メール送信（Bull非同期キュー）
 │   │       │   ├── project.service.test.ts # プロジェクト管理
 │   │       │   └── project-status.service.test.ts # プロジェクトステータス遷移
-│   │       └── utils/     # ユーティリティテスト
-│   │           ├── sentry.test.ts  # Sentryエラートラッキング（13テスト）
-│   │           └── env-validator.test.ts # 環境変数バリデーション（14テスト）
-│   ├── errors/            # カスタムエラー定義（17ファイル）
+│   │       ├── utils/     # ユーティリティテスト
+│   │       │   └── sentry.test.ts  # Sentryエラートラッキング
+│   │       └── config/    # 設定テスト
+│   │           └── env.test.ts     # 環境変数バリデーション
+│   ├── errors/            # カスタムエラー定義
 │   │   ├── apiError.ts    # 汎用APIエラークラス
 │   │   ├── projectError.ts # プロジェクト関連エラー
 │   │   ├── tradingPartnerError.ts # 取引先関連エラー
@@ -920,7 +931,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（34ファイル）
+│   ├── routes/            # ルート定義
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -958,7 +969,7 @@ backend/
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
-│   ├── schemas/           # Zodバリデーションスキーマ（14ファイル）
+│   ├── schemas/           # Zodバリデーションスキーマ
 │   │   ├── project.schema.ts # プロジェクト関連
 │   │   ├── trading-partner.schema.ts # 取引先関連
 │   │   ├── site-survey.schema.ts # 現場調査関連
@@ -973,7 +984,7 @@ backend/
 │   │   ├── contract.schema.ts # 契約書関連
 │   │   ├── schedule.schema.ts # 工程表関連
 │   │   └── execution-budget.schema.ts # 実行予算関連
-│   ├── services/          # ビジネスロジック（59サービス）
+│   ├── services/          # ビジネスロジック
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -1020,7 +1031,6 @@ backend/
 │   │   ├── estimate-item.service.ts # 見積項目管理（3行1セット、階層構造）
 │   │   ├── estimate-draft.service.ts # 見積明細の一括保存（ツリー全体の差分適用、単一トランザクション、楽観ロック）
 │   │   ├── estimate-calculation.service.ts # 見積金額計算（NET金額案分）
-│   │   ├── estimate-validation.service.ts # 見積書バリデーション
 │   │   ├── overhead-cost.service.ts # 諸経費計算（行の追加はクライアント側）
 │   │   ├── claude-vision.service.ts # Claude Vision OCR（Anthropic API統合、見積書構造化データ抽出）
 │   │   ├── contract.service.ts # 契約書管理（CRUD、ステータス遷移、見積書連動金額計算、楽観的排他制御）
@@ -1049,10 +1059,12 @@ backend/
 │   │   ├── session.types.ts # セッション関連型定義
 │   │   ├── password.types.ts # パスワード関連型定義
 │   │   └── project.types.ts # プロジェクト関連型定義（ステータス、遷移）
-│   ├── utils/             # ユーティリティ関数（8ファイル）
+│   ├── utils/             # ユーティリティ関数
 │   │   ├── logger.ts      # Pinoロガー設定（Railway環境対応、pino-pretty統合）
 │   │   ├── sentry.ts      # Sentryエラートラッキング
 │   │   ├── cache.ts       # キャッシュユーティリティ
+│   │   ├── db-connect-budget.ts # DB 接続の再試行の間隔・予算と対話型トランザクションの maxWait
+│   │   ├── db-connection-timeout.ts # DB 接続のタイムアウトの判定と投げ直し（503 へ届ける）
 │   │   ├── controller-helpers.ts # コントローラーヘルパー
 │   │   ├── result-mapper.ts # Result型マッパー
 │   │   ├── kana-converter.ts # かな変換ユーティリティ
@@ -1113,15 +1125,17 @@ backend/src/
 - `performance/health-check.perf.ts`: autocannonを使用したヘルスチェックエンドポイントの負荷テスト（目標: <100ms、>1000req/s）
 - `performance/autocannon.d.ts`: autocannonライブラリのカスタム型定義ファイル（TypeScript型安全性）
 - `db.ts`: Prisma 7 Driver Adapter Patternによる接続管理。`@prisma/adapter-pg`と`PrismaPg`を使用し、lazy initializationにより初回アクセス時に接続確立。Prisma Clientは`./generated/prisma/client.js`からインポート
+  - 接続の確立のタイムアウトだけを再試行する `RetryingPool` を `PrismaPg` へ渡す。再試行の間隔と予算は `utils/db-connect-budget.ts`、タイムアウトの判定は `utils/db-connection-timeout.ts` に置く（`db.ts` は多くの単体検証で丸ごとモックされるため、サービスやエラーハンドラーが使う関数は `db.ts` に依存しないモジュールに置き、`db.ts` は再輸出する）。層ごとの扱いは `.kiro/steering/tech.md` の「接続障害への耐性」節を参照
 - `redis.ts`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
-- `errors/ApiError.ts`: カスタムAPIエラークラス。BadRequestError、ValidationError等を提供
+- `errors/apiError.ts`: カスタムAPIエラークラス。BadRequestError、ValidationError等を提供
 - `middleware/errorHandler.middleware.ts`: グローバルエラーハンドラー。Zod、Prisma、一般エラーを統一的に処理
+  - DB 接続のタイムアウト（Prisma の P1008 を含む）は Prisma の既知のエラーの分岐より前で判定し、503 の Problem Details を返す
 - `middleware/httpsRedirect.middleware.ts`: 本番環境でHTTPSへの強制リダイレクトとHSTSヘッダー設定
 - `middleware/validate.middleware.ts`: Zodスキーマによるリクエストバリデーション（body/query/params）
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（34ルートファイル）:**
+**実装済みAPI:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -1335,6 +1349,56 @@ backend/src/
 - **ファイルアップロード**: multer統合（upload.middleware.ts）
 - **レート制限**: express-rate-limit + RedisRateLimitStore（rateLimit.middleware.ts）
 
+### `scripts/`
+
+どの package にも属さず**リポジトリ全域**で走るスクリプトを置く。主目的は、スペックと
+steering が述べることと実体の一致を機械で見る**関門**であり、押下前の関門
+（`.husky/scripts/pre-push.sh`）と CI（`.github/workflows/ci.yml`）の双方がここから起動する。
+
+**命名で役割が決まる:**
+
+| 命名 | 役割 | 押下前の関門で走るか |
+|------|------|----------------------|
+| `check-*.ts` | 関門。違反を検出して非零で終わる | 走る（`npm run check:*`） |
+| `check-*.selftest.ts` | 関門自身の自己検査。関門が「常に緑」へ退化していないことを見る | 走る（`npm run check:*:selftest`） |
+| `survey-*.ts` / `scan-*.ts` / `list-*.ts` | 調査用。判定せず母数や分布だけを出す。関門を書く前に実体を測る道具 | 走らない |
+| `*-adjudication.{md,json}` | 関門が許した個別の例外と、その裁定の根拠 | 関門が読む |
+| `*-baseline.json` | 既知の指摘を凍らせた基準点。増分だけを赤にする | 関門が読む |
+
+**規約:**
+
+- **`check-*.ts` には同名の `check-*.selftest.ts` を対で置く。** 関門は「見るべきものを見なく
+  なっても緑のまま」という形で静かに死ぬため、自己検査が入口の消失を赤にする（`development-discipline.md`
+  の「自己検査へ失敗既定を入れ入口の消失を赤にする」を見よ）。**例外は `check-staged-coverage.cjs`
+  の一件**で、これは対を持たず、押下前の関門からも CI からも呼ばれていない
+  （`package.json` に `coverage:staged:backend` / `coverage:staged:frontend` として定義があるだけ）。
+- **例外は消さずに裁定として残す。** `*-adjudication.*` と `*-baseline.json` は「なぜこの一件を
+  許したか」を持つ。根拠を持たない例外は書かない。
+- **調査用を関門へ昇格させない。** `survey-*` / `scan-*` / `list-*` は一度きりの実測の道具であり、
+  得た値はタスクの記録や設計文書へ移す。スクリプト自体は追試の手段として残す。
+
+**関門の一覧と件数は本書へ書かない**（規約 (b)：数値を落として数える手段を書く）。次で読み出す
+（いずれもリポジトリルートで実行する）。
+
+```bash
+# 関門の実体（対の自己検査を除く）
+git ls-files 'scripts/check-*.ts' | grep -v '\.selftest\.ts$'
+
+# 押下前の関門が実際に起動する検査
+grep -oE 'npm run check:[a-z0-9-]+' .husky/scripts/pre-push.sh | sort -u
+
+# 調査用スクリプト
+git ls-files 'scripts/survey-*.ts' 'scripts/scan-*.ts' 'scripts/list-*.ts'
+```
+
+**押下前の関門と CI の関門は同一ではない。** 「CI が緑なら押下前も緑」は成り立たないため、
+差分を確かめてから押す。
+
+```bash
+comm -23 <(grep -oE 'check:[a-z0-9-]+' .husky/scripts/pre-push.sh | sort -u) \
+         <(grep -oE 'check:[a-z0-9-]+' .github/workflows/ci.yml | sort -u)
+```
+
 ## Docker構成
 
 ### マルチファイルDocker Compose構成
@@ -1422,23 +1486,122 @@ ArchiTrackでは、環境ごとにDocker Composeファイルを分離し、柔�
 
 ### 特殊ファイル
 
-- `index.js` - ディレクトリのエントリーポイント・エクスポート集約
-- `*.test.js` - ユニットテストファイル
-- `*.spec.js` - E2Eテストファイル（Playwright）またはスペックファイル（BDD）
-- `*.stories.tsx` - Storybookストーリーファイル（コンポーネントバリアント定義）
-- `.env.example` - 環境変数テンプレート
+以下は**規則の例示**であって「このファイルが在る」という主張ではないため、
+一般規則と同じくラベルを前置した形で書く（行頭が逆引用符の箇条書きは現存の主張を表す）。
 
-**E2Eテストファイル命名規則:**
+- **エントリーポイント**: `index.ts` - ディレクトリのエクスポート集約
+- **ユニットテスト**: `*.test.ts` - ユニットテストファイル
+- **E2E/スペック**: `*.spec.ts` - E2Eテストファイル（Playwright）またはスペックファイル（BDD）
+- **Storybook**: `*.stories.tsx` - コンポーネントバリアント定義
+- **環境変数テンプレート**: `.env.example` - コミットする雛形（実値の `.env` は追跡しない）
 
-- `e2e/specs/api/*.spec.ts` - APIエンドポイントテスト（例: `health.spec.ts`）
-- `e2e/specs/ui/*.spec.ts` - UIテスト（例: `homepage.spec.ts`）
-- `e2e/specs/integration/*.spec.ts` - 統合テスト（例: `database.spec.ts`）
-- `e2e/helpers/*.ts` - テストヘルパー関数（例: `browser.ts`）
+**E2Eテストファイル命名規則:**（同じく規則の例示。ラベルを前置する）
 
-**Storybookストーリーファイル命名規則:**
+- **APIテスト**: `e2e/specs/api/*.spec.ts`（例: `health.spec.ts`）
+- **UIテスト**: `e2e/specs/ui/*.spec.ts`（例: `homepage.spec.ts`）
+- **統合テスト**: `e2e/specs/integration/*.spec.ts`（例: `database.spec.ts`）
+- **テストヘルパー**: `e2e/helpers/*.ts`（例: `browser.ts`）
 
-- `frontend/src/components/*.stories.tsx` - コンポーネントのストーリー（例: `ErrorBoundary.stories.tsx`）
-- CSF 3.0（Component Story Format 3.0）形式で記述
+**Storybookストーリーファイル命名規則:**（同じく規則の例示。ラベルを前置する）
+
+- **ストーリー**: `frontend/src/components/*.stories.tsx`（例: `ErrorBoundary.stories.tsx`）
+- **形式**: CSF 3.0（Component Story Format 3.0）で記述
+
+### テスト区分の列挙の規約
+
+steering の列挙は既定で**代表例**である。網羅を主張する列挙だけを、次の三行の形で囲む。
+
+- **開始印**: `<!-- steering:test-dirs <リポジトリ相対の根> -->`
+- **項目**: 行頭を逆引用符で始める箇条書きで、根の直下の名前を `config/` のように書く
+  （読みやすさのため根の名前を一段だけ前置してもよい。例: `unit/config/`）
+- **終了印**: `<!-- /steering:test-dirs -->`
+
+並べると次の形になる（この囲みはコードフェンスの中にあるため、検査は宣言として数えない）。
+
+```
+<!-- steering:test-dirs backend/src/__tests__/unit -->
+（根の直下の区分を、逆引用符付きの箇条書きで並べる）
+<!-- /steering:test-dirs -->
+```
+
+- 印で囲まれた列挙は、その根の直下でテストを含むディレクトリと**過不足なく一致**していなければ
+  ならない。`npm run check:steering-test-tree` が両方向（挙げすぎ・挙げ足りない）を検査する。
+- 印で囲まれていないディレクトリツリーや箇条書きは代表例であり、抜けがあってよい。
+  網羅と紛れないよう「以下は代表例」と書き添える。
+- **網羅の権威は根ごとに一箇所だけ**に置く。同じ根の宣言が二箇所にあると検査が失敗する。
+- **テストの件数・テストファイル数は steering に書かない。** 数える手段を書く。是正時に実測した
+  ところ、書かれていた数値 59 個のうち 38 個が既に食い違っており、残る 21 個の正しい数値と
+  見た目で区別できなかった（タスク 115.200）。
+- **数える手段を書くときは、その手段が何を選ぶかまで書く。** backend は
+  `npm --prefix backend run test` が既定の実行（統合検証を除く）、
+  `npm --prefix backend run test:integration` が統合検証、
+  `npm --prefix backend run test:all` が両方であり、frontend は
+  `npm --prefix frontend run test` が全件である。手段だけを名指して選ぶ範囲を書かないと、
+  区分が分かれた時点（backend はタスク 115.216）で**手段の名前は残ったまま意味が変わる**。
+  数値を撤去しても、手段の指し先が変われば記述は同じように偽になる（タスク 115.243）。
+
+### 実体の件数の書き方の規約（タスク 115.275）
+
+ディレクトリのファイル数のような**実体を数えた値**を本書へ書くときは、次の (a) (b) のどちらかを
+必ず選ぶ（`.kiro/specs/site-survey/design.md` の「実測値の書き方（タスク 115.212）」と同じ規約を
+本書へも掛けたものである）。
+
+- **(a) 実測日を数値と同じ行へ添える。** 日付は `YYYY-MM-DD` の形で書き、再現コマンドと
+  コミットのハッシュを併記する。同じ日に複数のタスクが着地するため、日付だけでは版を絞れない。
+- **(b) 数値を落とし、数える手段を書く。** ディレクトリのファイル数は
+  `git ls-files frontend/src/hooks | wc -l` の形で数える（リポジトリルートで実行する）。
+  Storybook のストーリーファイルは `git ls-files "frontend/src/**/*.stories.tsx" | wc -l`、
+  バックエンドのルートファイルは `git ls-files backend/src/routes | wc -l` である。
+
+**ディレクトリツリーの図と見出しは (b) を採る。** ファイルが一つ増減しただけで値が偽になり、
+増減させた変更の側にはその値を直す動機が無いためである。
+
+`npm run check:steering-dir-counts` が (a) を満たさない件数を検出する（自己検査は
+`npm run check:steering-dir-counts:selftest`）。判定は行単位で、「数値 + 実体の単位語
+（ファイル／ルートファイル／ストーリー／サービス／タスク／区分／件）」を含む行が、同じ行に
+実測日を持つかだけを見る。**数値が実体と一致するかまでは見ない**——一致は (b) を選んで数値を
+書かないことで得る。検出しない形（`5バリアント` のような単位語の一覧に無い数え方、
+数値と実測日が別の行に分かれた散文）は `scripts/check-steering-dir-counts.ts` の冒頭が列挙する。
+
+是正の根拠: 本書には実測日を持たない実体の件数が 30 行あり、再現コマンドを書ける 21 行のうち
+13 行が既に食い違っていた（`quantity-table/` 22→68、`frontend/src/utils/` 22→37、
+Storybook 132→157 など。コミット `b84137b9`、2026-09-05 にリポジトリルートで実測）。
+残る 9 行（`全46タスク完了` の形。同じくコミット `b84137b9`、2026-09-05 に実測）については、
+走査規則の空間が開いており「どの数え方でも再現できない」を機械で確かめる手段が無いため、
+**当てた規則を挙げて範囲を限る**（`.kiro/steering/development-discipline.md` の
+「『掃き終えた』を未検証の前提で支えない」に従う）。当てたのは次の 6 通りである
+（`<spec>` は当該スペックのディレクトリ名。いずれもリポジトリルートで実行する）。
+
+1. `grep -cE '^[[:space:]]*- \[[ x]\]' .kiro/specs/<spec>/tasks.md` — 深さを問わないチェック項目
+2. `grep -cE '^- \[[ x]\] [0-9]+\. ' .kiro/specs/<spec>/tasks.md` — 最上位の番号付き項目
+3. `grep -oE '^- \[[ x]\] [0-9]+' .kiro/specs/<spec>/tasks.md | grep -oE '[0-9]+$' | sort -un | wc -l` — 相異なる最上位番号
+4. `grep -cE '^#{2,3} ' .kiro/specs/<spec>/tasks.md` — 見出し
+5. `grep -cE '^[[:space:]]*- \[x\]' .kiro/specs/<spec>/tasks.md` — 完了印の付いた項目
+6. `grep -oE '^[[:space:]]*- \[[ x]\] [0-9]+(\.[0-9]+)*' .kiro/specs/<spec>/tasks.md | grep -oE '[0-9]+(\.[0-9]+)*$' | sort -u | wc -l` — 深さを問わない相異なる番号
+
+**(1) 機械保証**: 無い。走査規則の空間は列挙できないため、この命題に機械の裏付けは付かない。
+`npm run check:steering-dir-counts` が見るのは「実測日を伴わない件数が在るか」だけであり、
+数え方が失われているかどうかは見ない。
+
+**(2) 上の 6 規則を当てた結果**（コミット `b84137b9`、2026-09-05 にリポジトリルートで実測）:
+
+- `b84137b9` の時点では **9 行すべてが 6 規則のいずれとも一致しない**。例えば
+  `contract-management` の 17 に対し規則 1〜6 は 45／16／16／0／45／45 を返す。
+- 当該文言が本書へ入った版まで遡ると **2 行は再現できる**。版は
+  `git log -S '全17タスク完了' --oneline --reverse -- .kiro/steering/structure.md`（2026-09-05 に実行）
+  の形で特定した。その版の `tasks.md` へ当て直すと `project-management` は規則 3 が 17、
+  `itemized-statement-generation` は規則 3 が 16 を返し、書かれた値と一致する
+  （コミット `06844cb4` と `0efe3215`、2026-09-05 に実測）。
+- 残る 7 行は導入時点でも 6 規則のいずれとも一致しない（`user-authentication` の 46 は導入版
+  `5e9b3320` で 65／10／10／2／31／65、`company-info` の 22 は `28d3a5c4` で
+  26／7／7／3／26／26。2026-09-05 に実測）。
+
+**(3) 未走査の残余**: 上の 6 規則以外の数え方は当てていない。いずれかの数え方が値を再現するなら
+本段落は偽になる。
+
+結論は「上の 6 規則の範囲では、`b84137b9` の時点で 9 行すべてが再現できず、導入時点まで遡っても
+7 行が再現できなかった」である。再現できた 2 行も現況では偽であり、値を書き換えるだけでは
+同じ陳腐化が繰り返される。
 
 ## インポート構成
 
@@ -1583,31 +1746,48 @@ refactor: improve type safety by eliminating any types
 `.husky/pre-push`（sh）→ `.husky/scripts/pre-push.sh`（bash）の2層構造で実装。
 
 **初期化処理:**
-- WSL2メモリ最適化（`NODE_OPTIONS="--max-old-space-size=1024"`）
+- WSL2メモリ最適化（冒頭で `NODE_OPTIONS` を export する。**割り当てる値は書き写さず**、
+  `grep -n 'NODE_OPTIONS' .husky/scripts/pre-push.sh` で読む。タスク 115.286）
 - Git操作タイプ検出（ブランチ削除時はスキップ）
 - ログファイル管理とローテーション
 
-**品質チェック（順次実行）:**
+**品質チェック（順次実行）— 押下前の関門の書き方の規約（タスク 115.286）:**
 
-1. **Formatチェック（Backend/Frontend/E2E）**: Prettierによるコードフォーマット検証
-2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
-3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
-4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認 + ES Module検証
-5. **セキュリティ監査**: `scripts/security-audit.mjs`（本番依存high以上でブロック）
-6. **Backend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
-7. **Frontend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
-8. **Storybookテスト**: インタラクションテスト + アクセシビリティ + カバレッジ80%
-9. **Docker環境構築**: テスト環境（architrack-test）自動起動
-10. **Backend統合テスト**: `docker exec architrack-backend-test npm run test:integration`
-11. **要件カバレッジチェック**: E2E対象の受入基準100%確認
-12. **CI環境変数整合性チェック**: pre-pushとCIの設定一致確認
-13. **コンテナ再起動**: E2E前のメモリリフレッシュ
-14. **E2Eテスト実行**: `CI=true npx playwright test`
+**押下前の関門の項目と順序を本書に列挙しない。** 実体の件数に掛けた規約 (b)（数値を落として
+数える手段を書く）を、関門の列挙へも掛けたものである。権威は `.husky/scripts/pre-push.sh`
+であり、次の二つで読み出す（いずれもリポジトリルートで実行する）。
+
+```bash
+# 実行される手順を上から順に（スクリプトが自分で名乗る見出しだけを拾う）
+grep -nE '^[[:space:]]*echo "[^ "✅❌💡🆕📝]+ [A-Z]' .husky/scripts/pre-push.sh
+
+# 起動される検査の名前（:selftest / :verbose の接尾辞は落ちるので検査名だけが並ぶ）
+grep -oE 'npm run check:[a-z0-9-]+' .husky/scripts/pre-push.sh | sort -u
+```
+
+一つ目は手順の見出しだけを拾い、失敗時の案内（`❌` で始まる行・`対応方法:`・`詳細確認:`）と
+入れ子の待機ログを落とす。**限界は拾い漏れの向きへ倒してある**——見出しを英大文字で始めない
+手順や、`echo` を伴わない手順は掛からない。二つ目が挙げる検査がすべて一つ目の出力にも現れる
+ことは確かめてある（コミット `98744b92`、2026-09-05 にリポジトリルートで実測）。
+
+**是正の根拠**: 是正前の本書はこの位置に番号付きの列挙を持っていたが、一つ目のコマンドが
+返す手順を大きく取りこぼしていた。二つ目が挙げる検査のうち本書の列挙が名指していたのは
+「要件カバレッジチェック」だけで、`check:req-exclusions`・`check:e2e-guards`・
+`check:e2e-selfjudge`・`check:design-refs`・`check:design-code-refs`・
+`check:design-path-refs`・`check:design-component-reqs`・`check:trace-coverage`・
+`check:design-measurement-freshness`・`check:steering-refs`・`check:steering-idents`・
+`check:steering-test-tree`・`check:steering-dir-counts`・`check:cf-evidence`・
+`check:dead-script-env` は一つも現れていなかった（コミット `98744b92`、2026-09-05 に実測）。
+順序も食い違っており、列挙は「Formatチェック」から始まっていたが、実際にはその前に
+`docker-compose.yml` の環境変数が `backend/.env.example` に載っているかの検査（警告のみで
+中断しない）が走る。値と手順を書き写す形では、関門が一つ増えるたびに本書が無言で偽になる
+（タスク 115.275 が実体の件数に対して採った作法と同じ理由である）。
 
 型エラー、テスト失敗、カバレッジ不足がある場合、プッシュは中断されます。
 
 **テスト実行順序の理由:**
-- Format/Lint/型チェック（超高速）→ ビルド（高速）→ 単体テスト（高速）→ 統合テスト（中速）→ E2Eテスト（低速）の順で実行
+- 速い検査ほど先に走らせる（fail-fast のため）。**どの検査がどの位置に来るかは書き写さず、
+  上のコマンドで読む**（タスク 115.286）
 - **Fail-fast戦略**: 早期ステージでの失敗で即座に中断
 - **Shift-Left原則**: 問題を早期発見し、プッシュ前に品質を保証
 - **Defense in Depth戦略**: 複数レイヤーでの品質保証
@@ -1617,8 +1797,12 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 単体テスト167ファイル + 統合テスト31ファイル
-- Frontend: 単体テスト339ファイル
+- 件数は次の出力で数える（steering にはテストの件数・ファイル数を書かない。タスク 115.200）
+  - backend の既定の実行（統合検証を除く）: `npm --prefix backend run test`
+  - backend の統合検証: `npm --prefix backend run test:integration`
+  - backend の既定＋統合: `npm --prefix backend run test:all`
+  - frontend の全件: `npm --prefix frontend run test`
+  - 上の内訳はタスク 115.216 が統合検証を既定の実行から外したことによる（タスク 115.243）
 
 ### .gitignore
 

@@ -46,6 +46,12 @@
   opacity: 0.9;
 }
 
+/* 共通の青い outline はヘッダーの紫のグラデーションに対して 3:1 に届かないため、白い輪で示す */
+.app-header-logo:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
 .app-header-logo-icon {
   width: 36px;
   height: 36px;
@@ -121,10 +127,6 @@
   cursor: pointer;
   font: inherit;
   color: inherit;
-}
-
-.app-header-dropdown > button:focus-visible {
-  outline: none;
 }
 
 .app-header-dropdown-trigger {
@@ -345,29 +347,121 @@
   margin: 0 0.5rem;
 }
 
+/*
+ * アイコンのみの表示（タブレット幅とモバイル幅）
+ *
+ * リンクと管理メニューのボタンの文言を隠し、アイコンのみで並べる。
+ * 上限の 1199px は frontend/src/utils/responsive.ts の APP_HEADER_ICON_ONLY_MAX_WIDTH と一致させる
+ * （CSS は TS の定数を読めないため、__tests__/components/AppHeader.css.test.ts が突き合わせる）。
+ *
+ * 文言を出したままでは、769px〜1147px（test 環境の実測、管理者の長い表示名が最悪）で
+ * リンクの文言が縦に折り返してナビゲーションがヘッダーの高さを超え、
+ * 管理者の長い表示名では 769px〜約 800px で文書全体が水平にはみ出していた（Task 40.1）。
+ * フォントの差を見込んで 1200px 以上で文言を出す。
+ * ユーザー名は隠さず、全幅に効く .app-header-user-name の上限幅と省略表示（ellipsis）で出す
+ * （768px 以下では下のモバイル対応が隠す）。
+ *
+ * 文言は display: none でなく、見た目だけを隠して支援技術には残す（visually hidden）。
+ * アイコンの SVG は aria-hidden のため、display: none ではリンクとボタンがアクセシブルネームを失い、
+ * スクリーンリーダーの利用者が行き先を知れなかった（Task 40.2、要件15.4）。
+ * 見えている文言を名前の出どころのまま残すため、名前は全幅でデスクトップ幅の文言と同じになる
+ * （WCAG 2.5.3 Label in Name）。絶対配置で行の流れから外れるため、並び・間隔・大きさは
+ * display: none のときと変わらず、1px の箱に切り取るため水平のはみ出しも生まない。
+ */
+@media (max-width: 1199px) {
+  .app-header-nav-link span,
+  .app-header-admin-trigger span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
 /* モバイル対応 */
 @media (max-width: 768px) {
   .app-header-content {
     height: 56px;
   }
 
-  .app-header-logo-text {
-    display: none;
-  }
-
-  .app-header-nav-link span {
-    display: none;
-  }
-
-  .app-header-admin-trigger span {
-    display: none;
-  }
-
+  /*
+   * ロゴの文字とユーザー名は、見た目だけを隠して支援技術には残す（上のアイコンのみの表示と同じ指定）。
+   * display: none では、ロゴのリンクが名前を失い、ユーザーメニューのボタンの名前がイニシャルだけになる
+   * （Task 40.2）。
+   */
+  .app-header-logo-text,
   .app-header-user-name {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
 
   .app-header-separator {
     display: none;
+  }
+
+  /*
+   * 項目の幅の合計が画面幅を超えるときは、リンクの幅を縮めて一行に収める
+   *
+   * 是正前は各項目が固定幅（リンク 50px・管理メニュー 42px・ユーザーメニュー 58px）で縮まず、
+   * 管理者は 400px 未満、一般ユーザーは 350px 未満でナビゲーションがヘッダーの右へはみ出し、
+   * 文書全体が水平にスクロールしていた（要件15.1 のモバイル幅の下限は 320px）。
+   *
+   * ナビゲーションが残りの幅を受け取り、リンクは是正前の幅（左右の余白 1rem ずつ + アイコン 18px）を
+   * 上限に均等に縮む。480px 以上の収まる幅では是正前と同じ位置・同じ大きさになる
+   * （479px 以下は下の余白と間隔の変更で位置が動く）。
+   * ロゴと二つのメニューは縮めない（メニューのパネルの位置の基準であり、押す対象でもあるため）。
+   */
+  .app-header-logo {
+    flex-shrink: 0;
+  }
+
+  .app-header-nav {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+
+  .app-header-nav-link {
+    flex: 0 1 calc(2rem + 18px);
+    min-width: 24px;
+    padding-left: 0;
+    padding-right: 0;
+    justify-content: center;
+  }
+
+  .app-header-dropdown {
+    flex-shrink: 0;
+  }
+}
+
+/*
+ * 狭いモバイル幅
+ *
+ * 320px 幅の管理者（項目が最も多い）でも、リンクが押せる大きさ（実測で幅 35px）を保てるように、
+ * ヘッダーの左右の余白と項目の間隔を詰める。
+ * 境界は utils/responsive.ts の MEDIA_QUERIES.isSmallMobile（479px 以下）と同じ値にする。
+ * 一致は __tests__/components/AppHeader.css.test.ts が突き合わせる。
+ */
+@media (max-width: 479px) {
+  .app-header-container {
+    padding: 0 0.75rem;
+  }
+
+  .app-header-nav {
+    gap: 0.25rem;
   }
 }

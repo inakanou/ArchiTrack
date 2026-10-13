@@ -15,7 +15,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
+import { triggerAllIntersections } from '../../../test-support/intersection-observer';
 import userEvent from '@testing-library/user-event';
 import { PhotoManagementPanel } from '../../../components/site-surveys/PhotoManagementPanel';
 import type { SurveyImageInfo } from '../../../types/site-survey.types';
@@ -72,6 +73,18 @@ const mockImages: SurveyImageInfo[] = [
 // ============================================================================
 // テストスイート
 // ============================================================================
+
+/**
+ * 表示領域への到達を発火して遅延読み込みされた画像を読み込ませる
+ *
+ * 実寸を持つ画像は表示領域へ入るまで取得を開始しない（Requirement 38.8）。
+ * 表示元URLの選択や注釈取得の挙動を検証するテストでは、描画後にこれを呼ぶ。
+ */
+function revealImages() {
+  act(() => {
+    triggerAllIntersections(true);
+  });
+}
 
 describe('PhotoManagementPanel', () => {
   const defaultProps = {
@@ -147,6 +160,7 @@ describe('PhotoManagementPanel', () => {
   describe('サムネイル画像表示', () => {
     it('一覧ではサムネイル画像URLを優先使用すること', () => {
       render(<PhotoManagementPanel {...defaultProps} />);
+      revealImages();
 
       const images = screen.getAllByRole('img');
       expect(images[0]).toHaveAttribute('src', 'https://example.com/thumbnail/img-1.jpg');
@@ -161,6 +175,7 @@ describe('PhotoManagementPanel', () => {
       }));
 
       render(<PhotoManagementPanel {...defaultProps} images={imagesWithoutThumbnail} />);
+      revealImages();
 
       const images = screen.getAllByRole('img');
       expect(images[0]).toHaveAttribute('src', 'https://example.com/medium/img-1.jpg');
@@ -174,6 +189,7 @@ describe('PhotoManagementPanel', () => {
       }));
 
       render(<PhotoManagementPanel {...defaultProps} images={imagesWithoutThumbAndMedium} />);
+      revealImages();
 
       const images = screen.getAllByRole('img');
       expect(images[0]).toHaveAttribute('src', 'https://example.com/original/img-1.jpg');
@@ -1111,6 +1127,7 @@ describe('PhotoManagementPanel', () => {
   describe('注釈付き画像表示 (Task 55.2, Requirement 20.2)', () => {
     it('PhotoManagementPanelがAnnotatedImageThumbnailで画像を表示すること', () => {
       render(<PhotoManagementPanel {...defaultProps} />);
+      revealImages();
 
       // AnnotatedImageThumbnailが各画像に対してレンダリングされていること
       // (preferThumbnail指定によりthumbnailUrlを最優先で使用する)
@@ -1154,10 +1171,179 @@ describe('PhotoManagementPanel', () => {
       const images = [createMockImage('annot-1', 1, { hasAnnotations: true })];
 
       render(<PhotoManagementPanel {...defaultProps} images={images} />);
+      revealImages();
 
       await waitFor(() => {
         expect(getAnnotationMock).toHaveBeenCalledWith('annot-1');
       });
+    });
+  });
+
+  // ==========================================================================
+  // エクスポート対象の選択（Requirement 31.2, 31.3）
+  //
+  // 現場調査詳細画面が実際に描画する画像一覧は本コンポーネントである。
+  // 選択欄を本コンポーネントに持たせない限り、選択画像エクスポートは
+  // 画面から到達不能なまま（選択状態が恒久的に空）になる。
+  // ==========================================================================
+
+  describe('エクスポート対象の選択 (Requirement 31.2, 31.3)', () => {
+    it('選択 props を与えると各画像に選択チェックボックスを描画すること', () => {
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      for (const image of mockImages) {
+        const checkbox = screen.getByTestId(`image-checkbox-${image.id}`);
+        expect(checkbox).toBeInTheDocument();
+        expect(checkbox).not.toBeChecked();
+      }
+    });
+
+    it('選択チェックボックスの操作で選択 ID を含む集合が通知されること', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      await user.click(screen.getByTestId('image-checkbox-img-2'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      expect(onSelectionChange).toHaveBeenCalledWith(new Set(['img-2']));
+    });
+
+    it('選択済み画像はチェック状態で描画され、解除で当該 ID が除かれた集合が通知されること', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={new Set(['img-1', 'img-3'])}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      expect(screen.getByTestId('image-checkbox-img-1')).toBeChecked();
+      expect(screen.getByTestId('image-checkbox-img-3')).toBeChecked();
+      expect(screen.getByTestId('image-checkbox-img-2')).not.toBeChecked();
+
+      await user.click(screen.getByTestId('image-checkbox-img-1'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      expect(onSelectionChange).toHaveBeenCalledWith(new Set(['img-3']));
+    });
+
+    it('選択 props を与えない場合は選択チェックボックスを描画しないこと（後方互換）', () => {
+      render(<PhotoManagementPanel {...defaultProps} />);
+
+      for (const image of mockImages) {
+        expect(screen.queryByTestId(`image-checkbox-${image.id}`)).not.toBeInTheDocument();
+      }
+    });
+
+    it('読み取り専用でも選択できること（エクスポートは編集権限を要さない）', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          readOnly={true}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      const checkbox = screen.getByTestId('image-checkbox-img-1');
+      expect(checkbox).toBeEnabled();
+
+      await user.click(checkbox);
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      expect(onSelectionChange).toHaveBeenCalledWith(new Set(['img-1']));
+    });
+
+    // 上の等値比較（toHaveBeenCalledWith(new Set([...]))）は「通知された集合の中身」しか
+    // 主張していない。呼び出し元から渡された集合を直接書き換えて同じ参照を返す実装でも
+    // 中身は一致するため緑のまま通る。React の state として渡された集合を書き換えると
+    // 参照が変わらず再描画が発生せず、選択欄の表示が更新されない退行になる。
+    // 撤去済み部品（Task 115.55 で撤去）の検証が持っていた不変性の主張を、
+    // 出荷済みの画像一覧である本コンポーネントへ引き継ぐ。
+    it('選択追加時に呼び出し元へ渡した集合を書き換えず別インスタンスを通知すること', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+      const original = new Set<string>(['img-1']);
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={original}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      await user.click(screen.getByTestId('image-checkbox-img-2'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      const notified = onSelectionChange.mock.calls[0]?.[0] as Set<string>;
+      expect(notified).toBeInstanceOf(Set);
+      // 呼び出し元の集合そのものを返してはならない（参照が同一だと再描画が起きない）
+      expect(notified).not.toBe(original);
+      // 呼び出し元の集合の中身が書き換えられていないこと
+      expect(Array.from(original)).toEqual(['img-1']);
+    });
+
+    it('選択解除時に呼び出し元へ渡した集合を書き換えず別インスタンスを通知すること', async () => {
+      const user = userEvent.setup();
+      const onSelectionChange = vi.fn();
+      const original = new Set<string>(['img-1', 'img-3']);
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          selectedImageIds={original}
+          onSelectionChange={onSelectionChange}
+        />
+      );
+
+      await user.click(screen.getByTestId('image-checkbox-img-1'));
+
+      expect(onSelectionChange).toHaveBeenCalledTimes(1);
+      const notified = onSelectionChange.mock.calls[0]?.[0] as Set<string>;
+      expect(notified).toBeInstanceOf(Set);
+      expect(notified).not.toBe(original);
+      expect(Array.from(original).sort()).toEqual(['img-1', 'img-3']);
+    });
+
+    it('選択操作が報告書出力フラグ・画像クリックへ波及しないこと', async () => {
+      const user = userEvent.setup();
+      const onImageMetadataChange = vi.fn();
+      const onImageClick = vi.fn();
+
+      render(
+        <PhotoManagementPanel
+          {...defaultProps}
+          onImageMetadataChange={onImageMetadataChange}
+          onImageClick={onImageClick}
+          selectedImageIds={new Set<string>()}
+          onSelectionChange={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTestId('image-checkbox-img-1'));
+
+      expect(onImageMetadataChange).not.toHaveBeenCalled();
+      expect(onImageClick).not.toHaveBeenCalled();
     });
   });
 });

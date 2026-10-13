@@ -5,7 +5,7 @@
  * サーバーデータとの比較・選択機能を含む。
  *
  * @see tasks.md - Task 18.3
- * @see requirements.md - Requirement 13.5
+ * @see requirements.md - Requirement 15.5
  * @see design.md - AutoSaveManager State Management
  */
 

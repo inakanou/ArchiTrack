@@ -18,7 +18,9 @@ import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -61,16 +63,7 @@ test.describe('画像順序変更', () => {
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -260,7 +253,11 @@ test.describe('画像順序変更', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.12
+     * タスク 115.188 の是正: site-survey の受入基準4.12 を名乗る被覆印を取り下げた。原文4.12 は
+     * 「『上へ移動』ボタンをクリックしたとき、当該画像を1つ上の位置に**移動する**」であり、
+     * 本検証が主張するのは境界でボタンが**無効化される**ことである。移動は一度も起きない。
+     * 要件4 に境界での無効化を述べる条文は無いため付け替え先も無い。
+     * 4.12 は同ファイル 168 行の「『上へ移動』ボタンでUI上の順序が変更される」が名乗る。
      */
     test('先頭画像の「上へ移動」ボタンは無効化されている', async ({ page }) => {
       if (!createdSurveyId) {
@@ -285,7 +282,11 @@ test.describe('画像順序変更', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.13
+     * タスク 115.188 の是正: site-survey の受入基準4.13 を名乗る被覆印を取り下げた。原文4.13 は
+     * 「『下へ移動』ボタンをクリックしたとき、当該画像を1つ下の位置に**移動する**」であり、
+     * 本検証が主張するのは境界でボタンが**無効化される**ことである。移動は一度も起きない。
+     * 要件4 に境界での無効化を述べる条文は無いため付け替え先も無い。
+     * 4.13 は同ファイル 212 行の「『下へ移動』ボタンでUI上の順序が変更される」が名乗る。
      */
     test('末尾画像の「下へ移動」ボタンは無効化されている', async ({ page }) => {
       if (!createdSurveyId) {
@@ -312,7 +313,12 @@ test.describe('画像順序変更', () => {
 
     /**
      * @requirement site-survey/REQ-10.6
-     * @requirement site-survey/REQ-10.9
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.9 を名乗っていたが、受入基準10.9 の原文は「When ユーザーが「保存」
+     * ボタンをクリックする, the Site Survey Service shall 各写真のコメント、
+     * 報告書出力フラグ、表示順序の状態をデータベースに一括保存する」である。本区間の表題・本文が述べる内容に対応するのは受入基準10.6（「When
+     * ユーザーが写真の「上へ移動」ボタンをクリックする, the Site Survey Service shall 当該写真を1つ上の位置に移動する（未保存状態になる）
+     * 」）である。
      */
     test('順序変更後、保存前はサーバーに反映されない', async ({ page }) => {
       if (!createdSurveyId) {
@@ -707,7 +713,13 @@ test.describe('画像順序変更', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.11
+     * @requirement site-survey/REQ-4.12
+     *
+     * タスク 115.188 の是正: 従前は REQ-4.11 を名乗っていたが、受入基準4.11 の原文は「When ユーザーが画像をドラッグアンドドロップする,
+     * the Site Survey Service shall 画像の表示順序を変更する（未保存状態になる）
+     * 」である。本区間の表題・本文が述べる内容に対応するのは受入基準4.12（「When ユーザーが画像の「上へ移動」
+     * ボタンをクリックする, the Site Survey Service shall 当該画像を1つ上の位置に移動する（未保存状態になる）
+     * 」）である。
      * @requirement site-survey/REQ-10.11
      * @requirement site-survey/REQ-10.12
      *
@@ -823,41 +835,39 @@ test.describe('画像順序変更', () => {
       await loginAsUser(page, 'ADMIN_USER');
 
       // 現場調査を削除
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        // beforeunloadダイアログを処理
-        page.on('dialog', async (dialog) => {
-          if (dialog.type() === 'beforeunload') {
-            await dialog.accept();
-          }
-        });
+      // beforeunloadダイアログを処理
+      page.on('dialog', async (dialog) => {
+        if (dialog.type() === 'beforeunload') {
+          await dialog.accept();
+        }
+      });
 
-        const deleteButton = page.getByRole('button', { name: /^削除$/ }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
-      }
+      const surveyDeleteButton = page.getByRole('button', { name: /^削除$/ }).first();
+      await expect(surveyDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await surveyDeleteButton.click();
+      const surveyConfirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(surveyConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await surveyConfirmButton.click();
+      await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

@@ -10,32 +10,29 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import { RoleService } from '../services/role.service.js';
 import { RolePermissionService } from '../services/role-permission.service.js';
-import { RBACService } from '../services/rbac.service.js';
+import { getSharedRBACService } from '../services/rbac.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import getPrismaClient from '../db.js';
-import getRedisClient from '../redis.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import logger from '../utils/logger.js';
+import { updateRoleSchema } from '../schemas/auth-update.schema.js';
+import { ConflictError } from '../errors/apiError.js';
 
 const router = Router();
 const prisma = getPrismaClient();
-const redisClient = getRedisClient.getClient() ?? undefined;
-const rbacService = new RBACService(prisma, redisClient);
+// 権限の確認（requirePermission）と同じインスタンスで権限キャッシュを無効化する（タスク36.2）。
+// モジュールの読み込みの時点では Redis は未初期化のため、クライアントは呼び出しの時点で解決される
+const rbacService = getSharedRBACService();
 const auditLogService = new AuditLogService({ prisma });
-const roleService = new RoleService(prisma);
+// ロールの作成・更新・削除は書き込みと監査ログを同じトランザクションで記録する（タスク36.4）
+const roleService = new RoleService(prisma, auditLogService);
 const rolePermissionService = new RolePermissionService(prisma, rbacService, auditLogService);
 
 // Zodバリデーションスキーマ
 const createRoleSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
-  description: z.string().optional(),
-  priority: z.number().int().optional(),
-});
-
-const updateRoleSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100).optional(),
   description: z.string().optional(),
   priority: z.number().int().optional(),
 });
@@ -130,11 +127,15 @@ router.post(
     try {
       const { name, description, priority } = req.body;
 
-      const result = await roleService.createRole({
-        name,
-        description,
-        priority,
-      });
+      // 監査ログ（ROLE_CREATED）はロールの作成と同じトランザクションで記録される
+      const result = await roleService.createRole(
+        {
+          name,
+          description,
+          priority,
+        },
+        req.user?.userId
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -147,22 +148,6 @@ router.post(
         }
         res.status(500).json({ error: 'Failed to create role', details: error });
         return;
-      }
-
-      // 監査ログ記録
-      if (req.user?.userId) {
-        await auditLogService.createLog({
-          action: 'ROLE_CREATED',
-          actorId: req.user.userId,
-          targetType: 'role',
-          targetId: result.value.id,
-          before: null,
-          after: {
-            id: result.value.id,
-            name: result.value.name,
-            description: result.value.description,
-          },
-        });
       }
 
       logger.info(
@@ -207,6 +192,10 @@ router.post(
  *                 type: string
  *               priority:
  *                 type: integer
+ *               expectedUpdatedAt:
+ *                 type: string
+ *                 format: date-time
+ *                 description: 楽観的ロックの版（任意）。取得時の updatedAt。古いときは 409 ROLE_CONFLICT
  *     responses:
  *       200:
  *         description: ロール更新成功
@@ -219,7 +208,7 @@ router.post(
  *       404:
  *         description: ロールが見つからない
  *       409:
- *         description: ロール名の重複
+ *         description: ロール名の重複（ROLE_NAME_CONFLICT）、または楽観的ロックの競合（ROLE_CONFLICT、Problem Details）
  */
 router.patch(
   '/:id',
@@ -229,13 +218,27 @@ router.patch(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: roleId } = req.params as { id: string };
-      const { name, description, priority } = req.body;
+      const { name, description, priority, expectedUpdatedAt } = req.body as {
+        name?: string;
+        description?: string;
+        priority?: number;
+        expectedUpdatedAt?: string;
+      };
 
-      const result = await roleService.updateRole(roleId, {
-        name,
-        description,
-        priority,
-      });
+      // 監査ログ（ROLE_UPDATED）はロールの更新と同じトランザクションで記録される
+      const result = await roleService.updateRole(
+        roleId,
+        {
+          name,
+          description,
+          priority,
+          // 楽観的ロックの版は任意。送られたときだけ条件付きの更新になる
+          ...(expectedUpdatedAt !== undefined && {
+            expectedUpdatedAt: new Date(expectedUpdatedAt),
+          }),
+        },
+        req.user?.userId
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -248,6 +251,20 @@ router.patch(
             error: `Role with name '${error.name}' already exists`,
             code: 'ROLE_NAME_CONFLICT',
           });
+          return;
+        }
+        if (error.type === 'ROLE_CONFLICT') {
+          // 楽観的ロックの競合は Problem Details（RFC 7807）で返す
+          next(
+            new ConflictError(
+              '他のユーザーによって更新されました。画面を更新してください',
+              'ROLE_CONFLICT',
+              {
+                expectedUpdatedAt: error.expectedUpdatedAt.toISOString(),
+                actualUpdatedAt: error.actualUpdatedAt.toISOString(),
+              }
+            )
+          );
           return;
         }
         res.status(500).json({ error: 'Failed to update role', details: error });
@@ -303,7 +320,8 @@ router.delete(
     try {
       const { id: roleId } = req.params as { id: string };
 
-      const result = await roleService.deleteRole(roleId);
+      // 監査ログ（ROLE_DELETED）はロールの削除と同じトランザクションで記録される
+      const result = await roleService.deleteRole(roleId, req.user?.userId);
 
       if (!result.ok) {
         const error = result.error;
@@ -453,18 +471,18 @@ router.post(
       // Batch or single permission assignment
       const idsToAdd: string[] = permissionIds || [permissionId];
 
-      for (const pId of idsToAdd) {
-        const result = await rolePermissionService.addPermissionToRole(roleId, pId, actorId);
+      // 全権限を一つのトランザクションで追加（監査ログを含む）。
+      // 1件でも失敗すれば、ロールの権限は変更前のまま残る
+      const result = await rolePermissionService.addPermissionsToRole(roleId, idsToAdd, actorId);
 
-        if (!result.ok) {
-          const error = result.error;
-          if (error.type === 'ROLE_NOT_FOUND' || error.type === 'PERMISSION_NOT_FOUND') {
-            res.status(404).json({ error: 'Role or permission not found', code: error.type });
-            return;
-          }
-          res.status(500).json({ error: 'Failed to add permission to role', details: error });
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'ROLE_NOT_FOUND' || error.type === 'PERMISSION_NOT_FOUND') {
+          res.status(404).json({ error: 'Role or permission not found', code: error.type });
           return;
         }
+        res.status(500).json({ error: 'Failed to add permission to role', details: error });
+        return;
       }
 
       logger.info(
@@ -522,7 +540,12 @@ router.delete(
     try {
       const { id: roleId, permissionId } = req.params as { id: string; permissionId: string };
 
-      const result = await rolePermissionService.removePermissionFromRole(roleId, permissionId);
+      // 削除と監査ログの記録を同じトランザクションで行う
+      const result = await rolePermissionService.removePermissionFromRole(
+        roleId,
+        permissionId,
+        req.user?.userId
+      );
 
       if (!result.ok) {
         const error = result.error;

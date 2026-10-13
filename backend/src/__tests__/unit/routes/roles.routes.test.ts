@@ -24,6 +24,7 @@ const mockRoleService = vi.hoisted(() => ({
 
 const mockRolePermissionService = vi.hoisted(() => ({
   addPermissionToRole: vi.fn(),
+  addPermissionsToRole: vi.fn(),
   removePermissionFromRole: vi.fn(),
   getRolePermissions: vi.fn(),
 }));
@@ -62,6 +63,7 @@ vi.mock('../../../services/rbac.service', () => ({
       return {};
     }
   },
+  getSharedRBACService: () => ({}),
 }));
 
 vi.mock('../../../services/audit-log.service', () => ({
@@ -178,6 +180,8 @@ describe('Role Routes', () => {
         id: 'role-3',
         name: 'Project Manager',
       });
+      // 監査ログ（ROLE_CREATED）を作成と同じトランザクションで記録させるため、実行者をサービスへ渡す
+      expect(mockRoleService.createRole).toHaveBeenCalledWith(newRole, 'admin-user-id');
     });
 
     it('should return 400 when required fields are missing', async () => {
@@ -263,6 +267,122 @@ describe('Role Routes', () => {
       expect(response.status).toBe(409);
       expect(response.body.error).toContain('already exists');
     });
+
+    describe('楽観的ロック（expectedUpdatedAt）', () => {
+      const roleId = 'role-3';
+      const expected = '2026-09-27T01:00:00.000Z';
+      const actual = '2026-09-27T01:00:05.000Z';
+      const role = {
+        id: roleId,
+        name: 'Project Manager',
+        description: 'Updated',
+        priority: 0,
+        isSystem: false,
+        createdAt: new Date(expected),
+        updatedAt: new Date(actual),
+      };
+
+      /**
+       * @requirement user-authentication/REQ-25.8
+       */
+      it('版を送らない更新は従来どおり版なしでサービスへ渡る', async () => {
+        vi.mocked(mockRoleService.updateRole).mockResolvedValue(Ok(role));
+
+        const response = await request(app)
+          .patch(`/api/v1/roles/${roleId}`)
+          .send({ description: 'Updated' });
+
+        expect(response.status).toBe(200);
+        expect(mockRoleService.updateRole).toHaveBeenCalledWith(
+          roleId,
+          {
+            name: undefined,
+            description: 'Updated',
+            priority: undefined,
+          },
+          'admin-user-id'
+        );
+      });
+
+      /**
+       * @requirement user-authentication/REQ-25.8
+       */
+      it('送られた版は日時としてサービスへ渡り、応答は新しい版を返す', async () => {
+        vi.mocked(mockRoleService.updateRole).mockResolvedValue(Ok(role));
+
+        const response = await request(app)
+          .patch(`/api/v1/roles/${roleId}`)
+          .send({ description: 'Updated', expectedUpdatedAt: expected });
+
+        expect(response.status).toBe(200);
+        expect(response.body.updatedAt).toBe(actual);
+        expect(mockRoleService.updateRole).toHaveBeenCalledWith(
+          roleId,
+          {
+            name: undefined,
+            description: 'Updated',
+            priority: undefined,
+            expectedUpdatedAt: new Date(expected),
+          },
+          'admin-user-id'
+        );
+      });
+
+      /**
+       * @requirement user-authentication/REQ-25.8
+       */
+      it('版が古いときは 409 と Problem Details（ROLE_CONFLICT、期待と実際の版）を返す', async () => {
+        vi.mocked(mockRoleService.updateRole).mockResolvedValue(
+          Err({
+            type: 'ROLE_CONFLICT',
+            expectedUpdatedAt: new Date(expected),
+            actualUpdatedAt: new Date(actual),
+          })
+        );
+
+        const response = await request(app)
+          .patch(`/api/v1/roles/${roleId}`)
+          .send({ description: 'Updated', expectedUpdatedAt: expected });
+
+        expect(response.status).toBe(409);
+        expect(response.body).toEqual({
+          type: 'https://api.architrack.com/errors/conflict',
+          title: 'ROLE_CONFLICT',
+          status: 409,
+          detail: '他のユーザーによって更新されました。画面を更新してください',
+          instance: `/api/v1/roles/${roleId}`,
+          code: 'ROLE_CONFLICT',
+          message: '他のユーザーによって更新されました。画面を更新してください',
+          details: { expectedUpdatedAt: expected, actualUpdatedAt: actual },
+        });
+      });
+
+      /**
+       * @requirement user-authentication/REQ-25.8
+       */
+      it('版を送ってもロールが無ければ 409 ではなく 404 を返す', async () => {
+        vi.mocked(mockRoleService.updateRole).mockResolvedValue(Err({ type: 'ROLE_NOT_FOUND' }));
+
+        const response = await request(app)
+          .patch(`/api/v1/roles/${roleId}`)
+          .send({ description: 'Updated', expectedUpdatedAt: expected });
+
+        expect(response.status).toBe(404);
+        expect(response.body).toEqual({ error: 'Role not found', code: 'ROLE_NOT_FOUND' });
+      });
+
+      /**
+       * @requirement user-authentication/REQ-25.8
+       */
+      it('日時でない版は 400 で拒否し、サービスを呼ばない', async () => {
+        const response = await request(app)
+          .patch(`/api/v1/roles/${roleId}`)
+          .send({ description: 'Updated', expectedUpdatedAt: 'not-a-date' });
+
+        expect(response.status).toBe(400);
+        expect(mockRoleService.updateRole).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('DELETE /api/v1/roles/:id', () => {
@@ -274,6 +394,8 @@ describe('Role Routes', () => {
       const response = await request(app).delete(`/api/v1/roles/${roleId}`);
 
       expect(response.status).toBe(204);
+      // 監査ログ（ROLE_DELETED）を削除と同じトランザクションで記録させるため、実行者をサービスへ渡す
+      expect(mockRoleService.deleteRole).toHaveBeenCalledWith(roleId, 'admin-user-id');
     });
 
     it('should return 404 when role not found', async () => {
@@ -321,15 +443,43 @@ describe('Role Routes', () => {
       const roleId = 'role-3';
       const permissionId = 'permission-1';
 
-      (mockRolePermissionService.addPermissionToRole as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Ok(undefined)
-      );
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Ok(undefined));
 
       const response = await request(app)
         .post(`/api/v1/roles/${roleId}/permissions`)
         .send({ permissionId });
 
       expect(response.status).toBe(204);
+      // 単一指定も一括の経路（一つのトランザクション）へ渡し、実行者を監査ログ用に添える
+      expect(mockRolePermissionService.addPermissionsToRole).toHaveBeenCalledWith(
+        roleId,
+        [permissionId],
+        'admin-user-id'
+      );
+    });
+
+    it('should add multiple permissions in one transactional call', async () => {
+      const roleId = 'role-3';
+      const permissionIds = ['permission-1', 'permission-2'];
+
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Ok(undefined));
+
+      const response = await request(app)
+        .post(`/api/v1/roles/${roleId}/permissions`)
+        .send({ permissionIds });
+
+      expect(response.status).toBe(204);
+      expect(mockRolePermissionService.addPermissionsToRole).toHaveBeenCalledTimes(1);
+      expect(mockRolePermissionService.addPermissionsToRole).toHaveBeenCalledWith(
+        roleId,
+        permissionIds,
+        'admin-user-id'
+      );
+      expect(mockRolePermissionService.addPermissionToRole).not.toHaveBeenCalled();
     });
 
     it('should return 400 when permissionId is missing', async () => {
@@ -346,9 +496,9 @@ describe('Role Routes', () => {
       const roleId = 'non-existent-role';
       const permissionId = 'permission-1';
 
-      (mockRolePermissionService.addPermissionToRole as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Err({ type: 'ROLE_NOT_FOUND' })
-      );
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Err({ type: 'ROLE_NOT_FOUND' }));
 
       const response = await request(app)
         .post(`/api/v1/roles/${roleId}/permissions`)
@@ -362,9 +512,9 @@ describe('Role Routes', () => {
       const roleId = 'role-3';
       const permissionId = 'non-existent-permission';
 
-      (mockRolePermissionService.addPermissionToRole as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Err({ type: 'PERMISSION_NOT_FOUND' })
-      );
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Err({ type: 'PERMISSION_NOT_FOUND' }));
 
       const response = await request(app)
         .post(`/api/v1/roles/${roleId}/permissions`)
@@ -389,6 +539,12 @@ describe('Role Routes', () => {
       );
 
       expect(response.status).toBe(204);
+      // 削除の監査ログのため実行者を渡す
+      expect(mockRolePermissionService.removePermissionFromRole).toHaveBeenCalledWith(
+        roleId,
+        permissionId,
+        'admin-user-id'
+      );
     });
 
     it('should return 404 when role not found', async () => {

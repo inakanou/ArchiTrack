@@ -15,7 +15,8 @@ import {
   getAnnotation,
   saveAnnotation,
   exportAnnotationJson,
-  updateThumbnail,
+  updateAnnotatedThumbnail,
+  deleteAnnotatedThumbnail,
   getBatchAnnotations,
 } from '../../api/survey-annotations';
 import type {
@@ -34,6 +35,7 @@ vi.mock('../../api/client', async () => {
       put: vi.fn(),
       post: vi.fn(),
       patch: vi.fn(),
+      delete: vi.fn(),
     },
   };
 });
@@ -337,6 +339,27 @@ describe('survey-annotations API client', () => {
       expect(result).toBe(mockJsonString);
     });
 
+    // Task 115.102 (Req 9.6): サーバーは Content-Type: application/json で返すため、
+    // `apiClient` は本文を解析した**オブジェクト**を返す。実際の応答の形で JSON 文字列が
+    // 得られることを固定する（従来は型の上でだけ文字列を名乗っており、呼び出す本番コードが
+    // 0 件だったため露見していなかった）。
+    it('応答が解析済みオブジェクトでもJSON文字列を返す', async () => {
+      // Arrange
+      const parsedResponse = {
+        version: '1.0',
+        objects: [{ type: 'arrow', left: 10, top: 20 }],
+      };
+
+      vi.mocked(apiClient.get).mockResolvedValueOnce(parsedResponse);
+
+      // Act
+      const result = await exportAnnotationJson(mockImageId);
+
+      // Assert
+      expect(typeof result).toBe('string');
+      expect(JSON.parse(result)).toEqual(parsedResponse);
+    });
+
     it('画像が見つからない場合、ApiErrorをスロー', async () => {
       // Arrange
       const error = new ApiError(404, '画像が見つかりません。', {
@@ -401,28 +424,29 @@ describe('survey-annotations API client', () => {
   });
 
   // ===========================================================================
-  // updateThumbnail テスト
+  // updateAnnotatedThumbnail テスト
   // ===========================================================================
 
-  describe('updateThumbnail', () => {
+  describe('updateAnnotatedThumbnail', () => {
     const mockImageId = '123e4567-e89b-12d3-a456-426614174000';
     const mockImageData = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...';
 
-    it('サムネイルを正常に更新できる', async () => {
+    it('合成済みサムネイルを注釈付きサムネイルの受け口へ送る (Task 115.1, Req 20.4)', async () => {
       // Arrange
       const mockResponse = {
         success: true,
-        thumbnailPath: '/uploads/thumbnails/new-thumbnail.jpg',
+        annotatedThumbnailPath: `annotated-thumbnails/${mockImageId}.1700000000000.jpg`,
+        annotatedThumbnailUrl: 'https://signed.example.com/annotated.jpg?sig=test',
       };
 
       vi.mocked(apiClient.patch).mockResolvedValueOnce(mockResponse);
 
       // Act
-      const result = await updateThumbnail(mockImageId, mockImageData);
+      const result = await updateAnnotatedThumbnail(mockImageId, mockImageData);
 
       // Assert
       expect(apiClient.patch).toHaveBeenCalledWith(
-        `/api/site-surveys/images/${mockImageId}/thumbnail`,
+        `/api/site-surveys/images/${mockImageId}/annotated-thumbnail`,
         { imageData: mockImageData }
       );
       expect(result).toEqual(mockResponse);
@@ -441,8 +465,8 @@ describe('survey-annotations API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValue(error);
 
       // Act & Assert
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 404,
       });
     });
@@ -459,8 +483,8 @@ describe('survey-annotations API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValue(error);
 
       // Act & Assert
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 400,
       });
     });
@@ -471,8 +495,8 @@ describe('survey-annotations API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValue(error);
 
       // Act & Assert
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 401,
       });
     });
@@ -483,9 +507,57 @@ describe('survey-annotations API client', () => {
       vi.mocked(apiClient.patch).mockRejectedValue(error);
 
       // Act & Assert
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
-      await expect(updateThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toThrow(ApiError);
+      await expect(updateAnnotatedThumbnail(mockImageId, mockImageData)).rejects.toMatchObject({
         statusCode: 403,
+      });
+    });
+  });
+
+  // ===========================================================================
+  // deleteAnnotatedThumbnail テスト
+  // Task 115.3: 注釈も回転も無い保存で合成済みサムネイルを残さない
+  // Requirements: 22.5, 23.2, 23.8
+  // ===========================================================================
+
+  describe('deleteAnnotatedThumbnail', () => {
+    const mockImageId = '123e4567-e89b-12d3-a456-426614174000';
+
+    it('合成済みサムネイルの取り消しを注釈付きサムネイルの受け口へ送る (Task 115.3, Req 22.5)', async () => {
+      // Arrange
+      const mockResponse = {
+        success: true,
+        annotatedThumbnailPath: null,
+        annotatedThumbnailUrl: null,
+      };
+      vi.mocked(apiClient.delete).mockResolvedValueOnce(mockResponse);
+
+      // Act
+      const result = await deleteAnnotatedThumbnail(mockImageId);
+
+      // Assert
+      expect(apiClient.delete).toHaveBeenCalledWith(
+        `/api/site-surveys/images/${mockImageId}/annotated-thumbnail`
+      );
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('画像が見つからない場合、ApiErrorをスロー', async () => {
+      // Arrange
+      const error = new ApiError(404, '画像が見つかりません。', {
+        type: 'https://architrack.example.com/problems/image-not-found',
+        title: 'Image Not Found',
+        status: 404,
+        detail: '画像が見つかりません。',
+        code: 'IMAGE_NOT_FOUND',
+        imageId: mockImageId,
+      });
+      vi.mocked(apiClient.delete).mockRejectedValue(error);
+
+      // Act & Assert
+      await expect(deleteAnnotatedThumbnail(mockImageId)).rejects.toThrow(ApiError);
+      await expect(deleteAnnotatedThumbnail(mockImageId)).rejects.toMatchObject({
+        statusCode: 404,
       });
     });
   });

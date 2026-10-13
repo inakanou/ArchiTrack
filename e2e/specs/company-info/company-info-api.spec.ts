@@ -68,8 +68,11 @@ test.describe('自社情報API・権限・監査ログ', () => {
 
       const response = await responsePromise;
 
-      // 権限があるユーザーは200または304（キャッシュ）を受け取る
-      expect(response.ok() || response.status() === 304).toBe(true);
+      // REQ-6.7: 閲覧には company_info:read 権限を要する。権限を持つ利用者の取得は
+      // 200 で返る。以前は「200 または 304」を論理和で許していたが、テストごとに
+      // 新しいブラウザコンテキストが作られるため条件付きリクエストは発生せず、
+      // 304 の側は一度も成立しない。成立する側だけを主張する。
+      expect(response.status()).toBe(200);
     });
 
     /**
@@ -180,8 +183,9 @@ test.describe('自社情報API・権限・監査ログ', () => {
 
       const response = await responsePromise;
 
-      // GETリクエストが成功することを確認
-      expect(response.ok() || response.status() === 304).toBe(true);
+      // REQ-9.1: GET /api/company-info が自社情報取得機能を提供する。
+      // 取得は 200 で返る（条件付きリクエストは発生しないため 304 にはならない）。
+      expect(response.status()).toBe(200);
     });
 
     /**
@@ -248,8 +252,10 @@ test.describe('自社情報API・権限・監査ログ', () => {
 
       const response = await responsePromise;
 
-      // ステータスは200または304（キャッシュ）
-      expect(response.ok() || response.status() === 304).toBe(true);
+      // REQ-9.3: 自社情報が未登録の場合は空のオブジェクト {} と 200 OK を返す。
+      // 要件が「200 OK」と本文の空オブジェクトの両方を定めているため、双方を主張する。
+      expect(response.status()).toBe(200);
+      expect(await response.json()).toEqual({});
 
       // UIで空フォームが表示されることを確認
       await expect(page.getByLabel(/会社名/)).toHaveValue('', { timeout: getTimeout(10000) });

@@ -498,7 +498,7 @@ describe('projects API client', () => {
         toStatus: 'PREPARING',
         toStatusLabel: '準備中',
         transitionType: 'initial',
-        transitionTypeLabel: '初期遷移',
+        transitionTypeLabel: '初期登録',
         reason: null,
         changedBy: { id: 'user-1', displayName: '作成者' },
         changedAt: '2025-01-01T00:00:00.000Z',

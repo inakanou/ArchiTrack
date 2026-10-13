@@ -38,6 +38,18 @@ export interface FileInlinePreviewProps {
   existingPreviewUrl?: string;
   /** ファイルのMIMEタイプ（existingPreviewUrl使用時） */
   fileMimeType?: string;
+  /**
+   * 総ページ数が1のPDFでもページナビゲーション（ページ表示と前へ/次へ）を表示するか。
+   * 既定の false では受領見積書登録の決まり（17.6: 1ページなら出さない）に従う。
+   * 数量表の取り込みダイアログは総ページ数によらずナビゲーションを求めるため true を渡す。
+   */
+  showPageNavigationForSinglePage?: boolean;
+  /**
+   * プレビューの縦幅を保存・復元する localStorage のキー。
+   * 既定では受領見積書登録のキー（`architrack:received-quotation:preview-height`）を使う。
+   * 数量表の取り込みダイアログは受領見積書と縦幅を共有しないよう、別のキーを渡す。
+   */
+  resizeStorageKey?: string;
 }
 
 /**
@@ -118,9 +130,9 @@ function computeMaxHeight(): number {
  * 戻り値は必ず [RESIZE_MIN_HEIGHT, computeMaxHeight()] の範囲にクランプされる。
  * 値が存在しない / NaN / parse 失敗 / localStorage アクセス失敗時はデフォルト値を返す。
  */
-function loadPersistedHeight(): number {
+function loadPersistedHeight(storageKey: string): number {
   try {
-    const raw = localStorage.getItem(RESIZE_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (raw === null) return RESIZE_DEFAULT_HEIGHT;
     const parsed = Number.parseInt(raw, 10);
     if (Number.isNaN(parsed)) return RESIZE_DEFAULT_HEIGHT;
@@ -149,8 +161,8 @@ function loadPersistedHeight(): number {
  *   useEffect 依存配列から height を除外し、heightRef.current を経由して
  *   listener 内クロージャから常に最新値を参照する（リスナ再アタッチを回避）。
  */
-export function useResizableHeight(): ResizableHeightHandle {
-  const [height, setHeight] = useState<number>(loadPersistedHeight);
+export function useResizableHeight(storageKey: string = RESIZE_STORAGE_KEY): ResizableHeightHandle {
+  const [height, setHeight] = useState<number>(() => loadPersistedHeight(storageKey));
   const [isResizing, setIsResizing] = useState<boolean>(false);
   const startYRef = useRef<number>(0);
   const startHeightRef = useRef<number>(0);
@@ -182,7 +194,7 @@ export function useResizableHeight(): ResizableHeightHandle {
       setIsResizing(false);
       // heightRef.current で最新値を参照（クロージャ経由で安全に取得）
       try {
-        localStorage.setItem(RESIZE_STORAGE_KEY, String(Math.floor(heightRef.current)));
+        localStorage.setItem(storageKey, String(Math.floor(heightRef.current)));
       } catch {
         // localStorage 書込失敗（プライベートブラウジング、容量超過、無効化）はサイレントフォールバック
       }
@@ -196,7 +208,7 @@ export function useResizableHeight(): ResizableHeightHandle {
       window.removeEventListener('pointerup', onUp);
     };
     // height は依存配列から外す: heightRef 経由で最新値を参照するため再アタッチ不要
-  }, [isResizing]);
+  }, [isResizing, storageKey]);
 
   return { height, onResizeStart, isResizing };
 }
@@ -499,11 +511,13 @@ function PdfPreview({
   height,
   onResizeStart,
   isResizing,
+  showPageNavigationForSinglePage,
 }: {
   fileUrl: string;
   height: number;
   onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
   isResizing: boolean;
+  showPageNavigationForSinglePage: boolean;
 }) {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -578,8 +592,9 @@ function PdfPreview({
       {/* ナビゲーション・ズームコントロール */}
       {totalPages > 0 && (
         <div style={styles.pdfNavigation}>
-          {/* ページナビゲーション: 総ページ数が1の場合は非表示 (17.6) */}
-          {totalPages > 1 && (
+          {/* ページナビゲーション: 既定では総ページ数が1の場合は非表示 (17.6)。
+              showPageNavigationForSinglePage が true なら1ページでも表示する */}
+          {(showPageNavigationForSinglePage || totalPages > 1) && (
             <>
               <button
                 type="button"
@@ -771,6 +786,8 @@ export function FileInlinePreview({
   file,
   existingPreviewUrl,
   fileMimeType,
+  showPageNavigationForSinglePage = false,
+  resizeStorageKey = RESIZE_STORAGE_KEY,
 }: FileInlinePreviewProps) {
   // --------------------------------------------------------------------------
   // 状態管理
@@ -784,7 +801,8 @@ export function FileInlinePreview({
 
   // Task 77.2: 縦幅リサイズ（hook を 1 回呼び出し、PDF/画像/Excel の各プレビューで共有する）
   // localStorage への永続化と復元は hook 内で完結し、3 種類のコンテナで同じ height が適用される
-  const { height, onResizeStart, isResizing } = useResizableHeight();
+  // 保存キーは既定で受領見積書のもの。数量表の取り込みダイアログは別のキーを渡す（resizeStorageKey）
+  const { height, onResizeStart, isResizing } = useResizableHeight(resizeStorageKey);
   useBodyResizingStyle(isResizing);
 
   // --------------------------------------------------------------------------
@@ -987,6 +1005,7 @@ export function FileInlinePreview({
           height={height}
           onResizeStart={onResizeStart}
           isResizing={isResizing}
+          showPageNavigationForSinglePage={showPageNavigationForSinglePage}
         />
       </div>
     );

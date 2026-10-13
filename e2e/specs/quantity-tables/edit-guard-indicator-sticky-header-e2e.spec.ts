@@ -5,6 +5,7 @@
  *
  * Requirements coverage (quantity-table-generation):
  * - REQ-43.1: 未保存変更がある状態でのアプリ内遷移に対し離脱確認を表示する
+ * - REQ-43.2: 未保存変更がある状態のタブクローズ・リロードに対しブラウザ標準の離脱確認を表示する
  * - REQ-43.3: 離脱確認で「とどまる」を選ぶと編集画面と未保存状態を維持する
  * - REQ-43.4: 離脱確認で「離脱」を選ぶと画面遷移を実行する
  * - REQ-43.5: 未保存変更がない状態では離脱時に警告を表示しない（保存後の素通り遷移で検証）
@@ -18,10 +19,16 @@
  * - REQ-45.3: 固定表示中も編集領域がヘッダーに恒久的に隠されずスクロール・操作可能を維持する
  * - REQ-45.4: 固定ヘッダー内に未保存変更インジケーター（REQ-44）を両立表示する
  *
+ * Task 115.46: 狭幅（幅375）でヘッダー操作群が画面幅を超えないことを実ブラウザで検証する。
+ * ヘッダーの固定は垂直方向のみのため、水平スクロールが生じると横へスクロールした時点で
+ * 固定ヘッダーの操作ボタン群が画面外へ出る。REQ-45.1 の「常に画面内に表示」は狭幅でも
+ * 成立する必要があり、単体テスト（jsdom）はレイアウト計算を行わないため検出できない。
+ *
  * 注記:
  * - react-router の useBlocker はアプリ内（クライアントサイド）ナビゲーションのみを
- *   インターセプトする。ブラウザのリロード/タブクローズ（beforeunload）の標準ダイアログは
- *   Playwright で安定して検証できないため、本スペックでは扱わない（REQ-43.2 は対象外）。
+ *   インターセプトする。ブラウザのリロード/タブクローズ（beforeunload）は別経路であり、
+ *   Task 100.13 でシナリオ7として本スペックに加えた（それまで REQ-43.2 は除外台帳に
+ *   在籍していたが、実際には本番の結線が欠けており実装自体が存在しなかった）。
  * - 離脱確認ダイアログは UnsavedChangesDialog（タイトル「変更が保存されていません」、
  *   「ページを離れる」「このページにとどまる」ボタン）で実装されている。
  *
@@ -30,8 +37,9 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const RUN_ID = Date.now();
 
@@ -55,16 +63,7 @@ async function createTestProject(page: Page, projectName: string): Promise<strin
   await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
   const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-  const salesPersonValue = await salesPersonSelect.inputValue();
-  if (!salesPersonValue) {
-    const options = await salesPersonSelect.locator('option').all();
-    if (options.length > 1 && options[1]) {
-      const firstUserOption = await options[1].getAttribute('value');
-      if (firstUserOption) {
-        await salesPersonSelect.selectOption(firstUserOption);
-      }
-    }
-  }
+  await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
   const createProjectPromise = page.waitForResponse(
     (response) =>
@@ -161,6 +160,67 @@ async function addItemToGroupAt(
   await expect(unitInput).toBeVisible({ timeout: getTimeout(5000) });
   await unitInput.fill(fields.unit);
   await unitInput.blur();
+}
+
+/**
+ * 狭幅ビューポート（スマートフォン想定）。
+ * ヘッダー操作群が画面幅を超えるかどうかの検証に用いる。
+ */
+const NARROW_VIEWPORT = { width: 375, height: 812 } as const;
+
+/**
+ * ページ全体・編集画面ヘッダーの水平方向のはみ出しを実ブラウザ上で計測する。
+ *
+ * overflow による内部スクロール領域（REQ-41 の水平スクロール等）の中身は
+ * ページ全体の水平スクロールを生じさせないため、診断一覧からは除外する。
+ */
+async function measureHorizontalOverflow(page: Page): Promise<{
+  docScrollWidth: number;
+  docClientWidth: number;
+  headerScrollWidth: number;
+  headerClientWidth: number;
+  overflowingElements: { tag: string; testId: string; right: number; text: string }[];
+}> {
+  return page.evaluate(() => {
+    const header = document.querySelector('[data-testid="quantity-table-edit-header"]');
+    if (!header) {
+      throw new Error('編集画面ヘッダーが見つかりません');
+    }
+
+    const clientWidth = document.documentElement.clientWidth;
+
+    /** 祖先に水平スクロール領域を持つ（＝はみ出しが内部で吸収される）要素か */
+    const isClippedByAncestor = (element: Element): boolean => {
+      let current = element.parentElement;
+      while (current && current !== document.body) {
+        const overflowX = window.getComputedStyle(current).overflowX;
+        if (overflowX !== 'visible') {
+          return true;
+        }
+        current = current.parentElement;
+      }
+      return false;
+    };
+
+    const overflowingElements = Array.from(document.querySelectorAll('body *'))
+      .filter((element) => element.getBoundingClientRect().right > clientWidth + 1)
+      .filter((element) => !isClippedByAncestor(element))
+      .slice(0, 10)
+      .map((element) => ({
+        tag: element.tagName.toLowerCase(),
+        testId: element.getAttribute('data-testid') ?? '',
+        right: Math.round(element.getBoundingClientRect().right),
+        text: (element.textContent ?? '').trim().slice(0, 24),
+      }));
+
+    return {
+      docScrollWidth: document.documentElement.scrollWidth,
+      docClientWidth: clientWidth,
+      headerScrollWidth: header.scrollWidth,
+      headerClientWidth: header.clientWidth,
+      overflowingElements,
+    };
+  });
 }
 
 const editHeader = (page: Page) => page.getByTestId('quantity-table-edit-header');
@@ -373,6 +433,165 @@ test.describe('REQ-43/44/45: 離脱ガード・未保存インジケーター・
   });
 
   // --------------------------------------------------------------------------
+  // シナリオ6: 狭幅ビューポートでヘッダー操作群が画面幅に収まる (REQ-45.1, 45.2, 45.3, 45.4)
+  //
+  // ヘッダーの固定は垂直方向のみ（position: sticky / top: 0）であり、ページに水平方向の
+  // スクロールが生じると、横へスクロールした時点で固定ヘッダーの操作ボタン群も
+  // 画面外へ出てしまう。したがって「常に画面内に表示する」(REQ-45.1) を狭幅でも
+  // 成立させるには、ヘッダー操作群が画面幅に収まっていることが必要条件となる。
+  //
+  // 単体テスト（jsdom）はレイアウトを計算せず scrollWidth が常に 0 になるため、
+  // この検証は実ブラウザでのみ成立する。
+  // --------------------------------------------------------------------------
+  test('幅375でもヘッダー操作群が画面幅に収まりページに横スクロールが生じない', async ({
+    page,
+  }) => {
+    if (!testProjectId) {
+      throw new Error('testProjectId が未設定です。前段のテストが実行されていません。');
+    }
+
+    await page.setViewportSize({ width: NARROW_VIEWPORT.width, height: NARROW_VIEWPORT.height });
+
+    // 数量表名には RUN_ID（13桁の数字）を付けない。パンくずは共有コンポーネントであり、
+    // 途中で改行できない長大な英数字の連なりを含む名称では狭幅で自らはみ出す。
+    // それは本タスクの境界（数量表の編集画面の見出し）の外側にある別事象であり、
+    // 混入させるとヘッダーの収まりを測れなくなるため、現実的な長さの名称を用いる。
+    await createQuantityTable(page, '狭幅ヘッダー数量表');
+
+    // 編集領域を伴う実際の状態で検証する（空表示のままでは検証が現実の使用状態から乖離する）
+    await addGroup(page, 1);
+    await addItemToGroupAt(page, 0, 1, { workType: '工種N', name: '名称N', unit: 'm2' });
+
+    const header = editHeader(page);
+    await expect(header).toBeVisible({ timeout: getTimeout(10000) });
+
+    // 前提検証: ビューポート幅が意図した狭幅になっていること
+    const viewportWidth = await page.evaluate(() => window.innerWidth);
+    expect(viewportWidth, 'ビューポート幅が 375 に設定されていない').toBe(NARROW_VIEWPORT.width);
+
+    const metrics = await measureHorizontalOverflow(page);
+
+    // REQ-45.1: ページ全体に水平スクロールが生じない
+    // （生じると横スクロール時に固定ヘッダーの操作ボタン群が画面外へ出る）
+    expect(
+      metrics.docScrollWidth,
+      `幅${NARROW_VIEWPORT.width}でページ全体に横方向のスクロールが生じている` +
+        `（内容の幅 ${metrics.docScrollWidth} > 表示幅 ${metrics.docClientWidth}）。` +
+        `画面幅を超える要素: ${JSON.stringify(metrics.overflowingElements)}`
+    ).toBeLessThanOrEqual(metrics.docClientWidth);
+
+    // REQ-45.1: ヘッダー自身の内容も表示幅に収まる（操作群が右へはみ出していない）
+    expect(
+      metrics.headerScrollWidth,
+      `ヘッダーの内容が表示幅を超えている` +
+        `（内容の幅 ${metrics.headerScrollWidth} > 表示幅 ${metrics.headerClientWidth}）`
+    ).toBeLessThanOrEqual(metrics.headerClientWidth);
+
+    // 挙動としての確認: 右方向へスクロールを試みても実際には移動しない
+    await page.evaluate(() => window.scrollTo(document.documentElement.scrollWidth, 0));
+    const scrollXAfterAttempt = await page.evaluate(() => window.scrollX);
+    expect(scrollXAfterAttempt, '右方向へのスクロールが発生している').toBe(0);
+
+    // REQ-45.1, 45.4: 狭幅でもヘッダー操作ボタン群と未保存インジケーターが画面内に見えている
+    await expect(header.getByRole('button', { name: 'インポート' })).toBeInViewport();
+    await expect(header.getByRole('button', { name: 'PDF出力' })).toBeInViewport();
+    await expect(header.getByRole('button', { name: '保存' })).toBeInViewport();
+    await expect(header.getByRole('button', { name: /グループを追加/ })).toBeInViewport();
+    await expect(header.getByTestId('bulk-create-from-survey-button')).toBeInViewport();
+    await expect(header.getByTestId('unsaved-changes-badge')).toBeInViewport();
+
+    // REQ-45.2: 狭幅でも垂直スクロールに追従せずビューポート上部に固定される
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY), { timeout: getTimeout(10000) })
+      .toBeGreaterThan(0);
+    const headerBoxAfterScroll = await header.boundingBox();
+    expect(headerBoxAfterScroll, 'ヘッダーの bounding box が取得できない').not.toBeNull();
+    expect(headerBoxAfterScroll!.y).toBeGreaterThanOrEqual(0);
+    expect(headerBoxAfterScroll!.y).toBeLessThan(120);
+
+    // REQ-45.3: 折り返しでヘッダーが縦に伸びても編集領域が恒久的に隠されない
+    expect(
+      headerBoxAfterScroll!.height,
+      `ヘッダーの高さ ${headerBoxAfterScroll!.height} がビューポート高さの半分を超え、` +
+        `編集領域の可視域が確保できていない`
+    ).toBeLessThan(NARROW_VIEWPORT.height / 2);
+    const groupCard = page.locator('[data-testid="quantity-group-card"]').last();
+    await expect(groupCard).toBeInViewport();
+    await expect(groupCard.getByRole('button', { name: '項目を追加' })).toBeVisible();
+  });
+
+  // --------------------------------------------------------------------------
+  // シナリオ7: タブクローズ/リロードに対するブラウザ標準の離脱確認 (REQ-43.2)
+  // --------------------------------------------------------------------------
+  /**
+   * REQ-43.2 の条文は「タブ/ウィンドウを閉じる操作またはリロード操作に対して**ブラウザ標準の
+   * 離脱確認を表示する**」である。本判定は、その帰結そのもの——ブラウザが標準の離脱確認を
+   * 実際に提示し、取り消せば画面に留まること——を観測する。
+   *
+   * 観測の設計（なぜこの形か）:
+   * - `page.close({ runBeforeUnload: true })` はタブを閉じる操作そのものであり、ページが
+   *   beforeunload の既定動作を抑止していれば Chromium は標準の離脱確認を提示する。
+   *   Playwright はそれを `dialog` イベント（`type() === 'beforeunload'`）として渡すため、
+   *   「利用者に確認が出た」ことを直接観測できる。`dismiss()` は確認の取り消し（留まる）に
+   *   あたり、実際にタブが閉じずに編集画面が残ることまで確かめられる。
+   * - `window.dispatchEvent(new Event('beforeunload'))` の合成イベントで
+   *   `defaultPrevented` を見る形（construction-photo / site-survey の先例）は「ページが
+   *   確認を要求したか」までしか測れず、条文の帰結である「ブラウザが確認を表示する」からは
+   *   一段遠い。本判定はより近い側を採る。
+   * - 限界: OS/ブラウザが描画する確認ダイアログの**文面やボタン配置**は Chromium が決める
+   *   ため観測・検証の対象にしない。確認が提示されたこと・取り消しで留まること・未保存が
+   *   無ければ提示されないことまでを判定範囲とする。
+   *
+   * 陰性対照は同一テスト内に置く: 保存して未保存変更を解消したのち同じ操作を行い、確認が
+   * 提示されず（`dialog` イベント 0 件）タブがそのまま閉じることを確かめる（REQ-43.5/43.6）。
+   * これが無いと「常に確認が出る実装」でも本判定は緑になりうる。
+   *
+   * @requirement quantity-table-generation/REQ-43.2
+   */
+  test('未保存状態でタブを閉じるとブラウザ標準の離脱確認が出て、取り消すと画面に留まる', async ({
+    page,
+  }) => {
+    if (!testProjectId) {
+      throw new Error('testProjectId が未設定です。');
+    }
+
+    const tableId = await createQuantityTable(page, `標準離脱確認数量表_${RUN_ID}`);
+
+    // 観測したブラウザ標準ダイアログを記録する。取り消し（dismiss）＝「留まる」。
+    const browserDialogs: string[] = [];
+    page.on('dialog', async (dialog) => {
+      browserDialogs.push(dialog.type());
+      await dialog.dismiss();
+    });
+
+    // 未保存変更を作る（保存可能な項目まで埋める。後段で保存して陰性対照に移るため）
+    await addGroup(page, 1);
+    await addItemToGroupAt(page, 0, 1, { workType: '工種C', name: '名称C', unit: 'm3' });
+    await expect(unsavedBadge(page)).toBeVisible({ timeout: getTimeout(10000) });
+
+    // REQ-43.2: タブを閉じる操作に対してブラウザ標準の離脱確認が提示される
+    await page.close({ runBeforeUnload: true });
+    await expect
+      .poll(() => browserDialogs, { timeout: getTimeout(10000) })
+      .toEqual(['beforeunload']);
+
+    // 確認を取り消した（dismiss）ので、タブは閉じず編集画面と未保存状態が維持される
+    expect(page.isClosed()).toBe(false);
+    await expect(page).toHaveURL(new RegExp(`/quantity-tables/${tableId}/edit$`));
+    await expect(unsavedBadge(page)).toBeVisible();
+
+    // 陰性対照（REQ-43.5/43.6）: 保存して未保存変更が無くなれば確認は提示されない
+    await saveQuantityTableDraft(page);
+    await expect(unsavedBadge(page)).toHaveCount(0, { timeout: getTimeout(10000) });
+
+    const dialogCountBeforeCleanClose = browserDialogs.length;
+    await page.close({ runBeforeUnload: true });
+    await expect.poll(() => page.isClosed(), { timeout: getTimeout(10000) }).toBe(true);
+    expect(browserDialogs.length).toBe(dialogCountBeforeCleanClose);
+  });
+
+  // --------------------------------------------------------------------------
   // クリーンアップ
   // --------------------------------------------------------------------------
   test('作成したプロジェクトを削除する', async ({ page, context }) => {
@@ -390,13 +609,13 @@ test.describe('REQ-43/44/45: 離脱ガード・未保存インジケーター・
       await page.waitForLoadState('networkidle');
 
       const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-      const hasDeleteButton = await deleteButton.isVisible({ timeout: 5000 });
+      const hasDeleteButton = await isVisibleWithin(deleteButton, 5000);
       if (hasDeleteButton) {
         await deleteButton.click();
         const confirmButton = page
           .getByTestId('focus-manager-overlay')
           .getByRole('button', { name: /^削除$/i });
-        const hasConfirmButton = await confirmButton.isVisible({ timeout: 5000 });
+        const hasConfirmButton = await isVisibleWithin(confirmButton, 5000);
         if (hasConfirmButton) {
           await confirmButton.click();
           await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });

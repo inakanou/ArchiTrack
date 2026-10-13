@@ -677,6 +677,52 @@ describe('NetAllocationDialog', () => {
   });
 
   // ==========================================================================
+  // 61.4: 案分対象業者の識別（業者金額行の見積業者で引き当てる）
+  // ==========================================================================
+  describe('案分対象業者の識別 (5.6)', () => {
+    /** item-2 の業者金額行だけを別の業者（業者B）にした明細 */
+    const createTwoVendorItems = (): EstimateItemHierarchyEdit[] =>
+      createMockItems().map((entry) =>
+        entry.id === 'item-2'
+          ? {
+              ...entry,
+              lines: entry.lines.map((line) =>
+                line.lineType === 'VENDOR' ? { ...line, sourceVendorName: '業者B' } : line
+              ),
+            }
+          : entry
+      );
+
+    /** @requirement estimate-creation/REQ-5.6 案分対象となった業者を識別可能な状態で管理する */
+    it('業者金額行の見積業者ごとに業者が選択肢に並び、選んだ業者の項目だけが案分対象として onApply へ渡ること (5.6)', async () => {
+      const user = userEvent.setup();
+      render(<NetAllocationDialog {...defaultProps} items={createTwoVendorItems()} />);
+
+      const select = screen.getByLabelText('対象業者を選択');
+      expect(
+        within(select)
+          .getAllByRole('option')
+          .map((option) => option.textContent)
+      ).toEqual(['選択してください', '業者A', '業者B']);
+
+      await user.selectOptions(select, '業者B');
+      expect(targetRowKeys()).toEqual(['item-2']);
+
+      await user.selectOptions(select, '業者A');
+      expect(targetRowKeys()).toEqual(['item-1']);
+
+      await user.type(screen.getByLabelText('NET金額'), '100000');
+      await user.click(screen.getByRole('button', { name: '案分実行' }));
+
+      expect(onApply).toHaveBeenCalledWith({
+        targetKeys: ['item-1'],
+        excludeKeys: [],
+        netAmount: '100000',
+      });
+    });
+  });
+
+  // ==========================================================================
   // 41.9 / 55.4: 値引き行・注記行は案分の対象外
   // ==========================================================================
   describe('値引き行・注記行の除外 (41.9, 55.4)', () => {

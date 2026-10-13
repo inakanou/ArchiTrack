@@ -9,8 +9,8 @@
  * - REQ-16.3: ソート対象値が null または空文字の場合、空文字として扱い先頭に配置する
  * - REQ-16.4: 初期ソート順序は内訳書作成時に一度だけ適用され、手動並び替えで上書き可能
  * - REQ-17.1: 各内訳項目行に上移動ボタン(上向き矢印)と下移動ボタン(下向き矢印)を表示する
- * - REQ-17.2: 先頭の項目の上移動ボタンを無効化する
- * - REQ-17.3: 末尾の項目の下移動ボタンを無効化する
+ * - REQ-17.2: 上移動ボタンのクリックで該当項目が1つ上の位置に移動する（保存前の表示と、保存してリロードした後の表示の両方）
+ * - REQ-17.3: 下移動ボタンのクリックで該当項目が1つ下の位置に移動する（保存してリロードした後の表示）
  * - REQ-17.4: 先頭項目の上移動ボタンクリック時に何もしない（ボタンが無効化されている）
  * - REQ-17.5: 末尾項目の下移動ボタンクリック時に何もしない（ボタンが無効化されている）
  * - REQ-17.6: 並び替え操作はクライアントサイドのみで状態管理し、操作ごとにサーバーリクエストを発生させない
@@ -19,6 +19,9 @@
  * - REQ-17.9: 保存成功時に「並び順を保存しました」トースト通知
  * - REQ-17.13: 手動並び替えはフィルタやカラムソートが適用されていない状態でのみ操作可能（ボタン非表示）
  * - REQ-17.14: 並び順の保存リクエストでupdatedAtによる楽観的排他制御を適用する
+ * - REQ-5.1: 各カラムヘッダーにソートボタンを表示する（列見出しの中のボタンへ Tab で届く。タスク 26.4）
+ * - REQ-5.2: カラムヘッダーの操作で当該カラムの昇順ソート（ソートボタンの Enter / Space。タスク 26.4）
+ * - REQ-5.3: 同じカラムヘッダーの再度の操作で降順ソートへ切り替え（ソートボタンの Enter / Space。タスク 26.4）
  *
  * @module e2e/specs/itemized-statements/itemized-statement-reorder.spec
  */
@@ -27,6 +30,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * 内訳書項目の並び替え機能のE2Eテスト
@@ -185,7 +189,7 @@ test.describe('内訳書項目の並び替え', () => {
   /**
    * 並び替えUI表示テスト
    */
-  test.describe('並び替えUI (REQ-17.1, REQ-17.2, REQ-17.3, REQ-17.4, REQ-17.5)', () => {
+  test.describe('並び替えUI (REQ-17.1, REQ-17.4, REQ-17.5)', () => {
     /**
      * @requirement itemized-statement-generation/REQ-17.1: 各内訳項目行に上移動ボタンと下移動ボタンを表示する
      */
@@ -215,8 +219,15 @@ test.describe('内訳書項目の並び替え', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-17.2: 先頭の項目の上移動ボタンを無効化する
      * @requirement itemized-statement-generation/REQ-17.4: 先頭項目の上移動ボタンクリック時にシステムは何もしない（ボタンを無効化する）
+     *
+     * タスク 115.188 の是正: itemized-statement-generation の受入基準17.2 を名乗る被覆印を取り下げた。
+     * 原文17.2 は「上移動ボタンをクリックしたとき、該当項目が1つ上の位置に**移動する**」で
+     * あり、本検証が主張するのは先頭行でボタンが**無効化される**ことである。移動は起きない。
+     * 無効化を述べるのは原文17.4 であり、そちらは引き続き名乗る。
+     * 17.2 は本区間が唯一の被覆源だったため、未被覆として露出する。
+     * （itemized-statement-generation のタスク 26.3 が、下の「項目を上方向に移動して保存すると
+     * 並び順が保存される」に移動の結果の主張を足して 17.2 を名乗り直した。）
      */
     test('先頭項目の上移動ボタンが無効化されている', async ({ page }) => {
       if (!createdItemizedStatementId) {
@@ -233,8 +244,15 @@ test.describe('内訳書項目の並び替え', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-17.3: 末尾の項目の下移動ボタンを無効化する
      * @requirement itemized-statement-generation/REQ-17.5: 末尾項目の下移動ボタンクリック時にシステムは何もしない（ボタンを無効化する）
+     *
+     * タスク 115.188 の是正: itemized-statement-generation の受入基準17.3 を名乗る被覆印を取り下げた。
+     * 原文17.3 は「下移動ボタンをクリックしたとき、該当項目が1つ下の位置に**移動する**」で
+     * あり、本検証が主張するのは末尾行でボタンが**無効化される**ことである。移動は起きない。
+     * 無効化を述べるのは原文17.5 であり、そちらは引き続き名乗る。
+     * 17.3 は本区間が唯一の被覆源だったため、未被覆として露出する。
+     * （itemized-statement-generation のタスク 26.3 が、下の「項目を下方向に移動して保存すると
+     * 並び順が保存される」の移動の結果の主張に 17.3 を名乗らせた。）
      */
     test('末尾項目の下移動ボタンが無効化されている', async ({ page }) => {
       if (!createdItemizedStatementId) {
@@ -255,11 +273,15 @@ test.describe('内訳書項目の並び替え', () => {
   /**
    * 並び替え操作と保存テスト
    */
-  test.describe('並び替え操作と保存 (REQ-17.6, REQ-17.7, REQ-17.8, REQ-17.9)', () => {
+  test.describe('並び替え操作と保存 (REQ-17.2, REQ-17.3, REQ-17.6, REQ-17.7, REQ-17.8, REQ-17.9)', () => {
     /**
+     * @requirement itemized-statement-generation/REQ-17.3: When ユーザーが下移動ボタンをクリックする, the 該当項目 shall 1つ下の位置に移動する
      * @requirement itemized-statement-generation/REQ-17.7: 並び替え操作が行われた場合に保存ボタンを表示する
      * @requirement itemized-statement-generation/REQ-17.8: 保存ボタンクリック時に全項目の並び順をサーバーに一括送信して確定する
      * @requirement itemized-statement-generation/REQ-17.9: 並び順の保存成功時に「並び順を保存しました」トースト通知を表示する
+     *
+     * 17.3: 1 行目の下移動ボタンをクリックし、保存してリロードした後に、元の 1 行目の名称が
+     * 2 行目に表示されていること（1 つ下の位置へ移ったこと）を主張する。
      */
     test('項目を下方向に移動して保存すると並び順が保存される', async ({ page }) => {
       if (!createdItemizedStatementId) {
@@ -318,8 +340,13 @@ test.describe('内訳書項目の並び替え', () => {
     });
 
     /**
+     * @requirement itemized-statement-generation/REQ-17.2: When ユーザーが上移動ボタンをクリックする, the 該当項目 shall 1つ上の位置に移動する
      * @requirement itemized-statement-generation/REQ-17.7: 並び替え操作が行われた場合に保存ボタンを表示する
      * @requirement itemized-statement-generation/REQ-17.8: 保存ボタンクリック時に全項目の並び順をサーバーに一括送信して確定する
+     *
+     * 17.2: 2 行目の上移動ボタンをクリックした直後（保存前）と、保存してリロードした後の両方で、
+     * 元の 2 行目の名称が 1 行目に、元の 1 行目の名称が 2 行目に表示されていること
+     * （該当項目が 1 つ上の位置へ移り、押し出された項目が 1 つ下へ入れ替わったこと）を主張する。
      */
     test('項目を上方向に移動して保存すると並び順が保存される', async ({ page }) => {
       if (!createdItemizedStatementId) {
@@ -330,11 +357,26 @@ test.describe('内訳書項目の並び替え', () => {
       await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
       await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
 
-      // 2番目の行の上移動ボタンをクリック
       const table = page.getByRole('table');
       const tbodyRows = table.locator('tbody tr');
+      expect(await tbodyRows.count()).toBeGreaterThan(1);
+
+      // 移動前の 1 行目・2 行目の名称（名称列）を控える
+      const nameCellOf = (rows: typeof tbodyRows, index: number) =>
+        rows.nth(index).getByRole('cell').nth(3);
+      const originalFirstName = (await nameCellOf(tbodyRows, 0).textContent())?.trim() ?? '';
+      const originalSecondName = (await nameCellOf(tbodyRows, 1).textContent())?.trim() ?? '';
+      expect(originalFirstName).not.toBe('');
+      expect(originalSecondName).not.toBe('');
+      expect(originalSecondName).not.toBe(originalFirstName);
+
+      // 2番目の行の上移動ボタンをクリック
       const secondUpButton = tbodyRows.nth(1).getByRole('button', { name: '上へ移動' });
       await secondUpButton.click();
+
+      // 保存前: 元の 2 行目が 1 行目へ、元の 1 行目が 2 行目へ移っている (REQ-17.2)
+      await expect(nameCellOf(tbodyRows, 0)).toHaveText(originalSecondName);
+      await expect(nameCellOf(tbodyRows, 1)).toHaveText(originalFirstName);
 
       // 保存ボタンが表示される
       const saveButton = page.getByRole('button', { name: /並び順を保存/ });
@@ -356,6 +398,13 @@ test.describe('内訳書項目の並び替え', () => {
       await expect(page.getByText(/並び順を保存しました/)).toBeVisible({
         timeout: getTimeout(5000),
       });
+
+      // 保存後のリロード後: 移動の結果がサーバーに確定している (REQ-17.2)
+      await page.reload();
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+      const reloadedRows = page.getByRole('table').locator('tbody tr');
+      await expect(nameCellOf(reloadedRows, 0)).toHaveText(originalSecondName);
+      await expect(nameCellOf(reloadedRows, 1)).toHaveText(originalFirstName);
     });
 
     /**
@@ -794,6 +843,107 @@ test.describe('内訳書項目の並び替え', () => {
   });
 
   /**
+   * 列見出しのキーボードによる並べ替え (REQ-5.1, REQ-5.2, REQ-5.3)
+   *
+   * タスク 26.4: 列見出しの中のソートボタンへ Tab で届き、Enter と Space で並べ替えられること。
+   * 並べ替えはクライアントの表示だけを変え、内訳書の並び順（displayOrder）は書き換えない。
+   */
+  test.describe('列見出しのキーボードによる並べ替え (REQ-5.1, REQ-5.2, REQ-5.3)', () => {
+    /** データ列の列見出し（左から） */
+    const SORTABLE_LABELS = ['任意分類', '工種', '名称', '規格', '数量', '単位'];
+
+    /**
+     * @requirement itemized-statement-generation/REQ-5.1: The 内訳書詳細画面 shall 各カラムヘッダーにソートボタンを表示する
+     * @requirement itemized-statement-generation/REQ-5.2: When ユーザーがカラムヘッダーをクリックする, the テーブル shall 当該カラムで昇順ソートする
+     * @requirement itemized-statement-generation/REQ-5.3: When ユーザーが同じカラムヘッダーを再度クリックする, the テーブル shall 当該カラムで降順ソートに切り替える
+     *
+     * 5.1: 6 つの列見出しのそれぞれに、名前が列名のソートボタンが一つずつあり、フィルタの最後の欄から
+     * Tab だけで先頭の列見出しのボタンへ進み、続く Tab で列見出しのボタンを左から順に巡ること。
+     * 5.2 / 5.3: 「名称」のボタンで Enter を押すと名称の昇順、もう一度 Enter で降順になり、
+     * 「数量」のボタンで Space を押すと数量の昇順、もう一度 Space で降順になること。
+     * 各段で、表の行の並びと見出しのセルの aria-sort の両方を主張する。
+     */
+    test('列見出しのソートボタンへTabで進み、EnterとSpaceで昇順・降順に並べ替えられる (itemized-statement-generation/REQ-5.1, REQ-5.2, REQ-5.3)', async ({
+      page,
+    }) => {
+      if (!createdItemizedStatementId) {
+        throw new Error('内訳書IDが未設定です');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+
+      const table = page.getByRole('table');
+      const headerOf = (label: string) => table.getByRole('columnheader', { name: label });
+      const sortButtonOf = (label: string) =>
+        headerOf(label).getByRole('button', { name: label, exact: true });
+
+      /** 列名の列の、表の上から順の値（見出しの並びから列の位置を毎回求める） */
+      async function columnValues(label: string): Promise<string[]> {
+        const headerTexts = (await table.locator('thead th').allTextContents()).map((text) =>
+          text.replace(/[▲▼]/g, '').trim()
+        );
+        const index = headerTexts.indexOf(label);
+        expect(index, `列見出し「${label}」が表に無い`).toBeGreaterThanOrEqual(0);
+        const cells = table.locator(`tbody tr td:nth-child(${index + 1})`);
+        return (await cells.allTextContents()).map((text) => text.trim());
+      }
+
+      // 5.1: 各列見出しにソートボタンが一つずつある（aria-sort は見出しのセルが持つ）
+      for (const label of SORTABLE_LABELS) {
+        await expect(headerOf(label).getByRole('button')).toHaveCount(1);
+        await expect(sortButtonOf(label)).toBeVisible();
+        await expect(headerOf(label)).toHaveAttribute('aria-sort', 'none');
+      }
+
+      // 5.1: フィルタの最後の欄から Tab だけで列見出しのボタンを左から順に巡る
+      await page.getByRole('textbox', { name: '単位' }).focus();
+      for (const label of SORTABLE_LABELS.slice(0, 3)) {
+        await page.keyboard.press('Tab');
+        await expect(sortButtonOf(label)).toBeFocused();
+      }
+
+      // 5.2: 「名称」のボタンで Enter → 名称の昇順
+      await page.keyboard.press('Enter');
+      await expect(headerOf('名称')).toHaveAttribute('aria-sort', 'ascending');
+      await expect
+        .poll(() => columnValues('名称'))
+        .toEqual(['ケーブル', 'コンセント', 'パイプ', 'ペイント', 'ボルト']);
+      // 並べ替えた後もフォーカスはボタンに留まり、続けてキーで操作できる
+      await expect(sortButtonOf('名称')).toBeFocused();
+
+      // 5.3: もう一度 Enter → 名称の降順
+      await page.keyboard.press('Enter');
+      await expect(headerOf('名称')).toHaveAttribute('aria-sort', 'descending');
+      await expect
+        .poll(() => columnValues('名称'))
+        .toEqual(['ボルト', 'ペイント', 'パイプ', 'コンセント', 'ケーブル']);
+
+      // 「規格」を経て「数量」のボタンへ Tab で進む
+      await page.keyboard.press('Tab');
+      await expect(sortButtonOf('規格')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(sortButtonOf('数量')).toBeFocused();
+
+      // 5.2: 「数量」のボタンで Space → 数量の昇順（「名称」の並べ替えは外れる）
+      await page.keyboard.press('Space');
+      await expect(headerOf('数量')).toHaveAttribute('aria-sort', 'ascending');
+      await expect(headerOf('名称')).toHaveAttribute('aria-sort', 'none');
+      await expect
+        .poll(() => columnValues('数量'))
+        .toEqual(['10.00', '20.00', '50.00', '100.00', '200.00']);
+
+      // 5.3: もう一度 Space → 数量の降順
+      await page.keyboard.press('Space');
+      await expect(headerOf('数量')).toHaveAttribute('aria-sort', 'descending');
+      await expect
+        .poll(() => columnValues('数量'))
+        .toEqual(['200.00', '100.00', '50.00', '20.00', '10.00']);
+    });
+  });
+
+  /**
    * 楽観的排他制御テスト (REQ-17.14)
    */
   test.describe('楽観的排他制御 (REQ-17.14)', () => {
@@ -904,7 +1054,9 @@ test.describe('内訳書項目の並び替え', () => {
    */
   test.describe('クリーンアップ', () => {
     test('テストデータを削除する', async ({ request }) => {
-      if (!testProjectId) return;
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
 
       const baseUrl = API_BASE_URL;
       const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {

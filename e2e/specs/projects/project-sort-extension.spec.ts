@@ -148,17 +148,14 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
     let salesPersonSortButton = page.getByRole('button', { name: /営業担当者でソート/i });
     await expect(salesPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
 
-    // 現在のURLをチェックして、すでにソートが適用されている場合はリセット
-    const currentUrl = page.url();
-    if (currentUrl.includes('sort=') || currentUrl.includes('order=')) {
-      // ソートが適用されている場合、クエリパラメータをクリアしてリロード
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
-      // ボタンを再取得
-      salesPersonSortButton = page.getByRole('button', { name: /営業担当者でソート/i });
-      await expect(salesPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
-    }
+    // 直前にクエリパラメータ無しで '/projects' を開いており、
+    // ProjectListPage の buildSearchParams は既定値の sort / order をURLへ書き出さない
+    // （frontend/src/pages/ProjectListPage.tsx）。したがってソートは未適用のはずである。
+    // 「適用されていたら開き直す」という復旧分岐は、既定の並び順が退行して
+    // URL にソートが残るようになっても静かに吸収し、
+    // 以降の昇順・降順の切り替えを別の初期状態で検証してしまう。無条件に主張する。
+    await expect(page, '前提: ソート未適用の状態から始める').not.toHaveURL(/[?&]sort=/);
+    await expect(page, '前提: 並び順未指定の状態から始める').not.toHaveURL(/[?&]order=/);
 
     // DOMが安定するまで待機
     await page.waitForTimeout(500);
@@ -454,13 +451,13 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
   /**
    * aria-sort属性のテスト
    *
-   * REQ-6.3: アクセシビリティ対応のソート状態表示
-   * @requirement project-management/REQ-6.3
-   * @requirement project-management/REQ-20.6
+   * タスク 115.188 の裁定: 被覆印を取り下げる。本検証が主張するのは th の `aria-sort` 属性で
+   * あり、原文 6.3 が述べる「ソート状態をヘッダーにアイコン（昇順: 上矢印、降順: 下矢印）で
+   * 表示する」でも、原文 20.6 が述べる「テーブルヘッダーとデータセルの関連付け」でもない。
+   * 要件6・要件20 に `aria-sort` による状態通知を述べる条文は無いため、付け替え先が無い。
+   * 6.3 は同ファイルのアイコン表示検証（270・329・390 行）が引き続き名乗る。
    */
-  test('ソート時にaria-sort属性が適切に設定されることを確認 (project-management/REQ-6.3)', async ({
-    page,
-  }) => {
+  test('ソート時にaria-sort属性が適切に設定されることを確認', async ({ page }) => {
     // デスクトップサイズを設定（テーブル表示）
     await page.setViewportSize({ width: 1280, height: 720 });
 

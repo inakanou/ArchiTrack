@@ -67,6 +67,22 @@ export function computeDisplaySize(
 }
 
 /**
+ * 画像の枠の幅の上限を、置かれた場所で使える幅へ縮める（タスク 25.1, R19.1）。
+ *
+ * - 使える幅が最大表示幅以上なら最大表示幅のまま（デスクトップ幅の表示を変えない）。
+ * - 使える幅が狭いときはその幅（整数へ切り捨て、最小 1）を上限にする。縮めるだけで拡大はしない。
+ * - 使える幅が未計測（null）・非有限なら最大表示幅を使う。
+ *
+ * 表示の縮尺が変わるだけで、換算の規約（scale = 表示 / 画像実寸）は変わらない。
+ */
+export function fitMaxDisplayWidth(maxDisplayWidth: number, availableWidth: number | null): number {
+  if (availableWidth === null || !Number.isFinite(availableWidth)) {
+    return maxDisplayWidth;
+  }
+  return Math.max(1, Math.min(maxDisplayWidth, Math.floor(availableWidth)));
+}
+
+/**
  * 表示座標系の矩形を画像ピクセル座標系の {@link SignboardPlacement} へ換算する。
  *
  * - fabric の scaleX/scaleY を反映した実効表示サイズを用いる。

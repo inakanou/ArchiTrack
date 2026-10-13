@@ -24,6 +24,8 @@
 
 import React, { useCallback } from 'react';
 
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
+
 /**
  * ZoomControls の Props。
  */
@@ -36,6 +38,14 @@ export interface ZoomControlsProps {
   onZoomOut: () => void;
   /** 全体表示（フィット）操作（Req 34.1/34.4）。useCanvasViewport.fit を想定。 */
   onFit: () => void;
+  /**
+   * 画像を90度回転する操作（任意, Req 5.3）。
+   *
+   * Task 115.83: 閲覧モードには注釈ツールバーが無く、回転の手段が存在しなかった。
+   * 指定された場合のみ回転ボタンを描画する。編集モードの回転ボタンは
+   * `AnnotationToolbar` が担う（Req 22.7）ため、そちらでは指定しない。
+   */
+  onRotate?: () => void;
   /** 無効化フラグ（任意） */
   disabled?: boolean;
 }
@@ -74,8 +84,16 @@ const STYLES = {
     alignItems: 'center',
     justifyContent: 'center',
     // Req 34.5: 44x44 論理ピクセル以上のタップ領域（Req 28.3 と整合）。
-    minWidth: '44px',
-    minHeight: '44px',
+    // 下限の宣言元は `utils/tap-target`（要件28.3）。
+    // 根拠の帰属は描画する画面で分かれる: site-survey の注釈編集の画面では、上の行が
+    // 名乗る site-survey の受入基準が根拠である。工事写真のビューア
+    // （`ConstructionPhotoImageViewer`）が本部品を描画する画面では、その番号は根拠に
+    // ならない（construction-photo スペックの受入基準ではない）。そこでの根拠は
+    // `.kiro/steering/tech.md` の「レスポンシブ・ビューポート方針」の箇条
+    // 「モバイルの下限値」という横断ルールである（construction-photo の requirements.md の
+    // 写真項目のモバイル表示の要件に置いた注記。同スペックのタスク 16.3 で決着）。
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
     padding: '8px',
     border: '1px solid #d1d5db',
     borderRadius: '8px',
@@ -83,7 +101,9 @@ const STYLES = {
     color: '#374151',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
-    outline: 'none',
+    // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）。外側へ描く輪（4px）は、
+    // 白いコンテナの余白（padding 8px・gap 8px）の上に収まる
   } as React.CSSProperties,
   buttonDisabled: {
     backgroundColor: '#e5e7eb',
@@ -96,7 +116,8 @@ const STYLES = {
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: '56px',
-    height: '44px',
+    // バッジはタップ対象ではないが、`button` と縦に並ぶため高さを下限へ揃える。
+    height: `${TAP_TARGET_MIN_PX}px`,
     padding: '0 8px',
     fontSize: '14px',
     fontWeight: 600,
@@ -126,6 +147,7 @@ function ZoomControls({
   onZoomIn,
   onZoomOut,
   onFit,
+  onRotate,
   disabled = false,
 }: ZoomControlsProps): React.JSX.Element {
   /**
@@ -222,6 +244,33 @@ function ZoomControls({
           <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
         </svg>
       </button>
+
+      {/* Req 5.3: 90度単位の回転ボタン（閲覧モードの回転手段） */}
+      {onRotate && (
+        <button
+          type="button"
+          style={buttonStyle(!disabled)}
+          onClick={handleClick(onRotate)}
+          disabled={disabled}
+          aria-label="画像を90度回転"
+          title="画像を90度回転"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={STYLES.icon}
+            aria-hidden="true"
+          >
+            <path d="M21 2v6h-6" />
+            <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

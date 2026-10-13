@@ -29,9 +29,7 @@ const mockTradingPartners: TradingPartnerInfo[] = [
     name: '山田建設株式会社',
     nameKana: 'ヤマダケンセツカブシキガイシャ',
     branchName: '東京支店',
-    branchNameKana: 'トウキョウシテン',
     representativeName: '山田太郎',
-    representativeNameKana: 'ヤマダタロウ',
     types: ['CUSTOMER'],
     address: '東京都千代田区1-1-1',
     phoneNumber: null,
@@ -49,9 +47,7 @@ const mockTradingPartners: TradingPartnerInfo[] = [
     name: '鈴木工業株式会社',
     nameKana: 'スズキコウギョウカブシキガイシャ',
     branchName: null,
-    branchNameKana: null,
     representativeName: '鈴木花子',
-    representativeNameKana: 'スズキハナコ',
     types: ['CUSTOMER'],
     address: '大阪府大阪市2-2-2',
     phoneNumber: null,
@@ -69,9 +65,7 @@ const mockTradingPartners: TradingPartnerInfo[] = [
     name: '佐藤商事株式会社',
     nameKana: 'サトウショウジカブシキガイシャ',
     branchName: '大阪支社',
-    branchNameKana: 'オオサカシシャ',
     representativeName: null,
-    representativeNameKana: null,
     types: ['CUSTOMER'],
     address: '愛知県名古屋市3-3-3',
     phoneNumber: null,
@@ -175,7 +169,7 @@ describe('TradingPartnerSelect', () => {
       });
     });
 
-    it('ひらがな入力で部課名（カタカナフリガナ）を検索できる', async () => {
+    it('部課名で検索できる', async () => {
       const user = userEvent.setup();
       render(<TradingPartnerSelect value="" onChange={vi.fn()} />);
 
@@ -185,8 +179,8 @@ describe('TradingPartnerSelect', () => {
 
       const input = screen.getByRole('combobox');
 
-      // ひらがなで部課名フリガナを検索
-      await user.type(input, 'とうきょう');
+      // 部課名で検索
+      await user.type(input, '東京支店');
 
       // 山田建設株式会社（東京支店）が候補として表示される
       await waitFor(() => {
@@ -195,7 +189,7 @@ describe('TradingPartnerSelect', () => {
       });
     });
 
-    it('ひらがな入力で代表者名（カタカナフリガナ）を検索できる', async () => {
+    it('代表者名で検索できる', async () => {
       const user = userEvent.setup();
       render(<TradingPartnerSelect value="" onChange={vi.fn()} />);
 
@@ -205,8 +199,8 @@ describe('TradingPartnerSelect', () => {
 
       const input = screen.getByRole('combobox');
 
-      // ひらがなで代表者名フリガナを検索
-      await user.type(input, 'はなこ');
+      // 代表者名で検索
+      await user.type(input, '花子');
 
       // 鈴木工業株式会社（代表者: 鈴木花子）が候補として表示される
       await waitFor(() => {
@@ -453,9 +447,7 @@ describe('TradingPartnerSelect', () => {
         name: '田中建設株式会社',
         nameKana: 'タナカケンセツカブシキガイシャ',
         branchName: null,
-        branchNameKana: null,
         representativeName: null,
-        representativeNameKana: null,
         types: ['SUBCONTRACTOR'],
         address: '東京都新宿区1-1-1',
         phoneNumber: null,
@@ -473,9 +465,7 @@ describe('TradingPartnerSelect', () => {
         name: '高橋工務店',
         nameKana: 'タカハシコウムテン',
         branchName: '大阪支店',
-        branchNameKana: 'オオサカシテン',
         representativeName: '高橋次郎',
-        representativeNameKana: 'タカハシジロウ',
         types: ['SUBCONTRACTOR'],
         address: '大阪府大阪市3-3-3',
         phoneNumber: null,
@@ -531,7 +521,27 @@ describe('TradingPartnerSelect', () => {
       );
     });
 
-    it('filterTypesで複数の種別を指定できる', async () => {
+    it('filterTypesで複数の種別を指定すると、種別ごとに取得して重複を除きフリガナ順にまとめる', async () => {
+      // 一覧の API の種別 type は単一の値だけを受け付けるため、種別ごとに取得する。
+      // 顧客と協力業者の両方の種別を持つ取引先は、両方の取得に現れても 1 度だけ並ぶ
+      const bothTypesPartner: TradingPartnerInfo = {
+        ...mockSubcontractors[0]!,
+        id: '20',
+        name: '両方株式会社',
+        nameKana: 'リョウホウカブシキガイシャ',
+        types: ['CUSTOMER', 'SUBCONTRACTOR'],
+      };
+      vi.mocked(tradingPartnersApi.getTradingPartners).mockImplementation(async (options) => {
+        const data =
+          options?.filter?.type?.[0] === 'SUBCONTRACTOR'
+            ? [...mockSubcontractors, bothTypesPartner]
+            : [...mockTradingPartners, bothTypesPartner];
+        return {
+          data,
+          pagination: { page: 1, limit: 100, total: data.length, totalPages: 1 },
+        };
+      });
+
       render(
         <TradingPartnerSelect
           value=""
@@ -544,12 +554,45 @@ describe('TradingPartnerSelect', () => {
         expect(screen.getByRole('combobox')).not.toBeDisabled();
       });
 
-      // APIが両方の種別でフィルタリングされて呼ばれたことを確認
+      // APIが種別ごとに 1 つずつの種別で呼ばれたことを確認
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledTimes(2);
       expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith(
-        expect.objectContaining({
-          filter: { type: ['CUSTOMER', 'SUBCONTRACTOR'] },
-        })
+        expect.objectContaining({ filter: { type: ['CUSTOMER'] } })
       );
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith(
+        expect.objectContaining({ filter: { type: ['SUBCONTRACTOR'] } })
+      );
+
+      fireEvent.focus(screen.getByRole('combobox'));
+      const listbox = await screen.findByRole('listbox');
+      const optionNames = within(listbox)
+        .getAllByRole('option')
+        .filter((option) => option.id !== '' && !option.id.endsWith('-option-empty'))
+        .map((option) => option.querySelector('div')?.textContent);
+      expect(optionNames).toEqual([
+        '佐藤商事株式会社', // サトウ
+        '鈴木工業株式会社', // スズキ
+        '高橋工務店', // タカハシ
+        '田中建設株式会社', // タナカ
+        '山田建設株式会社', // ヤマダ
+        '両方株式会社', // リョウホウ
+      ]);
+    });
+
+    it('filterTypesが 1 つの種別のときは、その種別で 1 回だけ取得する', async () => {
+      render(<TradingPartnerSelect value="" onChange={vi.fn()} filterTypes={['SUBCONTRACTOR']} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledTimes(1);
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith({
+        limit: 100,
+        filter: { type: ['SUBCONTRACTOR'] },
+        sort: 'nameKana',
+        order: 'asc',
+      });
     });
 
     it('協力業者をフィルタリングして表示できる', async () => {

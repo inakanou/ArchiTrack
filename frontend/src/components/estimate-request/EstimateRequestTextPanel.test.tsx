@@ -187,6 +187,27 @@ describe('EstimateRequestTextPanel', () => {
 
       expect(screen.getByText(/見積依頼文を取得できませんでした/)).toBeInTheDocument();
     });
+
+    // Task 97.2: 取得できなかった理由が分かっている場合は、汎用の文言ではなく理由の案内を表示する
+    it('errorMessage を渡すと汎用の文言の代わりにその案内を表示する（Task 97.2）', () => {
+      render(
+        <EstimateRequestTextPanel
+          text={null}
+          loading={false}
+          errorMessage="本文に含める項目が選択されていません。項目を選択してください"
+        />
+      );
+
+      expect(screen.getByText(/項目を選択してください/)).toBeInTheDocument();
+      expect(screen.queryByText(/見積依頼文を取得できませんでした/)).not.toBeInTheDocument();
+    });
+
+    it('errorMessage が null のときは汎用の文言を表示する（Task 97.2）', () => {
+      render(<EstimateRequestTextPanel text={null} loading={false} errorMessage={null} />);
+
+      expect(screen.getByText(/見積依頼文を取得できませんでした/)).toBeInTheDocument();
+      expect(screen.queryByText(/項目を選択してください/)).not.toBeInTheDocument();
+    });
   });
 
   describe('アクセシビリティ', () => {

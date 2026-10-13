@@ -5,6 +5,37 @@ import { Prisma } from '../generated/prisma/client.js';
 import { captureException } from '../utils/sentry.js';
 import logger from '../utils/logger.js';
 import { createProblemDetails, PROBLEM_TYPES } from '../types/problem-details.js';
+import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+
+/**
+ * データベースへ接続できないことを 503 Service Unavailable（Problem Details）で返す
+ */
+function respondDatabaseUnavailable(
+  err: Error,
+  req: Request,
+  res: Response,
+  log: Request['log'] | typeof logger,
+  logMessage: string
+): void {
+  log.error({ err }, logMessage);
+
+  // Send database connection errors to Sentry
+  captureException(err, {
+    url: req.url,
+    method: req.method,
+    errorType: 'database_connection',
+  });
+
+  res.status(503).json(
+    createProblemDetails({
+      type: PROBLEM_TYPES.INTERNAL_SERVER_ERROR,
+      title: 'Service Unavailable',
+      status: 503,
+      detail: 'Database connection error',
+      instance: req.url,
+    })
+  );
+}
 
 /**
  * Global error handler middleware
@@ -43,6 +74,12 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
       }))
     );
     res.status(400).json(validationError.toProblemDetails(req.url));
+    return;
+  }
+
+  // データベース接続の確立のタイムアウト（要件24.1）。P1008 は既知のエラーとして届くため、その分岐より前で判定する
+  if (isDatabaseConnectionTimeout(err)) {
+    respondDatabaseUnavailable(err, req, res, log, 'Database connection timeout');
     return;
   }
 
@@ -122,24 +159,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     err instanceof Prisma.PrismaClientInitializationError ||
     err instanceof Prisma.PrismaClientRustPanicError
   ) {
-    log.error({ err }, 'Prisma connection error');
-
-    // Send database connection errors to Sentry
-    captureException(err, {
-      url: req.url,
-      method: req.method,
-      errorType: 'database_connection',
-    });
-
-    res.status(503).json(
-      createProblemDetails({
-        type: PROBLEM_TYPES.INTERNAL_SERVER_ERROR,
-        title: 'Service Unavailable',
-        status: 503,
-        detail: 'Database connection error',
-        instance: req.url,
-      })
-    );
+    respondDatabaseUnavailable(err, req, res, log, 'Prisma connection error');
     return;
   }
 

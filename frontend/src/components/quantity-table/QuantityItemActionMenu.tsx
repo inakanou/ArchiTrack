@@ -43,6 +43,12 @@ export interface QuantityItemActionMenuProps {
   onCopy: () => void;
   /** 削除コールバック */
   onDelete: () => void;
+  /**
+   * 別の数量グループへ移動するコールバック（REQ-6.2, 6.4）。
+   * 未指定のときはメニューに「別グループに移動」を表示しない
+   * （移動先選択UIを持たない利用箇所で死んだ導線を作らないため）。
+   */
+  onMoveToGroup?: () => void;
   /** 上に移動可能かどうか（falseの場合はdisabled） */
   canMoveUp: boolean;
   /** 下に移動可能かどうか（falseの場合はdisabled） */
@@ -62,6 +68,9 @@ const MENU_WIDTH = 140;
 
 /** ボタン下端とドロップダウン上端の間隔（px） */
 const MENU_GAP = 2;
+
+/** ビューポート端とドロップダウンの間に最低限確保する余白（px） */
+const MENU_VIEWPORT_MARGIN = 8;
 
 // ============================================================================
 // スタイル定義
@@ -178,6 +187,7 @@ export default function QuantityItemActionMenu({
   onMoveDown,
   onCopy,
   onDelete,
+  onMoveToGroup,
   canMoveUp,
   canMoveDown,
 }: QuantityItemActionMenuProps) {
@@ -190,12 +200,45 @@ export default function QuantityItemActionMenu({
   /**
    * アクションボタンの現在位置から Portal ドロップダウンの fixed 座標を再計算する。
    * ボタン直下（2px ギャップ）に、ボタン右端へ右揃えして配置する。
+   *
+   * ドロップダウンが実際に描画済みで実寸を測れる場合は、ビューポートに収まるよう
+   * 上方向への反転およびクランプを行う（REQ-46.1／46.3／46.4）。fixed 配置の要素は
+   * ブラウザのスクロールで表示領域内へ引き込めないため、ビューポート外へはみ出すと
+   * その項目は操作不能になる。メニュー項目数や行の位置（最下行・1件のみのグループ）に
+   * よらず全項目を視認・操作可能にするための位置補正である。
    */
   const updateDropdownRect = useCallback(() => {
     const el = buttonRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    setDropdownRect({ top: rect.bottom + MENU_GAP, left: rect.right - MENU_WIDTH });
+    const menuEl = dropdownRef.current;
+    // 初回レイアウト時はまだ Portal 先が未描画で実寸を測れない。その場合は既定幅で
+    // 仮配置し、描画後の再計算（下の useLayoutEffect）で実寸に基づき補正する。
+    const menuHeight = menuEl?.offsetHeight ?? 0;
+    const menuWidth = menuEl && menuEl.offsetWidth > 0 ? menuEl.offsetWidth : MENU_WIDTH;
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+
+    let top = rect.bottom + MENU_GAP;
+    if (menuHeight > 0 && top + menuHeight > viewportHeight) {
+      // 下に収まらない場合はボタン上へ反転し、それでも収まらなければ表示領域内へ寄せる
+      const above = rect.top - MENU_GAP - menuHeight;
+      top =
+        above >= MENU_VIEWPORT_MARGIN
+          ? above
+          : Math.max(MENU_VIEWPORT_MARGIN, viewportHeight - menuHeight - MENU_VIEWPORT_MARGIN);
+    }
+
+    const maxLeft = Math.max(
+      MENU_VIEWPORT_MARGIN,
+      viewportWidth - menuWidth - MENU_VIEWPORT_MARGIN
+    );
+    const left = Math.min(Math.max(MENU_VIEWPORT_MARGIN, rect.right - menuWidth), maxLeft);
+
+    // 座標が変わらないときは同一参照を返し、再描画と再計算の往復を止める
+    setDropdownRect((prev) =>
+      prev && prev.top === top && prev.left === left ? prev : { top, left }
+    );
   }, []);
 
   /**
@@ -218,6 +261,17 @@ export default function QuantityItemActionMenu({
       window.removeEventListener('resize', handleReposition);
     };
   }, [isOpen, updateDropdownRect]);
+
+  /**
+   * Portal 先の描画後、ドロップダウンの実寸に基づいて配置を補正する（REQ-46.1, 46.3, 46.4）。
+   * 初回計算時点では Portal 先が未描画で高さ・幅を測れないため、描画後にもう一度だけ
+   * 計算し直す。座標が変わらない場合 updateDropdownRect は同一参照を返すため、
+   * この効果は最大1回の再描画で収束する。
+   */
+  useLayoutEffect(() => {
+    if (!isOpen || dropdownRect === null) return;
+    updateDropdownRect();
+  }, [isOpen, dropdownRect, updateDropdownRect]);
 
   /**
    * 外側クリックによるクローズ（REQ-36.9, REQ-46.8）。
@@ -290,6 +344,12 @@ export default function QuantityItemActionMenu({
     onCopy();
     onClose();
   }, [onCopy, onClose]);
+
+  /** 別グループへの移動（移動先選択UIの表示は呼び出し側が担う。REQ-6.2） */
+  const handleMoveToGroup = useCallback(() => {
+    onMoveToGroup?.();
+    onClose();
+  }, [onMoveToGroup, onClose]);
 
   const handleDelete = useCallback(() => {
     onDelete();
@@ -373,6 +433,20 @@ export default function QuantityItemActionMenu({
               <span style={{ fontSize: '14px' }}>📋</span>
               コピー
             </button>
+
+            {/* 別グループに移動（REQ-6.2, 6.4）。移動先選択UIは呼び出し側が表示する */}
+            {onMoveToGroup && (
+              <button
+                type="button"
+                role="menuitem"
+                style={styles.menuItem}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleMoveToGroup}
+              >
+                <span style={{ fontSize: '14px' }}>➡</span>
+                別グループに移動
+              </button>
+            )}
 
             {/* セパレーター */}
             <div style={styles.separator} />

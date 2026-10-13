@@ -7,7 +7,23 @@
  * - 7.1: 大項目フィールドで入力するとオートコンプリート候補を表示
  * - 7.2: 中項目フィールドで大項目に紐づく候補を表示
  * - 7.3: 小項目フィールドで大項目・中項目に紐づく候補を表示
- * - 7.4: 候補選択時の自動入力
+ * - 7.5: 候補選択時の自動入力
+ *
+ * Task 80.2: 数量欄へ範囲判定を結線する。
+ * - 15.1: 数量の入力可能範囲（-999999.99〜9999999.99）外はエラーを表示し、範囲内の値の入力を求める
+ * - 15.2: 空白は既定値「0」へ差し替え「0.00」と表示する（範囲判定より前の層）
+ * - 8.3: 負の値は有効域の内側であり、範囲エラーではなく警告として提示する（従来どおり）
+ * 範囲も既定値差し替えの規則も `utils/numeric-range-validation.ts` の正典から得る。
+ *
+ * Task 80.3: 数値以外の入力の拒否を数量欄へ結線する。
+ * - 8.4: 数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する
+ *
+ * **拒否は焦点喪失の時点だけで行う。** 打鍵ごとに値を検査して弾く形は採らなかった——
+ * 日本語入力の変換中（compositionstart 〜 compositionend）に値へ手を入れると変換が壊れ、
+ * しかも Playwright の `fill()` も `fireEvent.change` も変換を経由しないため、
+ * その欠陥は E2E でも単体でも構造的に検出できない（本スペックの
+ * `## Implementation Notes（越境して実行された是正）` が単位欄で踏んだ事故である）。
+ * 焦点喪失は変換確定より後に起きるため、この作法には変換中の面が一切無い。
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
@@ -20,6 +36,7 @@ import CalculationFields from './CalculationFields';
 import QuantityItemActionMenu from './QuantityItemActionMenu';
 import FieldValidationTooltip from './FieldValidationTooltip';
 import { calculate } from '../../utils/calculation-engine';
+import { validateNumericRange, resolveFieldInput } from '../../utils/numeric-range-validation';
 import { resetParamsForMethod } from '../../utils/calculation-method';
 import { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
 
@@ -47,6 +64,15 @@ export interface EditableQuantityItemRowProps {
   canMoveUp?: boolean;
   /** 下に移動可能かどうか */
   canMoveDown?: boolean;
+  /** 一括操作の対象として選択されているか（REQ-6.5） */
+  isSelected?: boolean;
+  /** 一括操作の選択状態変更コールバック（REQ-6.5） */
+  onSelectionChange?: (itemId: string, selected: boolean) => void;
+  /**
+   * 別の数量グループへ移動するコールバック（REQ-6.2, 6.4）。
+   * 未指定のときアクションメニューに移動の導線を表示しない。
+   */
+  onMoveToGroup?: (itemId: string) => void;
   /** バリデーション表示フラグ */
   showValidation?: boolean;
   /** オートコンプリート候補取得関数（Task 18.1: 必須） */
@@ -89,7 +115,8 @@ const styles = {
   // Task 51.2: whiteSpace: nowrap で計算用フィールド群が行内幅不足で折り返さないようにし、
   // 行高さ 37px を維持する（REQ-37.1 同一行水平配置 / REQ-37.3 行高さ不変）。
   // overflow は指定しない（visible 既定を維持）。表領域 overflow はページ全体スクロールに委ねる
-  // （REQ-37.6 / design.md L1519）。
+  // （REQ-37.6 / design.md「計算用フィールドの行内水平配置（REQ-37）」の
+  // 「表領域は `overflow-x: visible` を維持し、ページ全体（REQ-25）の水平スクロールで閲覧する」）。
   actionCellInlineWrapper: {
     display: 'flex',
     flexDirection: 'row' as const,
@@ -140,12 +167,19 @@ const styles = {
     fontSize: '12px',
     color: '#1f2937',
     backgroundColor: '#ffffff',
-    outline: 'none',
+    // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 102.1）。数量項目の表の水平スクロールの
+    // ラッパー（QuantityGroupCard の itemTableWrapper。overflow で中身を切り取る）の縁に接すると
+    // 外側へ描く輪が欠けるため、輪の太さ（2px）だけ内側へ寄せて欄の白い面の上へ描く
+    outlineOffset: '-2px',
     transition: 'border-color 0.2s',
     boxSizing: 'border-box' as const,
   } as React.CSSProperties,
   inputError: {
     borderColor: '#dc2626',
+    backgroundColor: '#fef2f2',
+    // 入力欄右端のエラーアイコンと入力文字が重ならないよう余白を確保
+    paddingRight: '22px',
   } as React.CSSProperties,
   inputWarning: {
     borderColor: '#f59e0b',
@@ -170,6 +204,16 @@ const styles = {
   } as React.CSSProperties,
   actionsCellWithLabel: {
     marginTop: '15px',
+  } as React.CSSProperties,
+  // 一括操作の対象選択チェックボックス（REQ-6.5）。
+  // 行高さ 37px（REQ-37.3）を維持するため 14px に抑え、縮小も抑止する。
+  selectionCheckbox: {
+    width: '14px',
+    height: '14px',
+    margin: 0,
+    flexShrink: 0,
+    cursor: 'pointer',
+    accentColor: '#2563eb',
   } as React.CSSProperties,
 };
 
@@ -210,6 +254,9 @@ export default function EditableQuantityItemRow({
   onMoveDown,
   canMoveUp = false,
   canMoveDown = false,
+  isSelected = false,
+  onSelectionChange,
+  onMoveToGroup,
   showValidation = true,
   getSuggestions,
   onBlurAddCandidate,
@@ -226,10 +273,34 @@ export default function EditableQuantityItemRow({
   }, [item.quantity]);
 
   // REQ-8.3: 負の値警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
+  // 負の値は REQ-15.1 の有効域の内側であり、範囲外エラーではなく確認を求める警告である
   const negativeQuantityWarning = useMemo(
     () => parseFloat(localQuantity) < 0 && item.calculationMethod === 'STANDARD',
     [localQuantity, item.calculationMethod]
   );
+
+  // REQ-15.1: 数量の範囲エラー（ローカル状態から派生計算 - 入力時に即座に提示）。
+  // REQ-15.2 の既定値差し替えを先に適用してから範囲判定へ渡す（Task 80.1 が確定させた層の順序）。
+  // 数値以外の入力は範囲の層ではなく REQ-8.4 の層が受け持つ（焦点喪失の時点で提示する）。
+  const quantityRangeError = useMemo((): string | undefined => {
+    const resolution = resolveFieldInput(localQuantity, 'quantity');
+    if (!resolution.isNumeric) {
+      return undefined;
+    }
+    const result = validateNumericRange(resolution.value, 'quantity');
+    return result.isValid ? undefined : result.error;
+  }, [localQuantity]);
+
+  // REQ-8.4: 数値以外の入力を拒否したことの提示（Task 80.3）。
+  // **派生ではなく状態である。** 拒否は直前の確定値を欄へ書き戻すため、
+  // 入力中の文字列から導く形にすると書き戻した瞬間に提示が消え、
+  // 利用者は「値が勝手に戻った」だけを見ることになる。
+  const [quantityNonNumericError, setQuantityNonNumericError] = useState<string | undefined>(
+    undefined
+  );
+
+  // 欄に提示する文言。数値以外の拒否は範囲エラーより手前の層である
+  const quantityError = quantityNonNumericError ?? quantityRangeError;
 
   // バリデーションエラー
   const errors = useMemo((): Record<string, string | undefined> => {
@@ -256,8 +327,11 @@ export default function EditableQuantityItemRow({
    * REQ-8.3: 負の値が入力された場合は警告を表示（ローカル状態で即座に警告）
    */
   const handleQuantityChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // 入力中はそのままの値を保持（フォーマットしない）
+    // 入力中はそのままの値を保持（フォーマットしない）。
+    // **値には一切手を入れない。** 変換中（IME）に値を書き換えると変換が壊れる
     setLocalQuantity(e.target.value);
+    // REQ-8.4: 利用者が直し始めた時点で拒否の提示を下げる。提示を消すだけで値には触れない
+    setQuantityNonNumericError(undefined);
   }, []);
 
   /**
@@ -266,17 +340,30 @@ export default function EditableQuantityItemRow({
    * REQ-15.2: 空入力時は0を設定
    */
   const handleQuantityBlur = useCallback(() => {
-    let value = parseFloat(localQuantity);
-    // REQ-15.2: 空または無効な値の場合は0を設定
-    if (isNaN(value) || localQuantity.trim() === '') {
-      value = 0;
+    // REQ-15.2: 空白の場合は0を設定（範囲判定より前の層）
+    const resolution = resolveFieldInput(localQuantity, 'quantity');
+
+    // REQ-8.4: 数値以外の入力は拒否する。直前の確定値（親が持つ値）を欄へ戻し、
+    // エラーを提示し、親へは何も渡さない。**既定値へ倒さない**——倒すと
+    // 「拒否された」のか「既定値に戻された」のかを利用者も検証も区別できない
+    if (!resolution.isNumeric) {
+      setQuantityNonNumericError(resolution.error);
+      setLocalQuantity(item.quantity.toFixed(2));
+      return;
     }
+    setQuantityNonNumericError(undefined);
+
+    const value = resolution.value;
     // REQ-14.2: 小数2桁でフォーマット
     const formattedValue = value.toFixed(2);
     setLocalQuantity(formattedValue);
+    // REQ-15.1: 範囲外の値は確定させず、範囲内の値の入力を求める
+    if (!validateNumericRange(value, 'quantity').isValid) {
+      return;
+    }
     // APIを呼び出し
     onUpdate?.(item.id, { quantity: value });
-  }, [localQuantity, item.id, onUpdate]);
+  }, [localQuantity, item.id, item.quantity, onUpdate]);
 
   /**
    * 数量フィールドフォーカスハンドラ
@@ -435,6 +522,16 @@ export default function EditableQuantityItemRow({
     setIsMenuOpen(false);
   }, []);
 
+  /**
+   * 一括操作の選択切り替え（REQ-6.5）
+   */
+  const handleSelectionChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onSelectionChange?.(item.id, e.target.checked);
+    },
+    [item.id, onSelectionChange]
+  );
+
   return (
     // Task 69.2: アクションメニューの閉じ処理をここに二重で張らない。
     // 旧来は行の onBlur でも handleCloseMenu を呼んでいたが、Task 69.1 の Portal 化により
@@ -586,23 +683,41 @@ export default function EditableQuantityItemRow({
                   ...styles.input,
                   ...styles.quantityInput,
                   ...styles.numberInput,
-                  ...(negativeQuantityWarning ? styles.inputWarning : {}),
+                  ...(quantityError !== undefined
+                    ? styles.inputError
+                    : negativeQuantityWarning
+                      ? styles.inputWarning
+                      : {}),
                 }}
                 aria-required
-                aria-invalid={negativeQuantityWarning}
+                aria-invalid={quantityError !== undefined || negativeQuantityWarning}
                 aria-describedby={
-                  negativeQuantityWarning ? `${item.id}-quantity-warning` : undefined
+                  quantityError !== undefined
+                    ? `${item.id}-quantity-error`
+                    : negativeQuantityWarning
+                      ? `${item.id}-quantity-warning`
+                      : undefined
                 }
                 aria-label={showFieldLabels ? undefined : '数量'}
               />
-              {/* REQ-8.3: 負の値警告（黄枠＋アイコン＋ホバー吹き出し）。
-                  通常フローにメッセージを挿入しないため行の高さが変わらない。 */}
-              {negativeQuantityWarning && (
+              {/* REQ-8.4 / REQ-15.1: 数値以外の拒否と範囲外エラー（赤枠＋アイコン＋ホバー吹き出し）。
+                  いずれも有効な入力ではなく、REQ-8.3 の負値警告より強い提示とする。 */}
+              {quantityError !== undefined ? (
                 <FieldValidationTooltip
-                  message="負の値が入力されています。確認してください。"
-                  id={`${item.id}-quantity-warning`}
-                  severity="warning"
+                  message={quantityError}
+                  id={`${item.id}-quantity-error`}
+                  severity="error"
                 />
+              ) : (
+                /* REQ-8.3: 負の値警告（黄枠＋アイコン＋ホバー吹き出し）。
+                   通常フローにメッセージを挿入しないため行の高さが変わらない。 */
+                negativeQuantityWarning && (
+                  <FieldValidationTooltip
+                    message="負の値が入力されています。確認してください。"
+                    id={`${item.id}-quantity-warning`}
+                    severity="warning"
+                  />
+                )
               )}
             </div>
           </div>
@@ -654,6 +769,17 @@ export default function EditableQuantityItemRow({
           role="cell"
         >
           <div data-testid="action-cell-inline-wrapper" style={styles.actionCellInlineWrapper}>
+            {/* 一括操作の対象選択（REQ-6.5）。
+                列の追加は行わず操作列セル内に置く。タイトル行（QuantityGroupTitleRow）は
+                REQ-18.1/18.4 によりメイン11列＋操作列の計12列で固定されており、選択列を
+                新設すると当該要件の列構成を崩すため、行操作の一種として操作列に収める。 */}
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={handleSelectionChange}
+              aria-label="項目を選択"
+              style={styles.selectionCheckbox}
+            />
             <QuantityItemActionMenu
               isOpen={isMenuOpen}
               onToggle={handleToggleMenu}
@@ -666,6 +792,7 @@ export default function EditableQuantityItemRow({
               onDelete={() => {
                 onDelete?.(item.id);
               }}
+              onMoveToGroup={onMoveToGroup ? () => onMoveToGroup(item.id) : undefined}
               canMoveUp={canMoveUp}
               canMoveDown={canMoveDown}
             />

@@ -167,10 +167,11 @@ export class BatchUploadService {
       );
     }
 
-    // 既存の画像数を取得（表示順序の開始位置を決定）
-    const existingImageCount = await this.prisma.surveyImage.count({
-      where: { surveyId: input.surveyId },
-    });
+    // 表示順序の開始位置を決定する。
+    // 起点は既存の件数ではなく既存の最大表示順序にする。件数起点だと途中の画像が
+    // 削除されて生じた欠番の分だけ番号が巻き戻り、既存の画像と同じ表示順序を
+    // 割り当ててしまう（Task 115.22 / Requirements 4.10）。
+    const existingMaxDisplayOrder = await this.getMaxDisplayOrder(input.surveyId);
 
     const results: UploadSuccessResult[] = [];
     const errors: UploadErrorInfo[] = [];
@@ -186,7 +187,7 @@ export class BatchUploadService {
       for (let i = 0; i < batch.length; i++) {
         const file = batch[i]!;
         const globalIndex = processedCount;
-        const displayOrder = existingImageCount + globalIndex + 1;
+        const displayOrder = existingMaxDisplayOrder + globalIndex + 1;
 
         try {
           const result = await this.uploadSingleFile(input.surveyId, file, displayOrder);
@@ -221,6 +222,22 @@ export class BatchUploadService {
       results,
       errors,
     };
+  }
+
+  /**
+   * 既存画像の最大表示順序を取得
+   *
+   * 画像が1件も無い場合は0を返し、採番が1から始まるようにします。
+   *
+   * @param surveyId - 現場調査ID
+   * @returns 既存画像の最大表示順序（画像がなければ0）
+   */
+  private async getMaxDisplayOrder(surveyId: string): Promise<number> {
+    const aggregate = await this.prisma.surveyImage.aggregate({
+      where: { surveyId },
+      _max: { displayOrder: true },
+    });
+    return aggregate._max.displayOrder ?? 0;
   }
 
   /**

@@ -19,6 +19,8 @@ import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 import * as fs from 'fs';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -87,16 +89,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクト作成
       const createPromise = page.waitForResponse(
@@ -563,10 +556,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
   test.describe('19.2 受領見積書一覧・編集・削除', () => {
     /**
-     * @requirement estimate-request/REQ-11.11
+     * @requirement estimate-request/REQ-11.25
      * 1つの見積依頼に対して複数の受領見積書の登録を許可する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.11: 複数の受領見積書が一覧に表示される', async ({ page }) => {
+    test('REQ-11.11→11.25: 複数の受領見積書が一覧に表示される (estimate-request/REQ-11.25)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
       expect(createdReceivedQuotationId).toBeTruthy();
 
@@ -582,10 +581,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.12
+     * @requirement estimate-request/REQ-11.26
      * 見積依頼詳細画面に登録済み受領見積書の一覧を表示する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.12: 受領見積書一覧が表示される', async ({ page }) => {
+    test('REQ-11.12→11.26: 受領見積書一覧が表示される (estimate-request/REQ-11.26)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -600,10 +605,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.13
-     * 受領見積書名、提出日、登録日時を表示する
+     * @requirement estimate-request/REQ-11.27
+     * 受領見積書一覧に受領見積書名、提出日、登録日時を表示する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.13: 受領見積書の詳細情報が表示される', async ({ page }) => {
+    test('REQ-11.13→11.27: 受領見積書の詳細情報が表示される (estimate-request/REQ-11.27)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -621,10 +632,13 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.14
      * ファイルプレビュー動作確認（ファイルがある場合のみ）
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.14 を名乗っていたが、現行の受入基準11.14 は「フォーム初期表示時
+     * に1行の空の明細行を表示する」であり本検証の内容と対応しない。受領見積書のファイルプレビューボタンを述べる受入基準は要件11 に
+     * 存在しないため、被覆印を取り下げた。
      */
-    test('REQ-11.14: ファイルプレビューボタンが表示される', async ({ page }) => {
+    test('ファイルプレビューボタンが表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -632,22 +646,29 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
-      // ファイルタイプの受領見積書がある場合、プレビューボタンが表示される
+      // ファイル型の受領見積書は直列の前段テストで必ず登録されている。
+      // 前提が崩れたまま「プレビューボタンが無い」を素通りさせないため、
+      // 前提そのものをここで主張する
+      assertPrepared(createdFileQuotationId, '前段で登録したファイル型受領見積書のID');
+
+      // ファイルタイプの受領見積書があるため、プレビューボタンが表示される
       // （テキストタイプの場合はプレビューボタンは表示されない）
       const previewButton = page.getByRole('button', { name: /プレビュー/i });
-      // 存在確認のみ（ファイルアップロードテストがスキップされた場合は表示されない可能性がある）
-      const count = await previewButton.count();
-      // テストの前提条件としてファイルアップロードが成功している場合のみチェック
-      if (createdFileQuotationId) {
-        expect(count).toBeGreaterThan(0);
-      }
+      await expect(previewButton.first()).toBeVisible({ timeout: getTimeout(10000) });
+      expect(await previewButton.count()).toBeGreaterThan(0);
     });
 
     /**
-     * @requirement estimate-request/REQ-11.15
-     * 受領見積書の編集と保存の確認
+     * @requirement estimate-request/REQ-11.28
+     * 受領見積書の編集機能を提供する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.15: 受領見積書を編集できる', async ({ page }) => {
+    test('REQ-11.15→11.28: 受領見積書を編集できる (estimate-request/REQ-11.28)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
       expect(createdReceivedQuotationId).toBeTruthy();
 
@@ -696,10 +717,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.16
+     * @requirement estimate-request/REQ-11.29
      * 受領見積書の削除機能を提供する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.16: 受領見積書の削除ボタンが表示される', async ({ page }) => {
+    test('REQ-11.16→11.29: 受領見積書の削除ボタンが表示される (estimate-request/REQ-11.29)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -714,10 +741,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.17
-     * 削除確認ダイアログと削除処理の確認
+     * @requirement estimate-request/REQ-11.30
+     * 受領見積書を削除しようとしたとき、削除確認ダイアログを表示する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.17: 削除確認ダイアログが表示され削除APIが成功する', async ({ page }) => {
+    test('REQ-11.17→11.30: 削除確認ダイアログが表示され削除APIが成功する (estimate-request/REQ-11.30)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -1452,7 +1485,15 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
     /**
      * Task 37.3: 転記後の単価フィールド空欄の確認
-     * @requirement estimate-request/REQ-15.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-15.5 を名乗っていたが、受入基準15.5 は「転記された**行数を含む**
+     * 完了メッセージを表示する」であり、本区間の照合は`/項目を転記しました/` で行数を見ない。
+     * 本区間が主張するのは転記後の単価欄が空欄であること（受入基準15.10）であり、それは同ファイルの「一括転記時に単価フィールドが
+     * 空欄である」が既に正しく名乗っている。ゆえに被覆印を**取り下げる**。
+     *
+     * 行数を確かめる主張は `e2e/specs` に存在しない（実測: 完了メッセージの照合は
+     * 6箇所すべてが `/項目を転記しました/` で、行数に触れない）。
+     * 取り下げにより 15.5 は未被覆として指標に現れる。
      */
     test('転記後の単価フィールドが空欄である', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -1487,12 +1528,11 @@ test.describe('受領見積書・ステータス管理機能', () => {
         timeout: getTimeout(5000),
       });
 
-      // 単価フィールドが空欄であることを確認（aria-labelで行1の単価を特定）
+      // REQ-15.4: 選択項目の数だけ明細行が生成されるため行1は必ず存在する
+      // REQ-15.10: 一括転記時に単価フィールドは空欄
       const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-      if (await unitPriceInput.isVisible()) {
-        const value = await unitPriceInput.inputValue();
-        expect(value).toBe('');
-      }
+      await expect(unitPriceInput).toBeVisible({ timeout: getTimeout(5000) });
+      expect(await unitPriceInput.inputValue()).toBe('');
 
       // キャンセルしてフォームを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();
@@ -1500,7 +1540,12 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
     /**
      * Task 37.3: 選択項目が0件の場合のエラーメッセージ確認
-     * @requirement estimate-request/REQ-15.6
+     * @requirement estimate-request/REQ-15.7
+     *
+     * タスク 115.188 の是正: 従前は REQ-15.6 を名乗っていたが、受入基準15.6 の原文は「When 一括転記が完了したとき,
+     * the システム shall 転記結果の確認・修正を促すメッセージを表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準15.7（「If
+     * 項目選択セクションで項目が1つも選択されていない場合, then the システム shall 「選択された項目がありません」
+     * というエラーメッセージを表示する」）である。
      */
     test('選択項目が0件の場合にエラーメッセージが表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -1526,21 +1571,30 @@ test.describe('受領見積書・ステータス管理機能', () => {
         await clickSaveSelectionButton(page);
       }
 
+      // 前提（選択項目が0件である）を無条件に主張する
+      await expect(
+        page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]:checked'),
+        '前提: 内訳書項目が1件も選択されていない'
+      ).toHaveCount(0);
+
       // 受領見積書登録ボタンをクリック
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
       // 転記ボタンをクリック
+      // REQ-15.1 のとおり「項目選択から転記」ボタンは常に表示される
+      // （`ReceivedQuotationForm` は `selectedItems` が配列である限り必ず描画するため、
+      // 選択が0件でも空配列が渡り、ボタンは消えない）。
+      // 以前は「表示されていればクリックする」という関門で包んでいたため、
+      // ボタンが消えた場合にエラーメッセージの主張が一つも実行されなかった。
       const transcriptionButton = page.getByTestId('transcription-button');
-      // 選択項目が0件の場合、転記ボタンが表示されない可能性がある
-      if (await transcriptionButton.isVisible()) {
-        await transcriptionButton.click();
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(10000) });
+      await transcriptionButton.click();
 
-        // エラーメッセージが表示される
-        await expect(page.getByText(/選択された項目がありません/i)).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      // 選択項目が0件のときはエラーメッセージが表示される
+      await expect(page.getByText(/選択された項目がありません/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
       // キャンセルしてフォームを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();
@@ -1771,6 +1825,92 @@ test.describe('受領見積書・ステータス管理機能', () => {
       // キャンセルしてフォームを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();
     });
+
+    /**
+     * 準備（3 件中ちょうど 2 件を選択した状態）で転記を実行し、完了メッセージを返す。
+     * 内訳書の項目数（3 件）と選択数（2 件）を違えることで、メッセージの行数が
+     * 項目の総数ではなく転記された行数であることを区別できるようにする。
+     */
+    async function transcribeExactlyTwoOfThree(page: import('@playwright/test').Page) {
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      // 前提: 準備3 で作成した内訳書の項目は 3 件
+      await expect(checkboxes, '前提: 内訳書の項目が 3 件ある').toHaveCount(3);
+
+      // 先頭 2 件を選択、3 件目を非選択にそろえる（前の test の選択状態に依存しない）
+      let hasChanges = false;
+      for (let i = 0; i < 3; i++) {
+        const shouldBeChecked = i < 2;
+        if ((await checkboxes.nth(i).isChecked()) !== shouldBeChecked) {
+          await checkboxes.nth(i).click();
+          hasChanges = true;
+        }
+      }
+      if (hasChanges) {
+        await clickSaveSelectionButton(page);
+      }
+      await expect(
+        page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]:checked'),
+        '前提: 内訳書項目がちょうど 2 件選択されている'
+      ).toHaveCount(2);
+
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      const transcriptionButton = page.getByTestId('transcription-button');
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(5000) });
+      await transcriptionButton.click();
+
+      const message = page.getByTestId('transcription-message');
+      await expect(message).toBeVisible({ timeout: getTimeout(5000) });
+      return message;
+    }
+
+    /**
+     * 受入基準15.5「When 一括転記が完了したとき, the システム shall 転記された行数を含む完了メッセージを表示する」
+     * @requirement estimate-request/REQ-15.5
+     */
+    test('一括転記の完了メッセージに転記された行数が含まれる (estimate-request/REQ-15.5)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      const message = await transcribeExactlyTwoOfThree(page);
+
+      // 転記された行数を画面の明細行から数える（2 件選択 → 2 行）
+      const transcribedRows = page.getByRole('textbox', { name: /^行\d+ 名称$/ });
+      await expect(transcribedRows).toHaveCount(2);
+      const rowCount = await transcribedRows.count();
+
+      // 完了メッセージであり、かつ転記された行数（2）を含む。項目の総数（3）ではない
+      await expect(message).toContainText('転記しました');
+      await expect(message).toHaveText(new RegExp(`(^|[^0-9])${rowCount}件`));
+      await expect(message).not.toHaveText(/(^|[^0-9])3件/);
+
+      await page.getByRole('button', { name: /キャンセル/i }).click();
+    });
+
+    /**
+     * 受入基準15.6「When 一括転記が完了したとき, the システム shall 転記結果の確認・修正を促すメッセージを表示する」
+     * @requirement estimate-request/REQ-15.6
+     */
+    test('一括転記の完了時に転記結果の確認・修正を促すメッセージが表示される (estimate-request/REQ-15.6)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      const message = await transcribeExactlyTwoOfThree(page);
+
+      // 転記結果の確認を促し、かつ修正を促す文言を含む
+      await expect(message).toContainText('確認');
+      await expect(message).toContainText('修正');
+
+      await page.getByRole('button', { name: /キャンセル/i }).click();
+    });
   });
 
   // ============================================================================
@@ -1806,7 +1946,13 @@ test.describe('受領見積書・ステータス管理機能', () => {
         });
       }
 
-      expect(true).toBe(true);
+      // 末尾に置かれていた `expect(true).toBe(true)` を削除した。あれは何も確かめておらず、
+      // 「検証がある」と偽って数えられるだけの恒真だった。
+      // 本ブロックは検証ではなく後始末であり、主張は置かない。
+      // なお実測では、この後始末の削除はいずれも成立していない
+      // （見積依頼の削除は本体に updatedAt を要し、プロジェクトの削除も 2xx を返さない）。
+      // 後始末が効いていないこと自体は別タスクとして起票する。削除そのものの検証は
+      // 当該要件のテスト（見積依頼・プロジェクトの削除）が担う。
     });
   });
 });

@@ -10,8 +10,16 @@
  *
  * Task 12.1: テキストフィールド入力制御コンポーネントを実装する
  *
+ * **数値欄の範囲は本モジュールに無い。** 範囲の正典は
+ * `utils/numeric-range-validation.ts` の `FIELD_RANGE_CONFIG` である（Task 80.1）。
+ * かつて本モジュールは同名の `validateNumericRange` と `NUMERIC_FIELD_RANGES` を
+ * 独自に持っていたが、丸め設定の上限が正典の `99.99` に対し `999.99` へ静かに
+ * 割れていたため撤去した。数値欄の範囲を変えるときは正典だけを触ること。
+ *
  * @module utils/field-validation
  */
+
+import { validateNumericRange, type NumericRangeFieldType } from './numeric-range-validation';
 
 /**
  * テキストフィールド名の型
@@ -178,59 +186,19 @@ export function formatDecimal2(value: number): string {
 // ============================================================================
 // 数値フィールド範囲検証
 // Task 14.1: 数値フィールドに範囲チェックを適用する
+// Task 80.1: 範囲の正典を `numeric-range-validation.ts` へ一本化した
 // ============================================================================
 
 /**
- * 数値フィールドの範囲定義
- *
- * Requirements:
- * - 14.3: 調整係数の範囲（-9.99〜9.99）
- * - 14.4: 丸め設定の範囲（0.01〜999.99）
- * - 15.1: 数量の範囲（-999999.99〜9999999.99）
- */
-export const NUMERIC_FIELD_RANGES = {
-  adjustmentFactor: { min: -9.99, max: 9.99 },
-  roundingUnit: { min: 0.01, max: 999.99 },
-  quantity: { min: -999999.99, max: 9999999.99 },
-} as const;
-
-/**
  * 数値フィールド名の型
- */
-export type NumericFieldName = keyof typeof NUMERIC_FIELD_RANGES;
-
-/**
- * 数値フィールドの日本語ラベル
- */
-const NUMERIC_FIELD_LABELS: Record<NumericFieldName, string> = {
-  adjustmentFactor: '調整係数',
-  roundingUnit: '丸め設定',
-  quantity: '数量',
-};
-
-/**
- * 数値フィールドの範囲検証
  *
- * @param value - 検証対象の数値
- * @param fieldName - フィールド名
- * @returns 検証結果
+ * 本モジュールが範囲を検証する数値欄は、正典 `NumericRangeFieldType` の部分集合である。
+ * 範囲の定数も判定も持たず、`numeric-range-validation.ts` へ委譲する。
  */
-export function validateNumericRange(
-  value: number,
-  fieldName: NumericFieldName
-): TextValidationResult {
-  const range = NUMERIC_FIELD_RANGES[fieldName];
-  const label = NUMERIC_FIELD_LABELS[fieldName];
-
-  if (value >= range.min && value <= range.max) {
-    return { isValid: true };
-  }
-
-  return {
-    isValid: false,
-    error: `${label}は${range.min}から${range.max}の範囲で入力してください`,
-  };
-}
+export type NumericFieldName = Extract<
+  NumericRangeFieldType,
+  'adjustmentFactor' | 'roundingUnit' | 'quantity'
+>;
 
 // ============================================================================
 // 統合バリデーション
@@ -281,7 +249,7 @@ export interface QuantityItemValidationInput {
  *
  * Requirements:
  * - 13.1, 13.2, 13.3: テキストフィールドの文字数制限
- * - 14.3, 14.4, 15.1: 数値フィールドの範囲チェック
+ * - 9.3, 10.3, 15.1: 数値フィールドの範囲チェック（判定は正典へ委譲）
  *
  * @param item - 検証対象の数量項目
  * @returns フィールドごとのエラーメッセージ（エラーがない場合はundefined）

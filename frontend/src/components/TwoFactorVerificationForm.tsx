@@ -239,7 +239,6 @@ function TwoFactorVerificationForm({
                     fontSize: '24px',
                     border: '2px solid #ccc',
                     borderRadius: '4px',
-                    outline: 'none',
                   }}
                 />
               ))}

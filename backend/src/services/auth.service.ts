@@ -28,6 +28,8 @@ import { Ok, Err, type Result } from '../types/result.js';
 import { addTimingAttackDelay } from '../utils/timing.js';
 import { SECURITY_CONFIG } from '../config/security.constants.js';
 import logger from '../utils/logger.js';
+import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
+import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
  * 認証サービス
@@ -172,7 +174,7 @@ export class AuthService implements IAuthService {
             },
           },
         });
-      });
+      }, connectBudgetTransactionOptions());
 
       if (!user) {
         return Err({ type: 'DATABASE_ERROR', message: 'Failed to create user' });
@@ -207,6 +209,8 @@ export class AuthService implements IAuthService {
         user: userProfile,
       });
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -365,6 +369,8 @@ export class AuthService implements IAuthService {
         user: userProfile,
       });
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -470,8 +476,10 @@ export class AuthService implements IAuthService {
             },
           });
         } catch (updateError) {
-          logger.error({ updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
-          // 更新に失敗しても検証失敗として処理を続行
+          // 接続のタイムアウトは検証の失敗として扱わず、エラーハンドラーの 503 へ届ける（要件24.1）
+          rethrowIfDatabaseConnectionTimeout(updateError);
+          logger.error({ err: updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
+          // 接続のタイムアウト以外の更新の失敗は、検証失敗として処理を続行
         }
 
         if (isLocked && lockedUntil) {
@@ -522,6 +530,8 @@ export class AuthService implements IAuthService {
         user: userProfile,
       });
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -633,8 +643,10 @@ export class AuthService implements IAuthService {
             },
           });
         } catch (updateError) {
-          logger.error({ updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
-          // 更新に失敗しても検証失敗として処理を続行
+          // 接続のタイムアウトは検証の失敗として扱わず、エラーハンドラーの 503 へ届ける（要件24.1）
+          rethrowIfDatabaseConnectionTimeout(updateError);
+          logger.error({ err: updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
+          // 接続のタイムアウト以外の更新の失敗は、検証失敗として処理を続行
         }
 
         if (isLocked && lockedUntil) {
@@ -685,6 +697,8 @@ export class AuthService implements IAuthService {
         user: userProfile,
       });
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -710,6 +724,8 @@ export class AuthService implements IAuthService {
 
       return Ok(undefined);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -734,6 +750,8 @@ export class AuthService implements IAuthService {
 
       return Ok(undefined);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -755,6 +773,7 @@ export class AuthService implements IAuthService {
           email: true,
           displayName: true,
           createdAt: true,
+          updatedAt: true,
           twoFactorEnabled: true,
           userRoles: {
             select: {
@@ -799,16 +818,58 @@ export class AuthService implements IAuthService {
         roles: user.userRoles.map((ur) => ur.role.name),
         permissions: Array.from(permissionSet),
         createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
         twoFactorEnabled: user.twoFactorEnabled,
       };
 
       return Ok(userProfile);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }
+  }
+
+  /**
+   * 楽観的ロック付きのプロフィール更新
+   *
+   * 条件付きの更新（updatedAt が expectedUpdatedAt と一致する行に限る）で競合を検出する。
+   * 読んでから比べる方式は、READ COMMITTED では同じ版から並行する2件がどちらも比較を通りうるため採らない。
+   * 条件を UPDATE の WHERE に置けば、後続は先行のコミットを待ってから最新の行で条件を評価し直し、0 件になる。
+   *
+   * @param userId ユーザーID
+   * @param data 更新内容（表示名）
+   * @param expectedUpdatedAt 取得時の updatedAt
+   * @returns 成功、USER_NOT_FOUND、PROFILE_CONFLICT のいずれか
+   */
+  async updateProfileIfUnchanged(
+    userId: string,
+    data: { displayName?: string },
+    expectedUpdatedAt: Date
+  ): Promise<Result<void, AuthError>> {
+    const { count } = await this.prisma.user.updateMany({
+      where: { id: userId, updatedAt: expectedUpdatedAt },
+      data,
+    });
+    if (count > 0) {
+      return Ok(undefined);
+    }
+    // 0 件の理由（ユーザーが無いか、版が古いか）を読み直して区別する
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { updatedAt: true },
+    });
+    if (!current) {
+      return Err({ type: 'USER_NOT_FOUND' });
+    }
+    return Err({
+      type: 'PROFILE_CONFLICT',
+      expectedUpdatedAt,
+      actualUpdatedAt: current.updatedAt,
+    });
   }
 
   /**
@@ -889,6 +950,8 @@ export class AuthService implements IAuthService {
         user: userProfile,
       });
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',

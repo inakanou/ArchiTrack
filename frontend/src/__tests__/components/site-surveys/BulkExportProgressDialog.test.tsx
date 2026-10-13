@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import BulkExportProgressDialog from '../../../components/site-surveys/BulkExportProgressDialog';
 import type {
@@ -63,6 +63,35 @@ const PARTIAL_RESULT: BulkExportResult = {
       imageName: 'broken.jpg',
       reason: 'render',
       message: 'render failed',
+    },
+  ],
+};
+
+/**
+ * 失敗が複数あり、失敗理由の種別も異なる部分失敗（要件31.13 の検証に用いる）
+ */
+const MULTI_FAILURE_PARTIAL_RESULT: BulkExportResult = {
+  status: 'partial',
+  zipBlob: new Blob(['zip'], { type: 'application/zip' }),
+  zipFileName: 'survey_2026-05-30.zip',
+  failures: [
+    {
+      imageId: 'img-3',
+      imageName: 'broken.jpg',
+      reason: 'render',
+      message: 'renderImage returned no result',
+    },
+    {
+      imageId: 'img-7',
+      imageName: 'missing.png',
+      reason: 'fetch',
+      message: 'HTTP 404',
+    },
+    {
+      imageId: 'img-9',
+      imageName: 'weird.webp',
+      reason: 'unknown',
+      message: '',
     },
   ],
 };
@@ -415,6 +444,74 @@ describe('BulkExportProgressDialog', () => {
       await user.click(downloadButton);
 
       expect(mockOnComplete).toHaveBeenCalledWith(PARTIAL_RESULT, 'download-partial');
+    });
+
+    it('失敗した画像の名前と失敗理由が画像ごとに提示される (要件31.13)', async () => {
+      const { promise, resolve } = createDeferred<BulkExportResult>();
+      const controller = new AbortController();
+
+      render(
+        <BulkExportProgressDialog
+          open={true}
+          surveyName="現場A"
+          progress={makeProgress(10, 10, 3)}
+          promise={promise}
+          controller={controller}
+          onComplete={mockOnComplete}
+        />
+      );
+
+      resolve(MULTI_FAILURE_PARTIAL_RESULT);
+
+      await waitFor(() => {
+        expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+      });
+
+      // 失敗した画像は 1 件ずつ列挙される
+      const failureList = screen.getByTestId('bulk-export-failure-list');
+      expect(within(failureList).getAllByRole('listitem')).toHaveLength(3);
+
+      // どの画像がどの理由で失敗したか（要件31.13）
+      const renderFailure = screen.getByTestId('bulk-export-failure-img-3');
+      expect(renderFailure).toHaveTextContent('broken.jpg');
+      expect(renderFailure).toHaveTextContent('注釈の描画に失敗しました');
+      expect(renderFailure).toHaveTextContent('renderImage returned no result');
+
+      const fetchFailure = screen.getByTestId('bulk-export-failure-img-7');
+      expect(fetchFailure).toHaveTextContent('missing.png');
+      expect(fetchFailure).toHaveTextContent('画像の取得に失敗しました');
+      expect(fetchFailure).toHaveTextContent('HTTP 404');
+
+      const unknownFailure = screen.getByTestId('bulk-export-failure-img-9');
+      expect(unknownFailure).toHaveTextContent('weird.webp');
+      expect(unknownFailure).toHaveTextContent('原因を特定できない失敗です');
+    });
+
+    it('失敗していない画像は失敗一覧に現れない (要件31.13)', async () => {
+      const { promise, resolve } = createDeferred<BulkExportResult>();
+      const controller = new AbortController();
+
+      render(
+        <BulkExportProgressDialog
+          open={true}
+          surveyName="現場A"
+          progress={makeProgress(10, 10, 1)}
+          promise={promise}
+          controller={controller}
+          onComplete={mockOnComplete}
+        />
+      );
+
+      resolve(PARTIAL_RESULT);
+
+      await waitFor(() => {
+        expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+      });
+
+      const failureList = screen.getByTestId('bulk-export-failure-list');
+      expect(within(failureList).getAllByRole('listitem')).toHaveLength(1);
+      expect(screen.getByTestId('bulk-export-failure-img-3')).toHaveTextContent('broken.jpg');
+      expect(screen.queryByTestId('bulk-export-failure-img-7')).not.toBeInTheDocument();
     });
 
     it('「中止」を選ぶと onComplete(result, "cancel") を呼ぶ', async () => {

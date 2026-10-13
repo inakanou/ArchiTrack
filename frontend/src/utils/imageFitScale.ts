@@ -2,8 +2,9 @@
  * @fileoverview 画像フィット倍率算出ユーティリティ（純関数・React 非依存）
  *
  * 画像を表示コンテナに収める最大倍率（フィット倍率）を算出します。
- * 現行の `Math.min(maxW/imgW, maxH/imgH, 1)`（AnnotationEditor / ImageViewer）を
- * 一般化し、末尾の `1`（原寸頭打ち）を `allowUpscale` / `maxUpscale` で制御可能にします。
+ * 現行の `Math.min(maxW/imgW, maxH/imgH, 1)`（`AnnotationEditor`。閲覧モードも同コンポーネントを
+ * `readOnly` で描画したものである）を一般化し、末尾の `1`（原寸頭打ち）を
+ * `allowUpscale` / `maxUpscale` で制御可能にします。
  *
  * - `allowUpscale=false`（既定）: 上限 1（原寸頭打ち。デスクトップ現行維持）
  * - `allowUpscale=true`: フィット倍率まで拡大（上限 `maxUpscale`。小画像を過小表示にしない）

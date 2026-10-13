@@ -17,19 +17,93 @@
  * - 16.11: 処理中ボタン非活性
  * - 16.12: 編集画面での既存ファイルプレビュー表示
  *
+ * Task 115.127 段1: 前提の生成を `seedEstimateRequest`（`estimate-request-preconditions`）へ寄せ、
+ * `test.skip(!createdEstimateRequestId, …)` 10 件を `assertPrepared` へ改めた。
+ *
  * @module e2e/specs/estimate-requests/ocr-retry-e2e.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
+import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
+import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
+import {
+  startOcrProgressIndicatorWatch,
+  hasOcrProgressIndicatorAppeared,
+} from '../../helpers/ocr-observations';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * OCR 対象の既存ファイルの取得先として差し替えるパス
+ *
+ * 実体は署名付きURLであり保管先の実装に依存するため、テストが結果を制御できるよう
+ * 同一オリジンの固定パスへ寄せる。
+ */
+const STUBBED_QUOTATION_FILE_PATH = '/e2e-stubbed-quotation-file/received-quotation-file.pdf';
+
+/**
+ * 受領見積書の既存ファイル取得を、テストが成否を決められる状態に置き換える。
+ *
+ * ## なぜ必要か（Task 115.127 段7・F/G 群）
+ *
+ * REQ-16.5 / REQ-16.6 は「OCR処理が失敗したとき」の要件である。
+ * 事前準備がアップロードする `test-file.pdf` はテキスト入りPDFであり抽出は必ず成功するため、
+ * 「失敗したかどうか」を観測して主張を包むと、**要件の主張は一度も実行されない**。
+ * 失敗そのものをテストが前提として作り出し、無条件に主張する形へ改める。
+ *
+ * 編集画面の `OcrDataExtractor` は `fileUrl` を `fetch` し、応答が ok でなければ
+ * 「ファイルの取得に失敗しました」で `status='error'` になる
+ * （`frontend/src/components/estimate-requests/OcrDataExtractor.tsx` の `fetchFileFromUrl`）。
+ * したがってファイルの取得を 500 に固定すれば OCR は必ず失敗する。
+ *
+ * `succeedFromNow()` を呼ぶと以降の取得は事前準備と同じ `test-file.pdf` を返すため、
+ * 「リトライで同一ファイルに対して再実行される」（REQ-16.6）を成功側で確かめられる。
+ *
+ * @param page Playwright のページ（画面遷移の前に呼ぶこと）
+ * @returns 以降のファイル取得を成功させる操作
+ */
+async function stubExistingQuotationFile(page: Page): Promise<{ succeedFromNow: () => void }> {
+  let shouldFail = true;
+
+  // プレビューURLの取得は、テストが制御できる固定パスを返すように差し替える
+  await page.route('**/api/quotations/*/preview', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ url: STUBBED_QUOTATION_FILE_PATH }),
+    })
+  );
+
+  // 固定パスへのファイル取得は、テストの指示どおりに失敗／成功させる
+  await page.route(`**${STUBBED_QUOTATION_FILE_PATH}`, (route) => {
+    if (shouldFail) {
+      return route.fulfill({
+        status: 500,
+        contentType: 'text/plain',
+        body: 'テスト用に強制したファイル取得の失敗',
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/pdf',
+      path: path.resolve(__dirname, '../../fixtures/test-file.pdf'),
+    });
+  });
+
+  return {
+    succeedFromNow: () => {
+      shouldFail = false;
+    },
+  };
+}
 
 /**
  * OCR再実行・リトライ機能のE2Eテスト
@@ -67,118 +141,30 @@ test.describe('OCR再実行・リトライ機能', () => {
   });
 
   test('テスト前提データを作成する', async ({ page }) => {
-    // ログイン
     await loginAsUser(page, 'ADMIN_USER');
 
-    // 認証トークン取得（localStorageから）
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-    expect(accessToken).not.toBe('');
-
-    // 担当者候補を取得（salesPersonIdに必要、admin以外のユーザー）
-    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    expect(assignableRes.ok()).toBeTruthy();
-    const assignableUsers = await assignableRes.json();
-    expect(assignableUsers.length).toBeGreaterThan(0);
-    const salesPersonId = assignableUsers[0].id;
-
-    // プロジェクト作成
-    const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `OCRリトライテスト-${Date.now()}`,
-        salesPersonId,
-        siteAddress: '東京都千代田区',
+    // Task 115.127 段1: プロジェクト〜見積依頼の前提生成は共通の補助へ寄せる。
+    // 3ファイルが同じ約110行を複製していたため、複製したまま個別に直すと再発する。
+    // いずれかの作成に失敗した時点で補助の内側で失敗する。
+    const seed = await seedEstimateRequest(page, {
+      label: 'OCRリトライテスト',
+      siteAddress: '東京都千代田区',
+      partnerEmail: 'test-ocr@example.com',
+      groupName: '外壁工事グループ',
+      item: {
+        workType: '外壁工事',
+        name: '外壁塗装',
+        specification: 'シリコン系',
+        unit: 'm2',
+        quantity: 100,
       },
     });
-    expect(projectRes.ok()).toBeTruthy();
-    const project = await projectRes.json();
-    createdProjectId = project.id;
 
-    // 取引先作成
-    const partnerRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `テスト業者-OCRリトライ-${Date.now()}`,
-        nameKana: 'テストギョウシャ',
-        types: ['SUBCONTRACTOR'],
-        address: '東京都千代田区テスト1-2-3',
-        email: 'test-ocr@example.com',
-      },
-    });
-    expect(partnerRes.ok()).toBeTruthy();
-    const partner = await partnerRes.json();
-    createdTradingPartnerId = partner.id;
-
-    // 数量表作成
-    const qtRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `テスト数量表-OCRリトライ-${Date.now()}` },
-      }
-    );
-    expect(qtRes.ok()).toBeTruthy();
-    const qt = await qtRes.json();
-
-    // 数量グループ作成
-    const groupRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-tables/${qt.id}/groups`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: '外壁工事グループ', displayOrder: 0 },
-      }
-    );
-    expect(groupRes.ok()).toBeTruthy();
-    const group = await groupRes.json();
-
-    // 数量項目作成
-    const itemRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          workType: '外壁工事',
-          name: '外壁塗装',
-          specification: 'シリコン系',
-          unit: 'm2',
-          quantity: 100,
-        },
-      }
-    );
-    expect(itemRes.ok()).toBeTruthy();
-
-    // 内訳書作成（数量表から生成）
-    const statementRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト内訳書-OCRリトライ-${Date.now()}`,
-          quantityTableId: qt.id,
-        },
-      }
-    );
-    expect(statementRes.ok()).toBeTruthy();
-    const statement = await statementRes.json();
-    createdItemizedStatementId = statement.id;
-
-    // 見積依頼作成
-    const erRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト見積依頼-OCRリトライ-${Date.now()}`,
-          tradingPartnerId: createdTradingPartnerId,
-          itemizedStatementId: createdItemizedStatementId,
-        },
-      }
-    );
-    expect(erRes.ok()).toBeTruthy();
-    const er = await erRes.json();
-    createdEstimateRequestId = er.id;
+    accessToken = seed.accessToken;
+    createdProjectId = seed.projectId;
+    createdTradingPartnerId = seed.tradingPartnerId;
+    createdItemizedStatementId = seed.itemizedStatementId;
+    createdEstimateRequestId = seed.estimateRequestId;
   });
 
   /**
@@ -188,7 +174,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('PDFのみアップロードして受領見積書を保存し、編集画面で「OCR実行」ボタンを確認する (estimate-request/REQ-16.1, estimate-request/REQ-16.9)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -263,7 +249,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('「OCR実行」ボタンクリックでOCR処理が開始される (estimate-request/REQ-16.2, estimate-request/REQ-16.3)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -285,16 +271,26 @@ test.describe('OCR再実行・リトライ機能', () => {
     // 「OCR実行」ボタンをクリック
     const ocrButton = page.getByRole('button', { name: /OCR実行/i });
     await expect(ocrButton).toBeVisible({ timeout: getTimeout(10000) });
+
+    // REQ-16.3 の主張の準備。テキスト入り PDF の抽出は瞬時に終わるため、
+    // 処理中の一瞬は Playwright の定期的な問い合わせでは取り逃がしうる。
+    // 以前はそれを「インジケーター **または** 結果 **または** エラー」の選言で回避しており、
+    // OCR が失敗しても成立し、かつインジケーターを一度も検査していなかった。
+    // DOM 変更と同期に出現を記録する形へ改める。
+    await startOcrProgressIndicatorWatch(page);
+
     await ocrButton.click();
 
-    // OCR処理中のインジケーターが表示される（REQ-16.3）
-    // OCRは時間がかかるため、処理中インジケーターまたは結果/エラーのいずれかが表示されることを確認
-    await expect(
-      page
-        .locator('[data-testid="ocr-progress-indicator"]')
-        .or(page.locator('[data-testid="ocr-extracted-text"]'))
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(60000) });
+    // REQ-16.2: 既存ファイルに対して OCR 処理が開始され、抽出結果に到達する
+    const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
+
+    // REQ-16.3: 処理中であることを示すインジケーターが表示された
+    expect(
+      await hasOcrProgressIndicatorAppeared(page),
+      'OCR処理中インジケーターが一度も表示されなかった'
+    ).toBe(true);
   });
 
   /**
@@ -303,7 +299,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('OCR完了後に結果と一括取り込みボタンが表示される (estimate-request/REQ-16.4)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -327,26 +323,21 @@ test.describe('OCR再実行・リトライ機能', () => {
     await expect(ocrButton).toBeVisible({ timeout: getTimeout(10000) });
     await ocrButton.click();
 
-    // OCR処理完了を待機（結果またはエラー）
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // OCR結果が表示された場合、一括取り込みボタンも表示されることを確認
+    // REQ-16.4: OCR 完了時は「抽出結果」と「一括取り込みボタン」が必ず表示される。
+    // 対象の `test-file.pdf` はテキスト入り PDF（閾値 50 文字を超える）であり、
+    // Claude Vision 経路・pdfjs フォールバック経路のいずれでも抽出結果が表示される
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
-      // 抽出テキストが空でないことを確認
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
 
-      // 一括取り込みボタンが表示されることを確認
-      await expect(page.locator('[data-testid="ocr-import-button"]')).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-    }
+    // 抽出テキストが空でないことを確認
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
+
+    // 一括取り込みボタンが表示されることを確認
+    await expect(page.locator('[data-testid="ocr-import-button"]')).toBeVisible({
+      timeout: getTimeout(5000),
+    });
   });
 
   /**
@@ -355,9 +346,14 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('OCR失敗時に「OCRリトライ」ボタンが表示される (estimate-request/REQ-16.5)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
+
+    // REQ-16.5 は「OCR処理が失敗したとき」の要件である。事前準備の `test-file.pdf` は
+    // 抽出が必ず成功するため、失敗したかどうかを観測して主張を包むと検証が一度も実行されない。
+    // 失敗そのものを前提として無条件に作り出す。
+    await stubExistingQuotationFile(page);
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
@@ -379,39 +375,31 @@ test.describe('OCR再実行・リトライ機能', () => {
     await expect(ocrButton).toBeVisible({ timeout: getTimeout(10000) });
     await ocrButton.click();
 
-    // OCR処理完了を待機（結果またはエラー）
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // エラーが発生した場合、「OCRリトライ」ボタンが表示されることを確認
+    // REQ-16.5: OCR処理が失敗したのでエラーメッセージが表示される
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-    if (await errorMessage.isVisible({ timeout: 3000 }).catch(() => false)) {
-      // エラーメッセージが表示されている
-      const errorText = await errorMessage.textContent();
-      expect(errorText).toBeTruthy();
+    await expect(errorMessage).toBeVisible({ timeout: getTimeout(60000) });
+    const errorText = await errorMessage.textContent();
+    expect(errorText, 'OCR失敗時のエラーメッセージが空である').toBeTruthy();
 
-      // 「OCRリトライ」ボタンが表示される
-      await expect(page.getByRole('button', { name: /OCRリトライ/i })).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-    } else {
-      // OCRが成功した場合はリトライボタンが非表示であることを確認
-      await expect(page.getByRole('button', { name: /OCRリトライ/i })).not.toBeVisible({
-        timeout: getTimeout(3000),
-      });
-    }
+    // REQ-16.5: 「OCRリトライ」ボタンが表示される
+    await expect(page.getByRole('button', { name: /OCRリトライ/i })).toBeVisible({
+      timeout: getTimeout(5000),
+    });
   });
 
   /**
    * @requirement estimate-request/REQ-16.6
    */
   test('リトライボタンでOCR再実行が行われる (estimate-request/REQ-16.6)', async ({ page }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
+
+    // REQ-16.6 は「OCRリトライ」ボタンの押下が前提の要件である。
+    // リトライボタンは OCR が失敗したときにだけ現れるため、まず失敗を前提として作り出す。
+    // 以前は「リトライボタンが見えていれば押す」という関門で包み、見えない場合は
+    // 「OCR実行」ボタンの有無でさらに包んでいたため、REQ-16.6 の主張は一度も実行されなかった。
+    const stubbedFile = await stubExistingQuotationFile(page);
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
@@ -433,40 +421,27 @@ test.describe('OCR再実行・リトライ機能', () => {
     await expect(ocrButton).toBeVisible({ timeout: getTimeout(10000) });
     await ocrButton.click();
 
-    // OCR処理完了を待機
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // リトライボタンが表示されている場合のみ検証
+    // 前提: OCR が失敗し「OCRリトライ」ボタンが表示されている（REQ-16.5）
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toBeVisible({
+      timeout: getTimeout(60000),
+    });
     const retryButton = page.getByRole('button', { name: /OCRリトライ/i });
-    if (await retryButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      // リトライボタンをクリック
-      await retryButton.click();
+    await expect(retryButton).toBeVisible({ timeout: getTimeout(5000) });
 
-      // OCR処理が再度開始される（インジケーターまたは結果/エラーが表示される）
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-      ).toBeVisible({ timeout: getTimeout(60000) });
-    } else {
-      // OCRが成功した場合、「OCR実行」ボタンで再実行可能であることを確認
-      const reRunButton = page.getByRole('button', { name: /OCR実行/i });
-      if (await reRunButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await reRunButton.click();
+    // 以降のファイル取得は事前準備と同一の `test-file.pdf` を返す。
+    // これにより「再実行が本当に行われたか」を抽出結果の出現で判定できる。
+    stubbedFile.succeedFromNow();
 
-        await expect(
-          page
-            .locator('[data-testid="ocr-progress-indicator"]')
-            .or(page.locator('[data-testid="ocr-extracted-text"]'))
-            .or(page.locator('[data-testid="ocr-error-message"]'))
-        ).toBeVisible({ timeout: getTimeout(60000) });
-      }
-    }
+    // リトライボタンをクリック
+    await retryButton.click();
+
+    // REQ-16.6: 同一ファイルに対してOCR処理が再実行され、抽出結果が表示される
+    await expect(page.locator('[data-testid="ocr-extracted-text"]')).toBeVisible({
+      timeout: getTimeout(60000),
+    });
+
+    // 再実行が完了したのでエラーメッセージは解消している
+    await expect(page.locator('[data-testid="ocr-error-message"]')).not.toBeVisible();
   });
 
   /**
@@ -475,7 +450,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('Excelファイルの場合にデータパースボタンが表示される (estimate-request/REQ-16.7)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -503,13 +478,12 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // PDFアップロード時、OCRが自動実行されテキスト抽出結果が表示される
     // （Excelの場合はデータパースが実行される仕様: REQ-16.7）
-    // autoStart=trueなので進捗インジケーターまたは結果/エラーが表示される
-    await expect(
-      page
-        .locator('[data-testid="ocr-progress-indicator"]')
-        .or(page.locator('[data-testid="ocr-extracted-text"]'))
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(30000) });
+    // 以前は「インジケーターまたは結果またはエラー」の選言で完了を判定していたため、
+    // OCR が失敗しても後続の主張へ進んでいた。抽出の成立を無条件に主張する。
+    await expect(page.locator('[data-testid="ocr-extracted-text"]')).toBeVisible({
+      timeout: getTimeout(60000),
+    });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
 
     // PDFの場合はOCRとして処理されたことを確認（データパースボタンは表示されない）
     const dataParseButton = page.getByRole('button', { name: /データパース実行/i });
@@ -522,7 +496,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('データパース実行でExcelデータが解析される (estimate-request/REQ-16.8)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -548,20 +522,14 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     await expect(page.getByText('test-file.pdf')).toBeVisible({ timeout: getTimeout(5000) });
 
-    // OCR処理が自動実行され、結果またはエラーが表示されることを確認
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(30000) });
-
-    // OCR結果が取得できた場合、抽出テキストが表示されることを確認
+    // REQ-16.10 の前提: アップロード直後の自動 OCR で抽出結果が表示される。
+    // `test-file.pdf` はテキスト入り PDF のため抽出は必ず成立する
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
-    }
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(30000) });
+
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
   });
 
   /**
@@ -570,7 +538,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('編集画面でOCR結果から一括取り込みが行われる (estimate-request/REQ-16.10)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -595,32 +563,33 @@ test.describe('OCR再実行・リトライ機能', () => {
     await ocrButton.click();
 
     // OCR処理完了を待機
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(60000) });
+    // 対象の `test-file.pdf` はテキスト入りPDFであり、REQ-16.4 の検証と同じく抽出は必ず成立する。
+    // 以前は「結果またはエラー」を待ったうえで一括取り込みボタンの有無で包んでいたため、
+    // 抽出が失敗した回は REQ-16.10 の主張が一つも実行されずに緑になっていた。
+    await expect(page.locator('[data-testid="ocr-extracted-text"]')).toBeVisible({
+      timeout: getTimeout(60000),
+    });
 
-    // OCR結果が取得できた場合、一括取り込みを実行
+    // REQ-16.4 のとおり、抽出完了時は一括取り込みボタンが必ず表示される
     const importButton = page.locator('[data-testid="ocr-import-button"]');
-    if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // 一括取り込みボタンをクリック
-      await importButton.click();
+    await expect(importButton).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 取り込み成功メッセージが表示される
-      await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // 一括取り込みボタンをクリック
+    await importButton.click();
 
-      // 確認・修正メッセージが表示される
-      await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // 取り込み成功メッセージが表示される
+    await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+      timeout: getTimeout(5000),
+    });
 
-      // 明細行テーブルにデータが入力されていることを確認
-      const lineItemTable = page.locator('form table');
-      await expect(lineItemTable).toBeVisible({ timeout: getTimeout(5000) });
-    }
+    // 確認・修正メッセージが表示される
+    await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
+      timeout: getTimeout(5000),
+    });
+
+    // REQ-16.10: 明細行フィールドに抽出データが自動入力されている
+    const lineItemTable = page.locator('form table');
+    await expect(lineItemTable).toBeVisible({ timeout: getTimeout(5000) });
   });
 
   /**
@@ -634,7 +603,7 @@ test.describe('OCR再実行・リトライ機能', () => {
    * 操作不能になった（非表示化された）ことを検証する。
    */
   test('OCR処理中にボタンが非活性になる (estimate-request/REQ-16.11)', async ({ page }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -694,12 +663,12 @@ test.describe('OCR再実行・リトライ機能', () => {
     // OCR実行ボタンをクリック
     await ocrButton.click();
 
-    // OCR処理完了を待機（結果またはエラー）
+    // OCR処理の完了を待機する。以前は「結果またはエラー」の選言で待っていたため、
+    // OCR が失敗しても観測器の判定へ進んでいた。REQ-16.4 の検証と同じく
+    // 既存ファイルは抽出が成立する経路であるため、成功のみを主張する。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-    await expect(extractedText.or(errorMessage)).toBeVisible({
-      timeout: getTimeout(60000),
-    });
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
 
     // MutationObserverの結果を取得して検証
     const observerResults = await page.evaluate(() => {
@@ -725,7 +694,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('編集画面で既存ファイルのプレビューが表示される (estimate-request/REQ-16.12)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -745,9 +714,13 @@ test.describe('OCR再実行・リトライ機能', () => {
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
     // ファイルプレビューが表示される（PDFプレビュー）（REQ-16.12）
-    // FileInlinePreviewコンポーネントがreact-pdfでPDFをレンダリングする
-    // react-pdfは .react-pdf__Document > .react-pdf__Page を生成する
-    await expect(page.locator('.react-pdf__Document')).toBeVisible({ timeout: getTimeout(15000) });
+    // Task 115.158: 以前は `.react-pdf__Document` の可視だけを見ていたが、
+    // `react-pdf` は読み込み中も失敗時もこの外枠を描画する
+    // （`react-pdf/src/Document.tsx` の `renderContent()` は内側に `Message` を置くだけ）。
+    // したがって読み込み中のまま終わっても緑になっていた。描画の成立だけを主張する。
+    // 実測: 壊れたPDFの読み込み失敗の終状態（canvas 0 件・失敗表示が可視）で
+    // この形は 21〜27 ミリ秒で緑になった。再現手順は `e2e/helpers/pdf-preview.ts` の冒頭。
+    await expectPdfPreviewRendered(page);
   });
 
   test('テストデータをクリーンアップする', async ({ page }) => {

@@ -86,10 +86,83 @@ export interface SurveyImageInfo {
   annotatedThumbnailUrl?: string | null;
   /** 注釈付きサムネイルのR2パス（要件20.4対応） */
   annotatedThumbnailPath?: string | null;
-  /** 注釈の有無 */
+  /** 注釈の有無（注釈レコードの存在から導出。回転のみの保存でも真になる） */
   hasAnnotations?: boolean;
+  /**
+   * 描画された注釈の有無（要件20.2）
+   *
+   * 画像編集画面は注釈0件（回転のみ）でも保存するため、hasAnnotations では
+   * 描画の有無を判定できない。注釈の目印の判定にはこちらを用いる。
+   */
+  hasDrawnAnnotations?: boolean;
   /** 注釈データ（注釈が存在する場合） */
   annotations?: AnnotationData[];
+}
+
+/**
+ * プロジェクト写真一覧の1件（写真選択ダイアログ用）
+ *
+ * `GET /api/projects/:projectId/survey-images` の応答要素。プロジェクト配下の
+ * 注釈付き現場調査写真のみを含み、注釈のない写真は含まれない（Requirement 4.3 / 19.2）。
+ * 表示用の署名付きURLは1件あたり1本（`displayUrl`）に限る。優先順位（注釈付きサムネイル
+ * ＞ 通常サムネイル）はサーバー側で解決済みであり、呼び出し側で再実装しない。
+ *
+ * Requirements (quantity-table-generation): 49.9, 49.10
+ */
+export interface ProjectSurveyImage {
+  /** 画像ID */
+  id: string;
+  /** 現場調査ID */
+  surveyId: string;
+  /** 現場調査名 */
+  surveyName: string;
+  /** ファイル名 */
+  fileName: string;
+  /** 一覧表示に用いる画像（署名付きURL・サムネイル解像度へ解決済み） */
+  displayUrl: string | null;
+  /** 原本画像（署名付きURL）。選択確定後の拡大表示に用いる */
+  originalUrl: string | null;
+  /**
+   * `displayUrl` が注釈をレンダリング済みの合成サムネイルであるか
+   *
+   * `displayUrl` は「注釈付きサムネイル」と「通常サムネイル」をサーバー側で1本へ畳んだ
+   * 結果であり、値だけでは両者を区別できない。合成済みの画像をクライアント側の合成へ
+   * 渡すと注釈が二重に重なる（回転補正済みの画像では重ね位置もずれる）ため、
+   * どちらであるかをこの真偽値で受け取る。
+   *
+   * Requirements (quantity-table-generation): 49.5, 49.9
+   */
+  isDisplayUrlAnnotated: boolean;
+  /**
+   * 描画された注釈の有無（Requirement 20.2）
+   *
+   * 一覧は「注釈レコードが存在する写真」に限られるが、画像編集画面は注釈0件
+   * （回転のみ）でも注釈レコードを残すため、一覧に含まれること自体は描画の有無を
+   * 意味しない。注釈の目印の判定にはこちらを用いる。
+   */
+  hasDrawnAnnotations: boolean;
+  /** コメント */
+  comment: string | null;
+  /** 画像の実寸（ピクセル・幅） */
+  width: number;
+  /** 画像の実寸（ピクセル・高さ） */
+  height: number;
+  /** 表示順序 */
+  displayOrder: number;
+}
+
+/**
+ * プロジェクト写真一覧の取得結果
+ *
+ * `hasMore` が真の場合、上限に達して切り捨てが発生し一覧に全件が含まれないことを示す。
+ *
+ * Requirements (quantity-table-generation): 49.9
+ */
+export interface ProjectSurveyImageList {
+  /** 注釈付き写真の一覧 */
+  images: ProjectSurveyImage[];
+  /** 上限に達して切り捨てが発生したか */
+  hasMore: boolean;
 }
 
 /**
@@ -114,8 +187,6 @@ export interface SiteSurveyInfo {
   thumbnailOriginalUrl?: string | null;
   /** 代表画像の注釈付きサムネイルURL（要件20.3対応） */
   annotatedThumbnailUrl?: string | null;
-  /** 代表画像ID（AnnotatedImageThumbnailフォールバック用、要件20.3対応） */
-  representativeImageId?: string | null;
   /** 画像件数 */
   imageCount: number;
   /** 作成日時（ISO8601形式） */
@@ -287,116 +358,6 @@ export interface SiteSurveyNotFoundErrorResponse {
 }
 
 // ============================================================================
-// タイプガード関数
-// ============================================================================
-
-/**
- * 値がSiteSurveyConflictErrorResponseかどうかを判定するタイプガード
- *
- * 409エラーレスポンスが現場調査の楽観的排他制御エラーかどうかを判定します。
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがSiteSurveyConflictErrorResponseならtrue
- *
- * @example
- * ```typescript
- * try {
- *   await updateSiteSurvey(projectId, surveyId, input, expectedUpdatedAt);
- * } catch (error) {
- *   if (error instanceof ApiError && error.statusCode === 409) {
- *     if (isSiteSurveyConflictErrorResponse(error.response)) {
- *       // 楽観的排他制御エラー
- *       console.log('競合が発生しました。再読み込みしてください。');
- *     }
- *   }
- * }
- * ```
- */
-export function isSiteSurveyConflictErrorResponse(
-  value: unknown
-): value is SiteSurveyConflictErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 409 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'SITE_SURVEY_CONFLICT'
-  );
-}
-
-/**
- * 値がProjectNotFoundForSurveyErrorResponseかどうかを判定するタイプガード
- *
- * 404エラーレスポンスがプロジェクト未発見エラーかどうかを判定します。
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがProjectNotFoundForSurveyErrorResponseならtrue
- */
-export function isProjectNotFoundForSurveyErrorResponse(
-  value: unknown
-): value is ProjectNotFoundForSurveyErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 404 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'PROJECT_NOT_FOUND' &&
-    typeof obj.projectId === 'string'
-  );
-}
-
-/**
- * 値がSiteSurveyNotFoundErrorResponseかどうかを判定するタイプガード
- *
- * 404エラーレスポンスが現場調査未発見エラーかどうかを判定します。
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがSiteSurveyNotFoundErrorResponseならtrue
- */
-export function isSiteSurveyNotFoundErrorResponse(
-  value: unknown
-): value is SiteSurveyNotFoundErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 404 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'SITE_SURVEY_NOT_FOUND'
-  );
-}
-
-/**
- * 値がSiteSurveySortableFieldかどうかを判定するタイプガード
- *
- * @param value - 判定する値
- * @returns valueがSiteSurveySortableFieldならtrue
- */
-export function isSiteSurveySortableField(value: unknown): value is SiteSurveySortableField {
-  return (
-    typeof value === 'string' &&
-    (SITE_SURVEY_SORTABLE_FIELDS as readonly string[]).includes(value as string)
-  );
-}
-
-// ============================================================================
 // 画像管理用型定義（Task 7.2）
 // ============================================================================
 
@@ -541,53 +502,6 @@ export interface UnsupportedFileTypeErrorResponse {
   allowedTypes: string[];
 }
 
-/**
- * 値がImageNotFoundErrorResponseかどうかを判定するタイプガード
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがImageNotFoundErrorResponseならtrue
- */
-export function isImageNotFoundErrorResponse(value: unknown): value is ImageNotFoundErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 404 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'IMAGE_NOT_FOUND'
-  );
-}
-
-/**
- * 値がUnsupportedFileTypeErrorResponseかどうかを判定するタイプガード
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがUnsupportedFileTypeErrorResponseならtrue
- */
-export function isUnsupportedFileTypeErrorResponse(
-  value: unknown
-): value is UnsupportedFileTypeErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 415 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'UNSUPPORTED_FILE_TYPE' &&
-    Array.isArray(obj.allowedTypes)
-  );
-}
-
 // ============================================================================
 // 注釈管理用型定義（Task 7.3）
 // ============================================================================
@@ -645,8 +559,6 @@ export interface AnnotationInfo {
   createdAt: string;
   /** 更新日時（ISO8601形式） */
   updatedAt: string;
-  /** 注釈付きサムネイルURL（署名付きURL、保存レスポンスに含まれる。Requirements 23.5） */
-  annotatedThumbnailUrl?: string | null;
 }
 
 /**
@@ -765,120 +677,8 @@ export interface InvalidAnnotationDataErrorResponse {
 }
 
 // ============================================================================
-// 注釈エラーレスポンス用タイプガード
+// 注釈なし応答用タイプガード
 // ============================================================================
-
-/**
- * 値がAnnotationImageNotFoundErrorResponseかどうかを判定するタイプガード
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがAnnotationImageNotFoundErrorResponseならtrue
- */
-export function isAnnotationImageNotFoundErrorResponse(
-  value: unknown
-): value is AnnotationImageNotFoundErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 404 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'ANNOTATION_IMAGE_NOT_FOUND' &&
-    typeof obj.imageId === 'string'
-  );
-}
-
-/**
- * 値がAnnotationNotFoundErrorResponseかどうかを判定するタイプガード
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがAnnotationNotFoundErrorResponseならtrue
- */
-export function isAnnotationNotFoundErrorResponse(
-  value: unknown
-): value is AnnotationNotFoundErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 404 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'ANNOTATION_NOT_FOUND' &&
-    typeof obj.imageId === 'string'
-  );
-}
-
-/**
- * 値がAnnotationConflictErrorResponseかどうかを判定するタイプガード
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがAnnotationConflictErrorResponseならtrue
- *
- * @example
- * ```typescript
- * try {
- *   await saveAnnotation(imageId, input);
- * } catch (error) {
- *   if (error instanceof ApiError && error.statusCode === 409) {
- *     if (isAnnotationConflictErrorResponse(error.response)) {
- *       // 楽観的排他制御エラー
- *       console.log('競合が発生しました。再読み込みしてください。');
- *     }
- *   }
- * }
- * ```
- */
-export function isAnnotationConflictErrorResponse(
-  value: unknown
-): value is AnnotationConflictErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 409 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'ANNOTATION_CONFLICT'
-  );
-}
-
-/**
- * 値がInvalidAnnotationDataErrorResponseかどうかを判定するタイプガード
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがInvalidAnnotationDataErrorResponseならtrue
- */
-export function isInvalidAnnotationDataErrorResponse(
-  value: unknown
-): value is InvalidAnnotationDataErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 400 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'INVALID_ANNOTATION_DATA'
-  );
-}
 
 /**
  * 値がNoAnnotationResponseかどうかを判定するタイプガード
@@ -1017,30 +817,4 @@ export interface CommentTooLongErrorResponse {
   length: number;
   /** 最大文字数 */
   maxLength: number;
-}
-
-/**
- * 値がCommentTooLongErrorResponseかどうかを判定するタイプガード
- *
- * @param value - 判定する値（通常はApiError.response）
- * @returns valueがCommentTooLongErrorResponseならtrue
- */
-export function isCommentTooLongErrorResponse(
-  value: unknown
-): value is CommentTooLongErrorResponse {
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return false;
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  return (
-    typeof obj.type === 'string' &&
-    typeof obj.title === 'string' &&
-    obj.status === 400 &&
-    typeof obj.detail === 'string' &&
-    obj.code === 'COMMENT_TOO_LONG' &&
-    typeof obj.length === 'number' &&
-    typeof obj.maxLength === 'number'
-  );
 }

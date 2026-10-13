@@ -75,6 +75,9 @@ test.describe('JWKS Endpoint E2E', () => {
       expect(contentType).toMatch(/application\/json/);
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.1
+     */
     test('RFC 7517準拠: レスポンスがkeysプロパティを持つJWKS形式であること', async ({
       request,
     }) => {
@@ -86,70 +89,86 @@ test.describe('JWKS Endpoint E2E', () => {
       expect(Array.isArray(body.keys)).toBe(true);
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.1
+     */
     test('RFC 7517準拠: 公開鍵がEdDSA (OKP) 形式であること', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
-      // 公開鍵が設定されている場合のみ検証
-      if (body.keys.length > 0) {
-        for (const key of body.keys) {
-          // RFC 7517 Section 4.1: kty (Key Type) は必須
-          expect(key).toHaveProperty('kty');
+      // 供給そのものを無条件に主張する。鍵が 0 本なら以降の RFC 準拠検証が一件も
+      // 実行されないため、「鍵が配布されていること」を先に落ちる形で確かめる。
+      expect(body.keys.length).toBeGreaterThan(0);
 
-          // EdDSA uses OKP (Octet Key Pair) key type
-          expect(key.kty).toBe('OKP');
+      for (const key of body.keys) {
+        // RFC 7517 Section 4.1: kty (Key Type) は必須
+        expect(key).toHaveProperty('kty');
 
-          // RFC 8037: Ed25519 curve for EdDSA
-          expect(key).toHaveProperty('crv', 'Ed25519');
+        // EdDSA uses OKP (Octet Key Pair) key type
+        expect(key.kty).toBe('OKP');
 
-          // RFC 8037 Section 2: x (Public Key) は必須
-          expect(key).toHaveProperty('x');
-          expect(typeof key.x).toBe('string');
-          expect(key.x!.length).toBeGreaterThan(0);
-        }
+        // RFC 8037: Ed25519 curve for EdDSA
+        expect(key).toHaveProperty('crv', 'Ed25519');
+
+        // RFC 8037 Section 2: x (Public Key) は必須
+        expect(key).toHaveProperty('x');
+        expect(typeof key.x).toBe('string');
+        expect(key.x!.length).toBeGreaterThan(0);
       }
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.3
+     */
     test('RFC 7517準拠: 公開鍵にkid (Key ID) が設定されていること', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
-      // 公開鍵が設定されている場合のみ検証
-      if (body.keys.length > 0) {
-        for (const key of body.keys) {
-          // RFC 7517 Section 4.5: kid (Key ID) は推奨
-          expect(key).toHaveProperty('kid');
-          expect(typeof key.kid).toBe('string');
-          expect(key.kid!.length).toBeGreaterThan(0);
-        }
+      // 供給そのものを無条件に主張する。鍵が 0 本なら以降の RFC 準拠検証が一件も
+      // 実行されないため、「鍵が配布されていること」を先に落ちる形で確かめる。
+      expect(body.keys.length).toBeGreaterThan(0);
+
+      for (const key of body.keys) {
+        // RFC 7517 Section 4.5: kid (Key ID) は推奨
+        expect(key).toHaveProperty('kid');
+        expect(typeof key.kid).toBe('string');
+        expect(key.kid!.length).toBeGreaterThan(0);
       }
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.3
+     */
     test('RFC 7517準拠: 公開鍵にuse (Public Key Use) が設定されていること', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
-      // 公開鍵が設定されている場合のみ検証
-      if (body.keys.length > 0) {
-        for (const key of body.keys) {
-          // RFC 7517 Section 4.2: use は "sig" (signature) または "enc" (encryption)
-          expect(key).toHaveProperty('use');
-          expect(key.use).toBe('sig');
-        }
+      // 供給そのものを無条件に主張する。鍵が 0 本なら以降の RFC 準拠検証が一件も
+      // 実行されないため、「鍵が配布されていること」を先に落ちる形で確かめる。
+      expect(body.keys.length).toBeGreaterThan(0);
+
+      for (const key of body.keys) {
+        // RFC 7517 Section 4.2: use は "sig" (signature) または "enc" (encryption)
+        expect(key).toHaveProperty('use');
+        expect(key.use).toBe('sig');
       }
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.3
+     */
     test('RFC 7517準拠: 公開鍵にalg (Algorithm) が設定されていること', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
-      // 公開鍵が設定されている場合のみ検証
-      if (body.keys.length > 0) {
-        for (const key of body.keys) {
-          // RFC 7517 Section 4.4: alg は使用されるアルゴリズムを示す
-          expect(key).toHaveProperty('alg');
-          expect(key.alg).toBe('EdDSA');
-        }
+      // 供給そのものを無条件に主張する。鍵が 0 本なら以降の RFC 準拠検証が一件も
+      // 実行されないため、「鍵が配布されていること」を先に落ちる形で確かめる。
+      expect(body.keys.length).toBeGreaterThan(0);
+
+      for (const key of body.keys) {
+        // RFC 7517 Section 4.4: alg は使用されるアルゴリズムを示す
+        expect(key).toHaveProperty('alg');
+        expect(key.alg).toBe('EdDSA');
       }
     });
 
@@ -164,26 +183,28 @@ test.describe('JWKS Endpoint E2E', () => {
       }
     });
 
-    test('猶予期間中の複数鍵配信: keys配列が空でないこと', async ({ request }) => {
+    test('鍵の配布: keys配列が空でないこと', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 
-      // JWT_PUBLIC_KEY環境変数が設定されている場合、少なくとも1つの鍵が存在
-      // 注: テスト環境では環境変数が設定されていることを前提
-      expect(body.keys.length).toBeGreaterThanOrEqual(0);
+      // テスト名（keys配列が空でないこと）どおりに主張する。
+      // `toBeGreaterThanOrEqual(0)` は配列である限り常に成立し、鍵の配布が止まっても緑だった。
+      expect(body.keys.length).toBeGreaterThan(0);
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.4
+     * @requirement user-authentication/REQ-31.5
+     */
     test('キャッシュ制御: 適切なCache-Controlヘッダーが設定されていること', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
+      expect(response.status()).toBe(200);
 
-      // Cache-Controlヘッダーが設定されている場合は検証
-      // 注: 現在の実装ではCache-Controlが設定されていない可能性がある
-      // これは将来の改善として検討
-      const cacheControl = response.headers()['cache-control'];
-      if (cacheControl) {
-        // public または private が設定されていることを確認
-        expect(cacheControl).toMatch(/public|private|max-age/);
-      }
+      // 要件31.4: ヘッダーが設定されていること。要件31.5: 有効期間が300秒であること。
+      // 期待値は具体値で書き、本番の定数（JWKS_CACHE_MAX_AGE_SECONDS）は参照しない。
+      // 「定義されている」「public / private / max-age のいずれかを含む」といった弱い主張は、
+      // 有効期間を誤った値へ変えても緑のままになるため採らない。
+      expect(response.headers()['cache-control']).toBe('public, max-age=300');
     });
   });
 });

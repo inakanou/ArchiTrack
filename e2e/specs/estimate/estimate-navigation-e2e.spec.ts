@@ -51,6 +51,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * 見積書画面構成・ナビゲーション関連のE2Eテスト
@@ -102,16 +103,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクト作成
       const createPromise = page.waitForResponse(
@@ -370,13 +362,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
       // 営業担当者を選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response) =>
@@ -1045,13 +1031,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       await page.getByLabel(/現場住所/i).fill('東京都テスト区2');
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response) =>
@@ -1103,7 +1083,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
      * 帰属は project-management 側のみに置く。
      *
      * **スケルトンは主張できない**（詳細は本文のコメントを参照）。
-     * ローディング表示はロード中に一瞬だけ現れるためネットワークを遅延させて観測する。
+     * ローディング表示はロード中に一瞬だけ現れるため、画面のデータの取得を止めて観測する。
      */
     test('REQ-28.12：ローディング中はページのローディング表示が現れ完了後に消える', async ({
       page,
@@ -1112,11 +1092,21 @@ test.describe('見積書画面構成・ナビゲーション', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // ネットワークを遅延させてローディング表示を観測する
-      await page.route('**/api/projects/*/estimates/latest*', async (route) => {
-        // 1秒遅延させる
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        await route.continue();
+      // 画面のデータの取得を、ローディング表示を観測するまで止めておく。
+      //
+      // かつてここは `estimates/latest` を 1 秒遅らせていたが、プロジェクト詳細画面は
+      // 各セクションを `detail-summary` の一回の取得でまとめて得ており、`estimates/latest`
+      // を呼ばない（実測: 遅延の経路に掛かった要求は 0 件）。遅延は一度も効いておらず、
+      // 取得が遅い環境でだけローディング表示が見えていた。速い CI では一度も見えずに
+      // 落ちた（2026-10-13）。時間で遅らせず、観測するまで止めておくことで環境の速さに
+      // 依らずに観測できる。
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await page.route('**/api/projects/*/detail-summary', async (route) => {
+        await released;
+        await route.fallback();
       });
 
       // プロジェクト詳細画面に移動
@@ -1145,6 +1135,8 @@ test.describe('見積書画面構成・ナビゲーション', () => {
       // ローディング固有の文言で名指しする
       const pageLoading = page.getByText('読み込み中...');
       await expect(pageLoading).toBeVisible({ timeout: getTimeout(10000) });
+
+      release();
 
       // ロード完了後はローディング表示が消え、見積書セクションが表示される
       await expect(page.locator('[data-testid="estimate-section"]')).toBeVisible({

@@ -1723,10 +1723,10 @@
         }
       }
     },
-    "/api/site-surveys/images/{imageId}/thumbnail": {
+    "/api/site-surveys/images/{imageId}/annotated-thumbnail": {
       "patch": {
-        "summary": "サムネイル更新",
-        "description": "注釈付き画像からサムネイルを再生成して更新",
+        "summary": "合成済みサムネイル更新",
+        "description": "画像編集画面で合成した注釈付き画像を受け取り、注釈付きサムネイル\n（annotatedThumbnailPath）として保存する。\n通常サムネイル（thumbnailPath）はアップロード時の素の画像として不変であり、\n本エンドポイントでは一切書き換えない。\n",
         "tags": [
           "Survey Images"
         ],
@@ -1768,10 +1768,94 @@
         },
         "responses": {
           "200": {
-            "description": "サムネイル更新成功"
+            "description": "合成済みサムネイル更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "annotatedThumbnailPath": {
+                      "type": "string",
+                      "description": "保存された注釈付きサムネイルのストレージキー"
+                    },
+                    "annotatedThumbnailUrl": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "注釈付きサムネイルの署名付きURL"
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
             "description": "無効な画像データ"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "画像が見つからない"
+          },
+          "503": {
+            "description": "ストレージ未設定"
+          }
+        }
+      },
+      "delete": {
+        "summary": "合成済みサムネイル取り消し",
+        "description": "注釈も回転も無い状態で保存された画像について、合成済みサムネイルが\n存在しない状態へ収束させる。annotatedThumbnailPath を空にしたうえで、\n残存する実体を後片付けする。\n通常サムネイル（thumbnailPath）は読みも書きも削除も行わない。\n既に合成済みサムネイルが無い場合も成功を返す（冪等）。\n",
+        "tags": [
+          "Survey Images"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "imageId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "画像ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "合成済みサムネイル取り消し成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "annotatedThumbnailPath": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "取り消し後の保存先（常に null）"
+                    },
+                    "annotatedThumbnailUrl": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "取り消し後の表示元（常に null）"
+                    }
+                  }
+                }
+              }
+            }
           },
           "401": {
             "description": "認証エラー"
@@ -2192,6 +2276,122 @@
           },
           "404": {
             "description": "現場調査が見つからない"
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/survey-images": {
+      "get": {
+        "summary": "プロジェクト写真一覧取得",
+        "description": "プロジェクトに紐付く現場調査のうち、注釈が存在する写真の一覧をまとめて取得する。\n写真選択・変更ダイアログが現場調査ごとの個別リクエストを発生させないための入口。\n表示用の署名付きURLは1件あたり1本（displayUrl）に限り、その1本が合成済みか否かと\n描画された注釈の有無は真偽値で伝える。\n",
+        "tags": [
+          "Site Surveys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 200,
+              "minimum": 1,
+              "maximum": 500
+            },
+            "description": "取得件数（デフォルト200、最大500）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "注釈付き写真の一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "surveyId": {
+                            "type": "string"
+                          },
+                          "surveyName": {
+                            "type": "string"
+                          },
+                          "fileName": {
+                            "type": "string"
+                          },
+                          "displayUrl": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "originalUrl": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "isDisplayUrlAnnotated": {
+                            "type": "boolean",
+                            "description": "displayUrl が注釈をレンダリング済みの合成サムネイルであるか。\n偽の場合は通常のサムネイルであり、注釈の反映は呼び出し側が行う。\n"
+                          },
+                          "hasDrawnAnnotations": {
+                            "type": "boolean",
+                            "description": "描画された注釈の有無。注釈レコードは回転のみの保存でも残るため、\n一覧に含まれること（注釈レコードの存在）とは一致しない。\n"
+                          },
+                          "comment": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "width": {
+                            "type": "integer"
+                          },
+                          "height": {
+                            "type": "integer"
+                          },
+                          "displayOrder": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "hasMore": {
+                      "type": "boolean",
+                      "description": "上限に達して切り捨てが発生したか"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない"
           }
         }
       }
@@ -2817,6 +3017,11 @@
                   },
                   "priority": {
                     "type": "integer"
+                  },
+                  "expectedUpdatedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "楽観的ロックの版（任意）。取得時の updatedAt。古いときは 409 ROLE_CONFLICT"
                   }
                 }
               }
@@ -2840,7 +3045,7 @@
             "description": "ロールが見つからない"
           },
           "409": {
-            "description": "ロール名の重複"
+            "description": "ロール名の重複（ROLE_NAME_CONFLICT）、または楽観的ロックの競合（ROLE_CONFLICT、Problem Details）"
           }
         }
       },
@@ -3636,7 +3841,7 @@
         ],
         "responses": {
           "200": {
-            "description": "数量表詳細"
+            "description": "数量表詳細。他プロジェクトの現調画像を指す既存の紐付けは写真サマリと surveyImageId を\n落として返し（Task 86.3）、落とした紐付けを持つグループのIDを\ndroppedSurveyImageLinkGroupIds（落としていなければ空配列）で返す（Task 86.5）。\n他プロジェクトの画像IDは返さない。\n"
           },
           "401": {
             "description": "認証エラー"
@@ -3859,10 +4064,16 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "数量表が見つからない"
+            "description": "数量表が見つからない（code: QUANTITY_TABLE_NOT_FOUND）、または指定した現調画像が\n存在しない（code: SURVEY_IMAGE_NOT_FOUND。見つからなかった画像IDを surveyImageId で返す）\n"
           },
           "409": {
             "description": "楽観的排他制御エラー（競合）"
+          },
+          "410": {
+            "description": "指定した現調画像の親の現場調査が論理削除済み（code: SURVEY_DELETED）。\n削除された現場調査IDを surveyId で返し、原因のグループを\ngroups[i].surveyImageId（i は payload 上のグループの位置）で名指す（Task 90.2）\n"
+          },
+          "503": {
+            "description": "同一数量表への先行の保存が長引き、行ロックの待機が上限（2 秒）を超えた\n（code: QUANTITY_TABLE_SAVE_BUSY。Task 92.5）。変更は一切保存されていない。\n時間をおいて再送すれば解消する種類の失敗である\n"
           }
         }
       }
@@ -3870,7 +4081,7 @@
     "/api/quantity-tables/{id}/copy": {
       "post": {
         "summary": "数量表コピー",
-        "description": "既存の数量表を全データ（グループ・項目・写真紐づけ）含めてディープコピーする",
+        "description": "既存の数量表を全データ（グループ・項目・写真紐づけ）含めてディープコピーする。\nただし当該数量表と別のプロジェクトの現場調査画像を指す紐づけは複製先へ写さない\n（複製先の surveyImageId は null になる。複製自体は成功する）。\n",
         "tags": [
           "Quantity Tables"
         ],
@@ -3937,7 +4148,7 @@
     "/api/quantity-groups/{groupId}/items": {
       "post": {
         "summary": "数量項目作成",
-        "description": "新しい数量項目を作成",
+        "description": "新しい数量項目を作成する。\nテキスト欄には maxLength（符号単位）とは別に文字幅の上限が課される（全角2・半角1で換算）。\n大項目・中項目・小項目・任意分類・名称・規格・備考は幅50、工種は幅16、単位は幅6。\n上限を超える値は 400（code: QUANTITY_TABLE_VALIDATION_ERROR）で拒否され、\n応答本体に違反したフィールド名と理由が入る。保存（PUT /api/quantity-tables/{id}/save）と同一の判定である。\n",
         "tags": [
           "Quantity Items"
         ],
@@ -4006,6 +4217,11 @@
                   },
                   "quantity": {
                     "type": "number"
+                  },
+                  "displayOrder": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "表示順序（任意）。省略時は当該グループの末尾へ採番する。既存項目と同じ値は 400 で拒否する"
                   }
                 }
               }
@@ -4017,7 +4233,7 @@
             "description": "数量項目作成成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー。テキスト欄の文字幅上限違反は code: QUANTITY_TABLE_VALIDATION_ERROR で、\n違反したフィールド名をキーに理由を持つ。表示順序が既存項目と重複する場合も\n同じ code で拒否する\n"
           },
           "401": {
             "description": "認証エラー"
@@ -4125,7 +4341,7 @@
             "description": "更新成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（適用後の表示順序が重複する場合を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -4177,7 +4393,7 @@
       },
       "put": {
         "summary": "数量項目更新",
-        "description": "既存の数量項目情報を更新（楽観的排他制御）",
+        "description": "既存の数量項目情報を更新する（楽観的排他制御）。\nテキスト欄には作成と同一の文字幅の上限が課される（全角2・半角1で換算）。\n大項目・中項目・小項目・任意分類・名称・規格・備考は幅50、工種は幅16、単位は幅6。\n上限を超える値は 400（code: QUANTITY_TABLE_VALIDATION_ERROR）で拒否され、当該行は変化しない。\n",
         "tags": [
           "Quantity Items"
         ],
@@ -4217,6 +4433,11 @@
                   "quantity": {
                     "type": "number"
                   },
+                  "displayOrder": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "表示順序。当該グループの他の項目が使っている値は 400 で拒否する"
+                  },
                   "expectedUpdatedAt": {
                     "type": "string",
                     "format": "date-time"
@@ -4231,7 +4452,7 @@
             "description": "数量項目更新成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー。テキスト欄の文字幅上限違反は code: QUANTITY_TABLE_VALIDATION_ERROR で、\n違反したフィールド名をキーに理由を持つ。表示順序が他の項目と重複する場合も\n同じ code で拒否する\n"
           },
           "401": {
             "description": "認証エラー"
@@ -4378,7 +4599,7 @@
             "description": "数量項目移動成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（移動先で使われている表示順序を指定した場合を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -4540,7 +4761,8 @@
                   },
                   "displayOrder": {
                     "type": "integer",
-                    "minimum": 0
+                    "minimum": 0,
+                    "description": "表示順序（任意）。省略時は当該数量表の末尾へ採番する。既存グループと同じ値は 400 で拒否する"
                   }
                 }
               }
@@ -4552,7 +4774,7 @@
             "description": "数量グループ作成成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（表示順序が既存グループと重複する場合を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -4660,7 +4882,7 @@
             "description": "更新成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（適用後の表示順序が重複する場合を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -4755,7 +4977,8 @@
                     "format": "uuid"
                   },
                   "displayOrder": {
-                    "type": "integer"
+                    "type": "integer",
+                    "description": "表示順序。当該数量表の他のグループが使っている値は 400 で拒否する"
                   },
                   "expectedUpdatedAt": {
                     "type": "string",
@@ -4771,7 +4994,7 @@
             "description": "数量グループ更新成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（表示順序が他のグループと重複する場合を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -4829,7 +5052,7 @@
     "/api/quantity-groups/{id}/copy": {
       "post": {
         "summary": "数量グループのコピー",
-        "description": "指定された数量グループを同一数量表内に複製し、元グループの直下に挿入する。\n配下の全数量項目と現場調査写真の紐づけも複製される。\n",
+        "description": "指定された数量グループを同一数量表内に複製し、元グループの直下に挿入する。\n配下の全数量項目と現場調査写真の紐づけも複製される。\nただし当該数量表と別のプロジェクトの現場調査画像を指す紐づけは複製先へ写さない\n（複製先の surveyImageId は null になる。複製自体は成功する）。\n",
         "tags": [
           "Quantity Groups"
         ],
@@ -4978,7 +5201,7 @@
             "name": "limit",
             "schema": {
               "type": "integer",
-              "default": 20,
+              "default": 100,
               "maximum": 100
             },
             "description": "1ページあたりの表示件数（1〜100）"
@@ -5019,13 +5242,31 @@
           },
           {
             "in": "query",
+            "name": "tradingPartnerId",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "取引先IDフィルタ（UUID形式、指定した取引先のプロジェクトのみ）"
+          },
+          {
+            "in": "query",
+            "name": "excludeTerminalStatuses",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "true の場合、終端ステータス（完了・中止・失注）のプロジェクトを除外する。status を指定した場合は status を優先し本項目は適用しない。値は true または false のみ受け付ける"
+          },
+          {
+            "in": "query",
             "name": "sort",
             "schema": {
               "type": "string",
               "enum": [
-                "id",
                 "name",
-                "tradingPartnerId",
+                "customerName",
+                "salesPersonName",
+                "constructionPersonName",
                 "status",
                 "createdAt",
                 "updatedAt"
@@ -5115,6 +5356,51 @@
           },
           "400": {
             "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/projects/status-counts": {
+      "get": {
+        "summary": "ステータス別プロジェクト件数取得",
+        "description": "全プロジェクト（論理削除を除く）のステータス別件数を取得。検索条件・フィルタ条件は適用しない。",
+        "tags": [
+          "Projects"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ステータス別件数",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "counts": {
+                      "type": "object",
+                      "description": "全12ステータスの件数（キーはステータス、該当0件のステータスも0で含む）",
+                      "additionalProperties": {
+                        "type": "integer"
+                      }
+                    },
+                    "total": {
+                      "type": "integer",
+                      "description": "全ステータス合計件数"
+                    }
+                  }
+                }
+              }
+            }
           },
           "401": {
             "description": "認証エラー"
@@ -6822,6 +7108,118 @@
         }
       }
     },
+    "/api/estimates/{id}/edit-session": {
+      "put": {
+        "summary": "見積書の編集セッションの在席通知",
+        "description": "見積書詳細画面を開いている間、画面が一定間隔で呼び出す。呼び出した利用者の在席を\n記録し、TTL 以内に在席を通知した**他の**利用者（編集中の利用者）を返す（REQ-11.7）。\n見積書の updatedAt は進めないため、保存の楽観的排他制御（REQ-11.6）に影響しない。\n",
+        "tags": [
+          "Estimates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "在席を記録し、編集中の他の利用者を返す",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "otherEditors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "userId": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "lastSeenAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "ttlSeconds": {
+                      "type": "integer"
+                    },
+                    "heartbeatIntervalSeconds": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない"
+          }
+        }
+      },
+      "delete": {
+        "summary": "見積書の編集セッションの退出",
+        "description": "見積書詳細画面を離れたときに呼び出し、呼び出した利用者の在席を消す（冪等）",
+        "tags": [
+          "Estimates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "在席を消した（既に無い場合も含む）"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
     "/api/projects/{projectId}/estimate-requests": {
       "post": {
         "summary": "見積依頼作成",
@@ -6958,6 +7356,74 @@
         "responses": {
           "200": {
             "description": "見積依頼一覧"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/estimate-requests/latest": {
+      "get": {
+        "summary": "直近の見積依頼一覧と総数を取得",
+        "description": "プロジェクト詳細画面の見積依頼セクション用に、直近N件の見積依頼と総数を取得",
+        "tags": [
+          "Estimate Requests"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 2,
+              "minimum": 1,
+              "maximum": 10
+            },
+            "description": "取得件数（1〜10、デフォルト: 2）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "見積依頼サマリー",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalCount": {
+                      "type": "integer",
+                      "description": "見積依頼の総数"
+                    },
+                    "latestRequests": {
+                      "type": "array",
+                      "description": "直近N件の見積依頼"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "バリデーションエラー（projectId が UUID でない）"
           },
           "401": {
             "description": "認証エラー"
@@ -8506,7 +8972,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "アルバムが見つからない、またはアクセス権のないプロジェクト"
+            "description": "アルバムが見つからない、またはアルバムかプロジェクトが論理削除済み"
           },
           "503": {
             "description": "ストレージ未設定"
@@ -8572,7 +9038,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "アルバムが見つからない"
+            "description": "アルバムが見つからない、またはアルバムかプロジェクトが論理削除済み"
           },
           "413": {
             "description": "ファイルサイズ超過"
@@ -8645,6 +9111,9 @@
           "404": {
             "description": "アルバムが見つからない、または他プロジェクト/存在しない現調写真を含む"
           },
+          "410": {
+            "description": "親の現場調査が論理削除済みの現調写真を含む（code SURVEY_DELETED。複製は一切行わない）"
+          },
           "503": {
             "description": "ストレージ未設定"
           }
@@ -8695,7 +9164,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "写真項目/看板が見つからない、またはアクセス権のないプロジェクト"
+            "description": "写真項目/看板が見つからない、またはアルバムかプロジェクトが論理削除済み"
           },
           "503": {
             "description": "ストレージ未設定"
@@ -8759,7 +9228,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "写真項目が見つからない、またはアクセス権のないプロジェクト"
+            "description": "写真項目が見つからない、またはアルバムかプロジェクトが論理削除済み"
           },
           "503": {
             "description": "ストレージ未設定"
@@ -8802,7 +9271,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "写真項目が見つからない、またはアクセス権のないプロジェクト"
+            "description": "写真項目が見つからない、またはアルバムかプロジェクトが論理削除済み"
           },
           "503": {
             "description": "ストレージ未設定"
@@ -8853,7 +9322,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "写真項目が見つからない、またはアクセス権のないプロジェクト"
+            "description": "写真項目が見つからない、またはアルバムかプロジェクトが論理削除済み"
           },
           "503": {
             "description": "ストレージ未設定"
@@ -8904,7 +9373,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "写真項目が見つからない、またはアクセス権のないプロジェクト"
+            "description": "写真項目が見つからない、またはアルバムかプロジェクトが論理削除済み"
           },
           "503": {
             "description": "ストレージ未設定"
@@ -9386,6 +9855,11 @@
                     "type": "string",
                     "description": "Updated display name",
                     "example": "John Smith"
+                  },
+                  "expectedUpdatedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "楽観的ロックの版（任意）。GET /api/v1/auth/me の updatedAt。古いときは 409 PROFILE_CONFLICT"
                   }
                 }
               }
@@ -9408,6 +9882,11 @@
                     },
                     "displayName": {
                       "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "次の更新で expectedUpdatedAt として送り返す版"
                     }
                   }
                 }
@@ -9416,6 +9895,12 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "ユーザーが見つからない（USER_NOT_FOUND、Problem Details）"
+          },
+          "409": {
+            "description": "楽観的ロックの競合（PROFILE_CONFLICT、Problem Details）"
           }
         }
       }

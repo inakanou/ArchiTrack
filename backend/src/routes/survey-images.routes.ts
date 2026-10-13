@@ -11,9 +11,9 @@
  * - 4.1: 画像をストレージに保存し現場調査に紐付ける
  * - 4.2: バッチアップロードを実行する
  * - 4.7: ユーザーが画像を削除すると、画像と関連する注釈データを削除する
- * - 4.9: 画像一覧を固定の表示順序で表示する
- * - 4.10: ユーザーが画像をドラッグアンドドロップすると、画像の表示順序を変更して保存する
- * - 12.1, 12.2, 12.3: 認証・認可ミドルウェア適用
+ * - 4.10: 画像一覧を固定の表示順序で表示する
+ * - 4.11: ユーザーが画像をドラッグアンドドロップすると、画像の表示順序を変更する
+ * - 14.1, 14.2, 14.3: 認証・認可ミドルウェア適用
  *
  * @module routes/survey-images
  */
@@ -27,6 +27,12 @@ import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import logger from '../utils/logger.js';
+import { moveToOrphaned } from '../utils/orphaned-object.js';
+import {
+  SurveyDeletedError,
+  assertSurveyNotDeleted,
+  sendSurveyDeletedProblem,
+} from '../utils/survey-deleted-guard.js';
 
 // Services
 import { SiteSurveyService } from '../services/site-survey.service.js';
@@ -132,6 +138,31 @@ initializeStorageServices().catch((error) => {
 
 const imageOrderService = new ImageOrderService({ prisma });
 const imageMetadataService = new ImageMetadataService({ prisma });
+
+/**
+ * 注釈付き（合成済み）サムネイルのストレージ区画
+ *
+ * Task 115.1: 画像編集画面で合成された画像はこの区画にのみ保存し、
+ * 通常サムネイル（`surveys/{surveyId}/...`）と区画で識別できるようにする。
+ */
+const ANNOTATED_THUMBNAIL_PREFIX = 'annotated-thumbnails';
+
+/**
+ * 注釈付き（合成済み）サムネイルの保存形式
+ *
+ * Task 115.18: 保存キーの拡張子・Content-Type・保存する実体の3者を同じ形式で揃える。
+ * 生成側は既定で元画像の形式を保つため、ここで宣言した形式を生成側へも渡して固定する。
+ * 表示・ダウンロードの経路は拡張子とContent-Typeから形式を判断するため、
+ * 申告側ではなく生成側を申告に合わせる。
+ */
+const ANNOTATED_THUMBNAIL_OUTPUT_FORMAT = 'jpeg' as const;
+const ANNOTATED_THUMBNAIL_EXTENSION = 'jpg';
+const ANNOTATED_THUMBNAIL_CONTENT_TYPE = 'image/jpeg';
+
+/**
+ * 注釈付きサムネイルの署名付きURL有効期限（秒）
+ */
+const ANNOTATED_THUMBNAIL_URL_EXPIRES_IN = 900;
 
 /**
  * バリデーションスキーマ
@@ -371,6 +402,7 @@ router.post(
       // これによりフロントエンドは詳細データを再取得せずに、返却された画像を
       // 一覧へ追記して即座に表示できる（追加のたびに全画像を再取得する遅延を回避）。
       // 新規アップロード画像には注釈が存在しないため hasAnnotations は常に false。
+      // 描画された注釈も当然存在しないため hasDrawnAnnotations も false（Task 115.13）。
       const enrichedSuccessful = await Promise.all(
         result.successful.map(async (image) => {
           const [originalUrl, thumbnailUrl] = await Promise.all([
@@ -383,6 +415,7 @@ router.post(
             originalUrl,
             thumbnailUrl,
             hasAnnotations: false,
+            hasDrawnAnnotations: false,
           };
         })
       );
@@ -635,6 +668,11 @@ router.patch(
         }))
       );
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof MetadataImageNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/image-not-found',
@@ -719,6 +757,11 @@ router.delete(
 
       res.status(204).send();
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof ImageNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/image-not-found',
@@ -826,6 +869,11 @@ router.patch(
         displayOrder: updatedImage.displayOrder,
       });
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof MetadataImageNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/image-not-found',
@@ -856,10 +904,14 @@ router.patch(
 
 /**
  * @swagger
- * /api/site-surveys/images/{imageId}/thumbnail:
+ * /api/site-surveys/images/{imageId}/annotated-thumbnail:
  *   patch:
- *     summary: サムネイル更新
- *     description: 注釈付き画像からサムネイルを再生成して更新
+ *     summary: 合成済みサムネイル更新
+ *     description: |
+ *       画像編集画面で合成した注釈付き画像を受け取り、注釈付きサムネイル
+ *       （annotatedThumbnailPath）として保存する。
+ *       通常サムネイル（thumbnailPath）はアップロード時の素の画像として不変であり、
+ *       本エンドポイントでは一切書き換えない。
  *     tags:
  *       - Survey Images
  *     security:
@@ -886,7 +938,21 @@ router.patch(
  *                 description: Base64エンコードされた画像データ（data:image/...形式）
  *     responses:
  *       200:
- *         description: サムネイル更新成功
+ *         description: 合成済みサムネイル更新成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 annotatedThumbnailPath:
+ *                   type: string
+ *                   description: 保存された注釈付きサムネイルのストレージキー
+ *                 annotatedThumbnailUrl:
+ *                   type: string
+ *                   nullable: true
+ *                   description: 注釈付きサムネイルの署名付きURL
  *       400:
  *         description: 無効な画像データ
  *       401:
@@ -895,9 +961,11 @@ router.patch(
  *         description: 権限不足
  *       404:
  *         description: 画像が見つからない
+ *       503:
+ *         description: ストレージ未設定
  */
 router.patch(
-  '/:imageId/thumbnail',
+  '/:imageId/annotated-thumbnail',
   authenticate,
   requirePermission('site_survey:update'),
   validate(imageIdParamSchema, 'params'),
@@ -907,26 +975,15 @@ router.patch(
       const { imageId } = req.validatedParams as { imageId: string };
       const { imageData } = req.validatedBody as { imageData: string };
 
-      // ストレージサービスが利用可能か確認
-      if (!imageUploadService) {
-        res.status(503).json({
-          type: 'https://architrack.example.com/problems/storage-not-configured',
-          title: 'Storage Not Configured',
-          status: 503,
-          detail: 'ストレージが設定されていません',
-          code: 'STORAGE_NOT_CONFIGURED',
-        });
-        return;
-      }
-
-      // 画像の存在確認
+      // 画像の存在確認（親の削除状態も同じ問い合わせで取得する）
+      // 注意: thumbnailPath は取得しない。本経路は通常サムネイルを読みも書きもしない。
       const image = await prisma.surveyImage.findUnique({
         where: { id: imageId },
         select: {
           id: true,
           surveyId: true,
-          thumbnailPath: true,
-          fileName: true,
+          annotatedThumbnailPath: true,
+          survey: { select: { deletedAt: true } },
         },
       });
 
@@ -942,22 +999,29 @@ router.patch(
         return;
       }
 
-      // Base64データをバッファに変換
-      const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
-      const imageBuffer = Buffer.from(base64Data, 'base64');
+      // 論理削除された現場調査の画像は変更できない（Requirements 1.5 / Task 115.124）
+      assertSurveyNotDeleted(
+        image.survey,
+        image.surveyId,
+        `削除された現場調査の画像は変更できません: ${image.surveyId}`
+      );
 
       // ストレージプロバイダーを取得
-      const storageProvider = getStorageProvider();
+      const storageProvider = isStorageConfigured() ? getStorageProvider() : null;
       if (!storageProvider) {
         res.status(503).json({
           type: 'https://architrack.example.com/problems/storage-not-configured',
           title: 'Storage Not Configured',
           status: 503,
-          detail: 'ストレージプロバイダーが利用できません',
+          detail: 'ストレージが設定されていません',
           code: 'STORAGE_NOT_CONFIGURED',
         });
         return;
       }
+
+      // Base64データをバッファに変換
+      const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+      const imageBuffer = Buffer.from(base64Data, 'base64');
 
       // Sharpをダイナミックインポートしてサムネイル生成
       const sharpModule = await import('sharp');
@@ -965,43 +1029,235 @@ router.patch(
       const imageProcessorService = new ImageProcessorService(((input: Buffer) =>
         sharp(input)) as import('../services/image-processor.service.js').SharpStatic);
 
-      const thumbnailBuffer = await imageProcessorService.generateThumbnail(imageBuffer);
+      // 保存キーの拡張子とContent-Typeで申告する形式に、生成する実体を一致させる
+      // （Task 115.18: 既定は元画像の形式を保つため明示的に固定する）
+      const thumbnailBuffer = await imageProcessorService.generateThumbnail(
+        imageBuffer,
+        undefined,
+        undefined,
+        { outputFormat: ANNOTATED_THUMBNAIL_OUTPUT_FORMAT }
+      );
 
-      // 新しいサムネイルパスを生成（既存パスを上書き）
-      const timestamp = Date.now();
-      const newThumbnailPath = `surveys/${image.surveyId}/${timestamp}_thumb_annotated_${image.fileName}`;
-
-      // サムネイルをストレージにアップロード
-      await storageProvider.upload(newThumbnailPath, thumbnailBuffer, {
-        contentType: 'image/jpeg',
+      // 1. 注釈付きサムネイル用の区画へタイムスタンプ付き新キーで保存
+      //    通常サムネイル（surveys/{surveyId}/...）とは区画で識別できる
+      //    保存に失敗した場合は例外を伝播させ DB は更新しない（旧い表示元を維持）
+      const newAnnotatedThumbnailPath = `${ANNOTATED_THUMBNAIL_PREFIX}/${imageId}.${Date.now()}.${ANNOTATED_THUMBNAIL_EXTENSION}`;
+      await storageProvider.upload(newAnnotatedThumbnailPath, thumbnailBuffer, {
+        contentType: ANNOTATED_THUMBNAIL_CONTENT_TYPE,
       });
 
-      // 古いサムネイルを削除（エラーは無視）
-      if (image.thumbnailPath && image.thumbnailPath !== newThumbnailPath) {
+      // 2. DB を新キーへ切り替え（annotatedThumbnailPath のみ。thumbnailPath は不変）
+      const oldAnnotatedThumbnailPath = image.annotatedThumbnailPath;
+      try {
+        await prisma.surveyImage.update({
+          where: { id: imageId },
+          data: { annotatedThumbnailPath: newAnnotatedThumbnailPath },
+        });
+      } catch (updateError) {
+        // 保存済みの実体はどこからも参照されないまま残る。ただし更新が実際には
+        // 適用されたうえで応答だけを失う経路があるため、失敗を理由に消すと項目が
+        // 実在しないキーを指す危険がある。そこで消さずに既定の孤立ファイル回収
+        // （orphaned/ 区画へ移し 7 日後に自動削除）へ載せる。(Requirements: 4.8)
+        await moveToOrphaned(storageProvider, newAnnotatedThumbnailPath, updateError, { imageId });
+        throw updateError;
+      }
+
+      // 3. 旧い合成済みサムネイルの best-effort 削除（通常サムネイルは削除対象外）
+      if (oldAnnotatedThumbnailPath && oldAnnotatedThumbnailPath !== newAnnotatedThumbnailPath) {
         try {
-          await storageProvider.delete(image.thumbnailPath);
-        } catch {
-          logger.warn({ oldPath: image.thumbnailPath }, 'Failed to delete old thumbnail');
+          await storageProvider.delete(oldAnnotatedThumbnailPath);
+        } catch (deleteError) {
+          logger.warn(
+            {
+              imageId,
+              oldPath: oldAnnotatedThumbnailPath,
+              error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+            },
+            'Failed to delete stale annotated thumbnail (best-effort)'
+          );
         }
       }
 
-      // データベースのサムネイルパスを更新
-      await prisma.surveyImage.update({
-        where: { id: imageId },
-        data: { thumbnailPath: newThumbnailPath },
-      });
+      // 4. 更新後の表示元を署名付きURLで返す（呼び出し元が追加取得なしに画面へ反映できる）
+      let annotatedThumbnailUrl: string | null = null;
+      try {
+        annotatedThumbnailUrl = await storageProvider.getSignedUrl(newAnnotatedThumbnailPath, {
+          expiresIn: ANNOTATED_THUMBNAIL_URL_EXPIRES_IN,
+        });
+      } catch (urlError) {
+        logger.warn(
+          {
+            imageId,
+            path: newAnnotatedThumbnailPath,
+            error: urlError instanceof Error ? urlError.message : String(urlError),
+          },
+          'Failed to generate annotatedThumbnailUrl'
+        );
+      }
 
       logger.info(
-        { userId: req.user!.userId, imageId, newThumbnailPath },
-        'Thumbnail updated with annotations'
+        { userId: req.user!.userId, imageId, annotatedThumbnailPath: newAnnotatedThumbnailPath },
+        'Annotated thumbnail updated from editor composite'
       );
 
       res.status(200).json({
         success: true,
-        thumbnailPath: newThumbnailPath,
+        annotatedThumbnailPath: newAnnotatedThumbnailPath,
+        annotatedThumbnailUrl,
       });
     } catch (error) {
-      logger.error({ error }, 'Failed to update thumbnail');
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
+      logger.error({ error }, 'Failed to update annotated thumbnail');
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/site-surveys/images/{imageId}/annotated-thumbnail:
+ *   delete:
+ *     summary: 合成済みサムネイル取り消し
+ *     description: |
+ *       注釈も回転も無い状態で保存された画像について、合成済みサムネイルが
+ *       存在しない状態へ収束させる。annotatedThumbnailPath を空にしたうえで、
+ *       残存する実体を後片付けする。
+ *       通常サムネイル（thumbnailPath）は読みも書きも削除も行わない。
+ *       既に合成済みサムネイルが無い場合も成功を返す（冪等）。
+ *     tags:
+ *       - Survey Images
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: imageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 画像ID
+ *     responses:
+ *       200:
+ *         description: 合成済みサムネイル取り消し成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 annotatedThumbnailPath:
+ *                   type: string
+ *                   nullable: true
+ *                   description: 取り消し後の保存先（常に null）
+ *                 annotatedThumbnailUrl:
+ *                   type: string
+ *                   nullable: true
+ *                   description: 取り消し後の表示元（常に null）
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: 画像が見つからない
+ */
+router.delete(
+  '/:imageId/annotated-thumbnail',
+  authenticate,
+  // 画像編集画面の保存操作の一部であるため、更新権限で足りる（削除権限は要求しない）
+  requirePermission('site_survey:update'),
+  validate(imageIdParamSchema, 'params'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { imageId } = req.validatedParams as { imageId: string };
+
+      // 注意: thumbnailPath は取得しない。本経路は通常サムネイルを読みも書きもしない。
+      // 親の削除状態は同じ問い合わせで取得する。
+      const image = await prisma.surveyImage.findUnique({
+        where: { id: imageId },
+        select: {
+          id: true,
+          surveyId: true,
+          annotatedThumbnailPath: true,
+          survey: { select: { deletedAt: true } },
+        },
+      });
+
+      if (!image) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/image-not-found',
+          title: 'Image Not Found',
+          status: 404,
+          detail: `画像が見つかりません: ${imageId}`,
+          code: 'IMAGE_NOT_FOUND',
+          imageId,
+        });
+        return;
+      }
+
+      // 論理削除された現場調査の画像は変更できない（Requirements 1.5 / Task 115.124）
+      assertSurveyNotDeleted(
+        image.survey,
+        image.surveyId,
+        `削除された現場調査の画像は変更できません: ${image.surveyId}`
+      );
+
+      const staleAnnotatedThumbnailPath = image.annotatedThumbnailPath;
+
+      // 既に合成済みサムネイルが無い場合は何も変更しない（Req 23.8: 冪等）
+      if (staleAnnotatedThumbnailPath) {
+        // 1. 先に項目を空へ切り替える（annotatedThumbnailPath のみ。thumbnailPath は不変）。
+        //    実体より先に項目を空にすることで、実体だけが失われた表示元を指す瞬間を作らない。
+        //    表示側は空になった時点で素のサムネイルへ退避する。
+        await prisma.surveyImage.update({
+          where: { id: imageId },
+          data: { annotatedThumbnailPath: null },
+        });
+
+        // 2. 残存する合成済みサムネイルの実体を best-effort 削除（通常サムネイルは削除対象外）
+        const storageProvider = isStorageConfigured() ? getStorageProvider() : null;
+        if (storageProvider) {
+          try {
+            await storageProvider.delete(staleAnnotatedThumbnailPath);
+          } catch (deleteError) {
+            logger.warn(
+              {
+                imageId,
+                stalePath: staleAnnotatedThumbnailPath,
+                error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+              },
+              'Failed to delete annotated thumbnail object (best-effort)'
+            );
+          }
+        } else {
+          logger.warn(
+            { imageId, stalePath: staleAnnotatedThumbnailPath },
+            'Storage is not configured; annotated thumbnail object left in place'
+          );
+        }
+
+        logger.info(
+          { userId: req.user!.userId, imageId, stalePath: staleAnnotatedThumbnailPath },
+          'Annotated thumbnail cleared (no annotations and no rotation)'
+        );
+      }
+
+      res.status(200).json({
+        success: true,
+        annotatedThumbnailPath: null,
+        annotatedThumbnailUrl: null,
+      });
+    } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（順序更新経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
+      logger.error({ error }, 'Failed to clear annotated thumbnail');
       next(error);
     }
   }

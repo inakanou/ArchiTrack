@@ -11,11 +11,11 @@
  * - REQ-1.7: 内訳書名200文字制限
  * - REQ-1.8: 数量表なし時のボタン無効化
  * - REQ-1.9, REQ-1.10: エラーケース（空の数量表、重複名）
- * - REQ-3.3: 内訳書なし時のメッセージ
- * - REQ-3.4: 一覧行の情報表示
- * - REQ-3.5: 内訳書一覧表示（プロジェクト詳細からの遷移）
+ * - 内訳書セクション（旧 Requirement 3・Requirement 11）は project-management/Requirement 26 へ
+ *   移管済み。当該の被覆印は移管先の番号で名乗る（下記の各テストの前書きを参照）
  * - REQ-4.2: カラム順序
  * - REQ-4.3: 数量小数点2桁表示
+ * - REQ-4.4: 詳細画面のパンくずの上位階層への戻りリンク（タスク 26.1）
  * - REQ-4.5: ヘッダー作成日時表示
  * - REQ-4.7: ページネーション
  * - REQ-5.1: ソートボタン表示
@@ -26,16 +26,18 @@
  * - REQ-6.4: 複数フィルタAND結合
  * - REQ-6.5: フィルタ0件時メッセージ
  * - REQ-6.6: フィルタクリアボタン
+ * - REQ-7.1: 詳細画面の削除ボタン表示（タスク 26.1）
  * - REQ-7.2: 削除確認ダイアログ
  * - REQ-7.3: 削除確定→論理削除
  * - REQ-7.4: 削除エラー時メッセージ
  * - REQ-8.2: スナップショット独立性（数量表更新）
+ * - REQ-8.3: スナップショット独立性（数量表を一覧画面の削除の操作で消した後の詳細画面。タスク 26.2）
  * - REQ-8.4: 集計元数量表名表示
  * - REQ-9.2: パンくず形式
- * - REQ-9.3, REQ-9.4: パンくずナビゲーション遷移
+ * - REQ-9.3: 内訳書詳細画面のパンくず表示
+ * - REQ-9.4: パンくずの「ダッシュボード」から遷移（一覧・新規作成・詳細の各画面。タスク 26.1）
+ * - REQ-9.7: パンくずの「内訳書一覧」から遷移（新規作成・詳細の各画面。タスク 26.1）
  * - REQ-10.4: 楽観的排他制御エラー
- * - REQ-11.4: 作成済み内訳書リンク
- * - REQ-11.5: 一覧画面リンク
  * - REQ-12.1, REQ-12.2, REQ-12.3: ローディング表示
  * - REQ-12.4: ローディング中ボタン無効化
  * - REQ-13.1: Excelダウンロードボタン表示
@@ -60,9 +62,16 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import ExcelJS from 'exceljs';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
+import {
+  requireItemizedStatementFilterClearButton,
+  requireItemizedStatementFilterInput,
+} from '../../helpers/itemized-statement-preconditions';
 
 /**
  * 内訳書CRUD機能のE2Eテスト
@@ -70,6 +79,12 @@ import ExcelJS from 'exceljs';
 test.describe('内訳書CRUD操作', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
+
+  /** 事前準備で作成する唯一の数量項目の名称（フィルタで除外できることを確認するために用いる） */
+  const SEEDED_ITEM_NAME = '名称1';
+
+  /** どの内訳項目にも一致しないフィルタ値（フィルタ結果を0件にするために用いる） */
+  const NO_MATCH_FILTER_VALUE = '存在しないパターン12345';
 
   // テストで作成したリソースのIDを保存
   let testProjectId: string | null = null;
@@ -106,16 +121,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 営業担当者を選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -204,7 +210,7 @@ test.describe('内訳書CRUD操作', () => {
         data: {
           customCategory: '任意分類1',
           workType: '工種1',
-          name: '名称1',
+          name: SEEDED_ITEM_NAME,
           specification: '規格1',
           unit: 'm2',
           quantity: 100,
@@ -389,6 +395,7 @@ test.describe('内訳書CRUD操作', () => {
 
     /**
      * @requirement itemized-statement-generation/REQ-6.1: The 内訳書詳細画面 shall フィルタ入力エリアを提供する
+     * @requirement itemized-statement-generation/REQ-6.6: The フィルタ shall クリアボタンで全フィルタを一括解除できる
      */
     test('フィルタリング機能が動作する (itemized-statement-generation/REQ-6.1)', async ({
       page,
@@ -399,28 +406,54 @@ test.describe('内訳書CRUD操作', () => {
       await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
       await page.waitForLoadState('networkidle');
 
-      // フィルタ入力欄に入力（任意分類フィルタ）
-      const filterInput = page.locator('input[id="filter-customCategory"]');
-      if (await filterInput.isVisible()) {
-        await filterInput.fill('任意分類');
-        await page.waitForLoadState('networkidle');
-      }
+      // REQ-6.1: 事前準備で内訳項目を1件作成しているため、フィルタ入力エリアは必ず提供される。
+      // 以前は「表示されていれば入力する」という関門で包んでいたため、
+      // フィルタエリアが消えても REQ-6.1 / REQ-6.6 の主張が一つも実行されなかった。
+      const filterInput = await requireItemizedStatementFilterInput(page, 'customCategory');
+      await filterInput.fill('任意分類');
+      await expect(filterInput).toHaveValue('任意分類');
 
-      // フィルタクリアボタン (Req 6.6)
-      const clearButton = page.getByRole('button', { name: /クリア/i });
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-        await page.waitForLoadState('networkidle');
+      // REQ-6.6: フィルタクリアボタンで全フィルタが一括解除される
+      const clearButton = await requireItemizedStatementFilterClearButton(page);
+      await clearButton.click();
 
-        // フィルタがクリアされる
-        await expect(filterInput).toHaveValue('');
-      }
+      // フィルタがクリアされる
+      await expect(filterInput).toHaveValue('');
     });
 
     /**
      * @requirement itemized-statement-generation/REQ-7.1: The 内訳書詳細画面 shall 削除ボタンを表示する
+     *
+     * タスク 26.1 で足した独立の検証。次の区間は削除ボタンをクリックしてダイアログを確かめるが、
+     * ボタンが見えることそのものは主張していなかった。
      */
-    test('削除確認ダイアログが表示される (itemized-statement-generation/REQ-7.1)', async ({
+    test('詳細画面に削除ボタンが表示される (itemized-statement-generation/REQ-7.1)', async ({
+      page,
+    }) => {
+      expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 詳細画面の本体（見出しの内訳書名）が描画されたうえで、削除ボタンが見えて操作できる
+      await expect(page.getByRole('heading', { level: 1 })).toContainText(itemizedStatementName, {
+        timeout: getTimeout(15000),
+      });
+      const deleteButton = page.getByRole('button', { name: '削除', exact: true });
+      await expect(deleteButton).toBeVisible();
+      await expect(deleteButton).toBeEnabled();
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-7.2: When ユーザーが削除ボタンをクリックする, the システム shall 確認ダイアログを表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-7.1 を名乗っていたが、受入基準7.1 の原文は「The 内訳書詳細画面 shall
+     * 削除ボタンを表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準7.2（「When ユーザーが削除ボタンをクリックする,
+     * the システム shall 確認ダイアログを表示する」）である。
+     * タスク 26.1 の是正: 番号を 7.2 へ改めた際、直上の印の本文は 7.1 の原文のまま残っていた。印の番号の原文へ改めた。
+     */
+    test('削除確認ダイアログが表示される (itemized-statement-generation/REQ-7.2)', async ({
       page,
     }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
@@ -444,7 +477,7 @@ test.describe('内訳書CRUD操作', () => {
   });
 
   /**
-   * パンくずナビゲーション (Req 9.1, 9.3, 9.4)
+   * パンくずナビゲーション (Req 4.4, 9.1, 9.4, 9.5, 9.6, 9.7)
    */
   test.describe('パンくずナビゲーション', () => {
     /**
@@ -467,7 +500,9 @@ test.describe('内訳書CRUD操作', () => {
       await expect(breadcrumb.getByRole('link', { name: /プロジェクト一覧/i })).toBeVisible();
     });
 
-    test('パンくずからプロジェクト詳細画面に遷移できる (Req 9.3)', async ({ page }) => {
+    test('パンくずからプロジェクト詳細画面に遷移できる (itemized-statement-generation/REQ-9.6)', async ({
+      page,
+    }) => {
       expect(
         createdItemizedStatementId && testProjectId,
         'テストデータが不足しています'
@@ -492,9 +527,12 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-9.4: When ユーザーがパンくずの「プロジェクト一覧」をクリックする, the システム shall プロジェクト一覧画面に遷移する
+     * @requirement itemized-statement-generation/REQ-9.5: When ユーザーがパンくずの「プロジェクト一覧」をクリックする, the システム shall プロジェクト一覧画面に遷移する
+     *
+     * タスク 115.188 の是正: 従前は REQ-9.4 を名乗っていたが、直上に写した原文は受入基準9.5 のものである。
+     * 受入基準9.4 はパンくずの「ダッシュボード」をクリックしたときの遷移であり、本検証は主張していない。
      */
-    test('パンくずからプロジェクト一覧画面に遷移できる (itemized-statement-generation/REQ-9.4)', async ({
+    test('パンくずからプロジェクト一覧画面に遷移できる (itemized-statement-generation/REQ-9.5)', async ({
       page,
     }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
@@ -512,6 +550,141 @@ test.describe('内訳書CRUD操作', () => {
 
       // プロジェクト一覧画面が表示される
       await expect(page.getByRole('heading', { name: 'プロジェクト一覧' })).toBeVisible();
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-4.4: While 内訳書詳細画面を表示中, the システム shall パンくずナビゲーションで上位階層（ダッシュボード、プロジェクト一覧、プロジェクト詳細、内訳書一覧）への戻りリンクを提供する
+     * @requirement itemized-statement-generation/REQ-9.7: When ユーザーがパンくずの「内訳書一覧」をクリックする（新規作成画面・詳細画面のみ）, the システム shall 内訳書一覧画面に遷移する
+     *
+     * タスク 26.1 で足した検証。詳細画面のパンくずの上位 4 階層がそれぞれ戻り先を指すリンクであること、
+     * 現在の階層（内訳書名）はリンクでないことを確かめ、「内訳書一覧」をクリックして一覧画面へ戻る。
+     */
+    test('詳細画面のパンくずが上位4階層への戻りリンクを持ち、内訳書一覧へ遷移できる (itemized-statement-generation/REQ-4.4, REQ-9.7)', async ({
+      page,
+    }) => {
+      expect(
+        createdItemizedStatementId && testProjectId,
+        'テストデータが不足しています'
+      ).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      const breadcrumb = page.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 上位 4 階層の戻りリンクと、その遷移先
+      await expect(breadcrumb.getByRole('link')).toHaveCount(4);
+      await expect(breadcrumb.getByRole('link', { name: 'ダッシュボード' })).toHaveAttribute(
+        'href',
+        '/'
+      );
+      await expect(breadcrumb.getByRole('link', { name: 'プロジェクト一覧' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      await expect(breadcrumb.getByRole('link', { name: projectName })).toHaveAttribute(
+        'href',
+        `/projects/${testProjectId}`
+      );
+      await expect(breadcrumb.getByRole('link', { name: '内訳書一覧' })).toHaveAttribute(
+        'href',
+        `/projects/${testProjectId}/itemized-statements`
+      );
+
+      // 現在の階層（内訳書名）はリンクではない
+      await expect(breadcrumb.locator('[aria-current="page"]')).toHaveText(itemizedStatementName);
+
+      // 「内訳書一覧」をクリックすると内訳書一覧画面へ遷移する
+      await breadcrumb.getByRole('link', { name: '内訳書一覧' }).click();
+      await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/itemized-statements$`), {
+        timeout: getTimeout(15000),
+      });
+      await expect(page.getByTestId('itemized-statement-list-page')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-9.7: When ユーザーがパンくずの「内訳書一覧」をクリックする（新規作成画面・詳細画面のみ）, the システム shall 内訳書一覧画面に遷移する
+     *
+     * タスク 26.1 で足した検証。新規作成画面のパンくずの「内訳書一覧」から一覧画面へ戻る。
+     */
+    test('新規作成画面のパンくずから内訳書一覧へ遷移できる (itemized-statement-generation/REQ-9.7)', async ({
+      page,
+    }) => {
+      expect(testProjectId, 'テスト用プロジェクトが作成されていません').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
+      await page.waitForLoadState('networkidle');
+
+      const breadcrumb = page.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(breadcrumb.locator('[aria-current="page"]')).toHaveText('新規作成');
+
+      const listLink = breadcrumb.getByRole('link', { name: '内訳書一覧' });
+      await expect(listLink).toHaveAttribute(
+        'href',
+        `/projects/${testProjectId}/itemized-statements`
+      );
+      await listLink.click();
+
+      await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/itemized-statements$`), {
+        timeout: getTimeout(15000),
+      });
+      await expect(page.getByTestId('itemized-statement-list-page')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-9.4: When ユーザーがパンくずの「ダッシュボード」をクリックする, the システム shall ダッシュボード画面に遷移する
+     *
+     * タスク 26.1 で足した検証。内訳書の一覧・新規作成・詳細の 3 画面のそれぞれで、パンくずの
+     * 「ダッシュボード」（href は `/`。`/` は `/dashboard` へ置き換わる）をクリックしてダッシュボード画面へ遷移する。
+     * ヘッダーにも同名のリンクがあるため、パンくずの nav の内側に限って探す。
+     */
+    test('一覧・新規作成・詳細の各画面のパンくずからダッシュボードへ遷移できる (itemized-statement-generation/REQ-9.4)', async ({
+      page,
+    }) => {
+      expect(
+        createdItemizedStatementId && testProjectId,
+        'テストデータが不足しています'
+      ).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const screens = [
+        { label: '内訳書一覧', path: `/projects/${testProjectId}/itemized-statements` },
+        { label: '内訳書新規作成', path: `/projects/${testProjectId}/itemized-statements/new` },
+        { label: '内訳書詳細', path: `/itemized-statements/${createdItemizedStatementId}` },
+      ];
+
+      for (const screen of screens) {
+        await page.goto(screen.path);
+        await page.waitForLoadState('networkidle');
+
+        const breadcrumb = page.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        await expect(breadcrumb, `${screen.label}画面のパンくず`).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+
+        const dashboardLink = breadcrumb.getByRole('link', { name: 'ダッシュボード' });
+        await expect(
+          dashboardLink,
+          `${screen.label}画面の「ダッシュボード」の href`
+        ).toHaveAttribute('href', '/');
+        await dashboardLink.click();
+
+        await expect(page, `${screen.label}画面からの遷移先`).toHaveURL(/\/dashboard$/, {
+          timeout: getTimeout(15000),
+        });
+        await expect(page.getByTestId('dashboard'), `${screen.label}画面からの遷移先`).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+      }
     });
   });
 
@@ -834,10 +1007,10 @@ test.describe('内訳書CRUD操作', () => {
       // これはAPIを2回削除呼び出しする代わりに、DBを直接更新してupdatedAtを変更する方法が必要
       // ここでは、page側で削除リクエストをインターセプトして古いupdatedAtを送信する
       await page.route('**/api/itemized-statements/**', async (route) => {
-        const request = route.request();
-        if (request.method() === 'DELETE') {
+        const routedRequest = route.request();
+        if (routedRequest.method() === 'DELETE') {
           // リクエストボディを改変して古いupdatedAtを送信
-          const postData = request.postDataJSON();
+          const postData = routedRequest.postDataJSON();
           if (postData && postData.updatedAt) {
             // 1秒前のタイムスタンプを送信
             const oldDate = new Date(new Date(detailBody.updatedAt).getTime() - 1000);
@@ -986,7 +1159,10 @@ test.describe('内訳書CRUD操作', () => {
    * 数量表なし時のボタン無効化テスト (Req 1.8)
    */
   test.describe('数量表なし時のボタン無効化', () => {
-    test('プロジェクトに数量表が存在しない場合は新規作成ボタンが無効化される (Req 1.8)', async ({
+    /**
+     * @requirement itemized-statement-generation/REQ-1.8: When プロジェクトに数量表が存在しない場合, the 内訳書セクション shall 「まず数量表を作成してください」メッセージを表示し新規作成ボタンを非表示とする
+     */
+    test('プロジェクトに数量表が存在しない場合は新規作成ボタンが非表示となる (itemized-statement-generation/REQ-1.8)', async ({
       page,
       request,
     }) => {
@@ -1008,13 +1184,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 営業担当者を選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -1036,33 +1206,34 @@ test.describe('内訳書CRUD操作', () => {
       const itemizedStatementSection = page.getByTestId('itemized-statement-section');
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 新規作成ボタンが無効化またはクリック時にメッセージが表示されることを確認
-      // 空状態ではフォームを開いた際に「数量表がありません」メッセージが表示される
-      const createButton = itemizedStatementSection.getByRole('link', { name: /新規作成/i });
-      if (await createButton.isVisible()) {
-        await createButton.click();
-        // 数量表がない旨のメッセージが表示される
-        await expect(
-          itemizedStatementSection.getByText(/数量表がありません|先に数量表を作成/i)
-        ).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // REQ-1.8: 数量表が存在しないプロジェクトを作ったので、新規作成ボタンは必ず非表示である。
+      // 以前は「新規作成ボタンが見えていれば押してメッセージを確認する」という関門で包んでいたため、
+      // 要件どおり非表示のとき（＝正常時）も、要件に反して表示されたときも、何も主張しないまま緑になっていた。
+      await expect(
+        itemizedStatementSection.getByRole('link', { name: /新規作成/i }),
+        'REQ-1.8: 数量表が無いプロジェクトで内訳書の新規作成ボタンが表示されている'
+      ).toHaveCount(0);
+
+      // REQ-1.8: 「まず数量表を作成してください」メッセージを表示する
+      await expect(itemizedStatementSection.getByText('まず数量表を作成してください')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
       // クリーンアップ：作成したプロジェクトを削除
-      if (emptyProjectId) {
-        const baseUrl = API_BASE_URL;
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
-        const accessToken = loginBody.accessToken;
+      assertPrepared(emptyProjectId, '数量表なし検証用に作成したプロジェクトのID');
+      const baseUrl = API_BASE_URL;
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
 
-        await request.delete(`${baseUrl}/api/projects/${emptyProjectId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
+      await request.delete(`${baseUrl}/api/projects/${emptyProjectId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
     });
   });
 
@@ -1075,10 +1246,6 @@ test.describe('内訳書CRUD操作', () => {
      * @requirement project-management/REQ-26.1: The プロジェクト詳細画面 shall 数量表セクションの下に内訳書セクションを配置する
      * @requirement project-management/REQ-26.2: The 内訳書セクション shall 数量表セクションと同様のカードレイアウトを使用する
      * @requirement project-management/REQ-26.8: The 内訳書セクション shall 新規作成ボタンを表示する
-     * @requirement itemized-statement-generation/REQ-3.1
-     * @requirement itemized-statement-generation/REQ-11.1
-     * @requirement itemized-statement-generation/REQ-11.2
-     * @requirement itemized-statement-generation/REQ-11.3
      */
     test('内訳書が存在しない場合「まだ作成されていません」メッセージが表示される (project-management/REQ-26.1, REQ-11.1, REQ-11.2, REQ-11.3)', async ({
       page,
@@ -1104,10 +1271,10 @@ test.describe('内訳書CRUD操作', () => {
       const meBody = await meResponse.json();
       const userId = meBody.id;
 
-      const projectName = `一覧表示テスト_${Date.now()}`;
+      const emptyProjectName = `一覧表示テスト_${Date.now()}`;
       const createProjectResponse = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: projectName, salesPersonId: userId },
+        data: { name: emptyProjectName, salesPersonId: userId },
       });
       const newProject = await createProjectResponse.json();
 
@@ -1129,10 +1296,14 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-26.3: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
-     * @requirement itemized-statement-generation/REQ-3.2
+     * @requirement project-management/REQ-26.6: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-26.3 を名乗っていたが、受入基準26.3 の原文は「The ArchiTrackシステム
+     * shall 内訳書セクションに作成済み内訳書を作成日時の降順で一覧表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準26.6（「The
+     * ArchiTrackシステム shall 内訳書一覧の各行に内訳書名、作成日時、集計元数量表名、
+     * 合計項目数を表示する」）である。
      */
-    test('内訳書一覧の各行に内訳書名、作成日時、数量表名、項目数が表示される (project-management/REQ-26.3)', async ({
+    test('内訳書一覧の各行に内訳書名、作成日時、数量表名、項目数が表示される (project-management/REQ-26.6)', async ({
       page,
     }) => {
       expect(
@@ -1151,15 +1322,18 @@ test.describe('内訳書CRUD操作', () => {
       // 「/itemized-statements/」で始まるリンク（詳細画面へのリンク）を対象とし、
       // 「/projects/.../itemized-statements/new」（新規作成リンク）を除外
       const statementCard = itemizedStatementSection.locator('a[href^="/itemized-statements/"]');
-      if ((await statementCard.count()) > 0) {
-        const firstCard = statementCard.first();
-        await expect(firstCard).toBeVisible();
-        // カード内のテキストに内訳書名、日付、数量表名、項目数が含まれる
-        const cardText = await firstCard.textContent();
-        expect(cardText).not.toBeNull();
-        // 項目数表示（「○項目」形式）
-        expect(cardText).toMatch(/\d+項目/);
-      }
+      // 事前準備で内訳書を1件作成しているため、カードは必ず存在する。
+      // 以前は「1件以上あれば」という関門で包んでいたため、
+      // カードが1件も描画されなくても緑のままだった。
+      expect(await statementCard.count(), '内訳書カードが1件以上表示される').toBeGreaterThan(0);
+
+      const firstCard = statementCard.first();
+      await expect(firstCard).toBeVisible();
+      // カード内のテキストに内訳書名、日付、数量表名、項目数が含まれる
+      const cardText = await firstCard.textContent();
+      assertPrepared(cardText, '内訳書カードのテキスト');
+      // 項目数表示（「○項目」形式）
+      expect(cardText).toMatch(/\d+項目/);
     });
 
     test('内訳書行をクリックすると詳細画面に遷移する (Req 3.5)', async ({ page }) => {
@@ -1192,9 +1366,17 @@ test.describe('内訳書CRUD操作', () => {
   test.describe('内訳書詳細画面表示', () => {
     /**
      * @requirement itemized-statement-generation/REQ-4.1: The 内訳書詳細画面 shall 集計結果をテーブル形式で表示する
-     * @requirement itemized-statement-generation/REQ-4.4: While 内訳書詳細画面を表示中, the システム shall パンくずナビゲーションでプロジェクト詳細画面への戻りリンクを提供する
+     * @requirement itemized-statement-generation/REQ-4.2: The テーブル shall 「任意分類」「工種」「名称」「規格」「数量」「単位」の順でカラムを表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-4.4 を名乗っていたが、受入基準4.4 の原文は「While 内訳書詳細画面を表示中,
+     * the システム shall パンくずナビゲーションで上位階層（ダッシュボード、プロジェクト一覧、
+     * プロジェクト詳細、内訳書一覧）への戻りリンクを提供する」である。本区間の表題・本文が述べる内容に対応するのは受入基準4.2（「The
+     * テーブル shall 「任意分類」「工種」「名称」「規格」「数量」「単位」の順でカラムを表示する」
+     * ）である。
+     * タスク 26.1 の是正: 番号を 4.2 へ改めた際、直上の印の本文はどの受入基準にも無い文言のまま残っていた。
+     * 印の番号の原文へ改めた。
      */
-    test('テーブルカラムが正しい順序で表示される (itemized-statement-generation/REQ-4.1, REQ-4.4)', async ({
+    test('テーブルカラムが正しい順序で表示される (itemized-statement-generation/REQ-4.1, REQ-4.2)', async ({
       page,
     }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
@@ -1239,11 +1421,13 @@ test.describe('内訳書CRUD操作', () => {
       const quantityCells = page.locator(`tbody td:nth-child(${quantityColIndex})`);
       const count = await quantityCells.count();
 
-      if (count > 0) {
-        const firstQuantity = await quantityCells.first().textContent();
-        // 小数点以下2桁の形式（例：100.00, 1.50）
-        expect(firstQuantity).toMatch(/^\d+\.\d{2}$/);
-      }
+      // 事前準備で数量項目を1件作成しているため、データ行は必ず存在する。
+      // 行が0件でも通る形のままでは、表が空になっても書式の主張が実行されない。
+      expect(count, '内訳項目のデータ行が1件以上表示される').toBeGreaterThan(0);
+
+      const firstQuantity = await quantityCells.first().textContent();
+      // 小数点以下2桁の形式（例：100.00, 1.50）
+      expect(firstQuantity).toMatch(/^\d+\.\d{2}$/);
     });
 
     test('ヘッダーに作成日時が表示される (Req 4.5)', async ({ page }) => {
@@ -1307,13 +1491,14 @@ test.describe('内訳書CRUD操作', () => {
       // （デフォルトソートはUI上で特定のカラムをハイライトしない）
       const columnHeaders = page.locator('th[role="columnheader"]');
       const count = await columnHeaders.count();
+      // 列が一つも取れなければ繰り返しは空振りする。まず列の供給を主張する。
+      expect(count, '内訳書の一覧に列見出しが無い').toBeGreaterThan(0);
 
-      // 初期状態ですべてのカラムがaria-sort="none"であることを確認
+      // 初期状態ですべてのカラムが aria-sort="none" であることを確認。
+      // ItemizedStatementDetailPage は非活性の列にも 'none' を明示するため、
+      // 「none または未設定」の論理和は属性が消えても成立してしまう。値そのものを主張する。
       for (let i = 0; i < count; i++) {
-        const header = columnHeaders.nth(i);
-        const sortAttr = await header.getAttribute('aria-sort');
-        // 初期状態はnoneまたは未設定
-        expect(sortAttr === 'none' || sortAttr === null).toBeTruthy();
+        await expect(columnHeaders.nth(i)).toHaveAttribute('aria-sort', 'none');
       }
     });
   });
@@ -1370,16 +1555,19 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 存在しない値でフィルタ
-      const customCategoryFilter = page.locator('input[id="filter-customCategory"]');
-      if (await customCategoryFilter.isVisible()) {
-        await customCategoryFilter.fill('存在しない値_XXXXXX');
-        await page.waitForTimeout(500);
+      // 事前準備で内訳項目を1件作成しているため、フィルタ入力欄は必ず提供される。
+      // 以前は「表示されていれば入力する」という関門で包んでいたため、
+      // フィルタが提供されないときは REQ-6.5 の主張が実行されなかった。
+      const customCategoryFilter = await requireItemizedStatementFilterInput(
+        page,
+        'customCategory'
+      );
+      await customCategoryFilter.fill('存在しない値_XXXXXX');
 
-        // 「該当する項目はありません」メッセージを確認
-        await expect(page.getByText(/該当する項目はありません/i)).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      // REQ-6.5: 「該当する項目はありません」メッセージを確認
+      await expect(page.getByText('該当する項目はありません')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
   });
 
@@ -1471,9 +1659,14 @@ test.describe('内訳書CRUD操作', () => {
    */
   test.describe('スナップショット独立性', () => {
     /**
-     * @requirement itemized-statement-generation/REQ-8.3: When 元の数量表が削除される, the 作成済み内訳書 shall 影響を受けない
+     * @requirement itemized-statement-generation/REQ-8.2: When 元の数量表が更新される, the 作成済み内訳書 shall 影響を受けない
+     *
+     * タスク 26.2 の是正: 印の番号は REQ-8.2 だったが、印の本文が受入基準8.3 の原文のままだったため、8.2 の原文へ正した。
+     * タスク 115.188 の是正: 従前は REQ-8.3 を名乗っていたが、受入基準8.3 の原文は「When 元の数量表が削除される,
+     * the 作成済み内訳書 shall 影響を受けない」である。本区間の表題・本文が述べる内容に対応するのは受入基準8.2（「When
+     * 元の数量表が更新される, the 作成済み内訳書 shall 影響を受けない」）である。
      */
-    test('元の数量表が更新されても作成済み内訳書は影響を受けない (itemized-statement-generation/REQ-8.3)', async ({
+    test('元の数量表が更新されても作成済み内訳書は影響を受けない (itemized-statement-generation/REQ-8.2)', async ({
       page,
       request,
     }) => {
@@ -1582,11 +1775,190 @@ test.describe('内訳書CRUD操作', () => {
         data: { updatedAt: qtDetail.updatedAt },
       });
     });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-8.3: When 元の数量表が削除される, the 作成済み内訳書 shall 影響を受けない
+     *
+     * タスク 26.2: 数量表を本番の削除の経路（数量表一覧の「削除」→ 確認のダイアログの「削除」→
+     * DELETE /api/quantity-tables/:id）で消し、内訳書の詳細画面の名前・項目・集計元の数量表名が
+     * 削除の前と変わらないことを主張する。前提は本テストの中で API で作る（他のテストの状態に依存しない）。
+     */
+    test('元の数量表を削除しても作成済み内訳書は影響を受けない (itemized-statement-generation/REQ-8.3)', async ({
+      page,
+      request,
+    }, testInfo) => {
+      const baseUrl = API_BASE_URL;
+      const quantityTableName = 'スナップショット削除検証数量表';
+      const statementName = 'スナップショット削除検証内訳書';
+      // 内訳書の詳細画面の既定の並び（任意分類の昇順）での各行の 6 列
+      // （任意分類・工種・名称・規格・数量・単位）
+      const expectedRows = [
+        ['削除検証分類A', '躯体工事', 'コンクリート', 'Fc24', '12.50', 'm3'],
+        ['削除検証分類B', '内装工事', '石膏ボード', '12.5mm', '340.00', 'm2'],
+      ];
+
+      // --- 前提: プロジェクト・数量表・数量項目・内訳書を API で作る ---
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: { email: 'user@example.com', password: 'Password123!' },
+      });
+      expect(loginResponse.status(), 'API のログインに失敗した').toBe(200);
+      const accessToken: string = (await loginResponse.json()).accessToken;
+      const authHeaders = { Authorization: `Bearer ${accessToken}` };
+
+      const meResponse = await request.get(`${baseUrl}/api/v1/auth/me`, { headers: authHeaders });
+      expect(meResponse.status(), '利用者の情報を取得できない').toBe(200);
+      const userId: string = (await meResponse.json()).id;
+
+      const projectResponse = await request.post(`${baseUrl}/api/projects`, {
+        headers: authHeaders,
+        // プロジェクト名は重複を許さないため、再試行ごとに固定の名前を分ける
+        data: {
+          name: `スナップショット削除検証プロジェクト（試行${testInfo.retry}）`,
+          salesPersonId: userId,
+        },
+      });
+      expect(projectResponse.status(), 'プロジェクトを作成できない').toBe(201);
+      const projectId: string = (await projectResponse.json()).id;
+
+      const qtResponse = await request.post(
+        `${baseUrl}/api/projects/${projectId}/quantity-tables`,
+        {
+          headers: authHeaders,
+          data: { name: quantityTableName },
+        }
+      );
+      expect(qtResponse.status(), '数量表を作成できない').toBe(201);
+      const quantityTableId: string = (await qtResponse.json()).id;
+
+      const groupResponse = await request.post(
+        `${baseUrl}/api/quantity-tables/${quantityTableId}/groups`,
+        { headers: authHeaders, data: { name: '削除検証グループ', displayOrder: 0 } }
+      );
+      expect(groupResponse.status(), '数量グループを作成できない').toBe(201);
+      const groupId: string = (await groupResponse.json()).id;
+
+      const sourceItems = [
+        {
+          customCategory: '削除検証分類B',
+          workType: '内装工事',
+          name: '石膏ボード',
+          specification: '12.5mm',
+          unit: 'm2',
+          quantity: 340,
+        },
+        {
+          customCategory: '削除検証分類A',
+          workType: '躯体工事',
+          name: 'コンクリート',
+          specification: 'Fc24',
+          unit: 'm3',
+          quantity: 12.5,
+        },
+      ];
+      for (const [index, item] of sourceItems.entries()) {
+        const itemResponse = await request.post(`${baseUrl}/api/quantity-groups/${groupId}/items`, {
+          headers: authHeaders,
+          data: {
+            ...item,
+            majorCategory: '大項目',
+            calculationMethod: 'STANDARD',
+            adjustmentFactor: 1.0,
+            roundingUnit: 0.01,
+            displayOrder: index,
+          },
+        });
+        expect(itemResponse.status(), `数量項目 ${item.name} を作成できない`).toBe(201);
+      }
+
+      const statementResponse = await request.post(
+        `${baseUrl}/api/projects/${projectId}/itemized-statements`,
+        { headers: authHeaders, data: { name: statementName, quantityTableId } }
+      );
+      expect(statementResponse.status(), '内訳書を作成できない').toBe(201);
+      const statementId: string = (await statementResponse.json()).id;
+
+      /** 内訳書の詳細画面を開き、名前・集計元の数量表名・項目の各行を主張する */
+      const expectStatementDetailUnchanged = async (): Promise<void> => {
+        await page.goto(`/itemized-statements/${statementId}`);
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText(statementName, {
+          timeout: getTimeout(15000),
+        });
+        await expect(page.getByText(`集計元数量表: ${quantityTableName}`)).toBeVisible();
+        const rows = page.getByRole('table').locator('tbody tr');
+        await expect(rows).toHaveCount(expectedRows.length);
+        for (const [index, expectedCells] of expectedRows.entries()) {
+          // 並び替えの釦の列（釦を持つセル）を除いた 6 列を照合する
+          await expect(
+            rows
+              .nth(index)
+              .locator('td')
+              .filter({ hasNot: page.getByRole('button') })
+          ).toHaveText(expectedCells);
+        }
+      };
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // --- 削除の前: 詳細画面が作成時のスナップショットを表示している ---
+      await expectStatementDetailUnchanged();
+
+      // --- 本番の削除の経路: 数量表一覧の削除の操作で元の数量表を消す ---
+      await page.goto(`/projects/${projectId}/quantity-tables`);
+      const detailLink = page.getByRole('link', {
+        name: `${quantityTableName}の数量表詳細を見る`,
+      });
+      await expect(detailLink).toBeVisible({ timeout: getTimeout(15000) });
+      // 本テストのプロジェクトの数量表は 1 件だけであるため、削除の釦は 1 つに定まる
+      const deleteButton = page.getByRole('button', { name: '削除', exact: true });
+      await expect(deleteButton).toHaveCount(1);
+      await deleteButton.click();
+
+      const confirmDialog = page.getByRole('dialog');
+      await expect(confirmDialog.getByRole('heading', { name: '数量表を削除' })).toBeVisible();
+      const deleteResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/quantity-tables/${quantityTableId}` &&
+          response.request().method() === 'DELETE'
+      );
+      await confirmDialog.getByRole('button', { name: '削除', exact: true }).click();
+      const deleteResponse = await deleteResponsePromise;
+      expect(deleteResponse.status(), '数量表の削除の API が成功していない').toBe(204);
+      await expect(confirmDialog).toBeHidden({ timeout: getTimeout(10000) });
+      await expect(detailLink).toBeHidden();
+
+      // 元の数量表が実際に消えた（削除が空振りしていない）ことをサーバー側で確かめる
+      const deletedTableResponse = await request.get(
+        `${baseUrl}/api/quantity-tables/${quantityTableId}`,
+        { headers: authHeaders }
+      );
+      expect(deletedTableResponse.status(), '削除後も数量表を取得できてしまう').toBe(404);
+
+      // --- 削除の後: 内訳書の詳細画面の名前・項目・集計元の数量表名が変わらない ---
+      await expectStatementDetailUnchanged();
+
+      // 後片付け: 本テストで作ったプロジェクトを消す（内訳書もあわせて取り除かれる）。
+      // 一般利用者はプロジェクトの削除の権限を持たないため、管理者で消す
+      const adminLoginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: { email: TEST_USERS.ADMIN_USER.email, password: TEST_USERS.ADMIN_USER.password },
+      });
+      expect(adminLoginResponse.status(), '管理者の API のログインに失敗した').toBe(200);
+      const adminToken: string = (await adminLoginResponse.json()).accessToken;
+      const cleanupResponse = await request.delete(`${baseUrl}/api/projects/${projectId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(cleanupResponse.status(), 'テスト用プロジェクトを削除できない').toBe(204);
+    });
   });
 
   /**
    * パンくずナビゲーション形式テスト (Req 9.2)
-   * @requirement itemized-statement-generation/REQ-9.7
+   * @requirement itemized-statement-generation/REQ-9.3
+   *
+   * タスク 115.188 の是正: 従前は REQ-9.7 を名乗っていたが、受入基準9.7 の原文は「When ユーザーがパンくずの「内訳書一覧」
+   * をクリックする（新規作成画面・詳細画面のみ）, the システム shall 内訳書一覧画面に遷移する」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準9.3（「The 内訳書詳細画面 shall パンくずナビゲーション「ダッシュボード
+   * > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧 > {内訳書名}」を表示する」
+   * ）である。
    */
   test.describe('パンくずナビゲーション形式', () => {
     test('パンくずが「プロジェクト一覧 > プロジェクト名 > 内訳書 > 内訳書名」形式で表示される (Req 9.2)', async ({
@@ -1648,12 +2020,14 @@ test.describe('内訳書CRUD操作', () => {
 
       // 「すべて見る」リンクが存在する
       const viewAllLink = itemizedStatementSection.getByRole('link', { name: /すべて見る/i });
-      if ((await viewAllLink.count()) > 0) {
-        await expect(viewAllLink).toBeVisible();
-        // リンク先が内訳書一覧ページであることを確認
-        const href = await viewAllLink.getAttribute('href');
-        expect(href).toContain('/itemized-statements');
-      }
+      // REQ-26.11 / Req 11.5: 内訳書が1件以上あるとき、一覧画面へのリンクを表示する
+      // （ItemizedStatementSectionCard は totalCount > 0 のときヘッダに「すべて見る」を出す）。
+      // 事前準備で内訳書を作成しているため、リンクは必ず存在する。
+      await expect(viewAllLink).toBeVisible({ timeout: getTimeout(10000) });
+
+      // リンク先が内訳書一覧ページであることを確認
+      const href = await viewAllLink.getAttribute('href');
+      expect(href).toContain('/itemized-statements');
     });
   });
 
@@ -2065,20 +2439,18 @@ test.describe('内訳書CRUD操作', () => {
 
       // 1ページ目に50件の項目が表示されていることを確認
       const rows = page.locator('tbody tr');
-      const rowCount = await rows.count();
-      expect(rowCount).toBe(50);
+      await expect(rows).toHaveCount(50);
 
       // 2ページ目に移動
+      // 60件（＝2ページ）を用意しているため「次へ」ボタンは必ず表示される。
+      // 以前は「表示されていれば押す」という関門で包んでいたため、
+      // ページ送りができない状態でも2ページ目の件数の主張が実行されなかった。
       const nextPageButton = pagination.getByRole('button', { name: /次/i });
-      if (await nextPageButton.isVisible()) {
-        await nextPageButton.click();
-        await page.waitForLoadState('networkidle');
+      await expect(nextPageButton).toBeVisible({ timeout: getTimeout(5000) });
+      await nextPageButton.click();
 
-        // 2ページ目に10件の項目が表示されていることを確認
-        const rowsPage2 = page.locator('tbody tr');
-        const rowCountPage2 = await rowsPage2.count();
-        expect(rowCountPage2).toBe(10);
-      }
+      // 2ページ目に10件の項目が表示されていることを確認
+      await expect(rows).toHaveCount(10);
 
       // クリーンアップ
       const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
@@ -2186,13 +2558,15 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForTimeout(500); // フィルタ適用を待機
 
       // ページネーションがフィルタ結果に対して適用されることを確認
+      // REQ-4.7/REQ-4.8: 50件を超えるとページネーションを表示し1ページ50件で区切る。
+      // フィルタ結果は60件のため、ページネーションは必ず表示される。
       const pagination = page.getByRole('navigation', { name: /ページネーション/i });
-      if (await pagination.isVisible()) {
-        // フィルタ後の総ページ数が変わることを確認（60件 -> 2ページ）
-        await expect(pagination.getByText('1 / 2')).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-6.7: フィルタ後の総ページ数が変わることを確認（60件 -> 2ページ）
+      await expect(pagination.getByText('1 / 2')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
       // クリーンアップ
       const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
@@ -2221,8 +2595,12 @@ test.describe('内訳書CRUD操作', () => {
   test.describe('内訳書一覧画面', () => {
     /**
      * @requirement project-management/REQ-26.11: The 内訳書セクション shall 一覧画面へのリンクを表示する
-     * @requirement project-management/REQ-26.3: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
-     * @requirement itemized-statement-generation/REQ-11.6
+     * @requirement project-management/REQ-26.11: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-26.3 を名乗っていたが、受入基準26.3 の原文は「The ArchiTrackシステム
+     * shall 内訳書セクションに作成済み内訳書を作成日時の降順で一覧表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準26.11（「The
+     * ArchiTrackシステム shall 内訳書セクションに一覧画面へのリンクを表示する」
+     * ）である。
      */
     test('プロジェクト詳細画面から内訳書一覧画面に遷移できる (project-management/REQ-26.11, REQ-3.2)', async ({
       page,
@@ -2264,18 +2642,20 @@ test.describe('内訳書CRUD操作', () => {
       await expect(page.getByRole('heading', { name: /内訳書一覧/i })).toBeVisible();
 
       // 内訳書カードが存在する場合、必要な情報が表示されているか確認
+      // 事前準備で内訳書を作成しているため、一覧は必ず描画される。
+      // 以前は「一覧が見えていれば」という関門で包んでいたため、
+      // 一覧が空になっても行の情報の主張が実行されなかった。
       const statementList = page.getByTestId('statement-list');
-      if (await statementList.isVisible()) {
-        // 作成日時の形式（年月日）が表示されていることを確認
-        await expect(page.getByText(/\d{4}年\d{1,2}月\d{1,2}日/)).toBeVisible();
-        // 項目数が表示されていることを確認
-        await expect(page.getByText(/\d+項目/)).toBeVisible();
-      }
+      await expect(statementList).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-26.6: 作成日時の形式（年月日）が表示されていることを確認
+      await expect(statementList.getByText(/\d{4}年\d{1,2}月\d{1,2}日/).first()).toBeVisible();
+      // REQ-26.6: 項目数が表示されていることを確認
+      await expect(statementList.getByText(/\d+項目/).first()).toBeVisible();
     });
 
     /**
      * @requirement project-management/REQ-26.7: When ユーザーが内訳書行をクリックする, the システム shall 内訳書詳細画面に遷移する
-     * @requirement itemized-statement-generation/REQ-3.6
      */
     test('内訳書行をクリックすると詳細画面に遷移する (project-management/REQ-26.7)', async ({
       page,
@@ -2287,21 +2667,29 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 内訳書カードのリンクをクリック
+      // 事前準備で内訳書を作成しているため、一覧には必ず行が描画される。
+      // 以前は「リンクが見えていれば押す」という関門で包んでいたため、
+      // 一覧が空になっても REQ-26.7 の遷移の主張が実行されなかった。
       const statementLink = page.getByRole('link', { name: /内訳書詳細を見る/i }).first();
-      if (await statementLink.isVisible()) {
-        await statementLink.click();
+      await expect(statementLink).toBeVisible({ timeout: getTimeout(10000) });
+      await statementLink.click();
 
-        // 詳細画面に遷移したことを確認
-        await expect(page).toHaveURL(/\/itemized-statements\/[0-9a-f-]+/, {
-          timeout: getTimeout(10000),
-        });
-      }
+      // 詳細画面に遷移したことを確認
+      await expect(page).toHaveURL(/\/itemized-statements\/[0-9a-f-]+/, {
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
-     * @requirement project-management/REQ-26.4: When 内訳書が存在しない場合, the 内訳書セクション shall 「内訳書はまだ作成されていません」メッセージを表示する
+     * @requirement project-management/REQ-26.5: When 内訳書が存在しない場合, the 内訳書セクション shall 「内訳書はまだ作成されていません」メッセージを表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-26.4 を名乗っていたが、受入基準26.4 の原文は「When 数量表が存在しない場合,
+     * the ArchiTrackシステム shall 内訳書セクションに「まず数量表を作成してください」
+     * メッセージを表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準26.5（「When 数量表は存在するが内訳書が存在しない場合,
+     * the ArchiTrackシステム shall 内訳書セクションに「内訳書はまだありません」
+     * メッセージを表示する」）である。
      */
-    test('内訳書が存在しない場合「内訳書はまだ作成されていません」メッセージが表示される (project-management/REQ-26.4)', async ({
+    test('内訳書が存在しない場合「内訳書はまだ作成されていません」メッセージが表示される (project-management/REQ-26.5)', async ({
       page,
       request,
     }) => {
@@ -2491,10 +2879,18 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-13.6: When フィルタが適用されている状態でExcelダウンロードを実行する, the システム shall フィルタ後のデータのみを出力する
-     * @requirement itemized-statement-generation/REQ-14.5: When フィルタが適用されている状態でクリップボードコピーを実行する, the システム shall フィルタ後のデータのみをコピーする
+     * @requirement itemized-statement-generation/REQ-13.1: When フィルタが適用されている状態でExcelダウンロードを実行する, the システム shall フィルタ後のデータのみを出力する
+     *
+     * タスク 115.188 の是正: 従前は REQ-13.6 を名乗っていたが、受入基準13.6 の原文は「When フィルタが適用されている状態でExcelダウンロードを実行する,
+     * the システム shall フィルタ後のデータのみを出力する」である。本区間の表題・本文が述べる内容に対応するのは受入基準13.1（「The
+     * 内訳書詳細画面 shall Excelダウンロードボタンを表示する」）である。
+     * @requirement itemized-statement-generation/REQ-14.1: When フィルタが適用されている状態でクリップボードコピーを実行する, the システム shall フィルタ後のデータのみをコピーする
+     *
+     * タスク 115.188 の是正: 従前は REQ-14.5 を名乗っていたが、受入基準14.5 の原文は「When フィルタが適用されている状態でクリップボードコピーを実行する,
+     * the システム shall フィルタ後のデータのみをコピーする」である。本区間の表題・本文が述べる内容に対応するのは受入基準14.1（「The
+     * 内訳書詳細画面 shall クリップボードにコピーボタンを表示する」）である。
      */
-    test('フィルタ適用後に出力ボタンが有効である (itemized-statement-generation/REQ-13.6, REQ-14.5)', async ({
+    test('フィルタ適用後に出力ボタンが有効である (itemized-statement-generation/REQ-13.1, REQ-14.1)', async ({
       page,
     }) => {
       expect(createdItemizedStatementId, 'テストデータが不足しています').toBeTruthy();
@@ -2600,17 +2996,20 @@ test.describe('内訳書CRUD操作', () => {
         expect(cellValue).toBe(header);
       });
 
-      // REQ-13.5: データ行が存在する場合、数量カラムの形式を確認
-      if (worksheet.rowCount > 1) {
-        const dataRow = worksheet.getRow(2);
-        const quantityCell = dataRow.getCell(5); // 5番目のカラム（数量）
+      // REQ-13.5: 数量カラムの形式を確認する。
+      // 事前準備で数量項目を1件作成しているため、ヘッダ行に続くデータ行は必ず存在する。
+      // 以前は行数を関門にしていたため、出力が空になっても数量の主張が実行されなかった。
+      expect(worksheet.rowCount, 'Excelにヘッダ行に続くデータ行が存在する').toBeGreaterThan(1);
 
-        // 数量が数値であることを確認
-        const quantityValue = quantityCell.value;
-        if (quantityValue !== null && quantityValue !== undefined) {
-          expect(typeof quantityValue === 'number').toBe(true);
-        }
-      }
+      const dataRow = worksheet.getRow(2);
+      const quantityCell = dataRow.getCell(5); // 5番目のカラム（数量）
+
+      // REQ-13.5: 数量カラムは文字列ではなく数値としてExcelに書き出される。
+      // 以前は値の有無で判定を包んだうえ `typeof x === 'number'` を真偽で主張していたため、
+      // 数量が空でも文字列でも通っていた。値の存在と型の双方を主張する。
+      const quantityValue = quantityCell.value;
+      expect(quantityValue, '数量セルが空である').not.toBeNull();
+      expect(typeof quantityValue).toBe('number');
     });
 
     /**
@@ -2638,19 +3037,19 @@ test.describe('内訳書CRUD操作', () => {
 
       // 日付部分が有効な日付形式であることを確認
       const dateMatch = suggestedFilename.match(/_(\d{8})\.xlsx$/);
-      expect(dateMatch).toBeTruthy();
-      if (dateMatch && dateMatch[1]) {
-        const dateStr = dateMatch[1];
-        const year = parseInt(dateStr.substring(0, 4));
-        const month = parseInt(dateStr.substring(4, 6));
-        const day = parseInt(dateStr.substring(6, 8));
+      assertPresent(dateMatch, 'ファイル名の日付部分の照合結果');
+      const dateStr = dateMatch[1];
+      assertPrepared(dateStr, 'ファイル名の日付部分（YYYYMMDD）');
 
-        expect(year).toBeGreaterThanOrEqual(2024);
-        expect(month).toBeGreaterThanOrEqual(1);
-        expect(month).toBeLessThanOrEqual(12);
-        expect(day).toBeGreaterThanOrEqual(1);
-        expect(day).toBeLessThanOrEqual(31);
-      }
+      const year = parseInt(dateStr.substring(0, 4));
+      const month = parseInt(dateStr.substring(4, 6));
+      const day = parseInt(dateStr.substring(6, 8));
+
+      expect(year).toBeGreaterThanOrEqual(2024);
+      expect(month).toBeGreaterThanOrEqual(1);
+      expect(month).toBeLessThanOrEqual(12);
+      expect(day).toBeGreaterThanOrEqual(1);
+      expect(day).toBeLessThanOrEqual(31);
     });
 
     /**
@@ -2719,9 +3118,10 @@ test.describe('内訳書CRUD操作', () => {
       const lines = clipboardText.split('\n');
       expect(lines.length).toBeGreaterThan(0);
 
+      // 空文字のヘッダ行は REQ-14.3 を満たさないため、空文字を弾く側の主張を用いる。
+      // `assertPresent` は null / undefined だけを弾くため、空文字を後段へ通してしまう。
       const headerLine = lines[0];
-      expect(headerLine).toBeTruthy();
-      if (!headerLine) return;
+      assertPrepared(headerLine, 'クリップボードのヘッダ行');
 
       const expectedHeaders = ['任意分類', '工種', '名称', '規格', '数量', '単位'];
 
@@ -2731,28 +3131,28 @@ test.describe('内訳書CRUD操作', () => {
 
       expectedHeaders.forEach((header, index) => {
         const column = headerColumns[index];
-        expect(column).toBeTruthy();
-        if (column) {
-          expect(column.trim()).toBe(header);
-        }
+        assertPrepared(column, `ヘッダ行の列[${index}]`);
+        expect(column.trim()).toBe(header);
       });
 
-      // REQ-14.2, REQ-14.4: データ行がタブ区切りであることを確認
+      // REQ-14.2, REQ-14.4: データ行がタブ区切りであることを確認。
+      // 事前準備で数量項目を1件作成しているため、ヘッダ行に続くデータ行は必ず存在する。
+      // 以前は行の有無・列の有無・空文字かどうかを三重の関門にしていたため、
+      // コピー内容がヘッダだけになっても数量の書式の主張が一度も実行されなかった。
+      expect(lines.length, 'クリップボードにヘッダ行に続くデータ行が含まれる').toBeGreaterThan(1);
       const dataLine = lines[1];
-      if (lines.length > 1 && dataLine && dataLine.trim() !== '') {
-        const dataColumns = dataLine.split('\t');
-        expect(dataColumns.length).toBe(6); // 6カラム
+      assertPrepared(dataLine, 'クリップボードのデータ行');
+      expect(dataLine.trim(), 'クリップボードのデータ行が空でない').not.toBe('');
 
-        // REQ-14.8: 数量（5番目のカラム）が小数点以下2桁であることを確認
-        const quantityColumn = dataColumns[4];
-        if (quantityColumn) {
-          const quantityStr = quantityColumn.trim();
-          if (quantityStr !== '') {
-            // 数量が数値形式であり、小数点以下2桁であることを確認
-            expect(quantityStr).toMatch(/^-?\d+\.\d{2}$/);
-          }
-        }
-      }
+      const dataColumns = dataLine.split('\t');
+      expect(dataColumns.length).toBe(6); // 6カラム
+
+      // REQ-14.8: 数量（5番目のカラム）が小数点以下2桁であることを確認
+      const quantityColumn = dataColumns[4];
+      assertPrepared(quantityColumn, 'データ行の数量カラム');
+      const quantityStr = quantityColumn.trim();
+      // 数量が数値形式であり、小数点以下2桁であることを確認
+      expect(quantityStr).toMatch(/^-?\d+\.\d{2}$/);
     });
 
     /**
@@ -2804,39 +3204,49 @@ test.describe('内訳書CRUD操作', () => {
       await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
       await page.waitForLoadState('networkidle');
 
-      // テーブルの行数を取得（フィルタ前）
-      const rowsBeforeFilter = await page.locator('tbody tr').count();
+      // フィルタ前は事前準備で作成した1件が表示されている
+      await expect(page.locator('tbody tr')).toHaveCount(1);
 
       // 名称でフィルタリング（存在しないパターンを使用して0件にする）
-      const filterInput = page.getByPlaceholder('名称でフィルタ');
-      if (await filterInput.isVisible()) {
-        await filterInput.fill('存在しないパターン12345');
-        await page.waitForTimeout(500);
+      // 以前はここを `getByPlaceholder('名称でフィルタ')` で探していたが、実装の
+      // プレースホルダは「名称で絞り込み」であり、この関門は一度も真にならなかった。
+      // すなわち REQ-13.6 の主張は一度も実行されていない。前提を無条件に主張する形へ改める。
+      const filterInput = await requireItemizedStatementFilterInput(page, 'name');
+      await filterInput.fill(NO_MATCH_FILTER_VALUE);
 
-        // フィルタ後の行数を確認（0件またはフィルタ前より少ない）
-        const rowsAfterFilter = await page.locator('tbody tr').count();
-        expect(rowsAfterFilter).toBeLessThanOrEqual(rowsBeforeFilter);
+      // フィルタ結果が0件であることを確認（表そのものが描画されなくなる）
+      await expect(page.getByText('該当する項目はありません')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(page.locator('tbody tr')).toHaveCount(0);
 
-        // Excelダウンロードを実行
-        const downloadPromise = page.waitForEvent('download');
-        const excelButton = page.getByRole('button', { name: /Excelダウンロード/i });
-        await excelButton.click();
+      // Excelダウンロードを実行
+      const downloadPromise = page.waitForEvent('download');
+      const excelButton = page.getByRole('button', { name: /Excelダウンロード/i });
+      await excelButton.click();
 
-        const download = await downloadPromise;
-        const filePath = await download.path();
+      const download = await downloadPromise;
+      const filePath = await download.path();
+      expect(filePath).toBeTruthy();
 
-        // ExcelJSでファイルを読み込む
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.readFile(filePath!);
-        const worksheet = workbook.worksheets[0];
-        expect(worksheet).toBeTruthy();
-        if (!worksheet) return;
+      // ExcelJSでファイルを読み込む
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(filePath!);
+      const worksheet = workbook.worksheets[0];
+      assertPresent(worksheet, 'Excelファイルの先頭ワークシート');
 
-        // フィルタ結果が0件の場合、Excelにはヘッダー行のみ（または空行）
-        // ヘッダー行は1行目なので、データ行数はrowCount - 1
-        const excelDataRowCount = worksheet.rowCount - 1;
-        expect(excelDataRowCount).toBeLessThanOrEqual(rowsAfterFilter);
-      }
+      // REQ-13.6: フィルタ結果は0件なので、ヘッダー行より後にデータ行があってはならない
+      expect(
+        worksheet.rowCount,
+        'REQ-13.6: フィルタ結果0件のExcelにデータ行が出力されている'
+      ).toBeLessThanOrEqual(1);
+
+      // REQ-13.6: フィルタで除外した項目がExcelに現れてはならない
+      const exportedCellValues = JSON.stringify(worksheet.getSheetValues());
+      expect(
+        exportedCellValues,
+        'REQ-13.6: フィルタで除外した項目がExcelに出力されている'
+      ).not.toContain(SEEDED_ITEM_NAME);
     });
 
     /**
@@ -2855,33 +3265,44 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 名称でフィルタリング（存在しないパターンを使用して0件にする）
-      const filterInput = page.getByPlaceholder('名称でフィルタ');
-      if (await filterInput.isVisible()) {
-        await filterInput.fill('存在しないパターン12345');
-        await page.waitForTimeout(500);
+      // 以前はここを `getByPlaceholder('名称でフィルタ')` で探していたが、実装の
+      // プレースホルダは「名称で絞り込み」であり、この関門は一度も真にならなかった。
+      // すなわち REQ-14.5 の主張は一度も実行されていない。前提を無条件に主張する形へ改める。
+      const filterInput = await requireItemizedStatementFilterInput(page, 'name');
+      await filterInput.fill(NO_MATCH_FILTER_VALUE);
 
-        // フィルタ後の行数を確認
-        const rowsAfterFilter = await page.locator('tbody tr').count();
+      // フィルタ結果が0件であることを確認（表そのものが描画されなくなる）
+      await expect(page.getByText('該当する項目はありません')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(page.locator('tbody tr')).toHaveCount(0);
 
-        // クリップボードにコピーを実行
-        const copyButton = page.getByRole('button', { name: /クリップボードにコピー/i });
-        await copyButton.click();
+      // クリップボードにコピーを実行
+      const copyButton = page.getByRole('button', { name: /クリップボードにコピー/i });
+      await copyButton.click();
 
-        await expect(page.getByText(/クリップボードにコピーしました/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
+      await expect(page.getByText(/クリップボードにコピーしました/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // クリップボードの内容を読み取る
-        const clipboardText = await page.evaluate(async () => {
-          return await navigator.clipboard.readText();
-        });
+      // クリップボードの内容を読み取る
+      const clipboardText = await page.evaluate(async () => {
+        return await navigator.clipboard.readText();
+      });
 
-        // 行数を確認（ヘッダー行 + データ行）
-        const lines = clipboardText.split('\n').filter((line) => line.trim() !== '');
-        const clipboardDataRowCount = lines.length - 1; // ヘッダー行を除く
+      // REQ-14.5: フィルタ結果は0件なので、ヘッダー行以外のデータ行があってはならない
+      const lines = clipboardText.split('\n').filter((line) => line.trim() !== '');
+      const clipboardDataRowCount = lines.length - 1; // ヘッダー行を除く
+      expect(
+        clipboardDataRowCount,
+        'REQ-14.5: フィルタ結果0件なのにクリップボードへデータ行がコピーされている'
+      ).toBe(0);
 
-        expect(clipboardDataRowCount).toBeLessThanOrEqual(rowsAfterFilter);
-      }
+      // REQ-14.5: フィルタで除外した項目がクリップボードに現れてはならない
+      expect(
+        clipboardText,
+        'REQ-14.5: フィルタで除外した項目がクリップボードにコピーされている'
+      ).not.toContain(SEEDED_ITEM_NAME);
     });
   });
 

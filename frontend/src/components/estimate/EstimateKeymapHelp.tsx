@@ -117,7 +117,10 @@ const styles = {
     maxHeight: '80vh',
     display: 'flex',
     flexDirection: 'column',
-    outline: 'none',
+    // 開いたときにフォーカスを受ける一覧そのものも、全画面共通の `:focus-visible` の輪で示す。
+    // 一覧の外側は半透明の黒の幕で、輪を外側へ描くと幕の上で 3:1 に届かないため、
+    // 輪の太さ（2px）だけ内側へ寄せて一覧の白い面の上へ描く（タスク 60.1）
+    outlineOffset: '-2px',
   } as React.CSSProperties,
   header: {
     display: 'flex',

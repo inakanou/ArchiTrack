@@ -30,6 +30,7 @@ import ProjectListView from '../components/projects/ProjectListView';
 import ProjectSearchFilter from '../components/projects/ProjectSearchFilter';
 import PaginationUI from '../components/projects/PaginationUI';
 import { Breadcrumb } from '../components/common';
+import { getNetworkOrServerErrorMessage } from '../hooks/useNetworkError';
 
 // ============================================================================
 // 型定義
@@ -364,8 +365,10 @@ export default function ProjectListPage() {
       const result = await getProjects(options);
       setProjects(result.data);
       setPagination(result.pagination);
-    } catch {
-      setError('プロジェクト一覧を取得できませんでした');
+    } catch (err) {
+      // ネットワークエラーとサーバーエラーは受入基準の文言、それ以外は従来の文言を表示する
+      const acceptanceMessage = getNetworkOrServerErrorMessage(err);
+      setError(acceptanceMessage ?? 'プロジェクト一覧を取得できませんでした');
     } finally {
       setLoading(false);
     }

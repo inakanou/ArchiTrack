@@ -2,8 +2,8 @@
  * @fileoverview 現場調査画面遷移・ナビゲーションのE2Eテスト
  *
  * Requirements coverage (site-survey):
- * - REQ-2.1: プロジェクト詳細画面に「現場調査」タブを表示
- * - REQ-2.2: 「現場調査」タブで現場調査一覧を表示
+ * - プロジェクト詳細画面の「現場調査」タブと一覧表示（旧 REQ-2 の AC 1・2）は
+ *   project-management/Requirement 24 へ移管済み。被覆印は移管先の番号で名乗る
  * - REQ-2.3: 一覧で項目をクリックして詳細画面に遷移
  * - REQ-2.4: 詳細画面で画像をクリックしてビューア/エディタを開く
  * - REQ-2.5: ブレッドクラムナビゲーションを表示
@@ -16,6 +16,8 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -52,16 +54,7 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -176,11 +169,17 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       const surveyTab = page.getByRole('tab', { name: /現場調査/i });
       const surveySection = page.getByRole('heading', { name: '現場調査', exact: true });
 
-      const hasLink = await surveyLink.isVisible({ timeout: 5000 }).catch(() => false);
-      const hasTab = await surveyTab.isVisible().catch(() => false);
-      const hasSection = await surveySection.isVisible().catch(() => false);
-
-      expect(hasLink || hasTab || hasSection).toBeTruthy();
+      // project-management/REQ-24.1: プロジェクト詳細に現場調査のセクションを表示する。
+      // 実装は見出し「現場調査」と一覧への導線（リンク）を同時に置く。タブの実装は無い。
+      // 以前は「リンク または タブ または 見出し」の論理和で、タブは決して現れない一方、
+      // 残る二つはどちらか一方が残れば通る形だった。実装が備える二つを個別に主張する。
+      await expect(surveySection, 'プロジェクト詳細に現場調査の見出しが無い').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(surveyLink, 'プロジェクト詳細に現場調査への導線が無い').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(surveyTab, '現場調査はタブではなくセクションで提供される').toHaveCount(0);
     });
 
     test('現場調査タブをクリックすると一覧が表示される (project-management/REQ-24.2)', async ({
@@ -284,9 +283,20 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
 
   /**
    * @requirement site-survey/REQ-2.5
-   * @requirement site-survey/REQ-2.6
+   * @requirement site-survey/REQ-2.7
+   *
+   * タスク 115.188 の是正: 従前は REQ-2.6 を名乗っていたが、受入基準2.6 の原文は「When ユーザーが現場調査一覧画面を表示する,
+   * the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト
+   * > 現場調査一覧」を表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準2.7（「When ユーザーが現場調査詳細画面を表示する,
+   * the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト
+   * > 現場調査一覧 > 現場調査」を表示する」）である。
    * @requirement site-survey/REQ-2.10
-   * @requirement site-survey/REQ-2.12
+   *
+   * タスク 115.188 の是正: site-survey の受入基準2.12 を名乗る被覆印を取り下げた。原文2.12 は
+   * 「**画像プレビュー画面**において『← 現場調査に戻る』リンクを表示しない」であり、
+   * 主題は画像プレビュー画面である。本区間は現場調査**詳細画面**のブレッドクラムだけを
+   * 扱い、画像プレビュー画面を一度も開かない。付け替え先も要件2 に無い。
+   * 2.12 は `site-survey-breadcrumb.spec.ts:462` の画像プレビュー画面の検証が引き続き名乗る。
    */
   test.describe('ブレッドクラムナビゲーション', () => {
     test('現場調査詳細画面にブレッドクラムが表示される (site-survey/REQ-2.5)', async ({ page }) => {
@@ -324,17 +334,26 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
 
       // 現場調査関連のテキストが含まれることを確認
       // リンクまたは現在のページ要素を確認（複数の場合はfirst()を使用）
-      const surveyTextElement = breadcrumb.getByText(/現場調査/i).first();
-      const surveyNameElement = breadcrumb.getByText(surveyName).first();
-      const hasSurveyText = await surveyTextElement.isVisible().catch(() => false);
-      const hasSurveyName = await surveyNameElement.isVisible().catch(() => false);
-      expect(hasSurveyText || hasSurveyName).toBeTruthy();
+      // REQ-2.7: 現場調査詳細のブレッドクラムは
+      // 「… > プロジェクト > 現場調査一覧 > 現場調査」を表示する。
+      // すなわち「現場調査一覧」の階層と、当該現場調査の名称の双方が現れる。
+      // 以前は「『現場調査』を含む要素 または 調査名の要素」の論理和で、
+      // 前者は「現場調査一覧」にも一致するため常に成立し、調査名の欠落を検出できなかった。
+      await expect(breadcrumb, 'ブレッドクラムに現場調査一覧の階層が無い').toContainText(
+        '現場調査'
+      );
+      await expect(breadcrumb, 'ブレッドクラムに現場調査名が無い').toContainText(surveyName);
     });
 
     /**
-     * @requirement site-survey/REQ-2.7
+     * @requirement site-survey/REQ-2.10
+     *
+     * タスク 115.188 の是正: 従前は REQ-2.7 を名乗っていたが、受入基準2.7 の原文は「When ユーザーが現場調査詳細画面を表示する,
+     * the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト
+     * > 現場調査一覧 > 現場調査」を表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準2.10（「When ユーザーがブレッドクラムの各項目をクリックする,
+     * the Site Survey Service shall 対応する画面に遷移する」）である。
      */
-    test('ブレッドクラムのプロジェクト名をクリックするとプロジェクト詳細に遷移する (site-survey/REQ-2.7)', async ({
+    test('ブレッドクラムのプロジェクト名をクリックするとプロジェクト詳細に遷移する (site-survey/REQ-2.10)', async ({
       page,
     }) => {
       if (!createdProjectId || !createdSurveyId) {
@@ -352,18 +371,17 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       const breadcrumb = page.getByRole('navigation', { name: /パンくず|breadcrumb/i });
       const projectLink = breadcrumb.getByRole('link', { name: projectName });
 
-      const projectLinkVisible = await projectLink.isVisible({ timeout: 5000 });
-      if (projectLinkVisible) {
-        await projectLink.click();
+      // REQ-2.10 はブレッドクラムの各項目をクリックすると対応する画面へ遷移すると定めており、
+      // 詳細画面のプロジェクト項目は `buildSiteSurveyDetailBreadcrumb` が
+      // `path: /projects/{projectId}` を与えるため必ずリンクとして描画される。
+      // 「リンクでなければテキストの表示だけ確かめる」経路は要件違反を緑にするため置かない。
+      await expect(projectLink).toBeVisible({ timeout: getTimeout(10000) });
+      await projectLink.click();
 
-        // プロジェクト詳細ページに遷移することを確認
-        await expect(page).toHaveURL(new RegExp(`/projects/${createdProjectId}`), {
-          timeout: getTimeout(10000),
-        });
-      } else {
-        // プロジェクト名がリンクでない場合、テキストとして表示されているか確認
-        await expect(breadcrumb.getByText(projectName)).toBeVisible();
-      }
+      // プロジェクト詳細ページに遷移することを確認
+      await expect(page).toHaveURL(new RegExp(`/projects/${createdProjectId}`), {
+        timeout: getTimeout(10000),
+      });
     });
 
     test('現場調査一覧画面にブレッドクラムが表示される (site-survey/REQ-2.5)', async ({ page }) => {
@@ -395,35 +413,35 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await loginAsUser(page, 'ADMIN_USER');
 
       // 現場調査を削除
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        // 削除確認ダイアログが表示されるのを待機
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
-      }
+      const deleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+      // 削除確認ダイアログが表示されるのを待機
+      const confirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await confirmButton.click();
+      await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

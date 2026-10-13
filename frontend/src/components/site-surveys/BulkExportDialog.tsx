@@ -10,7 +10,7 @@
  *
  * # Props 設計の補足
  *
- * design.md L5281-5289 では Props を `{ open, mode, targetImageIds, surveyId,
+ * design.md「BulkExportDialog」では Props を `{ open, mode, targetImageIds, surveyId,
  * surveyName, onClose, onStart(controller) }` と定義しているが、
  * 本実装では以下の差分を取り入れる。
  *
@@ -37,7 +37,7 @@
  * @requirement site-survey/REQ-31.4 エクスポート設定 UI
  * @requirement site-survey/REQ-31.5 設定確定 → 一括実行
  * @requirement site-survey/REQ-31.15 対象 0 件時の通知 + クローズ
- * @see .kiro/specs/site-survey/design.md BulkExportDialog (5271-5294)
+ * @see .kiro/specs/site-survey/design.md `##### BulkExportDialog`
  */
 
 import React, { useEffect, useId, useState } from 'react';

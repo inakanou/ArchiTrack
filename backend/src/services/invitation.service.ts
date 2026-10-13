@@ -14,6 +14,8 @@
 
 import crypto from 'crypto';
 import type { PrismaClient, Invitation } from '../generated/prisma/client.js';
+import type { EmailService } from './email.service.js';
+import logger from '../utils/logger.js';
 import {
   InvitationStatus,
   type InvitationError,
@@ -21,6 +23,11 @@ import {
   Ok,
   Err,
 } from '../types/invitation.types.js';
+
+/**
+ * 招待メールの送信口（EmailService のうち招待が使う部分）
+ */
+export type InvitationEmailSender = Pick<EmailService, 'sendInvitationEmail'>;
 
 /**
  * 招待管理サービス
@@ -33,7 +40,10 @@ export class InvitationService {
    */
   private readonly INVITATION_EXPIRY_DAYS = 7;
 
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly emailSender?: InvitationEmailSender
+  ) {}
 
   /**
    * 招待を作成する
@@ -74,7 +84,38 @@ export class InvitationService {
       },
     });
 
+    // 招待メールをキューへ投入する（要件1.3）。投入の成否は招待の作成の成否に影響しない（要件24.8）
+    this.queueInvitationEmail(invitation);
+
     return Ok(invitation);
+  }
+
+  /**
+   * 招待メールをキューへ投入する（要件1.3・24.8）
+   */
+  private queueInvitationEmail(invitation: Invitation): void {
+    if (!this.emailSender) {
+      logger.warn(
+        { invitationId: invitation.id },
+        'Invitation email sender is not configured; invitation email was not queued'
+      );
+      return;
+    }
+
+    // 投入の完了を待たない。キュー（Redis）が応答しない・失敗するときも招待の作成は成功させ、
+    // 失敗は警告ログに残す（要件24.8）
+    const emailSender = this.emailSender;
+    void (async () => {
+      try {
+        await emailSender.sendInvitationEmail(invitation.email, invitation.token);
+      } catch (error) {
+        logger.warn(
+          // pino の標準シリアライザ（err キー）で message と stack を残す
+          { err: error, invitationId: invitation.id },
+          'Failed to queue invitation email; invitation was created'
+        );
+      }
+    })();
   }
 
   /**

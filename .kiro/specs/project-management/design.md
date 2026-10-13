@@ -35,7 +35,7 @@
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
 
-**注記**: 取引先連携機能（Requirement 22）は本仕様のスコープに含まれ、取引先管理機能（`trading-partner-management`仕様）実装後に`customerName`フィールドから`tradingPartnerId`外部キーへ移行しました（2025-12-12マイグレーション完了）。プロジェクトは取引先テーブルへの外部キー参照により取引先情報を取得します。
+**注記**: 取引先連携機能（Requirement 22）は本仕様のスコープに含まれ、取引先管理機能（`trading-partner-management`仕様）実装後に`customerName`フィールドから`tradingPartnerId`外部キーへ移行しました（2025-12-12マイグレーション完了）。プロジェクトは取引先テーブルへの外部キー参照により取引先情報を取得します。 **この移行は再実測でも真である**——`backend/prisma/schema.prisma` の `Project` は `tradingPartnerId` を持ち、`customerName` を持たない（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である）。 **再現コマンドは `awk '/^model Project /,/^}/' backend/prisma/schema.prisma | grep -c '^  tradingPartnerId '` であり、出力は `1`、`awk '/^model Project /,/^}/' backend/prisma/schema.prisma | grep -E '^ +customerName ' | wc -l` の出力は `0` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 
 ---
 
@@ -50,7 +50,7 @@
 - 主要変更（2025-12-15 gap analysis結果）:
   - ~~フィールドラベル変更:「取引先」→「顧客名」（TradingPartnerSelect、ProjectDetailPage）~~（実装済み）
   - ~~プロジェクト検索でのひらがな・カタカナ両対応（project.service.ts）~~（実装済み）
-  - **TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応**（未実装・要対応）
+  - ~~**TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応**（未実装・要対応）~~（実装済み）。**再実測では実装済みである**——`grep -c "from '../../utils/kana-converter'" frontend/src/components/projects/TradingPartnerSelect.tsx` の出力が `1` であり、同ファイルの `matchesSearchQuery` が `toKatakana` / `toHiragana` を呼ぶ（取り込み先の `frontend/src/utils/kana-converter.ts` も実在する）。起票時の状態記録「（未実装・要対応）」は取り消し線の内側に残し、同じ箇条の上の 2 件と同じ「取り消し線＋（実装済み）」の形に揃えた（同じ節の中で同じ意味を二通りに書かないため）。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
   - フロントエンドに`kana-converter.ts`を新規作成（バックエンドから移植）
 - 主要変更（2025-12-13要件更新）:
   - 一覧画面からID列を削除、営業担当者・工事担当者列を追加（2.2）
@@ -247,7 +247,8 @@ stateDiagram-v2
 ```
 
 **Key Decisions**:
-- ステータス遷移は4種類: initial（初期）、forward（順方向）、backward（差し戻し）、terminate（終端）
+- 遷移種別は3種類: forward（順方向遷移）、backward（差し戻し遷移）、terminate（終端遷移）。要件10 の 11 の定義であり、上図が名前を付けた遷移 22 本もこの3種類に尽きる
+- initial は遷移種別ではなく、プロジェクト作成時の初期履歴に付ける印である。上図の入口は「新規作成」であって遷移の名を持たない。実装の TransitionType の列挙値は、この3種類に印 initial を加えた4値である
 - プロジェクト作成時はtransitionType='initial'、fromStatus=nullの履歴を記録
 - 差し戻し遷移（backward）は1つ前のステータスへのみ許可、理由入力を必須とする
 - 「完了」「中止」「失注」は終端ステータス（いずれの遷移も禁止）
@@ -373,7 +374,7 @@ sequenceDiagram
 | 15.1-15.5 | レスポンシブ | 全UIコンポーネント | - | - |
 | 16.1-16.13 | 取引先オートコンプリート（**ひらがな・カタカナ両対応（差分8）、ラベル「顧客名」**） | TradingPartnerSelect, kana-converter | GET /api/trading-partners | - |
 | 17.1-17.12 | 担当者選択 | UserSelect | GET /api/users/assignable | - |
-| 18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification | - | - |
+| 18.1-18.6 | エラー回復（**18.1-18.3: 画面内のエラー表示と再試行**（タスク 72.1）） | ErrorBoundary, ToastNotification, **useNetworkError（getNetworkOrServerErrorMessage）, ProjectListPage, ProjectDetailPage, ProjectEditPage** | - | - |
 | 19.1-19.5 | パフォーマンス | 全コンポーネント | - | - |
 | 20.1-20.6 | アクセシビリティ | 全UIコンポーネント | - | - |
 | 21.1-21.13 | ナビゲーション | AppHeader, Dashboard | - | - |
@@ -392,6 +393,12 @@ sequenceDiagram
 | 39.1-39.5 | **detail-summary APIの工程表セクション統合** | ProjectRoutes, ScheduleService | GET /api/projects/:id/detail-summary | - |
 | 40.1-40.10 | **実行予算セクション表示**（execution-budget-managementから集約） | ProjectDetailPage, ExecutionBudgetSectionCard | GET /api/projects/:id/detail-summary | - |
 | 41.1-41.5 | **detail-summary APIの実行予算セクション統合** | ProjectRoutes, ExecutionBudgetService | GET /api/projects/:id/detail-summary | - |
+
+**要件 18.1-18.6 の行への追記（タスク 72.1）**: 起票時の行は「エラー回復 | ErrorBoundary, ToastNotification」だけを挙げていた。この 2 部品の記述は現況でも誤りではないため取り消し線を引かずに残し、現況を同じ表の他の行（3.1-3.5 など）と同じ太字の追記の形で並べた（規約 (a)。`site-survey` の design.md「実測値の書き方（タスク 115.212）」に従う併記である）。**18.1-18.3 の実際の経路は、タスク 71.2（コミット `276a6289`）以後、プロジェクトの 3 画面の画面内のエラー表示と再試行ボタンである**——`grep -c 'getNetworkOrServerErrorMessage(err)' frontend/src/pages/ProjectListPage.tsx frontend/src/pages/ProjectDetailPage.tsx frontend/src/pages/ProjectEditPage.tsx` の出力は 3 ファイルとも `1` であり、文言は `frontend/src/hooks/useNetworkError.ts` の `getNetworkOrServerErrorMessage` が返す（ネットワークエラーは 18.1、5xx は 18.3 の文言。それ以外のエラーは `null` を返し、各画面が自前の文言を表示する）。再試行ボタンは失敗した取得を再実行する（18.2）——一覧は `handleRetry` が `fetchProjects` を呼び直し（`grep -c 'onClick={handleRetry}' frontend/src/pages/ProjectListPage.tsx` の出力が `1`）、詳細と編集は `fetchProject` を直に呼び直す（`grep -c 'onClick={fetchProject}' frontend/src/pages/ProjectDetailPage.tsx frontend/src/pages/ProjectEditPage.tsx` の出力は 2 ファイルとも `1`）。3 画面はいずれも `useNetworkError` フックそのものは使わず、判定の関数だけを使う（`grep -c 'useNetworkError()' frontend/src/pages/ProjectListPage.tsx frontend/src/pages/ProjectDetailPage.tsx frontend/src/pages/ProjectEditPage.tsx` の出力は 3 ファイルとも `0`）。5xx での再試行ボタンの扱いは本書の `## Error Handling` の `**System Errors (5xx)**` を参照。コミット `027410af`。2026-09-30 にリポジトリルートで実測
+
+**要件 20.1-20.6 の行への追記（要件 20.4、タスク 72.3、2026-10-06。利用者の判断「結線」）**: 全画面共通の規則として `frontend/src/index.css` の `@layer base` に `:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }` を置く（白に対して 5.17:1、`#f5f5f5` に対して 4.74:1）。base 層に置くのは、部品の側の指定（utilities 層の `focus:outline-none` と、層の外の作者 CSS）がこの規則に勝つようにするためである。`focus:ring-*` の輪は box-shadow なので、この outline とは干渉しない。部品の側はインラインで `outline: 'none'` を書かない（インライン指定は stylesheet の規則に勝ち、表示を消すため）。`frontend/src/utils/keyboard-navigation.ts` の `FOCUS_VISIBLE_STYLES` は本番の画面から参照されず、要件 20.4 の被覆源ではない。受入の検証は `e2e/specs/projects/project-accessibility.spec.ts` の「フォーカス状態の視覚的表示」が担う
+
+**タスク 73.6（2026-10-07、利用者の判断「共通の輪に一本化」）**: ProjectForm・TradingPartnerSelect・UserSelect の入力欄はフォーカス時の 3px の淡い影（box-shadow）を描かず、フォーカス中の表示を共通の outline と枠線の色の変化で示す。影と outline が重なってフォーカス表示が二重になる状態を解消した（エラー時の淡い赤の影も同じく描かない）。受入の検証は `e2e/specs/projects/project-accessibility.spec.ts` の「プロジェクト作成フォームでフォーカス状態が視覚的に明確に表示される」が、6 つの入力欄で outline が明確であることと box-shadow が none であることを主張する形で担う
 
 ## Components and Interfaces
 
@@ -749,8 +756,8 @@ private buildOrderBy(sort: SortInput): Prisma.ProjectOrderByWithRelationInput {
 - 以下のファイルで既に変更済み
 
 **実装済みファイル**:
-1. `frontend/src/components/projects/TradingPartnerSelect.tsx` (362行目): `<label>顧客名</label>`
-2. `frontend/src/pages/ProjectDetailPage.tsx` (520行目): `<div style={styles.fieldLabel}>顧客名</div>`
+1. `frontend/src/components/projects/TradingPartnerSelect.tsx` の `<label>顧客名</label>`
+2. `frontend/src/pages/ProjectDetailPage.tsx` の `<div style={styles.fieldLabel}>顧客名</div>`
 3. `frontend/src/components/projects/TradingPartnerSelect.tsx`: `aria-label="顧客名"`
 
 **注記**: `aria-label="取引先候補"`など候補リストに関するラベルはそのまま維持（内部的な取引先マスタを指すため）
@@ -767,7 +774,7 @@ private buildOrderBy(sort: SortInput): Prisma.ProjectOrderByWithRelationInput {
 - 取引先管理機能（`trading-partner.service.ts`）と同じパターンを適用
 
 **実装済みファイル**:
-- `backend/src/services/project.service.ts`（300-324行目）
+- `backend/src/services/project.service.ts` の検索条件組み立て箇所
 
 **実装済みの検索ロジック**:
 ```typescript
@@ -794,7 +801,7 @@ if (filter.search) {
 
 ### 差分8: TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応（2025-12-15 gap analysis結果）
 
-**ステータス**: ❌ **未実装・要対応**
+**ステータス**: ~~❌ **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c "from '../../utils/kana-converter'" frontend/src/components/projects/TradingPartnerSelect.tsx` の出力が `1` であり、同ファイルの `matchesSearchQuery` が `toKatakana` / `toHiragana` を呼ぶ（`frontend/src/utils/kana-converter.ts` も実在する）。本 tasks.md の側では Task 32.1〜35.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - `TradingPartnerSelect`コンポーネントのクライアントサイドフィルタリング（`matchesSearchQuery`関数）にかな変換を追加
@@ -802,7 +809,7 @@ if (filter.search) {
 
 **影響ファイル**:
 1. `frontend/src/utils/kana-converter.ts`（新規作成）
-2. `frontend/src/components/projects/TradingPartnerSelect.tsx`（96-106行目を修正）
+2. `frontend/src/components/projects/TradingPartnerSelect.tsx` の `matchesSearchQuery` 関数を修正
 
 **新規ファイル: `frontend/src/utils/kana-converter.ts`**:
 ```typescript
@@ -857,7 +864,7 @@ export function toHiragana(str: string): string {
 
 **TradingPartnerSelect.tsx の変更**:
 
-現在の`matchesSearchQuery`関数（96-106行目）:
+現在の`matchesSearchQuery`関数（`frontend/src/components/projects/TradingPartnerSelect.tsx`）:
 ```typescript
 function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean {
   const lowerQuery = query.toLowerCase();
@@ -919,6 +926,10 @@ function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean
 }
 ```
 
+**現況（Task 74.1、2026-10-08。trading-partner-management の Task 28.1 からの申し送り）**: 上の二つのコード例（「現在の」と「変更後」）は設計時点の記述として残す。trading-partner-management の Task 28.1（2026-10-07、コミット `f1ee2154`）が、`frontend/src/components/projects/TradingPartnerSelect.tsx` の `matchesSearchQuery` から、`branchNameKana` / `representativeNameKana` を照合する 2 分岐（`branchKanaMatches` / `repKanaMatches`）を外した。二つの項目は `backend/prisma/schema.prisma` が持たず（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）、API が値を返さないため、2 分岐は常に偽であり、外しても表示・検索の振る舞いは変わらない。部課名・代表者名は、フリガナではなく `branchName` / `representativeName` の文字列そのもので照合する。現在の戻り値は `return nameMatches || nameKanaMatches || branchMatches || repMatches;` である。
+
+**現況の実測**: `grep -cE 'branchNameKana|representativeNameKana' frontend/src/components/projects/TradingPartnerSelect.tsx` の出力は `0` である（2026-10-08、HEAD `627ce0da`、リポジトリルートで実測）。
+
 **設計根拠**:
 - バックエンドの取引先検索API（`trading-partner.service.ts`）は既にひらがな・カタカナ両対応
 - ただし、`TradingPartnerSelect`コンポーネントはクライアントサイドでフィルタリングを実行
@@ -929,7 +940,7 @@ function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean
 
 ### 差分9: 顧客選択時の現場住所自動入力（1.6, 1.7）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c 'setSiteAddress(partner.address)' frontend/src/components/projects/ProjectForm.tsx` の出力が `1` であり、`grep -c 'onSelect?.(partner)' frontend/src/components/projects/TradingPartnerSelect.tsx` の出力も `1` である。本 tasks.md の側では Task 36.1〜38.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - プロジェクト作成フォームで顧客を選択した際、現場住所フィールドが空欄であれば、選択された取引先の住所（`address`）を現場住所に自動入力する
@@ -1078,7 +1089,7 @@ sequenceDiagram
 
 ### 差分10: デフォルト表示時に終端ステータス（完了・中止・失注）を除外（2.7, 2.8）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c excludeTerminalStatuses backend/src/services/project.service.ts backend/src/schemas/project.schema.ts frontend/src/api/projects.ts` の出力は挙げた順に `3`・`1`・`2` で、3 ファイルとも 1 以上である。本 tasks.md の側では Task 39.1〜45.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - プロジェクト一覧APIで、ステータスフィルタが未指定の場合、終端ステータス（COMPLETED, CANCELLED, LOST）のプロジェクトをデフォルトで除外する
@@ -1178,7 +1189,7 @@ if (filter?.excludeTerminalStatuses) {
 
 ### 差分11: デフォルト表示件数を100件に変更（3.1）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c 'const DEFAULT_LIMIT = 100;' frontend/src/pages/ProjectListPage.tsx` の出力が `1` であり、`grep -c '.default(100)' backend/src/schemas/project.schema.ts` の出力も `1` である。本 tasks.md の側では Task 39.1〜45.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - バックエンドのページネーションデフォルト値を20件から100件に変更
@@ -1234,7 +1245,7 @@ const DEFAULT_LIMIT = 100;  // Requirements: 3.1 - デフォルト表示件数�
 
 ### 差分12: フィルタクリア時のデフォルト状態復帰と終端ステータスフィルタの動作（5.5, 5.7, 5.8）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c 'handleClearFilters' frontend/src/components/projects/ProjectSearchFilter.tsx` の出力が `2` であり、同ファイルは `status: []` へのリセットを持つ（`grep -c 'status: \[\]' frontend/src/components/projects/ProjectSearchFilter.tsx` の出力が `1`）。本 tasks.md の側では Task 39.1〜45.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - フィルタクリア時にデフォルト表示状態（終端ステータス除外）に復帰する
@@ -1276,7 +1287,7 @@ flowchart TD
 
 ### 差分13: ステータス別件数表示を全プロジェクト対象に変更（23.1-23.6）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c 'async getStatusCounts' backend/src/services/project.service.ts` の出力が `1` であり、`backend/src/routes/projects.routes.ts` が `'/status-counts'` を登録し（`grep -c "'/status-counts'" backend/src/routes/projects.routes.ts` の出力が `1`）、`frontend/src/api/projects.ts` が `/api/projects/status-counts` を呼ぶ（`grep -c 'status-counts' frontend/src/api/projects.ts` の出力が `1`）。本 tasks.md の側では Task 39.1〜45.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - 現在、`StatsSummary`コンポーネントは画面に表示されている`projects`配列からステータス別件数を集計している
@@ -2035,7 +2046,7 @@ interface DuplicateProjectNameErrorResponse {
 - Validation: Zodスキーマを使用、`validate.middleware.ts`と連携
 - **409エラー**: プロジェクト名重複時はDuplicateProjectNameErrorResponse形式で返却
 - **status-countsルート配置**: `/api/projects/status-counts`は`/api/projects/:id`より前に定義（Expressルートマッチング順序）
-- **detail-summaryエンドポイント（29.1-29.6）**: `GET /api/projects/:id/detail-summary`で全セクションデータを一括取得。`Promise.allSettled()`で5サービスを並列呼び出し、個別エラー時はデフォルト値にフォールバック。既存サービスメソッド（`findLatestByProjectId`）を再利用
+- **detail-summaryエンドポイント（29.1-29.6）**: `GET /api/projects/:id/detail-summary`で全セクションデータを一括取得。`Promise.allSettled()`で5サービスを並列呼び出し、個別エラー時はデフォルト値にフォールバック。既存サービスメソッド（`findLatestByProjectId`）を再利用 **この「5サービス」は本節を書いた時点の記録であり書き換えない（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う）。再実測は 9 である**——`backend/src/routes/projects.routes.ts` の `getProjectSections` が `Promise.allSettled` へ渡す呼び出しは 9 本ある（コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）。`findLatestByProjectId` を再利用しているという記述は現況でも真である。 **再現コマンドは `awk '/^async function getProjectSections\(/,/^  \]\);/' backend/src/routes/projects.routes.ts | grep -cE '^ +[a-zA-Z]+Service\.'` であり、出力は `9` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 - **Swaggerドキュメント更新**: limitデフォルト値を100に変更、excludeTerminalStatusesパラメータを追加、status-countsエンドポイントのドキュメントを追加、detail-summaryエンドポイントのドキュメントを追加
 - Risks: レート制限の設定が必要（既存の`express-rate-limit`を使用）
 
@@ -2327,11 +2338,11 @@ interface ProjectFormData {
 - 取引先管理機能（`trading-partner-management`）との外部キー連携 ✅ 実装済み
 - 取引先種別に「顧客」を含む取引先一覧を候補として表示 ✅ 実装済み
 - 取引先名またはフリガナで部分一致検索（オートコンプリート） ✅ 実装済み
-- **ひらがな入力でもカタカナフリガナを検索（16.3, 22.5）** :x: **クライアントサイドフィルタリング未対応（差分8で対応）**
+- **ひらがな入力でもカタカナフリガナを検索（16.3, 22.5）** ~~:x: **クライアントサイドフィルタリング未対応（差分8で対応）**~~ ✅ 実装済み。**再実測では実装済みである**——`grep -c "from '../../utils/kana-converter'" frontend/src/components/projects/TradingPartnerSelect.tsx` の出力が `1` であり、同ファイルの `matchesSearchQuery` が `toKatakana` / `toHiragana` を呼ぶ。起票時の状態記録は取り消し線の内側に残し、現況は同じ箇条の他の行と同じ `✅ 実装済み` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測
 - 入力文字列に部分一致する取引先を最大10件まで候補表示 ✅ 実装済み
 - 任意選択（null許容） ✅ 実装済み
 - キーボード操作（上下キー選択、Enter確定）とマウス操作の両方に対応 ✅ 実装済み
-- **取引先選択時に`onSelect`コールバックで取引先オブジェクト全体を通知**（1.6, 1.7）:x: **未実装（差分9で対応）**
+- **取引先選択時に`onSelect`コールバックで取引先オブジェクト全体を通知**（1.6, 1.7）~~:x: **未実装（差分9で対応）**~~ ✅ 実装済み。**再実測では実装済みである**——`grep -c 'onSelect?.(partner)' frontend/src/components/projects/TradingPartnerSelect.tsx` の出力が `1` であり、通知を受ける `frontend/src/components/projects/ProjectForm.tsx` は住所の自動入力を持つ（`grep -c 'setSiteAddress(partner.address)' frontend/src/components/projects/ProjectForm.tsx` の出力が `1`）。起票時の状態記録は取り消し線の内側に残し、現況は同じ箇条の他の行と同じ `✅ 実装済み` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測
 
 **Dependencies**
 - Inbound: ProjectForm — 取引先選択 (P0)
@@ -2865,7 +2876,8 @@ erDiagram
 - 取引先ID（tradingPartnerId）は任意、指定時は有効な取引先への参照
 - 営業担当者は必須
 - ステータスは定義された12種類のいずれか
-- 遷移種別は4種類: initial, forward, backward, terminate
+- 遷移種別は3種類: forward, backward, terminate（要件10 の 11 の定義）
+- TransitionType の列挙値は4値。上の3種類に、遷移ではない初期履歴の印 initial を加えたもの
 - プロジェクト作成時の初期履歴はfromStatus=null、transitionType='initial'
 - 差し戻し遷移時は理由が必須
 - 論理削除されたプロジェクトは一覧に表示されない
@@ -3005,7 +3017,13 @@ enum TransitionType {
 
 **System Errors (5xx)**:
 - 500 Internal Server Error: サーバーエラー → 「しばらくしてからお試しください」メッセージ
-- 503 Service Unavailable: サービス停止 → メンテナンスメッセージ
+- ~~503 Service Unavailable: サービス停止 → メンテナンスメッセージ~~ 503 Service Unavailable: 500 と同じく要件 18.3 の文言「システムエラーが発生しました。しばらくしてからお試しください。」を表示する（タスク 72.1）。**再実測ではメンテナンスメッセージの経路は実装されていない**——`grep -rlE 'メンテナンス' frontend/src --include=*.ts --include=*.tsx | wc -l` の出力が `0` であり、これはタスク 71 より前からである。タスク 71.2（コミット `276a6289`）以後、プロジェクトの一覧・詳細・編集の画面は `frontend/src/hooks/useNetworkError.ts` の `getNetworkOrServerErrorMessage` を通し、503 を含む 5xx（`getErrorTypeFromStatusCode` がステータス 500 以上 600 未満を `server` に分類する）に 18.3 の文言を表示する。起票時の記述は取り消し線の内側に残し、現況を同じ行に並べた（規約 (a)。`site-survey` の design.md「実測値の書き方（タスク 115.212）」に従う併記である）。コミット `027410af`。2026-09-30 にリポジトリルートで実測
+
+**設計判断: 5xx でもプロジェクトの画面は再試行ボタンを表示する（タスク 72.1 が記録。判断はタスク 71.2）**:
+- `frontend/src/hooks/useNetworkError.ts` の分類は `server` の種別に `canRetry = false` を与える（`grep -A2 "case 'server':" frontend/src/hooks/useNetworkError.ts | grep -c 'canRetry = false;'` の出力が `1`。`network` の種別は `canRetry = true`）。この値は同フックの `retry` と、それを使う取引先の画面の `NetworkErrorDisplay` の再試行ボタンの表示を決める
+- プロジェクトの一覧・詳細・編集の画面は、このフックを使わず `getNetworkOrServerErrorMessage` で**文言だけ**を揃えた。画面内の再試行ボタンは 71.2 より前から、エラーの種別を問わず表示されていた（コミット `276a6289` の親の版でも一覧は `onClick={handleRetry}`、詳細・編集は `onClick={fetchProject}` のボタンを持つ）。71.2 は既存の機能を維持し、5xx でもボタンを残した
+- **`canRetry` を採らなかった理由**: 要件 18.3 は 5xx で再試行ボタンを求めも禁じもしない（18.1 はネットワークエラーでのボタンを求める）。5xx の多くは一時的であり、表示を狭めると既存の回復手段を減らすことになる。ボタンは失敗した取得を再実行するだけで（18.2）、副作用を持たない読み込みである
+- **帰結**: 5xx での再試行ボタンの有無は、取引先の画面（`canRetry` に従い表示しない）とプロジェクトの画面（表示する）で異なる。`canRetry` はフックの利用者のための値であり、プロジェクトの画面の表示を縛るものではない。取引先の画面の所管は `trading-partner-management` であり、両者を揃えるかどうかは本タスクの境界の外である
 
 **Business Logic Errors (422)**:
 - 無効なステータス遷移 → 現在のステータスと許可された遷移先を表示
@@ -3151,7 +3169,7 @@ enum TransitionType {
 
 ### 現状のAPI呼び出し構成
 
-`frontend/src/pages/ProjectDetailPage.tsx`（行325-415）の`fetchProject`関数における実際の呼び出し構成:
+`frontend/src/pages/ProjectDetailPage.tsx` の `fetchProject` 関数における実際の呼び出し構成:
 
 ```
 ProjectDetailPage 初期表示:
@@ -3425,6 +3443,8 @@ async function getProjectSections(projectId: string) {
 
 **依存関係**: `isStorageConfigured`, `getStorageProvider` を `../storage/index.js` からインポートする必要がある（既に `site-surveys.routes.ts` で使用されているパターン）。
 
+**現況（Task 72.2、2026-10-06。利用者の判断「製品を修正」）**: 上のコード例は設計時点の記述として残す。現在は、署名付き URL を作る処理が `backend/src/utils/site-survey-thumbnail-urls.ts` の `signSiteSurveyThumbnailUrls` に移っている。個別 API（`site-surveys.routes.ts` の `/latest`）と detail-summary（`projects.routes.ts` の `getProjectSections`）の両方がこれを呼ぶ。detail-summary の `latestSurveys` の各要素は `thumbnailUrl` / `thumbnailOriginalUrl` に加えて `annotatedThumbnailUrl` も返し、個別 API と同じデータ構造になる（Requirement 29.6）。ストレージが未設定のときは、3 つの URL をいずれも省かず `null` にする（`NULL_SITE_SURVEY_THUMBNAIL_URLS`。Requirement 30.3）。
+
 ---
 
 ### Component 31: パンくずナビゲーション更新（Requirement 21 AC14-17, Requirement 31）
@@ -3497,13 +3517,13 @@ async function getProjectSections(projectId: string) {
 **変更内容**: 以下のJSXブロックを削除する。
 
 ```tsx
-// 削除対象（行507-509）:
+// 削除対象（`styles.backLink` を用いる `<Link to="/projects">` ブロック）:
 <Link to="/projects" style={styles.backLink}>
   ← 一覧に戻る
 </Link>
 ```
 
-また、不要になった `styles.backLink` のスタイル定義（行136-144）も削除する。
+また、不要になった `styles.backLink` のスタイル定義も削除する。
 
 ---
 

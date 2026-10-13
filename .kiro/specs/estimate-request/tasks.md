@@ -1606,7 +1606,7 @@
 
 ## 受領見積書ダイアログ改善2（Requirements 36-38）
 
-- [ ] 76. 受領見積書ダイアログ改善2 の事前調査と既存データ整合化
+- [x] 76. 受領見積書ダイアログ改善2 の事前調査と既存データ整合化
 - [x] 76.1 (P) received_quotation_line_items.sort_order の既存 NULL データ調査と必要時の整合化
   - 既存テーブル `received_quotation_line_items` に対し `sort_order IS NULL` のレコード件数を SQL クエリで確認する
   - **0 件の場合**: design.md「Migration Strategy: データ移行不要」と整合するためマイグレーション SQL の発行はスキップする
@@ -1624,7 +1624,7 @@
   - _Boundary: OcrDataExtractor_
   - _Requirements: 38.11_
 
-- [ ] 77. FileInlinePreview にプレビュー縦幅リサイズ機能を追加（Requirement 36）
+- [x] 77. FileInlinePreview にプレビュー縦幅リサイズ機能を追加（Requirement 36）
 - [x] 77.1 (P) useResizableHeight カスタムフックを実装
   - 高さ state を初期マウント時に localStorage（キー: `architrack:received-quotation:preview-height`）から復元、保存値なし時はデフォルト値 400px を採用する
   - heightRef を毎レンダで height と同期し、Pointer Events のクロージャから常に最新値を参照可能にする（design review Issue 3 対応）
@@ -1647,7 +1647,7 @@
   - _Depends: 77.1_
   - _Requirements: 36.1, 36.2, 36.3, 36.12, 36.13, 36.14_
 
-- [ ] 78. LineItemEditor に並び順保持と上下移動・アクションメニューを追加（Requirement 37）
+- [x] 78. LineItemEditor に並び順保持と上下移動・アクションメニューを追加（Requirement 37）
 - [x] 78.1 (P) LineItemFormData 型拡張と sortOrder ヘルパー関数の実装
   - LineItemFormData に sortOrder: number フィールドを追加する
   - createEmptyLineItem(sortOrder: number) ファクトリ関数を定義する
@@ -1683,7 +1683,7 @@
   - _Depends: 78.1, 78.2_
   - _Requirements: 37.2, 37.3, 37.6, 37.7, 37.8, 37.12, 37.15, 37.17_
 
-- [ ] 79. ReceivedQuotationForm にセッション保護・未保存変更ガード・並び順送信を統合（Requirements 38, 36.13, 37.13-37.14）
+- [x] 79. ReceivedQuotationForm にセッション保護・未保存変更ガード・並び順送信を統合（Requirements 38, 36.13, 37.13-37.14）
 - [x] 79.1 (P) usePendingSaveAfterReauth カスタムフックの実装
   - pendingRef を useRef で保持し、setPendingSave/clearPendingSave コールバックを返却する
   - useAuth().sessionExpiredDuringOperation を購読し、prevReauthRef で true→false 遷移エッジを検知する
@@ -1718,7 +1718,7 @@
   - _Depends: 78.1, 79.1, 79.2_
   - _Requirements: 36.13, 37.3, 37.13, 37.14, 38.2, 38.4, 38.5, 38.10_
 
-- [ ] 80. OcrDataExtractor のセッション切れ時連携（Requirement 38.11）
+- [x] 80. OcrDataExtractor のセッション切れ時連携（Requirement 38.11）
 - [x] 80.1 OcrDataExtractor で sessionExpiredDuringOperation を購読しボタン非活性化
   - useAuth().sessionExpiredDuringOperation を購読する
   - true の間「OCR 実行」「OCR リトライ」「データパース実行」ボタンを isExtracting と OR 結合した条件で disabled にする
@@ -1728,7 +1728,7 @@
   - _Depends: 76.2_
   - _Requirements: 38.11_
 
-- [ ] 81. 受領見積書ダイアログ改善2 のテスト
+- [x] 81. 受領見積書ダイアログ改善2 のテスト
 - [x] 81.1 (P) FileInlinePreview リサイズ機能のユニットテスト
   - 各プレビューモード（PDF/画像/Excel）でリサイズハンドルが表示されることのテスト
   - pointerdown→pointermove→pointerup イベントで height がドラッグ位置に追従することのテスト
@@ -2011,7 +2011,7 @@
   - _Depends: 88_
   - _Boundary: EstimateRequestDetailPage_
 
-- [ ] 90. メーラー転記機能のテスト（Requirement 41）
+- [x] 90. メーラー転記機能のテスト（Requirement 41）
 - [x] 90.1 (P) URL ビルダーのユニットテスト
   - frontend/src/utils/mail-launcher.test.ts を新規作成
   - テストケース: (1) mailto 基本形式、(2) mailto 本文改行が `%0D%0A`、(3) mailto スペースが `%20`、(4) mailto 全角・特殊文字エンコード、(5) Gmail compose 基本形式（`view=cm&fs=1` と to/su/body）、(6) Gmail 本文改行・全角の保持
@@ -2040,7 +2040,301 @@
   - _Depends: 88, 89_
   - _Boundary: e2e/specs/estimate-requests_
 
+## タスク91: 外部AIの応答形式に対する日次の契約検証（Requirements 21, 26）
+
+**経緯**: site-survey の Task 115.127 段6 の査読で、`estimate-request/REQ-21.5・21.6・21.7・23.4・26.5・26.6・26.7・26.8` が **E2E では前提を作れない**ことが確定した。統合環境に実キーが無く、またエンドポイントを差し替える形の検証は**検証対象の実装そのものを置き換える**ため成立しない（`page.route` が `page.request` を捕捉しないことも実測済み）。現在は Anthropic SDK をモックした `backend/src/__tests__/unit/services/claude-vision.service.test.ts`（26件）を代替根拠に除外登録している。
+
+**残る穴**: モックは「こういう応答が来たらこう解釈するか」を確かめるが、**実APIが本当にその形の応答を返すか**は確かめていない。モデルの更新で応答形式が変わっても、モックの検証は緑のままである。利用者の判断（2026-08-22）により、日次の契約検証で補うこととした。
+
+**認証方式（利用者の判断・2026-08-22）**: **Workload Identity Federation（WIF）を用いる。長期の API キーは作らない。**本リポジトリは公開であり、静的な秘密を持たない方式を選んだ。GitHub Actions が実行時に発行する短命の OIDC トークンを `POST /v1/oauth/token` で短命のアクセストークンへ交換する。SDK が交換と更新を自動で行うため、応用コードは引数なしのクライアント構築でよい。
+
+**前提（利用者の Console 作業が要る）**: Claude Console の **Settings → Workload identity → Connect workload** で GitHub Actions のタイルを選び、フェデレーション発行者・サービスアカウント・フェデレーションルールの三つを作成しておくこと。作成後に得られる識別子（`fdrl_...` / `svac_...` / 組織ID / 必要なら `wrkspc_...`）を本タスクの実装者へ渡すこと。**これらは秘密情報ではなくワークフローに直書きしてよい。**
+
+**フェデレーションルールの絞り込み（重要）**: 公開リポジトリのため、緩い一致条件は第三者に悪用されうる。公式資料は「`repo:owner/*` だけの一致は組織内の全リポジトリに合致し、`ref` の制約が無ければ fork からの pull_request にも合致する」と警告している。次まで絞ること。
+
+- `subject_prefix`: `repo:inakanou/ArchiTrack:ref:refs/heads/main`
+- `audience`: `https://api.anthropic.com`
+- `claims`: `repository_owner` を `inakanou`、`ref` を `refs/heads/main`
+
+日次実行は既定ブランチで走るためこれで合致する。**本ワークフローに `pull_request` トリガを入れないこと**と併せ、二重に塞ぐ。
+
+**着手条件**: 三リソースは **2026-08-22 に作成済み**である。下記の識別子をワークフローへ埋め込むこと。
+
+| 環境変数 | 値 |
+|---|---|
+| `ANTHROPIC_FEDERATION_RULE_ID` | `fdrl_01LWzRPgEgzGpo6MaEav9gY6` |
+| `ANTHROPIC_SERVICE_ACCOUNT_ID` | `svac_0161nEGFCfhfjm3rdZwxNS44` |
+| `ANTHROPIC_ORGANIZATION_ID` | `eebbdfa2-7a4d-4c25-83ac-66ad4d73e386` |
+| `ANTHROPIC_IDENTITY_TOKEN_FILE` | 取得した識別トークンの書き出し先（例 `/tmp/gha-jwt`） |
+
+**これらは秘密情報ではない。**単体では何の権限も与えず、実際にトークンを得るには既定ブランチの当該リポジトリから発行された識別トークンが要る。公式資料の例もワークフローへ直書きしている。
+
+**`ANTHROPIC_WORKSPACE_ID` は設定しない。**この値が要るのは規則が複数のワークスペースにまたがる場合だけである。組織の既定ワークスペースは明示的な ID を持たず、サービスアカウントは既定へ自動的に所属する。**ただし推測で断定しない。**交換が `400 workspace_id_required` で失敗した場合は、規則が `Claude Code` ワークスペース側にあるということなので `wrkspc_015Q6XJp7RdST8STYWEjDrWC` を設定して確かめること。
+
+**規則の一致条件は実行するまで検証できない。**最初の実行が事実上の疎通確認になる。失敗した場合は Console の認証履歴（`platform.claude.com/settings/workload-identity-federation?tab=history`）に拒否の理由が記録される。最も多いのは `sub` の形の不一致で、その場合は理由が `match_subject_prefix` と表示される。
+
+- [x] 91.1 実キーに対する契約検証を用意する
+  - 固定の入力画像1〜2枚に対して実APIを呼び、**応答の構造だけ**を主張する検証を用意する
+  - 主張するのは構造に限ること。明細の配列であること、数量・単価・金額が数値として解釈できること、頁数が整数であること等
+  - **抽出結果の内容（数値そのものの正しさ）を主張しないこと。**モデルの出力は決定的ではなく、内容を主張すると恒常的に不安定になる
+  - 通常の単体・統合・E2Eの実行に含めないこと。既定の `npm test` 系で実APIを呼ばない構成とすること
+  - 認証は WIF の環境変数から解決されるため、クライアントは**引数なしで構築すること**。キーを明示的に渡す形にしないこと
+  - _Requirements: 21.5, 21.6, 21.7, 26.5, 26.6, 26.7, 26.8_
+  - _Boundary: 外部AIの応答形式に対する契約検証_
+
+- [x] 91.2 日次で実行し失敗を通知する
+  - `.github/workflows/` に日次実行のワークフローを追加する。**既存の `ci.yml` を変更せず別ファイルとすること**（通常のCIとpre-pushの所要時間を変えない）
+  - トリガは `schedule` と `workflow_dispatch` のみとする。**`pull_request` および `pull_request_target` を入れないこと**
+  - `permissions` は `id-token: write` と `contents: read` のみとする。前者はOIDCトークンの発行に必要、後者は既定の広い権限を絞るため
+  - OIDCトークンの取得は、実行環境が与える `ACTIONS_ID_TOKEN_REQUEST_URL` と `ACTIONS_ID_TOKEN_REQUEST_TOKEN` を用い、`audience` を `https://api.anthropic.com` として取得したうえでファイルへ書き出す
+  - ジョブの環境変数に `ANTHROPIC_FEDERATION_RULE_ID` / `ANTHROPIC_ORGANIZATION_ID` / `ANTHROPIC_SERVICE_ACCOUNT_ID` / `ANTHROPIC_IDENTITY_TOKEN_FILE` を設定する。ルールが複数のワークスペースにまたがる場合のみ `ANTHROPIC_WORKSPACE_ID` も設定する
+  - **`ANTHROPIC_API_KEY` と `ANTHROPIC_AUTH_TOKEN` が設定されていないことを確かめること。**これらは空文字であってもフェデレーションより優先され、静かに別の資格情報で認証してしまう
+  - サードパーティの Action は可動なタグではなくコミットのハッシュで固定すること
+  - **公開リポジトリのため実行ログも公開される。**応答本文をそのまま出力しないこと
+  - 失敗しても通常のCIをブロックしないこと。**通知に留めること**
+  - 識別子が未設定の場合にジョブが**黙って緑になる構成にしないこと**。設定が無ければ失敗させること
+  - _Depends: 91.1_
+  - _Boundary: 日次実行のワークフロー_
+
+- [x] 91.3 除外一覧に日次の契約検証を追記する
+  - `e2e/requirement-exclusions.json` の対象8件の `alternativeVerification` へ、日次の契約検証を追記すること
+  - **既存のモック単体テストの記述を消さないこと。**両者は守る対象が違う（モックは解釈の正しさ、契約検証は応答形式の変化）
+  - 除外自体は残す。E2Eで前提を作れない事情は変わっていない
+  - _Depends: 91.2_
+  - _Boundary: 除外一覧の代替検証の記述_
+  - **申し送り（2026-09-30）**: 追記した 8 件（21.5・21.6・21.7・23.4・26.5・26.6・26.7・26.8）は「実APIでの初回の実行は未実施（2026-09-30時点）」と記している。91.2 のワークフロー（`.github/workflows/claude-vision-contract.yml`）が main に入り、main での初回の `workflow_dispatch` の結果を確かめたら、8 件の当該の文言を実行日と結果へ規約 (a) の形で更新すること
+
+## タスク92: 除外一覧が名乗る検証道具名を実体へ揃える
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化し、その `### 判定の一覧` の行7「他機能スペックの除外一覧の Jest 道具名」を**後続タスクへ送る**と裁定した。site-survey の Task 115.238 が申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey は自機能分 32 件を Task 115.121 で既に Vitest へ改めており、現場調査スペックの所管は 0 件である。
+
+**測った事実**（いずれもコミット `9e63637`、2026-09-02 にリポジトリルートで実測）:
+
+- **本リポジトリに Jest は存在しない。** `find . -name 'jest.config*' -not -path '*/node_modules/*' | wc -l` の出力が `0`。`package.json` / `backend/package.json` / `frontend/package.json` の依存に `jest` は無く、名前に jest を含むのは `frontend/package.json` の `@testing-library/jest-dom`（Vitest から使う照合子の集まりであって走者ではない）だけである
+- **単体・統合の走者は backend / frontend とも Vitest である。** 両者の `npm test` はいずれも `vitest run` であり、`backend/vitest.config.ts` / `backend/vitest.integration.config.ts` / `frontend/vitest.config.ts` が実在する
+- **利用の実測**: `grep -rlE "from ['\"]vitest['\"]" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` の出力が `757` である。**同じ走査根・同じ glob** で `grep -rlE "from ['\"]@jest/globals['\"]|\bjest\.(fn|mock|spyOn)\(" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` を測ると出力は `0` である。**総数 `757` を併記するのは、`0` だけでは「走査根を読めていない」場合と区別できないためである**——同じ式を実在しないパスへ当てても出力は同じく `0` になる（2026-09-02 に実測）
+- **提案が生きていること**: `node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `64 0`（後の `0` が現場調査スペックの分）
+- **機械保証は無い。断定でなく変異で示す**（115.235 の作法）: `e2e/requirement-exclusions.schema.json` は `tool` を `{ "type": "string", "minLength": 1 }` としか定めず、道具の実在を見ない。実在しない道具名 `Kaboomtest 9000 / Nonexistent Runner` へ一件を差し替える変異を当てても `npm run check:req-exclusions` は 205 件を検査して終了コード 0 のままである（2026-09-02 に実測。変異は複製からの書き戻しで復元し、blob ハッシュが `HEAD` と一致することで確かめた）
+
+**是正すると別の関門が赤くなる。着手前に読むこと**: 上の `node -e` の出力 `64 0` は `scripts/design-measurements.json` の宣言 `jest-alternative-verification-exclusions` に固定されており、`.kiro/specs/site-survey/design.md` の台帳の再現コマンド 5 の行と双方向で突き合わされる。**一件でも道具名から Jest を落とすと `npm run check:design-measurement-freshness` が「expected=`64 0` actual=`63 0`」として終了コード 1 で落ちる**（`company-info/REQ-6.9` の道具名を実在しない `Kaboomtest 9000 / Nonexistent Runner` へ差し替える変異を実際に当てて実測。2026-09-02、コミット `9e63637` にリポジトリルートで実測。変異は事前複製からの `cp` で復元し、`git hash-object e2e/requirement-exclusions.json` が `HEAD` の blob `77d4bb8443f19bc5c2de768c866eae1943175a6d` と一致することで確かめた）。宣言の解除と台帳の追随は**現場調査スペックの Task 115.280 が所管する**。
+
+**同じ変異を当てたまま測った他の関門の実測**（走査の範囲は日本語でなくコマンドで宣言する。2026-09-02、コミット `9e63637` にリポジトリルートで実測）: 測ったのは `npm run` に与える名で `check:req-exclusions` / `check:req-exclusions:selftest` / `check:req-coverage` / `check:trace-coverage` / `check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:cf-evidence` / `check:steering-refs` / `check:steering-idents` / `check:steering-test-tree` / `lint` / `type-check` / `format:check` の **14 本**である。**いずれも基線と同じ終了コードのままであった。ただし `check:req-coverage` は基線から既に終了コード 1 であり（到達被覆 2632/2684 = 98.1%、未カバー 215 件）、変異の前後で変わらない**——「14 本が緑のままであった」のではない。**終了コードが動かないことと出力が動かないことも別である**: 14 本のうち 13 本は基線と出力まで一致したが、`check:req-coverage` だけは除外一覧の監査の内訳が「リポジトリ外の代替検証: 32件 / リポジトリ内検証あり: 22件」から「33件 / 21件」へ変わる（差分はこの 2 行のみで、終了コードも被覆率も動かない）。**着手時にはこの 14 本と `check:design-measurement-freshness` を自分で測り直し、実測日とコミットハッシュを添えること**（115.212 の規約）。
+
+**是正先**:
+
+1. `e2e/requirement-exclusions.json` の下表の `alternativeVerification.tool`
+2. 本スペックの設計文書——**ただし実測では該当が 0 件である。** `for f in .kiro/specs/*/design.md; do printf '%s %s\n' "$f" "$(grep -c Jest "$f")"; done` を走らせると、`Jest` を挙げる設計文書は 13 スペックのうち `site-survey` の 1 件（6 箇所）だけで、他の 12 スペックはいずれも `0` である（2026-09-02 に実測）。台帳の行7 は是正先に「各機能スペックの設計文書」を挙げているが、起票の時点で当たりが無い。**この `0` は着手時に測り直すこと**
+
+**本スペックの所管は 12 件で、全件を次に挙げる**（2026-09-02 に実測。抜き取りではない）:
+
+| id | 現在の `alternativeVerification.tool` |
+|---|---|
+| `estimate-request/REQ-11.18` | `Jest / React Testing Library` |
+| `estimate-request/REQ-11.19` | `Jest / React Testing Library` |
+| `estimate-request/REQ-11.20` | `Jest / React Testing Library` |
+| `estimate-request/REQ-11.21` | `Jest / React Testing Library` |
+| `estimate-request/REQ-11.23` | `Jest / React Testing Library` |
+| `estimate-request/REQ-13.1` | `Jest / React Testing Library` |
+| `estimate-request/REQ-13.4` | `Jest / React Testing Library` |
+| `estimate-request/REQ-13.6` | `Jest` |
+| `estimate-request/REQ-14.3` | `Jest / Prisma` |
+| `estimate-request/REQ-14.4` | `Jest / Prisma` |
+| `estimate-request/REQ-14.5` | `Jest / Prisma` |
+| `estimate-request/REQ-14.6` | `Jest / Concurrent requests` |
+
+**タスク91.3 との境界**: 91.3 は `REQ-21.5` / `21.6` / `21.7` / `23.4` / `26.5` / `26.6` / `26.7` / `26.8` の 8 件の `description` へ日次の契約検証を追記するタスクであり、**その 8 件の `tool` は既に `Vitest` である**（上表に一件も現れない。2026-09-02 に実測）。対象集合も編集する欄も重ならない。
+
+- [x] 92.1 除外一覧の道具名を実体へ揃える
+  - 上表 12 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
+  - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
+  - **併記の `React Testing Library`（`@testing-library/react@^16.3.0`）と `Prisma`（`backend/package.json`）はいずれも実在する**（2026-09-02 に実測）ため据え置いてよい
+  - **`REQ-13.6` は併記を持たない単独の `Jest` である。** 落とすと欄が空になるため、当該受入基準を現に検証している走者を測って書くこと（`minLength: 1` のため空文字は規約違反になる）
+  - **`REQ-14.6` の `Concurrent requests` は道具名ではなく手法の記述である。** 走者名との併記としてそのまま残すか、`description` 側へ寄せるかを判断すること
+  - **道具名だけを機械的に置換して終えないこと。** 除外は受入基準を分母から丸ごと外すため、`description` が約束する代替検証が現に存在するかを一件ずつ確かめること。存在しないなら道具名の是正ではなく除外の取り下げが要る
+  - **JSON の整形は `npm run format:check` では見られない。** リポジトリルートの `format:check` は `prettier --check "e2e/**/*.{js,ts}" "playwright.config.{js,ts}" "scripts/**/*.ts"` であって JSON を含まず、`lint-staged` も `*.{js,ts}` だけを対象とする（2026-09-02 に実測）。`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること（現況は整形済みで終了コード 0。同日に実測）
+  - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
+  - **利用者の判断（2026-10-01）: Task 95 を先に行う。** 着手時（HEAD `9ea0a6da`）の確かめで、12 件のうち REQ-11.18 は合計の再計算の主張が無く、REQ-14.5 は論理削除（レコードの残存と deletedAt）の主張が無く、REQ-13.1 / 13.4 / 13.6 / 11.19 は除外の理由が事実と異なる（既存の E2E が同じ経路を通る）ことが分かった。Task 95 で 11.18・11.19・13.1・13.4・13.6 の除外を取り下げ、14.5 の検証を補ったのち、本項で残る 7 件（11.20・11.21・11.23・14.3・14.4・14.5・14.6）の道具名を実体へ揃える。REQ-14.6 は手法を description へ寄せて `Vitest / Supertest` とする
+  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）、95.1、95.2、95.3_
+  - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+
 ## Implementation Notes
 
 - フロントエンド E2E（architrack-test の frontend サービス）は nginx 本番ビルドのため、フロントエンド側のコード変更後は `docker compose -p architrack-test ... build frontend` ＋ `up -d --force-recreate frontend` で再ビルドしないと変更が反映されない。Task 86.3 で OCR セクション折りたたみ機能のセレクタが見つからない症状が出たのはこれが原因。`curl http://localhost:5174/assets/index-*.js | grep <新規 data-testid>` で再ビルド済みかを事前確認できる。
 - Task 90.3（Requirement 41 メーラー転記 E2E）は本実装セッションのサンドボックスに docker テストDB（postgres:5433）が無いため **E2E 実行（グリーン確認）が未実施**。lint + type-check は PASS、スペックのロジック/セレクタ/アサーションはレビューで妥当性確認済み（テスト skip/無効化なし＝第3原則準拠）。MEMORY「見積要件はE2Eで検証必須」に従い、docker テスト環境（`npm run test:docker` 起動 + frontend 再ビルド）で `npm run test:e2e -- estimate-request-e2e` を実行しグリーンを確認する作業が**残タスク**として必要。
+  - **解消（2026-10-06、HEAD `00147512`）**: docker テスト環境で frontend を再ビルドしたうえで `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`（Requirement 41 の test を含む）が 86/86、`e2e/specs/estimate-requests/` 全体が 330/330 緑であることを、機能検証で確かめた。
+
+## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化したが、同タスクが宣言した三つの網（`別途起票|後続タスクの提案|起票すること` ほか）はいずれも「〜すること」型の提案を捕まえる形であり、**持ち越しの形は網の外にある**。site-survey の Task 115.240 が持ち越しを狙う別の網を掛けて本節の対象を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。**
+
+**本節は他の申し送り先と性質が違う。** site-survey の Task 115.240 が同時に起票した project-management / trading-partner-management / quantity-table-generation の 3 件は「**記録が陳腐化している**（既に消化済みなのに未実装と書かれている）」型であるが、**本件は逆で、記録は今も現況であり、持ち越しの側が消化されていない**。
+
+**測った事実**（いずれもコミット `5176ee4`、2026-09-02 にリポジトリルートで実測）:
+
+- **持ち越しの逐語**: `grep -nF '本要件のスコープ外として持ち越す' .kiro/specs/estimate-request/design.md` で 1 行が出る。同じ行は `grep -cF -- '- **R-39-1（既存ドリフト）**' .kiro/specs/estimate-request/design.md` の出力 `1` の行でもある。**逐語を写さず、この取り出しコマンドで読むこと**
+- **持ち越された内容は Req 6 AC 9 の実装ドリフトである**。受入基準の逐語は `grep -nF '9. While 「内訳書を本文に含める」がチェックされていないとき, the システム shall 本文の【内容】セクションに「添付内訳書の通り」と表示する' .kiro/specs/estimate-request/requirements.md` で取り出せる（出力 `1` 行）
+- **持ち越しは今も現況である。実装は無い**: `grep -rn '添付内訳書の通り' backend/src frontend/src` の当たりが `0` である。**バックエンドにもフロントエンドにも当該文字列を出す経路が一つも無い**
+- **持ち越しの中に未起票の提案が埋まっている**: 同じ行の末尾に、後段で Req 6 AC 9 を実装と整合させる場合は別タスクで `EstimateRequestTextService` の追補設計が要る、という記述がある（逐語の取り出しは ``grep -nF '別タスクで `EstimateRequestTextService` の追補設計が必要' .kiro/specs/estimate-request/design.md`` で行うこと。出力は `1` 行である）。**この形は「別タスク」であって「別途起票」ではないため、115.213 の網A に掛からなかった**——`grep -cE '別途起票|後続タスクの提案|起票すること' .kiro/specs/estimate-request/design.md` の出力は `0` である。**115.213 の全称否定は偽になっていない**（同タスクは範囲をコマンドで宣言し、範囲外は保証しないと明記している）。網の外に別の型が在るというだけである
+
+**未消化であるにもかかわらず、受入基準は被覆済みとして数えられている**（同日・同コミットで実測。**これが本節の核心である**）:
+
+- **E2E は当該受入基準の番号を名乗りながら、受入基準と反対のことを検証している**。`grep -cF '@requirement estimate-request/REQ-6.9' e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力が `1`、`grep -cF "test('REQ-6.9: 「内訳書を本文に含める」未チェック時に「添付内訳書の通り」が表示される'" e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力が `1` である。**しかし同 test は「添付内訳書の通り」を一度も照合しない**——`grep -c 'expect.*添付内訳書の通り' e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力が `0` であり、実際に置かれているのは `grep -cF 'await expect(panel.getByText(/テスト項目1/i)).not.toBeVisible({ timeout: getTimeout(5000) });' e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力 `1` の否定照合と、`grep -cF '// 現在の実装では「添付内訳書の通り」というテキストは表示されない' e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力 `1` の註である。**test 名は「表示される」と名乗り、註は「表示されない」と述べる**
+- **除外一覧にも入っていない**: `node -e "const j=require('./e2e/requirement-exclusions.json');console.log(j.exclusions.filter(e=>e.id==='estimate-request/REQ-6.9').length)"` の出力が `0` である
+- **その結果、被覆の関門は当該受入基準を未カバーとして挙げない**: 基線（コミット `5176ee4`）の `npm run check:req-coverage` の出力に `estimate-request/REQ-6.9` は現れない（当たり `0`。同関門は基線から終了コード 1 であり、未カバー 215 件・到達被覆 2632/2684 = 98.1% を報告するが、**当該受入基準はその 215 件に含まれない**）。`npm run check:trace-coverage` の出力にも現れない（当たり `0`）
+- **`_Requirements:` の側では被覆済みとして申告されている**: `grep -nF '6.9' .kiro/specs/estimate-request/tasks.md` が返す `_Requirements:` 行は 4 本あり、いずれも `6.9` を挙げる（`grep -nE '^  - _Requirements:.*\b6\.9\b' .kiro/specs/estimate-request/tasks.md` で取り出せる）
+
+**機械保証は無い。断定ではなく現況そのもので示す**（115.235 の作法）: **変異を当てるまでもなく、今この時点で証拠が揃っている**——受入基準は実装されておらず、E2E は反対を検証しており、除外一覧にも無く、それでも `check:req-coverage` は当該受入基準を未カバーとして挙げない。**受入基準の番号を名乗る注釈が在れば被覆と数える構造は、注釈と検証内容の一致を見ない。**
+
+**一件を直して「完全になった」と書かないこと**（115.228 の作法）: 本節が挙げるのは網が捕まえた 1 件である。**網の外の持ち越しは保証しない**。走査に使った網は `grep -rncE 'スコープ外|持ち越|先送り|保留|見送' .kiro/specs/estimate-request/design.md`（出力 `14`）、`grep -rncE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/estimate-request/design.md`（出力 `0`）、`grep -rncE '❌|:x:|⚠️|🚧' .kiro/specs/estimate-request/design.md`（出力 `0`）の三つである。一つ目の網が当てた 14 件は site-survey の Task 115.240 が**一件ずつ開いた**（抜き取りではない）。内訳は次のとおりで、**消化を待つ持ち越しは R-39-1 の 1 件だけ**である。取り出しは `grep -nE 'スコープ外|持ち越|先送り|保留|見送' .kiro/specs/estimate-request/design.md` で行うこと:
+
+| 分類 | 件数 | 内容 |
+|---|---|---|
+| 消化を待つ持ち越し | 1 | R-39-1（「本要件のスコープ外として持ち越す」と書く行） |
+| 同じ R-39-1 を別の場所から参照する行 | 2 | Req 6 AC 9 の既存ドリフトを本要件のスコープ外と述べる 2 行。**独立した持ち越しではなく R-39-1 と同一の対象を指す** |
+| `#### スコープ外（Out of Boundary）` の見出し | 3 | `grep -cF '#### スコープ外（Out of Boundary）' .kiro/specs/estimate-request/design.md` の出力が `3` |
+| 当該要件の境界の宣言 | 5 | Requirement 29 の対象外・後段の見積書作成機能・ロールバック手順（運用判断）・折りたたみ中の完了通知の既存挙動維持 2 件 |
+| 条件付きの再検討・設計判断 | 2 | 共通 `CollapsibleSection` 抽出は条件成立時に再検討、`MailLauncherButtons` の新規コンポーネント化は過剰のため見送り。**いずれも判断が下されており、担い手を待つ持ち越しではない** |
+| UI の状態語 | 1 | 再認証中の「処理保留中」 |
+
+**網が数え上げる綴りの外にある持ち越しは掛からない**——列挙していない日本語の綴り（「後日」「次フェーズ」など）、英語で書かれた持ち越し、記号だけで状態を表す欄、表のセル内に埋もれた持ち越しがそれである。
+
+- [x] 93.1 R-39-1 の持ち越しに現況の再実測を並べ、消化の道筋を決める
+  - **まず現況を測り直すこと**。`grep -rn '添付内訳書の通り' backend/src frontend/src` の当たりが今も `0` かを確かめる。**本節が引く出力は 2026-09-02・コミット `5176ee4` の実測であり、着手時には陳腐化しうる**
+  - **持ち越しを消化するか、除外へ移すかを決めること。** どちらであっても「番号を名乗りながら反対を検証する E2E」は残せない
+  - **持ち越しを続ける場合**: 記録は site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a) が定める形に揃え、**当時の記述を残したうえで現況の再実測を同じ場所へ並べる**。あわせて `e2e/requirement-exclusions.json` へ当該受入基準を登録し、`description` が約束する代替検証が現に存在するかを確かめること。**登録すると `npm run check:req-coverage` の内訳が動く**ため、基線との差分を実出力で示すこと
+  - **持ち越しを消化する場合**: `EstimateRequestTextService` の本文生成に当該表示を加え、E2E の test 名・註・照合を受入基準に合わせて書き直すこと
+  - **E2E の是正は本節と切り離せない。** 現状の test は名前と内容が食い違い、註が実装の欠落を追認している。**test を消して被覆を落とすのではなく、名前と内容と註を一致させること**（第3原則。前提条件で検査を自動的に無効化してはならず、満たされないなら失敗とすること）
+  - **検証**: `npm run check:req-exclusions` / `check:trace-coverage` / `check:req-coverage` の出力を基線と `diff` で突き合わせ、動いた行を実出力で示すこと。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` が基線と同じ終了コードであること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本節は消化の道筋を決める起票であり、`6.9` / `39.9` を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になる。**当該受入基準が偽の被覆に数えられていることこそが本節の対象である**ため、同じ形を本節が繰り返してはならない。依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.240（持ち越しの走査と申し送り）_
+  - **利用者の判断（2026-10-01）: 持ち越しを消化する（実装する）。** 着手時（HEAD `13d8e9b4`）の調査で、`grep -rn '添付内訳書の通り' backend/src frontend/src` の当たりは今も 0 件であり、加えて、内訳書に紐付いていない見積依頼は `EstimateRequestItem` を持たないため本文の生成が `NoItemsSelectedError`（422 `NO_ITEMS_SELECTED`）で必ず失敗し、詳細画面は「見積依頼文を取得できませんでした」だけを表示する（コピーとメーラー起動（Req 41）も使えない）ことが分かった。E2E の REQ-6.9 は test 名が「表示される」、註が「表示されない」、照合はどちらも確かめず、REQ-39.9 の注釈は REQ-39.2 の test に付き、本文が出ないエラーの状態のまま空の成功で通っている
+  - **設計の判断（利用者、2026-10-01）**: (1) 見出しは要件どおり【内容】とする（既存の【見積対象項目】はそのまま）。(2) 内訳書に紐付いていても項目を 1 件も選んでおらず「含めない」のときも、本文を生成する（6.9 の文面に忠実に）
+  - **消化の範囲**: `backend/src/services/estimate-request-text.service.ts` の本文生成（`generateEmailBody` / `generateFaxBody` と入口の `NoItemsSelectedError` のガード）、その単体テスト、E2E（`estimate-request-e2e.spec.ts` の REQ-6.9 と、REQ-39.9 を名乗る test の独立）、`scripts/criterion-literal-adjudication.json` の 6.9・39.9 の裁定の取り下げと `LEDGER_ENTRY_LIMIT` の追随、design.md の R-39-1 ほかの記述（規約 (a)）
+  - _Boundary: 本スペックの設計文書に残る持ち越し R-39-1 と、その受入基準を名乗る E2E・除外一覧の整合_
+
+## Task 94: 下流が転用のために足した共有部品の任意 props と引数が設計文書に記されていない状態を解消する
+
+**経緯**: quantity-table-generation の機能レベル検証（`/kiro-validate-impl`、2026-09-15）が、同スペックの取り込みダイアログが本スペックの部品を転用するにあたり、本スペックの部品へ既定値つきの任意の差し替え口を足したにもかかわらず、**本スペックの設計文書にも再検証の記録にも反映されていない**ことを検出した。下流は本スペックの文書を書き換えていない。`FileInlinePreview` の2つの props は、既定値で本スペックの挙動が変わらないことを、下流の Task 96.2 / 97.9 の検証が本スペックの E2E の再走で確かめている（96.2 は `FileInlinePreview` を描く E2E 12本、97.9 は `preview-resize-e2e` / `pdf-zoom-control-e2e` / `received-quotation-dialog-improvements-e2e`）。`pdf-text-extractor` の `options` 引数（Task 97.8）は単体検証（対象3ディレクトリ 24ファイル / 607件と全単体スイート）だけで確かめており、本スペックの E2E は再走していない。
+
+- [x] 94.1 `FileInlinePreview` と `pdf-text-extractor` に下流が足した任意の差し替え口を、設計文書へ記録するかを決める（**quantity-table-generation の機能レベル検証からの起票依頼**）
+  - **実測（コミット `c3ded654`、2026-09-15、リポジトリルート）**:
+    - `frontend/src/components/estimate-requests/FileInlinePreview.tsx` の `FileInlinePreviewProps` に、下流の Task 96.2 が `showPageNavigationForSinglePage?: boolean`（既定 false。総ページ数1の PDF でもページナビゲーションを出すか。本スペックの「1ページなら出さない」の決まりは既定で維持）を、Task 97.9 が `resizeStorageKey?: string`（既定は `architrack:received-quotation:preview-height`。下流の取り込みダイアログは `architrack:quantity-table-import:preview-height` を渡す）を足した。本スペックの design.md の `interface FileInlinePreviewProps`（`:1434`）はどちらも記していない
+    - `frontend/src/components/estimate-requests/pdf-text-extractor.ts` の `extractPdfHybrid` / `extractPdfWithOcrFallback` に、下流の Task 97.8 が任意の3番目の引数 `options: { signal?: AbortSignal }` を足した（中断されると工程の区切りと認識の待ちで打ち切り、Tesseract の worker を終了して `AbortError` で失敗する）。本スペックの `OcrDataExtractor.tsx` はシグナルを渡さず、時間切れ後も OCR が裏で完走しうる挙動は従来どおり
+  - **依頼**: 上記の差し替え口を本スペックの設計文書（`FileInlinePreviewProps` と `pdf-text-extractor` の項）へ規約 (a) の形で記録するか、下流の利用者として別の形で記すかを決めること。あわせて、これらの部品を変更するときに下流の取り込みダイアログの再検証が要ることを、本スペックの再検証の契機として記すかを決めること
+  - _Boundary: 本スペックの設計文書が `FileInlinePreview` と `pdf-text-extractor` の公開面を記す箇所_
+
+## タスク95: 除外一覧が約束する代替検証の欠落を補い、E2E で前提を作れる除外を取り下げる
+
+**経緯**: Task 92.1 の着手時（2026-09-30、HEAD `9ea0a6da`）に、`Jest` を名乗る除外 12 件の代替検証を一件ずつ確かめたところ、次が分かった。利用者の判断（2026-10-01、「推奨の組合せで今回実装」）により、E2E で前提を作れるものは除外を取り下げて E2E で被覆し、代替検証の欠落は補う。
+
+- **REQ-11.18（明細行を削除し合計金額を再計算する）**: 単体テスト（`LineItemEditor.test.tsx` の削除の検証）は行の削除だけを主張し、合計の再計算を主張する検証が単体にも E2E にも無い。`LineItemEditor.tsx` の合計の useMemo の依存を空にする変異で 193 件が全通過した。E2E（`structured-data-ocr-e2e.spec.ts`）は既に削除の操作を行っており、コメント自身が「合計金額の再計算を主張していないため被覆印は掲げない」とする
+- **REQ-11.19（1 行のみのとき削除を非活性にする）**: 既存の E2E が `toBeDisabled` で既に主張しているが、被覆印は REQ-11.17 だけを掲げている
+- **REQ-13.1 / 13.4 / 13.6**: 除外の理由は「外部ライブラリ依存」だが、`structured-data-ocr-e2e.spec.ts` はファイルのアップロードとインラインプレビューを、`number-format-e2e.spec.ts` は `test-lineitem-table.xlsx` による Excel のデータパースの経路を、既に E2E で通している
+- **REQ-14.5（論理削除。削除後もレコードが DB に残り deletedAt が設定される）**: 統合テスト「受領見積書を削除できる」は 204 と後続の GET の 404 だけを見ており、物理削除でも成り立つ。`deletedAt` の設定を外す変異で単体テスト 53 件が全通過した
+
+- [x] 95.1 受領見積書の論理削除（レコードの残存と deletedAt）を検証する
+  - 統合テスト（`backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts` など）で、削除後に `prisma.receivedQuotation.findUnique` でレコードが残り `deletedAt` が非 null であることを主張する。単体テストでも、update が `deletedAt` 付きで呼ばれることを主張する
+  - 論理削除の設定を外す変異・物理削除へ替える変異で赤になることを実測する。実装が既に正しければ検証の追加のみ
+  - _Requirements: 14.5_
+  - _Boundary: 受領見積書の削除の検証_
+
+- [x] 95.2 明細行の削除と合計の再計算、1 行時の削除の非活性を E2E で被覆する
+  - 既存の削除の E2E に、削除の前後の合計金額（`total-amount` など）の主張を足し、`@requirement estimate-request/REQ-11.18` を掲げる。合計が再計算されないなら実装の不具合として報告すること（RED → GREEN で直すかは判断を仰ぐ）
+  - 1 行のみのときの削除の非活性を主張している既存の test に `@requirement estimate-request/REQ-11.19` を掲げる
+  - 単体でも、削除後の合計を主張する検証を足す（合計の useMemo の依存を空にする変異で赤になることを実測する）
+  - _Requirements: 11.18, 11.19_
+  - _Boundary: 受領見積書の明細行の削除の検証_
+
+- [x] 95.3 ファイルのアップロード・プレビュー・データパースを E2E で被覆する
+  - 既存の E2E（`structured-data-ocr-e2e.spec.ts`、`number-format-e2e.spec.ts`）に、REQ-13.1（ファイルのアップロードとフォーム内のプレビュー）、13.4（表形式のプレビュー）、13.6（Excel は OCR ではなくデータパースで取り込む）を受入基準どおりに主張する検証と被覆の印を足す。requirements.md の原文を読み、主張が受入基準に届いていることを確かめること
+  - _Requirements: 13.1, 13.4, 13.6_
+  - _Boundary: 受領見積書のファイルの取り込みの E2E_
+
+- [x] 95.4 E2E で被覆した除外 5 件を取り下げ、件数の追随を site-survey へ依頼する
+  - `e2e/requirement-exclusions.json` から REQ-11.18・11.19・13.1・13.4・13.6 を削除し、`summary` と note を揃える（前例 15c47ac3、00a52fc8）。`check:req-coverage` で 5 件が E2E の被覆側に数えられることを確かめる
+  - 除外の総数（`requirement-exclusions-total`、137）と、E2E の参照の件数（`t13-anchor-references-after-115303`）の宣言が動く見込み。宣言は書き換えず、site-survey へ起票すること（115.339 の前例）
+  - _Depends: 95.2, 95.3_
+  - _Boundary: 本スペックが所管する除外項目_
+
+## タスク96: PDF の OCR を時間切れとアンマウントで止める（94.1 のレビューからの起票。着手は利用者の判断による）
+
+**経緯**: Task 94.1 の独立レビュー（2026-10-01、HEAD `05ba46fb`）が、`OcrDataExtractor.tsx` の PDF 経路（`processPdfHybrid`）の 30 秒のタイムアウトは `Promise.race` を reject するだけで、`extractPdfWithOcrFallback` の中で作られる Tesseract のワーカーは `workerRef` に登録されないため `cleanup()` で止まらず、全ページの認識が終わるまで走り続けることを確かめた（アンマウントしたときも同じ）。画像経路（`processOcr`）はタイムアウトの後に terminate する。要件 17.8（超過したらエラーを表示する）には違反しないが、CPU とメモリの浪費である
+
+- [x] 96.1 PDF の OCR を時間切れとアンマウントで中断する
+  - `AbortController` を作り、時間切れのときとアンマウントのときに abort し、その signal を `extractPdfHybrid` の第 3 引数（`options.signal`）へ渡す。下流の `quantity-table-import` の `pdf-ocr-extractor.ts` が同じ形を実装している
+  - 挙動の修正であるため RED → GREEN で進めること。中断後にワーカーが terminate されることを単体で主張する
+  - _Requirements: 17.8_
+  - _Boundary: OcrDataExtractor の PDF 経路の中断_
+
+## タスク97: 機能レベル検証（2026-10-01、HEAD `caafeb50`、NO-GO）で残った E2E の被覆の穴（起票のみ。着手は利用者の判断による）
+
+**経緯**: タスク 91〜95 の完了後の機能レベル検証が NO-GO を返した。今日の変更に退行は無く、テスト（backend 単体 6187・統合 99・frontend 単体 11924・E2E estimate-requests 324・下流 import-e2e 46）と関門は `check:req-coverage` を除き緑。NO-GO の理由は、以前（2026-08-29 の `86882dd6` で被覆の印が外れて以来）から残る E2E の被覆の穴で、どのタスクも追跡していなかった。project-management の Task 72.2 と同じ扱い（利用者の判断「文書は直し被覆は起票」に倣う）として、起票に留める
+
+- [x] 97.1 E2E で被覆されていない受入基準 5 件を被覆する
+  - 対象: Requirement 4 の受入基準 8・9（項目選択の保存成功のフィードバック・保存失敗のエラー表示）、Requirement 15 の受入基準 5・6（一括転記の完了メッセージの行数・確認を促すメッセージ）、Requirement 36 の受入基準 8（縦幅が最大のときに拡大を抑止する）
+  - 各受入基準について原文どおりに主張する E2E を置き `@requirement estimate-request/REQ-N.M` を掲げる。E2E で前提を作れないものは、代替検証の実在を確かめたうえで除外に登録する
+  - E2E を足すと site-survey 所有の件数の宣言が動きうる。動いたら site-survey へ起票して追随する
+  - _Requirements: 4.8, 4.9, 15.5, 15.6, 36.8_
+  - _Boundary: 本スペックの E2E の被覆_
+
+- [x] 97.2 「内訳書を本文に含める」が ON で項目 0 件のときの扱いを確定する（利用者の判断待ち）
+  - Task 93.1 は、この場合を従来どおり 422 `NO_ITEMS_SELECTED` のままとした（6.8 は 0 件の内容を定めず、6.9 は未チェックのときに限られるため）。要件 6.1（表示ボタンで本文を表示する）との緊張が残り、frontend は汎用の「見積依頼文を取得できませんでした」だけを表示して理由を伝えない
+  - 422 を保つか、保つ場合に `NO_ITEMS_SELECTED` を判別して「項目を選択してください」と案内するかを決める
+  - **決定（2026-10-06、利用者の判断「422 維持＋案内表示」）**: backend は 422 `NO_ITEMS_SELECTED` を保つ。frontend は応答の `code` を判別し、「本文に含める項目が選択されていません。項目を選択してください」と案内する。他の失敗は汎用の文言のまま。design.md の Task 93.1 の項と `EstimateRequestTextPanelProps` に反映済み
+  - _Requirements: 6.1, 6.8, 6.9_
+  - _Boundary: 見積依頼文の生成と表示の、項目 0 件の扱い_
+
+## タスク98: 項目選択の保存の後、開いている見積依頼文を再取得する（機能検証の指摘からの起票。着手は利用者の判断による）
+
+**経緯**: タスク 96〜97 の完了後の機能レベル検証（2026-10-06、HEAD `00147512`、GO）が、Warning として指摘した。`EstimateRequestDetailPage.tsx` の `handleItemSelectionChange` は、保存（`updateItemSelection`）の成功後に項目（`getEstimateRequestItems`）だけを再取得し、見積依頼文を再取得しない。方法の変更（`handleMethodChange`）と「内訳書を本文に含める」の変更（`handleIncludeBreakdownChange`）は、`showTextPanel` のときに本文を再取得している。そのため、見積依頼文を開いたまま項目の選択を保存すると、パネルを開き直すまで本文の【内容】が保存前の選択のままになる（要件 6.8 の「チェックされた内訳書項目を表示する」に照らして鮮度が落ちる）。Task 97.2 の案内「項目を選択してください」に従って項目を選択・保存しても、案内が消えない。挙動はタスク 97 より前からあり、97.2 で目立つようになった。利用者の判断（2026-10-06）により修正タスクとして起票する
+
+- [x] 98.1 項目選択の保存の成功後、見積依頼文のパネルが開いていれば本文を再取得する
+  - `handleItemSelectionChange` で、保存が成功し `showTextPanel` が真のときに `getEstimateRequestText` で本文を再取得する。失敗は既存の `resolveTextFetchFailure` で扱い、成功時は `textErrorMessage` を消す（`handleMethodChange` と同じ形）
+  - 保存の失敗は従来どおり `ItemSelectionPanel` へ伝える（4.9）。本文の再取得の失敗を保存の失敗として扱わない（4.8。Task 97.1 で項目の再取得について決めた扱いと同じ）
+  - 挙動の修正であるため RED → GREEN で進めること。単体で、パネルが開いているときは保存の後に本文が再取得されること、閉じているときは再取得しないこと、本文の再取得が失敗しても保存の失敗として扱わないことを主張する
+  - E2E で、「内訳書を本文に含める」ON・項目 0 件で見積依頼文を表示して案内が出ることを確かめ、項目を選択・保存すると、パネルを開き直さずに案内が消えて本文の【内容】に選択した項目が出ることを主張する
+  - _Requirements: 4.8, 4.9, 6.8_
+  - _Boundary: EstimateRequestDetailPage の項目選択の保存と見積依頼文の再取得_
+
+## タスク99: E2E の註が数量表の撤去済みの部品を名乗っている状態を正す（quantity-table-generation の Task 94.1 のレビューからの起票。利用者の判断で起票、2026-10-08）
+
+**経緯**: quantity-table-generation の Task 94.1（2026-10-07、コミット `fde9cda6`）が数量表の到達しない部品 `NumericFieldInput` と `TextFieldInput` を本番コードから外した。同タスクの独立レビューが、本スペックの `e2e/specs/estimate-requests/lineitem-textbox-size-unification-e2e.spec.ts` の 29 行目の JSDoc（「数量表画面の対応するテキストボックスサイズ仕様（QuantityInput / TextFieldInput / CalculationFields）」）が、現在の数量表の部品として `TextFieldInput` と `QuantityInput` を挙げていることを確かめた。`QuantityInput` は quantity-table-generation の Task 89.1 で外れており、`TextFieldInput` は同 Task 94.1 で外れた。`CalculationFields` は現存する。数量表画面の対応列を実際に描画するのは `AutocompleteInput`（テキスト列）と `EditableQuantityItemRow`（数量列）である（estimate-creation の Task 59.1 が設計文書の名指しを同じ部品へ付け替えた）。コメントだけの問題で、関門と挙動には影響しない
+
+- [x] 99.1 E2E の JSDoc が名乗る数量表の部品を、現在の描画部品へ揃える
+  - `e2e/specs/estimate-requests/lineitem-textbox-size-unification-e2e.spec.ts` の 29 行目付近の JSDoc の部品名を、数量表画面の対応列を実際に描画する部品（`AutocompleteInput`・`EditableQuantityItemRow`・`CalculationFields`）へ揃える。名乗りを変える前に、各部品が統一仕様（height 22px・padding 2px 4px・fontSize 12px）を実際に持つことを本番のソースで確かめ、持たない部品は名乗らない
+  - コメントのみの変更とし、テストの主張と `@requirement estimate-request/REQ-33.*` の印は変えない。E2E の参照の件数（site-survey の宣言 `t13-anchor-references-after-115303` など）が動かないことを `check:design-measurement-freshness` で確かめる
+  - _Requirements: 33_
+  - **実施（2026-10-08）**: JSDoc の名乗りを `AutocompleteInput`（`styles.input`。任意分類・工種・名称・規格・単位・備考の列）と `EditableQuantityItemRow`（`styles.input`。数量列）へ揃えた。いずれも本番のソースで height 22px・padding 2px 4px・fontSize 12px を持つことを確かめた。起票の文は `CalculationFields` も揃える先に挙げていたが、同部品の `styles.input` は padding が `0 4px` で統一仕様と異なり、対応する列の部品でもないため、本項の「持たない部品は名乗らない」に従って名乗らない（理由は JSDoc に記した）。数量表に単価の列が無いこと、本 E2E が数量表画面を開かず受領見積書の明細行の computed style を定数と照合していることも JSDoc に記した。コメントのみの変更で、`@requirement estimate-request/REQ-33.*` の印 13 件は不変
+  - _Boundary: 本スペックの E2E のコメントが名乗る数量表の部品名_
+
+## タスク100: spec.json に phase のキーが二つある状態を正す（利用者の判断で起票、2026-10-08）
+
+**経緯**: 2026-10-08 に全スペックの spec.json の phase と tasks.md の未完了を突き合わせた際、`.kiro/specs/estimate-request/spec.json` に `"phase"` のキーが 6 行目と 22 行目の二つあることを確かめた（値はどちらも同じ）。JSON の重複したキーであり、読み手によって後の値だけが使われるため、片方だけを更新すると食い違いを生む
+
+- [x] 100.1 spec.json の重複した phase のキーを一つにする
+  - 他のスペックの spec.json と同じ位置（`language` の直後）の一つを残し、もう一方を外す。値は現況（tasks.md の未完了の有無）に合わせる。`python3 -c "import json; ..."` などで JSON として読めることと、キーが一つであることを確かめる
+  - 他のスペックの spec.json にも同じ重複が無いことを確かめる
+  - _Boundary: 本スペックの spec.json_
+
+## タスク101: 部品のインラインの outline の打ち消しを外し、フォーカス表示を steering の方針へ揃える（project-management の Task 75.2 からの申し送り。利用者の判断で起票、2026-10-08）
+
+**経緯**: project-management の Task 73.5 が steering `.kiro/steering/tech.md` に「フォーカス表示方針」を記録した（全画面の既定のフォーカス表示は `frontend/src/index.css` の `@layer base` の `:focus-visible`。部品の側でインラインの `outline: 'none'` を書かない。独自の輪を描く場合は 2px 以上・コントラスト比 3:1 以上。是正は各機能のスペックの責務）。同スペックの Task 75.2（2026-10-08、HEAD `c8036acd`）の実測で、本スペックの部品・ページに、方針から外れたインラインの `outline: 'none'` が 5 か所残っている
+
+- [x] 101.1 本スペックの部品・ページのインラインの `outline: 'none'` を外し、フォーカス表示を 2px 以上・3:1 以上にする
+  - 対象（2026-10-08 の実測。着手時に `grep -rnE "outline: ?['\"]none['\"]"` で測り直すこと）:
+    - `frontend/src/components/estimate-request/EstimateRequestForm.tsx`（2 か所）
+    - `frontend/src/components/estimate-requests/LineItemEditor.tsx`（1 か所）
+    - `frontend/src/components/estimate-requests/ReceivedQuotationForm.tsx`（1 か所）
+    - `frontend/src/pages/EstimateRequestEditPage.tsx`（1 か所）
+  - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
+  - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
+  - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
+
+## タスク102: 直近の見積依頼の API の注釈が OpenAPI の生成で読み込めない状態を正す（project-management の Task 75.1 のレビューからの起票。利用者の判断で起票、2026-10-08）
+
+**経緯**: project-management の Task 75.1 の独立レビュー（2026-10-08）が、`npm --prefix backend run docs:generate` が本スペックの `backend/src/routes/estimate-requests.routes.ts` で `YAMLSemanticError: Nested mappings are not allowed in compact mappings` を出すことを確かめた（親が同日に再現）。原因は `GET /api/projects/{projectId}/estimate-requests/latest` の注釈の `limit` の `description: 取得件数（1〜10、デフォルト: 2）` の値に「: 」が含まれ、YAML の入れ子の対応として読まれることとみられる。このブロックは生成物 `backend/docs/api-spec.json` に取り込まれていない可能性がある
+
+- [x] 102.1 直近の見積依頼の API の注釈を YAML として正しい形にし、生成物に載せる
+  - 当該の `description` の値を引用符で囲むなど YAML として正しい形にし、`npm --prefix backend run docs:generate` で生成物を作り直す。生成時のエラーが本ファイルについて出なくなること、生成物に当該エンドポイントが載ることを確かめる。生成物の差分が当該エンドポイントの追加だけであることを確かめる
+  - `backend/src/__tests__/unit/docs/api-spec.test.ts` に当該エンドポイントの存在と `limit` の記述を主張する検証を足す（RED → GREEN）。振る舞いは変えない
+  - _Boundary: 本スペックの直近の見積依頼の API の OpenAPI の記述_

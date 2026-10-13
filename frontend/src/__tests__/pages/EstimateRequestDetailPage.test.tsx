@@ -549,6 +549,133 @@ describe('EstimateRequestDetailPage', () => {
     });
   });
 
+  // Task 97.2: 「内訳書を本文に含める」が ON で項目 0 件のとき、backend は 422 NO_ITEMS_SELECTED を
+  // 返す（利用者の判断 2026-10-06 により維持）。frontend はこれを判別して「項目を選択してください」と案内し、
+  // それ以外の失敗は従来どおり汎用の「見積依頼文を取得できませんでした」を表示する
+  describe('見積依頼文の取得失敗の理由の案内（Task 97.2）', () => {
+    const noItemsSelectedError = () =>
+      new ApiError(422, '項目が選択されていません', {
+        type: 'https://architrack.example.com/problems/no-items-selected',
+        title: 'No Items Selected',
+        status: 422,
+        detail: '項目が選択されていません',
+        code: 'NO_ITEMS_SELECTED',
+      });
+
+    async function openTextPanel(user: ReturnType<typeof userEvent.setup>) {
+      renderWithRouter();
+      await waitFor(() => {
+        expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('button', { name: /見積依頼文を表示/ }));
+    }
+
+    it('表示ボタンで 422 NO_ITEMS_SELECTED が返ると「項目を選択してください」と案内する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(estimateRequestApi.getEstimateRequestText).mockRejectedValue(
+        noItemsSelectedError()
+      );
+
+      await openTextPanel(user);
+
+      const panel = await screen.findByRole('region', { name: '見積依頼文' });
+      await waitFor(() => {
+        expect(panel).toHaveTextContent('項目を選択してください');
+      });
+      expect(panel).not.toHaveTextContent('見積依頼文を取得できませんでした');
+    });
+
+    it('「内訳書を本文に含める」を ON にした再取得で 422 NO_ITEMS_SELECTED が返ると案内する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(estimateRequestApi.updateEstimateRequest).mockResolvedValue({
+        ...mockEstimateRequest,
+        includeBreakdownInBody: true,
+      });
+      vi.mocked(estimateRequestApi.getEstimateRequestText)
+        .mockResolvedValueOnce(mockEstimateText)
+        .mockRejectedValueOnce(noItemsSelectedError());
+
+      await openTextPanel(user);
+      const panel = await screen.findByRole('region', { name: '見積依頼文' });
+      await waitFor(() => {
+        expect(panel).toHaveTextContent('見積依頼本文');
+      });
+
+      await user.click(screen.getByRole('checkbox', { name: /内訳書を本文に含める/i }));
+
+      await waitFor(() => {
+        expect(estimateRequestApi.getEstimateRequestText).toHaveBeenCalledTimes(2);
+      });
+      await waitFor(() => {
+        expect(screen.getByRole('region', { name: '見積依頼文' })).toHaveTextContent(
+          '項目を選択してください'
+        );
+      });
+      expect(screen.getByRole('region', { name: '見積依頼文' })).not.toHaveTextContent(
+        '見積依頼文を取得できませんでした'
+      );
+    });
+
+    it('案内の後に再取得が成功すると案内を消して本文を表示する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(estimateRequestApi.updateEstimateRequest).mockResolvedValue({
+        ...mockEstimateRequest,
+        includeBreakdownInBody: true,
+      });
+      vi.mocked(estimateRequestApi.getEstimateRequestText)
+        .mockRejectedValueOnce(noItemsSelectedError())
+        .mockResolvedValueOnce(mockEstimateText);
+
+      await openTextPanel(user);
+      await waitFor(() => {
+        expect(screen.getByRole('region', { name: '見積依頼文' })).toHaveTextContent(
+          '項目を選択してください'
+        );
+      });
+
+      await user.click(screen.getByRole('checkbox', { name: /内訳書を本文に含める/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('region', { name: '見積依頼文' })).toHaveTextContent(
+          '見積依頼本文'
+        );
+      });
+      expect(screen.getByRole('region', { name: '見積依頼文' })).not.toHaveTextContent(
+        '項目を選択してください'
+      );
+    });
+
+    it('NO_ITEMS_SELECTED 以外の 422 では汎用の文言を表示する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(estimateRequestApi.getEstimateRequestText).mockRejectedValue(
+        new ApiError(422, 'Validation failed', { code: 'VALIDATION_ERROR' })
+      );
+
+      await openTextPanel(user);
+
+      const panel = await screen.findByRole('region', { name: '見積依頼文' });
+      await waitFor(() => {
+        expect(panel).toHaveTextContent('見積依頼文を取得できませんでした');
+      });
+      expect(panel).not.toHaveTextContent('項目を選択してください');
+    });
+
+    it('ApiError でない失敗では汎用の文言を表示する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(estimateRequestApi.getEstimateRequestText).mockRejectedValue(
+        new Error('Unknown error')
+      );
+
+      await openTextPanel(user);
+
+      const panel = await screen.findByRole('region', { name: '見積依頼文' });
+      await waitFor(() => {
+        expect(panel).toHaveTextContent('見積依頼文を取得できませんでした');
+      });
+      expect(panel).not.toHaveTextContent('項目を選択してください');
+    });
+  });
+
   describe('メソッド変更時の見積依頼文再取得', () => {
     it('メソッド変更時にテキストパネルが開いている場合、テキストを再取得する', async () => {
       const user = userEvent.setup();

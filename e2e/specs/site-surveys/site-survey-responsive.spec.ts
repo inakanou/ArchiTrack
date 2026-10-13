@@ -2,23 +2,136 @@
  * @fileoverview 現場調査レスポンシブ対応のE2Eテスト
  *
  * Requirements coverage (site-survey):
- * - REQ-15.1: デスクトップ・タブレット・スマートフォンの各画面サイズに対応したUI
  * - REQ-15.2: タッチ操作に最適化された注釈ツールを提供
  * - REQ-15.3: モバイル環境でのカメラ連携による直接撮影
  * - REQ-15.4: 一定間隔（30秒）で自動保存を実行
  * - REQ-15.5: ブラウザのlocalStorageから未保存の編集状態を復元
  * - REQ-15.6: ネットワーク接続が切断された場合の警告と保存ブロック
+ *   （タスク 115.105 で現場調査へ結線済み。抑止の対象はサーバー保存であり、
+ *   localStorage への自動保存は design.md「ネットワーク状態管理フロー」の Key Decisions
+ *   のとおり継続する）
  * - REQ-15.7: QuotaExceededError時のLRU戦略による古いキャッシュ削除
  * - REQ-15.8: QuotaExceededErrorリトライ失敗時の警告表示
  * - REQ-15.9: プライベートブラウジングモードでの自動保存無効化
  * - REQ-15.10: クロスブラウザ対応のlocalStorageエラー検出
+ *
+ * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
+ *   要件15.1: 各画面幅で見出しが可視であることしか主張しておらず、各画面サイズに対応したUIを主張していない
  */
 
 import { test, expect, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { API_BASE_URL } from '../../config';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import { getFabricObjectCount, waitForFabricCanvas } from '../../helpers/fabric-canvas';
+// 自動保存の間隔は本番の一元管理された定数を直接参照する。
+// テスト側に数値を複製すると、間隔が変わったときに検証だけが古い前提のまま緑になる。
+import { DEFAULT_AUTO_SAVE_INTERVAL_MS } from '../../../frontend/src/services/AutoSaveManager';
+
+/**
+ * 描画から下書きが書き出されるまでに最低限あいているべき時間（ミリ秒）。
+ *
+ * 本番の自動保存間隔そのものではなく、**それより十分に小さい下限**である。
+ * 閾値の複製ではないため、間隔が変わっても「即時保存になっていないか」を捉える性質は失われない。
+ * 実測（Task 115.183）では描画から最初の書き出しまで 29958ms（＝本番の間隔とほぼ一致）で、
+ * 下限に対して約 6 倍の余裕があった。差し替え前の固定待機（5000ms）と検出力は同じである。
+ */
+const AUTO_SAVE_MIN_DELAY_MS = 5000;
+
+/**
+ * 要件15.4 の受入検証で観測する自動保存の書き込み回数（タスク 115.237）。
+ *
+ * 「一定間隔で自動保存を実行する」ことを受入レベルで区別するには、**一間隔を超えて
+ * 描き続けたときに書き込みが繰り返し起こること**を見なければならない。1回で足りるのは
+ * 「いつか一度書かれる」ことだけであり、debounce（最後の操作から30秒）でも同じ判定が
+ * 成立してしまう（タスク 115.119 が設計文書に記録した欠落）。
+ *
+ * 3回にするのは、回数を数えるだけでなく**連続する2つの間隔**を比べられるようにするためである。
+ * 2回では間隔が1つしか採れず、「繰り返した」ことは言えても「一定間隔で」を測れない。
+ */
+const AUTO_SAVE_REPEAT_COUNT = 3;
+
+/**
+ * 描き続けるときの操作の間合い（ミリ秒）。
+ *
+ * 本番の間隔から導く（1/10）。**間隔より十分に短い**ことが要点で、
+ * 「編集が続いているあいだ」に当たる状態を作り出す。数値は複製しない。
+ */
+const CONTINUOUS_DRAW_CADENCE_MS = Math.max(1000, Math.floor(DEFAULT_AUTO_SAVE_INTERVAL_MS / 10));
+
+/**
+ * 連続する書き込みのあいだに最低限あいているべき時間（ミリ秒）。タスク 115.237 で導出へ改めた。
+ *
+ * 本番の間隔から導く（1/2）。ここで要るのは**描き続ける間合い（`CONTINUOUS_DRAW_CADENCE_MS`）より
+ * 十分に大きく、実際に空くはずの間隔（＝本番の間隔）より十分に小さい**下限である。
+ *
+ * 以前はこの主張に `AUTO_SAVE_MIN_DELAY_MS`（5000 の据え置き）を流用していた。その形の識別力は
+ * `CONTINUOUS_DRAW_CADENCE_MS < 5000`、すなわち**本番の間隔が 50 秒未満のあいだしか成り立たない**。
+ * 間隔を 50 秒より延ばすと間合いのほうが下限を上回り、**操作のたびに書き込む実装でもこの主張が
+ * 通ってしまう**——本タスクが追うはずの「間隔の変化への追随」がまさに失われる箇所であった。
+ * 導出へ改めたことで、間隔が変わっても下限は間合いと間隔のあいだに留まる。
+ * 下限が間合いを上回っていること自体は、主張の直前に実測して確かめる。
+ */
+const AUTO_SAVE_WRITE_GAP_MIN_MS = Math.floor(DEFAULT_AUTO_SAVE_INTERVAL_MS / 2);
+
+/**
+ * 描き続けながら書き込みを観測する上限時間（ミリ秒）。
+ *
+ * 書き込みは最初の変更を起点に 1・2・3 間隔目で起こるため、必要なのは
+ * `AUTO_SAVE_REPEAT_COUNT` 間隔ぶんである。最初の描画と周期の開始のずれ・
+ * タイマーの遅延を吸収するため 1 間隔ぶんを上乗せする。
+ */
+const CONTINUOUS_DRAW_OBSERVATION_MS = DEFAULT_AUTO_SAVE_INTERVAL_MS * (AUTO_SAVE_REPEAT_COUNT + 1);
+
+/**
+ * 要件15.4 の受入検証の実行時間の上限（ミリ秒）。タスク 115.237 で再設計した。
+ *
+ * 以前は `180_000` という**据え置きの数値**であった。観測に要する時間は本番の自動保存間隔と
+ * 観測する回数から決まるため、間隔が変われば上限も変わらなければならない。据え置きの数値は
+ * その追随ができず、間隔を延ばした瞬間に「上限で落ちる検証」へ変わる。そこで
+ * **観測時間（上の定数から導く）＋ 到達と後片付けの余裕**として導出する形へ改めた。
+ *
+ * 余裕は 60 秒とする。ログイン・画像ビューアへの到達・編集モード・最初の描画に要する時間の実測は
+ * 約 6 秒であり（2026-09-02 実測。本検証の所要 1.6 分＝96 秒から、書き込み 3 回ぶんの観測に
+ * 相当する 90 秒を差し引いた値）、CI 倍率（`getTimeout` の 2 倍）を掛けても十分に収まる。
+ * 観測が上限まで回り切る最悪の場合も実測で確かめてある——書き込みの反復を潰す変異を当てた実行で
+ * 本検証は約 142 秒で判定に達した（2026-09-02 実測。事前準備と合わせた 2.5 分から
+ * 事前準備の 7.3 秒を差し引いた値）。上限まで待ってなお 38 秒の余りがあり、
+ * **主張の失敗として落ちる**（上限で打ち切られて原因が分からなくなる形にはならない）。
+ * 既定の間隔 30 秒・3 回の観測では `30_000 * 4 + 60_000 = 180_000` となり、
+ * 数値としては据え置きの値と一致するが、**間隔に追随する点が異なる**。
+ */
+const AUTO_SAVE_ACCEPTANCE_TIMEOUT_MS = CONTINUOUS_DRAW_OBSERVATION_MS + 60_000;
+
+/**
+ * 自動保存が無効であることを確かめるための観測時間（ミリ秒）。
+ *
+ * 間隔を確実に跨ぐよう本番の間隔から導く（1.5 倍）。実際に跨いだことは観測直後に実測する。
+ * 実測（Task 115.183）は 45053ms。0.5 倍へ縮める変異では下書きの不在の主張は**通ったまま**
+ * この実測の主張だけが落ちた。固定待機が確かめずに置いていた前提はここに現れている。
+ */
+const PRIVATE_BROWSING_OBSERVATION_MS = Math.ceil(DEFAULT_AUTO_SAVE_INTERVAL_MS * 1.5);
+
+/**
+ * タッチ操作の当たり判定の下限（論理ピクセル）。
+ *
+ * 本テストが確かめる要件15.2「タッチ操作に最適化された注釈ツールを提供する」自体は
+ * 数値基準を持たない。44x44 は要件28.3 が本スペックの基準として定める値で、
+ * 要件29.4（選択ハンドル）・要件34.5（ズーム操作手段）・要件35.5（モバイル幅の操作系）が
+ * これと整合すると明記している。
+ *
+ * ただし要件28.3 の適用範囲は「概ね幅768px未満」であり、本テストのビューポートは
+ * 768x1024 のためその範囲には入らない。すなわち本判定は要件28.3 が要求するより
+ * 厳しい下限をタブレット幅へ適用しており、現時点で実際に満たされている。
+ */
+// 実装から取り込まず 44 を自前で持つ。理由は
+// `frontend/src/utils/tap-target.ts` に一箇所だけ書いてある。
+const TAP_TARGET_MIN_PX = 44;
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -29,6 +142,9 @@ test.describe('現場調査レスポンシブ対応', () => {
 
   let createdProjectId: string | null = null;
   let createdSurveyId: string | null = null;
+  // 注釈編集の検証で使う画像。fixtures/test-image.jpg は 1x1 px でキャンバスが潰れ、
+  // 描画操作を行えないため、注釈用には広さのある画像を別途用意する
+  let annotationImageId: string | null = null;
 
   test.beforeEach(async ({ context }) => {
     await context.clearCookies();
@@ -53,16 +169,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -143,16 +250,358 @@ test.describe('現場調査レスポンシブ対応', () => {
       // ページをリロードして画像が保存されていることを確認
       await page.reload();
       await page.waitForLoadState('networkidle');
+
+      // 注釈編集（REQ-15.4, 15.5, 15.7-15.10）用に、描画できる広さの画像を追加する
+      const annotationImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
+      expect(fs.existsSync(annotationImagePath)).toBeTruthy();
+
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const annotationUploadResponse = await page.request.post(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          multipart: {
+            images: {
+              name: 'test-image-large.jpg',
+              mimeType: 'image/jpeg',
+              buffer: fs.readFileSync(annotationImagePath),
+            },
+          },
+        }
+      );
+      expect(annotationUploadResponse.ok()).toBeTruthy();
+
+      const annotationUploadBody = (await annotationUploadResponse.json()) as {
+        successful?: Array<{ id?: string }>;
+      };
+      annotationImageId = annotationUploadBody.successful?.[0]?.id ?? null;
+      expect(annotationImageId).toBeTruthy();
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // 自動保存・復元（REQ-15.4, 15.5, 15.7-15.10）用のヘルパー
+  //
+  // いずれの検証も「本番の描画経路（注釈エディタ）から到達すること」を条件にする。
+  // 部品を直接組み立てて確かめる形にすると、結線の欠落を構造的に見逃すためである。
+  // ---------------------------------------------------------------------------
+
+  /** 自動保存が使う localStorage キーの接頭辞（AutoSaveManager と同一） */
+  const ANNOTATION_DRAFT_PREFIX = 'architrack_annotation_';
+
+  type PlaywrightPage = import('@playwright/test').Page;
+
   /**
-   * @requirement site-survey/REQ-15.1
+   * 画像ビューア画面で編集モードへ入り、対象画像IDを返す
+   */
+  async function enterEditMode(page: PlaywrightPage): Promise<string> {
+    const editModeButton = page.getByRole('button', { name: '編集モード' });
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(15000) });
+    await editModeButton.click();
+
+    await expect(page.locator('[data-testid="annotation-toolbar"]')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    // Task 115.184: 件数の観測（getFabricObjectCount）は描画面が不在なら投げる。
+    // 観測できる状態はここで確立する。リロード直後は道具帯より描画面の方が遅れるため、
+    // 道具帯の表示だけでは観測できる状態を意味しない。
+    await waitForFabricCanvas(page);
+
+    const match = page.url().match(/\/images\/([0-9a-f-]+)/);
+    const imageId = match?.[1];
+    if (!imageId) {
+      throw new Error(`画像IDをURLから取得できません: ${page.url()}`);
+    }
+    return imageId;
+  }
+
+  /**
+   * 現場調査詳細から画像を開き、注釈エディタ（編集モード）まで到達して画像IDを返す
+   */
+  async function openAnnotationEditor(page: PlaywrightPage): Promise<string> {
+    if (!createdSurveyId || !annotationImageId) {
+      throw new Error(
+        'createdSurveyId / annotationImageId が未設定です。事前準備テストが正しく実行されていません。'
+      );
+    }
+
+    await page.goto(`/site-surveys/${createdSurveyId}/images/${annotationImageId}`);
+    await page.waitForLoadState('networkidle');
+
+    return enterEditMode(page);
+  }
+
+  /**
+   * 注釈エディタのキャンバス中心座標を返す
+   */
+  async function getCanvasCenter(page: PlaywrightPage): Promise<{ x: number; y: number }> {
+    const upperCanvas = page.locator('.upper-canvas');
+    await expect(upperCanvas).toBeVisible({ timeout: getTimeout(15000) });
+
+    await expect
+      .poll(
+        async () => {
+          const box = await upperCanvas.boundingBox();
+          return box ? Math.min(box.width, box.height) : 0;
+        },
+        { timeout: getTimeout(15000) }
+      )
+      .toBeGreaterThan(10);
+
+    const box = await upperCanvas.boundingBox();
+    if (!box) {
+      throw new Error('キャンバス要素の位置・サイズを取得できません');
+    }
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  }
+
+  /**
+   * 四角形ツールで注釈を1件描く（描画が成立したことを確認してから戻る）
+   */
+  async function drawRectangleAnnotation(page: PlaywrightPage): Promise<void> {
+    const rectangleTool = page.locator('[data-tool="rectangle"]');
+    await expect(rectangleTool).toBeVisible({ timeout: getTimeout(15000) });
+    await rectangleTool.click();
+    await expect(rectangleTool).toHaveAttribute('aria-pressed', 'true');
+
+    const center = await getCanvasCenter(page);
+    // Task 115.184: 描画面が観測できないことは観測そのものが投げて弾くため、
+    // 番兵値を弾くための下限の主張は不要になった。
+    const before = await getFabricObjectCount(page);
+
+    // キャンバス内に収まる幅で描く（画像サイズに依存しないよう実寸から求める）
+    const box = await page.locator('.upper-canvas').boundingBox();
+    if (!box) {
+      throw new Error('キャンバス要素の位置・サイズを取得できません');
+    }
+    const dx = Math.max(10, Math.floor(box.width * 0.2));
+    const dy = Math.max(10, Math.floor(box.height * 0.2));
+
+    await page.mouse.move(center.x - dx, center.y - dy);
+    await page.mouse.down();
+    await page.mouse.move(center.x + dx, center.y + dy, { steps: 12 });
+    await page.mouse.up();
+
+    await expect
+      .poll(() => getFabricObjectCount(page), { timeout: getTimeout(15000) })
+      .toBeGreaterThan(before);
+  }
+
+  /**
+   * localStorage 上の自動保存下書きキーの一覧を返す
+   */
+  async function readDraftKeys(page: PlaywrightPage): Promise<string[]> {
+    return page.evaluate((prefix) => {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+          keys.push(key);
+        }
+      }
+      return keys;
+    }, ANNOTATION_DRAFT_PREFIX);
+  }
+
+  /**
+   * 指定キーの下書き本文を返す（未保存なら null）
+   */
+  async function readDraft(page: PlaywrightPage, key: string): Promise<string | null> {
+    return page.evaluate((k) => localStorage.getItem(k), key);
+  }
+
+  /**
+   * 下書きキーへの書き込み1件の記録（要件15.4 の反復の観測に使う）
+   *
+   * 時刻は**画面側の単調時計**（`window.performance.now()`）で採る。WSL2 では壁時計が
+   * 単調時計より遅く進むため、下書きの `savedAt`（`Date` 由来）から間隔を導いてはならない。
+   */
+  type DraftWriteRecord = {
+    /** 画面側の単調時計での書き込み時刻（ミリ秒） */
+    atMs: number;
+    /** 書き込まれた本文そのもの（解釈は呼び出し側で行う） */
+    value: string;
+  };
+
+  /**
+   * 指定キーへの書き込みを、発生順に記録し始める（要件15.4）
+   *
+   * 「一定間隔で自動保存される」ことを受入レベルで確かめるには、**書き込みが何回起きたか**を
+   * 数える必要がある。localStorage を外から周期的に読む形では、同じ内容で上書きされた回や、
+   * 読み取りの周期に挟まれた回を取りこぼす。そこで書き込みの入口そのものを観測する。
+   *
+   * 判定は行わない——本文も時刻もそのまま持ち帰り、主張は呼び出し側で行う。
+   */
+  async function startRecordingDraftWrites(page: PlaywrightPage, key: string): Promise<void> {
+    await page.evaluate((draftKey) => {
+      const state = window as unknown as { __draftWrites?: { atMs: number; value: string }[] };
+      state.__draftWrites = [];
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k: string, v: string) {
+        original.call(this, k, v);
+        if (k === draftKey) {
+          state.__draftWrites?.push({ atMs: window.performance.now(), value: v });
+        }
+      };
+    }, key);
+  }
+
+  /**
+   * これまでに記録された下書きへの書き込みを発生順で返す
+   */
+  async function readRecordedDraftWrites(page: PlaywrightPage): Promise<DraftWriteRecord[]> {
+    return page.evaluate(
+      () =>
+        (window as unknown as { __draftWrites?: { atMs: number; value: string }[] })
+          .__draftWrites ?? []
+    );
+  }
+
+  /**
+   * 画面側の単調時計の現在値を返す（記録した書き込み時刻と同じ時計で測るため）
+   */
+  async function readPageMonotonicNowMs(page: PlaywrightPage): Promise<number> {
+    return page.evaluate(() => window.performance.now());
+  }
+
+  /**
+   * 自動保存下書きを全件削除する（検証の初期状態をそろえる）
+   */
+  async function clearDrafts(page: PlaywrightPage): Promise<void> {
+    await page.evaluate((prefix) => {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+          keys.push(key);
+        }
+      }
+      keys.forEach((key) => localStorage.removeItem(key));
+    }, ANNOTATION_DRAFT_PREFIX);
+  }
+
+  /**
+   * LRU の削除順序を判別できる下書きの母集団を積む（REQ-15.7）
+   *
+   * 要件15.7 が名指しするのは「古いキャッシュを削除する」ことであり、削除の件数ではない。
+   * 古い下書きだけを積むと、本番が古い順に消しても・新しい順に消しても・任意の順に消しても
+   * 同じ結果になるため、**主張が「古い順」を判別できない**。そこで消えてはならないものを
+   * 母集団へ混ぜ、古いものだけが消えて新しいものが残ることを主張できる形にする。
+   *
+   * 積む順序は新しいものを先にする。localStorage の列挙は挿入順であり、savedAt での
+   * 並べ替えを省いた実装（挿入順のまま先頭から消す）でも主張が崩れるようにするためである。
+   *
+   * @param oldCount   消えるはずの古い下書きの件数（本番の削除件数と一致させる）
+   * @param freshCount 残るはずの新しい下書きの件数（1件以上でなければ判別できない）
+   */
+  async function seedDraftsForLruOrdering(
+    page: PlaywrightPage,
+    oldCount: number,
+    freshCount: number
+  ): Promise<{ oldKeys: string[]; freshKeys: string[] }> {
+    return page.evaluate(
+      ({ prefix, olds, freshes }) => {
+        const write = (imageId: string, savedAt: string): string => {
+          const key = `${prefix}${imageId}`;
+          localStorage.setItem(
+            key,
+            JSON.stringify({
+              imageId,
+              surveyId: 'lru-survey',
+              annotationData: { version: '1.0', objects: [] },
+              savedAt,
+              serverUpdatedAt: null,
+            })
+          );
+          return key;
+        };
+
+        // 新しいものを先に積む（挿入順＝新しい順）
+        const freshKeys: string[] = [];
+        for (let i = 0; i < freshes; i++) {
+          freshKeys.push(write(`fresh-${i}`, new Date(Date.UTC(2035, 0, i + 1)).toISOString()));
+        }
+        const oldKeys: string[] = [];
+        for (let i = 0; i < olds; i++) {
+          oldKeys.push(write(`stale-${i}`, new Date(Date.UTC(2020, 0, i + 1)).toISOString()));
+        }
+        return { oldKeys, freshKeys };
+      },
+      { prefix: ANNOTATION_DRAFT_PREFIX, olds: oldCount, freshes: freshCount }
+    );
+  }
+
+  /**
+   * 自動保存の書き込みだけを失敗させる（ブラウザごとに形の異なるストレージ例外を注入する）
+   *
+   * @param name  例外の name（QuotaExceededError / NS_ERROR_DOM_QUOTA_REACHED 等）
+   * @param code  例外の code（22 / 1014 等）
+   * @param failTimes 失敗させる回数
+   */
+  async function injectStorageWriteFailure(
+    page: PlaywrightPage,
+    name: string,
+    code: number,
+    failTimes: number
+  ): Promise<void> {
+    await page.evaluate(
+      ({ prefix, errorName, errorCode, limit }) => {
+        const state = window as unknown as { __injectedStorageFailures?: number };
+        state.__injectedStorageFailures = 0;
+        const original = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key: string, value: string) {
+          if (key.startsWith(prefix) && (state.__injectedStorageFailures ?? 0) < limit) {
+            state.__injectedStorageFailures = (state.__injectedStorageFailures ?? 0) + 1;
+            const error = new Error(errorName) as Error & { code: number };
+            error.name = errorName;
+            error.code = errorCode;
+            throw error;
+          }
+          original.call(this, key, value);
+        };
+      },
+      { prefix: ANNOTATION_DRAFT_PREFIX, errorName: name, errorCode: code, limit: failTimes }
+    );
+  }
+
+  /**
+   * 注入した書き込み失敗の発生回数を返す
+   */
+  async function readInjectedFailureCount(page: PlaywrightPage): Promise<number> {
+    return page.evaluate(
+      () =>
+        (window as unknown as { __injectedStorageFailures?: number }).__injectedStorageFailures ?? 0
+    );
+  }
+
+  /**
+   * プライベートブラウジングモードの localStorage 制限を再現する（REQ-15.9）
+   *
+   * 認証トークンまで書けなくすると画面へ到達できないため、自動保存が使うキーと
+   * 利用可否の試験キーだけを SecurityError で拒否する。制限の検出と自動保存の
+   * 無効化は本番実装（utils/storage-error → AutoSaveManager）が行う。
+   */
+  async function injectPrivateBrowsingRestriction(page: PlaywrightPage): Promise<void> {
+    await page.addInitScript((prefix) => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key: string, value: string) {
+        if (key.startsWith(prefix) || key === '__storage_test__' || key === '__autosave_test__') {
+          const error = new Error('SecurityError') as Error & { code: number };
+          error.name = 'SecurityError';
+          error.code = 18;
+          throw error;
+        }
+        original.call(this, key, value);
+      };
+    }, ANNOTATION_DRAFT_PREFIX);
+  }
+
+  /**
+   * 受入基準 15.1 は除外である（e2e/requirement-exclusions.json）。各画面幅で見出しが可視であることしか主張しておらず、各画面サイズに対応したUIを主張していないため、被覆印は掲げない。
    */
   test.describe('画面サイズ対応', () => {
-    test('デスクトップサイズで現場調査一覧が正しく表示される (site-survey/REQ-15.1)', async ({
-      page,
-    }) => {
+    test('デスクトップサイズで現場調査一覧が正しく表示される', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -174,9 +623,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('タブレットサイズで現場調査一覧が正しく表示される (site-survey/REQ-15.1)', async ({
-      page,
-    }) => {
+    test('タブレットサイズで現場調査一覧が正しく表示される', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -198,9 +645,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('スマートフォンサイズで現場調査一覧が正しく表示される (site-survey/REQ-15.1)', async ({
-      page,
-    }) => {
+    test('スマートフォンサイズで現場調査一覧が正しく表示される', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -222,9 +667,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('スマートフォンサイズで現場調査詳細が正しく表示される (site-survey/REQ-15.1)', async ({
-      page,
-    }) => {
+    test('スマートフォンサイズで現場調査詳細が正しく表示される', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -276,7 +719,7 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       // 画像があればビューアを開く（PhotoManagementPanel内）
       const imageElement = page.locator('[data-testid="photo-image-button"]').first();
-      const imageVisible = await imageElement.isVisible({ timeout: 3000 });
+      const imageVisible = await isVisibleWithin(imageElement, 3000);
 
       // 画像が存在することを確認（第3原則: 前提条件でテストを除外してはならない）
       if (!imageVisible) {
@@ -288,33 +731,31 @@ test.describe('現場調査レスポンシブ対応', () => {
       await imageElement.click();
       await page.waitForLoadState('networkidle');
 
-      // 編集モードボタン
+      // 編集モードボタン。観測結果で判定を包まず、無条件に到達を主張する。
       const editModeButton = page.getByRole('button', { name: /編集モード/i });
-      const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
+      await expect(editModeButton).toBeVisible({ timeout: getTimeout(5000) });
+      await editModeButton.click();
 
-      if (editModeVisible) {
-        await editModeButton.click();
+      // 注釈ツールバーが表示されることを確認
+      const toolbar = page.locator('[data-testid="annotation-toolbar"]');
+      await expect(toolbar).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 注釈ツールバーが表示されることを確認
-        const toolbar = page.locator('[data-testid="annotation-toolbar"]');
-        const hasToolbar = await toolbar.isVisible({ timeout: 5000 });
+      const toolButtons = toolbar.locator('button');
+      const buttonCount = await toolButtons.count();
+      expect(buttonCount, 'REQ-15.2: 注釈ツールバーに操作ボタンが存在する').toBeGreaterThan(0);
 
-        // ツールボタンがタッチ操作しやすいサイズかどうか確認
-        if (hasToolbar) {
-          const toolButtons = toolbar.locator('button');
-          const buttonCount = await toolButtons.count();
-
-          if (buttonCount > 0) {
-            const firstButton = toolButtons.first();
-            const box = await firstButton.boundingBox();
-
-            // タッチターゲットは最低44px以上が推奨
-            if (box) {
-              expect(box.width >= 32 || box.height >= 32).toBeTruthy();
-            }
-          }
-        }
-      }
+      // 観測した寸法そのものを主張する。
+      // 従来は `幅>=32 || 高さ>=32` を条件分岐の中で判定しており、
+      // 一辺だけが基準を満たす細長い当たり判定も緑になっていた。
+      const box = await toolButtons.first().boundingBox();
+      expect(box, 'REQ-15.2: ツールボタンの当たり判定が取得できる').not.toBeNull();
+      expect(box!.width, 'REQ-15.2: ツールボタンの幅がタッチ標準を満たす').toBeGreaterThanOrEqual(
+        TAP_TARGET_MIN_PX
+      );
+      expect(
+        box!.height,
+        'REQ-15.2: ツールボタンの高さがタッチ標準を満たす'
+      ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
 
       // ページが正しく表示されていることを確認
       await expect(page.locator('body')).toBeVisible();
@@ -342,12 +783,16 @@ test.describe('現場調査レスポンシブ対応', () => {
       const cameraButton = page.getByTestId('camera-button');
       const cameraInput = page.locator('input[accept*="image"][capture]');
 
-      const hasCameraButton = await cameraButton.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasCameraButton = await isVisibleWithin(cameraButton, getTimeout(3000));
       const cameraInputCount = await cameraInput.count();
-      const hasCameraInput = cameraInputCount > 0;
 
-      // カメラ機能が存在することを確認
-      expect(hasCameraButton || hasCameraInput).toBeTruthy();
+      // REQ-15.3: モバイル環境でのカメラ連携による直接撮影をサポートする。
+      // 実装（ImageUploader）は「カメラで撮影」ボタンと capture="environment" を持つ
+      // 隠しファイル入力を**同時に**置き、ボタンの押下で入力を起動する。
+      // 以前は論理和で「いずれか一方」を許していたが、実装は両方を備えるため、
+      // 片方が失われても気づけない主張であった。二つを個別に主張する。
+      expect(hasCameraButton, 'REQ-15.3: カメラ撮影ボタンが表示されない').toBe(true);
+      expect(cameraInputCount, 'REQ-15.3: capture付きのカメラ入力が無い').toBeGreaterThan(0);
     });
   });
 
@@ -355,44 +800,135 @@ test.describe('現場調査レスポンシブ対応', () => {
    * @requirement site-survey/REQ-15.4
    */
   test.describe('自動保存', () => {
-    test('注釈編集中に自動保存機能が動作する (site-survey/REQ-15.4)', async ({ page }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+    test('注釈編集中に一定間隔（30秒）で未保存状態がlocalStorageへ自動保存される (site-survey/REQ-15.4)', async ({
+      page,
+    }) => {
+      // 上限は本番の間隔と観測回数から導く（据え置きの数値ではない。タスク 115.237）
+      test.setTimeout(AUTO_SAVE_ACCEPTANCE_TIMEOUT_MS);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
 
-      // 画像があればビューアを開く（PhotoManagementPanel内）
-      const imageElement = page.locator('[data-testid="photo-image-button"]').first();
-      const imageVisible = await imageElement.isVisible({ timeout: 3000 });
-      if (imageVisible) {
-        await imageElement.click();
-        await page.waitForLoadState('networkidle');
+      // 書き込みの入口そのものを記録し始める。回数を数えるのが主題であるため、
+      // localStorage を外から周期的に読む形（同じ内容の上書きや読み取りの合間の回を
+      // 取りこぼす）では足りない。記録は描画より前に始める。
+      await startRecordingDraftWrites(page, draftKey);
 
-        // 編集モードに入る
-        const editModeButton = page.getByRole('button', { name: /編集モード/i });
-        const editModeVisible = await editModeButton.isVisible({ timeout: 3000 });
-        if (editModeVisible) {
-          await editModeButton.click();
+      // drawRectangleAnnotation は図形が増えるまでを条件待ちするため、
+      // ここに到達した時点で「保存されるべき未保存の変更」が確実に存在する
+      // （不在の主張の母集団が空にならないことの担保）。
+      await drawRectangleAnnotation(page);
+      const drawAtMs: number[] = [await readPageMonotonicNowMs(page)];
+      const drawingStartedAtMs = drawAtMs[0]!;
 
-          // 自動保存インジケーターまたはメッセージを探す
-          const autoSaveIndicator = page.locator(
-            '[data-testid="auto-save-indicator"], .auto-save-status'
-          );
-          const autoSaveText = page.getByText(/自動保存|auto.*save|下書き保存/i);
-
-          const hasAutoSaveIndicator = await autoSaveIndicator.isVisible({ timeout: 3000 });
-          const hasAutoSaveText = await autoSaveText.isVisible();
-
-          // 自動保存機能が存在することを確認（または実装されていない場合はパス）
-          expect(hasAutoSaveIndicator || hasAutoSaveText || true).toBeTruthy();
+      // 一間隔より短い間合いで描き続ける（＝要件15.4 の `While 注釈編集中` に当たる状態）。
+      // タスク 115.119 までのこの検証は描画を一度しか行わず、その形では
+      // debounce（最後の操作から30秒）と一定間隔の区別が付かなかった。
+      // 経過の計測は単調時計で行う（WSL2 では壁時計が単調時計より遅く進むため Date.now は使わない）。
+      // 画面側で記録した時刻と突き合わせるため、時計は画面側の単調時計に統一する。
+      let writes = await readRecordedDraftWrites(page);
+      while (
+        writes.length < AUTO_SAVE_REPEAT_COUNT &&
+        (await readPageMonotonicNowMs(page)) - drawingStartedAtMs < CONTINUOUS_DRAW_OBSERVATION_MS
+      ) {
+        const sinceLastDrawMs =
+          (await readPageMonotonicNowMs(page)) - drawAtMs[drawAtMs.length - 1]!;
+        if (sinceLastDrawMs < CONTINUOUS_DRAW_CADENCE_MS) {
+          await page.waitForTimeout(CONTINUOUS_DRAW_CADENCE_MS - sinceLastDrawMs);
         }
+        await drawRectangleAnnotation(page);
+        drawAtMs.push(await readPageMonotonicNowMs(page));
+        writes = await readRecordedDraftWrites(page);
       }
 
-      await expect(page.locator('body')).toBeVisible();
+      // 前提の実測: 「描き続けた」ことと、それが一間隔を超えたこと。
+      // これを測らないと、書き込みが1回で終わった原因が本番にあるのか
+      // 操作が続かなかったせいなのかを判別できない。
+      const drawingSpanMs = drawAtMs[drawAtMs.length - 1]! - drawingStartedAtMs;
+      expect(
+        drawingSpanMs,
+        `描画が自動保存の間隔(${DEFAULT_AUTO_SAVE_INTERVAL_MS}ms)を跨いでおらず、` +
+          '「一間隔を超えて描き続けた」ことを確かめられていない'
+      ).toBeGreaterThan(DEFAULT_AUTO_SAVE_INTERVAL_MS);
+
+      // 主題: 描き続けている最中に書き込みが繰り返し起こる
+      expect(
+        writes.length,
+        `一間隔(${DEFAULT_AUTO_SAVE_INTERVAL_MS}ms)を超えて${drawingSpanMs}ms 描き続け、` +
+          `${drawAtMs.length}回の描画を送ったにもかかわらず、下書きへの書き込みが` +
+          `${writes.length}回しか起きていない（一定間隔の自動保存になっていない）`
+      ).toBeGreaterThanOrEqual(AUTO_SAVE_REPEAT_COUNT);
+
+      // 書き込みは操作ごとではなく間隔ごとに起きる（＝描画のたびに書いているのではない）
+      expect(
+        drawAtMs.length,
+        '描画の回数が書き込みの回数を上回っておらず、操作ごとの書き込みと区別できていない'
+      ).toBeGreaterThan(writes.length);
+
+      const firstWriteAfterMs = writes[0]!.atMs - drawingStartedAtMs;
+      expect(
+        firstWriteAfterMs,
+        '描画直後に下書きが書き出されており、一定間隔での自動保存になっていない'
+      ).toBeGreaterThanOrEqual(AUTO_SAVE_MIN_DELAY_MS);
+
+      const gapsMs = writes.slice(1).map((write, index) => write.atMs - writes[index]!.atMs);
+      expect(
+        gapsMs.length,
+        '書き込みの間隔を採れておらず、間隔についての主張の母集団が空である'
+      ).toBeGreaterThanOrEqual(AUTO_SAVE_REPEAT_COUNT - 1);
+
+      // 下限が「描画の間合い」を上回っていること自体を主張する。ここが崩れると
+      // （本番の間隔を大きく延ばした場合など）以下の主張は静かに識別力を失うため、
+      // 黙って緑になるのではなく赤で知らせる。
+      expect(
+        AUTO_SAVE_WRITE_GAP_MIN_MS,
+        `書き込み間隔の下限(${AUTO_SAVE_WRITE_GAP_MIN_MS}ms)が描画の間合い(${CONTINUOUS_DRAW_CADENCE_MS}ms)を` +
+          '上回っておらず、操作ごとの書き込みと区別できない'
+      ).toBeGreaterThan(CONTINUOUS_DRAW_CADENCE_MS);
+
+      gapsMs.forEach((gapMs, index) => {
+        expect(
+          gapMs,
+          `${index + 2}回目の書き込みが直前から ${gapMs}ms しか空いておらず` +
+            `（下限は本番の間隔から導く ${AUTO_SAVE_WRITE_GAP_MIN_MS}ms）、` +
+            '一定間隔ではなく操作ごとの書き込みになっている'
+        ).toBeGreaterThanOrEqual(AUTO_SAVE_WRITE_GAP_MIN_MS);
+      });
+
+      // 各回の書き込みはその時点までの描画を含む（描き続けている最中の状態が書き出されている）
+      const drafts = writes.map(
+        (write) =>
+          JSON.parse(write.value) as {
+            imageId: string;
+            surveyId: string;
+            savedAt: string;
+            annotationData: { objects: unknown[]; canvasWidth: number; canvasHeight: number };
+          }
+      );
+      drafts.slice(1).forEach((draft, index) => {
+        expect(
+          draft.annotationData.objects.length,
+          `${index + 2}回目の書き込みが直前の回から増えておらず、` +
+            '描き続けている最中の状態を書き出していない'
+        ).toBeGreaterThan(drafts[index]!.annotationData.objects.length);
+      });
+
+      // 記録した書き込みが localStorage の現況と一致する（入口の観測が実体を伴っている）
+      const stored = await readDraft(page, draftKey);
+      expect(stored, '記録した最後の書き込みが localStorage に残っていない').toBe(
+        writes[writes.length - 1]!.value
+      );
+
+      const draft = drafts[drafts.length - 1]!;
+      expect(draft.imageId).toBe(imageId);
+      expect(draft.surveyId).toBe(createdSurveyId);
+      expect(draft.annotationData.objects.length).toBeGreaterThan(0);
+      expect(draft.annotationData.canvasWidth).toBeGreaterThan(0);
+      expect(draft.annotationData.canvasHeight).toBeGreaterThan(0);
+      expect(Number.isNaN(Date.parse(draft.savedAt))).toBe(false);
     });
   });
 
@@ -400,36 +936,74 @@ test.describe('現場調査レスポンシブ対応', () => {
    * @requirement site-survey/REQ-15.5
    */
   test.describe('編集状態の復元', () => {
-    test('ページリロード後にlocalStorageから編集状態を復元できる (site-survey/REQ-15.5)', async ({
+    test('リロード後に未保存の編集状態をlocalStorageから復元できる (site-survey/REQ-15.5)', async ({
       page,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      test.setTimeout(180_000);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
+
+      // サーバーへは保存せず、自動保存だけが走った状態を作る
+      await drawRectangleAnnotation(page);
+      await expect
+        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .not.toBeNull();
+
+      const draftedObjectCount = await getFabricObjectCount(page);
+
+      // リロード（再訪問）する。サーバーには注釈が保存されていないため、
+      // 復元しなければキャンバスは描画前の状態に戻る
+      await page.reload();
       await page.waitForLoadState('networkidle');
+      await enterEditMode(page);
 
-      // localStorageに下書きデータが保存されるかを確認
-      const draftKeys = await page.evaluate(() => {
-        const keys: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (
-            key &&
-            (key.includes('draft') || key.includes('autosave') || key.includes('unsaved'))
-          ) {
-            keys.push(key);
-          }
-        }
-        return keys;
-      });
+      const afterReloadCount = await getFabricObjectCount(page);
+      expect(afterReloadCount).toBeLessThan(draftedObjectCount);
 
-      // 下書き保存機能が存在する場合はキーが見つかる
-      // 存在しない場合でもテストは成功
-      expect(Array.isArray(draftKeys)).toBeTruthy();
+      // 未保存データの復元確認が本番の描画経路から表示される
+      const restoreDialog = page.getByRole('dialog');
+      await expect(restoreDialog).toBeVisible({ timeout: getTimeout(20000) });
+      await expect(restoreDialog).toContainText('未保存のデータがあります');
+
+      await restoreDialog.getByRole('button', { name: '復元する' }).click();
+      await expect(restoreDialog).toBeHidden({ timeout: getTimeout(15000) });
+
+      // 復元により、リロード直後より注釈が増えて自動保存時点の状態へ戻る
+      await expect
+        .poll(() => getFabricObjectCount(page), { timeout: getTimeout(20000) })
+        .toBe(draftedObjectCount);
+    });
+
+    test('復元確認で「破棄する」を選ぶと下書きが消える (site-survey/REQ-15.5)', async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
+
+      await drawRectangleAnnotation(page);
+      await expect
+        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .not.toBeNull();
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await enterEditMode(page);
+
+      const restoreDialog = page.getByRole('dialog');
+      await expect(restoreDialog).toBeVisible({ timeout: getTimeout(20000) });
+      await restoreDialog.getByRole('button', { name: '破棄する' }).click();
+      await expect(restoreDialog).toBeHidden({ timeout: getTimeout(15000) });
+
+      expect(await readDraft(page, draftKey)).toBeNull();
     });
   });
 
@@ -437,177 +1011,329 @@ test.describe('現場調査レスポンシブ対応', () => {
    * @requirement site-survey/REQ-15.6
    */
   test.describe('ネットワーク状態', () => {
-    test('オフライン時に警告が表示される (site-survey/REQ-15.6)', async ({ page, context }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+    /** 通信断で告知される文言 */
+    const OFFLINE_MESSAGE = 'ネットワーク接続がありません。保存操作は接続復帰後に行えます。';
+
+    /**
+     * 指定した判定に一致するリクエストを、パス基準で記録する観測器を仕掛ける
+     *
+     * オリジンは CI とローカルで食い違うため、`new URL(...).pathname` だけで判定する。
+     */
+    function observeRequests(
+      page: PlaywrightPage,
+      matches: (pathname: string, method: string) => boolean
+    ): { readonly seen: string[]; stop: () => void } {
+      const seen: string[] = [];
+      const listener = (request: import('@playwright/test').Request) => {
+        const pathname = new URL(request.url()).pathname;
+        const method = request.method();
+        if (matches(pathname, method)) {
+          seen.push(`${method} ${pathname}`);
+        }
+      };
+      page.on('request', listener);
+      return {
+        seen,
+        stop: () => page.off('request', listener),
+      };
+    }
+
+    test('通信が切れると警告を表示し、復帰すると告知が解除される (site-survey/REQ-15.6)', async ({
+      page,
+      context,
+    }) => {
+      assertPrepared(createdSurveyId, 'createdSurveyId');
 
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // オフラインモードをシミュレート
+      const offlineWarning = page.getByTestId('offline-warning');
+
+      // 既定（オンライン）では告知が無い状態から始める
+      await expect(offlineWarning).toBeHidden();
+
       await context.setOffline(true);
+      try {
+        // 要件15.6 前半: 通信が切れたら警告を表示する
+        await expect(offlineWarning).toBeVisible({ timeout: getTimeout(15000) });
+        await expect(offlineWarning).toContainText(OFFLINE_MESSAGE);
+      } finally {
+        await context.setOffline(false);
+      }
 
-      // オフライン警告が表示されるまで待機
-      const offlineWarning = page.locator(
-        '[data-testid="offline-warning"], .offline-indicator, [role="alert"]'
+      // 復帰すると警告が消え、復帰した旨が告知される
+      await expect(offlineWarning).toBeHidden({ timeout: getTimeout(15000) });
+      await expect(page.getByTestId('network-reconnected-notice')).toContainText(
+        'ネットワーク接続が復帰しました'
       );
-      const offlineText = page.getByText(/オフライン|接続.*切断|ネットワーク.*エラー|offline/i);
-
-      // 少し待ってから確認
-      await page.waitForTimeout(2000);
-
-      const hasOfflineWarning = await offlineWarning.isVisible();
-      const hasOfflineText = await offlineText.isVisible();
-
-      // オンラインに戻す
-      await context.setOffline(false);
-
-      // オフライン警告機能が存在することを確認（または実装されていない場合はパス）
-      expect(hasOfflineWarning || hasOfflineText || true).toBeTruthy();
     });
 
-    test('オフライン時に保存操作がブロックされる (site-survey/REQ-15.6)', async ({
+    test('通信が切れている間は現場調査の更新が抑止され、復帰後に保存できる (site-survey/REQ-15.6)', async ({
       page,
       context,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      assertPrepared(createdSurveyId, 'createdSurveyId');
+      const surveyId = createdSurveyId as string;
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 編集ページにアクセス
-      await page.goto(`/site-surveys/${createdSurveyId}/edit`);
+      await page.goto(`/site-surveys/${surveyId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // オフラインモードをシミュレート
+      const nameField = page.getByLabel(/調査名/i);
+      await expect(nameField).toBeVisible({ timeout: getTimeout(15000) });
+      const updatedName = `通信断テスト_${Date.now()}`;
+      await nameField.fill(updatedName);
+
+      // 現場調査の更新（PUT /api/site-surveys/{id}）だけをパス基準で観測する。
+      // 注釈保存（/api/site-surveys/images/...）と取り違えないよう完全一致で判定する。
+      const updateRequests = observeRequests(
+        page,
+        (pathname, method) => method === 'PUT' && pathname === `/api/site-surveys/${surveyId}`
+      );
+
+      const saveButton = page.getByRole('button', { name: '保存' });
+      const offlineWarning = page.getByTestId('offline-warning');
+
       await context.setOffline(true);
+      try {
+        await expect(offlineWarning).toBeVisible({ timeout: getTimeout(15000) });
 
-      // 保存ボタンをクリック
-      const saveButton = page.getByRole('button', { name: /保存|更新/i });
-      const saveButtonVisible = await saveButton.isVisible({ timeout: 3000 });
-      if (saveButtonVisible) {
-        await saveButton.click();
+        // 保存の抑止が操作手段に現れる（aria-disabled）
+        await expect(saveButton).toBeDisabled({ timeout: getTimeout(15000) });
 
-        // エラーメッセージまたは保存ブロックの表示を確認
-        const errorMessage = page.getByText(/保存.*失敗|エラー|オフライン|接続/i);
-        const hasError = await errorMessage.isVisible({ timeout: 5000 });
+        // 押下自体は成立するため、押しても保存が走らないことまで確かめる
+        await saveButton.click({ force: true });
 
-        // オンラインに戻す
-        await context.setOffline(false);
+        // 押下に対して抑止の理由が返る（この観測が済むまで待ってから送信有無を判定する）
+        await expect(page.getByTestId('site-survey-form-save-blocked')).toContainText(
+          OFFLINE_MESSAGE,
+          { timeout: getTimeout(15000) }
+        );
 
-        // エラー処理が存在することを確認（または実装されていない場合はパス）
-        expect(hasError || true).toBeTruthy();
-      } else {
-        // オンラインに戻す
+        // 要件15.6 後半: サーバーへの保存操作が発生していない
+        expect(updateRequests.seen, '通信断中に現場調査の更新要求が送られてはならない').toEqual([]);
+
+        // 編集画面から遷移していない（保存成功時の詳細画面遷移が起きていない）
+        expect(new URL(page.url()).pathname).toBe(`/site-surveys/${surveyId}/edit`);
+      } finally {
         await context.setOffline(false);
       }
 
-      await expect(page.locator('body')).toBeVisible();
+      // 復帰後は同じ操作で保存が成立する（上の「送られない」主張が恒真でないことを示す）
+      await expect(offlineWarning).toBeHidden({ timeout: getTimeout(15000) });
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(15000) });
+
+      const updateResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/site-surveys/${surveyId}` &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await saveButton.click();
+      const response = await updateResponse;
+      expect(response.status()).toBe(200);
+
+      updateRequests.stop();
+      expect(updateRequests.seen.length).toBeGreaterThan(0);
+
+      await expect(page).toHaveURL(new RegExp(`/site-surveys/${surveyId}$`), {
+        timeout: getTimeout(30000),
+      });
+    });
+
+    test('通信が切れている間は注釈の保存が抑止され、復帰後に保存できる (site-survey/REQ-15.6)', async ({
+      page,
+      context,
+    }) => {
+      test.setTimeout(180_000);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const imageId = await openAnnotationEditor(page);
+      await clearDrafts(page);
+      await drawRectangleAnnotation(page);
+
+      const annotationPath = `/api/site-surveys/images/${imageId}/annotations`;
+      const saveRequests = observeRequests(
+        page,
+        (pathname, method) => method === 'PUT' && pathname === annotationPath
+      );
+
+      const saveButton = page.getByTestId('annotation-save-button');
+      const offlineWarning = page.getByTestId('offline-warning');
+
+      await context.setOffline(true);
+      try {
+        await expect(offlineWarning).toBeVisible({ timeout: getTimeout(15000) });
+        await expect(saveButton).toBeDisabled({ timeout: getTimeout(15000) });
+
+        await saveButton.click({ force: true });
+
+        await expect(page.getByTestId('annotation-save-error')).toContainText(OFFLINE_MESSAGE, {
+          timeout: getTimeout(15000),
+        });
+
+        expect(saveRequests.seen, '通信断中に注釈の保存要求が送られてはならない').toEqual([]);
+      } finally {
+        await context.setOffline(false);
+      }
+
+      // 復帰後は同じ操作で保存が成立する
+      await expect(offlineWarning).toBeHidden({ timeout: getTimeout(15000) });
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(15000) });
+
+      const saveResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === annotationPath &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await saveButton.click();
+      const response = await saveResponse;
+      expect(response.status()).toBeLessThan(400);
+
+      saveRequests.stop();
+      expect(saveRequests.seen.length).toBeGreaterThan(0);
     });
   });
 
   /**
    * @requirement site-survey/REQ-15.7
    * @requirement site-survey/REQ-15.8
+   * @requirement site-survey/REQ-15.10
    */
   test.describe('localStorageエラーハンドリング', () => {
-    test('QuotaExceededError発生時にLRU戦略で古いキャッシュを削除する (site-survey/REQ-15.7)', async ({
+    test('QuotaExceededError発生時はLRUで古いキャッシュを削除してリトライし保存が成立する (site-survey/REQ-15.7)', async ({
       page,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      test.setTimeout(180_000);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
 
-      // localStorageのQuotaExceededError検出機能をテスト
-      // isQuotaExceededError関数がcode===22またはcode===1014を検出することを確認
-      const quotaErrorHandling = await page.evaluate(() => {
-        // QuotaExceededError検出ロジックのテスト
-        const testError22 = { code: 22, name: 'QuotaExceededError' };
-        const testError1014 = { code: 1014, name: 'NS_ERROR_DOM_QUOTA_REACHED' };
+      // 本番は容量超過時に古い方から3件を削除する（AutoSaveManager.clearOldestEntries(3)）。
+      // 削除件数と同じ3件の古い下書きに加えて、消えてはならない新しい下書きを2件積む。
+      // これにより「古い順」「新しい順」「任意の順」が別の結果になる。
+      const { oldKeys, freshKeys } = await seedDraftsForLruOrdering(page, 3, 2);
+      expect(oldKeys.length).toBe(3);
+      expect(freshKeys.length).toBe(2);
+      // 主張の母集団が空でないこと（積めていない状態では以降の主張が空振りする）
+      expect((await readDraftKeys(page)).sort()).toEqual([...oldKeys, ...freshKeys].sort());
 
-        // 検出ロジックが存在するかどうかをチェック
-        const hasQuotaErrorCode22 = testError22.code === 22;
-        const hasQuotaErrorCode1014 = testError1014.code === 1014;
-        const hasQuotaErrorName = testError22.name === 'QuotaExceededError';
-        const hasFirefoxErrorName = testError1014.name === 'NS_ERROR_DOM_QUOTA_REACHED';
+      // Chrome / Safari / Edge 形式（code===22, name===QuotaExceededError）を1回だけ注入する
+      await injectStorageWriteFailure(page, 'QuotaExceededError', 22, 1);
 
-        return {
-          detectsCode22: hasQuotaErrorCode22,
-          detectsCode1014: hasQuotaErrorCode1014,
-          detectsQuotaExceededName: hasQuotaErrorName,
-          detectsFirefoxName: hasFirefoxErrorName,
-        };
-      });
+      await drawRectangleAnnotation(page);
 
-      // QuotaExceededError検出パターンが正しく認識されることを確認
-      expect(quotaErrorHandling.detectsCode22).toBeTruthy();
-      expect(quotaErrorHandling.detectsCode1014).toBeTruthy();
-      expect(quotaErrorHandling.detectsQuotaExceededName).toBeTruthy();
-      expect(quotaErrorHandling.detectsFirefoxName).toBeTruthy();
+      await expect
+        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .not.toBeNull();
 
-      // LRU戦略による古いキャッシュ削除機能の確認
-      // localStorageに複数のアイテムを追加し、古いものから削除されることを検証
-      const lruDeletionWorks = await page.evaluate(() => {
-        try {
-          // テスト用のキーを追加
-          const testKeys = ['lru_test_1', 'lru_test_2', 'lru_test_3'];
-          testKeys.forEach((key, index) => {
-            localStorage.setItem(key, `value_${index}`);
-          });
+      // 1回失敗し、LRU で古いキャッシュを削除したうえでリトライして保存できている
+      expect(await readInjectedFailureCount(page)).toBe(1);
+      const remainingKeys = await readDraftKeys(page);
+      // 古い3件だけが消える
+      expect(remainingKeys.filter((key) => oldKeys.includes(key))).toEqual([]);
+      // 新しい2件は残る（新しい順・任意順で消す実装ではここが崩れる）
+      expect(remainingKeys.filter((key) => freshKeys.includes(key)).sort()).toEqual(
+        [...freshKeys].sort()
+      );
+      // 残存を過不足なく固定する（全件削除・無削除とも区別する）
+      expect(remainingKeys.sort()).toEqual([...freshKeys, draftKey].sort());
 
-          // キーが追加されたことを確認
-          const hasKeys = testKeys.every((key) => localStorage.getItem(key) !== null);
-
-          // クリーンアップ
-          testKeys.forEach((key) => localStorage.removeItem(key));
-
-          return hasKeys;
-        } catch {
-          return false;
-        }
-      });
-
-      expect(lruDeletionWorks).toBeTruthy();
+      // リトライで保存できたので警告帯は出ない
+      await expect(page.locator('[data-warning-type="quota-exceeded"]')).toHaveCount(0);
     });
 
-    test('QuotaExceededErrorリトライ失敗時に警告を表示する (site-survey/REQ-15.8)', async ({
+    test('リトライ後も保存に失敗すると警告を表示し「今すぐ保存」を促す (site-survey/REQ-15.8)', async ({
       page,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      test.setTimeout(180_000);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      await openAnnotationEditor(page);
+      await clearDrafts(page);
 
-      // QuotaExceededError発生時の警告表示機能を検証
-      // 実際のQuotaExceededErrorをシミュレートするのは困難なため、
-      // 警告表示コンポーネントが存在することを確認
-      const hasStorageWarningSupport = await page.evaluate(() => {
-        // ストレージ警告を表示するためのUIコンポーネントまたはロジックが存在するか確認
-        // SavingBannerコンポーネントがstorageWarning状態を処理できることを検証
-        return true; // 実装が存在することを前提
-      });
+      // 何度リトライしても書き込めない状態にする
+      await injectStorageWriteFailure(page, 'QuotaExceededError', 22, 1_000_000);
 
-      expect(hasStorageWarningSupport).toBeTruthy();
+      await drawRectangleAnnotation(page);
 
-      // 手動保存ボタンの存在確認
-      const saveButton = page.getByRole('button', { name: /保存|更新/i });
-      const hasSaveButton = await saveButton.isVisible({ timeout: 3000 });
+      const warningBanner = page.locator('[data-warning-type="quota-exceeded"]');
+      await expect(warningBanner).toBeVisible({ timeout: 60_000 });
+      await expect(warningBanner).toContainText('自動保存に失敗しました');
 
-      // 保存機能が利用可能であることを確認
-      expect(hasSaveButton || true).toBeTruthy();
+      const saveNowButton = warningBanner.getByRole('button', { name: '今すぐ保存' });
+      await expect(saveNowButton).toBeVisible();
+
+      // 「今すぐ保存」からサーバー保存へ到達する
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/annotations') &&
+          response.request().method() === 'PUT' &&
+          response.ok(),
+        { timeout: getTimeout(30000) }
+      );
+      await saveNowButton.click();
+      await savePromise;
+
+      // 手動保存が成立したので警告帯は役目を終える
+      await expect(warningBanner).toBeHidden({ timeout: getTimeout(30000) });
+    });
+
+    test('Firefox形式のエラー（code===1014 / NS_ERROR_DOM_QUOTA_REACHED）も容量超過として扱う (site-survey/REQ-15.10)', async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
+      await clearDrafts(page);
+
+      // REQ-15.7 と同じ判別可能な母集団を使う（古い3件＋残るべき新しい2件）
+      const { oldKeys, freshKeys } = await seedDraftsForLruOrdering(page, 3, 2);
+      expect((await readDraftKeys(page)).sort()).toEqual([...oldKeys, ...freshKeys].sort());
+      await injectStorageWriteFailure(page, 'NS_ERROR_DOM_QUOTA_REACHED', 1014, 1);
+
+      await drawRectangleAnnotation(page);
+
+      await expect
+        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .not.toBeNull();
+
+      // name が QuotaExceededError でなくても容量超過として検出され、LRU リトライへ入る
+      expect(await readInjectedFailureCount(page)).toBe(1);
+      const remainingKeys = await readDraftKeys(page);
+      // 消えるのは古い3件だけであり、新しい2件と保存できた下書きが残る
+      expect(remainingKeys.sort()).toEqual([...freshKeys, draftKey].sort());
+    });
+
+    test('Firefox形式のエラーでリトライ後も失敗すると警告を表示する (site-survey/REQ-15.10)', async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await openAnnotationEditor(page);
+      await clearDrafts(page);
+
+      await injectStorageWriteFailure(page, 'NS_ERROR_DOM_QUOTA_REACHED', 1014, 1_000_000);
+
+      await drawRectangleAnnotation(page);
+
+      const warningBanner = page.locator('[data-warning-type="quota-exceeded"]');
+      await expect(warningBanner).toBeVisible({ timeout: 60_000 });
+      await expect(warningBanner).toContainText('自動保存に失敗しました');
     });
   });
 
@@ -615,102 +1341,50 @@ test.describe('現場調査レスポンシブ対応', () => {
    * @requirement site-survey/REQ-15.9
    */
   test.describe('プライベートブラウジングモード対応', () => {
-    test('プライベートモードでSecurityErrorを検出すると自動保存を無効化する (site-survey/REQ-15.9)', async ({
+    test('SecurityErrorを検出すると自動保存を無効化し手動保存のみで動作する (site-survey/REQ-15.9)', async ({
       page,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      test.setTimeout(180_000);
+
+      // 画面到達より前に制限を仕込む（自動保存基盤は生成時に利用可否を判定する）
+      await injectPrivateBrowsingRestriction(page);
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
+      const imageId = await openAnnotationEditor(page);
+      const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
 
-      // SecurityError検出ロジックのテスト
-      const securityErrorDetection = await page.evaluate(() => {
-        // SecurityError検出パターン
-        const testSecurityError = { code: 18, name: 'SecurityError' };
+      // 自動保存が無効であることを利用者へ伝える警告帯が本番の描画経路から表示される
+      const warningBanner = page.locator('[data-warning-type="private-browsing"]');
+      await expect(warningBanner).toBeVisible({ timeout: getTimeout(20000) });
+      await expect(warningBanner).toContainText('自動保存が無効です');
 
-        // 検出ロジックが機能することを確認
-        const detectsSecurityCode = testSecurityError.code === 18;
-        const detectsSecurityName = testSecurityError.name === 'SecurityError';
+      await drawRectangleAnnotation(page);
 
-        return {
-          detectsCode18: detectsSecurityCode,
-          detectsSecurityErrorName: detectsSecurityName,
-        };
-      });
+      // 自動保存の間隔を十分に超えても下書きは書き出されない。
+      // ここの待機は「状態が落ち着いたはず」という前提ではなく**主題そのもの**である
+      // （間隔を跨がなければ「無効化されている」ことを確かめられない）。代わりに待てる条件は
+      // 存在しないため待機は残し、(1) 待機時間を本番の間隔から導いて数値を複製しない、
+      // (2) 実際に間隔を跨いだことを単調時計で実測する、の二点で前提を検証可能にする。
+      const observationStartedAt = performance.now();
+      await page.waitForTimeout(PRIVATE_BROWSING_OBSERVATION_MS);
+      expect(await readDraft(page, draftKey)).toBeNull();
+      const observedMs = performance.now() - observationStartedAt;
+      expect(
+        observedMs,
+        `観測が自動保存の間隔(${DEFAULT_AUTO_SAVE_INTERVAL_MS}ms)を跨いでおらず「自動保存が無効」を確かめられていない`
+      ).toBeGreaterThan(DEFAULT_AUTO_SAVE_INTERVAL_MS);
 
-      // SecurityError検出パターンが認識されることを確認
-      expect(securityErrorDetection.detectsCode18).toBeTruthy();
-      expect(securityErrorDetection.detectsSecurityErrorName).toBeTruthy();
-
-      // プライベートモードでの動作確認（localStorage利用可否チェック）
-      const localStorageAvailable = await page.evaluate(() => {
-        try {
-          const testKey = '__private_mode_test__';
-          localStorage.setItem(testKey, 'test');
-          localStorage.removeItem(testKey);
-          return true;
-        } catch {
-          // SecurityErrorまたはQuotaExceededErrorが発生した場合
-          return false;
-        }
-      });
-
-      // 通常モードではlocalStorageが利用可能であることを確認
-      expect(localStorageAvailable).toBeTruthy();
-    });
-  });
-
-  /**
-   * @requirement site-survey/REQ-15.10
-   */
-  test.describe('クロスブラウザlocalStorageエラー検出', () => {
-    test('クロスブラウザ対応のエラー検出パターンが実装されている (site-survey/REQ-15.10)', async ({
-      page,
-    }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      await page.goto(`/site-surveys/${createdSurveyId}`);
-      await page.waitForLoadState('networkidle');
-
-      // クロスブラウザエラー検出パターンのテスト
-      const crossBrowserErrorDetection = await page.evaluate(() => {
-        // 各ブラウザのQuotaExceededErrorパターン
-        const chromeError = { code: 22, name: 'QuotaExceededError' };
-        const firefoxError = { code: 1014, name: 'NS_ERROR_DOM_QUOTA_REACHED' };
-        const safariError = { code: 22, name: 'QuotaExceededError' };
-        const edgeError = { code: 22, name: 'QuotaExceededError' };
-
-        // 全てのパターンを検出できることを確認
-        const isQuotaError = (error: { code: number; name: string }) => {
-          return (
-            error.code === 22 ||
-            error.code === 1014 ||
-            error.name === 'QuotaExceededError' ||
-            error.name === 'NS_ERROR_DOM_QUOTA_REACHED'
-          );
-        };
-
-        return {
-          detectsChrome: isQuotaError(chromeError),
-          detectsFirefox: isQuotaError(firefoxError),
-          detectsSafari: isQuotaError(safariError),
-          detectsEdge: isQuotaError(edgeError),
-        };
-      });
-
-      // 全てのブラウザパターンが検出されることを確認
-      expect(crossBrowserErrorDetection.detectsChrome).toBeTruthy();
-      expect(crossBrowserErrorDetection.detectsFirefox).toBeTruthy();
-      expect(crossBrowserErrorDetection.detectsSafari).toBeTruthy();
-      expect(crossBrowserErrorDetection.detectsEdge).toBeTruthy();
+      // 手動保存は従来どおり利用できる
+      const savePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/annotations') &&
+          response.request().method() === 'PUT' &&
+          response.ok(),
+        { timeout: getTimeout(30000) }
+      );
+      await page.locator('[data-testid="annotation-toolbar"]').getByLabel('保存').click();
+      await savePromise;
     });
   });
 
@@ -972,33 +1646,33 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       await loginAsUser(page, 'ADMIN_USER');
 
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
-      }
+      const deleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+      const confirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await confirmButton.click();
+      await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
 
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

@@ -11,6 +11,74 @@ const PORT_MIN = 1 as const;
 const PORT_MAX = 65535 as const;
 
 /**
+ * データベース接続タイムアウト（ミリ秒）の既定値（要件の環境変数表 DATABASE_CONNECTION_TIMEOUT）
+ */
+export const DEFAULT_DATABASE_CONNECTION_TIMEOUT_MS = 5000 as const;
+
+/**
+ * DATABASE_CONNECTION_TIMEOUT の検証スキーマ（正の整数のミリ秒。末尾の ms は省略可。未設定なら既定 5000）
+ */
+const databaseConnectionTimeoutSchema = z
+  .string()
+  .optional()
+  .default(String(DEFAULT_DATABASE_CONNECTION_TIMEOUT_MS))
+  // 要件の表の既定値の書き方（5000ms）も受け付けるため、末尾の単位 ms は省略可とする
+  .refine((val) => /^[1-9][0-9]*(ms)?$/.test(val), {
+    message:
+      'DATABASE_CONNECTION_TIMEOUT must be a positive integer in milliseconds (e.g. 5000 or 5000ms)',
+  })
+  .transform((val) => parseInt(val, 10));
+
+/**
+ * DATABASE_CONNECTION_TIMEOUT の値を検証してミリ秒の数値へ変換する
+ *
+ * validateEnv を経ずに DB クライアントを生成する経路（統合テスト等）でも同じ検証を通すために公開する。
+ * @param value 環境変数の値（未設定なら undefined）
+ * @returns 接続タイムアウト（ミリ秒）
+ * @throws 正の整数でない場合
+ */
+export function parseDatabaseConnectionTimeout(value: string | undefined): number {
+  return databaseConnectionTimeoutSchema.parse(value);
+}
+
+/**
+ * データベース接続の再試行回数の既定値（要件の環境変数表 DATABASE_RETRY_COUNT、条文 24.6 の最大 3 回）
+ */
+export const DEFAULT_DATABASE_RETRY_COUNT = 3 as const;
+
+/**
+ * データベース接続の再試行回数の上限（要件の環境変数表 DATABASE_RETRY_COUNT の 0〜10）
+ */
+export const MAX_DATABASE_RETRY_COUNT = 10 as const;
+
+/**
+ * DATABASE_RETRY_COUNT の検証スキーマ（0〜10 の整数。未設定なら既定 3）
+ */
+const databaseRetryCountSchema = z
+  .string()
+  .optional()
+  .default(String(DEFAULT_DATABASE_RETRY_COUNT))
+  .refine((val) => /^[0-9]+$/.test(val), {
+    message: `DATABASE_RETRY_COUNT must be an integer between 0 and ${MAX_DATABASE_RETRY_COUNT}`,
+  })
+  .transform((val) => parseInt(val, 10))
+  .refine((val) => val <= MAX_DATABASE_RETRY_COUNT, {
+    message: `DATABASE_RETRY_COUNT must be an integer between 0 and ${MAX_DATABASE_RETRY_COUNT}`,
+  });
+
+/**
+ * DATABASE_RETRY_COUNT の値を検証して再試行回数の数値へ変換する
+ *
+ * validateEnv を経ずに DB クライアントを生成する経路（統合テスト等）でも同じ検証を通すために公開する。
+ * @param value 環境変数の値（未設定なら undefined）
+ * @returns 再試行回数（0〜10）
+ * @throws 0〜10 の整数でない場合
+ */
+export function parseDatabaseRetryCount(value: string | undefined): number {
+  return databaseRetryCountSchema.parse(value);
+}
+
+/**
  * 機密情報としてマスキングする環境変数のパターン
  * セキュリティベストプラクティス: 機密情報をログに出力しない
  */
@@ -75,6 +143,8 @@ const envSchema = z
 
     // Database
     DATABASE_URL: z.string().url().optional(),
+    DATABASE_CONNECTION_TIMEOUT: databaseConnectionTimeoutSchema,
+    DATABASE_RETRY_COUNT: databaseRetryCountSchema,
 
     // Redis
     REDIS_URL: z.string().url().optional(),

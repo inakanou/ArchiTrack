@@ -3,11 +3,16 @@
  *
  * Requirements:
  * - REQ-22: 取引先連携
+ * - REQ-1.5 / REQ-8.3 / REQ-22.3 / REQ-22.6: 顧客名の選択UI（describe「顧客名の選択UI（タスク 72.2）」）
  */
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { toObservableApiPath } from '../../helpers/api-request-observer';
+import { seedProject, seedTradingPartner } from '../../helpers/project-list-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * プロジェクト取引先連携のE2Eテスト
@@ -79,9 +84,11 @@ test.describe('プロジェクト取引先連携', () => {
 
     /**
      * @requirement project-management/REQ-22.1
-     * @requirement project-management/REQ-22.2
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('プロジェクト作成画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.1, REQ-22.2)', async ({
+    test('プロジェクト作成画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.1)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -138,9 +145,17 @@ test.describe('プロジェクト取引先連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-22.5
+     * @requirement project-management/REQ-22.4
+     *
+     * REQ-22.4（入力文字列に部分一致する顧客を候補としてフィルタリング表示する）を、
+     * 「絞り込みが取引先一覧APIの再取得を伴わない」側から検証する。
+     * production の TradingPartnerSelect は初回マウントで一覧を取得し（useEffect の依存は
+     * filterTypesKey のみ）、以降の絞り込みは filteredPartners によるクライアント側処理である。
+     * 従前このテストは「300ms後に検索実行される」と名乗りながら本体は呼び出し回数の上限だけを
+     * 見ており、しかもタグは REQ-22.5（フリガナ検索）であった。REQ-22.5 は
+     * `trading-partner-select-kana.spec.ts` と `project-kana-search.spec.ts` の所管である。
      */
-    test('オートコンプリートの検索フィールドにテキストを入力すると300ms後に検索実行される (project-management/REQ-22.5)', async ({
+    test('顧客名の入力中は取引先一覧APIを再取得せず部分一致で候補を絞り込む (project-management/REQ-22.4)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -152,49 +167,60 @@ test.describe('プロジェクト取引先連携', () => {
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
 
-      // API呼び出しをモニタリング
-      let apiCallCount = 0;
-      const apiCalls: number[] = [];
-
+      // 入力中に取引先一覧APIが呼ばれるかを観測する。
+      // 選別はオリジンではなくパスで行う（ブラウザ側の VITE_API_URL と E2E 側の
+      // API_BASE_URL は同一とは限らず、オリジンで選別すると観測が常に空になる）。
+      let listRequestCount = 0;
       page.on('request', (request) => {
-        if (
-          request.url().includes('/api/trading-partners') &&
-          request.method() === 'GET' &&
-          request.url().includes('type=CUSTOMER')
-        ) {
-          apiCallCount++;
-          apiCalls.push(Date.now());
+        const path = toObservableApiPath(request.url());
+        if (path === '/api/trading-partners' && request.method() === 'GET') {
+          listRequestCount++;
         }
       });
 
-      // 短時間で複数文字を入力（デバウンスをテスト）
-      const startTime = Date.now();
+      // 短時間で複数文字を入力（連続入力を模す）
       await tradingPartnerInput.type('E2E', { delay: 50 }); // 各文字間50ms
 
-      // デバウンス期間（300ms）を待機
-      await page.waitForTimeout(500);
+      // 「一定時間が経てば遅れて発火する要求も出揃っているはず」という前提を置かず、
+      // **不在を否定する事象そのもの**（一覧取得APIの要求）を待つ。
+      // 要求が飛べばその時点で捉えて主張が落ち、飛ばなければ待機切れで null になる。
+      // 待機切れ以外の失敗は `nullWhenTimedOut` が送出するため「起きなかった」に化けない。
+      //
+      // `page.waitForLoadState('networkidle')` は代わりにならない。現在の文書では
+      // 既に networkidle が発火済みで、以降の呼び出しは**即座に解決する**
+      // （Task 115.183 の実測: 0ms）。窓を一切作らないため、遅れて飛ぶ要求を取り逃す。
+      const lateListRequest = await nullWhenTimedOut(
+        page.waitForRequest(
+          (request) =>
+            toObservableApiPath(request.url()) === '/api/trading-partners' &&
+            request.method() === 'GET',
+          { timeout: getTimeout(1000) }
+        )
+      );
+      expect(lateListRequest, 'デバウンス期間の経過後に取引先一覧APIの要求が飛んでいる').toBeNull();
 
-      // デバウンスにより、最後の入力から300ms後に1回だけAPI呼び出しが行われることを確認
-      // 複数回の入力があっても、デバウンスにより1回のAPI呼び出しに集約される
-      expect(apiCallCount).toBeLessThanOrEqual(2); // デバウンス効果を確認（連続入力で複数回呼ばれない）
+      // REQ-22.4: 入力した文字列に部分一致する候補が絞り込まれて表示される。
+      // これが無いと「要求が0件」はフィールドが壊れていても成立してしまう。
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(page.getByText(testTradingPartnerName, { exact: true })).toBeVisible();
 
-      // 最後のAPI呼び出しが入力完了から約300ms後であることを確認
-      if (apiCalls.length > 0) {
-        const lastApiCallTime = apiCalls[apiCalls.length - 1]!;
-        const timeDiff = lastApiCallTime - startTime;
-        // タイピング時間(3文字 * 50ms = 150ms) + デバウンス(300ms) = 約450ms
-        // 多少の誤差を許容して200ms〜800msの範囲であることを確認
-        expect(timeDiff).toBeGreaterThanOrEqual(200);
-        expect(timeDiff).toBeLessThanOrEqual(800);
-      }
+      // 連続リクエスト抑制（design.md「Performance & Scalability > Optimization Techniques」の
+      // 「デバウンス: 検索・オートコンプリートのリクエスト抑制（300ms）」）。
+      // 絞り込みはクライアント側で行われるため、入力中に一覧取得APIは1件も発生しない。
+      // 3文字打つたびに要求が飛ぶ実装へ退行すれば落ちる。
+      expect(listRequestCount, '入力中に取引先一覧APIを呼び出していない').toBe(0);
     });
   });
 
   test.describe('取引先オートコンプリート機能（編集画面）', () => {
     /**
-     * @requirement project-management/REQ-22.3
+     * @requirement project-management/REQ-22.2
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('プロジェクト編集画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.3)', async ({
+    test('プロジェクト編集画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -216,16 +242,7 @@ test.describe('プロジェクト取引先連携', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createPromise = page.waitForResponse(
         (response) =>
@@ -361,9 +378,14 @@ test.describe('プロジェクト取引先連携', () => {
 
   test.describe('取引先情報の表示', () => {
     /**
-     * @requirement project-management/REQ-22.6
+     * @requirement project-management/REQ-22.10
+     *
+     * タスク 115.188 の是正: 従前は REQ-22.6 を名乗っていたが、受入基準22.6 の原文は「The ArchiTrackシステム
+     * shall 顧客候補の表示形式を「名前 / 部課・支店・支社名 / 代表者名」の組み合わせとする」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準22.10（「While プロジェクトが顧客と紐付いている, the
+     * ArchiTrackシステム shall プロジェクト詳細画面に顧客名を表示する」）である。
      */
-    test('プロジェクトが取引先と紐付いている場合、プロジェクト詳細画面に取引先情報を表示する (project-management/REQ-22.6)', async ({
+    test('プロジェクトが取引先と紐付いている場合、プロジェクト詳細画面に取引先情報を表示する (project-management/REQ-22.10)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -398,16 +420,7 @@ test.describe('プロジェクト取引先連携', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクトを作成
       const createPromise = page.waitForResponse(
@@ -477,16 +490,7 @@ test.describe('プロジェクト取引先連携', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // プロジェクトを作成
       const createPromise = page.waitForResponse(
@@ -518,6 +522,9 @@ test.describe('プロジェクト取引先連携', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // 一覧に行が無いとテーブルごと描画されないため、前提を自分で用意する
+      await seedProject(page, 'E2E一覧顧客名カラム');
+
       // プロジェクト一覧ページに移動
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
@@ -527,33 +534,206 @@ test.describe('プロジェクト取引先連携', () => {
         timeout: getTimeout(10000),
       });
 
-      // テーブルまたはカードリストが表示されることを確認
+      // 一覧は projects.length > 0 のときだけテーブル／カードを描画する。
+      // 空のままだと顧客名カラムの主張が一つも実行されないため、前提を自分で用意する。
       const table = page.getByRole('table');
-      const cardList = page.getByTestId('project-card-list');
-      const emptyMessage = page.getByText(/プロジェクトがありません/i);
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-      await expect(table.or(cardList).or(emptyMessage)).toBeVisible({
+      // REQ-22.11: 顧客名カラムのヘッダーが表示されることを確認
+      await expect(page.getByRole('button', { name: /顧客名でソート/i })).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+    });
+  });
+
+  /**
+   * 顧客名の選択UI（タスク 72.2）
+   *
+   * 各テストは自分が使う取引先（顧客種別）を `seedTradingPartner` で用意し、
+   * 既存データの有無に依存しない。取引先名は作成時刻を含み一意である。
+   */
+  test.describe('顧客名の選択UI（タスク 72.2）', () => {
+    /**
+     * @requirement project-management/REQ-1.5: When ユーザーがドロップダウンまたはオートコンプリート候補から顧客を選択する, the ArchiTrackシステム shall 選択された取引先IDをフォームに設定する
+     *
+     * フォームに設定された値は、作成ボタンで送られるリクエストの本文に現れる。
+     * 選別はオリジンではなくパスで行う（ブラウザ側の VITE_API_URL と E2E 側の API_BASE_URL は同一とは限らない）。
+     */
+    test('作成画面で候補から顧客を選択すると、その取引先IDがフォームに設定されて送信される (project-management/REQ-1.5)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      const partner = await seedTradingPartner(page, 'E2E顧客ID設定');
+
+      await page.goto('/projects/new');
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.getByLabel(/プロジェクト名/i).fill(`顧客ID設定プロジェクト_${Date.now()}`);
+
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await tradingPartnerInput.fill(partner.name);
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      const option = autocompleteList.getByRole('option').filter({ hasText: partner.name });
+      await expect(option).toHaveCount(1);
+      await option.click();
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
+
+      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
+
+      const createRequestPromise = page.waitForRequest(
+        (request) =>
+          toObservableApiPath(request.url()) === '/api/projects' && request.method() === 'POST',
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^作成$/i }).click();
+      const createRequest = await createRequestPromise;
+
+      // REQ-1.5: 選択された取引先のIDがフォームの値として送られる
+      const body = createRequest.postDataJSON() as { tradingPartnerId?: unknown };
+      expect(body.tradingPartnerId).toBe(partner.id);
+
+      await expect(page).toHaveURL(/\/projects\/[0-9a-f-]+$/, { timeout: getTimeout(15000) });
+    });
+
+    /**
+     * @requirement project-management/REQ-8.3: When ユーザーが顧客名フィールドで検索テキストを入力する, the ArchiTrackシステム shall 取引先管理機能で登録された取引先を検索フィルタリングして表示する
+     */
+    test('編集画面で顧客名に検索テキストを入力すると、登録済みの取引先が絞り込まれて表示される (project-management/REQ-8.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      const project = await seedProject(page, 'E2E編集顧客検索');
+      // 絞り込みを主張するため、検索テキストに一致する取引先と一致しない取引先を用意する
+      const matching = await seedTradingPartner(page, 'E2E編集検索一致');
+      const other = await seedTradingPartner(page, 'E2E編集検索不一致');
+
+      await page.goto(`/projects/${project.id}/edit`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('heading', { name: /プロジェクトを編集/i })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
-      // テーブルが表示されている場合、顧客名カラムが存在することを確認
-      const tableVisible = await table.isVisible();
-      if (tableVisible) {
-        // 顧客名カラムのヘッダーが表示されることを確認
-        await expect(page.getByRole('button', { name: /顧客名でソート/i })).toBeVisible({
-          timeout: getTimeout(5000),
-        });
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await expect(tradingPartnerInput).toBeEnabled({ timeout: getTimeout(10000) });
+      await tradingPartnerInput.fill('E2E編集検索一致');
 
-        // 取引先と紐付いたプロジェクトがある場合、取引先名が表示される
-        // ProjectListTableコンポーネントは project.tradingPartner?.name を表示する
-      }
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      // カードリストが表示されている場合も顧客名が表示されることを確認
-      const cardListVisible = await cardList.isVisible();
-      if (cardListVisible) {
-        // カード内に顧客情報が表示されることを確認
-        // ProjectListCardコンポーネントも同様に取引先名を表示する
-      }
+      // 一致する登録済み取引先が表示され、一致しない取引先は表示されない
+      await expect(
+        autocompleteList.getByRole('option').filter({ hasText: matching.name })
+      ).toHaveCount(1);
+      await expect(
+        autocompleteList.getByRole('option').filter({ hasText: other.name })
+      ).toHaveCount(0);
+
+      // 検索テキストを変えると、もう一方の登録済み取引先が表示される（検索の対象が登録済みの取引先であること）
+      await tradingPartnerInput.fill('E2E編集検索不一致');
+      await expect(
+        autocompleteList.getByRole('option').filter({ hasText: other.name })
+      ).toHaveCount(1);
+      await expect(
+        autocompleteList.getByRole('option').filter({ hasText: matching.name })
+      ).toHaveCount(0);
+    });
+
+    /**
+     * @requirement project-management/REQ-22.3: The ArchiTrackシステム shall 顧客名選択時にドロップダウンとオートコンプリート機能を併用したUIを提供する
+     *
+     * 一つの顧客名フィールドが、入力なしで候補の一覧を開くドロップダウンとしても、
+     * 入力に応じて候補を絞り込むオートコンプリートとしても働くことを主張する。
+     */
+    test('顧客名フィールドがドロップダウンとオートコンプリートを併用したUIである (project-management/REQ-22.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      const first = await seedTradingPartner(page, 'E2E併用UI甲');
+      const second = await seedTradingPartner(page, 'E2E併用UI乙');
+
+      await page.goto('/projects/new');
+      await page.waitForLoadState('networkidle');
+
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await expect(tradingPartnerInput).toBeEnabled({ timeout: getTimeout(10000) });
+      await expect(tradingPartnerInput).toHaveAttribute('aria-haspopup', 'listbox');
+      await expect(tradingPartnerInput).toHaveAttribute('aria-expanded', 'false');
+
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      const firstOption = autocompleteList.getByRole('option').filter({ hasText: first.name });
+      const secondOption = autocompleteList.getByRole('option').filter({ hasText: second.name });
+
+      // ドロップダウン: 何も入力せずにフィールドを開くと、絞り込まれていない候補の一覧が開く
+      await tradingPartnerInput.click();
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(tradingPartnerInput).toHaveAttribute('aria-expanded', 'true');
+      await expect(tradingPartnerInput).toHaveValue('');
+      await expect(firstOption).toHaveCount(1);
+      await expect(secondOption).toHaveCount(1);
+
+      // ドロップダウン: キーボード（Escape で閉じ、下矢印で開く）でも一覧を開閉できる
+      await tradingPartnerInput.press('Escape');
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
+      await tradingPartnerInput.press('ArrowDown');
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(firstOption).toHaveCount(1);
+      await expect(secondOption).toHaveCount(1);
+
+      // オートコンプリート: 同じフィールドへの入力で候補が絞り込まれる
+      await tradingPartnerInput.fill('E2E併用UI甲');
+      await expect(firstOption).toHaveCount(1);
+      await expect(secondOption).toHaveCount(0);
+
+      // 絞り込んだ候補から選ぶと、フィールドに選んだ顧客が表示される
+      await firstOption.click();
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
+      await expect(tradingPartnerInput).toHaveValue(first.name);
+    });
+
+    /**
+     * @requirement project-management/REQ-22.6: The ArchiTrackシステム shall 顧客候補の表示形式を「名前 / 部課・支店・支社名 / 代表者名」の組み合わせとする
+     *
+     * 候補は名前と「部課・支店・支社名 / 代表者名」を2行に分けて描画する。行の区切りを「 / 」へ
+     * 置き換えたものが「名前 / 部課・支店・支社名 / 代表者名」と一致することを主張し、
+     * 選択後のフィールドの表示も同じ形式であることを主張する。
+     */
+    test('顧客候補が「名前 / 部課・支店・支社名 / 代表者名」の形式で表示される (project-management/REQ-22.6)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      const partner = await seedTradingPartner(page, 'E2E顧客表示形式', {
+        branchName: '新宿支店',
+        representativeName: '形式 花子',
+      });
+      const expected = `${partner.name} / 新宿支店 / 形式 花子`;
+
+      await page.goto('/projects/new');
+      await page.waitForLoadState('networkidle');
+
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await expect(tradingPartnerInput).toBeEnabled({ timeout: getTimeout(10000) });
+      await tradingPartnerInput.fill(partner.name);
+
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      const option = autocompleteList.getByRole('option').filter({ hasText: partner.name });
+      await expect(option).toHaveCount(1);
+
+      const lines = (await option.innerText())
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      expect(lines.join(' / ')).toBe(expected);
+
+      await option.click();
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
+      await expect(tradingPartnerInput).toHaveValue(expected);
     });
   });
 
@@ -561,6 +741,13 @@ test.describe('プロジェクト取引先連携', () => {
    * 後処理: テストで作成したデータを削除
    */
   test.afterAll(async ({ browser }) => {
+    // 後始末の対象は本ファイルのテストが作成したものである。
+    // ID が無いまま静かに後始末を飛ばすと、作成が壊れていても後始末は素通りしてしまう。
+    // 以降の try は後始末の失敗を握り潰すため、前提の主張はその外側に置き、
+    // 前提が崩れていればこの afterAll フックの失敗として現れるようにする。
+    assertPrepared(createdProjectId, '本ファイルで作成したプロジェクトのID');
+    assertPrepared(createdTradingPartnerId, '本ファイルで作成した取引先のID');
+
     const context = await browser.newContext();
     const page = await context.newPage();
 
@@ -569,51 +756,50 @@ test.describe('プロジェクト取引先連携', () => {
       await loginAsUser(page, 'ADMIN_USER');
 
       // 作成したプロジェクトを削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i });
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i });
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
 
-        // 削除確認ダイアログで削除を確認
-        await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
+      // 削除確認ダイアログで削除を確認
+      await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        await page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i })
-          .click();
+      await page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i })
+        .click();
 
-        // 削除成功を確認
-        await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      // 削除成功を確認
+      await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
 
       // 作成した取引先を削除
-      if (createdTradingPartnerId) {
-        await page.goto(`/trading-partners/${createdTradingPartnerId}`);
-        await page.waitForLoadState('networkidle');
+      await page.goto(`/trading-partners/${createdTradingPartnerId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i });
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
+      const partnerDeleteButton = page.getByRole('button', { name: /削除/i });
+      await expect(partnerDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await partnerDeleteButton.click();
 
-        // 削除確認ダイアログで削除を確認
-        const confirmDialog = page.getByText(/削除しますか|取引先の削除/i);
-        await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
+      // 削除確認ダイアログで削除を確認
+      // 削除確認ダイアログの見出しで一意に指す。
+      // `getByText(/削除しますか|取引先の削除/i)` は見出し（取引先の削除）と説明文
+      // （…を削除しますか？）の双方に当たり、strict mode で必ず落ちる。
+      const confirmDialog = page.getByRole('heading', { name: '取引先の削除' });
+      await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
 
-        // ダイアログ内の削除ボタンをクリック
-        const dialogDeleteButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(dialogDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
-        await dialogDeleteButton.click();
-        await expect(page).toHaveURL(/\/trading-partners$/, {
-          timeout: getTimeout(15000),
-        });
-      }
+      // ダイアログ内の削除ボタンをクリック
+      const dialogDeleteButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(dialogDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
+      await dialogDeleteButton.click();
+      await expect(page).toHaveURL(/\/trading-partners$/, {
+        timeout: getTimeout(15000),
+      });
     } catch (error) {
       console.error('Cleanup failed:', error);
     } finally {

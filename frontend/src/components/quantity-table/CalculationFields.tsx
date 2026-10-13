@@ -25,6 +25,21 @@
  * 整数分岐に対応させる。3経路すべてを `formatFieldValue` に集約したため、blur だけ整数化して
  * 保存・再読み込み（props 同期）で「5.00」に戻る不整合が構造的に起こらない。
  * 整数・範囲の判定は `utils/numeric-range-validation.ts` に委譲する（二重管理の防止）。
+ *
+ * Task 80.2: 範囲判定を描画される全ての数値欄へ結線する。
+ * - 9.3: 調整係数の入力可能範囲（-9.99〜9.99）外はエラーを表示する
+ * - 10.3: 丸め設定の入力可能範囲（0.01〜99.99）外はエラーを表示する（0と空白を除く）
+ * - 10.4: 丸め設定の 0 と空白は既定値へ差し替える。本項は 10.3 に優先する
+ * - 15.3: 寸法・ピッチ計算・箇所数計算の各欄の入力可能範囲（0.01〜9999999.99）外はエラーを表示する
+ * 範囲も既定値差し替えの規則も `utils/numeric-range-validation.ts` の正典から得る。
+ *
+ * Task 80.3: 数値以外の入力の拒否を調整係数・丸め設定へ結線する。
+ * - 9.5 / 10.5: 数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する
+ *
+ * **拒否は焦点喪失の時点だけで行う。** 打鍵ごとに値を検査して弾く形は採らなかった——
+ * 日本語入力の変換中に値へ手を入れると変換が壊れ、その欠陥は Playwright の `fill()` でも
+ * `fireEvent.change` でも変換を経由しないため構造的に検出できない。焦点喪失は変換確定より
+ * 後に起きるため、この作法には変換中の面が一切無い。
  */
 
 import { useCallback, useId, useState } from 'react';
@@ -32,7 +47,9 @@ import type { CalculationMethod, CalculationParams } from '../../types/quantity-
 import type { AreaVolumeParams, PitchParams, CountParams } from '../../utils/calculation-engine';
 import {
   validateNumericRange,
+  resolveFieldInput,
   type NumericRangeFieldType,
+  type DefaultSubstitutedFieldType,
 } from '../../utils/numeric-range-validation';
 
 // ============================================================================
@@ -80,6 +97,7 @@ export interface FieldDefinition {
    * 入力値の検証に用いる数値範囲設定のキー（REQ-47 AC10, AC11）
    *
    * 指定した場合のみ blur 時に `validateNumericRange` で検証し、拒否とエラー表示を行う。
+   * Task 80.2 で寸法・ピッチ計算・箇所数計算の各欄へ `'dimension'` を宣言し、REQ-15.3 を結線した。
    * 整数判定・範囲判定は `utils/numeric-range-validation.ts` の単一定義に委譲し、
    * 本コンポーネント側では条件を再実装しない（二重管理の防止）。
    */
@@ -94,22 +112,28 @@ export interface FieldDefinition {
  * 面積・体積モードのフィールド定義
  */
 const AREA_VOLUME_FIELDS: FieldDefinition[] = [
-  { key: 'width', label: '幅（W）', step: 0.01 },
-  { key: 'depth', label: '奥行き（D）', step: 0.01 },
-  { key: 'height', label: '高さ（H）', step: 0.01 },
-  { key: 'weight', label: '重量', step: 0.01 },
+  { key: 'width', label: '幅（W）', step: 0.01, rangeFieldType: 'dimension' },
+  { key: 'depth', label: '奥行き（D）', step: 0.01, rangeFieldType: 'dimension' },
+  { key: 'height', label: '高さ（H）', step: 0.01, rangeFieldType: 'dimension' },
+  { key: 'weight', label: '重量', step: 0.01, rangeFieldType: 'dimension' },
 ];
 
 /**
  * ピッチモードのフィールド定義
  */
 const PITCH_FIELDS: FieldDefinition[] = [
-  { key: 'rangeLength', label: '範囲長', required: true, step: 0.01 },
-  { key: 'endLength1', label: '端長1', required: true, step: 0.01 },
-  { key: 'endLength2', label: '端長2', required: true, step: 0.01 },
-  { key: 'pitchLength', label: 'ピッチ長', required: true, step: 0.01 },
-  { key: 'length', label: '長さ', step: 0.01 },
-  { key: 'weight', label: '重量', step: 0.01 },
+  { key: 'rangeLength', label: '範囲長', required: true, step: 0.01, rangeFieldType: 'dimension' },
+  { key: 'endLength1', label: '端長1', required: true, step: 0.01, rangeFieldType: 'dimension' },
+  { key: 'endLength2', label: '端長2', required: true, step: 0.01, rangeFieldType: 'dimension' },
+  {
+    key: 'pitchLength',
+    label: 'ピッチ長',
+    required: true,
+    step: 0.01,
+    rangeFieldType: 'dimension',
+  },
+  { key: 'length', label: '長さ', step: 0.01, rangeFieldType: 'dimension' },
+  { key: 'weight', label: '重量', step: 0.01, rangeFieldType: 'dimension' },
 ];
 
 /**
@@ -119,8 +143,8 @@ const PITCH_FIELDS: FieldDefinition[] = [
  */
 const COUNT_FIELDS: FieldDefinition[] = [
   { key: 'count', label: '箇所数', required: true, integer: true, rangeFieldType: 'count' },
-  { key: 'length', label: '長さ', step: 0.01 },
-  { key: 'weight', label: '重量', step: 0.01 },
+  { key: 'length', label: '長さ', step: 0.01, rangeFieldType: 'dimension' },
+  { key: 'weight', label: '重量', step: 0.01, rangeFieldType: 'dimension' },
 ];
 
 /**
@@ -200,8 +224,12 @@ const styles = {
     borderRadius: '0px',
     backgroundColor: '#ffffff',
     color: '#1f2937',
-    outline: 'none',
-    transition: 'border-color 0.2s, box-shadow 0.2s',
+    // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 102.1）。数量項目の表の水平スクロールの
+    // ラッパー（QuantityGroupCard の itemTableWrapper。overflow で中身を切り取る）の縁に接すると
+    // 外側へ描く輪が欠けるため、輪の太さ（2px）だけ内側へ寄せて欄の白い面の上へ描く
+    outlineOffset: '-2px',
+    transition: 'border-color 0.2s',
     boxSizing: 'border-box' as const,
     MozAppearance: 'textfield' as const,
   } as React.CSSProperties,
@@ -285,7 +313,7 @@ function NumberInputField({
   const [localValue, setLocalValue] = useState<string>(() => formatFieldValue(value, integer));
   // 前回のprops値を追跡（公式ドキュメント推奨パターン）
   const [prevValue, setPrevValue] = useState(value);
-  // 入力拒否時のエラーメッセージ（REQ-47 AC10, AC11）
+  // 入力拒否時のエラーメッセージ（REQ-47 AC10, AC11 / REQ-15.3）
   const [error, setError] = useState<string | undefined>(undefined);
 
   // 親の値が変更された場合、レンダリング中にローカル状態を同期（整形経路 2/3: props 同期）
@@ -400,6 +428,12 @@ function NumberInputField({
  * 調整係数・丸め設定用の数値入力フィールド
  * REQ-9, REQ-10: 面積・体積/ピッチ選択時のみ表示
  * REQ-14.2: 小数2桁で常時表示
+ *
+ * Task 80.2: 判定を「既定値差し替え → 範囲判定」の順で `numeric-range-validation` へ委譲する。
+ * 改める前は `warningCondition={(v) => v <= 0}` を呼び出し側から渡しており、
+ * **REQ-9.3 が有効域と定める `-9.99〜0` に対して警告が出ていた**（調整係数）。
+ * また `0` を既定値へ差し替える処理が丸め設定（REQ-10.4）から調整係数へ相乗りしていた。
+ * 規則を欄ごとに正典から引く形へ改め、双方を断った。
  */
 interface AdjustmentFieldProps {
   id: string;
@@ -407,9 +441,14 @@ interface AdjustmentFieldProps {
   value: number;
   onChange: (value: number) => void;
   disabled: boolean;
-  defaultValue: number;
-  warningCondition?: (value: number) => boolean;
-  warningMessage?: string;
+  /**
+   * 範囲と既定値差し替えの規則を引くキー（Task 80.2）
+   *
+   * 既定値も許容範囲も `utils/numeric-range-validation.ts` の正典から引く。
+   * 呼び出し側が既定値や範囲を書き写さないため、調整係数と丸め設定で
+   * 規則が食い違うことが構造的に起きない。
+   */
+  fieldType: Extract<DefaultSubstitutedFieldType, 'adjustmentFactor' | 'roundingUnit'>;
 }
 
 function AdjustmentField({
@@ -418,27 +457,48 @@ function AdjustmentField({
   value,
   onChange,
   disabled,
-  defaultValue,
-  warningCondition,
-  warningMessage,
+  fieldType,
 }: AdjustmentFieldProps) {
   // REQ-14.2: ローカル状態で表示値を管理（小数2桁）
   const [localValue, setLocalValue] = useState<string>(value.toFixed(2));
   // 前回のprops値を追跡
   const [prevValue, setPrevValue] = useState(value);
 
+  // REQ-9.5 / REQ-10.5: 数値以外の入力を拒否したことの提示（Task 80.3）。
+  // **派生ではなく状態である。** 拒否は直前の確定値を欄へ書き戻すため、入力中の文字列から
+  // 導く形にすると書き戻した瞬間に提示が消え、値が黙って戻ったようにしか見えない。
+  const [nonNumericError, setNonNumericError] = useState<string | undefined>(undefined);
+
   // 親の値が変更された場合、レンダリング中にローカル状態を同期
   if (value !== prevValue) {
     setPrevValue(value);
     setLocalValue(value.toFixed(2));
+    setNonNumericError(undefined);
   }
 
-  // 警告表示判定
-  const showWarning = warningCondition ? warningCondition(parseFloat(localValue)) : false;
+  // 範囲エラーの判定（REQ-9.3 / REQ-10.3）。
+  // **既定値へ差し替えてから範囲判定へ渡す**（REQ-10.4 が REQ-10.3 に優先する。Task 80.1）。
+  // 判定は入力中の値から導くため、blur を待たずに提示される（従来の警告と同じ提示の時機）。
+  // 数値以外の入力は範囲の層ではなく REQ-9.5 / REQ-10.5 の層が受け持つ。
+  const resolution = resolveFieldInput(localValue, fieldType);
+  const rangeError = resolution.isNumeric
+    ? validateNumericRange(resolution.value, fieldType).error
+    : undefined;
 
-  // 入力中はそのままの値を保持
+  // Task 85.1: 「保存経路が受け付けない領域」の告知（`validateSavePersistability`）は撤去した。
+  // バックエンドの範囲が REQ-9.3 の有効域へ揃い、調整係数の `0` と負値がそのまま保存できる
+  // ようになったためである。欄が告げる理由は数値以外（REQ-9.5 / 10.5）と範囲外
+  // （REQ-9.3 / 10.3）の二つだけになった。
+
+  // 数値以外の拒否は範囲エラーより手前の層である
+  const message = nonNumericError ?? rangeError;
+  const showWarning = message !== undefined;
+
+  // 入力中はそのままの値を保持。**値には一切手を入れない**（変換中の破壊を避ける）
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setLocalValue(e.target.value);
+    // REQ-9.5 / REQ-10.5: 直し始めた時点で拒否の提示を下げる。提示を消すだけで値には触れない
+    setNonNumericError(undefined);
   }, []);
 
   // フォーカス時に既存値を全選択（上書き入力の効率化。他の数量項目フィールドと挙動を統一）
@@ -448,22 +508,29 @@ function AdjustmentField({
 
   // blur時に小数2桁でフォーマットして親に通知
   const handleBlur = useCallback(() => {
-    const trimmedValue = localValue.trim();
-    let numValue = parseFloat(trimmedValue);
+    // REQ-9.4 / REQ-10.4: 既定値差し替えを先に適用する（範囲判定より前の層）
+    const blurResolution = resolveFieldInput(localValue, fieldType);
 
-    // 無効な値または空の場合はデフォルト値を設定
-    if (isNaN(numValue) || trimmedValue === '') {
-      numValue = defaultValue;
+    // REQ-9.5 / REQ-10.5: 数値以外の入力は拒否する。直前の確定値（親が持つ値）を欄へ戻し、
+    // エラーを提示し、親へは何も渡さない。**既定値へ倒さない**——倒すと
+    // 「拒否された」のか「既定値に戻された」のかを利用者も検証も区別できない
+    if (!blurResolution.isNumeric) {
+      setNonNumericError(blurResolution.error);
+      setLocalValue(value.toFixed(2));
+      return;
     }
-    // 0の場合もデフォルト値を設定（丸め設定用）
-    if (numValue === 0 && defaultValue !== 0) {
-      numValue = defaultValue;
-    }
+    setNonNumericError(undefined);
 
+    const numValue = blurResolution.value;
     // REQ-14.2: 小数2桁でフォーマット
     setLocalValue(numValue.toFixed(2));
+
+    // REQ-9.3 / REQ-10.3: 範囲外の値は確定させず、範囲内の値の入力を求める
+    if (!validateNumericRange(numValue, fieldType).isValid) {
+      return;
+    }
     onChange(numValue);
-  }, [localValue, onChange, defaultValue]);
+  }, [localValue, onChange, fieldType, value]);
 
   return (
     <div style={styles.fieldWrapper}>
@@ -488,9 +555,9 @@ function AdjustmentField({
         }}
         aria-invalid={showWarning}
       />
-      {showWarning && warningMessage && (
+      {message !== undefined && (
         <span style={styles.warningMessage} role="alert">
-          {warningMessage}
+          {message}
         </span>
       )}
     </div>
@@ -588,9 +655,7 @@ export default function CalculationFields({
           value={adjustmentFactor}
           onChange={handleAdjustmentFactorChange}
           disabled={disabled}
-          defaultValue={1.0}
-          warningCondition={(v) => v <= 0}
-          warningMessage="0以下の値は使用できません"
+          fieldType="adjustmentFactor"
         />
         {/* REQ-10: 丸め設定（面積・体積/ピッチ選択時のみ表示） */}
         <AdjustmentField
@@ -599,9 +664,7 @@ export default function CalculationFields({
           value={roundingUnit}
           onChange={handleRoundingUnitChange}
           disabled={disabled}
-          defaultValue={0.01}
-          warningCondition={(v) => v <= 0}
-          warningMessage="0以下の値は使用できません"
+          fieldType="roundingUnit"
         />
       </div>
       {/* 数値入力フィールドのスピナーを非表示にするスタイル */}

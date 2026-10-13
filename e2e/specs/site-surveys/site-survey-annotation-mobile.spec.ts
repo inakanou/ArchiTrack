@@ -8,6 +8,8 @@
  * - 25.1, 25.7, 25.8: テキスト注釈の白アウトライン表示と永続化
  * - 27.1, 27.2, 27.3: ダブルタップで編集、長押しでコンテキストメニュー
  * - 28.1, 28.5: モバイルツールバーの全ツールへのタップ到達性
+ * - 28.8: 選択中ツールの再タップによる詳細属性パネルの開閉
+ * - 29.6: ツール項目の長押しによるツールヒント（名称・短い説明）表示
  *
  * 実行要件: `npm run test:docker` で architrack-test 環境を起動してから
  *   `npx playwright test site-survey-annotation-mobile --project=mobile`
@@ -24,10 +26,16 @@
  * @requirement site-survey/REQ-28.1
  * @requirement site-survey/REQ-28.5
  *
+ * Task 115.104: 選択中ツールの再タップによる詳細属性パネルの開閉（28.8）と、
+ *   ツール項目の長押しによるツールヒント表示（29.6）を実タッチで検証する。
+ * @requirement site-survey/REQ-28.8
+ * @requirement site-survey/REQ-29.6
+ *
  * Task 98.1: 編集モードでのピンチズーム後の正確描画・2本指パン・等倍時パン抑止、
  *   描画中断・誤選択防止を実タッチ（CDP マルチタッチ）で検証する。
  * @requirement site-survey/REQ-33.1
  * @requirement site-survey/REQ-33.2
+ * @requirement site-survey/REQ-33.3
  * @requirement site-survey/REQ-33.4
  * @requirement site-survey/REQ-33.5
  * @requirement site-survey/REQ-33.6
@@ -44,6 +52,14 @@
  * @requirement site-survey/REQ-34.5
  * @requirement site-survey/REQ-34.6
  * @requirement site-survey/REQ-29.4
+ *
+ * Task 115.201: 要件28.2（項目が画面幅に収まらない場合、折返しまたはスクロール可能な領域と
+ *   して項目全てにアクセス可能にする）の担保は、これまで JSDOM の
+ *   `AnnotationToolbar.mobile.test.tsx` が `overflowX: 'auto'` の**宣言**を見るだけであり、
+ *   実ブラウザで「利用者が実際に到達できること」を確かめるものが無かった。
+ *   指の横スクロール（合成タッチのスクロールジェスチャー）だけで全項目へ到達し、
+ *   到達した項目を指で操作できることを実ブラウザで検証する。
+ * @requirement site-survey/REQ-28.2
  */
 
 import path from 'path';
@@ -52,8 +68,25 @@ import { fileURLToPath } from 'url';
 import { test, expect, type Page, type BrowserContext, type CDPSession } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+// ダブルタップ判定の閾値は本番の一元管理された定数を直接参照する。
+// テスト側に数値を複製すると、閾値が変わったときに検証だけが古い前提で緑になる。
+import {
+  DOUBLE_TAP_MS,
+  LONG_PRESS_MS,
+} from '../../../frontend/src/components/site-surveys/gestures/gesture-thresholds';
+// ツール名と短い説明は本番の定義をそのまま参照する（文言の複製を持たない）。
+// 道具の並びも本番の `TOOL_ORDER` を参照する。テスト側に一覧を複製すると、道具が増えたときに
+// 検証だけが古い母集団のまま緑になる。
+import {
+  TOOL_DEFINITIONS,
+  TOOL_ORDER,
+  type ToolType,
+} from '../../../frontend/src/components/site-surveys/annotation-toolbar.constants';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent, assertPrepared } from '../../helpers/preconditions';
+import { getFabricObjectCount } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,151 +94,1821 @@ const __dirname = path.dirname(__filename);
 // モバイル Viewport 設定（iPhone SE 相当）
 const MOBILE_VIEWPORT = { width: 375, height: 667 };
 
+// ============================================================================
+// Task 115.170: 要件28.3 の「各項目」の母集団（先に宣言する）
+// ============================================================================
+//
+// 要件28.3 は「モバイル幅ツールバーの**各項目**のタップ領域を最小44x44論理ピクセル以上」と
+// 定める。従前は道具のボタン 9 個だけを測っており、属性パネルの操作要素とアクションボタンは
+// 一度も測っていなかった（Task 115.170 が適用範囲を決着させ、実装を条文へ追随させた）。
+//
+// 「項目」の範囲: ツールバー（`data-testid="annotation-toolbar"`）の内側にある
+// `button` / `input` / `select` の全て。区切り線・見出しの `label`・各種コンテナは
+// **操作の対象ではない**ため含めない。長押しのツールヒントは `document.body` 直下へ Portal で
+// 描かれ `pointerEvents: none` であるため、ツールバーの項目ではない。
+//
+// 見出しを除外してよい根拠: 見出しは全て `htmlFor` を持ち、押下は対応する操作要素へ転送される
+// （Task 115.202 で 9 つ全てを関連付けた。それ以前は 3 つだけが転送し、残る 6 つ——色・線幅・
+// 塗りつぶし・文字色・サイズ・背景色——は押下しても何も起きない不活性な文字だった）。
+// 転送される見出しは、既に 44x44 を満たす操作要素の当たり判定を**広げる側にしか働かない**ため、
+// 数える範囲から外しても下限の主張は弱まらない。いずれの見出しも、属する項目コンテナは
+// 44x44 以上である。関連付け自体は
+// `site-survey-outline-toggle.spec.ts` の (g) が実ブラウザの押下で測る。
+
+/** 要件28.3 が定めるタップ領域の下限（論理ピクセル） */
+// 実装から取り込まず 44 を自前で持つ。理由は
+// `frontend/src/utils/tap-target.ts` に一箇所だけ書いてある。
+const TAP_TARGET_MIN_PX = 44;
+
+/** 道具のボタンの個数。本番の並び（`TOOL_ORDER`）から導く。 */
+const TOOL_BUTTON_COUNT = TOOL_ORDER.length;
+
+/** アクションボタンの個数（回転・元に戻す・やり直し・保存・エクスポート） */
+const ACTION_BUTTON_COUNT = 5;
+
+/**
+ * ツールごとに属性パネルへ現れる操作要素の個数
+ *
+ * 内訳（`AnnotationToolbar.tsx` の `StylePanel` の分岐から導出）:
+ * - 選択: 属性パネル自体が描かれない → 0
+ * - 線のみの道具（寸法線・矢印・折れ線・フリーハンド）: 白縁取り切替 + 色 + 線幅 → 3
+ * - 塗りを持つ形状（円・四角形・多角形）: 上記 + 塗りつぶし色 → 4
+ * - テキスト: 白アウトライン切替 + 文字色 + サイズ + 背景切替 + 背景色 + 吹き出し → 6
+ */
+const PANEL_CONTROL_COUNT: Readonly<Record<ToolType, number>> = {
+  select: 0,
+  dimension: 3,
+  arrow: 3,
+  circle: 4,
+  rectangle: 4,
+  polygon: 4,
+  polyline: 3,
+  freehand: 3,
+  text: 6,
+};
+
+/** ツールバーの項目 1 件の実測（実ブラウザの矩形） */
+interface ToolbarItemRect {
+  name: string;
+  width: number;
+  height: number;
+}
+
+// ----------------------------------------------------------------------------
+// Task 115.201: 要件28.2「項目全てにアクセス可能」を実ブラウザの到達性で測るための宣言
+// ----------------------------------------------------------------------------
+//
+// 「到達できる」を何で測るか:
+//   Playwright の `tap()` / `scrollIntoViewIfNeeded()` は `overflow: hidden` の箱でさえ
+//   プログラム的にスクロールして成立させる。つまり **`tap()` が成立することは、利用者が
+//   到達できることを意味しない**。両者を跨がないために、本ファイルの要件28.2 の検証は
+//   次の二つだけで構成する。
+//     (1) 位置を変える手段は、実タッチの払い（CDP `Input.dispatchTouchEvent` による
+//         touchStart → touchMove → touchEnd）に限る。これは利用者の指と同じ経路
+//         （ブラウザのジェスチャー認識→スクロール）を通るため、利用者がスクロールできない箱
+//         （`overflow: hidden` や `touch-action: none` を与えられた領域）を動かせない。
+//     (2) 到達の判定は、項目の矩形が**祖先のクリップ矩形と可視ビューポートの共通部分に
+//         完全に収まっている**ことと、その中心点の当たり判定（`elementFromPoint`）が
+//         当該項目自身（またはその子孫）を返すことの両立で行う。前者だけでは切り取られた
+//         描画を見落とし、後者だけでは項目の一部が切れていても通ってしまう。
+//
+// この形は「ツールバー自身がスクロールする」実装に依存しない。折返し（要件28.2 のもう一方の
+// 手段）で全項目が最初から見えているなら、一度もスクロールせずに到達が成立する。
+
+/** 到達性の検証で 1 回のスワイプが動かす距離（論理ピクセル）。画面幅の 6 割。 */
+const TOOLBAR_SWIPE_PX = Math.round(MOBILE_VIEWPORT.width * 0.6);
+
+/** 到達性の検証でスワイプを繰り返す上限。ツールバー内部幅の数倍に相当する。 */
+const MAX_TOOLBAR_SWIPES = 20;
+
+/** スワイプの起点をツールバーの内側の余白（padding: 8px）へ落とす距離 */
+const TOOLBAR_SWIPE_EDGE_INSET_PX = 4;
+
+/** 1 回のスワイプを構成する touchMove の回数 */
+const TOOLBAR_SWIPE_STEPS = 12;
+
+/** touchMove の間隔（約 1 フレーム）。払いの速度と向きをブラウザに認識させるため。 */
+const TOUCH_MOVE_INTERVAL_MS = 16;
+
+/** 指を離す前に終点で止める時間。慣性スクロールを残さないため。 */
+const TOUCH_SETTLE_HOLD_MS = 120;
+
+/** スクロール位置が落ち着くまでに待つフレーム数の上限 */
+const MAX_SETTLE_FRAMES = 30;
+
+/** 矩形の突き合わせに用いる許容誤差（サブピクセル丸めの吸収） */
+const CLIP_EPSILON_PX = 0.5;
+
+/** ツールバーの項目 1 件の到達性の実測（矩形・祖先のクリップ矩形・中心点の当たり判定） */
+interface ToolbarItemReach {
+  name: string;
+  tool: string | null;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+  clipLeft: number;
+  clipTop: number;
+  clipRight: number;
+  clipBottom: number;
+  hitsSelf: boolean;
+}
+
+/**
+ * 要件28.2 の「アクセス可能」の判定
+ *
+ * 見えているだけでは足りず（切り取られた領域は描かれない）、当たり判定が通るだけでも
+ * 足りない（項目の一部しか露出していない状態でも中心は当たる）。両方を課す。
+ */
+function toolbarItemAt(items: ToolbarItemReach[], index: number): ToolbarItemReach {
+  const item = items[index];
+  assertPresent(item, `ツールバーの ${index} 番目の項目`);
+  return item;
+}
+
+function isToolbarItemReachable(item: ToolbarItemReach): boolean {
+  return (
+    item.hitsSelf &&
+    item.left >= item.clipLeft - CLIP_EPSILON_PX &&
+    item.right <= item.clipRight + CLIP_EPSILON_PX &&
+    item.top >= item.clipTop - CLIP_EPSILON_PX &&
+    item.bottom <= item.clipBottom + CLIP_EPSILON_PX
+  );
+}
+
+// ============================================================================
+// Task 73.1 / 115.48: モバイル Viewport の注釈機能（白縁取り・タッチ操作・ツールバー）
+// ============================================================================
+//
+// Requirements coverage:
+//   - 24.1 / 24.6 / 24.7: 矢印の白縁取り表示と属性の永続化・復元
+//   - 25.1 / 25.7 / 25.8: テキストの白アウトライン表示と属性の永続化・復元
+//   - 27.1: テキスト注釈のダブルタップで編集モードへ遷移
+//   - 27.2 / 27.3 / 27.9 / 27.10: 長押しでのコンテキストメニュー表示と操作実行、
+//     描画ツール選択中は表示しない
+//   - 28.1 / 28.3 / 28.5: モバイル幅ツールバーの収まり・44px タップ領域・全ツール到達性
+//
+// Task 115.48（AI運用7原則 第3原則）:
+//   本 describe は以前 `E2E_SURVEY_ID` / `E2E_IMAGE_ID` の有無で `test.skip` する構成であり、
+//   当該環境変数はリポジトリのどこにも設定されていないため全件が恒久的に飛ばされていた。
+//   前提となるプロジェクト・現場調査・画像は検証の中で用意する。用意できない場合は
+//   飛ばさずに失敗させる。
+//
+// 長押し・ダブルタップは実タッチでしか成立しない（`touchGestureManager` は pointerdown を
+// 見ており、`page.mouse` では発火しない）。Task 98.1 / 98.2 と同じく CDP
+// `Input.dispatchTouchEvent` で実タッチを模擬する。
+
+/** 長押しの保持時間。実装の閾値（LONG_PRESS_MS）を超える保持を与える。 */
+const LONG_PRESS_HOLD_MS = 800;
+
+/**
+ * 「閾値に届く前は出ない」を観測するための保持時間（Req 29.6）。
+ * 本番の閾値から一定の余裕を引いて求めるため、閾値の変更に自動で追随する。
+ */
+const BEFORE_LONG_PRESS_WAIT_MS = Math.max(0, LONG_PRESS_MS - 200);
+
+/** 直前のタップをダブルタップ判定から失効させる待ち時間（本番の閾値を確実に超える）。 */
+const DOUBLE_TAP_EXPIRY_MS = DOUBLE_TAP_MS + 200;
+
+// ============================================================================
+// ダブルタップの実タッチ発火（Task 115.69）
+// ============================================================================
+//
+// touchGestureManager は「直前のタップの pointerup 時刻」から「次のタップの pointerdown
+// 時刻」までの経過を DOUBLE_TAP_MS と比較する。したがって発火間隔として意味を持つのは
+// 1 回目の指を離してから 2 回目を接地するまでの時間だけである。
+//
+// 旧実装は 1 回目の接地から 2 回目の接地まで公称 170ms（接地 40ms + 解放後 40ms +
+// タップ間 90ms）を費やし、そこに CDP の往復が 3 回入っていた。閾値に対する余裕が
+// 130ms しかなく、負荷のかかった実行環境では往復が伸びて 2 回のタップが別々の単発
+// タップとして扱われ、間欠的に失敗していた。
+//
+// 対処は 2 つを併用する:
+//   1. 待ちを詰める（公称の発火間隔 130ms → 60ms、余裕 170ms → 240ms）
+//   2. 実測した発火間隔が閾値内であることを主張する（越えたらその場で明確に落ちる）
+// 2 は本番の定数 DOUBLE_TAP_MS を参照するため、閾値の変更に自動で追随する。
+
+/** 1 回のタップで指を接地している時間。 */
+const TAP_HOLD_MS = 40;
+
+/**
+ * 1 回目の指を離してから 2 回目を接地するまでの公称待ち時間。
+ * これがそのまま本番の判定対象（pointerup → pointerdown）になる。
+ */
+const DOUBLE_TAP_GAP_MS = 60;
+
+/** ダブルタップ後、キャンバスの状態更新が落ち着くまでの待ち時間。 */
+const DOUBLE_TAP_SETTLE_MS = 80;
+
+/** CDP `Input.dispatchTouchEvent` の送出関数（各 describe がローカルに束縛する）。 */
+type DispatchTouch = (
+  type: 'touchStart' | 'touchMove' | 'touchEnd',
+  points: Array<{ x: number; y: number; id: number }>
+) => Promise<void>;
+
+/** ページ側で採取したタッチ由来ポインタイベントの発生時刻（ミリ秒） */
+interface PointerTimeline {
+  downs: number[];
+  ups: number[];
+}
+
+/** ページ側に仕込む計測窓の格納先 */
+interface PointerTimelineWindow {
+  __e2ePointerTimeline?: PointerTimeline;
+  __e2eStopPointerTimeline?: () => void;
+}
+
+/**
+ * 実タッチでダブルタップを発火させ、本番が閾値と比較するのと同一の経過時間
+ * （1 回目の pointerup → 2 回目の pointerdown）を実測して閾値内であることを主張する。
+ *
+ * 実測が閾値を越えた場合は「ダブルタップが成立しなかった」という分かりにくい失敗ではなく
+ * 「発火間隔が閾値を越えた」という真因の見える失敗になる。リトライで覆い隠さない。
+ *
+ * @returns 実測した発火間隔（ミリ秒）
+ */
+async function doubleTapWithinThreshold(
+  page: Page,
+  dispatchTouch: DispatchTouch,
+  x: number,
+  y: number
+): Promise<number> {
+  await page.evaluate(() => {
+    const target = window as unknown as PointerTimelineWindow;
+    target.__e2eStopPointerTimeline?.();
+    const timeline: PointerTimeline = { downs: [], ups: [] };
+    const onDown = (event: PointerEvent): void => {
+      if (event.pointerType === 'touch') {
+        timeline.downs.push(Date.now());
+      }
+    };
+    const onUp = (event: PointerEvent): void => {
+      if (event.pointerType === 'touch') {
+        timeline.ups.push(Date.now());
+      }
+    };
+    // 本番の判定は canvas 要素上のハンドラで行われる。捕捉フェーズの window リスナは
+    // 同一ディスパッチ内で直前に走るため、本番が見る時刻と実質同一の値を採れる。
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointerup', onUp, true);
+    target.__e2ePointerTimeline = timeline;
+    target.__e2eStopPointerTimeline = (): void => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointerup', onUp, true);
+      delete target.__e2eStopPointerTimeline;
+    };
+  });
+
+  await dispatchTouch('touchStart', [{ x, y, id: 0 }]);
+  await page.waitForTimeout(TAP_HOLD_MS);
+  await dispatchTouch('touchEnd', []);
+  await page.waitForTimeout(DOUBLE_TAP_GAP_MS);
+  await dispatchTouch('touchStart', [{ x, y, id: 0 }]);
+  await page.waitForTimeout(TAP_HOLD_MS);
+  await dispatchTouch('touchEnd', []);
+
+  const timeline = await page.evaluate((): PointerTimeline => {
+    const target = window as unknown as PointerTimelineWindow;
+    target.__e2eStopPointerTimeline?.();
+    const collected = target.__e2ePointerTimeline ?? { downs: [], ups: [] };
+    delete target.__e2ePointerTimeline;
+    return collected;
+  });
+
+  const firstUp = timeline.ups[0];
+  const secondDown = timeline.downs[1];
+  if (firstUp === undefined || secondDown === undefined) {
+    // 実タッチが届いていない＝ダブルタップ以前の問題。飛ばさず失敗させる。
+    throw new Error(
+      `ダブルタップの実タッチがページ側で観測できませんでした（pointerdown=${timeline.downs.length}回, pointerup=${timeline.ups.length}回）`
+    );
+  }
+
+  const elapsedMs = secondDown - firstUp;
+  expect(
+    elapsedMs,
+    `ダブルタップの発火間隔が閾値 ${DOUBLE_TAP_MS}ms を越えました（実測 ${elapsedMs}ms / 公称 ${DOUBLE_TAP_GAP_MS}ms）。` +
+      '本番はこの 2 回のタップを別々の単発タップとして扱うため、ダブルタップは成立しません。'
+  ).toBeLessThanOrEqual(DOUBLE_TAP_MS);
+
+  // 閾値に対する余裕を実行ログへ残す。余裕が痩せていく変化を、失敗するより前に観測できる。
+  console.log(
+    `[double-tap] 発火間隔 実測 ${elapsedMs}ms / 公称 ${DOUBLE_TAP_GAP_MS}ms（閾値 ${DOUBLE_TAP_MS}ms に対する余裕 ${DOUBLE_TAP_MS - elapsedMs}ms）`
+  );
+
+  await page.waitForTimeout(DOUBLE_TAP_SETTLE_MS);
+  return elapsedMs;
+}
+
+/** 注釈オブジェクトの白縁取り状態（page.evaluate の戻り値） */
+interface AnnotationOutlineState {
+  type: string;
+  outlineEnabled: boolean;
+  outlineColor: string | null;
+  textOutlineEnabled: boolean;
+  textOutlineWidthRatio: number;
+}
+
 test.describe('モバイル Viewport 注釈機能', () => {
   test.describe.configure({ mode: 'serial' });
 
   let sharedPage: Page;
   let sharedContext: BrowserContext;
-  let surveyId: string | null = null;
-  let imageId: string | null = null;
+  let cdp: CDPSession;
+  let createdProjectId: string | null = null;
+  let createdSurveyId: string | null = null;
+  let createdImageId: string | null = null;
+
+  async function dispatchTouch(
+    type: 'touchStart' | 'touchMove' | 'touchEnd',
+    points: Array<{ x: number; y: number; id: number }>
+  ): Promise<void> {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: points.map((p) => ({ x: p.x, y: p.y, id: p.id })),
+    });
+  }
+
+  /** 単一タップ（touchStart → touchEnd） */
+  async function tapAt(x: number, y: number): Promise<void> {
+    await dispatchTouch('touchStart', [{ x, y, id: 0 }]);
+    await sharedPage.waitForTimeout(40);
+    await dispatchTouch('touchEnd', []);
+    await sharedPage.waitForTimeout(40);
+  }
+
+  /**
+   * ダブルタップ（同一点を 2 回タップ）。発火間隔が本番の閾値内であることを
+   * 実測して主張する（Task 115.69）。
+   */
+  async function doubleTapAt(x: number, y: number): Promise<void> {
+    await doubleTapWithinThreshold(sharedPage, dispatchTouch, x, y);
+  }
+
+  /** 1 本指ドラッグ（タッチ）。描画ツールでの描画に用いる。 */
+  async function oneFingerDrag(
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    steps = 10
+  ): Promise<void> {
+    await dispatchTouch('touchStart', [{ x: from.x, y: from.y, id: 0 }]);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      await dispatchTouch('touchMove', [
+        { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, id: 0 },
+      ]);
+      await sharedPage.waitForTimeout(16);
+    }
+    await dispatchTouch('touchEnd', []);
+    await sharedPage.waitForTimeout(80);
+  }
+
+  /**
+   * 指を接地したまま保持する（長押しの成立）。保持中に判定を行うため、
+   * 接地と解放を別関数に分けている。
+   */
+  async function pressAndHold(x: number, y: number): Promise<void> {
+    await dispatchTouch('touchStart', [{ x, y, id: 0 }]);
+    await sharedPage.waitForTimeout(LONG_PRESS_HOLD_MS);
+  }
+
+  /** 接地中の指を解放する。 */
+  async function releaseTouch(): Promise<void> {
+    await dispatchTouch('touchEnd', []);
+    await sharedPage.waitForTimeout(80);
+  }
+
+  /** ページのスクロールを先頭へ戻し、キャンバス座標の基準を実レイアウトと一致させる。 */
+  async function resetScroll(): Promise<void> {
+    await sharedPage.evaluate(() => {
+      window.scrollTo(0, 0);
+    });
+    await sharedPage.waitForTimeout(120);
+  }
+
+  /** upper-canvas の bounding box を、Fabric の初期化完了まで待って取得する。 */
+  async function getCanvasBox(): Promise<CanvasBox> {
+    const upper = sharedPage.locator('.upper-canvas');
+    for (let i = 0; i < 30; i++) {
+      const box = await upper.boundingBox();
+      const ready = await sharedPage.evaluate(() => !!globalThis.__fabricCanvas);
+      if (box && box.width > 10 && box.height > 10 && ready) {
+        return box;
+      }
+      await sharedPage.waitForTimeout(200);
+    }
+    throw new Error('upper-canvas が初期化されませんでした');
+  }
+
+  /** 画像ビューアを開き、編集モードへ入って注釈ツールバーの表示を待つ。 */
+  async function enterEditMode(): Promise<void> {
+    await sharedPage.goto(`/site-surveys/${createdSurveyId}/images/${createdImageId}`);
+    await sharedPage.waitForLoadState('networkidle');
+
+    const editModeButton = sharedPage.getByRole('button', { name: '編集モード', exact: true });
+    await expect(editModeButton).toBeVisible({ timeout: getTimeout(15000) });
+    await editModeButton.tap();
+
+    await expect(sharedPage.getByTestId('annotation-toolbar')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await getCanvasBox();
+    await resetScroll();
+  }
+
+  /** 指定ツールを選択し、押下状態になったことを確認する。 */
+  async function selectTool(label: string): Promise<void> {
+    const tool = sharedPage.getByRole('button', { name: label, exact: true });
+    await expect(tool).toBeVisible({ timeout: getTimeout(10000) });
+    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
+    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      await tool.tap();
+    }
+    await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  /**
+   * ツールバーに現れている「項目」（操作要素）の実測矩形を全件返す（Task 115.170 / Req 28.3）
+   *
+   * 母集団の定義は本ファイル冒頭の宣言に従う。名前は失敗時に「どれが小さいか」を示すため
+   * `data-testid` → `aria-label` → タグ名の順で解決する。
+   */
+  async function readToolbarItems(): Promise<ToolbarItemRect[]> {
+    return await sharedPage
+      .getByTestId('annotation-toolbar')
+      .locator('button, input, select')
+      .evaluateAll((elements) =>
+        elements.map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            name:
+              element.getAttribute('data-testid') ??
+              element.getAttribute('aria-label') ??
+              element.tagName.toLowerCase(),
+            width: rect.width,
+            height: rect.height,
+          };
+        })
+      );
+  }
+
+  /**
+   * ツールバーの項目の到達性を実測する（Task 115.201 / Req 28.2）
+   *
+   * 返すのは実ブラウザの生の測定値だけである（矩形・祖先のクリップ矩形・中心点の当たり判定）。
+   * 「到達できたか」の判定は Node 側の `isToolbarItemReachable` が行い、画面の中で
+   * 本番の判定を書き起こすことはしない。
+   *
+   * 祖先のクリップ矩形は、`overflow` が `visible` でない祖先の矩形と可視ビューポートの
+   * 共通部分として求める。**ツールバー自身も `overflowX: 'auto'` を持つためこの祖先に含まれ、
+   * 横スクロールで外へ出ている項目はクリップ矩形の外として測られる。**
+   */
+  async function readToolbarReach(): Promise<ToolbarItemReach[]> {
+    return await sharedPage.evaluate(() => {
+      const toolbar = document.querySelector('[data-testid="annotation-toolbar"]');
+      if (toolbar === null) {
+        throw new Error('注釈ツールバーが画面に存在しません');
+      }
+      const elements = Array.from(toolbar.querySelectorAll('button, input, select'));
+      if (elements.length === 0) {
+        throw new Error('ツールバーの項目（button / input / select）が一つも存在しません');
+      }
+      return elements.map((element) => {
+        const rect = element.getBoundingClientRect();
+        let clipLeft = 0;
+        let clipTop = 0;
+        let clipRight = window.innerWidth;
+        let clipBottom = window.innerHeight;
+        let ancestor: HTMLElement | null = element.parentElement;
+        while (ancestor !== null) {
+          const style = window.getComputedStyle(ancestor);
+          if (style.overflowX !== 'visible' || style.overflowY !== 'visible') {
+            const box = ancestor.getBoundingClientRect();
+            clipLeft = Math.max(clipLeft, box.left);
+            clipTop = Math.max(clipTop, box.top);
+            clipRight = Math.min(clipRight, box.right);
+            clipBottom = Math.min(clipBottom, box.bottom);
+          }
+          ancestor = ancestor.parentElement;
+        }
+        const topmost = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2
+        );
+        return {
+          name:
+            element.getAttribute('data-testid') ??
+            element.getAttribute('aria-label') ??
+            element.tagName.toLowerCase(),
+          tool: element.getAttribute('data-tool'),
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+          clipLeft,
+          clipTop,
+          clipRight,
+          clipBottom,
+          hitsSelf: topmost !== null && (topmost === element || element.contains(topmost)),
+        };
+      });
+    });
+  }
+
+  /** ツールバーの内部幅と表示幅（要件28.2 の「収まらない」の前提を実測するため） */
+  async function readToolbarExtent(): Promise<{ scrollWidth: number; clientWidth: number }> {
+    return await sharedPage.getByTestId('annotation-toolbar').evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }));
+  }
+
+  /**
+   * 利用者の指と同じ経路で、ツールバーを横方向へスワイプする（Task 115.201 / Req 28.2）
+   *
+   * 実タッチ（CDP `Input.dispatchTouchEvent` の touchStart → touchMove → touchEnd）を
+   * ブラウザへ流し、ブラウザ側のジェスチャー認識にスクロールを起こさせる。これは指で
+   * 画面を払う操作と同じ経路であり、**利用者がスクロールできない箱（`overflow: hidden`）を
+   * 動かせない**。Playwright の `tap()` / `scrollIntoViewIfNeeded()` が使う
+   * プログラム的スクロール（`overflow: hidden` でも成立する）とは経路が異なる。
+   *
+   * CDP `Input.synthesizeScrollGesture` は用いない。本環境で
+   * `gestureSourceType: 'touch'` を指定するとスクロールがまったく起きず
+   * （実測: `scrollLeft` が 0 のまま）、`'default'` を指定すると入力源が指ではなくなるため、
+   * どちらも「利用者の指で到達できる」の検証には使えない。
+   *
+   * 指は「見せたい向き」と逆へ動く。`xDistance` が正のとき、右側にある項目を見せる向きへ
+   * 内容を動かす（＝指は左へ動く）。
+   */
+  async function swipeToolbarHorizontally(xDistance: number): Promise<void> {
+    const box = await sharedPage.getByTestId('annotation-toolbar').boundingBox();
+    expect(box, 'ツールバーの矩形が取得できずスワイプの起点を決められません').not.toBeNull();
+    // 起点はツールバーの内側の余白（padding）に取り、道具や属性の操作要素の上から
+    // 指を降ろさない。払う操作が誤って項目の操作として解釈される余地を残さないため。
+    const y = Math.round(box!.y + TOOLBAR_SWIPE_EDGE_INSET_PX);
+    const centerX = box!.x + box!.width / 2;
+    const from = { x: Math.round(centerX + xDistance / 2), y };
+    const to = { x: Math.round(centerX - xDistance / 2), y };
+
+    await dispatchTouch('touchStart', [{ x: from.x, y: from.y, id: 0 }]);
+    for (let step = 1; step <= TOOLBAR_SWIPE_STEPS; step++) {
+      const ratio = step / TOOLBAR_SWIPE_STEPS;
+      await dispatchTouch('touchMove', [
+        { x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio, id: 0 },
+      ]);
+      // 連続する touchMove を 1 フレーム分だけ離す。ブラウザのジェスチャー認識は
+      // 移動の連なりから速度と向きを決めるため、同一時刻に積み上げると払いにならない。
+      await sharedPage.waitForTimeout(TOUCH_MOVE_INTERVAL_MS);
+    }
+    // 終点で指を止めてから離す。速度を残したまま離すと慣性スクロール（フリング）が続き、
+    // 直後のタップが慣性の停止に消費されて操作として届かなくなる。
+    await dispatchTouch('touchMove', [{ x: to.x, y: to.y, id: 0 }]);
+    await sharedPage.waitForTimeout(TOUCH_SETTLE_HOLD_MS);
+    await dispatchTouch('touchEnd', []);
+
+    await waitForToolbarPositionSettled();
+  }
+
+  /** 1 描画フレーム分の境界まで待つ（固定時間ではなく版面の更新点で待つ） */
+  async function nextFrame(): Promise<void> {
+    await sharedPage.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        })
+    );
+  }
+
+  /**
+   * スクロール位置が落ち着くまで待ち、落ち着いた時点の実測を返す。
+   *
+   * 連続する 2 フレームで先頭項目の左端が一致した時点を「落ち着いた」とみなす。
+   * 固定時間の待機は用いない。
+   */
+  async function waitForToolbarPositionSettled(): Promise<ToolbarItemReach[]> {
+    let items = await readToolbarReach();
+    let signature = positionSignature(items);
+    let previousSignature = Number.NaN;
+    let frames = 0;
+    while (signature !== previousSignature && frames < MAX_SETTLE_FRAMES) {
+      previousSignature = signature;
+      await nextFrame();
+      items = await readToolbarReach();
+      signature = positionSignature(items);
+      frames += 1;
+    }
+    expect(
+      frames,
+      `スワイプ後にツールバーのスクロール位置が ${MAX_SETTLE_FRAMES} フレーム経っても落ち着きません`
+    ).toBeLessThan(MAX_SETTLE_FRAMES);
+    return items;
+  }
+
+  /** 到達性の走査で「位置が動いたか」を見るための指標（先頭項目の左端） */
+  function positionSignature(items: ToolbarItemReach[]): number {
+    return Math.round(toolbarItemAt(items, 0).left * 100);
+  }
+
+  /**
+   * Fabric キャンバス上のオブジェクト数を取得する。
+   *
+   * Task 115.184: 描画面が取得できない場合は負の番兵値を返さず投げる
+   * （`getFabricObjectCount` が担う）。番兵値は実際の件数と同じ `number` に同居し、
+   * 増分の主張が「不在（-1）から零（0）へ」でも成立してしまうためである。
+   */
+  async function getObjectCount(): Promise<number> {
+    return await getFabricObjectCount(sharedPage);
+  }
+
+  /** 各オブジェクトの type と白縁取り／白アウトライン属性を読み出す。 */
+  async function readOutlineStates(): Promise<AnnotationOutlineState[]> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return [];
+      const objects = c.getObjects() as unknown as Array<{
+        type?: string;
+        toObject: () => {
+          type?: string;
+          outline?: { enabled?: boolean; color?: string };
+          textOutline?: { enabled?: boolean; widthRatio?: number };
+        };
+      }>;
+      return objects.map((obj) => {
+        const serialized = obj.toObject();
+        return {
+          type: serialized.type ?? obj.type ?? 'unknown',
+          outlineEnabled: serialized.outline?.enabled === true,
+          outlineColor: serialized.outline?.color ?? null,
+          textOutlineEnabled: serialized.textOutline?.enabled === true,
+          textOutlineWidthRatio: serialized.textOutline?.widthRatio ?? 0,
+        };
+      });
+    });
+  }
+
+  /** 現在の選択オブジェクトの type を読む（未選択は null）。 */
+  async function readActiveType(): Promise<string | null> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return null;
+      const active = c.getActiveObject();
+      return active ? (active.type ?? 'unknown') : null;
+    });
+  }
+
+  /** textAnnotation の編集状態（isEditing）を読む。 */
+  async function readTextEditing(): Promise<boolean | null> {
+    return await sharedPage.evaluate(() => {
+      const c = globalThis.__fabricCanvas;
+      if (!c) return null;
+      const objs = c.getObjects() as unknown as Array<{ type?: string; isEditing?: boolean }>;
+      const textObj = objs.find((o) => o.type === 'textAnnotation');
+      return textObj ? textObj.isEditing === true : null;
+    });
+  }
+
+  /**
+   * 指定 type のオブジェクト中心の client 座標を、scene 座標と viewportTransform、
+   * upper-canvas の boundingBox から算出する。
+   */
+  async function objectCenterClient(objectType: string): Promise<{ x: number; y: number }> {
+    const box = await getCanvasBox();
+    const info = await sharedPage.evaluate((targetType) => {
+      const c = globalThis.__fabricCanvas as unknown as {
+        getObjects: () => Array<{
+          type?: string;
+          getCenterPoint?: () => { x: number; y: number };
+        }>;
+        viewportTransform: number[];
+      } | null;
+      if (!c) return null;
+      const obj = c.getObjects().find((o) => o.type === targetType);
+      if (!obj || typeof obj.getCenterPoint !== 'function') return null;
+      const center = obj.getCenterPoint();
+      return { sx: center.x, sy: center.y, vpt: c.viewportTransform };
+    }, objectType);
+
+    if (!info) {
+      throw new Error(`${objectType} のオブジェクトが見つかりませんでした`);
+    }
+    const point = {
+      x: box.x + info.sx * (info.vpt[0] ?? 1) + (info.vpt[4] ?? 0),
+      y: box.y + info.sy * (info.vpt[3] ?? 1) + (info.vpt[5] ?? 0),
+    };
+    // 可視ビューポート外の座標へタッチを送っても何も起きず、原因の分からない失敗になる。
+    // 前提が崩れていることを明示するため、その場で失敗させる。
+    if (
+      point.x < 0 ||
+      point.y < 0 ||
+      point.x > MOBILE_VIEWPORT.width ||
+      point.y > MOBILE_VIEWPORT.height
+    ) {
+      throw new Error(
+        `${objectType} の中心 (${Math.round(point.x)}, ${Math.round(point.y)}) が` +
+          ` 可視ビューポート ${MOBILE_VIEWPORT.width}x${MOBILE_VIEWPORT.height} の外にあります`
+      );
+    }
+    return point;
+  }
+
+  /** 注釈を保存し、保存完了の表示を待つ。 */
+  async function saveAnnotations(): Promise<void> {
+    await sharedPage.getByRole('button', { name: '保存', exact: true }).tap();
+    await expect(sharedPage.getByRole('status', { name: '保存完了' })).toBeVisible({
+      timeout: getTimeout(20000),
+    });
+  }
 
   test.beforeAll(async ({ browser }) => {
-    sharedContext = await browser.newContext({ viewport: MOBILE_VIEWPORT });
+    sharedContext = await browser.newContext({
+      viewport: MOBILE_VIEWPORT,
+      hasTouch: true,
+      isMobile: true,
+    });
     sharedPage = await sharedContext.newPage();
+    cdp = await sharedContext.newCDPSession(sharedPage);
+
     await loginAsUser(sharedPage, 'REGULAR_USER');
 
-    // プロジェクト・現場調査・画像のアップロードは既存ヘルパーで省略化。
-    // 実運用では site-survey-annotations.spec.ts の beforeAll パターンを踏襲。
-    // NOTE: 完全な事前準備は runtime 環境で検証予定。
-
-    // テスト用の画像アップロード後、surveyId / imageId を設定
-    surveyId = process.env.E2E_SURVEY_ID ?? null;
-    imageId = process.env.E2E_IMAGE_ID ?? null;
-  });
-
-  test.afterAll(async () => {
-    await sharedContext?.close();
-  });
-
-  test.beforeEach(async () => {
-    test.skip(!surveyId || !imageId, 'E2E_SURVEY_ID / E2E_IMAGE_ID 未設定のためスキップ');
-  });
-
-  test('(a) 白縁取り付き矢印を配置→保存→リロード→復元', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
+    // --- プロジェクト作成 ---
+    await sharedPage.goto('/projects');
     await sharedPage.waitForLoadState('networkidle');
-
-    // 矢印ツールを選択
-    await sharedPage.getByRole('button', { name: /矢印/i }).tap();
-
-    // Canvas 上で矢印描画（模擬ドラッグ）
-    const canvas = sharedPage.locator('canvas').first();
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
-    if (!box) return;
-    await sharedPage.touchscreen.tap(box.x + 50, box.y + 50);
-    // tap sequence を drag に変換（mobile simulator 制約により簡易化）
-
-    // 保存
-    await sharedPage.getByRole('button', { name: /保存/i }).tap();
-    await expect(sharedPage.getByText(/保存しました/i)).toBeVisible({
-      timeout: getTimeout(10000),
+    await sharedPage.getByRole('button', { name: /新規作成/i }).click();
+    await expect(sharedPage).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
+    await expect(sharedPage.getByText(/読み込み中/i).first()).not.toBeVisible({
+      timeout: getTimeout(15000),
     });
 
-    // リロード後、白縁取りが復元されていることを確認
-    await sharedPage.reload();
+    const projectName = `モバイル注釈E2E用PJ_${Date.now()}`;
+    await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
+    const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
+
+    const createProjectPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/projects') &&
+        response.request().method() === 'POST' &&
+        response.status() === 201,
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createProjectPromise;
+
+    await sharedPage.waitForURL(/\/projects\/[0-9a-f-]+$/);
+    createdProjectId = sharedPage.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdProjectId).toBeTruthy();
+
+    // --- 現場調査作成 ---
+    await sharedPage.goto(`/projects/${createdProjectId}/site-surveys/new`);
     await sharedPage.waitForLoadState('networkidle');
-    await expect(sharedPage.locator('canvas').first()).toBeVisible();
-    // outline enabled 属性をローカルストレージ経由で確認するか、
-    // Canvas.getObjects() で outline 属性の存在を検証する（page.evaluate 併用）
+    await expect(sharedPage.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
+
+    const surveyName = `モバイル注釈E2E用調査_${Date.now()}`;
+    await sharedPage.getByLabel(/調査名/i).fill(surveyName);
+    await sharedPage.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
+
+    const createSurveyPromise = sharedPage.waitForResponse(
+      (response) =>
+        response.url().includes('/api/') &&
+        response.url().includes('site-surveys') &&
+        response.request().method() === 'POST',
+      { timeout: getTimeout(30000) }
+    );
+    await sharedPage.getByRole('button', { name: /^作成$/i }).click();
+    await createSurveyPromise;
+
+    await sharedPage.waitForURL(/\/site-surveys\/[0-9a-f-]+$/);
+    createdSurveyId = sharedPage.url().match(/\/site-surveys\/([0-9a-f-]+)$/)?.[1] ?? null;
+    expect(createdSurveyId).toBeTruthy();
+
+    // --- 画像を API で直接アップロード ---
+    const testImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
+    expect(fs.existsSync(testImagePath)).toBeTruthy();
+    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const uploadResponse = await sharedPage.request.post(
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        multipart: {
+          images: {
+            name: 'test-image-large.jpg',
+            mimeType: 'image/jpeg',
+            buffer: fs.readFileSync(testImagePath),
+          },
+        },
+      }
+    );
+    expect(uploadResponse.ok()).toBeTruthy();
+
+    const uploadBody = (await uploadResponse.json()) as { successful?: Array<{ id?: string }> };
+    createdImageId = uploadBody.successful?.[0]?.id ?? null;
+    expect(createdImageId).toBeTruthy();
   });
 
-  test('(b) テキスト注釈に白アウトラインを付与→保存→リロード→復元', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
-    await sharedPage.waitForLoadState('networkidle');
+  test.afterAll(async ({ browser }) => {
+    // 後始末: 作成したデータを ADMIN 権限の API 呼び出しで削除する。
+    const cleanupContext = await browser.newContext();
+    const cleanupPage = await cleanupContext.newPage();
+    try {
+      await loginAsUser(cleanupPage, 'ADMIN_USER');
+      const adminToken = await cleanupPage.evaluate(() => localStorage.getItem('accessToken'));
+      const headers = { Authorization: `Bearer ${adminToken}` };
+      if (createdSurveyId) {
+        await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {
+          headers,
+        });
+      }
+      if (createdProjectId) {
+        await cleanupPage.request.delete(`${API_BASE_URL}/api/projects/${createdProjectId}`, {
+          headers,
+        });
+      }
+    } catch {
+      // 後始末の失敗は検証結果に影響させない
+    } finally {
+      await cleanupPage.close();
+      await cleanupContext.close();
+      await sharedContext?.close();
+    }
+  });
 
-    await sharedPage.getByRole('button', { name: /テキスト/i }).tap();
-    const canvas = sharedPage.locator('canvas').first();
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
-    if (!box) return;
-    await sharedPage.touchscreen.tap(box.x + 100, box.y + 100);
+  /**
+   * (a) 白縁取り付き矢印を配置 → 保存 → リロード → 復元
+   *     Requirement 24.1, 24.6, 24.7
+   */
+  test('(a) 白縁取り付き矢印を配置→保存→リロード→復元 (REQ-24.1/24.6/24.7)', async () => {
+    await enterEditMode();
+    const box = await getCanvasBox();
 
-    // テキスト入力と確定（実 UI のモーダル/インライン編集に応じて調整）
+    await selectTool('矢印');
+    await oneFingerDrag(
+      { x: box.x + box.width * 0.12, y: box.y + box.height * 0.16 },
+      { x: box.x + box.width * 0.44, y: box.y + box.height * 0.42 }
+    );
+
+    // Req 24.1: 矢印は白色の縁取りを付与された状態で作成される
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(10000),
+        message: '矢印注釈が作成されませんでした',
+      })
+      .toBe(1);
+
+    const drawn = await readOutlineStates();
+    expect(drawn[0]!.type).toBe('arrow');
+    expect(drawn[0]!.outlineEnabled).toBe(true);
+    expect(drawn[0]!.outlineColor).toMatch(/^(white|#fff(fff)?|rgba?\(255,\s*255,\s*255)/i);
+
+    // Req 24.6: 白縁取り属性を含めて永続化する
+    await saveAnnotations();
+
+    // Req 24.7: 再表示時に保存された白縁取り属性を復元する
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存した矢印注釈が復元されませんでした',
+      })
+      .toBe(1);
+
+    const restored = await readOutlineStates();
+    expect(restored[0]!.type).toBe('arrow');
+    expect(restored[0]!.outlineEnabled).toBe(true);
+    expect(restored[0]!.outlineColor).toMatch(/^(white|#fff(fff)?|rgba?\(255,\s*255,\s*255)/i);
+  });
+
+  /**
+   * (b) テキスト注釈に白アウトラインを付与 → 保存 → リロード → 復元
+   *     Requirement 25.1, 25.7, 25.8
+   */
+  test('(b) テキスト注釈に白アウトラインを付与→保存→リロード→復元 (REQ-25.1/25.7/25.8)', async () => {
+    await enterEditMode();
+    const box = await getCanvasBox();
+
+    await selectTool('テキスト');
+    await tapAt(box.x + box.width * 0.62, box.y + box.height * 0.4);
+
+    // テキストツールは配置と同時に編集状態へ入り、初期文字列が全選択される
+    await expect
+      .poll(() => readTextEditing(), {
+        timeout: getTimeout(10000),
+        message: 'テキスト注釈が編集状態になりませんでした',
+      })
+      .toBe(true);
+
     await sharedPage.keyboard.type('現場調査');
     await sharedPage.keyboard.press('Escape');
+    await resetScroll();
 
-    // 白アウトライントグルで再確認
-    // StylePanel 展開 → textOutlineEnabled チェックボックス確認
+    // Req 25.1: テキストは白アウトラインを付与された状態で配置される
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(10000),
+        message: 'テキスト注釈が作成されませんでした',
+      })
+      .toBe(2);
 
-    await sharedPage.getByRole('button', { name: /保存/i }).tap();
-    await sharedPage.reload();
-    await expect(sharedPage.locator('canvas').first()).toBeVisible();
+    const drawn = await readOutlineStates();
+    const drawnText = drawn.find((state) => state.type === 'textAnnotation');
+    expect(drawnText, 'テキスト注釈が作成されていない').toBeTruthy();
+    expect(drawnText!.textOutlineEnabled).toBe(true);
+    expect(drawnText!.textOutlineWidthRatio).toBeGreaterThan(0);
+
+    // Req 25.7: 白アウトライン属性を含めて永続化する
+    await saveAnnotations();
+
+    // Req 25.8: 再表示時に保存された白アウトライン属性を復元する
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存したテキスト注釈が復元されませんでした',
+      })
+      .toBe(2);
+
+    const restored = await readOutlineStates();
+    const restoredText = restored.find((state) => state.type === 'textAnnotation');
+    expect(restoredText, 'テキスト注釈が復元されていない').toBeTruthy();
+    expect(restoredText!.textOutlineEnabled).toBe(true);
+    expect(restoredText!.textOutlineWidthRatio).toBeGreaterThan(0);
   });
 
-  test('(c) 既存注釈を長押しでコンテキストメニュー表示→削除', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
-    await sharedPage.waitForLoadState('networkidle');
+  /**
+   * (c) 既存注釈の長押しでコンテキストメニューが開く（描画ツール中は開かない）
+   *     Requirement 27.2, 27.9, 27.10
+   *
+   * Task 115.47 の是正（長押しの対象を座標の当たり判定で解決する）を実ブラウザで検出できる
+   * 唯一の検証。通知に対象が含まれない実装でも、対象の上を長押しすればメニューが開くこと。
+   */
+  test('(c) 描画ツール中は開かず選択ツール中の長押しでコンテキストメニューが開く (REQ-27.2/27.9/27.10)', async () => {
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存済みの注釈が復元されませんでした',
+      })
+      .toBe(2);
 
-    // 選択ツールを確認（既定）
-    await sharedPage.getByRole('button', { name: /選択/i }).tap();
+    const menuPanel = sharedPage.getByTestId('annotation-context-menu-panel');
+    const arrowCenter = await objectCenterClient('arrow');
 
-    // 注釈オブジェクト上で長押し（500ms 以上 touchstart → touchend）
-    const canvas = sharedPage.locator('canvas').first();
-    const box = await canvas.boundingBox();
-    if (!box) return;
+    // Req 27.9: 描画ツール選択中は長押ししてもコンテキストメニューを表示しない
+    await selectTool('矢印');
+    await pressAndHold(arrowCenter.x, arrowCenter.y);
+    await expect(menuPanel).toBeHidden();
+    await releaseTouch();
 
-    await sharedPage.touchscreen.tap(box.x + 60, box.y + 60);
-    // 本 API では touchstart を保持する直接操作が制限されるため、
-    // page.evaluate で TouchEvent をディスパッチするか、
-    // カスタム helper 経由で longpress を模擬する運用を推奨。
+    // Req 27.10 / 27.2: 選択ツール選択中に既存オブジェクトを長押しするとメニューが開く
+    await selectTool('選択');
+    await resetScroll();
+    const arrowCenterForSelect = await objectCenterClient('arrow');
+    await pressAndHold(arrowCenterForSelect.x, arrowCenterForSelect.y);
+    await expect(menuPanel).toBeVisible({ timeout: getTimeout(5000) });
+    await expect(sharedPage.getByTestId('annotation-editor-container')).toHaveAttribute(
+      'data-context-menu-visible',
+      'true'
+    );
 
-    // コンテキストメニューの「削除」ボタンをタップ
-    await sharedPage.getByRole('button', { name: /削除/i }).tap();
-    // オブジェクトが消えたことを検証
+    // Req 27.2: 長押しした対象が選択状態になっている
+    expect(await readActiveType()).toBe('arrow');
+
+    await releaseTouch();
   });
 
-  test('(d) 既存テキストをダブルタップで編集モード', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
-    await sharedPage.waitForLoadState('networkidle');
+  /**
+   * (d) モバイルツールバーの各項目が画面幅に収まりタップ可能
+   *     Requirement 28.1, 28.3, 28.5
+   *
+   * Task 115.170: 従前この検証は道具のボタン 9 個だけを測っていた。要件28.3 の原文は
+   * 「モバイル幅ツールバーの**各項目**」であり、属性パネルの操作要素（切替・色・線幅・
+   * 文字サイズ・吹き出し）とアクションボタンも対象である。適用範囲の決着に伴い、母集団を
+   * ツールバー内の操作要素の全件へ広げた（母集団の定義は本ファイル冒頭の宣言に従う）。
+   *
+   * 個数を先に突き合わせてから寸法を主張する。全件走査だけでは、項目が描かれていなくても
+   * 空振りで緑になるためである。
+   */
+  test('(d) モバイルツールバーの各項目が画面幅に収まりタップできる (REQ-28.1/28.3/28.5)', async () => {
+    await enterEditMode();
 
-    await sharedPage.getByRole('button', { name: /選択/i }).tap();
-    const canvas = sharedPage.locator('canvas').first();
-    const box = await canvas.boundingBox();
-    if (!box) return;
+    for (const toolId of TOOL_ORDER) {
+      const label = TOOL_DEFINITIONS[toolId].label;
+      const button = sharedPage.getByRole('button', { name: label, exact: true });
+      await expect(button).toBeVisible();
 
-    // ダブルタップ（touchGestureManager が 300ms 以内の 2 回 pointerdown を検出）
-    await sharedPage.touchscreen.tap(box.x + 100, box.y + 100);
-    await sharedPage.waitForTimeout(100);
-    await sharedPage.touchscreen.tap(box.x + 100, box.y + 100);
+      // Req 28.5: 全ツールがタップで選択できる。
+      // Req 28.8: 選択中の道具を再び押すと属性パネルの開閉になるため、既に選択済みなら押さない
+      // （押すとパネルが閉じ、下の母集団から属性パネルの項目が消えてしまう）。
+      if ((await button.getAttribute('aria-pressed')) !== 'true') {
+        await button.tap();
+      }
+      await expect(button).toHaveAttribute('aria-pressed', 'true');
 
-    // 編集モード進入（IText.enterEditing）はカーソル表示やテキスト入力可否で検証
+      const boundingBox = await button.boundingBox();
+      expect(boundingBox, `${label} のタップ領域が取得できない`).not.toBeNull();
+      // Req 28.1: 道具のボタンが画面幅に収まる（横方向のはみ出しがない）
+      expect(boundingBox!.x, `${label} が画面左端からはみ出している`).toBeGreaterThanOrEqual(0);
+      expect(
+        boundingBox!.x + boundingBox!.width,
+        `${label} が画面右端からはみ出している`
+      ).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
+
+      // Req 28.3: ツールバーに現れている「各項目」が 44x44 論理ピクセル以上
+      const items = await readToolbarItems();
+      expect(
+        items.map((item) => item.name),
+        `${label}: ツールバーの項目の個数が宣言と一致しない`
+      ).toHaveLength(TOOL_BUTTON_COUNT + PANEL_CONTROL_COUNT[toolId] + ACTION_BUTTON_COUNT);
+
+      for (const item of items) {
+        expect(
+          item.width,
+          `${label}: 項目「${item.name}」の幅 ${item.width} が ${TAP_TARGET_MIN_PX}px 未満`
+        ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
+        expect(
+          item.height,
+          `${label}: 項目「${item.name}」の高さ ${item.height} が ${TAP_TARGET_MIN_PX}px 未満`
+        ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
+        // Req 28.1: 各項目そのものが画面幅に収まる（到達は Req 28.2 の横スクロールが担う）
+        expect(
+          item.width,
+          `${label}: 項目「${item.name}」の幅が画面幅を超えている`
+        ).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
+      }
+    }
+
+    // Req 28.5: 編集モードの既定ツールは `select` であるため、上のループでは「選択」だけが
+    // 「既に選択済み」に当たり一度も tap されない（既に選択済みの道具を押すと Req 28.8 の
+    // 開閉トグルが働き、属性パネルが閉じて上の母集団が崩れるため、ループ側のガードは外せない）。
+    // ループを抜けた時点では別の道具が選択されているので、ここで「選択」を実際にタップし、
+    // 「全ツールがタップで選択できる」の網羅に穴を残さない。
+    const selectToolButton = sharedPage.getByRole('button', {
+      name: TOOL_DEFINITIONS.select.label,
+      exact: true,
+    });
+    expect(
+      await selectToolButton.getAttribute('aria-pressed'),
+      'ループ後も「選択」が選択状態のままで、タップの網羅を回復できない'
+    ).toBe('false');
+    await selectToolButton.tap();
+    await expect(selectToolButton).toHaveAttribute('aria-pressed', 'true');
+
+    // Req 28.1: ツールバー自体もモバイル幅に収まる
+    const toolbarBox = await sharedPage.getByTestId('annotation-toolbar').boundingBox();
+    expect(toolbarBox).not.toBeNull();
+    expect(toolbarBox!.x).toBeGreaterThanOrEqual(0);
+    expect(toolbarBox!.x + toolbarBox!.width).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
   });
 
-  test('(e) モバイルツールバーの全ツールがタップ可能', async () => {
-    await sharedPage.goto(`/site-surveys/${surveyId}/images/${imageId}`);
-    await sharedPage.waitForLoadState('networkidle');
+  /**
+   * (e) 既存テキストをダブルタップで編集モードへ遷移
+   *     Requirement 27.1
+   */
+  test('(e) 既存テキストをダブルタップで編集モードへ遷移する (REQ-27.1)', async () => {
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存済みの注釈が復元されませんでした',
+      })
+      .toBe(2);
 
-    const toolNames = [
-      /選択/i,
-      /寸法線/i,
-      /矢印/i,
-      /円/i,
-      /四角形/i,
-      /多角形/i,
-      /折れ線/i,
-      /フリーハンド/i,
-      /テキスト/i,
+    await selectTool('選択');
+    await resetScroll();
+    expect(await readTextEditing()).toBe(false);
+
+    const textCenter = await objectCenterClient('textAnnotation');
+
+    // タップ座標が実際にテキスト注釈へ当たることを単タップの選択で先に確かめる。
+    // これによりダブルタップが不発の場合に「座標が外れている」のか
+    // 「ダブルタップの調停が働いていない」のかを切り分けられる。
+    await tapAt(textCenter.x, textCenter.y);
+    await expect
+      .poll(() => readActiveType(), {
+        timeout: getTimeout(10000),
+        message: 'タップ座標がテキスト注釈に当たっていません',
+      })
+      .toBe('textAnnotation');
+
+    // 直前の単タップがダブルタップとして誤検出されないよう lastTap を失効させる
+    await sharedPage.waitForTimeout(DOUBLE_TAP_EXPIRY_MS);
+
+    await doubleTapAt(textCenter.x, textCenter.y);
+
+    // Req 27.1: ダブルタップで当該テキスト注釈が編集モードへ遷移する
+    await expect
+      .poll(() => readTextEditing(), {
+        timeout: getTimeout(10000),
+        message: 'ダブルタップでテキスト編集モードへ遷移しませんでした',
+      })
+      .toBe(true);
+  });
+
+  /**
+   * (f) コンテキストメニューの項目タップで操作が実行される
+   *     Requirement 27.3
+   *
+   * 項目をタップするには指を離す必要があるため、「指を離してもメニューが開いたままである」
+   * ことが前提になる。メニューの表示自体（Req 27.2）は (c) で検証済みであり、本テストは
+   * 表示後の操作実行のみを対象とする。
+   */
+  test('(f) コンテキストメニューの削除をタップすると注釈が削除される (REQ-27.3)', async () => {
+    await enterEditMode();
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(20000),
+        message: '保存済みの注釈が復元されませんでした',
+      })
+      .toBe(2);
+
+    await selectTool('選択');
+    await resetScroll();
+    const countBeforeMenu = await getObjectCount();
+    const arrowCenter = await objectCenterClient('arrow');
+
+    const menuPanel = sharedPage.getByTestId('annotation-context-menu-panel');
+    await pressAndHold(arrowCenter.x, arrowCenter.y);
+    await expect(menuPanel).toBeVisible({ timeout: getTimeout(5000) });
+    await releaseTouch();
+
+    // 指を離してもメニューは開いたままで、項目をタップできる
+    await expect(menuPanel, '指を離した時点でコンテキストメニューが閉じている').toBeVisible();
+
+    // Req 27.3: 「削除」をタップすると当該オブジェクトが削除される
+    await menuPanel.getByRole('button', { name: '削除', exact: true }).tap();
+    await expect(menuPanel).toBeHidden({ timeout: getTimeout(5000) });
+    await expect
+      .poll(() => getObjectCount(), {
+        timeout: getTimeout(10000),
+        message: 'コンテキストメニューの削除で注釈が削除されませんでした',
+      })
+      .toBe(countBeforeMenu - 1);
+  });
+
+  /**
+   * (g) 選択中ツールの再タップで詳細属性パネルを開閉する
+   *     Requirement 28.8
+   *
+   * Task 115.104: 道具帯には再タップを通知する口（`onActiveToolReTap`）が以前から
+   * あったが、編集画面がそれを渡していなかったため要件28.8 は成立していなかった。
+   * 主張は「属性パネルが実際に画面から消える／戻る」で置く。
+   */
+  test('(g) 選択中ツールを再タップすると詳細属性パネルが開閉する (REQ-28.8)', async () => {
+    await enterEditMode();
+
+    const arrowTool = sharedPage.getByRole('button', { name: '矢印', exact: true });
+    const stylePanel = sharedPage.getByTestId('style-options');
+
+    // 前提: 描画ツールを選ぶと属性パネルが出ている（既定の状態）
+    await selectTool('矢印');
+    await expect(stylePanel, '矢印ツール選択直後に属性パネルが出ていない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
+
+    // 1 回目の再タップ: 閉じる（既定でない状態へ移す）
+    await arrowTool.tap();
+    await expect(stylePanel, '再タップで属性パネルが閉じない').toBeHidden({
+      timeout: getTimeout(5000),
+    });
+    // 選択状態は維持される
+    await expect(arrowTool, '再タップで選択状態が外れた').toHaveAttribute('aria-pressed', 'true');
+
+    // 2 回目の再タップ: 開く
+    await arrowTool.tap();
+    await expect(stylePanel, '再々タップで属性パネルが戻らない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
+
+    // 戻ったパネルは操作できる（表示だけの張りぼてではない）
+    await expect(
+      stylePanel.getByTestId('line-width'),
+      '戻った属性パネルに線の太さの入力が無い'
+    ).toBeVisible();
+  });
+
+  /**
+   * (h) ツール項目の長押しでツールヒント（名称・短い説明）を表示する
+   *     Requirement 29.6
+   *
+   * Task 115.104: 従来は `title` 属性のみで、指操作では説明に到達できなかった。
+   * 判定時間はテスト側に数値を複製せず本番の閾値（LONG_PRESS_MS）を参照し、
+   * 「閾値前は出ない」「閾値を越えると出る」の両方を実測した経過時間つきで確かめる。
+   */
+  test('(h) ツール項目を長押しすると名称と短い説明のツールヒントが出る (REQ-29.6)', async () => {
+    await enterEditMode();
+
+    const dimensionTool = sharedPage.getByRole('button', { name: '寸法線', exact: true });
+    await expect(dimensionTool).toBeVisible({ timeout: getTimeout(10000) });
+    const buttonBox = await dimensionTool.boundingBox();
+    expect(buttonBox, '寸法線ツールのタップ領域が取得できない').not.toBeNull();
+    const pressPoint = {
+      x: buttonBox!.x + buttonBox!.width / 2,
+      y: buttonBox!.y + buttonBox!.height / 2,
+    };
+
+    const tooltip = sharedPage.getByTestId('tool-tooltip-dimension');
+
+    // 押していない間は出ていない（表示の契機が長押しであることを示す）
+    await expect(tooltip, '長押しの前からツールヒントが出ている').toHaveCount(0);
+
+    await dispatchTouch('touchStart', [{ x: pressPoint.x, y: pressPoint.y, id: 0 }]);
+    // 経過の計測は単調時計で行う。WSL2 では壁時計（Date.now）が単調時計より遅く進むため、
+    // 壁時計で測ると実経過が閾値を越えていても「閾値未満」と見える。
+    // その場合、下の自己検査は通るのに「閾値前は出ない」を確かめられていない偽の緑になる。
+    const pressedAt = performance.now();
+
+    // 閾値に届く前は出ない。
+    // ここの待機は「状態が落ち着いたはず」という前提ではなく、**主題そのもの**である。
+    // 要件が定めるのは時間の経過に対する挙動であり、代わりに待てる条件は存在しない。
+    // そのため待機は残し、待機が意図どおりの時点を作れたことを直下で実測して裏づける。
+    await sharedPage.waitForTimeout(BEFORE_LONG_PRESS_WAIT_MS);
+    await expect(tooltip, '閾値に届く前にツールヒントが出た').toHaveCount(0);
+    const elapsedBefore = performance.now() - pressedAt;
+    expect(
+      elapsedBefore,
+      `早期観測が長押し閾値(${LONG_PRESS_MS}ms)を越えており「閾値前は出ない」を確かめられていない`
+    ).toBeLessThan(LONG_PRESS_MS);
+
+    // 閾値を越えて保持すると出る
+    await sharedPage.waitForTimeout(LONG_PRESS_HOLD_MS);
+    const elapsedHold = performance.now() - pressedAt;
+    expect(
+      elapsedHold,
+      `保持時間が長押し閾値(${LONG_PRESS_MS}ms)に届いていない`
+    ).toBeGreaterThanOrEqual(LONG_PRESS_MS);
+
+    await expect(tooltip, '長押ししてもツールヒントが出ない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
+    await expect(tooltip, 'ツールヒントに名称が無い').toContainText(
+      TOOL_DEFINITIONS.dimension.label
+    );
+    await expect(tooltip, 'ツールヒントに短い説明が無い').toContainText(
+      TOOL_DEFINITIONS.dimension.description
+    );
+
+    // 指を離すと消える
+    await releaseTouch();
+    await expect(tooltip, '指を離してもツールヒントが残っている').toHaveCount(0);
+  });
+
+  /**
+   * (i) ツールバーの項目全てへ、指の横スクロールだけで到達し、到達した項目を指で操作できる
+   *     Requirement 28.2
+   *
+   * Task 115.201: 要件28.2 の担保はこれまで JSDOM の宣言（`overflowX: 'auto'` が在ること）
+   * だけであり、実ブラウザでの到達性を測るものが無かった。その弱さは変異で実測した。
+   * 宣言を残したままツールバーへ `touch-action: none` を足すと、利用者は指で払えなくなり
+   * 全項目へ到達できなくなるが、`AnnotationToolbar.mobile.test.tsx` は全件緑
+   * （115.201 時点で 12 件。Task 115.203 が分岐を明示して測り直したため現在は 18 件であり、
+   * いずれも宣言と操作要素の集合だけを見るので `touch-action` の追加では動かない）、
+   * (d)・(10)・(11) も緑のままであった（(d) の `tap()` は Playwright の
+   * プログラム的スクロールで位置を作り直すため、指で到達できるかを何も述べていない）。
+   * この改変で赤になるのは本検証だけである。
+   *
+   * HEAD で測り直した実測値（モバイル幅 375 / ツールバーの表示幅 295）:
+   *   - 選択ツール・属性パネル無し: ツールバー内部幅 992
+   *   - テキストツール・属性パネル有り（項目 20 件 = 道具 9 + パネル 6 + アクション 5。
+   *     項目が最も多く内部幅が最大になる状態）: ツールバー内部幅 1646
+   *   - 上記の状態での項目の幅の合計 1132（画面幅 375 を超えるため、折返しか横スクロールの
+   *     いずれかが無ければ全項目へは到達できない）
+   *
+   * 本検証は位置を変える手段を実タッチの払いだけに限る。これはブラウザのジェスチャー認識を
+   * 通るため、利用者がスクロールできない箱（`overflow: hidden` や `touch-action: none`）を
+   * 動かせない。
+   * 到達の判定は「祖先のクリップ矩形と可視ビューポートの共通部分に矩形が完全に収まる」ことと
+   * 「中心点の当たり判定が当該項目自身（またはその子孫）を返す」ことの両立で行う。
+   */
+  test('(i) ツールバー項目全てへ指の横スクロールだけで到達し操作できる (REQ-28.2)', async () => {
+    await enterEditMode();
+
+    // ---- 段1: 画面外にある道具へ指のスクロールだけで到達し、指で操作できる ----
+    //
+    // 要件28.2 の前提（「項目が画面幅に収まらない」）が実際に起きていることは、
+    // 実装が採る手段（折返しか横スクロールか）に依らない形で二つ確かめる。
+    //   - 段1: 最後の道具が初期状態で到達できない（＝一画面に収まっていない）
+    //   - 段2: 項目の幅の合計が画面幅を超える（＝一行には並べられない）
+    // 前提が崩れたときは沈黙して飛ばさず失敗させる。
+    const lastToolId = TOOL_ORDER[TOOL_ORDER.length - 1];
+    assertPrepared(lastToolId, '本番の TOOL_ORDER が持つ最後の道具');
+    const lastToolLabel = TOOL_DEFINITIONS[lastToolId].label;
+
+    let items = await readToolbarReach();
+    const lastToolIndex = items.findIndex((item) => item.tool === lastToolId);
+    expect(
+      lastToolIndex,
+      `道具「${lastToolLabel}」がツールバーに存在しません`
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      isToolbarItemReachable(toolbarItemAt(items, lastToolIndex)),
+      `道具「${lastToolLabel}」が初期状態で既に到達可能であり、スクロールによる到達を` +
+        'この検証で確かめられません（ツールバーが折返しへ変わった可能性があります。' +
+        'その場合は折返しでの到達を測る形へ本検証を作り直すこと）'
+    ).toBe(false);
+
+    let signature = positionSignature(items);
+    let previousSignature = Number.NaN;
+    let swipes = 0;
+    while (
+      !isToolbarItemReachable(toolbarItemAt(items, lastToolIndex)) &&
+      swipes < MAX_TOOLBAR_SWIPES &&
+      signature !== previousSignature
+    ) {
+      previousSignature = signature;
+      await swipeToolbarHorizontally(TOOLBAR_SWIPE_PX);
+      swipes += 1;
+      items = await readToolbarReach();
+      signature = positionSignature(items);
+    }
+
+    const lastTool = toolbarItemAt(items, lastToolIndex);
+    expect(
+      isToolbarItemReachable(lastTool),
+      `指の横スクロール ${swipes} 回でも道具「${lastToolLabel}」へ到達できません` +
+        `（矩形 ${Math.round(lastTool.left)}..${Math.round(lastTool.right)} / ` +
+        `クリップ ${Math.round(lastTool.clipLeft)}..${Math.round(lastTool.clipRight)} / ` +
+        `中心の当たり判定 ${lastTool.hitsSelf ? '成立' : '不成立'}）。` +
+        '利用者がスクロールできない領域へ項目が置かれている疑いがあります'
+    ).toBe(true);
+
+    // 到達した位置を指でタップして操作が成立することまで確かめる。Playwright の `tap()` は
+    // 使わない（プログラム的スクロールで位置を作り直してしまい、到達性を跨いでしまうため）。
+    await tapAt(lastTool.left + lastTool.width / 2, lastTool.top + lastTool.height / 2);
+    const lastToolButton = sharedPage.getByRole('button', { name: lastToolLabel, exact: true });
+    await expect(
+      lastToolButton,
+      `到達した道具「${lastToolLabel}」を指でタップしても選択状態になりません`
+    ).toHaveAttribute('aria-pressed', 'true', { timeout: getTimeout(10000) });
+    await expect(
+      sharedPage.getByTestId('style-options'),
+      '道具の選択に伴う属性パネルが開かず、項目数が最大の状態を作れません'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    // ---- 段2: 項目数が最大の状態で、全項目へ指のスクロールだけで到達できる ----
+    // 指のスクロールで左端まで戻れること自体も「項目全てにアクセス可能」の一部である。
+    items = await readToolbarReach();
+    signature = positionSignature(items);
+    previousSignature = Number.NaN;
+    swipes = 0;
+    while (swipes < MAX_TOOLBAR_SWIPES && signature !== previousSignature) {
+      previousSignature = signature;
+      await swipeToolbarHorizontally(-TOOLBAR_SWIPE_PX);
+      swipes += 1;
+      items = await readToolbarReach();
+      signature = positionSignature(items);
+    }
+
+    // 母集団の個数を先に突き合わせる。全件走査だけでは、項目が描かれていなくても空振りで
+    // 緑になる（母集団の定義は本ファイル冒頭の宣言に従う）。
+    const expectedItemCount =
+      TOOL_BUTTON_COUNT + PANEL_CONTROL_COUNT[lastToolId] + ACTION_BUTTON_COUNT;
+    expect(
+      items.map((item) => item.name),
+      `${lastToolLabel}: ツールバーの項目の個数が宣言と一致しません`
+    ).toHaveLength(expectedItemCount);
+
+    // 一行に収まらないことを寸法から直接示す（レイアウト手段に依存しない前提の確認）。
+    const totalItemWidth = items.reduce((sum, item) => sum + item.width, 0);
+    expect(
+      totalItemWidth,
+      `項目の幅の合計 ${Math.round(totalItemWidth)} が画面幅 ${MOBILE_VIEWPORT.width} 以下であり、` +
+        '折返しもスクロールも要らない状態です（要件28.2 の場合分けに入っていません）'
+    ).toBeGreaterThan(MOBILE_VIEWPORT.width);
+
+    // 失敗時の手掛かりとしてツールバーの内部幅・表示幅を控える（主張には用いない。
+    // 要件28.2 は折返しでの到達も認めており、内部幅が表示幅を超えることを要求しないため）。
+    const extentWithPanel = await readToolbarExtent();
+
+    const reached = new Set<number>();
+    const rememberReached = (scanned: ToolbarItemReach[]): void => {
+      scanned
+        .map((item, index) => ({ item, index }))
+        .filter((entry) => isToolbarItemReachable(entry.item))
+        .forEach((entry) => reached.add(entry.index));
+    };
+
+    rememberReached(items);
+    signature = positionSignature(items);
+    previousSignature = Number.NaN;
+    swipes = 0;
+    while (
+      reached.size < expectedItemCount &&
+      swipes < MAX_TOOLBAR_SWIPES &&
+      signature !== previousSignature
+    ) {
+      previousSignature = signature;
+      await swipeToolbarHorizontally(TOOLBAR_SWIPE_PX);
+      swipes += 1;
+      items = await readToolbarReach();
+      signature = positionSignature(items);
+      rememberReached(items);
+    }
+
+    const unreached = items
+      .map((item, index) => ({ item, index }))
+      .filter((entry) => !reached.has(entry.index))
+      .map(
+        (entry) =>
+          `${entry.item.name}[矩形 ${Math.round(entry.item.left)}..${Math.round(entry.item.right)} / ` +
+          `クリップ ${Math.round(entry.item.clipLeft)}..${Math.round(entry.item.clipRight)} / ` +
+          `中心の当たり判定 ${entry.item.hitsSelf ? '成立' : '不成立'}]`
+      );
+    expect(
+      unreached,
+      `指の横スクロール ${swipes} 回でも到達できない項目が残っています` +
+        `（ツールバー内部幅 ${extentWithPanel.scrollWidth} / 表示幅 ${extentWithPanel.clientWidth}）。` +
+        '折返しもスクロールも与えられていないか、利用者が動かせない領域へ切り取られています'
+    ).toEqual([]);
+  });
+
+  /**
+   * ツールバーの横スクロールの箱の末端の実測（Task 118.1）
+   *
+   * 末尾の項目の矩形と、箱の内側の右端（`left + clientLeft + clientWidth`。枠線の内側で、
+   * 縦のスクロールバーを除く）を同じ瞬間に取る。失敗時の手掛かりとして、箱の右の padding と
+   * 末尾の項目を包むコンテナの矩形も控える（主張には用いない）。
+   */
+  async function readToolbarTrailingEdge(): Promise<{
+    scrollLeft: number;
+    maxScrollLeft: number;
+    scrollWidth: number;
+    clientWidth: number;
+    innerRight: number;
+    paddingRight: string;
+    containerRight: number;
+    pageScrollWidth: number;
+    pageInnerWidth: number;
+    last: { name: string; left: number; right: number; width: number; visible: boolean };
+  }> {
+    return await sharedPage.getByTestId('annotation-toolbar').evaluate((toolbar) => {
+      const items = Array.from(toolbar.querySelectorAll('button, input, select'));
+      const lastElement = items[items.length - 1];
+      if (lastElement === undefined) {
+        throw new Error('ツールバーの項目（button / input / select）が一つも存在しません');
+      }
+      const box = toolbar.getBoundingClientRect();
+      const rect = lastElement.getBoundingClientRect();
+      const style = window.getComputedStyle(lastElement);
+      const container = lastElement.parentElement;
+      return {
+        scrollLeft: toolbar.scrollLeft,
+        maxScrollLeft: toolbar.scrollWidth - toolbar.clientWidth,
+        scrollWidth: toolbar.scrollWidth,
+        clientWidth: toolbar.clientWidth,
+        innerRight: box.left + toolbar.clientLeft + toolbar.clientWidth,
+        paddingRight: window.getComputedStyle(toolbar).paddingRight,
+        containerRight: container === null ? Number.NaN : container.getBoundingClientRect().right,
+        pageScrollWidth: document.documentElement.scrollWidth,
+        pageInnerWidth: window.innerWidth,
+        last: {
+          name:
+            lastElement.getAttribute('data-testid') ??
+            lastElement.getAttribute('aria-label') ??
+            lastElement.tagName.toLowerCase(),
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          visible: style.visibility === 'visible' && style.display !== 'none',
+        },
+      };
+    });
+  }
+
+  test('(j) ツールバーを指で端まで送ると末尾の釦の全体が箱の内側に見える (REQ-28.2/36.5)', async () => {
+    // Task 118.1: 中心の当たり判定で測る (i) は端の欠けを検出しないため、指で端まで送った
+    // ときの末尾の釦の右端と箱の内側の右端を直接比べる。寸法はフォントで変わるため固定値では
+    // 主張せず、矩形の包含で主張する。
+    //
+    // 記録（Task 118.1 の着手時の実測、375x667）: 指で端まで送る経路では、Task 116.1 の検証が
+    // 見た約 13px の欠けは**起きていなかった**（scrollLeft が最大に達し、末尾の釦の右端は
+    // 箱の右の padding 8px の内側に収まる）。欠けは Tab でフォーカスを送る経路でだけ起き、
+    // その主張は (k) が担う。本検証は指の経路で欠けが生じないことの見張りとして置く。
+    //
+    // 項目数が異なる二つの状態（属性パネルが無い既定の状態と、最後の道具を選んで属性パネルを
+    // 開いた状態）の両方で測る。
+    await enterEditMode();
+
+    const lastToolId = TOOL_ORDER[TOOL_ORDER.length - 1];
+    assertPrepared(lastToolId, '本番の TOOL_ORDER が持つ最後の道具');
+    const states: Array<{ label: string; prepare: () => Promise<void> }> = [
+      { label: '既定の状態', prepare: async () => {} },
+      {
+        label: `道具「${TOOL_DEFINITIONS[lastToolId].label}」の属性パネルを開いた状態`,
+        prepare: async () => {
+          await selectTool(TOOL_DEFINITIONS[lastToolId].label);
+          await expect(
+            sharedPage.getByTestId('style-options'),
+            '道具の選択に伴う属性パネルが開かず、項目数が最大の状態を作れません'
+          ).toBeVisible({ timeout: getTimeout(10000) });
+        },
+      },
     ];
 
-    for (const name of toolNames) {
-      const button = sharedPage.getByRole('button', { name });
-      await expect(button).toBeVisible();
-      const boundingBox = await button.boundingBox();
-      expect(boundingBox?.width).toBeGreaterThanOrEqual(44);
-      expect(boundingBox?.height).toBeGreaterThanOrEqual(44);
-      await button.tap();
+    for (const state of states) {
+      await state.prepare();
+
+      // 指の横スクロールだけで右端まで送る（位置が動かなくなるまで払う）。
+      let items = await readToolbarReach();
+      let signature = positionSignature(items);
+      let previousSignature = Number.NaN;
+      let swipes = 0;
+      while (swipes < MAX_TOOLBAR_SWIPES && signature !== previousSignature) {
+        previousSignature = signature;
+        await swipeToolbarHorizontally(TOOLBAR_SWIPE_PX);
+        swipes += 1;
+        items = await readToolbarReach();
+        signature = positionSignature(items);
+      }
+
+      const edge = await readToolbarTrailingEdge();
+      const detail =
+        `${state.label}: スワイプ ${swipes} 回 / scrollLeft ${edge.scrollLeft} / ` +
+        `最大 ${edge.maxScrollLeft} / 内部幅 ${edge.scrollWidth} / 表示幅 ${edge.clientWidth} / ` +
+        `箱の右 padding ${edge.paddingRight} / 箱の内側の右端 ${edge.innerRight.toFixed(1)} / ` +
+        `末尾「${edge.last.name}」 ${edge.last.left.toFixed(1)}..${edge.last.right.toFixed(1)} / ` +
+        `包むコンテナの右端 ${edge.containerRight.toFixed(1)}`;
+
+      // 前提: 箱が実際にあふれていて（スクロールの箱である）、端まで送り切っていること。
+      expect(
+        edge.scrollWidth,
+        `箱があふれておらず端の欠けを測れません（${detail}）`
+      ).toBeGreaterThan(edge.clientWidth);
+      expect(
+        edge.scrollLeft,
+        `指のスクロールで端まで送り切れていません（${detail}）`
+      ).toBeGreaterThanOrEqual(edge.maxScrollLeft - 1);
+      // 前提: 末尾の項目が「エクスポート」であり、描かれて幅を持つこと。
+      expect(edge.last.name, `末尾の項目が想定と異なります（${detail}）`).toBe('エクスポート');
+      expect(edge.last.visible, `末尾の項目が描かれていません（${detail}）`).toBe(true);
+      expect(edge.last.width, `末尾の項目が幅を持ちません（${detail}）`).toBeGreaterThan(0);
+
+      // 主張: 末尾の釦の右端が箱の内側の右端を超えない（＝釦の全体が見えている）。
+      // 小数の丸めの差だけを許す。
+      expect(
+        edge.last.right,
+        `端まで送っても末尾の釦が箱の右端で ${(edge.last.right - edge.innerRight).toFixed(1)}px 欠けています（${detail}）`
+      ).toBeLessThanOrEqual(edge.innerRight + 0.5);
+      // 釦の左端も箱の内側にある（右へ寄せた結果、左が欠けていない）。
+      const innerLeft = edge.innerRight - edge.clientWidth;
+      expect(
+        edge.last.left,
+        `末尾の釦の左端が箱の内側の左端より外にあります（${detail}）`
+      ).toBeGreaterThanOrEqual(innerLeft - 0.5);
+
+      // 要件36.6: ページ全体に水平スクロールが出ない状態が保たれる。
+      expect(
+        edge.pageScrollWidth,
+        `ページ全体に水平スクロールが出ています（${detail}）`
+      ).toBeLessThanOrEqual(edge.pageInnerWidth);
     }
+  });
+
+  test('(k) Tab でツールバーの末尾までフォーカスを送ると各項目の全体が箱の内側に見える (REQ-28.2/36.5)', async () => {
+    // Task 118.1: 375 幅の単段のツールバーを Tab で末尾まで送ると、末尾の「エクスポート」の釦が
+    // 箱の右端で約 13px 欠けたまま止まっていた（着手時の実測: 釦 230..348 / 箱の内側 40..335 /
+    // scrollLeft 1330 / 最大 1351）。原因は Chromium のフォーカス時の寄せが、横方向に一定以上
+    // （実測で 34px・105px）見えている項目を「見えている」と扱ってスクロールしないことにある。
+    // 箱の padding や scroll-padding・scroll-margin を足しても寄せは起きない（着手時に実測）。
+    //
+    // 道具の数が最大になる「テキスト」の属性パネルを開いた状態で、先頭の道具から Tab で一つずつ
+    // 送り、止まった項目ごとに矩形が箱の内側（`left + clientLeft` .. `+ clientWidth`）に
+    // 収まることを主張する。寸法はフォントで変わるため、固定値ではなく矩形の包含で主張する。
+    await enterEditMode();
+    await selectTool(TOOL_DEFINITIONS.text.label);
+    await expect(
+      sharedPage.getByTestId('style-options'),
+      '道具の選択に伴う属性パネルが開かず、項目数が最大の状態を作れません'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    const toolbar = sharedPage.getByTestId('annotation-toolbar');
+    // 母集団: ツールバーの中で Tab が止まりうる項目（押せない元に戻す・やり直しは止まらない）
+    const expected = await toolbar.evaluate((element) => {
+      element.scrollLeft = 0;
+      return Array.from(element.querySelectorAll('button, input, select'))
+        .filter((item) => !(item as HTMLButtonElement).disabled)
+        .map(
+          (item) =>
+            item.getAttribute('data-testid') ??
+            item.getAttribute('aria-label') ??
+            item.tagName.toLowerCase()
+        );
+    });
+    expect(expected.length, 'Tab が止まる項目が一つもありません').toBeGreaterThan(0);
+    expect(expected[expected.length - 1], '末尾の項目が想定と異なります').toBe('エクスポート');
+
+    const extent = await readToolbarExtent();
+    expect(
+      extent.scrollWidth,
+      `箱があふれておらず端の欠けを測れません（内部幅 ${extent.scrollWidth} / 表示幅 ${extent.clientWidth}）`
+    ).toBeGreaterThan(extent.clientWidth);
+
+    // 先頭の項目へフォーカスを置いてから Tab で送る（先頭は scrollLeft 0 で全体が見えている）。
+    await toolbar.locator('button, input, select').first().focus();
+    const visited: string[] = [];
+    const clipped: string[] = [];
+    for (let step = 0; step < expected.length; step++) {
+      if (step > 0) {
+        await sharedPage.keyboard.press('Tab');
+      }
+      await nextFrame();
+      const snapshot = await toolbar.evaluate((element) => {
+        const active = document.activeElement;
+        if (active === null || !element.contains(active)) {
+          return null;
+        }
+        const box = element.getBoundingClientRect();
+        const rect = active.getBoundingClientRect();
+        const innerLeft = box.left + element.clientLeft;
+        return {
+          name:
+            active.getAttribute('data-testid') ??
+            active.getAttribute('aria-label') ??
+            active.tagName.toLowerCase(),
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          innerLeft,
+          innerRight: innerLeft + element.clientWidth,
+          scrollLeft: element.scrollLeft,
+          maxScrollLeft: element.scrollWidth - element.clientWidth,
+        };
+      });
+      expect(snapshot, `Tab ${step} 回目でフォーカスがツールバーの外へ出ました`).not.toBeNull();
+      const item = snapshot!;
+      visited.push(item.name);
+      expect(item.width, `「${item.name}」が幅を持ちません`).toBeGreaterThan(0);
+      if (item.left < item.innerLeft - 0.5 || item.right > item.innerRight + 0.5) {
+        clipped.push(
+          `${item.name}[${item.left.toFixed(1)}..${item.right.toFixed(1)} / 箱の内側 ` +
+            `${item.innerLeft.toFixed(1)}..${item.innerRight.toFixed(1)} / ` +
+            `scrollLeft ${item.scrollLeft}/${item.maxScrollLeft}]`
+        );
+      }
+    }
+
+    // 母集団を順序と件数まで突き合わせる（一つも巡らずに欠け 0 件で緑になる形を塞ぐ）。
+    expect(visited, 'Tab で巡った項目が母集団と一致しません').toEqual(expected);
+    expect(clipped, 'Tab でフォーカスを送っても、箱の縁で欠けたまま止まる項目があります').toEqual(
+      []
+    );
+
+    // 要件36.6: ページ全体に水平スクロールが出ない状態が保たれる。
+    const page = await sharedPage.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(
+      page.scrollWidth,
+      `ページ全体に水平スクロールが出ています（${page.scrollWidth} > ${page.innerWidth}）`
+    ).toBeLessThanOrEqual(page.innerWidth);
+  });
+
+  /** ツールバーの項目を名前（aria-label）で一つ取り、矩形・箱の内側・フォーカスの状態を返す */
+  async function readToolbarItemState(name: string): Promise<{
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+    innerLeft: number;
+    innerRight: number;
+    scrollLeft: number;
+    maxScrollLeft: number;
+    focused: boolean;
+    focusVisible: boolean;
+    pageScrollX: number;
+    pageScrollY: number;
+  }> {
+    return await sharedPage.getByTestId('annotation-toolbar').evaluate((toolbar, label) => {
+      const item = toolbar.querySelector(`[aria-label="${label}"]`);
+      if (item === null) {
+        throw new Error(`ツールバーに項目「${label}」がありません`);
+      }
+      const box = toolbar.getBoundingClientRect();
+      const rect = item.getBoundingClientRect();
+      const innerLeft = box.left + toolbar.clientLeft;
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        innerLeft,
+        innerRight: innerLeft + toolbar.clientWidth,
+        scrollLeft: toolbar.scrollLeft,
+        maxScrollLeft: toolbar.scrollWidth - toolbar.clientWidth,
+        focused: document.activeElement === item,
+        focusVisible: item.matches(':focus-visible'),
+        pageScrollX: window.scrollX,
+        pageScrollY: window.scrollY,
+      };
+    }, name);
+  }
+
+  /**
+   * 項目の右端が箱の内側の右端から `overflowPx` だけ外へ出る位置へ箱を送る。
+   * 送った後の実測を返す（欠けが実際に生じたことの主張は呼び出し側で行う）。
+   */
+  async function clipToolbarItemOnRight(
+    name: string,
+    overflowPx: number
+  ): Promise<Awaited<ReturnType<typeof readToolbarItemState>>> {
+    const before = await readToolbarItemState(name);
+    const target = before.scrollLeft + (before.right - before.innerRight) - overflowPx;
+    await sharedPage.getByTestId('annotation-toolbar').evaluate((toolbar, left) => {
+      toolbar.scrollLeft = left;
+    }, target);
+    await nextFrame();
+    return await readToolbarItemState(name);
+  }
+
+  /** 欠けた項目の見えている部分の中央を指でタップする */
+  async function tapVisiblePart(state: Awaited<ReturnType<typeof readToolbarItemState>>) {
+    const visibleRight = Math.min(state.right, state.innerRight);
+    await tapAt(
+      Math.round((Math.max(state.left, state.innerLeft) + visibleRight) / 2),
+      Math.round((state.top + state.bottom) / 2)
+    );
+    await nextFrame();
+  }
+
+  test('(l) 箱の縁で欠けた入力欄を指でタップすると全体が箱の内側に入り、ページはスクロールしない (REQ-28.2/36.5)', async () => {
+    // Task 118.1 の独立レビュー（1 巡目）: Chromium では文字・数値の入力欄は指のタップで受けた
+    // フォーカスでも :focus-visible に当たる。欠けた入力欄をタップすると、欠けた分だけ
+    // ツールバーの箱を寄せる（ページや他の祖先はスクロールさせない）。
+    await enterEditMode();
+    await selectTool(TOOL_DEFINITIONS.text.label);
+    await expect(
+      sharedPage.getByTestId('style-options'),
+      '道具の選択に伴う属性パネルが開かず、入力欄を描けません'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    const label = 'フォントサイズ';
+    const clipped = await clipToolbarItemOnRight(label, 20);
+    expect(
+      clipped.right - clipped.innerRight,
+      `前提: 「${label}」が箱の右端で欠けていません（${clipped.right.toFixed(1)} / 箱の内側の右端 ${clipped.innerRight.toFixed(1)}）`
+    ).toBeGreaterThan(1);
+    expect(clipped.focused, `前提: 「${label}」がタップの前からフォーカスを持っています`).toBe(
+      false
+    );
+
+    await tapVisiblePart(clipped);
+    const after = await readToolbarItemState(label);
+
+    expect(after.focused, `「${label}」をタップしてもフォーカスが移りません`).toBe(true);
+    expect(
+      after.focusVisible,
+      `前提: 指のタップで受けた「${label}」のフォーカスが :focus-visible に当たりません`
+    ).toBe(true);
+    expect(
+      after.right,
+      `タップした「${label}」が箱の右端で欠けたままです（${after.left.toFixed(1)}..${after.right.toFixed(1)} / ` +
+        `箱の内側 ${after.innerLeft.toFixed(1)}..${after.innerRight.toFixed(1)} / scrollLeft ${clipped.scrollLeft}→${after.scrollLeft}）`
+    ).toBeLessThanOrEqual(after.innerRight + 0.5);
+    expect(after.left, `タップした「${label}」の左端が箱の外へ出ました`).toBeGreaterThanOrEqual(
+      after.innerLeft - 0.5
+    );
+    expect(
+      { x: after.pageScrollX, y: after.pageScrollY },
+      'タップでページ全体がスクロールしました（寄せるのはツールバーの箱だけであること）'
+    ).toEqual({ x: clipped.pageScrollX, y: clipped.pageScrollY });
+  });
+
+  test('(m) 箱の縁で欠けた釦を指でタップしても箱は動かない (REQ-28.2/36.5)', async () => {
+    // Task 118.1 の独立レビュー（1 巡目）: 釦は指のタップで受けたフォーカスでは :focus-visible に
+    // 当たらないため、寄せない（指で送った位置を利用者の意図に反して変えない）。
+    // 属性パネルの中身を変えないよう、線のみの道具（折れ線）を選んだ状態で、同じ属性パネルを持つ
+    // 線のみの道具（フリーハンド）の釦をタップする。
+    await enterEditMode();
+    await selectTool(TOOL_DEFINITIONS.polyline.label);
+
+    const label = TOOL_DEFINITIONS.freehand.label;
+    const clipped = await clipToolbarItemOnRight(label, 20);
+    expect(
+      clipped.right - clipped.innerRight,
+      `前提: 「${label}」が箱の右端で欠けていません（${clipped.right.toFixed(1)} / 箱の内側の右端 ${clipped.innerRight.toFixed(1)}）`
+    ).toBeGreaterThan(1);
+
+    await tapVisiblePart(clipped);
+    const tool = sharedPage.getByRole('button', { name: label, exact: true });
+    await expect(tool, `「${label}」をタップしても選択状態になりません`).toHaveAttribute(
+      'aria-pressed',
+      'true',
+      { timeout: getTimeout(10000) }
+    );
+    const after = await readToolbarItemState(label);
+
+    expect(
+      after.focusVisible,
+      `前提: 指のタップで受けた「${label}」のフォーカスが :focus-visible に当たっています`
+    ).toBe(false);
+    expect(
+      after.scrollLeft,
+      `欠けた釦をタップしただけで箱が動きました（scrollLeft ${clipped.scrollLeft}→${after.scrollLeft}）`
+    ).toBe(clipped.scrollLeft);
   });
 });
 
@@ -340,7 +2043,13 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     return await sharedPage.evaluate(() => {
       const c = globalThis.__fabricCanvas;
       if (!c) {
-        return { zoom: -1, panX: 0, panY: 0, objectCount: -1, activeType: null };
+        // Task 115.184: 描画面の不在を負の番兵値で返さない。番兵値は実際の件数・
+        // 倍率と同じ number に同居し、増分の主張が「不在(-1)から零(0)へ」でも
+        // 成立してしまう。
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            '描画面の状態を観測できないため、ここで失敗させる'
+        );
       }
       const vpt = c.viewportTransform;
       const active = c.getActiveObject();
@@ -427,7 +2136,11 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
   async function selectTool(name: RegExp): Promise<void> {
     const tool = sharedPage.getByRole('button', { name });
     await expect(tool).toBeVisible({ timeout: getTimeout(5000) });
-    await tool.tap();
+    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
+    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      await tool.tap();
+    }
     await expect(tool).toHaveAttribute('aria-pressed', 'true');
   }
 
@@ -454,16 +2167,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     const projectName = `ピンチズームE2E用PJ_${Date.now()}`;
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>
@@ -539,7 +2243,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
         await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -553,7 +2257,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
         await cleanupPage.goto(`/projects/${createdProjectId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -617,8 +2321,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
       const c = globalThis.__fabricCanvas;
       return c ? c.viewportTransform : null;
     });
-    expect(vpt).not.toBeNull();
-    if (!vpt) return;
+    assertPresent(vpt, '編集キャンバスの viewportTransform');
     const zoom = vpt[0] ?? 1;
     const tx = vpt[4] ?? 0;
     const ty = vpt[5] ?? 0;
@@ -631,8 +2334,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     const expectedTop = (Math.min(relStartY, relEndY) - ty) / zoom;
 
     const last = await readLastObject();
-    expect(last).not.toBeNull();
-    if (!last) return;
+    assertPresent(last, '直近に追加された注釈オブジェクトの保存座標');
     // タッチ模擬の丸めとブラシ閾値を考慮した許容差
     expect(Math.abs(last.left - expectedLeft)).toBeLessThan(20);
     expect(Math.abs(last.top - expectedTop)).toBeLessThan(20);
@@ -671,6 +2373,8 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     expect(Math.abs(afterFitPan.panY - atFit.panY)).toBeLessThan(1);
 
     // 拡大してからパン → panX/panY が変化する（Req 33.4）
+    // 指間距離を 40px → 140px（比 3.5）へ広げる。等倍からのピンチなので
+    // 到達すべき倍率は 3.5（ZOOM_CONSTANTS.MAX_ZOOM=10 未満なのでクランプされない）。
     await twoFingerGesture(
       [
         { x: cx - 20, y: cy },
@@ -682,7 +2386,15 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
       ]
     );
     const zoomed = await readProbe();
-    expect(zoomed.zoom).toBeGreaterThan(1.01);
+    // Req 33.2/33.4: 指を広げ切った最終的な指間距離の比まで拡大していること。
+    //
+    // Task 115.94: ここは以前 `toBeGreaterThan(1.01)` だった。この下限は緩すぎて、
+    // ピンチが最初の 1 ステップ（比 1.313）だけ効いて以降のイベントが捨てられていても
+    // 緑になっていた。実際、touchGestureManager の cooldown タイマが進行中のジェスチャーを
+    // idle へ踏み潰す欠陥により、本検証は常に「1 ステップだけ効いた状態」で通過しており、
+    // 踏み潰しが最初のステップより早く起きた回だけ zoom=1 のまま失敗していた。
+    // 指示した比そのものと突き合わせることで、途中で止まる退行をその場で落とす。
+    expect(zoomed.zoom).toBeCloseTo(3.5, 1);
 
     // 左上方向へ2本指ドラッグ（距離一定）→ panX/panY が負方向へ移動
     await twoFingerGesture(
@@ -698,7 +2410,16 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     const panned = await readProbe();
     const movedX = Math.abs(panned.panX - zoomed.panX);
     const movedY = Math.abs(panned.panY - zoomed.panY);
-    expect(movedX + movedY).toBeGreaterThan(5);
+    // Req 33.4: 2本指中点の移動量（水平 -50px / 垂直 -50px）にパンが最後まで追従すること。
+    // 1 ステップぶん（6.25px）だけ動いて止まる退行を落とすため、「5px より大きい」ではなく
+    // 指示した移動量そのものと突き合わせる（旧来の `movedX + movedY > 5` は本主張に含意される）。
+    //
+    // Task 115.129: 縦方向は以前「clampPan の下限に達しているため 0 になり得る」として
+    // 主張を置けなかった。真因は拡大の中心へ画面座標をそのまま渡していたことで、canvas 要素の
+    // 上端オフセットぶん中心が下へずれ、ピンチ直後に既にパン下限へ張り付いていたためである。
+    // 中心を描画面基準へ揃えた今は、縦方向も指示量どおり追従する。
+    expect(Math.abs(movedX - 50)).toBeLessThan(2);
+    expect(Math.abs(movedY - 50)).toBeLessThan(2);
   });
 
   /**
@@ -758,8 +2479,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     expect(afterFirst.objectCount).toBe(countStart + 1);
 
     const firstObj = await readLastObject();
-    expect(firstObj).not.toBeNull();
-    if (!firstObj) return;
+    assertPresent(firstObj, '先に配置した四角形注釈の保存座標');
 
     // 別の描画ツール（円）に切替え、既存注釈の上から1本指ドラッグ
     await selectTool(/円/i);
@@ -778,10 +2498,60 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
       const first = c.getObjects()[0];
       return first ? { left: first.left ?? 0, top: first.top ?? 0 } : null;
     });
-    expect(firstObjAfter).not.toBeNull();
-    if (!firstObjAfter) return;
+    assertPresent(firstObjAfter, '2本目の描画後の既存注釈の保存座標');
     expect(Math.abs(firstObjAfter.left - firstObj.left)).toBeLessThan(1);
     expect(Math.abs(firstObjAfter.top - firstObj.top)).toBeLessThan(1);
+  });
+
+  /**
+   * (12) ピンチ拡大の中心が2本指中点に固定される（縦方向を含む）
+   *      Requirement 33.3
+   *
+   * Task 115.129: 編集キャンバスは画面上端からヘッダ/パンくず/ツールバーぶん下にある。
+   * 拡大の中心へ画面基準の座標をそのまま渡すと、その要素オフセットぶん中心が下へずれる。
+   * 「中点を基準に拡大する」が成立していれば、**中点に見えている画像上の位置（scene 座標）は
+   * ピンチ前後で変わらない**。この不変量を実ブラウザの実タッチで検証する。
+   */
+  test('(12) ピンチ拡大の中心が2本指中点に固定される（縦方向を含む） (REQ-33.3)', async () => {
+    await enterEditMode();
+    await resetViewport();
+
+    const box = await getCanvasBox();
+    // 中点はキャンバス中央ではなく上寄り（縦オフセットの誤りが顕在化する位置）に置く。
+    const relMidX = box.width / 2;
+    const relMidY = box.height * 0.35;
+    const midX = box.x + relMidX;
+    const midY = box.y + relMidY;
+
+    const before = await readProbe();
+    expect(before.zoom).toBeCloseTo(1, 1);
+    // 中点（描画面座標）に見えている scene 座標。
+    const sceneBeforeX = (relMidX - before.panX) / before.zoom;
+    const sceneBeforeY = (relMidY - before.panY) / before.zoom;
+
+    // 中点を動かさず指間距離を 40px → 140px（比 3.5）へ広げる。
+    await twoFingerGesture(
+      [
+        { x: midX - 20, y: midY },
+        { x: midX + 20, y: midY },
+      ],
+      [
+        { x: midX - 70, y: midY },
+        { x: midX + 70, y: midY },
+      ]
+    );
+
+    const after = await readProbe();
+    // Req 33.2: 指示した指間距離の比そのものまで拡大していること（途中で止まる退行を落とす）。
+    expect(after.zoom).toBeCloseTo(3.5, 1);
+
+    const sceneAfterX = (relMidX - after.panX) / after.zoom;
+    const sceneAfterY = (relMidY - after.panY) / after.zoom;
+    // Req 33.3: 中点に見えている画像上の位置が拡大前後で保たれる＝中点が拡大の中心である。
+    // 画面座標のまま渡す実装へ戻すと、キャンバス上端オフセット由来で縦に約 42.5（scene 座標）
+    // ずれることを実測済み（Task 115.129 の変異検証）。
+    expect(Math.abs(sceneAfterX - sceneBeforeX)).toBeLessThan(5);
+    expect(Math.abs(sceneAfterY - sceneBeforeY)).toBeLessThan(5);
   });
 });
 
@@ -834,14 +2604,12 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
   }
 
   /**
-   * ダブルタップ（DOUBLE_TAP_MS=300ms 以内に同一点を2回タップ）。
-   * touchGestureManager は2回目の pointerdown で `custom:dbltap` を発火する。
+   * ダブルタップ（同一点を2回タップ）。touchGestureManager は2回目の pointerdown で
+   * `custom:dbltap` を発火する。発火間隔が本番の閾値内であることを実測して主張する
+   * （Task 115.69）。
    */
   async function doubleTapAt(x: number, y: number): Promise<void> {
-    await tapAt(x, y);
-    await sharedPage.waitForTimeout(90);
-    await tapAt(x, y);
-    await sharedPage.waitForTimeout(80);
+    await doubleTapWithinThreshold(sharedPage, dispatchTouch, x, y);
   }
 
   /** 1本指ドラッグ（タッチ）。選択ツールでの注釈移動・描画に用いる。 */
@@ -866,7 +2634,13 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     return await sharedPage.evaluate(() => {
       const c = globalThis.__fabricCanvas;
       if (!c) {
-        return { zoom: -1, panX: 0, panY: 0, objectCount: -1, activeType: null };
+        // Task 115.184: 描画面の不在を負の番兵値で返さない。番兵値は実際の件数・
+        // 倍率と同じ number に同居し、増分の主張が「不在(-1)から零(0)へ」でも
+        // 成立してしまう。
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            '描画面の状態を観測できないため、ここで失敗させる'
+        );
       }
       const vpt = c.viewportTransform;
       const active = c.getActiveObject();
@@ -960,7 +2734,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
    * upper-canvas の boundingBox から算出する（ズーム/パン/配置に依存しない確実な指当て）。
    * `recalcOffset()` 後に呼ぶこと（box と Fabric `_offset` を一致させるため）。
    */
-  async function objectCenterClient(index: number): Promise<{ x: number; y: number } | null> {
+  async function objectCenterClient(index: number): Promise<{ x: number; y: number }> {
     const box = await getCanvasBox();
     const info = await sharedPage.evaluate((i) => {
       const c = globalThis.__fabricCanvas as unknown as {
@@ -973,7 +2747,9 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
       const ctr = obj.getCenterPoint();
       return { sx: ctr.x, sy: ctr.y, vpt: c.viewportTransform };
     }, index);
-    if (!info) return null;
+    // 取れなかったまま null を返すと、呼び出し側は指を当てる先が無いことを黙って
+    // 受け入れるほかない（同ファイルの type 指定版は同じ場面で throw している）。
+    assertPresent(info, `${index} 番目の注釈オブジェクトの中心座標`);
     return {
       x: box.x + info.sx * (info.vpt[0] ?? 1) + (info.vpt[4] ?? 0),
       y: box.y + info.sy * (info.vpt[3] ?? 1) + (info.vpt[5] ?? 0),
@@ -1010,7 +2786,11 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
   async function selectTool(name: RegExp): Promise<void> {
     const tool = sharedPage.getByRole('button', { name });
     await expect(tool).toBeVisible({ timeout: getTimeout(5000) });
-    await tool.tap();
+    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
+    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      await tool.tap();
+    }
     await expect(tool).toHaveAttribute('aria-pressed', 'true');
   }
 
@@ -1037,16 +2817,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     const projectName = `ズームUI_E2E用PJ_${Date.now()}`;
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>
@@ -1120,7 +2891,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
         await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -1134,7 +2905,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
         await cleanupPage.goto(`/projects/${createdProjectId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -1151,9 +2922,18 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
   });
 
   /**
-   * (5) 空き領域ダブルタップで拡大⇄全体表示がトグルする（Req 33.8 / 27.1 調停）
+   * (5) 空き領域ダブルタップで拡大⇄全体表示がトグルし、拡大の中心がタップ位置に固定される
+   *     （Req 33.8 / 27.1 調停）
+   *
+   * Task 115.145: 編集キャンバスは画面上端からヘッダ/パンくず/ツールバーぶん下にある。
+   * 拡大の基準点へ画面基準の座標をそのまま渡すと、その要素オフセットぶん中心が下（右）へ
+   * ずれる。「タップ点を中心に拡大する」が成立していれば、**タップ点に見えている画像上の
+   * 位置（scene 座標）は拡大の前後で変わらない**。この不変量を実ブラウザの実タッチで
+   * 検証する（115.129 が 2 本指ピンチ経路へ置いた形と同一）。
+   * タップ点はキャンバス中央ではなく上寄りに置き、縦オフセットの誤りが可動範囲の
+   * クランプに吸収されない位置で観測する。
    */
-  test('(5) 空き領域ダブルタップで拡大/全体表示をトグルする (REQ-33.8)', async () => {
+  test('(5) 空き領域ダブルタップで拡大/全体表示をトグルし拡大の中心がタップ点に固定される (REQ-33.8)', async () => {
     await enterEditMode();
     await recalcOffset();
     // ダブルタップ調停は対象有無で分岐するため、選択ツールで空き領域を確実化する
@@ -1163,12 +2943,19 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await resetViewport();
 
     const box = await getCanvasBox();
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
+    // 描画面（canvas 要素の左上が原点）基準でのタップ位置。
+    const relTapX = box.width / 2;
+    const relTapY = box.height * 0.35;
+    const cx = box.x + relTapX;
+    const cy = box.y + relTapY;
 
     const atFit = await readProbe();
     expect(atFit.zoom).toBeCloseTo(1, 1);
     expect(atFit.objectCount).toBe(0); // 空き領域（注釈なし）
+
+    // タップ点（描画面座標）に見えている scene 座標。
+    const sceneBeforeX = (relTapX - atFit.panX) / atFit.zoom;
+    const sceneBeforeY = (relTapY - atFit.panY) / atFit.zoom;
 
     // 1回目: 等倍 → 拡大
     await doubleTapAt(cx, cy);
@@ -1176,6 +2963,21 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     expect(zoomedIn.zoom).toBeGreaterThan(1.5);
     // ダブルタップズームは新規注釈を作らない（描画誤発火しない）
     expect(zoomedIn.objectCount).toBe(0);
+
+    // Req 33.8 は「拡大表示と全体表示をトグルする」までを定め、拡大の中心には触れていない。
+    // ここで主張する「タップ点に見えている画像上の位置が拡大の前後で保たれる（＝タップ点が
+    // 拡大の中心である）」は、要件原文の言い換えではなく、33.8 の実装が用いる
+    // `canvasViewportController.zoomToPoint` の明文契約（同ファイル冒頭「指定点は描画面基準
+    // であり、clientX/clientY を渡す呼び出し側は必ず toCanvasPoint で基準を揃えること」）と、
+    // design.md の直接操作の原則から導いた受入水準である。
+    // 画面座標のまま渡す実装では、基準点が canvas 要素の原点ぶん（左 box.x / 上 box.y）
+    // ずれた点になり、ずれ量は `オフセット × (1 - 1/2)` になる。Task 115.145 の変異検証で
+    // 実測したずれは縦 50.8 / 横 28.0（いずれも scene 座標）であり、許容差 5 に対して
+    // 10 倍・5.6 倍の余裕がある。
+    const sceneAfterX = (relTapX - zoomedIn.panX) / zoomedIn.zoom;
+    const sceneAfterY = (relTapY - zoomedIn.panY) / zoomedIn.zoom;
+    expect(Math.abs(sceneAfterX - sceneBeforeX)).toBeLessThan(5);
+    expect(Math.abs(sceneAfterY - sceneBeforeY)).toBeLessThan(5);
 
     // 2回目: 拡大中 → 全体表示（fit）へ戻る
     await doubleTapAt(cx, cy);
@@ -1201,6 +3003,10 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await sharedPage.waitForTimeout(200);
     expect((await readProbe()).objectCount).toBe(1);
 
+    // 「編集を抜けた」を主張する前に、**編集に入っていた**ことを確かめる。
+    // 入っていなければ後段の不在の主張は母集団が空のまま通り、何も述べない恒真式になる。
+    await expect.poll(() => readTextEditing(), { timeout: getTimeout(5000) }).toBe(true);
+
     // 選択ツールへ切替え、空き隅をタップして編集を抜け選択も解除する。
     // テキスト編集突入時の隠し textarea フォーカスでページがスクロールするため
     // （キャンバスが可視下部にあり、ブラウザが入力欄を表示領域へスクロールする）、
@@ -1210,15 +3016,13 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await selectTool(/選択/i);
     await recalcOffset();
     await tapAt(box.x + 20, box.y + 20);
-    await sharedPage.waitForTimeout(150);
-    expect(await readTextEditing()).toBe(false);
+    // 「150ms 経てば編集を抜けているはず」という前提を置かず、抜けるまでを条件待ちする。
+    await expect.poll(() => readTextEditing(), { timeout: getTimeout(5000) }).toBe(false);
 
     // テキスト編集の隠し textarea フォーカスで Fabric の内部オフセットが陳腐化し、
     // findTarget が誤判定するため再計算してからテキストの実位置を指す。
     await recalcOffset();
     const textClient = await objectCenterClient(0);
-    expect(textClient).not.toBeNull();
-    if (!textClient) return;
 
     const zoomBefore = (await readProbe()).zoom;
 
@@ -1291,8 +3095,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await oneFingerDrag({ x: cx - 30, y: cy - 25 }, { x: cx + 30, y: cy + 25 });
     expect((await readProbe()).objectCount).toBe(1);
     const before = await readObjectLeftTop(0);
-    expect(before).not.toBeNull();
-    if (!before) return;
+    assertPresent(before, '移動前の四角形注釈の保存座標');
 
     // 選択ツールへ切替え、ズームUIで拡大する（Req 33.12: 拡大状態での選択/移動）
     await selectTool(/選択/i);
@@ -1306,12 +3109,12 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     // 拡大後の四角形の実画面位置を算出してタップ選択する（Req 33.11）
     await recalcOffset();
     const rectClient = await objectCenterClient(0);
-    expect(rectClient).not.toBeNull();
-    if (!rectClient) return;
 
     await tapAt(rectClient.x, rectClient.y);
-    await sharedPage.waitForTimeout(100);
-    expect((await readProbe()).activeType).not.toBeNull();
+    // 「100ms 経てば選択が反映されているはず」という前提を置かず、選択が入るまでを条件待ちする。
+    await expect
+      .poll(async () => (await readProbe()).activeType, { timeout: getTimeout(5000) })
+      .not.toBeNull();
 
     // 選択ハンドルのタッチターゲットが 44px（Req 29.4）
     const cornerSize = await readActiveTouchCornerSize();
@@ -1331,8 +3134,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await sharedPage.waitForTimeout(100);
 
     const after = await readObjectLeftTop(0);
-    expect(after).not.toBeNull();
-    if (!after) return;
+    assertPresent(after, '移動後の四角形注釈の保存座標');
 
     // 画面移動量(px) は scene 移動量 × zoom。指の移動に追従し、かつ倍率を考慮した
     // 移動量になる（拡大中は scene 上の移動量が screen/zoom に縮む）。
@@ -1469,6 +3271,23 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
     await expect(sharedPage.locator('.upper-canvas')).toBeVisible({ timeout: getTimeout(10000) });
   }
 
+  /**
+   * 指定ツールを選択する（Task 115.170）
+   *
+   * Req 28.8: 選択中の道具を再び押すと属性パネルの開閉になるため、既に選択済みなら押さない。
+   * 押してしまうとパネルが閉じ、「属性パネルを開いた状態のツールバーの高さ」を測れなくなる。
+   */
+  async function selectTool(label: string): Promise<void> {
+    const tool = sharedPage.getByRole('button', { name: label, exact: true });
+    await expect(tool).toBeVisible({ timeout: getTimeout(10000) });
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      // 本 describe の共有コンテキストは `hasTouch` を持たない（レイアウトの実測が目的で
+      // あり実タッチを要さないため）。したがって選択は click で行う。
+      await tool.click();
+    }
+    await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  }
+
   /** 必須の矩形を返す（null の場合は失敗させる＝サイレント skip しない）。 */
   async function requireBox(selector: string): Promise<Rect> {
     const box = await sharedPage.locator(selector).first().boundingBox();
@@ -1494,16 +3313,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
     const projectName = `画像編集領域E2E用PJ_${Date.now()}`;
     await sharedPage.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
     const salesPersonSelect = sharedPage.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createProjectPromise = sharedPage.waitForResponse(
       (response) =>
@@ -1579,7 +3389,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
         await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -1593,7 +3403,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
         await cleanupPage.goto(`/projects/${createdProjectId}`);
         await cleanupPage.waitForLoadState('networkidle');
         const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+        if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
           await deleteButton.click();
           const confirmButton = cleanupPage
             .getByTestId('focus-manager-overlay')
@@ -1618,8 +3428,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
     await enterEditMode();
 
     const viewport = sharedPage.viewportSize();
-    expect(viewport).not.toBeNull();
-    if (!viewport) return;
+    assertPresent(viewport, 'モバイル幅の検証で用いるビューポートの寸法');
     const screenShort = Math.min(viewport.width, viewport.height);
 
     const workArea = await requireBox('[data-testid="annotation-editor-container"]');
@@ -1660,6 +3469,68 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
     expect(availHeight).toBeGreaterThan(0);
     const fillRatio = Math.max(canvasBox.width / availWidth, canvasBox.height / availHeight);
     expect(fillRatio).toBeGreaterThanOrEqual(0.85);
+
+    // ------------------------------------------------------------------
+    // Task 115.170: 属性パネルを開いた最悪の状態でも縦占有が増えていないこと
+    //
+    // 要件28.3 の適用範囲を「各項目」へ広げ、属性パネルの操作要素とアクションボタンも
+    // 44x44 以上にした。縦並び（見出しを上に積む）のままだと 1 項目の高さが
+    // 「見出し + 間隔 + 44」になり、単段ツールバーの高さが道具のボタン 1 行分を超える。
+    // 実装は見出しを横へ置くことでこれを避けている（`STYLES.styleItemMobile`）。
+    // その主張を、項目が最も多いテキストツールを選んだ状態の**実ビューポート**で測る。
+    // ------------------------------------------------------------------
+    const toolbarWithoutPanel = toolbar.height;
+    await selectTool('テキスト');
+    await expect(sharedPage.getByTestId('style-options')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    const toolbarWithPanel = await requireBox('[data-testid="annotation-toolbar"]');
+    const workAreaWithPanel = await requireBox('[data-testid="annotation-editor-container"]');
+    const editorWithPanel = await requireBox('.survey-image-viewer__editor');
+
+    expect(
+      toolbarWithPanel.height,
+      `属性パネルを開くとツールバーの縦占有が ${toolbarWithoutPanel} から ` +
+        `${toolbarWithPanel.height} へ増えている（Req 36.5）`
+    ).toBeLessThanOrEqual(toolbarWithoutPanel);
+    expect(toolbarWithPanel.height).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
+    expect(toolbarWithPanel.height, '属性パネルを開くとツールバーが多段化している').toBeLessThan(
+      88
+    );
+
+    // Req 36.3 / 36.5: 属性パネルを開いた状態でも作業領域の確保が崩れない
+    expect(Math.min(workAreaWithPanel.width, workAreaWithPanel.height)).toBeGreaterThanOrEqual(
+      0.5 * screenShort
+    );
+    expect(workAreaWithPanel.height).toBeGreaterThanOrEqual(0.55 * editorWithPanel.height);
+
+    // Req 36.6: ツールバー内部の横幅が最大になる状態（項目が最も多いテキストツールで属性
+    // パネルを開いた状態）でも、ページ全体の水平スクロールを発生させない。
+    // Task 115.170 で各項目を 44 へ広げた結果、ツールバー内部の `scrollWidth` は 992 から
+    // 1646 へ増えている。(11) は最も狭い状態（選択ツール・パネル無し）でしか測らないため、
+    // 最悪の状態はここで固定する。
+    //
+    // あふれを止めているのは二段の仕組みである（Task 115.170 が変異で実測）:
+    //   - ツールバー自身の `overflowX: 'auto'` — 利用者が横スクロールで全項目へ到達できる
+    //     ようにする（Req 28.2）
+    //   - `SiteSurveyImageViewerPage` の `editorContainer` の `overflow: 'hidden'` —
+    //     ページ幅が広がることを防ぐ（Req 36.6）
+    // 片方だけを外してもページ幅は広がらない（前者だけを外すと後者が切り取る）。両方を外すと
+    // 本主張が赤になる。
+    //
+    // ただし今日の封じ込めは状態に依らないため、両方を外す変異では (11)（狭い状態）も赤に
+    // なる。**本主張は現時点では (11) に包摂されており、単独で赤にできる改変は存在しない。**
+    // 値は、封じ込めが将来「状態依存」になった改変——(11) が緑のまま最悪状態だけが破れる形
+    // ——を捕まえる点にある。単独で赤にできる主張と誤読しないこと。
+    const overflowWithPanel = await sharedPage.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(
+      overflowWithPanel.scrollWidth,
+      '属性パネルを開いた状態でページ全体に水平スクロールが発生している（Req 36.6）'
+    ).toBeLessThanOrEqual(overflowWithPanel.innerWidth);
   });
 
   /**

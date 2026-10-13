@@ -30,7 +30,8 @@
  * - `outline.enabled = false` のときは `outlineLine.opacity = 0`（構造は維持）。labelText には影響しない
  *
  * Task 82.2 設計メモ:
- * - `labelText` に `paintFirst='stroke'`, `stroke='#ffffff'`,
+ * - `labelText` に `paintFirst='stroke'`,
+ *   `stroke=ANNOTATION_DEFAULTS.outlineColor`（既定 `#ffffff`）,
  *   `strokeWidth = fontSize * labelOutline.widthRatio`, `strokeUniform=true` を適用
  * - `_labelOutline` 内部状態 + `setLabelOutline()` / `getLabelOutline()` API を追加
  * - `outline`（線部）と `labelOutline`（ラベル部）は互いに独立に状態遷移する
@@ -45,10 +46,23 @@
  * @requirement site-survey/REQ-32.4
  */
 
-import { Path, FabricText, Group, type Canvas } from 'fabric';
+import {
+  Path,
+  FabricText,
+  Group,
+  Control,
+  Point as FabricPoint,
+  util,
+  type Canvas,
+  type TMat2D,
+  type Transform,
+  type TPointerEvent,
+} from 'fabric';
 
 import {
   ANNOTATION_DEFAULTS,
+  resolveShapeOutlineWidth,
+  type DimensionLabelStyle,
   type ShapeOutlineAttribute,
   type TextOutlineAttribute,
 } from '../annotation-style-tokens';
@@ -99,15 +113,11 @@ export interface DimensionLineOptions {
 
 /**
  * 寸法線ラベルのスタイルオプション
+ *
+ * Task 115.98 (Req 26.5): 宣言の実体は `annotation-style-tokens.ts` へ移した。
+ * 既存 consumer の import 元を変えないため、ここから再エクスポートする。
  */
-export interface DimensionLabelStyle {
-  /** フォントサイズ */
-  fontSize: number;
-  /** フォント色 */
-  fontColor: string;
-  /** 背景色（Task 82.1 以降は子 labelText の背景描画なし。Task 82.3 のシリアライズ互換のため保持） */
-  backgroundColor: string;
-}
+export type { DimensionLabelStyle };
 
 /**
  * 寸法線のシリアライズ形式
@@ -144,7 +154,6 @@ export interface DimensionLineJSON {
  *
  * Task 64.3: 本体色/線幅は `ANNOTATION_DEFAULTS`（Req 26.5 一元管理トークン）を参照。
  * Req 26.1: 初期線幅は 3px 以上（ANNOTATION_DEFAULTS.strokeWidth）。
- * ラベル用の `DEFAULT_LABEL_STYLE` は本体色とは別の概念のため変更しない。
  */
 export const DEFAULT_DIMENSION_OPTIONS: DimensionLineOptions = {
   stroke: ANNOTATION_DEFAULTS.stroke,
@@ -154,17 +163,69 @@ export const DEFAULT_DIMENSION_OPTIONS: DimensionLineOptions = {
 
 /**
  * デフォルトのラベルスタイル
+ *
+ * Task 115.98 (Req 26.5): 値の出所を `ANNOTATION_DEFAULTS.dimensionLabel` へ寄せた。
+ * 従来は本ファイルが literal を持ち「本体色とは別の概念」を理由に一元管理の外へ置いていたが、
+ * その理由が正当化するのは**本体色と同じ値にしないこと**であって、資材の外に置くことではない。
+ * 同じラベルの白アウトライン（`ANNOTATION_DEFAULTS.dimensionLabelOutline`）は既に資材側にあり、
+ * `_applyLabelOutlineToText` の `fontSize × widthRatio` は二つの供給元をまたいで算出していた。
+ * 本定数は既定値を保持せず、資材から供給された値の別名として残す（値は変えていない）。
  */
 export const DEFAULT_LABEL_STYLE: DimensionLabelStyle = {
-  fontSize: 12,
-  fontColor: '#000000',
-  backgroundColor: '#ffffff',
+  ...ANNOTATION_DEFAULTS.dimensionLabel,
 };
 
 /**
  * 寸法線を作成する最小距離（ピクセル）
  */
 const MIN_DIMENSION_DISTANCE = 5;
+
+/**
+ * 端点ハンドル（Fabric Control）のキー（Task 115.104 / Req 6.5）
+ *
+ * `InteractiveFabricObject.findControl` は `oCoords` を**逆順**に走査するため、
+ * 既定のスケール用ハンドルより後ろに登録した本ハンドルが重なり合う位置で優先される。
+ */
+export const DIMENSION_ENDPOINT_CONTROL_KEYS = {
+  start: 'dimensionStart',
+  end: 'dimensionEnd',
+} as const;
+
+/**
+ * 端点ハンドルの Fabric Control を生成する（Task 115.104 / Req 6.5）
+ *
+ * - `positionHandler`: 端点のパス空間座標をシーン座標へ写し、さらにビューポート変換を
+ *   適用して返す（Fabric はコントロール座標をビューポート平面で扱う）。
+ * - `actionHandler`: ポインタのシーン座標をパス空間へ引き戻し、対応する端点を更新する。
+ *   `setStartPoint` / `setEndPoint` がジオメトリ再構成とグループ外接矩形の再計算を担う。
+ */
+function createDimensionEndpointControl(which: 'start' | 'end'): Control {
+  return new Control({
+    actionName: 'modifyDimensionEndpoint',
+    cursorStyle: 'crosshair',
+    positionHandler: (
+      _dim: FabricPoint,
+      _finalMatrix: TMat2D,
+      fabricObject: unknown
+    ): FabricPoint => {
+      const dimension = fabricObject as DimensionLine;
+      const scene = dimension.pathPointToScenePoint(
+        which === 'start' ? dimension.startPoint : dimension.endPoint
+      );
+      return scene.transform(dimension.getViewportTransform());
+    },
+    actionHandler: (_eventData: TPointerEvent, transform: Transform, x: number, y: number) => {
+      const dimension = transform.target as DimensionLine;
+      const next = dimension.scenePointToPathPoint(new FabricPoint(x, y));
+      if (which === 'start') {
+        dimension.setStartPoint(next);
+      } else {
+        dimension.setEndPoint(next);
+      }
+      return true;
+    },
+  });
+}
 
 // ============================================================================
 // ヘルパー関数
@@ -372,14 +433,19 @@ export class DimensionLine extends Group {
     const pathData = generateDimensionLinePath(startPoint, endPoint, mergedOptions.capLength);
 
     // 白縁取り属性（ANNOTATION_DEFAULTS から複製）
-    const outline: ShapeOutlineAttribute = { ...ANNOTATION_DEFAULTS.dimensionOutline };
+    // Task 115.53 (Req 32.2): 片側幅は既定線幅由来の固定値ではなく本体線幅から算出し、
+    // 描画される縁取り線幅が本体線幅の 1.5 倍以上となる比率を全線幅で満たす。
+    const outline: ShapeOutlineAttribute = {
+      ...ANNOTATION_DEFAULTS.dimensionOutline,
+      width: resolveShapeOutlineWidth(mergedOptions.strokeWidth),
+    };
 
     // ラベル白アウトライン属性（Task 82.2 / Req 32.12）
     const labelOutline: TextOutlineAttribute = { ...ANNOTATION_DEFAULTS.dimensionLabelOutline };
 
     // 外側 Path（白縁取り）を生成
     // Task 82.1 (Req 32.1, 32.2): outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2
-    //   outlineLine.stroke = '#ffffff'
+    //   outlineLine.stroke = outline.color（資材 ANNOTATION_DEFAULTS.outlineColor 由来の白）
     const outlineLine = new Path(pathData, {
       stroke: outline.color,
       strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
@@ -430,7 +496,8 @@ export class DimensionLine extends Group {
     };
     if (labelOutline.enabled) {
       labelTextOptions.paintFirst = 'stroke';
-      labelTextOptions.stroke = '#ffffff';
+      // Task 115.150 (Req 26.5): 白アウトラインの色は一元管理の資材から供給する
+      labelTextOptions.stroke = ANNOTATION_DEFAULTS.outlineColor;
       labelTextOptions.strokeWidth = DEFAULT_LABEL_STYLE.fontSize * labelOutline.widthRatio;
       labelTextOptions.strokeUniform = true;
     }
@@ -468,6 +535,13 @@ export class DimensionLine extends Group {
     this._labelText = labelText;
     this.stroke = mergedOptions.stroke;
     this.strokeWidth = mergedOptions.strokeWidth;
+
+    // 端点ハンドル（Task 115.104 / Req 6.5）を既定ハンドルの後ろへ登録する
+    this.controls = {
+      ...this.controls,
+      [DIMENSION_ENDPOINT_CONTROL_KEYS.start]: createDimensionEndpointControl('start'),
+      [DIMENSION_ENDPOINT_CONTROL_KEYS.end]: createDimensionEndpointControl('end'),
+    };
 
     // カスタムデータを初期化
     this.customData = {
@@ -588,11 +662,78 @@ export class DimensionLine extends Group {
     this._updateGeometry();
   }
 
+  // ==========================================================================
+  // パス空間とシーン座標の対応（Task 115.104 / Req 6.5）
+  // ==========================================================================
+
+  /**
+   * 子要素が並ぶ「パス空間」の原点を、グループのローカル座標系で表した点。
+   *
+   * `_startPoint` / `_endPoint` は生成時のシーン座標をそのまま保持する一方、Group の子は
+   * グループ中心を原点とするローカル座標で並ぶ。両者の差（＝グループ中心のパス空間座標）が
+   * 本メソッドの戻り値であり、`ローカル = パス空間 - 本値` が常に成り立つ。
+   *
+   * 本体線は生成時に `_setPath(pathData, true)` で「中心 = pathOffset」に置かれるため、
+   * `pathOffset - 相対中心` がそのまま原点になる。
+   */
+  private _pathSpaceOrigin(): FabricPoint {
+    return this._bodyLine.pathOffset.subtract(this._bodyLine.getRelativeCenterPoint());
+  }
+
+  /**
+   * 子要素の外接矩形をパス空間（＝この呼出し時点の子の座標系）で求める。
+   *
+   * `calcACoords()` は親（グループ）相対の座標を返すため、子を一時的にパス空間座標へ
+   * 置いた直後に呼ぶことで、パス空間での外接矩形が得られる。
+   */
+  private _calcChildrenBoundingBox(): { center: FabricPoint; width: number; height: number } {
+    const points: FabricPoint[] = [];
+    for (const child of [this._outlineLine, this._bodyLine, this._labelText]) {
+      const { tl, tr, br, bl } = child.calcACoords();
+      points.push(tl, tr, br, bl);
+    }
+    const bbox = util.makeBoundingBoxFromPoints(points);
+    return {
+      center: new FabricPoint(bbox.left + bbox.width / 2, bbox.top + bbox.height / 2),
+      width: bbox.width,
+      height: bbox.height,
+    };
+  }
+
+  /**
+   * パス空間の点をシーン座標へ写す（Task 115.104 / Req 6.5）
+   */
+  pathPointToScenePoint(point: Point): FabricPoint {
+    const local = new FabricPoint(point.x, point.y).subtract(this._pathSpaceOrigin());
+    return local.transform(this.calcTransformMatrix());
+  }
+
+  /**
+   * シーン座標の点をパス空間へ引き戻す（Task 115.104 / Req 6.5）
+   */
+  scenePointToPathPoint(point: FabricPoint): Point {
+    const local = point.transform(util.invertTransform(this.calcTransformMatrix()));
+    const origin = this._pathSpaceOrigin();
+    return { x: local.x + origin.x, y: local.y + origin.y };
+  }
+
   /**
    * ジオメトリを更新（端点変更時）
    *
    * Task 82.1 (Req 32.4): outlineLine と bodyLine の双方に同一 path data を適用する。
    * labelText 位置も中央に追従する。
+   *
+   * Task 115.104 (Req 6.5): Task 82.1 で `Path` 継承から `Group` 継承へ移った際、本処理は
+   * 「子へ絶対座標のパスを流し込むだけ」のまま残っていた。Group の子はグループ中心を原点と
+   * するローカル座標で並ぶうえ、グループ自身の `width` / `height` / `left` / `top` は子の
+   * 変形では追随しない。そのため端点を動かしても外接矩形・当たり判定・ハンドル位置が
+   * 生成時のまま固まり、ラベルはローカル座標系に絶対座標が書き込まれてずれていた。
+   * 端点操作を本番へ結線するにあたり、以下の順で整合させる:
+   *
+   * 1. 変更前のパス空間原点とグループ中心を控える
+   * 2. 子を**パス空間の絶対座標**で再構成する
+   * 3. 子の外接矩形から新しいパス空間原点と大きさを求め、子をローカル座標へ移す
+   * 4. 原点の移動量だけグループ中心をずらし、**動いていない点がシーン上で動かない**ようにする
    */
   private _updateGeometry(): void {
     // 角度と距離を再計算
@@ -602,13 +743,30 @@ export class DimensionLine extends Group {
     // 新しいパスデータを生成
     const pathData = generateDimensionLinePath(this._startPoint, this._endPoint, this._capLength);
 
-    // 両方の子 Path を更新（Fabric.js v6/v7 の内部 API）
-    this._outlineLine._setPath(pathData);
-    this._bodyLine._setPath(pathData);
+    // 1. 変更前の対応関係を控える
+    const originBefore = this._pathSpaceOrigin();
+    const centerBefore = this.getRelativeCenterPoint();
 
-    // labelText の中央位置を更新
+    // 2. 子をパス空間の絶対座標で再構成する（第2引数 true で中心を pathOffset へ合わせる）
+    this._outlineLine._setPath(pathData, true);
+    this._bodyLine._setPath(pathData, true);
     const centerPos = this._calculateCenterPosition();
     this._labelText.set({ left: centerPos.x, top: centerPos.y });
+
+    // 3. パス空間での外接矩形から新しい原点を得て、子をローカル座標へ移す
+    const bbox = this._calcChildrenBoundingBox();
+    const originAfter = bbox.center;
+    for (const child of [this._outlineLine, this._bodyLine, this._labelText]) {
+      child.set({ left: child.left - originAfter.x, top: child.top - originAfter.y });
+      child.setCoords();
+    }
+    this.set({ width: bbox.width, height: bbox.height });
+
+    // 4. 原点の移動分だけグループ中心をずらす（回転・拡大は保ったまま写す）
+    const shift = originAfter.subtract(originBefore).transform(this.calcOwnMatrix(), true);
+    this.setPositionByOrigin(centerBefore.add(shift), 'center', 'center');
+
+    this.dirty = true;
 
     // 座標を更新
     this.setCoords();
@@ -616,12 +774,35 @@ export class DimensionLine extends Group {
 
   /**
    * 中央位置を計算
+   *
+   * 戻り値は `_startPoint` / `_endPoint` と同じ**パス空間**の座標である。
+   * Group の子へ書き込む際はそのまま使えない（`_placeLabelAtCenter` を用いること）。
    */
   private _calculateCenterPosition(): Point {
     return {
       x: (this._startPoint.x + this._endPoint.x) / 2,
       y: (this._startPoint.y + this._endPoint.y) / 2,
     };
+  }
+
+  /**
+   * ラベルを寸法線の中点へ置く（Task 115.152 / Req 6.3）
+   *
+   * `_calculateCenterPosition()` が返すのは端点と同じ**パス空間**の座標であり、Group の子は
+   * グループ中心を原点とする**局所座標**で並ぶ。両者の差が `_pathSpaceOrigin()` であり、
+   * `局所 = パス空間 - 原点` が常に成り立つ（Task 115.104 が `_updateGeometry` で確立した
+   * 対応関係で、同メソッドの手順 3 が全ての子に対して行っている変換と同一である）。
+   *
+   * 変換を挟まずパス空間の値を直接書き込むと、ラベルだけが原点の分（水平な寸法線
+   * (100,100)-(300,100) では (200,100)）ずれた位置へ跳び、線から離れて描かれる。
+   * 端点をつまんで動かす経路（Req 6.5）は直後に `_updateGeometry` が全ての子を
+   * 書き直すため表面化しないが、寸法値を設定する経路（Req 6.3）では跳んだままになる。
+   */
+  private _placeLabelAtCenter(): void {
+    const centerPos = this._calculateCenterPosition();
+    const origin = this._pathSpaceOrigin();
+    this._labelText.set({ left: centerPos.x - origin.x, top: centerPos.y - origin.y });
+    this._labelText.setCoords();
   }
 
   // ==========================================================================
@@ -649,6 +830,8 @@ export class DimensionLine extends Group {
   setStrokeWidth(width: number): void {
     this.strokeWidth = width;
     this._bodyLine.set('strokeWidth', width);
+    // Task 115.53 (Req 32.2): 本体線幅の変更に追随して片側幅も再算出する
+    this._outline = { ...this._outline, width: resolveShapeOutlineWidth(width) };
     this._outlineLine.set('strokeWidth', width + this._outline.width * 2);
     this.set('strokeWidth', width);
   }
@@ -735,7 +918,8 @@ export class DimensionLine extends Group {
    * ラベル白アウトライン属性を部分更新
    *
    * Task 82.2 (Req 32.12):
-   * - enabled=true のとき labelText に `paintFirst='stroke'`, `stroke='#ffffff'`,
+   * - enabled=true のとき labelText に `paintFirst='stroke'`,
+   *   `stroke=ANNOTATION_DEFAULTS.outlineColor`（既定 `#ffffff`）,
    *   `strokeWidth = fontSize * widthRatio`, `strokeUniform=true` を適用する
    * - enabled=false のとき labelText の `stroke=''`, `strokeWidth=0` で無効化する
    * - 線部の `outline` 属性とは独立に状態遷移する（互いに影響しない）
@@ -770,7 +954,7 @@ export class DimensionLine extends Group {
    * 現在の `_labelOutline` 状態と labelText.fontSize を元に labelText の描画属性を再適用する
    *
    * Task 82.2 (Req 32.12): `setLabelOutline` および フォントサイズ/寸法値変更時に呼び出される集約処理。
-   * - enabled=true: paintFirst='stroke', stroke='#ffffff',
+   * - enabled=true: paintFirst='stroke', stroke=ANNOTATION_DEFAULTS.outlineColor（既定 #ffffff）,
    *   strokeWidth = fontSize * widthRatio, strokeUniform=true
    * - enabled=false: stroke='', strokeWidth=0
    */
@@ -779,7 +963,8 @@ export class DimensionLine extends Group {
     if (this._labelOutline.enabled) {
       this._labelText.set({
         paintFirst: 'stroke',
-        stroke: '#ffffff',
+        // Task 115.150 (Req 26.5): 色の供給元はコンストラクタ経路と同じ資材である
+        stroke: ANNOTATION_DEFAULTS.outlineColor,
         strokeWidth: fontSize * this._labelOutline.widthRatio,
         strokeUniform: true,
       });
@@ -872,8 +1057,8 @@ export class DimensionLine extends Group {
     });
 
     // 中央位置を更新
-    const centerPos = this._calculateCenterPosition();
-    this._labelText.set({ left: centerPos.x, top: centerPos.y });
+    // Task 115.152 (Req 6.3): パス空間の中点を局所座標へ写して書き込む
+    this._placeLabelAtCenter();
 
     // Task 82.2 (Req 32.12): フォントサイズが変わった可能性があるため
     // labelOutline.strokeWidth を fontSize * widthRatio で再計算する。
@@ -899,10 +1084,11 @@ export class DimensionLine extends Group {
 
   /**
    * ラベル位置を更新（DimensionLine 移動時に呼び出す）
+   *
+   * Task 115.152 (Req 6.3): パス空間の中点を局所座標へ写して書き込む
    */
   updateLabelPosition(): void {
-    const centerPos = this._calculateCenterPosition();
-    this._labelText.set({ left: centerPos.x, top: centerPos.y });
+    this._placeLabelAtCenter();
   }
 
   /**

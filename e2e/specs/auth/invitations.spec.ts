@@ -396,15 +396,15 @@ test.describe('管理者招待機能', () => {
     // 確認ボタンをクリック
     await page.getByRole('button', { name: /はい、取り消します/i }).click();
 
-    // 招待一覧から削除されているまたはステータスが「revoked」/「取り消し済み」になっている
-    // (実装によって異なる場合があるため、両方をチェック)
-    await expect(async () => {
-      const isDeleted = (await invitationRow.count()) === 0;
-      const isCancelled = isDeleted
-        ? true
-        : await invitationRow.locator('text=/revoked|取り消し済み|Cancelled/i').isVisible();
-      expect(isDeleted || isCancelled).toBe(true);
-    }).toPass({ timeout: getTimeout(10000) });
+    // 要件13.8: 未使用の招待を取り消すと招待は無効化される。
+    // 実装は行を消さずに残し、状態表示を「取り消し済み」へ変える。
+    // 以前は「行が消えた」との論理和で判定していたが、行が消える経路は実装に無く、
+    // 消えた場合を真とする側は取り消しが反映されなくても成立し得た。
+    // 行が残り続けることと、その行が取り消し済みを示すことの双方を主張する。
+    await expect(invitationRow).toHaveCount(1);
+    await expect(invitationRow.locator('text=/revoked|取り消し済み|Cancelled/i')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
   });
 
   /**
@@ -536,9 +536,17 @@ test.describe('管理者招待機能', () => {
     // モバイルビューポートに設定
     await page.setViewportSize({ width: 375, height: 667 });
 
-    // モバイル用のページリロード（リトライ付き）
+    // モバイル用のページリロード（リトライ付き）。
+    // 再試行の継続条件はループの見出しに置く。分岐の内側で break すると、
+    // 「観測結果で黙って脱出する」形になり、以降の検証が消える経路が生まれるためである。
+    // 再試行を使い切ってもエラーが出たままなら、ループ後の無条件の主張で失敗する。
+    // 再試行の間隔は固定時間待機ではなく、次の反復の先頭にある
+    // `goto(waitUntil: 'networkidle')` と入力欄の可視待ちが担う。
+    // 以前は観測の**後ろ**に 500ms の固定待機があったが、`hasError` はその手前で確定しており
+    // 主張の値を一切変えないうえ、最終反復では不在の主張の直前の無意味な遅延になっていた。
     const maxRetries = 3;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+    let hasError = true;
+    for (let attempt = 0; attempt < maxRetries && hasError; attempt++) {
       await page.goto('/admin/invitations', { waitUntil: 'networkidle' });
 
       if (page.url().includes('/login')) {
@@ -553,14 +561,11 @@ test.describe('管理者招待機能', () => {
       // APIエラーが表示されていないか確認
       const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);
       const errorAlertCount = await errorAlert.count();
-      const hasError = errorAlertCount > 0 && (await errorAlert.isVisible());
-
-      if (!hasError) {
-        break;
-      }
-
-      await page.waitForTimeout(500);
+      hasError = errorAlertCount > 0 && (await errorAlert.isVisible());
     }
+
+    // 再試行を使い切ってもエラーが残っている場合はここで失敗させる（沈黙させない）
+    expect(hasError, '招待一覧の取得エラーが再試行後も表示されたままである').toBe(false);
 
     // カード形式のレイアウトが表示される
     const mobileCard = page.locator('[data-testid="invitation-card"]');
@@ -592,6 +597,11 @@ test.describe('管理者招待機能', () => {
    * WHEN 確認ダイアログが開かれる
    * THEN フォーカストラップを実装し、Escキーで閉じられる
    * @requirement user-authentication/REQ-13.8
+   * @requirement user-authentication/REQ-15.11
+   *
+   * タスク 115.188 の追記: 直上の散文が名指す受入基準15.11（Escキーで閉じられる）は
+   * 本検証が実際に主張しているのに、被覆印は13.8（取り消しボタンで確認ダイアログを表示）
+   * だけを掲げていた。両方を名乗る。
    */
   test('確認ダイアログがEscキーで閉じられる', async ({ page }) => {
     const prisma = getPrismaClient();

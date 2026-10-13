@@ -4,7 +4,7 @@
  * Task 8.3: レスポンシブ対応を実装する
  *
  * Requirements:
- * - 13.1: デスクトップ・タブレット・スマートフォン対応
+ * - 15.1: デスクトップ・タブレット・スマートフォン対応
  * - グリッド/リスト表示切り替え
  *
  * このコンポーネントは、画面幅と表示モードに応じて
@@ -161,6 +161,20 @@ function ViewModeToggle({
  * グリッドアイテムサムネイル
  */
 function GridItemThumbnail({ survey }: { survey: SiteSurveyInfo }) {
+  // 注釈付きサムネイル（サーバーサイド生成）が存在する場合はそちらを優先（要件20.3, 38.2, 38.7）
+  // 表示元URLを採用しないと注釈データの取得と合成が代表画像の数だけ発生する
+  if (survey.annotatedThumbnailUrl) {
+    return (
+      <img
+        src={survey.annotatedThumbnailUrl}
+        alt={`${survey.name}のサムネイル（注釈付き）`}
+        className="w-full h-32 sm:h-36 md:h-40 object-cover"
+        loading="lazy"
+        data-testid="annotated-thumbnail"
+      />
+    );
+  }
+
   // 注釈表示に必要な情報がある場合
   if (survey.thumbnailImageId && survey.thumbnailOriginalUrl) {
     // AnnotatedImageThumbnail用のSurveyImageInfoオブジェクトを作成
@@ -176,19 +190,27 @@ function GridItemThumbnail({ survey }: { survey: SiteSurveyInfo }) {
       displayOrder: 0,
       createdAt: '',
       originalUrl: survey.thumbnailOriginalUrl,
+      // 縮小表示のため原本ではなくサムネイルを表示元に用いる（Requirement 38.7）
+      thumbnailUrl: survey.thumbnailUrl,
     };
 
+    // 高さを持つ枠で包む。この経路の表示元URLは表示領域へ入るまで設定されないため、
+    // 枠が無いと未読込の要素が潰れて代表画像が一斉に交差判定される（Requirement 38.6, 38.8）。
+    // 枠の寸法は同関数の他の分岐（合成済みサムネイル・通常サムネイル）と揃える。
     return (
-      <AnnotatedImageThumbnail
-        image={imageInfo}
-        alt={`${survey.name}のサムネイル`}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-        }}
-        loading="lazy"
-      />
+      <div className="w-full h-32 sm:h-36 md:h-40">
+        <AnnotatedImageThumbnail
+          image={imageInfo}
+          alt={`${survey.name}のサムネイル`}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+          }}
+          loading="lazy"
+          preferThumbnail
+        />
+      </div>
     );
   }
 

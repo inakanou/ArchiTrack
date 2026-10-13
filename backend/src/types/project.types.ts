@@ -3,7 +3,9 @@
  *
  * Requirements:
  * - 10.1: プロジェクトステータスとして12種類を提供
- * - 10.11: 遷移種別として4種類を定義（initial, forward, backward, terminate）
+ * - 10.11: 遷移種別として「順方向遷移」「差し戻し遷移」「終端遷移（完了・中止・失注）」の
+ *   3種類を定義する。TRANSITION_TYPES が4値なのは、この3種類に加えて
+ *   ステータス間の遷移ではない initial を持つためである（下記の定義の注釈を参照）。
  */
 
 /**
@@ -33,7 +35,27 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 /**
  * ステータス遷移種別
- * - initial: 初期遷移（プロジェクト作成時、fromStatusなし）
+ *
+ * project-management 要件10 の 11 が「遷移種別」として定義するのは
+ * 「順方向遷移」「差し戻し遷移」「終端遷移（完了・中止・失注）」の3種類であり、
+ * initial はそこに含まれない。initial はステータス間の遷移ではなく、プロジェクト作成時に
+ * `fromStatus = null` で記録される初期履歴の印である。この値を本番で書き込むのは
+ * `backend/src/services/project.service.ts` の `createProject` の一箇所だけであり、
+ * 遷移表 `STATUS_TRANSITIONS`（`backend/src/services/project-status.service.ts`）は
+ * 要素の型を `Exclude<TransitionType, 'initial'>` としているため、遷移の判定を担う
+ * `getTransitionType` が initial を返す経路は存在しない。
+ * よって本定数は「要件が定義する3種類 + 履歴の印 initial」の4値である。
+ *
+ * この整理は表示文言まで行き渡らせてある。下方の `TRANSITION_TYPE_LABELS` が initial へ
+ * 与えるのは「初期登録」であり、遷移を名乗らない。この文言は
+ * `backend/src/routes/projects.routes.ts` が組み立てる `transitionTypeLabel` として
+ * 画面のステータス変更履歴の一覧へ届く。旧文言は「初期遷移」で、要件が定義する3種類が
+ * いずれも「〜遷移」で終わるため、遷移でない値を四つ目の遷移として見せていた。
+ * 改めた理由と、改めない側を却下した理由は
+ * `.kiro/specs/site-survey/design.md` の「遷移でない値の表示文言を「初期登録」へ改め、
+ * 据え置きの案を却下した記録」に置いた。
+ *
+ * - initial: 初期履歴の印（プロジェクト作成時、fromStatusなし。遷移ではない）
  * - forward: 順方向遷移（ワークフロー進行）
  * - backward: 差し戻し遷移（1つ前のステータスへ戻る）
  * - terminate: 終端遷移（完了・中止・失注）
@@ -67,7 +89,7 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
  * 遷移種別の日本語ラベルマッピング
  */
 export const TRANSITION_TYPE_LABELS: Record<TransitionType, string> = {
-  initial: '初期遷移',
+  initial: '初期登録',
   forward: '順方向遷移',
   backward: '差し戻し遷移',
   terminate: '終端遷移',

@@ -137,24 +137,27 @@ test.describe('ログイン機能', () => {
     const email = 'user@example.com';
     const wrongPassword = 'WrongPassword123!';
 
-    // 5回連続でログイン失敗
-    for (let i = 0; i < 5; i++) {
+    const submitWrongPassword = async (): Promise<void> => {
       await page.getByLabel(/メールアドレス/i).fill(email);
       await page.locator('input#password').fill(wrongPassword);
       await page.getByRole('button', { name: /ログイン/i }).click();
+    };
 
-      // エラーメッセージを待つ
-      if (i < 4) {
-        await expect(
-          page.getByText(/メールアドレスまたはパスワードが正しくありません/i)
-        ).toBeVisible();
-      }
+    // ロックに至らない 4 回。毎回、認証失敗のエラーメッセージが出ることを無条件に主張する
+    // （添字で主張を包むと、周回ごとの検証が実行されたかどうかが構造から読めなくなる）
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await submitWrongPassword();
+
+      await expect(
+        page.getByText(/メールアドレスまたはパスワードが正しくありません/i)
+      ).toBeVisible();
 
       // ページをリロードして次の試行に備える（フォームをリセット）
-      if (i < 4) {
-        await page.reload();
-      }
+      await page.reload();
     }
+
+    // 5 回目の失敗。ここでロックに至る
+    await submitWrongPassword();
 
     // 5回目の失敗後、アカウントロックメッセージが表示される
     await expect(
@@ -195,9 +198,10 @@ test.describe('ログイン機能', () => {
   /**
    * 要件11.11: Tab キーでフォーカス移動
    * 要件11.3: フォーカス時の視覚的フィードバック
-   * @requirement user-authentication/REQ-11.3 @requirement user-authentication/REQ-11.11
-   * WHEN Tab キーを押す
-   * THEN 論理的な順序でフォーカスが移動する
+   * @requirement user-authentication/REQ-11.11
+   *
+   * タスク 115.188 の是正: 従前は REQ-11.3 も名乗っていたが、本区間の表題・本文が述べる内容に対応するのは、
+   * 同じ区間が既に名乗っている受入基準11.11 である。重複する名乗りを取り下げた（REQ-11.3 は本区間の主張と別の事柄を述べている）。
    */
   test('Tab キーで論理的な順序でフォーカスが移動する', async ({ page }) => {
     await page.goto('/login');
@@ -227,6 +231,46 @@ test.describe('ログイン機能', () => {
     await page.keyboard.press('Tab');
     const resetLink = page.getByRole('link', { name: /パスワードを忘れた/i });
     await expect(resetLink).toBeFocused();
+  });
+
+  /**
+   * 要件11.3: 入力フィールドのフォーカス時の視覚的フィードバック（アウトライン表示）
+   * @requirement user-authentication/REQ-11.3
+   * WHEN ユーザーが入力フィールドにフォーカスする
+   * THEN Frontend UIは視覚的なフィードバック（アウトライン表示）を提供しなければならない
+   *
+   * フォーカスの有無でアウトラインが切り替わることを、ブラウザが実際に描く計算済みスタイルで確かめる。
+   * キーボード（Tab / Shift+Tab）でフォーカスを移し、利用者の操作と同じ経路で主張する。
+   */
+  test('入力フィールドにフォーカスするとアウトラインが表示される', async ({ page }) => {
+    await page.goto('/login');
+
+    const emailInput = page.locator('input#email');
+    const passwordInput = page.locator('input#password');
+
+    /** 計算済みのアウトラインを取り出す（判定はテスト側で行う） */
+    const outlineOf = (locator: typeof emailInput) =>
+      locator.evaluate((el) => {
+        const style = window.getComputedStyle(el);
+        return { style: style.outlineStyle, width: style.outlineWidth };
+      });
+    const isVisibleOutline = (outline: { style: string; width: string }) =>
+      outline.style !== 'none' && parseFloat(outline.width) > 0;
+
+    // 初期状態: メールアドレスにフォーカスがある
+    await expect(emailInput).toBeFocused();
+
+    // Tab でパスワードへ移すと、パスワードにアウトラインが表示され、メールアドレスからは消える
+    await page.keyboard.press('Tab');
+    await expect(passwordInput).toBeFocused();
+    await expect.poll(async () => isVisibleOutline(await outlineOf(passwordInput))).toBe(true);
+    await expect.poll(async () => isVisibleOutline(await outlineOf(emailInput))).toBe(false);
+
+    // Shift+Tab でメールアドレスへ戻すと、メールアドレスにアウトラインが表示され、パスワードからは消える
+    await page.keyboard.press('Shift+Tab');
+    await expect(emailInput).toBeFocused();
+    await expect.poll(async () => isVisibleOutline(await outlineOf(emailInput))).toBe(true);
+    await expect.poll(async () => isVisibleOutline(await outlineOf(passwordInput))).toBe(false);
   });
 
   /**

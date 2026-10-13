@@ -207,6 +207,14 @@ describe('Project API Integration Tests', () => {
       },
     });
 
+    await prisma.tradingPartner.deleteMany({
+      where: {
+        name: {
+          contains: 'test-project-integration',
+        },
+      },
+    });
+
     // 3. 監査ログを削除
     await prisma.auditLog.deleteMany({
       where: {
@@ -281,6 +289,14 @@ describe('Project API Integration Tests', () => {
     });
 
     await prisma.project.deleteMany({
+      where: {
+        name: {
+          contains: 'test-project-integration',
+        },
+      },
+    });
+
+    await prisma.tradingPartner.deleteMany({
       where: {
         name: {
           contains: 'test-project-integration',
@@ -487,6 +503,74 @@ describe('Project API Integration Tests', () => {
       expect(
         filterResponse.body.data.every((p: { status: string }) => p.status === 'PREPARING')
       ).toBe(true);
+    });
+
+    /**
+     * 取引先での絞り込み（取引先の詳細画面の関連プロジェクトが使う）
+     * 他のテストのプロジェクトが DB に残っていても成立するよう、ここで作った取引先の ID だけで絞る
+     */
+    it('取引先IDで絞り込むと、その取引先に紐付くプロジェクトだけが返ること', async () => {
+      const suffix = Date.now();
+      const [partnerA, partnerB, partnerEmpty] = await Promise.all(
+        ['a', 'b', 'empty'].map((key) =>
+          prisma.tradingPartner.create({
+            data: {
+              name: `test-project-integration-partner-${key}-${suffix}`,
+              nameKana: 'テストトリヒキサキ',
+              address: '東京都千代田区1-1',
+            },
+          })
+        )
+      );
+
+      const createProject = async (name: string, tradingPartnerId?: string) => {
+        const response = await request(app)
+          .post('/api/projects')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            name,
+            salesPersonId: testSalesPersonId,
+            ...(tradingPartnerId ? { tradingPartnerId } : {}),
+          })
+          .expect(201);
+        return response.body.id as string;
+      };
+
+      const projectA1 = await createProject(
+        `test-project-integration-tp-a1-${suffix}`,
+        partnerA!.id
+      );
+      const projectA2 = await createProject(
+        `test-project-integration-tp-a2-${suffix}`,
+        partnerA!.id
+      );
+      await createProject(`test-project-integration-tp-b1-${suffix}`, partnerB!.id);
+      await createProject(`test-project-integration-tp-none-${suffix}`);
+
+      const responseA = await request(app)
+        .get(`/api/projects?tradingPartnerId=${partnerA!.id}&limit=10&sort=updatedAt&order=desc`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(responseA.body.pagination.total).toBe(2);
+      expect(responseA.body.data.map((p: { id: string }) => p.id).sort()).toEqual(
+        [projectA1, projectA2].sort()
+      );
+      expect(
+        responseA.body.data.every(
+          (p: { tradingPartnerId: string | null }) => p.tradingPartnerId === partnerA!.id
+        )
+      ).toBe(true);
+
+      const responseEmpty = await request(app)
+        .get(
+          `/api/projects?tradingPartnerId=${partnerEmpty!.id}&limit=10&sort=updatedAt&order=desc`
+        )
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(responseEmpty.body.pagination.total).toBe(0);
+      expect(responseEmpty.body.data).toEqual([]);
     });
 
     /**

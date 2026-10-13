@@ -76,13 +76,14 @@ const styles = {
     color: '#dc2626',
     marginLeft: '4px',
   } as React.CSSProperties,
+  // 見積書名の欄と内訳書の選択のフォーカス表示は全画面共通の `:focus-visible` の outline に任せ、
+  // インラインで打ち消さない（steering `tech.md` の「フォーカス表示方針」。タスク 60.1）
   input: {
     padding: '10px 14px',
     borderRadius: '6px',
     border: '1px solid #d1d5db',
     fontSize: '14px',
     color: '#1f2937',
-    outline: 'none',
     transition: 'border-color 0.2s',
   } as React.CSSProperties,
   select: {
@@ -91,7 +92,6 @@ const styles = {
     border: '1px solid #d1d5db',
     fontSize: '14px',
     color: '#1f2937',
-    outline: 'none',
     backgroundColor: '#ffffff',
     cursor: 'pointer',
   } as React.CSSProperties,

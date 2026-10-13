@@ -7,25 +7,75 @@
  * - 17.1: pdfjs-distのgetTextContent() APIでPDFからテキストを抽出する
  * - 17.2: PDFの全ページを対象にテキスト抽出を行う
  * - 17.3: テキストPDFでそのまま使用（Tesseract OCRを呼ばない）
- * - 17.4: スキャンPDFでCanvas→OCR
  * - 17.5: 抽出テキストから構造化データ(明細行)への変換
  * - 17.6: PDFプレビューでページナビゲーション(前へ/次へボタン、ページ表示)
  * - 17.7: 処理中インジケーターの表示
- * - 17.8: 30秒タイムアウト
+ *
+ * Task 115.127 段1: 前提の生成を `seedEstimateRequest`（`estimate-request-preconditions`）へ寄せ、
+ * `test.skip(!createdEstimateRequestId, …)` 8 件を `assertPrepared` へ改めた。
+ *
+ * Task 115.135: 完了を「抽出結果 **または** エラー表示」の選言で受理する形を全廃した。
+ * あわせて、現行の `e2e/fixtures` の PDF は 2 件ともテキスト入りでスキャンPDF
+ * フォールバック経路へ到達しないため、17.4（スキャンPDFでCanvas→OCR）と
+ * 17.8（30秒タイムアウト）を被覆から外し、`e2e/requirement-exclusions.json` へ
+ * integration-test 区分で登録した（理由は各検証の注記）。その後タスク **115.157** が
+ * 画像のみのPDF fixture を用意し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts`
+ * で 17.4 と 17.8 の双方を被覆して当該除外を解消した。
+ *
+ * Task 115.158: PDFプレビューの成立を「react-pdf の外枠 **または** 読み込み中の骨組み」の
+ * 選言で受理する形を全廃した。`.or(...).first()` は「どれかの枝が満たされれば成立」ではなく
+ * **DOM順の先頭の要素がひとつ可視か**を問う形であり、この画面では先頭が常に幅0の骨組みで
+ * あるため、骨組みの枝も後続の枝も判定に効いていなかった。実際に閉じた穴は
+ * (1) `react-pdf` の外枠は読み込み中も失敗時も描画されるため**外枠の可視は成否を何も述べない**
+ * こと、(2) 外枠の可視からページの canvas の可視までに窓があり（CPU 8 倍抑制の実測で
+ * 0.7〜1.4 秒）、その窓に当たった実行が**描画されていないのに緑**になることの2点である。
+ * 実測値と再現手順は `e2e/helpers/pdf-preview.ts` の冒頭に置いた。
+ * 判定は同ファイルの `expectPdfPreviewRendered` へ寄せる。
  *
  * @module e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec
  */
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
+import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
+import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
+import {
+  startOcrProgressIndicatorWatch,
+  hasOcrProgressIndicatorAppeared,
+} from '../../helpers/ocr-observations';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * PDFの抽出経路を pdfjs-dist に固定する。
+ *
+ * `OcrDataExtractor` は PDF に対してまず Claude Vision を試し、失敗した場合にだけ
+ * pdfjs-dist のハイブリッド抽出へ落ちる（REQ-24.2 / REQ-25.1）。
+ * Requirement 17 は pdfjs-dist 経路の要件であり、
+ * Claude Vision の可用性で結果が揺れると「検出できたら検証する」形になってしまう。
+ * Claude Vision を利用不可（503）に固定して、常に pdfjs-dist 経路を通す。
+ *
+ * @param page Playwright のページ（画面遷移の前に呼ぶこと）
+ */
+async function forcePdfjsExtractionPath(page: import('@playwright/test').Page): Promise<void> {
+  await page.route('**/api/claude-vision/extract', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: 'テスト用に固定した利用不可',
+        errorType: 'service_unavailable',
+      }),
+    })
+  );
+}
 
 /**
  * PDFテキスト抽出ハイブリッドアプローチのE2Eテスト
@@ -36,9 +86,8 @@ const __dirname = path.dirname(__filename);
  * 3. 一括取り込みボタンの動作を確認
  * 4. PDFプレビューのページナビゲーション動作を確認
  * 5. テキストPDFでTesseract OCRが呼ばれないことを確認
- * 6. スキャンPDFでCanvas→OCR処理が行われることを確認
- * 7. 30秒タイムアウト動作を確認
- * 8. テストデータをクリーンアップ
+ * 6. テキストPDFの抽出が終端し処理中インジケーターが解消されることを確認
+ * 7. テストデータをクリーンアップ
  */
 test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3)', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
@@ -58,115 +107,28 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('テスト前提データを作成する', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    // 認証トークン取得（localStorageから取得）
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-    expect(accessToken).not.toBe('');
-
-    // 担当者候補を取得（salesPersonIdに必要）
-    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    expect(assignableRes.ok()).toBeTruthy();
-    const assignableUsers = await assignableRes.json();
-    expect(assignableUsers.length).toBeGreaterThan(0);
-    const salesPersonId = assignableUsers[0].id;
-
-    // プロジェクト作成
-    const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `PDF抽出E2Eテスト-${Date.now()}`,
-        salesPersonId,
-        siteAddress: '東京都港区テスト1-1-1',
+    // Task 115.127 段1: プロジェクト〜見積依頼の前提生成は共通の補助へ寄せる。
+    // 3ファイルが同じ約110行を複製していたため、複製したまま個別に直すと再発する。
+    // いずれかの作成に失敗した時点で補助の内側で失敗する。
+    const seed = await seedEstimateRequest(page, {
+      label: 'PDF抽出E2Eテスト',
+      siteAddress: '東京都港区テスト1-1-1',
+      partnerEmail: 'test-pdf-extract@example.com',
+      groupName: '土木工事グループ',
+      item: {
+        workType: '土木工事',
+        name: 'コンクリート打設',
+        specification: '普通',
+        unit: 'm3',
+        quantity: 50,
       },
     });
-    expect(projectRes.ok()).toBeTruthy();
-    const project = await projectRes.json();
-    createdProjectId = project.id;
 
-    // 取引先作成
-    const partnerRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: {
-        name: `テスト業者-PDF抽出-${Date.now()}`,
-        nameKana: 'テストギョウシャ',
-        types: ['SUBCONTRACTOR'],
-        address: '東京都港区テスト1-1-1',
-        email: 'test-pdf-extract@example.com',
-      },
-    });
-    expect(partnerRes.ok()).toBeTruthy();
-    const partner = await partnerRes.json();
-    createdTradingPartnerId = partner.id;
-
-    // 数量表作成
-    const qtRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/quantity-tables`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: `テスト数量表-PDF抽出-${Date.now()}` },
-      }
-    );
-    expect(qtRes.ok()).toBeTruthy();
-    const qt = await qtRes.json();
-
-    // 数量グループ作成
-    const groupRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-tables/${qt.id}/groups`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: '土木工事グループ', displayOrder: 0 },
-      }
-    );
-    expect(groupRes.ok()).toBeTruthy();
-    const group = await groupRes.json();
-
-    // 数量項目作成
-    const itemRes = await page.request.post(
-      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          workType: '土木工事',
-          name: 'コンクリート打設',
-          specification: '普通',
-          unit: 'm3',
-          quantity: 50,
-        },
-      }
-    );
-    expect(itemRes.ok()).toBeTruthy();
-
-    // 内訳書作成（数量表から生成）
-    const statementRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト内訳書-PDF抽出-${Date.now()}`,
-          quantityTableId: qt.id,
-        },
-      }
-    );
-    expect(statementRes.ok()).toBeTruthy();
-    const statement = await statementRes.json();
-    createdItemizedStatementId = statement.id;
-
-    // 見積依頼作成
-    const erRes = await page.request.post(
-      `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
-          name: `テスト見積依頼-PDF抽出-${Date.now()}`,
-          tradingPartnerId: createdTradingPartnerId,
-          itemizedStatementId: createdItemizedStatementId,
-        },
-      }
-    );
-    expect(erRes.ok()).toBeTruthy();
-    const er = await erRes.json();
-    createdEstimateRequestId = er.id;
+    accessToken = seed.accessToken;
+    createdProjectId = seed.projectId;
+    createdTradingPartnerId = seed.tradingPartnerId;
+    createdItemizedStatementId = seed.itemizedStatementId;
+    createdEstimateRequestId = seed.estimateRequestId;
   });
 
   // ============================================================================
@@ -179,7 +141,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('PDFアップロード後に処理中インジケーターが表示される (estimate-request/REQ-17.7)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -197,21 +159,29 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     // フォームが表示されるまで待機
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
+    // REQ-17.7 の主張の準備。テキスト入り PDF の抽出は瞬時に終わるため、
+    // 処理中の一瞬は Playwright の定期的な問い合わせでは取り逃がしうる。
+    // 以前はそれを「インジケーター **または** 結果 **または** エラー」の選言で回避しており、
+    // 抽出が失敗しても成立し、かつインジケーターを一度も検査していなかった。
+    // DOM 変更と同期に出現を記録する形へ改める。
+    await startOcrProgressIndicatorWatch(page);
+
     // テキスト入りPDFファイルをアップロード
     const pdfPath = path.resolve(__dirname, '../../fixtures/test-text-pdf.pdf');
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // 処理中インジケーターが表示される（REQ-17.7）
-    // PDFテキスト抽出処理中はプログレスバーが表示される
-    // 処理が高速な場合は完了状態またはエラー状態のいずれかが表示されうる
-    await expect(
-      page
-        .locator('[data-testid="ocr-progress-indicator"]')
-        .or(page.locator('[data-testid="ocr-extracted-text"]'))
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
+    // 抽出が終端することを確認したうえで、処理中インジケーターの出現を主張する
+    await expect(page.locator('[data-testid="ocr-extracted-text"]')).toBeVisible({
+      timeout: getTimeout(60000),
+    });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
+
+    // REQ-17.7: 抽出処理の実行中は処理中インジケーターが表示される
+    expect(
+      await hasOcrProgressIndicatorAppeared(page),
+      'PDFテキスト抽出中の処理中インジケーターが一度も表示されなかった'
+    ).toBe(true);
   });
 
   // ============================================================================
@@ -225,7 +195,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('PDFアップロード後にテキスト抽出が成功し結果が表示される (estimate-request/REQ-17.1, estimate-request/REQ-17.2)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -248,23 +218,17 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // テキスト抽出結果またはエラーが表示されるまで待機
-    // テキストPDFの場合はpdfjs-distで直接テキストを取得するため高速に完了する
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // テキスト抽出結果が表示された場合はテキスト内容を確認
+    // REQ-17.1: テキスト入り PDF からは必ずテキストが抽出され、抽出結果が表示される。
+    // Claude Vision が成功した場合も抽出結果は同じ `ocr-extracted-text` に表示されるため
+    // （`processClaudeVision` の `setExtractedText`）、経路によらず無条件に主張できる
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
-      // 抽出されたテキストが空でないことを確認（REQ-17.1: getTextContent APIでテキスト抽出）
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
-    }
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
+
+    // 抽出されたテキストが空でないことを確認（REQ-17.1: getTextContent APIでテキスト抽出）
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
   });
 
   // ============================================================================
@@ -277,7 +241,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('テキストPDFではTesseract OCRが呼ばれずpdfjs-distのテキスト抽出結果がそのまま使用される (estimate-request/REQ-17.3)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -315,55 +279,53 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // テキスト抽出完了を待機
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // テキスト抽出結果が表示された場合の検証
+    // テキスト抽出結果の検証。以前は「結果またはエラー」の選言で完了を待っていたため、
+    // 抽出が常に失敗しても後続へ進んでいた。テキストPDFは抽出が成功する経路であるため
+    // 選言を廃し、抽出の成立を無条件に主張する。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
-      // テキストが抽出されていることを確認
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
 
-      // テキストPDFの場合、Tesseract Workerの初期化リクエストが発生していないことを確認
-      // （テキスト抽出にOCRは不要）
-      const hasTesseractWorkerInit = tesseractRequests.some(
-        (url) => url.includes('tesseract-worker') || url.includes('tesseract-core')
-      );
-      // テキストPDFではTesseractワーカーが初期化されないことが期待される
-      // ただし事前にロードされている場合もあるため、ログで確認
-      if (hasTesseractWorkerInit) {
-        // Tesseractワーカーがロードされていても、実際のOCR処理が呼ばれていないことを
-        // コンソールログから確認（「pdfjs-dist text extraction」等のログ）
-        const hasPdfjsExtraction = consoleMessages.some(
-          (msg) =>
-            msg.includes('pdfjs') ||
-            msg.includes('text extraction') ||
-            msg.includes('getTextContent')
-        );
-        // pdfjs-distによるテキスト抽出が行われていること
-        expect(hasPdfjsExtraction || textContent!.length > 0).toBeTruthy();
-      }
-    }
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
+
+    // テキストPDFの場合、Tesseract Workerの初期化リクエストが発生しない
+    // （テキスト抽出にOCRは不要）。
+    // 以前はワーカーが初期化された場合にのみ
+    // `hasPdfjsExtraction || textContent!.length > 0` を判定していたが、右辺は直前で
+    // 0 より大きいことを確定させた値であり常に真である。つまりワーカーの初期化有無を
+    // 一度も確かめていなかった。初期化されたリクエストが無いことを直接主張する。
+    const tesseractWorkerRequests = tesseractRequests.filter(
+      (url) => url.includes('tesseract-worker') || url.includes('tesseract-core')
+    );
+    expect(tesseractWorkerRequests, 'テキストPDFではTesseractワーカーは初期化されない').toEqual([]);
   });
 
   // ============================================================================
-  // 17.4: スキャンPDFでCanvas→OCR
+  // テキスト入りPDFの抽出成立の確認
+  // （REQ-17.4 のフォールバック経路の被覆ではない。理由は直下の注記）
   // ============================================================================
 
   /**
-   * @requirement estimate-request/REQ-17.4
+   * 注意（site-survey タスク 115.135 の実測）: 入力に用いる `e2e/fixtures/test-file.pdf` は
+   * `/Font` と 7 個のテキスト描画演算子を持ち `/Image` を持たない**テキスト入り PDF** である。
+   * 抽出される文字数は 97 で `frontend/src/components/estimate-requests/pdf-text-extractor.ts`
+   * の閾値 50 を超えるため `isTextPdf=true` が確定し、`extractPdfWithOcrFallback` へ
+   * **一度も入らない**。したがって REQ-17.4 が定める Canvas→Tesseract のフォールバック
+   * 経路は本検証では検査できない。
+   *
+   * 115.135 の是正: 到達しない受入基準を被覆済みと数えさせないため `@requirement` タグを
+   * 外し、`e2e/requirement-exclusions.json` へ integration-test 区分で登録した。
+   * タスク **115.157** が画像のみのPDF fixture（`e2e/fixtures/test-scanned-pdf.pdf`）を
+   * 用意し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
+   * 当該経路を被覆した。当該除外は解消済みである。
+   *
+   * 本検証に残る主張は「テキスト入り PDF から抽出結果の表示へ到達し、
+   * エラー表示にならないこと」である。
    */
-  test('スキャン（画像のみ）PDFではCanvas経由でOCR処理が実行される (estimate-request/REQ-17.4)', async ({
-    page,
-  }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+  test('テキスト入りPDFのアップロードで抽出結果の表示へ到達する', async ({ page }) => {
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -381,39 +343,18 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     // フォームが表示されるまで待機
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-    // 画像のみのPDF（スキャンPDF）をアップロード
-    // test-file.pdf はスキャンPDF（画像のみ）として使用
     const pdfPath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // テキスト抽出処理が開始される
-    // スキャンPDFの場合、pdfjs-distでテキストが取得できないためCanvas→OCRフォールバックが発動
-    // 処理中インジケーター、結果、またはエラーのいずれかが表示される
-    await expect(
-      page
-        .locator('[data-testid="ocr-progress-indicator"]')
-        .or(page.locator('[data-testid="ocr-extracted-text"]'))
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // 処理完了を待機（OCR処理はテキスト抽出より時間がかかる）
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(90000) });
-
-    // 結果またはエラーが表示されることでCanvas→OCRパスが実行されたことを確認
+    // 抽出が成立したことを主張する。以前は「インジケーター **または** 結果 **または** エラー」と
+    // 「結果 **または** エラー」の二段の選言で完了を待っており、どちらも
+    // **抽出が失敗しても成立する**判定であった。選言を廃し成功のみを主張する。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
 
-    const hasResult = await extractedText.isVisible({ timeout: 3000 }).catch(() => false);
-    const hasError = await errorMessage.isVisible({ timeout: 3000 }).catch(() => false);
-
-    // いずれかの結果が表示されていることを確認（OCR処理が実行された証拠）
-    expect(hasResult || hasError).toBeTruthy();
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(90000) });
+    await expect(errorMessage).toHaveCount(0);
   });
 
   // ============================================================================
@@ -426,9 +367,15 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('抽出結果から一括取り込みボタンが表示され、データが明細行に転記される (estimate-request/REQ-17.5)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
+
+    // REQ-17.5 は「PDFテキスト抽出の結果」から一括取り込みボタンを提供する要件である。
+    // Claude Vision が使える環境では抽出経路がそちらへ逸れ、検出件数が定まらないため
+    // 「ボタンが出たら検証する」形になり主張が一度も実行されない回が生じる。
+    // REQ-25.1 のフォールバックを固定して pdfjs 経路（REQ-17.1, REQ-17.3）を必ず通す。
+    await forcePdfjsExtractionPath(page);
 
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
@@ -449,35 +396,35 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // テキスト抽出完了を待機
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
+    // テキスト抽出完了を待機（テキスト入りPDFなので抽出は必ず成立する）
+    await expect(page.locator('[data-testid="ocr-extracted-text"]')).toBeVisible({
+      timeout: getTimeout(60000),
+    });
 
-    // 一括取り込みボタンが表示された場合のみ検証（データが検出された場合）
+    // REQ-17.5: 抽出結果から一括取り込みボタンが提供される
     const importButton = page.locator('[data-testid="ocr-import-button"]');
-    if (await importButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // 一括取り込みボタンをクリック
-      await importButton.click();
+    await expect(importButton).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 取り込み成功メッセージが表示される
-      await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // 一括取り込みボタンをクリック
+    await importButton.click();
 
-      // 確認・修正メッセージが表示される
-      await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // 取り込み成功メッセージが表示される
+    await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+      timeout: getTimeout(5000),
+    });
 
-      // 明細行テーブルにデータが入力されていることを確認
-      // (最低1行以上の名称フィールドに値が設定されている)
-      const lineItemTable = page.locator('form table');
-      await expect(lineItemTable).toBeVisible({ timeout: getTimeout(5000) });
-    }
+    // 確認・修正メッセージが表示される
+    await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
+      timeout: getTimeout(5000),
+    });
+
+    // REQ-17.5: 明細行テーブルに抽出データが転記されている
+    const lineItemTable = page.locator('form table');
+    await expect(lineItemTable).toBeVisible({ timeout: getTimeout(5000) });
+    await expect(
+      page.getByRole('textbox', { name: '行1 名称' }),
+      'REQ-17.5: 一括取り込み後も明細行の名称が空のままである'
+    ).not.toHaveValue('');
   });
 
   // ============================================================================
@@ -490,7 +437,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   test('PDFプレビューでページナビゲーションが動作する (estimate-request/REQ-17.6)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -513,55 +460,55 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // PDFプレビューが表示されるまで待機
-    // react-pdfのDocumentまたはスケルトンが表示される
-    await expect(
-      page
-        .locator('.react-pdf__Document, .react-pdf__Page')
-        .or(page.locator('[data-testid="preview-skeleton"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(15000) });
+    // PDFプレビューの描画が成立するまで待機（Task 115.158）
+    // 以前は「react-pdf の外枠 **または** 読み込み中の骨組み」の選言で成立としていた。
+    // `.or(...).first()` は DOM順の先頭の要素の可視を問う形であり、先頭は常に幅0の骨組みで
+    // あるため枝は効いていなかったが、外枠の可視が読み込みの成否を述べないこと自体は残る。
+    // 外枠の可視からページの canvas の可視までには窓がある（CPU 8 倍抑制の実測で 0.7〜1.4 秒）。
+    // ページの canvas の可視だけを成立とする形へ改める。
+    await expectPdfPreviewRendered(page);
 
-    // ページナビゲーションが表示されるまで待機（2ページPDFの場合のみ表示）
-    // react-pdfのロード完了後にナビゲーションUIが表示される
+    // ページナビゲーションが表示されるまで待機
+    // アップロードした `test-text-pdf.pdf` は 2 ページ（/Count 2）であるため、
+    // REQ-17.6 のページナビゲーションは必ず表示される。
+    // 以前は「表示された場合のみ検証」で包んでいたため、
+    // ナビゲーションが出なくなっても REQ-17.6 の主張が一つも実行されなかった。
     const nextButton = page.getByRole('button', { name: '次へ' });
     const prevButton = page.getByRole('button', { name: '前へ' });
+    await expect(nextButton).toBeVisible({ timeout: getTimeout(10000) });
 
-    // ページナビゲーションが表示された場合のみ検証
-    if (await nextButton.isVisible({ timeout: getTimeout(10000) }).catch(() => false)) {
-      // 「ページ 1 / 2」テキストが表示される
-      await expect(page.getByText(/ページ 1 \/ 2/)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // 「ページ 1 / 2」テキストが表示される
+    await expect(page.getByText(/ページ 1 \/ 2/)).toBeVisible({
+      timeout: getTimeout(5000),
+    });
 
-      // 「前へ」ボタンが非活性（1ページ目）
-      await expect(prevButton).toBeDisabled();
+    // 「前へ」ボタンが非活性（1ページ目）
+    await expect(prevButton).toBeDisabled();
 
-      // 「次へ」ボタンが活性
-      await expect(nextButton).toBeEnabled();
+    // 「次へ」ボタンが活性
+    await expect(nextButton).toBeEnabled();
 
-      // 「次へ」をクリック
-      await nextButton.click();
+    // 「次へ」をクリック
+    await nextButton.click();
 
-      // ページ表示が更新される
-      await expect(page.getByText(/ページ 2 \/ 2/)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // ページ表示が更新される
+    await expect(page.getByText(/ページ 2 \/ 2/)).toBeVisible({
+      timeout: getTimeout(5000),
+    });
 
-      // 最終ページなので「次へ」が非活性
-      await expect(nextButton).toBeDisabled();
+    // 最終ページなので「次へ」が非活性
+    await expect(nextButton).toBeDisabled();
 
-      // 「前へ」ボタンが活性
-      await expect(prevButton).toBeEnabled();
+    // 「前へ」ボタンが活性
+    await expect(prevButton).toBeEnabled();
 
-      // 「前へ」をクリック
-      await prevButton.click();
+    // 「前へ」をクリック
+    await prevButton.click();
 
-      // 1ページ目に戻る
-      await expect(page.getByText(/ページ 1 \/ 2/)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-    }
+    // 1ページ目に戻る
+    await expect(page.getByText(/ページ 1 \/ 2/)).toBeVisible({
+      timeout: getTimeout(5000),
+    });
   });
 
   // ============================================================================
@@ -572,7 +519,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
    * @requirement estimate-request/REQ-17.6
    */
   test('単一ページPDFではナビゲーションが非表示 (estimate-request/REQ-17.6)', async ({ page }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -584,7 +531,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     // フォームが開いている場合は閉じる
     const cancelButton = page.getByRole('button', { name: /^キャンセル$/i });
-    if (await cancelButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+    if (await isVisibleWithin(cancelButton, 1000)) {
       await cancelButton.click();
       await page.waitForTimeout(500);
     }
@@ -602,16 +549,12 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // PDFプレビューが表示されるまで待機
-    await expect(
-      page
-        .locator('.react-pdf__Document, .react-pdf__Page')
-        .or(page.locator('[data-testid="preview-skeleton"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(15000) });
-
-    // react-pdfのロード完了を十分に待つ
-    await page.waitForTimeout(3000);
+    // PDFプレビューの描画が成立するまで待機（Task 115.158）
+    // 以前は外枠の可視で成立としていたため、外枠が出てから canvas が出るまでの窓
+    // （CPU 8 倍抑制の実測で 0.7〜1.4 秒）に当たると描画前に先へ進んでしまい、
+    // その不確かさを埋めるために固定時間の待機を置いていた。
+    // ページの canvas の可視を主張すればページ数が確定するため、固定時間の待機は不要になる。
+    await expectPdfPreviewRendered(page);
 
     // 1ページPDFなのでナビゲーションボタンが非表示であること
     const nextButton = page.getByRole('button', { name: '次へ' });
@@ -619,16 +562,56 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   });
 
   // ============================================================================
-  // 17.8: 30秒タイムアウト
+  // 17.7: 処理の終端と処理中インジケーターの解消
   // ============================================================================
 
   /**
-   * @requirement estimate-request/REQ-17.8
+   * @requirement estimate-request/REQ-17.7
+   *
+   * 本検証は以前「PDF処理が30秒を超えた場合にタイムアウトが発生する」と称して
+   * `@requirement` で REQ-17.8 を付けていたが、実際には処理を 30 秒超に
+   * するものが一つも無く、終端の姿を「抽出結果 **または** エラー表示」の選言で受理していた。
+   * すなわち REQ-17.8（抽出のタイムアウトを 30 秒とする）を一度も検査せずに被覆済みと
+   * 数えさせていた（site-survey タスク 115.135 の実測）。
+   *
+   * 抽出をタイムアウトさせるには、`extractPdfHybrid` の内側を 30 秒以上滞留させる必要がある。
+   * 滞留させられるのは Canvas→Tesseract のフォールバック経路（CDN 上のワーカー資材の取得）だが、
+   * **現行の** `e2e/fixtures` の PDF は 2 件ともテキスト入りでこの経路へ到達せず、
+   * その手前の `renderPdfPagesToBase64` はタイムアウトの外側にあるため滞留させても
+   * REQ-17.8 の判定にならない。したがって現行の fixture のままでは E2E から到達しない。
+   * 原理的に到達不能なわけではなく、画像のみの PDF を用意すれば到達しうる。
+   * `e2e/requirement-exclusions.json` へ integration-test 区分で登録し、代替検証として
+   * `frontend/src/components/estimate-requests/OcrDataExtractor.test.tsx` の
+   * 「PDFテキスト抽出のタイムアウト（30秒）が適用される（17.8）」を据えた
+   * （2026-08-24 に単体で実行し 30.1 秒で緑になることを実測）。その後タスク **115.157** が
+   * 150 ページの画像のみPDF（`e2e/fixtures/test-scanned-pdf-multipage.pdf`）で
+   * 30 秒の打ち切りを実測し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts`
+   * で被覆した。当該除外は解消済みである。
+   *
+   * **【現況の併記。quantity-table-generation スペックのタスク100.20 が越境して追記した
+   * （利用者の裁定は 2026-09-23。先例は同スペックのタスク100.16 で、本 spec の兄弟である
+   * `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` を同じ形で是正している）。
+   * 規約 (a) に従い上の段落は当時のまま残し、現況の再実測をここへ並べる。
+   * 2026-09-23 にコミット `07b52f0e` の作業ツリーで実測】**
+   * **上が名を挙げた 150 ページの資材 `e2e/fixtures/test-scanned-pdf-multipage.pdf` は、
+   * 現在どの検査も読み込んでいない。** タスク100.16 が上記フォールバック spec の打ち切りの
+   * 判定を 600 ページの `e2e/fixtures/test-scanned-pdf-quotation-ocr-timeout.pdf` へ移した
+   * ためである（150 ページでは完走 36435ms に対し打ち切り 30914ms で余裕が 5.5 秒しかなく、
+   * 完走が先に着いた試行で判定が赤になる）。**除外が解消済みであることは変わらない**——
+   * 被覆は同 spec が 600 ページの資材で担い続けている。本 spec 自身も当該資材を読み込まない
+   * （本 spec が現に読むのは `e2e/fixtures/test-text-pdf.pdf` と `e2e/fixtures/test-file.pdf`）。
+   * 150 ページの資材は撤去せず残す（タスク100.20 の裁定。`e2e/requirement-exclusions.json` の
+   * タスク115.157 の是正の記録が本資材のページ数と実測を逐語で引いており、撤去は上流の歴史
+   * 記録を巻き込むため）。経緯は `.kiro/specs/quantity-table-generation/tasks.md` の
+   * タスク100.20 の節にある。**`estimate-request` スペックの文書は一行も変更していない。**
+   *
+   * 本検証に残るのは REQ-17.7 の後半、すなわち処理中インジケーターが
+   * 実行中にだけ表示され、終端後は残らないことの確認である。
    */
-  test('PDF処理が30秒を超えた場合にタイムアウトが発生する (estimate-request/REQ-17.8)', async ({
+  test('抽出が終端すると処理中インジケーターが解消される (estimate-request/REQ-17.7)', async ({
     page,
   }) => {
-    test.skip(!createdEstimateRequestId, 'テスト前提データが作成されていません');
+    assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
 
@@ -646,44 +629,32 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     // フォームが表示されるまで待機
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
+    // REQ-17.7 の前半（実行中はインジケーターを表示する）を取り逃がさずに記録する
+    await startOcrProgressIndicatorWatch(page);
+
     // PDFファイルをアップロード
     const pdfPath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // 処理開始を検知（インジケーター、結果、エラーのいずれか）
-    await expect(
-      page
-        .locator('[data-testid="ocr-progress-indicator"]')
-        .or(page.locator('[data-testid="ocr-extracted-text"]'))
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // 処理が完了するまで待機（最大35秒 = タイムアウト30秒 + マージン5秒）
-    // タイムアウト発生時はエラーメッセージが表示される
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(90000) });
-
-    // エラーが発生した場合、タイムアウトエラーメッセージが含まれることを確認
-    const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-    if (await errorMessage.isVisible({ timeout: 3000 }).catch(() => false)) {
-      const errorText = await errorMessage.textContent();
-      // タイムアウトエラーの場合、エラーメッセージにタイムアウト関連のテキストが含まれる
-      // (実際のエラーメッセージはアプリケーション実装に依存)
-      expect(errorText).toBeTruthy();
-    }
-
-    // 正常に抽出完了した場合も、処理が30秒以内に完了していることを間接的に確認
-    // （テスト全体が35秒以内に完了していればタイムアウト制御が機能している）
+    // 抽出は成立して終端する。以前は終端の姿を「抽出結果 **または** エラー表示」の
+    // 選言で受理していたため、抽出が常に失敗しても成立していた。成功のみを主張する。
+    // 待ち時間の上限は Claude Vision 試行（REQ-24.2）を含むパイプライン全体に対するものである
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await extractedText.isVisible({ timeout: 3000 }).catch(() => false)) {
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-    }
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(90000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
+    await expect(extractedText).not.toBeEmpty();
+
+    // REQ-17.7: 実行中は処理中インジケーターが表示されていた
+    expect(
+      await hasOcrProgressIndicatorAppeared(page),
+      'PDFテキスト抽出中の処理中インジケーターが一度も表示されなかった'
+    ).toBe(true);
+
+    // 終端後に処理中インジケーターが残っていないこと（タイムアウト制御が後始末まで行う）
+    await expect(page.locator('[data-testid="ocr-progress-indicator"]')).toBeHidden({
+      timeout: getTimeout(10000),
+    });
   });
 
   // ============================================================================

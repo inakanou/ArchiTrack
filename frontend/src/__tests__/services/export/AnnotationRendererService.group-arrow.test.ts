@@ -4,17 +4,21 @@
  * Task 72.6: `AnnotationRendererService` での Group 矢印と textStroke 出力の統合検証
  *
  * 設計参照:
- * - design.md §4305, §4329: Group 版 Arrow / `paintFirst` テキストが `toDataURL` で
- *   正しく出ることを検証する。現行 `:153` は `await util.enlivenObjects(...)` を
- *   使用しており、Group 化 Arrow の非同期 `fromObject` との互換性は確保される。
- *   ただし `strokeWidth` スケーリング分岐は Group 化 Arrow では Group 本体に
- *   `strokeWidth` が top-level で存在しない場合スキップされる。Fabric Group は
- *   子 Path に親の `scaleX/scaleY` を伝搬するため描画結果は正しいが、旧 Path 版と
- *   新 Group 版で内部経路が異なるため、Integration Test でスケール非等倍時の矢印
- *   レンダリングを必ず検証する。
- * - design.md §4786 (Integration Tests): 保存時キャンバスと描画時キャンバスの
- *   サイズが異なる（スケール非等倍）条件で書き出し、Group 化に伴う strokeWidth
- *   スケーリング経路変更で矢印太さ・白縁取り太さが期待通りに拡縮されることを検証。
+ * - design.md「Requirements 24-30: 画像注釈の視認性向上・モバイル操作性強化」節
+ *   §File Structure Plan の `AnnotationRendererService` 注記: Group 版 Arrow /
+ *   `paintFirst` テキストが `toDataURL` で正しく出ることを検証する。復元は
+ *   `await util.enlivenObjects(...)` を使用しており、Group 化 Arrow の非同期
+ *   `fromObject` との互換性は確保される。
+ * - **Task 115.110 による訂正**: 本ファイルはかつて「Group 化 Arrow では Group 本体に
+ *   `strokeWidth` が存在しないため `strokeWidth` スケーリング分岐がスキップされる」と
+ *   記していたが、これは事実に反していた。七形状（Arrow / Dimension / Circle /
+ *   Rectangle / Polygon / Polyline / Freehand）はいずれも構築時に本体線幅を集合体自身へ
+ *   複写する（`super([...], { strokeWidth: mergedOptions.strokeWidth })`）ため、当該分岐は
+ *   集合体でも適用される。スキップされるのは複写を持たないレガシー構造の場合だけである。
+ *   115.110 は当該分岐の適用先を復元処理（`resolveRestoredStrokeWidth`）と揃えた。
+ * - design.md 同節 §Testing Strategy (Integration Tests): 保存時キャンバスと描画時
+ *   キャンバスのサイズが異なる（スケール非等倍）条件で書き出し、矢印太さ・白縁取り太さが
+ *   期待通りに拡縮されることを検証。
  *
  * Requirements:
  * - 24.8: 注釈付き画像をサムネイル・プレビュー・PDF・個別エクスポートで
@@ -117,7 +121,9 @@ import { util } from 'fabric';
  *
  * 実装（ArrowTool.ts）の重要なポイント:
  * - Arrow は Group を継承し、Group 本体にも `stroke` / `strokeWidth` を
- *   後方互換のためミラー設定している（line 282-283）。
+ *   後方互換のためミラー設定している（`ArrowTool.ts` の `super([outlinePath, bodyPath], {...})`）。
+ * - Fabric Group は子を `getObjects()` で公開する。本モックも同じ契約を持たせ、
+ *   レンダラが実描画（子の本体線）から複写値を導出し直す経路を通す。
  * - 子 Path として `outlinePath`（白縁取り、strokeWidth = body + outline.width*2）
  *   と `bodyPath`（本体色、strokeWidth = body）を持つ。
  * - Fabric Group は描画時に子 Path に親の scaleX/scaleY を伝搬するため、
@@ -164,6 +170,7 @@ function createMockGroupArrow(
     stroke: '#ef4444',
     // 子 Path 参照（Group の内部構造を模擬）
     _objects: [childOutline, childBody],
+    getObjects: () => [childOutline, childBody],
     setCalls,
     childOutline,
     childBody,
@@ -423,6 +430,11 @@ describe('AnnotationRendererService - Group Arrow / paintFirst Text 統合検証
       // Group の scaleX/scaleY 反映で正しく拡縮される）。
       expect(groupArrow.childOutline.strokeWidth).toBe(originalOutlineStrokeWidth);
       expect(groupArrow.childBody.strokeWidth).toBe(originalBodyStrokeWidth);
+
+      // Task 115.110: 集合体へ複写された線幅は実描画（子の本体線）と同じ座標系に保たれる。
+      // 平均倍率を重ねて掛けると複写元と複写先で座標系が食い違う。
+      expect(groupArrow.strokeWidth).toBe(groupArrow.childBody.strokeWidth);
+      expect(groupArrow.strokeWidth).toBe(originalBodyStrokeWidth);
     });
 
     it('非等倍スケール条件で複数の Group Arrow を同一 Canvas 上に書き出せる', async () => {
@@ -748,7 +760,8 @@ describe('AnnotationRendererService - Group Arrow / paintFirst Text 統合検証
 
       mockGetAnnotation.mockResolvedValueOnce(annotation);
 
-      // Group に top-level strokeWidth が無いケースを再現（design.md §4329 の注釈）
+      // 複写を持たないレガシー構造（Group に top-level strokeWidth が無い）を再現する。
+      // 現行の七形状はいずれも複写を行うため、この形は旧データの復元経路にのみ現れる。
       const groupArrow = createMockGroupArrow(3, 3, 2);
       // ミラー strokeWidth を削除して「Group 本体に strokeWidth が無い」状態を作る
       delete (groupArrow as Record<string, unknown>).strokeWidth;

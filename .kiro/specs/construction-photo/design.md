@@ -43,14 +43,17 @@
 - site-survey の `SiteSurvey`/`SurveyImage`/`ImageAnnotation`（読取のみ。書込・スキーマ変更は行わない）。
 - `CompanyInfo`（会社名は読取のみ）、`Project`（`name` 読取・パネル結線のみ）。
 - 共通画像基盤（`ImageProcessorService`/`SignedUrlService`/`StorageProvider`/`PdfFontService`）の内部実装（利用のみ、拡張しない）。
-- **未送信画像の保持・再送・破棄の機構本体**: `components/site-surveys/ImageUploader`（保持と再送・破棄の結線）、`hooks/usePendingUploads`（保持・重複排除・プレビューURL生存管理）、`components/site-surveys/PendingUploadPanel`（一覧表示と操作面）、`utils/upload-failure`（恒久／一時の分類）、`types/upload.types`（共有型）。所有は site-survey spec の Requirement 37。本 spec は利用のみで改変しない。
+- **未送信画像の保持・再送・破棄の機構本体**: `components/site-surveys/ImageUploader`（保持と再送・破棄の結線）、`hooks/usePendingUploads`（保持・重複排除・プレビューURL生存管理）、`components/site-surveys/PendingUploadPanel`（一覧表示と操作面）、`utils/upload-failure`（恒久／一時の分類）、`types/upload.types`（共有型）。所有は site-survey spec の Requirement 37。本 spec は利用のみで改変しない。例外は二つで、タスク 23.5 が `ImageUploader` にカメラの導線を描くかの任意の口 `showCameraCapture`（既定 `true`）を足したこと（下の ImageUploader の行と Components の表に記す）と、タスク 16.3 がタップ領域の下限を `utils/tap-target.ts` の単一の出所へ移した際に `PendingUploadPanel` の import 先を書き換えたこと（下限の値と振る舞いは変えていない）である（タスク 26.3 で例外の記載を補った）。
 - **multipart 送信の再試行方針・送信猶予・401 リフレッシュ・セッション切れ通知**: `api/client.ts` の `ApiClient.request`／`sendFormData`／`UPLOAD_TIMEOUT_MS`／`UPLOAD_RETRYABLE_STATUS_CODES`。所有は site-survey spec Requirement 37。本 spec は `apiClient.sendFormData` を呼ぶのみ。
 - 未送信保持部品を `components/common/` 等の共通レイヤへ移設する構造リファクタ（受入基準を変えず、完了済み実装への回帰リスクのみを生むため本 spec では扱わない）。
 
 ### Allowed Dependencies
 - 基盤（利用可）: `StorageProvider.copy/upload/getSignedUrl`、`ImageProcessorService.processImage`、`SignedUrlService.generateBatchSignedUrls`、`CompanyInfoService.getCompanyInfo`、`PdfFontService.initializePdfFonts`、fabric primitives、multer 設定、`authenticate`/`requirePermission`/`validate`。
 - フロント基盤（利用可・流用）: `hooks/useCanvasViewport`・`components/site-surveys/ZoomControls`・`components/site-surveys/gestures/*`・`utils/imageFitScale`・`ImageViewer` の回転定数/`normalizeRotation`（ビューアR14）、`hooks/useUnsavedChanges`＋`components/common/UnsavedChangesDialog`（離脱警告R18）、`hooks/useMediaQuery`＋`utils/responsive`（モバイルR19）、`hooks/usePermission`（権限R17）、JSZip（ZIP生成R15）。site-survey の `services/export/bulkExportService` は**流用せず独立クローン**（安定性優先）。
-- フロント基盤（利用可・R20）: `types/upload.types`（`FailedUpload`/`UploadOutcome`/`PendingUpload`/`UploadFailureKind`）、`utils/upload-failure`（`toFailedUpload`/`classifyUploadFailure`/`isUnsupportedFormatMessage`）、`components/site-surveys/ImageUploader`（保持・再送・破棄の結線を内包）、`api/client.ts` の `apiClient.sendFormData`。いずれも**利用のみ**で、これらのファイルを本 spec の実装で変更しない。
+- フロント基盤（利用可・R20）: `types/upload.types`（`FailedUpload`/`UploadOutcome`/`PendingUpload`/`UploadFailureKind`）、`utils/upload-failure`（`toFailedUpload`/`classifyUploadFailure`/`isUnsupportedFormatMessage`）、`components/site-surveys/ImageUploader`（保持・再送・破棄の結線を内包）、`api/client.ts` の `apiClient.sendFormData`。いずれも**利用のみ**で、これらのファイルを本 spec の実装で変更しない（例外は上の Out of Boundary に記した `ImageUploader` の `showCameraCapture`（タスク 23.5）と `PendingUploadPanel` の import 先（タスク 16.3）の二つ）。
+- フロント基盤（利用可・共有の画面部品と横断ルールの値。タスク 23.10 で宣言を補った）: `frontend/src/utils/tap-target.ts` の `TAP_TARGET_MIN_PX`（タップ領域の下限 44 の実装の側の単一の出所。site-survey と共有し、`PhotoItemPanel`・`BulkExportProgressDialog`・`ConstructionPhotoImageViewer`・`SignboardAssignDialog` が引く）、`frontend/src/components/common/Breadcrumb.tsx`（共通のパンくず。一覧・作成・編集・詳細・看板マスタの各画面が使う。モバイル幅で折り返す挙動は trading-partner-management のタスク 30.1 が直した）、`frontend/src/components/Navigation/AppHeader.tsx`（共通ヘッダ。本 spec は import しないが全画面の上端に載る。320 幅以上で文書全体を水平にはみ出させない挙動は user-authentication のタスク 39.1 が直した）、`hooks/useMediaQuery`（上の R19 の用途に加え、`SignboardAssignDialog` がモバイル幅のリンクのタップ領域の切替に使う）。いずれも**利用のみ**で、本 spec の実装で変更しない。本 spec のモバイル幅の E2E（文書全体が水平にはみ出さないこと・パンくずの折り返し）は、パンくずと共通ヘッダの上記の是正に依存する。
+- フロント基盤（利用可・タスク 26.3 で宣言を補った）: `hooks/useElementSize`（ResizeObserver による要素の幅の計測。`SignboardPlacementEditor` が画像の枠の幅を置かれた場所の幅に追従させるのに使う, タスク 25.1）。`SignboardPlacementEditor` も上の `TAP_TARGET_MIN_PX` と `useMediaQuery` をモバイル幅の「保存」のタップ領域に引く（タスク 24.3）。`api/site-surveys` と `types/site-survey.types`（`SurveyImagePicker` が現場調査と写真の一覧を読むだけ。書き込みの API は呼ばない）。いずれも**利用のみ**で、本 spec の実装で変更しない。
+- バックエンド基盤（利用可・タスク 26.3 で宣言を補った）: `utils/survey-deleted-guard`（取り除かれた現場調査を指す写真の取り込みを 410 `SURVEY_DELETED` で拒む判定。`construction-photo-image.service.ts` と `construction-photo-images.routes.ts` が使う, タスク 17）、`SurveyImageService`（アップロードの検証 `validateFile`・ファイル名の無害化 `sanitizeFileName`・マジックバイトからの形式の判定を借用する。`construction-photo-images.routes.ts` が組み立てて image service へ渡し、原本の配信の Content-Type の決定にも使う）。いずれも読み取りと純関数の利用のみで、site-survey のサービス・モデルへの書き込みの依存は持たない（下の制約のとおり）。
 - 依存方向: Types → Prisma → Storage/Infra → Service → Route → API(client) → UI。左方向のみ import 可、上方向禁止。R20 の追加経路も `types/upload.types → utils/upload-failure → api/construction-photo-images → components/construction-photos/PhotoUploader` の順で左方向のみに従う（`utils` は `api` を import しない）。
 - 制約: site-survey のサービス／モデルへ書込依存しない。現調写真は Prisma 読取＋`storage.copy` のみ。
 - 制約（R20）: 工事写真から共有部品への依存は `components/construction-photos/* → components/site-surveys/*` の一方向のみ。`components/site-surveys/*` が工事写真の型・API・画面を参照することは禁止（既存の `ConstructionPhotoImageViewer → site-surveys/ZoomControls` と同じ向き）。
@@ -68,6 +71,8 @@
 - `UPLOAD_RETRYABLE_STATUS_CODES`／`UPLOAD_TIMEOUT_MS`／再試行回数・バックオフ係数の変更 → R20.13〜R20.15・R20.19・R20.20 を再検証。
 - **バックエンドの画像形式エラー文言の変更**（`surveyImageService.validateFile` が投げる 3 種のメッセージ） → 207 応答の恒久／一時分類（R20.16, R20.21）が静かに壊れるため、`utils/upload-failure` の判定文言と工事写真の再送不可 E2E を再検証。
 - `construction-photo-images` のアップロード応答形状（201/207 と `{successful, failed}`）の変更 → `PhotoUploader.uploadFilesInWaves` の集約と再送可否判定を再検証。
+- 共有の画面部品と横断ルールの値の変更（`TAP_TARGET_MIN_PX` の値、`Breadcrumb` のモバイル幅の折り返し、`AppHeader` のモバイル幅の配置、`useMediaQuery` の判定） → 本 spec の画面のモバイル幅のタップ領域と水平のはみ出しの E2E（`construction-photo-additional.spec.ts`・`construction-photo-workflow.spec.ts`）を再検証（タスク 23.10）。
+- 利用できるかの共通の判定（`construction-photo-availability` の、対象と所属プロジェクトが取り除かれていないかの判定）またはロールの権限の表（`construction_photo:*`・`construction_signboard:*`）の変更 → アルバム・写真・メタ・看板の 4 サービスの 404 / 403 と統合テスト `construction-photo-access.api.integration.test.ts` を再検証（タスク 23.1）。
 
 ## Architecture
 
@@ -76,6 +81,7 @@
 - 画像は multer→Sharp→StorageProvider（local/R2）保存、配信は署名付きURL（公開パス禁止, TTL 900s）。合成は SVG→`sharp.composite` の実績パターン（`annotated-thumbnail.service`）。
 - フロントは React 19 + react-router 7、状態はローカル＋context、PDFは jsPDF（`PdfReportService` に3枚/ページ版組が既存）、注釈は fabric。
 - 認可は RBAC 権限（`requirePermission('<resource>:<action>')`）。プロジェクトメンバーシップ専用ガードは存在しない。
+- 工事写真・工事看板のアクセスもロールの権限の表（`requirePermission`）だけで判定し、プロジェクトの担当者（作成者・営業担当・工事担当）や admin ロールでの絞り込みは行わない（タスク 23.1、利用者の判断（2026-10-03）。初回実装は写真の一覧・メタの一括更新・並び替え・写真項目の削除・印字画像・原本にだけ担当者の限定 `canAccessProject` を掛けており、アルバム・アップロード・看板の側と食い違っていたため外した）。担当でない一般ユーザーも、権限の表が許す操作（user は閲覧・作成・編集）を全プロジェクトの工事写真・工事看板に対して行える。受入基準 13.2・13.3 の「アクセス可能なプロジェクト」は、実在し取り除かれていない（論理削除されていない）プロジェクトと読む。プロジェクトの論理削除は配下のアルバム・看板へ波及しないため、アルバム・写真項目・看板の各操作は、対象と所属プロジェクトの論理削除の状態を同じ問い合わせで読み、共通の判定（`construction-photo-availability` の `isAvailableInLiveProject`・`isProjectLive`）に掛ける。判定の順は、認証（401）→ ロールの権限の表（403）→ 対象と所属プロジェクトが実在し論理削除されていないこと、およびプロジェクト（アルバム）の配下として指したときの所属（404 / 400）である。
 
 ### Architecture Pattern & Boundary Map
 
@@ -188,14 +194,14 @@ graph TB
 |-------|------------------|-----------------|-------|
 | Frontend | React 19 / react-router-dom 7 / fabric 7 / jspdf | 一覧・詳細・看板配置プレビュー・台帳PDF生成 | 既存踏襲。fabricは配置プレビューのみ |
 | Backend | Express 5 / Prisma 7.8 / multer / sharp | ルート・サービス・アップロード・看板合成 | `construction_photo:*` 権限を追加 |
-| Data / Storage | Postgres / StorageProvider(local, R2) | 3モデル・`construction-photos/` オブジェクト | 署名付きURL配信（TTL 900s） |
+| Data / Storage | Postgres / StorageProvider(local, R2) | 3モデル・`construction-photos/` オブジェクト | サムネイルは署名付きURL配信（TTL 900s）。原本・印字画像は認証付きのルートが中継（タスク 23.10 で注記） |
 | Infrastructure | 既存 Docker/entrypoint | 変更なし | 新規ランタイム前提なし |
 
 ## Data Models
 
 ### Domain Model
 - **集約1: ConstructionPhotoAlbum**（集約ルート）— 配下に `ConstructionPhoto`（写真項目）を持ち、写真の追加・並び替え・削除・印刷対象・コメントを一貫性境界とする。論理削除でアルバムと写真を一括無効化。
-- **集約2: ConstructionSignboard**（集約ルート・プロジェクト単位マスタ）— 写真項目から `signboardId` で参照される。看板削除時は参照側を `SetNull`（R9.7）。
+- **集約2: ConstructionSignboard**（集約ルート・プロジェクト単位マスタ）— 写真項目から `signboardId` で参照される。看板削除時は参照側を `SetNull`（R9.7）。ただし看板の削除は論理削除（`deletedAt`）であり、スキーマの `onDelete: SetNull` は発火しない。そのため `ConstructionSignboardService.delete` が、看板を論理削除するのと同じトランザクションの中で、参照する写真項目の `signboardId` と `signboardPlacement` を null にする（タスク 23.3。初回実装は件数を数えるだけで参照側を解除しておらず、写真一覧が削除済みの看板の指定を返し続けた）。論理削除済みの看板を指す指定が行に残る場合（この解除より前の行、看板の削除とメタの一括更新の競合）に備え、写真項目の DTO を作る読み出し（写真一覧・メタの一括更新の応答）は参照先の看板の生死を同じ問い合わせで読み（`SIGNBOARD_LIVENESS_SELECT`）、生きているときだけ指定と配置を有効として返す（`resolveSignboardAssignment`。件数に比例する問い合わせは足さない）。印字画像の生成は従来から自前で同じ判定をしており、PDF の台帳と ZIP はその経路を通る。競合で宙吊りの行ができる経路は、メタの一括更新が看板の検証をトランザクションの中で看板の行を `FOR SHARE` でロックして行うことで塞いだ（タスク 24.1。下の `updateMetadataBatch` の Postconditions）。既にできていた宙吊りの行は、一度きりのマイグレーション（`20261005000000_release_photos_referencing_deleted_signboards`）が看板の削除と同じ形（`signboardId` を null、配置を JSON の null）で解除する。読み出し時の解決は防御として残す。
 - 写真↔看板の**配置情報**（位置・大きさ）は参照側 `ConstructionPhoto.signboardPlacement`（写真の所有物）に保持。看板本体は配置情報を持たない（No Hidden Shared Ownership）。
 
 ```mermaid
@@ -222,7 +228,8 @@ erDiagram
 - `signboardId String?`、`signboardPlacement Json?`（`{left,top,width,height}` 画像ピクセル座標）
 - `sourceSurveyImageId String?`（現調コピー由来の来歴。FKにはせず値保持のみ＝site-survey非依存）
 - `createdAt`
-- rel: `album @relation(onDelete: Cascade)`、`signboard ConstructionSignboard? @relation(onDelete: SetNull)`
+- rel: `album @relation(onDelete: Cascade)`、`signboard ConstructionSignboard? @relation(onDelete: SetNull)`（`onDelete: SetNull` が発火するのは看板の行が物理的に消えるときだけである。看板マスタの削除は論理削除のため、参照側の解除はサービスが行う。タスク 23.3）
+- 更新日時の列（`updatedAt`）は持たない。写真項目のメタの一括更新は版の照合（楽観的排他）をせず、送られた項目だけを書く（タスク 23.3 で確かめた）
 - index: `@@index([albumId])`、`@@index([displayOrder])`、`@@index([includeInReport])`、`@@index([signboardId])`
 
 **ConstructionSignboard**（`@@map("construction_signboards")`）
@@ -273,6 +280,9 @@ interface ConstructionPhotoExportProgress { completed: number; total: number; fa
 type ConstructionPhotoPermissionAction = 'view' | 'create' | 'edit' | 'delete';
 interface ConstructionPhotoPermission {
   canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean;
+  canViewSignboards: boolean;  // construction_signboard:read。看板マスタへの導線の出し分け（タスク 23.2）。ロード中は false
+  canCreateSignboards: boolean; canEditSignboards: boolean; canDeleteSignboards: boolean;
+  // construction_signboard:create / update / delete。看板マスタの「新規登録」・各行の「編集」「削除」の出し分け（タスク 23.8）。ロード中は false
   isLoading: boolean;
   getPermissionError: (action: ConstructionPhotoPermissionAction) => string | null;
 }
@@ -319,7 +329,8 @@ backend/src/
 │   ├── construction-photo-album.service.ts      # アルバムCRUD・ページング (R1,R3)
 │   ├── construction-photo-image.service.ts      # addFromUpload/addFromSurveyImage/list/delete (R4,R5,R6,R12)
 │   ├── construction-photo-metadata.service.ts   # コメント/印刷対象/看板配置 batch + 並び替え (R7,R9)
-│   ├── construction-signboard.service.ts        # 看板CRUD (R8)
+│   ├── construction-signboard.service.ts        # 看板CRUD (R8)。論理削除と同じトランザクションで参照側の指定を解除 (R9.7, タスク 23.3)
+│   ├── construction-photo-availability.ts       # 対象と所属プロジェクトが取り除かれていないかの共通の判定。アルバム・写真・メタ・看板の4サービスが使い、どのサービスにも依存しない (R13.2, R13.3, タスク 23.1)
 │   ├── signboard-svg.service.ts                 # 電子小黒板SVG生成 (R8,R9,R10)
 │   ├── signboard-composite.service.ts           # SVG→sharp composite で印字用画像生成 (R9,R10)
 │   └── construction-photo-summary.service.ts    # findLatestByProjectId (R2)
@@ -336,6 +347,7 @@ frontend/src/
 │   ├── ConstructionPhotoListPage.tsx            # 一覧 (R2,R3)
 │   ├── ConstructionPhotoDetailPage.tsx          # 詳細: 写真項目管理+保存+PDF (R1,R7,R9,R10)
 │   ├── ConstructionPhotoCreatePage.tsx          # アルバム作成 (R1)
+│   ├── ConstructionPhotoEditPage.tsx            # アルバム編集: アルバム名・メモの更新（楽観的排他・競合表示）(R1)
 │   └── ConstructionSignboardListPage.tsx        # 看板マスタ一覧+編集 (R8)
 ├── components/construction-photos/
 │   ├── ConstructionPhotoResponsiveView.tsx      # Table/Card切替（clone）(R3)
@@ -344,11 +356,15 @@ frontend/src/
 │   ├── PhotoUploader.tsx                         # 3系統追加UI（ImageUploader踏襲, 現調選択追加）(R4,R5,R6)
 │   ├── SurveyImagePicker.tsx                     # 現調写真選択モーダル (R6)
 │   ├── SignboardPlacementEditor.tsx             # fabric 1枚Rect配置プレビュー (R9)
+│   ├── signboard-placement-geometry.ts          # 表示座標と画像ピクセル座標の相互換算と、置かれた場所の幅による表示幅の上限（純関数, SignboardPlacementEditor が使用）(R9, R19.1)
+│   ├── SignboardAssignDialog.tsx                # 詳細画面の「看板を配置」ダイアログ: 看板選択＋SignboardPlacementEditor の結線 (R9)。看板マスタへのリンク「工事看板マスタを開く」と、看板の一覧の取得の状態（signboardsStatus）に応じた表示 (R8, タスク 23.2)
 │   └── SignboardForm.tsx                         # 看板 標準項目+自由項目+固定テキスト (R8)
 ├── components/projects/
 │   └── ConstructionPhotoSectionCard.tsx         # 工程表パネル直下パネル (R2)
 ├── services/export/
-│   └── ConstructionPhotoLedgerService.ts        # 台帳PDF: 表紙+3枠+No.連番 (R10)
+│   ├── ConstructionPhotoLedgerService.ts        # 台帳PDF: 表紙+3枠+No.連番 (R10)
+│   ├── ConstructionPhotoLedgerExportService.ts  # PDF出力の結線: 印刷対象の抽出（保存順）・印字画像のオンデマンド取得・0件は非実行（通知は詳細画面）(R10)
+│   └── loadConstructionPhotoLedgerExportService.ts  # 上記の動的 import 境界（日本語フォント資産を初期チャンクへ載せない。導入は estimate-creation のタスク 56.13）(R10)
 ├── api/
 │   ├── construction-photos.ts / construction-photo-images.ts / construction-signboards.ts
 └── types/construction-photo.types.ts
@@ -363,13 +379,15 @@ frontend/src/
 - `services/export/ConstructionPhotoBulkExportService.ts` — JSZip束ね・解像度/形式変換（canvas再エンコード）・看板モード分岐（composited=print-image取得, plain/original=原本取得）・進捗callback/AbortSignal (R15)
 - `services/export/constructionPhotoZipNaming.ts` — ZIPエントリ命名（`zip-naming` 相当のクローン）(R15)
 - `components/construction-photos/AlbumDeleteDialog.tsx` — アルバム削除確認（FocusManagerパターン踏襲）(R16)
-- `hooks/useConstructionPhotoPermission.ts` — `usePermission('construction_photo:*')` を包む canView/canCreate/canEdit/canDelete/getPermissionError (R17)
+- `hooks/useConstructionPhotoPermission.ts` — `usePermission('construction_photo:*')` を包む canView/canCreate/canEdit/canDelete/getPermissionError (R17)。看板の権限は写真の権限から導かず、`construction_signboard:*` から canViewSignboards（タスク 23.2）と canCreateSignboards/canEditSignboards/canDeleteSignboards（タスク 23.8）を返す
+- `hooks/useCameraAvailability.ts` — 端末のカメラの有無を `enumerateDevices` の `videoinput` で判定する。判定できないときは `unknown`（導線を出す側）。`PhotoUploader` が使う (R5.3, タスク 23.5)
 
 **変更（frontend）**
-- `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、独自 `isDirty` state を `useUnsavedChanges` へ置換(R18)、`useMediaQuery` でモバイル分岐(R19)
-- `components/construction-photos/PhotoItemPanel.tsx` — エクスポート対象の選択チェック(R15)、モバイルスタイル分岐(R19)、`readOnly` 結線の実効化(R17)
-- `pages/ConstructionPhotoListPage.tsx` / `components/construction-photos/ConstructionPhotoListTable.tsx` / `ConstructionPhotoListCard.tsx` — アルバム編集/削除の行導線（権限連動）(R16,R17)
+- `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、画面の `isDirty` state を `useUnsavedChanges({ isDirty })` へ渡して離脱警告を結線(R18)、`isDirty` は保留（`pendingChangesRef`・`pendingOrderRef`）から `syncDirtyWithPending` で決め直す（R18.3, タスク 23.6。Frontend Interfaces の R18 を参照）、保存は開始時に送る保留を取り出し、成功の後は送ったものだけを保留から消す（R18.1, R18.3, タスク 24.5）、看板の一覧を写真項目の取得とは別の effect で取得し、取得の状態（`signboardsStatus`）と看板マスタの経路を「看板を配置」のダイアログへ渡す（R8, R9, タスク 23.2）、`useMediaQuery` でモバイル分岐(R19)、通知の枠の通知と失敗を一つの状態（`pageMessage`）に持ち、後から出たものが前のものを置き換える（タスク 22.1。Error Handling を参照）、保存の失敗は `pageMessage` に保存の失敗の印を付けて載せ、同じ文言を `PhotoItemPanel` の `saveFailure` へ渡し、その間は上部の枠を role を持たずに描き、role が変わるときは枠を `key` で作り直す（タスク 22.2。Error Handling を参照）、写真項目を取り除く操作の失敗は捕捉せずに `PhotoItemPanel` へ伝播させ、上部の通知の枠（`pageMessage`）には載せず、画面も送らない（R7.7 の失敗時, タスク 21.3・23.9。Error Handling を参照）
+- `components/construction-photos/PhotoItemPanel.tsx` — エクスポート対象の選択チェック(R15)、モバイルスタイル分岐(R19)、`readOnly` 結線の実効化(R17)、看板の操作ボタン（「看板を配置」／「看板を変更」）のモバイル幅のタップ領域を `TAP_TARGET_MIN_PX` 以上にする上書き（`assignSignboardButtonMobile`, R19.3, タスク 21.2）、写真項目を取り除く操作の成功・失敗のどちらでも、その完了の後に確認ダイアログを閉じる（タスク 21.3）。取り除く操作の実行中は確認ダイアログを閉じず、オーバーレイのクリックとキャンセルを受け付けず、別の写真項目の確認も開かない（タスク 22.3）。失敗はその写真項目の操作の行の直後に role=alert で表示し、失敗の間だけ取り除くボタンの `aria-describedby` で結び付け、フォーカスを画面を送らずにそのボタンへ戻す。表示が画面の外へ出るときだけ表示の分だけ画面を動かす。失敗の文言は写真項目ごとの状態に持ち、文言の規則もこの部品が持つ（R7.7 の失敗時, タスク 21.3・23.9。Error Handling を参照）。保存の失敗（`saveFailure`）は保存ボタンの直後に role=alert で表示し、表示がある間だけ保存ボタンの `aria-describedby` で結び付け、フォーカスを失っているとき（または保存ボタンにあるとき）だけ、表示が画面の外へ出るなら表示の分だけ画面を動かし、保存ボタンへ画面を送らずに戻す（タスク 22.2。Error Handling を参照）
+- `pages/ConstructionPhotoListPage.tsx` / `components/construction-photos/ConstructionPhotoListTable.tsx` / `ConstructionPhotoListCard.tsx` — アルバム編集/削除の行導線（権限連動）(R16,R17)。一覧の見出しの行に看板マスタへの常設のリンク「工事看板マスタ」（`canViewSignboards` のときだけ。R8, タスク 23.2）
 - `routes.tsx` — CPビューアルート `/construction-photos/:albumId/photos/:photoId` を追加 (R14)
+- `pages/ConstructionSignboardListPage.tsx` — 権限の無い操作の手段を表示しない（「新規登録」は canCreateSignboards、各行の編集の操作は canEditSignboards、各行の取り除く操作は canDeleteSignboards のときだけ。行の操作が一つも無い利用者には操作の列を出さない）。看板の API が 403 を返したときは応答の符号でなく、操作ごとに権限が無い旨の日本語の文言を示す（R17.4, R17.5, タスク 23.8。Error Handling を参照）
 
 ### アップロード失敗の保持と再送のファイル（Req 20）
 
@@ -378,7 +396,7 @@ frontend/src/
 - `frontend/src/utils/upload-failure.ts` — `toFailedUpload`/`classifyUploadFailure`/`isUnsupportedFormatMessage`
 - `frontend/src/hooks/usePendingUploads.ts` — 保持・重複排除・ObjectURL 生存管理
 - `frontend/src/components/site-surveys/PendingUploadPanel.tsx` — 未送信一覧の表示と再送・破棄の操作面
-- `frontend/src/components/site-surveys/ImageUploader.tsx` — 保持と再送・破棄の結線、圧縮の有無の切替
+- `frontend/src/components/site-surveys/ImageUploader.tsx` — 保持と再送・破棄の結線、圧縮の有無の切替（例外として、タスク 23.5 がカメラの導線を描くかの任意の口 `showCameraCapture` を既定 `true` で足した。既定の挙動は変えていない。R5.3）
 - `frontend/src/api/client.ts` — `sendFormData`／`UPLOAD_TIMEOUT_MS`／`UPLOAD_RETRYABLE_STATUS_CODES`／401 リフレッシュ待ち合わせ
 
 **本 spec が所有する送信アダプタ（結線済み・回帰時の修正対象）**
@@ -393,7 +411,10 @@ frontend/src/
 ### Modified Files
 - `backend/prisma/schema.prisma` — 3モデル追加＋`Project`に逆リレーション追加（migration生成）。
 - `backend/src/app.ts` — import＋二重マウント4行（photos/images）＋signboardルート登録。
-- `backend/src/routes/projects.routes.ts` — `getProjectSections` の `allSettled` に工事写真を追加、返却に `constructionPhotos:{totalCount,latest...}`。
+- `backend/src/routes/projects.routes.ts` — `getProjectSections` の `allSettled` に工事写真を追加、返却に `constructionPhotos:{totalCount,latest...}`。アルバムの代表サムネイルの署名付きURLへ写真一覧と同じ有効期限 `SIGNED_URL_EXPIRES_IN`（900 秒）を渡す（R11.6, タスク 23.7。それまでは有効期限を渡さず既定の 3600 秒になっていた）。
+- `backend/src/services/construction-photo-availability.ts`（タスク 23.1 で新設）— 対象と所属プロジェクトが実在し取り除かれていないかの共通の判定（`AVAILABILITY_IN_PROJECT_SELECT`・`PROJECT_LIVENESS_SELECT`・`isAvailableInLiveProject`・`isProjectLive`）。アルバム・写真・メタ・看板の 4 サービスが使う。担当者を読まない。
+- `backend/src/services/construction-signboard.service.ts` — `delete` が、看板を取り除くのと同じトランザクションで参照する写真項目の看板の指定と配置を解除し、解除した件数を `inUseCount` として返す（R9.7, タスク 23.3）。
+- `backend/src/services/construction-photo-image.service.ts` — 写真一覧の DTO の看板の指定を、参照先の看板が生きているときだけ有効とする `resolveSignboardAssignment` / `SIGNBOARD_LIVENESS_SELECT`（R9.7, タスク 23.3。メタの一括更新の応答も同じ判定を使う）。有効期限の定数 `SIGNED_URL_EXPIRES_IN` を export する（タスク 23.7）。
 - `backend/src/middleware/authorize.middleware.ts`（または権限定義箇所）— `construction_photo:*` / `construction_signboard:*` 権限を追加。
 - `frontend/src/routes.tsx` — `/construction-photos` ルート群を site-survey 順序規約に倣い追加。
 - `frontend/src/pages/ProjectDetailPage.tsx` — `ConstructionPhotoSectionCard` を `ScheduleSectionCard` の直後に挿入。
@@ -466,17 +487,30 @@ flowchart TD
     Enc --> Add[JSZip にエントリ追加＋進捗通知]
     Add --> More{残あり?}
     More -->|Yes 部分失敗は継続| Loop
-    More -->|No| Zip[ZIP Blob 生成→ダウンロード]
+    More -->|No| Zip[ZIP Blob 生成]
+    Zip --> Failed{失敗した項目?}
+    Failed -->|なし| Download[ダウンロード]
+    Failed -->|一部| Choice[失敗した項目を示し利用者が選ぶ]
+    Choice -->|成功した項目だけでダウンロードする| Download
+    Choice -->|ダウンロードしない| Discard[ダウンロードせず閉じる]
+    Failed -->|すべて| AllFailed[失敗した項目を示しダウンロードしない]
 ```
 
-ZIP自体はクライアント（JSZip）で生成する。看板重畳モード（composited）は既存 `GET print-image`（サーバ合成）を、`plain`/`original` は**新設の非合成原本エンドポイント `GET .../original`** を取得元とする（看板配置済み写真でも生原本を取得できる）。解像度（低/中/高）と形式（JPEG/PNG）変換は canvas 再エンコードで一元化し、`original` は設定を適用せず原本バイトをそのまま格納、`plain` は看板なしのまま解像度/形式を適用する。1件の取得・加工失敗は当該項目のみ失敗として継続し、成功分での続行をユーザーが選べる（R15.10）。対象0件は非実行で通知（R15.11）。
+ZIP自体はクライアント（JSZip）で生成する。看板重畳モード（composited）は既存 `GET print-image`（サーバ合成）を、`plain`/`original` は**新設の非合成原本エンドポイント `GET .../original`** を取得元とする（看板配置済み写真でも生原本を取得できる）。解像度（低/中/高）と形式（JPEG/PNG）変換は canvas 再エンコードで一元化し、`original` は設定を適用せず原本バイトをそのまま格納、`plain` は看板なしのまま解像度/形式を適用する。1件の取得・加工失敗は当該項目のみ失敗として継続し、成功分での続行をユーザーが選べる（R15.10）。対象0件は非実行で通知（R15.11）。対象（全件・選択）は詳細画面が保存済みの表示順（`displayOrder` の昇順、同値は元の並び）に並べてから渡し、エントリ名の連番（`NNN_`）と部分失敗で示す対象の中での順番はこの並びから作る。並べ替えは画面の写真項目の `displayOrder` を書き換えるだけで配列の並びを変えないため、並べ直さないと連番が読み込み時の順になり、画面の一覧と PDF の順と食い違う（タスク 27.1）。
+
+部分失敗時の選択（タスク 23.4、利用者の判断（2026-10-03））: 生成が終わった ZIP に失敗した写真項目が一件でもあれば、詳細画面は自動でダウンロードしない。サービスが返す `failed`（写真項目の ID）をエクスポート対象と突き合わせ、失敗した写真項目をファイル名とエクスポート対象の中での順番（1 始まり）にして、`BulkExportProgressDialog` の結果の段に示す。失敗の理由は区別せず「画像を取得または加工できませんでした」と述べる（サービスは理由を返さない）。
+- 成功と失敗が混在するとき: 失敗の件数と一覧、成功の件数を示し、「成功した項目だけでダウンロードする」と「ダウンロードしない」を出す。前者は保留した ZIP を従来と同じファイル名でダウンロードし、従来の部分失敗の通知（「一部の写真項目（N件）のエクスポートに失敗しました。成功した項目のみでZIPをダウンロードしました。」）を出す。後者と Escape は何もダウンロードせずにダイアログを閉じる。
+- すべて失敗したとき: ダウンロードせず、失敗の一覧と「閉じる」だけを示し、ダウンロードしていない旨を通知の枠にも出す。
+- 全件成功・中断は従来どおり（全件成功は即座にダウンロードし、結果の段は出さない。中断は結果の段を出さず中断を通知する）。
+- 保留する ZIP は Blob とファイル名だけで、オブジェクトURLはダウンロードの瞬間に作ってその場で解放する。保留はダイアログを閉じるすべての経路・次のエクスポートの開始・詳細画面の破棄で手放し、詳細画面の破棄時は実行中のエクスポートも中断する。
+- 結果の段が出たらフォーカスを段の見出しへ移し、Tab はダイアログの中で循環させる。失敗の一覧は一覧の中でスクロールさせ（操作を画面外へ押し出さない）、ファイル名は `overflowWrap: 'anywhere'` で折り返す。モバイル幅では二つの操作のタップ領域を `TAP_TARGET_MIN_PX` 以上にし、操作の列を折り返す（R19）。
 
 ### 画像ビューア（閲覧専用）
 
 ```mermaid
 flowchart LR
     Thumb[詳細で写真サムネをクリック] --> Nav[/construction-photos/:albumId/photos/:photoId へ遷移/]
-    Nav --> Fetch[原本の署名付きURL取得]
+    Nav --> Fetch[原本を認証付きGETでBlob取得しobject URL化]
     Fetch --> View[ConstructionPhotoImageViewer]
     View --> Z[ズームイン/アウト]
     View --> R[90度回転]
@@ -484,7 +518,7 @@ flowchart LR
     View --> Close[閉じる→詳細へ戻る]
 ```
 
-ビューアは注釈編集を持たない閲覧専用で、`useCanvasViewport`/`ZoomControls`/`gestures/*`/`imageFitScale` と回転状態を合成する。表示する原本は**新設の `GET .../original`**（看板を焼き込まない生原本）を必要時にのみ取得する（R11.3, R14.6）。
+ビューアは注釈編集を持たない閲覧専用で、`useCanvasViewport`/`ZoomControls`/`gestures/*`/`imageFitScale` と回転状態を合成する。表示する原本は**新設の `GET .../original`**（看板を焼き込まない生原本）を必要時にのみ取得する（R11.3, R14.6）。原本は署名付きURLではなく、認証付きの GET の応答本文（サーバーがストレージから読んだバイト列を中継する）として受け取り、Blob を object URL にして表示する（`getConstructionPhotoOriginalImage`。タスク 23.10 で、署名付きURLの取得とした流れ図の記述を実装に合わせた）。
 
 ### アップロード失敗時の保持と再送（R20）
 
@@ -520,7 +554,7 @@ flowchart TD
 - **自動再試行の対象**: サーバー処理に到達する前の失敗（`0`/`502`/`503`/`504`）に限る。`500` は永続化が完了した後の失敗を含み、再送が同一画像の重複登録を生むため対象外とする（R20.13, R20.14）。
 - **時間切れは自動再試行しない**: 1件あたり120秒の猶予を与えたうえで、時間切れは保持へ回してユーザー操作に委ねる。自動再試行を重ねると再送を開始できるまでの待ち時間が積み上がるためである（R20.15, R20.19, R20.20）。
 - **前段検証との線引き**: フロントの上限（50MB）で弾かれた画像は**送信を試行していない**ため未送信画像として保持せず、従来どおり `validationErrors` として提示する。サーバー上限（10MB）超過はサーバーが 413 を返し、`permanent` として保持・提示する（R20.16）。
-- **件数上限は到達不能**: `uploadFilesInWaves` は1リクエスト1ファイルで送信するため、R12.1 の件数上限に起因する 400 は工事写真 UI から発生しない。R20.16 が挙げる 3 条件のうち、工事写真で到達するのは「サイズ上限」と「画像形式」の 2 経路である。到達不能な経路の検証は行わない。
+- **件数上限は到達不能**: `uploadFilesInWaves` は1リクエスト1ファイルで送信するため、R12.1 の件数上限に起因する 400 は工事写真 UI から発生しない。R20.16 が挙げる 3 条件のうち、工事写真で到達するのは「サイズ上限」と「画像形式」の 2 経路である。到達不能な経路の検証は行わない。**「1リクエスト1ファイル」は再実測でも真である**——`uploadFilesInWaves` は `uploadConstructionPhotos(albumId, [file])` の形で 1 ファイルずつ送る（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である）。 **再現コマンドは `awk '/^export async function uploadFilesInWaves\(/,/^}/' frontend/src/components/construction-photos/PhotoUploader.tsx | grep -c 'uploadConstructionPhotos(albumId, \[file\])'` であり、出力は `1` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 - **並行送信の抑止**: 保持の反映は「試行対象のうち失敗しなかったものを取り除く」差分更新であるため、送信が同時に走ると後から解決した試行が先行試行の結果を上書きする。実行中は新規選択・カメラ・D&D も含めて送信系操作を抑止する（R20.10 が求める範囲を上回る意図的な選択）。
 
 ## Requirements Traceability
@@ -531,7 +565,7 @@ flowchart TD
 | 2 | ナビ/パネル(工程表直下) | ConstructionPhotoSectionCard, SummaryService, routes.tsx, ProjectDetailPage | Summary API | - |
 | 3 | 一覧・検索(50件) | ResponsiveView/Table/Card/SearchFilter, AlbumService | list API | - |
 | 4 | ローカルUP | ConstructionPhotoImageService.addFromUpload, PhotoUploader | upload API | 追加フロー |
-| 5 | カメラ撮影 | PhotoUploader(camera input) | upload API | 追加フロー |
+| 5 | カメラ撮影 | PhotoUploader(camera input), useCameraAvailability | upload API | 追加フロー |
 | 6 | 現調コピー | ImageService.addFromSurveyImage, SurveyImagePicker | copy API | 追加フロー |
 | 7 | 項目管理 | MetadataService, PhotoItemPanel | metadata/order API | 保存フロー |
 | 8 | 看板マスタ | ConstructionSignboardService, SignboardForm, SvgService | signboard API | - |
@@ -587,8 +621,8 @@ R20 の機構は site-survey spec の Requirement 37 が所有する。共有部
 | BulkExportDialog / ProgressDialog / ExportSettingsForm | UI | エクスポート設定・進捗・中断UI(clone) | 15 | ExportService(P0) | State |
 | useConstructionPhotoPermission | UI(hook) | 権限出し分け(canView/Create/Edit/Delete) | 17 | usePermission(P0) | Hook |
 | AlbumDeleteDialog | UI | アルバム削除確認 | 16 | album API(P0) | State |
-| PhotoUploader | UI | 3系統追加＋**送信アダプタ**（失敗画像の実体と再送可否を返す） | 4,5,6,20 | ImageUploader(P0), ImageApi(P0), upload-failure(P0) | State |
-| ImageUploader（借用） | UI | 未送信保持・再送・破棄の結線 | 20 | usePendingUploads(P0), PendingUploadPanel(P0) | State |
+| PhotoUploader | UI | 3系統追加＋**送信アダプタ**（失敗画像の実体と再送可否を返す）＋カメラの導線の出し分け（端末のカメラの有無の判定は内部のフック `useCameraAvailability`） | 4,5,6,20 | ImageUploader(P0), ImageApi(P0), upload-failure(P0), useCameraAvailability(P0) | State |
+| ImageUploader（借用） | UI | 未送信保持・再送・破棄の結線、カメラの導線を描くかの任意の口 `showCameraCapture`（既定 `true`） | 20 | usePendingUploads(P0), PendingUploadPanel(P0) | State |
 | usePendingUploads（借用） | UI(hook) | 保持・重複排除・ObjectURL 生存管理 | 20 | upload.types(P0) | Hook |
 | PendingUploadPanel（借用） | UI | 未送信一覧の表示と操作面 | 20 | upload.types(P0) | State |
 | ApiClient.sendFormData（借用） | API(client) | multipart 送信の再試行・猶予・401更新 | 20 | ApiClient(P0) | Service |
@@ -598,34 +632,39 @@ R20 の機構は site-survey spec の Requirement 37 が所有する。共有部
 ```typescript
 interface ConstructionPhotoAlbumService {
   create(input: { projectId: string; name: string; memo?: string }): Promise<AlbumDto>;
-  update(id: string, input: { name?: string; memo?: string; updatedAt: string }): Promise<AlbumDto>; // 楽観排他
-  softDelete(id: string): Promise<void>;
-  findByProject(projectId: string, opts: { page?: number; limit?: number; filter?: AlbumFilter; sort?: AlbumSort; order?: 'asc' | 'desc' }): Promise<Paginated<AlbumDto>>; // limit 既定50
-  findById(id: string): Promise<AlbumDto>;
+  // projectId はプロジェクトの配下として指したときだけ渡り、別のプロジェクトの配下なら版の照合より先に 404 (R13.2, タスク 23.1)
+  update(id: string, input: { name?: string; memo?: string; updatedAt: string }, projectId?: string): Promise<AlbumDto>; // 楽観排他
+  softDelete(id: string, projectId?: string): Promise<void>;
+  findByProject(projectId: string, opts: { page?: number; limit?: number; filter?: AlbumFilter; sort?: AlbumSort; order?: 'asc' | 'desc' }): Promise<Paginated<AlbumDto>>; // limit 既定50。プロジェクトが無い・取り除かれていれば 404
+  findById(id: string, projectId?: string): Promise<AlbumDto>;
 }
 
 interface ConstructionPhotoImageService {
-  addFromUpload(albumId: string, files: UploadFile[]): Promise<ConstructionPhotoWithUrls[]>; // 末尾 displayOrder
-  addFromSurveyImage(albumId: string, surveyImageIds: string[]): Promise<ConstructionPhotoWithUrls[]>; // storage.copy 独立複製
-  listWithUrls(albumId: string, userId: string): Promise<ConstructionPhotoWithUrls[]>; // 一括署名URL, displayOrder asc
-  getPrintImage(photoId: string): Promise<Buffer>; // 看板ありはオンデマンド合成, なしは原本 (PDF用)
-  getOriginalImage(photoId: string): Promise<Buffer>; // 看板配置有無に関わらず非合成の原本 (ビューア/ZIP用)
-  delete(photoId: string): Promise<void>; // 関連ストレージ(original/thumbnail)も削除
+  // 部分失敗を許容し { successful, failed } を返す（ルートは全件成功 201・部分失敗 207）。末尾 displayOrder
+  addFromUpload(albumId: string, files: UploadFile[]): Promise<{ successful: ConstructionPhotoWithUrls[]; failed: Array<{ fileName: string; error: string }> }>;
+  addFromSurveyImage(albumId: string, surveyImageIds: string[]): Promise<{ successful: ConstructionPhotoWithUrls[]; failed: Array<{ surveyImageId: string; error: string }> }>; // storage.copy 独立複製
+  listWithUrls(albumId: string): Promise<ConstructionPhotoWithUrls[]>; // 一括署名URL, displayOrder asc。看板の指定は resolveSignboardAssignment で解決 (R9.7)
+  // 以下の albumId はアルバムの配下として指したときだけ渡り、写真がそのアルバムに属さなければ 404 (R13.2, タスク 23.1)
+  getPrintImage(photoId: string, albumId?: string): Promise<Buffer>; // 看板ありはオンデマンド合成, なしは原本 (PDF用)
+  getOriginalImage(photoId: string, albumId?: string): Promise<Buffer>; // 看板配置有無に関わらず非合成の原本 (ビューア/ZIP用)
+  delete(photoId: string, albumId?: string): Promise<void>; // 関連ストレージ(original/thumbnail)も削除
 }
 
 interface ConstructionPhotoMetadataService {
   updateMetadataBatch(inputs: Array<{
     id: string; comment?: string | null; includeInReport?: boolean;
     signboardId?: string | null; signboardPlacement?: SignboardPlacement | null; displayOrder?: number;
-  }>): Promise<ConstructionPhotoWithUrls[]>; // 配置情報を保持するのみ。合成はPDF出力時にオンデマンド
+  }>, albumId?: string): Promise<ConstructionPhotoWithUrls[]>; // 配置情報を保持するのみ。合成はPDF出力時にオンデマンド
   updateOrder(albumId: string, orders: Array<{ id: string; order: number }>): Promise<void>;
 }
 
 interface ConstructionSignboardService {
   create(input: SignboardInput & { projectId: string }): Promise<SignboardDto>;
-  update(id: string, input: SignboardInput & { updatedAt: string }): Promise<SignboardDto>;
-  delete(id: string): Promise<{ inUseCount: number }>; // 使用中は呼び出し側で確認 (R8.8)
-  findByProject(projectId: string): Promise<SignboardDto[]>;
+  update(id: string, input: SignboardInput & { updatedAt: string }, projectId?: string): Promise<SignboardDto>;
+  // 参照する写真項目の signboardId / signboardPlacement を同一トランザクションで null にし、
+  // 解除した件数を返す (R8.8, R9.7, タスク 23.3)。削除前の確認は一覧の inUseCount で行う
+  delete(id: string, projectId?: string): Promise<{ inUseCount: number }>;
+  findByProject(projectId: string): Promise<SignboardDto[]>; // プロジェクトが無い・取り除かれていれば 404 (タスク 23.1)
 }
 
 interface SignboardSvgService {
@@ -639,8 +678,9 @@ interface SignboardCompositeService {
 }
 ```
 - Preconditions: `signboardPlacement` は画像内に収まる非負矩形。`updateMetadataBatch` は全idが同一アルバムに属すること。
-- Postconditions: `displayOrder` は1..nに正規化。看板配置（`signboardId`/`signboardPlacement`）は保持のみ（合成はPDF出力時にオンデマンド）。
-- Invariants: site-survey テーブルへ書込まない。写真配信は署名付きURLのみ。
+- Postconditions: `displayOrder` は1..nに正規化。看板配置（`signboardId`/`signboardPlacement`）は保持のみ（合成はPDF出力時にオンデマンド）。写真項目は更新日時の列を持たず、メタの一括更新は版の照合をしない（送られた項目だけを書く）。看板の削除をまたいだ保存は、看板に触れない変更（コメント・印刷対象・順序）なら成功して解除が保たれ、削除済みの看板を指定する変更は 404（`SIGNBOARD_NOT_ALLOWED`）で拒否され、同じ保存の他の変更も書き込まれない（タスク 23.3）。看板の検証は書き込みと同じトランザクションの中で、指定された看板の行を ID 順に `FOR SHARE` でロックしてから読む（タスク 24.1）。看板の削除の論理削除の UPDATE はこのロックと衝突するため、削除が先なら保存は削除の確定を待って確定後の行で検証して 404 で拒否し、保存が先なら削除は保存の確定を待ってから参照する写真項目を解除する（保存が書いた指定も解除され、`inUseCount` に数えられる）。外部キーの検査が取る `FOR KEY SHARE` は論理削除の UPDATE と衝突しないため、ロックを明示しない旧実装では検証と書き込みの間に削除が確定すると宙吊りの行ができた（統合テストで再現を確認）。
+- アクセス（タスク 23.1）: どのメソッドも担当者を読まない。対象（写真項目ならその所属アルバム）と所属プロジェクトが論理削除済みなら 404 とし、何も書き込まない。別のプロジェクトの id を混ぜた要求は、404（並び替え・看板の指定）または 400（複数アルバムにまたがるメタの一括更新, `ConstructionPhotoBatchAlbumMismatchError`）で拒否する。
+- Invariants: site-survey テーブルへ書込まない。サムネイル（一覧・メタの一括更新の応答・アルバム一覧・プロジェクト詳細の要約）は署名付きURL（900 秒）で配信する。原本と印字画像は署名付きURLを発行せず、認証と権限の確認を経たルートがストレージから読んだバイト列を応答本文として返す（タスク 23.10 で「写真配信は署名付きURLのみ」の記述を実装に合わせた）。
 
 ### Frontend Interfaces（追加機能 R14〜R19）
 
@@ -665,11 +705,29 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 // usePermission('construction_photo:<action>') で判定（RBAC権限駆動）。
 
 // 未保存離脱警告 (R18) — 既存フックを利用（新規IFなし）
-// DetailPage で const uc = useUnsavedChanges({ enabled: canEdit }); を用い、
-// 変更発生で uc.markAsChanged()、保存成功で uc.markAsSaved()。
+// DetailPage が未保存判定を自前の state で持ち、共有フックへ渡す:
+//   const [isDirty, setIsDirty] = useState(false);
+//   const syncDirtyWithPending = useCallback(() => {
+//     setIsDirty(pendingChangesRef.current.size > 0 || pendingOrderRef.current !== null);
+//   }, []);
+//   useUnsavedChanges({ isDirty: canEdit && isDirty });  // beforeunload（R18.1, R18.4）
+//   const blocker = useBlocker(isDirty);                 // アプリ内遷移（R18.2）
+// 未保存の状態は保留から導く（R18.3, タスク 23.6）。保留はメタの変更（pendingChangesRef。
+// コメント・印刷対象・看板の指定と配置）と順序の変更（pendingOrderRef）の 2 種だけで、受入基準 18.1 の
+// 4 つと一致する。保留を足す・消すすべての箇所（メタの変更・順序の変更・保存の成功・写真項目の削除の
+// 成功）で syncDirtyWithPending() を呼ぶ。
+// 保存は開始時に送る保留を取り出し、成功の後は送ったものだけを保留から消す（タスク 24.5）。要求の
+// 実行中の編集は送った内容と比べ、違えば保留に残して未保存のままとし、次の保存で送る。
+// 本記述は数量表生成スペックの Task 100.24（2026-09-24、コミット 23d83871）が共有フックを
+// useUnsavedChanges({ isDirty, message? }): void へ一本化したのに合わせて改訂した
+// （それまでは useUnsavedChanges({ enabled: canEdit }) の戻り値の markAsChanged/markAsSaved を呼ぶ形）。
+// タスク 23.6 で、画面の markAsChanged() / markAsSaved()（変更で真・保存の成功で偽にする形）を
+// syncDirtyWithPending() へ置き換えた。以前の形は写真項目の削除で保留を消しても未保存の状態を戻さず、
+// 「保存」は送るものが無いため冒頭で戻り、読み込み直すまで未保存の表示と離脱の確認が残った。
 ```
 - Preconditions: `export()` は `photos.length>0`（0件は呼び出し側で非実行・通知 R15.11）。ビューアは対象写真が要求プロジェクト配下であること。
-- Postconditions: `export()` は ZIP Blob とダウンロードをもたらし、`failed` を通知に反映。`useConstructionPhotoPermission` は権限ロード完了まで全 `false`（安全側 R17.5）。
+- Postconditions（未保存の状態, R18.3, タスク 23.6）: 写真項目の削除が成功すると、その写真項目のメタの変更と順序の行を保留から除き（順序の行が残らなければ順序の保留そのものを無くす）、他の保留が残れば未保存のまま、残らなければ未保存を解消する（表示が消え、「保存」が押せなくなり、離脱の確認も出ない）。削除が失敗したときは保留も未保存の状態も変えない。「保存」は未保存でない間は押せず（`PhotoItemPanel` の `disabled={!isDirty || isSaving}`）、送るものが無い呼び出しも未保存の状態を保留（空）に揃えて戻る。保存は開始時に送る保留（メタの変更の写し・順序の変更）を取り出し、成功すると送ったものだけを保留から消す（Task 24.5、利用者の判断 2026-10-04）。写真項目ごとに、現在の保留が送った内容と同じ（持つ項目の組と各値が一致する。看板の配置は座標と大きさで比べる）なら消し、要求の実行中に編集されて違えばその写真項目の保留をそのまま残す。順序の保留も送った並びと同じなら消し、違えば残す。残った保留があれば未保存のままで、離脱の確認も続き、次の保存で送る（送った項目を再び送っても結果は変わらない）。実行中に送った値から編集し送った値へ戻したときは、保存された値と表示が一致するため消して未保存を解消する。実行中の編集が無ければ、従来どおり保留が空になり未保存を解消する。保存が失敗したときは、送った保留も実行中の編集も残す（成功の前に保留を消さない）。以前の形は成功の後に保留をすべて消したため、実行中の編集も消え、表示は編集されたままなのに未保存が解消し、離脱するとその編集が失われた。
+- Postconditions: `export()` は ZIP Blob と `failed` を返す。詳細画面は `failed` が空なら即座にダウンロードし、一部または全部が失敗したときは自動でダウンロードせず、利用者の選択に委ねる（R15.10, タスク 23.4。System Flows の「ZIP一括エクスポート（クライアント生成・中断可能）」節の部分失敗時の選択を参照）。`useConstructionPhotoPermission` は権限ロード完了まで全 `false`（安全側 R17.5）。
 
 ### Frontend Interfaces（R20 送信アダプタ）
 
@@ -701,32 +759,76 @@ type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
   - `uploadFilesInWaves` 自体は例外を投げない（各リクエストを個別に捕捉し `failed[]` へ集約する）。したがって `handleUpload` が reject しうるのは通知経路のみであり、上記の保護でアダプタ層の例外経路は塞がれる。
 - **決定: 権限喪失時の保持の扱い（R17 との相互作用）** — `PhotoUploader` は `canEdit` 配下に描画されるため、編集権限を失うとアンマウントで保持中の未送信画像が解放される。R17.1（編集権限なしは操作手段を表示しない）を優先する。編集権限のないユーザーが再送してもバックエンドが 403 で拒否するため、保持を続けても再送は成立せず「再送できるはず」という誤った期待を生むからである。
 
+### Frontend Interfaces（R5.3 カメラの導線の出し分け）
+
+タスク 23.5 で追加した。利用者の判断（2026-10-03）は「工事写真の側で出し分け、共有の `ImageUploader` の既定の挙動は変えない」である。判定の方法と限界は requirements.md の Requirement 5 の受入基準3 の注記にも記録してある。
+
+```typescript
+// frontend/src/hooks/useCameraAvailability.ts (R5.3)
+type CameraAvailability = 'available' | 'unavailable' | 'unknown';
+function classifyCameraAvailability(devices: ReadonlyArray<Pick<MediaDeviceInfo, 'kind'>>): CameraAvailability;
+function queryCameraPermissionsPolicy(): boolean | null | 'error';  // 権限ポリシーが camera を許すか。API が無ければ null
+function probeCameraAvailability(): Promise<CameraAvailability>;   // 例外を投げない
+function useCameraAvailability(): CameraAvailability;               // 確定までは 'unknown'
+
+// 共有の ImageUploader（所有は site-survey）へ足した任意の口。既定 true で従来どおり描く
+interface ImageUploaderProps { /* 既存の口… */ showCameraCapture?: boolean }
+```
+
+- **判定の方法**: `navigator.mediaDevices.enumerateDevices()` が列挙する機器の種類を見る。許可の前でも種類は列挙される（`deviceId` と `label` は空）。`videoinput` が一つ以上で `available`、機器は列挙されたが `videoinput` が無ければ `unavailable`、API が無い・列挙が失敗した・列挙が空・判定の途中は `unknown`。列挙の前に `document.permissionsPolicy.allowsFeature('camera')`（無ければ `document.featurePolicy.allowsFeature('camera')`）を問い、偽または例外なら列挙を信じず `unknown` とする（`queryCameraPermissionsPolicy`）。`devicechange` で判定し直し、先に始めた問い合わせが後から解決しても新しい判定を上書きしない。アンマウントで購読を外す。
+- **出し分け**: `PhotoUploader` は `showCameraCapture={availability !== 'unavailable'}` を `ImageUploader` へ渡す。`false` のとき `ImageUploader` は「カメラで撮影」のボタンと `capture` 付きのファイル入力のどちらも描かず、ファイルの選択とドラッグ＆ドロップ（ローカルアップロード）だけを残す。site-survey の画面は口を渡さないため、従来どおり常に描く。
+- **決定: 判定できないときは導線を出す側へ倒す** — カメラの導線は `<input type="file" accept="image/*" capture>` であり、カメラの無い端末で押されても `capture` が無視されてファイルの選択が開くだけである（R5.3 には反するが、写真項目はローカルアップロードと同じ経路で追加できる）。誤って隠すと、カメラを持つ端末から R5.1・R5.2 の撮影の手段を奪う。誤りの重さの差から、`unknown` は出す側とする。判定の途中も同じ扱いで、カメラの無い端末では表示の直後に導線が出て、判定が確定すると消える。
+- **限界**: 列挙が空の環境（許可の前に何も列挙しないブラウザ。E2E の実行環境のヘッドレスの Chromium も列挙が空である。2026-10-03 に実測）では、カメラが無くても導線が出る。`videoinput` は機器の在否を示すだけで、`capture` による撮影の起動が効くかは示さない。**権限ポリシーによる絞り込み（誤って隠す向き）**: W3C Media Capture and Streams の「creating a list of device info objects」は「If device is not a camera, or document is not allowed to use the feature identified by 'camera', abort」と定め、MDN も「The returned list will omit any devices that are blocked by the document Permission Policy: microphone, camera …」と書く。`Permissions-Policy: camera=()` の文書や `allow="camera"` の無い iframe では、カメラを持つ端末でも列挙が `audioinput` だけになるが、`capture` 付きのファイル入力はこのポリシーの対象外で OS のカメラを起動できる。これに対し、ポリシーの API が `camera` を許さないと答えたときは `unknown`（導線を出す）へ倒す。どちらの API も持たないブラウザでは列挙だけで判定するため、絞り込まれた文書ではカメラを持つ端末でも導線が消える（残る限界）。現在の配信はこのヘッダーを送らず（nginx の設定・helmet の既定）、最上位の文書として表示される（X-Frame-Options SAMEORIGIN）。後から権限ポリシーを足す場合は `camera=(self)` とするか、この防御を保つこと。**実機で確かめていない事項**: Safari の許可の前の列挙、Android の Chrome で OS のカメラの権限が与えられていないときの列挙（いずれも `videoinput` を省きつつ他の種類を列挙するなら、カメラを持つ端末でも導線が消える）。
+- **検証**: 判定の各場合（`videoinput` あり・なし・列挙が空・API が無い・失敗・権限ポリシーが `camera` を許さない／許す／API が無い／例外・`devicechange`・古い問い合わせの上書き防止）は `useCameraAvailability` の単体テスト、出し分けは `PhotoUploader` と `ImageUploader` の単体テスト、画面の結線は E2E（`construction-photo-workflow.spec.ts` で `page.addInitScript` により `enumerateDevices` を差し替え、`videoinput` の無い端末で導線が無くローカルアップロードで追加できること、`videoinput` のある端末で導線が在ること、`document.permissionsPolicy.allowsFeature('camera')` を偽にした文書では `audioinput` だけの列挙でも導線が在ること）で主張する。
+- **部品表の扱い**: `useConstructionPhotoPermission` は部品表に自身の行を持つが、`useCameraAvailability` は `PhotoUploader` の行へ畳んだ。部品表の行を足すと `check:design-component-reqs` の本スペックの下限（`scripts/check-design-component-requirements.ts` の宣言。site-survey が所有する統制）を同時に上げる必要があり、本タスクの境界の外であるためである。フックは `PhotoUploader` だけが使う内部の依存である。
+
+### Frontend Interfaces（R8・R9 看板マスタへの導線と看板の一覧の取得の状態）
+
+タスク 23.2 で追加した。初回実装では看板マスタ（`/projects/:projectId/construction-signboards`）へのリンクがどの画面にも無く、URL を知らない利用者は看板を登録できず、看板の配置（R9）と PDF への重畳（R10.8）も実質使えなかった。要件と設計は導線の置き場所を定めていないため、次のとおり決めた。
+
+```typescript
+// SignboardAssignDialog の口（タスク 23.2 で追加した 2 つ）
+type SignboardsLoadStatus = 'loaded' | 'loading' | 'failed' | 'not-permitted';
+interface SignboardAssignDialogProps {
+  /* 既存の口… */
+  signboardMasterPath?: string;          // 渡したときだけ「工事看板マスタを開く」を示す（親は canViewSignboards のときだけ渡す）
+  signboardsStatus?: SignboardsLoadStatus; // 既定 'loaded'
+}
+```
+
+- **導線は二つ**: 常設の導線は工事写真一覧（`ConstructionPhotoListPage`）の見出しの行のリンク「工事看板マスタ」である。看板マスタのパンくずは工事写真一覧の配下に位置し（… > 工事写真一覧 > 工事看板マスタ）、看板はプロジェクト単位で登録するため、プロジェクトの工事写真の入口である一覧に置く。文脈の導線は詳細画面の「看板を配置」のダイアログ（`SignboardAssignDialog`）のリンク「工事看板マスタを開く」である。看板を指定する場面は、利用者が看板の登録の必要に気付く場面であるため置く。プロジェクト詳細の工事写真のパネルには置かない（「すべて見る」で一覧へ一手で届く）。
+- **権限による出し分け**: 両導線は `useConstructionPhotoPermission` の `canViewSignboards`（`construction_signboard:read`、権限のロード中は false）のときだけ示す。ダイアログのリンクはダイアログを閉じてから react-router の遷移を行うため、詳細画面の未保存の変更の確認（`useBlocker`, R18.2）を経る。モバイル幅ではリンクのタップ領域を `TAP_TARGET_MIN_PX` 以上にする（`useMediaQuery` で切り替える。R19）。看板マスタの画面は、権限の無い操作（「新規登録」・各行の「編集」「削除」）を表示しない（利用者の判断（2026-10-04）、タスク 23.8）。判定は `useConstructionPhotoPermission` の canCreateSignboards/canEditSignboards/canDeleteSignboards（`construction_signboard:create/update/delete`、権限のロード中は false）で行い、権威はバックエンドの RBAC のままである。シードの権限の表では admin は三つとも表示され、user（`construction_signboard:delete` を持たない）では「削除」だけが表示されない。
+- **看板の一覧の取得の状態**: 詳細画面は看板の一覧を写真項目の取得とは別の effect で取得し、取得の状態（`signboardsStatus`）をダイアログへ渡す。看板の閲覧の権限が無ければ取得しない（取得しても 403 であり 0 件ではない）。ダイアログは、取得に成功して 0 件のときだけ「このプロジェクトには工事看板が登録されていません。」と案内し（リンクを示すときは登録を促す一文を添える）、取得に失敗したときは「工事看板を読み込めませんでした。時間をおいて再度お試しください。」を role=alert で示し、0 件とは述べない。権限が無いときは「工事看板を閲覧する権限が無いため、看板を選択できません。」を示し、取得中は role=status で読み込み中である旨を示す。取得に失敗しても看板マスタへのリンクは残す（看板マスタは自前で一覧を取得するため、登録済みの看板を確かめる手段になる）。写真項目の「看板あり」の表示は写真項目の `signboardId` から出るため、看板の一覧の取得の成否に依存しない。アルバムの取得の失敗時に出る「再試行」は看板の一覧を取り直さない（画面の読み込み直しで取り直す）。
+- **決定: 一覧が取得済みでない間は看板の指定を変えさせない**（是正の 2 巡目。是正前は、取得中・失敗中に保存すると、利用者が触れていない配置が null で上書きされた）: `signboardsStatus` が `loaded` でない間は、選択を disabled にし、配置のエディタ（その唯一の出力である「保存」を含む）を描画しない。「キャンセル」は常に押せる。選択は「未指定」を装わず写真項目の現在の看板を指す（一覧で解決できない間は、選べない選択肢「現在の看板（一覧で確認できません）」として示す）。取得済みの一覧に写真項目の看板が無いときも黙って解除せず、その旨を示し、利用者が別の看板か「未指定」を明示的に選ぶまでエディタを描画しない。多重の防御として、解決できない看板を指したままではダイアログは保存の通知（`onSave`）を呼ばず、未保存の状態も立てない。
+- **解消済み（タスク 24.4）**: 看板を選んで配置をドラッグせずに保存すると配置が null のまま保存される以前からの挙動は、タスク 24.4 で既定の配置を与えて解消した（下の `SignboardPlacementEditor` の記述を参照。タスク 26.3 で記述を現況へ改めた）。
+
 ### API Contracts
 
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
-| GET | /api/projects/:projectId/construction-photos | page,limit,filter,sort,order | Paginated<AlbumDto> | 401,403 |
-| POST | /api/projects/:projectId/construction-photos | {name,memo?} | AlbumDto | 400,401,403 |
+| GET | /api/projects/:projectId/construction-photos | page,limit,filter,sort,order | Paginated<AlbumDto> | 401,403,404（プロジェクトが無い・論理削除済み。タスク 23.1 で空の一覧から改めた） |
+| POST | /api/projects/:projectId/construction-photos | {name,memo?} | AlbumDto | 400,401,403,404 |
 | GET | /api/construction-photos/:id | - | AlbumDto | 401,403,404 |
 | PATCH | /api/construction-photos/:id | {name?,memo?,updatedAt} | AlbumDto | 400,401,403,404,409 |
 | DELETE | /api/construction-photos/:id | - | 204 | 401,403,404 |
 | GET | /api/construction-photos/:id/images | - | ConstructionPhotoWithUrls[] | 401,403,404 |
 | GET | /api/construction-photos/images/:imageId/print-image | - | image/jpeg（看板ありはオンデマンド合成） | 401,403,404 |
 | GET | /api/construction-photos/images/:imageId/original | - | image/*（看板配置有無に関わらず非合成の原本をストリーム。ビューア/ZIP用） | 401,403,404 |
-| POST | /api/construction-photos/:id/images | multipart images[] (≤10, ≤10MB) | ConstructionPhotoWithUrls[] | 400,401,403,413 |
-| POST | /api/construction-photos/:id/images/from-surveys | {surveyImageIds[]} | ConstructionPhotoWithUrls[] | 400,401,403,404 |
-| PATCH | /api/construction-photos/images/batch | metadata batch | ConstructionPhotoWithUrls[] | 400,401,403 |
-| PUT | /api/construction-photos/:id/images/order | {orders[]} | 204 | 400,401,403 |
+| POST | /api/construction-photos/:id/images | multipart images[] (≤10, ≤10MB) | {successful, failed}（全件成功 201・部分失敗 207。`failed` は `{fileName, error}`） | 400,401,403,404（アルバムかプロジェクトが論理削除済みを含む）,413,503 |
+| POST | /api/construction-photos/:id/images/from-surveys | {surveyImageIds[]} | {successful, failed}（全件成功 201・部分失敗 207） | 400,401,403,404,410（親の現場調査が論理削除済み。SURVEY_DELETED、Task 17.1）,503 |
+| PATCH | /api/construction-photos/images/batch | metadata batch | ConstructionPhotoWithUrls[] | 400（複数アルバムにまたがる指定を含む）,401,403,404（写真項目・看板が無い、看板が別のプロジェクトか削除済み＝SIGNBOARD_NOT_ALLOWED、アルバムかプロジェクトが論理削除済み） |
+| PUT | /api/construction-photos/:id/images/order | {orders[]} | 204 | 400,401,403,404 |
 | DELETE | /api/construction-photos/images/:imageId | - | 204 | 401,403,404 |
 | GET/POST/PATCH/DELETE | /api/(projects/:projectId/)construction-signboards(/:id) | SignboardInput | SignboardDto | 400,401,403,404,409 |
 
 **Implementation Notes**
-- Integration: ルートは `authenticate` + `requirePermission('construction_photo:<action>')`（看板は `construction_signboard:*`）+ `validate()`。二重マウントで nested/flat を提供。
+- Integration: ルートは `authenticate` + `requirePermission('construction_photo:<action>')`（看板は `construction_signboard:*`）+ `validate()`。二重マウントで nested/flat を提供。担当者での絞り込みはせず、対象と所属プロジェクトが取り除かれていれば 404 とする（タスク 23.1。Existing Architecture Analysis を参照）。写真の操作のルーターはアルバムの配下（nested）にも載るため、配下として指したときは写真がそのアルバムに属することをサービスで確かめる（属さなければ 404。是正前は別のアルバムの id を経由して他のアルバムの写真の原本・印字画像の取得、削除、メタの一括更新が通った）。
+- 応答の形（タスク 23.10 で表を実装に合わせた）: アップロードは現調コピーと同じく部分失敗を許容し、本文は `{successful, failed}`、全件成功で 201・部分失敗で 207 である（表は以前、応答を `ConstructionPhotoWithUrls[]` と記していた）。原本と印字画像は署名付きURLを返さず、認証と権限の確認を経たルートがストレージから読んだバイト列を応答本文として返す（`Content-Type` は印字画像が `image/jpeg`、原本はマジックバイトから判定した形式）。
 - Validation: multer `array('images',10)` + `fileSize 10MB`、マジックバイト検証、コメント≤2000、`freeItems`/`footerText` 長制限（設計時定数化）。
 - Risks: PDF出力時の写真ごとオンデマンド合成のため、印刷対象が多いと export 時のサーバ処理が増える（低頻度操作のため許容、必要なら将来キャッシュ導入）。合成失敗は当該写真でエラー通知し export を中断。
 
 ### UI Components（Summary-only）
-`ConstructionPhotoResponsiveView/ListTable/ListCard/SearchFilter` は site-survey 同名部品のクローン。`PhotoItemPanel` は `PhotoManagementPanel`（コメント500msデバウンス＋フォーカス離脱flush、未保存→手動保存、HTML5ドラッグ並び替え）を踏襲。`SignboardPlacementEditor` は fabric キャンバスに写真背景＋1枚の緑Rectを可動・拡縮し、保存時に `{left,top,width,height}` を画像ピクセル座標へ換算。`ConstructionPhotoSectionCard` は `ProjectSurveySummary` 相当のサマリを受けて `ScheduleSectionCard` 直下に描画。
+`ConstructionPhotoResponsiveView/ListTable/ListCard/SearchFilter` は site-survey 同名部品のクローン。`PhotoItemPanel` は `PhotoManagementPanel`（コメント500msデバウンス＋フォーカス離脱flush、未保存→手動保存、HTML5ドラッグ並び替え）を踏襲。`SignboardPlacementEditor` は fabric キャンバスに写真背景＋1枚の緑Rectを可動・拡縮し、保存時に `{left,top,width,height}` を画像ピクセル座標へ換算。背景は非合成の原本（`getConstructionPhotoOriginalImage` の Blob の object URL）で、画像の枠（写真の全体の寸法から求めた表示の大きさ）へ写真の全体を合わせて敷く。サムネイル（200×200 の中央の切り抜き）は使わない。換算と同じく写真の全体を基準にするため、エディタで置いた位置と印字画像・PDF で看板が重なる位置が一致する。object URL は写真の切り替えと破棄で手放し、取得に失敗しても配置の操作は続けられ、背景を読めない旨を role=alert で示す（同じ写真で後に取得に成功すれば下ろす）。原本の到着ではキャンバスを作り直さず、今のキャンバスへ背景を敷くだけにする（作り直すと、到着がドラッグの途中と重なったときにそのドラッグが取り消される）。幅の変化などでキャンバスを作り直すときは、読み込み済みの背景を取り直さずに新しい表示の大きさで敷き直し、Fabric の破棄が背景の画像を破棄しないよう破棄の前に外す。背景の画像と緑ボードの基準点は左上（`originX: 'left'`・`originY: 'top'`）に固定する。Fabric v7 は基準点の既定を中央へ変えたため、固定しないと left/top に与えた左上の座標が中心として扱われ、表示と保存される配置が食い違う（R9.1, R9.3, タスク 26.1。機能全体の検証 2026-10-05 で判明）。初期配置の無いときは既定の矩形（表示の幅の 40%・高さの 25% を中央に置く）を表示し、看板を選んだまま操作せずに保存しても、その矩形を操作後と同じ換算（`displayRectToPlacement`）で画像ピクセル座標へ写した配置を返す。表示されている位置がそのまま保存され、看板の指定だけが残って配置が null のまま印字画像・PDF に看板が重ならない状態を作らない（R9.1, R9.3, タスク 24.4）。初期配置がある写真項目の再編集ではその配置を保ち、看板未指定は配置を null で返す。画像の枠の幅は置かれた場所の幅に追従する。エディタの外枠の幅を `useElementSize`（ResizeObserver）で測り、枠線の内側に収まる幅を最大表示幅（`maxDisplayWidth`、既定 600）の上限へ重ねる（`fitMaxDisplayWidth`。縮めるだけで拡大はせず、未計測のときは最大表示幅で描く）。モバイル幅では実寸の写真（幅 1920 など）でも枠が看板の配置のダイアログの本体の内側に収まり、本体に横スクロールを生じさせない。デスクトップ幅（768 以上）では本体の内側の幅が最大表示幅を超えるため、表示は変わらない（R19.1, タスク 25.1）。表示の縮尺が変わるだけで、保存する配置は画像ピクセル座標のままであり、既定の矩形の換算とドラッグ後の換算はどの縮尺でも同じ規約で行う。幅の変化（端末の回転など）で縮尺が変わったとき、ドラッグ等で確定した配置は既定へ戻さず、新しい縮尺で描き直す。確定値を既定・初期配置へ戻すのは、写真・看板の有無・初期配置が変わったときだけである（R9.1, R9.3）。`ConstructionPhotoSectionCard` は `ProjectSurveySummary` 相当のサマリを受けて `ScheduleSectionCard` 直下に描画。
 
 ## Error Handling
 
@@ -735,9 +837,16 @@ type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
 - アップロードの失敗は**通知と保持を併存**させる。通知（失敗件数と理由の提示）は従来どおり画面が行い、保持（画像の実体を残して再送可能にする）は `ImageUploader` が行う。両者は独立した関心事であり、片方が他方を代替しない（R12.5 と R20 の共存）。
 
 ### Error Categories and Responses
-- **User (4xx)**: 形式外/サイズ超過/件数超過→413/400 でフィールド単位エラー（R4.5,R12.3）。未認証401・権限なし403（R13）。対象アルバム/写真なし404。楽観排他競合409（R1.5）。
+- **User (4xx)**: 形式外/サイズ超過/件数超過→413/400 でフィールド単位エラー（R4.5,R12.3）。未認証401・権限なし403（R13）。対象アルバム/写真なし404（対象か所属プロジェクトが論理削除済みのとき、配下として指した親に属さないときも 404。タスク 23.1）。楽観排他競合409（R1.5）。
 - **System (5xx)**: ストレージ保存失敗→当該写真は未登録として通知し他は維持（R12.5）。合成失敗→当該写真は看板なしにフォールバックせず、エラー通知し保存を中断（データ不整合回避）。
-- **Business (422相当)**: 印刷対象0件→PDF実行せず通知（R10.13）。使用中看板の削除→使用件数を返し確認（R8.8）。
+- **Business (422相当)**: 印刷対象0件→PDF実行せず通知（R10.13）。使用中看板の削除→使用件数を返し確認（R8.8）。削除は参照する写真項目の看板の指定と配置を同じトランザクションで解除する（R9.7, タスク 23.3）。
+- **看板マスタの権限なし（R17.4、タスク 23.8）**: 権限の無い操作は表示しない（Frontend Interfaces の R8・R9 看板マスタへの導線を参照）。画面を開いた後に権限が取り上げられた等の競合でバックエンドが 403 を返したときは、応答の符号（`FORBIDDEN`）をそのまま出さず、看板の一覧の取得は「工事看板を閲覧する権限がありません」を role=alert の取得エラーとして、新規登録・編集・削除はそれぞれ「工事看板を登録する権限がありません」「工事看板を編集する権限がありません」「工事看板を削除する権限がありません」をトーストで示す。`getPermissionError` は写真の権限の文言であり、また権限を持つと判定している間（403 の競合時）は null を返すため、この経路には使わない。
+- **詳細画面の通知の枠（R10.13・R15・R18・R20 の通知と失敗、タスク 22.1）**: `ConstructionPhotoDetailPage` の写真項目の節の上部の通知の枠は、通知（PDF 出力の印刷対象 0 件と失敗、ZIP の一括エクスポートの対象 0 件・中断・失敗・一部失敗と全件失敗、アップロードと現調写真の追加の失敗）と失敗（保存・アルバムの削除・写真項目の一覧の取得の失敗）を一つの状態（`pageMessage`。種類 `notice` / `error` と文言を持つ）に持つ。利用者の判断（2026-10-04、タスク 22.1）により、後から出たものが前のものを置き換える——通知の後に保存が失敗すると保存の失敗が、保存の失敗の後に通知が出ると通知が見え、消えた後に置き換えられた古いものは再び現れない（以前は通知と失敗を別の状態に持って通知を優先して描いたため、通知の間は失敗が隠れ、通知が消えると古い失敗が再び現れた）。各操作の開始時の消去は、その種類のものだけを消す: 保存の開始（送るものがあるとき）と写真項目の一覧の取得の開始は失敗だけを、PDF 出力と ZIP の一括エクスポートの開始と写真項目の追加は通知だけを消す（消去の契機は以前と同じ）。描画は種類によらず同じ枠（同じ色）で、自動で消えるタイマーは持たない。枠は role=alert で描くが、保存の失敗を保存ボタンの近くにも表示している間（下の項）だけは同じ文言を role を持たずに描く。アルバムが取得できないときは、失敗を本体の代わりのエラー画面（role=alert、「再試行」）に出す。写真項目を取り除く操作の失敗はこの枠に載せず、その写真項目の中に出す（下の項）。保存の失敗の文言は R18 の未保存の状態を変えない（失敗のときは保留を何も消さない）
+- **保存の失敗の保存ボタンの近くの表示（R18 の保存の失敗時、タスク 22.2）**: 上部の通知の枠は、保存ボタンを押した直後の位置で、375 幅では共通ヘッダの下、1280 幅では共通ヘッダに覆われ、320 幅では画面の外になる。利用者の判断（2026-10-04、タスク 22.2）により、23.9 と同じ考え方で保存の失敗を保存ボタンの近くにも表示し、上部の枠の表示は 22.1 の形のまま残す。`ConstructionPhotoDetailPage.handleSave` は失敗を `pageMessage` に保存の失敗の印（`isSaveFailure`）を付けて載せ、同じ文言を `PhotoItemPanel` の `saveFailure` へ渡す。`PhotoItemPanel` は保存ボタンの直後（手動保存ヘッダの下、写真項目より前）に role=alert の段落として表示し、保存ボタンは表示がある間だけ `aria-describedby` でその段落を指す。読み上げを二重にしないため、近くの表示がある間は近くの表示だけを role=alert にし、上部の枠は同じ文言を role を持たずに描く（利用者の判断の「role=alert で読み上げられ」は近くの表示が満たし、上部の枠は表示として残る）。保存ボタンが描かれない間（編集権限が無い・写真項目が無い）は近くの表示も描かれないため、上部の枠を role=alert で描く。枠の role の有無が変わるとき（保存の失敗から通知へ、保存の失敗の間に写真項目が無くなる・編集権限が無くなる）は、枠に `key` を与えて要素を作り直し、role=alert の枠を常に新しく挿入する（既存の要素へ後から role=alert を付けると、支援技術によっては読み上げられないため。利用者の判断（2026-10-04、タスク 22.2 の是正 1 巡目）で、読み上げは近くの表示の一度だけとし、保存の失敗の間は上部の枠から role=alert を外す形を選んだ）。近くの表示は上部の枠と同じ一つの状態から描くため、消える契機と置き換えは上部の枠と揃う: 保存のやり直しの開始（送るものがあるとき）と写真項目の一覧の取得の開始で消え、後から出た通知（PDF 出力・ZIP の一括エクスポート・写真項目の追加の結果）や別の失敗（アルバムの削除の失敗）に置き換わると消える。写真項目の追加と PDF・ZIP の開始（通知だけの消去）では消えない。表示が現れたとき、フォーカスを失っているとき（保存の実行中は保存ボタンが無効になる）か保存ボタンにあるときだけ、画面の外へ出るなら表示に `scrollIntoView({ block: 'nearest' })` を呼んで表示の分だけ動かし（通常の位置では動かさない）、保存ボタンへ `focus({ preventScroll: true })` で戻す。保存の実行中に利用者が別の欄（コメントの入力欄など）へ移っていれば、フォーカスを奪わず画面も動かさない（編集中の欄を画面の外へ出さない）。表示は `overflowWrap: anywhere` と `minWidth: 0` で区切りの無い長い理由も折り返す。表示は保存ボタンの行の後ろに入るため、表示の出現で保存ボタンはパネルの中で動かず、後ろの写真項目が下へ押される（タスク 24.6 で 375・1280 幅とも実測。下の写真項目の削除の失敗のデスクトップ幅のずれは、この表示には起きない）。ただしパネルより上の上部の通知の枠も同時に現れるため、画面上の位置は幅で異なる: 1280 幅で上部の枠が画面内にあると保存ボタンは画面上で枠の高さと間隔の分（実測 71px）下へ動き、375 幅ではスクロールの位置が同じ分だけ補われて画面上の位置が保たれる（タスク 24.6 の独立レビューの実測）
+- **未保存の変更があるときの PDF・ZIP の出力（R10.12・R15.1、タスク 26.2）**: 並べ替え・印刷対象・コメントの未保存の値は画面の `photos` にだけあり、看板の重畳はサーバーに保存済みの値で描かれる。利用者の判断（2026-10-05）により、未保存の変更（`isDirty`）があるときは「PDF出力」「全件エクスポート」「選択エクスポート」を押しても出力を始めず（ZIP はエクスポートの設定のダイアログも開かず）、通知の枠に「未保存の変更があります。保存してからPDF出力してください。」（ZIP は「…保存してからエクスポートしてください。」）を通知として示す。PDF は保存済みの表示順序で出力され（受入基準 10.12）、一つの出力に保存の前と後の状態が混ざらない。未保存の変更が無いときの振る舞いは変えない。保存の失敗の後は未保存のままのため、この通知が保存の失敗を置き換える（タスク 22.1 の置き換えの規則のとおり）。
+- **取り除かれた看板を指定した保存の失敗の文言（R9.5 の保存の失敗時、タスク 24.2）**: 看板の取り除きより前から開いていた詳細画面は、開いた時点の看板の一覧を持つため、取り除かれた看板を選んで配置を保存できる。その保存のメタの一括更新は 404 の `code: 'SIGNBOARD_NOT_ALLOWED'` で拒否され（同じ保存の他の変更も書き込まれない。タスク 23.3）、応答の文言は英語で看板の ID を含む。利用者の判断（2026-10-04、タスク 24.2）により、文言だけを日本語にし、看板なしへ戻す導線は足さない。文言は画面の側で決める: 工事写真のバックエンドの 404 の文言は英語で揃っており（写真項目・アルバム・看板の不在）、画面が応答の符号を見て日本語へ置き換えるのは看板マスタの 403（タスク 23.8）と同じ作法である。`ConstructionPhotoDetailPage.handleSave` は、失敗が `ApiError` で状態が 404 かつ応答の本文の `code` が `SIGNBOARD_NOT_ALLOWED` のときだけ置き換える（同じ 404 でも写真項目が見つからない失敗 `CONSTRUCTION_PHOTO_NOT_FOUND` や、符号が同じでも 404 でない失敗は応答の文言のまま）。文言は、送った写真項目の変更が指す看板が一つに定まり、画面の看板の一覧でその名前（工事件名）が分かるときは「工事看板「<工事件名>」は取り除かれています。看板を選び直すか、画面を読み込み直してください。」、二つ以上の看板を送ったとき（応答は最初に見つけた一つの ID しか持たず、どれが取り除かれたかを画面は判別できない）と名前が分からないときは「選択した工事看板は取り除かれています。看板を選び直すか、画面を読み込み直してください。」である。看板の ID は画面に出さない。表示の経路は保存の失敗のまま（上部の通知の枠と保存ボタンの近くの表示。上の 2 項）で、失敗のときは保留を何も消さない（R18）。バックエンドの応答（状態・符号・文言）は変えていない
+- **写真項目の削除の失敗（R7.7 の失敗時、タスク 21.3・23.9・22.3）**: 失敗は取り除こうとした写真項目の中に表示する（利用者の判断（2026-10-03、タスク 23.9）で、21.3 の「詳細画面の上部の通知の枠（`error`）へ出して画面の中央へ送る」形を改めた）。`ConstructionPhotoDetailPage.handleDelete` は失敗を捕捉せず `PhotoItemPanel` へ伝播させ、上部の通知の枠（`pageMessage`。下の「詳細画面の通知の枠」を参照）には載せない（載せると、どの写真項目の失敗かが分からず、後から出た通知に置き換えられる）。21.3 が入れた削除の開始時の通知の枠の消去は外したため、先に出ている通知（アップロードの失敗など）と失敗の表示（保存の失敗など）は削除で消えない。`PhotoItemPanel` の `handleDeleteConfirm` は削除の完了の後に、成功・失敗のどちらでも確認ダイアログを閉じ、失敗の文言を写真項目ごとの状態に持ち、その写真項目の操作の行の直後（取り除くボタンの下）に role=alert の段落として表示する。取り除くボタンは失敗の表示がある間だけ `aria-describedby` でその段落を指す。ダイアログが閉じた後、フォーカスをその写真項目の取り除くボタンへ `focus({ preventScroll: true })` で戻す（成功したときは写真項目ごと無くなるため戻さない）。文言の規則は 21.3 のままで、`PhotoItemPanel` へ移した: `ApiError` の文言を優先し、空のとき、および `ApiError` でない例外のときは「写真項目の削除に失敗しました」。セッション切れ（401）も区別しない。なお通信の失敗は共通の API クライアントが `ApiError(0, 'Network error')` に包んで投げるため、写真項目には「Network error」が表示される（既定の文言にはならない）。複数の写真項目の失敗は、それぞれの写真項目に同時に表示する。表示が消えるのは、その写真項目のやり直しを始めたとき（成功すれば写真項目ごと消える）、その写真項目への別の操作（コメントの編集・印刷対象とエクスポート対象の切り替え・上下の移動・ドラッグの開始・「看板を配置」）のとき、画面を離れたとき（`PhotoItemPanel` が外れる）である。確認ダイアログを開いて取り消すこと、他の写真項目への操作とその結果の位置の入れ替わり、保存は消す契機にしない。画面は上部の通知の枠や画面の上端へは送らない。表示が画面内に収まるとき（通常の位置）は画面を動かさず（失敗の前後で `scrollY` は変わらない）、押したボタンが画面の下端の近くにあって表示が画面の外へ出るときだけ、表示に `scrollIntoView({ block: 'nearest' })` を呼んで表示の分だけ下へ動かす（利用者の判断（2026-10-04）「文言の分だけ動かす」。滑らかな移動は指定しない）。この移動は表示が現れたときに写真項目の側で走り、その後のフォーカスの復帰（`preventScroll`）はこの移動を打ち消さない。表示は `overflowWrap: anywhere` と `minWidth: 0` で区切りの無い長い理由も折り返し、モバイル幅の操作部品のタップ領域（`TAP_TARGET_MIN_PX`）を変えない。写真項目・未保存の変更・選択集合は変えない。削除の実行中（500 系の応答では API クライアントの自動再試行を含め、約 7 秒続くことがある）は確認ダイアログを閉じない（利用者の判断（2026-10-04）、タスク 22.3）。実行中はオーバーレイのクリックとキャンセル（実行中は無効）を受け付けず、Esc で閉じる処理は元から持たない。確認ダイアログは焦点を閉じ込めないため、実行中もキーボードで背後の別の写真項目の取り除くボタンへ到達できるが、実行中はその押下で確認の対象を変えない。これにより、先行する削除の完了が別の写真項目の確認を閉じる経路は無い。実行中かの判定は描画を待たない参照（`useRef`）で行う。
+  - **デスクトップ幅の削除ボタンのずれ（R7.7, R19.1、タスク 24.6）**: 表示の出現で取り除くボタンが動かないのはモバイル幅だけである。モバイル幅（375 幅で実測）では写真項目が縦に並ぶため、写真項目が表示の分（表示 39px と間隔 12px の 51px）だけ下へ伸び、取り除くボタンは画面の中で動かない。デスクトップ幅（1280 幅で実測）では、画像の列が情報の列より高いとき（実測の写真がそうである）写真項目の高さが画像の列で決まり、情報の列の中でコメントの欄（`flex: 1`）が表示の分を譲るため、写真項目の高さ・`scrollY`・文書の高さは変わらず、取り除くボタンだけが写真項目の中で 51px 上へずれる。表示はボタンがあった位置へ来る（押した位置には表示が来る）。写真項目が画面の上端の近くにあると、フォーカスのあるボタンが固定ヘッダーの下に入る（ボタンの上端が固定ヘッダーの下端から 10px 下の状態で失敗させると、ボタンの下端が固定ヘッダーの下端より 13px 上になってボタン全体がヘッダーに覆われ、表示の中心は見える。フォーカスはボタンにある）。表示をボタンより下に置く理由は、どの写真項目の失敗かを位置で示すこと（23.9）であり、ボタンの位置を保つことではない。利用者の判断（2026-10-04、タスク 24.6）で、配置は変えずこの性質を記すに留める
 
 ### アップロード失敗の分類（R20.16, R20.21）
 
@@ -766,11 +875,13 @@ type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
 - `ConstructionPhotoMetadataService.updateMetadataBatch`: displayOrderの1..n正規化と、signboardId/placementが保持されること。この時点で合成は行わない（R7.6,R9.5）。
 - `ConstructionPhotoImageService.getPrintImage`: 看板ありは指定位置・サイズで合成した画像、看板なしは原本を返す（R9,R10.8,R10.9）。
 - `SignboardSvgService.generate`: 濃緑地・白罫線・工事件名/工事場所行・自由項目・下部固定テキストを画像ピクセル座標で出力（R8.5）。
-- `ConstructionSignboardService.delete`: 使用中の場合 `inUseCount>0` を返す（R8.8）。
+- `ConstructionSignboardService.delete`: 使用中の場合 `inUseCount>0` を返す（R8.8）。参照する写真項目の看板の指定と配置を同じトランザクションの中で解除し、解除した件数を `inUseCount` として返す（R9.7, タスク 23.3。トランザクションの巻き戻しを直接主張するテストは無い）。
+- `resolveSignboardAssignment`: 生きている看板の指定は保ち、参照先の看板が論理削除済み・読めていないときは看板の指定と配置の両方を null とし、件数に比例する問い合わせを足さない（R9.7, タスク 23.3。看板が指定されていない行の扱いを主張する単体は無い）。
 - `SignboardCompositeService.composite`: 指定 `placement` 位置・サイズで SVG が合成される（R9）。
 - `ConstructionPhotoBulkExportService.export`: signboardMode 別に取得元を切替（composited=print-image, plain/original=原本）、resolution/format を canvas 再エンコードで適用、進捗通知、1件失敗は `failed` に積み継続（R15.2,R15.3,R15.4,R15.10）。
 - `ConstructionPhotoBulkExportService.export`: `AbortSignal` abort で AbortError により処理中断し途中生成を破棄する（R15.9）。
-- `useConstructionPhotoPermission`: `construction_photo:update` 保持で canEdit、`construction_photo:delete` 保持で canDelete、権限ロード中は全 false（R17.1,R17.2,R17.5）。
+- `BulkExportProgressDialog` と詳細画面: 一部失敗では自動でダウンロードせず失敗した写真項目のファイル名と順番を示し、「成功した項目だけでダウンロードする」で保留した ZIP を 1 回だけダウンロードし、「ダウンロードしない」・Escape ではダウンロードせずに閉じ、次のエクスポートへ結果を持ち越さない。全件失敗は続ける操作を出さず、全件成功・中断は結果の段を出さない。詳細画面の破棄で実行中のエクスポートを中断する（R15.10, R15.9）。
+- `useConstructionPhotoPermission`: `construction_photo:update` 保持で canEdit、`construction_photo:delete` 保持で canDelete、権限ロード中は全 false（R17.1,R17.2,R17.5）。`construction_signboard:create/update/delete` 保持でそれぞれ canCreateSignboards/canEditSignboards/canDeleteSignboards、写真の権限からは導かない（タスク 23.8）。
 - `uploadFilesInWaves`: 送信例外で失敗した画像の `File` 実体と再送可否区分を返す。413 は `permanent`、通信エラーは `retriable`（R20.1,R20.16）。
 - `uploadFilesInWaves`: サーバーが 207 で per-file 失敗を返した場合も対応する `File` を返し、画像形式の非対応のみ `permanent`、ストレージ障害は `retriable` に分類する（R20.16,R20.21）。
 - `PhotoUploader`: 一部失敗・全件失敗のいずれでも失敗画像が未送信一覧へ反映され、成功分の登録と失敗通知の文言が変わらない（R20.1,R12.5）。
@@ -779,6 +890,8 @@ type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
 - `PhotoUploader`: 保持中の画像が全て `permanent` の場合、再送手段が実行不可の状態で提示される（R20.18）。
 - `PhotoUploader`: `onPhotosAdded` が例外を投げても、**成功した画像が未送信画像として保持されない**（登録済み画像の重複登録を招かない）。失敗した画像のみが保持される（R20.5,R20.14）。
 - `construction-photo-images`: `uploadConstructionPhotos` が素の `fetch` ではなく `apiClient.sendFormData` へ委譲する（再試行方針・120秒の送信猶予・401 更新の適用経路を工事写真側で固定する。R20.11,R20.13,R20.15,R20.19）。
+- 一覧画面の部品のフォーカスの輪（タスク 28.1）: `frontend/src/__tests__/accessibility/construction-photo-focus-visible.test.tsx` が、検索フィルタの「フィルタをクリア」が `focus:ring-blue-500` で示し `focus:ring-gray-400`（白に対して約 2.6:1）を持たないこと、検索フィルタ・表・カードのフォーカスを受ける要素が、輪を描かずに共通の outline を消す形や色の無い輪を持たないこと、カードの詳細を開く釦が共通の outline を消さないことを主張する。
+- 詳細画面の ZIP の一括エクスポートの進捗のダイアログのフォーカス表示（タスク 29.1）: `frontend/src/__tests__/accessibility/construction-photo-focus-visible.test.tsx` が、`BulkExportProgressDialog` の処理中・完了・一部失敗・全件失敗のどの状態でも、フォーカスを受ける要素（結果の段でプログラムからフォーカスを移す見出しを含む）がインラインの style で outline を打ち消さず色の無い輪を持たないこと、結果の段の見出しがフォーカスを受けたうえで共通の outline に乗ることを主張する。
 
 ### Integration Tests
 - 画像一覧API: 1リクエストで全写真＋署名付きURLを返し、写真ごとの個別URL取得が発生しない（R11.2）。
@@ -786,7 +899,9 @@ type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
 - アップロードAPI: 10件/10MB制限、マジックバイト検証で不正形式を拒否（R12）。
 - サマリAPI: `detail-summary` に `constructionPhotos:{totalCount,latest...}` が同型で含まれる（R2.3）。
 - 認可: 未認証401・権限なし403（R13.1,R13.3）。
-- 非合成原本エンドポイント: 看板配置済み写真でも生原本（非合成）を返し、一覧DTOに `originalUrl` を含めない。権限なし（`construction_photo:read` 非保持）は403・他プロジェクトの写真は404（存在秘匿。既存の print-image/delete/listWithUrls と同一方針）（R14.6,R15.4,R13.2,R13.4）。
+- 非合成原本エンドポイント: 看板配置済み写真でも生原本（非合成）を返し、一覧DTOに `originalUrl` を含めない。権限なし（`construction_photo:read` 非保持）は403・他プロジェクトの写真は404（存在秘匿。既存の print-image/delete/listWithUrls と同一方針）（R14.6,R15.4,R13.2,R13.4）。**タスク 23.1 で改めた**: 「他プロジェクトの写真は404」は担当者の限定（担当でない利用者には他人のプロジェクトの写真が見えない）を前提にした記述で、現在は成り立たない。担当者での絞り込みは行わず、権限を持つ利用者は担当でないプロジェクトの写真の原本も取得できる。404 になるのは、写真が無いとき、写真のアルバムか所属プロジェクトが論理削除済みのとき、アルバムの配下として指した写真がそのアルバムに属さないときである（print-image・削除・メタの一括更新も同じ判定）。
+- アクセスの判定（タスク 23.1, R1.2, R13.2, R13.3, R17.1）: 担当でない一般ユーザー（user）が、他の利用者のプロジェクトのアルバム・写真項目・看板に対して、権限の表が許す閲覧・作成・編集を行え（写真項目を取り除く操作は user の権限に無く 403）、未認証は 401・ロール無しは 403 で何も書き込まない。プロジェクト（アルバム）の配下として指したときの所属の不一致は 404 / 400、取り除かれたプロジェクトとアルバムの各操作は 404 で、DB の値が変わらず、本文に署名付きURLや保存先のパスが含まれない（`construction-photo-access.api.integration.test.ts`）。
+- 看板の削除と写真一覧（タスク 23.3, R9.7）: 使用中の看板を削除すると、写真一覧が当該写真項目の `signboardId` / `signboardPlacement` を null で返し、DB の行も解除される。論理削除済みの看板を指す既存の行も一覧では null で返す。看板の削除をまたいだ保存は、看板に触れない変更なら成功して解除が保たれ、削除済みの看板を指定する変更は 404（`SIGNBOARD_NOT_ALLOWED`）で他の変更も書き込まれない。
 - **形式エラー文言の契約**: 不正な画像形式のアップロードに対し、207 応答の `failed[].error` が `utils/upload-failure` の判定断片（`サポートされていないファイル形式` / `サポートされていない画像形式` / `MIMEタイプと一致しません`）のいずれかを**含む**ことを検証する（R20.16,R20.17,R20.18）。
   - 既存の `construction-photo-image.api.integration.test.ts` は `failed[].fileName` のみを検証しており、メッセージ本文を保証していない。工事写真が独自の検証メッセージを持った瞬間に恒久／一時の分類が `retriable` へ倒れ、再送不可の区別が無言で壊れるため、この1項目でフロントとバックエンドの文言契約を固定する。
   - **情報源はバックエンドの検証エラー定義**（`survey-image.service` の `InvalidFileTypeError` / `InvalidMagicBytesError` / `UnsupportedImageFormatError`）とし、統合テストはその定義から得たメッセージで照合する。テスト内に文言を書き下ろさない（二重定義を作らないため）。backend と frontend は別パッケージであり、バックエンドのテストからフロントの定数を import することはできないため、フロントの `UNSUPPORTED_FORMAT_MESSAGE_FRAGMENTS` 側は当該エラー定義に由来することをコメントで示す（記載済み）。
@@ -799,10 +914,17 @@ type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
 - 印刷対象0件時にPDFが実行されず通知される（R10.13）。
 - 写真サムネをクリックしてビューアへ遷移し、ズーム・90度回転・パンが機能し、閉じて詳細へ戻る（R14）。
 - ZIP一括エクスポート: 形式/解像度/看板モードを選択し、全件および選択でZIP生成、進捗表示・中断が機能し、0件時は非実行で通知（R15）。
+- ZIP一括エクスポートの部分失敗: 画像の取得を 404 へ差し替え、一部失敗で続ける（成功分だけの ZIP をエントリ名で確認）・やめる（ダウンロードされない）、全件成功は即座にダウンロード、全件失敗はダウンロードせず失敗の一覧を示す。375・320 幅で長いファイル名の一覧と二つの操作が画面内に収まる（R15.10）。
 - アルバム編集導線→編集画面遷移、削除導線→確認→削除後に一覧へ遷移（R16）。
 - 削除権限を持たないユーザー（user）でアルバム削除・写真削除の導線が非表示、編集権限なしで詳細が読み取り専用（R17）。
-- 未保存変更ありでアプリ内遷移/リロード時に離脱警告が出て、保存後は警告が出ない（R18）。
+- 担当でない一般ユーザーが一覧から他の利用者のアルバムを開き、写真項目を見て、アップロード・コメント・並び替えを保存でき、写真項目を取り除く操作手段は表示されない（R1.2, R17.2, タスク 23.1）。
+- クリックだけでプロジェクト詳細 → 一覧 → 看板マスタ → 登録 → アルバム → 「看板を配置」→ 保存まで到達できる。看板の一覧の取得に失敗しても「登録されていません」と述べず失敗の文言を示し、取得中は看板の指定を変える操作が出ず配置を消す保存が送られない（R8.1, R8.10, タスク 23.2）。
+- 使用中の看板を看板マスタで取り除くと、詳細画面の写真項目のバッジと文言が「看板なし」の側へ変わる（R9.7, タスク 23.3）。
+- 看板を選んで配置をドラッグせずに保存すると、保存の要求に既定の矩形を換算した配置が含まれ、読み込み直した後も保たれ、印字画像が原本と異なる（看板が重なる）。比較はバイト列で行う（R9.1, R9.3, タスク 24.4）。
+- 未保存変更ありでアプリ内遷移/リロード時に離脱警告が出て、保存後は警告が出ない（R18）。編集した写真項目を取り除いて保留が空になると未保存の表示と離脱の確認が消え、他の写真項目の保留が残るときは残る（R18.3, タスク 23.6）。保存の要求の応答を遅らせてその間にコメントを編集すると、保存の成功の後も未保存の表示・離脱の警告・アプリ内遷移の確認が残り、再保存でその編集が送られて読み込み直しても反映されている（R18.1, R18.3, タスク 24.5）。
 - モバイル幅で詳細画面が横スクロールせず縦積み表示になる（R19）。
+- 一覧画面のフォーカス表示（タスク 28.1、要件 3 の画面。受入基準にフォーカス表示を定める項は無いため要件番号は名乗らない）: `e2e/specs/construction-photos/construction-photo-focus-visible.spec.ts` が、表の 1 ページ目と 2 ページ目・検索の適用中と結果が 0 件・アルバムを取り除く確認のダイアログ・モバイル幅のカードの各状態で、文書の先頭から Tab だけで本文を一巡し、止まった要素の並びを順序と件数まで主張したうえで、どの要素もフォーカス中に 2px 以上・背景とのコントラスト比 3:1 以上の表示を持ち、離れると消えることを主張する（steering `tech.md` の「フォーカス表示方針」）。
+- 詳細画面と ZIP の一括エクスポートの進捗のダイアログのフォーカス表示（タスク 29.1、要件 15 の画面。受入基準にフォーカス表示を定める項は無いため要件番号は名乗らない）: `e2e/specs/construction-photos/construction-photo-focus-visible.spec.ts` が、写真項目 2 件の詳細画面の本文を文書の先頭から Tab だけで一巡して止まった要素の並びを順序と件数まで主張し、進捗のダイアログの処理中（画像の取得を待たせる）・中断の後・完了の各状態の操作と、一部失敗と全件失敗の結果の段の見出し（プログラムからフォーカスを移す）・失敗の一覧・操作が、フォーカス中に 2px 以上・背景とのコントラスト比 3:1 以上の表示を持ち、離れると消えることを主張する（steering `tech.md` の「フォーカス表示方針」）。詳細画面の写真の追加の枠は site-survey が所有する共有の `ImageUploader` の要素で、インラインの outline の打ち消しによる欠けを持つ。その是正は site-survey のタスク 116.1 の対象であり、この一件は欠けの文言のまま主張して残す。 **現況（site-survey のタスク 116.1、2026-10-09）**: 同タスクが `ImageUploader` のインラインの outline の打ち消しを外したため、同ファイルの詳細画面の本文の主張は、写真の追加の枠を含めて欠けの一覧が空であることへ改めた（テストの名前の「共有の写真の追加の枠を除く」も外した）。写真の追加の枠が Tab で止まる位置は変わっておらず、通る要素の順序と件数の主張はそのままである。
 - アップロード応答をサーバーエラーへ差し替えて失敗させ、未送信件数とサムネイル・ファイル名・失敗理由が表示される（R20.1,R20.2）。
 - 差し替えを解除して再送し、写真項目が一覧へ追加され未送信の表示が解消する（R20.3,R20.5,R20.6）。
 - サイズ上限超過（413）の応答へ差し替え、当該画像が再送不可として区別され、再送手段が実行不可となり理由が提示される（R20.16,R20.17,R20.18）。
@@ -828,8 +950,8 @@ E2E で観測できる受入基準と、共有クライアントの内部挙動�
 
 ## Security Considerations
 - 認可: 新規 RBAC 権限 `construction_photo:{create,read,update,delete}`、`construction_signboard:{create,read,update,delete}`。全ルートで `authenticate`＋`requirePermission`。
-- データ分離: アルバム/写真/看板の取得時に対象が要求プロジェクト配下であることをサービスで検証（R13.2）。
-- 配信: 原本・サムネ・合成画像はすべて署名付きURL（TTL 900s）で配信し公開パスを用いない（R13.4）。
+- データ分離: アルバム/写真/看板の取得時に対象が要求プロジェクト配下であることをサービスで検証（R13.2）。タスク 23.1 で範囲を明確にした: 取得・更新・削除のいずれでも、対象が要求されたプロジェクト（またはアルバム）の配下にあり、対象と所属プロジェクトが論理削除されていないことをサービスで確かめる（R13.2, R13.3）。プロジェクトの配下として指したアルバム・看板の更新・削除は、別のプロジェクトの配下なら版の照合より先に 404 とする。アルバム・看板の一覧は、プロジェクトが無いか論理削除済みなら 404 とする。別のプロジェクトの id を混ぜた要求は、404（並び替え・看板の指定）または 400（複数アルバムにまたがるメタの一括更新）で拒否する。担当者での絞り込みは行わない（Existing Architecture Analysis を参照）。
+- 配信: サムネイルは署名付きURL（TTL 900s。プロジェクト詳細の要約の代表サムネイルもタスク 23.7 で同じ値にした, R11.6）で配信し公開パスを用いない（R13.4）。原本と印字画像（合成画像）は署名付きURLを発行せず、認証（`authenticate`）と権限（`construction_photo:read`）を経たルートがストレージから読んだバイト列を応答本文として返す（公開パスは用いない）。タスク 23.10 で、原本・合成画像も署名付きURLで配信するとした記述を実装に合わせた。
 - UI権限出し分け（R17）はフロントの体験向上であり権威ではない。実際の認可はバックエンド RBAC（`requirePermission`）が権威で、非表示化した操作もサーバ側で403となる（多重防御）。`useConstructionPhotoPermission` は権限ロード完了まで安全側（非表示）に倒す（R17.5）。
 - 未送信画像の保持（R20）はブラウザのメモリ上のみで、`File` 実体も `ObjectURL` も永続化しない。端末ローカル保存は Out of scope であり、画面離脱・リロードで保持は失われる（撮影画像が端末に残り続けることによる情報残留を作らない）。`ObjectURL` は保持から外れた時点・破棄時・アンマウント時に必ず解放する。
 - 認証期限切れからの復帰（R20.11）はリフレッシュトークンによる既存の更新経路を用い、再送のために資格情報を画面へ保持しない。更新失敗時は共通のセッション切れ通知へ倒し、失敗を握り潰さない（R20.12）。

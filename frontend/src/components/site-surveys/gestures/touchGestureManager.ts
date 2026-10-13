@@ -17,7 +17,6 @@
  * 設計根拠:
  *   - `enablePointerEvents: true` を前提に、TouchEvent 併用は行わない（Req 30.2 の
  *     3 本指以降の厳密判定のため PointerEvent で一本化）
- *   - ImageViewer.tsx の既存 TouchEvent 処理とは独立（重複発火を避けるため pointer* のみ）
  *   - 閾値は gesture-thresholds.ts に集約（DRY / UX レビュー容易化）
  *
  * @requirement site-survey/REQ-27.1
@@ -68,12 +67,17 @@ export interface FabricCanvasLike {
 /**
  * canvas.fire() の payload。
  * AnnotationContextMenu や各ツールは pointerType / currentTool で分岐を行う。
+ *
+ * **操作対象（target）は意図的に持たない（Task 115.47 / 115.49）**。
+ * 本モジュールはジェスチャーの検出のみを担い、どの注釈オブジェクトへの操作かは
+ * 受け手が clientX/clientY から Fabric の実ヒットテストで解決する。かつて宣言だけが
+ * 残っていた `target` は、設定する側が存在しないまま受け手がそれに依存したため、
+ * 長押しの経路が実機で機能しない欠陥を生んだ。再発防止のため宣言を置かない。
  */
 export interface GesturePayload {
   pointerType: 'touch' | 'mouse' | 'pen';
   clientX: number;
   clientY: number;
-  target?: unknown;
   currentTool: string;
 }
 
@@ -166,6 +170,31 @@ const midpointOf = (a: PointerRecord, b: PointerRecord): ViewportPoint => ({
   y: (a.y + b.y) / 2,
 });
 
+/**
+ * 2点の中点を描画面（canvas 要素の左上を原点とする面）座標で返す（Req 33.3）。
+ *
+ * PointerEvent の clientX/clientY は画面基準だが、ビューポート駆動の受け手である
+ * Fabric の `zoomToPoint` は描画面基準の固定点を期待する。画面座標のまま渡すと、
+ * canvas が画面上端から離れている配置（モバイルのヘッダ＋ツールバー下）では拡大の中心が
+ * 要素オフセットぶん下へずれ、縦方向のパンが可動範囲の下限へ張り付く。
+ *
+ * ズームの基準点もパンに用いる中点移動量も同一の基準（描画面）で扱う。移動量は基準の
+ * 平行移動に対して不変であるため、変換によってパンの挙動は変わらない（要素が CSS で
+ * 拡縮されている場合のみ、同じ比で移動量も正される）。
+ * controller 未注入時（ビューポート駆動を行わない後方互換経路）は変換しない。
+ */
+const drawingSurfaceMidpointOf = (
+  controller: CanvasViewportController | undefined,
+  a: PointerRecord,
+  b: PointerRecord
+): ViewportPoint => {
+  const midpoint = midpointOf(a, b);
+  if (controller === undefined) {
+    return midpoint;
+  }
+  return controller.toCanvasPoint(midpoint);
+};
+
 export const createTouchGestureManager = (): TouchGestureManager => {
   let touchState: TouchState = 'idle';
   const activePointers = new Map<number, PointerRecord>();
@@ -205,7 +234,7 @@ export const createTouchGestureManager = (): TouchGestureManager => {
     }
     pinchStartDistance = distanceBetween(pair.p0, pair.p1);
     pinchStartZoom = controller?.getState().zoom ?? 1;
-    lastMidpoint = midpointOf(pair.p0, pair.p1);
+    lastMidpoint = drawingSurfaceMidpointOf(controller, pair.p0, pair.p1);
   };
 
   /**
@@ -261,7 +290,8 @@ export const createTouchGestureManager = (): TouchGestureManager => {
       if (pair === null) return;
 
       const currentDistance = distanceBetween(pair.p0, pair.p1);
-      const currentMidpoint = midpointOf(pair.p0, pair.p1);
+      // Req 33.3: 拡大の中心は描画面基準へ揃える（画面座標のままでは縦方向にずれる）。
+      const currentMidpoint = drawingSurfaceMidpointOf(controller, pair.p0, pair.p1);
 
       // ピンチ → 中点ズーム（Req 33.2/33.3）。
       // 距離変化が閾値を超えたときのみ、距離比から目標倍率を算出して中点基準でズーム。
@@ -394,6 +424,15 @@ export const createTouchGestureManager = (): TouchGestureManager => {
 
     /**
      * cooldown → idle への遷移。Req 30.3 の 150ms 抑止を実装。
+     *
+     * **タイマ発火時に `touchState === 'cooldown'` を再確認する（Task 115.94）**。
+     * この確認が無いと、cooldown 中（COOLDOWN_MS 以内）に次のジェスチャーが始まった場合に、
+     * 前ジェスチャー由来の遅延タイマが進行中の状態（`two-finger-pinch-pan` /
+     * `one-finger-down` / `drawing`）を `idle` へ踏み潰す。踏み潰された以降の
+     * pointermove は `driveViewport` に到達しないため、ピンチ拡大・2本指パンが
+     * 途中で無音のまま停止する（Req 33.2-33.4 / 34.7 の未達）。
+     * cooldown はあくまで「マルチタッチ解除後、次の接地が無いまま経過した場合」に
+     * idle へ戻すためのものであり、新しい接地で状態が進んだ後は無効化されるべきである。
      */
     const startCooldown = (): void => {
       // マルチタッチ終了でピンチ/パンセッションを破棄（次セッションは新規 down で再確定）
@@ -401,7 +440,9 @@ export const createTouchGestureManager = (): TouchGestureManager => {
       touchState = 'cooldown';
       clearCooldownTimer();
       cooldownTimeout = setTimeout(() => {
-        touchState = 'idle';
+        if (touchState === 'cooldown') {
+          touchState = 'idle';
+        }
         cooldownTimeout = null;
       }, COOLDOWN_MS);
     };
@@ -441,9 +482,16 @@ export const createTouchGestureManager = (): TouchGestureManager => {
       }
 
       if (touchState === 'one-finger-down') {
-        // シングルタップ: 次のダブルタップ判定に備えて lastTap を更新
+        // 長押しタイマが残っている（閾値の前に離し、閾値を超える移動も無かった）ときだけが
+        // シングルタップである。長押しになった接地や選択ツールでのドラッグ（どちらもタイマは
+        // 既に無い）をタップに数えると、離した直後の同位置の接地がダブルタップと判定され、
+        // 長押しの取り直しでメニューが開かない（Req 27.2 / 27.6）。
+        const isTap = longPressTimeout !== null;
         clearLongPressTimer();
-        if (pointer !== undefined) {
+        // シングルタップ: 次のダブルタップ判定に備えて lastTap を更新
+        if (!isTap) {
+          lastTap = null;
+        } else if (pointer !== undefined) {
           lastTap = {
             time: Date.now(),
             x: pointer.startX,

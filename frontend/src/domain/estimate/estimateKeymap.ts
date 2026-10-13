@@ -25,7 +25,7 @@
  * - 47.6: 範囲選択中に固有のキーボード操作を有効にする
  * - 47.7: 範囲選択解除の操作で範囲選択を解除する
  *
- * Design: design.md `##### estimateKeymap`（:4086-4120）
+ * Design: design.md `##### estimateKeymap`
  *
  * ## キー割当の考え方（47.4）
  *

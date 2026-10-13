@@ -3,16 +3,24 @@
  *
  * Task 26.2: 現場調査のE2Eテストを実装する
  *
- * Requirements:
- * - 1.1: 現場調査作成フォームで必須フィールド（調査名、調査日）を入力可能
- * - 1.2: GET /api/site-surveys/:id 現場調査詳細取得
- * - 1.3: PUT /api/site-surveys/:id 現場調査更新（楽観的排他制御）
- * - 1.4: DELETE /api/site-surveys/:id 現場調査削除
+ * Requirements（要件1の現行の原文に合わせた番号。タスク 115.188 で更新）:
+ * - 1.1: 現場調査作成フォームの調査名欄にデフォルト値「現場調査」を設定する
+ * - 1.2: 現場調査作成フォームの送信でプロジェクトに紐付く新規レコードを作成する
+ * - 1.3: 現場調査詳細画面に基本情報と関連する画像一覧を表示する
+ * - 1.4: 現場調査情報の編集保存を楽観的排他制御で更新する
+ * - 1.5: 現場調査の削除で現場調査と関連する画像データを論理削除する
+ * - 1.6: 同時編集の競合を検出したとき競合エラーを表示して再読み込みを促す
+ *
+ * これらは散文であり被覆印としては読まれない（パターン5は
+ * `Requirements (feature-name):` ヘッダー直下の一覧だけを拾う）。名乗りの担い手は
+ * 各区間の `@requirement` である。
  */
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * 現場調査CRUD機能のE2Eテスト
@@ -60,16 +68,7 @@ test.describe('現場調査CRUD操作', () => {
 
       // 営業担当者を確認・選択
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // APIレスポンスを待機しながら作成ボタンをクリック
       const createPromise = page.waitForResponse(
@@ -96,11 +95,15 @@ test.describe('現場調査CRUD操作', () => {
   /**
    * 現場調査作成フローのテスト
    *
-   * REQ-1.1: 現場調査作成フォームで必須フィールド（調査名、調査日）を入力可能
+   * 受入基準1.1: 現場調査作成フォームを表示すると調査名欄にデフォルト値を設定する
+   * 受入基準1.2: 現場調査作成フォームを送信するとプロジェクトに紐づけて保存する
    */
   test.describe('現場調査作成フロー', () => {
     /**
-     * @requirement site-survey/REQ-1.1
+     * タスク 115.188 の是正: site-survey の受入基準1.1 を名乗る被覆印を取り下げた。原文1.1 は
+     * 「現場調査作成フォームを表示したとき、調査名欄にデフォルト値『現場調査』を設定する」
+     * であり、本検証は作成フォームを開かず一覧への画面遷移だけを主張する。主題が別である。
+     * 要件1 に画面遷移を述べる条文は無い（遷移は要件2 の所管）ため付け替え先も無い。
      */
     test('プロジェクト詳細から現場調査一覧へ遷移できる', async ({ page }) => {
       if (!createdProjectId) {
@@ -122,7 +125,7 @@ test.describe('現場調査CRUD操作', () => {
       // 現場調査セクション内の「すべて見る」リンクを取得
       const siteSurveySection = page.getByLabel('現場調査', { exact: true });
       const viewAllLink = siteSurveySection.getByRole('link', { name: /すべて見る/i });
-      const viewAllLinkVisible = await viewAllLink.isVisible({ timeout: 3000 }).catch(() => false);
+      const viewAllLinkVisible = await isVisibleWithin(viewAllLink, 3000);
       if (viewAllLinkVisible) {
         await viewAllLink.click();
       } else {
@@ -142,7 +145,9 @@ test.describe('現場調査CRUD操作', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-1.1
+     * タスク 115.188 の是正: site-survey の受入基準1.1 を名乗る被覆印を取り下げた。原文1.1 が述べる
+     * のは調査名欄のデフォルト値「現場調査」だが、本検証は作成フォームへ遷移したことだけを
+     * 主張し、調査名欄の値を一度も見ない。要件1 に画面遷移を述べる条文は無い。
      */
     test('新規作成ボタンから作成フォームへ遷移できる', async ({ page }) => {
       if (!createdProjectId) {
@@ -174,9 +179,14 @@ test.describe('現場調査CRUD操作', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-1.1
+     * @requirement site-survey/REQ-1.2
+     * 現場調査作成フォームを送信すると、プロジェクトに紐づけて現場調査を保存する
+     *
+     * タスク 115.188 の是正: 本ファイルの被覆印は要件1 に受入基準が追加される前の番号
+     * （旧 REQ-1.N）のままで、以降が一つずつずれていた。表題・本文が述べる内容と
+     * 原文を突き合わせて名乗り直している。
      */
-    test('現場調査を作成できる', async ({ page }) => {
+    test('現場調査を作成できる (site-survey/REQ-1.2)', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -234,9 +244,11 @@ test.describe('現場調査CRUD操作', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-1.1
-     * Note: 要件により調査名にはデフォルト値「現場調査」が設定されているため、
-     *       調査名をクリアしてからバリデーションエラーの表示を確認する
+     * タスク 115.188 の是正: site-survey の受入基準1.1 を名乗る被覆印を取り下げた。本検証は調査名欄を
+     * `clear()` してから必須バリデーションの表示を主張するもので、原文1.1 が述べる
+     * デフォルト値「現場調査」そのものは一度も検査していない（デフォルト値は前提として
+     * 消しているだけである）。要件1 に必須バリデーションを述べる条文は無いため付け替え先も無い。
+     * この取り下げにより 1.1 は未被覆として露出する。
      */
     test('必須項目未入力時にバリデーションエラーが表示される', async ({ page }) => {
       if (!createdProjectId) {
@@ -270,51 +282,47 @@ test.describe('現場調査CRUD操作', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 存在しないプロジェクトIDで現場調査作成画面にアクセス
-      const nonExistentProjectId = '00000000-0000-0000-0000-000000000000';
+      // 存在しないプロジェクトIDで現場調査作成画面にアクセスする。
+      // backend の `projectIdParamSchema` は版・変種まで見る UUID の正規表現
+      // （`[1-5]` / `[89ab]`）で検査するため、nil UUID（すべて 0）は
+      // 「存在しない」ではなく「形式が不正」として 400 で弾かれ、REQ-1.7 の
+      // 「プロジェクトが存在しない場合」を通らない。版 4・変種 8 の整った UUID を用いる。
+      const nonExistentProjectId = '00000000-0000-4000-8000-000000000000';
       await page.goto(`/projects/${nonExistentProjectId}/site-surveys/new`);
       await page.waitForLoadState('networkidle');
 
-      // エラーメッセージが表示されるか、適切なエラー画面に遷移することを確認
-      const errorMessage = page.getByText(
-        /プロジェクトが見つかりません|プロジェクトが存在しません|404|Not Found|エラー/i
+      // REQ-1.7 は「プロジェクトが存在しない間は現場調査の作成を許可しない」と定めている。
+      // SiteSurveyCreatePage はプロジェクト取得に失敗すると role="alert" だけを描画し、
+      // 作成フォームを一切描画しない（frontend/src/pages/SiteSurveyCreatePage.tsx の
+      // `if (!project || !projectId)` 分岐）。バックエンドは 404 の detail に
+      // `Project not found: <id>` を返す（backend/src/errors/projectError.ts）。
+      // 「エラーが出ていなければフォームの有無を見る」観測による分岐は、
+      // 作成できてしまう欠陥をそのまま緑にするため置かない。
+      const errorAlert = page.getByRole('alert').first();
+      await expect(errorAlert).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(errorAlert).toContainText(
+        /プロジェクトが見つかりません|プロジェクトの取得に失敗しました|Project not found/i
       );
-      const errorVisible = await errorMessage.isVisible({ timeout: getTimeout(10000) });
 
-      // フォームが表示されていないことも確認（フォームが表示されていたら作成できてしまう可能性がある）
-      if (!errorVisible) {
-        // エラーが明示的に表示されていない場合は、作成フォームが表示されていないことを確認
-        const createButton = page.getByRole('button', { name: /^作成$/i });
-        const createButtonVisible = await createButton.isVisible().catch(() => false);
-        // フォームが表示されていない、または作成ボタンがないことを確認
-        if (createButtonVisible) {
-          // 仮にフォームが表示されている場合、作成を試みても失敗することを確認
-          await page.getByLabel(/調査名/i).fill('テスト現場調査');
-          await page.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
-          await createButton.click();
-
-          // APIエラーが発生することを確認
-          await expect(page.getByText(/プロジェクトが見つかりません|エラー|失敗/i)).toBeVisible({
-            timeout: getTimeout(10000),
-          });
-        }
-      } else {
-        // エラーメッセージが表示されていることを確認
-        expect(errorVisible).toBe(true);
-      }
+      // 作成の手段が無いこと（作成フォームが描画されていないこと）を主張する
+      await expect(page.getByRole('button', { name: /^作成$/i })).toHaveCount(0);
+      await expect(page.getByLabel(/調査名/i)).toHaveCount(0);
     });
   });
 
   /**
    * 現場調査詳細表示のテスト
    *
-   * REQ-1.2: GET /api/site-surveys/:id 現場調査詳細取得
+   * 受入基準1.3: 現場調査詳細画面で基本情報と関連する画像一覧を表示する
    */
   test.describe('現場調査詳細表示', () => {
     /**
-     * @requirement site-survey/REQ-1.2
+     * @requirement site-survey/REQ-1.3
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('現場調査詳細を表示できる', async ({ page }) => {
+    test('現場調査詳細を表示できる (site-survey/REQ-1.3)', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -343,13 +351,17 @@ test.describe('現場調査CRUD操作', () => {
   /**
    * 現場調査編集フローのテスト
    *
-   * REQ-1.3: PUT /api/site-surveys/:id 現場調査更新（楽観的排他制御）
+   * 受入基準1.4: 現場調査情報を編集して保存すると、楽観的排他制御でバージョンを確認して更新する
    */
   test.describe('現場調査編集フロー', () => {
     /**
-     * @requirement site-survey/REQ-1.3
+     * @requirement site-survey/REQ-1.4
+     *
+     * タスク 115.188 の是正: 本ファイルの被覆印は要件1 に受入基準が追加される前の番号
+     * （旧 REQ-1.N）のままで、以降が一つずつずれていた。表題・本文が述べる内容と
+     * 原文を突き合わせて名乗り直している。
      */
-    test('編集ボタン→フォーム表示→保存が正常に行われる', async ({ page }) => {
+    test('編集ボタン→フォーム表示→保存が正常に行われる (site-survey/REQ-1.4)', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -413,7 +425,9 @@ test.describe('現場調査CRUD操作', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-1.3
+     * タスク 115.188 の是正: 従前は REQ-1.3 を名乗っていたが、受入基準1.3 は詳細画面の表示についての条文であり
+     * 、編集の取り消しを述べる受入基準は要件1 に存在しない。被覆印を取り下げた（受入基準1.4 は保存時の楽観的排他制御であり、
+     * 破棄は主張していない）。
      */
     test('編集キャンセル時は変更が破棄される', async ({ page }) => {
       if (!createdSurveyId) {
@@ -448,103 +462,28 @@ test.describe('現場調査CRUD操作', () => {
   /**
    * 楽観的排他制御・競合エラー検出のテスト
    *
-   * REQ-1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
+   * 受入基準1.6: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
    */
   test.describe('楽観的排他制御', () => {
     /**
-     * @requirement site-survey/REQ-1.5
+     * @requirement site-survey/REQ-1.6
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('同時編集による競合時にエラーが表示される', async ({ page, context }) => {
-      // このテストは自己完結型 - 事前にcreatedSurveyIdが設定されていない場合でも動作する
-      let testSurveyId = createdSurveyId;
-      let testProjectId = createdProjectId;
+    test('同時編集による競合時にエラーが表示される (site-survey/REQ-1.6)', async ({
+      page,
+      context,
+    }) => {
+      // 本ファイルは直列実行であり、事前準備がプロジェクトを、
+      // 「現場調査を作成できる」が現場調査を作っている。前提が崩れたときに
+      // このテスト内でデータを作り直すと、前提の生成が壊れたことが記録に残らないまま
+      // 別のデータで緑になる。前提はここで無条件に主張する。
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      const testSurveyId = createdSurveyId;
 
       await loginAsUser(page, 'REGULAR_USER');
-
-      // 事前準備テストが実行されていない場合は、このテスト内でデータを作成
-      if (!testProjectId) {
-        // プロジェクトを作成
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
-
-        const createProjectButton = page.getByRole('button', { name: /新規作成/i });
-        await expect(createProjectButton).toBeVisible({ timeout: getTimeout(10000) });
-        await createProjectButton.click();
-
-        await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-          timeout: getTimeout(15000),
-        });
-
-        const projectName = `競合テスト用プロジェクト_${Date.now()}`;
-        await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
-
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        const salesPersonValue = await salesPersonSelect.inputValue();
-        if (!salesPersonValue) {
-          const options = await salesPersonSelect.locator('option').all();
-          if (options.length > 1 && options[1]) {
-            const firstUserOption = await options[1].getAttribute('value');
-            if (firstUserOption) {
-              await salesPersonSelect.selectOption(firstUserOption);
-            }
-          }
-        }
-
-        const createProjectPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createProjectPromise;
-
-        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-        const projectUrl = page.url();
-        const projectMatch = projectUrl.match(/\/projects\/([0-9a-f-]+)$/);
-        testProjectId = projectMatch?.[1] ?? null;
-      }
-
-      if (!testSurveyId) {
-        // 現場調査を作成
-        await page.goto(`/projects/${testProjectId}/site-surveys/new`);
-        await page.waitForLoadState('networkidle');
-
-        await expect(page.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
-
-        const surveyName = `競合テスト用現場調査_${Date.now()}`;
-        const surveyDate = new Date().toISOString().split('T')[0];
-
-        await page.getByLabel(/調査名/i).fill(surveyName);
-        await page.getByLabel(/調査日/i).fill(surveyDate!);
-        await page.getByLabel(/メモ/i).fill('競合テスト用メモ');
-
-        const createSurveyPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/') &&
-            response.url().includes('site-surveys') &&
-            response.request().method() === 'POST',
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createSurveyPromise;
-
-        await expect(page).toHaveURL(/\/site-surveys\/[0-9a-f-]+$/, {
-          timeout: getTimeout(15000),
-        });
-
-        const surveyUrl = page.url();
-        const surveyMatch = surveyUrl.match(/\/site-surveys\/([0-9a-f-]+)$/);
-        testSurveyId = surveyMatch?.[1] ?? null;
-      }
-
-      if (!testSurveyId) {
-        throw new Error('テスト用現場調査の作成に失敗しました');
-      }
 
       // 1つ目のブラウザコンテキストで編集ページを開く
       await page.goto(`/site-surveys/${testSurveyId}/edit`);
@@ -617,7 +556,7 @@ test.describe('現場調査CRUD操作', () => {
    */
   test.describe('プロジェクト不存在時の動作', () => {
     /**
-     * @requirement site-survey/REQ-1.6
+     * 受入基準 1.6 は除外である（e2e/requirement-exclusions.json）。同居していた検証は存在しないプロジェクトを扱うもので、同時編集の競合検出を主張していないため、被覆印は掲げない。
      */
     test('存在しないプロジェクトに対する現場調査作成がエラーになる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -627,21 +566,27 @@ test.describe('現場調査CRUD操作', () => {
       await page.goto(`/projects/${nonExistentProjectId}/site-surveys/new`);
       await page.waitForLoadState('networkidle');
 
-      // エラー表示またはリダイレクトを確認
-      const errorMessage = page.getByText(
-        /プロジェクトが見つかりません|not found|404|存在しません/i
-      );
-      const hasError = await errorMessage.isVisible({ timeout: getTimeout(5000) });
-      const isRedirected =
-        page.url().includes('/404') ||
-        page.url().includes('/projects') ||
-        !page.url().includes(nonExistentProjectId);
-
-      expect(hasError || isRedirected).toBeTruthy();
+      // REQ-1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない。
+      // 実装（SiteSurveyCreatePage）はプロジェクトを取得できないとき作成フォームを描画せず、
+      // role="alert" でエラーを提示する。
+      // 以前は「エラー文が出た、または リダイレクトされた」の論理和で判定していたが、
+      // リダイレクト判定に含まれる `page.url().includes('/projects')` は、対象URLが
+      // `/projects/{id}/site-surveys/new` である以上つねに真であり恒真だった。
+      // 加えてエラー文の正規表現は実装の文言（「プロジェクトの取得に失敗しました」）に
+      // 一致せず、左辺は一度も成立していない。
+      // 「作成させない」ことの観測点は、エラーの提示と作成フォームの不在である。
+      await expect(
+        page.getByRole('alert').first(),
+        'REQ-1.6: 存在しないプロジェクトでエラーが提示されない'
+      ).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(
+        page.getByLabel(/調査名/i),
+        'REQ-1.6: 存在しないプロジェクトなのに現場調査の作成フォームが描画されている'
+      ).toHaveCount(0);
     });
 
     /**
-     * @requirement site-survey/REQ-1.6
+     * 受入基準 1.6 は除外である（e2e/requirement-exclusions.json）。同居していた検証は存在しないプロジェクトを扱うもので、同時編集の競合検出を主張していないため、被覆印は掲げない。
      */
     test('存在しないプロジェクトへの現場調査作成APIがエラーを返す', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -673,13 +618,19 @@ test.describe('現場調査CRUD操作', () => {
   /**
    * 現場調査削除フローのテスト
    *
-   * REQ-1.4: DELETE /api/site-surveys/:id 現場調査削除
+   * 受入基準1.5: 現場調査を削除すると、現場調査と関連する画像データを論理削除する
    */
   test.describe('現場調査削除フロー', () => {
     /**
-     * @requirement site-survey/REQ-1.4
+     * @requirement site-survey/REQ-1.5
+     *
+     * タスク 115.188 の是正: 本ファイルの被覆印は要件1 に受入基準が追加される前の番号
+     * （旧 REQ-1.N）のままで、以降が一つずつずれていた。表題・本文が述べる内容と
+     * 原文を突き合わせて名乗り直している。
      */
-    test('削除ボタン→確認ダイアログ→削除→一覧遷移が正常に行われる', async ({ page }) => {
+    test('削除ボタン→確認ダイアログ→削除→一覧遷移が正常に行われる (site-survey/REQ-1.5)', async ({
+      page,
+    }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -780,7 +731,11 @@ test.describe('現場調査CRUD操作', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-1.4
+     * タスク 115.188 の是正: 従前は REQ-1.4 を名乗り、一律の一つずらしで REQ-1.5 に改めていたが、
+     * 受入基準1.5 は「現場調査を削除する…論理削除する」であり、本検証は削除を**行わない**（確認ダイアログでキャンセルし、
+     * 詳細画面に留まることだけを主張する）。削除のキャンセルを述べる受入基準は要件1 に存在しない（受入基準は7件まで）
+     * 。ゆえに被覆印を**取り下げる**。上の「削除ボタン→確認ダイアログ→削除→一覧遷移」が受入基準1.5 を正しく名乗っているため
+     * 、指標に穴は生じない。
      */
     test('削除確認ダイアログでキャンセルすると詳細画面に留まる', async ({ page }) => {
       if (!createdSurveyId) {

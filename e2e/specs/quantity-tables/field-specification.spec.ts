@@ -3,42 +3,111 @@
  *
  * Task 13.4: フィールド仕様のE2Eテストを実装する
  *
- * Requirements coverage (quantity-table-generation):
- * - REQ-5: 数量項目の追加・編集
- *   - 5.1: デフォルト値（大項目：空白、工種：空白、名称：空白、単位：空白、計算方法：標準、数量：0）
- *   - 5.5: 標準計算時は調整係数・丸め設定を非表示
- * - REQ-8: 計算方法の選択
- *   - 8.5: 面積・体積選択時のフィールド順序（幅・奥行き・高さ・重量・調整係数・丸め設定）
- *   - 8.8: ピッチ選択時のフィールド順序（範囲長・端長1・端長2・ピッチ長・長さ・重量・調整係数・丸め設定）
- * - REQ-9: 調整係数
- *   - 9.1: 面積・体積/ピッチ選択時のみ表示、デフォルト値1.00
- *   - 9.3: 調整係数は-9.99〜9.99の範囲
- *   - 9.4: 調整係数が空白時は1.00を自動設定
- *   - 9.8: 標準計算時は調整係数を非表示
- * - REQ-10: 丸め設定
- *   - 10.1: 面積・体積/ピッチ選択時のみ表示、デフォルト値0.01
- *   - 10.3: 丸め設定は-99.99〜99.99の範囲
- *   - 10.4: 丸め設定が0または空白時は0.01を自動設定
- *   - 10.8: 標準計算時は丸め設定を非表示
- * - REQ-13: テキストフィールドの文字数制限
- *   - 13.1: 大項目・中項目等（全角25文字/半角50文字）
- *   - 13.2: 工種（全角8文字/半角16文字）
- *   - 13.3: 単位（全角3文字/半角6文字）
+ * Task 115.126 (site-survey): 前提の用意と後段の判定を、表示条件（`if (await x.isVisible())`）で
+ * 包まずに無条件で行う形へ改めた。前提（数量表・数量グループ・数量項目行）は
+ * `openEditPageWithSingleItemRow` が用意し、計算方法の設定は `setCalculationMethod` が
+ * 成立まで主張する。いずれも崩れた時点で失敗する。各欄は行スコープで取得する。
+ *
+ * ## Requirements coverage（実際に判定している内容のみを挙げる）
+ *
+ * 対象spec: quantity-table-generation
+ *
+ * - REQ-9: 調整係数（面積・体積選択時に表示）
+ *   - 9.1: 調整係数フィールドが既定値「1.00」で表示される
+ *   - 9.3（一部）: 範囲の境界値（9.99 / -9.99）がそのまま保持される
+ *   - 9.4: 空白が入力されると「1.00」が自動設定される
+ *   - 9.8: 標準計算時は調整係数フィールドを表示しない
+ * - REQ-10: 丸め設定（面積・体積選択時に表示）
+ *   - 10.1: 丸め設定フィールドが既定値「0.01」で表示される
+ *   - 10.3: 範囲の境界値（0.01 / 99.99）がそのまま保持され、有効域の外
+ *     （取り下げた旧下限 -99.99）は境界の数値を含む文言で提示され、親の状態へ確定しない
+ *   - 10.4: 0または空白が入力されると「0.01」が自動設定される
+ *   - 10.8: 標準計算時は丸め設定フィールドを表示しない
+ * - REQ-13: テキストフィールドの入力制御
+ *   - 13.1（一部）: 大項目は上限ちょうど（全角25文字/幅50）を受け付け、上限超過（全角26文字/幅52）の
+ *     入力は受け付けず直前の確定値のままとなる。判定しているのは大項目のみで、
+ *     REQ-13.1 が同じ上限を課す中項目・小項目・任意分類・名称・規格・計算方法・備考は
+ *     本ファイルでは判定していない
+ *   - 13.2: 工種は上限ちょうど（全角8文字/幅16）を受け付け、上限超過（全角9文字/幅18）の
+ *     入力は受け付けず直前の確定値のままとなる
+ *   - 13.3: 単位は上限ちょうど（全角3文字/幅6）を受け付け、上限超過（全角4文字/幅8）の
+ *     入力は受け付けず直前の確定値のままとなる
  * - REQ-14: 数値フィールドの表示書式
- *   - 14.2: 調整係数・丸め設定・数量フィールドを小数2桁で常時表示
- *   - 14.3: 寸法フィールドは数値入力時のみ小数2桁表示
- *   - 14.4: 寸法フィールドが空白の場合は空白のまま表示
- * - REQ-15: 数値フィールドの入力制御
- *   - 15.1: 数量は-999999.99〜9999999.99の範囲
- *   - 15.2: 数量フィールドに空白が入力されると自動的に「0」を設定し「0.00」と表示
- *   - 15.3: 寸法・ピッチフィールドは0.01〜9999999.99の範囲
+ *   - 14.2: 調整係数・丸め設定・数量を小数2桁で表示する
+ *   - 14.3: 寸法フィールドは数値入力時に小数2桁で表示する
+ *   - 14.4: 寸法フィールドが空白の場合は空白のまま表示する
+ * - REQ-15: 数量フィールドの入力制御
+ *   - 15.1: 範囲の境界値（9999999.99 / -999999.99）がそのまま保持され、有効域の外
+ *     （上限超過・下限未満の双方）は境界の数値を含む文言で提示される
+ *   - 15.2: 空白が入力されると「0」が設定され「0.00」と表示される
+ *   - 15.3: 寸法フィールドは境界値（0.01 / 9999999.99）がそのまま保持される
+ *
+ * ## 未検証（本ファイルでは主張していない）
+ *
+ * - REQ-13.1 / 13.2 / 13.3 の入力防止のうち、日本語入力（IME）の変換中から確定に至る経路。
+ *   実装（AutocompleteInput）は変換中の幅判定を行わず compositionend の確定値で判定するが、
+ *   Playwright の `fill()` は変換イベントを発生させないため、本ファイルの判定は
+ *   確定入力の経路のみを通る。変換経路は単体テスト側の担当であり、ここでは主張しない。
+ * - REQ-13.4（左寄せ）、REQ-14.1 / 14.5（右寄せ）、REQ-14.6 / 14.7 および
+ *   REQ-15.4 / 15.5（箇所数フィールド）。本ファイルの対象外。
+ *
+ * Task 80.3: 「REQ-9.3 / REQ-10.3 / REQ-15.1 の範囲外エラーは未検証」という記載を削り、
+ * 判定へ引き上げた。当該記載は Task 115.126 (site-survey) が恒真の判定を撤去した際、
+ * 実装に範囲検査が無く観測できる結果が無いことを理由に据えたものである。Task 80.2 が
+ * 範囲判定を描画される部品へ結線したため理由が消滅した。REQ-10.3 / REQ-15.1 は本ファイルで
+ * 判定する。REQ-9.3 の範囲外は `quantity-table-crud.spec.ts` が判定しており、
+ * 本ファイルは境界値の保持だけを引き続き受け持つ（重複して主張しない）。
+ *
+ * Task 115.131 (site-survey): 13.2（工種）/ 13.3（単位）へ 13.1 と同型の「上限超過の入力を
+ * 受け付けない」判定を足し、被覆表記を実際の判定内容へ揃えた。上限は欄ごとの仕様
+ * （`FIELD_CONSTRAINTS`）から `AutocompleteInput` が決めるため、大項目と同じ機序が
+ * 工種・単位にも働く。あわせて検証名「文字数超過時にエラーメッセージが表示される」を、
+ * 中身（入力拒否で直前値が保たれる）に合う名前へ改めた。
+ *
+ * Task 115.127 段1: 前提の生成を共通の補助へ寄せ、`test.skip(!testProjectId, …)` 21 件を除いた。
+ * 各テストが実際に必要とするのは数量表IDであり、`openEditPageWithSingleItemRow` が無条件に主張する。
  *
  * @module e2e/specs/quantity-tables/field-specification.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { assertPrepared } from '../../helpers/preconditions';
+import {
+  createTestProject,
+  createTestQuantityTable,
+  openEditPageWithSingleItemRow,
+} from '../../helpers/quantity-table-preconditions';
+
+/**
+ * 計算方法の選択肢（`CalculationMethodSelect` の option 値）
+ */
+type CalculationMethodValue = 'STANDARD' | 'AREA_VOLUME' | 'PITCH' | 'COUNT';
+
+/**
+ * 数量項目行の計算方法を指定の値に設定し、設定が成立したことまで主張する。
+ *
+ * `selectFirstRealOption`（Task 115.92）は先頭の実在候補を選ぶ補助であり、
+ * 特定の計算方法を指定する必要がある本ファイルでは転用できない。そのため、
+ * 「選択欄の表示・指定した選択肢の実在・選択の成立」を無条件に主張する形を本補助に置く。
+ *
+ * @param row 対象の数量項目行
+ * @param method 設定する計算方法
+ * @throws 選択欄が表示されない・指定の選択肢が無い・選択が成立しない場合
+ */
+async function setCalculationMethod(row: Locator, method: CalculationMethodValue): Promise<void> {
+  const select = row.getByLabel('計算方法');
+
+  await expect(select, '計算方法の選択欄が表示される').toBeVisible({ timeout: getTimeout(10000) });
+  await expect(
+    select.locator(`option[value="${method}"]`),
+    `計算方法の選択肢に「${method}」が存在する`
+  ).toHaveCount(1);
+
+  await select.selectOption(method);
+  await expect(select, `計算方法が「${method}」に設定されている`).toHaveValue(method);
+}
 
 /**
  * フィールド仕様のE2Eテスト
@@ -50,7 +119,6 @@ test.describe('フィールド仕様', () => {
   // テストで作成したリソースのIDを保存
   let testProjectId: string | null = null;
   let createdQuantityTableId: string | null = null;
-  let projectName: string = '';
 
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
@@ -64,85 +132,14 @@ test.describe('フィールド仕様', () => {
     test('テスト用プロジェクトと数量表を作成する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // プロジェクト作成
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
-      await page.getByRole('button', { name: /新規作成/i }).click();
-      await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-
-      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-        timeout: getTimeout(15000),
-      });
-
-      projectName = `フィールド仕様テスト_${Date.now()}`;
-      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
-
-      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
-
-      const createProjectPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/projects') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
-        { timeout: getTimeout(30000) }
+      // Task 115.127 段1: 前提の生成は共通の補助へ寄せる。作れなければ補助の内側で失敗する
+      testProjectId = await createTestProject(page, 'フィールド仕様テスト');
+      const quantityTable = await createTestQuantityTable(
+        page,
+        testProjectId,
+        'フィールドテスト数量表'
       );
-
-      await page.getByRole('button', { name: /^作成$/i }).click();
-      await createProjectPromise;
-
-      await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-      const projectUrl = page.url();
-      const projectMatch = projectUrl.match(/\/projects\/([0-9a-f-]+)$/);
-      testProjectId = projectMatch?.[1] ?? null;
-      expect(testProjectId).toBeTruthy();
-    });
-
-    test('数量表を作成する', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
-      await loginAsUser(page, 'REGULAR_USER');
-
-      // 数量表作成ページに直接遷移（プロジェクト詳細ページの「新規作成」リンクは数量表0件時のみ表示）
-      await page.goto(`/projects/${testProjectId}/quantity-tables/new`);
-      await page.waitForLoadState('networkidle');
-
-      // 数量表名を入力
-      const tableNameInput = page.getByLabel(/数量表名|名称/i);
-      if (await tableNameInput.isVisible()) {
-        await tableNameInput.fill(`フィールドテスト数量表_${Date.now()}`);
-      }
-
-      // 作成ボタンをクリック
-      const submitButton = page.getByRole('button', { name: /^作成$|^保存$/i });
-      if (await submitButton.isVisible()) {
-        const createTablePromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/quantity-tables') ||
-            (response.url().includes('/api/projects/') &&
-              response.url().includes('/quantity-tables')),
-          { timeout: getTimeout(30000) }
-        );
-
-        await submitButton.click();
-        const response = await createTablePromise;
-
-        // 作成された数量表IDを取得
-        if (response.status() === 201) {
-          const body = await response.json();
-          createdQuantityTableId = body.id;
-        }
-      }
+      createdQuantityTableId = quantityTable.id;
     });
   });
 
@@ -151,139 +148,126 @@ test.describe('フィールド仕様', () => {
    */
   test.describe('REQ-13: テキストフィールドの文字数制限', () => {
     test('13.1: 大項目フィールドに全角25文字まで入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-        await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-        // 数量表リンクをクリック
-        const tableLink = page.getByRole('link', { name: /フィールドテスト数量表/i });
-        if (await tableLink.isVisible()) {
-          await tableLink.click();
-          await page.waitForLoadState('networkidle');
-        }
-      }
+      // 大項目フィールドを取得する。画面全体ではなく行スコープで取得する
+      const majorCategoryInput = row.getByLabel('大項目', { exact: true });
+      await expect(majorCategoryInput, '大項目フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // 数量項目追加ボタンをクリック
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible()) {
-        await addItemButton.click();
-        await page.waitForLoadState('networkidle');
-      }
+      // REQ-13.1: 上限ちょうど（全角25文字＝幅50）は受け付けられる
+      const validText = '漢'.repeat(25); // 幅50
+      await majorCategoryInput.fill(validText);
+      await expect(majorCategoryInput, '全角25文字はそのまま保持される').toHaveValue(validText);
 
-      // 大項目フィールドを取得
-      const majorCategoryInput = page.getByLabel(/大項目/i);
-      if (await majorCategoryInput.isVisible()) {
-        // 全角25文字を入力
-        const validText = '漢'.repeat(25); // 幅50
-        await majorCategoryInput.fill(validText);
-
-        // 入力が受け付けられたことを確認
-        await expect(majorCategoryInput).toHaveValue(validText);
-
-        // エラーが表示されていないことを確認
-        const errorMessage = page.getByText(/50文字以内/i);
-        await expect(errorMessage).not.toBeVisible();
-      }
+      // 上限を超えた場合の挙動（入力の拒否）は
+      // 「13.1: 大項目フィールドは上限を超える入力を受け付けず直前の確定値が保たれる」で検証する。
+      // REQ-13.1 は「超える入力を防止する」であってエラーメッセージの表示を求めておらず、
+      // 実装（AutocompleteInput）も文字数のエラーメッセージを持たない。ここで
+      // 「エラーが表示されていない」を主張しても存在しない要素の不在を見るだけで何も確かめられない。
     });
 
-    test('13.2: 工種フィールドに全角8文字まで入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
+    test('13.2: 工種フィールドは全角8文字までを受け付け、超える入力を受け付けない', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 工種フィールドを取得
-      const workTypeInput = page.getByLabel(/工種/i);
-      if (await workTypeInput.isVisible()) {
-        // 全角8文字を入力
-        const validText = '漢'.repeat(8); // 幅16
-        await workTypeInput.fill(validText);
+      // 工種フィールドを取得する。画面全体ではなく行スコープで取得する
+      const workTypeInput = row.getByLabel('工種', { exact: true });
+      await expect(workTypeInput, '工種フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 入力が受け付けられたことを確認
-        await expect(workTypeInput).toHaveValue(validText);
+      // REQ-13.2: 上限ちょうど（全角8文字＝幅16）は受け付けられる
+      const validText = '漢'.repeat(8); // 幅16
+      await workTypeInput.fill(validText);
+      await expect(workTypeInput, '全角8文字はそのまま保持される').toHaveValue(validText);
 
-        // エラーが表示されていないことを確認
-        const errorMessage = page.getByText(/16文字以内/i);
-        await expect(errorMessage).not.toBeVisible();
-      }
+      // REQ-13.2: 上限を超える入力（全角9文字＝幅18）は防止される。13.1（大項目）と同型であり、
+      // 実装（AutocompleteInput.handleInputChange）は上限超過の値を親へ通知せず、
+      // controlled input の表示が直前の確定値へ戻る。上限は欄ごとの仕様
+      // （FIELD_CONSTRAINTS.workType = 全角8文字/半角16文字）から決まる。
+      // エラーメッセージは持たない仕様のため、観測できる結果は
+      // 「値が直前の確定値のままであること」ただ一つである。
+      const overLimitText = '漢'.repeat(9); // 幅18
+      await workTypeInput.fill(overLimitText);
+      await workTypeInput.blur();
+
+      await expect(
+        workTypeInput,
+        '上限を超える入力は受け付けられず直前の全角8文字が保たれる'
+      ).toHaveValue(validText);
     });
 
-    test('13.3: 単位フィールドに全角3文字まで入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
+    test('13.3: 単位フィールドは全角3文字までを受け付け、超える入力を受け付けない', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 単位フィールドを取得
-      const unitInput = page.getByLabel(/単位/i);
-      if (await unitInput.isVisible()) {
-        // 全角3文字を入力
-        const validText = '平米台'; // 幅6
-        await unitInput.fill(validText);
+      // 単位フィールドを取得する。画面全体ではなく行スコープで取得する
+      const unitInput = row.getByLabel('単位', { exact: true });
+      await expect(unitInput, '単位フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 入力が受け付けられたことを確認
-        await expect(unitInput).toHaveValue(validText);
+      // REQ-13.3: 上限ちょうど（全角3文字＝幅6）は受け付けられる
+      const validText = '平米台'; // 幅6
+      await unitInput.fill(validText);
+      await expect(unitInput, '全角3文字はそのまま保持される').toHaveValue(validText);
 
-        // エラーが表示されていないことを確認
-        const errorMessage = page.getByText(/6文字以内/i);
-        await expect(errorMessage).not.toBeVisible();
-      }
+      // REQ-13.3: 上限を超える入力（全角4文字＝幅8）は防止される。13.1（大項目）と同型であり、
+      // 実装（AutocompleteInput.handleInputChange）は上限超過の値を親へ通知せず、
+      // controlled input の表示が直前の確定値へ戻る。上限は欄ごとの仕様
+      // （FIELD_CONSTRAINTS.unit = 全角3文字/半角6文字）から決まる。
+      // エラーメッセージは持たない仕様のため、観測できる結果は
+      // 「値が直前の確定値のままであること」ただ一つである。
+      const overLimitText = '平米台数'; // 幅8
+      await unitInput.fill(overLimitText);
+      await unitInput.blur();
+
+      await expect(
+        unitInput,
+        '上限を超える入力は受け付けられず直前の全角3文字が保たれる'
+      ).toHaveValue(validText);
     });
 
-    test('文字数超過時にエラーメッセージが表示される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
+    test('13.1: 大項目フィールドは上限を超える入力を受け付けず直前の確定値が保たれる', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 大項目フィールドを取得
-      const majorCategoryInput = page.getByLabel(/大項目/i);
-      if (await majorCategoryInput.isVisible()) {
-        // 全角26文字を入力（制限超過）
-        const invalidText = '漢'.repeat(26); // 幅52
-        await majorCategoryInput.fill(invalidText);
+      const majorCategoryInput = row.getByLabel('大項目', { exact: true });
+      await expect(majorCategoryInput, '大項目フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // ブラーイベントを発生させる
-        await majorCategoryInput.blur();
+      // 先に上限ちょうど（全角25文字＝幅50）を入れて受理されることを確かめる。
+      // これが無いと「どんな入力も受け付けない実装」でも超過拒否の判定が通ってしまう
+      const validText = '漢'.repeat(25); // 幅50
+      await majorCategoryInput.fill(validText);
+      await expect(majorCategoryInput, '全角25文字は受け付けられる').toHaveValue(validText);
 
-        // エラーメッセージが表示されることを確認（または入力が制限される）
-        // 実装によってはエラーメッセージ表示またはmaxLength制限
-        const inputValue = await majorCategoryInput.inputValue();
-        // 入力が制限されているか、エラーが表示されていることを確認
-        const isLimited = inputValue.length <= 25;
-        const errorMessage = page.getByText(/文字以内|超過/i);
-        const hasError = await errorMessage.isVisible();
+      // REQ-13.1: 上限を超える入力（全角26文字＝幅52）は防止される。
+      // 実装（AutocompleteInput.handleInputChange）は上限超過の値を親へ通知せず、
+      // controlled input の表示が直前の確定値へ戻る。エラーメッセージは持たない仕様のため、
+      // 観測できる結果は「値が直前の確定値のままであること」ただ一つである。
+      const invalidText = '漢'.repeat(26); // 幅52
+      await majorCategoryInput.fill(invalidText);
+      await majorCategoryInput.blur();
 
-        expect(isLimited || hasError).toBeTruthy();
-      }
+      await expect(
+        majorCategoryInput,
+        '上限を超える入力は受け付けられず直前の全角25文字が保たれる'
+      ).toHaveValue(validText);
     });
   });
 
@@ -293,156 +277,116 @@ test.describe('フィールド仕様', () => {
    */
   test.describe('REQ-14: 数値フィールドの表示書式', () => {
     test('14.2: 調整係数が小数2桁で表示される（面積・体積選択時）', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更（調整係数を表示するため）
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
       // 調整係数フィールドを取得
-      const adjustmentFactorInput = page.getByLabel(/調整係数/i);
-      if (await adjustmentFactorInput.isVisible()) {
-        // 整数を入力
-        await adjustmentFactorInput.fill('1');
-        await adjustmentFactorInput.blur();
+      const adjustmentFactorInput = row.getByLabel('調整係数');
+      await expect(adjustmentFactorInput, '調整係数フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 小数2桁で表示されることを確認
-        await expect(adjustmentFactorInput).toHaveValue('1.00');
-      }
+      // 整数を入力（既定値 1.00 と異なる値を使い、整形が実際に働くことを確かめる）
+      await adjustmentFactorInput.fill('2');
+      await adjustmentFactorInput.blur();
+
+      // 小数2桁で表示されることを確認
+      await expect(adjustmentFactorInput).toHaveValue('2.00');
     });
 
     test('14.2: 丸め設定が小数2桁で表示される（面積・体積選択時）', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更（丸め設定を表示するため）
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
       // 丸め設定フィールドを取得
-      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
-      if (await roundingUnitInput.isVisible()) {
-        // 小数1桁を入力
-        await roundingUnitInput.fill('0.5');
-        await roundingUnitInput.blur();
+      const roundingUnitInput = row.getByLabel('丸め設定');
+      await expect(roundingUnitInput, '丸め設定フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 小数2桁で表示されることを確認
-        await expect(roundingUnitInput).toHaveValue('0.50');
-      }
+      // 小数1桁を入力
+      await roundingUnitInput.fill('0.5');
+      await roundingUnitInput.blur();
+
+      // 小数2桁で表示されることを確認
+      await expect(roundingUnitInput).toHaveValue('0.50');
     });
 
     test('14.2: 数量フィールドが小数2桁で表示される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 数量フィールドを取得
-      const quantityInput = page.getByLabel(/^数量$/i);
-      if (await quantityInput.isVisible()) {
-        // 整数を入力
-        await quantityInput.fill('100');
-        await quantityInput.blur();
+      // 数量フィールドを取得する。画面全体ではなく行スコープで取得する
+      const quantityInput = row.getByLabel('数量', { exact: true });
+      await expect(quantityInput, '数量フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 小数2桁で表示されることを確認
-        await expect(quantityInput).toHaveValue('100.00');
-      }
+      // 既定値「0.00」と衝突しない整数を入力する（既定値のままだと整形の有無を区別できない）
+      await quantityInput.fill('100');
+      await quantityInput.blur();
+
+      // REQ-14.2: 小数2桁で表示されることを確認
+      await expect(quantityInput, '数量は小数2桁で表示される').toHaveValue('100.00');
     });
 
     test('14.3: 寸法フィールドに数値を入力すると小数2桁で表示される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
       // 幅フィールドを取得
-      const widthInput = page.getByLabel(/幅（W）|幅\(W\)/i);
-      if (await widthInput.isVisible()) {
-        // 整数を入力
-        await widthInput.fill('5');
-        await widthInput.blur();
+      const widthInput = row.getByLabel('幅（W）');
+      await expect(widthInput, '幅（W）フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 小数2桁で表示されることを確認
-        await expect(widthInput).toHaveValue('5.00');
-      }
+      // 整数を入力
+      await widthInput.fill('5');
+      await widthInput.blur();
+
+      // 小数2桁で表示されることを確認
+      await expect(widthInput).toHaveValue('5.00');
     });
 
     test('14.4: 寸法フィールドが空白の場合は空白のまま表示される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
-      // 奥行きフィールドを取得（空白のまま）
-      const depthInput = page.getByLabel(/奥行き（D）|奥行き\(D\)/i);
-      if (await depthInput.isVisible()) {
-        // 空白を入力
-        await depthInput.fill('');
-        await depthInput.blur();
+      // 奥行きフィールドを取得
+      const depthInput = row.getByLabel('奥行き（D）');
+      await expect(depthInput, '奥行き（D）フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 空白のまま表示されることを確認（0.00ではない）
-        await expect(depthInput).toHaveValue('');
-      }
+      // いったん値を入力し、小数2桁の整形が働く状態にする（REQ-14.3）。
+      // 既定の空欄のまま判定すると「整形が一切働かない実装」でも通ってしまうため。
+      await depthInput.fill('3');
+      await depthInput.blur();
+      await expect(depthInput).toHaveValue('3.00');
+
+      // 空白を入力
+      await depthInput.fill('');
+      await depthInput.blur();
+
+      // 空白のまま表示されることを確認（0.00ではない）
+      await expect(depthInput).toHaveValue('');
     });
   });
 
@@ -451,105 +395,121 @@ test.describe('フィールド仕様', () => {
    */
   test.describe('REQ-15: 数量フィールドの入力制御', () => {
     test('15.1: 数量は-999999.99〜9999999.99の範囲で入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 数量フィールドを取得
-      const quantityInput = page.getByLabel(/^数量$/i);
-      if (await quantityInput.isVisible()) {
-        // 有効な値を入力
-        await quantityInput.fill('9999999.99');
-        await quantityInput.blur();
+      // 数量フィールドを取得する。画面全体ではなく行スコープで取得する
+      const quantityInput = row.getByLabel('数量', { exact: true });
+      await expect(quantityInput, '数量フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // エラーが表示されていないことを確認
-        const errorMessage = page.getByText(/9999999\.99/i);
-        await expect(errorMessage).not.toBeVisible();
+      // REQ-15.1: 範囲の上限（9999999.99）はそのまま保持される
+      await quantityInput.fill('9999999.99');
+      await quantityInput.blur();
+      await expect(quantityInput, '上限値がそのまま保持される').toHaveValue('9999999.99');
 
-        // 無効な値を入力
-        await quantityInput.fill('10000000');
-        await quantityInput.blur();
+      // REQ-15.1: 範囲の下限（-999999.99）はそのまま保持される
+      await quantityInput.fill('-999999.99');
+      await quantityInput.blur();
+      await expect(quantityInput, '下限値がそのまま保持される').toHaveValue('-999999.99');
 
-        // エラーメッセージが表示されることを確認（または値が制限される）
-        const inputValue = await quantityInput.inputValue();
-        const isLimited = parseFloat(inputValue) <= 9999999.99;
-        const hasError = await page.getByText(/範囲|超過|9999999/i).isVisible();
+      // Task 80.3: ここに置かれていた「【未検証】範囲外の値のエラー表示は主張していない」の
+      // 記載を判定へ引き上げた。Task 80.2 が範囲判定を数量欄へ結線したため、観測できる
+      // 結果が画面に現れるようになった。
+      //
+      // REQ-15.1: 有効域の外はエラーメッセージを表示し、範囲内の値の入力を求める。
+      // 期待する文言には要件が定める境界の数値そのものを書く。「値が制限されている
+      // または エラーが出ている」の形は恒真であり、置かない
+      await quantityInput.fill('10000000');
+      await quantityInput.blur();
+      await expect(
+        quantityInput,
+        'REQ-15.1: 数量欄がエラーの説明と結び付いていない'
+      ).toHaveAttribute('aria-describedby', /-quantity-error$/);
+      const quantityErrorId = await quantityInput.getAttribute('aria-describedby');
+      await expect(
+        page.locator(`[id="${quantityErrorId}"]`),
+        'REQ-15.1: 上限を超える数量にエラーメッセージが表示されない'
+      ).toHaveText('数量は-999999.99〜9999999.99の範囲で入力してください', {
+        timeout: getTimeout(10000),
+      });
+      await expect(quantityInput, 'REQ-15.1: 数量欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
 
-        expect(isLimited || hasError).toBeTruthy();
-      }
+      // 下限を下回る値も同じ提示になる（上限だけの片側検査では下限の欠落に気づけない）
+      await quantityInput.fill('-1000000');
+      await quantityInput.blur();
+      await expect(
+        page.locator(`[id="${quantityErrorId}"]`),
+        'REQ-15.1: 下限を下回る数量にエラーメッセージが表示されない'
+      ).toHaveText('数量は-999999.99〜9999999.99の範囲で入力してください', {
+        timeout: getTimeout(10000),
+      });
+
+      // 範囲内へ戻せば提示は消える（提示が出っぱなしの実装と区別する）
+      await quantityInput.fill('12.34');
+      await quantityInput.blur();
+      await expect(quantityInput, '範囲内の値が保持される').toHaveValue('12.34');
+      await expect(
+        page.locator(`[id="${quantityErrorId}"]`),
+        '範囲内の値に戻してもエラーの提示が消えない'
+      ).toHaveCount(0);
     });
 
     test('15.2: 数量フィールドに空白が入力されると0.00が自動設定される', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 数量フィールドを取得
-      const quantityInput = page.getByLabel(/^数量$/i);
-      if (await quantityInput.isVisible()) {
-        // 空白を入力
-        await quantityInput.fill('');
-        await quantityInput.blur();
+      // 数量フィールドを取得する。画面全体ではなく行スコープで取得する
+      const quantityInput = row.getByLabel('数量', { exact: true });
+      await expect(quantityInput, '数量フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 0.00が自動設定されることを確認
-        await expect(quantityInput).toHaveValue('0.00');
-      }
+      // いったん既定値（0.00）以外にする。既定値のまま空欄にすると
+      // 「空白時の自動設定が無い実装」でも 0.00 のままとなり判定が成立してしまう
+      await quantityInput.fill('12');
+      await quantityInput.blur();
+      await expect(quantityInput, '入力値が小数2桁で保持される').toHaveValue('12.00');
+
+      // REQ-15.2: 空白を入力すると0が自動設定され「0.00」と表示される
+      await quantityInput.fill('');
+      await quantityInput.blur();
+      await expect(quantityInput, '空白入力時は0.00が自動設定される').toHaveValue('0.00');
     });
 
     test('15.3: 寸法フィールドは0.01〜9999999.99の範囲で入力できる', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
       // 幅フィールドを取得
-      const widthInput = page.getByLabel(/幅（W）|幅\(W\)/i);
-      if (await widthInput.isVisible()) {
-        // 有効な値を入力
-        await widthInput.fill('0.01');
-        await widthInput.blur();
+      const widthInput = row.getByLabel('幅（W）');
+      await expect(widthInput, '幅（W）フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 小数2桁で表示されることを確認
-        await expect(widthInput).toHaveValue('0.01');
+      // 下限値を入力
+      await widthInput.fill('0.01');
+      await widthInput.blur();
 
-        // 最大値を入力
-        await widthInput.fill('9999999.99');
-        await widthInput.blur();
+      // 下限値がそのまま保持されることを確認
+      await expect(widthInput).toHaveValue('0.01');
 
-        // エラーが表示されていないことを確認
-        const inputValue = await widthInput.inputValue();
-        expect(parseFloat(inputValue)).toBeLessThanOrEqual(9999999.99);
-      }
+      // 上限値を入力
+      await widthInput.fill('9999999.99');
+      await widthInput.blur();
+
+      // 上限値がそのまま保持されることを確認
+      await expect(widthInput).toHaveValue('9999999.99');
     });
   });
 
@@ -561,102 +521,88 @@ test.describe('フィールド仕様', () => {
     test('9.8: 標準計算時は調整係数フィールドが表示されない (quantity-table-generation/REQ-9.8)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+      const adjustmentFactorInput = row.getByLabel('調整係数');
 
-      // 計算方法が「標準」の場合、調整係数フィールドが表示されないことを確認
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('STANDARD');
-        await page.waitForLoadState('networkidle');
-      }
+      // 先に「面積・体積」で調整係数が表示されることを確かめる。
+      // これが無いと「どの計算方法でも調整係数が存在しない実装」でも非表示の判定が通ってしまう
+      await setCalculationMethod(row, 'AREA_VOLUME');
+      await expect(
+        adjustmentFactorInput,
+        '面積・体積では調整係数フィールドが表示される'
+      ).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 調整係数フィールドが表示されないことを確認
-      const adjustmentFactorInput = page.getByLabel(/調整係数/i);
-      await expect(adjustmentFactorInput).not.toBeVisible({ timeout: 3000 });
+      // 計算方法を「標準」に変更する
+      await setCalculationMethod(row, 'STANDARD');
+
+      // REQ-9.8: 標準計算時は調整係数フィールドが表示されない
+      await expect(
+        adjustmentFactorInput,
+        '標準計算時は調整係数フィールドが表示されない'
+      ).not.toBeVisible({ timeout: getTimeout(10000) });
     });
 
     test('9.1, 9.3: 面積・体積選択時に調整係数フィールドが表示され-9.99〜9.99の範囲で入力できる (quantity-table-generation/REQ-9.1, REQ-9.3)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
-      // 調整係数フィールドを取得
-      const adjustmentFactorInput = page.getByLabel(/調整係数/i);
-      if (await adjustmentFactorInput.isVisible()) {
-        // 有効な値を入力
-        await adjustmentFactorInput.fill('9.99');
-        await adjustmentFactorInput.blur();
+      // REQ-9.1: 調整係数フィールドが既定値「1.00」で表示される
+      const adjustmentFactorInput = row.getByLabel('調整係数');
+      await expect(adjustmentFactorInput, '調整係数フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(adjustmentFactorInput, '調整係数の既定値は1.00である').toHaveValue('1.00');
 
-        // 小数2桁で表示されることを確認
-        await expect(adjustmentFactorInput).toHaveValue('9.99');
+      // REQ-9.3: 上限の有効な値を入力
+      await adjustmentFactorInput.fill('9.99');
+      await adjustmentFactorInput.blur();
 
-        // 負の有効な値を入力
-        await adjustmentFactorInput.fill('-9.99');
-        await adjustmentFactorInput.blur();
+      // 小数2桁で表示されることを確認
+      await expect(adjustmentFactorInput).toHaveValue('9.99');
 
-        await expect(adjustmentFactorInput).toHaveValue('-9.99');
-      }
+      // REQ-9.3: 下限の有効な値を入力
+      await adjustmentFactorInput.fill('-9.99');
+      await adjustmentFactorInput.blur();
+
+      await expect(adjustmentFactorInput).toHaveValue('-9.99');
     });
 
     test('9.4: 調整係数が空白時は1.00が自動設定される (quantity-table-generation/REQ-9.4)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更（調整係数を表示するため）
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
       // 調整係数フィールドを取得
-      const adjustmentFactorInput = page.getByLabel(/調整係数/i);
-      if (await adjustmentFactorInput.isVisible()) {
-        // 空白を入力
-        await adjustmentFactorInput.fill('');
-        await adjustmentFactorInput.blur();
+      const adjustmentFactorInput = row.getByLabel('調整係数');
+      await expect(adjustmentFactorInput, '調整係数フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 1.00が自動設定されることを確認
-        await expect(adjustmentFactorInput).toHaveValue('1.00');
-      }
+      // いったん既定値以外の値にする。既定値のまま空白にすると、
+      // 「空白時の自動設定が無い実装」でも1.00のままとなり判定が成立してしまう
+      await adjustmentFactorInput.fill('2');
+      await adjustmentFactorInput.blur();
+      await expect(adjustmentFactorInput).toHaveValue('2.00');
+
+      // 空白を入力
+      await adjustmentFactorInput.fill('');
+      await adjustmentFactorInput.blur();
+
+      // 1.00が自動設定されることを確認
+      await expect(adjustmentFactorInput).toHaveValue('1.00');
     });
   });
 
@@ -668,136 +614,171 @@ test.describe('フィールド仕様', () => {
     test('10.8: 標準計算時は丸め設定フィールドが表示されない (quantity-table-generation/REQ-10.8)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+      const roundingUnitInput = row.getByLabel('丸め設定');
 
-      // 計算方法が「標準」の場合、丸め設定フィールドが表示されないことを確認
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('STANDARD');
-        await page.waitForLoadState('networkidle');
-      }
+      // 先に「面積・体積」で丸め設定が表示されることを確かめる。
+      // これが無いと「どの計算方法でも丸め設定が存在しない実装」でも非表示の判定が通ってしまう
+      await setCalculationMethod(row, 'AREA_VOLUME');
+      await expect(roundingUnitInput, '面積・体積では丸め設定フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // 丸め設定フィールドが表示されないことを確認
-      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
-      await expect(roundingUnitInput).not.toBeVisible({ timeout: 3000 });
+      // 計算方法を「標準」に変更する
+      await setCalculationMethod(row, 'STANDARD');
+
+      // REQ-10.8: 標準計算時は丸め設定フィールドが表示されない
+      await expect(
+        roundingUnitInput,
+        '標準計算時は丸め設定フィールドが表示されない'
+      ).not.toBeVisible({ timeout: getTimeout(10000) });
     });
 
-    test('10.1, 10.3: 面積・体積選択時に丸め設定フィールドが表示され-99.99〜99.99の範囲で入力できる (quantity-table-generation/REQ-10.1, REQ-10.3)', async ({
+    test('10.1, 10.3: 面積・体積選択時に丸め設定フィールドが表示され0.01〜99.99の範囲で入力できる (quantity-table-generation/REQ-10.1, REQ-10.3)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
-      // 丸め設定フィールドを取得
-      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
-      if (await roundingUnitInput.isVisible()) {
-        // 有効な値を入力
-        await roundingUnitInput.fill('99.99');
-        await roundingUnitInput.blur();
+      // REQ-10.1: 丸め設定フィールドが既定値「0.01」で表示される
+      const roundingUnitInput = row.getByLabel('丸め設定');
+      await expect(roundingUnitInput, '丸め設定フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(roundingUnitInput, '丸め設定の既定値は0.01である').toHaveValue('0.01');
 
-        // 小数2桁で表示されることを確認
-        await expect(roundingUnitInput).toHaveValue('99.99');
+      // Task 80.3: 改める前は下限として `-99.99` を入れ、`toHaveValue('-99.99')` を主張していた。
+      // **Task 80.1 がこの範囲を取り下げている**——丸め設定の正典は `0.01〜99.99` である
+      // （負の切り上げ単位を定める条文が無く、`applyRounding()` が `unit <= 0` で例外を投げる）。
+      // それでも判定が緑だったのは、`AdjustmentField.handleBlur` が範囲判定より先に
+      // `toFixed(2)` を欄へ書き戻すためで、**欄の文字列は残るが親へは確定していなかった**。
+      // 表示だけを見る主張は、取り下げられた範囲をそのまま名乗り続けていた。
 
-        // 負の有効な値を入力
-        await roundingUnitInput.fill('-99.99');
-        await roundingUnitInput.blur();
+      // REQ-10.3: 上限の有効な値を入力
+      await roundingUnitInput.fill('99.99');
+      await roundingUnitInput.blur();
 
-        await expect(roundingUnitInput).toHaveValue('-99.99');
-      }
+      // 小数2桁で表示されることを確認
+      await expect(roundingUnitInput).toHaveValue('99.99');
+
+      // REQ-10.3: 下限（0.01）の有効な値を入力
+      await roundingUnitInput.fill('0.01');
+      await roundingUnitInput.blur();
+      await expect(roundingUnitInput, '下限0.01がそのまま保持される').toHaveValue('0.01');
+
+      // REQ-10.3: 有効域の外はエラーを表示し、範囲内の値の入力を求める。
+      // **確定していないことも併せて確かめる**——欄の文字列だけでは、範囲判定を
+      // 持たない実装（整形して受け入れるだけ）と区別がつかない。
+      // 確定の有無は、丸め設定が現に効く先——数量（REQ-10.2 の切り上げ）——で観測する。
+      // まず確定の経路が生きていることを確かめてから、範囲外で数量が動かないことを主張する
+      const roundingMessage = roundingUnitInput.locator('xpath=..').getByRole('alert');
+      const widthInput = row.getByLabel('幅（W）');
+      const quantityInput = row.getByLabel('数量', { exact: true });
+
+      await widthInput.fill('3');
+      await widthInput.blur();
+      await expect(quantityInput, '前提: 幅3が数量へ反映される（REQ-8.6）').toHaveValue('3.00', {
+        timeout: getTimeout(10000),
+      });
+
+      await roundingUnitInput.fill('10');
+      await roundingUnitInput.blur();
+      await expect(
+        quantityInput,
+        '前提: 有効域の丸め設定は確定し、数量が切り上げられる（REQ-10.2）'
+      ).toHaveValue('10.00', { timeout: getTimeout(10000) });
+
+      await roundingUnitInput.fill('-99.99');
+      await roundingUnitInput.blur();
+      await expect(
+        roundingMessage,
+        'REQ-10.3: 取り下げた下限（-99.99）が範囲外として提示されない'
+      ).toHaveText('丸め設定は0.01〜99.99の範囲で入力してください', { timeout: getTimeout(10000) });
+      await expect(
+        roundingUnitInput,
+        'REQ-10.3: 範囲外の丸め設定がハイライトされない'
+      ).toHaveAttribute('aria-invalid', 'true');
+
+      // 確定していないことは**上限を超える値**で観測する。下限側（負値）では
+      // `applyRounding()` が例外を投げるため、確定させてしまう実装でも数量が動かず、
+      // 「確定していない」と区別がつかない（実測で確かめた）。
+      // 上限側（100）なら、確定させてしまう実装では数量が 100.00 へ動く
+      await roundingUnitInput.fill('100');
+      await roundingUnitInput.blur();
+      await expect(
+        roundingMessage,
+        'REQ-10.3: 上限を超える丸め設定が範囲外として提示されない'
+      ).toHaveText('丸め設定は0.01〜99.99の範囲で入力してください', { timeout: getTimeout(10000) });
+      await expect(
+        quantityInput,
+        'REQ-10.3: 範囲外の丸め設定が親の状態へ確定している（数量へ反映された）'
+      ).toHaveValue('10.00');
     });
 
     test('10.4: 丸め設定が空白時は0.01が自動設定される (quantity-table-generation/REQ-10.4)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更（丸め設定を表示するため）
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
       // 丸め設定フィールドを取得
-      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
-      if (await roundingUnitInput.isVisible()) {
-        // 空白を入力
-        await roundingUnitInput.fill('');
-        await roundingUnitInput.blur();
+      const roundingUnitInput = row.getByLabel('丸め設定');
+      await expect(roundingUnitInput, '丸め設定フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 0.01が自動設定されることを確認
-        await expect(roundingUnitInput).toHaveValue('0.01');
-      }
+      // いったん既定値以外の値にする。既定値のまま空白にすると、
+      // 「空白時の自動設定が無い実装」でも0.01のままとなり判定が成立してしまう
+      await roundingUnitInput.fill('5');
+      await roundingUnitInput.blur();
+      await expect(roundingUnitInput).toHaveValue('5.00');
+
+      // 空白を入力
+      await roundingUnitInput.fill('');
+      await roundingUnitInput.blur();
+
+      // 0.01が自動設定されることを確認
+      await expect(roundingUnitInput).toHaveValue('0.01');
     });
 
     test('10.4: 丸め設定が0の時は0.01が自動設定される (quantity-table-generation/REQ-10.4)', async ({
       page,
     }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      if (createdQuantityTableId) {
-        await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      } else {
-        await page.goto(`/projects/${testProjectId}`);
-      }
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // 計算方法を「面積・体積」に変更（丸め設定を表示するため）
-      const calculationMethodSelect = page.getByLabel(/計算方法/i);
-      if (await calculationMethodSelect.isVisible()) {
-        await calculationMethodSelect.selectOption('AREA_VOLUME');
-        await page.waitForLoadState('networkidle');
-      }
+      await setCalculationMethod(row, 'AREA_VOLUME');
 
       // 丸め設定フィールドを取得
-      const roundingUnitInput = page.getByLabel(/丸め設定|丸め/i);
-      if (await roundingUnitInput.isVisible()) {
-        // 0を入力
-        await roundingUnitInput.fill('0');
-        await roundingUnitInput.blur();
+      const roundingUnitInput = row.getByLabel('丸め設定');
+      await expect(roundingUnitInput, '丸め設定フィールドが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 0.01が自動設定されることを確認
-        await expect(roundingUnitInput).toHaveValue('0.01');
-      }
+      // いったん既定値以外の値にする。既定値のまま0を入力すると、
+      // 「0の自動設定が無い実装」でも0.01のままとなり判定が成立してしまう
+      await roundingUnitInput.fill('5');
+      await roundingUnitInput.blur();
+      await expect(roundingUnitInput).toHaveValue('5.00');
+
+      // 0を入力
+      await roundingUnitInput.fill('0');
+      await roundingUnitInput.blur();
+
+      // 0.01が自動設定されることを確認
+      await expect(roundingUnitInput).toHaveValue('0.01');
     });
   });
 
@@ -806,7 +787,7 @@ test.describe('フィールド仕様', () => {
    */
   test.describe('クリーンアップ', () => {
     test('テスト用プロジェクトを削除する', async ({ page }) => {
-      test.skip(!testProjectId, 'プロジェクトIDが取得できなかったためスキップ');
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
 
       await loginAsUser(page, 'ADMIN_USER');
       await page.goto(`/projects/${testProjectId}`);
@@ -819,10 +800,7 @@ test.describe('フィールド仕様', () => {
 
         // 確認ダイアログが表示されるのを待つ
         const dialog = page.getByRole('dialog');
-        const dialogVisible = await dialog
-          .waitFor({ state: 'visible', timeout: getTimeout(5000) })
-          .then(() => true)
-          .catch(() => false);
+        const dialogVisible = await isVisibleWithin(dialog, getTimeout(5000));
 
         if (dialogVisible) {
           // 確認ダイアログ内の削除確定ボタンをクリック

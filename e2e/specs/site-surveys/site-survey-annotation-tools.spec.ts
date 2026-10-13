@@ -5,8 +5,6 @@
  * - REQ-6.1: 寸法線ツールの選択
  * - REQ-6.2: 寸法値入力フィールド表示
  * - REQ-6.3: 寸法値入力と表示
- * - REQ-6.4: 寸法線の選択と編集
- * - REQ-6.6: 寸法線の削除
  * - REQ-6.7: 寸法線のカスタマイズ
  * - REQ-7.1: 矢印ツール
  * - REQ-7.2: 円ツール
@@ -17,22 +15,94 @@
  * - REQ-7.7: 図形の選択
  * - REQ-7.10: 図形のカスタマイズ
  * - REQ-8.1: テキストツールの選択
- * - REQ-8.2: テキスト入力と配置
- * - REQ-8.3: テキスト編集モード
- * - REQ-8.5: テキストのカスタマイズ
+ * - REQ-8.2: テキストの入力と確定による画像上への配置
  * - REQ-8.6: 吹き出し形式
  * - REQ-8.7: マルチバイト文字サポート
  * - REQ-9.1: 注釈データの保存
  * - REQ-9.2: 注釈データの復元
- * - REQ-10.1: 個別画像のエクスポート
- * - REQ-10.2: エクスポート形式選択
- * - REQ-10.3: エクスポート解像度選択
- * - REQ-10.4: 元画像のダウンロード
- * - REQ-10.5: 日本語テキストのレンダリング
- * - REQ-10.7: 調査報告PDF基本情報
+ * - REQ-12.1: 個別画像のエクスポート
+ * - REQ-12.2: エクスポート形式選択
+ * - REQ-12.3: エクスポート解像度選択
+ * - REQ-12.4: 元画像のダウンロード
+ * - REQ-12.5: 日本語テキストのレンダリング
  * - REQ-13.1: Undo操作
  * - REQ-13.2: Redo操作
  * - REQ-13.3: キーボードショートカット
+ *
+ * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
+ *   要件6.4: 道具の選択状態（aria-pressed）だけを主張しており、寸法線のクリック選択を主張していない
+ *   要件6.6: 押鍵の後に本文が可視であることしか主張しておらず、寸法線の除去を主張していない
+ *   要件8.3: 既存のテキストのダブルクリックによる編集モードへの遷移を主張していない
+ *     （検証是正 1 で新設した要件8.2 の検証は、単クリックによる新規作成の直後に編集モードが
+ *     開くことを主張するが、条文8.3 が課す「既存のテキストをダブルクリックする」経路は覆わない）
+ *   要件8.5: フォントサイズと文字色は主張するが、受入基準が並べる背景色を主張していない
+ *
+ * タスク 115.277 の是正: 上記一覧から要件10.7 の被覆印を取り下げた。表題は「調査報告PDF
+ * 基本情報」と述べるが、現行の番号で要件10.7 は写真一覧の「下へ移動」ボタンであり、本ファイルは
+ * どちらの検証も持たない（取り下げ前、当該の一覧行が本ファイル唯一の被覆印であり、
+ * 個々の検証に付された印は 0 件であった）。基本情報を定めるのは要件11.4 であり
+ * site-survey-export.spec.ts が、要件10.7 は site-survey-image-order.spec.ts が、
+ * それぞれ `@requirement` 形式の被覆印を持つ（順に 1 件・2 件）。
+ * 取り下げの被覆への影響は空である——当該行を残した版と取り下げた版とで
+ * `npx tsx scripts/check-requirement-coverage.ts` の全出力 524 行が一行も違わなかった
+ * （2026-09-05、コミット ea176614 の作業ツリーで実測）。
+ *
+ * タスク 115.188 の是正: 上記一覧から要件8.2（テキストを入力して確定すると画像上に配置する）の
+ * 被覆印を取り下げた。本ファイルのテキストツール検証は道具の選択とスタイルパネルの表示までで、
+ * テキストを入力して確定し画像上に配置されることを一度も主張していない。
+ *
+ * 検証是正 1 の是正: 上の取り下げののち、要件8.2 は被覆印も除外の実エントリも持たないまま
+ * 残っていた（`e2e/requirement-exclusions.json` の `summary.note` が「統合テストで検証」と
+ * 述べるだけで、除外の登録は無かった）。入力と確定と配置を主張する検証が下の (1) と (2) の
+ * 範囲に一件も無かったため、被覆印を付け替えるのではなく検証を新設した
+ * （「テキストを入力して確定すると画像上にテキストコメントが配置される」）。
+ * 上の一覧へ要件8.2 を戻したのは、その新設の検証が本ファイルに在るためである。
+ *
+ * 検証是正 1 の是正（上の全称否定の走査範囲を三層で開示する）: 「一件も無かった」は全称否定で
+ * あるため、走査範囲を日本語ではなくコマンドで宣言する。実測はすべて 2026-09-08 に
+ * リポジトリルートで行い、是正前の基準版は本ファイルの新設の検証を含まないコミット
+ * c3f3e9f6、現況は同日の作業ツリー（本註を書き終えた後に測り直した値）である。
+ *
+ * (1) 機械保証。被覆印は
+ *     `grep -rn "site-survey/REQ-8\.2" backend/src frontend/src e2e --include=*.ts --include=*.tsx`
+ *     で挙げる。この三つの根は被覆の検査 `scripts/check-requirement-coverage.ts` の走査根
+ *     `CODE_DIRS` と同一で、拡張子も同検査の `COVERAGE_FILE_PATTERN` と同じである
+ *     （同検査の母集団は `listCoverageScanFiles()` が返す 1729 ファイル。現況で実測）。
+ *     基準版 c3f3e9f6 では当たり 0 行（終了コード 1）、現況では 2 行で、2 行とも本ファイルの
+ *     新設の検証のもの（`@requirement` の行と検証名の行）である。本註の文面は当たらない。
+ *     除外の実エントリは `grep -c '"id": "site-survey/REQ-8\.2"' e2e/requirement-exclusions.json`
+ *     で数え、基準版・現況とも 0 である（同台帳の site-survey の登録 33 件のうち要件8 のものは
+ *     8.3 と 8.4 の二件だけで、`grep -n '"id": "site-survey/REQ-8\.'` がその二行を印字する）。
+ *
+ * (2) 人手走査。単体検証の走査範囲は
+ *     `grep -rlE 'TextTool|TextAnnotation|AnnotationEditor' frontend/src/__tests__` が挙げる
+ *     36 ファイルとする。うち 24 ファイルが Fabric.js の `IText` へ模擬を差し込んでいる
+ *     （`class MockIText` を定義するのが 23 ファイル、同じ 23 ファイルが `IText: MockIText` で
+ *     差し込み、残る 1 ファイルは `IText: MockShape`）。この 36 ファイルに対する
+ *     `grep -nE 'new +IText\(' <36 ファイル>` と `grep -nE '^import[^;]*\bIText\b' <36 ファイル>`
+ *     はいずれも当たり 0（終了コード 1）であり、実物の `IText` を構築する単体検証は 0 件である。
+ *     したがって編集モードの開閉と本文の確定を本物の状態で主張できる単体検証はこの範囲に無い。
+ *     E2E 側の走査範囲は `grep -rlE 'テキストツール|textAnnotation|IText' e2e/specs` が挙げる
+ *     5 ファイル（基準版・現況とも 5）とし、全件を読んだ。文字を打つ箇所は、本ファイルの三つの
+ *     検証（「テキストツールのキーボード入力ができる」「日本語を含むマルチバイト文字を入力
+ *     できる」「日本語テキスト注釈を正しくレンダリングしてエクスポートできる」）と、
+ *     `e2e/specs/site-surveys/site-survey-drawing-selection-prevention.spec.ts` の 797 行、
+ *     `e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts` の 1004 行である
+ *     （行番号は基準版 c3f3e9f6 のもの。両ファイルは本是正で変更していない）。前者の三つは、
+ *     打鍵の後に `body` の可視だけを主張するものが二つ、書き出しの対話と落とし込まれた
+ *     ファイル名が空でないことだけを主張するものが一つである。後の二つは
+ *     打鍵の後に図形が一つ増えたことと白アウトラインの状態を主張するが、**打った本文と
+ *     描画面に載った本文が一致することは、五箇所のいずれも主張していない**。すなわち
+ *     「入力した本文が確定されて配置される」を主張する検証は、**基準版 c3f3e9f6 の時点で**
+ *     この 5 ファイルに 0 件である。現況では本ファイルの新設の検証がそれを主張するため、
+ *     この文を現況の記述として読んではならない（第 1 層が現況を 2 行と書き分けている）。
+ *
+ * (3) 未走査の残余。backend の統合検証、Storybook、`frontend/src/__tests__` の外に置かれた
+ *     検証、および上の語彙のいずれにも当たらない検証は保証しない。要件8.2 の入力・確定・配置を
+ *     主張する既存の検証が一件でも在れば、本記述は偽になる。
+ *
+ * 結論は「リポジトリのどこにも無い」ではなく、**(1) と (2) の範囲で 0 件であり、範囲外は
+ * 保証しない**である。
  */
 
 import path from 'path';
@@ -40,8 +110,15 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import {
+  getFabricObjectCount,
+  waitForAnnotationEditorLoaded,
+  waitForAnnotationFetch,
+} from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,16 +152,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       const createProjectPromise = page.waitForResponse(
         (response) =>
@@ -194,6 +262,9 @@ test.describe('現場調査注釈ツール', () => {
     await page.waitForTimeout(100);
     const editModeButton = page.getByRole('button', { name: /編集モード/i });
     await expect(editModeButton).toBeVisible({ timeout: getTimeout(5000) });
+    // 編集モードへの切り替えは描画面を作り直し、保存済みの注釈を取り直す。その応答を
+    // 取りこぼさないよう、切り替えの前に待ち受ける
+    const annotationFetch = waitForAnnotationFetch(page);
     await editModeButton.click();
 
     // 注釈ツールバーが表示されるのを待つ
@@ -202,7 +273,14 @@ test.describe('現場調査注釈ツール', () => {
       .waitFor({ state: 'visible', timeout: 10000 });
 
     // 注釈エディタの初期化を待つ
-    await page.waitForTimeout(100);
+    // Task 115.184: 件数の観測（getFabricObjectCount）は描画面が不在なら投げるため、
+    // 「100ms あれば初期化されたはず」と見込むのではなく、本番が描画面を window へ
+    // 載せた事実そのものを待って観測できる状態を確立する。
+    // 描画面の公開は保存済みの注釈の復元より先に起きる。公開だけを待つと、後から載る
+    // 注釈が件数の増分の主張を間欠的に壊す（2026-10-13 の pre-push）。復元の完了まで待つ。
+    // 「読み込み中」の消失を待つだけでは CI で復元の前の件数を読んだ（2026-10-13）。
+    // 取得の応答が示す保存済みの図形の数が描画面に載るまで待つ。
+    await waitForAnnotationEditorLoaded(page, annotationFetch);
 
     return true;
   }
@@ -211,9 +289,9 @@ test.describe('現場調査注釈ツール', () => {
    * @requirement site-survey/REQ-6.1
    * @requirement site-survey/REQ-6.2
    * @requirement site-survey/REQ-6.3
-   * @requirement site-survey/REQ-6.4
+   * 受入基準 6.4 は除外である（e2e/requirement-exclusions.json）。道具の選択状態（aria-pressed）だけを主張しており、寸法線のクリック選択を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-6.5
-   * @requirement site-survey/REQ-6.6
+   * 受入基準 6.6 は除外である（e2e/requirement-exclusions.json）。押鍵の後に本文が可視であることしか主張しておらず、寸法線の除去を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-6.7
    */
   test.describe('寸法線ツール', () => {
@@ -249,7 +327,15 @@ test.describe('現場調査注釈ツール', () => {
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('寸法線ツール選択時にスタイルオプションが表示される (site-survey/REQ-6.2)', async ({
+    /**
+     * Task 115.82 (site-survey/REQ-6.2)
+     *
+     * 旧テストは「スタイルオプションが表示される」ことしか見ておらず、要件6.2 の
+     * 「寸法値入力用のテキストフィールドを表示する」を一切検証していなかった
+     * （その内容は要件6.7 のテストと重複する）。出荷経路である
+     * 「寸法線ツール選択 → キャンバス上でドラッグ」から入力欄へ到達することを検証する。
+     */
+    test('寸法線を描画すると寸法値入力用のテキストフィールドが表示される (site-survey/REQ-6.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -263,27 +349,38 @@ test.describe('現場調査注釈ツール', () => {
 
       // 寸法線ツールを選択
       const dimensionTool = page.getByRole('button', { name: /寸法線/i });
-      await expect(dimensionTool).toBeVisible({ timeout: 5000 });
+      await expect(dimensionTool).toBeVisible({ timeout: getTimeout(5000) });
       await dimensionTool.click();
-
-      // ツールが選択状態になることを確認
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
 
-      // スタイルオプションパネルが表示されることを確認（色、線幅などの設定）
-      const styleOptions = page.locator('[data-testid="style-options"]');
-      const colorPicker = page.locator('[data-testid="color-picker"]');
-      const lineWidth = page.locator('[data-testid="line-width"]');
+      // 描画前は入力欄が存在しない（＝表示の契機が「寸法線の描画」であることを示す）
+      const valueInput = page.getByRole('dialog', { name: '寸法値入力' });
+      await expect(valueInput).toHaveCount(0);
 
-      // スタイルオプションが表示されていることを確認
-      const hasStyleOptions = await styleOptions.isVisible();
-      const hasColorPicker = await colorPicker.isVisible();
-      const hasLineWidth = await lineWidth.isVisible();
+      // 出荷経路で寸法線を1本描く（描画面の内側に収まる相対座標を使う）
+      const box = await getUpperCanvasBox(page);
+      await performDrag(
+        page,
+        box.x + box.width * 0.15,
+        box.y + box.height * 0.3,
+        box.x + box.width * 0.85,
+        box.y + box.height * 0.3
+      );
 
-      // 少なくとも一つのスタイルオプションが利用可能であることを確認
-      expect(hasStyleOptions || hasColorPicker || hasLineWidth).toBeTruthy();
+      // 寸法値入力用のテキストフィールドが表示される（REQ-6.2）
+      await expect(valueInput).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(valueInput.getByRole('spinbutton', { name: '寸法値' })).toBeVisible();
+      await expect(valueInput.getByRole('combobox', { name: '単位' })).toBeVisible();
     });
 
-    test('寸法線ツールの色設定を変更できる (site-survey/REQ-6.3)', async ({ page }) => {
+    /**
+     * Task 115.82 (site-survey/REQ-6.3)
+     *
+     * 旧テストは「色設定を変更できる」ことしか見ておらず、要件6.3 の
+     * 「寸法線上に数値とオプションの単位を表示する」を一切検証していなかった。
+     * 入力欄で確定した値が、実際の寸法線オブジェクトのラベルとして描かれることを検証する。
+     */
+    test('入力した寸法値と単位が寸法線上に表示される (site-survey/REQ-6.3)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -293,26 +390,45 @@ test.describe('現場調査注釈ツール', () => {
         );
       }
 
-      // 寸法線ツールを選択
+      // 寸法線ツールを選択して寸法線を1本描く
       const dimensionTool = page.getByRole('button', { name: /寸法線/i });
-      await expect(dimensionTool).toBeVisible({ timeout: 5000 });
+      await expect(dimensionTool).toBeVisible({ timeout: getTimeout(5000) });
       await dimensionTool.click();
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
 
-      // 色設定が利用可能であることを確認
-      const colorPicker = page.locator('[data-testid="color-picker"]');
-      const colorPickerVisible = await colorPicker.isVisible();
-      if (colorPickerVisible) {
-        // 色設定が変更可能であることを確認
-        const initialColor = await colorPicker.inputValue();
-        expect(initialColor).toBeTruthy();
-      }
+      const box = await getUpperCanvasBox(page);
+      await performDrag(
+        page,
+        box.x + box.width * 0.15,
+        box.y + box.height * 0.7,
+        box.x + box.width * 0.85,
+        box.y + box.height * 0.7
+      );
 
-      // ツールが正しく動作していることを確認
-      await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
+      const valueInput = page.getByRole('dialog', { name: '寸法値入力' });
+      await expect(valueInput).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 確定前の寸法線ラベルは空である（値の表示が入力の結果であることを示す）
+      expect(await readDimensionLabelText(page), '描画直後の寸法線に既に寸法値が入っている').toBe(
+        ''
+      );
+
+      // 寸法値と単位を入力して確定する
+      await valueInput.getByRole('spinbutton', { name: '寸法値' }).fill('1250');
+      await valueInput.getByRole('combobox', { name: '単位' }).selectOption('cm');
+      await valueInput.getByRole('button', { name: '確定' }).click();
+
+      // 入力欄が閉じ、寸法線上に数値と単位が表示される（REQ-6.3）
+      await expect(valueInput).toHaveCount(0);
+      await expect
+        .poll(() => readDimensionLabelText(page), {
+          timeout: getTimeout(5000),
+          message: '寸法線上に入力した寸法値と単位が表示されていない',
+        })
+        .toBe('1250 cm');
     });
 
-    test('選択ツールに切り替えて編集モードになる (site-survey/REQ-6.4)', async ({ page }) => {
+    test('選択ツールに切り替えて編集モードになる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -337,7 +453,20 @@ test.describe('現場調査注釈ツール', () => {
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'false');
     });
 
-    test('キャンバス上でマウス操作ができる (site-survey/REQ-6.5)', async ({ page }) => {
+    /**
+     * Task 115.104 (site-survey/REQ-6.5)
+     *
+     * 旧テストは「マウス操作をしても例外が起きない」ことしか見ておらず、
+     * `body` が見えることを主張していた。これは寸法線が一切変化しなくても通る。
+     * 端点をつまんで動かす手段（`DimensionLine` の端点ハンドル）は実装されていたが
+     * 本番から一度も呼ばれておらず、要件6.5 はこの主張のもとで未実装のまま緑だった。
+     *
+     * 本テストは出荷経路（描画 → 選択 → 端点ハンドルをマウスでドラッグ）を通し、
+     * 掴んだ端点だけが落とした場所へ移り、もう一方が動かないことを実測で確かめる。
+     */
+    test('寸法線の端点をドラッグすると寸法線の位置が調整される (site-survey/REQ-6.5)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -347,27 +476,85 @@ test.describe('現場調査注釈ツール', () => {
         );
       }
 
-      // 寸法線ツールを選択
+      // 寸法線を 1 本描く（出荷経路）
       const dimensionTool = page.getByRole('button', { name: /寸法線/i });
-      await expect(dimensionTool).toBeVisible({ timeout: 5000 });
+      await expect(dimensionTool).toBeVisible({ timeout: getTimeout(5000) });
       await dimensionTool.click();
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
 
-      // キャンバス上でマウス操作
-      const center = await getCanvasCenter(page);
-      await page.mouse.click(center.x - 60, center.y);
-      await page.mouse.click(center.x + 60, center.y);
+      const box = await getUpperCanvasBox(page);
+      await performDrag(
+        page,
+        box.x + box.width * 0.2,
+        box.y + box.height * 0.3,
+        box.x + box.width * 0.7,
+        box.y + box.height * 0.3
+      );
 
-      // ドラッグ操作
-      await performDrag(page, center.x, center.y, center.x + 30, center.y);
+      // 寸法値入力欄は端点操作の前に閉じる（値は本テストの対象ではない）
+      const valueInput = page.getByRole('dialog', { name: '寸法値入力' });
+      await expect(valueInput).toBeVisible({ timeout: getTimeout(5000) });
+      await valueInput.getByRole('button', { name: 'キャンセル' }).click();
+      await expect(valueInput).toHaveCount(0);
 
-      // 操作が完了したことを確認（エラーが発生しないこと）
-      await expect(page.locator('body')).toBeVisible();
+      // 選択ツールへ切替えて寸法線を選択する（端点ハンドルは選択中にだけ現れる）
+      const selectTool = page.getByRole('button', { name: /選択/i });
+      await selectTool.click();
+      await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
+      await selectDimensionOnCanvas(page);
+
+      const before = await readDimensionHandles(page);
+      expect(before.startHandle, '始点の端点ハンドルが現れていない').not.toBeNull();
+      expect(before.endHandle, '終点の端点ハンドルが現れていない').not.toBeNull();
+
+      // 端点ハンドルの座標は描画面の現在位置を基準に求める（入力欄の開閉で
+      // レイアウトが動いた場合に、描画時の box を使い回すと座標がずれるため）。
+      const canvasBox = await getUpperCanvasBox(page);
+
+      // 終点ハンドルを下方向へドラッグする
+      const dragBy = { x: 0, y: Math.round(canvasBox.height * 0.3) };
+      const fromX = canvasBox.x + before.endHandle!.x;
+      const fromY = canvasBox.y + before.endHandle!.y;
+      const toX = fromX + dragBy.x;
+      const toY = fromY + dragBy.y;
+      await performDrag(page, fromX, fromY, toX, toY);
+
+      const after = await readDimensionHandles(page);
+      expect(after.endHandle, 'ドラッグ後に終点の端点ハンドルが消えた').not.toBeNull();
+      expect(after.startHandle, 'ドラッグ後に始点の端点ハンドルが消えた').not.toBeNull();
+
+      // 掴んだ終点は落とした場所へ移る（描画面内の座標で比較する）
+      const handleTolerancePx = 4;
+      expect(
+        Math.abs(after.endHandle!.x - (toX - canvasBox.x)),
+        '終点が落とした場所の x へ来ていない'
+      ).toBeLessThanOrEqual(handleTolerancePx);
+      expect(
+        Math.abs(after.endHandle!.y - (toY - canvasBox.y)),
+        '終点が落とした場所の y へ来ていない'
+      ).toBeLessThanOrEqual(handleTolerancePx);
+
+      // 実際に動いたことを確かめる（落とした場所が元の位置と十分離れている前提の固定）
+      expect(
+        Math.abs(after.endHandle!.y - before.endHandle!.y),
+        '終点が縦方向へ動いていない'
+      ).toBeGreaterThan(handleTolerancePx * 4);
+
+      // 掴んでいない始点は動かない
+      expect(
+        Math.abs(after.startHandle!.x - before.startHandle!.x),
+        '掴んでいない始点の x が動いた'
+      ).toBeLessThanOrEqual(handleTolerancePx);
+      expect(
+        Math.abs(after.startHandle!.y - before.startHandle!.y),
+        '掴んでいない始点の y が動いた'
+      ).toBeLessThanOrEqual(handleTolerancePx);
+
+      // 寸法線は 1 本のまま（端点操作が新しい注釈を生んでいない）
+      expect(await getFabricObjectCount(page), '端点操作で注釈の本数が変わった').toBe(1);
     });
 
-    test('キーボードショートカット（Delete/Backspace/Escape）が機能する (site-survey/REQ-6.6)', async ({
-      page,
-    }) => {
+    test('キーボードショートカット（Delete/Backspace/Escape）が機能する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -416,43 +603,67 @@ test.describe('現場調査注釈ツール', () => {
       await dimensionTool.click();
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
 
-      // カスタマイズオプションを探す
-      const colorPicker = page.locator(
-        '[data-testid="color-picker"], .color-picker, input[type="color"]'
-      );
-      const lineWidth = page.locator(
-        '[data-testid="line-width"], .line-width-selector, input[name*="width"]'
-      );
-      const styleOptions = page.locator('[data-testid="style-options"], .style-panel');
+      // REQ-6.7: 寸法線の色・線の太さをカスタマイズ可能にする。
+      // AnnotationToolbar の StylePanel は描画ツール選択中に必ず描画され、
+      // テキスト以外のツールでは線の色（color-picker）と線の太さ（line-width）を同時に出す。
+      // 以前は「色 または 太さ または パネル」の論理和で、どれか一つが残っていれば通った。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      const hasColorPicker = await colorPicker.isVisible();
-      const hasLineWidth = await lineWidth.isVisible();
-      const hasStyleOptions = await styleOptions.isVisible();
+      const colorPicker = styleOptions.getByTestId('color-picker');
+      const lineWidth = styleOptions.getByTestId('line-width');
+      await expect(colorPicker, '寸法線の色を選ぶ欄が無い').toBeVisible();
+      await expect(lineWidth, '寸法線の太さを指定する欄が無い').toBeVisible();
 
-      expect(hasColorPicker || hasLineWidth || hasStyleOptions).toBeTruthy();
+      // 「カスタマイズ可能」は表示だけでは満たされない。変更が保持されることまで確かめる。
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await colorPicker.evaluate((el: any) => {
+        el.value = '#ff0000';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await expect(colorPicker).toHaveValue('#ff0000');
 
-      // カスタマイズオプションを変更
-      if (hasColorPicker) {
-        const colorInput = colorPicker.first();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await colorInput.evaluate((el: any) => {
-          el.value = '#ff0000';
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-      }
-
-      if (hasLineWidth) {
-        const widthInput = lineWidth.first();
-        await widthInput.click();
-        await widthInput.press('Control+a');
-        await widthInput.type('3');
-      }
-
-      // 操作が完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      await lineWidth.click();
+      await lineWidth.press('Control+a');
+      await lineWidth.type('3');
+      await expect(lineWidth).toHaveValue('3');
     });
   });
+
+  /**
+   * 描画面に載っているテキスト注釈を読み出すヘルパー関数（検証是正 1）
+   *
+   * 描画面が取得できないことは「観測された値」ではなく「観測の失敗」であるため、
+   * 空配列を返さずその場で投げる（`getFabricObjectCount` と同じ扱い。Task 115.184）。
+   * 空配列を返す形にすると「一件も載っていない」と「そもそも観測できていない」が
+   * 同じ値に同居し、件数の主張がどちらでも成立してしまう。
+   */
+  async function readTextAnnotations(
+    page: import('@playwright/test').Page
+  ): Promise<Array<{ text: string; isEditing: boolean }>> {
+    return await page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getObjects: () => Array<{ type?: string; text?: string; isEditing?: boolean }>;
+          } | null;
+        }
+      ).__fabricCanvas;
+      if (!canvas) {
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            'テキスト注釈を観測できないため、ここで失敗させる'
+        );
+      }
+      return canvas
+        .getObjects()
+        .filter((object) => object.type === 'textAnnotation')
+        .map((object) => ({ text: object.text ?? '', isEditing: object.isEditing === true }));
+    });
+  }
 
   /**
    * キャンバスの中心座標を取得するヘルパー関数
@@ -496,6 +707,35 @@ test.describe('現場調査注釈ツール', () => {
   }
 
   /**
+   * 描画面（`.upper-canvas`）の bounding box を取得するヘルパー関数（Task 115.82）
+   *
+   * 図形の描画はこの要素の内側でしか成立しない。表示画像が小さいとキャンバスも小さく、
+   * 中心からの固定ピクセル移動では容易に外へ出てしまうため、描画座標は本 box の
+   * 相対比率で決める。見つからない場合はフォールバックせず例外にする
+   * （コンテナ座標へ退避すると描画されないまま検証だけが進むため）。
+   */
+  async function getUpperCanvasBox(
+    page: import('@playwright/test').Page
+  ): Promise<{ x: number; y: number; width: number; height: number }> {
+    const upperCanvas = page.locator('.upper-canvas');
+
+    // キャンバスサイズが10px以上になるまで最大10秒待機（画像読み込み完了を待つ）
+    for (let i = 0; i < 20; i++) {
+      const box = await upperCanvas.boundingBox();
+      // 前提が満たせない場合は繰り返しの直後の throw で必ず失敗する（沈黙して通る経路が無い）。
+      // 以前はこの形に除外注釈を置いていたが、Task 115.137 以降は検出器の規則
+      // （valueProducingExitExclusion）で対象外になっており、注釈は何も抑止していない。
+      // 注釈のまま残すと規則が変わったときに黙って抑止へ転じるため、通常の注記へ改めた。
+      if (box && box.width > 10 && box.height > 10) {
+        return box;
+      }
+      await page.waitForTimeout(500);
+    }
+
+    throw new Error('描画面（.upper-canvas）が描画可能なサイズになりませんでした');
+  }
+
+  /**
    * ドラッグ操作を実行するヘルパー関数
    */
   async function performDrag(
@@ -512,19 +752,140 @@ test.describe('現場調査注釈ツール', () => {
   }
 
   /**
-   * Fabric.jsキャンバスのオブジェクト数を取得するヘルパー関数
+   * キャンバス上の寸法線を選択状態にする（Task 115.104, REQ-6.5）
    *
-   * フロントエンドで window.__fabricCanvas としてキャンバスインスタンスが公開されている必要があります。
+   * 端点ハンドルは選択中の注釈にしか現れないため、端点操作の前提として必要になる。
+   * 対象の中心をクリックしても線の細さ次第で当たらないことがあるので、
+   * 本番の選択 API（`setActiveObject`）ではなく Fabric の当たり判定を通す
+   * 「線上の点をクリックする」経路を使い、選択されたことを実測で確かめる。
    */
-  async function getCanvasObjectCount(page: import('@playwright/test').Page): Promise<number> {
-    return await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const canvas = (window as any).__fabricCanvas;
+  async function selectDimensionOnCanvas(page: import('@playwright/test').Page): Promise<void> {
+    const box = await getUpperCanvasBox(page);
+    const target = await page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getObjects(): Array<{ type?: string }>;
+          } | null;
+        }
+      ).__fabricCanvas;
       if (!canvas) {
-        return -1; // キャンバスが見つからない場合
+        throw new Error('window.__fabricCanvas が公開されていません');
       }
-      // 背景画像を除くオブジェクト数を返す
-      return canvas.getObjects().length;
+      const dimension = canvas.getObjects().find((obj) => obj.type === 'dimensionLine') as
+        | {
+            startPoint: { x: number; y: number };
+            endPoint: { x: number; y: number };
+            pathPointToScenePoint(point: { x: number; y: number }): { x: number; y: number };
+            getViewportTransform(): [number, number, number, number, number, number];
+          }
+        | undefined;
+      if (!dimension) {
+        throw new Error('寸法線オブジェクトがキャンバス上に見つかりません');
+      }
+      const start = dimension.pathPointToScenePoint(dimension.startPoint);
+      const end = dimension.pathPointToScenePoint(dimension.endPoint);
+      const vpt = dimension.getViewportTransform();
+      const midScene = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+      return {
+        x: vpt[0] * midScene.x + vpt[2] * midScene.y + vpt[4],
+        y: vpt[1] * midScene.x + vpt[3] * midScene.y + vpt[5],
+      };
+    });
+
+    await page.mouse.click(box.x + target.x, box.y + target.y);
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const canvas = (
+              window as unknown as {
+                __fabricCanvas?: { getActiveObject(): { type?: string } | null } | null;
+              }
+            ).__fabricCanvas;
+            return canvas?.getActiveObject()?.type ?? null;
+          }),
+        {
+          timeout: getTimeout(5000),
+          message: '寸法線を選択状態にできませんでした',
+        }
+      )
+      .toBe('dimensionLine');
+  }
+
+  /**
+   * 選択中の寸法線に描かれている端点ハンドルの位置を読み出す（Task 115.104, REQ-6.5）
+   *
+   * 返す座標は描画面（`.upper-canvas`）の左上を原点とするピクセル値であり、
+   * 描画面の bounding box を足せばそのままマウス操作の座標になる。
+   */
+  async function readDimensionHandles(page: import('@playwright/test').Page): Promise<{
+    startHandle: { x: number; y: number } | null;
+    endHandle: { x: number; y: number } | null;
+  }> {
+    return await page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getObjects(): Array<{ type?: string }>;
+          } | null;
+        }
+      ).__fabricCanvas;
+      if (!canvas) {
+        throw new Error('window.__fabricCanvas が公開されていません');
+      }
+      const dimension = canvas.getObjects().find((obj) => obj.type === 'dimensionLine') as
+        | {
+            setCoords(): void;
+            oCoords?: Record<string, { x: number; y: number }>;
+          }
+        | undefined;
+      if (!dimension) {
+        throw new Error('寸法線オブジェクトがキャンバス上に見つかりません');
+      }
+      dimension.setCoords();
+      const coords = dimension.oCoords ?? {};
+      const read = (key: string): { x: number; y: number } | null => {
+        const point = coords[key];
+        return point ? { x: point.x, y: point.y } : null;
+      };
+      return {
+        startHandle: read('dimensionStart'),
+        endHandle: read('dimensionEnd'),
+      };
+    });
+  }
+
+  /**
+   * 寸法線に描かれている寸法値ラベルのテキストを読み出すヘルパー関数（Task 115.82, REQ-6.3）
+   *
+   * `dimensionLine` は `[outlineLine, bodyLine, labelText]` の Group であり、
+   * 寸法値ラベルはテキストを持つ子オブジェクトとして識別する。
+   * キャンバスまたは寸法線が見つからない場合は、原因を示して例外にする
+   * （値が空である状態と区別できないまま検証が素通りするのを防ぐため）。
+   */
+  async function readDimensionLabelText(page: import('@playwright/test').Page): Promise<string> {
+    return await page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getObjects(): Array<{ type?: string; _objects?: Array<{ text?: string }> }>;
+          } | null;
+        }
+      ).__fabricCanvas;
+      if (!canvas) {
+        throw new Error('window.__fabricCanvas が公開されていません');
+      }
+      const dimension = canvas.getObjects().find((obj) => obj.type === 'dimensionLine');
+      if (!dimension) {
+        throw new Error('寸法線オブジェクトがキャンバス上に見つかりません');
+      }
+      const label = (dimension._objects ?? []).find((child) => typeof child.text === 'string');
+      if (!label) {
+        throw new Error('寸法線に寸法値ラベルの子オブジェクトがありません');
+      }
+      return label.text ?? '';
     });
   }
 
@@ -536,8 +897,8 @@ test.describe('現場調査注釈ツール', () => {
    * @requirement site-survey/REQ-7.5
    * @requirement site-survey/REQ-7.6
    * @requirement site-survey/REQ-7.7
-   * @requirement site-survey/REQ-7.8
-   * @requirement site-survey/REQ-7.9
+   * 受入基準 7.8 は除外である（e2e/requirement-exclusions.json）。道具の選択状態だけを主張しており、図形の位置の移動を主張していないため、被覆印は掲げない。
+   * 受入基準 7.9 は除外である（e2e/requirement-exclusions.json）。塗りつぶし色の欄を主張するもので、ハンドルによる寸法の変更を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-7.10
    */
   test.describe('マーキングツール', () => {
@@ -562,8 +923,11 @@ test.describe('現場調査注釈ツール', () => {
       await expect(arrowTool).toHaveAttribute('aria-pressed', 'true');
 
       // ドラッグ操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      // Task 115.184: 以前ここにあった `toBeGreaterThanOrEqual(0)` は、件数取得が
+      // 描画面の不在時に -1 を返していたための番人だった。取得が投げる形になり
+      // 戻り値は常に 0 以上になったため、この主張は決して失敗しない飾りになる。
+      // 描画面が観測できないことは取得そのものが弾く（本ファイル全箇所で撤去）。
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
@@ -573,7 +937,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(500);
 
       // ドラッグ操作後のオブジェクト数を確認 - 矢印が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
 
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
@@ -599,15 +963,14 @@ test.describe('現場調査注釈ツール', () => {
       await expect(circleTool).toHaveAttribute('aria-pressed', 'true');
 
       // ドラッグ操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
 
       // ドラッグ操作後のオブジェクト数を確認 - 円が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -632,15 +995,14 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
 
       // ドラッグ操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 40, center.y - 30, center.x + 40, center.y + 30);
 
       // ドラッグ操作後のオブジェクト数を確認 - 四角形が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -665,8 +1027,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(polygonTool).toHaveAttribute('aria-pressed', 'true');
 
       // クリック操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上で複数の頂点をクリック（三角形を描画）
       const center = await getCanvasCenter(page);
@@ -681,7 +1042,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.mouse.dblclick(center.x, center.y - 40);
 
       // クリック操作後のオブジェクト数を確認 - 多角形が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -706,8 +1067,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(polylineTool).toHaveAttribute('aria-pressed', 'true');
 
       // クリック操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上で複数の点をクリック
       const center = await getCanvasCenter(page);
@@ -722,7 +1082,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.mouse.dblclick(center.x - 50, center.y);
 
       // クリック操作後のオブジェクト数を確認 - 折れ線が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -747,8 +1107,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(freehandTool).toHaveAttribute('aria-pressed', 'true');
 
       // ドラッグ操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上でフリーハンド描画を実行
       const center = await getCanvasCenter(page);
@@ -763,7 +1122,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.mouse.up();
 
       // ドラッグ操作後のオブジェクト数を確認 - フリーハンド線が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -791,7 +1150,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('選択ツールでドラッグ操作ができる (site-survey/REQ-7.8)', async ({ page }) => {
+    test('選択ツールでドラッグ操作ができる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -814,7 +1173,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('塗りつぶし色オプションが図形ツールで利用可能 (site-survey/REQ-7.9)', async ({ page }) => {
+    test('塗りつぶし色オプションが図形ツールで利用可能', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -830,15 +1189,18 @@ test.describe('現場調査注釈ツール', () => {
       await rectTool.click();
       await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
 
-      // 塗りつぶし色オプションが表示されることを確認
-      const fillColorPicker = page.locator('[data-testid="fill-color-picker"]');
-      const hasFillColor = await fillColorPicker.isVisible();
-
-      // スタイルオプションが利用可能であることを確認
-      const styleOptions = page.locator('[data-testid="style-options"]');
-      const hasStyleOptions = await styleOptions.isVisible();
-
-      expect(hasFillColor || hasStyleOptions).toBeTruthy();
+      // 四角形などの図形ツールでは塗りつぶし色の欄がスタイルパネル内に描画される
+      // （AnnotationToolbar の showFillOptions）。
+      // 以前は「塗りつぶし色 または スタイルパネル」の論理和で、塗りつぶし色が
+      // 失われてもパネルさえあれば通る形だった。本テストの主題は塗りつぶし色である。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(
+        styleOptions.getByTestId('fill-color-picker'),
+        '図形ツールで塗りつぶし色の欄が表示されない'
+      ).toBeVisible();
     });
 
     test('図形の色・線の太さ・塗りつぶしをカスタマイズできる (site-survey/REQ-7.10)', async ({
@@ -859,45 +1221,42 @@ test.describe('現場調査注釈ツール', () => {
       await rectTool.click();
       await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
 
-      // スタイルオプションパネルが表示されることを確認
-      const styleOptions = page.locator('[data-testid="style-options"]');
-      const hasStyleOptions = await styleOptions.isVisible();
+      // REQ-7.10: 図形の色・線の太さ・塗りつぶしをカスタマイズ可能にする。
+      // 四角形ツールでは三つの欄が同時に描画される（AnnotationToolbar の StylePanel）。
+      // 以前は「いずれか一つ」の論理和だったため、三つのうち二つが失われても通っていた。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      // 色ピッカーが表示されることを確認
-      const colorPicker = page.locator('[data-testid="color-picker"]');
-      const hasColorPicker = await colorPicker.isVisible();
+      const colorPicker = styleOptions.getByTestId('color-picker');
+      const lineWidth = styleOptions.getByTestId('line-width');
+      const fillColorPicker = styleOptions.getByTestId('fill-color-picker');
+      await expect(colorPicker, '線の色の欄が無い').toBeVisible();
+      await expect(lineWidth, '線の太さの欄が無い').toBeVisible();
+      await expect(fillColorPicker, '塗りつぶし色の欄が無い').toBeVisible();
 
-      // 線の太さ入力が表示されることを確認
-      const lineWidth = page.locator('[data-testid="line-width"]');
-      const hasLineWidth = await lineWidth.isVisible();
-
-      // 塗りつぶし色ピッカーが表示されることを確認
-      const fillColorPicker = page.locator('[data-testid="fill-color-picker"]');
-      const hasFillColor = await fillColorPicker.isVisible();
-
-      // 少なくとも一つのスタイルオプションが利用可能であることを確認
-      expect(hasStyleOptions || hasColorPicker || hasLineWidth || hasFillColor).toBeTruthy();
-
-      // 値を変更可能かテスト
-      if (hasLineWidth) {
-        await lineWidth.click();
-        await lineWidth.press('Control+a');
-        await lineWidth.type('5');
-      }
-
-      // 操作が完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      // 「カスタマイズ可能」は表示だけでは満たされない。変更が保持されることまで確かめる。
+      await lineWidth.click();
+      await lineWidth.press('Control+a');
+      await lineWidth.type('5');
+      await expect(lineWidth).toHaveValue('5');
     });
   });
 
   /**
    * @requirement site-survey/REQ-8.1
-   * @requirement site-survey/REQ-8.2
-   * @requirement site-survey/REQ-8.3
-   * @requirement site-survey/REQ-8.4
-   * @requirement site-survey/REQ-8.5
    * @requirement site-survey/REQ-8.6
    * @requirement site-survey/REQ-8.7
+   *
+   * タスク 115.188 の是正: site-survey の受入基準8.2 を名乗る被覆印を取り下げた（本区間の註釈と、
+   * 「テキストツール選択時にスタイルオプションが表示される」の表題の双方から）。
+   * 当該検証が述べるのはテキストの文字色・フォントサイズの属性パネルであり、
+   * 原文8.2（テキストを入力して確定すると画像上に配置する）とは主題が別である。
+   * 内容に当たるのは原文8.5 だが、8.5 は `e2e/requirement-exclusions.json` が
+   * 「E2Eでは確かめない」と宣言しているため付け替えない。
+   * **付け替え先が除外済みであることは取り下げを妨げない。** 取り下げは同居を作らず、
+   * 8.2 は未被覆として露出する（本ファイルが唯一の被覆源であった）。
    */
   test.describe('テキストツール', () => {
     test('テキストツールを選択してクリック操作ができる (site-survey/REQ-8.1)', async ({ page }) => {
@@ -926,9 +1285,85 @@ test.describe('現場調査注釈ツール', () => {
       await expect(textTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('テキストツール選択時にスタイルオプションが表示される (site-survey/REQ-8.2)', async ({
+    /**
+     * @requirement site-survey/REQ-8.2
+     *
+     * 条文（`.kiro/specs/site-survey/requirements.md` 要件8 受入基準2）:
+     * 「When ユーザーがテキストを入力して確定する, the Site Survey Service shall
+     * 画像上にテキストコメントを配置する」
+     *
+     * 入力は ASCII で行う。Playwright の押鍵は IME の変換を経由しないため、
+     * 変換中の入力の可否は本検証の主張の外にある。多バイト文字の入力・表示は
+     * 受入基準8.7 の担当であり、本 describe の別の検証が主張している。
+     *
+     * 「入力して」を実質にするため、入力の前に編集モードが開いたことを本番の状態で
+     * 確かめる。開いていなければ押鍵はどこへも入らず、初期文字列 `テキスト` のまま
+     * 置かれた図形で「配置された」が成立してしまう。確定後の主張が入力した本文と
+     * 一致することを求めるのも同じ理由である。
+     */
+    test('テキストを入力して確定すると画像上にテキストコメントが配置される (site-survey/REQ-8.2)', async ({
       page,
     }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const success = await navigateToAnnotationEditor(page);
+      if (!success) {
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
+      }
+
+      const objectCountBefore = await getFabricObjectCount(page);
+
+      // テキストツールを選択
+      const textTool = page.getByRole('button', { name: /テキスト/i });
+      await expect(textTool).toBeVisible({ timeout: getTimeout(5000) });
+      await textTool.click();
+      await expect(textTool).toHaveAttribute('aria-pressed', 'true');
+
+      // 画像上をクリックしてテキスト入力を開始する（受入基準8.1 の入力欄）
+      const center = await getCanvasCenter(page);
+      await page.mouse.click(center.x, center.y);
+
+      // 入力欄が編集モードで開いたことを確かめてから入力する
+      await expect
+        .poll(
+          async () =>
+            (await readTextAnnotations(page)).filter((annotation) => annotation.isEditing).length,
+          {
+            message: 'テキスト入力欄が編集モードで開くこと',
+            timeout: getTimeout(10000),
+          }
+        )
+        .toBe(1);
+
+      // 入力する（編集モードに入るとき初期文字列が全選択されているため置き換わる）
+      const comment = 'Crack on north wall';
+      await page.keyboard.type(comment);
+
+      // 確定する（Escape は fabric の keysMap で exitEditing に割り当てられており、
+      // 抜けるときに入力した本文は保持される）
+      await page.keyboard.press('Escape');
+
+      // 入力した本文が、確定済み（編集モードでない）のテキスト注釈として画像上に載ること
+      await expect
+        .poll(
+          async () =>
+            (await readTextAnnotations(page)).filter(
+              (annotation) => annotation.text === comment && !annotation.isEditing
+            ).length,
+          {
+            message: '入力した本文が確定済みのテキスト注釈として描画面に載ること',
+            timeout: getTimeout(10000),
+          }
+        )
+        .toBe(1);
+
+      // 配置されたのは一件だけであること（初期文字列のままの図形が残っていないこと）
+      expect(await getFabricObjectCount(page)).toBe(objectCountBefore + 1);
+    });
+
+    test('テキストツール選択時にスタイルオプションが表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -944,19 +1379,18 @@ test.describe('現場調査注釈ツール', () => {
       await textTool.click();
       await expect(textTool).toHaveAttribute('aria-pressed', 'true');
 
-      // テキストツール用のスタイルオプション（色、フォントサイズ）が表示されることを確認
-      const colorPicker = page.locator('[data-testid="color-picker"]');
-      const fontSize = page.locator('[data-testid="font-size"]');
-      const styleOptions = page.locator('[data-testid="style-options"]');
-
-      const hasColorPicker = await colorPicker.isVisible();
-      const hasFontSize = await fontSize.isVisible();
-      const hasStyleOptions = await styleOptions.isVisible();
-
-      expect(hasColorPicker || hasFontSize || hasStyleOptions).toBeTruthy();
+      // テキストツールでは文字色（color-picker）とサイズ（font-size）が
+      // スタイルパネル内に同時に描画される（AnnotationToolbar の showFontOptions）。
+      // 以前は三つの論理和で、色やサイズが失われてもパネルさえあれば通っていた。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(styleOptions.getByTestId('color-picker'), '文字色の欄が無い').toBeVisible();
+      await expect(styleOptions.getByTestId('font-size'), 'フォントサイズの欄が無い').toBeVisible();
     });
 
-    test('テキストツールでダブルクリック操作ができる (site-survey/REQ-8.3)', async ({ page }) => {
+    test('テキストツールでダブルクリック操作ができる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -980,7 +1414,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(textTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('テキストツールからの切り替え操作ができる (site-survey/REQ-8.4)', async ({ page }) => {
+    test('テキストツールからの切り替え操作ができる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1005,9 +1439,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(textTool).toHaveAttribute('aria-pressed', 'false');
     });
 
-    test('テキストのフォントサイズ・色をカスタマイズできる (site-survey/REQ-8.5)', async ({
-      page,
-    }) => {
+    test('テキストのフォントサイズ・色をカスタマイズできる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1022,18 +1454,25 @@ test.describe('現場調査注釈ツール', () => {
       await textTool.click();
       await expect(textTool).toHaveAttribute('aria-pressed', 'true');
 
-      // スタイルオプションパネルが表示されることを確認
-      const styleOptions = page.locator('[data-testid="style-options"]');
-      const hasStyleOptions = await styleOptions.isVisible();
+      // REQ-8.5 のうちフォントサイズと文字色は実装されており、テキストツール選択時に
+      // 同時に描画される。以前は三つの論理和で、片方が失われても通っていた。
+      // 変更が保持されることまで確かめる（「カスタマイズできる」は表示だけでは満たされない）。
+      // なお REQ-8.5 が併せて求める「背景色」のカスタマイズは実装に存在せず、
+      // 本テストの表題（フォントサイズ・色）の範囲外であるため主張しない。別タスクとする。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      // フォントサイズオプションを探す
-      const fontSizeOption = page.locator('[data-testid="font-size"]');
-      const textColorOption = page.locator('[data-testid="color-picker"]');
+      const fontSizeOption = styleOptions.getByTestId('font-size');
+      const textColorOption = styleOptions.getByTestId('color-picker');
+      await expect(fontSizeOption, 'フォントサイズの欄が無い').toBeVisible();
+      await expect(textColorOption, '文字色の欄が無い').toBeVisible();
 
-      const hasFontSizeOption = await fontSizeOption.isVisible();
-      const hasTextColorOption = await textColorOption.isVisible();
-
-      expect(hasStyleOptions || hasFontSizeOption || hasTextColorOption).toBeTruthy();
+      await fontSizeOption.click();
+      await fontSizeOption.press('Control+a');
+      await fontSizeOption.type('24');
+      await expect(fontSizeOption).toHaveValue('24');
     });
 
     test('テキストツールのキーボード入力ができる (site-survey/REQ-8.6)', async ({ page }) => {
@@ -1096,7 +1535,7 @@ test.describe('現場調査注釈ツール', () => {
    * @requirement site-survey/REQ-9.1
    * @requirement site-survey/REQ-9.2
    * @requirement site-survey/REQ-9.3
-   * @requirement site-survey/REQ-9.4
+   * 受入基準 9.4 は除外である（e2e/requirement-exclusions.json）。道具の選択状態と本文の可視だけを主張しており、保存中インジケーターを主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-9.5
    * @requirement site-survey/REQ-9.6
    */
@@ -1188,9 +1627,49 @@ test.describe('現場調査注釈ツール', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
+    test('保存済みの注釈を復元している間はエディタに読み込み中を示し、復元を終えると注釈が描画面に載る', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 保存済みの注釈の取得を、読み込み中の表示を観測するまで止めておく
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await page.route('**/api/site-surveys/images/*/annotations', async (route) => {
+        if (route.request().method() === 'GET') {
+          await released;
+        }
+        await route.fallback();
+      });
+
+      // 遷移の補助は復元の完了（読み込み中の表示が消えること）まで待つため、待たずに走らせる
+      const navigation = navigateToAnnotationEditor(page);
+
+      const loading = page
+        .getByTestId('annotation-editor-container')
+        .getByRole('status', { name: '読み込み中', exact: true });
+      await expect(loading).toBeVisible({ timeout: getTimeout(10000) });
+
+      release();
+      expect(await navigation).toBe(true);
+
+      // 遷移の補助が返った時点で、先行の検証が保存した注釈は描画面に載っている
+      await expect(loading).toHaveCount(0);
+      expect(await getFabricObjectCount(page)).toBeGreaterThan(0);
+    });
+
     test('未保存の変更がある状態で画面を離れようとすると確認ダイアログが表示される (site-survey/REQ-9.3)', async ({
       page,
     }) => {
+      // Task 115.102: 本テストは長らく `test.fail()` を伴うラチェットであった
+      // （REQ-9.3 の離脱確認が未実装で、注釈編集画面に beforeunload もナビゲーション
+      // ガードも無かったため）。同タスクで両方を結線したため、ラチェットを撤去して
+      // 素の主張に戻す。タブクローズ・リロード相当の離脱（`page.goto`）で
+      // ブラウザ標準の確認が出ることを本テストが、アプリ内遷移の確認ダイアログを
+      // `site-survey-annotation-editor-acceptance.spec.ts` の (c) が担う。
+
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1221,13 +1700,18 @@ test.describe('現場調査注釈ツール', () => {
       // ページ遷移を試みる
       await page.goto('/');
 
-      // ダイアログが表示されたか、またはページ遷移が完了したことを確認
-      // ブラウザやアプリの実装によってダイアログが表示されない場合もある
-      // いずれの場合もページ遷移は完了する
-      expect(dialogShown || page.url().includes('/')).toBeTruthy();
+      // REQ-9.3: 注釈を編集中に画面を離れようとしたとき、未保存の変更があれば
+      // 確認ダイアログを表示する。
+      // 以前は「ダイアログが出た、または URL が '/' を含む」の論理和だった。
+      // 後者はあらゆる URL で真になるため、確認ダイアログの有無を一度も確かめていない。
+      // 要件が求める確認ダイアログそのものを主張する。
+      expect(
+        dialogShown,
+        'REQ-9.3: 未保存の注釈があるまま画面を離れようとしても確認ダイアログが表示されない'
+      ).toBe(true);
     });
 
-    test('保存中はインジケーターが表示される (site-survey/REQ-9.4)', async ({ page }) => {
+    test('保存中はインジケーターが表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1379,34 +1863,44 @@ test.describe('現場調査注釈ツール', () => {
       // ルートモックを解除
       await page.unroute('**/api/site-surveys/images/*/annotations');
 
-      // リトライボタンまたは保存ボタンが有効になっていることを確認
-      const retryButton = page.getByRole('button', { name: /リトライ|再試行|retry/i });
+      // REQ-9.5: 保存に失敗したらエラーメッセージを表示してリトライを促す。
+      // Task 115.102 で誤りの表示に「再試行」の導線を足した。保存の失敗のときだけ現れ、
+      // 押すと同じ保存をやり直す。
+      // 以前は「リトライボタン または 保存ボタン」の論理和で、保存ボタンは失敗の有無に
+      // かかわらず常に在るため、再試行できるかどうかを確かめていなかった。
+      const retryButton = page.getByTestId('save-retry-button');
+      await expect(retryButton, 'REQ-9.5: 保存失敗時に再試行の導線が現れない').toBeVisible({
+        timeout: getTimeout(3000),
+      });
+      await expect(retryButton, 'REQ-9.5: 再試行の導線が押せない').toBeEnabled();
+
       const saveButtonAfterError = page.getByRole('button', { name: /保存/i });
-
-      const hasRetryButton = await retryButton.isVisible({ timeout: 3000 }).catch(() => false);
-      const hasSaveButton = await saveButtonAfterError.isVisible({ timeout: 3000 });
-
-      // リトライボタンまたは保存ボタンが利用可能であることを確認
-      expect(hasRetryButton || hasSaveButton).toBeTruthy();
-
-      // リトライ/保存ボタンが有効な状態であることを確認
-      if (hasRetryButton) {
-        await expect(retryButton).not.toBeDisabled();
-      } else if (hasSaveButton) {
-        await expect(saveButtonAfterError).not.toBeDisabled();
-      }
+      await expect(saveButtonAfterError, '保存失敗後に保存ボタンが消えている').toBeVisible({
+        timeout: getTimeout(3000),
+      });
+      await expect(
+        saveButtonAfterError,
+        'REQ-9.5: 保存失敗後に再試行できない（保存ボタンが無効のまま）'
+      ).toBeEnabled();
     });
   });
 
   /**
-   * @requirement site-survey/REQ-10.1
-   * @requirement site-survey/REQ-10.2
-   * @requirement site-survey/REQ-10.3
-   * @requirement site-survey/REQ-10.4
-   * @requirement site-survey/REQ-10.5
+   * @requirement site-survey/REQ-12.1
+   * @requirement site-survey/REQ-12.2
+   * @requirement site-survey/REQ-12.3
+   * @requirement site-survey/REQ-12.4
+   * @requirement site-survey/REQ-12.5
+   *
+   * タスク 115.188 の是正: 従前は要件10（写真一覧管理とPDF出力設定）の受入基準を名乗って
+   * いたが、本群が確かめているのは注釈エディタからの個別画像エクスポートであり、
+   * これを定めるのは要件12（個別画像エクスポート）である。要件10 の受入基準10.1〜10.5 は
+   * 現場調査詳細画面の写真一覧（出力フラグ・コメント欄・ドラッグ移動）を述べており、
+   * 本群のどの検証も主張していない。10.1〜10.5 は
+   * site-survey-export.spec.ts / site-survey-image-order.spec.ts が別途被覆している。
    */
   test.describe('エクスポート機能', () => {
-    test('エクスポートボタンを押すと注釈をレンダリングした画像が生成される (site-survey/REQ-10.1)', async ({
+    test('エクスポートボタンを押すと注釈をレンダリングした画像が生成される (site-survey/REQ-12.1)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -1452,7 +1946,7 @@ test.describe('現場調査注釈ツール', () => {
       expect(filename).toMatch(/\.(jpg|jpeg|png|webp)$/i);
     });
 
-    test('JPEG、PNG形式でのエクスポートをサポートする (site-survey/REQ-10.2)', async ({ page }) => {
+    test('JPEG、PNG形式でのエクスポートをサポートする (site-survey/REQ-12.2)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1474,7 +1968,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('エクスポート画像の解像度（品質）を選択できる (site-survey/REQ-10.3)', async ({
+    test('エクスポート画像の解像度（品質）を選択できる (site-survey/REQ-12.3)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -1498,7 +1992,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('注釈なしの元画像もダウンロード可能である (site-survey/REQ-10.4)', async ({ page }) => {
+    test('注釈なしの元画像もダウンロード可能である (site-survey/REQ-12.4)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1531,7 +2025,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('日本語テキスト注釈を正しくレンダリングしてエクスポートできる (site-survey/REQ-10.5)', async ({
+    test('日本語テキスト注釈を正しくレンダリングしてエクスポートできる (site-survey/REQ-12.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -1578,7 +2072,7 @@ test.describe('現場調査注釈ツール', () => {
    * @requirement site-survey/REQ-13.1
    * @requirement site-survey/REQ-13.2
    * @requirement site-survey/REQ-13.3
-   * @requirement site-survey/REQ-13.4
+   * 受入基準 13.4 は除外である（e2e/requirement-exclusions.json）。取り消しの操作は行うが、履歴の上限50件と最古からの削除を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-13.5
    */
   test.describe('Undo/Redo機能', () => {
@@ -1595,8 +2089,7 @@ test.describe('現場調査注釈ツール', () => {
       }
 
       // 描画前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // 図形を描画
       const rectTool = page.getByRole('button', { name: /四角形/i });
@@ -1618,7 +2111,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(500);
 
       // 描画後のオブジェクト数を確認（1つ増えているはず）
-      const objectCountAfterDraw = await getCanvasObjectCount(page);
+      const objectCountAfterDraw = await getFabricObjectCount(page);
       expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // Undoボタンをクリック
@@ -1628,7 +2121,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Undo後のオブジェクト数を確認（元に戻っているはず）
-      const objectCountAfterUndo = await getCanvasObjectCount(page);
+      const objectCountAfterUndo = await getFabricObjectCount(page);
       expect(objectCountAfterUndo).toBe(objectCountBefore);
     });
 
@@ -1645,8 +2138,7 @@ test.describe('現場調査注釈ツール', () => {
       }
 
       // 描画前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // 図形を描画
       const rectTool = page.getByRole('button', { name: /四角形/i });
@@ -1668,7 +2160,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(500);
 
       // 描画後のオブジェクト数を確認
-      const objectCountAfterDraw = await getCanvasObjectCount(page);
+      const objectCountAfterDraw = await getFabricObjectCount(page);
       expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // Undo
@@ -1678,7 +2170,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Undo後のオブジェクト数を確認
-      const objectCountAfterUndo = await getCanvasObjectCount(page);
+      const objectCountAfterUndo = await getFabricObjectCount(page);
       expect(objectCountAfterUndo).toBe(objectCountBefore);
 
       // Redo
@@ -1688,7 +2180,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Redo後のオブジェクト数を確認（再び1つ増えているはず）
-      const objectCountAfterRedo = await getCanvasObjectCount(page);
+      const objectCountAfterRedo = await getFabricObjectCount(page);
       expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
@@ -1705,8 +2197,7 @@ test.describe('現場調査注釈ツール', () => {
       }
 
       // 描画前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // 図形を描画
       const rectTool = page.getByRole('button', { name: /四角形/i });
@@ -1728,7 +2219,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(500);
 
       // 描画後のオブジェクト数を確認
-      const objectCountAfterDraw = await getCanvasObjectCount(page);
+      const objectCountAfterDraw = await getFabricObjectCount(page);
       expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // キャンバスコンテナにフォーカス（キーボードイベントを受け取るため）
@@ -1740,7 +2231,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Undo後のオブジェクト数を確認
-      const objectCountAfterUndo = await getCanvasObjectCount(page);
+      const objectCountAfterUndo = await getFabricObjectCount(page);
       expect(objectCountAfterUndo).toBe(objectCountBefore);
 
       // Ctrl+Shift+ZでRedo
@@ -1748,11 +2239,11 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Redo後のオブジェクト数を確認
-      const objectCountAfterRedo = await getCanvasObjectCount(page);
+      const objectCountAfterRedo = await getFabricObjectCount(page);
       expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
-    test('操作履歴を最大50件まで保持する (site-survey/REQ-13.4)', async ({ page }) => {
+    test('操作履歴を最大50件まで保持する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1806,6 +2297,13 @@ test.describe('現場調査注釈ツール', () => {
     test('注釈データを保存すると操作履歴がクリアされる (site-survey/REQ-13.5)', async ({
       page,
     }) => {
+      // Task 115.102: 本テストは長らく `test.fail()` を伴うラチェットであった
+      // （`UndoManager.clear()` は存在したが、注釈編集画面の保存処理から呼ばれて
+      // いなかった）。同タスクで保存成功の時点に `undoManager.clear()` を結線したため、
+      // ラチェットを撤去して素の主張に戻す。保存後に取り消しが行えないことを本テストが、
+      // 「取り消しを試みても保存済みの注釈が減らない」という事故の筋書きを
+      // `site-survey-annotation-editor-acceptance.spec.ts` の (f) が担う。
+
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1838,12 +2336,15 @@ test.describe('現場調査注釈ツール', () => {
       await saveButton.click();
       await page.waitForTimeout(2000);
 
-      // 保存後のUndoボタンの状態を確認
+      // REQ-13.5: 注釈データを保存すると操作履歴をクリアする。
+      // 以前は `typeof isUndoEnabled === 'boolean'` を主張していた。真偽値の型は必ず
+      // 真であり、保存後の状態を一切確かめていない恒真の判定だった。
+      // 履歴がクリアされていれば Undo は行えない。要件が定める結果を主張する。
       const undoButton = page.getByRole('button', { name: /元に戻す|undo|取り消し/i });
-      const isUndoEnabled = await undoButton.isEnabled();
-
-      // 保存後は操作履歴がクリアされてUndoが無効になっている（または実装によっては有効のまま）
-      expect(typeof isUndoEnabled === 'boolean').toBeTruthy();
+      await expect(
+        undoButton,
+        'REQ-13.5: 保存しても操作履歴がクリアされず Undo が有効なまま'
+      ).toBeDisabled();
     });
   });
 
@@ -1859,37 +2360,37 @@ test.describe('現場調査注釈ツール', () => {
 
       await loginAsUser(page, 'ADMIN_USER');
 
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(5000) });
-        await deleteButton.click();
+      const surveyDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(surveyDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
+      await surveyDeleteButton.click();
 
-        const confirmButton = page.getByRole('dialog').getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
+      const surveyConfirmButton = page
+        .getByRole('dialog')
+        .getByRole('button', { name: '削除する' });
+      await expect(surveyConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await surveyConfirmButton.click();
 
-        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
-      }
+      await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
 
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(5000) });
-        await deleteButton.click();
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectDeleteButton.click();
 
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
 
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

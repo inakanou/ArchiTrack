@@ -9,13 +9,16 @@
  * Design Patterns:
  * - Higher-Order Function: ミドルウェアファクトリーパターン
  * - Dependency Injection: RBACServiceとPrismaClientを注入可能
+ * - 注入が無いときは Redis の権限キャッシュを持つ共有の RBACService（getSharedRBACService）を使う
  */
 
 import type { Request, Response, NextFunction } from 'express';
 import type { PrismaClient } from '../generated/prisma/client.js';
-import { RBACService } from '../services/rbac.service.js';
+import { RBACService, getSharedRBACService } from '../services/rbac.service.js';
 import getPrismaClient from '../db.js';
+import redisConnection from '../redis.js';
 import logger from '../utils/logger.js';
+import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
  * 権限チェックミドルウェアファクトリー
@@ -23,7 +26,7 @@ import logger from '../utils/logger.js';
  * 指定された権限を持っているかチェックするミドルウェアを生成します。
  *
  * @param permission - 必要な権限（例: "adr:read", "user:create"）
- * @param rbacService - RBACServiceインスタンス（テスト用オプション）
+ * @param rbacService - RBACServiceインスタンス（テスト用オプション。省略時は共有のインスタンス）
  * @param prismaClient - PrismaClientインスタンス（テスト用オプション）
  * @returns Expressミドルウェア関数
  *
@@ -57,7 +60,14 @@ export function requirePermission(
 
       // RBACServiceとPrismaClientインスタンスを取得（テスト時は注入されたものを使用）
       const client = prismaClient || getPrismaClient();
-      const service = rbacService || new RBACService(client);
+      // 注入が無ければ、Redis の権限キャッシュを持つ共有の RBACService を使う（要件21.9 / 24.2、タスク36.2）。
+      // キャッシュの無効化（roles.routes.ts / user-roles.routes.ts）も同じインスタンスを使う。
+      // PrismaClient だけを注入したときは、そのクライアントで同じキャッシュを読み書きする
+      const service =
+        rbacService ||
+        (prismaClient
+          ? new RBACService(prismaClient, () => redisConnection.getClient())
+          : getSharedRBACService());
 
       // 権限チェック
       const hasPermission = await service.hasPermission(userId, permission);
@@ -89,7 +99,13 @@ export function requirePermission(
       logger.debug({ userId, permission }, 'Permission check passed');
       next();
     } catch (error) {
-      logger.error({ error, permission, userId: req.user?.userId }, 'Permission check error');
+      // DB 接続のタイムアウトはエラーハンドラーの 503（Problem Details）へ渡す（要件24.1）。
+      // ログはエラーハンドラーが残すため、ここでは記録しない
+      if (isDatabaseConnectionTimeout(error)) {
+        next(error);
+        return;
+      }
+      logger.error({ err: error, permission, userId: req.user?.userId }, 'Permission check error');
       res.status(500).json({
         error: 'INTERNAL_ERROR',
         message: 'Failed to check permissions',
@@ -130,6 +146,6 @@ async function recordPermissionCheckFailure(
     });
   } catch (error) {
     // 監査ログ記録失敗はエラーをスローせずログに記録
-    logger.error({ error, actorId, requiredPermission }, 'Failed to record audit log');
+    logger.error({ err: error, actorId, requiredPermission }, 'Failed to record audit log');
   }
 }

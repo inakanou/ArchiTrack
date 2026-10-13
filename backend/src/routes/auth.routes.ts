@@ -22,6 +22,8 @@ import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware
 import logger from '../utils/logger.js';
 import { SECURITY_CONFIG } from '../config/security.constants.js';
 import { PasswordViolation } from '../types/password.types.js';
+import { updateProfileSchema } from '../schemas/auth-update.schema.js';
+import { ConflictError, NotFoundError } from '../errors/apiError.js';
 
 /**
  * リフレッシュトークンをHTTPOnly Cookieに設定する
@@ -92,10 +94,6 @@ const loginSchema = z.object({
 
 const refreshSchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),
-});
-
-const updateProfileSchema = z.object({
-  displayName: z.string().min(1, 'Display name is required').max(100).optional(),
 });
 
 const logoutSchema = z.object({
@@ -569,6 +567,10 @@ router.get(
  *                 type: string
  *                 description: Updated display name
  *                 example: "John Smith"
+ *               expectedUpdatedAt:
+ *                 type: string
+ *                 format: date-time
+ *                 description: 楽観的ロックの版（任意）。GET /api/v1/auth/me の updatedAt。古いときは 409 PROFILE_CONFLICT
  *     responses:
  *       200:
  *         description: Profile updated successfully
@@ -583,8 +585,16 @@ router.get(
  *                   type: string
  *                 displayName:
  *                   type: string
+ *                 updatedAt:
+ *                   type: string
+ *                   format: date-time
+ *                   description: 次の更新で expectedUpdatedAt として送り返す版
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         description: ユーザーが見つからない（USER_NOT_FOUND、Problem Details）
+ *       409:
+ *         description: 楽観的ロックの競合（PROFILE_CONFLICT、Problem Details）
  */
 router.patch(
   '/me',
@@ -597,13 +607,47 @@ router.patch(
         return;
       }
 
-      const { displayName } = req.body;
+      const { displayName, expectedUpdatedAt } = req.body as {
+        displayName?: string;
+        expectedUpdatedAt?: string;
+      };
 
-      // データベースを更新
-      await prisma.user.update({
-        where: { id: req.user.userId },
-        data: { displayName },
-      });
+      if (expectedUpdatedAt !== undefined) {
+        // 楽観的ロック: 版が送られたときだけ、updatedAt が一致する場合に限って更新する
+        const updated = await authService.updateProfileIfUnchanged(
+          req.user.userId,
+          { displayName },
+          new Date(expectedUpdatedAt)
+        );
+        if (!updated.ok) {
+          const error = updated.error;
+          if (error.type === 'USER_NOT_FOUND') {
+            next(new NotFoundError('User not found', 'USER_NOT_FOUND'));
+            return;
+          }
+          if (error.type === 'PROFILE_CONFLICT') {
+            next(
+              new ConflictError(
+                '他の操作によって更新されました。画面を更新してください',
+                'PROFILE_CONFLICT',
+                {
+                  expectedUpdatedAt: error.expectedUpdatedAt.toISOString(),
+                  actualUpdatedAt: error.actualUpdatedAt.toISOString(),
+                }
+              )
+            );
+            return;
+          }
+          res.status(500).json({ error: 'Failed to update profile', code: 'UPDATE_PROFILE_ERROR' });
+          return;
+        }
+      } else {
+        // データベースを更新
+        await prisma.user.update({
+          where: { id: req.user.userId },
+          data: { displayName },
+        });
+      }
 
       logger.info({ userId: req.user.userId }, 'User profile updated');
 

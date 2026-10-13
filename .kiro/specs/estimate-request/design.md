@@ -772,6 +772,7 @@ interface EstimateRequestService {
 - 表題の生成（[プロジェクト名] 御見積依頼）
 - 本文の生成（所定フォーマット）
 - 内訳書項目の成形（チェック有無で出力内容を切り替え）
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 切り替えの未チェック側は、Task 93.1 まで項目のセクションを省くだけで「添付内訳書の通り」を出していなかった（R-39-1 の持ち越し）。現況はチェックされていないときと内訳書未紐付けのときに【内容】へ「添付内訳書の通り」を置く（Req 6 AC 9 / Req 39 AC 9）。詳細は `#### EstimateRequestTextService（改訂）` の Implementation Notes と R-39-1 を参照
 
 **Dependencies**
 - Inbound: estimate-requests.routes -- API呼び出し (P0)
@@ -1450,6 +1451,9 @@ interface FileInlinePreviewState {
 }
 ```
 
+- **現況（タスク 94.1。下流の利用者が足した任意の props）**: 上の `FileInlinePreviewProps` は本スペックが書いた3つの props の記録として残す。実装の `FileInlinePreviewProps` は、これに加えて下流の quantity-table-generation スペック（数量表の取り込みダイアログ）が足した既定値つきの任意の props を2つ持つ——`showPageNavigationForSinglePage?: boolean`（同スペックのタスク 96.2。既定 false。総ページ数1の PDF でもページナビゲーションを出すか。既定では本スペックの「1ページなら出さない」（17.6）を保つ）と、`resizeStorageKey?: string`（同スペックのタスク 97.9。既定は `architrack:received-quotation:preview-height`。縦幅の保存キーを `useResizableHeight` へ渡す。取り込みダイアログは `architrack:quantity-table-import:preview-height` を渡し、受領見積書登録と縦幅を共有しない）。`grep -cE 'showPageNavigationForSinglePage\?: boolean|resizeStorageKey\?: string' frontend/src/components/estimate-requests/FileInlinePreview.tsx` の出力が `2`（2026-10-01、コミット `05ba46fb`、リポジトリルートで実測）。本スペックの呼び出し側はどちらも渡さず既定値で動く。既定と異なる値を渡すのは `frontend/src/components/quantity-table-import/ImportDialog.tsx` だけである（`git grep -nE 'showPageNavigationForSinglePage|resizeStorageKey' -- frontend/src/components/quantity-table-import/` の出力が同ファイルの2行。2026-10-01、コミット `05ba46fb`）。下流の側の記録は quantity-table-generation の設計文書の「インラインプレビューの実体（タスク 96.2…）」の項にある。`### Components and Interfaces - 改訂（Requirements 36-38）` の `function useResizableHeight(): ResizableHeightHandle` も同じ理由で実装（保存キーを任意の引数に取る形）から遅れている
+- **再評価が必要なトリガー（タスク 94.1）**: `FileInlinePreview` の props・ページナビゲーションの表示条件・縦幅の保存と復元を変えるときは、本スペックの検証に加えて、下流の取り込みダイアログ（`frontend/src/components/quantity-table-import/ImportDialog.tsx`）を再検証すること（`e2e/specs/quantity-tables/import-e2e.spec.ts` を含む）。2つの props の既定値が本スペックの挙動を変えないことは、下流のタスク 96.2 / 97.9 が本スペックの E2E を再走して確かめている
+
 **Implementation Notes**
 - Integration: PDFプレビューはreact-pdfの`<Document>` + `<Page>`コンポーネントを使用。PDF.jsのworkerをViteで設定
 - **改訂: PDFページナビゲーション（17.6）**: `<Document onLoadSuccess={({numPages}) => setTotalPages(numPages)}>`で総ページ数を取得し、`<Page pageNumber={currentPage}>`で現在ページを表示。前ページ/次ページボタンと「ページ X / Y」テキストを表示。1ページ目では「前へ」ボタンを非活性、最終ページでは「次へ」ボタンを非活性にする
@@ -1566,6 +1570,9 @@ interface OcrDataExtractorState {
 - Integration: 画像ファイルは従来通りTesseract.js 7.0.0のcreateWorker()でワーカーを初期化し、worker.recognize()でOCR実行。言語は'jpn'（日本語）を使用
 - Integration: ExcelパースはXLSX.read() + XLSX.utils.sheet_to_jsonで構造化データを抽出
 - Validation: テキスト抽出/OCR処理のタイムアウト（30秒）を設定し、超過時はエラー表示（17.8）
+  - **現況（タスク 94.1。下流の利用者が足した任意の引数）**: `pdf-text-extractor.ts` の `extractPdfHybrid` / `extractPdfWithOcrFallback` は、下流の quantity-table-generation スペックのタスク 97.8 が足した任意の3番目の引数 `options: PdfExtractionOptions = {}`（`{ signal?: AbortSignal }`）を持つ。中断されると工程の区切りと認識の待ちで打ち切り、Tesseract.js のワーカーを終了して `AbortError` で失敗する。省略時の挙動は従来どおりである。`grep -cE 'options: PdfExtractionOptions = \{\}' frontend/src/components/estimate-requests/pdf-text-extractor.ts` の出力が `2`（2026-10-01、コミット `05ba46fb`、リポジトリルートで実測）。**本スペックの `OcrDataExtractor.tsx` はシグナルを渡さない**（`grep -c signal frontend/src/components/estimate-requests/OcrDataExtractor.tsx` の出力が `0`。2026-10-01、コミット `05ba46fb`）ため、上の30秒のタイムアウトは表示を打ち切るだけで、時間切れ後も OCR が裏で完走しうる挙動は変わらない。シグナルを渡すのは下流の `frontend/src/components/quantity-table-import/pdf-ocr-extractor.ts` である。下流の側の記録は quantity-table-generation の設計文書の「現況（タスク 97.8…）」の項にある
+  - **現況（タスク 96.1、2026-10-06、コミット `00147512`、リポジトリルートで実測）**: 上の項はタスク 94.1 の時点の記述として残す。`OcrDataExtractor.tsx` の `processPdfHybrid` は Tesseract.js のフォールバックに入る前に `AbortController` を作り、その signal を `extractPdfHybrid` の第3引数（`{ signal }`）へ渡す。30秒の時間切れのときとアンマウントのときに abort し、ワーカーが終了する（`frontend/src/__tests__/components/estimate-requests/OcrDataExtractor.pdfAbort.test.tsx`）。`grep -c signal frontend/src/components/estimate-requests/OcrDataExtractor.tsx` の出力が `2`。`pdf-text-extractor.ts` の引数・戻り値・中断の扱いは変えていないため、下の再評価のトリガーは発火していない（それでも本スペックの機能検証で `e2e/specs/quantity-tables/import-e2e.spec.ts` 46 件の緑を確かめた）。Claude Vision の段階で中断した場合と、処理中にファイルを差し替えた場合は、この中断の対象外である
+  - **再評価が必要なトリガー（タスク 94.1）**: `extractPdfHybrid` / `extractPdfWithOcrFallback` / `renderPdfPagesToBase64` の引数・戻り値・中断の扱いを変えるときは、本スペックの検証に加えて、下流の取り込みダイアログの PDF 経路（`frontend/src/components/quantity-table-import/pdf-ocr-extractor.ts`。`e2e/specs/quantity-tables/import-e2e.spec.ts` を含む）を再検証すること。**`options` の追加そのものは、下流のタスク 97.8 が単体の検証だけで確かめており、本スペックの E2E は再走していない**（本スペックのタスク 94 の経緯の記述による）
 - Risks: スキャンPDFのCanvas描画→画像前処理→OCR処理は時間がかかる可能性がある。scale 4.0への引き上げ（19.1）によりCanvas画像サイズが4倍（面積16倍）になるため、PDFページ数が多い場合のメモリ使用量に注意。ただしCanvas参照は各ページ処理後に即座に解放される（既存実装）
 - **改訂: ファイルURL→Fileオブジェクト変換**: `fileUrl`からfetch APIでBlobを取得し、`new File([blob], fileName, { type: mimeType })`でFileオブジェクトを生成する。これにより既存のprocessOcr/processExcelロジックを再利用可能
 - **改訂: リトライ実装**: `retryCount` stateを用いてuseEffectの依存配列に含め、リトライ時にカウントをインクリメントすることで再実行をトリガー
@@ -5060,6 +5067,7 @@ const handleSave = useCallback(async () => {
 - 既存見積依頼に対する内訳書後付け機能（ユーザー回答により撤廃）
 - 受領見積書から内訳書を自動生成する機能（後段の見積書作成スペックの領域）
 - Req 6 AC 9（「添付内訳書の通り」表示）の実装ギャップ解消（既存ドリフトとして本要件のスコープ外、R-39-1 で確定）
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 本項は追記7の時点の判断として残す。R-39-1 は Task 93.1 で消化した（利用者の判断、2026-10-01）。現況は `EstimateRequestTextService` が「内訳書を本文に含める」未チェックのときと内訳書未紐付けのときに本文の【内容】へ「添付内訳書の通り」を置く。詳細は本節末尾の R-39-1 を参照
 - 内訳書なし専用のクイック作成画面・専用フォームの新設（既存フォームの条件レンダリングで対応、Option B を Gap Analysis で却下）
 - `EstimateRequestStatus` 遷移ロジックの変更（R-39-7 で内訳書非依存を確認済み）
 
@@ -5079,6 +5087,7 @@ const handleSave = useCallback(async () => {
 
 - 内訳書あり ↔ なし の編集による相互変換（編集画面では内訳書フィールドは引き続き読み取り専用、R-39-4）
 - Req 6 AC 9 と現行実装のドリフト解消
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 追記7の境界としては残す。ドリフトは Task 93.1 で解消した（R-39-1 を参照）
 - `ItemizedStatement` モデル・関連サービス・関連画面の変更
 - `EstimateRequestStatus` の遷移条件・StatusTransitionButton の変更
 - 監査ログ閲覧 UI の変更
@@ -5096,6 +5105,7 @@ const handleSave = useCallback(async () => {
 - `includeBreakdownInBody` を内訳書なしでも true 設定可能にする要件が出たとき → DB の制約強化（CHECK 制約等）を検討
 - `EstimateRequestItem` の auto-create を内訳書なしでも生成する要件が出たとき → 現設計の skip 分岐を解除
 - Req 6 AC 9 を実装と整合させる要件が出たとき → `EstimateRequestTextService` の generate*Body の本文生成ロジックを再設計
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: このトリガーは Task 93.1 で成立し、本文生成を改めた（R-39-1 を参照）
 
 ### Architecture（追記7）
 
@@ -5202,7 +5212,7 @@ flowchart TD
 | 39.6 | 一覧の参照内訳書名列に「-」表示 | EstimateRequestListPage | `request.itemizedStatementName ?? '-'` レンダリング | - |
 | 39.7 | 詳細画面の項目選択セクション非表示 | EstimateRequestDetailPage | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
 | 39.8 | 「本文に含める」「Excel出力」非表示 | EstimateRequestDetailPage, EstimateRequestTextPanel, ExcelExportButton | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
-| 39.9 | 本文【内容】が「添付内訳書の通り」固定（Req 6 AC 9 と同等） | EstimateRequestTextService.generateEmailBody/generateFaxBody, EstimateRequestService.update | `includeBreakdownInBody && itemizedStatement !== null` ガード（実装現状: 該当時セクション省略）／update() の `includeBreakdownInBody` 強制 false 正規化（design review Issue 1） | クイックリクエスト作成フロー |
+| 39.9 | 本文【内容】が「添付内訳書の通り」固定（Req 6 AC 9 と同等） | EstimateRequestTextService.generateEmailBody/generateFaxBody, EstimateRequestService.update | `includeBreakdownInBody && itemizedStatement !== null` ガード（実装現状: 該当時セクション省略）／update() の `includeBreakdownInBody` 強制 false 正規化（design review Issue 1）。**2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 該当時は【内容】に「添付内訳書の通り」を置く（セクション省略ではない） | クイックリクエスト作成フロー |
 | 39.10 | 見積依頼方法・保存ボタン利用可能 | EstimateRequestDetailPage, EstimateRequestService.update | 既存の updateEstimateRequestSchema（method/name のみ）を継続利用 | - |
 | 39.11 | 受領見積書セクション利用可 | EstimateRequestDetailPage（受領見積書セクション部分） | 既存リレーション・既存 UI 変更なし | - |
 | 39.12 | 既存（内訳書あり）見積依頼の挙動・データ・表示無変更 | 全コンポーネント | nullable 分岐を「null の場合のみ追加挙動」として閉じる | - |
@@ -5431,7 +5441,7 @@ if (input.includeBreakdownInBody !== undefined) {
 - Integration: `toEstimateRequestInfo()` の戻り値で `itemizedStatementId: request.itemizedStatementId ?? null`、`itemizedStatementName: request.itemizedStatement?.name ?? null` に変更（R-39-2）
 - Integration: `findById` / `findByProjectId` / `findLatestByProjectId` / `update` / `delete` の `include: { itemizedStatement: { select: ... } }` は Prisma の optional relation により null 返却が許容される。Service 側で追加の null チェックは不要（select 句のみ変更不要）
 - Audit log: `delete` の `before.itemizedStatementId` も nullable 反映（既存 `select` ステートメントの結果が `string | null` になるため自動追従）
-- Test impact: `service.test.ts` で `create()` の「内訳書なし」ケース 2 件追加（保存成功＋監査ログ確認、`EstimateRequestItem` 未生成確認）。さらに `update()` のガードに対し「内訳書なしの見積依頼に `includeBreakdownInBody=true` を更新リクエスト → 永続化された値が false で監査ログも false」のテストを 1 件追加
+- Test impact: `backend/src/__tests__/unit/services/estimate-request.service.test.ts` で `create()` の「内訳書なし」ケース 2 件追加（保存成功＋監査ログ確認、`EstimateRequestItem` 未生成確認）。さらに `update()` のガードに対し「内訳書なしの見積依頼に `includeBreakdownInBody=true` を更新リクエスト → 永続化された値が false で監査ログも false」のテストを 1 件追加
 - includeBreakdownInBody（create）: 内訳書なしで作成した見積依頼は `includeBreakdownInBody=false` で固定保存（R-39-3）。ユーザー入力の `true` は無視
 - includeBreakdownInBody（update）: 上記 update() ガード参照。create と同等の制約を適用
 
@@ -5473,6 +5483,14 @@ if (request.includeBreakdownInBody && selectedItems.length > 0) { // 旧: includ
 **Implementation Notes**
 - Behavior: 内訳書未紐付けでは `EstimateRequestItem` が存在しない＋ `includeBreakdownInBody=false` 強制保存のため、二重ガードで【見積対象項目】セクションは確実に省略される
 - 既存ドリフト: Req 6 AC 9（「添付内訳書の通り」表示）と現行実装の不一致は本要件のスコープ外（Out of Boundary）
+- **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 上の二項は追記7の時点の記述として残す。現況の本文生成は次のとおり（R-39-1 の消化）
+  - 判定 `listsSelectedItems`: 「内訳書を本文に含める」がチェックされ、かつ `itemizedStatement` が null でないときだけ選択項目を並べる。内訳書未紐付けは `includeBreakdownInBody` が残っていても並べない
+  - 並べないとき: 【内容】の見出しの直後に「添付内訳書の通り」を置く（Req 6 AC 9 / Req 39 AC 9。メールと FAX の両方）
+  - 並べるとき: 既存の【見積対象項目】セクションをそのまま出す（見出し・行の形は変えない。Req 39 AC 12）
+  - 入口の `NoItemsSelectedError` は、並べる場合に選択項目が 0 件のときだけ投げる。内訳書未紐付けの見積依頼と、紐付いていても項目を 1 件も選ばず「含めない」の見積依頼は、例外にならず本文を生成する
+  - 「含める」がチェックされ項目が 0 件のときは 422 `NO_ITEMS_SELECTED` を保つ。Req 6 AC 8 は【内容】へ「チェックされた内訳書項目」を出すと定めるだけで 0 件の内容を定めず、Req 6 AC 9 の文言は未チェックのときに限られるため（Task 93.1 の判断。利用者へ報告済み）
+  - **2026-10-06（Task 97.2、利用者の判断「422 維持＋案内表示」）**: backend は上の 422 `NO_ITEMS_SELECTED` を変えない。frontend の `EstimateRequestDetailPage` は見積依頼文の取得失敗の応答の `code` を判別し、`NO_ITEMS_SELECTED` のときは `EstimateRequestTextPanel` の `errorMessage` に「本文に含める項目が選択されていません。項目を選択してください」を渡す。それ以外の失敗は従来どおり汎用の「見積依頼文を取得できませんでした」を表示する
+  - **2026-10-06（Task 98.1）**: `EstimateRequestDetailPage.handleItemSelectionChange` は、保存（`updateItemSelection`）と項目の再取得の後、`showTextPanel` が真なら `getEstimateRequestText` で本文を再取得する（`handleMethodChange` / `handleIncludeBreakdownChange` と同じ形。失敗は `resolveTextFetchFailure`、成功時は `textErrorMessage` を消す）。本文の再取得の失敗は保存の失敗として扱わない（4.8）。保存の失敗だけを `ItemSelectionPanel` へ伝える（4.9）
 - Type safety: `request.itemizedStatement` は Prisma の optional relation として `{ id: string; name: string } | null` 型で取得され、生成関数内で参照する箇所はないため追加修正なし
 
 #### EstimateRequestForm（改訂2）
@@ -5485,7 +5503,7 @@ if (request.includeBreakdownInBody && selectedItems.length > 0) { // 旧: includ
 **Component 変更（差分）**
 
 ```typescript
-// 1. 必須マーカーを削除（line 520 付近）
+// 1. 必須マーカーを削除（`itemizedStatementId` の `<label>` ブロック）
 <label htmlFor="itemizedStatementId" style={styles.label}>
   内訳書 <span style={styles.helperText}>（任意）</span> {/* 旧: <span style={styles.required}>*</span> */}
 </label>
@@ -5548,7 +5566,7 @@ const input: CreateEstimateRequestInput = {
 | Requirements | 39.6, 39.12 |
 
 **Implementation Notes**
-- 単一行修正: `{request.itemizedStatementName ?? '-'}`（line 312 付近）
+- 単一行修正: `{request.itemizedStatementName ?? '-'}`（一覧の参照内訳書名セル）
 - Accessibility: 表示文字列が `-` でも既存のセル構造で問題なし
 - Test impact: `e2e` 側で「内訳書なしの見積依頼が一覧に表示され、参照内訳書名列が `-` であること」を 1 ケース追加
 
@@ -5570,7 +5588,7 @@ const input: CreateEstimateRequestInput = {
   - 「保存」ボタン（method/name の更新は通常通り可能、Req 39.10）
   - 受領見積書セクション（Req 39.11）
   - ステータス遷移ボタン（既存挙動維持、Req 39 範囲外）
-- 「参照内訳書」表示行: `{request.itemizedStatementName ?? '-'}`（line 1071-1072 付近）
+- 「参照内訳書」表示行: `{request.itemizedStatementName ?? '-'}`（詳細画面の参照内訳書セクション）
 - Layout: 項目選択セクション非表示時は、レイアウト崩れを避けるため上部の見積依頼方法／保存ボタンと受領見積書セクションが詰まる形になる。既存のフルワイドレイアウト（Req 27）配下でも自然な詰まりとなり追加の調整不要
 
 #### EstimateRequestTextPanel（改訂）
@@ -5593,7 +5611,7 @@ const input: CreateEstimateRequestInput = {
 | Requirements | 39.12 |
 
 **Implementation Notes**
-- 単一ブロックガード: `{request.itemizedStatementName !== null && <div>...</div>}`（line 410-414 付近）
+- 単一ブロックガード: `{request.itemizedStatementName !== null && <div>...</div>}`（編集画面の内訳書読み取り専用ブロック）
 - 編集画面では内訳書を新規付与しない（R-39-4 で確定、Out of Boundary）
 
 ### Data Models（追記7）
@@ -5628,6 +5646,7 @@ const input: CreateEstimateRequestInput = {
 - `EstimateRequestService.create()` 内訳書ありケース（既存）: 挙動変更なしの回帰確認（Req 39.3, 39.12）
 - `EstimateRequestService.update()` 内訳書なし対象に `includeBreakdownInBody=true` を渡すケース: 永続化された値が `false` に正規化され、監査ログ `after.includeBreakdownInBody=false` で記録されることの確認（Req 39.9, R-39-3, design review Issue 1）
 - `EstimateRequestTextService.generate{Email,Fax}Body()`: 内訳書なし＋ `includeBreakdownInBody=false`（強制）で【見積対象項目】セクションが省略されることの確認（Req 39.9）
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 確認の内容を改めた。内訳書なしで【見積対象項目】が無いことに加え、【内容】に「添付内訳書の通り」が在ること、`generateText()` が例外にならず本文を返すことを確かめる。「含める」がチェックされ項目がある本文は全文一致で変わらないことを確かめる（Req 39.12）
 - `createEstimateRequestSchema`: `itemizedStatementId` 未指定／null／空文字／UUID で各々 valid（Req 39.1）。不正な UUID 文字列のみ invalid
 
 #### Backend Integration Tests（追記7）
@@ -5681,7 +5700,7 @@ const input: CreateEstimateRequestInput = {
 | `frontend/src/pages/EstimateRequestDetailPage.tsx` | Modified | `hasItemizedStatement` ガードで項目選択／Excel／参照内訳書／本文含めるチェックを条件レンダリング |
 | `frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx` | Modified | `showIncludeBreakdownToggle` props 追加、チェックボックス条件レンダリング |
 | `frontend/src/pages/EstimateRequestEditPage.tsx` | Modified | 内訳書（読み取り専用）ブロックを `itemizedStatementName !== null` 時のみ表示 |
-| `backend/src/__tests__/integration/routes/estimate-requests.routes.test.ts` | Modified | 内訳書なしでの作成（201）ケース追加、必須前提 422 ケースを削除 |
+| `backend/src/__tests__/integration/estimate-request.api.integration.test.ts` | Modified | 内訳書なしでの作成（201）ケース追加、必須前提 422 ケースを削除 |
 | `backend/src/__tests__/unit/services/estimate-request.service.test.ts` | Modified | `create()` の内訳書なしケース、監査ログ確認、`EstimateRequestItem` 未生成確認のテスト追加 |
 | `frontend/src/components/estimate-request/EstimateRequestForm.test.tsx` | Modified | 必須バリデーションから内訳書部分を削除、内訳書なし送信成功テスト追加 |
 | `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` | Modified | クイックリクエスト作成→詳細表示、一覧の「-」、編集画面の挙動、既存回帰の各 spec 追加・更新 |
@@ -5689,6 +5708,7 @@ const input: CreateEstimateRequestInput = {
 ### Open Questions / Risks（追記7）
 
 - **R-39-1（既存ドリフト）**: Req 6 AC 9 と現行実装の不一致は本要件のスコープ外として持ち越す。Req 39 AC 9 は「内訳書未紐付け時に【見積対象項目】セクションを省略する」と読み替え、実装は `selectedItems.length > 0 && includeBreakdownInBody` ガードで統一。後段で Req 6 AC 9 を実装と整合させる場合は別タスクで `EstimateRequestTextService` の追補設計が必要
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: **消化済み**。上の行は追記7の時点の判断として残す。利用者が 2026-10-01 に消化を決め、Task 93.1 が `EstimateRequestTextService` の本文生成を改めた（現況の振る舞いは `#### EstimateRequestTextService（改訂）` の Implementation Notes に並べた）。消化前の測定は `grep -rn '添付内訳書の通り' backend/src frontend/src` の当たりが 0 件（Task 93 の起票、2026-09-02・コミット `5176ee4`）。消化後の同じコマンドの当たりは 21 件（うち `backend/src/services/estimate-request-text.service.ts` が 6 件、残る 15 件は同サービスの単体テスト）。E2E は REQ-6.9 の test が本文に「添付内訳書の通り」が在ることを照合し、REQ-39.9 を名乗る test を独立させた。`scripts/criterion-literal-adjudication.json` の 6.9・39.9 の裁定は取り下げた
 - **デプロイ順序**: BE 先行 → FE の順を厳守（FE 先行だと旧 BE の 422 で作成失敗）
 - **既存 E2E 環境のデータ依存**: 既存の `estimate-request-e2e.spec.ts` の前提データに「内訳書必須」が組まれている場合、テストデータ整備（fixtures）も併せて更新が必要
 
@@ -5724,7 +5744,7 @@ const input: CreateEstimateRequestInput = {
 - `ReceivedQuotationForm.tsx` のローカル state `isOcrSectionExpanded: boolean`（初期値 `true`）と setter
 - セクションヘッダ用の新規 styles（`ocrSectionHeader`, `ocrSectionTitle`, `ocrSectionChevron`, `ocrSectionHeaderFocus`）
 - OCR セクション本体ラッパーへの表示制御（`hidden` HTML 属性）の適用
-- `ChevronIcon` ローカルコンポーネント（`EstimateItemTable.tsx:150-165` のパターンを踏襲）
+- `ChevronIcon` ローカルコンポーネント（`EstimateItemTable.tsx` のパターンを踏襲）
 
 #### スコープ外（Out of Boundary）
 
@@ -5793,7 +5813,7 @@ graph TB
   - ブラウザ標準でクリック・Enter・Space キーの操作を自動受理（Req 40 AC 4-5）
   - スクリーンリーダー対応（role="button" 暗黙）
   - フォーカス状態の視覚化は **`useState<boolean>` ベースのフォーカス state**（`onFocus`/`onBlur` で切り替え）でインライン style に明示的な `outline` / `boxShadow` を適用する方式を採用（design review 2026-05-11 Critical Issue 1 対応、Req 40 AC 16）。OS デフォルトのフォーカスリングは環境依存（ブラウザ・OS テーマ・アクセシビリティ設定）でテストでも検証困難なため不採用
-  - 既存パターン（`EstimateItemTable.tsx:268-275`）と整合
+  - 既存パターン（`EstimateItemTable.tsx`）と整合
 - **属性**:
   - `aria-expanded={isOcrSectionExpanded}` — トグル状態を明示
   - `aria-controls="received-quotation-ocr-section-body"` — 関連付ける body 要素の id を参照
@@ -5801,7 +5821,7 @@ graph TB
 
 #### ChevronIcon ローカル定義（R-40-3 確定）
 
-`EstimateItemTable.tsx:150-165` の `ChevronIcon` パターンを `ReceivedQuotationForm.tsx` 内にローカル定義する。
+`EstimateItemTable.tsx` の `ChevronIcon` パターンを `ReceivedQuotationForm.tsx` 内にローカル定義する。
 
 ```typescript
 function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
@@ -5820,7 +5840,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 #### State 管理
 
 - 新規 state: `const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState<boolean>(true);`
-- 配置: `ReceivedQuotationForm.tsx` の他のローカル state（行 575-905 付近）と同じスコープ
+- 配置: `ReceivedQuotationForm.tsx` の他のローカル state（コンポーネント本体先頭の `useState` 群）と同じスコープ
 - 初期値: `true`（Req 40 AC 8-9）
 - リセット契機: ダイアログ unmount 時（ダイアログを閉じて再度開くと初期値に戻る、Req 40 AC 10）
 - セッション切れ時の保護: 不要（ダイアログが unmount されない限り state は保持される、Req 40 Revalidation Triggers / R-40-5 確定）
@@ -5901,7 +5921,7 @@ const handleOcrHeaderBlur = useCallback(() => {
 
 ##### JSX 変更（既存 OCR セクションラッパー）
 
-変更前（`ReceivedQuotationForm.tsx:1168-1196` 付近、模式表現）:
+変更前（`ReceivedQuotationForm.tsx` 付近、模式表現）:
 
 ```tsx
 {showOcrCondition && (
@@ -6139,7 +6159,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 - `react`（既存）— `EstimateRequestTextPanel` 内の追加 state なし（純粋に props と派生値で制御可能）
 - 既存型 `EstimateRequestText`（`recipient` / `subject` / `body` / `recipientError?`）— 読み取り専用で参照
 - 既存型 `EstimateRequestMethod`（`'EMAIL' | 'FAX'`）— props 経由で受領
-- ブラウザ標準 API（`URLSearchParams`, `encodeURIComponent`, `window.location`, `window.open`）— 既存の利用パターン（`api/estimate-requests.ts`, `EstimateRequestDetailPage.tsx:884`）と整合
+- ブラウザ標準 API（`URLSearchParams`, `encodeURIComponent`, `window.location`, `window.open`）— 既存の利用パターン（`api/estimate-requests.ts`, `EstimateRequestDetailPage.tsx`）と整合
 
 #### 再評価が必要なトリガー（Revalidation Triggers）
 
@@ -6197,7 +6217,7 @@ const mailDisabledReason = (() => {
   - ブラウザ版 Gmail を OS/ブラウザの既定メールハンドラに設定済みの環境では、この経路でも Gmail が開く（Req 41 の「ブラウザの Gmail も含む」を `mailto` 経路でも満たす）
   - **無効化時の扱い**: アンカーは `disabled` 属性を持てないため、`canLaunchMail === false` のときは `<a>` を描画せず `<button disabled>`（同一スタイル）を描画する条件分岐とする。これにより Req 41 AC 9/10 の無効化表示を実現
 - **「Gmail で開く」（compose）**: `window.open(buildGmailComposeUrl(...), '_blank', 'noopener,noreferrer')` を採用
-  - 理由: ブラウザ版 Gmail の新規作成画面を新規タブで確実に開く。`noopener,noreferrer` で被参照元の漏洩を防止（`EstimateRequestDetailPage.tsx:884` の既存 `window.open` 方針と整合）。`vi.spyOn(window, 'open')` でユニットテスト容易（`EstimateRequestDetailPage.test.tsx:809` の既存パターン）
+  - 理由: ブラウザ版 Gmail の新規作成画面を新規タブで確実に開く。`noopener,noreferrer` で被参照元の漏洩を防止（`EstimateRequestDetailPage.tsx` の既存 `window.open` 方針と整合）。`vi.spyOn(window, 'open')` でユニットテスト容易（`EstimateRequestDetailPage.test.tsx:809` の既存パターン）
 
 #### URL ビルダー契約（R-41-2 確定 / build-vs-adopt: RFC 6068 mailto + Gmail compose URL を採用）
 
@@ -6305,6 +6325,11 @@ export interface EstimateRequestTextPanelProps {
    * 未指定時は安全側に倒し非活性（理由表示）とする。
    */
   method?: EstimateRequestMethod;
+  /**
+   * 本文を取得できなかったときに汎用の文言の代わりに表示する案内（Task 97.2）。
+   * 未指定・null のときは「見積依頼文を取得できませんでした」を表示する。
+   */
+  errorMessage?: string | null;
 }
 ```
 
@@ -6412,7 +6437,7 @@ mailDisabledReason: {
 
 **Requirements**: 41.8, 41.9, 41.10（活性条件判定に必要な method を供給）
 
-変更箇所（`EstimateRequestDetailPage.tsx:1199-1205`）:
+変更箇所（`EstimateRequestDetailPage.tsx`）:
 
 ```tsx
 {showTextPanel && (

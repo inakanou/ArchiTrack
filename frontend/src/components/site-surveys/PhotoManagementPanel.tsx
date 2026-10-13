@@ -27,6 +27,7 @@ import type {
 import { AnnotatedImageThumbnail } from './AnnotatedImageThumbnail';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 // ============================================================================
 // 型定義
@@ -56,10 +57,30 @@ export interface PhotoManagementPanelProps {
   isDirty?: boolean;
   /** 保存中かどうか（Task 33.1: 手動保存方式） */
   isSaving?: boolean;
+  /**
+   * サーバー保存が抑止されているか（Task 115.105 / Req 15.6）
+   *
+   * 通信断のようにサーバー保存だけが成立しない状況で true を渡す。
+   */
+  saveBlocked?: boolean;
+  /** 保存が抑止されている理由（ボタンの title 用） */
+  saveBlockedReason?: string;
   /** 画像削除時のハンドラ（Task 34: 画像削除機能） */
   onDelete?: (imageId: string) => Promise<void>;
   /** 順序変更ボタンを表示するか */
   showOrderButtons?: boolean;
+  /**
+   * エクスポート対象として選択中の画像 ID 集合（Requirement 31.2, 31.3）
+   *
+   * `onSelectionChange` と併せて指定した場合にのみ選択欄を表示する（後方互換）。
+   */
+  selectedImageIds?: Set<string>;
+  /**
+   * 選択変更時のコールバック（Requirement 31.2, 31.3）
+   *
+   * `selectedImageIds` と併せて指定した場合にのみ選択欄を表示する（後方互換）。
+   */
+  onSelectionChange?: (next: Set<string>) => void;
 }
 
 // ============================================================================
@@ -434,22 +455,25 @@ const styles = {
   textareaMobile: {
     fontSize: '16px',
   } as React.CSSProperties,
-  /** Req35.5: 操作系コントロールのタップ領域を44px以上に拡大 */
+  /**
+   * Req35.5: 操作系コントロールのタップ領域を下限まで拡大。
+   * 下限の宣言元は `utils/tap-target`（要件28.3。Req35.5 が同じ数値を引く）。
+   */
   checkboxMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
   orderButtonMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
   deleteButtonMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
   dragHandleMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
 };
 
@@ -482,6 +506,13 @@ interface PhotoItemProps {
   // 順序変更ボタン用props
   onMoveUp?: (imageId: string) => void;
   onMoveDown?: (imageId: string) => void;
+  // エクスポート対象の選択用props（Requirement 31.2, 31.3）
+  /** 選択欄を表示するか */
+  isSelectionEnabled: boolean;
+  /** 当該画像が選択中か */
+  isSelected: boolean;
+  /** 選択状態の切り替え通知 */
+  onSelectionToggle: (imageId: string, checked: boolean) => void;
 }
 
 function PhotoItem({
@@ -505,6 +536,9 @@ function PhotoItem({
   onDeleteClick,
   onMoveUp,
   onMoveDown,
+  isSelectionEnabled,
+  isSelected,
+  onSelectionToggle,
 }: PhotoItemProps) {
   const [comment, setComment] = useState(image.comment ?? '');
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -527,6 +561,7 @@ function PhotoItem({
   const checkboxId = `include-in-report-${image.id}`;
   const textareaId = `comment-${image.id}`;
   const fileNameId = `filename-${image.id}`;
+  const selectionCheckboxId = `export-selection-${image.id}`;
 
   // コメントのバリデーション
   const validateComment = useCallback((value: string): boolean => {
@@ -574,6 +609,14 @@ function PhotoItem({
       setLastSavedComment(comment);
     }
   }, [comment, image.id, lastSavedComment, onMetadataChange]);
+
+  // エクスポート対象の選択変更ハンドラ（Requirement 31.2, 31.3）
+  const handleSelectionChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onSelectionToggle(image.id, e.target.checked);
+    },
+    [image.id, onSelectionToggle]
+  );
 
   // チェックボックス変更ハンドラ
   const handleIncludeInReportChange = useCallback(
@@ -760,6 +803,33 @@ function PhotoItem({
           {image.fileName}
         </h3>
 
+        {/*
+          エクスポート対象の選択欄。
+          一括エクスポートの対象指定は閲覧操作であり編集権限を要さないため、
+          readOnly でも操作できる。
+          @requirement site-survey/REQ-31.2
+          @requirement site-survey/REQ-31.3
+        */}
+        {isSelectionEnabled && (
+          <div style={styles.checkboxContainer}>
+            <input
+              type="checkbox"
+              id={selectionCheckboxId}
+              checked={isSelected}
+              onChange={handleSelectionChange}
+              style={{
+                ...styles.checkbox,
+                ...(isMobile ? styles.checkboxMobile : {}),
+              }}
+              aria-label={`画像を選択: ${image.fileName}`}
+              data-testid={`image-checkbox-${image.id}`}
+            />
+            <label htmlFor={selectionCheckboxId} style={styles.checkboxLabel}>
+              エクスポート対象に選択
+            </label>
+          </div>
+        )}
+
         {/* 報告書出力フラグ */}
         <div style={styles.checkboxContainer}>
           <input
@@ -872,8 +942,12 @@ export function PhotoManagementPanel({
   onSave,
   isDirty = false,
   isSaving = false,
+  saveBlocked = false,
+  saveBlockedReason,
   onDelete,
   showOrderButtons = true,
+  selectedImageIds,
+  onSelectionChange,
 }: PhotoManagementPanelProps) {
   // モバイル幅判定（Requirement 35 / Task 100.1）
   const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
@@ -950,6 +1024,25 @@ export function PhotoManagementPanel({
 
   // ドラッグ有効かどうか（Task 27.5）
   const enableDrag = !!onOrderChange && !readOnly;
+
+  // 選択欄を表示するかどうか（Requirement 31.2, 31.3）
+  // 選択状態と通知先の双方が与えられた場合にのみ表示する。
+  const isSelectionEnabled = selectedImageIds !== undefined && onSelectionChange !== undefined;
+
+  // 選択状態の切り替え（Requirement 31.2, 31.3）
+  const handleSelectionToggle = useCallback(
+    (imageId: string, checked: boolean) => {
+      if (!onSelectionChange) return;
+      const next = new Set<string>(selectedImageIds ?? []);
+      if (checked) {
+        next.add(imageId);
+      } else {
+        next.delete(imageId);
+      }
+      onSelectionChange(next);
+    },
+    [onSelectionChange, selectedImageIds]
+  );
 
   // ドラッグ開始ハンドラ（Task 27.5）
   const handleDragStart = useCallback(
@@ -1181,15 +1274,20 @@ export function PhotoManagementPanel({
               </div>
             )}
           </div>
+          {/* Task 115.105 (Req 15.6): 通信断の間はサーバーへの一括保存を抑止する。
+              抑止は `aria-disabled` で表し、押下時に呼び出し側が理由を提示する。 */}
           <button
             type="button"
             onClick={onSave}
             disabled={!isDirty || isSaving}
+            aria-disabled={!isDirty || isSaving || saveBlocked}
+            title={saveBlocked && saveBlockedReason ? saveBlockedReason : undefined}
             style={{
               ...styles.saveButton,
-              ...(!isDirty || isSaving ? styles.saveButtonDisabled : {}),
+              ...(!isDirty || isSaving || saveBlocked ? styles.saveButtonDisabled : {}),
             }}
             aria-busy={isSaving}
+            data-testid="photo-management-save-button"
           >
             {isSaving ? '保存中...' : '保存'}
           </button>
@@ -1223,6 +1321,10 @@ export function PhotoManagementPanel({
             // 順序変更ボタン用props
             onMoveUp={showOrderButtons && onOrderChange ? handleMoveUp : undefined}
             onMoveDown={showOrderButtons && onOrderChange ? handleMoveDown : undefined}
+            // エクスポート対象の選択用props（Requirement 31.2, 31.3）
+            isSelectionEnabled={isSelectionEnabled}
+            isSelected={selectedImageIds?.has(image.id) ?? false}
+            onSelectionToggle={handleSelectionToggle}
           />
         ))}
       </div>

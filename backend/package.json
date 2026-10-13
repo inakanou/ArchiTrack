@@ -6,28 +6,33 @@
   "main": "dist/src/index.js",
   "type": "module",
   "scripts": {
-    "build": "npm run prisma:generate && tsc && npm run docs:generate",
+    "build": "npm run prisma:generate && tsc && npm run build:templates && npm run docs:generate",
+    "build:templates": "tsx scripts/copy-email-templates.ts",
     "start": "node dist/src/index.js",
     "dev": "tsx watch src/index.ts",
     "dev:debug": "tsx --inspect=0.0.0.0:9229 watch src/index.ts",
     "dev:node": "npm run build && node dist/src/index.js",
     "dev:js": "node --watch src/index.js",
     "check:env": "tsx src/check-env.ts",
+    "check:dist-assets": "tsx scripts/check-dist-assets.ts",
     "validate:esm": "npm run build && node --check dist/src/index.js && find dist -name '*.js' -type f -exec node --check {} \\;",
     "test": "vitest run",
     "test:unit": "vitest run src/__tests__/unit",
-    "test:integration": "RUN_INTEGRATION_TESTS=true vitest run src/__tests__/integration",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "rm -rf coverage && mkdir -p coverage/.tmp && vitest run --coverage",
     "test:unit:coverage": "rm -rf coverage && mkdir -p coverage/.tmp && vitest run --coverage src/__tests__/unit",
     "coverage:check": "node scripts/check-coverage-gaps.cjs",
-    "test:integration:coverage": "rm -rf coverage && mkdir -p coverage/.tmp && RUN_INTEGRATION_TESTS=true vitest run --coverage src/__tests__/integration",
-    "test:all": "RUN_INTEGRATION_TESTS=true vitest run",
+    "test:integration:coverage": "rm -rf coverage && mkdir -p coverage/.tmp && vitest run --coverage --config vitest.integration.config.ts",
+    "test:all": "sh scripts/run-all-tests.sh",
+    "test:contract": "vitest run --config vitest.contract.config.ts",
+    "test:contract:selftest": "vitest run --config vitest.contract.config.ts src/__tests__/contract/claude-vision-contract-shape.selftest.ts",
     "test:perf": "tsx performance/health-check.perf.ts",
     "test:perf:login": "tsx performance/login.perf.ts",
     "test:perf:project": "tsx performance/project-crud.perf.ts",
     "test:perf:trading-partner": "tsx performance/trading-partner-crud.perf.ts",
+    "test:perf:survey-images": "tsx performance/survey-image-list.perf.ts",
     "test:perf:report": "autocannon -c 10 -d 30 http://localhost:3000/health",
     "docs:generate": "tsx src/generate-swagger.ts",
     "lint": "eslint src/**/*.{js,ts} vitest.*.ts performance/**/*.ts scripts/**/*.ts prisma/**/*.ts",
@@ -44,7 +49,10 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:studio": "prisma studio",
     "prisma:format": "prisma format",
-    "generate:jwt-keys": "tsx scripts/generate-eddsa-keys.ts"
+    "generate:jwt-keys": "tsx scripts/generate-eddsa-keys.ts",
+    "backfill:drawn-annotations": "tsx scripts/backfill-drawn-annotation-flags.ts",
+    "restore:plain-thumbnails": "tsx scripts/restore-plain-thumbnails.ts",
+    "inventory:area-volume-weight-only": "tsx scripts/inventory-area-volume-weight-only.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.106.0",
@@ -79,7 +87,7 @@
     "jose": "^6.1.3",
     "jspdf": "^4.1.0",
     "multer": "^2.2.0",
-    "nodemailer": "^9.0.1",
+    "nodemailer": "^10.1.0",
     "otplib": "^12.0.1",
     "pg": "^8.22.0",
     "pino": "^10.3.1",
@@ -141,6 +149,10 @@
   },
   "overrides": {
     "hono": "^4.12.25",
-    "fast-xml-parser": "^5.3.6"
+    "fast-xml-parser": "^5.3.6",
+    "@prisma/config": {
+      "deepmerge-ts": "^8.0.2"
+    },
+    "mysql2": "^3.24.5"
   }
 }

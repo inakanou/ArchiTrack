@@ -22,8 +22,6 @@ import {
   InvalidAnnotationDataError,
   AnnotationNotFoundError,
 } from '../services/annotation.service.js';
-import { ThumbnailRegenerationError } from '../services/errors.js';
-import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -224,55 +222,13 @@ router.put(
         expectedUpdatedAt: expectedUpdatedAt ? new Date(expectedUpdatedAt) : undefined,
       });
 
-      // 注釈付きサムネイルの署名付きURLを生成 (Task 61.1, Requirements 23.5)
-      // AnnotationService.save は注釈付きサムネイル再生成を同期実行し、
-      // 最新の annotatedThumbnailPath を返す。ここで署名付きURLを付加し
-      // フロントエンドが追加API呼び出しなしに最新サムネイルを反映できるようにする。
-      let annotatedThumbnailUrl: string | null = null;
-      if (annotation.annotatedThumbnailPath && isStorageConfigured()) {
-        try {
-          const storageProvider = getStorageProvider();
-          if (storageProvider) {
-            annotatedThumbnailUrl = await storageProvider.getSignedUrl(
-              annotation.annotatedThumbnailPath,
-              { expiresIn: 900 }
-            );
-          }
-        } catch (urlError) {
-          logger.warn(
-            {
-              userId: req.user?.userId,
-              imageId,
-              error: urlError instanceof Error ? urlError.message : String(urlError),
-            },
-            'Failed to generate annotatedThumbnailUrl'
-          );
-          annotatedThumbnailUrl = null;
-        }
-      }
-
+      // 合成済みサムネイルは画像編集画面（クライアント）が合成し、
+      // `PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail` で
+      // 保存先を更新する。本経路は注釈データのみを確定させる（Task 115.107）。
       logger.info({ userId: req.user?.userId, imageId }, 'Annotation saved successfully');
 
-      res.json({ ...annotation, annotatedThumbnailUrl });
+      res.json(annotation);
     } catch (error) {
-      if (error instanceof ThumbnailRegenerationError) {
-        logger.error(
-          {
-            userId: req.user?.userId,
-            imageId: (req.validatedParams as { imageId?: string } | undefined)?.imageId,
-            error: error.message,
-          },
-          'Annotated thumbnail regeneration failed'
-        );
-        res.status(500).json({
-          type: 'https://architrack.example.com/problems/thumbnail-regeneration-failed',
-          title: 'Thumbnail Regeneration Failed',
-          status: 500,
-          detail: error.message,
-          code: error.code,
-        });
-        return;
-      }
       if (error instanceof AnnotationImageNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/annotation-image-not-found',

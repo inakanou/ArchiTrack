@@ -15,7 +15,10 @@
  * - 3.3: アルバム名での部分一致検索
  * - 3.4: ソート機能（作成日・更新日）
  * - 11.1: 一覧は最大50件のページネーション（既定limit=50）
- * - 13.2: 取得系は対象が要求プロジェクト配下であることを検証する
+ * - 13.2: 取得・更新・削除は対象が要求プロジェクト配下であることを検証する。一覧・取得・更新・
+ *   削除は、所属プロジェクトが実在し取り除かれていない（論理削除されていない）ときだけ行う
+ *   （受入基準の「アクセス可能なプロジェクト」を、実在し取り除かれていないプロジェクトと読む
+ *   Task 23.1 の利用者の判断。判定は construction-photo-availability の共通の判定を用いる）
  *
  * @module services/construction-photo-album
  */
@@ -23,13 +26,20 @@
 import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import { NotFoundError, ConflictError } from '../errors/apiError.js';
 import type { ConstructionPhotoAlbumDto } from '../types/construction-photo.types.js';
+import {
+  AVAILABILITY_IN_PROJECT_SELECT,
+  PROJECT_LIVENESS_SELECT,
+  isAvailableInLiveProject,
+  isProjectLive,
+} from './construction-photo-availability.js';
 
 // ============================================================================
 // エラークラス（本ドメイン境界内で定義）
 // ============================================================================
 
 /**
- * プロジェクトが見つからない場合のエラー（アルバム作成時）
+ * プロジェクトが見つからない、または取り除かれている（論理削除済み）場合のエラー
+ * （アルバムの作成・一覧）
  * 404 Not Found
  *
  * Requirements: 1.6
@@ -227,17 +237,25 @@ export class ConstructionPhotoAlbumService {
    * expectedUpdatedAt（input.updatedAt）と実際のupdatedAtが一致しない場合は
    * ConstructionPhotoAlbumConflictError をスローする。
    *
+   * アルバムかその所属プロジェクトが論理削除済みの場合、また projectId が指定されて対象が
+   * その配下でない場合は、版の照合より先に NotFound とし、何も書き込まない。
+   *
    * Requirements:
    * - 1.3: 楽観的排他制御を用いてアルバムレコードを更新する
    * - 1.5: 同時編集による競合が検出される場合、競合エラーを返す
    *
    * @param id - アルバムID
    * @param input - 更新入力（updatedAt必須）
+   * @param projectId - （任意）要求プロジェクトID。指定時は配下検証を行う
    * @returns 更新されたアルバムDTO
-   * @throws ConstructionPhotoAlbumNotFoundError 存在しない、または論理削除済みの場合
+   * @throws ConstructionPhotoAlbumNotFoundError 存在しない・アルバムかプロジェクトが論理削除済み・要求プロジェクト外の場合
    * @throws ConstructionPhotoAlbumConflictError 楽観的排他制御エラー（競合）
    */
-  async update(id: string, input: UpdateAlbumInput): Promise<ConstructionPhotoAlbumDto> {
+  async update(
+    id: string,
+    input: UpdateAlbumInput,
+    projectId?: string
+  ): Promise<ConstructionPhotoAlbumDto> {
     return await this.prisma.$transaction(async (tx) => {
       const album = await tx.constructionPhotoAlbum.findUnique({
         where: { id },
@@ -248,11 +266,16 @@ export class ConstructionPhotoAlbumService {
           memo: true,
           createdAt: true,
           updatedAt: true,
-          deletedAt: true,
+          ...AVAILABILITY_IN_PROJECT_SELECT,
         },
       });
 
-      if (!album || album.deletedAt !== null) {
+      // アルバムかプロジェクトが論理削除済み、または要求プロジェクト外なら 404（Requirements: 13.2）
+      if (
+        !album ||
+        !isAvailableInLiveProject(album) ||
+        (projectId !== undefined && album.projectId !== projectId)
+      ) {
         throw new ConstructionPhotoAlbumNotFoundError(id);
       }
 
@@ -291,20 +314,28 @@ export class ConstructionPhotoAlbumService {
    * deletedAt を設定して論理削除する。配下の写真項目は親アルバムの deletedAt
    * により取得クエリから除外される（親子一括無効化）。
    *
+   * アルバムかその所属プロジェクトが論理削除済みの場合、また projectId が指定されて対象が
+   * その配下でない場合は NotFound とし、何も書き込まない。
+   *
    * Requirements:
    * - 1.4: アルバムと関連する写真項目・看板配置データを論理削除する
    *
    * @param id - アルバムID
-   * @throws ConstructionPhotoAlbumNotFoundError 存在しない、または論理削除済みの場合
+   * @param projectId - （任意）要求プロジェクトID。指定時は配下検証を行う
+   * @throws ConstructionPhotoAlbumNotFoundError 存在しない・アルバムかプロジェクトが論理削除済み・要求プロジェクト外の場合
    */
-  async softDelete(id: string): Promise<void> {
+  async softDelete(id: string, projectId?: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const album = await tx.constructionPhotoAlbum.findUnique({
         where: { id },
-        select: { id: true, deletedAt: true },
+        select: { id: true, projectId: true, ...AVAILABILITY_IN_PROJECT_SELECT },
       });
 
-      if (!album || album.deletedAt !== null) {
+      if (
+        !album ||
+        !isAvailableInLiveProject(album) ||
+        (projectId !== undefined && album.projectId !== projectId)
+      ) {
         throw new ConstructionPhotoAlbumNotFoundError(id);
       }
 
@@ -318,8 +349,9 @@ export class ConstructionPhotoAlbumService {
   /**
    * アルバム詳細取得
    *
-   * 論理削除されたレコードは除外する。projectId が指定された場合は、対象アルバムが
-   * 当該プロジェクト配下であることを検証する（要求プロジェクト外は取得不可）。
+   * 論理削除されたレコードと、所属プロジェクトが論理削除済みのアルバムは除外する。projectId が
+   * 指定された場合は、対象アルバムが当該プロジェクト配下であることを検証する（要求プロジェクト外は
+   * 取得不可）。
    *
    * Requirements:
    * - 1.2: アルバムの基本情報を取得する
@@ -328,14 +360,15 @@ export class ConstructionPhotoAlbumService {
    * @param id - アルバムID
    * @param projectId - （任意）要求プロジェクトID。指定時は配下検証を行う
    * @returns アルバムDTO
-   * @throws ConstructionPhotoAlbumNotFoundError 存在しない、論理削除済み、または要求プロジェクト外の場合
+   * @throws ConstructionPhotoAlbumNotFoundError 存在しない・アルバムかプロジェクトが論理削除済み・要求プロジェクト外の場合
    */
   async findById(id: string, projectId?: string): Promise<ConstructionPhotoAlbumDto> {
     const album = await this.prisma.constructionPhotoAlbum.findUnique({
       where: { id, deletedAt: null },
+      include: { project: PROJECT_LIVENESS_SELECT },
     });
 
-    if (!album) {
+    if (!album || !isProjectLive(album.project)) {
       throw new ConstructionPhotoAlbumNotFoundError(id);
     }
 
@@ -358,13 +391,23 @@ export class ConstructionPhotoAlbumService {
    * - 3.3: アルバム名での部分一致検索
    * - 3.4: ソート機能（作成日・更新日）
    * - 11.1: 一覧は最大50件のページネーション（既定limit=50）
-   * - 13.2: 指定プロジェクト配下のアルバムのみを返す
+   * - 13.2: 指定プロジェクト配下のアルバムのみを返す。プロジェクトが存在しない、または取り除かれて
+   *   いる（論理削除済み）ときは、アルバムを一件も読まずに ProjectNotFound（404）とする
    *
    * @param projectId - プロジェクトID
    * @param opts - 一覧取得オプション
    * @returns ページネーション付きアルバム一覧
+   * @throws ProjectNotFoundForAlbumError プロジェクトが存在しない、または論理削除済みの場合
    */
   async findByProject(projectId: string, opts: FindByProjectOptions): Promise<PaginatedAlbums> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      ...PROJECT_LIVENESS_SELECT,
+    });
+    if (!isProjectLive(project)) {
+      throw new ProjectNotFoundForAlbumError(projectId);
+    }
+
     const page = opts.page ?? 1;
     const limit = opts.limit ?? DEFAULT_LIMIT;
     const sort = opts.sort ?? DEFAULT_SORT;

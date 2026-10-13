@@ -20,8 +20,14 @@
  * - @requirement quantity-table-generation/REQ-47.14: 箇所数→他方式の切替で「箇所数」フィールドを非表示にする
  * - @requirement quantity-table-generation/REQ-8.12: 計算方法の選択肢に「標準」「面積・体積」「ピッチ」「箇所数」を提供する
  * - @requirement quantity-table-generation/REQ-8.13: 「箇所数」選択で計算用列を箇所数→長さ→重量→調整係数→丸め設定の順に表示する
+ * - @requirement quantity-table-generation/REQ-8.9: ピッチ計算式で本数を算出し任意項目（長さ・重量）を乗算した結果を数量として自動設定する
+ * - @requirement quantity-table-generation/REQ-8.10: 「ピッチ」モードで必須項目のいずれかが未入力のまま保存を試行するとエラーを表示し必須項目の入力を求める
+ * - @requirement quantity-table-generation/REQ-8.7: 「面積・体積」モードで幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない状態で保存を試行するとエラーを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める
  * - @requirement quantity-table-generation/REQ-8.14: 箇所数×任意項目（長さ・重量）の乗算で数量を自動設定する
  * - @requirement quantity-table-generation/REQ-8.15: 箇所数未入力での保存試行時にエラーを表示する
+ * - @requirement quantity-table-generation/REQ-11.2: データ保存時の整合性チェックでエラーが検出された
+ *   とき、保存を中断し、問題箇所の修正を求める（タスク 90.4 が付した。下の REQ-47.9 の検証が
+ *   `handleSave` の計算パラメータの枝について条文の二つの節を既に固定しているため）
  * - @requirement quantity-table-generation/REQ-14.6: 「箇所数」フィールドを小数桁付与せず整数表示する
  * - @requirement quantity-table-generation/REQ-14.7: 「箇所数」フィールド空白時は空白のまま表示する
  * - @requirement quantity-table-generation/REQ-15.4: 「箇所数」範囲（1〜9999999）外入力でエラーを表示する
@@ -46,8 +52,9 @@
 
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const RUN_ID = Date.now();
 
@@ -77,16 +84,7 @@ async function createTestProject(page: Page, projectName: string): Promise<strin
   await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
   const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-  const salesPersonValue = await salesPersonSelect.inputValue();
-  if (!salesPersonValue) {
-    const options = await salesPersonSelect.locator('option').all();
-    if (options.length > 1 && options[1]) {
-      const firstUserOption = await options[1].getAttribute('value');
-      if (firstUserOption) {
-        await salesPersonSelect.selectOption(firstUserOption);
-      }
-    }
-  }
+  await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
   const createProjectPromise = page.waitForResponse(
     (response) =>
@@ -390,6 +388,19 @@ test.describe('REQ-47: 計算方法「箇所数」の計算・表示・入力検
   // --------------------------------------------------------------------------
   // REQ-47.7: ピッチとの最終数量の一致
   // --------------------------------------------------------------------------
+  /**
+   * @requirement quantity-table-generation/REQ-8.9: ピッチ計算式で本数を算出し任意項目（長さ・重量）を乗算した結果を数量として自動設定する
+   *
+   * 本検証は REQ-47.7（箇所数とピッチの最終数量の一致）を主題とするが、そのために
+   * **ピッチ行の最終数量そのものを値で固定している**。ピッチ行に入れる値は
+   * 範囲長 10・端長1 0.5・端長2 0.5・ピッチ長 1・長さ 2.5・重量 1.5・調整係数 2・丸め設定 1 で、
+   * 主張する `75.00` は本数 `floor((10 - 0.5 - 0.5) / 1) + 1 = 10` に長さと重量を乗じ
+   * （10 × 2.5 × 1.5 = 37.5）、調整係数 2 を掛けて 1 単位で切り上げた値である。
+   * すなわち条文 8.9 の二つの節——ピッチ計算式による本数の算出と、入力された任意項目
+   * （長さ・重量）の乗算——を、画面の数量欄の値で一意に固定している。
+   * **本数が 1 本でも違えば 75.00 にはならない**ため、式を変える変異はこの主張で落ちる
+   * （タスク 99.5 で実測し、除外を取り下げた）。
+   */
   test('同一の箇所数・長さ・重量・調整係数・丸め設定であれば、ピッチと箇所数の最終数量が一致する (REQ-47.7)', async ({
     page,
   }) => {
@@ -504,19 +515,29 @@ test.describe('REQ-47: 計算方法「箇所数」の計算・表示・入力検
   // --------------------------------------------------------------------------
   // REQ-47.9: 未入力での必須エラー（保存試行時）
   // --------------------------------------------------------------------------
+  /**
+   * @requirement quantity-table-generation/REQ-47.9
+   * @requirement quantity-table-generation/REQ-11.2
+   *
+   * タスク 90.4: 本検証は REQ-11.2 の条文の二つの節を既に固定している——保存が中断されること
+   * （保存要求が0件であり、箇所数を入れた後の保存で同じ観測器が1件を数える非空証明を伴う）と、
+   * 問題箇所の修正を求めること（告知が「箇所数は必須です」を名指す）である。通る枝は
+   * `handleSave` の計算パラメータの検証（`validateCalculationParams`）であり、
+   * `out-of-range-existing-value-rescue-e2e.spec.ts` の3件が通る範囲判定の枝とは別である。
+   */
   test('「箇所数」が未入力のまま保存を試行するとエラーが表示され、保存が中断される (REQ-47.9)', async ({
     page,
   }) => {
     await gotoEditPage(page);
 
-    // 保存 API（PUT /:id/save）が送信されないことを検証するためリクエストを監視する
+    // 保存 API（PUT /:id/save）が送信されないことを検証するためリクエストを監視する。
+    // 判定はパスのみで行い、接続先（ホスト・ポート・スキーム）を条件に入れない。
+    // オリジンを条件に含めると観測が全件除外され「0件」が恒真になる。
     const saveRequests: string[] = [];
     page.on('request', (request) => {
-      if (
-        request.method() === 'PUT' &&
-        /\/api\/quantity-tables\/[^/]+\/save$/.test(request.url())
-      ) {
-        saveRequests.push(request.url());
+      const pathname = new URL(request.url()).pathname;
+      if (request.method() === 'PUT' && /^\/api\/quantity-tables\/[^/]+\/save$/.test(pathname)) {
+        saveRequests.push(pathname);
       }
     });
 
@@ -551,6 +572,176 @@ test.describe('REQ-47: 計算方法「箇所数」の計算・表示・入力検
     await expectQuantity(row, '3.00', '箇所数入力後');
     await saveQuantityTableDraft(page);
     expect(saveRequests.length, '箇所数入力後は保存 API が送信される必要がある').toBe(1);
+  });
+
+  // --------------------------------------------------------------------------
+  // REQ-8.10: 「ピッチ」の必須項目が未入力のままの保存試行
+  // --------------------------------------------------------------------------
+  /**
+   * @requirement quantity-table-generation/REQ-8.10: 「ピッチ」モードで必須項目のいずれかが未入力のまま保存を試行するとエラーを表示し必須項目の入力を求める
+   *
+   * 条文は「『ピッチ』モードで必須項目（範囲長・端長1・端長2・ピッチ長）の**いずれかが**未入力で
+   * 保存を試行するなら、エラーメッセージを表示し、必須項目の入力を求める」。
+   *
+   * 前件は「いずれかが未入力」であり、**四つ全部が未入力**では作らない。全部が空だと本番は
+   * 「計算パラメータが設定されていません」という別の枝（`requireCalculationParams`）へ入り、
+   * 条文が述べる必須項目の枝を一度も通らない。三つを埋めて範囲長だけを空にする。
+   *
+   * 主張は三つ。(1) エラー表示が出て、**未入力の必須項目を名指す**（「範囲長は必須です」）。
+   * (2) 保存が中断され保存API（PUT /:id/save）が発行されない。(3) 空欄を埋めれば保存できる——
+   * (3) は (2) の0件が「そもそも保存できない状態」による空洞でないことの非空証明であり、
+   * 同じ観測器が1件を数える（REQ-47.9 の判定と同じ作法）。
+   */
+  test('「ピッチ」の必須項目が未入力のまま保存を試行するとエラーが表示され、保存が中断される (REQ-8.10)', async ({
+    page,
+  }) => {
+    await gotoEditPage(page);
+
+    // 判定はパスのみで行い、接続先（ホスト・ポート・スキーム）を条件に入れない。
+    // オリジンを条件に含めると観測が全件除外され「0件」が恒真になる。
+    const saveRequests: string[] = [];
+    page.on('request', (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (request.method() === 'PUT' && /^\/api\/quantity-tables\/[^/]+\/save$/.test(pathname)) {
+        saveRequests.push(pathname);
+      }
+    });
+
+    const row = itemRows(page).first();
+    await methodSelect(row).selectOption({ value: 'PITCH' });
+
+    // 前件: 必須4項目のうち範囲長だけが未入力（「いずれかが未入力」）
+    await fillCalcField(row, /端長1/, '0.5');
+    await fillCalcField(row, /端長2/, '0.5');
+    await fillCalcField(row, /ピッチ長/, '1');
+    await expect(
+      row.getByLabel(/範囲長/),
+      '前提: 範囲長が未入力である（残る3項目は入力済み）'
+    ).toHaveValue('');
+
+    const saveButton = page.getByRole('button', { name: '保存' });
+    await expect(saveButton).toBeVisible({ timeout: getTimeout(10000) });
+    await saveButton.click();
+
+    // (1) エラー表示が出て、未入力の必須項目を名指す
+    const saveError = page.getByRole('alert').filter({ hasText: '保存できません' });
+    await expect(
+      saveError,
+      'REQ-8.10: ピッチの必須項目が未入力のままの保存試行でエラーが表示されない'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(
+      saveError,
+      'REQ-8.10: エラー表示が未入力の必須項目（範囲長）の入力を求めていない'
+    ).toContainText('範囲長は必須です');
+
+    // (2) 保存が中断される
+    await expect.poll(() => saveRequests.length, { timeout: getTimeout(3000) }).toBe(0);
+    await expect(page.getByText(/保存しました/)).toHaveCount(0);
+
+    // (3) 非空証明: 範囲長を埋めれば保存できる（同じ観測器が1件を数える）
+    await fillCalcField(row, /範囲長/, '10');
+    await saveQuantityTableDraft(page);
+    expect(
+      saveRequests.length,
+      'REQ-8.10: 範囲長を入力した後は保存APIが送信される必要がある（0件が恒真でないことの証明）'
+    ).toBe(1);
+  });
+
+  // --------------------------------------------------------------------------
+  // REQ-8.7: 「面積・体積」の幅(W)・奥行き(D)・高さ(H)がいずれも入力されていないままの保存試行
+  // --------------------------------------------------------------------------
+  /**
+   * @requirement quantity-table-generation/REQ-8.7: 「面積・体積」モードで幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない状態で保存を試行するとエラーメッセージを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める
+   *
+   * 条文は「If 『面積・体積』モードで幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない状態で
+   * 保存を試行する, then the 数量表管理システム shall エラーメッセージを表示し、
+   * **幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める**」。条件節はタスク 100.25
+   * （2026-09-24、利用者の裁定）で「計算用列に値が1つも入力されていない」から改訂されたものである。
+   *
+   * 本判定はタスク 100.10 の裁定（2026-09-23。**実体を条文へ合わせる**）の後に置いた。
+   * 改める前の本番は告知で条文の3列を名指さず、受け入れキーに重量を含めていたため、
+   * **重量だけを入力した状態が保存できていた**。条文は重量を数えないので、それは条文違反である。
+   *
+   * 主張は四つ。(1) 計算用列がいずれも空のままの保存試行でエラー表示が出て、告知が
+   * **幅(W)・奥行き(D)・高さ(H) を名指して入力を求める**。(2) 保存が中断され保存API
+   * （PUT /:id/save）が発行されない。(3) **重量だけを入れても足りない**——同じ告知が続き
+   * 保存APIはなお0件である（条文が数える3列の入力が要る）。(4) 幅を入れれば保存できる——
+   * (2)(3) の0件が「そもそも保存できない状態」による空洞でないことの非空証明であり、
+   * 同じ観測器が1件を数える（REQ-8.10 / REQ-47.9 の判定と同じ作法）。
+   */
+  test('「面積・体積」の計算用列が未入力のまま保存を試行するとエラーが表示され、保存が中断される (REQ-8.7)', async ({
+    page,
+  }) => {
+    await gotoEditPage(page);
+
+    // 判定はパスのみで行い、接続先（ホスト・ポート・スキーム）を条件に入れない。
+    // オリジンを条件に含めると観測が全件除外され「0件」が恒真になる。
+    const saveRequests: string[] = [];
+    page.on('request', (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (request.method() === 'PUT' && /^\/api\/quantity-tables\/[^/]+\/save$/.test(pathname)) {
+        saveRequests.push(pathname);
+      }
+    });
+
+    const row = itemRows(page).first();
+    await methodSelect(row).selectOption({ value: 'AREA_VOLUME' });
+
+    // 前件: 計算用列（幅・奥行き・高さ・重量）がいずれも未入力である。
+    // 直前のテストが保存した値が残りうるため、明示的に空へ戻してから前提を確かめる。
+    for (const label of [/^幅/, /^奥行き/, /^高さ/, /^重量/]) {
+      await fillCalcField(row, label, '');
+    }
+    for (const label of [/^幅/, /^奥行き/, /^高さ/, /^重量/]) {
+      await expect(
+        row.getByLabel(label),
+        `前提: 計算用列（${String(label)}）が未入力である`
+      ).toHaveValue('');
+    }
+
+    const saveButton = page.getByRole('button', { name: '保存' });
+    await expect(saveButton).toBeVisible({ timeout: getTimeout(10000) });
+    await saveButton.click();
+
+    // (1) エラー表示が出て、条文が名指す3列の入力を求める
+    const saveError = page.getByRole('alert').filter({ hasText: '保存できません' });
+    await expect(
+      saveError,
+      'REQ-8.7: 面積・体積の計算用列が未入力のままの保存試行でエラーが表示されない'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(
+      saveError,
+      'REQ-8.7: エラー表示が幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求めていない'
+    ).toContainText('幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください');
+
+    // (2) 保存が中断される
+    await expect.poll(() => saveRequests.length, { timeout: getTimeout(3000) }).toBe(0);
+    await expect(page.getByText(/保存しました/)).toHaveCount(0);
+
+    // (3) 重量だけでは足りない（条文は幅(W)・奥行き(D)・高さ(H) のみを数える）
+    await fillCalcField(row, /^重量/, '3');
+    await expect(row.getByLabel(/^重量/), '前提: 重量だけが入力された状態である').toHaveValue(
+      '3.00'
+    );
+    // 入力が本番へ届いたこと（画面が再計算したこと）を確かめてから二度目の保存を試みる。
+    // これがないと「二度目の押下が届かず前の告知が残っただけ」と区別できない。
+    await expectQuantity(row, '3.00', '重量だけを入力した後');
+    await expect(saveButton, '前提: 二度目の保存試行の時点で保存ボタンが押せる').toBeEnabled();
+    await saveButton.click();
+    await expect(
+      saveError,
+      'REQ-8.7: 重量だけが入力された状態でも3列の入力を求める告知が続く必要がある'
+    ).toContainText('幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください');
+    await expect.poll(() => saveRequests.length, { timeout: getTimeout(3000) }).toBe(0);
+    await expect(page.getByText(/保存しました/)).toHaveCount(0);
+
+    // (4) 非空証明: 幅を埋めれば保存できる（同じ観測器が1件を数える）
+    await fillCalcField(row, /^幅/, '2');
+    await saveQuantityTableDraft(page);
+    expect(
+      saveRequests.length,
+      'REQ-8.7: 幅を入力した後は保存APIが送信される必要がある（0件が恒真でないことの証明）'
+    ).toBe(1);
   });
 
   // --------------------------------------------------------------------------
@@ -613,12 +804,12 @@ test.describe('REQ-47: 計算方法「箇所数」の計算・表示・入力検
       await page.waitForLoadState('networkidle');
 
       const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-      if (await deleteButton.isVisible({ timeout: getTimeout(5000) })) {
+      if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
         await deleteButton.click();
         const confirmButton = page
           .getByTestId('focus-manager-overlay')
           .getByRole('button', { name: /^削除$/i });
-        if (await confirmButton.isVisible({ timeout: getTimeout(5000) })) {
+        if (await isVisibleWithin(confirmButton, getTimeout(5000))) {
           await confirmButton.click();
           await page.waitForLoadState('networkidle');
         }

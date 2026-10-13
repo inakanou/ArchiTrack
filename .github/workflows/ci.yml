@@ -79,6 +79,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check requirement coverage self-test
+        run: |
+          echo "========================================="
+          echo "Requirement Coverage Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Verifies that the production-reachability judgement itself is intact."
+          echo "Fixtures: scripts/check-requirement-coverage.selftest.ts"
+          echo ""
+          npm run check:req-coverage:selftest
+
       - name: Check requirement coverage
         run: |
           echo "========================================="
@@ -87,11 +98,470 @@ jobs:
           echo ""
           echo "This check validates that:"
           echo "  1. All E2E-applicable acceptance criteria are covered by tests"
-          echo "  2. Excluded requirements have defined alternative verification methods"
+          echo "  2. Each tagged verification reaches production from a real entry point"
+          echo "  3. Excluded requirements have defined alternative verification methods"
           echo ""
           echo "Exclusion list: e2e/requirement-exclusions.json"
           echo ""
           npm run check:req-coverage
+
+  requirement-exclusions-schema:
+    name: Requirement Exclusions Schema Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検証器そのものの退行を先に検知する（検証器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check validator self-test
+        run: |
+          echo "========================================="
+          echo "Requirement Exclusions Validator Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-requirement-exclusions.selftest.ts"
+          echo ""
+          npm run check:req-exclusions:selftest
+
+      - name: Check requirement exclusions against schema
+        run: |
+          echo "========================================="
+          echo "Requirement Exclusions Schema Check"
+          echo "========================================="
+          echo ""
+          echo "Exclusions remove acceptance criteria from the coverage denominator."
+          echo "A malformed definition hollows out the coverage claim, so the file is"
+          echo "validated against e2e/requirement-exclusions.schema.json - the schema its"
+          echo "own \$schema field points at."
+          echo ""
+          npm run check:req-exclusions
+
+  criterion-literal-presence:
+    name: Criterion Literal Presence Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "Criterion Literal Presence Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-criterion-literal-presence.selftest.ts"
+          echo ""
+          npm run check:criterion-literals:selftest
+
+      - name: Check criterion literal presence
+        run: |
+          echo "========================================="
+          echo "Criterion Literal Presence Check"
+          echo "========================================="
+          echo ""
+          echo "Coverage gates only ask whether some test names a criterion number."
+          echo "A test that asserts the opposite of what the criterion says still"
+          echo "counts as covered (task 115.240, re-proved by mutation for 115.292)."
+          echo "This gate gauges one machine-decidable slice of that: a literal the"
+          echo "criterion names in quotes must appear at least once in backend/src or"
+          echo "frontend/src. Red clears in one of two ways - fix it, or adjudicate it"
+          echo "in scripts/criterion-literal-adjudication.json with a reason and the"
+          echo "alternative basis. The ledger size is ratcheted."
+          echo ""
+          npm run check:criterion-literals
+
+  e2e-assertion-guard:
+    name: E2E Assertion Guard Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "E2E Assertion Guard Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "This check validates that the detector itself still classifies"
+          echo "each known pattern correctly (fixtures in"
+          echo "scripts/check-e2e-assertion-guards.selftest.ts)."
+          echo ""
+          npm run check:e2e-guards:selftest
+
+      - name: Check disabled E2E assertions
+        run: |
+          echo "========================================="
+          echo "E2E Assertion Guard Check"
+          echo "========================================="
+          echo ""
+          echo "This check validates that:"
+          echo "  1. No new E2E test structure disables its own assertions"
+          echo "  2. Every exclusion carries a documented reason"
+          echo ""
+          echo "Baseline: e2e/assertion-guard-baseline.json"
+          echo ""
+          npm run check:e2e-guards
+
+  design-reference-format:
+    name: Design Reference Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # steering の実行方法の検査は backend・frontend の vitest 構成を import して選択範囲を
+      # 導く。構成が import する vitest / @vitejs/plugin-react はそれぞれのパッケージにしか
+      # 無いため、ルートだけを入れると構成が読めず「選択範囲の照合 0 件」で落ちる
+      - name: Install backend dependencies
+        run: npx -y npm@11.6.2 --prefix backend ci --ignore-scripts
+      - name: Install frontend dependencies
+        # Pin npm to frontend/package.json "packageManager" so npm's optional-dependency
+        # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
+        run: npx -y npm@11.6.2 --prefix frontend ci --ignore-scripts
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "Design Reference Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-design-reference-format.selftest.ts"
+          echo ""
+          npm run check:design-refs:selftest
+
+      - name: Check design document references
+        run: |
+          echo "========================================="
+          echo "Design Reference Format Check"
+          echo "========================================="
+          echo ""
+          echo "This check validates that nothing points at a design document"
+          echo "by line number: neither production code (task 115.100) nor a"
+          echo "design document pointing at itself (task 115.211). Line numbers"
+          echo "drift on every revision; references must name the section title"
+          echo "and the symbol."
+          echo ""
+          npm run check:design-refs
+
+      # 対偶（設計文書 → 本番コード）。検出器そのものの退行を先に検知する
+      - name: Check design-to-code detector self-test
+        run: |
+          echo "========================================="
+          echo "Design-to-Code Reference Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-design-code-reference-format.selftest.ts"
+          echo ""
+          npm run check:design-code-refs:selftest
+
+      - name: Check production code references in design documents
+        run: |
+          echo "========================================="
+          echo "Design-to-Code Reference Format Check"
+          echo "========================================="
+          echo ""
+          echo "This check validates that design documents never point at"
+          echo "production code by line number. Production code drifts on every"
+          echo "revision; references must name the path and the symbol."
+          echo ""
+          npm run check:design-code-refs
+
+      - name: Check design path reference detector self-test
+        run: |
+          echo "========================================="
+          echo "Design Path Reference Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-design-path-references.selftest.ts"
+          echo ""
+          npm run check:design-path-refs:selftest
+
+      - name: Check design document path references
+        run: |
+          echo "========================================="
+          echo "Design Document Path Reference Check"
+          echo "========================================="
+          echo ""
+          echo "The design-to-code format check only inspects HOW a reference is"
+          echo "written. A reference to a path that no longer exists passes it."
+          echo "Design documents may preserve history, so a reference is exempt"
+          echo "only when the same document states that the file is gone."
+          echo ""
+          npm run check:design-path-refs
+
+      - name: Check steering reference detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Reference Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-file-references.selftest.ts"
+          echo ""
+          npm run check:steering-refs:selftest
+
+      - name: Check steering file references
+        run: |
+          echo "========================================="
+          echo "Steering File Reference Check"
+          echo "========================================="
+          echo ""
+          echo "Steering documents describe the CURRENT project structure and are"
+          echo "loaded every session. Entries left behind by a removal or rename"
+          echo "point successors at files that no longer exist."
+          echo ""
+          npm run check:steering-refs
+
+      - name: Check steering identifier detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Identifier Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-identifier-references.selftest.ts"
+          echo ""
+          npm run check:steering-idents:selftest
+
+      - name: Check steering identifier references
+        run: |
+          echo "========================================="
+          echo "Steering Identifier Reference Check"
+          echo "========================================="
+          echo ""
+          echo "The file-name check (115.169) cannot see identifiers written"
+          echo "without a file name (component names, function names, extension-less"
+          echo "module paths). Entries left behind by a removal or rename point"
+          echo "successors at parts that no longer exist."
+          echo ""
+          npm run check:steering-idents
+
+      - name: Check steering test tree detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Test Tree Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-test-tree.selftest.ts"
+          echo ""
+          npm run check:steering-test-tree:selftest
+
+      - name: Check steering test tree enumeration
+        run: |
+          echo "========================================="
+          echo "Steering Test Tree Check"
+          echo "========================================="
+          echo ""
+          echo "The existing steering checks only verify that what is listed"
+          echo "exists. They cannot see the opposite drift: a real test"
+          echo "directory that steering never mentions. This check compares"
+          echo "each marked enumeration against the directories that actually"
+          echo "hold tests, in both directions, and forbids test counts that"
+          echo "cannot be verified without running the whole suite."
+          echo ""
+          npm run check:steering-test-tree
+
+      - name: Check steering artifact count detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Artifact Count Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-dir-counts.selftest.ts"
+          echo ""
+          npm run check:steering-dir-counts:selftest
+
+      - name: Check steering artifact counts
+        run: |
+          echo "========================================="
+          echo "Steering Artifact Count Check"
+          echo "========================================="
+          echo ""
+          echo "The count rule of check:steering-test-tree only looks at lines"
+          echo "containing the word for test, so directory annotations such as"
+          echo "annotation tools (11 files) fell outside it. Before this check,"
+          echo "structure.md carried 30 undated artifact counts and 13 of the 21"
+          echo "that could be re-measured were already wrong (measured"
+          echo "2026-09-05). A counted line must carry a YYYY-MM-DD measurement"
+          echo "date, or drop the number and state how to count instead."
+          echo ""
+          npm run check:steering-dir-counts
+
+      - name: Check steering command annotation detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Command Annotation Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-command-annotations.selftest.ts"
+          echo ""
+          npm run check:steering-command-annotations:selftest
+
+      - name: Check steering command annotations
+        run: |
+          echo "========================================="
+          echo "Steering Command Annotation Check"
+          echo "========================================="
+          echo ""
+          echo "Task 115.243 showed by mutation that reverting a corrected"
+          echo "annotation to its false form left all five existing gates at"
+          echo "exit code 0. This check looks at three things only: whether a"
+          echo "named npm script exists in the matching package.json, whether an"
+          echo "annotation claiming all or only agrees with the selection the"
+          echo "vitest config derives, and whether the same asset is launched"
+          echo "with one executor across documents. Everything else is bound by"
+          echo ".kiro/steering/development-discipline.md, not by this gate."
+          echo ""
+          npm run check:steering-command-annotations
+
+  e2e-in-page-selfjudgement:
+    name: E2E In-Page Self-Judgement Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "E2E In-Page Self-Judgement Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-e2e-in-page-selfjudgement.selftest.ts"
+          echo ""
+          npm run check:e2e-selfjudge:selftest
+
+      - name: Check in-page self-judgement
+        run: |
+          echo "========================================="
+          echo "E2E In-Page Self-Judgement Check"
+          echo "========================================="
+          echo ""
+          echo "This check validates that no E2E test re-implements a production"
+          echo "decision inside the page and then asserts on its own transcription."
+          echo "Such a test never executes production code, yet counts as coverage."
+          echo ""
+          npm run check:e2e-selfjudge
+
+  counterfactual-evidence:
+    name: Counterfactual Evidence Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "Counterfactual Evidence Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-counterfactual-evidence.selftest.ts"
+          echo ""
+          npm run check:cf-evidence:selftest
+
+      - name: Check counterfactual evidence
+        run: |
+          echo "========================================="
+          echo "Counterfactual Evidence Check"
+          echo "========================================="
+          echo ""
+          echo "A comment that claims \"removing X would turn the check red\" must name"
+          echo "the mutation that was actually executed and cite its output."
+          echo "Unexecuted counterfactuals mislead whoever reads them next"
+          echo "(tasks 115.168 / 115.170 / 115.171)."
+          echo ""
+          npm run check:cf-evidence
+
+  dead-script-env:
+    name: Dead Script Env Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "Dead Script Env Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-dead-script-env.selftest.ts"
+          echo ""
+          npm run check:dead-script-env:selftest
+
+      - name: Check dead script env
+        run: |
+          echo "========================================="
+          echo "Dead Script Env Check"
+          echo "========================================="
+          echo ""
+          echo "An npm script that sets VAR=value must have a reader somewhere in the"
+          echo "repository. A variable nobody reads makes the reader believe a switch"
+          echo "is in effect when nothing changes (tasks 115.216 / 115.244)."
+          echo ""
+          npm run check:dead-script-env
 
   typecheck:
     name: TypeScript Type Check
@@ -287,6 +757,12 @@ jobs:
 
           echo "✅ All ES modules are valid (no import errors detected)"
 
+      # The production image ships only dist/, so runtime assets read via fs (email templates)
+      # must be in the build output. Render them from dist the same way production does.
+      - name: Check runtime assets in build output (backend)
+        if: matrix.workspace == 'backend'
+        run: npm --prefix backend run check:dist-assets
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -344,8 +820,9 @@ jobs:
   test-integration:
     name: Integration & E2E Tests
     runs-on: ubuntu-latest
-    # requirement-coverage を前提条件に追加（E2E実行前にカバレッジ検証を通過する必要がある）
-    needs: [lint, typecheck, test-unit, build, test-storybook, requirement-coverage]
+    # requirement-coverage / e2e-assertion-guard を前提条件に追加
+    # （E2E実行前にカバレッジ検証と検証無効化チェックを通過する必要がある）
+    needs: [lint, typecheck, test-unit, build, test-storybook, requirement-coverage, e2e-assertion-guard]
     # Dependabot PRではシークレットにアクセスできないため、integration/e2eテストをスキップ
     if: github.actor != 'dependabot[bot]'
     steps:
@@ -531,7 +1008,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage]
+    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage, requirement-exclusions-schema, e2e-assertion-guard, e2e-in-page-selfjudgement, design-reference-format, counterfactual-evidence, dead-script-env]
     if: always()
     steps:
       - name: Check status
@@ -550,7 +1027,13 @@ jobs:
              [[ "${{ needs.test-storybook.result }}" != "success" ]] || \
              [[ "$integration_ok" != "true" ]] || \
              [[ "${{ needs.security.result }}" != "success" ]] || \
-             [[ "${{ needs.requirement-coverage.result }}" != "success" ]]; then
+             [[ "${{ needs.requirement-coverage.result }}" != "success" ]] || \
+             [[ "${{ needs.requirement-exclusions-schema.result }}" != "success" ]] || \
+             [[ "${{ needs.e2e-assertion-guard.result }}" != "success" ]] || \
+             [[ "${{ needs.e2e-in-page-selfjudgement.result }}" != "success" ]] || \
+             [[ "${{ needs.design-reference-format.result }}" != "success" ]] || \
+             [[ "${{ needs.counterfactual-evidence.result }}" != "success" ]] || \
+             [[ "${{ needs.dead-script-env.result }}" != "success" ]]; then
             echo "❌ CI check failed:"
             echo "   - Lint: ${{ needs.lint.result }}"
             echo "   - TypeCheck: ${{ needs.typecheck.result }}"
@@ -560,6 +1043,12 @@ jobs:
             echo "   - Integration Tests: ${{ needs.test-integration.result }}"
             echo "   - Security: ${{ needs.security.result }}"
             echo "   - Requirement Coverage: ${{ needs.requirement-coverage.result }}"
+            echo "   - Requirement Exclusions Schema: ${{ needs.requirement-exclusions-schema.result }}"
+            echo "   - E2E Assertion Guard: ${{ needs.e2e-assertion-guard.result }}"
+            echo "   - E2E In-Page Self-Judgement: ${{ needs.e2e-in-page-selfjudgement.result }}"
+            echo "   - Design Reference Format: ${{ needs.design-reference-format.result }}"
+            echo "   - Counterfactual Evidence: ${{ needs.counterfactual-evidence.result }}"
+            echo "   - Dead Script Env: ${{ needs.dead-script-env.result }}"
             exit 1
           fi
           echo "✅ All CI checks passed successfully"

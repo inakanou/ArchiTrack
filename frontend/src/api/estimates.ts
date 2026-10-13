@@ -357,7 +357,7 @@ export type SaveEstimateDraftItemType = 'STANDARD' | 'DISCOUNT' | 'NOTE';
 /**
  * 一括保存リクエストの明細行
  *
- * design.md `##### estimate-draft.service` の `SaveEstimateLine`（4313-4323）と同一。
+ * design.md `##### estimate-draft.service` の API Contract にある `SaveEstimateLine` と同一。
  * 9フィールドはすべて **null 許容だが省略不可** で、空欄も `null` を明示送信する。
  * キーを落としたペイロードはバックエンドで 400 になる。
  */
@@ -379,7 +379,7 @@ export interface SaveEstimateDraftLine {
 /**
  * 一括保存リクエストの見積項目（再帰）
  *
- * design.md `SaveEstimateItemNode`（4305-4311）と同一。
+ * design.md `##### estimate-draft.service` の API Contract にある `SaveEstimateItemNode` と同一。
  * 既存項目は `id` ＋ `tempId: null`、新規項目は `id: null` ＋ `tempId` を送る。
  * `children` は省略不可で、子を持たない項目も空配列を明示送信する。
  */
@@ -408,7 +408,7 @@ export interface SaveEstimateDraftReportFields {
 /**
  * 明細の一括保存リクエスト
  *
- * design.md `SaveEstimateDraftRequest`（4297-4303）と同一。
+ * design.md `##### estimate-draft.service` の API Contract にある `SaveEstimateDraftRequest` と同一。
  */
 export interface SaveEstimateDraftRequest {
   /** 楽観ロックの基準時刻（ISO8601）。直前に取得した見積書の `updatedAt` */
@@ -501,4 +501,60 @@ export async function saveEstimateDraft(
   input: SaveEstimateDraftRequest
 ): Promise<SaveEstimateDraftResponse> {
   return apiClient.put<SaveEstimateDraftResponse>(`/api/estimates/${estimateId}/save`, input);
+}
+
+// ============================================================================
+// 編集セッション（在席情報）API（Task 61.1, REQ-11.7）
+// ============================================================================
+
+/** 見積書を編集中の他の利用者 */
+export interface EstimateOtherEditor {
+  userId: string;
+  displayName: string;
+  /** 最終の在席通知の時刻（ISO 8601） */
+  lastSeenAt: string;
+}
+
+/** 在席通知の応答 */
+export interface EstimateEditSessionResponse {
+  /** 在席を通知している自分以外の利用者（TTL 以内） */
+  otherEditors: EstimateOtherEditor[];
+  /** 編集中とみなす期間（秒） */
+  ttlSeconds: number;
+  /** 在席を通知する間隔（秒） */
+  heartbeatIntervalSeconds: number;
+}
+
+/**
+ * 見積書の編集セッションへ在席を通知し、編集中の他の利用者を受け取る
+ *
+ * Requirements (estimate-creation):
+ * - 11.7: 見積書が他のユーザーによって編集中の場合、編集中であることを警告表示する
+ *
+ * エラー: 403（estimate:update を持たない）/ 404（見積書なし）。`ApiError` として送出される。
+ *
+ * @param estimateId - 見積書ID
+ */
+export async function heartbeatEstimateEditSession(
+  estimateId: string
+): Promise<EstimateEditSessionResponse> {
+  return apiClient.put<EstimateEditSessionResponse>(`/api/estimates/${estimateId}/edit-session`);
+}
+
+/**
+ * 見積書の編集セッションから退出する（自分の在席を消す。冪等）
+ *
+ * Requirements (estimate-creation):
+ * - 11.7: 退出した利用者は他の利用者の画面で編集中と表示されなくなる
+ *
+ * @param estimateId - 見積書ID
+ * @param options.keepalive - タブを閉じる・別のページへ移るときに、ページを離れた後も送信を続ける
+ */
+export async function leaveEstimateEditSession(
+  estimateId: string,
+  options: { keepalive?: boolean } = {}
+): Promise<void> {
+  await apiClient.delete(`/api/estimates/${estimateId}/edit-session`, {
+    ...(options.keepalive ? { keepalive: true, disableRetry: true } : {}),
+  });
 }

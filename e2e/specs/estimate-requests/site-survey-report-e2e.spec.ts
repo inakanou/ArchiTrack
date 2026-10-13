@@ -21,6 +21,7 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
 import { TEST_USERS } from '../../helpers/test-users';
 
 /**
@@ -357,8 +358,13 @@ test.describe('見積依頼詳細画面 - 現場調査報告書出力（REQ-35�
   test.describe('クリーンアップ', () => {
     test('テストデータの削除', async ({ request }) => {
       const baseUrl = API_BASE_URL;
-      for (const setup of [baseSetup, setupWithSurvey]) {
-        if (!setup) continue;
+      // 前提が用意されていなければ削除すべき対象も無い。黙って飛ばすと母集団から
+      // 静かに抜け、「後片付けした」ことになる。前提が崩れた地点で失敗させる。
+      for (const [label, setup] of [
+        ['現場調査なしの前提一式', baseSetup],
+        ['現場調査ありの前提一式', setupWithSurvey],
+      ] as const) {
+        assertPrepared(setup, `事前準備で作成した${label}`);
         await request
           .delete(`${baseUrl}/api/projects/${setup.projectId}`, {
             headers: { Authorization: `Bearer ${setup.accessToken}` },

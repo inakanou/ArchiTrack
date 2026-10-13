@@ -54,10 +54,10 @@ Claude Codeを使用している場合：
 
 ```bash
 # 仕様を作成
-/kiro:spec-init [詳細な機能説明]
-/kiro:spec-requirements [feature-name]
-/kiro:spec-design [feature-name]
-/kiro:spec-tasks [feature-name]
+/kiro-spec-init [詳細な機能説明]
+/kiro-spec-requirements [feature-name]
+/kiro-spec-design [feature-name]
+/kiro-spec-tasks [feature-name]
 ```
 
 詳細は[開発ワークフロー](../development/workflow.md)を参照してください。

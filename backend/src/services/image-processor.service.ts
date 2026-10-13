@@ -5,14 +5,17 @@
  *
  * Task 4.2: 画像圧縮・サムネイル生成機能
  * - Sharpによる画像処理
- * - 300KB超過時の段階的圧縮（品質を10%ずつ下げながらリサイズ、250KB〜350KB範囲に収める）
+ * - 300KB超過時の段階的圧縮（まず品質を10%ずつ下げ、品質だけで収まらない場合にのみ
+ *   リサイズへ移り、350KB以下に収まった時点で打ち切る）
  * - サムネイル生成（200x200px）
  * - 画像メタデータ（幅・高さ・サイズ）の取得
  *
  * Requirements:
  * - 4.4: 画像アップロード完了時にサムネイルを自動生成する
- * - 4.6: ファイルサイズが上限（300KB）を超える場合、画像サイズと品質を段階的に下げて
- *        250KB〜350KBの範囲に圧縮した上で登録する
+ * - 4.6: ファイルサイズが上限（300KB）を超える場合、画像サイズと品質を段階的に下げ、
+ *        350KB以下に収まった時点で圧縮を打ち切って登録する
+ * - 4.14: 下限まで下げても350KB以下に収まらない場合、圧縮を打ち切り、最後の段階まで
+ *         圧縮した画像を350KBを超えたまま登録する（アップロードは失敗させない）
  *
  * @module services/image-processor
  */
@@ -46,7 +49,53 @@ export interface ImageMetadata {
 export interface CompressedImage {
   buffer: Buffer;
   metadata: ImageMetadata;
-  wasCompressed: boolean;
+  /**
+   * 元画像が圧縮開始の閾値
+   * （{@link ImageProcessorService.COMPRESSION_START_THRESHOLD_BYTES} = 300KB）を超えており、
+   * 段階的圧縮の経路を通ったことを表す。
+   *
+   * **`true` は再エンコードが行われたことを意味しない。** 300KB超〜350KB以下の入力は
+   * 打ち切りサイズ（350KB）を既に満たしているため圧縮のループが一度も回らず、
+   * `buffer` は入力と同一のまま `true` になる。要件4.6「350KB以下に収まった時点で
+   * 圧縮を打ち切る」に従った結果である（Task 115.171。従前の呼称 `wasCompressed` は
+   * この場合に実態を表していなかった）。
+   *
+   * **`buffer` が打ち切りサイズ以下であることも意味しない。** 品質もリサイズも
+   * 下げ切って収まらなかった場合は 350KB を超えたまま `true` を返す
+   * （要件4.14。Task 115.208 で要件へ引き上げた。それ以前は要件が規定していなかった）。
+   *
+   * `false` のときは元画像が 300KB以下であり、`buffer` は必ず入力と同一である。
+   *
+   * ---
+   *
+   * **何のために在るか（Task 115.207 で撤去せず残すと決めた根拠）。**
+   * この項目に**本番コードの読み手は一件も無い**。`processImage` の呼び出し元三箇所
+   * （`image-upload.service.ts` / `batch-upload.service.ts` /
+   * `construction-photo-image.service.ts`）はいずれも `original.buffer` と
+   * `metadata.*` しか読まず、API 応答・DB 列・フロントエンドにも現れない
+   * （プロパティアクセス・分割代入・オブジェクトの丸ごと流出の三系統に加え、
+   * 列挙（`Object.keys` / `entries` / `values` / `assign`）・動的な添字・
+   * シリアライズ・型経由の露出も走査した Task 115.207 時点の実測。いずれも 0 件。
+   * 読み手が増えたら、この記述ごと見直すこと）。
+   * **要件4.6 の引き金（300KB超）を観測できる唯一の点として、検証のためだけに在る。**
+   *
+   * 撤去せずに残すのは、**300KB超〜350KB以下の帯ではこの項目以外に分岐の痕跡が
+   * 一切残らない**ためである。当該の帯では早期リターンの経路と段階的圧縮の経路が
+   * 返す `buffer`・`metadata`・sharp の呼び出し回数がすべて一致するため、この項目を
+   * 外すと {@link ImageProcessorService.COMPRESSION_START_THRESHOLD_BYTES}（300KB）の境界は
+   * 検証不能になる。実測（Task 115.207。件数は当時の値。関連四ファイル＝本サービスと
+   * `image-upload` / `batch-upload` / `construction-photo-image` の各単体検証）:
+   * 早期リターンの `<=` を `<` へ変異させると、152 件のうち落ちるのはこの項目を見る
+   * 2 件の表明だけである（うち 1 件は本タスクで新設した検証。本タスク以前は 151 件中
+   * 1 件だった）。その 2 件から印の表明だけを外して同じ変異を掛けると、152 件すべてが
+   * 緑のまま通る。
+   *
+   * この根拠が失効する場合——本番でこの分岐が観測できるようになる、あるいは本番に
+   * 読み手ができる——は置き所を見直すこと。前者は
+   * 「300KB境界の両側はこの印を除く観測がすべて一致する」ことを表明した
+   * `image-processor.service.test.ts` の検証が赤くなって知らせる。
+   */
+  originalExceededSizeLimit: boolean;
 }
 
 /**
@@ -87,23 +136,50 @@ export interface SharpStatic {
 }
 
 /**
+ * サムネイルの出力形式
+ *
+ * - `preserve`: 元画像の形式を保つ（既定。アップロード時の素のサムネイル）
+ * - `jpeg`: JPEGへ固定する（保存キーの拡張子やContent-TypeをJPEGで申告する保存先向け）
+ */
+export type ThumbnailOutputFormat = 'preserve' | 'jpeg';
+
+/**
+ * サムネイル生成のオプション
+ */
+export interface GenerateThumbnailOptions {
+  /** 出力形式（既定: `preserve`） */
+  outputFormat?: ThumbnailOutputFormat;
+}
+
+/**
  * 画像処理サービス
  *
  * Sharpを使用した画像処理を提供します。
  */
 export class ImageProcessorService {
   /**
-   * 最大ファイルサイズ（300KB）
+   * 段階的圧縮を開始する閾値（300KB）
+   *
+   * 要件4.6 の「上限（300KB）」にあたる。**出力サイズの上限ではない。**
+   * 出力の打ち切りは {@link ImageProcessorService.TARGET_MAX_SIZE_BYTES}（350KB）が
+   * 担うため、この値を超える出力は正常に生じうる（Task 115.171。要件4.14）。
+   *
+   * 従前の呼称 `MAX_SIZE_BYTES` は「最大ファイルサイズ」と読めたが、上記のとおり
+   * 実態は圧縮を開始する閾値であり、名前が実態を表していなかった（Task 115.209 で改名）。
    */
-  static readonly MAX_SIZE_BYTES = 300 * 1024;
+  static readonly COMPRESSION_START_THRESHOLD_BYTES = 300 * 1024;
 
   /**
-   * 圧縮目標の下限（250KB）
-   */
-  static readonly TARGET_MIN_SIZE_BYTES = 250 * 1024;
-
-  /**
-   * 圧縮目標の上限（350KB）
+   * 圧縮の打ち切りサイズ（350KB）
+   *
+   * 段階的に品質とサイズを下げ、この値以下に収まった時点で圧縮を打ち切る。
+   * 下限は定めない。よく圧縮できる画像は品質90の一度の再エンコードでこの値を
+   * 大きく下回るが、下限へ戻すには品質を上げ直すか拡大するしかなく、
+   * 元画像より劣化した状態で容量だけ増やすことになるためである（Requirement 4.6）。
+   *
+   * **上限でもない。** 品質もリサイズも下限まで下げてこの値に収まらなかった場合は、
+   * そこで打ち切ってその結果を返し、呼び出し元はこの値を超えたまま登録する
+   * （Requirement 4.14。Task 115.208 で要件へ引き上げた）。
    */
   static readonly TARGET_MAX_SIZE_BYTES = 350 * 1024;
 
@@ -185,16 +261,22 @@ export class ImageProcessorService {
    *
    * Requirements: 4.4
    *
+   * 出力形式は既定で元画像の形式を保つ。保存先が拡張子やContent-Typeで形式を
+   * 申告する場合は `options.outputFormat` で形式を固定し、申告と実体を一致させる
+   * （Task 115.18）。
+   *
    * @param buffer - 元画像バッファ
    * @param width - サムネイル幅（デフォルト: 200px）
    * @param height - サムネイル高さ（デフォルト: 200px）
+   * @param options - 生成オプション（出力形式）
    * @returns サムネイルバッファ
    * @throws {ImageProcessingError} サムネイル生成に失敗した場合
    */
   async generateThumbnail(
     buffer: Buffer,
     width: number = ImageProcessorService.THUMBNAIL_WIDTH,
-    height: number = ImageProcessorService.THUMBNAIL_HEIGHT
+    height: number = ImageProcessorService.THUMBNAIL_HEIGHT,
+    options: GenerateThumbnailOptions = {}
   ): Promise<Buffer> {
     try {
       const metadata = await this.getMetadata(buffer);
@@ -207,7 +289,9 @@ export class ImageProcessorService {
       });
 
       // フォーマットに応じた出力設定
-      this.applyFormatSettings(instance, metadata.format, 80);
+      // 出力形式が指定された場合は元画像の形式ではなく指定形式で書き出す
+      const outputFormat = options.outputFormat === 'jpeg' ? 'jpeg' : metadata.format;
+      this.applyFormatSettings(instance, outputFormat, 80);
 
       return await instance.toBuffer();
     } catch (error) {
@@ -225,8 +309,11 @@ export class ImageProcessorService {
   /**
    * 画像を圧縮
    *
-   * Requirements: 4.6
-   * 300KB超過時は品質を10%ずつ下げながら、250KB〜350KBの範囲に収める
+   * Requirements: 4.6, 4.14
+   * 300KB超過時は品質を10%ずつ下げ、品質だけで収まらない場合にのみリサイズへ移り、
+   * 350KB以下に収まった時点で打ち切る。
+   * **下限まで下げても収まらない場合は、そこで打ち切って最後の段階の結果を返す**
+   * （要件4.14。例外は投げず、呼び出し元はその結果をそのまま登録する）。
    *
    * @param buffer - 元画像バッファ
    * @returns 圧縮結果
@@ -237,11 +324,11 @@ export class ImageProcessorService {
       const originalMetadata = await this.getMetadata(buffer);
 
       // 300KB以下の場合は圧縮不要
-      if (originalMetadata.size <= ImageProcessorService.MAX_SIZE_BYTES) {
+      if (originalMetadata.size <= ImageProcessorService.COMPRESSION_START_THRESHOLD_BYTES) {
         return {
           buffer,
           metadata: originalMetadata,
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         };
       }
 
@@ -296,7 +383,6 @@ export class ImageProcessorService {
   ): Promise<CompressedImage> {
     let currentBuffer = buffer;
     let currentQuality = 90; // 初期品質
-    let resizeRatio = 1.0;
     let currentMetadata = originalMetadata;
 
     // 品質を段階的に下げて圧縮
@@ -306,12 +392,12 @@ export class ImageProcessorService {
     ) {
       const instance = this.sharp(buffer);
 
-      // リサイズが必要な場合は適用
-      if (resizeRatio < 1.0) {
-        const newWidth = Math.round(originalMetadata.width * resizeRatio);
-        const newHeight = Math.round(originalMetadata.height * resizeRatio);
-        instance.resize(newWidth, newHeight);
-      }
+      // このループはリサイズを行わない。以前あった `if (resizeRatio < 1.0)` は、
+      // `resizeRatio` を下げるのが後段のリサイズのループだけで、そこへ入るのは
+      // このループを抜けたあとであるため恒偽であった（Task 115.171 で撤去）。
+      // `resizeRatio` の宣言は後段のループの直前へ移してある。これにより宣言位置を
+      // 保ったままこの分岐を書き戻すと TDZ で型検査が落ちる。宣言ごと元位置へ戻せば
+      // 型検査は通るが、その場合も恒偽のままで挙動は変わらない。
 
       // 品質設定を適用
       this.applyFormatSettings(instance, originalMetadata.format, currentQuality);
@@ -319,16 +405,13 @@ export class ImageProcessorService {
       currentBuffer = await instance.toBuffer();
       currentMetadata = await this.getMetadata(currentBuffer);
 
-      // サイズが目標範囲内ならOK
-      if (this.isWithinTargetRange(currentMetadata.size)) {
-        break;
-      }
-
-      // 品質を下げる
+      // 打ち切りサイズ以下に収まった場合はループ継続条件が偽になり、ここで圧縮は終わる。
+      // 収まらなかった場合のみ品質を下げて次の段階へ進む。
       currentQuality -= ImageProcessorService.QUALITY_STEP;
     }
 
     // 品質だけでは不十分な場合、リサイズを適用
+    let resizeRatio = 1.0;
     while (
       currentMetadata.size > ImageProcessorService.TARGET_MAX_SIZE_BYTES &&
       resizeRatio > ImageProcessorService.MIN_RESIZE_RATIO
@@ -349,30 +432,13 @@ export class ImageProcessorService {
 
       currentBuffer = await instance.toBuffer();
       currentMetadata = await this.getMetadata(currentBuffer);
-
-      if (this.isWithinTargetRange(currentMetadata.size)) {
-        break;
-      }
     }
 
     return {
       buffer: currentBuffer,
       metadata: currentMetadata,
-      wasCompressed: true,
+      originalExceededSizeLimit: true,
     };
-  }
-
-  /**
-   * サイズが目標範囲内かチェック
-   *
-   * @param size - ファイルサイズ
-   * @returns 目標範囲内ならtrue
-   */
-  private isWithinTargetRange(size: number): boolean {
-    return (
-      size >= ImageProcessorService.TARGET_MIN_SIZE_BYTES &&
-      size <= ImageProcessorService.TARGET_MAX_SIZE_BYTES
-    );
   }
 
   /**

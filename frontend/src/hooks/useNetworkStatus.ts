@@ -7,7 +7,7 @@
  * オフライン時の警告表示・保存操作のブロック・オンライン復帰時の通知を提供する。
  *
  * @see design.md - ネットワーク状態管理フロー
- * @see requirements.md - 要件13.6
+ * @see requirements.md - 要件15.6
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -71,7 +71,8 @@ export interface UseNetworkStatusReturn {
 /**
  * オフライン時の警告メッセージ
  */
-const OFFLINE_WARNING_MESSAGE = 'ネットワーク接続がありません。保存操作は接続復帰後に行えます。';
+export const OFFLINE_WARNING_MESSAGE =
+  'ネットワーク接続がありません。保存操作は接続復帰後に行えます。';
 
 /**
  * ネットワーク状態を監視するカスタムフック

@@ -10,7 +10,9 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * 顧客選択時の住所自動入力のE2Eテスト
@@ -186,16 +188,7 @@ test.describe('顧客選択時の住所自動入力', () => {
 
     // 営業担当者の選択を確認
     const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     // 現場住所が空であることを確認
     const siteAddressInput = page.getByLabel(/現場住所/i);
@@ -247,11 +240,10 @@ test.describe('顧客選択時の住所自動入力', () => {
    * テスト後のクリーンアップ
    */
   test('クリーンアップ: テスト用取引先を削除する', async ({ page }) => {
-    // 取引先が作成されていない場合はスキップ
-    if (!createdTradingPartnerId) {
-      test.skip();
-      return;
-    }
+    // 前提（事前準備で作成した取引先）が用意できていなければその場で失敗させる。
+    // 以前は引数なしの test.skip で後始末ごと消していたため、作成の失敗が黙って通り、
+    // かつテストデータが残留していた（AI運用7原則 第3原則、Task 115.127 段0）。
+    assertPrepared(createdTradingPartnerId, '事前準備で作成したテスト用取引先のID');
 
     await loginAsUser(page, 'REGULAR_USER');
 
@@ -261,12 +253,12 @@ test.describe('顧客選択時の住所自動入力', () => {
 
     // 削除ボタンが存在する場合はクリック
     const deleteButton = page.getByRole('button', { name: /削除/i });
-    if (await deleteButton.isVisible({ timeout: getTimeout(5000) }).catch(() => false)) {
+    if (await isVisibleWithin(deleteButton, getTimeout(5000))) {
       await deleteButton.click();
 
       // 確認ダイアログで削除を確認
       const confirmButton = page.getByRole('button', { name: /削除する|はい|確認/i });
-      if (await confirmButton.isVisible({ timeout: getTimeout(3000) }).catch(() => false)) {
+      if (await isVisibleWithin(confirmButton, getTimeout(3000))) {
         await confirmButton.click();
       }
     }

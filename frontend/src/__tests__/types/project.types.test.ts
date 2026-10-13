@@ -102,7 +102,7 @@ describe('Project Types', () => {
     });
 
     it('should have correct Japanese labels', () => {
-      expect(TRANSITION_TYPE_LABELS.initial).toBe('初期遷移');
+      expect(TRANSITION_TYPE_LABELS.initial).toBe('初期登録');
       expect(TRANSITION_TYPE_LABELS.forward).toBe('順方向遷移');
       expect(TRANSITION_TYPE_LABELS.backward).toBe('差し戻し遷移');
       expect(TRANSITION_TYPE_LABELS.terminate).toBe('終端遷移');
@@ -169,7 +169,7 @@ describe('Project Types', () => {
 
   describe('getTransitionTypeLabel', () => {
     it('should return correct Japanese label for valid transition type', () => {
-      expect(getTransitionTypeLabel('initial')).toBe('初期遷移');
+      expect(getTransitionTypeLabel('initial')).toBe('初期登録');
       expect(getTransitionTypeLabel('forward')).toBe('順方向遷移');
       expect(getTransitionTypeLabel('backward')).toBe('差し戻し遷移');
       expect(getTransitionTypeLabel('terminate')).toBe('終端遷移');
@@ -368,7 +368,7 @@ describe('Project Types', () => {
           toStatus: 'PREPARING',
           toStatusLabel: '準備中',
           transitionType: 'initial',
-          transitionTypeLabel: '初期遷移',
+          transitionTypeLabel: '初期登録',
           reason: null,
           changedBy: {
             id: '123e4567-e89b-12d3-a456-426614174001',

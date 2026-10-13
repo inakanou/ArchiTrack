@@ -5,7 +5,9 @@
  *
  * Requirements (project-management):
  * - REQ-20.1: すべての操作をキーボードのみで実行可能にする
- * - REQ-20.4: フォーカス状態を視覚的に明確に表示
+ *
+ * フォーカス状態の視覚的な表示は本ファイルでは担わない。本番の画面のフォーカス表示は
+ * `src/index.css` の `@layer base` の `:focus-visible` が描く。
  */
 
 // ============================================================================
@@ -26,7 +28,9 @@ export const FOCUSABLE_SELECTOR = [
 
 /**
  * フォーカス状態の視覚的スタイル（WCAG 2.1 準拠）
- * @requirement project-management/REQ-20.4: フォーカス状態を視覚的に明確に表示
+ *
+ * 本番の画面はこの定数を参照しない。本番のフォーカス表示は `src/index.css` の
+ * `:focus-visible` の規則が描く。
  */
 export const FOCUS_VISIBLE_STYLES: React.CSSProperties = {
   outline: '2px solid #2563eb',

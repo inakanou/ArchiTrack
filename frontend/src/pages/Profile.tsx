@@ -5,12 +5,12 @@
  * 要件27B: 二要素認証（2FA）管理機能
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { apiClient } from '../api/client';
+import { getCurrentUser, updateProfile, isProfileConflictError } from '../api/auth';
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator';
 import type {
-  UpdateProfileFormData,
   ChangePasswordFormData,
   PasswordStrengthResult,
   PasswordRequirements,
@@ -72,6 +72,22 @@ function evaluatePasswordStrength(password: string): {
   };
 }
 
+/**
+ * GET / PATCH /api/v1/auth/me の応答から表示名と版（updatedAt）を取り出す
+ *
+ * 応答が想定の形でないとき（取得できなかったときなど）は null を返す。
+ */
+function readProfileSnapshot(response: unknown): { displayName: string; updatedAt: string } | null {
+  if (typeof response !== 'object' || response === null) {
+    return null;
+  }
+  const { displayName, updatedAt } = response as { displayName?: unknown; updatedAt?: unknown };
+  if (typeof displayName !== 'string' || typeof updatedAt !== 'string') {
+    return null;
+  }
+  return { displayName, updatedAt };
+}
+
 export function Profile() {
   const { user: authUser, logout } = useAuth();
 
@@ -80,9 +96,21 @@ export function Profile() {
 
   // ユーザー情報編集
   const [displayName, setDisplayName] = useState(user?.displayName || '');
+  // 保存済みの表示名（変更検知の基準）。取得・保存のたびにサーバーの値へ揃える
+  const [savedDisplayName, setSavedDisplayName] = useState(user?.displayName || '');
   const [isProfileChanged, setIsProfileChanged] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
+
+  // 要件25.8: 楽観的ロックの版（表示中の内容を取得した時点の updatedAt）
+  const [profileVersion, setProfileVersion] = useState<string | null>(null);
+  // 画面を開いたときの版の取得中は保存させない（版なしで送らないため）
+  const [profileVersionLoading, setProfileVersionLoading] = useState(true);
+  // 409 PROFILE_CONFLICT を受けた状態（最新の内容の再取得を促す）
+  const [profileConflict, setProfileConflict] = useState(false);
+  const [profileReloading, setProfileReloading] = useState(false);
+  const savedDisplayNameRef = useRef(savedDisplayName);
+  savedDisplayNameRef.current = savedDisplayName;
 
   // パスワード変更
   const [currentPassword, setCurrentPassword] = useState('');
@@ -121,13 +149,55 @@ export function Profile() {
   useEffect(() => {
     if (user?.displayName) {
       setDisplayName(user.displayName);
+      setSavedDisplayName(user.displayName);
     }
   }, [user?.displayName]);
 
+  /**
+   * サーバーから取得した内容（表示名と版）を画面の基準として採用する
+   *
+   * @param overwriteInput true なら入力欄も取得した表示名で置き換える。false なら
+   *   未編集（入力欄が保存済みの表示名と同じ）のときだけ置き換え、編集中の入力は残す
+   */
+  const adoptProfileSnapshot = useCallback(
+    (snapshot: { displayName: string; updatedAt: string }, overwriteInput: boolean) => {
+      const previousSaved = savedDisplayNameRef.current;
+      setSavedDisplayName(snapshot.displayName);
+      setProfileVersion(snapshot.updatedAt);
+      setDisplayName((current) =>
+        overwriteInput || current === previousSaved ? snapshot.displayName : current
+      );
+    },
+    []
+  );
+
+  // 要件25.8: 画面を開いたときに現在の内容と版（updatedAt）を取得する
+  useEffect(() => {
+    let cancelled = false;
+    const loadProfileVersion = async () => {
+      try {
+        const snapshot = readProfileSnapshot(await getCurrentUser());
+        if (!cancelled && snapshot) {
+          adoptProfileSnapshot(snapshot, false);
+        }
+      } catch {
+        // 取得できないときは版なしで保存する（サーバーは版を比べずに更新する）
+      } finally {
+        if (!cancelled) {
+          setProfileVersionLoading(false);
+        }
+      }
+    };
+    void loadProfileVersion();
+    return () => {
+      cancelled = true;
+    };
+  }, [adoptProfileSnapshot]);
+
   // 表示名変更検知
   useEffect(() => {
-    setIsProfileChanged(displayName !== user?.displayName);
-  }, [displayName, user?.displayName]);
+    setIsProfileChanged(displayName !== savedDisplayName);
+  }, [displayName, savedDisplayName]);
 
   // 新しいパスワードの強度評価
   useEffect(() => {
@@ -183,24 +253,57 @@ export function Profile() {
   const handleSaveProfile = async () => {
     setProfileLoading(true);
     setProfileMessage('');
+    setProfileConflict(false);
 
     try {
-      const response = await apiClient.patch<UserProfile>('/api/v1/auth/me', {
+      // 要件25.8: 表示中の内容を取得した時点の版を送り、他の更新との競合を検出させる
+      const response = await updateProfile({
         displayName,
-      } as UpdateProfileFormData);
+        ...(profileVersion ? { expectedUpdatedAt: profileVersion } : {}),
+      });
 
       // ベストプラクティス: レスポンスから最新のユーザー情報を取得してローカルstateを同期
       // これにより、ページリロード時に正しく表示される
-      if (response && response.displayName) {
+      const snapshot = readProfileSnapshot(response);
+      if (snapshot) {
+        // 保存後の新しい版を採用し、続けて保存しても競合にならないようにする
+        adoptProfileSnapshot(snapshot, true);
+      } else if (response && response.displayName) {
         setDisplayName(response.displayName);
+        setSavedDisplayName(response.displayName);
       }
 
       setProfileMessage('プロフィールを更新しました');
       setIsProfileChanged(false);
-    } catch {
-      setProfileMessage('プロフィールの更新に失敗しました');
+    } catch (error) {
+      if (isProfileConflictError(error)) {
+        setProfileConflict(true);
+      } else {
+        setProfileMessage('プロフィールの更新に失敗しました');
+      }
     } finally {
       setProfileLoading(false);
+    }
+  };
+
+  /**
+   * 要件25.8: 競合のあとに最新の内容（表示名と版）を取得し直す
+   */
+  const handleReloadProfile = async () => {
+    setProfileReloading(true);
+    setProfileMessage('');
+    try {
+      const snapshot = readProfileSnapshot(await getCurrentUser());
+      if (!snapshot) {
+        throw new Error('Invalid profile response');
+      }
+      adoptProfileSnapshot(snapshot, true);
+      setProfileConflict(false);
+      setProfileMessage('最新の内容を読み込みました');
+    } catch {
+      setProfileMessage('最新の内容の読み込みに失敗しました');
+    } finally {
+      setProfileReloading(false);
     }
   };
 
@@ -575,7 +678,7 @@ export function Profile() {
           {/* 保存ボタン */}
           <button
             onClick={handleSaveProfile}
-            disabled={!isProfileChanged || profileLoading}
+            disabled={!isProfileChanged || profileLoading || profileVersionLoading}
             aria-label="保存"
             style={{
               padding: '0.5rem 1rem',
@@ -603,6 +706,45 @@ export function Profile() {
               }}
             >
               {profileMessage}
+            </div>
+          )}
+
+          {/* 要件25.8: 楽観的ロックの競合（409 PROFILE_CONFLICT） */}
+          {profileConflict && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              data-testid="profile-conflict"
+              style={{
+                padding: '0.75rem',
+                borderRadius: '0.375rem',
+                backgroundColor: '#fef3c7',
+                color: '#92400e',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem',
+              }}
+            >
+              <span>
+                プロフィールを保存できませんでした。画面を開いた後にプロフィールが更新されています（ログインなどの操作でも更新されることがあります）。最新の内容を読み込んでから、もう一度保存してください。
+              </span>
+              <button
+                type="button"
+                onClick={handleReloadProfile}
+                disabled={profileReloading}
+                style={{
+                  alignSelf: 'flex-start',
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#92400e',
+                  color: 'white',
+                  borderRadius: '0.375rem',
+                  border: 'none',
+                  cursor: profileReloading ? 'not-allowed' : 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                {profileReloading ? '読み込み中...' : '最新の内容を読み込む'}
+              </button>
             </div>
           )}
         </div>

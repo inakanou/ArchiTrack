@@ -42,7 +42,8 @@ export interface EstimateRequestTextPanelProps {
    *   内訳書未紐付け時はチェックボックスを非表示とする
    * - 本コンポーネントはチェックボックス本体を保有しないため、現状は条件レンダリングの
    *   対象がないが、将来このパネル内に「内訳書を本文に含める」要素が移設された場合の
-   *   ガード経路として props 契約を提供する（design.md 5576-5586）
+   *   ガード経路として props 契約を提供する
+   *   （design.md「EstimateRequestTextPanel（改訂）」の §Implementation Notes）
    */
   showIncludeBreakdownToggle?: boolean;
   /**
@@ -51,6 +52,12 @@ export interface EstimateRequestTextPanelProps {
    * 未指定時は安全側に倒し非活性（理由表示）とする。
    */
   method?: EstimateRequestMethod;
+  /**
+   * 見積依頼文を取得できなかった理由の案内（Task 97.2）。
+   * `text` が null のとき、指定があれば汎用の「見積依頼文を取得できませんでした」の代わりに表示する。
+   * 例: 「内訳書を本文に含める」が ON で項目が 0 件のとき（422 `NO_ITEMS_SELECTED`）の案内
+   */
+  errorMessage?: string | null;
 }
 
 // ============================================================================
@@ -326,6 +333,7 @@ export function EstimateRequestTextPanel({
   // 親（EstimateRequestDetailPage）の `hasItemizedStatement` 値の伝搬契約として保持する。
   showIncludeBreakdownToggle: _showIncludeBreakdownToggle = true,
   method,
+  errorMessage = null,
 }: EstimateRequestTextPanelProps) {
   // ============================================================================
   // メーラー起動の派生値（Req 41）— props からの算出のみ。追加 state は持たない。
@@ -370,12 +378,12 @@ export function EstimateRequestTextPanel({
     );
   }
 
-  // エラー（textがnull）
+  // エラー（textがnull）。理由の案内があればそれを、無ければ汎用の文言を表示する（Task 97.2）
   if (!text) {
     return (
       <div style={styles.panel} role="region" aria-label="見積依頼文">
         <div style={styles.errorContainer}>
-          <span>見積依頼文を取得できませんでした</span>
+          <span>{errorMessage ?? '見積依頼文を取得できませんでした'}</span>
         </div>
       </div>
     );

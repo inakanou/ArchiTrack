@@ -18,6 +18,10 @@
  * `calculate-net` / `apply-profit-rate`）」の出力に一致することを固定値で確認する。
  * 固定値は backend の `EstimateCalculationService` を同一入力で実行して採取したもの。
  *
+ * 案分の `EstimateCalculator` との突き合わせは、本番から使われなくなった
+ * `previewNetAllocation` を取り除いたため持たない（タスク 61.4）。案分の一致は
+ * 固定値と NetAllocationDialog のインライン計算との突き合わせで確認する。
+ *
  * Design: design.md `#### Frontend Domain` > `##### estimateCalculations`
  */
 
@@ -260,34 +264,6 @@ describe('allocateNet', () => {
 
     expect(at(results, 0).allocatedAmount.toString()).toBe('-501'); // -500.5 → -501
     expect(at(results, 0).unitPrice.toString()).toBe('-251'); // -250.5 → -251
-  });
-
-  it('現行のプレビュー実装（EstimateCalculator.previewNetAllocation）と一致する', () => {
-    const rows = allocationFixture().filter(
-      (r) => r.itemType !== 'DISCOUNT' && r.itemType !== 'NOTE'
-    );
-    const excludeKeys = new Set<string>(['item-4']);
-
-    const actual = allocateNet(rows, new Decimal('4000'), excludeKeys);
-    const legacy = EstimateCalculator.previewNetAllocation(
-      rows.map((r) => ({
-        id: String(r.key),
-        amount: r.amount === null ? null : r.amount.toString(),
-      })),
-      Array.from(excludeKeys),
-      '4000'
-    );
-
-    expect(actual).toHaveLength(legacy.length);
-    actual.forEach((r, i) => {
-      const expected = at(legacy, i);
-      expect(r.key).toBe(expected.lineId);
-      expect(r.allocatedAmount.toString()).toBe(expected.allocatedAmount);
-      // 現行プレビューは比率を百分率・小数2桁の文字列で保持する
-      expect(`${r.ratio.mul(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toString()}%`).toBe(
-        expected.ratio
-      );
-    });
   });
 
   it('現行のダイアログのインライン計算（NetAllocationDialog）と一致する', () => {

@@ -11,10 +11,13 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
 import { getAnnotation } from '../../api/survey-annotations';
+import { useInViewport } from '../../hooks/useInViewport';
 import type { AnnotationInfo } from '../../types/site-survey.types';
 import { logger } from '../../utils/logger';
 // カスタムシェイプをFabric.jsクラスレジストリに登録
 import './tools/registerCustomShapes';
+// 集合体へ複写された線幅は実描画から導出し直す（詳細は annotation-restore-scale.ts）。
+import { resolveRestoredStrokeWidth } from './annotation-restore-scale';
 
 // ============================================================================
 // 型定義
@@ -33,10 +36,26 @@ export interface AnnotatedImageInput {
   mediumUrl?: string | null;
   /** サムネイル画像URL（署名付きURL、preferThumbnail指定時に最優先で使用） */
   thumbnailUrl?: string | null;
+  /**
+   * 注釈付きサムネイルURL（署名付きURL、サーバーサイド生成）
+   *
+   * 注釈保存時にサーバー側で生成される合成済みサムネイル。preferThumbnail 指定時は
+   * これを最優先で使用し、注釈取得APIとクライアントサイド合成を完全に省略する。
+   */
+  annotatedThumbnailUrl?: string | null;
   /** オリジナル画像パス（フォールバック用） */
   originalPath?: string;
   /** ファイル名 */
   fileName?: string;
+  /**
+   * 画像の実寸（ピクセル）
+   *
+   * 未読込の状態でも表示領域を確保するために用いる。省略した場合や値が正でない場合は
+   * `width` / `height` 属性を付けないため、表示領域の確保は呼び出し側が `style` で与える
+   * 寸法に委ねられる。実寸の有無は表示領域の観測の要否には関与しない。
+   */
+  width?: number;
+  height?: number;
 }
 
 export interface AnnotatedImageThumbnailProps {
@@ -61,9 +80,32 @@ export interface AnnotatedImageThumbnailProps {
    * サムネイルURLを最優先で使用するか。
    * 一覧グリッドのような縮小表示で、フル解像度の原画像を読み込む代わりに
    * サムネイル画像を表示し、通信量と再描画コストを削減する。
+   *
+   * `true` のとき、サーバーサイド生成の注釈付きサムネイル（`annotatedThumbnailUrl`）が
+   * あればそれをそのまま表示し、注釈取得APIの呼び出しとFabric.jsによる
+   * クライアントサイド合成を行わない。写真が多い画面での画像1枚あたりの
+   * 追加リクエストと再描画コストを排除するための経路。
+   *
    * 既定は `false`（従来通り mediumUrl > originalUrl の順でフォールバック）。
    */
   preferThumbnail?: boolean;
+}
+
+// ============================================================================
+// 内部ヘルパ
+// ============================================================================
+
+/**
+ * 表示領域の確保に用いる寸法属性の値を返す
+ *
+ * 正の値のときだけ `width` / `height` 属性を与える。零や負の値をそのまま属性にすると
+ * 「大きさが零である」という指定になり、呼び出し側が `style` で与えた寸法と食い違う
+ * 記述が要素へ残る。実寸が未知であることは属性を付けないことで表す。
+ *
+ * @param value - 呼び出し側から渡された実寸（ピクセル）
+ */
+function reservationSize(value: number | undefined): number | undefined {
+  return typeof value === 'number' && value > 0 ? value : undefined;
 }
 
 // ============================================================================
@@ -98,6 +140,23 @@ export function AnnotatedImageThumbnail({
     ? (image.thumbnailUrl ?? image.mediumUrl ?? image.originalUrl ?? image.originalPath)
     : (image.mediumUrl ?? image.originalUrl ?? image.originalPath);
 
+  // サーバーサイドで合成済みの注釈付きサムネイル。縮小表示（preferThumbnail）のときのみ採用する。
+  // 拡大表示ではサムネイル解像度では不足するため、従来通りクライアントサイドで合成する。
+  const serverRenderedUrl = preferThumbnail ? (image.annotatedThumbnailUrl ?? null) : null;
+
+  // 表示領域の観測を行う条件は、即時取得（loading='eager'）でないことのみとする。
+  // 即時取得は拡大表示・単一画像表示の意図であり、観測すると表示が遅れるだけになる。
+  //
+  // 実寸の有無は観測の要否に用いない。実寸は表示領域を確保する手段のひとつにすぎず、
+  // 呼び出し側が CSS で固定寸法を与えていれば未読込でも要素は潰れない。実寸が無いことを
+  // 理由に観測を打ち切ると、代表画像の実寸を応答から受け取らない一覧系の呼び出し側では
+  // 表示領域外の画像まで一斉に取得され、Requirement 38.6 / 38.8 が成立しなくなる。
+  // 実寸も CSS 寸法も無く要素が潰れる場合は、全件が同時に交差判定されて即時取得と同じ
+  // 結果になるため、観測を続けても不利益はない（タスク 115.106）。
+  const { ref: imageRef, isInViewport } = useInViewport<HTMLImageElement>({
+    enabled: loading === 'lazy',
+  });
+
   /**
    * 画像をロードする
    */
@@ -115,6 +174,16 @@ export function AnnotatedImageThumbnail({
    * 注釈付き画像をレンダリングする
    */
   const renderAnnotatedImage = useCallback(async () => {
+    // サーバーサイド生成の注釈付きサムネイルがある場合は、それをそのまま表示する。
+    // 注釈取得API（getAnnotation）の呼び出しもFabric.jsによる合成も行わないため、
+    // 写真枚数に比例したリクエストとレンダリング負荷が発生しない。
+    if (serverRenderedUrl) {
+      setRenderedUrl(serverRenderedUrl);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
     if (!originalImageUrl) {
       setError('画像URLがありません');
       setIsLoading(false);
@@ -224,10 +293,16 @@ export function AnnotatedImageThumbnail({
               scaleY: (fabricObj.scaleY ?? 1) * scaleY,
             });
 
-            // ストローク幅もスケール（平均スケールを使用）
+            // ストローク幅の解決（Task 115.110, Req 32.2）
+            // 復元処理（AnnotationEditor）と同じ方式へ揃える。集合体（Group）の注釈は
+            // 実描画を子が保持し、表示倍率は上の scaleX / scaleY 経由で子へ伝搬する。
+            // 集合体自身の strokeWidth は子から複写された後方互換用の値であり、ここへ
+            // 重ねて倍率を掛けると複写元（実描画）と座標系が食い違う。
             const avgScale = (scaleX + scaleY) / 2;
             if (fabricObj.strokeWidth) {
-              fabricObj.set({ strokeWidth: fabricObj.strokeWidth * avgScale });
+              fabricObj.set({
+                strokeWidth: resolveRestoredStrokeWidth(fabricObj, fabricObj.strokeWidth, avgScale),
+              });
             }
           }
 
@@ -264,7 +339,7 @@ export function AnnotatedImageThumbnail({
         setIsLoading(false);
       }
     }
-  }, [image.id, originalImageUrl, loadImageElement, hasAnnotations]);
+  }, [image.id, originalImageUrl, serverRenderedUrl, loadImageElement, hasAnnotations]);
 
   // コンポーネントのマウント/アンマウント管理
   useEffect(() => {
@@ -275,13 +350,18 @@ export function AnnotatedImageThumbnail({
   }, []);
 
   // 画像のレンダリング
+  // 表示領域へ到達するまでは開始しない。注釈取得APIの呼び出しと Fabric.js による合成は
+  // いずれもこの経路にあるため、表示領域外の画像に対して通信も描画も発生しない。
   useEffect(() => {
+    if (!isInViewport) {
+      return;
+    }
     // 非同期関数を定義して即時実行することで、ESLintの警告を回避
     const executeRender = async () => {
       await renderAnnotatedImage();
     };
     void executeRender();
-  }, [renderAnnotatedImage]);
+  }, [isInViewport, renderAnnotatedImage]);
 
   // エラー時のフォールバック表示
   if (error) {
@@ -305,9 +385,13 @@ export function AnnotatedImageThumbnail({
   }
 
   // ローディング中は元画像を表示（注釈のレンダリング完了後に差し替え）
+  // 表示領域へ到達するまでは src を与えず、実寸のみで領域を確保する。
   return (
     <img
-      src={renderedUrl ?? originalImageUrl}
+      ref={imageRef}
+      src={isInViewport ? (renderedUrl ?? serverRenderedUrl ?? originalImageUrl) : undefined}
+      width={reservationSize(image.width)}
+      height={reservationSize(image.height)}
       alt={alt}
       style={{
         ...style,

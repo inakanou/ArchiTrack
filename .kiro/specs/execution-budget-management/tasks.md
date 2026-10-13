@@ -313,3 +313,84 @@
   - フロントエンドのルーティング（実行予算ページ、発注詳細ページ、出来高入力ページ）を設定する
   - 全機能の画面遷移フローが正常に動作することを確認する
   - _Requirements: 1.1, 5.3, 19.2, 19.3, 19.4, 19.5, 19.6_
+
+## タスク15: 除外一覧が名乗る検証道具名を実体へ揃える
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化し、その `### 判定の一覧` の行7「他機能スペックの除外一覧の Jest 道具名」を**後続タスクへ送る**と裁定した。site-survey の Task 115.238 が申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey は自機能分 32 件を Task 115.121 で既に Vitest へ改めており、現場調査スペックの所管は 0 件である。
+
+**測った事実**（いずれもコミット `9e63637`、2026-09-02 にリポジトリルートで実測）:
+
+- **本リポジトリに Jest は存在しない。** `find . -name 'jest.config*' -not -path '*/node_modules/*' | wc -l` の出力が `0`。`package.json` / `backend/package.json` / `frontend/package.json` の依存に `jest` は無く、名前に jest を含むのは `frontend/package.json` の `@testing-library/jest-dom`（Vitest から使う照合子の集まりであって走者ではない）だけである
+- **単体・統合の走者は backend / frontend とも Vitest である。** 両者の `npm test` はいずれも `vitest run` であり、`backend/vitest.config.ts` / `backend/vitest.integration.config.ts` / `frontend/vitest.config.ts` が実在する
+- **利用の実測**: `grep -rlE "from ['\"]vitest['\"]" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` の出力が `757` である。**同じ走査根・同じ glob** で `grep -rlE "from ['\"]@jest/globals['\"]|\bjest\.(fn|mock|spyOn)\(" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` を測ると出力は `0` である。**総数 `757` を併記するのは、`0` だけでは「走査根を読めていない」場合と区別できないためである**——同じ式を実在しないパスへ当てても出力は同じく `0` になる（2026-09-02 に実測）
+- **提案が生きていること**: `node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `64 0`（後の `0` が現場調査スペックの分）
+- **機械保証は無い。断定でなく変異で示す**（115.235 の作法）: `e2e/requirement-exclusions.schema.json` は `tool` を `{ "type": "string", "minLength": 1 }` としか定めず、道具の実在を見ない。実在しない道具名 `Kaboomtest 9000 / Nonexistent Runner` へ一件を差し替える変異を当てても `npm run check:req-exclusions` は 205 件を検査して終了コード 0 のままである（2026-09-02 に実測。変異は複製からの書き戻しで復元し、blob ハッシュが `HEAD` と一致することで確かめた）
+
+**是正すると別の関門が赤くなる。着手前に読むこと**: 上の `node -e` の出力 `64 0` は `scripts/design-measurements.json` の宣言 `jest-alternative-verification-exclusions` に固定されており、`.kiro/specs/site-survey/design.md` の台帳の再現コマンド 5 の行と双方向で突き合わされる。**一件でも道具名から Jest を落とすと `npm run check:design-measurement-freshness` が「expected=`64 0` actual=`63 0`」として終了コード 1 で落ちる**（`company-info/REQ-6.9` の道具名を実在しない `Kaboomtest 9000 / Nonexistent Runner` へ差し替える変異を実際に当てて実測。2026-09-02、コミット `9e63637` にリポジトリルートで実測。変異は事前複製からの `cp` で復元し、`git hash-object e2e/requirement-exclusions.json` が `HEAD` の blob `77d4bb8443f19bc5c2de768c866eae1943175a6d` と一致することで確かめた）。宣言の解除と台帳の追随は**現場調査スペックの Task 115.280 が所管する**。
+
+**同じ変異を当てたまま測った他の関門の実測**（走査の範囲は日本語でなくコマンドで宣言する。2026-09-02、コミット `9e63637` にリポジトリルートで実測）: 測ったのは `npm run` に与える名で `check:req-exclusions` / `check:req-exclusions:selftest` / `check:req-coverage` / `check:trace-coverage` / `check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:cf-evidence` / `check:steering-refs` / `check:steering-idents` / `check:steering-test-tree` / `lint` / `type-check` / `format:check` の **14 本**である。**いずれも基線と同じ終了コードのままであった。ただし `check:req-coverage` は基線から既に終了コード 1 であり（到達被覆 2632/2684 = 98.1%、未カバー 215 件）、変異の前後で変わらない**——「14 本が緑のままであった」のではない。**終了コードが動かないことと出力が動かないことも別である**: 14 本のうち 13 本は基線と出力まで一致したが、`check:req-coverage` だけは除外一覧の監査の内訳が「リポジトリ外の代替検証: 32件 / リポジトリ内検証あり: 22件」から「33件 / 21件」へ変わる（差分はこの 2 行のみで、終了コードも被覆率も動かない）。**着手時にはこの 14 本と `check:design-measurement-freshness` を自分で測り直し、実測日とコミットハッシュを添えること**（115.212 の規約）。
+
+**是正先**:
+
+1. `e2e/requirement-exclusions.json` の下表の `alternativeVerification.tool`
+2. 本スペックの設計文書——**ただし実測では該当が 0 件である。** `for f in .kiro/specs/*/design.md; do printf '%s %s\n' "$f" "$(grep -c Jest "$f")"; done` を走らせると、`Jest` を挙げる設計文書は 13 スペックのうち `site-survey` の 1 件（6 箇所）だけで、他の 12 スペックはいずれも `0` である（2026-09-02 に実測）。台帳の行7 は是正先に「各機能スペックの設計文書」を挙げているが、起票の時点で当たりが無い。**この `0` は着手時に測り直すこと**
+
+**本スペックの所管は 9 件で、全件を次に挙げる**（2026-09-02 に実測。抜き取りではない）:
+
+| id | 現在の `alternativeVerification.tool` |
+|---|---|
+| `execution-budget-management/REQ-18.1` | `Jest / Vitest` |
+| `execution-budget-management/REQ-18.3` | `Jest / Vitest` |
+| `execution-budget-management/REQ-19.2` | `Jest / Supertest` |
+| `execution-budget-management/REQ-19.3` | `Jest / Supertest` |
+| `execution-budget-management/REQ-19.4` | `Jest / Supertest` |
+| `execution-budget-management/REQ-19.5` | `Jest / Supertest` |
+| `execution-budget-management/REQ-19.6` | `Jest / Supertest` |
+| `execution-budget-management/REQ-19.7` | `Jest / Vitest` |
+| `execution-budget-management/REQ-19.9` | `Jest / Supertest` |
+
+- [x] 15.1 除外一覧の道具名を実体へ揃える
+  - 上表 9 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
+  - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
+  - **`Jest / Vitest` の 3 件（`REQ-18.1` / `REQ-18.3` / `REQ-19.7`）は、`Jest` を落とすだけで `Vitest` になる。** 先頭を置換すると `Vitest / Vitest` という重複になるため、置換ではなく除去であること
+  - **`Jest / Supertest` の 6 件は併記の `Supertest` が実在する**（`backend/package.json` に `supertest@^7.1.4`。2026-09-02 に実測）ため据え置いてよい
+  - **道具名だけを機械的に置換して終えないこと。** 除外は受入基準を分母から丸ごと外すため、`description` が約束する代替検証が現に存在するかを一件ずつ確かめること。存在しないなら道具名の是正ではなく除外の取り下げが要る
+  - **JSON の整形は `npm run format:check` では見られない。** リポジトリルートの `format:check` は `prettier --check "e2e/**/*.{js,ts}" "playwright.config.{js,ts}" "scripts/**/*.ts"` であって JSON を含まず、`lint-staged` も `*.{js,ts}` だけを対象とする（2026-09-02 に実測）。`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること（現況は整形済みで終了コード 0。同日に実測）
+  - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本スペックの tasks.md は HEAD（コミット `9e63637`）で `_Requirements:` を 37 件持ち、`_Depends:` と `_Boundary:` はいずれも 0 件である（`git show HEAD:.kiro/specs/execution-budget-management/tasks.md | grep -c '_Requirements:'` ほか。2026-09-02 にリポジトリルートで実測）。**本節は受入基準を実装せず、除外一覧の記録の道具名を実体へ揃えるだけである。** 上表の id を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）、16.1、16.2_
+  - **16 の完了後に着手すること**（2026-09-29 の起票で追加）。着手時（HEAD `cb04eeb5`）の確認で、9 件のうち 8 件（18.3、19.2〜19.7、19.9）は代替検証の実在を確かめた。REQ-18.1 は 16.1 が補う
+  - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+
+## タスク16: 除外一覧が約束する金額精度の検証の欠落と、案分の丸めの誤差を正す
+
+**経緯**: Task 15.1 の着手時（2026-09-29、HEAD `cb04eeb5`）に、除外 9 件の代替検証を一件ずつ確かめたところ、`execution-budget-management/REQ-18.1`（`description`「金額計算で Decimal 型が使われ、浮動小数点誤差が起きないことを確認」、threshold `decimal_precision: exact`）の検証が**一部しか無い**ことが分かった。あわせて、案分の検証が**誤差を含む値を正解として固定している**ことが分かった。利用者の判断（2026-09-29）により、検証を補い、案分の誤差を調査して不具合なら直す。
+
+**測った事実**（2026-09-29、HEAD `cb04eeb5`）:
+
+- REQ-18.1: 列の型が Decimal であることは `backend/src/__tests__/unit/models/execution-budget.model.test.ts` と `execution-budget.migration.test.ts` が検証するが、**浮動小数点誤差が起きないことを主張する検証が無い**。`execution-budget.service.ts` の実行金額の計算を `Number` の掛け算に替える変異を当てても、`execution-budget.service.test.ts` は全件が緑のまま通る。誤差が表に出る入力は取りうる（数量は Decimal(15,4)。数量 `0.145` × 単価 `100` は Number で 14.499999999999998、Decimal で 14.5）
+- 案分: `backend/src/__tests__/unit/services/order.service.test.ts` の「確定発注金額をチェック済み項目の実行金額比率で案分する」は、実行金額 100000 / 200000・確定発注金額 270000 に対して `89999` / `180001` を正解として固定している。注記は「floor(100000/300000 * 270000) = floor(89999.999...) = 89999」。**正確な比率の案分は 90000 / 180000 で割り切れる**。比率を先に有限桁（decimal.js の既定 20 桁）で丸めてから掛けるため、誤差が生じていると推定される。Requirement 8 の受入基準 3（実行金額の比率で案分）・4（1 円未満の端数は最大の項目に加算）と Requirement 18 の受入基準 1・3 に照らして疑わしい
+
+- [x] 16.1 金額計算で浮動小数点誤差が起きないことを検証する
+  - 実行金額（数量 × 単価）など、本スペックの金額計算が Decimal で行われ、浮動小数点では誤差が出る入力（例: 数量 `0.145` × 単価 `100`）でも正確な値になることを主張する検証を置く
+  - 検証が意味を持つことを実測すること（計算を `Number` に替える変異で赤くなること）。既存の実装が既に正しければ検証の追加だけでよい
+  - _Requirements: 18.1_
+  - _Boundary: 本スペックの金額計算の精度の検証_
+
+- [x] 16.2 案分計算の丸めの誤差を調査し、不具合なら正す
+  - `order.service.ts` の案分が比率を先に丸めてから掛けているかをコードで確かめる。不具合であれば、掛け算を先に行い最後に割る（または同等に誤差の出ない）形へ改め、上の例で 90000 / 180000 となるようにする。端数の加算（Requirement 8 の受入基準 4）と合計の一致（Requirement 18 の受入基準 3）を保つこと
+  - 挙動の修正となる場合は RED → GREEN で進めること。誤差を含む値を固定している既存の検証は、正確な値の主張へ改める（検証を消さないこと）
+  - 同じ形（比率を先に丸める）の計算が本スペックの他の箇所（出来高・原価・月次締めなど）にあれば併せて確かめ、報告すること
+  - _Requirements: 8.3, 8.4, 18.1, 18.3_
+  - _Boundary: 本スペックの案分計算とその検証_
+
+- [x] 16.3 出来高入力画面の出来高率を backend と同じ精度で算出する
+  - **経緯**: 16.1 の実装とレビュー（2026-09-29、HEAD `6f37f358`）が、`frontend/src/pages/ProgressInputPage.tsx` の `calcProgressRate`（67 行付近）・合計の `reduce`（318 行付近）・`totalProgressRate`（323 行付近）が `Number` で計算していることを確かめた。出来高 23000 ÷ 実行金額 80000 で、画面は `'28.7'`、backend は `'28.8'` を返し、**同じ値の表示が画面と応答で食い違う**（node で実測）
+  - Requirement 18 の受入基準 1（金額計算に高精度 10 進数演算を使う）と受入基準 4（出来高率を小数点以下 1 桁で表示）に照らし、backend と同じ規則（decimal.js の既定の ROUND_HALF_UP、`toFixed(1)`）で算出すること。frontend で decimal.js が使えるか（依存にあるか）を確かめ、無ければ依存の追加の是非を報告すること（lockfile のずれの前例に注意）
+  - 挙動の修正であるため RED → GREEN で進めること。単体で `'28.8'` を主張するとともに、画面の表示を E2E で確かめること。計算順に左右されない入力（例 15 / 10000 → `'0.2'`）も併用する
+  - 同じページの `Math.round(executionAmount * 0.5 / 0.05)`（392・409・418 行付近）も同じ観点で確かめ、報告すること
+  - _Requirements: 18.1, 18.4_
+  - _Boundary: 出来高入力画面の出来高率の算出とその検証_
+
+## Implementation Notes
+- 16.1（2026-09-29）: 精度の検証の網羅は、design.md の構成要素（Service 6 つ → `execution-budget` / `order` / `progress` / `cost` / `monthly-close` / `order-export` / `progress-export` の 7 ファイル）から対象を決め、固定の grep の全ヒット行を RED / 同値 / 範囲外 / 対象外に理由付きで分類して突き合わせること。機能名の連想で対象を絞った 3 回が、毎回その回の指摘分だけを直す形になり差し戻された。Number の変異が区別できる入力は、2^53 を超える奇数の途中和（999999999999999×10 と 1 の並びの順序に注意）と、真値が二進で表せない比率（例 15/10000）で作る。fixture は案分の結果など実際に到達しうる状態であることを確かめる

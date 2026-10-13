@@ -36,7 +36,18 @@ const { mockSetCoords, mockSet } = vi.hoisted(() => {
 });
 
 // Fabric.jsのモック
-vi.mock('fabric', () => {
+//
+// Task 115.104 (Req 6.5): `_updateGeometry` が Group の外接矩形と子のローカル座標を
+// 再計算するようになったため、幾何演算は `fabric-geometry-mock` が実際に計算して供給する。
+vi.mock('fabric', async () => {
+  const {
+    MockPoint,
+    mockFabricUtil,
+    applyPathBounds,
+    relativeCenterOf,
+    acoordsOf,
+    layoutGroupChildren,
+  } = await import('../../../helpers/fabric-geometry-mock');
   class MockPath {
     path: string;
     stroke?: string;
@@ -53,6 +64,12 @@ vi.mock('fabric', () => {
     hasBorders?: boolean;
     objectCaching?: boolean;
 
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    pathOffset?: InstanceType<typeof MockPoint>;
+
     constructor(pathData?: string, options?: Record<string, unknown>) {
       this.path = pathData || '';
       this.opacity = 1;
@@ -60,6 +77,15 @@ vi.mock('fabric', () => {
       if (options) {
         Object.assign(this, options);
       }
+      applyPathBounds(this, this.path, true);
+    }
+
+    getRelativeCenterPoint() {
+      return relativeCenterOf(this);
+    }
+
+    calcACoords() {
+      return acoordsOf(this);
     }
 
     set(options: Record<string, unknown> | string, value?: unknown): this {
@@ -76,8 +102,9 @@ vi.mock('fabric', () => {
       mockSetCoords();
     }
 
-    _setPath(pathData: string): void {
+    _setPath(pathData: string, adjustPosition?: boolean): void {
       this.path = pathData;
+      applyPathBounds(this, pathData, adjustPosition);
     }
 
     toObject(): Record<string, unknown> {
@@ -101,6 +128,9 @@ vi.mock('fabric', () => {
     stroke?: string;
     strokeWidth?: number;
 
+    originX?: string;
+    originY?: string;
+
     constructor(text: string, options?: Record<string, unknown>) {
       this.text = text;
       this.width = Math.max(1, text.length * 7);
@@ -109,6 +139,18 @@ vi.mock('fabric', () => {
       if (options) {
         Object.assign(this, options);
       }
+    }
+
+    getRelativeCenterPoint() {
+      return relativeCenterOf(this);
+    }
+
+    calcACoords() {
+      return acoordsOf(this);
+    }
+
+    setCoords(): void {
+      mockSetCoords();
     }
 
     set(options: Record<string, unknown> | string, value?: unknown): this {
@@ -166,6 +208,10 @@ vi.mock('fabric', () => {
     lockMovementY: boolean;
     subTargetCheck: boolean;
 
+    dirty?: boolean;
+    originX?: string;
+    originY?: string;
+
     constructor(objects?: unknown[], options?: Record<string, unknown>) {
       this._objects = objects ? [...objects] : [];
       this.hasControls = true;
@@ -176,10 +222,33 @@ vi.mock('fabric', () => {
       if (options) {
         Object.assign(this, options);
       }
+      layoutGroupChildren(this, this._objects as Parameters<typeof layoutGroupChildren>[1]);
     }
 
     setCoords(): void {
       mockSetCoords();
+    }
+
+    getRelativeCenterPoint() {
+      return relativeCenterOf(this);
+    }
+
+    setPositionByOrigin(point: { x: number; y: number }): void {
+      this.left = point.x - (this.width ?? 0) / 2;
+      this.top = point.y - (this.height ?? 0) / 2;
+    }
+
+    calcOwnMatrix(): [number, number, number, number, number, number] {
+      const center = relativeCenterOf(this);
+      return [1, 0, 0, 1, center.x, center.y];
+    }
+
+    calcTransformMatrix(): [number, number, number, number, number, number] {
+      return this.calcOwnMatrix();
+    }
+
+    getViewportTransform(): [number, number, number, number, number, number] {
+      return [1, 0, 0, 1, 0, 0];
     }
 
     set(options: Record<string, unknown> | string, value?: unknown): this {
@@ -213,12 +282,24 @@ vi.mock('fabric', () => {
     }
   }
 
+  // Fabric `Control` の代替（端点ハンドル生成でのみ用いる）
+  class MockControl {
+    constructor(options?: Record<string, unknown>) {
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+  }
+
   return {
     Path: MockPath,
     FabricText: MockFabricText,
     Rect: MockRect,
     Group: MockGroup,
     Canvas: MockCanvas,
+    Control: MockControl,
+    Point: MockPoint,
+    util: mockFabricUtil,
   };
 });
 
@@ -233,6 +314,13 @@ import { ANNOTATION_DEFAULTS } from '../../../../components/site-surveys/annotat
 // ============================================================================
 // ヘルパー
 // ============================================================================
+
+/**
+ * 線の太さとして選択可能な全範囲（AnnotationToolbar / StylePanel の入力範囲 1〜20）
+ *
+ * Task 115.53 (Req 32.2): 比率で定めた要件は入力の上限値まで検証する。
+ */
+const SELECTABLE_STROKE_WIDTHS = Array.from({ length: 20 }, (_, index) => index + 1);
 
 type ChildPath = {
   path?: string;
@@ -331,7 +419,9 @@ describe('Dimension (Group + 線部白縁取り)', () => {
 
       const [outline, body] = getOutlineBodyLabel(dim);
       expect(body.strokeWidth).toBe(3);
-      expect(outline.strokeWidth).toBe(3 + ANNOTATION_DEFAULTS.dimensionOutline.width * 2);
+      // Task 115.101 (Req 32.2): 期待値は資材の算出を再実行せず具体値で書く。
+      // 既定線幅 3 に対する片側幅は 3（切り上げ）であり、描画される縁取り線幅は 3 + 3 * 2 = 9。
+      expect(outline.strokeWidth).toBe(3 + 3 * 2);
     });
 
     it('白縁取り線幅は本体線幅の 1.5 倍以上である（既定）', () => {
@@ -339,6 +429,28 @@ describe('Dimension (Group + 線部白縁取り)', () => {
 
       const [outline, body] = getOutlineBodyLabel(dim);
       expect((outline.strokeWidth ?? 0) / (body.strokeWidth ?? 1)).toBeGreaterThanOrEqual(1.5);
+    });
+
+    // Task 115.53 (Req 32.2): 比率で定めた要件は入力の上限値まで検証しないと満たしたことにならない。
+    // 線の太さの入力範囲は 1〜20（AnnotationToolbar / StylePanel）である。
+    describe.each(SELECTABLE_STROKE_WIDTHS)('本体線幅 %i', (strokeWidth) => {
+      it('作成時の白縁取り線幅が本体線幅の 1.5 倍以上である', () => {
+        const dim = new DimensionLine(START, END, { strokeWidth });
+
+        const [outline, body] = getOutlineBodyLabel(dim);
+        expect(body.strokeWidth).toBe(strokeWidth);
+        expect(outline.strokeWidth ?? 0).toBeGreaterThanOrEqual(strokeWidth * 1.5);
+      });
+
+      it('setStrokeWidth 後の白縁取り線幅が本体線幅の 1.5 倍以上である', () => {
+        const dim = new DimensionLine(START, END);
+
+        dim.setStrokeWidth(strokeWidth);
+
+        const [outline, body] = getOutlineBodyLabel(dim);
+        expect(body.strokeWidth).toBe(strokeWidth);
+        expect(outline.strokeWidth ?? 0).toBeGreaterThanOrEqual(strokeWidth * 1.5);
+      });
     });
 
     it('outlineLine は strokeLineCap: round / strokeLineJoin: round を適用する', () => {
@@ -375,7 +487,9 @@ describe('Dimension (Group + 線部白縁取り)', () => {
 
       const [outline, body] = getOutlineBodyLabel(dim);
       expect(body.strokeWidth).toBe(5);
-      expect(outline.strokeWidth).toBe(5 + ANNOTATION_DEFAULTS.dimensionOutline.width * 2);
+      // Task 115.53 (Req 32.2): 縁取り片側幅は本体線幅から比例算出する（ceil(5 * 0.75) = 4）
+      expect(outline.strokeWidth).toBe(5 + 4 * 2);
+      expect(outline.strokeWidth ?? 0).toBeGreaterThanOrEqual(5 * 1.5);
     });
   });
 

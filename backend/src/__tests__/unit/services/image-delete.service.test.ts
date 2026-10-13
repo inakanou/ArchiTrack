@@ -76,6 +76,7 @@ describe('ImageDeleteService', () => {
     imageId: 'image-123',
     data: { version: '1.0', objects: [] },
     version: '1.0',
+    hasDrawnAnnotations: false,
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-02'),
   };
@@ -125,9 +126,10 @@ describe('ImageDeleteService', () => {
         await service.delete('image-123');
 
         // Assert
+        // Task 115.124: 親の現場調査の削除状態も同じ問い合わせで取得する
         expect(mockPrisma.surveyImage.findUnique).toHaveBeenCalledWith({
           where: { id: 'image-123' },
-          include: { annotation: true },
+          include: { annotation: true, survey: { select: { deletedAt: true } } },
         });
         expect(mockPrisma.surveyImage.delete).toHaveBeenCalledWith({
           where: { id: 'image-123' },

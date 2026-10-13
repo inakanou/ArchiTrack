@@ -11,7 +11,8 @@
 
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
  * プロジェクト詳細画面のE2Eテスト
@@ -91,16 +92,7 @@ test.describe('プロジェクト詳細画面', () => {
     await page.getByLabel(/概要/i).fill('テスト用の概要説明');
 
     // 営業担当者を確認・選択
-    const salesPersonValue = await salesPersonSelect.inputValue();
-    if (!salesPersonValue) {
-      const options = await salesPersonSelect.locator('option').all();
-      if (options.length > 1 && options[1]) {
-        const firstUserOption = await options[1].getAttribute('value');
-        if (firstUserOption) {
-          await salesPersonSelect.selectOption(firstUserOption);
-        }
-      }
-    }
+    await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
     const createPromise = page.waitForResponse(
       (response: Response) =>
@@ -216,11 +208,16 @@ test.describe('プロジェクト詳細画面', () => {
     });
 
     /**
-     * @requirement project-management/REQ-7.5
+     * タスク 115.188 の是正: 従前は REQ-7.5 を名乗っていたが、受入基準7.5 は「営業担当者フィールドにユーザーの
+     * 表示名を表示する」であり、本検証が主張する「一覧に戻る」リンクの表示とクリック遷移とは無関係である。
+     * 要件7の受入基準は6件までで、「一覧に戻る」リンクを述べる条文は要件7に無い。ゆえに被覆印を**取り下げる**。
+     *
+     * 要件32.1 は逆に「プロジェクト詳細画面から『← 一覧に戻る』リンクを**削除する**」と
+     * 述べている。本検証はそのリンクが見えることを主張しており、要件32.1 と正面から矛盾する。
+     * 検証そのものの是非は本タスクの境界（被覆印の指し先）の外なので、
+     * 別途の判断へ引き継ぐ。ここでは番号の付け直しをせず、被覆印を持たない検証として残す。
      */
-    test('詳細画面に「一覧に戻る」リンクが表示される (project-management/REQ-7.5)', async ({
-      page,
-    }) => {
+    test('詳細画面に「一覧に戻る」リンクが表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!testProjectId) {
@@ -240,9 +237,13 @@ test.describe('プロジェクト詳細画面', () => {
     });
 
     /**
-     * @requirement project-management/REQ-7.6
+     * @requirement project-management/REQ-7.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-7.6 を名乗っていたが、受入基準7.6 は「工事担当者が設定されている場合…
+     * 工事担当者フィールドにユーザーの表示名を表示する」であり、営業担当者を述べるのは受入基準7.5（営業担当者フィールドにユーザーの
+     * 表示名を表示する）である。
      */
-    test('営業担当者フィールドにユーザーの表示名が表示される (project-management/REQ-7.6)', async ({
+    test('営業担当者フィールドにユーザーの表示名が表示される (project-management/REQ-7.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -263,9 +264,13 @@ test.describe('プロジェクト詳細画面', () => {
     });
 
     /**
-     * @requirement project-management/REQ-7.7
+     * @requirement project-management/REQ-7.6
+     *
+     * タスク 115.188 の是正: 従前は要件定義書に存在しない REQ-7.7 を名乗っていた。
+     * 要件7の受入基準は6件までであり、本検証の表題は受入基準7.6
+     * （工事担当者が設定されている場合、工事担当者フィールドにユーザーの表示名を表示する）に対応する。
      */
-    test('工事担当者が設定されている場合、表示名が表示される (project-management/REQ-7.7)', async ({
+    test('工事担当者が設定されている場合、表示名が表示される (project-management/REQ-7.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -298,26 +303,11 @@ test.describe('プロジェクト詳細画面', () => {
       // 取引先は任意フィールドのため未選択のまま進める
 
       // 営業担当者を確認・選択
-      const salesPersonValue = await salesPersonSelect.inputValue();
-      if (!salesPersonValue) {
-        const options = await salesPersonSelect.locator('option').all();
-        if (options.length > 1 && options[1]) {
-          const firstUserOption = await options[1].getAttribute('value');
-          if (firstUserOption) {
-            await salesPersonSelect.selectOption(firstUserOption);
-          }
-        }
-      }
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
 
       // 工事担当者を選択
       const constructionPersonSelect = page.locator('select[aria-label="工事担当者"]');
-      const constructionOptions = await constructionPersonSelect.locator('option').all();
-      if (constructionOptions.length > 1 && constructionOptions[1]) {
-        const firstConstructionOption = await constructionOptions[1].getAttribute('value');
-        if (firstConstructionOption) {
-          await constructionPersonSelect.selectOption(firstConstructionOption);
-        }
-      }
+      await selectFirstRealOption(constructionPersonSelect, '工事担当者');
 
       const createPromise = page.waitForResponse(
         (response: Response) =>
@@ -487,31 +477,29 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 見積依頼セクションの存在を確認（見積書機能は見積依頼として実装されている）
+      // 見積依頼セクションの見出しは件数に依らず常に描画される
+      // （ProjectDetailPage が EstimateRequestSectionCard を無条件に置く）。
+      // 以前はセクションの有無で判定を包み、無い場合の枝に `expect(true).toBe(true)` を
+      // 置いていた。セクションが消えても緑になる形であり、何も確かめていなかった。
       const estimateRequestSection = page.getByRole('heading', { name: /見積依頼/i });
-      const estimateRequestSectionVisible = await estimateRequestSection
-        .isVisible()
-        .catch(() => false);
+      await expect(estimateRequestSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (estimateRequestSectionVisible) {
-        // 見積依頼セクションが存在する場合、「すべて見る」リンクで一覧に遷移できることを確認
-        const viewAllLink = page
-          .locator('section')
-          .filter({ has: page.getByRole('heading', { name: /見積依頼/i }) })
-          .getByRole('link', { name: /すべて見る/i });
+      // 見積依頼画面への導線は件数で姿を変える。1件以上なら「すべて見る」、
+      // 0件なら空状態の「新規作成」が描画される（EstimateRequestSectionCard）。
+      // どちらの経路でも見積依頼の画面へ遷移することを主張する。
+      const section = page
+        .locator('section')
+        .filter({ has: page.getByRole('heading', { name: /見積依頼/i }) });
+      const viewAllLink = section.getByRole('link', { name: /すべて見る/i });
+      const createLink = section.getByRole('link', { name: /新規作成/i });
 
-        const linkVisible = await viewAllLink.isVisible().catch(() => false);
-        if (linkVisible) {
-          await viewAllLink.click();
-          await expect(page).toHaveURL(/estimate-requests/, { timeout: getTimeout(10000) });
-        } else {
-          // 「すべて見る」リンクがない場合でも、セクションが存在すれば要件を満たす
-          expect(estimateRequestSectionVisible).toBe(true);
-        }
+      if (await isVisibleWithin(viewAllLink, getTimeout(3000))) {
+        await viewAllLink.click();
       } else {
-        // 見積依頼セクションがない場合は機能無効状態としてテスト成功
-        expect(true).toBe(true);
+        await createLink.click();
       }
+
+      await expect(page).toHaveURL(/estimate-requests/, { timeout: getTimeout(10000) });
     });
 
     /**

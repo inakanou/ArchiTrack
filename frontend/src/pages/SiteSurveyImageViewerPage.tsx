@@ -10,14 +10,18 @@
  * - 5.3: 画像の回転
  * - 5.4: パン操作（表示領域移動）
  * - 5.6: 表示状態を注釈編集モードと共有
+ * - 9.3: 注釈を編集中に画面を離れようとしたとき、未保存の変更があれば確認ダイアログを表示する
  *
+ * @requirement site-survey/REQ-9.3
  * @requirement site-survey/REQ-36.4
  * @requirement site-survey/REQ-36.6
  * @requirement site-survey/REQ-36.7
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useBlocker } from 'react-router-dom';
+import useUnsavedChanges from '../hooks/useUnsavedChanges';
+import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import useMediaQuery from '../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../utils/responsive';
 import { getSiteSurvey } from '../api/site-surveys';
@@ -41,13 +45,18 @@ const styles = {
     backgroundColor: '#f9fafb',
   } as React.CSSProperties,
   breadcrumbContainer: {
-    marginBottom: '16px',
     // Task 98.2 root-cause fix (Req 34.6): モバイル幅で長いパンくず（非折返しの flex 行）が
     // device-width を超えて水平 overflow すると、モバイルブラウザの shrink-to-fit により
     // レイアウトビューポートが拡張され、編集領域や position:fixed の ZoomControls が
     // 可視画面下端より下へ押し出されて片手で到達できなくなる。パンくずを水平スクロール内に
     // 収め（overflowX:auto）レイアウトビューポート拡張を防ぐ。
     overflowX: 'auto',
+    // パンくずの導線（共通の Breadcrumb）が受けるフォーカスの輪（outline-offset 2px と太さ 2px の 4px）は
+    // 導線の外側へ描かれ、overflowX:auto の箱（縦方向も中身を切り取る）の縁で欠ける。輪の分の余白を
+    // 箱の内側に取り、同じ量の負のマージンで外側の位置と下の間隔（16px）を保つ
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
+    padding: '4px',
+    margin: '-4px -4px 12px',
   } as React.CSSProperties,
   header: {
     display: 'flex',
@@ -199,10 +208,81 @@ export default function SiteSurveyImageViewerPage() {
   const [isNotFound, setIsNotFound] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
 
-  // ビューア状態（REQ-5.6: 将来的にAnnotationEditorと状態共有用）
-  const [zoom] = useState(1);
-  const [rotation] = useState(0);
-  const [pan] = useState({ x: 0, y: 0 });
+  // ==========================================================================
+  // Task 115.102 (REQ-9.3): 未保存の注釈編集がある状態での離脱確認
+  //
+  // 注釈編集画面には離脱を捕捉する仕組みが一切無く、描いた注釈は保存せずに画面を離れると
+  // 黙って失われていた。既存の確立済みパターン（CompanyInfoPage / QuantityTableEditPage 等）に
+  // 合わせ、アプリ内遷移は `useBlocker` + `UnsavedChangesDialog`、タブクローズ/リロードは
+  // `useUnsavedChanges` の beforeunload で捕捉する。
+  //
+  // 未保存かどうかの判定は注釈エディタ側が持つ（読み込み・復元由来の変更を除いた
+  // ユーザー編集の有無）。本画面はその通知を受けて離脱を止める役だけを担う。
+  // ==========================================================================
+  const [hasUnsavedAnnotationChanges, setHasUnsavedAnnotationChanges] = useState(false);
+
+  // タブクローズ/リロード時のブラウザ標準確認（REQ-9.3）
+  //
+  // 未保存判定の正は注釈エディタ側であり、その通知を受けた状態をフックへ直接渡す
+  // （quantity-table-generation の Task 100.24 でフックが自前の dirty 状態を持たない形へ
+  // 一本化された）。
+  useUnsavedChanges({ isDirty: hasUnsavedAnnotationChanges });
+
+  // アプリ内ナビゲーションのブロック（REQ-9.3）
+  const blocker = useBlocker(hasUnsavedAnnotationChanges);
+
+  // 表示対象の画像が変われば、前の画像の未保存状態は引き継がない
+  useEffect(() => {
+    setHasUnsavedAnnotationChanges(false);
+  }, [imageId]);
+
+  // 表示状態（REQ-5.6: ズーム・回転・位置を注釈編集モードと共有する）
+  //
+  // Task 115.83: 閲覧モードと編集モードは同じ `AnnotationEditor` を `readOnly` で
+  // 切り替えて使うが、切り替え時に Fabric キャンバスが作り直されるため、表示状態は
+  // 画面（本ページ）側が保持しなければ引き継げない。以前は setter を持たない定数
+  // だったため共有が成立していなかった。
+  //
+  // 初期値は `null`（＝未取得）とし、最初の表示では初期値を渡さない。保存済みの回転
+  // （REQ-22.5）の復元を、まだ何も操作していない既定値で上書きしないためである。
+  const [viewState, setViewState] = useState<{
+    zoom: number;
+    rotation: number;
+    pan: { x: number; y: number };
+  } | null>(null);
+
+  /**
+   * 表示状態の変化を受け取り保持する（REQ-5.6）。
+   *
+   * 同値の通知では state を更新せず、再描画の連鎖を避ける。
+   */
+  const handleViewStateChange = useCallback(
+    (next: { zoom: number; rotation: number; pan: { x: number; y: number } }) => {
+      setViewState((prev) => {
+        if (
+          prev &&
+          prev.zoom === next.zoom &&
+          prev.rotation === next.rotation &&
+          prev.pan.x === next.pan.x &&
+          prev.pan.y === next.pan.y
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  /**
+   * 表示する画像が変わったら共有中の表示状態を破棄する（REQ-5.6）。
+   *
+   * 共有状態は「いま見ている画像の表示状態」であり、別画像へ持ち越すと、その画像の
+   * 保存済み回転（REQ-22.5）を前の画像の回転で上書きしてしまう。
+   */
+  useEffect(() => {
+    setViewState(null);
+  }, [imageId]);
 
   /**
    * 注釈保存成功時のコールバック（REQ-23.5: サムネイルURL即時反映）
@@ -353,13 +433,15 @@ export default function SiteSurveyImageViewerPage() {
             imageUrl={image.originalUrl}
             imageId={image.id}
             surveyId={id}
-            initialZoom={zoom}
-            initialRotation={rotation}
-            initialPan={pan}
+            initialZoom={viewState?.zoom}
+            initialRotation={viewState?.rotation}
+            initialPan={viewState?.pan}
+            onViewStateChange={handleViewStateChange}
             readOnly={!isEditMode}
             imageInfo={image}
             onAnnotationSaved={handleAnnotationSaved}
             onRequestRefresh={fetchData}
+            onDirtyChange={setHasUnsavedAnnotationChanges}
           />
         </div>
       ) : (
@@ -370,6 +452,13 @@ export default function SiteSurveyImageViewerPage() {
           </div>
         </div>
       )}
+
+      {/* REQ-9.3: 未保存の注釈編集がある状態でのアプリ内遷移を確認する */}
+      <UnsavedChangesDialog
+        isOpen={blocker.state === 'blocked'}
+        onLeave={() => blocker.proceed?.()}
+        onStay={() => blocker.reset?.()}
+      />
 
       <style>
         {`

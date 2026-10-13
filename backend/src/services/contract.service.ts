@@ -27,6 +27,8 @@ import {
   ContractValidationError,
   ContractDeletionConstraintError,
 } from '../errors/contractError.js';
+import { ProjectNotFoundError } from '../errors/projectError.js';
+import { EstimateNotFoundError } from '../errors/estimateError.js';
 
 /**
  * ContractService依存関係
@@ -295,6 +297,16 @@ export class ContractService {
    * - 8.1: ステータスBEFORE_CONTRACTで初期化
    */
   async create(projectId: string, data: CreateContractInput): Promise<ContractDetail> {
+    // 参照先の検証（design.md の Preconditions・Error Handling）
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!project || project.deletedAt) {
+      throw new ProjectNotFoundError(projectId);
+    }
+    await this.assertEstimateReferable(projectId, data.estimateId);
+
     // 変更契約の場合、parentContractIdが同プロジェクトであることを検証
     if (data.contractType === 'AMENDMENT' && data.parentContractId) {
       const parentContract = await this.prisma.contract.findUnique({
@@ -355,6 +367,12 @@ export class ContractService {
       throw new ContractConflictError();
     }
 
+    // 見積書を付け替える場合だけ参照先を検証する。付け替えない場合は、作成後に
+    // 見積書が論理削除されていても他の項目の編集を妨げない
+    if (data.estimateId !== existing.estimateId) {
+      await this.assertEstimateReferable(existing.projectId, data.estimateId);
+    }
+
     const record = await this.prisma.contract.update({
       where: { id },
       data: {
@@ -377,6 +395,34 @@ export class ContractService {
     });
 
     return toContractDetail(record);
+  }
+
+  /**
+   * 契約の基として見積書を参照できることを確かめる
+   *
+   * design.md の ContractService の Preconditions（見積書は同じプロジェクトのもの）と
+   * Error Handling（見積書が見つからなければ 404、論理削除済みの見積書の参照は 422）に従う。
+   *
+   * @throws EstimateNotFoundError 見積書が存在しない場合（404）
+   * @throws ContractValidationError 他プロジェクトの見積書、または論理削除済みの見積書の場合（422）
+   */
+  private async assertEstimateReferable(projectId: string, estimateId: string): Promise<void> {
+    const estimate = await this.prisma.estimate.findUnique({
+      where: { id: estimateId },
+      select: { id: true, projectId: true, deletedAt: true },
+    });
+
+    if (!estimate) {
+      throw new EstimateNotFoundError(estimateId);
+    }
+    if (estimate.projectId !== projectId) {
+      throw new ContractValidationError(
+        '契約の基となる見積書は同じプロジェクトの見積書である必要があります'
+      );
+    }
+    if (estimate.deletedAt) {
+      throw new ContractValidationError('削除された見積書は契約の基として選択できません');
+    }
   }
 
   /**

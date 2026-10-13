@@ -4,12 +4,13 @@
  * Task 8.3: レスポンシブ対応を実装する
  *
  * Requirements:
- * - 13.1: デスクトップ・タブレット・スマートフォン対応
+ * - 15.1: デスクトップ・タブレット・スマートフォン対応
  * - グリッド/リスト表示切り替え
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, waitFor, act } from '@testing-library/react';
+import { triggerAllIntersections } from '../../../test-support/intersection-observer';
 import userEvent from '@testing-library/user-event';
 import SiteSurveyResponsiveView from '../../../components/site-surveys/SiteSurveyResponsiveView';
 import type {
@@ -23,7 +24,13 @@ vi.mock('../../../hooks/useMediaQuery', () => ({
   default: vi.fn(() => false), // デフォルトはデスクトップ
 }));
 
+// 注釈取得APIをモック（Task 115.67: クライアント側合成の発生有無を観測する）
+vi.mock('../../../api/survey-annotations', () => ({
+  getAnnotation: vi.fn().mockResolvedValue(null),
+}));
+
 import useMediaQuery from '../../../hooks/useMediaQuery';
+import { getAnnotation } from '../../../api/survey-annotations';
 
 // ============================================================================
 // テストデータ
@@ -189,6 +196,142 @@ describe('SiteSurveyResponsiveView', () => {
       const gridItem1 = screen.getByTestId('survey-grid-item-survey-1');
       const img = within(gridItem1).getByRole('img', { name: /現場調査1のサムネイル/i });
       expect(img).toHaveAttribute('src', 'https://example.com/thumbnail1.jpg');
+    });
+
+    // ------------------------------------------------------------------
+    // 代表画像の合成済みサムネイル（Task 115.67）
+    // Requirements: 20.3, 38.2, 38.7
+    // ------------------------------------------------------------------
+
+    describe('代表画像の合成済みサムネイル', () => {
+      const ANNOTATED_URL = 'https://example.com/annotated-thumbnail1.jpg';
+      const ORIGINAL_URL = 'https://example.com/original1.jpg';
+
+      /** 合成済みサムネイルの表示元URLが供給された現場調査 */
+      const surveyWithAnnotated: SiteSurveyInfo = {
+        ...mockSiteSurveys[0]!,
+        thumbnailImageId: 'image-1',
+        thumbnailOriginalUrl: ORIGINAL_URL,
+        annotatedThumbnailUrl: ANNOTATED_URL,
+      };
+
+      /** 合成済みサムネイルが無く、クライアント側の合成へ落ちる現場調査 */
+      const surveyWithoutAnnotated: SiteSurveyInfo = {
+        ...mockSiteSurveys[0]!,
+        thumbnailImageId: 'image-1',
+        thumbnailOriginalUrl: ORIGINAL_URL,
+        annotatedThumbnailUrl: null,
+      };
+
+      it('合成済みサムネイルの表示元URLがあるときはそれを表示元に用いること', async () => {
+        vi.mocked(useMediaQuery).mockReturnValue(false);
+        render(
+          <SiteSurveyResponsiveView
+            {...defaultProps}
+            surveys={[surveyWithAnnotated]}
+            initialViewMode="grid"
+          />
+        );
+
+        const gridItem = screen.getByTestId('survey-grid-item-survey-1');
+        const img = within(gridItem).getByRole('img', { name: /現場調査1のサムネイル/i });
+
+        // 通常サムネイルでも元画像でもなく、合成済みサムネイルであること
+        await waitFor(() => {
+          expect(img).toHaveAttribute('src', ANNOTATED_URL);
+        });
+      });
+
+      it('合成済みサムネイルを用いるとき注釈データを取得しないこと', async () => {
+        vi.mocked(useMediaQuery).mockReturnValue(false);
+        render(
+          <SiteSurveyResponsiveView
+            {...defaultProps}
+            surveys={[surveyWithAnnotated]}
+            initialViewMode="grid"
+          />
+        );
+
+        // クライアント側合成の経路は効果内で非同期に注釈取得を開始するため、
+        // マイクロタスクとタイマーを一巡させてから呼び出しの有無を確かめる
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(getAnnotation).not.toHaveBeenCalled();
+      });
+
+      /**
+       * グリッド表示の退避経路が、高さを持つ枠に包まれていること。
+       *
+       * この分岐の `AnnotatedImageThumbnail` は `height: '100%'` を受け取るため、高さを
+       * 持つ親が無いと `src` 未設定の間に箱が高さ0へ潰れる。潰れた要素は全件が同じ位置に
+       * 積まれて同時に交差判定されるため、観測していても表示領域外の取得を抑止できない。
+       * 枠の寸法は同関数の他の分岐（合成済みサムネイル・通常サムネイル）と揃える。
+       *
+       * @requirement site-survey/REQ-38.6
+       * @requirement site-survey/REQ-38.8
+       */
+      it('退避経路の代表画像が高さを持つ枠に包まれていること (site-survey/REQ-38.6, site-survey/REQ-38.8)', () => {
+        vi.mocked(useMediaQuery).mockReturnValue(false);
+        render(
+          <SiteSurveyResponsiveView
+            {...defaultProps}
+            surveys={[surveyWithoutAnnotated]}
+            initialViewMode="grid"
+          />
+        );
+
+        const gridItem = screen.getByTestId('survey-grid-item-survey-1');
+        const img = within(gridItem).getByRole('img', { name: /現場調査1のサムネイル/i });
+
+        // 直近の親が、他の分岐と同じ高さの枠であること
+        const wrapper = img.parentElement;
+        expect(wrapper).not.toBeNull();
+        expect(wrapper).toHaveClass('h-32', 'sm:h-36', 'md:h-40');
+      });
+
+      /**
+       * グリッド表示の退避経路が、表示領域へ入るまで取得を始めないこと。
+       *
+       * @requirement site-survey/REQ-38.8
+       */
+      it('退避経路の代表画像は表示領域へ入るまで表示元URLを持たないこと (site-survey/REQ-38.8)', () => {
+        vi.mocked(useMediaQuery).mockReturnValue(false);
+        render(
+          <SiteSurveyResponsiveView
+            {...defaultProps}
+            surveys={[surveyWithoutAnnotated]}
+            initialViewMode="grid"
+          />
+        );
+
+        const gridItem = screen.getByTestId('survey-grid-item-survey-1');
+        const img = within(gridItem).getByRole('img', { name: /現場調査1のサムネイル/i });
+
+        expect(img).not.toHaveAttribute('src');
+        expect(getAnnotation).not.toHaveBeenCalled();
+      });
+
+      it('合成済みサムネイルが無いときはクライアント側の合成へ落ちること', async () => {
+        vi.mocked(useMediaQuery).mockReturnValue(false);
+        render(
+          <SiteSurveyResponsiveView
+            {...defaultProps}
+            surveys={[surveyWithoutAnnotated]}
+            initialViewMode="grid"
+          />
+        );
+
+        // 退避経路は表示領域へ入るまで注釈取得を始めない（site-survey/REQ-38.6, 38.8）。
+        // ここで確かめたいのは退避先が何であるかであるため、表示領域到達を発火してから
+        // 判定する
+        act(() => {
+          triggerAllIntersections(true);
+        });
+
+        await waitFor(() => {
+          expect(getAnnotation).toHaveBeenCalledWith('image-1');
+        });
+      });
     });
 
     it('グリッドでサムネイルがない場合はプレースホルダーが表示されること', async () => {
