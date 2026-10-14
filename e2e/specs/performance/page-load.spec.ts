@@ -3,6 +3,10 @@ import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/d
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL } from '../../config';
 
+// 所要時間は単調時計（performance.now()）で測る。壁時計（Date.now()）は時刻補正で飛ぶため、
+// 実際より長い所要を返しうる。WSL2 の pre-push では、テスト全体が 1 秒で終わった回に
+// Date.now() の差が 3700ms となり、2 秒の閾値で落ちた。
+
 /**
  * ページロードパフォーマンステスト
  *
@@ -30,14 +34,14 @@ test.describe('ページロードパフォーマンス', () => {
    * ログイン画面の表示時間。被覆の主張は持たない（冒頭の理由を参照）。
    */
   test('ログインページが2秒以内にロードされる', async ({ page }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     await page.goto('/login');
 
     // DOMContentLoadedイベントを待つ
     await page.waitForLoadState('domcontentloaded');
 
-    const loadTime = Date.now() - startTime;
+    const loadTime = performance.now() - startTime;
 
     // ページロード時間が2秒以内であることを確認
     expect(loadTime).toBeLessThan(2000);
@@ -60,12 +64,12 @@ test.describe('ページロードパフォーマンス', () => {
       },
     ]);
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     await page.goto('/dashboard');
     await page.waitForLoadState('domcontentloaded');
 
-    const loadTime = Date.now() - startTime;
+    const loadTime = performance.now() - startTime;
 
     expect(loadTime).toBeLessThan(2000);
     console.log(`Dashboard page load time: ${loadTime}ms`);
@@ -84,12 +88,12 @@ test.describe('ページロードパフォーマンス', () => {
       },
     ]);
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     await page.goto('/profile');
     await page.waitForLoadState('domcontentloaded');
 
-    const loadTime = Date.now() - startTime;
+    const loadTime = performance.now() - startTime;
 
     expect(loadTime).toBeLessThan(2000);
     console.log(`Profile page load time: ${loadTime}ms`);
@@ -125,7 +129,7 @@ test.describe('APIパフォーマンス', () => {
    * 被覆の主張は持たない（冒頭の理由を参照）。
    */
   test('ログインAPIが500ms以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
       data: {
@@ -134,7 +138,7 @@ test.describe('APIパフォーマンス', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(500);
@@ -155,7 +159,7 @@ test.describe('APIパフォーマンス', () => {
     });
     const { refreshToken } = await loginResponse.json();
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
       data: {
@@ -163,7 +167,7 @@ test.describe('APIパフォーマンス', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(300);
@@ -175,7 +179,7 @@ test.describe('APIパフォーマンス', () => {
    * 被覆の主張は持たない（冒頭の理由を参照）。
    */
   test('権限チェックを含むAPIが適切な時間内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/v1/permissions`, {
       headers: {
@@ -183,7 +187,7 @@ test.describe('APIパフォーマンス', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(500);
@@ -195,11 +199,11 @@ test.describe('APIパフォーマンス', () => {
    * 被覆の主張は持たない（冒頭の理由を参照）。
    */
   test('ヘルスチェックAPIが100ms以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/health`);
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(100);
