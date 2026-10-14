@@ -65,7 +65,14 @@
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { test, expect, type Page, type BrowserContext, type CDPSession } from '@playwright/test';
+import {
+  test,
+  expect,
+  type Page,
+  type BrowserContext,
+  type CDPSession,
+  type Locator,
+} from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
@@ -93,6 +100,31 @@ const __dirname = path.dirname(__filename);
 
 // モバイル Viewport 設定（iPhone SE 相当）
 const MOBILE_VIEWPORT = { width: 375, height: 667 };
+
+/**
+ * 道具の釦を指でタップして押下状態（aria-pressed=true）にする
+ *
+ * Req 28.8: 選択中の道具を再び押すと詳細属性パネルの開閉になる。ここでの意図は
+ * 「当該の道具を選択状態にする」ことなので、既に押下状態なら押さない。
+ *
+ * タップが押下状態に結び付かなかったときに限り、押し直す。develop の CI
+ * （run 38476239021）で Task 98.2 (8) の「選択」への 1 回のタップが、押下状態を 20 秒
+ * 変えずに終わった。失敗時の画面では釦は覆われず有効なまま見えており、他の道具も
+ * 選ばれていなかった（click がどの道具にも届いていない）。ツールバーの釦のタッチ経路に
+ * preventDefault は無く、ジェスチャー調停（touchGestureManager）は描画面にだけ付く。
+ * 手元では CPU を 12 倍に絞っても再現しない。タップを click に変えるのはブラウザの
+ * ジェスチャー認識であり、この 1 回の取りこぼしは検証の前提操作の側で起きている。
+ * 押し直しは押下状態が偽のままのときだけ行うため、選択済みの道具を再び押して
+ * パネルを開閉させることはない。押し直しても押下状態にならなければ失敗させる。
+ */
+async function tapToolUntilPressed(tool: Locator): Promise<void> {
+  await expect(async () => {
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      await tool.tap();
+    }
+    await expect(tool).toHaveAttribute('aria-pressed', 'true', { timeout: getTimeout(2000) });
+  }).toPass({ timeout: getTimeout(20000) });
+}
 
 // ============================================================================
 // Task 115.170: 要件28.3 の「各項目」の母集団（先に宣言する）
@@ -522,12 +554,7 @@ test.describe('モバイル Viewport 注釈機能', () => {
   async function selectTool(label: string): Promise<void> {
     const tool = sharedPage.getByRole('button', { name: label, exact: true });
     await expect(tool).toBeVisible({ timeout: getTimeout(10000) });
-    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
-    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
-    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
-      await tool.tap();
-    }
-    await expect(tool).toHaveAttribute('aria-pressed', 'true');
+    await tapToolUntilPressed(tool);
   }
 
   /**
@@ -2136,12 +2163,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
   async function selectTool(name: RegExp): Promise<void> {
     const tool = sharedPage.getByRole('button', { name });
     await expect(tool).toBeVisible({ timeout: getTimeout(5000) });
-    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
-    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
-    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
-      await tool.tap();
-    }
-    await expect(tool).toHaveAttribute('aria-pressed', 'true');
+    await tapToolUntilPressed(tool);
   }
 
   test.beforeAll(async ({ browser }) => {
@@ -2786,12 +2808,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
   async function selectTool(name: RegExp): Promise<void> {
     const tool = sharedPage.getByRole('button', { name });
     await expect(tool).toBeVisible({ timeout: getTimeout(5000) });
-    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
-    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
-    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
-      await tool.tap();
-    }
-    await expect(tool).toHaveAttribute('aria-pressed', 'true');
+    await tapToolUntilPressed(tool);
   }
 
   test.beforeAll(async ({ browser }) => {
