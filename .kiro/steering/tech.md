@@ -2,6 +2,8 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
+_最終更新: 2026-10-14（Steering Sync: 依存バージョンの表記を実体へ揃えた。フロントエンド・バックエンド・E2E の「技術スタック」（`^` なし）は各 lock の導入版、「主要な依存関係」（`^` 付き）は各 package.json の宣言と照合し、食い違い 62 か所を直した（nodemailer 7→10、lint-staged 16→17、rollup-plugin-visualizer 6→7、sharp 0.34→0.35、@anthropic-ai/sdk 0.74/0.106→0.133、Playwright 1.40→1.62 など。同じ依存に 2 つの版が書かれていた @anthropic-ai/sdk の自己矛盾も解消）。@node-rs/argon2 はバックエンドの lock が 2.0.2 のままで正しく、2.2.2 へ上がったのはルート（E2E）側のみ。あわせて、playwright.config.ts の `failOnFlakyTests: true` と、前提操作の入力の取りこぼしを状態の不変を条件に入力し直す型を「CI環境対応の待機パターン」へ加えた）_
+
 _最終更新: 2026-10-08（Steering Sync: project-management のタスク75.2。「フォーカス表示方針」の「既存の逸脱」が持っていた件数（2026-10-07、HEAD `041a0fc8` の実測で 49 か所）は、trading-partner-management のタスク33.1 の是正と quantity-table-generation の到達しない部品の整理で、2026-10-08（HEAD `c8036acd`）の同じ grep では 44 か所になっていた。値を書き換える形は採らず、「主要ジョブ」「監視対象エコシステム」と同じ規約 (b)（数値を落として数える手段を書く）を当て、件数のコマンドにファイルごとの内訳を読み出すコマンドを添えた）_
 
 _最終更新: 2026-10-02（Steering Sync: cc-sdd を 3.1 の Skills モードへ揃え、v2 系の旧コマンド方式（`.claude/commands/kiro/`・`.claude/agents/kiro/`・`.kiro/settings/rules/`）を撤去したことに伴い、「Kiroスキル（スラッシュコマンド）」と「ワークフロー」の旧コマンド表記 `/kiro:*` を現行スキル（`kiro-*`）の表記へ改め、Skills モードで加わった入口・実装・統合検証のスキルを一覧へ加えた）_
@@ -84,16 +86,16 @@ ArchiTrack/
 ### 技術スタック
 
 - **言語**: TypeScript 6.0.3（フロントエンドのみ。バックエンド/E2E は 5.9 系で運用）
-- **フレームワーク**: React 19.2.0
-- **ビルドツール**: Vite 8.0.8
+- **フレームワーク**: React 19.2.7
+- **ビルドツール**: Vite 8.1.5
 - **開発サーバー**: Vite Dev Server
 - **Webサーバー（本番）**: nginx
 - **パッケージマネージャ**: npm
 
 ### 主要な依存関係
 
-- `react` ^19.2.3 - UIライブラリ
-- `react-dom` ^19.2.4 - React DOM操作
+- `react` ^19.2.7 - UIライブラリ
+- `react-dom` ^19.2.7 - React DOM操作
 - `react-router-dom` ^7.16.0 - React Router v7（ルーティング、7.14.2以下のDoS脆弱性 GHSA-8x6r-g9mw-2r78 対応で7.16.0へ更新）
 - `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応、2本指ピンチでの中点ズーム/パンとフィットを提供。ビューポート制御は `gestures/canvasViewportController`（純粋ロジック）→ `hooks/useCanvasViewport` → `ZoomControls`（表示専用）の一方向依存で構成し、`AnnotationEditor`（閲覧モードは `readOnly` 描画）と `ConstructionPhotoImageViewer` が共有する）
 - `jspdf` ^4.0.0 - PDF帳票生成（現場調査報告書、数量表、見積書帳票＝A4横の表紙/内訳書/明細書、工事写真台帳の看板重畳）
@@ -104,32 +106,32 @@ ArchiTrack/
 - `pdfjs-dist` (react-pdf依存) - PDFテキスト抽出（ハイブリッドアプローチ: テキストPDFはpdfjs-dist、画像PDFはOCR）
 - `tesseract.js` ^7.0.0 - OCR文字認識（受領見積書構造化データ抽出、再実行/リトライ機能）
 - `typescript` ^6.0.3 - TypeScriptコンパイラ（フロントエンドのみ TypeScript 6 系へ追従）
-- `@types/react` ^19.2.7 - React型定義
+- `@types/react` ^19.2.17 - React型定義
 - `@types/react-dom` ^19.2.3 - React DOM型定義
-- `@vitejs/plugin-react` ^6.0.1 - Vite React プラグイン
-- `@typescript-eslint/eslint-plugin` ^8.57.1 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.57.1 - TypeScript ESLintパーサー
+- `@vitejs/plugin-react` ^6.0.2 - Vite React プラグイン
+- `@typescript-eslint/eslint-plugin` ^8.61.1 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.66.0 - TypeScript ESLintパーサー
 - `eslint` ^9.39.1 - コード品質チェック（Flat Config形式）
 - `eslint-plugin-react-hooks` ^7.1.1 - React Hooks ESLintプラグイン
 - `prettier` ^3.8.1 - コードフォーマッター
 - `lint-staged` ^16.4.0 - ステージングファイルへのリンター実行
-- `tailwindcss` ^4.2.2 - ユーティリティファーストCSSフレームワーク
-- `@tailwindcss/postcss` ^4.1.18 - Tailwind CSS PostCSSプラグイン
-- `vitest` ^4.1.2 - 単体テストフレームワーク
-- `@vitest/ui` ^4.1.2 - Vitest UIツール
+- `tailwindcss` ^4.3.3 - ユーティリティファーストCSSフレームワーク
+- `@tailwindcss/postcss` ^4.3.2 - Tailwind CSS PostCSSプラグイン
+- `vitest` ^4.1.7 - 単体テストフレームワーク
+- `@vitest/ui` ^4.1.9 - Vitest UIツール
 - `@vitest/coverage-v8` ^4.1.2 - Vitestカバレッジ（V8プロバイダー）
-- `@vitest/coverage-istanbul` ^4.1.2 - Vitestカバレッジ（Istanbulプロバイダー）
+- `@vitest/coverage-istanbul` ^4.1.10 - Vitestカバレッジ（Istanbulプロバイダー）
 - `@testing-library/react` ^16.3.0 - Reactコンポーネントテスト
 - `@testing-library/jest-dom` ^7.0.0 - Jest DOMマッチャー
 - `@testing-library/user-event` ^14.6.1 - ユーザーイベントシミュレーション
 - `jsdom` ^30.0.1 - ブラウザ環境シミュレーション
-- `@sentry/react` ^10.32.1 - Sentryエラートラッキング（Frontend）
+- `@sentry/react` ^10.69.0 - Sentryエラートラッキング（Frontend）
 - `axe-playwright` ^2.2.2 - アクセシビリティ自動テスト
-- `storybook` ^10.2.10 - コンポーネントドキュメント・開発環境（Storybook 10.x）
-- `@storybook/react` ^10.1.8 - Storybook React統合（10.x系）
-- `@storybook/react-vite` ^10.3.5 - Storybook React + Vite統合（10.x系）
+- `storybook` ^10.4.4 - コンポーネントドキュメント・開発環境（Storybook 10.x）
+- `@storybook/react` ^10.4.6 - Storybook React統合（10.x系）
+- `@storybook/react-vite` ^10.4.6 - Storybook React + Vite統合（10.x系）
 - `@storybook/test-runner` ^0.24.2 - Storybookインタラクションテスト
-- `rollup-plugin-visualizer` ^6.0.5 - バンドル分析ツール
+- `rollup-plugin-visualizer` ^7.1.1 - バンドル分析ツール
 
 ### 設定ファイル
 
@@ -197,24 +199,24 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 
 - **言語**: TypeScript 5.9.3
 - **ランタイム**: Node.js 22
-- **開発ランタイム**: tsx 4.20.6（TypeScript実行環境）
-- **フレームワーク**: Express 5.2.0
-- **ORM**: Prisma 7.8.0 / @prisma/client 7.9.1（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
+- **開発ランタイム**: tsx 4.21.0（TypeScript実行環境）
+- **フレームワーク**: Express 5.2.1
+- **ORM**: Prisma 7.9.1 / @prisma/client 7.9.1（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
 - **データベースクライアント**: pg (PostgreSQL) 8.22.0、@prisma/client 7.9.1、@prisma/adapter-pg 7.3.0
 - **キャッシュクライアント**: ioredis 5.10.1
-- **セキュリティミドルウェア**: helmet 8.1.0、compression 1.8.1、cookie-parser 1.4.7、express-rate-limit 8.2.1
-- **メール送信**: nodemailer 7.0.12、handlebars 4.7.8
+- **セキュリティミドルウェア**: helmet 8.3.0、compression 1.8.2、cookie-parser 1.4.7、express-rate-limit 8.5.2
+- **メール送信**: nodemailer 10.1.0、handlebars 4.7.10
 - **JWT署名**: jose 6.1.3（EdDSA署名）
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
 - **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）
 - **パスワードハッシュ**: @node-rs/argon2 2.0.2（Rustバインディングによる高性能Argon2実装）
 - **PDF生成**: jspdf ^4.1.0（工程表・発注書・出来高のサーバ生成。見積書帳票はフロントエンド生成へ移行済み）
-- **バリデーション**: zod 4.3.6
+- **バリデーション**: zod 4.4.3
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
-- **画像処理**: sharp 0.34.5（圧縮・サムネイル生成）、multer 2.0.2（ファイルアップロード）。スマホ写真追加は二段構えで高速化（フロントが送信前に縮小・再エンコード `utils/image-compression` で通信量・サーバ負荷を削減 → サーバ sharp で確定圧縮・サムネイル生成）。アップロード応答に署名付きURL（originalUrl/thumbnailUrl）を含め、フロントは全件再取得せずローカル状態へ追記して即時反映する
+- **画像処理**: sharp 0.35.5（圧縮・サムネイル生成）、multer 2.4.0（ファイルアップロード）。スマホ写真追加は二段構えで高速化（フロントが送信前に縮小・再エンコード `utils/image-compression` で通信量・サーバ負荷を削減 → サーバ sharp で確定圧縮・サムネイル生成）。アップロード応答に署名付きURL（originalUrl/thumbnailUrl）を含め、フロントは全件再取得せずローカル状態へ追記して即時反映する
 - **工事看板のサーバサイド合成**: 工事写真台帳の工事看板（電子黒板）は構造化テキストから `services/signboard-svg.service`（SVG描画）→ `services/signboard-composite.service`（sharp composite）で写真へオンデマンド重畳する。合成は保存せずリクエスト時に生成し、印刷用画像（/print）と非合成の原本画像（/original）を配信路として分離。現場調査のクライアント fabric 合成とは別系統のサーバ側合成パス
-- **AI/OCR精度向上**: @anthropic-ai/sdk 0.106.0（Claude Vision APIによる見積書OCR構造化データ抽出）
+- **AI/OCR精度向上**: @anthropic-ai/sdk 0.133.0（Claude Vision APIによる見積書OCR構造化データ抽出）
 - **祝日データ**: @holiday-jp/holiday_jp ^2.5.1（日本の祝日判定、工程表エクスポート用）
 - **ストレージ抽象化**: StorageProvider インターフェースによる環境別バックエンド切り替え
   - LocalStorageProvider（開発・テスト環境）
@@ -226,51 +228,51 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 ### 主要な依存関係
 
 - `express` ^5.2.0 - Webフレームワーク
-- `cors` ^2.8.5 - CORS ミドルウェア
-- `helmet` ^8.1.0 - セキュリティヘッダー設定
+- `cors` ^2.8.6 - CORS ミドルウェア
+- `helmet` ^8.3.0 - セキュリティヘッダー設定
 - `compression` ^1.8.1 - レスポンス圧縮
 - `cookie-parser` ^1.4.7 - Cookieパース
-- `@anthropic-ai/sdk` ^0.74.0 - Anthropic Claude Vision API（OCR精度向上）
-- `@prisma/client` ^7.8.0 - Prisma ORM クライアント（型安全なデータアクセス）
-- `@prisma/adapter-pg` ^7.6.0 - Prisma Driver Adapter for PostgreSQL
+- `@anthropic-ai/sdk` ^0.133.0 - Anthropic Claude Vision API（OCR精度向上）
+- `@prisma/client` ^7.9.1 - Prisma ORM クライアント（型安全なデータアクセス）
+- `@prisma/adapter-pg` ^7.3.0 - Prisma Driver Adapter for PostgreSQL
 - `decimal.js` ^10.6.0 - 高精度10進数計算（数量計算）
-- `pg` ^8.18.0 - PostgreSQL クライアント
+- `pg` ^8.22.0 - PostgreSQL クライアント
 - `ioredis` ^5.10.1 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）
-- `nodemailer` ^7.0.12 - メール送信
+- `nodemailer` ^10.1.0 - メール送信
 - `handlebars` ^4.7.8 - テンプレートエンジン
 - `dataloader` ^2.2.3 - データローダー（N+1問題対策）
 - `jose` ^6.1.3 - JWT EdDSA署名・検証
 - `otplib` ^12.0.1 - TOTP 2FA
 - `qrcode` ^1.5.4 - QRコード生成
 - `bloom-filters` ^3.0.4 - セキュリティ機能強化
-- `express-rate-limit` ^8.2.1 - レート制限
-- `zod` ^4.3.6 - スキーマバリデーション
-- `dotenv` ^17.3.1 - 環境変数管理
-- `@sentry/node` ^10.47.0 - Sentryエラートラッキング（Backend）
-- `@sentry/profiling-node` ^10.47.0 - Sentryプロファイリング
-- `pino` ^10.3.0 - ロガー
+- `express-rate-limit` ^8.5.2 - レート制限
+- `zod` ^4.4.3 - スキーマバリデーション
+- `dotenv` ^17.4.2 - 環境変数管理
+- `@sentry/node` ^10.51.0 - Sentryエラートラッキング（Backend）
+- `@sentry/profiling-node` ^10.69.0 - Sentryプロファイリング
+- `pino` ^10.3.1 - ロガー
 - `pino-http` ^11.0.0 - HTTP ロギングミドルウェア
-- `pino-pretty` ^13.1.2 - ログの整形出力（開発環境）
-- `swagger-jsdoc` ^6.2.8 - JSDocからOpenAPI仕様を生成
+- `pino-pretty` ^13.1.3 - ログの整形出力（開発環境）
+- `swagger-jsdoc` ^6.3.0 - JSDocからOpenAPI仕様を生成
 - `swagger-ui-express` ^5.0.1 - Swagger UI統合（開発環境）
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
-- `tsx` ^4.20.6 - TypeScript実行環境
+- `tsx` ^4.21.0 - TypeScript実行環境
 - `@types/express` ^5.0.5 - Express型定義
 - `@types/cors` ^2.8.19 - CORS型定義
 - `@types/node` ^24.10.1 - Node.js型定義
-- `@types/pg` ^8.16.0 - PostgreSQL型定義
+- `@types/pg` ^8.20.0 - PostgreSQL型定義
 - `@types/swagger-jsdoc` ^6.0.4 - swagger-jsdoc型定義
 - `@types/swagger-ui-express` ^4.1.8 - swagger-ui-express型定義
-- `@typescript-eslint/eslint-plugin` ^8.49.0 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.49.0 - TypeScript ESLintパーサー
+- `@typescript-eslint/eslint-plugin` ^8.64.0 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.64.0 - TypeScript ESLintパーサー
 - `eslint` ^9.39.2 - コード品質チェック（Flat Config形式）
-- `prettier` ^3.8.1 - コードフォーマッター
+- `prettier` ^3.9.6 - コードフォーマッター
 - `husky` ^9.0.11 - Git フックマネージャー
-- `lint-staged` ^16.4.0 - ステージングファイルへのリンター実行
-- `vitest` ^4.0.6 - 単体テストフレームワーク
+- `lint-staged` ^17.0.5 - ステージングファイルへのリンター実行
+- `vitest` ^4.1.10 - 単体テストフレームワーク
 - `@vitest/ui` ^4.0.8 - Vitest UIツール
-- `@vitest/coverage-v8` ^4.0.18 - Vitestカバレッジ（V8プロバイダー）
+- `@vitest/coverage-v8` ^4.1.5 - Vitestカバレッジ（V8プロバイダー）
 - `supertest` ^7.1.4 - APIテストライブラリ
 - `@types/supertest` ^6.0.3 - supertest型定義
 - `autocannon` ^8.0.0 - 高性能負荷テストツール
@@ -331,7 +333,7 @@ DB 接続の障害は、層ごとに次の形で扱う。個々のサービス�
 
 ### 技術スタック
 
-- **テストフレームワーク**: Vitest 4.0.6
+- **テストフレームワーク**: Vitest 4.1.10
 - **Backend**: supertest (APIテスト) + Vitest
 - **Frontend**: React Testing Library + jsdom + Vitest
 - **モック**: Vitest標準モック機能（vi.fn(), vi.mock()）
@@ -554,21 +556,21 @@ npm --prefix frontend run coverage:check  # 直前のカバレッジ実行が残
 ### 技術スタック
 
 - **言語**: TypeScript 5.9.3
-- **テストフレームワーク**: Playwright 1.40.0
+- **テストフレームワーク**: Playwright 1.62.0
 - **ブラウザ**: Chromium (Playwright管理)
 - **テスト構成**: カテゴリ分け（api, ui, integration）
 - **レポート**: HTML形式、タイムスタンプ付きディレクトリ管理
 
 ### 主要な依存関係
 
-- `@playwright/test` ^1.57.0 - E2Eテストフレームワーク
+- `@playwright/test` ^1.62.0 - E2Eテストフレームワーク
 - `typescript` ^5.9.3 - TypeScriptコンパイラ
-- `@types/node` ^25.0.3 - Node.js型定義
-- `@typescript-eslint/eslint-plugin` ^8.47.0 - TypeScript ESLintプラグイン
-- `@typescript-eslint/parser` ^8.48.1 - TypeScript ESLintパーサー
-- `@prisma/client` ^7.0.1 - Prisma Client（テストデータ生成、ルートpackage.json経由でbackendと共有）
-- `prisma` ^7.1.0 - Prisma CLI（スキーマ管理、ルートpackage.json経由）
-- `eslint` ^10.4.1 - ルートワークスペースのコード品質チェック。**注**: frontend/backend は eslint-plugin-react 系の ESLint 10 非互換のため意図的に ESLint 9 系（Flat Config）を維持しており、ルートのみ ESLint 10 系へ追従している
+- `@types/node` ^25.6.0 - Node.js型定義
+- `@typescript-eslint/eslint-plugin` ^8.60.1 - TypeScript ESLintプラグイン
+- `@typescript-eslint/parser` ^8.63.0 - TypeScript ESLintパーサー
+- `@prisma/client` ^7.8.0 - Prisma Client（テストデータ生成、ルートpackage.json経由でbackendと共有）
+- `prisma` ^7.8.0 - Prisma CLI（スキーマ管理、ルートpackage.json経由）
+- `eslint` ^10.5.0 - ルートワークスペースのコード品質チェック。**注**: frontend/backend は eslint-plugin-react 系の ESLint 10 非互換のため意図的に ESLint 9 系（Flat Config）を維持しており、ルートのみ ESLint 10 系へ追従している
 - `cross-env` ^10.1.0 - クロスプラットフォーム環境変数設定
 - `exceljs` ^4.4.0 - E2Eでエクスポート済み.xlsxを読み取り検証（内訳書CRUD等のExcel出力アサーション用。生成側はfrontendのxlsx/SheetJS）
 - Chromium - Playwright経由で自動インストール
@@ -628,8 +630,11 @@ E2Eテストでは、CI環境での安定性を確保するため、`e2e/helpers
 **playwright.config.ts のCI対応:**
 - タイムアウト: CI環境では2倍に延長（120秒 / 60秒）
 - リトライ: CI環境では3回 / ローカルでは1回
+- `failOnFlakyTests: true`: 再試行でだけ回復した実行（flaky）も総合判定を失敗にする。再試行は「緑にする」ためではなく「何回中何回落ちたか」を記録するために置く。`test.fail()` の期待された失敗は flaky に数えない
 - actionTimeout: CI 30秒 / ローカル 15秒
 - expectタイムアウト: CI 20秒 / ローカル 10秒
+
+**入力の取りこぼしへの対処:** 前提操作の入力（道具の釦のタップなど）が状態に結び付かなかったときは、テスト全体の再試行に頼らず、その操作の内側で `expect(...).toPass()` を使い、**状態が変わっていないときに限って**入力し直す（例: `site-survey-annotation-mobile.spec.ts` の `tapToolUntilPressed`。押下状態が偽のときだけタップし直すため、選択済みの道具を再び押してパネルを開閉させない）。入力し直しても状態が変わらなければ失敗させ、取りこぼしを疑った根拠（失敗時の画面、製品側の経路の確認、再現の有無）をヘルパーのコメントに残す。
 
 **例:**
 ```typescript
