@@ -5119,7 +5119,10 @@ frontend/src/
 | `frontend/src/routes.tsx` | 棚卸し画面と初回のパスワード変更画面（`/setup/password`）のルート |
 | `backend/package.json` | 再有効化スクリプトの実行コマンド（`user:reactivate`） |
 | `frontend/nginx.conf` | セキュリティヘッダー、`server_tokens off`、API の中継、アクセスログの形式 |
-| `frontend/Dockerfile` | CSP の取得先・HSTS の環境変数、統計の出力物を配信物から外す |
+| `frontend/Dockerfile` | CSP の取得先・HSTS・中継先の環境変数と起動前の検査、統計の出力物を配信物から外す |
+| `docker-compose.test.yml` | frontend の `VITE_API_URL` を画面と同じオリジンに、`BACKEND_INTERNAL_URL` を backend のサービスに |
+| `docker-compose.ci.yml` | 同上 |
+| `e2e/requirement-exclusions.json` | 40.10・40.11 の `pending-implementation` の登録（site-survey の適用で外す） |
 | `e2e/global-setup.ts` | 役割ごとのログインとセッションの保持 |
 | `e2e/helpers/auth-actions.ts` | TOTP の計算、セッションの受け渡しと回収 |
 
@@ -5201,11 +5204,13 @@ stateDiagram-v2
 | 状態 | 許可する API | それ以外への応答 |
 |---|---|---|
 | Active | 全て（権限の判定に従う） | — |
-| PasswordChangeRequired | `GET /api/v1/auth/me`、`POST /api/v1/auth/password/change`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/logout-all` | 403 `PASSWORD_CHANGE_REQUIRED` |
-| TwoFactorSetupRequired | `GET /api/v1/auth/me`、`POST /api/v1/auth/2fa/setup`、`POST /api/v1/auth/2fa/enable`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/logout-all` | 403 `TWO_FACTOR_SETUP_REQUIRED` |
+| PasswordChangeRequired | `POST /api/v1/auth/password/change`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/logout-all` | 403 `PASSWORD_CHANGE_REQUIRED` |
+| TwoFactorSetupRequired | `POST /api/v1/auth/2fa/setup`、`POST /api/v1/auth/2fa/enable`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/logout-all` | 403 `TWO_FACTOR_SETUP_REQUIRED` |
 | Deactivated | なし（ログイン・リフレッシュも拒否） | 401 `ACCOUNT_DISABLED`（ログイン時は通常の認証エラーと同じ本文） |
 
 - 状態の優先順位は Deactivated → PasswordChangeRequired → TwoFactorSetupRequired → Active とする
+- 初回のパスワード変更を要する利用者は 2FA も未登録だが、要件34.2 の例外によりパスワード変更だけを許す。変更の完了で全リフレッシュトークンが失効し（要件7.5）、再ログインの後は TwoFactorSetupRequired になる（要件34.1）
+- 制限中の利用者は `GET /api/v1/auth/me` も呼べない（要件34.2 の許可の範囲外）。画面が状態を知るため、ログイン・リフレッシュ・2FA の検証・2FA の有効化・パスワード変更の応答に `AuthUserView`（`twoFactorEnabled`・`mustChangePassword` を含む）を載せる
 - 無効化された利用者のログインは、パスワードの正否に関わらず通常の認証エラー（`INVALID_CREDENTIALS`）と同じ本文で拒否する（36.2。存在や状態を推測させない）
 
 #### 監査ログのアーカイブ（要件41）
@@ -5888,6 +5893,7 @@ type RecordedExportError = { type: 'RECORD_FAILED'; message: string } | { type: 
 ```
 - 記録の要求が成功したときだけ `generate` を呼ぶ（40.10）。失敗したときは生成を始めず、呼び出し側が「出力を記録できなかったため中止しました」のエラーメッセージを表示する（40.11）
 - 各業務 spec の出力処理がこの包みを呼ぶ。本 spec は包みと API の呼び出しを提供する
+- 本 spec には画面で生成する出力が無いため、40.10・40.11 は本 spec では単体テストで確かめ、本番の入口での E2E は最初の適用先（site-survey の調査報告書の PDF 出力）で行う。それまでは `e2e/requirement-exclusions.json` に区分 `pending-implementation` で登録し、対になる実装決定として、調査報告書の出力が記録を先に要求することを観測する E2E を `test.fail()` のラチェットで置く。site-survey の適用で成功へ反転させ、除外の登録を外す（利用者の判断、2026-10-16）
 
 ##### AuditLogArchiveService（変更）
 
@@ -6019,6 +6025,7 @@ interface AnomalyThreshold { windowSeconds: number; threshold: number; cooldownS
 - `Strict-Transport-Security: max-age=31536000; includeSubDomains` は本番だけ付ける（`NGINX_HSTS_VALUE` が空の環境では付かない。44.2）
 - `X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`（44.2）。`X-XSS-Protection` は外す
 - `location /api/` と `location = /csrf-token` を `${BACKEND_INTERNAL_URL}` へ中継し、`X-Forwarded-For $proxy_add_x_forwarded_for`、`X-Forwarded-Proto` を付ける
+- 中継は本番だけでなく試験（`docker-compose.test.yml`）と CI（`docker-compose.ci.yml`）でも用いる（本番と同じ nginx のイメージで検証する方針）。各環境の `VITE_API_URL` は画面と同じオリジンとし、`BACKEND_INTERNAL_URL` は compose の backend のサービス名で渡す。`BACKEND_INTERNAL_URL` が空のときはコンテナの起動前の検査で失敗させる（中継先の無い nginx を黙って起動しない）
 - アクセスログの書式はクエリを含めない `$uri` を使う（37.3）
 - 配信物から可視化の統計（`stats.html`）を外す
 
@@ -6043,7 +6050,7 @@ interface AnomalyThreshold { windowSeconds: number; threshold: number; cooldownS
 | Intent | 再読み込み時の復元と、利用者の状態による遷移の制限 |
 | Requirements | 33.11, 34.1, 34.3, 34.5, 34.8, 37.7 |
 
-- 初期化は CSRF トークンの取得 → Cookie によるリフレッシュ → `GET /api/v1/auth/me` の順で行い、localStorage を読まない（33.11）
+- 初期化は CSRF トークンの取得 → Cookie によるリフレッシュの順で行い、リフレッシュの応答の `user` で利用者を復元する。localStorage を読まない（33.11）
 - `user.mustChangePassword` が真ならパスワード変更の画面（`/profile` のパスワード変更の区画を単独で表示する `/setup/password`）だけを許し、それ以外の経路は同画面へ置き換える（37.7）
 - `user.twoFactorEnabled` が偽なら `/profile/2fa-setup` だけを許す（34.1、34.3、34.5、34.8）。どちらの制限中もヘッダーのナビゲーションは表示せず、ログアウトだけを置く
 - 初回のパスワード変更の完了でリフレッシュトークンが全て失効するため、ログイン画面へ戻し、再ログインの後に 2FA の設定へ進める
@@ -6179,7 +6186,8 @@ model Project {
 
 - 全体の準備で役割ごと（管理者・一般ユーザー・2FA 未登録・初期管理者）にログインし、リフレッシュの Cookie を保持する。各テストのコンテキストへ Cookie を渡し、終了時に回収して次のテストへ渡す（E2E は直列実行）
 - 試験用の利用者は既知の TOTP の秘密鍵で seed し、補助関数が otplib でコードを計算する。同じ利用者の連続ログインは次の時間ステップを待つ
-- localStorage の `accessToken` を観測していた補助関数・テストは、`apiClient` の状態の観測（`/api/v1/auth/me` の成否）へ置き換える
+- localStorage の `accessToken` を観測していた補助関数・テストは、画面の表示（ログイン後の画面が開けるか）と、認証済みの API の成否の観測へ置き換える
+- 認証の Cookie を伴う API の呼び出しは、画面と同じオリジン（nginx の中継）を通す。backend へ直接つなぐ `API_BASE_URL` は、認証の Cookie を要しない確認（ヘルスチェック、Cookie を持たない要求の拒否の観測）に限る。ブラウザは `localhost` の Cookie を `127.0.0.1` へ送らないため、CI の `API_BASE_URL`（`127.0.0.1`）では Cookie が渡らない
 
 ### Security Considerations
 

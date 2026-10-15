@@ -123,6 +123,21 @@
         "check:design-component-reqs の user-authentication を minPairs 46 / minTableDeclarations 46 / minDetailDeclarations 29 へ（allowNoDeclarations を外した）"
       ],
       "boundary_note": "案件そのもの（/api/projects）への閲覧範囲の適用を本 spec が持つ。是正計画 §5.3 を合わせて改める"
+    },
+    "design_review_2026_10_16": {
+      "reviewed_at": "2026-10-16T15:00:00Z",
+      "initial_decision": "NO-GO",
+      "issues": [
+        "34.1〜34.3 と 37.7 の衝突（初期管理者の初回ログイン）",
+        "40.10・40.11 の本番の入口の不在",
+        "試験・CI の配信の構成と Cookie の受け渡し"
+      ],
+      "resolutions": [
+        "要件34.1〜34.3 に初回のパスワード変更の例外を加えた（パスワード変更→2FA の順、利用者の判断）",
+        "40.10・40.11 は pending-implementation の除外と test.fail() のラチェットで先行し site-survey で反転（利用者の判断）",
+        "試験・CI も nginx の中継で同一オリジン化。制限中の /me を許可から外し、応答に利用者の状態を載せる"
+      ],
+      "requirements_revised": ["34.1", "34.2", "34.3"]
     }
   },
   "ready_for_implementation": false
