@@ -15,6 +15,10 @@ import { test, expect, Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 
+// 所要時間は単調時計（performance.now()）で測る。壁時計（Date.now()）は時刻補正で飛ぶため、
+// 実際より長い所要を返しうる。WSL2 の pre-push では、テスト全体が 1 秒で終わった回に
+// Date.now() の差が 3700ms となり、2 秒の閾値で落ちた。
+
 /**
  * テスト用データ
  */
@@ -524,13 +528,13 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
     test('REQ-8.1: 自社情報ページの初期表示を1秒以内に完了する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      const startTime = Date.now();
+      const startTime = performance.now();
       await page.goto('/company-info');
 
       // フォームが表示されるまで待機
       await expect(page.getByLabel(/会社名/)).toBeVisible({ timeout: getTimeout(10000) });
 
-      const loadTime = Date.now() - startTime;
+      const loadTime = performance.now() - startTime;
 
       // 1秒以内であることを確認（CI環境を考慮して2秒に緩和）
       expect(loadTime).toBeLessThan(2000);
@@ -547,7 +551,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
       await fillCompanyInfoForm(page, { companyName: 'パフォーマンステスト株式会社' });
 
       // APIリクエストの時間を計測
-      const startTime = Date.now();
+      const startTime = performance.now();
       const responsePromise = page.waitForResponse(
         (response) =>
           response.url().includes('/api/company-info') && response.request().method() === 'PUT'
@@ -557,7 +561,7 @@ test.describe('自社情報フォーム・保存・バリデーション', () =>
       await saveButton.click();
 
       const response = await responsePromise;
-      const apiTime = Date.now() - startTime;
+      const apiTime = performance.now() - startTime;
 
       // API応答が500ミリ秒以内であることを確認（CI環境を考慮して1秒に緩和）
       expect(apiTime).toBeLessThan(1000);

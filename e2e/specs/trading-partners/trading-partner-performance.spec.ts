@@ -18,6 +18,10 @@ import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
 
+// 所要時間は単調時計（performance.now()）で測る。壁時計（Date.now()）は時刻補正で飛ぶため、
+// 実際より長い所要を返しうる。WSL2 の pre-push では、テスト全体が 1 秒で終わった回に
+// Date.now() の差が 3700ms となり、2 秒の閾値で落ちた。
+
 // Performance thresholds (in milliseconds)
 // Note: E2E環境での変動を考慮し、要件値に20%のマージンを追加
 const THRESHOLDS = {
@@ -67,7 +71,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
   test('取引先作成APIが500ms以内にレスポンスを返す (trading-partner-management/REQ-9.3)', async ({
     request,
   }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.post(`${API_BASE_URL}/api/trading-partners`, {
       headers: {
@@ -81,7 +85,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -98,7 +102,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
   test('取引先一覧取得APIが500ms以内にレスポンスを返す (trading-partner-management/REQ-9.3)', async ({
     request,
   }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/trading-partners`, {
       headers: {
@@ -106,7 +110,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -123,7 +127,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
   test('取引先検索APIが1秒以内にレスポンスを返す (trading-partner-management/REQ-9.4)', async ({
     request,
   }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/trading-partners?search=テスト`, {
       headers: {
@@ -131,7 +135,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.SEARCH_FILTER_RESPONSE);
@@ -148,7 +152,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
   test('取引先フィルタリングAPIが1秒以内にレスポンスを返す (trading-partner-management/REQ-9.4)', async ({
     request,
   }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/trading-partners?type=CUSTOMER`, {
       headers: {
@@ -156,7 +160,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.SEARCH_FILTER_RESPONSE);
@@ -173,7 +177,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
   test('取引先オートコンプリート検索APIが500ms以内にレスポンスを返す (trading-partner-management/REQ-10.6)', async ({
     request,
   }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/trading-partners/search?q=テスト`, {
       headers: {
@@ -181,7 +185,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.SEARCH_API_RESPONSE);
@@ -275,7 +279,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
   test('大量データでも取引先一覧APIが500ms以内にレスポンスを返す (trading-partner-management/REQ-9.5)', async ({
     request,
   }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/trading-partners?page=1&limit=20`, {
       headers: {
@@ -283,7 +287,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -305,7 +309,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     request,
   }) => {
     // Test middle page
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/trading-partners?page=3&limit=20`, {
       headers: {
@@ -313,7 +317,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -330,7 +334,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
   test('大量データでも検索が1秒以内にレスポンスを返す (trading-partner-management/REQ-9.4)', async ({
     request,
   }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/trading-partners?search=テスト`, {
       headers: {
@@ -338,7 +342,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.SEARCH_FILTER_RESPONSE);
@@ -355,7 +359,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
   test('取引先詳細取得APIが500ms以内にレスポンスを返す (trading-partner-management/REQ-9.3)', async ({
     request,
   }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(
       `${API_BASE_URL}/api/trading-partners/${createdTradingPartnerId}`,
@@ -366,7 +370,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       }
     );
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -394,7 +398,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     );
     const partnerData = await getResponse.json();
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.put(
       `${API_BASE_URL}/api/trading-partners/${createdTradingPartnerId}`,
@@ -412,7 +416,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       }
     );
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -443,7 +447,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     });
     const createdPartner = await createResponse.json();
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.delete(
       `${API_BASE_URL}/api/trading-partners/${createdPartner.id}`,
@@ -454,7 +458,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       }
     );
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.status()).toBe(204);
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -471,7 +475,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
   test('大量データでもオートコンプリート検索APIが500ms以内にレスポンスを返す (trading-partner-management/REQ-10.6)', async ({
     request,
   }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(
       `${API_BASE_URL}/api/trading-partners/search?q=パフォーマンス`,
@@ -482,7 +486,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       }
     );
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.SEARCH_API_RESPONSE);
@@ -555,7 +559,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
       },
     ]);
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     // Navigate to trading partners page
     await page.goto(`${FRONTEND_BASE_URL}/trading-partners`);
@@ -563,7 +567,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
     // Wait for the page to be fully loaded (including data)
     await page.waitForLoadState('networkidle');
 
-    const loadTime = Date.now() - startTime;
+    const loadTime = performance.now() - startTime;
 
     expect(loadTime).toBeLessThan(THRESHOLDS.TRADING_PARTNER_LIST_LOAD);
 
@@ -589,7 +593,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
       },
     ]);
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     // Navigate to trading partner detail page
     await page.goto(`${FRONTEND_BASE_URL}/trading-partners/${tradingPartnerId}`);
@@ -597,7 +601,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
     // Wait for the page to be fully loaded (including data)
     await page.waitForLoadState('networkidle');
 
-    const loadTime = Date.now() - startTime;
+    const loadTime = performance.now() - startTime;
 
     expect(loadTime).toBeLessThan(THRESHOLDS.TRADING_PARTNER_DETAIL_LOAD);
 

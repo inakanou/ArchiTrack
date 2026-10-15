@@ -28,6 +28,10 @@ import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
 
+// 所要時間は単調時計（performance.now()）で測る。壁時計（Date.now()）は時刻補正で飛ぶため、
+// 実際より長い所要を返しうる。WSL2 の pre-push では、テスト全体が 1 秒で終わった回に
+// Date.now() の差が 3700ms となり、2 秒の閾値で落ちた。
+
 // Performance thresholds (in milliseconds)
 const THRESHOLDS = {
   PROJECT_LIST_LOAD: 2000, // 19.1: 2秒以内
@@ -77,7 +81,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
    * @requirement project-management/REQ-19.3: 作成操作のAPI応答を500ミリ秒以内に完了する
    */
   test('プロジェクト作成APIが500ms以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.post(`${API_BASE_URL}/api/projects`, {
       headers: {
@@ -90,7 +94,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -104,7 +108,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
    * @requirement project-management/REQ-17.9: 担当者選択が快適に動作するレスポンス時間
    */
   test('担当者候補取得APIが500ms以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/users/assignable`, {
       headers: {
@@ -112,7 +116,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.ASSIGNABLE_USERS_API);
@@ -130,7 +134,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
    * 作成・更新・削除の各検証で独立に判定している。
    */
   test('プロジェクト一覧取得APIが500ms以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/projects`, {
       headers: {
@@ -138,7 +142,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -153,7 +157,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
    * あり、描画の完了は測っていないため、意図して番号を持たない（Task 115.177）。
    */
   test('プロジェクト検索APIが1秒以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/projects?search=テスト`, {
       headers: {
@@ -161,7 +165,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.SEARCH_FILTER_RESPONSE);
@@ -176,7 +180,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
    * あり、描画の完了は測っていないため、意図して番号を持たない（Task 115.177）。
    */
   test('プロジェクトフィルタリングAPIが1秒以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/projects?status=PREPARING`, {
       headers: {
@@ -184,7 +188,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.SEARCH_FILTER_RESPONSE);
@@ -255,7 +259,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
    * 意図して番号を持たない（Task 115.177）。
    */
   test('大量データでもプロジェクト一覧APIが500ms以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/projects?page=1&limit=20`, {
       headers: {
@@ -263,7 +267,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -283,7 +287,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
    */
   test('大量データでも任意のページ取得が500ms以内にレスポンスを返す', async ({ request }) => {
     // Test middle page
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/projects?page=3&limit=20`, {
       headers: {
@@ -291,7 +295,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -306,7 +310,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
    * 代表しないため、意図して番号を持たない（Task 115.177）。
    */
   test('大量データでも検索が1秒以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/projects?search=テスト`, {
       headers: {
@@ -314,7 +318,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.SEARCH_FILTER_RESPONSE);
@@ -332,7 +336,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
    * 作成・更新・削除の各検証で独立に判定している。
    */
   test('プロジェクト詳細取得APIが500ms以内にレスポンスを返す', async ({ request }) => {
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.get(`${API_BASE_URL}/api/projects/${createdProjectId}`, {
       headers: {
@@ -340,7 +344,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -362,7 +366,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     });
     const projectData = await getResponse.json();
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.put(`${API_BASE_URL}/api/projects/${createdProjectId}`, {
       headers: {
@@ -374,7 +378,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.ok()).toBeTruthy();
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -401,7 +405,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     });
     const createdProject = await createResponse.json();
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     const response = await request.delete(`${API_BASE_URL}/api/projects/${createdProject.id}`, {
       headers: {
@@ -409,7 +413,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
       },
     });
 
-    const responseTime = Date.now() - startTime;
+    const responseTime = performance.now() - startTime;
 
     expect(response.status()).toBe(204);
     expect(responseTime).toBeLessThan(THRESHOLDS.CRUD_API_RESPONSE);
@@ -478,7 +482,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
       },
     ]);
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     // Navigate to projects page
     await page.goto(`${FRONTEND_BASE_URL}/projects`);
@@ -486,7 +490,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
     // Wait for the page to be fully loaded (including data)
     await page.waitForLoadState('networkidle');
 
-    const loadTime = Date.now() - startTime;
+    const loadTime = performance.now() - startTime;
 
     expect(loadTime).toBeLessThan(THRESHOLDS.PROJECT_LIST_LOAD);
 
@@ -509,7 +513,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
       },
     ]);
 
-    const startTime = Date.now();
+    const startTime = performance.now();
 
     // Navigate to project detail page
     await page.goto(`${FRONTEND_BASE_URL}/projects/${projectId}`);
@@ -517,7 +521,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
     // Wait for the page to be fully loaded (including data)
     await page.waitForLoadState('networkidle');
 
-    const loadTime = Date.now() - startTime;
+    const loadTime = performance.now() - startTime;
 
     expect(loadTime).toBeLessThan(THRESHOLDS.PROJECT_DETAIL_LOAD);
 
