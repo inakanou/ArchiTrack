@@ -189,7 +189,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 
 ## 8. 直接実装（Path B）
 
-- [ ] **D1** backend の `xlsx` を CDN 版 0.20.3 へ更新し、許容エントリを削除する（期限 2026-10-31）。使われなくなった react-router の許容エントリも削除する
+- [x] **D1** backend の `xlsx` を CDN 版 0.20.3 へ更新し、許容エントリを削除する（期限 2026-10-31）。使われなくなった react-router の許容エントリも削除する
 - [ ] **D2** 本番依存の moderate で修正版があるもの（`qs`・`ip-address`・`fflate`・`uuid`）を更新し、moderate の扱い（ブロックまたは期限付き追跡）を `scripts/security-audit.mjs` で決める
 - [ ] **D3** `.github/dependabot.yml`: docker の対象に `/backend`・`/frontend` を加え、`cooldown` を設定する
 - [ ] **D4** `dependabot-automerge.yml`: 自動マージを devDependencies と patch に限定し、判定を `github.event.pull_request.user.login` に変える
@@ -199,7 +199,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 - [ ] **D8** `.gitignore` に `.env.keys`・`*.pem`・`*.key`・`.env.production`（`*.example` を除く）を加える
 - [ ] **D9** `ci.yml`: `check:env` のための本物のシークレット複製を廃止する（ダミー値で形式だけを検証する）。シークレットは `env:` 経由で渡し、echo しない
 - [ ] **D10** 開発・テスト用 compose のポートを `127.0.0.1:` にバインドする（Node デバッガ 9229 を含む）
-- [ ] **D11** `NODE_ENV` の既定値を `production` にする（開発側で明示する）
+- [x] ~~**D11** `NODE_ENV` の既定値を `production` にする~~ → user-authentication 要件42.9 へ移した（2026-10-16。開発用の機能を実行環境の指定が無いときに無効にする振る舞いとして要件化）
 - [ ] **D12** 未使用の `@aws-sdk/client-sesv2` を削除する。`backend/scripts/check-env.ts` が秘密値の一部と接続 URL を表示しないようにする。文書の 2FA 鍵の例を検証を通らない表記にし、`.env.example` の説明（Base64）を実装（64 桁 hex）に合わせる
 
 ## 9. 文書化
