@@ -341,12 +341,11 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'user-authentication': {
     mode: 'ratchet',
     maxContradictions: 0,
-    minPairs: 0,
-    minTableDeclarations: 0,
-    minDetailDeclarations: 0,
-    allowNoDeclarations: true,
+    minPairs: 46,
+    minTableDeclarations: 46,
+    minDetailDeclarations: 29,
     reason:
-      '`design.md` は在るが追跡表も部品表も一つも持たない（`check:trace-coverage` の宣言と同じ事実）。表の新設は本機能の別タスクを要する',
+      '2026-10-16 に要件32〜45 の章が追跡表・部品表・詳細節の Requirements 欄を新設した。矛盾 0 件をラチェットで維持する。要件1〜31 の前半は表を持たない書式のまま',
   },
 };
 

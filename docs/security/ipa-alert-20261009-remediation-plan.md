@@ -40,7 +40,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 13. contract-management
 14. trading-partner-management
 15. company-info
-16. **残りの直接実装 D2〜D12 と文書化 W1〜W4**
+16. **残りの直接実装 D2〜D14 と文書化 W1〜W4**
 
 各 spec の手順は `/kiro-spec-requirements <spec>` → `/kiro-spec-design <spec>` → `/kiro-spec-tasks <spec>` → `/kiro-impl <spec>` → `/kiro-validate-impl <spec>`。
 
@@ -110,7 +110,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 
 ### 5.3 project-management
 
-- 案件の閲覧範囲の定義（担当者・メンバー）と、一覧・詳細への適用（user-authentication 21.6 の適用）
+- ~~案件の閲覧範囲の定義（担当者・メンバー）と、一覧・詳細への適用（user-authentication 21.6 の適用）~~ → 判定の規則は user-authentication 要件39 が定め、案件そのもの（`/api/projects` の一覧・件数・詳細・更新・状態変更）への適用も user-authentication の設計（2026-10-16）が持つ。本 spec に残るのは、案件の画面での範囲外の表示（一覧に出ない・詳細が「見つかりません」になる）の確認と、案件の担当者変更の画面の扱い
 - 案件の論理削除時の配下ファイルの扱いと、論理削除データの保持期間・完全削除
 
 ### 5.4 construction-photo
@@ -183,7 +183,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 - [ ] **O1 ログの調査**（直近 1 か月から範囲を広げる）: Railway のログで `/admin/log-level` へのアクセス、`email` 指定の `/verify-2fa` 呼び出し、401・429・5xx の急増を確認する。異常があればインシデントとして扱い、専門ベンダーへの調査依頼を検討する
 - [ ] **O2 アプリ内アカウントの棚卸し**: 見覚えのないユーザー、admin・`*:*` を持つロール、未使用の招待を確認する
 - [ ] **O3 外部コンソールの棚卸し**: Railway・Cloudflare（R2）・Anthropic・Sentry・SMTP 事業者・GitHub のメンバーと API トークンを棚卸しし、MFA が有効かを確認する
-- [ ] **O4 Railway**: `RAILWAY_PRODUCTION_TOKEN`・`RAILWAY_STAGING_TOKEN` をローテーションし、GitHub の `production`・`staging` 環境シークレットへ移して保護ルール（必須レビュアー、デプロイブランチ制限）を設定する。Postgres・Redis の TCP Proxy が無効であることを確認する
+- [ ] **O4 Railway**: `RAILWAY_PRODUCTION_TOKEN`・`RAILWAY_STAGING_TOKEN` をローテーションし、GitHub の `production`・`staging` 環境シークレットへ移して保護ルール（必須レビュアー、デプロイブランチ制限）を設定する。Postgres・Redis の TCP Proxy が無効であることを確認する。user-authentication の配備（API を frontend の nginx 経由に一本化）の後に、backend の公開ドメインを閉じる（送信元 IP の識別の段数を一通りにするため）
 - [ ] **O5 R2・Anthropic**: R2 トークンが対象バケット限定の Object Read & Write か確認する。本番の Anthropic キーに使用量上限を設定する
 - [ ] **O6 本番の初期管理者パスワード**: compose に直書きされたテスト用の値と異なることを確認する。seed 後は `INITIAL_ADMIN_PASSWORD` を Railway から削除する
 
@@ -201,6 +201,8 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 - [ ] **D10** 開発・テスト用 compose のポートを `127.0.0.1:` にバインドする（Node デバッガ 9229 を含む）
 - [x] ~~**D11** `NODE_ENV` の既定値を `production` にする~~ → user-authentication 要件42.9 へ移した（2026-10-16。開発用の機能を実行環境の指定が無いときに無効にする振る舞いとして要件化）
 - [ ] **D12** 未使用の `@aws-sdk/client-sesv2` を削除する。`backend/scripts/check-env.ts` が秘密値の一部と接続 URL を表示しないようにする。文書の 2FA 鍵の例を検証を通らない表記にし、`.env.example` の説明（Base64）を実装（64 桁 hex）に合わせる
+- [ ] **D13** ログイン後の遷移先の検証（`validateRedirectUrl`）が `/\` で始まる値を通す開放リダイレクトの是正と、`ProtectedRoute` の `state.from` の検証（user-authentication の設計の調査で発見。要件32〜45 の範囲外）
+- [ ] **D14** tesseract.js の worker・言語データを自前で配信し、CSP の `cdn.jsdelivr.net`・`tessdata.projectnaptha.com` の許可を外す（user-authentication 要件44 の設計では許可で対応）
 
 ## 9. 文書化
 

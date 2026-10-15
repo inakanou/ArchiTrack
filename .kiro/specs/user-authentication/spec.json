@@ -2,13 +2,13 @@
   "name": "user-authentication",
   "description": "ArchiTrackプロジェクトに招待制のユーザー認証システムを追加します。JWT（JSON Web Token）ベースの認証方式を採用し、管理者が承認したユーザーのみがシステムへアクセスできるセキュアな認証基盤を構築します。",
   "language": "Japanese",
-  "phase": "requirements-generated",
+  "phase": "design-generated",
   "created_at": "2025-11-20T12:00:00Z",
-  "updated_at": "2026-10-16T00:00:00Z",
+  "updated_at": "2026-10-16T12:00:00Z",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
       "generated": true,
@@ -96,6 +96,33 @@
         "最終ログインから90日で自動無効化"
       ],
       "trigger": "外部公開アプリ・アカウント管理・保有データの3観点の監査で判明した欠陥の是正"
+    },
+    "design_update_2026_10_16": {
+      "updated_at": "2026-10-16T12:00:00Z",
+      "new_requirements_designed": [
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45"
+      ],
+      "updated_requirements_designed": ["7.3"],
+      "sections_added": ["Requirements 32-45: セキュリティ是正（IPA注意喚起 2026-10-09）"],
+      "research_log": "research.md（要件32〜45 に限る）",
+      "gate_policy_changes": [
+        "check:trace-coverage の user-authentication を maxMissing 384 へ（allowNoTraceabilityTable を外した）",
+        "check:design-component-reqs の user-authentication を minPairs 46 / minTableDeclarations 46 / minDetailDeclarations 29 へ（allowNoDeclarations を外した）"
+      ],
+      "boundary_note": "案件そのもの（/api/projects）への閲覧範囲の適用を本 spec が持つ。是正計画 §5.3 を合わせて改める"
     }
   },
   "ready_for_implementation": false
