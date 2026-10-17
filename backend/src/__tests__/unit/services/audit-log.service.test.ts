@@ -13,6 +13,7 @@ import {
   TRADING_PARTNER_AUDIT_ACTIONS,
   TradingPartnerAuditAction,
   TRADING_PARTNER_TARGET_TYPE,
+  SECURITY_REMEDIATION_AUDIT_ACTIONS,
 } from '../../../types/audit-log.types.js';
 
 // PrismaClientのモック
@@ -634,6 +635,123 @@ describe('AuditLogService', () => {
 
       expect(result).toBe('[]');
     });
+  });
+
+  describe('セキュリティ是正の監査の種別と実行者の無い記録（要件40.1）', () => {
+    /** design.md「#### 監査」の AuditLogService が定める追加の種別（文字どおり） */
+    const designedActions = [
+      'LOGIN_LOCKED',
+      'TWO_FACTOR_VERIFIED',
+      'TWO_FACTOR_FAILED',
+      'LOGOUT_ALL',
+      'INVITATION_RESENT',
+      'INVITATION_ACCEPTED',
+      'USER_DEACTIVATED',
+      'USER_REACTIVATED',
+      'USER_AUTO_DEACTIVATED',
+      'TWO_FACTOR_RESET_BY_ADMIN',
+      'TWO_FACTOR_REENROLLED',
+      'REFRESH_TOKEN_REUSE_DETECTED',
+      'PROJECT_SCOPE_DENIED',
+      'DATA_EXPORTED',
+      'OPERATIONAL_SETTING_CHANGED',
+      'AUDIT_ARCHIVE_CREATED',
+      'AUDIT_ARCHIVE_FAILED',
+      'AUDIT_ARCHIVE_RESTORED',
+    ] as const;
+
+    const createdRow = (input: CreateAuditLogInput) => ({
+      id: `log-${input.action}`,
+      action: input.action,
+      actorId: input.actorId,
+      actorEmail: input.actorId ? 'actor@example.com' : null,
+      actorDisplayName: input.actorId ? '実行者' : null,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      before: null,
+      after: null,
+      metadata: input.metadata ?? null,
+      createdAt: new Date('2026-10-17T00:00:00Z'),
+    });
+
+    it('設計の定める種別を過不足なく一覧に持つ', () => {
+      expect([...SECURITY_REMEDIATION_AUDIT_ACTIONS].sort()).toEqual([...designedActions].sort());
+    });
+
+    it.each(designedActions)('種別 %s を実行者ありで記録できる', async (action) => {
+      (mockPrisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        email: 'actor@example.com',
+        displayName: '実行者',
+      });
+      (mockPrisma.auditLog.create as ReturnType<typeof vi.fn>).mockImplementation(
+        async ({ data }: { data: CreateAuditLogInput }) => createdRow(data)
+      );
+      const input: CreateAuditLogInput = {
+        action,
+        actorId: 'admin-1',
+        targetType: 'User',
+        targetId: 'user-1',
+      };
+
+      const result = await service.createLog(input);
+
+      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action,
+            actorId: 'admin-1',
+            actorEmail: 'actor@example.com',
+            actorDisplayName: '実行者',
+          }),
+        })
+      );
+      expect(result.action).toBe(action);
+    });
+
+    it.each([
+      // 自動無効化（無人の処理）
+      { action: 'USER_AUTO_DEACTIVATED', metadata: { trigger: 'inactivity' } },
+      // アーカイブ（無人の処理）
+      { action: 'AUDIT_ARCHIVE_CREATED', metadata: { trigger: 'schedule' } },
+      { action: 'AUDIT_ARCHIVE_FAILED', metadata: { trigger: 'schedule' } },
+      // 存在しないメールアドレスのログイン失敗
+      {
+        action: 'LOGIN_FAILED',
+        metadata: { email: 'nobody@example.com', ipAddress: '203.0.113.1', userAgent: 'UA' },
+      },
+    ] as const)(
+      '実行者の無い $action を、利用者を読まずに写しを空にして記録できる',
+      async ({ action, metadata }) => {
+        (mockPrisma.auditLog.create as ReturnType<typeof vi.fn>).mockImplementation(
+          async ({ data }: { data: CreateAuditLogInput }) => createdRow(data)
+        );
+        const input: CreateAuditLogInput = {
+          action,
+          actorId: null,
+          targetType: 'User',
+          targetId: 'user-1',
+          metadata,
+        };
+
+        const result = await service.createLog(input);
+
+        expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+        expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              action,
+              actorId: null,
+              actorEmail: null,
+              actorDisplayName: null,
+              metadata,
+            }),
+          })
+        );
+        expect(result.actorId).toBeNull();
+        expect(result.actorEmail).toBeNull();
+        expect(result.actorDisplayName).toBeNull();
+      }
+    );
   });
 
   describe('取引先監査ログアクション', () => {

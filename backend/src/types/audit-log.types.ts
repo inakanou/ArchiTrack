@@ -37,8 +37,11 @@ export interface IAuditLogService {
 export interface CreateAuditLogInput {
   /** アクション種別 */
   action: AuditLogAction;
-  /** 実行者ユーザーID */
-  actorId: string;
+  /**
+   * 実行者ユーザーID。実行者の無い処理（自動無効化・アーカイブ・存在しないメールアドレスの
+   * ログイン失敗）では null とし、実行者の写しも空になる（要件40.1、40.7）
+   */
+  actorId: string | null;
   /** 対象リソースタイプ */
   targetType: string;
   /** 対象リソースID */
@@ -185,7 +188,61 @@ export type AuditLogAction =
   | 'ESTIMATE_DELETED'
   // 自社情報管理
   | 'COMPANY_INFO_CREATED'
-  | 'COMPANY_INFO_UPDATED';
+  | 'COMPANY_INFO_UPDATED'
+  // セキュリティ是正（要件40.1。種別の一覧は SECURITY_REMEDIATION_AUDIT_ACTIONS）
+  // 認証（ロック・2FA・全デバイスのログアウト・トークンの再利用）
+  | 'LOGIN_LOCKED'
+  | 'TWO_FACTOR_VERIFIED'
+  | 'TWO_FACTOR_FAILED'
+  | 'LOGOUT_ALL'
+  | 'REFRESH_TOKEN_REUSE_DETECTED'
+  // 招待
+  | 'INVITATION_RESENT'
+  | 'INVITATION_ACCEPTED'
+  // 利用者の状態と 2FA の再設定
+  | 'USER_DEACTIVATED'
+  | 'USER_REACTIVATED'
+  | 'USER_AUTO_DEACTIVATED'
+  | 'TWO_FACTOR_RESET_BY_ADMIN'
+  | 'TWO_FACTOR_REENROLLED'
+  // 範囲外のアクセス・データ出力・運用設定
+  | 'PROJECT_SCOPE_DENIED'
+  | 'DATA_EXPORTED'
+  | 'OPERATIONAL_SETTING_CHANGED'
+  // 監査ログのアーカイブと復元
+  | 'AUDIT_ARCHIVE_CREATED'
+  | 'AUDIT_ARCHIVE_FAILED'
+  | 'AUDIT_ARCHIVE_RESTORED';
+
+/**
+ * セキュリティ是正（IPA注意喚起 2026-10-09）で加えた監査ログアクション一覧（要件40.1）
+ * design.md「#### 監査」の AuditLogService が定める種別と一致させる
+ */
+export const SECURITY_REMEDIATION_AUDIT_ACTIONS = [
+  'LOGIN_LOCKED',
+  'TWO_FACTOR_VERIFIED',
+  'TWO_FACTOR_FAILED',
+  'LOGOUT_ALL',
+  'INVITATION_RESENT',
+  'INVITATION_ACCEPTED',
+  'USER_DEACTIVATED',
+  'USER_REACTIVATED',
+  'USER_AUTO_DEACTIVATED',
+  'TWO_FACTOR_RESET_BY_ADMIN',
+  'TWO_FACTOR_REENROLLED',
+  'REFRESH_TOKEN_REUSE_DETECTED',
+  'PROJECT_SCOPE_DENIED',
+  'DATA_EXPORTED',
+  'OPERATIONAL_SETTING_CHANGED',
+  'AUDIT_ARCHIVE_CREATED',
+  'AUDIT_ARCHIVE_FAILED',
+  'AUDIT_ARCHIVE_RESTORED',
+] as const satisfies readonly AuditLogAction[];
+
+/**
+ * セキュリティ是正の監査ログアクション型（サブセット）
+ */
+export type SecurityRemediationAuditAction = (typeof SECURITY_REMEDIATION_AUDIT_ACTIONS)[number];
 
 /**
  * 取引先管理の監査ログアクション一覧

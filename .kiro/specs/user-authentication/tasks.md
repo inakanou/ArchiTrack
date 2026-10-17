@@ -1336,7 +1336,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 統合テストで、監査ログの更新と許可の無い削除が失敗し、実行者の利用者を消しても監査ログが写しとともに残ることを確かめ、backend の統合テストの全件と E2E の全件が緑のままの状態になり、テストの中の監査ログの行単位の削除が共通の補助を経由しないものは 0 件になる
   - _Requirements: 40.7, 40.8_
 
-- [ ] 44.3 監査の種別を加え、実行者の無い記録を受け付ける
+- [x] 44.3 監査の種別を加え、実行者の無い記録を受け付ける
   - 設計が定める監査の種別（ログイン・ロック・2FA・ログアウト・トークンの再利用・招待・無効化と再有効化・自動無効化・2FA の再設定・範囲外のアクセス・データ出力・運用設定の変更・アーカイブと復元）を加え、実行者の無い処理（自動無効化・アーカイブ・存在しないメールアドレスのログイン失敗）を記録できるようにする（写しの書き込みと読み取りは 44.2 が所有する）
   - 監査ログ画面の種別の表示名と絞り込みの一覧に新しい種別を加え、実行者の無い記録を「システム」として表示する
   - 単体テストで各種別と実行者の無い記録が書けること、監査ログ画面の単体テストで新しい種別の表示名と絞り込みを確かめ、監査ログ画面の既存の E2E が緑のままの状態になる（以降のタスク 45.2・47.8・49.2・49.4・50.1・52.1 などが新しい種別を書く）
@@ -1809,3 +1809,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - design.md の行に「削除」「撤去」「旧」など `ABSENCE_MARKERS` の語があると、同じ行で名指した実在のパスが免除機構の面に数えられ `check:design-path-refs` が赤になり、自己検査経由で鮮度の宣言 `design-path-refs-selftest-total-after-115305` も赤になる。現存のものを指す行では操作を正確な別の語で言う（基準の `:update` で逃がさない）（37.2）
 - 要件32〜45 の DB の移行は、design.md の File Structure Plan が一本（`<日時>_security_remediation_ipa_20261009/`）と書く移行の項目を、タスクごとに別の移行のディレクトリへ分けて作る（適用済みの移行は書き換えられないため。44.1 は `20261017000000_security_remediation_ipa_20261009_user_status`）。File Structure Plan の記述は 57.2 で実在の移行の名前へ揃える。新しい列は design の Physical Data Model どおり snake_case の `@map` を付け、既存の camelCase の列は変えない（44.1）
 - 監査ログはトリガー `audit_logs_immutable` で更新を常に拒否し、削除は `architrack.audit_archive` を取引の中で on にしたときだけ通す。テストの後始末で監査ログを消すときは `backend/src/utils/audit-log-archive-permission.ts` の補助か TRUNCATE を使い、素の `auditLog.delete/deleteMany` を書かない。監査ログを書く新しい経路は実行者の写し（`actorEmail`・`actorDisplayName`）も書く（44.2）
+- 監査の種別の表示名と絞り込みの一覧は `frontend/src/utils/audit-log-actions.ts` にまとめた（44.3。design の「追加する種別」18 件）。既存の種別の `INVITATION_CREATED`・`INVITATION_REVOKED`・`USER_DELETED`・`TWO_FACTOR_BACKUP_CODE_USED` は表示名を持たず、監査ログ画面に種別のコードがそのまま出る。招待の操作（50.x）とユーザーの削除（53.5）の記録が監査ログ画面に出ることを E2E で主張するタスクは、着手のときにこれらの表示名と絞り込みへの追加を決める（44.3 のレビューの申し送り）

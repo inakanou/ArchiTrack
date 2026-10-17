@@ -5,10 +5,36 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AuditLogViewer from '../../components/AuditLogViewer';
-import type { AuditLog } from '../../types/audit-log.types';
+import type { AuditLog, AuditLogAction } from '../../types/audit-log.types';
+
+// セキュリティ是正で加えた監査の種別とその表示名（要件40.1）
+const securityRemediationActionLabels = {
+  LOGIN_LOCKED: 'アカウントロック',
+  TWO_FACTOR_VERIFIED: '2FA検証成功',
+  TWO_FACTOR_FAILED: '2FA検証失敗',
+  LOGOUT_ALL: '全デバイスからログアウト',
+  REFRESH_TOKEN_REUSE_DETECTED: 'リフレッシュトークン再利用検知',
+  INVITATION_RESENT: '招待再送信',
+  INVITATION_ACCEPTED: '招待経由の登録',
+  USER_DEACTIVATED: 'ユーザー無効化',
+  USER_REACTIVATED: 'ユーザー再有効化',
+  USER_AUTO_DEACTIVATED: 'ユーザー自動無効化',
+  TWO_FACTOR_RESET_BY_ADMIN: '2FA再設定（管理者）',
+  TWO_FACTOR_REENROLLED: '2FA再登録',
+  PROJECT_SCOPE_DENIED: '案件範囲外のアクセス',
+  DATA_EXPORTED: 'データ出力',
+  OPERATIONAL_SETTING_CHANGED: '運用設定変更',
+  AUDIT_ARCHIVE_CREATED: '監査ログのアーカイブ',
+  AUDIT_ARCHIVE_FAILED: '監査ログのアーカイブ失敗',
+  AUDIT_ARCHIVE_RESTORED: '監査ログの復元',
+} as const satisfies Partial<Record<AuditLogAction, string>>;
+
+const securityRemediationActions = Object.keys(
+  securityRemediationActionLabels
+) as (keyof typeof securityRemediationActionLabels)[];
 
 // モックデータ
 const mockLogs: AuditLog[] = [
@@ -190,6 +216,41 @@ describe('AuditLogViewer', () => {
         startDate: '2025-01-01',
         endDate: '2025-12-31',
       });
+    });
+  });
+
+  describe('セキュリティ是正の監査の種別と実行者の無い記録（要件40.1）', () => {
+    it('新しい種別を表示名で表示する', () => {
+      const logs: AuditLog[] = securityRemediationActions.map((action, i) => ({
+        id: `sec-${i}`,
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action,
+        createdAt: new Date().toISOString(),
+      }));
+
+      render(<AuditLogViewer logs={logs} loading={false} />);
+
+      for (const action of securityRemediationActions) {
+        expect(screen.getByText(securityRemediationActionLabels[action])).toBeInTheDocument();
+        expect(screen.queryByText(action)).not.toBeInTheDocument();
+      }
+    });
+
+    it('実行者の無い記録の実行者を「システム」と表示する', () => {
+      const logs: AuditLog[] = [
+        {
+          id: 'archive-1',
+          actorId: null,
+          action: 'AUDIT_ARCHIVE_CREATED',
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      render(<AuditLogViewer logs={logs} loading={false} />);
+
+      const row = screen.getByText('監査ログのアーカイブ').closest('tr') as HTMLElement;
+      expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(/^システム$/);
     });
   });
 });

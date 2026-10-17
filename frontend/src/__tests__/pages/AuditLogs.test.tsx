@@ -4,11 +4,11 @@
  * 要件22: 監査ログとコンプライアンス
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AuditLogs } from '../../pages/AuditLogs';
-import type { AuditLog } from '../../types/audit-log.types';
+import type { AuditLog, AuditLogAction } from '../../types/audit-log.types';
 
 // API clientをモック
 vi.mock('../../api/client', () => ({
@@ -16,6 +16,32 @@ vi.mock('../../api/client', () => ({
     get: vi.fn(),
   },
 }));
+
+// セキュリティ是正で加えた監査の種別とその表示名（要件40.1）
+const securityRemediationActionLabels = {
+  LOGIN_LOCKED: 'アカウントロック',
+  TWO_FACTOR_VERIFIED: '2FA検証成功',
+  TWO_FACTOR_FAILED: '2FA検証失敗',
+  LOGOUT_ALL: '全デバイスからログアウト',
+  REFRESH_TOKEN_REUSE_DETECTED: 'リフレッシュトークン再利用検知',
+  INVITATION_RESENT: '招待再送信',
+  INVITATION_ACCEPTED: '招待経由の登録',
+  USER_DEACTIVATED: 'ユーザー無効化',
+  USER_REACTIVATED: 'ユーザー再有効化',
+  USER_AUTO_DEACTIVATED: 'ユーザー自動無効化',
+  TWO_FACTOR_RESET_BY_ADMIN: '2FA再設定（管理者）',
+  TWO_FACTOR_REENROLLED: '2FA再登録',
+  PROJECT_SCOPE_DENIED: '案件範囲外のアクセス',
+  DATA_EXPORTED: 'データ出力',
+  OPERATIONAL_SETTING_CHANGED: '運用設定変更',
+  AUDIT_ARCHIVE_CREATED: '監査ログのアーカイブ',
+  AUDIT_ARCHIVE_FAILED: '監査ログのアーカイブ失敗',
+  AUDIT_ARCHIVE_RESTORED: '監査ログの復元',
+} as const satisfies Partial<Record<AuditLogAction, string>>;
+
+const securityRemediationActions = Object.keys(
+  securityRemediationActionLabels
+) as (keyof typeof securityRemediationActionLabels)[];
 
 // document.createElementの元の参照を保存
 const _originalCreateElement = document.createElement.bind(document);
@@ -544,6 +570,103 @@ describe('AuditLogs Component', () => {
       });
 
       vi.mocked(document.createElement).mockRestore();
+    });
+  });
+
+  describe('セキュリティ是正の監査の種別と実行者の無い記録（要件40.1）', () => {
+    const securityLogs: AuditLog[] = securityRemediationActions.map((action, i) => ({
+      id: `sec-${i}`,
+      actorId: 'admin-1',
+      actorEmail: 'admin@example.com',
+      action,
+      targetType: 'user',
+      targetId: `target-${i}`,
+      createdAt: '2026-10-17T00:00:00Z',
+    }));
+
+    it('新しい種別を一覧で表示名により表示する', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue(securityLogs);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      for (const action of securityRemediationActions) {
+        const row = within(table)
+          .getByText(`target-${securityRemediationActions.indexOf(action)}`)
+          .closest('tr') as HTMLElement;
+        expect(within(row).getByText(securityRemediationActionLabels[action])).toBeInTheDocument();
+        expect(within(row).queryByText(action)).not.toBeInTheDocument();
+      }
+    });
+
+    it('イベント種別の絞り込みの一覧に新しい種別を表示名で並べる', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([]);
+
+      render(<AuditLogs />);
+
+      const actionFilter = screen.getByLabelText('イベント種別');
+      for (const action of securityRemediationActions) {
+        const option = within(actionFilter).getByRole('option', {
+          name: securityRemediationActionLabels[action],
+        });
+        expect(option).toHaveValue(action);
+      }
+    });
+
+    it.each(securityRemediationActions)(
+      'イベント種別 %s で絞り込むと、その種別で再取得する',
+      async (action) => {
+        const user = userEvent.setup();
+        const { apiClient } = await import('../../api/client');
+        vi.mocked(apiClient.get).mockResolvedValue([]);
+
+        render(<AuditLogs />);
+        await screen.findByText('監査ログがありません');
+
+        await user.selectOptions(screen.getByLabelText('イベント種別'), action);
+
+        await waitFor(() => {
+          expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining(`action=${action}`));
+        });
+      }
+    );
+
+    it('実行者の無い記録の実行者を「システム」と表示する', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'auto-1',
+          actorId: null,
+          action: 'USER_AUTO_DEACTIVATED',
+          targetType: 'user',
+          targetId: 'inactive-user',
+          metadata: { trigger: 'inactivity' },
+          createdAt: '2026-10-17T00:00:00Z',
+        },
+        {
+          id: 'login-failed-1',
+          actorId: null,
+          action: 'LOGIN_FAILED',
+          targetType: 'user',
+          targetId: 'unknown-email',
+          metadata: { email: 'nobody@example.com' },
+          createdAt: '2026-10-17T00:00:00Z',
+        },
+        ...basicMockLogs,
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const autoRow = within(table).getByText('inactive-user').closest('tr') as HTMLElement;
+      const failedRow = within(table).getByText('unknown-email').closest('tr') as HTMLElement;
+      expect(within(autoRow).getAllByRole('cell')[2]).toHaveTextContent(/^システム$/);
+      expect(within(failedRow).getAllByRole('cell')[2]).toHaveTextContent(/^システム$/);
+      // 実行者のある記録は従来どおりメールアドレスを表示する
+      const actorRow = within(table).getByText('Manager').closest('tr') as HTMLElement;
+      expect(within(actorRow).getAllByRole('cell')[2]).toHaveTextContent('admin@example.com');
     });
   });
 });

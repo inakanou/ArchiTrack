@@ -21,7 +21,26 @@ export type AuditLogAction =
   | 'LOGOUT'
   | 'PASSWORD_CHANGED'
   | 'TWO_FACTOR_ENABLED'
-  | 'TWO_FACTOR_DISABLED';
+  | 'TWO_FACTOR_DISABLED'
+  // セキュリティ是正（要件40.1。表示名と絞り込みの並びは utils/audit-log-actions.ts）
+  | 'LOGIN_LOCKED'
+  | 'TWO_FACTOR_VERIFIED'
+  | 'TWO_FACTOR_FAILED'
+  | 'LOGOUT_ALL'
+  | 'REFRESH_TOKEN_REUSE_DETECTED'
+  | 'INVITATION_RESENT'
+  | 'INVITATION_ACCEPTED'
+  | 'USER_DEACTIVATED'
+  | 'USER_REACTIVATED'
+  | 'USER_AUTO_DEACTIVATED'
+  | 'TWO_FACTOR_RESET_BY_ADMIN'
+  | 'TWO_FACTOR_REENROLLED'
+  | 'PROJECT_SCOPE_DENIED'
+  | 'DATA_EXPORTED'
+  | 'OPERATIONAL_SETTING_CHANGED'
+  | 'AUDIT_ARCHIVE_CREATED'
+  | 'AUDIT_ARCHIVE_FAILED'
+  | 'AUDIT_ARCHIVE_RESTORED';
 
 /**
  * 監査ログ情報
@@ -29,8 +48,11 @@ export type AuditLogAction =
 export interface AuditLog {
   /** 監査ログID */
   id: string;
-  /** 実行者ID */
-  actorId: string;
+  /**
+   * 実行者ID。実行者の無い処理（自動無効化・アーカイブ・存在しないメールアドレスの
+   * ログイン失敗）の記録では null（画面では「システム」と表示する。要件40.1）
+   */
+  actorId: string | null;
   /** 実行者メールアドレス */
   actorEmail?: string;
   /** 対象リソースタイプ */

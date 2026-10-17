@@ -9,6 +9,10 @@
 
 import React, { useState } from 'react';
 import type { AuditLog, AuditLogFilter, AuditLogAction } from '../types/audit-log.types';
+import {
+  SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+  getAuditLogActorLabel,
+} from '../utils/audit-log-actions';
 
 interface AuditLogViewerProps {
   /** 監査ログリスト */
@@ -54,6 +58,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
       PASSWORD_CHANGED: 'パスワード変更',
       TWO_FACTOR_ENABLED: '2FA有効化',
       TWO_FACTOR_DISABLED: '2FA無効化',
+      ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
     };
     return actionTexts[action] || action;
   };
@@ -266,7 +271,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
                     {new Date(log.createdAt).toLocaleString('ja-JP')}
                   </td>
                   <td style={{ padding: '12px', fontSize: '14px' }}>
-                    {log.actorEmail || log.actorId}
+                    {getAuditLogActorLabel(log)}
                   </td>
                   <td style={{ padding: '12px', fontSize: '14px' }}>
                     <span
