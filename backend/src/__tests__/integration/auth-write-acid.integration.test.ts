@@ -303,7 +303,7 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
      * @requirement user-authentication/REQ-25.4
      */
     it('パスワードリセット要求（リセットトークンと監査ログ）は READ COMMITTED で書き込まれる', async () => {
-      const queue = { add: vi.fn().mockResolvedValue(undefined), process: vi.fn() };
+      const queue = { add: vi.fn().mockResolvedValue(undefined), process: vi.fn(), on: vi.fn() };
       const unusedTransporter = { sendMail: vi.fn() } as unknown as Transporter;
       const passwordService = new PasswordService(
         prisma,

@@ -16,13 +16,21 @@
  * 依存関係:
  * - インバウンド: InvitationService, PasswordService, TwoFactorService
  * - アウトバウンド: なし
- * - 外部: nodemailer, bull, handlebars
+ * - 外部: nodemailer, bull, handlebars, Sentry
  */
 
 import nodemailer, { type Transporter } from 'nodemailer';
-import Bull, { type Queue, type Job, type JobOptions } from 'bull';
+import Bull, {
+  type Queue,
+  type Job,
+  type JobOptions,
+  type QueueOptions,
+  type AdvancedSettings,
+} from 'bull';
 import Handlebars from 'handlebars';
 import logger from '../utils/logger.js';
+import { captureException } from '../utils/sentry.js';
+import { runtimeMode } from '../config/runtime-mode.js';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -30,6 +38,11 @@ import { fileURLToPath } from 'url';
 // __dirnameをESモジュールで取得
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+/**
+ * メールキューの名前（Redis のキーは `bull:email-queue:*`）
+ */
+const EMAIL_QUEUE_NAME = 'email-queue';
 
 /**
  * メール再送の backoff 戦略名（Bull の settings.backoffStrategies に登録する名前）
@@ -68,6 +81,96 @@ const EMAIL_JOB_ATTEMPTS = 1 + RETRY_DELAYS.length;
 function emailRetryBackoff(attemptsMade: number): number {
   const index = Math.min(Math.max(attemptsMade, 1), RETRY_DELAYS.length) - 1;
   return RETRY_DELAYS[index] ?? RETRY_DELAYS[0];
+}
+
+/**
+ * メールキューを作る（要件45.1、45.2）
+ *
+ * キャッシュ基盤（redis.ts）と同じ REDIS_URL で接続し、認証情報と論理 DB もそこから読む。
+ * 完了したジョブは宛先とトークンを含むため、既定で消す。
+ * 再送間隔（要件24.3）はキュー生成時に登録するカスタム backoff 戦略で与える。
+ *
+ * @param redisUrl - 接続先（既定は REDIS_URL。本番では起動前の検査で必須）
+ * @param settingsOverrides - 検証からだけ渡すキューの設定（ロックの期間や停止の検査の間隔）。本番は渡さない
+ */
+export function createEmailQueue(
+  redisUrl: string | undefined = process.env.REDIS_URL,
+  settingsOverrides: Omit<AdvancedSettings, 'backoffStrategies'> = {}
+): Queue {
+  const options: QueueOptions = {
+    settings: {
+      ...settingsOverrides,
+      backoffStrategies: { [EMAIL_RETRY_BACKOFF_TYPE]: emailRetryBackoff },
+    },
+    defaultJobOptions: { removeOnComplete: true },
+  };
+
+  if (!redisUrl) {
+    logger.warn('REDIS_URL not configured, email queue will connect to the default local Redis');
+    return new Bull(EMAIL_QUEUE_NAME, options);
+  }
+
+  // Bull は URL のスキームを読まないため、TLS の接続先（rediss）は明示する
+  if (redisUrl.startsWith('rediss://')) {
+    options.redis = { tls: {} };
+  }
+  return new Bull(EMAIL_QUEUE_NAME, redisUrl, options);
+}
+
+/**
+ * ジョブの内容のうち、失敗の記録から伏せる値（トークンと宛先）
+ */
+const SECRET_JOB_FIELDS = ['invitationToken', 'resetToken'] as const;
+
+/**
+ * ジョブの宛先（招待・パスワードリセット・2FA は to、管理者への通知は adminEmails）
+ */
+function recipientsOf(data: unknown): string[] {
+  if (typeof data !== 'object' || data === null) {
+    return [];
+  }
+  const record = data as { to?: unknown; adminEmails?: unknown };
+  const candidates = [record.to, ...(Array.isArray(record.adminEmails) ? record.adminEmails : [])];
+  return candidates.filter((value): value is string => typeof value === 'string');
+}
+
+/**
+ * 宛先のドメイン（重複を除く）
+ */
+function recipientDomainsOf(recipients: readonly string[]): string[] {
+  const domains = recipients
+    .map((address) => address.slice(address.lastIndexOf('@') + 1).toLowerCase())
+    .filter((domain) => domain !== '');
+  return [...new Set(domains)];
+}
+
+/**
+ * 正規表現の特殊文字をエスケープする
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 失敗の理由から、ジョブのトークン・宛先と、URL のトークンの値を伏せる（要件45.3）
+ */
+function redactFailureReason(reason: string, data: unknown, recipients: readonly string[]): string {
+  const secrets: string[] = [...recipients];
+  if (typeof data === 'object' && data !== null) {
+    for (const field of SECRET_JOB_FIELDS) {
+      const value = (data as Record<string, unknown>)[field];
+      if (typeof value === 'string' && value !== '') {
+        secrets.push(value);
+      }
+    }
+  }
+
+  let redacted = reason;
+  for (const secret of secrets) {
+    // 宛先は大文字・小文字を区別しないため、値を文字どおりに（特殊文字をエスケープして）大小を無視して伏せる
+    redacted = redacted.replace(new RegExp(escapeRegExp(secret), 'gi'), '[REDACTED]');
+  }
+  return redacted.replace(/([?&]token=)[^&\s]+/gi, '$1[REDACTED]');
 }
 
 /**
@@ -121,18 +224,19 @@ export class EmailService {
   private readonly frontendUrl: string;
 
   constructor(transporter?: Transporter, queue?: Queue) {
-    // テスト時は注入されたモックを使用
-    if (transporter && queue) {
-      this.transporter = transporter;
-      this.emailQueue = queue;
-      this.frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      this.registerProcessors();
-      return;
-    }
-
-    // 本番環境ではnodemailerとbullを初期化
     this.frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // 注入されなかった依存だけを本番の設定で作る（テストは送信やキューを差し替える）
+    this.transporter = transporter ?? EmailService.createSmtpTransporter();
+    this.emailQueue = queue ?? createEmailQueue();
 
+    this.registerProcessors();
+    this.registerQueueEventHandlers();
+  }
+
+  /**
+   * SMTP の transporter を環境変数から作る
+   */
+  private static createSmtpTransporter(): Transporter {
     // SMTP設定
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const smtpConfig: any = {
@@ -155,21 +259,82 @@ export class EmailService {
       { smtpHost: process.env.SMTP_HOST, smtpPort: process.env.SMTP_PORT },
       'Initializing SMTP transporter'
     );
-    this.transporter = nodemailer.createTransport(smtpConfig);
+    return nodemailer.createTransport(smtpConfig);
+  }
 
-    // Bullキュー設定
-    // 再送間隔（要件24.3）はキュー生成時に登録するカスタム backoff 戦略で与える
-    this.emailQueue = new Bull('email-queue', {
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      },
-      settings: {
-        backoffStrategies: { [EMAIL_RETRY_BACKOFF_TYPE]: emailRetryBackoff },
-      },
-    });
+  /**
+   * キューのイベントの受け手を登録（要件45.3、45.4）
+   */
+  private registerQueueEventHandlers(): void {
+    this.emailQueue.on('failed', (job: Job, error: Error) => this.handleFailedJob(job, error));
+    this.emailQueue.on('error', (error: Error) => this.handleQueueError(error));
+  }
 
-    this.registerProcessors();
+  /**
+   * ジョブの失敗の処理（要件45.3）
+   *
+   * 最終の失敗（ジョブが失敗の集合にある）では、種別・宛先のドメイン・トークンを伏せた失敗の
+   * 理由だけをエラーログと Sentry へ送り、宛先とトークンを含むジョブを消す。再試行の待ち
+   * （遅延の集合）にある途中の失敗では何もしない。最終かどうかを試行の回数で決めないのは、
+   * 止まったジョブ（stalled）の上限超過・backoff の -1・discard では回数が上限に届かないまま
+   * 失敗の集合へ移るためである。止まったジョブの通知ではジョブを読めない（null）ことがある。
+   * 受け手の例外は漏らさない（unhandled rejection にしない）。
+   */
+  private async handleFailedJob(job: Job | null, error: Error | undefined): Promise<void> {
+    if (!job) {
+      return;
+    }
+
+    const recipients = recipientsOf(job.data);
+    try {
+      if (!(await job.isFailed())) {
+        return;
+      }
+
+      const record = {
+        jobType: job.name,
+        recipientDomains: recipientDomainsOf(recipients),
+        attemptsMade: job.attemptsMade,
+        reason: redactFailureReason(error?.message ?? 'Unknown reason', job.data, recipients),
+      };
+      logger.error(record, 'Email job failed after the final attempt');
+      captureException(new Error('Email job failed after the final attempt'), record);
+    } catch (handlingError) {
+      logger.error(
+        { jobType: job.name, reason: this.redactedMessageOf(handlingError, job, recipients) },
+        'Failed to handle the failed email job'
+      );
+      return;
+    }
+
+    try {
+      await job.remove();
+    } catch (removeError) {
+      logger.error(
+        { jobType: job.name, reason: this.redactedMessageOf(removeError, job, recipients) },
+        'Failed to remove the failed email job'
+      );
+    }
+  }
+
+  /**
+   * 例外の文言を、ジョブのトークンと宛先を伏せて取り出す
+   */
+  private redactedMessageOf(thrown: unknown, job: Job, recipients: readonly string[]): string {
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    return redactFailureReason(message, job.data, recipients);
+  }
+
+  /**
+   * キューのエラーの処理（要件45.4）
+   *
+   * 本番ではキャッシュ基盤への接続の失敗などをエラー監視へ送る。
+   */
+  private handleQueueError(error: Error): void {
+    logger.error({ queue: EMAIL_QUEUE_NAME, err: error }, 'Email queue error');
+    if (runtimeMode.kind() === 'production') {
+      captureException(error, { queue: EMAIL_QUEUE_NAME });
+    }
   }
 
   /**

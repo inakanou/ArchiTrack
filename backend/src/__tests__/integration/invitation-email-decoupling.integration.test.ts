@@ -67,7 +67,11 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
     // メール送信の外部サービスが利用できない状態: キューへの投入が失敗する
     queueError = new Error('Redis connection refused');
     queueAdd = vi.fn().mockRejectedValue(queueError);
-    const unavailableQueue = { add: queueAdd, process: vi.fn() } as unknown as Queue;
+    const unavailableQueue = {
+      add: queueAdd,
+      process: vi.fn(),
+      on: vi.fn(),
+    } as unknown as Queue;
     const unusedTransporter = { sendMail: vi.fn() } as unknown as Transporter;
     const emailService = new EmailService(unusedTransporter, unavailableQueue);
 

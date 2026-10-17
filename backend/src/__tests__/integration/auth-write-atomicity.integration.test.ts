@@ -521,7 +521,7 @@ describe('認証系の書き込みの原子性（統合・失敗注入）', () =
     beforeEach(() => {
       // メールのキューだけを差し替え、EmailService・PasswordService・AuditLogService は本物を使う
       queueAdd = vi.fn().mockResolvedValue(undefined);
-      const queue = { add: queueAdd, process: vi.fn() } as unknown as Queue;
+      const queue = { add: queueAdd, process: vi.fn(), on: vi.fn() } as unknown as Queue;
       const unusedTransporter = { sendMail: vi.fn() } as unknown as Transporter;
       passwordService = new PasswordService(
         prisma,

@@ -1369,7 +1369,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 44.5_
   - _Requirements: 33.8_
 
-- [ ] 44.8 メールキューの接続と後始末を改める
+- [x] 44.8 メールキューの接続と後始末を改める
   - メールキューをキャッシュ基盤と同じ接続情報（認証情報を含む）で接続する。完了したジョブを消し、再試行の上限で失敗したジョブはトークンを含まない形で失敗を記録して消す。本番でキューの接続に失敗したらエラー監視へ送る
   - 統合テストで、送信の完了と最終の失敗のいずれの後も宛先とトークンを含むジョブが Redis に残らないことを確かめた状態になる
   - _Requirements: 45.1, 45.2, 45.3, 45.4_
@@ -1813,3 +1813,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 送信元 IP は `backend/src/middleware/client-ip.ts` の `getClientIp(req)` だけから得る（ヘッダーや `req.ip` を直接読まない）。試験と CI の compose は画面が backend へ直接つながる間 `TRUST_PROXY_HOPS=0` で、44.7 の中継の導入で 1 にする。既存の監査ログは IP を `metadata.ip` に書き、design は `metadata.ipAddress` と書くため、新しい監査の経路を作るタスク（45.2・50.x など）でキーを揃えるか 57.2 で design を揃える（44.5）
 - 開発用の機能の有効・無効は `backend/src/config/runtime-mode.ts` の判定だけで決める（`NODE_ENV` を直接比べない）。design どおり試験（`NODE_ENV=test`）でもエラー応答に `stack` が付くため、内部の失敗を漏らさないことを確かめるテストは `stack` を除いた本文で主張する（construction-schedule の `schedules.routes.test.ts` を改めた）。`two-factor.service.ts` の `NODE_ENV !== 'production'` による固定コードの受理は実行環境の指定が無いと有効なまま残っており、46.2 で全環境から取り除く（44.6）
 - 画面の API は frontend の nginx（`frontend/nginx.conf` の `location ^~ /api/` と `= /csrf-token`、共通の設定は `frontend/nginx-proxy-params.conf`）を経て backend へ届く。中継先 `BACKEND_INTERNAL_URL` は `scheme://host[:port]` だけを受け付け、起動前の検査（`frontend/nginx-require-backend-internal-url.sh`）が他を拒む。backend は IPv6 だけの Railway のプライベートネットワークに備えて `::` で待ち受ける。E2E の補助で Cookie を伴う呼び出しは `e2e/config.ts` の `SAME_ORIGIN_API_BASE_URL` を使う。spec 本体の Bearer の直接の呼び出し（`API_BASE_URL`）の寄せは 44.11・45.x で行う。server の階層の `add_header` が API の応答で helmet と重複する件は 56.1 で整理する。新しい2ファイルの File Structure Plan への追記は 57.2（44.7）
+- メールキューは `backend/src/services/email.service.ts` の `createEmailQueue()` が `REDIS_URL` で作る。最終の失敗の判定は試行の回数でなく `job.isFailed()` で行う（Bull は stall の上限超えで `attemptsMade` を増やさずに failed へ移すため）。判定や記録が例外になったジョブは消さずに失敗の集合に残るので、定期処理の基盤（44.9）で `queue.clean(<猶予>, 'failed')` の安全網を足すかを判断する。backend のソースを書き換えると試験の backend コンテナが tsx watch の再起動→autoheal で再起動し、実行中の `docker exec` が 137 で切れることがある（44.8）
