@@ -1,7 +1,9 @@
 import pinoHttp from 'pino-http';
 import { randomUUID } from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
+import type { Request } from 'express';
 import logger from '../utils/logger.js';
+import { getClientIp } from './client-ip.js';
 
 export const httpLogger = pinoHttp({
   logger,
@@ -52,14 +54,16 @@ export const httpLogger = pinoHttp({
 
   // リクエスト/レスポンスの詳細をカスタマイズ
   serializers: {
-    req: (req: IncomingMessage & { id?: string }) => ({
+    req: (req: IncomingMessage & { id?: string; raw?: Pick<Request, 'ip'> }) => ({
       id: req.id,
       method: req.method,
       url: req.url,
+      // 送信元は X-Forwarded-For を直接記録せず、信頼する中継の段数で識別した値を記録する（要件35.2）。
+      // pino-http はシリアライズ前の要求（Express の req）を raw として渡す
+      ip: getClientIp({ ip: req.raw?.ip }),
       // Railway特有のヘッダーを記録
       headers: {
         'user-agent': req.headers?.['user-agent'],
-        'x-forwarded-for': req.headers?.['x-forwarded-for'],
         'x-railway-request-id': req.headers?.['x-railway-request-id'],
       },
       remoteAddress: (req as unknown as { remoteAddress?: string }).remoteAddress,

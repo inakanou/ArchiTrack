@@ -108,30 +108,6 @@ describe('rateLimit middleware', () => {
   });
 
   describe('keyGenerator', () => {
-    it('x-forwarded-forヘッダーからIPを取得すること', async () => {
-      const { apiLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = apiLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '192.168.1.100, 10.0.0.1' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('192.168.1.100');
-    });
-
-    it('x-real-ipヘッダーからIPを取得すること', async () => {
-      const { apiLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = apiLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '10.0.0.50' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('10.0.0.50');
-    });
-
     it('req.ipからIPを取得すること', async () => {
       const { apiLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = apiLimiter as unknown as { keyGenerator: (req: Request) => string };
@@ -182,30 +158,6 @@ describe('rateLimit middleware', () => {
       expect(key).toBe('ip:192.168.1.1');
     });
 
-    it('loginLimiter keyGeneratorがx-forwarded-forからIPを取得すること', async () => {
-      const { loginLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = loginLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '10.0.0.100, 192.168.1.1' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('10.0.0.100');
-    });
-
-    it('loginLimiter keyGeneratorがx-real-ipからIPを取得すること', async () => {
-      const { loginLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = loginLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '10.0.0.50' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('10.0.0.50');
-    });
-
     it('loginLimiter keyGeneratorがreq.ipからIPを取得すること', async () => {
       const { loginLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = loginLimiter as unknown as { keyGenerator: (req: Request) => string };
@@ -222,30 +174,6 @@ describe('rateLimit middleware', () => {
       const req = createMockRequest({ ip: undefined, headers: {} });
       const key = limiter.keyGenerator(req);
       expect(key).toBe('unknown');
-    });
-
-    it('refreshLimiter keyGeneratorがx-forwarded-forからIPを取得すること', async () => {
-      const { refreshLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = refreshLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '203.0.113.10, 10.0.0.1' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('203.0.113.10');
-    });
-
-    it('refreshLimiter keyGeneratorがx-real-ipからIPを取得すること', async () => {
-      const { refreshLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = refreshLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '203.0.113.20' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('203.0.113.20');
     });
 
     it('refreshLimiter keyGeneratorがreq.ipからIPを取得すること', async () => {
@@ -266,30 +194,6 @@ describe('rateLimit middleware', () => {
       expect(key).toBe('unknown');
     });
 
-    it('healthCheckLimiter keyGeneratorがx-forwarded-forからIPを取得すること', async () => {
-      const { healthCheckLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = healthCheckLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '198.51.100.50' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('198.51.100.50');
-    });
-
-    it('healthCheckLimiter keyGeneratorがx-real-ipからIPを取得すること', async () => {
-      const { healthCheckLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = healthCheckLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '198.51.100.60' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('198.51.100.60');
-    });
-
     it('healthCheckLimiter keyGeneratorがreq.ipからIPを取得すること', async () => {
       const { healthCheckLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = healthCheckLimiter as unknown as { keyGenerator: (req: Request) => string };
@@ -308,32 +212,6 @@ describe('rateLimit middleware', () => {
       expect(key).toBe('unknown');
     });
 
-    it('invitationLimiter keyGeneratorがx-forwarded-forからIPを取得すること（ユーザーなし）', async () => {
-      const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = invitationLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '203.0.113.100' },
-        ip: undefined,
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('ip:203.0.113.100');
-    });
-
-    it('invitationLimiter keyGeneratorがx-real-ipからIPを取得すること（ユーザーなし）', async () => {
-      const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = invitationLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '203.0.113.200' },
-        ip: undefined,
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('ip:203.0.113.200');
-    });
-
     it('invitationLimiter keyGeneratorがIPなしの場合ip:unknownを返すこと', async () => {
       const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = invitationLimiter as unknown as { keyGenerator: (req: Request) => string };
@@ -342,6 +220,32 @@ describe('rateLimit middleware', () => {
       const key = limiter.keyGenerator(req);
       expect(key).toBe('ip:unknown');
     });
+    // 要件35.1: 送信元の識別は信頼する中継の段数に基づく req.ip だけを用い、
+    // 利用者が指定できる X-Forwarded-For / X-Real-IP を直接読まない
+    const SPOOFED_HEADERS = {
+      'x-forwarded-for': '198.51.100.250, 10.0.0.1',
+      'x-real-ip': '198.51.100.251',
+    };
+
+    it.each([
+      ['apiLimiter', ''],
+      ['loginLimiter', ''],
+      ['refreshLimiter', ''],
+      ['healthCheckLimiter', ''],
+      ['invitationLimiter', 'ip:'],
+    ] as const)(
+      '%s keyGeneratorはX-Forwarded-For・X-Real-IPを読まずreq.ipで識別すること',
+      async (name, prefix) => {
+        const mod = await import('../../../middleware/rateLimit.middleware.js');
+        const limiter = mod[name] as unknown as { keyGenerator: (req: Request) => string };
+
+        const req = createMockRequest({ headers: SPOOFED_HEADERS, ip: '172.16.0.9' });
+        expect(limiter.keyGenerator(req)).toBe(`${prefix}172.16.0.9`);
+
+        const noIp = createMockRequest({ headers: SPOOFED_HEADERS, ip: undefined });
+        expect(limiter.keyGenerator(noIp)).toBe(`${prefix}unknown`);
+      }
+    );
   });
 
   describe('skip', () => {

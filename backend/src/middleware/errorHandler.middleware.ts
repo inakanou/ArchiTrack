@@ -6,6 +6,7 @@ import { captureException } from '../utils/sentry.js';
 import logger from '../utils/logger.js';
 import { createProblemDetails, PROBLEM_TYPES } from '../types/problem-details.js';
 import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import { getClientIp } from './client-ip.js';
 
 /**
  * データベースへ接続できないことを 503 Service Unavailable（Problem Details）で返す
@@ -54,7 +55,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
       captureException(err, {
         url: req.url,
         method: req.method,
-        ip: req.ip,
+        ip: getClientIp(req),
         statusCode: err.statusCode,
       });
     }
@@ -170,7 +171,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   captureException(err, {
     url: req.url,
     method: req.method,
-    ip: req.ip,
+    ip: getClientIp(req),
     body: req.body,
     query: req.query,
     params: req.params,

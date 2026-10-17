@@ -506,6 +506,47 @@ describe('env module', () => {
         expect(() => validateEnv()).toThrow('Failed to validate environment variables');
       }
     );
+
+    // 中継の段数 TRUST_PROXY_HOPS（user-authentication タスク44.5、design.md の ClientIpResolver）
+    it('TRUST_PROXY_HOPSが未設定の場合、未設定（undefined）として検証される', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      delete process.env.TRUST_PROXY_HOPS;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      expect(validateEnv().TRUST_PROXY_HOPS).toBeUndefined();
+    });
+
+    it.each([
+      ['0', 0],
+      ['1', 1],
+      ['2', 2],
+    ])('TRUST_PROXY_HOPS=%s の場合、段数%iとして検証される', async (value, expected) => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      process.env.TRUST_PROXY_HOPS = value;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      expect(validateEnv().TRUST_PROXY_HOPS).toBe(expected);
+    });
+
+    it.each(['true', 'TRUE', 'false', 'loopback', '10.0.0.0/8', '-1', '1.5', 'abc', '01', ''])(
+      'TRUST_PROXY_HOPS=%s（全面的な信頼や段数の整数でない値）の場合、エラーを投げる',
+      async (value) => {
+        process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+        process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+        process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+        process.env.TRUST_PROXY_HOPS = value;
+
+        const { validateEnv } = await import('../../../config/env.js');
+
+        expect(() => validateEnv()).toThrow('Failed to validate environment variables');
+      }
+    );
   });
 
   describe('parseDatabaseRetryCount', () => {

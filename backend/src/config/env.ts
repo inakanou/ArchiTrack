@@ -79,6 +79,24 @@ export function parseDatabaseRetryCount(value: string | undefined): number {
 }
 
 /**
+ * TRUST_PROXY_HOPS の検証スキーマ（信頼する中継の段数。0 以上の整数）
+ *
+ * Express の `trust proxy` に `true`（全面的な信頼）や名前・アドレス帯を与えると、利用者が
+ * `X-Forwarded-For` の先頭に足した値が送信元になる（要件35.1）。段数の整数だけを受け付け、
+ * `true` などは拒否する。未設定は undefined のまま返し、開発・試験では段数 0 として扱う
+ * （`middleware/client-ip.ts` の `configureTrustProxy`）。
+ */
+const trustProxyHopsSchema = z
+  .string()
+  .optional()
+  .refine((val) => val === undefined || /^(0|[1-9][0-9]*)$/.test(val), {
+    message:
+      'TRUST_PROXY_HOPS must be a non-negative integer (the number of trusted proxy hops); ' +
+      '"true" (trusting every proxy) and other values are rejected',
+  })
+  .transform((val) => (val === undefined ? undefined : parseInt(val, 10)));
+
+/**
  * 機密情報としてマスキングする環境変数のパターン
  * セキュリティベストプラクティス: 機密情報をログに出力しない
  */
@@ -148,6 +166,9 @@ const envSchema = z
 
     // Redis
     REDIS_URL: z.string().url().optional(),
+
+    // 信頼する中継の段数（送信元 IP の識別。要件35.1、35.2）
+    TRUST_PROXY_HOPS: trustProxyHopsSchema,
 
     // Frontend
     FRONTEND_URL: z.string().url().optional().default('http://localhost:5173'),
@@ -317,6 +338,10 @@ export function validateEnv(): Env {
           );
         } else if (path === 'PORT') {
           console.error('     Fix: Set PORT to a value between 1 and 65535 (default: 3000)');
+        } else if (path === 'TRUST_PROXY_HOPS') {
+          console.error(
+            '     Fix: Set TRUST_PROXY_HOPS to the number of proxies in front of the backend (e.g. 0 or 1)'
+          );
         } else if (path === 'NODE_ENV') {
           console.error('     Fix: Set NODE_ENV to one of: development, production, test');
         }

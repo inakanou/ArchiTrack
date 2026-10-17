@@ -1348,7 +1348,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 一般ユーザーで `GET /api/v1/users` が 403 になり、システム管理者が全案件閲覧の権限を持つことを単体・統合テストで確かめ、E2E の環境の一般ユーザーが `user:read` を持たないことを確かめ、E2E の全件が緑のままの状態になる
   - _Requirements: 38.4, 39.5_
 
-- [ ] 44.5 送信元 IP の識別を信頼する中継の段数に揃える
+- [x] 44.5 送信元 IP の識別を信頼する中継の段数に揃える
   - 中継の段数の設定を定義・検証し（全面的な信頼を拒否）、中継の信頼をその数値にする。送信元 IP を得る処理を一つにし、回数制限・監査ログ・セキュリティログで `X-Forwarded-For` や `X-Real-IP` を直接読む箇所を置き換える
   - 段数 1 の構成で `X-Forwarded-For` の先頭を偽っても送信元の識別と監査ログの IP が変わらないことを統合テストで確かめた状態になる
   - _Requirements: 35.1, 35.2_
@@ -1810,3 +1810,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 要件32〜45 の DB の移行は、design.md の File Structure Plan が一本（`<日時>_security_remediation_ipa_20261009/`）と書く移行の項目を、タスクごとに別の移行のディレクトリへ分けて作る（適用済みの移行は書き換えられないため。44.1 は `20261017000000_security_remediation_ipa_20261009_user_status`）。File Structure Plan の記述は 57.2 で実在の移行の名前へ揃える。新しい列は design の Physical Data Model どおり snake_case の `@map` を付け、既存の camelCase の列は変えない（44.1）
 - 監査ログはトリガー `audit_logs_immutable` で更新を常に拒否し、削除は `architrack.audit_archive` を取引の中で on にしたときだけ通す。テストの後始末で監査ログを消すときは `backend/src/utils/audit-log-archive-permission.ts` の補助か TRUNCATE を使い、素の `auditLog.delete/deleteMany` を書かない。監査ログを書く新しい経路は実行者の写し（`actorEmail`・`actorDisplayName`）も書く（44.2）
 - 監査の種別の表示名と絞り込みの一覧は `frontend/src/utils/audit-log-actions.ts` にまとめた（44.3。design の「追加する種別」18 件）。既存の種別の `INVITATION_CREATED`・`INVITATION_REVOKED`・`USER_DELETED`・`TWO_FACTOR_BACKUP_CODE_USED` は表示名を持たず、監査ログ画面に種別のコードがそのまま出る。招待の操作（50.x）とユーザーの削除（53.5）の記録が監査ログ画面に出ることを E2E で主張するタスクは、着手のときにこれらの表示名と絞り込みへの追加を決める（44.3 のレビューの申し送り）
+- 送信元 IP は `backend/src/middleware/client-ip.ts` の `getClientIp(req)` だけから得る（ヘッダーや `req.ip` を直接読まない）。試験と CI の compose は画面が backend へ直接つながる間 `TRUST_PROXY_HOPS=0` で、44.7 の中継の導入で 1 にする。既存の監査ログは IP を `metadata.ip` に書き、design は `metadata.ipAddress` と書くため、新しい監査の経路を作るタスク（45.2・50.x など）でキーを揃えるか 57.2 で design を揃える（44.5）

@@ -2,6 +2,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { Request, Response } from 'express';
 import redis from '../redis.js';
 import { RedisRateLimitStore } from './RedisRateLimitStore.js';
+import { getClientIp } from './client-ip.js';
 
 /**
  * 一般的なAPIエンドポイント用のレート制限
@@ -22,12 +23,9 @@ export const apiLimiter = rateLimit({
     process.env.DISABLE_RATE_LIMIT === 'true',
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:api:'),
-  // カスタムキー生成（プロキシ環境対応、IPv6対応）
+  // 送信元の識別は信頼する中継の段数に基づく req.ip だけを用いる（要件35.1。IPv6対応）
   keyGenerator: (req: Request): string => {
-    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
-    const realIp = req.headers['x-real-ip'] as string | undefined;
-
-    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+    const ip = getClientIp(req);
 
     // IPv6アドレスの正規化のためにipKeyGeneratorヘルパーを使用
     return ipKeyGenerator(ip);
@@ -36,7 +34,7 @@ export const apiLimiter = rateLimit({
   handler: (req: Request, res: Response) => {
     req.log.warn(
       {
-        ip: req.ip,
+        ip: getClientIp(req),
         path: req.path,
       },
       'Rate limit exceeded'
@@ -68,10 +66,7 @@ export const loginLimiter = rateLimit({
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:login:'),
   keyGenerator: (req: Request): string => {
-    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
-    const realIp = req.headers['x-real-ip'] as string | undefined;
-
-    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+    const ip = getClientIp(req);
 
     // IPv6アドレスの正規化のためにipKeyGeneratorヘルパーを使用
     return ipKeyGenerator(ip);
@@ -79,7 +74,7 @@ export const loginLimiter = rateLimit({
   handler: (req: Request, res: Response) => {
     req.log.warn(
       {
-        ip: req.ip,
+        ip: getClientIp(req),
         path: req.path,
       },
       'Login rate limit exceeded'
@@ -111,10 +106,7 @@ export const refreshLimiter = rateLimit({
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:refresh:'),
   keyGenerator: (req: Request): string => {
-    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
-    const realIp = req.headers['x-real-ip'] as string | undefined;
-
-    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+    const ip = getClientIp(req);
 
     // IPv6アドレスの正規化のためにipKeyGeneratorヘルパーを使用
     return ipKeyGenerator(ip);
@@ -122,7 +114,7 @@ export const refreshLimiter = rateLimit({
   handler: (req: Request, res: Response) => {
     req.log.warn(
       {
-        ip: req.ip,
+        ip: getClientIp(req),
         path: req.path,
       },
       'Token refresh rate limit exceeded'
@@ -161,17 +153,15 @@ export const invitationLimiter = rateLimit({
       return `user:${userId}`;
     }
 
-    // IPアドレスを使用（IPv6対応）
-    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
-    const realIp = req.headers['x-real-ip'] as string | undefined;
-    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+    // 送信元 IP を使用（IPv6対応）
+    const ip = getClientIp(req);
     return `ip:${ipKeyGenerator(ip)}`;
   },
   handler: (req: Request, res: Response) => {
     req.log.warn(
       {
         userId: (req as Request & { user?: { id: string } }).user?.id,
-        ip: req.ip,
+        ip: getClientIp(req),
         path: req.path,
       },
       'Invitation rate limit exceeded'
@@ -195,10 +185,7 @@ export const healthCheckLimiter = rateLimit({
   // カスタムRedisストアを使用（遅延初期化）
   store: new RedisRateLimitStore(() => redis.getClient(), 'rl:health:'),
   keyGenerator: (req: Request): string => {
-    const forwardedFor = req.headers['x-forwarded-for'] as string | undefined;
-    const realIp = req.headers['x-real-ip'] as string | undefined;
-
-    const ip = forwardedFor?.split(',')[0] || realIp || req.ip || 'unknown';
+    const ip = getClientIp(req);
 
     // IPv6アドレスの正規化のためにipKeyGeneratorヘルパーを使用
     return ipKeyGenerator(ip);

@@ -157,6 +157,9 @@ services:
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
       TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
       DISABLE_RATE_LIMIT: "true"
+      # 信頼する中継の段数（送信元 IP の識別。user-authentication 要件35.1）。画面は backend へ
+      # 直接つなぐため中継を信頼しない。nginx の中継を入れるとき（タスク44.7）に 1 にする
+      TRUST_PROXY_HOPS: 0
       SMTP_HOST: mailhog
       SMTP_PORT: 1025
       SMTP_SECURE: "false"

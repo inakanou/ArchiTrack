@@ -12,6 +12,7 @@ import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
 import { apiLimiter, healthCheckLimiter } from './middleware/rateLimit.middleware.js';
 import { validateEnv } from './config/env.js';
+import { configureTrustProxy } from './middleware/client-ip.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import { generateCsrfToken } from './middleware/csrf.middleware.js';
@@ -58,9 +59,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
-// Trust proxy - Required for proxy environments like Railway
-// Trust X-Forwarded-* headers
-app.set('trust proxy', true);
+// Validate and retrieve environment variables
+const env = validateEnv();
+
+// 信頼する中継の段数だけ X-Forwarded-* を読む（全面的な信頼にしない。要件35.1、35.2）
+configureTrustProxy(app, env.TRUST_PROXY_HOPS);
 
 // Middleware
 // Force HTTPS (production only)
@@ -69,9 +72,6 @@ app.use(hsts);
 
 // Apply HTTP logging
 app.use(httpLogger);
-
-// Validate and retrieve environment variables
-const env = validateEnv();
 
 // Configure security headers
 app.use(

@@ -240,18 +240,47 @@ describe('logger middleware', () => {
 
         const serialized = reqSerializer(mockReq);
 
+        // 送信元は X-Forwarded-For を直接記録せず、信頼する中継の段数で識別した値を記録する（要件35.2）
         expect(serialized).toEqual({
           id: 'test-id',
           method: 'GET',
           url: '/api/test',
+          ip: 'unknown',
           headers: {
             'user-agent': 'Mozilla/5.0',
-            'x-forwarded-for': '203.0.113.1',
             'x-railway-request-id': 'railway-123',
           },
           remoteAddress: '192.168.1.1',
           remotePort: 12345,
         });
+      });
+
+      it('送信元は元の要求の req.ip を記録し、X-Forwarded-For・X-Real-IP の値を記録しないこと', () => {
+        const reqSerializer = (
+          httpLogger as unknown as {
+            serializers: { req: (req: IncomingMessage & { id?: string }) => unknown };
+          }
+        ).serializers.req;
+
+        const headers = {
+          'user-agent': 'Mozilla/5.0',
+          'x-forwarded-for': '198.51.100.1, 10.0.0.1',
+          'x-real-ip': '198.51.100.2',
+        };
+        // pino-http はシリアライズ前の要求を raw（列挙されない）として渡す
+        const mockReq = { id: 'test-id', method: 'GET', url: '/api/test', headers };
+        Object.defineProperty(mockReq, 'raw', {
+          enumerable: false,
+          value: { ip: '192.0.2.10', headers },
+        });
+
+        const serialized = reqSerializer(
+          mockReq as unknown as IncomingMessage & { id?: string }
+        ) as { ip: string; headers: Record<string, unknown> };
+
+        expect(serialized.ip).toBe('192.0.2.10');
+        expect(JSON.stringify(serialized)).not.toContain('198.51.100.1');
+        expect(JSON.stringify(serialized)).not.toContain('198.51.100.2');
       });
 
       it('ヘッダーが存在しない場合でもエラーにならないこと', () => {

@@ -22,6 +22,7 @@
 | `REFRESH_TOKEN_EXPIRY` | リフレッシュトークン有効期限 | 任意 | `7d` | 手動設定 |
 | `FRONTEND_URL` | フロントエンドURL（CORS設定用） | 任意 | `http://localhost:5173` | 手動設定 |
 | `NODE_ENV` | 実行環境 | 任意 | `development` | `production` |
+| `TRUST_PROXY_HOPS` | 信頼する中継の段数（送信元 IP の識別。回数制限・監査ログに使う） | 本番で設定 | `0`（中継を信頼しない） | 0 以上の整数。`true` などは起動時の検証で拒否。本番は「Railway のエッジ → frontend の nginx → backend」で `2` を想定し、配備時に `req.ip` の実測で確かめる |
 | `LOG_LEVEL` | ログレベル | 任意 | `info` | `info`/`debug`/`error` |
 | `DISABLE_RATE_LIMIT` | レート制限無効化（開発・テスト用） | 任意 | `false` | `true`（ローカルのみ推奨） |
 | `SENTRY_DSN` | Sentryエラートラッキング | 推奨 | なし | Sentry Project設定 |

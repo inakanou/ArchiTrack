@@ -183,7 +183,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 - [ ] **O1 ログの調査**（直近 1 か月から範囲を広げる）: Railway のログで `/admin/log-level` へのアクセス、`email` 指定の `/verify-2fa` 呼び出し、401・429・5xx の急増を確認する。異常があればインシデントとして扱い、専門ベンダーへの調査依頼を検討する
 - [ ] **O2 アプリ内アカウントの棚卸し**: 見覚えのないユーザー、admin・`*:*` を持つロール、未使用の招待を確認する
 - [ ] **O3 外部コンソールの棚卸し**: Railway・Cloudflare（R2）・Anthropic・Sentry・SMTP 事業者・GitHub のメンバーと API トークンを棚卸しし、MFA が有効かを確認する
-- [ ] **O4 Railway**: `RAILWAY_PRODUCTION_TOKEN`・`RAILWAY_STAGING_TOKEN` をローテーションし、GitHub の `production`・`staging` 環境シークレットへ移して保護ルール（必須レビュアー、デプロイブランチ制限）を設定する。Postgres・Redis の TCP Proxy が無効であることを確認する。user-authentication の配備（API を frontend の nginx 経由に一本化）の後に、backend の公開ドメインを閉じる（送信元 IP の識別の段数を一通りにするため）
+- [ ] **O4 Railway**: `RAILWAY_PRODUCTION_TOKEN`・`RAILWAY_STAGING_TOKEN` をローテーションし、GitHub の `production`・`staging` 環境シークレットへ移して保護ルール（必須レビュアー、デプロイブランチ制限）を設定する。Postgres・Redis の TCP Proxy が無効であることを確認する。user-authentication の配備（API を frontend の nginx 経由に一本化）の後に、backend の公開ドメインを閉じる（送信元 IP の識別の段数を一通りにするため）。user-authentication の統合（develop へのマージ）より前に、Railway の backend（本番・staging）へ信頼する中継の段数 `TRUST_PROXY_HOPS` を設定する（「Railway のエッジ → frontend の nginx → backend」の構成で `2` を想定。未設定では段数 0 として扱い、全利用者の送信元が手前の中継の IP に揃って回数制限を共有する。`true` は起動時の検証で拒否される）。配備後に staging で `req.ip`（監査ログの送信元）が自分の公開 IP と一致することを実測で確かめ、違えば段数を直す
 - [ ] **O5 R2・Anthropic**: R2 トークンが対象バケット限定の Object Read & Write か確認する。本番の Anthropic キーに使用量上限を設定する
 - [ ] **O6 本番の初期管理者パスワード**: compose に直書きされたテスト用の値と異なることを確認する。seed 後は `INITIAL_ADMIN_PASSWORD` を Railway から削除する
 

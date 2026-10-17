@@ -20,6 +20,7 @@ import getPrismaClient from '../db.js';
 import redisConnection from '../redis.js';
 import logger from '../utils/logger.js';
 import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import { getClientIp } from './client-ip.js';
 
 /**
  * 権限チェックミドルウェアファクトリー
@@ -83,7 +84,7 @@ export function requirePermission(
         await recordPermissionCheckFailure(
           userId,
           permission,
-          req.ip || 'unknown',
+          getClientIp(req),
           req.get('user-agent') || 'unknown',
           client
         );
