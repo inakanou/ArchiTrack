@@ -541,12 +541,20 @@ describe('RBACService', () => {
       const hasAdrDelete = await rbacService.hasPermission(mockAdminUserId, 'adr:delete');
       const hasUserCreate = await rbacService.hasPermission(mockAdminUserId, 'user:create');
       const hasRoleManage = await rbacService.hasPermission(mockAdminUserId, 'role:manage');
+      // 要件39.5: システム管理者（*:*）は全案件閲覧と運用設定の管理の権限も持つ（user-authentication タスク44.4）
+      const hasProjectReadAll = await rbacService.hasPermission(
+        mockAdminUserId,
+        'project:read_all'
+      );
+      const hasOpsManage = await rbacService.hasPermission(mockAdminUserId, 'ops:manage');
 
       // Assert
       expect(hasAdrRead).toBe(true);
       expect(hasAdrDelete).toBe(true);
       expect(hasUserCreate).toBe(true);
       expect(hasRoleManage).toBe(true);
+      expect(hasProjectReadAll).toBe(true);
+      expect(hasOpsManage).toBe(true);
     });
 
     it('ワイルドカード *:read 権限を持つユーザーは全てのreadアクションを持つ', async () => {

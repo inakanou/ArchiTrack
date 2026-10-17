@@ -234,7 +234,8 @@ describe('Seed Script Integration Tests', () => {
     );
     expect(permissions).toContain('adr:read');
     expect(permissions).toContain('adr:create');
-    expect(permissions).toContain('user:read');
+    // user-authentication 要件38.4: 一般ユーザーロールの既定権限にユーザー一覧の閲覧を含めない
+    expect(permissions).not.toContain('user:read');
   });
 
   it('初期管理者アカウントが正しく作成される', async () => {

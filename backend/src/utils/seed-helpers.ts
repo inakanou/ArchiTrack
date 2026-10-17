@@ -94,7 +94,9 @@ export async function seedRoles(prisma: PrismaClient): Promise<void> {
  * @requirement user-authentication/REQ-18: 権限管理
  * - resource:action形式で権限を定義
  * - システム管理者用: *:* (全権限)
- * - 一般ユーザー用: adr:read, adr:create, adr:update, user:read, settings:read
+ * - 一般ユーザー用: adr:read, adr:create, adr:update, settings:read ほか業務の権限
+ *   （user:read は含めない。user-authentication 要件38.4）
+ * - 全案件閲覧 project:read_all・運用設定の管理 ops:manage（要件39.5。システム管理者が *:* で持つ）
  */
 export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   logger.info('Seeding permissions...');
@@ -164,6 +166,19 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       resource: 'user',
       action: 'manage',
       description: 'ユーザーの完全管理',
+    },
+
+    // 全案件閲覧・運用設定の管理（user-authentication 要件39.5・42）
+    // システム管理者は *:* で持つ。一般ユーザーロールへは割り当てない
+    {
+      resource: 'project',
+      action: 'read_all',
+      description: '全案件の閲覧',
+    },
+    {
+      resource: 'ops',
+      action: 'manage',
+      description: '運用設定の管理',
     },
 
     // ロール関連権限
@@ -558,7 +573,9 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
  * ロールと権限の紐付け
  *
  * - システム管理者ロール: *:* 権限
- * - 一般ユーザーロール: adr:read, adr:create, adr:update, user:read, settings:read
+ * - 一般ユーザーロール: adr:read, adr:create, adr:update, settings:read ほか業務の権限
+ *   （ユーザー一覧の閲覧 user:read・全案件閲覧 project:read_all・運用設定の管理 ops:manage は
+ *   割り当てない。user-authentication 要件38.4・39.5）
  */
 export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
   logger.info('Seeding role-permission assignments...');
@@ -604,7 +621,7 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'adr', action: 'read' },
     { resource: 'adr', action: 'create' },
     { resource: 'adr', action: 'update' },
-    { resource: 'user', action: 'read' },
+    // user:read（ユーザー一覧の閲覧）は割り当てない（user-authentication 要件38.4）
     { resource: 'settings', action: 'read' },
     // プロジェクト関連権限（Requirements 12.5）
     // 一般ユーザーはプロジェクトの作成・閲覧・更新が可能（削除は管理者のみ）

@@ -89,7 +89,7 @@ async function waitForDatabase(
  * - Permissionテーブルに各種権限を作成（*:*, adr:*, user:*など）
  * - RolePermissionテーブルでロールと権限を紐付け
  *   - adminロール → *:* 権限（全権限）
- *   - userロール → adr:read, adr:create, adr:update, user:read, settings:read
+ *   - userロール → adr:read, adr:create, adr:update, settings:read ほか業務の権限（user:read は含めない。要件38.4）
  * - 全テストユーザーを作成（user@example.com, admin@example.com等）
  *
  * Note: 共通テストユーザーはグローバルセットアップで作成され、全テストで再利用されます。
