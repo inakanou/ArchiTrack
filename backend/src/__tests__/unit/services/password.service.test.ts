@@ -293,6 +293,14 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
       };
 
       const mockResetToken: PasswordResetToken = {
@@ -476,6 +484,14 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
       };
 
       (
@@ -700,6 +716,14 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
       };
 
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
@@ -734,6 +758,14 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
       };
 
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
@@ -772,6 +804,14 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
       };
 
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);

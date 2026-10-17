@@ -46,6 +46,14 @@ const mockUser: User = {
   twoFactorLockedUntil: null,
   createdAt: new Date('2025-01-01T00:00:00Z'),
   updatedAt: new Date('2025-01-01T00:00:00Z'),
+  isActive: true,
+  deactivatedAt: null,
+  deactivationReason: null,
+  lastLoginAt: null,
+  mustChangePassword: false,
+  twoFactorLastUsedStep: null,
+  twoFactorPendingSecret: null,
+  invitedById: null,
 };
 
 const mockRole: Role = {

@@ -125,6 +125,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -316,6 +324,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -396,6 +412,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -445,6 +469,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -487,6 +519,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -527,6 +567,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -576,6 +624,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -626,6 +682,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -675,6 +739,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [
           {
             role: {
@@ -744,6 +816,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -832,6 +912,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -884,6 +972,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -944,6 +1040,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: lockUntil,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -983,6 +1087,14 @@ describe('AuthService', () => {
         twoFactorLockedUntil: expiredLockUntil,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 

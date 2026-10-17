@@ -136,6 +136,8 @@ export class AuthService implements IAuthService {
             email: invitation.email,
             displayName: data.displayName,
             passwordHash,
+            // 招待者は招待の行の取り消し・削除に左右されない利用者の属性として写す（要件36.10）
+            invitedById: invitation.inviterId,
           },
         });
 

@@ -393,6 +393,50 @@ describe('Authentication API Integration Tests', () => {
     });
 
     /**
+     * 要件36.10の準備: 招待経由の登録で招待の作成者を利用者の招待者として写す
+     * （招待の行の取り消し・削除に左右されない利用者の属性）
+     */
+    it('招待経由の登録で招待の作成者が利用者の招待者として記録されること', async () => {
+      const inviter = await prisma.user.create({
+        data: {
+          email: 'test-auth-integration-inviter-record@example.com',
+          displayName: 'Inviter Record',
+          passwordHash: 'not-used',
+        },
+      });
+
+      const invitation = await prisma.invitation.create({
+        data: {
+          email: 'test-auth-integration-invited-record@example.com',
+          token: 'test-invitation-token-inviter-record',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          inviterId: inviter.id,
+        },
+      });
+
+      await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          invitationToken: invitation.token,
+          password: 'StrongPass123!@#',
+          displayName: 'Invited Record User',
+        })
+        .expect(201);
+
+      const registered = await prisma.user.findUnique({
+        where: { email: 'test-auth-integration-invited-record@example.com' },
+      });
+      expect(registered?.invitedById).toBe(inviter.id);
+
+      // 招待の行を消しても招待者は利用者の属性として残る
+      await prisma.invitation.delete({ where: { id: invitation.id } });
+      const afterInvitationRemoved = await prisma.user.findUnique({
+        where: { id: registered!.id },
+      });
+      expect(afterInvitationRemoved?.invitedById).toBe(inviter.id);
+    });
+
+    /**
      * 要件2.2: 無効または存在しない招待トークンでエラー
      */
     it('無効な招待トークンで登録できないこと', async () => {
