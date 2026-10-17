@@ -83,6 +83,9 @@ export async function createTestUser(
       data: {
         action: 'USER_CREATED',
         actorId: user.id,
+        // 要件40.7: 本物の seed（seed-helpers.ts）と同じく実行者の写しを書く
+        actorEmail: userData.email,
+        actorDisplayName: userData.displayName,
         targetType: 'User',
         targetId: user.id,
         after: {

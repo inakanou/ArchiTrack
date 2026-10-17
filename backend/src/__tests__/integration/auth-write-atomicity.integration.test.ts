@@ -29,6 +29,7 @@ import { RolePermissionService } from '../../services/role-permission.service.js
 import { PasswordService } from '../../services/password.service.js';
 import { EmailService } from '../../services/email.service.js';
 import { seedRoles } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 const MARK = 'test-ua355-atomicity';
 const INJECTED_MESSAGE = 'ua355 injected failure';
@@ -98,7 +99,7 @@ describe('認証系の書き込みの原子性（統合・失敗注入）', () =
       select: { id: true },
     });
     const roleIds = roles.map((r) => r.id);
-    await prisma.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
+    await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: userIds } });
     await prisma.refreshToken.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.passwordResetToken.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.userRole.deleteMany({

@@ -750,6 +750,8 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
         data: {
           action: 'USER_CREATED',
           actorId: existingAdmin.id,
+          actorEmail: existingAdmin.email,
+          actorDisplayName: existingAdmin.displayName,
           targetType: 'User',
           targetId: existingAdmin.id,
           after: {
@@ -809,6 +811,8 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
     data: {
       action: 'USER_CREATED',
       actorId: adminUser.id, // 初期管理者は自身を作成者として記録
+      actorEmail: adminUser.email,
+      actorDisplayName: adminUser.displayName,
       targetType: 'User',
       targetId: adminUser.id,
       after: {

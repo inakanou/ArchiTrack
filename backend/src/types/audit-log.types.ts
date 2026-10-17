@@ -79,8 +79,12 @@ export interface AuditLogInfo {
   id: string;
   /** アクション種別 */
   action: AuditLogAction;
-  /** 実行者ユーザーID */
-  actorId: string;
+  /** 実行者ユーザーID（外部キーを持たないため、実行者の削除後も残る） */
+  actorId: string | null;
+  /** 記録時に写した実行者のメールアドレス（要件40.7） */
+  actorEmail: string | null;
+  /** 記録時に写した実行者の表示名（要件40.7） */
+  actorDisplayName: string | null;
   /** 対象リソースタイプ */
   targetType: string;
   /** 対象リソースID */

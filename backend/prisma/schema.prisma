@@ -46,7 +46,6 @@ model User {
   passwordResetRequests PasswordResetToken[]
   passwordHistories     PasswordHistory[]
   twoFactorBackupCodes  TwoFactorBackupCode[]
-  auditLogsAsActor      AuditLog[]            @relation("ActorAuditLogs")
 
   // Project Management リレーション
   salesPersonProjects        Project[]              @relation("SalesPersonProjects")
@@ -214,7 +213,8 @@ model TwoFactorBackupCode {
 model AuditLog {
   id         String   @id @default(uuid())
   action     String // ROLE_CREATED, ROLE_UPDATED, ROLE_DELETED, PERMISSION_ASSIGNED, PERMISSION_REVOKED, USER_ROLE_ASSIGNED, USER_ROLE_REVOKED, PERMISSION_CHECK_FAILED, TWO_FACTOR_ENABLED, TWO_FACTOR_DISABLED
-  actorId    String
+  // 実行者のユーザーID。利用者の削除で監査ログが消えないよう外部キーを持たない（要件40.7）
+  actorId    String?
   targetType String // User, Role, Permission, UserRole, RolePermission
   targetId   String
   before     Json? // 変更前の値（JSON形式）
@@ -222,7 +222,12 @@ model AuditLog {
   metadata   Json? // IPアドレス、ユーザーエージェント、リクエストID
   createdAt  DateTime @default(now())
 
-  actor User @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)
+  // 記録時に写す実行者のメールアドレスと表示名（実行者の削除後も識別できる。要件40.7）
+  actorEmail       String? @map("actor_email")
+  actorDisplayName String? @map("actor_display_name")
+
+  // Note: 更新は DB のトリガー audit_logs_immutable が常に拒否し、削除はアーカイブの許可の設定
+  // （architrack.audit_archive）の取引の中でだけ許す（要件40.8、utils/audit-log-archive-permission.ts）
   // Note: targetIdは多態的なフィールドで、targetTypeに応じてUser/Role/Permission等を参照
   // 外部キー制約は設けず、アプリケーションレベルで整合性を管理
 

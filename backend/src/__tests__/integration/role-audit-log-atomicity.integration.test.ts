@@ -24,6 +24,7 @@ import getPrismaClient from '../../db.js';
 import { AuditLogService } from '../../services/audit-log.service.js';
 import { RoleService } from '../../services/role.service.js';
 import { UserRoleService } from '../../services/user-role.service.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 const MARK = 'test-ua364-role-audit';
 const INJECTED_MESSAGE = 'ua364 injected failure';
@@ -98,7 +99,7 @@ describe('ロールの作成・更新・削除と割り当ての削除の監査�
       select: { id: true },
     });
     const roleIds = roles.map((r) => r.id);
-    await prisma.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
+    await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: userIds } });
     await prisma.userRole.deleteMany({
       where: { OR: [{ userId: { in: userIds } }, { roleId: { in: roleIds } }] },
     });

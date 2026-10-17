@@ -33,6 +33,7 @@ import { RolePermissionService } from '../../services/role-permission.service.js
 import { PasswordService } from '../../services/password.service.js';
 import { EmailService } from '../../services/email.service.js';
 import { seedRoles } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 const MARK = 'test-ua356-acid';
 const DOCUMENTED_ISOLATION = 'read committed';
@@ -75,8 +76,8 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
       select: { id: true },
     });
     const roleIds = roles.map((r) => r.id);
-    await prisma.auditLog.deleteMany({
-      where: { OR: [{ actorId: { in: userIds } }, { targetId: { in: userIds } }] },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      OR: [{ actorId: { in: userIds } }, { targetId: { in: userIds } }],
     });
     await prisma.refreshToken.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.passwordResetToken.deleteMany({ where: { userId: { in: userIds } } });

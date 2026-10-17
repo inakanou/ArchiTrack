@@ -15,6 +15,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { RBACService, getSharedRBACService } from '../services/rbac.service.js';
+import { snapshotAuditActor } from '../services/audit-log.service.js';
 import getPrismaClient from '../db.js';
 import redisConnection from '../redis.js';
 import logger from '../utils/logger.js';
@@ -135,6 +136,8 @@ async function recordPermissionCheckFailure(
       data: {
         action: 'PERMISSION_CHECK_FAILED',
         actorId,
+        // 実行者の写し（要件40.7）
+        ...(await snapshotAuditActor(prismaClient, actorId)),
         targetType: 'Permission',
         targetId: requiredPermission,
         metadata: {

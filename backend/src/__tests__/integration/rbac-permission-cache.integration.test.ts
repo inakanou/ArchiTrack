@@ -29,6 +29,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import tokenService from '../../services/token.service.js';
 import logger from '../../utils/logger.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 const MARK = 'test-ua362-rbac-cache';
 
@@ -88,7 +89,7 @@ describe('権限の確認の経路の権限キャッシュ（統合・実 Redis�
     if (userIds.length > 0) {
       await redisClient.del(...userIds.map(cacheKey));
     }
-    await prisma.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
+    await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: userIds } });
     await prisma.userRole.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await prisma.rolePermission.deleteMany({ where: { role: { name: { startsWith: MARK } } } });
@@ -163,7 +164,7 @@ describe('権限の確認の経路の権限キャッシュ（統合・実 Redis�
     if (readerIds.length > 0) {
       await redisClient.del(...readerIds.map(cacheKey));
     }
-    await prisma.auditLog.deleteMany({ where: { actorId: { in: readerIds } } });
+    await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: readerIds } });
     await prisma.userRole.deleteMany({ where: { userId: { in: readerIds } } });
     await prisma.user.deleteMany({ where: { id: { in: readerIds } } });
     await prisma.rolePermission.deleteMany({ where: { role: { name: `${MARK}-reader` } } });

@@ -1329,7 +1329,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 移行を空の DB と移行前の形のデータを入れた DB の両方へ適用でき、招待経由の登録の統合テストで招待者が記録され、既存の単体・統合テストが緑のままの状態になる
   - _Requirements: 36.7, 36.10_
 
-- [ ] 44.2 監査ログの実行者の写しと改変の禁止を DB に設ける
+- [x] 44.2 監査ログの実行者の写しと改変の禁止を DB に設ける
   - 監査ログの実行者への外部キーを外し、実行者を空にできる形にし、実行者のメールアドレスと表示名の写しの列を加える。既存の行の写しを利用者から埋めてから、更新を常に拒否し、削除をアーカイブの許可の設定がある取引の中に限るトリガーを作る
   - 記録処理が写しを書き、一覧が外部キーの結合でなく写しを表示に使う（本タスクが記録と読み取りの両方の写しを所有する。種別の追加と実行者の無い記録は 44.3）
   - 監査ログを行単位で消すテストの後始末（backend の統合テストと `e2e/fixtures/database.ts` の個別の表の掃除）を洗い出し、TRUNCATE か、アーカイブの許可の設定を置いた取引で消す共通の補助へ置き換える（TRUNCATE は行のトリガーを発火しない）
@@ -1808,3 +1808,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 検証の変異を戻すときの frontend の作り直しは `--force-recreate` とバンドルのハッシュの変化で確かめる。frontend の単体は `npm --prefix frontend run test` で起動する（repo のルートから vitest を起動すると CSS の相対パスで ENOENT の偽の赤が出る）（36.6）
 - design.md の行に「削除」「撤去」「旧」など `ABSENCE_MARKERS` の語があると、同じ行で名指した実在のパスが免除機構の面に数えられ `check:design-path-refs` が赤になり、自己検査経由で鮮度の宣言 `design-path-refs-selftest-total-after-115305` も赤になる。現存のものを指す行では操作を正確な別の語で言う（基準の `:update` で逃がさない）（37.2）
 - 要件32〜45 の DB の移行は、design.md の File Structure Plan が一本（`<日時>_security_remediation_ipa_20261009/`）と書く移行の項目を、タスクごとに別の移行のディレクトリへ分けて作る（適用済みの移行は書き換えられないため。44.1 は `20261017000000_security_remediation_ipa_20261009_user_status`）。File Structure Plan の記述は 57.2 で実在の移行の名前へ揃える。新しい列は design の Physical Data Model どおり snake_case の `@map` を付け、既存の camelCase の列は変えない（44.1）
+- 監査ログはトリガー `audit_logs_immutable` で更新を常に拒否し、削除は `architrack.audit_archive` を取引の中で on にしたときだけ通す。テストの後始末で監査ログを消すときは `backend/src/utils/audit-log-archive-permission.ts` の補助か TRUNCATE を使い、素の `auditLog.delete/deleteMany` を書かない。監査ログを書く新しい経路は実行者の写し（`actorEmail`・`actorDisplayName`）も書く（44.2）

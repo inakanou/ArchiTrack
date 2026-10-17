@@ -22,6 +22,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 /**
  * かな変換検索の統合テスト
@@ -117,10 +118,8 @@ describe('Kana Conversion Search Integration Tests', () => {
     });
 
     // 3. 監査ログを削除
-    await prisma.auditLog.deleteMany({
-      where: {
-        actorId: testUserId,
-      },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      actorId: testUserId,
     });
 
     // 4. ユーザーロールを削除
@@ -173,15 +172,13 @@ describe('Kana Conversion Search Integration Tests', () => {
       },
     });
 
-    await prisma.auditLog.deleteMany({
-      where: {
-        OR: [
-          { action: 'TRADING_PARTNER_CREATED' },
-          { action: 'TRADING_PARTNER_UPDATED' },
-          { action: 'TRADING_PARTNER_DELETED' },
-        ],
-        actorId: testUserId,
-      },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      OR: [
+        { action: 'TRADING_PARTNER_CREATED' },
+        { action: 'TRADING_PARTNER_UPDATED' },
+        { action: 'TRADING_PARTNER_DELETED' },
+      ],
+      actorId: testUserId,
     });
 
     await prisma.userRole.deleteMany({

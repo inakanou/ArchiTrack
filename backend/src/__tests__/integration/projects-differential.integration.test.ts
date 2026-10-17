@@ -32,6 +32,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 /**
  * プロジェクト差分実装の統合テスト
@@ -239,10 +240,8 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     ].filter(Boolean);
 
     if (userIds.length > 0) {
-      await prisma.auditLog.deleteMany({
-        where: {
-          actorId: { in: userIds },
-        },
+      await deleteAuditLogsWithArchivePermission(prisma, {
+        actorId: { in: userIds },
       });
     }
 

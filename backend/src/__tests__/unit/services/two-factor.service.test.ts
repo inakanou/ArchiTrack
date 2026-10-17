@@ -761,6 +761,9 @@ describe('TwoFactorService', () => {
         data: expect.objectContaining({
           action: 'TWO_FACTOR_SETUP_STARTED',
           actorId: mockUserId,
+          // 実行者の写し（要件40.7）
+          actorEmail: mockUser.email,
+          actorDisplayName: mockUser.displayName,
           targetType: 'User',
           targetId: mockUserId,
         }),

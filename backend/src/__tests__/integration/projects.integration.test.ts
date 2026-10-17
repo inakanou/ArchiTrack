@@ -29,6 +29,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 /**
  * プロジェクトAPI統合テスト
@@ -216,11 +217,9 @@ describe('Project API Integration Tests', () => {
     });
 
     // 3. 監査ログを削除
-    await prisma.auditLog.deleteMany({
-      where: {
-        actorId: {
-          in: [testUserId, testSalesPersonId, testConstructionPersonId].filter(Boolean),
-        },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      actorId: {
+        in: [testUserId, testSalesPersonId, testConstructionPersonId].filter(Boolean),
       },
     });
 
@@ -304,17 +303,15 @@ describe('Project API Integration Tests', () => {
       },
     });
 
-    await prisma.auditLog.deleteMany({
-      where: {
-        OR: [
-          { action: 'PROJECT_CREATED' },
-          { action: 'PROJECT_UPDATED' },
-          { action: 'PROJECT_DELETED' },
-          { action: 'PROJECT_STATUS_CHANGED' },
-        ],
-        actorId: {
-          in: [testUserId, testSalesPersonId, testConstructionPersonId].filter(Boolean),
-        },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      OR: [
+        { action: 'PROJECT_CREATED' },
+        { action: 'PROJECT_UPDATED' },
+        { action: 'PROJECT_DELETED' },
+        { action: 'PROJECT_STATUS_CHANGED' },
+      ],
+      actorId: {
+        in: [testUserId, testSalesPersonId, testConstructionPersonId].filter(Boolean),
       },
     });
 

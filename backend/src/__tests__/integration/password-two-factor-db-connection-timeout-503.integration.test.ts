@@ -26,6 +26,7 @@ import { authenticator } from 'otplib';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import type { TwoFactorService } from '../../services/two-factor.service.js';
 import { SwitchableDatabaseRelay } from './switchable-database-relay.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 /** 接続の確立を待つ時間（ミリ秒） */
 const CONNECTION_TIMEOUT_MS = 200;
@@ -278,7 +279,7 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
         select: { id: true },
       });
       const ids = users.map((u) => u.id);
-      await directPrisma.auditLog.deleteMany({ where: { actorId: { in: ids } } });
+      await deleteAuditLogsWithArchivePermission(directPrisma, { actorId: { in: ids } });
       await directPrisma.refreshToken.deleteMany({ where: { userId: { in: ids } } });
       await directPrisma.twoFactorBackupCode.deleteMany({ where: { userId: { in: ids } } });
       await directPrisma.user.deleteMany({ where: { id: { in: ids } } });

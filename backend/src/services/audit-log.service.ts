@@ -19,6 +19,69 @@ import {
   AuditLogServiceDependencies,
 } from '../types/audit-log.types.js';
 
+/** 記録時に写す実行者のメールアドレスと表示名（要件40.7） */
+export interface AuditActorSnapshot {
+  actorEmail: string | null;
+  actorDisplayName: string | null;
+}
+
+/**
+ * 監査ログの実行者のメールアドレスと表示名を、記録の時点の利用者から写す。
+ *
+ * 監査ログの実行者は利用者への外部キーを持たないため、実行者の利用者が削除された後も
+ * 誰が操作したかを識別できるよう、記録時に写しを書く（要件40.7）。
+ * 実行者が利用者でない（存在しない）ときは写しを空にする。
+ *
+ * @param client - Prisma クライアントまたは記録と同じトランザクション
+ * @param actorId - 実行者のユーザーID
+ */
+export async function snapshotAuditActor(
+  client: Pick<Prisma.TransactionClient, 'user'>,
+  actorId: string | null
+): Promise<AuditActorSnapshot> {
+  if (!actorId) {
+    return { actorEmail: null, actorDisplayName: null };
+  }
+  const actor = await client.user.findUnique({
+    where: { id: actorId },
+    select: { email: true, displayName: true },
+  });
+  return { actorEmail: actor?.email ?? null, actorDisplayName: actor?.displayName ?? null };
+}
+
+/** 監査ログの読み取りで返す列（実行者の表示は外部キーの結合でなく写しを使う） */
+const AUDIT_LOG_SELECT = {
+  id: true,
+  action: true,
+  actorId: true,
+  actorEmail: true,
+  actorDisplayName: true,
+  targetType: true,
+  targetId: true,
+  before: true,
+  after: true,
+  metadata: true,
+  createdAt: true,
+} as const satisfies Prisma.AuditLogSelect;
+
+type SelectedAuditLog = Prisma.AuditLogGetPayload<{ select: typeof AUDIT_LOG_SELECT }>;
+
+function toAuditLogInfo(log: SelectedAuditLog): AuditLogInfo {
+  return {
+    id: log.id,
+    action: log.action as AuditLogAction,
+    actorId: log.actorId,
+    actorEmail: log.actorEmail,
+    actorDisplayName: log.actorDisplayName,
+    targetType: log.targetType,
+    targetId: log.targetId,
+    before: log.before,
+    after: log.after,
+    metadata: log.metadata,
+    createdAt: log.createdAt,
+  };
+}
+
 /**
  * 監査ログサービス実装
  */
@@ -36,10 +99,16 @@ export class AuditLogService implements IAuditLogService {
     input: CreateAuditLogInput,
     tx?: Prisma.TransactionClient
   ): Promise<AuditLogInfo> {
+    const client = tx ?? this.deps.prisma;
+    // 実行者の写しは記録と同じトランザクションで読む（要件40.7）
+    const snapshot = await snapshotAuditActor(client, input.actorId);
+
     // nullをPrisma.JsonNullに変換
     const data = {
       action: input.action,
       actorId: input.actorId,
+      actorEmail: snapshot.actorEmail,
+      actorDisplayName: snapshot.actorDisplayName,
       targetType: input.targetType,
       targetId: input.targetId,
       before: input.before === null ? Prisma.JsonNull : input.before,
@@ -47,33 +116,9 @@ export class AuditLogService implements IAuditLogService {
       metadata: input.metadata === null ? Prisma.JsonNull : input.metadata,
     };
 
-    const client = tx ?? this.deps.prisma;
-    const log = await client.auditLog.create({
-      data,
-      select: {
-        id: true,
-        action: true,
-        actorId: true,
-        targetType: true,
-        targetId: true,
-        before: true,
-        after: true,
-        metadata: true,
-        createdAt: true,
-      },
-    });
+    const log = await client.auditLog.create({ data, select: AUDIT_LOG_SELECT });
 
-    return {
-      id: log.id,
-      action: log.action as AuditLogAction,
-      actorId: log.actorId,
-      targetType: log.targetType,
-      targetId: log.targetId,
-      before: log.before,
-      after: log.after,
-      metadata: log.metadata,
-      createdAt: log.createdAt,
-    };
+    return toAuditLogInfo(log);
   }
 
   /**
@@ -121,32 +166,12 @@ export class AuditLogService implements IAuditLogService {
 
     const logs = await this.deps.prisma.auditLog.findMany({
       where,
-      select: {
-        id: true,
-        action: true,
-        actorId: true,
-        targetType: true,
-        targetId: true,
-        before: true,
-        after: true,
-        metadata: true,
-        createdAt: true,
-      },
+      select: AUDIT_LOG_SELECT,
       orderBy: { createdAt: 'desc' },
       ...pagination,
     });
 
-    return logs.map((log) => ({
-      id: log.id,
-      action: log.action as AuditLogAction,
-      actorId: log.actorId,
-      targetType: log.targetType,
-      targetId: log.targetId,
-      before: log.before,
-      after: log.after,
-      metadata: log.metadata,
-      createdAt: log.createdAt,
-    }));
+    return logs.map(toAuditLogInfo);
   }
 
   /**

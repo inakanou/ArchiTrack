@@ -27,6 +27,7 @@ import getPrismaClient from '../db.js';
 import logger from '../utils/logger.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
+import { snapshotAuditActor } from './audit-log.service.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 
 /**
@@ -121,6 +122,7 @@ export class TwoFactorService implements ITwoFactorService {
           data: {
             action: 'TWO_FACTOR_SETUP_STARTED',
             actorId: userId,
+            ...(await snapshotAuditActor(tx, userId)),
             targetType: 'User',
             targetId: userId,
             metadata: {},
@@ -447,7 +449,8 @@ export class TwoFactorService implements ITwoFactorService {
         const isValid = await verify(storedCode.codeHash, backupCode);
 
         if (isValid) {
-          // 使用済みとしてマーク、監査ログ記録
+          // 使用済みとしてマーク、監査ログ記録（実行者の写しは記録の前に読む。要件40.7）
+          const actorSnapshot = await snapshotAuditActor(this.prisma, userId);
           await this.prisma.$transaction([
             this.prisma.twoFactorBackupCode.update({
               where: { id: storedCode.id },
@@ -457,6 +460,7 @@ export class TwoFactorService implements ITwoFactorService {
               data: {
                 action: 'TWO_FACTOR_BACKUP_CODE_USED',
                 actorId: userId,
+                ...actorSnapshot,
                 targetType: 'User',
                 targetId: userId,
                 metadata: {},
@@ -572,6 +576,7 @@ export class TwoFactorService implements ITwoFactorService {
           data: {
             action: 'TWO_FACTOR_ENABLED',
             actorId: userId,
+            ...(await snapshotAuditActor(tx, userId)),
             targetType: 'User',
             targetId: userId,
             metadata: {},
@@ -629,6 +634,9 @@ export class TwoFactorService implements ITwoFactorService {
         return Err({ type: 'INVALID_PASSWORD' });
       }
 
+      // 監査ログの実行者の写し（要件40.7）
+      const actorSnapshot = await snapshotAuditActor(this.prisma, userId);
+
       // トランザクション内で2FA無効化、秘密鍵削除、バックアップコード削除、監査ログ記録、全セッション無効化
       await this.prisma.$transaction([
         this.prisma.user.update({
@@ -648,6 +656,7 @@ export class TwoFactorService implements ITwoFactorService {
           data: {
             action: 'TWO_FACTOR_DISABLED',
             actorId: userId,
+            ...actorSnapshot,
             targetType: 'User',
             targetId: userId,
             metadata: {},

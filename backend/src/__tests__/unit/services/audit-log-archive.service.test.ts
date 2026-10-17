@@ -33,7 +33,13 @@ describe('AuditLogArchiveService', () => {
         findMany: vi.fn(),
         deleteMany: vi.fn(),
       },
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      // 対話型トランザクションは同じモックを取引のクライアントとして渡す
+      $transaction: vi.fn(),
     } as unknown as PrismaClient;
+    vi.mocked(prismaMock.$transaction).mockImplementation(((
+      fn: (tx: PrismaClient) => Promise<unknown>
+    ) => fn(prismaMock)) as never);
 
     auditLogArchiveService = new AuditLogArchiveService(
       {
@@ -122,6 +128,8 @@ describe('AuditLogArchiveService', () => {
           id: 'log-1',
           action: 'USER_CREATED',
           actorId: 'user-1',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'target-1',
           before: null,
@@ -133,6 +141,8 @@ describe('AuditLogArchiveService', () => {
           id: 'log-2',
           action: 'ROLE_UPDATED',
           actorId: 'user-2',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'Role',
           targetId: 'target-2',
           before: { name: 'Admin' },
@@ -153,8 +163,14 @@ describe('AuditLogArchiveService', () => {
       expect(result.compressed).toBe(true);
       expect(result.encrypted).toBe(true);
 
-      // データベースから削除されたことを確認
+      // データベースから、アーカイブの許可の設定を置いた取引の中で削除されたことを確認（要件40.8）
+      expect(prismaMock.$transaction).toHaveBeenCalledOnce();
+      expect(prismaMock.$queryRaw).toHaveBeenCalledOnce();
+      expect(vi.mocked(prismaMock.$queryRaw).mock.calls[0]).toContain('architrack.audit_archive');
       expect(prismaMock.auditLog.deleteMany).toHaveBeenCalledOnce();
+      expect(vi.mocked(prismaMock.$queryRaw).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(prismaMock.auditLog.deleteMany).mock.invocationCallOrder[0]!
+      );
     });
 
     it('アーカイブするログがない場合はエラーを返すこと', async () => {
@@ -172,6 +188,8 @@ describe('AuditLogArchiveService', () => {
           id: 'log-1',
           action: 'USER_CREATED',
           actorId: 'user-1',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'target-1',
           before: null,

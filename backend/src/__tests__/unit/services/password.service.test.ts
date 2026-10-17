@@ -361,9 +361,12 @@ describe('PasswordService', () => {
     const txClient = {
       passwordResetToken: { create: vi.fn() },
       auditLog: { create: vi.fn() },
+      // 監査ログの実行者の写しを同じトランザクションで読む（要件40.7）
+      user: { findUnique: vi.fn() },
     };
 
     beforeEach(() => {
+      txClient.user.findUnique.mockResolvedValue({ email, displayName: 'Reset User' });
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: userId,
         email,
@@ -405,6 +408,8 @@ describe('PasswordService', () => {
           data: expect.objectContaining({
             action: 'PASSWORD_RESET_REQUESTED',
             actorId: userId,
+            actorEmail: email,
+            actorDisplayName: 'Reset User',
             targetId: userId,
           }),
         })

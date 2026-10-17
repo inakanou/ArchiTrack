@@ -90,6 +90,13 @@ describe('requirePermission middleware', () => {
       auditLog: {
         create: vi.fn(),
       },
+      // 監査ログの実行者の写し（要件40.7）
+      user: {
+        findUnique: vi.fn().mockResolvedValue({
+          email: 'test@example.com',
+          displayName: 'Test User',
+        }),
+      },
     } as unknown as PrismaClient;
 
     // RBACServiceモック
@@ -173,6 +180,8 @@ describe('requirePermission middleware', () => {
         data: {
           action: 'PERMISSION_CHECK_FAILED',
           actorId: 'user-123',
+          actorEmail: 'test@example.com',
+          actorDisplayName: 'Test User',
           targetType: 'Permission',
           targetId: 'adr:delete',
           metadata: {
@@ -419,6 +428,8 @@ describe('requirePermission middleware', () => {
         data: {
           action: 'PERMISSION_CHECK_FAILED',
           actorId: 'user-123',
+          actorEmail: 'test@example.com',
+          actorDisplayName: 'Test User',
           targetType: 'Permission',
           targetId: 'adr:delete',
           metadata: {

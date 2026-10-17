@@ -18,6 +18,7 @@ import {
   DeleteArchiveResult,
   AuditLogArchiveServiceDependencies,
 } from '../types/audit-log-archive.types.js';
+import { deleteAuditLogsWithArchivePermission } from '../utils/audit-log-archive-permission.js';
 
 /**
  * 監査ログアーカイブサービス実装
@@ -120,12 +121,10 @@ export class AuditLogArchiveService implements IAuditLogArchiveService {
     // ファイルサイズを取得
     const stats = await fs.stat(filePath);
 
-    // データベースから削除
-    await this.deps.prisma.auditLog.deleteMany({
-      where: {
-        createdAt: {
-          lte: thirteenMonthsAgo,
-        },
+    // データベースから削除（監査ログのトリガーはアーカイブの許可の設定の取引の中でだけ削除を許す。要件40.8）
+    await deleteAuditLogsWithArchivePermission(this.deps.prisma, {
+      createdAt: {
+        lte: thirteenMonthsAgo,
       },
     });
 

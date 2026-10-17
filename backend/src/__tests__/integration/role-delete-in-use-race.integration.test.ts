@@ -25,6 +25,7 @@ import { AuditLogService } from '../../services/audit-log.service.js';
 import { RoleService } from '../../services/role.service.js';
 import { UserRoleService } from '../../services/user-role.service.js';
 import type { CreateAuditLogInput, IAuditLogService } from '../../types/audit-log.types.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 const MARK = 'test-ua371-role-delete-race';
 const WAIT_LIMIT_MS = 10_000;
@@ -124,7 +125,7 @@ describe('ロールの削除と並行する割り当ての直列化（統合・�
       select: { id: true },
     });
     const roleIds = roles.map((r) => r.id);
-    await prisma.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
+    await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: userIds } });
     await prisma.userRole.deleteMany({
       where: { OR: [{ userId: { in: userIds } }, { roleId: { in: roleIds } }] },
     });

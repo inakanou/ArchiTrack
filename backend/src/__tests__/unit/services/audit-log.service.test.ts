@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PrismaClient } from '../../../generated/prisma/client.js';
-import { AuditLogService } from '../../../services/audit-log.service.js';
+import { AuditLogService, snapshotAuditActor } from '../../../services/audit-log.service.js';
 import {
   CreateAuditLogInput,
   AuditLogFilter,
@@ -20,6 +20,9 @@ const mockPrisma = {
   auditLog: {
     create: vi.fn(),
     findMany: vi.fn(),
+  },
+  user: {
+    findUnique: vi.fn(),
   },
 } as unknown as PrismaClient;
 
@@ -47,6 +50,8 @@ describe('AuditLogService', () => {
         id: 'log-123',
         action: 'USER_CREATED',
         actorId: 'user-123',
+        actorEmail: null,
+        actorDisplayName: null,
         targetType: 'User',
         targetId: 'user-456',
         before: null,
@@ -76,6 +81,8 @@ describe('AuditLogService', () => {
         id: 'log-456',
         action: 'ROLE_CREATED',
         actorId: 'admin-123',
+        actorEmail: null,
+        actorDisplayName: null,
         targetType: 'Role',
         targetId: 'role-456',
         before: null,
@@ -106,6 +113,8 @@ describe('AuditLogService', () => {
         id: 'log-789',
         action: 'USER_UPDATED',
         actorId: 'user-123',
+        actorEmail: null,
+        actorDisplayName: null,
         targetType: 'User',
         targetId: 'user-456',
         before: { displayName: 'Old Name' },
@@ -123,6 +132,104 @@ describe('AuditLogService', () => {
     });
   });
 
+  describe('実行者の写し（要件40.7）', () => {
+    const input: CreateAuditLogInput = {
+      action: 'USER_UPDATED',
+      actorId: 'user-123',
+      targetType: 'User',
+      targetId: 'user-456',
+    };
+
+    it('記録時に実行者のメールアドレスと表示名を写す', async () => {
+      (mockPrisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        email: 'actor@example.com',
+        displayName: '実行者',
+      });
+      (mockPrisma.auditLog.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'log-1',
+        action: 'USER_UPDATED',
+        actorId: 'user-123',
+        actorEmail: 'actor@example.com',
+        actorDisplayName: '実行者',
+        targetType: 'User',
+        targetId: 'user-456',
+        before: null,
+        after: null,
+        metadata: null,
+        createdAt: new Date('2025-11-10T00:00:00Z'),
+      });
+
+      const result = await service.createLog(input);
+
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        select: { email: true, displayName: true },
+      });
+      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            actorId: 'user-123',
+            actorEmail: 'actor@example.com',
+            actorDisplayName: '実行者',
+          }),
+        })
+      );
+      expect(result.actorEmail).toBe('actor@example.com');
+      expect(result.actorDisplayName).toBe('実行者');
+    });
+
+    it('トランザクションを渡すと、写しを同じトランザクションで読む', async () => {
+      const tx = {
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ email: 'tx@example.com', displayName: 'TX' }),
+        },
+        auditLog: {
+          create: vi.fn().mockResolvedValue({
+            id: 'log-2',
+            action: 'USER_UPDATED',
+            actorId: 'user-123',
+            actorEmail: 'tx@example.com',
+            actorDisplayName: 'TX',
+            targetType: 'User',
+            targetId: 'user-456',
+            before: null,
+            after: null,
+            metadata: null,
+            createdAt: new Date('2025-11-10T00:00:00Z'),
+          }),
+        },
+      };
+
+      await service.createLog(input, tx as unknown as Parameters<AuditLogService['createLog']>[1]);
+
+      expect(tx.user.findUnique).toHaveBeenCalledOnce();
+      expect(tx.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ actorEmail: 'tx@example.com', actorDisplayName: 'TX' }),
+        })
+      );
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.auditLog.create).not.toHaveBeenCalled();
+    });
+
+    it('実行者が利用者に無いときは写しを空にする', async () => {
+      (mockPrisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      await expect(snapshotAuditActor(mockPrisma, 'missing')).resolves.toEqual({
+        actorEmail: null,
+        actorDisplayName: null,
+      });
+    });
+
+    it('実行者が無いときは利用者を読まずに写しを空にする', async () => {
+      await expect(snapshotAuditActor(mockPrisma, null)).resolves.toEqual({
+        actorEmail: null,
+        actorDisplayName: null,
+      });
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getLogs', () => {
     it('全ての監査ログを取得できること', async () => {
       const mockLogs: AuditLogInfo[] = [
@@ -130,6 +237,8 @@ describe('AuditLogService', () => {
           id: 'log-1',
           action: 'USER_CREATED',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'user-456',
           before: null,
@@ -141,6 +250,8 @@ describe('AuditLogService', () => {
           id: 'log-2',
           action: 'USER_UPDATED',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'user-456',
           before: { displayName: 'Old' },
@@ -160,6 +271,8 @@ describe('AuditLogService', () => {
           id: true,
           action: true,
           actorId: true,
+          actorEmail: true,
+          actorDisplayName: true,
           targetType: true,
           targetId: true,
           before: true,
@@ -179,6 +292,8 @@ describe('AuditLogService', () => {
           id: 'log-1',
           action: 'USER_CREATED',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'user-456',
           before: null,
@@ -198,6 +313,8 @@ describe('AuditLogService', () => {
           id: true,
           action: true,
           actorId: true,
+          actorEmail: true,
+          actorDisplayName: true,
           targetType: true,
           targetId: true,
           before: true,
@@ -217,6 +334,8 @@ describe('AuditLogService', () => {
           id: 'log-1',
           action: 'ROLE_UPDATED',
           actorId: 'admin-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'Role',
           targetId: 'role-123',
           before: '{"name":"Old Role"}',
@@ -236,6 +355,8 @@ describe('AuditLogService', () => {
           id: true,
           action: true,
           actorId: true,
+          actorEmail: true,
+          actorDisplayName: true,
           targetType: true,
           targetId: true,
           before: true,
@@ -255,6 +376,8 @@ describe('AuditLogService', () => {
           id: 'log-1',
           action: 'LOGIN_SUCCESS',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'user-123',
           before: null,
@@ -274,6 +397,8 @@ describe('AuditLogService', () => {
           id: true,
           action: true,
           actorId: true,
+          actorEmail: true,
+          actorDisplayName: true,
           targetType: true,
           targetId: true,
           before: true,
@@ -296,6 +421,8 @@ describe('AuditLogService', () => {
           id: 'log-1',
           action: 'USER_CREATED',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'user-456',
           before: null,
@@ -320,6 +447,8 @@ describe('AuditLogService', () => {
           id: true,
           action: true,
           actorId: true,
+          actorEmail: true,
+          actorDisplayName: true,
           targetType: true,
           targetId: true,
           before: true,
@@ -356,6 +485,8 @@ describe('AuditLogService', () => {
           id: true,
           action: true,
           actorId: true,
+          actorEmail: true,
+          actorDisplayName: true,
           targetType: true,
           targetId: true,
           before: true,
@@ -375,6 +506,8 @@ describe('AuditLogService', () => {
           id: 'log-11',
           action: 'USER_CREATED',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'user-456',
           before: null,
@@ -394,6 +527,8 @@ describe('AuditLogService', () => {
           id: true,
           action: true,
           actorId: true,
+          actorEmail: true,
+          actorDisplayName: true,
           targetType: true,
           targetId: true,
           before: true,
@@ -416,6 +551,8 @@ describe('AuditLogService', () => {
           id: 'log-1',
           action: 'USER_CREATED',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'user-456',
           before: null,
@@ -427,6 +564,8 @@ describe('AuditLogService', () => {
           id: 'log-2',
           action: 'USER_UPDATED',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'user-456',
           before: '{"displayName":"Old"}',
@@ -450,6 +589,8 @@ describe('AuditLogService', () => {
           id: 'log-1',
           action: 'LOGIN_SUCCESS',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'User',
           targetId: 'user-123',
           before: null,
@@ -472,6 +613,8 @@ describe('AuditLogService', () => {
           id: true,
           action: true,
           actorId: true,
+          actorEmail: true,
+          actorDisplayName: true,
           targetType: true,
           targetId: true,
           before: true,
@@ -553,6 +696,8 @@ describe('AuditLogService', () => {
         id: 'log-tp-1',
         action: 'TRADING_PARTNER_CREATED',
         actorId: 'user-123',
+        actorEmail: null,
+        actorDisplayName: null,
         targetType: 'TradingPartner',
         targetId: 'partner-456',
         before: null,
@@ -595,6 +740,8 @@ describe('AuditLogService', () => {
         id: 'log-tp-2',
         action: 'TRADING_PARTNER_UPDATED',
         actorId: 'user-123',
+        actorEmail: null,
+        actorDisplayName: null,
         targetType: 'TradingPartner',
         targetId: 'partner-456',
         before: {
@@ -636,6 +783,8 @@ describe('AuditLogService', () => {
         id: 'log-tp-3',
         action: 'TRADING_PARTNER_DELETED',
         actorId: 'user-123',
+        actorEmail: null,
+        actorDisplayName: null,
         targetType: 'TradingPartner',
         targetId: 'partner-456',
         before: {
@@ -666,6 +815,8 @@ describe('AuditLogService', () => {
           id: 'log-tp-1',
           action: 'TRADING_PARTNER_CREATED',
           actorId: 'user-123',
+          actorEmail: null,
+          actorDisplayName: null,
           targetType: 'TradingPartner',
           targetId: 'partner-456',
           before: null,
@@ -685,6 +836,8 @@ describe('AuditLogService', () => {
           id: true,
           action: true,
           actorId: true,
+          actorEmail: true,
+          actorDisplayName: true,
           targetType: true,
           targetId: true,
           before: true,

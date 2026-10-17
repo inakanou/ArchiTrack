@@ -23,6 +23,7 @@ import { PrismaClient } from '../../generated/prisma/client.js';
 import type { PasswordService } from '../../services/password.service.js';
 import type { TwoFactorService } from '../../services/two-factor.service.js';
 import { SwitchableDatabaseRelay } from './switchable-database-relay.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 /** 1 回の試行の接続タイムアウト（ミリ秒） */
 const CONNECTION_TIMEOUT_MS = 1000;
@@ -78,7 +79,7 @@ describe('パスワードと二要素認証のトランザクションの開始�
       select: { id: true },
     });
     const ids = users.map((u) => u.id);
-    await directPrisma.auditLog.deleteMany({ where: { actorId: { in: ids } } });
+    await deleteAuditLogsWithArchivePermission(directPrisma, { actorId: { in: ids } });
     await directPrisma.refreshToken.deleteMany({ where: { userId: { in: ids } } });
     await directPrisma.passwordHistory.deleteMany({ where: { userId: { in: ids } } });
     await directPrisma.passwordResetToken.deleteMany({ where: { userId: { in: ids } } });
