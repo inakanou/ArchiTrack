@@ -23,7 +23,7 @@
  */
 
 import type { APIRequestContext } from '@playwright/test';
-import { API_BASE_URL } from '../config';
+import { SAME_ORIGIN_API_BASE_URL } from '../config';
 
 /** 明細行の行タイプ */
 export type SaveLineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
@@ -222,7 +222,7 @@ export async function getEstimateItemTree(
   token: string,
   estimateId: string
 ): Promise<EstimateItemNode[]> {
-  const res = await request.get(`${API_BASE_URL}/api/estimates/${estimateId}/items`, {
+  const res = await request.get(`${SAME_ORIGIN_API_BASE_URL}/api/estimates/${estimateId}/items`, {
     headers: authHeaders(token),
   });
   if (!res.ok()) {
@@ -237,7 +237,7 @@ export async function getEstimateUpdatedAt(
   token: string,
   estimateId: string
 ): Promise<string> {
-  const res = await request.get(`${API_BASE_URL}/api/estimates/${estimateId}`, {
+  const res = await request.get(`${SAME_ORIGIN_API_BASE_URL}/api/estimates/${estimateId}`, {
     headers: authHeaders(token),
   });
   if (!res.ok()) {
@@ -262,7 +262,7 @@ export async function saveEstimateDraft(
   const expectedUpdatedAt =
     options.expectedUpdatedAt ?? (await getEstimateUpdatedAt(request, token, estimateId));
 
-  const res = await request.put(`${API_BASE_URL}/api/estimates/${estimateId}/save`, {
+  const res = await request.put(`${SAME_ORIGIN_API_BASE_URL}/api/estimates/${estimateId}/save`, {
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     data: {
       expectedUpdatedAt,

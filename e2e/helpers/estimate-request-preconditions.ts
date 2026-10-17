@@ -18,7 +18,7 @@
 
 import { expect, type Page } from '@playwright/test';
 import { assertPrepared } from './preconditions';
-import { API_BASE_URL } from '../config';
+import { SAME_ORIGIN_API_BASE_URL } from '../config';
 
 /**
  * 前提として作成する数量項目の内容
@@ -113,7 +113,9 @@ export async function seedEstimateRequest(
   const headers = { Authorization: `Bearer ${accessToken}` };
 
   // 担当者候補を取得（salesPersonId に必要）
-  const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, { headers });
+  const assignableRes = await page.request.get(`${SAME_ORIGIN_API_BASE_URL}/api/users/assignable`, {
+    headers,
+  });
   const assignableUsers = await expectCreated<Array<{ id: string }>>(
     assignableRes,
     '担当者候補の取得'
@@ -123,7 +125,7 @@ export async function seedEstimateRequest(
   assertPrepared(salesPersonId, '担当者候補のID');
 
   // プロジェクト作成
-  const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
+  const projectRes = await page.request.post(`${SAME_ORIGIN_API_BASE_URL}/api/projects`, {
     headers,
     data: { name: `${label}-${stamp}`, salesPersonId, siteAddress },
   });
@@ -131,7 +133,7 @@ export async function seedEstimateRequest(
   assertPrepared(project.id, '作成したプロジェクトのID');
 
   // 取引先作成
-  const partnerRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
+  const partnerRes = await page.request.post(`${SAME_ORIGIN_API_BASE_URL}/api/trading-partners`, {
     headers,
     data: {
       name: `テスト業者-${label}-${stamp}`,
@@ -146,7 +148,7 @@ export async function seedEstimateRequest(
 
   // 数量表作成
   const quantityTableRes = await page.request.post(
-    `${API_BASE_URL}/api/projects/${project.id}/quantity-tables`,
+    `${SAME_ORIGIN_API_BASE_URL}/api/projects/${project.id}/quantity-tables`,
     { headers, data: { name: `テスト数量表-${label}-${stamp}` } }
   );
   const quantityTable = await expectCreated<{ id: string }>(quantityTableRes, '数量表');
@@ -154,22 +156,25 @@ export async function seedEstimateRequest(
 
   // 数量グループ作成
   const groupRes = await page.request.post(
-    `${API_BASE_URL}/api/quantity-tables/${quantityTable.id}/groups`,
+    `${SAME_ORIGIN_API_BASE_URL}/api/quantity-tables/${quantityTable.id}/groups`,
     { headers, data: { name: groupName, displayOrder: 0 } }
   );
   const group = await expectCreated<{ id: string }>(groupRes, '数量グループ');
   assertPrepared(group.id, '作成した数量グループのID');
 
   // 数量項目作成
-  const itemRes = await page.request.post(`${API_BASE_URL}/api/quantity-groups/${group.id}/items`, {
-    headers,
-    data: item,
-  });
+  const itemRes = await page.request.post(
+    `${SAME_ORIGIN_API_BASE_URL}/api/quantity-groups/${group.id}/items`,
+    {
+      headers,
+      data: item,
+    }
+  );
   await expectCreated<{ id: string }>(itemRes, '数量項目');
 
   // 内訳書作成（数量表から生成）
   const statementRes = await page.request.post(
-    `${API_BASE_URL}/api/projects/${project.id}/itemized-statements`,
+    `${SAME_ORIGIN_API_BASE_URL}/api/projects/${project.id}/itemized-statements`,
     {
       headers,
       data: { name: `テスト内訳書-${label}-${stamp}`, quantityTableId: quantityTable.id },
@@ -180,7 +185,7 @@ export async function seedEstimateRequest(
 
   // 見積依頼作成
   const estimateRequestRes = await page.request.post(
-    `${API_BASE_URL}/api/projects/${project.id}/estimate-requests`,
+    `${SAME_ORIGIN_API_BASE_URL}/api/projects/${project.id}/estimate-requests`,
     {
       headers,
       data: {

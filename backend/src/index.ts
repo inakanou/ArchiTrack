@@ -60,8 +60,11 @@ async function startServer(): Promise<void> {
     }
 
     // Start server
-    // Listen on 0.0.0.0 to accept external connections in container environments (e.g., Railway)
-    app.listen(PORT, '0.0.0.0', () => {
+    // Listen on :: (dual-stack: IPv6 and IPv4) to accept external connections in container
+    // environments. The frontend nginx proxies the API to the backend over Railway's private
+    // network, which is IPv6-only in some environments (*.railway.internal resolves to AAAA
+    // only), so listening on 0.0.0.0 (IPv4 only) would make the proxy target unreachable.
+    app.listen(PORT, '::', () => {
       logger.info({
         msg: 'Server started',
         port: PORT,

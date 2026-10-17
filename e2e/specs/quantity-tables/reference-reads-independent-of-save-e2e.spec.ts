@@ -33,8 +33,9 @@
  * ## 観測方式
  *
  * リクエストの選別は**オリジンではなくパス**で行う（`new URL(url).pathname`）。ブラウザが使う
- * APIオリジンとE2E側の `API_BASE_URL` は同一とは限らず（CIでは `localhost:3000` と
- * `127.0.0.1:3000`）、オリジンで選別すると観測対象が1件も残らず主張が恒真になるため。
+ * APIオリジン（`VITE_API_URL`。画面と同じオリジン）とE2E側の `API_BASE_URL`（backend へ直接）は
+ * 同一ではなく（CIでは前者が `localhost:5173`、後者が `127.0.0.1:3000`）、オリジンで選別すると
+ * 観測対象が1件も残らず主張が恒真になるため。
  *
  * @module e2e/specs/quantity-tables/reference-reads-independent-of-save-e2e.spec
  */

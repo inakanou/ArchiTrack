@@ -45,6 +45,23 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Copy nginx config template
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
+# API の中継の共通設定（nginx.conf の /api/ と /csrf-token が取り込む。環境変数を含まない）
+COPY nginx-proxy-params.conf /etc/nginx/architrack-proxy-params.conf
+
+# API の中継先の起動前の検査（user-authentication design.md「画面配信」）。
+# 公式イメージの entrypoint は /docker-entrypoint.d/ の実行可能なスクリプトを名前の順に
+# 実行し、非 0 で起動を止める。設定の生成（20-envsubst-on-templates.sh）より前に置く
+COPY nginx-require-backend-internal-url.sh /docker-entrypoint.d/05-require-backend-internal-url.sh
+RUN chmod 755 /docker-entrypoint.d/05-require-backend-internal-url.sh
+
+# API の中継先: backend の内部 URL（scheme://host[:port]）。既定を持たず、各環境で必ず渡す
+# （試験・CI は compose の backend のサービス、本番・staging は Railway の変数）
+ENV BACKEND_INTERNAL_URL=
+
+# nginx.conf の resolver に /etc/resolv.conf の名前解決の宛先を渡す
+# （公式イメージの 15-local-resolvers.envsh が NGINX_LOCAL_RESOLVERS を設定する）
+ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1
+
 # Railway uses PORT env variable
 ENV PORT=80
 

@@ -99,4 +99,16 @@ describe('起動の入口の本番の前提の検査', () => {
     await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(1));
     expect(exitSpy).not.toHaveBeenCalled();
   });
+
+  /**
+   * 画面の nginx は backend へプライベートネットワークで中継する（user-authentication
+   * タスク44.7、design.md「画面配信」）。Railway のプライベートネットワークは環境によって
+   * IPv6 だけになるため、IPv4 だけ（0.0.0.0）で待ち受けると中継先へ届かない。
+   */
+  it('IPv4 と IPv6 の両方で受ける :: で待ち受ける', async () => {
+    await import('../../index.js');
+
+    await vi.waitFor(() => expect(listenMock).toHaveBeenCalledTimes(1));
+    expect(listenMock.mock.calls[0]?.[1]).toBe('::');
+  });
 });

@@ -150,7 +150,8 @@ async function cleanupTestData(): Promise<void> {
  *
  * 保存ボタンの click より前に呼び、click の後に await すること。
  * bulk-save は十数ミリ秒で返るため、click の後に待ち始めると応答を取り逃す。
- * 一致はパス基準にする。CI とローカルで API のオリジンが違う（localhost と 127.0.0.1）ため。
+ * 一致はパス基準にする。画面の API のオリジン（画面と同じオリジン。CI は localhost:5173）と
+ * E2E 側の API_BASE_URL（backend へ直接。CI は 127.0.0.1:3000）が違うため。
  */
 function waitForBulkSaveResponse(page: Page): Promise<Response> {
   return page.waitForResponse(
@@ -511,7 +512,7 @@ test.describe('工程表機能 E2Eテスト', () => {
 
       // 保存ボタンをクリックし、保存の応答を待つ。
       // bulk-save は十数ミリ秒で返るため、応答待ちは click の前に登録しないと取り逃す。
-      // 一致はパス基準にする（CI とローカルで API のオリジンが localhost と 127.0.0.1 で違う）。
+      // 一致はパス基準にする（画面の API のオリジンと E2E 側の API_BASE_URL が違う）。
       const saveResponsePromise = waitForBulkSaveResponse(page);
       await page.getByTestId('save-button').click();
       const saveResponse = await saveResponsePromise;
@@ -716,8 +717,9 @@ test.describe('工程表機能 E2Eテスト', () => {
      * 「再試行」ボタンが出ることを確かめる。差し替えを外してから再試行を押し、
      * 直前に選んだ形式でダウンロードが成功することまでを見る。
      *
-     * 差し替えの一致はパス基準である。CI とローカルで API のオリジンが違う
-     * （localhost と 127.0.0.1）ため、オリジンを含めると CI で一致せず空振りする。
+     * 差し替えの一致はパス基準である。画面の API のオリジン（画面と同じオリジン。CI は
+     * localhost:5173）と E2E 側の API_BASE_URL（backend へ直接。CI は 127.0.0.1:3000）が違うため、
+     * オリジンを含めると環境によって一致せず空振りする。
      * 空振りを見逃さないよう、差し替えた応答を返した回数を数えて主張する。
      */
     async function verifyExportFailureAndRetry(page: Page, format: 'xlsx' | 'pdf'): Promise<void> {

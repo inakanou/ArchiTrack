@@ -24,7 +24,7 @@
 
 import { expect, type Page } from '@playwright/test';
 import { assertPrepared } from './preconditions';
-import { API_BASE_URL } from '../config';
+import { SAME_ORIGIN_API_BASE_URL } from '../config';
 
 /**
  * 前提として作成したプロジェクト
@@ -87,7 +87,9 @@ async function authHeaders(page: Page): Promise<{ Authorization: string }> {
 export async function seedProject(page: Page, label: string): Promise<SeededProject> {
   const headers = await authHeaders(page);
 
-  const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, { headers });
+  const assignableRes = await page.request.get(`${SAME_ORIGIN_API_BASE_URL}/api/users/assignable`, {
+    headers,
+  });
   expect(
     assignableRes.ok(),
     `前提: 担当者候補を取得できる (status=${assignableRes.status()})`
@@ -98,7 +100,7 @@ export async function seedProject(page: Page, label: string): Promise<SeededProj
   assertPrepared(salesPersonId, '担当者候補のID');
 
   const name = `${label}-${Date.now()}`;
-  const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
+  const projectRes = await page.request.post(`${SAME_ORIGIN_API_BASE_URL}/api/projects`, {
     headers,
     data: { name, salesPersonId },
   });
@@ -136,7 +138,7 @@ export async function seedTradingPartner(
 
   const stamp = Date.now();
   const name = `${label}-${stamp}`;
-  const partnerRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
+  const partnerRes = await page.request.post(`${SAME_ORIGIN_API_BASE_URL}/api/trading-partners`, {
     headers,
     data: {
       name,

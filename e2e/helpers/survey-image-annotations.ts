@@ -43,7 +43,7 @@
 
 import { expect, type Page } from '@playwright/test';
 import { assertPrepared } from './preconditions';
-import { API_BASE_URL } from '../config';
+import { SAME_ORIGIN_API_BASE_URL } from '../config';
 
 /**
  * 注釈を保存する対象の画像（`GET /api/site-surveys/:surveyId` の応答のうち本補助が用いる項目）
@@ -139,9 +139,12 @@ export async function fetchSurveyImagesInDisplayOrder(
   page: Page,
   surveyId: string
 ): Promise<AnnotatableSurveyImage[]> {
-  const response = await page.request.get(`${API_BASE_URL}/api/site-surveys/${surveyId}`, {
-    headers: await authHeaders(page),
-  });
+  const response = await page.request.get(
+    `${SAME_ORIGIN_API_BASE_URL}/api/site-surveys/${surveyId}`,
+    {
+      headers: await authHeaders(page),
+    }
+  );
   expect(
     response.ok(),
     `前提: 現場調査詳細が取得できる (status=${response.status()})`
@@ -177,7 +180,7 @@ export async function saveSurveyImageAnnotation(
   expect(image.height, `前提: ${image.fileName} の高さが正の値である`).toBeGreaterThan(0);
 
   const response = await page.request.put(
-    `${API_BASE_URL}/api/site-surveys/images/${image.id}/annotations`,
+    `${SAME_ORIGIN_API_BASE_URL}/api/site-surveys/images/${image.id}/annotations`,
     {
       headers: await authHeaders(page),
       data: {

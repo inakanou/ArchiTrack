@@ -28,7 +28,7 @@ import { getTimeout } from './wait-helpers';
 import { selectFirstRealOption } from './form-preconditions';
 import { assertPrepared } from './preconditions';
 import { annotateSurveyImages, type AnnotationTargets } from './survey-image-annotations';
-import { API_BASE_URL } from '../config';
+import { SAME_ORIGIN_API_BASE_URL } from '../config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -370,7 +370,7 @@ export async function seedSurveyPhotosWithComments(
   });
 
   const uploadResponse = await page.request.post(
-    `${API_BASE_URL}/api/site-surveys/${surveyId}/images`,
+    `${SAME_ORIGIN_API_BASE_URL}/api/site-surveys/${surveyId}/images`,
     { headers: { Authorization: `Bearer ${accessToken}` }, multipart: form }
   );
   expect(
@@ -392,7 +392,7 @@ export async function seedSurveyPhotosWithComments(
     const imageId = imageIds[index];
     assertPrepared(imageId, `${index + 1}枚目の画像ID`);
     const patchResponse = await page.request.patch(
-      `${API_BASE_URL}/api/site-surveys/images/${imageId}`,
+      `${SAME_ORIGIN_API_BASE_URL}/api/site-surveys/images/${imageId}`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: { comment },

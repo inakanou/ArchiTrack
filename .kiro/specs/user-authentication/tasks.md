@@ -1360,7 +1360,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 44.5_
   - _Requirements: 41.3, 42.9_
 
-- [ ] 44.7 画面の配信元から API を同一オリジンへ中継する構成を本番・試験・CI に入れる（統合）
+- [x] 44.7 画面の配信元から API を同一オリジンへ中継する構成を本番・試験・CI に入れる（統合）
   - 画面を配信する nginx が `/api/` と CSRF トークンの発行を backend へ中継し、送信元の情報を付ける。中継先の設定が無いときはコンテナの起動前の検査で失敗させる
   - 中継の設定は既存の配信を壊さない形にする：`location ^~ /api/` で静的ファイルの正規表現の location より優先させ、受け付ける本文の上限を backend が受け付ける最大の要求本文（画像 10MB × 10 ファイルの一括アップロード、Claude Vision の 50MB の JSON）以上にして上限の判定とエラー文言を backend に残し、中継のタイムアウトを既存の長い処理（OCR・出力）に合わせる
   - 試験と CI の構成（`docker-compose.test.yml`、`docker-compose.ci.yml` のビルド引数、ci.yml の `.env` の書き出し、`.env.test` の `VITE_API_URL`）で、画面の API の接続先を画面と同じオリジンの完全な URL にし（フロントの4箇所の `VITE_API_URL` の既定値 `http://localhost:3000` へ落ちないようにする）、中継先を backend のサービスにし、中継の段数を 1 にする。E2E の補助関数のうち認証の Cookie を伴う API の呼び出しを画面と同じオリジンへ寄せる
@@ -1812,3 +1812,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 監査の種別の表示名と絞り込みの一覧は `frontend/src/utils/audit-log-actions.ts` にまとめた（44.3。design の「追加する種別」18 件）。既存の種別の `INVITATION_CREATED`・`INVITATION_REVOKED`・`USER_DELETED`・`TWO_FACTOR_BACKUP_CODE_USED` は表示名を持たず、監査ログ画面に種別のコードがそのまま出る。招待の操作（50.x）とユーザーの削除（53.5）の記録が監査ログ画面に出ることを E2E で主張するタスクは、着手のときにこれらの表示名と絞り込みへの追加を決める（44.3 のレビューの申し送り）
 - 送信元 IP は `backend/src/middleware/client-ip.ts` の `getClientIp(req)` だけから得る（ヘッダーや `req.ip` を直接読まない）。試験と CI の compose は画面が backend へ直接つながる間 `TRUST_PROXY_HOPS=0` で、44.7 の中継の導入で 1 にする。既存の監査ログは IP を `metadata.ip` に書き、design は `metadata.ipAddress` と書くため、新しい監査の経路を作るタスク（45.2・50.x など）でキーを揃えるか 57.2 で design を揃える（44.5）
 - 開発用の機能の有効・無効は `backend/src/config/runtime-mode.ts` の判定だけで決める（`NODE_ENV` を直接比べない）。design どおり試験（`NODE_ENV=test`）でもエラー応答に `stack` が付くため、内部の失敗を漏らさないことを確かめるテストは `stack` を除いた本文で主張する（construction-schedule の `schedules.routes.test.ts` を改めた）。`two-factor.service.ts` の `NODE_ENV !== 'production'` による固定コードの受理は実行環境の指定が無いと有効なまま残っており、46.2 で全環境から取り除く（44.6）
+- 画面の API は frontend の nginx（`frontend/nginx.conf` の `location ^~ /api/` と `= /csrf-token`、共通の設定は `frontend/nginx-proxy-params.conf`）を経て backend へ届く。中継先 `BACKEND_INTERNAL_URL` は `scheme://host[:port]` だけを受け付け、起動前の検査（`frontend/nginx-require-backend-internal-url.sh`）が他を拒む。backend は IPv6 だけの Railway のプライベートネットワークに備えて `::` で待ち受ける。E2E の補助で Cookie を伴う呼び出しは `e2e/config.ts` の `SAME_ORIGIN_API_BASE_URL` を使う。spec 本体の Bearer の直接の呼び出し（`API_BASE_URL`）の寄せは 44.11・45.x で行う。server の階層の `add_header` が API の応答で helmet と重複する件は 56.1 で整理する。新しい2ファイルの File Structure Plan への追記は 57.2（44.7）

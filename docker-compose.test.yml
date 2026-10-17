@@ -157,9 +157,10 @@ services:
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
       TWO_FACTOR_ENCRYPTION_KEY: ${TWO_FACTOR_ENCRYPTION_KEY}
       DISABLE_RATE_LIMIT: "true"
-      # 信頼する中継の段数（送信元 IP の識別。user-authentication 要件35.1）。画面は backend へ
-      # 直接つなぐため中継を信頼しない。nginx の中継を入れるとき（タスク44.7）に 1 にする
-      TRUST_PROXY_HOPS: 0
+      # 信頼する中継の段数（送信元 IP の識別。user-authentication 要件35.1）。画面の API は
+      # frontend の nginx の中継（1 段）を通るため 1 にする（backend の公開ポートへ直接つなぐ
+      # E2E の API_BASE_URL の要求は中継を通らない。本番は backend の公開ドメインを閉じる）
+      TRUST_PROXY_HOPS: 1
       # 監査ログのアーカイブの暗号鍵（user-authentication 要件41.3）。試験専用の固定値で秘密ではない。
       # 本番・staging では使わず、Railway の変数に別の乱数の鍵を設定する
       ARCHIVE_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
@@ -203,7 +204,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://localhost:3100
+        # 画面の API の接続先は画面と同じオリジン（nginx が /api/ を backend へ中継する。
+        # user-authentication design.md「画面配信」）。完全な URL を渡し、フロントの既定値
+        # （http://localhost:3000）へ落ちないようにする
+        VITE_API_URL: http://localhost:5174
     # nginx:alpineはroot権限で実行
     user: "0:0"
     restart: "no"
@@ -229,6 +233,8 @@ services:
       start_period: 10s
     environment:
       PORT: 80
+      # API の中継先（compose の backend のサービス。空なら起動前の検査で起動しない）
+      BACKEND_INTERNAL_URL: http://backend:3000
     ports:
       - "5174:80"
     # 本番Dockerfileはビルド済み静的ファイルを含むため、ソースコードのマウント不要
