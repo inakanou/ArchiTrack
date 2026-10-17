@@ -640,8 +640,11 @@ describe('工程表ルート', () => {
           detail: 'Internal server error',
           instance: `/api/schedules/${scheduleId}/export?format=${format}`,
         });
-        // 生成処理の内部の失敗内容を応答へ漏らさないこと
-        expect(JSON.stringify(res.body)).not.toContain('generation failed');
+        // 生成処理の内部の失敗内容を応答へ漏らさないこと。スタックトレースは実行環境が
+        // development / test と明示されたときだけ付く開発用の機能（user-authentication 要件42.9）
+        // で、本番の応答には付かないため、それを除いた応答の本文で確かめる
+        const { stack: _developmentOnlyStack, ...productionBody } = res.body;
+        expect(JSON.stringify(productionBody)).not.toContain('generation failed');
         expect(generator()).toHaveBeenCalledWith(mockExportData);
         expect(other()).not.toHaveBeenCalled();
       }

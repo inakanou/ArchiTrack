@@ -529,6 +529,41 @@ describe('errorHandler middleware', () => {
       process.env.NODE_ENV = originalEnv;
     });
 
+    it('NODE_ENV=test と明示されたときはスタックトレースを含める（開発用の機能）', () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'test';
+
+      const error = new Error('Test error');
+      error.stack = 'Error: Test error\n    at test.js:1:1';
+
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(jsonMock).toHaveBeenCalledWith(expect.objectContaining({ stack: error.stack }));
+
+      process.env.NODE_ENV = originalEnv;
+    });
+
+    /**
+     * @requirement user-authentication/REQ-42.9: 実行環境の指定が無いとき、エラー応答へスタックトレースを付与しない
+     */
+    it('実行環境の指定が無い（NODE_ENV 未設定）ときはスタックトレースを含めない', () => {
+      const originalEnv = process.env.NODE_ENV;
+      delete process.env.NODE_ENV;
+
+      try {
+        const error = new Error('Test error');
+        error.stack = 'Error: Test error\n    at test.js:1:1';
+
+        errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+        const call = jsonMock.mock.calls[0]?.[0];
+        expect(call).toMatchObject({ status: 500, detail: 'Internal server error' });
+        expect(call).not.toHaveProperty('stack');
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
+    });
+
     it('should hide stack trace in production environment', () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';

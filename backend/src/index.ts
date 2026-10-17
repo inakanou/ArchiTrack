@@ -5,6 +5,7 @@ import { disconnectPrisma } from './db.js';
 import redis, { initRedis } from './redis.js';
 import logger from './utils/logger.js';
 import { validateEnv } from './config/env.js';
+import { runtimeMode } from './config/runtime-mode.js';
 import { initializeStorage, disconnectStorage, isStorageConfigured } from './storage/index.js';
 import { initializeStorageServices } from './routes/survey-images.routes.js';
 
@@ -38,6 +39,9 @@ process.on('SIGINT', gracefulShutdown);
 // Initialize and start the application
 async function startServer(): Promise<void> {
   try {
+    // 本番の前提（アーカイブの鍵・中継の段数・キャッシュ基盤の接続先）が欠けたら起動を止める（要件41.3）
+    runtimeMode.assertProductionPrerequisites();
+
     // Initialize Redis (application starts even if Redis initialization fails)
     await initRedis();
 
@@ -63,7 +67,7 @@ async function startServer(): Promise<void> {
         port: PORT,
         env: env.NODE_ENV,
         healthCheck: `http://localhost:${PORT}/health`,
-        ...(env.NODE_ENV !== 'production' && {
+        ...(runtimeMode.isDevelopmentFeatureEnabled() && {
           documentation: `http://localhost:${PORT}/docs`,
           apiSpec: `http://localhost:${PORT}/docs/json`,
         }),

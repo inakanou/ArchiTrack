@@ -921,6 +921,9 @@ jobs:
           JWT_PUBLIC_KEY: ${{ secrets.TEST_JWT_PUBLIC_KEY }}
           JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
+          # 監査ログのアーカイブの暗号鍵（user-authentication 要件41.3）。試験専用の固定値で秘密ではない
+          # （docker-compose.test.yml・docker-compose.ci.yml と同じ値。本番・staging では使わない）
+          ARCHIVE_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
 
       - name: Create .env file for E2E
         run: |
@@ -1094,6 +1097,9 @@ jobs:
           JWT_PUBLIC_KEY: ${{ secrets.STAGING_JWT_PUBLIC_KEY }}
           JWT_PRIVATE_KEY: ${{ secrets.STAGING_JWT_PRIVATE_KEY }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.STAGING_TWO_FACTOR_ENCRYPTION_KEY }}
+          # 本番の前提（起動時の検査と同じ。user-authentication 要件41.3・35.1）
+          ARCHIVE_ENCRYPTION_KEY: ${{ secrets.STAGING_ARCHIVE_ENCRYPTION_KEY }}
+          TRUST_PROXY_HOPS: ${{ secrets.STAGING_TRUST_PROXY_HOPS }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
       - name: Pre-deployment notification
@@ -1276,6 +1282,9 @@ jobs:
           JWT_PUBLIC_KEY: ${{ secrets.PRODUCTION_JWT_PUBLIC_KEY }}
           JWT_PRIVATE_KEY: ${{ secrets.PRODUCTION_JWT_PRIVATE_KEY }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY }}
+          # 本番の前提（起動時の検査と同じ。user-authentication 要件41.3・35.1）
+          ARCHIVE_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_ARCHIVE_ENCRYPTION_KEY }}
+          TRUST_PROXY_HOPS: ${{ secrets.PRODUCTION_TRUST_PROXY_HOPS }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
       - name: Pre-deployment notification

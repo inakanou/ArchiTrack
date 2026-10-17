@@ -7,6 +7,7 @@ import logger from '../utils/logger.js';
 import { createProblemDetails, PROBLEM_TYPES } from '../types/problem-details.js';
 import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { getClientIp } from './client-ip.js';
+import { runtimeMode } from '../config/runtime-mode.js';
 
 /**
  * データベースへ接続できないことを 503 Service Unavailable（Problem Details）で返す
@@ -177,8 +178,8 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     params: req.params,
   });
 
-  // Hide stack trace in production
-  const isDevelopment = process.env.NODE_ENV === 'development';
+  // スタックトレースは開発用の機能（実行環境が development / test と明示されたときだけ付ける。要件42.9）
+  const isDevelopment = runtimeMode.isDevelopmentFeatureEnabled();
 
   res.status(500).json(
     createProblemDetails({

@@ -1353,7 +1353,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 段数 1 の構成で `X-Forwarded-For` の先頭を偽っても送信元の識別と監査ログの IP が変わらないことを統合テストで確かめた状態になる
   - _Requirements: 35.1, 35.2_
 
-- [ ] 44.6 実行環境の判定と本番の前提の検査を一箇所に置く
+- [x] 44.6 実行環境の判定と本番の前提の検査を一箇所に置く
   - 開発用の機能（API ドキュメント、エラー応答のスタックトレース）を、実行環境が開発または試験と明示されたときだけ有効にする判定を設け、既存の判定を置き換える。トークンの発行者・想定利用者・アーカイブの鍵の設定の検証を加える
   - 本番で監査ログのアーカイブの鍵・中継の段数（44.5 で定義）・キャッシュ基盤の接続先が欠けると起動を止める。試験と CI の compose と、CI でネイティブに走る backend の統合テストの環境（ci.yml）に固定の試験用の鍵を渡す（アーカイブの統合テストは鍵を注入して組み立てる）。デプロイのジョブが本番の設定で流す環境変数の検査（ci.yml の staging と production の `check:env`）の env に、本番で必須にした変数（アーカイブの鍵・中継の段数、必須にするならトークンの発行者と想定利用者）を `secrets.STAGING_*`・`secrets.PRODUCTION_*` から渡す。Railway の本番・staging の変数と、その GitHub secrets の登録が統合（develop へのマージ）より前に要ることを、是正計画の運用作業 O4 に追記する
   - 実行環境の指定が無い起動で `/docs` が 404 になり、本番の設定で鍵が無いと起動が失敗することを単体テストで確かめた状態になる
@@ -1811,3 +1811,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 監査ログはトリガー `audit_logs_immutable` で更新を常に拒否し、削除は `architrack.audit_archive` を取引の中で on にしたときだけ通す。テストの後始末で監査ログを消すときは `backend/src/utils/audit-log-archive-permission.ts` の補助か TRUNCATE を使い、素の `auditLog.delete/deleteMany` を書かない。監査ログを書く新しい経路は実行者の写し（`actorEmail`・`actorDisplayName`）も書く（44.2）
 - 監査の種別の表示名と絞り込みの一覧は `frontend/src/utils/audit-log-actions.ts` にまとめた（44.3。design の「追加する種別」18 件）。既存の種別の `INVITATION_CREATED`・`INVITATION_REVOKED`・`USER_DELETED`・`TWO_FACTOR_BACKUP_CODE_USED` は表示名を持たず、監査ログ画面に種別のコードがそのまま出る。招待の操作（50.x）とユーザーの削除（53.5）の記録が監査ログ画面に出ることを E2E で主張するタスクは、着手のときにこれらの表示名と絞り込みへの追加を決める（44.3 のレビューの申し送り）
 - 送信元 IP は `backend/src/middleware/client-ip.ts` の `getClientIp(req)` だけから得る（ヘッダーや `req.ip` を直接読まない）。試験と CI の compose は画面が backend へ直接つながる間 `TRUST_PROXY_HOPS=0` で、44.7 の中継の導入で 1 にする。既存の監査ログは IP を `metadata.ip` に書き、design は `metadata.ipAddress` と書くため、新しい監査の経路を作るタスク（45.2・50.x など）でキーを揃えるか 57.2 で design を揃える（44.5）
+- 開発用の機能の有効・無効は `backend/src/config/runtime-mode.ts` の判定だけで決める（`NODE_ENV` を直接比べない）。design どおり試験（`NODE_ENV=test`）でもエラー応答に `stack` が付くため、内部の失敗を漏らさないことを確かめるテストは `stack` を除いた本文で主張する（construction-schedule の `schedules.routes.test.ts` を改めた）。`two-factor.service.ts` の `NODE_ENV !== 'production'` による固定コードの受理は実行環境の指定が無いと有効なまま残っており、46.2 で全環境から取り除く（44.6）

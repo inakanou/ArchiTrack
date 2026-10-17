@@ -56,6 +56,9 @@ services:
       # 信頼する中継の段数（送信元 IP の識別。user-authentication 要件35.1）。画面は backend へ
       # 直接つなぐため中継を信頼しない。nginx の中継を入れるとき（タスク44.7）に 1 にする
       TRUST_PROXY_HOPS: 0
+      # 監査ログのアーカイブの暗号鍵（user-authentication 要件41.3）。試験専用の固定値で秘密ではない。
+      # 本番・staging では使わず、Railway の変数に別の乱数の鍵を設定する
+      ARCHIVE_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
       SMTP_HOST: mailhog
       SMTP_PORT: 1025
       SMTP_SECURE: "false"

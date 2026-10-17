@@ -12,6 +12,7 @@ import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
 import { apiLimiter, healthCheckLimiter } from './middleware/rateLimit.middleware.js';
 import { validateEnv } from './config/env.js';
+import { runtimeMode } from './config/runtime-mode.js';
 import { configureTrustProxy } from './middleware/client-ip.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
@@ -120,8 +121,8 @@ app.use('/api/claude-vision', claudeVisionRoutes);
 app.use(express.json({ limit: '5mb' })); // サムネイル更新のBase64画像データ用に制限を増加
 app.use(cookieParser());
 
-// Swagger UI setup (development環境のみ有効)
-if (env.NODE_ENV !== 'production') {
+// Swagger UI setup（開発用の機能。実行環境が development / test と明示されたときだけ有効。要件42.9）
+if (runtimeMode.isDevelopmentFeatureEnabled()) {
   try {
     const swaggerSpec = JSON.parse(readFileSync(join(__dirname, '../docs/api-spec.json'), 'utf-8'));
     app.use(

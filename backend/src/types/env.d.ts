@@ -15,6 +15,16 @@ declare global {
       // Redis
       REDIS_URL?: string;
 
+      // 信頼する中継の段数（送信元 IP の識別）
+      TRUST_PROXY_HOPS?: string;
+
+      // トークンの発行者・想定利用者（JWT の iss・aud）
+      JWT_ISSUER?: string;
+      JWT_AUDIENCE?: string;
+
+      // 監査ログのアーカイブの暗号鍵（64 桁の 16 進。本番で必須）
+      ARCHIVE_ENCRYPTION_KEY?: string;
+
       // Frontend
       FRONTEND_URL?: string;
 

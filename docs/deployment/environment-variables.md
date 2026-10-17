@@ -21,8 +21,11 @@
 | `ACCESS_TOKEN_EXPIRY` | アクセストークン有効期限 | 任意 | `15m` | 手動設定 |
 | `REFRESH_TOKEN_EXPIRY` | リフレッシュトークン有効期限 | 任意 | `7d` | 手動設定 |
 | `FRONTEND_URL` | フロントエンドURL（CORS設定用） | 任意 | `http://localhost:5173` | 手動設定 |
-| `NODE_ENV` | 実行環境 | 任意 | `development` | `production` |
-| `TRUST_PROXY_HOPS` | 信頼する中継の段数（送信元 IP の識別。回数制限・監査ログに使う） | 本番で設定 | `0`（中継を信頼しない） | 0 以上の整数。`true` などは起動時の検証で拒否。本番は「Railway のエッジ → frontend の nginx → backend」で `2` を想定し、配備時に `req.ip` の実測で確かめる |
+| `NODE_ENV` | 実行環境 | 任意 | `development` | `production`。API ドキュメント（`/docs`）とエラー応答のスタックトレースは `development`・`test` と明示したときだけ有効（未設定では無効） |
+| `TRUST_PROXY_HOPS` | 信頼する中継の段数（送信元 IP の識別。回数制限・監査ログに使う） | **本番で必須**（未設定では起動を止める） | `0`（中継を信頼しない） | 0 以上の整数。`true` などは起動時の検証で拒否。本番は「Railway のエッジ → frontend の nginx → backend」で `2` を想定し、配備時に `req.ip` の実測で確かめる |
+| `ARCHIVE_ENCRYPTION_KEY` | 監査ログのアーカイブの暗号鍵（AES-256、64 桁の 16 進） | **本番で必須**（未設定・形式違いでは起動を止める） | なし | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`。試験・CI の compose の固定値は本番で使わない |
+| `JWT_ISSUER` | トークンの発行者（JWT の `iss`） | 任意 | `architrack` | 空・前後の空白は起動時の検証で拒否 |
+| `JWT_AUDIENCE` | トークンの想定利用者（JWT の `aud`） | 任意 | `architrack-api` | 空・前後の空白は起動時の検証で拒否 |
 | `LOG_LEVEL` | ログレベル | 任意 | `info` | `info`/`debug`/`error` |
 | `DISABLE_RATE_LIMIT` | レート制限無効化（開発・テスト用） | 任意 | `false` | `true`（ローカルのみ推奨） |
 | `SENTRY_DSN` | Sentryエラートラッキング | 推奨 | なし | Sentry Project設定 |
