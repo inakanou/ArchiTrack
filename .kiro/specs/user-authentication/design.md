@@ -5698,7 +5698,7 @@ interface UserInventoryItem {
 }
 ```
 - 権限は `user:read`（要件38.4 の後は一般ユーザーが持たないため 403。36.12）
-- 招待者は `users.invited_by_id` から引く（招待の行は使用後に消去されるため、登録時に写す）
+- 招待者は `users.invited_by_id` から引く（招待の行は使用後もトークンを消して残るが、招待の作成者の削除や招待の取り消しに左右されない利用者の属性として、登録時に写す）
 
 ##### AdminNotificationService
 
@@ -5741,7 +5741,7 @@ interface AdminNotificationService {
 | `audit-log-archive` | 毎月 1 日 04:00 | 13 か月以上前の月ごとのアーカイブと、8 年以上前のアーカイブの消去 | 月ごとの目録の有無で済みを判定する |
 
 - キュー `scheduled-jobs` を `REDIS_URL` で接続し、Bull の `repeat` で登録する。起動のたびに同じ `jobId` で登録し直し、定義の重複を作らない
-- 消去の対象（37.4、37.8）: 招待は `status IN ('used','revoked')` または `expires_at < now`、リセットは `used_at IS NOT NULL` または `expires_at < now`、リフレッシュトークンは `expires_at < now`。毎時の実行で 24 時間以内の消去を満たす
+- 消去の対象（37.4、37.8）: 招待は `status IN ('used','revoked')` または `expires_at < now` の行の `token_hash` を NULL にし、行そのものは残す（状態・期限・作成者を保ち、招待一覧の状態の返却と表示（要件1.7・13.2）と期限切れの招待の再送信（要件13.7）を維持する。37.4 が求めるのはトークンの消去である）。リセットは `used_at IS NOT NULL` または `expires_at < now` の行を、リフレッシュトークンは `expires_at < now` の行を消す。毎時の実行で 24 時間以内の消去を満たす（利用者の判断、2026-10-16。タスク作成のレビューが、招待の行を消すと要件1.7・13.2・13.7 と食い違うことを指摘した）
 - 失敗は Bull の再試行（3 回）の後、エラーログと Sentry へ送る。アーカイブの失敗は管理者へ通知する（41.6）
 
 ##### InvitationService（変更）・PasswordService（変更）・InitialAdminSeeder
@@ -5754,7 +5754,8 @@ interface AdminNotificationService {
 - 招待・リセットのトークンは `token_hash`（SHA-256）だけを保存する（37.1）。原文はメールの本文と、招待の作成直後の応答の `invitationUrl` にだけ現れる（要件13.3・13.5 を維持）
 - 招待一覧（`GET /api/v1/invitations`）の応答は `id, email, status, expiresAt, createdAt, inviter { id, displayName }` とし、トークンと招待 URL を含めない（37.2）
 - 取り消しは `user:invite` の権限を持つ利用者なら作成者でなくても受け付ける（37.5）
-- 招待の作成・取り消し・再送信、招待経由の登録を監査する（40.5）。再送信は新しいトークンを発行し、古いトークンを失効させる
+- 招待の作成・取り消し・再送信、招待経由の登録を監査する（40.5）。再送信は経路 `POST /api/v1/invitations/:id/resend`（権限 `user:invite`）で受け、新しいトークンを発行して同じ行の `token_hash` と期限を置き換え、古いトークンを失効させ、`INVITATION_RESENT` を記録する（掃除で `token_hash` が NULL になった期限切れの招待も再送信できる）。作成と再送信の応答は、サーバーが組み立てた `invitationUrl`（フラグメントの形）を返し、画面はトークンから URL を組み立てない
+- 招待の検証は `token_hash` の一致で引くため、`token_hash` が NULL の招待はどのトークンとも一致せず、無効なトークンとして扱う
 - リセットの有効期限は `SESSION_CONFIG.PASSWORD_RESET_TOKEN_EXPIRY_MS`（1 時間）に一本化し、`RESET_TOKEN_EXPIRY` の重複を取り除く（7.3）。新しい要求は同じ利用者の未使用のトークンを失効させる
 - リセット要求の応答は、登録の有無と制限の有無に関わらず同じ 200 と同じ本文を返す（35.7）
 - パスワードの変更・リセットは全リフレッシュトークンを失効させる（33.5、既存の挙動を維持）。初回変更の完了で `must_change_password=false` にする
@@ -6099,7 +6100,7 @@ model RefreshToken {
   @@index([expiresAt])
 }
 
-model Invitation          { tokenHash String @unique @map("token_hash") }  // token 列を置き換える
+model Invitation          { tokenHash String? @unique @map("token_hash") }  // token 列を置き換える。掃除で NULL にする（行は残す）
 model PasswordResetToken  { tokenHash String @unique @map("token_hash") }  // token 列を置き換える
 
 model AuditLog {
@@ -6184,9 +6185,10 @@ model Project {
 
 #### E2E の認証基盤の移行
 
-- 全体の準備で役割ごと（管理者・一般ユーザー・2FA 未登録・初期管理者）にログインし、リフレッシュの Cookie を保持する。各テストのコンテキストへ Cookie を渡し、終了時に回収して次のテストへ渡す（E2E は直列実行）
-- 試験用の利用者は既知の TOTP の秘密鍵で seed し、補助関数が otplib でコードを計算する。同じ利用者の連続ログインは次の時間ステップを待つ
-- localStorage の `accessToken` を観測していた補助関数・テストは、画面の表示（ログイン後の画面が開けるか）と、認証済みの API の成否の観測へ置き換える
+- 全体の準備で共有の役割ごと（管理者・一般ユーザー）にログインし、リフレッシュの Cookie を保持する。各テストのコンテキストへ Cookie を渡し、終了時に回収して次のテストへ渡す（E2E は直列実行）。状態を変える検証（2FA 未登録・初回のパスワード変更・無効化・ロック・2FA の再設定など）は共有の Cookie を使わず、専用の利用者でテストの中でログインし、各テストの開始時に初期化の補助で状態を戻す
+- 試験用の利用者は既知の TOTP の秘密鍵で seed し、補助関数が otplib でコードを計算する。同じ利用者の連続ログインで再使用として拒否されないよう、補助関数はコードを計算する前に DB の最後に使った時間ステップを戻す（次の時間ステップを待たない）
+- localStorage の `accessToken` を読んで Bearer にし、API で前提データを作っている補助関数・テストは、トークンの取得を一つの補助へ集める。その補助は、画面のセッションと別の Cookie の入れ物（Playwright の独立した要求のコンテキスト）でログイン API を呼び、応答のアクセストークンを返す。画面の Cookie によるリフレッシュを共有しないので、Web Locks で直列化されない二重のリフレッシュによる再利用の検知は起きない。localStorage の `accessToken` で画面の状態を観測していたテストは、画面の表示（ログイン後の画面が開けるか）と、認証済みの API の成否の観測へ置き換える
+- E2E の補助は、状態のキャッシュ（`auth:user-state:<userId>`）を backend の `invalidate` と同じ「消して世代を進める」処理で無効化する。このため E2E の実行環境は backend と同じ Redis の論理 DB へ接続する。`REDIS_URL` が無いときは、試験環境の既定値 `redis://localhost:6380/1` を使う
 - 認証の Cookie を伴う API の呼び出しは、画面と同じオリジン（nginx の中継）を通す。backend へ直接つなぐ `API_BASE_URL` は、認証の Cookie を要しない確認（ヘルスチェック、Cookie を持たない要求の拒否の観測）に限る。ブラウザは `localhost` の Cookie を `127.0.0.1` へ送らないため、CI の `API_BASE_URL`（`127.0.0.1`）では Cookie が渡らない
 
 ### Security Considerations

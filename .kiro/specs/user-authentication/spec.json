@@ -2,9 +2,9 @@
   "name": "user-authentication",
   "description": "ArchiTrackプロジェクトに招待制のユーザー認証システムを追加します。JWT（JSON Web Token）ベースの認証方式を採用し、管理者が承認したユーザーのみがシステムへアクセスできるセキュアな認証基盤を構築します。",
   "language": "Japanese",
-  "phase": "design-generated",
+  "phase": "tasks-generated",
   "created_at": "2025-11-20T12:00:00Z",
-  "updated_at": "2026-10-16T12:00:00Z",
+  "updated_at": "2026-10-17T12:00:00Z",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -12,11 +12,11 @@
     },
     "design": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "tasks": {
       "generated": true,
-      "approved": false
+      "approved": true
     }
   },
   "metadata": {
@@ -34,14 +34,15 @@
       "phase_4_gap_remediation": 10,
       "phase_5_e2e_improvements": 1,
       "phase_6_navigation_enhancement": 6,
-      "total_major_tasks": 43,
-      "total_sub_tasks": 122,
-      "pending_sub_tasks": 0,
+      "total_major_tasks": 57,
+      "total_sub_tasks": 189,
+      "pending_sub_tasks": 67,
       "requirements_coverage": "100%",
       "requirements_count": 51,
-      "counted_at": "2026-10-09",
+      "counted_at": "2026-10-17",
       "counting_method": "tasks.md のチェック項目を数える。total_major_tasks は相異なる最上位番号（1〜43）、total_sub_tasks は N.M 形式の項目、pending_sub_tasks は未完了の N.M 形式の項目からタスク41.2 自身（本更新を行うタスク）を除いたもの（41.2 の完了で 0）。以前の値 113 は 248aa674（2026-09-29、タスク37 の起票）で更新した値で実数と一致していたが、counted_at が 2026-09-28 のまま残っていた。requirements_count は requirements.md の「### 要件N」見出し（16A・27A〜27E を含む）。requirements_coverage は tasks.md の各タスクの _Requirements:_ から見た要件の網羅であり、`npm run check:req-coverage` の被覆印の実測（2026-10-05 時点で受入基準 377/388、適用対象 374/374）とは別の指標。phase_1_3_completed〜phase_6_navigation_enhancement は 2025-12-03 の生成時点の内訳で、total_* とは合わない",
-      "requirements_count_note": "2026-10-16 に要件32〜45を追加して 51（「### 要件N」見出しの数。16A・27A〜27E を含む）。total_* 等のタスクの計数は tasks.md 更新時に測り直す"
+      "requirements_count_note": "2026-10-16 に要件32〜45を追加して 51（「### 要件N」見出しの数。16A・27A〜27E を含む）。total_* 等のタスクの計数は tasks.md 更新時に測り直す",
+      "tasks_44_57_note": "2026-10-17 に要件7.3・32〜45 の実装としてタスク44〜57（サブタスク67件）を追加。pending_sub_tasks はその67件。total_major_tasks は相異なる最上位番号（1〜57）、total_sub_tasks は N.M 形式の項目（122 + 67）"
     },
     "design_update": {
       "updated_at": "2025-12-03T16:00:00Z",
@@ -138,7 +139,38 @@
         "試験・CI も nginx の中継で同一オリジン化。制限中の /me を許可から外し、応答に利用者の状態を載せる"
       ],
       "requirements_revised": ["34.1", "34.2", "34.3"]
+    },
+    "tasks_generation_2026_10_17": {
+      "generated_at": "2026-10-17T12:00:00Z",
+      "mode": "merge",
+      "auto_approved": true,
+      "scope": "要件7.3・32〜45（受入基準111件）",
+      "major_tasks_added": [
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "50",
+        "51",
+        "52",
+        "53",
+        "54",
+        "55",
+        "56",
+        "57"
+      ],
+      "sub_tasks_added": 67,
+      "parallel_tasks_identified": 0,
+      "sanity_review": "independent。最後の枠の1回目で PASS（それ以前の各枠は2回目が NEEDS_FIXES で停止し、利用者の判断で指摘の反映と再実行を繰り返した。PASS 時の軽微11件も書き込み前に反映）",
+      "design_changes_with_tasks": [
+        "招待の毎時の掃除はトークンだけを消して行を残す（利用者の判断 2026-10-16）、Invitation.tokenHash を NULL 許容",
+        "招待の再送信の経路 POST /api/v1/invitations/:id/resend",
+        "E2E の認証基盤の移行（時間ステップを戻す補助、別の Cookie の入れ物によるトークンの取得、状態のキャッシュの無効化、専用の利用者）"
+      ],
+      "push_policy": "check:req-coverage は着手時点で赤のため、本ブランチの push はタスク57.1 の完了の後"
     }
   },
-  "ready_for_implementation": false
+  "ready_for_implementation": true
 }
