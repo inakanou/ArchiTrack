@@ -72,9 +72,20 @@ export type AuthError =
   | { type: 'INVALID_BACKUP_CODE' }
   | { type: 'INVALID_REFRESH_TOKEN' }
   | { type: 'REFRESH_TOKEN_EXPIRED' }
+  | { type: 'TOKEN_REUSE_DETECTED' }
   | { type: 'USER_NOT_FOUND' }
   | { type: 'PROFILE_CONFLICT'; expectedUpdatedAt: Date; actualUpdatedAt: Date }
   | { type: 'DATABASE_ERROR'; message: string };
+
+/**
+ * 要求の送信元の情報（監査の記録に使う）
+ */
+export interface RequestContext {
+  /** 送信元 IP（getClientIp で得たもの） */
+  ipAddress?: string;
+  /** User-Agent */
+  userAgent?: string;
+}
 
 /**
  * AuthService インターフェース
@@ -166,5 +177,8 @@ export interface IAuthService {
    * @param refreshToken リフレッシュトークン
    * @returns 新しいトークンペアまたはエラー
    */
-  refreshToken(refreshToken: string): Promise<Result<AuthResponse, AuthError>>;
+  refreshToken(
+    refreshToken: string,
+    ctx?: RequestContext
+  ): Promise<Result<AuthResponse, AuthError>>;
 }

@@ -90,16 +90,21 @@ model Invitation {
 }
 
 model RefreshToken {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
-  token      String   @unique
+  // 原文の SHA-256 の 16 進（原文は保存しない。要件33.7）
+  tokenHash  String    @unique @map("token_hash")
+  // 系列 ID（ログインで作り、ローテーションの後継へ引き継ぐ。要件33.4・33.6）
+  familyId   String    @map("family_id")
+  // ローテーションで置き換えた日時。置き換え済みの行は有効期限まで残し、再提示を再利用として検知する（要件33.6）
+  replacedAt DateTime? @map("replaced_at")
   deviceInfo String? // User-Agent情報（オプション）
   expiresAt  DateTime
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([token])
+  @@index([familyId])
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")

@@ -73,7 +73,7 @@ describe('authenticate middleware（トークンの種別）', () => {
   });
 
   it('リフレッシュトークンを Bearer で送った保護 API は 401 になる', async () => {
-    const refreshToken = await tokenService.generateRefreshToken(user);
+    const refreshToken = await tokenService.generateRefreshToken(user.userId, 'family-1');
 
     await callWithBearer(refreshToken);
 

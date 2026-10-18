@@ -27,6 +27,10 @@ import getPrismaClient from '../db.js';
 import logger from '../utils/logger.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
+import {
+  lockUserRefreshTokens,
+  revokeAllRefreshTokensForUser,
+} from '../utils/refresh-token-lock.js';
 import { snapshotAuditActor } from './audit-log.service.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 
@@ -638,21 +642,23 @@ export class TwoFactorService implements ITwoFactorService {
       const actorSnapshot = await snapshotAuditActor(this.prisma, userId);
 
       // トランザクション内で2FA無効化、秘密鍵削除、バックアップコード削除、監査ログ記録、全セッション無効化
-      await this.prisma.$transaction([
-        this.prisma.user.update({
+      // 全セッションの無効化は、並行するローテーションと直列化する取引ロックを通す（要件33.5）
+      await this.prisma.$transaction(async (tx) => {
+        // 利用者単位のリフレッシュトークンの取引ロックを、users の行を更新する前に取る。全ての経路で
+        // 「取引ロック → users の行」の順に揃え、利用者の削除（deleteUser）とのデッドロックを避ける
+        await lockUserRefreshTokens(tx, userId);
+        await tx.user.update({
           where: { id: userId },
           data: {
             twoFactorEnabled: false,
             twoFactorSecret: null,
           },
-        }),
-        this.prisma.twoFactorBackupCode.deleteMany({
+        });
+        await tx.twoFactorBackupCode.deleteMany({
           where: { userId },
-        }),
-        this.prisma.refreshToken.deleteMany({
-          where: { userId },
-        }),
-        this.prisma.auditLog.create({
+        });
+        await revokeAllRefreshTokensForUser(tx, userId);
+        await tx.auditLog.create({
           data: {
             action: 'TWO_FACTOR_DISABLED',
             actorId: userId,
@@ -661,8 +667,8 @@ export class TwoFactorService implements ITwoFactorService {
             targetId: userId,
             metadata: {},
           },
-        }),
-      ]);
+        });
+      }, connectBudgetTransactionOptions());
 
       logger.info({ userId }, '2FAを無効化しました');
       return Ok(undefined);

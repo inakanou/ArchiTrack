@@ -902,15 +902,43 @@ describe('TwoFactorService', () => {
       const { verify } = await import('@node-rs/argon2');
       vi.mocked(verify).mockResolvedValue(true);
       vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUserWith2FA);
-      // $transactionを配列版でモック
-      vi.mocked(mockPrismaClient.$transaction).mockResolvedValue([]);
+      // 対話型のトランザクションのクライアント
+      const tx = {
+        user: { update: vi.fn().mockResolvedValue({}) },
+        twoFactorBackupCode: { deleteMany: vi.fn().mockResolvedValue({ count: 10 }) },
+        refreshToken: { deleteMany: vi.fn().mockResolvedValue({ count: 2 }) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+        $executeRaw: vi.fn().mockResolvedValue(1),
+      };
+      vi.mocked(mockPrismaClient.$transaction).mockImplementation((async (
+        callback: (client: typeof tx) => Promise<unknown>
+      ) => callback(tx)) as never);
 
       // Act
       const result = await twoFactorService.disableTwoFactor(mockUserId, 'correct-password');
 
       // Assert
       expect(result.ok).toBe(true);
-      expect(mockPrismaClient.$transaction).toHaveBeenCalled();
+      expect(tx.user.update).toHaveBeenCalledWith({
+        where: { id: mockUserId },
+        data: { twoFactorEnabled: false, twoFactorSecret: null },
+      });
+      // 全セッションの無効化は、ローテーションと直列化する利用者単位の取引ロックを取ってから行う
+      // 取引の先頭（users の行の更新の前）で取り、全セッションの無効化でも同じロックを取り直す
+      expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+      expect(tx.$executeRaw.mock.calls[0]).toContain(mockUserId);
+      expect(tx.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
+        tx.user.update.mock.invocationCallOrder[0]!
+      );
+      expect(tx.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: mockUserId } });
+      expect(tx.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
+        tx.refreshToken.deleteMany.mock.invocationCallOrder[0]!
+      );
+      expect(tx.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'TWO_FACTOR_DISABLED', actorId: mockUserId }),
+        })
+      );
     });
 
     it('DBエラー発生時 → INVALID_PASSWORD', async () => {

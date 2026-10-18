@@ -125,24 +125,8 @@ router.delete(
 
       const { sessionId } = req.params;
 
-      // セッションIDからRefreshTokenを取得（所有権確認も含む）
-      const session = await prisma.refreshToken.findFirst({
-        where: {
-          id: sessionId,
-          userId: req.user.userId, // 自分のセッションのみ削除可能
-        },
-      });
-
-      if (!session) {
-        res.status(404).json({
-          error: 'Session not found',
-          code: 'SESSION_NOT_FOUND',
-        });
-        return;
-      }
-
-      // refreshTokenを使ってセッション削除
-      const result = await sessionService.deleteSession(session.token);
+      // 自分のセッションの系列を失効させる（他の利用者のセッションは見つからない扱い）
+      const result = await sessionService.revokeSessionById(req.user.userId, sessionId as string);
 
       if (!result.ok) {
         const error = result.error;
@@ -196,7 +180,7 @@ router.delete(
         return;
       }
 
-      await sessionService.deleteAllSessions(req.user.userId);
+      await sessionService.revokeAllForUser(req.user.userId);
 
       logger.info({ userId: req.user.userId }, 'All sessions deleted successfully');
 

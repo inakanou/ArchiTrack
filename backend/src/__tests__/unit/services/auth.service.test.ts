@@ -37,10 +37,8 @@ const mockPrismaClient = {
   userRole: {
     create: vi.fn(),
   },
-  refreshToken: {
-    deleteMany: vi.fn(),
-    findUnique: vi.fn(),
-    delete: vi.fn(),
+  auditLog: {
+    create: vi.fn(),
   },
   $transaction: vi.fn(),
 } as unknown as PrismaClient;
@@ -69,11 +67,11 @@ const mockTwoFactorService = {
 
 const mockSessionService = {
   createSession: vi.fn(),
-  deleteSession: vi.fn(),
-  deleteAllSessions: vi.fn(),
-  verifySession: vi.fn(),
+  rotate: vi.fn(),
+  revokeByToken: vi.fn(),
+  revokeAllForUser: vi.fn(),
+  revokeSessionById: vi.fn(),
   listSessions: vi.fn(),
-  extendSession: vi.fn(),
 } as unknown as SessionService;
 
 describe('AuthService', () => {
@@ -159,14 +157,11 @@ describe('AuthService', () => {
       (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'access-token-123'
       );
-
-      // TokenService.generateRefreshToken() のモック
-      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        'refresh-token-456'
-      );
-
-      // SessionService.createSession() のモック
-      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      // SessionService.createSession() のモック（新しい系列のリフレッシュトークンを発行する）
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+        refreshToken: 'refresh-token-456',
+        familyId: 'family-1',
+      });
 
       // Act: ユーザー登録
       const result = await authService.register(invitationToken, registerData);
@@ -349,14 +344,11 @@ describe('AuthService', () => {
       (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'access-token-123'
       );
-
-      // TokenService.generateRefreshToken() のモック
-      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        'refresh-token-456'
-      );
-
-      // SessionService.createSession() のモック
-      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      // SessionService.createSession() のモック（新しい系列のリフレッシュトークンを発行する）
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+        refreshToken: 'refresh-token-456',
+        familyId: 'family-1',
+      });
 
       // Act: ログイン
       const result = await authService.login(email, password);
@@ -585,10 +577,10 @@ describe('AuthService', () => {
       (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'access-token-123'
       );
-      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        'refresh-token-456'
-      );
-      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+        refreshToken: 'refresh-token-456',
+        familyId: 'family-1',
+      });
 
       // Act
       const result = await authService.login(email, password);
@@ -841,14 +833,11 @@ describe('AuthService', () => {
       (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'access-token-123'
       );
-
-      // TokenService.generateRefreshToken() のモック
-      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        'refresh-token-456'
-      );
-
-      // SessionService.createSession() のモック
-      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      // SessionService.createSession() のモック（新しい系列のリフレッシュトークンを発行する）
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+        refreshToken: 'refresh-token-456',
+        familyId: 'family-1',
+      });
 
       // Act: 2FA検証
       const result = await authService.verify2FA(userId, totpCode);
@@ -1114,14 +1103,11 @@ describe('AuthService', () => {
       (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'access-token-123'
       );
-
-      // TokenService.generateRefreshToken() のモック
-      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        'refresh-token-456'
-      );
-
-      // SessionService.createSession() のモック
-      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      // SessionService.createSession() のモック（新しい系列のリフレッシュトークンを発行する）
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+        refreshToken: 'refresh-token-456',
+        familyId: 'family-1',
+      });
 
       // Act: ロック期限切れ後のログイン
       const result = await authService.verify2FA(userId, totpCode);
@@ -1159,279 +1145,215 @@ describe('AuthService', () => {
   });
 
   describe('logout()', () => {
-    it('リフレッシュトークンを削除してログアウトできる', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const refreshToken = 'refresh-token-abc';
+    it('提示したリフレッシュトークンの系列を失効させてログアウトできる', async () => {
+      (mockSessionService.revokeByToken as ReturnType<typeof vi.fn>).mockResolvedValue(2);
 
-      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
-        count: 1,
-      });
+      const result = await authService.logout('user-123', 'refresh-token-abc');
 
-      // Act
-      const result = await authService.logout(userId, refreshToken);
-
-      // Assert
       expect(result.ok).toBe(true);
-      expect(mockPrismaClient.refreshToken.deleteMany).toHaveBeenCalledWith({
-        where: {
-          userId,
-          token: refreshToken,
-        },
-      });
+      expect(mockSessionService.revokeByToken).toHaveBeenCalledWith(
+        'refresh-token-abc',
+        'user-123'
+      );
     });
 
     it('データベースエラー時にDATABASE_ERRORを返す', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const refreshToken = 'refresh-token-abc';
-
-      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(
+      (mockSessionService.revokeByToken as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('Database error')
       );
 
-      // Act
-      const result = await authService.logout(userId, refreshToken);
+      const result = await authService.logout('user-123', 'refresh-token-abc');
 
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('DATABASE_ERROR');
-        if (result.error.type === 'DATABASE_ERROR') {
-          expect(result.error.message).toBe('Database error');
-        }
-      }
+      expect(result).toEqual({
+        ok: false,
+        error: { type: 'DATABASE_ERROR', message: 'Database error' },
+      });
     });
   });
 
   describe('logoutAll()', () => {
-    it('ユーザーの全リフレッシュトークンを削除してログアウトできる', async () => {
-      // Arrange
-      const userId = 'user-456';
+    it('ユーザーの全リフレッシュトークンを失効させてログアウトできる', async () => {
+      (mockSessionService.revokeAllForUser as ReturnType<typeof vi.fn>).mockResolvedValue(3);
 
-      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
-        count: 3,
-      });
+      const result = await authService.logoutAll('user-456');
 
-      // Act
-      const result = await authService.logoutAll(userId);
-
-      // Assert
       expect(result.ok).toBe(true);
-      expect(mockPrismaClient.refreshToken.deleteMany).toHaveBeenCalledWith({
-        where: {
-          userId,
-        },
-      });
+      expect(mockSessionService.revokeAllForUser).toHaveBeenCalledWith('user-456');
     });
 
     it('データベースエラー時にDATABASE_ERRORを返す', async () => {
-      // Arrange
-      const userId = 'user-456';
-
-      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(
+      (mockSessionService.revokeAllForUser as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('Database connection failed')
       );
 
-      // Act
-      const result = await authService.logoutAll(userId);
+      const result = await authService.logoutAll('user-456');
 
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('DATABASE_ERROR');
-        if (result.error.type === 'DATABASE_ERROR') {
-          expect(result.error.message).toBe('Database connection failed');
-        }
-      }
+      expect(result).toEqual({
+        ok: false,
+        error: { type: 'DATABASE_ERROR', message: 'Database connection failed' },
+      });
     });
   });
 
   describe('refreshToken', () => {
-    it('正常にリフレッシュトークンを使って新しいトークンを発行', async () => {
-      // Arrange
-      const refreshToken = 'refresh-token-valid';
-      const userId = 'user-123';
-      const email = 'test@example.com';
-      const displayName = 'Test User';
-      const createdAt = new Date();
+    const userId = 'user-123';
+    const storedUser = {
+      id: userId,
+      email: 'test@example.com',
+      displayName: 'Test User',
+      passwordHash: 'hashed',
+      twoFactorEnabled: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      userRoles: [{ role: { name: 'user' } }],
+    };
 
-      // TokenService.verifyToken をモック（成功）
+    beforeEach(() => {
       (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Ok({ userId, email, roles: ['user'] })
+        Ok({ userId, email: undefined, roles: undefined })
       );
-
-      // Prisma.refreshToken.findUnique をモック
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-        id: 'token-id-123',
-        token: refreshToken,
-        userId,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7日後
-        deviceInfo: 'Chrome/Windows',
-        createdAt,
-        user: {
-          id: userId,
-          email,
-          displayName,
-          passwordHash: 'hashed',
-          twoFactorEnabled: false,
-          createdAt,
-          updatedAt: createdAt,
-          userRoles: [
-            {
-              role: { name: 'user' },
-            },
-          ],
-        },
-      });
-
-      // TokenService.generateAccessToken と generateRefreshToken をモック
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(storedUser);
       (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'new-access-token'
       );
-      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        'new-refresh-token'
+    });
+
+    it('ローテーションの後継と新しいアクセストークンを返す', async () => {
+      (mockSessionService.rotate as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok({ userId, familyId: 'family-1', refreshToken: 'new-refresh-token' })
       );
 
-      // Prisma.refreshToken.deleteMany をモック（Prisma 7対応）
-      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
-        count: 1,
-      });
+      const result = await authService.refreshToken('refresh-token-valid');
 
-      // SessionService.createSession をモック
-      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Ok(undefined)
-      );
-
-      // Act
-      const result = await authService.refreshToken(refreshToken);
-
-      // Assert
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.accessToken).toBe('new-access-token');
         expect(result.value.refreshToken).toBe('new-refresh-token');
         expect(result.value.user.id).toBe(userId);
-        expect(result.value.user.email).toBe(email);
+        expect(result.value.user.email).toBe('test@example.com');
       }
-      expect(mockTokenService.verifyToken).toHaveBeenCalledWith(refreshToken, 'refresh');
-      expect(mockPrismaClient.refreshToken.findUnique).toHaveBeenCalled();
-      expect(mockPrismaClient.refreshToken.deleteMany).toHaveBeenCalled();
-      expect(mockSessionService.createSession).toHaveBeenCalled();
-    });
-
-    it('無効なリフレッシュトークンの場合、INVALID_REFRESH_TOKENエラーを返す', async () => {
-      // Arrange
-      const refreshToken = 'invalid-refresh-token';
-
-      // TokenService.verifyToken をモック（失敗）
-      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Err({ type: 'INVALID_TOKEN', message: 'Invalid token' })
-      );
-
-      // Act
-      const result = await authService.refreshToken(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('INVALID_REFRESH_TOKEN');
-      }
-    });
-
-    it('リフレッシュトークンがデータベースに存在しない場合、INVALID_REFRESH_TOKENエラーを返す', async () => {
-      // Arrange
-      const refreshToken = 'nonexistent-refresh-token';
-
-      // TokenService.verifyToken をモック（成功）
-      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Ok({ userId: 'user-123', email: 'test@example.com', roles: ['user'] })
-      );
-
-      // Prisma.refreshToken.findUnique をモック（null を返す）
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        null
-      );
-
-      // Act
-      const result = await authService.refreshToken(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('INVALID_REFRESH_TOKEN');
-      }
-    });
-
-    it('リフレッシュトークンが期限切れの場合、REFRESH_TOKEN_EXPIREDエラーを返す', async () => {
-      // Arrange
-      const refreshToken = 'expired-refresh-token';
-      const userId = 'user-123';
-
-      // TokenService.verifyToken をモック（成功）
-      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Ok({ userId, email: 'test@example.com', roles: ['user'] })
-      );
-
-      // Prisma.refreshToken.findUnique をモック（期限切れ）
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-        id: 'token-id-123',
-        token: refreshToken,
+      expect(mockTokenService.verifyToken).toHaveBeenCalledWith('refresh-token-valid', 'refresh');
+      expect(mockSessionService.rotate).toHaveBeenCalledWith('refresh-token-valid');
+      expect(mockTokenService.generateAccessToken).toHaveBeenCalledWith({
         userId,
-        expiresAt: new Date(Date.now() - 1000), // 過去の日時
-        deviceInfo: 'Chrome/Windows',
+        email: 'test@example.com',
+        roles: ['user'],
+      });
+      expect(mockTokenService.generateRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('無効なリフレッシュトークンの場合、INVALID_REFRESH_TOKENエラーを返し、ローテーションしない', async () => {
+      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'TOKEN_INVALID' })
+      );
+
+      const result = await authService.refreshToken('invalid-refresh-token');
+
+      expect(result).toEqual({ ok: false, error: { type: 'INVALID_REFRESH_TOKEN' } });
+      expect(mockSessionService.rotate).not.toHaveBeenCalled();
+    });
+
+    it('保存の無いリフレッシュトークン（NOT_FOUND）は INVALID_REFRESH_TOKEN', async () => {
+      (mockSessionService.rotate as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'NOT_FOUND' })
+      );
+
+      const result = await authService.refreshToken('nonexistent-refresh-token');
+
+      expect(result).toEqual({ ok: false, error: { type: 'INVALID_REFRESH_TOKEN' } });
+    });
+
+    it('期限切れ（EXPIRED）は REFRESH_TOKEN_EXPIRED', async () => {
+      (mockSessionService.rotate as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'EXPIRED' })
+      );
+
+      const result = await authService.refreshToken('expired-refresh-token');
+
+      expect(result).toEqual({ ok: false, error: { type: 'REFRESH_TOKEN_EXPIRED' } });
+    });
+
+    it('置き換え済みのトークンの再提示（REUSE_DETECTED）は TOKEN_REUSE_DETECTED を返し、監査を記録する', async () => {
+      (mockSessionService.rotate as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'REUSE_DETECTED', userId, familyId: 'family-1' })
+      );
+      (mockPrismaClient.auditLog.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'audit-1',
+        action: 'REFRESH_TOKEN_REUSE_DETECTED',
+        actorId: userId,
+        actorEmail: 'test@example.com',
+        actorDisplayName: 'Test User',
+        targetType: 'User',
+        targetId: userId,
+        before: null,
+        after: null,
+        metadata: {},
         createdAt: new Date(),
-        user: {
-          id: userId,
-          email: 'test@example.com',
-          displayName: 'Test User',
-          createdAt: new Date(),
-          userRoles: [],
-        },
       });
 
-      // Act
-      const result = await authService.refreshToken(refreshToken);
+      const result = await authService.refreshToken('replaced-refresh-token', {
+        ipAddress: '203.0.113.7',
+        userAgent: 'Test Agent',
+      });
 
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('REFRESH_TOKEN_EXPIRED');
-      }
+      expect(result).toEqual({ ok: false, error: { type: 'TOKEN_REUSE_DETECTED' } });
+      expect(mockPrismaClient.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'REFRESH_TOKEN_REUSE_DETECTED',
+            actorId: userId,
+            actorEmail: 'test@example.com',
+            targetType: 'User',
+            targetId: userId,
+            metadata: { familyId: 'family-1', ipAddress: '203.0.113.7', userAgent: 'Test Agent' },
+          }),
+        })
+      );
+      expect(mockTokenService.generateAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('再利用の監査の記録の失敗は結果（TOKEN_REUSE_DETECTED）を変えない', async () => {
+      (mockSessionService.rotate as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'REUSE_DETECTED', userId, familyId: 'family-1' })
+      );
+      (mockPrismaClient.auditLog.create as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('audit insert failed')
+      );
+
+      const result = await authService.refreshToken('replaced-refresh-token');
+
+      expect(result).toEqual({ ok: false, error: { type: 'TOKEN_REUSE_DETECTED' } });
+    });
+
+    it('利用者が存在しないときは INVALID_REFRESH_TOKEN', async () => {
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      (mockSessionService.rotate as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'NOT_FOUND' })
+      );
+
+      const result = await authService.refreshToken('orphan-refresh-token');
+
+      expect(result).toEqual({ ok: false, error: { type: 'INVALID_REFRESH_TOKEN' } });
     });
 
     it('データベースエラー時にDATABASE_ERRORを返す', async () => {
-      // Arrange
-      const refreshToken = 'refresh-token-abc';
-
-      // TokenService.verifyToken をモック（成功）
-      (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Ok({ userId: 'user-123', email: 'test@example.com', roles: ['user'] })
-      );
-
-      // Prisma.refreshToken.findUnique をモック（データベースエラー）
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(
+      (mockSessionService.rotate as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('Database connection failed')
       );
 
-      // Act
-      const result = await authService.refreshToken(refreshToken);
+      const result = await authService.refreshToken('refresh-token-abc');
 
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('DATABASE_ERROR');
-        if (result.error.type === 'DATABASE_ERROR') {
-          expect(result.error.message).toBe('Database connection failed');
-        }
-      }
+      expect(result).toEqual({
+        ok: false,
+        error: { type: 'DATABASE_ERROR', message: 'Database connection failed' },
+      });
     });
   });
 
   describe('refreshToken（トークンの種別の検証。実際の TokenService）', () => {
     /**
-     * 実際の TokenService で発行したトークンをリフレッシュへ渡す。DB の照会は、提示された
-     * トークンがそのまま保存されている（照会が見つかる）形にして、種別の検証だけで拒否されることを確かめる
+     * 実際の TokenService で発行したトークンをリフレッシュへ渡す。ローテーションは成功する形にして、
+     * 種別の検証だけで拒否されることを確かめる
      */
     async function createRealTokenAuthService(): Promise<{
       service: AuthService;
@@ -1459,30 +1381,14 @@ describe('AuthService', () => {
     const user = { userId: 'user-kind-1', email: 'kind@example.com', roles: ['user'] };
 
     beforeEach(() => {
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockImplementation(
-        async ({ where }: { where: { token: string } }) => ({
-          id: 'token-id-kind',
-          token: where.token,
-          userId: user.userId,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-          deviceInfo: null,
-          createdAt: new Date(),
-          user: {
-            id: user.userId,
-            email: user.email,
-            displayName: 'Kind User',
-            twoFactorEnabled: false,
-            createdAt: new Date(),
-            userRoles: [{ role: { name: 'user' } }],
-          },
-        })
-      );
-      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
-        count: 1,
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: user.userId,
+        email: user.email,
+        displayName: 'Kind User',
+        twoFactorEnabled: false,
+        createdAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
       });
-      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Ok(undefined)
-      );
     });
 
     /**
@@ -1495,13 +1401,16 @@ describe('AuthService', () => {
       const result = await service.refreshToken(accessToken);
 
       expect(result).toEqual({ ok: false, error: { type: 'INVALID_REFRESH_TOKEN' } });
-      expect(mockPrismaClient.refreshToken.findUnique).not.toHaveBeenCalled();
-      expect(mockSessionService.createSession).not.toHaveBeenCalled();
+      expect(mockSessionService.rotate).not.toHaveBeenCalled();
     });
 
     it('リフレッシュトークンでのリフレッシュは成功する（対照）', async () => {
       const { service, tokenService } = await createRealTokenAuthService();
-      const refreshToken = await tokenService.generateRefreshToken(user);
+      const refreshToken = await tokenService.generateRefreshToken(user.userId, 'family-kind');
+      const successor = await tokenService.generateRefreshToken(user.userId, 'family-kind');
+      (mockSessionService.rotate as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok({ userId: user.userId, familyId: 'family-kind', refreshToken: successor })
+      );
 
       const result = await service.refreshToken(refreshToken);
 
@@ -1539,10 +1448,10 @@ describe('AuthService', () => {
       (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'access-token'
       );
-      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        'refresh-token'
-      );
-      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+        refreshToken: 'refresh-token',
+        familyId: 'family-1',
+      });
 
       // Act
       const result = await authService.verify2FABackupCode(userId, backupCode, deviceInfo);
@@ -1622,10 +1531,10 @@ describe('AuthService', () => {
       (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
         'access-token'
       );
-      (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValue(
-        'refresh-token'
-      );
-      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+        refreshToken: 'refresh-token',
+        familyId: 'family-1',
+      });
 
       // Act
       const result = await authService.verify2FABackupCode(userId, 'BACKUP-CODE');

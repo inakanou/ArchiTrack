@@ -358,9 +358,11 @@ const cases: LogCase[] = [
       const prisma = {
         refreshToken: { create: vi.fn().mockResolvedValue({}) },
       } as unknown as PrismaClient;
-      return new SessionService(prisma).createSession(
+      const tokenService = {
+        generateRefreshToken: vi.fn().mockResolvedValue('refresh-token'),
+      } as unknown as TokenService;
+      return new SessionService(prisma, tokenService).createSession(
         'user-1',
-        'refresh-token',
         `Mozilla/5.0 ${'x'.repeat(120)}`
       );
     },

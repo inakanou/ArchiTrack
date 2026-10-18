@@ -18,6 +18,7 @@ import type { EmailService } from './email.service.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
+import { lockUserRefreshTokens } from '../utils/refresh-token-lock.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { captureMessage } from '../utils/sentry.js';
 
@@ -537,6 +538,10 @@ export class UserRoleService implements IUserRoleService {
       await tx.invitation.deleteMany({ where: { inviterId: userId } });
       // このユーザーに紐づく招待のuserIdをnullに設定
       await tx.invitation.updateMany({ where: { userId }, data: { userId: null } });
+      // リフレッシュトークンのローテーションと直列化する利用者単位の取引ロックを、users の行を消す前に取る。
+      // 取らないと、ローテーションが後継の INSERT の外部キーの検査で users の行を待ち、削除の連鎖が
+      // ローテーションの更新した行を待って、デッドロックになる（タスク45.2）
+      await lockUserRefreshTokens(tx, userId);
       // ユーザーを削除（カスケード削除で関連データも削除される）
       await tx.user.delete({ where: { id: userId } });
 

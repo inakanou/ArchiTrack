@@ -28,8 +28,7 @@ const ACCESS_TOKEN_TYP = 'at+jwt';
 /**
  * トークン関連のエラー型
  */
-export type TokenError =
-  { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' } | { type: 'TOKEN_MALFORMED' };
+export type TokenError = { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' };
 
 /**
  * TokenService
@@ -89,18 +88,17 @@ export class TokenService {
   /**
    * 種別・発行者・想定利用者のクレームを載せた署名前の JWT を作る（要件33.1〜33.3）
    */
-  private buildToken(payload: TokenPayload, kind: TokenKind, expiry: string): jose.SignJWT {
-    return new jose.SignJWT({
-      userId: payload.userId,
-      email: payload.email,
-      roles: payload.roles,
-      ...(payload.permissions && { permissions: payload.permissions }),
-      token_use: kind,
-    })
+  private buildToken(
+    subject: string,
+    claims: jose.JWTPayload,
+    kind: TokenKind,
+    expiry: string
+  ): jose.SignJWT {
+    return new jose.SignJWT({ ...claims, token_use: kind })
       .setProtectedHeader(
         kind === 'access' ? { alg: 'EdDSA', typ: ACCESS_TOKEN_TYP } : { alg: 'EdDSA' }
       )
-      .setSubject(payload.userId)
+      .setSubject(subject)
       .setIssuer(this.issuer)
       .setAudience(this.audience)
       .setJti(randomUUID()) // 一意なトークンIDを設定（重複防止）
@@ -162,9 +160,17 @@ export class TokenService {
     await this.keysInitialized;
 
     try {
-      const token = await this.buildToken(payload, 'access', this.accessTokenExpiry).sign(
-        this.privateKey
-      );
+      const token = await this.buildToken(
+        payload.userId,
+        {
+          userId: payload.userId,
+          email: payload.email,
+          roles: payload.roles,
+          ...(payload.permissions && { permissions: payload.permissions }),
+        },
+        'access',
+        this.accessTokenExpiry
+      ).sign(this.privateKey);
 
       return token;
     } catch (error) {
@@ -183,26 +189,29 @@ export class TokenService {
   /**
    * リフレッシュトークンを生成
    *
-   * @param payload トークンペイロード
+   * 利用者 ID（sub）と系列 ID（fam）だけを載せ、メールアドレスとロールは載せない。
+   * 系列 ID はログインで作り、ローテーションの後継へ引き継ぐ（SessionService が DB の行と結び付ける）。
+   *
+   * @param userId 利用者 ID
+   * @param familyId 系列 ID
    * @returns EdDSA署名されたJWTリフレッシュトークン
    *
    * @example
    * ```typescript
-   * const refreshToken = await tokenService.generateRefreshToken({
-   *   userId: 'user123',
-   *   email: 'test@example.com',
-   *   roles: ['user'],
-   * });
+   * const refreshToken = await tokenService.generateRefreshToken('user123', familyId);
    * ```
    */
-  async generateRefreshToken(payload: TokenPayload): Promise<string> {
+  async generateRefreshToken(userId: string, familyId: string): Promise<string> {
     // キーの初期化を待つ
     await this.keysInitialized;
 
     try {
-      const token = await this.buildToken(payload, 'refresh', this.refreshTokenExpiry).sign(
-        this.privateKey
-      );
+      const token = await this.buildToken(
+        userId,
+        { fam: familyId },
+        'refresh',
+        this.refreshTokenExpiry
+      ).sign(this.privateKey);
 
       return token;
     } catch (error) {
@@ -210,7 +219,7 @@ export class TokenService {
         {
           // c8 ignore next - 防御的コード: jose/Node.js標準ライブラリは常にErrorをthrow
           error: error instanceof Error ? error.message : String(error),
-          userId: payload.userId,
+          userId,
         },
         'Failed to generate refresh token'
       );
@@ -259,9 +268,9 @@ export class TokenService {
         return Err({ type: 'TOKEN_INVALID' });
       }
 
-      // ペイロードを TokenPayload 型に変換
+      // ペイロードを TokenPayload 型に変換（利用者 ID は sub。リフレッシュトークンはメールアドレスとロールを持たない）
       const tokenPayload: TokenPayload = {
-        userId: payload.userId as string,
+        userId: payload.sub as string,
         email: payload.email as string,
         roles: payload.roles as string[],
       };
@@ -300,7 +309,7 @@ export class TokenService {
         },
         'Token malformed'
       );
-      return Err({ type: 'TOKEN_MALFORMED' });
+      return Err({ type: 'TOKEN_INVALID' });
     }
   }
 
@@ -326,7 +335,7 @@ export class TokenService {
       const decoded = jose.decodeJwt(token);
 
       const tokenPayload: TokenPayload = {
-        userId: decoded.userId as string,
+        userId: (decoded.sub ?? decoded.userId) as string,
         email: decoded.email as string,
         roles: decoded.roles as string[],
       };

@@ -640,6 +640,11 @@ describe('PasswordService', () => {
       const resetToken = 'valid-token';
       const newPassword = 'NewSecurePass123!';
       const userId = 'user-1';
+      const txMocks: Array<{
+        user: { update: ReturnType<typeof vi.fn> };
+        refreshToken: { deleteMany: ReturnType<typeof vi.fn> };
+        $executeRaw: ReturnType<typeof vi.fn>;
+      }> = [];
 
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
@@ -686,9 +691,11 @@ describe('PasswordService', () => {
               update: vi.fn(),
             },
             refreshToken: {
-              deleteMany: vi.fn(),
+              deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
             },
+            $executeRaw: vi.fn().mockResolvedValue(1),
           };
+          txMocks.push(txMock);
           return await callback(txMock);
         }
       );
@@ -696,6 +703,18 @@ describe('PasswordService', () => {
       const result = await passwordService.resetPassword(resetToken, newPassword);
 
       expect(result.ok).toBe(true);
+      // 全リフレッシュトークンの無効化は、利用者単位の取引ロックを取ってから行う（要件33.5）
+      expect(txMocks).toHaveLength(1);
+      // 取引の先頭（users の行の更新の前）で取り、全セッションの無効化でも同じロックを取り直す
+      expect(txMocks[0]!.$executeRaw).toHaveBeenCalledTimes(2);
+      expect(txMocks[0]!.$executeRaw.mock.calls[0]).toContain(userId);
+      expect(txMocks[0]!.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
+        txMocks[0]!.user.update.mock.invocationCallOrder[0]!
+      );
+      expect(txMocks[0]!.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId } });
+      expect(txMocks[0]!.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
+        txMocks[0]!.refreshToken.deleteMany.mock.invocationCallOrder[0]!
+      );
     });
   });
 

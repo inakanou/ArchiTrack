@@ -7,15 +7,19 @@
  * - 5.1-5.7: トークン管理
  * - 8.1-8.5: セッション管理
  * - 9.1-9.5: ユーザー情報取得
+ *
+ * ログアウト・全デバイスのログアウトの失効と、リフレッシュトークンの再利用の検知（要件33.4〜33.6）を
+ * SessionService へ委ねる。
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { InvitationService } from './invitation.service.js';
 import { PasswordService } from './password.service.js';
-import { TokenService, type TokenPayload } from './token.service.js';
+import { TokenService } from './token.service.js';
 import tokenServiceInstance from './token.service.js';
 import { TwoFactorService } from './two-factor.service.js';
 import { SessionService } from './session.service.js';
+import { AuditLogService } from './audit-log.service.js';
 import type {
   IAuthService,
   RegisterData,
@@ -23,6 +27,7 @@ import type {
   LoginResponse,
   UserProfile,
   AuthError,
+  RequestContext,
 } from '../types/auth.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import { addTimingAttackDelay } from '../utils/timing.js';
@@ -30,6 +35,7 @@ import { SECURITY_CONFIG } from '../config/security.constants.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import { captureException } from '../utils/sentry.js';
 
 /**
  * 認証サービス
@@ -190,10 +196,9 @@ export class AuthService implements IAuthService {
       };
 
       const accessToken = await this.tokenService.generateAccessToken(payload);
-      const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
-      // 7. リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken, undefined);
+      // 7. 新しい系列でリフレッシュトークンを発行し、ハッシュをDBに保存
+      const { refreshToken } = await this.sessionService.createSession(user.id);
 
       // 8. AuthResponse返却
       const userProfile: UserProfile = {
@@ -349,10 +354,9 @@ export class AuthService implements IAuthService {
       };
 
       const accessToken = await this.tokenService.generateAccessToken(payload);
-      const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
-      // リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken, deviceInfo);
+      // 新しい系列でリフレッシュトークンを発行し、ハッシュをDBに保存
+      const { refreshToken } = await this.sessionService.createSession(user.id, deviceInfo);
 
       // UserProfile作成
       const userProfile: UserProfile = {
@@ -511,10 +515,9 @@ export class AuthService implements IAuthService {
       };
 
       const accessToken = await this.tokenService.generateAccessToken(payload);
-      const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
-      // リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken, deviceInfo);
+      // 新しい系列でリフレッシュトークンを発行し、ハッシュをDBに保存
+      const { refreshToken } = await this.sessionService.createSession(user.id, deviceInfo);
 
       // UserProfile作成
       const userProfile: UserProfile = {
@@ -678,10 +681,9 @@ export class AuthService implements IAuthService {
       };
 
       const accessToken = await this.tokenService.generateAccessToken(payload);
-      const refreshToken = await this.tokenService.generateRefreshToken(payload);
 
-      // リフレッシュトークンをDBに保存
-      await this.sessionService.createSession(user.id, refreshToken, deviceInfo);
+      // 新しい系列でリフレッシュトークンを発行し、ハッシュをDBに保存
+      const { refreshToken } = await this.sessionService.createSession(user.id, deviceInfo);
 
       // UserProfile作成
       const userProfile: UserProfile = {
@@ -711,18 +713,11 @@ export class AuthService implements IAuthService {
   /**
    * ログアウト（単一デバイス）
    *
-   * Note: SessionServiceは将来実装予定のため、現在は簡易実装
+   * 提示されたリフレッシュトークンの系列（そのセッション）の全てを失効させる（要件33.4）。
    */
   async logout(userId: string, refreshToken: string): Promise<Result<void, AuthError>> {
     try {
-      // リフレッシュトークンを無効化
-      // TODO: SessionService実装後、セッション削除も追加
-      await this.prisma.refreshToken.deleteMany({
-        where: {
-          userId,
-          token: refreshToken,
-        },
-      });
+      await this.sessionService.revokeByToken(refreshToken, userId);
 
       return Ok(undefined);
     } catch (error) {
@@ -738,17 +733,11 @@ export class AuthService implements IAuthService {
   /**
    * 全デバイスからログアウト
    *
-   * Note: SessionServiceは将来実装予定のため、現在は簡易実装
+   * 利用者の全てのリフレッシュトークンを失効させる（要件33.5）。
    */
   async logoutAll(userId: string): Promise<Result<void, AuthError>> {
     try {
-      // 全てのリフレッシュトークンを無効化
-      // TODO: SessionService実装後、全セッション削除も追加
-      await this.prisma.refreshToken.deleteMany({
-        where: {
-          userId,
-        },
-      });
+      await this.sessionService.revokeAllForUser(userId);
 
       return Ok(undefined);
     } catch (error) {
@@ -876,9 +865,18 @@ export class AuthService implements IAuthService {
 
   /**
    * トークンリフレッシュ
+   *
+   * リフレッシュトークンを検証し、SessionService でローテーションする（置き換えの記録と後継の作成は一つの取引）。
+   * 置き換え済みのトークンの再提示は系列の全てを失効させ、監査 REFRESH_TOKEN_REUSE_DETECTED を記録する（要件33.6）。
    * @requirement user-authentication/REQ-5.1: リフレッシュトークンを使用して新しいアクセストークンを発行
+   *
+   * @param refreshToken 提示されたリフレッシュトークン
+   * @param ctx 要求の送信元（再利用の監査の記録に使う）
    */
-  async refreshToken(refreshToken: string): Promise<Result<AuthResponse, AuthError>> {
+  async refreshToken(
+    refreshToken: string,
+    ctx: RequestContext = {}
+  ): Promise<Result<AuthResponse, AuthError>> {
     try {
       // 1. リフレッシュトークンを検証（種別 refresh 以外のトークンはここで拒否する。要件33.2）
       const verifyResult = await this.tokenService.verifyToken(refreshToken, 'refresh');
@@ -887,68 +885,60 @@ export class AuthService implements IAuthService {
         return Err({ type: 'INVALID_REFRESH_TOKEN' });
       }
 
-      // 2. データベースでリフレッシュトークンの存在と有効性を確認
-      const storedToken = await this.prisma.refreshToken.findUnique({
-        where: { token: refreshToken },
+      // 2. アクセストークンに載せる利用者とロールを読む（ローテーションの後に失敗して後継を失わないよう先に読む）
+      const user = await this.prisma.user.findUnique({
+        where: { id: verifyResult.value.userId },
         include: {
-          user: {
+          userRoles: {
             include: {
-              userRoles: {
-                include: {
-                  role: true,
-                },
-              },
+              role: true,
             },
           },
         },
       });
 
-      // リフレッシュトークンが存在しない
-      if (!storedToken) {
+      // 3. ローテーション（保存の照合・置き換えの記録・後継の作成、または再利用による系列の失効）
+      const rotation = await this.sessionService.rotate(refreshToken);
+
+      if (!rotation.ok) {
+        const error = rotation.error;
+        if (error.type === 'REUSE_DETECTED') {
+          await this.recordRefreshTokenReuse(error.userId, error.familyId, ctx);
+          return Err({ type: 'TOKEN_REUSE_DETECTED' });
+        }
+        if (error.type === 'EXPIRED') {
+          return Err({ type: 'REFRESH_TOKEN_EXPIRED' });
+        }
         return Err({ type: 'INVALID_REFRESH_TOKEN' });
       }
 
-      // 有効期限が切れている
-      if (storedToken.expiresAt < new Date()) {
-        return Err({ type: 'REFRESH_TOKEN_EXPIRED' });
+      // 保存の行の利用者がトークンの利用者と異なることは起きない（行は発行時のトークンのハッシュで引く）
+      if (!user || user.id !== rotation.value.userId) {
+        return Err({ type: 'INVALID_REFRESH_TOKEN' });
       }
 
-      // 3. 新しいアクセストークンとリフレッシュトークンを発行
-      const tokenPayload: TokenPayload = {
-        userId: storedToken.user.id,
-        email: storedToken.user.email,
-        roles: storedToken.user.userRoles.map((ur) => ur.role.name),
-      };
+      // 4. 新しいアクセストークンを発行（ロールは発行の時点の利用者から読む）
 
-      const newAccessToken = await this.tokenService.generateAccessToken(tokenPayload);
-      const newRefreshToken = await this.tokenService.generateRefreshToken(tokenPayload);
-
-      // 4. 古いリフレッシュトークンを削除（トークンローテーション）
-      // Prisma 7: deleteMany を使用してレコードが存在しない場合でもエラーを回避
-      await this.prisma.refreshToken.deleteMany({
-        where: { id: storedToken.id },
+      const roles = user.userRoles.map((ur) => ur.role.name);
+      const newAccessToken = await this.tokenService.generateAccessToken({
+        userId: user.id,
+        email: user.email,
+        roles,
       });
 
-      // 5. 新しいリフレッシュトークンをデータベースに保存
-      await this.sessionService.createSession(
-        storedToken.user.id,
-        newRefreshToken,
-        storedToken.deviceInfo || undefined
-      );
-
-      // 6. ユーザー情報を返却
+      // 5. ユーザー情報を返却
       const userProfile: UserProfile = {
-        id: storedToken.user.id,
-        email: storedToken.user.email,
-        displayName: storedToken.user.displayName,
-        roles: storedToken.user.userRoles.map((ur) => ur.role.name),
-        createdAt: storedToken.user.createdAt,
-        twoFactorEnabled: storedToken.user.twoFactorEnabled,
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        roles,
+        createdAt: user.createdAt,
+        twoFactorEnabled: user.twoFactorEnabled,
       };
 
       return Ok({
         accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
+        refreshToken: rotation.value.refreshToken,
         user: userProfile,
       });
     } catch (error) {
@@ -957,6 +947,41 @@ export class AuthService implements IAuthService {
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * リフレッシュトークンの再利用の検知を監査に記録する（要件33.6）
+   *
+   * 系列の失効は記録より前に確定している。記録の失敗はリフレッシュの結果（401）を変えず、
+   * エラーログと Sentry へ送る。
+   */
+  private async recordRefreshTokenReuse(
+    userId: string,
+    familyId: string,
+    ctx: RequestContext
+  ): Promise<void> {
+    try {
+      await new AuditLogService({ prisma: this.prisma }).createLog({
+        action: 'REFRESH_TOKEN_REUSE_DETECTED',
+        actorId: userId,
+        targetType: 'User',
+        targetId: userId,
+        metadata: {
+          familyId,
+          ...(ctx.ipAddress !== undefined && { ipAddress: ctx.ipAddress }),
+          ...(ctx.userAgent !== undefined && { userAgent: ctx.userAgent }),
+        },
+      });
+    } catch (error) {
+      logger.error(
+        { err: error, userId, familyId },
+        'Failed to record refresh token reuse audit log'
+      );
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        userId,
+        familyId,
       });
     }
   }

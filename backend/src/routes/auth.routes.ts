@@ -19,6 +19,7 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
+import { getClientIp } from '../middleware/client-ip.js';
 import logger from '../utils/logger.js';
 import { SECURITY_CONFIG } from '../config/security.constants.js';
 import { PasswordViolation } from '../types/password.types.js';
@@ -35,6 +36,18 @@ function setRefreshTokenCookie(res: Response, refreshToken: string): void {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    path: '/',
+  });
+}
+
+/**
+ * リフレッシュトークンの Cookie を消す（発行と同じ属性で消す）
+ */
+function clearRefreshTokenCookie(res: Response): void {
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
     path: '/',
   });
 }
@@ -437,10 +450,23 @@ router.post(
     try {
       const { refreshToken } = req.body;
 
-      const result = await authService.refreshToken(refreshToken);
+      const result = await authService.refreshToken(refreshToken, {
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+      });
 
       if (!result.ok) {
         const error = result.error;
+        if (error.type === 'TOKEN_REUSE_DETECTED') {
+          // 系列の全てを失効させた（要件33.6）。本文は無効なトークンと同じにし、Cookie を消す
+          clearRefreshTokenCookie(res);
+          res.status(401).json({
+            error: 'Invalid refresh token',
+            detail: '無効なトークンです (Invalid token)',
+            code: 'INVALID_REFRESH_TOKEN',
+          });
+          return;
+        }
         if (error.type === 'INVALID_REFRESH_TOKEN') {
           res.status(401).json({
             error: 'Invalid refresh token',

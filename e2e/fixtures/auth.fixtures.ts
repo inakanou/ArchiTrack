@@ -5,7 +5,7 @@
  * データベースに作成するヘルパー関数を提供します。
  */
 
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 // Prisma 7: Use root's generated client
 import { PrismaClient } from '../../src/generated/prisma/client.js';
 import { getPrismaClient } from './database';
@@ -359,15 +359,17 @@ export async function createPasswordResetToken(
  * リフレッシュトークンを作成
  *
  * セッション管理テストで使用するリフレッシュトークンを作成します。
+ * 保存の形式は backend の SessionService と同じで、DB には原文の SHA-256 の 16 進だけを書き、
+ * 原文は戻り値で返します（原文は保存しない。要件33.7）。
  *
- * @param options - リフレッシュトークンオプション
+ * @param options - リフレッシュトークンオプション（familyId 省略時は新しい系列）
  * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
- * @returns 作成されたリフレッシュトークン情報
+ * @returns 原文（rawToken）と作成された行（row）
  *
  * @example
  * ```typescript
  * const user = await createTestUser('REGULAR_USER');
- * const refreshToken = await createRefreshToken({
+ * const { rawToken, row } = await createRefreshToken({
  *   userId: user.id,
  *   deviceInfo: 'Chrome on Windows',
  * });
@@ -376,7 +378,8 @@ export async function createPasswordResetToken(
 export async function createRefreshToken(
   options: {
     userId: string;
-    token?: string;
+    familyId?: string;
+    replacedAt?: Date | null;
     expiresAt?: Date;
     deviceInfo?: string;
   },
@@ -384,20 +387,23 @@ export async function createRefreshToken(
 ) {
   const client = prisma || getPrismaClient();
 
-  // トークン生成（指定がない場合）
-  const token = options.token || randomBytes(32).toString('hex');
+  const rawToken = randomBytes(32).toString('hex');
 
   // デフォルトで30日後に期限切れ
   const expiresAt = options.expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-  return await client.refreshToken.create({
+  const row = await client.refreshToken.create({
     data: {
       userId: options.userId,
-      token,
+      tokenHash: createHash('sha256').update(rawToken, 'utf8').digest('hex'),
+      familyId: options.familyId ?? randomUUID(),
+      replacedAt: options.replacedAt ?? null,
       expiresAt,
       deviceInfo: options.deviceInfo || 'Test Device',
     },
   });
+
+  return { rawToken, row };
 }
 
 /**

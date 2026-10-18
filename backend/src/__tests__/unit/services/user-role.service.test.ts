@@ -118,6 +118,8 @@ describe('UserRoleService', () => {
       },
       // 最後の管理者の判定の前に取る admin ロールの行のロック（SELECT ... FOR NO KEY UPDATE）
       $queryRaw: vi.fn().mockResolvedValue([]),
+      // 利用者の削除の前に取るリフレッシュトークンの取引ロック（pg_advisory_xact_lock）
+      $executeRaw: vi.fn().mockResolvedValue(1),
       $transaction: vi.fn((callback) => callback(prismaMock)),
     } as unknown as PrismaClient;
 
@@ -825,6 +827,30 @@ describe('UserRoleService', () => {
       expect(result.ok).toBe(true);
       expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
       expect(order).toEqual(['commit', 'invalidate']);
+    });
+
+    it('リフレッシュトークンの取引ロックを、その利用者で取ってから users の行を消す（タスク45.2）', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue({
+        id: mockUserId,
+        email: 'deleted@example.com',
+        userRoles: [],
+      } as unknown as never);
+      const executeRaw = (prismaMock as unknown as { $executeRaw: ReturnType<typeof vi.fn> })
+        .$executeRaw;
+      const userDelete = (prismaMock.user as unknown as { delete: ReturnType<typeof vi.fn> })
+        .delete;
+
+      const result = await userRoleService.deleteUser(mockUserId);
+
+      expect(result.ok).toBe(true);
+      expect(executeRaw).toHaveBeenCalledTimes(1);
+      const [strings, ...values] = executeRaw.mock.calls[0]!;
+      expect((strings as string[]).join('?')).toContain('pg_advisory_xact_lock');
+      expect(values).toContain(mockUserId);
+      expect(userDelete).toHaveBeenCalledWith({ where: { id: mockUserId } });
+      expect(executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
+        userDelete.mock.invocationCallOrder[0]!
+      );
     });
 
     it('ユーザーが存在しないときは無効化しない', async () => {

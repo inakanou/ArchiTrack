@@ -27,6 +27,10 @@ import type { IAuditLogService } from '../types/audit-log.types.js';
 import logger from '../utils/logger.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
+import {
+  lockUserRefreshTokens,
+  revokeAllRefreshTokensForUser,
+} from '../utils/refresh-token-lock.js';
 import { randomBytes } from 'crypto';
 
 /**
@@ -362,6 +366,10 @@ export class PasswordService {
     userId: string,
     passwordHash: string
   ): Promise<void> {
+    // 利用者単位のリフレッシュトークンの取引ロックを、users の行を更新する前に取る。全ての経路で
+    // 「取引ロック → users の行」の順に揃え、利用者の削除（deleteUser）とのデッドロックを避ける（タスク45.2）
+    await lockUserRefreshTokens(tx, userId);
+
     // パスワード更新
     await tx.user.update({
       where: { id: userId },
@@ -393,10 +401,8 @@ export class PasswordService {
       });
     }
 
-    // 全リフレッシュトークンを無効化（セキュリティのため）
-    await tx.refreshToken.deleteMany({
-      where: { userId },
-    });
+    // 全リフレッシュトークンを無効化（要件33.5）。並行するローテーションと直列化する取引ロックを通す
+    await revokeAllRefreshTokensForUser(tx, userId);
   }
 
   /**

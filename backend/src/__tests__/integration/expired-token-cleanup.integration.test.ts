@@ -24,6 +24,7 @@ import {
 import { createRuntimeMode } from '../../config/runtime-mode.js';
 import { InvitationService } from '../../services/invitation.service.js';
 import { InvitationStatus } from '../../types/invitation.types.js';
+import { createStoredRefreshToken } from './refresh-token-fixture.js';
 
 const EMAIL_MARK = 'test-expired-token-cleanup';
 const HOUR_MS = 60 * 60 * 1000;
@@ -196,16 +197,25 @@ describe('使用済み・期限切れのトークンの消去（統合・実 DB�
    */
   it('期限切れのリフレッシュトークンは行が消え、期限内のものは残る', async () => {
     const now = new Date();
-    const valid = await prisma.refreshToken.create({
-      data: { userId, token: newToken(), expiresAt: new Date(now.getTime() + 7 * 24 * HOUR_MS) },
+    const { row: valid } = await createStoredRefreshToken(prisma, {
+      userId,
+      expiresAt: new Date(now.getTime() + 7 * 24 * HOUR_MS),
     });
-    await prisma.refreshToken.create({
-      data: { userId, token: newToken(), expiresAt: new Date(now.getTime() - 60 * 1000) },
+    await createStoredRefreshToken(prisma, {
+      userId,
+      expiresAt: new Date(now.getTime() - 60 * 1000),
+    });
+    // 同じ系列の置き換え済みで期限切れの行も消え、系列の現行の行は残る
+    await createStoredRefreshToken(prisma, {
+      userId,
+      familyId: valid.familyId,
+      replacedAt: new Date(now.getTime() - 2 * HOUR_MS),
+      expiresAt: new Date(now.getTime() - HOUR_MS),
     });
 
     const result = await cleanupExpiredTokens(prisma, now);
 
-    expect(result.refreshTokensDeleted).toBeGreaterThanOrEqual(1);
+    expect(result.refreshTokensDeleted).toBeGreaterThanOrEqual(2);
     const remaining = await prisma.refreshToken.findMany({ where: { userId } });
     expect(remaining.map((row) => row.id)).toEqual([valid.id]);
   });
@@ -217,8 +227,9 @@ describe('使用済み・期限切れのトークンの消去（統合・実 DB�
       InvitationStatus.PENDING,
       new Date(now.getTime() - HOUR_MS)
     );
-    await prisma.refreshToken.create({
-      data: { userId, token: newToken(), expiresAt: new Date(now.getTime() + HOUR_MS) },
+    await createStoredRefreshToken(prisma, {
+      userId,
+      expiresAt: new Date(now.getTime() + HOUR_MS),
     });
 
     await cleanupExpiredTokens(prisma, now);

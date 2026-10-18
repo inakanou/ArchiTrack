@@ -102,16 +102,18 @@ describe('TokenService', () => {
         roles: ['user'],
       };
 
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
 
       expect(token).toBeTruthy();
       expect(typeof token).toBe('string');
 
-      // トークンをデコードして検証
+      // トークンをデコードして検証（利用者は sub、系列は fam。メールアドレスとロールは載せない）
       const decoded = jose.decodeJwt(token);
-      expect(decoded.userId).toBe(payload.userId);
-      expect(decoded.email).toBe(payload.email);
-      expect(decoded.roles).toEqual(payload.roles);
+      expect(decoded.sub).toBe(payload.userId);
+      expect(decoded.fam).toBe('family-1');
+      expect(decoded).not.toHaveProperty('email');
+      expect(decoded).not.toHaveProperty('roles');
+      expect(decoded).not.toHaveProperty('userId');
     });
 
     it('環境変数で設定された有効期限が適用される（7日間）', async () => {
@@ -121,7 +123,7 @@ describe('TokenService', () => {
         roles: ['user'],
       };
 
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
       const decoded = jose.decodeJwt(token);
 
       expect(decoded.exp).toBeTruthy();
@@ -159,7 +161,7 @@ describe('TokenService', () => {
         roles: ['user'],
       };
 
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
       const result = await tokenService.verifyToken(token, 'refresh');
 
       expect(result.ok).toBe(true);
@@ -230,7 +232,7 @@ describe('TokenService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
 
@@ -240,7 +242,7 @@ describe('TokenService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
 
@@ -277,8 +279,8 @@ describe('TokenService', () => {
       // Assert
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        // 空文字列や完全に不正な形式はTOKEN_INVALID or TOKEN_MALFORMEDとして扱われる
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        // 空文字列や完全に不正な形式はTOKEN_INVALIDとして扱われる
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
   });
@@ -341,18 +343,11 @@ describe('TokenService', () => {
   });
 
   describe('generateRefreshToken追加テスト', () => {
-    it('permissionsを含むリフレッシュトークンを生成できる', async () => {
-      const payload: TokenPayload = {
-        userId: 'user123',
-        email: 'test@example.com',
-        roles: ['admin'],
-        permissions: ['user:manage', 'project:delete'],
-      };
-
-      const token = await tokenService.generateRefreshToken(payload);
+    it('リフレッシュトークンは権限を載せない', async () => {
+      const token = await tokenService.generateRefreshToken('user123', 'family-1');
       const decoded = jose.decodeJwt(token);
 
-      expect(decoded.permissions).toEqual(payload.permissions);
+      expect(decoded).not.toHaveProperty('permissions');
     });
 
     it('リフレッシュトークンにjtiが設定される', async () => {
@@ -362,7 +357,7 @@ describe('TokenService', () => {
         roles: ['user'],
       };
 
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
       const decoded = jose.decodeJwt(token);
 
       expect(decoded.jti).toBeTruthy();
@@ -376,8 +371,8 @@ describe('TokenService', () => {
         roles: ['user'],
       };
 
-      const token1 = await tokenService.generateRefreshToken(payload);
-      const token2 = await tokenService.generateRefreshToken(payload);
+      const token1 = await tokenService.generateRefreshToken(payload.userId, 'family-1');
+      const token2 = await tokenService.generateRefreshToken(payload.userId, 'family-1');
 
       const decoded1 = jose.decodeJwt(token1);
       const decoded2 = jose.decodeJwt(token2);
@@ -439,7 +434,7 @@ describe('TokenService', () => {
         roles: ['user'],
       };
 
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
       const result = await tokenService.verifyToken(token, 'refresh');
 
       expect(result.ok).toBe(true);
@@ -572,7 +567,9 @@ describe('TokenService', () => {
         await (
           invalidService as unknown as { keysInitialized: Promise<void> }
         ).keysInitialized.catch(() => {});
-        await expect(invalidService.generateRefreshToken(payload)).rejects.toThrow();
+        await expect(
+          invalidService.generateRefreshToken(payload.userId, 'family-1')
+        ).rejects.toThrow();
       } finally {
         process.env.JWT_PUBLIC_KEY = originalPublicKey;
         process.env.JWT_PRIVATE_KEY = originalPrivateKey;
@@ -581,7 +578,7 @@ describe('TokenService', () => {
   });
 
   describe('verifyToken error handling', () => {
-    it('should return TOKEN_MALFORMED for completely invalid token structure', async () => {
+    it('should return TOKEN_INVALID for completely invalid token structure', async () => {
       // JWSInvalidエラーをトリガーする特殊なケース
       // 有効なBase64だが不正なJWT構造
       const invalidToken = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJ0ZXN0IjoxfQ';
@@ -589,7 +586,7 @@ describe('TokenService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
   });
@@ -670,7 +667,7 @@ describe('TokenService', () => {
           roles: ['user'],
         };
 
-        const token = await serviceWithDefaults.generateRefreshToken(payload);
+        const token = await serviceWithDefaults.generateRefreshToken(payload.userId, 'family-1');
         const decoded = jose.decodeJwt(token);
 
         // デフォルトは7日（604800秒）
@@ -712,7 +709,7 @@ describe('TokenService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
   });
@@ -833,7 +830,7 @@ describe('TokenService', () => {
     });
 
     it('リフレッシュトークンに種別 refresh・既定の発行者・想定利用者を載せ、typ は at+jwt にしない', async () => {
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
       const decoded = jose.decodeJwt(token);
       const header = jose.decodeProtectedHeader(token);
 
@@ -847,7 +844,7 @@ describe('TokenService', () => {
      * 保護 API の検証（expected = 'access'）でリフレッシュトークンを拒否する（33.1 の判定の部品）
      */
     it('リフレッシュトークンを access として検証すると TOKEN_INVALID になる', async () => {
-      const refreshToken = await tokenService.generateRefreshToken(payload);
+      const refreshToken = await tokenService.generateRefreshToken(payload.userId, 'family-1');
 
       const result = await tokenService.verifyToken(refreshToken, 'access');
 

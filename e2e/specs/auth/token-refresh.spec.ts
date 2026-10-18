@@ -698,22 +698,26 @@ test.describe('トークンリフレッシュパフォーマンス', () => {
     expect(authEstablished).toBe(true);
 
     // リフレッシュトークンを取得
-    const refreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
+    let refreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
     expect(refreshToken).toBeTruthy();
 
     // リフレッシュAPIのパフォーマンスを測定（10回実行）
+    // 置き換え済みのトークンの再提示は系列の失効になるため、毎回ローテーションの後継を提示する（要件33.6）
     const responseTimes: number[] = [];
 
     for (let i = 0; i < 10; i++) {
       const startTime = Date.now();
 
-      await page.request.post('/api/v1/auth/refresh', {
+      const response = await page.request.post('/api/v1/auth/refresh', {
         data: { refreshToken },
         timeout: getTimeout(10000),
       });
 
       const endTime = Date.now();
       responseTimes.push(endTime - startTime);
+
+      expect(response.status()).toBe(200);
+      refreshToken = ((await response.json()) as { refreshToken: string }).refreshToken;
 
       // レート制限を避けるため短い待機（ネットワークアイドルを使用せず固定待機を許容）
       await page.waitForTimeout(100);
