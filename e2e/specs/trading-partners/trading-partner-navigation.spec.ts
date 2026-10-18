@@ -38,6 +38,7 @@ import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
 import { breadcrumbNav, readBreadcrumbTrail } from '../../helpers/breadcrumb';
+import { getAccessToken, type AuthUserRef } from '../../helpers/auth-api';
 
 /** モバイル幅の折り返しを測る画面幅（タスク 30.1）。 */
 const MOBILE_WIDTHS = [375, 320] as const;
@@ -625,10 +626,11 @@ function detailTextItems(layout: DetailTextLayout, text: string) {
  */
 async function createProjectsLinkedToPartner(
   page: Page,
+  user: AuthUserRef,
   partnerId: string,
   names: string[]
 ): Promise<void> {
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+  const accessToken = await getAccessToken(page, user);
   assertPrepared(accessToken, '認証トークン');
   const headers = { Authorization: `Bearer ${accessToken}` };
 
@@ -1937,7 +1939,7 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
         `RelatedProjectRedevelopmentSkyscraperConstructionUnbrokenName${stamp}`,
         `渋谷駅前再開発工事_${stamp}`,
       ];
-      await createProjectsLinkedToPartner(page, partnerId, projectNames);
+      await createProjectsLinkedToPartner(page, 'REGULAR_USER', partnerId, projectNames);
 
       for (const width of MOBILE_WIDTHS) {
         const layout = await openAndMeasureRelatedProjects(page, partnerId, width, projectNames);
@@ -2048,7 +2050,9 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
       const partnerName = `TradingPartnerRedevelopmentSkyscraperConstructionUnbrokenName${stamp}`;
       const partnerId = await createTradingPartnerForBreadcrumb(page, partnerName);
       // 削除を拒否させてエラーメッセージを表示させるため、プロジェクトを 1 件紐付ける
-      await createProjectsLinkedToPartner(page, partnerId, [`削除拒否確認プロジェクト_${stamp}`]);
+      await createProjectsLinkedToPartner(page, 'ADMIN_USER', partnerId, [
+        `削除拒否確認プロジェクト_${stamp}`,
+      ]);
 
       for (const width of DELETE_DIALOG_WIDTHS) {
         const layout = await openAndMeasureDeleteDialog(page, partnerId, width, partnerName);

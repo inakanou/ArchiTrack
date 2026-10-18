@@ -51,6 +51,7 @@ import {
   toSaveNodes,
   type EstimateItemNode,
 } from '../../helpers/estimate-draft';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /** 明細の初期状態（ルート4項目）の名称 */
 const ITEM_NAMES = ['行操作項目1', '行操作項目2', '行操作項目3', '行操作項目4'] as const;
@@ -279,7 +280,7 @@ test.describe('行操作のローカル完結と未保存編集の保持', () =>
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
 
       const estimateResponse = await page.request.post(
@@ -317,7 +318,7 @@ test.describe('行操作のローカル完結と未保存編集の保持', () =>
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetItemTree(page);
 
       const before = await fetchTree(page);
@@ -437,7 +438,7 @@ test.describe('行操作のローカル完結と未保存編集の保持', () =>
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetItemTree(page);
 
       const before = await fetchTree(page);
@@ -520,7 +521,7 @@ test.describe('行操作のローカル完結と未保存編集の保持', () =>
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetItemTree(page);
 
       const before = await fetchTree(page);
@@ -596,7 +597,7 @@ test.describe('行操作のローカル完結と未保存編集の保持', () =>
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetItemTree(page);
 
       const before = await fetchTree(page);

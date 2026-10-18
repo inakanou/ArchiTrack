@@ -21,6 +21,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { buildNewEstimateItemNode, saveEstimateDraft } from '../../helpers/estimate-draft';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 一致した入力欄の値をすべて読み取る（母集団を先に確定させるための収集）。
@@ -176,13 +177,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
       const baseUrl = API_BASE_URL;
 
       // APIトークンを取得
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
@@ -843,13 +838,7 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
 
       // アクセストークンが無い場合は再取得
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

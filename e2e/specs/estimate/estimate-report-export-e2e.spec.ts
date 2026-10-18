@@ -77,6 +77,7 @@ import {
   type EstimateItemNode,
   type SaveLineType,
 } from '../../helpers/estimate-draft';
+import { getAccessToken, loginViaApi } from '../../helpers/auth-api';
 
 // ============================================================================
 // PDFテキスト抽出（pdfjs-dist の Node 向けビルド）
@@ -481,7 +482,7 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
 
   const loginAndCaptureToken = async (page: Page): Promise<void> => {
     await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).toBeTruthy();
   };
 
@@ -991,10 +992,7 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
   test.describe('クリーンアップ', () => {
     test('テストデータの削除', async ({ request }) => {
       if (!accessToken) {
-        const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-          data: { email: 'user@example.com', password: 'Password123!' },
-        });
-        accessToken = ((await loginResponse.json()) as { accessToken: string }).accessToken;
+        accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
       }
 
       if (createdEstimateId) {

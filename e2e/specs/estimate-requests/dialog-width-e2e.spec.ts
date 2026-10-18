@@ -16,8 +16,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
-import { TEST_USERS } from '../../helpers/test-users';
 import { assertPresent } from '../../helpers/preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
 
 async function openCreateDialog(page: Page, estimateRequestId: string) {
   await page.goto(`/estimate-requests/${estimateRequestId}`);
@@ -49,13 +49,7 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
   test.describe('テストデータ準備', () => {
     test('プロジェクト・取引先・内訳書・見積依頼を作成する', async ({ request }) => {
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: TEST_USERS.REGULAR_USER.email,
-          password: TEST_USERS.REGULAR_USER.password,
-        },
-      });
-      accessToken = (await loginResponse.json()).accessToken;
+      accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
 
       // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
       const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
@@ -343,13 +337,7 @@ test.describe('受領見積書ダイアログ横幅拡大（REQ-32）', () => {
     test('テストデータの削除', async ({ request }) => {
       const baseUrl = API_BASE_URL;
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: TEST_USERS.REGULAR_USER.email,
-            password: TEST_USERS.REGULAR_USER.password,
-          },
-        });
-        accessToken = (await loginResponse.json()).accessToken;
+        accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
       }
 
       if (createdProjectId) {

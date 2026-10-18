@@ -52,6 +52,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -258,7 +259,7 @@ test.describe('現場調査一覧の表示リクエストが件数に比例し�
       smallProjectId = page.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
       expect(smallProjectId).toBeTruthy();
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
       const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
@@ -388,7 +389,7 @@ test.describe('現場調査一覧の表示リクエストが件数に比例し�
     const page = await context.newPage();
     try {
       await loginAsUser(page, 'ADMIN_USER');
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'ADMIN_USER');
       for (const projectId of [smallProjectId, largeProjectId]) {
         const deleteResponse = await page.request.delete(
           `${API_BASE_URL}/api/projects/${projectId}`,

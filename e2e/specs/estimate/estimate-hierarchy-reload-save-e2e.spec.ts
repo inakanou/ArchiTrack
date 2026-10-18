@@ -40,6 +40,7 @@ import {
   saveEstimateDraft,
   type EstimateItemNode,
 } from '../../helpers/estimate-draft';
+import { getAccessToken } from '../../helpers/auth-api';
 
 test.describe('既存見積書の階層が再読み込みと保存で維持される', () => {
   test.describe.configure({ mode: 'serial' });
@@ -214,7 +215,7 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
 
       const estimateResponse = await page.request.post(
@@ -259,7 +260,7 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetHierarchy(page);
 
       const before = await fetchTree(page);
@@ -326,7 +327,7 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetHierarchy(page);
 
       const before = await fetchTree(page);

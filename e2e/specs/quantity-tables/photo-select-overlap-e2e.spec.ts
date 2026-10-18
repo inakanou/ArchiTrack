@@ -29,6 +29,7 @@ import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPresent, assertPrepared } from '../../helpers/preconditions';
 import { annotateSurveyImages } from '../../helpers/survey-image-annotations';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -358,7 +359,7 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
       const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
       expect(fs.existsSync(testImagePath)).toBeTruthy();
       const imageBuffer = fs.readFileSync(testImagePath);
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken, 'アクセストークンが取得できる必要がある').toBeTruthy();
 
       const BATCH = 8; // 10枚上限に対する安全側のバッチサイズ
@@ -411,7 +412,12 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
       // 注釈の保存は画像処理を伴わないDB書き込み1回であり（合成済みサムネイルは別経路。
       // `survey-image-annotations.ts` 参照）、枚数に対する所要時間は軽い。
       assertPrepared(createdSurveyId, '作成した現場調査のID');
-      const annotatedImages = await annotateSurveyImages(page, createdSurveyId, 'all');
+      const annotatedImages = await annotateSurveyImages(
+        page,
+        'REGULAR_USER',
+        createdSurveyId,
+        'all'
+      );
       expect(
         annotatedImages.length,
         '重なり検証のため30枚以上の写真が選択候補（注釈付き）になっている必要がある'

@@ -130,6 +130,7 @@ import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { hashPassword, TEST_USERS } from '../../helpers/test-users';
 import { getPrismaClient } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ESモジュールでの __dirname 代替
 const __filename = fileURLToPath(import.meta.url);
@@ -3121,7 +3122,7 @@ test.describe('工事写真 追加機能フロー', () => {
       `${API_BASE_URL}/api/construction-photos/${albumId}/images`,
       {
         headers: {
-          Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
+          Authorization: `Bearer ${await getAccessToken(page, 'ADMIN_USER')}`,
         },
       }
     );
@@ -6521,7 +6522,7 @@ test.describe('工事写真 追加機能フロー', () => {
     await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
 
     // 他の利用者の操作の代わりに、API で看板を取り除く（画面は読み込み直さない）
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(page, 'ADMIN_USER');
     expect(accessToken).toBeTruthy();
     const removal = await page.request.delete(
       `${API_BASE_URL}/api/construction-signboards/${signboardId}`,

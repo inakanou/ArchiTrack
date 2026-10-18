@@ -43,6 +43,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedProject, type SeededProject } from '../../helpers/project-list-preconditions';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ============================================================================
 // フォーカス表示の判定（trading-partner-focus-visible.spec.ts と同じ基準）
@@ -462,14 +463,14 @@ const PAGE_LIMIT = 50;
 
 /** ログイン済みのページから API 呼び出し用の認証ヘッダを得る */
 async function authHeaders(page: Page): Promise<{ Authorization: string }> {
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+  const accessToken = await getAccessToken(page, 'ADMIN_USER');
   assertPrepared(accessToken, '認証トークン');
   return { Authorization: `Bearer ${accessToken}` };
 }
 
 /** プロジェクトを 1 件作り、その下へ名前を与えたアルバムを順に作る */
 async function seedProjectWithAlbums(page: Page, albumNames: string[]): Promise<SeededProject> {
-  const project = await seedProject(page, '工事写真フォーカス表示');
+  const project = await seedProject(page, 'ADMIN_USER', '工事写真フォーカス表示');
   const headers = await authHeaders(page);
   for (const name of albumNames) {
     const response = await page.request.post(

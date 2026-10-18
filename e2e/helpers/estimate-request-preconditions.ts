@@ -19,6 +19,7 @@
 import { expect, type Page } from '@playwright/test';
 import { assertPrepared } from './preconditions';
 import { SAME_ORIGIN_API_BASE_URL } from '../config';
+import { getAccessToken, type AuthUserRef } from './auth-api';
 
 /**
  * 前提として作成する数量項目の内容
@@ -93,22 +94,24 @@ async function expectCreated<T>(
 /**
  * 見積依頼の検証が必要とする前提一式を API で作成する。
  *
- * 呼び出し側は事前に `loginAsUser` を済ませていること（認証トークンを
- * localStorage から取得するため）。いずれかの作成に失敗した時点で失敗する。
+ * 呼び出し側は事前に `user` で `loginAsUser` を済ませていること（認証トークンを
+ * `getAccessToken` で得るため）。いずれかの作成に失敗した時点で失敗する。
  *
  * @param page Playwright のページ（ログイン済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param options 作成するデータの識別用の情報
  * @returns 作成した資源の識別子
  * @throws 認証トークンが無い・いずれかの作成APIが成功しない・IDが得られない場合
  */
 export async function seedEstimateRequest(
   page: Page,
+  user: AuthUserRef,
   options: EstimateRequestSeedOptions
 ): Promise<EstimateRequestSeed> {
   const { label, siteAddress, partnerEmail, groupName, item } = options;
   const stamp = Date.now();
 
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+  const accessToken = await getAccessToken(page, user);
   assertPrepared(accessToken, '認証トークン');
   const headers = { Authorization: `Bearer ${accessToken}` };
 

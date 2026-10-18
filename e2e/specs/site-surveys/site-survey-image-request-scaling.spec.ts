@@ -58,6 +58,7 @@ import { getPrismaClient } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -324,7 +325,7 @@ test.describe('写真枚数によらない画面表示の応答性', () => {
       expect(fs.existsSync(testImagePath)).toBeTruthy();
       const imageBuffer = fs.readFileSync(testImagePath);
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
       const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
@@ -479,7 +480,7 @@ test.describe('写真枚数によらない画面表示の応答性', () => {
     const page = await context.newPage();
     try {
       await loginAsUser(page, 'ADMIN_USER');
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'ADMIN_USER');
       const deleteResponse = await page.request.delete(
         `${API_BASE_URL}/api/projects/${createdProjectId}`,
         { headers: { Authorization: `Bearer ${accessToken}` } }

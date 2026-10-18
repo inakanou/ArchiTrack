@@ -127,6 +127,7 @@ test.describe('REQ-35: 写真コメント表示の不具合修正', () => {
       // 候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
       await seedSurveyPhotosWithComments(
         page,
+        'REGULAR_USER',
         testProjectId,
         'REQ35_現場調査',
         PHOTO_COMMENTS,

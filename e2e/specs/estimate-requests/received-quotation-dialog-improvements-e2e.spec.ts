@@ -35,6 +35,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * useResizableHeight が利用する localStorage キー
@@ -129,14 +130,7 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       const baseUrl = API_BASE_URL;
 
       // ログイン → アクセストークン取得
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: TEST_USERS.REGULAR_USER.email,
-          password: TEST_USERS.REGULAR_USER.password,
-        },
-      });
-      expect(loginResponse.ok()).toBe(true);
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
@@ -924,13 +918,7 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       const baseUrl = API_BASE_URL;
 
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: TEST_USERS.REGULAR_USER.email,
-            password: TEST_USERS.REGULAR_USER.password,
-          },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

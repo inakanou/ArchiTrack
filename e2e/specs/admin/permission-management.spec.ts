@@ -3,6 +3,7 @@ import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { API_BASE_URL } from '../../config';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 権限（Permission）管理のE2Eテスト
@@ -70,13 +71,7 @@ test.describe('権限管理', () => {
    */
   test('管理者は権限一覧を取得できる', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // 権限一覧を取得
     const permissionsResponse = await request.get(`${API_BASE_URL}/api/v1/permissions`, {
@@ -132,13 +127,7 @@ test.describe('権限管理', () => {
    */
   test('*:*権限を持つユーザーは全てのリソースにアクセスできる', async ({ request }) => {
     // 管理者としてログイン（*:*権限を持つ）
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // 複数のエンドポイントにアクセスできることを確認
     const endpoints = [
@@ -167,13 +156,7 @@ test.describe('権限管理', () => {
     const prisma = getPrismaClient();
 
     // 管理者としてログイン（*:*権限を持つ）
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // 管理者の権限を確認
     const adminUser = await prisma.user.findFirst({

@@ -7,36 +7,23 @@
  * @module e2e/specs/execution-budget/helpers
  */
 
-import type { APIRequestContext, Page } from '@playwright/test';
+import type { APIRequestContext } from '@playwright/test';
 import { SAME_ORIGIN_API_BASE_URL } from '../../config';
 import { getPrismaClient } from '../../fixtures/database';
 import { appendEstimateItem, buildNewEstimateItemNode } from '../../helpers/estimate-draft';
+import { loginViaApi, type AuthUserRef } from '../../helpers/auth-api';
 
 /**
- * APIアクセストークンを取得する
+ * APIアクセストークンを取得する（ログイン API を画面と同じオリジンで呼ぶ）
  */
 export async function getApiToken(
   request: APIRequestContext,
-  email = 'user@example.com',
-  password = 'Password123!'
+  user: AuthUserRef = 'REGULAR_USER'
 ): Promise<string> {
-  const res = await request.post(`${SAME_ORIGIN_API_BASE_URL}/api/v1/auth/login`, {
-    data: { email, password },
+  const { accessToken } = await loginViaApi(request, user, {
+    baseUrl: SAME_ORIGIN_API_BASE_URL,
   });
-  if (!res.ok()) {
-    throw new Error(`login failed: status ${res.status()}`);
-  }
-  const body = (await res.json()) as { accessToken: string };
-  return body.accessToken;
-}
-
-/**
- * ブラウザの localStorage からアクセストークンを取得する
- */
-export async function getAccessTokenFromPage(page: Page): Promise<string> {
-  const token = await page.evaluate(() => localStorage.getItem('accessToken'));
-  if (!token) throw new Error('accessToken not found in localStorage');
-  return token;
+  return accessToken;
 }
 
 /**

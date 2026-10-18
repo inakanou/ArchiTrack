@@ -3,9 +3,9 @@ import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { assertPresent } from '../../helpers/preconditions';
-import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * ロールベースアクセス制御（RBAC）のE2Eテスト
@@ -177,14 +177,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     expect(adminCount).toBe(1);
 
     // 管理者としてログインし、自身から admin ロールを外す操作を実際に試みる
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: TEST_USERS.ADMIN_USER.email,
-        password: TEST_USERS.ADMIN_USER.password,
-      },
-    });
-    expect(loginResponse.ok()).toBeTruthy();
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     const removeRoleResponse = await request.delete(
       `${API_BASE_URL}/api/v1/users/${admin.id}/roles/${adminRole.id}`,
@@ -247,15 +240,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     await createTestUser('REGULAR_USER');
 
     // ログインしてトークンを取得
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'user@example.com',
-        password: 'Password123!',
-      },
-    });
-
-    expect(loginResponse.ok()).toBeTruthy();
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'REGULAR_USER');
 
     // 権限が必要なエンドポイント（ロール一覧）にアクセス
     const rolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
@@ -293,14 +278,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     expect(permissionKeys).not.toContain('user:read');
 
     await createTestUser('REGULAR_USER');
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'user@example.com',
-        password: 'Password123!',
-      },
-    });
-    expect(loginResponse.ok()).toBeTruthy();
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'REGULAR_USER');
 
     const usersResponse = await request.get(`${API_BASE_URL}/api/v1/users`, {
       headers: {
@@ -320,15 +298,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     await createTestUser('ADMIN_USER');
 
     // ログインしてトークンを取得
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-
-    expect(loginResponse.ok()).toBeTruthy();
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // ロール一覧にアクセス
     const rolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
@@ -416,13 +386,7 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
     // 一般ユーザーを作成してログイン
     await createTestUser('REGULAR_USER');
 
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'user@example.com',
-        password: 'Password123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'REGULAR_USER');
 
     // 権限チェック失敗前の監査ログ数を取得
     const beforeCount = await prisma.auditLog.count({

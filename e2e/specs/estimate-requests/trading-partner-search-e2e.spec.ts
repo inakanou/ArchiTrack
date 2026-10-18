@@ -19,7 +19,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
-import { TEST_USERS } from '../../helpers/test-users';
+import { loginViaApi } from '../../helpers/auth-api';
 
 test.describe('見積依頼新規作成画面 宛先検索選択UI（REQ-30）', () => {
   test.describe.configure({ mode: 'serial' });
@@ -45,14 +45,7 @@ test.describe('見積依頼新規作成画面 宛先検索選択UI（REQ-30）',
     }) => {
       const baseUrl = API_BASE_URL;
 
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: TEST_USERS.REGULAR_USER.email,
-          password: TEST_USERS.REGULAR_USER.password,
-        },
-      });
-      expect(loginResponse.ok()).toBe(true);
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
 
       // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
@@ -401,13 +394,7 @@ test.describe('見積依頼新規作成画面 宛先検索選択UI（REQ-30）',
     test('テストデータの削除', async ({ request }) => {
       const baseUrl = API_BASE_URL;
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: TEST_USERS.REGULAR_USER.email,
-            password: TEST_USERS.REGULAR_USER.password,
-          },
-        });
-        accessToken = (await loginResponse.json()).accessToken;
+        accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
       }
 
       if (createdProjectId) {

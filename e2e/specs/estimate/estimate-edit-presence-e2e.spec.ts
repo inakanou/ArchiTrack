@@ -24,6 +24,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { seedProject } from '../../helpers/project-list-preconditions';
 import { TEST_USERS } from '../../helpers/test-users';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /** 在席通知の間隔（`frontend/src/hooks/useEstimateEditPresence.ts` と同じ 20 秒）に余裕を足した上限 */
 const PRESENCE_UPDATE_TIMEOUT_MS = 45000;
@@ -76,8 +77,8 @@ test.describe('他のユーザーが編集中の警告表示', () => {
 
       // ---- 前提: 利用者 A がプロジェクトと見積書を作る ----
       await loginAsUser(pageA, 'REGULAR_USER');
-      const project = await seedProject(pageA, 'E2E編集中警告');
-      const tokenA = await pageA.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      const project = await seedProject(pageA, 'REGULAR_USER', 'E2E編集中警告');
+      const tokenA = await getAccessToken(pageA, 'REGULAR_USER');
       expect(tokenA, '前提: 利用者 A のアクセストークンを取得できる').toBeTruthy();
       const estimateRes = await pageA.request.post(
         `${API_BASE_URL}/api/projects/${project.id}/estimates`,
@@ -167,8 +168,8 @@ test.describe('他のユーザーが編集中の警告表示', () => {
       const pageB = await contextB.newPage();
 
       await loginAsUser(pageA, 'REGULAR_USER');
-      const project = await seedProject(pageA, 'E2E編集中警告375');
-      const tokenA = await pageA.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      const project = await seedProject(pageA, 'REGULAR_USER', 'E2E編集中警告375');
+      const tokenA = await getAccessToken(pageA, 'REGULAR_USER');
       expect(tokenA, '前提: 利用者 A のアクセストークンを取得できる').toBeTruthy();
       const estimateRes = await pageA.request.post(
         `${API_BASE_URL}/api/projects/${project.id}/estimates`,

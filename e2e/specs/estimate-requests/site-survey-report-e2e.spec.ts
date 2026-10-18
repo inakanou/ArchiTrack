@@ -22,7 +22,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
-import { TEST_USERS } from '../../helpers/test-users';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * プロジェクト・取引先・内訳書・見積依頼を作成し、IDを保持するセットアップヘルパー
@@ -37,13 +37,7 @@ type SetupResult = {
 
 async function setupBaseData(request: APIRequestContext, prefix: string): Promise<SetupResult> {
   const baseUrl = API_BASE_URL;
-  const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-    data: {
-      email: TEST_USERS.REGULAR_USER.email,
-      password: TEST_USERS.REGULAR_USER.password,
-    },
-  });
-  const accessToken: string = (await loginResponse.json()).accessToken;
+  const accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
 
   // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
   const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {

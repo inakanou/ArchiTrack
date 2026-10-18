@@ -22,6 +22,7 @@ import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtu
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /**
  * 現場調査CRUD機能のE2Eテスト
@@ -601,21 +602,24 @@ test.describe('現場調査CRUD操作', () => {
 
       // 存在しないプロジェクトIDで現場調査作成APIを呼び出し
       const nonExistentProjectId = '00000000-0000-0000-0000-000000000000';
-      const response = await page.evaluate(async (projectId) => {
-        const accessToken = localStorage.getItem('accessToken');
-        const res = await fetch(`/api/projects/${projectId}/site-surveys`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name: 'テスト現場調査',
-            surveyDate: new Date().toISOString().split('T')[0],
-          }),
-        });
-        return { status: res.status };
-      }, nonExistentProjectId);
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
+      const response = await page.evaluate(
+        async ({ projectId, token }) => {
+          const res = await fetch(`/api/projects/${projectId}/site-surveys`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: 'テスト現場調査',
+              surveyDate: new Date().toISOString().split('T')[0],
+            }),
+          });
+          return { status: res.status };
+        },
+        { projectId: nonExistentProjectId, token: accessToken }
+      );
 
       // 400, 404, または405エラーが返されることを確認
       // 405はルーティング層でメソッドが拒否された場合に返される

@@ -41,6 +41,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { flattenEstimateItems, getEstimateItemTree } from '../../helpers/estimate-draft';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken, loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 見積書機能追加のE2Eテスト
@@ -149,10 +150,7 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const baseUrl = API_BASE_URL;
 
       // APIトークンを取得
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: { email: 'user@example.com', password: 'Password123!' },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
@@ -1177,7 +1175,7 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       expect(tradingPartnerName).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
 
       await page.goto(`/estimates/${createdEstimateId}`);
@@ -1604,10 +1602,7 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const baseUrl = API_BASE_URL;
 
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: { email: 'user@example.com', password: 'Password123!' },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

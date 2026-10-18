@@ -287,6 +287,7 @@ async function setupTestData(page: Page): Promise<void> {
   // 写真は保存先の実体が要るため、アップロードの経路で作る
   const { imageIds } = await seedSurveyPhotosWithComments(
     page,
+    'ADMIN_USER',
     projectId,
     'カード配置E2E',
     PHOTO_COMMENTS,

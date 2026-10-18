@@ -63,6 +63,7 @@ import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtu
 import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -244,7 +245,7 @@ test.describe('現場調査画像の一括エクスポート', () => {
     const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
     expect(fs.existsSync(testImagePath)).toBeTruthy();
     const imageBuffer = fs.readFileSync(testImagePath);
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
 
     for (let i = 0; i < FIXTURE_IMAGE_COUNT; i++) {
       const uploadResponse = await sharedPage.request.post(
@@ -329,7 +330,7 @@ test.describe('現場調査画像の一括エクスポート', () => {
     const cleanupPage = await cleanupContext.newPage();
     try {
       await loginAsUser(cleanupPage, 'ADMIN_USER');
-      const adminToken = await cleanupPage.evaluate(() => localStorage.getItem('accessToken'));
+      const adminToken = await getAccessToken(cleanupPage, 'ADMIN_USER');
       const headers = { Authorization: `Bearer ${adminToken}` };
       if (createdSurveyId) {
         await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {
@@ -541,7 +542,7 @@ test.describe('現場調査画像の一括エクスポート', () => {
 
     try {
       await loginAsUser(failurePage, sessionUser);
-      const accessToken = await failurePage.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(failurePage, sessionUser);
 
       // 画像一覧から「どの画像を失敗させるか」を決める。
       const listResponse = await failurePage.request.get(

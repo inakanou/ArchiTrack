@@ -22,6 +22,7 @@ import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { getPrismaClient } from '../../fixtures/database';
 import { seedTradingPartner } from '../../helpers/project-list-preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /**
  * 取引先操作が監査ログに記録されていることを主張する。
@@ -485,10 +486,10 @@ test.describe('取引先管理の追加要件', () => {
 
       // REQ-10.4 は検索結果の各項目を定める。結果が0件だと項目の主張が一つも実行されないため、
       // 検索語「テスト」に必ず一致する取引先をこのテスト自身が用意する。
-      await seedTradingPartner(page, 'テスト取引先検索');
+      await seedTradingPartner(page, 'REGULAR_USER', 'テスト取引先検索');
 
       // APIトークンを取得
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       // 検索APIを直接呼び出し
       const searchResponse = await request.get(
@@ -586,7 +587,7 @@ test.describe('取引先管理の追加要件', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // APIトークンを取得
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       // 存在しない検索クエリでAPIを呼び出し
       const nonExistentQuery = `存在しない取引先_${Date.now()}_XXXXXXXXX`;

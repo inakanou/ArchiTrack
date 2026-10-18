@@ -4,6 +4,7 @@ import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * ユーザーへのロール割り当てのE2Eテスト
@@ -33,13 +34,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     await createTestUser('ADMIN_USER');
 
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
   });
 
@@ -354,13 +349,7 @@ test.describe('ユーザーへのロール割り当て', () => {
 
     // テストユーザーを作成してログイン
     const testUser = await createTestUser('REGULAR_USER');
-    const userLoginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'user@example.com',
-        password: 'Password123!',
-      },
-    });
-    const userLoginData = await userLoginResponse.json();
+    const userLoginData = await loginViaApi(request, 'REGULAR_USER');
     const userAccessToken = userLoginData.accessToken;
     const refreshToken = userLoginData.refreshToken;
 

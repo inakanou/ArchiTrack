@@ -26,6 +26,7 @@ import { loginAsUser } from '../helpers/auth-actions';
 import { getTimeout } from '../helpers/wait-helpers';
 import { selectFirstRealOption } from '../helpers/form-preconditions';
 import { API_BASE_URL } from '../config';
+import { getAccessToken } from '../helpers/auth-api';
 
 /**
  * テスト用プロジェクトを作成する共通関数
@@ -798,7 +799,7 @@ test.describe('ステータス遷移', () => {
       // 本文の無い 4xx が返っていた。その結果「4xx である」は常に成立し、続く本文の判定は
       // 本文が空のため一度も実行されず、さらに try/catch が主張の失敗ごと握り潰していた。
       // APIの基準URLと認可ヘッダを明示し、要件どおりの拒否が返ることを主張する。
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken, '前提: アクセストークンが取得できる').toBeTruthy();
 
       const response = await page.request.patch(

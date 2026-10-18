@@ -213,6 +213,7 @@ test.describe('REQ-42.10: 参照系データ取得は保存と独立して実行
 
       const seeded = await seedSurveyPhotosWithComments(
         page,
+        'REGULAR_USER',
         createdProjectId,
         'REQ42_10_調査',
         [PHOTO_COMMENT],

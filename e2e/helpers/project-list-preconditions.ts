@@ -25,6 +25,7 @@
 import { expect, type Page } from '@playwright/test';
 import { assertPrepared } from './preconditions';
 import { SAME_ORIGIN_API_BASE_URL } from '../config';
+import { getAccessToken, type AuthUserRef } from './auth-api';
 
 /**
  * 前提として作成したプロジェクト
@@ -64,11 +65,12 @@ export interface SeedTradingPartnerOptions {
  * ログイン済みのページから API 呼び出し用の認証ヘッダを得る。
  *
  * @param page Playwright のページ（`loginAsUser` 済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @returns Authorization ヘッダ
  * @throws 認証トークンが取得できない場合
  */
-async function authHeaders(page: Page): Promise<{ Authorization: string }> {
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+async function authHeaders(page: Page, user: AuthUserRef): Promise<{ Authorization: string }> {
+  const accessToken = await getAccessToken(page, user);
   assertPrepared(accessToken, '認証トークン');
   return { Authorization: `Bearer ${accessToken}` };
 }
@@ -80,12 +82,17 @@ async function authHeaders(page: Page): Promise<{ Authorization: string }> {
  * 無条件に置ける。作成に失敗した場合はその場で失敗する。
  *
  * @param page Playwright のページ（`loginAsUser` 済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param label 作成するプロジェクト名に含める識別子（テストの出所が分かる文字列）
  * @returns 作成したプロジェクト
  * @throws 担当者候補が無い・作成APIが成功しない・IDが得られない場合
  */
-export async function seedProject(page: Page, label: string): Promise<SeededProject> {
-  const headers = await authHeaders(page);
+export async function seedProject(
+  page: Page,
+  user: AuthUserRef,
+  label: string
+): Promise<SeededProject> {
+  const headers = await authHeaders(page, user);
 
   const assignableRes = await page.request.get(`${SAME_ORIGIN_API_BASE_URL}/api/users/assignable`, {
     headers,
@@ -118,16 +125,18 @@ export async function seedProject(page: Page, label: string): Promise<SeededProj
  * 取引先一覧が空でないことを前提とする検証のために、取引先を1件作成する。
  *
  * @param page Playwright のページ（`loginAsUser` 済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param label 作成する取引先名に含める識別子（テストの出所が分かる文字列）
  * @returns 作成した取引先
  * @throws 作成APIが成功しない・IDが得られない場合
  */
 export async function seedTradingPartner(
   page: Page,
+  user: AuthUserRef,
   label: string,
   options: SeedTradingPartnerOptions = {}
 ): Promise<SeededTradingPartner> {
-  const headers = await authHeaders(page);
+  const headers = await authHeaders(page, user);
 
   const optionalFields = {
     ...(options.branchName === undefined ? {} : { branchName: options.branchName }),

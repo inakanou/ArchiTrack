@@ -123,7 +123,7 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
       // StatsSummary は projects.length > 0 のときだけ描画される（ProjectListPage）。
       // 検索結果が 0 件だと節ごと消えて主張が一つも実行されないため、
       // 「必ず1件は一致する」検索語を前提として自分で用意する。
-      const seeded = await seedProject(page, 'E2E件数不変検索');
+      const seeded = await seedProject(page, 'REGULAR_USER', 'E2E件数不変検索');
 
       await page.goto('/projects');
       await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
@@ -327,7 +327,7 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
       await loginAsUser(page, 'REGULAR_USER');
 
       // ページネーションは projects.length > 0 のときだけ描画される。前提を自分で用意する。
-      await seedProject(page, 'E2E表示件数オプション');
+      await seedProject(page, 'REGULAR_USER', 'E2E表示件数オプション');
 
       await page.goto('/projects');
       await waitForLoadingComplete(page, { timeout: getTimeout(30000) });

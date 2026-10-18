@@ -65,6 +65,7 @@ import {
   openEditPageWithSingleItemRow,
   openQuantityTableEdit,
 } from '../../helpers/quantity-table-preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /**
  * REQ-7.1 の対象フィールド（一括取得の応答が返す候補値マップのキー）。
@@ -343,7 +344,7 @@ test.describe('オートコンプリート最適化', () => {
    * @returns Authorization ヘッダー
    */
   async function authHeaders(page: Page): Promise<Record<string, string>> {
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken, '前提: アクセストークンが取得できる').toBeTruthy();
     return { Authorization: `Bearer ${accessToken}` };
   }

@@ -25,6 +25,7 @@ import {
   toDecimalString,
   toSaveNodes,
 } from '../../helpers/estimate-draft';
+import { loginViaApi } from '../../helpers/auth-api';
 
 const QUOTATION_NET_AMOUNT = 170000;
 
@@ -129,10 +130,7 @@ test.describe('NET金額案分ダイアログの自動設定機能 (REQ-36)', ()
 
       const baseUrl = API_BASE_URL;
 
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: { email: 'user@example.com', password: 'Password123!' },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
@@ -467,10 +465,7 @@ test.describe('NET金額案分ダイアログの自動設定機能 (REQ-36)', ()
       const baseUrl = API_BASE_URL;
 
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: { email: 'user@example.com', password: 'Password123!' },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

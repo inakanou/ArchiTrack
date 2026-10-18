@@ -26,6 +26,7 @@ import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -157,13 +158,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
       // APIトークンを取得
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
 
       // グループを作成
@@ -808,14 +803,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
   test.describe('テストデータのクリーンアップ', () => {
     test('テストデータを削除する', async ({ request }) => {
       if (!accessToken) {
-        const baseUrl = API_BASE_URL;
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

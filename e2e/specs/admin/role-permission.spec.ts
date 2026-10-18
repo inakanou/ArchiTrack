@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL } from '../../config';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * ロールへの権限割り当てのE2Eテスト
@@ -30,13 +31,7 @@ test.describe('ロールへの権限割り当て', () => {
     await createTestUser('ADMIN_USER');
 
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
   });
 

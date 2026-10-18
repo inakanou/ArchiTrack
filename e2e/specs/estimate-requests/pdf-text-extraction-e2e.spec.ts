@@ -48,6 +48,7 @@ import {
 } from '../../helpers/ocr-observations';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -110,7 +111,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     // Task 115.127 段1: プロジェクト〜見積依頼の前提生成は共通の補助へ寄せる。
     // 3ファイルが同じ約110行を複製していたため、複製したまま個別に直すと再発する。
     // いずれかの作成に失敗した時点で補助の内側で失敗する。
-    const seed = await seedEstimateRequest(page, {
+    const seed = await seedEstimateRequest(page, 'ADMIN_USER', {
       label: 'PDF抽出E2Eテスト',
       siteAddress: '東京都港区テスト1-1-1',
       partnerEmail: 'test-pdf-extract@example.com',
@@ -665,7 +666,7 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     await loginAsUser(page, 'ADMIN_USER');
 
     // 認証トークン取得（localStorageから取得）
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'ADMIN_USER');
 
     // 見積依頼の削除
     if (createdEstimateRequestId) {

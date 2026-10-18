@@ -10,6 +10,7 @@
 import type { Page } from '@playwright/test';
 import { TEST_USERS, type TestUser } from './test-users';
 import { getTimeout, waitForAuthState } from './wait-helpers';
+import { waitForStoredSessionTokens } from './auth-api';
 
 /**
  * CI環境かどうかを判定
@@ -142,15 +143,7 @@ async function performLogin(
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
     // リフレッシュトークンとアクセストークンがlocalStorageに保存されるまで待機
-    await page.waitForFunction(
-      () => {
-        return (
-          localStorage.getItem('refreshToken') !== null &&
-          localStorage.getItem('accessToken') !== null
-        );
-      },
-      { timeout: getTimeout(10000), polling: 500 }
-    );
+    await waitForStoredSessionTokens(page, { timeout: getTimeout(10000), polling: 500 });
   }
 }
 
@@ -224,15 +217,7 @@ export async function loginWithCredentials(
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
     // リフレッシュトークンとアクセストークンがlocalStorageに保存されるまで待機
-    await page.waitForFunction(
-      () => {
-        return (
-          localStorage.getItem('refreshToken') !== null &&
-          localStorage.getItem('accessToken') !== null
-        );
-      },
-      { timeout: getTimeout(10000), polling: 500 }
-    );
+    await waitForStoredSessionTokens(page, { timeout: getTimeout(10000), polling: 500 });
   }
 }
 

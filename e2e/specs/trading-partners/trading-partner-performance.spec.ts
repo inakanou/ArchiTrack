@@ -16,7 +16,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
-import { TEST_USERS } from '../../helpers/test-users';
+import { loginViaApi } from '../../helpers/auth-api';
 
 // 所要時間は単調時計（performance.now()）で測る。壁時計（Date.now()）は時刻補正で飛ぶため、
 // 実際より長い所要を返しうる。WSL2 の pre-push では、テスト全体が 1 秒で終わった回に
@@ -48,15 +48,7 @@ test.describe('取引先機能パフォーマンステスト', () => {
     await createTestUser('ADMIN_USER');
 
     // Login to get access token
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: TEST_USERS.ADMIN_USER.email,
-        password: TEST_USERS.ADMIN_USER.password,
-      },
-    });
-    expect(loginResponse.ok()).toBeTruthy();
-
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
   });
 
@@ -209,15 +201,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     await createTestUser('ADMIN_USER');
 
     // Login
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: TEST_USERS.ADMIN_USER.email,
-        password: TEST_USERS.ADMIN_USER.password,
-      },
-    });
-    expect(loginResponse.ok()).toBeTruthy();
-
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
 
     // Create test trading partners in bulk using Prisma directly
@@ -515,15 +499,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
     await createTestUser('ADMIN_USER');
 
     // Login
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: TEST_USERS.ADMIN_USER.email,
-        password: TEST_USERS.ADMIN_USER.password,
-      },
-    });
-    expect(loginResponse.ok()).toBeTruthy();
-
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
 
     // Create a test trading partner

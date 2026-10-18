@@ -44,6 +44,7 @@ import {
   deleteProject,
   deleteTradingPartner,
 } from './helpers';
+import { getAccessToken } from '../../helpers/auth-api';
 
 test.describe('実行予算管理 - 作成・表示・一覧', () => {
   test.describe.configure({ mode: 'serial', retries: 0 });
@@ -480,7 +481,7 @@ test.describe('実行予算管理 - 作成・表示・一覧', () => {
     const tmpContractId = await createTestContract(request, token, tmpProjectId, tmpEstimateId);
 
     await loginAsUser(page, 'REGULAR_USER');
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).toBeTruthy();
 
     const res = await request.post(

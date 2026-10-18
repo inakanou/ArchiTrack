@@ -31,6 +31,7 @@ import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -103,7 +104,7 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
     expect(createdSurveyId).toBeTruthy();
 
     // API直接呼び出し用のアクセストークンを取得
-    accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
 
     // テスト画像をAPI経由でアップロード（2枚）
     const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');

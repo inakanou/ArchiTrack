@@ -23,6 +23,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { appendEstimateItem, buildNewEstimateItemNode } from '../../helpers/estimate-draft';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
 
 // ============================================================================
 // テストデータの金額設定
@@ -162,10 +163,7 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
 
       const baseUrl = API_BASE_URL;
 
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: { email: 'user@example.com', password: 'Password123!' },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
@@ -456,10 +454,7 @@ test.describe('サマリーセクション表示項目と順序 (REQ-39)', () =>
       const baseUrl = API_BASE_URL;
 
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: { email: 'user@example.com', password: 'Password123!' },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

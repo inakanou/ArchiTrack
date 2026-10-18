@@ -34,6 +34,7 @@ import {
   saveEstimateDraft,
   type EstimateItemNode,
 } from '../../helpers/estimate-draft';
+import { getAccessToken } from '../../helpers/auth-api';
 
 test.describe('見積項目の階層移動（画面操作と一括保存）', () => {
   test.describe.configure({ mode: 'serial' });
@@ -181,7 +182,7 @@ test.describe('見積項目の階層移動（画面操作と一括保存）', ()
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
 
       // 見積書を作成
@@ -224,7 +225,7 @@ test.describe('見積項目の階層移動（画面操作と一括保存）', ()
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetItemTree(page);
 
       const before = await fetchTree(page);
@@ -268,7 +269,7 @@ test.describe('見積項目の階層移動（画面操作と一括保存）', ()
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetItemTree(page);
 
       const before = await fetchTree(page);
@@ -312,7 +313,7 @@ test.describe('見積項目の階層移動（画面操作と一括保存）', ()
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetItemTree(page);
 
       const before = await fetchTree(page);
@@ -341,7 +342,7 @@ test.describe('見積項目の階層移動（画面操作と一括保存）', ()
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       await resetItemTree(page);
 
       const before = await fetchTree(page);

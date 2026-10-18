@@ -86,6 +86,7 @@ import { assertPrepared } from '../../helpers/preconditions';
 import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -415,7 +416,7 @@ test.describe('スキャンPDFのOCRフォールバック経路 (Task 115.157)',
   test('テスト前提データを作成する', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    const seed = await seedEstimateRequest(page, {
+    const seed = await seedEstimateRequest(page, 'ADMIN_USER', {
       label: 'スキャンPDF OCRフォールバックE2Eテスト',
       siteAddress: '東京都渋谷区テスト2-2-2',
       partnerEmail: 'test-scanned-pdf-ocr@example.com',
@@ -774,7 +775,7 @@ test.describe('スキャンPDFのOCRフォールバック経路 (Task 115.157)',
   test('テストデータをクリーンアップする', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'ADMIN_USER');
     const headers = { Authorization: `Bearer ${accessToken}` };
 
     if (createdEstimateRequestId) {

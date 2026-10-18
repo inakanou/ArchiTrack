@@ -58,6 +58,7 @@ import {
 } from '../../helpers/quantity-table-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ============================================================================
 // 定数
@@ -316,7 +317,7 @@ test.describe('写真選択ダイアログの一括取得とサムネイル表�
 
       createdProjectId = await createTestProject(page, 'REQ49_写真選択');
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       assertPrepared(accessToken, 'アクセストークン');
       authHeaders = { Authorization: `Bearer ${accessToken}` };
 
@@ -341,6 +342,7 @@ test.describe('写真選択ダイアログの一括取得とサムネイル表�
       for (let index = 0; index < SURVEY_COUNT; index += 1) {
         const seeded = await seedSurveyPhotosWithComments(
           page,
+          'REGULAR_USER',
           createdProjectId,
           `REQ49_調査${index + 1}`,
           Array.from({ length: PHOTOS_PER_SURVEY }, () => null),

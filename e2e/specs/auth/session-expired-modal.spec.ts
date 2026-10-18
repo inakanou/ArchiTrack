@@ -5,6 +5,7 @@ import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { assertPresent } from '../../helpers/preconditions';
+import { readStoredAccessToken, waitForStoredSessionTokens } from '../../helpers/auth-api';
 
 /**
  * セッション切れモーダル再認証のE2Eテスト
@@ -94,11 +95,7 @@ async function setupAuthenticatedProfilePage(page: import('@playwright/test').Pa
   await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
   // 認証が確立されていることを確認
-  await page.waitForFunction(
-    () =>
-      localStorage.getItem('refreshToken') !== null && localStorage.getItem('accessToken') !== null,
-    { timeout: getTimeout(15000), polling: 500 }
-  );
+  await waitForStoredSessionTokens(page, { timeout: getTimeout(15000), polling: 500 });
 }
 
 test.describe('セッション切れモーダル再認証', () => {
@@ -352,7 +349,7 @@ test.describe('セッション切れモーダル再認証', () => {
     await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
 
     // トークンが更新されていることを確認
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await readStoredAccessToken(page);
     expect(accessToken).toBe('renewed-access-token-12345');
   });
 

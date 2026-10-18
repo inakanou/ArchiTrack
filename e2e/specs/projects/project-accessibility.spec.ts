@@ -459,7 +459,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       // 検証対象のプロジェクトを前提として無条件に用意する。
       // 「無ければ画面から作る」条件分岐は、前提の生成が壊れても静かに素通りする経路になり、
       // 失敗が前提の崩れた地点ではなく後段の検証に現れるため置かない。
-      testProjectId = (await seedProject(page, 'アクセシビリティテスト')).id;
+      testProjectId = (await seedProject(page, 'REGULAR_USER', 'アクセシビリティテスト')).id;
 
       // 詳細ページに移動
       await page.goto(`/projects/${testProjectId}`);
@@ -488,7 +488,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       // 検証対象のプロジェクトを前提として無条件に用意する。
       // 「無ければ画面から作る」条件分岐は、前提の生成が壊れても静かに素通りする経路になり、
       // 失敗が前提の崩れた地点ではなく後段の検証に現れるため置かない。
-      testProjectId = (await seedProject(page, 'アクセシビリティ編集テスト')).id;
+      testProjectId = (await seedProject(page, 'REGULAR_USER', 'アクセシビリティ編集テスト')).id;
 
       // 詳細ページに移動して編集ボタンをクリック
       await page.goto(`/projects/${testProjectId}`);
@@ -613,7 +613,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       // 検証対象のプロジェクトを前提として無条件に用意する。
       // 「無ければ画面から作る」条件分岐は、前提の生成が壊れても静かに素通りする経路になり、
       // 失敗が前提の崩れた地点ではなく後段の検証に現れるため置かない。
-      testProjectId = (await seedProject(page, 'Escapeテスト')).id;
+      testProjectId = (await seedProject(page, 'REGULAR_USER', 'Escapeテスト')).id;
 
       // 管理者ユーザーに切り替え（削除ボタンを表示するため）
       await context.clearCookies();
@@ -795,7 +795,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      await seedProject(page, 'フォーカス表示一覧');
+      await seedProject(page, 'REGULAR_USER', 'フォーカス表示一覧');
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
       await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
@@ -862,7 +862,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      const project = await seedProject(page, 'フォーカス表示詳細');
+      const project = await seedProject(page, 'REGULAR_USER', 'フォーカス表示詳細');
       await page.goto(`/projects/${project.id}`);
       await page.waitForLoadState('networkidle');
       await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(10000) });
@@ -889,7 +889,7 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      const project = await seedProject(page, 'フォーカス表示編集');
+      const project = await seedProject(page, 'REGULAR_USER', 'フォーカス表示編集');
       await page.goto(`/projects/${project.id}/edit`);
       await page.waitForLoadState('networkidle');
       await expect(page.getByRole('heading', { name: /プロジェクトを編集/i })).toBeVisible({

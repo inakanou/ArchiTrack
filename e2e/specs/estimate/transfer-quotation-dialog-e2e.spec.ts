@@ -14,6 +14,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 受領見積書転記ダイアログ表示改善のE2Eテスト
@@ -116,10 +117,7 @@ test.describe('受領見積書転記ダイアログ表示改善 (REQ-35)', () =>
 
       const baseUrl = API_BASE_URL;
 
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: { email: 'user@example.com', password: 'Password123!' },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
@@ -430,10 +428,7 @@ test.describe('受領見積書転記ダイアログ表示改善 (REQ-35)', () =>
       const baseUrl = API_BASE_URL;
 
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: { email: 'user@example.com', password: 'Password123!' },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

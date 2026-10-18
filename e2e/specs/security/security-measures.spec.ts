@@ -4,6 +4,7 @@ import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * セキュリティ対策（脅威モデリング）のE2Eテスト
@@ -173,14 +174,7 @@ test.describe('セキュリティ対策', () => {
    */
   test('改ざんされたトークンでアクセスが拒否される', async ({ request }) => {
     // 正規のログインでトークンを取得
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    expect(loginResponse.status()).toBe(200);
-    const { accessToken } = (await loginResponse.json()) as { accessToken: string };
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
     assertPrepared(accessToken, '正規ログインで取得したアクセストークン');
 
     // 要件5.8: アクセストークンは EdDSA 署名の JWT であり、必ず
@@ -210,13 +204,7 @@ test.describe('セキュリティ対策', () => {
    * @requirement user-authentication/REQ-26.11
    */
   test('APIレスポンスにパスワードが含まれない', async ({ request }) => {
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // ユーザー情報を取得
     const userResponse = await request.get(`${API_BASE_URL}/api/v1/auth/me`, {

@@ -26,7 +26,7 @@ import {
 } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
-import { TEST_USERS } from '../../helpers/test-users';
+import { loginViaApi } from '../../helpers/auth-api';
 
 // 所要時間は単調時計（performance.now()）で測る。壁時計（Date.now()）は時刻補正で飛ぶため、
 // 実際より長い所要を返しうる。WSL2 の pre-push では、テスト全体が 1 秒で終わった回に
@@ -61,15 +61,7 @@ test.describe('プロジェクト機能パフォーマンステスト', () => {
     regularUserId = regularUser.id;
 
     // Login to get access token (use admin for authentication)
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: TEST_USERS.ADMIN_USER.email,
-        password: TEST_USERS.ADMIN_USER.password,
-      },
-    });
-    expect(loginResponse.ok()).toBeTruthy();
-
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
   });
 
@@ -219,15 +211,7 @@ test.describe('大量データでのパフォーマンステスト', () => {
     regularUserId = regularUser.id;
 
     // Login
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: TEST_USERS.ADMIN_USER.email,
-        password: TEST_USERS.ADMIN_USER.password,
-      },
-    });
-    expect(loginResponse.ok()).toBeTruthy();
-
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
 
     // Create test projects in bulk using Prisma directly
@@ -442,15 +426,7 @@ test.describe('フロントエンドページロードパフォーマンス', ()
     regularUserId = regularUser.id;
 
     // Login
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: TEST_USERS.ADMIN_USER.email,
-        password: TEST_USERS.ADMIN_USER.password,
-      },
-    });
-    expect(loginResponse.ok()).toBeTruthy();
-
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
 
     // Create a test project

@@ -83,6 +83,7 @@ import {
 import { assertPrepared } from '../../helpers/preconditions';
 import { getPrismaClient } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ============================================================================
 // 定数
@@ -361,7 +362,7 @@ test.describe('数量グループ数によらない編集画面の画像リク�
 
       createdProjectId = await createTestProject(page, 'REQ49_件数計測');
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       assertPrepared(accessToken, 'アクセストークン');
       const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
@@ -384,6 +385,7 @@ test.describe('数量グループ数によらない編集画面の画像リク�
       // 主張は、注釈がある状態でなければ何も述べていないことになる。
       const measuredSurvey = await seedSurveyPhotosWithComments(
         page,
+        'REGULAR_USER',
         createdProjectId,
         'REQ49_計測',
         Array.from({ length: GROUP_COUNT }, () => null),
@@ -410,6 +412,7 @@ test.describe('数量グループ数によらない編集画面の画像リク�
       // キーであるため、「どの表示元が採用されたか」をパスで一意に判別できる。
       const donorSurvey = await seedSurveyPhotosWithComments(
         page,
+        'REGULAR_USER',
         createdProjectId,
         'REQ49_供給',
         Array.from({ length: COMPOSED_THUMBNAIL_COUNT }, () => null),
@@ -597,7 +600,7 @@ test.describe('数量グループ数によらない編集画面の画像リク�
     const page = await context.newPage();
     try {
       await loginAsUser(page, 'ADMIN_USER');
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'ADMIN_USER');
       const deleteResponse = await page.request.delete(
         `${API_BASE_URL}/api/projects/${createdProjectId}`,
         { headers: { Authorization: `Bearer ${accessToken}` } }

@@ -29,7 +29,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
-import { TEST_USERS } from '../../helpers/test-users';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * パンくずナビゲーション要素を取得するヘルパー
@@ -57,14 +57,7 @@ test.describe('見積依頼画面パンくずナビゲーション（REQ-29）',
     test('API 経由でプロジェクト・取引先・内訳書・見積依頼を作成する', async ({ request }) => {
       const baseUrl = API_BASE_URL;
 
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: TEST_USERS.REGULAR_USER.email,
-          password: TEST_USERS.REGULAR_USER.password,
-        },
-      });
-      expect(loginResponse.ok()).toBe(true);
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
@@ -377,13 +370,7 @@ test.describe('見積依頼画面パンくずナビゲーション（REQ-29）',
       const baseUrl = API_BASE_URL;
 
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: TEST_USERS.REGULAR_USER.email,
-            password: TEST_USERS.REGULAR_USER.password,
-          },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

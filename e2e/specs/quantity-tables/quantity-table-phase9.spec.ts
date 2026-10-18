@@ -88,6 +88,7 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
       // 写真選択ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
       await seedSurveyPhotosWithComments(
         page,
+        'REGULAR_USER',
         projectId,
         'Phase9_現場調査',
         [PHASE9_PHOTO_COMMENT],

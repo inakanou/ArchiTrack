@@ -31,6 +31,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /**
  * 受領見積書フォームを確実に初期状態で開く
@@ -82,7 +83,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
     await loginAsUser(page, 'REGULAR_USER');
 
     // トークン取得
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).not.toBe('');
 
     // 担当者候補を取得
@@ -205,7 +206,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       // Claude Vision APIをインターセプトして成功レスポンスを返す
       await page.route('**/api/claude-vision/extract', async (route) => {
@@ -312,7 +313,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       // Claude Vision APIをインターセプトして503を返す（API無効）
       await page.route('**/api/claude-vision/extract', async (route) => {
@@ -370,7 +371,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
    */
   test('テストデータをクリーンアップする', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
 
     // 見積依頼の受領見積書を削除
     if (createdEstimateRequestId && createdProjectId) {

@@ -36,6 +36,7 @@ import {
 } from '../../helpers/ocr-observations';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -134,7 +135,7 @@ test.describe('OCR再実行・リトライ機能', () => {
 
   test.beforeEach(async ({ page }) => {
     // localStorageからトークンを取得
-    const token = await page.evaluate(() => localStorage.getItem('accessToken')).catch(() => null);
+    const token = await getAccessToken(page, 'ADMIN_USER').catch(() => null);
     if (token) {
       accessToken = token;
     }
@@ -146,7 +147,7 @@ test.describe('OCR再実行・リトライ機能', () => {
     // Task 115.127 段1: プロジェクト〜見積依頼の前提生成は共通の補助へ寄せる。
     // 3ファイルが同じ約110行を複製していたため、複製したまま個別に直すと再発する。
     // いずれかの作成に失敗した時点で補助の内側で失敗する。
-    const seed = await seedEstimateRequest(page, {
+    const seed = await seedEstimateRequest(page, 'ADMIN_USER', {
       label: 'OCRリトライテスト',
       siteAddress: '東京都千代田区',
       partnerEmail: 'test-ocr@example.com',
@@ -210,7 +211,7 @@ test.describe('OCR再実行・リトライ機能', () => {
     });
 
     // 保存された受領見積書のIDを取得（一覧から）
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'ADMIN_USER');
 
     const quotationsRes = await page.request.get(
       `${API_BASE_URL}/api/estimate-requests/${createdEstimateRequestId}/quotations`,
@@ -726,7 +727,7 @@ test.describe('OCR再実行・リトライ機能', () => {
   test('テストデータをクリーンアップする', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'ADMIN_USER');
 
     // 受領見積書の削除
     if (createdQuotationId) {

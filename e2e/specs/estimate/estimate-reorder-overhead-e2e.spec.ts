@@ -30,6 +30,7 @@ import {
   getEstimateUpdatedAt,
   saveEstimateDraft,
 } from '../../helpers/estimate-draft';
+import { getAccessToken } from '../../helpers/auth-api';
 
 interface ApiLine {
   lineType: string;
@@ -110,7 +111,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
 
       const estimateResponse = await page.request.post(
@@ -180,7 +181,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       // 現在の表示順を取得し、2番目の項目を対象にする
       const before = await fetchRootItemsOrdered(page.request);
@@ -243,7 +244,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       const before = await fetchRootItemsOrdered(page.request);
       expect(before.length).toBeGreaterThanOrEqual(2);
@@ -308,7 +309,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       const before = await fetchRootItemsOrdered(page.request);
       const beforeCount = before.length;

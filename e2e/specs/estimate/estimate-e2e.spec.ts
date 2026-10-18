@@ -56,6 +56,7 @@ import {
 } from '../../helpers/estimate-draft';
 import type { SaveNodePayload } from '../../helpers/estimate-draft';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken, loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 見積書機能のE2Eテスト
@@ -221,13 +222,7 @@ test.describe('見積書機能', () => {
 
         // APIトークンを取得
         const baseUrl = API_BASE_URL;
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
 
         // グループを作成
@@ -532,7 +527,7 @@ test.describe('見積書機能', () => {
         expect(createdEstimateIdWithoutItemizedStatement).toBeTruthy();
 
         await loginAsUser(page, 'REGULAR_USER');
-        const token = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+        const token = await getAccessToken(page, 'REGULAR_USER');
         expect(token).toBeTruthy();
 
         // 5階層の入れ子を作る（最も深い項目から順に親へ包んでいく）
@@ -1228,13 +1223,7 @@ test.describe('見積書機能', () => {
 
       // アクセストークンが無い場合は再取得
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

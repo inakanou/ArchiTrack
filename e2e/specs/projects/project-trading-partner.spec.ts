@@ -523,7 +523,7 @@ test.describe('プロジェクト取引先連携', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 一覧に行が無いとテーブルごと描画されないため、前提を自分で用意する
-      await seedProject(page, 'E2E一覧顧客名カラム');
+      await seedProject(page, 'REGULAR_USER', 'E2E一覧顧客名カラム');
 
       // プロジェクト一覧ページに移動
       await page.goto('/projects');
@@ -563,7 +563,7 @@ test.describe('プロジェクト取引先連携', () => {
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      const partner = await seedTradingPartner(page, 'E2E顧客ID設定');
+      const partner = await seedTradingPartner(page, 'REGULAR_USER', 'E2E顧客ID設定');
 
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
@@ -608,10 +608,10 @@ test.describe('プロジェクト取引先連携', () => {
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      const project = await seedProject(page, 'E2E編集顧客検索');
+      const project = await seedProject(page, 'REGULAR_USER', 'E2E編集顧客検索');
       // 絞り込みを主張するため、検索テキストに一致する取引先と一致しない取引先を用意する
-      const matching = await seedTradingPartner(page, 'E2E編集検索一致');
-      const other = await seedTradingPartner(page, 'E2E編集検索不一致');
+      const matching = await seedTradingPartner(page, 'REGULAR_USER', 'E2E編集検索一致');
+      const other = await seedTradingPartner(page, 'REGULAR_USER', 'E2E編集検索不一致');
 
       await page.goto(`/projects/${project.id}/edit`);
       await page.waitForLoadState('networkidle');
@@ -654,8 +654,8 @@ test.describe('プロジェクト取引先連携', () => {
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      const first = await seedTradingPartner(page, 'E2E併用UI甲');
-      const second = await seedTradingPartner(page, 'E2E併用UI乙');
+      const first = await seedTradingPartner(page, 'REGULAR_USER', 'E2E併用UI甲');
+      const second = await seedTradingPartner(page, 'REGULAR_USER', 'E2E併用UI乙');
 
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
@@ -707,7 +707,7 @@ test.describe('プロジェクト取引先連携', () => {
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      const partner = await seedTradingPartner(page, 'E2E顧客表示形式', {
+      const partner = await seedTradingPartner(page, 'REGULAR_USER', 'E2E顧客表示形式', {
         branchName: '新宿支店',
         representativeName: '形式 花子',
       });

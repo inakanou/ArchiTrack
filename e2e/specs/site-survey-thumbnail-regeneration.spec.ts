@@ -62,6 +62,7 @@ import { waitForFabricCanvas } from '../helpers/fabric-canvas';
 import { API_BASE_URL } from '../config';
 import { selectFirstRealOption } from '../helpers/form-preconditions';
 import { assertPrepared } from '../helpers/preconditions';
+import { getAccessToken, type AuthUserRef } from '../helpers/auth-api';
 
 // ============================================================================
 // 定数
@@ -432,17 +433,17 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
   };
 
   /** ログイン済みページの認証ヘッダを組み立てる */
-  async function getAuthHeaders(page: Page): Promise<Record<string, string>> {
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+  async function getAuthHeaders(page: Page, user: AuthUserRef): Promise<Record<string, string>> {
+    const accessToken = await getAccessToken(page, user);
     expect(accessToken, 'アクセストークンが取得できる').toBeTruthy();
     return { Authorization: `Bearer ${accessToken}` };
   }
 
   /** 詳細画面が実際に用いる取得経路から画像一覧を読む */
-  async function fetchDetailImages(page: Page): Promise<DetailImage[]> {
+  async function fetchDetailImages(page: Page, user: AuthUserRef): Promise<DetailImage[]> {
     const response = await page.request.get(
       `${API_BASE_URL}${surveyDetailPath(createdSurveyId!)}`,
-      { headers: await getAuthHeaders(page) }
+      { headers: await getAuthHeaders(page, user) }
     );
     expect(response.ok(), '現場調査詳細の取得が成功する').toBeTruthy();
     return ((await response.json()) as { images: DetailImage[] }).images;
@@ -653,7 +654,7 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
     fileName: string,
     expectedPath: string
   ): Promise<{ analysis: ThumbnailAnalysis; bytes: Buffer; image: DetailImage }> {
-    const images = await fetchDetailImages(page);
+    const images = await fetchDetailImages(page, 'REGULAR_USER');
     const image = imageOf(images, fileName);
     const baseline = imageOf(baselineImages, fileName);
 
@@ -757,7 +758,7 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
       createdProjectId = page.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
       expect(createdProjectId).toBeTruthy();
 
-      const authHeaders = await getAuthHeaders(page);
+      const authHeaders = await getAuthHeaders(page, 'REGULAR_USER');
 
       // --- 現場調査作成 ---
       const surveyDate = new Date().toISOString().split('T')[0]!;
@@ -787,7 +788,7 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
         expect(uploadResponse.ok(), `画像の登録が成功する: ${fileName}`).toBeTruthy();
       }
 
-      baselineImages = await fetchDetailImages(page);
+      baselineImages = await fetchDetailImages(page, 'REGULAR_USER');
       expect(baselineImages).toHaveLength(Object.keys(IMAGE_FILE_NAMES).length);
 
       for (const fileName of Object.values(IMAGE_FILE_NAMES)) {
@@ -962,7 +963,7 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
       .toBe(1);
 
     // 詳細画面が用いる取得経路で、表示元が保存時のまま保たれていることを確認する
-    const images = await fetchDetailImages(page);
+    const images = await fetchDetailImages(page, 'REGULAR_USER');
     const image = imageOf(images, IMAGE_FILE_NAMES.rotationAndAnnotation);
     expect(image.annotatedThumbnailPath, '表示元が保存時のキーのまま保たれる').toBe(
       savedRotatedAnnotatedPath
@@ -997,7 +998,7 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
       await loginAsUser(page, 'ADMIN_USER');
       const deleteResponse = await page.request.delete(
         `${API_BASE_URL}/api/projects/${createdProjectId}`,
-        { headers: await getAuthHeaders(page) }
+        { headers: await getAuthHeaders(page, 'ADMIN_USER') }
       );
       expect([200, 204, 404]).toContain(deleteResponse.status());
     } finally {

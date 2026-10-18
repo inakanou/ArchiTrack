@@ -10,6 +10,11 @@ import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForAuthState, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import {
+  getAccessToken,
+  readStoredAccessToken,
+  waitForStoredSessionTokens,
+} from '../../helpers/auth-api';
 
 /**
  * トークンリフレッシュ機能のE2Eテスト
@@ -64,12 +69,7 @@ test.describe('トークンリフレッシュ機能', () => {
     // initializeAuthが完了してトークンが保存されるまで待機
     // Note: loginAsUserで取得したトークンがinitializeAuthでローテーションされるため、
     // 新しいトークンが保存されるまで待機する必要がある
-    await page.waitForFunction(
-      () =>
-        localStorage.getItem('refreshToken') !== null &&
-        localStorage.getItem('accessToken') !== null,
-      { timeout: getTimeout(15000), polling: 500 }
-    );
+    await waitForStoredSessionTokens(page, { timeout: getTimeout(15000), polling: 500 });
 
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
       timeout: getTimeout(10000),
@@ -103,17 +103,18 @@ test.describe('トークンリフレッシュ機能', () => {
     });
 
     // ユーザー情報を取得するAPIリクエストを発行（route interceptで401を返すがリフレッシュフローをトリガー）
-    await page.evaluate(async () => {
+    const accessToken = await getAccessToken(page, 'REGULAR_USER');
+    await page.evaluate(async (token) => {
       try {
         await fetch('/api/v1/auth/me', {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem('accessToken') || ''}`,
+            Authorization: `Bearer ${token}`,
           },
         });
       } catch {
         // エラーは無視（route intercept で 401 を返すため）
       }
-    });
+    }, accessToken);
 
     // プロフィールページをリロードして、リフレッシュ後もアクセスできることを確認
     await page.reload();
@@ -363,7 +364,7 @@ test.describe('トークンリフレッシュ機能', () => {
     await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(15000) });
 
     // 要件16.19: localStorageからトークンが削除されている
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await readStoredAccessToken(page);
     const refreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
     expect(accessToken).toBeNull();
     expect(refreshToken).toBeNull();
@@ -632,7 +633,7 @@ test.describe('トークンリフレッシュ機能', () => {
 
     // アプリが保持したトークンも同じもの（画面の後続の要求がこのペイロードで認証される）
     await expect(page).toHaveURL(/\/dashboard|\/$/);
-    const storedToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    const storedToken = await readStoredAccessToken(page);
     expect(storedToken).toBe(accessToken);
   });
 

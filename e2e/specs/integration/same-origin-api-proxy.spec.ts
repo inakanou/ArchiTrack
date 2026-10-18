@@ -24,7 +24,7 @@
  *   送ると中継の上限を経由せず、本ファイルの主張が恒真になるため。
  */
 
-import { test, expect, type Page, type Response } from '@playwright/test';
+import { test, expect, type Response } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -33,6 +33,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedProject } from '../../helpers/project-list-preconditions';
 import { FRONTEND_BASE_URL, SAME_ORIGIN_API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -91,15 +92,6 @@ function buildPaddedJpeg(targetSize: number): Buffer {
   return padded;
 }
 
-/**
- * ログイン済みのページからアクセストークンを得る。
- */
-async function getAccessToken(page: Page): Promise<string> {
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-  assertPrepared(accessToken, '認証トークン');
-  return accessToken;
-}
-
 test.describe('画面の配信元から API を同一オリジンへ中継する構成（user-authentication 44.7）', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -117,7 +109,7 @@ test.describe('画面の配信元から API を同一オリジンへ中継する
     const page = await context.newPage();
     try {
       await loginAsUser(page, 'ADMIN_USER');
-      const headers = { Authorization: `Bearer ${await getAccessToken(page)}` };
+      const headers = { Authorization: `Bearer ${await getAccessToken(page, 'ADMIN_USER')}` };
       for (const imageId of uploadedImageIds) {
         await page.request.delete(
           `${SAME_ORIGIN_API_BASE_URL}/api/construction-photos/images/${imageId}`,
@@ -200,10 +192,10 @@ test.describe('画面の配信元から API を同一オリジンへ中継する
 
   test('事前準備: 写真を送るアルバムを作る', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
-    const project = await seedProject(page, '同一オリジン中継E2E');
+    const project = await seedProject(page, 'ADMIN_USER', '同一オリジン中継E2E');
     projectId = project.id;
 
-    const headers = { Authorization: `Bearer ${await getAccessToken(page)}` };
+    const headers = { Authorization: `Bearer ${await getAccessToken(page, 'ADMIN_USER')}` };
     const albumResponse = await page.request.post(
       `${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}/construction-photos`,
       { headers, data: { name: `同一オリジン中継E2E_${Date.now()}` } }
@@ -220,7 +212,7 @@ test.describe('画面の配信元から API を同一オリジンへ中継する
   test('10MB に近い画像 1 枚のアップロードが画面と同じオリジンで成功する', async ({ page }) => {
     assertPrepared(albumId, 'アルバムID（事前準備のテスト）');
     await loginAsUser(page, 'ADMIN_USER');
-    const headers = { Authorization: `Bearer ${await getAccessToken(page)}` };
+    const headers = { Authorization: `Bearer ${await getAccessToken(page, 'ADMIN_USER')}` };
 
     const image = buildPaddedJpeg(NEAR_LIMIT_SIZE);
     const form = new FormData();
@@ -251,7 +243,7 @@ test.describe('画面の配信元から API を同一オリジンへ中継する
     assertPrepared(albumId, 'アルバムID（事前準備のテスト）');
     test.setTimeout(getTimeout(240000));
     await loginAsUser(page, 'ADMIN_USER');
-    const headers = { Authorization: `Bearer ${await getAccessToken(page)}` };
+    const headers = { Authorization: `Bearer ${await getAccessToken(page, 'ADMIN_USER')}` };
 
     const image = new Uint8Array(buildPaddedJpeg(NEAR_LIMIT_SIZE));
     const fileNames = Array.from(

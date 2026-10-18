@@ -80,7 +80,7 @@ test.describe('取引先オートコンプリート連携', () => {
       // REQ-16.10 は「候補をクリックすると選択された顧客を設定する」ことを定める。
       // 「-- 選択なし --」以外の候補が無いと主張が一つも実行されないため、
       // クリック対象となる取引先をテスト自身が用意する。
-      const partner = await seedTradingPartner(page, 'E2E候補クリック');
+      const partner = await seedTradingPartner(page, 'REGULAR_USER', 'E2E候補クリック');
 
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
@@ -326,7 +326,7 @@ test.describe('取引先オートコンプリート連携', () => {
 
       // REQ-16.4 は候補の表示形式を定める。候補が1件も無いと形式の主張が一つも実行されないため、
       // 「名前・部課・代表者名」がすべて揃った候補をテスト自身が用意する。
-      const partner = await seedTradingPartner(page, 'E2E候補表示形式', {
+      const partner = await seedTradingPartner(page, 'REGULAR_USER', 'E2E候補表示形式', {
         branchName: '渋谷支店',
         representativeName: '検証 太郎',
       });

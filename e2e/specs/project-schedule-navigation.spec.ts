@@ -30,6 +30,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../helpers/auth-actions';
 import { getTimeout } from '../helpers/wait-helpers';
 import { API_BASE_URL } from '../config';
+import { getAccessToken } from '../helpers/auth-api';
 
 test.describe('プロジェクト詳細画面 - 工程表セクション', () => {
   test.describe.configure({ mode: 'serial', retries: 0 });
@@ -45,11 +46,6 @@ test.describe('プロジェクト詳細画面 - 工程表セクション', () =>
   // ============================================================================
   // ヘルパー関数
   // ============================================================================
-
-  async function getAccessToken(page: import('@playwright/test').Page): Promise<string> {
-    const token = await page.evaluate(() => localStorage.getItem('accessToken'));
-    return token ?? '';
-  }
 
   async function apiRequest(
     page: import('@playwright/test').Page,
@@ -99,7 +95,7 @@ test.describe('プロジェクト詳細画面 - 工程表セクション', () =>
 
   test('準備：テスト用プロジェクト・工程表を作成する', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await getAccessToken(page);
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).toBeTruthy();
 
     // 担当者一覧を取得
@@ -292,7 +288,7 @@ test.describe('プロジェクト詳細画面 - 工程表セクション', () =>
     await loginAsUser(page, 'REGULAR_USER');
 
     if (!accessToken) {
-      accessToken = await getAccessToken(page);
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
     }
 
     // 工程表なしの新規プロジェクトを作成
@@ -345,7 +341,7 @@ test.describe('プロジェクト詳細画面 - 工程表セクション', () =>
     await loginAsUser(page, 'REGULAR_USER');
 
     if (!accessToken) {
-      accessToken = await getAccessToken(page);
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
     }
 
     // detail-summary APIを直接呼び出して構造を検証
@@ -393,7 +389,7 @@ test.describe('プロジェクト詳細画面 - 工程表セクション', () =>
     await loginAsUser(page, 'REGULAR_USER');
 
     if (!accessToken) {
-      accessToken = await getAccessToken(page);
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
     }
 
     // detail-summary APIを呼び出し、schedulesセクションの構造がデフォルト値を返せる形式であることを検証

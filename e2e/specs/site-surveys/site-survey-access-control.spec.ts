@@ -16,12 +16,12 @@
 import { test, expect } from '@playwright/test';
 import { API_BASE_URL } from '../../config';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { TEST_USERS } from '../../helpers/test-users';
 import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken, loginViaApi, type AuthUserRef } from '../../helpers/auth-api';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -390,7 +390,7 @@ test.describe('現場調査アクセス制御', () => {
 
       // 認証済みかつアクセス権限を持つユーザーには画像URLが払い出される
       await loginAsUser(page, 'REGULAR_USER');
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken, 'ログイン後にアクセストークンが保持されている').toBeTruthy();
 
       const authenticatedImages = await request.get(
@@ -459,17 +459,10 @@ test.describe('現場調査アクセス制御', () => {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
 
-      const loginViaApi = async (
-        user: (typeof TEST_USERS)[keyof typeof TEST_USERS]
+      const loginAs = async (
+        user: AuthUserRef
       ): Promise<{ userId: string; roles: string[]; accessToken: string }> => {
-        const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-          data: { email: user.email, password: user.password },
-        });
-        expect(response.status(), `${user.email} のログインが成功する`).toBe(200);
-        const body = (await response.json()) as {
-          accessToken: string;
-          user: { id: string; roles: string[] };
-        };
+        const body = await loginViaApi(request, user);
         return { userId: body.user.id, roles: body.user.roles, accessToken: body.accessToken };
       };
 
@@ -484,8 +477,8 @@ test.describe('現場調査アクセス制御', () => {
         return (await response.json()) as Array<{ id: string; originalUrl: string | null }>;
       };
 
-      const member = await loginViaApi(TEST_USERS.REGULAR_USER);
-      const outsider = await loginViaApi(TEST_USERS.REGULAR_USER_2);
+      const member = await loginAs('REGULAR_USER');
+      const outsider = await loginAs('REGULAR_USER_2');
 
       // 前提の検証: 別人であり、かつ関係者でなくても払い出されるadminロールを持たないこと
       expect(outsider.userId, '非関係者はプロジェクト作成者とは別のユーザーである').not.toBe(

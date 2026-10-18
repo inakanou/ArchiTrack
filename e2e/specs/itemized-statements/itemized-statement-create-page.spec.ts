@@ -19,6 +19,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 内訳書専用作成画面のE2Eテスト
@@ -119,13 +120,7 @@ test.describe('内訳書専用作成画面', () => {
       const baseUrl = API_BASE_URL;
 
       // APIトークンを取得（ログインAPIから）
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // グループを作成
@@ -590,13 +585,7 @@ test.describe('内訳書専用作成画面', () => {
       const baseUrl = API_BASE_URL;
 
       // APIトークンを取得
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // プロジェクトを削除（権限エラーが発生する可能性があるため、成功しなくても良い）

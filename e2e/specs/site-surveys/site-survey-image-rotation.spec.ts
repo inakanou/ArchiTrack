@@ -28,6 +28,7 @@ import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { waitForFabricCanvas } from '../../helpers/fabric-canvas';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /**
  * PNG のチャンク CRC32 を計算する
@@ -196,7 +197,7 @@ test.describe('現場調査画像回転機能', () => {
       // 画像をAPIで直接アップロード（正方形でない画像を用意する）
       const landscapeImage = buildPng(LANDSCAPE_IMAGE_WIDTH, LANDSCAPE_IMAGE_HEIGHT);
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       const uploadResponse = await page.request.post(
         `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
@@ -679,7 +680,7 @@ test.describe('現場調査画像回転機能', () => {
     try {
       await loginAsUser(page, 'ADMIN_USER');
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'ADMIN_USER');
 
       const deleteResponse = await page.request.delete(
         `${API_BASE_URL}/api/projects/${createdProjectId}`,

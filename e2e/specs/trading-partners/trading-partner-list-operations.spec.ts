@@ -618,7 +618,7 @@ test.describe('取引先一覧操作', () => {
       // REQ-1.5 は「取引先が存在する場合」を条件とする。TradingPartnerListPage は
       // tradingPartners.length > 0 のときだけページネーションを描画するため、
       // その条件自体を前提として用意し、以降の主張を無条件にする。
-      await seedTradingPartner(page, 'E2Eページネーション表示');
+      await seedTradingPartner(page, 'REGULAR_USER', 'E2Eページネーション表示');
 
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');
@@ -642,7 +642,7 @@ test.describe('取引先一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // ページネーションは取引先が1件以上あるときだけ描画される。前提を自分で用意する。
-      await seedTradingPartner(page, 'E2E表示件数10');
+      await seedTradingPartner(page, 'REGULAR_USER', 'E2E表示件数10');
 
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');
@@ -666,7 +666,7 @@ test.describe('取引先一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // ページネーションは取引先が1件以上あるときだけ描画される。前提を自分で用意する。
-      await seedTradingPartner(page, 'E2E表示件数50');
+      await seedTradingPartner(page, 'REGULAR_USER', 'E2E表示件数50');
 
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');
@@ -690,7 +690,7 @@ test.describe('取引先一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 2ページ目が必ず存在する件数を用意する（既存データの件数に依存させない）
-      await seedTradingPartnersForSecondPage(page, 'E2Eページ番号');
+      await seedTradingPartnersForSecondPage(page, 'REGULAR_USER', 'E2Eページ番号');
 
       // 表示件数を少なくしてページ数を増やす
       await page.goto(`/trading-partners?limit=${PAGINATED_LIMIT}`);
@@ -720,7 +720,7 @@ test.describe('取引先一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 2ページ目が必ず存在する件数を用意する（既存データの件数に依存させない）
-      await seedTradingPartnersForSecondPage(page, 'E2E前ページ移動');
+      await seedTradingPartnersForSecondPage(page, 'REGULAR_USER', 'E2E前ページ移動');
 
       // ページ2で開始
       await page.goto(`/trading-partners?limit=${PAGINATED_LIMIT}&page=2`);
@@ -751,7 +751,7 @@ test.describe('取引先一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 2ページ目が必ず存在する件数を用意する（既存データの件数に依存させない）
-      await seedTradingPartnersForSecondPage(page, 'E2E次ページ移動');
+      await seedTradingPartnersForSecondPage(page, 'REGULAR_USER', 'E2E次ページ移動');
 
       // 表示件数を少なくしてページ数を増やす
       await page.goto(`/trading-partners?limit=${PAGINATED_LIMIT}`);
@@ -780,7 +780,7 @@ test.describe('取引先一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // ページネーションは取引先が1件以上あるときだけ描画される。前提を自分で用意する。
-      await seedTradingPartner(page, 'E2E前ページ無効');
+      await seedTradingPartner(page, 'REGULAR_USER', 'E2E前ページ無効');
 
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');
@@ -799,7 +799,7 @@ test.describe('取引先一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 2ページ目が必ず存在する件数を用意する（既存データの件数に依存させない）
-      await seedTradingPartnersForSecondPage(page, 'E2E最終ページ');
+      await seedTradingPartnersForSecondPage(page, 'REGULAR_USER', 'E2E最終ページ');
 
       await page.goto(`/trading-partners?limit=${PAGINATED_LIMIT}`);
       await page.waitForLoadState('networkidle');
@@ -832,7 +832,7 @@ test.describe('取引先一覧操作', () => {
 
       // 検索語「テスト」と種別「顧客」の双方に一致する取引先を用意する。
       // 結果が0件だと表もページネーションも描画されず、Step 3・Step 4 が沈黙するため。
-      await seedTradingPartner(page, 'テスト統合フロー');
+      await seedTradingPartner(page, 'REGULAR_USER', 'テスト統合フロー');
 
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');

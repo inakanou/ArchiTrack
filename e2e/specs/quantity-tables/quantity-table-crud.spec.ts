@@ -50,6 +50,7 @@ import {
   openEditPageWithSingleItemRow,
 } from '../../helpers/quantity-table-preconditions';
 import { breadcrumbNav, readBreadcrumbTrail } from '../../helpers/breadcrumb';
+import { getAccessToken, type AuthUserRef } from '../../helpers/auth-api';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -207,8 +208,8 @@ test.describe('数量表CRUD操作', () => {
    * @param page - ログイン済みのページ
    * @returns Authorization ヘッダを含むヘッダ表
    */
-  async function apiAuthHeaders(page: Page): Promise<Record<string, string>> {
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+  async function apiAuthHeaders(page: Page, user: AuthUserRef): Promise<Record<string, string>> {
+    const accessToken = await getAccessToken(page, user);
     expect(accessToken, 'アクセストークンが取得できる').toBeTruthy();
     return { Authorization: `Bearer ${accessToken}` };
   }
@@ -411,14 +412,18 @@ test.describe('数量表CRUD操作', () => {
       );
       const unannotatedUploadResponse = await page.request.post(
         `${API_BASE_URL}/api/site-surveys/${seedSurveyId}/images`,
-        { headers: await apiAuthHeaders(page), multipart: unannotatedUploadForm }
+        { headers: await apiAuthHeaders(page, 'REGULAR_USER'), multipart: unannotatedUploadForm }
       );
       expect(
         unannotatedUploadResponse.ok(),
         `前提: 注釈なし写真のアップロードが成功する (status=${unannotatedUploadResponse.status()})`
       ).toBeTruthy();
 
-      const surveyImages = await fetchSurveyImagesInDisplayOrder(page, seedSurveyId);
+      const surveyImages = await fetchSurveyImagesInDisplayOrder(
+        page,
+        'REGULAR_USER',
+        seedSurveyId
+      );
       expect(surveyImages.length, '前提: 現場調査に写真が2枚ある').toBe(2);
 
       const unannotatedImage = surveyImages.find((image) => image.fileName === unannotatedFileName);
@@ -426,7 +431,7 @@ test.describe('数量表CRUD操作', () => {
       const annotatedImage = surveyImages.find((image) => image.fileName !== unannotatedFileName);
       assertPresent(annotatedImage, '注釈を保存する写真');
 
-      await saveSurveyImageAnnotation(page, annotatedImage, 'undrawn');
+      await saveSurveyImageAnnotation(page, 'REGULAR_USER', annotatedImage, 'undrawn');
 
       annotatedPhotoFileName = annotatedImage.fileName;
       unannotatedPhotoFileName = unannotatedImage.fileName;
@@ -1288,7 +1293,7 @@ test.describe('数量表CRUD操作', () => {
       // 取得経路（GET /api/quantity-tables/:id）の応答を基準に行う。命名を前提にすると、
       // 合成済みサムネイル（annotated-thumbnails/... 区画）が表示元になった時点で
       // 判定が成立しなくなる。
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       const detailResponse = await page.request.get(
         `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -1923,7 +1928,7 @@ test.describe('数量表CRUD操作', () => {
 
       // 前提0: 移動対象の数量項目を検証自身がAPIで用意する
       // （先行する無関係な検証の副作用に依存しないため、この検証だけを実行しても成立させる）
-      const seedHeaders = await apiAuthHeaders(page);
+      const seedHeaders = await apiAuthHeaders(page, 'REGULAR_USER');
       const seedTableResponse = await page.request.get(
         `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
         { headers: seedHeaders }
@@ -2234,8 +2239,11 @@ test.describe('数量表CRUD操作', () => {
     const SORT_EXPECTED_ORDER = [`${SORT_PREFIX}あ`, `${SORT_PREFIX}い`, `${SORT_PREFIX}う`];
 
     /** ログイン済みページの認証ヘッダを組み立てる */
-    async function autocompleteAuthHeaders(page: Page): Promise<Record<string, string>> {
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    async function autocompleteAuthHeaders(
+      page: Page,
+      user: AuthUserRef
+    ): Promise<Record<string, string>> {
+      const accessToken = await getAccessToken(page, user);
       expect(accessToken, 'アクセストークンが取得できる').toBeTruthy();
       return { Authorization: `Bearer ${accessToken}` };
     }
@@ -2255,7 +2263,7 @@ test.describe('数量表CRUD操作', () => {
       page: Page,
       seeds: Record<string, string>[]
     ): Promise<void> {
-      const headers = await autocompleteAuthHeaders(page);
+      const headers = await autocompleteAuthHeaders(page, 'REGULAR_USER');
 
       const tableResponse = await page.request.get(
         `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
@@ -2341,7 +2349,7 @@ test.describe('数量表CRUD操作', () => {
         'AC別プロジェクト数量表'
       );
 
-      const headers = await autocompleteAuthHeaders(page);
+      const headers = await autocompleteAuthHeaders(page, 'REGULAR_USER');
 
       const groupResponse = await page.request.post(
         `${API_BASE_URL}/api/quantity-tables/${foreignTable.id}/groups`,
@@ -4716,7 +4724,7 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      const headers = await apiAuthHeaders(page);
+      const headers = await apiAuthHeaders(page, 'REGULAR_USER');
 
       // 前提: 判定対象となる数量グループと数量項目を自分で作る。先行テストが残した
       // 数量グループも画面に並ぶが、それらも含めて「全て」を突き合わせる。
@@ -4879,7 +4887,7 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      const headers = await apiAuthHeaders(page);
+      const headers = await apiAuthHeaders(page, 'REGULAR_USER');
 
       // 前提: 編集対象となる数量項目を検証自身が用意する
       const tableResponse = await page.request.get(
@@ -5493,26 +5501,29 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
   let badgeQuantityTableId: string | null = null;
 
   /** ログイン済みページの認証ヘッダを組み立てる */
-  async function getAuthHeaders(page: Page): Promise<Record<string, string>> {
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+  async function getAuthHeaders(page: Page, user: AuthUserRef): Promise<Record<string, string>> {
+    const accessToken = await getAccessToken(page, user);
     expect(accessToken, 'アクセストークンが取得できる').toBeTruthy();
     return { Authorization: `Bearer ${accessToken}` };
   }
 
   /** 現場調査詳細の取得経路から画像一覧を読む */
-  async function fetchSurveyImages(page: Page): Promise<BadgeDetailImage[]> {
+  async function fetchSurveyImages(page: Page, user: AuthUserRef): Promise<BadgeDetailImage[]> {
     const response = await page.request.get(`${API_BASE_URL}/api/site-surveys/${badgeSurveyId}`, {
-      headers: await getAuthHeaders(page),
+      headers: await getAuthHeaders(page, user),
     });
     expect(response.ok(), '現場調査詳細の取得が成功する').toBeTruthy();
     return ((await response.json()) as { images: BadgeDetailImage[] }).images;
   }
 
   /** 数量表編集画面が実際に用いる取得経路からグループ一覧を読む */
-  async function fetchQuantityTableGroups(page: Page): Promise<BadgeQuantityGroup[]> {
+  async function fetchQuantityTableGroups(
+    page: Page,
+    user: AuthUserRef
+  ): Promise<BadgeQuantityGroup[]> {
     const response = await page.request.get(
       `${API_BASE_URL}/api/quantity-tables/${badgeQuantityTableId}`,
-      { headers: await getAuthHeaders(page) }
+      { headers: await getAuthHeaders(page, user) }
     );
     expect(response.ok(), '数量表詳細の取得が成功する').toBeTruthy();
     return ((await response.json()) as { groups: BadgeQuantityGroup[] }).groups;
@@ -5721,10 +5732,11 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
    */
   async function locateGroupWithVerifiedPrerequisite(
     page: Page,
+    user: AuthUserRef,
     fileName: string,
     expectedHasDrawnAnnotations: boolean
   ): Promise<Locator> {
-    const groups = await fetchQuantityTableGroups(page);
+    const groups = await fetchQuantityTableGroups(page, user);
     const target = groups.find((group) => group.surveyImage?.fileName === fileName);
     expect(target, `数量表の応答に ${fileName} を紐づけたグループが現れる`).toBeTruthy();
     expect(
@@ -5784,7 +5796,7 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
       badgeProjectId = page.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
       expect(badgeProjectId, 'プロジェクトが作成される').toBeTruthy();
 
-      const authHeaders = await getAuthHeaders(page);
+      const authHeaders = await getAuthHeaders(page, 'REGULAR_USER');
 
       // --- 現場調査作成 ---
       const surveyDate = new Date().toISOString().split('T')[0]!;
@@ -5812,7 +5824,7 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
         expect(uploadResponse.ok(), `画像の登録が成功する: ${fileName}`).toBeTruthy();
       }
 
-      const uploadedImages = await fetchSurveyImages(page);
+      const uploadedImages = await fetchSurveyImages(page, 'REGULAR_USER');
       expect(uploadedImages).toHaveLength(Object.keys(BADGE_IMAGE_FILE_NAMES).length);
 
       // --- 状態1: 画像編集画面で矢印を描いて保存する（描画された注釈あり） ---
@@ -5830,7 +5842,7 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
       // 状態2（注釈なし）は登録したままとし、画像編集画面を一度も開かない
 
       // --- 用意した状態を現場調査の取得経路の応答で確認する ---
-      const preparedImages = await fetchSurveyImages(page);
+      const preparedImages = await fetchSurveyImages(page, 'REGULAR_USER');
       expect(
         imageOf(preparedImages, BADGE_IMAGE_FILE_NAMES.drawnAnnotation).hasDrawnAnnotations,
         '矢印を描いて保存した写真は描画された注釈を持つ'
@@ -5871,7 +5883,7 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
       await saveQuantityTableDraft(page);
 
       // --- 紐づけ結果を、数量表編集画面が実際に用いる取得経路の応答で確認する ---
-      const savedGroups = await fetchQuantityTableGroups(page);
+      const savedGroups = await fetchQuantityTableGroups(page, 'REGULAR_USER');
       const linkedFileNames = savedGroups
         .map((group) => group.surveyImage?.fileName)
         .filter((fileName): fileName is string => Boolean(fileName));
@@ -5899,6 +5911,7 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
 
     const group = await locateGroupWithVerifiedPrerequisite(
       page,
+      'REGULAR_USER',
       BADGE_IMAGE_FILE_NAMES.drawnAnnotation,
       true
     );
@@ -5920,6 +5933,7 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
 
     const group = await locateGroupWithVerifiedPrerequisite(
       page,
+      'REGULAR_USER',
       BADGE_IMAGE_FILE_NAMES.noAnnotation,
       false
     );
@@ -5945,6 +5959,7 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
 
     const group = await locateGroupWithVerifiedPrerequisite(
       page,
+      'REGULAR_USER',
       BADGE_IMAGE_FILE_NAMES.rotationOnly,
       false
     );
@@ -5966,7 +5981,7 @@ test.describe('数量表グループの注釈の目印（site-survey/REQ-20.2）
     const page = await context.newPage();
     try {
       await loginAsUser(page, 'ADMIN_USER');
-      const authHeaders = await getAuthHeaders(page);
+      const authHeaders = await getAuthHeaders(page, 'ADMIN_USER');
       await page.request.delete(`${API_BASE_URL}/api/projects/${badgeProjectId}`, {
         headers: authHeaders,
       });

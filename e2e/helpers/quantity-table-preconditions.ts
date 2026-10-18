@@ -29,6 +29,7 @@ import { selectFirstRealOption } from './form-preconditions';
 import { assertPrepared } from './preconditions';
 import { annotateSurveyImages, type AnnotationTargets } from './survey-image-annotations';
 import { SAME_ORIGIN_API_BASE_URL } from '../config';
+import { getAccessToken, type AuthUserRef } from './auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -315,6 +316,7 @@ export async function openEditPageWithSingleItemRow(
  * 注釈付きにすると「注釈なしは現れない」が空集合に対する恒真になる。
  *
  * @param page Playwright のページ（ログイン済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param projectId 現場調査を作成する対象のプロジェクトID
  * @param namePrefix 現場調査名の接頭辞
  * @param comments 写真ごとのコメント（配列の長さがアップロードする枚数になる）
@@ -325,6 +327,7 @@ export async function openEditPageWithSingleItemRow(
  */
 export async function seedSurveyPhotosWithComments(
   page: Page,
+  user: AuthUserRef,
   projectId: string,
   namePrefix: string,
   comments: readonly (string | null)[],
@@ -353,7 +356,7 @@ export async function seedSurveyPhotosWithComments(
   const surveyId = page.url().match(/\/site-surveys\/([0-9a-f-]+)$/)?.[1] ?? null;
   assertPrepared(surveyId, '作成した現場調査のID');
 
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+  const accessToken = await getAccessToken(page, user);
   assertPrepared(accessToken, 'アクセストークン');
 
   const testImagePath = path.join(__dirname, '../fixtures/test-image.png');
@@ -407,7 +410,7 @@ export async function seedSurveyPhotosWithComments(
   }
 
   // 選択候補として現れるのは注釈レコードを持つ写真のみであるため、注釈の保存までを前提に含める
-  const annotatedImages = await annotateSurveyImages(page, surveyId, annotate);
+  const annotatedImages = await annotateSurveyImages(page, user, surveyId, annotate);
   const annotatedImageIds = annotatedImages.map((image) => image.id);
 
   return { surveyId, imageIds, annotatedImageIds };

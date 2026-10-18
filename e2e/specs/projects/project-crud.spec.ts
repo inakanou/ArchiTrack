@@ -439,7 +439,9 @@ test.describe('プロジェクトCRUD操作', () => {
       // 「先行テストが ID を残していれば使い、無ければ画面から作る」という復旧分岐は、
       // 先行テストが壊れたときに何を編集しているのかが定まらず、
       // 前提の崩れが REQ-8.x の失敗として現れないため置かない。
-      const editTargetProjectId = (await seedProject(page, '編集テスト用プロジェクト')).id;
+      const editTargetProjectId = (
+        await seedProject(page, 'REGULAR_USER', '編集テスト用プロジェクト')
+      ).id;
 
       // 詳細ページに移動
       await page.goto(`/projects/${editTargetProjectId}`);
@@ -750,7 +752,7 @@ test.describe('プロジェクトCRUD操作', () => {
       // 先行テストが残した ID を再利用する復旧分岐は、先行テストが壊れたときに
       // 「どのプロジェクトの削除をキャンセルしたのか」が定まらないため置かない。
       await loginAsUser(page, 'REGULAR_USER');
-      const testProjectId = (await seedProject(page, 'キャンセルテスト')).id;
+      const testProjectId = (await seedProject(page, 'REGULAR_USER', 'キャンセルテスト')).id;
 
       // 管理者ユーザーに切り替え（削除ボタンを表示するため）
       await context.clearCookies();

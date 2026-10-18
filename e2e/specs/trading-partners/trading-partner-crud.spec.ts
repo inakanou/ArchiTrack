@@ -23,6 +23,7 @@ import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtu
 import { getTimeout } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken, type AuthUserRef } from '../../helpers/auth-api';
 
 /**
  * 取引先CRUD機能のE2Eテスト
@@ -592,7 +593,7 @@ test.describe('取引先CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const stamp = Date.now();
-      const api = await relatedProjectsApi(page);
+      const api = await relatedProjectsApi(page, 'REGULAR_USER');
       const linkedPartnerId = await api.createPartner(
         `関連プロジェクト絞り込み_紐付きあり_${stamp}`
       );
@@ -1582,8 +1583,8 @@ test.describe('取引先CRUD操作', () => {
  *
  * 取引先と営業担当者つきのプロジェクトを API から作る。作成に失敗した場合は前提の主張で失敗する。
  */
-async function relatedProjectsApi(page: Page) {
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+async function relatedProjectsApi(page: Page, user: AuthUserRef) {
+  const accessToken = await getAccessToken(page, user);
   assertPrepared(accessToken, '認証トークン');
   const headers = { Authorization: `Bearer ${accessToken}` };
 

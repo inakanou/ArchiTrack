@@ -23,6 +23,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { seedProject } from '../../helpers/project-list-preconditions';
 import { buildNewEstimateItemNode, saveEstimateDraft } from '../../helpers/estimate-draft';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const PARENT_NAME = '上限超過_親項目';
 const CHILD_A_NAME = '上限超過_子項目A';
@@ -30,8 +31,8 @@ const CHILD_B_NAME = '上限超過_子項目B';
 
 /** 見積書を作り、親項目と子 2 件を保存して見積書 ID を返す */
 const seedEstimate = async (page: Page, label: string): Promise<string> => {
-  const project = await seedProject(page, label);
-  const token = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+  const project = await seedProject(page, 'REGULAR_USER', label);
+  const token = await getAccessToken(page, 'REGULAR_USER');
   expect(token, '前提: アクセストークンを取得できる').toBeTruthy();
   const estimateRes = await page.request.post(
     `${API_BASE_URL}/api/projects/${project.id}/estimates`,

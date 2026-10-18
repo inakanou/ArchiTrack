@@ -15,6 +15,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /**
  * 担当者セレクトの選択肢のうち、実際に選択できるもの（value が空でないもの）を集める。
@@ -414,7 +415,7 @@ test.describe('プロジェクト管理 追加要件', () => {
       });
 
       // detail-summary APIをバックエンドに直接呼び出して検証
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       const response = await page.request.get(
         `${API_BASE_URL}/api/projects/${projectId}/detail-summary`,
         {

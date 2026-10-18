@@ -31,6 +31,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 内訳書項目の並び替え機能のE2Eテスト
@@ -58,13 +59,7 @@ test.describe('内訳書項目の並び替え', () => {
 
       // APIトークンを取得
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // ユーザー情報を取得（salesPersonId用）
@@ -476,13 +471,7 @@ test.describe('内訳書項目の並び替え', () => {
 
       // APIトークンを取得
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 新しい内訳書を作成
@@ -537,13 +526,7 @@ test.describe('内訳書項目の並び替え', () => {
       }
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 新しい内訳書を作成
@@ -594,13 +577,7 @@ test.describe('内訳書項目の並び替え', () => {
       }
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 専用の数量表を作成（null任意分類を含む項目を投入）
@@ -715,13 +692,7 @@ test.describe('内訳書項目の並び替え', () => {
       }
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 専用の内訳書を作成（既存の並び替え操作テストと干渉しないように）
@@ -959,13 +930,7 @@ test.describe('内訳書項目の並び替え', () => {
       }
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 楽観的排他制御テスト専用の内訳書を作成
@@ -1059,13 +1024,7 @@ test.describe('内訳書項目の並び替え', () => {
       assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // プロジェクト削除（カスケードで内訳書・数量表も削除される）

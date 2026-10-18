@@ -7,6 +7,7 @@
 
 import type { Page, Locator } from '@playwright/test';
 import { expect } from '@playwright/test';
+import { waitForStoredSessionTokens } from './auth-api';
 
 /**
  * CI環境かどうかを判定
@@ -85,15 +86,7 @@ export async function waitForAuthState(
       await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
       // リフレッシュトークンとアクセストークンの両方の存在を確認
-      await page.waitForFunction(
-        () =>
-          localStorage.getItem('refreshToken') !== null &&
-          localStorage.getItem('accessToken') !== null,
-        {
-          timeout,
-          polling: 500,
-        }
-      );
+      await waitForStoredSessionTokens(page, { timeout, polling: 500 });
 
       return true;
     } catch (error) {

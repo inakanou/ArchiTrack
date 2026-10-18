@@ -26,6 +26,7 @@ import {
   waitForAnnotationEditorLoaded,
   waitForAnnotationFetch,
 } from '../../helpers/fabric-canvas';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -112,7 +113,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
       const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
       expect(fs.existsSync(testImagePath)).toBeTruthy();
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       const uploadResponse = await page.request.post(
         `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,

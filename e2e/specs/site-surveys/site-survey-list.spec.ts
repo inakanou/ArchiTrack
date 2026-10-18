@@ -18,6 +18,7 @@ import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -231,7 +232,7 @@ test.describe('現場調査一覧・検索', () => {
 
       // 現場調査は API で直接作る（画面経由だと 11 件で著しく時間がかかる）。
       // 調査日を 1 日ずつずらし、既定の並び（調査日の新しい順）を一意に定める。
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       for (let i = 0; i < PAGING_SURVEY_COUNT; i++) {
         const surveyDate = new Date(Date.UTC(2024, 0, 1 + i)).toISOString().split('T')[0]!;
         const response = await page.request.post(

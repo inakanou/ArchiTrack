@@ -45,6 +45,7 @@ import {
   fetchSurveyImagesInDisplayOrder,
   saveSurveyImageAnnotation,
 } from '../../helpers/survey-image-annotations';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -250,7 +251,7 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
       expect(fs.existsSync(testImagePath), 'テスト用画像が存在する必要がある').toBeTruthy();
       const imageBuffer = fs.readFileSync(testImagePath);
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken, 'アクセストークンが取得できる必要がある').toBeTruthy();
 
       // 注釈を付ける写真と付けない写真をファイル名で区別してアップロードする
@@ -279,7 +280,11 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
       ).toBeTruthy();
 
       assertPrepared(createdSurveyId, '作成した現場調査のID');
-      const seededImages = await fetchSurveyImagesInDisplayOrder(page, createdSurveyId);
+      const seededImages = await fetchSurveyImagesInDisplayOrder(
+        page,
+        'REGULAR_USER',
+        createdSurveyId
+      );
       expect(seededImages.length, 'REQ-19 の選択候補として写真がシードされている必要がある').toBe(
         SEED_PHOTO_COUNT
       );
@@ -300,7 +305,7 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
       );
 
       for (const image of toBeAnnotated) {
-        await saveSurveyImageAnnotation(page, image);
+        await saveSurveyImageAnnotation(page, 'REGULAR_USER', image);
       }
 
       annotatedFileNames.length = 0;

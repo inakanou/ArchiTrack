@@ -62,7 +62,6 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import ExcelJS from 'exceljs';
@@ -72,6 +71,7 @@ import {
   requireItemizedStatementFilterClearButton,
   requireItemizedStatementFilterInput,
 } from '../../helpers/itemized-statement-preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 内訳書CRUD機能のE2Eテスト
@@ -180,13 +180,7 @@ test.describe('内訳書CRUD操作', () => {
       const baseUrl = API_BASE_URL;
 
       // APIトークンを取得（ログインAPIから）
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // グループを作成
@@ -799,13 +793,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 重複テスト用に内訳書を先に作成（APIで直接作成）
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表IDを取得
@@ -880,13 +868,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 空の数量表を作成（項目なし）
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       const emptyTableName = `空の数量表_${Date.now()}`;
@@ -985,13 +967,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // APIで先に更新を行い、updatedAtを変更する
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 内訳書の詳細を取得して現在のupdatedAtを確認
@@ -1222,13 +1198,7 @@ test.describe('内訳書CRUD操作', () => {
       // クリーンアップ：作成したプロジェクトを削除
       assertPrepared(emptyProjectId, '数量表なし検証用に作成したプロジェクトのID');
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       await request.delete(`${baseUrl}/api/projects/${emptyProjectId}`, {
@@ -1255,13 +1225,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 空のプロジェクトを作成
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // ユーザー情報を取得（salesPersonId用）
@@ -1675,13 +1639,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表とグループ、項目を作成
@@ -1798,11 +1756,7 @@ test.describe('内訳書CRUD操作', () => {
       ];
 
       // --- 前提: プロジェクト・数量表・数量項目・内訳書を API で作る ---
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: { email: 'user@example.com', password: 'Password123!' },
-      });
-      expect(loginResponse.status(), 'API のログインに失敗した').toBe(200);
-      const accessToken: string = (await loginResponse.json()).accessToken;
+      const accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
       const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
       const meResponse = await request.get(`${baseUrl}/api/v1/auth/me`, { headers: authHeaders });
@@ -1938,11 +1892,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 後片付け: 本テストで作ったプロジェクトを消す（内訳書もあわせて取り除かれる）。
       // 一般利用者はプロジェクトの削除の権限を持たないため、管理者で消す
-      const adminLoginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: { email: TEST_USERS.ADMIN_USER.email, password: TEST_USERS.ADMIN_USER.password },
-      });
-      expect(adminLoginResponse.status(), '管理者の API のログインに失敗した').toBe(200);
-      const adminToken: string = (await adminLoginResponse.json()).accessToken;
+      const adminToken = (await loginViaApi(request, 'ADMIN_USER')).accessToken;
       const cleanupResponse = await request.delete(`${baseUrl}/api/projects/${projectId}`, {
         headers: { Authorization: `Bearer ${adminToken}` },
       });
@@ -2140,13 +2090,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表を作成
@@ -2254,13 +2198,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表を作成
@@ -2366,13 +2304,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表を作成
@@ -2489,13 +2421,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表を作成
@@ -2697,13 +2623,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 内訳書のない新規プロジェクトを作成
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // ユーザー情報を取得（salesPersonId用）
@@ -3316,13 +3236,7 @@ test.describe('内訳書CRUD操作', () => {
         const baseUrl = API_BASE_URL;
 
         // ログインしてアクセストークンを取得
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         const accessToken = loginBody.accessToken;
 
         // プロジェクトの最新情報を取得（updatedAt用）

@@ -81,6 +81,7 @@ import {
   type EstimateItemNode,
   type SaveNodePayload,
 } from '../../helpers/estimate-draft';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ============================================================================
 // フィクスチャ定義
@@ -294,7 +295,7 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
   /** ログインしてアクセストークンを取得する */
   const loginAndCaptureToken = async (page: Page): Promise<void> => {
     await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).toBeTruthy();
   };
 

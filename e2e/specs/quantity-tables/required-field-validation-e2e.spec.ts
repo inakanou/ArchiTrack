@@ -66,6 +66,7 @@ import {
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken, type AuthUserRef } from '../../helpers/auth-api';
 
 // ============================================================================
 // 定数
@@ -97,8 +98,8 @@ let projectId: string | null = null;
 // ============================================================================
 
 /** ログイン済みページのアクセストークンを取り出す */
-async function readAccessToken(page: Page): Promise<string> {
-  const token = await page.evaluate(() => localStorage.getItem('accessToken'));
+async function readAccessToken(page: Page, user: AuthUserRef): Promise<string> {
+  const token = await getAccessToken(page, user);
   assertPrepared(token, 'アクセストークン');
   return token;
 }
@@ -110,7 +111,7 @@ async function deleteAsAdmin(browser: Browser, path: string): Promise<number> {
   try {
     await loginAsUser(adminPage, 'ADMIN_USER');
     const response = await adminPage.request.delete(`${API_BASE_URL}${path}`, {
-      headers: { Authorization: `Bearer ${await readAccessToken(adminPage)}` },
+      headers: { Authorization: `Bearer ${await readAccessToken(adminPage, 'ADMIN_USER')}` },
     });
     return response.status();
   } finally {

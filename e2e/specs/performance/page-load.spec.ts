@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL } from '../../config';
+import { loginViaApi } from '../../helpers/auth-api';
 
 // 所要時間は単調時計（performance.now()）で測る。壁時計（Date.now()）は時刻補正で飛ぶため、
 // 実際より長い所要を返しうる。WSL2 の pre-push では、テスト全体が 1 秒で終わった回に
@@ -114,13 +115,7 @@ test.describe('APIパフォーマンス', () => {
     await cleanDatabase();
     await createTestUser('ADMIN_USER');
 
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
   });
 
@@ -151,13 +146,7 @@ test.describe('APIパフォーマンス', () => {
    */
   test('トークンリフレッシュAPIが300ms以内にレスポンスを返す', async ({ request }) => {
     // まずログインしてリフレッシュトークンを取得
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { refreshToken } = await loginResponse.json();
+    const { refreshToken } = await loginViaApi(request, 'ADMIN_USER');
 
     const startTime = performance.now();
 
