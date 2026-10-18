@@ -9732,12 +9732,12 @@
     "/api/v1/auth/refresh": {
       "post": {
         "summary": "Refresh access token",
-        "description": "Get a new access token using a valid refresh token",
+        "description": "Get a new access token using a valid refresh token. Without a body, the refresh token is read from the refreshToken cookie and the request must carry the X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403. The body form is accepted without CSRF only during the compatibility period.",
         "tags": [
           "Authentication"
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -9776,6 +9776,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "CSRF token missing or invalid, or request origin not allowed (cookie form)"
           }
         }
       }
@@ -9908,7 +9911,7 @@
     "/api/v1/auth/logout": {
       "post": {
         "summary": "Logout",
-        "description": "Logout the current user from the current device",
+        "description": "Logout the current user from the current device. Without a body, the refresh token is read from the refreshToken cookie and the request must carry the X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403. The body form is accepted without CSRF only during the compatibility period.",
         "tags": [
           "Authentication"
         ],
@@ -9918,7 +9921,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -9954,6 +9957,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "CSRF token missing or invalid, or request origin not allowed (cookie form)"
           }
         }
       }
