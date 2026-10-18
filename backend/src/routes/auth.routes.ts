@@ -18,25 +18,47 @@ import { PasswordService } from '../services/password.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
+import { csrfProtection } from '../middleware/csrf.middleware.js';
 import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
 import { getClientIp } from '../middleware/client-ip.js';
 import logger from '../utils/logger.js';
 import { SECURITY_CONFIG } from '../config/security.constants.js';
 import { PasswordViolation } from '../types/password.types.js';
 import { updateProfileSchema } from '../schemas/auth-update.schema.js';
-import { ConflictError, NotFoundError } from '../errors/apiError.js';
+import { ConflictError, NotFoundError, ValidationError } from '../errors/apiError.js';
+
+/**
+ * リフレッシュトークンの Cookie の Path（リフレッシュとログアウトの経路にだけ送られるよう認証の経路に限る）
+ */
+const REFRESH_TOKEN_COOKIE_PATH = '/api/v1/auth';
+
+/**
+ * Path を認証の経路に限る前に Path=/ で発行した Cookie を消す
+ *
+ * 同じ名前の Cookie が二つ送られると、ブラウザは Path の長い方を先に並べるため新しい方が読まれるが、
+ * 古い方が残ると期限まで送られ続ける。発行・消去のたびにあわせて消す。
+ */
+function clearLegacyRootRefreshTokenCookie(res: Response): void {
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+  });
+}
 
 /**
  * リフレッシュトークンをHTTPOnly Cookieに設定する
  * @requirement user-authentication/REQ-26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
  */
 function setRefreshTokenCookie(res: Response, refreshToken: string): void {
+  clearLegacyRootRefreshTokenCookie(res);
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    path: '/',
+    path: REFRESH_TOKEN_COOKIE_PATH,
   });
 }
 
@@ -44,11 +66,12 @@ function setRefreshTokenCookie(res: Response, refreshToken: string): void {
  * リフレッシュトークンの Cookie を消す（発行と同じ属性で消す）
  */
 function clearRefreshTokenCookie(res: Response): void {
+  clearLegacyRootRefreshTokenCookie(res);
   res.clearCookie('refreshToken', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
-    path: '/',
+    path: REFRESH_TOKEN_COOKIE_PATH,
   });
 }
 
@@ -105,13 +128,46 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-const refreshSchema = z.object({
+const refreshTokenBodySchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),
 });
 
-const logoutSchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token is required'),
-});
+const validateRefreshTokenBody = validate(refreshTokenBodySchema);
+
+/**
+ * リフレッシュとログアウトで提示されたリフレッシュトークンを読み、`res.locals.refreshToken` に置く
+ *
+ * - 本文に `refreshToken` がある要求: 旧来の経路として本文を検証して読み、CSRF を課さない。
+ *   旧版の画面（本文と Cookie の両方を送り、CSRF のヘッダーを送らない）が 403 にならないための
+ *   互換の期間の経路で、45.5 で外す。試験環境（NODE_ENV=test）の素通りもこの経路に限られる
+ * - 本文に無い要求: Cookie `refreshToken` を読み、CSRF の二重送信と Origin の照合を課す（要件33.12）
+ */
+function readRefreshTokenCredential(req: Request, res: Response, next: NextFunction): void {
+  const body: unknown = req.body;
+  if (typeof body === 'object' && body !== null && 'refreshToken' in body) {
+    void validateRefreshTokenBody(req, res, (error?: unknown) => {
+      if (error) {
+        next(error);
+        return;
+      }
+      res.locals.refreshToken = (
+        req.validatedBody as z.infer<typeof refreshTokenBodySchema>
+      ).refreshToken;
+      next();
+    });
+    return;
+  }
+
+  csrfProtection(req, res, () => {
+    const cookieToken: unknown = req.cookies?.refreshToken;
+    if (typeof cookieToken !== 'string' || cookieToken === '') {
+      next(new ValidationError('Refresh token is required'));
+      return;
+    }
+    res.locals.refreshToken = cookieToken;
+    next();
+  });
+}
 
 const verify2FASchema = z.object({
   token: z
@@ -412,11 +468,15 @@ router.post(
  * /api/v1/auth/refresh:
  *   post:
  *     summary: Refresh access token
- *     description: Get a new access token using a valid refresh token
+ *     description: >-
+ *       Get a new access token using a valid refresh token. Without a body, the refresh token is
+ *       read from the refreshToken cookie and the request must carry the X-CSRF-Token header
+ *       matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403.
+ *       The body form is accepted without CSRF only during the compatibility period.
  *     tags:
  *       - Authentication
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
@@ -441,14 +501,16 @@ router.post(
  *                   type: string
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: CSRF token missing or invalid, or request origin not allowed (cookie form)
  */
 router.post(
   '/refresh',
   refreshLimiter,
-  validate(refreshSchema),
+  readRefreshTokenCredential,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { refreshToken } = req.body;
+      const refreshToken = res.locals.refreshToken as string;
 
       const result = await authService.refreshToken(refreshToken, {
         ipAddress: getClientIp(req),
@@ -468,6 +530,7 @@ router.post(
           return;
         }
         if (error.type === 'INVALID_REFRESH_TOKEN') {
+          clearRefreshTokenCookie(res);
           res.status(401).json({
             error: 'Invalid refresh token',
             detail: '無効なトークンです (Invalid token)',
@@ -475,6 +538,7 @@ router.post(
           });
           return;
         } else if (error.type === 'REFRESH_TOKEN_EXPIRED') {
+          clearRefreshTokenCookie(res);
           res.status(401).json({
             error: 'Refresh token expired',
             detail: 'トークンの有効期限が切れています (Token expired)',
@@ -698,13 +762,17 @@ router.patch(
  * /api/v1/auth/logout:
  *   post:
  *     summary: Logout
- *     description: Logout the current user from the current device
+ *     description: >-
+ *       Logout the current user from the current device. Without a body, the refresh token is
+ *       read from the refreshToken cookie and the request must carry the X-CSRF-Token header
+ *       matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403.
+ *       The body form is accepted without CSRF only during the compatibility period.
  *     tags:
  *       - Authentication
  *     security:
  *       - bearerAuth: []
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
@@ -727,11 +795,13 @@ router.patch(
  *                   type: string
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: CSRF token missing or invalid, or request origin not allowed (cookie form)
  */
 router.post(
   '/logout',
   authenticate,
-  validate(logoutSchema),
+  readRefreshTokenCredential,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
@@ -739,7 +809,7 @@ router.post(
         return;
       }
 
-      const { refreshToken } = req.body;
+      const refreshToken = res.locals.refreshToken as string;
 
       const result = await authService.logout(req.user.userId, refreshToken);
 
@@ -748,6 +818,8 @@ router.post(
         res.status(400).json({ error: 'Logout failed', code: error.type });
         return;
       }
+
+      clearRefreshTokenCookie(res);
 
       logger.info({ userId: req.user.userId }, 'User logged out');
 
