@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import * as jose from 'jose';
 import { AuthService } from '../../../services/auth.service.js';
 import { InvitationService } from '../../../services/invitation.service.js';
 import { PasswordService } from '../../../services/password.service.js';
@@ -1423,6 +1424,91 @@ describe('AuthService', () => {
         if (result.error.type === 'DATABASE_ERROR') {
           expect(result.error.message).toBe('Database connection failed');
         }
+      }
+    });
+  });
+
+  describe('refreshToken（トークンの種別の検証。実際の TokenService）', () => {
+    /**
+     * 実際の TokenService で発行したトークンをリフレッシュへ渡す。DB の照会は、提示された
+     * トークンがそのまま保存されている（照会が見つかる）形にして、種別の検証だけで拒否されることを確かめる
+     */
+    async function createRealTokenAuthService(): Promise<{
+      service: AuthService;
+      tokenService: TokenService;
+    }> {
+      const keyPair = await jose.generateKeyPair('EdDSA', { extractable: true });
+      process.env.JWT_PUBLIC_KEY = Buffer.from(
+        JSON.stringify(await jose.exportJWK(keyPair.publicKey))
+      ).toString('base64');
+      process.env.JWT_PRIVATE_KEY = Buffer.from(
+        JSON.stringify(await jose.exportJWK(keyPair.privateKey))
+      ).toString('base64');
+      const tokenService = new TokenService();
+      const service = new AuthService(
+        mockPrismaClient,
+        mockInvitationService,
+        mockPasswordService,
+        tokenService,
+        mockTwoFactorService,
+        mockSessionService
+      );
+      return { service, tokenService };
+    }
+
+    const user = { userId: 'user-kind-1', email: 'kind@example.com', roles: ['user'] };
+
+    beforeEach(() => {
+      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockImplementation(
+        async ({ where }: { where: { token: string } }) => ({
+          id: 'token-id-kind',
+          token: where.token,
+          userId: user.userId,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          deviceInfo: null,
+          createdAt: new Date(),
+          user: {
+            id: user.userId,
+            email: user.email,
+            displayName: 'Kind User',
+            twoFactorEnabled: false,
+            createdAt: new Date(),
+            userRoles: [{ role: { name: 'user' } }],
+          },
+        })
+      );
+      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
+        count: 1,
+      });
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok(undefined)
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-33.2: アクセストークンを提示したリフレッシュを拒否する
+     */
+    it('アクセストークンでのリフレッシュは INVALID_REFRESH_TOKEN で拒否し、新しいトークンを発行しない', async () => {
+      const { service, tokenService } = await createRealTokenAuthService();
+      const accessToken = await tokenService.generateAccessToken(user);
+
+      const result = await service.refreshToken(accessToken);
+
+      expect(result).toEqual({ ok: false, error: { type: 'INVALID_REFRESH_TOKEN' } });
+      expect(mockPrismaClient.refreshToken.findUnique).not.toHaveBeenCalled();
+      expect(mockSessionService.createSession).not.toHaveBeenCalled();
+    });
+
+    it('リフレッシュトークンでのリフレッシュは成功する（対照）', async () => {
+      const { service, tokenService } = await createRealTokenAuthService();
+      const refreshToken = await tokenService.generateRefreshToken(user);
+
+      const result = await service.refreshToken(refreshToken);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(jose.decodeJwt(result.value.accessToken).token_use).toBe('access');
+        expect(jose.decodeJwt(result.value.refreshToken).token_use).toBe('refresh');
       }
     });
   });

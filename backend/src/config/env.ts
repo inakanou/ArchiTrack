@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import logger from '../utils/logger.js';
+import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from './jwt-claims.js';
 
 /**
  * 環境変数検証用の定数
@@ -259,8 +260,8 @@ const envSchema = z
     // JWT Key Rotation Support (OPTIONAL)
     // 旧公開鍵：キーローテーション時に、古い鍵で署名されたトークンの検証に使用
     // トークンの発行者・想定利用者（design.md の TokenService の IssuedClaims）
-    JWT_ISSUER: jwtClaimSchema('JWT_ISSUER', 'architrack'),
-    JWT_AUDIENCE: jwtClaimSchema('JWT_AUDIENCE', 'architrack-api'),
+    JWT_ISSUER: jwtClaimSchema('JWT_ISSUER', DEFAULT_JWT_ISSUER),
+    JWT_AUDIENCE: jwtClaimSchema('JWT_AUDIENCE', DEFAULT_JWT_AUDIENCE),
 
     JWT_PUBLIC_KEY_OLD: z
       .string()

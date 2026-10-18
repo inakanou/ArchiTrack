@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import * as jose from 'jose';
 import type { CryptoKey } from 'jose';
 import { TokenService } from '../../../services/token.service.js';
@@ -196,8 +196,11 @@ describe('TokenService', () => {
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
+        token_use: 'access',
       })
-        .setProtectedHeader({ alg: 'EdDSA' })
+        .setProtectedHeader({ alg: 'EdDSA', typ: 'at+jwt' })
+        .setIssuer('architrack')
+        .setAudience('architrack-api')
         .setIssuedAt(oneHourAgo - 60) // 発行時刻を過去に設定
         .setExpirationTime(oneHourAgo) // 1時間前に期限切れ
         .sign(privateKey);
@@ -429,15 +432,14 @@ describe('TokenService', () => {
   });
 
   describe('verifyToken追加テスト', () => {
-    it('refresh typeで検証しても結果は同じ', async () => {
-      // access tokenをrefresh typeとして検証しても成功する（署名は同じ鍵）
+    it('refresh typeで検証したリフレッシュトークンからペイロードを得る', async () => {
       const payload: TokenPayload = {
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
       };
 
-      const token = await tokenService.generateAccessToken(payload);
+      const token = await tokenService.generateRefreshToken(payload);
       const result = await tokenService.verifyToken(token, 'refresh');
 
       expect(result.ok).toBe(true);
@@ -783,6 +785,213 @@ describe('TokenService', () => {
         'access'
       );
       expect(result2.ok).toBe(false);
+    });
+  });
+  describe('トークンの種別・発行者・想定利用者（要件33.1〜33.3）', () => {
+    const payload: TokenPayload = {
+      userId: 'user-kind-1',
+      email: 'kind@example.com',
+      roles: ['user'],
+    };
+
+    /** 同じ鍵で、クレームを指定して署名したトークン（既定は正規のアクセストークンと同じ値） */
+    async function signWith(options: {
+      tokenUse?: string;
+      issuer?: string;
+      audience?: string;
+      typ?: string;
+    }): Promise<string> {
+      const claims: Record<string, unknown> = { ...payload };
+      if (options.tokenUse !== undefined) {
+        claims.token_use = options.tokenUse;
+      }
+      let jwt = new jose.SignJWT(claims)
+        .setProtectedHeader(
+          options.typ === undefined ? { alg: 'EdDSA' } : { alg: 'EdDSA', typ: options.typ }
+        )
+        .setIssuedAt()
+        .setExpirationTime('15m');
+      if (options.issuer !== undefined) {
+        jwt = jwt.setIssuer(options.issuer);
+      }
+      if (options.audience !== undefined) {
+        jwt = jwt.setAudience(options.audience);
+      }
+      return jwt.sign(privateKey);
+    }
+
+    it('アクセストークンに種別 access・既定の発行者・想定利用者・主体・typ（at+jwt）を載せる', async () => {
+      const token = await tokenService.generateAccessToken(payload);
+      const decoded = jose.decodeJwt(token);
+      const header = jose.decodeProtectedHeader(token);
+
+      expect(decoded.token_use).toBe('access');
+      expect(decoded.iss).toBe('architrack');
+      expect(decoded.aud).toBe('architrack-api');
+      expect(decoded.sub).toBe(payload.userId);
+      expect(header.typ).toBe('at+jwt');
+    });
+
+    it('リフレッシュトークンに種別 refresh・既定の発行者・想定利用者を載せ、typ は at+jwt にしない', async () => {
+      const token = await tokenService.generateRefreshToken(payload);
+      const decoded = jose.decodeJwt(token);
+      const header = jose.decodeProtectedHeader(token);
+
+      expect(decoded.token_use).toBe('refresh');
+      expect(decoded.iss).toBe('architrack');
+      expect(decoded.aud).toBe('architrack-api');
+      expect(header.typ).not.toBe('at+jwt');
+    });
+
+    /**
+     * 保護 API の検証（expected = 'access'）でリフレッシュトークンを拒否する（33.1 の判定の部品）
+     */
+    it('リフレッシュトークンを access として検証すると TOKEN_INVALID になる', async () => {
+      const refreshToken = await tokenService.generateRefreshToken(payload);
+
+      const result = await tokenService.verifyToken(refreshToken, 'access');
+
+      expect(result).toEqual({ ok: false, error: { type: 'TOKEN_INVALID' } });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-33.2: リフレッシュの検証（expected = 'refresh'）でリフレッシュトークン以外を拒否する
+     */
+    it('アクセストークンを refresh として検証すると TOKEN_INVALID になる', async () => {
+      const accessToken = await tokenService.generateAccessToken(payload);
+
+      const result = await tokenService.verifyToken(accessToken, 'refresh');
+
+      expect(result).toEqual({ ok: false, error: { type: 'TOKEN_INVALID' } });
+    });
+
+    it('種別を持たないトークン（種別の導入より前の形）は access でも refresh でも TOKEN_INVALID になる', async () => {
+      const legacy = await signWith({
+        issuer: 'architrack',
+        audience: 'architrack-api',
+        typ: 'at+jwt',
+      });
+
+      expect(await tokenService.verifyToken(legacy, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+      expect(await tokenService.verifyToken(legacy, 'refresh')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    it('種別が未知の値のトークンは TOKEN_INVALID になる', async () => {
+      const unknownKind = await signWith({
+        tokenUse: 'id',
+        issuer: 'architrack',
+        audience: 'architrack-api',
+        typ: 'at+jwt',
+      });
+
+      expect(await tokenService.verifyToken(unknownKind, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    it('正規の鍵と同じクレームで署名したアクセストークンは access として受け付ける（対照）', async () => {
+      const token = await signWith({
+        tokenUse: 'access',
+        issuer: 'architrack',
+        audience: 'architrack-api',
+        typ: 'at+jwt',
+      });
+
+      const result = await tokenService.verifyToken(token, 'access');
+
+      expect(result.ok).toBe(true);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-33.3: 発行者が本システムでないトークンを拒否する
+     */
+    it.each([
+      ['発行者が異なる', { issuer: 'other-issuer', audience: 'architrack-api' }],
+      ['発行者が無い', { audience: 'architrack-api' }],
+    ])('%s アクセストークンは TOKEN_INVALID になる', async (_label, claims) => {
+      const token = await signWith({ tokenUse: 'access', typ: 'at+jwt', ...claims });
+
+      expect(await tokenService.verifyToken(token, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-33.3: 想定利用者が本システムでないトークンを拒否する
+     */
+    it.each([
+      ['想定利用者が異なる', { issuer: 'architrack', audience: 'other-api' }],
+      ['想定利用者が無い', { issuer: 'architrack' }],
+    ])('%s トークンは access でも refresh でも TOKEN_INVALID になる', async (_label, claims) => {
+      const access = await signWith({ tokenUse: 'access', typ: 'at+jwt', ...claims });
+      const refresh = await signWith({ tokenUse: 'refresh', ...claims });
+
+      expect(await tokenService.verifyToken(access, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+      expect(await tokenService.verifyToken(refresh, 'refresh')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    it('typ が at+jwt でないアクセストークンは TOKEN_INVALID になる', async () => {
+      const token = await signWith({
+        tokenUse: 'access',
+        issuer: 'architrack',
+        audience: 'architrack-api',
+      });
+
+      expect(await tokenService.verifyToken(token, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    describe('JWT_ISSUER・JWT_AUDIENCE を設定したとき', () => {
+      const saved = { issuer: process.env.JWT_ISSUER, audience: process.env.JWT_AUDIENCE };
+
+      afterEach(() => {
+        if (saved.issuer === undefined) {
+          delete process.env.JWT_ISSUER;
+        } else {
+          process.env.JWT_ISSUER = saved.issuer;
+        }
+        if (saved.audience === undefined) {
+          delete process.env.JWT_AUDIENCE;
+        } else {
+          process.env.JWT_AUDIENCE = saved.audience;
+        }
+      });
+
+      /**
+       * @requirement user-authentication/REQ-33.3: 設定した発行者・想定利用者で発行し、既定値で発行したトークンを拒否する
+       */
+      it('設定値で発行・検証し、既定値の発行者・想定利用者のトークンを拒否する', async () => {
+        const defaultToken = await tokenService.generateAccessToken(payload);
+
+        process.env.JWT_ISSUER = 'architrack-staging';
+        process.env.JWT_AUDIENCE = 'architrack-staging-api';
+        const configuredToken = await tokenService.generateAccessToken(payload);
+        const decoded = jose.decodeJwt(configuredToken);
+
+        expect(decoded.iss).toBe('architrack-staging');
+        expect(decoded.aud).toBe('architrack-staging-api');
+        expect((await tokenService.verifyToken(configuredToken, 'access')).ok).toBe(true);
+        expect(await tokenService.verifyToken(defaultToken, 'access')).toEqual({
+          ok: false,
+          error: { type: 'TOKEN_INVALID' },
+        });
+      });
     });
   });
 });

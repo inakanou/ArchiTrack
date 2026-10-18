@@ -73,7 +73,7 @@ export function createAuthMiddleware(tokenService?: TokenService) {
       // TokenServiceインスタンスを取得（テスト時は注入されたものを使用、デフォルトはシングルトン）
       const service = tokenService || tokenServiceInstance;
 
-      // トークンを検証
+      // トークンを検証（種別 access だけを受け付け、発行者・想定利用者も確かめる）
       const result = await service.verifyToken(token, 'access');
 
       // 検証結果をチェック

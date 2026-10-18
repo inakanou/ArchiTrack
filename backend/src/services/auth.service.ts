@@ -880,7 +880,7 @@ export class AuthService implements IAuthService {
    */
   async refreshToken(refreshToken: string): Promise<Result<AuthResponse, AuthError>> {
     try {
-      // 1. リフレッシュトークンを検証
+      // 1. リフレッシュトークンを検証（種別 refresh 以外のトークンはここで拒否する。要件33.2）
       const verifyResult = await this.tokenService.verifyToken(refreshToken, 'refresh');
 
       if (!verifyResult.ok) {

@@ -3,6 +3,7 @@ import type { CryptoKey } from 'jose';
 import { randomUUID } from 'crypto';
 import { Result, Ok, Err } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from '../config/jwt-claims.js';
 
 /**
  * JWTトークンのペイロード情報
@@ -13,6 +14,16 @@ export interface TokenPayload {
   roles: string[];
   permissions?: string[];
 }
+
+/**
+ * トークンの種別（クレーム token_use の値）
+ */
+export type TokenKind = 'access' | 'refresh';
+
+/**
+ * アクセストークンの JOSE ヘッダーの typ（RFC 9068）
+ */
+const ACCESS_TOKEN_TYP = 'at+jwt';
 
 /**
  * トークン関連のエラー型
@@ -59,6 +70,42 @@ export class TokenService {
       );
       throw err;
     });
+  }
+
+  /**
+   * トークンの発行者（iss）。未設定なら既定値（起動時の検証で空・前後の空白は拒否済み）
+   */
+  private get issuer(): string {
+    return process.env.JWT_ISSUER || DEFAULT_JWT_ISSUER;
+  }
+
+  /**
+   * トークンの想定利用者（aud）
+   */
+  private get audience(): string {
+    return process.env.JWT_AUDIENCE || DEFAULT_JWT_AUDIENCE;
+  }
+
+  /**
+   * 種別・発行者・想定利用者のクレームを載せた署名前の JWT を作る（要件33.1〜33.3）
+   */
+  private buildToken(payload: TokenPayload, kind: TokenKind, expiry: string): jose.SignJWT {
+    return new jose.SignJWT({
+      userId: payload.userId,
+      email: payload.email,
+      roles: payload.roles,
+      ...(payload.permissions && { permissions: payload.permissions }),
+      token_use: kind,
+    })
+      .setProtectedHeader(
+        kind === 'access' ? { alg: 'EdDSA', typ: ACCESS_TOKEN_TYP } : { alg: 'EdDSA' }
+      )
+      .setSubject(payload.userId)
+      .setIssuer(this.issuer)
+      .setAudience(this.audience)
+      .setJti(randomUUID()) // 一意なトークンIDを設定（重複防止）
+      .setIssuedAt()
+      .setExpirationTime(expiry);
   }
 
   /**
@@ -115,17 +162,9 @@ export class TokenService {
     await this.keysInitialized;
 
     try {
-      const token = await new jose.SignJWT({
-        userId: payload.userId,
-        email: payload.email,
-        roles: payload.roles,
-        ...(payload.permissions && { permissions: payload.permissions }),
-      })
-        .setProtectedHeader({ alg: 'EdDSA' })
-        .setJti(randomUUID()) // 一意なトークンIDを設定
-        .setIssuedAt()
-        .setExpirationTime(this.accessTokenExpiry)
-        .sign(this.privateKey);
+      const token = await this.buildToken(payload, 'access', this.accessTokenExpiry).sign(
+        this.privateKey
+      );
 
       return token;
     } catch (error) {
@@ -161,17 +200,9 @@ export class TokenService {
     await this.keysInitialized;
 
     try {
-      const token = await new jose.SignJWT({
-        userId: payload.userId,
-        email: payload.email,
-        roles: payload.roles,
-        ...(payload.permissions && { permissions: payload.permissions }),
-      })
-        .setProtectedHeader({ alg: 'EdDSA' })
-        .setJti(randomUUID()) // 一意なトークンIDを設定（重複防止）
-        .setIssuedAt()
-        .setExpirationTime(this.refreshTokenExpiry)
-        .sign(this.privateKey);
+      const token = await this.buildToken(payload, 'refresh', this.refreshTokenExpiry).sign(
+        this.privateKey
+      );
 
       return token;
     } catch (error) {
@@ -190,10 +221,13 @@ export class TokenService {
   /**
    * トークンを検証
    *
-   * EdDSA署名と有効期限をチェックします。
+   * EdDSA署名と有効期限に加えて、種別（token_use）が期待する種別と一致すること、
+   * 発行者（iss）と想定利用者（aud）が本システムであることを確かめる。
+   * 種別を持たないトークン（種別の導入より前に発行されたもの）も拒否する（再ログインになる）。
+   * 保護 API は 'access'、リフレッシュは 'refresh' で検証する（要件33.1〜33.3）。
    *
    * @param token 検証するJWT
-   * @param type トークンタイプ（access or refresh）
+   * @param type 期待するトークンの種別（access or refresh）
    * @returns 検証結果（成功時はペイロード、失敗時はエラー）
    *
    * @example
@@ -207,17 +241,23 @@ export class TokenService {
    * }
    * ```
    */
-  async verifyToken(
-    token: string,
-    type: 'access' | 'refresh'
-  ): Promise<Result<TokenPayload, TokenError>> {
+  async verifyToken(token: string, type: TokenKind): Promise<Result<TokenPayload, TokenError>> {
     // キーの初期化を待つ
     await this.keysInitialized;
 
     try {
       const { payload } = await jose.jwtVerify(token, this.publicKey, {
         algorithms: ['EdDSA'],
+        issuer: this.issuer,
+        audience: this.audience,
+        ...(type === 'access' && { typ: ACCESS_TOKEN_TYP }),
       });
+
+      // 種別が期待と一致しないトークン（種別を持たないものを含む）は拒否する
+      if (payload.token_use !== type) {
+        logger.warn({ type }, 'Token type mismatch');
+        return Err({ type: 'TOKEN_INVALID' });
+      }
 
       // ペイロードを TokenPayload 型に変換
       const tokenPayload: TokenPayload = {
@@ -243,6 +283,12 @@ export class TokenService {
         error instanceof jose.errors.JWSInvalid
       ) {
         logger.warn({ type }, 'Token signature verification failed');
+        return Err({ type: 'TOKEN_INVALID' });
+      }
+
+      // 発行者・想定利用者・ヘッダーの typ の不一致（期限切れは上で判定済み）
+      if (error instanceof jose.errors.JWTClaimValidationFailed) {
+        logger.warn({ type, claim: error.claim }, 'Token claim validation failed');
         return Err({ type: 'TOKEN_INVALID' });
       }
 
