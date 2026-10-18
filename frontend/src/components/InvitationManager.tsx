@@ -111,7 +111,11 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
   };
 
   // 招待URLコピーハンドラー
-  const handleCopyUrl = async (token?: string) => {
+  const handleCopyUrl = async (token?: string | null) => {
+    // 定期処理でトークンが消された招待（null）は、別の招待の URL をコピーしないよう何もしない
+    if (token === null) {
+      return;
+    }
     try {
       // トークンが指定された場合はそのURLを、指定されていない場合は最後に作成されたURLを使用
       const urlToCopy = token ? `${window.location.origin}/register?token=${token}` : invitationUrl;
@@ -494,20 +498,22 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                           >
                             取り消し
                           </button>
-                          <button
-                            onClick={() => handleCopyUrl(invitation.token)}
-                            style={{
-                              padding: '8px 16px',
-                              backgroundColor: '#1565c0',
-                              border: 'none',
-                              borderRadius: '4px',
-                              color: '#fff',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                            }}
-                          >
-                            URLをコピー
-                          </button>
+                          {invitation.token !== null && (
+                            <button
+                              onClick={() => handleCopyUrl(invitation.token)}
+                              style={{
+                                padding: '8px 16px',
+                                backgroundColor: '#1565c0',
+                                border: 'none',
+                                borderRadius: '4px',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                              }}
+                            >
+                              URLをコピー
+                            </button>
+                          )}
                         </>
                       )}
                       {invitation.status === 'expired' && (
@@ -615,20 +621,22 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                           >
                             取り消し
                           </button>
-                          <button
-                            onClick={() => handleCopyUrl(invitation.token)}
-                            style={{
-                              padding: '6px 12px',
-                              backgroundColor: '#1565c0',
-                              border: 'none',
-                              borderRadius: '4px',
-                              color: '#fff',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                            }}
-                          >
-                            URLをコピー
-                          </button>
+                          {invitation.token !== null && (
+                            <button
+                              onClick={() => handleCopyUrl(invitation.token)}
+                              style={{
+                                padding: '6px 12px',
+                                backgroundColor: '#1565c0',
+                                border: 'none',
+                                borderRadius: '4px',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                              }}
+                            >
+                              URLをコピー
+                            </button>
+                          )}
                         </>
                       )}
                       {invitation.status === 'expired' && (

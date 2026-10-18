@@ -379,7 +379,7 @@ describe('Authentication API Integration Tests', () => {
 
       // 要件2.10: 招待トークンが使用済みとしてマークされる
       const updatedInvitation = await prisma.invitation.findUnique({
-        where: { token: invitation.token },
+        where: { id: invitation.id },
       });
       expect(updatedInvitation?.usedAt).not.toBeNull();
 

@@ -236,7 +236,7 @@ export async function createInvitation(
   // デフォルトで24時間後に期限切れ
   const expiresAt = options.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-  return await client.invitation.create({
+  const invitation = await client.invitation.create({
     data: {
       email: options.email,
       token,
@@ -245,6 +245,8 @@ export async function createInvitation(
       status: options.status || 'pending',
     },
   });
+  // 列は定期処理の消去のために空を許すが、作成直後の招待は常にトークンを持つ
+  return { ...invitation, token };
 }
 
 /**

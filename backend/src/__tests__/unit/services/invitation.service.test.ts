@@ -73,8 +73,8 @@ describe('InvitationService', () => {
 
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.token).toBeDefined();
-        expect(result.value.token.length).toBeGreaterThan(0);
+        expect(result.value.token).toEqual(expect.any(String));
+        expect(result.value.token?.length).toBeGreaterThan(0);
       }
     });
 

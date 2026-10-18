@@ -1,13 +1,18 @@
 import 'dotenv/config';
-import { initSentry } from './utils/sentry.js';
+import { initSentry, captureException } from './utils/sentry.js';
 import app from './app.js';
-import { disconnectPrisma } from './db.js';
+import getPrismaClient, { disconnectPrisma } from './db.js';
 import redis, { initRedis } from './redis.js';
 import logger from './utils/logger.js';
 import { validateEnv } from './config/env.js';
 import { runtimeMode } from './config/runtime-mode.js';
 import { initializeStorage, disconnectStorage, isStorageConfigured } from './storage/index.js';
 import { initializeStorageServices } from './routes/survey-images.routes.js';
+import {
+  ScheduledJobRunner,
+  createScheduledJobDefinitions,
+  createScheduledJobsQueue,
+} from './jobs/scheduled-job-runner.js';
 
 // Initialize Sentry (must run first)
 initSentry();
@@ -16,11 +21,33 @@ initSentry();
 const env = validateEnv();
 const PORT = env.PORT;
 
+// 定期処理の実行基盤（試験の実行環境では登録しない。要件37.4・37.8）
+let scheduledJobRunner: ScheduledJobRunner | null = null;
+
+/**
+ * 定期処理を登録して実行を始める
+ *
+ * 登録の失敗（キャッシュ基盤に接続できない等）で起動を止めず、エラーログと Sentry へ送る。
+ */
+function startScheduledJobs(): void {
+  const runner = new ScheduledJobRunner(
+    () => createScheduledJobsQueue(),
+    createScheduledJobDefinitions(getPrismaClient())
+  );
+  scheduledJobRunner = runner;
+  runner.start().catch((error: unknown) => {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ err }, 'Failed to register scheduled jobs');
+    captureException(err, { component: 'ScheduledJobRunner' });
+  });
+}
+
 // Graceful shutdown
 const gracefulShutdown = async (): Promise<void> => {
   logger.info('Shutting down gracefully...');
 
   try {
+    await scheduledJobRunner?.stop();
     await disconnectStorage();
     await disconnectPrisma();
     await redis.disconnect();
@@ -75,6 +102,7 @@ async function startServer(): Promise<void> {
           apiSpec: `http://localhost:${PORT}/docs/json`,
         }),
       });
+      startScheduledJobs();
     });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));

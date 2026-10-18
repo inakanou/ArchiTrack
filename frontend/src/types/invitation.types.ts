@@ -17,8 +17,8 @@ export interface Invitation {
   id: string;
   /** 招待メールアドレス */
   email: string;
-  /** 招待トークン */
-  token: string;
+  /** 招待トークン（使用済み・取り消し・期限切れで定期処理が消すと null） */
+  token: string | null;
   /** 招待ステータス */
   status: InvitationStatus;
   /** 有効期限 */

@@ -1374,7 +1374,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 統合テストで、送信の完了と最終の失敗のいずれの後も宛先とトークンを含むジョブが Redis に残らないことを確かめた状態になる
   - _Requirements: 45.1, 45.2, 45.3, 45.4_
 
-- [ ] 44.9 定期処理の実行基盤と、使用済み・期限切れのトークンの消去を設ける
+- [x] 44.9 定期処理の実行基盤と、使用済み・期限切れのトークンの消去を設ける
   - キャッシュ基盤の繰り返しジョブで定期処理を登録・実行する基盤を置き、起動のたびに同じ識別子で登録し直す（定義を重複させない）。試験の実行環境では繰り返しジョブを登録しない（E2E の実行中に、期限切れ・使用済みの表示を確かめるための前提データを消さない）。統合テストはジョブの処理の関数を直接呼ぶ
   - 毎時の処理で、使用済み・取り消し・期限切れの招待はトークンだけを消して行を残し（状態・期限・作成者を保ち、招待一覧の状態の表示と期限切れの再送信（要件1.7・13.2・13.7）を維持する）、使用済み・期限切れのリセットのトークンと期限切れのリフレッシュトークンは行を消す
   - 統合テストで、処理の実行後に該当のトークンが消え、未使用で期限内のものが残り、対象の招待の行が状態とともに残り一覧に出ることを確かめ、単体テストで試験の実行環境では繰り返しジョブが登録されないことを確かめた状態になる
@@ -1814,3 +1814,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 開発用の機能の有効・無効は `backend/src/config/runtime-mode.ts` の判定だけで決める（`NODE_ENV` を直接比べない）。design どおり試験（`NODE_ENV=test`）でもエラー応答に `stack` が付くため、内部の失敗を漏らさないことを確かめるテストは `stack` を除いた本文で主張する（construction-schedule の `schedules.routes.test.ts` を改めた）。`two-factor.service.ts` の `NODE_ENV !== 'production'` による固定コードの受理は実行環境の指定が無いと有効なまま残っており、46.2 で全環境から取り除く（44.6）
 - 画面の API は frontend の nginx（`frontend/nginx.conf` の `location ^~ /api/` と `= /csrf-token`、共通の設定は `frontend/nginx-proxy-params.conf`）を経て backend へ届く。中継先 `BACKEND_INTERNAL_URL` は `scheme://host[:port]` だけを受け付け、起動前の検査（`frontend/nginx-require-backend-internal-url.sh`）が他を拒む。backend は IPv6 だけの Railway のプライベートネットワークに備えて `::` で待ち受ける。E2E の補助で Cookie を伴う呼び出しは `e2e/config.ts` の `SAME_ORIGIN_API_BASE_URL` を使う。spec 本体の Bearer の直接の呼び出し（`API_BASE_URL`）の寄せは 44.11・45.x で行う。server の階層の `add_header` が API の応答で helmet と重複する件は 56.1 で整理する。新しい2ファイルの File Structure Plan への追記は 57.2（44.7）
 - メールキューは `backend/src/services/email.service.ts` の `createEmailQueue()` が `REDIS_URL` で作る。最終の失敗の判定は試行の回数でなく `job.isFailed()` で行う（Bull は stall の上限超えで `attemptsMade` を増やさずに failed へ移すため）。判定や記録が例外になったジョブは消さずに失敗の集合に残るので、定期処理の基盤（44.9）で `queue.clean(<猶予>, 'failed')` の安全網を足すかを判断する。backend のソースを書き換えると試験の backend コンテナが tsx watch の再起動→autoheal で再起動し、実行中の `docker exec` が 137 で切れることがある（44.8）
+- 定期処理は `backend/src/jobs/scheduled-job-runner.ts`（キュー `scheduled-jobs`、jobId はジョブ名、試験の実行環境では登録しない）に定義を足して増やす。process より先に add する順序を崩さない（逆にすると停止の競合で未処理の拒否が漏れる）。起動時に今の定義と一致しない繰り返しの定義を消すため、ジョブを足すタスク（36.8・41.1）はローリング配備で旧版が新版の定義を消しうる点を扱う。掃除の後の招待のリンクは期限切れでなく無効（INVALID_TOKEN）になる（画面の文言は同じ）。未決: 要件45.3 の残余（`handleFailedJob` の判定・記録が例外のとき、トークンを含むメールのジョブが failed に期限なく残る）に、メールキューの失敗のジョブの定期の掃除を足すかは利用者の判断待ち（44.9）

@@ -85,7 +85,7 @@ export class InvitationService {
     });
 
     // 招待メールをキューへ投入する（要件1.3）。投入の成否は招待の作成の成否に影響しない（要件24.8）
-    this.queueInvitationEmail(invitation);
+    this.queueInvitationEmail(invitation, token);
 
     return Ok(invitation);
   }
@@ -93,7 +93,7 @@ export class InvitationService {
   /**
    * 招待メールをキューへ投入する（要件1.3・24.8）
    */
-  private queueInvitationEmail(invitation: Invitation): void {
+  private queueInvitationEmail(invitation: Invitation, token: string): void {
     if (!this.emailSender) {
       logger.warn(
         { invitationId: invitation.id },
@@ -107,7 +107,7 @@ export class InvitationService {
     const emailSender = this.emailSender;
     void (async () => {
       try {
-        await emailSender.sendInvitationEmail(invitation.email, invitation.token);
+        await emailSender.sendInvitationEmail(invitation.email, token);
       } catch (error) {
         logger.warn(
           // pino の標準シリアライザ（err キー）で message と stack を残す
@@ -125,7 +125,7 @@ export class InvitationService {
    * @returns 検証された招待またはエラー
    */
   async validateInvitation(token: string): Promise<Result<Invitation, InvitationError>> {
-    // トークンで招待を検索
+    // トークンで招待を検索（定期処理でトークンが消された招待（NULL）はどのトークンとも一致しない）
     const invitation = await this.prisma.invitation.findUnique({
       where: { token },
     });

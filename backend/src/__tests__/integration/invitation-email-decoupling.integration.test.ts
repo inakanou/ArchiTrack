@@ -161,8 +161,10 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     expect(queueAdd).toHaveBeenCalledTimes(1);
+    const invitationToken = created.value.token;
+    if (invitationToken === null) throw new Error('作成直後の招待はトークンを持つ');
 
-    const registered = await authService.register(created.value.token, {
+    const registered = await authService.register(invitationToken, {
       password: 'Decoupl1ng!Pass#2026',
       displayName: 'Decoupled Invitee',
     });

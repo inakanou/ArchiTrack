@@ -897,4 +897,47 @@ describe('InvitationManager', () => {
       });
     }
   });
+
+  /**
+   * 定期処理（expired-token-cleanup）は期限切れの招待のトークンを消して行を残す（タスク44.9）。
+   * トークンの無い招待の行から、別の招待の URL（直前に作成した招待の URL）をコピーさせない。
+   */
+  it('トークンが消された招待の行には URL のコピーボタンを出さない', async () => {
+    const cleaned: Invitation = {
+      id: '9',
+      email: 'cleaned@example.com',
+      token: null,
+      status: 'pending',
+      expiresAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date().toISOString(),
+      invitedBy: 'admin',
+      inviterEmail: 'admin@example.com',
+    };
+
+    render(
+      <InvitationManager
+        invitations={[mockInvitations[0] as Invitation, cleaned]}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    const rows = screen.getAllByRole('row');
+    const cleanedRow = rows.find((row) => within(row).queryByText('cleaned@example.com'));
+    const pendingRow = rows.find((row) => within(row).queryByText('user1@example.com'));
+    expect(cleanedRow).toBeDefined();
+    expect(pendingRow).toBeDefined();
+    expect(
+      within(cleanedRow as HTMLElement).queryByRole('button', { name: /URLをコピー/i })
+    ).not.toBeInTheDocument();
+    // 取り消しは引き続きできる
+    expect(
+      within(cleanedRow as HTMLElement).getByRole('button', { name: /取り消し/i })
+    ).toBeInTheDocument();
+    expect(
+      within(pendingRow as HTMLElement).getByRole('button', { name: /URLをコピー/i })
+    ).toBeInTheDocument();
+  });
 });
