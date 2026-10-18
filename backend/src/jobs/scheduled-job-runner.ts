@@ -1,5 +1,5 @@
 /**
- * 定期処理の実行基盤（user-authentication 要件36.8、37.4、37.8、41.1、41.2）
+ * 定期処理の実行基盤（user-authentication 要件36.8、37.4、37.8、41.1、41.2、45.3）
  *
  * キャッシュ基盤と同じ REDIS_URL で接続するキュー `scheduled-jobs` に、Bull の繰り返しジョブ
  * （`repeat`、cron は Asia/Tokyo）として定期処理を登録し、同じキューで実行する。
@@ -23,6 +23,11 @@ import {
   EXPIRED_TOKEN_CLEANUP_JOB_NAME,
   cleanupExpiredTokens,
 } from './expired-token-cleanup.job.js';
+import {
+  FAILED_EMAIL_JOB_CLEANUP_CRON,
+  FAILED_EMAIL_JOB_CLEANUP_JOB_NAME,
+  cleanupFailedEmailJobs,
+} from './failed-email-job-cleanup.job.js';
 
 /** 定期処理のキューの名前（Redis のキーは `bull:scheduled-jobs:*`） */
 export const SCHEDULED_JOBS_QUEUE_NAME = 'scheduled-jobs';
@@ -62,6 +67,11 @@ export function createScheduledJobDefinitions(prisma: PrismaClient): ScheduledJo
       name: EXPIRED_TOKEN_CLEANUP_JOB_NAME,
       cron: EXPIRED_TOKEN_CLEANUP_CRON,
       run: () => cleanupExpiredTokens(prisma),
+    },
+    {
+      name: FAILED_EMAIL_JOB_CLEANUP_JOB_NAME,
+      cron: FAILED_EMAIL_JOB_CLEANUP_CRON,
+      run: () => cleanupFailedEmailJobs(),
     },
   ];
 }

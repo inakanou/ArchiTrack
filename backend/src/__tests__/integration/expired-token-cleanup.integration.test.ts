@@ -294,19 +294,33 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
     const inspector = createScheduledJobsQueue(redisUrl);
     try {
       const repeatables = await inspector.getRepeatableJobs();
-      expect(repeatables).toEqual([
-        expect.objectContaining({
-          name: 'expired-token-cleanup',
-          id: 'expired-token-cleanup',
-          cron: '15 * * * *',
-          tz: 'Asia/Tokyo',
-        }),
-      ]);
-      // 次の実行は毎時 15 分（Asia/Tokyo は分の境界が UTC と同じ）
-      const next = new Date(repeatables[0]?.next ?? 0);
-      expect(next.getUTCMinutes()).toBe(15);
-      expect(next.getTime() - Date.now()).toBeLessThanOrEqual(HOUR_MS);
-      expect(await inspector.getDelayedCount()).toBe(1);
+      expect(repeatables).toHaveLength(2);
+      expect(repeatables).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'expired-token-cleanup',
+            id: 'expired-token-cleanup',
+            cron: '15 * * * *',
+            tz: 'Asia/Tokyo',
+          }),
+          expect.objectContaining({
+            name: 'failed-email-job-cleanup',
+            id: 'failed-email-job-cleanup',
+            cron: '45 * * * *',
+            tz: 'Asia/Tokyo',
+          }),
+        ])
+      );
+      // 次の実行は毎時 15 分・45 分（Asia/Tokyo は分の境界が UTC と同じ）
+      for (const [name, minute] of [
+        ['expired-token-cleanup', 15],
+        ['failed-email-job-cleanup', 45],
+      ] as const) {
+        const next = new Date(repeatables.find((job) => job.name === name)?.next ?? 0);
+        expect(next.getUTCMinutes()).toBe(minute);
+        expect(next.getTime() - Date.now()).toBeLessThanOrEqual(HOUR_MS);
+      }
+      expect(await inspector.getDelayedCount()).toBe(2);
     } finally {
       await inspector.close();
     }

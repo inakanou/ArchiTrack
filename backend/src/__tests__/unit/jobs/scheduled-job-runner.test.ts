@@ -1,5 +1,5 @@
 /**
- * 定期処理の実行基盤の単体検証（user-authentication タスク44.9）
+ * 定期処理の実行基盤の単体検証（user-authentication タスク44.9、44.12）
  *
  * キュー（Bull）を差し替え、試験の実行環境では繰り返しジョブを登録しないこと、
  * それ以外では同じ識別子で登録し直し、古い定義を消し、最終の失敗だけを記録することを確かめる。
@@ -31,6 +31,13 @@ vi.mock('../../../jobs/expired-token-cleanup.job.js', () => ({
   EXPIRED_TOKEN_CLEANUP_JOB_NAME: 'expired-token-cleanup',
   EXPIRED_TOKEN_CLEANUP_CRON: '15 * * * *',
   cleanupExpiredTokens: (...args: unknown[]) => cleanupExpiredTokensMock(...args),
+}));
+
+const cleanupFailedEmailJobsMock = vi.fn();
+vi.mock('../../../jobs/failed-email-job-cleanup.job.js', () => ({
+  FAILED_EMAIL_JOB_CLEANUP_JOB_NAME: 'failed-email-job-cleanup',
+  FAILED_EMAIL_JOB_CLEANUP_CRON: '45 * * * *',
+  cleanupFailedEmailJobs: (...args: unknown[]) => cleanupFailedEmailJobsMock(...args),
 }));
 
 import {
@@ -336,9 +343,20 @@ describe('createScheduledJobDefinitions', () => {
 
     expect(jobs.map(({ name, cron }) => ({ name, cron }))).toEqual([
       { name: 'expired-token-cleanup', cron: '15 * * * *' },
+      { name: 'failed-email-job-cleanup', cron: '45 * * * *' },
     ]);
     await expect(jobs[0]?.run()).resolves.toEqual({ invitationTokensCleared: 1 });
     expect(cleanupExpiredTokensMock).toHaveBeenCalledWith(prisma);
+  });
+
+  it('failed-email-job-cleanup を毎時 45 分に登録し、処理はメールキューの失敗のジョブの掃除を既定の猶予で呼ぶ', async () => {
+    cleanupFailedEmailJobsMock.mockResolvedValue({ failedEmailJobsRemoved: 2 });
+
+    const jobs = createScheduledJobDefinitions({} as PrismaClient);
+    const job = jobs.find(({ name }) => name === 'failed-email-job-cleanup');
+
+    await expect(job?.run()).resolves.toEqual({ failedEmailJobsRemoved: 2 });
+    expect(cleanupFailedEmailJobsMock).toHaveBeenCalledWith();
   });
 });
 
