@@ -11,6 +11,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
 
 test.describe('自社情報の楽観的排他制御・未保存確認', () => {
@@ -23,6 +24,10 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
     await page.evaluate(() => {
       localStorage.clear();
     });
+  });
+
+  test.afterEach(async () => {
+    await deleteSessionUsers();
   });
 
   /**
@@ -39,6 +44,10 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
     test('REQ-2.7, REQ-2.8: 楽観的排他制御で競合が検出された場合、エラーメッセージを表示する', async ({
       browser,
     }) => {
+      // 同じ役割で二つ目のコンテキストを開くため、共有の役割の利用者ではなく
+      // テストの中で作る利用者のセッションで行う（要件33.6）
+      const sessionUser = await createSessionUser('REGULAR_USER');
+
       // 2つのコンテキストを作成して同時更新をシミュレート
       const context1 = await browser.newContext();
       const context2 = await browser.newContext();
@@ -48,8 +57,8 @@ test.describe('自社情報の楽観的排他制御・未保存確認', () => {
 
       try {
         // 両方のコンテキストでログイン
-        await loginAsUser(page1, 'REGULAR_USER');
-        await loginAsUser(page2, 'REGULAR_USER');
+        await loginAsUser(page1, sessionUser);
+        await loginAsUser(page2, sessionUser);
 
         // 両方のページで自社情報を開く
         await page1.goto('/company-info');

@@ -8,7 +8,7 @@
  */
 
 import type { Page } from '@playwright/test';
-import { TEST_USERS } from './test-users';
+import { TEST_USERS, type TestUser } from './test-users';
 import { getTimeout, waitForAuthState } from './wait-helpers';
 
 /**
@@ -28,7 +28,8 @@ const isCI = !!process.env.CI;
  * - 認証状態の確実な確認
  *
  * @param page - Playwrightのページオブジェクト
- * @param userKey - TEST_USERSのキー（'REGULAR_USER', 'ADMIN_USER'など）
+ * @param userKey - TEST_USERSのキー（'REGULAR_USER', 'ADMIN_USER'など）、
+ *   またはテストの中で作った利用者（`createSessionUser` の戻り値など）
  * @param options - オプション
  *
  * @example
@@ -42,13 +43,13 @@ const isCI = !!process.env.CI;
  */
 export async function loginAsUser(
   page: Page,
-  userKey: keyof typeof TEST_USERS,
+  userKey: keyof typeof TEST_USERS | TestUser,
   options?: {
     /** 最大リトライ回数 */
     maxRetries?: number;
   }
 ): Promise<void> {
-  const user = TEST_USERS[userKey];
+  const user = typeof userKey === 'string' ? TEST_USERS[userKey] : userKey;
   const maxRetries = options?.maxRetries ?? (isCI ? 3 : 1);
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -89,7 +90,7 @@ export async function loginAsUser(
  */
 async function performLogin(
   page: Page,
-  user: (typeof TEST_USERS)[keyof typeof TEST_USERS]
+  user: Pick<TestUser, 'email' | 'password' | 'twoFactorEnabled'>
 ): Promise<void> {
   // ログインページに移動し、ページ読み込み完了を待機
   await page.goto('/login', { waitUntil: 'networkidle' });

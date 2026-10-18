@@ -201,6 +201,68 @@ export async function createCustomUser(userData: TestUser, prisma?: PrismaClient
 }
 
 /**
+ * テストの中で作る利用者のメールアドレスの接頭辞
+ *
+ * 共有の役割の利用者（多くの spec が使う REGULAR_USER・ADMIN_USER）でログアウト・全デバイスの
+ * ログアウト・パスワードの変更やリセットを行うと、その利用者のほかのセッションの系列まで失効する。
+ * 同じセッションを二つのコンテキストや複数のタブでリフレッシュする検証も、リフレッシュトークンの
+ * 再利用の検知の下では系列ごと失効させうる。これらの検証は、テストの中で作るこの接頭辞の利用者の
+ * セッションで行い、共有の役割の利用者の系列を失効させない（user-authentication 要件33.6）。
+ */
+export const SESSION_USER_EMAIL_PREFIX = 'e2e-session-';
+
+/** テストの中で作る利用者（ログインに要る資格と ID） */
+export interface SessionUser extends TestUser {
+  id: string;
+}
+
+/**
+ * 共有の役割の利用者と同じ役割・表示名・パスワードの利用者を、一意のメールアドレスで作成
+ *
+ * 表示名とパスワードを共有の役割の利用者に揃えるのは、移した検証の画面上の観測（表示名で
+ * ユーザーメニューを開く等）と入力値を変えないためである。後始末は `deleteSessionUsers` で行う。
+ *
+ * @param roleKey - 役割を写す共有の役割の利用者（'REGULAR_USER' または 'ADMIN_USER'）
+ * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
+ * @returns 作成した利用者の資格と ID（`loginAsUser` にそのまま渡せる）
+ *
+ * @example
+ * ```typescript
+ * const sessionUser = await createSessionUser('REGULAR_USER');
+ * await loginAsUser(page, sessionUser);
+ * ```
+ */
+export async function createSessionUser(
+  roleKey: 'REGULAR_USER' | 'ADMIN_USER',
+  prisma?: PrismaClientInstance
+): Promise<SessionUser> {
+  const base = TEST_USERS[roleKey];
+  const userData: TestUser = {
+    email: `${SESSION_USER_EMAIL_PREFIX}${Date.now()}-${randomBytes(4).toString('hex')}@example.com`,
+    password: base.password,
+    displayName: base.displayName,
+    roles: [...base.roles],
+    twoFactorEnabled: false,
+  };
+  const user = await createCustomUser(userData, prisma);
+  return { ...userData, id: user.id };
+}
+
+/**
+ * `createSessionUser` で作った利用者をすべて削除
+ *
+ * セッション・パスワードの履歴・リセットのトークン・ロールの割り当ては利用者の削除に連なって消える。
+ *
+ * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
+ */
+export async function deleteSessionUsers(prisma?: PrismaClientInstance): Promise<void> {
+  const client = prisma || getPrismaClient();
+  await client.user.deleteMany({
+    where: { email: { startsWith: SESSION_USER_EMAIL_PREFIX } },
+  });
+}
+
+/**
  * 招待トークンを作成
  *
  * ユーザー登録テストで使用する招待トークンを作成します。

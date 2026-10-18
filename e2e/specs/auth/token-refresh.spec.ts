@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser, createAllTestUsers } from '../../fixtures/auth.fixtures';
+import {
+  createTestUser,
+  createAllTestUsers,
+  createSessionUser,
+  deleteSessionUsers,
+} from '../../fixtures/auth.fixtures';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForAuthState, waitForLoadingComplete } from '../../helpers/wait-helpers';
@@ -184,11 +189,13 @@ test.describe('トークンリフレッシュ機能', () => {
     // テストタイムアウトを延長（CI環境での安定性向上）
     test.setTimeout(getTimeout(120000));
 
-    await createTestUser('REGULAR_USER');
+    // 複数のタブで同じセッションをリフレッシュするため、共有の役割の利用者ではなく
+    // テストの中で作る利用者のセッションで行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
 
     // タブ1を作成してログイン
     const page1 = await context.newPage();
-    await loginAsUser(page1, 'REGULAR_USER');
+    await loginAsUser(page1, sessionUser);
 
     // タブ1でプロフィールページに移動して安定した状態を確保
     await page1.goto('/profile');
@@ -439,8 +446,10 @@ test.describe('トークンリフレッシュ機能', () => {
    * 全デバイスログアウト機能を使用して明示的なログアウトをテストします。
    */
   test('明示的なログアウト時はリダイレクト先情報が設定されない', async ({ page }) => {
-    await createTestUser('REGULAR_USER');
-    await loginAsUser(page, 'REGULAR_USER');
+    // 全デバイスのログアウトは共有の役割の利用者の系列を失効させるため、
+    // テストの中で作る利用者で行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
+    await loginAsUser(page, sessionUser);
 
     // セッション管理ページに移動（ネットワーク安定化を待つ）
     await page.goto('/sessions', { waitUntil: 'networkidle' });
@@ -668,10 +677,17 @@ test.describe('トークンリフレッシュ機能', () => {
  * 要件23.6: トークンリフレッシュAPIが95パーセンタイルで300ms以内にレスポンス
  */
 test.describe('トークンリフレッシュパフォーマンス', () => {
+  test.afterEach(async () => {
+    await deleteSessionUsers();
+  });
+
   test('トークンリフレッシュが300ms以内に完了する', async ({ page }) => {
     await cleanDatabase();
     await createTestUser('REGULAR_USER');
-    await loginAsUser(page, 'REGULAR_USER');
+    // 画面のセッションと同じリフレッシュトークンを繰り返しリフレッシュするため、
+    // 共有の役割の利用者ではなくテストの中で作る利用者のセッションで行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
+    await loginAsUser(page, sessionUser);
 
     // 認証状態が確立するまで待機
     const authEstablished = await waitForAuthState(page, {

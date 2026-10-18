@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
 import { hashPassword, TEST_USERS } from '../../helpers/test-users';
 import { loginWithCredentials } from '../../helpers/auth-actions';
+import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
@@ -64,6 +65,10 @@ test.describe('パスワード管理機能', () => {
     await page.goto('/password-reset');
   });
 
+  test.afterEach(async () => {
+    await deleteSessionUsers();
+  });
+
   /**
    * 要件7.1: パスワードリセット要求
    * WHEN ユーザーがパスワードリセットを要求する
@@ -116,10 +121,14 @@ test.describe('パスワード管理機能', () => {
    * @requirement user-authentication/REQ-29.17 @requirement user-authentication/REQ-29.18 @requirement user-authentication/REQ-28.13
    */
   test('有効なリセットトークンでパスワードを変更できる', async ({ page }) => {
+    // パスワードのリセットは共有の役割の利用者の系列を失効させるため、
+    // テストの中で作る利用者で行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
+
     // Step 1: リセットトークンを生成
     const prisma = getPrismaClient();
     const user = await prisma.user.findUnique({
-      where: { email: 'user@example.com' },
+      where: { email: sessionUser.email },
     });
 
     // ランダムな一意トークンを生成（ベストプラクティス: リトライ時の競合を防ぐ）
@@ -150,7 +159,7 @@ test.describe('パスワード管理機能', () => {
     await expect(page.getByText(/パスワードがリセットされました/i)).toBeVisible();
 
     // 新しいパスワードでログインできることを確認
-    await page.getByLabel(/メールアドレス/i).fill('user@example.com');
+    await page.getByLabel(/メールアドレス/i).fill(sessionUser.email);
     await page.locator('input#password').fill(uniquePassword);
     await page.getByRole('button', { name: /ログイン/i }).click();
 
@@ -705,13 +714,19 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     });
   });
 
+  test.afterEach(async () => {
+    await deleteSessionUsers();
+  });
+
   /**
    * 要件29.1, 29.2, 29.3: パスワードリセット完全フロー
    * パスワードリセット要求 → メール送信確認 → リセット実行 → ログインの一連のフロー
    * @requirement user-authentication/REQ-29.1 @requirement user-authentication/REQ-29.6 @requirement user-authentication/REQ-29.10 @requirement user-authentication/REQ-29.11 @requirement user-authentication/REQ-29.17 @requirement user-authentication/REQ-29.18 @requirement user-authentication/REQ-28.10
    */
   test('パスワードリセット要求からログインまでの完全フローが動作する', async ({ page }) => {
-    const userEmail = 'user@example.com';
+    // パスワードのリセットは共有の役割の利用者の系列を失効させるため、
+    // テストの中で作る利用者で行う（要件33.6）
+    const userEmail = (await createSessionUser('REGULAR_USER')).email;
     const newPassword = `NewSecurePass${Date.now()}!Aa`;
 
     // Step 1: パスワードリセット要求画面にアクセス
@@ -775,9 +790,13 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
   test('パスワードリセット成功後、成功メッセージが表示されログインページにリダイレクトされる', async ({
     page,
   }) => {
+    // パスワードのリセットは共有の役割の利用者の系列を失効させるため、
+    // テストの中で作る利用者で行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
+
     const prisma = getPrismaClient();
     const user = await prisma.user.findUnique({
-      where: { email: 'user@example.com' },
+      where: { email: sessionUser.email },
     });
 
     // ユニークなトークンとパスワードを生成
@@ -997,9 +1016,13 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * @requirement user-authentication/REQ-29.16
    */
   test('パスワード変更中にローディングスピナーが表示される', async ({ page }) => {
+    // 送信したリセットは成立しうるため（共有の役割の利用者の系列を失効させる）、
+    // テストの中で作る利用者で行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
+
     const prisma = getPrismaClient();
     const user = await prisma.user.findUnique({
-      where: { email: 'user@example.com' },
+      where: { email: sessionUser.email },
     });
 
     const resetToken = `loading-test-token-${Date.now()}`;

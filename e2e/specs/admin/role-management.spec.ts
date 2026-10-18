@@ -1,6 +1,10 @@
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import {
+  createTestUser,
+  createSessionUser,
+  deleteSessionUsers,
+} from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -322,6 +326,10 @@ test.describe('ロール編集の楽観的ロック（要件25.8）', () => {
     lockRoleId = role.id;
   });
 
+  test.afterEach(async () => {
+    await deleteSessionUsers();
+  });
+
   /** ユーザー管理画面のロールタブを開き、検証用ロールの行が出るまで待つ */
   async function openRolesTab(page: Page): Promise<void> {
     await page.goto('/admin/users');
@@ -367,11 +375,14 @@ test.describe('ロール編集の楽観的ロック（要件25.8）', () => {
     page,
     browser,
   }) => {
+    // 同じ役割で二つ目のコンテキストを開くため、共有の役割の利用者ではなく
+    // テストの中で作る利用者のセッションで行う（要件33.6）
+    const sessionUser = await createSessionUser('ADMIN_USER');
     const otherContext = await browser.newContext();
     const otherPage = await otherContext.newPage();
     try {
-      await loginAsUser(page, 'ADMIN_USER');
-      await loginAsUser(otherPage, 'ADMIN_USER');
+      await loginAsUser(page, sessionUser);
+      await loginAsUser(otherPage, sessionUser);
       // 両方の画面が、どちらの保存よりも前に一覧（同じ版）を取得する
       await openRolesTab(page);
       await openRolesTab(otherPage);

@@ -18,6 +18,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtures';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
@@ -37,6 +38,10 @@ test.describe('現場調査CRUD操作', () => {
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+  });
+
+  test.afterEach(async () => {
+    await deleteSessionUsers();
   });
 
   /**
@@ -483,7 +488,10 @@ test.describe('現場調査CRUD操作', () => {
       assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
       const testSurveyId = createdSurveyId;
 
-      await loginAsUser(page, 'REGULAR_USER');
+      // 同じセッションを二つのタブで開くため、共有の役割の利用者ではなく
+      // テストの中で作る利用者のセッションで行う（要件33.6）
+      const sessionUser = await createSessionUser('REGULAR_USER');
+      await loginAsUser(page, sessionUser);
 
       // 1つ目のブラウザコンテキストで編集ページを開く
       await page.goto(`/site-surveys/${testSurveyId}/edit`);
@@ -492,7 +500,7 @@ test.describe('現場調査CRUD操作', () => {
 
       // 2つ目のブラウザコンテキストを作成して同じ現場調査を編集
       const page2 = await context.newPage();
-      await loginAsUser(page2, 'REGULAR_USER');
+      await loginAsUser(page2, sessionUser);
       await page2.goto(`/site-surveys/${testSurveyId}/edit`);
       await page2.waitForLoadState('networkidle');
       await expect(page2.getByLabel(/調査名/i)).toHaveValue(/.+/, { timeout: getTimeout(10000) });

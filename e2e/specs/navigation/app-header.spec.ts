@@ -6,7 +6,11 @@ import {
   cleanDatabaseAndRestoreTestData,
   getPrismaClient,
 } from '../../fixtures/database';
-import { createAllTestUsers } from '../../fixtures/auth.fixtures';
+import {
+  createAllTestUsers,
+  createSessionUser,
+  deleteSessionUsers,
+} from '../../fixtures/auth.fixtures';
 
 /**
  * 管理者としてログイン
@@ -486,6 +490,10 @@ test.describe('AppHeader ナビゲーション', () => {
     await createAllTestUsers(prisma);
   });
 
+  test.afterEach(async () => {
+    await deleteSessionUsers();
+  });
+
   /**
    * @requirement user-authentication/REQ-28.21: 認証済みユーザーが保護された画面にアクセスしたとき共通ヘッダーナビゲーションを表示する
    * WHEN 認証済みユーザーが保護された画面にアクセスする
@@ -725,7 +733,9 @@ test.describe('AppHeader ナビゲーション', () => {
    * 遷移後URLが /login であることを主張している。ログイン画面へ戻らなくなれば赤になる。
    */
   test('ユーザーメニューからログアウトできる', async ({ page }) => {
-    await loginAsRegularUser(page);
+    // ログアウトは共有の役割の利用者の系列を失効させるため、テストの中で作る利用者で行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
+    await loginAsUser(page, sessionUser);
     await page.goto('/dashboard');
     await page.waitForURL(/\/dashboard/);
 
