@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ExportDialog } from './ExportDialog';
+import { apiClient } from '../../api/client';
 
 describe('ExportDialog', () => {
   const defaultProps = {
@@ -35,6 +36,7 @@ describe('ExportDialog', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    apiClient.setAccessToken(null);
   });
 
   /**
@@ -131,6 +133,8 @@ describe('ExportDialog', () => {
 
   it('REQ-7.1: Excel出力ボタン押下時にエクスポートAPIを呼び出してファイルをダウンロードする', async () => {
     const user = userEvent.setup();
+    apiClient.setAccessToken('memory-access-token');
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem');
     const mockBlob = new Blob(['test'], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
@@ -168,6 +172,10 @@ describe('ExportDialog', () => {
         expect.objectContaining({ method: 'GET' })
       );
     });
+    // アクセストークンは ApiClient のメモリから得る（永続ストレージを読まない。要件33.10）
+    expect(getItemSpy).not.toHaveBeenCalledWith('accessToken');
+    const init = vi.mocked(globalThis.fetch).mock.calls[0]?.[1] as RequestInit;
+    expect(init.headers).toEqual({ Authorization: 'Bearer memory-access-token' });
 
     await waitFor(() => {
       expect(mockClick).toHaveBeenCalled();

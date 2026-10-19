@@ -179,7 +179,6 @@ export function SessionExpiredModal({
         const response = await apiClient.post<{
           requires2FA?: boolean;
           accessToken?: string;
-          refreshToken?: string;
           user?: unknown;
         }>('/api/v1/auth/login', {
           email: userEmail,
@@ -194,12 +193,10 @@ export function SessionExpiredModal({
         }
 
         // 要件30.9: 再認証成功でトークン更新
+        // アクセストークンは ApiClient のメモリだけに持ち、リフレッシュトークンは応答の
+        // HttpOnly Cookie で置き換わる（要件33.8, 33.10）
         if (response.accessToken) {
           apiClient.setAccessToken(response.accessToken);
-          localStorage.setItem('accessToken', response.accessToken);
-        }
-        if (response.refreshToken) {
-          localStorage.setItem('refreshToken', response.refreshToken);
         }
 
         // 再認証成功

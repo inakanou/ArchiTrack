@@ -133,14 +133,6 @@ test.describe('OCR再実行・リトライ機能', () => {
   let createdQuotationId: string | null = null;
   let accessToken: string = '';
 
-  test.beforeEach(async ({ page }) => {
-    // localStorageからトークンを取得
-    const token = await getAccessToken(page, 'ADMIN_USER').catch(() => null);
-    if (token) {
-      accessToken = token;
-    }
-  });
-
   test('テスト前提データを作成する', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
 

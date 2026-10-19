@@ -1260,3 +1260,204 @@ describe('ApiClient', () => {
     });
   });
 });
+
+/**
+ * Cookie の認証情報を使う要求（要件33.8, 33.10, 33.12）
+ */
+describe('ApiClient - Cookie によるリフレッシュとログアウト', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  function jsonResponse(status: number, body: unknown): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    apiClient.clearCredentials();
+    apiClient.setTokenRefreshCallback(null);
+    apiClient.setSessionExpiredCallback(null);
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    apiClient.clearCredentials();
+    vi.clearAllMocks();
+  });
+
+  it('refreshSession は CSRF トークンを取得してから、本文なし・Authorization なしで送る', async () => {
+    apiClient.setAccessToken('expired-access-token');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { csrfToken: 'csrf-1' }))
+      .mockResolvedValueOnce(jsonResponse(200, { accessToken: 'fresh-access-token' }));
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+    const response = await apiClient.refreshSession();
+
+    expect(response.accessToken).toBe('fresh-access-token');
+    expect(apiClient.getAccessToken()).toBe('fresh-access-token');
+    const [csrfUrl, csrfInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(csrfUrl).toBe('http://localhost:3000/csrf-token');
+    expect((csrfInit.headers as Record<string, string>)['Authorization']).toBeUndefined();
+    const [refreshUrl, refreshInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(refreshUrl).toBe('http://localhost:3000/api/v1/auth/refresh');
+    expect(refreshInit.method).toBe('POST');
+    expect(refreshInit.body).toBeUndefined();
+    expect(refreshInit.credentials).toBe('include');
+    const headers = refreshInit.headers as Record<string, string>;
+    expect(headers['X-CSRF-Token']).toBe('csrf-1');
+    expect(headers['Authorization']).toBeUndefined();
+  });
+
+  it('CSRF トークンの不一致（403 CSRF_TOKEN_INVALID）では一度だけ取り直して送り直す', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { csrfToken: 'stale' }))
+      .mockResolvedValueOnce(
+        jsonResponse(403, { error: 'Invalid CSRF token', code: 'CSRF_TOKEN_INVALID' })
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { csrfToken: 'fresh' }))
+      .mockResolvedValueOnce(jsonResponse(200, { accessToken: 'fresh-access-token' }));
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+    await apiClient.refreshSession();
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const retryInit = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    expect((retryInit.headers as Record<string, string>)['X-CSRF-Token']).toBe('fresh');
+  });
+
+  it('送信元のオリジンの不一致（403 CSRF_ORIGIN_MISMATCH）は送り直さない', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { csrfToken: 'csrf-1' }))
+      .mockResolvedValueOnce(
+        jsonResponse(403, { error: 'Invalid request origin', code: 'CSRF_ORIGIN_MISMATCH' })
+      );
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+    await expect(apiClient.refreshSession()).rejects.toMatchObject({ statusCode: 403 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('logoutSession は本文なしで、Bearer と X-CSRF-Token を付けて送る', async () => {
+    apiClient.setAccessToken('current-access-token');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { csrfToken: 'csrf-2' }))
+      .mockResolvedValueOnce(jsonResponse(200, { message: 'Logged out successfully' }));
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+
+    await apiClient.logoutSession();
+
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('http://localhost:3000/api/v1/auth/logout');
+    expect(init.body).toBeUndefined();
+    const headers = init.headers as Record<string, string>;
+    expect(headers['X-CSRF-Token']).toBe('csrf-2');
+    expect(headers['Authorization']).toBe('Bearer current-access-token');
+  });
+
+  it('logoutSession はアクセストークンの期限切れ（401）でリフレッシュした後、新しい CSRF トークンで送り直す', async () => {
+    apiClient.setAccessToken('expired-access-token');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { csrfToken: 'csrf-before' }))
+      .mockResolvedValueOnce(jsonResponse(401, { error: 'Unauthorized' }))
+      .mockResolvedValueOnce(jsonResponse(200, { message: 'Logged out successfully' }));
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    // リフレッシュは CSRF トークンを取り直す（Cookie の csrf-token が置き換わる）
+    apiClient.setTokenRefreshCallback(async () => {
+      // テスト用に内部の CSRF トークンを置き換える（Cookie の csrf-token が取り直された状態）
+      apiClient['csrfToken'] = 'csrf-after';
+      return 'renewed-access-token';
+    });
+
+    await apiClient.logoutSession();
+
+    const [, retryInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+    const headers = retryInit.headers as Record<string, string>;
+    expect(headers['X-CSRF-Token']).toBe('csrf-after');
+    expect(headers['Authorization']).toBe('Bearer renewed-access-token');
+    apiClient.setTokenRefreshCallback(null);
+  });
+});
+
+/**
+ * リフレッシュの要求を request の層で再試行しない（user-authentication 要件33.6）
+ *
+ * backend がローテーションを確定した後に応答を失うと、ブラウザの Cookie は置き換え前のまま残る。
+ * 再試行はその古い Cookie を再送し、再利用の検知で系列ごと失効させる。
+ */
+describe('ApiClient - リフレッシュの要求の再試行の抑止', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  function jsonResponse(status: number, body: unknown): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    apiClient.clearCredentials();
+    apiClient.setTokenRefreshCallback(null);
+    apiClient.setSessionExpiredCallback(null);
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    apiClient.clearCredentials();
+    vi.clearAllMocks();
+  });
+
+  function refreshCalls(fetchMock: ReturnType<typeof vi.fn>): number {
+    return fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/v1/auth/refresh'))
+      .length;
+  }
+
+  it('リフレッシュの 5xx を request の層で再送しない', async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      url.endsWith('/csrf-token')
+        ? jsonResponse(200, { csrfToken: 'csrf-1' })
+        : jsonResponse(503, { error: 'Service Unavailable' })
+    );
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    await expect(apiClient.refreshSession()).rejects.toMatchObject({ statusCode: 503 });
+    expect(refreshCalls(fetchMock)).toBe(1);
+  });
+
+  it('リフレッシュの通信の失敗（応答を失った）を request の層で再送しない', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/csrf-token')) {
+        return jsonResponse(200, { csrfToken: 'csrf-1' });
+      }
+      throw new TypeError('Failed to fetch');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    await expect(apiClient.refreshSession()).rejects.toMatchObject({ statusCode: 0 });
+    expect(refreshCalls(fetchMock)).toBe(1);
+  });
+
+  it('ログアウトの通信の失敗も request の層で再送しない', async () => {
+    apiClient.setAccessToken('current-access-token');
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/csrf-token')) {
+        return jsonResponse(200, { csrfToken: 'csrf-1' });
+      }
+      throw new TypeError('Failed to fetch');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    await expect(apiClient.logoutSession()).rejects.toMatchObject({ statusCode: 0 });
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/v1/auth/logout')).length
+    ).toBe(1);
+  });
+});

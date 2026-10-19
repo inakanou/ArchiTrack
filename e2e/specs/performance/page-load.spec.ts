@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
-import { API_BASE_URL } from '../../config';
-import { loginViaApi } from '../../helpers/auth-api';
+import { API_BASE_URL, SAME_ORIGIN_API_BASE_URL } from '../../config';
+import { getCsrfToken, loginViaApi, refreshWithCookie } from '../../helpers/auth-api';
 
 // 所要時間は単調時計（performance.now()）で測る。壁時計（Date.now()）は時刻補正で飛ぶため、
 // 実際より長い所要を返しうる。WSL2 の pre-push では、テスト全体が 1 秒で終わった回に
@@ -145,16 +145,15 @@ test.describe('APIパフォーマンス', () => {
    * 被覆の主張は持たない（冒頭の理由を参照）。
    */
   test('トークンリフレッシュAPIが300ms以内にレスポンスを返す', async ({ request }) => {
-    // まずログインしてリフレッシュトークンを取得
-    const { refreshToken } = await loginViaApi(request, 'ADMIN_USER');
+    // まずログインしてリフレッシュトークンの Cookie を得る（この要求のコンテキストの Cookie の入れ物に入る）。
+    // Cookie を伴う呼び出しは画面と同じオリジン（nginx の中継）を通す
+    await loginViaApi(request, 'ADMIN_USER', { baseUrl: SAME_ORIGIN_API_BASE_URL });
+    const csrfToken = await getCsrfToken(request);
 
+    // 計測するのはリフレッシュの要求だけ（Cookie と CSRF トークンで送る。要件33.8, 33.12）
     const startTime = performance.now();
 
-    const response = await request.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
-      data: {
-        refreshToken,
-      },
-    });
+    const response = await refreshWithCookie(request, { csrfToken });
 
     const responseTime = performance.now() - startTime;
 

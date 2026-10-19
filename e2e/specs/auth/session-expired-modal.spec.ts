@@ -5,7 +5,7 @@ import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { assertPresent } from '../../helpers/preconditions';
-import { readStoredAccessToken, waitForStoredSessionTokens } from '../../helpers/auth-api';
+import { waitForAuthenticatedSession } from '../../helpers/auth-api';
 
 /**
  * セッション切れモーダル再認証のE2Eテスト
@@ -94,8 +94,8 @@ async function setupAuthenticatedProfilePage(page: import('@playwright/test').Pa
   await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
   await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-  // 認証が確立されていることを確認
-  await waitForStoredSessionTokens(page, { timeout: getTimeout(15000), polling: 500 });
+  // 認証が確立されていることを確認（画面のセッションで認証済みの API が成功する）
+  await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 500 });
 }
 
 test.describe('セッション切れモーダル再認証', () => {
@@ -348,9 +348,15 @@ test.describe('セッション切れモーダル再認証', () => {
     // モーダルが閉じることを確認
     await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
 
-    // トークンが更新されていることを確認
-    const accessToken = await readStoredAccessToken(page);
+    // 画面のメモリのアクセストークンが更新されていることを確認（永続ストレージには置かない。要件33.10）
+    const accessToken = await page.evaluate(
+      () =>
+        (
+          window as unknown as { __apiClient?: { getAccessToken: () => string | null } }
+        ).__apiClient?.getAccessToken() ?? null
+    );
     expect(accessToken).toBe('renewed-access-token-12345');
+    expect(await page.evaluate(() => localStorage.getItem('accessToken'))).toBeNull();
   });
 
   /**

@@ -4,6 +4,7 @@ import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, nullWhenTimedOut, waitForApiResponse } from '../../helpers/wait-helpers';
 import AxeBuilder from '@axe-core/playwright';
+import { FRONTEND_BASE_URL } from '../../config';
 
 /**
  * セキュリティとアクセシビリティの統合テスト
@@ -262,12 +263,20 @@ test.describe('セキュリティテスト', () => {
     // プロフィールページが表示されることを確認
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible();
 
-    // リフレッシュトークンを改ざん（セッション復元時に使用される）
-    await page.evaluate(() => {
-      const tamperedToken =
-        'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.TAMPERED_PAYLOAD.TAMPERED_SIGNATURE';
-      localStorage.setItem('refreshToken', tamperedToken);
-    });
+    // リフレッシュトークンの Cookie を改ざん（セッション復元時に使用される）
+    const tamperedToken =
+      'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.TAMPERED_PAYLOAD.TAMPERED_SIGNATURE';
+    await page.context().clearCookies({ name: 'refreshToken' });
+    await page.context().addCookies([
+      {
+        name: 'refreshToken',
+        value: tamperedToken,
+        domain: new URL(FRONTEND_BASE_URL).hostname,
+        path: '/api/v1/auth',
+        httpOnly: true,
+        sameSite: 'Strict',
+      },
+    ]);
 
     // ページをリロードしてセッション復元を試みる
     await page.reload();

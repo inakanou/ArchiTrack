@@ -20,7 +20,7 @@
 import { test, expect, type ElementHandle, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
-import { waitForStoredSessionTokens } from '../../helpers/auth-api';
+import { waitForAuthenticatedSession } from '../../helpers/auth-api';
 
 // ============================================================================
 // フォーカス表示の判定（trading-partner-focus-visible.spec.ts と同じ基準）
@@ -353,7 +353,7 @@ async function setupAuthenticatedProfilePage(page: Page): Promise<void> {
   await page.goto('/profile');
   await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
   await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
-  await waitForStoredSessionTokens(page, { timeout: getTimeout(15000), polling: 500 });
+  await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 500 });
 }
 
 /**

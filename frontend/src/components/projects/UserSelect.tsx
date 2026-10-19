@@ -125,16 +125,8 @@ function UserSelect({
       // APIクライアントにトークンが設定されていることを確認
       // AuthContextの初期化とReactの状態更新のタイミングによっては、
       // isAuthenticatedがtrueでもapiClientにトークンが設定されていない場合がある
-      let token = apiClient.getAccessToken();
-
-      if (!token) {
-        // トークンがない場合、localStorageから復元を試みる
-        const storedToken = localStorage.getItem('accessToken');
-        if (storedToken) {
-          apiClient.setAccessToken(storedToken);
-          token = storedToken;
-        }
-      }
+      // トークンは ApiClient のメモリだけにある（永続ストレージから復元しない。要件33.10）
+      const token = apiClient.getAccessToken();
 
       // トークンがまだない場合は、短い遅延後に再試行
       if (!token) {

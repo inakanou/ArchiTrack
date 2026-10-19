@@ -13,6 +13,7 @@
 
 import { useState, useCallback } from 'react';
 import type { ExportFormat } from '../../api/schedules';
+import { apiClient } from '../../api/client';
 
 // ============================================================================
 // 型定義
@@ -196,11 +197,11 @@ export function ExportDialog({ isOpen, scheduleId, scheduleName, onClose }: Expo
         const url = `${baseUrl}/api/schedules/${scheduleId}/export?format=${format}`;
 
         // fetchでAPIリクエストを実行しレスポンスを検証
+        // アクセストークンは ApiClient のメモリから得る（永続ストレージに置かない。要件33.10）
+        const accessToken = apiClient.getAccessToken();
         const response = await fetch(url, {
           method: 'GET',
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-          },
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
         });
 
         if (!response.ok) {

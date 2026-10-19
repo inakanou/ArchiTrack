@@ -10,7 +10,14 @@
 import type { Page } from '@playwright/test';
 import { TEST_USERS, type TestUser } from './test-users';
 import { getTimeout, waitForAuthState } from './wait-helpers';
-import { waitForStoredSessionTokens } from './auth-api';
+import { waitForAuthenticatedSession } from './auth-api';
+import {
+  attachSharedSession,
+  holdSharedSessionRole,
+  isSharedSessionRole,
+  isSharedSessionRoleHeldElsewhere,
+  trackSharedSessionCookies,
+} from './shared-sessions';
 
 /**
  * CI環境かどうかを判定
@@ -53,6 +60,36 @@ export async function loginAsUser(
   const user = typeof userKey === 'string' ? TEST_USERS[userKey] : userKey;
   const maxRetries = options?.maxRetries ?? (isCI ? 3 : 1);
 
+  // 共有の役割は、全体の準備で保持したリフレッシュの Cookie を渡して認証させる（ログイン画面を経ない）。
+  // Cookie が無い・拒否された・別のコンテキストが使用中のときは、ログイン画面からログインする
+  // （user-authentication タスク45.4、design.md「E2E の認証基盤の移行」）
+  const sharedRole = isSharedSessionRole(userKey) ? userKey : null;
+  const attached = sharedRole
+    ? await attachSharedSession(page, sharedRole, { timeout: getTimeout(20000) })
+    : false;
+
+  if (!attached) {
+    if (sharedRole && !isSharedSessionRoleHeldElsewhere(sharedRole, page.context())) {
+      // 新たにログインし直した Cookie を回収して、次のテストへ渡す
+      trackSharedSessionCookies(page.context());
+      holdSharedSessionRole(sharedRole, page.context());
+    }
+    await loginThroughForm(page, user, maxRetries);
+  }
+}
+
+/**
+ * ログイン画面からログインする（リトライ付き）
+ *
+ * @param page - Playwrightのページオブジェクト
+ * @param user - ユーザー情報
+ * @param maxRetries - 最大リトライ回数
+ */
+async function loginThroughForm(
+  page: Page,
+  user: Pick<TestUser, 'email' | 'password' | 'twoFactorEnabled'>,
+  maxRetries: number
+): Promise<void> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       await performLogin(page, user);
@@ -73,8 +110,7 @@ export async function loginAsUser(
       return;
     } catch (error) {
       if (attempt < maxRetries - 1) {
-        // ログインページに戻って再試行
-        await page.goto('/login', { waitUntil: 'networkidle' });
+        // 認証状態をクリアして再試行（performLogin がログインページへ移動する）
         await clearAuthState(page);
       } else {
         throw error;
@@ -93,11 +129,10 @@ async function performLogin(
   page: Page,
   user: Pick<TestUser, 'email' | 'password' | 'twoFactorEnabled'>
 ): Promise<void> {
-  // ログインページに移動し、ページ読み込み完了を待機
-  await page.goto('/login', { waitUntil: 'networkidle' });
-
-  // 前のテストの認証状態をクリア（シリアル実行テスト対応）
+  // 前の認証状態（リフレッシュの Cookie）をクリアしてから、ログインページに移動する
+  // （Cookie が残っていると、ログインページの初期化がその Cookie で認証してしまう）
   await clearAuthState(page);
+  await page.goto('/login', { waitUntil: 'networkidle' });
 
   // フォーム要素が操作可能になるまで待機
   const emailInput = page.getByLabel(/メールアドレス/i);
@@ -142,8 +177,9 @@ async function performLogin(
     // ネットワークアイドルを待機
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
-    // リフレッシュトークンとアクセストークンがlocalStorageに保存されるまで待機
-    await waitForStoredSessionTokens(page, { timeout: getTimeout(10000), polling: 500 });
+    // 画面のセッションで認証済みの API が成功するまで待機
+    // （トークンは画面のメモリと HttpOnly Cookie だけにあり、永続ストレージに無い）
+    await waitForAuthenticatedSession(page, { timeout: getTimeout(10000), polling: 500 });
   }
 }
 
@@ -153,14 +189,11 @@ async function performLogin(
  * @param page - Playwrightのページオブジェクト
  */
 async function clearAuthState(page: Page): Promise<void> {
-  const hasExistingToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
-  if (hasExistingToken) {
-    await page.evaluate(() => {
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('accessToken');
-    });
-    await page.reload({ waitUntil: 'networkidle' });
-  }
+  // 先に画面を離れ、予定のリフレッシュや飛んでいる応答が消した Cookie を戻さないようにする。
+  // 画面のメモリのアクセストークンもここで消える
+  await page.goto('about:blank');
+  // リフレッシュトークンは HttpOnly Cookie にある（スクリプトから消せないためコンテキストから消す）
+  await page.context().clearCookies({ name: 'refreshToken' });
 }
 
 /**
@@ -216,8 +249,8 @@ export async function loginWithCredentials(
     // ネットワークアイドルを待機
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
-    // リフレッシュトークンとアクセストークンがlocalStorageに保存されるまで待機
-    await waitForStoredSessionTokens(page, { timeout: getTimeout(10000), polling: 500 });
+    // 画面のセッションで認証済みの API が成功するまで待機
+    await waitForAuthenticatedSession(page, { timeout: getTimeout(10000), polling: 500 });
   }
 }
 

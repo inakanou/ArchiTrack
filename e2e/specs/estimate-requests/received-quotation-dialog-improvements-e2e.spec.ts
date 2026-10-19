@@ -21,8 +21,8 @@
  * - 「× ボタン」シナリオ（task 81.5 仕様）について、受領見積書ダイアログには ×
  *   ボタンが存在せず「キャンセル」ボタンのみのため、キャンセルボタン押下に置き換えて
  *   useUnsavedChangesGuard.confirmCloseIfDirty が起動することを検証する（Req 38.12）。
- * - セッション切れシミュレーションは localStorage の accessToken/refreshToken を
- *   無効値に上書きすることで、次回保存 API 呼び出し時に 401 → リフレッシュ失敗 →
+ * - セッション切れシミュレーションは保存とリフレッシュの API を 401 で返すことで、
+ *   次回保存 API 呼び出し時に 401 → リフレッシュ失敗 →
  *   sessionExpiredCallback 経由で SessionExpiredModal を表示させる経路を利用する。
  *   バックエンド側の強制セッション失効ヘルパーは存在しないが、フロントエンドの
  *   セッション切れフローを忠実に再現するため、本シミュレーションが妥当。
@@ -69,15 +69,14 @@ async function openReceivedQuotationCreateDialog(page: Page, estimateRequestId: 
 /**
  * セッション切れをシミュレートする
  *
- * localStorage 上の accessToken / refreshToken を無効値に書き換えることで、
+ * 保存とリフレッシュの API を 401 で返すことで、
  * 次回 API 呼び出し時に 401 + リフレッシュ失敗 → sessionExpiredCallback 経由で
  * SessionExpiredModal が表示される動線を再現する。
  *
  * 既存のフロントエンド設計（frontend/src/api/client.ts L185-235）に依存。
  */
 async function simulateSessionExpiration(page: Page) {
-  // localStorage の accessToken/refreshToken を書き換えても、AuthContext のメモリ内 state には
-  // valid なトークンが保持されたままになるため、API リクエストが成功してしまう。
+  // アクセストークンは画面のメモリだけにあり（user-authentication 要件33.10）、外から失効させられない。
   // そこで、受領見積書 POST を「最初の 1 回だけ」401 で返すルートモックを設定し、
   // refresh API も 401 で返して、リトライ時には外して通常フローに戻す。
   // これにより以下の認証フローが確実に発火する:

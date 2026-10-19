@@ -3,25 +3,26 @@
  *
  * E2E の spec と補助が API で前提データを作るときの Bearer のアクセストークンは、すべて
  * この補助から得る（user-authentication タスク44.11、design.md「E2E の認証基盤の移行」）。
- * 補助の外で localStorage の `accessToken` を読んだり、ログイン API を直接呼んだりしない
+ * 補助の外で画面のセッションのトークンを読んだり、ログイン API を直接呼んだりしない
  * （ログインそのものを検証するテストを除く）。
  *
  * 認証の方式が変わるときは、この補助の中身だけを差し替える。
  *
- * - `getAccessToken`: 現時点では画面のセッションの localStorage を読む。45.4 で、画面の
- *   セッションと別の Cookie の入れ物（Playwright の独立した要求のコンテキスト）でログイン API を
- *   呼び、応答のアクセストークンを返す方式へ差し替える。呼び出し側が利用者を渡すのはそのため
+ * - `getAccessToken`: 画面のセッションと別の Cookie の入れ物（Playwright の独立した要求のコンテキスト）で
+ *   ログイン API を呼び、応答のアクセストークンを返す（45.4）。画面の Cookie によるリフレッシュを
+ *   共有しないので、Web Locks で直列化されない二重のリフレッシュによる再利用の検知を起こさない
  * - `loginViaApi`: ログイン API を呼び、応答本文を返す。2FA の検証（46.2・47.4）と応答本文の
  *   リフレッシュトークンの撤去（45.5）は、この関数の中で受け止める
- * - `readStoredAccessToken`・`waitForStoredSessionTokens`: localStorage のトークンで画面の
- *   状態を観測している箇所のための読み出し。45.4 で、画面の表示と認証済みの API の成否の
- *   観測へ置き換える
+ * - `fetchSessionUser`・`waitForAuthenticatedSession`: 画面の状態の観測。アクセストークンは画面の
+ *   メモリだけにあり永続ストレージに無いため（要件33.10）、画面のセッションで認証済みの API
+ *   （`GET /api/v1/auth/me`）を呼べるかで観測する
  *
  * @module e2e/helpers/auth-api
  */
 
-import type { APIRequestContext, Page } from '@playwright/test';
-import { API_BASE_URL } from '../config';
+import { request as playwrightRequest } from '@playwright/test';
+import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
+import { API_BASE_URL, FRONTEND_BASE_URL, SAME_ORIGIN_API_BASE_URL } from '../config';
 import { TEST_USERS, type TestUser } from './test-users';
 
 /**
@@ -79,12 +80,11 @@ function emailInToken(token: string): string | null {
 /**
  * 利用者のアクセストークンを返す
  *
- * 現時点では、`user` でログイン済みの画面のセッション（`page`）の localStorage を読む。
- * トークンが無いとき、トークンの利用者が `user` と異なるときは失敗する（45.4 で `user` で
- * ログインし直す方式へ差し替えたときに、呼び出し側の指定の誤りで別の利用者の権限に
- * ならないよう、指定と画面のセッションの一致をここで確かめる）。
+ * 画面のセッションと別の Cookie の入れ物（独立した要求のコンテキスト）で `user` としてログイン API を
+ * 呼び、応答のアクセストークンを返す。画面のセッション（`page`）の Cookie・メモリには触れない。
+ * トークンの利用者が `user` と異なるときは失敗する。
  *
- * @param page - `user` でログイン済みのページ
+ * @param _page - 呼び出し側の画面（互換のための引数。トークンは画面のセッションから読まない）
  * @param user - トークンを得る利用者
  * @returns Bearer に使うアクセストークン
  *
@@ -94,21 +94,26 @@ function emailInToken(token: string): string | null {
  * const accessToken = await getAccessToken(page, 'REGULAR_USER');
  * ```
  */
-export async function getAccessToken(page: Page, user: AuthUserRef): Promise<string> {
+export async function getAccessToken(_page: Page, user: AuthUserRef): Promise<string> {
   const { email } = resolveUser(user);
-  const token = await page.evaluate(() => localStorage.getItem('accessToken'));
-  if (!token) {
-    throw new Error(
-      `アクセストークンが取得できない: 画面のセッションに accessToken が無い（${email} でログイン済みであること）`
-    );
+  const isolated = await playwrightRequest.newContext();
+  try {
+    const { accessToken } = await loginViaApi(isolated, user);
+    if (!accessToken) {
+      throw new Error(
+        `アクセストークンが取得できない: ログイン API の応答に accessToken が無い（${email}）`
+      );
+    }
+    const tokenEmail = emailInToken(accessToken);
+    if (tokenEmail?.toLowerCase() !== email.toLowerCase()) {
+      throw new Error(
+        `アクセストークンの利用者（${tokenEmail ?? '不明'}）が指定の利用者（${email}）と異なる`
+      );
+    }
+    return accessToken;
+  } finally {
+    await isolated.dispose();
   }
-  const tokenEmail = emailInToken(token);
-  if (tokenEmail?.toLowerCase() !== email.toLowerCase()) {
-    throw new Error(
-      `アクセストークンの利用者（${tokenEmail ?? '不明'}）が指定の利用者（${email}）と異なる`
-    );
-  }
-  return token;
 }
 
 /**
@@ -152,33 +157,114 @@ export async function loginViaApi(
   return body as ApiLoginResult;
 }
 
-/**
- * 画面のセッションの localStorage のアクセストークンを読む（画面の状態の観測用）
- *
- * Bearer に使うトークンは `getAccessToken` で得る。この関数は、localStorage のトークンの
- * 有無・変化で画面の状態を観測している箇所に限って使う。
- *
- * @param page - ページ
- * @returns localStorage の `accessToken`（無ければ null）
- */
-export async function readStoredAccessToken(page: Page): Promise<string | null> {
-  return page.evaluate(() => localStorage.getItem('accessToken'));
+/** 画面のセッションで認証済みの API が返した利用者 */
+export interface SessionUserObservation {
+  status: number;
+  email: string | null;
 }
 
 /**
- * 画面のセッションの localStorage にリフレッシュトークンとアクセストークンが揃うまで待つ
+ * 画面のセッション（メモリのアクセストークン）で `GET /api/v1/auth/me` を呼び、結果を返す
  * （画面の状態の観測用）
  *
+ * 画面の API クライアント（`window.__apiClient`）を通すので、期限切れのときは画面と同じく
+ * Cookie によるリフレッシュを経て呼ぶ。認証されていなければ status が 401 になる。
+ *
  * @param page - ページ
- * @param options - `page.waitForFunction` の待機の上限と間隔
  */
-export async function waitForStoredSessionTokens(
+export async function fetchSessionUser(page: Page): Promise<SessionUserObservation> {
+  return page.evaluate(async () => {
+    const client = (window as unknown as { __apiClient?: { get: (p: string) => Promise<unknown> } })
+      .__apiClient;
+    if (!client) {
+      return { status: 0, email: null };
+    }
+    try {
+      const user = (await client.get('/api/v1/auth/me')) as { email?: unknown };
+      return { status: 200, email: typeof user.email === 'string' ? user.email : null };
+    } catch (error) {
+      const status =
+        error && typeof error === 'object' && 'statusCode' in error
+          ? Number((error as { statusCode: unknown }).statusCode)
+          : 0;
+      return { status, email: null };
+    }
+  });
+}
+
+/**
+ * 画面のセッションが認証済み（認証済みの API が成功する）になるまで待つ（画面の状態の観測用）
+ *
+ * @param page - ページ
+ * @param options - 待機の上限と間隔
+ */
+export async function waitForAuthenticatedSession(
   page: Page,
   options: { timeout: number; polling: number }
 ): Promise<void> {
   await page.waitForFunction(
-    () =>
-      localStorage.getItem('refreshToken') !== null && localStorage.getItem('accessToken') !== null,
+    async () => {
+      const client = (
+        window as unknown as { __apiClient?: { get: (p: string) => Promise<unknown> } }
+      ).__apiClient;
+      if (!client || window.location.pathname.startsWith('/login')) {
+        return false;
+      }
+      try {
+        await client.get('/api/v1/auth/me');
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    null,
     options
   );
+}
+
+/**
+ * CSRF トークンを取得する（画面と同じオリジンの `GET /csrf-token`。Cookie `csrf-token` も同じ入れ物に入る）
+ *
+ * @param request - 要求のコンテキスト（Cookie の入れ物）
+ * @returns 応答本文の CSRF トークン
+ */
+export async function getCsrfToken(
+  request: APIRequestContext,
+  options?: { timeout?: number }
+): Promise<string> {
+  const csrfResponse = await request.get(`${SAME_ORIGIN_API_BASE_URL}/csrf-token`, {
+    timeout: options?.timeout,
+  });
+  if (csrfResponse.status() !== 200) {
+    throw new Error(`CSRF トークンが取得できない: status ${csrfResponse.status()}`);
+  }
+  const { csrfToken } = (await csrfResponse.json()) as { csrfToken?: string };
+  if (!csrfToken) {
+    throw new Error('CSRF トークンの応答に csrfToken が無い');
+  }
+  return csrfToken;
+}
+
+/**
+ * Cookie と CSRF トークンでリフレッシュ API を呼ぶ（画面と同じ契約。要件33.8, 33.12）
+ *
+ * `request` の Cookie の入れ物のリフレッシュトークンを使う（ブラウザのコンテキストの
+ * `page.request` なら画面と同じ Cookie。ローテーション後の Cookie も同じ入れ物に入る）。
+ * 画面と同じオリジン（nginx の中継）を通し、`X-CSRF-Token` と、画面のオリジンの `Origin` を付ける。
+ * 画面と同じセッションで画面と同時にリフレッシュすると再利用の検知になるため、画面が
+ * リフレッシュしない間に限って使う。
+ *
+ * @param request - 要求のコンテキスト（Cookie の入れ物）
+ * @param options - 取得済みの CSRF トークン（省略時は取得する）と待機の上限
+ * @returns リフレッシュ API の応答
+ */
+export async function refreshWithCookie(
+  request: APIRequestContext,
+  options?: { csrfToken?: string; timeout?: number }
+): Promise<APIResponse> {
+  const csrfToken = options?.csrfToken ?? (await getCsrfToken(request, options));
+  return request.post(`${SAME_ORIGIN_API_BASE_URL}/api/v1/auth/refresh`, {
+    headers: { 'X-CSRF-Token': csrfToken, Origin: FRONTEND_BASE_URL },
+    timeout: options?.timeout,
+  });
 }

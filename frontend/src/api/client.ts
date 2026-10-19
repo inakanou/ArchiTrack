@@ -62,6 +62,34 @@ export type TokenRefreshCallback = () => Promise<string>;
 interface InternalRequestControl {
   /** トークン更新を試みず、401をそのまま扱う */
   readonly skipTokenRefresh?: boolean;
+  /** Authorization ヘッダーを付けない（リフレッシュ・CSRF トークンの取得） */
+  readonly omitAuthorization?: boolean;
+  /** メモリの CSRF トークンを `X-CSRF-Token` ヘッダーで送る（送信の都度、最新の値を使う） */
+  readonly withCsrfToken?: boolean;
+}
+
+/**
+ * Cookie の認証情報を使う要求の経路（要件33.8, 33.12）
+ *
+ * リフレッシュトークンは HttpOnly Cookie（Path=/api/v1/auth）だけにあり、画面のスクリプトからは
+ * 読めない。リフレッシュとログアウトは本文を送らず、Cookie と CSRF トークンのヘッダーで送る。
+ */
+const CSRF_TOKEN_PATH = '/csrf-token';
+const REFRESH_PATH = '/api/v1/auth/refresh';
+const LOGOUT_PATH = '/api/v1/auth/logout';
+
+/** CSRF トークンの不一致・欠落を表す backend のエラーコード（取り直して一度だけ送り直す） */
+const CSRF_TOKEN_ERROR_CODES: readonly string[] = ['CSRF_TOKEN_MISSING', 'CSRF_TOKEN_INVALID'];
+
+/**
+ * リフレッシュの応答本文
+ *
+ * `user` は認証の状態の復元に使う利用者（要件33.11）。
+ */
+export interface SessionRefreshResponse<TUser = unknown> {
+  accessToken: string;
+  user?: TUser;
+  expiresIn?: number;
 }
 
 /**
@@ -260,7 +288,16 @@ function delay(ms: number): Promise<void> {
 class ApiClient {
   private baseUrl: string;
   private defaultTimeout: number = 30000; // 30秒
+  /**
+   * アクセストークン
+   *
+   * インスタンスの変数だけに持ち、localStorage・sessionStorage・IndexedDB に書かない（要件33.10）
+   */
   private accessToken: string | null = null;
+  /**
+   * CSRF トークン（`GET /csrf-token` の応答本文の値。メモリだけに持つ。要件33.12）
+   */
+  private csrfToken: string | null = null;
   private tokenRefreshCallback: TokenRefreshCallback | null = null;
   /**
    * 進行中のトークン更新
@@ -380,8 +417,12 @@ class ApiClient {
           ...headers,
         };
 
-        if (this.accessToken) {
+        if (this.accessToken && !control.omitAuthorization) {
           requestHeaders['Authorization'] = `Bearer ${this.accessToken}`;
+        }
+
+        if (control.withCsrfToken && this.csrfToken) {
+          requestHeaders['X-CSRF-Token'] = this.csrfToken;
         }
 
         // FormData はそのまま渡す（再試行時も同一インスタンスを再送する）
@@ -440,7 +481,7 @@ class ApiClient {
             return await this.request<T>(
               path,
               { ...options, disableRetry: true },
-              { skipTokenRefresh: true }
+              { ...control, skipTokenRefresh: true }
             );
           }
 
@@ -462,7 +503,7 @@ class ApiClient {
               return await this.request<T>(
                 path,
                 { ...options, disableRetry: true },
-                { skipTokenRefresh: true }
+                { ...control, skipTokenRefresh: true }
               );
             } catch (refreshError) {
               // リフレッシュ失敗時のエラーログ
@@ -631,6 +672,88 @@ class ApiClient {
   }
 
   /**
+   * CSRF トークンを取得してメモリに持つ
+   *
+   * backend は同じ値を Cookie `csrf-token` にも置き、状態を変える Cookie の要求で
+   * ヘッダーと Cookie の一致と送信元のオリジンを照合する（要件33.12）。
+   *
+   * @returns 取得した CSRF トークン
+   */
+  async fetchCsrfToken(): Promise<string> {
+    const data = await this.request<{ csrfToken?: unknown }>(
+      CSRF_TOKEN_PATH,
+      { method: 'GET' },
+      { skipTokenRefresh: true, omitAuthorization: true }
+    );
+    if (!data || typeof data.csrfToken !== 'string' || data.csrfToken === '') {
+      throw new ApiError(0, 'Invalid CSRF token response', data);
+    }
+    this.csrfToken = data.csrfToken;
+    return data.csrfToken;
+  }
+
+  /**
+   * CSRF トークンを取得してから Cookie の認証情報を使う要求を送る
+   *
+   * 他のタブが CSRF トークンを取り直すと Cookie の値が変わり、手元の値が一致しなくなる。
+   * その不一致（`CSRF_TOKEN_INVALID`・`CSRF_TOKEN_MISSING`）では一度だけ取り直して送り直す。
+   */
+  private async sendWithCsrfToken<T>(path: string, control: InternalRequestControl): Promise<T> {
+    const send = async (): Promise<T> => {
+      await this.fetchCsrfToken();
+      // 再試行しない: backend がローテーション・失効を確定した後に応答を失うと、ブラウザの Cookie は
+      // 置き換え前のまま残る。再送はその古い Cookie を再提示し、再利用の検知で系列ごと失効させる（要件33.6）
+      return this.request<T>(
+        path,
+        { method: 'POST', disableRetry: true },
+        { ...control, withCsrfToken: true }
+      );
+    };
+
+    try {
+      return await send();
+    } catch (error) {
+      const code = getApiErrorCode(error);
+      if (
+        error instanceof ApiError &&
+        error.statusCode === 403 &&
+        code !== null &&
+        CSRF_TOKEN_ERROR_CODES.includes(code)
+      ) {
+        return send();
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Cookie のリフレッシュトークンでセッションを更新する（要件33.8, 33.11, 33.12）
+   *
+   * 本文を送らず、HttpOnly Cookie（`credentials: 'include'`）と `X-CSRF-Token` で送る。
+   * 期限切れのアクセストークンを Authorization に載せない。応答のアクセストークンを保持する。
+   *
+   * @returns 応答本文（アクセストークンと利用者）
+   */
+  async refreshSession<TUser = unknown>(): Promise<SessionRefreshResponse<TUser>> {
+    const response = await this.sendWithCsrfToken<SessionRefreshResponse<TUser>>(REFRESH_PATH, {
+      skipTokenRefresh: true,
+      omitAuthorization: true,
+    });
+    this.setAccessToken(response.accessToken);
+    return response;
+  }
+
+  /**
+   * Cookie のリフレッシュトークンのセッションをログアウトする（要件33.4, 33.12）
+   *
+   * 本文を送らず、Bearer のアクセストークン・Cookie・`X-CSRF-Token` で送る。
+   * アクセストークンが期限切れのときは通常の要求と同じくリフレッシュしてから送り直す。
+   */
+  async logoutSession(): Promise<void> {
+    await this.sendWithCsrfToken<unknown>(LOGOUT_PATH, {});
+  }
+
+  /**
    * ベースURLを設定
    */
   setBaseUrl(url: string): void {
@@ -649,6 +772,14 @@ class ApiClient {
    */
   setAccessToken(token: string | null): void {
     this.accessToken = token;
+  }
+
+  /**
+   * メモリの認証情報（アクセストークンと CSRF トークン）を消す
+   */
+  clearCredentials(): void {
+    this.accessToken = null;
+    this.csrfToken = null;
   }
 
   /**

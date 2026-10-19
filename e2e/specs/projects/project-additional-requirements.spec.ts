@@ -12,7 +12,7 @@
 import { test, expect, type Locator, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { API_BASE_URL } from '../../config';
+import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { getAccessToken } from '../../helpers/auth-api';
@@ -977,10 +977,6 @@ test.describe('プロジェクト管理 追加要件', () => {
 
       // 管理者ユーザーに切り替えて削除
       await context.clearCookies();
-      await page.evaluate(() => {
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('accessToken');
-      });
 
       await loginAsUser(page, 'ADMIN_USER');
 
@@ -1290,13 +1286,20 @@ test.describe('プロジェクト管理 追加要件', () => {
         timeout: getTimeout(10000),
       });
 
-      // セッションを期限切れにする: Cookie を消し、保存済みのトークンを失効したもの（無効な値）へ置き換える。
-      // トークンを単に削除すると「未ログイン」として扱われ、期限切れにはならない
+      // セッションを期限切れにする: リフレッシュトークンの Cookie を失効したもの（無効な値）へ置き換える。
+      // Cookie を単に削除すると「未ログイン」として扱われ、期限切れにはならない
+      // （アクセストークンは画面のメモリだけにあり、再読み込みで消える）
       await context.clearCookies();
-      await page.evaluate(() => {
-        localStorage.setItem('accessToken', 'expired.access.token');
-        localStorage.setItem('refreshToken', 'expired.refresh.token');
-      });
+      await context.addCookies([
+        {
+          name: 'refreshToken',
+          value: 'expired.refresh.token',
+          domain: new URL(FRONTEND_BASE_URL).hostname,
+          path: '/api/v1/auth',
+          httpOnly: true,
+          sameSite: 'Strict',
+        },
+      ]);
 
       // 期限切れのセッションのまま、プロジェクト一覧を開き直す
       await page.reload();

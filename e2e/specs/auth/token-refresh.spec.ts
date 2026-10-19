@@ -9,12 +9,45 @@ import {
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForAuthState, waitForLoadingComplete } from '../../helpers/wait-helpers';
-import { API_BASE_URL } from '../../config';
+import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import {
   getAccessToken,
-  readStoredAccessToken,
-  waitForStoredSessionTokens,
+  getCsrfToken,
+  refreshWithCookie,
+  waitForAuthenticatedSession,
 } from '../../helpers/auth-api';
+import type { BrowserContext, Page } from '@playwright/test';
+
+/** 画面のコンテキストのリフレッシュトークンの Cookie の値（HttpOnly のため画面のスクリプトからは読めない） */
+async function readRefreshCookie(context: BrowserContext): Promise<string | null> {
+  const cookie = (await context.cookies()).find((c) => c.name === 'refreshToken');
+  return cookie?.value ? cookie.value : null;
+}
+
+/** リフレッシュトークンの Cookie を無効な値に置き換える（backend の Cookie と同じ Path） */
+async function replaceRefreshCookieWithInvalid(context: BrowserContext): Promise<void> {
+  await context.clearCookies({ name: 'refreshToken' });
+  await context.addCookies([
+    {
+      name: 'refreshToken',
+      value: 'invalid.refresh.token',
+      domain: new URL(FRONTEND_BASE_URL).hostname,
+      path: '/api/v1/auth',
+      httpOnly: true,
+      sameSite: 'Strict',
+    },
+  ]);
+}
+
+/** 画面のメモリのアクセストークン（画面の API クライアントが保持するもの） */
+async function readMemoryAccessToken(page: Page): Promise<string | null> {
+  return page.evaluate(
+    () =>
+      (
+        window as unknown as { __apiClient?: { getAccessToken: () => string | null } }
+      ).__apiClient?.getAccessToken() ?? null
+  );
+}
 
 /**
  * トークンリフレッシュ機能のE2Eテスト
@@ -66,16 +99,15 @@ test.describe('トークンリフレッシュ機能', () => {
     // initializeAuthの完了を待機（ネットワークアイドル + トークン存在確認）
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
-    // initializeAuthが完了してトークンが保存されるまで待機
-    // Note: loginAsUserで取得したトークンがinitializeAuthでローテーションされるため、
-    // 新しいトークンが保存されるまで待機する必要がある
-    await waitForStoredSessionTokens(page, { timeout: getTimeout(15000), polling: 500 });
+    // initializeAuth（Cookie によるリフレッシュ）が完了して認証済みになるまで待機
+    await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 500 });
 
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
       timeout: getTimeout(10000),
     });
 
-    const initialRefreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
+    // リフレッシュトークンは HttpOnly Cookie にある（要件33.8）
+    const initialRefreshToken = await readRefreshCookie(page.context());
     expect(initialRefreshToken).toBeTruthy();
 
     // リフレッシュAPIの呼び出しを監視
@@ -180,9 +212,9 @@ test.describe('トークンリフレッシュ機能', () => {
    * 3. タブ2を開いてセッションを復元（トークンローテーションが発生）
    * 4. 両方のタブが認証済み状態であることを確認
    *
-   * 注意: 同じブラウザコンテキスト内ではlocalStorageが共有されるため、
-   * タブ間でリフレッシュトークンは自動的に同期される。
-   * Broadcast Channel APIはReactアプリのメモリ内状態の同期に使用される。
+   * 注意: 同じブラウザコンテキスト内ではリフレッシュトークンの Cookie が共有されるため、
+   * タブ間でリフレッシュトークンは自動的に同期される。リフレッシュは Web Locks でタブ間で
+   * 直列化され、Broadcast Channel APIはReactアプリのメモリ内状態の同期に使用される。
    *
    * 競合対策: タブ1が安定してからタブ2を開くことで、トークンローテーションの競合を防ぐ。
    */
@@ -211,11 +243,11 @@ test.describe('トークンリフレッシュ機能', () => {
     });
     expect(auth1Established).toBe(true);
 
-    // タブ1のリフレッシュトークンを取得（安定状態）
-    const token1Initial = await page1.evaluate(() => localStorage.getItem('refreshToken'));
+    // タブ1のリフレッシュトークンの Cookie を取得（安定状態）
+    const token1Initial = await readRefreshCookie(context);
     expect(token1Initial).toBeTruthy();
 
-    // タブ2を作成（同じセッション - localStorageを共有）
+    // タブ2を作成（同じセッション - Cookie を共有）
     const page2 = await context.newPage();
 
     try {
@@ -233,9 +265,10 @@ test.describe('トークンリフレッシュ機能', () => {
       });
       expect(auth2Established).toBe(true);
 
-      // タブ2がセッション復元後、リフレッシュトークンが存在することを確認
-      const token2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));
+      // タブ2のセッション復元（Cookie によるリフレッシュ）でリフレッシュトークンがローテーションされた
+      const token2 = await readRefreshCookie(context);
       expect(token2).toBeTruthy();
+      expect(token2).not.toBe(token1Initial);
 
       // 両タブを閉じるのは本テストの `finally` だけであり、この時点では必ず開いている。
       // 「開いていれば確認する」形は、タブが落ちた場合に要件16.11 の検証を
@@ -243,10 +276,9 @@ test.describe('トークンリフレッシュ機能', () => {
       expect(page1.isClosed(), 'タブ1が閉じている（要件16.11 の同期を確認できない）').toBe(false);
       expect(page2.isClosed(), 'タブ2が閉じている（要件16.11 の同期を確認できない）').toBe(false);
 
-      // 要件16.11: 両方のタブが同じlocalStorageを参照しているため、
-      // トークンは常に同期されている（最新のトークンローテーション結果を共有）
-      const token1Final = await page1.evaluate(() => localStorage.getItem('refreshToken'));
-      expect(token1Final).toBe(token2);
+      // 要件16.11: タブ1の画面のセッションも、ローテーション後の Cookie のまま認証済みである
+      // （置き換え済みのトークンの再提示による系列の失効が起きていない。要件33.6）
+      await waitForAuthenticatedSession(page1, { timeout: getTimeout(10000), polling: 500 });
 
       // タブ1でダッシュボードに移動して認証が有効であることを確認
       await page1.goto('/dashboard');
@@ -279,11 +311,8 @@ test.describe('トークンリフレッシュ機能', () => {
     await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
-    // アクセストークンとリフレッシュトークンを両方無効化
-    await page.evaluate(() => {
-      localStorage.setItem('accessToken', 'invalid.access.token');
-      localStorage.setItem('refreshToken', 'invalid.refresh.token');
-    });
+    // リフレッシュトークンの Cookie を無効化（アクセストークンは画面のメモリにあり、再読み込みで消える）
+    await replaceRefreshCookieWithInvalid(page.context());
 
     // 保護されたページにアクセス
     await page.goto('/profile');
@@ -312,17 +341,8 @@ test.describe('トークンリフレッシュ機能', () => {
       await route.continue();
     });
 
-    // 有効期限まで残り4分のトークンをセット（5分前の閾値を超える）
-    await page.evaluate(() => {
-      const now = Math.floor(Date.now() / 1000);
-      const expiresIn = 4 * 60; // 4分後
-      // Note: 実際の実装ではJWTペイロードに正しいexpクレームが必要
-      const almostExpiredToken = `eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.${btoa(
-        JSON.stringify({ exp: now + expiresIn })
-      )}.signature`;
-      localStorage.setItem('accessToken', almostExpiredToken);
-    });
-
+    // アクセストークンは画面のメモリだけにあり（要件33.10）、ページの読み込みで消える。
+    // 読み込みの後は Cookie によるリフレッシュで新しいアクセストークンを得る
     // ダッシュボードにアクセス（バックグラウンドリフレッシュが走る）
     await page.goto('/dashboard');
 
@@ -334,28 +354,15 @@ test.describe('トークンリフレッシュ機能', () => {
   });
 
   /**
-   * 要件16.19: 401エラー検知時にlocalStorageからアクセストークンを削除、Cookieからリフレッシュトークンを削除
+   * 要件16.19: 401エラー検知時に画面のアクセストークンを削除、Cookieからリフレッシュトークンを削除
    * @requirement user-authentication/REQ-5.9 @requirement user-authentication/REQ-5.10 @requirement user-authentication/REQ-16.19 @requirement user-authentication/REQ-16.20
    */
   test('401エラー時にトークンがクリアされる', async ({ page }) => {
     await createTestUser('REGULAR_USER');
     await loginAsUser(page, 'REGULAR_USER');
 
-    // 両方のトークンを無効化（リフレッシュも失敗する状況）
-    await page.evaluate(() => {
-      localStorage.setItem('accessToken', 'invalid.access.token');
-      localStorage.setItem('refreshToken', 'invalid.refresh.token');
-    });
-
-    // Cookieにもリフレッシュトークンをセット（テスト用）
-    await page.context().addCookies([
-      {
-        name: 'refreshToken',
-        value: 'invalid.refresh.token',
-        domain: 'localhost',
-        path: '/',
-      },
-    ]);
+    // リフレッシュトークンの Cookie を無効化（リフレッシュも失敗する状況）
+    await replaceRefreshCookieWithInvalid(page.context());
 
     // 保護されたページにアクセス
     await page.goto('/profile');
@@ -363,13 +370,17 @@ test.describe('トークンリフレッシュ機能', () => {
     // ログイン画面にリダイレクト
     await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(15000) });
 
-    // 要件16.19: localStorageからトークンが削除されている
-    const accessToken = await readStoredAccessToken(page);
-    const refreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(accessToken).toBeNull();
-    expect(refreshToken).toBeNull();
+    // 要件16.19: 画面のメモリのアクセストークンが無く、永続ストレージにもトークンが無い（要件33.10）
+    expect(await readMemoryAccessToken(page)).toBeNull();
+    const storedTokens = await page.evaluate(() => [
+      localStorage.getItem('accessToken'),
+      localStorage.getItem('refreshToken'),
+      sessionStorage.getItem('accessToken'),
+      sessionStorage.getItem('refreshToken'),
+    ]);
+    expect(storedTokens).toEqual([null, null, null, null]);
 
-    // Cookieからもリフレッシュトークンが削除されている
+    // Cookieからもリフレッシュトークンが削除されている（backend が 401 の応答で消す）
     const cookies = await page.context().cookies();
     const refreshCookie = cookies.find((c) => c.name === 'refreshToken');
     expect(refreshCookie).toBeUndefined();
@@ -380,9 +391,9 @@ test.describe('トークンリフレッシュ機能', () => {
    * 要件16.9: 再ログイン成功後、保存されたURLへ自動リダイレクト
    * @requirement user-authentication/REQ-16.7 @requirement user-authentication/REQ-16.9 @requirement user-authentication/REQ-28.5
    *
-   * 注意: React SPAでは、localStorageの変更だけではReactの認証状態が更新されないため、
+   * 注意: React SPAでは、Cookie の変更だけではReactの認証状態が更新されないため、
    * セッション期限切れをシミュレートするにはページリロードが必要です。
-   * これにより、AuthContextが再初期化され、localStorageの状態が正しく反映されます。
+   * これにより、AuthContextが再初期化され、Cookie の状態が正しく反映されます。
    */
   test('セッション期限切れ後の再ログインで元のページに戻る', async ({ page }) => {
     await createTestUser('REGULAR_USER');
@@ -394,14 +405,11 @@ test.describe('トークンリフレッシュ機能', () => {
       timeout: getTimeout(10000),
     });
 
-    // セッションを無効化（localStorageのトークンを削除）
-    await page.evaluate(() => {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-    });
+    // セッションを無効化（リフレッシュトークンの Cookie を削除）
+    await page.context().clearCookies({ name: 'refreshToken' });
 
     // ページをリロードしてAuthContextを再初期化
-    // これにより、localStorageの状態がReactの認証状態に反映される
+    // これにより、Cookie の状態がReactの認証状態に反映される
     await page.reload({ waitUntil: 'networkidle' });
 
     // 要件16.7: ログイン画面にリダイレクトされる（redirectUrlパラメータ付き）
@@ -506,13 +514,8 @@ test.describe('トークンリフレッシュ機能', () => {
     });
 
     // httpOnlyクッキーをクリアしてリフレッシュトークンを無効化
+    // （アクセストークンは画面のメモリだけにあり、ページの読み込みで消える）
     await context.clearCookies();
-
-    // アクセストークンを期限切れに設定
-    await page.evaluate(() => {
-      const expiredToken = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJleHAiOjE2MDk0NTkyMDB9.invalid';
-      localStorage.setItem('accessToken', expiredToken);
-    });
 
     // 保護されたページにアクセス
     await page.goto('/profile');
@@ -633,8 +636,8 @@ test.describe('トークンリフレッシュ機能', () => {
 
     // アプリが保持したトークンも同じもの（画面の後続の要求がこのペイロードで認証される）
     await expect(page).toHaveURL(/\/dashboard|\/$/);
-    const storedToken = await readStoredAccessToken(page);
-    expect(storedToken).toBe(accessToken);
+    const memoryToken = await readMemoryAccessToken(page);
+    expect(memoryToken).toBe(accessToken);
   });
 
   /**
@@ -697,27 +700,27 @@ test.describe('トークンリフレッシュパフォーマンス', () => {
     });
     expect(authEstablished).toBe(true);
 
-    // リフレッシュトークンを取得
-    let refreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(refreshToken).toBeTruthy();
+    // リフレッシュトークンは画面のコンテキストの HttpOnly Cookie にある
+    expect(await readRefreshCookie(page.context())).toBeTruthy();
 
     // リフレッシュAPIのパフォーマンスを測定（10回実行）
-    // 置き換え済みのトークンの再提示は系列の失効になるため、毎回ローテーションの後継を提示する（要件33.6）
+    // 画面と同じ Cookie の入れ物（page.request）で、Cookie と CSRF トークンで送る。
+    // ローテーションの後継の Cookie は同じ入れ物に入り、毎回それを提示する（要件33.6）
+    // 計測するのはリフレッシュの要求だけ（CSRF トークンの取得は含めない）
     const responseTimes: number[] = [];
 
     for (let i = 0; i < 10; i++) {
+      const csrfToken = await getCsrfToken(page.request, { timeout: getTimeout(10000) });
       const startTime = Date.now();
-
-      const response = await page.request.post('/api/v1/auth/refresh', {
-        data: { refreshToken },
+      const response = await refreshWithCookie(page.request, {
+        csrfToken,
         timeout: getTimeout(10000),
       });
+      const elapsed = Date.now() - startTime;
 
-      const endTime = Date.now();
-      responseTimes.push(endTime - startTime);
+      responseTimes.push(elapsed);
 
       expect(response.status()).toBe(200);
-      refreshToken = ((await response.json()) as { refreshToken: string }).refreshToken;
 
       // レート制限を避けるため短い待機（ネットワークアイドルを使用せず固定待機を許容）
       await page.waitForTimeout(100);

@@ -447,11 +447,6 @@ test.describe('REQ-47: 計算方法「箇所数」の永続化・コピー・PDF
   // --------------------------------------------------------------------------
   test('作成したプロジェクトを削除する', async ({ page, context }) => {
     await context.clearCookies();
-    await page.goto('/');
-    await page.evaluate(() => {
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('accessToken');
-    });
 
     await loginAsUser(page, 'ADMIN_USER');
 

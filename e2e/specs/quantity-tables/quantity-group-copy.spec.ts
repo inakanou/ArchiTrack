@@ -647,11 +647,6 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
   test.describe('クリーンアップ', () => {
     test('作成したプロジェクトを削除する', async ({ page, context }) => {
       await context.clearCookies();
-      await page.goto('/');
-      await page.evaluate(() => {
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('accessToken');
-      });
 
       await loginAsUser(page, 'ADMIN_USER');
 

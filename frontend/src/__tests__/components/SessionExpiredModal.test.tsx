@@ -128,6 +128,12 @@ describe('SessionExpiredModal', () => {
       await waitFor(() => {
         expect(defaultProps.onReauthSuccess).toHaveBeenCalledTimes(1);
       });
+
+      // アクセストークンは ApiClient のメモリだけに置き、トークンを永続ストレージへ書かない（要件33.8, 33.10）
+      const { apiClient } = await import('../../api/client');
+      expect(apiClient.setAccessToken).toHaveBeenCalledWith('new-token');
+      expect(localStorage.getItem('accessToken')).toBeNull();
+      expect(localStorage.getItem('refreshToken')).toBeNull();
     });
 
     /**

@@ -1129,9 +1129,9 @@ test.describe('パスワード変更後のセッション管理', () => {
     // Step 1: 第1タブで通常ログイン（セッション確立）
     await loginWithCredentials(page, testEmail, testPassword);
 
-    // リフレッシュトークンがlocalStorageに保存されていることを確認
-    const refreshToken1 = await page.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(refreshToken1).toBeTruthy();
+    // リフレッシュトークンが HttpOnly Cookie に保存されていることを確認（要件33.8）
+    const refreshToken1 = (await page.context().cookies()).find((c) => c.name === 'refreshToken');
+    expect(refreshToken1?.value).toBeTruthy();
 
     // Step 2: 第2タブを開いて別セッションを確立（baseURLを明示的に設定）
     const context2 = await browser.newContext({ baseURL });
@@ -1139,8 +1139,8 @@ test.describe('パスワード変更後のセッション管理', () => {
 
     await loginWithCredentials(page2, testEmail, testPassword);
 
-    const refreshToken2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(refreshToken2).toBeTruthy();
+    const refreshToken2 = (await context2.cookies()).find((c) => c.name === 'refreshToken');
+    expect(refreshToken2?.value).toBeTruthy();
 
     // Step 3: リセットトークンを生成してパスワード変更
     const user = await prisma.user.findUnique({

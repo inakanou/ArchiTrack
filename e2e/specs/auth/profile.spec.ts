@@ -402,8 +402,8 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     // テストの中で作る利用者で行う（要件33.6）
     const sessionUser = await createSessionUser('REGULAR_USER');
 
-    // ログイン。`loginAsUser` はアクセストークンとリフレッシュトークンが
-    // localStorage に載るまで待ってから戻るため、以降の要求には必ず認証が載る。
+    // ログイン。`loginAsUser` は画面のセッションで認証済みの API が成功するまで
+    // 待ってから戻るため、以降の要求には必ず認証が載る。
     await loginAsUser(page, sessionUser);
 
     // 前提（認証が効いた状態でプロフィール画面が開けていること）を無条件に主張する。
@@ -456,10 +456,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
 
       // 要件7.5: パスワード変更で既存のリフレッシュトークンは無効化される。
       // 残っているトークンを捨ててから、新しいパスワードで再ログインする。
-      await page.evaluate(() => {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-      });
+      await page.context().clearCookies({ name: 'refreshToken' });
       await loginWithCredentials(page, USER2_EMAIL, newPwd);
       await openProfilePage(page, USER2_EMAIL);
     };

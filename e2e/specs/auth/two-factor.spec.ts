@@ -10,7 +10,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { TEST_USERS } from '../../helpers/test-users';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
-import { waitForStoredSessionTokens } from '../../helpers/auth-api';
+import { waitForAuthenticatedSession } from '../../helpers/auth-api';
 
 /**
  * 2要素認証機能のE2Eテスト
@@ -632,8 +632,8 @@ test.describe('2要素認証機能', () => {
         timeout: getTimeout(10000),
       });
 
-      // トークンがlocalStorageに保存されるまで待機
-      await waitForStoredSessionTokens(page, { timeout: getTimeout(10000), polling: 500 });
+      // 画面のセッションで認証済みの API が成功するまで待機
+      await waitForAuthenticatedSession(page, { timeout: getTimeout(10000), polling: 500 });
     });
 
     /**
@@ -667,8 +667,8 @@ test.describe('2要素認証機能', () => {
           await page.waitForURL((url) => !url.pathname.includes('/login'), {
             timeout: getTimeout(10000),
           });
-          // トークンがlocalStorageに保存されるまで待機
-          await waitForStoredSessionTokens(page, { timeout: getTimeout(10000), polling: 500 });
+          // 画面のセッションで認証済みの API が成功するまで待機
+          await waitForAuthenticatedSession(page, { timeout: getTimeout(10000), polling: 500 });
         } catch {
           // 2FAフォームが表示されない場合は既にログイン済み
         }

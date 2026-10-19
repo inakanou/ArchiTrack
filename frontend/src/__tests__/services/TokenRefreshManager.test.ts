@@ -72,12 +72,17 @@ describe('TokenRefreshManager', () => {
       }
     });
 
-    it('should retry on network errors with exponential backoff', async () => {
+    /** ApiClient の ApiError と同じ形のエラー（statusCode を持つ） */
+    function errorWithStatus(statusCode: number, message: string): Error {
+      return Object.assign(new Error(message), { statusCode });
+    }
+
+    it('should retry on 503 (not processed, response received) with exponential backoff', async () => {
       let attempts = 0;
       const retryMockFn = vi.fn<RefreshTokenFunction>(async () => {
         attempts++;
         if (attempts < 3) {
-          throw new Error('Network error');
+          throw errorWithStatus(503, 'Service Unavailable');
         }
         return 'new-access-token';
       });
@@ -85,12 +90,39 @@ describe('TokenRefreshManager', () => {
 
       const token = await retryManager.refreshToken();
 
-      // 3回目で成功
+      // 3回目で成功（503 は処理に到達しておらず、応答を受け取っているため Cookie と食い違わない）
       expect(retryMockFn).toHaveBeenCalledTimes(3);
       expect(token).toBe('new-access-token');
 
       retryManager.cleanup();
     });
+
+    /**
+     * 応答を失った失敗（通信の失敗・時間切れ）では再送しない（user-authentication 要件33.6）
+     *
+     * backend がローテーションを確定した後に応答を失うと、ブラウザの Cookie は置き換え前のまま残る。
+     * それを再送すると置き換え済みのトークンの再提示（再利用）と判定され、系列ごと失効する。
+     */
+    it.each([
+      ['network error (statusCode 0)', () => errorWithStatus(0, 'Network error')],
+      ['timeout (statusCode 0)', () => errorWithStatus(0, 'Request timeout')],
+      ['network error without status', () => new Error('Failed to fetch')],
+      ['500 (may fail after rotation)', () => errorWithStatus(500, 'Token refresh failed')],
+      ['504 (backend may keep processing)', () => errorWithStatus(504, 'Gateway Timeout')],
+    ])(
+      'should not resend the refresh when the response was lost: %s',
+      async (_label, makeError) => {
+        const lostResponseFn = vi.fn<RefreshTokenFunction>(async () => {
+          throw makeError();
+        });
+        const lostResponseManager = new TokenRefreshManager(lostResponseFn);
+
+        await expect(lostResponseManager.refreshToken()).rejects.toThrow();
+        expect(lostResponseFn).toHaveBeenCalledTimes(1);
+
+        lostResponseManager.cleanup();
+      }
+    );
 
     it('should not retry on authentication errors', async () => {
       const authErrorMockFn = vi.fn<RefreshTokenFunction>(async () => {
@@ -267,6 +299,128 @@ describe('TokenRefreshManager', () => {
 
       // BroadcastChannelがクローズされる
       expect(mockClose).toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * タブ間のリフレッシュの直列化（要件33.6, 33.10）
+   *
+   * 二つのタブ（同じオリジンの二つの TokenRefreshManager）が同時にリフレッシュしても、
+   * Web Locks の中で一つずつ行い、後のタブは先のタブが配ったトークンを使って要求を送らない。
+   * Web Locks と Broadcast Channel はブラウザと同じく非同期に振る舞う代替で差し替える
+   * （配布はロックの解放より後に届きうる）。
+   */
+  describe('タブ間の直列化（Web Locks）', () => {
+    /** 名前ごとに一つずつ、要求の順に与える排他のロック */
+    class FakeLockManager {
+      private tails = new Map<string, Promise<void>>();
+      async request<T>(
+        name: string,
+        _options: { mode: 'exclusive' },
+        callback: () => Promise<T>
+      ): Promise<T> {
+        const previous = this.tails.get(name) ?? Promise.resolve();
+        let release!: () => void;
+        const current = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        this.tails.set(
+          name,
+          previous.then(() => current)
+        );
+        await previous;
+        try {
+          return await callback();
+        } finally {
+          release();
+        }
+      }
+    }
+
+    /** 同じ名前の他のインスタンスへ、次のタスクで配る Broadcast Channel */
+    class FakeBroadcastChannel {
+      static instances: FakeBroadcastChannel[] = [];
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      private closed = false;
+      constructor(public readonly name: string) {
+        FakeBroadcastChannel.instances.push(this);
+      }
+      postMessage(data: unknown): void {
+        for (const other of FakeBroadcastChannel.instances) {
+          if (other !== this && other.name === this.name && !other.closed) {
+            setTimeout(() => {
+              other.onmessage?.(new MessageEvent('message', { data }));
+            }, 0);
+          }
+        }
+      }
+      close(): void {
+        this.closed = true;
+      }
+    }
+
+    beforeEach(() => {
+      vi.useRealTimers();
+      FakeBroadcastChannel.instances = [];
+      vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel);
+      vi.stubGlobal('navigator', { ...navigator, locks: new FakeLockManager() });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('二つのタブの同時のリフレッシュは一回の要求にまとまり、両方が同じトークンを得る', async () => {
+      // 二つのタブが共有するリフレッシュの API（Cookie はブラウザで共有される）
+      let issued = 0;
+      const refreshApi = vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        issued += 1;
+        return `access-token-${issued}`;
+      });
+
+      const tabA = new TokenRefreshManager(refreshApi);
+      const tabB = new TokenRefreshManager(refreshApi);
+      const receivedByB = vi.fn();
+      tabB.onTokenRefreshed(receivedByB);
+
+      try {
+        const [tokenA, tokenB] = await Promise.all([tabA.refreshToken(), tabB.refreshToken()]);
+
+        expect(refreshApi).toHaveBeenCalledTimes(1);
+        expect(tokenA).toBe('access-token-1');
+        expect(tokenB).toBe('access-token-1');
+        expect(receivedByB).toHaveBeenCalledWith('access-token-1');
+      } finally {
+        tabA.cleanup();
+        tabB.cleanup();
+      }
+    });
+
+    it('他のタブの配布が呼び出しより前に届いていたときは、改めてリフレッシュを送る', async () => {
+      let issued = 0;
+      const refreshApi = vi.fn(async () => {
+        issued += 1;
+        return `access-token-${issued}`;
+      });
+
+      const tabA = new TokenRefreshManager(refreshApi);
+      const tabB = new TokenRefreshManager(refreshApi);
+
+      try {
+        await tabA.refreshToken();
+        // 配布が届くのを待つ
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // 届いた後に始まったリフレッシュ（受け取ったトークンが拒否された等）は要求を送る
+        const tokenB = await tabB.refreshToken();
+
+        expect(refreshApi).toHaveBeenCalledTimes(2);
+        expect(tokenB).toBe('access-token-2');
+      } finally {
+        tabA.cleanup();
+        tabB.cleanup();
+      }
     });
   });
 });

@@ -48,9 +48,11 @@ export async function verify2FA(userId: string, totpCode: string): Promise<AuthR
 
 /**
  * ログアウト（現在のデバイス）
+ *
+ * 本文を送らず、Cookie と X-CSRF-Token で送る（要件33.4, 33.12）
  */
 export async function logout(): Promise<void> {
-  await apiClient.post<void>('/api/v1/auth/logout');
+  await apiClient.logoutSession();
 }
 
 /**
@@ -65,7 +67,8 @@ export async function logoutAll(): Promise<void> {
  * @returns 認証レスポンス（新しいアクセストークン、ユーザー情報）
  */
 export async function refreshToken(): Promise<AuthResponse> {
-  return apiClient.post<AuthResponse>('/api/v1/auth/refresh');
+  // 本文を送らず、Cookie と X-CSRF-Token で送る（要件33.8, 33.12）
+  return (await apiClient.refreshSession<AuthResponse['user']>()) as AuthResponse;
 }
 
 /**

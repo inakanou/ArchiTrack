@@ -155,19 +155,21 @@ describe('認証API', () => {
 
   describe('logout', () => {
     it('ログアウトできること', async () => {
-      const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue(undefined);
+      const logoutSpy = vi.spyOn(apiClient, 'logoutSession').mockResolvedValue(undefined);
 
       await logout();
 
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/auth/logout');
+      expect(logoutSpy).toHaveBeenCalledTimes(1);
     });
 
     it('ログアウト時のエラーをスローすること', async () => {
-      const postSpy = vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Logout failed'));
+      const logoutSpy = vi
+        .spyOn(apiClient, 'logoutSession')
+        .mockRejectedValue(new Error('Logout failed'));
 
       await expect(logout()).rejects.toThrow('Logout failed');
 
-      expect(postSpy).toHaveBeenCalled();
+      expect(logoutSpy).toHaveBeenCalled();
     });
   });
 
@@ -200,20 +202,22 @@ describe('認証API', () => {
         },
       };
 
-      const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue(mockResponse);
+      const refreshSpy = vi.spyOn(apiClient, 'refreshSession').mockResolvedValue(mockResponse);
 
       const result = await refreshToken();
 
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/auth/refresh');
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
       expect(result).toEqual(mockResponse);
     });
 
     it('トークンリフレッシュ失敗時にエラーをスローすること', async () => {
-      const postSpy = vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Refresh failed'));
+      const refreshSpy = vi
+        .spyOn(apiClient, 'refreshSession')
+        .mockRejectedValue(new Error('Refresh failed'));
 
       await expect(refreshToken()).rejects.toThrow('Refresh failed');
 
-      expect(postSpy).toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalled();
     });
   });
 
