@@ -3,8 +3,8 @@ import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/d
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
-import { API_BASE_URL } from '../../config';
-import { loginViaApi } from '../../helpers/auth-api';
+import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
+import { loginViaApi, refreshWithCookie } from '../../helpers/auth-api';
 
 /**
  * セキュリティ対策（脅威モデリング）のE2Eテスト
@@ -225,13 +225,20 @@ test.describe('セキュリティ対策', () => {
    * 期限切れトークンでのアクセス拒否
    * @requirement user-authentication/REQ-5.2
    */
-  test('期限切れのリフレッシュトークンでリフレッシュできない', async ({ request }) => {
-    // 無効なリフレッシュトークンでリフレッシュを試みる
-    const response = await request.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
-      data: {
-        refreshToken: 'expired-refresh-token',
+  test('期限切れのリフレッシュトークンでリフレッシュできない', async ({ page }) => {
+    // 無効なリフレッシュトークンの Cookie を、画面と同じ契約（Cookie と CSRF・Origin）で提示する
+    await page.context().addCookies([
+      {
+        name: 'refreshToken',
+        value: 'expired-refresh-token',
+        domain: new URL(FRONTEND_BASE_URL).hostname,
+        path: '/api/v1/auth',
+        httpOnly: true,
+        sameSite: 'Strict',
       },
-    });
+    ]);
+
+    const response = await refreshWithCookie(page.request);
 
     expect(response.status()).toBe(401);
   });

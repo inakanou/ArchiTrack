@@ -42,10 +42,9 @@ export interface ApiLoginUser {
   [key: string]: unknown;
 }
 
-/** ログイン API の応答本文（ログインが完了したとき） */
+/** ログイン API の応答本文（ログインが完了したとき。リフレッシュトークンは本文に含まれず Cookie だけで渡る） */
 export interface ApiLoginResult {
   accessToken: string;
-  refreshToken: string;
   expiresIn?: number;
   user: ApiLoginUser;
   [key: string]: unknown;

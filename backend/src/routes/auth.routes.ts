@@ -128,36 +128,13 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-const refreshTokenBodySchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token is required'),
-});
-
-const validateRefreshTokenBody = validate(refreshTokenBodySchema);
-
 /**
- * リフレッシュとログアウトで提示されたリフレッシュトークンを読み、`res.locals.refreshToken` に置く
+ * リフレッシュとログアウトで提示されたリフレッシュトークンを Cookie から読み、`res.locals.refreshToken` に置く
  *
- * - 本文に `refreshToken` がある要求: 旧来の経路として本文を検証して読み、CSRF を課さない。
- *   旧版の画面（本文と Cookie の両方を送り、CSRF のヘッダーを送らない）が 403 にならないための
- *   互換の期間の経路で、45.5 で外す。試験環境（NODE_ENV=test）の素通りもこの経路に限られる
- * - 本文に無い要求: Cookie `refreshToken` を読み、CSRF の二重送信と Origin の照合を課す（要件33.12）
+ * 全ての要求に CSRF の二重送信と Origin の照合を課す（要件33.12）。本文は読まない
+ * （本文に `refreshToken` があっても CSRF を免れず、本文の値は使わない）。Cookie が無ければ 400。
  */
 function readRefreshTokenCredential(req: Request, res: Response, next: NextFunction): void {
-  const body: unknown = req.body;
-  if (typeof body === 'object' && body !== null && 'refreshToken' in body) {
-    void validateRefreshTokenBody(req, res, (error?: unknown) => {
-      if (error) {
-        next(error);
-        return;
-      }
-      res.locals.refreshToken = (
-        req.validatedBody as z.infer<typeof refreshTokenBodySchema>
-      ).refreshToken;
-      next();
-    });
-    return;
-  }
-
   csrfProtection(req, res, () => {
     const cookieToken: unknown = req.cookies?.refreshToken;
     if (typeof cookieToken !== 'string' || cookieToken === '') {
@@ -167,6 +144,16 @@ function readRefreshTokenCredential(req: Request, res: Response, next: NextFunct
     res.locals.refreshToken = cookieToken;
     next();
   });
+}
+
+/**
+ * 認証の成功の応答本文からリフレッシュトークンを外す（要件33.9。リフレッシュトークンは Set-Cookie だけで渡す）
+ */
+function withoutRefreshToken<T extends { refreshToken?: string }>(
+  authResponse: T
+): Omit<T, 'refreshToken'> {
+  const { refreshToken: _refreshToken, ...body } = authResponse;
+  return body;
 }
 
 const verify2FASchema = z.object({
@@ -260,8 +247,6 @@ const changePasswordSchema = z.object({
  *               properties:
  *                 accessToken:
  *                   type: string
- *                 refreshToken:
- *                   type: string
  *                 user:
  *                   type: object
  *                   properties:
@@ -329,7 +314,7 @@ router.post(
         'User registered successfully'
       );
 
-      res.status(201).json(authResponse);
+      res.status(201).json(withoutRefreshToken(authResponse));
     } catch (error) {
       next(error);
     }
@@ -341,7 +326,9 @@ router.post(
  * /api/v1/auth/login:
  *   post:
  *     summary: Login
- *     description: Authenticate a user and return access and refresh tokens
+ *     description: >-
+ *       Authenticate a user and return an access token. The refresh token is set only in the
+ *       HttpOnly refreshToken cookie, never in the response body.
  *     tags:
  *       - Authentication
  *     requestBody:
@@ -371,8 +358,6 @@ router.post(
  *               type: object
  *               properties:
  *                 accessToken:
- *                   type: string
- *                 refreshToken:
  *                   type: string
  *                 user:
  *                   type: object
@@ -456,7 +441,7 @@ router.post(
         );
       }
 
-      res.status(200).json(loginResponse);
+      res.status(200).json(withoutRefreshToken(loginResponse));
     } catch (error) {
       next(error);
     }
@@ -469,24 +454,19 @@ router.post(
  *   post:
  *     summary: Refresh access token
  *     description: >-
- *       Get a new access token using a valid refresh token. Without a body, the refresh token is
- *       read from the refreshToken cookie and the request must carry the X-CSRF-Token header
- *       matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403.
- *       The body form is accepted without CSRF only during the compatibility period.
+ *       Get a new access token using the refresh token in the refreshToken cookie. The request
+ *       body is not read. The request must carry the X-CSRF-Token header matching the csrf-token
+ *       cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403. The rotated refresh
+ *       token is returned only in the Set-Cookie header, never in the response body.
  *     tags:
  *       - Authentication
- *     requestBody:
- *       required: false
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - refreshToken
- *             properties:
- *               refreshToken:
- *                 type: string
- *                 description: Valid refresh token
+ *     parameters:
+ *       - in: header
+ *         name: X-CSRF-Token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: CSRF token obtained from GET /csrf-token (must match the csrf-token cookie)
  *     responses:
  *       200:
  *         description: Token refreshed successfully
@@ -497,12 +477,10 @@ router.post(
  *               properties:
  *                 accessToken:
  *                   type: string
- *                 refreshToken:
- *                   type: string
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: CSRF token missing or invalid, or request origin not allowed (cookie form)
+ *         description: CSRF token missing or invalid, or request origin not allowed
  */
 router.post(
   '/refresh',
@@ -561,7 +539,7 @@ router.post(
         'Token refreshed successfully'
       );
 
-      res.status(200).json(authResponse);
+      res.status(200).json(withoutRefreshToken(authResponse));
     } catch (error) {
       next(error);
     }
@@ -763,26 +741,21 @@ router.patch(
  *   post:
  *     summary: Logout
  *     description: >-
- *       Logout the current user from the current device. Without a body, the refresh token is
- *       read from the refreshToken cookie and the request must carry the X-CSRF-Token header
- *       matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403.
- *       The body form is accepted without CSRF only during the compatibility period.
+ *       Logout the current user from the current device. The refresh token to invalidate is read
+ *       from the refreshToken cookie; the request body is not read. The request must carry the
+ *       X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of
+ *       FRONTEND_URL; otherwise 403.
  *     tags:
  *       - Authentication
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: false
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - refreshToken
- *             properties:
- *               refreshToken:
- *                 type: string
- *                 description: Refresh token to invalidate
+ *     parameters:
+ *       - in: header
+ *         name: X-CSRF-Token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: CSRF token obtained from GET /csrf-token (must match the csrf-token cookie)
  *     responses:
  *       200:
  *         description: Logged out successfully
@@ -796,7 +769,7 @@ router.patch(
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: CSRF token missing or invalid, or request origin not allowed (cookie form)
+ *         description: CSRF token missing or invalid, or request origin not allowed
  */
 router.post(
   '/logout',
@@ -920,8 +893,6 @@ router.post(
  *               properties:
  *                 accessToken:
  *                   type: string
- *                 refreshToken:
- *                   type: string
  *                 user:
  *                   type: object
  *       401:
@@ -1001,7 +972,7 @@ router.post(
 
       logger.info({ userId: authResponse.user.id }, '2FA verification successful');
 
-      res.status(200).json(authResponse);
+      res.status(200).json(withoutRefreshToken(authResponse));
     } catch (error) {
       next(error);
     }
@@ -1049,8 +1020,6 @@ const verifyBackupCodeSchema = z.object({
  *               type: object
  *               properties:
  *                 accessToken:
- *                   type: string
- *                 refreshToken:
  *                   type: string
  *                 user:
  *                   type: object
@@ -1114,7 +1083,7 @@ router.post(
 
       logger.info({ userId: authResponse.user.id }, 'Backup code verification successful');
 
-      res.status(200).json(authResponse);
+      res.status(200).json(withoutRefreshToken(authResponse));
     } catch (error) {
       next(error);
     }

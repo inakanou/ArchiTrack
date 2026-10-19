@@ -11,6 +11,11 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { hash } from '@node-rs/argon2';
+import {
+  issuedRefreshToken,
+  logoutWithCookie,
+  refreshWithCookie,
+} from './refresh-cookie-client.js';
 
 /**
  * 認証API統合テスト
@@ -111,7 +116,7 @@ describe('Authentication API Integration Tests', () => {
       id: admin.id,
       email: admin.email,
       accessToken: loginResponse.body.accessToken,
-      refreshToken: loginResponse.body.refreshToken,
+      refreshToken: issuedRefreshToken(loginResponse),
     };
   }, 20000); // タイムアウトを20秒に設定（DB初期化・パスワードハッシュ化・ログインを考慮）
 
@@ -218,7 +223,8 @@ describe('Authentication API Integration Tests', () => {
 
       expect(response.status).toBe(201);
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(issuedRefreshToken(response)).not.toBe('');
       expect(response.body).toHaveProperty('user');
       expect(response.body.user.email).toBe('test-auth-newuser1@example.com');
       expect(response.body.user.displayName).toBe('New User 1');
@@ -332,7 +338,8 @@ describe('Authentication API Integration Tests', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(issuedRefreshToken(response)).not.toBe('');
       expect(response.body).toHaveProperty('user');
       expect(response.body.user.email).toBe('test-auth-login@example.com');
     });
@@ -360,19 +367,17 @@ describe('Authentication API Integration Tests', () => {
 
   describe('POST /api/v1/auth/refresh', () => {
     it('有効なリフレッシュトークンで新しいアクセストークンを取得できること', async () => {
-      const response = await request(app).post('/api/v1/auth/refresh').send({
-        refreshToken: adminUser.refreshToken,
-      });
+      const response = await refreshWithCookie(app, adminUser.refreshToken);
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      // 後継は Set-Cookie だけで渡る。以降のテストは後継を使う
+      adminUser.refreshToken = issuedRefreshToken(response);
     });
 
     it('無効なリフレッシュトークンでリフレッシュが失敗すること', async () => {
-      const response = await request(app).post('/api/v1/auth/refresh').send({
-        refreshToken: 'invalid-refresh-token',
-      });
+      const response = await refreshWithCookie(app, 'invalid-refresh-token');
 
       expect(response.status).toBe(401);
       expect(response.body).toHaveProperty('error');
@@ -434,21 +439,16 @@ describe('Authentication API Integration Tests', () => {
 
   describe('POST /api/v1/auth/logout', () => {
     it('認証済みユーザーがログアウトできること', async () => {
-      const response = await request(app)
-        .post('/api/v1/auth/logout')
-        .set('Authorization', `Bearer ${adminUser.accessToken}`)
-        .send({
-          refreshToken: adminUser.refreshToken,
-        });
+      const response = await logoutWithCookie(app, adminUser.accessToken, adminUser.refreshToken);
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('message');
     });
 
     it('認証トークンなしで401エラーを返すこと', async () => {
-      const response = await request(app).post('/api/v1/auth/logout').send({
-        refreshToken: adminUser.refreshToken,
-      });
+      const response = await request(app)
+        .post('/api/v1/auth/logout')
+        .set('Cookie', [`refreshToken=${adminUser.refreshToken}`]);
 
       expect(response.status).toBe(401);
       expect(response.body).toHaveProperty('error');

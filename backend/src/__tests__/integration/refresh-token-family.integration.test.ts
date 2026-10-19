@@ -6,7 +6,8 @@
  * 全てを失効させ、監査に記録する。保存の値は原文から復元できない形式（SHA-256）である。
  *
  * モックを使わず、本物のアプリ（ログイン・リフレッシュ・ログアウトの API）と実 PostgreSQL を通す。
- * 応答本文の refreshToken は互換の期間（45.3〜45.5）の間だけ残る経路で、ここでは原文の入手に使う。
+ * リフレッシュトークンの原文は応答の Set-Cookie から得て、リフレッシュとログアウトは画面と同じ Cookie と
+ * CSRF・Origin の契約で呼ぶ（応答本文には含まれない。要件33.9・33.12）。
  */
 
 import { createHash, randomBytes } from 'crypto';
@@ -23,6 +24,11 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import {
+  issuedRefreshToken,
+  logoutWithCookie,
+  refreshWithCookie,
+} from './refresh-cookie-client.js';
 
 const MARK = 'test-ua452-refresh-family';
 const PASSWORD = 'Family!Passphrase-2026';
@@ -70,11 +76,16 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
       .post('/api/v1/auth/login')
       .send({ email, password: PASSWORD })
       .expect(200);
-    return { accessToken: response.body.accessToken, refreshToken: response.body.refreshToken };
+    return { accessToken: response.body.accessToken, refreshToken: issuedRefreshToken(response) };
   }
 
-  function refresh(refreshToken: string) {
-    return request(app).post('/api/v1/auth/refresh').send({ refreshToken });
+  /** Cookie と CSRF の経路でリフレッシュする（`expectedStatus` を渡すと応答の状態を確かめる） */
+  async function refresh(refreshToken: string, expectedStatus?: number) {
+    const response = await refreshWithCookie(app, refreshToken);
+    if (expectedStatus !== undefined) {
+      expect(response.status).toBe(expectedStatus);
+    }
+    return response;
   }
 
   async function storedRows() {
@@ -113,8 +124,8 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
       expect(loginRow!.tokenHash).not.toBe(session.refreshToken);
       expect(loginRow!.tokenHash).toBe(sha256Hex(session.refreshToken));
 
-      const rotated = await refresh(session.refreshToken).expect(200);
-      const successor = rotated.body.refreshToken as string;
+      const rotated = await refresh(session.refreshToken, 200);
+      const successor = issuedRefreshToken(rotated);
 
       const rows = await storedRows();
       expect(rows).toHaveLength(2);
@@ -133,7 +144,7 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
 
     it('ローテーションは前の行に置き換えの日時を記録し、後継を同じ系列で作る', async () => {
       const session = await login();
-      await refresh(session.refreshToken).expect(200);
+      await refresh(session.refreshToken, 200);
 
       const [previous, successor] = await storedRows();
       expect(previous!.replacedAt).toBeInstanceOf(Date);
@@ -145,14 +156,14 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
   describe('再利用の検知', () => {
     it('置き換え済みのトークンの再提示で後継も使えなくなり、監査が残る', async () => {
       const session = await login();
-      const rotated = await refresh(session.refreshToken).expect(200);
-      const successor = rotated.body.refreshToken as string;
+      const rotated = await refresh(session.refreshToken, 200);
+      const successor = issuedRefreshToken(rotated);
       const familyId = (await storedRows())[0]!.familyId;
 
-      await refresh(session.refreshToken).expect(401);
+      await refresh(session.refreshToken, 401);
 
       // 後継も使えない（系列の全てが失効している）
-      await refresh(successor).expect(401);
+      await refresh(successor, 401);
       await expect(prisma.refreshToken.count({ where: { familyId } })).resolves.toBe(0);
 
       const audits = await prisma.auditLog.findMany({
@@ -179,7 +190,7 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
       expect(responses.map((r) => r.status).filter((s) => s === 200).length).toBeLessThanOrEqual(1);
       expect(responses.some((r) => r.status === 401)).toBe(true);
       for (const response of responses.filter((r) => r.status === 200)) {
-        await refresh(response.body.refreshToken).expect(401);
+        await refresh(issuedRefreshToken(response), 401);
       }
       await expect(prisma.refreshToken.count({ where: { familyId } })).resolves.toBe(0);
       await expect(
@@ -192,11 +203,11 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
     it('他の系列（別のセッション）は再利用の検知で失効しない', async () => {
       const victim = await login();
       const other = await login();
-      await refresh(victim.refreshToken).expect(200);
+      await refresh(victim.refreshToken, 200);
 
-      await refresh(victim.refreshToken).expect(401);
+      await refresh(victim.refreshToken, 401);
 
-      await refresh(other.refreshToken).expect(200);
+      await refresh(other.refreshToken, 200);
     });
   });
 
@@ -204,24 +215,21 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
     it('ログアウトはそのセッションの系列だけを失効させる', async () => {
       const session = await login();
       const other = await login();
-      const rotated = await refresh(session.refreshToken).expect(200);
-      const current = rotated.body.refreshToken as string;
+      const rotated = await refresh(session.refreshToken, 200);
+      const current = issuedRefreshToken(rotated);
 
-      await request(app)
-        .post('/api/v1/auth/logout')
-        .set('Authorization', `Bearer ${session.accessToken}`)
-        .send({ refreshToken: current })
-        .expect(200);
+      const loggedOut = await logoutWithCookie(app, session.accessToken, current);
+      expect(loggedOut.status).toBe(200);
 
-      await refresh(current).expect(401);
+      await refresh(current, 401);
       // 系列の置き換え済みの行も消えている（再利用の監査は起きない）
-      await refresh(session.refreshToken).expect(401);
+      await refresh(session.refreshToken, 401);
       await expect(
         prisma.auditLog.count({
           where: { action: 'REFRESH_TOKEN_REUSE_DETECTED', targetId: userId },
         })
       ).resolves.toBe(0);
-      await refresh(other.refreshToken).expect(200);
+      await refresh(other.refreshToken, 200);
     });
 
     it('全デバイスのログアウトは利用者の全てを失効させる', async () => {
@@ -233,8 +241,8 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
         .set('Authorization', `Bearer ${first.accessToken}`)
         .expect(200);
 
-      await refresh(first.refreshToken).expect(401);
-      await refresh(second.refreshToken).expect(401);
+      await refresh(first.refreshToken, 401);
+      await refresh(second.refreshToken, 401);
       await expect(storedRows()).resolves.toHaveLength(0);
     });
 
@@ -252,8 +260,8 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
         })
         .expect(200);
 
-      await refresh(first.refreshToken).expect(401);
-      await refresh(second.refreshToken).expect(401);
+      await refresh(first.refreshToken, 401);
+      await refresh(second.refreshToken, 401);
       await expect(storedRows()).resolves.toHaveLength(0);
     });
 
@@ -270,8 +278,8 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
         .send({ token: resetToken, newPassword: NEW_PASSWORD })
         .expect(200);
 
-      await refresh(first.refreshToken).expect(401);
-      await refresh(second.refreshToken).expect(401);
+      await refresh(first.refreshToken, 401);
+      await refresh(second.refreshToken, 401);
       await expect(storedRows()).resolves.toHaveLength(0);
     });
   });

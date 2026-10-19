@@ -154,10 +154,11 @@ export interface RegisterData {
 
 /**
  * 認証レスポンス（登録、2FA検証、トークンリフレッシュ）
+ *
+ * リフレッシュトークンは応答本文に含まれず、HttpOnly Cookie だけで受け渡す（要件33.9）
  */
 export interface AuthResponse {
   accessToken: string;
-  refreshToken: string;
   user: UserProfile;
   expiresIn?: number;
 }
@@ -175,7 +176,6 @@ export interface UpdateProfileData {
 export interface LoginResponse {
   type: 'SUCCESS' | '2FA_REQUIRED';
   accessToken?: string;
-  refreshToken?: string;
   userId?: string;
   user?: UserProfile;
   expiresIn?: number;

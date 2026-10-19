@@ -10,6 +10,11 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import {
+  issuedRefreshToken,
+  logoutWithCookie,
+  refreshWithCookie,
+} from './refresh-cookie-client.js';
 
 /**
  * 認証APIエンドポイント統合テスト
@@ -130,15 +135,15 @@ describe('Authentication API Integration Tests', () => {
         })
         .expect(200);
 
-      // 検証
+      // 検証（リフレッシュトークンは応答本文に含めず Set-Cookie だけで渡す。要件33.9）
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
       expect(response.body).toHaveProperty('user');
       expect(response.body.user.email).toBe('test-auth-integration-login@example.com');
 
       // トークンの形式検証 (JWT形式)
       expect(response.body.accessToken).toMatch(/^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/);
-      expect(response.body.refreshToken).toMatch(
+      expect(issuedRefreshToken(response)).toMatch(
         /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/
       );
     });
@@ -373,7 +378,8 @@ describe('Authentication API Integration Tests', () => {
 
       // 検証
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(issuedRefreshToken(response)).not.toBe('');
       expect(response.body).toHaveProperty('user');
       expect(response.body.user.email).toBe('test-auth-integration-register@example.com');
 
@@ -680,17 +686,16 @@ describe('Authentication API Integration Tests', () => {
         })
         .expect(200);
 
-      const { refreshToken } = loginResponse.body;
+      const refreshToken = issuedRefreshToken(loginResponse);
 
-      // テスト実行: トークンリフレッシュ
-      const response = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken })
-        .expect(200);
+      // テスト実行: トークンリフレッシュ（Cookie と CSRF の経路）
+      const response = await refreshWithCookie(app, refreshToken);
+      expect(response.status).toBe(200);
 
-      // 検証
+      // 検証（後継のリフレッシュトークンは Set-Cookie だけで渡す）
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(issuedRefreshToken(response)).not.toBe(refreshToken);
 
       // 新しいトークンが発行されていることを確認
       expect(response.body.accessToken).not.toBe(loginResponse.body.accessToken);
@@ -700,10 +705,8 @@ describe('Authentication API Integration Tests', () => {
      * 要件5.2: リフレッシュトークンが無効または期限切れの場合に再ログインを要求
      */
     it('無効なリフレッシュトークンでエラーが返されること', async () => {
-      const response = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken: 'invalid.refresh.token' })
-        .expect(401);
+      const response = await refreshWithCookie(app, 'invalid.refresh.token');
+      expect(response.status).toBe(401);
 
       expect(response.body.detail || response.body.title || response.body.error).toMatch(
         /無効なトークン|Invalid.*token/i
@@ -740,14 +743,12 @@ describe('Authentication API Integration Tests', () => {
         .expect(200);
 
       // トークンを改ざん（署名部分を変更）
-      const [header, payload] = loginResponse.body.refreshToken.split('.');
+      const [header, payload] = issuedRefreshToken(loginResponse).split('.');
       const tamperedToken = `${header}.${payload}.tampered-signature`;
 
       // テスト実行
-      const response = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken: tamperedToken })
-        .expect(401);
+      const response = await refreshWithCookie(app, tamperedToken);
+      expect(response.status).toBe(401);
 
       expect(response.body.detail || response.body.title || response.body.error).toMatch(
         /無効なトークン|Invalid.*token/i
@@ -785,20 +786,16 @@ describe('Authentication API Integration Tests', () => {
         })
         .expect(200);
 
-      const { refreshToken, accessToken } = loginResponse.body;
+      const { accessToken } = loginResponse.body;
+      const refreshToken = issuedRefreshToken(loginResponse);
 
-      // テスト実行: ログアウト
-      await request(app)
-        .post('/api/v1/auth/logout')
-        .set('Authorization', `Bearer ${accessToken}`)
-        .send({ refreshToken })
-        .expect(200);
+      // テスト実行: ログアウト（Cookie と CSRF の経路）
+      const logoutResponse = await logoutWithCookie(app, accessToken, refreshToken);
+      expect(logoutResponse.status).toBe(200);
 
       // 検証: ログアウト後にリフレッシュトークンが使用できないことを確認
-      const refreshResponse = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken })
-        .expect(401);
+      const refreshResponse = await refreshWithCookie(app, refreshToken);
+      expect(refreshResponse.status).toBe(401);
 
       expect(refreshResponse.body.detail || refreshResponse.body.title).toMatch(
         /無効なトークン|Invalid token/i
@@ -958,7 +955,7 @@ describe('Authentication API Integration Tests', () => {
       const accessPayload = JSON.parse(Buffer.from(accessPayloadBase64!, 'base64url').toString());
 
       // リフレッシュトークンのペイロードをデコード
-      const [, refreshPayloadBase64] = loginResponse.body.refreshToken.split('.');
+      const [, refreshPayloadBase64] = issuedRefreshToken(loginResponse).split('.');
       const refreshPayload = JSON.parse(Buffer.from(refreshPayloadBase64!, 'base64url').toString());
 
       // 検証: expクレームが存在すること

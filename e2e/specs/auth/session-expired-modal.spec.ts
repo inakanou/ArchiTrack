@@ -291,7 +291,6 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           accessToken: 'new-access-token',
-          refreshToken: 'new-refresh-token',
           user: { id: 'test-id', email: 'user@example.com', displayName: 'Test User' },
         }),
       });
@@ -334,7 +333,6 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           accessToken: 'renewed-access-token-12345',
-          refreshToken: 'renewed-refresh-token-12345',
           user: { id: 'test-id', email: 'user@example.com', displayName: 'Test User' },
         }),
       });
@@ -398,7 +396,6 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           accessToken: 'renewed-access-token',
-          refreshToken: 'renewed-refresh-token',
           user: { id: 'test-id', email: 'user@example.com', displayName: 'Test User' },
         }),
       });
@@ -607,7 +604,6 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           accessToken: 'renewed-access-token',
-          refreshToken: 'renewed-refresh-token',
           user: { id: 'test-id', email: 'user@example.com', displayName: 'Test User' },
         }),
       });

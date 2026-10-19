@@ -192,13 +192,12 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
 
       try {
         // ログインAPIを呼び出し
-        // バックエンドは成功時: { user, accessToken, refreshToken }
+        // バックエンドは成功時: { user, accessToken }（リフレッシュトークンは HttpOnly Cookie だけで渡る）
         // 2FA要求時: { requires2FA: true, userId }
         const response = await apiClient.post<{
           requires2FA?: boolean;
           user?: User;
           accessToken?: string;
-          refreshToken?: string;
           userId?: string;
           expiresIn?: number;
         }>('/api/v1/auth/login', {

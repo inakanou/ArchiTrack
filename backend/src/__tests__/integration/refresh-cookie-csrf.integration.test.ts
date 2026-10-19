@@ -1,20 +1,23 @@
 /**
- * @fileoverview リフレッシュとログアウトで Cookie を受け付ける互換の期間の統合検証（タスク45.3）
+ * @fileoverview リフレッシュとログアウトの Cookie による受け渡しと CSRF の検証の統合検証（タスク45.3・45.5）
  *
- * 確かめる振る舞い（要件33.12）: 本文にリフレッシュトークンが無い要求は Cookie を読み、CSRF の
- * 二重送信（Cookie `csrf-token` とヘッダー `X-CSRF-Token`）と Origin（無ければ Referer）の照合を課す。
- * 本文にリフレッシュトークンがある要求は旧来の経路で扱い、CSRF を課さない（45.5 で外す互換の経路）。
- * あわせて、リフレッシュの Cookie の Path が認証の経路に限られ、CORS が `X-CSRF-Token` を許すことを確かめる。
+ * 確かめる振る舞い（要件33.9・33.12）: リフレッシュとログアウトは本文を読まず、Cookie を読み、全ての要求に
+ * CSRF の二重送信（Cookie `csrf-token` とヘッダー `X-CSRF-Token`）と Origin（無ければ Referer）の照合を課す。
+ * 本文にリフレッシュトークンがあっても CSRF を免れず、本文のトークンは使われない。ログイン・2FA 検証・
+ * リフレッシュの応答本文にリフレッシュトークンを含めず、`Set-Cookie` だけで渡す（登録の応答は
+ * auth.integration.test.ts で確かめる）。あわせて、リフレッシュの Cookie の
+ * Path が認証の経路に限られ、CORS が `X-CSRF-Token` を許すことを確かめる。
  *
  * モックを使わず、本物のアプリ（CSRF トークンの取得・ログイン・リフレッシュ・ログアウトの API）と
- * 実 PostgreSQL を通す。試験環境（NODE_ENV=test）でも Cookie の経路の CSRF が素通りしないことを含む。
+ * 実 PostgreSQL を通す。試験環境（NODE_ENV=test）でも CSRF が素通りしないことを含む。
  */
 
 import { randomBytes } from 'crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import { hash } from '@node-rs/argon2';
-import { validateEnv, getEnv } from '../../config/env.js';
+import { authenticator } from 'otplib';
+import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
 
 // 環境変数を初期化（モジュールインポート前に実行）
@@ -25,6 +28,16 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { hashRefreshToken } from '../../services/session.service.js';
+import { TwoFactorService } from '../../services/two-factor.service.js';
+import {
+  cookieValue,
+  fetchCsrfToken,
+  frontendOrigin as resolveFrontendOrigin,
+  isClearing,
+  issuedRefreshToken,
+  refreshWithCookie,
+  setCookieLines,
+} from './refresh-cookie-client.js';
 
 const MARK = 'test-ua453-refresh-cookie';
 const PASSWORD = 'Cookie!Passphrase-2026';
@@ -33,23 +46,6 @@ const REFRESH_COOKIE_PATH = '/api/v1/auth';
 interface Session {
   accessToken: string;
   refreshToken: string;
-}
-
-/** 応答の Set-Cookie から、指定した名前の Cookie の行を全て返す */
-function setCookieLines(response: request.Response, name: string): string[] {
-  const raw = response.headers['set-cookie'] as unknown;
-  const lines = Array.isArray(raw) ? (raw as string[]) : typeof raw === 'string' ? [raw] : [];
-  return lines.filter((line) => line.startsWith(`${name}=`));
-}
-
-/** Set-Cookie の行から値を取り出す */
-function cookieValue(line: string): string {
-  return line.slice(line.indexOf('=') + 1).split(';')[0]!;
-}
-
-/** Set-Cookie の行が消去（空の値・過去の期限）かを返す */
-function isClearing(line: string): boolean {
-  return cookieValue(line) === '' && /Expires=Thu, 01 Jan 1970/i.test(line);
 }
 
 /** Set-Cookie の行の Path を返す */
@@ -93,14 +89,12 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
       .send({ email, password: PASSWORD })
       .expect(200);
     return {
-      session: { accessToken: response.body.accessToken, refreshToken: response.body.refreshToken },
+      session: {
+        accessToken: response.body.accessToken,
+        refreshToken: issuedRefreshToken(response),
+      },
       response,
     };
-  }
-
-  async function fetchCsrfToken(): Promise<string> {
-    const response = await request(app).get('/csrf-token').expect(200);
-    return response.body.csrfToken as string;
   }
 
   /** 本文なしで Cookie だけを送るリフレッシュ（CSRF のヘッダー・Origin は呼び出し側で足す） */
@@ -113,16 +107,16 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
     return prisma.refreshToken.findFirst({ where: { tokenHash: hashRefreshToken(refreshToken) } });
   }
 
-  /** 旧来の本文の経路でリフレッシュトークンが今も使えるか（使えればローテーションされる） */
+  /** Cookie と CSRF の経路でリフレッシュトークンが今も使えるか（使えればローテーションされる） */
   async function stillUsable(refreshToken: string): Promise<boolean> {
-    const response = await request(app).post('/api/v1/auth/refresh').send({ refreshToken });
+    const response = await refreshWithCookie(app, refreshToken);
     return response.status === 200;
   }
 
   beforeAll(async () => {
     prisma = getPrismaClient();
     await initRedis();
-    frontendOrigin = new URL(getEnv().FRONTEND_URL).origin;
+    frontendOrigin = resolveFrontendOrigin();
     passwordHash = await hash(PASSWORD, { memoryCost: 65536, timeCost: 3, parallelism: 4 });
     await cleanup();
   });
@@ -167,13 +161,61 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
     });
   });
 
-  describe('リフレッシュの Cookie の経路（本文なし）', () => {
+  describe('応答本文のリフレッシュトークン', () => {
+    it('ログインの応答本文はリフレッシュトークンを含まず、Set-Cookie だけで渡す', async () => {
+      const { session, response } = await login();
+
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(JSON.stringify(response.body)).not.toContain(session.refreshToken);
+      expect(typeof response.body.accessToken).toBe('string');
+    });
+
+    it('2FA 検証の応答本文はリフレッシュトークンを含まず、Set-Cookie だけで渡す', async () => {
+      const secret = authenticator.generateSecret();
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          twoFactorEnabled: true,
+          twoFactorSecret: await new TwoFactorService().encryptSecret(secret),
+        },
+      });
+      const challenge = await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD })
+        .expect(200);
+      expect(challenge.body.requires2FA).toBe(true);
+
+      const response = await request(app)
+        .post('/api/v1/auth/verify-2fa')
+        .send({ email, token: authenticator.generate(secret) });
+
+      expect(response.status).toBe(200);
+      expect(response.body).not.toHaveProperty('refreshToken');
+      const issued = issuedRefreshToken(response);
+      expect(JSON.stringify(response.body)).not.toContain(issued);
+      expect(typeof response.body.accessToken).toBe('string');
+    });
+
+    it('リフレッシュの応答本文はリフレッシュトークンを含まず、後継を Set-Cookie だけで渡す', async () => {
+      const { session } = await login();
+
+      const response = await refreshWithCookie(app, session.refreshToken);
+
+      expect(response.status).toBe(200);
+      expect(response.body).not.toHaveProperty('refreshToken');
+      const successor = issuedRefreshToken(response);
+      expect(JSON.stringify(response.body)).not.toContain(successor);
+      expect(typeof response.body.accessToken).toBe('string');
+    });
+  });
+
+  describe('リフレッシュの Cookie の経路', () => {
     /**
      * @requirement user-authentication/REQ-33.12: 本文が無く Cookie と CSRF のヘッダーと許可されたオリジンがあるリフレッシュは成功する
      */
     it('本文が無く Cookie と CSRF のヘッダーがあるリフレッシュは成功し、後継を認証の経路の Cookie で返す', async () => {
       const { session } = await login();
-      const csrf = await fetchCsrfToken();
+      const csrf = await fetchCsrfToken(app);
 
       const response = await cookieRefresh([
         `refreshToken=${session.refreshToken}`,
@@ -202,7 +244,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
      */
     it('本文が無く Cookie だけで CSRF のヘッダーが無いリフレッシュは 403 になり、トークンを消費しない', async () => {
       const { session } = await login();
-      const csrf = await fetchCsrfToken();
+      const csrf = await fetchCsrfToken(app);
 
       const response = await cookieRefresh([
         `refreshToken=${session.refreshToken}`,
@@ -210,6 +252,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
       ]).set('Origin', frontendOrigin);
 
       expect(response.status).toBe(403);
+      expect(response.body.code).toBe('CSRF_TOKEN_MISSING');
       expect(setCookieLines(response, 'refreshToken')).toHaveLength(0);
       const rows = await prisma.refreshToken.findMany({ where: { userId } });
       expect(rows).toHaveLength(1);
@@ -222,7 +265,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
      */
     it('CSRF の Cookie とヘッダーが一致しないリフレッシュは 403 になる', async () => {
       const { session } = await login();
-      const csrf = await fetchCsrfToken();
+      const csrf = await fetchCsrfToken(app);
 
       const response = await cookieRefresh([
         `refreshToken=${session.refreshToken}`,
@@ -240,7 +283,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
      */
     it('Origin が画面のオリジンと異なるリフレッシュは CSRF のトークンが揃っていても 403 になる', async () => {
       const { session } = await login();
-      const csrf = await fetchCsrfToken();
+      const csrf = await fetchCsrfToken(app);
 
       const response = await cookieRefresh([
         `refreshToken=${session.refreshToken}`,
@@ -258,7 +301,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
      */
     it('Origin が無いときは Referer で照合し、Origin も Referer も無ければ 403 になる', async () => {
       const { session } = await login();
-      const csrf = await fetchCsrfToken();
+      const csrf = await fetchCsrfToken(app);
       const cookies = [`refreshToken=${session.refreshToken}`, `csrf-token=${csrf}`];
 
       const withoutOrigin = await cookieRefresh(cookies).set('X-CSRF-Token', csrf);
@@ -275,8 +318,8 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
       expect(ownReferer.status).toBe(200);
     });
 
-    it('本文も Cookie も無いリフレッシュは CSRF の検証を通っても 400 になる', async () => {
-      const csrf = await fetchCsrfToken();
+    it('Cookie の無いリフレッシュは CSRF の検証を通っても 400 になる', async () => {
+      const csrf = await fetchCsrfToken(app);
 
       const response = await cookieRefresh([`csrf-token=${csrf}`])
         .set('X-CSRF-Token', csrf)
@@ -286,7 +329,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
     });
 
     it('Cookie のトークンが無効なリフレッシュは 401 になり、リフレッシュの Cookie を消す', async () => {
-      const csrf = await fetchCsrfToken();
+      const csrf = await fetchCsrfToken(app);
 
       const response = await cookieRefresh([
         'refreshToken=invalid.refresh.token',
@@ -302,25 +345,27 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
     });
   });
 
-  describe('リフレッシュの本文の経路（互換の期間）', () => {
+  describe('リフレッシュの本文のリフレッシュトークン（受け付けない）', () => {
     /**
-     * @requirement user-authentication/REQ-33.12: 本文にリフレッシュトークンがある旧来の経路は CSRF を課さず、Cookie の同送の有無に関わらず成功する
+     * @requirement user-authentication/REQ-33.12: 本文にリフレッシュトークンがあっても CSRF のヘッダーの無いリフレッシュは 403 で、トークンを消費しない
      */
-    it('本文があり CSRF のヘッダーが無いリフレッシュは、Cookie を同送しなくても成功する', async () => {
+    it('本文があり CSRF のヘッダーが無いリフレッシュは、Cookie を同送しなくても 403 になる', async () => {
       const { session } = await login();
 
       const response = await request(app)
         .post('/api/v1/auth/refresh')
         .send({ refreshToken: session.refreshToken });
 
-      expect(response.status).toBe(200);
-      expect(typeof response.body.accessToken).toBe('string');
+      expect(response.status).toBe(403);
+      expect(response.body.code).toBe('CSRF_TOKEN_MISSING');
+      expect(response.body).not.toHaveProperty('accessToken');
+      expect(await stillUsable(session.refreshToken)).toBe(true);
     });
 
     /**
-     * @requirement user-authentication/REQ-33.12: 本文にリフレッシュトークンがある旧来の経路は CSRF を課さず、Cookie の同送の有無に関わらず成功する
+     * @requirement user-authentication/REQ-33.12: 本文にリフレッシュトークンがあっても CSRF のヘッダーの無いリフレッシュは 403 で、トークンを消費しない
      */
-    it('本文があり CSRF のヘッダーが無いリフレッシュは、Cookie を同送しても成功する', async () => {
+    it('本文があり CSRF のヘッダーが無いリフレッシュは、Cookie を同送しても 403 になる', async () => {
       const { session } = await login();
 
       const response = await request(app)
@@ -328,50 +373,61 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
         .set('Cookie', [`refreshToken=${session.refreshToken}`])
         .send({ refreshToken: session.refreshToken });
 
-      expect(response.status).toBe(200);
-      expect(typeof response.body.accessToken).toBe('string');
+      expect(response.status).toBe(403);
+      expect(setCookieLines(response, 'refreshToken')).toHaveLength(0);
+      const rows = await prisma.refreshToken.findMany({ where: { userId } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.replacedAt).toBeNull();
     });
 
     /**
-     * @requirement user-authentication/REQ-33.12: 本文の経路は本文のトークンだけを読み、同送の Cookie のトークンには触れない
+     * @requirement user-authentication/REQ-33.12: CSRF の検証を通った要求でも本文のトークンは読まず、Cookie のトークンだけを使う
      */
-    it('本文と Cookie で別の系列のトークンを送ると、本文のトークンだけがローテーションされ Cookie のトークンは使えるまま', async () => {
+    it('本文と Cookie で別の系列のトークンを送ると、Cookie のトークンだけがローテーションされ本文のトークンは使えるまま', async () => {
       const { session: bodySession } = await login();
       const { session: cookieSession } = await login();
       const bodyRowBefore = await rowOf(bodySession.refreshToken);
       const cookieRowBefore = await rowOf(cookieSession.refreshToken);
       expect(bodyRowBefore!.familyId).not.toBe(cookieRowBefore!.familyId);
+      const csrf = await fetchCsrfToken(app);
 
       const response = await request(app)
         .post('/api/v1/auth/refresh')
-        .set('Cookie', [`refreshToken=${cookieSession.refreshToken}`])
+        .set('Cookie', [`refreshToken=${cookieSession.refreshToken}`, `csrf-token=${csrf}`])
+        .set('X-CSRF-Token', csrf)
+        .set('Origin', frontendOrigin)
         .send({ refreshToken: bodySession.refreshToken });
 
       expect(response.status).toBe(200);
-      const bodyRowAfter = await rowOf(bodySession.refreshToken);
-      expect(bodyRowAfter!.replacedAt).not.toBeNull();
+      const cookieRowAfter = await rowOf(cookieSession.refreshToken);
+      expect(cookieRowAfter!.replacedAt).not.toBeNull();
       const successorRows = await prisma.refreshToken.findMany({
-        where: { familyId: bodyRowBefore!.familyId, replacedAt: null },
+        where: { familyId: cookieRowBefore!.familyId, replacedAt: null },
       });
       expect(successorRows).toHaveLength(1);
-      expect(successorRows[0]!.tokenHash).toBe(hashRefreshToken(response.body.refreshToken));
+      expect(successorRows[0]!.tokenHash).toBe(hashRefreshToken(issuedRefreshToken(response)));
 
-      const cookieRowAfter = await rowOf(cookieSession.refreshToken);
-      expect(cookieRowAfter!.replacedAt).toBeNull();
+      const bodyRowAfter = await rowOf(bodySession.refreshToken);
+      expect(bodyRowAfter!.replacedAt).toBeNull();
       expect(
-        await prisma.refreshToken.count({ where: { familyId: cookieRowBefore!.familyId } })
+        await prisma.refreshToken.count({ where: { familyId: bodyRowBefore!.familyId } })
       ).toBe(1);
-      expect(await stillUsable(cookieSession.refreshToken)).toBe(true);
+      expect(await stillUsable(bodySession.refreshToken)).toBe(true);
     });
 
-    it('本文のトークンが無効なリフレッシュは 401 になり、リフレッシュの Cookie を消す', async () => {
+    it('本文だけにトークンがあり Cookie の無いリフレッシュは、CSRF の検証を通っても 400 になる', async () => {
+      const { session } = await login();
+      const csrf = await fetchCsrfToken(app);
+
       const response = await request(app)
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken: 'invalid.refresh.token' });
+        .set('Cookie', [`csrf-token=${csrf}`])
+        .set('X-CSRF-Token', csrf)
+        .set('Origin', frontendOrigin)
+        .send({ refreshToken: session.refreshToken });
 
-      expect(response.status).toBe(401);
-      const cleared = setCookieLines(response, 'refreshToken').filter(isClearing);
-      expect(cleared.map(cookiePath)).toContain(REFRESH_COOKIE_PATH);
+      expect(response.status).toBe(400);
+      expect(await stillUsable(session.refreshToken)).toBe(true);
     });
   });
 
@@ -381,7 +437,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
      */
     it('本文が無く Cookie と CSRF のヘッダーがあるログアウトは成功し、そのセッションを失効させて Cookie を消す', async () => {
       const { session } = await login();
-      const csrf = await fetchCsrfToken();
+      const csrf = await fetchCsrfToken(app);
 
       const response = await request(app)
         .post('/api/v1/auth/logout')
@@ -401,7 +457,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
      */
     it('本文が無く Cookie だけで CSRF のヘッダーが無いログアウトは 403 になり、セッションを失効させない', async () => {
       const { session } = await login();
-      const csrf = await fetchCsrfToken();
+      const csrf = await fetchCsrfToken(app);
 
       const response = await request(app)
         .post('/api/v1/auth/logout')
@@ -414,24 +470,27 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
     });
 
     /**
-     * @requirement user-authentication/REQ-33.12: 本文の経路のログアウトは本文のトークンの系列だけを失効させ、同送の Cookie のトークンには触れない
+     * @requirement user-authentication/REQ-33.12: CSRF の検証を通ったログアウトでも本文のトークンは読まず、Cookie のトークンの系列だけを失効させる
      */
-    it('本文と Cookie で別の系列のトークンを送るログアウトは、本文のトークンの系列だけを失効させる', async () => {
+    it('本文と Cookie で別の系列のトークンを送るログアウトは、Cookie のトークンの系列だけを失効させる', async () => {
       const { session: bodySession } = await login();
       const { session: cookieSession } = await login();
+      const csrf = await fetchCsrfToken(app);
 
       const response = await request(app)
         .post('/api/v1/auth/logout')
         .set('Authorization', `Bearer ${bodySession.accessToken}`)
-        .set('Cookie', [`refreshToken=${cookieSession.refreshToken}`])
+        .set('Cookie', [`refreshToken=${cookieSession.refreshToken}`, `csrf-token=${csrf}`])
+        .set('X-CSRF-Token', csrf)
+        .set('Origin', frontendOrigin)
         .send({ refreshToken: bodySession.refreshToken });
 
       expect(response.status).toBe(200);
-      expect(await stillUsable(bodySession.refreshToken)).toBe(false);
-      expect(await stillUsable(cookieSession.refreshToken)).toBe(true);
+      expect(await stillUsable(cookieSession.refreshToken)).toBe(false);
+      expect(await stillUsable(bodySession.refreshToken)).toBe(true);
     });
 
-    it('本文があり CSRF のヘッダーが無いログアウトは旧来の経路で成功する', async () => {
+    it('本文があり CSRF のヘッダーが無いログアウトは 403 になり、セッションを失効させない', async () => {
       const { session } = await login();
 
       const response = await request(app)
@@ -439,8 +498,8 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
         .set('Authorization', `Bearer ${session.accessToken}`)
         .send({ refreshToken: session.refreshToken });
 
-      expect(response.status).toBe(200);
-      expect(await stillUsable(session.refreshToken)).toBe(false);
+      expect(response.status).toBe(403);
+      expect(await stillUsable(session.refreshToken)).toBe(true);
     });
   });
 });
