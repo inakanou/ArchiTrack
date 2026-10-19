@@ -9625,9 +9625,6 @@
                     "accessToken": {
                       "type": "string"
                     },
-                    "refreshToken": {
-                      "type": "string"
-                    },
                     "user": {
                       "type": "object",
                       "properties": {
@@ -9656,7 +9653,7 @@
     "/api/v1/auth/login": {
       "post": {
         "summary": "Login",
-        "description": "Authenticate a user and return access and refresh tokens",
+        "description": "Authenticate a user and return an access token. The refresh token is set only in the HttpOnly refreshToken cookie, never in the response body.",
         "tags": [
           "Authentication"
         ],
@@ -9697,9 +9694,6 @@
                     "accessToken": {
                       "type": "string"
                     },
-                    "refreshToken": {
-                      "type": "string"
-                    },
                     "user": {
                       "type": "object",
                       "properties": {
@@ -9732,29 +9726,21 @@
     "/api/v1/auth/refresh": {
       "post": {
         "summary": "Refresh access token",
-        "description": "Get a new access token using a valid refresh token. Without a body, the refresh token is read from the refreshToken cookie and the request must carry the X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403. The body form is accepted without CSRF only during the compatibility period.",
+        "description": "Get a new access token using the refresh token in the refreshToken cookie. The request body is not read. The request must carry the X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403. The rotated refresh token is returned only in the Set-Cookie header, never in the response body.",
         "tags": [
           "Authentication"
         ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "refreshToken"
-                ],
-                "properties": {
-                  "refreshToken": {
-                    "type": "string",
-                    "description": "Valid refresh token"
-                  }
-                }
-              }
-            }
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "CSRF token obtained from GET /csrf-token (must match the csrf-token cookie)"
           }
-        },
+        ],
         "responses": {
           "200": {
             "description": "Token refreshed successfully",
@@ -9764,9 +9750,6 @@
                   "type": "object",
                   "properties": {
                     "accessToken": {
-                      "type": "string"
-                    },
-                    "refreshToken": {
                       "type": "string"
                     }
                   }
@@ -9778,7 +9761,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "CSRF token missing or invalid, or request origin not allowed (cookie form)"
+            "description": "CSRF token missing or invalid, or request origin not allowed"
           }
         }
       }
@@ -9911,7 +9894,7 @@
     "/api/v1/auth/logout": {
       "post": {
         "summary": "Logout",
-        "description": "Logout the current user from the current device. Without a body, the refresh token is read from the refreshToken cookie and the request must carry the X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403. The body form is accepted without CSRF only during the compatibility period.",
+        "description": "Logout the current user from the current device. The refresh token to invalidate is read from the refreshToken cookie; the request body is not read. The request must carry the X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403.",
         "tags": [
           "Authentication"
         ],
@@ -9920,25 +9903,17 @@
             "bearerAuth": []
           }
         ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "refreshToken"
-                ],
-                "properties": {
-                  "refreshToken": {
-                    "type": "string",
-                    "description": "Refresh token to invalidate"
-                  }
-                }
-              }
-            }
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "CSRF token obtained from GET /csrf-token (must match the csrf-token cookie)"
           }
-        },
+        ],
         "responses": {
           "200": {
             "description": "Logged out successfully",
@@ -9959,7 +9934,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "CSRF token missing or invalid, or request origin not allowed (cookie form)"
+            "description": "CSRF token missing or invalid, or request origin not allowed"
           }
         }
       }
@@ -10050,9 +10025,6 @@
                     "accessToken": {
                       "type": "string"
                     },
-                    "refreshToken": {
-                      "type": "string"
-                    },
                     "user": {
                       "type": "object"
                     }
@@ -10109,9 +10081,6 @@
                   "type": "object",
                   "properties": {
                     "accessToken": {
-                      "type": "string"
-                    },
-                    "refreshToken": {
                       "type": "string"
                     },
                     "user": {
