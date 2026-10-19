@@ -133,7 +133,7 @@
     "exceljs": "^4.4.0",
     "globals": "^17.7.0",
     "husky": "^9.1.7",
-    "pdfjs-dist": "^6.2.108",
+    "pdfjs-dist": "^6.4.299",
     "prettier": "^3.9.5",
     "prisma": "^7.8.0",
     "tsx": "^4.23.11",
