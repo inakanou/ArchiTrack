@@ -1,7 +1,7 @@
 /**
  * @fileoverview パスワードと二要素認証の経路が DB 接続のタイムアウトを自前のエラーへ飲み込まず投げ直すことの単体検証（タスク36.3）
  *
- * 対象は PasswordService の catch（3 か所）、TwoFactorService の catch（7 か所）と、
+ * 対象は PasswordService の catch（3 か所）、TwoFactorService の catch（6 か所）と、
  * AuthService の 2FA のログインの検証（TOTP・バックアップコード）で失敗回数を加算する経路。
  * - 接続のタイムアウト（pg-pool の素の Error、P1008）は同じエラーのまま投げ直す
  * - それ以外の DB 例外（一般の Error、P1001）はこれまでどおり各サービスの自前のエラーを返す
@@ -178,11 +178,6 @@ const firstQueryCases: Array<[string, (prisma: PrismaClient) => Promise<unknown>
     'INVALID_TOTP_CODE',
   ],
   [
-    'TwoFactorService.disableTwoFactor',
-    (p) => twoFactorService(p).disableTwoFactor('user-1', 'password'),
-    'INVALID_PASSWORD',
-  ],
-  [
     'TwoFactorService.getBackupCodesStatus',
     (p) => twoFactorService(p).getBackupCodesStatus('user-1'),
     'USER_NOT_FOUND',
@@ -298,20 +293,6 @@ describe('パスワードと二要素認証のサービスは DB 接続のタイ
         connectBudgetTransactionOptions()
       );
       expect(connectBudgetTransactionOptions().maxWait).toBeGreaterThan(2000);
-    });
-  });
-
-  describe('TwoFactorService.disableTwoFactor（配列のトランザクション）', () => {
-    it('パスワードの確認の後の接続のタイムアウトを同じエラーのまま投げ直す', async () => {
-      const { hash } = await import('@node-rs/argon2');
-      const passwordHash = await hash('password');
-      const error = poolConnectionTimeout();
-      const prisma = transactionRejectingPrisma(error, {
-        user: { twoFactorEnabled: true, passwordHash },
-      });
-      await expect(twoFactorService(prisma).disableTwoFactor('user-1', 'password')).rejects.toBe(
-        error
-      );
     });
   });
 });

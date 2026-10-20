@@ -4,7 +4,7 @@
  * Requirements:
  * - 27.1-27.8: 二要素認証設定機能
  * - 27C.1-27C.6: 二要素認証セキュリティ要件
- * - 27.9-27.10, 27A.3-27A.7, 27B.4-27B.6: 2FA検証・管理機能
+ * - 27.9-27.10, 27A.3-27A.7: 2FA検証・管理機能
  */
 
 /**
@@ -128,17 +128,6 @@ export interface ITwoFactorService {
     userId: string,
     totpCode: string
   ): Promise<Result<TwoFactorEnabledData, TwoFactorError>>;
-
-  /**
-   * 2FA無効化
-   *
-   * パスワード確認後、秘密鍵とバックアップコードを削除し、全セッションを無効化する。
-   *
-   * @param userId - ユーザーID
-   * @param password - パスワード（確認用）
-   * @returns void
-   */
-  disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>>;
 
   /**
    * バックアップコード再生成

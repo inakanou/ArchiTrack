@@ -4,7 +4,7 @@
  * Requirements:
  * - 27.1-27.8: 二要素認証設定機能
  * - 27C.1-27C.6: 二要素認証セキュリティ要件
- * - 27.9-27.10, 27A.3-27A.7, 27B.4-27B.6: 2FA検証・管理機能
+ * - 27.9-27.10, 27A.3-27A.7: 2FA検証・管理機能
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -893,64 +893,6 @@ describe('TwoFactorService', () => {
     });
   });
 
-  describe('disableTwoFactor()', () => {
-    const mockUserId = 'user-disable-123';
-    const mockUserWith2FA = {
-      id: mockUserId,
-      twoFactorEnabled: true,
-      passwordHash: 'hashed-password',
-    };
-
-    it('ユーザーが存在しない → USER_NOT_FOUND', async () => {
-      // Arrange
-      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(null);
-
-      // Act
-      const result = await twoFactorService.disableTwoFactor(mockUserId, 'password123');
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('USER_NOT_FOUND');
-      }
-    });
-
-    it('2FAが無効 → TWO_FACTOR_NOT_ENABLED', async () => {
-      // Arrange
-      const userWithout2FA = {
-        id: mockUserId,
-        twoFactorEnabled: false,
-        passwordHash: 'hashed-password',
-      };
-      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWithout2FA);
-
-      // Act
-      const result = await twoFactorService.disableTwoFactor(mockUserId, 'password123');
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('TWO_FACTOR_NOT_ENABLED');
-      }
-    });
-
-    it('パスワードが間違っている → INVALID_PASSWORD', async () => {
-      // Arrange
-      const { verify } = await import('@node-rs/argon2');
-      vi.mocked(verify).mockResolvedValue(false);
-      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUserWith2FA);
-
-      // Act
-      const result = await twoFactorService.disableTwoFactor(mockUserId, 'wrong-password');
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('INVALID_PASSWORD');
-      }
-    });
-  });
-
   describe('setupTwoFactor()', () => {
     const mockUserId = 'user-setup-123';
     const mockUser = {
@@ -1175,76 +1117,6 @@ describe('TwoFactorService', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.type).toBe('USER_NOT_FOUND');
-      }
-    });
-  });
-
-  describe('disableTwoFactor() - 成功パス', () => {
-    const mockUserId = 'user-disable-success-123';
-    const mockUserWith2FA = {
-      id: mockUserId,
-      twoFactorEnabled: true,
-      passwordHash: 'hashed-password',
-    };
-
-    it('パスワード検証成功 → 2FA無効化、トランザクション実行', async () => {
-      // Arrange
-      const { verify } = await import('@node-rs/argon2');
-      vi.mocked(verify).mockResolvedValue(true);
-      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUserWith2FA);
-      // 対話型のトランザクションのクライアント
-      const tx = {
-        user: { update: vi.fn().mockResolvedValue({}) },
-        twoFactorBackupCode: { deleteMany: vi.fn().mockResolvedValue({ count: 10 }) },
-        refreshToken: { deleteMany: vi.fn().mockResolvedValue({ count: 2 }) },
-        auditLog: { create: vi.fn().mockResolvedValue({}) },
-        $executeRaw: vi.fn().mockResolvedValue(1),
-      };
-      vi.mocked(mockPrismaClient.$transaction).mockImplementation((async (
-        callback: (client: typeof tx) => Promise<unknown>
-      ) => callback(tx)) as never);
-
-      // Act
-      const result = await twoFactorService.disableTwoFactor(mockUserId, 'correct-password');
-
-      // Assert
-      expect(result.ok).toBe(true);
-      expect(tx.user.update).toHaveBeenCalledWith({
-        where: { id: mockUserId },
-        data: { twoFactorEnabled: false, twoFactorSecret: null },
-      });
-      // 全セッションの無効化は、ローテーションと直列化する利用者単位の取引ロックを取ってから行う
-      // 取引の先頭（users の行の更新の前）で取り、全セッションの無効化でも同じロックを取り直す
-      expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
-      expect(tx.$executeRaw.mock.calls[0]).toContain(mockUserId);
-      expect(tx.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
-        tx.user.update.mock.invocationCallOrder[0]!
-      );
-      expect(tx.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: mockUserId } });
-      expect(tx.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
-        tx.refreshToken.deleteMany.mock.invocationCallOrder[0]!
-      );
-      expect(tx.auditLog.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ action: 'TWO_FACTOR_DISABLED', actorId: mockUserId }),
-        })
-      );
-    });
-
-    it('DBエラー発生時 → INVALID_PASSWORD', async () => {
-      // Arrange
-      const { verify } = await import('@node-rs/argon2');
-      vi.mocked(verify).mockResolvedValue(true);
-      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(mockUserWith2FA);
-      vi.mocked(mockPrismaClient.$transaction).mockRejectedValue(new Error('DB Error'));
-
-      // Act
-      const result = await twoFactorService.disableTwoFactor(mockUserId, 'correct-password');
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('INVALID_PASSWORD');
       }
     });
   });

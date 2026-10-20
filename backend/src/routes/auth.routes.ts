@@ -26,7 +26,12 @@ import logger from '../utils/logger.js';
 import { SECURITY_CONFIG } from '../config/security.constants.js';
 import { PasswordViolation } from '../types/password.types.js';
 import { updateProfileSchema } from '../schemas/auth-update.schema.js';
-import { ConflictError, NotFoundError, ValidationError } from '../errors/apiError.js';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from '../errors/apiError.js';
 import type { AuthError } from '../types/auth.types.js';
 
 /**
@@ -234,10 +239,6 @@ const enableTwoFactorSchema = z.object({
       SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH,
       `TOTP code must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
     ),
-});
-
-const disableTwoFactorSchema = z.object({
-  password: z.string().min(1, 'Password is required'),
 });
 
 const passwordResetRequestSchema = z.object({
@@ -1289,81 +1290,30 @@ router.post(
  * @swagger
  * /api/v1/auth/2fa/disable:
  *   post:
- *     summary: 2FA無効化
- *     description: パスワードを確認して2FAを無効化する
+ *     summary: 2FA無効化（拒否）
+ *     description: |
+ *       2FA は全ユーザーで必須のため、利用者自身による無効化の要求は常に 403 で拒否する（要件34.6）。
+ *       第二要素を失った場合の復旧は管理者による 2FA の再設定で、端末の交換は現在の TOTP コードによる
+ *       再登録で行う。
  *     tags:
  *       - Two-Factor Authentication
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - password
- *             properties:
- *               password:
- *                 type: string
- *                 format: password
- *                 description: ユーザーの現在のパスワード
  *     responses:
- *       200:
- *         description: 2FA無効化成功
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "2FA disabled successfully"
- *       400:
- *         description: 無効なパスワードまたは2FAが未有効化
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: 2FA の自己の無効化は許可されていない（code は TWO_FACTOR_DISABLE_NOT_ALLOWED）
  */
-router.post(
-  '/2fa/disable',
-  authenticate,
-  validate(disableTwoFactorSchema),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      if (!req.user) {
-        res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
-        return;
-      }
-
-      const { password } = req.body;
-
-      const result = await twoFactorService.disableTwoFactor(req.user.userId, password);
-
-      if (!result.ok) {
-        const error = result.error;
-        if (error.type === 'USER_NOT_FOUND') {
-          res.status(404).json({ error: 'User not found', code: error.type });
-          return;
-        } else if (error.type === 'TWO_FACTOR_NOT_ENABLED') {
-          res.status(400).json({ error: '2FA is not enabled', code: error.type });
-          return;
-        } else if (error.type === 'INVALID_PASSWORD') {
-          res.status(400).json({ error: 'Invalid password', code: error.type });
-          return;
-        }
-
-        res.status(500).json({ error: '2FA disable failed', code: '2FA_DISABLE_ERROR' });
-        return;
-      }
-
-      logger.info({ userId: req.user.userId }, '2FA disabled successfully');
-
-      res.status(200).json({ message: '2FA disabled successfully' });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
+router.post('/2fa/disable', authenticate, (_req: Request, _res: Response, next: NextFunction) => {
+  // 要件34.6: 2FA の全ユーザー必須化により、自己の無効化は本文の内容に関わらず拒否する
+  next(
+    new ForbiddenError(
+      'Disabling two-factor authentication is not allowed',
+      'TWO_FACTOR_DISABLE_NOT_ALLOWED'
+    )
+  );
+});
 
 /**
  * @swagger

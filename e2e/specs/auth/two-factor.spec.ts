@@ -10,7 +10,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { TEST_USERS } from '../../helpers/test-users';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
-import { waitForAuthenticatedSession } from '../../helpers/auth-api';
+import { fetchSessionUser, waitForAuthenticatedSession } from '../../helpers/auth-api';
 import { fillTotpCode, generateTotpCode, prepareTotpCode } from '../../helpers/two-factor-totp';
 
 /**
@@ -893,37 +893,71 @@ test.describe('2要素認証機能', () => {
     });
 
     /**
-     * 要件27B.4: 2FA無効化時にパスワード入力確認ダイアログを表示
-     * 要件27B.5: 2FA無効化時にトランザクション内で秘密鍵とバックアップコードを削除
-     * 要件27B.6: 2FA無効化完了後、全デバイスからログアウト
-     * @requirement user-authentication/REQ-27B.4 @requirement user-authentication/REQ-27B.5 @requirement user-authentication/REQ-27B.6
+     * 要件34.6: 利用者自身による 2FA の無効化は拒否する（プロフィール画面に無効化の操作を置かず、
+     * 認証アプリの変更（再登録）への導線に替える。API の直接の要求も 403 で拒否する）
+     * @requirement user-authentication/REQ-34.6
      */
-    test('2FAを無効化できる', async ({ page }) => {
+    test('2FA の自己の無効化は画面に操作が無く、API の要求も 403 で拒否され 2FA が有効のまま残る', async ({
+      page,
+    }) => {
       await page.goto('/profile');
 
-      // 2FA管理セクション（h2要素を指定して重複を回避）
-      await expect(page.getByRole('heading', { name: '二要素認証', level: 2 })).toBeVisible();
-      await expect(page.getByText(/有効|オン/i)).toBeVisible();
+      // 2FA 管理の区画が表示されている（区画の不在による偽の合格を避ける）
+      const twoFactorHeading = page.getByRole('heading', { name: '二要素認証', level: 2 });
+      await expect(twoFactorHeading).toBeVisible();
+      await expect(page.getByText('2FAが有効です')).toBeVisible();
 
-      // 無効化ボタンをクリック（セクション内の最初の「無効化」ボタン）
-      await page.getByRole('button', { name: /^無効化$|オフにする/i }).click();
+      // 無効化の操作の代わりに、認証アプリの変更（再登録）への導線がある
+      const reenrollLink = page.getByRole('link', { name: '認証アプリを変更する' });
+      await expect(reenrollLink).toBeVisible();
+      await expect(reenrollLink).toHaveAttribute('href', '/profile/2fa-setup');
+      await expect(page.getByRole('button', { name: /無効化/ })).toHaveCount(0);
 
-      // 要件27B.4: パスワード入力確認ダイアログ
-      const disableDialog = page.getByRole('dialog').filter({ hasText: /二要素認証の無効化/ });
-      await expect(disableDialog.getByText(/パスワードを入力してください/i)).toBeVisible();
-      await disableDialog.getByLabel('パスワード').fill('Password123!');
-      await disableDialog.getByRole('button', { name: /^確認$/ }).click();
+      // 画面のセッション（メモリのアクセストークン）で自己の無効化の API を直接要求すると 403 で拒否される
+      const rejected = await page.evaluate(async () => {
+        const client = (
+          window as unknown as {
+            __apiClient?: { post: (path: string, body?: unknown) => Promise<unknown> };
+          }
+        ).__apiClient;
+        if (!client) {
+          return { status: -1, code: null };
+        }
+        try {
+          await client.post('/api/v1/auth/2fa/disable', { password: 'Password123!' });
+          return { status: 200, code: null };
+        } catch (error) {
+          const { statusCode, response } = error as {
+            statusCode?: number;
+            response?: { code?: unknown };
+          };
+          return {
+            status: typeof statusCode === 'number' ? statusCode : 0,
+            code: typeof response?.code === 'string' ? response.code : null,
+          };
+        }
+      });
+      expect(rejected).toEqual({ status: 403, code: 'TWO_FACTOR_DISABLE_NOT_ALLOWED' });
 
-      // 要件27B.6: 全デバイスからログアウトの警告
-      const confirmDialog = page.getByRole('dialog').filter({ hasText: /二要素認証の無効化確認/ });
-      await expect(confirmDialog.getByText(/全デバイスからログアウトされます/i)).toBeVisible();
-      await confirmDialog.getByRole('button', { name: /はい.*無効化/ }).click();
+      // 対照: 同じセッションの認証済みの API は成功する（403 が認証の失効によるものでない）
+      expect(await fetchSessionUser(page)).toEqual({
+        status: 200,
+        email: TEST_USERS.TWO_FA_USER.email,
+      });
 
-      // 成功メッセージ
-      await expect(page.getByText(/二要素認証を無効化しました/i)).toBeVisible();
-
-      // 要件27B.6: ログイン画面にリダイレクト
-      await expect(page).toHaveURL(/\/login/);
+      // 2FA の状態（有効・秘密鍵・バックアップコード）は変わっていない
+      const prisma = getPrismaClient();
+      const stored = await prisma.user.findUniqueOrThrow({
+        where: { email: TEST_USERS.TWO_FA_USER.email },
+        select: {
+          twoFactorEnabled: true,
+          twoFactorSecret: true,
+          _count: { select: { twoFactorBackupCodes: true } },
+        },
+      });
+      expect(stored.twoFactorEnabled).toBe(true);
+      expect(stored.twoFactorSecret).not.toBeNull();
+      expect(stored._count.twoFactorBackupCodes).toBe(10);
     });
   });
 

@@ -1437,8 +1437,15 @@ export const MAX_FEATURELESS_COVERAGE_HEADERS = 1983;
  * quantity-table-generation のタスク 94.1 が 18 だけ下げた（5051 → 5033）。減った 18 件は
  * `NumericFieldInput` 一式が 9 件、`TextFieldInput` 一式が 9 件である。実測の条件と帰属の測り方は
  * {@link MAX_FEATURELESS_COVERAGE_HEADERS} の註と同じである。
+ *
+ * user-authentication のタスク 47.1 が 2 だけ下げた（5033 → 5031）。要件 34.6 で撤廃した 27B.4〜27B.6 の
+ * 名乗り「27B.4-27B.6」を、機能名を持たない `Requirements:` ブロックの 2 か所
+ * （`backend/src/__tests__/unit/services/two-factor.service.test.ts`・
+ * `backend/src/types/two-factor.types.ts`）から外した。両ブロックはほかの番号を名乗り続けるため、
+ * ヘッダーの数は動いていない。実測の条件と帰属の測り方は {@link MAX_FEATURELESS_COVERAGE_HEADERS} の註と
+ * 同じである。
  */
-export const MAX_DORMANT_HEADER_NAMES = 5033;
+export const MAX_DORMANT_HEADER_NAMES = 5031;
 
 /** 撤廃済みの受入基準を名乗っている被覆印 */
 export interface RetiredCriterionMark {

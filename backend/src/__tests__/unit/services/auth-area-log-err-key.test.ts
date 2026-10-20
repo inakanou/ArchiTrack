@@ -7,7 +7,7 @@
  *
  * 各サービスの catch へ実際に到達させ、ログの第1引数を本物のロガー（importActual で取り出した
  * pino の実体）のシリアライザに通したうえで、障害の message と stack が JSON に残ることを主張する。
- * 対象は two-factor（10 か所）・role（4）・role-permission（3）・user-role（3）・permission（3）・
+ * 対象は two-factor（9 か所）・role（4）・role-permission（3）・user-role（3）・permission（3）・
  * session（1）・auth（2）。rbac の分はタスク36.2 で改め、統合検証
  * （rbac-permission-cache.integration.test.ts）で主張している。
  */
@@ -173,7 +173,7 @@ type LogCase = [string, Level, string, (failure: Error) => Promise<unknown>, Reg
 const dbFailure = (name: string) => new Error(`Database failure in ${name}`);
 
 const cases: LogCase[] = [
-  // two-factor（DB の失敗で到達する 7 か所）
+  // two-factor（DB の失敗で到達する 6 か所）
   [
     'TwoFactorService.setupTwoFactor',
     'error',
@@ -200,13 +200,6 @@ const cases: LogCase[] = [
     'error',
     '2FA有効化中にエラーが発生しました',
     (e) => twoFactorService(rejectingPrisma(e)).enableTwoFactor('user-1', '000000'),
-    null,
-  ],
-  [
-    'TwoFactorService.disableTwoFactor',
-    'error',
-    '2FA無効化中にエラーが発生しました',
-    (e) => twoFactorService(rejectingPrisma(e)).disableTwoFactor('user-1', 'password'),
     null,
   ],
   [

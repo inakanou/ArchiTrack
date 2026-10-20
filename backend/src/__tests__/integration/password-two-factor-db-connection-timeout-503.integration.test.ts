@@ -10,8 +10,9 @@
  * テスト用の実データベースへの転送を切り替えられるローカルの TCP の中継（switchable-database-relay.ts）とする。
  *
  * 確かめること:
- * - 最初から DB に到達できないとき、パスワードの変更・リセットの要求と確定・2FA の設定・有効化・無効化・
+ * - 最初から DB に到達できないとき、パスワードの変更・リセットの要求と確定・2FA の設定・有効化・
  *   バックアップコードの再生成と状態の取得・2FA のログインの検証が 503 と Problem Details を返す
+ *   （2FA の自己の無効化は DB に触れずに 403 で拒否するため対象外。要件34.6）
  * - 2FA のログインの検証（TOTP・バックアップコード）の途中で DB に到達できなくなったとき、
  *   検証の失敗として扱わずに 503 を返し、失敗回数（twoFactorFailures）を加算しない。
  *   途中の切断は、TwoFactorService の検証メソッドの前後に中継の切り替えを差し込んで作る
@@ -219,22 +220,6 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
       expect(response.body).toEqual({
         ...SERVICE_UNAVAILABLE,
         instance: '/api/v1/auth/2fa/enable',
-      });
-    }, 30000);
-
-    /**
-     * @requirement user-authentication/REQ-24.1
-     */
-    it('2FA の無効化（POST /api/v1/auth/2fa/disable）は 503 と Problem Details を返す', async () => {
-      const response = await request(app)
-        .post('/api/v1/auth/2fa/disable')
-        .set('Authorization', `Bearer ${accessToken}`)
-        .send({ password: 'Current!Pass-2026' });
-
-      expect(response.status).toBe(503);
-      expect(response.body).toEqual({
-        ...SERVICE_UNAVAILABLE,
-        instance: '/api/v1/auth/2fa/disable',
       });
     }, 30000);
 

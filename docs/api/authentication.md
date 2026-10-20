@@ -331,7 +331,7 @@ Content-Type: application/json
 }
 ```
 
-### 2FA無効化
+### 2FA無効化（拒否）
 
 #### エンドポイント
 
@@ -341,28 +341,27 @@ POST /api/v1/auth/2fa/disable
 
 #### 説明
 
-TOTPコードを検証して2FAを無効化します。
+2FA は全ユーザーで必須のため、利用者自身による無効化の要求は常に拒否します（要件34.6）。第二要素を失った場合の復旧は管理者による 2FA の再設定で、端末の交換は現在の TOTP コードによる再登録で行います。
 
 #### リクエスト
 
 ```bash
 POST /api/v1/auth/2fa/disable
 Authorization: Bearer <accessToken>
-Content-Type: application/json
-
-{
-  "totpCode": "123456"
-}
 ```
 
 #### レスポンス
 
-**成功（200 OK）:**
+**拒否（403 Forbidden）:**
 ```json
 {
-  "data": {
-    "twoFactorEnabled": false
-  }
+  "type": "https://api.architrack.com/errors/forbidden",
+  "title": "TWO_FACTOR_DISABLE_NOT_ALLOWED",
+  "status": 403,
+  "detail": "Disabling two-factor authentication is not allowed",
+  "instance": "/api/v1/auth/2fa/disable",
+  "code": "TWO_FACTOR_DISABLE_NOT_ALLOWED",
+  "message": "Disabling two-factor authentication is not allowed"
 }
 ```
 

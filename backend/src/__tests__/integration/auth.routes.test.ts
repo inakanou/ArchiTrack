@@ -437,6 +437,59 @@ describe('Authentication API Integration Tests', () => {
     });
   });
 
+  describe('POST /api/v1/auth/2fa/disable', () => {
+    /**
+     * @requirement user-authentication/REQ-34.6
+     */
+    it('2FA 登録済みの利用者が正しいパスワードで自己の無効化を求めても 403 で拒否し、秘密鍵・バックアップコード・セッションを残す', async () => {
+      await prisma.user.update({
+        where: { id: adminUser.id },
+        data: { twoFactorEnabled: true, twoFactorSecret: 'test-auth-2fa-disable-secret' },
+      });
+      await prisma.twoFactorBackupCode.create({
+        data: { userId: adminUser.id, codeHash: 'test-auth-2fa-disable-code-hash' },
+      });
+      const refreshTokensBefore = await prisma.refreshToken.count({
+        where: { userId: adminUser.id },
+      });
+
+      try {
+        expect(refreshTokensBefore).toBeGreaterThan(0);
+
+        const response = await request(app)
+          .post('/api/v1/auth/2fa/disable')
+          .set('Authorization', `Bearer ${adminUser.accessToken}`)
+          .send({ password: 'AdminPassword123!' });
+
+        expect(response.status).toBe(403);
+        expect(response.body).toMatchObject({
+          status: 403,
+          code: 'TWO_FACTOR_DISABLE_NOT_ALLOWED',
+          instance: '/api/v1/auth/2fa/disable',
+        });
+
+        const after = await prisma.user.findUniqueOrThrow({
+          where: { id: adminUser.id },
+          select: { twoFactorEnabled: true, twoFactorSecret: true },
+        });
+        expect(after).toEqual({
+          twoFactorEnabled: true,
+          twoFactorSecret: 'test-auth-2fa-disable-secret',
+        });
+        expect(await prisma.twoFactorBackupCode.count({ where: { userId: adminUser.id } })).toBe(1);
+        expect(await prisma.refreshToken.count({ where: { userId: adminUser.id } })).toBe(
+          refreshTokensBefore
+        );
+      } finally {
+        await prisma.twoFactorBackupCode.deleteMany({ where: { userId: adminUser.id } });
+        await prisma.user.update({
+          where: { id: adminUser.id },
+          data: { twoFactorEnabled: false, twoFactorSecret: null },
+        });
+      }
+    });
+  });
+
   describe('POST /api/v1/auth/logout', () => {
     it('認証済みユーザーがログアウトできること', async () => {
       const response = await logoutWithCookie(app, adminUser.accessToken, adminUser.refreshToken);

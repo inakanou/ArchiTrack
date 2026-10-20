@@ -27,10 +27,6 @@ import getPrismaClient from '../db.js';
 import logger from '../utils/logger.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
-import {
-  lockUserRefreshTokens,
-  revokeAllRefreshTokensForUser,
-} from '../utils/refresh-token-lock.js';
 import { snapshotAuditActor } from './audit-log.service.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 
@@ -621,83 +617,6 @@ export class TwoFactorService implements ITwoFactorService {
       rethrowIfDatabaseConnectionTimeout(error);
       logger.error({ err: error, userId }, '2FA有効化中にエラーが発生しました');
       return Err({ type: 'INVALID_TOTP_CODE' });
-    }
-  }
-
-  /**
-   * 2FA無効化
-   *
-   * パスワード確認後、秘密鍵とバックアップコードを削除し、全セッションを無効化する。
-   * @requirement user-authentication/REQ-27B.4-27B.6: 2FA無効化の実装
-   *
-   * @param userId - ユーザーID
-   * @param password - パスワード（確認用）
-   * @returns void
-   */
-  async disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>> {
-    try {
-      // ユーザー取得
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          twoFactorEnabled: true,
-          passwordHash: true,
-        },
-      });
-
-      if (!user) {
-        return Err({ type: 'USER_NOT_FOUND' });
-      }
-
-      if (!user.twoFactorEnabled) {
-        return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
-      }
-
-      // パスワード検証
-      const isPasswordValid = await verify(user.passwordHash, password);
-      if (!isPasswordValid) {
-        return Err({ type: 'INVALID_PASSWORD' });
-      }
-
-      // 監査ログの実行者の写し（要件40.7）
-      const actorSnapshot = await snapshotAuditActor(this.prisma, userId);
-
-      // トランザクション内で2FA無効化、秘密鍵削除、バックアップコード削除、監査ログ記録、全セッション無効化
-      // 全セッションの無効化は、並行するローテーションと直列化する取引ロックを通す（要件33.5）
-      await this.prisma.$transaction(async (tx) => {
-        // 利用者単位のリフレッシュトークンの取引ロックを、users の行を更新する前に取る。全ての経路で
-        // 「取引ロック → users の行」の順に揃え、利用者の削除（deleteUser）とのデッドロックを避ける
-        await lockUserRefreshTokens(tx, userId);
-        await tx.user.update({
-          where: { id: userId },
-          data: {
-            twoFactorEnabled: false,
-            twoFactorSecret: null,
-          },
-        });
-        await tx.twoFactorBackupCode.deleteMany({
-          where: { userId },
-        });
-        await revokeAllRefreshTokensForUser(tx, userId);
-        await tx.auditLog.create({
-          data: {
-            action: 'TWO_FACTOR_DISABLED',
-            actorId: userId,
-            ...actorSnapshot,
-            targetType: 'User',
-            targetId: userId,
-            metadata: {},
-          },
-        });
-      }, connectBudgetTransactionOptions());
-
-      logger.info({ userId }, '2FAを無効化しました');
-      return Ok(undefined);
-    } catch (error) {
-      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
-      rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ err: error, userId }, '2FA無効化中にエラーが発生しました');
-      return Err({ type: 'INVALID_PASSWORD' });
     }
   }
 

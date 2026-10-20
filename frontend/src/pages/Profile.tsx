@@ -136,14 +136,6 @@ export function Profile() {
   const [regenerateLoading, setRegenerateLoading] = useState(false);
   const [regenerateMessage, setRegenerateMessage] = useState('');
 
-  // 2FA無効化（要件27B.4-6）
-  const [showDisableDialog, setShowDisableDialog] = useState(false);
-  const [showDisableConfirmDialog, setShowDisableConfirmDialog] = useState(false);
-  const [disablePassword, setDisablePassword] = useState('');
-  const [disableLoading, setDisableLoading] = useState(false);
-  const [disableMessage, setDisableMessage] = useState('');
-  const [disableError, setDisableError] = useState('');
-
   // ユーザー情報が更新されたときにdisplayNameを同期
   // displayNameのみを監視して不要な再レンダリングを防止
   useEffect(() => {
@@ -215,25 +207,17 @@ export function Profile() {
         if (showPasswordDialog) {
           setShowPasswordDialog(false);
         }
-        if (showDisableDialog) {
-          setShowDisableDialog(false);
-          setDisablePassword('');
-          setDisableError('');
-        }
-        if (showDisableConfirmDialog) {
-          setShowDisableConfirmDialog(false);
-        }
       }
     };
 
-    if (showPasswordDialog || showDisableDialog || showDisableConfirmDialog) {
+    if (showPasswordDialog) {
       document.addEventListener('keydown', handleEscKey);
     }
 
     return () => {
       document.removeEventListener('keydown', handleEscKey);
     };
-  }, [showPasswordDialog, showDisableDialog, showDisableConfirmDialog]);
+  }, [showPasswordDialog]);
 
   // プロフィールメッセージの自動非表示（5秒後）
   useEffect(() => {
@@ -470,77 +454,6 @@ export function Profile() {
       }
     } finally {
       setPasswordLoading(false);
-    }
-  };
-
-  /**
-   * 2FA無効化ダイアログを開く（要件27B.4）
-   */
-  const handleOpenDisableDialog = () => {
-    setShowDisableDialog(true);
-    setDisablePassword('');
-    setDisableError('');
-  };
-
-  /**
-   * パスワード確認後、ログアウト警告ダイアログを表示（要件27B.4）
-   */
-  const handleDisablePasswordSubmit = async () => {
-    if (!disablePassword) {
-      setDisableError('パスワードを入力してください');
-      return;
-    }
-
-    // パスワードダイアログを閉じて、ログアウト警告ダイアログを表示
-    setShowDisableDialog(false);
-    setShowDisableConfirmDialog(true);
-  };
-
-  /**
-   * 2FA無効化を実行（要件27B.5-6）
-   */
-  const handleConfirmDisable = async () => {
-    setDisableLoading(true);
-    setDisableError('');
-
-    try {
-      await apiClient.post('/api/v1/auth/2fa/disable', {
-        password: disablePassword,
-      });
-
-      setShowDisableConfirmDialog(false);
-      setDisableMessage('二要素認証を無効化しました');
-
-      // 要件27B.6: 全デバイスからログアウト
-      // 2FA無効化後はサーバー側でセッションが無効化されているため、
-      // トークンリフレッシュを無効化してから即座にログアウト
-      /* v8 ignore next 4 -- @preserve */
-      setTimeout(() => {
-        apiClient.setTokenRefreshCallback(null);
-        logout();
-      }, 2000);
-      /* v8 ignore next 23 -- @preserve */
-    } catch (error) {
-      console.error('2FA disable error:', error);
-      setShowDisableConfirmDialog(false);
-      setShowDisableDialog(true);
-
-      const err = error as {
-        response?: {
-          detail?: string;
-          error?: string;
-        };
-      };
-
-      if (err?.response?.detail) {
-        setDisableError(err.response.detail);
-      } else if (err?.response?.error) {
-        setDisableError(err.response.error);
-      } else {
-        setDisableError('2FAの無効化に失敗しました');
-      }
-    } finally {
-      setDisableLoading(false);
     }
   };
 
@@ -1082,7 +995,7 @@ export function Profile() {
               </div>
             )}
 
-            {/* 2FA無効化セクション（要件27B.4-6） */}
+            {/* 認証アプリの変更（再登録）への導線（要件34.6: 2FA の自己の無効化の操作は置かない） */}
             <div
               style={{
                 marginTop: '1.5rem',
@@ -1090,53 +1003,19 @@ export function Profile() {
                 borderTop: '1px solid #e5e7eb',
               }}
             >
-              <h3
-                style={{
-                  fontSize: '1rem',
-                  fontWeight: 600,
-                  marginBottom: '0.5rem',
-                  color: '#dc2626',
-                }}
-              >
-                二要素認証を無効化
-              </h3>
-              <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '1rem' }}>
-                無効化すると、すべてのデバイスからログアウトされます。
+              <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>
+                二要素認証は全てのユーザーで必須のため、無効にはできません。スマートフォンの機種変更などで認証アプリを移すときは、現在の認証コードを使って登録し直してください。
               </p>
-              <button
-                type="button"
-                onClick={handleOpenDisableDialog}
-                disabled={disableLoading}
+              <a
+                href="/profile/2fa-setup"
                 style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#dc2626',
-                  color: 'white',
-                  borderRadius: '0.375rem',
-                  border: 'none',
-                  cursor: disableLoading ? 'wait' : 'pointer',
+                  color: '#2563eb',
+                  textDecoration: 'underline',
                   fontWeight: 500,
                 }}
               >
-                {disableLoading ? '無効化中...' : '無効化'}
-              </button>
-
-              {/* 2FA無効化成功メッセージ */}
-              {disableMessage && (
-                <div
-                  role="alert"
-                  aria-live="polite"
-                  style={{
-                    marginTop: '0.75rem',
-                    padding: '0.75rem',
-                    borderRadius: '0.375rem',
-                    backgroundColor: '#d1fae5',
-                    color: '#065f46',
-                    fontSize: '0.875rem',
-                  }}
-                >
-                  {disableMessage}
-                </div>
-              )}
+                認証アプリを変更する
+              </a>
             </div>
           </div>
         </section>
@@ -1290,212 +1169,6 @@ export function Profile() {
                 }}
               >
                 はい、変更する
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 2FA無効化パスワード確認ダイアログ（要件27B.4） */}
-      {showDisableDialog && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 50,
-          }}
-        >
-          <div
-            role="dialog"
-            aria-labelledby="disable-dialog-title"
-            style={{
-              backgroundColor: 'white',
-              borderRadius: '0.5rem',
-              padding: '2rem',
-              maxWidth: '500px',
-              width: '100%',
-            }}
-          >
-            <h3
-              id="disable-dialog-title"
-              style={{
-                fontSize: '1.25rem',
-                fontWeight: 'bold',
-                marginBottom: '1rem',
-              }}
-            >
-              二要素認証の無効化
-            </h3>
-            <p style={{ marginBottom: '1rem', color: '#4b5563' }}>パスワードを入力してください</p>
-
-            {/* エラーメッセージ */}
-            {disableError && (
-              <div
-                role="alert"
-                aria-live="polite"
-                style={{
-                  padding: '0.75rem',
-                  marginBottom: '1rem',
-                  backgroundColor: '#fee2e2',
-                  color: '#991b1b',
-                  borderRadius: '0.375rem',
-                  fontSize: '0.875rem',
-                }}
-              >
-                {disableError}
-              </div>
-            )}
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label
-                htmlFor="disable-password"
-                style={{
-                  display: 'block',
-                  fontSize: '0.875rem',
-                  fontWeight: 500,
-                  marginBottom: '0.5rem',
-                  color: '#374151',
-                }}
-              >
-                パスワード
-              </label>
-              <input
-                id="disable-password"
-                type="password"
-                value={disablePassword}
-                onChange={(e) => setDisablePassword(e.target.value)}
-                autoComplete="current-password"
-                style={{
-                  width: '100%',
-                  padding: '0.5rem 0.75rem',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '0.375rem',
-                  fontSize: '1rem',
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => {
-                  setShowDisableDialog(false);
-                  setDisablePassword('');
-                  setDisableError('');
-                }}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#f3f4f6',
-                  color: '#374151',
-                  borderRadius: '0.375rem',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={handleDisablePasswordSubmit}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#dc2626',
-                  color: 'white',
-                  borderRadius: '0.375rem',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                }}
-              >
-                確認
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 2FA無効化ログアウト警告ダイアログ（要件27B.6） */}
-      {showDisableConfirmDialog && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '1rem',
-            zIndex: 50,
-          }}
-        >
-          <div
-            role="dialog"
-            aria-labelledby="disable-confirm-dialog-title"
-            style={{
-              backgroundColor: 'white',
-              borderRadius: '0.5rem',
-              padding: '2rem',
-              maxWidth: '500px',
-              width: '100%',
-            }}
-          >
-            <h3
-              id="disable-confirm-dialog-title"
-              style={{
-                fontSize: '1.25rem',
-                fontWeight: 'bold',
-                marginBottom: '1rem',
-              }}
-            >
-              二要素認証の無効化確認
-            </h3>
-            <p style={{ marginBottom: '1.5rem', color: '#dc2626', fontWeight: 500 }}>
-              全デバイスからログアウトされます
-            </p>
-            <p style={{ marginBottom: '1.5rem', color: '#4b5563' }}>
-              二要素認証を無効化すると、セキュリティレベルが低下します。続行しますか？
-            </p>
-
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowDisableConfirmDialog(false)}
-                disabled={disableLoading}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#f3f4f6',
-                  color: '#374151',
-                  borderRadius: '0.375rem',
-                  border: 'none',
-                  cursor: disableLoading ? 'wait' : 'pointer',
-                  fontWeight: 500,
-                }}
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={handleConfirmDisable}
-                disabled={disableLoading}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#dc2626',
-                  color: 'white',
-                  borderRadius: '0.375rem',
-                  border: 'none',
-                  cursor: disableLoading ? 'wait' : 'pointer',
-                  fontWeight: 500,
-                }}
-              >
-                {disableLoading ? '無効化中...' : 'はい、無効化する'}
               </button>
             </div>
           </div>

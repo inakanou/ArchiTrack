@@ -10222,8 +10222,8 @@
     },
     "/api/v1/auth/2fa/disable": {
       "post": {
-        "summary": "2FA無効化",
-        "description": "パスワードを確認して2FAを無効化する",
+        "summary": "2FA無効化（拒否）",
+        "description": "2FA は全ユーザーで必須のため、利用者自身による無効化の要求は常に 403 で拒否する（要件34.6）。\n第二要素を失った場合の復旧は管理者による 2FA の再設定で、端末の交換は現在の TOTP コードによる\n再登録で行う。\n",
         "tags": [
           "Two-Factor Authentication"
         ],
@@ -10232,48 +10232,12 @@
             "bearerAuth": []
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "password"
-                ],
-                "properties": {
-                  "password": {
-                    "type": "string",
-                    "format": "password",
-                    "description": "ユーザーの現在のパスワード"
-                  }
-                }
-              }
-            }
-          }
-        },
         "responses": {
-          "200": {
-            "description": "2FA無効化成功",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": {
-                      "type": "string",
-                      "example": "2FA disabled successfully"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "無効なパスワードまたは2FAが未有効化"
-          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "2FA の自己の無効化は許可されていない（code は TWO_FACTOR_DISABLE_NOT_ALLOWED）"
           }
         }
       }
