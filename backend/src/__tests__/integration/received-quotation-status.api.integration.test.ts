@@ -26,6 +26,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 /**
  * 受領見積書・ステータス管理API統合テスト
@@ -116,13 +117,13 @@ describe('Received Quotation & Status API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-received-quotation-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -149,13 +150,13 @@ describe('Received Quotation & Status API Integration Tests', () => {
     });
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-quotation-no-permission@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };

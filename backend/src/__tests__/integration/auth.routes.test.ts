@@ -16,6 +16,7 @@ import {
   logoutWithCookie,
   refreshWithCookie,
 } from './refresh-cookie-client.js';
+import { loginForTokens } from './auth-login-client.js';
 
 /**
  * 認証API統合テスト
@@ -107,7 +108,7 @@ describe('Authentication API Integration Tests', () => {
     }
 
     // 管理者としてログインしてトークンを取得
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const loginResponse = await loginForTokens(app, {
       email: 'test-auth-admin@example.com',
       password: 'AdminPassword123!',
     });

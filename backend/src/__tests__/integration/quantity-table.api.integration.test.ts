@@ -32,6 +32,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 /**
  * 数量表API統合テスト
@@ -113,13 +114,13 @@ describe('Quantity Table API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-quantity-table-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -840,12 +841,10 @@ describe('Quantity Table API Integration Tests', () => {
           },
         });
 
-        const loginResponse = await request(app).post('/api/v1/auth/login').send({
+        noPermissionAccessToken = await loginForAccessToken(app, {
           email: NO_PERMISSION_EMAIL,
           password: 'TestPassword123!',
         });
-
-        noPermissionAccessToken = loginResponse.body.accessToken;
       });
 
       afterAll(async () => {

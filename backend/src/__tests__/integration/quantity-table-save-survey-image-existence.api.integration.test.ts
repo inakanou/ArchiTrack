@@ -39,6 +39,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 describe('Quantity Table Save Survey Image Existence Integration Tests', () => {
   let prisma: PrismaClient;
@@ -114,12 +115,12 @@ describe('Quantity Table Save Survey Image Existence Integration Tests', () => {
       });
     }
 
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: PERMITTED_EMAIL,
       password: PASSWORD,
     });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   /** 当該プロジェクトの配下に現調画像を1件用意する */

@@ -30,6 +30,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { ESTIMATE_EDIT_SESSION_TTL_SECONDS } from '../../services/estimate-edit-session.service.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 const PASSWORD = 'TestPassword123!';
 
@@ -93,11 +94,11 @@ describe('Estimate Edit Session API Integration Tests (REQ-11.7)', () => {
       expect(role).not.toBeNull();
       await prisma.userRole.create({ data: { userId: user.id, roleId: role!.id } });
     }
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: account.email, password: PASSWORD });
-    expect(response.status).toBe(200);
-    tokens[account.email] = response.body.accessToken;
+    const accessToken = await loginForAccessToken(app, {
+      email: account.email,
+      password: PASSWORD,
+    });
+    tokens[account.email] = accessToken;
     userIds[account.email] = user.id;
   };
 

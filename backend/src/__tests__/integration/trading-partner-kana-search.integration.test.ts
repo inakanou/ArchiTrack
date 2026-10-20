@@ -23,6 +23,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 /**
  * かな変換検索の統合テスト
@@ -68,16 +69,13 @@ describe('Kana Conversion Search Integration Tests', () => {
     }
 
     // ログイン
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({
-        email: 'test-kana-search-integration@example.com',
-        password: 'TestPassword123!',
-      })
-      .expect(200);
+    const accessToken = await loginForAccessToken(app, {
+      email: 'test-kana-search-integration@example.com',
+      password: 'TestPassword123!',
+    });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };

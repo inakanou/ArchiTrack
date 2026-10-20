@@ -38,6 +38,7 @@ import {
   refreshWithCookie,
   setCookieLines,
 } from './refresh-cookie-client.js';
+import { loginForTokens } from './auth-login-client.js';
 
 const MARK = 'test-ua453-refresh-cookie';
 const PASSWORD = 'Cookie!Passphrase-2026';
@@ -83,11 +84,24 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
     }
   }
 
+  /** 2FA の検証を含めてログインし、セッションとトークンを発行した応答を返す */
   async function login(): Promise<{ session: Session; response: request.Response }> {
+    return sessionOf(await loginForTokens(app, { email, password: PASSWORD }));
+  }
+
+  /** ログインの API そのものを呼び、その応答の発行を確かめる（2FA 未登録の利用者） */
+  async function loginWithoutTwoFactor(): Promise<{
+    session: Session;
+    response: request.Response;
+  }> {
     const response = await request(app)
       .post('/api/v1/auth/login')
       .send({ email, password: PASSWORD })
       .expect(200);
+    return sessionOf(response);
+  }
+
+  function sessionOf(response: request.Response): { session: Session; response: request.Response } {
     return {
       session: {
         accessToken: response.body.accessToken,
@@ -137,7 +151,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
 
   describe('Cookie の属性と CORS', () => {
     it('ログインで発行するリフレッシュの Cookie の Path は認証の経路に限られる', async () => {
-      const { session, response } = await login();
+      const { session, response } = await loginWithoutTwoFactor();
 
       const issued = setCookieLines(response, 'refreshToken').filter((line) => !isClearing(line));
       expect(issued).toHaveLength(1);
@@ -163,7 +177,7 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
 
   describe('応答本文のリフレッシュトークン', () => {
     it('ログインの応答本文はリフレッシュトークンを含まず、Set-Cookie だけで渡す', async () => {
-      const { session, response } = await login();
+      const { session, response } = await loginWithoutTwoFactor();
 
       expect(response.body).not.toHaveProperty('refreshToken');
       expect(JSON.stringify(response.body)).not.toContain(session.refreshToken);

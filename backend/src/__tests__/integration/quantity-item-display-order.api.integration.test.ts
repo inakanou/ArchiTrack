@@ -35,6 +35,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 const TEST_EMAIL = 'test-qi-display-order-integration@example.com';
 const PASSWORD = 'TestPassword123!';
@@ -99,12 +100,12 @@ describe('数量項目の並び順の個別 API の displayOrder 重複（Task 9
       });
     }
 
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: TEST_EMAIL,
       password: PASSWORD,
     });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   /** 数量表と数量グループを1件ずつ作る（項目は0件）。返すのはグループIDである */

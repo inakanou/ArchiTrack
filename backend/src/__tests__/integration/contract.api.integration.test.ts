@@ -31,6 +31,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 /**
  * 契約書API統合テスト（削除制約・権限チェック）
@@ -91,13 +92,13 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-contract-admin-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -147,13 +148,13 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-contract-limited-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };

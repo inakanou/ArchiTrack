@@ -31,6 +31,7 @@ import { getStorageProvider } from '../../storage/index.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { initializeConstructionPhotoImageServices } from '../../routes/construction-photo-images.routes.js';
 import { ConstructionSignboardService } from '../../services/construction-signboard.service.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 describe('Construction Photo Metadata/Order/Delete API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -67,12 +68,12 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
       }
     }
 
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email,
       password: 'TestPassword123!@#',
     });
 
-    return { userId: user.id, accessToken: loginResponse.body.accessToken };
+    return { userId: user.id, accessToken };
   };
 
   const uploadPhoto = async (fileName: string): Promise<string> => {

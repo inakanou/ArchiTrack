@@ -32,6 +32,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 const TEST_EMAIL = 'test-qg-display-order-integration@example.com';
 const PASSWORD = 'TestPassword123!';
@@ -96,12 +97,12 @@ describe('数量グループの並び順の個別 API の displayOrder 重複（
       });
     }
 
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: TEST_EMAIL,
       password: PASSWORD,
     });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   /** 数量表を1件作る（グループは0件） */

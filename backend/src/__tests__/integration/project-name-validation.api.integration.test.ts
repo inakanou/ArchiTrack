@@ -30,6 +30,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 /** 本テストが作るユーザー（他の統合テストと衝突しない接頭辞） */
 const OWNER_EMAIL = 'test-project-name-validation-owner@example.com';
@@ -170,11 +171,7 @@ describe('プロジェクト名の制約（project-management/REQ-13.1）', () =
       }
     }
 
-    const loginResponse = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: OWNER_EMAIL, password: PASSWORD })
-      .expect(200);
-    accessToken = loginResponse.body.accessToken;
+    accessToken = await loginForAccessToken(app, { email: OWNER_EMAIL, password: PASSWORD });
   });
 
   // 作成の入口には同名の拒否があるため、各観測の前に本テストが作った分を取り除く

@@ -42,6 +42,7 @@ import {
   SurveyImageService,
   UnsupportedImageFormatError,
 } from '../../services/survey-image.service.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 /**
  * フロントの再送可否分類が用いる「画像形式の非対応」判定断片を、フロントのソースから読み出す。
@@ -114,12 +115,12 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
       }
     }
 
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email,
       password: 'TestPassword123!@#',
     });
 
-    return { userId: user.id, accessToken: loginResponse.body.accessToken };
+    return { userId: user.id, accessToken };
   };
 
   beforeAll(async () => {

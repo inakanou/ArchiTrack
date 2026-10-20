@@ -25,6 +25,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 /**
  * 取引先API統合テスト
@@ -72,16 +73,13 @@ describe('Trading Partner API Integration Tests', () => {
     }
 
     // ログイン
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({
-        email: 'test-trading-partner-integration@example.com',
-        password: 'TestPassword123!',
-      })
-      .expect(200);
+    const accessToken = await loginForAccessToken(app, {
+      email: 'test-trading-partner-integration@example.com',
+      password: 'TestPassword123!',
+    });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -122,16 +120,13 @@ describe('Trading Partner API Integration Tests', () => {
     }
 
     // ログイン
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({
-        email: 'test-trading-partner-no-perm@example.com',
-        password: 'TestPassword123!',
-      })
-      .expect(200);
+    const accessToken = await loginForAccessToken(app, {
+      email: 'test-trading-partner-no-perm@example.com',
+      password: 'TestPassword123!',
+    });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };

@@ -47,6 +47,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 const PERMITTED_EMAIL = 'test-estimate-draft-save-permitted@example.com';
 const NO_PERMISSION_EMAIL = 'test-estimate-draft-save-no-permission@example.com';
@@ -149,11 +150,12 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
       });
     }
 
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: PERMITTED_EMAIL, password: PASSWORD });
+    const accessToken = await loginForAccessToken(app, {
+      email: PERMITTED_EMAIL,
+      password: PASSWORD,
+    });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   /** ロール未割り当て＝`estimate:update` 権限なしのユーザーを作成してログイン */
@@ -168,11 +170,12 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
       },
     });
 
-    const loginResponse = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: NO_PERMISSION_EMAIL, password: PASSWORD });
+    const accessToken = await loginForAccessToken(app, {
+      email: NO_PERMISSION_EMAIL,
+      password: PASSWORD,
+    });
 
-    return loginResponse.body.accessToken;
+    return accessToken;
   };
 
   /**

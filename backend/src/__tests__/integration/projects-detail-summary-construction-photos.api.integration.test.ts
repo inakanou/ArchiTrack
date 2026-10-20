@@ -23,6 +23,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 describe('Project Detail Summary - Construction Photos Section Integration Tests', () => {
   let prisma: PrismaClient;
@@ -52,12 +53,12 @@ describe('Project Detail Summary - Construction Photos Section Integration Tests
       await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
     }
 
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: TEST_EMAIL,
       password: 'TestPassword123!@#',
     });
 
-    return { userId: user.id, accessToken: loginResponse.body.accessToken };
+    return { userId: user.id, accessToken };
   };
 
   beforeAll(async () => {

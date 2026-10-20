@@ -26,6 +26,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 describe('Site Survey API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -73,14 +74,14 @@ describe('Site Survey API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email,
       password: 'TestPassword123!@#',
     });
 
     return {
       userId: user.id,
-      accessToken: loginResponse.body.accessToken,
+      accessToken,
     };
   };
 

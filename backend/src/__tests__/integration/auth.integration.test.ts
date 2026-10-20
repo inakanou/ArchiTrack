@@ -15,6 +15,7 @@ import {
   logoutWithCookie,
   refreshWithCookie,
 } from './refresh-cookie-client.js';
+import { loginForTokens } from './auth-login-client.js';
 
 /**
  * 認証APIエンドポイント統合テスト
@@ -678,13 +679,10 @@ describe('Authentication API Integration Tests', () => {
       });
 
       // ログインしてリフレッシュトークンを取得
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-refresh@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-refresh@example.com',
+        password: 'Password123!',
+      });
 
       const refreshToken = issuedRefreshToken(loginResponse);
 
@@ -734,13 +732,10 @@ describe('Authentication API Integration Tests', () => {
         },
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-tampered@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-tampered@example.com',
+        password: 'Password123!',
+      });
 
       // トークンを改ざん（署名部分を変更）
       const [header, payload] = issuedRefreshToken(loginResponse).split('.');
@@ -778,13 +773,10 @@ describe('Authentication API Integration Tests', () => {
         },
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-logout@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-logout@example.com',
+        password: 'Password123!',
+      });
 
       const { accessToken } = loginResponse.body;
       const refreshToken = issuedRefreshToken(loginResponse);
@@ -826,13 +818,10 @@ describe('Authentication API Integration Tests', () => {
         },
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-me@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-me@example.com',
+        password: 'Password123!',
+      });
 
       const { accessToken } = loginResponse.body;
 
@@ -902,13 +891,10 @@ describe('Authentication API Integration Tests', () => {
         },
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-eddsa@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-eddsa@example.com',
+        password: 'Password123!',
+      });
 
       // JWTヘッダーをデコード
       const [headerBase64] = loginResponse.body.accessToken.split('.');
@@ -942,13 +928,10 @@ describe('Authentication API Integration Tests', () => {
         },
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-expiry@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-expiry@example.com',
+        password: 'Password123!',
+      });
 
       // アクセストークンのペイロードをデコード
       const [, accessPayloadBase64] = loginResponse.body.accessToken.split('.');

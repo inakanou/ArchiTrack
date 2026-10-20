@@ -31,6 +31,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { initializeConstructionPhotoImageServices } from '../../routes/construction-photo-images.routes.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 describe('Construction Photo Access API Integration Tests（担当でない一般ユーザー）', () => {
   let prisma: PrismaClient;
@@ -96,13 +97,12 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
       await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
     }
 
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email,
       password: 'TestPassword123!@#',
     });
-    expect(loginResponse.status).toBe(200);
 
-    return { userId: user.id, accessToken: loginResponse.body.accessToken as string };
+    return { userId: user.id, accessToken };
   };
 
   /** 指定の利用者でアルバムへ写真を1枚アップロードし、写真項目の id を返す */

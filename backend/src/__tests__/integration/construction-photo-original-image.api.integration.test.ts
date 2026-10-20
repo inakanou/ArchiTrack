@@ -25,6 +25,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { initializeConstructionPhotoImageServices } from '../../routes/construction-photo-images.routes.js';
+import { loginForAccessToken } from './auth-login-client.js';
 
 describe('Construction Photo Original Image API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -65,12 +66,12 @@ describe('Construction Photo Original Image API Integration Tests', () => {
       }
     }
 
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email,
       password: 'TestPassword123!@#',
     });
 
-    return { userId: user.id, accessToken: loginResponse.body.accessToken };
+    return { userId: user.id, accessToken };
   };
 
   const uploadPhoto = async (jpeg: Buffer, filename: string): Promise<string> => {
@@ -166,11 +167,10 @@ describe('Construction Photo Original Image API Integration Tests', () => {
           passwordHash,
         },
       });
-      const loginResponse = await request(app).post('/api/v1/auth/login').send({
+      noPermissionToken = await loginForAccessToken(app, {
         email: NO_PERMISSION_EMAIL,
         password: 'TestPassword123!@#',
       });
-      noPermissionToken = loginResponse.body.accessToken;
     }
 
     const project = await prisma.project.create({
