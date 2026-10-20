@@ -18,17 +18,17 @@
  * 32.3（資格の期限）は backend の単体・統合テストが担う（design.md「Testing Strategy」）。
  *
  * 2FA の検証は TOTP の時間ステップの記録・バックアップコードの消費・セッションの発行を伴うため、
- * 全てテストの中で作り 2FA を登録した利用者（`createSessionUser` に既知の秘密鍵を設定したもの）で行い、
+ * 全てテストの中で作り 2FA を登録した利用者（`createSessionUser` の既定の、既知の秘密鍵で登録した状態）で行い、
  * 共有の役割の利用者と 2FA の試験用の利用者（TWO_FA_USER）には触れない。
  */
 
 import { test, expect, request as playwrightRequest } from '@playwright/test';
 import type { APIRequestContext, APIResponse, Response } from '@playwright/test';
 import { SAME_ORIGIN_API_BASE_URL } from '../../config';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { loginWithCredentials } from '../../helpers/auth-actions';
 import { fetchSessionUser, waitForAuthenticatedSession } from '../../helpers/auth-api';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
-import { encryptTotpSecret, fillTotpCode, prepareTotpCode } from '../../helpers/two-factor-totp';
+import { fillTotpCode, prepareTotpCode } from '../../helpers/two-factor-totp';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { getPrismaClient } from '../../fixtures/database';
 import {
@@ -53,17 +53,12 @@ async function newRequestContext(): Promise<APIRequestContext> {
 }
 
 /**
- * テストの中で作り、既知の秘密鍵で 2FA を登録した利用者
+ * テストの中で作り、既知の秘密鍵で 2FA を登録した利用者（共通の補助の既定の状態）
  *
  * 後始末は `deleteSessionUsers` で行う（バックアップコードは利用者の削除に連なって消える）。
  */
 async function createTwoFactorSessionUser(): Promise<SessionUser> {
-  const user = await createSessionUser('REGULAR_USER');
-  await getPrismaClient().user.update({
-    where: { id: user.id },
-    data: { twoFactorEnabled: true, twoFactorSecret: encryptTotpSecret() },
-  });
-  return { ...user, twoFactorEnabled: true };
+  return createSessionUser('REGULAR_USER', { twoFactor: true });
 }
 
 /** 応答本文のエラーのコード（どの段で拒否されたかを完全一致で主張するため） */
@@ -152,7 +147,8 @@ test.describe('2FA を伴うログイン（要件32）', () => {
     const loginResponsePromise = page.waitForResponse((response) => isPost(response, LOGIN_PATH), {
       timeout: getTimeout(20000),
     });
-    await loginAsUser(page, user);
+    // ログインそのものを検証するため、画面のフォームの送信だけを行い、2FA の検証は以下で画面を操作する
+    await loginWithCredentials(page, user.email, user.password, false);
     const loginResponse = await loginResponsePromise;
 
     // 要件32.1: パスワードの検証の成功で、2FA 待ちの資格だけが返る（トークンは発行しない）

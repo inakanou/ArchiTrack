@@ -31,7 +31,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { loginAsUser, submitSessionExpiredTwoFactorCode } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
@@ -631,6 +631,8 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
         { timeout: getTimeout(30000) }
       );
       await reauthSubmitButton.click();
+      // 利用者は 2FA 登録済みのため、モーダルの認証コードの欄へ補助でコードを入れて再ログインする
+      await submitSessionExpiredTwoFactorCode(page, TEST_USERS.REGULAR_USER);
       const saveResponse = await savePromise;
       expect(saveResponse.status()).toBe(201);
 

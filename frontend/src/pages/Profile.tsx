@@ -860,7 +860,7 @@ export function Profile() {
               disabled={backupCodesLoading}
               style={{
                 padding: '0.5rem 1rem',
-                backgroundColor: '#3b82f6',
+                backgroundColor: '#2563eb',
                 color: 'white',
                 borderRadius: '0.375rem',
                 border: 'none',

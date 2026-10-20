@@ -16,7 +16,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { completeTwoFactorVerification, loginAsUser } from '../../helpers/auth-actions';
 import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -74,6 +74,8 @@ async function loginOnRedirectedLoginPage(page: Page): Promise<void> {
   await emailInput.fill(user.email);
   await page.locator('input#password').fill(user.password);
   await page.getByRole('button', { name: /ログイン/i }).click();
+  // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+  await completeTwoFactorVerification(page, user);
 
   await page.waitForURL((url) => !url.pathname.includes('/login'), {
     timeout: getTimeout(15000),

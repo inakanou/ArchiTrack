@@ -204,8 +204,9 @@ test.describe('トークンの取り扱い（要件33）', () => {
   }) => {
     const user = await createSessionUser('REGULAR_USER');
 
+    // 利用者は 2FA 登録済みのため、トークンはログインの完了（2FA の検証）の応答で発行される
     const loginResponsePromise = page.waitForResponse(
-      (response) => isPost(response, '/api/v1/auth/login'),
+      (response) => isPost(response, '/api/v1/auth/verify-2fa'),
       { timeout: getTimeout(20000) }
     );
     await loginAsUser(page, user);

@@ -16,7 +16,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { getPrismaClient } from '../../fixtures/database';
-import { hashPassword } from '../../helpers/test-users';
+import { createCustomUser } from '../../fixtures/auth.fixtures';
 
 // Prisma Client型定義
 type PrismaClientType = ReturnType<typeof getPrismaClient>;
@@ -64,22 +64,16 @@ test.describe('プロジェクト検索のかな変換検索 (Task 30.2)', () =>
 
       // テスト用営業担当者ユーザーを取得または作成
       const salesPersonEmail = 'user@example.com';
-      let salesPerson = await prisma.user.findUnique({
+      let salesPerson: { id: string } | null = await prisma.user.findUnique({
         where: { email: salesPersonEmail },
       });
 
       if (!salesPerson) {
-        salesPerson = await prisma.user.create({
-          data: {
-            email: salesPersonEmail,
-            passwordHash: await hashPassword('Password123!'),
-            displayName: 'Test User',
-            userRoles: {
-              create: {
-                roleId: userRole.id,
-              },
-            },
-          },
+        salesPerson = await createCustomUser({
+          email: salesPersonEmail,
+          password: 'Password123!',
+          displayName: 'Test User',
+          roles: [userRole.name],
         });
       }
       testSalesPersonId = salesPerson.id;

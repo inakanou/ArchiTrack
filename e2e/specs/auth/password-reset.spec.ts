@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
 import { hashPassword, TEST_USERS } from '../../helpers/test-users';
-import { loginWithCredentials } from '../../helpers/auth-actions';
+import { completeTwoFactorVerification, loginWithCredentials } from '../../helpers/auth-actions';
 import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
@@ -162,6 +162,8 @@ test.describe('パスワード管理機能', () => {
     await page.getByLabel(/メールアドレス/i).fill(sessionUser.email);
     await page.locator('input#password').fill(uniquePassword);
     await page.getByRole('button', { name: /ログイン/i }).click();
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, sessionUser);
 
     // ログイン成功（ダッシュボードへリダイレクト）
     await expect(page).toHaveURL(/\//);
@@ -776,6 +778,8 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     await page.getByLabel(/メールアドレス/i).fill(userEmail);
     await page.locator('input#password').fill(newPassword);
     await page.getByRole('button', { name: /ログイン/i }).click();
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, { email: userEmail });
 
     // Step 9: ログイン成功（ダッシュボードへリダイレクト）
     await expect(page).toHaveURL(/\//, { timeout: getTimeout(15000) });

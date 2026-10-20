@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createAllTestUsers } from '../../fixtures/auth.fixtures';
+import { completeTwoFactorVerification } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 
 /**
  * ログイン機能のE2Eテスト
@@ -46,6 +48,9 @@ test.describe('ログイン機能', () => {
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
     await page.locator('input#password').fill('Password123!');
     await page.getByRole('button', { name: /ログイン/i }).click();
+
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, TEST_USERS.REGULAR_USER);
 
     // ホームページ（ダッシュボードまたはルート）にリダイレクトされる
     await expect(page).toHaveURL(/\/dashboard|\/$/);

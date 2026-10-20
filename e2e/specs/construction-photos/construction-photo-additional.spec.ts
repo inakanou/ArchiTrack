@@ -127,7 +127,8 @@ import { fileURLToPath } from 'url';
 import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { hashPassword, TEST_USERS } from '../../helpers/test-users';
+import { TEST_USERS } from '../../helpers/test-users';
+import { createCustomUser } from '../../fixtures/auth.fixtures';
 import { getPrismaClient } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
 import { getAccessToken } from '../../helpers/auth-api';
@@ -1008,15 +1009,13 @@ test.describe('工事写真 追加機能フロー', () => {
       await prisma.rolePermission.createMany({
         data: permissions.map((p) => ({ roleId: viewerRole.id, permissionId: p.id })),
       });
-      const viewer = await prisma.user.create({
-        data: {
-          email: viewerEmail,
-          displayName: 'E2E 閲覧専用',
-          passwordHash: await hashPassword(viewerPassword),
-        },
+      const viewer = await createCustomUser({
+        email: viewerEmail,
+        password: viewerPassword,
+        displayName: 'E2E 閲覧専用',
+        roles: [viewerRole.name],
       });
       viewerUserId = viewer.id;
-      await prisma.userRole.create({ data: { userId: viewer.id, roleId: viewerRole.id } });
 
       // 閲覧専用の利用者へ切り替える
       await page.context().clearCookies();
@@ -1202,15 +1201,13 @@ test.describe('工事写真 追加機能フロー', () => {
       await prisma.rolePermission.createMany({
         data: permissions.map((p) => ({ roleId: viewerRole.id, permissionId: p.id })),
       });
-      const viewer = await prisma.user.create({
-        data: {
-          email: viewerEmail,
-          displayName: 'E2E 看板閲覧専用',
-          passwordHash: await hashPassword(viewerPassword),
-        },
+      const viewer = await createCustomUser({
+        email: viewerEmail,
+        password: viewerPassword,
+        displayName: 'E2E 看板閲覧専用',
+        roles: [viewerRole.name],
       });
       viewerUserId = viewer.id;
-      await prisma.userRole.create({ data: { userId: viewer.id, roleId: viewerRole.id } });
 
       // 閲覧だけのロール: 前件（画面が受け取った権限が閲覧の権限そのもの）を確かめ、いずれも表示しない
       await switchUser();

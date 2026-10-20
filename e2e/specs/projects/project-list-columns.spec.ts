@@ -12,7 +12,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { getPrismaClient } from '../../fixtures/database';
-import { hashPassword } from '../../helpers/test-users';
+import { createCustomUser } from '../../fixtures/auth.fixtures';
 import { assertPresent } from '../../helpers/preconditions';
 
 // Prisma Client型定義
@@ -97,44 +97,32 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
 
       // テスト用営業担当者ユーザーを取得（既存のuser@example.com）
       const salesPersonEmail = 'user@example.com';
-      let salesPerson = await prisma.user.findUnique({
+      let salesPerson: { id: string } | null = await prisma.user.findUnique({
         where: { email: salesPersonEmail },
       });
 
       if (!salesPerson) {
-        salesPerson = await prisma.user.create({
-          data: {
-            email: salesPersonEmail,
-            passwordHash: await hashPassword('Password123!'),
-            displayName: 'テスト営業担当',
-            userRoles: {
-              create: {
-                roleId: userRole.id,
-              },
-            },
-          },
+        salesPerson = await createCustomUser({
+          email: salesPersonEmail,
+          password: 'Password123!',
+          displayName: 'テスト営業担当',
+          roles: [userRole.name],
         });
       }
       testSalesPersonId = salesPerson.id;
 
       // テスト用工事担当者ユーザーを取得（既存のmanager@example.com）
       const constructionPersonEmail = 'manager@example.com';
-      let constructionPerson = await prisma.user.findUnique({
+      let constructionPerson: { id: string } | null = await prisma.user.findUnique({
         where: { email: constructionPersonEmail },
       });
 
       if (!constructionPerson) {
-        constructionPerson = await prisma.user.create({
-          data: {
-            email: constructionPersonEmail,
-            passwordHash: await hashPassword('Password123!'),
-            displayName: 'テスト工事担当',
-            userRoles: {
-              create: {
-                roleId: userRole.id,
-              },
-            },
-          },
+        constructionPerson = await createCustomUser({
+          email: constructionPersonEmail,
+          password: 'Password123!',
+          displayName: 'テスト工事担当',
+          roles: [userRole.name],
         });
       }
       testConstructionPersonId = constructionPerson.id;

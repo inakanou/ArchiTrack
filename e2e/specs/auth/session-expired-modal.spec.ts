@@ -6,8 +6,6 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { assertPresent } from '../../helpers/preconditions';
 import { waitForAuthenticatedSession } from '../../helpers/auth-api';
-import { prepareTotpCode } from '../../helpers/two-factor-totp';
-import { TEST_USERS } from '../../helpers/test-users';
 
 /**
  * セッション切れモーダル再認証のE2Eテスト
@@ -479,20 +477,8 @@ test.describe('セッション切れモーダル再認証', () => {
    */
   test('REQ-30.12: 2FA有効ユーザーで2FA検証フィールドが表示される', async ({ page }) => {
     await createTestUser('TWO_FA_USER');
+    // ログインの補助が、既知の秘密鍵から計算した TOTP コードで 2FA の検証まで行う
     await loginAsUser(page, 'TWO_FA_USER');
-    // 2FAユーザーはloginAsUser後に2FA検証を完了させる必要がある
-    // 既知の秘密鍵から計算した TOTP コードを分割入力の欄へキーボードで打つ
-    await page
-      .getByTestId('totp-digit-0')
-      .waitFor({ state: 'visible', timeout: getTimeout(10000) });
-    const totpCode = await prepareTotpCode(TEST_USERS.TWO_FA_USER.email);
-    await page.getByTestId('totp-digit-0').click();
-    await page.keyboard.type(totpCode);
-    await page.getByRole('button', { name: /検証/i }).click();
-    await page.waitForURL((url) => !url.pathname.includes('/login'), {
-      timeout: getTimeout(15000),
-    });
-    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
     await setupAuthenticatedProfilePage(page);
 
     await triggerSessionExpiredModal(page);

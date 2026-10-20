@@ -4,13 +4,15 @@ import {
   createTestUser,
   createTwoFactorBackupCodes,
   createAllTestUsers,
+  resetDedicatedUser,
+  type CreatedUser,
 } from '../../fixtures/auth.fixtures';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { TEST_USERS } from '../../helpers/test-users';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
-import { fetchSessionUser, waitForAuthenticatedSession } from '../../helpers/auth-api';
+import { fetchSessionUser } from '../../helpers/auth-api';
 import { fillTotpCode, generateTotpCode, prepareTotpCode } from '../../helpers/two-factor-totp';
 
 /**
@@ -36,6 +38,14 @@ async function totpCodeFromSetupPage(page: Page): Promise<string> {
   assertPrepared(secret, '2FA の設定の画面の秘密鍵');
   return generateTotpCode(secret);
 }
+
+/**
+ * 2FA の設定（新規の登録）の検証の利用者
+ *
+ * 共有の役割の利用者は 2FA 登録済みのため、設定の流れは 2FA 未登録の専用の利用者で行い、
+ * 各テストの開始時に初期化の補助で未登録の状態へ戻す（user-authentication タスク47.4）。
+ */
+let setupUser: CreatedUser;
 
 /** 2FA 登録済みの試験用の利用者の、最後に使った時間ステップを戻した現在の TOTP コード */
 function twoFactorUserCode(): Promise<string> {
@@ -74,10 +84,10 @@ test.describe('2要素認証機能', () => {
 
       // テストデータをクリーンアップして、テストユーザーを作成
       await cleanDatabase();
-      await createTestUser('REGULAR_USER');
+      setupUser = await resetDedicatedUser('TWO_FA_NOT_ENROLLED_USER');
 
       // 認証済みユーザーとしてログイン
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, setupUser);
     });
 
     /**
@@ -103,7 +113,7 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           await page.goto('/profile/2fa-setup');
           await page.waitForLoadState('networkidle');
         }
@@ -145,7 +155,7 @@ test.describe('2要素認証機能', () => {
             await page.reload({ waitUntil: 'networkidle' });
             // ログインページにリダイレクトされた場合は再ログイン
             if (page.url().includes('/login')) {
-              await loginAsUser(page, 'REGULAR_USER');
+              await loginAsUser(page, setupUser);
               await page.goto('/profile/2fa-setup');
               await page.waitForLoadState('networkidle');
             }
@@ -307,7 +317,7 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           await page.goto('/profile/2fa-setup');
           await page.waitForLoadState('networkidle');
         }
@@ -360,7 +370,7 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           await page.goto('/profile/2fa-setup');
           await page.waitForLoadState('networkidle');
         }
@@ -613,25 +623,9 @@ test.describe('2要素認証機能', () => {
           data: { usedAt: new Date() },
         });
       }
+      // ログインの補助が、既知の秘密鍵から計算した TOTP コードで 2FA の検証まで行い、
+      // 画面のセッションで認証済みの API が成功するまで待つ
       await loginAsUser(page, 'TWO_FA_USER');
-
-      // 2FA検証フォームが表示されるまで待機（見出し「二要素認証」で確認）
-      const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-      await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(10000) });
-
-      // 6桁のTOTPコード（既知の秘密鍵から計算）を入力
-      await fillTotpCode(page, await twoFactorUserCode());
-
-      // 検証ボタンをクリック
-      await page.getByRole('button', { name: /検証/i }).click();
-
-      // ログイン成功を待機（ダッシュボードへリダイレクト）
-      await page.waitForURL((url) => !url.pathname.includes('/login'), {
-        timeout: getTimeout(10000),
-      });
-
-      // 画面のセッションで認証済みの API が成功するまで待機
-      await waitForAuthenticatedSession(page, { timeout: getTimeout(10000), polling: 500 });
     });
 
     /**
@@ -647,22 +641,8 @@ test.describe('2要素認証機能', () => {
 
       // ログインページにリダイレクトされた場合は、認証が失効しているため再ログイン
       if (page.url().includes('/login')) {
+        // ログインの補助が 2FA の検証まで行う
         await loginAsUser(page, 'TWO_FA_USER');
-
-        // 2FA検証フォームが表示される場合は検証
-        const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-        try {
-          await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
-          await fillTotpCode(page, await twoFactorUserCode());
-          await page.getByRole('button', { name: /検証/i }).click();
-          await page.waitForURL((url) => !url.pathname.includes('/login'), {
-            timeout: getTimeout(10000),
-          });
-          // 画面のセッションで認証済みの API が成功するまで待機
-          await waitForAuthenticatedSession(page, { timeout: getTimeout(10000), polling: 500 });
-        } catch {
-          // 2FAフォームが表示されない場合は既にログイン済み
-        }
         await page.goto('/profile');
         await page.waitForLoadState('networkidle');
       }
@@ -697,18 +677,8 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再認証
         if (page.url().includes('/login')) {
+          // ログインの補助が 2FA の検証まで行う
           await loginAsUser(page, 'TWO_FA_USER');
-          const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-          try {
-            await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
-            await fillTotpCode(page, await twoFactorUserCode());
-            await page.getByRole('button', { name: /検証/i }).click();
-            await page.waitForURL((url) => !url.pathname.includes('/login'), {
-              timeout: getTimeout(10000),
-            });
-          } catch {
-            // 2FAフォームが表示されない場合は既にログイン済み
-          }
           await page.goto('/profile');
           await page.waitForLoadState('networkidle');
         }
@@ -1009,8 +979,8 @@ test.describe('2要素認証機能', () => {
       });
 
       await cleanDatabase();
-      await createTestUser('REGULAR_USER');
-      await loginAsUser(page, 'REGULAR_USER');
+      setupUser = await resetDedicatedUser('TWO_FA_NOT_ENROLLED_USER');
+      await loginAsUser(page, setupUser);
     });
 
     /**
@@ -1034,12 +1004,12 @@ test.describe('2要素認証機能', () => {
 
         // 認証状態が確立されていることを確認（ユーザー情報が表示される）
         try {
-          await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+          await expect(page.getByLabel(/メールアドレス/i)).toHaveValue(setupUser.email, {
             timeout: getTimeout(10000),
           });
         } catch {
           // 認証が切れている場合は再ログイン
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           await page.goto('/profile');
           await page.waitForLoadState('networkidle');
         }
@@ -1050,7 +1020,7 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           continue;
         }
 
@@ -1086,7 +1056,7 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           await page.goto('/profile/2fa-setup');
           await page.waitForLoadState('networkidle');
         }

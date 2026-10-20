@@ -22,20 +22,28 @@ export interface TestUser {
   password: string;
   displayName: string;
   roles: string[];
+  /** 2FA 登録済みか（作成の補助の既定は登録済み。user-authentication 要件34.2） */
   twoFactorEnabled?: boolean;
+  /** 2FA の秘密鍵（Base32。省略時は E2E_TOTP_SECRET。ログインの補助がこの値でコードを計算する） */
+  totpSecret?: string;
+  /** 初回のパスワード変更を要するか（作成の補助の既定は要しない） */
+  mustChangePassword?: boolean;
 }
 
 /**
  * テストユーザー定数
  *
  * 各テストで使用する一貫したテストユーザー情報を定義します。
+ * 全ての役割の利用者は既知の秘密鍵（E2E_TOTP_SECRET）で 2FA 登録済みとして作成し、
+ * ログインの補助（auth-actions.ts・auth-api.ts・shared-sessions.ts）が TOTP のコードを計算して
+ * 2FA の検証を通す（user-authentication タスク47.4、要件34.2）。
  * パスワードは全てパスワード強度要件を満たしています:
  * - 12文字以上
  * - 大文字、小文字、数字、特殊文字のうち3種類以上
  */
 export const TEST_USERS = {
   /**
-   * 通常ユーザー（2FAなし）
+   * 通常ユーザー
    * ログインテストなどの基本的な認証テストで使用
    */
   REGULAR_USER: {
@@ -43,7 +51,7 @@ export const TEST_USERS = {
     password: 'Password123!',
     displayName: 'Test User',
     roles: ['user'],
-    twoFactorEnabled: false,
+    twoFactorEnabled: true,
   } as const,
 
   /**
@@ -55,7 +63,7 @@ export const TEST_USERS = {
     password: 'AdminPass123!',
     displayName: 'Admin User',
     roles: ['admin', 'user'],
-    twoFactorEnabled: false,
+    twoFactorEnabled: true,
   } as const,
 
   /**
@@ -78,9 +86,59 @@ export const TEST_USERS = {
     password: 'SecurePass456!',
     displayName: 'Test User 2',
     roles: ['user'],
-    twoFactorEnabled: false,
+    twoFactorEnabled: true,
   } as const,
 } as const;
+
+/**
+ * 状態を変える検証や、既定（2FA 登録済み・初回の変更を要しない・有効）と異なる状態を要する検証の
+ * 専用の利用者
+ *
+ * 共有の役割の利用者（TEST_USERS）の状態を変えないため、状態に依存する検証はこれらの利用者で行う
+ * （user-authentication タスク47.4、design.md「E2E の認証基盤の移行」）。全体の準備では作らず、
+ * 各テストの開始時に `resetDedicatedUser`（e2e/fixtures/auth.fixtures.ts）を呼んで、
+ * 作成するか既定の状態（パスワード・初回の変更の要否・2FA と最後に使った時間ステップ・有効状態・
+ * ロック）へ戻してから使う。
+ */
+export const DEDICATED_USERS = {
+  /**
+   * 2FA 未登録の検証用（2FA の設定・有効化の流れ、2FA の必須化の制限）
+   */
+  TWO_FA_NOT_ENROLLED_USER: {
+    email: 'e2e-dedicated-no-2fa@example.com',
+    password: 'NoTwoFactor123!',
+    displayName: 'Dedicated NoTwoFactor',
+    roles: ['user'],
+    twoFactorEnabled: false,
+    mustChangePassword: false,
+  },
+
+  /**
+   * 初回のパスワード変更の検証用（初期管理者と同じく、2FA 未登録で初回の変更を要する）
+   */
+  PASSWORD_CHANGE_REQUIRED_USER: {
+    email: 'e2e-dedicated-initial-password@example.com',
+    password: 'InitialPass123!',
+    displayName: 'Dedicated InitialPassword',
+    roles: ['admin', 'user'],
+    twoFactorEnabled: false,
+    mustChangePassword: true,
+  },
+
+  /**
+   * 状態を変える検証用（無効化・ロック・2FA の再設定・削除・パスワードの変更とリセット）
+   */
+  STATE_CHANGE_USER: {
+    email: 'e2e-dedicated-state-change@example.com',
+    password: 'StateChange123!',
+    displayName: 'Dedicated StateChange',
+    roles: ['user'],
+    twoFactorEnabled: true,
+    mustChangePassword: false,
+  },
+} as const;
+
+export type DedicatedUserKey = keyof typeof DEDICATED_USERS;
 
 /**
  * パスワードをArgon2idアルゴリズムでハッシュ化する

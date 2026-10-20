@@ -7,7 +7,12 @@ import {
   deleteSessionUsers,
 } from '../../fixtures/auth.fixtures';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
-import { loginAsUser } from '../../helpers/auth-actions';
+import {
+  completeTwoFactorVerification,
+  loginAsUser,
+  submitLoginForm,
+} from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout, waitForAuthState, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import {
@@ -424,19 +429,8 @@ test.describe('トークンリフレッシュ機能', () => {
     // ページが完全にロードされるまで待機（initializeAuth完了を含む）
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
-    // フォーム要素が操作可能になるまで待機
-    const emailInput = page.getByLabel(/メールアドレス/i);
-    const passwordInput = page.locator('input#password');
-    const loginButton = page.getByRole('button', { name: /ログイン/i });
-
-    const formTimeout = getTimeout(10000);
-    await emailInput.waitFor({ state: 'visible', timeout: formTimeout });
-    await passwordInput.waitFor({ state: 'visible', timeout: formTimeout });
-    await loginButton.waitFor({ state: 'visible', timeout: formTimeout });
-
-    await emailInput.fill('user@example.com');
-    await passwordInput.fill('Password123!');
-    await loginButton.click();
+    // 表示中のログイン画面で資格を入れ、2FA の検証まで補助で行う（戻り先を保つため画面を移らない）
+    await submitLoginForm(page, TEST_USERS.REGULAR_USER);
 
     // 要件16.9: 元のページ（プロフィール）にリダイレクトされる
     // React Routerはlocation.stateを使用してリダイレクト先を記憶している
@@ -614,7 +608,9 @@ test.describe('トークンリフレッシュ機能', () => {
     const loginResponse = await loginResponsePromise;
     expect(loginResponse.status()).toBe(200);
 
-    const body = (await loginResponse.json()) as { accessToken?: string };
+    // 2FA 登録済みの利用者のトークンは、2FA の検証の応答で発行される
+    const verifyResponse = await completeTwoFactorVerification(page, user);
+    const body = (await verifyResponse.json()) as { accessToken?: string };
     const accessToken = body.accessToken;
     expect(typeof accessToken).toBe('string');
 
@@ -658,6 +654,7 @@ test.describe('トークンリフレッシュ機能', () => {
     await page.getByLabel(/メールアドレス/i).fill('user@example.com');
     await page.locator('input#password').fill('Password123!');
     await page.getByRole('button', { name: /ログイン/i }).click();
+    await completeTwoFactorVerification(page, TEST_USERS.REGULAR_USER);
 
     // ログイン成功を確認
     await expect(page).toHaveURL(/\/dashboard|\/$/);

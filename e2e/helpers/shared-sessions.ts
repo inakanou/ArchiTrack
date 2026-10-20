@@ -28,6 +28,7 @@ import { request as playwrightRequest } from '@playwright/test';
 import type { BrowserContext, Page, Response } from '@playwright/test';
 import { FRONTEND_BASE_URL, SAME_ORIGIN_API_BASE_URL } from '../config';
 import { TEST_USERS } from './test-users';
+import { completeApiLogin } from './auth-api';
 
 /** Cookie を共有する役割（多くの spec が使う、状態を変えない利用者） */
 export const SHARED_SESSION_ROLES = ['REGULAR_USER', 'ADMIN_USER'] as const;
@@ -379,25 +380,19 @@ export async function attachSharedSession(
 }
 
 /**
- * 全体の準備: 共有の役割ごとにログイン API を呼び、リフレッシュの Cookie を保持する
+ * 全体の準備: 共有の役割ごとにログインし、リフレッシュの Cookie を保持する
  *
- * 画面と同じオリジン（nginx の中継）を通し、ブラウザと同じ Cookie を得る。
+ * 画面と同じオリジン（nginx の中継）を通し、ブラウザと同じ Cookie を得る。共有の役割の利用者は
+ * 2FA 登録済みなので、ログインの補助（`completeApiLogin`）が TOTP のコードで 2FA の検証まで行い、
+ * その応答の Cookie を保持する（user-authentication タスク47.4）。
  * ログインできないときは準備の失敗として例外を投げる。
  */
 export async function establishSharedSessions(): Promise<void> {
   const store: SharedSessionStore = {};
   for (const role of SHARED_SESSION_ROLES) {
-    const { email, password } = TEST_USERS[role];
     const context = await playwrightRequest.newContext();
     try {
-      const response = await context.post(`${SAME_ORIGIN_API_BASE_URL}/api/v1/auth/login`, {
-        data: { email, password },
-      });
-      if (response.status() !== 200) {
-        throw new Error(
-          `共有の役割のログインに失敗した（${role}）: status ${response.status()} ${await response.text()}`
-        );
-      }
+      const response = await completeApiLogin(context, role, SAME_ORIGIN_API_BASE_URL);
       const { issued } = refreshCookieValueFromHeaders(response.headersArray());
       if (!issued) {
         throw new Error(`共有の役割のログインの応答にリフレッシュの Cookie が無い（${role}）`);

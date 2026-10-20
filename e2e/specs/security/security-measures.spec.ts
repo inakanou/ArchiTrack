@@ -4,7 +4,7 @@ import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
-import { loginViaApi, refreshWithCookie } from '../../helpers/auth-api';
+import { completeApiLogin, loginViaApi, refreshWithCookie } from '../../helpers/auth-api';
 
 /**
  * セキュリティ対策（脅威モデリング）のE2Eテスト
@@ -77,12 +77,9 @@ test.describe('セキュリティ対策', () => {
    * @requirement user-authentication/REQ-26.7
    */
   test('認証CookieにはHttpOnly属性が設定される', async ({ request }) => {
-    const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
+    // 利用者は 2FA 登録済みのため、リフレッシュトークンの Cookie はログインの完了（2FA の検証）の
+    // 応答で発行される。ログインの補助で 2FA の検証まで行い、その応答の Set-Cookie を調べる
+    const response = await completeApiLogin(request, 'ADMIN_USER', API_BASE_URL);
 
     expect(response.ok()).toBeTruthy();
 

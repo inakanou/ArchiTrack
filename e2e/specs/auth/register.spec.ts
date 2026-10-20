@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
-import { createInvitation } from '../../fixtures/auth.fixtures';
+import { createCustomUser, createInvitation } from '../../fixtures/auth.fixtures';
 import { TEST_USERS } from '../../helpers/test-users';
 
 /**
@@ -208,16 +208,11 @@ test.describe('新規登録機能', () => {
    */
   test('既に登録済みのメールアドレスではエラーが表示される', async ({ page }) => {
     // 既存ユーザーを作成（招待されたメールアドレスと同じ）
-    const prisma = (await import('../../fixtures/database')).getPrismaClient();
-    const passwordHash = await (
-      await import('../../helpers/test-users')
-    ).hashPassword('Password123!');
-    await prisma.user.create({
-      data: {
-        email: 'newuser@example.com',
-        displayName: 'Existing User',
-        passwordHash,
-      },
+    await createCustomUser({
+      email: 'newuser@example.com',
+      password: 'Password123!',
+      displayName: 'Existing User',
+      roles: [],
     });
 
     // メールアドレスは招待トークンから事前入力されている

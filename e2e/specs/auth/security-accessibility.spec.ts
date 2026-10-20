@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { completeTwoFactorVerification, loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout, nullWhenTimedOut, waitForApiResponse } from '../../helpers/wait-helpers';
 import AxeBuilder from '@axe-core/playwright';
 import { FRONTEND_BASE_URL } from '../../config';
@@ -421,6 +422,9 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
 
     // Enterキーでボタンをクリック
     await page.keyboard.press('Enter');
+
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, TEST_USERS.REGULAR_USER);
 
     // ログイン成功（ダッシュボードへリダイレクト）
     await expect(page).toHaveURL(/\//);

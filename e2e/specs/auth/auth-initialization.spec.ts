@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { TEST_USERS } from '../../helpers/test-users';
+import { completeTwoFactorVerification } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { FRONTEND_BASE_URL } from '../../config';
 
@@ -152,6 +153,8 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, TEST_USERS.ADMIN_USER);
 
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
@@ -210,6 +213,8 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, TEST_USERS.ADMIN_USER);
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
       timeout: getTimeout(10000),
@@ -293,6 +298,8 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, TEST_USERS.ADMIN_USER);
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
       timeout: getTimeout(10000),

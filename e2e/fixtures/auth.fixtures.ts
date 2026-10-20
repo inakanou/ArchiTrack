@@ -3,27 +3,165 @@
  *
  * テストユーザー、招待、トークンなどの認証関連テストデータを
  * データベースに作成するヘルパー関数を提供します。
+ *
+ * 利用者の作成は全て共通の補助 `createCustomUser` を通し、既定で 2FA 登録済み・有効・初回の変更を
+ * 要しない状態で作る（user-authentication タスク47.4）。状態を変える検証は専用の利用者
+ * （DEDICATED_USERS）を `resetDedicatedUser` で初期化して使う。
  */
 
 import { createHash, randomBytes, randomUUID } from 'crypto';
 // Prisma 7: Use root's generated client
 import { PrismaClient } from '../../src/generated/prisma/client.js';
 import { getPrismaClient } from './database';
-import { TEST_USERS, hashPassword, type TestUser } from '../helpers/test-users';
-import { encryptTotpSecret } from '../helpers/two-factor-totp';
+import {
+  DEDICATED_USERS,
+  TEST_USERS,
+  hashPassword,
+  type DedicatedUserKey,
+  type TestUser,
+} from '../helpers/test-users';
+import { E2E_TOTP_SECRET, encryptTotpSecret } from '../helpers/two-factor-totp';
 
 /** Type alias for PrismaClient instance */
 type PrismaClientInstance = InstanceType<typeof PrismaClient>;
 
 /**
+ * 作成する利用者の状態
+ *
+ * E2E が作る利用者は、既定で 2FA 登録済み（既知の秘密鍵 E2E_TOTP_SECRET）・有効・初回の変更を
+ * 要しない状態で作る（user-authentication タスク47.4、要件34.2）。既定と異なる状態は、この引数で
+ * 明示する。状態の項目は `CustomUserData` に書けない（型で分ける）。
+ */
+export interface TestUserState {
+  /**
+   * 2FA の登録（既定 true）。true は既知の秘密鍵 E2E_TOTP_SECRET、`{ secret }` はその秘密鍵、
+   * false は未登録
+   */
+  twoFactor?: boolean | { secret: string };
+  /** 有効か（既定 true） */
+  isActive?: boolean;
+  /** 初回のパスワード変更を要するか（既定 false） */
+  mustChangePassword?: boolean;
+}
+
+/** 作成する利用者の資格と属性（状態の項目は `TestUserState` で渡す） */
+export interface CustomUserData {
+  email: string;
+  password: string;
+  displayName: string;
+  /** 割り当てるロールの名前（存在しないロールは前提の誤りとして失敗する） */
+  roles: readonly string[];
+}
+
+/** 作成した利用者（ログインの補助にそのまま渡せる資格と、状態と ID） */
+export interface CreatedUser extends TestUser {
+  id: string;
+}
+
+/** 状態の引数を既定で補い、DB の列の値にする */
+function resolveUserState(state: TestUserState): {
+  twoFactorEnabled: boolean;
+  totpSecret: string | undefined;
+  isActive: boolean;
+  mustChangePassword: boolean;
+} {
+  const twoFactor = state.twoFactor ?? true;
+  const totpSecret =
+    twoFactor === false ? undefined : twoFactor === true ? E2E_TOTP_SECRET : twoFactor.secret;
+  return {
+    twoFactorEnabled: totpSecret !== undefined,
+    totpSecret,
+    isActive: state.isActive ?? true,
+    mustChangePassword: state.mustChangePassword ?? false,
+  };
+}
+
+/** ロールの名前から ID を引く（無ければ失敗する） */
+async function resolveRoleIds(
+  client: PrismaClientInstance,
+  roleNames: readonly string[]
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (const roleName of roleNames) {
+    const role = await client.role.findUnique({ where: { name: roleName } });
+    if (!role) {
+      throw new Error(`ロール ${roleName} が見つかりません（利用者の作成の前提の誤り）`);
+    }
+    ids.push(role.id);
+  }
+  return ids;
+}
+
+/**
+ * 利用者を作成する（E2E の利用者の作成の共通の補助）
+ *
+ * E2E の spec と補助が利用者を作るときは、全てこの補助（またはこれを使う `createTestUser`・
+ * `createSessionUser`・`resetDedicatedUser`）を通す。Prisma で利用者を直接作らない
+ * （招待経由の登録を除く）。既定は 2FA 登録済み・有効・初回の変更を要しない状態で、
+ * 2FA の秘密鍵は backend と同じ形式で暗号化して保存する。
+ *
+ * @param userData - 資格・表示名・ロールの名前
+ * @param state - 既定と異なる状態（省略時は既定）
+ * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
+ * @returns 作成した利用者（`loginAsUser`・`getAccessToken` にそのまま渡せる）
+ *
+ * @example
+ * ```typescript
+ * const user = await createCustomUser({
+ *   email: 'custom@example.com',
+ *   password: 'CustomPass123!',
+ *   displayName: 'Custom User',
+ *   roles: ['user'],
+ * });
+ * const notEnrolled = await createCustomUser(data, { twoFactor: false });
+ * ```
+ */
+export async function createCustomUser(
+  userData: CustomUserData,
+  state: TestUserState = {},
+  prisma?: PrismaClientInstance
+): Promise<CreatedUser> {
+  const client = prisma || getPrismaClient();
+  const resolved = resolveUserState(state);
+  const roleIds = await resolveRoleIds(client, userData.roles);
+
+  const user = await client.user.create({
+    data: {
+      email: userData.email,
+      displayName: userData.displayName,
+      passwordHash: await hashPassword(userData.password),
+      twoFactorEnabled: resolved.twoFactorEnabled,
+      twoFactorSecret: resolved.totpSecret ? encryptTotpSecret(resolved.totpSecret) : null,
+      isActive: resolved.isActive,
+      mustChangePassword: resolved.mustChangePassword,
+    },
+  });
+
+  for (const roleId of roleIds) {
+    await client.userRole.create({ data: { userId: user.id, roleId } });
+  }
+
+  return {
+    id: user.id,
+    email: userData.email,
+    password: userData.password,
+    displayName: userData.displayName,
+    roles: [...userData.roles],
+    twoFactorEnabled: resolved.twoFactorEnabled,
+    totpSecret: resolved.totpSecret,
+    mustChangePassword: resolved.mustChangePassword,
+  };
+}
+
+/**
  * テストユーザーをデータベースに作成
  *
- * TEST_USERSからユーザー情報を取得し、パスワードをハッシュ化してデータベースに保存します。
- * デフォルトでロール割り当ても自動的に行います。
+ * TEST_USERSからユーザー情報を取得し、共通の補助（`createCustomUser`）で作成します
+ * （2FA 登録済み・有効・初回の変更を要しない状態）。ロール割り当ても行います。
  *
  * @param userKey - TEST_USERSのキー（'REGULAR_USER', 'ADMIN_USER'など）
  * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
- * @returns 作成されたユーザー情報（パスワードハッシュを含む）
+ * @returns 作成された利用者
  *
  * @example
  * ```typescript
@@ -35,41 +173,11 @@ type PrismaClientInstance = InstanceType<typeof PrismaClient>;
 export async function createTestUser(
   userKey: keyof typeof TEST_USERS,
   prisma?: PrismaClientInstance
-) {
+): Promise<CreatedUser> {
   const client = prisma || getPrismaClient();
   const userData = TEST_USERS[userKey];
 
-  // パスワードハッシュ化
-  const passwordHash = await hashPassword(userData.password);
-
-  // ユーザー作成
-  // 2FA有効ユーザーには既知の秘密鍵（E2E_TOTP_SECRET）を backend と同じ形式で暗号化して設定する。
-  // E2E の補助（two-factor-totp.ts）がその秘密鍵から TOTP コードを計算する
-  const user = await client.user.create({
-    data: {
-      email: userData.email,
-      displayName: userData.displayName,
-      passwordHash,
-      twoFactorEnabled: userData.twoFactorEnabled || false,
-      twoFactorSecret: userData.twoFactorEnabled ? encryptTotpSecret() : null,
-    },
-  });
-
-  // ロール割り当て
-  for (const roleName of userData.roles) {
-    const role = await client.role.findUnique({
-      where: { name: roleName },
-    });
-
-    if (role) {
-      await client.userRole.create({
-        data: {
-          userId: user.id,
-          roleId: role.id,
-        },
-      });
-    }
-  }
+  const user = await createCustomUser(userData, { twoFactor: userData.twoFactorEnabled }, client);
 
   // REQ-3.5: 管理者ユーザー作成時は監査ログを記録
   // 初期管理者セットアップのシミュレーション
@@ -114,11 +222,10 @@ export async function createTestUser(
 export async function createTestUsers(
   userKeys: Array<keyof typeof TEST_USERS>,
   prisma?: PrismaClientInstance
-) {
-  const users = [];
+): Promise<CreatedUser[]> {
+  const users: CreatedUser[] = [];
   for (const key of userKeys) {
-    const user = await createTestUser(key, prisma);
-    users.push(user);
+    users.push(await createTestUser(key, prisma));
   }
   return users;
 }
@@ -127,6 +234,7 @@ export async function createTestUsers(
  * 全てのテストユーザーを作成
  *
  * TEST_USERSに定義されている全てのテストユーザーを作成します。
+ * 専用の利用者（DEDICATED_USERS）は作らない（使うテストが `resetDedicatedUser` で作る）。
  *
  * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
  * @returns 作成されたユーザー情報の配列
@@ -136,63 +244,94 @@ export async function createTestUsers(
  * const users = await createAllTestUsers();
  * ```
  */
-export async function createAllTestUsers(prisma?: PrismaClientInstance) {
+export async function createAllTestUsers(prisma?: PrismaClientInstance): Promise<CreatedUser[]> {
   const userKeys = Object.keys(TEST_USERS) as Array<keyof typeof TEST_USERS>;
   return await createTestUsers(userKeys, prisma);
 }
 
 /**
- * カスタムユーザーを作成
+ * 専用の利用者を既定の状態へ初期化する（無ければ作成する）
  *
- * TEST_USERSに定義されていないカスタムユーザーを作成する場合に使用します。
+ * 状態を変える検証の各テストの開始時に呼ぶ（user-authentication タスク47.4、design.md
+ * 「E2E の認証基盤の移行」）。次を DEDICATED_USERS の定義どおりに戻す。
+ * - パスワード（ハッシュを作り直し、パスワードの履歴とリセットのトークンを消す）
+ * - 初回のパスワード変更の要否
+ * - 2FA（登録の有無・秘密鍵・最後に使った時間ステップ・再登録中の秘密鍵・バックアップコード・
+ *   検証の失敗回数とロック）
+ * - 有効状態（無効化の日時と理由を含む）
+ * - ログインのロック（失敗回数とロックの期限）
+ * - ロールの割り当て
+ * あわせて、その利用者のリフレッシュトークン（セッション）を消す。
  *
- * @param userData - ユーザーデータ
+ * 削除された利用者は作り直す（ID は変わる）。戻り値の ID を使う。
+ *
+ * @param key - DEDICATED_USERS のキー
  * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
- * @returns 作成されたユーザー情報
+ * @returns 初期化した利用者（`loginAsUser` にそのまま渡せる）
  *
  * @example
  * ```typescript
- * const user = await createCustomUser({
- *   email: 'custom@example.com',
- *   password: 'CustomPass123!',
- *   displayName: 'Custom User',
- *   roles: ['user'],
+ * test.beforeEach(async () => {
+ *   stateUser = await resetDedicatedUser('STATE_CHANGE_USER');
  * });
  * ```
  */
-export async function createCustomUser(userData: TestUser, prisma?: PrismaClientInstance) {
+export async function resetDedicatedUser(
+  key: DedicatedUserKey,
+  prisma?: PrismaClientInstance
+): Promise<CreatedUser> {
   const client = prisma || getPrismaClient();
+  const definition = DEDICATED_USERS[key];
+  const resolved = resolveUserState({
+    twoFactor: definition.twoFactorEnabled,
+    mustChangePassword: definition.mustChangePassword,
+  });
+  const roleIds = await resolveRoleIds(client, definition.roles);
+  const passwordHash = await hashPassword(definition.password);
+  const twoFactorSecret = resolved.totpSecret ? encryptTotpSecret(resolved.totpSecret) : null;
 
-  // パスワードハッシュ化
-  const passwordHash = await hashPassword(userData.password);
-
-  // ユーザー作成
-  const user = await client.user.create({
-    data: {
-      email: userData.email,
-      displayName: userData.displayName,
+  const user = await client.$transaction(async (tx) => {
+    const state = {
+      displayName: definition.displayName,
       passwordHash,
-      twoFactorEnabled: userData.twoFactorEnabled || false,
-    },
+      mustChangePassword: resolved.mustChangePassword,
+      twoFactorEnabled: resolved.twoFactorEnabled,
+      twoFactorSecret,
+      twoFactorLastUsedStep: null,
+      twoFactorPendingSecret: null,
+      twoFactorFailures: 0,
+      twoFactorLockedUntil: null,
+      isActive: true,
+      deactivatedAt: null,
+      deactivationReason: null,
+      isLocked: false,
+      lockedUntil: null,
+      loginFailures: 0,
+    };
+    const row = await tx.user.upsert({
+      where: { email: definition.email },
+      create: { email: definition.email, ...state },
+      update: state,
+    });
+    await tx.twoFactorBackupCode.deleteMany({ where: { userId: row.id } });
+    await tx.passwordHistory.deleteMany({ where: { userId: row.id } });
+    await tx.passwordResetToken.deleteMany({ where: { userId: row.id } });
+    await tx.refreshToken.deleteMany({ where: { userId: row.id } });
+    await tx.userRole.deleteMany({ where: { userId: row.id } });
+    await tx.userRole.createMany({ data: roleIds.map((roleId) => ({ userId: row.id, roleId })) });
+    return row;
   });
 
-  // ロール割り当て
-  for (const roleName of userData.roles) {
-    const role = await client.role.findUnique({
-      where: { name: roleName },
-    });
-
-    if (role) {
-      await client.userRole.create({
-        data: {
-          userId: user.id,
-          roleId: role.id,
-        },
-      });
-    }
-  }
-
-  return user;
+  return {
+    id: user.id,
+    email: definition.email,
+    password: definition.password,
+    displayName: definition.displayName,
+    roles: [...definition.roles],
+    twoFactorEnabled: resolved.twoFactorEnabled,
+    totpSecret: resolved.totpSecret,
+    mustChangePassword: resolved.mustChangePassword,
+  };
 }
 
 /**
@@ -207,17 +346,18 @@ export async function createCustomUser(userData: TestUser, prisma?: PrismaClient
 export const SESSION_USER_EMAIL_PREFIX = 'e2e-session-';
 
 /** テストの中で作る利用者（ログインに要る資格と ID） */
-export interface SessionUser extends TestUser {
-  id: string;
-}
+export type SessionUser = CreatedUser;
 
 /**
  * 共有の役割の利用者と同じ役割・表示名・パスワードの利用者を、一意のメールアドレスで作成
  *
  * 表示名とパスワードを共有の役割の利用者に揃えるのは、移した検証の画面上の観測（表示名で
- * ユーザーメニューを開く等）と入力値を変えないためである。後始末は `deleteSessionUsers` で行う。
+ * ユーザーメニューを開く等）と入力値を変えないためである。状態は共通の補助の既定
+ * （2FA 登録済み・有効・初回の変更を要しない）で、`state` で変えられる。
+ * 後始末は `deleteSessionUsers` で行う。
  *
  * @param roleKey - 役割を写す共有の役割の利用者（'REGULAR_USER' または 'ADMIN_USER'）
+ * @param state - 既定と異なる状態（省略時は既定）
  * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
  * @returns 作成した利用者の資格と ID（`loginAsUser` にそのまま渡せる）
  *
@@ -229,18 +369,20 @@ export interface SessionUser extends TestUser {
  */
 export async function createSessionUser(
   roleKey: 'REGULAR_USER' | 'ADMIN_USER',
+  state: TestUserState = {},
   prisma?: PrismaClientInstance
 ): Promise<SessionUser> {
   const base = TEST_USERS[roleKey];
-  const userData: TestUser = {
-    email: `${SESSION_USER_EMAIL_PREFIX}${Date.now()}-${randomBytes(4).toString('hex')}@example.com`,
-    password: base.password,
-    displayName: base.displayName,
-    roles: [...base.roles],
-    twoFactorEnabled: false,
-  };
-  const user = await createCustomUser(userData, prisma);
-  return { ...userData, id: user.id };
+  return createCustomUser(
+    {
+      email: `${SESSION_USER_EMAIL_PREFIX}${Date.now()}-${randomBytes(4).toString('hex')}@example.com`,
+      password: base.password,
+      displayName: base.displayName,
+      roles: base.roles,
+    },
+    state,
+    prisma
+  );
 }
 
 /**

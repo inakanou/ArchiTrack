@@ -13,6 +13,10 @@
  *   共有しないので、Web Locks で直列化されない二重のリフレッシュによる再利用の検知を起こさない
  * - `loginViaApi`: ログイン API を呼び、応答本文を返す。2FA の検証（46.2・47.4）と応答本文の
  *   リフレッシュトークンの撤去（45.5）は、この関数の中で受け止める
+ * - `completeApiLogin`: ログイン API を呼び、2FA の検証を求められたら資格と TOTP のコードで
+ *   検証して、ログインが完了した応答（ログインまたは 2FA の検証の応答）を返す（47.4）。
+ *   コードを計算する前に利用者の最後に使った時間ステップを戻すので、同じ利用者の同じ 30 秒の中の
+ *   続けてのログインも再使用として拒否されない
  * - `fetchSessionUser`・`waitForAuthenticatedSession`: 画面の状態の観測。アクセストークンは画面の
  *   メモリだけにあり永続ストレージに無いため（要件33.10）、画面のセッションで認証済みの API
  *   （`GET /api/v1/auth/me`）を呼べるかで観測する
@@ -24,6 +28,7 @@ import { request as playwrightRequest } from '@playwright/test';
 import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { API_BASE_URL, FRONTEND_BASE_URL, SAME_ORIGIN_API_BASE_URL } from '../config';
 import { TEST_USERS, type TestUser } from './test-users';
+import { E2E_TOTP_SECRET, prepareTotpCode } from './two-factor-totp';
 
 /**
  * 認証する利用者の指定
@@ -31,7 +36,10 @@ import { TEST_USERS, type TestUser } from './test-users';
  * 共有の役割のキー（'REGULAR_USER'・'ADMIN_USER' など）か、テストの中で作った利用者
  * （`createSessionUser` の戻り値など、メールアドレスとパスワードを持つもの）。
  */
-export type AuthUserRef = keyof typeof TEST_USERS | Pick<TestUser, 'email' | 'password'>;
+export type AuthUserRef =
+  | keyof typeof TEST_USERS
+  | (Pick<TestUser, 'email' | 'password'> &
+      Partial<Pick<TestUser, 'totpSecret' | 'twoFactorEnabled'>>);
 
 /** ログイン API の応答本文の利用者 */
 export interface ApiLoginUser {
@@ -56,8 +64,71 @@ export interface ApiLoginOptions {
   baseUrl?: string;
 }
 
-function resolveUser(user: AuthUserRef): Pick<TestUser, 'email' | 'password'> {
+function resolveUser(
+  user: AuthUserRef
+): Pick<TestUser, 'email' | 'password' | 'totpSecret' | 'twoFactorEnabled'> {
   return typeof user === 'string' ? TEST_USERS[user] : user;
+}
+
+/**
+ * ログイン API を呼び、2FA の検証を求められたら資格と TOTP のコードで検証して、
+ * ログインが完了した応答を返す
+ *
+ * - ログインの応答が 200 でないとき、2FA の検証の応答が 200 でないときは失敗する
+ * - 2FA 登録済み（`twoFactorEnabled` が false でない。既定）の利用者は、ログインの応答が 2FA の
+ *   検証を求めることを前提とし（求めなければ失敗する）、`prepareTotpCode` で最後に使った
+ *   時間ステップを戻してから既知の秘密鍵（`totpSecret`、省略時は E2E_TOTP_SECRET）でコードを計算し、
+ *   `POST /api/v1/auth/verify-2fa` に `{ challengeToken, code }` を送る
+ * - 2FA 未登録（`twoFactorEnabled: false`）の利用者は、ログインの応答が 2FA の検証を求めないことを
+ *   前提とし、ログインの応答をそのまま返す
+ *
+ * リフレッシュトークンの Cookie は `request` の入れ物に入る（応答の Set-Cookie も返す応答で読める）。
+ *
+ * @param request - 要求のコンテキスト（Cookie の入れ物）
+ * @param user - ログインする利用者
+ * @param baseUrl - ログイン・2FA の検証の API のベースURL
+ * @returns ログインが完了した応答（2FA 未登録はログインの応答、登録済みは 2FA の検証の応答）
+ */
+export async function completeApiLogin(
+  request: APIRequestContext,
+  user: AuthUserRef,
+  baseUrl: string
+): Promise<APIResponse> {
+  const { email, password, totpSecret, twoFactorEnabled } = resolveUser(user);
+  const response = await request.post(`${baseUrl}/api/v1/auth/login`, {
+    data: { email, password },
+  });
+  if (response.status() !== 200) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`ログイン API が失敗した（${email}）: status ${response.status()} ${body}`);
+  }
+  const body = (await response.json()) as { requires2FA?: unknown; challengeToken?: unknown };
+  // 2FA 登録済み（既定）の利用者はログインの応答が 2FA の検証を求めることを、未登録の利用者は
+  // 求めないことを前提とし、食い違えば失敗する（観測で黙って経路を切り替えない）
+  const expectsTwoFactor = twoFactorEnabled !== false;
+  if ((body.requires2FA === true) !== expectsTwoFactor) {
+    throw new Error(
+      `ログイン API の 2FA の要求（requires2FA: ${String(body.requires2FA)}）が` +
+        `利用者 ${email} の 2FA の登録の状態（${expectsTwoFactor ? '登録済み' : '未登録'}）と食い違う`
+    );
+  }
+  if (!expectsTwoFactor) {
+    return response;
+  }
+  if (typeof body.challengeToken !== 'string' || body.challengeToken === '') {
+    throw new Error(`ログイン API の 2FA の要求に資格が無い（${email}）`);
+  }
+  const code = await prepareTotpCode(email, totpSecret ?? E2E_TOTP_SECRET);
+  const verified = await request.post(`${baseUrl}/api/v1/auth/verify-2fa`, {
+    data: { challengeToken: body.challengeToken, code },
+  });
+  if (verified.status() !== 200) {
+    const verifiedBody = await verified.text().catch(() => '');
+    throw new Error(
+      `2FA の検証 API が失敗した（${email}）: status ${verified.status()} ${verifiedBody}`
+    );
+  }
+  return verified;
 }
 
 /** JWT のペイロードのメールアドレス（読めなければ null） */
@@ -116,16 +187,16 @@ export async function getAccessToken(_page: Page, user: AuthUserRef): Promise<st
 }
 
 /**
- * ログイン API を呼び、応答本文を返す
+ * ログイン API を呼び、ログインが完了した応答本文を返す
  *
- * 応答が 200 でないとき、2FA の検証を要するとき（2FA 登録済みの利用者）は失敗する。
- * ログインそのもの（拒否・回数制限・Cookie の属性・応答時間など）を検証するテストは
- * この補助を使わず、ログイン API を直接呼ぶ。
+ * 2FA 登録済みの利用者は、2FA の検証まで行い、その応答本文を返す（`completeApiLogin`）。
+ * 応答が 200 でないときは失敗する。ログインそのもの（拒否・回数制限・Cookie の属性・応答時間・
+ * 2FA の要求の本文など）を検証するテストはこの補助を使わず、ログイン API を直接呼ぶ。
  *
  * @param request - 要求のコンテキスト
  * @param user - ログインする利用者
  * @param options - ベースURL
- * @returns ログイン API の応答本文（アクセストークン・リフレッシュトークン・利用者）
+ * @returns ログインが完了した応答本文（アクセストークン・利用者）
  *
  * @example
  * ```typescript
@@ -137,23 +208,8 @@ export async function loginViaApi(
   user: AuthUserRef,
   options?: ApiLoginOptions
 ): Promise<ApiLoginResult> {
-  const { email, password } = resolveUser(user);
-  const baseUrl = options?.baseUrl ?? API_BASE_URL;
-  const response = await request.post(`${baseUrl}/api/v1/auth/login`, {
-    data: { email, password },
-  });
-  if (response.status() !== 200) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`ログイン API が失敗した（${email}）: status ${response.status()} ${body}`);
-  }
-  const body = (await response.json()) as Partial<ApiLoginResult> & { requires2FA?: boolean };
-  if (body.requires2FA) {
-    // 2FA 登録済みの利用者の API のログインは、2FA の検証の補助（46.2・47.4）を設けるまで扱わない
-    throw new Error(
-      `ログイン API が 2FA の検証を求めた（${email}）: この補助は 2FA の検証に未対応`
-    );
-  }
-  return body as ApiLoginResult;
+  const response = await completeApiLogin(request, user, options?.baseUrl ?? API_BASE_URL);
+  return (await response.json()) as ApiLoginResult;
 }
 
 /** 画面のセッションで認証済みの API が返した利用者 */
