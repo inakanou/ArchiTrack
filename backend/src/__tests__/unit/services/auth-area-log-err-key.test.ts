@@ -21,6 +21,7 @@ import { RolePermissionService } from '../../../services/role-permission.service
 import { UserRoleService } from '../../../services/user-role.service.js';
 import { PermissionService } from '../../../services/permission.service.js';
 import { SessionService } from '../../../services/session.service.js';
+import type { TwoFactorChallengeService } from '../../../services/two-factor-challenge.service.js';
 import { AuthService } from '../../../services/auth.service.js';
 import type { InvitationService } from '../../../services/invitation.service.js';
 import type { PasswordService } from '../../../services/password.service.js';
@@ -147,8 +148,18 @@ function authServiceFailingCounterUpdate(error: Error): AuthService {
     {} as PasswordService,
     {} as TokenService,
     twoFactor,
-    {} as SessionService
+    {} as SessionService,
+    challengeForUser1()
   );
+}
+
+/** 利用者 user-1 に結び付いた 2FA 待ちの資格を照会・消費できる代役 */
+function challengeForUser1(): TwoFactorChallengeService {
+  return {
+    issue: vi.fn(),
+    peek: vi.fn().mockResolvedValue(Ok({ userId: 'user-1' })),
+    consume: vi.fn().mockResolvedValue(Ok(undefined)),
+  } as unknown as TwoFactorChallengeService;
 }
 
 type Level = 'error' | 'warn';
@@ -370,17 +381,25 @@ const cases: LogCase[] = [
   ],
   // auth（2FA のログインの検証の失敗回数の更新の失敗）
   [
-    'AuthService.verify2FA（失敗回数の更新の失敗）',
+    'AuthService.completeTwoFactorLogin（TOTP。失敗回数の更新の失敗）',
     'error',
     '2FA失敗カウンター更新に失敗',
-    (e) => authServiceFailingCounterUpdate(e).verify2FA('user-1', '000000'),
+    (e) =>
+      authServiceFailingCounterUpdate(e).completeTwoFactorLogin('challenge', {
+        kind: 'totp',
+        code: '000000',
+      }),
     null,
   ],
   [
-    'AuthService.verify2FABackupCode（失敗回数の更新の失敗）',
+    'AuthService.completeTwoFactorLogin（バックアップコード。失敗回数の更新の失敗）',
     'error',
     '2FA失敗カウンター更新に失敗',
-    (e) => authServiceFailingCounterUpdate(e).verify2FABackupCode('user-1', 'ZZZZ9999'),
+    (e) =>
+      authServiceFailingCounterUpdate(e).completeTwoFactorLogin('challenge', {
+        kind: 'backup',
+        backupCode: 'ZZZZ9999',
+      }),
     null,
   ],
 ];

@@ -63,7 +63,8 @@ export function SessionExpiredModal({
   // 2FA関連
   const [requires2FA, setRequires2FA] = useState(false);
   const [totpCode, setTotpCode] = useState('');
-  const [loginEmail, setLoginEmail] = useState('');
+  /** ログインの応答の 2FA 待ちの資格（2FA の検証で送る。要件32.1） */
+  const [challengeToken, setChallengeToken] = useState('');
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
@@ -77,7 +78,7 @@ export function SessionExpiredModal({
       setIsNetworkErr(false);
       setRequires2FA(false);
       setTotpCode('');
-      setLoginEmail('');
+      setChallengeToken('');
     }
   }, [isOpen]);
 
@@ -146,8 +147,8 @@ export function SessionExpiredModal({
 
         try {
           await apiClient.post('/api/v1/auth/verify-2fa', {
-            token: totpCode,
-            email: loginEmail,
+            challengeToken,
+            code: totpCode,
           });
 
           onReauthSuccess();
@@ -178,6 +179,7 @@ export function SessionExpiredModal({
       try {
         const response = await apiClient.post<{
           requires2FA?: boolean;
+          challengeToken?: string;
           accessToken?: string;
           user?: unknown;
         }>('/api/v1/auth/login', {
@@ -188,7 +190,7 @@ export function SessionExpiredModal({
         // 要件30.12: 2FA要求時
         if (response.requires2FA) {
           setRequires2FA(true);
-          setLoginEmail(userEmail);
+          setChallengeToken(response.challengeToken ?? '');
           return;
         }
 
@@ -213,7 +215,7 @@ export function SessionExpiredModal({
         setIsSubmitting(false);
       }
     },
-    [password, userEmail, onReauthSuccess, requires2FA, totpCode, loginEmail]
+    [password, userEmail, onReauthSuccess, requires2FA, totpCode, challengeToken]
   );
 
   // 非表示時はレンダリングしない

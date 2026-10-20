@@ -468,7 +468,11 @@ async function fulfillJson(
 
 /** ログインの応答を 2FA の要求にして、ログイン画面から 2FA の確認の画面へキーボードで進む */
 async function openTwoFactorVerificationByKeyboard(page: Page): Promise<void> {
-  await fulfillJson(page, '/api/v1/auth/login', 200, { requires2FA: true });
+  await fulfillJson(page, '/api/v1/auth/login', 200, {
+    requires2FA: true,
+    challengeToken: 'e2e-2fa-challenge',
+    expiresIn: 300,
+  });
   await page.goto('/login');
   await page.getByLabel('メールアドレス').fill('focus-visible@example.com');
   const passwordInput = page.getByLabel('パスワード', { exact: true });

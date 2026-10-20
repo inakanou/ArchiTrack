@@ -501,7 +501,8 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           requires2FA: true,
-          tempToken: 'temp-2fa-token',
+          challengeToken: 'e2e-2fa-challenge',
+          expiresIn: 300,
         }),
       });
     });

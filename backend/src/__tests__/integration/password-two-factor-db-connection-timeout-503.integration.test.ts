@@ -16,6 +16,9 @@
  *   検証の失敗として扱わずに 503 を返し、失敗回数（twoFactorFailures）を加算しない。
  *   途中の切断は、TwoFactorService の検証メソッドの前後に中継の切り替えを差し込んで作る
  *   （検証メソッドそのものは本物を呼ぶ）
+ *
+ * 2FA のログインの検証は、ログインの応答の 2FA 待ちの資格を要求する（要件32.2）。DB に到達できない状態では
+ * ログインできないため、資格は本物の TwoFactorChallengeService で実 Redis に発行する。
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
@@ -25,6 +28,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { authenticator } from 'otplib';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import type { TwoFactorService } from '../../services/two-factor.service.js';
+import type { TwoFactorChallengeService } from '../../services/two-factor-challenge.service.js';
 import { SwitchableDatabaseRelay } from './switchable-database-relay.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
@@ -57,6 +61,8 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
   let app: Express;
   let disconnectPrisma: () => Promise<void>;
   let TwoFactorServiceClass: typeof TwoFactorService;
+  let challengeService: TwoFactorChallengeService;
+  let disconnectRedis: () => Promise<void>;
   let generateAccessToken: (payload: {
     userId: string;
     email: string;
@@ -90,11 +96,19 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
     const db = await import('../../db.js');
     disconnectPrisma = db.disconnectPrisma;
     TwoFactorServiceClass = (await import('../../services/two-factor.service.js')).TwoFactorService;
+    // 2FA 待ちの資格の保存先（実 Redis）
+    const redisModule = await import('../../redis.js');
+    await redisModule.initRedis();
+    disconnectRedis = redisModule.default.disconnect;
+    const { TwoFactorChallengeService: ChallengeServiceClass } =
+      await import('../../services/two-factor-challenge.service.js');
+    challengeService = new ChallengeServiceClass();
     const tokenService = (await import('../../services/token.service.js')).default;
     generateAccessToken = (payload) => tokenService.generateAccessToken(payload);
   }, BEFORE_ALL_TIMEOUT_MS);
 
   afterAll(async () => {
+    await disconnectRedis?.();
     await disconnectPrisma?.();
     await directPrisma?.$disconnect();
     await relay?.close();
@@ -106,6 +120,17 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
       }
     }
   });
+
+  /**
+   * 利用者に結び付いた 2FA 待ちの資格を実 Redis に発行する（DB に到達できないときはログインできないため）
+   */
+  async function issueChallenge(userId: string): Promise<string> {
+    const issued = await challengeService.issue(userId);
+    if (!issued.ok) {
+      throw new Error(`2FA 待ちの資格を発行できない: ${issued.error.type}`);
+    }
+    return issued.value.challengeToken;
+  }
 
   describe('最初から DB に到達できないとき', () => {
     let accessToken: string;
@@ -247,9 +272,10 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
      * @requirement user-authentication/REQ-24.1
      */
     it('2FA のログインの検証（POST /api/v1/auth/verify-2fa）は 503 と Problem Details を返す', async () => {
+      const challengeToken = await issueChallenge('ua363-user');
       const response = await request(app)
         .post('/api/v1/auth/verify-2fa')
-        .send({ tempToken: accessToken, token: '123456' });
+        .send({ challengeToken, code: '123456' });
 
       expect(response.status).toBe(503);
       expect(response.body).toEqual({
@@ -262,7 +288,7 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
   describe('2FA のログインの検証の途中で DB に到達できなくなったとき', () => {
     let userId: string;
     let email: string;
-    let tempToken: string;
+    let challengeToken: string;
     let invalidTotpCode: string;
 
     async function failures(): Promise<number | null> {
@@ -304,7 +330,6 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
         },
       });
       userId = user.id;
-      tempToken = await generateAccessToken({ userId, email, roles: [] });
     });
 
     beforeEach(async () => {
@@ -313,6 +338,7 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
         where: { id: userId },
         data: { twoFactorFailures: 0, twoFactorLockedUntil: null },
       });
+      challengeToken = await issueChallenge(userId);
     });
 
     afterEach(() => {
@@ -363,7 +389,7 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
     it('前提: DB に到達できるとき、一致しない TOTP コードは 401 を返し失敗回数を 1 加算する', async () => {
       const response = await request(app)
         .post('/api/v1/auth/verify-2fa')
-        .send({ tempToken, token: invalidTotpCode });
+        .send({ challengeToken, code: invalidTotpCode });
 
       expect(response.status).toBe(401);
       expect(await failures()).toBe(1);
@@ -377,7 +403,7 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
 
       const response = await request(app)
         .post('/api/v1/auth/verify-2fa')
-        .send({ tempToken, token: invalidTotpCode });
+        .send({ challengeToken, code: invalidTotpCode });
 
       expect(response.status).toBe(503);
       expect(response.body).toEqual({
@@ -395,7 +421,7 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
 
       const response = await request(app)
         .post('/api/v1/auth/verify-2fa/backup')
-        .send({ email, backupCode: 'ZZZZ9999' });
+        .send({ challengeToken, backupCode: 'ZZZZ9999' });
 
       expect(response.status).toBe(503);
       expect(response.body).toEqual({
@@ -413,7 +439,7 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
 
       const response = await request(app)
         .post('/api/v1/auth/verify-2fa')
-        .send({ tempToken, token: invalidTotpCode });
+        .send({ challengeToken, code: invalidTotpCode });
 
       expect(response.status).toBe(503);
       expect(response.body).toEqual({
@@ -432,7 +458,7 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
 
       const response = await request(app)
         .post('/api/v1/auth/verify-2fa/backup')
-        .send({ email, backupCode: 'ZZZZ9999' });
+        .send({ challengeToken, backupCode: 'ZZZZ9999' });
 
       expect(response.status).toBe(503);
       expect(response.body).toEqual({

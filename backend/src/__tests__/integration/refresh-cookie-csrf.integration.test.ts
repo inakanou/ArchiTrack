@@ -187,7 +187,10 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
 
       const response = await request(app)
         .post('/api/v1/auth/verify-2fa')
-        .send({ email, token: authenticator.generate(secret) });
+        .send({
+          challengeToken: challenge.body.challengeToken,
+          code: authenticator.generate(secret),
+        });
 
       expect(response.status).toBe(200);
       expect(response.body).not.toHaveProperty('refreshToken');

@@ -22,6 +22,7 @@ import { AuthService } from '../../../services/auth.service.js';
 import type { EmailService } from '../../../services/email.service.js';
 import type { InvitationService } from '../../../services/invitation.service.js';
 import type { SessionService } from '../../../services/session.service.js';
+import type { TwoFactorChallengeService } from '../../../services/two-factor-challenge.service.js';
 import type { TokenService } from '../../../services/token.service.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import { Ok } from '../../../types/result.js';
@@ -326,12 +327,22 @@ function authServiceWith(prisma: PrismaClient, twoFactor: TwoFactorService): Aut
     {} as PasswordService,
     {} as TokenService,
     twoFactor,
-    {} as SessionService
+    {} as SessionService,
+    challengeForUser1()
   );
 }
 
+/** 利用者 user-1 に結び付いた 2FA 待ちの資格を照会・消費できる代役 */
+function challengeForUser1(): TwoFactorChallengeService {
+  return {
+    issue: vi.fn(),
+    peek: vi.fn().mockResolvedValue(Ok({ userId: 'user-1' })),
+    consume: vi.fn().mockResolvedValue(Ok(undefined)),
+  } as unknown as TwoFactorChallengeService;
+}
+
 /**
- * verify2FA / verify2FABackupCode の最初のユーザーの取得は成り立ち、
+ * 2FA のログインの検証（TOTP・バックアップコード）の最初のユーザーの取得は成り立ち、
  * TwoFactorService の検証の中のユーザーの取得（2 回目）が失敗する PrismaClient の代役
  */
 function failingOnVerificationPrisma(error: unknown): PrismaClient {
@@ -347,14 +358,14 @@ const loginVerifications: Array<
   [string, (auth: AuthService) => Promise<unknown>, 'verifyTOTP' | 'verifyBackupCode', string]
 > = [
   [
-    'AuthService.verify2FA',
-    (a) => a.verify2FA('user-1', '000000'),
+    'AuthService.completeTwoFactorLogin（TOTP）',
+    (a) => a.completeTwoFactorLogin('challenge', { kind: 'totp', code: '000000' }),
     'verifyTOTP',
     'INVALID_2FA_CODE',
   ],
   [
-    'AuthService.verify2FABackupCode',
-    (a) => a.verify2FABackupCode('user-1', 'ZZZZ9999'),
+    'AuthService.completeTwoFactorLogin（バックアップコード）',
+    (a) => a.completeTwoFactorLogin('challenge', { kind: 'backup', backupCode: 'ZZZZ9999' }),
     'verifyBackupCode',
     'INVALID_BACKUP_CODE',
   ],

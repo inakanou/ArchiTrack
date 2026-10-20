@@ -176,7 +176,8 @@ export interface UpdateProfileData {
 export interface LoginResponse {
   type: 'SUCCESS' | '2FA_REQUIRED';
   accessToken?: string;
-  userId?: string;
+  /** 2FA 待ちの資格（2FA_REQUIRED のとき。利用者 ID は返らない） */
+  challengeToken?: string;
   user?: UserProfile;
   expiresIn?: number;
 }

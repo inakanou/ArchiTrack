@@ -20,6 +20,7 @@ import tokenServiceInstance from './token.service.js';
 import { TwoFactorService } from './two-factor.service.js';
 import { SessionService } from './session.service.js';
 import { AuditLogService } from './audit-log.service.js';
+import { TwoFactorChallengeService } from './two-factor-challenge.service.js';
 import type {
   IAuthService,
   RegisterData,
@@ -28,6 +29,7 @@ import type {
   UserProfile,
   AuthError,
   RequestContext,
+  TwoFactorProof,
 } from '../types/auth.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import { addTimingAttackDelay } from '../utils/timing.js';
@@ -57,6 +59,7 @@ export class AuthService implements IAuthService {
   private readonly tokenService: TokenService;
   private readonly twoFactorService: TwoFactorService;
   private readonly sessionService: SessionService;
+  private readonly twoFactorChallengeService: TwoFactorChallengeService;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -64,13 +67,15 @@ export class AuthService implements IAuthService {
     passwordService?: PasswordService,
     tokenService?: TokenService,
     twoFactorService?: TwoFactorService,
-    sessionService?: SessionService
+    sessionService?: SessionService,
+    twoFactorChallengeService?: TwoFactorChallengeService
   ) {
     this.invitationService = invitationService || new InvitationService(prisma);
     this.passwordService = passwordService || new PasswordService(prisma);
     this.tokenService = tokenService || tokenServiceInstance;
     this.twoFactorService = twoFactorService || new TwoFactorService();
     this.sessionService = sessionService || new SessionService(prisma);
+    this.twoFactorChallengeService = twoFactorChallengeService || new TwoFactorChallengeService();
   }
 
   /**
@@ -339,10 +344,16 @@ export class AuthService implements IAuthService {
 
       // 5. 2FA有効チェック
       if (user.twoFactorEnabled) {
-        // 2FA有効の場合、2FA検証画面へ
+        // 2FA有効の場合、パスワードの成功に結び付いた 2FA 待ちの資格を発行し、2FA検証画面へ
+        // （要件32.1）。応答に利用者 ID を含めない（要件42.7）
+        const challenge = await this.twoFactorChallengeService.issue(user.id);
+        if (!challenge.ok) {
+          return Err({ type: 'SERVICE_UNAVAILABLE' });
+        }
         return Ok({
           type: '2FA_REQUIRED',
-          userId: user.id,
+          challengeToken: challenge.value.challengeToken,
+          expiresIn: challenge.value.expiresIn,
         });
       }
 
@@ -385,167 +396,7 @@ export class AuthService implements IAuthService {
   }
 
   /**
-   * 2FA検証（ログイン時）
-   *
-   * 処理フロー:
-   * 1. ユーザー検索（ロール情報も取得）
-   * 2. 2FAアカウントロック確認
-   * 3. ロック期限切れの場合はロック解除
-   * 4. TOTP検証
-   * 5. 検証成功時: JWT生成、失敗カウンターリセット
-   * 6. 検証失敗時: 失敗カウンターインクリメント、5回で5分間ロック
-   */
-  async verify2FA(
-    userId: string,
-    totpCode: string,
-    deviceInfo?: string
-  ): Promise<Result<AuthResponse, AuthError>> {
-    try {
-      // 1. Fetch user with only necessary fields (optimized query)
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          id: true,
-          email: true,
-          displayName: true,
-          createdAt: true,
-          twoFactorEnabled: true,
-          twoFactorFailures: true,
-          twoFactorLockedUntil: true,
-          userRoles: {
-            select: {
-              role: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      // ユーザーが存在しない場合
-      if (!user) {
-        return Err({ type: 'USER_NOT_FOUND' });
-      }
-
-      // 2. 2FAアカウントロック確認
-      if (user.twoFactorLockedUntil && user.twoFactorLockedUntil > new Date()) {
-        return Err({
-          type: 'ACCOUNT_LOCKED',
-          unlockAt: user.twoFactorLockedUntil,
-        });
-      }
-
-      // 3. ロック期限切れの場合はロック解除
-      if (user.twoFactorLockedUntil && user.twoFactorLockedUntil <= new Date()) {
-        await this.prisma.user.update({
-          where: { id: userId },
-          data: {
-            twoFactorFailures: 0,
-            twoFactorLockedUntil: null,
-          },
-        });
-      }
-
-      // 4. TOTP検証
-      const verifyResult = await this.twoFactorService.verifyTOTP(userId, totpCode);
-
-      // 検証失敗（エラーまたは無効なコード）の場合、失敗カウンターをインクリメント
-      const isValid = verifyResult.ok && verifyResult.value;
-
-      if (!isValid) {
-        // 検証失敗: 失敗カウンターをインクリメント
-        const currentFailures = user.twoFactorFailures ?? 0;
-        const newFailures = currentFailures + 1;
-        const isLocked = newFailures >= SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES;
-        logger.info(
-          {
-            userId,
-            currentFailures,
-            newFailures,
-            isLocked,
-            maxFailures: SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES,
-          },
-          '2FA検証失敗: 失敗カウンターをインクリメント'
-        );
-        const lockedUntil = isLocked
-          ? new Date(Date.now() + SECURITY_CONFIG.TWO_FACTOR.LOCK_DURATION_MS)
-          : null;
-
-        try {
-          await this.prisma.user.update({
-            where: { id: userId },
-            data: {
-              twoFactorFailures: newFailures,
-              ...(isLocked && { twoFactorLockedUntil: lockedUntil }),
-            },
-          });
-        } catch (updateError) {
-          // 接続のタイムアウトは検証の失敗として扱わず、エラーハンドラーの 503 へ届ける（要件24.1）
-          rethrowIfDatabaseConnectionTimeout(updateError);
-          logger.error({ err: updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
-          // 接続のタイムアウト以外の更新の失敗は、検証失敗として処理を続行
-        }
-
-        if (isLocked && lockedUntil) {
-          return Err({
-            type: 'ACCOUNT_LOCKED',
-            unlockAt: lockedUntil,
-          });
-        }
-
-        return Err({ type: 'INVALID_2FA_CODE' });
-      }
-
-      // 5. 検証成功: 失敗カウンターをリセット
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          twoFactorFailures: 0,
-          twoFactorLockedUntil: null,
-        },
-      });
-
-      // 6. JWT生成
-      const payload = {
-        userId: user.id,
-        email: user.email,
-        roles: user.userRoles.map((ur) => ur.role.name),
-      };
-
-      const accessToken = await this.tokenService.generateAccessToken(payload);
-
-      // 新しい系列でリフレッシュトークンを発行し、ハッシュをDBに保存
-      const { refreshToken } = await this.sessionService.createSession(user.id, deviceInfo);
-
-      // UserProfile作成
-      const userProfile: UserProfile = {
-        id: user.id,
-        email: user.email,
-        displayName: user.displayName,
-        roles: user.userRoles.map((ur) => ur.role.name),
-        createdAt: user.createdAt,
-        twoFactorEnabled: user.twoFactorEnabled,
-      };
-
-      return Ok({
-        accessToken,
-        refreshToken,
-        user: userProfile,
-      });
-    } catch (error) {
-      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
-      rethrowIfDatabaseConnectionTimeout(error);
-      return Err({
-        type: 'DATABASE_ERROR',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
-
-  /**
-   * バックアップコードで2FA検証
+   * 2FA の検証を完了する（ログイン時）
    *
    * Requirements:
    * - 27A.5: 「バックアップコードを使用する」選択時にバックアップコード入力フィールドを表示
@@ -553,19 +404,44 @@ export class AuthService implements IAuthService {
    * - 27A.7: バックアップコード使用後、usedAtフィールドを更新
    * - 27A.8: ログイン成功後、ダッシュボードへリダイレクト
    *
-   * 処理手順:
-   * 1. ユーザー存在確認
-   * 2. 2FAアカウントロック確認
-   * 3. ロック期限切れの場合はロック解除
-   * 4. バックアップコード検証
-   * 5. 検証成功時: JWT生成、失敗カウンターリセット
-   * 6. 検証失敗時: 失敗カウンターインクリメント、5回で5分間ロック
+   * 2FA 待ちの資格（要件32.1〜32.6）: ログインで発行した資格に結び付いた利用者だけを検証し、
+   * メールアドレスや JWT を資格として受理しない。期限切れ・消費済みの資格を拒否し、成功で資格を
+   * 消費する。消費に失敗したとき（同時の二重成功）はトークンを発行しない。TOTP とバックアップコードは
+   * 同じ資格を要求する。
+   *
+   * 処理フロー:
+   * 1. 資格を照会して利用者を決める（照会できなければ CHALLENGE_INVALID、保存先が使えなければ SERVICE_UNAVAILABLE）
+   * 2. 2FAアカウントロック確認、ロック期限切れの場合はロック解除
+   * 3. TOTP またはバックアップコードの検証
+   * 4. 検証失敗時: 失敗カウンターインクリメント、5回で5分間ロック（資格は消費しない）
+   * 5. 検証成功時: 資格を消費し、失敗カウンターをリセットしてトークンを発行する
    */
-  async verify2FABackupCode(
-    userId: string,
-    backupCode: string,
+  async completeTwoFactorLogin(
+    challengeToken: string,
+    proof: TwoFactorProof,
     deviceInfo?: string
   ): Promise<Result<AuthResponse, AuthError>> {
+    const challenge = await this.twoFactorChallengeService.peek(challengeToken);
+    if (!challenge.ok) {
+      return Err(
+        challenge.error.type === 'CHALLENGE_STORE_UNAVAILABLE'
+          ? { type: 'SERVICE_UNAVAILABLE' }
+          : { type: 'CHALLENGE_INVALID' }
+      );
+    }
+    return this.verifySecondFactor(challenge.value.userId, challengeToken, proof, deviceInfo);
+  }
+
+  /**
+   * 資格に結び付いた利用者の第二要素を検証し、成功で資格を消費してトークンを発行する
+   */
+  private async verifySecondFactor(
+    userId: string,
+    challengeToken: string,
+    proof: TwoFactorProof,
+    deviceInfo?: string
+  ): Promise<Result<AuthResponse, AuthError>> {
+    const kindLabel = proof.kind === 'totp' ? '2FA検証失敗' : '2FAバックアップコード検証失敗';
     try {
       // 1. Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
@@ -603,7 +479,7 @@ export class AuthService implements IAuthService {
         });
       }
 
-      // 3. ロック期限切れの場合はロック解除
+      // ロック期限切れの場合はロック解除
       if (user.twoFactorLockedUntil && user.twoFactorLockedUntil <= new Date()) {
         await this.prisma.user.update({
           where: { id: userId },
@@ -614,14 +490,17 @@ export class AuthService implements IAuthService {
         });
       }
 
-      // 4. バックアップコード検証
-      const verifyResult = await this.twoFactorService.verifyBackupCode(userId, backupCode);
+      // 3. TOTP またはバックアップコードの検証
+      const verifyResult =
+        proof.kind === 'totp'
+          ? await this.twoFactorService.verifyTOTP(userId, proof.code)
+          : await this.twoFactorService.verifyBackupCode(userId, proof.backupCode);
 
       // 検証失敗（エラーまたは無効なコード）の場合、失敗カウンターをインクリメント
       const isValid = verifyResult.ok && verifyResult.value;
 
       if (!isValid) {
-        // 検証失敗: 失敗カウンターをインクリメント
+        // 4. 検証失敗: 失敗カウンターをインクリメント（資格は消費せず、期限内の再試行を認める）
         const currentFailures = user.twoFactorFailures ?? 0;
         const newFailures = currentFailures + 1;
         const isLocked = newFailures >= SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES;
@@ -633,7 +512,7 @@ export class AuthService implements IAuthService {
             isLocked,
             maxFailures: SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES,
           },
-          '2FAバックアップコード検証失敗: 失敗カウンターをインクリメント'
+          `${kindLabel}: 失敗カウンターをインクリメント`
         );
         const lockedUntil = isLocked
           ? new Date(Date.now() + SECURITY_CONFIG.TWO_FACTOR.LOCK_DURATION_MS)
@@ -661,10 +540,20 @@ export class AuthService implements IAuthService {
           });
         }
 
-        return Err({ type: 'INVALID_BACKUP_CODE' });
+        return Err({ type: proof.kind === 'totp' ? 'INVALID_2FA_CODE' : 'INVALID_BACKUP_CODE' });
       }
 
-      // 5. 検証成功: 失敗カウンターをリセット
+      // 5. 検証成功: 資格を消費する。消費できなければ（同時の二重成功・期限切れ）トークンを発行しない
+      const consumed = await this.twoFactorChallengeService.consume(challengeToken);
+      if (!consumed.ok) {
+        return Err(
+          consumed.error.type === 'CHALLENGE_STORE_UNAVAILABLE'
+            ? { type: 'SERVICE_UNAVAILABLE' }
+            : { type: 'CHALLENGE_INVALID' }
+        );
+      }
+
+      // 失敗カウンターをリセット
       await this.prisma.user.update({
         where: { id: userId },
         data: {
@@ -673,7 +562,7 @@ export class AuthService implements IAuthService {
         },
       });
 
-      // 6. JWT生成
+      // JWT生成
       const payload = {
         userId: user.id,
         email: user.email,

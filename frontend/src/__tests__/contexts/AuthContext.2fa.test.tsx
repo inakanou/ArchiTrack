@@ -47,8 +47,27 @@ const NO_COOKIE_ROUTES: Routes = {
 
 const REQUIRES_2FA_ROUTES: Routes = {
   ...NO_COOKIE_ROUTES,
-  'POST /api/v1/auth/login': { status: 200, body: { requires2FA: true, userId: 'user-123' } },
+  'POST /api/v1/auth/login': {
+    status: 200,
+    body: { requires2FA: true, challengeToken: 'challenge-abc', expiresIn: 300 },
+  },
 };
+
+/** 送った要求のうち、メソッドとパスが一致する最後のものの本文 */
+function lastRequestBody(method: string, path: string): unknown {
+  const calls = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls as Array<
+    [RequestInfo | URL, RequestInit | undefined]
+  >;
+  const matched = calls.filter(
+    ([input, init]) =>
+      (init?.method ?? 'GET') === method && new URL(String(input)).pathname === path
+  );
+  const last = matched[matched.length - 1];
+  if (!last) {
+    throw new Error(`no request: ${method} ${path}`);
+  }
+  return JSON.parse(String(last[1]?.body));
+}
 
 /** fetch をメソッドとパスで応答を返す代替に差し替える */
 function mockFetch(routes: Routes): void {
@@ -104,7 +123,7 @@ describe('AuthContext - 2FA機能', () => {
       await waitFor(() => {
         expect(result.current.twoFactorState).toEqual({
           required: true,
-          email: 'test@example.com',
+          challengeToken: 'challenge-abc',
         });
         expect(result.current.isAuthenticated).toBe(false);
         expect(result.current.isLoading).toBe(false);
@@ -144,6 +163,12 @@ describe('AuthContext - 2FA機能', () => {
       // 2FA検証
       await act(async () => {
         await result.current.verify2FA('123456');
+      });
+
+      // ログインの応答の 2FA 待ちの資格を送り、メールアドレスを送らない（要件32.1, 32.2）
+      expect(lastRequestBody('POST', '/api/v1/auth/verify-2fa')).toEqual({
+        challengeToken: 'challenge-abc',
+        code: '123456',
       });
 
       await waitFor(() => {
@@ -224,6 +249,12 @@ describe('AuthContext - 2FA機能', () => {
       // バックアップコード検証
       await act(async () => {
         await result.current.verifyBackupCode('BACKUP-CODE-123');
+      });
+
+      // バックアップコードも同じ資格を送り、メールアドレスを送らない（要件32.6）
+      expect(lastRequestBody('POST', '/api/v1/auth/verify-2fa/backup')).toEqual({
+        challengeToken: 'challenge-abc',
+        backupCode: 'BACKUP-CODE-123',
       });
 
       await waitFor(() => {

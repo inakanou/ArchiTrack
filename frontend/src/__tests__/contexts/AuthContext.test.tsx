@@ -236,7 +236,7 @@ describe('AuthContext', () => {
       ...NO_COOKIE_ROUTES,
       'POST /api/v1/auth/login': {
         status: 200,
-        body: { requires2FA: true, userId: 'user-123' },
+        body: { requires2FA: true, challengeToken: 'challenge-abc', expiresIn: 300 },
       },
     };
 
@@ -255,7 +255,7 @@ describe('AuthContext', () => {
       await waitFor(() => {
         expect(result.current.twoFactorState).toEqual({
           required: true,
-          email: 'test@example.com',
+          challengeToken: 'challenge-abc',
         });
         expect(result.current.isAuthenticated).toBe(false);
       });

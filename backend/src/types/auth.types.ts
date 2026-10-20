@@ -31,15 +31,30 @@ export interface AuthResponse {
 
 /**
  * ログイン成功時のレスポンス
- * 2FA有効ユーザーの場合は2FA_REQUIREDを返す
+ *
+ * 2FA有効ユーザーの場合は 2FA_REQUIRED と、パスワードの成功に結び付いた 2FA 待ちの資格を返す
+ * （要件32.1）。利用者 ID は含めない（要件42.7）
  */
-export interface LoginResponse {
-  type: 'SUCCESS' | '2FA_REQUIRED';
-  accessToken?: string;
-  refreshToken?: string;
-  userId?: string;
-  user?: UserProfile;
-}
+export type LoginResponse =
+  | {
+      type: 'SUCCESS';
+      accessToken: string;
+      refreshToken: string;
+      user: UserProfile;
+    }
+  | {
+      type: '2FA_REQUIRED';
+      /** 2FA 待ちの資格（不透明な文字列。5 分・一回限り） */
+      challengeToken: string;
+      /** 資格の有効期間（秒） */
+      expiresIn: number;
+    };
+
+/**
+ * 2FA の検証で提示する第二要素
+ */
+export type TwoFactorProof =
+  { kind: 'totp'; code: string } | { kind: 'backup'; backupCode: string };
 
 /**
  * ユーザープロフィール情報
@@ -67,7 +82,8 @@ export type AuthError =
   | { type: 'WEAK_PASSWORD'; violations: PasswordViolation[] }
   | { type: 'INVALID_CREDENTIALS' }
   | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }
-  | { type: '2FA_REQUIRED'; userId: string }
+  | { type: 'CHALLENGE_INVALID' }
+  | { type: 'SERVICE_UNAVAILABLE' }
   | { type: 'INVALID_2FA_CODE' }
   | { type: 'INVALID_BACKUP_CODE' }
   | { type: 'INVALID_REFRESH_TOKEN' }
@@ -117,16 +133,19 @@ export interface IAuthService {
   ): Promise<Result<LoginResponse, AuthError>>;
 
   /**
-   * 2FA検証（ログイン時）
+   * 2FA の検証を完了する（ログイン時）
    *
-   * @param userId ユーザーID
-   * @param totpCode TOTPコード（6桁）
+   * ログインで発行した 2FA 待ちの資格に結び付いた利用者の第二要素を検証し、成功で資格を消費してから
+   * トークンを発行する（要件32.1〜32.6）
+   *
+   * @param challengeToken ログインの応答の 2FA 待ちの資格
+   * @param proof TOTP コードまたはバックアップコード
    * @param deviceInfo デバイス情報（User-Agent）
    * @returns 認証レスポンスまたはエラー
    */
-  verify2FA(
-    userId: string,
-    totpCode: string,
+  completeTwoFactorLogin(
+    challengeToken: string,
+    proof: TwoFactorProof,
     deviceInfo?: string
   ): Promise<Result<AuthResponse, AuthError>>;
 

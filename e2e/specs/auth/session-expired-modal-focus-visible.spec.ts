@@ -479,7 +479,11 @@ test.describe('セッション切れのモーダルのフォーカス表示', ()
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ requires2FA: true }),
+        body: JSON.stringify({
+          requires2FA: true,
+          challengeToken: 'e2e-2fa-challenge',
+          expiresIn: 300,
+        }),
       });
     });
     const dialog = page.getByRole('dialog');

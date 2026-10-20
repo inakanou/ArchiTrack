@@ -86,10 +86,13 @@ Content-Type: application/json
 **2FA要求（200 OK）:**
 ```json
 {
-  "tempToken": "temporary-token-for-2fa",
-  "requires2FA": true
+  "requires2FA": true,
+  "challengeToken": "2fa-challenge-from-login",
+  "expiresIn": 300
 }
 ```
+
+`challengeToken` はパスワードの検証の成功に結び付いた 2FA 待ちの資格です（不透明な文字列、5 分・一回限り）。応答に利用者 ID は含みません。資格の保存先（Redis）が使えないときは 503（`SERVICE_UNAVAILABLE`）を返します。
 
 ---
 
@@ -103,7 +106,7 @@ POST /api/v1/auth/verify-2fa
 
 ### 説明
 
-TOTPコードで2FA検証を実行します。
+TOTPコードで2FA検証を実行します。ログインの応答の `challengeToken` を必ず送ります。メールアドレスやアクセストークン・リフレッシュトークンは資格として受理しません。成功で資格を消費します。バックアップコードの検証（`POST /api/v1/auth/verify-2fa/backup`、本文は `{ "challengeToken", "backupCode" }`）も同じ資格を要求します。
 
 ### リクエスト
 
@@ -112,10 +115,12 @@ POST /api/v1/auth/verify-2fa
 Content-Type: application/json
 
 {
-  "tempToken": "temporary-token-from-login",
-  "totpCode": "123456"
+  "challengeToken": "2fa-challenge-from-login",
+  "code": "123456"
 }
 ```
+
+資格が無い・期限切れ・消費済みのときは 401（`INVALID_CHALLENGE`）、資格の保存先が使えないときは 503（`SERVICE_UNAVAILABLE`）を返します。
 
 ### レスポンス
 

@@ -474,16 +474,34 @@ describe('Authentication API Integration Tests', () => {
   });
 
   describe('POST /api/v1/auth/verify-2fa', () => {
-    it('2FA検証エンドポイントが存在すること', async () => {
+    /**
+     * @requirement user-authentication/REQ-32.2
+     * @requirement user-authentication/REQ-32.5
+     */
+    it('2FA 待ちの資格の無い検証は、アクセストークンを添えても 401 INVALID_CHALLENGE を返しトークンを発行しない', async () => {
       const response = await request(app)
         .post('/api/v1/auth/verify-2fa')
         .set('Authorization', `Bearer ${adminUser.accessToken}`)
-        .send({
-          token: '123456',
-        });
+        .send({ code: '123456', email: 'test-auth-admin@example.com' });
 
-      // 実装されていない場合は404、実装済みの場合は適切なステータスコードを返す
-      expect([200, 400, 401, 404]).toContain(response.status);
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe('INVALID_CHALLENGE');
+      expect(response.body).not.toHaveProperty('accessToken');
+      expect(response.headers['set-cookie'] ?? []).not.toEqual(
+        expect.arrayContaining([expect.stringMatching(/^refreshToken=[^;]+/)])
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-32.5
+     */
+    it('アクセストークンを資格として送った検証は 401 INVALID_CHALLENGE を返す', async () => {
+      const response = await request(app)
+        .post('/api/v1/auth/verify-2fa')
+        .send({ challengeToken: adminUser.accessToken, code: '123456' });
+
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe('INVALID_CHALLENGE');
     });
   });
 });

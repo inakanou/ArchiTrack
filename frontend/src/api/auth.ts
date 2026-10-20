@@ -35,14 +35,14 @@ export async function login(email: string, password: string): Promise<LoginRespo
 
 /**
  * 2FA検証（ログイン時）
- * @param userId ユーザーID
- * @param totpCode TOTPコード（6桁）
+ * @param challengeToken ログインの応答の 2FA 待ちの資格（要件32.1）
+ * @param code TOTPコード（6桁）
  * @returns 認証レスポンス（アクセストークン、ユーザー情報）
  */
-export async function verify2FA(userId: string, totpCode: string): Promise<AuthResponse> {
+export async function verify2FA(challengeToken: string, code: string): Promise<AuthResponse> {
   return apiClient.post<AuthResponse>('/api/v1/auth/verify-2fa', {
-    userId,
-    totpCode,
+    challengeToken,
+    code,
   });
 }
 

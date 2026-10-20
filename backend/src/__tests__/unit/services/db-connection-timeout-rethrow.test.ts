@@ -16,6 +16,7 @@ import { PermissionService } from '../../../services/permission.service.js';
 import { RolePermissionService } from '../../../services/role-permission.service.js';
 import { RoleService } from '../../../services/role.service.js';
 import { SessionService } from '../../../services/session.service.js';
+import type { TwoFactorChallengeService } from '../../../services/two-factor-challenge.service.js';
 import { UserRoleService } from '../../../services/user-role.service.js';
 import type { InvitationService } from '../../../services/invitation.service.js';
 import type { PasswordService } from '../../../services/password.service.js';
@@ -88,8 +89,18 @@ function authService(prisma: PrismaClient): AuthService {
     {} as PasswordService,
     tokenService,
     {} as TwoFactorService,
-    new SessionService(prisma)
+    new SessionService(prisma),
+    challengeForUser1()
   );
+}
+
+/** 利用者 user-1 に結び付いた 2FA 待ちの資格を照会・消費できる代役 */
+function challengeForUser1(): TwoFactorChallengeService {
+  return {
+    issue: vi.fn(),
+    peek: vi.fn().mockResolvedValue(Ok({ userId: 'user-1' })),
+    consume: vi.fn().mockResolvedValue(Ok(undefined)),
+  } as unknown as TwoFactorChallengeService;
 }
 
 /** DB 例外を DATABASE_ERROR へ変える catch へ到達する呼び出し（22 か所） */
@@ -99,10 +110,17 @@ const cases: Array<[string, (prisma: PrismaClient) => Promise<unknown>]> = [
     (p) => authService(p).register('invitation-token', { displayName: 'x', password: 'p' }),
   ],
   ['AuthService.login', (p) => authService(p).login('user@example.com', 'password')],
-  ['AuthService.verify2FA', (p) => authService(p).verify2FA('user-1', '123456')],
   [
-    'AuthService.verify2FABackupCode',
-    (p) => authService(p).verify2FABackupCode('user-1', 'ABCD1234'),
+    'AuthService.completeTwoFactorLogin（TOTP）',
+    (p) => authService(p).completeTwoFactorLogin('challenge', { kind: 'totp', code: '123456' }),
+  ],
+  [
+    'AuthService.completeTwoFactorLogin（バックアップコード）',
+    (p) =>
+      authService(p).completeTwoFactorLogin('challenge', {
+        kind: 'backup',
+        backupCode: 'ABCD1234',
+      }),
   ],
   ['AuthService.logout', (p) => authService(p).logout('user-1', 'refresh-token')],
   ['AuthService.logoutAll', (p) => authService(p).logoutAll('user-1')],

@@ -399,8 +399,12 @@ describe('SessionExpiredModal', () => {
   describe('2FA完全フロー', () => {
     it('2FA要求後にTOTPコード送信で認証成功すること', async () => {
       const user = userEvent.setup();
-      // ログインで2FA要求
-      mockApiClientPost.mockResolvedValueOnce({ requires2FA: true });
+      // ログインで2FA要求（2FA 待ちの資格を返す）
+      mockApiClientPost.mockResolvedValueOnce({
+        requires2FA: true,
+        challengeToken: 'challenge-xyz',
+        expiresIn: 300,
+      });
       // 2FA検証で成功
       mockApiClientPost.mockResolvedValueOnce({ accessToken: 'token' });
 
@@ -423,9 +427,10 @@ describe('SessionExpiredModal', () => {
         expect(defaultProps.onReauthSuccess).toHaveBeenCalled();
       });
 
-      expect(mockApiClientPost).toHaveBeenCalledWith('/api/v1/auth/verify-2fa', {
-        token: '123456',
-        email: 'test@example.com',
+      // ログインの応答の資格を送り、メールアドレスを送らない（要件32.1, 32.2）
+      expect(mockApiClientPost).toHaveBeenLastCalledWith('/api/v1/auth/verify-2fa', {
+        challengeToken: 'challenge-xyz',
+        code: '123456',
       });
     });
 

@@ -145,37 +145,70 @@ function isAuthCookieResponse(response: Response): boolean {
 /** 見張りの処理中のもの（回収が終わる前に次の受け渡しで読まないよう待つ） */
 const pendingObservations = new Set<Promise<void>>();
 
-/** 要求本文のメールアドレスで利用者を決める認証の要求（ログイン・2FA の検証） */
-const EMAIL_IN_BODY_PATHS = new Set([
-  '/api/v1/auth/login',
+const LOGIN_PATH = '/api/v1/auth/login';
+
+/** 要求本文の 2FA 待ちの資格で利用者を決める認証の要求（2FA の検証） */
+const CHALLENGE_IN_BODY_PATHS = new Set([
   '/api/v1/auth/verify-2fa',
   '/api/v1/auth/verify-2fa/backup',
 ]);
 
 /**
+ * ログインの応答の 2FA 待ちの資格と、ログインした共有の役割の対応
+ *
+ * 2FA の検証の要求はメールアドレスを送らず、ログインの応答の資格だけを送る（user-authentication 要件32）。
+ * 検証の応答で発行された Cookie を役割へ回収するため、ログインの応答で資格と役割を覚える。
+ */
+const challengeRoles = new Map<string, SharedSessionRole>();
+
+/** 要求本文を JSON として読む（読めなければ null） */
+function requestBodyJson(response: Response): Record<string, unknown> | null {
+  try {
+    const body = response.request().postDataJSON() as unknown;
+    return body && typeof body === 'object' ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 応答した認証の要求が、どの共有の役割のものかを、要求だけから決める（応答本文を読まない）
  *
- * - ログイン・2FA の検証: 要求本文のメールアドレス
+ * - ログイン: 要求本文のメールアドレス
+ * - 2FA の検証: 要求本文の 2FA 待ちの資格（ログインの応答で覚えた対応）
  * - リフレッシュ・ログアウトなど: 要求に載っていた Cookie の値が、保持中のどの役割の値と一致するか
  *
  * 応答本文はコンテキストが閉じる直前の応答では読めないことがあるため、使わない。
  */
 function roleOfAuthRequest(response: Response, presented: string | null): SharedSessionRole | null {
-  const request = response.request();
-  if (EMAIL_IN_BODY_PATHS.has(new URL(response.url()).pathname)) {
-    const body = (() => {
-      try {
-        return request.postDataJSON() as { email?: unknown } | null;
-      } catch {
-        return null;
-      }
-    })();
-    return roleOfEmail(body?.email);
+  const pathname = new URL(response.url()).pathname;
+  if (pathname === LOGIN_PATH) {
+    return roleOfEmail(requestBodyJson(response)?.email);
+  }
+  if (CHALLENGE_IN_BODY_PATHS.has(pathname)) {
+    const challengeToken = requestBodyJson(response)?.challengeToken;
+    return typeof challengeToken === 'string' ? (challengeRoles.get(challengeToken) ?? null) : null;
   }
   const store = readStore();
   return (
     SHARED_SESSION_ROLES.find((role) => presented !== null && store[role] === presented) ?? null
   );
+}
+
+/**
+ * 共有の役割のログインが 2FA の検証を求めたとき、応答の資格と役割の対応を覚える
+ *
+ * 2FA の検証の画面へ進んだ直後の応答なので、本文を読める（読めなければ覚えず、
+ * 検証の応答の Cookie は回収されない。次の受け渡しでログインし直す）。
+ */
+async function rememberChallengeRole(response: Response, role: SharedSessionRole): Promise<void> {
+  const body = (await response.json().catch(() => null)) as {
+    requires2FA?: unknown;
+    challengeToken?: unknown;
+  } | null;
+  if (body?.requires2FA === true && typeof body.challengeToken === 'string') {
+    challengeRoles.set(body.challengeToken, role);
+  }
 }
 
 /**
@@ -194,7 +227,9 @@ async function observeAuthResponse(response: Response): Promise<void> {
   const { issued, cleared } = refreshCookieValueFromHeaders(headers);
   const role = roleOfAuthRequest(response, presented);
 
-  if (status === 200 && issued && role) {
+  if (status === 200 && !issued && role && new URL(response.url()).pathname === LOGIN_PATH) {
+    await rememberChallengeRole(response, role);
+  } else if (status === 200 && issued && role) {
     setStoredCookie(role, issued);
   } else if ((cleared || status === 401) && role && presented !== null) {
     setStoredCookie(role, null);

@@ -16,6 +16,7 @@ import { PasswordService } from '../../../services/password.service.js';
 import { TokenService } from '../../../services/token.service.js';
 import { TwoFactorService } from '../../../services/two-factor.service.js';
 import { SessionService } from '../../../services/session.service.js';
+import type { TwoFactorChallengeService } from '../../../services/two-factor-challenge.service.js';
 import type { PrismaClient, User, Invitation } from '../../../generated/prisma/client.js';
 import { Ok, Err } from '../../../types/result.js';
 import * as timingModule from '../../../utils/timing.js';
@@ -74,8 +75,41 @@ const mockSessionService = {
   listSessions: vi.fn(),
 } as unknown as SessionService;
 
+const mockTwoFactorChallengeService = {
+  issue: vi.fn(),
+  peek: vi.fn(),
+  consume: vi.fn(),
+} as unknown as TwoFactorChallengeService;
+
+/** ログインで発行された（ことにする）2FA 待ちの資格 */
+const CHALLENGE_TOKEN = 'challenge-token-1';
+
 describe('AuthService', () => {
   let authService: AuthService;
+
+  /**
+   * 利用者 userId に結び付いた資格を照会できる状態にして、TOTP による 2FA の検証を完了させる
+   */
+  function verifyTotpWithChallenge(userId: string, code: string, deviceInfo?: string) {
+    (mockTwoFactorChallengeService.peek as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      Ok({ userId })
+    );
+    return authService.completeTwoFactorLogin(CHALLENGE_TOKEN, { kind: 'totp', code }, deviceInfo);
+  }
+
+  /**
+   * 利用者 userId に結び付いた資格を照会できる状態にして、バックアップコードによる 2FA の検証を完了させる
+   */
+  function verifyBackupWithChallenge(userId: string, backupCode: string, deviceInfo?: string) {
+    (mockTwoFactorChallengeService.peek as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      Ok({ userId })
+    );
+    return authService.completeTwoFactorLogin(
+      CHALLENGE_TOKEN,
+      { kind: 'backup', backupCode },
+      deviceInfo
+    );
+  }
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -85,7 +119,11 @@ describe('AuthService', () => {
       mockPasswordService,
       mockTokenService,
       mockTwoFactorService,
-      mockSessionService
+      mockSessionService,
+      mockTwoFactorChallengeService
+    );
+    (mockTwoFactorChallengeService.consume as ReturnType<typeof vi.fn>).mockResolvedValue(
+      Ok(undefined)
     );
   });
 
@@ -355,11 +393,12 @@ describe('AuthService', () => {
 
       // Assert: ログイン成功
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.type).toBe('SUCCESS');
+      if (result.ok && result.value.type === 'SUCCESS') {
         expect(result.value.accessToken).toBe('access-token-123');
         expect(result.value.refreshToken).toBe('refresh-token-456');
-        expect(result.value.user?.email).toBe(email);
+        expect(result.value.user.email).toBe(email);
+      } else {
+        expect.fail(`expected SUCCESS: ${JSON.stringify(result)}`);
       }
 
       // モックが正しく呼ばれたか検証
@@ -689,6 +728,9 @@ describe('AuthService', () => {
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
       (mockPasswordService.verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(true);
       (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      (mockTwoFactorChallengeService.issue as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok({ challengeToken: CHALLENGE_TOKEN, expiresIn: 300 })
+      );
 
       // Act
       const result = await authService.login(email, password);
@@ -696,11 +738,241 @@ describe('AuthService', () => {
       // Assert
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.value.type).toBe('2FA_REQUIRED');
-        expect(result.value.userId).toBe('user-2fa-123');
-        expect(result.value.accessToken).toBeUndefined();
-        expect(result.value.refreshToken).toBeUndefined();
+        expect(result.value).toEqual({
+          type: '2FA_REQUIRED',
+          challengeToken: CHALLENGE_TOKEN,
+          expiresIn: 300,
+        });
       }
+      expect(mockTwoFactorChallengeService.issue).toHaveBeenCalledWith('user-2fa-123');
+    });
+  });
+
+  describe('login()（2FA 待ちの資格）', () => {
+    const email = 'user-2fa@example.com';
+    const password = 'SecurePass123!@#';
+
+    function arrangeTwoFactorUser(passwordValid: boolean): void {
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'user-2fa-123',
+        email,
+        displayName: 'User with 2FA',
+        passwordHash: 'hash',
+        twoFactorEnabled: true,
+        isLocked: false,
+        lockedUntil: null,
+        loginFailures: 0,
+        createdAt: new Date(),
+        userRoles: [{ role: { name: 'user' } }],
+      });
+      (mockPasswordService.verifyPassword as ReturnType<typeof vi.fn>).mockResolvedValue(
+        passwordValid
+      );
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      vi.spyOn(timingModule, 'addTimingAttackDelay').mockResolvedValue(undefined);
+    }
+
+    /**
+     * @requirement user-authentication/REQ-32.1
+     * @requirement user-authentication/REQ-42.7
+     */
+    it('パスワードの成功で発行した資格だけを返し、利用者 ID を応答に含めない', async () => {
+      arrangeTwoFactorUser(true);
+      (mockTwoFactorChallengeService.issue as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok({ challengeToken: CHALLENGE_TOKEN, expiresIn: 300 })
+      );
+
+      const result = await authService.login(email, password);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value).not.toHaveProperty('userId');
+      expect(JSON.stringify(result.value)).not.toContain('user-2fa-123');
+      expect(mockTokenService.generateAccessToken).not.toHaveBeenCalled();
+      expect(mockSessionService.createSession).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-32.1
+     */
+    it('パスワードが誤りのときは資格を発行しない', async () => {
+      arrangeTwoFactorUser(false);
+
+      const result = await authService.login(email, password);
+
+      expect(result).toEqual({ ok: false, error: { type: 'INVALID_CREDENTIALS' } });
+      expect(mockTwoFactorChallengeService.issue).not.toHaveBeenCalled();
+    });
+
+    it('資格の保存先が使えないときは SERVICE_UNAVAILABLE を返し、トークンを発行しない', async () => {
+      arrangeTwoFactorUser(true);
+      (mockTwoFactorChallengeService.issue as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'CHALLENGE_STORE_UNAVAILABLE' })
+      );
+
+      const result = await authService.login(email, password);
+
+      expect(result).toEqual({ ok: false, error: { type: 'SERVICE_UNAVAILABLE' } });
+      expect(mockTokenService.generateAccessToken).not.toHaveBeenCalled();
+      expect(mockSessionService.createSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('completeTwoFactorLogin()（資格の照会と消費）', () => {
+    const userId = 'user-123';
+
+    function arrangeVerifiedUser(): void {
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: userId,
+        email: 'user@example.com',
+        displayName: 'Test User',
+        createdAt: new Date(),
+        twoFactorEnabled: true,
+        twoFactorFailures: 0,
+        twoFactorLockedUntil: null,
+        userRoles: [{ role: { name: 'user' } }],
+      });
+      (mockTwoFactorService.verifyTOTP as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(true));
+      (mockTwoFactorService.verifyBackupCode as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok(true)
+      );
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'access-token'
+      );
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+        refreshToken: 'refresh-token',
+        familyId: 'family-1',
+      });
+    }
+
+    /**
+     * @requirement user-authentication/REQ-32.2
+     * @requirement user-authentication/REQ-32.3
+     * @requirement user-authentication/REQ-32.6
+     */
+    it.each([
+      ['TOTP', { kind: 'totp', code: '123456' } as const],
+      ['バックアップコード', { kind: 'backup', backupCode: 'ABCD1234' } as const],
+    ])(
+      '%s: 資格が照会できない（不在・期限切れ・消費済み）ときは CHALLENGE_INVALID で、コードを検証せずトークンを発行しない',
+      async (_, proof) => {
+        arrangeVerifiedUser();
+        (mockTwoFactorChallengeService.peek as ReturnType<typeof vi.fn>).mockResolvedValue(
+          Err({ type: 'CHALLENGE_INVALID' })
+        );
+
+        const result = await authService.completeTwoFactorLogin('unknown', proof);
+
+        expect(result).toEqual({ ok: false, error: { type: 'CHALLENGE_INVALID' } });
+        expect(mockTwoFactorService.verifyTOTP).not.toHaveBeenCalled();
+        expect(mockTwoFactorService.verifyBackupCode).not.toHaveBeenCalled();
+        expect(mockTokenService.generateAccessToken).not.toHaveBeenCalled();
+        expect(mockSessionService.createSession).not.toHaveBeenCalled();
+      }
+    );
+
+    it('資格の保存先が使えないときは SERVICE_UNAVAILABLE で、コードを検証しない', async () => {
+      arrangeVerifiedUser();
+      (mockTwoFactorChallengeService.peek as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'CHALLENGE_STORE_UNAVAILABLE' })
+      );
+
+      const result = await authService.completeTwoFactorLogin(CHALLENGE_TOKEN, {
+        kind: 'totp',
+        code: '123456',
+      });
+
+      expect(result).toEqual({ ok: false, error: { type: 'SERVICE_UNAVAILABLE' } });
+      expect(mockTwoFactorService.verifyTOTP).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-32.1
+     */
+    it('資格に結び付いた利用者のコードを検証し、成功で資格を消費してからトークンを発行する', async () => {
+      arrangeVerifiedUser();
+      const order: string[] = [];
+      (mockTwoFactorChallengeService.consume as ReturnType<typeof vi.fn>).mockImplementation(
+        async () => {
+          order.push('consume');
+          return Ok(undefined);
+        }
+      );
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockImplementation(
+        async () => {
+          order.push('createSession');
+          return { refreshToken: 'refresh-token', familyId: 'family-1' };
+        }
+      );
+
+      const result = await verifyTotpWithChallenge(userId, '654321');
+
+      expect(result.ok).toBe(true);
+      expect(mockTwoFactorChallengeService.peek).toHaveBeenCalledWith(CHALLENGE_TOKEN);
+      expect(mockTwoFactorService.verifyTOTP).toHaveBeenCalledWith(userId, '654321');
+      expect(mockTwoFactorChallengeService.consume).toHaveBeenCalledWith(CHALLENGE_TOKEN);
+      expect(order).toEqual(['consume', 'createSession']);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-32.4
+     */
+    it.each([
+      ['TOTP', { kind: 'totp', code: '123456' } as const],
+      ['バックアップコード', { kind: 'backup', backupCode: 'ABCD1234' } as const],
+    ])(
+      '%s: コードが正しくても資格の消費に失敗した（同時の二重成功）ときは CHALLENGE_INVALID で、トークンを発行しない',
+      async (_, proof) => {
+        arrangeVerifiedUser();
+        (mockTwoFactorChallengeService.peek as ReturnType<typeof vi.fn>).mockResolvedValue(
+          Ok({ userId })
+        );
+        (mockTwoFactorChallengeService.consume as ReturnType<typeof vi.fn>).mockResolvedValue(
+          Err({ type: 'CHALLENGE_INVALID' })
+        );
+
+        const result = await authService.completeTwoFactorLogin(CHALLENGE_TOKEN, proof);
+
+        expect(result).toEqual({ ok: false, error: { type: 'CHALLENGE_INVALID' } });
+        expect(mockTokenService.generateAccessToken).not.toHaveBeenCalled();
+        expect(mockSessionService.createSession).not.toHaveBeenCalled();
+      }
+    );
+
+    it('資格の消費で保存先が使えないときは SERVICE_UNAVAILABLE で、トークンを発行しない', async () => {
+      arrangeVerifiedUser();
+      (mockTwoFactorChallengeService.consume as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'CHALLENGE_STORE_UNAVAILABLE' })
+      );
+
+      const result = await verifyTotpWithChallenge(userId, '123456');
+
+      expect(result).toEqual({ ok: false, error: { type: 'SERVICE_UNAVAILABLE' } });
+      expect(mockSessionService.createSession).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-32.6
+     */
+    it('バックアップコードも資格に結び付いた利用者で検証し、成功で資格を消費する', async () => {
+      arrangeVerifiedUser();
+
+      const result = await verifyBackupWithChallenge(userId, 'ABCD1234');
+
+      expect(result.ok).toBe(true);
+      expect(mockTwoFactorService.verifyBackupCode).toHaveBeenCalledWith(userId, 'ABCD1234');
+      expect(mockTwoFactorChallengeService.consume).toHaveBeenCalledWith(CHALLENGE_TOKEN);
+    });
+
+    it('コードが誤りのときは資格を消費しない（期限内の再試行を認める）', async () => {
+      arrangeVerifiedUser();
+      (mockTwoFactorService.verifyTOTP as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(false));
+
+      const result = await verifyTotpWithChallenge(userId, '000000');
+
+      expect(result).toEqual({ ok: false, error: { type: 'INVALID_2FA_CODE' } });
+      expect(mockTwoFactorChallengeService.consume).not.toHaveBeenCalled();
     });
   });
 
@@ -789,7 +1061,7 @@ describe('AuthService', () => {
     });
   });
 
-  describe('verify2FA()', () => {
+  describe('completeTwoFactorLogin()（TOTP）', () => {
     it('TOTP検証成功でJWTトークンを発行する', async () => {
       // Arrange: モックの設定
       const userId = 'user-123';
@@ -840,7 +1112,7 @@ describe('AuthService', () => {
       });
 
       // Act: 2FA検証
-      const result = await authService.verify2FA(userId, totpCode);
+      const result = await verifyTotpWithChallenge(userId, totpCode);
 
       // Assert: 認証成功
       expect(result.ok).toBe(true);
@@ -871,7 +1143,7 @@ describe('AuthService', () => {
       );
 
       // Act
-      const result = await authService.verify2FA(userId, totpCode);
+      const result = await verifyTotpWithChallenge(userId, totpCode);
 
       // Assert
       expect(result.ok).toBe(false);
@@ -926,7 +1198,7 @@ describe('AuthService', () => {
       });
 
       // Act: 2FA検証失敗
-      const result = await authService.verify2FA(userId, totpCode);
+      const result = await verifyTotpWithChallenge(userId, totpCode);
 
       // Assert: エラー
       expect(result.ok).toBe(false);
@@ -989,7 +1261,7 @@ describe('AuthService', () => {
       });
 
       // Act: 5回目の失敗
-      const result = await authService.verify2FA(userId, totpCode);
+      const result = await verifyTotpWithChallenge(userId, totpCode);
 
       // Assert: アカウントロック
       expect(result.ok).toBe(false);
@@ -1045,7 +1317,7 @@ describe('AuthService', () => {
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
 
       // Act: ロック中のログイン試行
-      const result = await authService.verify2FA(userId, totpCode);
+      const result = await verifyTotpWithChallenge(userId, totpCode);
 
       // Assert: アカウントロック
       expect(result.ok).toBe(false);
@@ -1110,7 +1382,7 @@ describe('AuthService', () => {
       });
 
       // Act: ロック期限切れ後のログイン
-      const result = await authService.verify2FA(userId, totpCode);
+      const result = await verifyTotpWithChallenge(userId, totpCode);
 
       // Assert: ロック解除されて認証成功
       expect(result.ok).toBe(true);
@@ -1134,7 +1406,7 @@ describe('AuthService', () => {
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       // Act: 存在しないユーザー
-      const result = await authService.verify2FA(userId, totpCode);
+      const result = await verifyTotpWithChallenge(userId, totpCode);
 
       // Assert: エラー
       expect(result.ok).toBe(false);
@@ -1422,7 +1694,7 @@ describe('AuthService', () => {
     });
   });
 
-  describe('verify2FABackupCode()', () => {
+  describe('completeTwoFactorLogin()（バックアップコード）', () => {
     it('バックアップコード検証成功でトークンを発行する', async () => {
       // Arrange
       const userId = 'user-123';
@@ -1454,7 +1726,7 @@ describe('AuthService', () => {
       });
 
       // Act
-      const result = await authService.verify2FABackupCode(userId, backupCode, deviceInfo);
+      const result = await verifyBackupWithChallenge(userId, backupCode, deviceInfo);
 
       // Assert
       expect(result.ok).toBe(true);
@@ -1470,7 +1742,7 @@ describe('AuthService', () => {
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       // Act
-      const result = await authService.verify2FABackupCode('non-existent-user', 'BACKUP-CODE');
+      const result = await verifyBackupWithChallenge('non-existent-user', 'BACKUP-CODE');
 
       // Assert
       expect(result.ok).toBe(false);
@@ -1498,7 +1770,7 @@ describe('AuthService', () => {
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
 
       // Act
-      const result = await authService.verify2FABackupCode(userId, 'BACKUP-CODE');
+      const result = await verifyBackupWithChallenge(userId, 'BACKUP-CODE');
 
       // Assert
       expect(result.ok).toBe(false);
@@ -1537,7 +1809,7 @@ describe('AuthService', () => {
       });
 
       // Act
-      const result = await authService.verify2FABackupCode(userId, 'BACKUP-CODE');
+      const result = await verifyBackupWithChallenge(userId, 'BACKUP-CODE');
 
       // Assert
       expect(result.ok).toBe(true);
@@ -1573,7 +1845,7 @@ describe('AuthService', () => {
       (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
 
       // Act
-      const result = await authService.verify2FABackupCode(userId, 'INVALID-BACKUP-CODE');
+      const result = await verifyBackupWithChallenge(userId, 'INVALID-BACKUP-CODE');
 
       // Assert
       expect(result.ok).toBe(false);
@@ -1604,7 +1876,7 @@ describe('AuthService', () => {
       (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
 
       // Act
-      const result = await authService.verify2FABackupCode(userId, 'INVALID-BACKUP-CODE');
+      const result = await verifyBackupWithChallenge(userId, 'INVALID-BACKUP-CODE');
 
       // Assert
       expect(result.ok).toBe(false);
@@ -1620,7 +1892,7 @@ describe('AuthService', () => {
       );
 
       // Act
-      const result = await authService.verify2FABackupCode('user-123', 'BACKUP-CODE');
+      const result = await verifyBackupWithChallenge('user-123', 'BACKUP-CODE');
 
       // Assert
       expect(result.ok).toBe(false);

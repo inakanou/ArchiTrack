@@ -31,7 +31,8 @@ export interface User {
  */
 export interface TwoFactorState {
   required: boolean;
-  email: string;
+  /** ログインの応答の 2FA 待ちの資格（2FA の検証で送る。要件32.1） */
+  challengeToken: string;
 }
 
 /**
@@ -193,12 +194,12 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       try {
         // ログインAPIを呼び出し
         // バックエンドは成功時: { user, accessToken }（リフレッシュトークンは HttpOnly Cookie だけで渡る）
-        // 2FA要求時: { requires2FA: true, userId }
+        // 2FA要求時: { requires2FA: true, challengeToken, expiresIn }（利用者 ID は返らない）
         const response = await apiClient.post<{
           requires2FA?: boolean;
           user?: User;
           accessToken?: string;
-          userId?: string;
+          challengeToken?: string;
           expiresIn?: number;
         }>('/api/v1/auth/login', {
           email,
@@ -209,7 +210,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         if (response.requires2FA) {
           setTwoFactorState({
             required: true,
-            email: email,
+            challengeToken: response.challengeToken ?? '',
           });
           setIsLoading(false);
           return;
@@ -311,8 +312,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
           user: User;
           expiresIn?: number;
         }>('/api/v1/auth/verify-2fa', {
-          token: code,
-          email: twoFactorState.email,
+          challengeToken: twoFactorState.challengeToken,
+          code,
         });
 
         // 2FA成功: 状態をクリアしてログイン完了処理
@@ -350,8 +351,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
           user: User;
           expiresIn?: number;
         }>('/api/v1/auth/verify-2fa/backup', {
+          challengeToken: twoFactorState.challengeToken,
           backupCode: code,
-          email: twoFactorState.email,
         });
 
         // 2FA成功: 状態をクリアしてログイン完了処理

@@ -7,6 +7,7 @@
  * - REQ-5: トークン管理（リフレッシュ、ログアウト）
  * - REQ-9: ユーザー情報取得・更新
  * - REQ-27A: 2FA検証
+ * - 要件32: 2FA を伴うログインの完全性（2FA 待ちの資格）
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -26,6 +27,7 @@ import { SECURITY_CONFIG } from '../config/security.constants.js';
 import { PasswordViolation } from '../types/password.types.js';
 import { updateProfileSchema } from '../schemas/auth-update.schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../errors/apiError.js';
+import type { AuthError } from '../types/auth.types.js';
 
 /**
  * リフレッシュトークンの Cookie の Path（リフレッシュとログアウトの経路にだけ送られるよう認証の経路に限る）
@@ -156,15 +158,73 @@ function withoutRefreshToken<T extends { refreshToken?: string }>(
   return body;
 }
 
+/**
+ * 2FA 待ちの資格の保存先（Redis）が使えないときの 503（2FA の検証を素通りさせない。要件32）
+ */
+function sendTwoFactorChallengeUnavailable(res: Response): void {
+  res.status(503).json({
+    error: 'Service temporarily unavailable',
+    code: 'SERVICE_UNAVAILABLE',
+  });
+}
+
+/**
+ * 2FA の検証（TOTP・バックアップコード）に共通の失敗を応答する。応答したら true
+ *
+ * - 資格の不在・期限切れ・消費済み、資格に結び付いた利用者の不在: 401 INVALID_CHALLENGE（区別しない。要件32.2〜32.5）
+ * - 資格の保存先が使えない: 503 SERVICE_UNAVAILABLE
+ * - 2FA のロック: 429
+ * - DB の障害: 500
+ */
+function sendTwoFactorLoginError(
+  res: Response,
+  error: AuthError,
+  databaseError: { log: string; message: string }
+): boolean {
+  if (error.type === 'CHALLENGE_INVALID' || error.type === 'USER_NOT_FOUND') {
+    res.status(401).json({
+      error: '認証の有効期限が切れました。もう一度ログインしてください',
+      code: 'INVALID_CHALLENGE',
+    });
+    return true;
+  }
+  if (error.type === 'SERVICE_UNAVAILABLE') {
+    sendTwoFactorChallengeUnavailable(res);
+    return true;
+  }
+  if (error.type === 'ACCOUNT_LOCKED') {
+    res.status(429).json({
+      error: 'アカウントが一時的にロックされました。5分後に再試行してください',
+      detail: 'アカウントがロックされています',
+      code: error.type,
+      unlockAt: error.unlockAt,
+    });
+    return true;
+  }
+  if (error.type === 'DATABASE_ERROR') {
+    logger.error({ error }, databaseError.log);
+    res.status(500).json({ error: databaseError.message, code: '2FA_ERROR' });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 2FA 待ちの資格（ログインの応答の challengeToken）
+ *
+ * 欠けた要求も検証の段で 401 にする（要件32.2）ため、形式の検証では必須にしない。
+ * メールアドレス・JWT などの他の項目は資格として読まない（要件32.5）。
+ */
+const challengeTokenField = z.string().max(4096).optional();
+
 const verify2FASchema = z.object({
-  token: z
+  challengeToken: challengeTokenField,
+  code: z
     .string()
     .length(
       SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH,
-      `TOTP token must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
+      `TOTP code must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
     ),
-  email: z.string().email('Invalid email format').optional(),
-  tempToken: z.string().optional(),
 });
 
 const enableTwoFactorSchema = z.object({
@@ -371,8 +431,19 @@ router.post(
  *                 requires2FA:
  *                   type: boolean
  *                   description: True if 2FA is required
+ *                 challengeToken:
+ *                   type: string
+ *                   description: >-
+ *                     Opaque 2FA challenge bound to this successful password verification
+ *                     (single use, valid for expiresIn seconds). Present only when requires2FA is true.
+ *                     The response never contains the user ID before 2FA succeeds.
+ *                 expiresIn:
+ *                   type: integer
+ *                   description: Lifetime of the challenge in seconds (when requires2FA is true)
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       503:
+ *         description: The 2FA challenge store is unavailable
  */
 router.post(
   '/login',
@@ -398,11 +469,9 @@ router.post(
             unlockAt: error.unlockAt,
           });
           return;
-        } else if (error.type === '2FA_REQUIRED') {
-          res.status(200).json({
-            requires2FA: true,
-            userId: error.userId,
-          });
+        } else if (error.type === 'SERVICE_UNAVAILABLE') {
+          // 2FA 待ちの資格を保存できないときは 2FA の検証へ進めない（要件32）
+          sendTwoFactorChallengeUnavailable(res);
           return;
         } else if (error.type === 'DATABASE_ERROR') {
           logger.error({ error: error.message }, 'Database error during login');
@@ -420,26 +489,24 @@ router.post(
 
       const loginResponse = result.value;
 
-      // 2FA有効ユーザーの場合は2FA検証を要求
+      // 2FA有効ユーザーの場合は、2FA 待ちの資格を返して2FA検証を要求する（要件32.1）。
+      // 利用者 ID は含めない（要件42.7）
       if (loginResponse.type === '2FA_REQUIRED') {
         res.status(200).json({
           requires2FA: true,
-          userId: loginResponse.userId,
+          challengeToken: loginResponse.challengeToken,
+          expiresIn: loginResponse.expiresIn,
         });
         return;
       }
 
       // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
-      if (loginResponse.refreshToken) {
-        setRefreshTokenCookie(res, loginResponse.refreshToken);
-      }
+      setRefreshTokenCookie(res, loginResponse.refreshToken);
 
-      if (loginResponse.user) {
-        logger.info(
-          { userId: loginResponse.user.id, email: loginResponse.user.email },
-          'User logged in'
-        );
-      }
+      logger.info(
+        { userId: loginResponse.user.id, email: loginResponse.user.email },
+        'User logged in'
+      );
 
       res.status(200).json(withoutRefreshToken(loginResponse));
     } catch (error) {
@@ -858,11 +925,12 @@ router.post(
  * /api/v1/auth/verify-2fa:
  *   post:
  *     summary: Verify 2FA token
- *     description: Verify a TOTP token for two-factor authentication
+ *     description: >-
+ *       Complete a login with a TOTP code. Requires the challengeToken returned by the login
+ *       response; an email address or a JWT is never accepted as the challenge. The challenge
+ *       is consumed on success.
  *     tags:
  *       - Authentication
- *     security:
- *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -870,19 +938,16 @@ router.post(
  *           schema:
  *             type: object
  *             required:
- *               - token
+ *               - challengeToken
+ *               - code
  *             properties:
- *               token:
+ *               challengeToken:
  *                 type: string
- *                 description: 6-digit TOTP token
+ *                 description: 2FA challenge from the login response
+ *               code:
+ *                 type: string
+ *                 description: 6-digit TOTP code
  *                 example: "123456"
- *               email:
- *                 type: string
- *                 format: email
- *                 description: Email (for login flow)
- *               tempToken:
- *                 type: string
- *                 description: Temporary token from login
  *     responses:
  *       200:
  *         description: 2FA verification successful
@@ -896,42 +961,26 @@ router.post(
  *                 user:
  *                   type: object
  *       401:
- *         $ref: '#/components/responses/Unauthorized'
+ *         description: Missing, expired or consumed challenge (INVALID_CHALLENGE), or invalid code
+ *       429:
+ *         description: 2FA is locked after too many failures
+ *       503:
+ *         description: The 2FA challenge store is unavailable
  */
 router.post(
   '/verify-2fa',
   validate(verify2FASchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { token, email, tempToken } = req.body;
-
-      // ログイン時の2FA検証の場合、emailまたはtempTokenからuserIdを取得
-      let userId: string;
-
-      if (tempToken) {
-        // tempTokenからuserIdを抽出（実装はシンプルにJWTデコードを想定）
-        const verifyResult = await authService['tokenService'].verifyToken(tempToken, 'access');
-        if (!verifyResult.ok) {
-          res.status(401).json({ error: 'Invalid temporary token', code: 'INVALID_TEMP_TOKEN' });
-          return;
-        }
-        userId = verifyResult.value.userId;
-      } else if (email) {
-        // emailからユーザーを検索
-        const user = await prisma.user.findUnique({ where: { email } });
-        if (!user) {
-          res.status(401).json({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
-          return;
-        }
-        userId = user.id;
-      } else {
-        res.status(400).json({ error: 'Email or tempToken is required', code: 'MISSING_PARAM' });
-        return;
-      }
-
-      // 2FA検証を実行
+      const { challengeToken, code } = req.body as { challengeToken?: string; code: string };
       const userAgent = req.headers['user-agent'];
-      const result = await authService.verify2FA(userId, token, userAgent);
+
+      // ログインの応答の 2FA 待ちの資格に結び付いた利用者だけを検証する（要件32.1〜32.5）
+      const result = await authService.completeTwoFactorLogin(
+        challengeToken ?? '',
+        { kind: 'totp', code },
+        userAgent
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -942,20 +991,13 @@ router.post(
             code: error.type,
           });
           return;
-        } else if (error.type === 'ACCOUNT_LOCKED') {
-          res.status(429).json({
-            error: 'アカウントが一時的にロックされました。5分後に再試行してください',
-            detail: 'アカウントがロックされています',
-            code: error.type,
-            unlockAt: error.unlockAt,
-          });
-          return;
-        } else if (error.type === 'USER_NOT_FOUND') {
-          res.status(404).json({ error: 'User not found', code: error.type });
-          return;
-        } else if (error.type === 'DATABASE_ERROR') {
-          logger.error({ error }, 'Database error during 2FA verification');
-          res.status(500).json({ error: '2FA verification failed', code: '2FA_ERROR' });
+        }
+        if (
+          sendTwoFactorLoginError(res, error, {
+            log: 'Database error during 2FA verification',
+            message: '2FA verification failed',
+          })
+        ) {
           return;
         }
 
@@ -981,8 +1023,8 @@ router.post(
 
 // バックアップコード検証用のスキーマ
 const verifyBackupCodeSchema = z.object({
+  challengeToken: challengeTokenField,
   backupCode: z.string().min(1, 'Backup code is required'),
-  email: z.string().email('Invalid email format'),
 });
 
 /**
@@ -990,7 +1032,9 @@ const verifyBackupCodeSchema = z.object({
  * /api/v1/auth/verify-2fa/backup:
  *   post:
  *     summary: Verify 2FA backup code
- *     description: Verify a backup code for two-factor authentication
+ *     description: >-
+ *       Complete a login with a backup code. Requires the same challengeToken as the TOTP
+ *       verification; an email address is never accepted. The challenge is consumed on success.
  *     tags:
  *       - Authentication
  *     requestBody:
@@ -1000,17 +1044,16 @@ const verifyBackupCodeSchema = z.object({
  *           schema:
  *             type: object
  *             required:
+ *               - challengeToken
  *               - backupCode
- *               - email
  *             properties:
+ *               challengeToken:
+ *                 type: string
+ *                 description: 2FA challenge from the login response
  *               backupCode:
  *                 type: string
  *                 description: 8-character backup code
  *                 example: "ABCD1234"
- *               email:
- *                 type: string
- *                 format: email
- *                 description: Email (for login flow)
  *     responses:
  *       200:
  *         description: 2FA verification successful
@@ -1024,25 +1067,29 @@ const verifyBackupCodeSchema = z.object({
  *                 user:
  *                   type: object
  *       401:
- *         $ref: '#/components/responses/Unauthorized'
+ *         description: Missing, expired or consumed challenge (INVALID_CHALLENGE), or invalid backup code
+ *       429:
+ *         description: 2FA is locked after too many failures
+ *       503:
+ *         description: The 2FA challenge store is unavailable
  */
 router.post(
   '/verify-2fa/backup',
   validate(verifyBackupCodeSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { backupCode, email } = req.body;
-
-      // emailからユーザーを検索
-      const user = await prisma.user.findUnique({ where: { email } });
-      if (!user) {
-        res.status(401).json({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
-        return;
-      }
-
-      // バックアップコード検証を実行
+      const { challengeToken, backupCode } = req.body as {
+        challengeToken?: string;
+        backupCode: string;
+      };
       const userAgent = req.headers['user-agent'];
-      const result = await authService.verify2FABackupCode(user.id, backupCode, userAgent);
+
+      // バックアップコードも TOTP と同じ 2FA 待ちの資格を要求する（要件32.6）
+      const result = await authService.completeTwoFactorLogin(
+        challengeToken ?? '',
+        { kind: 'backup', backupCode },
+        userAgent
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -1053,20 +1100,13 @@ router.post(
             code: error.type,
           });
           return;
-        } else if (error.type === 'ACCOUNT_LOCKED') {
-          res.status(429).json({
-            error: 'アカウントが一時的にロックされました。5分後に再試行してください',
-            detail: 'アカウントがロックされています',
-            code: error.type,
-            unlockAt: error.unlockAt,
-          });
-          return;
-        } else if (error.type === 'USER_NOT_FOUND') {
-          res.status(404).json({ error: 'User not found', code: error.type });
-          return;
-        } else if (error.type === 'DATABASE_ERROR') {
-          logger.error({ error }, 'Database error during backup code verification');
-          res.status(500).json({ error: 'Backup code verification failed', code: '2FA_ERROR' });
+        }
+        if (
+          sendTwoFactorLoginError(res, error, {
+            log: 'Database error during backup code verification',
+            message: 'Backup code verification failed',
+          })
+        ) {
           return;
         }
 
