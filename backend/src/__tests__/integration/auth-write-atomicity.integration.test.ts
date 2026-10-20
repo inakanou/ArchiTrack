@@ -30,6 +30,7 @@ import { PasswordService } from '../../services/password.service.js';
 import { EmailService } from '../../services/email.service.js';
 import { seedRoles } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua355-atomicity';
 const INJECTED_MESSAGE = 'ua355 injected failure';
@@ -141,20 +142,16 @@ describe('認証系の書き込みの原子性（統合・失敗注入）', () =
     await removeInjections();
     await cleanup();
 
-    const actor = await prisma.user.create({
-      data: {
-        email: `${MARK}-actor@example.com`,
-        displayName: 'Atomicity Actor',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const actor = await createTestUser(prisma, {
+      email: `${MARK}-actor@example.com`,
+      displayName: 'Atomicity Actor',
+      passwordHash: 'not-used-in-this-test',
     });
     actorId = actor.id;
-    const target = await prisma.user.create({
-      data: {
-        email: `${MARK}-target@example.com`,
-        displayName: 'Atomicity Target',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const target = await createTestUser(prisma, {
+      email: `${MARK}-target@example.com`,
+      displayName: 'Atomicity Target',
+      passwordHash: 'not-used-in-this-test',
     });
     targetUserId = target.id;
 

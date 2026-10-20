@@ -31,6 +31,7 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /** 本テストが作るユーザー（他の統合テストと衝突しない接頭辞） */
 const OWNER_EMAIL = 'test-project-name-validation-owner@example.com';
@@ -137,7 +138,7 @@ describe('プロジェクト名の制約（project-management/REQ-13.1）', () =
       await import('@node-rs/argon2')
     ).hash(PASSWORD, { memoryCost: 65536, timeCost: 3, parallelism: 4 });
 
-    const user = await prisma.user.create({ data: { email, displayName, passwordHash } });
+    const user = await createTestUser(prisma, { email, displayName, passwordHash });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
     if (!userRole) {

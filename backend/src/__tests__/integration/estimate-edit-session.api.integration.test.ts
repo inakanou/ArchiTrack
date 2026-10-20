@@ -31,6 +31,7 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { ESTIMATE_EDIT_SESSION_TTL_SECONDS } from '../../services/estimate-edit-session.service.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const PASSWORD = 'TestPassword123!';
 
@@ -86,8 +87,10 @@ describe('Estimate Edit Session API Integration Tests (REQ-11.7)', () => {
     const passwordHash = await (
       await import('@node-rs/argon2')
     ).hash(PASSWORD, { memoryCost: 65536, timeCost: 3, parallelism: 4 });
-    const user = await prisma.user.create({
-      data: { email: account.email, displayName: account.displayName, passwordHash },
+    const user = await createTestUser(prisma, {
+      email: account.email,
+      displayName: account.displayName,
+      passwordHash,
     });
     if (account.roleName) {
       const role = await prisma.role.findUnique({ where: { name: account.roleName } });

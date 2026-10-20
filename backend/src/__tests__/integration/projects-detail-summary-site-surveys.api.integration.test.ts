@@ -25,6 +25,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 describe('Project Detail Summary - Site Surveys Section Compatibility Integration Tests', () => {
   let prisma: PrismaClient;
@@ -48,8 +49,10 @@ describe('Project Detail Summary - Site Surveys Section Compatibility Integratio
       timeCost: 3,
       parallelism: 4,
     });
-    const user = await prisma.user.create({
-      data: { email: TEST_EMAIL, displayName: 'Detail Summary SS Test User', passwordHash },
+    const user = await createTestUser(prisma, {
+      email: TEST_EMAIL,
+      displayName: 'Detail Summary SS Test User',
+      passwordHash,
     });
     const role = await prisma.role.findUnique({ where: { name: 'user' } });
     if (role) {

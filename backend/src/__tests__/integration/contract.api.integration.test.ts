@@ -32,6 +32,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 契約書API統合テスト（削除制約・権限チェック）
@@ -69,12 +70,10 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     }
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-contract-admin-integration@example.com',
-        displayName: 'Contract Admin Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-contract-admin-integration@example.com',
+      displayName: 'Contract Admin Test User',
+      passwordHash,
     });
 
     // adminロールを取得して割り当て
@@ -125,12 +124,10 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     }
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-contract-limited-integration@example.com',
-        displayName: 'Contract Limited Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-contract-limited-integration@example.com',
+      displayName: 'Contract Limited Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て（contract:deleteなし）

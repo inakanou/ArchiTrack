@@ -26,6 +26,7 @@ import { RoleService } from '../../services/role.service.js';
 import { UserRoleService } from '../../services/user-role.service.js';
 import type { CreateAuditLogInput, IAuditLogService } from '../../types/audit-log.types.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua371-role-delete-race';
 const WAIT_LIMIT_MS = 10_000;
@@ -143,20 +144,16 @@ describe('ロールの削除と並行する割り当ての直列化（統合・�
 
   beforeEach(async () => {
     await cleanup();
-    const actor = await prisma.user.create({
-      data: {
-        email: `${MARK}-actor@example.com`,
-        displayName: 'Role Delete Race Actor',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const actor = await createTestUser(prisma, {
+      email: `${MARK}-actor@example.com`,
+      displayName: 'Role Delete Race Actor',
+      passwordHash: 'not-used-in-this-test',
     });
     actorId = actor.id;
-    const target = await prisma.user.create({
-      data: {
-        email: `${MARK}-target@example.com`,
-        displayName: 'Role Delete Race Target',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const target = await createTestUser(prisma, {
+      email: `${MARK}-target@example.com`,
+      displayName: 'Role Delete Race Target',
+      passwordHash: 'not-used-in-this-test',
     });
     targetUserId = target.id;
     const role = await prisma.role.create({

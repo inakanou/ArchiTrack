@@ -31,6 +31,7 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * プロジェクトAPI統合テスト
@@ -55,12 +56,10 @@ describe('Project API Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-project-integration@example.com',
-        displayName: 'Project Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-project-integration@example.com',
+      displayName: 'Project Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -125,12 +124,10 @@ describe('Project API Integration Tests', () => {
     });
 
     // 営業担当者
-    const salesPerson = await prisma.user.create({
-      data: {
-        email: 'test-sales-person@example.com',
-        displayName: '営業太郎',
-        passwordHash,
-      },
+    const salesPerson = await createTestUser(prisma, {
+      email: 'test-sales-person@example.com',
+      displayName: '営業太郎',
+      passwordHash,
     });
 
     // userロールを割り当て
@@ -148,12 +145,10 @@ describe('Project API Integration Tests', () => {
     }
 
     // 工事担当者
-    const constructionPerson = await prisma.user.create({
-      data: {
-        email: 'test-construction-person@example.com',
-        displayName: '工事次郎',
-        passwordHash,
-      },
+    const constructionPerson = await createTestUser(prisma, {
+      email: 'test-construction-person@example.com',
+      displayName: '工事次郎',
+      passwordHash,
     });
 
     if (userRole) {

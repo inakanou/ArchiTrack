@@ -12,7 +12,6 @@ import { randomBytes } from 'crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import { hash } from '@node-rs/argon2';
-import { authenticator } from 'otplib';
 import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
 
@@ -23,9 +22,9 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
-import { TwoFactorService } from '../../services/two-factor.service.js';
 import { loginForAccessToken, loginForTokens } from './auth-login-client.js';
 import { issuedRefreshToken } from './refresh-cookie-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua472-login-client';
 const PASSWORD = 'LoginClient!Passphrase-2026';
@@ -86,17 +85,15 @@ describe('統合テスト用のログインの補助', () => {
     const suffix = randomBytes(4).toString('hex');
     plainEmail = `${MARK}-plain-${suffix}@example.com`;
     twoFactorEmail = `${MARK}-2fa-${suffix}@example.com`;
-    await prisma.user.create({
-      data: { email: plainEmail, displayName: 'Login Client Plain User', passwordHash },
-    });
-    await prisma.user.create({
-      data: {
-        email: twoFactorEmail,
-        displayName: 'Login Client 2FA User',
-        passwordHash,
-        twoFactorEnabled: true,
-        twoFactorSecret: await new TwoFactorService().encryptSecret(authenticator.generateSecret()),
-      },
+    await createTestUser(
+      prisma,
+      { email: plainEmail, displayName: 'Login Client Plain User', passwordHash },
+      { twoFactor: false }
+    );
+    await createTestUser(prisma, {
+      email: twoFactorEmail,
+      displayName: 'Login Client 2FA User',
+      passwordHash,
     });
   });
 

@@ -26,6 +26,7 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 取引先API統合テスト
@@ -50,12 +51,10 @@ describe('Trading Partner API Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-trading-partner-integration@example.com',
-        displayName: 'Trading Partner Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-trading-partner-integration@example.com',
+      displayName: 'Trading Partner Test User',
+      passwordHash,
     });
 
     // adminロールを取得して割り当て（全権限を持つ）
@@ -97,12 +96,10 @@ describe('Trading Partner API Integration Tests', () => {
     });
 
     // テストユーザーを作成（権限なし）
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-trading-partner-no-perm@example.com',
-        displayName: 'No Permission User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-trading-partner-no-perm@example.com',
+      displayName: 'No Permission User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て（権限は付与しない）

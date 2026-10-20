@@ -39,6 +39,7 @@ import {
   setCookieLines,
 } from './refresh-cookie-client.js';
 import { loginForTokens } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua453-refresh-cookie';
 const PASSWORD = 'Cookie!Passphrase-2026';
@@ -143,9 +144,11 @@ describe('リフレッシュとログアウトの Cookie の受け付けと CSRF
     await cleanup();
     await clearRateLimits();
     email = `${MARK}-${randomBytes(4).toString('hex')}@example.com`;
-    const user = await prisma.user.create({
-      data: { email, displayName: 'Refresh Cookie User', passwordHash },
-    });
+    const user = await createTestUser(
+      prisma,
+      { email, displayName: 'Refresh Cookie User', passwordHash },
+      { twoFactor: false }
+    );
     userId = user.id;
   });
 

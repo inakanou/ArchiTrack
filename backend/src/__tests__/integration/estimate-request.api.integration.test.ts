@@ -29,6 +29,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 見積依頼API統合テスト
@@ -54,12 +55,10 @@ describe('Estimate Request API Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-estimate-request-integration@example.com',
-        displayName: 'Estimate Request Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-estimate-request-integration@example.com',
+      displayName: 'Estimate Request Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -138,12 +137,10 @@ describe('Estimate Request API Integration Tests', () => {
     });
 
     // 権限なしのテストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-estimate-request-no-permission@example.com',
-        displayName: 'No Permission Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-estimate-request-no-permission@example.com',
+      displayName: 'No Permission Test User',
+      passwordHash,
     });
 
     // ログインしてトークンを取得

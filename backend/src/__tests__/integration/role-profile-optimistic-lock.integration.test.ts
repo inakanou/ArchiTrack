@@ -29,6 +29,7 @@ import getPrismaClient from '../../db.js';
 import tokenService from '../../services/token.service.js';
 import { AuthService } from '../../services/auth.service.js';
 import { RoleService } from '../../services/role.service.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua357-optlock';
 const PAUSE_KEY = 357_000_357;
@@ -152,12 +153,10 @@ describe('ロールとプロフィールの更新の楽観的ロック（統合�
       data: { name: `${MARK}-role`, description: 'initial' },
     });
     roleId = role.id;
-    const user = await prisma.user.create({
-      data: {
-        email: `${MARK}-user@example.com`,
-        displayName: 'initial',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const user = await createTestUser(prisma, {
+      email: `${MARK}-user@example.com`,
+      displayName: 'initial',
+      passwordHash: 'not-used-in-this-test',
     });
     userId = user.id;
   });

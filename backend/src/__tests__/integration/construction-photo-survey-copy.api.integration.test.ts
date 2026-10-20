@@ -28,6 +28,7 @@ import { getStorageProvider } from '../../storage/index.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { initializeConstructionPhotoImageServices } from '../../routes/construction-photo-images.routes.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 describe('Construction Photo Survey Copy API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -63,7 +64,7 @@ describe('Construction Photo Survey Copy API Integration Tests', () => {
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({ data: { email, displayName, passwordHash } });
+    const user = await createTestUser(prisma, { email, displayName, passwordHash });
 
     for (const roleName of roles) {
       const role = await prisma.role.findUnique({ where: { name: roleName } });

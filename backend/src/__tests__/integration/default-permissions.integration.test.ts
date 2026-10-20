@@ -26,6 +26,7 @@ import tokenService from '../../services/token.service.js';
 import { getSharedRBACService } from '../../services/rbac.service.js';
 import { seedPermissions, seedRolePermissions, seedRoles } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua444-default-perms';
 
@@ -64,8 +65,10 @@ describe('既定の権限（統合・実 DB）', () => {
       throw new Error(`前提の欠落: システムロール ${roleName} が試験 DB に無い`);
     }
     const email = `${MARK}-${suffix}@example.com`;
-    const user = await prisma.user.create({
-      data: { email, displayName: `${MARK}-${suffix}`, passwordHash: 'not-used' },
+    const user = await createTestUser(prisma, {
+      email,
+      displayName: `${MARK}-${suffix}`,
+      passwordHash: 'not-used',
     });
     await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
     const token = await tokenService.generateAccessToken({

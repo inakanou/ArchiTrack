@@ -30,6 +30,7 @@ import {
   refreshWithCookie,
 } from './refresh-cookie-client.js';
 import { loginForTokens } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua452-refresh-family';
 const PASSWORD = 'Family!Passphrase-2026';
@@ -105,8 +106,10 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
     await cleanup();
     await clearRateLimits();
     email = `${MARK}-${randomBytes(4).toString('hex')}@example.com`;
-    const user = await prisma.user.create({
-      data: { email, displayName: 'Refresh Family User', passwordHash },
+    const user = await createTestUser(prisma, {
+      email,
+      displayName: 'Refresh Family User',
+      passwordHash,
     });
     userId = user.id;
   });

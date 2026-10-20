@@ -34,6 +34,7 @@ import { PasswordService } from '../../services/password.service.js';
 import { EmailService } from '../../services/email.service.js';
 import { seedRoles } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua356-acid';
 const DOCUMENTED_ISOLATION = 'read committed';
@@ -99,20 +100,16 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
   beforeEach(async () => {
     await cleanup();
 
-    const actor = await prisma.user.create({
-      data: {
-        email: `${MARK}-actor@example.com`,
-        displayName: 'ACID Actor',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const actor = await createTestUser(prisma, {
+      email: `${MARK}-actor@example.com`,
+      displayName: 'ACID Actor',
+      passwordHash: 'not-used-in-this-test',
     });
     actorId = actor.id;
-    const target = await prisma.user.create({
-      data: {
-        email: `${MARK}-target@example.com`,
-        displayName: 'ACID Target',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const target = await createTestUser(prisma, {
+      email: `${MARK}-target@example.com`,
+      displayName: 'ACID Target',
+      passwordHash: 'not-used-in-this-test',
     });
     targetUserId = target.id;
 
@@ -446,19 +443,15 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
       });
       await prisma.userRole.deleteMany({ where: { roleId: adminRoleId } });
 
-      const adminX = await prisma.user.create({
-        data: {
-          email: `${MARK}-admin-x@example.com`,
-          displayName: 'ACID Admin X',
-          passwordHash: 'not-used-in-this-test',
-        },
+      const adminX = await createTestUser(prisma, {
+        email: `${MARK}-admin-x@example.com`,
+        displayName: 'ACID Admin X',
+        passwordHash: 'not-used-in-this-test',
       });
-      const adminY = await prisma.user.create({
-        data: {
-          email: `${MARK}-admin-y@example.com`,
-          displayName: 'ACID Admin Y',
-          passwordHash: 'not-used-in-this-test',
-        },
+      const adminY = await createTestUser(prisma, {
+        email: `${MARK}-admin-y@example.com`,
+        displayName: 'ACID Admin Y',
+        passwordHash: 'not-used-in-this-test',
       });
       adminXId = adminX.id;
       adminYId = adminY.id;

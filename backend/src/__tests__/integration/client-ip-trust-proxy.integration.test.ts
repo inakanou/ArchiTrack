@@ -31,6 +31,7 @@ import redis, { initRedis } from '../../redis.js';
 import tokenService from '../../services/token.service.js';
 import { getSharedRBACService } from '../../services/rbac.service.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua445-client-ip';
 
@@ -92,8 +93,10 @@ describe('送信元 IP の識別（統合・TRUST_PROXY_HOPS=1）', () => {
       data: { name: MARK, description: MARK, priority: 0, isSystem: false },
     });
     const email = `${MARK}@example.com`;
-    const user = await prisma.user.create({
-      data: { email, displayName: MARK, passwordHash: 'not-used' },
+    const user = await createTestUser(prisma, {
+      email,
+      displayName: MARK,
+      passwordHash: 'not-used',
     });
     await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
     userId = user.id;

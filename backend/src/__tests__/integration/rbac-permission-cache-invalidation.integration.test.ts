@@ -41,6 +41,7 @@ import { AuditLogService } from '../../services/audit-log.service.js';
 import type { EmailService } from '../../services/email.service.js';
 import logger from '../../utils/logger.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua372-rbac-inval';
 
@@ -107,8 +108,10 @@ describe('権限キャッシュの無効化の確かさ（統合・実 Redis・�
     roleId: string
   ): Promise<{ id: string; email: string; token: string }> {
     const email = `${MARK}-${suffix}@example.com`;
-    const user = await prisma.user.create({
-      data: { email, displayName: `${MARK}-${suffix}`, passwordHash: 'not-used' },
+    const user = await createTestUser(prisma, {
+      email,
+      displayName: `${MARK}-${suffix}`,
+      passwordHash: 'not-used',
     });
     await prisma.userRole.create({ data: { userId: user.id, roleId } });
     const token = await tokenService.generateAccessToken({ userId: user.id, email, roles: [] });

@@ -18,6 +18,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { hash, verify } from '@node-rs/argon2';
+import { createTestUser } from './test-user-factory.js';
 
 const connectionString = process.env.DATABASE_URL!;
 const adapter = new PrismaPg({ connectionString });
@@ -351,12 +352,10 @@ describe('Seed Script Integration Tests', () => {
       parallelism: 4,
     });
 
-    await prisma.user.create({
-      data: {
-        email: 'admin@test.example.com',
-        displayName: 'Existing Admin',
-        passwordHash: existingAdminPassword,
-      },
+    await createTestUser(prisma, {
+      email: 'admin@test.example.com',
+      displayName: 'Existing Admin',
+      passwordHash: existingAdminPassword,
     });
 
     // Act: Seedスクリプト実行

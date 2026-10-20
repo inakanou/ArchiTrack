@@ -22,6 +22,7 @@ import { PasswordService } from '../../services/password.service.js';
 import { AuthService } from '../../services/auth.service.js';
 import { seedRoles } from '../../utils/seed-helpers.js';
 import logger from '../../utils/logger.js';
+import { createTestUser } from './test-user-factory.js';
 
 const EMAIL_MARK = 'test-invitation-email-decoupling';
 const inviteeEmail = `${EMAIL_MARK}-invitee@example.com`;
@@ -55,12 +56,10 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
   beforeEach(async () => {
     await cleanup();
 
-    const admin = await prisma.user.create({
-      data: {
-        email: adminEmail,
-        displayName: 'Invitation Email Decoupling Admin',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const admin = await createTestUser(prisma, {
+      email: adminEmail,
+      displayName: 'Invitation Email Decoupling Admin',
+      passwordHash: 'not-used-in-this-test',
     });
     adminId = admin.id;
 

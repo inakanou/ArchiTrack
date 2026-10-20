@@ -43,6 +43,7 @@ import {
   UnsupportedImageFormatError,
 } from '../../services/survey-image.service.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * フロントの再送可否分類が用いる「画像形式の非対応」判定断片を、フロントのソースから読み出す。
@@ -106,7 +107,7 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({ data: { email, displayName, passwordHash } });
+    const user = await createTestUser(prisma, { email, displayName, passwordHash });
 
     for (const roleName of roles) {
       const role = await prisma.role.findUnique({ where: { name: roleName } });

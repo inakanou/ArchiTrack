@@ -31,6 +31,7 @@ import { PrismaClient } from '../../generated/prisma/client.js';
 import type { TwoFactorService } from '../../services/two-factor.service.js';
 import type { TwoFactorChallengeService } from '../../services/two-factor-challenge.service.js';
 import { SwitchableDatabaseRelay } from './switchable-database-relay.js';
+import { createTestUser } from './test-user-factory.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 
 /** 接続の確立を待つ時間（ミリ秒） */
@@ -300,20 +301,15 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
       relay.forward();
       await cleanup();
       const secret = authenticator.generateSecret();
-      const twoFactorSecret = await new TwoFactorServiceClass().encryptSecret(secret);
       // 現在の正しいコードの先頭の桁を変え、形式は正しいが一致しないコードにする
       const current = authenticator.generate(secret);
       invalidTotpCode = `${(Number(current[0]) + 5) % 10}${current.slice(1)}`;
       email = `${MARK}@example.com`;
-      const user = await directPrisma.user.create({
-        data: {
-          email,
-          displayName: MARK,
-          passwordHash: 'not-used',
-          twoFactorEnabled: true,
-          twoFactorSecret,
-        },
-      });
+      const user = await createTestUser(
+        directPrisma,
+        { email, displayName: MARK, passwordHash: 'not-used' },
+        { twoFactor: { secret } }
+      );
       userId = user.id;
     });
 

@@ -10,6 +10,7 @@ validateEnv();
 import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * API統合テスト
@@ -220,12 +221,10 @@ describe('API Integration Tests', () => {
   describe('Database + API Integration', () => {
     it('データベース経由でデータを取得できること', async () => {
       // テストユーザーを作成
-      const user = await prisma.user.create({
-        data: {
-          email: 'test-api-integration-db@example.com',
-          displayName: 'API Test User',
-          passwordHash: 'test-hash',
-        },
+      const user = await createTestUser(prisma, {
+        email: 'test-api-integration-db@example.com',
+        displayName: 'API Test User',
+        passwordHash: 'test-hash',
       });
 
       // Note: 現在のAPIにはユーザー取得エンドポイントがないため、

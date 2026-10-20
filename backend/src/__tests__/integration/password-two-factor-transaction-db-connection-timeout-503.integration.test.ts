@@ -24,6 +24,7 @@ import type { PasswordService } from '../../services/password.service.js';
 import type { TwoFactorService } from '../../services/two-factor.service.js';
 import { SwitchableDatabaseRelay } from './switchable-database-relay.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 /** 1 回の試行の接続タイムアウト（ミリ秒） */
 const CONNECTION_TIMEOUT_MS = 1000;
@@ -147,9 +148,11 @@ describe('パスワードと二要素認証のトランザクションの開始�
     currentPasswordHash = await new PasswordServiceClass(directPrisma).hashPassword(
       CURRENT_PASSWORD
     );
-    const user = await directPrisma.user.create({
-      data: { email, displayName: MARK, passwordHash: currentPasswordHash },
-    });
+    const user = await createTestUser(
+      directPrisma,
+      { email, displayName: MARK, passwordHash: currentPasswordHash },
+      { twoFactor: false }
+    );
     userId = user.id;
     accessToken = await tokenService.generateAccessToken({ userId, email, roles: [] });
   }, BEFORE_ALL_TIMEOUT_MS);

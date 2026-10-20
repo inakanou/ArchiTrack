@@ -34,6 +34,7 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * プロジェクト差分実装の統合テスト
@@ -60,12 +61,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-differential-integration@example.com',
-        displayName: 'Differential Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-differential-integration@example.com',
+      displayName: 'Differential Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -137,12 +136,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     });
 
     // 営業担当者1
-    const salesPerson1 = await prisma.user.create({
-      data: {
-        email: 'test-diff-sales1@example.com',
-        displayName: '山田太郎', // 検索テスト用
-        passwordHash,
-      },
+    const salesPerson1 = await createTestUser(prisma, {
+      email: 'test-diff-sales1@example.com',
+      displayName: '山田太郎', // 検索テスト用
+      passwordHash,
     });
 
     if (userRole) {
@@ -152,12 +149,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     }
 
     // 営業担当者2
-    const salesPerson2 = await prisma.user.create({
-      data: {
-        email: 'test-diff-sales2@example.com',
-        displayName: '佐藤花子', // 検索テスト用
-        passwordHash,
-      },
+    const salesPerson2 = await createTestUser(prisma, {
+      email: 'test-diff-sales2@example.com',
+      displayName: '佐藤花子', // 検索テスト用
+      passwordHash,
     });
 
     if (userRole) {
@@ -167,12 +162,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     }
 
     // 工事担当者1
-    const constructionPerson1 = await prisma.user.create({
-      data: {
-        email: 'test-diff-constr1@example.com',
-        displayName: '鈴木一郎', // 検索テスト用
-        passwordHash,
-      },
+    const constructionPerson1 = await createTestUser(prisma, {
+      email: 'test-diff-constr1@example.com',
+      displayName: '鈴木一郎', // 検索テスト用
+      passwordHash,
     });
 
     if (userRole) {
@@ -182,12 +175,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     }
 
     // 工事担当者2
-    const constructionPerson2 = await prisma.user.create({
-      data: {
-        email: 'test-diff-constr2@example.com',
-        displayName: '田中次郎', // 検索テスト用
-        passwordHash,
-      },
+    const constructionPerson2 = await createTestUser(prisma, {
+      email: 'test-diff-constr2@example.com',
+      displayName: '田中次郎', // 検索テスト用
+      passwordHash,
     });
 
     if (userRole) {

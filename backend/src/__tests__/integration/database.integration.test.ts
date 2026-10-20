@@ -7,6 +7,7 @@ import type { PrismaClient } from '../../generated/prisma/client.js';
 validateEnv();
 
 import getPrismaClient from '../../db.js';
+import { createTestUser, createTestUsers } from './test-user-factory.js';
 
 /**
  * データベース統合テスト
@@ -47,12 +48,10 @@ describe('Database Integration Tests', () => {
 
   describe('User CRUD Operations', () => {
     it('ユーザーを作成できること', async () => {
-      const user = await prisma.user.create({
-        data: {
-          email: 'test-integration-create@example.com',
-          displayName: 'Test User Create',
-          passwordHash: 'test-hash',
-        },
+      const user = await createTestUser(prisma, {
+        email: 'test-integration-create@example.com',
+        displayName: 'Test User Create',
+        passwordHash: 'test-hash',
       });
 
       expect(user).toHaveProperty('id');
@@ -64,12 +63,10 @@ describe('Database Integration Tests', () => {
 
     it('ユーザーを取得できること', async () => {
       // テストデータ作成
-      const created = await prisma.user.create({
-        data: {
-          email: 'test-integration-read@example.com',
-          displayName: 'Test User Read',
-          passwordHash: 'test-hash',
-        },
+      const created = await createTestUser(prisma, {
+        email: 'test-integration-read@example.com',
+        displayName: 'Test User Read',
+        passwordHash: 'test-hash',
       });
 
       // IDで取得
@@ -84,12 +81,10 @@ describe('Database Integration Tests', () => {
 
     it('ユーザーを更新できること', async () => {
       // テストデータ作成
-      const created = await prisma.user.create({
-        data: {
-          email: 'test-integration-update@example.com',
-          displayName: 'Test User Update',
-          passwordHash: 'test-hash',
-        },
+      const created = await createTestUser(prisma, {
+        email: 'test-integration-update@example.com',
+        displayName: 'Test User Update',
+        passwordHash: 'test-hash',
       });
 
       // 更新
@@ -105,12 +100,10 @@ describe('Database Integration Tests', () => {
 
     it('ユーザーを削除できること', async () => {
       // テストデータ作成
-      const created = await prisma.user.create({
-        data: {
-          email: 'test-integration-delete@example.com',
-          displayName: 'Test User Delete',
-          passwordHash: 'test-hash',
-        },
+      const created = await createTestUser(prisma, {
+        email: 'test-integration-delete@example.com',
+        displayName: 'Test User Delete',
+        passwordHash: 'test-hash',
       });
 
       // 削除
@@ -128,25 +121,23 @@ describe('Database Integration Tests', () => {
 
     it('複数ユーザーを取得できること', async () => {
       // テストデータ作成
-      await prisma.user.createMany({
-        data: [
-          {
-            email: 'test-integration-list-1@example.com',
-            displayName: 'User 1',
-            passwordHash: 'test-hash',
-          },
-          {
-            email: 'test-integration-list-2@example.com',
-            displayName: 'User 2',
-            passwordHash: 'test-hash',
-          },
-          {
-            email: 'test-integration-list-3@example.com',
-            displayName: 'User 3',
-            passwordHash: 'test-hash',
-          },
-        ],
-      });
+      await createTestUsers(prisma, [
+        {
+          email: 'test-integration-list-1@example.com',
+          displayName: 'User 1',
+          passwordHash: 'test-hash',
+        },
+        {
+          email: 'test-integration-list-2@example.com',
+          displayName: 'User 2',
+          passwordHash: 'test-hash',
+        },
+        {
+          email: 'test-integration-list-3@example.com',
+          displayName: 'User 3',
+          passwordHash: 'test-hash',
+        },
+      ]);
 
       // 取得
       const users = await prisma.user.findMany({
@@ -172,9 +163,7 @@ describe('Database Integration Tests', () => {
       const email = 'test-integration-duplicate@example.com';
 
       // 1人目のユーザー作成
-      await prisma.user.create({
-        data: { email, displayName: 'User 1', passwordHash: 'test-hash' },
-      });
+      await createTestUser(prisma, { email, displayName: 'User 1', passwordHash: 'test-hash' });
 
       // 2人目のユーザー作成（同じメールアドレス）
       // Prismaのエラーログを抑制（意図的にエラーを発生させるため）
@@ -198,9 +187,7 @@ describe('Database Integration Tests', () => {
 
       try {
         await expect(
-          prisma.user.create({
-            data: { email, displayName: 'User 2', passwordHash: 'test-hash' },
-          })
+          createTestUser(prisma, { email, displayName: 'User 2', passwordHash: 'test-hash' })
         ).rejects.toThrow();
       } finally {
         process.stdout.write = originalStdoutWrite;
@@ -232,10 +219,11 @@ describe('Database Integration Tests', () => {
 
       try {
         await expect(
-          prisma.user.create({
+          createTestUser(
+            prisma,
             // @ts-expect-error Testing missing required field
-            data: { displayName: 'No Email User', passwordHash: 'test-hash' },
-          })
+            { displayName: 'No Email User', passwordHash: 'test-hash' }
+          )
         ).rejects.toThrow();
       } finally {
         process.stdout.write = originalStdoutWrite;
@@ -255,12 +243,16 @@ describe('Database Integration Tests', () => {
       const email2 = 'test-integration-tx-2@example.com';
 
       await prisma.$transaction(async (tx) => {
-        await tx.user.create({
-          data: { email: email1, displayName: 'TX User 1', passwordHash: 'test-hash' },
+        await createTestUser(tx, {
+          email: email1,
+          displayName: 'TX User 1',
+          passwordHash: 'test-hash',
         });
 
-        await tx.user.create({
-          data: { email: email2, displayName: 'TX User 2', passwordHash: 'test-hash' },
+        await createTestUser(tx, {
+          email: email2,
+          displayName: 'TX User 2',
+          passwordHash: 'test-hash',
         });
       });
 
@@ -300,13 +292,17 @@ describe('Database Integration Tests', () => {
 
       try {
         await prisma.$transaction(async (tx) => {
-          await tx.user.create({
-            data: { email: email1, displayName: 'Rollback User 1', passwordHash: 'test-hash' },
+          await createTestUser(tx, {
+            email: email1,
+            displayName: 'Rollback User 1',
+            passwordHash: 'test-hash',
           });
 
           // 意図的にエラーを発生させる（重複メール）
-          await tx.user.create({
-            data: { email: email1, displayName: 'Duplicate Email', passwordHash: 'test-hash' },
+          await createTestUser(tx, {
+            email: email1,
+            displayName: 'Duplicate Email',
+            passwordHash: 'test-hash',
           });
         });
       } catch {

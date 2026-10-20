@@ -17,6 +17,7 @@ import {
   AUDIT_ARCHIVE_SETTING,
   deleteAuditLogsWithArchivePermission,
 } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua442-audit-protection';
 
@@ -56,12 +57,10 @@ describe('監査ログの実行者の写しと改変の禁止（統合）', () =
 
   beforeEach(async () => {
     await cleanup();
-    const actor = await prisma.user.create({
-      data: {
-        email: `${MARK}-actor@example.com`,
-        displayName: '監査 実行者',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const actor = await createTestUser(prisma, {
+      email: `${MARK}-actor@example.com`,
+      displayName: '監査 実行者',
+      passwordHash: 'not-used-in-this-test',
     });
     actorId = actor.id;
   });

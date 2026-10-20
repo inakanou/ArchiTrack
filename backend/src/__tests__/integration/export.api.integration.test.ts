@@ -29,6 +29,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * エクスポートAPI統合テスト
@@ -63,12 +64,10 @@ describe('Export API Integration Tests', () => {
       await prisma.user.delete({ where: { id: existingUser.id } });
     }
 
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-export-integration@example.com',
-        displayName: 'Export Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-export-integration@example.com',
+      displayName: 'Export Test User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({

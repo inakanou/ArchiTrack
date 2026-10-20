@@ -21,6 +21,7 @@ import { PasswordService } from '../../services/password.service.js';
 import type { EmailService } from '../../services/email.service.js';
 import type { TokenService } from '../../services/token.service.js';
 import { createStoredRefreshToken } from './refresh-token-fixture.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua452-rotation-race';
 const WAIT_TIMEOUT_MS = 10000;
@@ -115,12 +116,10 @@ describe('ローテーションと失効の競合（統合・実 DB）', () => {
 
   beforeEach(async () => {
     await cleanup();
-    const user = await prisma.user.create({
-      data: {
-        email: `${MARK}-${randomBytes(4).toString('hex')}@example.com`,
-        displayName: 'Rotation Race User',
-        passwordHash: 'not-used',
-      },
+    const user = await createTestUser(prisma, {
+      email: `${MARK}-${randomBytes(4).toString('hex')}@example.com`,
+      displayName: 'Rotation Race User',
+      passwordHash: 'not-used',
     });
     userId = user.id;
   });

@@ -24,6 +24,7 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * かな変換検索の統合テスト
@@ -46,12 +47,10 @@ describe('Kana Conversion Search Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-kana-search-integration@example.com',
-        displayName: 'Kana Search Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-kana-search-integration@example.com',
+      displayName: 'Kana Search Test User',
+      passwordHash,
     });
 
     // adminロールを取得して割り当て

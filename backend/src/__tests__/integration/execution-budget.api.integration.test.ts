@@ -31,6 +31,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 実行予算CRUD API統合テスト
@@ -64,12 +65,10 @@ describe('Execution Budget API Integration Tests', () => {
     }
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-eb-integration@example.com',
-        displayName: 'EB Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-eb-integration@example.com',
+      displayName: 'EB Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て

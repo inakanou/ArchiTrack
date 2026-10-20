@@ -48,6 +48,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const PERMITTED_EMAIL = 'test-estimate-draft-save-permitted@example.com';
 const NO_PERMISSION_EMAIL = 'test-estimate-draft-save-no-permission@example.com';
@@ -108,12 +109,10 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
   const setupPermittedUser = async (): Promise<{ token: string; userId: string }> => {
     const passwordHash = await hashPassword();
 
-    const user = await prisma.user.create({
-      data: {
-        email: PERMITTED_EMAIL,
-        displayName: 'Estimate Draft Save Permitted User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: PERMITTED_EMAIL,
+      displayName: 'Estimate Draft Save Permitted User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -162,12 +161,10 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
   const setupNoPermissionUser = async (): Promise<string> => {
     const passwordHash = await hashPassword();
 
-    await prisma.user.create({
-      data: {
-        email: NO_PERMISSION_EMAIL,
-        displayName: 'Estimate Draft Save No Permission User',
-        passwordHash,
-      },
+    await createTestUser(prisma, {
+      email: NO_PERMISSION_EMAIL,
+      displayName: 'Estimate Draft Save No Permission User',
+      passwordHash,
     });
 
     const accessToken = await loginForAccessToken(app, {

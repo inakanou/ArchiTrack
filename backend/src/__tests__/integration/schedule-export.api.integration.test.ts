@@ -31,6 +31,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 工程表エクスポートAPI統合テスト
@@ -75,12 +76,10 @@ describe('Schedule Export API Integration Tests', () => {
     }
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-schedule-export@example.com',
-        displayName: 'Schedule Export Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-schedule-export@example.com',
+      displayName: 'Schedule Export Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て

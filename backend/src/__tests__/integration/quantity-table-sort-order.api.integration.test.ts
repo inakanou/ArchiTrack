@@ -24,6 +24,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 describe('数量表 並び順管理・グループ名前変更 統合テスト (Task 42.2)', () => {
   let prisma: PrismaClient;
@@ -40,12 +41,10 @@ describe('数量表 並び順管理・グループ名前変更 統合テスト (
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-sort-order-integration@example.com',
-        displayName: 'Sort Order Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-sort-order-integration@example.com',
+      displayName: 'Sort Order Test User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({

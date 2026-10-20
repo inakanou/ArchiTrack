@@ -32,6 +32,7 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { initializeConstructionPhotoImageServices } from '../../routes/construction-photo-images.routes.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 describe('Construction Photo Access API Integration Tests（担当でない一般ユーザー）', () => {
   let prisma: PrismaClient;
@@ -90,7 +91,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({ data: { email, displayName, passwordHash } });
+    const user = await createTestUser(prisma, { email, displayName, passwordHash });
 
     for (const roleName of roles) {
       const role = await prisma.role.findUniqueOrThrow({ where: { name: roleName } });

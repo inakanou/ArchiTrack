@@ -30,6 +30,7 @@ import redis, { initRedis } from '../../redis.js';
 import tokenService from '../../services/token.service.js';
 import logger from '../../utils/logger.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua362-rbac-cache';
 
@@ -110,8 +111,10 @@ describe('権限の確認の経路の権限キャッシュ（統合・実 Redis�
     roleId: string
   ): Promise<{ id: string; token: string }> {
     const email = `${MARK}-${suffix}@example.com`;
-    const user = await prisma.user.create({
-      data: { email, displayName: `${MARK}-${suffix}`, passwordHash: 'not-used' },
+    const user = await createTestUser(prisma, {
+      email,
+      displayName: `${MARK}-${suffix}`,
+      passwordHash: 'not-used',
     });
     await prisma.userRole.create({ data: { userId: user.id, roleId } });
     const token = await tokenService.generateAccessToken({ userId: user.id, email, roles: [] });

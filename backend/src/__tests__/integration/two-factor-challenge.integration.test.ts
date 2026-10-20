@@ -28,12 +28,12 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
-import { TwoFactorService } from '../../services/two-factor.service.js';
 import {
   TWO_FACTOR_CHALLENGE_TTL_SECONDS,
   twoFactorChallengeKey,
 } from '../../services/two-factor-challenge.service.js';
 import { issuedRefreshToken } from './refresh-cookie-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua461-2fa-challenge';
 const PASSWORD = 'Challenge!Passphrase-2026';
@@ -113,16 +113,11 @@ describe('2FA 待ちの資格（統合）', () => {
     await cleanup();
     email = `${MARK}-${randomBytes(4).toString('hex')}@example.com`;
     secret = authenticator.generateSecret();
-    const twoFactorService = new TwoFactorService();
-    const user = await prisma.user.create({
-      data: {
-        email,
-        displayName: '2FA Challenge User',
-        passwordHash,
-        twoFactorEnabled: true,
-        twoFactorSecret: await twoFactorService.encryptSecret(secret),
-      },
-    });
+    const user = await createTestUser(
+      prisma,
+      { email, displayName: '2FA Challenge User', passwordHash },
+      { twoFactor: { secret } }
+    );
     userId = user.id;
     backupCode = 'QWER5678';
     await prisma.twoFactorBackupCode.create({

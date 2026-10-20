@@ -25,6 +25,7 @@ import { createRuntimeMode } from '../../config/runtime-mode.js';
 import { InvitationService } from '../../services/invitation.service.js';
 import { InvitationStatus } from '../../types/invitation.types.js';
 import { createStoredRefreshToken } from './refresh-token-fixture.js';
+import { createTestUser } from './test-user-factory.js';
 
 const EMAIL_MARK = 'test-expired-token-cleanup';
 const HOUR_MS = 60 * 60 * 1000;
@@ -56,20 +57,16 @@ describe('使用済み・期限切れのトークンの消去（統合・実 DB�
 
   beforeEach(async () => {
     await cleanup();
-    const inviter = await prisma.user.create({
-      data: {
-        email: `${EMAIL_MARK}-inviter@example.com`,
-        displayName: 'Token Cleanup Inviter',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const inviter = await createTestUser(prisma, {
+      email: `${EMAIL_MARK}-inviter@example.com`,
+      displayName: 'Token Cleanup Inviter',
+      passwordHash: 'not-used-in-this-test',
     });
     inviterId = inviter.id;
-    const user = await prisma.user.create({
-      data: {
-        email: `${EMAIL_MARK}-user@example.com`,
-        displayName: 'Token Cleanup User',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const user = await createTestUser(prisma, {
+      email: `${EMAIL_MARK}-user@example.com`,
+      displayName: 'Token Cleanup User',
+      passwordHash: 'not-used-in-this-test',
     });
     userId = user.id;
   });

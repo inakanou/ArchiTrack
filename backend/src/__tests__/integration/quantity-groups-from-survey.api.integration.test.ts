@@ -36,6 +36,7 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 一括生成API統合テスト
@@ -77,12 +78,10 @@ describe('Quantity Groups From Survey API Integration Tests', () => {
   const setupPermittedUser = async (): Promise<{ token: string; userId: string }> => {
     const passwordHash = await hashPassword();
 
-    const user = await prisma.user.create({
-      data: {
-        email: PERMITTED_EMAIL,
-        displayName: 'From Survey Permitted User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: PERMITTED_EMAIL,
+      displayName: 'From Survey Permitted User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -138,12 +137,10 @@ describe('Quantity Groups From Survey API Integration Tests', () => {
   const setupNoPermissionUser = async (): Promise<string> => {
     const passwordHash = await hashPassword();
 
-    await prisma.user.create({
-      data: {
-        email: NO_PERMISSION_EMAIL,
-        displayName: 'From Survey No Permission User',
-        passwordHash,
-      },
+    await createTestUser(prisma, {
+      email: NO_PERMISSION_EMAIL,
+      displayName: 'From Survey No Permission User',
+      passwordHash,
     });
 
     const accessToken = await loginForAccessToken(app, {

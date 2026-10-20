@@ -17,6 +17,7 @@ import {
   refreshWithCookie,
 } from './refresh-cookie-client.js';
 import { loginForTokens } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 認証API統合テスト
@@ -88,12 +89,10 @@ describe('Authentication API Integration Tests', () => {
       parallelism: 4,
     });
 
-    const admin = await prisma.user.create({
-      data: {
-        email: 'test-auth-admin@example.com',
-        displayName: 'Test Admin',
-        passwordHash,
-      },
+    const admin = await createTestUser(prisma, {
+      email: 'test-auth-admin@example.com',
+      displayName: 'Test Admin',
+      passwordHash,
     });
 
     // 管理者ロールを割り当て
@@ -311,13 +310,15 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      const user = await prisma.user.create({
-        data: {
+      const user = await createTestUser(
+        prisma,
+        {
           email: 'test-auth-login@example.com',
           displayName: 'Login Test User',
           passwordHash,
         },
-      });
+        { twoFactor: false }
+      );
 
       // 一般ユーザーロールを割り当て
       const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -443,6 +444,10 @@ describe('Authentication API Integration Tests', () => {
      * @requirement user-authentication/REQ-34.6
      */
     it('2FA 登録済みの利用者が正しいパスワードで自己の無効化を求めても 403 で拒否し、秘密鍵・バックアップコード・セッションを残す', async () => {
+      const original = await prisma.user.findUniqueOrThrow({
+        where: { id: adminUser.id },
+        select: { twoFactorEnabled: true, twoFactorSecret: true },
+      });
       await prisma.user.update({
         where: { id: adminUser.id },
         data: { twoFactorEnabled: true, twoFactorSecret: 'test-auth-2fa-disable-secret' },
@@ -483,10 +488,7 @@ describe('Authentication API Integration Tests', () => {
         );
       } finally {
         await prisma.twoFactorBackupCode.deleteMany({ where: { userId: adminUser.id } });
-        await prisma.user.update({
-          where: { id: adminUser.id },
-          data: { twoFactorEnabled: false, twoFactorSecret: null },
-        });
+        await prisma.user.update({ where: { id: adminUser.id }, data: original });
       }
     });
   });
