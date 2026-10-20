@@ -266,7 +266,7 @@ export async function loginWithCredentials(
  * ```typescript
  * test('2FAコードでログイン', async ({ page }) => {
  *   await loginAsUser(page, 'TWO_FA_USER');
- *   await submitTwoFactorCode(page, '123456');
+ *   await submitTwoFactorCode(page, await prepareTotpCode(TEST_USERS.TWO_FA_USER.email));
  *   // ...
  * });
  * ```

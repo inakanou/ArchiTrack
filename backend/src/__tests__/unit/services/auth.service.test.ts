@@ -974,6 +974,23 @@ describe('AuthService', () => {
       expect(result).toEqual({ ok: false, error: { type: 'INVALID_2FA_CODE' } });
       expect(mockTwoFactorChallengeService.consume).not.toHaveBeenCalled();
     });
+
+    /**
+     * @requirement user-authentication/REQ-32.7
+     */
+    it('TOTP の再利用（CODE_ALREADY_USED）は通常の誤りと同じ INVALID_2FA_CODE で、資格を消費せずトークンを発行しない', async () => {
+      arrangeVerifiedUser();
+      (mockTwoFactorService.verifyTOTP as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'CODE_ALREADY_USED' })
+      );
+
+      const result = await verifyTotpWithChallenge(userId, '654321');
+
+      expect(result).toEqual({ ok: false, error: { type: 'INVALID_2FA_CODE' } });
+      expect(mockTwoFactorChallengeService.consume).not.toHaveBeenCalled();
+      expect(mockTokenService.generateAccessToken).not.toHaveBeenCalled();
+      expect(mockSessionService.createSession).not.toHaveBeenCalled();
+    });
   });
 
   describe('getCurrentUser()', () => {

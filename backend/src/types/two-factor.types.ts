@@ -96,10 +96,11 @@ export interface ITwoFactorService {
    * TOTP検証
    *
    * 30秒ウィンドウ、±1ステップ許容（合計90秒）で検証する。
+   * 最後に使った時間ステップ以下のコードは再利用として拒否する。
    *
    * @param userId - ユーザーID
    * @param totpCode - 6桁のTOTPコード
-   * @returns 検証成功ならtrue、失敗ならfalse
+   * @returns 検証成功ならtrue、不一致ならfalse、再利用ならCODE_ALREADY_USED
    */
   verifyTOTP(userId: string, totpCode: string): Promise<Result<boolean, TwoFactorError>>;
 
@@ -181,4 +182,5 @@ export type TwoFactorError =
   | { type: 'INVALID_TOTP_CODE' }
   | { type: 'INVALID_BACKUP_CODE' }
   | { type: 'BACKUP_CODE_ALREADY_USED' }
+  | { type: 'CODE_ALREADY_USED' }
   | { type: 'INVALID_PASSWORD' };

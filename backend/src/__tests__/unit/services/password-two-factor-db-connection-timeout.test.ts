@@ -15,6 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { authenticator } from 'otplib';
 import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 import { PasswordService } from '../../../services/password.service.js';
 import { TwoFactorService } from '../../../services/two-factor.service.js';
@@ -136,6 +137,9 @@ function twoFactorService(prisma: PrismaClient): TwoFactorService {
 
 const NEW_PASSWORD = 'Str0ng!Passphrase-2026';
 
+/** 2FA の有効化で使う既知の TOTP の秘密鍵（Base32） */
+const TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
+
 /** DB 例外を自前のエラーへ変える catch へ、最初の問い合わせで到達する呼び出しと、その自前のエラー */
 const firstQueryCases: Array<[string, (prisma: PrismaClient) => Promise<unknown>, string]> = [
   [
@@ -234,8 +238,12 @@ const transactionCases: Array<
   ],
   [
     'TwoFactorService.enableTwoFactor',
-    // NODE_ENV が production でないとき固定コード 123456 を受け入れ、トランザクションへ進む
-    (p) => twoFactorService(p).enableTwoFactor('user-1', '123456'),
+    // 秘密鍵の復号の結果だけを与え、その秘密鍵から計算した正しいコードでトランザクションへ進む
+    (p) => {
+      const service = twoFactorService(p);
+      vi.spyOn(service, 'decryptSecret').mockResolvedValue(TOTP_SECRET);
+      return service.enableTwoFactor('user-1', authenticator.generate(TOTP_SECRET));
+    },
     { user: { twoFactorEnabled: false, twoFactorSecret: 'encrypted' } },
     'INVALID_TOTP_CODE',
   ],

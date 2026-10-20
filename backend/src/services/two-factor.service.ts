@@ -348,11 +348,14 @@ export class TwoFactorService implements ITwoFactorService {
    * TOTP検証
    *
    * 30秒ウィンドウ、±1ステップ許容（合計90秒）で検証する。
+   * 一致した時間ステップを `users.two_factor_last_used_step` に条件付きの更新で記録し、
+   * 記録以下のステップのコード（同じコードの二度目を含む）は CODE_ALREADY_USED で拒否する（要件32.7）。
+   * 条件付きの更新は、同時の二つの検証の一方だけを成功させる。
    * @requirement user-authentication/REQ-27A.3: TOTP検証の実装
    *
    * @param userId - ユーザーID
    * @param totpCode - 6桁のTOTPコード
-   * @returns 検証成功ならtrue、失敗ならfalse
+   * @returns 検証成功ならtrue、コードの不一致ならfalse、再利用ならCODE_ALREADY_USED
    */
   async verifyTOTP(userId: string, totpCode: string): Promise<Result<boolean, TwoFactorError>> {
     try {
@@ -373,13 +376,6 @@ export class TwoFactorService implements ITwoFactorService {
         return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
       }
 
-      // テスト/開発環境では固定コード "123456" を受け入れる（E2Eテスト用）
-      // Note: 本番環境では必ず実際のTOTP検証を行う
-      if (process.env.NODE_ENV !== 'production' && totpCode === '123456') {
-        logger.debug({ userId }, 'TOTP検証をテストモードで成功させました');
-        return Ok(true);
-      }
-
       // 秘密鍵を復号化
       let decryptedSecret: string;
       try {
@@ -388,17 +384,54 @@ export class TwoFactorService implements ITwoFactorService {
         return Err({ type: 'DECRYPTION_FAILED', message: '秘密鍵の復号化に失敗しました' });
       }
 
-      // TOTP検証
-      const isValid = authenticator.verify({ token: totpCode, secret: decryptedSecret });
+      // TOTP検証（一致した時間ステップを求める）
+      const matchedStep = this.matchTOTPStep(totpCode, decryptedSecret);
+      if (matchedStep === null) {
+        logger.debug({ userId, isValid: false }, 'TOTP検証を実行しました');
+        return Ok(false);
+      }
 
-      logger.debug({ userId, isValid }, 'TOTP検証を実行しました');
-      return Ok(isValid);
+      // 一致したステップが記録より新しいときだけ記録する（再利用の拒否、要件32.7）
+      const recorded = await this.prisma.user.updateMany({
+        where: {
+          id: userId,
+          OR: [{ twoFactorLastUsedStep: null }, { twoFactorLastUsedStep: { lt: matchedStep } }],
+        },
+        data: { twoFactorLastUsedStep: matchedStep },
+      });
+      if (recorded.count === 0) {
+        logger.info({ userId, matchedStep }, 'TOTPコードの再利用を拒否しました');
+        return Err({ type: 'CODE_ALREADY_USED' });
+      }
+
+      logger.debug({ userId, isValid: true }, 'TOTP検証を実行しました');
+      return Ok(true);
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       logger.error({ err: error, userId }, 'TOTP検証中にエラーが発生しました');
       return Err({ type: 'INVALID_TOTP_CODE' });
     }
+  }
+
+  /**
+   * TOTPコードが一致した時間ステップを求める
+   *
+   * otplib の checkDelta で許容の窓（±1ステップ）の中のずれを求め、現在の時間ステップに足す。
+   * 現在の時刻は一度だけ読み、照合と時間ステップの計算で同じ時刻を使う（ステップの境界でずれないように）。
+   *
+   * @param totpCode - 6桁のTOTPコード
+   * @param secret - 復号済みのBase32秘密鍵
+   * @returns 一致した時間ステップ。一致しなければnull
+   */
+  private matchTOTPStep(totpCode: string, secret: string): number | null {
+    const epoch = Date.now();
+    const delta = authenticator.clone({ epoch }).checkDelta(totpCode, secret);
+    if (delta === null) {
+      return null;
+    }
+    const stepSeconds = authenticator.allOptions().step;
+    return Math.floor(epoch / 1000 / stepSeconds) + delta;
   }
 
   /**
@@ -432,13 +465,8 @@ export class TwoFactorService implements ITwoFactorService {
         return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
       }
 
-      // テスト/開発環境では固定コード "ABCD1234" を受け入れる（E2Eテスト用）
-      // Note: 本番環境では必ず実際のバックアップコード検証を行う
+      // 表示形式（XXXX-XXXX）と小文字の入力を、保存時の形式（8文字の大文字英数字）へ揃える
       const normalizedCode = backupCode.replace(/-/g, '').toUpperCase();
-      if (process.env.NODE_ENV !== 'production' && normalizedCode === 'ABCD1234') {
-        logger.debug({ userId }, 'バックアップコード検証をテストモードで成功させました');
-        return Ok(true);
-      }
 
       // 未使用のバックアップコードを取得
       const backupCodes = await this.prisma.twoFactorBackupCode.findMany({
@@ -450,7 +478,7 @@ export class TwoFactorService implements ITwoFactorService {
 
       // 各バックアップコードのハッシュと比較
       for (const storedCode of backupCodes) {
-        const isValid = await verify(storedCode.codeHash, backupCode);
+        const isValid = await verify(storedCode.codeHash, normalizedCode);
 
         if (isValid) {
           // 使用済みとしてマーク、監査ログ記録（実行者の写しは記録の前に読む。要件40.7）
@@ -524,27 +552,20 @@ export class TwoFactorService implements ITwoFactorService {
         return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
       }
 
-      // テスト/開発環境では固定コード "123456" を受け入れる（E2Eテスト用）
-      // Note: 本番環境では必ず実際のTOTP検証を行う
-      let isValid = false;
-      if (process.env.NODE_ENV !== 'production' && totpCode === '123456') {
-        logger.debug({ userId }, 'TOTP検証（enableTwoFactor）をテストモードで成功させました');
-        isValid = true;
-      } else {
-        // TOTP検証（enableTwoFactor専用）
-        // 注: verifyTOTPはtwoFactorEnabled=trueを要求するため、
-        // セットアップ中（まだenabled=false）は直接検証する
-        let decryptedSecret: string;
-        try {
-          decryptedSecret = await this.decryptSecret(user.twoFactorSecret);
-        } catch {
-          return Err({ type: 'DECRYPTION_FAILED', message: '秘密鍵の復号化に失敗しました' });
-        }
-
-        isValid = authenticator.verify({ token: totpCode, secret: decryptedSecret });
+      // TOTP検証（enableTwoFactor専用）
+      // 注: verifyTOTPはtwoFactorEnabled=trueを要求するため、
+      // セットアップ中（まだenabled=false）は直接検証する
+      let decryptedSecret: string;
+      try {
+        decryptedSecret = await this.decryptSecret(user.twoFactorSecret);
+      } catch {
+        return Err({ type: 'DECRYPTION_FAILED', message: '秘密鍵の復号化に失敗しました' });
       }
 
-      if (!isValid) {
+      // 一致した時間ステップを求め、有効化と同時に記録する（有効化に使ったコードのログインでの再利用を拒否、要件32.7）
+      const matchedStep = this.matchTOTPStep(totpCode, decryptedSecret);
+
+      if (matchedStep === null) {
         return Err({ type: 'INVALID_TOTP_CODE' });
       }
 
@@ -553,10 +574,10 @@ export class TwoFactorService implements ITwoFactorService {
 
       // トランザクション内で2FAを有効化、既存バックアップコード削除、新規コード保存、監査ログ記録
       await this.prisma.$transaction(async (tx) => {
-        // 2FAを有効化
+        // 2FAを有効化し、有効化に使ったコードの時間ステップを記録する
         await tx.user.update({
           where: { id: userId },
-          data: { twoFactorEnabled: true },
+          data: { twoFactorEnabled: true, twoFactorLastUsedStep: matchedStep },
         });
 
         // 既存のバックアップコードを削除（setupTwoFactor時に生成されたもの）

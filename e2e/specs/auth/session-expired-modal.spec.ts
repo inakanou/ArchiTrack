@@ -6,6 +6,8 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { assertPresent } from '../../helpers/preconditions';
 import { waitForAuthenticatedSession } from '../../helpers/auth-api';
+import { prepareTotpCode } from '../../helpers/two-factor-totp';
+import { TEST_USERS } from '../../helpers/test-users';
 
 /**
  * セッション切れモーダル再認証のE2Eテスト
@@ -479,12 +481,13 @@ test.describe('セッション切れモーダル再認証', () => {
     await createTestUser('TWO_FA_USER');
     await loginAsUser(page, 'TWO_FA_USER');
     // 2FAユーザーはloginAsUser後に2FA検証を完了させる必要がある
-    // テスト環境では固定コード "123456" でバイパス（分割入力UI対応）
+    // 既知の秘密鍵から計算した TOTP コードを分割入力の欄へキーボードで打つ
     await page
       .getByTestId('totp-digit-0')
       .waitFor({ state: 'visible', timeout: getTimeout(10000) });
+    const totpCode = await prepareTotpCode(TEST_USERS.TWO_FA_USER.email);
     await page.getByTestId('totp-digit-0').click();
-    await page.keyboard.type('123456');
+    await page.keyboard.type(totpCode);
     await page.getByRole('button', { name: /検証/i }).click();
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
       timeout: getTimeout(15000),

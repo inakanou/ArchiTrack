@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import {
   createTestUser,
@@ -11,6 +11,7 @@ import { TEST_USERS } from '../../helpers/test-users';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 import { waitForAuthenticatedSession } from '../../helpers/auth-api';
+import { fillTotpCode, generateTotpCode, prepareTotpCode } from '../../helpers/two-factor-totp';
 
 /**
  * 2要素認証機能のE2Eテスト
@@ -24,13 +25,21 @@ import { waitForAuthenticatedSession } from '../../helpers/auth-api';
  */
 
 /**
- * ヘルパー関数: モックTOTPコードを生成
- * Note: 実際の環境では、QRコードから秘密鍵を取得してotplibでTOTPコードを生成する
- * このE2Eテストでは、バックエンドがテスト用の固定TOTPコードを受け入れることを想定
+ * 2FA の設定の画面に表示された秘密鍵（手動入力用）から、現在の TOTP コードを計算する
+ *
+ * backend は固定値のコードを受理しないため、設定の開始で発行された秘密鍵から本物のコードを求める。
  */
-function generateMockTOTPCode(): string {
-  // テスト環境用の固定コード（バックエンドでモック対応が必要）
-  return '123456';
+async function totpCodeFromSetupPage(page: Page): Promise<string> {
+  const secretKey = page.getByTestId('secret-key');
+  await expect(secretKey).toHaveText(/^[A-Z2-7]+=*$/, { timeout: getTimeout(10000) });
+  const secret = await secretKey.textContent();
+  assertPrepared(secret, '2FA の設定の画面の秘密鍵');
+  return generateTotpCode(secret);
+}
+
+/** 2FA 登録済みの試験用の利用者の、最後に使った時間ステップを戻した現在の TOTP コード */
+function twoFactorUserCode(): Promise<string> {
+  return prepareTotpCode(TEST_USERS.TWO_FA_USER.email);
 }
 
 test.describe('2要素認証機能', () => {
@@ -190,10 +199,7 @@ test.describe('2要素認証機能', () => {
       await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: getTimeout(10000) });
 
       // TOTPコードを6桁の個別フィールドに入力（getByTestIdに統一）
-      const digits = generateMockTOTPCode().split('');
-      for (let i = 0; i < digits.length; i++) {
-        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
-      }
+      await fillTotpCode(page, await totpCodeFromSetupPage(page));
 
       // 検証ボタンをクリック（API応答を待機）
       const verifyButton = page.getByRole('button', { name: /検証|確認/i });
@@ -258,10 +264,7 @@ test.describe('2要素認証機能', () => {
       await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: getTimeout(10000) });
 
       // TOTPコード検証を完了
-      const digits = generateMockTOTPCode().split('');
-      for (let i = 0; i < digits.length; i++) {
-        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
-      }
+      await fillTotpCode(page, await totpCodeFromSetupPage(page));
       await page.getByRole('button', { name: /検証|確認/i }).click();
 
       // バックアップコード画面が表示されるまで待機
@@ -325,10 +328,7 @@ test.describe('2要素認証機能', () => {
       expect(setupReady).toBe(true);
 
       // TOTPコード検証
-      const digits = generateMockTOTPCode().split('');
-      for (let i = 0; i < digits.length; i++) {
-        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
-      }
+      await fillTotpCode(page, await totpCodeFromSetupPage(page));
       await page.getByRole('button', { name: /検証|確認/i }).click();
 
       // バックアップコード保存確認
@@ -471,11 +471,8 @@ test.describe('2要素認証機能', () => {
       // TOTP検証画面
       await expect(page.getByText(/2要素認証|二要素認証/i)).toBeVisible();
 
-      // 正しいTOTPコードを入力
-      const digits = generateMockTOTPCode().split('');
-      for (let i = 0; i < digits.length; i++) {
-        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
-      }
+      // 正しいTOTPコード（既知の秘密鍵から計算）を入力
+      await fillTotpCode(page, await twoFactorUserCode());
 
       // 検証ボタンをクリック
       await page.getByRole('button', { name: /検証|ログイン/i }).click();
@@ -549,6 +546,15 @@ test.describe('2要素認証機能', () => {
      * @requirement user-authentication/REQ-28.17 バックアップコード入力画面でTOTPコードを使用するリンククリック → 2FA検証画面へ戻る
      */
     test('バックアップコードでログインできる', async ({ page }) => {
+      const prisma = getPrismaClient();
+      const twoFactorUser = await prisma.user.findUnique({
+        where: { email: TEST_USERS.TWO_FA_USER.email },
+      });
+      assertPrepared(twoFactorUser, '2FA 登録済みの試験用の利用者');
+      const [created] = await createTwoFactorBackupCodes({ userId: twoFactorUser.id, count: 1 });
+      assertPresent(created, 'テストの中で作ったバックアップコード');
+      const backupCode = created.code;
+
       await page.goto('/login');
 
       // メールアドレス・パスワード入力
@@ -566,8 +572,8 @@ test.describe('2要素認証機能', () => {
       const backupCodeInput = page.getByLabel(/バックアップコード/i);
       await expect(backupCodeInput).toBeVisible();
 
-      // 要件27A.6: バックアップコードを入力（テスト用モックコード: ABCD1234）
-      await backupCodeInput.fill('ABCD1234');
+      // 要件27A.6: テストの中で作ったバックアップコード（ハイフンを除いた 8 文字）を入力
+      await backupCodeInput.fill(backupCode.replace('-', ''));
       await page.getByRole('button', { name: /検証|ログイン/i }).click();
 
       // 要件27A.8: ログイン成功
@@ -613,16 +619,8 @@ test.describe('2要素認証機能', () => {
       const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
       await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(10000) });
 
-      // 6桁のTOTPコードを入力（テストモードでは123456が有効）
-      // 各フィールドに1文字ずつ入力
-      const digits = '123456'.split('');
-      for (let i = 0; i < 6; i++) {
-        const digitInput = page.getByTestId(`totp-digit-${i}`);
-        const digit = digits[i];
-        if (digit) {
-          await digitInput.fill(digit);
-        }
-      }
+      // 6桁のTOTPコード（既知の秘密鍵から計算）を入力
+      await fillTotpCode(page, await twoFactorUserCode());
 
       // 検証ボタンをクリック
       await page.getByRole('button', { name: /検証/i }).click();
@@ -655,14 +653,7 @@ test.describe('2要素認証機能', () => {
         const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
         try {
           await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
-          const digits = '123456'.split('');
-          for (let i = 0; i < 6; i++) {
-            const digitInput = page.getByTestId(`totp-digit-${i}`);
-            const digit = digits[i];
-            if (digit) {
-              await digitInput.fill(digit);
-            }
-          }
+          await fillTotpCode(page, await twoFactorUserCode());
           await page.getByRole('button', { name: /検証/i }).click();
           await page.waitForURL((url) => !url.pathname.includes('/login'), {
             timeout: getTimeout(10000),
@@ -710,14 +701,7 @@ test.describe('2要素認証機能', () => {
           const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
           try {
             await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
-            const digits = '123456'.split('');
-            for (let i = 0; i < 6; i++) {
-              const digitInput = page.getByTestId(`totp-digit-${i}`);
-              const digit = digits[i];
-              if (digit) {
-                await digitInput.fill(digit);
-              }
-            }
+            await fillTotpCode(page, await twoFactorUserCode());
             await page.getByRole('button', { name: /検証/i }).click();
             await page.waitForURL((url) => !url.pathname.includes('/login'), {
               timeout: getTimeout(10000),

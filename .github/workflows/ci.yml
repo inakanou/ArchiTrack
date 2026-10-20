@@ -973,6 +973,8 @@ jobs:
           # E2Eテストで使用するAPI URL（バックエンドはポート3000で起動）
           API_BASE_URL: http://127.0.0.1:3000
           DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
+          # 2FA の試験用の利用者の TOTP の秘密鍵を backend と同じ鍵で暗号化して seed する（user-authentication 46.2）
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7

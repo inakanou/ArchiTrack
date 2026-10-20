@@ -10,16 +10,10 @@ import { createHash, randomBytes, randomUUID } from 'crypto';
 import { PrismaClient } from '../../src/generated/prisma/client.js';
 import { getPrismaClient } from './database';
 import { TEST_USERS, hashPassword, type TestUser } from '../helpers/test-users';
+import { encryptTotpSecret } from '../helpers/two-factor-totp';
 
 /** Type alias for PrismaClient instance */
 type PrismaClientInstance = InstanceType<typeof PrismaClient>;
-
-/**
- * E2Eテスト用のダミー2FA秘密鍵
- * Note: 開発/テスト環境では固定コード "123456" でバイパスするため、
- *       実際には使用されないダミー値です。
- */
-const DUMMY_TWO_FACTOR_SECRET = 'dummy:secret:for-e2e-test';
 
 /**
  * テストユーザーをデータベースに作成
@@ -49,14 +43,15 @@ export async function createTestUser(
   const passwordHash = await hashPassword(userData.password);
 
   // ユーザー作成
-  // 2FA有効ユーザーにはダミー秘密鍵を設定（E2Eテストでは固定コードでバイパス）
+  // 2FA有効ユーザーには既知の秘密鍵（E2E_TOTP_SECRET）を backend と同じ形式で暗号化して設定する。
+  // E2E の補助（two-factor-totp.ts）がその秘密鍵から TOTP コードを計算する
   const user = await client.user.create({
     data: {
       email: userData.email,
       displayName: userData.displayName,
       passwordHash,
       twoFactorEnabled: userData.twoFactorEnabled || false,
-      twoFactorSecret: userData.twoFactorEnabled ? DUMMY_TWO_FACTOR_SECRET : null,
+      twoFactorSecret: userData.twoFactorEnabled ? encryptTotpSecret() : null,
     },
   });
 
@@ -413,7 +408,7 @@ export async function createRefreshToken(
  *
  * @param options - バックアップコードオプション
  * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
- * @returns 作成されたバックアップコード情報の配列
+ * @returns 作成されたバックアップコード情報の配列（`code` に平文のコードを XXXX-XXXX 形式で添える）
  *
  * @example
  * ```typescript
@@ -441,8 +436,8 @@ export async function createTwoFactorBackupCodes(
     const code = randomBytes(4).toString('hex').toUpperCase();
     const formattedCode = `${code.slice(0, 4)}-${code.slice(4)}`;
 
-    // ハッシュ化（実際の実装ではArgon2でハッシュ化する）
-    const codeHash = options.codeHash || (await hashPassword(formattedCode));
+    // backend と同じく、正規化した 8 文字（ハイフンなしの大文字）をハッシュ化する
+    const codeHash = options.codeHash || (await hashPassword(code));
 
     const backupCode = await client.twoFactorBackupCode.create({
       data: {
@@ -452,7 +447,8 @@ export async function createTwoFactorBackupCodes(
       },
     });
 
-    backupCodes.push(backupCode);
+    // 平文のコード（画面の表示形式 XXXX-XXXX）を添えて返す
+    backupCodes.push({ ...backupCode, code: formattedCode });
   }
 
   return backupCodes;

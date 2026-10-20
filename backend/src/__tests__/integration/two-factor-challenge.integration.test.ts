@@ -7,6 +7,9 @@
  * 資格を消費し、同時の二重成功ではトークンを一度しか発行しない。資格の保存先（Redis）が使えないときは
  * 503 を返す。
  *
+ * TOTP の再利用の拒否（要件32.7、タスク46.2）: 一度成功したコードは新しい資格でも拒否し、同時の同じコードの
+ * 検証は時間ステップの条件付きの記録で一方だけを通す。
+ *
  * モックを使わず、本物のアプリ（ログイン・2FA の検証の API）と実 PostgreSQL・実 Redis を通す。
  */
 
@@ -209,16 +212,22 @@ describe('2FA 待ちの資格（統合）', () => {
     });
 
     /**
+     * 資格の原子的な消費を観測する。同じ TOTP コードを並べると再利用の拒否（要件32.7）が先に負けた側を
+     * 落とすため、コードの検証をそれぞれ通る TOTP と別々のバックアップコードを同じ資格で同時に送る。
+     *
      * @requirement user-authentication/REQ-32.4
      */
-    it('同じ資格による同時の二つの正しい検証は、一方だけがトークンを発行する', async () => {
+    it('同じ資格による同時の三つの正しい検証（TOTP と別々のバックアップコード）は、一方だけがトークンを発行する', async () => {
+      const otherBackupCode = 'ZXCV4321';
+      await prisma.twoFactorBackupCode.create({
+        data: { userId, codeHash: await hash(otherBackupCode) },
+      });
       const token = await challengeToken();
-      const code = authenticator.generate(secret);
 
       const responses = await Promise.all([
-        verifyTotp({ challengeToken: token, code }),
-        verifyTotp({ challengeToken: token, code }),
-        verifyTotp({ challengeToken: token, code }),
+        verifyTotp({ challengeToken: token, code: authenticator.generate(secret) }),
+        verifyBackup({ challengeToken: token, backupCode }),
+        verifyBackup({ challengeToken: token, backupCode: otherBackupCode }),
       ]);
 
       const statuses = responses.map((r) => r.status).sort();
@@ -226,6 +235,50 @@ describe('2FA 待ちの資格（統合）', () => {
       for (const response of responses.filter((r) => r.status === 401)) {
         expectInvalidChallenge(response);
       }
+      expect(await prisma.refreshToken.count({ where: { userId } })).toBe(1);
+    });
+
+    /**
+     * 時間ステップの記録の原子性を観測する。別々の資格に同じ TOTP コードを同時に送ると、資格の消費は
+     * それぞれ成り立つため、トークンの発行を一度に絞るのは時間ステップの条件付きの更新だけである。
+     *
+     * @requirement user-authentication/REQ-32.7
+     */
+    it('別々の資格による同時の同じ TOTP コードの検証は、一方だけがトークンを発行し、他方は再利用として拒否する', async () => {
+      const tokens = [await challengeToken(), await challengeToken(), await challengeToken()];
+      const code = authenticator.generate(secret);
+
+      const responses = await Promise.all(
+        tokens.map((token) => verifyTotp({ challengeToken: token, code }))
+      );
+
+      const statuses = responses.map((r) => r.status).sort();
+      expect(statuses).toEqual([200, 401, 401]);
+      for (const response of responses.filter((r) => r.status === 401)) {
+        expect(response.body.code).toBe('INVALID_2FA_CODE');
+        expectNoTokens(response);
+      }
+      expect(await prisma.refreshToken.count({ where: { userId } })).toBe(1);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-32.7
+     */
+    it('一度成功した TOTP コードを新しい資格で再び送ると、通常の誤りと同じ 401 INVALID_2FA_CODE で拒否する', async () => {
+      const code = authenticator.generate(secret);
+      const first = await verifyTotp({ challengeToken: await challengeToken(), code });
+      expect(first.status).toBe(200);
+
+      const replayed = await verifyTotp({ challengeToken: await challengeToken(), code });
+
+      expect(replayed.status).toBe(401);
+      expect(replayed.body.code).toBe('INVALID_2FA_CODE');
+      expectNoTokens(replayed);
+      const stored = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { twoFactorLastUsedStep: true },
+      });
+      expect(stored?.twoFactorLastUsedStep).toEqual(expect.any(Number));
       expect(await prisma.refreshToken.count({ where: { userId } })).toBe(1);
     });
 
@@ -314,6 +367,39 @@ describe('2FA 待ちの資格（統合）', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ code: authenticator.generate(secret) });
       expectInvalidChallenge(bearer);
+    });
+  });
+
+  describe('有効化に使った TOTP コード', () => {
+    /**
+     * 有効化も TOTP の提示であり、一致した時間ステップを記録する。有効化の直後に同じコードで
+     * ログインしても、再利用として拒否する。
+     *
+     * @requirement user-authentication/REQ-32.7
+     */
+    it('2FA の有効化に使ったコードで直後にログインすると、401 INVALID_2FA_CODE で拒否する', async () => {
+      // 設定の開始の後（秘密鍵はあるが未有効）の利用者として、パスワードでログインする
+      await prisma.user.update({ where: { id: userId }, data: { twoFactorEnabled: false } });
+      const login = await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email, password: PASSWORD });
+      expect(login.status).toBe(200);
+      expect(typeof login.body.accessToken).toBe('string');
+
+      const code = authenticator.generate(secret);
+      const enabled = await request(app)
+        .post('/api/v1/auth/2fa/enable')
+        .set('Authorization', `Bearer ${login.body.accessToken as string}`)
+        .send({ totpCode: code });
+      expect(enabled.status).toBe(200);
+      const tokensBefore = await prisma.refreshToken.count({ where: { userId } });
+
+      const replayed = await verifyTotp({ challengeToken: await challengeToken(), code });
+
+      expect(replayed.status).toBe(401);
+      expect(replayed.body.code).toBe('INVALID_2FA_CODE');
+      expectNoTokens(replayed);
+      expect(await prisma.refreshToken.count({ where: { userId } })).toBe(tokensBefore);
     });
   });
 
