@@ -264,6 +264,8 @@ describe('Seed Script Integration Tests', () => {
     expect(adminUser).toBeDefined();
     expect(adminUser?.displayName).toBe('Test Admin');
     expect(adminUser?.email).toBe('admin@test.example.com');
+    // Assert: 初回ログインでパスワードの変更を要する（user-authentication 要件37.7）
+    expect(adminUser?.mustChangePassword).toBe(true);
 
     // Assert: パスワードがハッシュ化されている
     expect(adminUser?.passwordHash).toBeDefined();

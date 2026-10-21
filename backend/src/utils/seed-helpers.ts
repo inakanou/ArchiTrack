@@ -42,6 +42,7 @@
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { hash } from '@node-rs/argon2';
 import logger from './logger.js';
+import type { EmailService } from '../services/email.service.js';
 
 /**
  * 事前定義ロールのシーディング
@@ -723,12 +724,53 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
 }
 
 /**
+ * 初期管理者のパスワードがパスワードポリシー（要件2.5〜2.8）を満たすことを確かめる
+ *
+ * 判定は PasswordService.validatePasswordStrength に一本化する。PasswordService は既定で
+ * メール送信の部品（Bull のキュー）を作り、seed のプロセスが Redis の接続で終わらなくなるため、
+ * 判定では使わない送信の部品を渡す（触れたら例外で知らせる）
+ *
+ * @throws ポリシーを満たさない場合（違反の種別を含み、パスワードの値は含めない）
+ */
+async function assertInitialAdminPasswordPolicy(
+  prisma: PrismaClient,
+  password: string,
+  userInputs: string[]
+): Promise<void> {
+  const { PasswordService } = await import('../services/password.service.js');
+  const unusedEmailService = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error('The initial admin seed must not send email.');
+      },
+    }
+  ) as unknown as EmailService;
+  const passwordService = new PasswordService(prisma, unusedEmailService);
+  const result = await passwordService.validatePasswordStrength(password, userInputs);
+  if (!result.ok) {
+    const detail =
+      result.error.type === 'WEAK_PASSWORD'
+        ? result.error.violations.join(', ')
+        : result.error.type;
+    throw new Error(
+      `INITIAL_ADMIN_PASSWORD does not satisfy the password policy (${detail}). Admin user creation aborted.`
+    );
+  }
+}
+
+/**
  * 初期管理者アカウントの作成
  *
  * @requirement user-authentication/REQ-3: 初期管理者アカウントのセットアップ
  * - 環境変数から管理者情報を取得
  * - 既に存在する場合はスキップ（冪等性）
  * - システム管理者ロールを割り当て
+ *
+ * user-authentication 要件37.6・37.7（タスク47.7）:
+ * - 作成するときだけパスワードポリシー（要件2.5〜2.8）を検証し、満たさなければ例外で止める
+ *   （既存の管理者がいる再デプロイでは検証しない）
+ * - 作成する初期管理者は初回のパスワード変更を要する状態にする
  */
 export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
   logger.info('Seeding admin user...');
@@ -790,6 +832,9 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
     return;
   }
 
+  // 要件37.6: 作成するときだけパスワードポリシーを検証し、満たさなければ作成を中止する
+  await assertInitialAdminPasswordPolicy(prisma, adminPassword, [adminEmail, adminDisplayName]);
+
   // パスワードをArgon2idでハッシュ化
   const passwordHash = await hash(adminPassword, {
     memoryCost: 65536, // 64MB
@@ -812,6 +857,8 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
       email: adminEmail,
       displayName: adminDisplayName,
       passwordHash,
+      // 要件37.7: 初回ログインでパスワードの変更を要する（変更の完了で解く。タスク47.6）
+      mustChangePassword: true,
     },
   });
 
