@@ -24,6 +24,7 @@ import { createInvitationRoutes } from './routes/invitation.routes.js';
 import rolesRoutes from './routes/roles.routes.js';
 import permissionsRoutes from './routes/permissions.routes.js';
 import userRolesRoutes from './routes/user-roles.routes.js';
+import userInventoryRoutes from './routes/user-inventory.routes.js';
 import auditLogRoutes from './routes/audit-log.routes.js';
 import sessionRoutes from './routes/session.routes.js';
 import jwksRoutes from './routes/jwks.routes.js';
@@ -314,6 +315,9 @@ app.use('/api/v1/invitations', createInvitationRoutes(prisma));
 // RBAC routes
 app.use('/api/v1/roles', rolesRoutes);
 app.use('/api/v1/permissions', permissionsRoutes);
+// 管理者向けの利用者の操作（棚卸し・2FA の再設定など）は user-roles.routes.ts より前に置く。
+// 後に置くと user-roles.routes.ts の `/:id` 系の経路が固定の経路（inventory など）を ID として拾う
+app.use('/api/v1/users', userInventoryRoutes);
 app.use('/api/v1/users', userRolesRoutes);
 
 // Audit log routes

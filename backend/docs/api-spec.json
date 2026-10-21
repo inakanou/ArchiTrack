@@ -955,6 +955,45 @@
         }
       }
     },
+    "/api/v1/users/{id}/2fa/reset": {
+      "post": {
+        "summary": "管理者による 2FA の再設定",
+        "description": "対象者の 2FA の秘密鍵とバックアップコードを消して未登録にし、全てのリフレッシュトークンを失効させる\n（要件34.7）。監査（TWO_FACTOR_RESET_BY_ADMIN）に実行者と対象者を記録する（要件34.10）。\n対象者は次の要求から 2FA の設定だけを行える。自分自身の再設定は拒否する（要件34.9）。\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "対象者のユーザーID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "再設定の完了"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "権限の不足（user:manage）、または自分自身の再設定（code は SELF_RESET_FORBIDDEN）"
+          },
+          "404": {
+            "description": "対象者が見つからない（code は USER_NOT_FOUND）"
+          }
+        }
+      }
+    },
     "/api/trading-partners": {
       "get": {
         "summary": "取引先一覧取得",
@@ -10253,6 +10292,129 @@
           },
           "403": {
             "description": "2FA の自己の無効化は許可されていない（code は TWO_FACTOR_DISABLE_NOT_ALLOWED）"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/2fa/reenroll/start": {
+      "post": {
+        "summary": "2FA の再登録の開始",
+        "description": "現在の秘密鍵の TOTP コードを確かめ、新しい秘密鍵を発行する（要件34.11）。\n新しい秘密鍵は確認（reenroll/confirm）まで採用されず、それまでは既存の秘密鍵が有効である。\n",
+        "tags": [
+          "Two-Factor Authentication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "currentCode"
+                ],
+                "properties": {
+                  "currentCode": {
+                    "type": "string",
+                    "description": "現在の秘密鍵の 6 桁の TOTP コード",
+                    "example": "123456"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "新しい秘密鍵の発行",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "qrCodeDataUrl": {
+                      "type": "string",
+                      "description": "新しい秘密鍵の QR コード（Data URL 形式）"
+                    },
+                    "secretForManualEntry": {
+                      "type": "string",
+                      "description": "新しい秘密鍵（Base32、手入力用）"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "TOTP コードの誤り・再利用（code は INVALID_TOTP_CODE）、または 2FA が未登録"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/2fa/reenroll/confirm": {
+      "post": {
+        "summary": "2FA の再登録の確認",
+        "description": "新しい秘密鍵の TOTP コードを確かめて既存の秘密鍵を置き換え、バックアップコードを作り直す（要件34.11）。\n再登録を監査（TWO_FACTOR_REENROLLED）に記録する。\n",
+        "tags": [
+          "Two-Factor Authentication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "newCode"
+                ],
+                "properties": {
+                  "newCode": {
+                    "type": "string",
+                    "description": "新しい秘密鍵の 6 桁の TOTP コード",
+                    "example": "123456"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "再登録の完了",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "backupCodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "新しいバックアップコード（最後の表示機会）"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "TOTP コードの誤り（INVALID_TOTP_CODE）、または再登録が開始されていない（REENROLLMENT_NOT_STARTED）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       }

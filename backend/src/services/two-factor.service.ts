@@ -20,6 +20,9 @@ import type {
   TwoFactorError,
   Result,
   TwoFactorEnabledData,
+  TwoFactorReenrollmentStartData,
+  TwoFactorRequestContext,
+  TwoFactorResetError,
   TwoFactorSetupData,
 } from '../types/two-factor.types.js';
 import { Ok, Err } from '../types/two-factor.types.js';
@@ -28,7 +31,9 @@ import logger from '../utils/logger.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { snapshotAuditActor } from './audit-log.service.js';
+import { revokeAllRefreshTokensForUser } from '../utils/refresh-token-lock.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
+import type { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
 
 /**
  * 二要素認証サービスの実装
@@ -43,7 +48,13 @@ export class TwoFactorService implements ITwoFactorService {
   /** Prisma Client instance */
   private readonly prisma: PrismaClient;
 
-  constructor() {
+  /**
+   * @param userStateService - 状態を変える処理（管理者による再設定）の後に、対象者の状態のキャッシュを
+   *   無効化する部品（タスク47.5）。省略時は無効化しない
+   */
+  constructor(
+    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>
+  ) {
     // otplibの設定（RFC 6238準拠）
     // @requirement user-authentication/REQ-27C.1
     authenticator.options = {
@@ -739,5 +750,225 @@ export class TwoFactorService implements ITwoFactorService {
       logger.error({ err: error, userId }, 'バックアップコード再生成中にエラーが発生しました');
       return Err({ type: 'USER_NOT_FOUND' });
     }
+  }
+  /**
+   * 管理者による他の利用者の 2FA の再設定
+   *
+   * 1 トランザクションで秘密鍵・再登録中の秘密鍵・バックアップコードを消して未登録にし、全リフレッシュ
+   * トークンを失効させ、監査 `TWO_FACTOR_RESET_BY_ADMIN`（実行者・対象）を記録する。コミットの後に
+   * 対象者の状態のキャッシュを無効化し、次の要求から TTL を待たずに 2FA 未登録として扱わせる。
+   * @requirement user-authentication/REQ-34.7
+   * @requirement user-authentication/REQ-34.9
+   * @requirement user-authentication/REQ-34.10
+   *
+   * @param actorId - 実行者（管理者）の ID
+   * @param targetUserId - 対象者の ID
+   * @param ctx - 監査に記録する送信元の情報
+   */
+  async resetByAdmin(
+    actorId: string,
+    targetUserId: string,
+    ctx: TwoFactorRequestContext = {}
+  ): Promise<Result<void, TwoFactorResetError>> {
+    // 自分自身の再設定は拒否する（要件34.9）
+    if (actorId === targetUserId) {
+      return Err({ type: 'SELF_RESET_FORBIDDEN' });
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const target = await tx.user.findUnique({
+        where: { id: targetUserId },
+        select: { id: true, email: true },
+      });
+      if (!target) {
+        return Err({ type: 'USER_NOT_FOUND' as const });
+      }
+
+      // ローテーションと直列化して全リフレッシュトークンを失効させる（要件34.7）
+      const revokedRefreshTokens = await revokeAllRefreshTokensForUser(tx, targetUserId);
+      await tx.twoFactorBackupCode.deleteMany({ where: { userId: targetUserId } });
+      await tx.user.update({
+        where: { id: targetUserId },
+        data: {
+          twoFactorEnabled: false,
+          twoFactorSecret: null,
+          twoFactorPendingSecret: null,
+        },
+      });
+
+      // 実行者と対象者を記録する（要件34.10）
+      await tx.auditLog.create({
+        data: {
+          action: 'TWO_FACTOR_RESET_BY_ADMIN',
+          actorId,
+          ...(await snapshotAuditActor(tx, actorId)),
+          targetType: 'User',
+          targetId: targetUserId,
+          metadata: {
+            targetEmail: target.email,
+            revokedRefreshTokens,
+            ...(ctx.ipAddress !== undefined && { ipAddress: ctx.ipAddress }),
+            ...(ctx.userAgent !== undefined && { userAgent: ctx.userAgent }),
+          },
+        },
+      });
+      return Ok(undefined);
+    }, connectBudgetTransactionOptions());
+
+    // コミットの後に対象者の状態のキャッシュを無効化する（タスク47.5）。再設定はコミット済みのため、
+    // 無効化の失敗は結果を変えず警告ログに留める
+    if (result.ok && this.userStateService) {
+      try {
+        await this.userStateService.invalidate(targetUserId);
+      } catch (error) {
+        logger.warn(
+          { err: error, userId: targetUserId },
+          'Failed to invalidate user state after 2FA reset'
+        );
+      }
+    }
+
+    if (result.ok) {
+      logger.info({ actorId, targetUserId }, '管理者が2FAを再設定しました');
+    }
+    return result;
+  }
+
+  /**
+   * 再登録の開始
+   *
+   * 現在の秘密鍵の TOTP を検証（時間ステップを記録し再利用を拒否）した後、新しい秘密鍵を
+   * 再登録中の秘密鍵（`two_factor_pending_secret`）に置く。確認までは既存の秘密鍵が有効である。
+   * @requirement user-authentication/REQ-34.11
+   *
+   * @param userId - 利用者 ID
+   * @param currentCode - 現在の秘密鍵の TOTP コード
+   * @returns 新しい秘密鍵の QR コードと手入力用の秘密鍵
+   */
+  async startReenrollment(
+    userId: string,
+    currentCode: string
+  ): Promise<Result<TwoFactorReenrollmentStartData, TwoFactorError>> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, twoFactorEnabled: true },
+    });
+    if (!user) {
+      return Err({ type: 'USER_NOT_FOUND' });
+    }
+    if (!user.twoFactorEnabled) {
+      return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+    }
+
+    // 現在の秘密鍵の TOTP を確かめる（再利用は CODE_ALREADY_USED）
+    const verified = await this.verifyTOTP(userId, currentCode);
+    if (!verified.ok) {
+      return verified;
+    }
+    if (!verified.value) {
+      return Err({ type: 'INVALID_TOTP_CODE' });
+    }
+
+    const plainTextSecret = this.generateTOTPSecret();
+    const encryptedSecret = await this.encryptSecret(plainTextSecret);
+    const qrCodeDataUrl = await this.generateQRCode(user.email, plainTextSecret);
+
+    // 再登録中の秘密鍵として置く（既存の秘密鍵は確認まで変えない。開始のやり直しは上書きする）
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { twoFactorPendingSecret: encryptedSecret },
+    });
+
+    logger.info({ userId }, '2FAの再登録を開始しました');
+    return Ok({ qrCodeDataUrl, secretForManualEntry: plainTextSecret });
+  }
+
+  /**
+   * 再登録の確認
+   *
+   * 再登録中の秘密鍵の TOTP を確かめ、1 トランザクションで本採用（既存の秘密鍵を置き換え）し、
+   * バックアップコードを作り直し、監査 `TWO_FACTOR_REENROLLED` を記録する。
+   * @requirement user-authentication/REQ-34.11
+   *
+   * @param userId - 利用者 ID
+   * @param newCode - 新しい秘密鍵の TOTP コード
+   * @param ctx - 監査に記録する送信元の情報
+   * @returns 新しいバックアップコード（XXXX-XXXX 形式、最後の表示機会）
+   */
+  async confirmReenrollment(
+    userId: string,
+    newCode: string,
+    ctx: TwoFactorRequestContext = {}
+  ): Promise<Result<TwoFactorEnabledData, TwoFactorError>> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { twoFactorEnabled: true, twoFactorPendingSecret: true },
+    });
+    if (!user) {
+      return Err({ type: 'USER_NOT_FOUND' });
+    }
+    if (!user.twoFactorEnabled) {
+      return Err({ type: 'TWO_FACTOR_NOT_ENABLED' });
+    }
+    const pendingSecret = user.twoFactorPendingSecret;
+    if (!pendingSecret) {
+      return Err({ type: 'REENROLLMENT_NOT_STARTED' });
+    }
+
+    let decryptedSecret: string;
+    try {
+      decryptedSecret = await this.decryptSecret(pendingSecret);
+    } catch {
+      return Err({ type: 'DECRYPTION_FAILED', message: '秘密鍵の復号化に失敗しました' });
+    }
+    const matchedStep = this.matchTOTPStep(newCode, decryptedSecret);
+    if (matchedStep === null) {
+      return Err({ type: 'INVALID_TOTP_CODE' });
+    }
+
+    const plainTextBackupCodes = this.generateBackupCodes();
+    const replaced = await this.prisma.$transaction(async (tx) => {
+      // 確かめた再登録中の秘密鍵のままのときだけ置き換える（並行する開始のやり直しで別の鍵を採用しない）
+      const { count } = await tx.user.updateMany({
+        where: { id: userId, twoFactorEnabled: true, twoFactorPendingSecret: pendingSecret },
+        data: {
+          twoFactorSecret: pendingSecret,
+          twoFactorPendingSecret: null,
+          twoFactorLastUsedStep: matchedStep,
+        },
+      });
+      if (count === 0) {
+        return false;
+      }
+
+      await tx.twoFactorBackupCode.deleteMany({ where: { userId } });
+      for (const code of plainTextBackupCodes) {
+        await tx.twoFactorBackupCode.create({ data: { userId, codeHash: await hash(code) } });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          action: 'TWO_FACTOR_REENROLLED',
+          actorId: userId,
+          ...(await snapshotAuditActor(tx, userId)),
+          targetType: 'User',
+          targetId: userId,
+          metadata: {
+            ...(ctx.ipAddress !== undefined && { ipAddress: ctx.ipAddress }),
+            ...(ctx.userAgent !== undefined && { userAgent: ctx.userAgent }),
+          },
+        },
+      });
+      return true;
+    }, connectBudgetTransactionOptions());
+
+    if (!replaced) {
+      return Err({ type: 'REENROLLMENT_NOT_STARTED' });
+    }
+
+    logger.info({ userId }, '2FAを再登録しました');
+    return Ok({
+      backupCodes: plainTextBackupCodes.map((code) => `${code.slice(0, 4)}-${code.slice(4, 8)}`),
+    });
   }
 }

@@ -4,8 +4,8 @@
  * user-authentication タスク47.6。design.md「利用者の状態の照合」「AuthContext・ProtectedRoute（変更）」。
  * - 2FA 未登録の利用者はログインの後に 2FA 設定の画面へ進み、他の画面へ遷移できず、2FA の設定と
  *   ログアウト以外の API は 403 になる。設定の完了で元の遷移先へ戻る（要件34.1〜34.4）
- * - 2FA を再設定された利用者も、次のログインで 2FA 設定の画面へ進む（要件34.8。管理者の再設定の操作は
- *   47.8 で入るため、ここでは DB で再設定の結果（2FA 未登録）を作る）
+ * - 2FA を再設定された利用者も、次のログインで 2FA 設定の画面へ進む（要件34.8。管理者による再設定の
+ *   API（47.8）で 2FA 未登録にする。棚卸し画面の操作は 49.8 が確かめる）
  * - 初回のパスワード変更を要する利用者は `/setup/password` だけを開け、変更の完了でログイン画面へ戻り、
  *   再びログインした後に 2FA 設定の画面へ進む（要件37.7・34.1）
  * - 無効化された利用者の API とリフレッシュは 401 になり、画面はログイン画面へ戻る（要件36.1。無効化の
@@ -19,6 +19,8 @@ import { test, expect, type Page, type Response } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
 import { resetDedicatedUser, type CreatedUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser, loginWithCredentials, submitLoginForm } from '../../helpers/auth-actions';
+import { getAccessToken } from '../../helpers/auth-api';
+import { API_BASE_URL } from '../../config';
 import { invalidateUserStateCache } from '../../helpers/user-state-cache';
 import { fillTotpCode, totpCodeFromSetupPage } from '../../helpers/two-factor-totp';
 import { getTimeout } from '../../helpers/wait-helpers';
@@ -148,19 +150,17 @@ test.describe('利用者の状態による API の拒否と画面の遷移の制
   /**
    * @requirement user-authentication/REQ-34.8
    */
-  test('2FA を再設定された利用者は、次のログインで 2FA 設定の画面へ進む', async ({ page }) => {
+  test('2FA を再設定された利用者は、次のログインで 2FA 設定の画面へ進む', async ({
+    page,
+    request,
+  }) => {
     const user = await resetDedicatedUser('STATE_CHANGE_USER');
-    const prisma = getPrismaClient();
-    // 管理者による 2FA の再設定（47.8）の結果を DB で作る: 秘密鍵とバックアップコードを消し、全セッションを失効させる
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: user.id },
-        data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorLastUsedStep: null },
-      }),
-      prisma.twoFactorBackupCode.deleteMany({ where: { userId: user.id } }),
-      prisma.refreshToken.deleteMany({ where: { userId: user.id } }),
-    ]);
-    await invalidateUserStateCache([user.id]);
+    // 管理者による 2FA の再設定の API（47.8）で、秘密鍵とバックアップコードを消し全セッションを失効させる
+    const adminToken = await getAccessToken(page, 'ADMIN_USER');
+    const reset = await request.post(`${API_BASE_URL}/api/v1/users/${user.id}/2fa/reset`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(reset.status()).toBe(204);
 
     await loginAsUser(page, { ...user, twoFactorEnabled: false });
 

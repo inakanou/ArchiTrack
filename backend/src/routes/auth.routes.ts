@@ -34,6 +34,7 @@ import {
   ValidationError,
 } from '../errors/apiError.js';
 import type { AuthError, AuthUserView } from '../types/auth.types.js';
+import type { TwoFactorError } from '../types/two-factor.types.js';
 
 /**
  * リフレッシュトークンの Cookie の Path（リフレッシュとログアウトの経路にだけ送られるよう認証の経路に限る）
@@ -255,6 +256,19 @@ const enableTwoFactorSchema = z.object({
       `TOTP code must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
     ),
 });
+
+const totpCodeField = z
+  .string()
+  .length(
+    SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH,
+    `TOTP code must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
+  );
+
+/** 再登録の開始（現在の秘密鍵の TOTP コード、要件34.11） */
+const reenrollStartSchema = z.object({ currentCode: totpCodeField });
+
+/** 再登録の確認（新しい秘密鍵の TOTP コード、要件34.11） */
+const reenrollConfirmSchema = z.object({ newCode: totpCodeField });
 
 const passwordResetRequestSchema = z.object({
   email: z.string().email('Invalid email format'),
@@ -1334,6 +1348,157 @@ router.post('/2fa/disable', authenticate, (_req: Request, _res: Response, next: 
     )
   );
 });
+
+/** 再登録の誤りを応答へ写す（400 は本文の code で区別する） */
+function sendReenrollmentError(res: Response, error: TwoFactorError): void {
+  switch (error.type) {
+    case 'USER_NOT_FOUND':
+      res.status(404).json({ error: 'User not found', code: error.type });
+      return;
+    case 'TWO_FACTOR_NOT_ENABLED':
+      res.status(400).json({ error: '2FA is not enabled', code: error.type });
+      return;
+    case 'REENROLLMENT_NOT_STARTED':
+      res.status(400).json({ error: '2FA reenrollment is not started', code: error.type });
+      return;
+    case 'INVALID_TOTP_CODE':
+    case 'CODE_ALREADY_USED':
+      // 再利用は通常の誤りと同じ本文で返す
+      res.status(400).json({ error: 'Invalid TOTP code', code: 'INVALID_TOTP_CODE' });
+      return;
+    default:
+      res.status(500).json({ error: '2FA reenrollment failed', code: '2FA_REENROLL_ERROR' });
+  }
+}
+
+/**
+ * @swagger
+ * /api/v1/auth/2fa/reenroll/start:
+ *   post:
+ *     summary: 2FA の再登録の開始
+ *     description: |
+ *       現在の秘密鍵の TOTP コードを確かめ、新しい秘密鍵を発行する（要件34.11）。
+ *       新しい秘密鍵は確認（reenroll/confirm）まで採用されず、それまでは既存の秘密鍵が有効である。
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentCode
+ *             properties:
+ *               currentCode:
+ *                 type: string
+ *                 description: 現在の秘密鍵の 6 桁の TOTP コード
+ *                 example: "123456"
+ *     responses:
+ *       200:
+ *         description: 新しい秘密鍵の発行
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 qrCodeDataUrl:
+ *                   type: string
+ *                   description: 新しい秘密鍵の QR コード（Data URL 形式）
+ *                 secretForManualEntry:
+ *                   type: string
+ *                   description: 新しい秘密鍵（Base32、手入力用）
+ *       400:
+ *         description: TOTP コードの誤り・再利用（code は INVALID_TOTP_CODE）、または 2FA が未登録
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/2fa/reenroll/start',
+  authenticate,
+  validate(reenrollStartSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user!.userId;
+      const result = await twoFactorService.startReenrollment(userId, req.body.currentCode);
+      if (!result.ok) {
+        sendReenrollmentError(res, result.error);
+        return;
+      }
+      res.status(200).json(result.value);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/auth/2fa/reenroll/confirm:
+ *   post:
+ *     summary: 2FA の再登録の確認
+ *     description: |
+ *       新しい秘密鍵の TOTP コードを確かめて既存の秘密鍵を置き換え、バックアップコードを作り直す（要件34.11）。
+ *       再登録を監査（TWO_FACTOR_REENROLLED）に記録する。
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - newCode
+ *             properties:
+ *               newCode:
+ *                 type: string
+ *                 description: 新しい秘密鍵の 6 桁の TOTP コード
+ *                 example: "123456"
+ *     responses:
+ *       200:
+ *         description: 再登録の完了
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 backupCodes:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: 新しいバックアップコード（最後の表示機会）
+ *       400:
+ *         description: TOTP コードの誤り（INVALID_TOTP_CODE）、または再登録が開始されていない（REENROLLMENT_NOT_STARTED）
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/2fa/reenroll/confirm',
+  authenticate,
+  validate(reenrollConfirmSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user!.userId;
+      const result = await twoFactorService.confirmReenrollment(userId, req.body.newCode, {
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+      });
+      if (!result.ok) {
+        sendReenrollmentError(res, result.error);
+        return;
+      }
+      logger.info({ userId }, '2FA reenrolled successfully');
+      res.status(200).json(result.value);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 /**
  * @swagger
