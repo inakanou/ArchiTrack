@@ -276,7 +276,9 @@ describe('権限の確認の経路の権限キャッシュ（統合・実 Redis�
     expect(remove.status).toBe(204);
 
     expect(await redisClient.get(cacheKey(readerUserId))).toBeNull();
-    expect((await getRolesAsReader()).status).toBe(403);
+    // 認証ミドルウェアの状態の照合が、権限の確認より前に利用者の不在として 401 で拒否する
+    // （削除は状態のキャッシュも無効化する。user-authentication タスク47.6）
+    expect((await getRolesAsReader()).status).toBe(401);
   });
 
   /**

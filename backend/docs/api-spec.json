@@ -28,6 +28,38 @@
       }
     },
     "schemas": {
+      "AuthUserView": {
+        "type": "object",
+        "description": "Authenticated user and the account state the screen uses to restrict navigation",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User ID"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "twoFactorEnabled": {
+            "type": "boolean",
+            "description": "False when 2FA is not enrolled (all APIs except 2FA setup and logout return 403 TWO_FACTOR_SETUP_REQUIRED)"
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "description": "True when the initial password change is required (all APIs except password change and logout return 403 PASSWORD_CHANGE_REQUIRED)"
+          }
+        }
+      },
       "UserRef": {
         "type": "object",
         "description": "User reference with id and display name",
@@ -9626,18 +9658,8 @@
                       "type": "string"
                     },
                     "user": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "email": {
-                          "type": "string"
-                        },
-                        "displayName": {
-                          "type": "string"
-                        }
-                      }
+                      "$ref": "#/components/schemas/AuthUserView",
+                      "description": "The registered user. twoFactorEnabled is false, so the screen moves to the 2FA setup before any other use (requirement 34.5)."
                     }
                   }
                 }
@@ -9695,18 +9717,7 @@
                       "type": "string"
                     },
                     "user": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "email": {
-                          "type": "string"
-                        },
-                        "displayName": {
-                          "type": "string"
-                        }
-                      }
+                      "$ref": "#/components/schemas/AuthUserView"
                     },
                     "requires2FA": {
                       "type": "boolean",
@@ -10205,6 +10216,10 @@
                         "type": "string"
                       },
                       "description": "バックアップコード（最後の表示機会）"
+                    },
+                    "user": {
+                      "$ref": "#/components/schemas/AuthUserView",
+                      "description": "有効化の後の利用者と状態（読めないときは省く）"
                     }
                   }
                 }
@@ -10534,7 +10549,7 @@
         },
         "responses": {
           "200": {
-            "description": "Password changed successfully",
+            "description": "Password changed successfully. All refresh tokens are revoked and the initial password change requirement (mustChangePassword) is cleared.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10542,6 +10557,10 @@
                   "properties": {
                     "message": {
                       "type": "string"
+                    },
+                    "user": {
+                      "$ref": "#/components/schemas/AuthUserView",
+                      "description": "The user and state after the change (omitted when unreadable)"
                     }
                   }
                 }

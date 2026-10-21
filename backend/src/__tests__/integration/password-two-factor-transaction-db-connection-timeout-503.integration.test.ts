@@ -192,6 +192,10 @@ describe('パスワードと二要素認証のトランザクションの開始�
    * @requirement user-authentication/REQ-24.1
    */
   it('パスワードの変更（POST /api/v1/auth/password/change）は 503 と Problem Details を返し、パスワードを変えない', async () => {
+    // 2FA 未登録の利用者のパスワード変更は状態の照合で 403 になる（要件34.2、タスク47.6）。
+    // 本検証はトランザクションの開始の 503 を確かめるため、2FA 登録済みの状態で送る
+    // （本ファイルは Redis を初期化しないため、状態は要求ごとに DB から読まれる）
+    await directPrisma.user.update({ where: { id: userId }, data: { twoFactorEnabled: true } });
     cutAfter(PasswordServiceClass.prototype, 'hashPassword');
 
     const response = await request(app)

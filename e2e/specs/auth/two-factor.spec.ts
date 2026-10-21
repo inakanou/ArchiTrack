@@ -47,6 +47,18 @@ async function totpCodeFromSetupPage(page: Page): Promise<string> {
  */
 let setupUser: CreatedUser;
 
+/**
+ * 2FA 未登録の利用者のログインの後、2FA 設定の画面が設定の開始（秘密鍵の発行と監査の記録）を終えるまで待つ
+ *
+ * 2FA 未登録の利用者はログインの後に 2FA 設定の画面へ進み、画面が設定の開始の API を呼ぶ（user-authentication
+ * 要件34.1、タスク47.6）。その取引が残ったまま DB を初期化（TRUNCATE）すると、取引の利用者の更新と監査の記録の
+ * ロックの順が逆になりデッドロックする。秘密鍵の表示（設定の開始の応答の後）を待ってから次へ進む。
+ */
+async function waitForTwoFactorSetupStarted(page: Page): Promise<void> {
+  await expect(page).toHaveURL(/\/profile\/2fa-setup$/, { timeout: getTimeout(15000) });
+  await expect(page.getByTestId('secret-key')).toBeVisible({ timeout: getTimeout(15000) });
+}
+
 /** 2FA 登録済みの試験用の利用者の、最後に使った時間ステップを戻した現在の TOTP コード */
 function twoFactorUserCode(): Promise<string> {
   return prepareTotpCode(TEST_USERS.TWO_FA_USER.email);
@@ -88,6 +100,7 @@ test.describe('2要素認証機能', () => {
 
       // 認証済みユーザーとしてログイン
       await loginAsUser(page, setupUser);
+      await waitForTwoFactorSetupStarted(page);
     });
 
     /**
@@ -312,15 +325,18 @@ test.describe('2要素認証機能', () => {
       // 2FAセットアップページをリトライ付きでロード
       let setupReady = false;
       for (let retry = 0; retry < 5; retry++) {
-        await page.goto('/profile/2fa-setup');
+        // 2FA 未登録の利用者がプロフィール画面を開くと 2FA 設定の画面へ置き換わり、元の遷移先
+        // （プロフィール）が保存される（user-authentication 要件34.3・34.4、タスク47.6）
+        await page.goto('/profile');
         await page.waitForLoadState('networkidle');
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
           await loginAsUser(page, setupUser);
-          await page.goto('/profile/2fa-setup');
+          await page.goto('/profile');
           await page.waitForLoadState('networkidle');
         }
+        await page.waitForURL(/\/profile\/2fa-setup/, { timeout: getTimeout(15000) });
 
         // TOTP入力フィールドが表示されるか確認
         try {
@@ -351,8 +367,8 @@ test.describe('2要素認証機能', () => {
       // 要件27D.6: トーストメッセージ表示
       await expect(page.getByText(/二要素認証を有効化しました/i)).toBeVisible();
 
-      // プロフィール画面にリダイレクト
-      await expect(page).toHaveURL(/\/profile/);
+      // 保存された遷移先（プロフィール画面）へ戻る
+      await expect(page).toHaveURL(/\/profile$/);
     });
 
     /**
@@ -981,6 +997,7 @@ test.describe('2要素認証機能', () => {
       await cleanDatabase();
       setupUser = await resetDedicatedUser('TWO_FA_NOT_ENROLLED_USER');
       await loginAsUser(page, setupUser);
+      await waitForTwoFactorSetupStarted(page);
     });
 
     /**
@@ -998,23 +1015,7 @@ test.describe('2要素認証機能', () => {
       let qrVisible = false;
       while (retries > 0 && !qrVisible) {
         retries--;
-        // まずプロフィールページで認証状態を確認してからセットアップページに遷移
-        await page.goto('/profile');
-        await page.waitForLoadState('networkidle');
-
-        // 認証状態が確立されていることを確認（ユーザー情報が表示される）
-        try {
-          await expect(page.getByLabel(/メールアドレス/i)).toHaveValue(setupUser.email, {
-            timeout: getTimeout(10000),
-          });
-        } catch {
-          // 認証が切れている場合は再ログイン
-          await loginAsUser(page, setupUser);
-          await page.goto('/profile');
-          await page.waitForLoadState('networkidle');
-        }
-
-        // 2FAセットアップページに遷移
+        // 2FAセットアップページに遷移（2FA 未登録の利用者はプロフィール画面を開けない。タスク47.6）
         await page.goto('/profile/2fa-setup');
         await page.waitForLoadState('networkidle');
 

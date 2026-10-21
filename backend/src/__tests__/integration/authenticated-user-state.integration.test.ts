@@ -10,7 +10,8 @@
  * - 2FA の有効化はコミットの後にキャッシュを無効化し、直後の `/me` が登録済みを返す
  * - ログイン・2FA の検証・リフレッシュ・2FA の有効化・パスワード変更の応答に利用者の状態が載る
  * - 統合テストの生成の部品（47.3）が DB を書いた直後に、状態の取得が新しい値を返す
- * - 状態はまだ要求の拒否に使わない（初回の変更を要する・2FA 未登録の利用者も `/me` を読める）
+ * - 認証ミドルウェアの状態の照合もキャッシュを経由する（タスク47.6 で拒否を入れた。初回の変更を要する・
+ *   2FA 未登録の利用者の `/me` は 403 になる。拒否そのものの検証は user-state-enforcement の統合検証で行う）
  */
 
 import { randomBytes, randomUUID } from 'crypto';
@@ -140,8 +141,9 @@ describe('利用者の状態の取得とキャッシュ・応答の状態（統�
     expect(Number(await redisClient.get(authUserStateGenerationKey(user.id)))).toBe(
       generationBefore + 1
     );
-    const fresh = await getMe(accessToken).expect(200);
-    expect(fresh.body.mustChangePassword).toBe(true);
+    // 新しい値（初回の変更を要する）で認証ミドルウェアが照合し、/me を拒否する（タスク47.6）
+    const fresh = await getMe(accessToken).expect(403);
+    expect(fresh.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
   });
 
   it('生成の部品が DB を書いた直後に、状態の取得が新しい値を返す', async () => {
@@ -176,8 +178,9 @@ describe('利用者の状態の取得とキャッシュ・応答の状態（統�
     expect(login.status).toBe(200);
     const accessToken = login.body.accessToken as string;
 
-    const before = await getMe(accessToken).expect(200);
-    expect(before.body.twoFactorEnabled).toBe(false);
+    // 2FA 未登録の間は /me も拒否される（要件34.2、タスク47.6）
+    const before = await getMe(accessToken).expect(403);
+    expect(before.body.code).toBe('TWO_FACTOR_SETUP_REQUIRED');
 
     const setup = await request(app)
       .post('/api/v1/auth/2fa/setup')
@@ -199,15 +202,15 @@ describe('利用者の状態の取得とキャッシュ・応答の状態（統�
     expect(after.body.twoFactorEnabled).toBe(true);
   });
 
-  it('ログイン（2FA 未登録）・2FA の検証・リフレッシュ・パスワード変更の応答に利用者の状態が載り、拒否はしない', async () => {
+  it('ログイン（2FA 未登録）・2FA の検証・リフレッシュ・パスワード変更の応答に利用者の状態が載る', async () => {
     // 2FA 未登録・初回の変更を要する利用者のログインはトークンを返し、状態を載せる
     await createUser({ twoFactor: false, mustChangePassword: true });
     const plain = await request(app).post('/api/v1/auth/login').send({ email, password: PASSWORD });
     expect(plain.status).toBe(200);
     expect(plain.body.user).toMatchObject({ twoFactorEnabled: false, mustChangePassword: true });
-    // 状態による拒否はまだ行わない
-    const me = await getMe(plain.body.accessToken as string).expect(200);
-    expect(me.body).toMatchObject({ twoFactorEnabled: false, mustChangePassword: true });
+    // 画面は応答の状態で遷移を制限する。/me は状態の照合で拒否される（タスク47.6）
+    const me = await getMe(plain.body.accessToken as string).expect(403);
+    expect(me.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
 
     // 2FA 登録済みの利用者の 2FA の検証の応答
     await cleanup();
@@ -230,9 +233,10 @@ describe('利用者の状態の取得とキャッシュ・応答の状態（統�
         newPasswordConfirm: NEW_PASSWORD,
       });
     expect(changed.status).toBe(200);
+    // パスワード変更の完了で初回の変更の要否が解ける（要件37.7、タスク47.6）
     expect(changed.body).toMatchObject({
       message: 'Password changed successfully',
-      user: { email, twoFactorEnabled: true, mustChangePassword: true },
+      user: { email, twoFactorEnabled: true, mustChangePassword: false },
     });
   });
 });

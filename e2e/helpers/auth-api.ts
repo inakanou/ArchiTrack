@@ -250,6 +250,10 @@ export async function fetchSessionUser(page: Page): Promise<SessionUserObservati
 /**
  * 画面のセッションが認証済み（認証済みの API が成功する）になるまで待つ（画面の状態の観測用）
  *
+ * 2FA 未登録・初回のパスワード変更中の利用者は `/api/v1/auth/me` も状態の照合で 403
+ * （`TWO_FACTOR_SETUP_REQUIRED`・`PASSWORD_CHANGE_REQUIRED`）になる（user-authentication 要件34.2・37.7、
+ * タスク47.6）。そのコードはアクセストークンの検証を通った後にだけ返るため、認証済みとして扱う。
+ *
  * @param page - ページ
  * @param options - 待機の上限と間隔
  */
@@ -268,8 +272,20 @@ export async function waitForAuthenticatedSession(
       try {
         await client.get('/api/v1/auth/me');
         return true;
-      } catch {
-        return false;
+      } catch (error) {
+        const response =
+          error && typeof error === 'object' && 'response' in error
+            ? (error as { response?: { code?: unknown } }).response
+            : undefined;
+        const status =
+          error && typeof error === 'object' && 'statusCode' in error
+            ? Number((error as { statusCode: unknown }).statusCode)
+            : 0;
+        return (
+          status === 403 &&
+          (response?.code === 'TWO_FACTOR_SETUP_REQUIRED' ||
+            response?.code === 'PASSWORD_CHANGE_REQUIRED')
+        );
       }
     },
     null,

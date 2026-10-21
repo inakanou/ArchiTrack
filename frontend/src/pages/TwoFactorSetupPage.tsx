@@ -1,10 +1,13 @@
-import { useNavigate } from 'react-router-dom';
-import { useState, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useState, useCallback, useRef } from 'react';
 import TwoFactorSetupForm from '../components/TwoFactorSetupForm';
 import ToastNotification from '../components/ToastNotification';
 import type { TwoFactorSetupResult, TwoFactorEnableResult } from '../types/two-factor.types';
 import type { Toast } from '../types/toast.types';
 import { apiClient } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
+import type { User } from '../contexts/AuthContext';
+import { TWO_FACTOR_SETUP_NOTICE_KEY, isReturnablePath } from '../utils/user-restriction';
 
 /**
  * 2要素認証セットアップページ
@@ -18,9 +21,25 @@ import { apiClient } from '../api/client';
  *
  * ## 要件
  * @requirement user-authentication/REQ-27: 2要素認証の設定と管理機能
+ * - 要件34.4: 2FA 未登録の利用者が設定を完了したら、ProtectedRoute が保存した遷移先（無ければ
+ *   ダッシュボード）へ戻す。2FA 登録済みの利用者（認証アプリの変更）はプロフィールへ戻す（要件28.32）
+ * - 要件34.5: 招待経由の登録の直後の案内（sessionStorage の TWO_FACTOR_SETUP_NOTICE_KEY）を表示する
  */
 export function TwoFactorSetupPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user, updateUser } = useAuth();
+  const routeState = (location.state ?? null) as { from?: unknown } | null;
+  // 招待経由の登録の直後などの案内（表示の時点で一度だけ読み、消す。要件34.5）
+  const [arrivalMessage] = useState<string | null>(() => {
+    const notice = sessionStorage.getItem(TWO_FACTOR_SETUP_NOTICE_KEY);
+    if (notice) {
+      sessionStorage.removeItem(TWO_FACTOR_SETUP_NOTICE_KEY);
+    }
+    return notice;
+  });
+  // 画面を開いた時点で 2FA 未登録だったか（有効化で利用者が更新された後も完了後の遷移先の判断に使う）
+  const wasNotEnrolledRef = useRef<boolean>(user?.twoFactorEnabled === false);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -31,8 +50,11 @@ export function TwoFactorSetupPage() {
   /**
    * 2FAセットアップ開始
    * QRコードと秘密鍵を取得
+   *
+   * 設定の部品は関数の参照が変わると設定をやり直す。この画面は利用者の状態の更新（有効化の完了など）で
+   * 再描画されるため、参照を固定する（やり直すと登録済みの利用者の設定の開始が拒否される）
    */
-  const handleSetupStart = async (): Promise<TwoFactorSetupResult> => {
+  const handleSetupStart = useCallback(async (): Promise<TwoFactorSetupResult> => {
     setError(null);
     try {
       const response = await apiClient.post<{
@@ -55,36 +77,43 @@ export function TwoFactorSetupPage() {
         error: errorMessage,
       };
     }
-  };
+  }, []);
 
   /**
    * 2FA有効化
    * TOTPコードを検証してバックアップコードを取得
    */
-  const handleEnable = async (totpCode: string): Promise<TwoFactorEnableResult> => {
-    setError(null);
-    try {
-      const response = await apiClient.post<{
-        backupCodes: string[];
-      }>('/api/v1/auth/2fa/enable', {
-        totpCode,
-      });
+  const handleEnable = useCallback(
+    async (totpCode: string): Promise<TwoFactorEnableResult> => {
+      setError(null);
+      try {
+        const response = await apiClient.post<{
+          backupCodes: string[];
+          user?: User;
+        }>('/api/v1/auth/2fa/enable', {
+          totpCode,
+        });
 
-      return {
-        success: true,
-        data: {
-          backupCodes: response.backupCodes,
-        },
-      };
-    } catch {
-      const errorMessage = '認証コードの検証に失敗しました';
-      setError(errorMessage);
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    }
-  };
+        // 2FA の登録で遷移の制限を解く（応答の利用者が無いときも登録済みとして更新する。要件34.4）
+        updateUser(response.user ?? { twoFactorEnabled: true });
+
+        return {
+          success: true,
+          data: {
+            backupCodes: response.backupCodes,
+          },
+        };
+      } catch {
+        const errorMessage = '認証コードの検証に失敗しました';
+        setError(errorMessage);
+        return {
+          success: false,
+          error: errorMessage,
+        };
+      }
+    },
+    [updateUser]
+  );
 
   /**
    * セットアップ完了
@@ -100,9 +129,15 @@ export function TwoFactorSetupPage() {
     };
     setToasts((prev) => [...prev, newToast]);
 
-    // トースト表示後にプロフィールページに戻る
+    // 要件34.4: 2FA 未登録だった利用者は保存された遷移先（無ければダッシュボード）へ、
+    // 登録済みの利用者（認証アプリの変更）はプロフィールへ戻る（要件28.32）
+    const savedFrom = routeState?.from;
+    const savedDestination = isReturnablePath(savedFrom) ? savedFrom : null;
+    const destination = savedDestination ?? (wasNotEnrolledRef.current ? '/dashboard' : '/profile');
+
+    // トースト表示後に遷移する
     setTimeout(() => {
-      navigate('/profile', {
+      navigate(destination, {
         replace: true,
       });
     }, 1000);
@@ -158,6 +193,25 @@ export function TwoFactorSetupPage() {
           >
             アカウントのセキュリティを強化します
           </p>
+
+          {/* 招待経由の登録の直後などの案内（要件34.5） */}
+          {arrivalMessage && (
+            <div
+              role="status"
+              style={{
+                padding: '0.75rem',
+                marginBottom: '1.5rem',
+                backgroundColor: '#d1fae5',
+                borderRadius: '0.375rem',
+                color: '#065f46',
+                textAlign: 'center',
+                fontSize: '0.875rem',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {arrivalMessage}
+            </div>
+          )}
 
           {/* エラーメッセージ */}
           {error && (

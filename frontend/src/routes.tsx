@@ -10,6 +10,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { PasswordResetPage } from './pages/PasswordResetPage';
 import { TwoFactorSetupPage } from './pages/TwoFactorSetupPage';
+import { SetupPasswordPage } from './pages/SetupPasswordPage';
 import { Dashboard } from './pages/Dashboard';
 import { RoleManagement } from './pages/RoleManagement';
 import { PermissionManagement } from './pages/PermissionManagement';
@@ -136,6 +137,12 @@ export const routes: RouteObject[] = [
       {
         path: '/profile/2fa-setup',
         element: <TwoFactorSetupPage />,
+      },
+      // 初回のパスワード変更（user-authentication 要件37.7、タスク47.6）
+      // 初回の変更を要する利用者は ProtectedRoute が他の経路をここへ置き換える
+      {
+        path: '/setup/password',
+        element: <SetupPasswordPage />,
       },
       // プロジェクト一覧
       // REQ-21.2: ヘッダーの「プロジェクト」リンクからプロジェクト一覧画面に遷移

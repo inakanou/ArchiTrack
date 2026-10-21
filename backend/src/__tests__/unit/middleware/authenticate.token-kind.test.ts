@@ -12,6 +12,13 @@ import type { Request, Response, NextFunction } from 'express';
 import { createAuthMiddleware } from '../../../middleware/authenticate.middleware.js';
 import { TokenService } from '../../../services/token.service.js';
 
+/**
+ * 有効で 2FA 登録済みの利用者の状態（状態の照合を通る。照合そのものは authenticate.user-state.test.ts で確かめる）
+ */
+const activeUserState = {
+  getState: async () => ({ isActive: true, twoFactorEnabled: true, mustChangePassword: false }),
+};
+
 describe('authenticate middleware（トークンの種別）', () => {
   let tokenService: TokenService;
   let privateKey: CryptoKey;
@@ -45,7 +52,11 @@ describe('authenticate middleware（トークンの種別）', () => {
 
   async function callWithBearer(token: string): Promise<void> {
     request.headers = { authorization: `Bearer ${token}` };
-    await createAuthMiddleware(tokenService)(request as Request, response as Response, next);
+    await createAuthMiddleware(tokenService, activeUserState)(
+      request as Request,
+      response as Response,
+      next
+    );
   }
 
   function expectInvalidToken(): void {

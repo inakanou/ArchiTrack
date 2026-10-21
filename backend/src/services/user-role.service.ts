@@ -15,6 +15,7 @@ import type { IUserRoleService, UserRoleInfo, UserRoleError } from '../types/use
 import type { IRBACService } from '../types/rbac.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import type { EmailService } from './email.service.js';
+import type { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
@@ -87,7 +88,9 @@ export class UserRoleService implements IUserRoleService {
     private readonly prisma: PrismaClient,
     private readonly rbacService?: IRBACService,
     private readonly auditLogService?: IAuditLogService,
-    private readonly emailService?: EmailService
+    private readonly emailService?: EmailService,
+    /** 利用者の状態のキャッシュの無効化（削除の後に呼ぶ。user-authentication タスク47.6） */
+    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>
   ) {}
 
   /**
@@ -552,6 +555,17 @@ export class UserRoleService implements IUserRoleService {
     // 有効期限まで検証を通るため、残ったキャッシュで権限の確認を通さない（タスク36.2）
     if (result.ok && this.rbacService) {
       await this.rbacService.invalidateUserPermissionsCache(userId);
+    }
+
+    // コミット後に削除したユーザーの状態のキャッシュも無効化する。残ったキャッシュ（TTL 60 秒）で
+    // 認証ミドルウェアの状態の照合を通さず、利用者の不在（401）として拒否させる（タスク47.6）。
+    // 削除はコミット済みのため、無効化の失敗は結果を変えず警告ログに留める
+    if (result.ok && this.userStateService) {
+      try {
+        await this.userStateService.invalidate(userId);
+      } catch (error) {
+        logger.warn({ err: error, userId }, 'Failed to invalidate user state after user deletion');
+      }
     }
 
     return result;

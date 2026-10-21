@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { isUserRestrictionCode, type UserRestriction } from '../utils/user-restriction';
 
 /**
  * APIエラークラス
@@ -310,6 +311,12 @@ class ApiClient {
   private refreshInFlight: Promise<string> | null = null;
   /** セッション切れ時のコールバック（要件30.13: AuthContextへの通知用） */
   private sessionExpiredCallback: (() => void) | null = null;
+  /**
+   * 利用者の状態による 403（`TWO_FACTOR_SETUP_REQUIRED`・`PASSWORD_CHANGE_REQUIRED`）を受けたときの
+   * コールバック（AuthContext が利用者の状態を更新し、ProtectedRoute の制限に委ねる。
+   * user-authentication 要件34.2・37.7、タスク47.6）
+   */
+  private userStateRestrictionCallback: ((code: UserRestriction) => void) | null = null;
   private retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG;
 
   constructor() {
@@ -528,6 +535,14 @@ class ApiClient {
         // 要件30.13: tokenRefreshCallbackがnullの場合の401エラーでもsessionExpiredCallbackを呼び出し
         if (response.status === 401 && !this.tokenRefreshCallback && this.sessionExpiredCallback) {
           this.sessionExpiredCallback();
+        }
+
+        // 利用者の状態による 403 は AuthContext へ知らせる（画面の遷移の制限に委ねる。要件34.2・37.7）
+        if (response.status === 403 && this.userStateRestrictionCallback) {
+          const restrictionCode = extractErrorCode(data);
+          if (isUserRestrictionCode(restrictionCode)) {
+            this.userStateRestrictionCallback(restrictionCode);
+          }
         }
 
         // エラーレスポンスの処理
@@ -802,6 +817,13 @@ class ApiClient {
    */
   setSessionExpiredCallback(callback: (() => void) | null): void {
     this.sessionExpiredCallback = callback;
+  }
+
+  /**
+   * 利用者の状態による 403 のコールバックを設定（user-authentication タスク47.6）
+   */
+  setUserStateRestrictionCallback(callback: ((code: UserRestriction) => void) | null): void {
+    this.userStateRestrictionCallback = callback;
   }
 
   /**

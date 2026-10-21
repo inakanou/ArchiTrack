@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { TwoFactorSetupPage } from '../../pages/TwoFactorSetupPage';
+import { AuthContext, type AuthContextValue } from '../../contexts/AuthContext';
 
 // API clientをモック
 vi.mock('../../api/client', () => ({
@@ -87,13 +88,44 @@ vi.mock('../../components/TwoFactorSetupForm', () => ({
   ),
 }));
 
+// 2FA 登録済みの利用者（認証アプリの変更の導線）。未登録の利用者の完了後の遷移は
+// TwoFactorSetupPage.userState.test.tsx で確かめる（タスク47.6）
+const authValue = {
+  isAuthenticated: true,
+  user: {
+    id: 'user-1',
+    email: 'user@example.com',
+    displayName: 'User',
+    twoFactorEnabled: true,
+    mustChangePassword: false,
+  },
+  isLoading: false,
+  isInitialized: true,
+  sessionExpired: false,
+  sessionExpiredDuringOperation: false,
+  twoFactorState: null,
+  login: vi.fn(),
+  logout: vi.fn(),
+  refreshToken: vi.fn(),
+  clearSessionExpired: vi.fn(),
+  handleReauthSuccess: vi.fn(),
+  navigateToLogin: vi.fn(),
+  verify2FA: vi.fn(),
+  verifyBackupCode: vi.fn(),
+  cancel2FA: vi.fn(),
+  establishSession: vi.fn(),
+  updateUser: vi.fn(),
+} satisfies AuthContextValue;
+
 const renderTwoFactorSetupPage = () => {
   return render(
-    <MemoryRouter initialEntries={['/2fa-setup']}>
-      <Routes>
-        <Route path="/2fa-setup" element={<TwoFactorSetupPage />} />
-      </Routes>
-    </MemoryRouter>
+    <AuthContext.Provider value={authValue}>
+      <MemoryRouter initialEntries={['/2fa-setup']}>
+        <Routes>
+          <Route path="/2fa-setup" element={<TwoFactorSetupPage />} />
+        </Routes>
+      </MemoryRouter>
+    </AuthContext.Provider>
   );
 };
 

@@ -101,6 +101,7 @@ export type AuthError =
   | { type: 'INVALID_REFRESH_TOKEN' }
   | { type: 'REFRESH_TOKEN_EXPIRED' }
   | { type: 'TOKEN_REUSE_DETECTED' }
+  | { type: 'ACCOUNT_DISABLED' }
   | { type: 'USER_NOT_FOUND' }
   | { type: 'PROFILE_CONFLICT'; expectedUpdatedAt: Date; actualUpdatedAt: Date }
   | { type: 'DATABASE_ERROR'; message: string };

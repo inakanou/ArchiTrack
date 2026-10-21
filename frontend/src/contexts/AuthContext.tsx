@@ -11,6 +11,7 @@ import {
 import { ApiError, apiClient } from '../api/client';
 import { TokenRefreshManager } from '../services/TokenRefreshManager';
 import { logger } from '../utils/logger';
+import { applyUserRestriction, getUserRestriction } from '../utils/user-restriction';
 
 /**
  * ユーザー情報の型定義
@@ -23,7 +24,10 @@ export interface User {
   permissions?: string[];
   createdAt?: string;
   emailVerified?: boolean;
+  /** 2FA 登録済みか（偽なら 2FA 設定の画面だけを開ける。要件34.3） */
   twoFactorEnabled?: boolean;
+  /** 初回のパスワード変更を要するか（真なら初回のパスワード変更の画面だけを開ける。要件37.7） */
+  mustChangePassword?: boolean;
 }
 
 /**
@@ -58,6 +62,14 @@ export interface AuthContextValue {
   verify2FA: (code: string) => Promise<void>;
   verifyBackupCode: (code: string) => Promise<void>;
   cancel2FA: () => void;
+  /**
+   * 応答の利用者とアクセストークンでセッションを始める（招待経由の登録の直後。要件34.5）
+   */
+  establishSession: (response: SessionStartResponse) => void;
+  /**
+   * ログイン中の利用者を部分的に更新する（2FA の有効化の応答の状態など。要件34.4）。未ログインでは何もしない
+   */
+  updateUser: (changes: Partial<User>) => void;
 }
 
 /**
@@ -84,7 +96,7 @@ export interface AuthProviderProps {
  *
  * 応答本文の `refreshToken` は読まない。リフレッシュトークンは HttpOnly Cookie だけで受け渡す（要件33.8）。
  */
-interface SessionStartResponse {
+export interface SessionStartResponse {
   user: User;
   accessToken: string;
   expiresIn?: number;
@@ -181,6 +193,24 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
     },
     [replaceTokenRefreshManager]
   );
+
+  /**
+   * ログイン中の利用者を部分的に更新する（未ログインでは何もしない）
+   */
+  const updateUser = useCallback((changes: Partial<User>): void => {
+    setUser((current) => (current ? { ...current, ...changes } : current));
+  }, []);
+
+  // 利用者の状態による 403 を受けたら状態を更新し、ProtectedRoute の制限に委ねる（要件34.2・37.7）。
+  // 制限中は /me も 403 になるため取り直さず、エラーコードが示す状態を反映する
+  useEffect(() => {
+    apiClient.setUserStateRestrictionCallback((code) => {
+      setUser((current) => (current ? applyUserRestriction(current, code) : current));
+    });
+    return () => {
+      apiClient.setUserStateRestrictionCallback(null);
+    };
+  }, []);
 
   /**
    * ログイン関数
@@ -438,17 +468,20 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
         apiClient.setAccessToken(accessToken);
 
         // 権限（permissions）はリフレッシュの応答に無いため、利用者の情報を取り直して補う。
-        // 取り直せないときはリフレッシュの応答の利用者で復元する
+        // 取り直せないときはリフレッシュの応答の利用者で復元する。
+        // 制限中の利用者（2FA 未登録・初回のパスワード変更中）は /me も 403 になるため取り直さない（要件34.2）
         let restoredUser: User | null = refreshedUser;
-        try {
-          restoredUser = await apiClient.get<User>('/api/v1/auth/me');
-        } catch (meError) {
-          if (!restoredUser) {
-            throw meError;
+        if (!getUserRestriction(refreshedUser)) {
+          try {
+            restoredUser = await apiClient.get<User>('/api/v1/auth/me');
+          } catch (meError) {
+            if (!restoredUser) {
+              throw meError;
+            }
+            logger.warn('Failed to load user profile, restoring with the refresh response', {
+              error: meError,
+            });
           }
-          logger.warn('Failed to load user profile, restoring with the refresh response', {
-            error: meError,
-          });
         }
         setUser(restoredUser);
 
@@ -510,6 +543,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       verify2FA,
       verifyBackupCode,
       cancel2FA,
+      establishSession: startSession,
+      updateUser,
     }),
     [
       user,
@@ -527,6 +562,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       verify2FA,
       verifyBackupCode,
       cancel2FA,
+      startSession,
+      updateUser,
     ]
   );
 

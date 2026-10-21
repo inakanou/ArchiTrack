@@ -861,6 +861,59 @@ describe('UserRoleService', () => {
       expect(result.ok).toBe(false);
       expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
     });
+
+    /**
+     * 削除の直後の利用者のアクセストークンを、状態のキャッシュ（TTL 60 秒）の残りで通さない。
+     * 認証ミドルウェアは状態の不在（null）を 401 にする（user-authentication タスク47.6）
+     */
+    it('削除をコミットした後に、削除したユーザーの状態のキャッシュを無効化する', async () => {
+      const order: string[] = [];
+      const invalidate = vi.fn(async () => {
+        order.push('invalidate-state');
+      });
+      const service = new UserRoleService(
+        prismaMock,
+        rbacServiceMock as unknown as IRBACService,
+        auditLogServiceMock,
+        emailServiceMock,
+        { invalidate }
+      );
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue({
+        id: mockUserId,
+        email: 'deleted@example.com',
+        userRoles: [],
+      } as unknown as never);
+      vi.mocked(prismaMock.$transaction).mockImplementation((async (
+        callback: (tx: PrismaClient) => Promise<unknown>
+      ) => {
+        const value = await callback(prismaMock);
+        order.push('commit');
+        return value;
+      }) as never);
+
+      const result = await service.deleteUser(mockUserId);
+
+      expect(result.ok).toBe(true);
+      expect(invalidate).toHaveBeenCalledWith(mockUserId);
+      expect(order).toEqual(['commit', 'invalidate-state']);
+    });
+
+    it('削除が業務上の理由で行われないときは状態のキャッシュを無効化しない', async () => {
+      const invalidate = vi.fn();
+      const service = new UserRoleService(
+        prismaMock,
+        rbacServiceMock as unknown as IRBACService,
+        auditLogServiceMock,
+        emailServiceMock,
+        { invalidate }
+      );
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(null);
+
+      const result = await service.deleteUser(mockUserId);
+
+      expect(result.ok).toBe(false);
+      expect(invalidate).not.toHaveBeenCalled();
+    });
   });
 
   describe('hasUserRole()', () => {

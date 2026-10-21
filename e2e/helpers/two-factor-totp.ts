@@ -16,7 +16,7 @@
 import { createCipheriv, randomBytes } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { authenticator } from 'otplib';
 import { getPrismaClient } from '../fixtures/database';
 import { invalidateUserStateCache } from './user-state-cache';
@@ -120,4 +120,22 @@ export async function fillTotpCode(page: Page, code: string): Promise<void> {
   for (let i = 0; i < digits.length; i++) {
     await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
   }
+}
+
+/**
+ * 2FA の設定の画面に表示された秘密鍵（手動入力用）から、現在の TOTP コードを計算する
+ *
+ * backend は固定値のコードを受理しないため、設定の開始で発行された秘密鍵から本物のコードを求める。
+ *
+ * @param page - 2FA の設定の画面を表示しているページ
+ * @param timeout - 秘密鍵の表示を待つ上限（ミリ秒）
+ */
+export async function totpCodeFromSetupPage(page: Page, timeout = 10000): Promise<string> {
+  const secretKey = page.getByTestId('secret-key');
+  await expect(secretKey).toHaveText(/^[A-Z2-7]+=*$/, { timeout });
+  const secret = await secretKey.textContent();
+  if (!secret) {
+    throw new Error('2FA の設定の画面に秘密鍵が表示されていない');
+  }
+  return generateTotpCode(secret);
 }

@@ -10,8 +10,11 @@
  * 戻した値であることを確かめる。キャッシュの鍵が backend の定数の名前で実在することも観測し、E2E の補助と
  * backend の鍵の一致を確かめる。
  *
- * 受入基準の被覆の印は掲げない（34.2 の強制（47.6）の前提の準備であり、印は振る舞いを完成させる
- * タスクで掲げる）。
+ * 47.6 で認証ミドルウェアが状態で要求を拒否するようになったため、初回の変更を要する状態は `/me` の
+ * 403（`PASSWORD_CHANGE_REQUIRED`）として観測する（拒否の判定も同じキャッシュを経由する）。
+ *
+ * 受入基準の被覆の印は掲げない（キャッシュと初期化の補助の検証。拒否の受入基準の印は
+ * user-state-restriction.spec.ts で掲げる）。
  */
 
 import { test, expect, request as playwrightRequest } from '@playwright/test';
@@ -31,17 +34,26 @@ async function newRequestContext(): Promise<APIRequestContext> {
   return context;
 }
 
-/** `GET /api/v1/auth/me` の応答の状態 */
+/** `GET /api/v1/auth/me` の応答の状態コードと、本文の状態の項目・エラーコード */
 async function readMeState(
   api: APIRequestContext,
   accessToken: string
-): Promise<{ twoFactorEnabled: unknown; mustChangePassword: unknown }> {
+): Promise<{
+  status: number;
+  twoFactorEnabled: unknown;
+  mustChangePassword: unknown;
+  code: unknown;
+}> {
   const response = await api.get(`${API_BASE_URL}/api/v1/auth/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  expect(response.status()).toBe(200);
   const body = (await response.json()) as Record<string, unknown>;
-  return { twoFactorEnabled: body.twoFactorEnabled, mustChangePassword: body.mustChangePassword };
+  return {
+    status: response.status(),
+    twoFactorEnabled: body.twoFactorEnabled,
+    mustChangePassword: body.mustChangePassword,
+    code: body.code,
+  };
 }
 
 test.describe('利用者の状態のキャッシュと初期化の補助', () => {
@@ -59,13 +71,16 @@ test.describe('利用者の状態のキャッシュと初期化の補助', () =>
     const { accessToken } = await loginViaApi(api, user);
 
     // 既定から外れた状態（初回の変更を要する）を DB へ直接書き、/me で一度読ませてキャッシュに載せる
+    // （状態の照合が初回の変更を要する状態を読み、/me を 403 で拒否する）
     await getPrismaClient().user.update({
       where: { id: user.id },
       data: { mustChangePassword: true },
     });
     expect(await readMeState(api, accessToken)).toEqual({
-      twoFactorEnabled: true,
-      mustChangePassword: true,
+      status: 403,
+      twoFactorEnabled: undefined,
+      mustChangePassword: undefined,
+      code: 'PASSWORD_CHANGE_REQUIRED',
     });
     // backend は E2E の補助が使う鍵（backend の定数）に状態を載せている
     expect(await readUserStateCacheEntry(user.id)).toEqual({
@@ -79,8 +94,10 @@ test.describe('利用者の状態のキャッシュと初期化の補助', () =>
 
     // 初期化の補助の無効化で、キャッシュの TTL（60 秒）を待たずに戻した状態が返る
     expect(await readMeState(api, accessToken)).toEqual({
+      status: 200,
       twoFactorEnabled: true,
       mustChangePassword: false,
+      code: undefined,
     });
     // 戻した状態がキャッシュに載り直している（古い値ではない）
     expect(await readUserStateCacheEntry(user.id)).toEqual({

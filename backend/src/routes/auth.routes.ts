@@ -324,14 +324,10 @@ const changePasswordSchema = z.object({
  *                 accessToken:
  *                   type: string
  *                 user:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     email:
- *                       type: string
- *                     displayName:
- *                       type: string
+ *                   $ref: '#/components/schemas/AuthUserView'
+ *                   description: >-
+ *                     The registered user. twoFactorEnabled is false, so the screen moves to the 2FA
+ *                     setup before any other use (requirement 34.5).
  *       400:
  *         $ref: '#/components/responses/BadRequest'
  */
@@ -436,14 +432,7 @@ router.post(
  *                 accessToken:
  *                   type: string
  *                 user:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     email:
- *                       type: string
- *                     displayName:
- *                       type: string
+ *                   $ref: '#/components/schemas/AuthUserView'
  *                 requires2FA:
  *                   type: boolean
  *                   description: True if 2FA is required
@@ -587,6 +576,16 @@ router.post(
             error: 'Invalid refresh token',
             detail: '無効なトークンです (Invalid token)',
             code: 'INVALID_REFRESH_TOKEN',
+          });
+          return;
+        }
+        if (error.type === 'ACCOUNT_DISABLED') {
+          // 無効化された利用者（要件36.1）。Cookie を消し、認証ミドルウェアと同じコードで拒否する
+          clearRefreshTokenCookie(res);
+          res.status(401).json({
+            error: 'Account is disabled',
+            detail: 'アカウントは無効化されています (Account is disabled)',
+            code: error.type,
           });
           return;
         }
@@ -1253,6 +1252,9 @@ router.post(
  *                   items:
  *                     type: string
  *                   description: バックアップコード（最後の表示機会）
+ *                 user:
+ *                   $ref: '#/components/schemas/AuthUserView'
+ *                   description: 有効化の後の利用者と状態（読めないときは省く）
  *       400:
  *         description: 無効なTOTPコード
  *       401:
@@ -1736,7 +1738,9 @@ router.post(
  *                 description: New password confirmation
  *     responses:
  *       200:
- *         description: Password changed successfully
+ *         description: >-
+ *           Password changed successfully. All refresh tokens are revoked and the initial password
+ *           change requirement (mustChangePassword) is cleared.
  *         content:
  *           application/json:
  *             schema:
@@ -1744,6 +1748,9 @@ router.post(
  *               properties:
  *                 message:
  *                   type: string
+ *                 user:
+ *                   $ref: '#/components/schemas/AuthUserView'
+ *                   description: The user and state after the change (omitted when unreadable)
  *       400:
  *         description: Invalid request (weak password, password mismatch, etc.)
  *       401:

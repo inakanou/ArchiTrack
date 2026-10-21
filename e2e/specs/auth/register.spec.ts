@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
 import { createCustomUser, createInvitation } from '../../fixtures/auth.fixtures';
 import { TEST_USERS } from '../../helpers/test-users';
+import { getTimeout } from '../../helpers/wait-helpers';
+import { fillTotpCode, totpCodeFromSetupPage } from '../../helpers/two-factor-totp';
 
 /**
  * 新規登録機能のE2Eテスト
@@ -56,7 +58,10 @@ test.describe('新規登録機能', () => {
   });
 
   /**
+   * 招待経由の登録の直後は、利用開始の前に 2FA 設定の画面へ進み、設定の完了でダッシュボードへ進む
+   * （user-authentication 要件34.5・34.4。12.9・28.19 のダッシュボードへの遷移は 2FA の設定の後になる。タスク47.6）
    * @requirement user-authentication/REQ-2.1 @requirement user-authentication/REQ-2.9 @requirement user-authentication/REQ-2.10 @requirement user-authentication/REQ-2.11 @requirement user-authentication/REQ-2.12 @requirement user-authentication/REQ-12.7 @requirement user-authentication/REQ-12.8 @requirement user-authentication/REQ-12.9 @requirement user-authentication/REQ-28.19
+   * @requirement user-authentication/REQ-34.5
    */
   test('有効な情報で新規登録できる', async ({ page }) => {
     // メールアドレスは招待トークンから事前入力されている
@@ -72,9 +77,22 @@ test.describe('新規登録機能', () => {
 
     await page.getByRole('button', { name: /登録/i }).click();
 
-    // 登録成功後、ログインページにリダイレクトされる
-    await expect(page).toHaveURL(/\/login/);
-    await expect(page.getByText(/登録が完了しました/i)).toBeVisible();
+    // 要件34.5: 登録の直後は、他の画面より先に 2FA 設定の画面へ進む（完了の案内を添える）
+    await expect(page).toHaveURL(/\/profile\/2fa-setup$/, { timeout: getTimeout(15000) });
+    await expect(page.getByRole('status').filter({ hasText: '登録が完了しました' })).toBeVisible();
+
+    // 2FA を設定すると、利用を始められる（ダッシュボードへ進む。要件34.4・12.9・28.19）
+    await fillTotpCode(page, await totpCodeFromSetupPage(page, getTimeout(15000)));
+    await page.getByRole('button', { name: /検証|確認/i }).click();
+    await page.getByRole('checkbox', { name: /保存しました|確認しました/i }).check();
+    await page.getByRole('button', { name: /完了/i }).click();
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: getTimeout(15000) });
+
+    const registered = await getPrismaClient().user.findUnique({
+      where: { email: 'newuser@example.com' },
+      select: { twoFactorEnabled: true },
+    });
+    expect(registered?.twoFactorEnabled).toBe(true);
   });
 
   /**

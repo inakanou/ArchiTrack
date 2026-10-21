@@ -25,6 +25,7 @@ import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-arch
 import { loginForAccessToken, loginForTokens } from './auth-login-client.js';
 import { issuedRefreshToken } from './refresh-cookie-client.js';
 import { createTestUser } from './test-user-factory.js';
+import tokenService from '../../services/token.service.js';
 
 const MARK = 'test-ua472-login-client';
 const PASSWORD = 'LoginClient!Passphrase-2026';
@@ -103,7 +104,15 @@ describe('統合テスト用のログインの補助', () => {
       password: PASSWORD,
     });
 
-    expect(await currentEmail(accessToken)).toBe(plainEmail);
+    // 2FA 未登録の利用者は /me も 403 になる（要件34.2、タスク47.6）。トークンの利用者は署名の検証で確かめ、
+    // 認証ミドルウェアがトークンを受け付けたうえで状態で拒否することを /me の 403 のコードで確かめる
+    const verified = await tokenService.verifyToken(accessToken, 'access');
+    expect(verified.ok && verified.value.email).toBe(plainEmail);
+    const me = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${accessToken}`);
+    expect(me.status).toBe(403);
+    expect(me.body.code).toBe('TWO_FACTOR_SETUP_REQUIRED');
   });
 
   it('2FA 登録済みの利用者では、資格と計算した TOTP で検証してアクセストークンを返す', async () => {

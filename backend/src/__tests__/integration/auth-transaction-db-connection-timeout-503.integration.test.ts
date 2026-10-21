@@ -29,6 +29,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import request from 'supertest';
 import type { Express } from 'express';
 import type Redis from 'ioredis';
+import { authUserStateCacheKey } from '../../services/authenticated-user-state-cache.js';
 
 /** 1 回の試行の接続タイムアウト（ミリ秒） */
 const CONNECTION_TIMEOUT_MS = 1000;
@@ -60,6 +61,22 @@ const ACTOR_ID = 'ua3512-actor';
 
 /** RBACService の権限キャッシュのキー */
 const ACTOR_CACHE_KEY = `rbac:permissions:${ACTOR_ID}`;
+
+/**
+ * 利用者の状態のキャッシュのキー（user-authentication タスク47.6）
+ *
+ * 認証ミドルウェアは権限の判定より前に利用者の状態を読む。状態のキャッシュに当たらなければ状態の取得が
+ * 先に DB へ到達するため、本ファイルが確かめる経路（権限の判定・サービス層の DB への到達）を保つよう、
+ * 各検証の前に有効で 2FA 登録済みの状態をキャッシュに置く
+ */
+const ACTOR_STATE_CACHE_KEY = authUserStateCacheKey(ACTOR_ID);
+
+/** 有効で 2FA 登録済み・初回の変更を要しない状態のキャッシュの値 */
+const ACTIVE_USER_STATE_CACHE = JSON.stringify({
+  isActive: true,
+  twoFactorEnabled: true,
+  mustChangePassword: false,
+});
 
 /** 全権限（*:*）のキャッシュの値 */
 const ALL_PERMISSIONS_CACHE = JSON.stringify([
@@ -121,7 +138,12 @@ describe('対話型トランザクションから始まる認証系の書き込�
     });
   }, BEFORE_ALL_TIMEOUT_MS);
 
+  beforeEach(async () => {
+    await redisClient.set(ACTOR_STATE_CACHE_KEY, ACTIVE_USER_STATE_CACHE, 'EX', 60);
+  });
+
   afterAll(async () => {
+    await redisClient?.del(ACTOR_STATE_CACHE_KEY);
     await redisClient?.del(ACTOR_CACHE_KEY);
     await disconnectRedis?.();
     await disconnectPrisma?.();

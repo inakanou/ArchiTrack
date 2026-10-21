@@ -1,6 +1,12 @@
 import { ReactElement } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import {
+  PASSWORD_SETUP_PATH,
+  getUserRestriction,
+  isReturnablePath,
+  restrictedPathFor,
+} from '../utils/user-restriction';
 
 /**
  * ProtectedRouteコンポーネントのプロパティ
@@ -40,6 +46,9 @@ export interface ProtectedRouteProps {
  *
  * ## 要件
  * @requirement user-authentication/REQ-16: セッション有効期限切れ時のリダイレクトURL保存機能
+ * - 要件34.1・34.3・34.5・34.8: 2FA 未登録の利用者は 2FA 設定の画面だけを開ける
+ * - 要件37.7: 初回のパスワード変更を要する利用者は初回のパスワード変更の画面だけを開ける
+ *   （制限中の他の経路は制限の画面へ置き換え、元の遷移先を `state.from` に保存する。要件34.4）
  *
  * @example
  * // 保護されたルート（認証が必要）
@@ -98,6 +107,12 @@ export function ProtectedRoute({
       return children;
     }
 
+    // 初回のパスワード変更の画面は遷移先として保存しない（変更の完了のログアウトでここへ来る。
+    // 再ログインの後は利用者の状態に応じた画面へ進む。user-authentication タスク47.6）
+    if (!isAuthenticated && location.pathname === PASSWORD_SETUP_PATH) {
+      return <Navigate to={redirectTo} state={{ sessionExpired }} replace />;
+    }
+
     if (!isAuthenticated) {
       // 未認証の場合、現在のパスをstateとクエリパラメータの両方に保存してリダイレクト
       // ログイン後にこのパスに戻れるようにする
@@ -118,6 +133,27 @@ export function ProtectedRoute({
           replace
         />
       );
+    }
+
+    // 利用者の状態による遷移の制限（user-authentication タスク47.6）。ロールの確認より前に行う
+    const restriction = getUserRestriction(user);
+    if (restriction) {
+      const allowedPath = restrictedPathFor(restriction);
+      if (location.pathname !== allowedPath) {
+        const currentPath = location.pathname + location.search;
+        return (
+          <Navigate
+            to={allowedPath}
+            state={{
+              from: isReturnablePath(currentPath) ? currentPath : undefined,
+            }}
+            replace
+          />
+        );
+      }
+    } else if (location.pathname === PASSWORD_SETUP_PATH) {
+      // 初回のパスワード変更を要しない利用者は、プロフィール画面のパスワード変更を使う
+      return <Navigate to="/profile" replace />;
     }
 
     // ロールチェック

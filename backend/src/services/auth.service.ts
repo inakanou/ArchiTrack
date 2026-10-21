@@ -847,6 +847,11 @@ export class AuthService implements IAuthService {
         },
       });
 
+      // 無効化された利用者のリフレッシュは拒否する（要件36.1。ローテーションの前に拒否し、後継を作らない）
+      if (user && user.isActive === false) {
+        return Err({ type: 'ACCOUNT_DISABLED' });
+      }
+
       // 3. ローテーション（保存の照合・置き換えの記録・後継の作成、または再利用による系列の失効）
       const rotation = await this.sessionService.rotate(refreshToken);
 

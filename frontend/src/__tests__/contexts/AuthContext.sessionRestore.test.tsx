@@ -36,6 +36,7 @@ vi.mock('../../api/client', async (importOriginal) => {
       clearCredentials: vi.fn(),
       setTokenRefreshCallback: vi.fn(),
       setSessionExpiredCallback: vi.fn(),
+      setUserStateRestrictionCallback: vi.fn(),
     },
   };
 });

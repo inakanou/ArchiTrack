@@ -127,6 +127,24 @@ describe('AuthService の応答の利用者の状態', () => {
     expect(result.ok && result.value.user).toMatchObject({ mustChangePassword: true });
   });
 
+  /**
+   * 無効化された利用者のリフレッシュは拒否する（要件36.1。design.md「利用者の状態の照合」の Deactivated は
+   * ログイン・リフレッシュも拒否する）。ローテーションの前に拒否し、後継のトークンを作らない（タスク47.6）
+   * @requirement user-authentication/REQ-36.1
+   */
+  it('無効化された利用者のリフレッシュは ACCOUNT_DISABLED で拒否し、ローテーションしない', async () => {
+    findUnique.mockResolvedValue({ ...baseUser, isActive: false });
+    vi.mocked(tokenService.verifyToken).mockResolvedValue(
+      Ok({ userId: 'user-1', email: 'user@example.com', roles: ['user'] })
+    );
+
+    const result = await createService().refreshToken('refresh-token');
+
+    expect(!result.ok && result.error).toEqual({ type: 'ACCOUNT_DISABLED' });
+    expect(sessionService.rotate).not.toHaveBeenCalled();
+    expect(tokenService.generateAccessToken).not.toHaveBeenCalled();
+  });
+
   it('getCurrentUser は 2FA の登録と初回の変更の要否を状態の取得から読む', async () => {
     findUnique.mockResolvedValue({
       ...baseUser,

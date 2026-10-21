@@ -28,6 +28,10 @@ import logger from '../utils/logger.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import {
+  getSharedAuthenticatedUserStateService,
+  type AuthenticatedUserStateService,
+} from './authenticated-user-state.service.js';
+import {
   lockUserRefreshTokens,
   revokeAllRefreshTokensForUser,
 } from '../utils/refresh-token-lock.js';
@@ -68,13 +72,35 @@ export class PasswordService {
   private readonly emailService: EmailService;
   private readonly auditLogService: IAuditLogService;
 
+  /**
+   * @param prisma - PrismaClient
+   * @param emailService - メール送信（省略時は既定）
+   * @param auditLogService - 監査ログ（省略時は既定）
+   * @param userStateService - 利用者の状態のキャッシュの無効化（省略時は共有のインスタンスを使う時点で解決する）
+   */
   constructor(
     private readonly prisma: PrismaClient,
     emailService?: EmailService,
-    auditLogService?: IAuditLogService
+    auditLogService?: IAuditLogService,
+    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>
   ) {
     this.emailService = emailService || new EmailService();
     this.auditLogService = auditLogService || new AuditLogService({ prisma });
+  }
+
+  /**
+   * パスワードの更新のコミットの後に、利用者の状態のキャッシュを無効化する（user-authentication タスク47.6）
+   *
+   * パスワードの更新は初回のパスワード変更の要否を解く（状態が変わる）ため、認証ミドルウェアが TTL の間
+   * 古い状態で要求を拒否し続けないようにする。変更はコミット済みなので、無効化の失敗は結果を変えず
+   * 警告ログに留める（残ったエントリは TTL で消える）。
+   */
+  private async invalidateUserStateAfterCommit(userId: string): Promise<void> {
+    try {
+      await (this.userStateService ?? getSharedAuthenticatedUserStateService()).invalidate(userId);
+    } catch (error) {
+      logger.warn({ err: error, userId }, 'Failed to invalidate user state after password update');
+    }
   }
 
   /**
@@ -370,10 +396,11 @@ export class PasswordService {
     // 「取引ロック → users の行」の順に揃え、利用者の削除（deleteUser）とのデッドロックを避ける（タスク45.2）
     await lockUserRefreshTokens(tx, userId);
 
-    // パスワード更新
+    // パスワード更新。新しいパスワードの設定で初回のパスワード変更の要否を解く
+    // （要件37.7。初期管理者の環境変数のパスワードはもう使われない。user-authentication タスク47.6）
     await tx.user.update({
       where: { id: userId },
-      data: { passwordHash },
+      data: { passwordHash, mustChangePassword: false },
     });
 
     // パスワード履歴追加
@@ -479,6 +506,9 @@ export class PasswordService {
         });
       }, connectBudgetTransactionOptions());
 
+      // 初回のパスワード変更の要否が変わったので、コミットの後に状態のキャッシュを無効化する
+      await this.invalidateUserStateAfterCommit(passwordResetToken.userId);
+
       return Ok(undefined);
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
@@ -546,6 +576,9 @@ export class PasswordService {
         // 共通のパスワード更新処理
         await this.updatePasswordInTransaction(tx, userId, passwordHash);
       }, connectBudgetTransactionOptions());
+
+      // 初回のパスワード変更の要否を解いたので、コミットの後に状態のキャッシュを無効化する（要件37.7）
+      await this.invalidateUserStateAfterCommit(userId);
 
       return Ok(undefined);
     } catch (error) {

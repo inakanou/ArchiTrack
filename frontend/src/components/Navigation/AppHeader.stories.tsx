@@ -32,6 +32,8 @@ const createMockAuthContext = (user: User | null): AuthContextValue => ({
   verify2FA: fn().mockResolvedValue(undefined),
   verifyBackupCode: fn().mockResolvedValue(undefined),
   cancel2FA: fn(),
+  establishSession: fn(),
+  updateUser: fn(),
 });
 
 /**
