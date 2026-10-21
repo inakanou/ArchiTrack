@@ -378,6 +378,7 @@ coverage: {
 - `unit/config/` - 設定テスト（環境変数バリデーション、ストレージ設定、セキュリティ定数）
 - `unit/docs/` - OpenAPI 仕様生成のテスト
 - `unit/errors/` - カスタムエラークラスのテスト（機能ごとのエラー型を含む）
+- `unit/jobs/` - 定期処理のテスト（実行基盤、期限切れのトークンの消去、失敗したメールのジョブの掃除）
 - `unit/middleware/` - ミドルウェアのテスト（認証、認可、検証、CSRF、レート制限、ロガー、アップロード）
 - `unit/models/` - Prisma のモデル・マイグレーションのテスト
 - `unit/routes/` - ルートのテスト（supertest で HTTP 経路を通す）
