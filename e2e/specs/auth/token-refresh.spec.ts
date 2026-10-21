@@ -682,6 +682,16 @@ test.describe('トークンリフレッシュパフォーマンス', () => {
     await deleteSessionUsers();
   });
 
+  // テストの中で cleanDatabase() を呼ぶため、後続の spec が共有の役割の利用者を使えるよう作り直す
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    await cleanDatabase();
+    await seedRoles(prisma);
+    await seedPermissions(prisma);
+    await seedRolePermissions(prisma);
+    await createAllTestUsers(prisma);
+  });
+
   test('トークンリフレッシュが300ms以内に完了する', async ({ page }) => {
     await cleanDatabase();
     await createTestUser('REGULAR_USER');
