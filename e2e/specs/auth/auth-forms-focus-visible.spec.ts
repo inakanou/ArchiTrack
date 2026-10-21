@@ -15,8 +15,8 @@
  *   - ユーザー登録の画面（招待が有効・入力のエラーの表示後・招待が無効・招待トークンなし）
  *   - パスワードリセットの要求の画面（初期・メールアドレスのエラーの表示後・送信の成功後）と、
  *     再設定の画面（パスワードの入力済み・不一致のエラーの表示後・リセットリンクが無効）
- *   - 2FA の設定の画面（QR コードの段階の初期（共通ヘッダーを含む）・認証コードの入力済み・
- *     バックアップコードの段階）
+ *   - 2FA の設定の画面（2FA 未登録の利用者の新規の設定の QR コードの段階の初期・認証コードの入力済み・
+ *     バックアップコードの段階と、2FA 登録済みの利用者の認証アプリの変更の段階の初期（共通ヘッダーを含む））
  * 状態はキーボードの操作だけで作る（マウスで押すと、その後の要素の :focus-visible の照合が
  * ブラウザの経験則で変わり、表示の有無を正しく測れないため）。一巡が対象の部品を実際に通ったことも
  * 併せて主張し、「一つも巡らずに違反 0 件」で緑になる形を塞ぐ。
@@ -33,6 +33,7 @@
  */
 
 import { test, expect, type ElementHandle, type Page } from '@playwright/test';
+import { resetDedicatedUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 
@@ -509,18 +510,36 @@ async function openPasswordResetPage(page: Page, tokenValid: boolean): Promise<v
   await page.goto('/password-reset?token=focus-visible-reset');
 }
 
-/** 2FA の設定の開始の応答を与えて、ログイン後に 2FA の設定の画面を開く */
-async function openTwoFactorSetupPage(
-  page: Page,
-  userKey: 'REGULAR_USER' | 'ADMIN_USER' = 'REGULAR_USER'
-): Promise<void> {
+/**
+ * 2FA 未登録の専用の利用者でログインし、2FA の設定の画面（新規の設定の QR コードの段）を開く
+ *
+ * 2FA 登録済みの利用者には認証アプリの変更（再登録）の手順を表示するため（タスク47.9）、
+ * 新規の設定の段は未登録の利用者で開く。未登録の利用者はログインの後に設定の画面へ進む。
+ * 設定の開始の応答は固定の値を与える。
+ */
+async function openTwoFactorSetupPage(page: Page): Promise<void> {
   await fulfillJson(page, '/api/v1/auth/2fa/setup', 200, {
     secret: 'JBSWY3DPEHPK3PXP',
     qrCodeDataUrl: QR_CODE_DATA_URL,
   });
+  const setupUser = await resetDedicatedUser('TWO_FA_NOT_ENROLLED_USER');
+  await loginAsUser(page, setupUser);
+  await expect(page).toHaveURL(/\/profile\/2fa-setup$/, { timeout: getTimeout(15000) });
+  await expect(page.getByLabel('認証コード 1桁目')).toBeVisible({ timeout: getTimeout(15000) });
+}
+
+/**
+ * 2FA 登録済みの共有の利用者でログインし、2FA の設定の画面（認証アプリの変更の最初の段）を開く
+ *
+ * 登録済みの利用者は共通ヘッダーを持つため、ヘッダーを含む一巡はこの画面で確かめる（タスク47.9）。
+ */
+async function openTwoFactorReenrollPage(
+  page: Page,
+  userKey: 'REGULAR_USER' | 'ADMIN_USER' = 'REGULAR_USER'
+): Promise<void> {
   await loginAsUser(page, userKey);
   await page.goto('/profile/2fa-setup');
-  await expect(page.getByLabel('認証コード 1桁目')).toBeVisible({ timeout: getTimeout(15000) });
+  await expect(page.getByLabel('現在の認証コード')).toBeVisible({ timeout: getTimeout(15000) });
 }
 
 /** 2FA の設定の画面で、6 桁の認証コードをキーボードで打つ（入力欄は 1 桁ごとに次へ進む） */
@@ -811,10 +830,10 @@ test.describe('認証の画面のフォーカス表示', () => {
     expectClearFocusWalk(visits, ['a "ログインページに戻る"']);
   });
 
-  test('2FAの設定の画面（QRコードの段階の初期、ヘッダーを含む）の全フォーカス要素がTab移動時に明確なフォーカス表示を持つ', async ({
+  test('2FAの設定の画面（認証アプリの変更の段階の初期、ヘッダーを含む）の全フォーカス要素がTab移動時に明確なフォーカス表示を持つ', async ({
     page,
   }) => {
-    await openTwoFactorSetupPage(page);
+    await openTwoFactorReenrollPage(page);
 
     const visits = await walkFocusWithin(page, DOCUMENT_SCOPE, PROTECTED_WALK_MAX_STEPS);
 
@@ -826,7 +845,7 @@ test.describe('認証の画面のフォーカス表示', () => {
       'a "自社情報"',
       // 共通ヘッダーのユーザーメニューの釦（アバターの頭文字と表示名を名乗る）
       expect.stringMatching(/^button ".+Test User"$/),
-      ...TOTP_DIGIT_DESCRIPTORS,
+      'input "現在の認証コード"',
       'button "キャンセル"',
     ]);
   });
@@ -834,7 +853,7 @@ test.describe('認証の画面のフォーカス表示', () => {
   test('2FAの設定の画面（管理者の共通ヘッダー）の全フォーカス要素がTab移動時に明確なフォーカス表示を持つ', async ({
     page,
   }) => {
-    await openTwoFactorSetupPage(page, 'ADMIN_USER');
+    await openTwoFactorReenrollPage(page, 'ADMIN_USER');
 
     const visits = await walkFocusWithin(page, DOCUMENT_SCOPE, PROTECTED_WALK_MAX_STEPS);
 
@@ -844,7 +863,7 @@ test.describe('認証の画面のフォーカス表示', () => {
       'button "管理メニュー"',
       // 共通ヘッダーのユーザーメニューの釦（アバターの頭文字と表示名を名乗る）
       expect.stringMatching(/^button ".+"$/),
-      ...TOTP_DIGIT_DESCRIPTORS,
+      'input "現在の認証コード"',
       'button "キャンセル"',
     ]);
   });

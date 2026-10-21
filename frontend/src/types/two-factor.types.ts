@@ -125,3 +125,34 @@ export type DisableTwoFactorResult = { success: true } | { success: false; error
 export type RegenerateBackupCodesResultType =
   | { success: true; data: RegenerateBackupCodesResult }
   | { success: false; error: string };
+
+/**
+ * 2FA 再登録（認証アプリの変更）の開始の応答（要件34.11）
+ *
+ * 新しい秘密鍵は再登録の確認まで採用されず、それまでは現在の認証アプリのコードが有効である。
+ */
+export interface TwoFactorReenrollStartData {
+  qrCodeDataUrl: string; // 新しい秘密鍵の QR コード画像の Data URL
+  secretForManualEntry: string; // 新しい秘密鍵（Base32、手入力用）
+}
+
+/**
+ * 2FA 再登録の開始の結果
+ */
+export type TwoFactorReenrollStartResult =
+  | { success: true; data: TwoFactorReenrollStartData }
+  | { success: false; error: string };
+
+/**
+ * 2FA 再登録の確認の結果
+ *
+ * restart が真のときは、再登録が開始されていない（または期限を過ぎた）ため、現在のコードの入力からやり直す。
+ */
+export type TwoFactorReenrollConfirmResult =
+  | { success: true; data: TwoFactorEnabledData }
+  | { success: false; error: string; restart?: boolean };
+
+/**
+ * 2FA 再登録の手順（現在のコード → 新しい QR → 新しいコード → 新しいバックアップコード）
+ */
+export type TwoFactorReenrollStep = 'current-code' | 'new-qr' | 'new-code' | 'backup-codes';

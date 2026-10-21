@@ -48,6 +48,15 @@ vi.mock('../../components/TwoFactorSetupForm', () => ({
   },
 }));
 
+// 2FA 登録済みの利用者には認証アプリの変更の手順を表示する（タスク47.9）。ここでは完了の呼び出しだけを再現する
+vi.mock('../../components/TwoFactorReenrollForm', () => ({
+  default: ({ onComplete }: { onComplete: () => void }) => (
+    <div>
+      <button onClick={() => onComplete()}>完了</button>
+    </div>
+  ),
+}));
+
 const notEnrolledUser: User = {
   id: 'user-1',
   email: 'user@example.com',
