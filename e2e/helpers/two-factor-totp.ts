@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import type { Page } from '@playwright/test';
 import { authenticator } from 'otplib';
 import { getPrismaClient } from '../fixtures/database';
+import { invalidateUserStateCache } from './user-state-cache';
 
 /**
  * E2E の 2FA 登録済みの利用者の既知の TOTP の秘密鍵（Base32）
@@ -97,13 +98,17 @@ export async function prepareTotpCode(
   email: string,
   secret: string = E2E_TOTP_SECRET
 ): Promise<string> {
-  const updated = await getPrismaClient().user.updateMany({
+  const prisma = getPrismaClient();
+  const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  const updated = await prisma.user.updateMany({
     where: { email },
     data: { twoFactorLastUsedStep: null },
   });
-  if (updated.count !== 1) {
+  if (!user || updated.count !== 1) {
     throw new Error(`2FA の利用者 ${email} が見つかりません（最後に使った時間ステップを戻せない）`);
   }
+  // DB を直接書いたので、利用者の状態のキャッシュを無効化する（user-authentication タスク47.5）
+  await invalidateUserStateCache([user.id]);
   return generateTotpCode(secret);
 }
 

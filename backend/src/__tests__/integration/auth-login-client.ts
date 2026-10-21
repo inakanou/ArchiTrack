@@ -10,6 +10,8 @@
  * そこで検証の前に、最後に使った時間ステップ（`twoFactorLastUsedStep`）を戻す（null にする）。
  *
  * ログインそのもの（応答の形・拒否）を検証するテストは、この補助を使わず API を直接呼ぶ。
+ *
+ * 補助は DB を直接書くので、書いた後に利用者の状態のキャッシュを本番の無効化の部品で消す（タスク47.5）。
  */
 
 import type { Express } from 'express';
@@ -17,6 +19,7 @@ import request from 'supertest';
 import { authenticator } from 'otplib';
 import getPrismaClient from '../../db.js';
 import { TwoFactorService } from '../../services/two-factor.service.js';
+import { invalidateUserStateCache } from './test-user-factory.js';
 
 export interface LoginCredentials {
   email: string;
@@ -54,8 +57,9 @@ export async function loginForTokens(
   const user = await prisma.user.update({
     where: { email: credentials.email },
     data: { twoFactorLastUsedStep: null },
-    select: { twoFactorSecret: true },
+    select: { id: true, twoFactorSecret: true },
   });
+  await invalidateUserStateCache(user.id);
   if (!user.twoFactorSecret) {
     throw new Error(`2FA の秘密鍵が無い利用者に 2FA の検証が求められた: ${credentials.email}`);
   }

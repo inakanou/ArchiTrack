@@ -21,10 +21,13 @@ import { TwoFactorService } from './two-factor.service.js';
 import { SessionService } from './session.service.js';
 import { AuditLogService } from './audit-log.service.js';
 import { TwoFactorChallengeService } from './two-factor-challenge.service.js';
+import { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
+import redisConnection from '../redis.js';
 import type {
   IAuthService,
   RegisterData,
   AuthResponse,
+  AuthUserView,
   LoginResponse,
   UserProfile,
   AuthError,
@@ -60,6 +63,7 @@ export class AuthService implements IAuthService {
   private readonly twoFactorService: TwoFactorService;
   private readonly sessionService: SessionService;
   private readonly twoFactorChallengeService: TwoFactorChallengeService;
+  private readonly userStateService: AuthenticatedUserStateService;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -68,7 +72,8 @@ export class AuthService implements IAuthService {
     tokenService?: TokenService,
     twoFactorService?: TwoFactorService,
     sessionService?: SessionService,
-    twoFactorChallengeService?: TwoFactorChallengeService
+    twoFactorChallengeService?: TwoFactorChallengeService,
+    userStateService?: AuthenticatedUserStateService
   ) {
     this.invitationService = invitationService || new InvitationService(prisma);
     this.passwordService = passwordService || new PasswordService(prisma);
@@ -76,6 +81,9 @@ export class AuthService implements IAuthService {
     this.twoFactorService = twoFactorService || new TwoFactorService();
     this.sessionService = sessionService || new SessionService(prisma);
     this.twoFactorChallengeService = twoFactorChallengeService || new TwoFactorChallengeService();
+    this.userStateService =
+      userStateService ||
+      new AuthenticatedUserStateService(prisma, () => redisConnection.getClient());
   }
 
   /**
@@ -213,6 +221,7 @@ export class AuthService implements IAuthService {
         roles: user.userRoles.map((ur) => ur.role.name),
         createdAt: user.createdAt,
         twoFactorEnabled: user.twoFactorEnabled,
+        mustChangePassword: user.mustChangePassword,
       };
 
       return Ok({
@@ -259,6 +268,7 @@ export class AuthService implements IAuthService {
           isLocked: true,
           lockedUntil: true,
           twoFactorEnabled: true,
+          mustChangePassword: true,
           createdAt: true,
           userRoles: {
             select: {
@@ -377,6 +387,7 @@ export class AuthService implements IAuthService {
         roles: user.userRoles.map((ur) => ur.role.name),
         createdAt: user.createdAt,
         twoFactorEnabled: user.twoFactorEnabled,
+        mustChangePassword: user.mustChangePassword,
       };
 
       return Ok({
@@ -452,6 +463,7 @@ export class AuthService implements IAuthService {
           displayName: true,
           createdAt: true,
           twoFactorEnabled: true,
+          mustChangePassword: true,
           twoFactorFailures: true,
           twoFactorLockedUntil: true,
           userRoles: {
@@ -582,6 +594,7 @@ export class AuthService implements IAuthService {
         roles: user.userRoles.map((ur) => ur.role.name),
         createdAt: user.createdAt,
         twoFactorEnabled: user.twoFactorEnabled,
+        mustChangePassword: user.mustChangePassword,
       };
 
       return Ok({
@@ -654,7 +667,6 @@ export class AuthService implements IAuthService {
           displayName: true,
           createdAt: true,
           updatedAt: true,
-          twoFactorEnabled: true,
           userRoles: {
             select: {
               role: {
@@ -682,6 +694,12 @@ export class AuthService implements IAuthService {
         return Err({ type: 'USER_NOT_FOUND' });
       }
 
+      // 利用者の状態はキャッシュを経由して読む（認証ミドルウェアの照合と同じ値を返す。タスク47.5）
+      const state = await this.userStateService.getState(userId);
+      if (!state) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+
       // Extract unique permissions from all roles (resource:action format)
       const permissionSet = new Set<string>();
       for (const ur of user.userRoles) {
@@ -699,10 +717,53 @@ export class AuthService implements IAuthService {
         permissions: Array.from(permissionSet),
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
-        twoFactorEnabled: user.twoFactorEnabled,
+        twoFactorEnabled: state.twoFactorEnabled,
+        mustChangePassword: state.mustChangePassword,
       };
 
       return Ok(userProfile);
+    } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      return Err({
+        type: 'DATABASE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * 画面へ返す利用者と状態を取得する（2FA の有効化・パスワード変更の応答に載せる。タスク47.5）
+   *
+   * 状態は AuthenticatedUserStateService を経由して読む。状態を変えた処理は、これを呼ぶ前に
+   * キャッシュを無効化する。
+   */
+  async getAuthUserView(userId: string): Promise<Result<AuthUserView, AuthError>> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          userRoles: { select: { role: { select: { name: true } } } },
+        },
+      });
+      if (!user) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+      const state = await this.userStateService.getState(userId);
+      if (!state) {
+        return Err({ type: 'USER_NOT_FOUND' });
+      }
+      return Ok({
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        roles: user.userRoles.map((ur) => ur.role.name),
+        twoFactorEnabled: state.twoFactorEnabled,
+        mustChangePassword: state.mustChangePassword,
+      });
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
@@ -823,6 +884,7 @@ export class AuthService implements IAuthService {
         roles,
         createdAt: user.createdAt,
         twoFactorEnabled: user.twoFactorEnabled,
+        mustChangePassword: user.mustChangePassword,
       };
 
       return Ok({

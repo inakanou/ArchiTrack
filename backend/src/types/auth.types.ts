@@ -69,7 +69,19 @@ export interface UserProfile {
   /** 更新日時。プロフィールの更新で楽観的ロックの版（expectedUpdatedAt）として送り返す */
   updatedAt?: Date;
   twoFactorEnabled: boolean;
+  /** 初回のパスワード変更を要するか（要件34・37.7。画面が利用者の状態を知るために返す） */
+  mustChangePassword: boolean;
 }
+
+/**
+ * 画面へ返す利用者と状態（design.md「利用者の状態の照合」の AuthUserView）
+ *
+ * ログイン・リフレッシュ・2FA の検証と有効化・パスワード変更の応答に載せる（タスク47.5）
+ */
+export type AuthUserView = Pick<
+  UserProfile,
+  'id' | 'email' | 'displayName' | 'roles' | 'twoFactorEnabled' | 'mustChangePassword'
+>;
 
 /**
  * 認証関連のエラー型
@@ -173,6 +185,14 @@ export interface IAuthService {
    * @returns ユーザープロフィールまたはエラー
    */
   getCurrentUser(userId: string): Promise<Result<UserProfile, AuthError>>;
+
+  /**
+   * 画面へ返す利用者と状態を取得する（状態は AuthenticatedUserStateService を経由する）
+   *
+   * @param userId ユーザーID
+   * @returns 利用者と状態、またはエラー（利用者の不在は USER_NOT_FOUND）
+   */
+  getAuthUserView(userId: string): Promise<Result<AuthUserView, AuthError>>;
 
   /**
    * 楽観的ロック付きのプロフィール更新

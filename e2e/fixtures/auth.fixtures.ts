@@ -7,6 +7,9 @@
  * 利用者の作成は全て共通の補助 `createCustomUser` を通し、既定で 2FA 登録済み・有効・初回の変更を
  * 要しない状態で作る（user-authentication タスク47.4）。状態を変える検証は専用の利用者
  * （DEDICATED_USERS）を `resetDedicatedUser` で初期化して使う。
+ *
+ * 利用者を DB へ直接書く補助は、書いた後に backend の利用者の状態のキャッシュを無効化する
+ * （`invalidateUserStateCache`、タスク47.5）。
  */
 
 import { createHash, randomBytes, randomUUID } from 'crypto';
@@ -21,6 +24,7 @@ import {
   type TestUser,
 } from '../helpers/test-users';
 import { E2E_TOTP_SECRET, encryptTotpSecret } from '../helpers/two-factor-totp';
+import { invalidateUserStateCache } from '../helpers/user-state-cache';
 
 /** Type alias for PrismaClient instance */
 type PrismaClientInstance = InstanceType<typeof PrismaClient>;
@@ -140,6 +144,7 @@ export async function createCustomUser(
   for (const roleId of roleIds) {
     await client.userRole.create({ data: { userId: user.id, roleId } });
   }
+  await invalidateUserStateCache([user.id]);
 
   return {
     id: user.id,
@@ -321,6 +326,8 @@ export async function resetDedicatedUser(
     await tx.userRole.createMany({ data: roleIds.map((roleId) => ({ userId: row.id, roleId })) });
     return row;
   });
+  // コミットの後に状態のキャッシュを無効化する（初期化の直後の状態の取得が戻した値を返す。タスク47.5）
+  await invalidateUserStateCache([user.id]);
 
   return {
     id: user.id,
@@ -394,9 +401,10 @@ export async function createSessionUser(
  */
 export async function deleteSessionUsers(prisma?: PrismaClientInstance): Promise<void> {
   const client = prisma || getPrismaClient();
-  await client.user.deleteMany({
-    where: { email: { startsWith: SESSION_USER_EMAIL_PREFIX } },
-  });
+  const where = { email: { startsWith: SESSION_USER_EMAIL_PREFIX } };
+  const users = await client.user.findMany({ where, select: { id: true } });
+  await client.user.deleteMany({ where });
+  await invalidateUserStateCache(users.map((u) => u.id));
 }
 
 /**

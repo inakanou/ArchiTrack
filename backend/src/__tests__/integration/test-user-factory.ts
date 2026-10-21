@@ -11,6 +11,9 @@
  *   全てのコードを使い切った利用者はコードを持たない。バックアップコードを検証するテストは自分で作る
  * - 状態の項目（`twoFactorEnabled`・`twoFactorSecret`・`isActive`・`mustChangePassword`）はデータに
  *   書かせず、必ず状態の引数で与える（既定を黙って上書きさせないため）
+ * - DB を直接書いたので、作成の後に利用者の状態のキャッシュを本番の無効化の部品
+ *   （AuthenticatedUserStateService.invalidate）で消す（タスク47.5）。Redis を初期化していない
+ *   テストでは何もしない
  */
 
 import { authenticator } from 'otplib';
@@ -52,6 +55,17 @@ async function encryptSecret(plainSecret: string): Promise<string> {
   return new TwoFactorService().encryptSecret(plainSecret);
 }
 
+/**
+ * 利用者の状態のキャッシュを、本番の無効化の部品で消す（タスク47.5）
+ *
+ * サービスは暗号化と同じ理由で使う時に読み込む。
+ */
+export async function invalidateUserStateCache(userId: string): Promise<void> {
+  const { getSharedAuthenticatedUserStateService } =
+    await import('../../services/authenticated-user-state.service.js');
+  await getSharedAuthenticatedUserStateService().invalidate(userId);
+}
+
 async function stateFields(
   state: TestUserState
 ): Promise<
@@ -88,7 +102,9 @@ export async function createTestUser(
   data: TestUserData,
   state: TestUserState = {}
 ): Promise<User> {
-  return client.user.create({ data: { ...data, ...(await stateFields(state)) } });
+  const user = await client.user.create({ data: { ...data, ...(await stateFields(state)) } });
+  await invalidateUserStateCache(user.id);
+  return user;
 }
 
 /**

@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { AuthService } from '../services/auth.service.js';
 import { TwoFactorService } from '../services/two-factor.service.js';
 import { PasswordService } from '../services/password.service.js';
+import { getSharedAuthenticatedUserStateService } from '../services/authenticated-user-state.service.js';
 // import { SessionService } from '../services/session.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -32,7 +33,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '../errors/apiError.js';
-import type { AuthError } from '../types/auth.types.js';
+import type { AuthError, AuthUserView } from '../types/auth.types.js';
 
 /**
  * リフレッシュトークンの Cookie の Path（リフレッシュとログアウトの経路にだけ送られるよう認証の経路に限る）
@@ -161,6 +162,20 @@ function withoutRefreshToken<T extends { refreshToken?: string }>(
 ): Omit<T, 'refreshToken'> {
   const { refreshToken: _refreshToken, ...body } = authResponse;
   return body;
+}
+
+/**
+ * 応答に載せる利用者と状態（AuthUserView）を読む（タスク47.5）
+ *
+ * 操作そのものは成功しているため、読めないときは応答を失敗にせず、`user` を省いて警告を残す。
+ */
+async function readAuthUserView(userId: string): Promise<{ user?: AuthUserView }> {
+  const view = await authService.getAuthUserView(userId);
+  if (!view.ok) {
+    logger.warn({ userId, errorType: view.error.type }, 'Failed to read user state for response');
+    return {};
+  }
+  return { user: view.value };
 }
 
 /**
@@ -1277,9 +1292,12 @@ router.post(
 
       const enabledData = result.value;
 
+      // 2FA の登録で利用者の状態が変わったので、コミットの後に状態のキャッシュを無効化する（タスク47.5）
+      await getSharedAuthenticatedUserStateService().invalidate(req.user.userId);
+
       logger.info({ userId: req.user.userId }, '2FA enabled successfully');
 
-      res.status(200).json(enabledData);
+      res.status(200).json({ ...enabledData, ...(await readAuthUserView(req.user.userId)) });
     } catch (error) {
       next(error);
     }
@@ -1793,7 +1811,10 @@ router.post(
 
       logger.info({ userId: req.user.userId }, 'Password changed successfully');
 
-      res.status(200).json({ message: 'Password changed successfully' });
+      res.status(200).json({
+        message: 'Password changed successfully',
+        ...(await readAuthUserView(req.user.userId)),
+      });
     } catch (error) {
       next(error);
     }

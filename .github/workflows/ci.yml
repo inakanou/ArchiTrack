@@ -975,6 +975,9 @@ jobs:
           DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
           # 2FA の試験用の利用者の TOTP の秘密鍵を backend と同じ鍵で暗号化して seed する（user-authentication 46.2）
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
+          # 試験の補助が DB を直接書いた後に、backend と同じ論理 DB の利用者の状態のキャッシュを無効化する
+          # （backend の REDIS_URL は redis://redis:6379。user-authentication 47.5）
+          REDIS_URL: redis://localhost:6379
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
