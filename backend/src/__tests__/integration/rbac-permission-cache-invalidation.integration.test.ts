@@ -16,7 +16,9 @@
  *   コマンドをオフラインキューに積んで待つ）とき、無効化は変更の API の応答を待たせず、
  *   `err` 付きの警告ログを残す。障害の前のエントリは TTL の範囲で残る（design.md の「無効化の限界」）
  * - (iii) システム管理者ロールの割り当て・解除のアラートの送信が投げても、コミット済みの変更は成功として
- *   返り、無効化はアラートの前に行われ、次の確認は新しい権限で判定される。アラートは NODE_ENV=test で
+ *   返り、無効化はアラートの前に行われ、次の確認は新しい権限で判定される。アラートは全システム管理者への
+ *   通知の手段（AdminNotificationService）を通り、無効化されたシステム管理者へは送られない
+ *   （user-authentication タスク49.1）。アラートは NODE_ENV=test で
  *   抑制されるため、この検証の間だけ NODE_ENV を development にして本物の経路へ到達させる
  *   （HTTP を通すと CSRF の検査が NODE_ENV で変わるため、サービスを直接呼ぶ）
  */
@@ -39,6 +41,7 @@ import { getSharedRBACService } from '../../services/rbac.service.js';
 import { UserRoleService } from '../../services/user-role.service.js';
 import { AuditLogService } from '../../services/audit-log.service.js';
 import type { EmailService } from '../../services/email.service.js';
+import { AdminNotificationService } from '../../services/admin-notification.service.js';
 import logger from '../../utils/logger.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { createTestUser } from './test-user-factory.js';
@@ -424,17 +427,20 @@ describe('権限キャッシュの無効化の確かさ（統合・実 Redis・�
     function throwingEmailService(): {
       service: EmailService;
       cacheAtAlert: (string | null)[];
+      recipients: string[];
       failure: Error;
     } {
       const cacheAtAlert: (string | null)[] = [];
+      const recipients: string[] = [];
       const failure = new Error('alert delivery failed');
       const service = {
-        sendAdminRoleChangedAlert: vi.fn(async () => {
+        sendAdminNotificationEmail: vi.fn(async (to: string) => {
+          recipients.push(to);
           cacheAtAlert.push(await redisClient.get(cacheKey(readerUserId)));
           throw failure;
         }),
       } as unknown as EmailService;
-      return { service, cacheAtAlert, failure };
+      return { service, cacheAtAlert, recipients, failure };
     }
 
     function userRoleServiceWith(emailService: EmailService): UserRoleService {
@@ -442,8 +448,15 @@ describe('権限キャッシュの無効化の確かさ（統合・実 Redis・�
         prisma,
         getSharedRBACService(),
         new AuditLogService({ prisma }),
-        emailService
+        new AdminNotificationService(prisma, emailService)
       );
+    }
+
+    /** 通知の手段が残す、メールの投入の失敗の警告 */
+    function queueFailureWarnings(): unknown[][] {
+      return vi
+        .mocked(logger.warn)
+        .mock.calls.filter(([, message]) => message === 'Failed to queue admin notification email');
     }
 
     /**
@@ -454,7 +467,11 @@ describe('権限キャッシュの無効化の確かさ（統合・実 Redis・�
       expect((await getUsersAsReader()).status).toBe(403);
       expect(await redisClient.get(cacheKey(readerUserId))).not.toBeNull();
 
-      const { service: emailService, cacheAtAlert, failure } = throwingEmailService();
+      // 無効化されたシステム管理者（通知の宛先にならない）
+      const disabledAdmin = await createUser('disabled-admin', systemAdminRoleId);
+      await prisma.user.update({ where: { id: disabledAdmin.id }, data: { isActive: false } });
+
+      const { service: emailService, cacheAtAlert, recipients, failure } = throwingEmailService();
       // アラートは NODE_ENV=test で抑制されるため、この呼び出しの間だけ本物の経路へ到達させる
       process.env.NODE_ENV = 'development';
       const result = await userRoleServiceWith(emailService).addRoleToUser(
@@ -473,16 +490,19 @@ describe('権限キャッシュの無効化の確かさ（統合・実 Redis・�
         })
       ).not.toBeNull();
       // アラートの経路へ到達し、その時点でキャッシュは無効化済み（無効化が先）
-      expect(emailService.sendAdminRoleChangedAlert).toHaveBeenCalledTimes(1);
-      expect(cacheAtAlert).toEqual([null]);
+      expect(emailService.sendAdminNotificationEmail).toHaveBeenCalled();
+      expect(cacheAtAlert.length).toBeGreaterThan(0);
+      expect(cacheAtAlert.every((cached) => cached === null)).toBe(true);
       expect(await redisClient.get(cacheKey(readerUserId))).toBeNull();
+      // 宛先は有効なシステム管理者（割り当てを受けた読み手を含む）で、無効化された管理者を含まない
+      const reader = await prisma.user.findUniqueOrThrow({ where: { id: readerUserId } });
+      expect(recipients).toContain(reader.email);
+      expect(recipients).not.toContain(disabledAdmin.email);
 
-      // 失敗は err 付きの警告ログに留める
-      const warnCalls = vi
-        .mocked(logger.warn)
-        .mock.calls.filter(([, message]) => message === 'Failed to send admin role change alert');
+      // 失敗は通知の手段が err 付きの警告ログに留める
+      const warnCalls = queueFailureWarnings();
       expect(warnCalls).toHaveLength(1);
-      expect(warnCalls[0]![0]).toMatchObject({ err: failure, userId: readerUserId });
+      expect(warnCalls[0]![0]).toMatchObject({ err: failure, kind: 'ADMIN_ROLE_CHANGED' });
 
       // 次の確認は新しい権限（*:*）で判定される
       expect((await getUsersAsReader()).status).toBe(200);
@@ -516,15 +536,14 @@ describe('権限キャッシュの無効化の確かさ（統合・実 Redis・�
           where: { userId: readerUserId, roleId: systemAdminRoleId },
         })
       ).toBeNull();
-      expect(emailService.sendAdminRoleChangedAlert).toHaveBeenCalledTimes(1);
-      expect(cacheAtAlert).toEqual([null]);
+      expect(emailService.sendAdminNotificationEmail).toHaveBeenCalled();
+      expect(cacheAtAlert.length).toBeGreaterThan(0);
+      expect(cacheAtAlert.every((cached) => cached === null)).toBe(true);
       expect(await redisClient.get(cacheKey(readerUserId))).toBeNull();
 
-      const warnCalls = vi
-        .mocked(logger.warn)
-        .mock.calls.filter(([, message]) => message === 'Failed to send admin role change alert');
+      const warnCalls = queueFailureWarnings();
       expect(warnCalls).toHaveLength(1);
-      expect(warnCalls[0]![0]).toMatchObject({ err: failure, userId: readerUserId });
+      expect(warnCalls[0]![0]).toMatchObject({ err: failure, kind: 'ADMIN_ROLE_CHANGED' });
 
       // 次の確認は新しい権限（role:read のみ）で判定される
       expect((await getUsersAsReader()).status).toBe(403);

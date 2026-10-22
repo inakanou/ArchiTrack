@@ -8,13 +8,13 @@
  * - 24.3: メール送信失敗時に最大5回リトライ（1分、5分、15分、1時間、6時間）
  *
  * 責任と境界:
- * - 主要責任: メール送信（招待、パスワードリセット、2FA設定完了通知）
+ * - 主要責任: メール送信（招待、パスワードリセット、2FA設定完了通知、システム管理者への通知）
  * - ドメイン境界: メールドメイン
  * - データ所有権: なし
  * - トランザクション境界: なし
  *
  * 依存関係:
- * - インバウンド: InvitationService, PasswordService, TwoFactorService
+ * - インバウンド: InvitationService, PasswordService, TwoFactorService, AdminNotificationService
  * - アウトバウンド: なし
  * - 外部: nodemailer, bull, handlebars, Sentry
  */
@@ -198,7 +198,16 @@ interface TwoFactorEnabledEmailData {
 }
 
 /**
- * メールジョブデータ（システム管理者ロール変更アラート）
+ * メールジョブデータ（システム管理者への通知。宛先ごとに 1 ジョブ）
+ */
+interface AdminNotificationEmailData {
+  to: string;
+  subject: string;
+  lines: string[];
+}
+
+/**
+ * メールジョブデータ（システム管理者ロール変更アラート。切り替え前に投入済みのジョブの処理だけに使う）
  */
 interface AdminRoleChangedAlertData {
   adminEmails: string[];
@@ -357,7 +366,16 @@ export class EmailService {
       await this.process2FAEnabledEmail(job.data);
     });
 
-    // システム管理者ロール変更アラート処理
+    // システム管理者への通知の処理
+    this.emailQueue.process(
+      'admin-notification-email',
+      async (job: Job<AdminNotificationEmailData>) => {
+        await this.processAdminNotificationEmail(job.data);
+      }
+    );
+
+    // システム管理者ロール変更アラート処理。投入は全システム管理者への通知（admin-notification-email）へ
+    // 置き換えた（タスク49.1）。切り替え前にキューへ積まれ再送を待つジョブを処理するために残す
     this.emailQueue.process(
       'admin-role-changed-alert',
       async (job: Job<AdminRoleChangedAlertData>) => {
@@ -418,28 +436,20 @@ export class EmailService {
   }
 
   /**
-   * システム管理者ロール変更アラートメールを送信（非同期キュー）
+   * システム管理者への通知メールを送信（非同期キュー。要件36.4、36.9）
    *
-   * @param adminEmails - 送信先管理者メールアドレスリスト
-   * @param targetUser - 対象ユーザー情報
-   * @param action - アクション種別（assigned | revoked）
-   * @param roleName - ロール名
-   * @param performedBy - 実行者情報
+   * @param to - 送信先（システム管理者 1 名）
+   * @param subject - 件名
+   * @param lines - 本文の各行（トークン・パスワードを含めない）
    */
-  async sendAdminRoleChangedAlert(
-    adminEmails: string[],
-    targetUser: { email: string; displayName: string },
-    action: 'assigned' | 'revoked',
-    roleName: string,
-    performedBy: { email: string; displayName: string }
-  ): Promise<void> {
+  async sendAdminNotificationEmail(to: string, subject: string, lines: string[]): Promise<void> {
     await this.emailQueue.add(
-      'admin-role-changed-alert',
-      { adminEmails, targetUser, action, roleName, performedBy },
+      'admin-notification-email',
+      { to, subject, lines } satisfies AdminNotificationEmailData,
       this.retryJobOptions()
     );
 
-    logger.info({ adminEmails, targetUser, action }, 'Admin role changed alert queued');
+    logger.info({ to }, 'Admin notification email queued');
   }
 
   /**
@@ -527,6 +537,28 @@ export class EmailService {
     });
 
     logger.info({ to }, '2FA enabled email sent successfully');
+  }
+
+  /**
+   * システム管理者への通知メール処理（実際の送信）
+   */
+  private async processAdminNotificationEmail(data: AdminNotificationEmailData): Promise<void> {
+    const { to, subject, lines } = data;
+
+    const templatePath = join(__dirname, '../templates/admin-notification-email.hbs');
+    const templateSource = readFileSync(templatePath, 'utf-8');
+    const template = Handlebars.compile(templateSource);
+
+    const html = template({ subject, lines, frontendUrl: this.frontendUrl });
+
+    await this.transporter.sendMail({
+      from: process.env.SMTP_FROM || 'noreply@architrack.com',
+      to,
+      subject,
+      html,
+    });
+
+    logger.info({ to }, 'Admin notification email sent successfully');
   }
 
   /**

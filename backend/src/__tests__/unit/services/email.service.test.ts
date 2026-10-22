@@ -168,72 +168,23 @@ describe('EmailService', () => {
     });
   });
 
-  describe('sendAdminRoleChangedAlert', () => {
+  describe('sendAdminNotificationEmail', () => {
     /**
      * @requirement user-authentication/REQ-24.3: メール送信をキューに保存し、初回に続けて最大5回まで再送する戦略で投入する
      */
-    it('システム管理者ロール変更アラートメールをキューに追加する', async () => {
-      const adminEmails = ['admin1@example.com', 'admin2@example.com'];
-      const targetUser = {
-        email: 'user@example.com',
-        displayName: 'Test User',
-      };
-      const action = 'assigned' as const;
-      const roleName = 'System Administrator';
-      const performedBy = {
-        email: 'superadmin@example.com',
-        displayName: 'Super Admin',
-      };
+    it('システム管理者への通知メールを宛先ごとのジョブとしてキューに追加する', async () => {
+      const lines = ['対象: 対象 太郎 (target@example.com)', '理由: 退職'];
 
-      await emailService.sendAdminRoleChangedAlert(
-        adminEmails,
-        targetUser,
-        action,
-        roleName,
-        performedBy
-      );
+      await emailService.sendAdminNotificationEmail('admin1@example.com', '件名', lines);
 
       expect(mockQueue.add).toHaveBeenCalledWith(
-        'admin-role-changed-alert',
-        {
-          adminEmails,
-          targetUser,
-          action,
-          roleName,
-          performedBy,
-        },
+        'admin-notification-email',
+        { to: 'admin1@example.com', subject: '件名', lines },
         expect.objectContaining({
           attempts: 6,
           backoff: { type: 'email-retry-schedule' },
         })
       );
-    });
-
-    it('複数の管理者にアラートメールを送信する', async () => {
-      const adminEmails = ['admin1@example.com', 'admin2@example.com', 'admin3@example.com'];
-      const targetUser = {
-        email: 'user@example.com',
-        displayName: 'Test User',
-      };
-      const action = 'revoked' as const;
-      const roleName = 'System Administrator';
-      const performedBy = {
-        email: 'superadmin@example.com',
-        displayName: 'Super Admin',
-      };
-
-      await emailService.sendAdminRoleChangedAlert(
-        adminEmails,
-        targetUser,
-        action,
-        roleName,
-        performedBy
-      );
-
-      expect(mockQueue.add).toHaveBeenCalled();
-      const callArgs = (mockQueue.add as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(callArgs).toBeDefined();
-      expect(callArgs![1].adminEmails).toHaveLength(3);
     });
   });
 
@@ -852,6 +803,50 @@ describe('EmailService', () => {
         expect(mockTemplate).toHaveBeenCalledWith(
           expect.objectContaining({
             frontendUrl: expect.any(String),
+          })
+        );
+      });
+    });
+
+    describe('processAdminNotificationEmail', () => {
+      it('システム管理者への通知メールを件名と本文の行で送信する', async () => {
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+
+        const mockTemplate = vi.fn().mockReturnValue('<html>Admin Notification</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>{{subject}}</html>');
+
+        let notificationCallback:
+          | ((job: { data: { to: string; subject: string; lines: string[] } }) => Promise<void>)
+          | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'admin-notification-email') {
+            notificationCallback = callback;
+          }
+        });
+
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+        const lines = ['対象: 対象 太郎 (target@example.com)'];
+
+        expect(notificationCallback).toBeDefined();
+        await notificationCallback!({
+          data: { to: 'admin1@example.com', subject: '利用者が無効化されました', lines },
+        });
+
+        expect(readFileSync).toHaveBeenCalledWith(
+          expect.stringContaining('admin-notification-email.hbs'),
+          'utf-8'
+        );
+        expect(mockTemplate).toHaveBeenCalledWith(
+          expect.objectContaining({ subject: '利用者が無効化されました', lines })
+        );
+        expect(mockTransporter.sendMail).toHaveBeenCalledTimes(1);
+        expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            to: 'admin1@example.com',
+            subject: '利用者が無効化されました',
+            html: '<html>Admin Notification</html>',
           })
         );
       });

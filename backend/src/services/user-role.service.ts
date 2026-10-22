@@ -4,6 +4,7 @@
  * Requirements:
  * - 20.1-20.9: ユーザーへのロール割り当て（マルチロール対応）
  * - 22.9: センシティブな操作（システム管理者ロールの変更）実行時のアラート通知
+ *   （全システム管理者への通知の手段で送る。user-authentication タスク49.1）
  *
  * Design Patterns:
  * - Transaction Management: 一括操作でのデータ整合性保証
@@ -14,14 +15,13 @@ import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IUserRoleService, UserRoleInfo, UserRoleError } from '../types/user-role.types.js';
 import type { IRBACService } from '../types/rbac.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
-import type { EmailService } from './email.service.js';
+import type { IAdminNotificationService } from './admin-notification.service.js';
 import type { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { lockUserRefreshTokens } from '../utils/refresh-token-lock.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
-import { captureMessage } from '../utils/sentry.js';
 
 /**
  * 紐付けの変更を途中で打ち切り、トランザクションをロールバックさせるための合図。
@@ -88,7 +88,8 @@ export class UserRoleService implements IUserRoleService {
     private readonly prisma: PrismaClient,
     private readonly rbacService?: IRBACService,
     private readonly auditLogService?: IAuditLogService,
-    private readonly emailService?: EmailService,
+    /** 全システム管理者への通知（システム管理者ロールの変更の通知に使う。タスク49.1） */
+    private readonly adminNotificationService?: Pick<IAdminNotificationService, 'notifyAllAdmins'>,
     /** 利用者の状態のキャッシュの無効化（削除の後に呼ぶ。user-authentication タスク47.6） */
     private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>
   ) {}
@@ -600,7 +601,7 @@ export class UserRoleService implements IUserRoleService {
     // システム管理者ロール変更時のアラート通知。送信の失敗はコミット済みの変更を失敗にしない
     for (const change of changed) {
       try {
-        await this.sendAdminRoleChangedAlert(userId, change, action, performedBy);
+        await this.sendAdminRoleChangedAlert(change, action, performedBy);
       } catch (error) {
         logger.warn(
           { err: error, userId, roleId: change.role.id, action },
@@ -611,16 +612,17 @@ export class UserRoleService implements IUserRoleService {
   }
 
   /**
-   * システム管理者ロールの変更アラート（メールと Sentry）を送る（テスト環境では抑制）
+   * システム管理者ロールの変更を全システム管理者へ通知する（テスト環境では抑制）
+   *
+   * 宛先の選定（有効なシステム管理者）・メール・Sentry は AdminNotificationService が担う。
    */
   private async sendAdminRoleChangedAlert(
-    userId: string,
     { user, role }: UserRoleChange,
     action: 'assigned' | 'revoked',
     performedBy?: PerformedBy
   ): Promise<void> {
     if (
-      !this.emailService ||
+      !this.adminNotificationService ||
       !performedBy ||
       role.name !== 'admin' ||
       process.env.NODE_ENV === 'test'
@@ -628,47 +630,15 @@ export class UserRoleService implements IUserRoleService {
       return;
     }
 
-    // 全システム管理者のメールアドレスを取得
-    const adminUsers = await this.prisma.user.findMany({
-      where: {
-        userRoles: {
-          some: {
-            role: {
-              name: 'admin',
-            },
-          },
-        },
-      },
-      select: {
-        email: true,
-        displayName: true,
-      },
+    await this.adminNotificationService.notifyAllAdmins({
+      kind: 'ADMIN_ROLE_CHANGED',
+      subject: `【重要】システム管理者ロール変更通知: ${user.displayName}`,
+      lines: [
+        `操作: システム管理者ロールの${action === 'assigned' ? '付与' : '剥奪'}`,
+        `対象: ${user.displayName} (${user.email})`,
+        `実行者: ${performedBy.displayName} (${performedBy.email})`,
+      ],
     });
-
-    const adminEmails = adminUsers.map((admin) => admin.email);
-
-    await this.emailService.sendAdminRoleChangedAlert(
-      adminEmails,
-      { email: user.email, displayName: user.displayName },
-      action,
-      'System Administrator',
-      performedBy
-    );
-
-    // Sentryにアラート通知を送信
-    captureMessage(
-      action === 'assigned'
-        ? 'Critical: System Administrator role assigned'
-        : 'Critical: System Administrator role removed',
-      'warning',
-      {
-        userId,
-        userEmail: user.email,
-        roleId: role.id,
-        roleName: role.name,
-        performedBy: performedBy.email,
-      }
-    );
   }
 
   /**

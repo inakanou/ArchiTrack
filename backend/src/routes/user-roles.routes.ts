@@ -11,6 +11,7 @@ import { UserRoleService } from '../services/user-role.service.js';
 import { getSharedRBACService } from '../services/rbac.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import { EmailService } from '../services/email.service.js';
+import { AdminNotificationService } from '../services/admin-notification.service.js';
 import { getSharedAuthenticatedUserStateService } from '../services/authenticated-user-state.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -25,11 +26,19 @@ const prisma = getPrismaClient();
 const rbacService = getSharedRBACService();
 const auditLogService = new AuditLogService({ prisma });
 const emailService = new EmailService();
+// システム管理者ロールの変更を全ての有効なシステム管理者へ通知する（user-authentication タスク49.1）
+const adminNotificationService = new AdminNotificationService(prisma, emailService);
 // 利用者の削除の後に状態のキャッシュを無効化する（user-authentication タスク47.6）。共有のインスタンスは
 // 呼び出しの時点で解決する（db.ts の PrismaClient の作り直しに追随する）
-const userRoleService = new UserRoleService(prisma, rbacService, auditLogService, emailService, {
-  invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
-});
+const userRoleService = new UserRoleService(
+  prisma,
+  rbacService,
+  auditLogService,
+  adminNotificationService,
+  {
+    invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
+  }
+);
 
 // Zodバリデーションスキーマ
 const addRolesSchema = z.object({

@@ -4,6 +4,7 @@
  * Requirements:
  * - 20.1-20.9: ユーザーへのロール割り当て（マルチロール対応）
  * - 22.9: センシティブな操作（システム管理者ロールの変更）実行時のアラート通知
+ *   （全システム管理者への通知の手段 AdminNotificationService を通す。user-authentication タスク49.1）
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -13,6 +14,7 @@ import { Err, Ok } from '../../../types/result.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import type { IRBACService } from '../../../types/rbac.types.js';
 import type { EmailService } from '../../../services/email.service.js';
+import { AdminNotificationService } from '../../../services/admin-notification.service.js';
 import * as Sentry from '../../../utils/sentry.js';
 import logger from '../../../utils/logger.js';
 
@@ -84,10 +86,41 @@ const mockUserRole: UserRole = {
 };
 
 describe('UserRoleService', () => {
+  /**
+   * システム管理者ロールの変更が、有効なシステム管理者の全員へのメールと Sentry で通知されたことを確かめる
+   */
+  function expectRoleChangeNotified(
+    recipients: string[],
+    actionText: '付与' | '剥奪',
+    performedBy: { email: string; displayName: string }
+  ): void {
+    // 宛先は admin ロールを持つ有効な利用者に限る
+    expect(prismaMock.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { isActive: true, userRoles: { some: { role: { name: 'admin' } } } },
+      })
+    );
+    const subject = `【重要】システム管理者ロール変更通知: ${mockUser.displayName}`;
+    const lines = [
+      `操作: システム管理者ロールの${actionText}`,
+      `対象: ${mockUser.displayName} (${mockUser.email})`,
+      `実行者: ${performedBy.displayName} (${performedBy.email})`,
+    ];
+    expect(vi.mocked(emailServiceMock.sendAdminNotificationEmail).mock.calls).toEqual(
+      recipients.map((to) => [to, subject, lines])
+    );
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      'Admin notification: ADMIN_ROLE_CHANGED',
+      'warning',
+      { kind: 'ADMIN_ROLE_CHANGED', subject, lines }
+    );
+  }
+
   let userRoleService: UserRoleService;
   let prismaMock: PrismaClient;
   let auditLogServiceMock: IAuditLogService;
   let emailServiceMock: EmailService;
+  let adminNotificationService: AdminNotificationService;
   let rbacServiceMock: {
     invalidateUserPermissionsCache: ReturnType<typeof vi.fn>;
     invalidateUserPermissionsCacheForRole: ReturnType<typeof vi.fn>;
@@ -140,10 +173,11 @@ describe('UserRoleService', () => {
       exportLogs: vi.fn(),
     };
 
-    // EmailServiceモックの作成
+    // EmailServiceモックの作成（全システム管理者への通知のメールの投入）
     emailServiceMock = {
-      sendAdminRoleChangedAlert: vi.fn().mockResolvedValue(undefined),
+      sendAdminNotificationEmail: vi.fn().mockResolvedValue(undefined),
     } as unknown as EmailService;
+    adminNotificationService = new AdminNotificationService(prismaMock, emailServiceMock);
 
     // Sentryモックのクリア
     vi.clearAllMocks();
@@ -161,7 +195,7 @@ describe('UserRoleService', () => {
       prismaMock,
       rbacServiceMock as unknown as IRBACService,
       auditLogServiceMock,
-      emailServiceMock
+      adminNotificationService
     );
   });
 
@@ -281,24 +315,7 @@ describe('UserRoleService', () => {
       await userRoleService.addRoleToUser(mockUserId, mockAdminRoleId, actorId, performedBy);
 
       // Assert
-      expect(emailServiceMock.sendAdminRoleChangedAlert).toHaveBeenCalledWith(
-        ['admin1@example.com', 'admin2@example.com'],
-        { email: mockUser.email, displayName: mockUser.displayName },
-        'assigned',
-        'System Administrator',
-        performedBy
-      );
-      expect(Sentry.captureMessage).toHaveBeenCalledWith(
-        'Critical: System Administrator role assigned',
-        'warning',
-        expect.objectContaining({
-          userId: mockUserId,
-          userEmail: mockUser.email,
-          roleId: mockAdminRoleId,
-          roleName: 'admin',
-          performedBy: performedBy.email,
-        })
-      );
+      expectRoleChangeNotified(['admin1@example.com', 'admin2@example.com'], '付与', performedBy);
 
       // Cleanup
       process.env.NODE_ENV = originalNodeEnv;
@@ -331,7 +348,7 @@ describe('UserRoleService', () => {
       await userRoleService.addRoleToUser(mockUserId, mockAdminRoleId, actorId, performedBy);
 
       // Assert
-      expect(emailServiceMock.sendAdminRoleChangedAlert).not.toHaveBeenCalled();
+      expect(emailServiceMock.sendAdminNotificationEmail).not.toHaveBeenCalled();
       expect(Sentry.captureMessage).not.toHaveBeenCalled();
 
       // Cleanup
@@ -496,11 +513,6 @@ describe('UserRoleService', () => {
         { email: otherAdmin.email, displayName: otherAdmin.displayName } as User,
       ]);
 
-      const sendAdminRoleChangedAlertMock = vi
-        .fn()
-        .mockResolvedValue({ id: 'email-job-123', status: 'queued' });
-      emailServiceMock.sendAdminRoleChangedAlert = sendAdminRoleChangedAlertMock;
-
       // Act
       const result = await userRoleService.removeRoleFromUser(
         mockUserId,
@@ -511,24 +523,7 @@ describe('UserRoleService', () => {
 
       // Assert
       expect(result).toEqual(Ok(undefined));
-      expect(sendAdminRoleChangedAlertMock).toHaveBeenCalledWith(
-        [performedBy.email, otherAdmin.email],
-        { email: mockUser.email, displayName: mockUser.displayName },
-        'revoked',
-        'System Administrator',
-        performedBy
-      );
-      expect(Sentry.captureMessage).toHaveBeenCalledWith(
-        'Critical: System Administrator role removed',
-        'warning',
-        expect.objectContaining({
-          userId: mockUserId,
-          userEmail: mockUser.email,
-          roleId: mockAdminRoleId,
-          roleName: 'admin',
-          performedBy: performedBy.email,
-        })
-      );
+      expectRoleChangeNotified([performedBy.email, otherAdmin.email], '剥奪', performedBy);
 
       // Cleanup
       process.env.NODE_ENV = originalNodeEnv;
@@ -543,9 +538,6 @@ describe('UserRoleService', () => {
       vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(mockUserRole);
       vi.mocked(prismaMock.userRole.delete).mockResolvedValue(mockUserRole);
 
-      const sendAdminRoleChangedAlertMock = vi.fn();
-      emailServiceMock.sendAdminRoleChangedAlert = sendAdminRoleChangedAlertMock;
-
       // Act
       const result = await userRoleService.removeRoleFromUser(
         mockUserId,
@@ -556,7 +548,7 @@ describe('UserRoleService', () => {
 
       // Assert
       expect(result).toEqual(Ok(undefined));
-      expect(sendAdminRoleChangedAlertMock).not.toHaveBeenCalled();
+      expect(emailServiceMock.sendAdminNotificationEmail).not.toHaveBeenCalled();
       expect(Sentry.captureMessage).not.toHaveBeenCalled();
     });
 
@@ -597,7 +589,7 @@ describe('UserRoleService', () => {
 
       // Assert
       expect(result).toEqual(Ok(undefined));
-      expect(emailServiceMock.sendAdminRoleChangedAlert).not.toHaveBeenCalled();
+      expect(emailServiceMock.sendAdminNotificationEmail).not.toHaveBeenCalled();
       expect(Sentry.captureMessage).not.toHaveBeenCalled();
 
       // Cleanup
@@ -875,7 +867,7 @@ describe('UserRoleService', () => {
         prismaMock,
         rbacServiceMock as unknown as IRBACService,
         auditLogServiceMock,
-        emailServiceMock,
+        adminNotificationService,
         { invalidate }
       );
       vi.mocked(prismaMock.user.findUnique).mockResolvedValue({
@@ -904,7 +896,7 @@ describe('UserRoleService', () => {
         prismaMock,
         rbacServiceMock as unknown as IRBACService,
         auditLogServiceMock,
-        emailServiceMock,
+        adminNotificationService,
         { invalidate }
       );
       vi.mocked(prismaMock.user.findUnique).mockResolvedValue(null);
@@ -969,16 +961,18 @@ describe('UserRoleService', () => {
       ]);
     }
 
+    function warningsOf(message: string): unknown[][] {
+      return vi.mocked(logger.warn).mock.calls.filter(([, logged]) => logged === message);
+    }
+
     function alertWarnings(): unknown[][] {
-      return vi
-        .mocked(logger.warn)
-        .mock.calls.filter(([, message]) => message === 'Failed to send admin role change alert');
+      return warningsOf('Failed to send admin role change alert');
     }
 
     it('アラートの送信が投げても成功を返し、無効化はアラートより先に行う', async () => {
       arrangeAdminAssignment();
       const failure = new Error('alert delivery failed');
-      vi.mocked(emailServiceMock.sendAdminRoleChangedAlert).mockRejectedValue(failure);
+      vi.mocked(emailServiceMock.sendAdminNotificationEmail).mockRejectedValue(failure);
 
       const result = await userRoleService.addRoleToUser(
         mockUserId,
@@ -989,18 +983,20 @@ describe('UserRoleService', () => {
 
       expect(result).toEqual(Ok(undefined));
       expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
-      expect(emailServiceMock.sendAdminRoleChangedAlert).toHaveBeenCalledTimes(1);
+      expect(emailServiceMock.sendAdminNotificationEmail).toHaveBeenCalledTimes(1);
       expect(
         rbacServiceMock.invalidateUserPermissionsCache.mock.invocationCallOrder[0]!
       ).toBeLessThan(
-        vi.mocked(emailServiceMock.sendAdminRoleChangedAlert).mock.invocationCallOrder[0]!
+        vi.mocked(emailServiceMock.sendAdminNotificationEmail).mock.invocationCallOrder[0]!
       );
-      expect(alertWarnings()).toEqual([
+      // 送信の失敗は通知の手段が警告ログに留め、呼び出し元へ伝えない
+      expect(warningsOf('Failed to queue admin notification email')).toEqual([
         [
-          { err: failure, userId: mockUserId, roleId: mockAdminRoleId, action: 'assigned' },
-          'Failed to send admin role change alert',
+          { err: failure, kind: 'ADMIN_ROLE_CHANGED', failedCount: 1, recipientCount: 1 },
+          'Failed to queue admin notification email',
         ],
       ]);
+      expect(alertWarnings()).toEqual([]);
     });
 
     it('管理者の一覧の取得（prisma.user.findMany）が投げても成功を返し、キャッシュを無効化する', async () => {
@@ -1017,9 +1013,10 @@ describe('UserRoleService', () => {
 
       expect(result).toEqual(Ok(undefined));
       expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
-      expect(emailServiceMock.sendAdminRoleChangedAlert).not.toHaveBeenCalled();
-      expect(alertWarnings()).toHaveLength(1);
-      expect(alertWarnings()[0]![0]).toMatchObject({ err: failure });
+      expect(emailServiceMock.sendAdminNotificationEmail).not.toHaveBeenCalled();
+      const warnings = warningsOf('Failed to look up system administrators for notification');
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]![0]).toMatchObject({ err: failure, kind: 'ADMIN_ROLE_CHANGED' });
     });
 
     it('Sentry への通知が投げても、解除は成功を返しキャッシュを無効化する', async () => {
@@ -1051,9 +1048,41 @@ describe('UserRoleService', () => {
 
       expect(result).toEqual(Ok(undefined));
       expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
+      // Sentry の失敗はメールの投入を止めない
+      expect(emailServiceMock.sendAdminNotificationEmail).toHaveBeenCalledTimes(1);
+      expect(warningsOf('Failed to send admin notification to error monitoring')).toEqual([
+        [
+          { err: failure, kind: 'ADMIN_ROLE_CHANGED' },
+          'Failed to send admin notification to error monitoring',
+        ],
+      ]);
+    });
+
+    it('通知の手段そのものが投げても成功を返し、警告ログに留める', async () => {
+      arrangeAdminAssignment();
+      const failure = new Error('notifier crashed');
+      const notifyAllAdmins = vi.fn().mockRejectedValue(failure);
+      const service = new UserRoleService(
+        prismaMock,
+        rbacServiceMock as unknown as IRBACService,
+        auditLogServiceMock,
+        { notifyAllAdmins }
+      );
+
+      const result = await service.addRoleToUser(
+        mockUserId,
+        mockAdminRoleId,
+        'actor-123',
+        performedBy
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(notifyAllAdmins).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'ADMIN_ROLE_CHANGED' })
+      );
       expect(alertWarnings()).toEqual([
         [
-          { err: failure, userId: mockUserId, roleId: mockAdminRoleId, action: 'revoked' },
+          { err: failure, userId: mockUserId, roleId: mockAdminRoleId, action: 'assigned' },
           'Failed to send admin role change alert',
         ],
       ]);
@@ -1072,7 +1101,7 @@ describe('UserRoleService', () => {
       );
 
       expect(result).toEqual(Ok(undefined));
-      expect(emailServiceMock.sendAdminRoleChangedAlert).toHaveBeenCalledTimes(1);
+      expect(emailServiceMock.sendAdminNotificationEmail).toHaveBeenCalledTimes(1);
       expect(logger.warn).toHaveBeenCalledWith(
         { err: failure, userId: mockUserId },
         'Failed to invalidate permission cache after commit'

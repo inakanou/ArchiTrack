@@ -79,7 +79,7 @@ function checkTemplateFilesCopied(): void {
 }
 
 /**
- * dist の EmailService を読み込み、4 種のメールを処理関数の経路で描画する
+ * dist の EmailService を読み込み、5 種のメールを処理関数の経路で描画する
  */
 async function checkTemplatesRenderFromDist(): Promise<void> {
   if (!existsSync(distEmailServicePath)) {
@@ -100,6 +100,8 @@ async function checkTemplatesRenderFromDist(): Promise<void> {
       handlers.set(name, handler);
     },
     async add(): Promise<void> {},
+    // キューのイベントの受け手の登録（要件45.3、45.4）を受け付ける。描画の検査では発火させない
+    on(): void {},
   };
   const sent: SentMail[] = [];
   const fakeTransporter = {
@@ -135,6 +137,21 @@ async function checkTemplatesRenderFromDist(): Promise<void> {
       expectedRecipients: ['twofactor@example.test'],
       expectedSubjectPrefix: '二要素認証が有効化されました',
       expectedFragments: [`href="${escaped(`${FRONTEND_URL}/profile`)}"`],
+    },
+    {
+      jobName: 'admin-notification-email',
+      data: {
+        to: 'admin1@example.test',
+        subject: '【重要】システム管理者ロール変更通知: 対象 太郎',
+        lines: ['対象: 対象 太郎 (target@example.test)', '実行者: 実行 花子 (actor@example.test)'],
+      },
+      expectedRecipients: ['admin1@example.test'],
+      expectedSubjectPrefix: '【重要】システム管理者ロール変更通知',
+      expectedFragments: [
+        '対象: 対象 太郎 (target@example.test)',
+        '実行者: 実行 花子 (actor@example.test)',
+        `href="${escaped(`${FRONTEND_URL}/admin/audit-logs`)}"`,
+      ],
     },
     {
       jobName: 'admin-role-changed-alert',
@@ -212,7 +229,7 @@ async function main(): Promise<void> {
     console.error(`❌ ビルドの出力の検査に失敗しました（${failures.length} 件）`);
     process.exit(1);
   }
-  console.log('✅ ビルドの出力からメールのテンプレート 4 種を描画できました');
+  console.log('✅ ビルドの出力からメールのテンプレート 5 種を描画できました');
 }
 
 main().catch((error: unknown) => {
