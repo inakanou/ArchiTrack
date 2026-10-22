@@ -436,7 +436,7 @@ describe('UserRoleService', () => {
         ...mockUserRole,
         roleId: mockAdminRoleId,
       });
-      vi.mocked(prismaMock.userRole.count).mockResolvedValue(1); // このユーザーが最後の管理者
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0); // このユーザー以外に有効な管理者がいない
 
       // Act
       const result = await userRoleService.removeRoleFromUser(mockUserId, mockAdminRoleId);
@@ -905,6 +905,95 @@ describe('UserRoleService', () => {
 
       expect(result.ok).toBe(false);
       expect(invalidate).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * 最後の管理者の判定は有効な（is_active=true）システム管理者の数で行う（user-authentication 要件36.5）。
+   * 無効化された管理者を数えると、有効な管理者が 0 人になる解除・削除を通してしまう
+   */
+  describe('最後の管理者の判定は無効化された管理者を数えない', () => {
+    const adminAssignment = { ...mockUserRole, roleId: mockAdminRoleId };
+
+    beforeEach(() => {
+      const tx = prismaMock as unknown as Record<string, unknown>;
+      tx.invitation = { deleteMany: vi.fn(), updateMany: vi.fn() };
+      (tx.user as Record<string, unknown>).delete = vi.fn();
+    });
+
+    it('admin ロールの解除は有効な管理者だけを数え、対象者以外に有効な管理者がいなければ LAST_ADMIN_PROTECTED を返す', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(adminAssignment);
+      // 対象者以外に有効な管理者がいない（無効化された管理者の紐付けは数えない）
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+
+      const result = await userRoleService.removeRoleFromUser(mockUserId, mockAdminRoleId);
+
+      expect(result).toEqual(Err({ type: 'LAST_ADMIN_PROTECTED' }));
+      expect(prismaMock.userRole.count).toHaveBeenCalledWith({
+        where: { roleId: mockAdminRoleId, userId: { not: mockUserId }, user: { isActive: true } },
+      });
+      expect(prismaMock.userRole.delete).not.toHaveBeenCalled();
+    });
+
+    it('無効化された管理者からの admin ロールの解除は、残る管理者の紐付けが無くても許す', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue({ ...mockUser, isActive: false });
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(adminAssignment);
+      vi.mocked(prismaMock.userRole.delete).mockResolvedValue(adminAssignment);
+      // 対象者以外に有効な管理者がいない（解除しても有効な管理者の数は変わらない）
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+
+      const result = await userRoleService.removeRoleFromUser(mockUserId, mockAdminRoleId);
+
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.userRole.delete).toHaveBeenCalledWith({
+        where: { id: adminAssignment.id },
+      });
+    });
+
+    it('管理者の削除は有効な管理者だけを数え、対象者以外に有効な管理者がいなければ LAST_ADMIN_PROTECTED を返す', async () => {
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue({
+        id: mockUserId,
+        email: mockUser.email,
+        isActive: true,
+        userRoles: [{ roleId: mockAdminRoleId }],
+      } as unknown as never);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+      const userDelete = (prismaMock.user as unknown as { delete: ReturnType<typeof vi.fn> })
+        .delete;
+
+      const result = await userRoleService.deleteUser(mockUserId);
+
+      expect(result).toEqual(Err({ type: 'LAST_ADMIN_PROTECTED' }));
+      expect(prismaMock.userRole.count).toHaveBeenCalledWith({
+        where: { roleId: mockAdminRoleId, userId: { not: mockUserId }, user: { isActive: true } },
+      });
+      // 件数を数える前に admin ロールの行をロックしている
+      expect(vi.mocked(prismaMock.$queryRaw).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(prismaMock.userRole.count).mock.invocationCallOrder[0]!
+      );
+      expect(userDelete).not.toHaveBeenCalled();
+    });
+
+    it('無効化された管理者の削除は、残る管理者の紐付けが無くても許す', async () => {
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue({
+        id: mockUserId,
+        email: mockUser.email,
+        isActive: false,
+        userRoles: [{ roleId: mockAdminRoleId }],
+      } as unknown as never);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+      const userDelete = (prismaMock.user as unknown as { delete: ReturnType<typeof vi.fn> })
+        .delete;
+
+      const result = await userRoleService.deleteUser(mockUserId);
+
+      expect(result).toEqual(Ok({ email: mockUser.email }));
+      expect(userDelete).toHaveBeenCalledWith({ where: { id: mockUserId } });
     });
   });
 

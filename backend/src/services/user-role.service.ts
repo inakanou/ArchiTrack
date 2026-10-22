@@ -417,14 +417,15 @@ export class UserRoleService implements IUserRoleService {
     actorId?: string
   ): Promise<UserRoleChange> {
     // ユーザーの存在チェック (optimized: only fetch necessary fields)
-    const user = await tx.user.findUnique({
+    const found = await tx.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, displayName: true },
+      select: { id: true, email: true, displayName: true, isActive: true },
     });
-    if (!user) {
+    if (!found) {
       logger.warn({ userId }, 'User not found');
       throw new UserRoleRollback({ type: 'USER_NOT_FOUND' });
     }
+    const { isActive: targetIsActive, ...user } = found;
 
     // ロールの存在チェック (optimized: only fetch necessary fields)
     const role = await tx.role.findUnique({
@@ -451,12 +452,13 @@ export class UserRoleService implements IUserRoleService {
       throw new UserRoleRollback({ type: 'ASSIGNMENT_NOT_FOUND' });
     }
 
-    // 最後の管理者保護（adminロールの場合のみ）
-    if (role.name === 'admin') {
-      const adminRoleCount = await tx.userRole.count({
-        where: { roleId },
+    // 最後の管理者保護（adminロールの場合のみ）。対象者以外の有効な管理者の数で判定し（要件36.5）、
+    // 無効化された対象者からの解除は有効な管理者を減らさないため許す
+    if (role.name === 'admin' && targetIsActive) {
+      const otherActiveAdmins = await tx.userRole.count({
+        where: { roleId, userId: { not: userId }, user: { isActive: true } },
       });
-      if (adminRoleCount <= 1) {
+      if (otherActiveAdmins === 0) {
         logger.warn(
           { userId, roleId, userEmail: user.email },
           'Cannot remove admin role from last admin user'
@@ -524,16 +526,24 @@ export class UserRoleService implements IUserRoleService {
 
       const user = await tx.user.findUnique({
         where: { id: userId },
-        select: { id: true, email: true, userRoles: { select: { roleId: true } } },
+        select: {
+          id: true,
+          email: true,
+          isActive: true,
+          userRoles: { select: { roleId: true } },
+        },
       });
       if (!user) {
         return Err<DeleteUserError>({ type: 'USER_NOT_FOUND' });
       }
 
-      // 削除対象が管理者なら、他の管理者がいるか確認
-      if (adminRole && user.userRoles.some((ur) => ur.roleId === adminRole.id)) {
-        const adminCount = await tx.userRole.count({ where: { roleId: adminRole.id } });
-        if (adminCount <= 1) {
+      // 削除対象が有効な管理者なら、他に有効な管理者がいるか確認する（要件36.5）。
+      // 無効化された管理者の削除は有効な管理者を減らさないため許す
+      if (adminRole && user.isActive && user.userRoles.some((ur) => ur.roleId === adminRole.id)) {
+        const otherActiveAdmins = await tx.userRole.count({
+          where: { roleId: adminRole.id, userId: { not: userId }, user: { isActive: true } },
+        });
+        if (otherActiveAdmins === 0) {
           logger.warn({ userId }, 'Cannot delete the last admin user');
           return Err<DeleteUserError>({ type: 'LAST_ADMIN_PROTECTED' });
         }

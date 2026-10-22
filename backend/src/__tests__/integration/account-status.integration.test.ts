@@ -86,18 +86,22 @@ describe('管理者による無効化と再有効化（統合）', () => {
     return user;
   }
 
-  /** admin ロールを持たず user:manage だけを持つ利用者（最後の管理者の判定の実行者） */
-  async function createUserManager() {
+  /** admin ロールを持たず user の権限だけを持つ利用者（最後の管理者の判定の実行者） */
+  async function createUserManager(actions: string[] = ['manage']) {
     const role = await prisma.role.create({
       data: {
         name: `${MARK}-manager-${randomBytes(4).toString('hex')}`,
         description: '利用者の管理だけを行う試験用のロール',
       },
     });
-    const permission = await prisma.permission.findUniqueOrThrow({
-      where: { resource_action: { resource: 'user', action: 'manage' } },
-    });
-    await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } });
+    for (const action of actions) {
+      const permission = await prisma.permission.findUniqueOrThrow({
+        where: { resource_action: { resource: 'user', action } },
+      });
+      await prisma.rolePermission.create({
+        data: { roleId: role.id, permissionId: permission.id },
+      });
+    }
     return createUserWithRole('manager', role.name);
   }
 
@@ -352,6 +356,90 @@ describe('管理者による無効化と再有効化（統合）', () => {
       expect(
         await prisma.user.count({ where: { id: { in: [adminX.id, adminY.id] }, isActive: true } })
       ).toBe(1);
+    });
+  });
+
+  /**
+   * 最後の管理者の保護（ロールの解除・利用者の削除）も有効な管理者の数で判定する。
+   * 有効な管理者 A と無効化された管理者 B の状態で A を外すと、有効な管理者が 0 人になる
+   */
+  describe('ロールの解除と利用者の削除は無効化された管理者を数えない', () => {
+    async function setupActiveAndDeactivatedAdmins() {
+      const manager = await createUserManager(['update', 'delete']);
+      const activeAdmin = await createUserWithRole('active-admin', 'admin');
+      const deactivatedAdmin = await createUserWithRole('deactivated-admin', 'admin');
+      await prisma.user.update({
+        where: { id: deactivatedAdmin.id },
+        data: { isActive: false, deactivatedAt: new Date(), deactivationReason: '試験' },
+      });
+      const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: 'admin' } });
+      const managerBearer = await bearerFor(manager, 'manager');
+      return { activeAdmin, deactivatedAdmin, adminRole, managerBearer };
+    }
+
+    /**
+     * @requirement user-authentication/REQ-36.5
+     */
+    it('有効な管理者が 1 人だけのとき、その admin ロールの解除を 400 LAST_ADMIN_PROTECTED で拒否する', async () => {
+      const { activeAdmin, adminRole, managerBearer } = await setupActiveAndDeactivatedAdmins();
+
+      await withOnlyTestAdminsActive(async () => {
+        const response = await request(app)
+          .delete(`/api/v1/users/${activeAdmin.id}/roles/${adminRole.id}`)
+          .set(...managerBearer);
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('LAST_ADMIN_PROTECTED');
+        expect(
+          await prisma.userRole.count({ where: { userId: activeAdmin.id, roleId: adminRole.id } })
+        ).toBe(1);
+      });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-36.5
+     */
+    it('有効な管理者が 1 人だけのとき、その利用者の削除を 400 LAST_ADMIN_PROTECTED で拒否する', async () => {
+      const { activeAdmin, managerBearer } = await setupActiveAndDeactivatedAdmins();
+
+      await withOnlyTestAdminsActive(async () => {
+        const response = await request(app)
+          .delete(`/api/v1/users/${activeAdmin.id}`)
+          .set(...managerBearer);
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('LAST_ADMIN_PROTECTED');
+        expect(await prisma.user.count({ where: { id: activeAdmin.id } })).toBe(1);
+      });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-36.5
+     */
+    it('無効化された管理者の admin ロールの解除と利用者の削除は、有効な管理者を減らさないため許す', async () => {
+      const { activeAdmin, deactivatedAdmin, adminRole, managerBearer } =
+        await setupActiveAndDeactivatedAdmins();
+
+      await withOnlyTestAdminsActive(async () => {
+        const revoked = await request(app)
+          .delete(`/api/v1/users/${deactivatedAdmin.id}/roles/${adminRole.id}`)
+          .set(...managerBearer);
+        expect(revoked.status).toBe(204);
+
+        // 管理者に戻してから削除する
+        await prisma.userRole.create({
+          data: { userId: deactivatedAdmin.id, roleId: adminRole.id },
+        });
+        const deleted = await request(app)
+          .delete(`/api/v1/users/${deactivatedAdmin.id}`)
+          .set(...managerBearer);
+        expect(deleted.status).toBe(204);
+        expect(await prisma.user.count({ where: { id: deactivatedAdmin.id } })).toBe(0);
+        // 有効な管理者は残る
+        expect(
+          await prisma.userRole.count({ where: { userId: activeAdmin.id, roleId: adminRole.id } })
+        ).toBe(1);
+      });
     });
   });
 
