@@ -68,6 +68,64 @@ describe('RuntimeMode', () => {
     });
   });
 
+  // 試行回数の制限の無効化（user-authentication タスク48.1、design.md の RateLimitPolicy・RuntimeMode）
+  describe('isRateLimitBypassAllowed', () => {
+    /** 読まれた環境変数の名前を記録する環境 */
+    const recordingEnv = (
+      values: NodeJS.ProcessEnv
+    ): { env: NodeJS.ProcessEnv; read: string[] } => {
+      const read: string[] = [];
+      const env = new Proxy(values, {
+        get(target, name) {
+          if (typeof name === 'string') {
+            read.push(name);
+          }
+          return target[name as string];
+        },
+      });
+      return { env, read };
+    };
+
+    it('本番では DISABLE_RATE_LIMIT=true でも false で、無効化の変数を読まない', () => {
+      const { env, read } = recordingEnv({ NODE_ENV: 'production', DISABLE_RATE_LIMIT: 'true' });
+
+      expect(createRuntimeMode(env).isRateLimitBypassAllowed()).toBe(false);
+      expect(read).not.toContain('DISABLE_RATE_LIMIT');
+    });
+
+    it('試験の明示（NODE_ENV=test）のとき true', () => {
+      expect(createRuntimeMode({ NODE_ENV: 'test' }).isRateLimitBypassAllowed()).toBe(true);
+    });
+
+    it('開発では DISABLE_RATE_LIMIT=true の明示のときだけ true', () => {
+      expect(
+        createRuntimeMode({
+          NODE_ENV: 'development',
+          DISABLE_RATE_LIMIT: 'true',
+        }).isRateLimitBypassAllowed()
+      ).toBe(true);
+      expect(createRuntimeMode({ NODE_ENV: 'development' }).isRateLimitBypassAllowed()).toBe(false);
+      expect(
+        createRuntimeMode({
+          NODE_ENV: 'development',
+          DISABLE_RATE_LIMIT: 'TRUE',
+        }).isRateLimitBypassAllowed()
+      ).toBe(false);
+    });
+
+    it('実行環境の指定が無い・未知の値のときは DISABLE_RATE_LIMIT=true でも false', () => {
+      expect(createRuntimeMode({ DISABLE_RATE_LIMIT: 'true' }).isRateLimitBypassAllowed()).toBe(
+        false
+      );
+      expect(
+        createRuntimeMode({
+          NODE_ENV: 'staging' as 'test',
+          DISABLE_RATE_LIMIT: 'true',
+        }).isRateLimitBypassAllowed()
+      ).toBe(false);
+    });
+  });
+
   describe('assertProductionPrerequisites', () => {
     it('本番の前提を全て満たすとき例外を投げない', () => {
       expect(() =>

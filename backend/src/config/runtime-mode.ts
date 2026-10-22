@@ -8,6 +8,9 @@
  *
  * 本番では監査ログのアーカイブの鍵・信頼する中継の段数・キャッシュ基盤の接続先が
  * 欠けると起動を止める（要件41.3、要件35.1）。
+ *
+ * 試行回数の制限の無効化は、試験の明示か、開発での DISABLE_RATE_LIMIT の明示に限る。
+ * 本番では無効化の変数を読まない（要件35.6）。
  */
 
 import { ARCHIVE_ENCRYPTION_KEY_PATTERN } from './env.js';
@@ -19,6 +22,8 @@ export interface RuntimeMode {
   kind(): RuntimeKind;
   /** 'development' または 'test' の明示のときだけ true */
   isDevelopmentFeatureEnabled(): boolean;
+  /** 試行回数の制限を外してよいか（'test' の明示、または 'development' で DISABLE_RATE_LIMIT==='true'） */
+  isRateLimitBypassAllowed(): boolean;
   /** 本番の前提の欠落で例外を投げる（本番以外では何もしない） */
   assertProductionPrerequisites(): void;
 }
@@ -59,6 +64,15 @@ export function createRuntimeMode(source: NodeJS.ProcessEnv = process.env): Runt
     isDevelopmentFeatureEnabled(): boolean {
       const current = kind();
       return current === 'development' || current === 'test';
+    },
+
+    isRateLimitBypassAllowed(): boolean {
+      const current = kind();
+      if (current === 'test') {
+        return true;
+      }
+      // 本番・未指定では無効化の変数を読まない
+      return current === 'development' && source.DISABLE_RATE_LIMIT === 'true';
     },
 
     assertProductionPrerequisites(): void {

@@ -47,7 +47,8 @@ describe('RedisRateLimitStore', () => {
       } as Options);
     });
 
-    it('Redisが利用できない場合、デフォルト値を返すこと', async () => {
+    // キャッシュ基盤が無いときは制限を外さずメモリの記録へ退避する（user-authentication タスク48.1）
+    it('Redisが利用できない場合、メモリの記録で数え続けること', async () => {
       clientGetter = vi.fn(() => null);
       store = new RedisRateLimitStore(clientGetter, 'test:');
       store.init({
@@ -57,10 +58,14 @@ describe('RedisRateLimitStore', () => {
         legacyHeaders: false,
       } as Options);
 
-      const result = await store.increment('test-key');
+      const first = await store.increment('test-key');
+      const second = await store.increment('test-key');
+      const third = await store.increment('test-key');
+      const other = await store.increment('other-key');
 
-      expect(result.totalHits).toBe(1);
-      expect(result.resetTime).toBeInstanceOf(Date);
+      expect([first.totalHits, second.totalHits, third.totalHits]).toEqual([1, 2, 3]);
+      expect(first.resetTime).toBeInstanceOf(Date);
+      expect(other.totalHits).toBe(1);
     });
 
     it('初回アクセス時にカウントをインクリメントしてTTLを設定すること', async () => {
@@ -96,15 +101,17 @@ describe('RedisRateLimitStore', () => {
       expect(result.resetTime).toBeUndefined();
     });
 
-    it('Redisエラー時にフォールバック値を返すこと', async () => {
+    it('Redisエラー時にメモリの記録へ退避して数え続けること', async () => {
       vi.mocked(mockRedisClient.incr!).mockRejectedValue(new Error('Redis connection error'));
 
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const result = await store.increment('test-key');
+      const again = await store.increment('test-key');
 
       expect(result.totalHits).toBe(1);
       expect(result.resetTime).toBeInstanceOf(Date);
+      expect(again.totalHits).toBe(2);
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         'Redis error during increment, falling back to memory store:',
         expect.any(Error)
@@ -115,13 +122,17 @@ describe('RedisRateLimitStore', () => {
   });
 
   describe('decrement', () => {
-    it('Redisが利用できない場合、何もしないこと', async () => {
+    it('Redisが利用できない場合、Redisを呼ばずメモリの記録を減らすこと', async () => {
       clientGetter = vi.fn(() => null);
       store = new RedisRateLimitStore(clientGetter, 'test:');
+      store.init({ windowMs: 60000 } as Options);
+      await store.increment('test-key');
+      await store.increment('test-key');
 
       await store.decrement('test-key');
 
       expect(mockRedisClient.decr).not.toHaveBeenCalled();
+      expect((await store.increment('test-key')).totalHits).toBe(2);
     });
 
     it('カウントをデクリメントすること', async () => {
@@ -149,13 +160,17 @@ describe('RedisRateLimitStore', () => {
   });
 
   describe('resetKey', () => {
-    it('Redisが利用できない場合、何もしないこと', async () => {
+    it('Redisが利用できない場合、Redisを呼ばずメモリの記録を消すこと', async () => {
       clientGetter = vi.fn(() => null);
       store = new RedisRateLimitStore(clientGetter, 'test:');
+      store.init({ windowMs: 60000 } as Options);
+      await store.increment('test-key');
+      await store.increment('test-key');
 
       await store.resetKey('test-key');
 
       expect(mockRedisClient.del).not.toHaveBeenCalled();
+      expect((await store.increment('test-key')).totalHits).toBe(1);
     });
 
     it('キーを削除すること', async () => {

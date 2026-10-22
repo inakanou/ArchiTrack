@@ -10,7 +10,12 @@ import { fileURLToPath } from 'url';
 import getPrismaClient from './db.js';
 import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
-import { apiLimiter, healthCheckLimiter } from './middleware/rateLimit.middleware.js';
+import {
+  apiLimiter,
+  healthCheckLimiter,
+  mountAuthRateLimitPolicy,
+  rateLimiters,
+} from './middleware/rateLimit.middleware.js';
 import { validateEnv } from './config/env.js';
 import { runtimeMode } from './config/runtime-mode.js';
 import { configureTrustProxy } from './middleware/client-ip.js';
@@ -304,6 +309,9 @@ app.get('/api', (_req: Request, res: Response) => {
 
 // Admin routes (TODO: add authentication middleware)
 app.use('/admin', adminRoutes);
+
+// 認証系の専用の制限（2FA の検証・リセットの実行と検証・登録と招待の検証）。認証・招待のルーターより前に掛ける
+mountAuthRateLimitPolicy(app, rateLimiters);
 
 // Authentication routes
 app.use('/api/v1/auth', authRoutes);

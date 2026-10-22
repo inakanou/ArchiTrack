@@ -268,8 +268,21 @@ describe('rateLimit middleware', () => {
       expect(limiter.skip(req)).toBe(true);
     });
 
-    it('DISABLE_RATE_LIMIT=trueの場合スキップすること', async () => {
+    // 本番では無効化の設定を無視する（user-authentication タスク48.1）
+    it('本番ではDISABLE_RATE_LIMIT=trueでもスキップしないこと', async () => {
       process.env.NODE_ENV = 'production';
+      process.env.DISABLE_RATE_LIMIT = 'true';
+      vi.resetModules();
+
+      const { apiLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = apiLimiter as unknown as { skip: (req: Request) => boolean };
+
+      const req = createMockRequest({ method: 'POST' });
+      expect(limiter.skip(req)).toBe(false);
+    });
+
+    it('開発ではDISABLE_RATE_LIMIT=trueの明示でスキップすること', async () => {
+      process.env.NODE_ENV = 'development';
       process.env.DISABLE_RATE_LIMIT = 'true';
       vi.resetModules();
 
@@ -356,7 +369,7 @@ describe('rateLimit middleware', () => {
       expect(limiter.skip(req)).toBe(true);
     });
 
-    it('loginLimiterがDISABLE_RATE_LIMIT=trueでスキップすること', async () => {
+    it('loginLimiterが本番ではDISABLE_RATE_LIMIT=trueでもスキップしないこと', async () => {
       process.env.NODE_ENV = 'production';
       process.env.DISABLE_RATE_LIMIT = 'true';
       vi.resetModules();
@@ -365,10 +378,10 @@ describe('rateLimit middleware', () => {
       const limiter = loginLimiter as unknown as { skip: (req: Request) => boolean };
 
       const req = createMockRequest({ method: 'POST' });
-      expect(limiter.skip(req)).toBe(true);
+      expect(limiter.skip(req)).toBe(false);
     });
 
-    it('refreshLimiterがDISABLE_RATE_LIMIT=trueでスキップすること', async () => {
+    it('refreshLimiterが本番ではDISABLE_RATE_LIMIT=trueでもスキップしないこと', async () => {
       process.env.NODE_ENV = 'production';
       process.env.DISABLE_RATE_LIMIT = 'true';
       vi.resetModules();
@@ -377,10 +390,10 @@ describe('rateLimit middleware', () => {
       const limiter = refreshLimiter as unknown as { skip: (req: Request) => boolean };
 
       const req = createMockRequest({ method: 'POST' });
-      expect(limiter.skip(req)).toBe(true);
+      expect(limiter.skip(req)).toBe(false);
     });
 
-    it('invitationLimiterがDISABLE_RATE_LIMIT=trueでスキップすること', async () => {
+    it('invitationLimiterが本番ではDISABLE_RATE_LIMIT=trueでもスキップしないこと', async () => {
       process.env.NODE_ENV = 'production';
       process.env.DISABLE_RATE_LIMIT = 'true';
       vi.resetModules();
@@ -389,7 +402,7 @@ describe('rateLimit middleware', () => {
       const limiter = invitationLimiter as unknown as { skip: (req: Request) => boolean };
 
       const req = createMockRequest({ method: 'POST' });
-      expect(limiter.skip(req)).toBe(true);
+      expect(limiter.skip(req)).toBe(false);
     });
 
     it('loginLimiterが通常リクエストをスキップしないこと', async () => {
