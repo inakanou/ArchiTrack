@@ -1141,11 +1141,13 @@ describe('AuthService', () => {
 
       // モックが正しく呼ばれたか検証
       expect(mockTwoFactorService.verifyTOTP).toHaveBeenCalledWith(userId, totpCode);
+      // 失敗カウンターのリセットと同じ書き込みで最終ログイン日時を記録する（要件36.7）
       expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
         where: { id: userId },
         data: {
           twoFactorFailures: 0,
           twoFactorLockedUntil: null,
+          lastLoginAt: expect.any(Date),
         },
       });
     });

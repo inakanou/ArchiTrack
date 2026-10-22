@@ -243,12 +243,12 @@ export class AuthService implements IAuthService {
    * ログイン
    *
    * 処理フロー:
-   * 1. メールアドレスでユーザー検索
+   * 1. メールアドレスでユーザー検索（無効化された利用者は通常の認証エラー。要件36.2）
    * 2. アカウントロック確認
    * 3. パスワード検証
    * 4. 連続失敗時のアカウントロック処理
    * 5. 2FA有効チェック
-   * 6. トークン生成（2FA無効の場合のみ）
+   * 6. トークン生成（2FA無効の場合のみ。最終ログイン日時を記録する。要件36.7）
    */
   async login(
     email: string,
@@ -267,6 +267,7 @@ export class AuthService implements IAuthService {
           loginFailures: true,
           isLocked: true,
           lockedUntil: true,
+          isActive: true,
           twoFactorEnabled: true,
           mustChangePassword: true,
           createdAt: true,
@@ -285,6 +286,15 @@ export class AuthService implements IAuthService {
       // ユーザーが存在しない場合
       // @requirement user-authentication/REQ-26.9: タイミング攻撃対策の遅延を挿入
       if (!user) {
+        await addTimingAttackDelay();
+        return Err({ type: 'INVALID_CREDENTIALS' });
+      }
+
+      // 無効化された利用者はパスワードの正否に関わらず通常の認証エラーで拒否する（要件36.2）。
+      // ロックの判定と失敗回数の加算より前に行い状態を推測させず、ハッシュの照合と遅延でパスワードの誤りと
+      // 応答時間をそろえる（照合の結果は使わない）
+      if (user.isActive === false) {
+        await this.passwordService.verifyPassword(password, user.passwordHash);
         await addTimingAttackDelay();
         return Err({ type: 'INVALID_CREDENTIALS' });
       }
@@ -342,13 +352,15 @@ export class AuthService implements IAuthService {
         return Err({ type: 'INVALID_CREDENTIALS' });
       }
 
-      // 4. ログイン成功時、ログイン失敗回数をリセット
+      // 4. ログイン成功時、ログイン失敗回数をリセット。2FA 未登録の利用者はここでトークンを発行するため
+      // 最終ログイン日時も記録する（要件36.7。2FA 登録済みの利用者は 2FA の検証の成功で記録する）
       await this.prisma.user.update({
         where: { id: user.id },
         data: {
           loginFailures: 0,
           isLocked: false,
           lockedUntil: null,
+          ...(!user.twoFactorEnabled && { lastLoginAt: new Date() }),
         },
       });
 
@@ -462,6 +474,7 @@ export class AuthService implements IAuthService {
           email: true,
           displayName: true,
           createdAt: true,
+          isActive: true,
           twoFactorEnabled: true,
           mustChangePassword: true,
           twoFactorFailures: true,
@@ -481,6 +494,12 @@ export class AuthService implements IAuthService {
       // ユーザーが存在しない場合
       if (!user) {
         return Err({ type: 'USER_NOT_FOUND' });
+      }
+
+      // パスワードの段階の後に無効化された利用者は、資格の不正と同じ結果で拒否する（要件36.2）。
+      // コードを検証せず失敗も数えない
+      if (user.isActive === false) {
+        return Err({ type: 'CHALLENGE_INVALID' });
       }
 
       // 2. 2FAアカウントロック確認
@@ -565,12 +584,13 @@ export class AuthService implements IAuthService {
         );
       }
 
-      // 失敗カウンターをリセット
+      // 失敗カウンターをリセットし、トークンを発行するため最終ログイン日時を記録する（要件36.7）
       await this.prisma.user.update({
         where: { id: userId },
         data: {
           twoFactorFailures: 0,
           twoFactorLockedUntil: null,
+          lastLoginAt: new Date(),
         },
       });
 
