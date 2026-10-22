@@ -5432,7 +5432,8 @@ interface RequestContext { ipAddress: string; userAgent: string | null; requestI
 | POST | /api/v1/auth/2fa/reenroll/start | `{ currentCode }` | `{ qrCodeDataUrl, secretForManualEntry }` | 400, 401 |
 | POST | /api/v1/auth/2fa/reenroll/confirm | `{ newCode }` | `{ backupCodes }` | 400 |
 
-- 再設定は 1 トランザクションで `two_factor_secret`・`two_factor_pending_secret`・バックアップコードを消去し、`two_factor_enabled=false`、全リフレッシュトークンを失効させ、監査 `TWO_FACTOR_RESET_BY_ADMIN`（実行者・対象）を記録する。コミット後に利用者の状態のキャッシュを無効化する（34.7、34.10）
+- 再設定は 1 トランザクションで `two_factor_secret`・`two_factor_pending_secret`・バックアップコードを消去し、`two_factor_enabled=false`、全リフレッシュトークンを失効させ、`access_token_generation` を 1 つ進め、監査 `TWO_FACTOR_RESET_BY_ADMIN`（実行者・対象）を記録する。コミット後に利用者の状態のキャッシュを無効化する（34.7、34.10）
+- 再設定より前に発行されたアクセストークンは、トークンの世代（`gen`）が利用者の `access_token_generation` より小さくなり、AuthenticateMiddleware が拒否する（34.7）。世代は時刻でなく番号で比べる（`iat` は秒の精度のため、再設定と同じ秒に再ログインしたトークンを誤って拒否しうる）
 - 再登録は現在の TOTP の検証の後、新しい秘密鍵を `two_factor_pending_secret` に置き、新しい秘密鍵の TOTP の確認で本採用し、バックアップコードを作り直す（34.11）。確認までは既存の秘密鍵が有効である
 - 再設定の権限は `user:manage` とする
 
@@ -5492,7 +5493,7 @@ type AuthError =
 | Field | Detail |
 |-------|--------|
 | Intent | アクセストークンとリフレッシュトークンを種別・発行者・想定利用者で区別する |
-| Requirements | 33.1, 33.2, 33.3 |
+| Requirements | 33.1, 33.2, 33.3, 34.7 |
 
 **Contracts**: Service [x]
 
@@ -5509,11 +5510,12 @@ interface IssuedClaims {
   exp: number;
   email?: string;           // access のみ
   roles?: string[];         // access のみ
+  gen?: number;             // access のみ。発行時の利用者の access_token_generation（34.7）
   fam?: string;             // refresh のみ（系列 ID）
 }
 
 interface TokenService {
-  generateAccessToken(user: { id: string; email: string; roles: string[] }): Promise<string>;
+  generateAccessToken(user: { id: string; email: string; roles: string[]; accessTokenGeneration: number }): Promise<string>;
   generateRefreshToken(userId: string, familyId: string): Promise<string>;
   verifyToken(token: string, expected: TokenKind): Promise<Result<IssuedClaims, TokenError>>;
 }
@@ -5555,10 +5557,11 @@ type RotationError =
 | Field | Detail |
 |-------|--------|
 | Intent | アクセストークンだけを受け付け、利用者の状態で要求を拒否する |
-| Requirements | 33.1, 34.2, 36.1 |
+| Requirements | 33.1, 34.2, 34.7, 36.1 |
 
 **Responsibilities & Constraints**
 - `verifyToken(token, 'access')` の後、`AuthenticatedUserStateService.getState(userId)` で状態を得て、「利用者の状態の照合」の表に従って拒否する
+- 表の照合より前に、トークンの `gen`（無いトークンは 0）が状態の `accessTokenGeneration` より小さいものを、署名の不正なトークンと同じ 401 で拒否する（34.7。画面はリフレッシュを試み、失効済みのためログイン画面へ戻る）
 - 状態のキャッシュは Redis の鍵 `auth:user-state:<userId>`、TTL 60 秒。書き込みは既存の RBAC のキャッシュと同じく世代の照合で古い値の書き戻しを防ぐ。Redis が `ready` でないときは DB から読む
 - 状態を変える処理（無効化・再有効化・2FA の登録と再設定・初回のパスワード変更の完了）はコミットの後に `invalidate(userId)` を呼ぶ
 
@@ -5567,6 +5570,7 @@ interface AuthenticatedUserState {
   isActive: boolean;
   twoFactorEnabled: boolean;
   mustChangePassword: boolean;
+  accessTokenGeneration: number;  // 34.7
 }
 
 interface AuthenticatedUserStateService {
@@ -5669,7 +5673,8 @@ type AccountStatusError =
 
 - 権限は `user:manage`。無効化は 1 トランザクションで `is_active=false`・`deactivated_at`・`deactivation_reason` を書き、全リフレッシュトークンを失効させ、監査 `USER_DEACTIVATED`（実行者・対象・理由）を記録する。コミットの後に状態のキャッシュを無効化し、全システム管理者へ通知する（36.1、36.4）
 - 最後の有効なシステム管理者の判定は、`admin` ロールを持ち `is_active=true` の利用者の数で行う（36.5）
-- 自動無効化は `is_active=true` かつ `COALESCE(last_login_at, created_at) < now - 90日` の利用者を対象とし、監査 `USER_AUTO_DEACTIVATED`（実行者なし、`metadata.trigger='inactivity'`）を記録し、対象の一覧を一通の通知にまとめて全システム管理者へ送る（36.8、36.9）。冪等であり、日次の実行で漏れを追う
+- 再有効化（画面と復旧のスクリプトの両方）は `reactivated_at` に現在の日時を書く。`last_login_at` は書き換えない（36.8、36.10）
+- 自動無効化は `is_active=true` かつ `GREATEST(created_at, last_login_at, reactivated_at) < now - 90日`（PostgreSQL の `GREATEST` は NULL を無視する）の利用者を対象とし、監査 `USER_AUTO_DEACTIVATED`（実行者なし、`metadata.trigger='inactivity'`）を記録し、対象の一覧を一通の通知にまとめて全システム管理者へ送る（36.8、36.9）。冪等であり、日次の実行で漏れを追う
 - 自動無効化は唯一の有効なシステム管理者も対象とする（要件36.8 の文言どおり）。復旧はサーバー上の `npm run user:reactivate -- --email <address>`（`reactivate-user` スクリプト）で行い、監査 `USER_REACTIVATED`（`metadata.trigger='operator_script'`）を記録する
 - ロック（要件4.6 の `is_locked`）とは別の列であり、ログインの成功や時間の経過で解除しない
 
@@ -6076,6 +6081,8 @@ model User {
   deactivatedAt          DateTime? @map("deactivated_at")
   deactivationReason     String?   @map("deactivation_reason")
   lastLoginAt            DateTime? @map("last_login_at")
+  reactivatedAt          DateTime? @map("reactivated_at")  // 最後の再有効化（36.8 の起点）
+  accessTokenGeneration  Int       @default(0) @map("access_token_generation")  // 34.7
   mustChangePassword     Boolean   @default(false) @map("must_change_password")
   twoFactorLastUsedStep  Int?      @map("two_factor_last_used_step")
   twoFactorPendingSecret String?   @map("two_factor_pending_secret")  // AES-256-GCM
@@ -6127,6 +6134,7 @@ model Project {
 4. `invitations` の使用済みの行から `users.invited_by_id` を埋める
 5. `audit_logs` の外部キーを外し、既存の行の `actor_email`・`actor_display_name` を利用者から埋め、トリガーを作る（トリガーは埋めた後に作る）
 6. `role_permissions` から `user` ロールの `user:read` を外し、`permissions` に `project:read_all` と `ops:manage` を加える
+7. `users` に `reactivated_at`（null）と `access_token_generation`（既定 0）を加える（2026-10-22 の要件34.7・36.8 の改訂による追加。既存のアクセストークンは `gen` を持たず 0 として扱うため、移行で無効にならない）
 
 ### Error Handling
 
