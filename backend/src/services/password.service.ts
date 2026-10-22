@@ -36,6 +36,7 @@ import {
   revokeAllRefreshTokensForUser,
 } from '../utils/refresh-token-lock.js';
 import { randomBytes } from 'crypto';
+import { SESSION_CONFIG } from '../config/security.constants.js';
 
 /**
  * パスワード管理サービス
@@ -63,11 +64,6 @@ export class PasswordService {
    * パスワード履歴保持数
    */
   private readonly PASSWORD_HISTORY_LIMIT = 3;
-
-  /**
-   * リセットトークン有効期限（24時間）
-   */
-  private readonly RESET_TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24時間（ミリ秒）
 
   private readonly emailService: EmailService;
   private readonly auditLogService: IAuditLogService;
@@ -305,7 +301,7 @@ export class PasswordService {
    * 1. メールアドレスでユーザーを検索
    * 2. ユーザーが存在する場合:
    *    - 暗号学的に安全なリセットトークンを生成（32バイト）
-   *    - PasswordResetTokenテーブルへの保存（24時間有効期限）と監査ログ
+   *    - PasswordResetTokenテーブルへの保存（1時間有効期限。同じ利用者の未使用のトークンは失効させる）と監査ログ
    *      （PASSWORD_RESET_REQUESTED、実行者は本人）の記録を一つのトランザクションで行う
    *    - コミット後に EmailService 経由でパスワードリセットメールをキューへ投入する
    *      （キューは DB のトランザクションに参加できないため。ロールバックされたトークンの
@@ -332,13 +328,15 @@ export class PasswordService {
       // 3. 暗号学的に安全なリセットトークンを生成（32バイト = 256ビット）
       const resetToken = randomBytes(32).toString('hex');
 
-      // 4. リセットトークンの保存（24時間有効期限）と監査ログを同じトランザクションで記録
+      // 4. リセットトークンの保存（1時間有効期限、要件7.3）と監査ログを同じトランザクションで記録
       await this.prisma.$transaction(async (tx) => {
+        // 新しい要求は同じ利用者の未使用のトークンを失効させる
+        await tx.passwordResetToken.deleteMany({ where: { userId: user.id, usedAt: null } });
         await tx.passwordResetToken.create({
           data: {
             userId: user.id,
             token: resetToken,
-            expiresAt: new Date(Date.now() + this.RESET_TOKEN_EXPIRY),
+            expiresAt: new Date(Date.now() + SESSION_CONFIG.PASSWORD_RESET_TOKEN_EXPIRY_MS),
           },
         });
 

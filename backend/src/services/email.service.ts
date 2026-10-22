@@ -31,6 +31,7 @@ import Handlebars from 'handlebars';
 import logger from '../utils/logger.js';
 import { captureException } from '../utils/sentry.js';
 import { runtimeMode } from '../config/runtime-mode.js';
+import { SESSION_CONFIG } from '../config/security.constants.js';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -485,6 +486,8 @@ export class EmailService {
     const html = template({
       resetUrl,
       frontendUrl: this.frontendUrl,
+      // 有効期限の表記は判定と同じ定義から作る（要件7.3）
+      expiryHours: SESSION_CONFIG.PASSWORD_RESET_TOKEN_EXPIRY_MS / (60 * 60 * 1000),
     });
 
     logger.debug(

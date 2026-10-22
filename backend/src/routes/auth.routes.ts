@@ -24,7 +24,10 @@ import { csrfProtection } from '../middleware/csrf.middleware.js';
 import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
 import { getClientIp } from '../middleware/client-ip.js';
 import logger from '../utils/logger.js';
-import { SECURITY_CONFIG } from '../config/security.constants.js';
+import {
+  PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE,
+  SECURITY_CONFIG,
+} from '../config/security.constants.js';
 import { PasswordViolation } from '../types/password.types.js';
 import { updateProfileSchema } from '../schemas/auth-update.schema.js';
 import {
@@ -1689,6 +1692,8 @@ router.get(
  *                   example: "If an account exists, a password reset email has been sent"
  *       400:
  *         description: Validation error
+ *       429:
+ *         description: Too many requests from the same client (per-email limit returns the same 200)
  */
 router.post(
   '/password/reset-request',
@@ -1706,9 +1711,8 @@ router.post(
         logger.info({ email }, 'Password reset request processed');
       }
 
-      res.status(200).json({
-        message: 'If an account exists, a password reset email has been sent',
-      });
+      // 登録の有無・制限の有無に関わらず同じ応答（要件35.7）
+      res.status(200).json(PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE);
     } catch (error) {
       next(error);
     }

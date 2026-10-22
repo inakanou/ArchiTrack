@@ -9,6 +9,7 @@ import {
   mountAuthRateLimitPolicy,
   type RateLimiterDependencies,
 } from '../../../middleware/rateLimit.middleware.js';
+import { PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE } from '../../../config/security.constants.js';
 
 /**
  * 認証系の専用の制限（user-authentication タスク48.1、design.md の RateLimitPolicy）
@@ -75,6 +76,7 @@ function failingRedis(): Redis {
 function buildApp(deps: RateLimiterDependencies, trustProxyHops = 0): Express {
   const app = express();
   app.set('trust proxy', trustProxyHops);
+  app.use(express.json());
   app.use((req: Request, _res: Response, next: NextFunction) => {
     req.log = { warn: vi.fn() } as unknown as Request['log'];
     next();
@@ -280,6 +282,103 @@ describe('認証系の専用の制限（RateLimitPolicy）', () => {
       const statuses = await exhaust(app, registration);
       expect(statuses).toEqual(Array(registration.limit).fill(200));
       expect((await send(app, registration.routes[0]!)).status).toBe(429);
+    });
+  });
+
+  describe('パスワードリセットの要求（タスク48.2）', () => {
+    const RESET_REQUEST = '/api/v1/auth/password/reset-request';
+    const LIMIT = AUTH_RATE_LIMITS.PASSWORD_RESET_REQUEST.limit;
+
+    function resetRequest(app: Express, email: unknown, forwardedFor?: string) {
+      const req = request(app).post(RESET_REQUEST).send({ email });
+      return forwardedFor === undefined ? req : req.set('X-Forwarded-For', forwardedFor);
+    }
+
+    it('時間窓は 1 時間、上限は送信元・メールアドレスのそれぞれで 5 回', () => {
+      expect(AUTH_RATE_LIMITS.PASSWORD_RESET_REQUEST).toEqual({
+        windowMs: 60 * 60 * 1000,
+        limit: 5,
+      });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-35.4
+     */
+    it('同じ送信元からの上限の超過は、メールアドレスを変えても 429 になる', async () => {
+      const app = buildApp({ runtimeMode: production(), getRedisClient: () => null });
+
+      for (let i = 0; i < LIMIT; i++) {
+        expect((await resetRequest(app, `ip-${i}@example.com`)).status).toBe(200);
+      }
+      const res = await resetRequest(app, 'ip-next@example.com');
+      expect(res.status).toBe(429);
+      expect(res.body).toEqual({
+        error: 'Too many password reset requests, please try again later.',
+        retryAfter: expect.any(String),
+      });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-35.4
+     * @requirement user-authentication/REQ-35.7
+     */
+    it('同じメールアドレスへの上限の超過は、送信元を変えても通常の受理と同じ 200 を返し、後ろへ渡さない', async () => {
+      const app = buildApp({ runtimeMode: production(), getRedisClient: () => null }, 1);
+
+      for (let i = 0; i < LIMIT; i++) {
+        const res = await resetRequest(app, 'victim@example.com', `203.0.113.${i + 1}`);
+        expect(res.body).toEqual({ ok: true }); // 後ろ（本物の経路の代わり）へ届いた
+      }
+      // 大文字小文字・前後の空白が違っても同じメールアドレスとして数える
+      const res = await resetRequest(app, '  Victim@Example.COM ', '203.0.113.100');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE);
+      // メールアドレスごとの数をヘッダーで示さない（送信元ごとのヘッダーは超過していない値のまま）
+      expect(res.headers['retry-after']).toBeUndefined();
+      expect(res.headers['ratelimit-remaining']).toBe(String(LIMIT - 1));
+
+      // 別のメールアドレスは止めない
+      expect((await resetRequest(app, 'other@example.com', '203.0.113.101')).body).toEqual({
+        ok: true,
+      });
+    });
+
+    it('本文にメールアドレスの文字列が無い要求はメールアドレスごとに数えない（後ろの検証へ渡す）', async () => {
+      const app = buildApp({ runtimeMode: production(), getRedisClient: () => null }, 1);
+
+      for (let i = 0; i < LIMIT + 1; i++) {
+        const res = await resetRequest(app, undefined, `198.51.100.${i + 1}`);
+        expect(res.body).toEqual({ ok: true });
+      }
+    });
+
+    it('試験の実行環境では送信元・メールアドレスのどちらも制限しない', async () => {
+      const app = buildApp({
+        runtimeMode: createRuntimeMode({ NODE_ENV: 'test' }),
+        getRedisClient: () => null,
+      });
+
+      for (let i = 0; i < LIMIT + 2; i++) {
+        expect((await resetRequest(app, 'same@example.com')).body).toEqual({ ok: true });
+      }
+    });
+
+    it('Redis の操作が失敗してもメモリの記録へ退避して制限を続ける', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const app = buildApp(
+          { runtimeMode: production(), getRedisClient: () => failingRedis() },
+          1
+        );
+
+        for (let i = 0; i < LIMIT; i++) {
+          await resetRequest(app, 'fallback@example.com', `192.0.2.${i + 1}`);
+        }
+        const res = await resetRequest(app, 'fallback@example.com', '192.0.2.200');
+        expect(res.body).toEqual(PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE);
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 

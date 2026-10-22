@@ -137,7 +137,7 @@ test.describe('パスワード管理機能', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24時間後
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1時間後
       },
     });
 
@@ -171,7 +171,7 @@ test.describe('パスワード管理機能', () => {
 
   /**
    * 要件7.3: リセットトークンの有効期限切れ
-   * WHEN リセットトークンが24時間の有効期限を超過している
+   * IF リセットトークンが1時間の有効期限を超過している
    * THEN Authentication Serviceはトークンを無効として扱う
    * @requirement user-authentication/REQ-7.3 @requirement user-authentication/REQ-29.12 @requirement user-authentication/REQ-28.12
    */
@@ -184,11 +184,14 @@ test.describe('パスワード管理機能', () => {
 
     // ユニークなトークンを生成（リトライ時の重複を防ぐ）
     const expiredToken = `expired-reset-token-${Date.now()}`;
+    // 1時間と1秒前に発行したトークン（有効期限は発行から1時間）
+    const issuedAt = new Date(Date.now() - (60 * 60 * 1000 + 1000));
     await prisma.passwordResetToken.create({
       data: {
         token: expiredToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() - 1000), // 1秒前に期限切れ
+        createdAt: issuedAt,
+        expiresAt: new Date(issuedAt.getTime() + 60 * 60 * 1000),
       },
     });
 
@@ -265,7 +268,7 @@ test.describe('パスワード管理機能', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 
@@ -299,7 +302,7 @@ test.describe('パスワード管理機能', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 
@@ -328,7 +331,7 @@ test.describe('パスワード管理機能', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 
@@ -358,7 +361,7 @@ test.describe('パスワード管理機能', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 
@@ -811,7 +814,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 
@@ -870,7 +873,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 
@@ -958,7 +961,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 
@@ -995,7 +998,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 
@@ -1036,7 +1039,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 
@@ -1159,7 +1162,7 @@ test.describe('パスワード変更後のセッション管理', () => {
       data: {
         token: resetToken,
         userId: user!.id,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
     });
 

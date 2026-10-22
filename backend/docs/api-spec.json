@@ -10566,6 +10566,9 @@
           },
           "400": {
             "description": "Validation error"
+          },
+          "429": {
+            "description": "Too many requests from the same client (per-email limit returns the same 200)"
           }
         }
       }

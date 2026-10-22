@@ -487,8 +487,8 @@ export async function createPasswordResetToken(
   // 暗号学的に安全なトークンを生成
   const token = randomBytes(32).toString('hex');
 
-  // デフォルトで24時間後に期限切れ
-  const expiresAt = options.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000);
+  // デフォルトで1時間後に期限切れ（要件7.3）
+  const expiresAt = options.expiresAt || new Date(Date.now() + 60 * 60 * 1000);
 
   return await client.passwordResetToken.create({
     data: {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PasswordService } from '../../../services/password.service.js';
 import { PasswordViolation } from '../../../types/password.types.js';
 import type {
@@ -9,6 +9,7 @@ import type {
 } from '../../../generated/prisma/client.js';
 import { EmailService } from '../../../services/email.service.js';
 import logger from '../../../utils/logger.js';
+import { SESSION_CONFIG } from '../../../config/security.constants.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {
@@ -20,6 +21,7 @@ const mockPrismaClient = {
     create: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
+    deleteMany: vi.fn(),
   },
   passwordHistory: {
     findMany: vi.fn(),
@@ -359,7 +361,7 @@ describe('PasswordService', () => {
     const email = 'reset-order@example.com';
     const userId = 'user-reset-order';
     const txClient = {
-      passwordResetToken: { create: vi.fn() },
+      passwordResetToken: { create: vi.fn(), deleteMany: vi.fn() },
       auditLog: { create: vi.fn() },
       // 監査ログの実行者の写しを同じトランザクションで読む（要件40.7）
       user: { findUnique: vi.fn() },
@@ -457,6 +459,125 @@ describe('PasswordService', () => {
 
       expect(result).toEqual({ ok: false, error: { type: 'RESET_TOKEN_INVALID' } });
       expect(mockEmailService.sendPasswordResetEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('リセットトークンの有効期限と未使用のトークンの失効（タスク48.2）', () => {
+    const email = 'expiry@example.com';
+    const userId = 'user-expiry';
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const requestedAt = new Date('2026-10-22T09:00:00.000Z');
+    const txClient = {
+      passwordResetToken: { create: vi.fn(), deleteMany: vi.fn() },
+      auditLog: { create: vi.fn() },
+      user: { findUnique: vi.fn() },
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(requestedAt);
+      txClient.user.findUnique.mockResolvedValue({ email, displayName: 'Expiry User' });
+      txClient.passwordResetToken.create.mockResolvedValue({ id: 'reset-token-expiry' });
+      txClient.passwordResetToken.deleteMany.mockResolvedValue({ count: 0 });
+      txClient.auditLog.create.mockResolvedValue({ id: 'audit-expiry' });
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: userId,
+        email,
+      });
+      (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        (callback: (tx: unknown) => Promise<unknown>) => callback(txClient)
+      );
+      (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mockResolvedValue(
+        undefined
+      );
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** 要求で作られたトークンの行（作成の引数）を、検証で読む行として返す */
+    async function requestAndStoredToken(): Promise<PasswordResetToken> {
+      const result = await passwordService.requestPasswordReset(email);
+      expect(result).toEqual({ ok: true, value: undefined });
+      const data = txClient.passwordResetToken.create.mock.calls[0]![0].data as {
+        userId: string;
+        token: string;
+        expiresAt: Date;
+      };
+      return {
+        id: 'reset-token-expiry',
+        userId: data.userId,
+        token: data.token,
+        expiresAt: data.expiresAt,
+        createdAt: requestedAt,
+        usedAt: null,
+      };
+    }
+
+    /**
+     * @requirement user-authentication/REQ-7.3
+     */
+    it('要求で作るトークンの有効期限は 1 時間の一つの定義（SESSION_CONFIG）に従う', async () => {
+      const stored = await requestAndStoredToken();
+
+      expect(SESSION_CONFIG.PASSWORD_RESET_TOKEN_EXPIRY_MS).toBe(ONE_HOUR_MS);
+      expect(stored.expiresAt.getTime() - requestedAt.getTime()).toBe(ONE_HOUR_MS);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-7.3
+     */
+    it('要求から 1 時間を超えたトークンは無効（RESET_TOKEN_EXPIRED）になる', async () => {
+      const stored = await requestAndStoredToken();
+      (
+        mockPrismaClient.passwordResetToken.findUnique as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(stored);
+
+      vi.setSystemTime(new Date(requestedAt.getTime() + ONE_HOUR_MS + 1));
+      const result = await passwordService.resetPassword(stored.token, 'NewSecurePass123!');
+
+      expect(result).toEqual({ ok: false, error: { type: 'RESET_TOKEN_EXPIRED' } });
+      expect(mockPrismaClient.$transaction).toHaveBeenCalledTimes(1); // 要求の分だけ
+    });
+
+    /**
+     * @requirement user-authentication/REQ-7.3
+     */
+    it('要求から 1 時間以内のトークンではパスワードを更新できる', async () => {
+      const stored = await requestAndStoredToken();
+      (
+        mockPrismaClient.passwordResetToken.findUnique as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(stored);
+      (mockPrismaClient.passwordHistory.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+      vi.setSystemTime(new Date(requestedAt.getTime() + ONE_HOUR_MS - 60 * 1000));
+      const result = await passwordService.resetPassword(stored.token, 'NewSecurePass123!');
+
+      expect(result).toEqual({ ok: true, value: undefined });
+    });
+
+    it('新しい要求は同じ利用者の未使用のトークンを、新しいトークンの作成より前に同じトランザクションで失効させる', async () => {
+      await requestAndStoredToken();
+
+      expect(txClient.passwordResetToken.deleteMany).toHaveBeenCalledWith({
+        where: { userId, usedAt: null },
+      });
+      expect(mockPrismaClient.passwordResetToken.deleteMany).not.toHaveBeenCalled();
+      expect(txClient.passwordResetToken.deleteMany.mock.invocationCallOrder[0]!).toBeLessThan(
+        txClient.passwordResetToken.create.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('登録の無いメールアドレスの要求はトークンを失効も作成もしない', async () => {
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      const result = await passwordService.requestPasswordReset('nobody@example.com');
+
+      expect(result).toEqual({ ok: true, value: undefined });
+      expect(txClient.passwordResetToken.deleteMany).not.toHaveBeenCalled();
+      expect(txClient.passwordResetToken.create).not.toHaveBeenCalled();
     });
   });
 
