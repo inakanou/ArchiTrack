@@ -523,6 +523,20 @@ describe('AccountStatusService', () => {
       expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
     });
 
+    it('続きの読み出しが失敗しても、それまでに無効化した利用者を通知してから失敗を投げる', async () => {
+      const firstPage = Array.from({ length: INACTIVE_USER_BATCH_SIZE }, (_, i) => ({
+        id: `u${String(i).padStart(3, '0')}`,
+      }));
+      tx.user.findMany.mockResolvedValueOnce(firstPage).mockRejectedValueOnce(new Error('db down'));
+
+      await expect(service.deactivateInactiveUsers(NOW)).rejects.toThrow('db down');
+
+      // 無効化はコミット済みで再実行では対象から外れるため、ここで通知しないと失われる
+      expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
+      const notification = notifyAllAdmins.mock.calls[0]?.[0] as { lines: string[] };
+      expect(notification.lines).toContain(`対象: ${INACTIVE_USER_BATCH_SIZE} 名`);
+    });
+
     it('コミットの後の状態のキャッシュの無効化と通知の失敗は結果を変えない', async () => {
       tx.user.findMany.mockResolvedValueOnce([{ id: 'u1' }]);
       invalidate.mockRejectedValueOnce(new Error('redis down'));

@@ -298,6 +298,29 @@ export class AccountStatusService {
   async deactivateInactiveUsers(now: Date): Promise<{ deactivatedUserIds: string[] }> {
     const cutoff = new Date(now.getTime() - INACTIVITY_DEACTIVATION_DAYS * DAY_MS);
     const deactivated: AutoDeactivatedUser[] = [];
+
+    // 続きの読み出しが失敗しても、コミット済みの対象者は再実行で対象から外れるため、通知してから投げる（36.9）
+    try {
+      await this.deactivateInactiveUsersInBatches(cutoff, deactivated);
+    } finally {
+      if (deactivated.length > 0) {
+        await this.notifyAutoDeactivation(deactivated);
+        logger.info(
+          { count: deactivated.length, userIds: deactivated.map((u) => u.id) },
+          'Inactive users auto-deactivated'
+        );
+      }
+    }
+    return { deactivatedUserIds: deactivated.map((u) => u.id) };
+  }
+
+  /**
+   * 候補を件数の上限ごとに読み、一人ずつ無効化して `deactivated` へ積む
+   */
+  private async deactivateInactiveUsersInBatches(
+    cutoff: Date,
+    deactivated: AutoDeactivatedUser[]
+  ): Promise<void> {
     let cursor: string | undefined;
 
     for (;;) {
@@ -336,15 +359,6 @@ export class AccountStatusService {
       }
       cursor = last.id;
     }
-
-    if (deactivated.length > 0) {
-      await this.notifyAutoDeactivation(deactivated);
-      logger.info(
-        { count: deactivated.length, userIds: deactivated.map((u) => u.id) },
-        'Inactive users auto-deactivated'
-      );
-    }
-    return { deactivatedUserIds: deactivated.map((u) => u.id) };
   }
 
   /**
