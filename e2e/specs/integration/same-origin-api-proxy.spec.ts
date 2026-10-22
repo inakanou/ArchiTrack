@@ -28,7 +28,8 @@ import { test, expect, type Response } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedProject } from '../../helpers/project-list-preconditions';
@@ -142,7 +143,8 @@ test.describe('画面の配信元から API を同一オリジンへ中継する
       }
     });
 
-    await loginAsUser(page, 'ADMIN_USER');
+    // ログインの要求の経路を観測するため、共有のセッションの Cookie を使わずログイン画面からログインする
+    await loginWithCredentials(page, TEST_USERS.ADMIN_USER.email, TEST_USERS.ADMIN_USER.password);
 
     const projectListResponse = page.waitForResponse(
       (response) =>
