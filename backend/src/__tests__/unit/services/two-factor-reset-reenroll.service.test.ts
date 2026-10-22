@@ -71,7 +71,7 @@ describe('TwoFactorService 管理者による再設定と利用者による再�
      * @requirement user-authentication/REQ-34.7
      * @requirement user-authentication/REQ-34.10
      */
-    it('対象者の秘密鍵・バックアップコード・全リフレッシュトークンを消し、監査に実行者と対象者を記録し、コミットの後に状態のキャッシュを無効化する', async () => {
+    it('対象者の秘密鍵・バックアップコード・全リフレッシュトークンを消してアクセストークンの世代を進め、監査に実行者と対象者を記録し、コミットの後に状態のキャッシュを無効化する', async () => {
       mockPrismaClient.user.findUnique.mockImplementation(
         async (args: { where: { id: string } }) =>
           args.where.id === 'target-1'
@@ -95,7 +95,13 @@ describe('TwoFactorService 管理者による再設定と利用者による再�
       });
       expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
         where: { id: 'target-1' },
-        data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorPendingSecret: null },
+        data: {
+          twoFactorEnabled: false,
+          twoFactorSecret: null,
+          twoFactorPendingSecret: null,
+          // 再設定より前のアクセストークンを拒否するため、同じ取引で世代を進める（要件34.7）
+          accessTokenGeneration: { increment: 1 },
+        },
       });
       expect(mockPrismaClient.auditLog.create).toHaveBeenCalledWith({
         data: {

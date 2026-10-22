@@ -123,6 +123,7 @@ describe('利用者の状態の取得とキャッシュ・応答の状態（統�
       isActive: true,
       twoFactorEnabled: true,
       mustChangePassword: false,
+      accessTokenGeneration: 0,
     });
     const ttl = await redisClient.ttl(authUserStateCacheKey(user.id));
     expect(ttl).toBeGreaterThan(0);
@@ -169,6 +170,7 @@ describe('利用者の状態の取得とキャッシュ・応答の状態（統�
       isActive: true,
       twoFactorEnabled: false,
       mustChangePassword: true,
+      accessTokenGeneration: 0,
     });
   });
 

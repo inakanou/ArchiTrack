@@ -106,7 +106,8 @@ describe('パスワードと二要素認証のエンドポイントの DB 接続
       await import('../../services/two-factor-challenge.service.js');
     challengeService = new ChallengeServiceClass();
     const tokenService = (await import('../../services/token.service.js')).default;
-    generateAccessToken = (payload) => tokenService.generateAccessToken(payload);
+    generateAccessToken = (payload) =>
+      tokenService.generateAccessToken({ ...payload, accessTokenGeneration: 0 });
   }, BEFORE_ALL_TIMEOUT_MS);
 
   afterAll(async () => {

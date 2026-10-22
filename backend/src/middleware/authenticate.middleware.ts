@@ -9,6 +9,8 @@
  * - REQ-16.18: 401レスポンスにWWW-Authenticateヘッダーを含める, req.userにユーザー情報を設定
  * - REQ-34.2: 2FA 未登録の利用者の、2FA の設定とログアウト以外の要求を 403 で拒否
  *   （初回のパスワード変更を要する利用者はパスワード変更とログアウトだけを許す。要件37.7）
+ * - REQ-34.7: 管理者による 2FA の再設定より前に発行されたアクセストークン（世代 `gen` が利用者の世代より
+ *   小さいもの）を、状態の表の照合より前に、署名の不正なトークンと同じ 401 で拒否
  * - REQ-36.1: 無効化された利用者の要求を 401 で拒否
  *
  * 利用者の状態の照合（design.md「利用者の状態の照合」）はアクセストークンの検証の後、権限の判定
@@ -114,6 +116,17 @@ function getWwwAuthenticateHeader(
 }
 
 /**
+ * 不正なトークンの 401（署名の不正・利用者の不在・世代の不一致で同じ応答にする）
+ */
+function respondInvalidToken(res: Response): void {
+  res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('invalid_token'));
+  res.status(401).json({
+    error: 'INVALID_TOKEN',
+    message: 'Invalid or expired token',
+  });
+}
+
+/**
  * JWT認証ミドルウェアファクトリー
  *
  * TokenServiceを注入可能な認証ミドルウェアを生成します。
@@ -181,11 +194,7 @@ export function createAuthMiddleware(
           return;
         }
 
-        res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('invalid_token'));
-        res.status(401).json({
-          error: 'INVALID_TOKEN',
-          message: 'Invalid or expired token',
-        });
+        respondInvalidToken(res);
         return;
       }
 
@@ -203,11 +212,15 @@ export function createAuthMiddleware(
 
       // 利用者の不在（削除済み）: 署名の正しいトークンでも受け付けない
       if (!state) {
-        res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('invalid_token'));
-        res.status(401).json({
-          error: 'INVALID_TOKEN',
-          message: 'Invalid or expired token',
-        });
+        respondInvalidToken(res);
+        return;
+      }
+
+      // 要件34.7: 管理者による 2FA の再設定より前に発行されたアクセストークンは、状態の表の照合より前に
+      // 署名の不正なトークンと同じ 401 で拒否する（2FA の設定の経路も通さない）。世代を持たないトークンは 0
+      const tokenGeneration = result.value.accessTokenGeneration ?? 0;
+      if (tokenGeneration < state.accessTokenGeneration) {
+        respondInvalidToken(res);
         return;
       }
 
@@ -240,11 +253,7 @@ export function createAuthMiddleware(
       next();
     } catch {
       // 予期しないエラーをハンドリング
-      res.setHeader('WWW-Authenticate', getWwwAuthenticateHeader('invalid_token'));
-      res.status(401).json({
-        error: 'INVALID_TOKEN',
-        message: 'Invalid or expired token',
-      });
+      respondInvalidToken(res);
     }
   };
 }

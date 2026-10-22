@@ -38,6 +38,7 @@ model User {
   invitedById            String?   @map("invited_by_id") // 招待者（登録時に招待の作成者を写す、要件36.10）
   invitedBy              User?     @relation("InvitedUsers", fields: [invitedById], references: [id], onDelete: SetNull)
   invitedUsers           User[]    @relation("InvitedUsers")
+  accessTokenGeneration  Int       @default(0) @map("access_token_generation") // アクセストークンの世代（管理者の 2FA の再設定で進める、要件34.7）
 
   userRoles             UserRole[]
   refreshTokens         RefreshToken[]

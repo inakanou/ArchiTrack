@@ -110,6 +110,7 @@ describe('管理者による無効化と再有効化（統合）', () => {
     role: string
   ): Promise<[string, string]> {
     const accessToken = await tokenService.generateAccessToken({
+      accessTokenGeneration: 0,
       userId: user.id,
       email: user.email,
       roles: [role],

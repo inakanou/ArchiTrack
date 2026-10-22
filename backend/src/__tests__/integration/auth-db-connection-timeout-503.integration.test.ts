@@ -80,7 +80,12 @@ describe('認証系のエンドポイントの DB 接続タイムアウト時の
     const tokenService = (await import('../../services/token.service.js')).default;
     cookieClient = await import('./refresh-cookie-client.js');
 
-    const payload = { userId: 'ua3511-user', email: 'ua3511@example.com', roles: ['user'] };
+    const payload = {
+      userId: 'ua3511-user',
+      email: 'ua3511@example.com',
+      roles: ['user'],
+      accessTokenGeneration: 0,
+    };
     accessToken = await tokenService.generateAccessToken(payload);
     refreshToken = await tokenService.generateRefreshToken(payload.userId, 'ua3511-family');
   }, BEFORE_ALL_TIMEOUT_MS);

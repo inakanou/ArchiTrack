@@ -72,6 +72,7 @@ describe('既定の権限（統合・実 DB）', () => {
     });
     await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
     const token = await tokenService.generateAccessToken({
+      accessTokenGeneration: 0,
       userId: user.id,
       email,
       roles: [roleName],

@@ -154,7 +154,12 @@ describe('パスワードと二要素認証のトランザクションの開始�
       { twoFactor: false }
     );
     userId = user.id;
-    accessToken = await tokenService.generateAccessToken({ userId, email, roles: [] });
+    accessToken = await tokenService.generateAccessToken({
+      userId,
+      email,
+      roles: [],
+      accessTokenGeneration: 0,
+    });
   }, BEFORE_ALL_TIMEOUT_MS);
 
   beforeEach(async () => {

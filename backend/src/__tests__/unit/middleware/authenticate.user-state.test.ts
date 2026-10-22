@@ -32,12 +32,14 @@ const ACTIVE: AuthenticatedUserState = {
   isActive: true,
   twoFactorEnabled: true,
   mustChangePassword: false,
+  accessTokenGeneration: 0,
 };
 const TWO_FACTOR_NOT_ENROLLED: AuthenticatedUserState = { ...ACTIVE, twoFactorEnabled: false };
 const PASSWORD_CHANGE_REQUIRED: AuthenticatedUserState = {
   isActive: true,
   twoFactorEnabled: false,
   mustChangePassword: true,
+  accessTokenGeneration: 0,
 };
 const DEACTIVATED: AuthenticatedUserState = { ...ACTIVE, isActive: false };
 

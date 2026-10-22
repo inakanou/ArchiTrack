@@ -100,7 +100,12 @@ describe('送信元 IP の識別（統合・TRUST_PROXY_HOPS=1）', () => {
     });
     await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
     userId = user.id;
-    token = await tokenService.generateAccessToken({ userId, email, roles: [MARK] });
+    token = await tokenService.generateAccessToken({
+      userId,
+      email,
+      roles: [MARK],
+      accessTokenGeneration: 0,
+    });
   });
 
   afterAll(async () => {

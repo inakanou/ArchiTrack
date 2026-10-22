@@ -87,6 +87,8 @@ test.describe('利用者の状態のキャッシュと初期化の補助', () =>
       isActive: true,
       twoFactorEnabled: true,
       mustChangePassword: true,
+      // アクセストークンの世代（要件34.7、タスク47.11）。専用の利用者は 2FA の再設定の検証で進みうる
+      accessTokenGeneration: expect.any(Number),
     });
 
     const reset = await resetDedicatedUser('STATE_CHANGE_USER');
@@ -104,6 +106,7 @@ test.describe('利用者の状態のキャッシュと初期化の補助', () =>
       isActive: true,
       twoFactorEnabled: true,
       mustChangePassword: false,
+      accessTokenGeneration: expect.any(Number),
     });
   });
 });

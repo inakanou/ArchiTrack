@@ -13,7 +13,19 @@ export interface TokenPayload {
   email: string;
   roles: string[];
   permissions?: string[];
+  /**
+   * アクセストークンの世代（クレーム `gen`。要件34.7）
+   *
+   * 発行時の利用者の `access_token_generation`。検証の結果では、`gen` を持たないアクセストークン
+   * （世代の導入より前に発行されたもの）とリフレッシュトークンは undefined になり、照合する側が 0 として扱う。
+   */
+  accessTokenGeneration?: number;
 }
+
+/**
+ * アクセストークンの発行に渡す情報（世代は必須。要件34.7）
+ */
+export type AccessTokenIssuePayload = TokenPayload & { accessTokenGeneration: number };
 
 /**
  * トークンの種別（クレーム token_use の値）
@@ -152,10 +164,11 @@ export class TokenService {
    *   userId: 'user123',
    *   email: 'test@example.com',
    *   roles: ['user'],
+   *   accessTokenGeneration: 0,
    * });
    * ```
    */
-  async generateAccessToken(payload: TokenPayload): Promise<string> {
+  async generateAccessToken(payload: AccessTokenIssuePayload): Promise<string> {
     // キーの初期化を待つ
     await this.keysInitialized;
 
@@ -167,6 +180,8 @@ export class TokenService {
           email: payload.email,
           roles: payload.roles,
           ...(payload.permissions && { permissions: payload.permissions }),
+          // 発行時の利用者の世代（要件34.7。管理者の 2FA の再設定より前のトークンの拒否に使う）
+          gen: payload.accessTokenGeneration,
         },
         'access',
         this.accessTokenExpiry
@@ -277,6 +292,11 @@ export class TokenService {
 
       if (payload.permissions) {
         tokenPayload.permissions = payload.permissions as string[];
+      }
+
+      // アクセストークンの世代（要件34.7）。整数でない・持たないものは載せない（照合する側が 0 として扱う）
+      if (typeof payload.gen === 'number' && Number.isSafeInteger(payload.gen)) {
+        tokenPayload.accessTokenGeneration = payload.gen;
       }
 
       return Ok(tokenPayload);

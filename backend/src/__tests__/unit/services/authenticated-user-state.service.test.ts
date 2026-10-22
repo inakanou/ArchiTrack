@@ -1,7 +1,7 @@
 /**
- * @fileoverview AuthenticatedUserStateService の単体テスト（user-authentication タスク47.5）
+ * @fileoverview AuthenticatedUserStateService の単体テスト（user-authentication タスク47.5・47.11）
  *
- * 利用者の状態（有効・2FA の登録・初回のパスワード変更の要否）のキャッシュ経由の取得と、
+ * 利用者の状態（有効・2FA の登録・初回のパスワード変更の要否・アクセストークンの世代）のキャッシュ経由の取得と、
  * 「消して世代を進める」無効化を確かめる。Redis は eval の Lua を解釈する最小の擬似で代える。
  */
 
@@ -90,6 +90,7 @@ describe('AuthenticatedUserStateService', () => {
       isActive: true,
       twoFactorEnabled: false,
       mustChangePassword: true,
+      accessTokenGeneration: 0,
     });
   });
 
@@ -108,15 +109,25 @@ describe('AuthenticatedUserStateService', () => {
   });
 
   describe('getState', () => {
-    it('キャッシュが無ければ DB から状態の 3 項目だけを読み、TTL 60 秒でキャッシュへ書く', async () => {
+    it('キャッシュが無ければ DB から状態の 4 項目だけを読み、TTL 60 秒でキャッシュへ書く', async () => {
       const service = new AuthenticatedUserStateService(prisma, asRedis(redis));
 
       const state = await service.getState(USER_ID);
 
-      expect(state).toEqual({ isActive: true, twoFactorEnabled: false, mustChangePassword: true });
+      expect(state).toEqual({
+        isActive: true,
+        twoFactorEnabled: false,
+        mustChangePassword: true,
+        accessTokenGeneration: 0,
+      });
       expect(findUnique).toHaveBeenCalledWith({
         where: { id: USER_ID },
-        select: { isActive: true, twoFactorEnabled: true, mustChangePassword: true },
+        select: {
+          isActive: true,
+          twoFactorEnabled: true,
+          mustChangePassword: true,
+          accessTokenGeneration: true,
+        },
       });
       expect(JSON.parse(redis.store.get(authUserStateCacheKey(USER_ID))!)).toEqual(state);
       expect(redis.ttl.get(authUserStateCacheKey(USER_ID))).toBe(60);
@@ -125,13 +136,23 @@ describe('AuthenticatedUserStateService', () => {
     it('キャッシュがあれば DB を読まずにキャッシュの状態を返す', async () => {
       redis.store.set(
         authUserStateCacheKey(USER_ID),
-        JSON.stringify({ isActive: false, twoFactorEnabled: true, mustChangePassword: false })
+        JSON.stringify({
+          isActive: false,
+          twoFactorEnabled: true,
+          mustChangePassword: false,
+          accessTokenGeneration: 0,
+        })
       );
       const service = new AuthenticatedUserStateService(prisma, asRedis(redis));
 
       const state = await service.getState(USER_ID);
 
-      expect(state).toEqual({ isActive: false, twoFactorEnabled: true, mustChangePassword: false });
+      expect(state).toEqual({
+        isActive: false,
+        twoFactorEnabled: true,
+        mustChangePassword: false,
+        accessTokenGeneration: 0,
+      });
       expect(findUnique).not.toHaveBeenCalled();
     });
 
@@ -141,9 +162,42 @@ describe('AuthenticatedUserStateService', () => {
 
       const state = await service.getState(USER_ID);
 
-      expect(state).toEqual({ isActive: true, twoFactorEnabled: false, mustChangePassword: true });
+      expect(state).toEqual({
+        isActive: true,
+        twoFactorEnabled: false,
+        mustChangePassword: true,
+        accessTokenGeneration: 0,
+      });
       expect(findUnique).toHaveBeenCalledTimes(1);
       expect(logger.warn).toHaveBeenCalled();
+      expect(JSON.parse(redis.store.get(authUserStateCacheKey(USER_ID))!)).toEqual(state);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-34.7: 世代の導入より前の形のキャッシュ（世代を持たない）は使わない
+     */
+    it('世代を持たない古い形のキャッシュは使わず、DB の世代を読み直して書き直す', async () => {
+      redis.store.set(
+        authUserStateCacheKey(USER_ID),
+        JSON.stringify({ isActive: true, twoFactorEnabled: true, mustChangePassword: false })
+      );
+      findUnique.mockResolvedValue({
+        isActive: true,
+        twoFactorEnabled: false,
+        mustChangePassword: false,
+        accessTokenGeneration: 3,
+      });
+      const service = new AuthenticatedUserStateService(prisma, asRedis(redis));
+
+      const state = await service.getState(USER_ID);
+
+      expect(state).toEqual({
+        isActive: true,
+        twoFactorEnabled: false,
+        mustChangePassword: false,
+        accessTokenGeneration: 3,
+      });
+      expect(findUnique).toHaveBeenCalledTimes(1);
       expect(JSON.parse(redis.store.get(authUserStateCacheKey(USER_ID))!)).toEqual(state);
     });
 
@@ -158,7 +212,12 @@ describe('AuthenticatedUserStateService', () => {
     it('DB の読み出しの間に無効化が割り込むと、読んだ古い状態をキャッシュへ書き戻さない', async () => {
       const service = new AuthenticatedUserStateService(prisma, asRedis(redis));
       findUnique.mockImplementationOnce(async () => {
-        const stale = { isActive: true, twoFactorEnabled: false, mustChangePassword: true };
+        const stale = {
+          isActive: true,
+          twoFactorEnabled: false,
+          mustChangePassword: true,
+          accessTokenGeneration: 0,
+        };
         // 読み出しの後・書き込みの前に、別の操作のコミットと無効化が走る
         await service.invalidate(USER_ID);
         return stale;
@@ -166,18 +225,25 @@ describe('AuthenticatedUserStateService', () => {
 
       const first = await service.getState(USER_ID);
 
-      expect(first).toEqual({ isActive: true, twoFactorEnabled: false, mustChangePassword: true });
+      expect(first).toEqual({
+        isActive: true,
+        twoFactorEnabled: false,
+        mustChangePassword: true,
+        accessTokenGeneration: 0,
+      });
       expect(redis.store.has(authUserStateCacheKey(USER_ID))).toBe(false);
 
       findUnique.mockResolvedValueOnce({
         isActive: true,
         twoFactorEnabled: true,
         mustChangePassword: false,
+        accessTokenGeneration: 0,
       });
       expect(await service.getState(USER_ID)).toEqual({
         isActive: true,
         twoFactorEnabled: true,
         mustChangePassword: false,
+        accessTokenGeneration: 0,
       });
     });
 
@@ -187,7 +253,12 @@ describe('AuthenticatedUserStateService', () => {
 
       const state = await service.getState(USER_ID);
 
-      expect(state).toEqual({ isActive: true, twoFactorEnabled: false, mustChangePassword: true });
+      expect(state).toEqual({
+        isActive: true,
+        twoFactorEnabled: false,
+        mustChangePassword: true,
+        accessTokenGeneration: 0,
+      });
       expect(notReady.get).not.toHaveBeenCalled();
       expect(notReady.eval).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalledWith(
@@ -202,7 +273,12 @@ describe('AuthenticatedUserStateService', () => {
 
       const state = await service.getState(USER_ID);
 
-      expect(state).toEqual({ isActive: true, twoFactorEnabled: false, mustChangePassword: true });
+      expect(state).toEqual({
+        isActive: true,
+        twoFactorEnabled: false,
+        mustChangePassword: true,
+        accessTokenGeneration: 0,
+      });
       expect(redis.eval).not.toHaveBeenCalled();
     });
 
@@ -212,7 +288,12 @@ describe('AuthenticatedUserStateService', () => {
 
       const state = await service.getState(USER_ID);
 
-      expect(state).toEqual({ isActive: true, twoFactorEnabled: false, mustChangePassword: true });
+      expect(state).toEqual({
+        isActive: true,
+        twoFactorEnabled: false,
+        mustChangePassword: true,
+        accessTokenGeneration: 0,
+      });
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ userId: USER_ID }),
         'Failed to cache user state to Redis'
@@ -226,6 +307,7 @@ describe('AuthenticatedUserStateService', () => {
         isActive: true,
         twoFactorEnabled: false,
         mustChangePassword: true,
+        accessTokenGeneration: 0,
       });
     });
 
@@ -257,6 +339,7 @@ describe('AuthenticatedUserStateService', () => {
         isActive: false,
         twoFactorEnabled: true,
         mustChangePassword: false,
+        accessTokenGeneration: 0,
       });
 
       expect((await service.getState(USER_ID))?.isActive).toBe(true);
@@ -265,7 +348,33 @@ describe('AuthenticatedUserStateService', () => {
         isActive: false,
         twoFactorEnabled: true,
         mustChangePassword: false,
+        accessTokenGeneration: 0,
       });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-34.7: 再設定で進んだ世代を、無効化の直後の取得が返す
+     */
+    it('世代が進んだ後の無効化の直後の取得は、キャッシュの古い世代でなく DB の新しい世代を返す', async () => {
+      const service = new AuthenticatedUserStateService(prisma, asRedis(redis));
+      findUnique.mockResolvedValue({
+        isActive: true,
+        twoFactorEnabled: true,
+        mustChangePassword: false,
+        accessTokenGeneration: 0,
+      });
+      expect((await service.getState(USER_ID))?.accessTokenGeneration).toBe(0);
+
+      findUnique.mockResolvedValue({
+        isActive: true,
+        twoFactorEnabled: false,
+        mustChangePassword: false,
+        accessTokenGeneration: 1,
+      });
+      // 無効化の前はキャッシュの古い世代が返る（TTL の間）
+      expect((await service.getState(USER_ID))?.accessTokenGeneration).toBe(0);
+      await service.invalidate(USER_ID);
+      expect((await service.getState(USER_ID))?.accessTokenGeneration).toBe(1);
     });
 
     it('Redis が無ければ何もしない', async () => {

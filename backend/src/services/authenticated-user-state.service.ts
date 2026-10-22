@@ -1,7 +1,7 @@
 /**
  * @fileoverview 利用者の状態の取得とキャッシュ・無効化（user-authentication 要件34.2、タスク47.5）
  *
- * 利用者の状態（有効・2FA の登録・初回のパスワード変更の要否）を、Redis のキャッシュ
+ * 利用者の状態（有効・2FA の登録・初回のパスワード変更の要否・アクセストークンの世代）を、Redis のキャッシュ
  * （鍵 `auth:user-state:<userId>`、TTL 60 秒）を経由して取得する。認証ミドルウェアの状態の照合
  * （design.md「利用者の状態の照合」）と、画面へ状態を返す応答が使う。
  *
@@ -38,6 +38,13 @@ export interface AuthenticatedUserState {
   twoFactorEnabled: boolean;
   /** 初回のパスワード変更を要するか */
   mustChangePassword: boolean;
+  /**
+   * アクセストークンの世代（要件34.7、タスク47.11）
+   *
+   * 管理者の 2FA の再設定で 1 つ進む。発行時の世代（クレーム `gen`）がこれより小さいアクセストークンは
+   * 認証ミドルウェアが拒否する。
+   */
+  accessTokenGeneration: number;
 }
 
 /**
@@ -45,7 +52,12 @@ export interface AuthenticatedUserState {
  */
 export type UserStateRedisProvider = () => Redis | null | undefined;
 
-/** キャッシュの値が状態の形をしているか */
+/**
+ * キャッシュの値が状態の形をしているか
+ *
+ * 世代（accessTokenGeneration）を持たない値（世代の導入より前の形で書かれたもの）も形の不一致として扱い、
+ * DB から読み直す（世代を 0 と推測して古い値を使わない）。
+ */
 function isAuthenticatedUserState(value: unknown): value is AuthenticatedUserState {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -54,7 +66,9 @@ function isAuthenticatedUserState(value: unknown): value is AuthenticatedUserSta
   return (
     typeof v.isActive === 'boolean' &&
     typeof v.twoFactorEnabled === 'boolean' &&
-    typeof v.mustChangePassword === 'boolean'
+    typeof v.mustChangePassword === 'boolean' &&
+    typeof v.accessTokenGeneration === 'number' &&
+    Number.isSafeInteger(v.accessTokenGeneration)
   );
 }
 
@@ -103,6 +117,7 @@ export class AuthenticatedUserStateService {
                 isActive: parsed.isActive,
                 twoFactorEnabled: parsed.twoFactorEnabled,
                 mustChangePassword: parsed.mustChangePassword,
+                accessTokenGeneration: parsed.accessTokenGeneration,
               };
             }
             logger.warn({ userId }, 'Ignored malformed user state cache entry');
@@ -127,7 +142,12 @@ export class AuthenticatedUserStateService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { isActive: true, twoFactorEnabled: true, mustChangePassword: true },
+      select: {
+        isActive: true,
+        twoFactorEnabled: true,
+        mustChangePassword: true,
+        accessTokenGeneration: true,
+      },
     });
     if (!user) {
       return null;
@@ -136,6 +156,7 @@ export class AuthenticatedUserStateService {
       isActive: user.isActive,
       twoFactorEnabled: user.twoFactorEnabled,
       mustChangePassword: user.mustChangePassword,
+      accessTokenGeneration: user.accessTokenGeneration,
     };
 
     if (redis && cacheAvailable) {

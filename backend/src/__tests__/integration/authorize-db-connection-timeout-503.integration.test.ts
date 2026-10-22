@@ -63,6 +63,7 @@ const ACTIVE_USER_STATE_CACHE = JSON.stringify({
   isActive: true,
   twoFactorEnabled: true,
   mustChangePassword: false,
+  accessTokenGeneration: 0,
 });
 
 /** 全権限（*:*）のキャッシュの値 */
@@ -119,6 +120,7 @@ describe('権限の確認を通るエンドポイントの DB 接続タイムア
     const tokenService = (await import('../../services/token.service.js')).default;
 
     accessToken = await tokenService.generateAccessToken({
+      accessTokenGeneration: 0,
       userId: ACTOR_ID,
       email: 'ua3513@example.com',
       roles: ['admin'],

@@ -76,6 +76,7 @@ const ACTIVE_USER_STATE_CACHE = JSON.stringify({
   isActive: true,
   twoFactorEnabled: true,
   mustChangePassword: false,
+  accessTokenGeneration: 0,
 });
 
 /** 全権限（*:*）のキャッシュの値 */
@@ -132,6 +133,7 @@ describe('対話型トランザクションから始まる認証系の書き込�
     const tokenService = (await import('../../services/token.service.js')).default;
 
     accessToken = await tokenService.generateAccessToken({
+      accessTokenGeneration: 0,
       userId: ACTOR_ID,
       email: 'ua3512@example.com',
       roles: ['admin'],

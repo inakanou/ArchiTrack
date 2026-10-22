@@ -117,7 +117,12 @@ describe('権限キャッシュの無効化の確かさ（統合・実 Redis・�
       passwordHash: 'not-used',
     });
     await prisma.userRole.create({ data: { userId: user.id, roleId } });
-    const token = await tokenService.generateAccessToken({ userId: user.id, email, roles: [] });
+    const token = await tokenService.generateAccessToken({
+      userId: user.id,
+      email,
+      roles: [],
+      accessTokenGeneration: 0,
+    });
     return { id: user.id, email, token };
   }
 

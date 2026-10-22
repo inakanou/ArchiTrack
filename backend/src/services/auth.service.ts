@@ -206,6 +206,8 @@ export class AuthService implements IAuthService {
         userId: user.id,
         email: user.email,
         roles: user.userRoles.map((ur) => ur.role.name),
+        // 発行時の利用者のアクセストークンの世代（要件34.7）
+        accessTokenGeneration: user.accessTokenGeneration,
       };
 
       const accessToken = await this.tokenService.generateAccessToken(payload);
@@ -270,6 +272,7 @@ export class AuthService implements IAuthService {
           isActive: true,
           twoFactorEnabled: true,
           mustChangePassword: true,
+          accessTokenGeneration: true,
           createdAt: true,
           userRoles: {
             select: {
@@ -384,6 +387,8 @@ export class AuthService implements IAuthService {
         userId: user.id,
         email: user.email,
         roles: user.userRoles.map((ur) => ur.role.name),
+        // 発行時の利用者のアクセストークンの世代（要件34.7）
+        accessTokenGeneration: user.accessTokenGeneration,
       };
 
       const accessToken = await this.tokenService.generateAccessToken(payload);
@@ -479,6 +484,7 @@ export class AuthService implements IAuthService {
           mustChangePassword: true,
           twoFactorFailures: true,
           twoFactorLockedUntil: true,
+          accessTokenGeneration: true,
           userRoles: {
             select: {
               role: {
@@ -599,6 +605,8 @@ export class AuthService implements IAuthService {
         userId: user.id,
         email: user.email,
         roles: user.userRoles.map((ur) => ur.role.name),
+        // 発行時の利用者のアクセストークンの世代（要件34.7）
+        accessTokenGeneration: user.accessTokenGeneration,
       };
 
       const accessToken = await this.tokenService.generateAccessToken(payload);
@@ -899,6 +907,8 @@ export class AuthService implements IAuthService {
         userId: user.id,
         email: user.email,
         roles,
+        // 発行時の利用者のアクセストークンの世代（要件34.7）
+        accessTokenGeneration: user.accessTokenGeneration,
       });
 
       // 5. ユーザー情報を返却

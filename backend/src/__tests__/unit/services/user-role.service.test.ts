@@ -56,6 +56,7 @@ const mockUser: User = {
   twoFactorLastUsedStep: null,
   twoFactorPendingSecret: null,
   invitedById: null,
+  accessTokenGeneration: 0,
 };
 
 const mockRole: Role = {

@@ -365,6 +365,7 @@ describe('ロールとプロフィールの更新の楽観的ロック（統合�
      */
     it('HTTP では、取得した版での更新は 200、古い版での更新は 409 の Problem Details、版なしの更新は従来どおり 200', async () => {
       const accessToken = await tokenService.generateAccessToken({
+        accessTokenGeneration: 0,
         userId,
         email: `${MARK}-user@example.com`,
         roles: [],

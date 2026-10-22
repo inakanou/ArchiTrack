@@ -755,7 +755,8 @@ export class TwoFactorService implements ITwoFactorService {
    * 管理者による他の利用者の 2FA の再設定
    *
    * 1 トランザクションで秘密鍵・再登録中の秘密鍵・バックアップコードを消して未登録にし、全リフレッシュ
-   * トークンを失効させ、監査 `TWO_FACTOR_RESET_BY_ADMIN`（実行者・対象）を記録する。コミットの後に
+   * トークンを失効させ、アクセストークンの世代を 1 つ進め（再設定より前のアクセストークンを認証ミドルウェアが
+   * 拒否する）、監査 `TWO_FACTOR_RESET_BY_ADMIN`（実行者・対象）を記録する。コミットの後に
    * 対象者の状態のキャッシュを無効化し、次の要求から TTL を待たずに 2FA 未登録として扱わせる。
    * @requirement user-authentication/REQ-34.7
    * @requirement user-authentication/REQ-34.9
@@ -787,12 +788,15 @@ export class TwoFactorService implements ITwoFactorService {
       // ローテーションと直列化して全リフレッシュトークンを失効させる（要件34.7）
       const revokedRefreshTokens = await revokeAllRefreshTokensForUser(tx, targetUserId);
       await tx.twoFactorBackupCode.deleteMany({ where: { userId: targetUserId } });
+      // 再設定より前に発行されたアクセストークンを拒否するため、アクセストークンの世代を進める（要件34.7。
+      // 認証ミドルウェアが発行時の世代 gen と比べる。時刻でなく番号で比べ、同じ秒の再ログインを拒否しない）
       await tx.user.update({
         where: { id: targetUserId },
         data: {
           twoFactorEnabled: false,
           twoFactorSecret: null,
           twoFactorPendingSecret: null,
+          accessTokenGeneration: { increment: 1 },
         },
       });
 

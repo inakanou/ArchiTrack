@@ -4,8 +4,10 @@
  * モックを使わず、本物のアプリ（認証ミドルウェア・権限の確認・ルート・エラーハンドラー）と実 PostgreSQL・
  * 実 Redis を通す。
  * - 再設定（`POST /api/v1/users/:id/2fa/reset`）: 対象者を 2FA 未登録にし、秘密鍵・バックアップコード・
- *   全リフレッシュトークンを消し、監査に実行者と対象者を残す。直後の対象者の API は状態のキャッシュの
- *   TTL を待たずに 403 `TWO_FACTOR_SETUP_REQUIRED` になる。自己の再設定は拒否する
+ *   全リフレッシュトークンを消し、監査に実行者と対象者を残す。再設定より前のアクセストークンは 401 になり
+ *   （要件34.7 の改訂、タスク47.11。詳細は two-factor-reset-access-token-generation.integration.test.ts）、
+ *   ログインし直した対象者の API は状態のキャッシュの TTL を待たずに 403 `TWO_FACTOR_SETUP_REQUIRED` になる。
+ *   自己の再設定は拒否する
  * - 再登録（`POST /api/v1/auth/2fa/reenroll/start`・`/confirm`）: 確認までは既存の秘密鍵でログインでき、
  *   確認の後は新しい秘密鍵だけでログインできる。バックアップコードを作り直し、監査に残す
  */
@@ -91,7 +93,12 @@ describe('管理者による 2FA の再設定と利用者による再登録（�
     user: { id: string; email: string },
     role: 'admin' | 'user'
   ): Promise<string> {
-    return tokenService.generateAccessToken({ userId: user.id, email: user.email, roles: [role] });
+    return tokenService.generateAccessToken({
+      userId: user.id,
+      email: user.email,
+      roles: [role],
+      accessTokenGeneration: 0,
+    });
   }
 
   function bearer(accessToken: string): [string, string] {
@@ -192,9 +199,10 @@ describe('管理者による 2FA の再設定と利用者による再登録（�
     /**
      * @requirement user-authentication/REQ-34.7
      */
-    it('再設定の直後の対象者の API は、状態のキャッシュの TTL を待たずに 403 TWO_FACTOR_SETUP_REQUIRED になる', async () => {
+    it('再設定の直後、前のアクセストークンは 401 になり、ログインし直した対象者の API は状態のキャッシュの TTL を待たずに 403 TWO_FACTOR_SETUP_REQUIRED になる', async () => {
       const admin = await createUserWithRole(newEmail('admin'), 'admin');
-      const target = await createUserWithRole(newEmail('target'), 'user');
+      const targetEmail = newEmail('target');
+      const target = await createUserWithRole(targetEmail, 'user');
       const targetToken = await accessTokenFor(target, 'user');
 
       // 登録済みの間に状態をキャッシュへ載せる
@@ -209,17 +217,26 @@ describe('管理者による 2FA の再設定と利用者による再登録（�
         .set(...bearer(await accessTokenFor(admin, 'admin')));
       expect(reset.status).toBe(204);
 
+      // 再設定より前のアクセストークンは拒否する（要件34.7。2FA の設定も含む）
+      const stale = await request(app)
+        .post('/api/v1/auth/2fa/setup')
+        .set(...bearer(targetToken));
+      expect(stale.status).toBe(401);
+
+      // ログインし直したトークン（2FA 未登録のためログインの応答で発行される）
+      const relogin = await loginForTokens(app, { email: targetEmail, password: PASSWORD });
+      const reloginToken: string = relogin.body.accessToken;
       for (const path of ['/api/v1/auth/me', '/api/projects']) {
         const denied = await request(app)
           .get(path)
-          .set(...bearer(targetToken));
+          .set(...bearer(reloginToken));
         expect(denied.status, path).toBe(403);
         expect(denied.body.code, path).toBe('TWO_FACTOR_SETUP_REQUIRED');
       }
       // 2FA の設定はできる（次のログインで設定画面へ進む前提）
       const setup = await request(app)
         .post('/api/v1/auth/2fa/setup')
-        .set(...bearer(targetToken));
+        .set(...bearer(reloginToken));
       expect(setup.status).toBe(200);
     });
 

@@ -22,7 +22,12 @@ vi.mock('../../../services/token.service');
  * 有効で 2FA 登録済みの利用者の状態（状態の照合を通る。照合そのものは authenticate.user-state.test.ts で確かめる）
  */
 const activeUserState = {
-  getState: async () => ({ isActive: true, twoFactorEnabled: true, mustChangePassword: false }),
+  getState: async () => ({
+    isActive: true,
+    twoFactorEnabled: true,
+    mustChangePassword: false,
+    accessTokenGeneration: 0,
+  }),
 };
 
 describe('authenticate middleware', () => {

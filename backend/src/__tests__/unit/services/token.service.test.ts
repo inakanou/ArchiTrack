@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import * as jose from 'jose';
 import type { CryptoKey } from 'jose';
 import { TokenService } from '../../../services/token.service.js';
-import type { TokenPayload } from '../../../services/token.service.js';
+import type { AccessTokenIssuePayload } from '../../../services/token.service.js';
+import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from '../../../config/jwt-claims.js';
 
 describe('TokenService', () => {
   let tokenService: TokenService;
@@ -30,7 +31,8 @@ describe('TokenService', () => {
 
   describe('generateAccessToken', () => {
     it('EdDSA署名でアクセストークンを生成できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -49,7 +51,8 @@ describe('TokenService', () => {
     });
 
     it('トークンにEdDSAアルゴリズムが設定されている', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -62,7 +65,8 @@ describe('TokenService', () => {
     });
 
     it('環境変数で設定された有効期限が適用される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -80,7 +84,8 @@ describe('TokenService', () => {
     });
 
     it('permissionsがオプションで含まれる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['admin'],
@@ -96,7 +101,8 @@ describe('TokenService', () => {
 
   describe('generateRefreshToken', () => {
     it('EdDSA署名でリフレッシュトークンを生成できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -117,7 +123,8 @@ describe('TokenService', () => {
     });
 
     it('環境変数で設定された有効期限が適用される（7日間）', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -137,7 +144,8 @@ describe('TokenService', () => {
 
   describe('verifyToken', () => {
     it('有効なアクセストークンを検証できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -155,7 +163,8 @@ describe('TokenService', () => {
     });
 
     it('有効なリフレッシュトークンを検証できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -248,7 +257,8 @@ describe('TokenService', () => {
 
     it('permissionsを含むトークンを正しく検証できる', async () => {
       // Arrange
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user456',
         email: 'admin@example.com',
         roles: ['admin'],
@@ -287,7 +297,8 @@ describe('TokenService', () => {
 
   describe('decodeToken', () => {
     it('有効なトークンを検証なしでデコードできる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -303,7 +314,8 @@ describe('TokenService', () => {
     });
 
     it('permissionsを含むトークンをデコードできる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['admin'],
@@ -351,7 +363,8 @@ describe('TokenService', () => {
     });
 
     it('リフレッシュトークンにjtiが設定される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -365,7 +378,8 @@ describe('TokenService', () => {
     });
 
     it('複数回生成すると異なるjtiが設定される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -383,7 +397,8 @@ describe('TokenService', () => {
 
   describe('generateAccessToken追加テスト', () => {
     it('アクセストークンにjtiが設定される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -397,7 +412,8 @@ describe('TokenService', () => {
     });
 
     it('複数回生成すると異なるjtiが設定される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -413,7 +429,8 @@ describe('TokenService', () => {
     });
 
     it('空のrolesでも生成できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: [],
@@ -428,7 +445,8 @@ describe('TokenService', () => {
 
   describe('verifyToken追加テスト', () => {
     it('refresh typeで検証したリフレッシュトークンからペイロードを得る', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -529,7 +547,8 @@ describe('TokenService', () => {
       delete process.env.JWT_PRIVATE_KEY;
 
       const invalidService = new TokenService();
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -556,7 +575,8 @@ describe('TokenService', () => {
       delete process.env.JWT_PRIVATE_KEY;
 
       const invalidService = new TokenService();
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -628,7 +648,8 @@ describe('TokenService', () => {
         await (serviceWithDefaults as unknown as { keysInitialized: Promise<void> })
           .keysInitialized;
 
-        const payload: TokenPayload = {
+        const payload: AccessTokenIssuePayload = {
+          accessTokenGeneration: 0,
           userId: 'user123',
           email: 'test@example.com',
           roles: ['user'],
@@ -661,7 +682,8 @@ describe('TokenService', () => {
         await (serviceWithDefaults as unknown as { keysInitialized: Promise<void> })
           .keysInitialized;
 
-        const payload: TokenPayload = {
+        const payload: AccessTokenIssuePayload = {
+          accessTokenGeneration: 0,
           userId: 'user123',
           email: 'test@example.com',
           roles: ['user'],
@@ -717,7 +739,8 @@ describe('TokenService', () => {
   describe('verifyToken with permissions', () => {
     it('should handle token without permissions field correctly', async () => {
       // permissionsなしのペイロード
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -735,7 +758,8 @@ describe('TokenService', () => {
 
   describe('decodeToken with permissions', () => {
     it('should handle token without permissions field correctly', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -785,7 +809,8 @@ describe('TokenService', () => {
     });
   });
   describe('トークンの種別・発行者・想定利用者（要件33.1〜33.3）', () => {
-    const payload: TokenPayload = {
+    const payload: AccessTokenIssuePayload = {
+      accessTokenGeneration: 0,
       userId: 'user-kind-1',
       email: 'kind@example.com',
       roles: ['user'],
@@ -989,6 +1014,70 @@ describe('TokenService', () => {
           error: { type: 'TOKEN_INVALID' },
         });
       });
+    });
+  });
+
+  /**
+   * @requirement user-authentication/REQ-34.7: アクセストークンに発行時の利用者の世代を載せ、検証で読み出す
+   */
+  describe('アクセストークンの世代（要件34.7）', () => {
+    it('発行時の世代をクレーム gen に載せ、検証の結果の accessTokenGeneration で返す', async () => {
+      const token = await tokenService.generateAccessToken({
+        userId: 'user-gen-1',
+        email: 'gen@example.com',
+        roles: ['user'],
+        accessTokenGeneration: 3,
+      });
+
+      expect(jose.decodeJwt(token).gen).toBe(3);
+      const result = await tokenService.verifyToken(token, 'access');
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.value.accessTokenGeneration).toBe(3);
+    });
+
+    it('世代 0 も gen: 0 として載せる', async () => {
+      const token = await tokenService.generateAccessToken({
+        userId: 'user-gen-0',
+        email: 'gen0@example.com',
+        roles: [],
+        accessTokenGeneration: 0,
+      });
+
+      expect(jose.decodeJwt(token).gen).toBe(0);
+      const result = await tokenService.verifyToken(token, 'access');
+      expect(result.ok && result.value.accessTokenGeneration).toBe(0);
+    });
+
+    it('gen を持たない・整数でないアクセストークンは世代を返さない（照合する側が 0 として扱う）', async () => {
+      const sign = (extra: Record<string, unknown>) =>
+        new jose.SignJWT({
+          email: 'legacy@example.com',
+          roles: ['user'],
+          token_use: 'access',
+          ...extra,
+        })
+          .setProtectedHeader({ alg: 'EdDSA', typ: 'at+jwt' })
+          .setSubject('user-legacy')
+          .setIssuer(process.env.JWT_ISSUER || DEFAULT_JWT_ISSUER)
+          .setAudience(process.env.JWT_AUDIENCE || DEFAULT_JWT_AUDIENCE)
+          .setIssuedAt()
+          .setExpirationTime('15m')
+          .sign(privateKey);
+
+      for (const token of [await sign({}), await sign({ gen: '1' }), await sign({ gen: 1.5 })]) {
+        const result = await tokenService.verifyToken(token, 'access');
+        expect(result.ok).toBe(true);
+        expect(result.ok && result.value.userId).toBe('user-legacy');
+        expect(result.ok && result.value.accessTokenGeneration).toBeUndefined();
+      }
+    });
+
+    it('リフレッシュトークンは世代を持たない', async () => {
+      const refresh = await tokenService.generateRefreshToken('user-gen-1', 'family-1');
+
+      expect(jose.decodeJwt(refresh).gen).toBeUndefined();
+      const result = await tokenService.verifyToken(refresh, 'refresh');
+      expect(result.ok && result.value.accessTokenGeneration).toBeUndefined();
     });
   });
 });

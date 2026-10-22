@@ -304,6 +304,7 @@ describe('利用者の状態による API の拒否（統合）', () => {
     const adminEmail = newEmail('admin');
     const admin = await createUserWithRole(adminEmail, 'admin');
     const adminToken = await tokenService.generateAccessToken({
+      accessTokenGeneration: 0,
       userId: admin.id,
       email: adminEmail,
       roles: ['admin'],
@@ -311,6 +312,7 @@ describe('利用者の状態による API の拒否（統合）', () => {
     const targetEmail = newEmail('target');
     const target = await createUserWithRole(targetEmail, 'user');
     const targetToken = await tokenService.generateAccessToken({
+      accessTokenGeneration: 0,
       userId: target.id,
       email: targetEmail,
       roles: ['user'],

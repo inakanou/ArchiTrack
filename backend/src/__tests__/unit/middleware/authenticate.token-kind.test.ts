@@ -16,7 +16,12 @@ import { TokenService } from '../../../services/token.service.js';
  * 有効で 2FA 登録済みの利用者の状態（状態の照合を通る。照合そのものは authenticate.user-state.test.ts で確かめる）
  */
 const activeUserState = {
-  getState: async () => ({ isActive: true, twoFactorEnabled: true, mustChangePassword: false }),
+  getState: async () => ({
+    isActive: true,
+    twoFactorEnabled: true,
+    mustChangePassword: false,
+    accessTokenGeneration: 0,
+  }),
 };
 
 describe('authenticate middleware（トークンの種別）', () => {
@@ -74,7 +79,10 @@ describe('authenticate middleware（トークンの種別）', () => {
   }
 
   it('アクセストークンを受け付け、req.user を設定する（対照）', async () => {
-    const accessToken = await tokenService.generateAccessToken(user);
+    const accessToken = await tokenService.generateAccessToken({
+      ...user,
+      accessTokenGeneration: 0,
+    });
 
     await callWithBearer(accessToken);
 

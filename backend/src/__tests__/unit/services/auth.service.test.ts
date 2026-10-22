@@ -170,6 +170,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -206,6 +207,13 @@ describe('AuthService', () => {
 
       // Assert: 登録成功
       expect(result.ok).toBe(true);
+      // 発行時の利用者の世代（新規の利用者は 0）をアクセストークンに載せる（要件34.7）
+      expect(mockTokenService.generateAccessToken).toHaveBeenCalledWith({
+        userId: 'user-123',
+        email: 'newuser@example.com',
+        roles: ['user'],
+        accessTokenGeneration: 0,
+      });
       if (result.ok) {
         expect(result.value.accessToken).toBe('access-token-123');
         expect(result.value.refreshToken).toBe('refresh-token-456');
@@ -366,6 +374,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 4,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -393,6 +402,10 @@ describe('AuthService', () => {
 
       // Assert: ログイン成功
       expect(result.ok).toBe(true);
+      // 発行時の利用者の世代をアクセストークンに載せる（要件34.7）
+      expect(mockTokenService.generateAccessToken).toHaveBeenCalledWith(
+        expect.objectContaining({ accessTokenGeneration: 4 })
+      );
       if (result.ok && result.value.type === 'SUCCESS') {
         expect(result.value.accessToken).toBe('access-token-123');
         expect(result.value.refreshToken).toBe('refresh-token-456');
@@ -452,6 +465,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -509,6 +523,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -559,6 +574,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -607,6 +623,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -664,6 +681,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -722,6 +740,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1029,6 +1048,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [
           {
             role: {
@@ -1106,6 +1126,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 5,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1133,6 +1154,10 @@ describe('AuthService', () => {
 
       // Assert: 認証成功
       expect(result.ok).toBe(true);
+      // 発行時の利用者の世代をアクセストークンに載せる（要件34.7）
+      expect(mockTokenService.generateAccessToken).toHaveBeenCalledWith(
+        expect.objectContaining({ userId, accessTokenGeneration: 5 })
+      );
       if (result.ok) {
         expect(result.value.accessToken).toBe('access-token-123');
         expect(result.value.refreshToken).toBe('refresh-token-456');
@@ -1201,6 +1226,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1261,6 +1287,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1329,6 +1356,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1376,6 +1404,7 @@ describe('AuthService', () => {
         twoFactorLastUsedStep: null,
         twoFactorPendingSecret: null,
         invitedById: null,
+        accessTokenGeneration: 0,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1496,6 +1525,7 @@ describe('AuthService', () => {
       twoFactorEnabled: false,
       createdAt: new Date(),
       updatedAt: new Date(),
+      accessTokenGeneration: 2,
       userRoles: [{ role: { name: 'user' } }],
     };
 
@@ -1525,10 +1555,12 @@ describe('AuthService', () => {
       }
       expect(mockTokenService.verifyToken).toHaveBeenCalledWith('refresh-token-valid', 'refresh');
       expect(mockSessionService.rotate).toHaveBeenCalledWith('refresh-token-valid');
+      // 発行時の利用者の世代をアクセストークンに載せる（要件34.7）
       expect(mockTokenService.generateAccessToken).toHaveBeenCalledWith({
         userId,
         email: 'test@example.com',
         roles: ['user'],
+        accessTokenGeneration: 2,
       });
       expect(mockTokenService.generateRefreshToken).not.toHaveBeenCalled();
     });
@@ -1687,7 +1719,10 @@ describe('AuthService', () => {
      */
     it('アクセストークンでのリフレッシュは INVALID_REFRESH_TOKEN で拒否し、新しいトークンを発行しない', async () => {
       const { service, tokenService } = await createRealTokenAuthService();
-      const accessToken = await tokenService.generateAccessToken(user);
+      const accessToken = await tokenService.generateAccessToken({
+        ...user,
+        accessTokenGeneration: 0,
+      });
 
       const result = await service.refreshToken(accessToken);
 
