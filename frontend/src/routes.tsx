@@ -14,6 +14,7 @@ import { SetupPasswordPage } from './pages/SetupPasswordPage';
 import { Dashboard } from './pages/Dashboard';
 import { RoleManagement } from './pages/RoleManagement';
 import { PermissionManagement } from './pages/PermissionManagement';
+import { UserInventoryPage } from './pages/UserInventoryPage';
 import ProjectListPage from './pages/ProjectListPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import ProjectCreatePage from './pages/ProjectCreatePage';
@@ -567,6 +568,11 @@ export const routes: RouteObject[] = [
       {
         path: '/admin/permissions',
         element: <PermissionManagement />,
+      },
+      // ユーザー棚卸し（user-authentication 要件36.10・36.11・34.7、タスク49.6）
+      {
+        path: '/admin/user-inventory',
+        element: <UserInventoryPage />,
       },
     ],
   },
