@@ -39,6 +39,7 @@ model User {
   invitedBy              User?     @relation("InvitedUsers", fields: [invitedById], references: [id], onDelete: SetNull)
   invitedUsers           User[]    @relation("InvitedUsers")
   accessTokenGeneration  Int       @default(0) @map("access_token_generation") // アクセストークンの世代（管理者の 2FA の再設定で進める、要件34.7）
+  reactivatedAt          DateTime? @map("reactivated_at") // 最後の再有効化（90 日の自動無効化の起点の一つ、要件36.8）
 
   userRoles             UserRole[]
   refreshTokens         RefreshToken[]

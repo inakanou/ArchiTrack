@@ -1,16 +1,27 @@
 /**
- * @fileoverview AccountStatusService の無効化と再有効化の単体テスト（タスク49.2）
+ * @fileoverview AccountStatusService の無効化・再有効化・90 日の自動無効化の単体テスト（タスク49.2、49.4）
  *
  * Requirements (user-authentication):
  * - REQ-36.1: 無効化で全リフレッシュトークンを失効させる
  * - REQ-36.3: 再有効化でログインを再び許可する
  * - REQ-36.4: 無効化・再有効化を全システム管理者へ通知し、監査に実行者・対象・理由を記録する
  * - REQ-36.5: 自分自身と最後の有効なシステム管理者の無効化を拒否する
+ * - REQ-36.8: 最終ログイン・作成・最後の再有効化のうち最も新しい日時から 90 日で自動無効化する
+ * - REQ-36.9: 自動無効化を一通の通知で全システム管理者へ送り、監査に自動無効化であることを記録する
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
-import { AccountStatusService } from '../../../services/account-status.service.js';
+import {
+  AccountStatusService,
+  AUTO_DEACTIVATION_REASON,
+  INACTIVE_USER_BATCH_SIZE,
+  inactiveUserWhere,
+} from '../../../services/account-status.service.js';
+
+vi.mock('../../../utils/sentry.js', () => ({
+  captureException: vi.fn(),
+}));
 
 /** 呼び出しの順序の記録（コミットの後の無効化・通知の確認用） */
 const calls: string[] = [];
@@ -18,6 +29,8 @@ const calls: string[] = [];
 const tx = {
   user: {
     findUnique: vi.fn(),
+    findUniqueOrThrow: vi.fn(),
+    findMany: vi.fn(),
     updateMany: vi.fn(),
     count: vi.fn(),
   },
@@ -58,12 +71,17 @@ describe('AccountStatusService', () => {
   let service: AccountStatusService;
 
   function givenTarget(target: Partial<typeof TARGET> | null): void {
-    tx.user.findUnique.mockImplementation(async (args: { where: { id: string } }) => {
-      if (args.where.id === 'target-1') {
-        return target === null ? null : { ...TARGET, ...target };
+    tx.user.findUnique.mockImplementation(
+      async (args: { where: { id?: string; email?: string } }) => {
+        if (args.where.id === 'target-1' || args.where.email === TARGET.email) {
+          return target === null ? null : { ...TARGET, ...target };
+        }
+        if (args.where.email !== undefined) {
+          return null;
+        }
+        return ACTOR;
       }
-      return ACTOR;
-    });
+    );
   }
 
   beforeEach(() => {
@@ -238,10 +256,18 @@ describe('AccountStatusService', () => {
       });
 
       expect(result).toEqual({ ok: true, value: undefined });
+      // 最後の再有効化の日時を書き、最終ログイン日時は変えない（要件36.8 の起点）
       expect(tx.user.updateMany).toHaveBeenCalledWith({
         where: { id: 'target-1', isActive: false },
-        data: { isActive: true, deactivatedAt: null, deactivationReason: null },
+        data: {
+          isActive: true,
+          deactivatedAt: null,
+          deactivationReason: null,
+          reactivatedAt: expect.any(Date),
+        },
       });
+      const data = tx.user.updateMany.mock.calls[0]?.[0]?.data as Record<string, unknown>;
+      expect(data).not.toHaveProperty('lastLoginAt');
       expect(tx.refreshToken.deleteMany).not.toHaveBeenCalled();
       expect(tx.auditLog.create).toHaveBeenCalledWith({
         data: {
@@ -274,6 +300,235 @@ describe('AccountStatusService', () => {
       });
       expect(tx.auditLog.create).not.toHaveBeenCalled();
       expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+  });
+  describe('reactivateByOperatorScript()', () => {
+    /**
+     * @requirement user-authentication/REQ-36.3
+     * @requirement user-authentication/REQ-36.4
+     * @requirement user-authentication/REQ-36.8
+     */
+    it('メールアドレスで対象を引き、最後の再有効化の日時を書き、実行者の無い監査を operator_script として記録し、コミットの後に無効化と通知を行う', async () => {
+      givenTarget({ isActive: false });
+
+      const result = await service.reactivateByOperatorScript('target@example.com', '復旧');
+
+      expect(result).toEqual({ ok: true, value: { userId: 'target-1' } });
+      expect(tx.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { email: 'target@example.com' } })
+      );
+      expect(tx.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'target-1', isActive: false },
+        data: {
+          isActive: true,
+          deactivatedAt: null,
+          deactivationReason: null,
+          reactivatedAt: expect.any(Date),
+        },
+      });
+      expect(tx.auditLog.create).toHaveBeenCalledWith({
+        data: {
+          action: 'USER_REACTIVATED',
+          actorId: null,
+          actorEmail: null,
+          actorDisplayName: null,
+          targetType: 'User',
+          targetId: 'target-1',
+          before: { isActive: false },
+          after: { isActive: true },
+          metadata: {
+            reason: '復旧',
+            targetEmail: 'target@example.com',
+            trigger: 'operator_script',
+          },
+        },
+      });
+      expect(invalidate).toHaveBeenCalledWith('target-1');
+      expect(notifyAllAdmins).toHaveBeenCalledWith({
+        kind: 'USER_REACTIVATED',
+        subject: expect.stringContaining('対象者'),
+        lines: expect.arrayContaining([
+          expect.stringContaining('target@example.com'),
+          '実行者: サーバー上の復旧スクリプト',
+          '理由: 復旧',
+        ]),
+      });
+      expect(calls).toEqual(['begin', 'commit', 'invalidate', 'notify']);
+    });
+
+    it('不在のメールアドレスを USER_NOT_FOUND で、有効な利用者を ALREADY_IN_STATE で返し、何も書かない', async () => {
+      expect(await service.reactivateByOperatorScript('nobody@example.com', '復旧')).toEqual({
+        ok: false,
+        error: { type: 'USER_NOT_FOUND' },
+      });
+      expect(await service.reactivateByOperatorScript('target@example.com', '復旧')).toEqual({
+        ok: false,
+        error: { type: 'ALREADY_IN_STATE' },
+      });
+      expect(tx.user.updateMany).not.toHaveBeenCalled();
+      expect(tx.auditLog.create).not.toHaveBeenCalled();
+      expect(invalidate).not.toHaveBeenCalled();
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deactivateInactiveUsers()', () => {
+    const NOW = new Date('2026-10-22T00:00:00.000Z');
+    const CUTOFF = new Date('2026-07-24T00:00:00.000Z'); // NOW の 90 日前
+
+    function storedUser(id: string, overrides: Record<string, unknown> = {}) {
+      return {
+        email: `${id}@example.com`,
+        displayName: `利用者 ${id}`,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        lastLoginAt: new Date('2026-05-01T00:00:00.000Z'),
+        reactivatedAt: null,
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      tx.user.findUniqueOrThrow.mockImplementation(async (args: { where: { id: string } }) =>
+        storedUser(args.where.id)
+      );
+    });
+
+    it('無活動の条件は GREATEST(作成, 最終ログイン, 最後の再有効化) < 基準 と同値で、空の日時を無視する', () => {
+      expect(inactiveUserWhere(CUTOFF)).toEqual({
+        isActive: true,
+        createdAt: { lt: CUTOFF },
+        AND: [
+          { OR: [{ lastLoginAt: null }, { lastLoginAt: { lt: CUTOFF } }] },
+          { OR: [{ reactivatedAt: null }, { reactivatedAt: { lt: CUTOFF } }] },
+        ],
+      });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-36.8
+     * @requirement user-authentication/REQ-36.9
+     */
+    it('対象者ごとの取引で条件を再判定して無効化し、全リフレッシュトークンを失効させ、実行者の無い監査を記録し、コミットの後に無効化してから一覧を一通で通知する', async () => {
+      tx.user.findMany.mockResolvedValueOnce([{ id: 'u1' }, { id: 'u2' }]);
+      tx.user.findUniqueOrThrow.mockImplementation(async (args: { where: { id: string } }) =>
+        args.where.id === 'u2'
+          ? storedUser('u2', {
+              lastLoginAt: null,
+              reactivatedAt: new Date('2026-06-01T00:00:00.000Z'),
+            })
+          : storedUser(args.where.id)
+      );
+
+      const result = await service.deactivateInactiveUsers(NOW);
+
+      expect(result).toEqual({ deactivatedUserIds: ['u1', 'u2'] });
+      expect(tx.user.findMany).toHaveBeenCalledWith({
+        where: inactiveUserWhere(CUTOFF),
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: INACTIVE_USER_BATCH_SIZE,
+      });
+      // 取引の中の条件付きの更新で再判定する（並行するログイン・再有効化に先を越されたら書かない）
+      expect(tx.user.updateMany).toHaveBeenCalledWith({
+        where: { id: 'u1', ...inactiveUserWhere(CUTOFF) },
+        data: {
+          isActive: false,
+          deactivatedAt: expect.any(Date),
+          deactivationReason: AUTO_DEACTIVATION_REASON,
+        },
+      });
+      expect(tx.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+      expect(tx.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u2' } });
+      expect(tx.auditLog.create).toHaveBeenCalledWith({
+        data: {
+          action: 'USER_AUTO_DEACTIVATED',
+          actorId: null,
+          actorEmail: null,
+          actorDisplayName: null,
+          targetType: 'User',
+          targetId: 'u2',
+          before: { isActive: true },
+          after: { isActive: false },
+          metadata: {
+            trigger: 'inactivity',
+            reason: AUTO_DEACTIVATION_REASON,
+            targetEmail: 'u2@example.com',
+            // 最終ログインが空でも、作成と最後の再有効化のうち新しい方を最後の利用とする
+            lastActivityAt: '2026-06-01T00:00:00.000Z',
+            inactivityDays: 90,
+            revokedRefreshTokens: 3,
+          },
+        },
+      });
+      expect(invalidate.mock.calls.map(([id]) => id)).toEqual(['u1', 'u2']);
+      expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
+      expect(notifyAllAdmins).toHaveBeenCalledWith({
+        kind: 'USERS_AUTO_DEACTIVATED',
+        subject: expect.stringContaining('2 名'),
+        lines: expect.arrayContaining([
+          expect.stringContaining('u1@example.com'),
+          expect.stringContaining('u2@example.com'),
+          expect.stringContaining('npm run user:reactivate'),
+        ]),
+      });
+      expect(calls).toEqual([
+        'begin',
+        'commit',
+        'invalidate',
+        'begin',
+        'commit',
+        'invalidate',
+        'notify',
+      ]);
+    });
+
+    it('対象が無ければ何も書かず通知しない（冪等）', async () => {
+      tx.user.findMany.mockResolvedValueOnce([]);
+
+      expect(await service.deactivateInactiveUsers(NOW)).toEqual({ deactivatedUserIds: [] });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+
+    it('取引の中の再判定で条件を満たさなくなった利用者は失効も監査も通知も行わない', async () => {
+      tx.user.findMany.mockResolvedValueOnce([{ id: 'u1' }]);
+      tx.user.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      expect(await service.deactivateInactiveUsers(NOW)).toEqual({ deactivatedUserIds: [] });
+      expect(tx.refreshToken.deleteMany).not.toHaveBeenCalled();
+      expect(tx.auditLog.create).not.toHaveBeenCalled();
+      expect(invalidate).not.toHaveBeenCalled();
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    });
+
+    it('件数の上限ごとに続きの ID から読み直し、一人の失敗で他の対象者を止めない', async () => {
+      const firstPage = Array.from({ length: INACTIVE_USER_BATCH_SIZE }, (_, i) => ({
+        id: `u${String(i).padStart(3, '0')}`,
+      }));
+      tx.user.findMany.mockResolvedValueOnce(firstPage).mockResolvedValueOnce([{ id: 'u999' }]);
+      prisma.$transaction.mockImplementationOnce(async () => {
+        throw new Error('deadlock');
+      });
+
+      const result = await service.deactivateInactiveUsers(NOW);
+
+      expect(tx.user.findMany).toHaveBeenCalledTimes(2);
+      expect(tx.user.findMany.mock.calls[1]?.[0]).toMatchObject({
+        where: { id: { gt: firstPage.at(-1)?.id } },
+      });
+      // 最初の一人は失敗し、残りの全員が無効化される
+      expect(result.deactivatedUserIds).toHaveLength(INACTIVE_USER_BATCH_SIZE);
+      expect(result.deactivatedUserIds).not.toContain('u000');
+      expect(result.deactivatedUserIds).toContain('u999');
+      expect(notifyAllAdmins).toHaveBeenCalledTimes(1);
+    });
+
+    it('コミットの後の状態のキャッシュの無効化と通知の失敗は結果を変えない', async () => {
+      tx.user.findMany.mockResolvedValueOnce([{ id: 'u1' }]);
+      invalidate.mockRejectedValueOnce(new Error('redis down'));
+      notifyAllAdmins.mockRejectedValueOnce(new Error('queue down'));
+
+      expect(await service.deactivateInactiveUsers(NOW)).toEqual({ deactivatedUserIds: ['u1'] });
     });
   });
 });

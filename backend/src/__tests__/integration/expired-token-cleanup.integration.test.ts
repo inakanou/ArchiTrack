@@ -291,7 +291,7 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
     const inspector = createScheduledJobsQueue(redisUrl);
     try {
       const repeatables = await inspector.getRepeatableJobs();
-      expect(repeatables).toHaveLength(2);
+      expect(repeatables).toHaveLength(3);
       expect(repeatables).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -306,6 +306,12 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
             cron: '45 * * * *',
             tz: 'Asia/Tokyo',
           }),
+          expect.objectContaining({
+            name: 'inactive-user-deactivation',
+            id: 'inactive-user-deactivation',
+            cron: '0 3 * * *',
+            tz: 'Asia/Tokyo',
+          }),
         ])
       );
       // 次の実行は毎時 15 分・45 分（Asia/Tokyo は分の境界が UTC と同じ）
@@ -317,7 +323,14 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
         expect(next.getUTCMinutes()).toBe(minute);
         expect(next.getTime() - Date.now()).toBeLessThanOrEqual(HOUR_MS);
       }
-      expect(await inspector.getDelayedCount()).toBe(2);
+      // 90 日の自動無効化（タスク49.4）の次の実行は毎日 03:00 Asia/Tokyo（UTC の 18:00）
+      const nextDeactivation = new Date(
+        repeatables.find((job) => job.name === 'inactive-user-deactivation')?.next ?? 0
+      );
+      expect(nextDeactivation.getUTCHours()).toBe(18);
+      expect(nextDeactivation.getUTCMinutes()).toBe(0);
+      expect(nextDeactivation.getTime() - Date.now()).toBeLessThanOrEqual(24 * HOUR_MS);
+      expect(await inspector.getDelayedCount()).toBe(3);
     } finally {
       await inspector.close();
     }

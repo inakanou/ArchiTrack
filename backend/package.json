@@ -52,7 +52,8 @@
     "generate:jwt-keys": "tsx scripts/generate-eddsa-keys.ts",
     "backfill:drawn-annotations": "tsx scripts/backfill-drawn-annotation-flags.ts",
     "restore:plain-thumbnails": "tsx scripts/restore-plain-thumbnails.ts",
-    "inventory:area-volume-weight-only": "tsx scripts/inventory-area-volume-weight-only.ts"
+    "inventory:area-volume-weight-only": "tsx scripts/inventory-area-volume-weight-only.ts",
+    "user:reactivate": "sh -c 'if [ -f src/scripts/reactivate-user.ts ]; then exec tsx src/scripts/reactivate-user.ts \"$@\"; else exec node dist/src/scripts/reactivate-user.js \"$@\"; fi' reactivate-user"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

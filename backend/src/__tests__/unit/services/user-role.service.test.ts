@@ -57,6 +57,7 @@ const mockUser: User = {
   twoFactorPendingSecret: null,
   invitedById: null,
   accessTokenGeneration: 0,
+  reactivatedAt: null,
 };
 
 const mockRole: Role = {

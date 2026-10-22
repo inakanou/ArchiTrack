@@ -256,6 +256,10 @@ describe('管理者による無効化と再有効化（統合）', () => {
     expect(restored.isActive).toBe(true);
     expect(restored.deactivatedAt).toBeNull();
     expect(restored.deactivationReason).toBeNull();
+    // 再有効化の日時を書き、最終ログイン日時は変えない（90 日の自動無効化の起点、タスク49.4）
+    expect(restored.reactivatedAt).toBeInstanceOf(Date);
+    expect(restored.lastLoginAt?.getTime()).toBe(stored.lastLoginAt?.getTime());
+    expect(stored.lastLoginAt).toBeInstanceOf(Date);
     // 直後から API が通り、ログインとリフレッシュで再び利用できる
     expect(
       (

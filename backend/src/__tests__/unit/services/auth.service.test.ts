@@ -171,6 +171,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -375,6 +376,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 4,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -466,6 +468,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -524,6 +527,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -575,6 +579,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -624,6 +629,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -682,6 +688,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -741,6 +748,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1049,6 +1057,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [
           {
             role: {
@@ -1127,6 +1136,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 5,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1227,6 +1237,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1288,6 +1299,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1357,6 +1369,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 
@@ -1405,6 +1418,7 @@ describe('AuthService', () => {
         twoFactorPendingSecret: null,
         invitedById: null,
         accessTokenGeneration: 0,
+        reactivatedAt: null,
         userRoles: [{ role: { name: 'user' } }],
       };
 

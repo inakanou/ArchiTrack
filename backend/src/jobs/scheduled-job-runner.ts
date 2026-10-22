@@ -28,6 +28,11 @@ import {
   FAILED_EMAIL_JOB_CLEANUP_JOB_NAME,
   cleanupFailedEmailJobs,
 } from './failed-email-job-cleanup.job.js';
+import {
+  INACTIVE_USER_DEACTIVATION_CRON,
+  INACTIVE_USER_DEACTIVATION_JOB_NAME,
+  createInactiveUserDeactivationRun,
+} from './inactive-user-deactivation.job.js';
 
 /** 定期処理のキューの名前（Redis のキーは `bull:scheduled-jobs:*`） */
 export const SCHEDULED_JOBS_QUEUE_NAME = 'scheduled-jobs';
@@ -72,6 +77,11 @@ export function createScheduledJobDefinitions(prisma: PrismaClient): ScheduledJo
       name: FAILED_EMAIL_JOB_CLEANUP_JOB_NAME,
       cron: FAILED_EMAIL_JOB_CLEANUP_CRON,
       run: () => cleanupFailedEmailJobs(),
+    },
+    {
+      name: INACTIVE_USER_DEACTIVATION_JOB_NAME,
+      cron: INACTIVE_USER_DEACTIVATION_CRON,
+      run: createInactiveUserDeactivationRun(prisma),
     },
   ];
 }

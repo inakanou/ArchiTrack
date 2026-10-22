@@ -1,5 +1,5 @@
 /**
- * 定期処理の実行基盤の単体検証（user-authentication タスク44.9、44.12）
+ * 定期処理の実行基盤の単体検証（user-authentication タスク44.9、44.12、49.4）
  *
  * キュー（Bull）を差し替え、試験の実行環境では繰り返しジョブを登録しないこと、
  * それ以外では同じ識別子で登録し直し、古い定義を消し、最終の失敗だけを記録することを確かめる。
@@ -38,6 +38,17 @@ vi.mock('../../../jobs/failed-email-job-cleanup.job.js', () => ({
   FAILED_EMAIL_JOB_CLEANUP_JOB_NAME: 'failed-email-job-cleanup',
   FAILED_EMAIL_JOB_CLEANUP_CRON: '45 * * * *',
   cleanupFailedEmailJobs: (...args: unknown[]) => cleanupFailedEmailJobsMock(...args),
+}));
+
+const inactiveUserDeactivationRunMock = vi.fn();
+const createInactiveUserDeactivationRunMock = vi.fn(
+  (_prisma: unknown) => inactiveUserDeactivationRunMock
+);
+vi.mock('../../../jobs/inactive-user-deactivation.job.js', () => ({
+  INACTIVE_USER_DEACTIVATION_JOB_NAME: 'inactive-user-deactivation',
+  INACTIVE_USER_DEACTIVATION_CRON: '0 3 * * *',
+  createInactiveUserDeactivationRun: (prisma: unknown) =>
+    createInactiveUserDeactivationRunMock(prisma),
 }));
 
 import {
@@ -344,6 +355,7 @@ describe('createScheduledJobDefinitions', () => {
     expect(jobs.map(({ name, cron }) => ({ name, cron }))).toEqual([
       { name: 'expired-token-cleanup', cron: '15 * * * *' },
       { name: 'failed-email-job-cleanup', cron: '45 * * * *' },
+      { name: 'inactive-user-deactivation', cron: '0 3 * * *' },
     ]);
     await expect(jobs[0]?.run()).resolves.toEqual({ invitationTokensCleared: 1 });
     expect(cleanupExpiredTokensMock).toHaveBeenCalledWith(prisma);
@@ -357,6 +369,21 @@ describe('createScheduledJobDefinitions', () => {
 
     await expect(job?.run()).resolves.toEqual({ failedEmailJobsRemoved: 2 });
     expect(cleanupFailedEmailJobsMock).toHaveBeenCalledWith();
+  });
+
+  /**
+   * @requirement user-authentication/REQ-36.8
+   */
+  it('inactive-user-deactivation を毎日 03:00 に登録し、処理は 90 日の自動無効化を呼ぶ', async () => {
+    const prisma = {} as PrismaClient;
+    inactiveUserDeactivationRunMock.mockResolvedValue({ deactivatedUserIds: ['u1'] });
+
+    const jobs = createScheduledJobDefinitions(prisma);
+    const job = jobs.find(({ name }) => name === 'inactive-user-deactivation');
+
+    expect(job?.cron).toBe('0 3 * * *');
+    expect(createInactiveUserDeactivationRunMock).toHaveBeenCalledWith(prisma);
+    await expect(job?.run()).resolves.toEqual({ deactivatedUserIds: ['u1'] });
   });
 });
 

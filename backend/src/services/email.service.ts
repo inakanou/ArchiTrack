@@ -119,6 +119,44 @@ export function createEmailQueue(
 }
 
 /**
+ * メールジョブの再送オプション（要件24.3）
+ *
+ * 試行は初回 + リトライ 5 回、間隔はキューに登録した EMAIL_RETRY_BACKOFF_TYPE 戦略が返す。
+ */
+function emailRetryJobOptions(): JobOptions {
+  return {
+    attempts: EMAIL_JOB_ATTEMPTS,
+    backoff: { type: EMAIL_RETRY_BACKOFF_TYPE },
+  };
+}
+
+/**
+ * システム管理者への通知のメールをキューへ入れる（送信の処理は登録しない）
+ *
+ * EmailService の送信と同じジョブ名・再送オプションで投入する。送信の処理を持たない短命のプロセス
+ * （復旧の reactivate-user スクリプト、user-authentication タスク49.4）も通知を出せるように切り出している。
+ *
+ * @param queue - メールキュー（createEmailQueue）
+ * @param to - 送信先（システム管理者 1 名）
+ * @param subject - 件名
+ * @param lines - 本文の各行（トークン・パスワードを含めない）
+ */
+export async function enqueueAdminNotificationEmail(
+  queue: Pick<Queue, 'add'>,
+  to: string,
+  subject: string,
+  lines: string[]
+): Promise<void> {
+  await queue.add(
+    'admin-notification-email',
+    { to, subject, lines } satisfies AdminNotificationEmailData,
+    emailRetryJobOptions()
+  );
+
+  logger.info({ to }, 'Admin notification email queued');
+}
+
+/**
  * ジョブの内容のうち、失敗の記録から伏せる値（トークンと宛先）
  */
 const SECRET_JOB_FIELDS = ['invitationToken', 'resetToken'] as const;
@@ -390,10 +428,7 @@ export class EmailService {
    * 試行は初回 + リトライ 5 回、間隔はキューに登録した EMAIL_RETRY_BACKOFF_TYPE 戦略が返す。
    */
   private retryJobOptions(): JobOptions {
-    return {
-      attempts: EMAIL_JOB_ATTEMPTS,
-      backoff: { type: EMAIL_RETRY_BACKOFF_TYPE },
-    };
+    return emailRetryJobOptions();
   }
 
   /**
@@ -443,13 +478,7 @@ export class EmailService {
    * @param lines - 本文の各行（トークン・パスワードを含めない）
    */
   async sendAdminNotificationEmail(to: string, subject: string, lines: string[]): Promise<void> {
-    await this.emailQueue.add(
-      'admin-notification-email',
-      { to, subject, lines } satisfies AdminNotificationEmailData,
-      this.retryJobOptions()
-    );
-
-    logger.info({ to }, 'Admin notification email queued');
+    await enqueueAdminNotificationEmail(this.emailQueue, to, subject, lines);
   }
 
   /**
