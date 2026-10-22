@@ -8,8 +8,8 @@
  *   API（47.8）で 2FA 未登録にする。棚卸し画面の操作は 49.8 が確かめる）
  * - 初回のパスワード変更を要する利用者は `/setup/password` だけを開け、変更の完了でログイン画面へ戻り、
  *   再びログインした後に 2FA 設定の画面へ進む（要件37.7・34.1）
- * - 無効化された利用者の API とリフレッシュは 401 になり、画面はログイン画面へ戻る（要件36.1。無効化の
- *   操作は 49.2 で入るため、ここでは DB で無効化し、状態のキャッシュを無効化する）
+ * - 無効化された利用者の API とリフレッシュは 401 になり、画面はログイン画面へ戻る（要件36.1。管理者による
+ *   無効化の API（49.2）で無効化する。棚卸し画面の操作は 49.8 が確かめる）
  *
  * 状態を変える検証は専用の利用者（DEDICATED_USERS）で行い、各テストの開始時に初期化する（47.4）。
  * 通信の観測は URL のパスで照合する（CI とローカルで API のオリジンが異なるため）。
@@ -17,11 +17,11 @@
 
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
-import { resetDedicatedUser, type CreatedUser } from '../../fixtures/auth.fixtures';
+import { createTestUser, resetDedicatedUser, type CreatedUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser, loginWithCredentials, submitLoginForm } from '../../helpers/auth-actions';
-import { getAccessToken } from '../../helpers/auth-api';
+import { getAccessToken, waitForAuthenticatedSession } from '../../helpers/auth-api';
+import { TEST_USERS } from '../../helpers/test-users';
 import { API_BASE_URL } from '../../config';
-import { invalidateUserStateCache } from '../../helpers/user-state-cache';
 import { fillTotpCode, totpCodeFromSetupPage } from '../../helpers/two-factor-totp';
 import { getTimeout } from '../../helpers/wait-helpers';
 
@@ -55,6 +55,22 @@ async function requestFromPage(
       };
     }
   }, path);
+}
+
+/**
+ * 管理者のアクセストークンを得る
+ *
+ * 共有の管理者が他の spec の DB の初期化で消えていれば作り直す（実行の順序に依らないため）
+ */
+async function adminAccessToken(page: Page): Promise<string> {
+  const exists = await getPrismaClient().user.findUnique({
+    where: { email: TEST_USERS.ADMIN_USER.email },
+    select: { id: true },
+  });
+  if (!exists) {
+    await createTestUser('ADMIN_USER');
+  }
+  return getAccessToken(page, 'ADMIN_USER');
 }
 
 /** 制限中の画面にナビゲーションが無く、ログアウトだけが置かれていることを確かめる */
@@ -156,7 +172,7 @@ test.describe('利用者の状態による API の拒否と画面の遷移の制
   }) => {
     const user = await resetDedicatedUser('STATE_CHANGE_USER');
     // 管理者による 2FA の再設定の API（47.8）で、秘密鍵とバックアップコードを消し全セッションを失効させる
-    const adminToken = await getAccessToken(page, 'ADMIN_USER');
+    const adminToken = await adminAccessToken(page);
     const reset = await request.post(`${API_BASE_URL}/api/v1/users/${user.id}/2fa/reset`, {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
@@ -252,19 +268,23 @@ test.describe('利用者の状態による API の拒否と画面の遷移の制
    */
   test('無効化された利用者の API とリフレッシュは 401 で拒否され、画面はログイン画面へ戻る', async ({
     page,
+    request,
   }) => {
     const user = await resetDedicatedUser('STATE_CHANGE_USER');
     await loginAsUser(page, user);
+    // 再読み込みのセッションの復元（Cookie によるリフレッシュ）が終わるまで待ってから API を送る
     await page.goto('/projects');
     await expect(page).toHaveURL(/\/projects$/);
+    await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 200 });
     expect(await requestFromPage(page, '/api/projects')).toEqual({ status: 200, code: null });
 
-    // 管理者による無効化（49.2）の結果を DB で作り、状態を変える処理と同じく状態のキャッシュを無効化する
-    await getPrismaClient().user.update({
-      where: { id: user.id },
-      data: { isActive: false, deactivatedAt: new Date(), deactivationReason: 'E2E の検証' },
+    // 管理者による無効化の API（49.2）で、状態を記録し全リフレッシュトークンを失効させる
+    const adminToken = await adminAccessToken(page);
+    const deactivate = await request.post(`${API_BASE_URL}/api/v1/users/${user.id}/deactivate`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { reason: 'E2E の検証' },
     });
-    await invalidateUserStateCache([user.id]);
+    expect(deactivate.status()).toBe(204);
 
     // API は 401 ACCOUNT_DISABLED、続くリフレッシュも 401 ACCOUNT_DISABLED（後継のトークンを発行しない）
     const apiResponsePromise = page.waitForResponse(

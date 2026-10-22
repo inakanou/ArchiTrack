@@ -6,19 +6,30 @@
  * 固定の経路を利用者の ID として拾う。
  *
  * - タスク47.8: 管理者による 2FA の再設定（`POST /:id/2fa/reset`）
- * - タスク49.2・49.5 が無効化・再有効化と棚卸しの経路をここへ足す
+ * - タスク49.2: 無効化・再有効化（`POST /:id/deactivate`・`POST /:id/reactivate`）
+ * - タスク49.5 が棚卸しの経路をここへ足す
  *
  * Requirements (user-authentication):
  * - 34.7, 34.9, 34.10: 管理者による 2FA の再設定・自己の再設定の拒否・監査
+ * - 36.1, 36.3, 36.4, 36.5: 無効化・再有効化・通知と監査・自己と最後の管理者の保護
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import { z } from 'zod';
 import { TwoFactorService } from '../services/two-factor.service.js';
+import {
+  AccountStatusService,
+  type AccountStatusError,
+} from '../services/account-status.service.js';
+import { AdminNotificationService } from '../services/admin-notification.service.js';
+import { EmailService } from '../services/email.service.js';
 import { getSharedAuthenticatedUserStateService } from '../services/authenticated-user-state.service.js';
+import getPrismaClient from '../db.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { validate } from '../middleware/validate.middleware.js';
 import { getClientIp } from '../middleware/client-ip.js';
-import { ForbiddenError, NotFoundError } from '../errors/apiError.js';
+import { ConflictError, ForbiddenError, NotFoundError } from '../errors/apiError.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
@@ -26,6 +37,23 @@ const router = Router();
 // 呼び出しの時点で解決する（db.ts の PrismaClient の作り直しに追随する）
 const twoFactorService = new TwoFactorService({
   invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
+});
+// 無効化・再有効化のコミットの後に状態のキャッシュを無効化し、全システム管理者へ通知する（タスク49.2）
+const accountStatusService = new AccountStatusService({
+  prisma: getPrismaClient(),
+  userStateService: {
+    invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
+  },
+  adminNotificationService: new AdminNotificationService(getPrismaClient(), new EmailService()),
+});
+
+/** 無効化・再有効化の本文（理由は前後の空白を除いて 1 文字以上） */
+const accountStatusChangeSchema = z.object({
+  reason: z
+    .string({ message: 'reason is required' })
+    .trim()
+    .min(1, 'reason is required')
+    .max(1000, 'reason must be at most 1000 characters'),
 });
 
 /**
@@ -91,6 +119,156 @@ router.post(
       next(error);
     }
   }
+);
+
+/** 無効化・再有効化の業務上の失敗を応答へ写す */
+function accountStatusErrorToApiError(error: AccountStatusError) {
+  switch (error.type) {
+    case 'USER_NOT_FOUND':
+      return new NotFoundError('User not found', 'USER_NOT_FOUND');
+    case 'SELF_DEACTIVATION_FORBIDDEN':
+      return new ConflictError('Cannot deactivate your own account', error.type);
+    case 'LAST_ACTIVE_ADMIN_PROTECTED':
+      return new ConflictError(
+        'Cannot deactivate the last active system administrator',
+        error.type
+      );
+    case 'ALREADY_IN_STATE':
+      return new ConflictError('User is already in the requested state', error.type);
+  }
+}
+
+/** 無効化・再有効化の経路の処理 */
+function accountStatusHandler(operation: 'deactivate' | 'reactivate') {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id: targetUserId } = req.params as { id: string };
+      const actorId = req.user!.userId;
+      const { reason } = req.validatedBody as z.infer<typeof accountStatusChangeSchema>;
+
+      const result = await accountStatusService[operation](actorId, targetUserId, reason, {
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+      });
+      if (!result.ok) {
+        next(accountStatusErrorToApiError(result.error));
+        return;
+      }
+
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+/**
+ * @swagger
+ * /api/v1/users/{id}/deactivate:
+ *   post:
+ *     summary: 管理者による利用者の無効化
+ *     description: |
+ *       対象者を無効化し、全てのリフレッシュトークンを失効させる。以後の対象者のリフレッシュと API は
+ *       401 ACCOUNT_DISABLED になる（要件36.1）。監査（USER_DEACTIVATED）に実行者・対象・理由を記録し、
+ *       全システム管理者へ通知する（要件36.4）。自分自身と最後の有効なシステム管理者の無効化は拒否する（要件36.5）。
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 対象者のユーザーID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 1000
+ *                 description: 無効化の理由
+ *     responses:
+ *       204:
+ *         description: 無効化の完了
+ *       400:
+ *         description: 理由の欠落（code は VALIDATION_ERROR）
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: 権限の不足（user:manage）
+ *       404:
+ *         description: 対象者が見つからない（code は USER_NOT_FOUND）
+ *       409:
+ *         description: 自分自身（SELF_DEACTIVATION_FORBIDDEN）、最後の有効なシステム管理者（LAST_ACTIVE_ADMIN_PROTECTED）、既に無効（ALREADY_IN_STATE）
+ */
+router.post(
+  '/:id/deactivate',
+  authenticate,
+  requirePermission('user:manage'),
+  validate(accountStatusChangeSchema),
+  accountStatusHandler('deactivate')
+);
+
+/**
+ * @swagger
+ * /api/v1/users/{id}/reactivate:
+ *   post:
+ *     summary: 管理者による利用者の再有効化
+ *     description: |
+ *       無効化された対象者を再有効化し、再びログインできるようにする（要件36.3）。監査（USER_REACTIVATED）に
+ *       実行者・対象・理由を記録し、全システム管理者へ通知する（要件36.4）。
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 対象者のユーザーID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 minLength: 1
+ *                 maxLength: 1000
+ *                 description: 再有効化の理由
+ *     responses:
+ *       204:
+ *         description: 再有効化の完了
+ *       400:
+ *         description: 理由の欠落（code は VALIDATION_ERROR）
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: 権限の不足（user:manage）
+ *       404:
+ *         description: 対象者が見つからない（code は USER_NOT_FOUND）
+ *       409:
+ *         description: 既に有効（ALREADY_IN_STATE）
+ */
+router.post(
+  '/:id/reactivate',
+  authenticate,
+  requirePermission('user:manage'),
+  validate(accountStatusChangeSchema),
+  accountStatusHandler('reactivate')
 );
 
 export default router;

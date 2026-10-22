@@ -51,8 +51,9 @@ type PerformedBy = { email: string; displayName: string };
  * 文は新しいスナップショットで読むため、待った側の件数の数え直しは先行の削除を反映する。
  * FOR NO KEY UPDATE は外部キーの検査が取る FOR KEY SHARE と衝突しないため、admin ロールの割り当て
  * （user_roles への INSERT）は待たせない。
+ * 利用者の無効化（AccountStatusService、最後の有効なシステム管理者の判定）も同じロックを取る。
  */
-async function lockAdminRoleForLastAdminCheck(
+export async function lockAdminRoleForLastAdminCheck(
   tx: Prisma.TransactionClient,
   adminRoleId: string
 ): Promise<void> {

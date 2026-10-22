@@ -1,7 +1,9 @@
 /**
- * @fileoverview 管理者向けの利用者の操作のルーターの検証（タスク47.8）
+ * @fileoverview 管理者向けの利用者の操作のルーターの検証（タスク47.8・49.2）
  *
  * - `POST /api/v1/users/:id/2fa/reset` が実行者・対象者・送信元をサービスへ渡し、結果を 204・403・404 に写す
+ * - `POST /api/v1/users/:id/deactivate`・`/reactivate` が理由を検証してサービスへ渡し、結果を
+ *   204・400・404・409 に写す
  * - `user:manage` の権限を求める
  * - app.ts で user-roles.routes.ts より前にマウントする（`/:id` 系の経路に固定の経路を拾わせない）
  */
@@ -15,6 +17,8 @@ import { fileURLToPath } from 'url';
 
 const mocks = vi.hoisted(() => ({
   resetByAdmin: vi.fn(),
+  deactivate: vi.fn(),
+  reactivate: vi.fn(),
   requiredPermissions: [] as string[],
 }));
 
@@ -26,6 +30,21 @@ vi.mock('../../../services/two-factor.service', () => ({
   TwoFactorService: class {
     resetByAdmin = mocks.resetByAdmin;
   },
+}));
+
+vi.mock('../../../services/account-status.service', () => ({
+  AccountStatusService: class {
+    deactivate = mocks.deactivate;
+    reactivate = mocks.reactivate;
+  },
+}));
+
+vi.mock('../../../services/admin-notification.service', () => ({
+  AdminNotificationService: class {},
+}));
+
+vi.mock('../../../services/email.service', () => ({
+  EmailService: class {},
 }));
 
 vi.mock('../../../services/authenticated-user-state.service', () => ({
@@ -54,6 +73,8 @@ describe('管理者向けの利用者の操作のルーター', () => {
 
   beforeEach(() => {
     mocks.resetByAdmin.mockReset();
+    mocks.deactivate.mockReset();
+    mocks.reactivate.mockReset();
     app = express();
     app.use(express.json());
     app.use('/api/v1/users', userInventoryRouter);
@@ -106,6 +127,74 @@ describe('管理者向けの利用者の操作のルーター', () => {
     it('権限 user:manage を求める', () => {
       expect(mocks.requiredPermissions).toContain('user:manage');
     });
+  });
+
+  describe.each([
+    ['deactivate', mocks.deactivate],
+    ['reactivate', mocks.reactivate],
+  ] as const)('POST /api/v1/users/:id/%s', (operation, serviceMethod) => {
+    /**
+     * @requirement user-authentication/REQ-36.1
+     * @requirement user-authentication/REQ-36.3
+     */
+    it('実行者・対象者・理由・送信元をサービスへ渡し、成功で 204 を返す', async () => {
+      serviceMethod.mockResolvedValue({ ok: true, value: undefined });
+
+      const response = await request(app)
+        .post(`/api/v1/users/target-1/${operation}`)
+        .set('User-Agent', 'vitest-agent')
+        .send({ reason: '  退職のため  ' });
+
+      expect(response.status).toBe(204);
+      expect(serviceMethod).toHaveBeenCalledWith(
+        'admin-1',
+        'target-1',
+        '退職のため',
+        expect.objectContaining({ userAgent: 'vitest-agent' })
+      );
+    });
+
+    it.each([[{}], [{ reason: '' }], [{ reason: '   ' }], [{ reason: 42 }]])(
+      '理由の欠落を 400 で返しサービスを呼ばない（本文 %j）',
+      async (body) => {
+        const response = await request(app).post(`/api/v1/users/target-1/${operation}`).send(body);
+
+        expect(response.status).toBe(400);
+        expect(serviceMethod).not.toHaveBeenCalled();
+      }
+    );
+
+    it('対象者の不在を 404 USER_NOT_FOUND で返す', async () => {
+      serviceMethod.mockResolvedValue({ ok: false, error: { type: 'USER_NOT_FOUND' } });
+
+      const response = await request(app)
+        .post(`/api/v1/users/missing/${operation}`)
+        .send({ reason: '理由' });
+
+      expect(response.status).toBe(404);
+      expect(response.body.code).toBe('USER_NOT_FOUND');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-36.5
+     */
+    it.each(['SELF_DEACTIVATION_FORBIDDEN', 'LAST_ACTIVE_ADMIN_PROTECTED', 'ALREADY_IN_STATE'])(
+      '%s を 409 で返す',
+      async (type) => {
+        serviceMethod.mockResolvedValue({ ok: false, error: { type } });
+
+        const response = await request(app)
+          .post(`/api/v1/users/target-1/${operation}`)
+          .send({ reason: '理由' });
+
+        expect(response.status).toBe(409);
+        expect(response.body.code).toBe(type);
+      }
+    );
+  });
+
+  it('2FA の再設定・無効化・再有効化の 3 経路がそれぞれ権限 user:manage を求める', () => {
+    expect(mocks.requiredPermissions.filter((p) => p === 'user:manage')).toHaveLength(3);
   });
 
   it('app.ts は user-roles.routes.ts より前に /api/v1/users へマウントする', () => {

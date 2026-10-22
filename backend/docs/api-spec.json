@@ -994,6 +994,138 @@
         }
       }
     },
+    "/api/v1/users/{id}/deactivate": {
+      "post": {
+        "summary": "管理者による利用者の無効化",
+        "description": "対象者を無効化し、全てのリフレッシュトークンを失効させる。以後の対象者のリフレッシュと API は\n401 ACCOUNT_DISABLED になる（要件36.1）。監査（USER_DEACTIVATED）に実行者・対象・理由を記録し、\n全システム管理者へ通知する（要件36.4）。自分自身と最後の有効なシステム管理者の無効化は拒否する（要件36.5）。\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "対象者のユーザーID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "description": "無効化の理由"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "無効化の完了"
+          },
+          "400": {
+            "description": "理由の欠落（code は VALIDATION_ERROR）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "権限の不足（user:manage）"
+          },
+          "404": {
+            "description": "対象者が見つからない（code は USER_NOT_FOUND）"
+          },
+          "409": {
+            "description": "自分自身（SELF_DEACTIVATION_FORBIDDEN）、最後の有効なシステム管理者（LAST_ACTIVE_ADMIN_PROTECTED）、既に無効（ALREADY_IN_STATE）"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}/reactivate": {
+      "post": {
+        "summary": "管理者による利用者の再有効化",
+        "description": "無効化された対象者を再有効化し、再びログインできるようにする（要件36.3）。監査（USER_REACTIVATED）に\n実行者・対象・理由を記録し、全システム管理者へ通知する（要件36.4）。\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "対象者のユーザーID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "description": "再有効化の理由"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "再有効化の完了"
+          },
+          "400": {
+            "description": "理由の欠落（code は VALIDATION_ERROR）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "権限の不足（user:manage）"
+          },
+          "404": {
+            "description": "対象者が見つからない（code は USER_NOT_FOUND）"
+          },
+          "409": {
+            "description": "既に有効（ALREADY_IN_STATE）"
+          }
+        }
+      }
+    },
     "/api/trading-partners": {
       "get": {
         "summary": "取引先一覧取得",
