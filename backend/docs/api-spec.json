@@ -955,6 +955,175 @@
         }
       }
     },
+    "/api/v1/users/inventory": {
+      "get": {
+        "summary": "利用者の棚卸しの一覧",
+        "description": "全利用者の表示名・メールアドレス・ロール・状態・2FA 登録の有無・最終ログイン日時・作成日時・招待者を返す\n（要件36.10）。状態と最終ログインからの経過日数で絞り込める（要件36.11。両方を組み合わせられる）。\nログインの実績が無い利用者の経過日数は作成日時から数える。並び順は、ログインの実績が無い利用者を先に、\n続いて最終ログインの古い順、作成日時の古い順、ID の順。権限 user:read を求め、一般ユーザーは 403\n（要件36.12）。\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "inactive"
+              ]
+            },
+            "description": "状態（有効・無効）で絞り込む"
+          },
+          {
+            "in": "query",
+            "name": "inactiveDaysAtLeast",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 36500
+            },
+            "description": "最終ログイン（実績が無ければ作成日時）からの経過日数がこの値以上の利用者に絞り込む"
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": "ページ番号"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "1 ページの件数"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "棚卸しの一覧とページ情報",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "displayName",
+                          "email",
+                          "roles",
+                          "status",
+                          "twoFactorEnabled",
+                          "lastLoginAt",
+                          "createdAt",
+                          "invitedBy"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "roles": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "ロール名（優先度の高い順）"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "active",
+                              "inactive"
+                            ]
+                          },
+                          "twoFactorEnabled": {
+                            "type": "boolean"
+                          },
+                          "lastLoginAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "invitedBy": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "totalPages": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "クエリの不正（code は VALIDATION_ERROR）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "権限の不足（user:read）"
+          }
+        }
+      }
+    },
     "/api/v1/users/{id}/2fa/reset": {
       "post": {
         "summary": "管理者による 2FA の再設定",

@@ -7,11 +7,12 @@
  *
  * - タスク47.8: 管理者による 2FA の再設定（`POST /:id/2fa/reset`）
  * - タスク49.2: 無効化・再有効化（`POST /:id/deactivate`・`POST /:id/reactivate`）
- * - タスク49.5 が棚卸しの経路をここへ足す
+ * - タスク49.5: 棚卸しの一覧と絞り込み（`GET /inventory`）
  *
  * Requirements (user-authentication):
  * - 34.7, 34.9, 34.10: 管理者による 2FA の再設定・自己の再設定の拒否・監査
  * - 36.1, 36.3, 36.4, 36.5: 無効化・再有効化・通知と監査・自己と最後の管理者の保護
+ * - 36.10, 36.11, 36.12: 棚卸しの一覧・状態と経過日数の絞り込み・一般ユーザーの拒否
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -22,6 +23,7 @@ import {
   type AccountStatusError,
 } from '../services/account-status.service.js';
 import { AdminNotificationService } from '../services/admin-notification.service.js';
+import { UserInventoryService } from '../services/user-inventory.service.js';
 import { EmailService } from '../services/email.service.js';
 import { getSharedAuthenticatedUserStateService } from '../services/authenticated-user-state.service.js';
 import getPrismaClient from '../db.js';
@@ -46,6 +48,159 @@ const accountStatusService = new AccountStatusService({
   },
   adminNotificationService: new AdminNotificationService(getPrismaClient(), new EmailService()),
 });
+
+// 棚卸しの一覧と絞り込み（タスク49.5）
+const userInventoryService = new UserInventoryService({ prisma: getPrismaClient() });
+
+/** 棚卸しの 1 ページの件数の上限（他の一覧の API と同じ） */
+const USER_INVENTORY_MAX_LIMIT = 100;
+
+/** 棚卸しのクエリ */
+const userInventoryQuerySchema = z.object({
+  status: z
+    .enum(['active', 'inactive'], { message: 'status must be active or inactive' })
+    .optional(),
+  inactiveDaysAtLeast: z.coerce
+    .number({ message: 'inactiveDaysAtLeast must be a number' })
+    .int('inactiveDaysAtLeast must be an integer')
+    .min(0, 'inactiveDaysAtLeast must be at least 0')
+    .max(36500, 'inactiveDaysAtLeast must be at most 36500')
+    .optional(),
+  page: z.coerce
+    .number({ message: 'page must be a number' })
+    .int('page must be an integer')
+    .min(1, 'page must be at least 1')
+    .default(1),
+  limit: z.coerce
+    .number({ message: 'limit must be a number' })
+    .int('limit must be an integer')
+    .min(1, 'limit must be at least 1')
+    .max(USER_INVENTORY_MAX_LIMIT, `limit must be at most ${USER_INVENTORY_MAX_LIMIT}`)
+    .default(20),
+});
+
+/**
+ * @swagger
+ * /api/v1/users/inventory:
+ *   get:
+ *     summary: 利用者の棚卸しの一覧
+ *     description: |
+ *       全利用者の表示名・メールアドレス・ロール・状態・2FA 登録の有無・最終ログイン日時・作成日時・招待者を返す
+ *       （要件36.10）。状態と最終ログインからの経過日数で絞り込める（要件36.11。両方を組み合わせられる）。
+ *       ログインの実績が無い利用者の経過日数は作成日時から数える。並び順は、ログインの実績が無い利用者を先に、
+ *       続いて最終ログインの古い順、作成日時の古い順、ID の順。権限 user:read を求め、一般ユーザーは 403
+ *       （要件36.12）。
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [active, inactive]
+ *         description: 状態（有効・無効）で絞り込む
+ *       - in: query
+ *         name: inactiveDaysAtLeast
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *           maximum: 36500
+ *         description: 最終ログイン（実績が無ければ作成日時）からの経過日数がこの値以上の利用者に絞り込む
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: ページ番号
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: 1 ページの件数
+ *     responses:
+ *       200:
+ *         description: 棚卸しの一覧とページ情報
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [data, pagination]
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     required: [id, displayName, email, roles, status, twoFactorEnabled, lastLoginAt, createdAt, invitedBy]
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       displayName:
+ *                         type: string
+ *                       email:
+ *                         type: string
+ *                       roles:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                         description: ロール名（優先度の高い順）
+ *                       status:
+ *                         type: string
+ *                         enum: [active, inactive]
+ *                       twoFactorEnabled:
+ *                         type: boolean
+ *                       lastLoginAt:
+ *                         type: string
+ *                         format: date-time
+ *                         nullable: true
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                       invitedBy:
+ *                         type: object
+ *                         nullable: true
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           displayName:
+ *                             type: string
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     total:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *       400:
+ *         description: クエリの不正（code は VALIDATION_ERROR）
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: 権限の不足（user:read）
+ */
+router.get(
+  '/inventory',
+  authenticate,
+  requirePermission('user:read'),
+  validate(userInventoryQuerySchema, 'query'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const query = req.validatedQuery as z.infer<typeof userInventoryQuerySchema>;
+      res.json(await userInventoryService.list(query));
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 /** 無効化・再有効化の本文（理由は前後の空白を除いて 1 文字以上） */
 const accountStatusChangeSchema = z.object({
