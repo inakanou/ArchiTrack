@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PrismaClient, User, Role, UserRole } from '../../../generated/prisma/client.js';
 import { UserRoleService } from '../../../services/user-role.service.js';
+import { PrivilegeCeilingPolicy } from '../../../services/privilege-ceiling.js';
 import { Err, Ok } from '../../../types/result.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import type { IRBACService } from '../../../types/rbac.types.js';
@@ -1197,6 +1198,130 @@ describe('UserRoleService', () => {
         { err: failure, userId: mockUserId },
         'Failed to invalidate permission cache after commit'
       );
+    });
+  });
+
+  describe('権限付与の上限（user-authentication タスク51.1）', () => {
+    const actorId = 'actor-123';
+    let service: UserRoleService;
+
+    /** 実行者の保有ロール（上限の判定が読む） */
+    function actorHolds(roles: Array<{ name: string; priority: number }>): void {
+      vi.mocked(prismaMock.userRole.findMany).mockResolvedValue(
+        roles.map((role) => ({ role })) as never
+      );
+    }
+
+    beforeEach(() => {
+      service = new UserRoleService(
+        prismaMock,
+        rbacServiceMock as unknown as IRBACService,
+        auditLogServiceMock,
+        adminNotificationService,
+        undefined,
+        new PrivilegeCeilingPolicy(prismaMock)
+      );
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.userRole.create).mockResolvedValue(mockUserRole);
+    });
+
+    it('実行者の上限を超えるロールの割り当てを拒否し、権限チェックの失敗としてトランザクションの外で監査に記録する', async () => {
+      actorHolds([{ name: 'junior', priority: 10 }]);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole); // priority 50
+
+      const result = await service.addRoleToUser(mockUserId, mockRoleId, actorId);
+
+      expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+      expect(prismaMock.userRole.create).not.toHaveBeenCalled();
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledTimes(1);
+      const [input, tx] = vi.mocked(auditLogServiceMock.createLog).mock.calls[0]!;
+      expect(input).toEqual({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId,
+        targetType: 'user-role',
+        targetId: mockUserId,
+        before: null,
+        after: null,
+        metadata: { reason: 'ROLE_PRIORITY_EXCEEDS_ACTOR', roleId: mockRoleId },
+      });
+      // 割り当てのトランザクションはロールバックされるため、記録はその外で行う
+      expect(tx).toBeUndefined();
+      expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
+    });
+
+    it('admin ロールを持たない実行者による admin ロールの割り当てを拒否して監査に記録する', async () => {
+      actorHolds([{ name: 'deputy', priority: 100 }]);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+
+      const result = await service.addRoleToUser(mockUserId, mockAdminRoleId, actorId);
+
+      expect(result).toEqual(Err({ type: 'SYSTEM_ADMIN_REQUIRED' }));
+      expect(prismaMock.userRole.create).not.toHaveBeenCalled();
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId,
+        targetType: 'user-role',
+        targetId: mockUserId,
+        before: null,
+        after: null,
+        metadata: { reason: 'SYSTEM_ADMIN_REQUIRED', roleId: mockAdminRoleId },
+      });
+    });
+
+    it('一括の割り当ても同じ上限で判定し、上限を超えるロールを一つでも含めば全体を失敗にする', async () => {
+      actorHolds([{ name: 'lead', priority: 50 }]);
+      const lowRole = { ...mockRole, id: 'role-low', name: 'member', priority: 10 };
+      const highRole = { ...mockRole, id: 'role-high', name: 'director', priority: 90 };
+      vi.mocked(prismaMock.role.findUnique).mockImplementation(((args: { where: { id: string } }) =>
+        Promise.resolve(
+          args.where.id === highRole.id ? highRole : lowRole
+        )) as unknown as typeof prismaMock.role.findUnique);
+
+      const result = await service.addRolesToUser(mockUserId, [lowRole.id, highRole.id], actorId);
+
+      expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+      expect(auditLogServiceMock.createLog).toHaveBeenLastCalledWith({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId,
+        targetType: 'user-role',
+        targetId: mockUserId,
+        before: null,
+        after: null,
+        metadata: { reason: 'ROLE_PRIORITY_EXCEEDS_ACTOR', roleId: highRole.id },
+      });
+      // 先に割り当てた分もコミットされず、キャッシュの無効化も行わない
+      expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
+    });
+
+    it('上限内（保有ロールの最大の priority 以下）のロールの割り当ては成功する', async () => {
+      actorHolds([
+        { name: 'junior', priority: 10 },
+        { name: 'lead', priority: 50 },
+      ]);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole); // priority 50
+
+      const result = await service.addRoleToUser(mockUserId, mockRoleId, actorId);
+
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.userRole.create).toHaveBeenCalledWith({
+        data: { userId: mockUserId, roleId: mockRoleId },
+      });
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledTimes(1);
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'USER_ROLE_ASSIGNED' }),
+        prismaMock
+      );
+    });
+
+    it('拒否の監査の記録に失敗しても、拒否の結果は変わらない', async () => {
+      actorHolds([{ name: 'junior', priority: 10 }]);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(auditLogServiceMock.createLog).mockRejectedValueOnce(new Error('audit down'));
+
+      const result = await service.addRoleToUser(mockUserId, mockRoleId, actorId);
+
+      expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
     });
   });
 });

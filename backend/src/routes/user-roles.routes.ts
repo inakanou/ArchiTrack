@@ -13,6 +13,7 @@ import { AuditLogService } from '../services/audit-log.service.js';
 import { EmailService } from '../services/email.service.js';
 import { AdminNotificationService } from '../services/admin-notification.service.js';
 import { getSharedAuthenticatedUserStateService } from '../services/authenticated-user-state.service.js';
+import { PrivilegeCeilingPolicy, isCeilingError } from '../services/privilege-ceiling.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -37,7 +38,9 @@ const userRoleService = new UserRoleService(
   adminNotificationService,
   {
     invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
-  }
+  },
+  // 権限付与の上限（user-authentication タスク51.1）。自分を超えるロールの割り当てを拒否する
+  new PrivilegeCeilingPolicy(prisma)
 );
 
 // Zodバリデーションスキーマ
@@ -149,7 +152,7 @@ router.get(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または権限付与の上限による拒否（code が ROLE_PRIORITY_EXCEEDS_ACTOR・SYSTEM_ADMIN_REQUIRED）
  *       404:
  *         description: ユーザーまたはロールが見つからない
  */
@@ -176,6 +179,15 @@ router.post(
         const error = result.error;
         if (error.type === 'USER_NOT_FOUND' || error.type === 'ROLE_NOT_FOUND') {
           res.status(404).json({ error: 'User or role not found', code: error.type });
+          return;
+        }
+        // 権限付与の上限による拒否（タスク51.1）。監査はサービスが記録済み
+        if (isCeilingError(error)) {
+          res.status(403).json({
+            error: 'FORBIDDEN',
+            message: 'The role exceeds the privileges of the requesting user',
+            code: error.type,
+          });
           return;
         }
         res.status(500).json({ error: 'Failed to add role to user', details: error });

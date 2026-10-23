@@ -23,6 +23,7 @@ import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import { recordCeilingRejection, type PrivilegeCeilingPort } from './privilege-ceiling.js';
 
 /** 監査ログの変更前後の値に残すロールの項目 */
 type RoleAuditSnapshot = {
@@ -53,7 +54,12 @@ class RoleRollback extends Error {
 export class RoleService implements IRoleService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly auditLogService?: IAuditLogService
+    private readonly auditLogService?: IAuditLogService,
+    /**
+     * 権限付与の上限（user-authentication タスク51.1）。システムロールの名前の変更を拒否する。
+     * API の経路（roles.routes.ts）は必ず渡す
+     */
+    private readonly privilegeCeiling?: Pick<PrivilegeCeilingPort, 'assertCanRenameRole'>
   ) {}
 
   private toAuditSnapshot(role: RoleAuditSnapshot): RoleAuditSnapshot {
@@ -202,6 +208,24 @@ export class RoleService implements IRoleService {
       if (!existingRole) {
         logger.warn({ roleId }, 'Role not found');
         return Err({ type: 'ROLE_NOT_FOUND' });
+      }
+
+      // システムロールの名前の変更の拒否（タスク51.1）。名前が実際に変わるときだけ判定する
+      // （画面は説明だけの変更でも同じ名前を送るため、同じ名前は拒否しない）
+      if (this.privilegeCeiling && input.name !== undefined && input.name !== existingRole.name) {
+        const verdict = await this.privilegeCeiling.assertCanRenameRole(roleId);
+        if (!verdict.ok) {
+          if (actorId) {
+            await recordCeilingRejection(this.auditLogService, {
+              actorId,
+              targetType: 'role',
+              targetId: roleId,
+              error: verdict.error,
+              detail: { currentName: existingRole.name, requestedName: input.name },
+            });
+          }
+          return Err({ type: 'SYSTEM_ROLE_RENAME_FORBIDDEN' });
+        }
       }
 
       // Check name duplication when changing name (optimized: only check existence)

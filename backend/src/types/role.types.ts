@@ -119,4 +119,6 @@ export type RoleError =
   | { type: 'ROLE_IN_USE'; userCount: number }
   | { type: 'SYSTEM_ROLE_PROTECTED' }
   | { type: 'ROLE_CONFLICT'; expectedUpdatedAt: Date; actualUpdatedAt: Date }
+  // システムロールの名前の変更の拒否（user-authentication タスク51.1）
+  | { type: 'SYSTEM_ROLE_RENAME_FORBIDDEN' }
   | { type: 'DATABASE_ERROR'; message: string };

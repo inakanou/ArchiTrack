@@ -29,6 +29,10 @@ const mockRolePermissionService = vi.hoisted(() => ({
   getRolePermissions: vi.fn(),
 }));
 
+// サービスの構築に渡された引数（権限付与の上限の判定が渡されていることを確かめる。タスク51.1）
+const roleServiceConstructorArgs = vi.hoisted(() => [] as unknown[][]);
+const rolePermissionServiceConstructorArgs = vi.hoisted(() => [] as unknown[][]);
+
 // モック: データベースとRedis
 vi.mock('../../../db', () => ({
   default: vi.fn(() => ({})),
@@ -43,7 +47,8 @@ vi.mock('../../../redis', () => ({
 // モック: サービス層
 vi.mock('../../../services/role.service', () => ({
   RoleService: class {
-    constructor() {
+    constructor(...args: unknown[]) {
+      roleServiceConstructorArgs.push(args);
       return mockRoleService;
     }
   },
@@ -51,7 +56,8 @@ vi.mock('../../../services/role.service', () => ({
 
 vi.mock('../../../services/role-permission.service', () => ({
   RolePermissionService: class {
-    constructor() {
+    constructor(...args: unknown[]) {
+      rolePermissionServiceConstructorArgs.push(args);
       return mockRolePermissionService;
     }
   },
@@ -95,6 +101,7 @@ vi.mock('../../../middleware/authorize.middleware', () => ({
 // 実際のルートとミドルウェアをインポート（モックの後にインポート）
 import rolesRouter from '../../../routes/roles.routes.js';
 import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
+import { PrivilegeCeilingPolicy } from '../../../services/privilege-ceiling.js';
 
 describe('Role Routes', () => {
   let app: Application;
@@ -577,6 +584,53 @@ describe('Role Routes', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toContain('admin wildcard permission');
+    });
+  });
+
+  describe('権限付与の上限（タスク51.1）', () => {
+    const hasCeilingPolicy = (calls: unknown[][]) =>
+      calls.some((args) => args.some((arg) => arg instanceof PrivilegeCeilingPolicy));
+
+    /**
+     * @requirement user-authentication/REQ-38.2
+     * @requirement user-authentication/REQ-38.3
+     */
+    it('ロールとロール・権限のサービスへ権限付与の上限の判定を渡して構築する', () => {
+      expect(hasCeilingPolicy(roleServiceConstructorArgs)).toBe(true);
+      expect(hasCeilingPolicy(rolePermissionServiceConstructorArgs)).toBe(true);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.3
+     */
+    it('システムロールの名前の変更は 403 FORBIDDEN を返し、code に種別を載せる', async () => {
+      (mockRoleService.updateRole as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'SYSTEM_ROLE_RENAME_FORBIDDEN' })
+      );
+
+      const response = await request(app).patch('/api/v1/roles/role-user').send({ name: 'member' });
+
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({
+        error: 'FORBIDDEN',
+        code: 'SYSTEM_ROLE_RENAME_FORBIDDEN',
+      });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.2
+     */
+    it('システム管理者でない実行者による全権限の追加は 403 FORBIDDEN を返す', async () => {
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Err({ type: 'SYSTEM_ADMIN_REQUIRED' }));
+
+      const response = await request(app)
+        .post('/api/v1/roles/role-3/permissions')
+        .send({ permissionId: 'perm-wildcard' });
+
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({ error: 'FORBIDDEN', code: 'SYSTEM_ADMIN_REQUIRED' });
     });
   });
 });

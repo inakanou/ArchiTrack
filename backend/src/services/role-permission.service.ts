@@ -21,13 +21,22 @@ import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import {
+  isCeilingError,
+  recordCeilingRejection,
+  type PrivilegeCeilingPort,
+} from './privilege-ceiling.js';
 
 /**
  * 紐付けの変更を途中で打ち切り、トランザクションをロールバックさせるための合図。
  * 業務上のエラー（ロール・権限の不在など）を運ぶ。$transaction の外で Err へ戻す。
  */
 class RolePermissionRollback extends Error {
-  constructor(readonly error: RolePermissionError) {
+  constructor(
+    readonly error: RolePermissionError,
+    /** 上限による拒否のときの、拒否した権限（監査の記録に使う） */
+    readonly rejected?: { permissionId: string; permission: string }
+  ) {
     super(`Role permission change rolled back: ${error.type}`);
     this.name = 'RolePermissionRollback';
   }
@@ -45,7 +54,12 @@ export class RolePermissionService implements IRolePermissionService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly rbacService?: IRBACService,
-    private readonly auditLogService?: IAuditLogService
+    private readonly auditLogService?: IAuditLogService,
+    /**
+     * 権限付与の上限（user-authentication タスク51.1）。実行者のある追加に、admin ロールを持たない
+     * 実行者による全権限（*:*）の追加を拒否する。API の経路（roles.routes.ts）は必ず渡す
+     */
+    private readonly privilegeCeiling?: PrivilegeCeilingPort
   ) {}
 
   /**
@@ -217,6 +231,16 @@ export class RolePermissionService implements IRolePermissionService {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof RolePermissionRollback) {
+        // 上限による拒否は、ロールバックの後に権限チェックの失敗として記録する
+        if (actorId && isCeilingError(error.error) && error.rejected) {
+          await recordCeilingRejection(this.auditLogService, {
+            actorId,
+            targetType: 'role-permission',
+            targetId: roleId,
+            error: error.error,
+            detail: error.rejected,
+          });
+        }
         return Err(error.error);
       }
       logger.error({ err: error, roleId, permissionIds }, 'Failed to add permission to role');
@@ -288,6 +312,21 @@ export class RolePermissionService implements IRolePermissionService {
     if (!permission) {
       logger.warn({ permissionId }, 'Permission not found');
       throw new RolePermissionRollback({ type: 'PERMISSION_NOT_FOUND' });
+    }
+
+    // 権限付与の上限（タスク51.1）。1件・一括の共通処理で、同じトランザクションのクライアントで判定する
+    if (this.privilegeCeiling && actorId) {
+      const verdict = await this.privilegeCeiling.assertCanGrantPermission(
+        actorId,
+        { resource: permission.resource, action: permission.action },
+        tx
+      );
+      if (!verdict.ok) {
+        throw new RolePermissionRollback(verdict.error, {
+          permissionId,
+          permission: `${permission.resource}:${permission.action}`,
+        });
+      }
     }
 
     // 重複チェック (optimized: only check existence)

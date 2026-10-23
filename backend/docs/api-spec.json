@@ -817,7 +817,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または権限付与の上限による拒否（code が ROLE_PRIORITY_EXCEEDS_ACTOR・SYSTEM_ADMIN_REQUIRED）"
           },
           "404": {
             "description": "ユーザーまたはロールが見つからない"
@@ -3411,7 +3411,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、またはシステムロールの名前の変更（code が SYSTEM_ROLE_RENAME_FORBIDDEN）"
           },
           "404": {
             "description": "ロールが見つからない"
@@ -3561,7 +3561,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または権限付与の上限による拒否（code が SYSTEM_ADMIN_REQUIRED）"
           },
           "404": {
             "description": "ロールまたは権限が見つからない"

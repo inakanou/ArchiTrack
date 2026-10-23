@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, Role } from '../../../generated/prisma/client.js';
 import { RoleService } from '../../../services/role.service.js';
+import { PrivilegeCeilingPolicy } from '../../../services/privilege-ceiling.js';
 import { Err, Ok } from '../../../types/result.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 
@@ -655,6 +656,103 @@ describe('RoleService', () => {
 
       expect(result).toEqual(Ok(undefined));
       expect(auditLogServiceMock.createLog).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('システムロールの名前の変更の拒否（user-authentication タスク51.1）', () => {
+    const actorId = 'actor-123';
+    let auditLogServiceMock: IAuditLogService;
+    let service: RoleService;
+
+    /** 対象のロール（id で引く）と、名前の重複の確認（name で引く。重複なし） */
+    function targetRole(role: Role): void {
+      vi.mocked(prismaMock.role.findUnique).mockImplementation(((args: {
+        where: { id?: string; name?: string };
+      }) =>
+        Promise.resolve(
+          args.where.id === role.id ? role : null
+        )) as unknown as typeof prismaMock.role.findUnique);
+    }
+
+    beforeEach(() => {
+      auditLogServiceMock = {
+        createLog: vi.fn().mockResolvedValue({}),
+        getLogs: vi.fn(),
+        exportLogs: vi.fn(),
+      };
+      service = new RoleService(
+        prismaMock,
+        auditLogServiceMock,
+        new PrivilegeCeilingPolicy(prismaMock)
+      );
+    });
+
+    it('システムロールの名前の変更を拒否し、権限チェックの失敗として監査に記録する', async () => {
+      targetRole(mockAdminRole);
+
+      const result = await service.updateRole(mockAdminRoleId, { name: 'superuser' }, actorId);
+
+      expect(result).toEqual(Err({ type: 'SYSTEM_ROLE_RENAME_FORBIDDEN' }));
+      expect(prismaMock.role.update).not.toHaveBeenCalled();
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledTimes(1);
+      const [input, tx] = vi.mocked(auditLogServiceMock.createLog).mock.calls[0]!;
+      expect(input).toEqual({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId,
+        targetType: 'role',
+        targetId: mockAdminRoleId,
+        before: null,
+        after: null,
+        metadata: {
+          reason: 'SYSTEM_ROLE_RENAME_FORBIDDEN',
+          currentName: 'admin',
+          requestedName: 'superuser',
+        },
+      });
+      expect(tx).toBeUndefined();
+    });
+
+    it('楽観的ロックの版を伴う更新でもシステムロールの名前の変更を拒否する', async () => {
+      targetRole(mockAdminRole);
+
+      const result = await service.updateRole(
+        mockAdminRoleId,
+        { name: 'superuser', expectedUpdatedAt: mockAdminRole.updatedAt },
+        actorId
+      );
+
+      expect(result).toEqual(Err({ type: 'SYSTEM_ROLE_RENAME_FORBIDDEN' }));
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('システムロールでも名前を変えない更新（同じ名前と説明の変更）は受け付ける', async () => {
+      targetRole(mockAdminRole);
+      vi.mocked(prismaMock.role.update).mockResolvedValue({
+        ...mockAdminRole,
+        description: '変更後',
+      });
+
+      const result = await service.updateRole(
+        mockAdminRoleId,
+        { name: 'admin', description: '変更後' },
+        actorId
+      );
+
+      expect(result.ok).toBe(true);
+      expect(auditLogServiceMock.createLog).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'PERMISSION_CHECK_FAILED' })
+      );
+    });
+
+    it('システムロールでないロールの名前の変更は受け付ける', async () => {
+      targetRole(mockRole);
+      vi.mocked(prismaMock.role.update).mockResolvedValue({ ...mockRole, name: 'engineer' });
+
+      const result = await service.updateRole(mockRoleId, { name: 'engineer' }, actorId);
+
+      expect(result.ok).toBe(true);
+      expect(prismaMock.role.update).toHaveBeenCalled();
     });
   });
 });

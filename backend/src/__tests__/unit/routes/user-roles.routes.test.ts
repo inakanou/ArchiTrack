@@ -21,6 +21,9 @@ const mockUserRoleService = vi.hoisted(() => ({
   deleteUser: vi.fn(),
 }));
 
+// サービスの構築に渡された引数（権限付与の上限の判定が渡されていることを確かめる。タスク51.1）
+const userRoleServiceConstructorArgs = vi.hoisted(() => [] as unknown[][]);
+
 // モック: データベースとRedis
 vi.mock('../../../db', () => ({
   default: vi.fn(() => ({})),
@@ -35,7 +38,8 @@ vi.mock('../../../redis', () => ({
 // モック: サービス層
 vi.mock('../../../services/user-role.service', () => ({
   UserRoleService: class {
-    constructor() {
+    constructor(...args: unknown[]) {
+      userRoleServiceConstructorArgs.push(args);
       return mockUserRoleService;
     }
   },
@@ -86,6 +90,7 @@ vi.mock('../../../middleware/authorize.middleware', () => ({
 import userRolesRouter from '../../../routes/user-roles.routes.js';
 import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
 import { Prisma } from '../../../generated/prisma/client.js';
+import { PrivilegeCeilingPolicy } from '../../../services/privilege-ceiling.js';
 
 describe('User Role Routes', () => {
   let app: Application;
@@ -338,6 +343,45 @@ describe('User Role Routes', () => {
 
       expect(response.status).toBe(404);
       expect(response.body).toMatchObject({ status: 404, title: 'Not Found' });
+    });
+  });
+
+  describe('権限付与の上限（タスク51.1）', () => {
+    it('ユーザー・ロールのサービスへ権限付与の上限の判定を渡して構築する', () => {
+      expect(
+        userRoleServiceConstructorArgs.some((args) =>
+          args.some((arg) => arg instanceof PrivilegeCeilingPolicy)
+        )
+      ).toBe(true);
+    });
+
+    it('実行者の上限を超えるロールの割り当ては 403 FORBIDDEN を返し、code に種別を載せる', async () => {
+      (mockUserRoleService.addRolesToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' })
+      );
+
+      const response = await request(app)
+        .post('/api/v1/users/user-1/roles')
+        .send({ roleIds: ['role-high'] });
+
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({
+        error: 'FORBIDDEN',
+        code: 'ROLE_PRIORITY_EXCEEDS_ACTOR',
+      });
+    });
+
+    it('システム管理者でない実行者による管理者ロールの割り当ては 403 FORBIDDEN を返す', async () => {
+      (mockUserRoleService.addRolesToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'SYSTEM_ADMIN_REQUIRED' })
+      );
+
+      const response = await request(app)
+        .post('/api/v1/users/user-1/roles')
+        .send({ roleIds: ['role-admin'] });
+
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({ error: 'FORBIDDEN', code: 'SYSTEM_ADMIN_REQUIRED' });
     });
   });
 });

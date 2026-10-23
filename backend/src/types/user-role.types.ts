@@ -6,6 +6,7 @@
  */
 
 import type { Result } from './result.js';
+import type { CeilingError } from '../services/privilege-ceiling.js';
 
 /**
  * ユーザー・ロール紐付けサービスのインターフェース
@@ -91,4 +92,6 @@ export type UserRoleError =
   | { type: 'ROLE_NOT_FOUND' }
   | { type: 'ASSIGNMENT_NOT_FOUND' }
   | { type: 'LAST_ADMIN_PROTECTED' }
+  // 権限付与の上限による拒否（user-authentication タスク51.1）
+  | CeilingError
   | { type: 'DATABASE_ERROR'; message: string };

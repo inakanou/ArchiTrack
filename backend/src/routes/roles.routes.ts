@@ -12,6 +12,7 @@ import { RoleService } from '../services/role.service.js';
 import { RolePermissionService } from '../services/role-permission.service.js';
 import { getSharedRBACService } from '../services/rbac.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
+import { PrivilegeCeilingPolicy, isCeilingError } from '../services/privilege-ceiling.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -27,8 +28,16 @@ const prisma = getPrismaClient();
 const rbacService = getSharedRBACService();
 const auditLogService = new AuditLogService({ prisma });
 // ロールの作成・更新・削除は書き込みと監査ログを同じトランザクションで記録する（タスク36.4）
-const roleService = new RoleService(prisma, auditLogService);
-const rolePermissionService = new RolePermissionService(prisma, rbacService, auditLogService);
+// 権限付与の上限（user-authentication タスク51.1）。システムロールの名前の変更と、
+// システム管理者でない実行者による全権限の追加を拒否する
+const privilegeCeiling = new PrivilegeCeilingPolicy(prisma);
+const roleService = new RoleService(prisma, auditLogService, privilegeCeiling);
+const rolePermissionService = new RolePermissionService(
+  prisma,
+  rbacService,
+  auditLogService,
+  privilegeCeiling
+);
 
 // Zodバリデーションスキーマ
 const createRoleSchema = z.object({
@@ -204,7 +213,7 @@ router.post(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、またはシステムロールの名前の変更（code が SYSTEM_ROLE_RENAME_FORBIDDEN）
  *       404:
  *         description: ロールが見つからない
  *       409:
@@ -244,6 +253,15 @@ router.patch(
         const error = result.error;
         if (error.type === 'ROLE_NOT_FOUND') {
           res.status(404).json({ error: 'Role not found', code: 'ROLE_NOT_FOUND' });
+          return;
+        }
+        // システムロールの名前の変更の拒否（タスク51.1）。監査はサービスが記録済み
+        if (error.type === 'SYSTEM_ROLE_RENAME_FORBIDDEN') {
+          res.status(403).json({
+            error: 'FORBIDDEN',
+            message: 'System roles cannot be renamed',
+            code: error.type,
+          });
           return;
         }
         if (error.type === 'ROLE_NAME_CONFLICT') {
@@ -453,7 +471,7 @@ router.get(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または権限付与の上限による拒否（code が SYSTEM_ADMIN_REQUIRED）
  *       404:
  *         description: ロールまたは権限が見つからない
  */
@@ -479,6 +497,15 @@ router.post(
         const error = result.error;
         if (error.type === 'ROLE_NOT_FOUND' || error.type === 'PERMISSION_NOT_FOUND') {
           res.status(404).json({ error: 'Role or permission not found', code: error.type });
+          return;
+        }
+        // 権限付与の上限による拒否（タスク51.1）。監査はサービスが記録済み
+        if (isCeilingError(error)) {
+          res.status(403).json({
+            error: 'FORBIDDEN',
+            message: 'Only system administrators can grant all permissions',
+            code: error.type,
+          });
           return;
         }
         res.status(500).json({ error: 'Failed to add permission to role', details: error });

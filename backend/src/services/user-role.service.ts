@@ -22,13 +22,22 @@ import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { lockUserRefreshTokens } from '../utils/refresh-token-lock.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import {
+  isCeilingError,
+  recordCeilingRejection,
+  type PrivilegeCeilingPort,
+} from './privilege-ceiling.js';
 
 /**
  * 紐付けの変更を途中で打ち切り、トランザクションをロールバックさせるための合図。
  * 業務上のエラー（ロール不在など）を運ぶ。$transaction の外で Err へ戻す。
  */
 class UserRoleRollback extends Error {
-  constructor(readonly error: UserRoleError) {
+  constructor(
+    readonly error: UserRoleError,
+    /** 上限による拒否のときの、拒否したロール（監査の記録に使う） */
+    readonly roleId?: string
+  ) {
     super(`User role change rolled back: ${error.type}`);
     this.name = 'UserRoleRollback';
   }
@@ -92,7 +101,13 @@ export class UserRoleService implements IUserRoleService {
     /** 全システム管理者への通知（システム管理者ロールの変更の通知に使う。タスク49.1） */
     private readonly adminNotificationService?: Pick<IAdminNotificationService, 'notifyAllAdmins'>,
     /** 利用者の状態のキャッシュの無効化（削除の後に呼ぶ。user-authentication タスク47.6） */
-    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>
+    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>,
+    /**
+     * 権限付与の上限（user-authentication タスク51.1）。実行者のある割り当てに、保有ロールの優先度を
+     * 超えるロールと、admin ロールを持たない実行者による admin ロールの割り当てを拒否する。
+     * API の経路（user-roles.routes.ts）は必ず渡す
+     */
+    private readonly privilegeCeiling?: PrivilegeCeilingPort
   ) {}
 
   /**
@@ -273,6 +288,16 @@ export class UserRoleService implements IUserRoleService {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof UserRoleRollback) {
+        // 上限による拒否は、ロールバックの後に権限チェックの失敗として記録する
+        if (actorId && isCeilingError(error.error)) {
+          await recordCeilingRejection(this.auditLogService, {
+            actorId,
+            targetType: 'user-role',
+            targetId: userId,
+            error: error.error,
+            detail: { roleId: error.roleId ?? '' },
+          });
+        }
         return Err(error.error);
       }
       logger.error({ err: error, userId, roleIds }, 'Failed to add role to user');
@@ -358,6 +383,14 @@ export class UserRoleService implements IUserRoleService {
     if (!role) {
       logger.warn({ roleId }, 'Role not found');
       throw new UserRoleRollback({ type: 'ROLE_NOT_FOUND' });
+    }
+
+    // 権限付与の上限（タスク51.1）。1件・一括の共通処理で、同じトランザクションのクライアントで判定する
+    if (this.privilegeCeiling && actorId) {
+      const verdict = await this.privilegeCeiling.assertCanAssignRole(actorId, roleId, tx);
+      if (!verdict.ok) {
+        throw new UserRoleRollback(verdict.error, roleId);
+      }
     }
 
     // 重複チェック (optimized: only check existence)

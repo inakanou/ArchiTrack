@@ -13,6 +13,7 @@ import type {
   RolePermission,
 } from '../../../generated/prisma/client.js';
 import { RolePermissionService } from '../../../services/role-permission.service.js';
+import { PrivilegeCeilingPolicy } from '../../../services/privilege-ceiling.js';
 import { Err, Ok } from '../../../types/result.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 
@@ -731,6 +732,109 @@ describe('RolePermissionService', () => {
 
       // Assert
       expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
+    });
+  });
+
+  describe('権限付与の上限（user-authentication タスク51.1）', () => {
+    const actorId = 'actor-123';
+    let service: RolePermissionService;
+    let actorRolesMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      // 上限の判定が読む実行者の保有ロール
+      actorRolesMock = vi.fn().mockResolvedValue([]);
+      (prismaMock as unknown as { userRole: unknown }).userRole = { findMany: actorRolesMock };
+      service = new RolePermissionService(
+        prismaMock,
+        undefined,
+        auditLogServiceMock,
+        new PrivilegeCeilingPolicy(prismaMock)
+      );
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.rolePermission.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.rolePermission.create).mockResolvedValue(mockRolePermission);
+    });
+
+    it('admin ロールを持たない実行者による全権限（*:*）の追加を拒否し、トランザクションの外で監査に記録する', async () => {
+      actorRolesMock.mockResolvedValue([{ role: { name: 'deputy', priority: 100 } }]);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockWildcardPermission);
+
+      const result = await service.addPermissionToRole(
+        mockRoleId,
+        mockWildcardPermissionId,
+        actorId
+      );
+
+      expect(result).toEqual(Err({ type: 'SYSTEM_ADMIN_REQUIRED' }));
+      expect(prismaMock.rolePermission.create).not.toHaveBeenCalled();
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledTimes(1);
+      const [input, tx] = vi.mocked(auditLogServiceMock.createLog).mock.calls[0]!;
+      expect(input).toEqual({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId,
+        targetType: 'role-permission',
+        targetId: mockRoleId,
+        before: null,
+        after: null,
+        metadata: {
+          reason: 'SYSTEM_ADMIN_REQUIRED',
+          permissionId: mockWildcardPermissionId,
+          permission: '*:*',
+        },
+      });
+      expect(tx).toBeUndefined();
+    });
+
+    it('一括の追加に全権限を含めば、admin ロールを持たない実行者の要求全体を拒否する', async () => {
+      actorRolesMock.mockResolvedValue([{ role: { name: 'deputy', priority: 100 } }]);
+      vi.mocked(prismaMock.permission.findUnique).mockImplementation(((args: {
+        where: { id: string };
+      }) =>
+        Promise.resolve(
+          args.where.id === mockWildcardPermissionId ? mockWildcardPermission : mockPermission
+        )) as unknown as typeof prismaMock.permission.findUnique);
+
+      const result = await service.addPermissionsToRole(
+        mockRoleId,
+        [mockPermissionId, mockWildcardPermissionId],
+        actorId
+      );
+
+      expect(result).toEqual(Err({ type: 'SYSTEM_ADMIN_REQUIRED' }));
+      expect(auditLogServiceMock.createLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          action: 'PERMISSION_CHECK_FAILED',
+          metadata: expect.objectContaining({ permissionId: mockWildcardPermissionId }),
+        })
+      );
+    });
+
+    it('admin ロールを持つ実行者は全権限（*:*）を追加できる', async () => {
+      actorRolesMock.mockResolvedValue([{ role: { name: 'admin', priority: 100 } }]);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockWildcardPermission);
+
+      const result = await service.addPermissionToRole(
+        mockRoleId,
+        mockWildcardPermissionId,
+        actorId
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.rolePermission.create).toHaveBeenCalled();
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'PERMISSION_ASSIGNED' }),
+        prismaMock
+      );
+    });
+
+    it('全権限でない権限は admin ロールを持たない実行者でも追加できる', async () => {
+      actorRolesMock.mockResolvedValue([{ role: { name: 'deputy', priority: 100 } }]);
+      vi.mocked(prismaMock.permission.findUnique).mockResolvedValue(mockPermission);
+
+      const result = await service.addPermissionToRole(mockRoleId, mockPermissionId, actorId);
+
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.rolePermission.create).toHaveBeenCalled();
     });
   });
 });
