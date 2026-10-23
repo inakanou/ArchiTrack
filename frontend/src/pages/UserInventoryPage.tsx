@@ -500,7 +500,9 @@ export function UserInventoryPage() {
       {items !== null && items.length > 0 && (
         <div
           data-testid="user-inventory-table-wrapper"
-          style={{ overflowX: 'auto', maxWidth: '100%' }}
+          // 絶対配置の視覚的に隠した文言（「ログインの実績なし」）の包含ブロックをこの枠にし、枠の横送りの外へ
+          // 出て文書を横にはみ出させないようにする（375px の幅で 149px はみ出した。タスク49.8 の E2E で検出）
+          style={{ position: 'relative', overflowX: 'auto', maxWidth: '100%' }}
           aria-busy={loading}
         >
           <table
