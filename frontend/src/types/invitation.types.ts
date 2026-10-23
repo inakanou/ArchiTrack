@@ -10,25 +10,31 @@
 export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'cancelled';
 
 /**
- * 招待情報
+ * 招待情報（招待一覧の項目）
+ *
+ * 一覧の応答は招待トークンと招待 URL を含まない（user-authentication 要件37.2）。
  */
 export interface Invitation {
   /** 招待ID */
   id: string;
   /** 招待メールアドレス */
   email: string;
-  /** 招待トークン（使用済み・取り消し・期限切れで定期処理が消すと null） */
-  token: string | null;
   /** 招待ステータス */
   status: InvitationStatus;
   /** 有効期限 */
   expiresAt: string;
   /** 作成日時 */
   createdAt: string;
-  /** 招待者ID */
-  invitedBy: string;
-  /** 招待者メールアドレス */
-  inviterEmail?: string;
+  /** 招待者 */
+  inviter: { id: string; displayName: string };
+}
+
+/**
+ * 作成・再送信の直後の応答（招待の要約と、サーバーが組み立てた招待 URL）
+ */
+export interface IssuedInvitation extends Invitation {
+  /** 招待URL（この応答にだけ現れる） */
+  invitationUrl: string;
 }
 
 /**

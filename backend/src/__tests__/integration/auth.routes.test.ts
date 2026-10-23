@@ -8,6 +8,7 @@ import type { PrismaClient } from '../../generated/prisma/client.js';
 validateEnv();
 
 import app from '../../app.js';
+import { hashInvitationToken } from '../../services/invitation.service.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { hash } from '@node-rs/argon2';
@@ -206,17 +207,17 @@ describe('Authentication API Integration Tests', () => {
   describe('POST /api/v1/auth/register', () => {
     it('有効な招待トークンでユーザー登録が成功すること', async () => {
       // まず招待を作成
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-newuser1@example.com',
-          token: 'valid-invitation-token-1',
+          tokenHash: hashInvitationToken('valid-invitation-token-1'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7日後
           inviterId: adminUser.id,
         },
       });
 
       const response = await request(app).post('/api/v1/auth/register').send({
-        invitationToken: invitation.token,
+        invitationToken: 'valid-invitation-token-1',
         displayName: 'New User 1',
         password: 'xK9#mP2$vL7@qR5!wN8', // ランダムで強力なパスワード
       });
@@ -243,17 +244,17 @@ describe('Authentication API Integration Tests', () => {
 
     it('期限切れの招待トークンで登録が失敗すること', async () => {
       // 期限切れの招待を作成
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-newuser2@example.com',
-          token: 'expired-invitation-token',
+          tokenHash: hashInvitationToken('expired-invitation-token'),
           expiresAt: new Date(Date.now() - 1000), // 過去の日時
           inviterId: adminUser.id,
         },
       });
 
       const response = await request(app).post('/api/v1/auth/register').send({
-        invitationToken: invitation.token,
+        invitationToken: 'expired-invitation-token',
         displayName: 'New User 2',
         password: 'xK9#mP2$vL7@qR5!wN8',
       });
@@ -263,17 +264,17 @@ describe('Authentication API Integration Tests', () => {
     });
 
     it('弱いパスワードで登録が失敗すること', async () => {
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-newuser3@example.com',
-          token: 'valid-invitation-token-3',
+          tokenHash: hashInvitationToken('valid-invitation-token-3'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: adminUser.id,
         },
       });
 
       const response = await request(app).post('/api/v1/auth/register').send({
-        invitationToken: invitation.token,
+        invitationToken: 'valid-invitation-token-3',
         displayName: 'New User 3',
         password: 'weak', // 弱いパスワード
       });

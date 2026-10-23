@@ -11,8 +11,7 @@ export type InvitationError =
   | { type: 'USED_TOKEN' }
   | { type: 'REVOKED_TOKEN' }
   | { type: 'EMAIL_ALREADY_REGISTERED' }
-  | { type: 'INVITATION_NOT_FOUND' }
-  | { type: 'UNAUTHORIZED' };
+  | { type: 'INVITATION_NOT_FOUND' };
 
 /**
  * 招待ステータス

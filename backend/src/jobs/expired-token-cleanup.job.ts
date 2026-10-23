@@ -4,7 +4,7 @@
  * 定期処理の実行基盤（scheduled-job-runner.ts）から毎時 15 分に呼ばれる。毎時の実行で、
  * 使用済み・期限切れになってから 24 時間以内の消去を満たす。
  *
- * - 招待: 使用済み・取り消し・期限切れの行はトークンだけを消して行を残す。状態・期限・作成者を
+ * - 招待: 使用済み・取り消し・期限切れの行はトークンのハッシュ（token_hash。要件37.1）だけを消して行を残す。状態・期限・作成者を
  *   保ち、招待一覧の状態の表示（要件1.7・13.2）と期限切れの招待の再送信（要件13.7）を維持する
  * - パスワードリセット: 使用済み・期限切れの行を消す
  * - リフレッシュトークン: 期限切れの行を消す
@@ -42,13 +42,13 @@ export async function cleanupExpiredTokens(
 ): Promise<ExpiredTokenCleanupResult> {
   const invitations = await prisma.invitation.updateMany({
     where: {
-      token: { not: null },
+      tokenHash: { not: null },
       OR: [
         { status: { in: [InvitationStatus.USED, InvitationStatus.REVOKED] } },
         { expiresAt: { lt: now } },
       ],
     },
-    data: { token: null },
+    data: { tokenHash: null },
   });
 
   const passwordResetTokens = await prisma.passwordResetToken.deleteMany({

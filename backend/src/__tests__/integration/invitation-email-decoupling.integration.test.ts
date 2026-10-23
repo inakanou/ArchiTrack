@@ -17,7 +17,7 @@ validateEnv();
 
 import getPrismaClient from '../../db.js';
 import { EmailService } from '../../services/email.service.js';
-import { InvitationService } from '../../services/invitation.service.js';
+import { InvitationService, hashInvitationToken } from '../../services/invitation.service.js';
 import { PasswordService } from '../../services/password.service.js';
 import { AuthService } from '../../services/auth.service.js';
 import { seedRoles } from '../../utils/seed-helpers.js';
@@ -106,16 +106,19 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
       expect.objectContaining({ attempts: 6 })
     );
 
-    const stored = await prisma.invitation.findUnique({ where: { id: result.value.id } });
+    const stored = await prisma.invitation.findUnique({
+      where: { id: result.value.invitation.id },
+    });
     expect(stored).not.toBeNull();
     expect(stored?.email).toBe(inviteeEmail);
     expect(stored?.inviterId).toBe(adminId);
     expect(stored?.status).toBe('pending');
-    expect(stored?.token).toBe(result.value.token);
+    // 保存は原文の SHA-256 だけ（要件37.1）
+    expect(stored?.tokenHash).toBe(hashInvitationToken(result.value.token));
 
     await vi.waitFor(() =>
       expect(warnSpy).toHaveBeenCalledWith(
-        { err: queueError, invitationId: result.value.id },
+        { err: queueError, invitationId: result.value.invitation.id },
         'Failed to queue invitation email; invitation was created'
       )
     );
@@ -161,7 +164,6 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
     if (!created.ok) return;
     expect(queueAdd).toHaveBeenCalledTimes(1);
     const invitationToken = created.value.token;
-    if (invitationToken === null) throw new Error('作成直後の招待はトークンを持つ');
 
     const registered = await authService.register(invitationToken, {
       password: 'Decoupl1ng!Pass#2026',
@@ -178,7 +180,9 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
     expect(user?.id).toBe(registered.value.user.id);
     expect(user?.userRoles.map((ur) => ur.role.name)).toContain('user');
 
-    const invitation = await prisma.invitation.findUnique({ where: { id: created.value.id } });
+    const invitation = await prisma.invitation.findUnique({
+      where: { id: created.value.invitation.id },
+    });
     expect(invitation?.status).toBe('used');
     expect(invitation?.userId).toBe(user?.id);
     expect(invitation?.usedAt).not.toBeNull();

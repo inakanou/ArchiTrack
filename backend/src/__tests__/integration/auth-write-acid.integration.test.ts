@@ -27,6 +27,7 @@ validateEnv();
 
 import getPrismaClient from '../../db.js';
 import { AuthService } from '../../services/auth.service.js';
+import { hashInvitationToken } from '../../services/invitation.service.js';
 import { AuditLogService } from '../../services/audit-log.service.js';
 import { UserRoleService } from '../../services/user-role.service.js';
 import { RolePermissionService } from '../../services/role-permission.service.js';
@@ -235,7 +236,7 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
       await prisma.invitation.create({
         data: {
           email: `${MARK}-invitee@example.com`,
-          token,
+          tokenHash: hashInvitationToken(token),
           inviterId: actorId,
           expiresAt: new Date(Date.now() + 60 * 60 * 1000),
         },

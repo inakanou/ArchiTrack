@@ -26,6 +26,7 @@ import { InvitationService } from '../../services/invitation.service.js';
 import { InvitationStatus } from '../../types/invitation.types.js';
 import { createStoredRefreshToken } from './refresh-token-fixture.js';
 import { createTestUser } from './test-user-factory.js';
+import { createStoredInvitation } from './invitation-fixture.js';
 
 const EMAIL_MARK = 'test-expired-token-cleanup';
 const HOUR_MS = 60 * 60 * 1000;
@@ -82,19 +83,20 @@ describe('使用済み・期限切れのトークンの消去（統合・実 DB�
     label: string,
     status: InvitationStatus,
     expiresAt: Date
-  ): Promise<{ id: string; token: string; expiresAt: Date }> {
-    const token = newToken();
-    const invitation = await prisma.invitation.create({
-      data: {
-        email: `${EMAIL_MARK}-${label}@example.com`,
-        token,
-        inviterId,
-        status,
-        expiresAt,
-        ...(status === InvitationStatus.USED && { usedAt: new Date(Date.now() - HOUR_MS) }),
-      },
+  ): Promise<{ id: string; token: string; tokenHash: string; expiresAt: Date }> {
+    const { rawToken, invitation } = await createStoredInvitation(prisma, {
+      email: `${EMAIL_MARK}-${label}@example.com`,
+      inviterId,
+      status,
+      expiresAt,
+      ...(status === InvitationStatus.USED && { usedAt: new Date(Date.now() - HOUR_MS) }),
     });
-    return { id: invitation.id, token, expiresAt: invitation.expiresAt };
+    return {
+      id: invitation.id,
+      token: rawToken,
+      tokenHash: invitation.tokenHash!,
+      expiresAt: invitation.expiresAt,
+    };
   }
 
   /**
@@ -119,15 +121,16 @@ describe('使用済み・期限切れのトークンの消去（統合・実 DB�
       where: { email: { contains: EMAIL_MARK } },
     });
     const byId = new Map(rows.map((row) => [row.id, row]));
-    expect(byId.get(pending.id)).toMatchObject({ token: pending.token, status: 'pending' });
+    // 消すのはトークンのハッシュの列（要件37.1）。未使用で期限内の招待のハッシュは残る
+    expect(byId.get(pending.id)).toMatchObject({ tokenHash: pending.tokenHash, status: 'pending' });
     expect(byId.get(expired.id)).toMatchObject({
-      token: null,
+      tokenHash: null,
       status: 'pending',
       expiresAt: expired.expiresAt,
       inviterId,
     });
-    expect(byId.get(used.id)).toMatchObject({ token: null, status: 'used', inviterId });
-    expect(byId.get(revoked.id)).toMatchObject({ token: null, status: 'revoked', inviterId });
+    expect(byId.get(used.id)).toMatchObject({ tokenHash: null, status: 'used', inviterId });
+    expect(byId.get(revoked.id)).toMatchObject({ tokenHash: null, status: 'revoked', inviterId });
 
     // 招待一覧（GET /api/v1/invitations の処理）に、対象の招待が状態とともに出る（要件1.7・13.2）
     const invitationService = new InvitationService(prisma);

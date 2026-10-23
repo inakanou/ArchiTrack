@@ -355,10 +355,12 @@ router.post(
     try {
       const { invitationToken, displayName, password } = req.body;
 
-      const result = await authService.register(invitationToken, {
-        displayName,
-        password,
-      });
+      const result = await authService.register(
+        invitationToken,
+        { displayName, password },
+        // 招待経由のアカウント作成の監査に載せる送信元（要件40.5）
+        { ipAddress: getClientIp(req), userAgent: req.headers['user-agent'] }
+      );
 
       if (!result.ok) {
         const error = result.error;

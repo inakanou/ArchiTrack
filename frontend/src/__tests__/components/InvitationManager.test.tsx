@@ -15,32 +15,26 @@ const mockInvitations: Invitation[] = [
   {
     id: '1',
     email: 'user1@example.com',
-    token: 'token1',
     status: 'pending',
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     createdAt: new Date().toISOString(),
-    invitedBy: 'admin',
-    inviterEmail: 'admin@example.com',
+    inviter: { id: 'admin', displayName: 'Admin' },
   },
   {
     id: '2',
     email: 'user2@example.com',
-    token: 'token2',
     status: 'accepted',
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     createdAt: new Date().toISOString(),
-    invitedBy: 'admin',
-    inviterEmail: 'admin@example.com',
+    inviter: { id: 'admin', displayName: 'Admin' },
   },
   {
     id: '3',
     email: 'user3@example.com',
-    token: 'token3',
     status: 'expired',
     expiresAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
     createdAt: new Date().toISOString(),
-    invitedBy: 'admin',
-    inviterEmail: 'admin@example.com',
+    inviter: { id: 'admin', displayName: 'Admin' },
   },
 ];
 
@@ -693,12 +687,10 @@ describe('InvitationManager', () => {
     const cancelledInvitation: Invitation = {
       id: '4',
       email: 'cancelled@example.com',
-      token: 'token4',
       status: 'cancelled',
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date().toISOString(),
-      invitedBy: 'admin',
-      inviterEmail: 'admin@example.com',
+      inviter: { id: 'admin', displayName: 'Admin' },
     };
 
     render(
@@ -820,12 +812,10 @@ describe('InvitationManager', () => {
     const manyInvitations: Invitation[] = Array.from({ length: 11 }, (_, i) => ({
       id: String(i + 1),
       email: `user${i + 1}@example.com`,
-      token: `token${i + 1}`,
       status: 'pending' as const,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date().toISOString(),
-      invitedBy: 'admin',
-      inviterEmail: 'admin@example.com',
+      inviter: { id: 'admin', displayName: 'Admin' },
     }));
 
     render(
@@ -864,17 +854,12 @@ describe('InvitationManager', () => {
     });
   });
 
-  it('一覧表示のURLコピーボタンをクリックするとトークンからURLをコピーする', async () => {
-    const user = userEvent.setup();
-    const mockWriteText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      value: {
-        writeText: mockWriteText,
-      },
-      writable: true,
-      configurable: true,
-    });
-
+  /**
+   * 招待一覧の応答はトークンと招待 URL を持たない（要件37.2）。一覧の行に URL もコピーの操作も出さず、
+   * 招待 URL は作成直後と再送信の直後にサーバーが返した値だけを表示する。
+   * @requirement user-authentication/REQ-37.2
+   */
+  it('一覧の行には招待 URL もコピーボタンも出さない', () => {
     render(
       <InvitationManager
         invitations={mockInvitations}
@@ -885,38 +870,28 @@ describe('InvitationManager', () => {
       />
     );
 
-    const invitationRows = screen.getAllByRole('row');
-    const pendingRow = invitationRows.find((row) => within(row).queryByText('user1@example.com'));
-
-    if (pendingRow) {
-      const copyButton = within(pendingRow).getByRole('button', { name: /URLをコピー/i });
-      await user.click(copyButton);
-
-      await waitFor(() => {
-        expect(mockWriteText).toHaveBeenCalledWith(expect.stringContaining('token1'));
-      });
-    }
+    const table = screen.getByRole('table');
+    expect(within(table).queryByRole('button', { name: /URLをコピー/i })).not.toBeInTheDocument();
+    expect(within(table).queryByRole('textbox')).not.toBeInTheDocument();
+    expect(table).not.toHaveTextContent('/register');
   });
 
   /**
-   * 定期処理（expired-token-cleanup）は期限切れの招待のトークンを消して行を残す（タスク44.9）。
-   * トークンの無い招待の行から、別の招待の URL（直前に作成した招待の URL）をコピーさせない。
+   * @requirement user-authentication/REQ-37.5
    */
-  it('トークンが消された招待の行には URL のコピーボタンを出さない', async () => {
-    const cleaned: Invitation = {
-      id: '9',
-      email: 'cleaned@example.com',
-      token: null,
+  it('他の管理者が作成した招待を含む全ての未使用の招待に取り消しを出す', () => {
+    const otherAdminsInvitation: Invitation = {
+      id: '10',
+      email: 'other-admins@example.com',
       status: 'pending',
-      expiresAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date().toISOString(),
-      invitedBy: 'admin',
-      inviterEmail: 'admin@example.com',
+      inviter: { id: 'other-admin', displayName: 'Other Admin' },
     };
 
     render(
       <InvitationManager
-        invitations={[mockInvitations[0] as Invitation, cleaned]}
+        invitations={[mockInvitations[0] as Invitation, otherAdminsInvitation]}
         onCreateInvitation={vi.fn()}
         onCancelInvitation={vi.fn()}
         onResendInvitation={vi.fn()}
@@ -924,20 +899,74 @@ describe('InvitationManager', () => {
       />
     );
 
-    const rows = screen.getAllByRole('row');
-    const cleanedRow = rows.find((row) => within(row).queryByText('cleaned@example.com'));
-    const pendingRow = rows.find((row) => within(row).queryByText('user1@example.com'));
-    expect(cleanedRow).toBeDefined();
-    expect(pendingRow).toBeDefined();
-    expect(
-      within(cleanedRow as HTMLElement).queryByRole('button', { name: /URLをコピー/i })
-    ).not.toBeInTheDocument();
-    // 取り消しは引き続きできる
-    expect(
-      within(cleanedRow as HTMLElement).getByRole('button', { name: /取り消し/i })
-    ).toBeInTheDocument();
-    expect(
-      within(pendingRow as HTMLElement).getByRole('button', { name: /URLをコピー/i })
-    ).toBeInTheDocument();
+    for (const email of ['user1@example.com', 'other-admins@example.com']) {
+      const row = screen.getAllByRole('row').find((r) => within(r).queryByText(email));
+      expect(row, email).toBeDefined();
+      expect(
+        within(row as HTMLElement).getByRole('button', { name: /取り消し/i })
+      ).toBeInTheDocument();
+    }
+  });
+
+  /**
+   * @requirement user-authentication/REQ-13.5
+   */
+  it('再送信の直後にサーバーが返した招待 URL を表示し、その URL をコピーする', async () => {
+    const user = userEvent.setup();
+    const mockWriteText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: mockWriteText },
+      writable: true,
+      configurable: true,
+    });
+    const serverUrl = `https://app.example.com/register?token=${'f'.repeat(64)}`;
+    const mockOnResendInvitation = vi.fn().mockResolvedValue({
+      success: true,
+      invitationUrl: serverUrl,
+    });
+
+    render(
+      <InvitationManager
+        invitations={mockInvitations}
+        onCreateInvitation={vi.fn()}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={mockOnResendInvitation}
+        loading={false}
+      />
+    );
+
+    expect(screen.queryByDisplayValue(serverUrl)).not.toBeInTheDocument();
+    const expiredRow = screen
+      .getAllByRole('row')
+      .find((row) => within(row).queryByText('user3@example.com'));
+    await user.click(within(expiredRow as HTMLElement).getByRole('button', { name: /再送信/i }));
+
+    expect(await screen.findByDisplayValue(serverUrl)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /URLをコピー/i }));
+    await waitFor(() => {
+      expect(mockWriteText).toHaveBeenCalledWith(serverUrl);
+    });
+  });
+
+  it('作成直後の招待 URL の欄は 375px 幅でも枠を押し広げない（縮められ、ボタンは折り返せる）', async () => {
+    const user = userEvent.setup();
+    const serverUrl = `https://app.example.com/register?token=${'a'.repeat(64)}`;
+
+    render(
+      <InvitationManager
+        invitations={[]}
+        onCreateInvitation={vi.fn().mockResolvedValue({ success: true, invitationUrl: serverUrl })}
+        onCancelInvitation={vi.fn()}
+        onResendInvitation={vi.fn()}
+        loading={false}
+      />
+    );
+
+    await user.type(screen.getByLabelText(/メールアドレス/i), 'new@example.com');
+    await user.click(screen.getByRole('button', { name: /招待を送信/i }));
+
+    const urlField = await screen.findByDisplayValue(serverUrl);
+    expect(urlField).toHaveStyle({ minWidth: '0' });
+    expect(urlField.parentElement).toHaveStyle({ flexWrap: 'wrap' });
   });
 });

@@ -95,11 +95,13 @@ export class AuthService implements IAuthService {
    * 3. ユーザー作成
    * 4. 招待トークンを使用済みにマーク
    * 5. デフォルトロール (user) 割り当て
-   * 6. JWT生成
+   * 6. 招待経由のアカウント作成の監査（INVITATION_ACCEPTED。要件40.5）
+   * 7. JWT生成
    */
   async register(
     invitationToken: string,
-    data: RegisterData
+    data: RegisterData,
+    ctx?: RequestContext
   ): Promise<Result<AuthResponse, AuthError>> {
     try {
       // 1. 招待トークン検証
@@ -183,6 +185,26 @@ export class AuthService implements IAuthService {
             },
           });
         }
+
+        // 招待経由のアカウント作成を、作成された利用者を実行者として記録する（要件40.5）。
+        // 記録の失敗はトランザクションごと登録を中止する
+        await tx.auditLog.create({
+          data: {
+            action: 'INVITATION_ACCEPTED',
+            actorId: newUser.id,
+            actorEmail: newUser.email,
+            actorDisplayName: newUser.displayName,
+            targetType: 'Invitation',
+            targetId: invitation.id,
+            metadata: {
+              email: invitation.email,
+              userId: newUser.id,
+              inviterId: invitation.inviterId,
+              ...(ctx?.ipAddress !== undefined && { ipAddress: ctx.ipAddress }),
+              ...(ctx?.userAgent !== undefined && { userAgent: ctx.userAgent }),
+            },
+          },
+        });
 
         // ユーザーとロール情報を返す
         return await tx.user.findUnique({

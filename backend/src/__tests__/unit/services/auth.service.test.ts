@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as jose from 'jose';
 import { AuthService } from '../../../services/auth.service.js';
-import { InvitationService } from '../../../services/invitation.service.js';
+import { InvitationService, hashInvitationToken } from '../../../services/invitation.service.js';
 import { PasswordService } from '../../../services/password.service.js';
 import { TokenService } from '../../../services/token.service.js';
 import { TwoFactorService } from '../../../services/two-factor.service.js';
@@ -139,7 +139,7 @@ describe('AuthService', () => {
       const mockInvitation: Invitation = {
         id: 'invitation-1',
         email: 'newuser@example.com',
-        token: invitationToken,
+        tokenHash: hashInvitationToken(invitationToken),
         inviterId: 'admin-user-id',
         status: 'pending',
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
@@ -232,6 +232,86 @@ describe('AuthService', () => {
       expect(mockPasswordService.hashPassword).toHaveBeenCalledWith(registerData.password);
     });
 
+    /**
+     * @requirement user-authentication/REQ-40.5
+     */
+    it('招待経由のアカウント作成を、登録と同じトランザクションで作成された利用者を実行者として監査する', async () => {
+      const invitationToken = 'valid-invitation-token-audit';
+      const mockInvitation: Invitation = {
+        id: 'invitation-audit',
+        email: 'invitee-audit@example.com',
+        tokenHash: hashInvitationToken(invitationToken),
+        inviterId: 'admin-user-id',
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        createdAt: new Date(),
+        usedAt: null,
+        userId: null,
+      };
+      const createdUser = {
+        id: 'user-audit',
+        email: 'invitee-audit@example.com',
+        displayName: 'Audit Invitee',
+        createdAt: new Date(),
+        twoFactorEnabled: false,
+        mustChangePassword: false,
+        accessTokenGeneration: 0,
+        userRoles: [{ role: { name: 'user' } }],
+      };
+      (mockInvitationService.validateInvitation as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok(mockInvitation)
+      );
+      (mockPasswordService.validatePasswordStrength as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Ok(undefined)
+      );
+      (mockPasswordService.hashPassword as ReturnType<typeof vi.fn>).mockResolvedValue('hashed');
+      // 重複の確認（無し）→ トランザクションの最後の読み出し（作成した利用者）
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(createdUser);
+      (mockPrismaClient.user.create as ReturnType<typeof vi.fn>).mockResolvedValue(createdUser);
+      (mockPrismaClient.role.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'role-user',
+      });
+      // トランザクションの本体を同じクライアントで実行する
+      (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: PrismaClient) => Promise<unknown>) => fn(mockPrismaClient)
+      );
+      (mockTokenService.generateAccessToken as ReturnType<typeof vi.fn>).mockResolvedValue(
+        'access-token'
+      );
+      (mockSessionService.createSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+        refreshToken: 'refresh-token',
+        familyId: 'family-1',
+      });
+
+      const result = await authService.register(
+        invitationToken,
+        { displayName: 'Audit Invitee', password: 'SecurePass123!@#' },
+        { ipAddress: '192.0.2.10', userAgent: 'vitest' }
+      );
+
+      expect(result.ok).toBe(true);
+      expect(mockPrismaClient.auditLog.create).toHaveBeenCalledTimes(1);
+      expect(mockPrismaClient.auditLog.create).toHaveBeenCalledWith({
+        data: {
+          action: 'INVITATION_ACCEPTED',
+          actorId: 'user-audit',
+          actorEmail: 'invitee-audit@example.com',
+          actorDisplayName: 'Audit Invitee',
+          targetType: 'Invitation',
+          targetId: 'invitation-audit',
+          metadata: {
+            email: 'invitee-audit@example.com',
+            userId: 'user-audit',
+            inviterId: 'admin-user-id',
+            ipAddress: '192.0.2.10',
+            userAgent: 'vitest',
+          },
+        },
+      });
+    });
+
     it('無効な招待トークンでINVITATION_INVALIDエラーを返す', async () => {
       // Arrange
       const invitationToken = 'invalid-token';
@@ -312,7 +392,7 @@ describe('AuthService', () => {
       const mockInvitation: Invitation = {
         id: 'invitation-1',
         email: 'newuser@example.com',
-        token: invitationToken,
+        tokenHash: hashInvitationToken(invitationToken),
         inviterId: 'admin-user-id',
         status: 'pending',
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),

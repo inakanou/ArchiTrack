@@ -129,7 +129,11 @@ export interface IAuthService {
    * @param data 登録データ（表示名、パスワード）
    * @returns 認証レスポンスまたはエラー
    */
-  register(invitationToken: string, data: RegisterData): Promise<Result<AuthResponse, AuthError>>;
+  register(
+    invitationToken: string,
+    data: RegisterData,
+    ctx?: RequestContext
+  ): Promise<Result<AuthResponse, AuthError>>;
 
   /**
    * ログイン

@@ -7,6 +7,7 @@ import type { PrismaClient } from '../../generated/prisma/client.js';
 validateEnv();
 
 import app from '../../app.js';
+import { hashInvitationToken } from '../../services/invitation.service.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
@@ -368,7 +369,7 @@ describe('Authentication API Integration Tests', () => {
       const invitation = await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-register@example.com',
-          token: 'test-invitation-token-12345',
+          tokenHash: hashInvitationToken('test-invitation-token-12345'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7日後
           inviterId: admin.id,
         },
@@ -378,7 +379,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: invitation.token,
+          invitationToken: 'test-invitation-token-12345',
           password: 'StrongPass123!@#',
           displayName: 'New Test User',
         })
@@ -420,7 +421,7 @@ describe('Authentication API Integration Tests', () => {
       const invitation = await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-invited-record@example.com',
-          token: 'test-invitation-token-inviter-record',
+          tokenHash: hashInvitationToken('test-invitation-token-inviter-record'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: inviter.id,
         },
@@ -429,7 +430,7 @@ describe('Authentication API Integration Tests', () => {
       await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: invitation.token,
+          invitationToken: 'test-invitation-token-inviter-record',
           password: 'StrongPass123!@#',
           displayName: 'Invited Record User',
         })
@@ -477,10 +478,10 @@ describe('Authentication API Integration Tests', () => {
         passwordHash: 'dummy-hash',
       });
 
-      const expiredInvitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-expired@example.com',
-          token: 'expired-invitation-token',
+          tokenHash: hashInvitationToken('expired-invitation-token'),
           expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1日前（期限切れ）
           inviterId: admin.id,
         },
@@ -490,7 +491,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: expiredInvitation.token,
+          invitationToken: 'expired-invitation-token',
           password: 'StrongPass123!@#',
           displayName: 'New Test User',
         })
@@ -512,10 +513,10 @@ describe('Authentication API Integration Tests', () => {
         passwordHash: 'dummy-hash',
       });
 
-      const usedInvitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-used@example.com',
-          token: 'used-invitation-token',
+          tokenHash: hashInvitationToken('used-invitation-token'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: admin.id,
           status: 'used', // 使用済みステータス
@@ -527,7 +528,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: usedInvitation.token,
+          invitationToken: 'used-invitation-token',
           password: 'StrongPass123!@#',
           displayName: 'New Test User',
         })
@@ -548,10 +549,10 @@ describe('Authentication API Integration Tests', () => {
         passwordHash: 'dummy-hash',
       });
 
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-short@example.com',
-          token: 'short-password-token',
+          tokenHash: hashInvitationToken('short-password-token'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: admin.id,
         },
@@ -560,7 +561,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: invitation.token,
+          invitationToken: 'short-password-token',
           password: 'Short1!', // 7文字
           displayName: 'New Test User',
         })
@@ -582,10 +583,10 @@ describe('Authentication API Integration Tests', () => {
         passwordHash: 'dummy-hash',
       });
 
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-complexity@example.com',
-          token: 'complexity-token',
+          tokenHash: hashInvitationToken('complexity-token'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: admin.id,
         },
@@ -594,7 +595,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: invitation.token,
+          invitationToken: 'complexity-token',
           password: 'onlylowercase', // 小文字のみ（1種類）
           displayName: 'New Test User',
         })
@@ -615,10 +616,10 @@ describe('Authentication API Integration Tests', () => {
         passwordHash: 'dummy-hash',
       });
 
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-hash@example.com',
-          token: 'hash-test-token',
+          tokenHash: hashInvitationToken('hash-test-token'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: admin.id,
         },
@@ -627,7 +628,7 @@ describe('Authentication API Integration Tests', () => {
       await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: invitation.token,
+          invitationToken: 'hash-test-token',
           password: 'StrongHash123!@#',
           displayName: 'Hash Test User',
         })

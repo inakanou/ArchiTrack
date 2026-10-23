@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import { createInvitation, createTestUser } from '../../fixtures/auth.fixtures';
 import { completeTwoFactorVerification, loginAsUser } from '../../helpers/auth-actions';
 import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout, nullWhenTimedOut, waitForApiResponse } from '../../helpers/wait-helpers';
@@ -357,14 +357,15 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
     const prisma = getPrismaClient();
 
     const admin = await createTestUser('ADMIN_USER');
-    const invitation = await prisma.invitation.create({
-      data: {
+    const invitation = await createInvitation(
+      {
         email: 'accessibility-test@example.com',
         token: 'accessibility-test-token',
         inviterId: admin.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await page.goto(`/register?token=${invitation.token}`);
 

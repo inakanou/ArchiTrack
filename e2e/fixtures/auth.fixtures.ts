@@ -25,6 +25,7 @@ import {
 } from '../helpers/test-users';
 import { E2E_TOTP_SECRET, encryptTotpSecret } from '../helpers/two-factor-totp';
 import { invalidateUserStateCache } from '../helpers/user-state-cache';
+import { hashInvitationToken } from '../../src/utils/invitation-token.js';
 
 /** Type alias for PrismaClient instance */
 type PrismaClientInstance = InstanceType<typeof PrismaClient>;
@@ -410,11 +411,12 @@ export async function deleteSessionUsers(prisma?: PrismaClientInstance): Promise
 /**
  * 招待トークンを作成
  *
- * ユーザー登録テストで使用する招待トークンを作成します。
+ * ユーザー登録テストと招待画面のテストで使用する招待を作成します。保存の形式は本番の InvitationService と
+ * 同じ（原文の SHA-256 の 16 進。user-authentication 要件37.1）で、DB にはハッシュだけを書き、原文を返します。
  *
  * @param options - 招待オプション
  * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
- * @returns 作成された招待情報（トークンを含む）
+ * @returns 作成された招待情報（原文のトークンを含む）
  *
  * @example
  * ```typescript
@@ -423,7 +425,7 @@ export async function deleteSessionUsers(prisma?: PrismaClientInstance): Promise
  *   email: 'newuser@example.com',
  *   inviterId: admin.id,
  * });
- * console.log(invitation.token); // 招待トークン
+ * console.log(invitation.token); // 招待トークン（原文）
  * ```
  */
 export async function createInvitation(
@@ -432,13 +434,16 @@ export async function createInvitation(
     inviterId: string;
     expiresAt?: Date;
     status?: 'pending' | 'used' | 'expired' | 'revoked';
+    usedAt?: Date | null;
+    /** 原文（省略時は暗号学的に安全な無作為の値） */
+    token?: string;
   },
   prisma?: PrismaClientInstance
 ) {
   const client = prisma || getPrismaClient();
 
   // 暗号学的に安全なトークンを生成
-  const token = randomBytes(32).toString('hex');
+  const token = options.token ?? randomBytes(32).toString('hex');
 
   // デフォルトで24時間後に期限切れ
   const expiresAt = options.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -446,13 +451,14 @@ export async function createInvitation(
   const invitation = await client.invitation.create({
     data: {
       email: options.email,
-      token,
+      tokenHash: hashInvitationToken(token),
       inviterId: options.inviterId,
       expiresAt,
       status: options.status || 'pending',
+      ...(options.usedAt !== undefined && { usedAt: options.usedAt }),
     },
   });
-  // 列は定期処理の消去のために空を許すが、作成直後の招待は常にトークンを持つ
+  // 原文は DB に無いため、作成した側だけが持つ値を返す
   return { ...invitation, token };
 }
 

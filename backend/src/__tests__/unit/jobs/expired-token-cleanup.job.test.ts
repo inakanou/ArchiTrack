@@ -44,10 +44,10 @@ describe('cleanupExpiredTokens', () => {
 
     expect(mock.invitationUpdateMany).toHaveBeenCalledWith({
       where: {
-        token: { not: null },
+        tokenHash: { not: null },
         OR: [{ status: { in: ['used', 'revoked'] } }, { expiresAt: { lt: now } }],
       },
-      data: { token: null },
+      data: { tokenHash: null },
     });
     expect(mock.passwordResetDeleteMany).toHaveBeenCalledWith({
       where: { OR: [{ usedAt: { not: null } }, { expiresAt: { lt: now } }] },

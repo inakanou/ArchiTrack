@@ -32,6 +32,7 @@ import logger from '../utils/logger.js';
 import { captureException } from '../utils/sentry.js';
 import { runtimeMode } from '../config/runtime-mode.js';
 import { SESSION_CONFIG } from '../config/security.constants.js';
+import { buildInvitationUrl } from '../utils/invitation-token.js';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -486,7 +487,8 @@ export class EmailService {
    */
   private async processInvitationEmail(data: InvitationEmailData): Promise<void> {
     const { to, invitationToken } = data;
-    const invitationUrl = `${this.frontendUrl}/register?token=${invitationToken}`;
+    // 作成・再送信の直後の応答の招待 URL と同じ組み立てを使う（要件37.2・13.3）
+    const invitationUrl = buildInvitationUrl(invitationToken, this.frontendUrl);
 
     // Handlebarsテンプレート読み込み
     const templatePath = join(__dirname, '../templates/invitation-email.hbs');

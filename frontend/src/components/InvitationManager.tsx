@@ -5,8 +5,11 @@
  * - 招待フォーム
  * - 招待一覧表示
  * - ステータスフィルタリング
- * - 招待URL コピー機能
+ * - 招待URL コピー機能（作成直後と再送信の直後にサーバーが返した URL だけを表示する）
  * - 招待取り消し・再送信機能
+ *
+ * 招待一覧の応答は招待トークンと招待 URL を含まないため、一覧の行に URL やコピーの操作を出さない。
+ * 取り消しは作成者に関わらず全ての未使用の招待に出す（user-authentication 要件37.2・37.5）。
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -110,16 +113,10 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
     }
   };
 
-  // 招待URLコピーハンドラー
-  const handleCopyUrl = async (token?: string | null) => {
-    // 定期処理でトークンが消された招待（null）は、別の招待の URL をコピーしないよう何もしない
-    if (token === null) {
-      return;
-    }
+  // 招待URLコピーハンドラー（作成直後・再送信の直後にサーバーが返した URL をコピーする）
+  const handleCopyUrl = async () => {
     try {
-      // トークンが指定された場合はそのURLを、指定されていない場合は最後に作成されたURLを使用
-      const urlToCopy = token ? `${window.location.origin}/register?token=${token}` : invitationUrl;
-      await navigator.clipboard.writeText(urlToCopy);
+      await navigator.clipboard.writeText(invitationUrl);
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 3000);
     } catch (err) {
@@ -338,13 +335,16 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
             <div style={{ color: '#2e7d32', fontWeight: 'bold', marginBottom: '8px' }}>
               招待を送信しました
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <input
                 type="text"
                 readOnly
+                aria-label="招待URL"
                 value={invitationUrl}
                 style={{
-                  flex: 1,
+                  flex: '1 1 160px',
+                  // 長い URL でも 375px 幅の枠を押し広げない（欄の中で横に送る）
+                  minWidth: 0,
                   padding: '8px',
                   border: '1px solid #ddd',
                   borderRadius: '4px',
@@ -353,7 +353,7 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                 }}
               />
               <button
-                onClick={() => handleCopyUrl()}
+                onClick={handleCopyUrl}
                 style={{
                   backgroundColor: '#2e7d32',
                   color: '#fff',
@@ -483,38 +483,20 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                   {(invitation.status === 'pending' || invitation.status === 'expired') && (
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                       {invitation.status === 'pending' && (
-                        <>
-                          <button
-                            onClick={() => handleOpenCancelDialog(invitation.id)}
-                            style={{
-                              padding: '8px 16px',
-                              backgroundColor: '#fff',
-                              border: '1px solid #c62828',
-                              borderRadius: '4px',
-                              color: '#c62828',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                            }}
-                          >
-                            取り消し
-                          </button>
-                          {invitation.token !== null && (
-                            <button
-                              onClick={() => handleCopyUrl(invitation.token)}
-                              style={{
-                                padding: '8px 16px',
-                                backgroundColor: '#1565c0',
-                                border: 'none',
-                                borderRadius: '4px',
-                                color: '#fff',
-                                cursor: 'pointer',
-                                fontSize: '14px',
-                              }}
-                            >
-                              URLをコピー
-                            </button>
-                          )}
-                        </>
+                        <button
+                          onClick={() => handleOpenCancelDialog(invitation.id)}
+                          style={{
+                            padding: '8px 16px',
+                            backgroundColor: '#fff',
+                            border: '1px solid #c62828',
+                            borderRadius: '4px',
+                            color: '#c62828',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                          }}
+                        >
+                          取り消し
+                        </button>
                       )}
                       {invitation.status === 'expired' && (
                         <button
@@ -605,39 +587,21 @@ const InvitationManager: React.FC<InvitationManagerProps> = ({
                     </td>
                     <td style={{ padding: '12px' }}>
                       {invitation.status === 'pending' && (
-                        <>
-                          <button
-                            onClick={() => handleOpenCancelDialog(invitation.id)}
-                            style={{
-                              padding: '6px 12px',
-                              backgroundColor: '#fff',
-                              border: '1px solid #c62828',
-                              borderRadius: '4px',
-                              color: '#c62828',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              marginRight: '8px',
-                            }}
-                          >
-                            取り消し
-                          </button>
-                          {invitation.token !== null && (
-                            <button
-                              onClick={() => handleCopyUrl(invitation.token)}
-                              style={{
-                                padding: '6px 12px',
-                                backgroundColor: '#1565c0',
-                                border: 'none',
-                                borderRadius: '4px',
-                                color: '#fff',
-                                cursor: 'pointer',
-                                fontSize: '14px',
-                              }}
-                            >
-                              URLをコピー
-                            </button>
-                          )}
-                        </>
+                        <button
+                          onClick={() => handleOpenCancelDialog(invitation.id)}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: '#fff',
+                            border: '1px solid #c62828',
+                            borderRadius: '4px',
+                            color: '#c62828',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            marginRight: '8px',
+                          }}
+                        >
+                          取り消し
+                        </button>
                       )}
                       {invitation.status === 'expired' && (
                         <button

@@ -73,7 +73,7 @@ model User {
 model Invitation {
   id        String    @id @default(uuid())
   email     String
-  token     String?   @unique // 使用済み・取り消し・期限切れで定期処理が NULL にする（要件37.4）
+  tokenHash String?   @unique @map("token_hash") // 原文の SHA-256 の 16 進（要件37.1）。使用済み・取り消し・期限切れで定期処理が NULL にする（要件37.4）
   inviterId String
   status    String    @default("pending") // pending, used, expired, revoked
   expiresAt DateTime
@@ -84,7 +84,6 @@ model Invitation {
   inviter User  @relation("InviterToInvitations", fields: [inviterId], references: [id])
   user    User? @relation("InvitationToUser", fields: [userId], references: [id])
 
-  @@index([token])
   @@index([email])
   @@index([status])
   @@index([expiresAt])
