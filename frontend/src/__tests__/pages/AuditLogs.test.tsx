@@ -669,4 +669,63 @@ describe('AuditLogs Component', () => {
       expect(within(actorRow).getAllByRole('cell')[2]).toHaveTextContent('admin@example.com');
     });
   });
+
+  describe('招待の作成と取り消しの監査の種別（要件40.5）', () => {
+    const invitationActionLabels = {
+      INVITATION_CREATED: '招待作成',
+      INVITATION_REVOKED: '招待取り消し',
+    } as const satisfies Partial<Record<AuditLogAction, string>>;
+    const invitationActions = Object.keys(
+      invitationActionLabels
+    ) as (keyof typeof invitationActionLabels)[];
+
+    it('招待の作成と取り消しを一覧で表示名により表示する', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue(
+        invitationActions.map((action, i) => ({
+          id: `inv-${i}`,
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action,
+          targetType: 'Invitation',
+          targetId: `invitation-${i}`,
+          createdAt: '2026-10-24T00:00:00Z',
+        })) satisfies AuditLog[]
+      );
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      invitationActions.forEach((action, i) => {
+        const row = within(table).getByText(`invitation-${i}`).closest('tr') as HTMLElement;
+        expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(
+          new RegExp(`^${invitationActionLabels[action]}$`)
+        );
+      });
+    });
+
+    it.each(invitationActions)(
+      'イベント種別の絞り込みに %s を表示名で並べ、選ぶとその種別で再取得する',
+      async (action) => {
+        const user = userEvent.setup();
+        const { apiClient } = await import('../../api/client');
+        vi.mocked(apiClient.get).mockResolvedValue([]);
+
+        render(<AuditLogs />);
+        await screen.findByText('監査ログがありません');
+
+        const actionFilter = screen.getByLabelText('イベント種別');
+        const option = within(actionFilter).getByRole('option', {
+          name: invitationActionLabels[action],
+        });
+        expect(option).toHaveValue(action);
+
+        await user.selectOptions(actionFilter, invitationActionLabels[action]);
+
+        await waitFor(() => {
+          expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining(`action=${action}`));
+        });
+      }
+    );
+  });
 });

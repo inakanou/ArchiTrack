@@ -59,6 +59,25 @@ export const SECURITY_REMEDIATION_AUDIT_ACTION_LABELS: Record<
   AUDIT_ARCHIVE_RESTORED: '監査ログの復元',
 };
 
+/**
+ * 招待の作成・取り消しの種別（要件40.5）
+ *
+ * backend では従来からある種別で、SECURITY_REMEDIATION_AUDIT_ACTIONS には含まれない。記録はタスク50.1 で
+ * 始め、監査ログ画面の表示名と絞り込みはタスク50.4 で加えた。並びは監査ログ画面の絞り込みの一覧の表示順
+ */
+export const INVITATION_AUDIT_ACTIONS = [
+  'INVITATION_CREATED',
+  'INVITATION_REVOKED',
+] as const satisfies readonly AuditLogAction[];
+
+export type InvitationAuditAction = (typeof INVITATION_AUDIT_ACTIONS)[number];
+
+/** 招待の作成・取り消しの種別の表示名 */
+export const INVITATION_AUDIT_ACTION_LABELS: Record<InvitationAuditAction, string> = {
+  INVITATION_CREATED: '招待作成',
+  INVITATION_REVOKED: '招待取り消し',
+};
+
 /** 実行者の無い記録の実行者の表示 */
 export const SYSTEM_ACTOR_LABEL = 'システム';
 

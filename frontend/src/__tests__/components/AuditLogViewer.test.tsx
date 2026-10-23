@@ -253,4 +253,30 @@ describe('AuditLogViewer', () => {
       expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(/^システム$/);
     });
   });
+
+  it('招待の作成と取り消しの記録を表示名で表示する（要件40.5）', () => {
+    const logs: AuditLog[] = [
+      {
+        id: 'inv-created',
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action: 'INVITATION_CREATED',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'inv-revoked',
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action: 'INVITATION_REVOKED',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    render(<AuditLogViewer logs={logs} loading={false} />);
+
+    expect(screen.getByText('招待作成')).toBeInTheDocument();
+    expect(screen.getByText('招待取り消し')).toBeInTheDocument();
+    expect(screen.queryByText('INVITATION_CREATED')).not.toBeInTheDocument();
+    expect(screen.queryByText('INVITATION_REVOKED')).not.toBeInTheDocument();
+  });
 });

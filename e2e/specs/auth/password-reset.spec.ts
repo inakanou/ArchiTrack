@@ -8,8 +8,9 @@ import {
   deleteSessionUsers,
 } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
+import { FRONTEND_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
+import { clearMailpit, getEmailFromMailpit } from '../../helpers/mailpit';
 
 /**
  * パスワード管理機能のE2Eテスト
@@ -580,115 +581,6 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       },
     });
   });
-
-  // Mailpit API URL
-  //
-  // 公開ポートは環境ごとに違い、backend の公開ポートと組で決まる。
-  //   テスト環境（docker-compose.test.yml）: backend `3100:3000` / Mailpit `8026:8025`
-  //   CI 環境（docker-compose.ci.yml）:      backend `3000:3000` / Mailpit `8025:8025`
-  //   開発環境（docker-compose.dev.yml）:    backend `3000:3000` / Mailpit `8025:8025`
-  //
-  // 従来は 8025 に固定していた。テスト環境（`npm run test:docker`）では
-  // そこに居るのは**開発環境の Mailpit** であり、開発環境が落ちていれば接続すらできない。
-  // どちらにせよ本テストが送らせたメールは見つからず、取得結果は常に null になる。
-  // その null を「メールが取れた場合のみ検証する」分岐で受けていたため、
-  // メール経由の検証は一度も実行されていなかった。
-  //
-  // `process.env.CI` では判別できない。`.husky/scripts/pre-push.sh` はテスト環境に対して
-  // `CI=true npx playwright test` を実行するためである。判別できるのは接続先そのもの、
-  // すなわち {@link API_BASE_URL} のポートである。
-  const MAILPIT_HOST_PORT = new URL(API_BASE_URL).port === '3100' ? 8026 : 8025;
-  const mailpitApiUrl =
-    process.env.MAILPIT_API_URL ?? `http://localhost:${MAILPIT_HOST_PORT}/api/v1`;
-
-  /**
-   * Mailpitから全メールを削除
-   */
-  async function clearMailpit(): Promise<void> {
-    // 消せなかった場合に黙って続けると、前のテストが残したメールを
-    // 「今回送られたメール」として読んでしまう。前提が崩れた地点で失敗させる。
-    const response = await fetch(`${mailpitApiUrl}/messages`, { method: 'DELETE' });
-    if (!response.ok) {
-      throw new Error(
-        `Mailpit のメールを消去できない: ${mailpitApiUrl} が ${response.status} を返した`
-      );
-    }
-  }
-
-  /**
-   * Mailpitから特定の宛先に送信されたメールを取得
-   * @param toEmail - 宛先メールアドレス
-   * @param maxRetries - 最大リトライ回数
-   * @returns メール情報（届かない場合は例外を投げる）
-   */
-  async function getEmailFromMailpit(
-    toEmail: string,
-    // メール送信は BullMQ のキュー経由（`backend/src/services/email.service.ts`）であり、
-    // 要求の応答が返ってから実際に届くまでに間がある。1周1秒で待つ。
-    maxRetries = 15
-  ): Promise<{
-    id: string;
-    subject: string;
-    html: string;
-    text: string;
-  }> {
-    let lastFailure = 'メールが届いていない';
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        // メール一覧を取得
-        const response = await fetch(`${mailpitApiUrl}/messages`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch messages: ${response.statusText}`);
-        }
-        const data = (await response.json()) as {
-          messages: Array<{
-            ID: string;
-            To: Array<{ Address: string }>;
-            Subject: string;
-          }>;
-        };
-
-        // 宛先でフィルタリング
-        const email = data.messages?.find((msg) =>
-          msg.To?.some((to) => to.Address.toLowerCase() === toEmail.toLowerCase())
-        );
-
-        if (email) {
-          // メール本文を取得
-          const messageResponse = await fetch(`${mailpitApiUrl}/message/${email.ID}`);
-          if (!messageResponse.ok) {
-            throw new Error(`Failed to fetch message body: ${messageResponse.statusText}`);
-          }
-          const messageData = (await messageResponse.json()) as {
-            ID: string;
-            Subject: string;
-            HTML: string;
-            Text: string;
-          };
-          return {
-            id: messageData.ID,
-            subject: messageData.Subject,
-            html: messageData.HTML,
-            text: messageData.Text,
-          };
-        }
-
-        // メールが見つからない場合は少し待ってリトライ
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      } catch (error) {
-        lastFailure = error instanceof Error ? error.message : String(error);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-
-    // 取得できないまま null を返すと、呼び出し側が「取れたときだけ検証する」形になり、
-    // リセットメールが一通も送られていない欠陥が緑のまま通る。
-    // 要件7.1（リセットトークンをメールで送信する）が満たされていない地点で失敗させる。
-    throw new Error(
-      `リセットメールを取得できない（宛先: ${toEmail} / Mailpit: ${mailpitApiUrl}）: ${lastFailure}`
-    );
-  }
 
   /**
    * メール本文からリセットトークンを抽出

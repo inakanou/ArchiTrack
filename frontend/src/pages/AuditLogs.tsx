@@ -8,6 +8,8 @@ import { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import type { AuditLog, AuditLogAction } from '../types/audit-log.types';
 import {
+  INVITATION_AUDIT_ACTIONS,
+  INVITATION_AUDIT_ACTION_LABELS,
   SECURITY_REMEDIATION_AUDIT_ACTIONS,
   SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
@@ -122,6 +124,7 @@ export function AuditLogs() {
       PASSWORD_CHANGED: 'パスワード変更',
       TWO_FACTOR_ENABLED: '2FA有効化',
       TWO_FACTOR_DISABLED: '2FA無効化',
+      ...INVITATION_AUDIT_ACTION_LABELS,
       ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
     };
     return labels[action] || action;
@@ -218,6 +221,11 @@ export function AuditLogs() {
             <option value="LOGIN_FAILED">ログイン失敗</option>
             <option value="LOGOUT">ログアウト</option>
             <option value="PASSWORD_CHANGED">パスワード変更</option>
+            {INVITATION_AUDIT_ACTIONS.map((action) => (
+              <option key={action} value={action}>
+                {INVITATION_AUDIT_ACTION_LABELS[action]}
+              </option>
+            ))}
             {SECURITY_REMEDIATION_AUDIT_ACTIONS.map((action) => (
               <option key={action} value={action}>
                 {SECURITY_REMEDIATION_AUDIT_ACTION_LABELS[action]}
