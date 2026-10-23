@@ -275,9 +275,10 @@ export function mountAuthRateLimitPolicy(
     limiters.passwordResetRequestByEmail,
   ]);
   app.post('/api/v1/auth/password/reset', limiters.passwordReset);
-  app.get('/api/v1/auth/password/verify-reset', limiters.passwordReset);
+  // 検証はトークンを本文で受ける POST の経路（要件37.3）
+  app.post('/api/v1/auth/password/verify-reset', limiters.passwordReset);
   app.post('/api/v1/auth/register', limiters.registration);
-  app.get('/api/v1/invitations/verify', limiters.registration);
+  app.post('/api/v1/invitations/verify', limiters.registration);
 }
 
 /**

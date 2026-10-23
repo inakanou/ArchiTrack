@@ -494,7 +494,7 @@ async function openRegisterPage(page: Page, invitationValid: boolean): Promise<v
       code: 'INVALID_TOKEN',
     });
   }
-  await page.goto('/register?token=focus-visible-invitation');
+  await page.goto('/register#token=focus-visible-invitation');
 }
 
 /** リセットリンクの検証の応答を与えて、パスワードの再設定の画面を開く */
@@ -507,7 +507,7 @@ async function openPasswordResetPage(page: Page, tokenValid: boolean): Promise<v
       code: 'INVALID_RESET_TOKEN',
     });
   }
-  await page.goto('/password-reset?token=focus-visible-reset');
+  await page.goto('/password-reset#token=focus-visible-reset');
 }
 
 /**

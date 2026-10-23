@@ -221,9 +221,9 @@ describe('認証系の試行制限（統合・本番の実行環境の判定・�
               .set('X-Forwarded-For', forwardedFor(IP.passwordReset))
               .send({ token: 'invalid', newPassword: 'invalid' })
           : await request(productionApp)
-              .get('/api/v1/auth/password/verify-reset')
-              .query({ token: 'invalid' })
-              .set('X-Forwarded-For', forwardedFor(IP.passwordReset));
+              .post('/api/v1/auth/password/verify-reset')
+              .set('X-Forwarded-For', forwardedFor(IP.passwordReset))
+              .send({ token: 'invalid' });
       expect(response.status, `${i + 1} 回目は上限内`).not.toBe(429);
     }
 
@@ -236,9 +236,9 @@ describe('認証系の試行制限（統合・本番の実行環境の判定・�
       'Too many password reset attempts, please try again later.'
     );
     const exceededVerify = await request(productionApp)
-      .get('/api/v1/auth/password/verify-reset')
-      .query({ token: 'invalid' })
-      .set('X-Forwarded-For', forwardedFor(IP.passwordReset));
+      .post('/api/v1/auth/password/verify-reset')
+      .set('X-Forwarded-For', forwardedFor(IP.passwordReset))
+      .send({ token: 'invalid' });
     expect(exceededVerify.status).toBe(429);
     expect(await hits('rl:password-reset:', IP.passwordReset)).toBe(limit + 2);
   });
@@ -256,9 +256,9 @@ describe('認証系の試行制限（統合・本番の実行環境の判定・�
               .set('X-Forwarded-For', forwardedFor(IP.registration))
               .send({})
           : await request(productionApp)
-              .get('/api/v1/invitations/verify')
-              .query({ token: 'invalid' })
-              .set('X-Forwarded-For', forwardedFor(IP.registration));
+              .post('/api/v1/invitations/verify')
+              .set('X-Forwarded-For', forwardedFor(IP.registration))
+              .send({ token: 'invalid' });
       expect(response.status, `${i + 1} 回目は上限内`).not.toBe(429);
     }
 
@@ -271,9 +271,9 @@ describe('認証系の試行制限（統合・本番の実行環境の判定・�
       'Too many registration attempts, please try again later.'
     );
     const exceededVerify = await request(productionApp)
-      .get('/api/v1/invitations/verify')
-      .query({ token: 'invalid' })
-      .set('X-Forwarded-For', forwardedFor(IP.registration));
+      .post('/api/v1/invitations/verify')
+      .set('X-Forwarded-For', forwardedFor(IP.registration))
+      .send({ token: 'invalid' });
     expect(exceededVerify.status).toBe(429);
     expect(await hits('rl:registration:', IP.registration)).toBe(limit + 2);
   });

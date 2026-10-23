@@ -1,9 +1,10 @@
 import { useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import type { User } from '../contexts/AuthContext';
 import { TWO_FACTOR_SETUP_NOTICE_KEY } from '../utils/user-restriction';
+import { useUrlToken } from '../hooks/useUrlToken';
 
 /** 招待経由の登録の直後に 2FA 設定の画面に出す案内（要件34.5） */
 const REGISTERED_NOTICE = 'ユーザー登録が完了しました。二要素認証を設定してください。';
@@ -28,10 +29,9 @@ import type { RegisterFormData, InvitationVerificationResult } from '../types/au
 export function RegisterPage() {
   const navigate = useNavigate();
   const { establishSession } = useAuth();
-  const [searchParams] = useSearchParams();
 
-  // URLクエリパラメータから招待トークンを取得
-  const invitationToken = searchParams.get('token') || '';
+  // 招待 URL のフラグメント（移行期間はクエリも）から招待トークンを読み、読んだ直後に URL から取り除く（要件37.3）
+  const invitationToken = useUrlToken();
 
   /**
    * 招待トークン検証処理
@@ -42,9 +42,10 @@ export function RegisterPage() {
   const handleVerifyInvitation = useCallback(
     async (token: string): Promise<InvitationVerificationResult> => {
       try {
-        const response = await apiClient.get<{
-          email: string;
-        }>(`/api/v1/invitations/verify?token=${token}`);
+        // トークンは URL に載せず本文で送る（アクセスログに残さない。要件37.3）
+        const response = await apiClient.post<{ email: string }>('/api/v1/invitations/verify', {
+          token,
+        });
 
         return {
           valid: true,

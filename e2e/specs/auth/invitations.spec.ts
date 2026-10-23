@@ -183,7 +183,8 @@ test.describe('管理者招待機能', () => {
       const nav = navigator as any;
       return await nav.clipboard.readText();
     });
-    expect(clipboardText).toContain('/register?token=');
+    expect(clipboardText).toContain('/register#token=');
+    expect(clipboardText).not.toContain('?token=');
   });
 
   /**

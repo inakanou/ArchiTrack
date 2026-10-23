@@ -510,6 +510,9 @@ export class PasswordService {
       // 初回のパスワード変更の要否が変わったので、コミットの後に状態のキャッシュを無効化する
       await this.invalidateUserStateAfterCommit(passwordResetToken.userId);
 
+      // 記録にはトークンの値もその一部も残さず、利用者 ID で残す（要件37.3）
+      logger.info({ userId: passwordResetToken.userId }, 'Password reset successfully');
+
       return Ok(undefined);
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）

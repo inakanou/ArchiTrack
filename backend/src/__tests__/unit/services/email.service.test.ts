@@ -517,6 +517,24 @@ describe('EmailService', () => {
     });
 
     /**
+     * @requirement user-authentication/REQ-37.3: フラグメントの形のリンクのトークンも失敗の理由から伏せる
+     */
+    it('フラグメントの形のリンクに載ったトークン（ジョブのトークンと別の値）も理由から伏せる', async () => {
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+      const job = failedJob();
+
+      await handlers.failed!(
+        job,
+        new Error('550 rejected https://app.example.com/register#token=other-fragment-token-xyz')
+      );
+
+      const reason = (errorLog.mock.calls[0]![0] as { reason: string }).reason;
+      expect(reason).not.toContain('other-fragment-token-xyz');
+      expect(reason).toContain('#token=[REDACTED]');
+    });
+
+    /**
      * @requirement user-authentication/REQ-45.1: 接続先が未設定のとき（開発のみ。本番は起動前の検査で止まる）は既定の接続先を使い、警告を残す
      */
     it('REDIS_URL が未設定のときは警告を残し、同じジョブの既定でキューを作る', async () => {
@@ -719,6 +737,35 @@ describe('EmailService', () => {
           })
         );
       });
+
+      /**
+       * @requirement user-authentication/REQ-37.3: 招待メールのリンクはトークンを URL のフラグメントに置く
+       */
+      it('招待メールのリンクはトークンをフラグメントに置き、クエリに載せない', async () => {
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+        const mockTemplate = vi.fn().mockReturnValue('<html>Invitation</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue(
+          '<html>{{invitationUrl}}</html>'
+        );
+        let invitationCallback:
+          ((job: { data: { to: string; invitationToken: string } }) => Promise<void>) | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'invitation-email') {
+            invitationCallback = callback;
+          }
+        });
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        await invitationCallback!({
+          data: { to: 'newuser@example.com', invitationToken: 'fragment-invite-token' },
+        });
+
+        const { invitationUrl } = mockTemplate.mock.calls[0]![0] as { invitationUrl: string };
+        expect(invitationUrl).toMatch(/\/register#token=fragment-invite-token$/);
+        expect(new URL(invitationUrl).search).toBe('');
+      });
     });
 
     describe('processPasswordResetEmail', () => {
@@ -762,6 +809,33 @@ describe('EmailService', () => {
             resetUrl: expect.stringContaining('reset-token-456'),
           })
         );
+      });
+
+      /**
+       * @requirement user-authentication/REQ-37.3: リセットメールのリンクはトークンを URL のフラグメントに置く
+       */
+      it('リセットメールのリンクはトークンをフラグメントに置き、クエリに載せない', async () => {
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+        const mockTemplate = vi.fn().mockReturnValue('<html>Password Reset Email</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>{{resetUrl}}</html>');
+        let passwordResetCallback:
+          ((job: { data: { to: string; resetToken: string } }) => Promise<void>) | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'password-reset-email') {
+            passwordResetCallback = callback;
+          }
+        });
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        await passwordResetCallback!({
+          data: { to: 'user@example.com', resetToken: 'fragment-reset-token' },
+        });
+
+        const { resetUrl } = mockTemplate.mock.calls[0]![0] as { resetUrl: string };
+        expect(resetUrl).toMatch(/\/password-reset#token=fragment-reset-token$/);
+        expect(new URL(resetUrl).search).toBe('');
       });
     });
 

@@ -19,6 +19,9 @@ export function hashInvitationToken(token: string): string {
 /**
  * 招待 URL を組み立てる（招待メールの本文と、作成・再送信の直後の応答で同じ形を使う）
  *
+ * トークンは URL のフラグメントに置く。フラグメントはサーバーへ送られず、アクセスログに残らない（要件37.3）。
+ * 登録画面はフラグメントから読み、本文で検証する。
+ *
  * @param token - 招待トークンの原文
  * @param frontendUrl - 画面のオリジン（省略時は FRONTEND_URL）
  */
@@ -26,5 +29,5 @@ export function buildInvitationUrl(
   token: string,
   frontendUrl: string = process.env.FRONTEND_URL || 'http://localhost:5173'
 ): string {
-  return `${frontendUrl}/register?token=${token}`;
+  return `${frontendUrl}/register#token=${token}`;
 }

@@ -111,7 +111,7 @@ describe('パスワードリセットのトークンのハッシュ保存（統�
   /**
    * @requirement user-authentication/REQ-37.1
    */
-  it('検証の経路（クエリ）とリセットの経路は原文のハッシュで行を引き、保存された値そのものはトークンとして通らない', async () => {
+  it('検証の経路とリセットの経路は原文のハッシュで行を引き、保存された値そのものはトークンとして通らない', async () => {
     const user = await createUser('verify');
     const { rawToken, resetToken } = await createStoredPasswordResetToken(prisma, {
       userId: user.id,
@@ -122,8 +122,8 @@ describe('パスワードリセットのトークンのハッシュ保存（統�
 
     // 保存された値（ハッシュ）を提示しても一致しない
     const byStoredValue = await request(app)
-      .get(VERIFY_PATH)
-      .query({ token: resetToken.tokenHash });
+      .post(VERIFY_PATH)
+      .send({ token: resetToken.tokenHash });
     expect(byStoredValue.status).toBe(400);
     expect(byStoredValue.body.code).toBe('INVALID_RESET_TOKEN');
     const resetByStoredValue = await request(app)
@@ -133,7 +133,7 @@ describe('パスワードリセットのトークンのハッシュ保存（統�
     expect(resetByStoredValue.body.code).toBe('RESET_TOKEN_INVALID');
 
     // 原文なら検証とリセットができる
-    const verified = await request(app).get(VERIFY_PATH).query({ token: rawToken });
+    const verified = await request(app).post(VERIFY_PATH).send({ token: rawToken });
     expect(verified.status, JSON.stringify(verified.body)).toBe(200);
     expect(verified.body).toEqual({ valid: true });
 
@@ -146,7 +146,7 @@ describe('パスワードリセットのトークンのハッシュ保存（統�
       where: { id: resetToken.id },
     });
     expect(used.usedAt).not.toBeNull();
-    const afterUse = await request(app).get(VERIFY_PATH).query({ token: rawToken });
+    const afterUse = await request(app).post(VERIFY_PATH).send({ token: rawToken });
     expect(afterUse.status).toBe(400);
     expect(afterUse.body.code).toBe('TOKEN_USED');
   });

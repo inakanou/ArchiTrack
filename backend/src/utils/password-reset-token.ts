@@ -2,6 +2,7 @@
  * パスワードリセットのトークンの保存の形（user-authentication 要件37.1）
  *
  * PasswordService（保存とリセット）と検証の経路（auth.routes の verify-reset）が同じ定義を使う。
+ * リセットのメールのリンクの組み立てもここに置く（要件37.3）。
  */
 
 import { createHash } from 'crypto';
@@ -14,4 +15,17 @@ import { createHash } from 'crypto';
  */
 export function hashPasswordResetToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+/**
+ * リセットのメールのリンクを組み立てる
+ *
+ * トークンは URL のフラグメントに置く。フラグメントはサーバーへ送られず、アクセスログに残らない（要件37.3）。
+ * リセット画面はフラグメントから読み、本文で検証する。
+ *
+ * @param token - リセットのトークンの原文
+ * @param frontendUrl - 画面のオリジン
+ */
+export function buildPasswordResetUrl(token: string, frontendUrl: string): string {
+  return `${frontendUrl}/password-reset#token=${token}`;
 }

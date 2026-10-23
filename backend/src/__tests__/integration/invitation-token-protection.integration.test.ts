@@ -35,11 +35,12 @@ const MARK = 'test-50-1-invitation-token';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const INVITATIONS_PATH = '/api/v1/invitations';
 
-/** 作成と再送信の応答の招待 URL からトークンの原文を取り出す（50.3 まではクエリの形） */
+/** 作成と再送信の応答の招待 URL からトークンの原文を取り出す（50.3 からフラグメントの形） */
 function tokenFromInvitationUrl(invitationUrl: string): string {
   const url = new URL(invitationUrl);
   expect(url.pathname).toBe('/register');
-  const token = url.searchParams.get('token');
+  expect(url.search).toBe('');
+  const token = new URLSearchParams(url.hash.slice(1)).get('token');
   expect(token, `招待 URL にトークンが無い: ${invitationUrl}`).toMatch(/^[0-9a-f]{64}$/);
   return token!;
 }
@@ -104,7 +105,7 @@ describe('招待のトークンの保護と招待の操作の監査（統合）'
   }
 
   async function verify(token: string) {
-    return request(app).get(`${INVITATIONS_PATH}/verify`).query({ token });
+    return request(app).post(`${INVITATIONS_PATH}/verify`).send({ token });
   }
 
   beforeAll(async () => {

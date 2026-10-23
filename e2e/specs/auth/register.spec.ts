@@ -43,7 +43,7 @@ test.describe('新規登録機能', () => {
     invitationToken = invitation.token;
 
     // 招待URLにアクセス
-    await page.goto(`/register?token=${invitationToken}`);
+    await page.goto(`/register#token=${invitationToken}`);
   });
 
   /**
@@ -133,7 +133,7 @@ test.describe('新規登録機能', () => {
 
     // 存在しない無効なトークンでアクセス
     const invalidToken = 'invalid_nonexistent_token_' + Date.now();
-    await page.goto(`/register?token=${invalidToken}`);
+    await page.goto(`/register#token=${invalidToken}`);
 
     // エラーメッセージが表示されることを確認
     await expect(
@@ -171,7 +171,7 @@ test.describe('新規登録機能', () => {
     });
 
     // 期限切れトークンでアクセス
-    await page.goto(`/register?token=${expiredInvitation.token}`);
+    await page.goto(`/register#token=${expiredInvitation.token}`);
 
     // エラーメッセージが表示されることを確認
     await expect(
@@ -209,7 +209,7 @@ test.describe('新規登録機能', () => {
     });
 
     // 使用済みトークンでアクセス
-    await page.goto(`/register?token=${usedInvitation.token}`);
+    await page.goto(`/register#token=${usedInvitation.token}`);
 
     // エラーメッセージが表示されることを確認
     await expect(

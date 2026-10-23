@@ -48,7 +48,7 @@ const LIMIT_CASES: readonly LimitCase[] = [
     limit: AUTH_RATE_LIMITS.PASSWORD_RESET.limit,
     routes: [
       ['post', '/api/v1/auth/password/reset'],
-      ['get', '/api/v1/auth/password/verify-reset?token=dummy'],
+      ['post', '/api/v1/auth/password/verify-reset'],
     ],
   },
   {
@@ -56,7 +56,7 @@ const LIMIT_CASES: readonly LimitCase[] = [
     limit: AUTH_RATE_LIMITS.REGISTRATION.limit,
     routes: [
       ['post', '/api/v1/auth/register'],
-      ['get', '/api/v1/invitations/verify?token=dummy'],
+      ['post', '/api/v1/invitations/verify'],
     ],
   },
 ];

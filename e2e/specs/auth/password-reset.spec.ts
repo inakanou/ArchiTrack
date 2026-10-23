@@ -151,7 +151,7 @@ test.describe('パスワード管理機能', () => {
     const uniquePassword = `TestPass${Date.now()}!Aa`;
 
     // Step 2: リセットURLにアクセス
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
 
     // Step 3: 新しいパスワードを入力
     await page.locator('input#password').fill(uniquePassword);
@@ -203,7 +203,7 @@ test.describe('パスワード管理機能', () => {
     );
 
     // Step 2: 期限切れトークンでリセットURLにアクセス
-    await page.goto(`/password-reset?token=${expiredToken}`);
+    await page.goto(`/password-reset#token=${expiredToken}`);
 
     // エラーメッセージが表示される
     await expect(
@@ -222,7 +222,7 @@ test.describe('パスワード管理機能', () => {
    * @requirement user-authentication/REQ-7.2 @requirement user-authentication/REQ-29.12 @requirement user-authentication/REQ-28.12
    */
   test('無効なリセットトークンではエラーが表示される', async ({ page }) => {
-    await page.goto('/password-reset?token=invalid-token-12345');
+    await page.goto('/password-reset#token=invalid-token-12345');
 
     // エラーメッセージが表示される
     await expect(
@@ -280,7 +280,7 @@ test.describe('パスワード管理機能', () => {
       prisma
     );
 
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
 
     // パスワード入力フィールドが表示される
     await expect(page.locator('input#password')).toBeVisible();
@@ -315,7 +315,7 @@ test.describe('パスワード管理機能', () => {
       prisma
     );
 
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
 
     await page.locator('input#password').fill('Short123!'); // 9文字（12文字未満）
     await page.locator('input#passwordConfirm').fill('Short123!');
@@ -345,7 +345,7 @@ test.describe('パスワード管理機能', () => {
       prisma
     );
 
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
 
     await page.locator('input#password').fill('Password123!'); // 有名な漏洩パスワード
     await page.locator('input#passwordConfirm').fill('Password123!');
@@ -376,7 +376,7 @@ test.describe('パスワード管理機能', () => {
       prisma
     );
 
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
 
     // autocomplete属性の検証
     const newPasswordInput = page.locator('input#password');
@@ -696,8 +696,9 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * @returns リセットトークン（見つからない場合はnull）
    */
   function extractResetTokenFromEmail(emailText: string): string | null {
-    // URLからトークンを抽出 (例: http://localhost:5173/password-reset?token=xxx)
-    const urlMatch = emailText.match(/password-reset\?token=([a-zA-Z0-9_-]+)/);
+    // URLのフラグメントからトークンを抽出 (例: http://localhost:5173/password-reset#token=xxx)。
+    // トークンはサーバーへ送られないフラグメントに置かれ、クエリには載らない（要件37.3）
+    const urlMatch = emailText.match(/password-reset#token=([a-zA-Z0-9_-]+)/);
     return urlMatch ? (urlMatch[1] ?? null) : null;
   }
 
@@ -774,7 +775,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     expect(tokenFromEmail).toMatch(/^[A-Za-z0-9_-]{16,}$/);
 
     // Step 5: リセットURLにアクセス
-    await page.goto(`/password-reset?token=${tokenFromEmail}`);
+    await page.goto(`/password-reset#token=${tokenFromEmail}`);
 
     // トークン検証が完了するまで待機
     await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
@@ -831,7 +832,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     );
 
     // リセットURLにアクセス
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
     await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
 
     // 新しいパスワードを設定
@@ -890,7 +891,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       prisma
     );
 
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
 
     // トークン検証完了を待機
     await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
@@ -912,7 +913,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
    * @requirement user-authentication/REQ-29.12
    */
   test('無効なトークンでエラーメッセージと再申請案内が表示される', async ({ page }) => {
-    await page.goto('/password-reset?token=completely-invalid-token-12345');
+    await page.goto('/password-reset#token=completely-invalid-token-12345');
 
     // エラーメッセージが表示される
     await expect(
@@ -946,7 +947,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       prisma
     );
 
-    await page.goto(`/password-reset?token=${expiredToken}`);
+    await page.goto(`/password-reset#token=${expiredToken}`);
 
     // 期限切れエラーメッセージが表示される
     await expect(
@@ -980,7 +981,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       prisma
     );
 
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
     await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
 
     // 弱いパスワードを入力
@@ -1018,7 +1019,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       prisma
     );
 
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
     await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
 
     // パスワードを入力
@@ -1060,7 +1061,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       prisma
     );
 
-    await page.goto(`/password-reset?token=${resetToken}`);
+    await page.goto(`/password-reset#token=${resetToken}`);
     await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
 
     // パスワードを入力
@@ -1188,7 +1189,7 @@ test.describe('パスワード変更後のセッション管理', () => {
     const context3 = await browser.newContext({ baseURL });
     const page3 = await context3.newPage();
 
-    await page3.goto(`/password-reset?token=${resetToken}`);
+    await page3.goto(`/password-reset#token=${resetToken}`);
     await page3.locator('input#password').fill(uniquePassword);
     await page3.locator('input#passwordConfirm').fill(uniquePassword);
     await page3.getByRole('button', { name: /パスワードをリセット/i }).click();

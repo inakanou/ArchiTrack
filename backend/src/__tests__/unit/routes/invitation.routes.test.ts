@@ -62,7 +62,7 @@ describe('Invitation Routes', () => {
     app.use('/api/v1/invitations', invitationRoutes);
   });
 
-  describe('GET /api/v1/invitations/verify (認証不要)', () => {
+  describe('POST /api/v1/invitations/verify (認証不要・トークンは本文)', () => {
     it('should verify valid invitation token', async () => {
       const token = 'valid-token-123';
 
@@ -77,7 +77,7 @@ describe('Invitation Routes', () => {
         updatedAt: new Date(),
       });
 
-      const response = await request(app).get('/api/v1/invitations/verify').query({ token });
+      const response = await request(app).post('/api/v1/invitations/verify').send({ token });
 
       expect(response.status).toBe(200);
       expect(response.body.email).toBe('user@example.com');
@@ -88,7 +88,7 @@ describe('Invitation Routes', () => {
 
       (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
-      const response = await request(app).get('/api/v1/invitations/verify').query({ token });
+      const response = await request(app).post('/api/v1/invitations/verify').send({ token });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toContain('Invalid');
@@ -108,7 +108,7 @@ describe('Invitation Routes', () => {
         updatedAt: new Date(),
       });
 
-      const response = await request(app).get('/api/v1/invitations/verify').query({ token });
+      const response = await request(app).post('/api/v1/invitations/verify').send({ token });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toContain('expired');
@@ -128,10 +128,32 @@ describe('Invitation Routes', () => {
         updatedAt: new Date(),
       });
 
-      const response = await request(app).get('/api/v1/invitations/verify').query({ token });
+      const response = await request(app).post('/api/v1/invitations/verify').send({ token });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toContain('used');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-37.3: 検証は本文で受け、トークンを URL に載せるクエリの検証の経路を置かない
+     */
+    it('クエリでトークンを渡す検証の経路（GET）は無く、招待を引かない', async () => {
+      const response = await request(app)
+        .get('/api/v1/invitations/verify')
+        .query({ token: 'query-token' });
+
+      expect(response.status).toBe(404);
+      expect(mockPrismaClient.invitation.findUnique).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-37.3
+     */
+    it('本文にトークンが無ければ 400 を返し、招待を引かない', async () => {
+      const response = await request(app).post('/api/v1/invitations/verify').send({});
+
+      expect(response.status).toBe(400);
+      expect(mockPrismaClient.invitation.findUnique).not.toHaveBeenCalled();
     });
   });
 
@@ -170,7 +192,7 @@ describe('Invitation Routes', () => {
       // 応答はトークンそのものを載せず、メールと同じトークンの招待 URL だけを載せる（要件37.1・37.2）
       expect(response.body).not.toHaveProperty('token');
       expect(response.body).not.toHaveProperty('tokenHash');
-      expect(response.body.invitationUrl).toMatch(new RegExp(`/register\\?token=${sentToken}$`));
+      expect(response.body.invitationUrl).toMatch(new RegExp(`/register#token=${sentToken}$`));
     });
   });
   describe('POST /api/v1/invitations/:id/resend', () => {
@@ -207,7 +229,7 @@ describe('Invitation Routes', () => {
       );
       expect(response.body).toMatchObject({ id: 'invitation-1', status: InvitationStatus.PENDING });
       const [, sentToken] = sendInvitationEmail.mock.calls[0]!;
-      expect(response.body.invitationUrl).toMatch(new RegExp(`/register\\?token=${sentToken}$`));
+      expect(response.body.invitationUrl).toMatch(new RegExp(`/register#token=${sentToken}$`));
     });
 
     it.each([

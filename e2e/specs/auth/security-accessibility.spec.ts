@@ -367,7 +367,7 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
       prisma
     );
 
-    await page.goto(`/register?token=${invitation.token}`);
+    await page.goto(`/register#token=${invitation.token}`);
 
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

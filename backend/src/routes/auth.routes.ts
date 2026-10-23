@@ -1725,18 +1725,23 @@ router.post(
 /**
  * @swagger
  * /api/v1/auth/password/verify-reset:
- *   get:
+ *   post:
  *     summary: Verify password reset token
- *     description: Verify if a password reset token is valid and not expired
+ *     description: Verify if a password reset token is valid and not expired. The token is sent in the request body, not in the URL.
  *     tags:
  *       - Authentication
- *     parameters:
- *       - in: query
- *         name: token
- *         required: true
- *         schema:
- *           type: string
- *         description: Password reset token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Password reset token
  *     responses:
  *       200:
  *         description: Token is valid
@@ -1751,11 +1756,12 @@ router.post(
  *       400:
  *         description: Invalid or expired token
  */
-router.get(
+router.post(
   '/password/verify-reset',
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { token } = req.query;
+      // トークンは URL に載せず本文で受ける（アクセスログに残さない。要件37.3）
+      const token: unknown = req.body?.token;
 
       if (!token || typeof token !== 'string') {
         res.status(400).json({ error: 'Token is required', code: 'MISSING_TOKEN' });
@@ -1869,7 +1875,7 @@ router.post(
         return;
       }
 
-      logger.info({ token: token.substring(0, 8) + '...' }, 'Password reset successfully');
+      // 成功の記録は PasswordService が利用者 ID で残す（トークンの値もその一部も記録しない。要件37.3）
 
       res.status(200).json({ message: 'Password reset successfully' });
     } catch (error) {

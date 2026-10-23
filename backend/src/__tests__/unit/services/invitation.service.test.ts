@@ -118,10 +118,13 @@ describe('InvitationService', () => {
       expect(hashInvitationToken('abc')).not.toBe('abc');
     });
 
-    it('招待 URL は画面のオリジンの登録画面にトークンを渡す', () => {
-      expect(buildInvitationUrl('t0k3n', 'https://app.example.com')).toBe(
-        'https://app.example.com/register?token=t0k3n'
-      );
+    /**
+     * @requirement user-authentication/REQ-37.3: 招待 URL はトークンをフラグメントに置き、サーバーへ送られるクエリに載せない
+     */
+    it('招待 URL は画面のオリジンの登録画面にトークンをフラグメントで渡す', () => {
+      const url = buildInvitationUrl('t0k3n', 'https://app.example.com');
+      expect(url).toBe('https://app.example.com/register#token=t0k3n');
+      expect(new URL(url).search).toBe('');
     });
   });
 

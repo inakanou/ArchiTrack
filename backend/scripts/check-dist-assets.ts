@@ -120,7 +120,7 @@ async function checkTemplatesRenderFromDist(): Promise<void> {
       data: { to: 'invitee@example.test', invitationToken },
       expectedRecipients: ['invitee@example.test'],
       expectedSubjectPrefix: 'ArchiTrackへの招待',
-      expectedFragments: [`href="${escaped(`${FRONTEND_URL}/register?token=${invitationToken}`)}"`],
+      expectedFragments: [`href="${escaped(`${FRONTEND_URL}/register#token=${invitationToken}`)}"`],
     },
     {
       jobName: 'password-reset-email',
@@ -128,7 +128,7 @@ async function checkTemplatesRenderFromDist(): Promise<void> {
       expectedRecipients: ['reset@example.test'],
       expectedSubjectPrefix: 'パスワードリセットのご案内',
       expectedFragments: [
-        `href="${escaped(`${FRONTEND_URL}/password-reset?token=${resetToken}`)}"`,
+        `href="${escaped(`${FRONTEND_URL}/password-reset#token=${resetToken}`)}"`,
       ],
     },
     {

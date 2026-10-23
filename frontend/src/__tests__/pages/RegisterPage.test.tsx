@@ -166,31 +166,38 @@ describe('RegisterPage Component', () => {
   });
 
   describe('招待トークン検証', () => {
+    /**
+     * @requirement user-authentication/REQ-37.3
+     */
     it('有効な招待トークンの場合、メールアドレスを返す', async () => {
       const user = userEvent.setup();
-      vi.mocked(apiClient.get).mockResolvedValueOnce({ email: 'invited@example.com' });
+      vi.mocked(apiClient.post).mockResolvedValueOnce({ email: 'invited@example.com' });
 
       renderRegisterPage('?token=valid-token-123');
 
       await user.click(screen.getByRole('button', { name: /検証/i }));
 
+      // トークンは URL に載せず本文で送る（要件37.3）
       await waitFor(() => {
-        expect(apiClient.get).toHaveBeenCalledWith(
-          '/api/v1/invitations/verify?token=valid-token-123'
-        );
+        expect(apiClient.post).toHaveBeenCalledWith('/api/v1/invitations/verify', {
+          token: 'valid-token-123',
+        });
       });
+      expect(apiClient.get).not.toHaveBeenCalled();
     });
 
     it('無効な招待トークンの場合、エラーを返す', async () => {
       const user = userEvent.setup();
-      vi.mocked(apiClient.get).mockRejectedValueOnce(new Error('Invalid token'));
+      vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Invalid token'));
 
       renderRegisterPage('?token=invalid-token');
 
       await user.click(screen.getByRole('button', { name: /検証/i }));
 
       await waitFor(() => {
-        expect(apiClient.get).toHaveBeenCalled();
+        expect(apiClient.post).toHaveBeenCalledWith('/api/v1/invitations/verify', {
+          token: 'invalid-token',
+        });
       });
     });
   });

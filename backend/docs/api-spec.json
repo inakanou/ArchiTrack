@@ -6901,22 +6901,31 @@
       }
     },
     "/api/v1/invitations/verify": {
-      "get": {
+      "post": {
         "summary": "招待トークンを検証",
+        "description": "トークンは URL に載せず本文で送る（アクセスログに残さない）",
         "tags": [
           "Invitations"
         ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "招待トークン"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "招待トークン"
+                  }
+                }
+              }
+            }
           }
-        ],
+        },
         "responses": {
           "200": {
             "description": "トークン検証成功"
@@ -10921,23 +10930,31 @@
       }
     },
     "/api/v1/auth/password/verify-reset": {
-      "get": {
+      "post": {
         "summary": "Verify password reset token",
-        "description": "Verify if a password reset token is valid and not expired",
+        "description": "Verify if a password reset token is valid and not expired. The token is sent in the request body, not in the URL.",
         "tags": [
           "Authentication"
         ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Password reset token"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "Password reset token"
+                  }
+                }
+              }
+            }
           }
-        ],
+        },
         "responses": {
           "200": {
             "description": "Token is valid",

@@ -55,7 +55,7 @@ const CASES: ReadonlyArray<{
     limit: AUTH_RATE_LIMITS.PASSWORD_RESET.limit,
     routes: [
       ['post', '/api/v1/auth/password/reset'],
-      ['get', '/api/v1/auth/password/verify-reset'],
+      ['post', '/api/v1/auth/password/verify-reset'],
     ],
   },
   {
@@ -63,7 +63,7 @@ const CASES: ReadonlyArray<{
     limit: AUTH_RATE_LIMITS.REGISTRATION.limit,
     routes: [
       ['post', '/api/v1/auth/register'],
-      ['get', '/api/v1/invitations/verify'],
+      ['post', '/api/v1/invitations/verify'],
     ],
   },
 ];

@@ -33,6 +33,7 @@ import { captureException } from '../utils/sentry.js';
 import { runtimeMode } from '../config/runtime-mode.js';
 import { SESSION_CONFIG } from '../config/security.constants.js';
 import { buildInvitationUrl } from '../utils/invitation-token.js';
+import { buildPasswordResetUrl } from '../utils/password-reset-token.js';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -210,7 +211,8 @@ function redactFailureReason(reason: string, data: unknown, recipients: readonly
     // 宛先は大文字・小文字を区別しないため、値を文字どおりに（特殊文字をエスケープして）大小を無視して伏せる
     redacted = redacted.replace(new RegExp(escapeRegExp(secret), 'gi'), '[REDACTED]');
   }
-  return redacted.replace(/([?&]token=)[^&\s]+/gi, '$1[REDACTED]');
+  // クエリの形と、リンクのフラグメントの形（要件37.3）の両方のトークンの値を伏せる
+  return redacted.replace(/([?&#]token=)[^&\s]+/gi, '$1[REDACTED]');
 }
 
 /**
@@ -517,7 +519,8 @@ export class EmailService {
     const { to, resetToken } = data;
     logger.debug({ to }, 'Processing password reset email');
 
-    const resetUrl = `${this.frontendUrl}/password-reset?token=${resetToken}`;
+    // 招待と同じく、トークンを URL のフラグメントに置く（要件37.3）
+    const resetUrl = buildPasswordResetUrl(resetToken, this.frontendUrl);
 
     // Handlebarsテンプレート読み込み
     const templatePath = join(__dirname, '../templates/password-reset-email.hbs');

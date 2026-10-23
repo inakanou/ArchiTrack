@@ -7,6 +7,7 @@
  *
  * タスク50.1 で、再送信の経路を加え、作成と再送信の応答をサーバーが組み立てた招待 URL に改め、
  * 取り消しを作成者に限らない形にした（user-authentication の要件37・40 の招待の項）。
+ * タスク50.3 で、招待の検証をトークンを本文で受ける POST に改めた（クエリの検証の経路は置かない）。
  *
  * @swagger
  * tags:
@@ -24,7 +25,7 @@ import {
 } from '../services/invitation.service.js';
 import { EmailService } from '../services/email.service.js';
 import { InvitationStatus } from '../types/invitation.types.js';
-import { validateMultiple } from '../middleware/validate.middleware.js';
+import { validate, validateMultiple } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import { invitationLimiter } from '../middleware/rateLimit.middleware.js';
@@ -47,11 +48,10 @@ const listInvitationsSchema = {
   }),
 };
 
-const verifyInvitationSchema = {
-  query: z.object({
-    token: z.string().min(1, 'Token is required'),
-  }),
-};
+/** 招待の検証はトークンを本文で受ける（URL に載せずアクセスログに残さない。要件37.3） */
+const verifyInvitationBodySchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+});
 
 /** 監査に載せる送信元（要件40.5） */
 function requestContext(req: Request): RequestContext {
@@ -279,24 +279,30 @@ export function createInvitationRoutes(
   /**
    * @swagger
    * /api/v1/invitations/verify:
-   *   get:
+   *   post:
    *     summary: 招待トークンを検証
+   *     description: トークンは URL に載せず本文で送る（アクセスログに残さない）
    *     tags: [Invitations]
-   *     parameters:
-   *       - in: query
-   *         name: token
-   *         required: true
-   *         schema:
-   *           type: string
-   *         description: 招待トークン
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - token
+   *             properties:
+   *               token:
+   *                 type: string
+   *                 description: 招待トークン
    *     responses:
    *       200:
    *         description: トークン検証成功
    *       400:
    *         description: トークンが無効、期限切れ、または使用済み
    */
-  router.get('/verify', validateMultiple(verifyInvitationSchema), async (req, res) => {
-    const token = req.query.token as string;
+  router.post('/verify', validate(verifyInvitationBodySchema), async (req, res) => {
+    const { token } = req.validatedBody as z.infer<typeof verifyInvitationBodySchema>;
 
     const result = await invitationService.validateInvitation(token);
 
