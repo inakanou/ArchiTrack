@@ -26,6 +26,7 @@ import {
 import { E2E_TOTP_SECRET, encryptTotpSecret } from '../helpers/two-factor-totp';
 import { invalidateUserStateCache } from '../helpers/user-state-cache';
 import { hashInvitationToken } from '../../src/utils/invitation-token.js';
+import { hashPasswordResetToken } from '../../src/utils/password-reset-token.js';
 
 /** Type alias for PrismaClient instance */
 type PrismaClientInstance = InstanceType<typeof PrismaClient>;
@@ -465,11 +466,12 @@ export async function createInvitation(
 /**
  * パスワードリセットトークンを作成
  *
- * パスワードリセットテストで使用するトークンを作成します。
+ * パスワードリセットテストで使用するトークンを作成します。保存の形式は本番の PasswordService と
+ * 同じ（原文の SHA-256 の 16 進。user-authentication 要件37.1）で、DB にはハッシュだけを書き、原文を返します。
  *
  * @param options - リセットトークンオプション
  * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
- * @returns 作成されたリセットトークン情報
+ * @returns 作成されたリセットトークン情報（原文のトークンを含む）
  *
  * @example
  * ```typescript
@@ -477,33 +479,39 @@ export async function createInvitation(
  * const resetToken = await createPasswordResetToken({
  *   userId: user.id,
  * });
- * console.log(resetToken.token); // リセットトークン
+ * console.log(resetToken.token); // リセットトークン（原文）
  * ```
  */
 export async function createPasswordResetToken(
   options: {
     userId: string;
     expiresAt?: Date;
+    createdAt?: Date;
     usedAt?: Date | null;
+    /** 原文（省略時は暗号学的に安全な無作為の値） */
+    token?: string;
   },
   prisma?: PrismaClientInstance
 ) {
   const client = prisma || getPrismaClient();
 
   // 暗号学的に安全なトークンを生成
-  const token = randomBytes(32).toString('hex');
+  const token = options.token ?? randomBytes(32).toString('hex');
 
   // デフォルトで1時間後に期限切れ（要件7.3）
   const expiresAt = options.expiresAt || new Date(Date.now() + 60 * 60 * 1000);
 
-  return await client.passwordResetToken.create({
+  const resetToken = await client.passwordResetToken.create({
     data: {
       userId: options.userId,
-      token,
+      tokenHash: hashPasswordResetToken(token),
       expiresAt,
+      ...(options.createdAt !== undefined && { createdAt: options.createdAt }),
       usedAt: options.usedAt,
     },
   });
+  // 原文は DB に無いため、作成した側だけが持つ値を返す
+  return { ...resetToken, token };
 }
 
 /**

@@ -42,6 +42,7 @@ import { createInvitationRoutes } from '../../routes/invitation.routes.js';
 import { EmailService } from '../../services/email.service.js';
 import { PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE } from '../../config/security.constants.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { hashPasswordResetToken } from '../../utils/password-reset-token.js';
 import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua483-rate-limit';
@@ -339,7 +340,7 @@ describe('認証系の試行制限（統合・本番の実行環境の判定・�
     const tokens = await prisma.passwordResetToken.findMany({
       where: { userId: registeredUserId, usedAt: null },
     });
-    expect(tokens.map((t) => t.token)).toEqual([lastToken]);
+    expect(tokens.map((t) => t.tokenHash)).toEqual([hashPasswordResetToken(lastToken)]);
     expect(await hits('rl:password-reset-request-email:', emailHash(REGISTERED_EMAIL))).toBe(
       limit + 1
     );

@@ -2,7 +2,11 @@ import { test, expect } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
 import { hashPassword, TEST_USERS } from '../../helpers/test-users';
 import { completeTwoFactorVerification, loginWithCredentials } from '../../helpers/auth-actions';
-import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtures';
+import {
+  createPasswordResetToken,
+  createSessionUser,
+  deleteSessionUsers,
+} from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
@@ -94,7 +98,8 @@ test.describe('パスワード管理機能', () => {
 
     expect(user).toBeTruthy();
     expect(user!.passwordResetRequests).toHaveLength(1);
-    expect(user!.passwordResetRequests[0]!.token).toBeTruthy();
+    // 保存されているのは原文の SHA-256 の 16 進だけ（user-authentication 要件37.1）
+    expect(user!.passwordResetRequests[0]!.tokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect(user!.passwordResetRequests[0]!.expiresAt).toBeTruthy();
   });
 
@@ -133,13 +138,14 @@ test.describe('パスワード管理機能', () => {
 
     // ランダムな一意トークンを生成（ベストプラクティス: リトライ時の競合を防ぐ）
     const resetToken = `test-reset-token-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1時間後
       },
-    });
+      prisma
+    );
 
     // ユニークなパスワードを生成（リトライ時のパスワード履歴重複を防ぐ）
     const uniquePassword = `TestPass${Date.now()}!Aa`;
@@ -186,14 +192,15 @@ test.describe('パスワード管理機能', () => {
     const expiredToken = `expired-reset-token-${Date.now()}`;
     // 1時間と1秒前に発行したトークン（有効期限は発行から1時間）
     const issuedAt = new Date(Date.now() - (60 * 60 * 1000 + 1000));
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: expiredToken,
         userId: user!.id,
         createdAt: issuedAt,
         expiresAt: new Date(issuedAt.getTime() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     // Step 2: 期限切れトークンでリセットURLにアクセス
     await page.goto(`/password-reset?token=${expiredToken}`);
@@ -264,13 +271,14 @@ test.describe('パスワード管理機能', () => {
     });
 
     const resetToken = 'valid-ui-test-token';
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await page.goto(`/password-reset?token=${resetToken}`);
 
@@ -298,13 +306,14 @@ test.describe('パスワード管理機能', () => {
     });
 
     const resetToken = 'complexity-test-token';
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await page.goto(`/password-reset?token=${resetToken}`);
 
@@ -327,13 +336,14 @@ test.describe('パスワード管理機能', () => {
     });
 
     const resetToken = `hibp-test-token-${Date.now()}`;
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await page.goto(`/password-reset?token=${resetToken}`);
 
@@ -357,13 +367,14 @@ test.describe('パスワード管理機能', () => {
     });
 
     const resetToken = 'autocomplete-test-token';
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await page.goto(`/password-reset?token=${resetToken}`);
 
@@ -810,13 +821,14 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     const resetToken = `redirect-test-token-${Date.now()}`;
     const uniquePassword = `RedirectTest${Date.now()}!Aa`;
 
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     // リセットURLにアクセス
     await page.goto(`/password-reset?token=${resetToken}`);
@@ -869,13 +881,14 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     });
 
     const resetToken = `ui-verification-token-${Date.now()}`;
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await page.goto(`/password-reset?token=${resetToken}`);
 
@@ -924,13 +937,14 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     });
 
     const expiredToken = `expired-flow-test-${Date.now()}`;
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: expiredToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() - 1000), // 1秒前に期限切れ
       },
-    });
+      prisma
+    );
 
     await page.goto(`/password-reset?token=${expiredToken}`);
 
@@ -957,13 +971,14 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     });
 
     const resetToken = `strength-test-token-${Date.now()}`;
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await page.goto(`/password-reset?token=${resetToken}`);
     await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
@@ -994,13 +1009,14 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     });
 
     const resetToken = `mismatch-test-token-${Date.now()}`;
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await page.goto(`/password-reset?token=${resetToken}`);
     await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
@@ -1035,13 +1051,14 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     const resetToken = `loading-test-token-${Date.now()}`;
     const uniquePassword = `LoadingTest${Date.now()}!Aa`;
 
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await page.goto(`/password-reset?token=${resetToken}`);
     await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });
@@ -1158,13 +1175,14 @@ test.describe('パスワード変更後のセッション管理', () => {
     const resetToken = `session-test-token-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     const uniquePassword = `SessionTest${Date.now()}!Aa`;
 
-    await prisma.passwordResetToken.create({
-      data: {
+    await createPasswordResetToken(
+      {
         token: resetToken,
         userId: user!.id,
         expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     // 第3タブでパスワードリセット（baseURLを明示的に設定）
     const context3 = await browser.newContext({ baseURL });

@@ -10,6 +10,7 @@ import type {
 import { EmailService } from '../../../services/email.service.js';
 import logger from '../../../utils/logger.js';
 import { SESSION_CONFIG } from '../../../config/security.constants.js';
+import { hashPasswordResetToken } from '../../../utils/password-reset-token.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {
@@ -48,6 +49,21 @@ describe('PasswordService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     passwordService = new PasswordService(mockPrismaClient, mockEmailService);
+  });
+
+  describe('hashPasswordResetToken', () => {
+    /**
+     * @requirement user-authentication/REQ-37.1
+     */
+    it('保存する値は原文の UTF-8 の SHA-256 の 16 進（小文字）で、原文と一致しない', () => {
+      // SHA-256("abc") の既知の値（FIPS 180-2 の試験ベクトル）
+      expect(hashPasswordResetToken('abc')).toBe(
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+      );
+      const raw = 'a'.repeat(64);
+      expect(hashPasswordResetToken(raw)).toMatch(/^[0-9a-f]{64}$/);
+      expect(hashPasswordResetToken(raw)).not.toBe(raw);
+    });
   });
 
   describe('hashPassword', () => {
@@ -310,7 +326,7 @@ describe('PasswordService', () => {
       const mockResetToken: PasswordResetToken = {
         id: 'reset-token-1',
         userId: 'user-1',
-        token: 'generated-token-123',
+        tokenHash: hashPasswordResetToken('generated-token-123'),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: null,
@@ -394,6 +410,7 @@ describe('PasswordService', () => {
 
     /**
      * @requirement user-authentication/REQ-25.6
+     * @requirement user-authentication/REQ-37.1
      */
     it('トークンと監査ログを同じトランザクションで書き、コミット後にメールを投入する', async () => {
       (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mockResolvedValue(
@@ -418,8 +435,14 @@ describe('PasswordService', () => {
           }),
         })
       );
-      const token = txClient.passwordResetToken.create.mock.calls[0]![0].data.token;
-      expect(mockEmailService.sendPasswordResetEmail).toHaveBeenCalledWith(email, token);
+      // メールへは原文を渡し、DB へは原文の SHA-256 だけを書く（要件37.1）
+      const rawToken = (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mock
+        .calls[0]![1] as string;
+      expect(rawToken).toMatch(/^[0-9a-f]{64}$/);
+      const stored = txClient.passwordResetToken.create.mock.calls[0]![0].data;
+      expect(stored).not.toHaveProperty('token');
+      expect(stored.tokenHash).toBe(hashPasswordResetToken(rawToken));
+      expect(stored.tokenHash).not.toBe(rawToken);
       // 投入はトランザクションの完了（コミット）の後
       const txDone = (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mock.results[0]!
         .value as Promise<unknown>;
@@ -498,22 +521,27 @@ describe('PasswordService', () => {
       vi.useRealTimers();
     });
 
-    /** 要求で作られたトークンの行（作成の引数）を、検証で読む行として返す */
-    async function requestAndStoredToken(): Promise<PasswordResetToken> {
+    /**
+     * 要求で作られたトークンの行（作成の引数）を検証で読む行として、メールへ渡した原文とともに返す
+     */
+    async function requestAndStoredToken(): Promise<PasswordResetToken & { rawToken: string }> {
       const result = await passwordService.requestPasswordReset(email);
       expect(result).toEqual({ ok: true, value: undefined });
       const data = txClient.passwordResetToken.create.mock.calls[0]![0].data as {
         userId: string;
-        token: string;
+        tokenHash: string;
         expiresAt: Date;
       };
+      const rawToken = (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mock
+        .calls[0]![1] as string;
       return {
         id: 'reset-token-expiry',
         userId: data.userId,
-        token: data.token,
+        tokenHash: data.tokenHash,
         expiresAt: data.expiresAt,
         createdAt: requestedAt,
         usedAt: null,
+        rawToken,
       };
     }
 
@@ -537,7 +565,7 @@ describe('PasswordService', () => {
       ).mockResolvedValue(stored);
 
       vi.setSystemTime(new Date(requestedAt.getTime() + ONE_HOUR_MS + 1));
-      const result = await passwordService.resetPassword(stored.token, 'NewSecurePass123!');
+      const result = await passwordService.resetPassword(stored.rawToken, 'NewSecurePass123!');
 
       expect(result).toEqual({ ok: false, error: { type: 'RESET_TOKEN_EXPIRED' } });
       expect(mockPrismaClient.$transaction).toHaveBeenCalledTimes(1); // 要求の分だけ
@@ -555,7 +583,7 @@ describe('PasswordService', () => {
       (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
       vi.setSystemTime(new Date(requestedAt.getTime() + ONE_HOUR_MS - 60 * 1000));
-      const result = await passwordService.resetPassword(stored.token, 'NewSecurePass123!');
+      const result = await passwordService.resetPassword(stored.rawToken, 'NewSecurePass123!');
 
       expect(result).toEqual({ ok: true, value: undefined });
     });
@@ -592,7 +620,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId,
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 未来の日時
         createdAt: new Date(),
         usedAt: null,
@@ -633,8 +661,9 @@ describe('PasswordService', () => {
       const result = await passwordService.resetPassword(resetToken, newPassword);
 
       expect(result.ok).toBe(true);
+      // 提示された原文の SHA-256 で一意索引を引く（要件37.1）
       expect(mockPrismaClient.passwordResetToken.findUnique).toHaveBeenCalledWith({
-        where: { token: resetToken },
+        where: { tokenHash: hashPasswordResetToken(resetToken) },
       });
       expect(mockPrismaClient.$transaction).toHaveBeenCalled();
     });
@@ -662,7 +691,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId: 'user-1',
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() - 1000), // 過去の日時
         createdAt: new Date(),
         usedAt: null,
@@ -687,7 +716,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId: 'user-1',
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: new Date(), // すでに使用済み
@@ -712,7 +741,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId: 'user-1',
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: null,
@@ -738,7 +767,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId,
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: null,
@@ -774,7 +803,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId,
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: null,

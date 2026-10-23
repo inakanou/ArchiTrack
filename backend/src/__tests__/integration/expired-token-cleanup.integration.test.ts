@@ -11,7 +11,6 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import crypto from 'crypto';
 import Redis from 'ioredis';
 import type { PrismaClient } from '../../generated/prisma/client.js';
 import getPrismaClient from '../../db.js';
@@ -27,13 +26,10 @@ import { InvitationStatus } from '../../types/invitation.types.js';
 import { createStoredRefreshToken } from './refresh-token-fixture.js';
 import { createTestUser } from './test-user-factory.js';
 import { createStoredInvitation } from './invitation-fixture.js';
+import { createStoredPasswordResetToken } from './password-reset-token-fixture.js';
 
 const EMAIL_MARK = 'test-expired-token-cleanup';
 const HOUR_MS = 60 * 60 * 1000;
-
-function newToken(): string {
-  return crypto.randomBytes(32).toString('hex');
-}
 
 describe('使用済み・期限切れのトークンの消去（統合・実 DB）', () => {
   let prisma: PrismaClient;
@@ -168,19 +164,18 @@ describe('使用済み・期限切れのトークンの消去（統合・実 DB�
    */
   it('使用済み・期限切れのパスワードリセットのトークンは行が消え、未使用で期限内のものは残る', async () => {
     const now = new Date();
-    const valid = await prisma.passwordResetToken.create({
-      data: { userId, token: newToken(), expiresAt: new Date(now.getTime() + HOUR_MS) },
+    const { resetToken: valid } = await createStoredPasswordResetToken(prisma, {
+      userId,
+      expiresAt: new Date(now.getTime() + HOUR_MS),
     });
-    const used = await prisma.passwordResetToken.create({
-      data: {
-        userId,
-        token: newToken(),
-        expiresAt: new Date(now.getTime() + HOUR_MS),
-        usedAt: new Date(now.getTime() - 60 * 1000),
-      },
+    const { resetToken: used } = await createStoredPasswordResetToken(prisma, {
+      userId,
+      expiresAt: new Date(now.getTime() + HOUR_MS),
+      usedAt: new Date(now.getTime() - 60 * 1000),
     });
-    const expired = await prisma.passwordResetToken.create({
-      data: { userId, token: newToken(), expiresAt: new Date(now.getTime() - 60 * 1000) },
+    const { resetToken: expired } = await createStoredPasswordResetToken(prisma, {
+      userId,
+      expiresAt: new Date(now.getTime() - 60 * 1000),
     });
 
     const result = await cleanupExpiredTokens(prisma, now);

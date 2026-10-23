@@ -176,14 +176,13 @@ model RolePermission {
 model PasswordResetToken {
   id        String    @id @default(uuid())
   userId    String
-  token     String    @unique
+  tokenHash String    @unique @map("token_hash") // 原文の SHA-256 の 16 進（要件37.1）。原文はリセットのメールの本文にだけ現れる
   expiresAt DateTime
   createdAt DateTime  @default(now())
   usedAt    DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([token])
   @@index([userId])
   @@index([expiresAt])
   @@map("password_reset_tokens")

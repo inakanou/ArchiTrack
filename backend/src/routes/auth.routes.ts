@@ -38,6 +38,7 @@ import {
 } from '../errors/apiError.js';
 import type { AuthError, AuthUserView } from '../types/auth.types.js';
 import type { TwoFactorError } from '../types/two-factor.types.js';
+import { hashPasswordResetToken } from '../utils/password-reset-token.js';
 
 /**
  * リフレッシュトークンの Cookie の Path（リフレッシュとログアウトの経路にだけ送られるよう認証の経路に限る）
@@ -1761,9 +1762,9 @@ router.get(
         return;
       }
 
-      // トークンの存在と有効期限をチェック
+      // トークンの存在と有効期限をチェック（提示された原文の SHA-256 で引く。要件37.1）
       const passwordResetToken = await prisma.passwordResetToken.findUnique({
-        where: { token },
+        where: { tokenHash: hashPasswordResetToken(token) },
       });
 
       if (!passwordResetToken) {

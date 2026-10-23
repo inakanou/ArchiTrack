@@ -31,6 +31,7 @@ import {
 } from './refresh-cookie-client.js';
 import { loginForTokens } from './auth-login-client.js';
 import { createTestUser } from './test-user-factory.js';
+import { createStoredPasswordResetToken } from './password-reset-token-fixture.js';
 
 const MARK = 'test-ua452-refresh-family';
 const PASSWORD = 'Family!Passphrase-2026';
@@ -269,9 +270,9 @@ describe('リフレッシュトークンのハッシュ保存と系列による�
     it('パスワードのリセットは利用者の全てを失効させる', async () => {
       const first = await login();
       const second = await login();
-      const resetToken = randomBytes(32).toString('hex');
-      await prisma.passwordResetToken.create({
-        data: { userId, token: resetToken, expiresAt: new Date(Date.now() + 60 * 60 * 1000) },
+      const { rawToken: resetToken } = await createStoredPasswordResetToken(prisma, {
+        userId,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       });
 
       await request(app)

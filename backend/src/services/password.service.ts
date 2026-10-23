@@ -37,6 +37,7 @@ import {
 } from '../utils/refresh-token-lock.js';
 import { randomBytes } from 'crypto';
 import { SESSION_CONFIG } from '../config/security.constants.js';
+import { hashPasswordResetToken } from '../utils/password-reset-token.js';
 
 /**
  * パスワード管理サービス
@@ -301,7 +302,7 @@ export class PasswordService {
    * 1. メールアドレスでユーザーを検索
    * 2. ユーザーが存在する場合:
    *    - 暗号学的に安全なリセットトークンを生成（32バイト）
-   *    - PasswordResetTokenテーブルへの保存（1時間有効期限。同じ利用者の未使用のトークンは失効させる）と監査ログ
+   *    - PasswordResetTokenテーブルへの保存（原文の SHA-256 だけを保存。1時間有効期限。同じ利用者の未使用のトークンは失効させる）と監査ログ
    *      （PASSWORD_RESET_REQUESTED、実行者は本人）の記録を一つのトランザクションで行う
    *    - コミット後に EmailService 経由でパスワードリセットメールをキューへ投入する
    *      （キューは DB のトランザクションに参加できないため。ロールバックされたトークンの
@@ -335,7 +336,8 @@ export class PasswordService {
         await tx.passwordResetToken.create({
           data: {
             userId: user.id,
-            token: resetToken,
+            // 原文は保存せず、SHA-256 だけを保存する（要件37.1）。原文はリセットのメールの本文にだけ渡す
+            tokenHash: hashPasswordResetToken(resetToken),
             expiresAt: new Date(Date.now() + SESSION_CONFIG.PASSWORD_RESET_TOKEN_EXPIRY_MS),
           },
         });
@@ -453,8 +455,9 @@ export class PasswordService {
   ): Promise<Result<void, PasswordError>> {
     try {
       // 1. リセットトークン検証
+      // 提示された原文の SHA-256 で一意索引を引く（要件37.1）
       const passwordResetToken = await this.prisma.passwordResetToken.findUnique({
-        where: { token: resetToken },
+        where: { tokenHash: hashPasswordResetToken(resetToken) },
       });
 
       // トークンが存在しない

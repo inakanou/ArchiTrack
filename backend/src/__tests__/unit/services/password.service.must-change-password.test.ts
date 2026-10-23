@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PasswordService } from '../../../services/password.service.js';
 import type { PrismaClient, User } from '../../../generated/prisma/client.js';
 import type { EmailService } from '../../../services/email.service.js';
+import { hashPasswordResetToken } from '../../../utils/password-reset-token.js';
 
 const USER_ID = 'user-must-change-1';
 const CURRENT_PASSWORD = 'InitialAdminPass123!';
@@ -100,7 +101,7 @@ describe('PasswordService（初回のパスワード変更の要否の解除）'
     vi.mocked(prisma.passwordResetToken.findUnique).mockResolvedValue({
       id: 'reset-1',
       userId: USER_ID,
-      token: 'reset-token',
+      tokenHash: hashPasswordResetToken('reset-token'),
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
       createdAt: new Date(),
       usedAt: null,

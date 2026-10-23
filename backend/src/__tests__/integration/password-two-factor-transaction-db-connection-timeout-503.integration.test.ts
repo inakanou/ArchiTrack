@@ -25,6 +25,7 @@ import type { TwoFactorService } from '../../services/two-factor.service.js';
 import { SwitchableDatabaseRelay } from './switchable-database-relay.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { createTestUser } from './test-user-factory.js';
+import { createStoredPasswordResetToken } from './password-reset-token-fixture.js';
 
 /** 1 回の試行の接続タイムアウト（ミリ秒） */
 const CONNECTION_TIMEOUT_MS = 1000;
@@ -228,10 +229,11 @@ describe('パスワードと二要素認証のトランザクションの開始�
    * @requirement user-authentication/REQ-24.1
    */
   it('パスワードのリセットの確定（POST /api/v1/auth/password/reset）は 503 と Problem Details を返し、トークンを使用済みにしない', async () => {
-    const token = `${MARK}-reset-token`;
     await directPrisma.passwordResetToken.deleteMany({ where: { userId } });
-    const resetToken = await directPrisma.passwordResetToken.create({
-      data: { userId, token, expiresAt: new Date(Date.now() + 60 * 60 * 1000) },
+    const { rawToken: token, resetToken } = await createStoredPasswordResetToken(directPrisma, {
+      userId,
+      rawToken: `${MARK}-reset-token`,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     });
     cutAfter(PasswordServiceClass.prototype, 'hashPassword');
 

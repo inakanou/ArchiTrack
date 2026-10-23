@@ -31,6 +31,7 @@ import { PasswordService } from '../../services/password.service.js';
 import { EmailService } from '../../services/email.service.js';
 import { seedRoles } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { hashPasswordResetToken } from '../../utils/password-reset-token.js';
 import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua355-atomicity';
@@ -531,9 +532,9 @@ describe('認証系の書き込みの原子性（統合・失敗注入）', () =
     async function resetTokensOf(userId: string): Promise<string[]> {
       const rows = await prisma.passwordResetToken.findMany({
         where: { userId },
-        select: { token: true },
+        select: { tokenHash: true },
       });
-      return rows.map((r) => r.token);
+      return rows.map((r) => r.tokenHash);
     }
 
     async function resetAuditLogsOf(userId: string) {
@@ -557,9 +558,12 @@ describe('認証系の書き込みの原子性（統合・失敗注入）', () =
       expect(queueAdd).toHaveBeenCalledTimes(1);
       expect(queueAdd).toHaveBeenCalledWith(
         'password-reset-email',
-        { to: targetEmail, resetToken: tokens[0] },
+        { to: targetEmail, resetToken: expect.any(String) },
         expect.any(Object)
       );
+      // メールへは原文を投入し、保存されているのはその SHA-256（要件37.1）
+      const queuedToken = (queueAdd.mock.calls[0]![1] as { resetToken: string }).resetToken;
+      expect(tokens[0]).toBe(hashPasswordResetToken(queuedToken));
     });
 
     /**

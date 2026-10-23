@@ -15,6 +15,7 @@ import type { APIRequestContext } from '@playwright/test';
 import { API_BASE_URL } from '../../config';
 import { getPrismaClient } from '../../fixtures/database';
 import {
+  createPasswordResetToken,
   createRefreshToken,
   createTwoFactorBackupCodes,
   resetDedicatedUser,
@@ -136,13 +137,14 @@ async function scrambleState(user: CreatedUser): Promise<void> {
   await prisma.passwordHistory.create({
     data: { userId: user.id, passwordHash: await hashPassword('OldPassword987!') },
   });
-  await prisma.passwordResetToken.create({
-    data: {
+  await createPasswordResetToken(
+    {
       userId: user.id,
       token: `dedicated-reset-${Date.now()}`,
       expiresAt: later,
     },
-  });
+    prisma
+  );
   await createTwoFactorBackupCodes({ userId: user.id, count: 2 });
   await createRefreshToken({ userId: user.id });
 }
