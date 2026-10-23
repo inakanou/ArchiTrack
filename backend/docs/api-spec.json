@@ -686,7 +686,7 @@
     "/api/users/assignable": {
       "get": {
         "summary": "担当者候補一覧取得",
-        "description": "admin以外の有効なユーザー一覧を取得（id, displayName）",
+        "description": "admin以外の有効な（無効化・ロックされていない）ユーザー一覧を取得（id, displayName のみ）",
         "tags": [
           "Users"
         ],
