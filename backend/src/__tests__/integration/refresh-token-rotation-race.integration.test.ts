@@ -184,7 +184,7 @@ describe('ローテーションと失効の競合（統合・実 DB）', () => {
 
   it('利用者の削除と並行したローテーションはデッドロックせず、後継は残らない', async () => {
     const { successors, revoked } = await raceRotationWith(
-      () => new UserRoleService(prisma).deleteUser(userId),
+      () => new UserRoleService(prisma).deleteUser(userId, 'actor-not-recorded'),
       DELETE_USERS_STATEMENT
     );
 
@@ -240,7 +240,7 @@ describe('ローテーションと失効の競合（統合・実 DB）', () => {
     );
     await waitUntilAnotherSessionWaitsForLock([DELETE_PASSWORD_HISTORIES_STATEMENT]);
 
-    const deleting = new UserRoleService(prisma).deleteUser(userId);
+    const deleting = new UserRoleService(prisma).deleteUser(userId, 'actor-not-recorded');
     await waitUntilAnotherSessionWaitsForLock([ADVISORY_LOCK_STATEMENT, DELETE_USERS_STATEMENT]);
 
     releaseHold.open();

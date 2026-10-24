@@ -281,7 +281,10 @@ describe('User Role Routes', () => {
       const response = await request(app).delete('/api/v1/users/target-user-id');
 
       expect(response.status).toBe(204);
-      expect(mockUserRoleService.deleteUser).toHaveBeenCalledWith('target-user-id');
+      expect(mockUserRoleService.deleteUser).toHaveBeenCalledWith(
+        'target-user-id',
+        'admin-user-id'
+      );
     });
 
     it('ユーザーが存在しなければ 404 USER_NOT_FOUND を返す', async () => {

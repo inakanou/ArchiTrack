@@ -398,7 +398,7 @@ router.delete(
 
       // 最後の管理者の確認と削除を一つのトランザクションで行う（並行する削除とも直列化される）
       // データベースの例外は deleteUser が投げ、下の catch からエラーハンドラーへ渡る
-      const result = await userRoleService.deleteUser(userId);
+      const result = await userRoleService.deleteUser(userId, actorId);
       if (!result.ok) {
         if (result.error.type === 'USER_NOT_FOUND') {
           res.status(404).json({

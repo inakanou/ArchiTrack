@@ -817,7 +817,7 @@ describe('UserRoleService', () => {
         order.push('invalidate');
       });
 
-      const result = await userRoleService.deleteUser(mockUserId);
+      const result = await userRoleService.deleteUser(mockUserId, 'actor-123');
 
       expect(result.ok).toBe(true);
       expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
@@ -835,7 +835,7 @@ describe('UserRoleService', () => {
       const userDelete = (prismaMock.user as unknown as { delete: ReturnType<typeof vi.fn> })
         .delete;
 
-      const result = await userRoleService.deleteUser(mockUserId);
+      const result = await userRoleService.deleteUser(mockUserId, 'actor-123');
 
       expect(result.ok).toBe(true);
       expect(executeRaw).toHaveBeenCalledTimes(1);
@@ -851,7 +851,7 @@ describe('UserRoleService', () => {
     it('ユーザーが存在しないときは無効化しない', async () => {
       vi.mocked(prismaMock.user.findUnique).mockResolvedValue(null);
 
-      const result = await userRoleService.deleteUser(mockUserId);
+      const result = await userRoleService.deleteUser(mockUserId, 'actor-123');
 
       expect(result.ok).toBe(false);
       expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
@@ -886,7 +886,7 @@ describe('UserRoleService', () => {
         return value;
       }) as never);
 
-      const result = await service.deleteUser(mockUserId);
+      const result = await service.deleteUser(mockUserId, 'actor-123');
 
       expect(result.ok).toBe(true);
       expect(invalidate).toHaveBeenCalledWith(mockUserId);
@@ -904,7 +904,7 @@ describe('UserRoleService', () => {
       );
       vi.mocked(prismaMock.user.findUnique).mockResolvedValue(null);
 
-      const result = await service.deleteUser(mockUserId);
+      const result = await service.deleteUser(mockUserId, 'actor-123');
 
       expect(result.ok).toBe(false);
       expect(invalidate).not.toHaveBeenCalled();
@@ -968,7 +968,7 @@ describe('UserRoleService', () => {
       const userDelete = (prismaMock.user as unknown as { delete: ReturnType<typeof vi.fn> })
         .delete;
 
-      const result = await userRoleService.deleteUser(mockUserId);
+      const result = await userRoleService.deleteUser(mockUserId, 'actor-123');
 
       expect(result).toEqual(Err({ type: 'LAST_ADMIN_PROTECTED' }));
       expect(prismaMock.userRole.count).toHaveBeenCalledWith({
@@ -993,10 +993,94 @@ describe('UserRoleService', () => {
       const userDelete = (prismaMock.user as unknown as { delete: ReturnType<typeof vi.fn> })
         .delete;
 
-      const result = await userRoleService.deleteUser(mockUserId);
+      const result = await userRoleService.deleteUser(mockUserId, 'actor-123');
 
       expect(result).toEqual(Ok({ email: mockUser.email }));
       expect(userDelete).toHaveBeenCalledWith({ where: { id: mockUserId } });
+    });
+  });
+
+  describe('deleteUser() の削除前の監査（user-authentication タスク53.2）', () => {
+    const deletedTarget = {
+      id: mockUserId,
+      email: 'deleted@example.com',
+      displayName: '削除 対象',
+      isActive: true,
+      userRoles: [{ roleId: mockRoleId }],
+    };
+    let userDelete: ReturnType<typeof vi.fn>;
+    let invitationDeleteMany: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      const tx = prismaMock as unknown as Record<string, unknown>;
+      invitationDeleteMany = vi.fn();
+      tx.invitation = { deleteMany: invitationDeleteMany, updateMany: vi.fn() };
+      userDelete = vi.fn();
+      (tx.user as Record<string, unknown>).delete = userDelete;
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null);
+    });
+
+    /**
+     * 要件40.6: 削除の完了前に、実行者と削除対象を監査ログに記録する
+     */
+    it('削除の書き込みの前に、同じトランザクションで実行者と削除対象を USER_DELETED として記録する', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(deletedTarget as unknown as never);
+
+      const result = await userRoleService.deleteUser(mockUserId, 'actor-123');
+
+      expect(result).toEqual(Ok({ email: 'deleted@example.com' }));
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledTimes(1);
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'USER_DELETED',
+          actorId: 'actor-123',
+          targetType: 'User',
+          targetId: mockUserId,
+          before: { id: mockUserId, email: 'deleted@example.com', displayName: '削除 対象' },
+          after: null,
+          metadata: null,
+        },
+        prismaMock
+      );
+      const recordedAt = vi.mocked(auditLogServiceMock.createLog).mock.invocationCallOrder[0]!;
+      expect(recordedAt).toBeLessThan(invitationDeleteMany.mock.invocationCallOrder[0]!);
+      expect(recordedAt).toBeLessThan(userDelete.mock.invocationCallOrder[0]!);
+    });
+
+    /**
+     * 要件40.6: 記録に失敗した場合は削除を中止する
+     */
+    it('記録が失敗すると例外を投げ、招待の後始末も利用者の削除も行わず、キャッシュも無効化しない', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(deletedTarget as unknown as never);
+      const failure = new Error('audit write failed');
+      vi.mocked(auditLogServiceMock.createLog).mockRejectedValueOnce(failure);
+
+      await expect(userRoleService.deleteUser(mockUserId, 'actor-123')).rejects.toBe(failure);
+
+      expect(invitationDeleteMany).not.toHaveBeenCalled();
+      expect(userDelete).not.toHaveBeenCalled();
+      expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
+    });
+
+    /**
+     * 要件40.6: 削除しないときは削除の記録を残さない
+     */
+    it('対象が存在しないとき、または最後の管理者のときは記録しない', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValueOnce(null);
+      const missing = await userRoleService.deleteUser(mockUserId, 'actor-123');
+      expect(missing).toEqual(Err({ type: 'USER_NOT_FOUND' }));
+
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValueOnce({
+        ...deletedTarget,
+        userRoles: [{ roleId: mockAdminRoleId }],
+      } as unknown as never);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+      const lastAdmin = await userRoleService.deleteUser(mockUserId, 'actor-123');
+      expect(lastAdmin).toEqual(Err({ type: 'LAST_ADMIN_PROTECTED' }));
+
+      expect(auditLogServiceMock.createLog).not.toHaveBeenCalled();
+      expect(userDelete).not.toHaveBeenCalled();
     });
   });
 

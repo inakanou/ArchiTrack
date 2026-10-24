@@ -624,7 +624,7 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
       await waitUntilPausedOnAdvisory();
 
       // 後続: 管理者 Y のユーザーそのものを削除する
-      const contender = userRoleService.deleteUser(adminYId);
+      const contender = userRoleService.deleteUser(adminYId, adminXId);
       const contenderState = await settleOrBlock(contender);
 
       releasePause?.();

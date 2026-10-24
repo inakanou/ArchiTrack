@@ -104,7 +104,7 @@ describe('監査ログの実行者の写しと改変の禁止（統合）', () =
       // 削除する利用者を管理者以外にしておく（最後の管理者の保護に当たらない）
       const userRoleService = new UserRoleService(prisma);
 
-      const result = await userRoleService.deleteUser(actorId);
+      const result = await userRoleService.deleteUser(actorId, `${MARK}-deleter`);
 
       expect(result.ok).toBe(true);
       expect(await prisma.user.findUnique({ where: { id: actorId } })).toBeNull();

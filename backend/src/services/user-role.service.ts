@@ -541,11 +541,19 @@ export class UserRoleService implements IUserRoleService {
    * ロールの削除（removeRoleInTransaction）と同じロックを取るため、並行する削除の間でも
    * 管理者が 0 人になることはない。
    *
+   * 削除の書き込みの前に、同じトランザクションで監査 USER_DELETED（実行者と削除対象のメールアドレス・
+   * 表示名）を記録する。記録が失敗すれば例外がトランザクションごと削除を中止する（user-authentication
+   * 要件40.6）。不在・最後の管理者で削除しないときは記録しない
+   *
    * @param userId - 削除するユーザーID
+   * @param actorId - 削除を実行するユーザーID（監査ログ用）
    * @returns 削除したユーザーのメールアドレス、または業務上のエラー
-   * @throws データベースの例外（Prisma のエラー）はそのまま投げる
+   * @throws データベースの例外（Prisma のエラー）と監査の記録の失敗はそのまま投げる
    */
-  async deleteUser(userId: string): Promise<Result<{ email: string }, DeleteUserError>> {
+  async deleteUser(
+    userId: string,
+    actorId: string
+  ): Promise<Result<{ email: string }, DeleteUserError>> {
     // 業務上の結果（不在・最後の管理者）だけを Err で返す。データベースの例外は捕まえずに投げ、
     // 呼び出し側（ルート）がエラーハンドラーへ渡して Prisma のエラーコードごとに応答を分類させる
     const result = await this.prisma.$transaction(async (tx) => {
@@ -562,6 +570,7 @@ export class UserRoleService implements IUserRoleService {
         select: {
           id: true,
           email: true,
+          displayName: true,
           isActive: true,
           userRoles: { select: { roleId: true } },
         },
@@ -580,6 +589,23 @@ export class UserRoleService implements IUserRoleService {
           logger.warn({ userId }, 'Cannot delete the last admin user');
           return Err<DeleteUserError>({ type: 'LAST_ADMIN_PROTECTED' });
         }
+      }
+
+      // 削除の書き込みの前に監査を記録する。記録の失敗は例外としてトランザクションごと削除を中止する
+      // （要件40.6）。対象の利用者は消えるため、識別できるようメールアドレスと表示名を写す（要件40.7）
+      if (this.auditLogService) {
+        await this.auditLogService.createLog(
+          {
+            action: 'USER_DELETED',
+            actorId,
+            targetType: 'User',
+            targetId: userId,
+            before: { id: user.id, email: user.email, displayName: user.displayName },
+            after: null,
+            metadata: null,
+          },
+          tx
+        );
       }
 
       // このユーザーが送った招待を削除
