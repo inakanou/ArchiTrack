@@ -140,13 +140,13 @@ export interface IAuthService {
    *
    * @param email メールアドレス
    * @param password パスワード
-   * @param deviceInfo デバイス情報（User-Agent）
+   * @param ctx 要求の送信元（User-Agent はセッションの端末情報にも使う。監査の記録に使う。要件40.1）
    * @returns ログインレスポンスまたはエラー
    */
   login(
     email: string,
     password: string,
-    deviceInfo?: string
+    ctx?: RequestContext
   ): Promise<Result<LoginResponse, AuthError>>;
 
   /**
@@ -157,13 +157,13 @@ export interface IAuthService {
    *
    * @param challengeToken ログインの応答の 2FA 待ちの資格
    * @param proof TOTP コードまたはバックアップコード
-   * @param deviceInfo デバイス情報（User-Agent）
+   * @param ctx 要求の送信元（User-Agent はセッションの端末情報にも使う。監査の記録に使う。要件40.3）
    * @returns 認証レスポンスまたはエラー
    */
   completeTwoFactorLogin(
     challengeToken: string,
     proof: TwoFactorProof,
-    deviceInfo?: string
+    ctx?: RequestContext
   ): Promise<Result<AuthResponse, AuthError>>;
 
   /**
@@ -171,17 +171,23 @@ export interface IAuthService {
    *
    * @param userId ユーザーID
    * @param refreshToken リフレッシュトークン
+   * @param ctx 要求の送信元（監査の記録に使う。要件40.4）
    * @returns 成功またはエラー
    */
-  logout(userId: string, refreshToken: string): Promise<Result<void, AuthError>>;
+  logout(
+    userId: string,
+    refreshToken: string,
+    ctx?: RequestContext
+  ): Promise<Result<void, AuthError>>;
 
   /**
    * 全デバイスからログアウト
    *
    * @param userId ユーザーID
+   * @param ctx 要求の送信元（監査の記録に使う。要件40.4）
    * @returns 成功またはエラー
    */
-  logoutAll(userId: string): Promise<Result<void, AuthError>>;
+  logoutAll(userId: string, ctx?: RequestContext): Promise<Result<void, AuthError>>;
 
   /**
    * 現在のユーザー情報取得

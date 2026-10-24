@@ -94,7 +94,11 @@ describe('AuthService', () => {
     (mockTwoFactorChallengeService.peek as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       Ok({ userId })
     );
-    return authService.completeTwoFactorLogin(CHALLENGE_TOKEN, { kind: 'totp', code }, deviceInfo);
+    return authService.completeTwoFactorLogin(
+      CHALLENGE_TOKEN,
+      { kind: 'totp', code },
+      deviceInfo === undefined ? undefined : { userAgent: deviceInfo }
+    );
   }
 
   /**
@@ -107,7 +111,7 @@ describe('AuthService', () => {
     return authService.completeTwoFactorLogin(
       CHALLENGE_TOKEN,
       { kind: 'backup', backupCode },
-      deviceInfo
+      deviceInfo === undefined ? undefined : { userAgent: deviceInfo }
     );
   }
 

@@ -36,7 +36,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '../errors/apiError.js';
-import type { AuthError, AuthUserView } from '../types/auth.types.js';
+import type { AuthError, AuthUserView, RequestContext } from '../types/auth.types.js';
 import type { TwoFactorError } from '../types/two-factor.types.js';
 import { hashPasswordResetToken } from '../utils/password-reset-token.js';
 
@@ -44,6 +44,13 @@ import { hashPasswordResetToken } from '../utils/password-reset-token.js';
  * リフレッシュトークンの Cookie の Path（リフレッシュとログアウトの経路にだけ送られるよう認証の経路に限る）
  */
 const REFRESH_TOKEN_COOKIE_PATH = '/api/v1/auth';
+
+/**
+ * 要求の送信元（`getClientIp` の送信元 IP と User-Agent）を返す（監査の記録とセッションの端末情報に使う）
+ */
+function requestContext(req: Request): RequestContext {
+  return { ipAddress: getClientIp(req), userAgent: req.headers['user-agent'] };
+}
 
 /**
  * Path を認証の経路に限る前に Path=/ で発行した Cookie を消す
@@ -477,9 +484,9 @@ router.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { email, password } = req.body;
-      const userAgent = req.headers['user-agent'];
 
-      const result = await authService.login(email, password, userAgent);
+      // 送信元とユーザーエージェントをログインの監査に記録する（要件40.1）
+      const result = await authService.login(email, password, requestContext(req));
 
       if (!result.ok) {
         const error = result.error;
@@ -886,7 +893,7 @@ router.post(
 
       const refreshToken = res.locals.refreshToken as string;
 
-      const result = await authService.logout(req.user.userId, refreshToken);
+      const result = await authService.logout(req.user.userId, refreshToken, requestContext(req));
 
       if (!result.ok) {
         const error = result.error;
@@ -938,7 +945,7 @@ router.post(
         return;
       }
 
-      const result = await authService.logoutAll(req.user.userId);
+      const result = await authService.logoutAll(req.user.userId, requestContext(req));
 
       if (!result.ok) {
         const error = result.error;
@@ -1008,13 +1015,12 @@ router.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { challengeToken, code } = req.body as { challengeToken?: string; code: string };
-      const userAgent = req.headers['user-agent'];
 
       // ログインの応答の 2FA 待ちの資格に結び付いた利用者だけを検証する（要件32.1〜32.5）
       const result = await authService.completeTwoFactorLogin(
         challengeToken ?? '',
         { kind: 'totp', code },
-        userAgent
+        requestContext(req)
       );
 
       if (!result.ok) {
@@ -1117,13 +1123,12 @@ router.post(
         challengeToken?: string;
         backupCode: string;
       };
-      const userAgent = req.headers['user-agent'];
 
       // バックアップコードも TOTP と同じ 2FA 待ちの資格を要求する（要件32.6）
       const result = await authService.completeTwoFactorLogin(
         challengeToken ?? '',
         { kind: 'backup', backupCode },
-        userAgent
+        requestContext(req)
       );
 
       if (!result.ok) {

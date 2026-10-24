@@ -19,7 +19,7 @@ import { TokenService } from './token.service.js';
 import tokenServiceInstance from './token.service.js';
 import { TwoFactorService } from './two-factor.service.js';
 import { SessionService } from './session.service.js';
-import { AuditLogService } from './audit-log.service.js';
+import { AuditLogService, snapshotAuditActor } from './audit-log.service.js';
 import { TwoFactorChallengeService } from './two-factor-challenge.service.js';
 import { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
 import redisConnection from '../redis.js';
@@ -41,6 +41,56 @@ import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { captureException } from '../utils/sentry.js';
+import type { AuditLogAction } from '../types/audit-log.types.js';
+
+/** 認証の監査の実行者（記録時に写す。要件40.7） */
+interface AuthAuditActor {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+}
+
+/** 認証の監査の一件 */
+interface AuthAuditEntry {
+  action: AuditLogAction;
+  /** 実行者。失敗・ロックは null（ログインの失敗は実行者を持たない。design.md の AuditLogService の節） */
+  actor: AuthAuditActor | null;
+  targetType: string;
+  targetId: string;
+  /** 結果・メールアドレス・理由など（送信元 IP とユーザーエージェントは要求の文脈から足す） */
+  details: Record<string, string | boolean>;
+}
+
+/** 存在しないメールアドレスのログインの失敗・資格を照会できない 2FA の失敗の対象の種別 */
+const UNKNOWN_LOGIN_TARGET_TYPE = 'Email';
+const UNKNOWN_CHALLENGE_TARGET_TYPE = 'TwoFactorChallenge';
+const UNKNOWN_CHALLENGE_TARGET_ID = 'unknown';
+
+/** 監査に書く利用者由来のメールアドレスの上限（RFC 5321 の経路の上限。タスク53.1 のレビュー） */
+export const AUDIT_EMAIL_MAX_LENGTH = 254;
+/** 監査に書くユーザーエージェントの上限 */
+export const AUDIT_USER_AGENT_MAX_LENGTH = 512;
+/** 監査に書く送信元 IP の上限（`req.ip` は通常この長さに収まる） */
+const AUDIT_IP_ADDRESS_MAX_LENGTH = 64;
+
+/**
+ * 利用者が与えた文字列を監査に書ける長さまでに切り詰める
+ *
+ * 長さに上限の無い入力をそのまま書くと、`target_id` の btree 索引の行の上限（2704 バイト）を超えて記録が
+ * 失敗し（記録を逃れられる）、metadata も肥大する。上限は UTF-16 の単位で数え、末尾でサロゲートの対を
+ * 分けない（254 文字は 4 バイトの文字でも索引の上限に収まる）。
+ */
+function boundAuditText(value: string, max: number): { value: string; truncated: boolean } {
+  if (value.length <= max) {
+    return { value, truncated: false };
+  }
+  let bounded = value.slice(0, max);
+  const last = bounded.charCodeAt(bounded.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) {
+    bounded = bounded.slice(0, -1);
+  }
+  return { value: bounded, truncated: true };
+}
 
 /**
  * 認証サービス
@@ -277,8 +327,9 @@ export class AuthService implements IAuthService {
   async login(
     email: string,
     password: string,
-    deviceInfo?: string
+    ctx: RequestContext = {}
   ): Promise<Result<LoginResponse, AuthError>> {
+    const deviceInfo = ctx.userAgent;
     try {
       // 1. Fetch user with only necessary fields (optimized query)
       const user = await this.prisma.user.findUnique({
@@ -311,6 +362,15 @@ export class AuthService implements IAuthService {
       // ユーザーが存在しない場合
       // @requirement user-authentication/REQ-26.9: タイミング攻撃対策の遅延を挿入
       if (!user) {
+        // 存在しないメールアドレスの失敗は実行者も利用者の ID も無いため、入力されたメールアドレスを対象にする
+        // （要件40.1）。パスワードの誤りと同じく記録を待ってから遅延を入れ、応答時間に差を作らない
+        await this.recordAuthAudit(ctx, {
+          action: 'LOGIN_FAILED',
+          actor: null,
+          targetType: UNKNOWN_LOGIN_TARGET_TYPE,
+          targetId: email,
+          details: { result: 'failure', reason: 'unknown_email', email },
+        });
         await addTimingAttackDelay();
         return Err({ type: 'INVALID_CREDENTIALS' });
       }
@@ -320,12 +380,14 @@ export class AuthService implements IAuthService {
       // 応答時間をそろえる（照合の結果は使わない）
       if (user.isActive === false) {
         await this.passwordService.verifyPassword(password, user.passwordHash);
+        await this.recordLoginFailure(ctx, user.id, email, 'account_disabled');
         await addTimingAttackDelay();
         return Err({ type: 'INVALID_CREDENTIALS' });
       }
 
       // 2. アカウントロック確認
       if (user.isLocked && user.lockedUntil && user.lockedUntil > new Date()) {
+        await this.recordLoginFailure(ctx, user.id, email, 'account_locked');
         return Err({
           type: 'ACCOUNT_LOCKED',
           unlockAt: user.lockedUntil,
@@ -364,8 +426,21 @@ export class AuthService implements IAuthService {
           },
         });
 
-        // アカウントがロックされた場合は即座にACCOUNT_LOCKEDを返す
+        await this.recordLoginFailure(ctx, user.id, email, 'invalid_password');
+
+        // アカウントがロックされた場合は即座にACCOUNT_LOCKEDを返す（ロックを監査する。要件40.2）
         if (isLocked && lockedUntil) {
+          await this.recordAuthAudit(ctx, {
+            action: 'LOGIN_LOCKED',
+            actor: null,
+            targetType: 'User',
+            targetId: user.id,
+            details: {
+              trigger: 'login_failures',
+              email,
+              lockedUntil: lockedUntil.toISOString(),
+            },
+          });
           return Err({
             type: 'ACCOUNT_LOCKED',
             unlockAt: lockedUntil,
@@ -418,6 +493,15 @@ export class AuthService implements IAuthService {
       // 新しい系列でリフレッシュトークンを発行し、ハッシュをDBに保存
       const { refreshToken } = await this.sessionService.createSession(user.id, deviceInfo);
 
+      // トークンを発行したログインの成功を監査する（要件40.1）
+      await this.recordAuthAudit(ctx, {
+        action: 'LOGIN_SUCCESS',
+        actor: user,
+        targetType: 'User',
+        targetId: user.id,
+        details: { result: 'success', email, method: 'password' },
+      });
+
       // UserProfile作成
       const userProfile: UserProfile = {
         id: user.id,
@@ -469,17 +553,27 @@ export class AuthService implements IAuthService {
   async completeTwoFactorLogin(
     challengeToken: string,
     proof: TwoFactorProof,
-    deviceInfo?: string
+    ctx: RequestContext = {}
   ): Promise<Result<AuthResponse, AuthError>> {
     const challenge = await this.twoFactorChallengeService.peek(challengeToken);
     if (!challenge.ok) {
+      // 資格の不在・期限切れ・消費済みは 2FA の検証の失敗として記録する（保存先の不在は 503 で記録しない）
+      if (challenge.error.type !== 'CHALLENGE_STORE_UNAVAILABLE') {
+        await this.recordAuthAudit(ctx, {
+          action: 'TWO_FACTOR_FAILED',
+          actor: null,
+          targetType: UNKNOWN_CHALLENGE_TARGET_TYPE,
+          targetId: UNKNOWN_CHALLENGE_TARGET_ID,
+          details: { result: 'failure', reason: 'challenge_invalid', method: proof.kind },
+        });
+      }
       return Err(
         challenge.error.type === 'CHALLENGE_STORE_UNAVAILABLE'
           ? { type: 'SERVICE_UNAVAILABLE' }
           : { type: 'CHALLENGE_INVALID' }
       );
     }
-    return this.verifySecondFactor(challenge.value.userId, challengeToken, proof, deviceInfo);
+    return this.verifySecondFactor(challenge.value.userId, challengeToken, proof, ctx);
   }
 
   /**
@@ -489,8 +583,9 @@ export class AuthService implements IAuthService {
     userId: string,
     challengeToken: string,
     proof: TwoFactorProof,
-    deviceInfo?: string
+    ctx: RequestContext
   ): Promise<Result<AuthResponse, AuthError>> {
+    const deviceInfo = ctx.userAgent;
     const kindLabel = proof.kind === 'totp' ? '2FA検証失敗' : '2FAバックアップコード検証失敗';
     try {
       // 1. Fetch user with only necessary fields (optimized query)
@@ -521,17 +616,20 @@ export class AuthService implements IAuthService {
 
       // ユーザーが存在しない場合
       if (!user) {
+        await this.recordTwoFactorFailure(ctx, userId, proof, 'user_not_found');
         return Err({ type: 'USER_NOT_FOUND' });
       }
 
       // パスワードの段階の後に無効化された利用者は、資格の不正と同じ結果で拒否する（要件36.2）。
       // コードを検証せず失敗も数えない
       if (user.isActive === false) {
+        await this.recordTwoFactorFailure(ctx, userId, proof, 'account_disabled', user.email);
         return Err({ type: 'CHALLENGE_INVALID' });
       }
 
       // 2. 2FAアカウントロック確認
       if (user.twoFactorLockedUntil && user.twoFactorLockedUntil > new Date()) {
+        await this.recordTwoFactorFailure(ctx, userId, proof, 'account_locked', user.email);
         return Err({
           type: 'ACCOUNT_LOCKED',
           unlockAt: user.twoFactorLockedUntil,
@@ -592,7 +690,26 @@ export class AuthService implements IAuthService {
           // 接続のタイムアウト以外の更新の失敗は、検証失敗として処理を続行
         }
 
+        // コードの誤りと、同じ時間ステップのコードの再利用（metadata.reason='replay'）を区別して記録する（要件40.3）
+        const reason =
+          !verifyResult.ok && verifyResult.error.type === 'CODE_ALREADY_USED'
+            ? 'replay'
+            : 'invalid_code';
+        await this.recordTwoFactorFailure(ctx, userId, proof, reason, user.email);
+
         if (isLocked && lockedUntil) {
+          // 2FA の検証の失敗によるロックを監査する（要件40.2）
+          await this.recordAuthAudit(ctx, {
+            action: 'LOGIN_LOCKED',
+            actor: null,
+            targetType: 'User',
+            targetId: userId,
+            details: {
+              trigger: 'two_factor_failures',
+              email: user.email,
+              lockedUntil: lockedUntil.toISOString(),
+            },
+          });
           return Err({
             type: 'ACCOUNT_LOCKED',
             unlockAt: lockedUntil,
@@ -605,6 +722,9 @@ export class AuthService implements IAuthService {
       // 5. 検証成功: 資格を消費する。消費できなければ（同時の二重成功・期限切れ）トークンを発行しない
       const consumed = await this.twoFactorChallengeService.consume(challengeToken);
       if (!consumed.ok) {
+        if (consumed.error.type !== 'CHALLENGE_STORE_UNAVAILABLE') {
+          await this.recordTwoFactorFailure(ctx, userId, proof, 'challenge_consumed', user.email);
+        }
         return Err(
           consumed.error.type === 'CHALLENGE_STORE_UNAVAILABLE'
             ? { type: 'SERVICE_UNAVAILABLE' }
@@ -635,6 +755,22 @@ export class AuthService implements IAuthService {
 
       // 新しい系列でリフレッシュトークンを発行し、ハッシュをDBに保存
       const { refreshToken } = await this.sessionService.createSession(user.id, deviceInfo);
+
+      // 2FA の検証の成功と、それによるログインの成功を監査する（要件40.1、40.3）
+      await this.recordAuthAudit(ctx, {
+        action: 'TWO_FACTOR_VERIFIED',
+        actor: user,
+        targetType: 'User',
+        targetId: user.id,
+        details: { result: 'success', method: proof.kind, email: user.email },
+      });
+      await this.recordAuthAudit(ctx, {
+        action: 'LOGIN_SUCCESS',
+        actor: user,
+        targetType: 'User',
+        targetId: user.id,
+        details: { result: 'success', email: user.email, method: proof.kind },
+      });
 
       // UserProfile作成
       const userProfile: UserProfile = {
@@ -667,9 +803,14 @@ export class AuthService implements IAuthService {
    *
    * 提示されたリフレッシュトークンの系列（そのセッション）の全てを失効させる（要件33.4）。
    */
-  async logout(userId: string, refreshToken: string): Promise<Result<void, AuthError>> {
+  async logout(
+    userId: string,
+    refreshToken: string,
+    ctx: RequestContext = {}
+  ): Promise<Result<void, AuthError>> {
     try {
       await this.sessionService.revokeByToken(refreshToken, userId);
+      await this.recordSessionEnd(ctx, 'LOGOUT', userId);
 
       return Ok(undefined);
     } catch (error) {
@@ -687,9 +828,10 @@ export class AuthService implements IAuthService {
    *
    * 利用者の全てのリフレッシュトークンを失効させる（要件33.5）。
    */
-  async logoutAll(userId: string): Promise<Result<void, AuthError>> {
+  async logoutAll(userId: string, ctx: RequestContext = {}): Promise<Result<void, AuthError>> {
     try {
       await this.sessionService.revokeAllForUser(userId);
+      await this.recordSessionEnd(ctx, 'LOGOUT_ALL', userId);
 
       return Ok(undefined);
     } catch (error) {
@@ -957,6 +1099,126 @@ export class AuthService implements IAuthService {
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }
+  }
+
+  /**
+   * 認証の監査を記録する（要件40.1〜40.4）
+   *
+   * 記録の失敗はログイン・ログアウトの結果を変えず、エラーログと Sentry へ送る（design.md の AuthService の節）。
+   * 送信元 IP は `getClientIp` で得た値を、ユーザーエージェントとともに `metadata` に書く。
+   */
+  private async recordAuthAudit(ctx: RequestContext, entry: AuthAuditEntry): Promise<void> {
+    try {
+      // 利用者が与える値（入力のメールアドレス・ユーザーエージェント）は上限までに切り詰め、切り詰めたことを残す
+      const details: Record<string, string | boolean> = { ...entry.details };
+      if (typeof details.email === 'string') {
+        const email = boundAuditText(details.email, AUDIT_EMAIL_MAX_LENGTH);
+        details.email = email.value;
+        if (email.truncated) {
+          details.emailTruncated = true;
+        }
+      }
+      const targetId = boundAuditText(entry.targetId, AUDIT_EMAIL_MAX_LENGTH).value;
+      const userAgent =
+        ctx.userAgent === undefined
+          ? undefined
+          : boundAuditText(ctx.userAgent, AUDIT_USER_AGENT_MAX_LENGTH);
+      await this.prisma.auditLog.create({
+        data: {
+          action: entry.action,
+          actorId: entry.actor?.id ?? null,
+          // 実行者の写しは読み込み済みの利用者から書く（要件40.7）
+          actorEmail: entry.actor?.email ?? null,
+          actorDisplayName: entry.actor?.displayName ?? null,
+          targetType: entry.targetType,
+          targetId,
+          metadata: {
+            ...details,
+            ...(ctx.ipAddress !== undefined && {
+              ipAddress: boundAuditText(ctx.ipAddress, AUDIT_IP_ADDRESS_MAX_LENGTH).value,
+            }),
+            ...(userAgent !== undefined && { userAgent: userAgent.value }),
+            ...(userAgent?.truncated && { userAgentTruncated: true }),
+          },
+        },
+      });
+    } catch (error) {
+      logger.error(
+        { err: error, action: entry.action, targetType: entry.targetType },
+        'Failed to record authentication audit log'
+      );
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        action: entry.action,
+        targetType: entry.targetType,
+        ...(entry.targetType === 'User' && { userId: entry.targetId }),
+      });
+    }
+  }
+
+  /** パスワードの段階のログインの失敗を記録する（実行者なし。要件40.1） */
+  private recordLoginFailure(
+    ctx: RequestContext,
+    userId: string,
+    email: string,
+    reason: 'invalid_password' | 'account_locked' | 'account_disabled'
+  ): Promise<void> {
+    return this.recordAuthAudit(ctx, {
+      action: 'LOGIN_FAILED',
+      actor: null,
+      targetType: 'User',
+      targetId: userId,
+      details: { result: 'failure', reason, email },
+    });
+  }
+
+  /** 2FA の検証の失敗を記録する（実行者なし。要件40.3） */
+  private recordTwoFactorFailure(
+    ctx: RequestContext,
+    userId: string,
+    proof: TwoFactorProof,
+    reason: string,
+    email?: string
+  ): Promise<void> {
+    return this.recordAuthAudit(ctx, {
+      action: 'TWO_FACTOR_FAILED',
+      actor: null,
+      targetType: 'User',
+      targetId: userId,
+      details: {
+        result: 'failure',
+        reason,
+        method: proof.kind,
+        ...(email !== undefined && { email }),
+      },
+    });
+  }
+
+  /** ログアウト・全デバイスのログアウトを、本人を実行者として記録する（要件40.4） */
+  private async recordSessionEnd(
+    ctx: RequestContext,
+    action: 'LOGOUT' | 'LOGOUT_ALL',
+    userId: string
+  ): Promise<void> {
+    let actor: AuthAuditActor | null = null;
+    try {
+      const snapshot = await snapshotAuditActor(this.prisma, userId);
+      actor = { id: userId, email: snapshot.actorEmail, displayName: snapshot.actorDisplayName };
+    } catch (error) {
+      // 写しの読み取りの失敗も記録の失敗として扱い、ログアウトの結果を変えない
+      logger.error({ err: error, userId, action }, 'Failed to read audit actor for logout');
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        action,
+        userId,
+      });
+      return;
+    }
+    await this.recordAuthAudit(ctx, {
+      action,
+      actor,
+      targetType: 'User',
+      targetId: userId,
+      details: { result: 'success' },
+    });
   }
 
   /**
