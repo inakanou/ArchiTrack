@@ -24,6 +24,8 @@ import { csrfProtection } from '../middleware/csrf.middleware.js';
 import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
 import { getClientIp } from '../middleware/client-ip.js';
 import logger from '../utils/logger.js';
+import { captureException } from '../utils/sentry.js';
+import { sentryRequestContext } from '../utils/sentry-request-context.js';
 import {
   PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE,
   SECURITY_CONFIG,
@@ -44,6 +46,32 @@ import { hashPasswordResetToken } from '../utils/password-reset-token.js';
  * リフレッシュトークンの Cookie の Path（リフレッシュとログアウトの経路にだけ送られるよう認証の経路に限る）
  */
 const REFRESH_TOKEN_COOKIE_PATH = '/api/v1/auth';
+
+/** 認証の DB 障害の汎用の応答の本文（要件42.8） */
+const AUTH_DATABASE_ERROR_BODY = {
+  error: 'Internal server error',
+  code: 'INTERNAL_ERROR',
+} as const;
+
+/**
+ * 認証の処理中の DB 障害を記録し、汎用の本文の 500 を返す（要件42.4、42.8）
+ *
+ * 障害の文言はエラーログとエラー監視にだけ残す。エラー監視の文脈は経路・メソッド・要求識別子・
+ * 利用者 ID に限り、要求本文（パスワード・コード・資格）は付けない。
+ */
+function sendAuthDatabaseError(
+  req: Request,
+  res: Response,
+  message: string,
+  logMessage: string
+): void {
+  logger.error({ error: message }, logMessage);
+  captureException(new Error(message), {
+    ...sentryRequestContext(req),
+    errorType: 'auth_database_error',
+  });
+  res.status(500).json(AUTH_DATABASE_ERROR_BODY);
+}
 
 /**
  * 要求の送信元（`getClientIp` の送信元 IP と User-Agent）を返す（監査の記録とセッションの端末情報に使う）
@@ -209,9 +237,10 @@ function sendTwoFactorChallengeUnavailable(res: Response): void {
  * - DB の障害: 500
  */
 function sendTwoFactorLoginError(
+  req: Request,
   res: Response,
   error: AuthError,
-  databaseError: { log: string; message: string }
+  databaseErrorLog: string
 ): boolean {
   if (error.type === 'CHALLENGE_INVALID' || error.type === 'USER_NOT_FOUND') {
     res.status(401).json({
@@ -234,8 +263,7 @@ function sendTwoFactorLoginError(
     return true;
   }
   if (error.type === 'DATABASE_ERROR') {
-    logger.error({ error }, databaseError.log);
-    res.status(500).json({ error: databaseError.message, code: '2FA_ERROR' });
+    sendAuthDatabaseError(req, res, error.message, databaseErrorLog);
     return true;
   }
   return false;
@@ -506,12 +534,8 @@ router.post(
           sendTwoFactorChallengeUnavailable(res);
           return;
         } else if (error.type === 'DATABASE_ERROR') {
-          logger.error({ error: error.message }, 'Database error during login');
-          res.status(500).json({
-            error: 'Internal server error',
-            code: error.type,
-            detail: error.message,
-          });
+          // 障害の詳細は記録にだけ残し、応答は汎用の本文にする（要件42.8）
+          sendAuthDatabaseError(req, res, error.message, 'Database error during login');
           return;
         }
 
@@ -1033,12 +1057,7 @@ router.post(
           });
           return;
         }
-        if (
-          sendTwoFactorLoginError(res, error, {
-            log: 'Database error during 2FA verification',
-            message: '2FA verification failed',
-          })
-        ) {
+        if (sendTwoFactorLoginError(req, res, error, 'Database error during 2FA verification')) {
           return;
         }
 
@@ -1142,10 +1161,7 @@ router.post(
           return;
         }
         if (
-          sendTwoFactorLoginError(res, error, {
-            log: 'Database error during backup code verification',
-            message: 'Backup code verification failed',
-          })
+          sendTwoFactorLoginError(req, res, error, 'Database error during backup code verification')
         ) {
           return;
         }

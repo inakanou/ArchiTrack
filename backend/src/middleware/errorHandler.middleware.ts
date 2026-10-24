@@ -3,10 +3,10 @@ import { ZodError } from 'zod';
 import { ApiError, ValidationError } from '../errors/apiError.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { captureException } from '../utils/sentry.js';
+import { sentryRequestContext } from '../utils/sentry-request-context.js';
 import logger from '../utils/logger.js';
 import { createProblemDetails, PROBLEM_TYPES } from '../types/problem-details.js';
 import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
-import { getClientIp } from './client-ip.js';
 import { runtimeMode } from '../config/runtime-mode.js';
 
 /**
@@ -22,11 +22,7 @@ function respondDatabaseUnavailable(
   log.error({ err }, logMessage);
 
   // Send database connection errors to Sentry
-  captureException(err, {
-    url: req.url,
-    method: req.method,
-    errorType: 'database_connection',
-  });
+  captureException(err, { ...sentryRequestContext(req), errorType: 'database_connection' });
 
   res.status(503).json(
     createProblemDetails({
@@ -53,12 +49,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
 
     // Send 5xx errors to Sentry
     if (err.statusCode >= 500) {
-      captureException(err, {
-        url: req.url,
-        method: req.method,
-        ip: getClientIp(req),
-        statusCode: err.statusCode,
-      });
+      captureException(err, { ...sentryRequestContext(req), statusCode: err.statusCode });
     }
 
     res.status(err.statusCode).json(err.toProblemDetails(req.url));
@@ -124,11 +115,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     // 400 "Database Error" would blame the request format and hide that fact from the client.
     if (err.code === 'P2028') {
       // 5xx として扱うため、他の 5xx と同様に Sentry へ送る
-      captureException(err, {
-        url: req.url,
-        method: req.method,
-        errorType: 'transaction_timeout',
-      });
+      captureException(err, { ...sentryRequestContext(req), errorType: 'transaction_timeout' });
 
       res.status(500).json(
         createProblemDetails({
@@ -169,14 +156,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   log.error({ err }, 'Internal server error');
 
   // Send unexpected errors to Sentry
-  captureException(err, {
-    url: req.url,
-    method: req.method,
-    ip: getClientIp(req),
-    body: req.body,
-    query: req.query,
-    params: req.params,
-  });
+  captureException(err, sentryRequestContext(req));
 
   // スタックトレースは開発用の機能（実行環境が development / test と明示されたときだけ付ける。要件42.9）
   const isDevelopment = runtimeMode.isDevelopmentFeatureEnabled();
