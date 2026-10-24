@@ -35,7 +35,19 @@ describe('logger middleware', () => {
   });
 
   describe('genReqId', () => {
-    it('x-request-idヘッダーを優先すること', () => {
+    const genReqId = (
+      httpLogger as unknown as {
+        genReqId: (req: IncomingMessage, res: ServerResponse) => string;
+      }
+    ).genReqId;
+
+    function mockRes(): ServerResponse & { setHeader: ReturnType<typeof vi.fn> } {
+      return { setHeader: vi.fn() } as unknown as ServerResponse & {
+        setHeader: ReturnType<typeof vi.fn>;
+      };
+    }
+
+    it('x-request-id・x-railway-request-idヘッダーがあっても使わずUUIDを生成すること', () => {
       const mockReq = {
         headers: {
           'x-request-id': 'test-request-id',
@@ -43,42 +55,22 @@ describe('logger middleware', () => {
         },
       } as unknown as IncomingMessage;
 
-      const genReqId = (httpLogger as unknown as { genReqId: (req: IncomingMessage) => string })
-        .genReqId;
-      const requestId = genReqId(mockReq);
+      const requestId = genReqId(mockReq, mockRes());
 
-      expect(requestId).toBe('test-request-id');
-    });
-
-    it('x-railway-request-idをフォールバックとして使用すること', () => {
-      const mockReq = {
-        headers: {
-          'x-railway-request-id': 'railway-id',
-        },
-      } as unknown as IncomingMessage;
-
-      const genReqId = (httpLogger as unknown as { genReqId: (req: IncomingMessage) => string })
-        .genReqId;
-      const requestId = genReqId(mockReq);
-
-      expect(requestId).toBe('railway-id');
-    });
-
-    it('ヘッダーがない場合、UUIDを生成すること', () => {
-      const mockReq = {
-        headers: {},
-      } as IncomingMessage;
-
-      const genReqId = (httpLogger as unknown as { genReqId: (req: IncomingMessage) => string })
-        .genReqId;
-      const requestId = genReqId(mockReq);
-
-      expect(requestId).toBeDefined();
-      expect(typeof requestId).toBe('string');
-      // UUID v4の形式をチェック
+      expect(requestId).not.toBe('test-request-id');
+      expect(requestId).not.toBe('railway-id');
       expect(requestId).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
       );
+    });
+
+    it('生成したUUIDをX-Request-Idヘッダーで返すこと', () => {
+      const mockReq = { headers: {} } as IncomingMessage;
+      const res = mockRes();
+
+      const requestId = genReqId(mockReq, res);
+
+      expect(res.setHeader).toHaveBeenCalledWith('X-Request-Id', requestId);
     });
   });
 
@@ -246,9 +238,9 @@ describe('logger middleware', () => {
           method: 'GET',
           url: '/api/test',
           ip: 'unknown',
+          edgeRequestId: 'railway-123',
           headers: {
             'user-agent': 'Mozilla/5.0',
-            'x-railway-request-id': 'railway-123',
           },
           remoteAddress: '192.168.1.1',
           remotePort: 12345,

@@ -105,6 +105,7 @@ app.use(
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+    // X-Request-Id はサーバーで生成した要求識別子（logger.middleware の REQUEST_ID_HEADER。要件42.5）
     exposedHeaders: ['Content-Length', 'X-Request-Id'],
     maxAge: 86400, // 24 hours - preflight cache
   })
