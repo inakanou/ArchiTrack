@@ -7,6 +7,7 @@
  *   NotFoundError と同じ汎用の 404（Problem Details）をエラーハンドラーで返し、存在の有無を推測させない
  * - 案件が実在し範囲外のときだけ、監査 PROJECT_SCOPE_DENIED（利用者・対象・要求の識別）を記録する。
  *   記録の失敗は応答を変えない
+ * - 範囲外のアクセスは SecurityAnomalyMonitor へ観測を送る（タスク55.4。応答は計数を待たない）
  * - 子リソースから案件 ID を引く解決関数は各業務機能が持つ。案件の API への適用はタスク52.3 で行う
  */
 
@@ -21,6 +22,7 @@ import type { IAuditLogService } from '../types/audit-log.types.js';
 import getPrismaClient from '../db.js';
 import logger from '../utils/logger.js';
 import { getClientIp } from './client-ip.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
 
 /** 要求から案件 ID を得る。null は対象の不在 */
 export type ProjectIdResolver = (req: Request) => Promise<string | null>;
@@ -105,6 +107,8 @@ async function recordScopeDenied(
   // 経路は問い合わせの文字列を含めない（トークンなどを記録に残さない）
   const path = `${req.baseUrl}${req.path}`;
   logger.warn({ userId, projectId, method: req.method, path }, 'Project scope denied');
+  // 範囲外のアクセスを異常の検知へ送る（要件39.7、43.2。計数を待たない）
+  observeSecurityAnomaly({ signal: 'scope_denied', sourceIp: getClientIp(req), userId });
   try {
     const service = auditLogService ?? new AuditLogService({ prisma: getPrismaClient() });
     await service.createLog({

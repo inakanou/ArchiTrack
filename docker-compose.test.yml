@@ -164,6 +164,14 @@ services:
       # 監査ログのアーカイブの暗号鍵（user-authentication 要件41.3）。試験専用の固定値で秘密ではない。
       # 本番・staging では使わず、Railway の変数に別の乱数の鍵を設定する
       ARCHIVE_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+      # セキュリティ上の異常の検知の閾値（user-authentication 要件43.7）。E2E と統合テストの全件の実行で
+      # 超えない値にして、試験の途中で管理者への通知が流れないようにする（検知の振る舞いは統合テストの
+      # security-anomaly-monitor.integration.test.ts が閾値を下げた部品で確かめる）。本番・staging は既定値
+      SECURITY_ALERT_LOGIN_FAILED_THRESHOLD: 1000000
+      SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD: 1000000
+      SECURITY_ALERT_RATE_LIMITED_THRESHOLD: 1000000
+      SECURITY_ALERT_SERVER_ERROR_THRESHOLD: 1000000
+      SECURITY_ALERT_DATA_EXPORT_THRESHOLD: 1000000
       SMTP_HOST: mailhog
       SMTP_PORT: 1025
       SMTP_SECURE: "false"

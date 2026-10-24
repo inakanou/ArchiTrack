@@ -924,6 +924,13 @@ jobs:
           # 監査ログのアーカイブの暗号鍵（user-authentication 要件41.3）。試験専用の固定値で秘密ではない
           # （docker-compose.test.yml・docker-compose.ci.yml と同じ値。本番・staging では使わない）
           ARCHIVE_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+          # 異常の検知の閾値（user-authentication 要件43.7）。全件の実行で超えない値にし、検知の振る舞いは
+          # security-anomaly-monitor.integration.test.ts が閾値を下げた部品で確かめる
+          SECURITY_ALERT_LOGIN_FAILED_THRESHOLD: "1000000"
+          SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD: "1000000"
+          SECURITY_ALERT_RATE_LIMITED_THRESHOLD: "1000000"
+          SECURITY_ALERT_SERVER_ERROR_THRESHOLD: "1000000"
+          SECURITY_ALERT_DATA_EXPORT_THRESHOLD: "1000000"
 
       - name: Create .env file for E2E
         run: |
@@ -941,6 +948,13 @@ jobs:
           echo "JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}" >> .env
           echo "TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" >> .env
           echo "DISABLE_RATE_LIMIT=true" >> .env
+          # 異常の検知の閾値（user-authentication 要件43.7）。E2E の全件の実行で超えず、途中で管理者への
+          # 通知が流れない値にする（docker-compose.ci.yml の backend へ渡す）
+          echo "SECURITY_ALERT_LOGIN_FAILED_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_RATE_LIMITED_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_SERVER_ERROR_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_DATA_EXPORT_THRESHOLD=1000000" >> .env
 
       - name: Start Docker Compose for E2E
         run: |

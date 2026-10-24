@@ -10,7 +10,8 @@
  * - 記録の失敗は RECORD_FAILED を返す。呼び出し側は出力を中止する
  * - サーバー側で生成する出力は各業務機能のハンドラーから record を直接呼び、ブラウザで生成する出力は
  *   `POST /api/v1/audit-logs/exports` を出力の開始前に呼ぶ
- * - 利用者ごとの出力の急増の観測（SecurityAnomalyMonitor.observe('data_export')）はタスク55.4 で配線する
+ * - 記録した出力と範囲外の案件の記録の要求は SecurityAnomalyMonitor へ観測を送る（タスク55.4。
+ *   出力は利用者ごとに数える。要件43.4、39.7）
  */
 
 import type { IAuditLogService } from '../types/audit-log.types.js';
@@ -24,6 +25,7 @@ import {
 } from '../utils/audit-text.js';
 import logger from '../utils/logger.js';
 import { captureException } from '../utils/sentry.js';
+import { observeSecurityAnomaly } from './security-anomaly-monitor.service.js';
 
 /** 出力の種別（design.md の ExportKind） */
 export const EXPORT_KINDS = [
@@ -139,6 +141,12 @@ export class ExportAuditService {
           ...requestMetadata(ctx),
         },
       });
+      // 利用者ごとの出力の急増を検知へ送る（要件43.4。計数を待たない）
+      observeSecurityAnomaly({
+        signal: 'data_export',
+        sourceIp: ctx.ipAddress ?? null,
+        userId: actorId,
+      });
       return Ok({ recordId: log.id });
     } catch (error) {
       logger.error(
@@ -163,6 +171,11 @@ export class ExportAuditService {
       { userId: actorId, projectId: input.projectId, kind: input.kind },
       'Project scope denied for export record'
     );
+    observeSecurityAnomaly({
+      signal: 'scope_denied',
+      sourceIp: ctx.ipAddress ?? null,
+      userId: actorId,
+    });
     try {
       await this.deps.auditLogService.createLog({
         action: 'PROJECT_SCOPE_DENIED',

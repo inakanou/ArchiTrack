@@ -8,6 +8,27 @@ import logger from '../utils/logger.js';
 import { createProblemDetails, PROBLEM_TYPES } from '../types/problem-details.js';
 import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { runtimeMode } from '../config/runtime-mode.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
+import { getClientIp } from './client-ip.js';
+
+/**
+ * 5xx の応答を異常の検知へ送る（user-authentication タスク55.4、要件43.3）
+ *
+ * エラーハンドラーを経ずに経路が直接返す 5xx も数えるため、応答の完了で状態コードを読む。
+ * 利用者 ID は authenticate が設定した後の値を完了時に読む。計数は応答を待たせない。
+ */
+export function observeServerErrorResponses(req: Request, res: Response, next: NextFunction): void {
+  res.on('finish', () => {
+    if (res.statusCode >= 500) {
+      observeSecurityAnomaly({
+        signal: 'server_error',
+        sourceIp: getClientIp(req),
+        userId: req.user?.userId ?? null,
+      });
+    }
+  });
+  next();
+}
 
 /**
  * データベースへ接続できないことを 503 Service Unavailable（Problem Details）で返す

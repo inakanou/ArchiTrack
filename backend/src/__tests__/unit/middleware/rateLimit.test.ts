@@ -137,12 +137,11 @@ describe('rateLimit middleware', () => {
       const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = invitationLimiter as unknown as { keyGenerator: (req: Request) => string };
 
-      const req = createMockRequest() as Request & {
-        user?: { id: string; userId: string; email: string; roles: string[] };
-      };
-      req.user = { id: 'user-123', userId: 'user-123', email: 'test@example.com', roles: ['user'] };
+      // authenticate が設定する形（userId）だけを与える（id は読まない）
+      const req = createMockRequest();
+      req.user = { userId: 'user-123', email: 'test@example.com', roles: ['user'] };
 
-      const key = limiter.keyGenerator(req as Request);
+      const key = limiter.keyGenerator(req);
       expect(key).toBe('user:user-123');
     });
 
@@ -503,14 +502,16 @@ describe('rateLimit middleware', () => {
         handler: (req: Request, res: Response) => void;
       };
 
-      const req = createMockRequest() as Request & {
-        user?: { id: string; userId: string; email: string; roles: string[] };
-      };
-      req.user = { id: 'user-456', userId: 'user-456', email: 'test@example.com', roles: ['user'] };
+      const req = createMockRequest();
+      req.user = { userId: 'user-456', email: 'test@example.com', roles: ['user'] };
       const res = createMockResponse();
 
-      limiter.handler(req as Request, res);
+      limiter.handler(req, res);
 
+      expect(req.log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-456' }),
+        'Invitation rate limit exceeded'
+      );
       expect(res.status).toHaveBeenCalledWith(429);
       expect(res.json).toHaveBeenCalledWith({
         error: 'Too many invitation requests, please try again later.',

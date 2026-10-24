@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import logger from '../utils/logger.js';
 import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from './jwt-claims.js';
+import { securityAlertEnvSchema } from './security-alert.js';
 
 /**
  * 環境変数検証用の定数
@@ -283,6 +284,9 @@ const envSchema = z
     // 監査ログのアーカイブの暗号鍵（要件41.3。本番での必須は起動時の前提の検査が判定する）
     ARCHIVE_ENCRYPTION_KEY: archiveEncryptionKeySchema,
 
+    // セキュリティ上の異常の検知の閾値・時間窓・抑止の時間（要件43.7。正の整数。未設定は既定値）
+    ...securityAlertEnvSchema,
+
     // Two-Factor Authentication
     TWO_FACTOR_ENCRYPTION_KEY: z
       .string()
@@ -393,6 +397,8 @@ export function validateEnv(): Env {
           console.error(
             '     Fix: Unset it to use the default, or set a non-empty value without surrounding spaces'
           );
+        } else if (path.startsWith('SECURITY_ALERT_')) {
+          console.error('     Fix: Unset it to use the default, or set a positive integer');
         } else if (path === 'NODE_ENV') {
           console.error('     Fix: Set NODE_ENV to one of: development, production, test');
         }

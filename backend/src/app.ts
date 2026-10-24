@@ -19,7 +19,11 @@ import {
 import { validateEnv } from './config/env.js';
 import { runtimeMode } from './config/runtime-mode.js';
 import { configureTrustProxy } from './middleware/client-ip.js';
-import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
+import {
+  errorHandler,
+  notFoundHandler,
+  observeServerErrorResponses,
+} from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import { generateCsrfToken } from './middleware/csrf.middleware.js';
 import { getStorageType } from './storage/index.js';
@@ -79,6 +83,9 @@ app.use(hsts);
 
 // Apply HTTP logging
 app.use(httpLogger);
+
+// 5xx の応答を異常の検知へ送る（user-authentication 要件43.3）
+app.use(observeServerErrorResponses);
 
 // Configure security headers
 app.use(

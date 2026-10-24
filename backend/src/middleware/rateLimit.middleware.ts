@@ -1,5 +1,9 @@
 import { createHash } from 'crypto';
-import rateLimit, { ipKeyGenerator, type RateLimitRequestHandler } from 'express-rate-limit';
+import rateLimit, {
+  ipKeyGenerator,
+  type Options as RateLimitOptions,
+  type RateLimitRequestHandler,
+} from 'express-rate-limit';
 import type { IRouter, NextFunction, Request, Response } from 'express';
 import type { default as RedisType } from 'ioredis';
 import redis from '../redis.js';
@@ -7,6 +11,7 @@ import { runtimeMode as processRuntimeMode, type RuntimeMode } from '../config/r
 import { RedisRateLimitStore } from './RedisRateLimitStore.js';
 import { getClientIp } from './client-ip.js';
 import { PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE } from '../config/security.constants.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
 
 /**
  * 試行回数の制限（RateLimitPolicy）
@@ -14,6 +19,7 @@ import { PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE } from '../config/security.con
  * 制限の組み立て（createRateLimiters）は実行環境の判定とキャッシュ基盤の接続を引数で受け取る。
  * 試験の実行環境の統合テストから本番の判定で組み立てられるようにするため（user-authentication タスク48.1）。
  * 制限を外すのは OPTIONS と、実行環境の判定が無効化を認めるとき（試験の明示・開発での明示）に限る。
+ * 429 の応答のたびに SecurityAnomalyMonitor へ観測を送る（タスク55.4、要件43.3）。
  */
 
 /**
@@ -58,7 +64,21 @@ export interface RateLimiters {
   passwordResetRequestByEmail: RateLimitRequestHandler;
 }
 
-type AuthenticatedRequest = Request & { user?: { id: string } };
+/**
+ * 認証済みの利用者 ID（authenticate が設定する req.user.userId。未認証は undefined）
+ *
+ * 回数制限は authenticate より後に掛けた経路（招待の作成・再送）でだけ利用者を識別できる。
+ */
+const userIdOf = (req: Request): string | undefined => req.user?.userId;
+
+/** 429 の応答を異常の検知へ送る（要件43.3。計数を待たない） */
+const observeRateLimited = (req: Request): void => {
+  observeSecurityAnomaly({
+    signal: 'rate_limited',
+    sourceIp: getClientIp(req),
+    userId: userIdOf(req) ?? null,
+  });
+};
 
 /** 送信元 IP による識別（信頼する中継の段数に基づく req.ip。IPv6 は正規化する） */
 const ipKey = (req: Request): string => ipKeyGenerator(getClientIp(req));
@@ -120,24 +140,30 @@ export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimi
       // カスタムRedisストアを使用（遅延初期化。Redis が使えないときはメモリの記録へ退避）
       store: new RedisRateLimitStore(getRedisClient, spec.prefix),
       keyGenerator: spec.keyGenerator ?? ipKey,
-      ...(spec.handler !== undefined && { handler: spec.handler }),
-      ...(spec.handler === undefined &&
-        spec.error !== undefined && {
-          handler: (req: Request, res: Response) => {
-            req.log.warn(
-              {
-                ...(spec.logUserId && { userId: (req as AuthenticatedRequest).user?.id }),
-                ip: getClientIp(req),
-                path: req.path,
-              },
-              spec.logMessage
-            );
-            res.status(429).json({
-              error: spec.error,
-              retryAfter: res.getHeader('Retry-After'),
-            });
+      handler: (req: Request, res: Response, next: NextFunction, options: RateLimitOptions) => {
+        if (spec.handler !== undefined) {
+          // 超過を 429 以外で返す制限（メールアドレスごとのリセットの要求）は 429 として数えない
+          spec.handler(req, res, next);
+          return;
+        }
+        observeRateLimited(req);
+        if (spec.error === undefined) {
+          res.status(options.statusCode).send(options.message);
+          return;
+        }
+        req.log.warn(
+          {
+            ...(spec.logUserId && { userId: userIdOf(req) }),
+            ip: getClientIp(req),
+            path: req.path,
           },
-        }),
+          spec.logMessage
+        );
+        res.status(429).json({
+          error: spec.error,
+          retryAfter: res.getHeader('Retry-After'),
+        });
+      },
     });
 
   return {
@@ -178,8 +204,8 @@ export function createRateLimiters(deps: RateLimiterDependencies = {}): RateLimi
       skippable: true,
       logUserId: true,
       keyGenerator: (req: Request): string => {
-        // 認証済みユーザーのIDを使用
-        const userId = (req as AuthenticatedRequest).user?.id;
+        // 認証済みユーザーのIDを使用（招待の経路は authenticate の後に掛ける）
+        const userId = userIdOf(req);
         if (userId) {
           return `user:${userId}`;
         }

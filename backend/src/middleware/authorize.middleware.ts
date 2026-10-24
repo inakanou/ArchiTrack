@@ -21,6 +21,7 @@ import redisConnection from '../redis.js';
 import logger from '../utils/logger.js';
 import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { getClientIp } from './client-ip.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
 
 /**
  * 権限チェックミドルウェアファクトリー
@@ -79,6 +80,13 @@ export function requirePermission(
           { userId, email: req.user.email, permission },
           'Permission check failed: insufficient permissions'
         );
+
+        // 権限の拒否を異常の検知へ送る（要件43.2。計数を待たない）
+        observeSecurityAnomaly({
+          signal: 'permission_denied',
+          sourceIp: getClientIp(req),
+          userId,
+        });
 
         // 監査ログに記録
         await recordPermissionCheckFailure(

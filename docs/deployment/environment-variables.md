@@ -27,6 +27,9 @@
 | `JWT_ISSUER` | トークンの発行者（JWT の `iss`） | 任意 | `architrack` | 空・前後の空白は起動時の検証で拒否 |
 | `JWT_AUDIENCE` | トークンの想定利用者（JWT の `aud`） | 任意 | `architrack-api` | 空・前後の空白は起動時の検証で拒否 |
 | `LOG_LEVEL` | ログレベル | 任意 | `info` | `info`/`debug`/`error` |
+| `SECURITY_ALERT_<種類>_THRESHOLD` | セキュリティ上の異常の検知の閾値（時間窓の件数がこれを超えると全システム管理者へ通知）。`<種類>` は `LOGIN_FAILED`・`PERMISSION_DENIED`（403 と閲覧範囲外のアクセスの合算）・`RATE_LIMITED`（429）・`SERVER_ERROR`（5xx）・`DATA_EXPORT`（利用者ごと） | 任意 | 20・30・100・20・50 | 正の整数。試験・CI の compose と ci.yml は E2E・統合テストの全件で超えない `1000000` |
+| `SECURITY_ALERT_<種類>_WINDOW_SECONDS` | 同じ検知の時間窓（秒） | 任意 | `DATA_EXPORT` は 3600、他は 300 | 正の整数。計数は分単位の桶 |
+| `SECURITY_ALERT_<種類>_COOLDOWN_SECONDS` | 同じ種類の通知を抑止する時間（秒） | 任意 | 1800 | 正の整数 |
 | `DISABLE_RATE_LIMIT` | レート制限無効化（開発・テスト用） | 任意 | `false` | `true`（ローカルのみ推奨） |
 | `SENTRY_DSN` | Sentryエラートラッキング | 推奨 | なし | Sentry Project設定 |
 
