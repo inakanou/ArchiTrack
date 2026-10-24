@@ -307,9 +307,6 @@ app.get('/api', (_req: Request, res: Response) => {
   });
 });
 
-// Admin routes (TODO: add authentication middleware)
-app.use('/admin', adminRoutes);
-
 // 認証系の専用の制限（2FA の検証・リセットの実行と検証・登録と招待の検証）。認証・招待のルーターより前に掛ける
 mountAuthRateLimitPolicy(app, rateLimiters);
 
@@ -330,6 +327,9 @@ app.use('/api/v1/users', userRolesRoutes);
 
 // Audit log routes
 app.use('/api/v1/audit-logs', auditLogRoutes);
+
+// 運用設定（ログレベル）の管理。認証と ops:manage の権限を経路ごとに課す（認証の無い旧経路 /admin は設けない）
+app.use('/api/v1/admin', adminRoutes);
 
 // Session management routes
 app.use('/api/v1/auth/sessions', sessionRoutes);

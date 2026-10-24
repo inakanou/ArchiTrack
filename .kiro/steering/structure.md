@@ -1144,8 +1144,8 @@ backend/src/
 - `GET /favicon.ico`: 404エラー防止用faviconハンドラー
 
 **管理API（admin.routes.ts）:**
-- `POST /admin/log-level`: ログレベル動的変更（本番環境デバッグ用）
-- `GET /admin/log-level`: 現在のログレベル取得
+- `POST /api/v1/admin/log-level`: ログレベル動的変更（本番環境デバッグ用。認証と `ops:manage` 権限が必要、変更は監査 `OPERATIONAL_SETTING_CHANGED` に記録）
+- `GET /api/v1/admin/log-level`: 現在のログレベル取得（認証と `ops:manage` 権限が必要）
 
 **認証API（auth.routes.ts）:**
 - 招待登録、ログイン、ログアウト、トークンリフレッシュ、2FA検証、パスワードリセット、ユーザー情報取得
