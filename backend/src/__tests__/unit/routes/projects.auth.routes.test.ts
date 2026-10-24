@@ -87,6 +87,14 @@ vi.mock('../../../middleware/authorize.middleware', () => ({
   },
 }));
 
+// モック: 案件の閲覧範囲（user-authentication タスク52.3）。全案件を範囲内とし、各ルートの振る舞いを確かめる
+vi.mock('../../../services/project-scope.service', () => ({
+  getSharedProjectScopeService: () => ({
+    evaluateProjectAccess: async () => 'allowed',
+    buildProjectScopeWhere: async () => null,
+  }),
+}));
+
 // 実際のルートをインポート（モックの後にインポート）
 import projectsRouter from '../../../routes/projects.routes.js';
 import { errorHandler } from '../../../middleware/errorHandler.middleware.js';

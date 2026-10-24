@@ -15,7 +15,7 @@
  * - 1.15, 1.16, 8.7, 8.8: プロジェクト名重複エラー（409）ハンドリング
  */
 
-import { apiClient } from './client';
+import { apiClient, ApiError } from './client';
 import type {
   PaginatedProjects,
   ProjectDetail,
@@ -231,6 +231,27 @@ export async function getProjects(options: GetProjectsOptions = {}): Promise<Pag
   return apiClient.get<PaginatedProjects>(path, { headers: undefined });
 }
 
+/** 案件の 404 のときに画面へ出す文言 */
+export const PROJECT_NOT_FOUND_MESSAGE = 'プロジェクトが見つかりません';
+
+/**
+ * 案件を ID で指定する要求の 404 を、画面に出せる文言の ApiError にする
+ *
+ * 閲覧範囲の外の案件と存在しない案件は、どちらも汎用の 404（`NOT_FOUND`、本文 'Not found'）で
+ * 返る（user-authentication 要件39.2）。呼び出し側の画面は ApiError の message をそのまま出すことが
+ * あるため、ここで案件の文言に揃える。状態コードと応答の本文は変えない。
+ */
+async function withProjectNotFoundMessage<T>(request: Promise<T>): Promise<T> {
+  try {
+    return await request;
+  } catch (error) {
+    if (error instanceof ApiError && error.statusCode === 404) {
+      throw new ApiError(404, PROJECT_NOT_FOUND_MESSAGE, error.response);
+    }
+    throw error;
+  }
+}
+
 /**
  * プロジェクト詳細を取得する
  *
@@ -242,7 +263,7 @@ export async function getProjects(options: GetProjectsOptions = {}): Promise<Pag
  * const project = await getProject('550e8400-e29b-41d4-a716-446655440000');
  */
 export async function getProject(id: string): Promise<ProjectDetail> {
-  return apiClient.get<ProjectDetail>(`/api/projects/${id}`);
+  return withProjectNotFoundMessage(apiClient.get<ProjectDetail>(`/api/projects/${id}`));
 }
 
 /**
@@ -331,10 +352,12 @@ export async function updateProject(
   input: UpdateProjectInput,
   expectedUpdatedAt: string
 ): Promise<ProjectInfo> {
-  return apiClient.put<ProjectInfo>(`/api/projects/${id}`, {
-    ...input,
-    expectedUpdatedAt,
-  });
+  return withProjectNotFoundMessage(
+    apiClient.put<ProjectInfo>(`/api/projects/${id}`, {
+      ...input,
+      expectedUpdatedAt,
+    })
+  );
 }
 
 /**
@@ -347,7 +370,7 @@ export async function updateProject(
  * await deleteProject('550e8400-e29b-41d4-a716-446655440000');
  */
 export async function deleteProject(id: string): Promise<void> {
-  return apiClient.delete<void>(`/api/projects/${id}`);
+  return withProjectNotFoundMessage(apiClient.delete<void>(`/api/projects/${id}`));
 }
 
 /**
@@ -375,7 +398,9 @@ export async function deleteProject(id: string): Promise<void> {
  * });
  */
 export async function transitionStatus(id: string, input: StatusChangeInput): Promise<ProjectInfo> {
-  return apiClient.patch<ProjectInfo>(`/api/projects/${id}/status`, input);
+  return withProjectNotFoundMessage(
+    apiClient.patch<ProjectInfo>(`/api/projects/${id}/status`, input)
+  );
 }
 
 /**
@@ -389,7 +414,9 @@ export async function transitionStatus(id: string, input: StatusChangeInput): Pr
  * const histories = await getStatusHistory('550e8400-e29b-41d4-a716-446655440000');
  */
 export async function getStatusHistory(id: string): Promise<StatusHistoryResponse[]> {
-  return apiClient.get<StatusHistoryResponse[]>(`/api/projects/${id}/status-history`);
+  return withProjectNotFoundMessage(
+    apiClient.get<StatusHistoryResponse[]>(`/api/projects/${id}/status-history`)
+  );
 }
 
 /**
@@ -470,5 +497,7 @@ export interface ProjectDetailSummary {
  * @throws ApiError プロジェクトが見つからない（404）、認証エラー（401）、権限不足（403）
  */
 export async function getProjectDetailSummary(id: string): Promise<ProjectDetailSummary> {
-  return apiClient.get<ProjectDetailSummary>(`/api/projects/${id}/detail-summary`);
+  return withProjectNotFoundMessage(
+    apiClient.get<ProjectDetailSummary>(`/api/projects/${id}/detail-summary`)
+  );
 }

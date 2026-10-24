@@ -1274,11 +1274,18 @@ test.describe('工事写真 追加機能フロー', () => {
   });
 
   /**
-   * 担当でない一般ユーザー（タスク 23.1）:
-   * admin が作り、営業担当も工事担当も admin のプロジェクトのアルバムを、user（担当者のいずれでもない
-   * 一般ユーザー）がアルバムの一覧から開く。詳細画面にアルバムの基本情報と写真項目が表示され（R1.2）、
-   * 権限の表が user に許す操作——原本の表示・写真の追加・コメントと並び替えの保存——ができ、許さない
-   * 操作（削除）の操作手段は表示されない（R17.2）。
+   * 担当でない一般ユーザーと、工事担当者に設定した後の一般ユーザー:
+   * admin が作り、営業担当も工事担当も admin のプロジェクトのアルバムの一覧を、user（担当者のいずれでもない
+   * 一般ユーザー）が開くと、プロジェクトが見つからない表示になり、アルバムの行は描かれない。
+   * 同じ user をプロジェクトの工事担当者に設定すると、アルバムの一覧から詳細画面を開け、アルバムの基本情報と
+   * 写真項目が表示され（R1.2）、権限の表が user に許す操作——原本の表示・写真の追加・コメントと並び替えの
+   * 保存——ができ、許さない操作（削除）の操作手段は表示されない（R17.2）。
+   *
+   * 案件の閲覧範囲: user-authentication 要件39（2026-10-24 の利用者の判断）が、案件の見え方について
+   * construction-photo タスク 23.1 の判断（ロールの権限の表だけで判定）に優先する。担当外の利用者には
+   * 案件（GET /api/projects/:id）が見つからず、アルバムの一覧の画面は案件の取得に失敗して何も描かない。
+   * 工事写真の API そのもの（アルバムの ID 指定など）への閲覧範囲の適用は construction-photo spec の所管で、
+   * ここでは主張しない。
    *
    * @requirement construction-photo/REQ-1.2
    * @requirement construction-photo/REQ-17.2
@@ -1290,13 +1297,15 @@ test.describe('工事写真 追加機能フロー', () => {
    * （RBAC）だけで判定する。
    *
    * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
-   *  - プロジェクトの作成者・営業担当・工事担当のいずれも user ではない（DB で確かめる。
-   *    `createProject` は営業担当に先頭の利用者を選ぶため、admin を営業担当に据え直す）
+   *  - 見つからない表示を主張する時点で、プロジェクトの作成者・営業担当・工事担当のいずれも user ではない
+   *    （DB で確かめる。`createProject` は営業担当に先頭の利用者を選ぶため、admin を営業担当に据え直す）
+   *  - 見つからない表示の主張が、画面が描かれていないだけで成り立たないように、同じ画面で工事担当者に
+   *    設定した後にアルバムの行が表示されることを確かめる
    *  - 画面が受け取った user の権限は閲覧・作成・編集を含み、削除を含まない（権限の表の user の行）
    *  - 削除の操作手段の不在を主張する前に、同じ画面を admin で開くと写真項目の削除の操作手段が
    *    表示されることを確かめる（不在の主張が、画面が描かれていないだけで成り立たないように）
    */
-  test('担当でない一般ユーザーが他の利用者のプロジェクトのアルバムを一覧から開き、写真項目の閲覧・追加・コメントと並び替えの保存ができ、削除の操作手段は表示されない', async ({
+  test('担当でない一般ユーザーには他の利用者のプロジェクトのアルバムの一覧が見つからず、工事担当者に設定すると一覧から開いて写真項目の閲覧・追加・コメントと並び替えの保存ができ、削除の操作手段は表示されない', async ({
     page,
   }) => {
     const prisma = getPrismaClient();
@@ -1372,6 +1381,25 @@ test.describe('工事写真 追加機能フロー', () => {
     );
     expect(me.permissions).not.toContain('construction_photo:delete');
     expect(me.permissions).not.toContain('*:*');
+
+    // 要件39: 担当外の user には案件が見つからず、アルバムの行は描かれない
+    const notFoundAlert = page.getByRole('alert');
+    await expect(notFoundAlert).toContainText('プロジェクトが見つかりません', {
+      timeout: getTimeout(15000),
+    });
+    await expect(page.getByTestId(`album-row-${albumId}`)).toHaveCount(0);
+
+    // 対照: user を工事担当者に設定すると、次の要求から範囲内になり、アルバムの行が表示される
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { constructionPersonId: regularUser.id },
+    });
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId(`album-row-${albumId}`)).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(notFoundAlert).toHaveCount(0);
 
     // 一覧の行から詳細画面を開く。写真一覧の取得は 200 である
     const listResponse = page.waitForResponse(

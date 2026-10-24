@@ -15,6 +15,12 @@
  * - 10.14: 差し戻し遷移時の理由必須バリデーション
  * - 12.1, 12.2, 12.3: 認証・認可ミドルウェア適用
  * - 29.1-29.6: プロジェクト詳細一括取得API（detail-summary）
+ *
+ * 案件の閲覧範囲（user-authentication 要件39.2・39.3、タスク52.3）:
+ * - 一覧・検索・状態ごとの件数は、ProjectScopeService の絞り込み条件で範囲内の案件に絞る
+ * - ID 指定の要求（詳細・詳細の集計・更新・削除・状態変更・状態の履歴）は、authenticate・requirePermission・
+ *   ID の形式の検査の後に requireProjectScope を置き、範囲外と不在を同じ汎用の 404（NOT_FOUND）にする
+ * - 作成（POST /）は案件 ID を持たないため判定しない
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -39,6 +45,8 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { requireProjectScope, projectIdFromParam } from '../middleware/project-scope.middleware.js';
+import { getSharedProjectScopeService } from '../services/project-scope.service.js';
 import logger from '../utils/logger.js';
 import { isStorageConfigured, getStorageProvider } from '../storage/index.js';
 import {
@@ -93,6 +101,14 @@ const contractService = new ContractService({ prisma });
 const scheduleService = new ScheduleService({ prisma });
 const executionBudgetService = new ExecutionBudgetService({ prisma });
 const constructionPhotoSummaryService = new ConstructionPhotoSummaryService({ prisma });
+
+/** ID 指定の要求の閲覧範囲の判定（範囲外と不在は同じ汎用の 404） */
+const requireProjectInScope = requireProjectScope(projectIdFromParam('id'));
+
+/** 一覧・件数の閲覧範囲の絞り込み条件（全案件閲覧の権限を持つときは null） */
+function projectScopeWhereFor(req: Request) {
+  return getSharedProjectScopeService().buildProjectScopeWhere(req.user!.userId);
+}
 
 /**
  * 更新リクエストボディ用スキーマ（expectedUpdatedAt必須）
@@ -237,7 +253,8 @@ router.get(
           excludeTerminalStatuses,
         },
         { page, limit },
-        { sort, order }
+        { sort, order },
+        await projectScopeWhereFor(req)
       );
 
       logger.debug(
@@ -293,7 +310,7 @@ router.get(
   requirePermission('project:read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const result = await projectService.getStatusCounts();
+      const result = await projectService.getStatusCounts(await projectScopeWhereFor(req));
 
       logger.debug({ userId: req.user?.userId }, 'Project status counts retrieved');
 
@@ -473,6 +490,7 @@ router.get(
   authenticate,
   requirePermission('project:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectInScope,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -557,6 +575,7 @@ router.get(
   authenticate,
   requirePermission('project:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectInScope,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -712,6 +731,7 @@ router.put(
   authenticate,
   requirePermission('project:update'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectInScope,
   validate(updateProjectRequestSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -822,6 +842,7 @@ router.delete(
   authenticate,
   requirePermission('project:delete'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectInScope,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -917,6 +938,7 @@ router.patch(
   authenticate,
   requirePermission('project:update'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectInScope,
   validate(statusChangeSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -1053,6 +1075,7 @@ router.get(
   authenticate,
   requirePermission('project:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectInScope,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
