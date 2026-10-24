@@ -11372,6 +11372,74 @@
         }
       }
     },
+    "/api/v1/audit-logs/archives/restore": {
+      "post": {
+        "summary": "監査ログのアーカイブの復元",
+        "description": "指定期間（両端を含む）に重なる月のアーカイブを復号し、目録（件数・SHA-256・HMAC）と照合した後に、\n期間の監査ログを JSON Lines で返す。アーカイブの無い月は飛ばし、本文だけがあり目録の無い月は照合の失敗とする。照合に失敗した月があれば行を返さず\nARCHIVE_INTEGRITY_FAILED を返す。成否を監査（AUDIT_ARCHIVE_RESTORED）に記録し、記録できないときは\n行を返さない。復元した行はアクティブな監査ログへ戻さない。\n",
+        "tags": [
+          "Audit Logs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "期間の始まり（時差を含む ISO 8601）"
+                  },
+                  "to": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "期間の終わり（時差を含む ISO 8601。始まり以降、重なる月は 120 か月以内）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "期間の監査ログ（1 行に 1 件の JSON）",
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "入力の検証エラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "500": {
+            "description": "照合の失敗（ARCHIVE_INTEGRITY_FAILED、details.month に月）、暗号鍵の未設定、または復元の記録の失敗"
+          },
+          "503": {
+            "description": "保存先を読み取れない"
+          }
+        }
+      }
+    },
     "/api/site-surveys/images/{imageId}/annotations": {
       "get": {
         "summary": "注釈データ取得",

@@ -38,6 +38,36 @@ export type ArchiveError =
   | { type: 'INTEGRITY_FAILED'; month: string };
 
 /**
+ * アーカイブから復元した監査ログの 1 行（JSON Lines の 1 行の形。日時は ISO 8601）
+ */
+export interface AuditLogRecord {
+  id: string;
+  action: string;
+  actorId: string | null;
+  actorEmail: string | null;
+  actorDisplayName: string | null;
+  targetType: string;
+  targetId: string;
+  before: unknown;
+  after: unknown;
+  metadata: unknown;
+  createdAt: string;
+}
+
+/**
+ * 復元の結果: 照合を済ませた月の行を順に返す
+ *
+ * 繰り返しのたびに保存先から読み直して照合し直し、照合に失敗すると例外
+ * （audit-log-archive.service.ts の ArchiveFailure）を投げる。
+ */
+export interface RestoredAuditLogs extends AsyncIterable<AuditLogRecord> {
+  /** 期間に重なる月のうち、アーカイブがあり照合を済ませた月（YYYY-MM） */
+  months: string[];
+  /** 期間に含まれる行の数 */
+  recordCount: number;
+}
+
+/**
  * 月次の実行で処理できなかった月（想定外の例外は UNEXPECTED とする）
  */
 export interface FailedArchiveMonth {
@@ -75,6 +105,14 @@ export interface IAuditLogArchiveService {
    * 月次の処理: 13 か月以上前の月をアーカイブし、8 年を過ぎたアーカイブを消す
    */
   runMonthly(now: Date): Promise<MonthlyArchiveRunResult>;
+
+  /**
+   * 指定期間（from から to まで、両端を含む）に重なる月のアーカイブを復号・照合し、期間の行を返す
+   *
+   * 本文も目録も無い月は飛ばし、本文だけがあり目録の無い月は INTEGRITY_FAILED とする。
+   * 照合に失敗した月があれば行を返さず INTEGRITY_FAILED を返す。
+   */
+  restore(from: Date, to: Date): Promise<Result<RestoredAuditLogs, ArchiveError>>;
 }
 
 /**

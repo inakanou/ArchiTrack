@@ -11,6 +11,8 @@
  * - 失敗したときは行を残し、監査 AUDIT_ARCHIVE_FAILED と全システム管理者への通知を行う
  * - 8 年の判定は目録の period.to で行う（ファイルの作成日時を使わない）
  * - 鍵が無いときは乱数の鍵を作らず KEY_MISSING を返す（本番の起動時の停止は runtime-mode.ts）
+ * - 復元（要件41.5）は指定期間に重なる月のアーカイブを復号・照合し、期間の行を返す。
+ *   照合に失敗した月があれば行を返さず INTEGRITY_FAILED を返す。行を監査ログへ戻さない
  *
  * 暗号化の鍵と HMAC の鍵は ARCHIVE_ENCRYPTION_KEY から HKDF-SHA256 で別々に導出する。
  * 本文の形式は「版（1 バイト）・IV（12 バイト）・認証タグ（16 バイト）・暗号文」で、
@@ -37,9 +39,11 @@ import type {
   ArchiveError,
   ArchiveManifest,
   AuditLogArchiveServiceDependencies,
+  AuditLogRecord,
   FailedArchiveMonth,
   IAuditLogArchiveService,
   MonthlyArchiveRunResult,
+  RestoredAuditLogs,
 } from '../types/audit-log-archive.types.js';
 import { withAuditArchivePermission } from '../utils/audit-log-archive-permission.js';
 import logger from '../utils/logger.js';
@@ -62,8 +66,16 @@ export const ARCHIVE_RETENTION_YEARS = 8;
  */
 export const ARCHIVE_EARLIEST_MONTH = '2025-01';
 
+/**
+ * 一度の復元で扱う月の数の上限
+ *
+ * アーカイブは作成から 13 か月で作られ、期間の終わりから 8 年で消えるため、保存されうる月は
+ * 約 9 年分に収まる。その全体を一度に復元できる 10 年分を上限とする。
+ */
+export const RESTORE_MAX_MONTHS = 120;
+
 /** 監査の対象の種別 */
-const ARCHIVE_TARGET_TYPE = 'AuditLogArchive';
+export const ARCHIVE_TARGET_TYPE = 'AuditLogArchive';
 
 /** 本文の形式の版 */
 const ARCHIVE_FORMAT_VERSION = 1;
@@ -75,7 +87,7 @@ const MONTH_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/;
 /**
  * 想定の範囲の失敗（Result の Err へ写す）
  */
-class ArchiveFailure extends Error {
+export class ArchiveFailure extends Error {
   constructor(readonly archiveError: ArchiveError) {
     super(archiveError.type);
   }
@@ -112,6 +124,34 @@ function formatMonth(date: Date): string {
   return `${date.getUTCFullYear().toString().padStart(4, '0')}-${(date.getUTCMonth() + 1)
     .toString()
     .padStart(2, '0')}`;
+}
+
+/**
+ * 期間（両端を含む）に重なる UTC の月（YYYY-MM）を古い順に返す
+ *
+ * from が to より後、日時が不正、または月の数が RESTORE_MAX_MONTHS を超えるときは RangeError。
+ */
+export function restoreMonthsOf(from: Date, to: Date): string[] {
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+    throw new RangeError('Invalid restore period');
+  }
+  if (from > to) {
+    throw new RangeError('Restore period starts after it ends');
+  }
+  const count =
+    (to.getUTCFullYear() - from.getUTCFullYear()) * 12 +
+    (to.getUTCMonth() - from.getUTCMonth()) +
+    1;
+  if (count > RESTORE_MAX_MONTHS) {
+    throw new RangeError(`Restore period exceeds ${RESTORE_MAX_MONTHS} months`);
+  }
+  const months: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    months.push(
+      formatMonth(new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + index, 1)))
+    );
+  }
+  return months;
 }
 
 /**
@@ -252,6 +292,40 @@ function countLines(plaintext: Buffer): number {
     }
   }
   return count;
+}
+
+/**
+ * 照合を済ませた本文から期間（両端を含む）の行を取り出す
+ *
+ * 行の形が崩れているか、行の作成日時が対象の月の外にあるときは INTEGRITY_FAILED。
+ */
+function recordsInPeriod(plaintext: Buffer, month: string, from: Date, to: Date): AuditLogRecord[] {
+  const range = monthRange(month);
+  const records: AuditLogRecord[] = [];
+  const lines = plaintext.toString('utf8').split('\n');
+  // 各行は改行で終わるため、最後の要素は空になる
+  lines.pop();
+  for (const line of lines) {
+    let record: AuditLogRecord;
+    try {
+      record = JSON.parse(line) as AuditLogRecord;
+    } catch {
+      throw new ArchiveFailure({ type: 'INTEGRITY_FAILED', month });
+    }
+    const createdAt = new Date(record?.createdAt);
+    if (
+      typeof record?.id !== 'string' ||
+      Number.isNaN(createdAt.getTime()) ||
+      createdAt < range.from ||
+      createdAt > range.to
+    ) {
+      throw new ArchiveFailure({ type: 'INTEGRITY_FAILED', month });
+    }
+    if (createdAt >= from && createdAt <= to) {
+      records.push(record);
+    }
+  }
+  return records;
 }
 
 function encrypt(plaintext: Buffer, month: string, key: Buffer): Buffer {
@@ -458,6 +532,70 @@ export class AuditLogArchiveService implements IAuditLogArchiveService {
       logger.info({ month, periodTo: manifest.period.to }, 'Deleted expired audit log archive');
     }
     return { deleted };
+  }
+
+  /**
+   * 指定期間（両端を含む）の監査ログをアーカイブから復元する（要件41.5）
+   *
+   * 期間に重なる月のうち目録のある月を、目録の HMAC・復号・SHA-256・件数・期間で照合する。
+   * 本文も目録も無い月はアーカイブが無いものとして飛ばし、本文があって目録の無い月は
+   * 目録が消された改ざんとして INTEGRITY_FAILED にする。照合に失敗した月があれば行を返さず
+   * INTEGRITY_FAILED を返す。すべての月の照合を済ませてから結果を返すため、応答を始めた後に
+   * 照合の失敗が分かることは無い（返した結果を繰り返すときも月ごとに読み直して照合し直し、
+   * 先の照合と本文が違えば ArchiveFailure を投げる）。
+   * 行は読み取り用に返すだけで、アクティブな監査ログへ戻さない。
+   *
+   * 期間が不正（from が to より後、上限の月数を超える）なときは RangeError を投げる。
+   */
+  async restore(from: Date, to: Date): Promise<Result<RestoredAuditLogs, ArchiveError>> {
+    const months = restoreMonthsOf(from, to);
+    const keys = deriveKeys(this.deps.encryptionKey);
+    if (!keys) {
+      return Err({ type: 'KEY_MISSING' });
+    }
+    const storage = this.deps.storage;
+    if (!storage) {
+      return Err({ type: 'STORAGE_FAILED', cause: 'storage is not configured' });
+    }
+
+    const verified: { month: string; plaintextSha256: string }[] = [];
+    let recordCount = 0;
+    try {
+      for (const month of months) {
+        const { archiveKey, manifestKey } = archiveKeysOf(month);
+        if (!(await this.storageCall(() => storage.exists(manifestKey)))) {
+          // 本文だけが残る月は目録が消された（改ざん）とみなす。どちらも無い月はアーカイブが無い
+          if (await this.storageCall(() => storage.exists(archiveKey))) {
+            throw new ArchiveFailure({ type: 'INTEGRITY_FAILED', month });
+          }
+          continue;
+        }
+        const { manifest, plaintext } = await this.readAndVerify(storage, month, keys);
+        recordCount += recordsInPeriod(plaintext, month, from, to).length;
+        verified.push({ month, plaintextSha256: manifest.plaintextSha256 });
+      }
+    } catch (error) {
+      if (error instanceof ArchiveFailure) {
+        logger.warn({ from, to, error: error.archiveError }, 'Audit log archive restore failed');
+        return Err(error.archiveError);
+      }
+      throw error;
+    }
+
+    const readAndVerify = this.readAndVerify.bind(this);
+    return Ok({
+      months: verified.map((entry) => entry.month),
+      recordCount,
+      async *[Symbol.asyncIterator](): AsyncGenerator<AuditLogRecord> {
+        for (const { month, plaintextSha256 } of verified) {
+          const { manifest, plaintext } = await readAndVerify(storage, month, keys);
+          if (manifest.plaintextSha256 !== plaintextSha256) {
+            throw new ArchiveFailure({ type: 'INTEGRITY_FAILED', month });
+          }
+          yield* recordsInPeriod(plaintext, month, from, to);
+        }
+      },
+    });
   }
 
   /**

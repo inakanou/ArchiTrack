@@ -4,8 +4,10 @@
  * Requirements:
  * - 22: 監査ログとコンプライアンス
  * - user-authentication 40.9: データ出力の記録の API（POST /exports）と、監査ログの JSON 出力の記録
+ * - user-authentication 41.5: アーカイブの復元の API（POST /archives/restore）
  */
 
+import { once } from 'events';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { AuditLogService, serializeAuditLogExport } from '../services/audit-log.service.js';
 import getPrismaClient from '../db.js';
@@ -18,7 +20,20 @@ import type { RequestContext } from '../types/auth.types.js';
 import { ExportAuditService, type ExportRecordInput } from '../services/export-audit.service.js';
 import { getSharedProjectScopeService } from '../services/project-scope.service.js';
 import { exportRecordSchema } from '../schemas/export-audit.schema.js';
-import { InternalServerError, NotFoundError } from '../errors/apiError.js';
+import {
+  archiveRestoreSchema,
+  type ArchiveRestoreRequest,
+} from '../schemas/audit-log-archive-restore.schema.js';
+import { ApiError, InternalServerError, NotFoundError } from '../errors/apiError.js';
+import { PROBLEM_TYPES } from '../types/problem-details.js';
+import { ARCHIVE_TARGET_TYPE } from '../services/audit-log-archive.service.js';
+import { createAuditLogArchiveServiceForJob } from '../jobs/audit-log-archive.job.js';
+import type { ArchiveError, IAuditLogArchiveService } from '../types/audit-log-archive.types.js';
+import {
+  AUDIT_IP_ADDRESS_MAX_LENGTH,
+  AUDIT_USER_AGENT_MAX_LENGTH,
+  boundAuditText,
+} from '../utils/audit-text.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
@@ -32,6 +47,59 @@ const exportAuditService = new ExportAuditService({
       getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
   },
 });
+
+/**
+ * アーカイブの復元に使う部品（最初の要求のときに一度だけ作る。保存先と暗号鍵は定期処理と同じ）
+ */
+let archiveService: Pick<IAuditLogArchiveService, 'restore'> | null = null;
+function getArchiveService(): Pick<IAuditLogArchiveService, 'restore'> {
+  archiveService ??= createAuditLogArchiveServiceForJob(prisma);
+  return archiveService;
+}
+
+/** 復元の失敗を応答の誤りにする（保存先の原因の詳細は応答に出さない） */
+function archiveRestoreError(error: ArchiveError): ApiError {
+  switch (error.type) {
+    case 'KEY_MISSING':
+      return new InternalServerError(
+        'アーカイブの暗号鍵が設定されていないため復元できません',
+        'ARCHIVE_KEY_MISSING'
+      );
+    case 'STORAGE_FAILED':
+      return new ApiError(
+        503,
+        'アーカイブの保存先を読み取れなかったため復元できません',
+        'ARCHIVE_STORAGE_FAILED',
+        undefined,
+        PROBLEM_TYPES.INTERNAL_SERVER_ERROR
+      );
+    case 'INTEGRITY_FAILED':
+      return new ApiError(
+        500,
+        'アーカイブの照合に失敗しました（改ざんまたは破損の可能性があります）',
+        'ARCHIVE_INTEGRITY_FAILED',
+        { month: error.month },
+        PROBLEM_TYPES.INTERNAL_SERVER_ERROR
+      );
+  }
+}
+
+/** 監査に書く要求の送信元（長さを切り詰める） */
+function requestAuditMetadata(req: Request): Record<string, string | boolean> {
+  const ctx = requestContext(req);
+  const metadata: Record<string, string | boolean> = {};
+  if (ctx.ipAddress !== undefined) {
+    metadata.ipAddress = boundAuditText(ctx.ipAddress, AUDIT_IP_ADDRESS_MAX_LENGTH).value;
+  }
+  if (ctx.userAgent !== undefined) {
+    const userAgent = boundAuditText(ctx.userAgent, AUDIT_USER_AGENT_MAX_LENGTH);
+    metadata.userAgent = userAgent.value;
+    if (userAgent.truncated) {
+      metadata.userAgentTruncated = true;
+    }
+  }
+  return metadata;
+}
 
 /** 監査の記録に使う要求の送信元 */
 function requestContext(req: Request): RequestContext {
@@ -356,6 +424,144 @@ router.post(
         return;
       }
       res.status(201).json({ recordId: result.value.recordId });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * @swagger
+ * /api/v1/audit-logs/archives/restore:
+ *   post:
+ *     summary: 監査ログのアーカイブの復元
+ *     description: |
+ *       指定期間（両端を含む）に重なる月のアーカイブを復号し、目録（件数・SHA-256・HMAC）と照合した後に、
+ *       期間の監査ログを JSON Lines で返す。アーカイブの無い月は飛ばし、本文だけがあり目録の無い月は照合の失敗とする。照合に失敗した月があれば行を返さず
+ *       ARCHIVE_INTEGRITY_FAILED を返す。成否を監査（AUDIT_ARCHIVE_RESTORED）に記録し、記録できないときは
+ *       行を返さない。復元した行はアクティブな監査ログへ戻さない。
+ *     tags:
+ *       - Audit Logs
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties: false
+ *             required: [from, to]
+ *             properties:
+ *               from:
+ *                 type: string
+ *                 format: date-time
+ *                 description: 期間の始まり（時差を含む ISO 8601）
+ *               to:
+ *                 type: string
+ *                 format: date-time
+ *                 description: 期間の終わり（時差を含む ISO 8601。始まり以降、重なる月は 120 か月以内）
+ *     responses:
+ *       200:
+ *         description: 期間の監査ログ（1 行に 1 件の JSON）
+ *         content:
+ *           application/x-ndjson:
+ *             schema:
+ *               type: string
+ *       400:
+ *         description: 入力の検証エラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       500:
+ *         description: 照合の失敗（ARCHIVE_INTEGRITY_FAILED、details.month に月）、暗号鍵の未設定、または復元の記録の失敗
+ *       503:
+ *         description: 保存先を読み取れない
+ */
+router.post(
+  '/archives/restore',
+  authenticate,
+  requirePermission('audit:read'),
+  validate(archiveRestoreSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const body = req.validatedBody as ArchiveRestoreRequest;
+      const from = new Date(body.from);
+      const to = new Date(body.to);
+      const period = { from: from.toISOString(), to: to.toISOString() };
+
+      const result = await getArchiveService().restore(from, to);
+
+      // 行を返す前に復元を記録する。記録できなければ行を返さない
+      try {
+        await auditLogService.createLog({
+          action: 'AUDIT_ARCHIVE_RESTORED',
+          actorId: req.user!.userId,
+          targetType: ARCHIVE_TARGET_TYPE,
+          targetId: `${period.from}/${period.to}`,
+          metadata: {
+            ...period,
+            ...(result.ok
+              ? {
+                  outcome: 'succeeded',
+                  months: result.value.months,
+                  recordCount: result.value.recordCount,
+                }
+              : { outcome: 'failed', error: result.error }),
+            ...requestAuditMetadata(req),
+          },
+        });
+      } catch (error) {
+        logger.error({ err: error, ...period }, 'Failed to record the audit log archive restore');
+        next(
+          new InternalServerError(
+            '復元を記録できなかったため中止しました',
+            'ARCHIVE_RESTORE_RECORD_FAILED'
+          )
+        );
+        return;
+      }
+
+      if (!result.ok) {
+        next(archiveRestoreError(result.error));
+        return;
+      }
+
+      logger.info(
+        {
+          userId: req.user?.userId,
+          ...period,
+          months: result.value.months,
+          recordCount: result.value.recordCount,
+        },
+        'Audit log archives restored'
+      );
+
+      const filename = `audit-logs-restored-${period.from}-${period.to}.jsonl`.replace(
+        /[:.]/g,
+        '-'
+      );
+      res.status(200);
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      try {
+        for await (const record of result.value) {
+          if (!res.write(`${JSON.stringify(record)}\n`)) {
+            // 受け手が切断したときは待ち続けない
+            await Promise.race([once(res, 'drain'), once(res, 'close')]);
+            if (res.destroyed) {
+              return;
+            }
+          }
+        }
+      } catch (error) {
+        // 照合を済ませた後の読み直しで失敗した: 不完全な本文を正常な終わりにしない
+        logger.error({ err: error, ...period }, 'Audit log archive restore failed while streaming');
+        res.destroy(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      res.end();
     } catch (error) {
       next(error);
     }
