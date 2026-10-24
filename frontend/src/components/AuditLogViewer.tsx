@@ -12,6 +12,7 @@ import type { AuditLog, AuditLogFilter, AuditLogAction } from '../types/audit-lo
 import {
   INVITATION_AUDIT_ACTION_LABELS,
   SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+  USER_DELETION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
 } from '../utils/audit-log-actions';
 
@@ -60,6 +61,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
       TWO_FACTOR_ENABLED: '2FA有効化',
       TWO_FACTOR_DISABLED: '2FA無効化',
       ...INVITATION_AUDIT_ACTION_LABELS,
+      ...USER_DELETION_AUDIT_ACTION_LABELS,
       ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
     };
     return actionTexts[action] || action;

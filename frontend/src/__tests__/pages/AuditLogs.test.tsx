@@ -728,4 +728,47 @@ describe('AuditLogs Component', () => {
       }
     );
   });
+
+  describe('ユーザーの削除の監査の種別（要件40.6）', () => {
+    it('ユーザーの削除を一覧で表示名により表示し、種別のコードを出さない', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'deleted-1',
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action: 'USER_DELETED',
+          targetType: 'User',
+          targetId: 'deleted-user-1',
+          createdAt: '2026-10-25T00:00:00Z',
+        },
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const row = within(table).getByText('deleted-user-1').closest('tr') as HTMLElement;
+      expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(/^ユーザー削除$/);
+      expect(within(table).queryByText('USER_DELETED')).not.toBeInTheDocument();
+    });
+
+    it('イベント種別の絞り込みにユーザーの削除を表示名で並べ、選ぶとその種別で再取得する', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([]);
+
+      render(<AuditLogs />);
+      await screen.findByText('監査ログがありません');
+
+      const actionFilter = screen.getByLabelText('イベント種別');
+      const option = within(actionFilter).getByRole('option', { name: 'ユーザー削除' });
+      expect(option).toHaveValue('USER_DELETED');
+
+      await user.selectOptions(actionFilter, 'ユーザー削除');
+
+      await waitFor(() => {
+        expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('action=USER_DELETED'));
+      });
+    });
+  });
 });

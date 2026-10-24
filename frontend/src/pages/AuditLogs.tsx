@@ -12,6 +12,8 @@ import {
   INVITATION_AUDIT_ACTION_LABELS,
   SECURITY_REMEDIATION_AUDIT_ACTIONS,
   SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
+  USER_DELETION_AUDIT_ACTIONS,
+  USER_DELETION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
 } from '../utils/audit-log-actions';
 
@@ -125,6 +127,7 @@ export function AuditLogs() {
       TWO_FACTOR_ENABLED: '2FA有効化',
       TWO_FACTOR_DISABLED: '2FA無効化',
       ...INVITATION_AUDIT_ACTION_LABELS,
+      ...USER_DELETION_AUDIT_ACTION_LABELS,
       ...SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
     };
     return labels[action] || action;
@@ -224,6 +227,11 @@ export function AuditLogs() {
             {INVITATION_AUDIT_ACTIONS.map((action) => (
               <option key={action} value={action}>
                 {INVITATION_AUDIT_ACTION_LABELS[action]}
+              </option>
+            ))}
+            {USER_DELETION_AUDIT_ACTIONS.map((action) => (
+              <option key={action} value={action}>
+                {USER_DELETION_AUDIT_ACTION_LABELS[action]}
               </option>
             ))}
             {SECURITY_REMEDIATION_AUDIT_ACTIONS.map((action) => (

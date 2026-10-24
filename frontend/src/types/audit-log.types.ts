@@ -25,6 +25,8 @@ export type AuditLogAction =
   // 招待の作成・取り消し（要件40.5。表示名と絞り込みの並びは utils/audit-log-actions.ts）
   | 'INVITATION_CREATED'
   | 'INVITATION_REVOKED'
+  // ユーザーの削除（要件40.6。表示名と絞り込みの並びは utils/audit-log-actions.ts）
+  | 'USER_DELETED'
   // セキュリティ是正（要件40.1。表示名と絞り込みの並びは utils/audit-log-actions.ts）
   | 'LOGIN_LOCKED'
   | 'TWO_FACTOR_VERIFIED'

@@ -78,6 +78,23 @@ export const INVITATION_AUDIT_ACTION_LABELS: Record<InvitationAuditAction, strin
   INVITATION_REVOKED: '招待取り消し',
 };
 
+/**
+ * ユーザーの削除の種別（要件40.6）
+ *
+ * backend では従来からある種別で、SECURITY_REMEDIATION_AUDIT_ACTIONS には含まれない。記録はタスク53.2 で
+ * 始め、監査ログ画面の表示名と絞り込みはタスク53.5 で加えた。並びは監査ログ画面の絞り込みの一覧の表示順
+ */
+export const USER_DELETION_AUDIT_ACTIONS = [
+  'USER_DELETED',
+] as const satisfies readonly AuditLogAction[];
+
+export type UserDeletionAuditAction = (typeof USER_DELETION_AUDIT_ACTIONS)[number];
+
+/** ユーザーの削除の種別の表示名 */
+export const USER_DELETION_AUDIT_ACTION_LABELS: Record<UserDeletionAuditAction, string> = {
+  USER_DELETED: 'ユーザー削除',
+};
+
 /** 実行者の無い記録の実行者の表示 */
 export const SYSTEM_ACTOR_LABEL = 'システム';
 

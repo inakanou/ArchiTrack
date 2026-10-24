@@ -279,4 +279,21 @@ describe('AuditLogViewer', () => {
     expect(screen.queryByText('INVITATION_CREATED')).not.toBeInTheDocument();
     expect(screen.queryByText('INVITATION_REVOKED')).not.toBeInTheDocument();
   });
+
+  it('ユーザーの削除の記録を表示名で表示する（要件40.6）', () => {
+    const logs: AuditLog[] = [
+      {
+        id: 'user-deleted',
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action: 'USER_DELETED',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    render(<AuditLogViewer logs={logs} loading={false} />);
+
+    expect(screen.getByText('ユーザー削除')).toBeInTheDocument();
+    expect(screen.queryByText('USER_DELETED')).not.toBeInTheDocument();
+  });
 });
