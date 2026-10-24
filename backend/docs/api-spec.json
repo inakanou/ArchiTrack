@@ -11262,6 +11262,112 @@
           },
           "403": {
             "description": "権限不足"
+          },
+          "500": {
+            "description": "出力の記録の失敗（出力は返さない）"
+          }
+        }
+      }
+    },
+    "/api/v1/audit-logs/exports": {
+      "post": {
+        "summary": "データ出力の記録",
+        "description": "データの出力・一括ダウンロードを監査ログ（DATA_EXPORTED）に記録する。認証済みの全利用者が呼べる。\nブラウザで生成する出力は、生成を始める前にこの記録を要求し、失敗したときは出力を中止する。\n案件を指定したときは閲覧範囲で判定し、範囲外の案件は存在しない案件と同じ 404 を返す。\n",
+        "tags": [
+          "Audit Logs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "projectId",
+                  "targetIds",
+                  "itemCount"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "site_survey_report_pdf",
+                      "site_survey_images_zip",
+                      "quantity_table_pdf",
+                      "itemized_statement_xlsx",
+                      "estimate_request_xlsx",
+                      "estimate_pdf",
+                      "estimate_xlsx",
+                      "schedule_export",
+                      "order_export",
+                      "progress_export",
+                      "construction_photo_ledger_pdf",
+                      "construction_photos_zip",
+                      "annotated_image",
+                      "audit_log_json"
+                    ],
+                    "description": "出力の種別"
+                  },
+                  "projectId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true,
+                    "description": "対象の案件（案件に属する出力は必須、audit_log_json は null）"
+                  },
+                  "targetIds": {
+                    "type": "array",
+                    "maxItems": 10000,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "description": "出力の対象のデータの ID"
+                  },
+                  "itemCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "出力した件数"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "記録した監査ログの ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recordId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "入力の検証エラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "404": {
+            "description": "案件が存在しない、または閲覧範囲外"
+          },
+          "500": {
+            "description": "記録の失敗"
           }
         }
       }

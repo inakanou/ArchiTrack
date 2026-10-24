@@ -83,6 +83,15 @@ function toAuditLogInfo(log: SelectedAuditLog): AuditLogInfo {
 }
 
 /**
+ * 監査ログの JSON 出力の本文を作る（出力の記録の後に、読み出した行から作るため単独で公開する）
+ * @param logs - 出力する監査ログ
+ * @returns JSON文字列
+ */
+export function serializeAuditLogExport(logs: AuditLogInfo[]): string {
+  return JSON.stringify(logs, null, 2);
+}
+
+/**
  * 監査ログサービス実装
  */
 export class AuditLogService implements IAuditLogService {
@@ -181,6 +190,6 @@ export class AuditLogService implements IAuditLogService {
    */
   async exportLogs(filter?: AuditLogFilter): Promise<string> {
     const logs = await this.getLogs(filter);
-    return JSON.stringify(logs, null, 2);
+    return serializeAuditLogExport(logs);
   }
 }
