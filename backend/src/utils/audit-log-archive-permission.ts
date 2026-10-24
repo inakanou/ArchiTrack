@@ -17,6 +17,23 @@ import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 export const AUDIT_ARCHIVE_SETTING = 'architrack.audit_archive' as const;
 
 /**
+ * アーカイブの許可の設定を置いたトランザクションの中で処理を行う。
+ * 処理が例外を投げるとトランザクションごと取り消され、行は消えない。
+ * @param prisma - Prisma クライアント
+ * @param fn - 許可の設定の下で行う処理
+ * @returns 処理の結果
+ */
+export async function withAuditArchivePermission<T>(
+  prisma: PrismaClient,
+  fn: (tx: Prisma.TransactionClient) => Promise<T>
+): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT set_config(${AUDIT_ARCHIVE_SETTING}, 'on', true)`;
+    return fn(tx);
+  });
+}
+
+/**
  * アーカイブの許可の設定を置いたトランザクションの中で、条件に合う監査ログを消す。
  * @param prisma - Prisma クライアント
  * @param where - 消す行の条件
@@ -26,8 +43,7 @@ export async function deleteAuditLogsWithArchivePermission(
   prisma: PrismaClient,
   where: Prisma.AuditLogWhereInput
 ): Promise<number> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT set_config(${AUDIT_ARCHIVE_SETTING}, 'on', true)`;
+  return withAuditArchivePermission(prisma, async (tx) => {
     const { count } = await tx.auditLog.deleteMany({ where });
     return count;
   });

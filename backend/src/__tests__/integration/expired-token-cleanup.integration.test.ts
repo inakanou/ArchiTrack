@@ -289,7 +289,7 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
     const inspector = createScheduledJobsQueue(redisUrl);
     try {
       const repeatables = await inspector.getRepeatableJobs();
-      expect(repeatables).toHaveLength(3);
+      expect(repeatables).toHaveLength(4);
       expect(repeatables).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -310,6 +310,12 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
             cron: '0 3 * * *',
             tz: 'Asia/Tokyo',
           }),
+          expect.objectContaining({
+            name: 'audit-log-archive',
+            id: 'audit-log-archive',
+            cron: '0 4 1 * *',
+            tz: 'Asia/Tokyo',
+          }),
         ])
       );
       // 次の実行は毎時 15 分・45 分（Asia/Tokyo は分の境界が UTC と同じ）
@@ -328,7 +334,17 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
       expect(nextDeactivation.getUTCHours()).toBe(18);
       expect(nextDeactivation.getUTCMinutes()).toBe(0);
       expect(nextDeactivation.getTime() - Date.now()).toBeLessThanOrEqual(24 * HOUR_MS);
-      expect(await inspector.getDelayedCount()).toBe(3);
+      // 監査ログの月次のアーカイブ（タスク54.1）の次の実行は毎月 1 日 04:00 Asia/Tokyo
+      const nextArchive = new Date(
+        (repeatables.find((job) => job.name === 'audit-log-archive')?.next ?? 0) + 9 * HOUR_MS
+      );
+      expect(nextArchive.getUTCDate()).toBe(1);
+      expect(nextArchive.getUTCHours()).toBe(4);
+      expect(nextArchive.getUTCMinutes()).toBe(0);
+      expect(nextArchive.getTime() - 9 * HOUR_MS - Date.now()).toBeLessThanOrEqual(
+        31 * 24 * HOUR_MS
+      );
+      expect(await inspector.getDelayedCount()).toBe(4);
     } finally {
       await inspector.close();
     }

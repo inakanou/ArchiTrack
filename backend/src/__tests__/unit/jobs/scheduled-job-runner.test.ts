@@ -1,5 +1,5 @@
 /**
- * 定期処理の実行基盤の単体検証（user-authentication タスク44.9、44.12、49.4）
+ * 定期処理の実行基盤の単体検証（user-authentication タスク44.9、44.12、49.4、54.1）
  *
  * キュー（Bull）を差し替え、試験の実行環境では繰り返しジョブを登録しないこと、
  * それ以外では同じ識別子で登録し直し、古い定義を消し、最終の失敗だけを記録することを確かめる。
@@ -49,6 +49,14 @@ vi.mock('../../../jobs/inactive-user-deactivation.job.js', () => ({
   INACTIVE_USER_DEACTIVATION_CRON: '0 3 * * *',
   createInactiveUserDeactivationRun: (prisma: unknown) =>
     createInactiveUserDeactivationRunMock(prisma),
+}));
+
+const auditLogArchiveRunMock = vi.fn();
+const createAuditLogArchiveRunMock = vi.fn((_prisma: unknown) => auditLogArchiveRunMock);
+vi.mock('../../../jobs/audit-log-archive.job.js', () => ({
+  AUDIT_LOG_ARCHIVE_JOB_NAME: 'audit-log-archive',
+  AUDIT_LOG_ARCHIVE_CRON: '0 4 1 * *',
+  createAuditLogArchiveRun: (prisma: unknown) => createAuditLogArchiveRunMock(prisma),
 }));
 
 import {
@@ -356,6 +364,7 @@ describe('createScheduledJobDefinitions', () => {
       { name: 'expired-token-cleanup', cron: '15 * * * *' },
       { name: 'failed-email-job-cleanup', cron: '45 * * * *' },
       { name: 'inactive-user-deactivation', cron: '0 3 * * *' },
+      { name: 'audit-log-archive', cron: '0 4 1 * *' },
     ]);
     await expect(jobs[0]?.run()).resolves.toEqual({ invitationTokensCleared: 1 });
     expect(cleanupExpiredTokensMock).toHaveBeenCalledWith(prisma);
@@ -384,6 +393,19 @@ describe('createScheduledJobDefinitions', () => {
     expect(job?.cron).toBe('0 3 * * *');
     expect(createInactiveUserDeactivationRunMock).toHaveBeenCalledWith(prisma);
     await expect(job?.run()).resolves.toEqual({ deactivatedUserIds: ['u1'] });
+  });
+
+  it('audit-log-archive を毎月 1 日 04:00 に登録し、処理は監査ログの月次のアーカイブを呼ぶ', async () => {
+    const prisma = {} as PrismaClient;
+    const runResult = { archivedMonths: ['2025-08'], failedMonths: [], deletedArchives: [] };
+    auditLogArchiveRunMock.mockResolvedValue(runResult);
+
+    const jobs = createScheduledJobDefinitions(prisma);
+    const job = jobs.find(({ name }) => name === 'audit-log-archive');
+
+    expect(job?.cron).toBe('0 4 1 * *');
+    expect(createAuditLogArchiveRunMock).toHaveBeenCalledWith(prisma);
+    await expect(job?.run()).resolves.toEqual(runResult);
   });
 });
 

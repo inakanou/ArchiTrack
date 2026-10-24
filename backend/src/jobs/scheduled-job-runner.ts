@@ -1,5 +1,5 @@
 /**
- * 定期処理の実行基盤（user-authentication 要件36.8、37.4、37.8、41.1、41.2、45.3）
+ * 定期処理の実行基盤（user-authentication 要件36.8、37.4、37.8、41.1、41.2、41.6、45.3）
  *
  * キャッシュ基盤と同じ REDIS_URL で接続するキュー `scheduled-jobs` に、Bull の繰り返しジョブ
  * （`repeat`、cron は Asia/Tokyo）として定期処理を登録し、同じキューで実行する。
@@ -33,6 +33,11 @@ import {
   INACTIVE_USER_DEACTIVATION_JOB_NAME,
   createInactiveUserDeactivationRun,
 } from './inactive-user-deactivation.job.js';
+import {
+  AUDIT_LOG_ARCHIVE_CRON,
+  AUDIT_LOG_ARCHIVE_JOB_NAME,
+  createAuditLogArchiveRun,
+} from './audit-log-archive.job.js';
 
 /** 定期処理のキューの名前（Redis のキーは `bull:scheduled-jobs:*`） */
 export const SCHEDULED_JOBS_QUEUE_NAME = 'scheduled-jobs';
@@ -82,6 +87,11 @@ export function createScheduledJobDefinitions(prisma: PrismaClient): ScheduledJo
       name: INACTIVE_USER_DEACTIVATION_JOB_NAME,
       cron: INACTIVE_USER_DEACTIVATION_CRON,
       run: createInactiveUserDeactivationRun(prisma),
+    },
+    {
+      name: AUDIT_LOG_ARCHIVE_JOB_NAME,
+      cron: AUDIT_LOG_ARCHIVE_CRON,
+      run: createAuditLogArchiveRun(prisma),
     },
   ];
 }
