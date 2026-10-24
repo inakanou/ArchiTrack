@@ -398,6 +398,7 @@ export async function createSessionUser(
  * `createSessionUser` で作った利用者をすべて削除
  *
  * セッション・パスワードの履歴・リセットのトークン・ロールの割り当ては利用者の削除に連なって消える。
+ * 案件の閲覧範囲（user-authentication 要件39）のために工事担当者に据えた案件は、削除の前に参照を外す。
  *
  * @param prisma - Prismaクライアント（省略時はデフォルトクライアントを使用）
  */
@@ -405,6 +406,10 @@ export async function deleteSessionUsers(prisma?: PrismaClientInstance): Promise
   const client = prisma || getPrismaClient();
   const where = { email: { startsWith: SESSION_USER_EMAIL_PREFIX } };
   const users = await client.user.findMany({ where, select: { id: true } });
+  await client.project.updateMany({
+    where: { constructionPersonId: { in: users.map((u) => u.id) } },
+    data: { constructionPersonId: null },
+  });
   await client.user.deleteMany({ where });
   await invalidateUserStateCache(users.map((u) => u.id));
 }

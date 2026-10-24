@@ -224,6 +224,9 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
         name: 'テスト用プロジェクト_契約書統合テスト',
         status: 'PREPARING',
         salesPersonId: testUserId,
+        // 制限ユーザー（user ロール）も案件を扱えるよう工事担当者にする（案件の閲覧範囲。
+        // user-authentication 要件39）
+        constructionPersonId: limitedUserId,
         createdById: testUserId,
       },
     });

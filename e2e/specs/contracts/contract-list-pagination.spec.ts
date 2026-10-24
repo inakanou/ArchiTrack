@@ -36,7 +36,8 @@ function createdAtOf(n: number): Date {
 /** プロジェクト・見積書と、作成日時の異なる契約書 21 件を作る */
 async function setupTestData(): Promise<void> {
   const prisma = getPrismaClient();
-  const testUser = await prisma.user.findUnique({ where: { email: 'admin@example.com' } });
+  // 画面を開く一般ユーザーを案件の営業担当者・作成者にする（案件の閲覧範囲。user-authentication 要件39）
+  const testUser = await prisma.user.findUnique({ where: { email: 'user@example.com' } });
   if (!testUser) {
     throw new Error('テストユーザーが見つかりません。global-setupを確認してください。');
   }

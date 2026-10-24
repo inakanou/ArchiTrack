@@ -886,8 +886,9 @@ test.describe('工事写真 追加機能フロー', () => {
    * なく R17.1（編集権限なしの読み取り専用）に帰属させるためである。削除権限を欠くロールでは
    * 削除ハンドラが渡らないため、読み取り専用の抑止が壊れても削除ボタンは出ず、主張が検出力を
    * 持たない。削除権限で現れるアルバム削除の導線は 17.1 の列挙に無いため主張しない。
-   * 閲覧専用の利用者はプロジェクトの担当者（作成者・営業担当・工事担当）に据えない。アクセスは
-   * ロールの権限の表だけで判定し、担当者での絞り込みは無い（タスク 23.1 の利用者の判断）。
+   * 閲覧専用の利用者はプロジェクトの工事担当者に据える。案件の閲覧範囲（user-authentication 要件39）は
+   * 営業担当者・工事担当者・作成者だけに案件を見せるため、担当者でない利用者では詳細画面が開けない
+   * （user-authentication タスク52.2）。権限の出し分けはロールの権限の表で判定する。
    * user ロールの権限を書き換えないのは、永続テストDBに権限が固着した
    * 前例（seedRolePermissions の notIn による是正で解消）を再び作らないためである。非システム
    * ロールは cleanDatabase が消すうえ、本テストの finally でも消す。
@@ -962,6 +963,7 @@ test.describe('工事写真 追加機能フロー', () => {
 
     let viewerUserId: string | null = null;
     let viewerRoleId: string | null = null;
+    let viewerProjectId: string | null = null;
     try {
       // 準備: admin でプロジェクト・アルバムを作り、写真項目を1枚追加する
       await loginAsUser(page, 'ADMIN_USER');
@@ -985,8 +987,8 @@ test.describe('工事写真 追加機能フロー', () => {
       await expect(saveButton).toBeVisible();
       await expect(deletePhotoItem).toBeVisible();
 
-      // 編集権限を持たない閲覧専用ロールと利用者を用意する。プロジェクトの担当者には据えない
-      // （アクセスはロールの権限の表だけで判定する。タスク 23.1 の利用者の判断）
+      // 編集権限を持たない閲覧専用ロールと利用者を用意する。案件の閲覧範囲（user-authentication
+      // 要件39）の下でも詳細画面を開けるよう、プロジェクトの工事担当者に据える
       const permissions = await prisma.permission.findMany({
         where: {
           OR: viewerPermissionKeys.map((key) => {
@@ -1016,6 +1018,11 @@ test.describe('工事写真 追加機能フロー', () => {
         roles: [viewerRole.name],
       });
       viewerUserId = viewer.id;
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { constructionPersonId: viewer.id },
+      });
+      viewerProjectId = projectId;
 
       // 閲覧専用の利用者へ切り替える
       await page.context().clearCookies();
@@ -1049,6 +1056,12 @@ test.describe('工事写真 追加機能フロー', () => {
       await expect(deletePhotoItem).toHaveCount(0);
     } finally {
       // 後始末の失敗が本体の失敗を上書きしないよう、各段を個別に捕まえて記録する
+      if (viewerProjectId) {
+        const id = viewerProjectId;
+        await runCleanup(() =>
+          prisma.project.update({ where: { id }, data: { constructionPersonId: null } })
+        );
+      }
       if (viewerUserId) {
         const id = viewerUserId;
         await runCleanup(() => prisma.user.delete({ where: { id } }));
@@ -1133,10 +1146,22 @@ test.describe('工事写真 追加機能フロー', () => {
 
     let viewerUserId: string | null = null;
     let viewerRoleId: string | null = null;
+    let viewerProjectId: string | null = null;
     try {
       // admin: 前件（*:*）を確かめ、看板を1件登録し、三つの操作がすべて表示されることを主張する
       await loginAsUser(page, 'ADMIN_USER');
       const projectId = await createProject(page, 'signboard-permission');
+      // user も看板マスタを開けるよう営業担当者にする（案件の閲覧範囲。user-authentication 要件39）
+      const regularUser = await prisma.user.findUnique({
+        where: { email: TEST_USERS.REGULAR_USER.email },
+      });
+      if (!regularUser) {
+        throw new Error('前提: REGULAR_USER が存在しない。global-setup を確認すること');
+      }
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { salesPersonId: regularUser.id },
+      });
       const adminPermissions = await openMasterAndReadPermissions(projectId);
       expect(adminPermissions).toContain('*:*');
 
@@ -1208,6 +1233,12 @@ test.describe('工事写真 追加機能フロー', () => {
         roles: [viewerRole.name],
       });
       viewerUserId = viewer.id;
+      // 閲覧だけのロールの利用者も看板マスタを開けるよう工事担当者にする（要件39）
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { constructionPersonId: viewer.id },
+      });
+      viewerProjectId = projectId;
 
       // 閲覧だけのロール: 前件（画面が受け取った権限が閲覧の権限そのもの）を確かめ、いずれも表示しない
       await switchUser();
@@ -1222,6 +1253,12 @@ test.describe('工事写真 追加機能フロー', () => {
       await expect(page.getByRole('button', { name: '削除', exact: true })).toHaveCount(0);
     } finally {
       // 後始末の失敗が本体の失敗を上書きしないよう、各段を個別に捕まえて記録する
+      if (viewerProjectId) {
+        const id = viewerProjectId;
+        await runCleanup(() =>
+          prisma.project.update({ where: { id }, data: { constructionPersonId: null } })
+        );
+      }
       if (viewerUserId) {
         const id = viewerUserId;
         await runCleanup(() => prisma.user.delete({ where: { id } }));

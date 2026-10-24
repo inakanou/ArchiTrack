@@ -69,14 +69,26 @@ describe('Estimate Edit Session API Integration Tests (REQ-11.7)', () => {
     const existing = await prisma.user.findUnique({ where: { email } });
     if (!existing) return;
     const projects = await prisma.project.findMany({
-      where: { OR: [{ salesPersonId: existing.id }, { createdById: existing.id }] },
+      where: {
+        OR: [
+          { salesPersonId: existing.id },
+          { constructionPersonId: existing.id },
+          { createdById: existing.id },
+        ],
+      },
       select: { id: true },
     });
     for (const project of projects) {
       await prisma.estimate.deleteMany({ where: { projectId: project.id } });
     }
     await prisma.project.deleteMany({
-      where: { OR: [{ salesPersonId: existing.id }, { createdById: existing.id }] },
+      where: {
+        OR: [
+          { salesPersonId: existing.id },
+          { constructionPersonId: existing.id },
+          { createdById: existing.id },
+        ],
+      },
     });
     await prisma.userRole.deleteMany({ where: { userId: existing.id } });
     await prisma.user.delete({ where: { id: existing.id } });
@@ -131,6 +143,8 @@ describe('Estimate Edit Session API Integration Tests (REQ-11.7)', () => {
         name: 'テスト用プロジェクト_編集セッション統合テスト',
         status: 'PREPARING',
         salesPersonId: userIds[EDITOR_A.email]!,
+        // 利用者 B も同じ見積書を開けるよう工事担当者にする（案件の閲覧範囲。user-authentication 要件39）
+        constructionPersonId: userIds[EDITOR_B.email]!,
         createdById: userIds[EDITOR_A.email]!,
       },
     });

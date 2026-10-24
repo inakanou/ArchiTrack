@@ -23,6 +23,7 @@ import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { getAccessToken } from '../../helpers/auth-api';
+import { getPrismaClient } from '../../fixtures/database';
 
 /**
  * 現場調査CRUD機能のE2Eテスト
@@ -492,6 +493,12 @@ test.describe('現場調査CRUD操作', () => {
       // 同じセッションを二つのタブで開くため、共有の役割の利用者ではなく
       // テストの中で作る利用者のセッションで行う（要件33.6）
       const sessionUser = await createSessionUser('REGULAR_USER');
+      // 作った利用者も案件を開けるよう工事担当者にする（案件の閲覧範囲。user-authentication 要件39）。
+      // 利用者の削除（deleteSessionUsers）が工事担当者の参照を外す
+      await getPrismaClient().project.update({
+        where: { id: createdProjectId },
+        data: { constructionPersonId: sessionUser.id },
+      });
       await loginAsUser(page, sessionUser);
 
       // 1つ目のブラウザコンテキストで編集ページを開く
