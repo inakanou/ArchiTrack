@@ -1816,6 +1816,75 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Depends: 57.1_
   - _Requirements: 41.1, 44.1_
 
+## タスク58: 権限付与の上限の残り（要件38.6〜38.12）
+
+**経緯**: 51.1 の記録が残件とした抜け道（`role:update` による既存のロールの優先度の引き上げ、`role:create` による上限を超えるロールの作成、システム管理者でない利用者による持たない権限の追加、上限を超えるロールの割り当ての解除、システム管理者の優先度を超えるロールの作成）を、利用者の判断（2026-10-26）で要件38.6〜38.10 として加えた。続けて、上限より上のロールの優先度を下げてから割り当てる抜け道を塞ぐため、上限より上のロールの変更・削除の拒否（38.11）とシステムロールの優先度の変更の拒否（38.12）を同じ判断で加えた。design.md の PrivilegeCeilingPolicy の節と SecurityAnomalyMonitor の節の 43.2 の定義に従う
+
+- [ ] 58.1 ロールの作成・変更・削除・権限の追加と削除・割り当ての解除に上限を広げ、優先度の範囲とシステムロールの優先度を守る
+  - 実行者の保有ロールの優先度の最大値を超える優先度へのロールの変更と、その優先度のロールの作成、システム管理者でない実行者による保有しない権限（ワイルドカードの照合で包含しない権限）の追加、上限を超えるロールの割り当ての他の利用者からの解除を 403 で拒否し、権限チェックの失敗として監査に記録し、異常の検知へ `permission_denied` を送る。上限と等しい優先度は許し、優先度を変えない更新と自分からの解除は判定しない
+  - 現在の優先度が実行者の上限より高いロールの優先度の変更（上げる・下げるを問わない）、権限の追加・削除、ロールの削除を 403 で拒否する（名前と説明だけの変更は対象外）。システムロール（システム管理者・一般ユーザー）の優先度が実際に変わる変更を、名前の変更の拒否と同じ 403 の形で実行者によらず拒否する。いずれも権限チェックの失敗として監査に記録し、異常の検知へ `permission_denied` を送る
+  - システム管理者ロールの優先度（固定の 100）を超える優先度の指定を、ロールの作成・変更の両方の入力の検証で 400 の検証エラーとして拒否する（権限チェックの失敗として記録しない）
+  - 判定は書き込みと同じトランザクションのクライアントで行い、一括の権限の追加は 1 件でも違反があれば全体をロールバックする
+  - 単体テストで各拒否の条件と上限内・上限ちょうどの対照を、ルートの単体テストで 403・400 の応答と `permission_denied` の観測の有無を、統合テストで実 DB の上の拒否と監査の記録・DB の不変を確かめた状態になる
+  - _Depends: 51.1, 55.4_
+  - _Boundary: PrivilegeCeilingPolicy, RoleService, RolePermissionService, UserRoleService, roles.routes.ts, user-roles.routes.ts, auth-update.schema.ts_
+  - _Requirements: 38.6, 38.7, 38.8, 38.9, 38.10, 38.11, 38.12_
+
+- [ ] 58.2 権限付与の上限の残りを E2E で確かめる
+  - `e2e/specs/admin/privilege-ceiling.spec.ts` と同じく API で、`role:update` だけ・`role:create` だけ・`user:update` だけのロールを持つ実行者の各拒否（status と code、DB の不変、`PERMISSION_CHECK_FAILED` の件数と metadata）、`role:update`・`role:delete` だけを持つ実行者による上限より上のロールの優先度の引き下げ・権限の追加と削除・ロールの削除の拒否、システム管理者によるシステムロールの優先度の変更の拒否（403）と範囲外の優先度の拒否（400）を主張し、各々に上限内の操作の対照を置く
+  - 検証のために作るロールと利用者はテストの中で作り、終了時に消す
+  - 対象の受入基準の `@requirement` の印を掲げた E2E が緑の状態になる。名前で要素を指す E2E を足した場合は `check:design-measurement-freshness` の前後の差を測る（Implementation Notes の t13 の項）
+  - _Depends: 58.1_
+  - _Boundary: e2e/specs/admin_
+  - _Requirements: 38.6, 38.7, 38.8, 38.9, 38.10, 38.11, 38.12_
+
+## タスク59: 監査ログ画面の招待の対象（要件40.12）
+
+**経緯**: 招待の操作の記録は対象として招待の ID を持ち、監査ログ画面の対象の欄に ID が表示され、誰への招待かを確かめられなかった。利用者の判断（2026-10-26）で要件40.12 を加えた。design.md の AuditLogsPage の節に従う
+
+- [ ] 59.1 監査ログ画面の対象の欄に招待先のメールアドレスを表示する
+  - 対象の表示を組み立てる関数を設け、招待の記録では記録の付帯情報のメールアドレスを、それ以外は従来どおり対象の名前または ID を返す。監査ログ画面と監査ログの表示部品の対象の欄で使う。既に書かれた招待の記録にも同じ表示が適用される（記録と API の応答は変えない）
+  - 単体テストで、招待の作成・取り消し・再送信の記録でメールアドレスが、メールアドレスの無い記録と他の種別の記録で従来の表示が出ることを確かめた状態になる
+  - _Depends: 53.1_
+  - _Boundary: AuditLogsPage, frontend/src/utils/audit-log-actions.ts_
+  - _Requirements: 40.12_
+
+- [ ] 59.2 監査ログ画面の招待の対象を E2E で確かめる
+  - 招待を作成・再送信・取り消した後、監査ログ画面の該当の行の対象の欄に招待先のメールアドレスが表示され、招待の ID が表示されないことを主張する（`e2e/specs/admin/auth-audit-log.spec.ts` を広げるか、招待の spec に足す）
+  - 対象の受入基準の `@requirement` の印を掲げた E2E が緑の状態になる。名前で要素を指す E2E を足した場合は `check:design-measurement-freshness` の前後の差を測る
+  - _Depends: 59.1_
+  - _Boundary: e2e/specs/admin_
+  - _Requirements: 40.12_
+
+## タスク60: 異常の通知の抑止の単位と総数の上限（要件43.6・43.8・43.9）
+
+**経緯**: データ出力の急増は利用者ごとに数えるが、通知の抑止は種類ごとであり、ある利用者の急増を通知した後の抑止の時間内に別の利用者の急増が通知されなかった。利用者の判断（2026-10-26）で要件43.6 の抑止の単位を改め、43.8・43.9 を加えた。design.md の SecurityAnomalyMonitor の節と ScheduledJobRunner の節に従う
+
+- [ ] 60.1 データ出力の通知の抑止を利用者ごとにし、通知の総数に上限と溢れ分の通知を設ける
+  - データ出力の急増の通知の抑止を種類と利用者の組ごとにし、他の種類の抑止は種類ごとのまま保つ
+  - 一定時間内に送る通知の総数に上限を設け、超えた通知を送らずに溢れ分として数え、次に送る通知に件数・期間・種類ごとの内訳を添える。次の通知が無いまま上限の時間窓が明けたときは定期処理が要約を 1 通送る。上限と時間窓を環境変数で変えられるようにし、試験と CI の環境は E2E と統合テストの全件で超えない値にする
+  - 単体テストで、利用者 A の通知の抑止の時間内の利用者 B の通知、上限の超過で送られないこと、次の通知への添え書きと溢れ分の消去、要約が 1 通だけ送られることを（注入した時刻で）確かめ、統合テストで実 Redis の上の同じ振る舞いと設定の反映を確かめた状態になる
+  - _Depends: 55.4_
+  - _Boundary: SecurityAnomalyMonitor, ScheduledJobRunner, backend/src/config/security-alert.ts_
+  - _Requirements: 43.6, 43.8, 43.9_
+
+## タスク61: 総合検証と文書の追随（要件38.6〜38.12・40.12・43.8・43.9）
+
+- [ ] 61.1 全ての単体・統合・E2E と関門を通す
+  - backend と frontend の全単体テスト、統合テスト、E2E の全件を回す（58.2・59.2 で足した E2E と、振る舞いを変えた画面と API に触れる既存の E2E を含む）。関門は `:update` の変種を含めず名指しで一本ずつ回し、最後に `git status --porcelain scripts/` が空であることを確かめる
+  - 全てのテストと関門が緑で、要件38.6〜38.12・40.12・43.8・43.9 の受入基準の被覆が揃っている状態になる
+  - _Depends: 58.1, 58.2, 59.1, 59.2, 60.1_
+  - _Boundary: 全体の検証_
+  - _Requirements: 38.6, 40.12, 43.8_
+
+- [ ] 61.2 設計文書・計画書・関連 spec の記述を現況へ揃える
+  - design.md の要件38・40・43 の節を実装に合わせる。`docs/security/ipa-alert-20261009-remediation-plan.md` の RBAC の上限の行を完了（要件38.1〜38.12、タスク51・58）に改め、残件の記述を外す。steering（`tech.md` の `SECURITY_ALERT_*` の環境変数）を現況へ揃える。project-management の要件23.2・23.3 の改訂（閲覧範囲内の件数）が実装と合っていることを確かめる
+  - spec.json の phase を implementation-complete へ改めるのは、`/kiro-validate-impl user-authentication` が GO を出した後に行う。tasks_summary は同じ時点で測り直す
+  - 設計文書の関門と鮮度の関門が緑で、計画書の RBAC の行が完了の印を持つ状態になる
+  - _Depends: 61.1_
+  - _Boundary: .kiro/specs/user-authentication/design.md, docs/security/ipa-alert-20261009-remediation-plan.md, .kiro/steering/tech.md_
+  - _Requirements: 38.6, 40.12, 43.9_
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば同じコミットで宣言を貼り直し、増分の帰属を記す（利用者の判断 2026-10-06。39.1・40.2 と construction-photo の 27.1 の前例に従う）。正規表現・testid への書き換えで避けるのは不当（36.7）
@@ -1895,3 +1964,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 各業務 spec への要件39・40 の適用の起票（2026-10-25、機能検証の指摘、利用者の判断 A。design.md の Out of Boundary が各 spec の所管とする適用に、どの spec にもタスクが無かった）: site-survey タスク119（119.1 範囲・`GET /api/projects/:projectId/survey-images` の 403 と 404 の出し分け・`SignedUrlService` のロール名の直書き・サムネイルの署名、119.2 出力）、construction-photo タスク30（30.1 Task 23.1 の判断を要件39 へ置き換え区分 C の統合テストを改める、30.2 範囲、30.3 出力）、quantity-table-generation タスク104（104.1・104.2）、itemized-statement-generation タスク27（27.1・27.2）、estimate-request タスク103（103.1・103.2）、estimate-creation タスク62（62.1・62.2）、contract-management タスク19（19.1。出力なし）、construction-schedule タスク22（22.1・22.2）、execution-budget-management タスク17（17.1・17.2）。除外 40.10・40.11 の理由へ記録を経ない出力と起票先を列挙した
 - 最終検証（/kiro-validate-impl、2026-10-26）の是正の第1巡: 判定の欠陥 4 件を直した。I-1（30.9）セッション切れモーダルの 2FA 再認証がアクセストークンを置かずセッションを立て直さなかったのを、パスワードと共通の `completeReauth` → `handleReauthSuccess(session)`（`startTokenSession`）へ揃え、実 TOTP の E2E を足した。I-2（27A.6・27A.7）バックアップコードの消費を取引内の `updateMany where usedAt null`・`count===1` だけ成功に、2FA の失敗回数を `{ increment: 1 }` に（同時 3 回の使用が 3 回とも通るのを統合テストで再現）。I-3（43.2）権限の上限の 403（割り当て・権限の追加・システムロールの改名）で `permission_denied` を観測へ送る。I-8（42.4、利用者の判断 A）画面側の Sentry の breadcrumb・事象・トレース・リプレイの URL のトークンを伏せる（`frontend/src/utils/url-query-redaction.ts` は backend の規則の写しで揃えて変える）。design.md の再認証の手順・2FA の図・Sentry の節を追随し、t13-anchor-references-after-115303 を 2021→2025 へ貼り直した（増分 4 は session-expired-modal.spec.ts の新しい検証）。レビューは設計書の追随で 1 回差し戻し、第2巡で承認
 - 最終検証の是正の第2巡（2026-10-26）: 再検証で見つかった I-8 の残り（N-1）を直した。@sentry/browser v10 の browserTracingIntegration が pageload の span に `url.full`（フラグメント込み）を付け、招待・リセットの `#token=` がトランザクションの `contexts.trace.data` へ載っていたため、`scrubSentryEvent` で事象名・トレースの文脈・子 span の URL の属性と description も伏せる。test 環境の画面は VITE_SENTRY_DSN なしでビルドされ Sentry が除去されるので、検証は実際の init の設定のフックを呼ぶ単体テストに限る。design.md へ権限の上限の 403 の観測（43.2）とバックアップコードの条件付きの消費・失敗回数の原子的な加算（27A.4・27A.6・27A.7）を追記した。operational-settings.spec.ts の不安定は WSL の壁時計の巻き戻り（約 1.7 秒）で前のテストの復元の行が時刻の範囲へ入ったもので、範囲を開始時の行 ID の集合で決める形に替えた
+- 2026-10-26 の利用者の判断（いずれも推奨どおり）: (1) 未ログインの状態の `POST /api/v1/auth/refresh` の 400 と、それによるブラウザのコンソールの `Failed to load resource` は設計どおりの応答であり、起動時のアプリケーションのエラーに数えない（design.md の「起動時の確認の判定」）。(2) 要件43.2 の権限チェックの失敗（403）は、RBAC の権限の不足と権限付与の上限（要件38）による拒否を指し、業務上の保護（`SYSTEM_ROLE_PROTECTED`・`LAST_ADMIN_PROTECTED`・`SELF_RESET_FORBIDDEN`・`TWO_FACTOR_DISABLE_NOT_ALLOWED`・状態による制限）による拒否は数えない（design.md の SecurityAnomalyMonitor の節）。(3) project-management の要件23.2・23.3 の件数の対象を、閲覧範囲（要件39）内の論理削除されていない全プロジェクトへ改めた（52.3 の実装に条文を揃える）。(4) 51.1 の残件を要件38.6〜38.10 として加え、上限より上のロールの優先度を下げてから割り当てる抜け道を塞ぐ 38.11（上限より上のロールの変更・削除の拒否。38.6 と併存）と、38.12（システムロールの優先度の変更の拒否。38.10 の基準の 100 を固定する）を加えた（タスク58）。(5) 監査ログ画面の招待の対象の表示を要件40.12 として加えた（タスク59）。(6) 要件43.6 の抑止の単位を改め、43.8・43.9 を加えた（タスク60）
