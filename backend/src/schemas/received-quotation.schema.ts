@@ -84,7 +84,7 @@ export const createReceivedQuotationSchema = z.object({
   netAmount: z.preprocess((val) => {
     if (val === null || val === undefined || val === '' || val === 'null') return null;
     return Number(val);
-  }, z.number().nullable().optional()),
+  }, z.number().nullable()),
 });
 
 /**
@@ -120,7 +120,7 @@ export const updateReceivedQuotationSchema = z.object({
   netAmount: z.preprocess((val) => {
     if (val === null || val === undefined || val === '' || val === 'null') return null;
     return Number(val);
-  }, z.number().nullable().optional()),
+  }, z.number().nullable()),
 
   expectedUpdatedAt: z
     .string()

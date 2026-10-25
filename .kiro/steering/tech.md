@@ -103,6 +103,7 @@ ArchiTrack/
 - `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像・工事写真の一括エクスポート、型定義同梱）
 - `@holiday-jp/holiday_jp` ^2.5.1 - 日本の祝日データ（工程表ガントチャート祝日表示）
 - `react-pdf` ^10.4.1 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
+- `zod` ^4.6.7 - スキーマバリデーション（自社情報フォーム。CSP の下で eval を試さないよう、画面の入口で jitless に設定する）
 - `pdfjs-dist` (react-pdf依存) - PDFテキスト抽出（ハイブリッドアプローチ: テキストPDFはpdfjs-dist、画像PDFはOCR）
 - `tesseract.js` ^7.0.0 - OCR文字認識（受領見積書構造化データ抽出、再実行/リトライ機能）
 - `typescript` ^6.0.3 - TypeScriptコンパイラ（フロントエンドのみ TypeScript 6 系へ追従）
@@ -200,21 +201,21 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - **言語**: TypeScript 5.9.3
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.21.0（TypeScript実行環境）
-- **フレームワーク**: Express 5.2.1
+- **フレームワーク**: Express 5.3.0
 - **ORM**: Prisma 7.9.1 / @prisma/client 7.9.1（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
 - **データベースクライアント**: pg (PostgreSQL) 8.22.0、@prisma/client 7.9.1、@prisma/adapter-pg 7.3.0
 - **キャッシュクライアント**: ioredis 5.10.1
 - **セキュリティミドルウェア**: helmet 8.3.0、compression 1.8.2、cookie-parser 1.4.7、express-rate-limit 8.5.2
-- **メール送信**: nodemailer 10.1.0、handlebars 4.7.10
+- **メール送信**: nodemailer 10.2.1、handlebars 4.7.10
 - **JWT署名**: jose 6.1.3（EdDSA署名）
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
 - **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）
 - **パスワードハッシュ**: @node-rs/argon2 2.0.2（Rustバインディングによる高性能Argon2実装）
 - **PDF生成**: jspdf ^4.1.0（工程表・発注書・出来高のサーバ生成。見積書帳票はフロントエンド生成へ移行済み）
-- **バリデーション**: zod 4.4.3
+- **バリデーション**: zod 4.6.7
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
-- **画像処理**: sharp 0.35.5（圧縮・サムネイル生成）、multer 2.4.0（ファイルアップロード）。スマホ写真追加は二段構えで高速化（フロントが送信前に縮小・再エンコード `utils/image-compression` で通信量・サーバ負荷を削減 → サーバ sharp で確定圧縮・サムネイル生成）。アップロード応答に署名付きURL（originalUrl/thumbnailUrl）を含め、フロントは全件再取得せずローカル状態へ追記して即時反映する
+- **画像処理**: sharp 0.35.5（圧縮・サムネイル生成）、multer 2.5.0（ファイルアップロード）。スマホ写真追加は二段構えで高速化（フロントが送信前に縮小・再エンコード `utils/image-compression` で通信量・サーバ負荷を削減 → サーバ sharp で確定圧縮・サムネイル生成）。アップロード応答に署名付きURL（originalUrl/thumbnailUrl）を含め、フロントは全件再取得せずローカル状態へ追記して即時反映する
 - **工事看板のサーバサイド合成**: 工事写真台帳の工事看板（電子黒板）は構造化テキストから `services/signboard-svg.service`（SVG描画）→ `services/signboard-composite.service`（sharp composite）で写真へオンデマンド重畳する。合成は保存せずリクエスト時に生成し、印刷用画像（/print）と非合成の原本画像（/original）を配信路として分離。現場調査のクライアント fabric 合成とは別系統のサーバ側合成パス
 - **AI/OCR精度向上**: @anthropic-ai/sdk 0.133.0（Claude Vision APIによる見積書OCR構造化データ抽出）
 - **祝日データ**: @holiday-jp/holiday_jp ^2.5.1（日本の祝日判定、工程表エクスポート用）
@@ -236,7 +237,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 
 ### 主要な依存関係
 
-- `express` ^5.2.0 - Webフレームワーク
+- `express` ^5.3.0 - Webフレームワーク
 - `cors` ^2.8.6 - CORS ミドルウェア
 - `helmet` ^8.3.0 - セキュリティヘッダー設定
 - `compression` ^1.8.1 - レスポンス圧縮
@@ -248,7 +249,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - `pg` ^8.22.0 - PostgreSQL クライアント
 - `ioredis` ^5.10.1 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）
-- `nodemailer` ^10.1.0 - メール送信
+- `nodemailer` ^10.2.1 - メール送信
 - `handlebars` ^4.7.8 - テンプレートエンジン
 - `dataloader` ^2.2.3 - データローダー（N+1問題対策）
 - `jose` ^6.1.3 - JWT EdDSA署名・検証
@@ -256,7 +257,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - `qrcode` ^1.5.4 - QRコード生成
 - `bloom-filters` ^3.0.4 - セキュリティ機能強化
 - `express-rate-limit` ^8.5.2 - レート制限
-- `zod` ^4.4.3 - スキーマバリデーション
+- `zod` ^4.6.7 - スキーマバリデーション
 - `dotenv` ^17.4.2 - 環境変数管理
 - `@sentry/node` ^10.51.0 - Sentryエラートラッキング（Backend）
 - `@sentry/profiling-node` ^10.69.0 - Sentryプロファイリング
