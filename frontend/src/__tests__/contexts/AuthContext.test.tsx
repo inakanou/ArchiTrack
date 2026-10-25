@@ -687,6 +687,36 @@ describe('AuthContext', () => {
       expect(typeof result.current.handleReauthSuccess).toBe('function');
     });
 
+    /**
+     * 要件30.9: 再認証の成功で、アクセストークンを更新し TokenRefreshManager を再初期化する
+     * （ログイン・2FA の検証と同じセッションの開始の経路を通る）
+     */
+    it('handleReauthSuccessは再認証の応答でアクセストークンを更新し、リフレッシュとセッション切れの経路を張り直すこと', async () => {
+      const setRefreshSpy = vi.spyOn(apiClient, 'setTokenRefreshCallback');
+      const setExpiredSpy = vi.spyOn(apiClient, 'setSessionExpiredCallback');
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+      });
+      setRefreshSpy.mockClear();
+      setExpiredSpy.mockClear();
+
+      act(() => {
+        result.current.handleReauthSuccess({ accessToken: 'reauth-token', user: mockUser });
+      });
+
+      expect(apiClient.getAccessToken()).toBe('reauth-token');
+      expect(result.current.user).toEqual(mockUser);
+      expect(result.current.sessionExpiredDuringOperation).toBe(false);
+      expect(setRefreshSpy).toHaveBeenCalledWith(expect.any(Function));
+      expect(setExpiredSpy).toHaveBeenCalledWith(expect.any(Function));
+      setRefreshSpy.mockRestore();
+      setExpiredSpy.mockRestore();
+    });
+
     it('navigateToLogin関数が公開されていること', async () => {
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,

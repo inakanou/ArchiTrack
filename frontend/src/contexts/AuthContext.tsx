@@ -55,8 +55,13 @@ export interface AuthContextValue {
   logout: () => Promise<void>;
   refreshToken: () => Promise<string>;
   clearSessionExpired: () => void;
-  /** 要件30.15: 再認証成功時のハンドラー */
-  handleReauthSuccess: () => void;
+  /**
+   * 要件30.9, 30.15: 再認証成功時のハンドラー
+   *
+   * セッション切れモーダルの再認証（パスワードだけ・2FA のどちらも）の応答で、ログイン・2FA の検証と
+   * 同じセッションの開始の経路（アクセストークンの更新と TokenRefreshManager の再初期化）を通る
+   */
+  handleReauthSuccess: (session: ReauthSession) => void;
   /** 要件30.15: ログイン画面遷移ハンドラー */
   navigateToLogin: () => void;
   verify2FA: (code: string) => Promise<void>;
@@ -99,6 +104,17 @@ export interface AuthProviderProps {
 export interface SessionStartResponse {
   user: User;
   accessToken: string;
+  expiresIn?: number;
+}
+
+/**
+ * セッション切れモーダルの再認証の成功の応答（要件30.9）
+ *
+ * 利用者が応答に無いときは、ログイン中の利用者をそのまま保つ（再認証は同じメールアドレスで行う）。
+ */
+export interface ReauthSession {
+  accessToken: string;
+  user?: User;
   expiresIn?: number;
 }
 
@@ -164,14 +180,14 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const initializeStartedRef = useRef<boolean>(false);
 
   /**
-   * ログイン・2FA の検証の成功でセッションを始める
+   * ログイン・2FA の検証・セッション切れモーダルの再認証の成功で、トークンの経路を張る
    *
    * アクセストークンは ApiClient のメモリだけに持つ（要件33.10）。リフレッシュトークンは
    * 応答の Set-Cookie で HttpOnly Cookie に置かれ、画面のスクリプトでは扱わない（要件33.8）。
+   * 前の TokenRefreshManager は片付けて作り直す（要件30.9）。
    */
-  const startSession = useCallback(
-    (response: SessionStartResponse): void => {
-      setUser(response.user);
+  const startTokenSession = useCallback(
+    (response: Omit<SessionStartResponse, 'user'>): void => {
       apiClient.setAccessToken(response.accessToken);
 
       const manager = createSessionRefreshManager();
@@ -192,6 +208,17 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       }
     },
     [replaceTokenRefreshManager]
+  );
+
+  /**
+   * ログイン・2FA の検証の成功でセッションを始める（利用者を置き、トークンの経路を張る）
+   */
+  const startSession = useCallback(
+    (response: SessionStartResponse): void => {
+      setUser(response.user);
+      startTokenSession(response);
+    },
+    [startTokenSession]
   );
 
   /**
@@ -410,12 +437,20 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   }, []);
 
   /**
-   * 要件30.15: 再認証成功時のハンドラー
-   * モーダルでの再認証成功後にsessionExpiredDuringOperationをリセット
+   * 要件30.9, 30.15: 再認証成功時のハンドラー
+   * モーダルでの再認証（パスワードだけ・2FA）の応答でアクセストークンを更新し、TokenRefreshManager を
+   * 再初期化してから sessionExpiredDuringOperation をリセットする
    */
-  const handleReauthSuccess = useCallback(() => {
-    setSessionExpiredDuringOperation(false);
-  }, []);
+  const handleReauthSuccess = useCallback(
+    (session: ReauthSession) => {
+      if (session.user) {
+        setUser(session.user);
+      }
+      startTokenSession(session);
+      setSessionExpiredDuringOperation(false);
+    },
+    [startTokenSession]
+  );
 
   /**
    * 要件30.15: ログイン画面遷移ハンドラー

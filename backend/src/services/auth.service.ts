@@ -643,8 +643,28 @@ export class AuthService implements IAuthService {
 
       if (!isValid) {
         // 4. 検証失敗: 失敗カウンターをインクリメント（資格は消費せず、期限内の再試行を認める）
+        // 読んだ値に 1 を足して書くと並行の失敗が数えられないため、DB の上で 1 だけ増やし、
+        // 増やした後の回数でロックを決める（要件27A.4）
         const currentFailures = user.twoFactorFailures ?? 0;
-        const newFailures = currentFailures + 1;
+        // 加算の更新に失敗したときの見込みの回数（これまでどおり検証失敗として処理を続ける）
+        let newFailures = currentFailures + 1;
+        let incremented = false;
+
+        try {
+          const updated = await this.prisma.user.update({
+            where: { id: userId },
+            data: { twoFactorFailures: { increment: 1 } },
+            select: { twoFactorFailures: true },
+          });
+          newFailures = updated.twoFactorFailures;
+          incremented = true;
+        } catch (updateError) {
+          // 接続のタイムアウトは検証の失敗として扱わず、エラーハンドラーの 503 へ届ける（要件24.1）
+          rethrowIfDatabaseConnectionTimeout(updateError);
+          logger.error({ err: updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
+          // 接続のタイムアウト以外の更新の失敗は、検証失敗として処理を続行
+        }
+
         const isLocked = newFailures >= SECURITY_CONFIG.TWO_FACTOR.MAX_FAILURES;
         logger.info(
           {
@@ -660,19 +680,17 @@ export class AuthService implements IAuthService {
           ? new Date(Date.now() + SECURITY_CONFIG.TWO_FACTOR.LOCK_DURATION_MS)
           : null;
 
-        try {
-          await this.prisma.user.update({
-            where: { id: userId },
-            data: {
-              twoFactorFailures: newFailures,
-              ...(isLocked && { twoFactorLockedUntil: lockedUntil }),
-            },
-          });
-        } catch (updateError) {
-          // 接続のタイムアウトは検証の失敗として扱わず、エラーハンドラーの 503 へ届ける（要件24.1）
-          rethrowIfDatabaseConnectionTimeout(updateError);
-          logger.error({ err: updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
-          // 接続のタイムアウト以外の更新の失敗は、検証失敗として処理を続行
+        if (isLocked && incremented) {
+          try {
+            await this.prisma.user.update({
+              where: { id: userId },
+              data: { twoFactorLockedUntil: lockedUntil },
+            });
+          } catch (lockError) {
+            // 接続のタイムアウトは検証の失敗として扱わず、エラーハンドラーの 503 へ届ける（要件24.1）
+            rethrowIfDatabaseConnectionTimeout(lockError);
+            logger.error({ err: lockError, userId, newFailures }, '2FAロックの記録に失敗');
+          }
         }
 
         // コードの誤りと、同じ時間ステップのコードの再利用（metadata.reason='replay'）を区別して記録する（要件40.3）

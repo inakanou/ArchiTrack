@@ -1346,12 +1346,47 @@ describe('AuthService', () => {
         expect(result.error.type).toBe('INVALID_2FA_CODE');
       }
 
-      // 失敗カウンターが増加したことを確認
+      // 失敗カウンターを DB の上で 1 だけ増やす（読んだ値に 1 を足して書かない。要件27A.4）
       expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
         where: { id: userId },
         data: {
-          twoFactorFailures: 3,
+          twoFactorFailures: { increment: 1 },
         },
+        select: { twoFactorFailures: true },
+      });
+      // 上限に届かないのでロックを書かない
+      expect(mockPrismaClient.user.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('並行の失敗で DB の失敗回数が上限に届いたときは、読んだ時点の回数によらずロックする（要件27A.4）', async () => {
+      const userId = 'user-123';
+      const mockUser = {
+        id: userId,
+        email: 'user@example.com',
+        displayName: 'Test User',
+        createdAt: new Date(),
+        twoFactorEnabled: true,
+        isActive: true,
+        // 読んだ時点では 2 回（並行の 2 件の失敗がこの後に加算された）
+        twoFactorFailures: 2,
+        twoFactorLockedUntil: null,
+        userRoles: [{ role: { name: 'user' } }],
+      };
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      (mockTwoFactorService.verifyTOTP as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(false));
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ twoFactorFailures: 5 })
+        .mockResolvedValue({});
+
+      const result = await verifyTotpWithChallenge(userId, '000000');
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.type).toBe('ACCOUNT_LOCKED');
+      }
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { twoFactorLockedUntil: expect.any(Date) },
       });
     });
 
@@ -1395,12 +1430,10 @@ describe('AuthService', () => {
       // TwoFactorService.verifyTOTP() のモック（失敗）
       (mockTwoFactorService.verifyTOTP as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(false));
 
-      // Prisma.user.update() のモック（アカウントロック用）
-      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({
-        ...mockUser,
-        twoFactorFailures: 5,
-        twoFactorLockedUntil: lockUntil,
-      });
+      // Prisma.user.update() のモック（加算の結果が 5 回目、続けてロックを書く）
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ twoFactorFailures: 5 })
+        .mockResolvedValue({ ...mockUser, twoFactorFailures: 5, twoFactorLockedUntil: lockUntil });
 
       // Act: 5回目の失敗
       const result = await verifyTotpWithChallenge(userId, totpCode);
@@ -1414,13 +1447,15 @@ describe('AuthService', () => {
         }
       }
 
-      // アカウントがロックされたことを確認
+      // 失敗回数を DB の上で加算し、加算後の回数が上限に届いたのでロックを書いたことを確認
       expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
         where: { id: userId },
-        data: {
-          twoFactorFailures: 5,
-          twoFactorLockedUntil: expect.any(Date),
-        },
+        data: { twoFactorFailures: { increment: 1 } },
+        select: { twoFactorFailures: true },
+      });
+      expect(mockPrismaClient.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { twoFactorLockedUntil: expect.any(Date) },
       });
     });
 
@@ -1994,7 +2029,10 @@ describe('AuthService', () => {
       (mockTwoFactorService.verifyBackupCode as ReturnType<typeof vi.fn>).mockResolvedValue(
         Ok(false)
       );
-      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      // 加算の結果が 1 回目（上限に届かない）
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        twoFactorFailures: 1,
+      });
 
       // Act
       const result = await verifyBackupWithChallenge(userId, 'INVALID-BACKUP-CODE');
@@ -2025,7 +2063,10 @@ describe('AuthService', () => {
       (mockTwoFactorService.verifyBackupCode as ReturnType<typeof vi.fn>).mockResolvedValue(
         Ok(false)
       );
-      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
+      // 加算の結果が 5 回目（上限）
+      (mockPrismaClient.user.update as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ twoFactorFailures: 5 })
+        .mockResolvedValue(mockUser);
 
       // Act
       const result = await verifyBackupWithChallenge(userId, 'INVALID-BACKUP-CODE');

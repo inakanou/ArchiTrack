@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, FormEvent } from 'react';
 import { apiClient } from '../api/client';
 import { logger } from '../utils/logger';
+import type { ReauthSession, User } from '../contexts/AuthContext';
 
 /**
  * SessionExpiredModalコンポーネントのプロパティ
@@ -11,8 +12,12 @@ export interface SessionExpiredModalProps {
   isOpen: boolean;
   /** 前回ログインメールアドレス（自動入力用） */
   userEmail: string;
-  /** 再認証成功時コールバック */
-  onReauthSuccess: () => void;
+  /**
+   * 再認証成功時コールバック
+   *
+   * 再認証の応答（アクセストークン・利用者・有効期限）を受け取り、セッションを立て直す（要件30.9）
+   */
+  onReauthSuccess: (session: ReauthSession) => void;
   /** ログイン画面遷移時コールバック */
   onNavigateToLogin: () => void;
 }
@@ -29,6 +34,36 @@ function isNetworkError(error: unknown): boolean {
     return msg.includes('network') || msg.includes('fetch') || msg.includes('timeout');
   }
   return false;
+}
+
+/**
+ * 再認証の成功の応答（ログイン・2FA の検証の共通部分）
+ */
+interface ReauthSuccessResponse {
+  accessToken?: string;
+  user?: User;
+  expiresIn?: number;
+}
+
+/**
+ * 再認証の成功の応答からセッションを立て直す（パスワードだけ・2FA の両方で共通。要件30.9）
+ *
+ * アクセストークンは ApiClient のメモリだけに持ち、リフレッシュトークンは応答の
+ * HttpOnly Cookie で置き換わる（要件33.8, 33.10）。アクセストークンの無い応答は成功として扱わない。
+ */
+function completeReauth(
+  response: ReauthSuccessResponse,
+  onReauthSuccess: (session: ReauthSession) => void
+): void {
+  if (!response.accessToken) {
+    throw new Error('認証に失敗しました');
+  }
+  apiClient.setAccessToken(response.accessToken);
+  onReauthSuccess({
+    accessToken: response.accessToken,
+    ...(response.user ? { user: response.user } : {}),
+    ...(response.expiresIn !== undefined ? { expiresIn: response.expiresIn } : {}),
+  });
 }
 
 /**
@@ -146,12 +181,13 @@ export function SessionExpiredModal({
         setIsNetworkErr(false);
 
         try {
-          await apiClient.post('/api/v1/auth/verify-2fa', {
+          const response = await apiClient.post<ReauthSuccessResponse>('/api/v1/auth/verify-2fa', {
             challengeToken,
             code: totpCode,
           });
 
-          onReauthSuccess();
+          // 要件30.9: パスワードだけの再認証と同じ経路でトークンを更新しセッションを立て直す
+          completeReauth(response, onReauthSuccess);
         } catch (err) {
           if (isNetworkError(err)) {
             setError('ネットワーク接続を確認してください');
@@ -177,12 +213,12 @@ export function SessionExpiredModal({
       setIsNetworkErr(false);
 
       try {
-        const response = await apiClient.post<{
-          requires2FA?: boolean;
-          challengeToken?: string;
-          accessToken?: string;
-          user?: unknown;
-        }>('/api/v1/auth/login', {
+        const response = await apiClient.post<
+          ReauthSuccessResponse & {
+            requires2FA?: boolean;
+            challengeToken?: string;
+          }
+        >('/api/v1/auth/login', {
           email: userEmail,
           password,
         });
@@ -194,15 +230,8 @@ export function SessionExpiredModal({
           return;
         }
 
-        // 要件30.9: 再認証成功でトークン更新
-        // アクセストークンは ApiClient のメモリだけに持ち、リフレッシュトークンは応答の
-        // HttpOnly Cookie で置き換わる（要件33.8, 33.10）
-        if (response.accessToken) {
-          apiClient.setAccessToken(response.accessToken);
-        }
-
-        // 再認証成功
-        onReauthSuccess();
+        // 要件30.9: 再認証成功でトークンを更新しセッションを立て直す（2FA と共通の経路）
+        completeReauth(response, onReauthSuccess);
       } catch (err) {
         if (isNetworkError(err)) {
           setError('ネットワーク接続を確認してください');

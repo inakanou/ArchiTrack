@@ -18,6 +18,8 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { getClientIp } from '../middleware/client-ip.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
 import logger from '../utils/logger.js';
 
 const router = Router();
@@ -183,6 +185,12 @@ router.post(
         }
         // 権限付与の上限による拒否（タスク51.1）。監査はサービスが記録済み
         if (isCeilingError(error)) {
+          // 権限の拒否（403）として異常の検知へ送る（要件43.2。計数を待たない）
+          observeSecurityAnomaly({
+            signal: 'permission_denied',
+            sourceIp: getClientIp(req),
+            userId: actorId,
+          });
           res.status(403).json({
             error: 'FORBIDDEN',
             message: 'The role exceeds the privileges of the requesting user',

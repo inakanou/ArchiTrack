@@ -17,6 +17,8 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { getClientIp } from '../middleware/client-ip.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
 import logger from '../utils/logger.js';
 import { updateRoleSchema } from '../schemas/auth-update.schema.js';
 import { ConflictError } from '../errors/apiError.js';
@@ -257,6 +259,12 @@ router.patch(
         }
         // システムロールの名前の変更の拒否（タスク51.1）。監査はサービスが記録済み
         if (error.type === 'SYSTEM_ROLE_RENAME_FORBIDDEN') {
+          // 権限の拒否（403）として異常の検知へ送る（要件43.2。計数を待たない）
+          observeSecurityAnomaly({
+            signal: 'permission_denied',
+            sourceIp: getClientIp(req),
+            userId: req.user?.userId ?? null,
+          });
           res.status(403).json({
             error: 'FORBIDDEN',
             message: 'System roles cannot be renamed',
@@ -501,6 +509,12 @@ router.post(
         }
         // 権限付与の上限による拒否（タスク51.1）。監査はサービスが記録済み
         if (isCeilingError(error)) {
+          // 権限の拒否（403）として異常の検知へ送る（要件43.2。計数を待たない）
+          observeSecurityAnomaly({
+            signal: 'permission_denied',
+            sourceIp: getClientIp(req),
+            userId: actorId,
+          });
           res.status(403).json({
             error: 'FORBIDDEN',
             message: 'Only system administrators can grant all permissions',

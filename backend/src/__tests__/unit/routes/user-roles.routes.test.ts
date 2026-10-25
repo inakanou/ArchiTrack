@@ -70,6 +70,12 @@ vi.mock('../../../services/email.service', () => ({
   },
 }));
 
+// 異常の検知への送信（要件43.2）
+const observeSecurityAnomaly = vi.hoisted(() => vi.fn());
+vi.mock('../../../services/security-anomaly-monitor.service.js', () => ({
+  observeSecurityAnomaly: (...args: unknown[]) => observeSecurityAnomaly(...args),
+}));
+
 // モック: 認証・認可・バリデーションミドルウェア
 vi.mock('../../../middleware/authenticate.middleware', () => ({
   authenticate: (req: Request, _res: Response, next: NextFunction) => {
@@ -372,6 +378,13 @@ describe('User Role Routes', () => {
         error: 'FORBIDDEN',
         code: 'ROLE_PRIORITY_EXCEEDS_ACTOR',
       });
+      // 権限付与の上限による拒否も権限の拒否として異常の検知へ送る（要件43.2）
+      expect(observeSecurityAnomaly).toHaveBeenCalledTimes(1);
+      expect(observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: expect.any(String),
+        userId: 'admin-user-id',
+      });
     });
 
     it('システム管理者でない実行者による管理者ロールの割り当ては 403 FORBIDDEN を返す', async () => {
@@ -385,6 +398,24 @@ describe('User Role Routes', () => {
 
       expect(response.status).toBe(403);
       expect(response.body).toMatchObject({ error: 'FORBIDDEN', code: 'SYSTEM_ADMIN_REQUIRED' });
+      expect(observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: expect.any(String),
+        userId: 'admin-user-id',
+      });
+    });
+
+    it('上限による拒否でない失敗（404）は異常の検知へ送らない', async () => {
+      (mockUserRoleService.addRolesToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'ROLE_NOT_FOUND' })
+      );
+
+      const response = await request(app)
+        .post('/api/v1/users/user-1/roles')
+        .send({ roleIds: ['role-missing'] });
+
+      expect(response.status).toBe(404);
+      expect(observeSecurityAnomaly).not.toHaveBeenCalled();
     });
   });
 });

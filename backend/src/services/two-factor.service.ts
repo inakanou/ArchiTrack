@@ -490,12 +490,17 @@ export class TwoFactorService implements ITwoFactorService {
         if (isValid) {
           // 使用済みとしてマーク、監査ログ記録（実行者の写しは記録の前に読む。要件40.7）
           const actorSnapshot = await snapshotAuditActor(this.prisma, userId);
-          await this.prisma.$transaction([
-            this.prisma.twoFactorBackupCode.update({
-              where: { id: storedCode.id },
+          // 未使用の行だけを条件にした一度の更新で使用済みにする（要件27A.6, 27A.7）。
+          // 読んでから書く間に並行の検証が同じコードを使った場合は 0 行の更新になり、無効として扱う
+          const consumed = await this.prisma.$transaction(async (tx) => {
+            const { count } = await tx.twoFactorBackupCode.updateMany({
+              where: { id: storedCode.id, usedAt: null },
               data: { usedAt: new Date() },
-            }),
-            this.prisma.auditLog.create({
+            });
+            if (count !== 1) {
+              return false;
+            }
+            await tx.auditLog.create({
               data: {
                 action: 'TWO_FACTOR_BACKUP_CODE_USED',
                 actorId: userId,
@@ -504,8 +509,14 @@ export class TwoFactorService implements ITwoFactorService {
                 targetId: userId,
                 metadata: {},
               },
-            }),
-          ]);
+            });
+            return true;
+          });
+
+          if (consumed !== true) {
+            logger.debug({ userId }, 'バックアップコードは並行の検証で使用済みになりました');
+            return Ok(false);
+          }
 
           logger.debug({ userId }, 'バックアップコードで認証成功しました');
           return Ok(true);

@@ -429,6 +429,61 @@ describe('2FA 待ちの資格（統合）', () => {
       });
       expectInvalidChallenge(again);
     });
+
+    /**
+     * 使用済みのマークの原子性を観測する。別々の資格に同じバックアップコードを同時に送ると、資格の消費は
+     * それぞれ成り立つため、トークンの発行を一度に絞るのは「未使用の行だけ」を条件にした更新だけである。
+     *
+     * @requirement user-authentication/REQ-27A.6
+     * @requirement user-authentication/REQ-27A.7
+     */
+    it('別々の資格による同時の同じバックアップコードの検証は、一方だけがトークンを発行し、他方は無効として拒否する', async () => {
+      const tokens = [await challengeToken(), await challengeToken(), await challengeToken()];
+
+      const responses = await Promise.all(
+        tokens.map((token) => verifyBackup({ challengeToken: token, backupCode }))
+      );
+
+      const statuses = responses.map((r) => r.status).sort();
+      expect(statuses).toEqual([200, 401, 401]);
+      for (const response of responses.filter((r) => r.status === 401)) {
+        expect(response.body.code).toBe('INVALID_BACKUP_CODE');
+        expectNoTokens(response);
+      }
+      expect(await prisma.refreshToken.count({ where: { userId } })).toBe(1);
+      expect(await prisma.twoFactorBackupCode.count({ where: { userId, usedAt: null } })).toBe(0);
+      expect(
+        await prisma.auditLog.count({
+          where: { actorId: userId, action: 'TWO_FACTOR_BACKUP_CODE_USED' },
+        })
+      ).toBe(1);
+    });
+  });
+
+  describe('2FA の検証の失敗回数', () => {
+    /**
+     * 失敗回数の加算の原子性を観測する。読んだ値に 1 を足して書くと、同時の失敗が互いの加算を上書きして
+     * 数え落とす。DB の上で 1 だけ増やせば、同時の失敗も全て数える。
+     *
+     * @requirement user-authentication/REQ-27A.4
+     */
+    it('別々の資格による同時の三つの誤ったコードの検証は、失敗回数を三つ数える', async () => {
+      const tokens = [await challengeToken(), await challengeToken(), await challengeToken()];
+      const current = authenticator.generate(secret);
+      const wrong = String((Number(current) + 500000) % 1000000).padStart(6, '0');
+
+      const responses = await Promise.all(
+        tokens.map((token) => verifyTotp({ challengeToken: token, code: wrong }))
+      );
+
+      expect(responses.map((r) => r.status)).toEqual([401, 401, 401]);
+      const stored = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { twoFactorFailures: true, twoFactorLockedUntil: true },
+      });
+      expect(stored?.twoFactorFailures).toBe(3);
+      expect(stored?.twoFactorLockedUntil).toBeNull();
+    });
   });
 
   describe('資格の保存先が使えないとき', () => {

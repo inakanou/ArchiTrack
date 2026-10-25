@@ -4574,7 +4574,7 @@ _追加日: 2026-02-09_
 interface SessionExpiredModalProps {
   isOpen: boolean;
   userEmail: string;          // 前回ログインメールアドレス（自動入力用）
-  onReauthSuccess: () => void; // 再認証成功時コールバック
+  onReauthSuccess: (session: ReauthSession) => void; // 再認証成功時コールバック（ログインまたは 2FA 検証の応答を渡す）
   onNavigateToLogin: () => void; // ログイン画面遷移時コールバック
 }
 ```
@@ -4614,7 +4614,7 @@ interface AuthContextValue {
   sessionExpired: boolean;
   // 新規追加
   sessionExpiredDuringOperation: boolean;  // 操作中のセッション切れ（モーダル表示用）
-  handleReauthSuccess: () => void;         // 再認証成功時のハンドラー
+  handleReauthSuccess: (session: ReauthSession) => void; // 再認証成功時のハンドラー（パスワードのみ・2FA の両経路で同じ）
   navigateToLogin: () => void;             // ログイン画面遷移ハンドラー
 }
 ```
@@ -4629,12 +4629,13 @@ isInitialized === true の状態でリフレッシュ失敗
   → sessionExpiredDuringOperation = true（新規: モーダル方式）
 ```
 
+**再認証の API 呼び出し（モーダル側）:**
+- 再認証の API はモーダルが呼ぶ。パスワードのみの再認証（`POST /api/v1/auth/login`）と 2FA の再認証（`POST /api/v1/auth/verify-2fa`）のどちらでも、応答（`ReauthSession`：アクセストークンと有効期限・利用者）を同じ共通処理で `apiClient` へ置き、`handleReauthSuccess(session)` へ渡す。アクセストークンの無い応答は成功として扱わない（要件 30.9）
+
 **handleReauthSuccess の処理:**
-1. ログインAPI呼び出し（既存の `login` と同等）
-2. 新しいトークンの保存
-3. TokenRefreshManager の再初期化
-4. `sessionExpiredDuringOperation = false` に設定
-5. `apiClient` のトークンを更新
+1. 応答に利用者があれば、ログイン中の利用者を置き換える（無ければそのまま保つ）
+2. アクセストークンを `apiClient` へ置き、TokenRefreshManager を再初期化し、リフレッシュとセッション切れの経路を張り直す（ログイン時と同じ処理）
+3. `sessionExpiredDuringOperation = false` に設定する
 
 #### 3. API Client の変更
 
@@ -4794,7 +4795,7 @@ sequenceDiagram
     Modal->>BE: POST /api/v1/auth/login
     BE-->>Modal: 200 OK (accessToken + refreshToken)
 
-    Modal->>Auth: handleReauthSuccess()
+    Modal->>Auth: handleReauthSuccess(session)
     Auth->>Auth: トークン更新、TRM再初期化
     Auth->>Auth: sessionExpiredDuringOperation = false
     Auth->>Modal: モーダルを閉じる
@@ -4812,6 +4813,7 @@ sequenceDiagram
 sequenceDiagram
     actor User
     participant Modal as SessionExpiredModal
+    participant Auth as AuthContext
     participant BE as Backend
 
     User->>Modal: パスワード入力 + 再ログインボタン
@@ -4822,7 +4824,11 @@ sequenceDiagram
     User->>Modal: TOTPコード入力
     Modal->>BE: POST /api/v1/auth/verify-2fa
     BE-->>Modal: 200 OK (accessToken + refreshToken)
-    Modal->>Modal: 再認証成功 → モーダルを閉じる
+    Modal->>Modal: apiClient.setAccessToken(accessToken)
+    Modal->>Auth: handleReauthSuccess(session)
+    Auth->>Auth: トークン更新、TRM再初期化
+    Auth->>Auth: sessionExpiredDuringOperation = false
+    Auth->>Modal: モーダルを閉じる
 ```
 
 ### テスト設計
@@ -5069,6 +5075,7 @@ graph TB
 | `frontend/src/utils/audit-log-actions.ts` | 監査ログの種別の表示名と実行者の表示 |
 | `frontend/src/utils/user-restriction.ts` | 利用者の状態による遷移の制限の判定 |
 | `frontend/src/utils/zod-csp-config.ts` | Zod の JIT を止め、CSP の下で eval の試行による違反を起こさない（44.4） |
+| `frontend/src/utils/url-query-redaction.ts` | 画面側の Sentry へ送る URL のクエリとフラグメントの伏せ字（backend の同名の規則の写し） |
 | `frontend/nginx-security-headers.conf` | セキュリティヘッダーの取り込みファイル（テンプレート） |
 | `frontend/nginx-proxy-params.conf` | API の中継の共通の設定 |
 | `frontend/nginx-require-backend-internal-url.sh` | 中継先 `BACKEND_INTERNAL_URL` の起動前の検査 |
@@ -5129,11 +5136,12 @@ graph TB
 | `backend/src/types/express.d.ts` | `req.user` に `id` と状態を足す |
 | `frontend/src/api/client.ts` | アクセストークンをメモリだけに保持、CSRF ヘッダー、Cookie によるリフレッシュ |
 | `frontend/src/api/auth.ts` | 2FA 待ちの資格を伴う検証、本文にリフレッシュトークンを送らない |
-| `frontend/src/contexts/AuthContext.tsx` | localStorage を使わない復元、2FA 未登録・初回変更の状態 |
+| `frontend/src/contexts/AuthContext.tsx` | localStorage を使わない復元、2FA 未登録・初回変更の状態、再認証の応答でのセッションの立て直し |
+| `frontend/src/utils/sentry.ts` | breadcrumb・事象・トレース・リプレイの URL のトークンの伏せ字 |
 | `frontend/src/services/TokenRefreshManager.ts` | Web Locks による直列化 |
 | `frontend/src/components/ProtectedRoute.tsx` | 2FA 未登録・初回変更中の遷移の制限 |
 | `frontend/src/components/TwoFactorVerificationForm.tsx` | 資格を伴う検証 |
-| `frontend/src/components/SessionExpiredModal.tsx` | localStorage への書き込みを取り除く |
+| `frontend/src/components/SessionExpiredModal.tsx` | localStorage への書き込みを取り除く、パスワードのみと 2FA の再認証を同じ処理でセッションの立て直しへ渡す |
 | `frontend/src/components/schedule/ExportDialog.tsx` | API クライアント経由の取得に揃える |
 | `frontend/src/components/projects/UserSelect.tsx` | 無効化された担当者の表示名の表示、localStorage を読まない |
 | `frontend/src/components/InvitationManager.tsx` | 作成直後だけ招待 URL を表示、他者の招待の取り消し |
@@ -6024,6 +6032,8 @@ type ArchiveError =
 - `errorHandler` は Sentry の文脈に要求本文を付けない。付けるのは経路・メソッド・要求識別子・利用者 ID に限る
 - `initSentry` の `beforeSend` で、`event.request` の `data`・`cookies` を消去し、`headers` の `authorization`・`cookie`・`x-csrf-token` を `[Filtered]` にし、`query_string` を HttpLogger と同じ規則で伏せ字にする。`sendDefaultPii` は false とする（42.4）。実装は同じ規則を `beforeSendTransaction`（トレースの事象）にも当て、`beforeBreadcrumb` で HTTP の breadcrumb の url・クエリ・フラグメントも伏せる（タスク55.3）
 - 5xx の応答のたびに `SecurityAnomalyMonitor.observe('server_error', …)` を呼ぶ（43.3）
+- 画面側の Sentry（`frontend/src/utils/sentry.ts` の `initSentry`）も、送る URL のトークンを伏せる（42.4）。`beforeBreadcrumb`（遷移の from・to、fetch・xhr の url）、`beforeSend`（`event.request` の url・クエリ・`Referer`）、`beforeSendTransaction`、セッションリプレイの `beforeAddRecordingEvent`（記録の事象の href・span・breadcrumb）と、クライアントの `preprocessEvent`（replay の事象の `urls`・`request`）の各経路で、`?token=`・`&token=` などのクエリの値と `#token=` のフラグメントを伏せる
+- 画面側の規則は `frontend/src/utils/url-query-redaction.ts` に置く。backend の `backend/src/utils/url-query-redaction.ts` を画面から読み込めないための写しで、対象のキーと伏せ字の文字列は backend と同じにし、両方を揃えて変える（テストは同じ事例を固定する）。画面側だけの規則として、クエリの有無にかかわらず空でないフラグメントは丸ごと `#[REDACTED]` にする（招待・リセットのリンクはトークンをフラグメントで運ぶため）
 
 ##### SecurityAnomalyMonitor
 

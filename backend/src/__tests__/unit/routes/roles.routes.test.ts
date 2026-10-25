@@ -83,6 +83,12 @@ vi.mock('../../../services/audit-log.service', () => ({
 }));
 
 // モック: 認証・認可・バリデーションミドルウェア
+// 異常の検知への送信（要件43.2）
+const observeSecurityAnomaly = vi.hoisted(() => vi.fn());
+vi.mock('../../../services/security-anomaly-monitor.service.js', () => ({
+  observeSecurityAnomaly: (...args: unknown[]) => observeSecurityAnomaly(...args),
+}));
+
 vi.mock('../../../middleware/authenticate.middleware', () => ({
   authenticate: (req: Request, _res: Response, next: NextFunction) => {
     req.user = {
@@ -615,6 +621,12 @@ describe('Role Routes', () => {
         error: 'FORBIDDEN',
         code: 'SYSTEM_ROLE_RENAME_FORBIDDEN',
       });
+      // 権限付与の上限による拒否も権限の拒否として異常の検知へ送る（要件43.2）
+      expect(observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: expect.any(String),
+        userId: 'admin-user-id',
+      });
     });
 
     /**
@@ -631,6 +643,25 @@ describe('Role Routes', () => {
 
       expect(response.status).toBe(403);
       expect(response.body).toMatchObject({ error: 'FORBIDDEN', code: 'SYSTEM_ADMIN_REQUIRED' });
+      expect(observeSecurityAnomaly).toHaveBeenCalledTimes(1);
+      expect(observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: expect.any(String),
+        userId: 'admin-user-id',
+      });
+    });
+
+    it('上限による拒否でない失敗（404）は異常の検知へ送らない', async () => {
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Err({ type: 'PERMISSION_NOT_FOUND' }));
+
+      const response = await request(app)
+        .post('/api/v1/roles/role-3/permissions')
+        .send({ permissionId: 'perm-missing' });
+
+      expect(response.status).toBe(404);
+      expect(observeSecurityAnomaly).not.toHaveBeenCalled();
     });
   });
 });

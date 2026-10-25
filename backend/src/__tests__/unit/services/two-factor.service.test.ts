@@ -1253,7 +1253,7 @@ describe('TwoFactorService', () => {
       ]);
       const { verify } = await import('@node-rs/argon2');
       vi.mocked(verify).mockImplementation(async (_hash, candidate) => candidate === 'QWER5678');
-      vi.mocked(mockPrismaClient.$transaction).mockResolvedValue([]);
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.updateMany).mockResolvedValue({ count: 1 });
 
       // Act（画面に表示される XXXX-XXXX 形式を小文字で入力）
       const result = await twoFactorService.verifyBackupCode(mockUserId, 'qwer-5678');
@@ -1277,7 +1277,7 @@ describe('TwoFactorService', () => {
       vi.mocked(verify).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
       vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue(userWith2FA);
       vi.mocked(mockPrismaClient.twoFactorBackupCode.findMany).mockResolvedValue(mockBackupCodes);
-      vi.mocked(mockPrismaClient.$transaction).mockResolvedValue([]);
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.updateMany).mockResolvedValue({ count: 1 });
 
       // Act
       const result = await twoFactorService.verifyBackupCode(mockUserId, 'VALIDCODE');
@@ -1287,6 +1287,56 @@ describe('TwoFactorService', () => {
       if (result.ok) {
         expect(result.value).toBe(true);
       }
+    });
+
+    /**
+     * 要件27A.6, 27A.7: 使用済みのマークは「未使用の行だけ」を条件にした一度の更新で行い、
+     * 読んでから書く間に並行の検証が同じコードを使えないようにする
+     */
+    it('一致したコードを usedAt が null の行だけを条件にした更新で使用済みにし、監査ログを同じトランザクションで記録する', async () => {
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue({
+        id: mockUserId,
+        twoFactorEnabled: true,
+      });
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.findMany).mockResolvedValue([
+        { id: 'code-1', userId: mockUserId, codeHash: 'hash1', usedAt: null },
+      ]);
+      const { verify } = await import('@node-rs/argon2');
+      vi.mocked(verify).mockResolvedValue(true);
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.updateMany).mockResolvedValue({ count: 1 });
+
+      const result = await twoFactorService.verifyBackupCode(mockUserId, 'VALIDCODE');
+
+      expect(result).toEqual({ ok: true, value: true });
+      expect(mockPrismaClient.twoFactorBackupCode.updateMany).toHaveBeenCalledWith({
+        where: { id: 'code-1', usedAt: null },
+        data: { usedAt: expect.any(Date) },
+      });
+      expect(mockPrismaClient.twoFactorBackupCode.update).not.toHaveBeenCalled();
+      expect(mockPrismaClient.$transaction).toHaveBeenCalledWith(expect.any(Function));
+      expect(mockPrismaClient.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'TWO_FACTOR_BACKUP_CODE_USED' }),
+        })
+      );
+    });
+
+    it('条件付きの更新が 0 行（並行の検証が先に使った）のときは無効として扱い、監査ログを書かない', async () => {
+      vi.mocked(mockPrismaClient.user.findUnique).mockResolvedValue({
+        id: mockUserId,
+        twoFactorEnabled: true,
+      });
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.findMany).mockResolvedValue([
+        { id: 'code-1', userId: mockUserId, codeHash: 'hash1', usedAt: null },
+      ]);
+      const { verify } = await import('@node-rs/argon2');
+      vi.mocked(verify).mockResolvedValue(true);
+      vi.mocked(mockPrismaClient.twoFactorBackupCode.updateMany).mockResolvedValue({ count: 0 });
+
+      const result = await twoFactorService.verifyBackupCode(mockUserId, 'VALIDCODE');
+
+      expect(result).toEqual({ ok: true, value: false });
+      expect(mockPrismaClient.auditLog.create).not.toHaveBeenCalled();
     });
 
     it('無効なバックアップコード → false', async () => {

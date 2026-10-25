@@ -376,9 +376,11 @@ describe('2FA のログインの検証は DB 接続のタイムアウトで失�
       const auth = authServiceWith(prisma, twoFactorService(prisma));
 
       await expect(invoke(auth)).resolves.toEqual({ ok: false, error: { type: invalidCode } });
+      // 失敗回数は DB の上で 1 だけ増やす（要件27A.4）
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { twoFactorFailures: 3 },
+        data: { twoFactorFailures: { increment: 1 } },
+        select: { twoFactorFailures: true },
       });
     });
 
