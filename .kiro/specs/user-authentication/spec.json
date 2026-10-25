@@ -4,7 +4,7 @@
   "language": "Japanese",
   "phase": "tasks-generated",
   "created_at": "2025-11-20T12:00:00Z",
-  "updated_at": "2026-10-17T12:00:00Z",
+  "updated_at": "2026-10-25T12:00:00Z",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -35,14 +35,14 @@
       "phase_5_e2e_improvements": 1,
       "phase_6_navigation_enhancement": 6,
       "total_major_tasks": 57,
-      "total_sub_tasks": 189,
-      "pending_sub_tasks": 67,
+      "total_sub_tasks": 191,
+      "pending_sub_tasks": 0,
       "requirements_coverage": "100%",
       "requirements_count": 51,
-      "counted_at": "2026-10-17",
-      "counting_method": "tasks.md のチェック項目を数える。total_major_tasks は相異なる最上位番号（1〜43）、total_sub_tasks は N.M 形式の項目、pending_sub_tasks は未完了の N.M 形式の項目からタスク41.2 自身（本更新を行うタスク）を除いたもの（41.2 の完了で 0）。以前の値 113 は 248aa674（2026-09-29、タスク37 の起票）で更新した値で実数と一致していたが、counted_at が 2026-09-28 のまま残っていた。requirements_count は requirements.md の「### 要件N」見出し（16A・27A〜27E を含む）。requirements_coverage は tasks.md の各タスクの _Requirements:_ から見た要件の網羅であり、`npm run check:req-coverage` の被覆印の実測（2026-10-05 時点で受入基準 377/388、適用対象 374/374）とは別の指標。phase_1_3_completed〜phase_6_navigation_enhancement は 2025-12-03 の生成時点の内訳で、total_* とは合わない",
+      "counted_at": "2026-10-25",
+      "counting_method": "tasks.md のチェック項目を数える。total_major_tasks は相異なる最上位番号（1〜57）、total_sub_tasks は N.M 形式の項目、pending_sub_tasks は未完了の N.M 形式の項目からタスク57.2 自身（本更新を行うタスク）を除いたもの（57.2 の完了で 0。2026-10-25 の実測で未完了は 57.2 の 1 件だけ）。requirements_count は requirements.md の「### 要件N」見出し（16A・27A〜27E を含む）。requirements_coverage は tasks.md の各タスクの _Requirements:_ から見た要件の網羅であり、`npm run check:req-coverage` の被覆印の実測とは別の指標。phase_1_3_completed〜phase_6_navigation_enhancement は 2025-12-03 の生成時点の内訳で、total_* とは合わない",
       "requirements_count_note": "2026-10-16 に要件32〜45を追加して 51（「### 要件N」見出しの数。16A・27A〜27E を含む）。total_* 等のタスクの計数は tasks.md 更新時に測り直す",
-      "tasks_44_57_note": "2026-10-17 に要件7.3・32〜45 の実装としてタスク44〜57（サブタスク67件）を追加。pending_sub_tasks はその67件。total_major_tasks は相異なる最上位番号（1〜57）、total_sub_tasks は N.M 形式の項目（122 + 67）"
+      "tasks_44_57_note": "2026-10-17 に要件7.3・32〜45 の実装としてタスク44〜57（サブタスク67件）を起票し、実装中の起票（44.11・44.12・47.11 など）で 69 件になった（2026-10-25 の実測）。total_sub_tasks は N.M 形式の項目（タスク1〜43 の 122 + タスク44〜57 の 69 = 191）"
     },
     "design_update": {
       "updated_at": "2025-12-03T16:00:00Z",

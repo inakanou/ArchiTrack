@@ -868,7 +868,8 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     User->>Frontend: 招待URL アクセス
-    Frontend->>Backend: GET /api/v1/invitations/verify?token={token}
+    Frontend->>Frontend: URL のフラグメント（#token=…）からトークンを読み、URL から取り除く
+    Frontend->>Backend: POST /api/v1/invitations/verify（本文 { token }）
     Backend->>DB: 招待トークン検証
     alt トークンが無効または期限切れ
         DB-->>Backend: エラー
@@ -1055,7 +1056,7 @@ sequenceDiagram
 | 要件 | 要件概要 | コンポーネント | インターフェース | フロー |
 |------|---------|--------------|----------------|--------|
 | 1 | 管理者によるユーザー招待 | InvitationService, EmailService | POST /api/v1/invitations | ユーザー招待フロー |
-| 2 | 招待を受けたユーザーのアカウント作成 | AuthService, PasswordService | POST /api/v1/auth/register, GET /api/v1/invitations/verify | ユーザー登録フロー |
+| 2 | 招待を受けたユーザーのアカウント作成 | AuthService, PasswordService | POST /api/v1/auth/register, POST /api/v1/invitations/verify | ユーザー登録フロー |
 | 3 | 初期管理者アカウントのセットアップ | AuthService | データベースシーディング | - |
 | 4 | ログイン | AuthService, PasswordService, SessionService | POST /api/v1/auth/login | ログインフロー |
 | 5 | トークン管理 | TokenService, SessionService | POST /api/v1/auth/refresh, authenticate middleware | トークンリフレッシュフロー |
@@ -1070,7 +1071,7 @@ sequenceDiagram
 | 23-26 | 非機能要件（パフォーマンス、フォールトトレランス、データ整合性、セキュリティ） | Redis Cache, Prisma Transaction, ApiError | 全コンポーネント | - |
 | 27系列 | 二要素認証（2FA）設定・ログイン・管理・セキュリティ・UI/UX・アクセシビリティ | TwoFactorService | POST /api/v1/auth/2fa/setup, POST /api/v1/auth/2fa/enable, POST /api/v1/auth/verify-2fa | 2FA設定フロー、ログインフロー |
 | 28 | 画面遷移とナビゲーション | Router, ProtectedRoute, Navigation | React Router, History API | 全フロー |
-| 29 | パスワードリセット画面のUI/UX | PasswordResetRequestPage, PasswordResetPage | POST /api/v1/auth/password/reset-request, GET /api/v1/auth/password/verify-reset, POST /api/v1/auth/password/reset | パスワードリセットフロー |
+| 29 | パスワードリセット画面のUI/UX | PasswordResetRequestPage, PasswordResetPage | POST /api/v1/auth/password/reset-request, POST /api/v1/auth/password/verify-reset, POST /api/v1/auth/password/reset | パスワードリセットフロー |
 | 32-45 | セキュリティ是正（2026-10-16 追加） | 末尾の章の Component Summary を参照 | 末尾の章の各部品を参照 | 末尾の章の System Flows を参照 |
 
 ## Type Definitions
@@ -2199,15 +2200,15 @@ app.delete('/api/v1/users/:id', authenticate, authorize('user:delete'), deleteUs
 | PATCH | /api/v1/users/me | ユーザー情報更新 | UpdateProfileRequest | UserProfile | authenticate, validate |
 | POST | /api/v1/auth/2fa/setup | 2FA設定開始 | - | TwoFactorSetupData | authenticate |
 | POST | /api/v1/auth/2fa/enable | 2FA有効化 | EnableTwoFactorRequest | TwoFactorEnabledData | authenticate, validate |
-| POST | /api/v1/auth/2fa/disable | 2FA無効化 | DisableTwoFactorRequest | void | authenticate, validate |
+| POST | /api/v1/auth/2fa/disable | 2FA無効化（要件34.6 により自己の無効化は 403 `TWO_FACTOR_DISABLE_NOT_ALLOWED` で拒否する） | - | 403 | authenticate |
 | POST | /api/v1/auth/2fa/backup-codes/regenerate | バックアップコード再生成 | - | BackupCodesData | authenticate |
 | POST | /api/v1/invitations | 招待作成 | CreateInvitationRequest | Invitation | authenticate, authorize('user:invite') |
 | GET | /api/v1/invitations | 招待一覧取得 | InvitationFilter | Invitation[] | authenticate, authorize('user:invite') |
 | POST | /api/v1/invitations/:id/revoke | 招待取り消し | - | void | authenticate, authorize('user:invite') |
 | POST | /api/v1/invitations/:id/resend | 招待再送信 | - | Invitation | authenticate, authorize('user:invite') |
-| GET | /api/v1/invitations/verify | 招待検証 | ?token={token} | InvitationInfo | - |
+| POST | /api/v1/invitations/verify | 招待検証 | `{ token }`（本文） | InvitationInfo | validate |
 | POST | /api/v1/auth/password/reset-request | パスワードリセット要求 | PasswordResetRequest | void | validate |
-| GET | /api/v1/auth/password/verify-reset | リセットトークン検証 | ?token={token} | void | - |
+| POST | /api/v1/auth/password/verify-reset | リセットトークン検証 | `{ token }`（本文） | `{ valid: true }` | - |
 | POST | /api/v1/auth/password/reset | パスワードリセット実行 | ResetPasswordRequest | void | validate |
 | GET | /api/v1/roles | ロール一覧取得 | - | Role[] | authenticate, authorize('role:read') |
 | POST | /api/v1/roles | ロール作成 | CreateRoleRequest | Role | authenticate, authorize('role:create') |
@@ -3468,7 +3469,7 @@ model AuditLog {
 - **再試行回数の環境変数**（2026-09-27 タスク35.9 で追記、利用者の裁定「0〜10 を受け、間隔を倍々で延ばす」）: 要件の環境変数表の `DATABASE_RETRY_COUNT` を 0〜10 の整数として受け付け、未設定なら条文 24.6 どおり 3 回とする。n 回目（1 始まり）の再試行までの間隔は 1000 × 2^(n−1) ms とし、条文が挙げる 3 回の 1000ms・2000ms・4000ms をそのまま 4 回目以降へ延ばす（5 回なら 1000ms・2000ms・4000ms・8000ms・16000ms、10 回目は 512000 ms）。0 は再試行しない。範囲外（11・-1）・小数・非数値は拒否する。検証は `backend/src/config/env.ts` の `parseDatabaseRetryCount` に置き、環境変数の検証（validateEnv）と DB クライアントの生成（`backend/src/db.ts` の getPrismaClient）の両方が同じ関数を通す。`RetryingPool` は設定の `retryCount`（省略時 3）から間隔列を求める。上限の 10 回では待ち時間の総和が 1000 × (2^10 − 1) = 1023000 ms（1023 秒、約 17 分）になり、これに各試行の接続タイムアウト（既定 5000 ms × 11 試行 = 55 秒）が加わるため、失敗の応答まで約 18 分かかる。大きな値は応答を長く待たせることを踏まえて設定する
 - **24.1 との関係**: 24.6 の再試行を使い切った後の失敗が 24.1 の「タイムアウト以内に確立できない」に当たる。上の実測のとおり、そのエラーは素の Error として返り、現在のエラーハンドラの分岐（503 は Prisma の初期化エラー等に限る）では 503 ではなく既定の 500 になる。これを 503 へ対応づけることは 24.1 の範囲とし、後続（タスク35.8）として起票する
 - **認証系のエンドポイントでの 503（要件24.1）**（2026-09-27 タスク35.11 で追記）: 接続のタイムアウトは**サービス層で `DATABASE_ERROR` へ飲み込まず投げ直し**、ルートの `next(error)` からエラーハンドラーの 503「Service Unavailable」（Problem Details、`detail: 'Database connection error'`）へ届ける。ルートごとに 503 へ変換する方式は採らない。変換をルートへ置くと、`DATABASE_ERROR` を個別に扱うルート（ログイン・2FA 検証）と扱わずに汎用の 500 を返すルート（現在のユーザーの取得・トークンの更新・登録など）のすべてへ同じ分岐を書き足すことになり、応答の形もエラーハンドラーの 503 と二重に定義されるため
-  - **判定の置き場所**: 判定は `backend/src/utils/db-connection-timeout.ts` の `isDatabaseConnectionTimeout`（pg-pool の2つのタイムアウト文言の完全一致・`code === 'ETIMEDOUT'`・P1008 の `PrismaClientKnownRequestError`）ひとつに置き、エラーハンドラーとサービス層が同じ関数を使う。サービス層は同じモジュールの `rethrowIfDatabaseConnectionTimeout(error)` を、DB 例外を `DATABASE_ERROR` へ変える catch の先頭で呼ぶ（auth 8・permission 3・role-permission 3・role 4・session 3・user-role 3 の計 24 か所）
+  - **判定の置き場所**: 判定は `backend/src/utils/db-connection-timeout.ts` の `isDatabaseConnectionTimeout`（pg-pool の2つのタイムアウト文言の完全一致・`code === 'ETIMEDOUT'`・P1008 の `PrismaClientKnownRequestError`）ひとつに置き、エラーハンドラーとサービス層が同じ関数を使う。サービス層は同じモジュールの `rethrowIfDatabaseConnectionTimeout(error)` を、DB 例外を `DATABASE_ERROR` へ変える catch の先頭で呼ぶ（auth 8・permission 3・role-permission 3・role 4・session 3・user-role 3 の計 24 か所。2026-10-25 のタスク57.2 の再計数では auth 9・permission 3・role-permission 3・role 4・session 1・user-role 3 の計 23 か所で、auth の 1 か所は `rethrowIfDatabaseConnectionTimeout(updateError)` の形である）
   - **それ以外の DB 例外**: 接続のタイムアウトでない例外（一般の Error、P1001 など）は何も変えず、各サービスの既存のログと `DATABASE_ERROR`、各ルートの既存の状態コードと本文のまま返す
   - **伝播の前提**: 上の 6 サービスを呼ぶルート（auth / roles / permissions / session / user-roles）のハンドラーはすべて `try { … } catch (error) { next(error); }` で投げられた例外をエラーハンドラーへ渡す（Express 5.2）。6 サービスの該当メソッドを呼ぶのはこれらのルートだけである
   - **この方式で 503 になるエンドポイント**: 対話型トランザクションを開始する前に DB へ問い合わせるもの——ログイン、現在のユーザーの取得（GET /api/v1/auth/me）、トークンの更新、ログアウト、全デバイスからのログアウト、登録（招待の検証が最初の問い合わせ）。いずれも統合検証 `backend/src/__tests__/integration/auth-db-connection-timeout-503.integration.test.ts` で、応答しない TCP サーバーへ向けた本物のアプリに対して 503 と Problem Details を確かめる
@@ -3488,13 +3489,13 @@ model AuditLog {
   - **適用の範囲**: `requirePermission` は認証系の外（projects・estimates など）のルートでも使われるため、それらのエンドポイントも権限の判定の DB 接続タイムアウトで 503 を返す。接続のタイムアウト以外の応答（401・403・500・権限ありの通過）は変わらない
   - **統合検証**: `backend/src/__tests__/integration/authorize-db-connection-timeout-503.integration.test.ts` は、RBACService を差し替えない本物のアプリを応答しない TCP サーバーへ向け（`DATABASE_RETRY_COUNT=0`・`DATABASE_CONNECTION_TIMEOUT=200`）、GET /api/v1/roles、GET /api/v1/roles/:id/permissions、GET /api/v1/permissions、GET /api/v1/users、GET /api/v1/users/:id/roles が 503 と Problem Details を返すことを確かめる。上の 5 つの書き込みも同じく差し替えなしで 503 を確かめる（トランザクションの開始の経路の退行検出は、上の 35.12 の「統合検証」のとおり差し替えた別の describe が担う）
 - **パスワードと二要素認証の経路での 503（要件24.1）**（2026-09-28 タスク36.3 で追記）: PasswordService と TwoFactorService も、上の「認証系のエンドポイントでの 503」と同じく、DB 例外を自前のエラーへ変える catch の先頭で `rethrowIfDatabaseConnectionTimeout(error)` を呼び、接続のタイムアウトをルートの `next(error)` からエラーハンドラーの 503「Service Unavailable」（Problem Details、`detail: 'Database connection error'`）へ届ける。35.11 の時点ではこの 2 サービスを対象外とし、DB 障害が利用者には「パスワード／コードが違う」と見えていた（パスワードの変更は「Current password is incorrect」の 400、リセットの確定は「Invalid reset token」の 400、リセットの要求は 200、2FA は 400 / 404）
-  - **適用する箇所**: PasswordService の catch 3 か所（リセットの要求・リセットの確定・パスワードの変更）、TwoFactorService の catch 7 か所（設定の開始・TOTP の検証・バックアップコードの検証・有効化・無効化・バックアップコードの状態の取得・再生成）。設定の開始（`setupTwoFactor`）の catch はタスク36.3 の実測の一覧に無かったが、同じく DB 例外を `USER_NOT_FOUND` の 404 へ変えるため含めた
+  - **適用する箇所**: PasswordService の catch 3 か所（リセットの要求・リセットの確定・パスワードの変更）、TwoFactorService の catch 7 か所（設定の開始・TOTP の検証・バックアップコードの検証・有効化・無効化・バックアップコードの状態の取得・再生成）。タスク47.1 で 2FA の自己の無効化を DB に触れず 403 を返す経路に改めたため、2026-10-25 の時点の TwoFactorService の catch は 6 か所である。設定の開始（`setupTwoFactor`）の catch はタスク36.3 の実測の一覧に無かったが、同じく DB 例外を `USER_NOT_FOUND` の 404 へ変えるため含めた
   - **2FA のログインの失敗回数**: `AuthService.verify2FA` と `verify2FABackupCode` は、TwoFactorService の検証が返した失敗を「コードの不一致」として失敗回数（`twoFactorFailures`）を加算する。検証の中の接続のタイムアウトは上の投げ直しで検証の結果にならずに外側の catch（35.11 で投げ直し済み）へ届くため、失敗回数を加算しない。失敗回数の更新自体を囲む内側の catch も、接続のタイムアウトは投げ直す（それ以外の更新の失敗は従来どおりログに残して検証の失敗の 401 を返す）。DB に到達できないときの 401 は利用者に「コードが違う」と誤認させ、失敗回数も記録されないため、503 に揃える
   - **対話型トランザクションの開始の待ち**: この 2 サービスの対話型トランザクション（リセットの要求・リセットの確定・パスワードの変更・2FA の設定の開始・有効化・バックアップコードの再生成の 6 か所）は開始の前に同じ要求の中で DB へ問い合わせるが、その問い合わせの後に接続が失われると、開始は新しい接続の確立を待つ。実測（2026-09-28、Prisma 7.9.1・`RetryingPool`（再試行 1 回・接続タイムアウト 1000ms、予算 3000ms）、実データベースへの中継で先行の問い合わせの後に確立済みの接続を切り無応答にした使い捨ての検証）で、`maxWait` なしでは約 2.0 秒で P2028（catch が自前のエラーへ変える）、`connectBudgetTransactionOptions()` を渡すと約 3.0 秒で pg-pool の接続タイムアウトの素の Error となった。既定の設定（3 回・5000ms、予算 27000ms）でも同じく P2028 が先に来るため、上の「対話型トランザクションの開始の待ち」と同じ `maxWait` を 6 か所に渡す。配列を渡す `$transaction([...])`（バックアップコードの検証・2FA の無効化）は開始の待ちの打ち切りを持たないため変えない。P2028 を接続のタイムアウトとして区別しない方針（上の「P2028 の判定を区別する案を採らない理由」）は変えない
   - **それ以外の DB 例外**: 接続のタイムアウトでない例外（一般の Error、P1001、P2028 など）は、各サービスの既存のログと自前のエラー、各ルートの既存の状態コードと本文のまま返す
   - **リセットの要求の応答の差（列挙の観点）**: DB に最初から到達できないときは、メールアドレスの有無に関わらず 503 となり差は出ない。差が出るのは、ユーザーの検索の成功の直後に接続が失われた場合だけで、存在するアカウントは 503（トークンの保存が届かない）、存在しないアカウントは 200 となる。攻撃者が意図して起こせる状況ではなく、既存の処理量の差（トランザクションの有無）以上の手がかりにならないため、受け入れる（タスク36.3 の独立レビューの指摘）
   - **伝播の前提**: 2 サービスを呼ぶ認証ルート（`/password/*`・`/2fa/*`・`/verify-2fa`・`/verify-2fa/backup`）のハンドラーはすべて投げられた例外を `next(error)` でエラーハンドラーへ渡す。`authenticate` は DB を引かず、`requirePermission` は通らない
-  - **統合検証**: `backend/src/__tests__/integration/password-two-factor-db-connection-timeout-503.integration.test.ts`（`DATABASE_RETRY_COUNT=0`・`DATABASE_CONNECTION_TIMEOUT=200`）は、最初から DB に到達できないとき、パスワードの変更・リセットの要求と確定・2FA の設定の開始・有効化・無効化・バックアップコードの再生成と状態の取得・2FA のログインの検証が 503 と Problem Details を返すことを確かめる。2FA のログインの検証（TOTP・バックアップコード）は、TwoFactorService の検証メソッドの呼び出しの間だけ DB を無応答にし（メソッドは本物）、503 を返して失敗回数が 0 のままであることを、検証の後の失敗回数の更新だけを無応答にし 503 を返すことと合わせて確かめる。`backend/src/__tests__/integration/password-two-factor-transaction-db-connection-timeout-503.integration.test.ts`（再試行 1 回・1000ms、予算 3000ms）は、トランザクションの直前のメソッド（`hashPassword`・`generateQRCode`・`decryptSecret`）の後に DB を無応答にし、パスワードの変更・リセットの確定・2FA の設定の開始・有効化が予算の後に 503 を返し、書き込みが残らないことを確かめる。接続の転送と無応答の切り替えは、実データベースへの TCP の中継 `backend/src/__tests__/integration/switchable-database-relay.ts` が担う（無応答へ切り替えるときは確立済みの接続も切り、次の問い合わせに新しい接続の確立を強いる）
+  - **統合検証**: `backend/src/__tests__/integration/password-two-factor-db-connection-timeout-503.integration.test.ts`（`DATABASE_RETRY_COUNT=0`・`DATABASE_CONNECTION_TIMEOUT=200`）は、最初から DB に到達できないとき、パスワードの変更・リセットの要求と確定・2FA の設定の開始・有効化・無効化・バックアップコードの再生成と状態の取得・2FA のログインの検証が 503 と Problem Details を返すことを確かめる（タスク47.1 の後は、2FA の自己の無効化は DB に触れず 403 を返すため、同テストの対象から外した）。2FA のログインの検証（TOTP・バックアップコード）は、TwoFactorService の検証メソッドの呼び出しの間だけ DB を無応答にし（メソッドは本物）、503 を返して失敗回数が 0 のままであることを、検証の後の失敗回数の更新だけを無応答にし 503 を返すことと合わせて確かめる。`backend/src/__tests__/integration/password-two-factor-transaction-db-connection-timeout-503.integration.test.ts`（再試行 1 回・1000ms、予算 3000ms）は、トランザクションの直前のメソッド（`hashPassword`・`generateQRCode`・`decryptSecret`）の後に DB を無応答にし、パスワードの変更・リセットの確定・2FA の設定の開始・有効化が予算の後に 503 を返し、書き込みが残らないことを確かめる。接続の転送と無応答の切り替えは、実データベースへの TCP の中継 `backend/src/__tests__/integration/switchable-database-relay.ts` が担う（無応答へ切り替えるときは確立済みの接続も切り、次の問い合わせに新しい接続の確立を強いる）
 
 ## Testing Strategy
 
@@ -4342,7 +4343,7 @@ export function PasswordResetPage(): ReactElement {
   useEffect(() => {
     async function verifyToken() {
       try {
-        await apiClient.get(`/api/v1/auth/password/verify-reset?token=${resetToken}`);
+        await apiClient.post('/api/v1/auth/password/verify-reset', { token: resetToken });
         setIsTokenValid(true);
       } catch {
         setIsTokenValid(false);
@@ -4513,7 +4514,7 @@ sequenceDiagram
     FE->>BE: POST /api/v1/auth/password/reset-request
     BE->>DB: ユーザー検索（email）
     alt ユーザーが存在する
-        BE->>BE: リセットトークン生成（24時間有効）
+        BE->>BE: リセットトークン生成（1時間有効。要件7.3）
         BE->>DB: PasswordResetToken保存
         BE->>Email: パスワードリセットメール送信
     end
@@ -4521,7 +4522,8 @@ sequenceDiagram
     FE-->>User: 「メールを送信しました」メッセージ表示
 
     User->>FE: リセットメールのリンクをクリック
-    FE->>BE: GET /api/v1/auth/password/verify-reset?token={token}
+    FE->>FE: URL のフラグメント（#token=…）からトークンを読み、URL から取り除く
+    FE->>BE: POST /api/v1/auth/password/verify-reset（本文 { token }）
     BE->>DB: リセットトークン検証
     alt トークンが有効
         BE-->>FE: 200 OK
@@ -5020,48 +5022,71 @@ graph TB
 
 #### 新設するファイル
 
-新設するファイルは作成前のため、パスを引用符で囲まずに記す（作成後のタスクで実在の参照へ書き換える）。
+タスク44〜56 の実装で作ったファイルを実在のパスで記す（2026-10-25、タスク57.2）。計画の段階で一本とした DB の移行は、適用済みの移行を書き換えないため、タスクごとの移行に分けた（次の表の末尾と「移行」の節）。計画の段階で置いた三つの名前は、実装で次のとおりになった: 異常の検知は `backend/src/services/security-anomaly-monitor.service.ts`、保存用の SHA-256 は単独のファイルを設けず各所（`backend/src/services/session.service.ts`、`backend/src/utils/invitation-token.ts`、`backend/src/utils/password-reset-token.ts`、`backend/src/services/two-factor-challenge.service.ts`）に置き、記録してから出力する包み `runRecordedExport` は `frontend/src/api/export-audit.ts` に置いた。
 
-```
-backend/src/
-├── config/
-│   └── runtime-mode.ts                         # 開発用機能の有効化の判定（NODE_ENV の明示だけを見る）
-├── services/
-│   ├── two-factor-challenge.service.ts         # 2FA 待ちの資格の発行・検証・消費（Redis）
-│   ├── authenticated-user-state.service.ts     # 利用者の状態の取得とキャッシュ・無効化
-│   ├── account-status.service.ts               # 無効化・再有効化・自動無効化
-│   ├── user-inventory.service.ts               # 棚卸しの一覧と絞り込み
-│   ├── privilege-ceiling.ts                    # ロール割り当て・権限追加の上限の判定
-│   ├── project-scope.service.ts                # 案件の閲覧範囲の判定と一覧の絞り込み条件
-│   ├── export-audit.service.ts                 # データ出力の記録
-│   ├── admin-notification.service.ts           # 全システム管理者への通知
-│   ├── security-anomaly-monitor.ts             # 時間窓の計数と閾値の判定・通知の抑止
-│   └── token-hash.ts                           # 保存用の SHA-256
-├── jobs/
-│   ├── scheduled-job-runner.ts                 # Bull の繰り返しジョブの登録と実行
-│   ├── inactive-user-deactivation.job.ts       # 90 日の自動無効化
-│   ├── expired-token-cleanup.job.ts            # 使用済み・期限切れのトークンの消去
-│   └── audit-log-archive.job.ts                # 月次のアーカイブと 8 年の消去
-├── middleware/
-│   ├── project-scope.middleware.ts             # requireProjectScope
-│   └── client-ip.ts                            # req.ip による送信元の識別
-├── routes/
-│   └── user-inventory.routes.ts                # 棚卸し・無効化・再有効化・2FA の再設定
-├── scripts/
-│   └── reactivate-user.ts                      # 復旧用（サーバー上で実行）
-backend/prisma/migrations/
-└── <日時>_security_remediation_ipa_20261009/
-    └── migration.sql                           # 列・索引・トリガー・データの移行（「移行」の 1〜6）
-
-frontend/src/
-├── api/
-│   ├── export-audit.ts                         # 出力の記録の API 呼び出し
-│   └── user-inventory.ts                       # 棚卸しの API 呼び出し
-├── services/
-│   └── recorded-export.ts                      # 記録してから出力する包み
-└── pages/
-    └── UserInventoryPage.tsx                   # 棚卸し画面
-```
+| ファイル | 役割 |
+|---|---|
+| `backend/src/config/runtime-mode.ts` | 開発用機能の有効化の判定（`NODE_ENV` の明示だけを見る）と本番の前提の検査 |
+| `backend/src/config/jwt-claims.ts` | トークンの発行者・想定利用者の既定値 |
+| `backend/src/config/security-alert.ts` | 異常の検知の閾値・時間窓・抑止の時間の既定値と環境変数の検証 |
+| `backend/src/services/two-factor-challenge.service.ts` | 2FA 待ちの資格の発行・照会・消費（Redis） |
+| `backend/src/services/authenticated-user-state.service.ts` | 利用者の状態の取得とキャッシュの無効化 |
+| `backend/src/services/authenticated-user-state-cache.ts` | 利用者の状態のキャッシュ（Redis の鍵と世代の照合） |
+| `backend/src/services/account-status.service.ts` | 無効化・再有効化・自動無効化 |
+| `backend/src/services/user-inventory.service.ts` | 棚卸しの一覧と絞り込み |
+| `backend/src/services/privilege-ceiling.ts` | ロール割り当て・権限追加の上限の判定 |
+| `backend/src/services/project-scope.service.ts` | 案件の閲覧範囲の判定と一覧の絞り込み条件 |
+| `backend/src/services/export-audit.service.ts` | データ出力の記録 |
+| `backend/src/services/admin-notification.service.ts` | 全システム管理者への通知 |
+| `backend/src/services/security-anomaly-monitor.service.ts` | 時間窓の計数と閾値の判定・通知の抑止 |
+| `backend/src/jobs/scheduled-job-runner.ts` | Bull の繰り返しジョブの登録と実行 |
+| `backend/src/jobs/inactive-user-deactivation.job.ts` | 90 日の自動無効化 |
+| `backend/src/jobs/expired-token-cleanup.job.ts` | 使用済み・期限切れのトークンの消去 |
+| `backend/src/jobs/failed-email-job-cleanup.job.ts` | メールキューの失敗のジョブの掃除（45.3） |
+| `backend/src/jobs/audit-log-archive.job.ts` | 月次のアーカイブと 8 年を過ぎたアーカイブの消去 |
+| `backend/src/middleware/project-scope.middleware.ts` | `requireProjectScope` |
+| `backend/src/middleware/client-ip.ts` | `req.ip` による送信元の識別（`getClientIp`） |
+| `backend/src/routes/user-inventory.routes.ts` | 棚卸し・無効化・再有効化・2FA の再設定 |
+| `backend/src/schemas/export-audit.schema.ts` | 出力の記録の要求本文の検証 |
+| `backend/src/schemas/audit-log-archive-restore.schema.ts` | アーカイブの復元の要求本文の検証 |
+| `backend/src/scripts/reactivate-user.ts` | 再有効化の運用スクリプト（サーバー上で実行） |
+| `backend/src/templates/admin-notification-email.hbs` | 管理者への通知のメールのテンプレート |
+| `backend/src/utils/audit-text.ts` | 監査に書く入力由来の値の切り詰め（`boundAuditText`）と上限の定数 |
+| `backend/src/utils/audit-log-archive-permission.ts` | 監査ログの行の消去を、アーカイブの許可の設定を置いた取引の中で行う補助 |
+| `backend/src/utils/invitation-token.ts` | 招待のトークンのハッシュと招待 URL（フラグメントの形）の組み立て |
+| `backend/src/utils/password-reset-token.ts` | リセットのトークンのハッシュとリセットのリンク（フラグメントの形）の組み立て |
+| `backend/src/utils/refresh-token-lock.ts` | 利用者ごとのリフレッシュトークンの勧告ロック（`lockUserRefreshTokens`）と取引の中の全失効 |
+| `backend/src/utils/sentry-request-context.ts` | Sentry へ送る要求の文脈（経路・メソッド・要求識別子・利用者 ID） |
+| `backend/src/utils/url-query-redaction.ts` | URL のクエリの伏せ字（HttpLogger と Sentry で共通） |
+| `frontend/src/api/export-audit.ts` | 出力の記録の API 呼び出しと、記録してから出力する包み（`runRecordedExport`） |
+| `frontend/src/api/user-inventory.ts` | 棚卸しの API 呼び出し |
+| `frontend/src/hooks/useUrlToken.ts` | 招待・リセットのリンクのトークンを URL から読み、URL から取り除く |
+| `frontend/src/pages/UserInventoryPage.tsx` | 棚卸し画面 |
+| `frontend/src/pages/SetupPasswordPage.tsx` | 初回のパスワード変更の画面（`/setup/password`） |
+| `frontend/src/components/PasswordChangeSection.tsx` | パスワード変更の区画（プロフィールと初回変更の画面で共通） |
+| `frontend/src/components/TwoFactorReenrollForm.tsx` | 2FA の再登録の手順 |
+| `frontend/src/components/TwoFactorBackupCodes.tsx` | バックアップコードの表示 |
+| `frontend/src/utils/audit-log-actions.ts` | 監査ログの種別の表示名と実行者の表示 |
+| `frontend/src/utils/user-restriction.ts` | 利用者の状態による遷移の制限の判定 |
+| `frontend/src/utils/zod-csp-config.ts` | Zod の JIT を止め、CSP の下で eval の試行による違反を起こさない（44.4） |
+| `frontend/nginx-security-headers.conf` | セキュリティヘッダーの取り込みファイル（テンプレート） |
+| `frontend/nginx-proxy-params.conf` | API の中継の共通の設定 |
+| `frontend/nginx-require-backend-internal-url.sh` | 中継先 `BACKEND_INTERNAL_URL` の起動前の検査 |
+| `e2e/helpers/auth-api.ts` | E2E のアクセストークンの取得とログイン API の呼び出しの補助 |
+| `e2e/helpers/shared-sessions.ts` | 共有の役割のセッションの保持と受け渡し |
+| `e2e/helpers/two-factor-totp.ts` | TOTP の計算と最後に使った時間ステップの巻き戻し |
+| `e2e/helpers/user-state-cache.ts` | 利用者の状態のキャッシュの無効化 |
+| `e2e/helpers/mailpit.ts` | 試験のメールの受信箱の読み取り |
+| `e2e/helpers/frontend-security-headers.ts` | 画面の配信のセキュリティヘッダーの観測 |
+| `backend/prisma/migrations/20261017000000_security_remediation_ipa_20261009_user_status/migration.sql` | 利用者の状態の列・招待者・索引（タスク44.1） |
+| `backend/prisma/migrations/20261017010000_security_remediation_ipa_20261009_audit_log_protection/migration.sql` | 監査ログの実行者の写しと改変を禁じるトリガー（タスク44.2） |
+| `backend/prisma/migrations/20261017020000_security_remediation_ipa_20261009_default_permissions/migration.sql` | 既定の権限の改め（タスク44.4） |
+| `backend/prisma/migrations/20261018000000_security_remediation_ipa_20261009_invitation_token_nullable/migration.sql` | 招待のトークンの列に空を許す（タスク44.9） |
+| `backend/prisma/migrations/20261018010000_security_remediation_ipa_20261009_refresh_token_family/migration.sql` | リフレッシュトークンのハッシュ・系列（タスク45.2） |
+| `backend/prisma/migrations/20261022000000_security_remediation_ipa_20261009_access_token_generation/migration.sql` | アクセストークンの世代（タスク47.11） |
+| `backend/prisma/migrations/20261022010000_security_remediation_ipa_20261009_reactivated_at/migration.sql` | 最後の再有効化の日時（タスク49.4） |
+| `backend/prisma/migrations/20261023000000_security_remediation_ipa_20261009_invitation_token_hash/migration.sql` | 招待のトークンのハッシュ保存（タスク50.1） |
+| `backend/prisma/migrations/20261023010000_security_remediation_ipa_20261009_password_reset_token_hash/migration.sql` | リセットのトークンのハッシュ保存（タスク50.2） |
 
 #### 変更するファイル
 
@@ -5402,25 +5427,30 @@ type ChallengeError =
 
 ```typescript
 interface TwoFactorService {
-  verifyTOTP(userId: string, code: string): Promise<Result<void, TwoFactorError>>;
-  verifyBackupCode(userId: string, backupCode: string): Promise<Result<void, TwoFactorError>>;
-  resetByAdmin(actorId: string, targetUserId: string, ctx: RequestContext): Promise<Result<void, TwoFactorResetError>>;
-  startReenrollment(userId: string, currentCode: string): Promise<Result<TwoFactorSetupData, TwoFactorError>>;
-  confirmReenrollment(userId: string, newCode: string): Promise<Result<{ backupCodes: string[] }, TwoFactorError>>;
+  verifyTOTP(userId: string, code: string): Promise<Result<boolean, TwoFactorError>>;        // Ok(false) はコードの不一致
+  verifyBackupCode(userId: string, backupCode: string): Promise<Result<boolean, TwoFactorError>>;
+  resetByAdmin(actorId: string, targetUserId: string, ctx?: TwoFactorRequestContext): Promise<Result<void, TwoFactorResetError>>;
+  startReenrollment(userId: string, currentCode: string): Promise<Result<TwoFactorReenrollmentStartData, TwoFactorError>>;
+  confirmReenrollment(userId: string, newCode: string, ctx?: TwoFactorRequestContext): Promise<Result<TwoFactorEnabledData, TwoFactorError>>;
 }
 
+// 実装は既存の種別の名前を使う（本章の当初の案の INVALID_CODE・NOT_ENABLED・LOCKED は置かなかった）。
+// 次は本章で扱う種別の抜粋。ロックは TwoFactorService でなく AuthService の ACCOUNT_LOCKED で返す
 type TwoFactorError =
-  | { type: 'INVALID_CODE' }
-  | { type: 'CODE_ALREADY_USED' }
-  | { type: 'LOCKED'; unlockAt: Date }
-  | { type: 'NOT_ENABLED' }
-  | { type: 'REENROLLMENT_NOT_STARTED' };
+  | { type: 'INVALID_TOTP_CODE' }
+  | { type: 'INVALID_BACKUP_CODE' }
+  | { type: 'BACKUP_CODE_ALREADY_USED' }
+  | { type: 'CODE_ALREADY_USED' }          // 32.7
+  | { type: 'TWO_FACTOR_NOT_ENABLED' }
+  | { type: 'USER_NOT_FOUND' }
+  | { type: 'REENROLLMENT_NOT_STARTED' }
+  | { type: 'DECRYPTION_FAILED'; message: string };
 
 type TwoFactorResetError =
   | { type: 'SELF_RESET_FORBIDDEN' }   // 34.9
   | { type: 'USER_NOT_FOUND' };
 
-interface RequestContext { ipAddress: string; userAgent: string | null; requestId: string }
+interface TwoFactorRequestContext { ipAddress?: string; userAgent?: string }   // ipAddress は getClientIp で得る
 ```
 
 | Method | Endpoint | Request | Response | Errors |
@@ -5436,6 +5466,7 @@ interface RequestContext { ipAddress: string; userAgent: string | null; requestI
 - 再設定より前に発行されたアクセストークンは、トークンの世代（`gen`）が利用者の `access_token_generation` より小さくなり、AuthenticateMiddleware が拒否する（34.7）。世代は時刻でなく番号で比べる（`iat` は秒の精度のため、再設定と同じ秒に再ログインしたトークンを誤って拒否しうる）
 - 再登録は現在の TOTP の検証の後、新しい秘密鍵を `two_factor_pending_secret` に置き、新しい秘密鍵の TOTP の確認で本採用し、バックアップコードを作り直す（34.11）。確認までは既存の秘密鍵が有効である
 - 再設定の権限は `user:manage` とする
+- 再設定は `two_factor_last_used_step`・失敗回数・ロックの列を書き換えない（実装の判断。タスク47.8）
 
 ##### AuthService（変更）
 
@@ -5453,40 +5484,44 @@ interface RequestContext { ipAddress: string; userAgent: string | null; requestI
 **Contracts**: Service [x] / API [x]
 
 ```typescript
-type LoginResult =
-  | { type: 'SUCCESS'; accessToken: string; refreshToken: string; expiresIn: number; user: AuthUserView }
+type LoginResponse =
+  | { type: 'SUCCESS'; accessToken: string; refreshToken: string; user: UserProfile }
   | { type: '2FA_REQUIRED'; challengeToken: string; expiresIn: number };
 
-interface AuthUserView {
-  id: string;
-  email: string;
-  displayName: string;
-  roles: string[];
-  twoFactorEnabled: boolean;
-  mustChangePassword: boolean;
-}
+interface AuthResponse { accessToken: string; refreshToken: string; user: UserProfile }
+
+// 画面の状態の判定に使う項目（UserProfile の部分）
+type AuthUserView = Pick<UserProfile, 'id' | 'email' | 'displayName' | 'roles' | 'twoFactorEnabled' | 'mustChangePassword'>;
 
 interface AuthService {
-  login(email: string, password: string, ctx: RequestContext): Promise<Result<LoginResult, AuthError>>;
-  completeTwoFactorLogin(challengeToken: string, proof: TwoFactorProof, ctx: RequestContext): Promise<Result<Extract<LoginResult, { type: 'SUCCESS' }>, AuthError>>;
-  refresh(refreshToken: string, ctx: RequestContext): Promise<Result<Extract<LoginResult, { type: 'SUCCESS' }>, AuthError>>;
-  logout(refreshToken: string | null, userId: string, ctx: RequestContext): Promise<Result<void, AuthError>>;
-  logoutAll(userId: string, ctx: RequestContext): Promise<Result<void, AuthError>>;
+  login(email: string, password: string, ctx?: RequestContext): Promise<Result<LoginResponse, AuthError>>;
+  completeTwoFactorLogin(challengeToken: string, proof: TwoFactorProof, ctx?: RequestContext): Promise<Result<AuthResponse, AuthError>>;
+  refreshToken(refreshToken: string, ctx?: RequestContext): Promise<Result<AuthResponse, AuthError>>;
+  logout(userId: string, refreshToken: string, ctx?: RequestContext): Promise<Result<void, AuthError>>;
+  logoutAll(userId: string, ctx?: RequestContext): Promise<Result<void, AuthError>>;
 }
 
 type TwoFactorProof = { kind: 'totp'; code: string } | { kind: 'backup'; backupCode: string };
 
+interface RequestContext { ipAddress?: string; userAgent?: string }   // ルートが getClientIp と User-Agent から作る
+
+// 本章で扱う種別の抜粋（既存の登録・プロフィールの種別は省く）
 type AuthError =
   | { type: 'INVALID_CREDENTIALS' }
   | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }
+  | { type: 'ACCOUNT_DISABLED' }
   | { type: 'CHALLENGE_INVALID' }
-  | { type: 'TOKEN_INVALID' }
+  | { type: 'INVALID_2FA_CODE' }
+  | { type: 'INVALID_BACKUP_CODE' }
+  | { type: 'INVALID_REFRESH_TOKEN' }
+  | { type: 'REFRESH_TOKEN_EXPIRED' }
   | { type: 'TOKEN_REUSE_DETECTED' }
   | { type: 'SERVICE_UNAVAILABLE' }
-  | { type: 'INTERNAL_ERROR' };
+  | { type: 'DATABASE_ERROR'; message: string };   // 応答は汎用の本文（42.8）
 ```
 
 - `refresh`・`logout` の入力は Cookie `refreshToken` から読み、本文は読まない。両エンドポイントは `csrfProtection` を通す
+- 監査は `recordAuthAudit` の一本で書く。存在しないメールアドレスのログインの失敗は targetType `Email`（targetId は入力のメールアドレス）、資格を照会できない 2FA の失敗は targetType `TwoFactorChallenge`（targetId `unknown`）とする。入力由来の値は `boundAuditText` で切り詰める（メールアドレスと targetId は 254 字、userAgent は 512 字、ipAddress は 64 字。タスク53.1）
 
 ##### TokenService（変更）
 
@@ -5514,10 +5549,14 @@ interface IssuedClaims {
   fam?: string;             // refresh のみ（系列 ID）
 }
 
+// 実装の引数と戻り値は既存の TokenPayload の形を保った（IssuedClaims は JWT のクレームの形）
+interface TokenPayload { userId: string; email: string; roles: string[]; permissions?: string[]; accessTokenGeneration?: number }
+type AccessTokenIssuePayload = TokenPayload & { accessTokenGeneration: number };
+
 interface TokenService {
-  generateAccessToken(user: { id: string; email: string; roles: string[]; accessTokenGeneration: number }): Promise<string>;
+  generateAccessToken(payload: AccessTokenIssuePayload): Promise<string>;
   generateRefreshToken(userId: string, familyId: string): Promise<string>;
-  verifyToken(token: string, expected: TokenKind): Promise<Result<IssuedClaims, TokenError>>;
+  verifyToken(token: string, type: TokenKind): Promise<Result<TokenPayload, TokenError>>;   // gen を持たないトークンは accessTokenGeneration が undefined
 }
 
 type TokenError = { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' };
@@ -5537,10 +5576,10 @@ type TokenError = { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' };
 
 ```typescript
 interface SessionService {
-  createSession(userId: string, deviceInfo: string | null): Promise<{ refreshToken: string; familyId: string }>;
-  rotate(presentedToken: string): Promise<Result<{ userId: string; refreshToken: string }, RotationError>>;
-  revokeByToken(presentedToken: string): Promise<void>;     // 33.4: 同じ系列を全て失効
-  revokeAllForUser(userId: string, tx?: PrismaTransaction): Promise<number>;  // 33.5、34.7、36.1
+  createSession(userId: string, deviceInfo?: string | null): Promise<{ refreshToken: string; familyId: string }>;
+  rotate(presentedToken: string): Promise<Result<{ userId: string; familyId: string; refreshToken: string }, RotationError>>;
+  revokeByToken(presentedToken: string, userId?: string): Promise<number>;     // 33.4: 同じ系列を全て失効
+  revokeAllForUser(userId: string, tx?: RefreshTokenClient): Promise<number>;  // 33.5、34.7、36.1
 }
 
 type RotationError =
@@ -5550,7 +5589,8 @@ type RotationError =
 ```
 - 保存する値は `SHA-256(トークン)` の 16 進（33.7）。照合は `token_hash` の一意索引で行う
 - `rotate` は 1 トランザクションで、行が `replaced_at` を持てば系列の全行を消去して `REUSE_DETECTED` を返し（33.6）、持たなければ `replaced_at` を記録して後継を同じ `family_id` で作る。置き換え済みの行は有効期限まで残し、再利用の検知に使う
-- `REUSE_DETECTED` は監査 `REFRESH_TOKEN_REUSE_DETECTED` を記録する
+- `REUSE_DETECTED` は監査 `REFRESH_TOKEN_REUSE_DETECTED`（metadata に familyId・ipAddress・userAgent）を記録する。応答は 401 と Cookie の消去で、本文の code は既存の `INVALID_REFRESH_TOKEN` とする（`TOKEN_INVALID` は置かなかった）
+- 利用者のリフレッシュトークンを変える取引（ローテーション・ログアウト・全デバイスのログアウト・パスワードの変更とリセット・利用者の削除）は、リフレッシュトークンの表に触れる前に `lockUserRefreshTokens`（利用者ごとの勧告ロック）を取る。他の更新と同じ取引で全てを失効させるとき（パスワードの変更とリセット・無効化・2FA の再設定）は、ロックを取ってから消す `revokeAllRefreshTokensForUser` を使う（タスク45.2）
 
 ##### AuthenticateMiddleware と AuthenticatedUserStateService（変更・新設）
 
@@ -5601,6 +5641,7 @@ interface AuthenticatedUserStateService {
 
 - `app.set('trust proxy', env.TRUST_PROXY_HOPS)`。本番では `TRUST_PROXY_HOPS` を必須とし、`true` は設定の検証で拒否する。開発・試験の既定は 0
 - `getClientIp(req): string` は `req.ip` を返す。`X-Forwarded-For`・`X-Real-IP` を直接読む処理は全て置き換える（回数制限、監査ログの `metadata.ipAddress`、セキュリティログ）
+- 本章で加えた監査の経路は IP を `metadata.ipAddress` に書く。既存の `PERMISSION_CHECK_FAILED` の記録（`recordPermissionCheckFailure`）は値を `getClientIp` で得るが、キーは従来どおり `metadata.ip` である
 - 配備の構成は「Railway のエッジ → frontend の nginx → backend（プライベートネットワーク）」とし、本番の値は 2 を想定する。配備時に `req.ip` の実測で確かめ、backend の公開ドメインは閉じる
 
 ##### RateLimitPolicy（変更）
@@ -5735,7 +5776,7 @@ interface AdminNotificationService {
 | Field | Detail |
 |-------|--------|
 | Intent | 定期処理を一つの実行基盤で動かす |
-| Requirements | 36.8, 37.4, 37.8, 41.1, 41.2 |
+| Requirements | 36.8, 37.4, 37.8, 41.1, 41.2, 45.3 |
 
 **Contracts**: Batch [x]
 
@@ -5744,6 +5785,7 @@ interface AdminNotificationService {
 | `inactive-user-deactivation` | 毎日 03:00 | `AccountStatusService.deactivateInactiveUsers` | 対象の条件で再判定する |
 | `expired-token-cleanup` | 毎時 15 分 | 使用済み・期限切れの招待・リセットのトークン、期限切れのリフレッシュトークンの消去 | 条件による一括の消去 |
 | `audit-log-archive` | 毎月 1 日 04:00 | 13 か月以上前の月ごとのアーカイブと、8 年以上前のアーカイブの消去 | 月ごとの目録の有無で済みを判定する |
+| `failed-email-job-cleanup` | 毎時 45 分 | メールキューの失敗のジョブのうち、失敗から 1 時間を過ぎたものを中身ごと消す（`queue.clean`。45.3、タスク44.12） | 時刻の条件による一括の消去 |
 
 - キュー `scheduled-jobs` を `REDIS_URL` で接続し、Bull の `repeat` で登録する。起動のたびに同じ `jobId` で登録し直し、定義の重複を作らない
 - 消去の対象（37.4、37.8）: 招待は `status IN ('used','revoked')` または `expires_at < now` の行の `token_hash` を NULL にし、行そのものは残す（状態・期限・作成者を保ち、招待一覧の状態の返却と表示（要件1.7・13.2）と期限切れの招待の再送信（要件13.7）を維持する。37.4 が求めるのはトークンの消去である）。リセットは `used_at IS NOT NULL` または `expires_at < now` の行を、リフレッシュトークンは `expires_at < now` の行を消す。毎時の実行で 24 時間以内の消去を満たす（利用者の判断、2026-10-16。タスク作成のレビューが、招待の行を消すと要件1.7・13.2・13.7 と食い違うことを指摘した）
@@ -5765,7 +5807,7 @@ interface AdminNotificationService {
 - リセット要求の応答は、登録の有無と制限の有無に関わらず同じ 200 と同じ本文を返す（35.7）
 - パスワードの変更・リセットは全リフレッシュトークンを失効させる（33.5、既存の挙動を維持）。初回変更の完了で `must_change_password=false` にする
 - 初期管理者の seed は `PasswordService.validatePasswordStrength`（要件2.5〜2.8）を通し、満たさなければ例外で seed を止める。作成する初期管理者は `must_change_password=true` とする（37.6、37.7）
-- メールのリンクは `/register#token=…`・`/password-reset#token=…` とし、トークンを URL のフラグメントに置く（サーバーへ送られずアクセスログに残らない。37.3）。検証は `POST /api/v1/invitations/verify`・`POST /api/v1/auth/password/verify-reset` の本文で受ける。移行期間はクエリの形のリンクも画面が読み、読んだ直後に `history.replaceState` で URL から取り除く
+- メールのリンクは `/register#token=…`・`/password-reset#token=…` とし、トークンを URL のフラグメントに置く（サーバーへ送られずアクセスログに残らない。37.3）。検証は `POST /api/v1/invitations/verify`・`POST /api/v1/auth/password/verify-reset` の本文で受ける。移行期間はクエリの形のリンクも画面が読み、読んだ直後に `history.replaceState` で URL から取り除く。画面を開いたまま同じタブでリンクを開いた（フラグメントだけが変わり再読み込みされない）ときは、`hashchange` で新しいトークンを読み、同じく URL から取り除く（`useUrlToken`。タスク50.3）
 
 ##### PrivilegeCeilingPolicy・DefaultPermissionSeed・AssignableUsersEndpoint
 
@@ -5804,7 +5846,11 @@ type CeilingError =
 **Contracts**: Service [x]
 
 ```typescript
+type ProjectAccessDecision = 'allowed' | 'not_found' | 'out_of_scope';
+
 interface ProjectScopeService {
+  /** 案件の不在・論理削除は not_found、関係者または全案件閲覧の権限は allowed、それ以外は out_of_scope */
+  evaluateProjectAccess(userId: string, projectId: string): Promise<ProjectAccessDecision>;
   /** 範囲内なら true。案件の不在・論理削除も false（呼び出し側で区別しない） */
   canAccessProject(userId: string, projectId: string): Promise<boolean>;
   /** 全案件閲覧の権限を持つなら null（絞り込みなし）、持たなければ関係者の条件 */
@@ -5828,13 +5874,18 @@ interface ProjectScopeService {
 ```typescript
 type ProjectIdResolver = (req: Request) => Promise<string | null>;  // null は対象の不在
 
-function requireProjectScope(resolveProjectId: ProjectIdResolver): RequestHandler;
+interface ProjectScopeGuardOptions {
+  scopeService?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;   // 省略時は共有のインスタンス
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;               // 省略時は共有の PrismaClient で組み立てる
+}
+
+function requireProjectScope(resolveProjectId: ProjectIdResolver, options?: ProjectScopeGuardOptions): RequestHandler;
 
 /** 案件 ID を経路のパラメータから読む既定の解決関数 */
 const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 ```
-- `requirePermission` の後に置く。解決関数が `null` を返す、または `canAccessProject` が false のとき、`NotFoundError` と同じ Problem Details（`404 NOT_FOUND`、汎用の本文）を返す（39.2）
-- 範囲外のとき（案件が実在し範囲外のときだけ）、監査 `PROJECT_SCOPE_DENIED`（利用者・対象の種別と ID・日時・要求識別子）を記録し、`SecurityAnomalyMonitor.observe('scope_denied', …)` を呼ぶ（39.7）
+- `requirePermission` の後に置く。判定は `evaluateProjectAccess` で行う。解決関数が `null` を返す、または判定が `allowed` でないとき、`NotFoundError` と同じ Problem Details（`404 NOT_FOUND`、汎用の本文）を返す（39.2）
+- 範囲外のとき（案件が実在し範囲外のときだけ）、監査 `PROJECT_SCOPE_DENIED`（利用者・targetType `Project` と案件 ID・日時。metadata に要求識別子・メソッド・問い合わせ文字列を除いたパス・ipAddress・userAgent）を記録し（記録の失敗は 404 を変えない）、`SecurityAnomalyMonitor.observe('scope_denied', …)` を呼ぶ（39.7）
 - 子リソースから案件 ID を引く解決関数は各業務 spec が持つ。本 spec は案件そのもの（`/api/projects` の `GET /`、`GET /status-counts`、`GET /:id`、`GET /:id/detail-summary`、`PUT /:id`、`DELETE /:id`、`PATCH /:id/status`、`GET /:id/status-history`）に適用する
 
 #### 監査
@@ -5850,7 +5901,8 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 - `actor_id` は外部キーを持たない文字列とし、無人の処理（自動無効化・アーカイブ）では null とする。記録時に `actor_email`・`actor_display_name` を写す（40.7）
 - ログインの失敗は `actor_id` を null、`metadata` に対象のメールアドレス・送信元 IP・ユーザーエージェントを記録する（40.1）
 - DB のトリガー `audit_logs_immutable` が UPDATE を常に拒否し、DELETE は `current_setting('architrack.audit_archive', true) = 'on'` のときだけ許す（40.8）。アプリの API は監査ログの更新・削除の経路を持たない
-- ユーザーの削除（`UserRoleService.deleteUser`）は同じトランザクションの先頭で `USER_DELETED`（実行者・削除対象のメールアドレスと表示名）を記録し、記録の失敗でトランザクションごと中止する（40.6）
+- ユーザーの削除（`UserRoleService.deleteUser`）は、同じトランザクションの中で、管理者ロールのロック・対象の読み出し・不在と最後の管理者の判定の後、削除の最初の書き込みの前に `USER_DELETED`（実行者・削除対象のメールアドレスと表示名）を記録し、記録の失敗でトランザクションごと中止する（40.6。判定より前に記録すると、削除しない要求にも記録が残るため）
+- 対象の種別（targetType）は既存の `User`・`Invitation`・`Permission` などに加えて、`Project`（範囲外のアクセスと案件に属する出力）、`DataExport`（案件に属さない出力。targetId は出力の種別）、`Email`（存在しないメールアドレスのログインの失敗。targetId は入力のメールアドレス）、`TwoFactorChallenge`（資格を照会できない 2FA の失敗。targetId `unknown`）を使う
 
 ##### ExportAuditService と ExportAuditClient
 
@@ -5887,9 +5939,11 @@ type ExportAuditError = { type: 'PROJECT_OUT_OF_SCOPE' } | { type: 'RECORD_FAILE
 |---|---|---|---|---|
 | POST | /api/v1/audit-logs/exports | `ExportRecordInput` | 201 `{ recordId }` | 400, 404（範囲外の案件）, 500 |
 
-- 認証済みの全利用者が呼べる。`projectId` を指定したときは `canAccessProject` で判定し、範囲外は 404 とする
-- 監査 `DATA_EXPORTED`（実行者・種別・案件・対象・件数・日時）を記録し、`SecurityAnomalyMonitor.observe('data_export', actorId)` を呼ぶ（40.9、43.4）
+- 認証済みの全利用者が呼べる。`projectId` を指定したときは `evaluateProjectAccess` で判定し、範囲外・不在・論理削除は汎用の 404 とする（実在して範囲外のときだけ `PROJECT_SCOPE_DENIED` を記録する）
+- 要求本文は strict な zod で検証する（`backend/src/schemas/export-audit.schema.ts`）。`audit_log_json` は `projectId` を null とし、それ以外の種別は `projectId` を必須とする。`targetIds` は 1〜256 字を最大 10000 件、`itemCount` は 0 以上の整数とする
+- 監査 `DATA_EXPORTED`（実行者・種別・案件・対象・件数・日時）を記録する。targetType は案件があれば `Project`（targetId は案件 ID）、無ければ `DataExport`（targetId は種別）とし、metadata は kind・projectId・targetIds（1000 件・各 128 字で切り詰め、`targetIdCount` と切り詰めたときの `targetIdsTruncated`）・itemCount・ipAddress・userAgent（512 字）とする。記録の後に `SecurityAnomalyMonitor.observe('data_export', actorId)` を呼ぶ（40.9、43.4）
 - サーバー側で生成する出力は、各業務 spec がハンドラーから `ExportAuditService.record` を直接呼ぶ。本 spec の監査ログの JSON 出力（`GET /api/v1/audit-logs/export`）は本 spec が呼ぶ
+- `POST /api/v1/audit-logs/exports` は種別 `audit_log_json` も受け付けるため、利用者は自分の名義で監査ログの出力の記録を足せる（他人の名義の記録や記録の消去はできない。受け付けを続けるかは利用者の判断を待つ）
 
 ```typescript
 // frontend
@@ -5968,7 +6022,7 @@ type ArchiveError =
 | Requirements | 42.4, 42.8, 43.3 |
 
 - `errorHandler` は Sentry の文脈に要求本文を付けない。付けるのは経路・メソッド・要求識別子・利用者 ID に限る
-- `initSentry` の `beforeSend` で、`event.request` の `data`・`cookies` を消去し、`headers` の `authorization`・`cookie`・`x-csrf-token` を `[Filtered]` にし、`query_string` を HttpLogger と同じ規則で伏せ字にする。`sendDefaultPii` は false とする（42.4）
+- `initSentry` の `beforeSend` で、`event.request` の `data`・`cookies` を消去し、`headers` の `authorization`・`cookie`・`x-csrf-token` を `[Filtered]` にし、`query_string` を HttpLogger と同じ規則で伏せ字にする。`sendDefaultPii` は false とする（42.4）。実装は同じ規則を `beforeSendTransaction`（トレースの事象）にも当て、`beforeBreadcrumb` で HTTP の breadcrumb の url・クエリ・フラグメントも伏せる（タスク55.3）
 - 5xx の応答のたびに `SecurityAnomalyMonitor.observe('server_error', …)` を呼ぶ（43.3）
 
 ##### SecurityAnomalyMonitor
@@ -5998,7 +6052,7 @@ interface AnomalyThreshold { windowSeconds: number; threshold: number; cooldownS
 - 計数は Redis の分単位の桶（`anomaly:<signal>:<分>`、`INCR` と `EXPIRE`）で行い、時間窓の合計が閾値を超えたら通知する。`data_export` は利用者ごとの桶で数える（43.4）
 - 通知の抑止は `SET anomaly:notified:<signal> NX EX cooldownSeconds` で行う（43.6）
 - 通知の本文は、検知の種類、時間窓、件数、上位 5 件の送信元 IP・利用者 ID を含める（43.5）。主な送信元・利用者は桶ごとの Redis のソート済み集合で数える
-- 閾値・時間窓・抑止の時間は環境変数 `SECURITY_ALERT_<SIGNAL>_THRESHOLD`・`_WINDOW_SECONDS`・`_COOLDOWN_SECONDS` で変える（43.7）。既定は `login_failed` 20 件 / 300 秒、`permission_denied`・`scope_denied` 合算 30 件 / 300 秒、`rate_limited` 100 件 / 300 秒、`server_error` 20 件 / 300 秒、`data_export` 利用者ごと 50 件 / 3600 秒、抑止 1800 秒
+- 閾値・時間窓・抑止の時間は検知の群ごとの環境変数 `SECURITY_ALERT_<GROUP>_THRESHOLD`・`_WINDOW_SECONDS`・`_COOLDOWN_SECONDS` で変える（43.7。`backend/src/config/security-alert.ts`）。群は `LOGIN_FAILED`・`PERMISSION_DENIED`（`permission_denied` と `scope_denied` の合算）・`RATE_LIMITED`・`SERVER_ERROR`・`DATA_EXPORT` の 5 つで、例えば `SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD` とする。計数の鍵と通知の抑止の鍵も群ごとに持つ（`data_export` の計数は利用者ごと、抑止は群ごと）。既定は `login_failed` 20 件 / 300 秒、`permission_denied`・`scope_denied` 合算 30 件 / 300 秒、`rate_limited` 100 件 / 300 秒、`server_error` 20 件 / 300 秒、`data_export` 利用者ごと 50 件 / 3600 秒、抑止 1800 秒
 - `permission_denied` は既存の `recordPermissionCheckFailure` から、`login_failed` は AuthService から呼ぶ（43.1、43.2）
 - Redis が使えないときは計数を捨て、警告ログを残す（検知の欠落は要求の失敗にしない）
 
@@ -6033,7 +6087,8 @@ interface AnomalyThreshold { windowSeconds: number; threshold: number; cooldownS
 - `X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`（44.2）。`X-XSS-Protection` は外す
 - `location /api/` と `location = /csrf-token` を `${BACKEND_INTERNAL_URL}` へ中継し、`X-Forwarded-For $proxy_add_x_forwarded_for`、`X-Forwarded-Proto` を付ける
 - 中継は本番だけでなく試験（`docker-compose.test.yml`）と CI（`docker-compose.ci.yml`）でも用いる（本番と同じ nginx のイメージで検証する方針）。各環境の `VITE_API_URL` は画面と同じオリジンとし、`BACKEND_INTERNAL_URL` は compose の backend のサービス名で渡す。`BACKEND_INTERNAL_URL` が空のときはコンテナの起動前の検査で失敗させる（中継先の無い nginx を黙って起動しない）
-- アクセスログの書式はクエリを含めない `$uri` を使う（37.3）
+- アクセスログの書式はクエリを含めない `$uri` を使う（37.3）。`$uri` は `try_files` の内部の置き換えの後の値のため、画面の経路（SPA のルート）への要求は `/index.html` として記録される
+- CSP の `script-src` は `'unsafe-eval'` を含めないため、画面の入口（`main.tsx`）が最初に `frontend/src/utils/zod-csp-config.ts` を読み込み、Zod の JIT（`new Function` による eval の試行）を止める（`z.config({ jitless: true })`。検証の結果は変わらず、試行のたびに起きる CSP の違反を無くす。44.4）
 - 配信物から可視化の統計（`stats.html`）を外す
 
 #### フロント
@@ -6069,7 +6124,7 @@ interface AnomalyThreshold { windowSeconds: number; threshold: number; cooldownS
 - **UserInventoryPage**（34.7、36.10、36.11）: `/admin/user-inventory`。表示名、メールアドレス、ロール、状態、2FA 登録の有無、最終ログイン日時、作成日時、招待者の列と、状態・経過日数の絞り込み、無効化・再有効化（理由の入力）・2FA の再設定の操作。自分自身の行の操作は無効にする
 - **UserSelect**（36.6）: 現在の値が候補（有効な利用者だけ）に無いときも、案件の詳細から渡された表示名で「（無効）」を添えて表示する
 - **InvitationManager**（37.2、37.5）: 招待 URL は作成直後の応答の値だけを表示し、一覧には表示しない。取り消しは全ての未使用の招待で可能にする
-- **RegisterPage・PasswordResetPage**（37.3）: トークンをフラグメントから読み、POST で検証し、読んだ直後に URL から取り除く
+- **RegisterPage・PasswordResetPage**（37.3）: トークンをフラグメントから読み、POST で検証し、読んだ直後に URL から取り除く。フラグメントだけが変わったときは `hashchange` で読み直す（`useUrlToken`）
 
 ### Data Models
 
@@ -6137,13 +6192,27 @@ model Project {
 6. `role_permissions` から `user` ロールの `user:read` を外し、`permissions` に `project:read_all` と `ops:manage` を加える
 7. `users` に `reactivated_at`（null）と `access_token_generation`（既定 0）を加える（2026-10-22 の要件34.7・36.8 の改訂による追加。既存のアクセストークンは `gen` を持たず 0 として扱うため、移行で無効にならない）
 
+上の 1〜7 は一本の移行でなく、タスクごとの移行に分けて適用した（適用済みの移行は書き換えないため）。実在の移行と上の項目の対応は次のとおり（2026-10-25、タスク57.2）。
+
+| 移行 | 項目 |
+|---|---|
+| `backend/prisma/migrations/20261017000000_security_remediation_ipa_20261009_user_status/migration.sql` | 1（利用者の状態の列・索引）、4 |
+| `backend/prisma/migrations/20261017010000_security_remediation_ipa_20261009_audit_log_protection/migration.sql` | 5 |
+| `backend/prisma/migrations/20261017020000_security_remediation_ipa_20261009_default_permissions/migration.sql` | 6 |
+| `backend/prisma/migrations/20261018000000_security_remediation_ipa_20261009_invitation_token_nullable/migration.sql` | 3 の前段（掃除のため招待のトークンの列に空を許す） |
+| `backend/prisma/migrations/20261018010000_security_remediation_ipa_20261009_refresh_token_family/migration.sql` | 2 |
+| `backend/prisma/migrations/20261022000000_security_remediation_ipa_20261009_access_token_generation/migration.sql` | 7（`access_token_generation`） |
+| `backend/prisma/migrations/20261022010000_security_remediation_ipa_20261009_reactivated_at/migration.sql` | 7（`reactivated_at`） |
+| `backend/prisma/migrations/20261023000000_security_remediation_ipa_20261009_invitation_token_hash/migration.sql` | 3（招待） |
+| `backend/prisma/migrations/20261023010000_security_remediation_ipa_20261009_password_reset_token_hash/migration.sql` | 3（パスワードリセット） |
+
 ### Error Handling
 
 | 状況 | 応答 | 記録 |
 |---|---|---|
 | 2FA 待ちの資格の不在・期限切れ・消費済み | 401 `INVALID_CHALLENGE`（区別しない） | 監査 `TWO_FACTOR_FAILED` |
 | TOTP の再利用 | 401 `INVALID_2FA_CODE`（通常の誤りと同じ本文） | 監査 `TWO_FACTOR_FAILED`（`metadata.reason='replay'`） |
-| リフレッシュトークンの再利用 | 401 `TOKEN_INVALID` と Cookie の消去 | 監査 `REFRESH_TOKEN_REUSE_DETECTED` |
+| リフレッシュトークンの再利用 | 401 `INVALID_REFRESH_TOKEN` と Cookie の消去 | 監査 `REFRESH_TOKEN_REUSE_DETECTED` |
 | 2FA 未登録・初回変更中の API | 403 `TWO_FACTOR_SETUP_REQUIRED`・`PASSWORD_CHANGE_REQUIRED` | なし |
 | 無効化された利用者の API | 401 `ACCOUNT_DISABLED` | なし |
 | 範囲外の案件 | 404 `NOT_FOUND`（存在しない案件と同じ本文） | 監査 `PROJECT_SCOPE_DENIED` |

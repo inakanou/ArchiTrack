@@ -345,6 +345,9 @@ e2e/
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
 │   ├── auth-actions.ts   # 認証アクション（ログイン、ログアウト）
+│   ├── auth-api.ts       # API で前提データを作るときのアクセストークンの取得
+│   ├── shared-sessions.ts # 共有の役割のセッション（リフレッシュの Cookie）の受け渡し
+│   ├── two-factor-totp.ts # TOTP の計算
 │   ├── browser.ts        # Claude Code統合ブラウザ操作
 │   ├── test-users.ts     # テストユーザー定義
 │   └── screenshot.ts     # スクリーンショットヘルパー
@@ -638,7 +641,9 @@ frontend/
 │   │   ├── PasswordResetPage.tsx # パスワードリセットページ
 │   │   ├── Profile.tsx     # プロフィールページ
 │   │   ├── Sessions.tsx    # セッション管理ページ
-│   │   ├── TwoFactorSetupPage.tsx # 2FA設定ページ
+│   │   ├── TwoFactorSetupPage.tsx # 2FA設定ページ（必須の登録と再登録）
+│   │   ├── SetupPasswordPage.tsx # 初回のパスワード変更ページ（/setup/password）
+│   │   ├── UserInventoryPage.tsx # 利用者の棚卸しページ（管理者）
 │   │   ├── InvitationsPage.tsx # 招待管理ページ（管理者）
 │   │   ├── UserManagement.tsx # ユーザー管理ページ（管理者）
 │   │   ├── RoleManagement.tsx # ロール管理ページ（管理者）
@@ -702,7 +707,10 @@ frontend/
 │   │   ├── field-validation.ts # フィールドバリデーション（文字数制限）
 │   │   ├── numeric-range-validation.ts # 数値範囲バリデーション
 │   │   ├── export-excel.ts # Excelエクスポート（内訳書、SheetJS）
-│   │   └── copy-to-clipboard.ts # クリップボードコピー（タブ区切り）
+│   │   ├── copy-to-clipboard.ts # クリップボードコピー（タブ区切り）
+│   │   ├── user-restriction.ts # 利用者の状態（2FA 未登録・初回のパスワード変更）による遷移の制限
+│   │   ├── audit-log-actions.ts # 監査ログの種別の表示名
+│   │   └── zod-csp-config.ts # Zod の JIT を止め CSP の下で eval を試さない（main.tsx が最初に読む）
 │   ├── App.tsx            # メインAppコンポーネント（TypeScript）
 │   ├── main.tsx           # Reactエントリーポイント（TypeScript）
 │   └── vite-env.d.ts      # Vite環境変数型定義
@@ -716,7 +724,10 @@ frontend/
 ├── Dockerfile.dev         # 開発環境用（Vite dev server）
 ├── docker-entrypoint.sh   # Docker起動時の依存関係チェック（アーキテクチャ固有モジュール対応）
 ├── railway.toml           # Railway デプロイ設定
-├── nginx.conf             # nginx本番環境設定
+├── nginx.conf             # nginx本番環境設定（API の中継、アクセスログの形式）
+├── nginx-security-headers.conf # セキュリティヘッダー（CSP・HSTS 等）のテンプレート
+├── nginx-proxy-params.conf # API の中継の共通の設定
+├── nginx-require-backend-internal-url.sh # 中継先 BACKEND_INTERNAL_URL の起動前の検査
 ├── vite.config.ts         # Vite設定（TypeScript版、ベストプラクティス）
 ├── package.json           # 依存関係（lint-staged設定を含む）
 ├── eslint.config.js       # ESLint設定（Flat Config形式、vitest.config.ts, vite.config.ts除外）
@@ -804,7 +815,9 @@ frontend/
 frontend/src/
 ├── api/               # APIクライアント
 │   ├── auth.ts        # 認証API
-│   ├── client.ts      # 共通クライアント
+│   ├── client.ts      # 共通クライアント（アクセストークンと CSRF トークンをメモリだけに保持）
+│   ├── export-audit.ts # データ出力の記録と、記録してから出力する包み
+│   ├── user-inventory.ts # 利用者の棚卸しAPI
 │   ├── projects.ts    # プロジェクトAPI
 │   ├── quantity-tables.ts # 数量表API
 │   ├── site-surveys.ts # 現場調査API
@@ -833,7 +846,7 @@ frontend/src/
 │       ├── estimateCalculations.ts # 案分・利益率・集計のクライアント計算
 │       ├── estimateAmountLimit.ts # 金額の上限（保存スキーマの写し）と上限超過の判定
 │       └── estimateKeymap.ts # キー割当の単一定義（画面のヘルプ表示と共用）
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useEstimateKeyboard、useEstimateUndo、useEstimateNavigation、useEstimateViewModePreference、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）等）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useEstimateKeyboard、useEstimateUndo、useEstimateNavigation、useEstimateViewModePreference、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）、useUrlToken（招待・リセットのリンクのトークンを URL のフラグメントから読み取り除く）等）
 ├── services/          # サービス層（TokenRefreshManager.ts、AutoSaveManager.ts、UndoManager.ts）
 │   └── export/        # 帳票・エクスポート生成（jsPDF/SheetJS。`load*ExportService.ts` の動的importで初期チャンクから分離）
 ├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
@@ -929,8 +942,10 @@ backend/
 │   │   ├── httpsRedirect.middleware.ts # HTTPS強制リダイレクト
 │   │   ├── logger.middleware.ts        # Pino HTTPロギング
 │   │   ├── validate.middleware.ts      # Zodバリデーション
-│   │   ├── authenticate.middleware.ts  # JWT認証
-│   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
+│   │   ├── authenticate.middleware.ts  # JWT認証（アクセストークンの種別の検証と利用者の状態の照合）
+│   │   ├── authorize.middleware.ts     # 権限チェック（RBAC）
+│   │   ├── client-ip.ts                # 送信元 IP の識別（getClientIp。信頼する中継の段数に基づく req.ip）
+│   │   └── project-scope.middleware.ts # 案件の閲覧範囲の判定（requireProjectScope。範囲外は 404）
 │   ├── routes/            # ルート定義
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
@@ -942,6 +957,7 @@ backend/
 │   │   ├── roles.routes.ts  # ロール管理ルート
 │   │   ├── user-roles.routes.ts # ユーザーロール管理ルート
 │   │   ├── users.routes.ts  # ユーザー管理ルート（担当者候補取得）
+│   │   ├── user-inventory.routes.ts # 利用者の棚卸し・無効化・再有効化・2FA の再設定
 │   │   ├── projects.routes.ts # プロジェクト管理ルート（CRUD、ステータス遷移）
 │   │   ├── trading-partners.routes.ts # 取引先管理ルート（CRUD、検索）
 │   │   ├── site-surveys.routes.ts # 現場調査ルート（CRUD）
@@ -968,7 +984,10 @@ backend/
 │   │   └── export.routes.ts # エクスポートルート（発注書・出来高Excel/PDF）
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
-│   │   └── security.constants.ts # セキュリティ定数
+│   │   ├── security.constants.ts # セキュリティ定数
+│   │   ├── runtime-mode.ts # 開発用機能の有効化の判定と本番の前提の検査
+│   │   ├── jwt-claims.ts   # トークンの発行者・想定利用者の既定値
+│   │   └── security-alert.ts # 異常の検知の閾値・時間窓・抑止の既定値と環境変数
 │   ├── schemas/           # Zodバリデーションスキーマ
 │   │   ├── project.schema.ts # プロジェクト関連
 │   │   ├── trading-partner.schema.ts # 取引先関連
@@ -983,7 +1002,9 @@ backend/
 │   │   ├── estimate.schema.ts # 見積書関連
 │   │   ├── contract.schema.ts # 契約書関連
 │   │   ├── schedule.schema.ts # 工程表関連
-│   │   └── execution-budget.schema.ts # 実行予算関連
+│   │   ├── execution-budget.schema.ts # 実行予算関連
+│   │   ├── export-audit.schema.ts # データ出力の記録
+│   │   └── audit-log-archive-restore.schema.ts # 監査ログのアーカイブの復元
 │   ├── services/          # ビジネスロジック
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
@@ -997,8 +1018,18 @@ backend/
 │   │   ├── user-role.service.ts # ユーザーロール管理
 │   │   ├── rbac.service.ts # RBAC統合サービス
 │   │   ├── audit-log.service.ts # 監査ログ
-│   │   ├── audit-log-archive.service.ts # ログアーカイブ
+│   │   ├── audit-log-archive.service.ts # ログアーカイブ（暗号化して StorageProvider へ保存、照合、復元）
 │   │   ├── email.service.ts # メール送信（Bull非同期キュー、Handlebars）
+│   │   ├── two-factor-challenge.service.ts # 2FA 待ちの資格（Redis、5 分・一回限り）
+│   │   ├── authenticated-user-state.service.ts # 利用者の状態の取得とキャッシュの無効化
+│   │   ├── authenticated-user-state-cache.ts # 利用者の状態のキャッシュの鍵・TTL・無効化の手順
+│   │   ├── account-status.service.ts # 無効化・再有効化・90 日の自動無効化
+│   │   ├── user-inventory.service.ts # 利用者の棚卸しの一覧と絞り込み
+│   │   ├── admin-notification.service.ts # 全システム管理者への通知
+│   │   ├── privilege-ceiling.ts # ロール割り当て・権限追加の上限の判定
+│   │   ├── project-scope.service.ts # 案件の閲覧範囲の判定と一覧の絞り込み条件
+│   │   ├── export-audit.service.ts # データ出力の記録
+│   │   ├── security-anomaly-monitor.service.ts # 異常の検知（時間窓の計数・閾値・通知の抑止）
 │   │   ├── project.service.ts # プロジェクト管理（CRUD、楽観的排他制御）
 │   │   ├── project-status.service.ts # プロジェクトステータス遷移（12種類のステータス）
 │   │   ├── trading-partner.service.ts # 取引先管理（CRUD、種別管理、楽観的排他制御）
@@ -1043,6 +1074,14 @@ backend/
 │   │   ├── progress-export.service.ts # 出来高エクスポート（Excel/PDF出力）
 │   │   ├── cost.service.ts # 原価管理（原価集計・分析）
 │   │   └── monthly-close.service.ts # 月次締め処理（締め・解除・履歴管理）
+│   ├── jobs/              # 定期処理（Bull の繰り返しジョブ）
+│   │   ├── scheduled-job-runner.ts # 繰り返しジョブの登録と実行（キュー scheduled-jobs）
+│   │   ├── expired-token-cleanup.job.ts # 使用済み・期限切れのトークンの消去
+│   │   ├── failed-email-job-cleanup.job.ts # メールキューの失敗のジョブの掃除
+│   │   ├── inactive-user-deactivation.job.ts # 90 日の自動無効化
+│   │   └── audit-log-archive.job.ts # 監査ログの月次のアーカイブ
+│   ├── scripts/           # サーバー上で実行する運用スクリプト
+│   │   └── reactivate-user.ts # 利用者の再有効化（npm run user:reactivate）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約
 │   │   ├── storage-provider.interface.ts # ストレージプロバイダーインターフェース
@@ -1069,6 +1108,13 @@ backend/
 │   │   ├── result-mapper.ts # Result型マッパー
 │   │   ├── kana-converter.ts # かな変換ユーティリティ
 │   │   ├── seed-helpers.ts # シードデータヘルパー
+│   │   ├── refresh-token-lock.ts # 利用者ごとのリフレッシュトークンの勧告ロックと取引の中の全失効
+│   │   ├── invitation-token.ts # 招待のトークンのハッシュと招待 URL（フラグメントの形）
+│   │   ├── password-reset-token.ts # リセットのトークンのハッシュとリセットのリンク（フラグメントの形）
+│   │   ├── audit-text.ts  # 監査に書く入力由来の値の切り詰め
+│   │   ├── audit-log-archive-permission.ts # アーカイブの許可の設定を置いた取引での監査ログの行の消去
+│   │   ├── url-query-redaction.ts # URL のクエリの伏せ字（アクセスログと Sentry で共通）
+│   │   ├── sentry-request-context.ts # Sentry へ付ける要求の文脈
 │   │   └── timing.ts      # タイミングユーティリティ
 │   ├── app.ts             # Expressアプリケーション（テスト用に分離、Swagger UI統合）
 │   ├── index.ts           # Expressサーバーエントリーポイント（app.tsをimportして起動）

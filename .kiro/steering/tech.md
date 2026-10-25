@@ -225,6 +225,15 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - **パッケージマネージャ**: npm
 - **設定管理**: dotenv (.envファイル)
 
+### 認証・セッション方針
+
+- **トークンの種別**: アクセストークンとリフレッシュトークンは EdDSA の JWT で、クレーム `token_use`（`access`・`refresh`）と発行者・想定利用者（`JWT_ISSUER`・`JWT_AUDIENCE`、既定 `architrack`・`architrack-api`）で区別し、検証は期待する種別を指定して行う（`backend/src/services/token.service.ts`）。アクセストークンは発行時の利用者の世代（`gen`）を持ち、管理者の 2FA の再設定より前のトークンを認証ミドルウェアが拒否する
+- **保持の場所**: アクセストークンは画面の `apiClient` のメモリだけに置き、ブラウザの永続ストレージに書かない。リフレッシュトークンは HttpOnly の Cookie `refreshToken`（SameSite=Strict、Path は /api/v1/auth、本番は Secure 属性付き）だけで受け渡し、応答本文に含めない。再読み込みの復元は Cookie によるリフレッシュで行う
+- **リフレッシュ**: Cookie を読む API（/api/v1/auth/refresh と /api/v1/auth/logout）は CSRF の二重送信（Cookie `csrf-token` とヘッダー `X-CSRF-Token`）と Origin の照合を通す。保存は SHA-256 のハッシュだけで、ローテーションの系列（family）で再利用を検知し、系列ごと失効させる。複数のタブのリフレッシュは Web Locks で直列化し、結果を BroadcastChannel で配る（`frontend/src/services/TokenRefreshManager.ts`）
+- **2FA**: 全利用者で必須。パスワードの検証の成功で 5 分・一回限りの 2FA 待ちの資格（Redis）を発行し、2FA の検証の API（/api/v1/auth/verify-2fa）はその資格を要する。同じ時間ステップの TOTP の再利用を拒否する。2FA 未登録・初回のパスワード変更を要する利用者は、API（`backend/src/middleware/authenticate.middleware.ts` の利用者の状態の照合）と画面（`ProtectedRoute`）の両方で設定・変更の画面だけに制限する
+- **送信元の識別**: 送信元 IP は `getClientIp()`（`backend/src/middleware/client-ip.ts`）だけから得る。Express の `trust proxy` は信頼する中継の段数 `TRUST_PROXY_HOPS` で与え、`X-Forwarded-For` を直接読まない。画面の API は frontend の nginx が /api/ と /csrf-token を backend へ中継し、画面と同じオリジンで届く
+- **招待・リセットのトークン**: メールのリンクはトークンを URL のフラグメント（`#token=…`）に置き、画面が読んで POST の本文で検証する。保存は SHA-256 のハッシュだけである
+
 ### 主要な依存関係
 
 - `express` ^5.2.0 - Webフレームワーク
@@ -314,9 +323,19 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 ### Redis
 
 - **バージョン**: Redis 7 (Alpine)
-- **用途**: キャッシュ・セッション管理
-- **接続方式**: ioredisクライアントライブラリ経由
+- **用途**: 権限と利用者の状態のキャッシュ、2FA 待ちの資格、回数制限のストア、異常の検知の計数と通知の抑止、ジョブキュー（メールの送信と定期処理）
+- **接続方式**: ioredisクライアントライブラリ経由。キャッシュとジョブキューはどちらも `REDIS_URL`（認証情報を含む）で同じ Redis へ接続する
+- **障害時**: 2FA 待ちの資格は Redis に届かなければ発行も照会もせず 503 を返す（2FA を素通りさせない）。回数制限はプロセス内のメモリのストアへ退避し、キャッシュは DB から読み、異常の検知は計数を捨てて警告ログを残す
 - **ヘルスチェック**: `redis-cli ping`コマンド
+
+### ジョブキュー（Bull）
+
+- **メールの送信**: キュー `email-queue`（`backend/src/services/email.service.ts` の `createEmailQueue()`）。完了したジョブは中身ごと消し、再試行を使い切った失敗はトークンを含まない形で記録してから消す
+- **定期処理**: キュー `scheduled-jobs`（`backend/src/jobs/scheduled-job-runner.ts`）に Bull の繰り返しジョブ（cron、Asia/Tokyo）として登録し、同じプロセスで実行する。起動のたびにジョブ名を識別子として登録し直す。定義は次の 4 つ
+  - `expired-token-cleanup`（毎時 15 分）: 使用済み・期限切れの招待・リセット・リフレッシュのトークンの消去
+  - `failed-email-job-cleanup`（毎時 45 分）: メールキューの失敗のジョブの掃除
+  - `inactive-user-deactivation`（毎日 03:00）: 90 日使われていない利用者の自動無効化
+  - `audit-log-archive`（毎月 1 日 04:00）: 13 か月を過ぎた監査ログの暗号化したアーカイブと、8 年を過ぎたアーカイブの消去
 
 ### 接続障害への耐性（backend 全体に効く規約）
 
@@ -1192,7 +1211,17 @@ git push origin main
 VITE_API_URL=http://localhost:3000
 ```
 
-本番環境では `https://your-backend.railway.app` のようなRailway URLを指定します。
+テスト・CI・本番では、画面と同じオリジン（frontend の nginx）を指定し、nginx が API を backend へ中継します。frontend のコンテナ（nginx）は次の環境変数を読みます。
+
+```bash
+# API の中継先（scheme://host[:port] だけ。未設定や形の違いは起動前の検査で止まる）
+BACKEND_INTERNAL_URL=http://backend:3000
+# CSP の画像・接続の追加の取得先（R2 の配信元、Sentry の取り込み先など。空白区切り）
+CSP_IMG_SRC_EXTRA=
+CSP_CONNECT_SRC_EXTRA=
+# HSTS（本番だけ設定する。空なら付けない）
+NGINX_HSTS_VALUE=
+```
 
 ### バックエンド環境変数
 
@@ -1211,8 +1240,20 @@ REDIS_URL=redis://localhost:6379
 FRONTEND_URL=http://localhost:5173
 
 # レート制限（開発・テスト環境専用）
-DISABLE_RATE_LIMIT=true  # 本番環境では必ずfalseまたは未設定
+DISABLE_RATE_LIMIT=true  # 本番環境では読まない
+
+# 信頼する中継の段数（本番で必須。true は拒否する）
+TRUST_PROXY_HOPS=0
+# 監査ログのアーカイブの暗号鍵（64 桁の 16 進。本番で必須）
+ARCHIVE_ENCRYPTION_KEY=
+# トークンの発行者・想定利用者（既定値あり）
+JWT_ISSUER=architrack
+JWT_AUDIENCE=architrack-api
+# 異常の検知の閾値・時間窓・抑止（群ごと。既定値あり）
+# SECURITY_ALERT_<GROUP>_THRESHOLD / _WINDOW_SECONDS / _COOLDOWN_SECONDS
 ```
+
+本番の実行環境では `ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS`・`REDIS_URL` のいずれかが欠けると backend は起動を止めます（`backend/src/config/runtime-mode.ts`）。
 
 本番環境では各サービスのRailway内部URLまたは公開URLを指定します。
 
