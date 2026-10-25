@@ -300,3 +300,17 @@
   - _Boundary: 契約書のフォームの監理者の候補の取得_
 
 **検証が記録した警告（起票していない。扱いは利用者の判断を待つ）**: (a) 11.1 の再試行ボタンは読み込みの失敗のときだけで、作成・保存・ステータス変更の失敗はトーストだけ。削除のダイアログは 422 以外をすべて「削除に失敗しました」にする（`DeleteConfirmDialog.tsx` の 147 行付近）。(b) 11.4 に最新データを読み直す導線が無い（`ContractEditPage.tsx` の 198〜202 行付近）。(c) 楽観ロックの確認と更新が別の処理で、同時更新の競合を防げない（`contract.service.ts` の 345〜356 行付近）。(d) 同じ router を 2 か所に割り当て（`app.ts` の 403〜404 行付近）、`/api/projects/:pid/contracts/:id` で URL の projectId と契約書の所属を確かめていない。(e) 金額が整数に限られず、税率の表示が `String(rate*100)` で浮動小数の誤差が出うる。(f) 作成・編集画面は URL を直接開けば権限が無くても表示される。(g) E2E の主張が見出しだけ・無い受入基準がある（4.1〜4.5、11.1〜11.6 のトースト、13.5）
+
+## Task 19: 案件の閲覧範囲（user-authentication の要件39）を本スペックの API へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）を実装した（同スペックのタスク52.1）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数を各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.11 が本スペックの項目（入れ子のルートでリソースが親 ID に属するかの照合、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の契約書を読み書きできる）ことを確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）。本スペックには出力の機能が無いため、要件40 の出力の記録は対象外である
+
+- [ ] 19.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用し、入れ子の経路で契約書の所属を照合する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/contracts.routes.ts（`/api/projects/:projectId/contracts` と `/api/contracts`）: `GET /`（100）、`GET /:id`（160）、`POST /`（226）、`PUT /:id`（307）、`PATCH /:id/status`（389）、`DELETE /:id`（454）
+  - 契約書の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。作成の元にする見積書・基となる契約書も同じ案件の範囲で判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
+  - **入れ子の経路の所属の照合**（是正計画 §5.11、Task 18 の検証が記録した警告 (d)）: 同じ router が 2 か所に載り、`/api/projects/:projectId/contracts/:id` で URL の `projectId` と契約書の所属を確かめていない。所属しない組み合わせは不在と同じ 404 にする（判定は契約書が属する案件で行い、URL の `projectId` だけで範囲を判定しない）
+  - **既存のテストの扱い**（user-authentication の 52.2 の記録の区分 B）: 統合 contract.api の `PROJECT_NOT_FOUND` の主張は、404 の本文が `NOT_FOUND` に変わるだけで落ちる。範囲外と不在を同じ本文にする 39.2 に合わせて改める（主張を消さない）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定と所属しない入れ子の経路が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が契約書の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+  - _Boundary: 本スペックの API の案件の範囲の判定と入れ子の経路の所属の照合_

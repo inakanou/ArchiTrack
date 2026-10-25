@@ -4453,6 +4453,29 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - 挙動（表示）の変更であるため RED → GREEN で進め、E2E（375 幅でカードの要素の右端がカードの内側に収まり、ページに水平スクロールが出ない）で主張する。Task 102.1 の E2E（`e2e/specs/quantity-tables/quantity-table-focus-visible.spec.ts`）の 375 幅の期待値への影響を確かめる
   - _Boundary: 数量グループのカードの 375 幅の配置_
 
+## Task 104: 案件の閲覧範囲（user-authentication の要件39）と出力の事前記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（`POST /api/v1/audit-logs/exports` を受ける `ExportAuditService`、frontend/src/api/export-audit.ts の `runRecordedExport`）を実装した（同スペックのタスク52.1・53.3・53.4）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.6 が本スペックの項目（数量表 PDF の出力の記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の数量表を読み書きできる）ことと、出力が記録を経ないこと（`runRecordedExport` の本番の呼び出し元は 0 件）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [ ] 104.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/quantity-tables.routes.ts（`/api/projects/:projectId/quantity-tables` と `/api/quantity-tables`）: `POST /`（293）、`GET /summary`（369）、`GET /`（452）、`GET /:id`（522）、`PUT /:id`（608）、`PUT /:id/save`（755）、`POST /:id/copy`（928）、`DELETE /:id`（1008）
+    - backend/src/routes/quantity-groups.routes.ts（`/api/quantity-tables/:quantityTableId/groups` と `/api/quantity-groups`）: `POST /`（138）、`GET /`（241）、`PUT /order`（313）、`GET /:id`（389）、`PUT /:id`（477）、`DELETE /:id`（587）、`POST /:id/copy`（660）、`POST /from-survey`（772）
+    - backend/src/routes/quantity-items.routes.ts（`/api/quantity-groups/:groupId/items` と `/api/quantity-items`）: `POST /`（199）、`GET /`（287）、`PUT /order`（357）、`GET /:id`（433）、`PUT /:id`（529）、`DELETE /:id`（623）、`POST /:id/copy`（682）、`POST /:id/move`（761）、`POST /bulk-copy`（854）、`POST /bulk-move`（918）
+    - backend/src/routes/autocomplete.routes.ts（`/api/projects/:projectId/quantity-items`）: `GET /autocomplete-candidates`（132）
+  - 数量表・グループ・項目の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。移動・複写・一括の経路（`POST /:id/move`、`POST /bulk-copy`、`POST /bulk-move` など）は移し先の数量表・グループの案件も判定し、写真の紐付け（`POST /from-survey`、`PUT /:id/save`）は紐付ける現場調査の画像の案件も判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）。紐付けた写真の署名 URL は範囲内に限って発行する（39.4）
+  - **既存のテストの扱い**（user-authentication の 52.2 の記録の区分 B）: 統合 quantity-table.api の `PROJECT_NOT_FOUND` の主張は、404 の本文が `NOT_FOUND` に変わるだけで落ちる。範囲外と不在を同じ本文にする 39.2 に合わせて改める（主張を消さない）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧・集計に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が数量表の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+  - _Boundary: 本スペックの API の案件の範囲の判定_
+
+- [ ] 104.2 数量表の PDF の出力に事前記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測）: frontend/src/pages/QuantityTableEditPage.tsx の `handlePdfExport`（1403 行付近、1570 行付近の `generateQuantityTablePdf`）。種別 `quantity_table_pdf`
+  - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
+  - 挙動の変更であるため RED → GREEN で進め、E2E で出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Boundary: 数量表の編集画面の PDF の出力の開始の処理_
+  - _Depends: 104.1_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。

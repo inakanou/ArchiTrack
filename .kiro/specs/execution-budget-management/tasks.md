@@ -392,5 +392,29 @@
   - _Requirements: 18.1, 18.4_
   - _Boundary: 出来高入力画面の出来高率の算出とその検証_
 
+## タスク17: 案件の閲覧範囲（user-authentication の要件39）と出力の記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（backend/src/services/export-audit.service.ts の `ExportAuditService`）を実装した（同スペックのタスク52.1・53.3）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.7 が本スペックの項目（発注と月別出来高のエクスポートの記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が他の案件の実行予算・発注・出来高・原価を読み書きできる）ことと、出力が記録を経ないこと（`ExportAuditService.record` の呼び出し元は監査ログの経路だけ）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [ ] 17.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用し、子リソースの所属を照合する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。いずれも `/api/projects/:projectId/execution-budget` の配下に載る。着手時に測り直すこと）:
+    - backend/src/routes/execution-budget.routes.ts: `POST /`（53）、`GET /`（105）、`DELETE /`（143）、`PATCH /items/:itemId`（189）、`GET /unreflected-amendments`（230）、`GET /amendment-diff/:contractId`（266）、`POST /apply-amendment`（319）
+    - backend/src/routes/order.routes.ts（`…/orders`）: `GET /`（68）、`POST /`（107）、`GET /:orderId`（157）、`PATCH /:orderId`（188）、`PUT /:orderId/items`（229）、`PATCH /:orderId/status`（270）、`DELETE /:orderId`（321）
+    - backend/src/routes/progress.routes.ts（`…/progress`）: `GET /monthly`（56）、`GET /monthly/:yearMonth`（103）、`POST /`（154）、`GET /`（214）、`GET /:date`（253）、`DELETE /:progressRecordId`（303）
+    - backend/src/routes/cost-monthly-close.routes.ts: `PATCH /items/:itemId/cost`（63）、`POST /monthly-close`（104）、`GET /monthly-close`（166）
+    - backend/src/routes/export.routes.ts: `GET /orders/:orderId/export`（66）、`GET /progress/monthly/export`（116）
+  - 経路の `projectId` を `projectIdFromParam` で読み、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）
+  - **子リソースの所属の照合**: 経路の `itemId`・`orderId`・`progressRecordId`・`contractId` が経路の `projectId` の案件に属するかを確かめ、属さない組み合わせは不在と同じ 404 にする（contract-management の是正計画 §5.11 と同じ形。範囲内の案件の ID を経由して範囲外の子を操作できないようにする）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の要求と所属しない子の ID が不在と同じ 404 になり DB が変わらないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が実行予算の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+  - _Boundary: 本スペックの API の案件の範囲の判定と子リソースの所属の照合_
+
+- [ ] 17.2 発注と月別出来高の出力に記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測）: サーバーで生成する backend/src/routes/export.routes.ts の `GET /orders/:orderId/export`（66。画面は frontend/src/pages/OrderDetailPage.tsx の `handleExport`）と `GET /progress/monthly/export`（116。画面は frontend/src/pages/ProgressInputPage.tsx の `handleExportExcel`・`handleExportPdf`）。種別 `order_export`・`progress_export`
+  - ハンドラーが生成の前に `ExportAuditService.record`（実行者・種別・案件・対象・件数）を呼ぶ（40.9。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。記録が失敗したときの応答（出力を返さない）は同節に照らして決める
+  - 挙動の変更であるため RED → GREEN で進め、統合テストで出力のたびに監査 `DATA_EXPORTED` が種別・案件つきで 1 件記録されること、記録の失敗時の応答を主張し、E2E で画面からの出力が記録を残すことを確かめる
+  - _Boundary: 発注と月別出来高の出力の経路の記録_
+  - _Depends: 17.1_
+
 ## Implementation Notes
 - 16.1（2026-09-29）: 精度の検証の網羅は、design.md の構成要素（Service 6 つ → `execution-budget` / `order` / `progress` / `cost` / `monthly-close` / `order-export` / `progress-export` の 7 ファイル）から対象を決め、固定の grep の全ヒット行を RED / 同値 / 範囲外 / 対象外に理由付きで分類して突き合わせること。機能名の連想で対象を絞った 3 回が、毎回その回の指摘分だけを直す形になり差し戻された。Number の変異が区別できる入力は、2^53 を超える奇数の途中和（999999999999999×10 と 1 の並びの順序に注意）と、真値が二進で表せない比率（例 15/10000）で作る。fixture は案分の結果など実際に到達しうる状態であることを確かめる

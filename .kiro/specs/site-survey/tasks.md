@@ -6419,6 +6419,35 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **起票の前提の再実測（着手時、2026-10-12、HEAD `5df8e8f8` の作業ツリー、リポジトリルートで実測。上の経緯と本文は起票時の記録として残す）**: 「指で端まで送っても約 13px 欠ける」は再現しなかった。375 幅で指で送ると scrollLeft は最大に届き、「エクスポート」は箱の内側に収まる（`e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts` の (j)。HEAD でも緑の見張り）。欠けるのは **Tab でフォーカスを送る経路だけ**で、値（230..348 / 箱の内側 40..335 / scrollLeft 1330/1351）は Task 116.1 の focus-visible の E2E が測った 13px と一致する。起票時の観測もこの経路だったと読める。Chromium は、横に一部が見えている項目にフォーカスが移ってもスクロールしない。ツールバーへの `scroll-padding-inline`、釦への `scroll-margin-inline`、`padding-right` を実行時に入れても scrollLeft は 1330 のままで、**末尾の余白では直らない**（実装者と独立レビューがそれぞれ実測）
   - **採った手段**: 本文の「余白を設けるなどして」の範囲として、`AnnotationToolbar.tsx` のツールバーに `onFocus` を置いた。モバイル幅で、受けたフォーカスが `:focus-visible` に当たるときだけ、欠けた分だけツールバー自身の scrollLeft を寄せる。ページはスクロールさせない。375 幅・タッチの Chromium の実測では、select と数値の入力欄はタップでも `:focus-visible` に当たって寄り、釦・チェックボックス・色の入力は当たらず動かない（タップした入力欄を寄せる挙動は、独立レビューが示した是正案 (a) として kiro-impl の統括側の判断で許容し、2026-10-12 にユーザーが案 (a) のまま進めると決めた。(l)・(m) で主張）。`:focus-visible` を解さないブラウザでは try/catch で寄せない。116.1 のモバイル幅の内側の輪とスタイルは変えていない
 
+## Task 119: 案件の閲覧範囲（user-authentication の要件39）と出力の事前記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（`POST /api/v1/audit-logs/exports` を受ける `ExportAuditService`、frontend/src/api/export-audit.ts の `runRecordedExport`）を実装した（同スペックのタスク52.1・53.3・53.4）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出し、`SignedUrlService` の判定の差し替えを本スペックなど各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.2 が本スペックの項目（サムネイルの署名 URL の判定、閲覧範囲の適用、調査報告書と画像の出力の記録）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の現場調査・画像・注釈を読み書きできる）ことと、出力が記録を経ないこと（`runRecordedExport` の本番の呼び出し元は 0 件）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（本スペックの Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [ ] 119.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/site-surveys.routes.ts（`/api/projects/:projectId/site-surveys` と `/api/site-surveys` の両方に載る）: `POST /`（125）、`GET /latest`（227）、`GET /`（342）、`GET /:id`（487）、`PUT /:id`（596）、`DELETE /:id`（681）。同ファイルの `projectSurveyImagesRouter`（`/api/projects/:projectId/survey-images`）の `GET /`（832）
+    - backend/src/routes/survey-images.routes.ts（`/api/site-surveys/:id/images` と `/api/site-surveys/images`）: `GET /`（276）、`POST /`（357）、`PUT /order`（520）、`PATCH /batch`（637）、`DELETE /:imageId`（734）、`PATCH /:imageId`（839）、`PATCH /:imageId/annotated-thumbnail`（967）、`DELETE /:imageId/annotated-thumbnail`（1168）
+    - backend/src/routes/annotation.routes.ts（`/api/site-surveys/images` と `/api/site-surveys`）: `GET /:imageId/annotations`（99）、`PUT /:imageId/annotations`（208）、`GET /:imageId/annotations/export`（304）、`POST /annotations/batch`（406）
+  - 現場調査・画像の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。一括の経路（`PATCH /batch`、`POST /annotations/batch`）は対象の全件の案件を判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
+  - **`GET /api/projects/:projectId/survey-images` の 403 と 404 の出し分け**: site-surveys.routes.ts の 856〜879 行付近は、`ProjectSurveyImagesAccessDeniedError` の後に案件を引き直し、不在・論理削除は本文に `projectId` を含む 404（`PROJECT_NOT_FOUND`）、実在は 403 を返す。範囲外と不在を区別できるため 39.2 に反する。判定部品の 404 へ一本化し、引き直しを外す
+  - **ロール名の直書き**: backend/src/services/signed-url.service.ts の `validateProjectAccess`（258〜271 行付近）は、関係者でない利用者をロール名 `'admin'` の一致で通す。user-authentication の design.md の「ProjectScopeService」の節のとおり `canAccessProject`（全案件の判定は `project:read_all` の権限）へ差し替える（39.1。差し替えは本スペックの所管と同節が定める）
+  - **判定を経ないサムネイルの署名**: backend/src/services/image-list.service.ts の 280〜283 行付近は、原画像だけを判定の通過時に署名し、サムネイルと注釈付きサムネイルは判定を経ずに署名する。範囲内に限って発行する（39.4、是正計画 §5.2 の「サムネイルの署名 URL 発行時に権限・閲覧範囲を判定する」）
+  - **既存のテストの扱い**（user-authentication の tasks.md の Implementation Notes の 52.2）: 区分 B（404 の本文が `PROJECT_NOT_FOUND` から `NOT_FOUND` に変わるだけで落ちる）は統合 site-survey.api の `PROJECT_NOT_FOUND` の主張と、E2E site-survey-crud.spec.ts の「存在しないプロジェクトでは現場調査を作成できない」。区分 C（範囲外の利用者の振る舞いそのものを主張する）は E2E site-survey-access-control.spec.ts の site-survey/REQ-38.9（非関係者の画像一覧が 200 で `originalUrl` が null）。同 52.3 の記録は区分 C の残りを各業務 spec の適用で同じ方針（要件39 が優先する、利用者の判断 2026-10-24 の A）で改めるとする。本スペックの Requirement 14 の画像へのアクセス可否の判定と 38.9 の読み方が変わるため、requirements.md・design.md の扱いは着手時に利用者の判断を得る
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、本文に案件 ID が出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること、範囲外ではサムネイルの署名 URL も返らないことを主張する。E2E で担当外の利用者が現場調査の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+  - _Boundary: 本スペックの API の案件の範囲の判定、`SignedUrlService` の判定、画像一覧の署名 URL の発行_
+
+- [ ] 119.2 本スペックの出力に事前記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測。着手時に測り直すこと）:
+    - 調査報告書の PDF: frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx の `handleExportPdf`（287 行付近）。種別 `site_survey_report_pdf`
+    - 画像の一括 ZIP: frontend/src/components/site-surveys/BulkExportDialog.tsx の `service.execute`（297 行付近、frontend/src/services/export/bulkExportService.ts）。種別 `site_survey_images_zip`
+    - 注釈の編集の個別の出力: frontend/src/components/site-surveys/AnnotationEditor.tsx の注釈付き画像（`handleExport` 3123 行付近・`handleExportWithOptions` 3160 行付近）、原画像（`handleDownloadOriginal` 3212 行付近）、注釈の JSON（`handleExportAnnotationJson` 3240 行付近。サーバーの annotation.routes.ts の `GET /:imageId/annotations/export`〔304〕を経る）。種別 `annotated_image`
+  - ブラウザで生成する出力は `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11）。注釈の JSON はブラウザの包みとサーバーの `ExportAuditService.record` のどちらか一方で 1 回だけ記録する（二重に記録しない）
+  - user-authentication の 53.4 が置いた調査報告書のラチェット（site-survey-report-export-audit.spec.ts の `test.fail()` 2 件）は、調査報告書の出力に包みを適用すると反転する。ラチェットを外して被覆済みへ移し、除外 user-authentication/REQ-40.10・40.11 の扱い（他の spec の出力が未適用のまま残る間の理由の書き方を含む）を user-authentication の所管として報告する。反転しないときは前提（ダウンロード・注釈の取得の観測）の失敗をまず疑う
+  - 挙動の変更であるため RED → GREEN で進め、E2E で各出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Boundary: 本スペックの画面の出力の開始の処理_
+  - _Depends: 119.1_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。

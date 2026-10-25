@@ -915,3 +915,36 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
   - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
   - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
+
+## Task 30: 案件の閲覧範囲（user-authentication の要件39）と出力の事前記録（同 要件40）を本スペックの API と出力へ適用し、Task 23.1 の判断を要件39 へ置き換える（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（`POST /api/v1/audit-logs/exports` を受ける `ExportAuditService`、frontend/src/api/export-audit.ts の `runRecordedExport`）を実装した（同スペックのタスク52.1・53.3・53.4）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.4 が本スペックの項目（原本の取得への関係者の判定、台帳 PDF と ZIP の出力の記録）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件のアルバム・写真・看板を読み書きできる）ことと、出力が記録を経ないこと（`runRecordedExport` の本番の呼び出し元は 0 件）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）。
+
+**利用者の判断（2026-10-24、A。user-authentication の tasks.md の Implementation Notes の 52.3）**: 案件の閲覧範囲は、user-authentication の要件39 が本スペックの Task 23.1 の利用者の判断（2026-10-03、ロールの権限の表だけで判定する）に優先する。同スペックの 52.3 はこれに従って E2E construction-photo-additional.spec.ts の「担当でない一般ユーザーが…」を、担当外は「プロジェクトが見つかりません」でアルバムの行が 0 件、工事担当者に設定すると見える、の主張へ書き直した。本スペックの API・設計文書・統合テストは旧い判断のまま残っている
+
+- [ ] 30.1 Task 23.1 の判断（ロールの権限の表だけで判定）を要件39 の判定へ置き換え、旧い判断を主張する文書と統合テストを改める
+  - design.md の 83〜84 行付近（プロジェクトメンバーシップ専用ガードは存在しない、工事写真・工事看板のアクセスもロールの権限の表だけで判定する）と、903 行付近・920 行付近の試験の方針（担当でない一般ユーザーが他の利用者のプロジェクトのアルバム・写真項目・看板を操作できる）を、要件39 の判定（担当者・作成者・全案件閲覧の権限だけが範囲内、範囲外は不在と同じ 404）へ改め、23.1 の判断が 2026-10-24 の判断 A で置き換えられたことを記録する（23.1 の記録は残す）
+  - 要件 1.2・13.2・13.3・17.1 の「アクセス可能なプロジェクト」の読み方を要件39 の範囲に揃える。requirements.md の改訂の要否は着手時に利用者の判断を得る
+  - **旧い判断を主張する統合テスト（user-authentication の 52.2 の記録の区分 C）**: backend の統合テスト construction-photo-access.api.integration.test.ts（担当でない user の各操作が通ることの主張。52.2 の記録で 8 件）、construction-photo-metadata.api.integration.test.ts、construction-photo-original-image.api.integration.test.ts、construction-photo-print-image.api.integration.test.ts、construction-photo-image.api.integration.test.ts の担当外の利用者の操作。担当外は不在と同じ 404 で DB とストレージが変わらないこと、工事担当者・営業担当者・作成者に設定すると通ることの主張へ書き換える（主張を消さない）。30.2 の適用と同じ変更で行う（片方だけでは赤になる）
+  - _Boundary: 本スペックの design.md のアクセスの判定の記述と、旧い判断を主張する統合テスト_
+
+- [ ] 30.2 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/construction-photos.routes.ts（`/api/projects/:projectId/construction-photos` と `/api/construction-photos`）: `POST /`（95）、`GET /`（174）、`GET /:id`（262）、`PATCH /:id`（334）、`DELETE /:id`（390）
+    - backend/src/routes/construction-photo-images.routes.ts（`/api/construction-photos/:id/images` と `/api/construction-photos/images`）: `GET /`（241）、`POST /`（332）、`POST /from-surveys`（452）、`PATCH /batch`（560）、`PUT /order`（643）、`DELETE /:imageId`（712）、`GET /:imageId/print-image`（782）、`GET /:imageId/original`（867）
+    - backend/src/routes/construction-signboards.routes.ts（`/api/projects/:projectId/construction-signboards` と `/api/construction-signboards`）: `POST /`（104）、`GET /`（160）、`PATCH /:id`（240）、`DELETE /:id`（298）
+  - アルバム・写真・看板の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。Task 23.1 が backend/src/services/construction-photo-availability.ts にまとめた所属の判定（配下として指したときの 404 / 400）との順序と重複を整理する。一括の経路（`PATCH /batch`、`PUT /order`）は対象の全件の案件を判定し、現調コピー（`POST /from-surveys`）はコピー元の現場調査の案件も判定する
+  - アルバムの代表サムネイル・写真の一覧などの署名 URL（construction-photo-image.service.ts・construction-photo-metadata.service.ts）は範囲内に限って発行する（39.4。是正計画 §5.4 の「原本取得 API に関係者判定（閲覧範囲）を適用する」）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者がアルバムの URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+  - _Boundary: 本スペックの API の案件の範囲の判定と署名 URL の発行_
+  - _Depends: 30.1（同じ変更で行う）_
+
+- [ ] 30.3 本スペックの出力に事前記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測。着手時に測り直すこと）:
+    - 工事写真台帳の PDF: frontend/src/pages/ConstructionPhotoDetailPage.tsx の `handleExportPdf`（906 行付近、`exportConstructionPhotoLedger`）。種別 `construction_photo_ledger_pdf`
+    - 写真の一括 ZIP: 同ページの `handleExportStart`（1021 行付近、frontend/src/services/export/ConstructionPhotoBulkExportService.ts）。種別 `construction_photos_zip`
+  - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
+  - 挙動の変更であるため RED → GREEN で進め、E2E で各出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Boundary: 本スペックの画面の出力の開始の処理_
+  - _Depends: 30.2_

@@ -1778,6 +1778,27 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
 
 **検証が記録した警告（起票していない）**: (a) 明細行の入力に 13.1 / 13.2 / 13.4 の入力時のエラー・警告の表示が無く、不正な値は保存時の 400 で初めて出る。(b) 内訳書からの作成（`estimate.service.ts` の 331〜412 行付近）に 2000 件の上限が無い。(c) `app.ts` の `express.json` の 5mb の上限で 2000 件近い保存が汎用の 500 になる恐れ。(d) PUT / DELETE `/:id` の楽観ロックが並行の要求に耐えない。(e) 保存・読込の変換が再帰のまま。(f) 2001 件 → 422 の検証が schema の単体だけ。(g) 1819 行付近の注記が 53.16 で解消済みなのに「未配線」のまま
 
+## タスク62: 案件の閲覧範囲（user-authentication の要件39）と出力の事前記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（`POST /api/v1/audit-logs/exports` を受ける `ExportAuditService`、frontend/src/api/export-audit.ts の `runRecordedExport`）を実装した（同スペックのタスク52.1・53.3・53.4）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.8 が本スペックの項目（見積書出力の記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の見積書を読み書きできる）ことと、出力が記録を経ないこと（`runRecordedExport` の本番の呼び出し元は 0 件）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [ ] 62.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/estimates.routes.ts（`/api/projects/:projectId/estimates` と `/api/estimates`）: `POST /`（153）、`GET /`（275）、`GET /latest`（348）、`GET /:id`（407）、`PUT /:id`（486）、`DELETE /:id`（590）、`PUT /:id/save`（749）、`GET /:id/items`（916）、`POST /:id/calculate-overhead`（996）、`PUT /:id/edit-session`（1190）、`DELETE /:id/edit-session`（1217）
+    - backend/src/routes/project-quotations.routes.ts（`/api/projects/:projectId/quotations`）: `GET /`（49）
+  - 見積書の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。転記の元（受領見積書・内訳書）も同じ案件の範囲で判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
+  - **既存のテストの扱い**（user-authentication の 52.2 の記録の区分 B）: 統合 estimate.api の `PROJECT_NOT_FOUND` の主張は、404 の本文が `NOT_FOUND` に変わるだけで落ちる。範囲外と不在を同じ本文にする 39.2 に合わせて改める（主張を消さない）。同時編集の検証（estimate-edit-session.api・estimate-edit-presence-e2e.spec.ts）は同 52.2 で利用者 B を工事担当者にしてあり、範囲内のまま成り立つことを確かめる
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が見積書の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+  - _Boundary: 本スペックの API の案件の範囲の判定_
+
+- [ ] 62.2 見積書の出力に事前記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測）: frontend/src/components/estimate/EstimateExportDialog.tsx の PDF（355 行付近の `service.generateAndDownload`）と Excel（365 行付近の `estimateExcelExportService.generateAndDownload`）。種別 `estimate_pdf`・`estimate_xlsx`
+  - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
+  - 挙動の変更であるため RED → GREEN で進め、E2E で各形式の出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Boundary: 見積書の出力のダイアログの出力の開始の処理_
+  - _Depends: 62.1_
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。

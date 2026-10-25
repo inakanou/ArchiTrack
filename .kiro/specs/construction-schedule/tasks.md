@@ -444,3 +444,22 @@
   - 挙動の変更であるため RED → GREEN で進め、単体（上限超過・検証エラーは detail、Prisma 由来の 400 は汎用の文言）で主張する。Task 19.1 の E2E（`e2e/specs/schedules/construction-schedule-focus-visible.spec.ts`）の作成の失敗の期待値への影響を確かめる
   - _Requirements: 1.6, 12.1_
   - _Boundary: 工程表の作成画面の失敗の表示_
+
+## タスク22: 案件の閲覧範囲（user-authentication の要件39）と出力の記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（backend/src/services/export-audit.service.ts の `ExportAuditService`）を実装した（同スペックのタスク52.1・53.3）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.10 が本スペックの項目（Excel・PDF 出力の記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の工程表を読み書きできる）ことと、出力が記録を経ないこと（`ExportAuditService.record` の呼び出し元は監査ログの経路だけ）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [ ] 22.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/schedules.routes.ts（`/api/projects/:projectId/schedules` と `/api/schedules`）: `GET /`（105）、`GET /:id`（165）、`POST /`（231）、`PUT /:id`（312）、`PUT /:id/bulk-save`（390）、`DELETE /:id`（461）、`GET /:id/export`（527）
+  - 工程表の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が工程表の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+  - _Boundary: 本スペックの API の案件の範囲の判定_
+
+- [ ] 22.2 工程表の出力に記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測）: サーバーで生成する backend/src/routes/schedules.routes.ts の `GET /:id/export`（527。Excel と PDF。画面は frontend/src/components/schedule/ExportDialog.tsx から呼ぶ）。種別 `schedule_export`
+  - ハンドラーが生成の前に `ExportAuditService.record`（実行者・種別・案件・対象・件数）を呼ぶ（40.9。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。記録が失敗したときの応答（出力を返さない）は同節に照らして決める
+  - 挙動の変更であるため RED → GREEN で進め、統合テストで出力のたびに監査 `DATA_EXPORTED` が種別・案件つきで 1 件記録されること、記録の失敗時の応答を主張し、E2E で画面からの出力が記録を残すことを確かめる
+  - _Boundary: 工程表の出力の経路の記録_
+  - _Depends: 22.1_

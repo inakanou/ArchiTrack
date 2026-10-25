@@ -2338,3 +2338,27 @@
   - 当該の `description` の値を引用符で囲むなど YAML として正しい形にし、`npm --prefix backend run docs:generate` で生成物を作り直す。生成時のエラーが本ファイルについて出なくなること、生成物に当該エンドポイントが載ることを確かめる。生成物の差分が当該エンドポイントの追加だけであることを確かめる
   - `backend/src/__tests__/unit/docs/api-spec.test.ts` に当該エンドポイントの存在と `limit` の記述を主張する検証を足す（RED → GREEN）。振る舞いは変えない
   - _Boundary: 本スペックの直近の見積依頼の API の OpenAPI の記述_
+
+## タスク103: 案件の閲覧範囲（user-authentication の要件39）と出力の事前記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（`POST /api/v1/audit-logs/exports` を受ける `ExportAuditService`、frontend/src/api/export-audit.ts の `runRecordedExport`）を実装した（同スペックのタスク52.1・53.3・53.4）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.5 が本スペックの項目（内訳書 Excel 出力と現場調査報告書出力の記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の見積依頼・受領見積書を読み書きできる）ことと、出力が記録を経ないこと（`runRecordedExport` の本番の呼び出し元は 0 件）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [ ] 103.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/estimate-requests.routes.ts（`/api/projects/:projectId/estimate-requests` と `/api/estimate-requests`）: `POST /`（129）、`GET /`（256）、`GET /latest`（333）、`GET /:id`（390）、`PUT /:id`（481）、`DELETE /:id`（582）、`PATCH /:id/items`（682）、`GET /:id/items-with-status`（748）、`GET /:id/text`（836）、`GET /:id/excel`（932。501 を返す未実装の経路で、画面からの呼び出しは無い）
+    - backend/src/routes/received-quotation.routes.ts（`/api/estimate-requests/:id/quotations` と `/api/quotations`）: `POST /`（137）、`GET /`（280）、`GET /:id`（336）、`PUT /:id`（433）、`DELETE /:id`（590）、`GET /:id/preview`（672）
+    - backend/src/routes/estimate-request-status.routes.ts（`/api/estimate-requests`）: `PATCH /:id/status`（94）、`GET /:id/status-history`（209）
+  - 見積依頼・受領見積書の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。項目の選択（`PATCH /:id/items`）が指す内訳書も同じ案件の範囲で判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
+  - 受領見積書のファイルの署名 URL（backend/src/services/received-quotation.service.ts、`GET /:id/preview` など）は範囲内に限って発行する（39.4）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること、範囲外では署名 URL が返らないことを主張する。E2E で担当外の利用者が見積依頼の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+  - _Boundary: 本スペックの API の案件の範囲の判定と受領見積書の署名 URL の発行_
+
+- [ ] 103.2 本スペックの出力に事前記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測。着手時に測り直すこと）:
+    - 見積依頼の Excel: frontend/src/components/estimate-request/ExcelExportButton.tsx の `handleExport`（147 行付近。frontend/src/pages/EstimateRequestDetailPage.tsx の 1120 行付近から使う）。種別 `estimate_request_xlsx`
+    - 現場調査報告書の PDF（Requirement 35）: frontend/src/pages/EstimateRequestDetailPage.tsx の `handleGenerateReport`（969 行付近の `exportAndDownloadPdf`）。種別 `site_survey_report_pdf`
+  - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
+  - 挙動の変更であるため RED → GREEN で進め、E2E で各出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Boundary: 見積依頼の詳細画面の出力の開始の処理_
+  - _Depends: 103.1_
