@@ -475,7 +475,8 @@ function checkRealRepositoryIsScanned(): string[] {
   // 走査件数の下限。既定の product/tech/structure を消して件数を減らす形を塞ぐ。
   // **遊びを持たせない**（タスク 115.298）。是正前は 3 と宣言しながら現況が 4 件で
   // 遊びが 1 件あり、steering 文書を一件まで無言で走査から落とせた（2026-09-05 に実測）。
-  const MINIMUM_STEERING_DOCUMENTS = 4;
+  // roadmap.md の追加（aea2550c、2026-10-21）で現況が 5 件になったため 5 とした（2026-10-25）。
+  const MINIMUM_STEERING_DOCUMENTS = 5;
   if (documents.length < MINIMUM_STEERING_DOCUMENTS) {
     failures.push(
       `走査対象が ${MINIMUM_STEERING_DOCUMENTS} 件を下回っている（${documents.length} 件）`

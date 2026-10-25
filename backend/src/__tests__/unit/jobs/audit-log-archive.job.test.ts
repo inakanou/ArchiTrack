@@ -84,6 +84,23 @@ describe('audit-log-archive', () => {
     ]);
   });
 
+  it('時刻の関数を渡さないときは実行の時点の現在の時刻で月次の処理を呼ぶ', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-12-31T19:00:00.000Z'));
+      const runMonthly = vi
+        .fn()
+        .mockResolvedValue({ archivedMonths: [], failedMonths: [], deletedArchives: [] });
+
+      const run = createAuditLogArchiveRun({} as PrismaClient, () => ({ runMonthly }));
+      await run();
+
+      expect(runMonthly).toHaveBeenCalledWith(new Date('2026-12-31T19:00:00.000Z'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   /**
    * @requirement user-authentication/REQ-41.6
    */
