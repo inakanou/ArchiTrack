@@ -11,6 +11,9 @@ import { redactUrl, redactUrlQuery } from './url-query-redaction';
 
 type UnknownRecord = Record<string, unknown>;
 
+/** 伏せ字の表記（`./url-query-redaction` と同じ） */
+const REDACTED_TEXT = '[REDACTED]';
+
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null;
 }
@@ -57,6 +60,48 @@ function scrubRequest(request: unknown): void {
   }
 }
 
+/** span の属性のうちクエリの文字列を持つ欄（Sentry の browser tracing / fetch が付ける） */
+const SPAN_QUERY_ATTRIBUTES: ReadonlySet<string> = new Set(['url.query', 'http.query']);
+
+/** span の属性のうち断片を持つ欄（Sentry の browser tracing / fetch が付ける） */
+const SPAN_FRAGMENT_ATTRIBUTES: ReadonlySet<string> = new Set(['url.fragment', 'http.fragment']);
+
+/**
+ * span の属性のうち URL を持つ欄（`url.full`・`http.url`・`url` など、キーの末尾が url / href のもの）
+ *
+ * `url.path`（パスだけ）・`server.address`（ホスト名だけ）はトークンを含まないため対象にしない。
+ */
+function isUrlAttributeKey(key: string): boolean {
+  return key === 'url.full' || /(^|[._])(url|href)$/i.test(key);
+}
+
+/** span の属性（トレースの data・子 span の data）の URL・クエリ・断片のトークンを伏せる（その場で書き換える） */
+function scrubSpanAttributes(data: unknown): void {
+  if (!isRecord(data)) return;
+  for (const key of Object.keys(data)) {
+    const value = data[key];
+    if (typeof value !== 'string' || value === '') continue;
+    if (SPAN_QUERY_ATTRIBUTES.has(key)) {
+      data[key] = value.startsWith('?') ? (redactUrlQuery(value) ?? '') : redactQueryString(value);
+    } else if (SPAN_FRAGMENT_ATTRIBUTES.has(key)) {
+      // 断片は招待・リセットのトークンを運ぶため、中身を残さない（要件37.3）
+      data[key] = value.startsWith('#') ? `#${REDACTED_TEXT}` : REDACTED_TEXT;
+    } else if (isUrlAttributeKey(key)) {
+      data[key] = redactUrl(value) ?? value;
+    }
+  }
+}
+
+/** span（トレースの文脈・子 span）の data と description のトークンを伏せる（その場で書き換える） */
+function scrubSpan(span: unknown): void {
+  if (!isRecord(span)) return;
+  scrubSpanAttributes(span.data);
+  // fetch / xhr の span は「GET <URL>」、resource の span は URL を description に持つ
+  if (typeof span.description === 'string') {
+    span.description = redactUrl(span.description);
+  }
+}
+
 /**
  * breadcrumb（画面遷移の from / to・fetch / xhr の url）のトークンを伏せる
  */
@@ -66,11 +111,26 @@ export function scrubSentryBreadcrumb<T extends Sentry.Breadcrumb>(breadcrumb: T
 }
 
 /**
- * 事象（エラー・トレース・リプレイ）の request・urls・breadcrumb のトークンを伏せる
+ * 事象（エラー・トレース・リプレイ）の request・urls・breadcrumb・トレースの文脈・子 span・事象名のトークンを伏せる
+ *
+ * browserTracingIntegration は pageload の span に `url.full`（断片を含むページの href）を付け、
+ * Sentry の初期化は画面の描画（useUrlToken の replaceState）より前に走るため、招待・リセットの
+ * `#token=…` がトレースの文脈（`contexts.trace.data`）に載る。fetch / xhr / resource の子 span も
+ * data と description に URL を持つため、送る直前のこの関数で全て伏せる（要件42.4）。
  */
 export function scrubSentryEvent<T extends object>(event: T): T {
   const record = event as UnknownRecord;
   scrubRequest(record.request);
+  if (typeof record.transaction === 'string') {
+    // 親の無い http.client の span は「GET <URL>」が事象名になる
+    record.transaction = redactUrl(record.transaction);
+  }
+  if (isRecord(record.contexts)) {
+    scrubSpan(record.contexts.trace);
+  }
+  if (Array.isArray(record.spans)) {
+    for (const span of record.spans) scrubSpan(span);
+  }
   if (Array.isArray(record.urls)) {
     record.urls = record.urls.map((url: unknown) =>
       typeof url === 'string' ? redactUrl(url) : url

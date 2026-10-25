@@ -13,8 +13,12 @@
  *
  * ログレベルは E2E の backend のプロセス全体の状態のため、各テストの前に元の値を読み、終了時（失敗しても）に
  * 元の値へ戻す。実行者はテストの中で作る一意のメールアドレスの利用者（`SESSION_USER_EMAIL_PREFIX`）とし、
- * 各テストの後始末で消す。監査の行は消せない（不変）ため、主張は実行者の ID・メールアドレスと
- * テストの開始の時刻で範囲を絞る。
+ * 各テストの後始末で消す。監査の行は消せない（不変）ため、主張はテストの開始時に既にあった行を除いた
+ * 新しい行（と実行者の ID・メールアドレス）で範囲を絞る。
+ *
+ * 範囲は時刻ではなく開始時の行の ID の集合で絞る。WSL2 の壁時計は単調時計からずれ、同期で後ろへ
+ * 戻ることがある（実測: 前のテストの後始末の復元の行の createdAt が、次のテストの開始時に DB で取った
+ * now() より 1 秒余り後になり、一般ユーザーのテストが「記録が無い」の主張で落ちた）。
  */
 
 import {
@@ -60,12 +64,24 @@ async function currentLevel(request: APIRequestContext, adminToken: string): Pro
   return body.level;
 }
 
-/** 指定の時刻以降のログレベルの変更の監査の行（実行者を指定すればその実行者に絞る） */
-async function changeRecordsSince(since: Date, actorId?: string) {
+/** 現在あるログレベルの変更の監査の行の ID（テストの開始時の基準） */
+async function existingChangeRecordIds(): Promise<string[]> {
+  const rows = await getPrismaClient().auditLog.findMany({
+    where: { action: ACTION },
+    select: { id: true },
+  });
+  return rows.map((row) => row.id);
+}
+
+/**
+ * 基準（テストの開始時の行の ID）に無い、新しいログレベルの変更の監査の行
+ * （実行者を指定すればその実行者に絞る）
+ */
+async function newChangeRecords(baselineIds: readonly string[], actorId?: string) {
   return getPrismaClient().auditLog.findMany({
     where: {
       action: ACTION,
-      createdAt: { gte: since },
+      id: { notIn: [...baselineIds] },
       ...(actorId ? { actorId } : {}),
     },
     select: { actorId: true, targetType: true, targetId: true, before: true, after: true },
@@ -82,10 +98,10 @@ test.describe('運用設定（ログレベル）の管理用エンドポイン�
   /** テストの開始時のログレベル（終了時にこの値へ戻す） */
   let originalLevel: string;
   /**
-   * テストの開始の時刻（監査の行の範囲を絞る）。DB の時計で、元の値を読んだ後に取る（前のテストの後始末の
-   * 復元の記録を範囲に含めないため）
+   * テストの開始時にあったログレベルの変更の監査の行の ID（監査の行の範囲を絞る）。元の値を読んだ後に取り、
+   * 前のテストの後始末の復元の記録を範囲に含めない。時刻で絞ると壁時計の巻き戻りで前の行が入る
    */
-  let startedAt: Date;
+  let baselineIds: string[];
   let api: APIRequestContext;
 
   test.beforeEach(async ({ page }) => {
@@ -93,9 +109,7 @@ test.describe('運用設定（ログレベル）の管理用エンドポイン�
     admin = await createSessionUser('ADMIN_USER');
     adminToken = await getAccessToken(page, admin);
     originalLevel = await currentLevel(api, adminToken);
-    const [clock] = await getPrismaClient().$queryRaw<Array<{ now: Date }>>`SELECT now() AS now`;
-    expect(clock?.now).toBeInstanceOf(Date);
-    startedAt = clock!.now;
+    baselineIds = await existingChangeRecordIds();
   });
 
   test.afterEach(async () => {
@@ -140,7 +154,7 @@ test.describe('運用設定（ログレベル）の管理用エンドポイン�
     expect(legacyChange.status()).toBe(404);
 
     expect(await currentLevel(api, adminToken)).toBe(originalLevel);
-    expect(await changeRecordsSince(startedAt)).toEqual([]);
+    expect(await newChangeRecords(baselineIds)).toEqual([]);
   });
 
   /**
@@ -162,7 +176,7 @@ test.describe('運用設定（ログレベル）の管理用エンドポイン�
     expect(change.status(), await change.text()).toBe(403);
 
     expect(await currentLevel(api, adminToken)).toBe(originalLevel);
-    expect(await changeRecordsSince(startedAt)).toEqual([]);
+    expect(await newChangeRecords(baselineIds)).toEqual([]);
 
     // 対照: 同じ要求を管理者が送れば参照できる（拒否が経路の誤りなど別の理由で起きていない）
     const adminRead = await api.get(LOG_LEVEL_URL, { headers: bearer(adminToken) });
@@ -186,7 +200,7 @@ test.describe('運用設定（ログレベル）の管理用エンドポイン�
     expect(await currentLevel(api, adminToken)).toBe(newLevel);
 
     // DB: 実行者と変更前後の値
-    expect(await changeRecordsSince(startedAt, admin.id)).toEqual([
+    expect(await newChangeRecords(baselineIds, admin.id)).toEqual([
       {
         actorId: admin.id,
         targetType: TARGET_TYPE,

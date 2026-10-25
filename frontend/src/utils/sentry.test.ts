@@ -282,6 +282,94 @@ describe('Sentry Utilities', () => {
       expect(result.request.url).toBe('https://app.example.com/register?token=[REDACTED]');
     });
 
+    it('トレースの事象の trace の data（pageload の url.full）・子 span の data と description・事象名のトークンを伏せること', () => {
+      initSentry();
+      const beforeSendTransaction = requireHook(lastInitOptions(), 'beforeSendTransaction');
+
+      // browserTracingIntegration は pageload の span に url.full（断片を含む href）を付ける。
+      // 子 span（fetch / xhr / resource）は url.full・http.url・http.query・http.fragment・description に URL を持つ
+      const result = beforeSendTransaction({
+        type: 'transaction',
+        transaction: 'GET https://api.example.com/v1/auth/invitations/verify?token=name-secret',
+        contexts: {
+          trace: {
+            op: 'pageload',
+            data: {
+              'url.full': 'https://app.example.com/register#token=invite-secret',
+              'url.path': '/register',
+              'sentry.op': 'pageload',
+            },
+          },
+        },
+        spans: [
+          {
+            op: 'http.client',
+            description: 'GET https://api.example.com/v1/auth/password/verify?token=desc-secret',
+            data: {
+              'url.full': 'https://api.example.com/v1/auth/password/verify?token=full-secret',
+              'http.url': 'https://api.example.com/v1/auth/password/verify?token=http-secret',
+              url: '/v1/auth/password/verify?token=url-secret',
+              'http.query': '?token=query-secret&page=2',
+              'http.fragment': '#token=fragment-secret',
+              'url.query': '?token=urlquery-secret',
+              'url.fragment': '#token=urlfragment-secret',
+              'http.method': 'GET',
+            },
+          },
+          {
+            op: 'resource.img',
+            description: 'https://app.example.com/password-reset#token=resource-secret',
+            data: { 'server.address': 'app.example.com' },
+          },
+        ],
+      }) as {
+        transaction: string;
+        contexts: { trace: { data: Record<string, string> } };
+        spans: Array<{ description: string; data: Record<string, string> }>;
+      };
+
+      expect(JSON.stringify(result)).not.toMatch(/secret/);
+      expect(result.contexts.trace.data['url.full']).toBe(
+        'https://app.example.com/register#[REDACTED]'
+      );
+      expect(result.contexts.trace.data['url.path']).toBe('/register');
+      expect(result.transaction).toBe(
+        'GET https://api.example.com/v1/auth/invitations/verify?token=[REDACTED]'
+      );
+      const [httpSpan, resourceSpan] = result.spans;
+      expect(httpSpan!.description).toBe(
+        'GET https://api.example.com/v1/auth/password/verify?token=[REDACTED]'
+      );
+      expect(httpSpan!.data['url.full']).toBe(
+        'https://api.example.com/v1/auth/password/verify?token=[REDACTED]'
+      );
+      expect(httpSpan!.data['http.query']).toBe('?token=[REDACTED]&page=2');
+      expect(httpSpan!.data['http.fragment']).toBe('#[REDACTED]');
+      expect(httpSpan!.data['url.query']).toBe('?token=[REDACTED]');
+      expect(httpSpan!.data['url.fragment']).toBe('#[REDACTED]');
+      expect(httpSpan!.data['http.method']).toBe('GET');
+      expect(resourceSpan!.description).toBe('https://app.example.com/password-reset#[REDACTED]');
+      expect(resourceSpan!.data['server.address']).toBe('app.example.com');
+    });
+
+    it('エラーの事象の trace の data の url.full のトークンも伏せること', () => {
+      initSentry();
+      const beforeSend = requireHook(lastInitOptions(), 'beforeSend');
+
+      const result = beforeSend(
+        {
+          contexts: {
+            trace: { data: { 'url.full': 'https://app.example.com/password-reset#token=s-1' } },
+          },
+        },
+        {}
+      ) as { contexts: { trace: { data: Record<string, string> } } };
+
+      expect(result.contexts.trace.data['url.full']).toBe(
+        'https://app.example.com/password-reset#[REDACTED]'
+      );
+    });
+
     it('セッションリプレイの記録（ページの href・遷移の span・breadcrumb）のトークンを伏せること', () => {
       initSentry();
       const beforeAddRecordingEvent = requireHook(lastReplayOptions(), 'beforeAddRecordingEvent');

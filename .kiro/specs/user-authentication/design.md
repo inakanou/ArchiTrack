@@ -1986,7 +1986,7 @@ type TwoFactorError =
 - **秘密鍵暗号化**: AES-256-GCM（環境変数`TWO_FACTOR_ENCRYPTION_KEY`、256ビット鍵）
 - **バックアップコードハッシュ化**: Argon2id（メモリコスト: 64MB、時間コスト: 3、並列度: 4）
 - **TOTP設定**: SHA-1（Google Authenticator互換）、6桁、30秒ウィンドウ、±1ステップ許容
-- **バックアップコード**: 10個、8文字英数字、1回限り使用
+- **バックアップコード**: 10個、8文字英数字、1回限り使用。消費は取引の中で `usedAt: null` を条件にした更新で行い、更新した件数が 1 のときだけ成功とする（並行の検証が同じコードを使った場合は無効。27A.6、27A.7）。2FA の失敗回数は `{ increment: 1 }` で原子的に加算し、加算した後の値でロックを決める（27A.4）
 - **無効化時のパスワード確認**: アカウント乗っ取り防止
 - **トランザクション**: 2FA無効化時に秘密鍵とバックアップコードを同時削除、全リフレッシュトークン無効化
 
@@ -6032,7 +6032,7 @@ type ArchiveError =
 - `errorHandler` は Sentry の文脈に要求本文を付けない。付けるのは経路・メソッド・要求識別子・利用者 ID に限る
 - `initSentry` の `beforeSend` で、`event.request` の `data`・`cookies` を消去し、`headers` の `authorization`・`cookie`・`x-csrf-token` を `[Filtered]` にし、`query_string` を HttpLogger と同じ規則で伏せ字にする。`sendDefaultPii` は false とする（42.4）。実装は同じ規則を `beforeSendTransaction`（トレースの事象）にも当て、`beforeBreadcrumb` で HTTP の breadcrumb の url・クエリ・フラグメントも伏せる（タスク55.3）
 - 5xx の応答のたびに `SecurityAnomalyMonitor.observe('server_error', …)` を呼ぶ（43.3）
-- 画面側の Sentry（`frontend/src/utils/sentry.ts` の `initSentry`）も、送る URL のトークンを伏せる（42.4）。`beforeBreadcrumb`（遷移の from・to、fetch・xhr の url）、`beforeSend`（`event.request` の url・クエリ・`Referer`）、`beforeSendTransaction`、セッションリプレイの `beforeAddRecordingEvent`（記録の事象の href・span・breadcrumb）と、クライアントの `preprocessEvent`（replay の事象の `urls`・`request`）の各経路で、`?token=`・`&token=` などのクエリの値と `#token=` のフラグメントを伏せる
+- 画面側の Sentry（`frontend/src/utils/sentry.ts` の `initSentry`）も、送る URL のトークンを伏せる（42.4）。`beforeBreadcrumb`（遷移の from・to、fetch・xhr の url）、`beforeSend`（`event.request` の url・クエリ・`Referer`）、`beforeSendTransaction`、セッションリプレイの `beforeAddRecordingEvent`（記録の事象の href・span・breadcrumb）と、クライアントの `preprocessEvent`（replay の事象の `urls`・`request`）の各経路で、`?token=`・`&token=` などのクエリの値と `#token=` のフラグメントを伏せる。`beforeSend`・`beforeSendTransaction` が共に使う `scrubSentryEvent` は、トレースの文脈（`contexts.trace.data`。`browserTracingIntegration` が pageload の span に付ける `url.full` は、初期化が画面の描画より前のため断片の `#token=` を含む）と子 span（`spans[].data` の `url.full`・`http.url`・`url` など URL を持つ属性、`url.query`・`http.query` のクエリ、`url.fragment`・`http.fragment` の断片、`spans[].description` の URL）と事象名（`transaction`）も伏せる
 - 画面側の規則は `frontend/src/utils/url-query-redaction.ts` に置く。backend の `backend/src/utils/url-query-redaction.ts` を画面から読み込めないための写しで、対象のキーと伏せ字の文字列は backend と同じにし、両方を揃えて変える（テストは同じ事例を固定する）。画面側だけの規則として、クエリの有無にかかわらず空でないフラグメントは丸ごと `#[REDACTED]` にする（招待・リセットのリンクはトークンをフラグメントで運ぶため）
 
 ##### SecurityAnomalyMonitor
@@ -6063,7 +6063,7 @@ interface AnomalyThreshold { windowSeconds: number; threshold: number; cooldownS
 - 通知の抑止は `SET anomaly:notified:<signal> NX EX cooldownSeconds` で行う（43.6）
 - 通知の本文は、検知の種類、時間窓、件数、上位 5 件の送信元 IP・利用者 ID を含める（43.5）。主な送信元・利用者は桶ごとの Redis のソート済み集合で数える
 - 閾値・時間窓・抑止の時間は検知の群ごとの環境変数 `SECURITY_ALERT_<GROUP>_THRESHOLD`・`_WINDOW_SECONDS`・`_COOLDOWN_SECONDS` で変える（43.7。`backend/src/config/security-alert.ts`）。群は `LOGIN_FAILED`・`PERMISSION_DENIED`（`permission_denied` と `scope_denied` の合算）・`RATE_LIMITED`・`SERVER_ERROR`・`DATA_EXPORT` の 5 つで、例えば `SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD` とする。計数の鍵と通知の抑止の鍵も群ごとに持つ（`data_export` の計数は利用者ごと、抑止は群ごと）。既定は `login_failed` 20 件 / 300 秒、`permission_denied`・`scope_denied` 合算 30 件 / 300 秒、`rate_limited` 100 件 / 300 秒、`server_error` 20 件 / 300 秒、`data_export` 利用者ごと 50 件 / 3600 秒、抑止 1800 秒
-- `permission_denied` は既存の `recordPermissionCheckFailure` から、`login_failed` は AuthService から呼ぶ（43.1、43.2）
+- `permission_denied` は既存の `recordPermissionCheckFailure` から、`login_failed` は AuthService から呼ぶ（43.1、43.2）。権限の上限による 3 つの 403（`user-roles.routes.ts` のロールの割り当て、`roles.routes.ts` の権限の付与とシステムロールの名前の変更）も、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2）
 - Redis が使えないときは計数を捨て、警告ログを残す（検知の欠落は要求の失敗にしない）
 
 ##### EmailQueue（変更）
