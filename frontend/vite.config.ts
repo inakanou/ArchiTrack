@@ -9,10 +9,11 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       react(),
-      // Bundle analyzer (本番ビルド時のみ)
+      // Bundle analyzer (本番ビルド時のみ)。出力は配信物（dist）の外に置く
+      // （配信物から可視化の統計を外す。user-authentication design.md の FrontendNginxConfig）
       isProduction &&
         visualizer({
-          filename: 'dist/stats.html',
+          filename: 'bundle-stats/stats.html',
           open: false,
           gzipSize: true,
           brotliSize: true,
@@ -55,7 +56,10 @@ export default defineConfig(({ mode }) => {
                   return 'react';
                 }
                 // PDF.js関連を別チャンクに分離（react-pdf + pdfjs-dist）
-                if (id.includes('node_modules/react-pdf/') || id.includes('node_modules/pdfjs-dist/')) {
+                if (
+                  id.includes('node_modules/react-pdf/') ||
+                  id.includes('node_modules/pdfjs-dist/')
+                ) {
                   return 'pdf-viewer';
                 }
                 // OCR関連を別チャンクに分離（Tesseract.js）

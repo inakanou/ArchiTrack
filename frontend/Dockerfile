@@ -45,6 +45,10 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Copy nginx config template
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
+# セキュリティヘッダーのテンプレート（user-authentication 要件44.1・44.2）。公式イメージの
+# entrypoint が /etc/nginx/conf.d/architrack/security-headers.conf を生成し、nginx.conf が取り込む
+COPY nginx-security-headers.conf /etc/nginx/templates/architrack/security-headers.conf.template
+
 # API の中継の共通設定（nginx.conf の /api/ と /csrf-token が取り込む。環境変数を含まない）
 COPY nginx-proxy-params.conf /etc/nginx/architrack-proxy-params.conf
 
@@ -57,6 +61,15 @@ RUN chmod 755 /docker-entrypoint.d/05-require-backend-internal-url.sh
 # API の中継先: backend の内部 URL（scheme://host[:port]）。既定を持たず、各環境で必ず渡す
 # （試験・CI は compose の backend のサービス、本番・staging は Railway の変数）
 ENV BACKEND_INTERNAL_URL=
+
+# セキュリティヘッダーの環境ごとの値（nginx-security-headers.conf）。公式イメージの置き換えは
+# 定義された環境変数だけを対象にするため、空の既定を定義して ${...} が文字のまま残らないようにする
+# - CSP_IMG_SRC_EXTRA・CSP_CONNECT_SRC_EXTRA: CSP の画像・接続の追加の取得先（本番・staging は R2 の
+#   配信元と Sentry の取り込み先、試験・CI は compose のローカルのストレージの配信元）
+# - NGINX_HSTS_VALUE: 本番だけ設定する（空の環境では HSTS を付けない）
+ENV CSP_IMG_SRC_EXTRA= \
+    CSP_CONNECT_SRC_EXTRA= \
+    NGINX_HSTS_VALUE=
 
 # nginx.conf の resolver に /etc/resolv.conf の名前解決の宛先を渡す
 # （公式イメージの 15-local-resolvers.envsh が NGINX_LOCAL_RESOLVERS を設定する）
