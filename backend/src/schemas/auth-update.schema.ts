@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod';
+import { SYSTEM_ADMIN_ROLE_PRIORITY } from '../services/privilege-ceiling.js';
 
 export const AUTH_UPDATE_VALIDATION_MESSAGES = {
   EXPECTED_UPDATED_AT_INVALID: 'expectedUpdatedAt は ISO 8601 形式の日時である必要があります',
@@ -23,12 +24,18 @@ export const optionalExpectedUpdatedAtSchema = z
   .optional();
 
 /**
+ * ロールの優先度。システム管理者ロールの優先度を超える値は 400 の検証エラーで拒否する
+ * （user-authentication 要件38.10。作成と変更で共有する）
+ */
+export const rolePrioritySchema = z.number().int().max(SYSTEM_ADMIN_ROLE_PRIORITY);
+
+/**
  * ロール更新の本文
  */
 export const updateRoleSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100).optional(),
   description: z.string().optional(),
-  priority: z.number().int().optional(),
+  priority: rolePrioritySchema.optional(),
   expectedUpdatedAt: optionalExpectedUpdatedAtSchema,
 });
 

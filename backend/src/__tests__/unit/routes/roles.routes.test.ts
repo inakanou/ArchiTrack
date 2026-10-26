@@ -664,4 +664,168 @@ describe('Role Routes', () => {
       expect(observeSecurityAnomaly).not.toHaveBeenCalled();
     });
   });
+
+  describe('権限付与の上限の残り（タスク58.1）', () => {
+    const mocked = (fn: unknown) => fn as ReturnType<typeof vi.fn>;
+
+    /** 上限による拒否の 403 と、権限の拒否としての異常の検知への送信を確かめる */
+    function expectCeilingRejection(response: request.Response, code: string): void {
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({ error: 'FORBIDDEN', code });
+      expect(typeof response.body.message).toBe('string');
+      expect(observeSecurityAnomaly).toHaveBeenCalledTimes(1);
+      expect(observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: expect.any(String),
+        userId: 'admin-user-id',
+      });
+    }
+
+    /**
+     * @requirement user-authentication/REQ-38.7
+     */
+    it('上限を超える優先度のロールの作成は 403 を返し、異常の検知へ送る', async () => {
+      mocked(mockRoleService.createRole).mockResolvedValue(
+        Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' })
+      );
+
+      const response = await request(app)
+        .post('/api/v1/roles')
+        .send({ name: 'senior', priority: 51 });
+
+      expectCeilingRejection(response, 'ROLE_PRIORITY_EXCEEDS_ACTOR');
+      expect(mockRoleService.createRole).toHaveBeenCalledWith(
+        { name: 'senior', description: undefined, priority: 51 },
+        'admin-user-id'
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.6
+     * @requirement user-authentication/REQ-38.11
+     */
+    it('上限を超える優先度への変更・上限より上のロールの優先度の変更は 403 を返し、異常の検知へ送る', async () => {
+      mocked(mockRoleService.updateRole).mockResolvedValue(
+        Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' })
+      );
+
+      const response = await request(app).patch('/api/v1/roles/role-3').send({ priority: 51 });
+
+      expectCeilingRejection(response, 'ROLE_PRIORITY_EXCEEDS_ACTOR');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.12
+     */
+    it('システムロールの優先度の変更は 403 を返し、異常の検知へ送る', async () => {
+      mocked(mockRoleService.updateRole).mockResolvedValue(
+        Err({ type: 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN' })
+      );
+
+      const response = await request(app).patch('/api/v1/roles/role-admin').send({ priority: 90 });
+
+      expectCeilingRejection(response, 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.11
+     */
+    it('上限より上のロールの削除は 403 を返し、異常の検知へ送る', async () => {
+      mocked(mockRoleService.deleteRole).mockResolvedValue(
+        Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' })
+      );
+
+      const response = await request(app).delete('/api/v1/roles/role-high');
+
+      expectCeilingRejection(response, 'ROLE_PRIORITY_EXCEEDS_ACTOR');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.8
+     */
+    it('保有しない権限の追加は 403 を返し、異常の検知へ送る', async () => {
+      mocked(mockRolePermissionService.addPermissionsToRole).mockResolvedValue(
+        Err({ type: 'PERMISSION_NOT_HELD_BY_ACTOR' })
+      );
+
+      const response = await request(app)
+        .post('/api/v1/roles/role-3/permissions')
+        .send({ permissionIds: ['perm-held', 'perm-not-held'] });
+
+      expectCeilingRejection(response, 'PERMISSION_NOT_HELD_BY_ACTOR');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.11
+     */
+    it('上限より上のロールへの権限の追加と、そのロールからの権限の削除は 403 を返し、異常の検知へ送る', async () => {
+      mocked(mockRolePermissionService.addPermissionsToRole).mockResolvedValue(
+        Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' })
+      );
+      const added = await request(app)
+        .post('/api/v1/roles/role-high/permissions')
+        .send({ permissionId: 'perm-1' });
+      expectCeilingRejection(added, 'ROLE_PRIORITY_EXCEEDS_ACTOR');
+
+      vi.clearAllMocks();
+      mocked(mockRolePermissionService.removePermissionFromRole).mockResolvedValue(
+        Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' })
+      );
+      const removed = await request(app).delete('/api/v1/roles/role-high/permissions/perm-1');
+      expectCeilingRejection(removed, 'ROLE_PRIORITY_EXCEEDS_ACTOR');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.10
+     */
+    it('システム管理者ロールの優先度を超える優先度の作成・変更は 400 の検証エラーで、サービスを呼ばず異常の検知へ送らない', async () => {
+      const created = await request(app)
+        .post('/api/v1/roles')
+        .send({ name: 'over', priority: 101 });
+      const updated = await request(app).patch('/api/v1/roles/role-3').send({ priority: 101 });
+
+      for (const response of [created, updated]) {
+        expect(response.status).toBe(400);
+        expect(response.body.type).toBe('https://api.architrack.com/errors/validation-error');
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+      }
+      expect(mockRoleService.createRole).not.toHaveBeenCalled();
+      expect(mockRoleService.updateRole).not.toHaveBeenCalled();
+      expect(observeSecurityAnomaly).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.10
+     */
+    it('システム管理者ロールの優先度と等しい優先度は作成・変更の検証を通る', async () => {
+      mocked(mockRoleService.createRole).mockResolvedValue(
+        Ok({ id: 'role-9', name: 'top', priority: 100 })
+      );
+      mocked(mockRoleService.updateRole).mockResolvedValue(
+        Ok({ id: 'role-3', name: 'peer', priority: 100 })
+      );
+
+      const created = await request(app).post('/api/v1/roles').send({ name: 'top', priority: 100 });
+      const updated = await request(app).patch('/api/v1/roles/role-3').send({ priority: 100 });
+
+      expect(created.status).toBe(201);
+      expect(updated.status).toBe(200);
+    });
+
+    it('業務上の保護（システムロールの削除・使用中）は異常の検知へ送らない', async () => {
+      mocked(mockRoleService.deleteRole).mockResolvedValueOnce(
+        Err({ type: 'SYSTEM_ROLE_PROTECTED' })
+      );
+      mocked(mockRoleService.deleteRole).mockResolvedValueOnce(
+        Err({ type: 'ROLE_IN_USE', userCount: 2 })
+      );
+
+      const system = await request(app).delete('/api/v1/roles/role-admin');
+      const inUse = await request(app).delete('/api/v1/roles/role-3');
+
+      expect(system.status).toBe(400);
+      expect(inUse.status).toBe(400);
+      expect(observeSecurityAnomaly).not.toHaveBeenCalled();
+    });
+  });
 });

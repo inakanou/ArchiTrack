@@ -755,4 +755,264 @@ describe('RoleService', () => {
       expect(prismaMock.role.update).toHaveBeenCalled();
     });
   });
+
+  describe('優先度の上限と上限より上のロールの変更・削除の拒否（user-authentication タスク58.1）', () => {
+    const actorId = 'actor-58';
+    let auditLogServiceMock: IAuditLogService;
+    let service: RoleService;
+
+    const role80: Role = { ...mockRole, id: 'role-80', name: 'director', priority: 80 };
+    const role40: Role = { ...mockRole, id: 'role-40', name: 'member', priority: 40 };
+    const role50: Role = { ...mockRole, id: 'role-50', name: 'peer', priority: 50 };
+
+    /** 対象のロール（id で引く）、名前の重複の確認（なし）、実行者の保有ロールを与える */
+    function arrange(target: Role, actorRoles: Array<{ name: string; priority: number }>): void {
+      vi.mocked(prismaMock.role.findUnique).mockImplementation(((args: {
+        where: { id?: string; name?: string };
+      }) =>
+        Promise.resolve(
+          args.where.id === target.id ? target : null
+        )) as unknown as typeof prismaMock.role.findUnique);
+      vi.mocked(prismaMock.$queryRaw).mockResolvedValue([target] as never);
+      (prismaMock.userRole as unknown as { findMany: ReturnType<typeof vi.fn> }).findMany = vi
+        .fn()
+        .mockResolvedValue(actorRoles.map((role) => ({ role })));
+    }
+
+    function ceilingRecord(): unknown {
+      const call = vi
+        .mocked(auditLogServiceMock.createLog)
+        .mock.calls.find(([input]) => input.action === 'PERMISSION_CHECK_FAILED');
+      return call;
+    }
+
+    beforeEach(() => {
+      auditLogServiceMock = {
+        createLog: vi.fn().mockResolvedValue({}),
+        getLogs: vi.fn(),
+        exportLogs: vi.fn(),
+      };
+      (prismaMock.role as unknown as { updateMany: ReturnType<typeof vi.fn> }).updateMany = vi.fn();
+      (
+        prismaMock.role as unknown as { findUniqueOrThrow: ReturnType<typeof vi.fn> }
+      ).findUniqueOrThrow = vi.fn();
+      service = new RoleService(
+        prismaMock,
+        auditLogServiceMock,
+        new PrivilegeCeilingPolicy(prismaMock)
+      );
+    });
+
+    it('上限を超える優先度への変更を拒否し、権限チェックの失敗としてトランザクションの外で記録する', async () => {
+      arrange(role40, [{ name: 'manager', priority: 50 }]);
+
+      const result = await service.updateRole(role40.id, { priority: 51 }, actorId);
+
+      expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+      expect(prismaMock.role.update).not.toHaveBeenCalled();
+      const call = ceilingRecord() as [unknown, unknown];
+      expect(call[0]).toEqual({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId,
+        targetType: 'role',
+        targetId: role40.id,
+        before: null,
+        after: null,
+        metadata: {
+          reason: 'ROLE_PRIORITY_EXCEEDS_ACTOR',
+          currentPriority: '40',
+          requestedPriority: '51',
+        },
+      });
+      expect(call[1]).toBeUndefined();
+    });
+
+    it('上限ちょうどの優先度への変更は受け付ける', async () => {
+      arrange(role40, [{ name: 'manager', priority: 50 }]);
+      vi.mocked(prismaMock.role.update).mockResolvedValue({ ...role40, priority: 50 });
+
+      const result = await service.updateRole(role40.id, { priority: 50 }, actorId);
+
+      expect(result.ok).toBe(true);
+      expect(prismaMock.role.update).toHaveBeenCalled();
+      expect(ceilingRecord()).toBeUndefined();
+    });
+
+    it('現在の優先度が上限より高いロールの優先度を下げる変更を拒否する', async () => {
+      arrange(role80, [{ name: 'manager', priority: 50 }]);
+
+      const result = await service.updateRole(role80.id, { priority: 40 }, actorId);
+
+      expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+      expect(prismaMock.role.update).not.toHaveBeenCalled();
+      expect((ceilingRecord() as [{ metadata: unknown }])[0].metadata).toEqual({
+        reason: 'ROLE_PRIORITY_EXCEEDS_ACTOR',
+        currentPriority: '80',
+        requestedPriority: '40',
+      });
+    });
+
+    it('楽観的ロックの版を伴う更新でも、上限より上のロールの優先度の変更を拒否する', async () => {
+      arrange(role80, [{ name: 'manager', priority: 50 }]);
+
+      const result = await service.updateRole(
+        role80.id,
+        { priority: 40, expectedUpdatedAt: role80.updatedAt },
+        actorId
+      );
+
+      expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+      expect(
+        (prismaMock.role as unknown as { updateMany: ReturnType<typeof vi.fn> }).updateMany
+      ).not.toHaveBeenCalled();
+      expect(ceilingRecord()).toBeDefined();
+    });
+
+    it('上限より上のロールでも、説明だけの変更と同じ優先度の再送は判定しない', async () => {
+      arrange(role80, [{ name: 'manager', priority: 50 }]);
+      vi.mocked(prismaMock.role.update).mockResolvedValue({ ...role80, description: '変更後' });
+
+      const result = await service.updateRole(
+        role80.id,
+        { name: role80.name, description: '変更後', priority: 80 },
+        actorId
+      );
+
+      expect(result.ok).toBe(true);
+      expect(ceilingRecord()).toBeUndefined();
+    });
+
+    it('システムロールの優先度の変更は、システム管理者の実行者でも拒否する', async () => {
+      arrange(mockAdminRole, [{ name: 'admin', priority: 100 }]);
+
+      const result = await service.updateRole(mockAdminRoleId, { priority: 90 }, actorId);
+
+      expect(result).toEqual(Err({ type: 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN' }));
+      expect(prismaMock.role.update).not.toHaveBeenCalled();
+      expect((ceilingRecord() as [{ metadata: unknown }])[0].metadata).toEqual({
+        reason: 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN',
+        currentPriority: '100',
+        requestedPriority: '90',
+      });
+    });
+
+    it('システムロールの優先度の変更は上限の判定より先に拒否する（判定の順）', async () => {
+      arrange(mockAdminRole, [{ name: 'manager', priority: 50 }]);
+
+      const result = await service.updateRole(mockAdminRoleId, { priority: 40 }, actorId);
+
+      expect(result).toEqual(Err({ type: 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN' }));
+    });
+
+    it('システムロールへ同じ優先度を再送する変更は受け付ける', async () => {
+      arrange(mockAdminRole, [{ name: 'admin', priority: 100 }]);
+      vi.mocked(prismaMock.role.update).mockResolvedValue({
+        ...mockAdminRole,
+        description: '変更後',
+      });
+
+      const result = await service.updateRole(
+        mockAdminRoleId,
+        { description: '変更後', priority: 100 },
+        actorId
+      );
+
+      expect(result.ok).toBe(true);
+      expect(ceilingRecord()).toBeUndefined();
+    });
+
+    it('上限を超える優先度のロールの作成を拒否し、要求された名前を対象として記録する', async () => {
+      arrange(role50, [{ name: 'manager', priority: 50 }]);
+
+      const result = await service.createRole(
+        { name: 'senior', description: '上位', priority: 51 },
+        actorId
+      );
+
+      expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+      expect(prismaMock.role.create).not.toHaveBeenCalled();
+      const call = ceilingRecord() as [unknown, unknown];
+      expect(call[0]).toEqual({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId,
+        targetType: 'role',
+        targetId: 'senior',
+        before: null,
+        after: null,
+        metadata: {
+          reason: 'ROLE_PRIORITY_EXCEEDS_ACTOR',
+          requestedName: 'senior',
+          requestedPriority: '51',
+        },
+      });
+      expect(call[1]).toBeUndefined();
+    });
+
+    it('上限ちょうどの優先度のロールと、優先度を省いた（0 の）ロールは作成できる', async () => {
+      arrange(role50, [{ name: 'manager', priority: 50 }]);
+      vi.mocked(prismaMock.role.create).mockResolvedValue(role50);
+
+      const equal = await service.createRole(
+        { name: 'peer', description: '同格', priority: 50 },
+        actorId
+      );
+      const omitted = await service.createRole({ name: 'junior', description: '下位' }, actorId);
+
+      expect(equal.ok).toBe(true);
+      expect(omitted.ok).toBe(true);
+      expect(prismaMock.role.create).toHaveBeenCalledTimes(2);
+      expect(ceilingRecord()).toBeUndefined();
+    });
+
+    it('削除の上限の判定は、ロールの行を FOR UPDATE でロックした後に行う（判定と削除の間に優先度が変わらない）', async () => {
+      arrange(role80, [{ name: 'manager', priority: 50 }]);
+      const policy = new PrivilegeCeilingPolicy(prismaMock);
+      const judge = vi.spyOn(policy, 'assertCanModifyRole');
+      const lockedService = new RoleService(prismaMock, auditLogServiceMock, policy);
+
+      const result = await lockedService.deleteRole(role80.id, actorId);
+
+      expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+      const lockCall = vi
+        .mocked(prismaMock.$queryRaw)
+        .mock.calls.findIndex(([sql]) =>
+          String((sql as unknown as string[]).join('')).includes('FOR UPDATE')
+        );
+      expect(lockCall).toBeGreaterThanOrEqual(0);
+      const lockOrder = vi.mocked(prismaMock.$queryRaw).mock.invocationCallOrder[lockCall]!;
+      expect(judge).toHaveBeenCalledTimes(1);
+      expect(lockOrder).toBeLessThan(judge.mock.invocationCallOrder[0]!);
+    });
+
+    it('上限より上のロールの削除を、システムロールの保護と使用中の判定より先に拒否する', async () => {
+      arrange(role80, [{ name: 'manager', priority: 50 }]);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(3);
+
+      const result = await service.deleteRole(role80.id, actorId);
+
+      expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+      expect(prismaMock.role.delete).not.toHaveBeenCalled();
+      expect(prismaMock.userRole.count).not.toHaveBeenCalled();
+      const call = ceilingRecord() as [{ metadata: unknown; targetId: string }, unknown];
+      expect(call[0].targetId).toBe(role80.id);
+      expect(call[0].metadata).toEqual({
+        reason: 'ROLE_PRIORITY_EXCEEDS_ACTOR',
+        roleName: 'director',
+      });
+      expect(call[1]).toBeUndefined();
+    });
+
+    it('上限以下のロールの削除は従来どおり行う', async () => {
+      arrange(role50, [{ name: 'manager', priority: 50 }]);
+      vi.mocked(prismaMock.$queryRaw).mockResolvedValue([{ id: role50.id }] as never);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+      vi.mocked(prismaMock.role.delete).mockResolvedValue(role50);
+
+      const result = await service.deleteRole(role50.id, actorId);
+
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.role.delete).toHaveBeenCalled();
+      expect(ceilingRecord()).toBeUndefined();
+    });
+  });
 });

@@ -1407,5 +1407,93 @@ describe('UserRoleService', () => {
 
       expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
     });
+
+    describe('割り当ての解除の上限（タスク58.1）', () => {
+      const highRole = { ...mockRole, id: 'role-high', name: 'director', priority: 90 };
+
+      beforeEach(() => {
+        vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(mockUserRole);
+        vi.mocked(prismaMock.userRole.delete).mockResolvedValue(mockUserRole);
+      });
+
+      it('実行者の上限を超えるロールの他の利用者からの解除を拒否し、トランザクションの外で監査に記録する', async () => {
+        actorHolds([{ name: 'lead', priority: 50 }]);
+        vi.mocked(prismaMock.role.findUnique).mockResolvedValue(highRole);
+
+        const result = await service.removeRoleFromUser(mockUserId, highRole.id, actorId);
+
+        expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+        expect(prismaMock.userRole.delete).not.toHaveBeenCalled();
+        expect(auditLogServiceMock.createLog).toHaveBeenCalledTimes(1);
+        const [input, tx] = vi.mocked(auditLogServiceMock.createLog).mock.calls[0]!;
+        expect(input).toEqual({
+          action: 'PERMISSION_CHECK_FAILED',
+          actorId,
+          targetType: 'user-role',
+          targetId: mockUserId,
+          before: null,
+          after: null,
+          metadata: { reason: 'ROLE_PRIORITY_EXCEEDS_ACTOR', roleId: highRole.id },
+        });
+        expect(tx).toBeUndefined();
+        expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
+      });
+
+      it('一括の解除も同じ上限で判定し、上限を超えるロールを一つでも含めば全体を失敗にする', async () => {
+        actorHolds([{ name: 'lead', priority: 50 }]);
+        vi.mocked(prismaMock.role.findFirst).mockResolvedValue(null);
+        vi.mocked(prismaMock.role.findUnique).mockImplementation(((args: {
+          where: { id: string };
+        }) =>
+          Promise.resolve(
+            args.where.id === highRole.id ? highRole : mockRole
+          )) as unknown as typeof prismaMock.role.findUnique);
+
+        const result = await service.removeRolesFromUser(
+          mockUserId,
+          [mockRoleId, highRole.id],
+          actorId
+        );
+
+        expect(result).toEqual(Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }));
+        expect(auditLogServiceMock.createLog).toHaveBeenLastCalledWith({
+          action: 'PERMISSION_CHECK_FAILED',
+          actorId,
+          targetType: 'user-role',
+          targetId: mockUserId,
+          before: null,
+          after: null,
+          metadata: { reason: 'ROLE_PRIORITY_EXCEEDS_ACTOR', roleId: highRole.id },
+        });
+        expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
+      });
+
+      it('上限ちょうどのロールは他の利用者から外せる', async () => {
+        actorHolds([{ name: 'lead', priority: 50 }]);
+        vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole); // priority 50
+
+        const result = await service.removeRoleFromUser(mockUserId, mockRoleId, actorId);
+
+        expect(result).toEqual(Ok(undefined));
+        expect(prismaMock.userRole.delete).toHaveBeenCalled();
+        expect(auditLogServiceMock.createLog).not.toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'PERMISSION_CHECK_FAILED' })
+        );
+      });
+
+      it('自分からの解除は上限を判定しない', async () => {
+        actorHolds([{ name: 'lead', priority: 50 }]);
+        vi.mocked(prismaMock.role.findUnique).mockResolvedValue(highRole);
+        vi.mocked(prismaMock.user.findUnique).mockResolvedValue({ ...mockUser, id: actorId });
+
+        const result = await service.removeRoleFromUser(actorId, highRole.id, actorId);
+
+        expect(result).toEqual(Ok(undefined));
+        expect(prismaMock.userRole.delete).toHaveBeenCalled();
+        expect(auditLogServiceMock.createLog).not.toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'PERMISSION_CHECK_FAILED' })
+        );
+      });
+    });
   });
 });

@@ -87,11 +87,12 @@ describe('管理者による無効化と再有効化（統合）', () => {
   }
 
   /** admin ロールを持たず user の権限だけを持つ利用者（最後の管理者の判定の実行者） */
-  async function createUserManager(actions: string[] = ['manage']) {
+  async function createUserManager(actions: string[] = ['manage'], priority = 0) {
     const role = await prisma.role.create({
       data: {
         name: `${MARK}-manager-${randomBytes(4).toString('hex')}`,
         description: '利用者の管理だけを行う試験用のロール',
+        priority,
       },
     });
     for (const action of actions) {
@@ -370,7 +371,9 @@ describe('管理者による無効化と再有効化（統合）', () => {
    */
   describe('ロールの解除と利用者の削除は無効化された管理者を数えない', () => {
     async function setupActiveAndDeactivatedAdmins() {
-      const manager = await createUserManager(['update', 'delete']);
+      // admin ロール（優先度 100）を他の利用者から外すには、実行者の上限が 100 以上である必要がある
+      // （user-authentication 要件38.9）。最後の管理者の保護の判定まで届くよう、上限ちょうどにする
+      const manager = await createUserManager(['update', 'delete'], 100);
       const activeAdmin = await createUserWithRole('active-admin', 'admin');
       const deactivatedAdmin = await createUserWithRole('deactivated-admin', 'admin');
       await prisma.user.update({

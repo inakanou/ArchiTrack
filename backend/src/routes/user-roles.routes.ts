@@ -41,7 +41,8 @@ const userRoleService = new UserRoleService(
   {
     invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
   },
-  // 権限付与の上限（user-authentication タスク51.1）。自分を超えるロールの割り当てを拒否する
+  // 権限付与の上限（user-authentication タスク51.1・58.1）。自分を超えるロールの割り当てと、
+  // 他の利用者からの解除を拒否する
   new PrivilegeCeilingPolicy(prisma)
 );
 
@@ -306,7 +307,7 @@ router.get(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または上限を超えるロールの他の利用者からの解除（code が ROLE_PRIORITY_EXCEEDS_ACTOR）
  *       404:
  *         description: ユーザーまたはロール割り当てが見つからない
  */
@@ -331,6 +332,21 @@ router.delete(
           res.status(404).json({
             error: 'Role assignment not found',
             code: 'ASSIGNMENT_NOT_FOUND',
+          });
+          return;
+        }
+        // 上限を超えるロールの割り当ての解除の拒否（要件38.9）。監査はサービスが記録済み
+        if (isCeilingError(error)) {
+          // 権限の拒否（403）として異常の検知へ送る（要件43.2。計数を待たない）
+          observeSecurityAnomaly({
+            signal: 'permission_denied',
+            sourceIp: getClientIp(req),
+            userId: req.user?.userId ?? null,
+          });
+          res.status(403).json({
+            error: 'FORBIDDEN',
+            message: 'The role exceeds the privileges of the requesting user',
+            code: error.type,
           });
           return;
         }

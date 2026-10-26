@@ -105,6 +105,7 @@ export class UserRoleService implements IUserRoleService {
     /**
      * 権限付与の上限（user-authentication タスク51.1）。実行者のある割り当てに、保有ロールの優先度を
      * 超えるロールと、admin ロールを持たない実行者による admin ロールの割り当てを拒否する。
+     * 実行者のある解除に、保有ロールの優先度を超えるロールの他の利用者からの解除を拒否する（タスク58.1）。
      * API の経路（user-roles.routes.ts）は必ず渡す
      */
     private readonly privilegeCeiling?: PrivilegeCeilingPort
@@ -343,6 +344,16 @@ export class UserRoleService implements IUserRoleService {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof UserRoleRollback) {
+        // 割り当ての解除の上限による拒否（38.9。タスク58.1）は、ロールバックの後に権限チェックの失敗として記録する
+        if (actorId && isCeilingError(error.error)) {
+          await recordCeilingRejection(this.auditLogService, {
+            actorId,
+            targetType: 'user-role',
+            targetId: userId,
+            error: error.error,
+            detail: { roleId: error.roleId ?? '' },
+          });
+        }
         return Err(error.error);
       }
       logger.error({ err: error, userId, roleIds }, 'Failed to remove role from user');
@@ -468,6 +479,15 @@ export class UserRoleService implements IUserRoleService {
     if (!role) {
       logger.warn({ roleId }, 'Role not found');
       throw new UserRoleRollback({ type: 'ROLE_NOT_FOUND' });
+    }
+
+    // 割り当ての解除の上限（38.9。タスク58.1）。最後の管理者の判定より前に、同じトランザクションの
+    // クライアントで判定する（自分からの解除は判定しない）
+    if (this.privilegeCeiling && actorId) {
+      const verdict = await this.privilegeCeiling.assertCanRevokeRole(actorId, userId, roleId, tx);
+      if (!verdict.ok) {
+        throw new UserRoleRollback(verdict.error, roleId);
+      }
     }
 
     // 最後の管理者の判定を並行する削除と直列化する（紐付けの確認より前にロックする）

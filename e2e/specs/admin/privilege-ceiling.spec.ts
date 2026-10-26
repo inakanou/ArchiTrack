@@ -174,8 +174,10 @@ test.describe('権限付与の上限と既定の権限', () => {
   test('ロール更新の権限だけを持つ利用者は全権限を追加できず、上限の内側の権限は追加できる', async ({
     request,
   }) => {
+    // 保有しない権限の追加は要件38.8 で拒否されるため、対照で追加する adr:read を実行者に持たせる
     const roleUpdater = await createRole('role-updater', 10, [
       { resource: 'role', action: 'update' },
+      { resource: 'adr', action: 'read' },
     ]);
     const target = await createRole('target', 0);
     const actor = await createUserWithRoles('role-updater', [roleUpdater.name]);
@@ -205,7 +207,7 @@ test.describe('権限付与の上限と既定の権限', () => {
     await expectCeilingRejection(bulk, 'SYSTEM_ADMIN_REQUIRED');
 
     expect(await rolePermissionKeys(target.id)).toEqual([]);
-    expect(await rolePermissionKeys(roleUpdater.id)).toEqual(['role:update']);
+    expect(await rolePermissionKeys(roleUpdater.id)).toEqual(['adr:read', 'role:update']);
 
     // 拒否は権限チェックの失敗として、対象のロールと拒否した権限とともに記録される
     const targetRecords = await ceilingRejections(actor.id, 'role-permission', target.id);
@@ -224,7 +226,7 @@ test.describe('権限付与の上限と既定の権限', () => {
       permission: '*:*',
     });
 
-    // 対照: 同じ実行者は全権限でない権限を追加できる（拒否の理由はロール更新の権限の不足ではない）
+    // 対照: 同じ実行者は保有する全権限でない権限を追加できる（拒否の理由はロール更新の権限の不足ではない）
     const allowed = await request.post(`${API_BASE_URL}/api/v1/roles/${target.id}/permissions`, {
       headers,
       data: { permissionIds: [adrReadId] },

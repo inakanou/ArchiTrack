@@ -43,6 +43,7 @@ import type { PrismaClient } from '../generated/prisma/client.js';
 import { hash } from '@node-rs/argon2';
 import logger from './logger.js';
 import type { EmailService } from '../services/email.service.js';
+import { SYSTEM_ADMIN_ROLE_PRIORITY } from '../services/privilege-ceiling.js';
 
 /**
  * 事前定義ロールのシーディング
@@ -59,13 +60,15 @@ export async function seedRoles(prisma: PrismaClient): Promise<void> {
     where: { name: 'admin' },
     update: {
       description: 'システム全体を管理する最高権限ロール',
-      priority: 100,
+      // ロールの作成・変更で指定できる優先度の上限と同じ定数（user-authentication 要件38.10・38.12）
+      priority: SYSTEM_ADMIN_ROLE_PRIORITY,
       isSystem: true,
     },
     create: {
       name: 'admin',
       description: 'システム全体を管理する最高権限ロール',
-      priority: 100,
+      // ロールの作成・変更で指定できる優先度の上限と同じ定数（user-authentication 要件38.10・38.12）
+      priority: SYSTEM_ADMIN_ROLE_PRIORITY,
       isSystem: true,
     },
   });

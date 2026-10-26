@@ -417,5 +417,41 @@ describe('User Role Routes', () => {
       expect(response.status).toBe(404);
       expect(observeSecurityAnomaly).not.toHaveBeenCalled();
     });
+
+    it('上限を超えるロールの他の利用者からの解除は 403 FORBIDDEN を返し、異常の検知へ送る（タスク58.1）', async () => {
+      (mockUserRoleService.removeRoleFromUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' })
+      );
+
+      const response = await request(app).delete('/api/v1/users/user-1/roles/role-high');
+
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({
+        error: 'FORBIDDEN',
+        code: 'ROLE_PRIORITY_EXCEEDS_ACTOR',
+      });
+      expect(mockUserRoleService.removeRoleFromUser).toHaveBeenCalledWith(
+        'user-1',
+        'role-high',
+        'admin-user-id'
+      );
+      expect(observeSecurityAnomaly).toHaveBeenCalledTimes(1);
+      expect(observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: expect.any(String),
+        userId: 'admin-user-id',
+      });
+    });
+
+    it('最後の管理者の保護（400）による解除の失敗は異常の検知へ送らない', async () => {
+      (mockUserRoleService.removeRoleFromUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+        Err({ type: 'LAST_ADMIN_PROTECTED' })
+      );
+
+      const response = await request(app).delete('/api/v1/users/user-1/roles/role-admin');
+
+      expect(response.status).toBe(400);
+      expect(observeSecurityAnomaly).not.toHaveBeenCalled();
+    });
   });
 });

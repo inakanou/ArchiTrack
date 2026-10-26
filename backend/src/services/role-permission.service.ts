@@ -56,8 +56,9 @@ export class RolePermissionService implements IRolePermissionService {
     private readonly rbacService?: IRBACService,
     private readonly auditLogService?: IAuditLogService,
     /**
-     * 権限付与の上限（user-authentication タスク51.1）。実行者のある追加に、admin ロールを持たない
-     * 実行者による全権限（*:*）の追加を拒否する。API の経路（roles.routes.ts）は必ず渡す
+     * 権限付与の上限（user-authentication タスク51.1・58.1）。実行者のある追加・削除に、上限より上の
+     * ロールの変更（38.11）、admin ロールを持たない実行者による全権限（*:*）の追加（38.2）と保有しない
+     * 権限の追加（38.8）を拒否する。API の経路（roles.routes.ts）は必ず渡す
      */
     private readonly privilegeCeiling?: PrivilegeCeilingPort
   ) {}
@@ -231,16 +232,7 @@ export class RolePermissionService implements IRolePermissionService {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof RolePermissionRollback) {
-        // 上限による拒否は、ロールバックの後に権限チェックの失敗として記録する
-        if (actorId && isCeilingError(error.error) && error.rejected) {
-          await recordCeilingRejection(this.auditLogService, {
-            actorId,
-            targetType: 'role-permission',
-            targetId: roleId,
-            error: error.error,
-            detail: error.rejected,
-          });
-        }
+        await this.recordRollbackRejection(error, roleId, actorId);
         return Err(error.error);
       }
       logger.error({ err: error, roleId, permissionIds }, 'Failed to add permission to role');
@@ -273,12 +265,59 @@ export class RolePermissionService implements IRolePermissionService {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof RolePermissionRollback) {
+        await this.recordRollbackRejection(error, roleId, actorId);
         return Err(error.error);
       }
       logger.error({ err: error, roleId, permissionIds }, 'Failed to remove permission from role');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * 上限による拒否は、ロールバックの後に権限チェックの失敗として記録する
+   */
+  private async recordRollbackRejection(
+    rollback: RolePermissionRollback,
+    roleId: string,
+    actorId?: string
+  ): Promise<void> {
+    if (actorId && isCeilingError(rollback.error) && rollback.rejected) {
+      await recordCeilingRejection(this.auditLogService, {
+        actorId,
+        targetType: 'role-permission',
+        targetId: roleId,
+        error: rollback.error,
+        detail: rollback.rejected,
+      });
+    }
+  }
+
+  /**
+   * 上限より上のロールの変更の拒否（38.11。タスク58.1）。権限の追加・削除の前に、同じトランザクションの
+   * クライアントで対象のロールの現在の優先度を判定する
+   *
+   * 判定の前にロールの行を FOR SHARE でロックする。優先度の変更（UPDATE の FOR NO KEY UPDATE）と
+   * ロールの削除（FOR UPDATE）はこのトランザクションの終わりまで待つため、判定から書き込みまでの間に
+   * 優先度が上限より上へ変わらない。並行する権限の追加・削除どうし（FOR SHARE）は互いを待たない
+   */
+  private async assertCanModifyRoleInTransaction(
+    tx: Prisma.TransactionClient,
+    roleId: string,
+    permission: { id: string; resource: string; action: string },
+    actorId?: string
+  ): Promise<void> {
+    if (!this.privilegeCeiling || !actorId) {
+      return;
+    }
+    await tx.$queryRaw`SELECT id FROM roles WHERE id = ${roleId} FOR SHARE`;
+    const verdict = await this.privilegeCeiling.assertCanModifyRole(actorId, roleId, tx);
+    if (!verdict.ok) {
+      throw new RolePermissionRollback(verdict.error, {
+        permissionId: permission.id,
+        permission: `${permission.resource}:${permission.action}`,
       });
     }
   }
@@ -314,7 +353,10 @@ export class RolePermissionService implements IRolePermissionService {
       throw new RolePermissionRollback({ type: 'PERMISSION_NOT_FOUND' });
     }
 
-    // 権限付与の上限（タスク51.1）。1件・一括の共通処理で、同じトランザクションのクライアントで判定する
+    // 上限より上のロールへの権限の追加の拒否（38.11）を、全権限（38.2）・保有しない権限（38.8）より先に判定する
+    await this.assertCanModifyRoleInTransaction(tx, roleId, permission, actorId);
+
+    // 権限付与の上限（タスク51.1・58.1）。1件・一括の共通処理で、同じトランザクションのクライアントで判定する
     if (this.privilegeCeiling && actorId) {
       const verdict = await this.privilegeCeiling.assertCanGrantPermission(
         actorId,
@@ -409,6 +451,9 @@ export class RolePermissionService implements IRolePermissionService {
       logger.warn({ permissionId }, 'Permission not found');
       throw new RolePermissionRollback({ type: 'PERMISSION_NOT_FOUND' });
     }
+
+    // 上限より上のロールからの権限の削除の拒否（38.11。タスク58.1）
+    await this.assertCanModifyRoleInTransaction(tx, roleId, permission, actorId);
 
     // システム管理者ロールの *:* 権限削除保護
     if (role.name === 'admin' && permission.resource === '*' && permission.action === '*') {
