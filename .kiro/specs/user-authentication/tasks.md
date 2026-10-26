@@ -1849,7 +1849,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: AuditLogsPage, frontend/src/utils/audit-log-actions.ts_
   - _Requirements: 40.12_
 
-- [ ] 59.2 監査ログ画面の招待の対象を E2E で確かめる
+- [x] 59.2 監査ログ画面の招待の対象を E2E で確かめる
   - 招待を作成・再送信・取り消した後、監査ログ画面の該当の行の対象の欄に招待先のメールアドレスが表示され、招待の ID が表示されないことを主張する（`e2e/specs/admin/auth-audit-log.spec.ts` を広げるか、招待の spec に足す）
   - 対象の受入基準の `@requirement` の印を掲げた E2E が緑の状態になる。名前で要素を指す E2E を足した場合は `check:design-measurement-freshness` の前後の差を測る
   - _Depends: 59.1_
@@ -1968,3 +1968,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 58.1: `PrivilegeCeilingPolicy` に `assertCanSetRolePriority`・`assertCanModifyRole`・`assertCanChangeRolePriority`・`assertCanRevokeRole` と `permissionCovers`（要件21 と同じワイルドカードの照合）を足し、拒否の種別 `PERMISSION_NOT_HELD_BY_ACTOR`・`SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN` と定数 `SYSTEM_ADMIN_ROLE_PRIORITY`（seed も参照）を置いた。上限は保有ロールの優先度の最大値で等値は可、ロールの無い実行者は -Infinity。判定は書き込みと同じ取引で、ロールの削除は `FOR UPDATE`、権限の追加・削除は `FOR SHARE` でロックしてから判定する（レビューの指摘で判定と書き込みの間の割り込みを塞いだ）。拒否は取引の外で `PERMISSION_CHECK_FAILED` を記録し、ルートの `rejectByCeiling` と user-roles の DELETE で 403 と `permission_denied` を送る。38.10 は `rolePrioritySchema`（zod の max(100)）の 400 で記録も観測もしない。新しい規則で禁じた操作をしていた試験データを 2 か所直した（account-status の統合テストの実行者の優先度を 100、privilege-ceiling.spec.ts の 38.2 の実行者に adr:read）。作成の拒否の監査の targetId は要求された名前。印は 51.2 の記録に従い 3 ファイルだけに置いた
 - 58.2: `e2e/specs/admin/privilege-ceiling.spec.ts` へ 38.6〜38.12 の 7 件（API で、各拒否の status・code・DB の不変・actor で絞った `PERMISSION_CHECK_FAILED` の件数と metadata、上限ちょうどの対照、38.10 は 101 で 400 かつ記録 0 件）。afterEach でシステムロールの優先度を admin 100・user 0 へ戻す。冒頭の印の一覧は既存の REQ-38.1〜38.4 の箇条へ続けて書く（空行の後に別段落で置くと req-coverage の selftest の規則4の母集団が増え、freshness の req-coverage-selftest-total-after-115314 が赤になる）。複数の記録の metadata は並び順に依らず照合する（WSL の壁時計の巻き戻りで createdAt の順が入れ替わりうる）
 - 59.1: `frontend/src/utils/audit-log-actions.ts` の `getAuditLogTargetLabel`（targetType が Invitation で metadata.email が空でない文字列ならそれ、他は `targetName || targetId || '-'`）を、対象の欄を描く 2 箇所（AuditLogs.tsx・AuditLogViewer.tsx）で使う。記録・API の応答・JSON の出力は変えない。登録時の INVITATION_ACCEPTED も targetType が Invitation で metadata.email を持つため同じ表示になる（design のとおり 40.12 の対象外だが表示を揃える）
+- 59.2: 招待の監査を画面で主張する E2E は `e2e/specs/auth/invitation-reset-token-protection.spec.ts` だけで、50.4 の「対象の欄が招待の ID」の主張が 59.1（cc3fede8）で古くなっていた（59.1 の検証で招待の spec を流さず、cc3fede8 の版ではこの E2E が赤）。同 spec の `expectAuditRecordOnScreen` を、種別で絞り API の応答で招待の ID と結んだうえで一意のメールアドレスのセルで行を決め、対象の欄がメールアドレス・行に ID が無いことを主張する形へ改めた（作成と登録、取り消しと再送信）。表示を変えるタスクは、その表示を主張する既存の E2E を grep で洗ってから流す

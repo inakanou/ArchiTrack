@@ -1,10 +1,10 @@
 /**
  * @fileoverview 招待とパスワードリセットのトークンの保護の E2E テスト
  *
- * user-authentication タスク50.4。design.md の InvitationService・PasswordService の節と
- * RegisterPage・PasswordResetPage・InvitationManager の要約。招待の作成・取り消し・再送信は管理者が招待画面
- * （`/admin/invitations`）で行い、登録とリセットはメール（Mailpit）に届いたリンクから別のブラウザの
- * コンテキストで完了させる。
+ * user-authentication タスク50.4・59.2。design.md の InvitationService・PasswordService の節と
+ * RegisterPage・PasswordResetPage・InvitationManager・AuditLogsPage の要約。招待の作成・取り消し・
+ * 再送信は管理者が招待画面（`/admin/invitations`）で行い、登録とリセットはメール（Mailpit）に届いた
+ * リンクから別のブラウザのコンテキストで完了させる。
  *
  * Requirements (user-authentication):
  * - 37.2: 招待一覧の応答と画面に、招待トークン・そのハッシュ・招待 URL が出ない（作成直後に一度だけ出た
@@ -15,6 +15,8 @@
  * - 37.5: 別の管理者が作成した未使用の招待を、招待画面から取り消せる
  * - 40.5: 招待の作成・取り消し・再送信と招待経由の登録の記録（実行者・対象）が監査ログ画面に出て、
  *   記録に対象のメールアドレスが残る
+ * - 40.12: 監査ログ画面の招待の作成・取り消し・再送信の記録の対象の欄に招待先のメールアドレスが出て、
+ *   招待の ID が出ない（同じ招待を指す招待経由の登録の記録も同じ表示）
  *
  * リセットでパスワードを変える検証は 47.4 の専用の利用者（`STATE_CHANGE_USER`）を使い、テストの開始時に
  * 初期化の補助で戻す。招待の相手と別の管理者は、テストの中で作る一意のメールアドレスの利用者
@@ -127,10 +129,22 @@ function invitationRow(page: Page, email: string) {
     .filter({ has: page.getByRole('cell', { name: email, exact: true }) });
 }
 
-/** 監査ログ画面で種別を選び、対象の記録の行の日時以外の列を確かめる（要件40.5） */
+/**
+ * 監査ログ画面で種別を選び、招待の記録の行の日時以外の列を確かめる（要件40.5・40.12）
+ *
+ * 要件40.12: 対象の欄は招待先のメールアドレスで、行のどこにも招待の ID が出ない。行は種別の絞り込みと、
+ * テストの中で作る一意のメールアドレスの対象の欄で特定する（日時の並びに依らない）。絞り込みの応答に
+ * その招待の ID の記録があることも確かめ、画面の行が作った招待の記録であることを結ぶ
+ */
 async function expectAuditRecordOnScreen(
   page: Page,
-  record: { action: string; label: string; actorEmail: string; targetId: string }
+  record: {
+    action: string;
+    label: string;
+    actorEmail: string;
+    invitationId: string;
+    targetEmail: string;
+  }
 ): Promise<void> {
   const filtered = page.waitForResponse(
     (r) =>
@@ -138,16 +152,22 @@ async function expectAuditRecordOnScreen(
       new URL(r.url()).searchParams.get('action') === record.action
   );
   await page.getByLabel('イベント種別').selectOption(record.label);
-  expect((await filtered).status()).toBe(200);
+  const filteredResponse = await filtered;
+  expect(filteredResponse.status()).toBe(200);
+  const logs = (await filteredResponse.json()) as Array<{ action: string; targetId: string }>;
+  expect(
+    logs.filter((log) => log.action === record.action && log.targetId === record.invitationId)
+  ).toHaveLength(1);
   const row = page
     .getByRole('table')
     .locator('tbody tr')
-    .filter({ has: page.getByRole('cell', { name: record.targetId, exact: true }) });
+    .filter({ has: page.getByRole('cell', { name: record.targetEmail, exact: true }) });
   await expect(row).toHaveCount(1);
   const cells = row.getByRole('cell');
   await expect(cells.nth(1)).toHaveText(record.label);
   await expect(cells.nth(2)).toHaveText(record.actorEmail);
-  await expect(cells.nth(3)).toHaveText(record.targetId);
+  await expect(cells.nth(3)).toHaveText(record.targetEmail);
+  await expect(row).not.toContainText(record.invitationId);
 }
 
 /** 招待の操作の監査の記録（DB）が対象のメールアドレスを持つことを確かめる（要件40.5） */
@@ -186,6 +206,7 @@ test.describe('招待とパスワードリセットのトークンの保護', ()
    * @requirement user-authentication/REQ-37.2
    * @requirement user-authentication/REQ-37.3
    * @requirement user-authentication/REQ-40.5
+   * @requirement user-authentication/REQ-40.12
    */
   test('招待一覧にトークンと招待 URL が出ず、メールのリンクから登録でき、完了後の URL にトークンが残らず、作成と登録が監査ログ画面に出る', async ({
     page,
@@ -288,6 +309,7 @@ test.describe('招待とパスワードリセットのトークンの保護', ()
     ).toEqual({ status: 'used' });
 
     // 要件40.5: 招待の作成と招待経由の登録が、実行者と対象とともに監査ログ画面に出る
+    // 要件40.12: 対象の欄は招待先のメールアドレスで、招待の ID は出ない
     await expectAuditTargetEmail('INVITATION_CREATED', invitationId, admin.id, inviteeEmail);
     await expectAuditTargetEmail('INVITATION_ACCEPTED', invitationId, invitee.id, inviteeEmail);
     const auditLoaded = page.waitForResponse((r) => isPath(r, 'GET', AUDIT_LOGS_PATH));
@@ -297,19 +319,22 @@ test.describe('招待とパスワードリセットのトークンの保護', ()
       action: 'INVITATION_CREATED',
       label: '招待作成',
       actorEmail: TEST_USERS.ADMIN_USER.email,
-      targetId: invitationId,
+      invitationId,
+      targetEmail: inviteeEmail,
     });
     await expectAuditRecordOnScreen(page, {
       action: 'INVITATION_ACCEPTED',
       label: '招待経由の登録',
       actorEmail: inviteeEmail,
-      targetId: invitationId,
+      invitationId,
+      targetEmail: inviteeEmail,
     });
   });
 
   /**
    * @requirement user-authentication/REQ-37.5
    * @requirement user-authentication/REQ-40.5
+   * @requirement user-authentication/REQ-40.12
    */
   test('別の管理者が作成した招待を招待画面から取り消し・再送信でき、取り消しと再送信が監査ログ画面に出る', async ({
     page,
@@ -375,6 +400,7 @@ test.describe('招待とパスワードリセットのトークンの保護', ()
     expect(afterResend.tokenHash).not.toBe(sha256Hex(expired.token));
 
     // 要件40.5: 取り消しと再送信が、実行者（取り消した管理者）と対象とともに監査ログ画面に出る
+    // 要件40.12: 対象の欄は招待先のメールアドレスで、招待の ID は出ない
     await expectAuditTargetEmail('INVITATION_REVOKED', pending.id, admin.id, pendingEmail);
     await expectAuditTargetEmail('INVITATION_RESENT', expired.id, admin.id, expiredEmail);
     const auditLoaded = page.waitForResponse((r) => isPath(r, 'GET', AUDIT_LOGS_PATH));
@@ -384,13 +410,15 @@ test.describe('招待とパスワードリセットのトークンの保護', ()
       action: 'INVITATION_REVOKED',
       label: '招待取り消し',
       actorEmail: TEST_USERS.ADMIN_USER.email,
-      targetId: pending.id,
+      invitationId: pending.id,
+      targetEmail: pendingEmail,
     });
     await expectAuditRecordOnScreen(page, {
       action: 'INVITATION_RESENT',
       label: '招待再送信',
       actorEmail: TEST_USERS.ADMIN_USER.email,
-      targetId: expired.id,
+      invitationId: expired.id,
+      targetEmail: expiredEmail,
     });
   });
 
