@@ -14,6 +14,7 @@ import {
   SECURITY_REMEDIATION_AUDIT_ACTION_LABELS,
   USER_DELETION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
+  getAuditLogTargetLabel,
 } from '../utils/audit-log-actions';
 
 interface AuditLogViewerProps {
@@ -296,7 +297,7 @@ const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs, loading, error, o
                       <div>
                         <div style={{ fontWeight: '500' }}>{log.targetType}</div>
                         <div style={{ fontSize: '12px', color: '#666' }}>
-                          {log.targetName || log.targetId}
+                          {getAuditLogTargetLabel(log)}
                         </div>
                       </div>
                     ) : (

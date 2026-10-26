@@ -95,6 +95,9 @@ export const USER_DELETION_AUDIT_ACTION_LABELS: Record<UserDeletionAuditAction, 
   USER_DELETED: 'ユーザー削除',
 };
 
+/** 招待の記録の対象の種別（backend の InvitationService.recordAudit と register の記録の targetType） */
+const INVITATION_TARGET_TYPE = 'Invitation';
+
 /** 実行者の無い記録の実行者の表示 */
 export const SYSTEM_ACTOR_LABEL = 'システム';
 
@@ -106,4 +109,23 @@ export function getAuditLogActorLabel(log: Pick<AuditLog, 'actorId' | 'actorEmai
     return SYSTEM_ACTOR_LABEL;
   }
   return log.actorEmail || log.actorId;
+}
+
+/**
+ * 監査ログの対象の欄の表示（要件40.12）
+ *
+ * 招待の記録（targetType が Invitation）は対象の ID が招待の ID なので、記録の付帯情報の
+ * 招待先のメールアドレス（metadata.email）を表示する。メールアドレスの無い記録と他の種別の
+ * 記録は従来どおり対象の名前、無ければ対象の ID を表示する
+ */
+export function getAuditLogTargetLabel(
+  log: Pick<AuditLog, 'targetType' | 'targetId' | 'targetName' | 'metadata'>
+): string {
+  if (log.targetType === INVITATION_TARGET_TYPE) {
+    const email = log.metadata?.email;
+    if (typeof email === 'string' && email !== '') {
+      return email;
+    }
+  }
+  return log.targetName || log.targetId || '-';
 }

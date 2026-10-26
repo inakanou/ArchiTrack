@@ -15,6 +15,7 @@ import {
   USER_DELETION_AUDIT_ACTIONS,
   USER_DELETION_AUDIT_ACTION_LABELS,
   getAuditLogActorLabel,
+  getAuditLogTargetLabel,
 } from '../utils/audit-log-actions';
 
 export function AuditLogs() {
@@ -357,7 +358,7 @@ export function AuditLogs() {
                       {getAuditLogActorLabel(log)}
                     </td>
                     <td style={{ padding: '1rem', fontSize: '0.875rem' }}>
-                      {log.targetName || log.targetId || '-'}
+                      {getAuditLogTargetLabel(log)}
                     </td>
                     <td style={{ padding: '1rem', fontSize: '0.875rem' }}>
                       {log.ipAddress && <div>IP: {log.ipAddress}</div>}

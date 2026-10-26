@@ -729,6 +729,79 @@ describe('AuditLogs Component', () => {
     );
   });
 
+  describe('招待の記録の対象の表示（要件40.12）', () => {
+    /**
+     * @requirement user-authentication/REQ-40.12
+     */
+    it('招待の作成・取り消し・再送信の記録の対象の欄に招待先のメールアドレスを表示し、招待の ID を出さない', async () => {
+      const { apiClient } = await import('../../api/client');
+      const actions = ['INVITATION_CREATED', 'INVITATION_REVOKED', 'INVITATION_RESENT'] as const;
+      vi.mocked(apiClient.get).mockResolvedValue(
+        actions.map((action, i) => ({
+          id: `inv-${i}`,
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action,
+          targetType: 'Invitation',
+          targetId: `invitation-id-${i}`,
+          metadata: { email: `invitee-${i}@example.com`, inviterId: 'admin-1' },
+          createdAt: '2026-10-26T00:00:00Z',
+        })) satisfies AuditLog[]
+      );
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      actions.forEach((_, i) => {
+        const row = within(table)
+          .getByText(`invitee-${i}@example.com`)
+          .closest('tr') as HTMLElement;
+        expect(within(row).getAllByRole('cell')[3]).toHaveTextContent(
+          new RegExp(`^invitee-${i}@example\\.com$`)
+        );
+      });
+      expect(within(table).queryByText(/invitation-id-/)).not.toBeInTheDocument();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-40.12
+     */
+    it('メールアドレスの無い招待の記録と他の種別の記録は従来どおり対象の名前または ID を表示する', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'inv-no-email',
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action: 'INVITATION_CREATED',
+          targetType: 'Invitation',
+          targetId: 'invitation-without-email',
+          createdAt: '2026-10-26T00:00:00Z',
+        },
+        {
+          id: 'login-failed-1',
+          actorId: null,
+          action: 'LOGIN_FAILED',
+          targetType: 'user',
+          targetId: 'unknown-email',
+          metadata: { email: 'nobody@example.com' },
+          createdAt: '2026-10-26T00:00:00Z',
+        },
+        ...basicMockLogs,
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const cells = (text: string) =>
+        within(within(table).getByText(text).closest('tr') as HTMLElement).getAllByRole('cell');
+      expect(cells('invitation-without-email')[3]).toHaveTextContent(/^invitation-without-email$/);
+      expect(cells('unknown-email')[3]).toHaveTextContent(/^unknown-email$/);
+      expect(cells('Manager')[3]).toHaveTextContent(/^Manager$/);
+      expect(within(table).queryByText('nobody@example.com')).not.toBeInTheDocument();
+    });
+  });
+
   describe('ユーザーの削除の監査の種別（要件40.6）', () => {
     it('ユーザーの削除を一覧で表示名により表示し、種別のコードを出さない', async () => {
       const { apiClient } = await import('../../api/client');

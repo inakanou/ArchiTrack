@@ -280,6 +280,68 @@ describe('AuditLogViewer', () => {
     expect(screen.queryByText('INVITATION_REVOKED')).not.toBeInTheDocument();
   });
 
+  describe('招待の記録の対象の表示（要件40.12）', () => {
+    /**
+     * @requirement user-authentication/REQ-40.12
+     */
+    it('招待の作成・取り消し・再送信の記録の対象に招待先のメールアドレスを表示し、招待の ID を出さない', () => {
+      const actions = ['INVITATION_CREATED', 'INVITATION_REVOKED', 'INVITATION_RESENT'] as const;
+      const logs: AuditLog[] = actions.map((action, i) => ({
+        id: `inv-${i}`,
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action,
+        targetType: 'Invitation',
+        targetId: `invitation-id-${i}`,
+        metadata: { email: `invitee-${i}@example.com` },
+        createdAt: new Date().toISOString(),
+      }));
+
+      render(<AuditLogViewer logs={logs} loading={false} />);
+
+      actions.forEach((_, i) => {
+        const email = screen.getByText(`invitee-${i}@example.com`);
+        // 1行目の対象の種別は変えない
+        expect(email.previousElementSibling).toHaveTextContent(/^Invitation$/);
+      });
+      expect(screen.queryByText(/invitation-id-/)).not.toBeInTheDocument();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-40.12
+     */
+    it('メールアドレスの無い招待の記録と他の種別の記録は従来どおり対象の名前または ID を表示する', () => {
+      const logs: AuditLog[] = [
+        {
+          id: 'inv-no-email',
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action: 'INVITATION_CREATED',
+          targetType: 'Invitation',
+          targetId: 'invitation-without-email',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'user-row',
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action: 'USER_DEACTIVATED',
+          targetType: 'user',
+          targetId: 'user-1',
+          targetName: '山田太郎',
+          metadata: { email: 'other@example.com' },
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      render(<AuditLogViewer logs={logs} loading={false} />);
+
+      expect(screen.getByText('invitation-without-email')).toBeInTheDocument();
+      expect(screen.getByText('山田太郎')).toBeInTheDocument();
+      expect(screen.queryByText('other@example.com')).not.toBeInTheDocument();
+    });
+  });
+
   it('ユーザーの削除の記録を表示名で表示する（要件40.6）', () => {
     const logs: AuditLog[] = [
       {
