@@ -1,5 +1,5 @@
 /**
- * 定期処理の実行基盤の単体検証（user-authentication タスク44.9、44.12、49.4、54.1）
+ * 定期処理の実行基盤の単体検証（user-authentication タスク44.9、44.12、49.4、54.1、60.1）
  *
  * キュー（Bull）を差し替え、試験の実行環境では繰り返しジョブを登録しないこと、
  * それ以外では同じ識別子で登録し直し、古い定義を消し、最終の失敗だけを記録することを確かめる。
@@ -57,6 +57,14 @@ vi.mock('../../../jobs/audit-log-archive.job.js', () => ({
   AUDIT_LOG_ARCHIVE_JOB_NAME: 'audit-log-archive',
   AUDIT_LOG_ARCHIVE_CRON: '0 4 1 * *',
   createAuditLogArchiveRun: (prisma: unknown) => createAuditLogArchiveRunMock(prisma),
+}));
+
+const sendSecurityAnomalyOverflowSummaryMock = vi.fn();
+vi.mock('../../../jobs/security-anomaly-overflow-summary.job.js', () => ({
+  SECURITY_ANOMALY_OVERFLOW_SUMMARY_JOB_NAME: 'security-anomaly-overflow-summary',
+  SECURITY_ANOMALY_OVERFLOW_SUMMARY_CRON: '*/10 * * * *',
+  sendSecurityAnomalyOverflowSummary: (...args: unknown[]) =>
+    sendSecurityAnomalyOverflowSummaryMock(...args),
 }));
 
 import {
@@ -365,6 +373,7 @@ describe('createScheduledJobDefinitions', () => {
       { name: 'failed-email-job-cleanup', cron: '45 * * * *' },
       { name: 'inactive-user-deactivation', cron: '0 3 * * *' },
       { name: 'audit-log-archive', cron: '0 4 1 * *' },
+      { name: 'security-anomaly-overflow-summary', cron: '*/10 * * * *' },
     ]);
     await expect(jobs[0]?.run()).resolves.toEqual({ invitationTokensCleared: 1 });
     expect(cleanupExpiredTokensMock).toHaveBeenCalledWith(prisma);
@@ -406,6 +415,20 @@ describe('createScheduledJobDefinitions', () => {
     expect(job?.cron).toBe('0 4 1 * *');
     expect(createAuditLogArchiveRunMock).toHaveBeenCalledWith(prisma);
     await expect(job?.run()).resolves.toEqual(runResult);
+  });
+
+  /**
+   * @requirement user-authentication/REQ-43.9
+   */
+  it('security-anomaly-overflow-summary を 10 分ごとに登録し、処理は異常の通知の溢れ分の要約を呼ぶ', async () => {
+    sendSecurityAnomalyOverflowSummaryMock.mockResolvedValue({ overflowSummary: 'sent' });
+
+    const jobs = createScheduledJobDefinitions({} as PrismaClient);
+    const job = jobs.find(({ name }) => name === 'security-anomaly-overflow-summary');
+
+    expect(job?.cron).toBe('*/10 * * * *');
+    await expect(job?.run()).resolves.toEqual({ overflowSummary: 'sent' });
+    expect(sendSecurityAnomalyOverflowSummaryMock).toHaveBeenCalledWith();
   });
 });
 

@@ -931,6 +931,8 @@ jobs:
           SECURITY_ALERT_RATE_LIMITED_THRESHOLD: "1000000"
           SECURITY_ALERT_SERVER_ERROR_THRESHOLD: "1000000"
           SECURITY_ALERT_DATA_EXPORT_THRESHOLD: "1000000"
+          # 異常の通知の総数の上限（要件43.9）。上限の振る舞いは単体と統合のテストが上限を下げた部品で確かめる
+          SECURITY_ALERT_NOTIFICATION_LIMIT: "1000000"
 
       - name: Create .env file for E2E
         run: |
@@ -955,6 +957,7 @@ jobs:
           echo "SECURITY_ALERT_RATE_LIMITED_THRESHOLD=1000000" >> .env
           echo "SECURITY_ALERT_SERVER_ERROR_THRESHOLD=1000000" >> .env
           echo "SECURITY_ALERT_DATA_EXPORT_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_NOTIFICATION_LIMIT=1000000" >> .env
 
       - name: Start Docker Compose for E2E
         run: |

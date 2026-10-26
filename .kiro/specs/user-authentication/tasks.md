@@ -1860,7 +1860,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 **経緯**: データ出力の急増は利用者ごとに数えるが、通知の抑止は種類ごとであり、ある利用者の急増を通知した後の抑止の時間内に別の利用者の急増が通知されなかった。利用者の判断（2026-10-26）で要件43.6 の抑止の単位を改め、43.8・43.9 を加えた。design.md の SecurityAnomalyMonitor の節と ScheduledJobRunner の節に従う
 
-- [ ] 60.1 データ出力の通知の抑止を利用者ごとにし、通知の総数に上限と溢れ分の通知を設ける
+- [x] 60.1 データ出力の通知の抑止を利用者ごとにし、通知の総数に上限と溢れ分の通知を設ける
   - データ出力の急増の通知の抑止を種類と利用者の組ごとにし、他の種類の抑止は種類ごとのまま保つ
   - 一定時間内に送る通知の総数に上限を設け、超えた通知を送らずに溢れ分として数え、次に送る通知に件数・期間・種類ごとの内訳を添える。次の通知が無いまま上限の時間窓が明けたときは定期処理が要約を 1 通送る。上限と時間窓を環境変数で変えられるようにし、試験と CI の環境は E2E と統合テストの全件で超えない値にする
   - 単体テストで、利用者 A の通知の抑止の時間内の利用者 B の通知、上限の超過で送られないこと、次の通知への添え書きと溢れ分の消去、要約が 1 通だけ送られることを（注入した時刻で）確かめ、統合テストで実 Redis の上の同じ振る舞いと設定の反映を確かめた状態になる
@@ -1969,3 +1969,4 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 58.2: `e2e/specs/admin/privilege-ceiling.spec.ts` へ 38.6〜38.12 の 7 件（API で、各拒否の status・code・DB の不変・actor で絞った `PERMISSION_CHECK_FAILED` の件数と metadata、上限ちょうどの対照、38.10 は 101 で 400 かつ記録 0 件）。afterEach でシステムロールの優先度を admin 100・user 0 へ戻す。冒頭の印の一覧は既存の REQ-38.1〜38.4 の箇条へ続けて書く（空行の後に別段落で置くと req-coverage の selftest の規則4の母集団が増え、freshness の req-coverage-selftest-total-after-115314 が赤になる）。複数の記録の metadata は並び順に依らず照合する（WSL の壁時計の巻き戻りで createdAt の順が入れ替わりうる）
 - 59.1: `frontend/src/utils/audit-log-actions.ts` の `getAuditLogTargetLabel`（targetType が Invitation で metadata.email が空でない文字列ならそれ、他は `targetName || targetId || '-'`）を、対象の欄を描く 2 箇所（AuditLogs.tsx・AuditLogViewer.tsx）で使う。記録・API の応答・JSON の出力は変えない。登録時の INVITATION_ACCEPTED も targetType が Invitation で metadata.email を持つため同じ表示になる（design のとおり 40.12 の対象外だが表示を揃える）
 - 59.2: 招待の監査を画面で主張する E2E は `e2e/specs/auth/invitation-reset-token-protection.spec.ts` だけで、50.4 の「対象の欄が招待の ID」の主張が 59.1（cc3fede8）で古くなっていた（59.1 の検証で招待の spec を流さず、cc3fede8 の版ではこの E2E が赤）。同 spec の `expectAuditRecordOnScreen` を、種別で絞り API の応答で招待の ID と結んだうえで一意のメールアドレスのセルで行を決め、対象の欄がメールアドレス・行に ID が無いことを主張する形へ改めた（作成と登録、取り消しと再送信）。表示を変えるタスクは、その表示を主張する既存の E2E を grep で洗ってから流す
+- 60.1: `SecurityAnomalyMonitor` の抑止の鍵を data_export だけ `anomaly:notified:data_export:user:<id>` にし、抑止の判定の後に固定の時間窓の上限（`anomaly:notify-budget:<窓>`、MULTI の INCR と EXPIRE）を取る。上限を超えた通知は `'capped'` で溢れ分（count・群ごとの内訳・since・last）を 1 つの MULTI で数え、次に送る通知が 1 つの MULTI で取り出して末尾に添える（重なっても二重に送らない。要約の排他の鍵は補助）。新設の `backend/src/jobs/security-anomaly-overflow-summary.job.ts`（`*/10 * * * *`、NODE_ENV=test では登録しない）が時間窓の明けた溢れ分を要約 1 通で送り、上限に数えない。上限は `SECURITY_ALERT_NOTIFICATION_LIMIT`（10）と `SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS`（3600）で、試験・CI は 1000000。レビューの任意の提案（61.2 で扱う）: 排他の鍵の照合つきの消去、送信失敗時の since・last の戻しの min/max、`notifyAllAdmins` は失敗を握りつぶすため「送信が失敗したら戻す」は notifier が投げたときだけ働く——design の書き方を現況へ揃える

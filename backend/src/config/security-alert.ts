@@ -1,7 +1,10 @@
 /**
- * セキュリティ上の異常の検知の閾値・時間窓・抑止の時間（user-authentication タスク55.4、要件43.7）
+ * セキュリティ上の異常の検知の閾値・時間窓・抑止の時間（user-authentication タスク55.4、要件43.7）と、
+ * 通知の総数の上限（タスク60.1、要件43.9）
  *
  * 環境変数 `SECURITY_ALERT_<SIGNAL>_THRESHOLD`・`_WINDOW_SECONDS`・`_COOLDOWN_SECONDS` で環境ごとに変える。
+ * 通知の総数の上限と時間窓は `SECURITY_ALERT_NOTIFICATION_LIMIT`・`SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS`
+ * で変える（既定 10 通 / 3600 秒）。
  * 権限の拒否（403）と閲覧範囲外のアクセスは合算して一つの閾値で数える（design.md の SecurityAnomalyMonitor）。
  * 試験・CI の環境は E2E と統合テストの全件の実行で超えない閾値を設定し、途中で通知が流れないようにする。
  *
@@ -33,10 +36,26 @@ export interface AnomalyThreshold {
   cooldownSeconds: number;
 }
 
-export type SecurityAlertConfig = Record<SecurityAlertGroup, AnomalyThreshold>;
+/** 一定時間内に送る異常の通知の総数の上限（要件43.9） */
+export interface NotificationLimit {
+  /** 時間窓の中で送る通知の上限の数（超えた通知は送らず溢れ分に数える） */
+  maxNotifications: number;
+  /** 上限の時間窓の秒数（固定の時間窓。窓の番号は floor(現在時刻 / 秒数)） */
+  windowSeconds: number;
+}
+
+export type SecurityAlertConfig = Record<SecurityAlertGroup, AnomalyThreshold> & {
+  notificationLimit: NotificationLimit;
+};
 
 /** 抑止の時間の既定（全種類で共通） */
 export const DEFAULT_SECURITY_ALERT_COOLDOWN_SECONDS = 1800;
+
+/** 通知の総数の上限の既定（design.md の SecurityAnomalyMonitor の節。10 通 / 3600 秒） */
+export const DEFAULT_SECURITY_ALERT_NOTIFICATION_LIMIT: NotificationLimit = {
+  maxNotifications: 10,
+  windowSeconds: 3600,
+};
 
 /** 既定の閾値と時間窓（design.md の SecurityAnomalyMonitor の節） */
 export const DEFAULT_SECURITY_ALERT_CONFIG: SecurityAlertConfig = {
@@ -65,6 +84,7 @@ export const DEFAULT_SECURITY_ALERT_CONFIG: SecurityAlertConfig = {
     windowSeconds: 3600,
     cooldownSeconds: DEFAULT_SECURITY_ALERT_COOLDOWN_SECONDS,
   },
+  notificationLimit: DEFAULT_SECURITY_ALERT_NOTIFICATION_LIMIT,
 };
 
 /**
@@ -147,6 +167,14 @@ export const securityAlertEnvSchema = {
     'SECURITY_ALERT_DATA_EXPORT_COOLDOWN_SECONDS',
     DEFAULT_SECURITY_ALERT_CONFIG.data_export.cooldownSeconds
   ),
+  SECURITY_ALERT_NOTIFICATION_LIMIT: positiveIntegerSchema(
+    'SECURITY_ALERT_NOTIFICATION_LIMIT',
+    DEFAULT_SECURITY_ALERT_NOTIFICATION_LIMIT.maxNotifications
+  ),
+  SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS: positiveIntegerSchema(
+    'SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS',
+    DEFAULT_SECURITY_ALERT_NOTIFICATION_LIMIT.windowSeconds
+  ),
 };
 
 const securityAlertEnvObject = z.object(securityAlertEnvSchema);
@@ -181,6 +209,8 @@ export function loadSecurityAlertConfig(
     SECURITY_ALERT_DATA_EXPORT_THRESHOLD: source.SECURITY_ALERT_DATA_EXPORT_THRESHOLD,
     SECURITY_ALERT_DATA_EXPORT_WINDOW_SECONDS: source.SECURITY_ALERT_DATA_EXPORT_WINDOW_SECONDS,
     SECURITY_ALERT_DATA_EXPORT_COOLDOWN_SECONDS: source.SECURITY_ALERT_DATA_EXPORT_COOLDOWN_SECONDS,
+    SECURITY_ALERT_NOTIFICATION_LIMIT: source.SECURITY_ALERT_NOTIFICATION_LIMIT,
+    SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS: source.SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS,
   });
 
   return {
@@ -208,6 +238,10 @@ export function loadSecurityAlertConfig(
       threshold: env.SECURITY_ALERT_DATA_EXPORT_THRESHOLD,
       windowSeconds: env.SECURITY_ALERT_DATA_EXPORT_WINDOW_SECONDS,
       cooldownSeconds: env.SECURITY_ALERT_DATA_EXPORT_COOLDOWN_SECONDS,
+    },
+    notificationLimit: {
+      maxNotifications: env.SECURITY_ALERT_NOTIFICATION_LIMIT,
+      windowSeconds: env.SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS,
     },
   };
 }

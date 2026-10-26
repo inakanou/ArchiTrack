@@ -41,6 +41,9 @@ declare global {
       SECURITY_ALERT_DATA_EXPORT_THRESHOLD?: string;
       SECURITY_ALERT_DATA_EXPORT_WINDOW_SECONDS?: string;
       SECURITY_ALERT_DATA_EXPORT_COOLDOWN_SECONDS?: string;
+      // 異常の通知の総数の上限と時間窓（秒）（正の整数。未設定は 10 通 / 3600 秒）
+      SECURITY_ALERT_NOTIFICATION_LIMIT?: string;
+      SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS?: string;
 
       // Frontend
       FRONTEND_URL?: string;

@@ -1,5 +1,5 @@
 /**
- * @fileoverview セキュリティ上の異常の検知と通知の統合検証（user-authentication タスク55.4）
+ * @fileoverview セキュリティ上の異常の検知と通知の統合検証（user-authentication タスク55.4、60.1）
  *
  * Requirements (user-authentication):
  * - REQ-26.12: 招待の回数制限は利用者 ID ごとに数える
@@ -427,4 +427,165 @@ describe('セキュリティ上の異常の検知と通知（統合・実 DB・�
     await settle();
     expect(notificationsAbout('サーバーエラー（5xx）')).toHaveLength(1);
   });
+
+  /**
+   * タスク60.1: 通知の総数の上限を下げた部品（環境変数と同じ形の設定から読む）を、本検証の中だけ共有の部品と
+   * 差し替える。時刻は注入した時計で進め、鍵は検証ごとの接頭辞で数える
+   */
+  function createLimitedMonitor(
+    prefix: string,
+    clock: { now: () => number }
+  ): SecurityAnomalyMonitor {
+    return new SecurityAnomalyMonitor({
+      getRedisClient: () => redis.getClient(),
+      getNotifier: () => new AdminNotificationService(prisma, emailSender),
+      config: loadSecurityAlertConfig({
+        SECURITY_ALERT_LOGIN_FAILED_THRESHOLD: String(THRESHOLD),
+        SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD: String(THRESHOLD),
+        SECURITY_ALERT_RATE_LIMITED_THRESHOLD: String(THRESHOLD),
+        SECURITY_ALERT_SERVER_ERROR_THRESHOLD: String(THRESHOLD),
+        SECURITY_ALERT_DATA_EXPORT_THRESHOLD: String(THRESHOLD),
+        SECURITY_ALERT_NOTIFICATION_LIMIT: '2',
+        SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS: '3600',
+      }),
+      now: clock.now,
+      keyPrefix: prefix,
+    });
+  }
+
+  function createClock() {
+    // 上限の時間窓（3600 秒）の始まりから少し後
+    let current = Math.floor(Date.now() / 3_600_000) * 3_600_000 + 60_000;
+    return {
+      now: () => current,
+      advanceSeconds: (seconds: number) => {
+        current += seconds * 1000;
+      },
+    };
+  }
+
+  const recordExportAs = (user: TestUser) =>
+    request(app)
+      .post('/api/v1/audit-logs/exports')
+      .set('Authorization', `Bearer ${user.token}`)
+      .send({ kind: 'audit_log_json', projectId: null, targetIds: [], itemCount: 0 });
+
+  /** 一人の利用者のデータ出力を閾値を超えるまで記録する */
+  async function exceedExports(user: TestUser, limited: SecurityAnomalyMonitor): Promise<void> {
+    for (let i = 0; i <= THRESHOLD; i++) {
+      expect((await recordExportAs(user)).status).toBe(201);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await limited.flush();
+  }
+
+  /**
+   * @requirement user-authentication/REQ-43.8
+   * @requirement user-authentication/REQ-43.9
+   * @requirement user-authentication/REQ-43.7
+   */
+  it('データ出力の通知の抑止は利用者ごとで、上限を超えた通知は送らず、次の時間窓の最初の通知に溢れ分を添えて消す', async () => {
+    const prefix = `${KEY_PREFIX}60-1-append:`;
+    const clock = createClock();
+    const limited = createLimitedMonitor(prefix, clock);
+    setSharedSecurityAnomalyMonitor(limited);
+    try {
+      // 利用者 member の通知の抑止の時間内でも、利用者 other の急増は通知する（要件43.8）
+      await exceedExports(member, limited);
+      await exceedExports(other, limited);
+      const notices = notificationsAbout('同一利用者のデータ出力');
+      expect(notices).toHaveLength(2);
+      expect(notices[0]!.lines).toContain(`対象の利用者 ID: ${member.id}`);
+      expect(notices[1]!.lines).toContain(`対象の利用者 ID: ${other.id}`);
+      expect(await redisClient.exists(`${prefix}notified:data_export:user:${member.id}`)).toBe(1);
+      expect(await redisClient.exists(`${prefix}notified:data_export:user:${other.id}`)).toBe(1);
+
+      // member の再度の超過は抑止の時間内なので送らない
+      await recordExportAs(member);
+      await settleLimited(limited);
+      expect(notificationsAbout('同一利用者のデータ出力')).toHaveLength(2);
+
+      // 上限（2 通 / 3600 秒）を超えた 3 通目は送らず、溢れ分に数える（要件43.9）
+      clock.advanceSeconds(60);
+      await exceedExports(admin, limited);
+      expect(notificationsAbout('同一利用者のデータ出力')).toHaveLength(2);
+      expect(await redisClient.get(`${prefix}overflow:count`)).toBe('1');
+      expect(await redisClient.hgetall(`${prefix}overflow:groups`)).toEqual({ data_export: '1' });
+      const cappedAt = new Date(clock.now()).toISOString();
+
+      // 次の時間窓の最初の通知（ログインの失敗）に件数・期間・内訳を添え、溢れ分を消す
+      clock.advanceSeconds(3600);
+      for (let i = 0; i <= THRESHOLD; i++) {
+        await request(app)
+          .post('/api/v1/auth/login')
+          .send({ email: `${MARK}-60-1-${i}@example.com`, password: 'WrongPassword123!' });
+      }
+      await settleLimited(limited);
+      const login = notificationsAbout('ログインの失敗');
+      expect(login).toHaveLength(1);
+      expect(login[0]!.lines.at(-1)).toBe(
+        `上限により送らなかった通知: 1 件（期間 ${cappedAt} 〜 ${cappedAt}、` +
+          '内訳 同一利用者のデータ出力（data_export）: 1 件）'
+      );
+      expect(await redisClient.exists(`${prefix}overflow:count`)).toBe(0);
+      expect(await redisClient.exists(`${prefix}overflow:groups`)).toBe(0);
+      expect(await redisClient.exists(`${prefix}overflow:since`)).toBe(0);
+      expect(await limited.sendOverflowSummary()).toBe('none');
+    } finally {
+      setSharedSecurityAnomalyMonitor(monitor);
+    }
+  });
+
+  /**
+   * @requirement user-authentication/REQ-43.9
+   */
+  it('次の通知が無いまま上限の時間窓が明けると、要約を全システム管理者へ 1 通だけ送る', async () => {
+    const prefix = `${KEY_PREFIX}60-1-summary:`;
+    const clock = createClock();
+    const limited = createLimitedMonitor(prefix, clock);
+    setSharedSecurityAnomalyMonitor(limited);
+    try {
+      await exceedExports(member, limited);
+      await exceedExports(other, limited);
+      await exceedExports(admin, limited);
+      expect(notificationsAbout('同一利用者のデータ出力')).toHaveLength(2);
+      expect(await redisClient.get(`${prefix}overflow:count`)).toBe('1');
+
+      // 時間窓が明けるまでは送らない
+      expect(await limited.sendOverflowSummary()).toBe('pending');
+
+      // 時間窓が明けたら、同時の実行が重なっても 1 通
+      clock.advanceSeconds(3600);
+      const outcomes = await Promise.all([
+        limited.sendOverflowSummary(),
+        limited.sendOverflowSummary(),
+        limited.sendOverflowSummary(),
+      ]);
+      expect(outcomes.filter((o) => o === 'sent')).toHaveLength(1);
+      const summaries = notificationsAbout('上限により送らなかった通知の要約');
+      expect(summaries).toHaveLength(1);
+      expect(
+        sent
+          .filter((m) => m.subject.includes('要約'))
+          .map((m) => m.to)
+          .sort()
+      ).toEqual(await activeAdminEmails());
+      expect(summaries[0]!.lines).toEqual([
+        '異常の通知の総数の上限（3600 秒あたり 2 通）により送らなかった通知の要約',
+        expect.stringMatching(
+          /^上限により送らなかった通知: 1 件（期間 \S+ 〜 \S+、内訳 同一利用者のデータ出力（data_export）: 1 件）$/
+        ),
+      ]);
+      expect(await redisClient.exists(`${prefix}overflow:count`)).toBe(0);
+      expect(await limited.sendOverflowSummary()).toBe('none');
+      expect(notificationsAbout('上限により送らなかった通知の要約')).toHaveLength(1);
+    } finally {
+      setSharedSecurityAnomalyMonitor(monitor);
+    }
+  });
+
+  async function settleLimited(limited: SecurityAnomalyMonitor): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await limited.flush();
+  }
 });

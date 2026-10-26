@@ -1,5 +1,5 @@
 /**
- * 定期処理の実行基盤（user-authentication 要件36.8、37.4、37.8、41.1、41.2、41.6、45.3）
+ * 定期処理の実行基盤（user-authentication 要件36.8、37.4、37.8、41.1、41.2、41.6、43.9、45.3）
  *
  * キャッシュ基盤と同じ REDIS_URL で接続するキュー `scheduled-jobs` に、Bull の繰り返しジョブ
  * （`repeat`、cron は Asia/Tokyo）として定期処理を登録し、同じキューで実行する。
@@ -38,6 +38,11 @@ import {
   AUDIT_LOG_ARCHIVE_JOB_NAME,
   createAuditLogArchiveRun,
 } from './audit-log-archive.job.js';
+import {
+  SECURITY_ANOMALY_OVERFLOW_SUMMARY_CRON,
+  SECURITY_ANOMALY_OVERFLOW_SUMMARY_JOB_NAME,
+  sendSecurityAnomalyOverflowSummary,
+} from './security-anomaly-overflow-summary.job.js';
 
 /** 定期処理のキューの名前（Redis のキーは `bull:scheduled-jobs:*`） */
 export const SCHEDULED_JOBS_QUEUE_NAME = 'scheduled-jobs';
@@ -92,6 +97,11 @@ export function createScheduledJobDefinitions(prisma: PrismaClient): ScheduledJo
       name: AUDIT_LOG_ARCHIVE_JOB_NAME,
       cron: AUDIT_LOG_ARCHIVE_CRON,
       run: createAuditLogArchiveRun(prisma),
+    },
+    {
+      name: SECURITY_ANOMALY_OVERFLOW_SUMMARY_JOB_NAME,
+      cron: SECURITY_ANOMALY_OVERFLOW_SUMMARY_CRON,
+      run: () => sendSecurityAnomalyOverflowSummary(),
     },
   ];
 }
