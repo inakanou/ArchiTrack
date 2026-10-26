@@ -232,13 +232,13 @@
       "id": "site-survey/REQ-14.4",
       "requirement": "REQ-14: アクセス制御",
       "title": "署名付きURLの有効期限とアクセス権限検証",
-      "criterionText": "When 画像URLへのアクセスリクエストがある, the Site Survey Service shall 署名付きURLの有効期限とアクセス権限を検証する",
+      "criterionText": "When 画像URLへのアクセスリクエストがある, the Site Survey Service shall 署名付きURLの有効期限と、画像が属するプロジェクトがユーザーの閲覧範囲に含まれることを検証する",
       "reason": "署名付きURLの検証はセキュリティ監査とAPIテストで検証",
       "category": "security",
       "alternativeVerification": {
         "method": "security-audit",
         "tool": "API security scanner",
-        "description": "署名付きURLの有効期限切れ時にアクセスが拒否されること、および権限を持たない要求に対してアクセス権限の検証が働き拒否されることを確認",
+        "description": "署名付きURLの有効期限切れ時にアクセスが拒否されること、および閲覧範囲外の利用者の要求に対して閲覧範囲の検証が働き拒否されることを確認（閲覧範囲外の利用者に署名付きURLを発行しないことは Requirement 39.6 が被覆を持つ）",
         "threshold": "url_expiration: enforced, access_control: enforced"
       }
     },

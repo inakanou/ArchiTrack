@@ -63,10 +63,11 @@
     {
       "id": "traceability-table-headers",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "が返す 7 箇所を表頭とし",
+      "anchor": "追跡表を足した後の再実測では表頭は 8 箇所である",
       "command": "grep -cE '^\\| *Requirement \\| *Summary \\| *Components \\|' .kiro/specs/site-survey/design.md || test $? -eq 1",
-      "expected": "7",
-      "note": "本書の追跡表の数。表を増減させると動く"
+      "expected": "8",
+      "documentRendering": "表頭は 8 箇所",
+      "note": "本書の追跡表の数。表を増減させると動く。site-survey のタスク119 の文書の改訂（2026-10-27、利用者の判断で Requirement 39 を新設）が `## Requirement 39` の章へ追跡表を一つ足したため、錨と値を提出時点へ貼り直した（7 箇所はタスク 115.113 の当時の値として文書の同じ行に残る）。新たに入った表頭は同章の 1 箇所で、抜けた表頭は 0 箇所である"
     },
     {
       "id": "mislabeled-self-report-rows",

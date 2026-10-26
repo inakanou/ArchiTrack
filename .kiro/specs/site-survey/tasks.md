@@ -6433,8 +6433,11 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **ロール名の直書き**: backend/src/services/signed-url.service.ts の `validateProjectAccess`（258〜271 行付近）は、関係者でない利用者をロール名 `'admin'` の一致で通す。user-authentication の design.md の「ProjectScopeService」の節のとおり `canAccessProject`（全案件の判定は `project:read_all` の権限）へ差し替える（39.1。差し替えは本スペックの所管と同節が定める）
   - **判定を経ないサムネイルの署名**: backend/src/services/image-list.service.ts の 280〜283 行付近は、原画像だけを判定の通過時に署名し、サムネイルと注釈付きサムネイルは判定を経ずに署名する。範囲内に限って発行する（39.4、是正計画 §5.2 の「サムネイルの署名 URL 発行時に権限・閲覧範囲を判定する」）
   - **既存のテストの扱い**（user-authentication の tasks.md の Implementation Notes の 52.2）: 区分 B（404 の本文が `PROJECT_NOT_FOUND` から `NOT_FOUND` に変わるだけで落ちる）は統合 site-survey.api の `PROJECT_NOT_FOUND` の主張と、E2E site-survey-crud.spec.ts の「存在しないプロジェクトでは現場調査を作成できない」。区分 C（範囲外の利用者の振る舞いそのものを主張する）は E2E site-survey-access-control.spec.ts の site-survey/REQ-38.9（非関係者の画像一覧が 200 で `originalUrl` が null）。同 52.3 の記録は区分 C の残りを各業務 spec の適用で同じ方針（要件39 が優先する、利用者の判断 2026-10-24 の A）で改めるとする。本スペックの Requirement 14 の画像へのアクセス可否の判定と 38.9 の読み方が変わるため、requirements.md・design.md の扱いは着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: Requirement 14.1〜14.4 と 38.9 の条文を改訂し、改訂の記録（採らなかった案: 条文を変えず design.md だけで読み替える案）を requirements.md の各受入基準の下に残した。design.md は「Requirement 39: 案件の閲覧範囲と出力の記録の適用」章の「Requirement 14・38.9 の読み替え」節に設計上の読み方を記し、Requirement 38 の章の該当箇所に改訂の追記を置いた。14.4 の除外（e2e/requirement-exclusions.json の site-survey/REQ-14.4）の criterionText を改訂後の条文へ追随させた
   - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、本文に案件 ID が出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること、範囲外ではサムネイルの署名 URL も返らないことを主張する。E2E で担当外の利用者が現場調査の URL を直接開くと見つからない扱いになることを確かめる
   - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 39（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 39.1〜39.6 が受ける。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 39.1, 39.2, 39.3, 39.4, 39.5, 39.6, 14.1, 14.2, 14.3, 14.4, 38.9_
   - _Boundary: 本スペックの API の案件の範囲の判定、`SignedUrlService` の判定、画像一覧の署名 URL の発行_
 
 - [ ] 119.2 本スペックの出力に事前記録（user-authentication の要件40）を適用する
@@ -6445,6 +6448,7 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - ブラウザで生成する出力は `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11）。注釈の JSON はブラウザの包みとサーバーの `ExportAuditService.record` のどちらか一方で 1 回だけ記録する（二重に記録しない）
   - user-authentication の 53.4 が置いた調査報告書のラチェット（site-survey-report-export-audit.spec.ts の `test.fail()` 2 件）は、調査報告書の出力に包みを適用すると反転する。ラチェットを外して被覆済みへ移し、除外 user-authentication/REQ-40.10・40.11 の扱い（他の spec の出力が未適用のまま残る間の理由の書き方を含む）を user-authentication の所管として報告する。反転しないときは前提（ダウンロード・注釈の取得の観測）の失敗をまず疑う
   - 挙動の変更であるため RED → GREEN で進め、E2E で各出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Requirements: 39.7, 39.8_
   - _Boundary: 本スペックの画面の出力の開始の処理_
   - _Depends: 119.1_
 

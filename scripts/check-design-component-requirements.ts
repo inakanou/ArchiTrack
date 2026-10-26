@@ -324,8 +324,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'site-survey': {
     mode: 'exact',
     contradictions: [],
-    minPairs: 45,
-    minTableDeclarations: 61,
+    // minPairs 45 → 52 / minTableDeclarations 61 → 68（site-survey のタスク119 の文書の改訂、2026-10-27）。
+    // 利用者の判断で新設した Requirement 39 の章「Requirement 39: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 7 行（いずれも 39.x を名乗る）と追跡表を足し、同章の 7 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    minPairs: 52,
+    minTableDeclarations: 68,
     minDetailDeclarations: 37,
     reason:
       'タスク 115.247 の境界。115.246 が決着させた `AnnotationContextMenu` と同型の組を 6 部品・7 組で検出し、いずれも追跡表を正として自己申告へ追随させ、矛盾を 0 件にした。以後の新設も、解消済みの宣言の置き去りも、集合の不一致として赤くなる',

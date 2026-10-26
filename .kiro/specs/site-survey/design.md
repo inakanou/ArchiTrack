@@ -1196,7 +1196,7 @@ sequenceDiagram
 | **11.9** | **報告書PDFのファイル名を「現場調査報告書_YYYYMMDD.pdf」形式とする** | **PdfExportService (generateDefaultFilename), SiteSurveyDetailInfo** | **ExportAPI** | **PDF報告書生成フロー** |
 | **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService, AnnotationEditor** | **ExportAPI** | **個別画像エクスポートフロー** |
 | 13.1-13.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
-| 14.1-14.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
+| 14.1-14.5 | アクセス制御（14.1-14.4 は Requirement 39 の案件の閲覧範囲で読む。2026-10-27 改訂） | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
 | 15.1-15.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
 | **15.7** | **QuotaExceededError LRUリトライ** | **AutoSaveManager** | **localStorage** | - |
 | **15.8** | **保存失敗時ユーザー警告・今すぐ保存促進** | **AutoSaveManager, StorageWarningBanner** | - | - |
@@ -1247,6 +1247,8 @@ sequenceDiagram
 > **改訂（タスク 115.107）**: 要件23 の 23.1-23.4 / 23.6-23.8 行は、当初 `AnnotationService` / `AnnotatedThumbnailService` によるサーバー側の同期再生成を担当としていた。当該経路は本番へ結線されないまま到達不能であり、115.107 で撤去した。担当は合成を行う `AnnotationEditor` と、その受け口である `survey-images.routes.ts` の `PATCH` / `DELETE /:imageId/annotated-thumbnail`（`ThumbnailAPI`）である。「サムネイル同期再生成フロー」節は当初設計の記録として残っているため、Flows 列からは外した。
 > **23.5 行の Interfaces 列から `AnnotationAPI` を外した理由**: 注釈保存の応答（`AnnotationAPI`）はもはや合成済みサムネイルの表示元URLを供給しない（115.107 で撤去）。23.5 の「表示を最新へ更新する」は、更新直後の表示元を返す `ThumbnailAPI`（`PATCH` の応答を `AnnotationEditor` が `onAnnotationSaved` で親へ渡す）と、再取得時に表示元を供給する現場調査詳細取得（`SurveyAPI`）・一覧取得（`SurveyListAPI`）・画像一覧取得（`ImageAPI`）で満たされる。合成の起点である `AnnotationEditor` を Components 列へ加えた。
 
+> **改訂（2026-10-27、利用者の判断。タスク119）**: 14.1-14.4 の条文は「アクセス権」を user-authentication の要件39 の案件の閲覧範囲として読むよう改訂した（requirements.md の Requirement 14 の改訂の記録）。閲覧範囲の適用そのもの（範囲外の404・一覧の絞り込み・署名付きURLの発行の判定・出力の記録）は Requirement 39 の受入基準として持ち、その追跡は本書の「Requirement 39: 案件の閲覧範囲と出力の記録の適用」章の追跡表が持つ。本表の 14.1-14.5 の行の担い手は改めていない。
+
 ### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）
 
 タスク 115.77 は保存容量の警告帯（`StorageWarningBanner`）の一件だけを是正したが、**同型の取りこぼしは他にも残っていた**。本節は 115.77 と同じ手順を、文書内の追跡表**7つ全件**（合計**166 行**。是正の直前に計数）へ機械的に適用した結果である。
@@ -1276,7 +1278,7 @@ sequenceDiagram
 
 計数の再現手順（いずれも本表を書く直前に再実行した）:
 
-- **追跡表と行数**: `grep -nE '^\| *Requirement \| *Summary \| *Components \|' .kiro/specs/site-survey/design.md` が返す 7 箇所を表頭とし、各表頭の2行下から `|` で始まらない行の直前までを本文行として数える（合計 166 件）
+- **追跡表と行数**: `grep -nE '^\| *Requirement \| *Summary \| *Components \|' .kiro/specs/site-survey/design.md` が返す 7 箇所を表頭とし（タスク 115.113 の当時の値。site-survey のタスク119 の文書の改訂が Requirement 39 の章の追跡表を足した後の再実測では表頭は 8 箇所である）、各表頭の2行下から `|` で始まらない行の直前までを本文行として数える（合計 166 件）
 - **実装ファイル**: 上の手順1に記した `git ls-files` と `grep -rl` の合成を `sort -u | wc -l` で数える（53件。**この 53 件は 115.113 が監査した当時の母集団の記録であり書き換えない。同じコマンドの再実測は 51 件である**——2026-09-02 にリポジトリルートで実測。**2026-10-01 の再実測は 50 件である**——コミット `3b26ad14` の作業ツリーへ construction-photo スペックのタスク 16.3 の変更を載せてリポジトリルートで実測。減った 1 件は、同タスクがタップ領域の下限の定数を site-survey の部品フォルダから横断ルールの層（utils）へ移し、手順1 の対象から外れた分である。本書「実測値の書き方（タスク 115.212）」の (a) に従い、当時の値を残して現況を並べる。上の表の同項目にも同じ併記を置いた。本節の以下の件数はすべて当時の母集団 53 に掛かる）
 - **不一致**: 手順2〜5 をそのまま適用し、部品×要件番号の組を数える。集合を指す表記は手順4 の2群を**名称が示す実体の集合へ展開**し、`bulkExportService finalize` のように**実名に修飾語が続く表記は実名の一致として扱う**（是正前105件、是正後18件）。展開の内訳は次のとおりで、ここを取り違えると件数がずれる
   - `ShapeTool` → 対応表が定める6ツール、`SurveyRoutes` → 3ルート、`AuthMiddleware` → 2ミドルウェア、`StyleTokens` → `annotation-style-tokens`、`Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools` → 表記が列挙する6ツール（`Rectangle` / `Circle` / `Polygon` / `Polyline` / `Freehand` / `Dimension`。書く直前に表記を `/` で区切って数え直した実測。同じ行の要約欄も「6 形状の白縁取り共通仕様」と記す（`### Requirements Traceability` の `32.1-32.7, 32.9-32.10` の行。**本書の行を行番号で指さない**——行番号は本書の編集で失効するため、節名と行の見出し語で指す））
@@ -1731,8 +1733,8 @@ sequenceDiagram
 | AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18, 22.4 | PrismaClient (P0) | Service, API |
 | **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
 | **ImageDeleteService** | Backend/Service | 画像削除処理、孤立ファイル処理 | 4.7, 4.8, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
-| ExportService | Frontend/Service | エクスポート処理 | 11, 12 | jsPDF (P0), Fabric.js (P0) | State |
-| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14, 18, 20 | All Services (P0) | API |
+| ExportService | Frontend/Service | エクスポート処理 | 11, 12, 39.7, 39.8 | jsPDF (P0), Fabric.js (P0) | State |
+| SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14, 18, 20, 39.1-39.6 | All Services (P0) | API |
 | **SiteSurveySectionCard** | Frontend/Component | プロジェクト詳細画面の現場調査セクション | 2.3 | SurveyAPI (P0) | State |
 | SiteSurveyListPage | Frontend/Page | 一覧表示（タイトル「現場調査一覧」） | 2, 3, 20.3 | SurveyAPI (P0) | State |
 | SiteSurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 2.3, 2.4, 2.7, 4.10-4.13, **5.1**, 9, 10, 11, 19, 20.2, 23 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
@@ -8263,7 +8265,7 @@ DBマイグレーション不要。フロントエンドのみの変更であり
 - 写真一覧のページング・仮想スクロール導入（表示件数の変更は Requirement 20 の表示前提に波及するため本要件では扱わない）
 - 注釈をレンダリングしたサムネイル画像の生成契機の変更（Requirement 20.4 / 23.1-23.4 が所管）
 - 画像の圧縮率・保存形式の変更（Requirement 4 が所管）
-- アクセス権限の判定基準の変更（Requirement 14 が所管）
+- アクセス権限の判定基準の変更（Requirement 14 と Requirement 39 が所管。2026-10-27 の改訂で 38.9 の判定の元は Requirement 39 の案件の閲覧範囲になった）
 - PDF報告書出力時のリクエスト最適化（Requirement 18 が所管）
 
 ### Boundary Commitments
@@ -8285,8 +8287,8 @@ DBマイグレーション不要。フロントエンドのみの変更であり
 - `AnnotatedThumbnailService.generateAnnotatedThumbnail` の生成ロジックそのもの（Requirement 20.4 / 23 が所管）。本節はこれを**呼び出す**のみで、生成結果の内容には関与しない
 - 合成済みサムネイルの更新経路（`PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail`）とその失敗の扱い（Requirement 23 が所管）。注釈の保存とサムネイルの更新は別々の要求であるため、注釈のみが永続化されサムネイルが更新されない状態は起こり得る。本節ではこれを是正せず、その状態が起こり得る前提で設計する（**タスク 115.107 改訂**: 当初は `AnnotationService.save` の同期生成フローと `ThumbnailRegenerationError` を挙げていたが、いずれも撤去済み）
 - `hasAnnotations` の導出規則。`image-list.service.ts` と `quantity-table.service.ts` の双方が「注釈レコードの存在」で一致しており、本節では変更しない
-- `SignedUrlService.validateSignedUrlAccess` の判定基準（プロジェクト関係者・admin ロール）。本節は実行単位のみを変更し、判定基準は変更しない
-- サムネイル・注釈付きサムネイルが原本画像と異なり権限検証を経ずに生成される既存の非対称性。本節はこれを**維持**する。是正するか否かは Requirement 14 の所管であり、本節では判断しない
+- `SignedUrlService.validateSignedUrlAccess` の判定基準（プロジェクト関係者・admin ロール）。本節は実行単位のみを変更し、判定基準は変更しない（**2026-10-27 追記**: 判定基準そのものは Requirement 39 の章が案件の閲覧範囲の判定へ差し替える。本節の観点〔実行単位のみを変え判定基準は変えない〕は変わらない）
+- サムネイル・注釈付きサムネイルが原本画像と異なり権限検証を経ずに生成される既存の非対称性。本節はこれを**維持**する。是正するか否かは Requirement 14 の所管であり、本節では判断しない（**2026-10-27 追記**: Requirement 39.6 がこの非対称性の是正を定めた。閲覧範囲外の利用者にはサムネイル・注釈付きサムネイルの署名付きURLも発行しない。是正の設計は「Requirement 39: 案件の閲覧範囲と出力の記録の適用」章が持つ）
 - `frontend/src/hooks/useLazyLoadGroups.ts`（数量表のグループ単位ページング。対象・粒度が異なり、quantity-table-generation スペックの所管）
 - 数量表画面の写真表示（quantity-table-generation の Requirement 49 が所管）。`AnnotatedImageThumbnail` は共用だが、呼び出し側の結線は当該スペックが持つ
 
@@ -8482,7 +8484,7 @@ export interface AnnotatedImageInput {
 | 権限検証 | 最大3 | `validateSurveyAccess`（現場調査→プロジェクト→ロール）。画像枚数に依存しない |
 | 署名付きURL生成 | 0 | ストレージキーは画像一覧の取得結果を用いる。データベースへ問い合わせない |
 
-- 原本画像URLのみ `validateSurveyAccess` の結果で出し分ける。サムネイル・注釈付きサムネイルは検証を経ずに生成する現行の非対称性を維持する（38.9: 判定結果を変更しない）
+- 原本画像URLのみ `validateSurveyAccess` の結果で出し分ける。サムネイル・注釈付きサムネイルは検証を経ずに生成する現行の非対称性を維持する（38.9: 判定結果を変更しない）。**2026-10-27 追記**: 38.9 の改訂により、本項の非対称性の維持は Requirement 39.6 の適用（タスク119.1）で改める。判定の元は案件の閲覧範囲となり、範囲外ではサムネイル・注釈付きサムネイルのURLも発行しない。問い合わせ回数を画像枚数に依存させない契約（38.4）は改めない
 - 本メソッドはすでに上表の回数へ是正済みである。本節での追加変更はなく、回帰テストによる固定のみを行う
 
 #### `backfillAnnotatedThumbnails`
@@ -8568,6 +8570,8 @@ sequenceDiagram
 | 38.8 | 表示領域外は取得しない | `useInViewport`, `AnnotatedImageThumbnail` | `UseInViewportResult` | 詳細画面表示（スクロール） |
 | 38.9 | アクセス可否の判定結果を変えない | `SignedUrlService.validateSurveyAccess`, `ImageListService` | 原本URLのみ検証結果で出し分け | — |
 
+> **改訂（2026-10-27、利用者の判断）**: 38.9 の条文は、判定の元を Requirement 39 が適用する案件の閲覧範囲（Requirement 14.4・39.6）として明示するよう改訂した。本行の Interfaces 列の「原本URLのみ検証結果で出し分け」は改訂前の振る舞いの記録であり、タスク119.1 の適用の後は閲覧範囲外では原本・サムネイル・注釈付きサムネイルのいずれの表示元URLも発行しない。担い手（`SignedUrlService.validateSurveyAccess`, `ImageListService`）は改めていない。
+
 ### Error Handling
 
 | 失敗 | 挙動 | 根拠 |
@@ -8577,6 +8581,8 @@ sequenceDiagram
 | 注釈保存後の合成済みサムネイル更新に失敗（`PATCH` / `DELETE /:imageId/annotated-thumbnail`） | 注釈は永続化済み・サムネイルは旧状態または欠落のまま残る。当該画像は以後クライアント合成で表示される | Requirement 23 の所管。本節はこの状態が恒常的に起こり得る前提で 38.2 / 38.3 を設計する（**タスク 115.107 改訂**: 当初の `ThumbnailRegenerationError` は撤去済み） |
 | ~~バックフィル中の個別画像の失敗~~（115.6 で封鎖。当該バックフィルは起動できない） | ~~`failures` へ記録し処理を継続~~ | 38.6 |
 | 画像一覧取得時の権限検証が false | 原本画像URLのみ `null`。サムネイルは現行どおり返す | 38.9（判定結果を変更しない） |
+
+> **改訂（2026-10-27）**: 上の行は改訂前の 38.9 の読み方の記録である。改訂後は Requirement 39 の章の Error Handling のとおり、閲覧範囲外の利用者の画像一覧の要求は存在しない場合と同じ404となり、表示元URLは一つも返らない（Requirement 39.2・39.6）。
 
 ### Testing Strategy
 
@@ -8646,6 +8652,100 @@ sequenceDiagram
 **ロールバック**: 当該項目は未算出から算出済みへ一方向に進むのみで、既存の値を破壊しない。列そのものは省略可能な項目として追加されるため、追加前のコードとも共存できる。
 
 **観測**: ~~バックフィルの `BackfillResult` をログへ出力する~~（115.6 で封鎖）。欠落は新規にも発生し得るため対象件数は0へ恒久収束せず、この前提のもとで 38.2 / 38.3 は表示領域による取得の限定によって満たす。
+
+## Requirement 39: 案件の閲覧範囲と出力の記録の適用
+
+### Overview
+
+**Purpose**: user-authentication の要件39（案件単位の閲覧範囲）と要件40.9〜40.11（データ出力の記録）を本機能の API と出力へ適用する。上流は判定の部品（`ProjectScopeService` の `evaluateProjectAccess`・`buildProjectScopeWhere`・`canAccessProject`、`requireProjectScope`）と出力の記録の手段（`ExportAuditService`、`runRecordedExport`）を実装済みであり、各業務機能への適用は各 spec の所管と定めている（user-authentication の design.md の Boundary Commitments の Out of Boundary）。本章は本機能の適用箇所を設計として固定する。
+
+**Users**: 担当外の案件の現場調査を閲覧・操作させたくないシステム管理者と、出力の経緯を追跡する監査の担当者。
+
+**Impact（既存前提の是正）**: user-authentication の機能検証（2026-10-25）で次の二点が確かめられた（タスク119 の経緯）。
+
+1. 本機能の API は権限（`site_survey:read` など）の有無だけを判定し、案件の範囲を判定しない。担当外の利用者が ID 指定で他の案件の現場調査・画像・注釈を読み書きできる
+2. 本機能の出力（調査報告書の PDF、画像の一括 ZIP、注釈の編集の個別の出力）は記録を経ずに生成される。`runRecordedExport` を本番で呼び出す箇所は無い
+
+### Requirement 14・38.9 の読み替え（2026-10-27、利用者の判断）
+
+利用者は、Requirement 14.1-14.4 と 38.9 の条文を改訂して改訂の記録を残すと判断した（採らなかった案は、条文を変えず本書だけで読み替える案）。改訂の内容と理由は requirements.md の各受入基準の改訂の記録が持ち、本書は設計上の読み方だけを記す。
+
+| 条文 | 改訂前の設計上の読み方 | 改訂後の設計上の読み方 |
+|---|---|---|
+| 14.1 | 閲覧の権限の有無だけで閲覧を許す | 閲覧範囲（営業担当者・工事担当者・作成者、または全案件閲覧の権限）に含まれる案件に限り閲覧を許す |
+| 14.2 | 作成・編集の権限の有無だけで書き込みを許す | 権限を持ち、かつ案件が閲覧範囲に含まれるときに限り書き込みを許す |
+| 14.3 | 権限の無い操作を 403 で拒否する（範囲外の区別なし） | 閲覧範囲内で権限の無い操作は 403。範囲外は存在しない場合と同じ 404（39.2） |
+| 14.4 | 原画像の署名付きURLだけを、プロジェクトの関係者またはロール名 `admin` で判定する | 原画像・サムネイル・注釈付きサムネイルの署名付きURLを閲覧範囲の判定で発行する（39.6） |
+| 38.9 | 効率化が「原画像だけを出し分け、サムネイルは判定なしで発行する」判定結果を変えない | 効率化が閲覧範囲の判定の結果を変えない。判定の実行単位（現場調査単位で1回）と問い合わせ回数の契約（38.4）は保つ |
+
+**読み替えに伴って被覆の主張が変わる既存のテスト**（user-authentication の tasks.md の Implementation Notes の 52.2 の区分。扱いはタスク119.1 の記述のとおり）: 区分 B は 404 の本文の符号が変わるだけで落ちる主張、区分 C は範囲外の利用者の振る舞いそのもの（38.9 を名乗る E2E が、非関係者の画像一覧が 200 で原画像のURLだけが空になることを主張する）であり、改訂後の条文に合わせて主張を改める。
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 本機能の API の各経路への `requireProjectScope` の適用（`requirePermission` の後に置く）。対象は `backend/src/routes/site-surveys.routes.ts`・`backend/src/routes/survey-images.routes.ts`・`backend/src/routes/annotation.routes.ts` の経路（39.1-39.4）
+- 現場調査の ID・画像の ID から案件の ID を引く解決関数（新設。置き場所は実装時に決める）
+- プロジェクトの現場調査の画像一覧の経路の 403 と 404 の出し分けの一本化（39.2・39.3）
+- `SignedUrlService.validateProjectAccess` の判定の `canAccessProject` への差し替え（ロール名による判定をやめ、全案件閲覧の権限で判定する。39.1・39.6）
+- `ImageListService.findBySurveyIdWithUrls` のサムネイル・注釈付きサムネイルの署名付きURLの発行の判定（39.6）
+- 本機能の画面の出力の開始の処理を `runRecordedExport` で包むこと（39.7・39.8）。対象は `SiteSurveyDetailInfo` の調査報告書の PDF、`BulkExportDialog` の画像の一括 ZIP、`AnnotationEditor` の注釈付き画像・原画像・注釈の JSON
+
+#### Out of Boundary
+- 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
+- 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
+- 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
+- 調査報告書のラチェット（user-authentication のタスク53.4 が置いた `test.fail()`）を外した後の除外の扱い。本機能は反転の事実を user-authentication の所管として報告する
+
+#### Allowed Dependencies
+- 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
+- `SignedUrlService` → `canAccessProject`
+- 本機能の出力の画面 → `runRecordedExport`（`frontend/src/api/export-audit.ts`）
+
+### Components and Interfaces
+
+| Component | Domain | Intent | Requirements | Dependencies | Contracts |
+|---|---|---|---|---|---|
+| 現場調査・画像・注釈の経路 | Backend/Route | 範囲外の ID 指定を不在と同じ 404 にし、一括の対象と一覧を範囲内へ限る | 39.1, 39.2, 39.3, 39.4, 39.5 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
+| 案件IDの解決関数 | Backend/Service | 現場調査・画像の ID から案件の ID を引く | 39.2, 39.4 | Prisma（P0） | Service |
+| `SignedUrlService.validateProjectAccess` | Backend/Service | 署名付きURLの発行の可否を閲覧範囲で判定する | 39.1, 39.6 | `canAccessProject`（P0） | Service |
+| `ImageListService.findBySurveyIdWithUrls` | Backend/Service | 範囲内に限って原画像・サムネイル・注釈付きサムネイルの署名付きURLを発行する | 39.6 | `SignedUrlService`（P0） | Service |
+| `SiteSurveyDetailInfo` | Frontend/Component | 調査報告書の PDF の生成を記録の成功の後に始める | 39.7, 39.8 | `runRecordedExport`（P0） | State |
+| `BulkExportDialog` | Frontend/Component | 画像の一括 ZIP の生成を記録の成功の後に始める | 39.7, 39.8 | `runRecordedExport`（P0）, `bulkExportService`（P0） | State |
+| `AnnotationEditor` | Frontend/Component | 注釈付き画像・原画像・注釈の JSON の出力を記録の成功の後に始める | 39.7, 39.8 | `runRecordedExport`（P0） | State |
+
+**判定の順序**: `requirePermission` → `requireProjectScope` → 本体の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
+
+**一括の経路**: 画像の一括更新と注釈の一括取得は、対象の全件の案件を判定し、範囲外の画像のデータを返さず書き込まない（39.4）。要求全体を 404 にするか範囲外の画像だけを除くかは、既存の一括の応答の契約（Requirement 18.3・18.6）と合わせて実装時に決め、決めた振る舞いをタスク119.1 の記録に残す。
+
+**出力の記録**: 種別は `ExportKind` の `site_survey_report_pdf`（調査報告書）・`site_survey_images_zip`（一括 ZIP）・`annotated_image`（注釈の編集の個別の出力）を用いる。注釈の JSON はブラウザの包みとサーバーの `ExportAuditService` のどちらか一方だけで記録し、一つの出力を二重に記録しない（39.7）。記録の失敗では生成もダウンロードも始めず、`EXPORT_RECORD_FAILED_MESSAGE` を画面に表示する（39.8）。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|---|---|---|---|---|
+| 39.1 | 範囲内（担当者・作成者・全案件閲覧の権限）は従来どおり使える | 現場調査・画像・注釈の経路, `SignedUrlService.validateProjectAccess` | `requireProjectScope`, `canAccessProject` | — |
+| 39.2 | 範囲外の ID 指定は不在と同じ 404、データを変えない | 現場調査・画像・注釈の経路, 案件IDの解決関数 | `requireProjectScope` | — |
+| 39.3 | 404 の本文に存在を推測できる情報を含めない | 現場調査・画像・注釈の経路 | 汎用の `NOT_FOUND` | — |
+| 39.4 | 一括の要求は範囲外の画像を読み書きしない | 現場調査・画像・注釈の経路, 案件IDの解決関数 | `evaluateProjectAccess` | — |
+| 39.5 | 一覧・件数は範囲内だけ | 現場調査・画像・注釈の経路 | `buildProjectScopeWhere` | — |
+| 39.6 | 署名付きURLは範囲内に限って発行する | `ImageListService.findBySurveyIdWithUrls`, `SignedUrlService.validateProjectAccess` | 画像一覧レスポンス（URL同梱） | 詳細画面表示 |
+| 39.7 | 生成の前に出力の記録を1回要求する | `SiteSurveyDetailInfo`, `BulkExportDialog`, `AnnotationEditor` | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | PDF報告書生成フロー, 個別画像エクスポートフロー |
+| 39.8 | 記録の失敗では生成せずエラーメッセージを表示する | `SiteSurveyDetailInfo`, `BulkExportDialog`, `AnnotationEditor` | `runRecordedExport`, `EXPORT_RECORD_FAILED_MESSAGE` | — |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 範囲外の現場調査・画像・注釈の ID 指定 | 存在しない場合と同じ 404（`NOT_FOUND`）。本文に案件 ID を含めず、データを変えない | 39.2, 39.3 |
+| 範囲外のプロジェクトの現場調査の画像一覧 | 案件の不在と同じ 404。不在と実在で 403 と 404 を出し分けない | 39.2, 39.3 |
+| 範囲外の利用者の画像一覧の要求 | 404。原画像・サムネイル・注釈付きサムネイルのいずれの表示元URLも返らない | 39.2, 39.6, 38.9（改訂後） |
+| 出力の記録の要求が失敗 | 生成もダウンロードも始めず、エラーメッセージを表示する | 39.8 |
+
+### Testing Strategy
+
+- **統合（バックエンド）**: 担当外の利用者の ID 指定（閲覧・書き込み・一括）が不在と同じ 404 になり DB が変わらないこと、本文に案件 ID が出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること、範囲外ではサムネイルの署名付きURLも返らないこと（39.1-39.6）
+- **E2E**: 担当外の利用者が現場調査の URL を直接開くと見つからない扱いになること（39.2）。それぞれの出力の生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで1回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ること（39.7, 39.8）
+- 挙動の変更であるため RED → GREEN で進める（タスク119.1・119.2）
 
 ## 未起票の提案の台帳（タスク 115.213）
 
