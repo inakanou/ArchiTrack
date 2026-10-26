@@ -7,6 +7,8 @@
  * - 27.9-27.10, 27A.3-27A.7: 2FA検証・管理機能
  */
 
+import type { TargetUserExceedsActorError } from '../services/privilege-ceiling.js';
+
 /**
  * Result型: 成功（Ok）または失敗（Err）を表現
  * @template T 成功時の値の型
@@ -202,7 +204,8 @@ export interface TwoFactorReenrollmentStartData {
  */
 export type TwoFactorResetError =
   | { type: 'SELF_RESET_FORBIDDEN' } // 要件34.9
-  | { type: 'USER_NOT_FOUND' };
+  | { type: 'USER_NOT_FOUND' }
+  | TargetUserExceedsActorError; // 要件38.13
 
 /**
  * 2FA設定開始時のレスポンスデータ

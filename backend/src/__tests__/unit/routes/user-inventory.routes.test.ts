@@ -7,6 +7,8 @@
  * - `POST /api/v1/users/:id/deactivate`・`/reactivate` が理由を検証してサービスへ渡し、結果を
  *   204・400・404・409 に写す
  * - `user:manage` の権限を求める
+ * - 実行者の上限を超えるロールを持つ利用者への 3 つの操作の拒否を 403 TARGET_USER_EXCEEDS_ACTOR で返し、
+ *   異常の検知へ permission_denied を送る（要件38.13、43.2。タスク62.1）
  * - app.ts で user-roles.routes.ts より前にマウントする（`/:id` 系の経路に固定の経路を拾わせない）
  */
 
@@ -56,6 +58,15 @@ vi.mock('../../../services/email.service', () => ({
   EmailService: class {},
 }));
 
+vi.mock('../../../services/audit-log.service', () => ({
+  AuditLogService: class {},
+}));
+
+const observeSecurityAnomaly = vi.hoisted(() => vi.fn());
+vi.mock('../../../services/security-anomaly-monitor.service.js', () => ({
+  observeSecurityAnomaly: (...args: unknown[]) => observeSecurityAnomaly(...args),
+}));
+
 vi.mock('../../../services/authenticated-user-state.service', () => ({
   getSharedAuthenticatedUserStateService: () => ({ invalidate: vi.fn() }),
 }));
@@ -85,6 +96,7 @@ describe('管理者向けの利用者の操作のルーター', () => {
     mocks.deactivate.mockReset();
     mocks.reactivate.mockReset();
     mocks.inventoryList.mockReset();
+    observeSecurityAnomaly.mockReset();
     app = express();
     app.use(express.json());
     app.use('/api/v1/users', userInventoryRouter);
@@ -205,6 +217,43 @@ describe('管理者向けの利用者の操作のルーター', () => {
     it('権限 user:manage を求める', () => {
       expect(mocks.requiredPermissions).toContain('user:manage');
     });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限を超えるロールを持つ利用者の再設定を 403 TARGET_USER_EXCEEDS_ACTOR で返し、異常の検知へ送る', async () => {
+      mocks.resetByAdmin.mockResolvedValue({
+        ok: false,
+        error: { type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 100 },
+      });
+
+      const response = await request(app).post('/api/v1/users/senior-1/2fa/reset');
+
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({
+        error: 'FORBIDDEN',
+        message: 'The target user exceeds the privileges of the requesting user',
+        code: 'TARGET_USER_EXCEEDS_ACTOR',
+      });
+      expect(observeSecurityAnomaly).toHaveBeenCalledTimes(1);
+      expect(observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: expect.any(String),
+        userId: 'admin-1',
+      });
+    });
+
+    it('自分自身の再設定（SELF_RESET_FORBIDDEN）と不在は異常の検知へ送らない', async () => {
+      mocks.resetByAdmin.mockResolvedValueOnce({
+        ok: false,
+        error: { type: 'SELF_RESET_FORBIDDEN' },
+      });
+      mocks.resetByAdmin.mockResolvedValueOnce({ ok: false, error: { type: 'USER_NOT_FOUND' } });
+
+      expect((await request(app).post('/api/v1/users/admin-1/2fa/reset')).status).toBe(403);
+      expect((await request(app).post('/api/v1/users/missing/2fa/reset')).status).toBe(404);
+      expect(observeSecurityAnomaly).not.toHaveBeenCalled();
+    });
   });
 
   describe.each([
@@ -267,8 +316,37 @@ describe('管理者向けの利用者の操作のルーター', () => {
 
         expect(response.status).toBe(409);
         expect(response.body.code).toBe(type);
+        // 業務上の保護による拒否は異常の検知へ送らない（要件43.2 の定義）
+        expect(observeSecurityAnomaly).not.toHaveBeenCalled();
       }
     );
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限を超えるロールを持つ利用者への操作を 403 TARGET_USER_EXCEEDS_ACTOR で返し、異常の検知へ送る', async () => {
+      serviceMethod.mockResolvedValue({
+        ok: false,
+        error: { type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 100 },
+      });
+
+      const response = await request(app)
+        .post(`/api/v1/users/senior-1/${operation}`)
+        .send({ reason: '理由' });
+
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({
+        error: 'FORBIDDEN',
+        message: 'The target user exceeds the privileges of the requesting user',
+        code: 'TARGET_USER_EXCEEDS_ACTOR',
+      });
+      expect(observeSecurityAnomaly).toHaveBeenCalledTimes(1);
+      expect(observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: expect.any(String),
+        userId: 'admin-1',
+      });
+    });
   });
 
   it('2FA の再設定・無効化・再有効化の 3 経路がそれぞれ権限 user:manage を求める', () => {

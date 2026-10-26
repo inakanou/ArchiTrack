@@ -12,6 +12,10 @@
  * - 上限を超えるロールの割り当ての、他の利用者からの解除を拒否する（38.9）
  * - 現在の優先度が上限を超えるロールの変更（優先度の変更、権限の追加・削除）と削除を拒否する（38.11）
  * - システムロールの優先度の変更を、実行者によらず拒否する（38.12）
+ *
+ * 2026-10-26 の要件38.13 の追加（タスク62.1）:
+ * - 保有ロールの優先度の最大値が実行者の上限を超える他の利用者の削除・無効化・再有効化・2FA の再設定を拒否する
+ *
  * 上限と同じ優先度は上限を超えない。システム管理者ロールの優先度（SYSTEM_ADMIN_ROLE_PRIORITY）を超える
  * 優先度の指定は入力の検証（zod の max）が 400 で拒否する（38.10。権限チェックの失敗として記録しない）
  *
@@ -23,6 +27,7 @@ import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { lockUserRefreshTokens } from '../utils/refresh-token-lock.js';
 
 /** 上限による拒否の種別（応答の code にそのまま載せる） */
 export type CeilingError =
@@ -30,9 +35,20 @@ export type CeilingError =
   | { type: 'SYSTEM_ADMIN_REQUIRED' } // 38.2
   | { type: 'SYSTEM_ROLE_RENAME_FORBIDDEN' } // 38.3
   | { type: 'PERMISSION_NOT_HELD_BY_ACTOR' } // 38.8
-  | { type: 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN' }; // 38.12
+  | { type: 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN' } // 38.12
+  // 38.13。targetPriority は対象の利用者の保有ロールの優先度の最大値（監査の metadata に使う）
+  | { type: 'TARGET_USER_EXCEEDS_ACTOR'; targetPriority: number };
 
 export type CeilingErrorType = CeilingError['type'];
+
+/** 他のユーザーの管理の上限による拒否（38.13） */
+export type TargetUserExceedsActorError = Extract<
+  CeilingError,
+  { type: 'TARGET_USER_EXCEEDS_ACTOR' }
+>;
+
+/** 上限を判定する他のユーザーの管理の操作（監査の metadata.operation） */
+export type ManageUserOperation = 'delete' | 'deactivate' | 'reactivate' | 'two_factor_reset';
 
 const CEILING_ERROR_TYPES: ReadonlySet<string> = new Set<CeilingErrorType>([
   'ROLE_PRIORITY_EXCEEDS_ACTOR',
@@ -40,6 +56,7 @@ const CEILING_ERROR_TYPES: ReadonlySet<string> = new Set<CeilingErrorType>([
   'SYSTEM_ROLE_RENAME_FORBIDDEN',
   'PERMISSION_NOT_HELD_BY_ACTOR',
   'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN',
+  'TARGET_USER_EXCEEDS_ACTOR',
 ]);
 
 /** 業務上のエラーが上限による拒否か */
@@ -115,6 +132,15 @@ export interface PrivilegeCeilingPort {
     roleId: string,
     db?: DbClient
   ): Promise<Result<void, CeilingError>>;
+  /**
+   * 他のユーザーの管理の上限（38.13）。対象の利用者の行をロックしてから、対象の保有ロールの優先度の
+   * 最大値を判定する（削除・無効化・再有効化・2FA の再設定の前）
+   */
+  assertCanManageUser(
+    actorId: string,
+    targetUserId: string,
+    db?: DbClient
+  ): Promise<Result<void, TargetUserExceedsActorError>>;
 }
 
 export class PrivilegeCeilingPolicy implements PrivilegeCeilingPort {
@@ -286,6 +312,41 @@ export class PrivilegeCeilingPolicy implements PrivilegeCeilingPort {
     return Ok(undefined);
   }
 
+  /**
+   * 他のユーザーの管理の上限（38.13）。上限を超えるロールを持つ他の利用者を消す・止める・戻す、
+   * またはその 2FA を再設定することを拒否する
+   *
+   * 対象の上限は保有ロールの priority の最大値（ロールを持たない利用者は -Infinity）で、実行者の上限より
+   * 大きいときだけ拒否する（上限と等しいときは許す）。対象が実行者自身のときは判定しない（自己の操作は
+   * 各操作の既存の拒否が先に止める）。対象の利用者が無いときは不在の判定を呼び出し側に委ねる。
+   *
+   * 判定の前に対象の users の行を FOR UPDATE でロックしてから対象の保有ロールを読む。並行するロールの
+   * 割り当て（user_roles への INSERT）は外部キーの検査で同じ行の FOR KEY SHARE を取って待つため、
+   * 判定から書き込みまでの間に対象へ上位のロールが割り当てられない。行のロックの前に、対象の利用者の
+   * リフレッシュトークンの取引ロックを取る。ローテーションとログインは取引ロックを取ってからリフレッシュ
+   * トークンを挿入し（外部キーの検査で users の行を待つ）、各操作も行のロックの後に同じ取引ロックを取る
+   * （失効・削除）ため、逆の順で取るとデッドロックになる。呼び出し側は admin ロールの行のロック
+   * （lockAdminRoleForLastAdminCheck）がある経路では、そのロックの後に呼ぶ。
+   */
+  async assertCanManageUser(
+    actorId: string,
+    targetUserId: string,
+    db: DbClient = this.prisma
+  ): Promise<Result<void, TargetUserExceedsActorError>> {
+    if (actorId === targetUserId) {
+      return Ok(undefined);
+    }
+    await lockUserRefreshTokens(db, targetUserId);
+    await db.$queryRaw`SELECT id FROM users WHERE id = ${targetUserId} FOR UPDATE`;
+
+    const targetPriority = ceilingOf(await this.actorRoles(db, targetUserId));
+    const actorCeiling = ceilingOf(await this.actorRoles(db, actorId));
+    if (targetPriority > actorCeiling) {
+      return Err({ type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority });
+    }
+    return Ok(undefined);
+  }
+
   /** 実行者の保有ロールの権限（同じクライアントで user_roles → role_permissions → permissions を読む） */
   private async actorPermissions(
     db: DbClient,
@@ -298,12 +359,13 @@ export class PrivilegeCeilingPolicy implements PrivilegeCeilingPort {
     return rows.map((row) => row.permission);
   }
 
+  /** 利用者（実行者または管理の対象）の保有ロール */
   private async actorRoles(
     db: DbClient,
-    actorId: string
+    userId: string
   ): Promise<Array<{ name: string; priority: number }>> {
     const rows = await db.userRole.findMany({
-      where: { userId: actorId },
+      where: { userId },
       select: { role: { select: { name: true, priority: true } } },
     });
     return rows.map((row) => row.role);
@@ -318,13 +380,37 @@ function ceilingOf(held: ReadonlyArray<{ priority: number }>): number {
 }
 
 /**
+ * 他のユーザーの管理の上限による拒否（38.13）を、権限チェックの失敗として記録する
+ *
+ * 監査の形は targetType `user`、targetId は対象の利用者の ID、metadata `{ reason, operation, targetPriority }`。
+ * 拒否された操作のトランザクションの外（ロールバック・コミットの後）で呼ぶ。
+ */
+export async function recordManageUserRejection(
+  auditLogService: Pick<IAuditLogService, 'createLog'> | undefined,
+  input: {
+    actorId: string;
+    targetUserId: string;
+    operation: ManageUserOperation;
+    error: TargetUserExceedsActorError;
+  }
+): Promise<void> {
+  await recordCeilingRejection(auditLogService, {
+    actorId: input.actorId,
+    targetType: 'user',
+    targetId: input.targetUserId,
+    error: input.error,
+    detail: { operation: input.operation, targetPriority: String(input.error.targetPriority) },
+  });
+}
+
+/**
  * 上限による拒否を権限チェックの失敗（PERMISSION_CHECK_FAILED）として記録する
  *
  * 拒否された変更のトランザクションはロールバックされるため、その外で記録する。記録の失敗は拒否の結果を
  * 変えず、エラーログに留める（権限の確認の失敗の記録と同じ扱い）。
  */
 export async function recordCeilingRejection(
-  auditLogService: IAuditLogService | undefined,
+  auditLogService: Pick<IAuditLogService, 'createLog'> | undefined,
   input: {
     actorId: string;
     targetType: string;

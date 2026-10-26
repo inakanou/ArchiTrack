@@ -1496,4 +1496,125 @@ describe('UserRoleService', () => {
       });
     });
   });
+
+  /**
+   * 他のユーザーの管理の上限（user-authentication 要件38.13。タスク62.1）。実際の PrivilegeCeilingPolicy を
+   * 同じ取引のクライアントで動かし、保有ロールは利用者ごとに偽物で与える
+   */
+  describe('deleteUser() の他のユーザーの管理の上限（要件38.13）', () => {
+    const actorId = 'actor-123';
+    let service: UserRoleService;
+    let userDelete: ReturnType<typeof vi.fn>;
+    let invitationDeleteMany: ReturnType<typeof vi.fn>;
+
+    function givenRoles(actor: number[], target: number[]): void {
+      const toRows = (priorities: number[]) =>
+        priorities.map((priority, i) => ({ role: { name: `role-${priority}-${i}`, priority } }));
+      vi.mocked(prismaMock.userRole.findMany).mockImplementation(((args: {
+        where: { userId: string };
+      }) =>
+        Promise.resolve(
+          args.where.userId === actorId ? toRows(actor) : toRows(target)
+        )) as unknown as typeof prismaMock.userRole.findMany);
+    }
+
+    beforeEach(() => {
+      const tx = prismaMock as unknown as Record<string, unknown>;
+      invitationDeleteMany = vi.fn();
+      tx.invitation = { deleteMany: invitationDeleteMany, updateMany: vi.fn() };
+      userDelete = vi.fn();
+      (tx.user as Record<string, unknown>).delete = userDelete;
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue({
+        id: mockUserId,
+        email: 'target@example.com',
+        displayName: '対象',
+        isActive: true,
+        userRoles: [{ roleId: mockAdminRoleId }],
+      } as unknown as never);
+      service = new UserRoleService(
+        prismaMock,
+        rbacServiceMock as unknown as IRBACService,
+        auditLogServiceMock,
+        adminNotificationService,
+        undefined,
+        new PrivilegeCeilingPolicy(prismaMock)
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限を超えるロールを持つ利用者の削除を、最後の管理者の判定より先に TARGET_USER_EXCEEDS_ACTOR で拒否し、何も消さず取引の外で監査に記録する', async () => {
+      givenRoles([50], [100]);
+      // 最後の管理者でもあるが、上限の判定が先に止める
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+
+      const result = await service.deleteUser(mockUserId, actorId);
+
+      expect(result).toEqual(Err({ type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 100 }));
+      expect(prismaMock.userRole.count).not.toHaveBeenCalled();
+      expect(invitationDeleteMany).not.toHaveBeenCalled();
+      expect(userDelete).not.toHaveBeenCalled();
+      expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledTimes(1);
+      const [input, tx] = vi.mocked(auditLogServiceMock.createLog).mock.calls[0]!;
+      expect(input).toEqual({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId,
+        targetType: 'user',
+        targetId: mockUserId,
+        before: null,
+        after: null,
+        metadata: {
+          reason: 'TARGET_USER_EXCEEDS_ACTOR',
+          operation: 'delete',
+          targetPriority: '100',
+        },
+      });
+      expect(tx).toBeUndefined();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('admin ロールの行のロックの後に、対象の users の行を FOR UPDATE でロックしてから判定する', async () => {
+      givenRoles([50], [70]);
+      const queryRaw = (prismaMock as unknown as { $queryRaw: ReturnType<typeof vi.fn> }).$queryRaw;
+
+      await service.deleteUser(mockUserId, actorId);
+
+      const locks = queryRaw.mock.calls.map((call) => (call[0] as string[]).join('?'));
+      expect(locks).toHaveLength(2);
+      expect(locks[0]).toContain('FROM roles');
+      expect(locks[1]).toContain('FROM users');
+      expect(locks[1]).toContain('FOR UPDATE');
+      expect(queryRaw.mock.calls[1]!.slice(1)).toEqual([mockUserId]);
+      const targetRolesReadAt = vi
+        .mocked(prismaMock.userRole.findMany)
+        .mock.calls.findIndex((call) => call[0]?.where?.userId === mockUserId);
+      expect(queryRaw.mock.invocationCallOrder[1]!).toBeLessThan(
+        vi.mocked(prismaMock.userRole.findMany).mock.invocationCallOrder[targetRolesReadAt]!
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限ちょうどのロールを持つ利用者とロールを持たない利用者は削除できる', async () => {
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(1);
+      givenRoles([50], [50]);
+      expect(await service.deleteUser(mockUserId, actorId)).toEqual(
+        Ok({ email: 'target@example.com' })
+      );
+      givenRoles([50], []);
+      expect(await service.deleteUser(mockUserId, actorId)).toEqual(
+        Ok({ email: 'target@example.com' })
+      );
+      expect(userDelete).toHaveBeenCalledTimes(2);
+      expect(auditLogServiceMock.createLog).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'PERMISSION_CHECK_FAILED' })
+      );
+    });
+  });
 });

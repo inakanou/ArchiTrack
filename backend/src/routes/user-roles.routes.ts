@@ -41,8 +41,8 @@ const userRoleService = new UserRoleService(
   {
     invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
   },
-  // 権限付与の上限（user-authentication タスク51.1・58.1）。自分を超えるロールの割り当てと、
-  // 他の利用者からの解除を拒否する
+  // 権限付与の上限（user-authentication タスク51.1・58.1・62.1）。自分を超えるロールの割り当てと、
+  // 他の利用者からの解除、自分を超える利用者の削除を拒否する
   new PrivilegeCeilingPolicy(prisma)
 );
 
@@ -378,7 +378,7 @@ router.delete(
  * /api/v1/users/{id}:
  *   delete:
  *     summary: ユーザー削除
- *     description: ユーザーと関連データを削除（自分自身と最後の管理者は削除不可）
+ *     description: ユーザーと関連データを削除（自分自身と最後の管理者、実行者の上限を超えるロールを持つユーザーは削除不可）
  *     tags:
  *       - Users
  *     security:
@@ -398,7 +398,7 @@ router.delete(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つユーザーの削除（code が TARGET_USER_EXCEEDS_ACTOR。要件38.13）
  *       404:
  *         description: ユーザーが見つからない
  */
@@ -428,6 +428,21 @@ router.delete(
           res.status(404).json({
             error: 'User not found',
             code: 'USER_NOT_FOUND',
+          });
+          return;
+        }
+        // 上限を超えるユーザーの削除の拒否（要件38.13）。監査はサービスが記録済み
+        if (isCeilingError(result.error)) {
+          // 権限の拒否（403）として異常の検知へ送る（要件43.2。計数を待たない）
+          observeSecurityAnomaly({
+            signal: 'permission_denied',
+            sourceIp: getClientIp(req),
+            userId: actorId,
+          });
+          res.status(403).json({
+            error: 'FORBIDDEN',
+            message: 'The target user exceeds the privileges of the requesting user',
+            code: result.error.type,
           });
           return;
         }

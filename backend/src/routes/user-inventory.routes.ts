@@ -13,6 +13,8 @@
  * - 34.7, 34.9, 34.10: 管理者による 2FA の再設定・自己の再設定の拒否・監査
  * - 36.1, 36.3, 36.4, 36.5: 無効化・再有効化・通知と監査・自己と最後の管理者の保護
  * - 36.10, 36.11, 36.12: 棚卸しの一覧・状態と経過日数の絞り込み・一般ユーザーの拒否
+ * - 38.13, 43.2: 実行者の上限を超えるロールを持つ利用者の無効化・再有効化・2FA の再設定の拒否と、
+ *   異常の検知への観測（タスク62.1）
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -26,6 +28,9 @@ import { AdminNotificationService } from '../services/admin-notification.service
 import { UserInventoryService } from '../services/user-inventory.service.js';
 import { EmailService } from '../services/email.service.js';
 import { getSharedAuthenticatedUserStateService } from '../services/authenticated-user-state.service.js';
+import { AuditLogService } from '../services/audit-log.service.js';
+import { PrivilegeCeilingPolicy } from '../services/privilege-ceiling.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
 import getPrismaClient from '../db.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
@@ -35,11 +40,17 @@ import { ConflictError, ForbiddenError, NotFoundError } from '../errors/apiError
 import logger from '../utils/logger.js';
 
 const router = Router();
+// 他のユーザーの管理の上限（要件38.13。タスク62.1）と、その拒否の権限チェックの失敗の記録
+const privilegeCeiling = new PrivilegeCeilingPolicy(getPrismaClient());
+const auditLogService = new AuditLogService({ prisma: getPrismaClient() });
 // 再設定のコミットの後に対象者の状態のキャッシュを無効化する（タスク47.5）。共有のインスタンスは
 // 呼び出しの時点で解決する（db.ts の PrismaClient の作り直しに追随する）
-const twoFactorService = new TwoFactorService({
-  invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
-});
+const twoFactorService = new TwoFactorService(
+  {
+    invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
+  },
+  { privilegeCeiling, auditLogService }
+);
 // 無効化・再有効化のコミットの後に状態のキャッシュを無効化し、全システム管理者へ通知する（タスク49.2）
 const accountStatusService = new AccountStatusService({
   prisma: getPrismaClient(),
@@ -47,7 +58,26 @@ const accountStatusService = new AccountStatusService({
     invalidate: (userId) => getSharedAuthenticatedUserStateService().invalidate(userId),
   },
   adminNotificationService: new AdminNotificationService(getPrismaClient(), new EmailService()),
+  privilegeCeiling,
+  auditLogService,
 });
+
+/**
+ * 実行者の上限を超えるロールを持つ利用者への操作の拒否を 403 で返し、権限の拒否として異常の検知へ送る
+ * （要件38.13、43.2。計数を待たない）。監査（PERMISSION_CHECK_FAILED）はサービスが記録済み
+ */
+function rejectTargetUserExceedsActor(req: Request, res: Response): void {
+  observeSecurityAnomaly({
+    signal: 'permission_denied',
+    sourceIp: getClientIp(req),
+    userId: req.user?.userId ?? null,
+  });
+  res.status(403).json({
+    error: 'FORBIDDEN',
+    message: 'The target user exceeds the privileges of the requesting user',
+    code: 'TARGET_USER_EXCEEDS_ACTOR',
+  });
+}
 
 // 棚卸しの一覧と絞り込み（タスク49.5）
 const userInventoryService = new UserInventoryService({ prisma: getPrismaClient() });
@@ -237,7 +267,7 @@ const accountStatusChangeSchema = z.object({
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: 権限の不足（user:manage）、または自分自身の再設定（code は SELF_RESET_FORBIDDEN）
+ *         description: 権限の不足（user:manage）、自分自身の再設定（code は SELF_RESET_FORBIDDEN）、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つ利用者の再設定（code は TARGET_USER_EXCEEDS_ACTOR。要件38.13）
  *       404:
  *         description: 対象者が見つからない（code は USER_NOT_FOUND）
  */
@@ -264,6 +294,11 @@ router.post(
           );
           return;
         }
+        // 上限を超える利用者の再設定の拒否（要件38.13）
+        if (result.error.type === 'TARGET_USER_EXCEEDS_ACTOR') {
+          rejectTargetUserExceedsActor(req, res);
+          return;
+        }
         next(new NotFoundError('User not found', 'USER_NOT_FOUND'));
         return;
       }
@@ -276,8 +311,10 @@ router.post(
   }
 );
 
-/** 無効化・再有効化の業務上の失敗を応答へ写す */
-function accountStatusErrorToApiError(error: AccountStatusError) {
+/** 無効化・再有効化の業務上の失敗を応答へ写す（上限による拒否は rejectTargetUserExceedsActor が返す） */
+function accountStatusErrorToApiError(
+  error: Exclude<AccountStatusError, { type: 'TARGET_USER_EXCEEDS_ACTOR' }>
+) {
   switch (error.type) {
     case 'USER_NOT_FOUND':
       return new NotFoundError('User not found', 'USER_NOT_FOUND');
@@ -306,6 +343,11 @@ function accountStatusHandler(operation: 'deactivate' | 'reactivate') {
         userAgent: req.headers['user-agent'],
       });
       if (!result.ok) {
+        // 上限を超える利用者の無効化・再有効化の拒否（要件38.13）
+        if (result.error.type === 'TARGET_USER_EXCEEDS_ACTOR') {
+          rejectTargetUserExceedsActor(req, res);
+          return;
+        }
         next(accountStatusErrorToApiError(result.error));
         return;
       }
@@ -358,7 +400,7 @@ function accountStatusHandler(operation: 'deactivate' | 'reactivate') {
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: 権限の不足（user:manage）
+ *         description: 権限の不足（user:manage）、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つ利用者への操作（code は TARGET_USER_EXCEEDS_ACTOR。要件38.13）
  *       404:
  *         description: 対象者が見つからない（code は USER_NOT_FOUND）
  *       409:
@@ -412,7 +454,7 @@ router.post(
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: 権限の不足（user:manage）
+ *         description: 権限の不足（user:manage）、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つ利用者への操作（code は TARGET_USER_EXCEEDS_ACTOR。要件38.13）
  *       404:
  *         description: 対象者が見つからない（code は USER_NOT_FOUND）
  *       409:

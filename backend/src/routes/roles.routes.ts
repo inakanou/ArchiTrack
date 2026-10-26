@@ -61,6 +61,7 @@ const CEILING_MESSAGES: Record<CeilingError['type'], string> = {
   SYSTEM_ROLE_RENAME_FORBIDDEN: 'System roles cannot be renamed',
   PERMISSION_NOT_HELD_BY_ACTOR: 'The permission is not held by the requesting user',
   SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN: 'The priority of system roles cannot be changed',
+  TARGET_USER_EXCEEDS_ACTOR: 'The target user exceeds the privileges of the requesting user',
 };
 
 /**

@@ -8,6 +8,7 @@
  * - REQ-36.5: 自分自身と最後の有効なシステム管理者の無効化を拒否する
  * - REQ-36.8: 最終ログイン・作成・最後の再有効化のうち最も新しい日時から 90 日を過ぎた有効な利用者を自動で無効化する
  * - REQ-36.9: 自動無効化を全システム管理者へ通知し、監査に自動無効化であることを記録する
+ * - REQ-38.13: 保有ロールの優先度の最大値が実行者の上限を超える他の利用者の無効化・再有効化を拒否する
  *
  * 責任と境界:
  * - 状態の記録・全リフレッシュトークンの失効・監査は一つのトランザクションで行う
@@ -21,10 +22,19 @@ import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { RequestContext } from '../types/auth.types.js';
 import type { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
 import type { IAdminNotificationService } from './admin-notification.service.js';
+import type { IAuditLogService } from '../types/audit-log.types.js';
+import {
+  recordManageUserRejection,
+  type PrivilegeCeilingPort,
+  type TargetUserExceedsActorError,
+} from './privilege-ceiling.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import { snapshotAuditActor } from './audit-log.service.js';
 import { lockAdminRoleForLastAdminCheck } from './user-role.service.js';
-import { revokeAllRefreshTokensForUser } from '../utils/refresh-token-lock.js';
+import {
+  lockUserRefreshTokens,
+  revokeAllRefreshTokensForUser,
+} from '../utils/refresh-token-lock.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import logger from '../utils/logger.js';
 import { captureException } from '../utils/sentry.js';
@@ -34,7 +44,8 @@ export type AccountStatusError =
   | { type: 'SELF_DEACTIVATION_FORBIDDEN' }
   | { type: 'LAST_ACTIVE_ADMIN_PROTECTED' }
   | { type: 'USER_NOT_FOUND' }
-  | { type: 'ALREADY_IN_STATE' };
+  | { type: 'ALREADY_IN_STATE' }
+  | TargetUserExceedsActorError; // 要件38.13
 
 export interface AccountStatusServiceDeps {
   prisma: PrismaClient;
@@ -42,6 +53,13 @@ export interface AccountStatusServiceDeps {
   userStateService: Pick<AuthenticatedUserStateService, 'invalidate'>;
   /** コミットの後に全システム管理者へ通知する（タスク49.1） */
   adminNotificationService: Pick<IAdminNotificationService, 'notifyAllAdmins'>;
+  /**
+   * 他のユーザーの管理の上限（要件38.13。タスク62.1）。実行者のある無効化・再有効化に、保有ロールの
+   * 優先度の最大値が実行者の上限を超える利用者への操作を拒否する。API の経路（user-inventory.routes.ts）は必ず渡す
+   */
+  privilegeCeiling?: PrivilegeCeilingPort;
+  /** 上限による拒否を権限チェックの失敗（PERMISSION_CHECK_FAILED）として記録する（要件38.13） */
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;
 }
 
 /** システム管理者のロール名 */
@@ -113,11 +131,15 @@ export class AccountStatusService {
   private readonly prisma: PrismaClient;
   private readonly userStateService: AccountStatusServiceDeps['userStateService'];
   private readonly adminNotificationService: AccountStatusServiceDeps['adminNotificationService'];
+  private readonly privilegeCeiling: AccountStatusServiceDeps['privilegeCeiling'];
+  private readonly auditLogService: AccountStatusServiceDeps['auditLogService'];
 
   constructor(deps: AccountStatusServiceDeps) {
     this.prisma = deps.prisma;
     this.userStateService = deps.userStateService;
     this.adminNotificationService = deps.adminNotificationService;
+    this.privilegeCeiling = deps.privilegeCeiling;
+    this.auditLogService = deps.auditLogService;
   }
 
   /**
@@ -125,6 +147,8 @@ export class AccountStatusService {
    *
    * admin ロールの行のロックで最後の有効なシステム管理者の判定を直列化し、状態の記録・全リフレッシュ
    * トークンの失効・監査 `USER_DEACTIVATED` を一つのトランザクションで行う。
+   * 存在の確認の後、状態と最後の有効なシステム管理者の判定より前に、他のユーザーの管理の上限（要件38.13）を
+   * 判定する。拒否では何も書かず、トランザクションの外で権限チェックの失敗を記録する。
    * @requirement user-authentication/REQ-36.1
    * @requirement user-authentication/REQ-36.4
    * @requirement user-authentication/REQ-36.5
@@ -153,6 +177,11 @@ export class AccountStatusService {
       const target = await findTarget(tx, { id: targetUserId });
       if (!target) {
         return Err({ type: 'USER_NOT_FOUND' as const });
+      }
+      // 他のユーザーの管理の上限（要件38.13）。admin ロールの行のロックの後、対象の行をロックして判定する
+      const ceiling = await this.checkManageUserCeiling(tx, actorId, targetUserId);
+      if (!ceiling.ok) {
+        return ceiling;
       }
       if (!target.isActive) {
         return Err({ type: 'ALREADY_IN_STATE' as const });
@@ -210,6 +239,7 @@ export class AccountStatusService {
       });
     }, connectBudgetTransactionOptions());
 
+    await this.recordCeilingRejectionIfAny(actorId, targetUserId, 'deactivate', result);
     const done = await this.afterCommit('deactivate', reason, result);
     if (done.ok) {
       logger.info(
@@ -223,7 +253,8 @@ export class AccountStatusService {
   /**
    * 管理者による再有効化
    *
-   * 状態の記録と監査 `USER_REACTIVATED` を一つのトランザクションで行う。
+   * 状態の記録と監査 `USER_REACTIVATED` を一つのトランザクションで行う。存在の確認の後、状態の判定より前に
+   * 他のユーザーの管理の上限（要件38.13）を判定する。
    * @requirement user-authentication/REQ-36.3
    * @requirement user-authentication/REQ-36.4
    */
@@ -239,6 +270,7 @@ export class AccountStatusService {
       reason,
       contextMetadata(ctx)
     );
+    await this.recordCeilingRejectionIfAny(actorId, targetUserId, 'reactivate', result);
     const done = await this.afterCommit('reactivate', reason, result);
     if (done.ok) {
       logger.info(
@@ -369,6 +401,9 @@ export class AccountStatusService {
     cutoff: Date
   ): Promise<AutoDeactivatedUser | null> {
     return this.prisma.$transaction(async (tx) => {
+      // 利用者単位の取引ロックを users の行を変える前に取る。管理者による無効化など（要件38.13 の判定）は
+      // 取引ロック → users の行の順で取るため、順を揃えないと同じ利用者で並行したときにデッドロックになる
+      await lockUserRefreshTokens(tx, userId);
       const updated = await tx.user.updateMany({
         where: { id: userId, ...inactiveUserWhere(cutoff) },
         data: {
@@ -470,6 +505,13 @@ export class AccountStatusService {
       if (!target) {
         return Err({ type: 'USER_NOT_FOUND' as const });
       }
+      // 他のユーザーの管理の上限（要件38.13）。実行者の無い復旧のスクリプトは判定しない
+      if (actorId !== null) {
+        const ceiling = await this.checkManageUserCeiling(tx, actorId, target.id);
+        if (!ceiling.ok) {
+          return ceiling;
+        }
+      }
       if (target.isActive) {
         return Err({ type: 'ALREADY_IN_STATE' as const });
       }
@@ -507,6 +549,40 @@ export class AccountStatusService {
         actorLabel: actorLabelOf(actorId, actor),
       });
     }, connectBudgetTransactionOptions());
+  }
+
+  /**
+   * 他のユーザーの管理の上限の判定（要件38.13）。上限の口が無いときは判定しない
+   */
+  private async checkManageUserCeiling(
+    tx: Prisma.TransactionClient,
+    actorId: string,
+    targetUserId: string
+  ): Promise<Result<void, TargetUserExceedsActorError>> {
+    if (!this.privilegeCeiling) {
+      return Ok(undefined);
+    }
+    return this.privilegeCeiling.assertCanManageUser(actorId, targetUserId, tx);
+  }
+
+  /**
+   * 上限による拒否を、トランザクションの外で権限チェックの失敗として記録する（要件38.13）
+   */
+  private async recordCeilingRejectionIfAny(
+    actorId: string,
+    targetUserId: string,
+    operation: Operation,
+    result: Result<unknown, AccountStatusError>
+  ): Promise<void> {
+    if (result.ok || result.error.type !== 'TARGET_USER_EXCEEDS_ACTOR') {
+      return;
+    }
+    await recordManageUserRejection(this.auditLogService, {
+      actorId,
+      targetUserId,
+      operation,
+      error: result.error,
+    });
   }
 
   /**

@@ -8,6 +8,7 @@
  * - REQ-36.5: 自分自身と最後の有効なシステム管理者の無効化を拒否する
  * - REQ-36.8: 最終ログイン・作成・最後の再有効化のうち最も新しい日時から 90 日で自動無効化する
  * - REQ-36.9: 自動無効化を一通の通知で全システム管理者へ送り、監査に自動無効化であることを記録する
+ * - REQ-38.13: 実行者の上限を超えるロールを持つ利用者の無効化・再有効化を拒否する（タスク62.1）
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -18,6 +19,7 @@ import {
   INACTIVE_USER_BATCH_SIZE,
   inactiveUserWhere,
 } from '../../../services/account-status.service.js';
+import { PrivilegeCeilingPolicy } from '../../../services/privilege-ceiling.js';
 
 vi.mock('../../../utils/sentry.js', () => ({
   captureException: vi.fn(),
@@ -36,6 +38,9 @@ const tx = {
   },
   role: {
     findUnique: vi.fn(),
+  },
+  userRole: {
+    findMany: vi.fn(),
   },
   refreshToken: {
     deleteMany: vi.fn(),
@@ -302,6 +307,177 @@ describe('AccountStatusService', () => {
       expect(notifyAllAdmins).not.toHaveBeenCalled();
     });
   });
+  /**
+   * 他のユーザーの管理の上限（要件38.13。タスク62.1）。実際の PrivilegeCeilingPolicy を同じ取引の
+   * クライアントで動かし、保有ロールは利用者ごとに偽物で与える
+   */
+  describe('他のユーザーの管理の上限（要件38.13）', () => {
+    const createLog = vi.fn(async (_input: unknown) => {
+      calls.push('audit');
+      return {};
+    });
+    let ceilingService: AccountStatusService;
+
+    function givenRoles(actor: number[], target: number[]): void {
+      const toRows = (priorities: number[]) =>
+        priorities.map((priority, i) => ({ role: { name: `role-${priority}-${i}`, priority } }));
+      tx.userRole.findMany.mockImplementation(async (args: { where: { userId: string } }) =>
+        args.where.userId === 'admin-1' ? toRows(actor) : toRows(target)
+      );
+    }
+
+    function expectRejectionRecorded(operation: 'deactivate' | 'reactivate', priority: string) {
+      expect(createLog).toHaveBeenCalledTimes(1);
+      expect(createLog).toHaveBeenCalledWith({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId: 'admin-1',
+        targetType: 'user',
+        targetId: 'target-1',
+        before: null,
+        after: null,
+        metadata: { reason: 'TARGET_USER_EXCEEDS_ACTOR', operation, targetPriority: priority },
+      });
+      // 拒否の記録はトランザクションの外（コミットの後）で行う
+      expect(createLog.mock.calls[0]).toHaveLength(1);
+      expect(calls).toEqual(['begin', 'commit', 'audit']);
+    }
+
+    function expectNothingWritten(): void {
+      expect(tx.user.updateMany).not.toHaveBeenCalled();
+      expect(tx.refreshToken.deleteMany).not.toHaveBeenCalled();
+      expect(tx.auditLog.create).not.toHaveBeenCalled();
+      expect(invalidate).not.toHaveBeenCalled();
+      expect(notifyAllAdmins).not.toHaveBeenCalled();
+    }
+
+    beforeEach(() => {
+      ceilingService = new AccountStatusService({
+        prisma: prisma as unknown as PrismaClient,
+        userStateService: { invalidate },
+        adminNotificationService: { notifyAllAdmins },
+        privilegeCeiling: new PrivilegeCeilingPolicy(prisma as unknown as PrismaClient),
+        auditLogService: { createLog: createLog as never },
+      });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限を超えるロールを持つ利用者の無効化を TARGET_USER_EXCEEDS_ACTOR で拒否し、何も書かず、取引の外で監査に記録する', async () => {
+      givenRoles([50], [10, 70]);
+
+      const result = await ceilingService.deactivate('admin-1', 'target-1', '理由', {});
+
+      expect(result).toEqual({
+        ok: false,
+        error: { type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 70 },
+      });
+      expectNothingWritten();
+      expectRejectionRecorded('deactivate', '70');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('無効化の判定は admin ロールの行のロックの後に対象の行をロックして行い、最後の管理者の保護と状態の確認より先に行う', async () => {
+      givenRoles([50], [100]);
+      givenTarget({ isActive: false, userRoles: [{ roleId: 'role-admin' }] });
+      tx.user.count.mockResolvedValue(0);
+
+      const result = await ceilingService.deactivate('admin-1', 'target-1', '理由', {});
+
+      expect(result).toEqual({
+        ok: false,
+        error: { type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 100 },
+      });
+      expect(tx.user.count).not.toHaveBeenCalled();
+      const locks = tx.$queryRaw.mock.calls.map((call) =>
+        (call[0] as TemplateStringsArray).join('?')
+      );
+      expect(locks).toHaveLength(2);
+      expect(locks[0]).toContain('FROM roles');
+      expect(locks[0]).toContain('FOR NO KEY UPDATE');
+      expect(locks[1]).toContain('FROM users');
+      expect(locks[1]).toContain('FOR UPDATE');
+      expect(tx.$queryRaw.mock.calls[1]!.slice(1)).toEqual(['target-1']);
+      expectNothingWritten();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限ちょうどのロールを持つ利用者とロールを持たない利用者は無効化できる', async () => {
+      givenRoles([50], [50]);
+      expect(await ceilingService.deactivate('admin-1', 'target-1', '理由', {})).toEqual({
+        ok: true,
+        value: undefined,
+      });
+
+      givenRoles([50], []);
+      expect(await ceilingService.deactivate('admin-1', 'target-1', '理由', {})).toEqual({
+        ok: true,
+        value: undefined,
+      });
+      expect(tx.user.updateMany).toHaveBeenCalledTimes(2);
+      expect(createLog).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('自分自身の無効化は従来どおり SELF_DEACTIVATION_FORBIDDEN で、上限を判定しない', async () => {
+      givenRoles([50], [70]);
+
+      const result = await ceilingService.deactivate('target-1', 'target-1', '理由', {});
+
+      expect(result).toEqual({ ok: false, error: { type: 'SELF_DEACTIVATION_FORBIDDEN' } });
+      expect(tx.userRole.findMany).not.toHaveBeenCalled();
+      expect(createLog).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限を超えるロールを持つ利用者の再有効化を、状態の確認より先に拒否し、何も書かず監査に記録する', async () => {
+      givenRoles([50], [70]);
+      givenTarget({ isActive: false });
+
+      const result = await ceilingService.reactivate('admin-1', 'target-1', '理由', {});
+
+      expect(result).toEqual({
+        ok: false,
+        error: { type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 70 },
+      });
+      expectNothingWritten();
+      expectRejectionRecorded('reactivate', '70');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限ちょうどのロールを持つ利用者は再有効化できる', async () => {
+      givenRoles([50], [50]);
+      givenTarget({ isActive: false });
+
+      const result = await ceilingService.reactivate('admin-1', 'target-1', '理由', {});
+
+      expect(result).toEqual({ ok: true, value: undefined });
+      expect(tx.user.updateMany).toHaveBeenCalled();
+      expect(createLog).not.toHaveBeenCalled();
+    });
+
+    it('実行者の無い復旧のスクリプトの再有効化は上限を判定しない', async () => {
+      givenRoles([], [100]);
+      givenTarget({ isActive: false });
+
+      const result = await ceilingService.reactivateByOperatorScript('target@example.com', '復旧');
+
+      expect(result).toEqual({ ok: true, value: { userId: 'target-1' } });
+      expect(tx.userRole.findMany).not.toHaveBeenCalled();
+      expect(createLog).not.toHaveBeenCalled();
+    });
+  });
+
   describe('reactivateByOperatorScript()', () => {
     /**
      * @requirement user-authentication/REQ-36.3

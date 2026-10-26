@@ -34,6 +34,16 @@ import { snapshotAuditActor } from './audit-log.service.js';
 import { revokeAllRefreshTokensForUser } from '../utils/refresh-token-lock.js';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import type { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
+import type { IAuditLogService } from '../types/audit-log.types.js';
+import { recordManageUserRejection, type PrivilegeCeilingPort } from './privilege-ceiling.js';
+
+/** 管理者による 2FA の再設定の上限の判定と、その拒否の記録（要件38.13。タスク62.1） */
+export interface TwoFactorResetCeilingOptions {
+  /** 他のユーザーの管理の上限。API の経路（user-inventory.routes.ts）は必ず渡す */
+  privilegeCeiling?: PrivilegeCeilingPort;
+  /** 上限による拒否を権限チェックの失敗（PERMISSION_CHECK_FAILED）として記録する */
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;
+}
 
 /**
  * 二要素認証サービスの実装
@@ -51,9 +61,11 @@ export class TwoFactorService implements ITwoFactorService {
   /**
    * @param userStateService - 状態を変える処理（管理者による再設定）の後に、対象者の状態のキャッシュを
    *   無効化する部品（タスク47.5）。省略時は無効化しない
+   * @param ceilingOptions - 管理者による再設定の上限の判定と拒否の記録（要件38.13）。省略時は判定しない
    */
   constructor(
-    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>
+    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>,
+    private readonly ceilingOptions: TwoFactorResetCeilingOptions = {}
   ) {
     // otplibの設定（RFC 6238準拠）
     // @requirement user-authentication/REQ-27C.1
@@ -769,6 +781,8 @@ export class TwoFactorService implements ITwoFactorService {
    * トークンを失効させ、アクセストークンの世代を 1 つ進め（再設定より前のアクセストークンを認証ミドルウェアが
    * 拒否する）、監査 `TWO_FACTOR_RESET_BY_ADMIN`（実行者・対象）を記録する。コミットの後に
    * 対象者の状態のキャッシュを無効化し、次の要求から TTL を待たずに 2FA 未登録として扱わせる。
+   * 存在の確認の後、書き込みより前に、他のユーザーの管理の上限（要件38.13）を同じトランザクションの
+   * クライアントで判定する。拒否では何も書かず、トランザクションの外で権限チェックの失敗を記録する。
    * @requirement user-authentication/REQ-34.7
    * @requirement user-authentication/REQ-34.9
    * @requirement user-authentication/REQ-34.10
@@ -794,6 +808,18 @@ export class TwoFactorService implements ITwoFactorService {
       });
       if (!target) {
         return Err({ type: 'USER_NOT_FOUND' as const });
+      }
+
+      // 他のユーザーの管理の上限（要件38.13）。対象の行をロックしてから判定する
+      if (this.ceilingOptions.privilegeCeiling) {
+        const verdict = await this.ceilingOptions.privilegeCeiling.assertCanManageUser(
+          actorId,
+          targetUserId,
+          tx
+        );
+        if (!verdict.ok) {
+          return verdict;
+        }
       }
 
       // ローテーションと直列化して全リフレッシュトークンを失効させる（要件34.7）
@@ -829,6 +855,16 @@ export class TwoFactorService implements ITwoFactorService {
       });
       return Ok(undefined);
     }, connectBudgetTransactionOptions());
+
+    // 上限による拒否は、トランザクションの外で権限チェックの失敗として記録する（要件38.13）
+    if (!result.ok && result.error.type === 'TARGET_USER_EXCEEDS_ACTOR') {
+      await recordManageUserRejection(this.ceilingOptions.auditLogService, {
+        actorId,
+        targetUserId,
+        operation: 'two_factor_reset',
+        error: result.error,
+      });
+    }
 
     // コミットの後に対象者の状態のキャッシュを無効化する（タスク47.5）。再設定はコミット済みのため、
     // 無効化の失敗は結果を変えず警告ログに留める

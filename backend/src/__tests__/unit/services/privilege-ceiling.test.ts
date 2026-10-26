@@ -12,6 +12,8 @@
  * - REQ-38.10: システム管理者ロールの優先度を超える優先度の指定を 400 の検証エラーにする（スキーマ）
  * - REQ-38.11: 現在の優先度が上限より高いロールの変更（優先度・権限の追加と削除）と削除を拒否する
  * - REQ-38.12: システムロールの優先度の変更を拒否する
+ * - REQ-38.13: 保有ロールの最高の優先度より高い優先度のロールを持つ他のユーザーの管理（削除・無効化・
+ *   再有効化・2FA の再設定）を拒否する
  *
  * 判定に使う読み出し（実行者の保有ロール・対象のロール）は Prisma の偽物で与える。
  * サービスの共通処理からの呼び出しと監査の記録は各サービスの単体テストで確かめる。
@@ -467,6 +469,118 @@ describe('PrivilegeCeilingPolicy', () => {
       );
 
       expect(result).toEqual(Ok(undefined));
+    });
+  });
+
+  describe('assertCanManageUser', () => {
+    /** 利用者ごとの保有ロール（実行者・対象）と、ロックの呼び出しを記録する Prisma の偽物 */
+    function fakeUsersDb(rolesByUser: Record<string, HeldRole[]>) {
+      const order: string[] = [];
+      const db = {
+        userRole: {
+          findMany: vi.fn(async (args: { where: { userId: string } }) => {
+            order.push(`roles:${args.where.userId}`);
+            return (rolesByUser[args.where.userId] ?? []).map((role) => ({ role }));
+          }),
+        },
+        $executeRaw: vi.fn(async (strings: TemplateStringsArray) => {
+          order.push(strings.join('?').includes('pg_advisory_xact_lock') ? 'advisory' : 'execute');
+          return 1;
+        }),
+        $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
+          order.push(strings.join('?'));
+          return [];
+        }),
+      };
+      return { db, order };
+    }
+
+    function manageWith(db: ReturnType<typeof fakeUsersDb>['db']): PrivilegeCeilingPolicy {
+      return new PrivilegeCeilingPolicy(db as unknown as PrismaClient);
+    }
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('対象の保有ロールの優先度の最大値が実行者の上限を超えると TARGET_USER_EXCEEDS_ACTOR で拒否する', async () => {
+      const { db } = fakeUsersDb({
+        'actor-1': [MANAGER],
+        'user-2': [{ name: 'member', priority: 10 }, LEAD],
+      });
+
+      const result = await manageWith(db).assertCanManageUser('actor-1', 'user-2');
+
+      expect(result).toEqual(Err({ type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 70 }));
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限より低い・上限ちょうどの対象と、ロールを持たない対象は許す', async () => {
+      const below = await manageWith(
+        fakeUsersDb({ 'actor-1': [MANAGER], 'user-2': [{ name: 'member', priority: 10 }] }).db
+      ).assertCanManageUser('actor-1', 'user-2');
+      const equal = await manageWith(
+        fakeUsersDb({ 'actor-1': [MANAGER], 'user-2': [{ name: 'peer', priority: 50 }] }).db
+      ).assertCanManageUser('actor-1', 'user-2');
+      const noRoles = await manageWith(
+        fakeUsersDb({ 'actor-1': [MANAGER], 'user-2': [] }).db
+      ).assertCanManageUser('actor-1', 'user-2');
+
+      expect(below).toEqual(Ok(undefined));
+      expect(equal).toEqual(Ok(undefined));
+      expect(noRoles).toEqual(Ok(undefined));
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('ロールを持たない実行者は、ロールを持つ対象を管理できず、ロールを持たない対象は管理できる', async () => {
+      const withRole = await manageWith(
+        fakeUsersDb({ 'actor-1': [], 'user-2': [{ name: 'user', priority: 0 }] }).db
+      ).assertCanManageUser('actor-1', 'user-2');
+      const withoutRole = await manageWith(
+        fakeUsersDb({ 'actor-1': [], 'user-2': [] }).db
+      ).assertCanManageUser('actor-1', 'user-2');
+
+      expect(withRole).toEqual(Err({ type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 0 }));
+      expect(withoutRole).toEqual(Ok(undefined));
+    });
+
+    it('admin 同士の操作は許す', async () => {
+      const result = await manageWith(
+        fakeUsersDb({ 'actor-1': [ADMIN], 'user-2': [ADMIN, MANAGER] }).db
+      ).assertCanManageUser('actor-1', 'user-2');
+
+      expect(result).toEqual(Ok(undefined));
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('対象が実行者自身のときは判定せず、ロックも読み出しもしない', async () => {
+      const { db } = fakeUsersDb({ 'actor-1': [MANAGER] });
+
+      const result = await manageWith(db).assertCanManageUser('actor-1', 'actor-1');
+
+      expect(result).toEqual(Ok(undefined));
+      expect(db.$queryRaw).not.toHaveBeenCalled();
+      expect(db.$executeRaw).not.toHaveBeenCalled();
+      expect(db.userRole.findMany).not.toHaveBeenCalled();
+    });
+
+    it('渡されたクライアントで、取引ロック → 対象の users の行の FOR UPDATE → 保有ロールの順に読む', async () => {
+      const { db, order } = fakeUsersDb({ 'actor-1': [MANAGER], 'user-2': [LEAD] });
+      const unused = fakeUsersDb({});
+
+      await manageWith(unused.db).assertCanManageUser('actor-1', 'user-2', db as never);
+
+      expect(unused.db.$queryRaw).not.toHaveBeenCalled();
+      expect(order[0]).toBe('advisory');
+      expect(order[1]).toMatch(/SELECT id FROM users WHERE id = \? FOR UPDATE/);
+      expect(db.$queryRaw.mock.calls[0]!.slice(1)).toEqual(['user-2']);
+      expect(db.$executeRaw.mock.calls[0]!.slice(1)).toContain('user-2');
+      expect(order.slice(2).sort()).toEqual(['roles:actor-1', 'roles:user-2']);
     });
   });
 

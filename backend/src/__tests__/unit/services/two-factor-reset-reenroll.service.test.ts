@@ -4,11 +4,14 @@
  * Requirements (user-authentication):
  * - 34.7, 34.9, 34.10: 管理者による 2FA の再設定・自己の再設定の拒否・監査
  * - 34.11: 現在の TOTP による再登録（確認までは既存の秘密鍵が有効）
+ * - 38.13: 実行者の上限を超えるロールを持つ利用者の再設定の拒否（タスク62.1）
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { authenticator } from 'otplib';
 import { TwoFactorService } from '../../../services/two-factor.service.js';
+import { PrivilegeCeilingPolicy } from '../../../services/privilege-ceiling.js';
+import type { PrismaClient } from '../../../generated/prisma/client.js';
 
 /** 呼び出しの順序の記録（コミットの後の無効化の確認用） */
 const calls: string[] = [];
@@ -29,7 +32,11 @@ const mockPrismaClient = {
   auditLog: {
     create: vi.fn(),
   },
+  userRole: {
+    findMany: vi.fn(),
+  },
   $executeRaw: vi.fn(),
+  $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 };
 
@@ -154,6 +161,112 @@ describe('TwoFactorService 管理者による再設定と利用者による再�
       const result = await service.resetByAdmin('admin-1', 'target-1');
 
       expect(result.ok).toBe(true);
+    });
+  });
+
+  /**
+   * 他のユーザーの管理の上限（要件38.13。タスク62.1）。実際の PrivilegeCeilingPolicy を同じ取引の
+   * クライアントで動かし、保有ロールは利用者ごとに偽物で与える
+   */
+  describe('resetByAdmin() の他のユーザーの管理の上限（要件38.13）', () => {
+    const createLog = vi.fn(async (_input: unknown) => {
+      calls.push('audit');
+      return {};
+    });
+    let ceilingService: TwoFactorService;
+
+    function givenRoles(actor: number[], target: number[]): void {
+      const toRows = (priorities: number[]) =>
+        priorities.map((priority, i) => ({ role: { name: `role-${priority}-${i}`, priority } }));
+      mockPrismaClient.userRole.findMany.mockImplementation(
+        async (args: { where: { userId: string } }) =>
+          args.where.userId === 'admin-1' ? toRows(actor) : toRows(target)
+      );
+    }
+
+    beforeEach(() => {
+      mockPrismaClient.user.findUnique.mockImplementation(
+        async (args: { where: { id: string } }) =>
+          args.where.id === 'target-1'
+            ? { id: 'target-1', email: 'target@example.com' }
+            : { email: 'admin@example.com', displayName: '管理者' }
+      );
+      ceilingService = new TwoFactorService(
+        { invalidate },
+        {
+          privilegeCeiling: new PrivilegeCeilingPolicy(mockPrismaClient as unknown as PrismaClient),
+          auditLogService: { createLog: createLog as never },
+        }
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限を超えるロールを持つ利用者の再設定を TARGET_USER_EXCEEDS_ACTOR で拒否し、2FA・トークンを変えず、取引の外で監査に記録する', async () => {
+      givenRoles([50], [70]);
+
+      const result = await ceilingService.resetByAdmin('admin-1', 'target-1', {});
+
+      expect(result).toEqual({
+        ok: false,
+        error: { type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 70 },
+      });
+      expect(mockPrismaClient.refreshToken.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrismaClient.twoFactorBackupCode.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrismaClient.user.update).not.toHaveBeenCalled();
+      expect(mockPrismaClient.auditLog.create).not.toHaveBeenCalled();
+      expect(invalidate).not.toHaveBeenCalled();
+      // 判定の前に対象の users の行をロックする
+      const lock = (mockPrismaClient.$queryRaw.mock.calls[0]![0] as TemplateStringsArray).join('?');
+      expect(lock).toContain('FROM users');
+      expect(lock).toContain('FOR UPDATE');
+      expect(createLog).toHaveBeenCalledTimes(1);
+      expect(createLog).toHaveBeenCalledWith({
+        action: 'PERMISSION_CHECK_FAILED',
+        actorId: 'admin-1',
+        targetType: 'user',
+        targetId: 'target-1',
+        before: null,
+        after: null,
+        metadata: {
+          reason: 'TARGET_USER_EXCEEDS_ACTOR',
+          operation: 'two_factor_reset',
+          targetPriority: '70',
+        },
+      });
+      expect(calls).toEqual(['begin', 'commit', 'audit']);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限ちょうどのロールを持つ利用者とロールを持たない利用者は再設定できる', async () => {
+      givenRoles([50], [50]);
+      expect(await ceilingService.resetByAdmin('admin-1', 'target-1', {})).toEqual({
+        ok: true,
+        value: undefined,
+      });
+      givenRoles([50], []);
+      expect(await ceilingService.resetByAdmin('admin-1', 'target-1', {})).toEqual({
+        ok: true,
+        value: undefined,
+      });
+      expect(mockPrismaClient.user.update).toHaveBeenCalledTimes(2);
+      expect(createLog).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('自分自身の再設定は従来どおり SELF_RESET_FORBIDDEN で、上限を判定しない', async () => {
+      givenRoles([50], [70]);
+
+      const result = await ceilingService.resetByAdmin('admin-1', 'admin-1', {});
+
+      expect(result).toEqual({ ok: false, error: { type: 'SELF_RESET_FORBIDDEN' } });
+      expect(mockPrismaClient.userRole.findMany).not.toHaveBeenCalled();
+      expect(createLog).not.toHaveBeenCalled();
     });
   });
 

@@ -25,7 +25,9 @@ import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeo
 import {
   isCeilingError,
   recordCeilingRejection,
+  recordManageUserRejection,
   type PrivilegeCeilingPort,
+  type TargetUserExceedsActorError,
 } from './privilege-ceiling.js';
 
 /**
@@ -84,7 +86,8 @@ async function lockRoleForAssignment(tx: Prisma.TransactionClient, roleId: strin
 }
 
 /** ユーザー削除の業務上の失敗（データベースの例外は Err にせず投げる） */
-export type DeleteUserError = { type: 'USER_NOT_FOUND' } | { type: 'LAST_ADMIN_PROTECTED' };
+export type DeleteUserError =
+  { type: 'USER_NOT_FOUND' } | { type: 'LAST_ADMIN_PROTECTED' } | TargetUserExceedsActorError; // 要件38.13
 
 /**
  * ユーザー・ロール紐付け管理サービスの実装
@@ -106,6 +109,7 @@ export class UserRoleService implements IUserRoleService {
      * 権限付与の上限（user-authentication タスク51.1）。実行者のある割り当てに、保有ロールの優先度を
      * 超えるロールと、admin ロールを持たない実行者による admin ロールの割り当てを拒否する。
      * 実行者のある解除に、保有ロールの優先度を超えるロールの他の利用者からの解除を拒否する（タスク58.1）。
+     * 利用者の削除に、保有ロールの優先度の最大値が実行者の上限を超える利用者の削除を拒否する（タスク62.1）。
      * API の経路（user-roles.routes.ts）は必ず渡す
      */
     private readonly privilegeCeiling?: PrivilegeCeilingPort
@@ -565,6 +569,10 @@ export class UserRoleService implements IUserRoleService {
    * 表示名）を記録する。記録が失敗すれば例外がトランザクションごと削除を中止する（user-authentication
    * 要件40.6）。不在・最後の管理者で削除しないときは記録しない
    *
+   * 他のユーザーの管理の上限（要件38.13。タスク62.1）: 存在の確認の後、最後の管理者の判定より前に、同じ
+   * トランザクションのクライアントで対象の利用者の行をロックしてから判定する（admin ロールの行のロックの後）。
+   * 拒否では何も書かず、トランザクションの外で権限チェックの失敗（PERMISSION_CHECK_FAILED）を記録する
+   *
    * @param userId - 削除するユーザーID
    * @param actorId - 削除を実行するユーザーID（監査ログ用）
    * @returns 削除したユーザーのメールアドレス、または業務上のエラー
@@ -597,6 +605,14 @@ export class UserRoleService implements IUserRoleService {
       });
       if (!user) {
         return Err<DeleteUserError>({ type: 'USER_NOT_FOUND' });
+      }
+
+      // 他のユーザーの管理の上限（要件38.13）。最後の管理者の判定より前に判定する
+      if (this.privilegeCeiling) {
+        const verdict = await this.privilegeCeiling.assertCanManageUser(actorId, userId, tx);
+        if (!verdict.ok) {
+          return Err<DeleteUserError>(verdict.error);
+        }
       }
 
       // 削除対象が有効な管理者なら、他に有効な管理者がいるか確認する（要件36.5）。
@@ -641,6 +657,16 @@ export class UserRoleService implements IUserRoleService {
 
       return Ok({ email: user.email });
     }, connectBudgetTransactionOptions());
+
+    // 上限による拒否は、トランザクションの外で権限チェックの失敗として記録する（要件38.13）
+    if (!result.ok && result.error.type === 'TARGET_USER_EXCEEDS_ACTOR') {
+      await recordManageUserRejection(this.auditLogService, {
+        actorId,
+        targetUserId: userId,
+        operation: 'delete',
+        error: result.error,
+      });
+    }
 
     // コミット後に削除したユーザーの権限キャッシュを無効化する。アクセストークンは削除後も
     // 有効期限まで検証を通るため、残ったキャッシュで権限の確認を通さない（タスク36.2）

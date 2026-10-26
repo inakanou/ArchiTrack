@@ -314,6 +314,40 @@ describe('User Role Routes', () => {
       });
     });
 
+    /**
+     * @requirement user-authentication/REQ-38.13
+     */
+    it('上限を超えるロールを持つ利用者の削除は 403 TARGET_USER_EXCEEDS_ACTOR を返し、異常の検知へ送る（タスク62.1）', async () => {
+      mockUserRoleService.deleteUser.mockResolvedValue(
+        Err({ type: 'TARGET_USER_EXCEEDS_ACTOR', targetPriority: 100 })
+      );
+
+      const response = await request(app).delete('/api/v1/users/senior-user-id');
+
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({
+        error: 'FORBIDDEN',
+        message: 'The target user exceeds the privileges of the requesting user',
+        code: 'TARGET_USER_EXCEEDS_ACTOR',
+      });
+      expect(observeSecurityAnomaly).toHaveBeenCalledTimes(1);
+      expect(observeSecurityAnomaly).toHaveBeenCalledWith({
+        signal: 'permission_denied',
+        sourceIp: expect.any(String),
+        userId: 'admin-user-id',
+      });
+    });
+
+    it('最後の管理者の保護（400）・自分自身の削除（400）・不在（404）は異常の検知へ送らない', async () => {
+      mockUserRoleService.deleteUser.mockResolvedValueOnce(Err({ type: 'LAST_ADMIN_PROTECTED' }));
+      mockUserRoleService.deleteUser.mockResolvedValueOnce(Err({ type: 'USER_NOT_FOUND' }));
+
+      expect((await request(app).delete('/api/v1/users/last-admin-id')).status).toBe(400);
+      expect((await request(app).delete('/api/v1/users/missing-user-id')).status).toBe(404);
+      expect((await request(app).delete('/api/v1/users/admin-user-id')).status).toBe(400);
+      expect(observeSecurityAnomaly).not.toHaveBeenCalled();
+    });
+
     it('自分自身は削除できず 400 CANNOT_DELETE_SELF を返し、削除を呼ばない', async () => {
       // 認証ミドルウェアのモックは userId に admin-user-id を入れる
       const response = await request(app).delete('/api/v1/users/admin-user-id');

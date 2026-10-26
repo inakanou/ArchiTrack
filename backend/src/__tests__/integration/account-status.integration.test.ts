@@ -312,7 +312,9 @@ describe('管理者による無効化と再有効化（統合）', () => {
    * @requirement user-authentication/REQ-36.5
    */
   it('最後の有効なシステム管理者の無効化を 409 LAST_ACTIVE_ADMIN_PROTECTED で拒否する', async () => {
-    const manager = await createUserManager();
+    // admin ロール（優先度 100）の利用者を無効化するには、実行者の上限が 100 以上である必要がある
+    // （user-authentication 要件38.13）。最後の管理者の保護の判定まで届くよう、上限ちょうどにする
+    const manager = await createUserManager(['manage'], 100);
     const lastAdmin = await createUserWithRole('last-admin', 'admin');
 
     await withOnlyTestAdminsActive(async () => {
@@ -339,7 +341,8 @@ describe('管理者による無効化と再有効化（統合）', () => {
    * @requirement user-authentication/REQ-36.5
    */
   it('有効な管理者が 2 人のとき、2 人の並行する無効化は直列化され、一方だけが成功して管理者が 1 人残る', async () => {
-    const manager = await createUserManager();
+    // 管理者の無効化には実行者の上限が 100 以上である必要がある（要件38.13）
+    const manager = await createUserManager(['manage'], 100);
     const adminX = await createUserWithRole('admin-x', 'admin');
     const adminY = await createUserWithRole('admin-y', 'admin');
 
