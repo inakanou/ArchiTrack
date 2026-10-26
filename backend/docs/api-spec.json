@@ -916,7 +916,7 @@
     "/api/v1/users/{id}": {
       "delete": {
         "summary": "ユーザー削除",
-        "description": "ユーザーと関連データを削除（自分自身と最後の管理者は削除不可）",
+        "description": "ユーザーと関連データを削除（自分自身と最後の管理者、実行者の上限を超えるロールを持つユーザーは削除不可）",
         "tags": [
           "Users"
         ],
@@ -947,7 +947,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つユーザーの削除（code が TARGET_USER_EXCEEDS_ACTOR。要件38.13）"
           },
           "404": {
             "description": "ユーザーが見つからない"
@@ -1155,7 +1155,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "権限の不足（user:manage）、または自分自身の再設定（code は SELF_RESET_FORBIDDEN）"
+            "description": "権限の不足（user:manage）、自分自身の再設定（code は SELF_RESET_FORBIDDEN）、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つ利用者の再設定（code は TARGET_USER_EXCEEDS_ACTOR。要件38.13）"
           },
           "404": {
             "description": "対象者が見つからない（code は USER_NOT_FOUND）"
@@ -1218,7 +1218,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "権限の不足（user:manage）"
+            "description": "権限の不足（user:manage）、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つ利用者への操作（code は TARGET_USER_EXCEEDS_ACTOR。要件38.13）"
           },
           "404": {
             "description": "対象者が見つからない（code は USER_NOT_FOUND）"
@@ -1284,7 +1284,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "権限の不足（user:manage）"
+            "description": "権限の不足（user:manage）、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つ利用者への操作（code は TARGET_USER_EXCEEDS_ACTOR。要件38.13）"
           },
           "404": {
             "description": "対象者が見つからない（code は USER_NOT_FOUND）"
