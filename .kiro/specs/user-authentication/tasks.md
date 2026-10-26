@@ -1905,7 +1905,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: e2e/specs/admin_
   - _Requirements: 38.13_
 
-- [ ] 62.3 総合検証と文書の追随
+- [x] 62.3 総合検証と文書の追随
   - backend と frontend の全単体テスト、統合テスト、E2E の全件を回す（変えた API を使う既存の E2E を e2e/ 全体の grep で選んだものを含む）。関門は `:update` の変種を含めず名指しで一本ずつ回し、最後に `git status --porcelain scripts/` が空であることを確かめる
   - design.md の要件38 の節と API の説明（OpenAPI の 403）を実装に合わせ、`docs/security/ipa-alert-20261009-remediation-plan.md` の RBAC の上限の行を要件38.1〜38.13 へ改める。spec.json の phase を implementation-complete へ戻すのは `/kiro-validate-impl user-authentication` が GO を出した後に行い、tasks_summary を同じ時点で測り直す
   - 全てのテストと関門が緑で、要件38.13 の受入基準の被覆が揃っている状態になる
