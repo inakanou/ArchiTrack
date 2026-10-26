@@ -1,7 +1,7 @@
 /**
  * @fileoverview 権限付与の上限と既定の権限の E2E テスト
  *
- * user-authentication タスク51.2・58.2（58.2 は 2026-10-26 の要件38 の拡張の 38.6〜38.12）。design.md の
+ * user-authentication タスク51.2・58.2・62.2（58.2 は 2026-10-26 の要件38 の拡張の 38.6〜38.12、62.2 は 38.13）。design.md の
  * 「PrivilegeCeilingPolicy・DefaultPermissionSeed・AssignableUsersEndpoint」の節。ロールの割り当てと権限の
  * 追加は管理画面（`/admin/users`）が管理者（admin ロール）だけに開くため、システム管理者でない実行者の操作は
  * API で行う。システムロールの名前の変更は管理者がロールの編集画面で行う。
@@ -31,6 +31,9 @@
  * - REQ-38.12: システム管理者がシステムロール（admin・user）の優先度を変えると 403
  *   （`SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN`）になり、優先度は変わらない。優先度を変えない更新と、
  *   システムロールでないロールの優先度の変更はできる
+ * - REQ-38.13: ユーザー削除の権限だけ・ユーザー管理の権限だけを持つ実行者が、自分の上限より高い優先度の
+ *   ロールを持つ他の利用者の削除・無効化・再有効化・2FA の再設定をすると 403
+ *   （`TARGET_USER_EXCEEDS_ACTOR`）になり、DB は変わらない。上限ちょうどの利用者への同じ操作はできる
  *
  * 上限による拒否は権限チェックの失敗（`PERMISSION_CHECK_FAILED`）として監査に記録されることも DB で確かめる。
  * 検証に使うロールと利用者はテストの中で作り（ロールは `ROLE_NAME_PREFIX`、利用者は
@@ -111,13 +114,20 @@ async function createRole(
 }
 
 /** 指定のロールだけを持つ利用者をテストの中で作る（後始末の `deleteSessionUsers` が消す） */
-async function createUserWithRoles(label: string, roles: readonly string[]): Promise<CreatedUser> {
-  return createCustomUser({
-    email: `${SESSION_USER_EMAIL_PREFIX}ceiling-${label}-${uniqueSuffix()}@example.com`,
-    password: TEST_USERS.REGULAR_USER.password,
-    displayName: `上限検証 ${label}`,
-    roles,
-  });
+async function createUserWithRoles(
+  label: string,
+  roles: readonly string[],
+  state: Parameters<typeof createCustomUser>[1] = {}
+): Promise<CreatedUser> {
+  return createCustomUser(
+    {
+      email: `${SESSION_USER_EMAIL_PREFIX}ceiling-${label}-${uniqueSuffix()}@example.com`,
+      password: TEST_USERS.REGULAR_USER.password,
+      displayName: `上限検証 ${label}`,
+      roles,
+    },
+    state
+  );
 }
 
 /** 利用者として API にログインし、Bearer のヘッダーを返す */
@@ -171,6 +181,48 @@ async function actorRejectionCount(actorId: string): Promise<number> {
   return getPrismaClient().auditLog.count({
     where: { action: 'PERMISSION_CHECK_FAILED', actorId },
   });
+}
+
+/** 他のユーザーの管理の対象の利用者の状態（拒否の前後で比べる。利用者が無ければ null） */
+async function managedUserState(userId: string) {
+  return getPrismaClient().user.findUnique({
+    where: { id: userId },
+    select: {
+      isActive: true,
+      deactivatedAt: true,
+      twoFactorEnabled: true,
+      twoFactorSecret: true,
+      userRoles: { select: { roleId: true } },
+    },
+  });
+}
+
+/** 他のユーザーの管理の操作（監査の metadata の `operation` の値） */
+type ManageOperation = 'delete' | 'deactivate' | 'reactivate' | 'two_factor_reset';
+
+/** 他のユーザーの管理の操作を API で行う */
+async function manageUser(
+  request: APIRequestContext,
+  headers: Record<string, string>,
+  operation: ManageOperation,
+  targetId: string
+) {
+  switch (operation) {
+    case 'delete':
+      return request.delete(`${API_BASE_URL}/api/v1/users/${targetId}`, { headers });
+    case 'deactivate':
+      return request.post(`${API_BASE_URL}/api/v1/users/${targetId}/deactivate`, {
+        headers,
+        data: { reason: 'E2E 上限の検証の無効化' },
+      });
+    case 'reactivate':
+      return request.post(`${API_BASE_URL}/api/v1/users/${targetId}/reactivate`, {
+        headers,
+        data: { reason: 'E2E 上限の検証の再有効化' },
+      });
+    case 'two_factor_reset':
+      return request.post(`${API_BASE_URL}/api/v1/users/${targetId}/2fa/reset`, { headers });
+  }
 }
 
 /** ロールの現在の優先度（ロールが無ければ前提の誤りとして失敗する） */
@@ -981,5 +1033,118 @@ test.describe('権限付与の上限と既定の権限', () => {
     expect(updateEqual.status(), await updateEqual.text()).toBe(200);
     expect(await rolePriority(custom.id)).toBe(100);
     expect(await actorRejectionCount(admin.id)).toBe(0);
+  });
+
+  /**
+   * 他のユーザーの管理の上限（38.13）の検証の本体
+   *
+   * 実行者（`permission` だけを持つ上限 50 のロール）が、上限を 1 だけ超えるロール（51）を持つ利用者へ
+   * `operations` の各操作をすると 403 で拒否され、DB は変わらず、権限チェックの失敗が 1 件ずつ記録される。
+   * 対照として、上限ちょうど（50）のロールを持つ利用者には同じ操作ができ、効果が DB に現れる。
+   */
+  async function verifyManageUserCeiling(
+    request: APIRequestContext,
+    label: string,
+    permission: { resource: string; action: string },
+    operations: readonly ManageOperation[]
+  ): Promise<void> {
+    const actorRole = await createRole(label, 50, [permission]);
+    const senior = await createRole(`${label}-senior`, 51);
+    const peer = await createRole(`${label}-peer`, 50);
+    const actor = await createUserWithRoles(label, [actorRole.name]);
+    const headers = await bearerFor(request, actor);
+    let expectedRejections = 0;
+
+    for (const operation of operations) {
+      // 再有効化は無効な利用者が対象（有効な利用者は状態の確認で別の理由により断られるため）
+      const initialState = { isActive: operation !== 'reactivate' };
+      const seniorUser = await createUserWithRoles(
+        `${label}-${operation}-senior`,
+        [senior.name],
+        initialState
+      );
+      const before = await managedUserState(seniorUser.id);
+      expect(before, `${operation}: 拒否の対象の利用者`).toMatchObject({
+        isActive: initialState.isActive,
+        twoFactorEnabled: true,
+        userRoles: [{ roleId: senior.id }],
+      });
+
+      // 上限（50）を超えるロール（51）を持つ利用者への操作は拒否される
+      const rejected = await manageUser(request, headers, operation, seniorUser.id);
+      expect(rejected.status(), `${operation}: ${await rejected.text()}`).toBe(403);
+      expect(await rejected.json()).toEqual({
+        error: 'FORBIDDEN',
+        message: 'The target user exceeds the privileges of the requesting user',
+        code: 'TARGET_USER_EXCEEDS_ACTOR',
+      });
+
+      // DB は変わらない（利用者は残り、有効・無効、2FA、保有ロールはそのまま）
+      expect(await managedUserState(seniorUser.id), `${operation}: 拒否の後の利用者`).toEqual(
+        before
+      );
+
+      // 拒否は権限チェックの失敗として、対象の利用者・操作・対象の優先度とともに 1 件記録される
+      expectedRejections += 1;
+      const records = await ceilingRejections(actor.id, 'user', seniorUser.id);
+      expect(records.map((record) => record.metadata)).toEqual([
+        { reason: 'TARGET_USER_EXCEEDS_ACTOR', operation, targetPriority: '51' },
+      ]);
+      expect(await actorRejectionCount(actor.id)).toBe(expectedRejections);
+
+      // 対照: 上限ちょうど（50）のロールを持つ利用者には同じ操作ができ、拒否の記録は増えない
+      const peerUser = await createUserWithRoles(
+        `${label}-${operation}-peer`,
+        [peer.name],
+        initialState
+      );
+      const allowed = await manageUser(request, headers, operation, peerUser.id);
+      expect(allowed.status(), `${operation}: ${await allowed.text()}`).toBe(204);
+      const after = await managedUserState(peerUser.id);
+      switch (operation) {
+        case 'delete':
+          expect(after, '削除された利用者').toBeNull();
+          break;
+        case 'deactivate':
+          expect(after).toMatchObject({ isActive: false, twoFactorEnabled: true });
+          break;
+        case 'reactivate':
+          expect(after).toMatchObject({ isActive: true, twoFactorEnabled: true });
+          break;
+        case 'two_factor_reset':
+          expect(after).toMatchObject({
+            isActive: true,
+            twoFactorEnabled: false,
+            twoFactorSecret: null,
+          });
+          break;
+      }
+      expect(await ceilingRejections(actor.id, 'user', peerUser.id)).toEqual([]);
+      expect(await actorRejectionCount(actor.id)).toBe(expectedRejections);
+    }
+  }
+
+  /**
+   * @requirement user-authentication/REQ-38.13
+   */
+  test('ユーザー削除の権限だけを持つ利用者は上限より高いロールを持つ利用者を削除できず、上限ちょうどの利用者は削除できる', async ({
+    request,
+  }) => {
+    await verifyManageUserCeiling(request, 'user-deleter', { resource: 'user', action: 'delete' }, [
+      'delete',
+    ]);
+  });
+
+  /**
+   * @requirement user-authentication/REQ-38.13
+   */
+  test('ユーザー管理の権限だけを持つ利用者は上限より高いロールを持つ利用者を無効化・再有効化・2FA の再設定できず、上限ちょうどの利用者にはできる', async ({
+    request,
+  }) => {
+    await verifyManageUserCeiling(request, 'user-manager', { resource: 'user', action: 'manage' }, [
+      'deactivate',
+      'reactivate',
+      'two_factor_reset',
+    ]);
   });
 });

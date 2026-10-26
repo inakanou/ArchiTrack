@@ -1897,7 +1897,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: PrivilegeCeilingPolicy, UserRoleService, AccountStatusService, TwoFactorService, user-roles.routes.ts, user-inventory.routes.ts_
   - _Requirements: 38.13_
 
-- [ ] 62.2 他のユーザーの管理の上限を E2E で確かめる
+- [x] 62.2 他のユーザーの管理の上限を E2E で確かめる
   - `e2e/specs/admin/privilege-ceiling.spec.ts` と同じく API で、`user:delete` だけ・`user:manage` だけのロールを持つ実行者が、自分より優先度の高いロールを持つ利用者の削除・無効化・再有効化・2FAの再設定を 403 `TARGET_USER_EXCEEDS_ACTOR` で拒否されること（DB の不変、`PERMISSION_CHECK_FAILED` の件数と metadata）を主張し、各々に上限ちょうどの利用者への操作の対照を置く
   - 検証のために作るロールと利用者はテストの中で作り、終了時に消す
   - 対象の受入基準の `@requirement` の印を掲げた E2E が緑の状態になる。名前で要素を指す E2E を足した場合は `check:design-measurement-freshness` の前後の差を測る
