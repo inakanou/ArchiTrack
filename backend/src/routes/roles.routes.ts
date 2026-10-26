@@ -148,16 +148,17 @@ router.get(
  *                 example: "Manages projects"
  *               priority:
  *                 type: integer
+ *                 maximum: 100
  *                 example: 50
  *     responses:
  *       201:
  *         description: ロール作成成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（優先度がシステム管理者ロールの 100 を超えるときを含む）
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または実行者の上限を超える優先度のロールの作成（code が ROLE_PRIORITY_EXCEEDS_ACTOR）
  *       409:
  *         description: ロール名の重複
  */
@@ -240,6 +241,7 @@ router.post(
  *                 type: string
  *               priority:
  *                 type: integer
+ *                 maximum: 100
  *               expectedUpdatedAt:
  *                 type: string
  *                 format: date-time
@@ -362,7 +364,7 @@ router.patch(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または実行者の上限より上のロールの消去（code が ROLE_PRIORITY_EXCEEDS_ACTOR）
  *       404:
  *         description: ロールが見つからない
  */
@@ -592,7 +594,7 @@ router.post(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または実行者の上限より上のロールの権限の取り外し（code が ROLE_PRIORITY_EXCEEDS_ACTOR）
  *       404:
  *         description: ロールまたは権限が見つからない
  */
