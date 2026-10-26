@@ -1885,6 +1885,34 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: .kiro/specs/user-authentication/design.md, docs/security/ipa-alert-20261009-remediation-plan.md, .kiro/steering/tech.md_
   - _Requirements: 38.6, 40.12, 43.9_
 
+## タスク62: 他のユーザーの管理の上限（要件38.13）
+
+**経緯**: 58〜61 の最終検証（2026-10-26）で、ユーザーの削除（`DELETE /api/v1/users/:id`）・無効化・再有効化・2FAの再設定が対象のユーザーの優先度を見ておらず、`user:delete`・`user:manage` を持つ利用者が自分より優先度の高い利用者を消す・止める・戻す、またはその第二要素を外せることが判明した。利用者の判断（2026-10-26、ベストプラクティスに準じる）で要件38.13 を加えた。design.md の PrivilegeCeilingPolicy の節の「他のユーザーの管理（38.13）」と SecurityAnomalyMonitor の節の 43.2 の定義に従う
+
+- [ ] 62.1 ユーザーの削除・無効化・再有効化・2FAの再設定に上限を広げる
+  - 対象のユーザーの保有ロールの優先度の最大値が実行者の上限より大きいとき、4 つの操作を 403 `TARGET_USER_EXCEEDS_ACTOR` で拒否し、権限チェックの失敗として監査に記録し、異常の検知へ `permission_denied` を送る。上限と等しいときと、ロールを持たない対象は許す。自分自身への操作は判定せず、既存の拒否（`CANNOT_DELETE_SELF`・`SELF_DEACTIVATION_FORBIDDEN`・`SELF_RESET_FORBIDDEN`）の形を変えない
+  - 判定は書き込みと同じトランザクションのクライアントで、対象の利用者の行をロックしてから行い、最後の管理者の保護より先に判定する（design の判定の順とロックの順に従う）。拒否のときは対象の利用者・保有ロール・2FAの状態・リフレッシュトークンが変わらない
+  - 単体テストで拒否の条件と上限内・上限ちょうど・ロール無しの対照を、ルートの単体テストで 403 の応答と `permission_denied` の観測の有無を、統合テストで実 DB の上の拒否と監査の記録・DB の不変を確かめた状態になる。対象のユーザーの優先度を上げる既存のテストのデータ（実行者より上位の利用者を消す・止める既存のテスト）があれば、要件の意図に合わせて実行者の優先度を改める
+  - _Depends: 58.1_
+  - _Boundary: PrivilegeCeilingPolicy, UserRoleService, AccountStatusService, TwoFactorService, user-roles.routes.ts, user-inventory.routes.ts_
+  - _Requirements: 38.13_
+
+- [ ] 62.2 他のユーザーの管理の上限を E2E で確かめる
+  - `e2e/specs/admin/privilege-ceiling.spec.ts` と同じく API で、`user:delete` だけ・`user:manage` だけのロールを持つ実行者が、自分より優先度の高いロールを持つ利用者の削除・無効化・再有効化・2FAの再設定を 403 `TARGET_USER_EXCEEDS_ACTOR` で拒否されること（DB の不変、`PERMISSION_CHECK_FAILED` の件数と metadata）を主張し、各々に上限ちょうどの利用者への操作の対照を置く
+  - 検証のために作るロールと利用者はテストの中で作り、終了時に消す
+  - 対象の受入基準の `@requirement` の印を掲げた E2E が緑の状態になる。名前で要素を指す E2E を足した場合は `check:design-measurement-freshness` の前後の差を測る
+  - _Depends: 62.1_
+  - _Boundary: e2e/specs/admin_
+  - _Requirements: 38.13_
+
+- [ ] 62.3 総合検証と文書の追随
+  - backend と frontend の全単体テスト、統合テスト、E2E の全件を回す（変えた API を使う既存の E2E を e2e/ 全体の grep で選んだものを含む）。関門は `:update` の変種を含めず名指しで一本ずつ回し、最後に `git status --porcelain scripts/` が空であることを確かめる
+  - design.md の要件38 の節と API の説明（OpenAPI の 403）を実装に合わせ、`docs/security/ipa-alert-20261009-remediation-plan.md` の RBAC の上限の行を要件38.1〜38.13 へ改める。spec.json の phase を implementation-complete へ戻すのは `/kiro-validate-impl user-authentication` が GO を出した後に行い、tasks_summary を同じ時点で測り直す
+  - 全てのテストと関門が緑で、要件38.13 の受入基準の被覆が揃っている状態になる
+  - _Depends: 62.1, 62.2_
+  - _Boundary: 全体の検証, .kiro/specs/user-authentication/design.md, docs/security/ipa-alert-20261009-remediation-plan.md_
+  - _Requirements: 38.13_
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば同じコミットで宣言を貼り直し、増分の帰属を記す（利用者の判断 2026-10-06。39.1・40.2 と construction-photo の 27.1 の前例に従う）。正規表現・testid への書き換えで避けるのは不当（36.7）

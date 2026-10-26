@@ -5038,9 +5038,9 @@ graph TB
 | `backend/src/services/two-factor-challenge.service.ts` | 2FA 待ちの資格の発行・照会・消費（Redis） |
 | `backend/src/services/authenticated-user-state.service.ts` | 利用者の状態の取得とキャッシュの無効化 |
 | `backend/src/services/authenticated-user-state-cache.ts` | 利用者の状態のキャッシュ（Redis の鍵と世代の照合） |
-| `backend/src/services/account-status.service.ts` | 無効化・再有効化・自動無効化 |
+| `backend/src/services/account-status.service.ts` | 無効化・再有効化・自動無効化、上限を超えるユーザーの無効化・再有効化の拒否（38.13） |
 | `backend/src/services/user-inventory.service.ts` | 棚卸しの一覧と絞り込み |
-| `backend/src/services/privilege-ceiling.ts` | ロール割り当て・権限追加の上限の判定 |
+| `backend/src/services/privilege-ceiling.ts` | ロール割り当て・権限追加・他のユーザーの管理の上限の判定 |
 | `backend/src/services/project-scope.service.ts` | 案件の閲覧範囲の判定と一覧の絞り込み条件 |
 | `backend/src/services/export-audit.service.ts` | データ出力の記録 |
 | `backend/src/services/admin-notification.service.ts` | 全システム管理者への通知 |
@@ -5053,7 +5053,7 @@ graph TB
 | `backend/src/jobs/security-anomaly-overflow-summary.job.ts` | 異常の通知の総数の上限で送らなかった通知（溢れ分）の要約の定期処理（`*/10 * * * *`。43.9、タスク60.1） |
 | `backend/src/middleware/project-scope.middleware.ts` | `requireProjectScope` |
 | `backend/src/middleware/client-ip.ts` | `req.ip` による送信元の識別（`getClientIp`） |
-| `backend/src/routes/user-inventory.routes.ts` | 棚卸し・無効化・再有効化・2FA の再設定 |
+| `backend/src/routes/user-inventory.routes.ts` | 棚卸し・無効化・再有効化・2FA の再設定、上限を超えるユーザーへの操作の拒否と異常の検知への観測（38.13、43.2） |
 | `backend/src/schemas/export-audit.schema.ts` | 出力の記録の要求本文の検証 |
 | `backend/src/schemas/audit-log-archive-restore.schema.ts` | アーカイブの復元の要求本文の検証 |
 | `backend/src/scripts/reactivate-user.ts` | 再有効化の運用スクリプト（サーバー上で実行） |
@@ -5108,7 +5108,7 @@ graph TB
 | `backend/src/routes/auth.routes.ts` | ログイン・2FA 検証の応答、Cookie による refresh・logout、CSRF の適用、専用の制限、本文からリフレッシュトークンを外す、検証の POST 化 |
 | `backend/src/routes/admin.routes.ts` | 認証・権限の検査と監査の記録 |
 | `backend/src/routes/invitation.routes.ts` | 一覧の応答からトークンを外す、検証の POST 化、取り消しの権限 |
-| `backend/src/routes/user-roles.routes.ts` | ユーザーを消す要求の事前の監査、上限の検査の呼び出し、上限を超えるロールの割り当ての解除の拒否と異常の検知への観測（38.9、43.2） |
+| `backend/src/routes/user-roles.routes.ts` | ユーザーを消す要求の事前の監査、上限の検査の呼び出し、上限を超えるロールの割り当ての解除の拒否と異常の検知への観測（38.9、43.2）、上限を超えるユーザーを消す要求の拒否と観測（38.13） |
 | `backend/src/routes/roles.routes.ts` | システムロールの名前の変更の拒否、全権限の追加の上限、ロールの作成・優先度の変更の上限と範囲の検証、保有しない権限の追加の拒否、上限より上のロールの変更・消去とシステムロールの優先度の変更の拒否と異常の検知への観測（38.6〜38.8、38.10〜38.12、43.2） |
 | `backend/src/routes/users.routes.ts` | 担当者候補を有効な利用者の ID と表示名に限る |
 | `backend/src/routes/audit-log.routes.ts` | 出力の記録 API、アーカイブの復元 API |
@@ -5116,14 +5116,14 @@ graph TB
 | `backend/src/services/auth.service.ts` | 2FA 待ちの資格、状態による拒否、最終ログインの記録、ログインの監査、DB 障害の汎用化 |
 | `backend/src/services/token.service.ts` | 種別・発行者・利用者のクレームと検証 |
 | `backend/src/services/session.service.ts` | ハッシュ保存、系列、再利用検知、ログアウトの失効 |
-| `backend/src/services/two-factor.service.ts` | 再利用の拒否、固定値の受理を取り除く、自己の無効化の拒否、管理者の再設定、再登録 |
+| `backend/src/services/two-factor.service.ts` | 再利用の拒否、固定値の受理を取り除く、自己の無効化の拒否、管理者の再設定、再登録、上限を超えるユーザーの再設定の拒否（38.13） |
 | `backend/src/services/password.service.ts` | ハッシュ保存、有効期限 1 時間、要求ごとの制限、登録の有無を推測させない応答 |
 | `backend/src/services/invitation.service.ts` | ハッシュ保存、一覧の項目、取り消しの権限、監査の記録 |
-| `backend/src/services/user-role.service.ts` | 上限の検査、利用者を消す前の監査、通知の一般化への置き換え、割り当ての解除の上限（38.9） |
+| `backend/src/services/user-role.service.ts` | 上限の検査、利用者を消す前の監査、通知の一般化への置き換え、割り当ての解除の上限（38.9）、上限を超える利用者を消す要求の拒否（38.13） |
 | `backend/src/services/role-permission.service.ts` | 全権限の追加の上限、保有しない権限の追加の上限（38.8）、上限より上のロールの権限の追加・消去の拒否（38.11） |
 | `backend/src/services/role.service.ts` | システムロールの名前の変更の拒否、ロールの作成・優先度の変更の上限（38.6、38.7）、上限より上のロールの変更・消去の拒否（38.11）、システムロールの優先度の変更の拒否（38.12） |
 | `backend/src/schemas/auth-update.schema.ts` | `updateRoleSchema` の `priority` の上限（38.10） |
-| `backend/src/services/privilege-ceiling.ts` | 優先度の上限の判定の追加（作成・優先度の変更・割り当ての解除・上限より上のロールの変更と消去）、保有しない権限の追加の判定、システムロールの優先度の変更の判定、範囲の上限の定数（38.6〜38.12。2026-10-26 の要件38 の拡張） |
+| `backend/src/services/privilege-ceiling.ts` | 優先度の上限の判定の追加（作成・優先度の変更・割り当ての解除・上限より上のロールの変更と消去）、保有しない権限の追加の判定、システムロールの優先度の変更の判定、範囲の上限の定数、他のユーザーの管理の判定（38.6〜38.13。2026-10-26 の要件38 の拡張） |
 | `backend/src/services/security-anomaly-monitor.service.ts` | データ出力の通知の抑止を利用者ごとに、通知の総数の上限と溢れ分の記録・添え書き・要約（43.8、43.9） |
 | `backend/src/config/security-alert.ts` | 通知の総数の上限と時間窓の既定値と環境変数（43.9） |
 | `backend/src/jobs/scheduled-job-runner.ts` | 溢れ分の要約のジョブ `security-anomaly-overflow-summary` の登録（43.9） |
@@ -5322,6 +5322,7 @@ sequenceDiagram
 | 38.12 | システムロールの優先度の変更の拒否 | PrivilegeCeilingPolicy | `assertCanChangeRolePriority`、`PATCH /api/v1/roles/:id` | — |
 | 38.8 | 保有しない権限の追加の拒否 | PrivilegeCeilingPolicy | `assertCanGrantPermission`、`POST /api/v1/roles/:id/permissions` | — |
 | 38.9 | 上限を超えるロールの割り当ての解除の拒否 | PrivilegeCeilingPolicy, UserRoleService | `assertCanRevokeRole`、`DELETE /api/v1/users/:id/roles/:roleId` | — |
+| 38.13 | 上限を超えるユーザーの削除・無効化・再有効化・2FAの再設定の拒否 | PrivilegeCeilingPolicy, UserRoleService, AccountStatusService, TwoFactorService | `assertCanManageUser`、`DELETE /api/v1/users/:id`、`POST /api/v1/users/:id/deactivate`、`POST /api/v1/users/:id/reactivate`、`POST /api/v1/users/:id/2fa/reset` | — |
 | 38.4 | 一般ユーザーの既定権限から一覧の閲覧を外す | DefaultPermissionSeed | `seedRolePermissions` | — |
 | 38.5 | 担当者候補は ID と表示名だけ | AssignableUsersEndpoint | `GET /api/users/assignable` | — |
 | 39.1, 39.3, 39.4, 39.6 | 判定の規則・一覧の絞り込み・ファイル URL・担当者の変更の反映 | ProjectScopeService, ProjectScopeGuard | `canAccessProject`、`buildProjectScopeWhere` | — |
@@ -5354,7 +5355,7 @@ sequenceDiagram
 | Component | Domain | Intent | Req Coverage | Key Dependencies | Contracts |
 |---|---|---|---|---|---|
 | TwoFactorChallengeService | Backend Service | 2FA 待ちの資格の発行・照会・消費 | 32 | Redis (P0) | Service |
-| TwoFactorService | Backend Service | TOTP の再利用の拒否、再設定、再登録 | 32, 34, 40 | Prisma (P0), AuditLogService (P1) | Service, API |
+| TwoFactorService | Backend Service | TOTP の再利用の拒否、再設定、再登録 | 32, 34, 38, 40 | Prisma (P0), AuditLogService (P1), PrivilegeCeilingPolicy (P0) | Service, API |
 | AuthService | Backend Service | ログイン・リフレッシュ・ログアウトの是正 | 32, 33, 36, 40, 42 | TokenService (P0), SessionService (P0) | Service, API |
 | TokenService | Backend Service | クレームの種別・発行者・利用者 | 33 | jose (P0) | Service |
 | SessionService | Backend Service | ハッシュ保存・系列・再利用検知・失効 | 33 | Prisma (P0) | Service |
@@ -5364,7 +5365,7 @@ sequenceDiagram
 | ClientIpResolver | Backend Middleware | 送信元 IP の識別 | 35 | Express `trust proxy` (P0) | Service |
 | RateLimitPolicy | Backend Middleware | 認証系の専用の制限 | 35, 43 | Redis (P1) | Service |
 | RuntimeMode | Backend Config | 開発用機能・本番の前提の判定 | 35, 41, 42 | — | Service |
-| AccountStatusService | Backend Service | 無効化・再有効化・自動無効化 | 36 | SessionService (P0), AdminNotificationService (P1) | Service, API |
+| AccountStatusService | Backend Service | 無効化・再有効化・自動無効化 | 36, 38 | SessionService (P0), AdminNotificationService (P1), PrivilegeCeilingPolicy (P0) | Service, API |
 | UserInventoryService | Backend Service | 棚卸しの一覧と絞り込み | 36 | Prisma (P0) | Service, API |
 | AdminNotificationService | Backend Service | 全システム管理者への通知 | 36, 41, 43 | EmailQueue (P0), Sentry (P2) | Service |
 | ScheduledJobRunner | Backend Job | 繰り返しジョブの登録と実行 | 36, 37, 41, 43 | Bull (P0) | Batch |
@@ -5438,7 +5439,7 @@ type ChallengeError =
 | Field | Detail |
 |-------|--------|
 | Intent | TOTP の再利用の拒否、自己の無効化の拒否、管理者による再設定、利用者による再登録 |
-| Requirements | 32.6, 32.7, 34.6, 34.7, 34.9, 34.10, 34.11, 40.3 |
+| Requirements | 32.6, 32.7, 34.6, 34.7, 34.9, 34.10, 34.11, 38.13, 40.3 |
 
 **Responsibilities & Constraints**
 - `verifyTOTP` は otplib の `checkDelta` で一致した時間ステップを求め、`users.two_factor_last_used_step` がそれ未満（または未設定）のときだけ条件付き更新で記録して成功とする（32.7）
@@ -5713,7 +5714,7 @@ interface RuntimeMode {
 | Field | Detail |
 |-------|--------|
 | Intent | 無効化・再有効化・90 日の自動無効化 |
-| Requirements | 36.1, 36.3, 36.4, 36.5, 36.8, 36.9 |
+| Requirements | 36.1, 36.3, 36.4, 36.5, 36.8, 36.9, 38.13 |
 
 **Contracts**: Service [x] / API [x]
 
@@ -5839,7 +5840,7 @@ interface AdminNotificationService {
 | Field | Detail |
 |-------|--------|
 | Intent | 自分を超える権限の付与を拒否し、既定の権限と担当者候補の応答を絞る |
-| Requirements | 38.1, 38.2, 38.3, 38.4, 38.5, 38.6, 38.7, 38.8, 38.9, 38.10, 38.11, 38.12, 39.5 |
+| Requirements | 38.1, 38.2, 38.3, 38.4, 38.5, 38.6, 38.7, 38.8, 38.9, 38.10, 38.11, 38.12, 38.13, 39.5 |
 
 ```typescript
 interface PrivilegeCeilingPolicy {
@@ -5854,6 +5855,8 @@ interface PrivilegeCeilingPolicy {
   assertCanChangeRolePriority(roleId: string): Promise<Result<void, CeilingError>>;
   // 2026-10-26 追加（38.9）
   assertCanRevokeRole(actorId: string, targetUserId: string, roleId: string): Promise<Result<void, CeilingError>>;
+  // 2026-10-26 追加（38.13）。対象のユーザーの保有するロールの優先度の最大値を判定する（削除・無効化・再有効化・2FAの再設定の前）
+  assertCanManageUser(actorId: string, targetUserId: string): Promise<Result<void, CeilingError>>;
 }
 
 type CeilingError =
@@ -5861,7 +5864,8 @@ type CeilingError =
   | { type: 'SYSTEM_ADMIN_REQUIRED' }                     // 38.2
   | { type: 'SYSTEM_ROLE_RENAME_FORBIDDEN' }              // 38.3
   | { type: 'PERMISSION_NOT_HELD_BY_ACTOR' }              // 38.8
-  | { type: 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN' };    // 38.12
+  | { type: 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN' }     // 38.12
+  | { type: 'TARGET_USER_EXCEEDS_ACTOR' };                // 38.13
 
 // システム管理者ロールの優先度（seed の値。38.12 により変わらない）。38.10 の上限の値
 const SYSTEM_ADMIN_ROLE_PRIORITY = 100;
@@ -5869,7 +5873,7 @@ const SYSTEM_ADMIN_ROLE_PRIORITY = 100;
 - 実行者の上限は保有ロールの `priority` の最大値。割り当てるロールの `priority` がそれを超えると 403（38.1）
 - `*:*` の追加と `admin` ロールの割り当ては、実行者が `admin` ロールを持つときだけ許す（38.2）
 - `isSystem` のロールの `name` の変更を拒否する（38.3）
-- 上限の比べ方（38.1、38.6、38.7、38.9、38.11 で共通）: 実行者の上限は保有ロールの `priority` の最大値で、対象の `priority` が上限より大きいときだけ拒否する。上限と等しい値は許す（38.1 の実装と 51.2 の E2E の対照「上限ちょうどの優先度」に揃える）。ロールを持たない実行者の上限は -Infinity とする。`admin` ロールを持つ実行者にも同じ規則を当てるが、38.10 により `admin` の優先度を超えるロールは作れないため、`admin` は実質的に拒否されない
+- 上限の比べ方（38.1、38.6、38.7、38.9、38.11、38.13 で共通）: 実行者の上限は保有ロールの `priority` の最大値で、対象の `priority` が上限より大きいときだけ拒否する。上限と等しい値は許す（38.1 の実装と 51.2 の E2E の対照「上限ちょうどの優先度」に揃える）。ロールを持たない実行者の上限は -Infinity とする。`admin` ロールを持つ実行者にも同じ規則を当てるが、38.10 により `admin` の優先度を超えるロールは作れないため、`admin` は実質的に拒否されない
 - ロールの作成（38.7）と優先度の変更（38.6）: `RoleService.createRole`・`updateRole` が、書き込みと同じトランザクションのクライアントで `assertCanSetRolePriority` を呼ぶ。作成で `priority` を省いたときは既定の 0 で判定する。変更は `priority` が与えられ、かつ現在の値と異なるときだけ判定する（画面は説明だけの変更でも現在の優先度を送るため。38.3 の同じ名前を拒否しない扱いと揃える）
 - 範囲の検証（38.10）: `priority` の上限を定数 `SYSTEM_ADMIN_ROLE_PRIORITY`（100。seed の `admin` の値と同じ定数を参照する）とし、ロールの作成の `createRoleSchema`（`roles.routes.ts`）と変更の `updateRoleSchema`（`auth-update.schema.ts`）の zod の `max` で検証する。超えると `validate` の既定の 400 `VALIDATION_ERROR` を返す。38.12 で `admin` の優先度は変えられないため、行から読まず定数で足りる。範囲の検証は入力の誤りであり、権限チェックの失敗として記録せず、異常の検知へも送らない
 - 既存のデータの手当て（38.10・38.11、運用）: 38.10 より前の API では優先度が 100 を超えるロールを作れた。そのようなロールは admin（100）の上限より上になり、38.11 により admin でも優先度の変更・権限の追加と取り外し・消去ができず、38.10 により値の修正もできない。本番への展開の前に `SELECT id, name, priority FROM roles WHERE priority > 100` で確かめ、該当があれば DB で直接 100 以下へ改める（移行は設けない）
@@ -5879,7 +5883,8 @@ const SYSTEM_ADMIN_ROLE_PRIORITY = 100;
 - 判定と書き込みの間の割り込みの防止（タスク58.1）: 判定は書き込みと同じトランザクションのクライアントで行う。ロールの削除と権限の追加・削除は、対象のロールの行を判定の前にロックする（優先度の変更は、版を伴わない経路が `FOR NO KEY UPDATE` でロックし、版を伴う経路は `updatedAt` を条件にした更新で並行の変更を競合として検出する）。ロールの削除（`RoleService.deleteRole`）は存在の確認の後に `SELECT … FROM roles … FOR UPDATE` でロックしてから 38.11 を判定し、使用中の件数を数える（要件17.5 の使用中の判定と同じロック）。権限の追加・削除は、ロールと権限の存在の確認の後、38.11 の判定の前に同じ行を `FOR SHARE` でロックする。優先度の変更（`UPDATE` が取る行のロック）とロールの削除はこのロックを取った取引の終わりまで待つため、判定から書き込みまでの間に対象のロールの優先度が上限より上へ変わらない。並行する権限の追加・削除どうしは `FOR SHARE` のため互いを待たない
 - 権限の追加（38.8）: `*:*` は従来どおり `SYSTEM_ADMIN_REQUIRED`（38.2）。それ以外は、`admin` ロールを持たない実行者について、実行者の保有ロールの権限（同じトランザクションのクライアントで `user_roles` → `role_permissions` → `permissions` を読む。Redis のキャッシュの `RBACService.hasPermission` は使わない）のいずれかが、追加する権限を要件21 のワイルドカードの照合（`*:*`、`*:action`、`resource:*`、完全一致）で包含しなければ `PERMISSION_NOT_HELD_BY_ACTOR` とする。追加する権限が `project:*` のようなワイルドカードのときは、同じ照合で包含する権限（`project:*` または `*:*`）を持つ場合だけ許す。一括の追加は 1 件でも違反があれば全体をロールバックする（51.1 と同じ）
 - 割り当ての解除（38.9）: `UserRoleService.removeRoleInTransaction` が、最後の管理者の判定より前に `assertCanRevokeRole` を呼ぶ。対象の利用者が実行者自身のときは判定しない（38.9 は他のユーザーからの解除を対象とする。自分の保有するロールは上限を超えない）
-- 拒否の扱い（38.6〜38.9、38.11、38.12）: 既存の 3 つの上限の拒否と同じく、403 `{ error: 'FORBIDDEN', message, code: <CeilingError の種別> }` を返し、`recordCeilingRejection` で監査 `PERMISSION_CHECK_FAILED` をトランザクションの外（ロールバックの後）で記録し、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2。SecurityAnomalyMonitor の節の 43.2 の定義）。ルートの送り出しは `roles.routes.ts` の `rejectByCeiling` と `user-roles.routes.ts` の割り当て・解除の拒否で行う
+- 他のユーザーの管理（38.13）: ユーザーの削除（`UserRoleService.deleteUser`）、無効化・再有効化（`AccountStatusService.deactivate`・`reactivate`）、2FAの再設定（`TwoFactorService.resetByAdmin`）が、書き込みと同じトランザクションのクライアントで `assertCanManageUser` を呼ぶ。対象のユーザーの上限は保有ロールの `priority` の最大値（ロールを持たないユーザーは -Infinity）で、実行者の上限より大きいときだけ `TARGET_USER_EXCEEDS_ACTOR` で拒否する（上限と等しいときは許す。`admin` 同士の操作は従来どおり通る）。対象が実行者自身のときは判定しない（自己の削除・無効化・2FAの再設定は既存の拒否が先に止める）。判定の順は、存在の確認 → 38.13 → 最後の管理者の保護（`LAST_ADMIN_PROTECTED`・`LAST_ACTIVE_ADMIN_PROTECTED`）→ 状態の確認（`ALREADY_IN_STATE`）とする。判定の前に対象の利用者の行を `SELECT … FROM users … FOR UPDATE` でロックしてから対象の保有ロールを読む（並行するロールの割り当ての `user_roles` の INSERT は外部キーの検査で同じ行の `FOR KEY SHARE` を取って待つため、判定から書き込みまでの間に対象へ上位のロールが割り当てられない）。最後の管理者の判定が取る `admin` ロールの行のロックがある経路では、そのロックの後に取る（既存の経路とロックの順を揃える）。拒否の応答は 403 `{ error: 'FORBIDDEN', message, code: 'TARGET_USER_EXCEEDS_ACTOR' }` とし、既存の拒否の形（`CANNOT_DELETE_SELF` の 400、`SELF_RESET_FORBIDDEN` の 403 など）は変えない
+- 拒否の扱い（38.6〜38.9、38.11〜38.13）: 既存の 3 つの上限の拒否と同じく、403 `{ error: 'FORBIDDEN', message, code: <CeilingError の種別> }` を返し、`recordCeilingRejection` で監査 `PERMISSION_CHECK_FAILED` をトランザクションの外（ロールバックの後）で記録し、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2。SecurityAnomalyMonitor の節の 43.2 の定義）。ルートの送り出しは `roles.routes.ts` の `rejectByCeiling` と `user-roles.routes.ts` の割り当て・解除・ユーザーを消す要求の拒否、`user-inventory.routes.ts` の無効化・再有効化・2FAの再設定の拒否で行う
 - 上限の拒否の監査の形（`recordCeilingRejection`。`before`・`after` は null、`metadata.reason` は `CeilingError` の種別、他の metadata の値は文字列）:
   - ロールの作成（38.7）: targetType `role`、targetId は要求されたロールの名前（ロールは作られず ID が無いため）、metadata `{ reason, requestedName, requestedPriority }`
   - ロールの優先度の変更（38.6、38.11、38.12）: targetType `role`、targetId はロールの ID、metadata `{ reason, currentPriority, requestedPriority }`
@@ -5887,6 +5892,7 @@ const SYSTEM_ADMIN_ROLE_PRIORITY = 100;
   - システムロールの名前の変更（38.3）: targetType `role`、targetId はロールの ID、metadata `{ reason, currentName, requestedName }`
   - 権限の追加・削除（38.2、38.8、38.11）: targetType `role-permission`、targetId はロールの ID、metadata `{ reason, permissionId, permission }`（`permission` は `resource:action`）
   - ロールの割り当て・割り当ての解除（38.1、38.9）: targetType `user-role`、targetId は対象の利用者の ID、metadata `{ reason, roleId }`
+  - 他のユーザーの管理（38.13）: targetType `user`、targetId は対象の利用者の ID、metadata `{ reason, operation, targetPriority }`（`operation` は `delete`・`deactivate`・`reactivate`・`two_factor_reset`）
 - 画面: ロール管理・ユーザー管理の画面は 403 の `code` を出し分けておらず、既存の汎用のエラー表示のままとする（新しい表示文言は設けない）
 - 移行: 不要（列・既定の権限の変更は無い）。既に `admin` の優先度を超えるロールや、実行者の上限を超えて作られたロールがあっても書き換えない。`admin` の優先度が 100 であることは seed が定め、`user` は 0 である（38.12 の後は変わらない）
 - 既定の権限: `user` ロールから `user:read` を外す（38.4）。権限 `project:read_all` を新設する。`admin` は `*:*` で全てを持つ（39.5）。本番の既存データは移行の SQL で `user` ロールの `user:read` の割り当てを外す
@@ -6124,8 +6130,8 @@ type AnomalyRecordOutcome = 'dropped' | 'counted' | 'notified' | 'suppressed' | 
 - 上限と時間窓は環境変数 `SECURITY_ALERT_NOTIFICATION_LIMIT`（既定 10 通）と `SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS`（既定 3600 秒）で変える（43.7 と同じく `backend/src/config/security-alert.ts` で検証する）。既定の 10 通 / 時は、群ごとの抑止 1800 秒の下で利用者ごとでない 4 群が出しうる最大の 8 通 / 時を上回り、利用者ごとのデータ出力の通知が多数の利用者で同時に起きた場合にだけ効く値である。試験と CI の環境は E2E と統合テストの全件で超えない値にし、上限の振る舞いは単体と統合のテストの中で設定を下げて確かめる
 - 通知の本文は、検知の種類、時間窓、件数、上位 5 件の送信元 IP・利用者 ID を含める（43.5）。主な送信元・利用者は桶ごとの Redis のソート済み集合で数える
 - 閾値・時間窓・抑止の時間は検知の群ごとの環境変数 `SECURITY_ALERT_<GROUP>_THRESHOLD`・`_WINDOW_SECONDS`・`_COOLDOWN_SECONDS` で変える（43.7。`backend/src/config/security-alert.ts`）。群は `LOGIN_FAILED`・`PERMISSION_DENIED`（`permission_denied` と `scope_denied` の合算）・`RATE_LIMITED`・`SERVER_ERROR`・`DATA_EXPORT` の 5 つで、例えば `SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD` とする。計数の鍵と通知の抑止の鍵も群ごとに持つ（`data_export` は計数の鍵・抑止の鍵とも利用者ごと。43.4、43.8）。既定は `login_failed` 20 件 / 300 秒、`permission_denied`・`scope_denied` 合算 30 件 / 300 秒、`rate_limited` 100 件 / 300 秒、`server_error` 20 件 / 300 秒、`data_export` 利用者ごと 50 件 / 3600 秒、抑止 1800 秒
-- `permission_denied` は既存の `recordPermissionCheckFailure` から、`login_failed` は AuthService から呼ぶ（43.1、43.2）。権限の上限による 3 つの 403（`user-roles.routes.ts` のロールの割り当て、`roles.routes.ts` の権限の付与とシステムロールの名前の変更）も、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2）。2026-10-26 に加えた上限の 403（38.6 のロールの優先度の変更・38.7 のロールの作成・38.8 の保有しない権限の追加は `roles.routes.ts`、38.9 の割り当ての解除は `user-roles.routes.ts`、38.11 の上限より上のロールの変更・消去と 38.12 のシステムロールの優先度の変更は `roles.routes.ts`）も同じく送る。38.10 の 400 は入力の誤りであり送らない
-- 43.2 の権限チェックの失敗（403）の定義（2026-10-26、利用者の判断）: 数えるのは、RBAC の権限の不足による拒否（`requirePermission` の `authorize` による 403）と、権限付与の上限による拒否（要件38 の 38.1〜38.3・38.6〜38.9・38.11・38.12）の二つである。業務上の保護による拒否（`SYSTEM_ROLE_PROTECTED`、`LAST_ADMIN_PROTECTED`、`SELF_RESET_FORBIDDEN`、`TWO_FACTOR_DISABLE_NOT_ALLOWED`、2FA 未登録・初回のパスワード変更中などの利用者の状態による制限。応答の状態コードが 403 か 400 かを問わない）は数えない。これらは通常の運用の中で起きる拒否であり、数えると本当の兆候が埋もれるためである（OWASP のログの指針を踏まえた利用者の判断）
+- `permission_denied` は既存の `recordPermissionCheckFailure` から、`login_failed` は AuthService から呼ぶ（43.1、43.2）。権限の上限による 3 つの 403（`user-roles.routes.ts` のロールの割り当て、`roles.routes.ts` の権限の付与とシステムロールの名前の変更）も、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2）。2026-10-26 に加えた上限の 403（38.6 のロールの優先度の変更・38.7 のロールの作成・38.8 の保有しない権限の追加は `roles.routes.ts`、38.9 の割り当ての解除は `user-roles.routes.ts`、38.11 の上限より上のロールの変更・消去と 38.12 のシステムロールの優先度の変更は `roles.routes.ts`、38.13 の上限を超えるユーザーを消す要求は `user-roles.routes.ts`、無効化・再有効化・2FAの再設定は `user-inventory.routes.ts`）も同じく送る。38.10 の 400 は入力の誤りであり送らない
+- 43.2 の権限チェックの失敗（403）の定義（2026-10-26、利用者の判断）: 数えるのは、RBAC の権限の不足による拒否（`requirePermission` の `authorize` による 403）と、権限付与の上限による拒否（要件38 の 38.1〜38.3・38.6〜38.9・38.11〜38.13）の二つである。業務上の保護による拒否（`SYSTEM_ROLE_PROTECTED`、`LAST_ADMIN_PROTECTED`、`SELF_RESET_FORBIDDEN`、`TWO_FACTOR_DISABLE_NOT_ALLOWED`、2FA 未登録・初回のパスワード変更中などの利用者の状態による制限。応答の状態コードが 403 か 400 かを問わない）は数えない。これらは通常の運用の中で起きる拒否であり、数えると本当の兆候が埋もれるためである（OWASP のログの指針を踏まえた利用者の判断）
 - Redis が使えないときは計数を捨て、警告ログを残す（検知の欠落は要求の失敗にしない）
 
 ##### EmailQueue（変更）
