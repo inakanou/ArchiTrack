@@ -324,7 +324,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 ### Redis
 
 - **バージョン**: Redis 7 (Alpine)
-- **用途**: 権限と利用者の状態のキャッシュ、2FA 待ちの資格、回数制限のストア、異常の検知の計数と通知の抑止、ジョブキュー（メールの送信と定期処理）
+- **用途**: 権限と利用者の状態のキャッシュ、2FA 待ちの資格、回数制限のストア、異常の検知の計数・通知の抑止・通知の総数の上限と溢れ分、ジョブキュー（メールの送信と定期処理）
 - **接続方式**: ioredisクライアントライブラリ経由。キャッシュとジョブキューはどちらも `REDIS_URL`（認証情報を含む）で同じ Redis へ接続する
 - **障害時**: 2FA 待ちの資格は Redis に届かなければ発行も照会もせず 503 を返す（2FA を素通りさせない）。回数制限はプロセス内のメモリのストアへ退避し、キャッシュは DB から読み、異常の検知は計数を捨てて警告ログを残す
 - **ヘルスチェック**: `redis-cli ping`コマンド
@@ -332,11 +332,12 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 ### ジョブキュー（Bull）
 
 - **メールの送信**: キュー `email-queue`（`backend/src/services/email.service.ts` の `createEmailQueue()`）。完了したジョブは中身ごと消し、再試行を使い切った失敗はトークンを含まない形で記録してから消す
-- **定期処理**: キュー `scheduled-jobs`（`backend/src/jobs/scheduled-job-runner.ts`）に Bull の繰り返しジョブ（cron、Asia/Tokyo）として登録し、同じプロセスで実行する。起動のたびにジョブ名を識別子として登録し直す。定義は次の 4 つ
+- **定期処理**: キュー `scheduled-jobs`（`backend/src/jobs/scheduled-job-runner.ts`）に Bull の繰り返しジョブ（cron、Asia/Tokyo）として登録し、同じプロセスで実行する。起動のたびにジョブ名を識別子として登録し直す。試験の実行環境（NODE_ENV=test）では登録しない。定義は次の 5 つ
   - `expired-token-cleanup`（毎時 15 分）: 使用済み・期限切れの招待・リセット・リフレッシュのトークンの消去
   - `failed-email-job-cleanup`（毎時 45 分）: メールキューの失敗のジョブの掃除
   - `inactive-user-deactivation`（毎日 03:00）: 90 日使われていない利用者の自動無効化
   - `audit-log-archive`（毎月 1 日 04:00）: 13 か月を過ぎた監査ログの暗号化したアーカイブと、8 年を過ぎたアーカイブの消去
+  - `security-anomaly-overflow-summary`（10 分ごと）: 異常の通知の総数の上限で送らなかった通知（溢れ分）が残り、上限の時間窓が明けていれば、要約を全システム管理者へ 1 通送る
 
 ### 接続障害への耐性（backend 全体に効く規約）
 
@@ -398,7 +399,7 @@ coverage: {
 - `unit/config/` - 設定テスト（環境変数バリデーション、ストレージ設定、セキュリティ定数）
 - `unit/docs/` - OpenAPI 仕様生成のテスト
 - `unit/errors/` - カスタムエラークラスのテスト（機能ごとのエラー型を含む）
-- `unit/jobs/` - 定期処理のテスト（実行基盤、期限切れのトークンの消去、失敗したメールのジョブの掃除）
+- `unit/jobs/` - 定期処理のテスト（実行基盤、期限切れのトークンの消去、失敗したメールのジョブの掃除、利用者の自動無効化、監査ログのアーカイブ、異常の通知の溢れ分の要約）
 - `unit/middleware/` - ミドルウェアのテスト（認証、認可、検証、CSRF、レート制限、ロガー、アップロード）
 - `unit/models/` - Prisma のモデル・マイグレーションのテスト
 - `unit/routes/` - ルートのテスト（supertest で HTTP 経路を通す）
@@ -1250,8 +1251,12 @@ ARCHIVE_ENCRYPTION_KEY=
 # トークンの発行者・想定利用者（既定値あり）
 JWT_ISSUER=architrack
 JWT_AUDIENCE=architrack-api
-# 異常の検知の閾値・時間窓・抑止（群ごと。既定値あり）
+# 異常の検知の閾値・時間窓・抑止（群ごと。既定値あり。データ出力の計数と抑止は利用者ごと）
 # SECURITY_ALERT_<GROUP>_THRESHOLD / _WINDOW_SECONDS / _COOLDOWN_SECONDS
+# GROUP は LOGIN_FAILED / PERMISSION_DENIED / RATE_LIMITED / SERVER_ERROR / DATA_EXPORT
+# 異常の通知の総数の上限（固定の時間窓あたりの通数。超えた分は溢れ分として次の通知に添えるか要約で送る）
+SECURITY_ALERT_NOTIFICATION_LIMIT=10
+SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS=3600
 ```
 
 本番の実行環境では `ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS`・`REDIS_URL` のいずれかが欠けると backend は起動を止めます（`backend/src/config/runtime-mode.ts`）。

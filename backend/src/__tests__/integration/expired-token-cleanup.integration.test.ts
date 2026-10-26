@@ -289,7 +289,7 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
     const inspector = createScheduledJobsQueue(redisUrl);
     try {
       const repeatables = await inspector.getRepeatableJobs();
-      expect(repeatables).toHaveLength(4);
+      expect(repeatables).toHaveLength(5);
       expect(repeatables).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -314,6 +314,12 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
             name: 'audit-log-archive',
             id: 'audit-log-archive',
             cron: '0 4 1 * *',
+            tz: 'Asia/Tokyo',
+          }),
+          expect.objectContaining({
+            name: 'security-anomaly-overflow-summary',
+            id: 'security-anomaly-overflow-summary',
+            cron: '*/10 * * * *',
             tz: 'Asia/Tokyo',
           }),
         ])
@@ -344,7 +350,13 @@ describe('定期処理の実行基盤の登録（統合・実 Redis）', () => {
       expect(nextArchive.getTime() - 9 * HOUR_MS - Date.now()).toBeLessThanOrEqual(
         31 * 24 * HOUR_MS
       );
-      expect(await inspector.getDelayedCount()).toBe(4);
+      // 溢れ分の要約（タスク60.1）の次の実行は 10 分ごとの境界
+      const nextOverflowSummary = new Date(
+        repeatables.find((job) => job.name === 'security-anomaly-overflow-summary')?.next ?? 0
+      );
+      expect(nextOverflowSummary.getUTCMinutes() % 10).toBe(0);
+      expect(nextOverflowSummary.getTime() - Date.now()).toBeLessThanOrEqual(10 * 60 * 1000);
+      expect(await inspector.getDelayedCount()).toBe(5);
     } finally {
       await inspector.close();
     }

@@ -5050,6 +5050,7 @@ graph TB
 | `backend/src/jobs/expired-token-cleanup.job.ts` | 使用済み・期限切れのトークンの消去 |
 | `backend/src/jobs/failed-email-job-cleanup.job.ts` | メールキューの失敗のジョブの掃除（45.3） |
 | `backend/src/jobs/audit-log-archive.job.ts` | 月次のアーカイブと 8 年を過ぎたアーカイブの消去 |
+| `backend/src/jobs/security-anomaly-overflow-summary.job.ts` | 異常の通知の総数の上限で送らなかった通知（溢れ分）の要約の定期処理（`*/10 * * * *`。43.9、タスク60.1） |
 | `backend/src/middleware/project-scope.middleware.ts` | `requireProjectScope` |
 | `backend/src/middleware/client-ip.ts` | `req.ip` による送信元の識別（`getClientIp`） |
 | `backend/src/routes/user-inventory.routes.ts` | 棚卸し・無効化・再有効化・2FA の再設定 |
@@ -5380,7 +5381,7 @@ sequenceDiagram
 | AssignableUsersEndpoint | Backend Route | 担当者候補の応答項目 | 38 | Prisma (P0) | API |
 | ProjectScopeService | Backend Service | 案件の閲覧範囲の判定と絞り込み条件 | 39 | RBACService (P0), Prisma (P0) | Service |
 | ProjectScopeGuard | Backend Middleware | ID 指定の要求の判定と 404 化・記録 | 39 | ProjectScopeService (P0), AuditLogService (P1) | Service |
-| SecurityAnomalyMonitor | Backend Service | 時間窓の計数・閾値・通知の抑止 | 39, 43 | Redis (P0), AdminNotificationService (P0) | Service |
+| SecurityAnomalyMonitor | Backend Service | 時間窓の計数・閾値・通知の抑止・通知の総数の上限と溢れ分 | 39, 43 | Redis (P0), AdminNotificationService (P0) | Service |
 | AuditLogService | Backend Service | 監査の記録・保全・改変の拒否 | 40, 41 | Prisma (P0) | Service |
 | UserRoleService | Backend Service | 削除前の監査と上限の呼び出し | 38, 40 | AuditLogService (P0) | Service |
 | ExportAuditService | Backend Service | データ出力の記録 | 40, 43 | AuditLogService (P0), ProjectScopeService (P0) | Service, API |
@@ -5874,9 +5875,17 @@ const SYSTEM_ADMIN_ROLE_PRIORITY = 100;
 - 上限より上のロールの変更・削除（38.11）: 対象のロールの現在の `priority` が実行者の上限より大きいとき、優先度の変更（上げる・下げるを問わない）、権限の追加（`RolePermissionService.assignPermissionInTransaction`）・削除（`RolePermissionService.removePermissions` の取引の中）、ロールの削除（`RoleService.deleteRole`）を `ROLE_PRIORITY_EXCEEDS_ACTOR` で拒否する。38.6 は変更後の値、38.11 は現在の値を見るため両方を残す（上限以下のロールを上限より上げる変更は 38.6、上限より上のロールを下げてから割り当てる抜け道は 38.11 が塞ぐ）。名前と説明だけの変更は 38.11 の対象外とする（権限が動かないため。システムロールの名前は 38.3 が拒否する）。ロールの削除を含めた理由: 上限より上のロールを消すことは、上位の利用者が作った権限の構成を下位の利用者が壊す操作であり、変更と同じ向きの越権であるため
 - システムロールの優先度の変更（38.12）: `isSystem` のロール（`admin`・`user`）の `priority` が実際に変わる変更を、38.3 と同じく実行者によらず `SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN` で拒否する。応答は 38.3 の `SYSTEM_ROLE_RENAME_FORBIDDEN` と同じ 403 `{ error: 'FORBIDDEN', message, code }` とし、38.3 と同じく監査 `PERMISSION_CHECK_FAILED` を記録し、異常の検知へ `permission_denied` を送る（ee6316cd が 38.3 の拒否に加えた観測と揃える）
 - 判定の順（`updateRole`）: 存在の確認 → 38.3（名前）→ 38.12（システムロールの優先度）→ 38.11（現在の優先度）→ 38.6（変更後の優先度）。38.10 の範囲の検証は zod の段で先に済む。権限の追加は 38.11 → 38.2 → 38.8 の順、削除は 38.11 だけ、ロールの削除は存在の確認 → 38.11 → 既存のシステムロールの保護（`SYSTEM_ROLE_PROTECTED`）・使用中（`ROLE_IN_USE`）の順とする
+- 判定と書き込みの間の割り込みの防止（タスク58.1）: 判定は書き込みと同じトランザクションのクライアントで行う。ロールの削除と権限の追加・削除は、対象のロールの行を判定の前にロックする（優先度の変更は、版を伴わない経路が `FOR NO KEY UPDATE` でロックし、版を伴う経路は `updatedAt` を条件にした更新で並行の変更を競合として検出する）。ロールの削除（`RoleService.deleteRole`）は存在の確認の後に `SELECT … FROM roles … FOR UPDATE` でロックしてから 38.11 を判定し、使用中の件数を数える（要件17.5 の使用中の判定と同じロック）。権限の追加・削除は、ロールと権限の存在の確認の後、38.11 の判定の前に同じ行を `FOR SHARE` でロックする。優先度の変更（`UPDATE` が取る行のロック）とロールの削除はこのロックを取った取引の終わりまで待つため、判定から書き込みまでの間に対象のロールの優先度が上限より上へ変わらない。並行する権限の追加・削除どうしは `FOR SHARE` のため互いを待たない
 - 権限の追加（38.8）: `*:*` は従来どおり `SYSTEM_ADMIN_REQUIRED`（38.2）。それ以外は、`admin` ロールを持たない実行者について、実行者の保有ロールの権限（同じトランザクションのクライアントで `user_roles` → `role_permissions` → `permissions` を読む。Redis のキャッシュの `RBACService.hasPermission` は使わない）のいずれかが、追加する権限を要件21 のワイルドカードの照合（`*:*`、`*:action`、`resource:*`、完全一致）で包含しなければ `PERMISSION_NOT_HELD_BY_ACTOR` とする。追加する権限が `project:*` のようなワイルドカードのときは、同じ照合で包含する権限（`project:*` または `*:*`）を持つ場合だけ許す。一括の追加は 1 件でも違反があれば全体をロールバックする（51.1 と同じ）
 - 割り当ての解除（38.9）: `UserRoleService.removeRoleInTransaction` が、最後の管理者の判定より前に `assertCanRevokeRole` を呼ぶ。対象の利用者が実行者自身のときは判定しない（38.9 は他のユーザーからの解除を対象とする。自分の保有するロールは上限を超えない）
-- 拒否の扱い（38.6〜38.9、38.11、38.12）: 既存の 3 つの上限の拒否と同じく、403 `{ error: 'FORBIDDEN', message, code: <CeilingError の種別> }` を返し、`recordCeilingRejection` で監査 `PERMISSION_CHECK_FAILED` をトランザクションの外で記録し、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2。SecurityAnomalyMonitor の節の 43.2 の定義）
+- 拒否の扱い（38.6〜38.9、38.11、38.12）: 既存の 3 つの上限の拒否と同じく、403 `{ error: 'FORBIDDEN', message, code: <CeilingError の種別> }` を返し、`recordCeilingRejection` で監査 `PERMISSION_CHECK_FAILED` をトランザクションの外（ロールバックの後）で記録し、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2。SecurityAnomalyMonitor の節の 43.2 の定義）。ルートの送り出しは `roles.routes.ts` の `rejectByCeiling` と `user-roles.routes.ts` の割り当て・解除の拒否で行う
+- 上限の拒否の監査の形（`recordCeilingRejection`。`before`・`after` は null、`metadata.reason` は `CeilingError` の種別、他の metadata の値は文字列）:
+  - ロールの作成（38.7）: targetType `role`、targetId は要求されたロールの名前（ロールは作られず ID が無いため）、metadata `{ reason, requestedName, requestedPriority }`
+  - ロールの優先度の変更（38.6、38.11、38.12）: targetType `role`、targetId はロールの ID、metadata `{ reason, currentPriority, requestedPriority }`
+  - ロールの削除（38.11）: targetType `role`、targetId はロールの ID、metadata `{ reason, roleName }`
+  - システムロールの名前の変更（38.3）: targetType `role`、targetId はロールの ID、metadata `{ reason, currentName, requestedName }`
+  - 権限の追加・削除（38.2、38.8、38.11）: targetType `role-permission`、targetId はロールの ID、metadata `{ reason, permissionId, permission }`（`permission` は `resource:action`）
+  - ロールの割り当て・割り当ての解除（38.1、38.9）: targetType `user-role`、targetId は対象の利用者の ID、metadata `{ reason, roleId }`
 - 画面: ロール管理・ユーザー管理の画面は 403 の `code` を出し分けておらず、既存の汎用のエラー表示のままとする（新しい表示文言は設けない）
 - 移行: 不要（列・既定の権限の変更は無い）。既に `admin` の優先度を超えるロールや、実行者の上限を超えて作られたロールがあっても書き換えない。`admin` の優先度が 100 であることは seed が定め、`user` は 0 である（38.12 の後は変わらない）
 - 既定の権限: `user` ロールから `user:read` を外す（38.4）。権限 `project:read_all` を新設する。`admin` は `*:*` で全てを持つ（39.5）。本番の既存データは移行の SQL で `user` ロールの `user:read` の割り当てを外す
@@ -6108,10 +6117,12 @@ type AnomalyRecordOutcome = 'dropped' | 'counted' | 'notified' | 'suppressed' | 
 - 計数は Redis の分単位の桶（`anomaly:<signal>:<分>`、`INCR` と `EXPIRE`）で行い、時間窓の合計が閾値を超えたら通知する。`data_export` は利用者ごとの桶で数える（43.4）
 - 通知の抑止は `SET anomaly:notified:<signal> NX EX cooldownSeconds` で行う（43.6）。2026-10-26 の改訂（43.8）で、`data_export` の抑止の鍵を利用者ごとの `anomaly:notified:data_export:user:<userId>` に改める。計数の鍵（利用者ごと）と抑止の鍵の単位が揃い、利用者 A の通知の抑止の時間内でも利用者 B の急増は通知される。他の群の抑止の鍵（群ごと）は変えない
 - 通知の総数の上限（43.9、2026-10-26 追加）: 抑止の鍵を取れた（送るべき）通知について、固定の時間窓の計数 `anomaly:notify-budget:<窓の番号>`（`INCR` と `EXPIRE`。窓の番号は `floor(now / windowSeconds)`）を進め、`maxNotifications` を超えたら送らず、溢れ分として `anomaly:overflow:count`（`INCR`）、`anomaly:overflow:groups`（ハッシュ。群ごとの件数）、`anomaly:overflow:since`（`SET NX`。最初の溢れの時刻）、`anomaly:overflow:last`（最後の溢れの時刻）に記録して `'capped'` を返す。抑止の鍵は取ったまま残す（同じ種類の再送は抑止の時間の間止まり、溢れ分の通知で知らせる）
-- 溢れ分の通知（43.9）: 上限の内で通知を送るときは、送る前に溢れ分の鍵を一つの `MULTI`（読み出しと `DEL`）で取り出し、残っていれば本文の末尾に「上限により送らなかった通知: N 件（期間 since 〜 last、内訳 群: 件数）」を添える。次の通知が無いまま上限の時間窓が明けたときに備え、定期処理 `security-anomaly-overflow-summary`（10 分ごと。ScheduledJobRunner の節）が、溢れ分が残り、最初の溢れの属する時間窓が明けていれば、同じ取り出しで要約を 1 通送る。要約は上限の計数に含めない（1 回の実行で 1 通に限り、溢れ分が無ければ送らないため、要約による殺到は起きない）。取り出しの後に通知の送信が失敗したときは、件数と内訳を溢れ分へ戻す
+- 溢れ分の通知（43.9）: 上限の内で通知を送るときは、送る前に溢れ分の鍵を一つの `MULTI`（読み出しと `DEL`）で取り出し、残っていれば本文の末尾に「上限により送らなかった通知: N 件（期間 since 〜 last、内訳 群: 件数）」を添える。次の通知が無いまま上限の時間窓が明けたときに備え、定期処理 `security-anomaly-overflow-summary`（10 分ごと。ScheduledJobRunner の節）が、溢れ分が残り、最初の溢れの属する時間窓が明けていれば、同じ取り出しで要約を 1 通送る。要約は上限の計数に含めない（1 回の実行で 1 通に限り、溢れ分が無ければ送らないため、要約による殺到は起きない）。要約の件名は「【重要】セキュリティ上の異常の検知: 上限により送らなかった通知の要約」とし、本文は上限の設定（「異常の通知の総数の上限（W 秒あたり N 通）により送らなかった通知の要約」）と上の添え書きと同じ 1 行とする
+- 取り出した溢れ分を戻す範囲（43.9）: 取り出しの後に `getNotifier()` か `notifyAllAdmins` が例外を投げたときだけ、件数と内訳を溢れ分へ戻して例外を投げ直す（要約は定期処理の次の実行が送り直す）。`AdminNotificationService.notifyAllAdmins` は宛先の取得とメールのキューへの投入の失敗を自身の中で警告ログに留めて例外にしないため、その失敗では溢れ分は戻らず、添え書き・要約の内容は失われうる（通知そのものの失敗と同じ扱いで、ログに残る）
+- 二重送信の防止と既知の制約（43.9）: 二重に送らないことは、溢れ分の読み出しと消去を一つの `MULTI` で行う取り出しが担う（重なった取り出しの片方だけが中身を得る）。要約の処理の排他の鍵 `anomaly:overflow:summary-lock`（`SET NX EX 60`）は同じ時刻の重複の実行を避ける補助であり、処理の後に所有の照合をせずに消す（期限の切れた後に他の実行が取った鍵を消しうるが、取り出しが一つであるため二重には送らない）。戻すときの `since` は無条件の上書き、`last` は `SET NX` で、取り出しと戻しの間に新しい溢れが記録された場合の最初・最後の時刻は最小・最大の比較をしないため、期間の表示が厳密でないことがある。件数と内訳は `INCRBY`・`HINCRBY` で足し戻すため失われない
 - 上限と時間窓は環境変数 `SECURITY_ALERT_NOTIFICATION_LIMIT`（既定 10 通）と `SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS`（既定 3600 秒）で変える（43.7 と同じく `backend/src/config/security-alert.ts` で検証する）。既定の 10 通 / 時は、群ごとの抑止 1800 秒の下で利用者ごとでない 4 群が出しうる最大の 8 通 / 時を上回り、利用者ごとのデータ出力の通知が多数の利用者で同時に起きた場合にだけ効く値である。試験と CI の環境は E2E と統合テストの全件で超えない値にし、上限の振る舞いは単体と統合のテストの中で設定を下げて確かめる
 - 通知の本文は、検知の種類、時間窓、件数、上位 5 件の送信元 IP・利用者 ID を含める（43.5）。主な送信元・利用者は桶ごとの Redis のソート済み集合で数える
-- 閾値・時間窓・抑止の時間は検知の群ごとの環境変数 `SECURITY_ALERT_<GROUP>_THRESHOLD`・`_WINDOW_SECONDS`・`_COOLDOWN_SECONDS` で変える（43.7。`backend/src/config/security-alert.ts`）。群は `LOGIN_FAILED`・`PERMISSION_DENIED`（`permission_denied` と `scope_denied` の合算）・`RATE_LIMITED`・`SERVER_ERROR`・`DATA_EXPORT` の 5 つで、例えば `SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD` とする。計数の鍵と通知の抑止の鍵も群ごとに持つ（`data_export` の計数は利用者ごと、抑止は群ごと）。既定は `login_failed` 20 件 / 300 秒、`permission_denied`・`scope_denied` 合算 30 件 / 300 秒、`rate_limited` 100 件 / 300 秒、`server_error` 20 件 / 300 秒、`data_export` 利用者ごと 50 件 / 3600 秒、抑止 1800 秒
+- 閾値・時間窓・抑止の時間は検知の群ごとの環境変数 `SECURITY_ALERT_<GROUP>_THRESHOLD`・`_WINDOW_SECONDS`・`_COOLDOWN_SECONDS` で変える（43.7。`backend/src/config/security-alert.ts`）。群は `LOGIN_FAILED`・`PERMISSION_DENIED`（`permission_denied` と `scope_denied` の合算）・`RATE_LIMITED`・`SERVER_ERROR`・`DATA_EXPORT` の 5 つで、例えば `SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD` とする。計数の鍵と通知の抑止の鍵も群ごとに持つ（`data_export` は計数の鍵・抑止の鍵とも利用者ごと。43.4、43.8）。既定は `login_failed` 20 件 / 300 秒、`permission_denied`・`scope_denied` 合算 30 件 / 300 秒、`rate_limited` 100 件 / 300 秒、`server_error` 20 件 / 300 秒、`data_export` 利用者ごと 50 件 / 3600 秒、抑止 1800 秒
 - `permission_denied` は既存の `recordPermissionCheckFailure` から、`login_failed` は AuthService から呼ぶ（43.1、43.2）。権限の上限による 3 つの 403（`user-roles.routes.ts` のロールの割り当て、`roles.routes.ts` の権限の付与とシステムロールの名前の変更）も、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2）。2026-10-26 に加えた上限の 403（38.6 のロールの優先度の変更・38.7 のロールの作成・38.8 の保有しない権限の追加は `roles.routes.ts`、38.9 の割り当ての解除は `user-roles.routes.ts`、38.11 の上限より上のロールの変更・消去と 38.12 のシステムロールの優先度の変更は `roles.routes.ts`）も同じく送る。38.10 の 400 は入力の誤りであり送らない
 - 43.2 の権限チェックの失敗（403）の定義（2026-10-26、利用者の判断）: 数えるのは、RBAC の権限の不足による拒否（`requirePermission` の `authorize` による 403）と、権限付与の上限による拒否（要件38 の 38.1〜38.3・38.6〜38.9・38.11・38.12）の二つである。業務上の保護による拒否（`SYSTEM_ROLE_PROTECTED`、`LAST_ADMIN_PROTECTED`、`SELF_RESET_FORBIDDEN`、`TWO_FACTOR_DISABLE_NOT_ALLOWED`、2FA 未登録・初回のパスワード変更中などの利用者の状態による制限。応答の状態コードが 403 か 400 かを問わない）は数えない。これらは通常の運用の中で起きる拒否であり、数えると本当の兆候が埋もれるためである（OWASP のログの指針を踏まえた利用者の判断）
 - Redis が使えないときは計数を捨て、警告ログを残す（検知の欠落は要求の失敗にしない）
@@ -6193,7 +6204,7 @@ type AnomalyRecordOutcome = 'dropped' | 'counted' | 'notified' | 'suppressed' | 
   ```
   - `targetType` が `Invitation` で `metadata.email` が空でない文字列なら、その値を返す。それ以外は従来どおり `targetName || targetId || '-'` を返す
   - 監査ログ画面（`AuditLogs`、`/admin/audit-logs`）の対象の欄と、`AuditLogViewer` の対象の欄の両方がこの関数を使う
-  - 表示を画面の側で組み立てる理由: 招待の記録（`INVITATION_CREATED`・`INVITATION_REVOKED`・`INVITATION_RESENT`）は `InvitationService.recordAudit` が `metadata.email` を書いており、既に書かれた行もメールアドレスを持つ。`audit_logs` には対象の名前の列が無く、トリガー `audit_logs_immutable` が UPDATE を拒否するため、既存の行へ名前を書き足すことはできない。記録の時点で名前の写しを書く案（列の追加と移行）は既存の行に効かず、40.12 を既存の行で満たせないため採らない。API の応答（`metadata` を含む）は変えない
+  - 表示を画面の側で組み立てる理由: 招待の記録（`INVITATION_CREATED`・`INVITATION_REVOKED`・`INVITATION_RESENT`）は `InvitationService.recordAudit` が `metadata.email` を書いており、既に書かれた行もメールアドレスを持つ。`audit_logs` には対象の名前の列が無く、トリガー `audit_logs_immutable` が UPDATE を拒否するため、既存の行へ名前を書き足すことはできない。記録の時点で名前の写しを書く案（列の追加と移行）は既存の行に効かず、40.12 を既存の行で満たせないため採らない。記録、API の応答（`metadata` を含む）、JSON の出力は変えない
   - `INVITATION_ACCEPTED`（招待経由の登録、targetType `Invitation`、`metadata.email` を持つ）も同じ表示になる。40.12 の対象外だが、同じ招待を指す記録の表示を揃える
   - 対象の種別の列（`AuditLogViewer` の 1 行目の `targetType`）は変えない
 

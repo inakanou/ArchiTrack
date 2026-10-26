@@ -29,7 +29,9 @@
 | `LOG_LEVEL` | ログレベル | 任意 | `info` | `info`/`debug`/`error` |
 | `SECURITY_ALERT_<種類>_THRESHOLD` | セキュリティ上の異常の検知の閾値（時間窓の件数がこれを超えると全システム管理者へ通知）。`<種類>` は `LOGIN_FAILED`・`PERMISSION_DENIED`（403 と閲覧範囲外のアクセスの合算）・`RATE_LIMITED`（429）・`SERVER_ERROR`（5xx）・`DATA_EXPORT`（利用者ごと） | 任意 | 20・30・100・20・50 | 正の整数。試験・CI の compose と ci.yml は E2E・統合テストの全件で超えない `1000000` |
 | `SECURITY_ALERT_<種類>_WINDOW_SECONDS` | 同じ検知の時間窓（秒） | 任意 | `DATA_EXPORT` は 3600、他は 300 | 正の整数。計数は分単位の桶 |
-| `SECURITY_ALERT_<種類>_COOLDOWN_SECONDS` | 同じ種類の通知を抑止する時間（秒） | 任意 | 1800 | 正の整数 |
+| `SECURITY_ALERT_<種類>_COOLDOWN_SECONDS` | 同じ種類の通知を抑止する時間（秒）。`DATA_EXPORT` は利用者ごとに抑止する | 任意 | 1800 | 正の整数 |
+| `SECURITY_ALERT_NOTIFICATION_LIMIT` | 異常の通知の総数の上限（時間窓あたりの通数）。超えた通知は送らず、次に送る通知の末尾に添えるか、時間窓が明けた後に定期処理が要約 1 通で送る | 任意 | 10 | 正の整数。試験・CI の compose と ci.yml は `1000000` |
+| `SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS` | 異常の通知の総数の上限の時間窓（秒。固定の時間窓） | 任意 | 3600 | 正の整数 |
 | `DISABLE_RATE_LIMIT` | レート制限無効化（開発・テスト用） | 任意 | `false` | `true`（ローカルのみ推奨） |
 | `SENTRY_DSN` | Sentryエラートラッキング | 推奨 | なし | Sentry Project設定 |
 
@@ -55,6 +57,10 @@
 | `VITE_API_BASE_URL` | Backend APIのベースURL | **必須** | `http://localhost:3000` |
 | `VITE_TOKEN_REFRESH_THRESHOLD` | トークン自動リフレッシュ閾値 | 任意 | `5m` |
 | `VITE_SENTRY_DSN` | Sentryエラートラッキング（Frontend） | 推奨 | なし |
+| `BACKEND_INTERNAL_URL` | API（`/api/`・`/csrf-token`）の中継先。`scheme://host[:port]` だけ（パス・クエリは不可）。未設定・形の違いはコンテナの起動前の検査で止まる | **必須**（実行時） | なし |
+| `CSP_IMG_SRC_EXTRA` | CSP の `img-src` の追加の取得先（R2 の配信元など。空白区切り） | 任意（実行時） | 空 |
+| `CSP_CONNECT_SRC_EXTRA` | CSP の `connect-src` の追加の取得先（R2 の配信元、Sentry の取り込み先など。空白区切り） | 任意（実行時） | 空 |
+| `NGINX_HSTS_VALUE` | `Strict-Transport-Security` の値。本番だけ設定する（空なら付けない） | 本番で推奨（実行時） | 空 |
 
 > `VITE_` で始まる変数はViteが**ビルド時**にバンドルへ埋め込みます。実行中のコンテナに設定しても読まれないため、値を変えたら**フロントエンドの再ビルドが必要**です（`frontend/Dockerfile` の `ARG VITE_SENTRY_DSN` が受け口）。
 > `VITE_SENTRY_DSN` が**未設定の環境では、`frontend/src/utils/sentry.ts` が即座に戻り、監視への送出は意図的に行われません**（送出処理そのものは常に配備されています）。

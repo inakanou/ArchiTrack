@@ -1870,14 +1870,14 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 ## タスク61: 総合検証と文書の追随（要件38.6〜38.12・40.12・43.8・43.9）
 
-- [ ] 61.1 全ての単体・統合・E2E と関門を通す
+- [x] 61.1 全ての単体・統合・E2E と関門を通す
   - backend と frontend の全単体テスト、統合テスト、E2E の全件を回す（58.2・59.2 で足した E2E と、振る舞いを変えた画面と API に触れる既存の E2E を含む）。関門は `:update` の変種を含めず名指しで一本ずつ回し、最後に `git status --porcelain scripts/` が空であることを確かめる
   - 全てのテストと関門が緑で、要件38.6〜38.12・40.12・43.8・43.9 の受入基準の被覆が揃っている状態になる
   - _Depends: 58.1, 58.2, 59.1, 59.2, 60.1_
   - _Boundary: 全体の検証_
   - _Requirements: 38.6, 40.12, 43.8_
 
-- [ ] 61.2 設計文書・計画書・関連 spec の記述を現況へ揃える
+- [x] 61.2 設計文書・計画書・関連 spec の記述を現況へ揃える
   - design.md の要件38・40・43 の節を実装に合わせる。`docs/security/ipa-alert-20261009-remediation-plan.md` の RBAC の上限の行を完了（要件38.1〜38.12、タスク51・58）に改め、残件の記述を外す。steering（`tech.md` の `SECURITY_ALERT_*` の環境変数）を現況へ揃える。project-management の要件23.2・23.3 の改訂（閲覧範囲内の件数）が実装と合っていることを確かめる
   - spec.json の phase を implementation-complete へ改めるのは、`/kiro-validate-impl user-authentication` が GO を出した後に行う。tasks_summary は同じ時点で測り直す
   - 設計文書の関門と鮮度の関門が緑で、計画書の RBAC の行が完了の印を持つ状態になる
@@ -1970,3 +1970,5 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 - 59.1: `frontend/src/utils/audit-log-actions.ts` の `getAuditLogTargetLabel`（targetType が Invitation で metadata.email が空でない文字列ならそれ、他は `targetName || targetId || '-'`）を、対象の欄を描く 2 箇所（AuditLogs.tsx・AuditLogViewer.tsx）で使う。記録・API の応答・JSON の出力は変えない。登録時の INVITATION_ACCEPTED も targetType が Invitation で metadata.email を持つため同じ表示になる（design のとおり 40.12 の対象外だが表示を揃える）
 - 59.2: 招待の監査を画面で主張する E2E は `e2e/specs/auth/invitation-reset-token-protection.spec.ts` だけで、50.4 の「対象の欄が招待の ID」の主張が 59.1（cc3fede8）で古くなっていた（59.1 の検証で招待の spec を流さず、cc3fede8 の版ではこの E2E が赤）。同 spec の `expectAuditRecordOnScreen` を、種別で絞り API の応答で招待の ID と結んだうえで一意のメールアドレスのセルで行を決め、対象の欄がメールアドレス・行に ID が無いことを主張する形へ改めた（作成と登録、取り消しと再送信）。表示を変えるタスクは、その表示を主張する既存の E2E を grep で洗ってから流す
 - 60.1: `SecurityAnomalyMonitor` の抑止の鍵を data_export だけ `anomaly:notified:data_export:user:<id>` にし、抑止の判定の後に固定の時間窓の上限（`anomaly:notify-budget:<窓>`、MULTI の INCR と EXPIRE）を取る。上限を超えた通知は `'capped'` で溢れ分（count・群ごとの内訳・since・last）を 1 つの MULTI で数え、次に送る通知が 1 つの MULTI で取り出して末尾に添える（重なっても二重に送らない。要約の排他の鍵は補助）。新設の `backend/src/jobs/security-anomaly-overflow-summary.job.ts`（`*/10 * * * *`、NODE_ENV=test では登録しない）が時間窓の明けた溢れ分を要約 1 通で送り、上限に数えない。上限は `SECURITY_ALERT_NOTIFICATION_LIMIT`（10）と `SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS`（3600）で、試験・CI は 1000000。レビューの任意の提案（61.2 で扱う）: 排他の鍵の照合つきの消去、送信失敗時の since・last の戻しの min/max、`notifyAllAdmins` は失敗を握りつぶすため「送信が失敗したら戻す」は notifier が投げたときだけ働く——design の書き方を現況へ揃える
+- 61.1: 2026-10-26 に HEAD cd3a9e73 で全件を回した。backend 単体 6936（253 ファイル）・frontend 単体 12533（562 ファイル）・統合 1332（105 ファイル）・E2E 2856/2856（237 ファイル、flaky 0）、カバレッジの関門・/health 200・strict の監査（ブロック 0）。統合の expired-token-cleanup の「定期処理の登録」が 60.1 の 5 本目の定期処理（溢れ分の要約）を数えておらず 4 本のまま赤だったため、5 本と要約の次の実行（10 分の境界）を主張する形へ直した（60.1 の検証で同ファイルを流していなかった）。`check:*` は `:update`・`:verbose`・`:json` を除き名指しで全て緑。`check:req-coverage:strict` だけが赤だが、pre-push と CI では回しておらず、既存の除外 68 件（本番の経路へ到達する代替検証が無いもの）による
+- 61.2: design.md（上限の拒否の監査の形・ロックの順・43.8 の利用者ごとの抑止・溢れ分と要約・送信失敗時に戻す範囲と既知の制約・新設のジョブのファイル）、計画書の RBAC の行を完了（要件38.1〜38.12、タスク51・58。残件 4 件は 38.6〜38.10 として取り込み 38.11・38.12 を加えた）、tech.md の `SECURITY_ALERT_NOTIFICATION_*` と定期処理 5 本、docs/deployment/environment-variables.md へ通知の上限の 2 変数と nginx の 4 変数（validate-impl の S-5）。project-management 要件23.2・23.3 の改訂に合わせ `project.service.ts` の `getStatusCounts` の JSDoc を閲覧範囲内の件数へ改めた（project-management の design.md のコードの抜粋は起票時の形のまま残す注記どおり）。レビューは計画書 §5.1 の取り込み先の誤り（38.6〜38.12 → 38.6〜38.10 と 38.11・38.12 の追加）で 1 回差し戻し、2 巡目で承認
