@@ -88,6 +88,16 @@ vi.mock('../../../middleware/authorize.middleware.js', () => ({
     },
 }));
 
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// construction-schedule-project-scope.middleware.test.ts と統合テストが確かめる。タスク22.1）
+vi.mock('../../../middleware/construction-schedule-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireScheduleProjectScope: pass,
+  };
+});
+
 vi.mock('../../../utils/logger.js', () => ({
   default: {
     info: vi.fn(),
@@ -267,6 +277,12 @@ describe('工程表ルート', () => {
         expect.objectContaining({
           name: 'テスト工程表',
           quantityTableId: null,
+        }),
+        'test-user-id',
+        // 数量表の所属の照合で範囲外とした拒否の記録に添える要求の識別（タスク22.1、13.4）
+        expect.objectContaining({
+          method: 'POST',
+          path: expect.stringContaining(`/api/projects/${projectId}/schedules`),
         })
       );
     });
@@ -303,9 +319,7 @@ describe('工程表ルート', () => {
     });
 
     it('数量表バリデーションエラーで422が返ること', async () => {
-      mockCreate.mockRejectedValue(
-        new ScheduleValidationError('指定された数量表は同一プロジェクトに属していません')
-      );
+      mockCreate.mockRejectedValue(new ScheduleValidationError('指定された数量表が見つかりません'));
 
       await request(app)
         .post(`/api/projects/${projectId}/schedules`)
@@ -323,6 +337,38 @@ describe('工程表ルート', () => {
         .post(`/api/projects/${projectId}/schedules`)
         .send(validCreateData)
         .expect(500);
+    });
+  });
+
+  // =================================================================
+  // 経路の ID の形式の検査（タスク22.1。案件の閲覧範囲の判定部品より前に置く）
+  // =================================================================
+  describe('経路の ID の形式の検査（タスク22.1）', () => {
+    it.each([
+      ['GET', '/api/schedules/not-a-uuid'],
+      ['PUT', '/api/schedules/not-a-uuid'],
+      ['PUT', '/api/schedules/not-a-uuid/bulk-save'],
+      ['DELETE', '/api/schedules/not-a-uuid'],
+      ['GET', '/api/schedules/not-a-uuid/export?format=xlsx'],
+      ['GET', '/api/projects/not-a-uuid/schedules'],
+      ['POST', '/api/projects/not-a-uuid/schedules'],
+      // プロジェクトの配下でないマウントから届く一覧・作成は経路にプロジェクト ID が無い
+      ['GET', '/api/schedules'],
+      ['POST', '/api/schedules'],
+    ] as const)('%s %s は 400 になり、本体を呼ばない', async (method, path) => {
+      const call = request(app)[method.toLowerCase() as 'get' | 'put' | 'delete' | 'post'](path);
+      await call.send({ name: 'テスト工程表', version: 0, items: [] }).expect(400);
+      for (const mock of [
+        mockFindByProject,
+        mockFindById,
+        mockCreate,
+        mockUpdate,
+        mockBulkSaveItems,
+        mockDelete,
+        mockGetExportData,
+      ]) {
+        expect(mock).not.toHaveBeenCalled();
+      }
     });
   });
 

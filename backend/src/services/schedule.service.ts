@@ -18,6 +18,10 @@
  *
  * Design Reference: design.md - ScheduleService セクション
  *
+ * 案件の閲覧範囲（construction-schedule の Requirement 13.4、タスク22.1）: 工程表の作成の要求が指す数量表が
+ * 経路のプロジェクトに属さなければ、数量表の不在と同じ 422 にして工程表を作成しない。数量表の案件が実在し
+ * 実行者の閲覧範囲外なら、user-authentication の要件39.7 に従い PROJECT_SCOPE_DENIED を処理の後に記録する。
+ *
  * @module services/schedule
  */
 
@@ -35,13 +39,37 @@ import {
   ScheduleValidationError,
   ScheduleItemLimitExceededError,
 } from '../errors/scheduleError.js';
+import type { IAuditLogService } from '../types/audit-log.types.js';
+import { AuditLogService } from './audit-log.service.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 
 /**
  * ScheduleService依存関係
  */
 export interface ScheduleServiceDependencies {
   prisma: PrismaClient;
+  /**
+   * 範囲外の拒否（PROJECT_SCOPE_DENIED）の記録に用いる監査ログ（任意。タスク22.1、Requirement 13.4）。
+   * 未指定の場合は `prisma` で組み立てる。
+   */
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;
+  /**
+   * 案件の閲覧範囲の判定（任意。タスク22.1、Requirement 13.4）。
+   * 作成の要求が指す他のプロジェクトの数量表の案件が範囲外かを判定し、範囲外の拒否を記録するために用いる。
+   * 未指定の場合は user-authentication の共有のインスタンス（{@link getSharedProjectScopeService}）で判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 }
+
+/**
+ * 工程表の作成の要求が指す数量表が見つからない場合の本文。
+ * 経路のプロジェクトに属さない数量表も同じ本文にする（Requirement 13.4）
+ */
+const QUANTITY_TABLE_NOT_FOUND_MESSAGE = '指定された数量表が見つかりません';
 
 /**
  * 工程表一覧アイテム
@@ -175,9 +203,17 @@ function toScheduleListItem(record: any): ScheduleListItem {
  */
 export class ScheduleService {
   private readonly prisma: PrismaClient;
+  private readonly auditLogService: Pick<IAuditLogService, 'createLog'>;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: ScheduleServiceDependencies) {
     this.prisma = deps.prisma;
+    this.auditLogService = deps.auditLogService ?? new AuditLogService({ prisma: deps.prisma });
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
   }
 
   /**
@@ -253,8 +289,39 @@ export class ScheduleService {
    *
    * 数量表の項目が {@link MAX_SCHEDULE_ITEMS} 件を超える場合は、何も書き込まずに
    * {@link ScheduleItemLimitExceededError}（400）で拒む（Req 12.1）。
+   *
+   * 数量表が存在しない・論理削除済み・作成先のプロジェクトに属さない場合は、いずれも同じ本文の
+   * {@link ScheduleValidationError}（422）で拒み、工程表も工程項目も作成しない（Requirement 13.4）。
+   *
+   * @param actorId - 実行者ID（作成先のプロジェクトに属さない数量表の案件が範囲外かの判定に用いる）
+   * @param scopeDenialContext - 範囲外の拒否の記録に添える要求の識別（経路が要求から切り出して渡す）
    */
-  async create(projectId: string, data: CreateScheduleInput): Promise<ScheduleDetail> {
+  async create(
+    projectId: string,
+    data: CreateScheduleInput,
+    actorId?: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<ScheduleDetail> {
+    if (actorId === undefined) {
+      return this.createWithin(projectId, data, undefined, new Set<string>());
+    }
+    // 数量表の所属の照合（13.4）で範囲外とした案件は、処理の後に PROJECT_SCOPE_DENIED として記録する
+    // （user-authentication の要件39.7）
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) => this.createWithin(projectId, data, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link create} の本体。数量表の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async createWithin(
+    projectId: string,
+    data: CreateScheduleInput,
+    actorId: string | undefined,
+    deniedProjectIds: Set<string>
+  ): Promise<ScheduleDetail> {
     // 数量表指定時: 数量表を検証し、写す項目を工程表の作成より前に取得する
     let quantityItems: Array<{ id: string; name: string }> = [];
     if (data.quantityTableId) {
@@ -263,11 +330,23 @@ export class ScheduleService {
       });
 
       if (!quantityTable || quantityTable.deletedAt) {
-        throw new ScheduleValidationError('指定された数量表が見つかりません');
+        throw new ScheduleValidationError(QUANTITY_TABLE_NOT_FOUND_MESSAGE);
       }
 
       if (quantityTable.projectId !== projectId) {
-        throw new ScheduleValidationError('指定された数量表は同一プロジェクトに属していません');
+        // 作成先のプロジェクトに属さない数量表は、範囲の内外を問わず不在と同じ応答にする（13.4）。
+        // 範囲の内外で応答を変えると他のプロジェクトの数量表の実在を推測させるため。範囲外（案件は
+        // 実在する）のときだけ、範囲外の拒否として記録する（user-authentication の要件39.7）
+        if (actorId !== undefined) {
+          const decision = await this.projectScope.evaluateProjectAccess(
+            actorId,
+            quantityTable.projectId
+          );
+          if (decision === 'out_of_scope') {
+            deniedProjectIds.add(quantityTable.projectId);
+          }
+        }
+        throw new ScheduleValidationError(QUANTITY_TABLE_NOT_FOUND_MESSAGE);
       }
 
       quantityItems = await this.prisma.quantityItem.findMany({

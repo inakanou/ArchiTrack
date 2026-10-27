@@ -737,7 +737,9 @@ describe('Schedule API Integration Tests', () => {
         .send({ name: '更新', version: 0 });
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('SCHEDULE_NOT_FOUND');
+      // 存在しない工程表は閲覧範囲の判定部品が範囲外と同じ汎用の 404 にする
+      // （construction-schedule の Requirement 13.3、タスク22.1）
+      expect(response.body.code).toBe('NOT_FOUND');
     });
 
     it('バージョン競合時は409を返す（楽観的排他制御）', async () => {
@@ -914,7 +916,9 @@ describe('Schedule API Integration Tests', () => {
         .send({ version: 0, items: [] });
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('SCHEDULE_NOT_FOUND');
+      // 存在しない工程表は閲覧範囲の判定部品が範囲外と同じ汎用の 404 にする
+      // （construction-schedule の Requirement 13.3、タスク22.1）
+      expect(response.body.code).toBe('NOT_FOUND');
     });
 
     it('バリデーションエラー: itemNameが空 (Req 1.6)', async () => {
@@ -1132,7 +1136,9 @@ describe('Schedule API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('SCHEDULE_NOT_FOUND');
+      // 存在しない工程表は閲覧範囲の判定部品が範囲外と同じ汎用の 404 にする
+      // （construction-schedule の Requirement 13.3、タスク22.1）
+      expect(response.body.code).toBe('NOT_FOUND');
     });
 
     it('既に論理削除済みの工程表の削除は404を返す', async () => {

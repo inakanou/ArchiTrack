@@ -16,6 +16,12 @@
  *
  * Design Reference: design.md - ScheduleRoutes セクション
  *
+ * 案件の閲覧範囲（construction-schedule の Requirement 13.1〜13.5、user-authentication の要件39。タスク22.1）:
+ * 全経路で requirePermission と経路の ID の形式の検査の後に construction-schedule-project-scope.middleware の
+ * 判定部品を置き、範囲外は不在と同じ汎用の 404 にする。`/:id` 配下は経路の projectId でなく工程表が属する案件で
+ * 判定し、二重マウントで経路の projectId と工程表の案件が食い違えば不在と同じ 404 にする。
+ * 工程表の作成の要求が指す数量表の所属の照合（13.4）は ScheduleService.create が行う。
+ *
  * @module routes/schedules
  */
 
@@ -26,6 +32,11 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
+import {
+  requireProjectParamScope,
+  requireScheduleProjectScope,
+} from '../middleware/construction-schedule-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createScheduleSchema,
@@ -33,6 +44,8 @@ import {
   bulkSaveScheduleItemsSchema,
   exportQuerySchema,
   scheduleListQuerySchema,
+  scheduleIdParamSchema,
+  projectIdParamSchema,
   type CreateScheduleInput,
   type UpdateScheduleInput,
   type BulkSaveScheduleItemsInput,
@@ -97,26 +110,27 @@ const scheduleExportService = new ScheduleExportService({ prisma });
  *     responses:
  *       200:
  *         description: 工程表一覧
+ *       400:
+ *         description: バリデーションエラー（projectId の形式不正など）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
  */
 router.get(
   '/',
   authenticate,
   requirePermission('schedule:read'),
+  validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(scheduleListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const projectId = req.params.projectId;
-      if (!projectId) {
-        res.status(400).json({
-          status: 400,
-          detail: 'プロジェクトIDが必要です',
-        });
-        return;
-      }
+      // 経路のプロジェクト ID は形式の検査（projectIdParamSchema）を通っている。`/api/schedules` のマウント
+      // から届く要求は経路にプロジェクト ID が無く、その検査の 400 で終わる（タスク22.1）
+      const { projectId } = req.validatedParams as { projectId: string };
 
       const query = req.validatedQuery as ScheduleListQuery;
 
@@ -155,17 +169,21 @@ router.get(
  *     responses:
  *       200:
  *         description: 工程表詳細
+ *       400:
+ *         description: 工程表IDの形式不正
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 工程表が見つからない
+ *         description: 工程表が見つからない（閲覧範囲外・論理削除済みを含む）
  */
 router.get(
   '/:id',
   authenticate,
   requirePermission('schedule:read'),
+  validate(scheduleIdParamSchema, 'params'),
+  requireScheduleProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = req.params.id as string;
@@ -220,33 +238,37 @@ router.get(
  *       201:
  *         description: 工程表作成成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（projectId の形式不正、数量表の項目数の上限超過を含む）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
  *       422:
- *         description: ビジネスロジックエラー
+ *         description: 数量表が見つからない（論理削除済み・経路のプロジェクトに属さない数量表を含む。本文は同一）
  */
 router.post(
   '/',
   authenticate,
   requirePermission('schedule:create'),
+  validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createScheduleSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const projectId = req.params.projectId;
-      if (!projectId) {
-        res.status(400).json({
-          status: 400,
-          detail: 'プロジェクトIDが必要です',
-        });
-        return;
-      }
+      // 経路のプロジェクト ID は形式の検査（projectIdParamSchema）を通っている。`/api/schedules` のマウント
+      // から届く要求は経路にプロジェクト ID が無く、その検査の 400 で終わる（タスク22.1）
+      const { projectId } = req.validatedParams as { projectId: string };
 
       const data = req.validatedBody as CreateScheduleInput;
 
-      const schedule = await scheduleService.create(projectId, data);
+      const schedule = await scheduleService.create(
+        projectId,
+        data,
+        req.user?.userId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         { projectId, scheduleId: schedule.id, userId: req.user?.userId },
@@ -299,13 +321,13 @@ router.post(
  *       200:
  *         description: 工程表更新成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（工程表IDの形式不正を含む）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 工程表が見つからない
+ *         description: 工程表が見つからない（閲覧範囲外・論理削除済みを含む）
  *       409:
  *         description: 楽観的排他制御エラー（競合）
  */
@@ -313,6 +335,8 @@ router.put(
   '/:id',
   authenticate,
   requirePermission('schedule:update'),
+  validate(scheduleIdParamSchema, 'params'),
+  requireScheduleProjectScope('id'),
   validate(updateScheduleSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -377,13 +401,13 @@ router.put(
  *       200:
  *         description: バルク保存成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（工程表IDの形式不正を含む）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 工程表が見つからない
+ *         description: 工程表が見つからない（閲覧範囲外・論理削除済みを含む）
  *       409:
  *         description: 楽観的排他制御エラー（競合）
  */
@@ -391,6 +415,8 @@ router.put(
   '/:id/bulk-save',
   authenticate,
   requirePermission('schedule:update'),
+  validate(scheduleIdParamSchema, 'params'),
+  requireScheduleProjectScope('id'),
   validate(bulkSaveScheduleItemsSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -451,17 +477,21 @@ router.put(
  *     responses:
  *       204:
  *         description: 削除成功
+ *       400:
+ *         description: 工程表IDの形式不正
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 工程表が見つからない
+ *         description: 工程表が見つからない（閲覧範囲外・論理削除済みを含む）
  */
 router.delete(
   '/:id',
   authenticate,
   requirePermission('schedule:delete'),
+  validate(scheduleIdParamSchema, 'params'),
+  requireScheduleProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = req.params.id as string;
@@ -516,18 +546,20 @@ router.delete(
  *       200:
  *         description: エクスポート成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（工程表IDの形式不正を含む）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 工程表が見つからない
+ *         description: 工程表が見つからない（閲覧範囲外・論理削除済みを含む）
  */
 router.get(
   '/:id/export',
   authenticate,
   requirePermission('schedule:read'),
+  validate(scheduleIdParamSchema, 'params'),
+  requireScheduleProjectScope('id'),
   validate(exportQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

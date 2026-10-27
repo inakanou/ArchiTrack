@@ -503,15 +503,18 @@ interface ScheduleServiceInterface {
 
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
-| GET | /api/projects/:projectId/schedules | ScheduleListQuery (query) | ScheduleListResponse | 401, 403 |
-| POST | /api/projects/:projectId/schedules | CreateScheduleInput (body) | ScheduleDetail | 400, 401, 403, 422 |
-| GET | /api/schedules/:id | - | ScheduleDetail | 401, 403, 404 |
-| PUT | /api/schedules/:id | UpdateScheduleInput (body) | ScheduleDetail | 400, 401, 403, 404, 409 |
-| PUT | /api/schedules/:id/bulk-save | BulkSaveScheduleItemsInput (body) | BulkSaveResult | 400, 401, 403, 404, 409 |
-| DELETE | /api/schedules/:id | - | 204 No Content | 401, 403, 404 |
-| GET | /api/schedules/:id/export | format=xlsx\|pdf (query) | Binary file download | 401, 403, 404 |
+| GET | /api/projects/:projectId/schedules | ScheduleListQuery (query) | ScheduleListResponse | 400（projectId の形式不正、クエリの不正）, 401, 403, 404（プロジェクトなし・閲覧範囲外。汎用の `NOT_FOUND`） |
+| POST | /api/projects/:projectId/schedules | CreateScheduleInput (body) | ScheduleDetail（201） | 400（projectId の形式不正、本文の不正、数量表の項目数の上限超過の `SCHEDULE_ITEMS_LIMIT_EXCEEDED`）, 401, 403, 404（プロジェクトなし・閲覧範囲外。汎用の `NOT_FOUND`）, 422（数量表なし・経路のプロジェクトに属さない数量表。同じ本文の `SCHEDULE_VALIDATION_ERROR`） |
+| GET | /api/schedules/:id | - | ScheduleDetail | 400（ID の形式不正）, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`） |
+| PUT | /api/schedules/:id | UpdateScheduleInput (body) | ScheduleDetail | 400, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`）, 409 |
+| PUT | /api/schedules/:id/bulk-save | BulkSaveScheduleItemsInput (body) | BulkSaveResult | 400, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`）, 409 |
+| DELETE | /api/schedules/:id | - | 204 No Content | 400（ID の形式不正）, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`） |
+| GET | /api/schedules/:id/export | format=xlsx\|pdf (query) | Binary file download | 400（ID の形式不正、format の不正）, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`）, 500（ファイルの生成の失敗。Requirement 7.6・8.6） |
 
 - **追記（2026-10-27、タスク22）**: 上の表の Errors は当初の設計の記録として残す。全経路で、閲覧範囲外のプロジェクトとそのプロジェクトに属する工程表の指定は不在と同じ汎用の 404 になる（一覧と作成の経路にも 404 が加わる。Requirement 13.2・13.3）。出力の経路は記録の失敗でファイルを含まない 500 を返す（Requirement 13.7）。詳細は「Requirement 13: 案件の閲覧範囲と出力の記録の適用」章
+- ミドルウェアは全経路で `authenticate` + `requirePermission` + 経路の ID の形式の検査（一覧・作成は `projectIdParamSchema`、`/:id` 配下は `scheduleIdParamSchema`）+ 案件の閲覧範囲の判定部品（一覧・作成は `requireProjectParamScope('projectId')`、`/:id` 配下は `requireScheduleProjectScope('id')`。Requirement 13）の順とし、その後に本文・クエリの検査と本体を置く
+- `/:id` 配下の 5 経路（出力を含む）は `/api/projects/:projectId/schedules/:id` からも届く（二重マウント）。判定は経路の `projectId` でなく工程表の案件で行い、経路の `projectId` と工程表の案件が食い違えば工程表の不在と同じ汎用の 404 にする
+- **改訂（2026-10-28、タスク22.1）**: 上の表の Errors と Response、ミドルウェアと二重マウントの箇条を実装に合わせて改めた（上の 2026-10-27 の追記は記録として残す）。改訂前の Errors は、一覧が「401, 403」、作成が「400, 401, 403, 422」、詳細が「401, 403, 404」、更新と一括保存が「400, 401, 403, 404, 409」、論理的な取り除きが「401, 403, 404」、出力が「401, 403, 404」で、作成の Response は「ScheduleDetail」、ミドルウェアの箇条と二重マウントの箇条は無かった。理由は、Requirement 13 の適用で全経路に経路の ID の形式の検査と閲覧範囲の判定部品を置いたことである。これにより振る舞いが次のとおり変わった。存在しない工程表の 404 は、従来の `SCHEDULE_NOT_FOUND`（更新・一括保存・論理的な取り除き）と本文だけの「工程表が見つかりません」（詳細・出力）から、範囲外と区別しない汎用の `NOT_FOUND` になった。論理的に取り除かれた工程表も同じ汎用の 404 になる。存在しないプロジェクトを指定した一覧は、従来は空の 200 を返していたが 404 になる。存在しないプロジェクトを指定した作成は、従来はプロジェクトを照合しなかったが、判定部品の 404 になる。形式の崩れた ID は判定部品へ渡さず 400 で終える。作成の要求が経路のプロジェクトに属さない数量表を指すと、数量表の不在と同じ本文の 422 になる（13.4。従来は「同一プロジェクトに属していません」の本文で分かれていた）。次の 4 点は本タスクの前から実装が返していたが改訂前の表に無かった（本タスクの前からの欠陥）ため、あわせて書き足した。一覧のクエリの不正の 400、作成の数量表の項目数の上限超過の 400（Requirement 12.1、タスク 20 で追加）、出力の format の不正の 400、出力のファイルの生成の失敗の 500（Requirement 7.6・8.6）。作成の成功は従来から 201 を返していたため Response に添えた。出力の記録の失敗の 500（Requirement 13.7）はタスク22.2 の担当で、本改訂の時点では実装していないため表に入れていない
 
 **Implementation Notes**
 - Integration: `app.ts`にルートを登録。`/api/projects/:projectId/schedules`と`/api/schedules`の2パターン
@@ -835,11 +838,14 @@ interface BulkSaveResult {
 - 403: 権限不足（schedule:read/create/update/delete権限なし）
 - 404: 工程表が見つからない（ScheduleNotFoundError）
   - **追記（2026-10-27、タスク22）**: 閲覧範囲外のプロジェクトの指定と、閲覧範囲外のプロジェクトに属する工程表の指定も、存在しない場合と区別しない汎用の 404（`NOT_FOUND`）とする（Requirement 13.2・13.3）。範囲外を 403 で返す経路は無い
+  - **改訂（2026-10-28、タスク22.1）**: 実装では、存在しない工程表と論理的に取り除かれた工程表の 404 も判定部品の汎用の `NOT_FOUND` になり、上の `ScheduleNotFoundError`（`SCHEDULE_NOT_FOUND`）の 404 は経路から返らない（判定部品の後に工程表が取り除かれる競合のときだけ本体が返しうる）。存在しない・閲覧範囲外のプロジェクトを指定した一覧と作成も同じ汎用の 404 になる。改訂前は「404: 工程表が見つからない（ScheduleNotFoundError）」とその追記だけだった。理由は、判定部品が工程表の不在と範囲外を区別せずに応答するため（13.3）
+- 400: 経路の ID（工程表 ID・プロジェクト ID）の形式不正（2026-10-28、タスク22.1 で追記。判定部品の前で検査する）
 - 409: 楽観的排他制御競合（ScheduleConflictError）
 
 **Business Logic Errors (422)**:
 - 数量表IDが無効（存在しないまたは別プロジェクト）
   - **追記（2026-10-27、タスク22）**: 別プロジェクトの数量表の指定は、存在しない数量表の指定と同じ応答（同じステータスと同じ本文）とし、工程表を作成しない（Requirement 13.4）。現状は本文が二通りに分かれ、他のプロジェクトの数量表の実在を推測させる
+  - **実装の記録（2026-10-28、タスク22.1）**: 上の追記どおり実装した。存在しない・論理削除済み・経路のプロジェクトに属さない数量表はいずれも 422 の `SCHEDULE_VALIDATION_ERROR` と本文「指定された数量表が見つかりません」になる。上の追記の「現状は本文が二通りに分かれ」は追記の時点の記録として残す
 - 着工日未設定での日数設定
 
 **Export Errors (500)**:
@@ -915,6 +921,7 @@ interface BulkSaveResult {
 #### This Spec Owns
 - 本機能の API の各経路への `requireProjectScope` の適用（`requirePermission` の後に置く）。対象はタスク22.1 の本文が挙げる 1 ルートファイルの 7 経路（13.1-13.3, 13.5）
 - 工程表の ID から案件の ID を引く解決関数（新設。置き場所は実装時に決める。`/:id` の経路が用いる）
+  - **実装の記録（タスク22.1）**: 置き場所は判定部品と同じ middleware 層のファイルとした（「適用の決定」）
 - 工程表の作成の要求が指す数量表が経路の `projectId` の案件に属するかの照合の応答を、数量表の不在の応答へ揃えること（13.4）
 - 工程表の出力の経路から生成の前に `ExportAuditService.record` を呼ぶことと、記録の失敗の応答（13.6・13.7）
 - 出力のダイアログ（`ExportDialog`）の記録の失敗の表示（13.7）
@@ -922,6 +929,7 @@ interface BulkSaveResult {
 #### Out of Boundary
 - 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
 - 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
+  - **実装の記録（タスク22.1）**: 記録の内容と部品は上流の所管のまま、工程表の作成の要求が範囲外の案件の数量表を指す拒否（数量表の所属の照合で範囲外とした拒否）は、判定部品を通らないため `ScheduleService` が上流の記録の部品を呼んで同じ形で PROJECT_SCOPE_DENIED を記録する（「適用の決定」）
 - 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
 - 工程表作成画面が数量表の選択肢を得る数量表の一覧の取得（quantity-table-generation の Requirement 50）
 - プロジェクト詳細画面の工程表セクションのサマリ（プロジェクト詳細の取得が本機能の `ScheduleService` の `findLatestByProjectId` を呼ぶ。経路は project-management が所管し、閲覧範囲は user-authentication のタスク52.3 で適用済み）
@@ -929,6 +937,7 @@ interface BulkSaveResult {
 
 #### Allowed Dependencies
 - 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
+  - **実装の記録（タスク22.1）**: 工程表の作成の数量表の所属の照合（`ScheduleService`）は、数量表の案件の判定に `evaluateProjectAccess`（`getSharedProjectScopeService` 経由）を、範囲外の拒否の記録に `withSurveyScopeDenialRecording`（`recordProjectScopeDenied` を処理の後に呼ぶ部品）を用いる。サービスは middleware 層に依存しない（要求の識別は経路が `projectScopeDenialContextOf` で切り出して渡す）
 - 本機能の出力の経路 → `ExportAuditService`
 - 本機能の出力の画面 → `EXPORT_RECORD_FAILED_MESSAGE`（`frontend/src/api/export-audit.ts`）
 
@@ -937,22 +946,42 @@ interface BulkSaveResult {
 | Component | Layer | Intent | Req | Key Deps | Contracts |
 |-----------|-------|--------|-----|----------|-----------|
 | 工程表の経路 | Routes | 範囲外のプロジェクト・工程表の指定を不在と同じ 404 にし、一覧を範囲内へ限る | 13.1, 13.2, 13.3, 13.5 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
-| 案件IDの解決関数 | Service | 工程表の ID から案件の ID を引く。工程表が無いか論理的に取り除かれていれば null を返す | 13.2 | Prisma（P0） | Service |
-| 数量表の所属の照合 | Service | 作成の要求が指す数量表が経路のプロジェクトに属さないとき、数量表の不在と同じ応答にして作成しない | 13.4 | `ScheduleService`（P0） | Service |
+| 案件IDの解決関数 | Middleware | 工程表の ID から案件の ID を引く。工程表が無いか論理的に取り除かれていれば null を返す | 13.2 | Prisma（P0） | Service |
+| 数量表の所属の照合 | Service | 作成の要求が指す数量表が経路のプロジェクトに属さないとき、数量表の不在と同じ応答にして作成せず、数量表の案件が範囲外なら範囲外の拒否を記録する | 13.4 | `ScheduleService`（P0）, `evaluateProjectAccess`（P0）, `recordProjectScopeDenied`（P0） | Service |
 | 出力の記録 | Routes | 工程表の Excel・PDF の生成の前に記録し、記録の失敗では生成しない | 13.6, 13.7 | `ExportAuditService`（P0） | API |
 | 出力のエラー表示 | UI | 記録の失敗の応答でダウンロードを始めず、出力を記録できなかった旨を表示する | 13.7 | `EXPORT_RECORD_FAILED_MESSAGE`（P0） | State |
 
-**判定の順序**: 認証（401）→ `requirePermission`（403）→ `requireProjectScope`（範囲外は 404）→ 本体（バリデーションの 400、数量表の不在と所属の不一致の 422、競合の 409）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
+**改訂（2026-10-28、タスク22.1）**: 表の2行を実装に合わせて改めた。改訂前は、案件IDの解決関数の Layer が Service だった。数量表の所属の照合の Intent が「作成の要求が指す数量表が経路のプロジェクトに属さないとき、数量表の不在と同じ応答にして作成しない」まで、Key Deps が `ScheduleService`（P0）だけだった。解決関数を判定部品と同じ middleware 層のファイルに置いたことと、範囲外の案件の数量表を指す作成の拒否を記録する（user-authentication の要件39.7）ことにしたことによる改訂である。
 
-**経路ごとの判定の元**: 本機能のルートは `/api/projects/:projectId/schedules` と `/api/schedules` の両方にマウントされる（2026-10-27、バックエンドのアプリのルートの登録で実測）。一覧と作成は経路の `projectId` で、`/:id` の経路（詳細・更新・一括保存・論理的な取り除き・出力）は案件IDの解決関数が引いた工程表の案件で判定する。工程表が存在しない・論理的に取り除かれているときは、範囲外と同じ汎用の 404（`NOT_FOUND`）とする。`/:id` の経路はプロジェクトの配下のマウントからも届くが、ハンドラーは経路の `projectId` を読まないため、判定は工程表の案件に拠る（経路の `projectId` を判定に混ぜるかは実装時に確かめ、混ぜるなら食い違いも不在と同じ 404 とする）。`/api/schedules` のマウントから届く一覧と作成は経路に `projectId` が無く、従来はハンドラーの 400 で終わり工程表を返さず作らない。判定を置いた後も工程表を返さず作らないこと（400 か、判定の部品が案件を引けない場合の 404 か）は実装時に確かめる。
+**判定の順序**: 認証（401）→ `requirePermission`（403）→ 経路の ID の形式の検査（400）→ `requireProjectScope`（範囲外は 404）→ 本体（本文・クエリのバリデーションの 400、数量表の不在と所属の不一致の 422、競合の 409）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
+  - **補記（2026-10-28、タスク22.1）**: 上の並びに、範囲の判定より先に来る経路の ID の形式の検査（400）を書き足し、本体の 400 を本文・クエリのバリデーションと書き分けた。改訂前は `requirePermission`（403）の次が `requireProjectScope` で、本体は「バリデーションの 400、数量表の不在と所属の不一致の 422、競合の 409」だった。実装は形式の崩れた ID を判定部品へ渡さず 400 で終える（「適用の決定」）
+
+**経路ごとの判定の元**: 本機能のルートは `/api/projects/:projectId/schedules` と `/api/schedules` の両方にマウントされる（2026-10-27、バックエンドのアプリのルートの登録で実測）。一覧と作成は経路の `projectId` で判定する。`/:id` の経路（詳細・更新・一括保存・論理的な取り除き・出力の 5 経路）は、どちらのマウントから届いても案件IDの解決関数が引いた工程表の案件で判定する。プロジェクトの配下のマウントから届き、経路の `projectId` と工程表の案件が食い違うときは、工程表の不在と同じ汎用の 404 にし、範囲外の拒否としては記録しない。工程表が存在しない・論理的に取り除かれているときは、範囲外と同じ汎用の 404（`NOT_FOUND`）とし、範囲外の拒否としては記録しない。`/api/schedules` のマウントから届く一覧と作成は経路に `projectId` が無く、経路の ID の形式の検査の 400 で終わり、工程表を返さず作らない。
+
+**改訂（2026-10-28、タスク22.1）**: 上の段落を実装に合わせて書き分けた。改訂前は「一覧と作成は経路の `projectId` で、`/:id` の経路（詳細・更新・一括保存・論理的な取り除き・出力）は案件IDの解決関数が引いた工程表の案件で判定する。工程表が存在しない・論理的に取り除かれているときは、範囲外と同じ汎用の 404（`NOT_FOUND`）とする。`/:id` の経路はプロジェクトの配下のマウントからも届くが、ハンドラーは経路の `projectId` を読まないため、判定は工程表の案件に拠る（経路の `projectId` を判定に混ぜるかは実装時に確かめ、混ぜるなら食い違いも不在と同じ 404 とする）。`/api/schedules` のマウントから届く一覧と作成は経路に `projectId` が無く、従来はハンドラーの 400 で終わり工程表を返さず作らない。判定を置いた後も工程表を返さず作らないこと（400 か、判定の部品が案件を引けない場合の 404 か）は実装時に確かめる。」だった。実装時に、経路の `projectId` を食い違いの検出に混ぜることに決めた（estimate-creation のタスク62.1・itemized-statement-generation のタスク27.1 と同じ。プロジェクトの配下の経路で他の案件の工程表を指せないようにするため）。`/api/schedules` のマウントから届く一覧と作成は、判定部品の前に置いた経路の ID の形式の検査の 400 で終わることを確かめ、統合テストで固定した。
 
 **既存のテストの扱い**（user-authentication の 52.2 の記録の区分 B）: 工程表の不在の 404 の本文（詳細と出力の経路の「工程表が見つかりません」、更新・一括保存・論理的な取り除きの経路の `SCHEDULE_NOT_FOUND`）を主張する既存の統合テストは、範囲外と不在を同じ本文にする 13.3 に合わせて改める（主張を消さない）。
+  - **実装の記録（2026-10-28、タスク22.1）**: 符号を主張していたのは `SCHEDULE_NOT_FOUND` の 3 件（更新・一括保存・論理的な取り除き）で、`NOT_FOUND` へ改めた。詳細と出力の不在の 404 を主張する既存の統合テストはステータスだけを主張しており、変えていない
 
 **作成の数量表**: 工程表の作成は、経路で作成先のプロジェクトを判定したうえで、要求が指す数量表が同じプロジェクトに属するかを照合する（既存の照合）。属さない数量表（範囲外のプロジェクトの数量表と、範囲内の他のプロジェクトの数量表の両方）は、存在しない数量表と同じ応答（現状の不在の応答である 422 の `SCHEDULE_VALIDATION_ERROR` と同じ本文）にし、工程表も工程項目も作成しない（13.4）。範囲の内外や所属の有無で応答を変えると他のプロジェクトの数量表の実在を推測させるため、同じ応答とする。ステータスを 404 へ改める案は、既存の受入基準と統合テスト（存在しない数量表・別プロジェクトの数量表の 422）と作成画面のエラーの表示（タスク 21.2 の 422 の汎用の文言）を動かし、13.4 が求める「不在と同じ応答」には不要なため採らない。照合を閲覧範囲（属するプロジェクトが範囲内か）で行う案は、範囲内の他のプロジェクトの数量表から工程表を作れる余地を残し、Requirement 2.1 の「同一プロジェクトに属する数量表」と食い違うため採らない（itemized-statement-generation の Requirement 18.4、estimate-creation の Requirement 57.4 の判断と同じ）。
 
 **一括保存**: 一括保存（`PUT /:id/bulk-save`）は一つの工程表の工程項目を全件差し替える経路であり、工程表が範囲外なら要求全体を不在と同じ汎用の 404 にしてどの工程項目にも書き込まない（13.2）。要求の工程項目の `id` は既存の工程項目を指して更新するためには使われず（`ScheduleService` の `bulkSaveItems` は工程表の全工程項目を取り除いてから要求の内容で作り直す。2026-10-27 の実測）、他の工程表・他の案件の工程項目を指す余地が無いため、子リソースの所属の照合と全件か無しかの受入基準は置かない。実装が要求の `id` で既存の行を引くよう変わるときは、その時点で所属の照合（属さない ID が一つでも含まれれば要求全体を不在と同じ扱い）を加える。
 
 **一覧**: 本機能の一覧（工程表の一覧）は経路の `projectId` の配下に載り、案件をまたぐ一覧・検索・件数・カレンダーの横断表示の経路は無い（2026-10-27、バックエンドのアプリのルートの登録と工程表のルートファイルの経路の定義、`ScheduleService` の `findByProject` の検索条件、画面の経路の定義で実測）。そのため一覧を範囲内に限ること（13.5）は経路の `requireProjectScope` で成り立ち、範囲外のプロジェクトを指定した一覧は 404 になる。
+
+**適用の決定（2026-10-28、タスク22.1 の実装）**: estimate-creation のタスク62.1・itemized-statement-generation のタスク27.1 と同じ形で、次のとおりとした。
+
+- 判定部品と工程表の ID から案件の ID を引く解決関数は次のファイルに置いた（範囲の判定そのものは `requireProjectScope` に任せる）。
+  backend/src/middleware/construction-schedule-project-scope.middleware.ts
+- 着手時に測り直した対象は、1 ルートファイルの 7 経路（一覧 105 行、詳細 165 行、作成 231 行、更新 312 行、一括保存 390 行、論理的な取り除き 461 行、出力 527 行。2026-10-28 の実測）で、タスク22.1 の本文の一覧と経路の定義の行まで一致した
+- 各経路の並びは `authenticate`、`requirePermission`、経路の ID の形式の検査、判定部品、本文・クエリの検査、本体の順とした。経路の ID の形式の検査は従来は無く、本タスクで工程表 ID とプロジェクト ID の形式のスキーマを足した。一覧と作成のハンドラーが経路の `projectId` の欠落を確かめていた 400 は、形式の検査が先に 400 で終えるため、検査済みの値を読む形に改めた
+- 解決関数は論理的に取り除かれた工程表に案件の ID を返さない（本章の Components and Interfaces の「案件IDの解決関数」の定め）。そのため論理的に取り除かれた工程表は、範囲の内外を問わず存在しない工程表と同じ汎用の 404 になり、範囲外の拒否としては記録しない。itemized-statement-generation のタスク27.1 は論理削除を区別せずに案件の ID を引いて範囲内の利用者に本体の 404 を返したが、本機能は本章の定めに従った
+- 作成の要求が指す数量表の所属の照合（13.4）は、数量表を読む `ScheduleService.create` に置いた。存在しない・論理削除済みの数量表と、作成先のプロジェクトに属さない数量表（範囲外のプロジェクトの数量表と範囲内の他のプロジェクトの数量表の両方）は、いずれも 422 の `SCHEDULE_VALIDATION_ERROR` と同じ本文「指定された数量表が見つかりません」で拒み、本文に数量表や案件の ID を含めない。数量項目の読み出しと工程表の作成の前に投げるため何も書き込まない
+- 作成の要求が範囲外の案件（案件は実在し、実行者の閲覧範囲外）の数量表を指したときは、応答は数量表の不在と同じのまま、user-authentication の要件39.7 に従い範囲外の拒否として記録する（PROJECT_SCOPE_DENIED、対象は数量表の案件）。本章は 13.4 の記録の有無を定めていないが、この要求は範囲外の案件の数量項目を写させようとするもので、要件39.7 の「閲覧範囲外の案件へのアクセスが拒否される」に当たると判断した（estimate-creation のタスク62.1・itemized-statement-generation のタスク27.1 と同じ扱い）。範囲外の判定は数量表の案件が作成先のプロジェクトと食い違うときだけ `evaluateProjectAccess` で行い、範囲内の他のプロジェクトの数量表と案件の不在・論理削除は記録しない。記録は作成の処理の終了の後に書く。部品は user-authentication の次のファイルの `withSurveyScopeDenialRecording` を用い、要求の識別は経路が `projectScopeDenialContextOf` で切り出してサービスへ渡す（サービスは middleware 層に依存しない）。
+  backend/src/services/project-scope-denial.service.ts
+- 一括保存は工程項目を全件差し替え、要求の工程項目の `id` で既存の行を引かないことを着手時にも確かめたため、子リソースの所属の照合は置いていない。範囲外の工程表への一括保存は判定部品が要求全体を 404 にし、どの工程項目にも書き込まないことを統合テストと E2E で固定した
+- 案件をまたぐ一覧・検索・件数の経路は無いことを着手時にも確かめたため、`buildProjectScopeWhere` は用いていない
+- 出力の経路（`GET /:id/export`）は本タスクで判定部品を置き、範囲外は不在と同じ 404 でファイルを生成しない（13.2）。生成の前の記録（13.6・13.7）はタスク22.2 の担当である
 
 **出力の記録**: 種別は `ExportKind` の `schedule_export` を用い、`projectId` に工程表の案件を、`targetIds` に工程表の ID を、`itemCount` に出力する工程項目の件数（出力対象の工程項目の件数。Requirement 9.3）を添え、形式（xlsx・pdf）は記録の付帯の情報に含めるかを実装時に確定する。`record` は形式の検証の後、ファイルの生成（`exportToExcel`・`exportToPdf`）の前に一つの要求につき 1 回だけ呼ぶ（13.6）。経路が `requireProjectScope` を通った後に呼ぶため、`record` の `PROJECT_OUT_OF_SCOPE` は通常起きないが、起きたときも生成せず不在と同じ 404 とする。
 

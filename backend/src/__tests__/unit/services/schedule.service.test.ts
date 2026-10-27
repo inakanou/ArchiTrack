@@ -736,6 +736,115 @@ describe('ScheduleService', () => {
       ).rejects.toThrow(ScheduleValidationError);
     });
 
+    describe('作成先のプロジェクトに属さない数量表（Requirement 13.4、タスク22.1）', () => {
+      const actorId = 'user-001';
+      const context = {
+        requestId: 'req-1',
+        method: 'POST',
+        path: `/api/projects/${projectId}/schedules`,
+        ipAddress: '127.0.0.1',
+        userAgent: 'vitest',
+      };
+
+      /** 例外の本文（ステータス・本文・符号・付帯の情報）を比べられる形にする */
+      async function rejectionOf(promise: Promise<unknown>): Promise<Record<string, unknown>> {
+        const error = await promise.then(
+          () => {
+            throw new Error('例外が投げられなかった');
+          },
+          (e: unknown) => e
+        );
+        expect(error).toBeInstanceOf(ScheduleValidationError);
+        const e = error as ScheduleValidationError;
+        return { statusCode: e.statusCode, message: e.message, code: e.code, details: e.details };
+      }
+
+      function build(decision: 'allowed' | 'out_of_scope' | 'not_found') {
+        const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue(decision) };
+        const auditLogService = { createLog: vi.fn().mockResolvedValue({}) };
+        const scoped = new ScheduleService({ prisma: mockPrisma, auditLogService, projectScope });
+        return { scoped, projectScope, auditLogService };
+      }
+
+      it.each([
+        ['範囲外（案件は実在する）', 'out_of_scope', 1],
+        ['範囲内の他のプロジェクト', 'allowed', 0],
+        ['案件の不在・論理削除', 'not_found', 0],
+      ] as const)(
+        '%s の数量表は数量表の不在と同じ例外（同じ本文）にして工程表も工程項目も作成せず、範囲外のときだけ PROJECT_SCOPE_DENIED を記録する',
+        async (_label, decision, recorded) => {
+          const { scoped, projectScope, auditLogService } = build(decision);
+
+          (mockPrisma.quantityTable.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+            null
+          );
+          const missing = await rejectionOf(
+            scoped.create(projectId, { name: 'テスト工程表', quantityTableId }, actorId, context)
+          );
+
+          (mockPrisma.quantityTable.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+            id: quantityTableId,
+            projectId: 'proj-other',
+            deletedAt: null,
+          });
+          const foreign = await rejectionOf(
+            scoped.create(projectId, { name: 'テスト工程表', quantityTableId }, actorId, context)
+          );
+
+          expect(foreign).toEqual(missing);
+          expect(foreign.statusCode).toBe(422);
+          expect(foreign.code).toBe('SCHEDULE_VALIDATION_ERROR');
+          expect(JSON.stringify(foreign)).not.toContain('proj-other');
+          expect(mockPrisma.quantityItem.findMany).not.toHaveBeenCalled();
+          expect(mockPrisma.constructionSchedule.create).not.toHaveBeenCalled();
+          expect(mockPrisma.scheduleItem.createMany).not.toHaveBeenCalled();
+          expect(projectScope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+          expect(projectScope.evaluateProjectAccess).toHaveBeenCalledWith(actorId, 'proj-other');
+          const denials = auditLogService.createLog.mock.calls.filter(
+            ([log]) => (log as { action: string }).action === 'PROJECT_SCOPE_DENIED'
+          );
+          expect(denials).toHaveLength(recorded);
+          if (recorded === 1) {
+            expect(denials[0]?.[0]).toMatchObject({
+              actorId,
+              targetType: 'Project',
+              targetId: 'proj-other',
+              metadata: { requestId: 'req-1', method: 'POST', path: context.path },
+            });
+          }
+        }
+      );
+
+      it('作成先のプロジェクトの数量表は範囲を判定せずに工程表を作る', async () => {
+        const { scoped, projectScope, auditLogService } = build('allowed');
+        (mockPrisma.quantityTable.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: quantityTableId,
+          projectId,
+          deletedAt: null,
+        });
+        (mockPrisma.quantityItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+        const createdRecord = { ...mockScheduleRecord, items: [], quantityTable: null };
+        (mockPrisma.constructionSchedule.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+          createdRecord
+        );
+        (mockPrisma.constructionSchedule.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+          createdRecord
+        );
+
+        const result = await scoped.create(
+          projectId,
+          { name: 'テスト工程表', quantityTableId },
+          actorId,
+          context
+        );
+
+        expect(result.id).toBe(scheduleId);
+        expect(mockPrisma.constructionSchedule.create).toHaveBeenCalledTimes(1);
+        expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+        expect(auditLogService.createLog).not.toHaveBeenCalled();
+      });
+    });
+
     /**
      * @requirement construction-schedule/REQ-12.1: The 工程表管理システム shall 1つの工程表あたり最大200項目までの登録をサポートする
      *
