@@ -882,6 +882,18 @@ enum AmendmentStatus {
 
 **一覧**: 本機能の一覧（発注一覧・出来高履歴・月別出来高・月別明細・月次締め履歴・未反映の変更契約の一覧）はいずれも経路の `projectId` の配下に載り、案件をまたぐ一覧・検索の経路は無い（2026-10-27、`backend/src/app.ts` のマウントと 5 ルートファイルの経路の定義で実測）。そのため一覧を範囲内に限ること（20.6）は経路の `requireProjectScope` で成り立ち、範囲外のプロジェクトを指定した一覧は 404 になる。
 
+**適用の決定（2026-10-28、タスク17.1 の実装）**: site-survey のタスク119.1・construction-photo のタスク30.2・quantity-table-generation のタスク104.1 と同じ形で、次のとおりとした。
+
+- 判定部品と子リソースの所属の照合の部品は次のファイルに置いた（範囲の判定そのものは `requireProjectScope` に任せる）。
+  backend/src/middleware/execution-budget-project-scope.middleware.ts
+- 着手時に測り直した対象は、5 ルートファイルの 25 経路（実行予算 7・発注 7・出来高 6・原価と月次締め 3・出力 2）で、タスク17.1 の本文の一覧と一致した。いずれも `/api/projects/:projectId/execution-budget` の配下に一度だけ載り、二重マウントは無い
+- 各経路の並びは `authenticate`、`requirePermission`、経路の ID の形式の検査、`requireExecutionBudgetProjectScope`（経路の `projectId` を `projectIdFromParam` で読む）、子リソースの所属の照合、本文の検査、一括の対象の所属の照合、本体の順とした。経路の ID の形式は 8-4-4-4-12 の 16 進とし、版と変種は問わない（既存の統合テストが版 0 のゼロ UUID を存在しない ID として送り 404 を主張しているため、その応答を 400 へ変えない）
+- 経路の実行予算項目・発注・出来高記録は、親の実行予算の案件を引いて経路の `projectId` と突き合わせる。他の案件に属するときと子が存在しないときは、どちらも汎用の 404（`NOT_FOUND`）にする。従来は経路ごとの符号（`EXECUTION_BUDGET_NOT_FOUND`・`ORDER_NOT_FOUND`・`PROGRESS_RECORD_NOT_FOUND`）や「発注が見つかりません」の本文を返していたが、他の案件の子の実在を応答の差から推測させないため同じ本文に揃えた。子の論理削除は区別せずに案件を引くため、範囲内の利用者には論理削除された子の従来の 404 がそのまま届く
+- 契約（実行予算の作成の要求本文、変更契約の項目差分の経路、変更契約の反映の要求本文）の所属は、契約を読む `ExecutionBudgetService` の `create`・`getAmendmentDiff`・`applyAmendment` で契約の案件と経路の `projectId` を突き合わせ、食い違えば契約の不在と同じ例外（`ContractNotFoundForBudgetError`・`AmendmentContractNotFoundError`）にする。契約の不在の符号を保ったまま、他の案件の契約と存在しない契約を同じ応答にするため、経路の部品でなくサービスに置いた。いずれも書き込みより前に判定し、トランザクションの中で投げるため何も書き込まない
+- 一括の要求（発注のチェック済み項目の更新の `itemIds`、出来高の保存の `items[].itemId`）は、本文の検査の後に、重複を除いた全件が経路の案件の実行予算の項目であるかを件数で照合し、一つでも欠ければ要求全体を汎用の 404 にして本体へ進めない。対象が 0 件（全項目のチェックを外す更新）は照合せずに通す
+- 所属しない子・契約・一括の項目は範囲外ではなく不在の扱いのため、PROJECT_SCOPE_DENIED を記録しない。範囲外の記録は経路の `requireProjectScope` だけが行い、サービスの中で範囲外を判定する箇所は設けていない
+- 出力の 2 経路にも同じ判定と発注の所属の照合を置いた。出力の記録（20.7・20.8）はタスク17.2 で加える
+
 **出力の記録**: 発注一覧の出力（`GET /orders/:orderId/export`）は種別 `order_export`、月別出来高の出力（`GET /progress/monthly/export`）は種別 `progress_export` を用い、`projectId` に経路の案件を添える。対象のデータ（`targetIds`）と件数（`itemCount`）は、発注一覧は発注の ID とチェック済み項目の件数、月別出来高は実行予算の ID と対象月の件数を目安とし、実装時に確定する。`record` はファイルの生成（Excel・PDF）の前に一つの要求につき 1 回だけ呼ぶ（20.7）。経路が `requireProjectScope` と子リソースの所属の照合を通った後に呼ぶため、`record` の `PROJECT_OUT_OF_SCOPE` は通常起きないが、起きたときも生成せず不在と同じ 404 とする。
 
 **記録の失敗の応答**: `record` が `RECORD_FAILED` を返したときは、ファイルを生成せず、ファイルを含まない 500 の応答を返す。本文の `detail` は「出力を記録できなかったため中止しました」とし、画面が記録の失敗を他の失敗と区別できる識別子（例 `code: 'EXPORT_RECORD_FAILED'`）を添える。発注詳細画面（`OrderDetailPage` の `handleExport`）と出来高入力画面（`ProgressInputPage` の `handleExportExcel`・`handleExportPdf`）は、この応答でダウンロードを始めず `EXPORT_RECORD_FAILED_MESSAGE` を表示する（20.8）。ほかの失敗の文言（出来高入力画面の Excel・PDF のエクスポートの失敗）は変えない。ブラウザで生成する出力の包み（`runRecordedExport`）は使わない。サーバーが記録する出力をブラウザからも記録すると二重の記録になるため（user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。

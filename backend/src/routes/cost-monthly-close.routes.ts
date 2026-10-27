@@ -12,6 +12,11 @@
  *
  * Design Reference: design.md - CostService / MonthlyCloseService API Contract セクション
  *
+ * 案件の閲覧範囲（Requirement 20、user-authentication の要件39。タスク17.1）:
+ * 全経路で requirePermission の後に ID の形式の検査と execution-budget-project-scope.middleware の
+ * 判定部品を置き、範囲外は不在と同じ汎用の 404 にする。原価の入力の実行予算項目が経路の案件に
+ * 属さなければ不在と同じ 404 にする
+ *
  * Task 5.3: 原価・月次締めのルーター実装
  *
  * @module routes/cost-monthly-close
@@ -25,8 +30,14 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireExecutionBudgetItemInProject,
+  requireExecutionBudgetProjectScope,
+} from '../middleware/execution-budget-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
+  executionBudgetProjectParamsSchema,
+  executionBudgetItemParamsSchema,
   updateCostSchema,
   monthlyCloseSchema,
   type UpdateCostInput,
@@ -64,6 +75,9 @@ router.patch(
   '/items/:itemId/cost',
   authenticate,
   requirePermission('cost:write'),
+  validate(executionBudgetItemParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
+  requireExecutionBudgetItemInProject('itemId'),
   validate(updateCostSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -105,6 +119,8 @@ router.post(
   '/monthly-close',
   authenticate,
   requirePermission('monthly_close:write'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   validate(monthlyCloseSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -167,6 +183,8 @@ router.get(
   '/monthly-close',
   authenticate,
   requirePermission('execution_budget:read'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;

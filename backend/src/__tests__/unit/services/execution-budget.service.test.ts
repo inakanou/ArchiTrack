@@ -546,6 +546,22 @@ describe('ExecutionBudgetService', () => {
       );
     });
 
+    // execution-budget-management タスク17.1（Requirement 20.4）
+    it('契約書が経路のプロジェクトに属さない場合は、契約書の不在と同じContractNotFoundForBudgetErrorを投げ、実行予算を作らない', async () => {
+      // Arrange
+      mockTx.executionBudget.findFirst.mockResolvedValue(null);
+      mockTx.contract.findUnique.mockResolvedValue({
+        ...mockContract,
+        projectId: '550e8400-e29b-41d4-a716-446655449999',
+      });
+
+      // Act & Assert
+      await expect(service.create(projectId, contractId)).rejects.toThrow(
+        ContractNotFoundForBudgetError
+      );
+      expect(mockTx.executionBudget.create).not.toHaveBeenCalled();
+    });
+
     it('見積書に項目がない場合でも実行予算は作成され、項目は0件となる', async () => {
       // Arrange
       mockTx.executionBudget.findFirst.mockResolvedValue(null);
@@ -1545,6 +1561,30 @@ describe('ExecutionBudgetService', () => {
         AmendmentContractNotFoundError
       );
     });
+
+    // execution-budget-management タスク17.1（Requirement 20.4）
+    it('変更契約が経路のプロジェクトに属さない場合は、変更契約の不在と同じAmendmentContractNotFoundErrorをスローする', async () => {
+      const amendmentContractId = '550e8400-e29b-41d4-a716-446655440020';
+      mockTx.executionBudget.findFirst.mockResolvedValue({
+        id: createdBudgetId,
+        projectId,
+        contractId,
+        deletedAt: null,
+      });
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId: '550e8400-e29b-41d4-a716-446655449999',
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        deletedAt: null,
+      });
+
+      await expect(service.getAmendmentDiff(projectId, amendmentContractId)).rejects.toThrow(
+        AmendmentContractNotFoundError
+      );
+      expect(mockTx.estimate.findUnique).not.toHaveBeenCalled();
+    });
   });
 
   describe('applyAmendment - 変更契約の反映', () => {
@@ -1555,6 +1595,28 @@ describe('ExecutionBudgetService', () => {
       contractId,
       deletedAt: null,
     };
+
+    // execution-budget-management タスク17.1（Requirement 20.4）
+    it('変更契約が経路のプロジェクトに属さない場合は、変更契約の不在と同じAmendmentContractNotFoundErrorをスローし、反映しない', async () => {
+      mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId: '550e8400-e29b-41d4-a716-446655449999',
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '6000000' },
+        deletedAt: null,
+        estimate: { name: '他の案件の変更見積書' },
+      });
+
+      await expect(service.applyAmendment(projectId, amendmentContractId)).rejects.toThrow(
+        AmendmentContractNotFoundError
+      );
+      expect(mockTx.amendmentApplyHistory.findFirst).not.toHaveBeenCalled();
+      expect(mockTx.estimate.findUnique).not.toHaveBeenCalled();
+    });
 
     it('新規項目を実行予算に追加する（Req 15.3）', async () => {
       // Arrange

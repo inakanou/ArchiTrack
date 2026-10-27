@@ -30,6 +30,21 @@ const { mockUpdateCost, mockClose, mockGetHistory, mockFindByProjectId } = vi.ho
 }));
 
 // 依存モジュールのモック
+// 案件の閲覧範囲の判定部品と子リソースの所属の照合は素通りさせる（判定と経路への適用は
+// execution-budget-project-scope.middleware.test.ts と統合テストが確かめる。execution-budget-management タスク17.1）
+vi.mock('../../../middleware/execution-budget-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireExecutionBudgetProjectScope: pass,
+    requireExecutionBudgetItemInProject: pass,
+    requireOrderInProject: pass,
+    requireProgressRecordInProject: pass,
+    requireBodyExecutionBudgetItemsInProject: pass,
+    orderItemIdsOf: () => [],
+    progressItemIdsOf: () => [],
+  };
+});
+
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({})),
 }));
@@ -79,6 +94,7 @@ vi.mock('../../../utils/logger.js', () => ({
 
 // ルートモジュールをインポート（モックが適用された状態）
 import costMonthlyCloseRoutes from '../../../routes/cost-monthly-close.routes.js';
+import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
 
 // テストデータ
 const projectId = '550e8400-e29b-41d4-a716-446655440000';
@@ -286,6 +302,8 @@ describe('原価・月次締めルート (Task 5.3)', () => {
       const appNoParam = express();
       appNoParam.use(express.json());
       appNoParam.use('/api/execution-budget', costMonthlyCloseRoutes);
+      // 経路の ID の形式の検査（タスク17.1）が 400 を ValidationError としてエラーハンドラーへ渡す
+      appNoParam.use(errorHandler);
 
       const response = await request(appNoParam)
         .post('/api/execution-budget/monthly-close')
@@ -342,6 +360,8 @@ describe('原価・月次締めルート (Task 5.3)', () => {
       const appNoParam = express();
       appNoParam.use(express.json());
       appNoParam.use('/api/execution-budget', costMonthlyCloseRoutes);
+      // 経路の ID の形式の検査（タスク17.1）が 400 を ValidationError としてエラーハンドラーへ渡す
+      appNoParam.use(errorHandler);
 
       const response = await request(appNoParam)
         .get('/api/execution-budget/monthly-close')

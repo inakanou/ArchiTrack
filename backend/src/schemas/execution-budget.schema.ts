@@ -351,3 +351,59 @@ export const exportQuerySchema = z.object({
  * エクスポートクエリの型
  */
 export type ExportQuery = z.infer<typeof exportQuerySchema>;
+
+// ========================================
+// 経路のパラメータのスキーマ（案件の閲覧範囲の判定の前の ID の形式の検査）
+// ========================================
+
+/**
+ * 経路のパラメータの ID の形式（8-4-4-4-12 の 16 進）。
+ *
+ * 範囲の判定（requireProjectScope）と子リソースの所属の照合の前に置く ID の形式の検査に使う
+ * （Requirement 20、タスク17.1）。経路の ID は版と変種を問わない（既存の要求が版 0 の
+ * ゼロ UUID を「存在しない ID」として送り 404 を受けていたため、その応答を変えない）
+ */
+const PATH_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const pathIdSchema = z
+  .string()
+  .regex(PATH_ID_REGEX, EXECUTION_BUDGET_VALIDATION_MESSAGES.UUID_INVALID);
+
+/**
+ * 案件 ID だけを持つ経路のパラメータ（`/api/projects/:projectId/execution-budget...`）
+ */
+export const executionBudgetProjectParamsSchema = z.object({
+  projectId: pathIdSchema,
+});
+
+/**
+ * 案件 ID と実行予算項目 ID を持つ経路のパラメータ（`.../items/:itemId`、`.../items/:itemId/cost`）
+ */
+export const executionBudgetItemParamsSchema = z.object({
+  projectId: pathIdSchema,
+  itemId: pathIdSchema,
+});
+
+/**
+ * 案件 ID と発注 ID を持つ経路のパラメータ（`.../orders/:orderId...`）
+ */
+export const orderParamsSchema = z.object({
+  projectId: pathIdSchema,
+  orderId: pathIdSchema,
+});
+
+/**
+ * 案件 ID と出来高記録 ID を持つ経路のパラメータ（`.../progress/:progressRecordId`）
+ */
+export const progressRecordParamsSchema = z.object({
+  projectId: pathIdSchema,
+  progressRecordId: pathIdSchema,
+});
+
+/**
+ * 案件 ID と変更契約 ID を持つ経路のパラメータ（`.../amendment-diff/:contractId`）
+ */
+export const amendmentContractParamsSchema = z.object({
+  projectId: pathIdSchema,
+  contractId: pathIdSchema,
+});

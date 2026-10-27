@@ -37,6 +37,21 @@ const { mockCreate, mockGetWithItems, mockUpdateItem, mockDelete, mockApplyAmend
 );
 
 // 依存モジュールのモック
+// 案件の閲覧範囲の判定部品と子リソースの所属の照合は素通りさせる（判定と経路への適用は
+// execution-budget-project-scope.middleware.test.ts と統合テストが確かめる。execution-budget-management タスク17.1）
+vi.mock('../../../middleware/execution-budget-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireExecutionBudgetProjectScope: pass,
+    requireExecutionBudgetItemInProject: pass,
+    requireOrderInProject: pass,
+    requireProgressRecordInProject: pass,
+    requireBodyExecutionBudgetItemsInProject: pass,
+    orderItemIdsOf: () => [],
+    progressItemIdsOf: () => [],
+  };
+});
+
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({})),
 }));

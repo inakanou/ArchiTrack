@@ -286,7 +286,13 @@ export class ExecutionBudgetService {
         },
       });
 
-      if (!contract || contract.deletedAt !== null || !contract.estimateId) {
+      // 経路の案件に属さない契約は、契約の不在と同じ扱いにする（Requirement 20.4、タスク17.1）
+      if (
+        !contract ||
+        contract.deletedAt !== null ||
+        !contract.estimateId ||
+        contract.projectId !== projectId
+      ) {
         throw new ContractNotFoundForBudgetError(contractId);
       }
 
@@ -898,7 +904,13 @@ export class ExecutionBudgetService {
         where: { id: contractId },
       });
 
-      if (!contract || contract.deletedAt !== null || contract.contractType !== 'AMENDMENT') {
+      // 経路の案件に属さない変更契約は、変更契約の不在と同じ扱いにする（Requirement 20.4、タスク17.1）
+      if (
+        !contract ||
+        contract.deletedAt !== null ||
+        contract.contractType !== 'AMENDMENT' ||
+        contract.projectId !== projectId
+      ) {
         throw new AmendmentContractNotFoundError(contractId);
       }
 
@@ -1030,7 +1042,9 @@ export class ExecutionBudgetService {
       if (
         !amendmentContract ||
         amendmentContract.deletedAt !== null ||
-        amendmentContract.contractType !== 'AMENDMENT'
+        amendmentContract.contractType !== 'AMENDMENT' ||
+        // 経路の案件に属さない変更契約は、変更契約の不在と同じ扱いにする（Requirement 20.4、タスク17.1）
+        amendmentContract.projectId !== projectId
       ) {
         throw new AmendmentContractNotFoundError(contractId);
       }
