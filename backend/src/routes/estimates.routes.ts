@@ -34,6 +34,12 @@
  * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
  * - REQ-49.5: これらの操作の実行後の保存で競合エラーを発生させない
  *
+ * 案件の閲覧範囲（estimate-creation の Requirement 57.1〜57.6、user-authentication の要件39。タスク62.1）:
+ * 全経路で requirePermission と ID の形式の検査の後に estimate-creation-project-scope.middleware の判定部品を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。`/:id` 配下は経路の projectId でなく見積書が属する案件で判定し、
+ * 二重マウントで経路の projectId と見積書の案件が食い違えば不在と同じ 404 にする。
+ * 見積書の作成の要求が指す内訳書の所属の照合（57.4）は EstimateService.create が行う。
+ *
  * Task 4.1: 見積書CRUD APIエンドポイントの実装
  * Task 4.2: 見積項目CRUD APIエンドポイントの実装
  * Task 55.7: 転記系エンドポイントの撤去
@@ -61,6 +67,11 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
+import {
+  requireEstimateProjectScope,
+  requireProjectParamScope,
+} from '../middleware/estimate-creation-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   projectIdParamSchema,
@@ -155,6 +166,7 @@ router.post(
   authenticate,
   requirePermission('estimate:create'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createEstimateSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -171,7 +183,11 @@ router.post(
         sourceItemizedStatementId: validatedBody.sourceItemizedStatementId,
       };
 
-      const estimate = await estimateService.create(input, actorId);
+      const estimate = await estimateService.create(
+        input,
+        actorId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         {
@@ -271,12 +287,15 @@ router.post(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
  */
 router.get(
   '/',
   authenticate,
   requirePermission('estimate:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(estimateListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -344,12 +363,15 @@ router.get(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
  */
 router.get(
   '/latest',
   authenticate,
   requirePermission('estimate:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { projectId } = req.validatedParams as { projectId: string };
@@ -409,6 +431,7 @@ router.get(
   authenticate,
   requirePermission('estimate:read'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -488,6 +511,7 @@ router.put(
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   validate(updateEstimateSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -592,6 +616,7 @@ router.delete(
   authenticate,
   requirePermission('estimate:delete'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   validate(deleteEstimateSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -751,6 +776,7 @@ router.put(
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -918,6 +944,7 @@ router.get(
   authenticate,
   requirePermission('estimate:read'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   validate(getItemsQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -992,12 +1019,15 @@ router.get(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: 見積書が見つからない（閲覧範囲外を含む）
  */
 router.post(
   '/:id/calculate-overhead',
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   validate(calculateOverheadSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -1186,12 +1216,15 @@ router.post(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: 見積書が見つからない（閲覧範囲外を含む）
  */
 router.put(
   '/:id/edit-session',
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -1219,6 +1252,7 @@ router.delete(
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };

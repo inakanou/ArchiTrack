@@ -1639,7 +1639,9 @@ interface UseEstimateEditorReturn {
 
 | Method | Endpoint | Request | Response | Errors |
 |--------|----------|---------|----------|--------|
-| GET | /api/projects/:projectId/quotations | - | ReceivedQuotationInfo[] | 404 |
+| GET | /api/projects/:projectId/quotations | - | ReceivedQuotationInfo[] | 400（`projectId` の形式不正）, 404（プロジェクトなし・閲覧範囲外） |
+
+- **改訂（2026-10-28、タスク62.1）**: 表の Errors は改訂前は「404」だけだった。Requirement 57 の適用で経路の ID の形式の検査と閲覧範囲の判定部品を加えたため、400 と 404 の意味を書き足した（「Requirement 57: 案件の閲覧範囲と出力の記録の適用」章の「適用の決定」）
 
 **実装方針**:
 - `received-quotation.service.ts`に`findByProjectId(projectId: string)`メソッドを追加
@@ -4575,10 +4577,11 @@ model EstimateEditSession {
 
 | Method | Endpoint | 権限 | Request | Response | Errors |
 |--------|----------|------|---------|----------|--------|
-| PUT | /api/estimates/:id/edit-session | `estimate:update` | なし | 200 `{ otherEditors: { userId, displayName, lastSeenAt }[], ttlSeconds, heartbeatIntervalSeconds }` | 400（ID 不正）, 401, 403, 404（見積書なし・論理削除済み） |
-| DELETE | /api/estimates/:id/edit-session | `estimate:update` | なし | 204（在席が無くても 204。冪等） | 400, 401, 403 |
+| PUT | /api/estimates/:id/edit-session | `estimate:update` | なし | 200 `{ otherEditors: { userId, displayName, lastSeenAt }[], ttlSeconds, heartbeatIntervalSeconds }` | 400（ID 不正）, 401, 403, 404（見積書なし・論理削除済み・閲覧範囲外） |
+| DELETE | /api/estimates/:id/edit-session | `estimate:update` | なし | 204（存在して閲覧範囲内の見積書では、在席が無くても 204。冪等） | 400, 401, 403, 404（見積書なし・閲覧範囲外） |
 
-- ミドルウェアは他の見積書ルートと同じ `authenticate` + `requirePermission` + `validate(estimateIdParamSchema, 'params')`
+- ミドルウェアは他の見積書ルートと同じ `authenticate` + `requirePermission` + `validate(estimateIdParamSchema, 'params')` + `requireEstimateProjectScope('id')`（案件の閲覧範囲の判定部品。Requirement 57）
+- **改訂（2026-10-28、タスク62.1）**: 上の表と箇条を実装に合わせて改めた。改訂前は、PUT の 404 が「見積書なし・論理削除済み」、DELETE の Response が「204（在席が無くても 204。冪等）」、DELETE の Errors が「400, 401, 403」、ミドルウェアが `authenticate` + `requirePermission` + `validate(estimateIdParamSchema, 'params')` だった。理由は、Requirement 57 の適用で両経路に閲覧範囲の判定部品を置き、判定部品が見積書の案件を引くため、存在しない見積書と閲覧範囲外の見積書はどちらも汎用の 404（`NOT_FOUND`）になったことである（論理削除された見積書は案件を引けるため、範囲内なら DELETE は従来どおり 204）
 - `PUT` は呼び出した利用者の在席を現在時刻で upsert し、TTL を過ぎた行を掃除したうえで、TTL 以内に通知した**自分以外の**利用者を在席の開始順で返す
 - `otherEditors[].lastSeenAt` は ISO 8601 の文字列
 
@@ -4641,6 +4644,7 @@ model EstimateEditSession {
 #### Out of Boundary
 - 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
 - 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
+  - **実装の記録（タスク62.1）**: 記録の内容と部品は上流の所管のまま、見積書の作成の要求が範囲外の案件の内訳書を指す拒否は、判定部品を通らないため `EstimateService` が上流の記録の部品を呼んで同じ形で記録する（「適用の決定」）
 - 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
 - プロジェクト詳細画面の見積書セクション（project-management の Requirement 28。プロジェクト詳細の取得の閲覧範囲に従う。user-authentication のタスク52.3 で適用済み）
 - 受領見積書そのものの取得・登録（estimate-request の Requirement 42）と内訳書そのものの取得（itemized-statement-generation）。転記のダイアログが受領見積書の明細を取得する経路の閲覧範囲は estimate-request の適用に従う
@@ -4648,6 +4652,7 @@ model EstimateEditSession {
 
 #### Allowed Dependencies
 - 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
+  - **実装の記録（タスク62.1）**: 見積書の作成の内訳書の所属の照合（`EstimateService`）は、内訳書の案件の判定に `evaluateProjectAccess` を、範囲外の拒否の記録に `withSurveyScopeDenialRecording`（`recordProjectScopeDenied` を処理の後に呼ぶ部品）を用いる。サービスは middleware 層に依存しない
 - 本機能の出力の画面 → `runRecordedExport`・`EXPORT_RECORD_FAILED_MESSAGE`（`frontend/src/api/export-audit.ts`）
 
 ### Components and Interfaces
@@ -4655,20 +4660,39 @@ model EstimateEditSession {
 | Component | Layer | Intent | Req | Key Deps | Contracts |
 |-----------|-------|--------|-----|----------|-----------|
 | 見積書・見積明細・在席・受領見積書の一覧の経路 | Routes | 範囲外のプロジェクト・見積書の指定を不在と同じ 404 にし、一覧を範囲内へ限る | 57.1, 57.2, 57.3, 57.6 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
-| 案件IDの解決関数 | Service | 見積書の ID から案件の ID を引く | 57.2 | Prisma（P0） | Service |
-| 内訳書の所属の照合 | Service | 作成の要求が指す内訳書が経路のプロジェクトに属するかを確かめ、属さなければ不在と同じ 404 にして作成しない | 57.4 | Prisma（P0） | Service |
+| 案件IDの解決関数 | Middleware | 見積書の ID から案件の ID を引く | 57.2 | Prisma（P0） | Service |
+| 内訳書の所属の照合 | Service | 作成の要求が指す内訳書が経路のプロジェクトに属するかを確かめ、属さなければ不在と同じ 404 にして作成せず、内訳書の案件が範囲外なら範囲外の拒否を記録する | 57.4 | Prisma（P0）, `evaluateProjectAccess`（P0）, `recordProjectScopeDenied`（P0） | Service |
 | 一括保存の見積項目の所属の照合 | Service | 一括保存の要求の見積項目の ID が対象の見積書に属するかを確かめ、一つでも属さなければ要求全体を拒否する | 57.5 | `EstimateDraftService`（P0） | Service |
 | 出力の開始の処理 | UI | 見積書の PDF・Excel の生成を記録の成功の後に始め、記録の失敗では中止する | 57.7, 57.8 | `runRecordedExport`（P0） | State |
 
+**改訂（2026-10-28、タスク62.1）**: 表の2行を実装に合わせて改めた。改訂前は、案件IDの解決関数の Layer が Service だった。内訳書の所属の照合の Intent が「作成の要求が指す内訳書が経路のプロジェクトに属するかを確かめ、属さなければ不在と同じ 404 にして作成しない」まで、Key Deps が Prisma（P0）だけだった。解決関数を判定部品と同じ middleware 層のファイルに置いたことと、範囲外の案件の内訳書を指す作成の拒否を記録する（user-authentication の要件39.7）ことにしたことによる改訂である。
+
 **判定の順序**: 認証（401）→ `requirePermission`（403）→ `requireProjectScope`（範囲外は 404）→ 本体（見積書・内訳書の不在の 404、バリデーションの 400、競合の 409、明細の検証の 422）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
 
-**経路ごとの判定の元**: `/api/projects/:projectId/estimates` と `/api/projects/:projectId/quotations` の経路は経路の `projectId` で、`/api/estimates/:id` の経路は案件IDの解決関数が引いた案件で判定する。見積書が存在しないときは、範囲外と同じ汎用の 404（`NOT_FOUND`）とする。
+**経路ごとの判定の元**: 見積書のルートは `/api/projects/:projectId/estimates` と `/api/estimates` の両方にマウントされる（バックエンドのアプリのルートの登録で実測）。見積書の作成・一覧・直近の見積書と、プロジェクト単位の受領見積書の一覧（`/api/projects/:projectId/quotations`）は経路の `projectId` で判定する。`/:id` の経路（詳細・更新・論理的な取り除き・一括保存・見積項目の取得・諸経費の計算・在席の通知と退出の 8 経路）は、どちらのマウントから届いても案件IDの解決関数が引いた見積書の案件で判定する。プロジェクトの配下のマウントから届き、経路の `projectId` と見積書の案件が食い違うときは、見積書の不在と同じ汎用の 404 にし、範囲外の拒否としては記録しない。見積書が存在しないときは、範囲外と同じ汎用の 404（`NOT_FOUND`）とする。
+
+**改訂（2026-10-28、タスク62.1）**: 上の段落を実装と「適用の決定」の項に合わせて書き分けた。改訂前は「`/api/projects/:projectId/estimates` と `/api/projects/:projectId/quotations` の経路は経路の `projectId` で、`/api/estimates/:id` の経路は案件IDの解決関数が引いた案件で判定する。見積書が存在しないときは、範囲外と同じ汎用の 404（`NOT_FOUND`）とする。」だった。改訂前の記述は、プロジェクトの配下のマウントから届く `/:id` の経路も経路の `projectId` で判定すると読めたためである。
 
 **作成の内訳書**: 見積書の作成は、経路で作成先のプロジェクトを判定したうえで、要求が指す内訳書が同じプロジェクトに属するかを照合する。属さない内訳書（範囲外のプロジェクトの内訳書と、範囲内の他のプロジェクトの内訳書の両方）は存在しない内訳書と同じ 404 にし、見積書を作成しない（57.4）。範囲の内外で応答を変えると範囲外の内訳書の実在を推測させるため、同じ応答とする。照合を閲覧範囲（属するプロジェクトが範囲内か）で行う案は、範囲内の他のプロジェクトの内訳書から見積書を作れる余地を残し、Requirement 3.1 の「プロジェクトに紐付く内訳書」と食い違うため採らない。
 
 **一括保存（全件か無しか）**: 見積明細の一括保存は、対象の見積書が範囲外なら要求全体を不在と同じ汎用の 404 にしてどの見積項目にも書き込まない（57.2）。範囲内の見積書の要求に対象の見積書に属さない見積項目の ID（他の案件の見積書の見積項目を含む）が混じるときは、既存の検証（`EstimateDraftService` の `validatePayloadItemOwnership`。Requirement 42.4 の 422 と「指定された見積項目はこの見積書に存在しません」）が書き込みの前に要求全体を拒否する。この応答は存在しない ID と他の見積書の ID を区別しないため、他の案件の見積項目の実在を推測させない。57.5 はこの既存の振る舞いを本要件の受入基準として固定するものであり、応答の形（422）は変えない。属さない ID だけを除いて残りを書き込む案は、全件か無しかの契約を部分適用へ変えるため採らない（site-survey のタスク119.1・construction-photo のタスク30.2 の決定と同じ）。
 
 **一覧**: 本機能の一覧（見積書の一覧・直近の見積書・プロジェクト単位の受領見積書の一覧）はいずれも経路の `projectId` の配下に載り、案件をまたぐ一覧・検索・件数の経路は無い（2026-10-27、`backend/src/app.ts` のマウントと 2 ルートファイルの経路の定義で実測）。そのため一覧を範囲内に限ること（57.6）は経路の `requireProjectScope` で成り立ち、範囲外のプロジェクトを指定した一覧は 404 になる。編集中の在席の応答（他の利用者の表示名）は見積書の配下に載るため、57.2 の判定で範囲内に限られる。
+
+**適用の決定（2026-10-28、タスク62.1 の実装）**: estimate-request のタスク103.1・quantity-table-generation のタスク104.1・execution-budget-management のタスク17.1 と同じ形で、次のとおりとした。
+
+- 判定部品と見積書の ID から案件の ID を引く解決関数は次のファイルに置いた（範囲の判定そのものは `requireProjectScope` に任せる）。
+  backend/src/middleware/estimate-creation-project-scope.middleware.ts
+- 着手時に測り直した対象は、2 ルートファイルの 12 経路（見積書 11・プロジェクト単位の受領見積書の一覧 1）で、タスク62.1 の本文の一覧と経路の定義の行まで一致した。見積書の経路は `/api/projects/:projectId/estimates` と `/api/estimates` の二重に載る
+- 各経路の並びは `authenticate`、`requirePermission`、経路の ID の形式の検査、判定部品、本文の検査、本体の順とした。作成・一覧・直近の見積書は経路の `projectId` で、`/:id` 配下の 8 経路（詳細・更新・論理的な取り除き・一括保存・見積項目の取得・諸経費の計算・在席の通知と退出）は見積書の案件で判定する。プロジェクト単位の受領見積書の一覧は従来は ID の形式の検査を持たなかったため、見積書の経路と同じ `projectIdParamSchema` の検査を加えてから判定部品を置いた（形式の崩れた ID は 400 になる）
+- 見積書の論理削除は区別せずに案件の ID を引く。範囲内の利用者には本体の従来の 404（論理削除された見積書の `ESTIMATE_NOT_FOUND`）がそのまま届く。存在しない見積書・プロジェクトは範囲外と区別できないよう汎用の 404（`NOT_FOUND`）になる。従来は見積書・プロジェクトごとの符号（`ESTIMATE_NOT_FOUND`・`PROJECT_NOT_FOUND`）と ID を本文に含めていた。諸経費の計算は従来は見積書を読まずに計算し、存在しない見積書の ID でも 200 を返していたが、判定部品が見積書を引くため 404 になる。在席の退出は従来は存在しない見積書でも 204 を返していたが、同じく 404 になる（画面の退出の要求は失敗を無視するため表示は変わらない）
+- 二重マウント（`/api/projects/:projectId/estimates/:id` 配下）では、経路の `projectId` でなく見積書が属する案件で判定し、経路の `projectId` と見積書の案件が食い違うときは見積書の不在と同じ 404 にする（範囲外の拒否としては記録しない）
+- 作成の要求が指す内訳書の所属の照合（57.4）は、作成のトランザクションの中で内訳書を読む `EstimateService.create` に置いた。内訳書の不在の符号（`ITEMIZED_STATEMENT_NOT_FOUND`）を保ったまま、他のプロジェクトの内訳書と存在しない内訳書を同じ応答にするためである（execution-budget-management のタスク17.1 の契約の照合と同じ置き方）。見積書を作成する前に投げるため何も書き込まない
+- 作成の要求が範囲外の案件（案件は実在し、実行者の閲覧範囲外）の内訳書を指したときは、応答は内訳書の不在と同じのまま、user-authentication の要件39.7 に従い範囲外の拒否として記録する（PROJECT_SCOPE_DENIED、対象は内訳書の案件。`requireProjectScope` と同じ形で要求の識別・経路・送信元・利用者エージェントを添え、異常の検知へも観測を送る）。この要求は範囲外の案件のデータ（内訳書の名称・規格・単位・数量）を見積書の初期値として読ませようとするもので、要件39.7 の「閲覧範囲外の案件へのアクセスが拒否される」に当たると判断した（quantity-table-generation のタスク104.1 の写真の紐付けの判定と同じ扱い）。範囲外の判定は内訳書の案件が作成先のプロジェクトと食い違うときだけ `evaluateProjectAccess` で行い、範囲内の他のプロジェクトの内訳書と案件の不在・論理削除は記録しない。範囲外の 404 はトランザクションを巻き戻すため、記録はトランザクションの外（処理の終了の後）で書く。部品は user-authentication の次のファイルの `withSurveyScopeDenialRecording` を用い、要求の識別は経路が `projectScopeDenialContextOf` で切り出してサービスへ渡す。
+  backend/src/services/project-scope-denial.service.ts
+- 転記の元のうち、サーバーが読むのは見積書の作成の内訳書だけである。受領見積書からの転記（Requirement 17）はブラウザが受領見積書の明細を estimate-request の経路（同 spec のタスク103.1 で閲覧範囲を適用済み）で取得し、編集状態に反映して一括保存で確定する。一括保存の要求は転記元の受領見積書の明細行の ID を含まない（転記元の業者名は自由な文字列の写しとして保存する）ため、本機能のサーバーで照合する転記の元はほかに無い
+- 見積明細の一括保存（57.5）は、既存の `validatePayloadItemOwnership` の 422 をそのまま用い、応答の形を変えていない。範囲外の見積書の一括保存は判定部品が要求全体を 404 にし、範囲内の見積書の要求に他の案件の見積書の見積項目の ID が混じるときは存在しない ID と同じ 422（「指定された見積項目はこの見積書に存在しません」）で書き込まない。どちらも統合テストと E2E で固定した
+- 案件をまたぐ一覧・検索・件数の経路は無いことを着手時にも確かめたため、`buildProjectScopeWhere` は用いていない
 
 **出力の記録**: 種別は `ExportKind` の `estimate_pdf`（PDF）・`estimate_xlsx`（Excel）を用い、`projectId` に見積書の案件を、`targetIds` に見積書の ID を、`itemCount` に出力する見積項目の件数を添える（見積書の ID はダイアログの属性に足す。件数の数え方は実装時に確定する）。記録は行タイプの未選択（Requirement 32.8 で出力の釦が無効）の判定の後、生成の部品と表紙の周辺情報の読み込みより前に 1 回だけ要求する（57.7）。記録の失敗では生成もダウンロードも始めず、ダイアログに `EXPORT_RECORD_FAILED_MESSAGE` を表示する（57.8）。ダイアログは閉じず、未保存の変更は保持する（Requirement 56.3）。記録の後の失敗（日本語文字の描画準備の失敗〔Requirement 10.8〕を含む）は `GENERATION_FAILED` として従来の文言で表示し、記録は再送しない。未保存の変更がある状態の出力（Requirement 56）も同じダイアログを通るため、同じ記録を経る。
 

@@ -658,7 +658,8 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
         });
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('ESTIMATE_NOT_FOUND');
+      // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body.code).toBe('NOT_FOUND');
     });
 
     it('論理削除済みの見積書は404を返す', async () => {

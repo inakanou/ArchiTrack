@@ -679,7 +679,8 @@ describe('Estimate API Integration Tests', () => {
         });
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'PROJECT_NOT_FOUND');
+      // プロジェクトの不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
 
     it('同名の見積書が存在する場合は409エラー', async () => {
@@ -888,7 +889,8 @@ describe('Estimate API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+      // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
   });
 
@@ -950,7 +952,8 @@ describe('Estimate API Integration Tests', () => {
         });
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+      // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
 
     it('名前が空の場合は400エラー', async () => {
@@ -1042,7 +1045,8 @@ describe('Estimate API Integration Tests', () => {
         .send({ updatedAt: new Date().toISOString() });
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+      // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
   });
 
@@ -1196,7 +1200,8 @@ describe('Estimate API Integration Tests', () => {
           });
 
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+        // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
       });
     });
 

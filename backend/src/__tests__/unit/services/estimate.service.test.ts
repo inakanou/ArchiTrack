@@ -319,6 +319,134 @@ describe('EstimateService', () => {
       );
     });
 
+    describe('作成先のプロジェクトに属さない内訳書（Requirement 57.4、タスク62.1）', () => {
+      const actorId = 'user-001';
+      const input = {
+        projectId: 'proj-001',
+        name: 'テスト見積書',
+        sourceItemizedStatementId: 'is-foreign',
+      };
+      const context = {
+        requestId: 'req-1',
+        method: 'POST',
+        path: '/api/projects/proj-001/estimates',
+        ipAddress: '127.0.0.1',
+        userAgent: 'vitest',
+      };
+
+      function arrange(): { estimateCreate: ReturnType<typeof vi.fn> } {
+        const estimateCreate = vi.fn();
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            project: {
+              findUnique: vi
+                .fn()
+                .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+            },
+            itemizedStatement: {
+              findUnique: vi.fn().mockResolvedValue({
+                id: 'is-foreign',
+                name: '他の案件の内訳書',
+                projectId: 'proj-other',
+                deletedAt: null,
+                items: [],
+              }),
+            },
+            estimate: { count: vi.fn().mockResolvedValue(0), create: estimateCreate },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+        return { estimateCreate };
+      }
+
+      it.each([
+        ['範囲外（案件は実在する）', 'out_of_scope', 1],
+        ['範囲内の他のプロジェクト', 'allowed', 0],
+        ['案件の不在・論理削除', 'not_found', 0],
+      ] as const)(
+        '%s の内訳書は内訳書の不在と同じ例外にして見積書を作らず、範囲外のときだけ PROJECT_SCOPE_DENIED を記録する',
+        async (_label, decision, recorded) => {
+          const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue(decision) };
+          service = new EstimateService({
+            prisma: mockPrisma,
+            auditLogService: mockAuditLogService,
+            projectScope,
+          });
+          const { estimateCreate } = arrange();
+
+          await expect(service.create(input, actorId, context)).rejects.toThrow(
+            ItemizedStatementNotFoundForEstimateError
+          );
+
+          expect(estimateCreate).not.toHaveBeenCalled();
+          expect(projectScope.evaluateProjectAccess).toHaveBeenCalledWith(actorId, 'proj-other');
+          const denials = vi
+            .mocked(mockAuditLogService.createLog)
+            .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+          expect(denials).toHaveLength(recorded);
+          if (recorded === 1) {
+            expect(denials[0]?.[0]).toMatchObject({
+              actorId,
+              targetType: 'Project',
+              targetId: 'proj-other',
+              metadata: { requestId: 'req-1', method: 'POST', path: context.path },
+            });
+          }
+        }
+      );
+
+      it('作成先のプロジェクトの内訳書は範囲を判定せずに見積書を作る', async () => {
+        const projectScope = { evaluateProjectAccess: vi.fn() };
+        service = new EstimateService({
+          prisma: mockPrisma,
+          auditLogService: mockAuditLogService,
+          projectScope,
+        });
+        const created = {
+          id: 'est-001',
+          projectId: 'proj-001',
+          name: 'テスト見積書',
+          sourceItemizedStatementId: 'is-own',
+          sourceItemizedStatementName: '自案件の内訳書',
+          createdAt: new Date('2026-02-03T00:00:00Z'),
+          updatedAt: new Date('2026-02-03T00:00:00Z'),
+          deletedAt: null,
+        };
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            project: {
+              findUnique: vi
+                .fn()
+                .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+            },
+            itemizedStatement: {
+              findUnique: vi.fn().mockResolvedValue({
+                id: 'is-own',
+                name: '自案件の内訳書',
+                projectId: 'proj-001',
+                deletedAt: null,
+                items: [],
+              }),
+            },
+            estimate: {
+              count: vi.fn().mockResolvedValue(0),
+              create: vi.fn().mockResolvedValue(created),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        const result = await service.create(
+          { ...input, sourceItemizedStatementId: 'is-own' },
+          actorId,
+          context
+        );
+
+        expect(result.sourceItemizedStatementId).toBe('is-own');
+        expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+      });
+    });
+
     it('同名の見積書が既に存在する場合、エラーを発生させる', async () => {
       // Arrange
       const actorId = 'user-001';

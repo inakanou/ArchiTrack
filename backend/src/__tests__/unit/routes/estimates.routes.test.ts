@@ -69,6 +69,16 @@ const {
 }));
 
 // Mock dependencies before importing the routes
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は estimate-creation-project-scope.middleware.test.ts と
+// 統合テストが確かめる。estimate-creation タスク62.1）
+vi.mock('../../../middleware/estimate-creation-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireEstimateProjectScope: pass,
+  };
+});
+
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({
     $transaction: mockPrismaTransaction,
@@ -305,7 +315,12 @@ describe('estimates.routes', () => {
           projectId,
           name: 'テスト見積書',
         }),
-        'test-user-id'
+        'test-user-id',
+        // 内訳書の所属の照合で範囲外とした拒否の記録に添える要求の識別（タスク62.1、57.4）
+        expect.objectContaining({
+          method: 'POST',
+          path: expect.stringContaining(`/api/projects/${projectId}/estimates`),
+        })
       );
     });
 
@@ -324,7 +339,8 @@ describe('estimates.routes', () => {
         expect.objectContaining({
           sourceItemizedStatementId: itemizedStatementId,
         }),
-        'test-user-id'
+        'test-user-id',
+        expect.objectContaining({ method: 'POST' })
       );
     });
 

@@ -1782,7 +1782,7 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
 
 **経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（`POST /api/v1/audit-logs/exports` を受ける `ExportAuditService`、frontend/src/api/export-audit.ts の `runRecordedExport`）を実装した（同スペックのタスク52.1・53.3・53.4）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.8 が本スペックの項目（見積書出力の記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の見積書を読み書きできる）ことと、出力が記録を経ないこと（`runRecordedExport` の本番の呼び出し元は 0 件）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
 
-- [ ] 62.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+- [x] 62.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
   - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
     - backend/src/routes/estimates.routes.ts（`/api/projects/:projectId/estimates` と `/api/estimates`）: `POST /`（153）、`GET /`（275）、`GET /latest`（348）、`GET /:id`（407）、`PUT /:id`（486）、`DELETE /:id`（590）、`PUT /:id/save`（749）、`GET /:id/items`（916）、`POST /:id/calculate-overhead`（996）、`PUT /:id/edit-session`（1190）、`DELETE /:id/edit-session`（1217）
     - backend/src/routes/project-quotations.routes.ts（`/api/projects/:projectId/quotations`）: `GET /`（49）

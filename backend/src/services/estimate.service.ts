@@ -19,6 +19,10 @@
  *
  * Task 2.1: EstimateServiceの実装
  *
+ * 案件の閲覧範囲（Requirement 57.4、タスク62.1）: 見積書の作成の要求が指す内訳書が経路のプロジェクトに
+ * 属さなければ、内訳書の不在と同じ 404 にして見積書を作成しない。内訳書の案件が実在し実行者の閲覧範囲外なら、
+ * user-authentication の要件39.7 に従い PROJECT_SCOPE_DENIED をトランザクションの外で記録する。
+ *
  * @module services/estimate
  */
 
@@ -31,6 +35,11 @@ import {
   ItemizedStatementNotFoundForEstimateError,
 } from '../errors/estimateError.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 
 /**
  * 見積書サービス依存関係
@@ -45,6 +54,12 @@ export interface EstimateServiceDependencies {
    * 「当日」の判定をテストから固定できない。
    */
   now?: () => Date;
+  /**
+   * 案件の閲覧範囲の判定（任意。タスク62.1、Requirement 57.4）。
+   * 作成の要求が指す他のプロジェクトの内訳書の案件が範囲外かを判定し、範囲外の拒否を記録するために用いる。
+   * 未指定の場合は user-authentication の共有のインスタンス（{@link getSharedProjectScopeService}）で判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 }
 
 /**
@@ -221,8 +236,14 @@ export class EstimateService {
   private readonly prisma: PrismaClient;
   private readonly auditLogService: IAuditLogService;
   private readonly now: () => Date;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: EstimateServiceDependencies) {
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
     this.now = deps.now ?? ((): Date => new Date());
@@ -245,10 +266,31 @@ export class EstimateService {
    * @param actorId - 実行者ID
    * @returns 作成された見積書情報
    * @throws ProjectNotFoundError プロジェクトが存在しない場合
-   * @throws ItemizedStatementNotFoundForEstimateError 内訳書が存在しない場合
+   * @throws ItemizedStatementNotFoundForEstimateError 内訳書が存在しない、または作成先のプロジェクトに
+   *   属さない場合（Requirement 57.4）
    * @throws DuplicateEstimateNameError 同名の見積書が既に存在する場合
    */
-  async create(input: CreateEstimateInput, actorId: string): Promise<EstimateInfo> {
+  async create(
+    input: CreateEstimateInput,
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<EstimateInfo> {
+    // 内訳書の所属の照合（57.4）で範囲外とした案件は、処理の後（トランザクションの外）で
+    // PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7）
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) => this.createWithin(input, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link create} の本体。内訳書の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async createWithin(
+    input: CreateEstimateInput,
+    actorId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<EstimateInfo> {
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 1. プロジェクトの存在確認
       const project = await tx.project.findUnique({
@@ -264,6 +306,7 @@ export class EstimateService {
       let itemizedStatement: {
         id: string;
         name: string;
+        projectId: string;
         items: Array<{
           id: string;
           customCategory: string | null;
@@ -282,6 +325,7 @@ export class EstimateService {
           select: {
             id: true,
             name: true,
+            projectId: true,
             deletedAt: true,
             items: {
               orderBy: { displayOrder: 'asc' },
@@ -293,6 +337,21 @@ export class EstimateService {
           !itemizedStatement ||
           (itemizedStatement as { deletedAt?: Date | null }).deletedAt !== null
         ) {
+          throw new ItemizedStatementNotFoundForEstimateError(input.sourceItemizedStatementId);
+        }
+
+        // 作成先のプロジェクトに属さない内訳書は、範囲の内外を問わず不在と同じ応答にする（57.4）。
+        // 範囲の内外で応答を変えると範囲外の内訳書の実在を推測させるため。範囲外（案件は実在する）の
+        // ときだけ、範囲外の拒否として記録する（user-authentication の要件39.7）
+        const statementProjectId = itemizedStatement.projectId;
+        if (statementProjectId !== input.projectId) {
+          const decision = await this.projectScope.evaluateProjectAccess(
+            actorId,
+            statementProjectId
+          );
+          if (decision === 'out_of_scope') {
+            deniedProjectIds.add(statementProjectId);
+          }
           throw new ItemizedStatementNotFoundForEstimateError(input.sourceItemizedStatementId);
         }
       }
