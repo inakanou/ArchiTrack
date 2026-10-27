@@ -5164,7 +5164,7 @@ graph TB
 | `frontend/Dockerfile` | CSP の取得先・HSTS・中継先の環境変数と起動前の検査、統計の出力物を配信物から外す |
 | `docker-compose.test.yml` | frontend の `VITE_API_URL` を画面と同じオリジンに、`BACKEND_INTERNAL_URL` を backend のサービスに |
 | `docker-compose.ci.yml` | 同上 |
-| `e2e/requirement-exclusions.json` | 40.10・40.11 の `pending-implementation` の登録（site-survey の適用で外す） |
+| `e2e/requirement-exclusions.json` | 40.10・40.11 の `pending-implementation` の登録（site-survey の適用で外す。2026-10-27 のタスク 119.2 で外した） |
 | `e2e/global-setup.ts` | 役割ごとのログインとセッションの保持 |
 | `e2e/helpers/auth-actions.ts` | TOTP の計算、セッションの受け渡しと回収 |
 
@@ -6018,6 +6018,7 @@ type RecordedExportError = { type: 'RECORD_FAILED'; message: string } | { type: 
 - 記録の要求が成功したときだけ `generate` を呼ぶ（40.10）。失敗したときは生成を始めず、呼び出し側が「出力を記録できなかったため中止しました」のエラーメッセージを表示する（40.11）
 - 各業務 spec の出力処理がこの包みを呼ぶ。本 spec は包みと API の呼び出しを提供する
 - 本 spec には画面で生成する出力が無いため、40.10・40.11 は本 spec では単体テストで確かめ、本番の入口での E2E は最初の適用先（site-survey の調査報告書の PDF 出力）で行う。それまでは `e2e/requirement-exclusions.json` に区分 `pending-implementation` で登録し、対になる実装決定として、調査報告書の出力が記録を先に要求することを観測する E2E を `test.fail()` のラチェットで置く。site-survey の適用で成功へ反転させ、除外の登録を外す（利用者の判断、2026-10-16）
+- **反転の記録（2026-10-27、site-survey のタスク 119.2、`1b857057`）**: 調査報告書の出力に包みを適用し、ラチェットの `test.fail()` 2 件を外して被覆済みへ移した。被覆の印が同じ受入基準を名乗るため、`e2e/requirement-exclusions.json` の 40.10・40.11 の登録も同じ変更で外した。以後の 40.10・40.11 の被覆は最初の適用先（site-survey）の E2E が担う。ほかの業務 spec の出力への適用（数量表・内訳書・見積依頼・見積・工事写真・工程表・実行予算）は、各 spec のタスクと、各 spec が自分の受入基準として持つ適用の条文（利用者の判断、2026-10-27）で追う。site-survey の注釈の JSON はブラウザの包みだけで記録し、サーバーの出力の経路（注釈の export）は `ExportAuditService` を呼ばない（二重の記録を避けるため）
 
 ##### AuditLogArchiveService（変更）
 
