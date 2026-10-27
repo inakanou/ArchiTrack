@@ -848,11 +848,14 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
       );
       expect(findEstimateItemByName(untouched, EDITED.standaloneName)).toBeUndefined();
 
-      // --- 窓を閉じる。出力の間の書き込みは0件で、保存の1件だけが記録されている ---
+      // --- 窓を閉じる。出力の間の書き込みは出力の記録の1件だけで、続いて保存の1件が記録されている ---
+      // 出力の記録（`POST /api/v1/audit-logs/exports`）はタスク62.2（Requirement 57.7）で生成の前に
+      // 1回送るようになった監査の記録であり、見積書の保存ではない（56.3 の「保存を伴わせない」は変わらない）
       await saveAndWaitForSettled(page);
       stop();
 
       expect(writes, '出力が書き込みを発生させている、または観測窓が閉じていた（56.3）').toEqual([
+        'POST /api/v1/audit-logs/exports',
         `PUT /api/estimates/${createdEstimateId}/save`,
       ]);
 

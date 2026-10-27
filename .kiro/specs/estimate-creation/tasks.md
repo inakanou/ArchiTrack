@@ -1794,7 +1794,7 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Requirements: 57.1, 57.2, 57.3, 57.4, 57.5, 57.6_
   - _Boundary: 本スペックの API の案件の範囲の判定_
 
-- [ ] 62.2 見積書の出力に事前記録（user-authentication の要件40）を適用する
+- [x] 62.2 見積書の出力に事前記録（user-authentication の要件40）を適用する
   - 対象（2026-10-25 の実測）: frontend/src/components/estimate/EstimateExportDialog.tsx の PDF（355 行付近の `service.generateAndDownload`）と Excel（365 行付近の `estimateExcelExportService.generateAndDownload`）。種別 `estimate_pdf`・`estimate_xlsx`
   - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
   - 挙動の変更であるため RED → GREEN で進め、E2E で各形式の出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する

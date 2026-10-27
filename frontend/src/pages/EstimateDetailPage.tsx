@@ -1930,6 +1930,7 @@ export default function EstimateDetailPage() {
       <EstimateExportDialog
         isOpen={isExportDialogOpen}
         estimateName={estimate.name}
+        estimateId={estimate.id}
         projectId={estimate.projectId}
         items={editor.editState.items}
         reportFields={editor.reportFields}

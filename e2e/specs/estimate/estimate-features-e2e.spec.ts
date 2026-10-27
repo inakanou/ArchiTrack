@@ -1588,8 +1588,15 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       // 記録の仕組みが生きていること（表紙の周辺情報を読み取るリクエストが載る）
       expect(apiRequestUrls.length).toBeGreaterThan(0);
 
-      // そのうえで、出力をサーバーへ依頼したリクエストは1本も無い
-      expect(apiRequestUrls.filter((url) => url.includes('/export'))).toEqual([]);
+      // そのうえで、出力をサーバーへ依頼したリクエストは1本も無い。
+      // 出力の記録（`POST /api/v1/audit-logs/exports`。タスク62.2 / Requirement 57.7）は
+      // 生成の前の記録であり出力の依頼ではないため除く（記録そのものは
+      // `estimate-export-audit.spec.ts` が検証する）
+      expect(
+        apiRequestUrls.filter(
+          (url) => url.includes('/export') && new URL(url).pathname !== '/api/v1/audit-logs/exports'
+        )
+      ).toEqual([]);
     });
   });
 

@@ -51,6 +51,7 @@ const meta = {
   tags: ['autodocs'],
   args: {
     onClose: fn(),
+    estimateId: 'estimate-1',
     projectId: 'project-1',
     items,
     reportFields,

@@ -18,19 +18,25 @@
  * - 10.7: 出力処理中であることを表示する
  * - 10.8: 日本語描画の準備に失敗した場合は中断してエラーメッセージを表示する
  *
+ * タスク62.2: 生成の前の出力の記録と、記録の失敗での中止（describe「出力の記録」）
+ * - @requirement estimate-creation/REQ-57.7
+ * - @requirement estimate-creation/REQ-57.8
+ *
  * 「未保存の編集が帳票に載る」の一気通貫（画面の編集 → 出力）は
  * `pages/EstimateDetailPage.export.test.tsx` が実物のページで検証する。
  *
  * @module components/estimate/EstimateExportDialog.test
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as XLSX from 'xlsx';
 import { EstimateExportDialog } from './EstimateExportDialog';
 // 観測窓の裏取り用。**モックしない実物**を通して `fetch` の記録に現れることを確かめる。
 import { getCompanyInfo } from '../../api/company-info';
+import { ApiError, apiClient } from '../../api/client';
 import type {
   EditableItem,
   EstimateReportFields,
@@ -116,6 +122,7 @@ const REPORT_FIELDS: EstimateReportFields = {
 const baseProps = {
   isOpen: true,
   estimateName: 'テスト見積書',
+  estimateId: 'est-1',
   projectId: 'proj-1',
   items: treeNamed('内装工事'),
   reportFields: REPORT_FIELDS,
@@ -156,6 +163,8 @@ beforeEach(() => {
   nextBlob = null;
   pdfGenerateAndDownload.mockResolvedValue([]);
   loadSubject.mockResolvedValue(SUBJECT);
+  // 出力の記録（POST /api/v1/audit-logs/exports）は既定で成功させる（57.7）
+  vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
 
   Object.defineProperty(URL, 'createObjectURL', {
     configurable: true,
@@ -170,6 +179,11 @@ beforeEach(() => {
   ) {
     downloaded.push({ fileName: this.download, blob: nextBlob! });
   });
+});
+
+afterEach(() => {
+  // 56.3 のテストは途中で記録の差し替えを外す（実物の通信を観測窓に載せる）
+  if (vi.isMockFunction(apiClient.post)) vi.mocked(apiClient.post).mockRestore();
 });
 
 const exportButton = (): HTMLButtonElement =>
@@ -425,18 +439,29 @@ describe('EstimateExportDialog - 保存を伴わない', () => {
    * そのため窓は開いたままにし、出力の後に実物の API 関数を1本通して
    * 同じ記録に現れることまで確かめる（53.14 → 54.11 / 55.9 で確立した手順）。
    */
-  it('表計算出力は API を1本も呼ばない（56.3）', async () => {
+  /*
+   * タスク62.2 で主張を改めた: 改訂前は「API を1本も呼ばない」だった。出力の記録（57.7）が
+   * 生成の前に記録の要求を1本伴うようになったため、出力に伴う通信が**出力の記録の1本だけ**で
+   * 保存の要求を含まないことを主張する（56.3 の「保存操作を伴わせない」は変わらない）。
+   */
+  it('表計算出力は出力の記録の1本のほかに API を呼ばない（56.3）', async () => {
     const user = userEvent.setup();
+    // 記録の要求も実物の通信を通し、同じ観測窓に載せる
+    vi.mocked(apiClient.post).mockRestore();
     const requestLog: string[] = [];
     vi.stubGlobal(
       'fetch',
-      vi.fn((input: RequestInfo | URL) => {
-        requestLog.push(String(input));
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requestLog.push(`${init?.method ?? 'GET'} ${url}`);
         return Promise.resolve({
           ok: true,
-          status: 200,
+          status: url.includes('/api/v1/audit-logs/exports') ? 201 : 200,
           headers: { get: () => 'application/json' },
-          json: async () => ({ success: true, data: {} }),
+          json: async () =>
+            url.includes('/api/v1/audit-logs/exports')
+              ? { recordId: 'record-1' }
+              : { success: true, data: {} },
           text: async () => '',
         } as unknown as Response);
       })
@@ -448,15 +473,16 @@ describe('EstimateExportDialog - 保存を伴わない', () => {
       await user.click(exportButton());
       await waitFor(() => expect(downloaded.length).toBe(2));
 
-      // 観測窓は開いたまま。ここで閉じると 0 件の主張が空振りになる。
-      expect(requestLog).toEqual([]);
+      // 観測窓は開いたまま。出力に伴う通信は出力の記録の1本だけ（保存の要求は無い）。
+      expect(requestLog).toHaveLength(1);
+      expect(requestLog[0]).toMatch(/^POST .*\/api\/v1\/audit-logs\/exports$/);
 
       // --- 窓が通信を捉えられることの裏取り --------------------------------
-      // 同じ窓に実物の API 呼び出しが記録される＝上の `toEqual([])` は
-      // 「窓が通信を見られなかったから空だった」のではない。
+      // 同じ窓に実物の API 呼び出しが記録される＝上の件数は
+      // 「窓が通信を見られなかったから少なかった」のではない。
       await getCompanyInfo();
-      expect(requestLog).toHaveLength(1);
-      expect(requestLog[0]).toContain('/api/company-info');
+      expect(requestLog).toHaveLength(2);
+      expect(requestLog[1]).toContain('/api/company-info');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -486,5 +512,247 @@ describe('EstimateExportDialog - 閉じる', () => {
     await user.click(exportButton());
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+// ============================================================================
+// 出力の記録（57.7, 57.8。タスク62.2。user-authentication の要件40.9〜40.11）
+// ============================================================================
+
+describe('EstimateExportDialog - 出力の記録', () => {
+  /** 表示の文言の完全一致（余計な文言が付け足されていないこと） */
+  const RECORD_FAILED_EXACT = /^出力を記録できなかったため中止しました$/;
+
+  /** 親1件・子2件（見積項目は3件）のツリー */
+  const nestedTree: readonly EditableItem[] = [
+    {
+      ...treeNamed('内装工事')[0]!,
+      children: [
+        { ...treeNamed('床仕上げ')[0]!, id: 'item-2' },
+        { ...treeNamed('壁仕上げ')[0]!, id: 'item-3' },
+      ],
+    },
+  ];
+
+  /** 記録の要求を保留にし、解決の関数を返す */
+  function holdRecord() {
+    const holder: { resolve: (value: { recordId: string }) => void } = { resolve: () => {} };
+    vi.mocked(apiClient.post).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          holder.resolve = resolve as (value: { recordId: string }) => void;
+        })
+    );
+    return holder;
+  }
+
+  /** 記録の解決の後の非同期の続きを流し切る */
+  async function flushAsync() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it('Excel の出力は生成の前に、種別・案件・見積書・見積項目の件数を添えた記録を1回要求する', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderDialog({ items: nestedTree, onClose });
+
+    await user.click(exportButton());
+
+    await waitFor(() => expect(downloaded).toHaveLength(2));
+    const postSpy = vi.mocked(apiClient.post);
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
+      kind: 'estimate_xlsx',
+      projectId: 'proj-1',
+      targetIds: ['est-1'],
+      itemCount: 3,
+    });
+    // 記録の要求がファイルの生成（Blob の URL 化）より先に行われている
+    expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(URL.createObjectURL).mock.invocationCallOrder[0]!
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('PDF の出力は表紙の周辺情報の読み込みと生成の前に、種別 estimate_pdf の記録を1回要求する', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(formatRadio('pdf'));
+    await user.click(exportButton());
+
+    await waitFor(() => expect(pdfGenerateAndDownload).toHaveBeenCalledTimes(1));
+    const postSpy = vi.mocked(apiClient.post);
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
+      kind: 'estimate_pdf',
+      projectId: 'proj-1',
+      targetIds: ['est-1'],
+      itemCount: 1,
+    });
+    expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      loadSubject.mock.invocationCallOrder[0]!
+    );
+    expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      pdfGenerateAndDownload.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('未保存の変更がある状態の出力も同じ記録を経る（Requirement 56）', async () => {
+    const user = userEvent.setup();
+    renderDialog({ hasUnsavedChanges: true });
+
+    await user.click(exportButton());
+
+    await waitFor(() => expect(downloaded).toHaveLength(2));
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/v1/audit-logs/exports',
+      expect.objectContaining({ kind: 'estimate_xlsx', targetIds: ['est-1'] })
+    );
+  });
+
+  it.each([
+    ['Excel', 'xlsx'],
+    ['PDF', 'pdf'],
+  ] as const)(
+    '%s: 記録の要求が失敗すると生成もダウンロードもせず、エラーメッセージを表示してダイアログを閉じない',
+    async (_label, format) => {
+      const user = userEvent.setup();
+      vi.mocked(apiClient.post).mockRejectedValue(new ApiError(500, 'Internal Server Error'));
+      const onClose = vi.fn();
+      renderDialog({ onClose, hasUnsavedChanges: true });
+
+      await user.click(formatRadio(format));
+      await user.click(exportButton());
+
+      expect(within(await screen.findByRole('alert')).getByText(RECORD_FAILED_EXACT)).toBeVisible();
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(loadSubject).not.toHaveBeenCalled();
+      expect(pdfGenerateAndDownload).not.toHaveBeenCalled();
+      expect(URL.createObjectURL).not.toHaveBeenCalled();
+      expect(downloaded).toEqual([]);
+      expect(onClose).not.toHaveBeenCalled();
+      // 出力中の表示は解かれ、出力し直せる。未保存の告知も残る（56.3）
+      expect(exportButton()).toBeEnabled();
+      expect(exportButton().textContent).toBe('出力');
+      expect(screen.getByTestId('estimate-export-unsaved-notice')).toBeInTheDocument();
+    }
+  );
+
+  it('記録の応答に記録の ID が無いときも生成しない', async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.post).mockResolvedValue({});
+    renderDialog();
+
+    await user.click(exportButton());
+
+    expect(within(await screen.findByRole('alert')).getByText(RECORD_FAILED_EXACT)).toBeVisible();
+    expect(downloaded).toEqual([]);
+  });
+
+  it('記録の後の生成の失敗（10.8）は従来の文言を表示し、記録は再送しない', async () => {
+    const user = userEvent.setup();
+    pdfGenerateAndDownload.mockRejectedValue(
+      new Error('日本語フォントの登録に失敗したため、帳票の出力を中断しました。')
+    );
+    renderDialog();
+
+    await user.click(formatRadio('pdf'));
+    await user.click(exportButton());
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe(
+      '日本語フォントの登録に失敗したため、帳票の出力を中断しました。'
+    );
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('記録の要求中は出力とキャンセルを止め、押し直しても記録は1回で、記録の成功の後に生成する', async () => {
+    const record = holdRecord();
+    const onClose = vi.fn();
+    renderDialog({ onClose });
+
+    act(() => {
+      exportButton().click();
+    });
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
+
+    expect(exportButton()).toBeDisabled();
+    expect(exportButton().textContent).toContain('出力中');
+    expect(screen.getByRole('button', { name: 'キャンセル' })).toBeDisabled();
+    act(() => {
+      exportButton().click();
+      screen.getByRole('button', { name: 'キャンセル' }).click();
+    });
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(downloaded).toEqual([]);
+
+    await act(async () => {
+      record.resolve({ recordId: 'record-1' });
+    });
+
+    await waitFor(() => expect(downloaded).toHaveLength(2));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('記録の要求中にダイアログが閉じられたら、記録の成功の後も生成もダウンロードもしない', async () => {
+    const user = userEvent.setup();
+    const record = holdRecord();
+    const onClose = vi.fn();
+    const { rerender } = render(<EstimateExportDialog {...baseProps} onClose={onClose} />);
+
+    await user.click(formatRadio('pdf'));
+    act(() => {
+      exportButton().click();
+    });
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
+
+    rerender(<EstimateExportDialog {...baseProps} isOpen={false} onClose={onClose} />);
+    await act(async () => {
+      record.resolve({ recordId: 'record-1' });
+    });
+    await flushAsync();
+
+    expect(loadSubject).not.toHaveBeenCalled();
+    expect(pdfGenerateAndDownload).not.toHaveBeenCalled();
+    expect(downloaded).toEqual([]);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('記録の要求中に画面が破棄されたら、記録の成功の後も生成もダウンロードもしない', async () => {
+    const record = holdRecord();
+    const { unmount } = renderDialog();
+
+    act(() => {
+      exportButton().click();
+    });
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledTimes(1));
+
+    unmount();
+    await act(async () => {
+      record.resolve({ recordId: 'record-1' });
+    });
+    await flushAsync();
+
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(downloaded).toEqual([]);
+  });
+
+  it('StrictMode の二重の effect の後も、記録の成功の後に生成する', async () => {
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <EstimateExportDialog {...baseProps} onClose={vi.fn()} />
+      </StrictMode>
+    );
+
+    await user.click(exportButton());
+
+    await waitFor(() => expect(downloaded).toHaveLength(2));
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
   });
 });
