@@ -11,6 +11,8 @@
  * - REQ-7.1-7.5: 発注の編集と削除
  * - REQ-8.1-8.9: 発注金額の確定と案分
  * - REQ-10.1-10.4: 発注一覧のエクスポート
+ * - execution-budget-management の Requirement 20 の受入基準8（タスク17.2）: 出力の記録の失敗の応答
+ *   （500・`code: 'EXPORT_RECORD_FAILED'`）でダウンロードを始めず、出力を記録できなかった旨を表示する
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -489,6 +491,38 @@ describe('OrderDetailPage', () => {
         expect(orderDetailApi.exportOrder).toHaveBeenCalledWith('project-1', 'order-1', 'pdf');
       });
     });
+
+    it.each([
+      ['Excel出力', 'xlsx'],
+      ['PDF出力', 'pdf'],
+    ] as const)(
+      '出力の記録の失敗の応答（EXPORT_RECORD_FAILED）では%sのダウンロードを始めず、出力を記録できなかった旨を表示する',
+      async (buttonName, format) => {
+        vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+        vi.mocked(orderDetailApi.exportOrder).mockRejectedValueOnce(
+          new ApiError(500, '出力を記録できなかったため中止しました', {
+            status: 500,
+            code: 'EXPORT_RECORD_FAILED',
+            detail: '出力を記録できなかったため中止しました',
+          })
+        );
+        const mockCreateObjectURL = vi.fn().mockReturnValue('blob:test-url');
+        globalThis.URL.createObjectURL = mockCreateObjectURL;
+        globalThis.URL.revokeObjectURL = vi.fn();
+        const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+
+        renderPage();
+        await userEvent.click(await screen.findByRole('button', { name: buttonName }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          '出力を記録できなかったため中止しました'
+        );
+        expect(orderDetailApi.exportOrder).toHaveBeenCalledWith('project-1', 'order-1', format);
+        expect(mockCreateObjectURL).not.toHaveBeenCalled();
+        expect(clickSpy).not.toHaveBeenCalled();
+        clickSpy.mockRestore();
+      }
+    );
   });
 
   // ==========================================================================

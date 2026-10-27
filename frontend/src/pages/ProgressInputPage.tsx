@@ -31,8 +31,24 @@ import {
   type MonthlyProgressSummary,
   type MonthlyProgressDetailItem,
 } from '../api/progress';
+import { getApiErrorCode } from '../api/client';
+import { EXPORT_RECORD_FAILED_MESSAGE } from '../api/export-audit';
 import { Breadcrumb } from '../components/common';
 import { useToast } from '../hooks/useToast';
+
+/**
+ * 出力の記録の失敗を表すサーバーの識別子（execution-budget-management の Requirement 20.8）
+ *
+ * サーバーで生成する月別出来高の出力は、記録が失敗するとファイルを返さず 500 とこの識別子を返す。
+ */
+const EXPORT_RECORD_FAILED_CODE = 'EXPORT_RECORD_FAILED';
+
+/** 出力の失敗の文言。記録の失敗だけを区別し、ほかの失敗は従来の文言のままにする（20.8） */
+function exportFailureMessage(error: unknown, fallback: string): string {
+  return getApiErrorCode(error) === EXPORT_RECORD_FAILED_CODE
+    ? EXPORT_RECORD_FAILED_MESSAGE
+    : fallback;
+}
 
 // ============================================================================
 // 型定義
@@ -543,8 +559,8 @@ export default function ProgressInputPage() {
       a.download = `出来高集計.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      showErrorRef.current('Excelエクスポートに失敗しました');
+    } catch (error) {
+      showErrorRef.current(exportFailureMessage(error, 'Excelエクスポートに失敗しました'));
     }
   }, [projectId]);
 
@@ -559,8 +575,8 @@ export default function ProgressInputPage() {
       a.download = `出来高集計.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      showErrorRef.current('PDFエクスポートに失敗しました');
+    } catch (error) {
+      showErrorRef.current(exportFailureMessage(error, 'PDFエクスポートに失敗しました'));
     }
   }, [projectId]);
 

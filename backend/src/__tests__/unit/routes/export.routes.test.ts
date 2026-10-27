@@ -8,6 +8,10 @@
  * Requirements:
  * - 19.9: APIレスポンスに適切なHTTPステータスコードを返却する
  *
+ * 出力の記録（execution-budget-management の Requirement 20 の受入基準7・8、タスク17.2）:
+ * ファイルの生成の前に ExportAuditService.record を 1 回呼ぶこと、記録の失敗では生成せず
+ * 500 と EXPORT_RECORD_FAILED を返すこと、範囲外・不在の案件の判定では 404 にすることを確かめる
+ *
  * エンドポイント:
  * - GET /orders/:orderId/export?format=xlsx|pdf （発注エクスポート）
  * - GET /progress/monthly/export?format=xlsx|pdf （月別出来高エクスポート）
@@ -27,6 +31,7 @@ const {
   mockProgressExportToPdf,
   mockFindByProjectId,
   mockProjectFindUnique,
+  mockRecord,
 } = vi.hoisted(() => ({
   mockGetExportData: vi.fn(),
   mockExportToExcel: vi.fn(),
@@ -36,6 +41,7 @@ const {
   mockProgressExportToPdf: vi.fn(),
   mockFindByProjectId: vi.fn(),
   mockProjectFindUnique: vi.fn(),
+  mockRecord: vi.fn(),
 }));
 
 // 依存モジュールのモック
@@ -76,6 +82,21 @@ vi.mock('../../../services/progress-export.service.js', () => ({
     exportToExcel = mockProgressExportToExcel;
     exportToPdf = mockProgressExportToPdf;
   },
+}));
+
+// 出力の記録（判定と記録の内容は export-audit.service.test.ts と統合テストが確かめる）
+vi.mock('../../../services/export-audit.service.js', () => ({
+  ExportAuditService: class {
+    record = mockRecord;
+  },
+}));
+
+vi.mock('../../../services/audit-log.service.js', () => ({
+  AuditLogService: class {},
+}));
+
+vi.mock('../../../services/project-scope.service.js', () => ({
+  getSharedProjectScopeService: vi.fn(),
 }));
 
 vi.mock('../../../services/progress.service.js', () => ({
@@ -168,7 +189,7 @@ function createTestApp() {
   // エラーハンドラー
   app.use(
     (
-      err: Error & { statusCode?: number; status?: number },
+      err: Error & { statusCode?: number; status?: number; code?: string },
       _req: Request,
       res: Response,
       _next: NextFunction
@@ -177,6 +198,7 @@ function createTestApp() {
       res.status(statusCode).json({
         status: statusCode,
         detail: err.message || 'Internal Server Error',
+        ...(err.code !== undefined && { code: err.code }),
       });
     }
   );
@@ -192,6 +214,127 @@ describe('Export Routes', () => {
     app = createTestApp();
     mockFindByProjectId.mockResolvedValue(mockBudgetData);
     mockProjectFindUnique.mockResolvedValue({ name: 'テストプロジェクト' });
+    mockRecord.mockResolvedValue({ ok: true, value: { recordId: 'record-1' } });
+  });
+
+  // ============================================================================
+  // 出力の記録（Requirement 20.7・20.8、タスク17.2）
+  // ============================================================================
+  describe('出力の記録', () => {
+    const orderPath = `/api/projects/${projectId}/execution-budget/orders/${orderId}/export`;
+    const progressPath = `/api/projects/${projectId}/execution-budget/progress/monthly/export`;
+
+    it.each(['xlsx', 'pdf'] as const)(
+      '発注一覧の出力（%s）は生成の前に種別・案件・発注・チェック済み項目の件数で 1 回記録する',
+      async (format) => {
+        mockGetExportData.mockResolvedValue(mockOrderExportData);
+        mockExportToExcel.mockResolvedValue(Buffer.from('x'));
+        mockExportToPdf.mockResolvedValue(Buffer.from('p'));
+
+        await request(app).get(`${orderPath}?format=${format}`).expect(200);
+
+        expect(mockRecord).toHaveBeenCalledTimes(1);
+        expect(mockRecord).toHaveBeenCalledWith(
+          'test-user-id',
+          {
+            kind: 'order_export',
+            projectId,
+            targetIds: [orderId],
+            itemCount: mockOrderExportData.items.length,
+          },
+          expect.any(Object)
+        );
+        const generate = format === 'xlsx' ? mockExportToExcel : mockExportToPdf;
+        expect(mockRecord.mock.invocationCallOrder[0]!).toBeLessThan(
+          generate.mock.invocationCallOrder[0]!
+        );
+      }
+    );
+
+    it.each(['xlsx', 'pdf'] as const)(
+      '月別出来高の出力（%s）は生成の前に種別・案件・実行予算・月の数で 1 回記録する',
+      async (format) => {
+        mockProgressGetExportData.mockResolvedValue(mockProgressExportData);
+        mockProgressExportToExcel.mockResolvedValue(Buffer.from('x'));
+        mockProgressExportToPdf.mockResolvedValue(Buffer.from('p'));
+
+        await request(app).get(`${progressPath}?format=${format}`).expect(200);
+
+        expect(mockRecord).toHaveBeenCalledTimes(1);
+        expect(mockRecord).toHaveBeenCalledWith(
+          'test-user-id',
+          {
+            kind: 'progress_export',
+            projectId,
+            targetIds: [executionBudgetId],
+            itemCount: mockProgressExportData.monthlySummaries.length,
+          },
+          expect.any(Object)
+        );
+        const generate = format === 'xlsx' ? mockProgressExportToExcel : mockProgressExportToPdf;
+        expect(mockRecord.mock.invocationCallOrder[0]!).toBeLessThan(
+          generate.mock.invocationCallOrder[0]!
+        );
+      }
+    );
+
+    it('記録が失敗すると発注一覧のファイルを生成せず 500 と EXPORT_RECORD_FAILED を返す', async () => {
+      mockGetExportData.mockResolvedValue(mockOrderExportData);
+      mockRecord.mockResolvedValue({ ok: false, error: { type: 'RECORD_FAILED' } });
+
+      const response = await request(app).get(`${orderPath}?format=xlsx`).expect(500);
+
+      expect(response.body).toMatchObject({
+        status: 500,
+        code: 'EXPORT_RECORD_FAILED',
+        detail: '出力を記録できなかったため中止しました',
+      });
+      expect(response.headers['content-disposition']).toBeUndefined();
+      expect(mockExportToExcel).not.toHaveBeenCalled();
+      expect(mockExportToPdf).not.toHaveBeenCalled();
+    });
+
+    it('記録が失敗すると月別出来高のファイルを生成せず 500 と EXPORT_RECORD_FAILED を返す', async () => {
+      mockProgressGetExportData.mockResolvedValue(mockProgressExportData);
+      mockRecord.mockResolvedValue({ ok: false, error: { type: 'RECORD_FAILED' } });
+
+      const response = await request(app).get(`${progressPath}?format=pdf`).expect(500);
+
+      expect(response.body).toMatchObject({
+        status: 500,
+        code: 'EXPORT_RECORD_FAILED',
+        detail: '出力を記録できなかったため中止しました',
+      });
+      expect(response.headers['content-disposition']).toBeUndefined();
+      expect(mockProgressExportToExcel).not.toHaveBeenCalled();
+      expect(mockProgressExportToPdf).not.toHaveBeenCalled();
+    });
+
+    it('記録の判定が案件を範囲外・不在とすると生成せず不在と同じ 404 を返す', async () => {
+      mockGetExportData.mockResolvedValue(mockOrderExportData);
+      mockProgressGetExportData.mockResolvedValue(mockProgressExportData);
+      mockRecord.mockResolvedValue({ ok: false, error: { type: 'PROJECT_OUT_OF_SCOPE' } });
+
+      const order = await request(app).get(`${orderPath}?format=xlsx`).expect(404);
+      const progress = await request(app).get(`${progressPath}?format=xlsx`).expect(404);
+
+      for (const response of [order, progress]) {
+        expect(response.body.code).toBe('NOT_FOUND');
+        expect(JSON.stringify(response.body)).not.toContain(projectId);
+      }
+      expect(mockExportToExcel).not.toHaveBeenCalled();
+      expect(mockProgressExportToExcel).not.toHaveBeenCalled();
+    });
+
+    it('発注・実行予算が存在しない要求は記録しない', async () => {
+      mockGetExportData.mockResolvedValue(null);
+      mockFindByProjectId.mockResolvedValue(null);
+
+      await request(app).get(`${orderPath}?format=xlsx`).expect(404);
+      await request(app).get(`${progressPath}?format=xlsx`).expect(404);
+
+      expect(mockRecord).not.toHaveBeenCalled();
+    });
   });
 
   // ============================================================================

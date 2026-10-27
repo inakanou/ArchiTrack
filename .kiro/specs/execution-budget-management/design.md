@@ -898,6 +898,14 @@ enum AmendmentStatus {
 
 **記録の失敗の応答**: `record` が `RECORD_FAILED` を返したときは、ファイルを生成せず、ファイルを含まない 500 の応答を返す。本文の `detail` は「出力を記録できなかったため中止しました」とし、画面が記録の失敗を他の失敗と区別できる識別子（例 `code: 'EXPORT_RECORD_FAILED'`）を添える。発注詳細画面（`OrderDetailPage` の `handleExport`）と出来高入力画面（`ProgressInputPage` の `handleExportExcel`・`handleExportPdf`）は、この応答でダウンロードを始めず `EXPORT_RECORD_FAILED_MESSAGE` を表示する（20.8）。ほかの失敗の文言（出来高入力画面の Excel・PDF のエクスポートの失敗）は変えない。ブラウザで生成する出力の包み（`runRecordedExport`）は使わない。サーバーが記録する出力をブラウザからも記録すると二重の記録になるため（user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。
 
+**出力の記録の決定（2026-10-28、タスク17.2 の実装）**: 上の目安を次のとおり確定した。
+
+- 対象と件数: 発注一覧は `targetIds` を経路の発注の ID の 1 件、`itemCount` を出力するチェック済み項目の数とした。月別出来高は `targetIds` を経路の案件の実行予算の ID の 1 件、`itemCount` を出力する月の数（月別集計の行の数）とした。いずれもファイルに載る行の数であり、出力の大きさを監査から読めるようにするため
+- 記録の位置: 経路の範囲の判定と発注の所属の照合の後、出力のデータの取得（発注の不在と実行予算の不在の 404 の判定を含む）の後、Excel・PDF の生成の前とした。件数は取得したデータから数えるためであり、不在の 404 になる要求は記録しない。記録の判定が案件を範囲外か不在とした場合（`PROJECT_OUT_OF_SCOPE`）は生成せず、汎用の 404（`NOT_FOUND`）を返す
+- 記録の失敗の応答: user-authentication の監査ログの JSON 出力と同じ `InternalServerError`（500、`code: 'EXPORT_RECORD_FAILED'`、`detail` は「出力を記録できなかったため中止しました」）とした。応答は JSON の問題の詳細だけで、`Content-Disposition` を付けない
+- 記録の手段: 経路のファイルで `ExportAuditService` を一つ作り、案件の判定は共有の `ProjectScopeService` を要求のたびに取り直して使う（監査ログの経路と同じ形）
+- 画面: 両画面とも応答の `code` が `EXPORT_RECORD_FAILED` のときだけ `EXPORT_RECORD_FAILED_MESSAGE` を表示し、ダウンロードの処理（`URL.createObjectURL` とリンクのクリック）に進まない。発注詳細画面は出力の失敗の表示欄（`role="alert"`）を設けた。従来は発注が取得済みのとき出力の失敗を表示する欄が無かったため。出来高入力画面は従来どおりトーストで表示し、記録の失敗以外の失敗の文言は変えない
+
 ### Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |

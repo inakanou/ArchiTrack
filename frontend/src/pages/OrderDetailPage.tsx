@@ -24,7 +24,8 @@ import {
   type OrderWithItems,
 } from '../api/order-detail';
 import type { OrderStatus } from '../api/execution-budget';
-import { ApiError } from '../api/client';
+import { ApiError, getApiErrorCode } from '../api/client';
+import { EXPORT_RECORD_FAILED_MESSAGE } from '../api/export-audit';
 import TradingPartnerSelect from '../components/projects/TradingPartnerSelect';
 import { Breadcrumb } from '../components/common';
 
@@ -273,6 +274,13 @@ function getStatusBadgeStyle(status: OrderStatus): React.CSSProperties {
 // メインコンポーネント
 // ============================================================================
 
+/**
+ * 出力の記録の失敗を表すサーバーの識別子（execution-budget-management の Requirement 20.8）
+ *
+ * サーバーで生成する発注一覧の出力は、記録が失敗するとファイルを返さず 500 とこの識別子を返す。
+ */
+const EXPORT_RECORD_FAILED_CODE = 'EXPORT_RECORD_FAILED';
+
 export function OrderDetailPage() {
   const { projectId, orderId } = useParams<{ projectId: string; orderId: string }>();
   const navigate = useNavigate();
@@ -292,6 +300,7 @@ export function OrderDetailPage() {
   const [showCancelConfirmDialog, setShowCancelConfirmDialog] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const isOrdered = order?.status === 'ORDERED';
   const isCancelled = order?.status === 'CANCELLED';
@@ -494,6 +503,7 @@ export function OrderDetailPage() {
   const handleExport = useCallback(
     async (format: 'xlsx' | 'pdf') => {
       if (!projectId || !orderId) return;
+      setExportError(null);
       try {
         const blob = await exportOrder(projectId, orderId, format);
         const url = URL.createObjectURL(blob);
@@ -505,6 +515,11 @@ export function OrderDetailPage() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       } catch (err) {
+        // 出力の記録の失敗ではファイルが返らない。ダウンロードを始めず、その旨を表示する（20.8）
+        if (getApiErrorCode(err) === EXPORT_RECORD_FAILED_CODE) {
+          setExportError(EXPORT_RECORD_FAILED_MESSAGE);
+          return;
+        }
         if (err instanceof ApiError) {
           setError(err.message);
         }
@@ -844,6 +859,22 @@ export function OrderDetailPage() {
           </table>
         </div>
       </div>
+
+      {/* 出力のエラー（出力の記録の失敗。Requirement 20.8） */}
+      {exportError && (
+        <div
+          role="alert"
+          style={{
+            backgroundColor: '#fee2e2',
+            color: '#991b1b',
+            padding: '12px 16px',
+            borderRadius: '6px',
+            marginBottom: '16px',
+          }}
+        >
+          {exportError}
+        </div>
+      )}
 
       {/* 削除ダイアログ / 削除エラー */}
       {deleteError && !showDeleteDialog && (

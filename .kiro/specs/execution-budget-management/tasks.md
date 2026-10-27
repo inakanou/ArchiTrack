@@ -411,7 +411,7 @@
   - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6_
   - _Boundary: 本スペックの API の案件の範囲の判定と子リソースの所属の照合_
 
-- [ ] 17.2 発注と月別出来高の出力に記録（user-authentication の要件40）を適用する
+- [x] 17.2 発注と月別出来高の出力に記録（user-authentication の要件40）を適用する
   - 対象（2026-10-25 の実測）: サーバーで生成する backend/src/routes/export.routes.ts の `GET /orders/:orderId/export`（66。画面は frontend/src/pages/OrderDetailPage.tsx の `handleExport`）と `GET /progress/monthly/export`（116。画面は frontend/src/pages/ProgressInputPage.tsx の `handleExportExcel`・`handleExportPdf`）。種別 `order_export`・`progress_export`
   - ハンドラーが生成の前に `ExportAuditService.record`（実行者・種別・案件・対象・件数）を呼ぶ（40.9。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。記録が失敗したときの応答（出力を返さない）は同節に照らして決める
   - 挙動の変更であるため RED → GREEN で進め、統合テストで出力のたびに監査 `DATA_EXPORTED` が種別・案件つきで 1 件記録されること、記録の失敗時の応答を主張し、E2E で画面からの出力が記録を残すことを確かめる

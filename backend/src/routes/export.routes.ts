@@ -14,6 +14,13 @@
  * 判定部品を置き、範囲外は不在と同じ汎用の 404 にする。発注一覧の出力の発注が経路の案件に属さなければ
  * 不在と同じ 404 にする
  *
+ * 出力の記録（Requirement 20.7・20.8、user-authentication の要件40.9。タスク17.2）:
+ * 範囲の判定と発注の所属の照合を通った後、ファイル（Excel・PDF）を生成する前に
+ * ExportAuditService.record を一つの要求につき 1 回呼ぶ（種別 order_export・progress_export）。
+ * 記録の失敗ではファイルを生成せず、500（`code: 'EXPORT_RECORD_FAILED'`、`detail` は
+ * 「出力を記録できなかったため中止しました」）を返す。記録の判定が案件を範囲外・不在とした
+ * ときも生成せず、不在と同じ汎用の 404 にする
+ *
  * Task 6.3: エクスポートのルーター実装
  *
  * @module routes/export
@@ -24,7 +31,12 @@ import { OrderExportService } from '../services/order-export.service.js';
 import { ProgressExportService } from '../services/progress-export.service.js';
 import { ProgressService } from '../services/progress.service.js';
 import { ExecutionBudgetService } from '../services/execution-budget.service.js';
+import { AuditLogService } from '../services/audit-log.service.js';
+import { ExportAuditService, type ExportRecordInput } from '../services/export-audit.service.js';
+import { getSharedProjectScopeService } from '../services/project-scope.service.js';
 import getPrismaClient from '../db.js';
+import { getClientIp } from '../middleware/client-ip.js';
+import { InternalServerError, NotFoundError, type ApiError } from '../errors/apiError.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
@@ -47,6 +59,36 @@ const orderExportService = new OrderExportService({ prisma });
 const progressService = new ProgressService({ prisma });
 const progressExportService = new ProgressExportService({ progressService });
 const executionBudgetService = new ExecutionBudgetService({ prisma });
+const exportAuditService = new ExportAuditService({
+  auditLogService: new AuditLogService({ prisma }),
+  // 共有のインスタンスは要求のたびに取り直す（PrismaClient・RBACService の作り直しに追従する）
+  scopeService: {
+    evaluateProjectAccess: (userId, projectId) =>
+      getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+  },
+});
+
+/**
+ * ファイルを生成する前に出力を記録する（Requirement 20.7・20.8）
+ *
+ * @returns 記録できたときは null。記録できなかったときは応答にする誤り
+ *   （範囲外・不在の案件は不在と同じ汎用の 404、記録の失敗は 500 の EXPORT_RECORD_FAILED）
+ */
+async function recordExportBeforeGeneration(
+  req: Request,
+  input: ExportRecordInput
+): Promise<ApiError | null> {
+  const result = await exportAuditService.record(req.user!.userId, input, {
+    ipAddress: getClientIp(req),
+    userAgent: req.get('user-agent'),
+  });
+  if (result.ok) {
+    return null;
+  }
+  return result.error.type === 'PROJECT_OUT_OF_SCOPE'
+    ? new NotFoundError()
+    : new InternalServerError('出力を記録できなかったため中止しました', 'EXPORT_RECORD_FAILED');
+}
 
 /**
  * プロジェクトIDから実行予算IDを取得するヘルパー
@@ -97,6 +139,18 @@ router.get(
           status: 404,
           detail: '発注が見つかりません',
         });
+        return;
+      }
+
+      // 生成の前に記録する。対象は発注、件数は出力するチェック済み項目の数（20.7）
+      const recordError = await recordExportBeforeGeneration(req, {
+        kind: 'order_export',
+        projectId: req.params.projectId as string,
+        targetIds: [orderId],
+        itemCount: exportData.items.length,
+      });
+      if (recordError) {
+        next(recordError);
         return;
       }
 
@@ -164,6 +218,18 @@ router.get(
 
       // エクスポートデータの取得
       const exportData = await progressExportService.getExportData(executionBudgetId, projectName);
+
+      // 生成の前に記録する。対象は実行予算、件数は出力する月の数（20.7）
+      const recordError = await recordExportBeforeGeneration(req, {
+        kind: 'progress_export',
+        projectId,
+        targetIds: [executionBudgetId],
+        itemCount: exportData.monthlySummaries.length,
+      });
+      if (recordError) {
+        next(recordError);
+        return;
+      }
 
       logger.info(
         { projectId, format, userId: req.user?.userId },
