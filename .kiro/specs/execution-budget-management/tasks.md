@@ -407,12 +407,16 @@
   - **子リソースの所属の照合**: 経路の `itemId`・`orderId`・`progressRecordId`・`contractId` が経路の `projectId` の案件に属するかを確かめ、属さない組み合わせは不在と同じ 404 にする（contract-management の是正計画 §5.11 と同じ形。範囲内の案件の ID を経由して範囲外の子を操作できないようにする）
   - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の要求と所属しない子の ID が不在と同じ 404 になり DB が変わらないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が実行予算の URL を直接開くと見つからない扱いになることを確かめる
   - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 20（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 20.1〜20.6 が受ける。子リソース（`itemId`・`orderId`・`progressRecordId`・`contractId`）が経路の案件に属さなければ不在と同じ 404 でデータを変えない（20.4）、一括の要求（発注のチェック済み項目の更新、出来高の保存）は属さない項目が一つでも含まれれば要求全体を 404 で書き込みなし（20.5）と条文に定めた。案件の範囲を含意する既存の条文として要件 17.1〜17.6（ロールだけで許可を定めていた）を改訂し、改訂の記録（採らなかった案: 条文を変えず design.md だけで読み替える案）を requirements.md の Requirement 17 の下に残した。design.md は「Requirement 20: 案件の閲覧範囲と出力の記録の適用」章を足し、Security Considerations の当初の記述は記録として残して置き換えを書き添えた。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6_
   - _Boundary: 本スペックの API の案件の範囲の判定と子リソースの所属の照合_
 
 - [ ] 17.2 発注と月別出来高の出力に記録（user-authentication の要件40）を適用する
   - 対象（2026-10-25 の実測）: サーバーで生成する backend/src/routes/export.routes.ts の `GET /orders/:orderId/export`（66。画面は frontend/src/pages/OrderDetailPage.tsx の `handleExport`）と `GET /progress/monthly/export`（116。画面は frontend/src/pages/ProgressInputPage.tsx の `handleExportExcel`・`handleExportPdf`）。種別 `order_export`・`progress_export`
   - ハンドラーが生成の前に `ExportAuditService.record`（実行者・種別・案件・対象・件数）を呼ぶ（40.9。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。記録が失敗したときの応答（出力を返さない）は同節に照らして決める
   - 挙動の変更であるため RED → GREEN で進め、統合テストで出力のたびに監査 `DATA_EXPORTED` が種別・案件つきで 1 件記録されること、記録の失敗時の応答を主張し、E2E で画面からの出力が記録を残すことを確かめる
+  - **判断の結果（2026-10-27、利用者の判断。17.1 の判断と同じ）**: 本タスクの適用は Requirement 20 の 20.7・20.8 が受ける。出力はサーバーで生成するため、記録はハンドラーがファイルの生成の前に 1 回行い（20.7）、記録の失敗ではファイルを生成せず返さずにエラーを返し、画面はダウンロードを始めず「出力を記録できなかったため中止しました」を表示する（20.8）と条文に定めた。応答の形（500・`detail`・識別子）は design.md の同章の「記録の失敗の応答」に記した。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 20.7, 20.8_
   - _Boundary: 発注と月別出来高の出力の経路の記録_
   - _Depends: 17.1_
 

@@ -219,9 +219,12 @@ sequenceDiagram
 | 14.1-14.5 | 月次締め処理 | MonthlyCloseService | POST /monthly-close | 月次締めフロー |
 | 15.1-15.8 | 契約変更への対応 | ExecutionBudgetService | POST /apply-amendment | - |
 | 16.1-16.5 | 月別出来高集計 | ProgressService, ExportService | GET /progress/monthly | - |
-| 17.1-17.6 | アクセス制御 | authorize middleware | requirePermission | - |
+| 17.1-17.6 | アクセス制御（Requirement 20 の案件の閲覧範囲で読む。2026-10-27 改訂） | authorize middleware | requirePermission | - |
 | 18.1-18.5 | 数値計算の精度と表示 | decimal.js, フロントエンドフォーマッタ | - | - |
 | 19.1-19.9 | データ永続化とAPI設計 | 全Service, 全Route | 全API | - |
+| 20.1-20.8 | 案件の閲覧範囲と出力の記録 | 実行予算・発注・出来高・原価・月次締め・出力の経路, 子リソースの所属の照合, 出力の記録, 出力のエラー表示 | requireProjectScope, ExportAuditService | - |
+
+> **改訂（2026-10-27、利用者の判断。タスク17）**: 17.1〜17.6 の条文は、ロールによる許可が user-authentication の要件39 の案件の閲覧範囲に含まれるプロジェクトについて働き、範囲外は存在しない場合と同じ 404 とするよう改訂した（requirements.md の Requirement 17 の改訂の記録を参照）。設計上の読み方は「Requirement 20: 案件の閲覧範囲と出力の記録の適用」章の「要件 17.1〜17.6 の読み替え」節に記す。
 
 ## Components and Interfaces
 
@@ -760,6 +763,7 @@ enum AmendmentStatus {
 **User Errors (4xx)**:
 - 400 Bad Request: バリデーションエラー（Zodスキーマ不適合、金額フォーマット不正）
 - 404 Not Found: 実行予算・発注・出来高レコードが存在しない
+  - **追記（2026-10-27、タスク17）**: 閲覧範囲外のプロジェクトの指定と、経路で指定したプロジェクトに属さない実行予算項目・発注・出来高記録・契約の指定も、存在しない場合と区別しない汎用の 404 とする（Requirement 20.2〜20.5）。範囲外を 403 で返す経路は無い
 - 409 Conflict: 楽観的排他制御の競合、既存実行予算との重複、同月の重複締め
 
 **Business Logic Errors (422)**:
@@ -804,6 +808,7 @@ enum AmendmentStatus {
   - VIEWER以上: 実行予算・発注・出来高の閲覧
   - EDITOR以上: 実行予算・発注・出来高・原価のCRUD操作、月次締め
 - 権限不足時は403 Forbiddenを返却
+  - **改訂（2026-10-27、タスク17）**: 上の 3 項は当初の設計の記録として残す。実装はこれをロールの権限の表（`requirePermission`）だけで読み、担当外の利用者もID指定で他の案件の実行予算・発注・出来高・原価を読み書きでき、発注一覧と月別出来高の出力は記録を経ずに生成された（user-authentication の機能検証、2026-10-25）。2026-10-27 の判断（要件 17.1〜17.6 の改訂と Requirement 20 の新設）で、データ分離は案件の閲覧範囲（user-authentication の要件39）とロールの権限の表の両方で判定する。範囲外は不在と同じ汎用の 404 とし、403 は閲覧範囲内で権限を持たない操作に限る。出力はファイルの生成の前に記録する（詳細は「Requirement 20: 案件の閲覧範囲と出力の記録の適用」章）
 - 新規パーミッション: `execution_budget:read`, `execution_budget:write`, `order:read`, `order:write`, `progress:read`, `progress:write`, `cost:write`, `monthly_close:write`
 
 ## Performance & Scalability
@@ -812,3 +817,100 @@ enum AmendmentStatus {
 - 大量項目（200+）: フロントエンドでの折り畳みによる初期レンダリング最適化
 - 月別出来高集計: SQLレベルでGROUP BY集計し、アプリケーション層の計算負荷を軽減
 - エクスポート処理: 非同期処理は不要（項目数が限定的）。同期レスポンスでファイルを返却
+
+## Requirement 20: 案件の閲覧範囲と出力の記録の適用
+
+### Overview
+
+**Purpose**: user-authentication の要件39（案件単位の閲覧範囲）と要件40.9〜40.11（データ出力の記録）を本機能の API と出力へ適用する。上流は判定の部品（`ProjectScopeService` の `evaluateProjectAccess`・`buildProjectScopeWhere`、`canAccessProject`、`requireProjectScope`）と出力の記録の手段（`ExportAuditService`）を実装済みであり、各業務機能への適用は各 spec の所管と定めている（user-authentication の design.md の Boundary Commitments の Out of Boundary）。本章は本機能の適用箇所を設計として固定する。
+
+**Users**: 担当外の案件の実行予算と原価を閲覧・操作させたくないシステム管理者と、出力の経緯を追跡する監査の担当者。
+
+**Impact（既存前提の是正）**: user-authentication の機能検証（2026-10-25、HEAD `b85b8124`）で次の二点が確かめられた（タスク17 の経緯）。
+
+1. 本機能の API はロールの権限の表（`execution_budget:*`・`order:*`・`progress:*`・`cost:write`・`monthly_close:write`）だけを判定し、案件の範囲を判定しない。担当外の利用者が ID 指定で他の案件の実行予算・発注・出来高・原価を読み書きできる。あわせて、経路の `orderId`・`itemId`・`progressRecordId`・`contractId` が経路の `projectId` の案件に属するかを照合しない経路がある（発注一覧の出力は `orderId` だけで発注を引く）
+2. 発注一覧と月別出来高の出力はサーバーで生成されるが、`ExportAuditService.record` を経ない（同サービスの呼び出し元は監査ログの経路だけ）
+
+### 要件 17.1〜17.6 の読み替え（2026-10-27、利用者の判断）
+
+利用者は、案件の範囲を含意する既存の条文を改訂して改訂の記録を残すと判断した（採らなかった案は、条文を変えず本書だけで読み替える案）。本機能では Requirement 17（アクセス制御）の受入基準1〜6 が該当した（requirements.md を `アクセス`・`権限`・`閲覧`・`許可` で検め、ほかの該当は画面操作と同一プロジェクトの変更契約の語だけであった。2026-10-27）。改訂の内容と理由は requirements.md の Requirement 17 の改訂の記録が持ち、本書は設計上の読み方だけを記す。
+
+| 条文 | 改訂前の設計上の読み方 | 改訂後の設計上の読み方 |
+|---|---|---|
+| 17.1 | VIEWER以上のロールなら全プロジェクトの実行予算を閲覧できる | 閲覧範囲に含まれるプロジェクトの実行予算に限りVIEWER以上のロールが閲覧できる。範囲外は不在と同じ 404（20.2） |
+| 17.2-17.5 | EDITOR以上のロールなら全プロジェクトの実行予算・発注・出来高・原価・月次締めを操作できる | 閲覧範囲に含まれるプロジェクトに限りEDITOR以上のロールが操作できる |
+| 17.6 | 権限の無い操作は範囲の区別なく 403 と権限不足のエラーメッセージ | 403 と権限不足のエラーメッセージは閲覧範囲内で権限を持たない操作に限る。範囲外は不在と同じ汎用の 404（20.2・20.3） |
+
+**読み替えに伴って主張が変わる既存のテスト**: 権限なしの 403 を主張する既存の統合テスト（タスク13.3 のアクセス制御）は、判定の順序を `requirePermission` の後に `requireProjectScope` とすることで従来どおり成り立つ。範囲外の利用者の操作を通すことを主張する既存のテストは無いことを着手時に確かめる（あれば主張を消さず、不在と同じ 404 の主張へ改める）。
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 本機能の API の各経路への `requireProjectScope` の適用（`requirePermission` の後に置く）。対象はタスク17.1 の本文が挙げる 5 ルートファイルの 25 経路（20.1-20.3, 20.6）
+- 経路の `itemId`・`orderId`・`progressRecordId`、経路と要求本文の `contractId` が経路の `projectId` の案件に属するかの照合（20.4）
+- 複数の実行予算項目を一度に指定する要求（発注のチェック済み項目の更新 `itemIds`、出来高の保存 `items[].itemId`）の全件か無しかの扱い（20.5）
+- 発注一覧と月別出来高の出力の経路から生成の前に `ExportAuditService.record` を呼ぶことと、記録の失敗の応答（20.7・20.8）
+- 発注詳細画面と出来高入力画面の出力の失敗の表示（20.8）
+
+#### Out of Boundary
+- 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
+- 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
+- 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
+- プロジェクト詳細画面の実行予算セクションのサマリ（project-management が所管するプロジェクト詳細の取得の閲覧範囲に従う。user-authentication のタスク52.3 で適用済み）
+- 発注先の取引先の選択（取引先マスタは案件に属さない。trading-partner-management が所管）
+- 署名付きURLの発行の判定（user-authentication の要件39.4）。本機能はファイルの取得用の署名付きURLを発行しない
+
+#### Allowed Dependencies
+- 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
+- 本機能の出力の経路 → `ExportAuditService`
+- 本機能の出力の画面 → `EXPORT_RECORD_FAILED_MESSAGE`（`frontend/src/api/export-audit.ts`）
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| 実行予算・発注・出来高・原価・月次締め・出力の経路 | Routes | 範囲外のプロジェクトの指定を不在と同じ 404 にし、一覧を範囲内へ限る | 20.1, 20.2, 20.3, 20.6 | `requireProjectScope`（P0） | API |
+| 子リソースの所属の照合 | Service | 経路・要求本文の実行予算項目・発注・出来高記録・契約が経路の案件に属するかを確かめ、属さなければ不在と同じ 404 にする | 20.4, 20.5 | Prisma（P0） | Service |
+| 出力の記録 | Routes | 発注一覧と月別出来高のファイルの生成の前に記録し、記録の失敗では生成しない | 20.7, 20.8 | `ExportAuditService`（P0） | API |
+| 出力のエラー表示 | UI | 記録の失敗の応答でダウンロードを始めず、出力を記録できなかった旨を表示する | 20.8 | `EXPORT_RECORD_FAILED_MESSAGE`（P0） | State |
+
+**判定の順序**: 認証（401）→ `requirePermission`（403）→ `requireProjectScope`（範囲外は 404）→ 子リソースの所属の照合（属さなければ 404）→ 本体（不在と論理削除の 404、バリデーションの 400、競合の 409、業務規則の 422）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
+
+**子リソースの所属**: 実行予算項目は親の実行予算の、発注・出来高記録は所属する実行予算の、契約は契約そのもののプロジェクトを経路の `projectId` と突き合わせる。属さない組み合わせは、存在しない場合と同じ汎用の 404 にしてデータを変えない（20.4）。範囲内のプロジェクトの ID を経由して範囲外の子リソースを閲覧・操作できないようにするためであり、所属しない子リソースが範囲内のプロジェクトに属する場合も同じ 404 とする（範囲の内外で応答を変えると、範囲外の子リソースの実在を推測させる）。契約の照合は、実行予算の作成・変更契約の項目差分・変更契約の反映の三つの経路に置く（contract-management の是正計画 §5.11 と同じ形）。
+
+**一括の経路（全件か無しか）**: 発注のチェック済み項目の更新は `itemIds` の全件を、出来高の保存は `items[].itemId` の全件を、経路の案件の実行予算の項目であるかで判定し、一つでも属さない（不在、または他の案件の実行予算の項目）なら要求全体を不在と同じ汎用の 404 にしてどの行にも書き込まない（20.5）。現状は、発注のチェック済み項目の更新は経路の実行予算に無い ID を黙って捨て、出来高の保存は他の案件の実行予算の項目を指す出来高を書き込める。属さない ID だけを除いて残りを書き込む案は、全件か無しかの契約を部分適用へ変え、他の案件の項目の実在を応答の差から推測させる余地を残すため採らない（site-survey のタスク119.1・construction-photo のタスク30.2・quantity-table-generation のタスク104.1 の決定と同じ）。
+
+**一覧**: 本機能の一覧（発注一覧・出来高履歴・月別出来高・月別明細・月次締め履歴・未反映の変更契約の一覧）はいずれも経路の `projectId` の配下に載り、案件をまたぐ一覧・検索の経路は無い（2026-10-27、`backend/src/app.ts` のマウントと 5 ルートファイルの経路の定義で実測）。そのため一覧を範囲内に限ること（20.6）は経路の `requireProjectScope` で成り立ち、範囲外のプロジェクトを指定した一覧は 404 になる。
+
+**出力の記録**: 発注一覧の出力（`GET /orders/:orderId/export`）は種別 `order_export`、月別出来高の出力（`GET /progress/monthly/export`）は種別 `progress_export` を用い、`projectId` に経路の案件を添える。対象のデータ（`targetIds`）と件数（`itemCount`）は、発注一覧は発注の ID とチェック済み項目の件数、月別出来高は実行予算の ID と対象月の件数を目安とし、実装時に確定する。`record` はファイルの生成（Excel・PDF）の前に一つの要求につき 1 回だけ呼ぶ（20.7）。経路が `requireProjectScope` と子リソースの所属の照合を通った後に呼ぶため、`record` の `PROJECT_OUT_OF_SCOPE` は通常起きないが、起きたときも生成せず不在と同じ 404 とする。
+
+**記録の失敗の応答**: `record` が `RECORD_FAILED` を返したときは、ファイルを生成せず、ファイルを含まない 500 の応答を返す。本文の `detail` は「出力を記録できなかったため中止しました」とし、画面が記録の失敗を他の失敗と区別できる識別子（例 `code: 'EXPORT_RECORD_FAILED'`）を添える。発注詳細画面（`OrderDetailPage` の `handleExport`）と出来高入力画面（`ProgressInputPage` の `handleExportExcel`・`handleExportPdf`）は、この応答でダウンロードを始めず `EXPORT_RECORD_FAILED_MESSAGE` を表示する（20.8）。ほかの失敗の文言（出来高入力画面の Excel・PDF のエクスポートの失敗）は変えない。ブラウザで生成する出力の包み（`runRecordedExport`）は使わない。サーバーが記録する出力をブラウザからも記録すると二重の記録になるため（user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 20.1 | 範囲内（担当者・作成者・全案件閲覧の権限）は従来どおり使える | 実行予算・発注・出来高・原価・月次締め・出力の経路 | `requireProjectScope` | - |
+| 20.2 | 範囲外の ID 指定は不在と同じ 404、データを変えない | 実行予算・発注・出来高・原価・月次締め・出力の経路 | `requireProjectScope` | - |
+| 20.3 | 404 の本文に存在を推測できる情報を含めない | 実行予算・発注・出来高・原価・月次締め・出力の経路 | 汎用の `NOT_FOUND` | - |
+| 20.4 | 経路の案件に属さない実行予算項目・発注・出来高記録・契約は不在と同じ 404 | 子リソースの所属の照合 | 各経路の `itemId`・`orderId`・`progressRecordId`・`contractId` | 実行予算作成フロー |
+| 20.5 | 一括の要求は属さない項目が一つでも含まれれば全体を 404、書き込まない | 子リソースの所属の照合 | `PUT /orders/:orderId/items`, `POST /progress` | - |
+| 20.6 | 発注一覧・出来高履歴・月別出来高・月次締め履歴・未反映の変更契約は範囲内だけ | 実行予算・発注・出来高・原価・月次締め・出力の経路 | `requireProjectScope` | - |
+| 20.7 | ファイルの生成の前に出力の記録を 1 回行う | 出力の記録 | `ExportAuditService.record`, `GET /orders/:orderId/export`, `GET /progress/monthly/export` | - |
+| 20.8 | 記録の失敗ではファイルを返さず、画面は出力を記録できなかった旨を表示する | 出力の記録, 出力のエラー表示 | `EXPORT_RECORD_FAILED_MESSAGE` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 範囲外のプロジェクトの実行予算・発注・出来高・原価・月次締め・出力の指定 | 存在しない場合と同じ 404（`NOT_FOUND`）。本文に案件 ID を含めず、データを変えない | 20.2, 20.3 |
+| 経路の案件に属さない実行予算項目・発注・出来高記録・契約の指定 | 当該の子リソースが存在しない場合と同じ 404。データを変えない | 20.4 |
+| 一括の要求に経路の案件に属さない実行予算項目が一つでも含まれる | 要求全体を 404。どの発注項目・出来高記録にも書き込まない | 20.5 |
+| 範囲外のプロジェクトの一覧の要求 | プロジェクトの不在と同じ 404 | 20.2, 20.6 |
+| 出力の記録が失敗 | ファイルを生成せず 500（`detail` は出力を記録できなかった旨）。画面はダウンロードを始めずエラーメッセージを表示する | 20.8 |
+
+### Testing Strategy
+
+- **統合（バックエンド）**: 担当外の利用者の ID 指定（実行予算の作成・取得・論理削除、実行予算項目の編集、変更契約の一覧・差分・反映、発注の一覧・作成・詳細・編集・チェック済み項目の更新・ステータス変更、出来高の保存・履歴・施工日指定の取得・月別集計・月別明細、原価の入力、月次締めとその履歴、発注一覧と月別出来高の出力）が不在と同じ 404 になり DB が変わらないこと、本文に案件 ID が出ないこと、他の案件の `itemId`・`orderId`・`progressRecordId`・`contractId` を範囲内の案件の経路で指すと 404 で DB が変わらないこと、一括の要求に属さない項目が一つ混じると全体が 404 でどの行も変わらないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること（20.1-20.6）。出力のたびに監査 `DATA_EXPORTED` が種別・案件つきで 1 件記録されること、記録を失敗させるとファイルを返さず 500 になること（20.7, 20.8）
+- **E2E**: 担当外の利用者が実行予算の URL を直接開くと見つからない扱いになること（20.2）。発注詳細画面と出来高入力画面の出力が監査の記録を残すこと、出力の記録の失敗の応答でダウンロードが始まらずエラーメッセージが出ること（20.7, 20.8）
+- 挙動の変更であるため RED → GREEN で進める（タスク17.1・17.2）
