@@ -314,6 +314,9 @@ sequenceDiagram
 | 14.1-14.10 | 画面構成 | EstimateListPage, EstimateDetailPage, EstimateCard | GET /api/projects/:id/estimates, GET /api/estimates/:id | 画面遷移 |
 | 15.1-15.12 | パンくずナビゲーション | Breadcrumb（共通コンポーネント利用）, EstimateListPage, EstimateCreatePage, EstimateDetailPage | - | ナビゲーション |
 | 16.1-16.13 | プロジェクト詳細画面の見積書セクション | EstimateSectionCard, ProjectDetailPage | GET /api/projects/:id/estimates/latest | セクション表示 |
+| 57.1-57.8 | 案件の閲覧範囲と出力の記録 | 見積書・見積明細・在席・受領見積書の一覧の経路, 内訳書の所属の照合, 一括保存の見積項目の所属の照合, 出力の開始の処理 | requireProjectScope, runRecordedExport | - |
+
+> **追記（2026-10-27、利用者の判断。タスク62）**: 57.1〜57.8 は user-authentication の要件39（案件の閲覧範囲）と要件40.9〜40.11（出力の記録）の本機能への適用である。受入基準ごとの追跡は末尾の「Requirement 57: 案件の閲覧範囲と出力の記録の適用」章の追跡表が持つ。本機能の既存の受入基準に、ロールだけで全案件の閲覧・操作を許すと読める条文は無かったため、既存の条文は改訂していない（同章の「既存の条文の検め」節）。
 
 **現況（タスク 61.1、2026-10-10）**: 上の表の 11.1-11.7 の行は書かれた時点の割り当てであり、そのまま残す。同行が挙げる部品には 11.7（他のユーザーが編集中の警告）に当たる仕組みが無かった。タスク 61.1 の着手時に利用者が三つの選択肢——(a) 編集セッション（在席）の永続化・取得・表示を実装する、(b) 11.6 へ寄せて要件を改訂する、(c) 除外一覧へ登録する——から **(a) を選んだ**（2026-10-10）。11.7 の仕組みは末尾の章「追加設計（REQ-11.7 対応）: 他のユーザーが編集中の警告」に置く。見積書詳細画面（EstimateDetailPage）が開いている間に在席を通知し、編集セッションのサービス（EstimateEditSessionService）が利用者ごとの最終通知時刻を記録して、同じ見積書を開いている他の利用者を返す。11.6 の楽観的排他制御（`expectedUpdatedAt` と 409）とは独立しており、在席の通知は見積書の `updatedAt` を進めない。
 
@@ -1329,6 +1332,7 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 **User Errors (4xx)**:
 - 400 Bad Request: バリデーションエラー（数量/単価が数値以外、利益率範囲外）
 - 404 Not Found: 見積書/項目が存在しない
+  - **追記（2026-10-27、タスク62）**: 閲覧範囲外のプロジェクトの指定と、閲覧範囲外のプロジェクトに属する見積書の指定、見積書の作成の要求が経路のプロジェクトに属さない内訳書を指す場合も、存在しない場合と区別しない汎用の 404 とする（Requirement 57.2〜57.4）。範囲外を 403 で返す経路は無い
 - 409 Conflict: 楽観的排他制御による競合検出
 
 **Business Logic Errors (422)**:
@@ -1380,6 +1384,7 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 ## Security Considerations
 
 - 見積書アクセスはプロジェクト所属ユーザーに限定（RBAC）
+  - **改訂（2026-10-27、タスク62）**: 上の項は当初の設計の記録として残す。実装はこれをロールの権限の表（`requirePermission`）だけで読み、プロジェクトへの所属を判定していなかったため、担当外の利用者もID指定で他の案件の見積書を読み書きでき、見積書の出力は記録を経ずに生成された（user-authentication の機能検証、2026-10-25）。2026-10-27 の判断（Requirement 57 の新設）で、データ分離は案件の閲覧範囲（user-authentication の要件39）とロールの権限の表の両方で判定する。範囲外は不在と同じ汎用の 404 とし、403 は閲覧範囲内で権限を持たない操作に限る。出力は生成の前に記録する（詳細は「Requirement 57: 案件の閲覧範囲と出力の記録の適用」章）
 - 金額データは高精度10進数で保持し丸め誤差を防止
 - 楽観的排他制御による同時更新の整合性保証
 
@@ -4606,3 +4611,92 @@ model EstimateEditSession {
 - 統合（backend）: `backend/src/__tests__/integration/estimate-edit-session.api.integration.test.ts` が、2 人の利用者で相手が返ること、退出・TTL 超過で返らないこと、同じ利用者の通知が 1 行に収まること、在席の通知が `updatedAt` を進めず保存（11.6）の競合判定を変えないこと、400 / 401 / 403 / 404、見積書の物理的な消去での連鎖を実データベースで主張する
 - 単体（frontend）: `frontend/src/hooks/useEstimateEditPresence.test.ts`（即時・定期・前面復帰の通知、アンマウントと `pagehide` の退出、403 / 404 での停止、通信エラーでの表示の保持）、`frontend/src/components/estimate/EstimateEditPresenceNotice.test.tsx`（文言・列挙・折り返し）、`frontend/src/pages/EstimateDetailPage.editPresence.test.tsx`（実物のページでの警告の表示と退出）
 - E2E: `e2e/specs/estimate/estimate-edit-presence-e2e.spec.ts` が、別々のブラウザコンテキストでログインした 2 人の利用者（`REGULAR_USER` と `REGULAR_USER_2`）が同じ見積書を開き、互いの画面に相手の表示名を挙げた警告が出ること、アプリ内の画面遷移で離れると相手の画面から警告が消えること、開き直すと再び出ること、タブを閉じると TTL を待たずに消えること、375px 幅で警告が画面の横幅に収まることを主張する
+
+## Requirement 57: 案件の閲覧範囲と出力の記録の適用
+
+### Overview
+
+**Purpose**: user-authentication の要件39（案件単位の閲覧範囲）と要件40.9〜40.11（データ出力の記録）を本機能の API と出力へ適用する。上流は判定の部品（`ProjectScopeService` の `evaluateProjectAccess`・`buildProjectScopeWhere`、`canAccessProject`、`requireProjectScope`）と出力の記録の手段（`ExportAuditService`、`runRecordedExport`）を実装済みであり、各業務機能への適用は各 spec の所管と定めている（user-authentication の design.md の Boundary Commitments の Out of Boundary）。本章は本機能の適用箇所を設計として固定する。
+
+**Users**: 担当外の案件の見積書を閲覧・操作させたくないシステム管理者と、出力の経緯を追跡する監査の担当者。
+
+**Impact（既存前提の是正）**: user-authentication の機能検証（2026-10-25、HEAD `b85b8124`）で次の二点が確かめられた（タスク62 の経緯）。
+
+1. 本機能の API はロールの権限の表（`estimate:*`、プロジェクト単位の受領見積書の一覧は `estimate_request:read`）だけを判定し、案件の範囲を判定しない。担当外の利用者が ID 指定で他の案件の見積書を読み書きできる。あわせて、見積書の作成は要求が指す内訳書（`sourceItemizedStatementId`）を ID だけで引き、経路の `projectId` の案件に属するかを照合しない（2026-10-27、`EstimateService` の作成の処理で実測）。他の案件の内訳書の名称・規格・単位・数量を見積書の初期値として読み出せる
+2. 見積書の出力（PDF・Excel）はブラウザで生成され、記録を経ない。`runRecordedExport` を本番で呼び出す箇所は無い
+
+### 既存の条文の検め（2026-10-27、利用者の判断）
+
+利用者は、案件の範囲を含意する既存の条文があれば改訂して改訂の記録を残すと判断した（採らなかった案は、条文を変えず本書だけで読み替える案）。本機能の requirements.md を `アクセス`・`権限`・`許可`・`閲覧`・`ロール`・`一覧` で検めた（2026-10-27）。ロールや権限だけで閲覧・操作を許すと読める条文は無く、該当した語は画面の名前（見積書一覧画面）・明細や行の一覧・「プロジェクトに紐付く」内訳書・見積書・受領見積書の一覧（3.1・11.1・14.2・17.1）だけだった。後者はどのプロジェクトの一覧かを経路で受け、そのプロジェクトが閲覧範囲に含まれるかは Requirement 57 が定めるため、条文の読み方は変わらない。よって既存の条文は改訂していない。当初の設計の記述（Security Considerations の「プロジェクト所属ユーザーに限定（RBAC）」）は実装と食い違っていたため、消さずに残して置き換えの追記を置いた。
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 本機能の API の各経路への `requireProjectScope` の適用（`requirePermission` の後に置く）。対象はタスク62.1 の本文が挙げる 2 ルートファイルの 12 経路（57.1-57.3, 57.6）
+- 見積書の ID から案件の ID を引く解決関数（新設。置き場所は実装時に決める。`/api/estimates/:id` 配下の経路が用いる）
+- 見積書の作成の要求が指す内訳書が経路の `projectId` の案件に属するかの照合（57.4）
+- 見積明細の一括保存の、対象の見積書に属さない見積項目の ID を要求全体で拒否する扱い（57.5。既存の仕組みを本要件の受入基準として持つ）
+- 見積書の出力のダイアログの出力の開始の処理を `runRecordedExport` で包むこと（57.7・57.8）。対象は `EstimateExportDialog` の `handleExport`（PDF は種別 `estimate_pdf`、Excel は種別 `estimate_xlsx`）
+
+#### Out of Boundary
+- 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
+- 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
+- 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
+- プロジェクト詳細画面の見積書セクション（project-management の Requirement 28。プロジェクト詳細の取得の閲覧範囲に従う。user-authentication のタスク52.3 で適用済み）
+- 受領見積書そのものの取得・登録（estimate-request の Requirement 42）と内訳書そのものの取得（itemized-statement-generation）。転記のダイアログが受領見積書の明細を取得する経路の閲覧範囲は estimate-request の適用に従う
+- 署名付きURLの発行の判定（user-authentication の要件39.4）。本機能はファイルの取得用の署名付きURLを発行しない
+
+#### Allowed Dependencies
+- 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
+- 本機能の出力の画面 → `runRecordedExport`・`EXPORT_RECORD_FAILED_MESSAGE`（`frontend/src/api/export-audit.ts`）
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| 見積書・見積明細・在席・受領見積書の一覧の経路 | Routes | 範囲外のプロジェクト・見積書の指定を不在と同じ 404 にし、一覧を範囲内へ限る | 57.1, 57.2, 57.3, 57.6 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
+| 案件IDの解決関数 | Service | 見積書の ID から案件の ID を引く | 57.2 | Prisma（P0） | Service |
+| 内訳書の所属の照合 | Service | 作成の要求が指す内訳書が経路のプロジェクトに属するかを確かめ、属さなければ不在と同じ 404 にして作成しない | 57.4 | Prisma（P0） | Service |
+| 一括保存の見積項目の所属の照合 | Service | 一括保存の要求の見積項目の ID が対象の見積書に属するかを確かめ、一つでも属さなければ要求全体を拒否する | 57.5 | `EstimateDraftService`（P0） | Service |
+| 出力の開始の処理 | UI | 見積書の PDF・Excel の生成を記録の成功の後に始め、記録の失敗では中止する | 57.7, 57.8 | `runRecordedExport`（P0） | State |
+
+**判定の順序**: 認証（401）→ `requirePermission`（403）→ `requireProjectScope`（範囲外は 404）→ 本体（見積書・内訳書の不在の 404、バリデーションの 400、競合の 409、明細の検証の 422）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
+
+**経路ごとの判定の元**: `/api/projects/:projectId/estimates` と `/api/projects/:projectId/quotations` の経路は経路の `projectId` で、`/api/estimates/:id` の経路は案件IDの解決関数が引いた案件で判定する。見積書が存在しないときは、範囲外と同じ汎用の 404（`NOT_FOUND`）とする。
+
+**作成の内訳書**: 見積書の作成は、経路で作成先のプロジェクトを判定したうえで、要求が指す内訳書が同じプロジェクトに属するかを照合する。属さない内訳書（範囲外のプロジェクトの内訳書と、範囲内の他のプロジェクトの内訳書の両方）は存在しない内訳書と同じ 404 にし、見積書を作成しない（57.4）。範囲の内外で応答を変えると範囲外の内訳書の実在を推測させるため、同じ応答とする。照合を閲覧範囲（属するプロジェクトが範囲内か）で行う案は、範囲内の他のプロジェクトの内訳書から見積書を作れる余地を残し、Requirement 3.1 の「プロジェクトに紐付く内訳書」と食い違うため採らない。
+
+**一括保存（全件か無しか）**: 見積明細の一括保存は、対象の見積書が範囲外なら要求全体を不在と同じ汎用の 404 にしてどの見積項目にも書き込まない（57.2）。範囲内の見積書の要求に対象の見積書に属さない見積項目の ID（他の案件の見積書の見積項目を含む）が混じるときは、既存の検証（`EstimateDraftService` の `validatePayloadItemOwnership`。Requirement 42.4 の 422 と「指定された見積項目はこの見積書に存在しません」）が書き込みの前に要求全体を拒否する。この応答は存在しない ID と他の見積書の ID を区別しないため、他の案件の見積項目の実在を推測させない。57.5 はこの既存の振る舞いを本要件の受入基準として固定するものであり、応答の形（422）は変えない。属さない ID だけを除いて残りを書き込む案は、全件か無しかの契約を部分適用へ変えるため採らない（site-survey のタスク119.1・construction-photo のタスク30.2 の決定と同じ）。
+
+**一覧**: 本機能の一覧（見積書の一覧・直近の見積書・プロジェクト単位の受領見積書の一覧）はいずれも経路の `projectId` の配下に載り、案件をまたぐ一覧・検索・件数の経路は無い（2026-10-27、`backend/src/app.ts` のマウントと 2 ルートファイルの経路の定義で実測）。そのため一覧を範囲内に限ること（57.6）は経路の `requireProjectScope` で成り立ち、範囲外のプロジェクトを指定した一覧は 404 になる。編集中の在席の応答（他の利用者の表示名）は見積書の配下に載るため、57.2 の判定で範囲内に限られる。
+
+**出力の記録**: 種別は `ExportKind` の `estimate_pdf`（PDF）・`estimate_xlsx`（Excel）を用い、`projectId` に見積書の案件を、`targetIds` に見積書の ID を、`itemCount` に出力する見積項目の件数を添える（見積書の ID はダイアログの属性に足す。件数の数え方は実装時に確定する）。記録は行タイプの未選択（Requirement 32.8 で出力の釦が無効）の判定の後、生成の部品と表紙の周辺情報の読み込みより前に 1 回だけ要求する（57.7）。記録の失敗では生成もダウンロードも始めず、ダイアログに `EXPORT_RECORD_FAILED_MESSAGE` を表示する（57.8）。ダイアログは閉じず、未保存の変更は保持する（Requirement 56.3）。記録の後の失敗（日本語文字の描画準備の失敗〔Requirement 10.8〕を含む）は `GENERATION_FAILED` として従来の文言で表示し、記録は再送しない。未保存の変更がある状態の出力（Requirement 56）も同じダイアログを通るため、同じ記録を経る。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 57.1 | 範囲内（担当者・作成者・全案件閲覧の権限）は従来どおり使える | 見積書・見積明細・在席・受領見積書の一覧の経路 | `requireProjectScope` | - |
+| 57.2 | 範囲外の ID 指定は不在と同じ 404、データを変えない | 見積書・見積明細・在席・受領見積書の一覧の経路, 案件IDの解決関数 | `requireProjectScope` | - |
+| 57.3 | 404 の本文に存在を推測できる情報を含めない | 見積書・見積明細・在席・受領見積書の一覧の経路 | 汎用の `NOT_FOUND` | - |
+| 57.4 | 作成の要求が指す、経路のプロジェクトに属さない内訳書は不在と同じ 404、作成しない | 内訳書の所属の照合 | `POST /api/projects/:projectId/estimates` | 見積書新規作成フロー |
+| 57.5 | 一括保存は属さない見積項目が一つでも含まれれば全体を拒否、書き込まない | 一括保存の見積項目の所属の照合 | `PUT /api/estimates/:id/save` | - |
+| 57.6 | 見積書の一覧・直近の見積書・プロジェクト単位の受領見積書の一覧は範囲内だけ | 見積書・見積明細・在席・受領見積書の一覧の経路 | `requireProjectScope` | - |
+| 57.7 | 生成の前に出力の記録を 1 回要求する | 出力の開始の処理 | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | 見積書出力フロー |
+| 57.8 | 記録の失敗では生成せずエラーメッセージを表示する | 出力の開始の処理 | `runRecordedExport`, `EXPORT_RECORD_FAILED_MESSAGE` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 範囲外のプロジェクト・見積書の ID 指定 | 存在しない場合と同じ 404（`NOT_FOUND`）。本文に案件 ID を含めず、データを変えない | 57.2, 57.3 |
+| 範囲外のプロジェクトの見積書の一覧・直近の見積書・受領見積書の一覧・見積書の作成 | プロジェクトの不在と同じ 404 | 57.2, 57.6 |
+| 作成の要求が経路のプロジェクトに属さない内訳書を指す | 内訳書の不在と同じ 404。見積書を作成しない | 57.4 |
+| 一括保存の要求に対象の見積書に属さない見積項目の ID が一つでも含まれる | 要求全体を 422（既存の明細の検証）。どの見積項目にも書き込まない | 57.5 |
+| 出力の記録の要求が失敗 | 生成もダウンロードも始めず、エラーメッセージを表示する | 57.8 |
+
+### Testing Strategy
+
+- **統合（バックエンド）**: 担当外の利用者の ID 指定（見積書の作成・一覧・直近・詳細・更新・論理的な取り除き、見積明細の一括保存・見積項目の取得、諸経費の計算、編集中の在席の通知と退出、プロジェクト単位の受領見積書の一覧）が不在と同じ 404 になり DB が変わらないこと、本文に案件 ID が出ないこと、他の案件の内訳書を指す作成が 404 で見積書が増えないこと、他の案件の見積書の見積項目の ID を混ぜた一括保存が要求全体の拒否でどの行も変わらないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること（57.1-57.6）
+- **E2E**: 担当外の利用者が見積書の URL を直接開くと見つからない扱いになること（57.2）。見積書の PDF と Excel のそれぞれが生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ること（57.7, 57.8）
+- 挙動の変更であるため RED → GREEN で進める（タスク62.1・62.2）
