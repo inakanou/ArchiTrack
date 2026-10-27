@@ -9,7 +9,7 @@
  * - 26.10: PDF生成エラー時のエラーメッセージ表示
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -131,6 +131,17 @@ vi.mock('../../components/site-surveys/AnnotatedImageThumbnail', () => ({
 }));
 
 import QuantityTableEditPage from '../../pages/QuantityTableEditPage';
+import { apiClient } from '../../api/client';
+
+// PDF の生成は出力の記録（POST /api/v1/audit-logs/exports）の成功の後に始まる
+// （quantity-table-generation の Requirement 50.8）。本ファイルは生成の側を検証するため、
+// 記録の要求は既定で成功させる（記録の側の振る舞いは pages/QuantityTableEditPage.test.tsx が検証する）
+beforeEach(() => {
+  vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+});
+afterEach(() => {
+  vi.mocked(apiClient.post).mockRestore();
+});
 
 function renderPage() {
   return render(

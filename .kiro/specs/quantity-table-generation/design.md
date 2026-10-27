@@ -3978,6 +3978,12 @@ sequenceDiagram
 
 **出力の記録**: 種別は `ExportKind` の `quantity_table_pdf` を用い、対象の案件（数量表が属するプロジェクト）を添える。記録の要求は PDF の生成中の表示（Requirement 26.9）を立てた後、画像の読み込みと PDF の生成より前に 1 回だけ送る。記録の失敗では生成もダウンロードも始めず、`EXPORT_RECORD_FAILED_MESSAGE` を画面に表示する（50.9）。生成中のエラーの文言（Requirement 26.10）は変えない。
 
+**実装の決定（タスク104.2）**:
+- 記録の対象は数量表そのもので、`targetIds` は当該数量表の ID の 1 件、`itemCount` は 1 とする（一つの出力が一つの数量表の PDF であるため）。案件は数量表の `projectId` を添える
+- 画像の取得と注釈の描画、PDF の生成とダウンロードは、すべて `runRecordedExport` へ渡す生成の処理の中に置く。記録の要求中も生成中の表示（26.9）のまま PDF 出力のボタンを止めるため、押し直しても記録は 1 回に限られる。本画面の PDF の出力には取り消しの操作が無い
+- 記録の要求中に画面が破棄されたときは、記録の成功の後も生成もダウンロードも始めない。画面が描かれているかを参照で持ち、effect の本体で真へ戻す（StrictMode の二重の effect の後も生成を止めないため）
+- 記録の後の生成の失敗（`GENERATION_FAILED`）は、従来どおり生成中のエラーの文言（26.10）を表示する
+
 ### Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |

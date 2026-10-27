@@ -3,12 +3,16 @@
  *
  * Task 5.1: 数量表編集画面のレイアウトを実装する（TDDテストファースト）
  *
+ * タスク104.2: 数量表の PDF の生成の前の出力の記録と、記録の失敗での中止
+ * （quantity-table-generation の Requirement 50.8・50.9。describe「出力の記録」）
+ *
  * Requirements:
  * - 3.1: 数量表編集画面を表示する
  * - 3.2: 数量グループ一覧と各グループ内の数量項目を階層的に表示する
  * - 3.3: 該当写真の注釈付きサムネイルを関連写真表示エリアに表示する
  */
 
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within, act } from '@testing-library/react';
 import { triggerAllIntersections } from '../test-support/intersection-observer';
@@ -17,7 +21,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableEditPage from './QuantityTableEditPage';
 import * as quantityTablesApi from '../api/quantity-tables';
 import * as siteSurveysApi from '../api/site-surveys';
-import { ApiError } from '../api/client';
+import { ApiError, apiClient } from '../api/client';
 import type { QuantityTableDetail } from '../types/quantity-table.types';
 import type { ProjectSurveyImage } from '../types/site-survey.types';
 
@@ -296,10 +300,12 @@ function renderWithRouter(tableId: string = 'qt-123') {
 
 describe('QuantityTableEditPage', () => {
   beforeEach(() => {
-    // Setup logic can go here if needed
+    // 出力の記録（POST /api/v1/audit-logs/exports）は既定で成功させる（Requirement 50.8）
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
   });
 
   afterEach(() => {
+    vi.mocked(apiClient.post).mockRestore();
     vi.clearAllMocks();
   });
 
@@ -2149,6 +2155,208 @@ describe('QuantityTableEditPage', () => {
       await waitFor(() => {
         expect(screen.getByText(/PDF生成中にエラーが発生しました/)).toBeInTheDocument();
       });
+    });
+  });
+
+  // ====================================================================
+  // タスク104.2: 出力の事前記録（Requirement 50.8, 50.9。user-authentication の要件40.9〜40.11）
+  // ====================================================================
+
+  describe('出力の記録 (Requirement 50.8, 50.9)', () => {
+    /** 表示の文言の完全一致（余計な文言が付け足されていないこと。閉じるボタンは別の要素） */
+    const RECORD_FAILED_EXACT = /^出力を記録できなかったため中止しました$/;
+
+    /** 写真なしの数量表（jsdom で画像の読み込みが止まるのを避ける） */
+    const tableWithoutPhotos: QuantityTableDetail = {
+      ...mockQuantityTableDetail,
+      groups: mockQuantityTableDetail.groups.map((g) => ({
+        ...g,
+        surveyImageId: null,
+        surveyImage: null,
+      })),
+    };
+
+    /** PDF の生成とダウンロードのモック（vi.mock で自動モック済みのモジュール） */
+    async function getPdfMocks() {
+      const { generateQuantityTablePdf } =
+        await import('../services/export/QuantityTablePdfExportService');
+      const { downloadPdf } = await import('../services/export/PdfExportService');
+      const generatePdf = vi.mocked(generateQuantityTablePdf);
+      generatePdf.mockResolvedValue(new Blob(['pdf'], { type: 'application/pdf' }));
+      return { generatePdf, download: vi.mocked(downloadPdf) };
+    }
+
+    /** 記録の要求を保留にし、解決の関数を返す */
+    function holdRecord() {
+      const holder: { resolve: (value: { recordId: string }) => void } = { resolve: () => {} };
+      vi.mocked(apiClient.post).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            holder.resolve = resolve as (value: { recordId: string }) => void;
+          })
+      );
+      return holder;
+    }
+
+    beforeEach(() => {
+      mockGetQuantityTableDetail.mockResolvedValue(tableWithoutPhotos);
+    });
+
+    it('生成を始める前に出力の記録を種別・案件・数量表つきで1回要求する', async () => {
+      const user = userEvent.setup();
+      const { generatePdf, download } = await getPdfMocks();
+      const postSpy = vi.mocked(apiClient.post);
+      renderWithRouter();
+      await screen.findByRole('heading', { level: 1 });
+
+      await user.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      await waitFor(() => {
+        expect(download).toHaveBeenCalledTimes(1);
+      });
+      expect(generatePdf).toHaveBeenCalledTimes(1);
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
+        kind: 'quantity_table_pdf',
+        projectId: 'proj-456',
+        targetIds: ['qt-123'],
+        itemCount: 1,
+      });
+      // 記録の要求が PDF の生成より先に行われている
+      expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        generatePdf.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('記録の要求が失敗すると PDF を生成もダウンロードもせず、エラーメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      const { generatePdf, download } = await getPdfMocks();
+      vi.mocked(apiClient.post).mockRejectedValue(new ApiError(500, 'Internal Server Error'));
+      renderWithRouter();
+      await screen.findByRole('heading', { level: 1 });
+
+      await user.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      expect(within(await screen.findByRole('alert')).getByText(RECORD_FAILED_EXACT)).toBeVisible();
+      expect(generatePdf).not.toHaveBeenCalled();
+      expect(download).not.toHaveBeenCalled();
+      // 生成中の表示は解かれ、出力し直せる
+      expect(screen.getByRole('button', { name: 'PDF出力' })).toBeEnabled();
+    });
+
+    it('記録の応答に記録の ID が無いときも PDF を生成しない', async () => {
+      const user = userEvent.setup();
+      const { generatePdf, download } = await getPdfMocks();
+      vi.mocked(apiClient.post).mockResolvedValue({});
+      renderWithRouter();
+      await screen.findByRole('heading', { level: 1 });
+
+      await user.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      expect(within(await screen.findByRole('alert')).getByText(RECORD_FAILED_EXACT)).toBeVisible();
+      expect(generatePdf).not.toHaveBeenCalled();
+      expect(download).not.toHaveBeenCalled();
+    });
+
+    it('記録の後に生成が失敗したときは、従来どおり生成中のエラーの文言を表示する (REQ-26.10)', async () => {
+      const user = userEvent.setup();
+      const { generatePdf, download } = await getPdfMocks();
+      generatePdf.mockRejectedValue(new Error('PDF generation failed'));
+      renderWithRouter();
+      await screen.findByRole('heading', { level: 1 });
+
+      await user.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      expect(
+        within(await screen.findByRole('alert')).getByText(
+          /^PDF生成中にエラーが発生しました。再度お試しください。$/
+        )
+      ).toBeVisible();
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(download).not.toHaveBeenCalled();
+    });
+
+    it('記録の要求中は PDF 出力の操作を止め、記録の成功の後に生成を始める', async () => {
+      const { generatePdf, download } = await getPdfMocks();
+      const record = holdRecord();
+      renderWithRouter();
+      await screen.findByRole('heading', { level: 1 });
+
+      act(() => {
+        screen.getByRole('button', { name: 'PDF出力' }).click();
+      });
+
+      await waitFor(() => {
+        expect(apiClient.post).toHaveBeenCalledTimes(1);
+      });
+      const busyButton = screen.getByRole('button', { name: 'PDF出力' });
+      expect(busyButton).toBeDisabled();
+      expect(busyButton).toHaveTextContent('PDF生成中...');
+      // 要求中に押し直しても記録は1回だけで、生成はまだ始まらない
+      act(() => {
+        busyButton.click();
+      });
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(generatePdf).not.toHaveBeenCalled();
+
+      await act(async () => {
+        record.resolve({ recordId: 'record-1' });
+      });
+
+      await waitFor(() => {
+        expect(download).toHaveBeenCalledTimes(1);
+      });
+      expect(generatePdf).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'PDF出力' })).toBeEnabled();
+    });
+
+    it('記録の要求中に画面を離れる（破棄される）と、記録の成功の後も生成もダウンロードも始めない', async () => {
+      const { generatePdf, download } = await getPdfMocks();
+      const record = holdRecord();
+      const { unmount } = renderWithRouter();
+      await screen.findByRole('heading', { level: 1 });
+
+      act(() => {
+        screen.getByRole('button', { name: 'PDF出力' }).click();
+      });
+      await waitFor(() => {
+        expect(apiClient.post).toHaveBeenCalledTimes(1);
+      });
+
+      unmount();
+      await act(async () => {
+        record.resolve({ recordId: 'record-1' });
+      });
+      // 記録の解決の後の非同期の続きを流し切る
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(generatePdf).not.toHaveBeenCalled();
+      expect(download).not.toHaveBeenCalled();
+    });
+
+    it('StrictMode の二重の effect の後も、記録の成功の後に PDF を生成する', async () => {
+      const user = userEvent.setup();
+      const { generatePdf, download } = await getPdfMocks();
+      render(
+        <StrictMode>
+          <MemoryRouter initialEntries={['/quantity-tables/qt-123/edit']}>
+            <Routes>
+              <Route path="/quantity-tables/:id/edit" element={<QuantityTableEditPage />} />
+            </Routes>
+          </MemoryRouter>
+        </StrictMode>
+      );
+      await screen.findByRole('heading', { level: 1 });
+
+      await user.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      await waitFor(() => {
+        expect(download).toHaveBeenCalledTimes(1);
+      });
+      expect(generatePdf).toHaveBeenCalledTimes(1);
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
     });
   });
 

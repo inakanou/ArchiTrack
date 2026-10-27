@@ -4471,7 +4471,7 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - _Requirements: 50.1, 50.2, 50.3, 50.4, 50.5, 50.6, 50.7_
   - _Boundary: 本スペックの API の案件の範囲の判定_
 
-- [ ] 104.2 数量表の PDF の出力に事前記録（user-authentication の要件40）を適用する
+- [x] 104.2 数量表の PDF の出力に事前記録（user-authentication の要件40）を適用する
   - 対象（2026-10-25 の実測）: frontend/src/pages/QuantityTableEditPage.tsx の `handlePdfExport`（1403 行付近、1570 行付近の `generateQuantityTablePdf`）。種別 `quantity_table_pdf`
   - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
   - 挙動の変更であるため RED → GREEN で進め、E2E で出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
