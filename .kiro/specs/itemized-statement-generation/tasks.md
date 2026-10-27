@@ -537,10 +537,14 @@
   - 内訳書の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。作成の元にする数量表も同じ案件の範囲で判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
   - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が内訳書の URL を直接開くと見つからない扱いになることを確かめる
   - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 18（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 18.1〜18.6 が受ける。内訳書の作成の要求が指す数量表（`quantityTableId`）は ID だけで引かれ、数量表の `projectId` を読み出しながら経路の案件と比べていなかったため、経路のプロジェクトに属さなければ数量表の不在と同じ 404 で内訳書を作成しない（18.4）と条文に定めた（本文の「作成の元にする数量表も同じ案件の範囲で判定する」を、範囲内の他のプロジェクトの数量表も拒む所属の照合として具体化した。estimate-creation の Requirement 57.4 の判断と同じ）。並び順の保存は、対象の内訳書に属さない内訳項目の ID が一つでも含まれれば既存の検証（`ItemNotBelongToStatementError` の 400。Requirement 17.10）が書き込みの前に要求全体を拒否する振る舞いを 18.5 として固定した（応答の形は変えない）。案件をまたぐ一覧・検索・件数の経路は無く（2026-10-27 の実測）、一覧と直近の内訳書の要約は経路の `projectId` の判定で範囲内に限られる（18.6）。本スペックはファイルの署名付きURLを発行しない。案件の範囲を含意する既存の条文を requirements.md で検めたが、ロールや権限だけで閲覧・操作を許すと読める条文は無く（Requirement 3・11 の受入基準は project-management の Requirement 26 へ移してあり、残るのは目的の文・画面の名前・パンくずの表示だけ）、既存の条文は改訂していない。design.md は「Requirement 18: 案件の閲覧範囲と出力の記録の適用」章を足し、Security Considerations の当初の記述（プロジェクトへのアクセス権限チェック）は記録として残して置き換えを書き添えた。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6_
   - _Boundary: 本スペックの API の案件の範囲の判定_
 
 - [ ] 27.2 内訳書の Excel の出力に事前記録（user-authentication の要件40）を適用する
   - 対象（2026-10-25 の実測）: frontend/src/pages/ItemizedStatementDetailPage.tsx の `handleExportToExcel`（1056 行付近、frontend/src/utils/export-excel.ts の `exportToExcel`）。種別 `itemized_statement_xlsx`
   - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
   - 挙動の変更であるため RED → GREEN で進め、E2E で出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - **判断の結果（2026-10-27、利用者の判断。27.1 の判断と同じ）**: 本タスクの適用は Requirement 18 の 18.7・18.8 が受ける。Excel はブラウザで生成するため（サーバーの生成の経路は無い）、詳細画面が生成を始める前に記録を 1 回要求し（18.7）、記録の失敗では生成もダウンロードも始めず「出力を記録できなかったため中止しました」を表示する（18.8）と条文に定めた。記録に添える件数（フィルタ後の件数）と、記録の後の生成の失敗（13.8）の扱いは design.md の同章の「出力の記録」に記した。Requirement 14 のクリップボードへのコピーは、ファイルを生成せず是正計画 §5.9 が記録の対象を Excel 出力に限るため対象にしない（同章の Out of Boundary）。被覆の印は本タスクの E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 18.7, 18.8_
   - _Boundary: 内訳書の詳細画面の Excel の出力の開始の処理_

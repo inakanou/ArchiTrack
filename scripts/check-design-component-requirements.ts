@@ -316,8 +316,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'itemized-statement-generation': {
     mode: 'ratchet',
     maxContradictions: 2,
-    minPairs: 9,
-    minTableDeclarations: 10,
+    // minPairs 9 → 14 / minTableDeclarations 10 → 15（itemized-statement-generation のタスク27 の文書の改訂、
+    // 2026-10-27）。利用者の判断で新設した Requirement 18 の章「Requirement 18: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 5 行（いずれも 18.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾の上限 2 は据え置き
+    minPairs: 14,
+    minTableDeclarations: 15,
     minDetailDeclarations: 11,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },

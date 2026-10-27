@@ -290,6 +290,9 @@ sequenceDiagram
 | 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9 | 内訳書新規作成画面 | ItemizedStatementCreatePage, CreateItemizedStatementForm | - | 作成フロー |
 | 16.1, 16.2, 16.3, 16.4 | 内訳項目の初期ソート順序 | ItemizedStatementPivotService | aggregateByQuantityTable | 初期ソート順序 |
 | 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8, 17.9, 17.10, 17.11, 17.12, 17.13, 17.14 | 内訳項目の手動並び替え | ItemizedStatementDetailPage, ItemizedStatementService | PATCH /itemized-statements/:id/items/order | 手動並び替えフロー |
+| 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.8 | 案件の閲覧範囲と出力の記録 | 内訳書の経路, 案件IDの解決関数, 数量表の所属の照合, 並び順の保存の内訳項目の所属の照合, Excel出力の開始の処理 | requireProjectScope, runRecordedExport | - |
+
+> **追記（2026-10-27、利用者の判断。タスク27）**: 18.1〜18.8 は user-authentication の要件39（案件の閲覧範囲）と要件40.9〜40.11（出力の記録）の本機能への適用である。受入基準ごとの追跡は末尾の「Requirement 18: 案件の閲覧範囲と出力の記録の適用」章の追跡表が持つ。本機能の既存の受入基準に、ロールだけで全案件の閲覧・操作を許すと読める条文は無かったため、既存の条文は改訂していない（同章の「既存の条文の検め」節）。
 
 ## Components and Interfaces
 
@@ -1107,6 +1110,7 @@ interface DeleteItemizedStatementRequest {
 **User Errors (4xx)**:
 - 400: Zodバリデーションエラー → フィールドレベルメッセージ表示
 - 404: リソース未発見 → 一覧画面へ誘導
+  - **追記（2026-10-27、タスク27）**: 閲覧範囲外のプロジェクトの指定と、閲覧範囲外のプロジェクトに属する内訳書の指定、内訳書の作成の要求が経路のプロジェクトに属さない数量表を指す場合も、存在しない場合と区別しない 404 とする（Requirement 18.2〜18.4）。範囲外を 403 で返す経路は無い
 - 409: 競合エラー（同名重複、楽観的排他制御） → 具体的なアクション指示
 - 422: 処理不可能エラー（オーバーフロー） → 入力データ修正指示
 
@@ -1163,6 +1167,7 @@ interface DeleteItemizedStatementRequest {
 
 - 認証: JWT認証ミドルウェアによるアクセス制御（既存パターン踏襲）
 - 認可: プロジェクトへのアクセス権限チェック
+  - **改訂（2026-10-27、タスク27）**: 上の項は当初の設計の記録として残す。実装はこれをロールの権限の表（`requirePermission`）だけで読み、プロジェクトへの関与を判定していなかったため、担当外の利用者もID指定で他の案件の内訳書を読み書きでき、内訳書のExcel出力は記録を経ずに生成された（user-authentication の機能検証、2026-10-25）。2026-10-27 の判断（Requirement 18 の新設）で、データ分離は案件の閲覧範囲（user-authentication の要件39）とロールの権限の表の両方で判定する。範囲外は不在と同じ 404 とし、403 は閲覧範囲内で権限を持たない操作に限る。出力は生成の前に記録する（詳細は「Requirement 18: 案件の閲覧範囲と出力の記録の適用」章）
 - 入力バリデーション: Zodスキーマによる型安全なバリデーション
 - SQLインジェクション対策: Prismaによるパラメータ化クエリ
 
@@ -1180,3 +1185,96 @@ interface DeleteItemizedStatementRequest {
 - **2000件制限**: サービス層でピボット集計結果が2000件を超える場合はエラーを返却（将来的な拡張に備えた安全策）
 - **Excel出力**: フロントエンドで完結（バックエンドAPI不要）、sortedItemsを直接利用してメモリ効率を維持
 - **クリップボードコピー**: 軽量なテキスト変換のみ（< 10ms）
+
+## Requirement 18: 案件の閲覧範囲と出力の記録の適用
+
+### Overview
+
+**Purpose**: user-authentication の要件39（案件単位の閲覧範囲）と要件40.9〜40.11（データ出力の記録）を本機能の API と出力へ適用する。上流は判定の部品（`ProjectScopeService` の `evaluateProjectAccess`・`buildProjectScopeWhere`、`canAccessProject`、`requireProjectScope`）と出力の記録の手段（`ExportAuditService`、`runRecordedExport`）を実装済みであり、各業務機能への適用は各 spec の所管と定めている（user-authentication の design.md の Boundary Commitments の Out of Boundary）。本章は本機能の適用箇所を設計として固定する。
+
+**Users**: 担当外の案件の内訳書を閲覧・操作させたくないシステム管理者と、出力の経緯を追跡する監査の担当者。
+
+**Impact（既存前提の是正）**: user-authentication の機能検証（2026-10-25、HEAD `b85b8124`）で次の二点が確かめられた（タスク27 の経緯）。
+
+1. 本機能の API はロールの権限の表（`itemized_statement:*`）だけを判定し、案件の範囲を判定しない。担当外の利用者が ID 指定で他の案件の内訳書を読み書きできる。あわせて、内訳書の作成は要求が指す数量表（`quantityTableId`）を ID だけで引き、経路の `projectId` の案件に属するかを照合しない（2026-10-27、`ItemizedStatementService` の `create` と `ItemizedStatementPivotService` の `aggregateByQuantityTable` で実測。数量表の `projectId` を読み出しているが比べていない）。他の案件の数量表の任意分類・工種・名称・規格・単位・数量を集計して自分の案件の内訳書として読み出せる
+2. 内訳書の Excel 出力はブラウザで生成され（`exportToExcel`。サーバーの経路は無い）、記録を経ない。`runRecordedExport` を本番で呼び出す箇所は無い
+
+### 既存の条文の検め（2026-10-27、利用者の判断）
+
+利用者は、案件の範囲を含意する既存の条文があれば改訂して改訂の記録を残すと判断した（採らなかった案は、条文を変えず本書だけで読み替える案）。本機能の requirements.md を `アクセス`・`権限`・`許可`・`閲覧`・`ロール`・`一覧` で検めた（2026-10-27）。ロールや権限だけで閲覧・操作を許すと読める条文は無く、該当したのは Requirement 3・11 の目的の文（「アクセスできる」「アクセスする」）と、画面の名前（内訳書一覧画面・プロジェクト一覧）・パンくずの表示（9.1〜9.7・4.4）・削除の目的の文（Requirement 7）だけだった。Requirement 3・11 の受入基準は project-management の Requirement 26 へ移してあり、本機能の受入基準として残る条文はどのプロジェクトの内訳書かを経路で受けるため、そのプロジェクトが閲覧範囲に含まれるかは Requirement 18 が定めれば足り、条文の読み方は変わらない。よって既存の条文は改訂していない。当初の設計の記述（Security Considerations の「認可: プロジェクトへのアクセス権限チェック」）は実装と食い違っていたため、消さずに残して置き換えの追記を置いた。
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 本機能の API の各経路への `requireProjectScope` の適用（`requirePermission` の後に置く）。対象はタスク27.1 の本文が挙げる 1 ルートファイルの 6 経路（18.1-18.3, 18.6）
+- 内訳書の ID から案件の ID を引く解決関数（新設。置き場所は実装時に決める。`/:id` の経路が用いる）
+- 内訳書の作成の要求が指す数量表が経路の `projectId` の案件に属するかの照合（18.4）
+- 並び順の保存の、対象の内訳書に属さない内訳項目の ID を要求全体で拒否する扱い（18.5。既存の仕組みを本要件の受入基準として持つ）
+- 内訳書詳細画面の Excel 出力の開始の処理を `runRecordedExport` で包むこと（18.7・18.8）。対象は `ItemizedStatementDetailPage` の `handleExportToExcel`（種別 `itemized_statement_xlsx`）
+
+#### Out of Boundary
+- 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
+- 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
+- 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
+- 内訳書新規作成画面が数量表の選択肢と項目数を得る数量表の一覧の取得（quantity-table-generation の Requirement 50）
+- プロジェクト詳細画面の表示そのもの（project-management の Requirement 26。プロジェクト詳細の取得の閲覧範囲は user-authentication のタスク52.3 で適用済み）。内訳書セクションが呼ぶ本機能の直近の内訳書の要約の経路は本章が受ける
+- 内訳書を元にする見積書の作成（estimate-creation の Requirement 57.4 が、経路のプロジェクトに属さない内訳書を不在と同じ 404 にする）
+- Requirement 14 のクリップボードへのコピー。ファイルを生成せずダウンロードも伴わず、是正計画 §5.9 が出力の記録の対象を Requirement 13 の Excel 出力に限り、上流の `ExportKind` にもクリップボードの種別が無いため、記録の対象にしない
+- 署名付きURLの発行の判定（user-authentication の要件39.4）。本機能はファイルの取得用の署名付きURLを発行しない
+
+#### Allowed Dependencies
+- 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
+- 本機能の出力の画面 → `runRecordedExport`・`EXPORT_RECORD_FAILED_MESSAGE`（`frontend/src/api/export-audit.ts`）
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| 内訳書の経路 | Routes | 範囲外のプロジェクト・内訳書の指定を不在と同じ 404 にし、一覧と直近の内訳書の要約を範囲内へ限る | 18.1, 18.2, 18.3, 18.6 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
+| 案件IDの解決関数 | Service | 内訳書の ID から案件の ID を引く | 18.2 | Prisma（P0） | Service |
+| 数量表の所属の照合 | Service | 作成の要求が指す数量表が経路のプロジェクトに属するかを確かめ、属さなければ不在と同じ 404 にして作成しない | 18.4 | `ItemizedStatementService`（P0） | Service |
+| 並び順の保存の内訳項目の所属の照合 | Service | 並び順の保存の要求の内訳項目の ID が対象の内訳書に属するかを確かめ、一つでも属さなければ要求全体を拒否する | 18.5 | `ItemizedStatementService`（P0） | Service |
+| Excel出力の開始の処理 | UI | 内訳書の Excel の生成を記録の成功の後に始め、記録の失敗では中止する | 18.7, 18.8 | `runRecordedExport`（P0） | State |
+
+**判定の順序**: 認証（401）→ `requirePermission`（403）→ `requireProjectScope`（範囲外は 404）→ 本体（内訳書・数量表の不在の 404、バリデーションの 400、競合の 409、オーバーフローの 422）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
+
+**経路ごとの判定の元**: 本機能のルートは `/api/projects/:projectId/itemized-statements` と `/api/itemized-statements` の両方にマウントされる（2026-10-27、バックエンドのアプリのルートの登録で実測）。作成・一覧・直近の内訳書の要約は経路の `projectId` で、`/:id` の経路（詳細・並び順の保存・論理的な取り除き）は案件IDの解決関数が引いた内訳書の案件で判定する。内訳書が存在しないときは、範囲外と同じ汎用の 404（`NOT_FOUND`）とする。`/:id` の経路はプロジェクトの配下のマウントからも届くが、ハンドラーは経路の `projectId` を読まないため、判定は内訳書の案件に拠る（経路の `projectId` を判定に混ぜるかは実装時に確かめ、混ぜるなら食い違いも不在と同じ 404 とする）。
+
+**既存のテストの扱い**（user-authentication の 52.2 の記録の区分 B）: 内訳書の不在の 404 の本文（`ITEMIZED_STATEMENT_NOT_FOUND` と要求した ID）を主張する既存の統合テストは、範囲外と不在を同じ本文にする 18.3 に合わせて改める（主張を消さない）。
+
+**作成の数量表**: 内訳書の作成は、経路で作成先のプロジェクトを判定したうえで、要求が指す数量表が同じプロジェクトに属するかを照合する。属さない数量表（範囲外のプロジェクトの数量表と、範囲内の他のプロジェクトの数量表の両方）は存在しない数量表と同じ 404（`QUANTITY_TABLE_NOT_FOUND`）にし、集計も内訳書の作成も行わない（18.4）。範囲の内外で応答を変えると範囲外の数量表の実在を推測させるため、同じ応答とする。照合を閲覧範囲（属するプロジェクトが範囲内か）で行う案は、範囲内の他のプロジェクトの数量表から内訳書を作れる余地を残し、本機能の Introduction の「プロジェクト配下に実装済みの数量表機能の項目を集計」と食い違うため採らない（estimate-creation の Requirement 57.4 の判断と同じ）。
+
+**並び順の保存（全件か無しか）**: 並び順の保存は、対象の内訳書が範囲外なら要求全体を不在と同じ汎用の 404 にしてどの内訳項目にも書き込まない（18.2）。範囲内の内訳書の要求に対象の内訳書に属さない内訳項目の ID（他の案件の内訳書の内訳項目を含む）が混じるときは、既存の検証（`ItemizedStatementService` の `updateItemOrder` が書き込みの前に全 ID を照合し `ItemNotBelongToStatementError` を投げる。400 と「指定された項目がこの内訳書に属していません」）が要求全体を拒否する。この応答は存在しない ID と他の内訳書の ID を区別しないため、他の案件の内訳項目の実在を推測させない。18.5 はこの既存の振る舞いを本要件の受入基準として固定するものであり、応答の形（400）は変えない。属さない ID だけを除いて残りを書き込む案は、全件か無しかの契約を部分適用へ変えるため採らない（site-survey のタスク119.1・construction-photo のタスク30.2・estimate-creation の Requirement 57.5 の決定と同じ）。
+
+**一覧**: 本機能の一覧（内訳書の一覧・直近の内訳書の要約）はいずれも経路の `projectId` の配下に載り、案件をまたぐ一覧・検索・件数の経路は無い（2026-10-27、バックエンドのアプリのルートの登録と `backend/src/routes/itemized-statements.routes.ts` の経路の定義、`ItemizedStatementService` の `findByProjectId`・`findLatestByProjectId` の検索条件で実測）。そのため一覧を範囲内に限ること（18.6）は経路の `requireProjectScope` で成り立ち、範囲外のプロジェクトを指定した一覧は 404 になる。`/api/itemized-statements` のマウントから届く一覧と直近の内訳書の要約は経路に `projectId` が無く、従来はバリデーションの 400 で終わり内訳書を返さない。判定を置いた後も内訳書を返さないこと（バリデーションの 400 か、判定の部品が案件を引けない場合の 404 か）は実装時に確かめる。
+
+**出力の記録**: 種別は `ExportKind` の `itemized_statement_xlsx` を用い、`projectId` に内訳書の案件（詳細の応答の `projectId`）を、`targetIds` に内訳書の ID を、`itemCount` に出力する内訳項目の件数（フィルタ後の `sortedItems` の件数。Requirement 13.6）を添える。記録は生成中の二重の開始の抑止（`isExporting`）の判定の後、`exportToExcel` の呼び出しより前に 1 回だけ要求する（18.7）。記録の失敗では生成もダウンロードも始めず、詳細画面の出力のエラー表示（`exportError`）に `EXPORT_RECORD_FAILED_MESSAGE` を表示し、ローディングの表示（13.7）を解く（18.8）。記録の後の生成の失敗（13.8）は従来の文言で表示し、記録は再送しない。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 18.1 | 範囲内（担当者・作成者・全案件閲覧の権限）は従来どおり使える | 内訳書の経路 | `requireProjectScope` | - |
+| 18.2 | 範囲外の ID 指定は不在と同じ 404、データを変えない | 内訳書の経路, 案件IDの解決関数 | `requireProjectScope` | - |
+| 18.3 | 404 の本文に存在を推測できる情報を含めない | 内訳書の経路 | 汎用の `NOT_FOUND` | - |
+| 18.4 | 作成の要求が指す、経路のプロジェクトに属さない数量表は不在と同じ 404、作成しない | 数量表の所属の照合 | `POST /api/projects/:projectId/itemized-statements` | 内訳書作成フロー |
+| 18.5 | 並び順の保存は属さない内訳項目が一つでも含まれれば全体を拒否、書き込まない | 並び順の保存の内訳項目の所属の照合 | `PATCH /api/itemized-statements/:id/items/order` | 手動並び替えフロー |
+| 18.6 | 内訳書の一覧・直近の内訳書の要約は範囲内だけ | 内訳書の経路 | `requireProjectScope` | - |
+| 18.7 | 生成の前に出力の記録を 1 回要求する | Excel出力の開始の処理 | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | Excel出力フロー |
+| 18.8 | 記録の失敗では生成せずエラーメッセージを表示する | Excel出力の開始の処理 | `runRecordedExport`, `EXPORT_RECORD_FAILED_MESSAGE` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 範囲外のプロジェクト・内訳書の ID 指定 | 存在しない場合と同じ 404（`NOT_FOUND`）。本文に案件 ID を含めず、データを変えない | 18.2, 18.3 |
+| 範囲外のプロジェクトの内訳書の一覧・直近の内訳書の要約・内訳書の作成 | プロジェクトの不在と同じ 404 | 18.2, 18.6 |
+| 作成の要求が経路のプロジェクトに属さない数量表を指す | 数量表の不在と同じ 404。内訳書を作成しない | 18.4 |
+| 並び順の保存の要求に対象の内訳書に属さない内訳項目の ID が一つでも含まれる | 要求全体を 400（既存の所属の検証）。どの内訳項目にも書き込まない | 18.5 |
+| 出力の記録の要求が失敗 | 生成もダウンロードも始めず、エラーメッセージを表示する | 18.8 |
+
+### Testing Strategy
+
+- **統合（バックエンド）**: 担当外の利用者の ID 指定（内訳書の作成・一覧・直近の内訳書の要約・詳細・並び順の保存・論理的な取り除き）が不在と同じ 404 になり DB が変わらないこと、本文に案件 ID が出ないこと、他の案件の数量表を指す作成が 404 で内訳書が増えないこと、他の案件の内訳書の内訳項目の ID を混ぜた並び順の保存が要求全体の拒否でどの行も変わらないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること（18.1-18.6）
+- **E2E**: 担当外の利用者が内訳書の URL を直接開くと見つからない扱いになること（18.2）。内訳書の Excel 出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ること（18.7, 18.8）
+- 挙動の変更であるため RED → GREEN で進める（タスク27.1・27.2）
