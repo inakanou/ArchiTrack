@@ -299,7 +299,7 @@ sequenceDiagram
 | 7.1-7.6 | クリップボードコピー機能 | ClipboardCopyButton, copy-to-clipboard.ts | - | クリップボード操作 |
 | 8.1-8.5 | 見積依頼データ管理 | EstimateRequestService | CRUD APIs | データ管理 |
 | 9.1-9.6 | 見積依頼編集・削除 | EstimateRequestEditPage | PUT/DELETE APIs | 編集・削除 |
-| 10.1-10.4 | 権限管理 | authorize.middleware | RBAC | 権限制御 |
+| 10.1-10.4 | 権限管理（Requirement 42 の案件の閲覧範囲で読む。2026-10-27 改訂） | authorize.middleware | RBAC | 権限制御 |
 | 11.1-11.8 | 受領見積書登録（フォーム・ファイル） | ReceivedQuotationForm, FileInlinePreview | POST /api/estimate-requests/:id/quotations | 受領見積書登録 |
 | 11.9-11.21 | 受領見積書登録（構造化データ入力） | LineItemEditor | POST /api/estimate-requests/:id/quotations | 明細行入力 |
 | 11.22-11.24 | 受領見積書登録バリデーション | ReceivedQuotationForm | POST /api/estimate-requests/:id/quotations | 登録バリデーション |
@@ -348,6 +348,8 @@ sequenceDiagram
 | 20.4 | カンマ区切り数値の正規化 | OcrDataExtractor | - | テキスト変換改善 |
 | 20.5 | フィルタ適用タイミング（行分割直後） | OcrDataExtractor | - | テキスト変換改善 |
 | 20.6 | Excelパース処理への非影響 | OcrDataExtractor | - | テキスト変換改善 |
+
+> **改訂（2026-10-27、利用者の判断。タスク103）**: 10.1〜10.4 の条文は「プロジェクトの閲覧権限」「プロジェクトの編集権限」を、user-authentication の要件39 の案件の閲覧範囲とロールの権限の表の両方として読むよう改訂した（requirements.md の Requirement 10 の改訂の記録）。閲覧範囲の適用そのもの（範囲外の 404・作成の内訳書と項目の選択の保存の判定・一覧の絞り込み・署名付きURLの発行の判定・出力の記録）は Requirement 42 の受入基準として持ち、受入基準ごとの追跡は本書の「Requirement 42: 案件の閲覧範囲と出力の記録の適用」章の追跡表が持つ。本表の 10 の行の担い手は改めていない。
 
 ## Components and Interfaces
 
@@ -1083,6 +1085,7 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 - Integration: authenticate + requirePermission ミドルウェアで認証・認可を実装
 - Validation: Zodスキーマによるリクエストバリデーション。lineItemsフィールドはJSON文字列としてmultipart内で送信し、バックエンドでパース・検証。lineItemsの各要素にcustomCategory、workTypeフィールドを含むZodスキーマに更新
 - Risks: 権限管理はプロジェクトの閲覧/編集権限に基づく（10.1-10.4）
+  - **改訂（2026-10-27、タスク103）**: 上の項の「プロジェクトの閲覧/編集権限」は、実装上ロールの権限の表（`requirePermission`）だけを指し、案件の範囲を判定していなかった。2026-10-27 の判断（Requirement 10 の改訂と Requirement 42 の新設）で、各経路は `requirePermission` の後に `requireProjectScope` を置き、閲覧範囲外の指定を不在と同じ汎用の 404（`NOT_FOUND`）にする。上表の Errors 列の 404 には閲覧範囲外が加わり、範囲外を 403 で返す経路は無い（Requirement 42.2・42.3。詳細は「Requirement 42: 案件の閲覧範囲と出力の記録の適用」章）
 
 ### Frontend Components
 
@@ -2066,6 +2069,7 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - **認証**: JWT認証（既存の authenticate ミドルウェア）
 - **認可**: RBAC（estimate_request:create, estimate_request:read, estimate_request:update, estimate_request:delete）
 - **権限継承**: プロジェクトの閲覧権限->見積依頼の閲覧権限、プロジェクトの編集権限->見積依頼のCUD権限
+  - **改訂（2026-10-27、タスク103）**: 上の項は当初の設計の記録として残す。実装はこれをロールの権限の表だけで読み、担当外の利用者もID指定で他の案件の見積依頼・受領見積書を読み書きできた（user-authentication の機能検証、2026-10-25）。2026-10-27 の判断（Requirement 10 の改訂と Requirement 42 の新設）で、データ分離は案件の閲覧範囲（user-authentication の要件39）とロールの権限の表の両方で判定する。範囲外は不在と同じ汎用の 404 とし、受領見積書のファイルの署名付きURLも範囲内に限って発行する（R10.1-10.4, Requirement 42.2・42.7）
 - **データ保護**: 論理削除による監査証跡の保持
 - **ファイルアップロード**: MIMEタイプ検証、ファイルサイズ制限（10MB）、署名付きURLによるアクセス制御
 - **OCR処理**: ブラウザサイド実行のため、サーバーにOCRデータは送信されない（プライバシー保護）
@@ -6524,3 +6528,100 @@ mailDisabledReason: {
 - **Design Review Outcomes（2026-06-02, kiro-validate-design）**: GO 判断。Critical Issue 1（mailto を `window.location.href` 代入で起動する設計のユニットテスト脆弱性）に対し、ユーザー選択により「メールで開く」をアンカー方式に変更。起動方式 / Handlers / JSX / Styles（`textDecoration:'none'`）/ Requirements Traceability 41.2 / Testing Strategy §Unit 10 / File Structure Plan を更新。無効化理由は `mailDisabledReason` のロジックを維持（FAX 方法かつ有効な FAX 番号ありのケースは `recipientError` が空のため、`recipientError` 再利用では表現できず本ロジックが必要）。approvals.design.approved は引き続き false（ユーザーレビュー待ち）
 - **R-41-5（自動送信なし / AC 7）確定**: 実装に送信 API 呼び出し・フォーム自動 submit を一切含めない。mailto/compose はメールクライアントの作成画面までを開くのみ。E2E では Gmail compose URL が開かれること（=作成画面まで）を検証し、送信は対象外
 - **依存性のリスク**: なし。新規ライブラリ・新規 API・新規 DB マイグレーションは一切なし
+
+## Requirement 42: 案件の閲覧範囲と出力の記録の適用
+
+### Overview
+
+**Purpose**: user-authentication の要件39（案件単位の閲覧範囲）と要件40.9〜40.11（データ出力の記録）を本機能の API と出力へ適用する。上流は判定の部品（`ProjectScopeService` の `evaluateProjectAccess`・`buildProjectScopeWhere`、`canAccessProject`、`requireProjectScope`）と出力の記録の手段（`ExportAuditService`、`runRecordedExport`）を実装済みであり、各業務機能への適用は各 spec の所管と定めている（user-authentication の design.md の Boundary Commitments の Out of Boundary）。本章は本機能の適用箇所を設計として固定する。
+
+**Users**: 担当外の案件の見積依頼・受領見積書を閲覧・操作させたくないシステム管理者と、出力の経緯を追跡する監査の担当者。
+
+**Impact（既存前提の是正）**: user-authentication の機能検証（2026-10-25、HEAD `b85b8124`）で次の二点が確かめられた（タスク103 の経緯）。
+
+1. 本機能の API はロールの権限の表（見積依頼の閲覧・作成・編集・削除の権限）だけを判定し、案件の範囲を判定しない。担当外の利用者が ID 指定で他の案件の見積依頼・受領見積書を読み書きできる
+2. 本機能の出力（内訳書の Excel、現場調査報告書の PDF）は記録を経ずに生成される。`runRecordedExport` を本番で呼び出す箇所は無い
+
+### 要件 10.1〜10.4 の読み替え（2026-10-27、利用者の判断）
+
+利用者は、要件 10.1〜10.4 の条文を改訂して改訂の記録を残すと判断した（採らなかった案は、条文を変えず本書だけで読み替える案）。改訂の内容と理由は requirements.md の Requirement 10 の改訂の記録が持ち、本書は設計上の読み方だけを記す。当初の設計の記述（Backend Routes の Implementation Notes の Risks、Security Considerations の権限継承）は消さずに残し、それぞれに置き換えの追記を置いた。
+
+| 条文 | 改訂前の設計上の読み方 | 改訂後の設計上の読み方 |
+|---|---|---|
+| 10.1 | 見積依頼の閲覧の権限（ロールの権限の表）を持てば、全プロジェクトの見積依頼を閲覧できる | 閲覧範囲（営業担当者・工事担当者・作成者、または全案件閲覧の権限）に含まれるプロジェクトの見積依頼に限り、閲覧の権限に従って閲覧できる |
+| 10.2 | 見積依頼の作成・編集・削除の権限を持てば、全プロジェクトの見積依頼を操作できる | 閲覧範囲に含まれるプロジェクトの見積依頼に限り、作成・編集・削除の権限に従って操作できる |
+| 10.3 | 権限の無いアクセスは 401 / 403。範囲外の区別なし | 閲覧範囲内で権限の無いアクセスは従来どおり拒否。範囲外は存在しない場合と同じ汎用の 404（42.2・42.3） |
+| 10.4 | 権限の無い操作は 401 / 403。範囲外の区別なし | 閲覧範囲内で権限の無い操作は従来どおり拒否。範囲外は存在しない場合と同じ汎用の 404（42.2・42.3） |
+
+**読み替えに伴って主張が変わる既存のテスト**: Requirement 10 を名乗る既存の E2E（認証済みの利用者が一覧を表示できること、未認証はログイン画面へ送られること）は、前提のプロジェクトを当該の利用者が閲覧範囲に含む限り主張を変えない。担当外の利用者の操作が通ることを主張する統合テストがあれば、担当外は不在と同じ 404 でデータが変わらないこと、工事担当者・営業担当者・作成者に設定すると通ることの主張へ書き換える（主張を消さない。対象の洗い出しはタスク103.1 の着手時に行う）。
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 本機能の API の各経路への `requireProjectScope` の適用（`requirePermission` の後に置く）。対象はタスク103.1 の本文が挙げる 3 ルートファイルの 18 経路（42.1-42.6）
+- 見積依頼・受領見積書の ID から案件の ID を引く解決関数（新設。置き場所は実装時に決める。受領見積書は親の見積依頼の案件で判定する）
+- 見積依頼の作成の要求が指す内訳書の案件の判定（42.4）と、項目の選択の保存の全件か無しかの扱い（42.5）
+- 他の見積依頼での選択状態（`findItemsWithOtherRequestStatus`）に載せる他の見積依頼を範囲内へ限ること（42.6）
+- 受領見積書のファイルのプレビュー用の署名付きURL（`getFilePreviewUrl`）の発行を範囲内に限ること（42.7）
+- 見積依頼の詳細画面の出力の開始の処理を `runRecordedExport` で包むこと（42.8・42.9）。対象は `ExcelExportButton` の `handleExport`（内訳書の Excel、種別 `estimate_request_xlsx`）と `EstimateRequestDetailPage` の `handleGenerateReport`（現場調査報告書の PDF、種別 `site_survey_report_pdf`）
+
+#### Out of Boundary
+- 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
+- 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
+- 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
+- 現場調査報告書の出力に用いる現場調査の一覧・詳細・画像の取得の閲覧範囲（site-survey の Requirement 39 が所管）。本機能は出力の開始の記録だけを持つ
+- プロジェクト単位の受領見積書の取得（`/api/projects/:projectId/quotations`。estimate-creation が所管）と、案件を指さない Claude Vision の抽出の経路
+
+#### Allowed Dependencies
+- 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
+- 本機能の署名付きURLの発行の判定と他の見積依頼の絞り込み → `canAccessProject`・`evaluateProjectAccess`・`buildProjectScopeWhere`
+- 本機能の出力の画面 → `runRecordedExport`（`frontend/src/api/export-audit.ts`）
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| 見積依頼・受領見積書・ステータスの経路 | Routes | 範囲外の ID 指定を不在と同じ 404 にし、作成の内訳書・項目の選択の保存の対象と一覧を範囲内へ限る | 42.1, 42.2, 42.3, 42.4, 42.5, 42.6 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
+| 案件IDの解決関数 | Service | 見積依頼・受領見積書・作成の要求が指す内訳書の ID から案件の ID を引く | 42.2, 42.4, 42.5 | Prisma（P0） | Service |
+| 他の見積依頼の絞り込み | Service | 他の見積依頼での選択状態に載せる見積依頼を範囲内に限る | 42.6 | `buildProjectScopeWhere`（P0） | Service |
+| 署名付きURLの発行の判定 | Service | 範囲内に限って受領見積書のファイルの署名付きURLを発行する | 42.7 | `canAccessProject`（P0）, StorageProvider（P1） | Service |
+| 出力の開始の処理 | UI | 内訳書の Excel と現場調査報告書の PDF の生成を記録の成功の後に始め、記録の失敗では中止する | 42.8, 42.9 | `runRecordedExport`（P0） | State |
+
+**判定の順序**: 認証（401）→ `requirePermission`（403）→ `requireProjectScope`（範囲外は 404）→ 本体（見積依頼・受領見積書・内訳書の不在と論理削除の 404、バリデーションの 400、競合の 409）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
+
+**作成の内訳書**: 見積依頼の作成は、経路で作成先のプロジェクトを判定したうえで、要求が指す内訳書の案件も判定する。範囲外の内訳書は存在しない内訳書と同じ 404 にし、見積依頼を作成しない（42.4）。
+
+**項目の選択の保存（一括の経路）**: 項目の選択の保存は、対象の見積依頼の案件を判定し、不在または範囲外なら要求全体を不在と同じ汎用の 404 にしてどの項目の選択状態にも書き込まない（42.5）。要求の項目は見積依頼の配下に限って更新する既存の契約（見積依頼の ID で絞った更新）を保つため、範囲内の見積依頼の要求に範囲外の項目が混じっても他の見積依頼の項目は変わらない。範囲外の項目だけを除いて残りを書き込む案は、応答の差から範囲外の実在を推測させるうえ、全件か無しかの契約を部分適用へ変えるため採らない（site-survey のタスク119.1・construction-photo のタスク30.2 の決定と同じ）。
+
+**出力の記録**: 種別は `ExportKind` の `estimate_request_xlsx`（内訳書の Excel）・`site_survey_report_pdf`（現場調査報告書の PDF）を用い、対象の案件を添える。記録の失敗では生成もダウンロードも始めず、`EXPORT_RECORD_FAILED_MESSAGE` を画面に表示する（42.9）。項目の未選択のエラー（Requirement 5.3）と現場調査の未選択のエラー（Requirement 35.10）は記録より前に判定し、記録を要求しない。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 42.1 | 範囲内（担当者・作成者・全案件閲覧の権限）は従来どおり使える | 見積依頼・受領見積書・ステータスの経路 | `requireProjectScope` | - |
+| 42.2 | 範囲外の ID 指定は不在と同じ 404、データを変えない | 見積依頼・受領見積書・ステータスの経路, 案件IDの解決関数 | `requireProjectScope` | - |
+| 42.3 | 404 の本文に存在を推測できる情報を含めない | 見積依頼・受領見積書・ステータスの経路 | 汎用の `NOT_FOUND` | - |
+| 42.4 | 作成の要求が指す範囲外の内訳書は不在と同じ 404、作成しない | 見積依頼・受領見積書・ステータスの経路, 案件IDの解決関数 | `evaluateProjectAccess` | 見積依頼作成フロー |
+| 42.5 | 項目の選択の保存は範囲外なら全体を 404、書き込まない | 見積依頼・受領見積書・ステータスの経路, 案件IDの解決関数 | `requireProjectScope` | 項目選択・保存フロー |
+| 42.6 | 一覧・直近・受領見積書の一覧・他の見積依頼での選択状態は範囲内だけ | 見積依頼・受領見積書・ステータスの経路, 他の見積依頼の絞り込み | `requireProjectScope`, `buildProjectScopeWhere` | - |
+| 42.7 | 受領見積書のファイルの署名付きURLは範囲内に限る | 署名付きURLの発行の判定 | `GET /api/quotations/:id/preview` | - |
+| 42.8 | 生成の前に出力の記録を 1 回要求する | 出力の開始の処理 | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | Excel生成 |
+| 42.9 | 記録の失敗では生成せずエラーメッセージを表示する | 出力の開始の処理 | `runRecordedExport`, `EXPORT_RECORD_FAILED_MESSAGE` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 範囲外の見積依頼・受領見積書の ID 指定 | 存在しない場合と同じ 404（`NOT_FOUND`）。本文に案件 ID を含めず、データを変えない | 42.2, 42.3 |
+| 範囲外のプロジェクトの見積依頼の一覧・直近の見積依頼・見積依頼の作成 | プロジェクトの不在と同じ 404 | 42.2, 42.6 |
+| 作成の要求が範囲外の内訳書を指す | 内訳書の不在と同じ 404。見積依頼を作成しない | 42.4 |
+| 範囲外の見積依頼への項目の選択の保存 | 要求全体を 404。どの項目の選択状態にも書き込まない | 42.5 |
+| 範囲外の受領見積書のファイルのプレビュー | 404。署名付きURLを返さない | 42.7 |
+| 出力の記録の要求が失敗 | 生成もダウンロードも始めず、エラーメッセージを表示する | 42.9 |
+
+### Testing Strategy
+
+- **統合（バックエンド）**: 担当外の利用者の ID 指定（見積依頼・受領見積書の閲覧・書き込み・項目の選択の保存・ステータスの変更・ステータス変更履歴・見積依頼文・プレビュー）が不在と同じ 404 になり DB とストレージが変わらないこと、本文に案件 ID が出ないこと、範囲外のプロジェクトの一覧と作成が 404 になること、範囲外の内訳書を指す作成が 404 で見積依頼が増えないこと、他の見積依頼での選択状態に範囲外の見積依頼が載らないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること、範囲外では署名付きURLが返らないこと（42.1-42.7）
+- **E2E**: 担当外の利用者が見積依頼の URL を直接開くと見つからない扱いになること（42.2）。内訳書の Excel と現場調査報告書の PDF のそれぞれが生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ること（42.8, 42.9）
+- 挙動の変更であるため RED → GREEN で進める（タスク103.1・103.2）

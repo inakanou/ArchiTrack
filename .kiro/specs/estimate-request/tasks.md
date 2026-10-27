@@ -2352,6 +2352,8 @@
   - 受領見積書のファイルの署名 URL（backend/src/services/received-quotation.service.ts、`GET /:id/preview` など）は範囲内に限って発行する（39.4）
   - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること、範囲外では署名 URL が返らないことを主張する。E2E で担当外の利用者が見積依頼の URL を直接開くと見つからない扱いになることを確かめる
   - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 42（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 42.1〜42.7 が受ける。作成の要求が指す内訳書も範囲で判定し範囲外は内訳書の不在と同じ 404（42.4）、項目の選択の保存は範囲外なら要求全体を 404 で書き込みなし（42.5）、他の見積依頼での選択状態も範囲内だけ（42.6）と条文に定めた。あわせて Requirement 10.1〜10.4 の「プロジェクトの閲覧権限」「プロジェクトの編集権限」を閲覧範囲とロールの権限の表の両方として読むよう条文を改訂し、改訂の記録（採らなかった案: 条文を変えず design.md だけで読み替える案）を requirements.md の Requirement 10 の下に残した。design.md は「Requirement 42: 案件の閲覧範囲と出力の記録の適用」章を足し、Backend Routes の Risks と Security Considerations の権限継承の記述は当初の設計の記録として残して置き換えを書き添えた。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 42.1, 42.2, 42.3, 42.4, 42.5, 42.6, 42.7, 10.1, 10.2, 10.3, 10.4_
   - _Boundary: 本スペックの API の案件の範囲の判定と受領見積書の署名 URL の発行_
 
 - [ ] 103.2 本スペックの出力に事前記録（user-authentication の要件40）を適用する
@@ -2360,5 +2362,6 @@
     - 現場調査報告書の PDF（Requirement 35）: frontend/src/pages/EstimateRequestDetailPage.tsx の `handleGenerateReport`（969 行付近の `exportAndDownloadPdf`）。種別 `site_survey_report_pdf`
   - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
   - 挙動の変更であるため RED → GREEN で進め、E2E で各出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Requirements: 42.8, 42.9_
   - _Boundary: 見積依頼の詳細画面の出力の開始の処理_
   - _Depends: 103.1_
