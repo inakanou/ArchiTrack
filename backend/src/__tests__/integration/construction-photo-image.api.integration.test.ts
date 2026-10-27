@@ -14,7 +14,8 @@
  * - 12.2, 12.3: サイズ上限（10MB）超過を拒否
  * - 12.4, 4.5: 不正な画像形式（マジックバイト不一致）を拒否
  * - 12.5: 部分失敗時、成功分は登録を維持
- * - 13.1, 13.2, 13.3: 認証・認可（401）。担当でない一般ユーザーも権限があれば一覧を取得できる
+ * - 13.1, 13.2, 13.3: 認証・認可（401）。担当でない一般ユーザーは存在しない場合と同じ 404 で、工事担当者・営業担当者・
+ *   作成者に設定すると権限に従って一覧を取得できる（21.1・21.2・21.7。タスク30.1 で Task 23.1 の判断を置き換えた）
  * - 20.16: 部分失敗（207）の形式エラー文言が共有の画像検証エラー定義と一致する（フロントの
  *   再送不可分類の根拠を固定する）
  *
@@ -378,16 +379,18 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
   describe('一覧取得（署名URL一括, REQ 7.8, 11.2, 11.3, 13.2）', () => {
     const OUTSIDER_EMAIL = 'test-construction-photo-image-outsider@example.com';
     let outsiderToken: string;
+    let outsiderId: string;
 
     beforeAll(async () => {
       // 当該プロジェクトの担当者（作成者・営業担当・工事担当）でなく admin でもない一般ユーザー。
-      // アクセスはロールの権限の表（RBAC）だけで判定する（Task 23.1 の利用者の判断）
+      // 閲覧範囲（Requirement 21、user-authentication の要件39）の外にある（タスク30.1）
       const outsider = await createAuthenticatedUser(
         OUTSIDER_EMAIL,
         'Construction Photo Image Outsider',
         ['user']
       );
       outsiderToken = outsider.accessToken;
+      outsiderId = outsider.userId;
     });
 
     afterAll(async () => {
@@ -432,16 +435,52 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
       expect(res.status).toBe(404);
     });
 
-    it('担当でない一般ユーザーも、閲覧の権限（construction_photo:read）があれば写真一覧を取得できる', async () => {
+    it('担当でない一般ユーザーの写真一覧の取得は、閲覧の権限（construction_photo:read）があっても存在しないアルバムと同じ 404 で、写真項目も署名付きURLも返らない', async () => {
+      // Task 23.1 の利用者の判断（ロールの権限の表だけで判定）のもとでは担当でない一般ユーザーも通ることを
+      // 主張していた。同判断は 2026-10-24 の判断 A（user-authentication の要件39）と 2026-10-27 の判断
+      // （本スペックの Requirement 21）で置き換えられた（タスク30.1）。主張は消さずに、担当外は存在しない
+      // 場合と同じ 404 で一覧も署名付きURLも返らないこと（21.2・21.7）と、工事担当者・営業担当者・作成者に
+      // 設定すると通ること（21.1）へ書き換えた
+      const missing = await request(app)
+        .get('/api/construction-photos/99999999-9999-4999-8999-999999999999/images')
+        .set('Authorization', `Bearer ${outsiderToken}`);
       const res = await request(app)
         .get(`/api/construction-photos/${albumId}/images`)
         .set('Authorization', `Bearer ${outsiderToken}`);
 
-      expect(res.status).toBe(200);
-      const dbCount = await prisma.constructionPhoto.count({ where: { albumId } });
-      expect(dbCount).toBeGreaterThan(1);
-      expect(res.body).toHaveLength(dbCount);
+      expect({ missing: missing.status, outOfScope: res.status }).toEqual({
+        missing: 404,
+        outOfScope: 404,
+      });
+      expect(res.body.code).toBe('NOT_FOUND');
+      expect(res.body.detail).toBe(missing.body.detail);
+      expect(Array.isArray(res.body)).toBe(false);
+      expect(JSON.stringify(res.body)).not.toContain(projectId);
+      expect(JSON.stringify(res.body)).not.toContain('thumbnail');
     });
+
+    it.each(['constructionPersonId', 'salesPersonId', 'createdById'] as const)(
+      '担当でない一般ユーザーを %s に設定すると、閲覧の権限（construction_photo:read）で写真一覧を取得できる',
+      async (field) => {
+        const original = await prisma.project.findUniqueOrThrow({
+          where: { id: projectId },
+          select: { salesPersonId: true, constructionPersonId: true, createdById: true },
+        });
+        await prisma.project.update({ where: { id: projectId }, data: { [field]: outsiderId } });
+        try {
+          const res = await request(app)
+            .get(`/api/construction-photos/${albumId}/images`)
+            .set('Authorization', `Bearer ${outsiderToken}`);
+
+          expect(res.status).toBe(200);
+          const dbCount = await prisma.constructionPhoto.count({ where: { albumId } });
+          expect(dbCount).toBeGreaterThan(1);
+          expect(res.body).toHaveLength(dbCount);
+        } finally {
+          await prisma.project.update({ where: { id: projectId }, data: original });
+        }
+      }
+    );
   });
 });
 

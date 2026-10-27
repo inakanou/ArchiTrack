@@ -922,7 +922,7 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
 
 **利用者の判断（2026-10-24、A。user-authentication の tasks.md の Implementation Notes の 52.3）**: 案件の閲覧範囲は、user-authentication の要件39 が本スペックの Task 23.1 の利用者の判断（2026-10-03、ロールの権限の表だけで判定する）に優先する。同スペックの 52.3 はこれに従って E2E construction-photo-additional.spec.ts の「担当でない一般ユーザーが…」を、担当外は「プロジェクトが見つかりません」でアルバムの行が 0 件、工事担当者に設定すると見える、の主張へ書き直した。本スペックの API・設計文書・統合テストは旧い判断のまま残っている
 
-- [ ] 30.1 Task 23.1 の判断（ロールの権限の表だけで判定）を要件39 の判定へ置き換え、旧い判断を主張する文書と統合テストを改める
+- [x] 30.1 Task 23.1 の判断（ロールの権限の表だけで判定）を要件39 の判定へ置き換え、旧い判断を主張する文書と統合テストを改める
   - design.md の 83〜84 行付近（プロジェクトメンバーシップ専用ガードは存在しない、工事写真・工事看板のアクセスもロールの権限の表だけで判定する）と、903 行付近・920 行付近の試験の方針（担当でない一般ユーザーが他の利用者のプロジェクトのアルバム・写真項目・看板を操作できる）を、要件39 の判定（担当者・作成者・全案件閲覧の権限だけが範囲内、範囲外は不在と同じ 404）へ改め、23.1 の判断が 2026-10-24 の判断 A で置き換えられたことを記録する（23.1 の記録は残す）
   - 要件 1.2・13.2・13.3・17.1 の「アクセス可能なプロジェクト」の読み方を要件39 の範囲に揃える。requirements.md の改訂の要否は着手時に利用者の判断を得る
     - **判断の結果（2026-10-27、利用者の判断）**: 要件 1.2・13.2・13.3・17.1 の条文を改訂し、改訂の記録（採らなかった案: 条文を変えず design.md だけで読み替える案）を requirements.md の各受入基準の下に残した。design.md は「Requirement 21: 案件の閲覧範囲と出力の記録の適用」章の「要件 1.2・13.2・13.3・17.1 の読み替え」節に設計上の読み方を記し、Existing Architecture Analysis・API Contracts・Testing Strategy・Security Considerations の旧い判断の記述は 23.1 の記録として残して、2026-10-24 の判断 A と 2026-10-27 の判断で置き換えられたことを書き添えた
@@ -930,7 +930,7 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - _Requirements: 21.1, 21.2, 21.3, 1.2, 13.2, 13.3, 17.1_
   - _Boundary: 本スペックの design.md のアクセスの判定の記述と、旧い判断を主張する統合テスト_
 
-- [ ] 30.2 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+- [x] 30.2 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
   - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
     - backend/src/routes/construction-photos.routes.ts（`/api/projects/:projectId/construction-photos` と `/api/construction-photos`）: `POST /`（95）、`GET /`（174）、`GET /:id`（262）、`PATCH /:id`（334）、`DELETE /:id`（390）
     - backend/src/routes/construction-photo-images.routes.ts（`/api/construction-photos/:id/images` と `/api/construction-photos/images`）: `GET /`（241）、`POST /`（332）、`POST /from-surveys`（452）、`PATCH /batch`（560）、`PUT /order`（643）、`DELETE /:imageId`（712）、`GET /:imageId/print-image`（782）、`GET /:imageId/original`（867）

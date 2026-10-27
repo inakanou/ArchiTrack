@@ -62,6 +62,23 @@ vi.mock('../../../middleware/authorize.middleware', () => ({
   requirePermission: () => (_req: Request, _res: Response, next: NextFunction) => next(),
 }));
 
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// construction-photo-project-scope.middleware.test.ts と統合テストが確かめる。construction-photo タスク30.2）
+vi.mock('../../../middleware/construction-photo-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireAlbumProjectScope: pass,
+    requireAddressedAlbumProjectScope: pass,
+    requirePhotoProjectScope: pass,
+    requirePhotosProjectScope: pass,
+    requireSignboardProjectScope: pass,
+    requireSurveyImagesProjectScope: pass,
+    idsFromBodyObjectArray: () => () => [],
+    idsFromBodyStringArray: () => () => [],
+  };
+});
+
 // モックの後に実物を読み込む
 import constructionPhotosRouter from '../../../routes/construction-photos.routes.js';
 import { errorHandler } from '../../../middleware/errorHandler.middleware.js';

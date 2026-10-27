@@ -6,7 +6,9 @@
  * Requirements coverage:
  * - 14.6: ビューアで表示する原本画像を必要時にのみ取得する
  * - 15.4: ZIPの「アップロード原本そのまま」モードを成立させる非合成原本の取得元
- * - 13.2, 13.4: 担当でない一般ユーザーも権限があれば取得できる・署名付きURLではなく専用エンドポイント経由の配信
+ * - 13.2, 13.4: 担当でない一般ユーザーは存在しない場合と同じ 404 で、工事担当者・営業担当者・作成者に設定すると
+ *   権限に従って取得できる（21.1・21.2・21.7。タスク30.1 で Task 23.1 の判断を置き換えた）・署名付きURLではなく
+ *   専用エンドポイント経由の配信
  *
  * Scope:
  * - flat マウント GET /api/construction-photos/images/:imageId/original
@@ -36,6 +38,7 @@ describe('Construction Photo Original Image API Integration Tests', () => {
   let signboardId: string;
   let accessToken: string;
   let outsiderToken: string;
+  let outsiderId: string;
   let noPermissionToken: string;
 
   let plainPhotoId: string; // 看板なし
@@ -83,6 +86,28 @@ describe('Construction Photo Original Image API Integration Tests', () => {
     expect(res.status).toBe(201);
     return res.body.successful[0].id as string;
   };
+
+  /**
+   * プロジェクトの担当の欄（工事担当者・営業担当者・作成者）の一つに outsider を設定して検証し、元へ戻す
+   * （タスク30.1。担当外の利用者は閲覧範囲の外であり、担当者に設定すると範囲内になる）
+   */
+  const asAssignedOutsider = async (
+    field: 'constructionPersonId' | 'salesPersonId' | 'createdById',
+    run: () => Promise<void>
+  ): Promise<void> => {
+    const original = await prisma.project.findUniqueOrThrow({
+      where: { id: projectId },
+      select: { salesPersonId: true, constructionPersonId: true, createdById: true },
+    });
+    await prisma.project.update({ where: { id: projectId }, data: { [field]: outsiderId } });
+    try {
+      await run();
+    } finally {
+      await prisma.project.update({ where: { id: projectId }, data: original });
+    }
+  };
+
+  const ASSIGNED_FIELDS = ['constructionPersonId', 'salesPersonId', 'createdById'] as const;
 
   beforeAll(async () => {
     prisma = getPrismaClient();
@@ -151,6 +176,7 @@ describe('Construction Photo Original Image API Integration Tests', () => {
       ['user']
     );
     outsiderToken = outsider.accessToken;
+    outsiderId = outsider.userId;
 
     // construction_photo:read 権限を持たない未昇格ロール（権限なし=403 検証用）。
     // ロール割当を一切行わない生ユーザーを作成しログインする。
@@ -303,25 +329,51 @@ describe('Construction Photo Original Image API Integration Tests', () => {
     expect(res.status).toBe(404);
   });
 
-  it('担当でない一般ユーザーも、閲覧の権限（construction_photo:read）があれば原本を取得できる', async () => {
-    // outsider は当該プロジェクトの作成者・営業担当・工事担当のいずれでもない user ロールの利用者。
-    // アクセスはロールの権限の表（RBAC）だけで判定する（Task 23.1 の利用者の判断）
-    const asOwner = await request(app)
-      .get(`/api/construction-photos/images/${plainPhotoId}/original`)
-      .set('Authorization', `Bearer ${accessToken}`)
-      .responseType('blob');
-    expect(asOwner.status).toBe(200);
-
+  it('担当でない一般ユーザーの原本の取得は、閲覧の権限（construction_photo:read）があっても存在しない写真項目と同じ 404 で、画像を返さない', async () => {
+    // Task 23.1 の利用者の判断（ロールの権限の表だけで判定）のもとでは担当でない一般ユーザーも通ることを
+    // 主張していた。同判断は 2026-10-24 の判断 A（user-authentication の要件39）と 2026-10-27 の判断
+    // （本スペックの Requirement 21）で置き換えられた（タスク30.1）。主張は消さずに、担当外は存在しない
+    // 場合と同じ 404 でデータが変わらないこと（21.2）と、工事担当者・営業担当者・作成者に設定すると通る
+    // こと（21.1）へ書き換えた
+    const missing = await request(app)
+      .get('/api/construction-photos/images/99999999-9999-4999-8999-999999999999/original')
+      .set('Authorization', `Bearer ${outsiderToken}`);
     const res = await request(app)
       .get(`/api/construction-photos/images/${plainPhotoId}/original`)
-      .set('Authorization', `Bearer ${outsiderToken}`)
-      .responseType('blob');
+      .set('Authorization', `Bearer ${outsiderToken}`);
 
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toContain('image/');
-    expect((res.body as Buffer).length).toBeGreaterThan(0);
-    expect(Buffer.compare(res.body as Buffer, asOwner.body as Buffer)).toBe(0);
+    expect({ missing: missing.status, outOfScope: res.status }).toEqual({
+      missing: 404,
+      outOfScope: 404,
+    });
+    expect(res.headers['content-type']).not.toContain('image/');
+    expect(res.body.code).toBe('NOT_FOUND');
+    expect(res.body.detail).toBe(missing.body.detail);
+    expect(JSON.stringify(res.body)).not.toContain(projectId);
   });
+
+  it.each(ASSIGNED_FIELDS)(
+    '担当でない一般ユーザーを %s に設定すると、閲覧の権限（construction_photo:read）で原本を取得できる',
+    async (field) => {
+      const asOwner = await request(app)
+        .get(`/api/construction-photos/images/${plainPhotoId}/original`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .responseType('blob');
+      expect(asOwner.status).toBe(200);
+
+      await asAssignedOutsider(field, async () => {
+        const res = await request(app)
+          .get(`/api/construction-photos/images/${plainPhotoId}/original`)
+          .set('Authorization', `Bearer ${outsiderToken}`)
+          .responseType('blob');
+
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toContain('image/');
+        expect((res.body as Buffer).length).toBeGreaterThan(0);
+        expect(Buffer.compare(res.body as Buffer, asOwner.body as Buffer)).toBe(0);
+      });
+    }
+  );
 });
 
 /**

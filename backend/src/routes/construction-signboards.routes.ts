@@ -5,6 +5,10 @@
  * flat `/api/construction-signboards`）で提供する。既存の工事写真アルバムルート
  * （construction-photos.routes.ts）の実装パターンを踏襲する。
  *
+ * 案件の閲覧範囲（construction-photo の Requirement 21、user-authentication の要件39。タスク30.2）:
+ * requirePermission の後に範囲の判定部品（construction-photo-project-scope.middleware）を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。
+ *
  * Requirements:
  * - 8.1: 当該プロジェクトに紐付く工事看板レコードを作成する
  * - 8.2, 8.3, 8.4: 標準項目・自由項目・固定テキストを保持する
@@ -29,6 +33,10 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireProjectParamScope,
+  requireSignboardProjectScope,
+} from '../middleware/construction-photo-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createConstructionSignboardSchema,
@@ -106,6 +114,7 @@ router.post(
   authenticate,
   requirePermission('construction_signboard:create'),
   validate(constructionSignboardProjectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createConstructionSignboardSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -162,6 +171,7 @@ router.get(
   authenticate,
   requirePermission('construction_signboard:read'),
   validate(constructionSignboardProjectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { projectId } = req.validatedParams as { projectId: string };
@@ -242,6 +252,7 @@ router.patch(
   authenticate,
   requirePermission('construction_signboard:update'),
   validate(constructionSignboardIdParamSchema, 'params'),
+  requireSignboardProjectScope('id'),
   validate(updateConstructionSignboardSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -300,6 +311,7 @@ router.delete(
   authenticate,
   requirePermission('construction_signboard:delete'),
   validate(constructionSignboardIdParamSchema, 'params'),
+  requireSignboardProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };

@@ -13,6 +13,12 @@
  * - GET  /api/construction-photos/images/:imageId/print-image（印字画像＝オンデマンド看板合成, 3.3）
  * - GET  /api/construction-photos/images/:imageId/original（非合成原本, 10.1）
  *
+ * 案件の閲覧範囲（construction-photo の Requirement 21、user-authentication の要件39。タスク30.1・30.2）:
+ * 全経路で requirePermission の後に construction-photo-project-scope.middleware の判定部品を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。一括の経路（PATCH /batch・PUT /order）は対象の全件、現調コピーは
+ * コピー元の現場調査写真の案件も判定する。署名付きURL（一覧・一括更新の応答）と原本・印字画像は、この判定を
+ * 通った範囲内の要求でだけ発行・配信する（タスク 23.1 の判断「ロールの権限の表だけで判定する」は置き換えた）。
+ *
  * Requirements:
  * - 4.1, 4.2, 4.3, 4.7: 複数画像を写真項目として登録しサムネ生成、末尾表示順
  * - 4.5, 12.4: 許可されない形式を拒否
@@ -21,8 +27,7 @@
  * - 11.3: サムネ優先（一覧では原本URLを返さない）
  * - 12.1, 12.2, 12.3: 最大10件/10MBの制約と超過拒否
  * - 12.5: 部分失敗は成功分維持
- * - 13.1, 13.2, 13.3: 認証・認可・プロジェクト境界の検証。認可はロールの権限（requirePermission）
- *   だけで行い、プロジェクトの担当者での絞り込みはしない。取り除かれたプロジェクトや論理削除済みの
+ * - 13.1, 13.2, 13.3: 認証・認可・プロジェクト境界の検証。取り除かれたプロジェクトや論理削除済みの
  *   アルバム配下は、サービスが 404 とする
  *
  * @module routes/construction-photo-images
@@ -34,6 +39,15 @@ import getPrismaClient from '../db.js';
 import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  idsFromBodyObjectArray,
+  idsFromBodyStringArray,
+  requireAddressedAlbumProjectScope,
+  requireAlbumProjectScope,
+  requirePhotoProjectScope,
+  requirePhotosProjectScope,
+  requireSurveyImagesProjectScope,
+} from '../middleware/construction-photo-project-scope.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import logger from '../utils/logger.js';
 import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
@@ -243,6 +257,7 @@ router.get(
   authenticate,
   requirePermission('construction_photo:read'),
   validate(constructionPhotoIdParamSchema, 'params'),
+  requireAlbumProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: albumId } = req.validatedParams as { id: string };
@@ -334,6 +349,7 @@ router.post(
   authenticate,
   requirePermission('construction_photo:update'),
   validate(constructionPhotoIdParamSchema, 'params'),
+  requireAlbumProjectScope('id'),
   uploadImages,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -454,7 +470,9 @@ router.post(
   authenticate,
   requirePermission('construction_photo:update'),
   validate(constructionPhotoIdParamSchema, 'params'),
+  requireAlbumProjectScope('id'),
   validate(addFromSurveyImagesSchema, 'body'),
+  requireSurveyImagesProjectScope(idsFromBodyStringArray('surveyImageIds')),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: albumId } = req.validatedParams as { id: string };
@@ -561,7 +579,9 @@ router.patch(
   '/batch',
   authenticate,
   requirePermission('construction_photo:update'),
+  requireAddressedAlbumProjectScope('id'),
   validate(updatePhotoMetadataBatchSchema, 'body'),
+  requirePhotosProjectScope(idsFromBodyObjectArray('items')),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { items } = req.validatedBody as UpdatePhotoMetadataBatchInput;
@@ -645,7 +665,9 @@ router.put(
   authenticate,
   requirePermission('construction_photo:update'),
   validate(constructionPhotoIdParamSchema, 'params'),
+  requireAlbumProjectScope('id'),
   validate(updatePhotoOrderSchema, 'body'),
+  requirePhotosProjectScope(idsFromBodyObjectArray('orders')),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: albumId } = req.validatedParams as { id: string };
@@ -714,6 +736,7 @@ router.delete(
   authenticate,
   requirePermission('construction_photo:delete'),
   validate(constructionPhotoImageIdParamSchema, 'params'),
+  requirePhotoProjectScope('imageId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { imageId } = req.validatedParams as { imageId: string };
@@ -784,6 +807,7 @@ router.get(
   authenticate,
   requirePermission('construction_photo:read'),
   validate(constructionPhotoImageIdParamSchema, 'params'),
+  requirePhotoProjectScope('imageId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { imageId } = req.validatedParams as { imageId: string };
@@ -869,6 +893,7 @@ router.get(
   authenticate,
   requirePermission('construction_photo:read'),
   validate(constructionPhotoImageIdParamSchema, 'params'),
+  requirePhotoProjectScope('imageId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { imageId } = req.validatedParams as { imageId: string };
