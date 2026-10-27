@@ -6,11 +6,18 @@
  * Requirements:
  * - 5.4: 「Excelでエクスポート」ボタンをクリックすると選択項目をExcel形式でダウンロード
  * - 5.5: 項目が選択されていない場合ボタンを無効化
+ *
+ * Task 103.2 変更: Excel の生成とダウンロードを、出力の記録（`runRecordedExport`、
+ *   user-authentication の要件40.9〜40.11）の成功の後にだけ始める。記録の失敗では生成も
+ *   ダウンロードも始めず「出力を記録できなかったため中止しました」を示す。記録の要求中は
+ *   開始を止め、記録の要求中にボタンが破棄されたら記録の成功の後も生成しない
+ *   （estimate-request の Requirement 42.8・42.9）
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import type { ItemWithSelectionInfo } from '../../types/estimate-request.types';
+import { runRecordedExport } from '../../api/export-audit';
 
 // ============================================================================
 // 型定義
@@ -24,6 +31,8 @@ export interface ExcelExportButtonProps {
   selectedItems: ItemWithSelectionInfo[];
   /** 見積依頼名（ファイル名に使用） */
   estimateRequestName: string;
+  /** 見積依頼が属するプロジェクトのID（出力の記録の対象の案件。Requirement 42.8） */
+  projectId: string;
   /** 無効状態 */
   disabled?: boolean;
 }
@@ -33,6 +42,12 @@ export interface ExcelExportButtonProps {
 // ============================================================================
 
 const styles = {
+  errorMessage: {
+    color: '#dc2626',
+    fontSize: '13px',
+    margin: 0,
+    alignSelf: 'center',
+  } as React.CSSProperties,
   button: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -138,53 +153,98 @@ function generateFileName(baseName: string): string {
 export function ExcelExportButton({
   selectedItems,
   estimateRequestName,
+  projectId,
   disabled = false,
 }: ExcelExportButtonProps) {
   const [isExporting, setIsExporting] = useState(false);
+  // 出力の記録の失敗など、出力を始められなかったときのエラーメッセージ（Requirement 42.9）
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // ボタンが描かれているか（出力の記録の要求中に破棄されたら、記録の後に生成を始めない。
+  // StrictMode の effect の再実行でも true に戻す）
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const isDisabled = disabled || selectedItems.length === 0;
 
+  /** Excel の生成とダウンロード（出力の記録が成功した後にだけ呼ぶ。Requirement 42.8） */
+  const generateAndDownload = useCallback(() => {
+    // 記録の要求中に画面が破棄されたら生成もダウンロードもしない（記録は済んでいるが出力は無い）
+    if (!isMountedRef.current) {
+      return;
+    }
+
+    // 項目データをExcel用に変換
+    const excelData = convertItemsToExcelData(selectedItems);
+
+    // ワークシートを作成
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+    // ワークブックを作成
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '見積項目');
+
+    // Excelファイルをバイナリとして出力
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+    // Blobを作成してダウンロード
+    const blob = new Blob([excelBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    const fileName = generateFileName(estimateRequestName);
+
+    // ネイティブのダウンロード処理
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [selectedItems, estimateRequestName]);
+
   const handleExport = useCallback(async () => {
+    // 項目の未選択（Requirement 5.3・5.5）は記録より前に止め、記録を要求しない
     if (isDisabled || isExporting) return;
 
     setIsExporting(true);
+    setExportError(null);
 
     try {
-      // 項目データをExcel用に変換
-      const excelData = convertItemsToExcelData(selectedItems);
-
-      // ワークシートを作成
-      const worksheet = XLSX.utils.json_to_sheet(excelData);
-
-      // ワークブックを作成
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, '見積項目');
-
-      // Excelファイルをバイナリとして出力
-      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-
-      // Blobを作成してダウンロード
-      const blob = new Blob([excelBuffer], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-
-      const fileName = generateFileName(estimateRequestName);
-
-      // ネイティブのダウンロード処理
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      // 生成を始める前に出力の記録を1回要求し、記録の失敗では生成しない（Requirement 42.8, 42.9）
+      const result = await runRecordedExport(
+        {
+          kind: 'estimate_request_xlsx',
+          projectId,
+          targetIds: selectedItems.map((item) => item.estimateRequestItemId),
+          itemCount: selectedItems.length,
+        },
+        async () => generateAndDownload()
+      );
+      if (!result.ok) {
+        if (result.error.type === 'RECORD_FAILED') {
+          if (isMountedRef.current) {
+            setExportError(result.error.message);
+          }
+        } else {
+          console.error('Excel export failed:', result.error.cause);
+        }
+      }
     } catch (error) {
       console.error('Excel export failed:', error);
     } finally {
-      setIsExporting(false);
+      if (isMountedRef.current) {
+        setIsExporting(false);
+      }
     }
-  }, [selectedItems, estimateRequestName, isDisabled, isExporting]);
+  }, [selectedItems, projectId, isDisabled, isExporting, generateAndDownload]);
 
   const getButtonStyle = (): React.CSSProperties => {
     const baseStyle = { ...styles.button };
@@ -212,16 +272,23 @@ export function ExcelExportButton({
   };
 
   return (
-    <button
-      type="button"
-      onClick={handleExport}
-      disabled={isDisabled}
-      style={getButtonStyle()}
-      aria-label={getAriaLabel()}
-    >
-      <ExcelIcon />
-      {getButtonText()}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleExport}
+        disabled={isDisabled}
+        style={getButtonStyle()}
+        aria-label={getAriaLabel()}
+      >
+        <ExcelIcon />
+        {getButtonText()}
+      </button>
+      {exportError && (
+        <p role="alert" style={styles.errorMessage}>
+          {exportError}
+        </p>
+      )}
+    </>
   );
 }
 

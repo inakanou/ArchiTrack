@@ -98,6 +98,7 @@ export const Default: Story = {
   args: {
     selectedItems: sampleItems,
     estimateRequestName: '外構工事見積依頼',
+    projectId: 'project-1',
     disabled: false,
   },
 };
@@ -110,6 +111,7 @@ export const SingleItem: Story = {
   args: {
     selectedItems: [sampleItems[0]!],
     estimateRequestName: '簡易工事見積依頼',
+    projectId: 'project-1',
     disabled: false,
   },
 };
@@ -122,6 +124,7 @@ export const NoItems: Story = {
   args: {
     selectedItems: [],
     estimateRequestName: '空の見積依頼',
+    projectId: 'project-1',
     disabled: false,
   },
 };
@@ -134,6 +137,7 @@ export const Disabled: Story = {
   args: {
     selectedItems: sampleItems,
     estimateRequestName: '外構工事見積依頼',
+    projectId: 'project-1',
     disabled: true,
   },
 };
@@ -158,6 +162,7 @@ export const ManyItems: Story = {
       otherRequests: [],
     })),
     estimateRequestName: '大規模工事見積依頼',
+    projectId: 'project-1',
     disabled: false,
   },
 };
@@ -170,6 +175,7 @@ export const LongFileName: Story = {
   args: {
     selectedItems: sampleItems,
     estimateRequestName: 'これは非常に長い見積依頼名でファイル名として使用される場合のテストです',
+    projectId: 'project-1',
     disabled: false,
   },
 };

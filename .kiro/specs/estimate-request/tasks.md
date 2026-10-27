@@ -2356,7 +2356,7 @@
   - _Requirements: 42.1, 42.2, 42.3, 42.4, 42.5, 42.6, 42.7, 10.1, 10.2, 10.3, 10.4_
   - _Boundary: 本スペックの API の案件の範囲の判定と受領見積書の署名 URL の発行_
 
-- [ ] 103.2 本スペックの出力に事前記録（user-authentication の要件40）を適用する
+- [x] 103.2 本スペックの出力に事前記録（user-authentication の要件40）を適用する
   - 対象（2026-10-25 の実測。着手時に測り直すこと）:
     - 見積依頼の Excel: frontend/src/components/estimate-request/ExcelExportButton.tsx の `handleExport`（147 行付近。frontend/src/pages/EstimateRequestDetailPage.tsx の 1120 行付近から使う）。種別 `estimate_request_xlsx`
     - 現場調査報告書の PDF（Requirement 35）: frontend/src/pages/EstimateRequestDetailPage.tsx の `handleGenerateReport`（969 行付近の `exportAndDownloadPdf`）。種別 `site_survey_report_pdf`

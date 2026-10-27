@@ -11,12 +11,17 @@
  * - 9.4: ユーザーが削除ボタンをクリックしたとき、削除確認ダイアログを表示する
  * - 9.5: ユーザーが削除を確認したとき、見積依頼を論理削除し一覧画面に遷移する
  * - 11.1, 11.2, 11.25, 11.28, 11.29, 11.30: 受領見積書セクション統合
+ *
+ * - タスク103.2: 現場調査報告書の PDF の生成の前の出力の記録と、記録の失敗での中止
+ *   （Requirement 42.8・42.9。describe「現場調査報告書の出力の記録」。内訳書の Excel は
+ *   ExcelExportButton.test.tsx が持つ）
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import EstimateRequestDetailPage from './EstimateRequestDetailPage';
+import { ApiError, apiClient } from '../api/client';
 
 // Task 26.3: ReceivedQuotationFormをモックして、FileInlinePreview/pdfjs-distの問題を回避
 vi.mock('../components/estimate-requests/ReceivedQuotationForm', () => ({
@@ -315,6 +320,12 @@ vi.mock('../api/estimate-request-status', () => ({
 describe('EstimateRequestDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 出力の記録（POST /api/v1/audit-logs/exports）は既定で成功させる（Requirement 42.8）
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+  });
+
+  afterEach(() => {
+    vi.mocked(apiClient.post).mockRestore();
   });
 
   /**
@@ -1003,6 +1014,171 @@ describe('EstimateRequestDetailPage', () => {
       await waitFor(() => {
         expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
       });
+    });
+  });
+
+  // ==========================================================================
+  // タスク103.2: 現場調査報告書の PDF の出力の事前記録
+  // （Requirement 42.8, 42.9。user-authentication の要件40.9〜40.11）
+  // ==========================================================================
+  describe('現場調査報告書の出力の記録 (Requirement 42.8, 42.9)', () => {
+    /** 表示の文言の完全一致（余計な文言が付け足されていないこと） */
+    const RECORD_FAILED_EXACT = /^出力を記録できなかったため中止しました$/;
+
+    function renderPage() {
+      return render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+    }
+
+    /** 選択 UI を開き、現場調査を選んで（surveyId が空なら選ばずに）「出力」を押す */
+    async function startReportExport(surveyId: string) {
+      fireEvent.click(await screen.findByRole('button', { name: /現場調査報告書出力/ }));
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).toBeInTheDocument();
+      });
+      if (surveyId) {
+        fireEvent.change(screen.getByRole('combobox'), { target: { value: surveyId } });
+      }
+      fireEvent.click(screen.getByRole('button', { name: '出力' }));
+    }
+
+    /** 記録の要求を保留させ、応答を返す関数を返す */
+    function holdRecordRequest(): () => void {
+      let resolveRecord: (value: { recordId: string }) => void = () => {};
+      vi.mocked(apiClient.post).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveRecord = resolve as (value: { recordId: string }) => void;
+          })
+      );
+      return () => resolveRecord({ recordId: 'record-1' });
+    }
+
+    it('生成を始める前に出力の記録を種別・案件・出力対象の写真つきで1回要求する', async () => {
+      const { renderImagesForReport } =
+        await import('../services/export/AnnotationRendererService');
+      const { exportAndDownloadPdf } = await import('../services/export/PdfExportService');
+      const postSpy = vi.mocked(apiClient.post);
+      renderPage();
+
+      await startReportExport('survey-1');
+
+      await waitFor(() => {
+        expect(exportAndDownloadPdf).toHaveBeenCalledTimes(1);
+      });
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
+        kind: 'site_survey_report_pdf',
+        projectId: 'project-123',
+        targetIds: ['img-1', 'img-2'],
+        itemCount: 2,
+      });
+      // 記録の要求が注釈付き画像の描画（生成の始まり）より先に行われている
+      expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(renderImagesForReport).mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('記録の要求が失敗すると報告書を生成もダウンロードもせずエラーメッセージを表示する', async () => {
+      const { renderImagesForReport } =
+        await import('../services/export/AnnotationRendererService');
+      const { exportAndDownloadPdf } = await import('../services/export/PdfExportService');
+      vi.mocked(apiClient.post).mockRejectedValue(new ApiError(500, 'Internal Server Error'));
+      renderPage();
+
+      await startReportExport('survey-1');
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(RECORD_FAILED_EXACT);
+      expect(renderImagesForReport).not.toHaveBeenCalled();
+      expect(exportAndDownloadPdf).not.toHaveBeenCalled();
+      // 選択 UI は開いたまま、再び出力を始められる
+      expect(screen.getByRole('button', { name: '出力' })).toBeEnabled();
+    });
+
+    it('記録の応答に記録の ID が無いときも報告書を生成しない', async () => {
+      const { renderImagesForReport } =
+        await import('../services/export/AnnotationRendererService');
+      vi.mocked(apiClient.post).mockResolvedValue({});
+      renderPage();
+
+      await startReportExport('survey-1');
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(RECORD_FAILED_EXACT);
+      expect(renderImagesForReport).not.toHaveBeenCalled();
+    });
+
+    it('現場調査を選択せずに出力すると記録を要求しない (Requirements: 35.10)', async () => {
+      renderPage();
+
+      await startReportExport('');
+
+      expect(await screen.findByText('現場調査を選択してください')).toBeInTheDocument();
+      expect(apiClient.post).not.toHaveBeenCalled();
+    });
+
+    it('出力対象の写真が無いときは出力が無いため記録を要求しない', async () => {
+      const { getSiteSurvey } = await import('../api/site-surveys');
+      const detail = await vi.mocked(getSiteSurvey)('survey-1');
+      vi.mocked(getSiteSurvey).mockClear();
+      vi.mocked(getSiteSurvey).mockResolvedValueOnce({
+        ...detail,
+        images: detail.images.map((img) => ({ ...img, includeInReport: false })),
+      });
+      renderPage();
+
+      await startReportExport('survey-1');
+
+      expect(await screen.findByText('報告書出力対象の写真がありません')).toBeInTheDocument();
+      expect(apiClient.post).not.toHaveBeenCalled();
+    });
+
+    it('記録の要求中は選択 UI を閉じられない', async () => {
+      const releaseRecord = holdRecordRequest();
+      renderPage();
+
+      await startReportExport('survey-1');
+      await waitFor(() => {
+        expect(apiClient.post).toHaveBeenCalledTimes(1);
+      });
+
+      expect(screen.getByRole('button', { name: '閉じる' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '生成中...' })).toBeDisabled();
+
+      await act(async () => {
+        releaseRecord();
+      });
+      await waitFor(() => {
+        expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+      });
+    });
+
+    it('記録の要求中に画面を離れる（破棄される）と、記録の成功の後も生成もダウンロードも始めない', async () => {
+      const { renderImagesForReport } =
+        await import('../services/export/AnnotationRendererService');
+      const { exportAndDownloadPdf } = await import('../services/export/PdfExportService');
+      const releaseRecord = holdRecordRequest();
+      const { unmount } = renderPage();
+
+      await startReportExport('survey-1');
+      await waitFor(() => {
+        expect(apiClient.post).toHaveBeenCalledTimes(1);
+      });
+
+      unmount();
+      await act(async () => {
+        releaseRecord();
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(renderImagesForReport).not.toHaveBeenCalled();
+      expect(exportAndDownloadPdf).not.toHaveBeenCalled();
     });
   });
 

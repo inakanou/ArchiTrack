@@ -22,9 +22,16 @@
  * - 11.1, 11.2, 11.12, 11.14: 受領見積書セクション表示
  * - 11.25, 11.28, 11.29, 11.30: 受領見積書ファイル+明細行統合フォーム
  * - 12.1, 12.4, 12.5-12.10: ステータス管理
+ *
+ * Task 103.2 変更: 現場調査報告書の PDF の生成（注釈付き画像の描画・PDF の生成・ダウンロード）を、
+ *   出力の記録（`runRecordedExport`、user-authentication の要件40.9〜40.11）の成功の後にだけ始める。
+ *   記録の失敗では生成もダウンロードも始めず「出力を記録できなかったため中止しました」を示す。
+ *   現場調査の未選択（Requirement 35.10）と出力対象の写真が無いときは出力が無いため記録しない。
+ *   記録の要求中は選択 UI を閉じられず、記録の要求中に画面が破棄されたら記録の成功の後も生成しない
+ *   （estimate-request の Requirement 42.8・42.9。内訳書の Excel は ExcelExportButton が持つ）
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -51,6 +58,7 @@ import type {
 import { transitionStatus } from '../api/estimate-request-status';
 import type { EstimateRequestStatus } from '../api/estimate-request-status';
 import { ApiError } from '../api/client';
+import { runRecordedExport } from '../api/export-audit';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import type { SiteSurveyInfo } from '../types/site-survey.types';
 import { renderImagesForReport } from '../services/export/AnnotationRendererService';
@@ -525,6 +533,18 @@ export default function EstimateRequestDetailPage() {
   const [isSurveyLoading, setIsSurveyLoading] = useState(false);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [surveyReportError, setSurveyReportError] = useState<string | null>(null);
+  // 現場調査報告書の出力の記録の要求中（選択 UI を閉じる操作を止める。Requirement 42.8）
+  const [isRecordingReportExport, setIsRecordingReportExport] = useState(false);
+
+  // 画面が描かれているか（出力の記録の要求中に破棄されたら、記録の後に生成を始めない。
+  // StrictMode の effect の再実行でも true に戻す。Requirement 42.8）
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // ステータス関連
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -932,7 +952,14 @@ export default function EstimateRequestDetailPage() {
     }
   }, [request?.projectId]);
 
-  // 報告書生成ハンドラ
+  /**
+   * 報告書生成ハンドラ
+   *
+   * 現場調査の詳細から出力対象の写真を決め、生成を始める前に出力の記録（種別
+   * `site_survey_report_pdf`・案件・出力対象の写真）を1回要求する。記録の失敗では生成せず
+   * エラーメッセージを表示する（Requirement 42.8, 42.9）。現場調査の未選択（Requirement 35.10）と
+   * 出力対象の写真が無いときは、出力が無いため記録を要求しない。
+   */
   const handleGenerateReport = useCallback(async () => {
     if (!selectedSurveyId) {
       setSurveyReportError('現場調査を選択してください');
@@ -943,7 +970,7 @@ export default function EstimateRequestDetailPage() {
     setSurveyReportError(null);
 
     try {
-      // 現場調査詳細を取得
+      // 現場調査詳細を取得（出力対象の写真と案件を決める）
       const surveyDetail = await getSiteSurvey(selectedSurveyId);
 
       // 報告書出力対象画像をフィルタ
@@ -951,26 +978,60 @@ export default function EstimateRequestDetailPage() {
 
       if (reportImages.length === 0) {
         setSurveyReportError('報告書出力対象の写真がありません');
-        setIsGeneratingReport(false);
         return;
       }
 
-      // 注釈付き画像をレンダリング
-      const renderedImages = await renderImagesForReport(reportImages);
+      /** 報告書の生成（出力の記録が成功した後にだけ呼ぶ。Requirement 42.8） */
+      const generateReport = async (): Promise<boolean> => {
+        // 記録の要求中に画面が破棄されたら生成もダウンロードもしない（記録は済んでいるが出力は無い）
+        if (!isMountedRef.current) {
+          return false;
+        }
 
-      // RenderedImage → AnnotatedImageWithComment に変換
-      const imagesWithComment = renderedImages.map((rendered) => ({
-        imageInfo: rendered.imageInfo,
-        dataUrl: rendered.dataUrl,
-        comment: rendered.imageInfo.comment ?? null,
-      }));
+        // 注釈付き画像をレンダリング
+        const renderedImages = await renderImagesForReport(reportImages);
 
-      // PDF生成・ダウンロード
-      const { exportAndDownloadPdf } = await loadPdfExportService();
-      await exportAndDownloadPdf(surveyDetail, imagesWithComment);
+        // RenderedImage → AnnotatedImageWithComment に変換
+        const imagesWithComment = renderedImages.map((rendered) => ({
+          imageInfo: rendered.imageInfo,
+          dataUrl: rendered.dataUrl,
+          comment: rendered.imageInfo.comment ?? null,
+        }));
 
-      setShowSurveySelector(false);
-      setSelectedSurveyId('');
+        // PDF生成・ダウンロード
+        const { exportAndDownloadPdf } = await loadPdfExportService();
+        await exportAndDownloadPdf(surveyDetail, imagesWithComment);
+        return true;
+      };
+
+      // 生成を始める前に出力の記録を1回要求し、記録の失敗では生成しない（Requirement 42.8, 42.9）
+      setIsRecordingReportExport(true);
+      const result = await runRecordedExport(
+        {
+          kind: 'site_survey_report_pdf',
+          projectId: surveyDetail.projectId,
+          targetIds: reportImages.map((img) => img.id),
+          itemCount: reportImages.length,
+        },
+        async () => {
+          // 記録が済んだら閉じる操作を戻す（生成中は従来どおり閉じられる）
+          setIsRecordingReportExport(false);
+          return generateReport();
+        }
+      );
+      setIsRecordingReportExport(false);
+      if (!result.ok) {
+        setSurveyReportError(
+          result.error.type === 'RECORD_FAILED'
+            ? result.error.message
+            : '報告書の出力に失敗しました'
+        );
+        return;
+      }
+      if (result.value) {
+        setShowSurveySelector(false);
+        setSelectedSurveyId('');
+      }
     } catch {
       setSurveyReportError('報告書の出力に失敗しました');
     } finally {
@@ -1120,6 +1181,7 @@ export default function EstimateRequestDetailPage() {
               <ExcelExportButton
                 selectedItems={items.filter((item) => item.selected)}
                 estimateRequestName={request.name}
+                projectId={request.projectId}
               />
             )}
             <ClipboardCopyButton
@@ -1195,6 +1257,7 @@ export default function EstimateRequestDetailPage() {
                       setSelectedSurveyId('');
                       setSurveyReportError(null);
                     }}
+                    disabled={isRecordingReportExport}
                     style={styles.actionButton}
                   >
                     閉じる
