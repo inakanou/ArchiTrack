@@ -22,6 +22,12 @@
  * - 10.3: updatedAt比較（楽観的排他制御）
  * - 10.4: 409 Conflictエラー
  *
+ * 案件の閲覧範囲（Requirement 18.1〜18.6、user-authentication の要件39。タスク27.1）:
+ * 全経路で requirePermission と ID の形式の検査の後に itemized-statement-project-scope.middleware の判定部品を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。`/:id` 配下は経路の projectId でなく内訳書が属する案件で判定し、
+ * 二重マウントで経路の projectId と内訳書の案件が食い違えば不在と同じ 404 にする。
+ * 内訳書の作成の要求が指す数量表の所属の照合（18.4）は ItemizedStatementService.create が行う。
+ *
  * Task 3.1: 内訳書APIエンドポイントの実装
  * Task 3.2: エラーハンドリングの実装
  *
@@ -36,6 +42,11 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
+import {
+  requireItemizedStatementProjectScope,
+  requireProjectParamScope,
+} from '../middleware/itemized-statement-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createItemizedStatementSchema,
@@ -114,7 +125,7 @@ const itemizedStatementService = new ItemizedStatementService({
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 数量表が見つからない
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）、または数量表が見つからない（経路のプロジェクトに属さない数量表を含む）
  *       409:
  *         description: 同名の内訳書が既に存在
  *       422:
@@ -125,6 +136,7 @@ router.post(
   authenticate,
   requirePermission('itemized_statement:create'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createItemizedStatementSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -138,7 +150,11 @@ router.post(
         sourceQuantityTableId: validatedBody.quantityTableId,
       };
 
-      const itemizedStatement = await itemizedStatementService.create(input, actorId);
+      const itemizedStatement = await itemizedStatementService.create(
+        input,
+        actorId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         {
@@ -232,16 +248,21 @@ router.post(
  *     responses:
  *       200:
  *         description: 直近N件の内訳書と総数
+ *       400:
+ *         description: バリデーションエラー（projectId の形式不正など）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
  */
 router.get(
   '/latest',
   authenticate,
   requirePermission('itemized_statement:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(latestSummaryQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -315,16 +336,21 @@ router.get(
  *     responses:
  *       200:
  *         description: 内訳書一覧
+ *       400:
+ *         description: バリデーションエラー（projectId の形式不正など）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
  */
 router.get(
   '/',
   authenticate,
   requirePermission('itemized_statement:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(itemizedStatementListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -379,18 +405,21 @@ router.get(
  *     responses:
  *       200:
  *         description: 内訳書詳細
+ *       400:
+ *         description: 内訳書IDの形式不正
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 内訳書が見つからない
+ *         description: 内訳書が見つからない（閲覧範囲外を含む）
  */
 router.get(
   '/:id',
   authenticate,
   requirePermission('itemized_statement:read'),
   validate(itemizedStatementIdParamSchema, 'params'),
+  requireItemizedStatementProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -477,7 +506,7 @@ router.get(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 内訳書が見つからない
+ *         description: 内訳書が見つからない（閲覧範囲外を含む）
  *       409:
  *         description: 楽観的排他制御エラー
  */
@@ -486,6 +515,7 @@ router.patch(
   authenticate,
   requirePermission('itemized_statement:update'),
   validate(itemizedStatementIdParamSchema, 'params'),
+  requireItemizedStatementProjectScope('id'),
   validate(updateItemOrderBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -601,7 +631,7 @@ router.patch(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 内訳書が見つからない
+ *         description: 内訳書が見つからない（閲覧範囲外を含む）
  *       409:
  *         description: 楽観的排他制御エラー（競合）
  */
@@ -610,6 +640,7 @@ router.delete(
   authenticate,
   requirePermission('itemized_statement:delete'),
   validate(itemizedStatementIdParamSchema, 'params'),
+  requireItemizedStatementProjectScope('id'),
   validate(deleteItemizedStatementBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

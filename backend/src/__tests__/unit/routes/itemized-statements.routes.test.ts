@@ -138,6 +138,16 @@ describe('ItemizedStatementsRoutes', () => {
       requirePermission: mockRequirePermission,
     }));
 
+    // 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+    // itemized-statement-project-scope.middleware.test.ts と統合テストが確かめる。タスク27.1）
+    vi.doMock('../../../middleware/itemized-statement-project-scope.middleware.js', () => {
+      const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+      return {
+        requireProjectParamScope: pass,
+        requireItemizedStatementProjectScope: pass,
+      };
+    });
+
     // Import route after mocks are setup
     const { default: itemizedStatementsRoutes } =
       await import('../../../routes/itemized-statements.routes.js');
@@ -183,7 +193,12 @@ describe('ItemizedStatementsRoutes', () => {
       });
       expect(mockService.create).toHaveBeenCalledWith(
         { projectId, name: 'テスト内訳書', sourceQuantityTableId: requestBody.quantityTableId },
-        'test-user-id'
+        'test-user-id',
+        // 数量表の所属の照合で範囲外とした拒否の記録に添える要求の識別（タスク27.1、18.4）
+        expect.objectContaining({
+          method: 'POST',
+          path: expect.stringContaining(`/api/projects/${projectId}/itemized-statements`),
+        })
       );
     });
 

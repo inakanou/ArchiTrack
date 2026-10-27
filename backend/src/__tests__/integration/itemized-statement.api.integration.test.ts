@@ -499,7 +499,9 @@ describe('Itemized Statement API Integration Tests', () => {
         .send({ updatedAt: new Date().toISOString() });
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'ITEMIZED_STATEMENT_NOT_FOUND');
+      // 存在しない内訳書は閲覧範囲の判定部品が範囲外と同じ汎用の 404 にする
+      // （itemized-statement-generation の Requirement 18.3、タスク27.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
   });
 

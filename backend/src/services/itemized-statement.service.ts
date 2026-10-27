@@ -20,6 +20,10 @@
  *
  * Task 2.2: 内訳書CRUDサービスの実装
  *
+ * 案件の閲覧範囲（Requirement 18.4、タスク27.1）: 内訳書の作成の要求が指す数量表が経路のプロジェクトに
+ * 属さなければ、数量表の不在と同じ 404 にして内訳書を作成しない。数量表の案件が実在し実行者の閲覧範囲外なら、
+ * user-authentication の要件39.7 に従い PROJECT_SCOPE_DENIED をトランザクションの外で記録する。
+ *
  * @module services/itemized-statement
  */
 
@@ -36,6 +40,11 @@ import {
 } from '../errors/itemizedStatementError.js';
 import { QuantityTableNotFoundError } from '../errors/quantityTableError.js';
 import { ItemizedStatementHasEstimateRequestsError } from '../errors/estimateRequestError.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 
 /**
  * 内訳書サービス依存関係
@@ -44,6 +53,12 @@ export interface ItemizedStatementServiceDependencies {
   prisma: PrismaClient;
   auditLogService: IAuditLogService;
   pivotService: ItemizedStatementPivotService;
+  /**
+   * 案件の閲覧範囲の判定（任意。タスク27.1、Requirement 18.4）。
+   * 作成の要求が指す他のプロジェクトの数量表の案件が範囲外かを判定し、範囲外の拒否を記録するために用いる。
+   * 未指定の場合は user-authentication の共有のインスタンス（{@link getSharedProjectScopeService}）で判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 }
 
 /**
@@ -150,8 +165,14 @@ export class ItemizedStatementService {
   private readonly prisma: PrismaClient;
   private readonly auditLogService: IAuditLogService;
   private readonly pivotService: ItemizedStatementPivotService;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: ItemizedStatementServiceDependencies) {
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
     this.pivotService = deps.pivotService;
@@ -173,14 +194,33 @@ export class ItemizedStatementService {
    *
    * @param input - 作成入力
    * @param actorId - 実行者ID
+   * @param scopeDenialContext - 範囲外の拒否の記録に添える要求の識別（経路が要求から切り出して渡す）
    * @returns 作成された内訳書情報
-   * @throws QuantityTableNotFoundError 数量表が存在しない場合
+   * @throws QuantityTableNotFoundError 数量表が存在しない、または作成先のプロジェクトに属さない場合
+   *   （Requirement 18.4）
    * @throws EmptyQuantityItemsError 数量表に項目がない場合
    * @throws DuplicateItemizedStatementNameError 同名の内訳書が既に存在する場合
    */
   async create(
     input: CreateItemizedStatementInput,
-    actorId: string
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<ItemizedStatementInfo> {
+    // 数量表の所属の照合（18.4）で範囲外とした案件は、処理の後（トランザクションの外）で
+    // PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7）
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) => this.createWithin(input, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link create} の本体。数量表の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async createWithin(
+    input: CreateItemizedStatementInput,
+    actorId: string,
+    deniedProjectIds: Set<string>
   ): Promise<ItemizedStatementInfo> {
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 1. 数量表の存在確認
@@ -190,6 +230,20 @@ export class ItemizedStatementService {
       });
 
       if (!quantityTable || quantityTable.deletedAt !== null) {
+        throw new QuantityTableNotFoundError(input.sourceQuantityTableId);
+      }
+
+      // 作成先のプロジェクトに属さない数量表は、範囲の内外を問わず不在と同じ応答にする（18.4）。
+      // 範囲の内外で応答を変えると範囲外の数量表の実在を推測させるため。範囲外（案件は実在する）の
+      // ときだけ、範囲外の拒否として記録する（user-authentication の要件39.7）
+      if (quantityTable.projectId !== input.projectId) {
+        const decision = await this.projectScope.evaluateProjectAccess(
+          actorId,
+          quantityTable.projectId
+        );
+        if (decision === 'out_of_scope') {
+          deniedProjectIds.add(quantityTable.projectId);
+        }
         throw new QuantityTableNotFoundError(input.sourceQuantityTableId);
       }
 
