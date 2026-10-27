@@ -22,6 +22,18 @@ import request from 'supertest';
 import express, { type Express } from 'express';
 
 // Mock dependencies before importing routes
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// quantity-table-project-scope.middleware.test.ts と統合テストが確かめる。quantity-table-generation タスク104.1）
+vi.mock('../../../middleware/quantity-table-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireQuantityGroupParamProjectScope: pass,
+    requireQuantityItemProjectScope: pass,
+    requireOrderedQuantityItemsProjectScope: pass,
+    requireBulkQuantityItemsProjectScope: pass,
+  };
+});
+
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({})),
 }));

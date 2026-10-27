@@ -38,6 +38,11 @@ import {
 import { QuantityFieldValidationService } from './quantity-field-validation.service.js';
 import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 import logger from '../utils/logger.js';
 import Decimal from 'decimal.js';
 
@@ -111,6 +116,12 @@ export interface QuantityTableServiceDependencies {
   quantityValidationService?: QuantityValidationService;
   /** 文字数・数値範囲（フィールド仕様）検証サービス（REQ-11.2, 11.4） */
   quantityFieldValidationService?: QuantityFieldValidationService;
+  /**
+   * 案件の閲覧範囲の判定（任意。quantity-table-generation タスク104.1、Requirement 50.5）。
+   * 保存の要求が指す現調画像の案件の判定に用いる。未指定の場合は user-authentication の
+   * 共有のインスタンス（{@link getSharedProjectScopeService}）で判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 }
 
 /**
@@ -426,8 +437,14 @@ export class QuantityTableService {
   private readonly auditLogService: IAuditLogService;
   private readonly quantityValidationService: QuantityValidationService;
   private readonly quantityFieldValidationService: QuantityFieldValidationService;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: QuantityTableServiceDependencies) {
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
     // 検証系は副作用のない純粋ロジックのため、未指定時は既定インスタンスを生成する
@@ -1056,7 +1073,25 @@ export class QuantityTableService {
   async saveDraft(
     id: string,
     input: SaveQuantityTableDraftInput,
-    actorId: string
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<QuantityTableDetailWithItems> {
+    // 写真の紐付けの判定（Requirement 50.5）で範囲外とした案件は、処理の後（トランザクションの外）で
+    // PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7）
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) => this.saveDraftWithin(id, input, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link saveDraft} の本体。範囲外と判定した案件を `deniedProjectIds` へ入れる */
+  private async saveDraftWithin(
+    id: string,
+    input: SaveQuantityTableDraftInput,
+    actorId: string,
+    deniedProjectIds: Set<string>
   ): Promise<QuantityTableDetailWithItems> {
     // トランザクション開始前に全フィールドを検証し、不整合があれば保存を中断する
     // （REQ-11.2/11.3/11.4, 42.9）。書き込みは一切行わない。
@@ -1160,7 +1195,13 @@ export class QuantityTableService {
       //      突き合わせ先の projectId は 1 で読んだ当該数量表の値をそのまま渡すため、
       //      問い合わせは増えない。他の検証と同じく書き込み前に中断し、未反映のまま
       //      保存を止める。
-      await this.assertDraftSurveyImagesLinkable(tx, input, current.projectId);
+      await this.assertDraftSurveyImagesLinkable(
+        tx,
+        input,
+        current.projectId,
+        actorId,
+        deniedProjectIds
+      );
 
       // 2-1. グループを payload 配列順に処理（displayOrder は配列順を正とする）
       //      削除（グループ・項目）は本ループの後段でまとめて行う。所属変更（グループ間移動）を
@@ -1466,17 +1507,26 @@ export class QuantityTableService {
    * 外部キー制約違反として書き込み時に表面化して 500 になっていた（ROLLBACK される
    * ためデータは壊れないが、クライアントの誤りに対する応答として妥当でない）。
    *
+   * 閲覧範囲外の案件の現調画像は、実在しない画像と同じに扱う（Requirement 50.5、タスク104.1）。
+   * 引いた行から範囲外の画像を除いてから判定するため、範囲外の画像は存在の検査で 404 になり、
+   * 所属の検査（400）の名指しにも現れない。範囲外の画像が所属の検査で 400 になると、実在しない
+   * 画像の 404 との差から範囲外の実在を推測させるためである。
+   *
    * @param tx - Prismaトランザクションクライアント
    * @param input - フル状態同期保存入力
    * @param projectId - 当該数量表が属するプロジェクトID（所属の突き合わせ先）
-   * @throws SurveyImageNotFoundError 実在しない現調画像が含まれる場合（404）
+   * @param actorId - 実行者ID（画像の案件の閲覧範囲の判定に用いる）
+   * @param deniedProjectIds - 範囲外と判定した案件 ID を入れる集合（記録は {@link saveDraft} が行う）
+   * @throws SurveyImageNotFoundError 実在しない、または閲覧範囲外の現調画像が含まれる場合（404）
    * @throws QuantityTableValidationError 他プロジェクトの現調画像が含まれる場合（400）
    * @throws SurveyDeletedError 親の現場調査が論理削除済みの現調画像が含まれる場合（410）
    */
   private async assertDraftSurveyImagesLinkable(
     tx: PrismaTransactionClient,
     input: SaveQuantityTableDraftInput,
-    projectId: string
+    projectId: string,
+    actorId: string,
+    deniedProjectIds: Set<string>
   ): Promise<void> {
     const surveyImageIds = [
       ...new Set(
@@ -1506,7 +1556,13 @@ export class QuantityTableService {
 
     // 判定は「要求した ID の並び」で行う。findMany が返す行の並びは指定していないため、
     // 行の並びで判定すると複数の違反があるときに名指す画像が定まらない。
-    const surveyImageById = new Map(surveyImages.map((image) => [image.id, image]));
+    const visibleSurveyImages = await this.filterVisibleSurveyImages(
+      surveyImages,
+      projectId,
+      actorId,
+      deniedProjectIds
+    );
+    const surveyImageById = new Map(visibleSurveyImages.map((image) => [image.id, image]));
 
     for (const surveyImageId of surveyImageIds) {
       const surveyImage = surveyImageById.get(surveyImageId);
@@ -1535,6 +1591,39 @@ export class QuantityTableService {
         () => this.locateDeletedSurveyImageGroups(input, surveyImageById)
       );
     }
+  }
+
+  /**
+   * 実行者に見える現調画像だけを残す（Requirement 50.5、タスク104.1）
+   *
+   * 当該数量表と同じ案件の画像は、経路の判定（数量表の案件の範囲）を通っているので見える。
+   * 別の案件の画像は、その案件が実行者の閲覧範囲に含まれるときだけ見える。案件ごとに 1 回だけ判定する。
+   * 範囲外（案件は実在する）と判定した案件は `deniedProjectIds` へ入れる（案件の不在・論理削除は入れない）。
+   */
+  private async filterVisibleSurveyImages<T extends { survey: { projectId: string } }>(
+    surveyImages: T[],
+    projectId: string,
+    actorId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<T[]> {
+    const foreignProjectIds = [
+      ...new Set(
+        surveyImages
+          .map((image) => image.survey.projectId)
+          .filter((surveyProjectId) => surveyProjectId !== projectId)
+      ),
+    ];
+    const hidden = new Set<string>();
+    for (const foreignProjectId of foreignProjectIds) {
+      const decision = await this.projectScope.evaluateProjectAccess(actorId, foreignProjectId);
+      if (decision === 'out_of_scope') {
+        deniedProjectIds.add(foreignProjectId);
+      }
+      if (decision !== 'allowed') {
+        hidden.add(foreignProjectId);
+      }
+    }
+    return surveyImages.filter((image) => !hidden.has(image.survey.projectId));
   }
 
   /**

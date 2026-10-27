@@ -14,6 +14,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import getPrismaClient from '../db.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { requireProjectParamScope } from '../middleware/quantity-table-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 
 // mergeParams: true を設定してネストされたルートからprojectIdを取得できるようにする
@@ -133,27 +134,15 @@ router.get(
   '/autocomplete-candidates',
   authenticate,
   requirePermission('quantity_table:read'),
+  // 案件の閲覧範囲（quantity-table-generation の Requirement 50、タスク104.1）。範囲外・不在の案件は汎用の 404
+  requireProjectParamScope('projectId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { projectId } = req.params;
 
-      // プロジェクトの存在チェック
-      const project = await prisma.project.findUnique({
-        where: { id: projectId },
-        select: { id: true },
-      });
-
-      if (!project) {
-        res.status(404).json({
-          type: 'https://architrack.example.com/problems/project-not-found',
-          title: 'Project Not Found',
-          status: 404,
-          detail: `プロジェクト（ID: ${projectId}）が見つかりません`,
-          code: 'PROJECT_NOT_FOUND',
-          projectId,
-        });
-        return;
-      }
+      // プロジェクトの存在（不在・論理削除）は前段の閲覧範囲の判定（requireProjectParamScope）が
+      // 範囲外と同じ汎用の 404 で返す（quantity-table-generation タスク104.1、Requirement 50.3）。
+      // 案件 ID を本文に含めていた従来の PROJECT_NOT_FOUND の分岐は到達しないため撤去した
 
       // 9フィールドのgroupByをPromise.allで並列実行
       const fieldResults = await Promise.all(

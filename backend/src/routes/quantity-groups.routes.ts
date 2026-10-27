@@ -8,6 +8,11 @@
  * - 4.4: 数量グループに写真が紐づけられている状態で、注釈付き写真と数量項目の関連性を視覚的に表示する
  * - 4.5: 数量グループの削除操作を行う
  *
+ * 案件の閲覧範囲（quantity-table-generation の Requirement 50、user-authentication の要件39。タスク104.1）:
+ * 全経路で requirePermission の後に quantity-table-project-scope.middleware の判定部品を置き、
+ * 数量グループは親の数量表の案件で判定して範囲外は不在と同じ汎用の 404 にする。表示順の更新は対象の
+ * 全件を判定する。写真の紐付けが指す現場調査・画像の範囲は QuantityGroupService が判定する。
+ *
  * @module routes/quantity-groups
  */
 
@@ -19,6 +24,12 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
+import {
+  requireOrderedQuantityGroupsProjectScope,
+  requireQuantityGroupProjectScope,
+  requireQuantityTableParamProjectScope,
+} from '../middleware/quantity-table-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createQuantityGroupSchema,
@@ -140,6 +151,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityTableIdUrlParamSchema, 'params'),
+  requireQuantityTableParamProjectScope('quantityTableId'),
   validate(createQuantityGroupBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -156,7 +168,11 @@ router.post(
         quantityTableId,
       };
 
-      const quantityGroup = await quantityGroupService.create(input, actorId);
+      const quantityGroup = await quantityGroupService.create(
+        input,
+        actorId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         {
@@ -243,6 +259,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(quantityTableIdUrlParamSchema, 'params'),
+  requireQuantityTableParamProjectScope('quantityTableId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { quantityTableId } = req.validatedParams as { quantityTableId: string };
@@ -315,7 +332,9 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityTableIdUrlParamSchema, 'params'),
+  requireQuantityTableParamProjectScope('quantityTableId'),
   validate(updateDisplayOrderSchema, 'body'),
+  requireOrderedQuantityGroupsProjectScope('orderUpdates'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { quantityTableId } = req.validatedParams as { quantityTableId: string };
@@ -391,6 +410,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(quantityGroupIdParamSchema, 'params'),
+  requireQuantityGroupProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -479,6 +499,7 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityGroupIdParamSchema, 'params'),
+  requireQuantityGroupProjectScope('id'),
   validate(updateQuantityGroupRequestSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -495,7 +516,8 @@ router.put(
         id,
         updateData,
         actorId,
-        new Date(expectedUpdatedAt)
+        new Date(expectedUpdatedAt),
+        projectScopeDenialContextOf(req)
       );
 
       logger.info({ userId: actorId, quantityGroupId: id }, 'Quantity group updated successfully');
@@ -589,6 +611,7 @@ router.delete(
   authenticate,
   requirePermission('quantity_table:delete'),
   validate(quantityGroupIdParamSchema, 'params'),
+  requireQuantityGroupProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -662,6 +685,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:create'),
   validate(quantityGroupIdParamSchema, 'params'),
+  requireQuantityGroupProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -774,6 +798,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:create'),
   validate(quantityTableIdUrlParamSchema, 'params'),
+  requireQuantityTableParamProjectScope('quantityTableId'),
   validate(createGroupsFromSurveyBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -784,7 +809,8 @@ router.post(
       const result = await quantityGroupService.createGroupsFromSurvey(
         quantityTableId,
         siteSurveyId,
-        actorId
+        actorId,
+        projectScopeDenialContextOf(req)
       );
 
       logger.info(

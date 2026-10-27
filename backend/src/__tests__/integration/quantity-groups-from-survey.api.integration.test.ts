@@ -278,7 +278,7 @@ describe('Quantity Groups From Survey API Integration Tests', () => {
       expect(response.status).toBe(403);
     });
 
-    it('存在しない数量表では 404（QUANTITY_TABLE_NOT_FOUND）が返る (Req 40.10)', async () => {
+    it('存在しない数量表では 404（範囲外と同じ汎用の NOT_FOUND）が返る (Req 40.10)', async () => {
       const surveyId = await createSurvey(testProjectId, '数量表不存在テスト現場調査');
 
       const response = await request(app)
@@ -286,8 +286,9 @@ describe('Quantity Groups From Survey API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ siteSurveyId: surveyId });
 
+      // 不在と範囲外は同じ汎用の 404（quantity-table-generation タスク104.1、Requirement 50.3）
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
 
     it('存在しない現場調査では 404（SITE_SURVEY_NOT_FOUND）が返る (Req 40.10)', async () => {

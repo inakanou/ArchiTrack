@@ -338,7 +338,7 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
       expect(groups).toHaveLength(2);
     });
 
-    it('存在しない数量表では 404（QUANTITY_TABLE_NOT_FOUND）が返る', async () => {
+    it('存在しない数量表では 404（範囲外と同じ汎用の NOT_FOUND）が返る', async () => {
       const response = await request(app)
         .put(`/api/quantity-tables/${NON_EXISTENT_UUID}/save`)
         .set('Authorization', `Bearer ${accessToken}`)
@@ -348,8 +348,9 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
           groups: [],
         });
 
+      // 不在と範囲外は同じ汎用の 404（quantity-table-generation タスク104.1、Requirement 50.3）
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
 
     it('論理削除済みの数量表では 404（QUANTITY_TABLE_NOT_FOUND）が返る', async () => {
@@ -370,11 +371,13 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
     });
 
     it(
-      '他プロジェクトの数量表でも、quantity_table:update を持つユーザーは保存できる' +
-        '（本エンドポイントは RBAC のみでプロジェクト単位スコープ制御を行わない: design L2127）。' +
-        'プロジェクト境界の保護は権限欠如（403）で担保される',
+      '他プロジェクトの数量表は、案件の閲覧範囲内（担当者・作成者）なら quantity_table:update を持つユーザーが保存でき、' +
+        '範囲外なら不在と同じ 404 で保存されない。権限なしユーザーは範囲の判定より先に 403 になる' +
+        '（quantity-table-generation タスク104.1 で、ロールの権限の表だけの判定〔design.md の Security Considerations の' +
+        '「プロジェクトへのアクセス権限チェック（既存のRBAC使用）」〕を' +
+        'Requirement 50 の判定へ置き換えた）',
       async () => {
-        // 別プロジェクトの数量表に対して、権限ありユーザーで保存
+        // 別プロジェクト（同じ利用者が営業担当者・作成者の範囲内の案件）の数量表に対して、権限ありユーザーで保存
         const { tableId } = await createSeededTable(otherProjectId, '他プロジェクト保存テスト');
         const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
 
@@ -387,9 +390,48 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
             groups: [],
           });
 
-        // RBAC のみのため 200（プロジェクトに依らず権限で許可される）
+        // 閲覧範囲内のため 200（Requirement 50.1）
         expect(okResponse.status).toBe(200);
         expect(okResponse.body.name).toBe('他プロジェクト保存後');
+
+        // 閲覧範囲外（担当者・作成者が別の利用者で、全案件閲覧の権限も無い）の案件の数量表は、
+        // 権限があっても不在と同じ 404 になり、保存されない（Requirement 50.2）
+        const stranger = await prisma.user.findUniqueOrThrow({
+          where: { email: NO_PERMISSION_EMAIL },
+          select: { id: true },
+        });
+        const outOfScopeProject = await prisma.project.create({
+          data: {
+            name: '保存テスト_範囲外プロジェクト',
+            status: 'PREPARING',
+            salesPersonId: stranger.id,
+            createdById: stranger.id,
+          },
+        });
+        try {
+          const { tableId: outOfScopeTableId } = await createSeededTable(
+            outOfScopeProject.id,
+            '範囲外保存テスト'
+          );
+          const denied = await request(app)
+            .put(`/api/quantity-tables/${outOfScopeTableId}/save`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              expectedUpdatedAt: await getExpectedUpdatedAt(outOfScopeTableId),
+              name: '範囲外保存後',
+              groups: [],
+            });
+          expect(denied.status).toBe(404);
+          expect(denied.body).toHaveProperty('code', 'NOT_FOUND');
+          const unchanged = await prisma.quantityTable.findUniqueOrThrow({
+            where: { id: outOfScopeTableId },
+            select: { name: true, _count: { select: { groups: true } } },
+          });
+          expect(unchanged.name).toBe('範囲外保存テスト');
+          expect(unchanged._count.groups).toBe(2);
+        } finally {
+          await prisma.project.delete({ where: { id: outOfScopeProject.id } });
+        }
 
         // 一方、権限なしユーザーは他プロジェクトの数量表に対しても 403（境界保護）
         const { tableId: tableId2 } = await createSeededTable(

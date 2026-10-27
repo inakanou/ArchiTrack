@@ -10,6 +10,10 @@
  * - 1.2: 数量表セクションが表示されている状態で、数量表の総数を表示する
  * - 1.3: プロジェクトに数量表が存在する場合、直近の数量表カードを一覧表示する
  *
+ * 案件の閲覧範囲（quantity-table-generation の Requirement 50、user-authentication の要件39。タスク104.1）:
+ * 全経路で requirePermission の後に quantity-table-project-scope.middleware の判定部品を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。詳細と保存の応答の署名付きURLは、判定を通った数量表についてだけ組み立てる。
+ *
  * @module routes/quantity-tables
  */
 
@@ -21,6 +25,11 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
+import {
+  requireProjectParamScope,
+  requireQuantityTableProjectScope,
+} from '../middleware/quantity-table-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   CALCULATION_METHODS,
@@ -295,6 +304,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:create'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createQuantityTableBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -371,6 +381,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(summaryQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -454,6 +465,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(quantityTableListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -524,6 +536,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(quantityTableIdParamSchema, 'params'),
+  requireQuantityTableProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -610,6 +623,7 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityTableIdParamSchema, 'params'),
+  requireQuantityTableProjectScope('id'),
   validate(updateQuantityTableRequestSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -757,6 +771,7 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityTableIdParamSchema, 'params'),
+  requireQuantityTableProjectScope('id'),
   validate(saveQuantityTableDraftSchema, 'body'),
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
     try {
@@ -765,7 +780,12 @@ router.put(
       // Zod 検証済みボディは SaveQuantityTableDraftInput と構造一致する
       const input = req.validatedBody as SaveQuantityTableDraftInput;
 
-      const quantityTable = await quantityTableService.saveDraft(id, input, actorId);
+      const quantityTable = await quantityTableService.saveDraft(
+        id,
+        input,
+        actorId,
+        projectScopeDenialContextOf(req)
+      );
 
       // 保存直後の応答でも詳細取得（GET /:id）と同様に surveyImage を署名付きURLへ変換し、
       // 保存後にグループ画像がリンク切れになる事象を防ぐ。
@@ -930,6 +950,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:create'),
   validate(quantityTableIdParamSchema, 'params'),
+  requireQuantityTableProjectScope('id'),
   validate(copyQuantityTableSchema, 'body'),
   async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
     try {
@@ -1010,6 +1031,7 @@ router.delete(
   authenticate,
   requirePermission('quantity_table:delete'),
   validate(quantityTableIdParamSchema, 'params'),
+  requireQuantityTableProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };

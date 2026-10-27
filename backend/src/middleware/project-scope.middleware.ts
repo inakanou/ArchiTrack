@@ -8,6 +8,8 @@
  * - 案件が実在し範囲外のときだけ、監査 PROJECT_SCOPE_DENIED（利用者・対象・要求の識別）を記録する。
  *   記録の失敗は応答を変えない
  * - 範囲外のアクセスは SecurityAnomalyMonitor へ観測を送る（タスク55.4。応答は計数を待たない）
+ * - 記録と観測の部品（`recordProjectScopeDenied`）は services/project-scope-denial.service.ts に置き、
+ *   業務機能のサービスの中の判定と共有する（quantity-table-generation タスク104.1）
  * - 子リソースから案件 ID を引く解決関数は各業務機能が持つ。案件の API への適用はタスク52.3 で行う
  */
 
@@ -17,12 +19,13 @@ import {
   getSharedProjectScopeService,
   type ProjectScopeService,
 } from '../services/project-scope.service.js';
-import { AuditLogService } from '../services/audit-log.service.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
-import getPrismaClient from '../db.js';
-import logger from '../utils/logger.js';
 import { getClientIp } from './client-ip.js';
-import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
+// 記録の部品は下流のサービスの中の判定と共有するため services 側に置く（quantity-table-generation タスク104.1）
+import {
+  recordProjectScopeDenied,
+  type ProjectScopeDenialContext,
+} from '../services/project-scope-denial.service.js';
 
 /** 要求から案件 ID を得る。null は対象の不在 */
 export type ProjectIdResolver = (req: Request) => Promise<string | null>;
@@ -97,6 +100,18 @@ export function requireProjectScope(
   };
 }
 
+/** 要求から範囲外のアクセスの記録に添える識別を切り出す */
+export function projectScopeDenialContextOf(req: Request): ProjectScopeDenialContext {
+  return {
+    requestId: requestIdOf(req),
+    method: req.method,
+    // 経路は問い合わせの文字列を含めない（トークンなどを記録に残さない）
+    path: `${req.baseUrl}${req.path}`,
+    ipAddress: getClientIp(req),
+    userAgent: req.get('user-agent') || 'unknown',
+  };
+}
+
 /** 範囲外のアクセスを監査に記録する。記録の失敗は拒否の応答を変えない */
 async function recordScopeDenied(
   req: Request,
@@ -104,27 +119,10 @@ async function recordScopeDenied(
   projectId: string,
   auditLogService: Pick<IAuditLogService, 'createLog'> | undefined
 ): Promise<void> {
-  // 経路は問い合わせの文字列を含めない（トークンなどを記録に残さない）
-  const path = `${req.baseUrl}${req.path}`;
-  logger.warn({ userId, projectId, method: req.method, path }, 'Project scope denied');
-  // 範囲外のアクセスを異常の検知へ送る（要件39.7、43.2。計数を待たない）
-  observeSecurityAnomaly({ signal: 'scope_denied', sourceIp: getClientIp(req), userId });
-  try {
-    const service = auditLogService ?? new AuditLogService({ prisma: getPrismaClient() });
-    await service.createLog({
-      action: 'PROJECT_SCOPE_DENIED',
-      actorId: userId,
-      targetType: 'Project',
-      targetId: projectId,
-      metadata: {
-        requestId: requestIdOf(req),
-        method: req.method,
-        path,
-        ipAddress: getClientIp(req),
-        userAgent: req.get('user-agent') || 'unknown',
-      },
-    });
-  } catch (error) {
-    logger.error({ err: error, userId, projectId }, 'Failed to record project scope denial');
-  }
+  await recordProjectScopeDenied(
+    projectScopeDenialContextOf(req),
+    userId,
+    projectId,
+    auditLogService
+  );
 }

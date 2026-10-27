@@ -71,6 +71,7 @@ describe('QuantityTableService', () => {
   let service: QuantityTableService;
   let mockPrisma: MockPrismaClient;
   let mockAuditLogService: { createLog: Mock };
+  let mockProjectScope: { evaluateProjectAccess: Mock };
 
   beforeEach(() => {
     // Mock Prismaクライアント
@@ -127,9 +128,14 @@ describe('QuantityTableService', () => {
       createLog: vi.fn().mockResolvedValue(undefined),
     };
 
+    // 案件の閲覧範囲の判定（quantity-table-generation タスク104.1）。既定は範囲内とし、
+    // 範囲外の振る舞いは saveDraft の「写真の紐付けの閲覧範囲（Requirement 50.5）」の検証で確かめる
+    mockProjectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue('allowed') };
+
     service = new QuantityTableService({
       prisma: mockPrisma as unknown as PrismaClient,
       auditLogService: mockAuditLogService as unknown as IAuditLogService,
+      projectScope: mockProjectScope,
     });
   });
 
@@ -3572,6 +3578,78 @@ describe('QuantityTableService', () => {
       });
       // 名指しのために問い合わせを増やしていない
       expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+    });
+
+    it('閲覧範囲外の案件の現調画像は存在しない画像と同じ 404 で拒み、所属違反の名指しにも現れない（Requirement 50.5）', async () => {
+      const inScopeForeignImageId = '123e4567-e89b-12d3-a456-426614174025';
+      const outOfScopeImageId = '123e4567-e89b-12d3-a456-426614174026';
+      const imageRows = [
+        {
+          id: inScopeForeignImageId,
+          surveyId: 'survey-in-scope',
+          survey: { projectId: 'in-scope-project-id', deletedAt: null },
+        },
+        {
+          id: outOfScopeImageId,
+          surveyId: 'survey-out-of-scope',
+          survey: { projectId: 'out-of-scope-project-id', deletedAt: null },
+        },
+      ];
+      mockProjectScope.evaluateProjectAccess.mockImplementation(
+        async (_userId: string, surveyProjectId: string) =>
+          surveyProjectId === 'out-of-scope-project-id' ? 'out_of_scope' : 'allowed'
+      );
+      const run = async (groups: Array<string | null>): Promise<unknown> => {
+        // 前の実行で使われずに残った応答の予約を捨ててから積み直す
+        mockPrisma.quantityTable.findUnique.mockReset();
+        setupFindUnique(currentState(), reloadedDetail());
+        mockPrisma.surveyImage.findMany.mockResolvedValue(imageRows);
+        return service
+          .saveDraft(
+            quantityTableId,
+            {
+              expectedUpdatedAt: expectedUpdatedAtIso,
+              name: '数量表',
+              groups: groups.map((surveyImageId, index) => ({
+                id: null,
+                name: `g${index}`,
+                surveyImageId,
+                displayOrder: index,
+                items: [],
+              })),
+            },
+            actorId
+          )
+          .then(() => null)
+          .catch((error: unknown) => error);
+      };
+
+      // 範囲外の画像だけを指すと、存在しない画像と同じ例外（404）になる
+      const onlyOutOfScope = await run([outOfScopeImageId]);
+      expect(onlyOutOfScope).toBeInstanceOf(SurveyImageNotFoundError);
+      expect((onlyOutOfScope as SurveyImageNotFoundError).surveyImageId).toBe(outOfScopeImageId);
+
+      // 範囲内の別のプロジェクトの画像の後に範囲外の画像が続くと、所属違反（400）は範囲内の画像のグループだけを名指す
+      const mixed = await run([inScopeForeignImageId, outOfScopeImageId]);
+      expect(mixed).toBeInstanceOf(QuantityTableValidationError);
+      expect((mixed as QuantityTableValidationError).validationErrors).toEqual({
+        'groups[0].surveyImageId': '異なるプロジェクトの現場調査画像は紐付けできません',
+      });
+      // 案件ごとに範囲を判定する（数量表と同じ案件は判定しない）
+      expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+        actorId,
+        'out-of-scope-project-id'
+      );
+      expect(mockProjectScope.evaluateProjectAccess).not.toHaveBeenCalledWith(actorId, projectId);
+      // 範囲外の案件だけを、実行ごとにトランザクションの外で記録する（user-authentication の要件39.7）
+      const denials = mockAuditLogService.createLog.mock.calls
+        .map(([entry]) => entry as { action: string; targetId: string })
+        .filter((entry) => entry.action === 'PROJECT_SCOPE_DENIED');
+      expect(denials.map((entry) => entry.targetId)).toEqual([
+        'out-of-scope-project-id',
+        'out-of-scope-project-id',
+      ]);
       expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
     });
 

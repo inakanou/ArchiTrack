@@ -205,8 +205,11 @@ describe('Quantity Table API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: 'テスト数量表' });
 
+        // 案件の閲覧範囲の判定（quantity-table-generation タスク104.1）が案件の不在を範囲外と
+        // 同じ汎用の 404 にする。本文に案件 ID を含めない（Requirement 50.3）
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'PROJECT_NOT_FOUND');
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
+        expect(response.body).not.toHaveProperty('projectId');
       });
 
       it('認証なしでは401を返す', async () => {
@@ -301,8 +304,9 @@ describe('Quantity Table API Integration Tests', () => {
           .get('/api/quantity-tables/12345678-1234-4234-a234-123456789012')
           .set('Authorization', `Bearer ${accessToken}`);
 
+        // 不在と範囲外は同じ汎用の 404（quantity-table-generation タスク104.1、Requirement 50.3）
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
       });
     });
 
@@ -707,8 +711,9 @@ describe('Quantity Table API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: 'コピー名' });
 
+        // 不在と範囲外は同じ汎用の 404（quantity-table-generation タスク104.1、Requirement 50.3）
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
       });
 
       it('認証なしでは401を返す', async () => {
@@ -720,8 +725,13 @@ describe('Quantity Table API Integration Tests', () => {
       });
 
       it('数量表名が空の場合は400を返す', async () => {
+        // 本文の検査は案件の閲覧範囲の判定（quantity-table-generation タスク104.1）の後に置かれるため、
+        // 実在する範囲内の数量表をコピー元にして本文の検査まで届かせる
+        const sourceTable = await prisma.quantityTable.create({
+          data: { projectId: testProjectId, name: '空名コピーのコピー元' },
+        });
         const response = await request(app)
-          .post('/api/quantity-tables/12345678-1234-4234-a234-123456789012/copy')
+          .post(`/api/quantity-tables/${sourceTable.id}/copy`)
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: '' });
 
@@ -1014,9 +1024,9 @@ describe('Quantity Table API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .send();
 
-        // Assert
+        // Assert（不在と範囲外は同じ汎用の 404。quantity-table-generation タスク104.1、Requirement 50.3）
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'QUANTITY_GROUP_NOT_FOUND');
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
       });
 
       it('同一グループへの並行コピー操作で、両方 201（displayOrder が連続シフト）または片方 409 となり、データ不整合が発生しない (Req 38.10)', async () => {

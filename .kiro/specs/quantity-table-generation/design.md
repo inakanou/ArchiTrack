@@ -3941,6 +3941,7 @@ sequenceDiagram
 #### Allowed Dependencies
 - 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
 - 本機能の写真の紐付けの判定と署名付きURLの発行の判定 → `canAccessProject`・`evaluateProjectAccess`
+  - **実装の記録（タスク104.1）**: 写真の紐付けの判定は `evaluateProjectAccess` と記録の部品 `recordProjectScopeDenied` に依存し、署名付きURLの発行は経路の `requireProjectScope` の判定を通った数量表に限ることで範囲を守る（`canAccessProject` は用いていない）
 - 本機能の出力の画面 → `runRecordedExport`（`frontend/src/api/export-audit.ts`）
 
 ### Components and Interfaces
@@ -3949,9 +3950,11 @@ sequenceDiagram
 |-----------|-------|--------|-----|----------|-----------|
 | 数量表・数量グループ・数量項目・候補の経路 | Routes | 範囲外の ID 指定を不在と同じ 404 にし、一括の要求を全件か無しかで扱い、一覧を範囲内へ限る | 50.1, 50.2, 50.3, 50.4, 50.6 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
 | 案件IDの解決関数 | Service | 数量表・数量グループ・数量項目の ID から案件の ID を引く | 50.2, 50.4 | Prisma（P0） | Service |
-| 写真の紐付けの範囲の判定 | Service | 紐付けを伴う要求が指す現場調査・画像の案件を判定し、範囲外を不在と同じ 404 にする | 50.5 | `evaluateProjectAccess`（P0） | Service |
-| 署名付きURLの発行の判定 | Routes | 範囲内に限って紐付けた画像の署名付きURLを発行する | 50.7 | `canAccessProject`（P0）, StorageProvider（P1） | API |
+| 写真の紐付けの範囲の判定 | Service | 紐付けを伴う要求が指す現場調査・画像の案件を判定し、範囲外を不在と同じ 404 にして、範囲外の拒否を記録する | 50.5 | `evaluateProjectAccess`（P0）, `recordProjectScopeDenied`（P0） | Service |
+| 署名付きURLの発行の判定 | Routes | 範囲内に限って紐付けた画像の署名付きURLを発行する | 50.7 | `requireProjectScope`（P0）, StorageProvider（P1） | API |
 | PDF の出力の開始の処理 | UI | 数量表の PDF の生成を記録の成功の後に始め、記録の失敗では中止する | 50.8, 50.9 | `runRecordedExport`（P0） | State |
+
+**改訂（2026-10-27、タスク104.1）**: 表の2行を実装に合わせて改めた。改訂前は、写真の紐付けの範囲の判定の Intent が「範囲外を不在と同じ 404 にする」まで、Key Deps が `evaluateProjectAccess`（P0）だけだった。署名付きURLの発行の判定の Key Deps は `canAccessProject`（P0）, StorageProvider（P1）だった。範囲外の拒否の記録（user-authentication の要件39.7）を加えたことと、署名付きURLが経路の判定に頼ることによる改訂である。
 
 **判定の順序**: 認証（401）→ `requirePermission`（403）→ `requireProjectScope`（範囲外は 404）→ 本体（数量表・数量グループ・数量項目の不在と論理削除の 404、バリデーションの 400、競合の 409）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
 
@@ -3960,6 +3963,18 @@ sequenceDiagram
 **写真の紐付け**: 紐付けを伴う要求が指す現場調査・画像が範囲外のプロジェクトに属するときは、現場調査・画像が存在しない場合と同じ 404（`SITE_SURVEY_NOT_FOUND`・`SURVEY_IMAGE_NOT_FOUND`）を返し、数量グループの作成と紐付けを行わない（50.5）。この判定は、同じプロジェクトの写真に限って紐付ける既存の検証（タスク86・91。数量表と別のプロジェクトの写真は 400、現場調査は 403）より前に置く。後に置くと範囲外の写真が既存の 400・403 で拒まれ、存在しない写真の 404 との差から範囲外の実在を推測させる。閲覧範囲内の別のプロジェクトの写真は、従来どおり既存の検証が拒む（応答は変えない）。
 
 **署名付きURL**: 数量表の詳細（`GET /api/quantity-tables/:id`）と保存（`PUT /api/quantity-tables/:id/save`）の応答は、経路の `requireProjectScope` を通った数量表についてだけ組み立てるため、`enrichQuantityTableSignedUrls` が署名する画像は範囲内の数量表の紐付けに限られる。他のプロジェクトの画像への既存の紐付けは、取得の正典の `QuantityTableService.findById` が写真サマリと `surveyImageId` を落として返す（タスク86.3）ため署名の対象に届かない（50.7）。本章はこの二つの前提を契約として固定し、統合テストで範囲外の数量表の詳細と保存の応答に署名付きURLが現れないことを主張する。
+
+**適用の決定（2026-10-27、タスク104.1 の実装）**: site-survey のタスク119.1・construction-photo のタスク30.2・estimate-request のタスク103.1 と同じ形で、次のとおりとした。
+
+- 解決関数と一括の全件の判定は次のファイルに置いた（判定そのものは `requireProjectScope` に任せる）。
+  backend/src/middleware/quantity-table-project-scope.middleware.ts
+- 数量表・数量グループ（親の数量表を経る）・数量項目（親の数量グループの数量表を経る）の ID から案件の ID を引き、数量表の論理削除は区別しない。範囲内の利用者には本体の従来の 404（論理削除された数量表の `QUANTITY_TABLE_NOT_FOUND` など）がそのまま届く
+- 対象の不在も範囲外と区別できないよう汎用の 404（`NOT_FOUND`）になる。従来は数量表・数量グループ・数量項目・案件ごとの符号（`QUANTITY_TABLE_NOT_FOUND`・`QUANTITY_GROUP_NOT_FOUND`・`QUANTITY_ITEM_NOT_FOUND`・`PROJECT_NOT_FOUND`）と ID を本文に含めていた。移動・一括移動の移し先の数量グループの不在も、範囲外の移し先と区別させないため同じ汎用の 404 になる
+- 二重マウント（`/api/projects/:projectId/quantity-tables/:id`・`/api/quantity-tables/:quantityTableId/groups/:id`・`/api/quantity-groups/:groupId/items/:id`）では、経路の親の ID でなく対象が属する案件で判定し、経路の親と対象の親が食い違うときは対象の不在と同じ 404 にする
+- 一括の経路（50.4）は本文の検査の後に対象と移し先の全件を引き、1 件でも不在または範囲外なら要求全体を 404 にする。表示順の更新は経路の数量表・数量グループの判定に加えて本文の `orderUpdates` の各 ID を判定し、空の `orderUpdates` は判定せずに通す。数量表の保存は経路の数量表を判定する（本文の既存のグループ・項目の ID は、既存の所属の検証が当該数量表に属するものに限る）
+- 写真の紐付けの判定（50.5）は `QuantityGroupService`（数量グループの作成・更新・現場調査からの一括生成）と `QuantityTableService`（保存）が、注入できる `projectScope` で行う。既定は user-authentication の共有のインスタンスの `evaluateProjectAccess` である。真偽だけを返す `canAccessProject` ではなくこちらを用いるのは、範囲外（案件は実在する）と案件の不在・論理削除を分け、範囲外だけを記録するためである。数量表と同じ案件の現場調査・画像は判定しない（経路の判定を通っているため）。保存は引いた画像の行から範囲外の案件の画像を除いてから既存の検査に掛けるため、範囲外の画像は存在の検査で 404 になり、所属の検査（400）の名指しにも現れない。この判定で範囲外（案件は実在する）とした拒否も、user-authentication の要件39.7 に従い `requireProjectScope` と同じ形（PROJECT_SCOPE_DENIED、対象は当該の案件、要求の識別・経路・送信元・利用者エージェントを添え、異常の検知へも観測を送る）で記録する。範囲外の 404 はトランザクションを巻き戻すため、記録はトランザクションの外（処理の終了の後）で書く。案件の不在・論理削除と、範囲内の別のプロジェクトの写真（400 と 403）は記録しない。記録の部品（記録する `recordProjectScopeDenied` と、処理の後に案件ごとに記録する `withSurveyScopeDenialRecording`）は次のファイルに置き、user-authentication の判定部品（`requireProjectScope`）と共有する。サービスは middleware 層に依存しない。要求の識別は、経路が判定部品の側の `projectScopeDenialContextOf` で要求から切り出してサービスへ渡す。
+  backend/src/services/project-scope-denial.service.ts
+- オートコンプリート候補の経路は案件の ID の形式の検査を持たないため、判定部品だけを置いた。案件の不在を返していた従来の分岐（本文に案件 ID を含む `PROJECT_NOT_FOUND`）は、判定部品より後にあって到達しなくなったため取り除いた
 
 **出力の記録**: 種別は `ExportKind` の `quantity_table_pdf` を用い、対象の案件（数量表が属するプロジェクト）を添える。記録の要求は PDF の生成中の表示（Requirement 26.9）を立てた後、画像の読み込みと PDF の生成より前に 1 回だけ送る。記録の失敗では生成もダウンロードも始めず、`EXPORT_RECORD_FAILED_MESSAGE` を画面に表示する（50.9）。生成中のエラーの文言（Requirement 26.10）は変えない。
 

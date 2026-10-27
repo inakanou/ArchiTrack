@@ -10,6 +10,11 @@
  * - 6.2: 数量項目の移動
  * - 6.4: 複数項目の一括コピー・移動
  *
+ * 案件の閲覧範囲（quantity-table-generation の Requirement 50、user-authentication の要件39。タスク104.1）:
+ * 全経路で requirePermission の後に quantity-table-project-scope.middleware の判定部品を置き、
+ * 数量項目は親の数量グループの数量表の案件で判定して範囲外は不在と同じ汎用の 404 にする。
+ * 移動・一括コピー・一括移動・表示順の更新は対象と移し先の全件を判定する。
+ *
  * @module routes/quantity-items
  */
 
@@ -21,6 +26,12 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireBulkQuantityItemsProjectScope,
+  requireOrderedQuantityItemsProjectScope,
+  requireQuantityGroupParamProjectScope,
+  requireQuantityItemProjectScope,
+} from '../middleware/quantity-table-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createQuantityItemBaseSchema,
@@ -201,6 +212,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(groupIdUrlParamSchema, 'params'),
+  requireQuantityGroupParamProjectScope('groupId'),
   validate(createQuantityItemBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -289,6 +301,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(groupIdUrlParamSchema, 'params'),
+  requireQuantityGroupParamProjectScope('groupId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { groupId } = req.validatedParams as { groupId: string };
@@ -359,7 +372,9 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(groupIdUrlParamSchema, 'params'),
+  requireQuantityGroupParamProjectScope('groupId'),
   validate(updateDisplayOrderSchema, 'body'),
+  requireOrderedQuantityItemsProjectScope('orderUpdates'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { groupId } = req.validatedParams as { groupId: string };
@@ -435,6 +450,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -531,6 +547,7 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   validate(updateQuantityItemRequestSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -625,6 +642,7 @@ router.delete(
   authenticate,
   requirePermission('quantity_table:delete'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -684,6 +702,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -763,7 +782,9 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   validate(moveItemSchema, 'body'),
+  requireBulkQuantityItemsProjectScope({ targetGroupId: 'targetGroupId' }),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -856,6 +877,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(bulkCopySchema, 'body'),
+  requireBulkQuantityItemsProjectScope({ itemIds: 'itemIds' }),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const actorId = req.user!.userId;
@@ -920,6 +942,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(bulkMoveSchema, 'body'),
+  requireBulkQuantityItemsProjectScope({ itemIds: 'itemIds', targetGroupId: 'targetGroupId' }),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const actorId = req.user!.userId;

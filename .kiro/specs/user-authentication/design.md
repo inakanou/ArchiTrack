@@ -5950,6 +5950,8 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 ```
 - `requirePermission` の後に置く。判定は `evaluateProjectAccess` で行う。解決関数が `null` を返す、または判定が `allowed` でないとき、`NotFoundError` と同じ Problem Details（`404 NOT_FOUND`、汎用の本文）を返す（39.2）
 - 範囲外のとき（案件が実在し範囲外のときだけ）、監査 `PROJECT_SCOPE_DENIED`（利用者・targetType `Project` と案件 ID・日時。metadata に要求識別子・メソッド・問い合わせ文字列を除いたパス・ipAddress・userAgent）を記録し（記録の失敗は 404 を変えない）、`SecurityAnomalyMonitor.observe('scope_denied', …)` を呼ぶ（39.7）
+- 範囲外の記録と観測の部品（`recordProjectScopeDenied` と要求の識別の型 `ProjectScopeDenialContext`）は次のファイルに公開し、本判定部品と、判定部品を通らない下流のサービスの中の判定（quantity-table-generation のタスク104.1。写真の紐付けが指す現場調査・画像の案件の判定）が同じ形で記録するために共有する（2026-10-27）。要求からの識別の切り出し（`projectScopeDenialContextOf`）は本判定部品の側に置き、下流の経路が切り出してサービスへ渡す
+  backend/src/services/project-scope-denial.service.ts
 - 子リソースから案件 ID を引く解決関数は各業務 spec が持つ。本 spec は案件そのもの（`/api/projects` の `GET /`、`GET /status-counts`、`GET /:id`、`GET /:id/detail-summary`、`PUT /:id`、`DELETE /:id`、`PATCH /:id/status`、`GET /:id/status-history`）に適用する
 
 #### 監査
