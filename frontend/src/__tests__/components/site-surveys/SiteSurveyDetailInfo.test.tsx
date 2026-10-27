@@ -48,6 +48,7 @@ vi.mock('../../../api/site-surveys', () => ({
 }));
 
 import * as siteSurveysApi from '../../../api/site-surveys';
+import { apiClient } from '../../../api/client';
 
 // ============================================================================
 // テストデータ
@@ -136,7 +137,10 @@ function renderComponent(
 
 describe('SiteSurveyDetailInfo', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
+    // 出力の記録（POST /api/v1/audit-logs/exports）は既定で成功させる
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
   });
 
   // ==========================================================================
@@ -567,6 +571,61 @@ describe('SiteSurveyDetailInfo', () => {
         if (resolveRender) {
           resolveRender();
         }
+      });
+    });
+
+    describe('出力の記録 (Requirement 39.7, 39.8)', () => {
+      beforeEach(() => {
+        vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+        vi.mocked(annotationModule.renderImagesForReport).mockResolvedValue([
+          {
+            imageInfo: mockSurveyDetail.images[0]!,
+            dataUrl: 'data:image/jpeg;base64,test',
+          },
+        ]);
+        vi.mocked(exportModule.exportAndDownloadPdf).mockResolvedValue();
+      });
+
+      it('生成を始める前に出力の記録を種別・案件・対象つきで1回要求する', async () => {
+        const user = userEvent.setup();
+        const postSpy = vi.mocked(apiClient.post);
+        renderComponent();
+
+        await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+        await waitFor(() => {
+          expect(exportModule.exportAndDownloadPdf).toHaveBeenCalledTimes(1);
+        });
+        const exportTargetIds = mockSurveyDetail.images
+          .filter((img) => img.includeInReport)
+          .map((img) => img.id);
+        expect(postSpy).toHaveBeenCalledTimes(1);
+        expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
+          kind: 'site_survey_report_pdf',
+          projectId: 'project-1',
+          targetIds: exportTargetIds,
+          itemCount: exportTargetIds.length,
+        });
+        // 記録の要求が生成の最初の処理（最新の現場調査の取得）より先に行われている
+        expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(siteSurveysApi.getSiteSurvey).mock.invocationCallOrder[0]!
+        );
+      });
+
+      it('記録の要求が失敗すると生成を始めずエラーメッセージを表示する', async () => {
+        const user = userEvent.setup();
+        vi.mocked(apiClient.post).mockRejectedValue(new Error('500 Internal Server Error'));
+        renderComponent();
+
+        await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          '出力を記録できなかったため中止しました'
+        );
+        expect(siteSurveysApi.getSiteSurvey).not.toHaveBeenCalled();
+        expect(annotationModule.renderImagesForReport).not.toHaveBeenCalled();
+        expect(exportModule.exportAndDownloadPdf).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: '調査報告書出力' })).toBeEnabled();
       });
     });
   });

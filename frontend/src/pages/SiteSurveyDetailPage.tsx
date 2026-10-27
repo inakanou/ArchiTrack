@@ -1190,6 +1190,7 @@ export default function SiteSurveyDetailPage() {
           open={true}
           mode={bulkExportMode}
           surveyId={survey.id}
+          projectId={survey.projectId}
           surveyName={survey.name}
           images={bulkExportImages}
           onClose={handleBulkExportDialogClose}

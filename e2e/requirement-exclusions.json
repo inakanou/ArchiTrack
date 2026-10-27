@@ -1754,34 +1754,6 @@
         "tool": "Vitest",
         "description": "backend/src/__tests__/unit/routes/jwks.routes.test.ts の describe(\"キャッシュ制御\") の \"有効期間の定数が300秒であり、鍵の入れ替えの猶予期間（30日）とアクセストークン既定有効期限（15分）より短いこと\" が、定数が 300 であり 30日（2_592_000 秒）と15分（900 秒）より小さいことを具体値で検証する（タスク32.1 で追加）"
       }
-    },
-    {
-      "id": "user-authentication/REQ-40.10",
-      "requirement": "user-authentication/REQ-40: 認証・アカウント操作とデータ出力の監査記録",
-      "title": "ブラウザ上で生成する出力の開始時に出力の記録を要求する",
-      "criterionText": "WHEN 出力がブラウザ上で生成される THEN Frontend Serviceは出力の開始時に受入基準9の記録を要求しなければならない",
-      "reason": "本 spec（user-authentication）が提供するのは事前記録の包み（frontend/src/api/export-audit.ts の runRecordedExport）と記録の API（POST /api/v1/audit-logs/exports、タスク53.3）までであり、本 spec には画面で生成する出力が無い。受入基準の本番の入口は各業務機能の出力であり、2026-10-25（HEAD b85b8124）の時点で包みの本番の呼び出し元は 0 件で、記録を経ない出力は次のとおりである。ブラウザで生成する出力（本受入基準の入口）は、site-survey の調査報告書の PDF（frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx の handleExportPdf。最初の適用先）・画像の一括 ZIP・注釈付き画像と原画像と注釈の JSON の個別の出力（site-survey タスク119.2）、数量表の PDF（quantity-table-generation タスク104.2）、内訳書の Excel（itemized-statement-generation タスク27.2）、見積依頼の Excel と現場調査報告書の PDF（estimate-request タスク103.2）、見積書の PDF と Excel（estimate-creation タスク62.2）、工事写真台帳の PDF と写真の一括 ZIP（construction-photo タスク30.3）。サーバーで生成し ExportAuditService.record を経ない出力（受入基準9 の入口）は、工程表の出力 backend/src/routes/schedules.routes.ts の GET /:id/export（construction-schedule タスク22.2）、発注と月別出来高の出力 backend/src/routes/export.routes.ts の 2 経路（execution-budget-management タスク17.2）、注釈の JSON の backend/src/routes/annotation.routes.ts の GET /:imageId/annotations/export（site-survey タスク119.2）。いずれも利用者の判断（2026-10-25、案 A）で各所管 spec のタスクとして起票した。確定した実装決定（design.md の ExportAuditService と ExportAuditClient の節、利用者の判断 2026-10-16）として、e2e/specs/site-surveys/site-survey-report-export-audit.spec.ts に test.fail() のラチェットを置いており、本体は毎回すべて実行される。site-survey が出力に包みを適用すると当該テストが通り「落ちるはずが通った」として赤くなるため、ラチェットの撤去と本除外の削除が強制される（user-authentication タスク53.4）",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright (test.fail() ラチェット)",
-        "description": "e2e/specs/site-surveys/site-survey-report-export-audit.spec.ts の「調査報告書の出力が生成より前に出力の記録を要求する」は要件どおりの主張（調査報告書の出力が POST /api/v1/audit-logs/exports を種別 site_survey_report_pdf・当該の案件で1回要求して 201 で記録され、その応答が生成の始まり（注釈の取得）とダウンロードより前に返ること）を残したまま test.fail() で既知失敗として計上している。包みの振る舞い（記録の成功を待ってから生成を呼ぶこと）は frontend/src/__tests__/api/export-audit.test.ts が単体で確かめる。site-survey が調査報告書の出力に runRecordedExport を適用したのち、ラチェットを外して被覆済みへ移す",
-        "threshold": "record_before_generation: true"
-      }
-    },
-    {
-      "id": "user-authentication/REQ-40.11",
-      "requirement": "user-authentication/REQ-40: 認証・アカウント操作とデータ出力の監査記録",
-      "title": "記録の要求が失敗したときは出力を中止しエラーメッセージを表示する",
-      "criterionText": "IF 受入基準10の記録の要求が失敗する THEN Frontend Serviceは出力を中止し、エラーメッセージを表示しなければならない",
-      "reason": "本 spec（user-authentication）が提供するのは事前記録の包み（frontend/src/api/export-audit.ts の runRecordedExport）と記録の API（POST /api/v1/audit-logs/exports、タスク53.3）までであり、本 spec には画面で生成する出力が無い。受入基準の本番の入口は各業務機能の出力であり、2026-10-25（HEAD b85b8124）の時点で包みの本番の呼び出し元は 0 件で、記録を経ない出力は次のとおりである。ブラウザで生成する出力（本受入基準の入口）は、site-survey の調査報告書の PDF（frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx の handleExportPdf。最初の適用先）・画像の一括 ZIP・注釈付き画像と原画像と注釈の JSON の個別の出力（site-survey タスク119.2）、数量表の PDF（quantity-table-generation タスク104.2）、内訳書の Excel（itemized-statement-generation タスク27.2）、見積依頼の Excel と現場調査報告書の PDF（estimate-request タスク103.2）、見積書の PDF と Excel（estimate-creation タスク62.2）、工事写真台帳の PDF と写真の一括 ZIP（construction-photo タスク30.3）。サーバーで生成し ExportAuditService.record を経ない出力（受入基準9 の入口）は、工程表の出力 backend/src/routes/schedules.routes.ts の GET /:id/export（construction-schedule タスク22.2）、発注と月別出来高の出力 backend/src/routes/export.routes.ts の 2 経路（execution-budget-management タスク17.2）、注釈の JSON の backend/src/routes/annotation.routes.ts の GET /:imageId/annotations/export（site-survey タスク119.2）。いずれも利用者の判断（2026-10-25、案 A）で各所管 spec のタスクとして起票した。確定した実装決定（design.md の ExportAuditService と ExportAuditClient の節、利用者の判断 2026-10-16）として、e2e/specs/site-surveys/site-survey-report-export-audit.spec.ts に test.fail() のラチェットを置いており、本体は毎回すべて実行される。site-survey が出力に包みを適用すると当該テストが通り「落ちるはずが通った」として赤くなるため、ラチェットの撤去と本除外の削除が強制される（user-authentication タスク53.4）",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright (test.fail() ラチェット)",
-        "description": "e2e/specs/site-surveys/site-survey-report-export-audit.spec.ts の「出力の記録が失敗すると調査報告書を生成せずエラーメッセージを表示する」は要件どおりの主張（記録の要求を 500 にすると「出力を記録できなかったため中止しました」が表示され、生成（注釈の取得）もダウンロードも始まらないこと）を残したまま test.fail() で既知失敗として計上している。包みの振る舞い（記録の失敗で生成を呼ばずエラーメッセージを返すこと）は frontend/src/__tests__/api/export-audit.test.ts が単体で確かめる。site-survey が調査報告書の出力に runRecordedExport を適用したのち、ラチェットを外して被覆済みへ移す",
-        "threshold": "generation_on_record_failure: none"
-      }
     }
   ],
   "categories": {
@@ -1815,13 +1787,13 @@
     }
   },
   "summary": {
-    "totalExclusions": 131,
+    "totalExclusions": 129,
     "byCategory": {
       "data-integrity": 19,
       "fault-tolerance": 6,
       "infrastructure": 46,
       "integration-test": 36,
-      "pending-implementation": 3,
+      "pending-implementation": 1,
       "performance": 16,
       "security": 5
     },

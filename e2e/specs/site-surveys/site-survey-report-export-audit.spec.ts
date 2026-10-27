@@ -5,16 +5,18 @@
  * 本 spec には画面で生成する出力が無いため、本番の入口での確認は最初の適用先である
  * site-survey の調査報告書の PDF 出力で行う（利用者の判断、2026-10-16）。
  *
- * 調査報告書の出力は、まだ事前記録の包み（`frontend/src/api/export-audit.ts` の
- * `runRecordedExport`）を通していない。各テストは要件どおりの主張を持ったまま
- * `test.fail()` のラチェットとして既知失敗に計上する。前提条件による自動無効化ではなく、
- * 本体は毎回すべて実行される。site-survey が出力に包みを適用するとテストが通り、
- * 「落ちるはずが通った」として赤くなるため、ラチェットの撤去と
- * `e2e/requirement-exclusions.json` の 40.10・40.11 の登録の削除が強制される。
+ * 調査報告書の出力は、site-survey タスク119.2 で事前記録の包み（`frontend/src/api/export-audit.ts` の
+ * `runRecordedExport`）を通した。user-authentication タスク53.4 が置いた `test.fail()` のラチェットは
+ * 119.2 の適用で反転したため外し、被覆済みへ移した。site-survey のほかの出力（画像の一括 ZIP・
+ * 注釈付き画像・原画像・注釈の JSON）は e2e/specs/site-surveys/site-survey-export-audit.spec.ts が確かめる。
  *
  * Requirements (user-authentication):
  * - REQ-40.10: 調査報告書の出力の開始時に、生成（注釈の取得）より前に出力の記録を要求する
  * - REQ-40.11: 出力の記録の要求が失敗したときは生成を始めず、ダウンロードもせず、エラーメッセージを表示する
+ *
+ * Requirements (site-survey):
+ * - REQ-39.7: 調査報告書の PDF の出力は、生成の前に種別と案件を添えた出力の記録を 1 回だけ要求する
+ * - REQ-39.8: 記録の要求が失敗すると生成もダウンロードも始まらず、エラーメッセージが表示される
  *
  * 通信の観測は URL のパスで照合する（CI とローカルで API のオリジンが異なるため）。
  * 生成の始まりは、報告書の描画が最初に送る注釈の取得
@@ -174,15 +176,11 @@ test.describe('ブラウザで生成する出力の事前記録（調査報告�
 
   /**
    * @requirement user-authentication/REQ-40.10
+   * @requirement site-survey/REQ-39.7
    */
-  test('調査報告書の出力が生成より前に出力の記録を要求する (user-authentication/REQ-40.10)', async ({
+  test('調査報告書の出力が生成より前に出力の記録を要求する (user-authentication/REQ-40.10, site-survey/REQ-39.7)', async ({
     page,
   }) => {
-    // 調査報告書の出力（SiteSurveyDetailInfo の handleExportPdf）は記録を要求せずに
-    // 生成とダウンロードを行うため、本テストは記録の主張で落ちる。site-survey が
-    // runRecordedExport を適用すると通り、ラチェットの撤去を強制する。
-    test.fail();
-
     await loginAsUser(page, 'REGULAR_USER');
     assertPrepared(surveyId, '事前準備で作成した現場調査のID');
     const observed = await openSurveyAndObserve(page, surveyId);
@@ -217,14 +215,11 @@ test.describe('ブラウザで生成する出力の事前記録（調査報告�
 
   /**
    * @requirement user-authentication/REQ-40.11
+   * @requirement site-survey/REQ-39.8
    */
-  test('出力の記録が失敗すると調査報告書を生成せずエラーメッセージを表示する (user-authentication/REQ-40.11)', async ({
+  test('出力の記録が失敗すると調査報告書を生成せずエラーメッセージを表示する (user-authentication/REQ-40.11, site-survey/REQ-39.8)', async ({
     page,
   }) => {
-    // 調査報告書の出力は記録を要求しないため、記録の失敗を作っても生成とダウンロードが
-    // 行われ、エラーメッセージは出ない。本テストはエラーメッセージの主張で落ちる。
-    test.fail();
-
     await loginAsUser(page, 'REGULAR_USER');
     assertPrepared(surveyId, '事前準備で作成した現場調査のID');
 

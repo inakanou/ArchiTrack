@@ -6440,7 +6440,7 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - _Requirements: 39.1, 39.2, 39.3, 39.4, 39.5, 39.6, 14.1, 14.2, 14.3, 14.4, 38.9_
   - _Boundary: 本スペックの API の案件の範囲の判定、`SignedUrlService` の判定、画像一覧の署名 URL の発行_
 
-- [ ] 119.2 本スペックの出力に事前記録（user-authentication の要件40）を適用する
+- [x] 119.2 本スペックの出力に事前記録（user-authentication の要件40）を適用する
   - 対象（2026-10-25 の実測。着手時に測り直すこと）:
     - 調査報告書の PDF: frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx の `handleExportPdf`（287 行付近）。種別 `site_survey_report_pdf`
     - 画像の一括 ZIP: frontend/src/components/site-surveys/BulkExportDialog.tsx の `service.execute`（297 行付近、frontend/src/services/export/bulkExportService.ts）。種別 `site_survey_images_zip`

@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
-import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 
 // act警告とエラーログを抑制
 const originalConsoleError = console.error;
@@ -107,6 +107,18 @@ vi.mock('../../../api/survey-annotations', () => ({
     annotatedThumbnailUrl: null,
   }),
 }));
+
+// ExportService のモック（タスク119.2）。画像の生成（exportImage）は本物のまま、
+// ブラウザへの保存（downloadFile）と原画像の取得・保存（downloadOriginalImage）だけを差し替え、
+// 出力の記録との前後関係を呼び出し順で観測する
+vi.mock('../../../services/ExportService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../services/ExportService')>();
+  return {
+    ...actual,
+    downloadFile: vi.fn(),
+    downloadOriginalImage: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 // useToastのモック（合成済みサムネイル更新失敗の通知用。Task 115.107）
 const mockToast = {
@@ -463,6 +475,10 @@ vi.mock('fabric', () => {
 });
 
 import AnnotationEditor from '../../../components/site-surveys/AnnotationEditor';
+import { apiClient } from '../../../api/client';
+import { exportAnnotationJson } from '../../../api/survey-annotations';
+import { downloadFile, downloadOriginalImage } from '../../../services/ExportService';
+import type { SurveyImageInfo } from '../../../types/site-survey.types';
 
 // ============================================================================
 // テストヘルパー
@@ -2306,6 +2322,8 @@ describe('AnnotationEditor', () => {
       const user = (await import('@testing-library/user-event')).default.setup();
 
       mockCanvasInstance.toDataURL = vi.fn().mockReturnValue('data:image/png;base64,test');
+      // 出力の記録（Requirement 39.7）は成功させる
+      const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
 
       render(<AnnotationEditor {...defaultProps} />);
 
@@ -2317,7 +2335,13 @@ describe('AnnotationEditor', () => {
       const exportButton = screen.getByRole('button', { name: /エクスポート/i });
       await user.click(exportButton);
 
-      // toDataURLが呼ばれることを確認（exportImage経由）
+      // 記録の成功の後に画像を生成してダウンロードする（exportImage経由）
+      await waitFor(() => {
+        expect(downloadFile).toHaveBeenCalledTimes(1);
+      });
+      expect(mockCanvasInstance.toDataURL).toHaveBeenCalled();
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      postSpy.mockRestore();
     });
 
     it('エクスポート失敗時にエラーメッセージが表示される', async () => {
@@ -2327,6 +2351,8 @@ describe('AnnotationEditor', () => {
       mockCanvasInstance.toDataURL = vi.fn().mockImplementation(() => {
         throw new Error('エクスポートに失敗しました');
       });
+      // 出力の記録（Requirement 39.7）は成功させ、生成の失敗だけを起こす
+      const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
 
       render(<AnnotationEditor {...defaultProps} />);
 
@@ -2338,10 +2364,12 @@ describe('AnnotationEditor', () => {
       const exportButton = screen.getByRole('button', { name: /エクスポート/i });
       await user.click(exportButton);
 
-      // エラーメッセージが表示されることを確認
+      // 生成の失敗のエラーメッセージが表示されることを確認
       await waitFor(() => {
-        expect(screen.getByRole('alert')).toBeInTheDocument();
+        expect(screen.getByRole('alert')).toHaveTextContent('エクスポートに失敗しました');
       });
+      expect(downloadFile).not.toHaveBeenCalled();
+      postSpy.mockRestore();
     });
   });
 
@@ -3560,4 +3588,124 @@ describe('AnnotationEditor - 通信断時の警告と保存抑止 (Req 15.6)', (
       expect(mockSaveAnnotation).toHaveBeenCalled();
     });
   });
+});
+
+// ============================================================================
+// タスク119.2: 注釈の編集の個別の出力の事前記録（Requirement 39.7, 39.8）
+// ============================================================================
+
+describe('AnnotationEditor 出力の記録 (Requirement 39.7, 39.8)', () => {
+  const imageInfo: SurveyImageInfo = {
+    id: 'test-image-id',
+    surveyId: 'test-survey-id',
+    originalPath: 'images/photo.jpg',
+    thumbnailPath: 'thumbnails/photo.jpg',
+    originalUrl: 'https://example.com/original/photo.jpg',
+    fileName: 'photo.jpg',
+    fileSize: 1024,
+    width: 1000,
+    height: 800,
+    displayOrder: 1,
+    createdAt: '2026-10-27T00:00:00.000Z',
+  };
+
+  const RECORD_INPUT = {
+    kind: 'annotated_image',
+    projectId: 'project-1',
+    targetIds: ['test-image-id'],
+    itemCount: 1,
+  };
+
+  /** 出力の種類ごとの操作と、生成（ダウンロード・取得）の観測先 */
+  const outputs = [
+    {
+      name: '注釈付き画像',
+      trigger: async () => {
+        const dialog = screen.getByRole('dialog');
+        fireEvent.click(within(dialog).getByRole('button', { name: /^エクスポート$/ }));
+      },
+      generation: () => vi.mocked(downloadFile),
+    },
+    {
+      name: '原画像',
+      trigger: async () => {
+        fireEvent.click(screen.getByRole('button', { name: '元画像をダウンロード' }));
+      },
+      generation: () => vi.mocked(downloadOriginalImage),
+    },
+    {
+      name: '注釈の JSON',
+      trigger: async () => {
+        fireEvent.click(screen.getByTestId('export-annotation-json-button'));
+      },
+      generation: () => vi.mocked(exportAnnotationJson),
+    },
+  ];
+
+  const openExportDialog = async () => {
+    render(
+      <AnnotationEditor
+        imageUrl="https://example.com/test-image.jpg"
+        imageId="test-image-id"
+        surveyId="test-survey-id"
+        projectId="project-1"
+        imageInfo={imageInfo}
+      />
+    );
+    await waitFor(() => {
+      expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /エクスポート/ }));
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+    vi.mocked(exportAnnotationJson).mockResolvedValue('{}');
+    vi.mocked(downloadOriginalImage).mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it.each(outputs)(
+    '$name の出力は生成を始める前に出力の記録を種別・案件つきで1回要求する',
+    async ({ trigger, generation }) => {
+      await openExportDialog();
+
+      await trigger();
+
+      await waitFor(() => {
+        expect(generation()).toHaveBeenCalledTimes(1);
+      });
+      const postSpy = vi.mocked(apiClient.post);
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', RECORD_INPUT);
+      expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        generation().mock.invocationCallOrder[0]!
+      );
+    }
+  );
+
+  it.each(outputs)(
+    '$name の出力は記録の要求が失敗すると生成せずエラーメッセージを表示する',
+    async ({ trigger, generation }) => {
+      vi.mocked(apiClient.post).mockRejectedValue(new Error('500 Internal Server Error'));
+      await openExportDialog();
+
+      await trigger();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        '出力を記録できなかったため中止しました'
+      );
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(generation()).not.toHaveBeenCalled();
+      expect(downloadFile).not.toHaveBeenCalled();
+    }
+  );
 });

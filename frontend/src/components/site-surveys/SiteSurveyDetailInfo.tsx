@@ -30,6 +30,7 @@ import { renderImagesForReport } from '../../services/export/AnnotationRendererS
 import { loadPdfExportService } from '../../services/export/loadPdfExportService';
 import type { PdfExportProgress } from '../../services/export/PdfExportService';
 import { getSiteSurvey } from '../../api/site-surveys';
+import { runRecordedExport } from '../../api/export-audit';
 
 // ============================================================================
 // 型定義
@@ -304,7 +305,8 @@ export default function SiteSurveyDetailInfo({
       message: '初期化中...',
     });
 
-    try {
+    /** 報告書の生成（出力の記録が成功した後にだけ呼ぶ。Requirement 39.7） */
+    const generateReport = async (): Promise<void> => {
       // 最新の署名付きURLを取得するためにAPIから再取得
       // ブラウザキャッシュによるCORSエラーを回避
       const freshSurvey = await getSiteSurvey(survey.id);
@@ -332,6 +334,27 @@ export default function SiteSurveyDetailInfo({
           setPdfProgress(progress);
         },
       });
+    };
+
+    try {
+      // 生成を始める前に出力の記録を1回要求し、記録の失敗では生成しない (Requirement 39.7, 39.8)
+      const result = await runRecordedExport(
+        {
+          kind: 'site_survey_report_pdf',
+          projectId: survey.projectId,
+          targetIds: exportTargetImages.map((img) => img.id),
+          itemCount: exportTargetImages.length,
+        },
+        generateReport
+      );
+      if (!result.ok) {
+        if (result.error.type === 'RECORD_FAILED') {
+          setExportError(result.error.message);
+        } else {
+          console.error('PDF generation failed:', result.error.cause);
+          setExportError('PDF生成に失敗しました。再度お試しください。');
+        }
+      }
     } catch (error) {
       console.error('PDF generation failed:', error);
       setExportError('PDF生成に失敗しました。再度お試しください。');
