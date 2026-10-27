@@ -26,6 +26,10 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireBodySurveyProjectScope,
+  requireImageProjectScope,
+} from '../middleware/site-survey-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   imageIdParamSchema,
@@ -101,6 +105,7 @@ router.get(
   authenticate,
   requirePermission('site_survey:read'),
   validate(imageIdParamSchema, 'params'),
+  requireImageProjectScope('imageId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { imageId } = req.validatedParams as { imageId: string };
@@ -210,6 +215,7 @@ router.put(
   authenticate,
   requirePermission('site_survey:update'),
   validate(imageIdParamSchema, 'params'),
+  requireImageProjectScope('imageId'),
   validate(saveAnnotationBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -306,6 +312,7 @@ router.get(
   authenticate,
   requirePermission('site_survey:read'),
   validate(imageIdParamSchema, 'params'),
+  requireImageProjectScope('imageId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { imageId } = req.validatedParams as { imageId: string };
@@ -408,6 +415,7 @@ router.post(
   authenticate,
   requirePermission('site_survey:read'),
   validate(batchAnnotationBodySchema, 'body'),
+  requireBodySurveyProjectScope('surveyId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { surveyId, imageIds } = req.validatedBody as BatchAnnotationBodyInput;

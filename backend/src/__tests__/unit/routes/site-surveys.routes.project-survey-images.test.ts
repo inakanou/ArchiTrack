@@ -5,13 +5,11 @@
  *
  * 写真選択・変更ダイアログが選択可能な写真を1回の要求でまとめて取得するための入口。
  * 取得そのものは `ImageListService.findAnnotatedByProjectIdWithUrls` が担い、
- * 本エンドポイントは認証・権限・クエリの検証と、拒否理由の切り分けを担う。
+ * 本エンドポイントは認証・権限・クエリの検証を担う。
  *
- * 拒否の切り分けが要点である。`SignedUrlService.validateProjectAccess` は
- * 「プロジェクト不在・論理削除」でも「権限なし」でも同じく false を返すため、
- * サービスは三者すべてで拒否を送出する。設計の契約は 404（プロジェクト不在）と
- * 403（権限不足）を区別すると定めているので、**拒否の経路でのみ**存在確認を足す。
- * 正常な経路へ存在確認を足すと、プロジェクト単位の問い合わせ回数を増やしてしまう。
+ * 案件の閲覧範囲の判定は経路の判定部品（requireProjectScope）が行い、範囲外と不在を同じ汎用の
+ * 404 にする（site-survey タスク119.1、Requirement 39.2・39.3）。以前の 403（範囲外）と
+ * 404（`PROJECT_NOT_FOUND`、案件 ID つき）の出し分けは、範囲外と不在を区別できるためやめた。
  *
  * Requirements (quantity-table-generation): 49.9
  * Task 74.3: プロジェクト写真一覧のエンドポイントを公開する
@@ -40,6 +38,20 @@ const mockSiteSurveyService = vi.hoisted(() => ({
 }));
 
 const mockProjectFindUnique = vi.hoisted(() => vi.fn());
+
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// site-survey-project-scope.middleware.test.ts と統合テストが確かめる。site-survey タスク119.1）
+vi.mock('../../../middleware/site-survey-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireSurveyProjectScope: pass,
+    requireImageProjectScope: pass,
+    requireBodySurveyProjectScope: pass,
+    requireImagesProjectScope: pass,
+    imageIdsFromBodyArray: () => () => [],
+  };
+});
 
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({
@@ -327,50 +339,29 @@ describe('GET /api/projects/:projectId/survey-images', () => {
       expect(response.status).toBe(403);
       expect(mockImageListService.findAnnotatedByProjectIdWithUrls).not.toHaveBeenCalled();
     });
-
-    it('プロジェクトが存在するのにアクセスを拒否された場合は403を返す', async () => {
-      mockImageListService.findAnnotatedByProjectIdWithUrls.mockRejectedValue(
-        new ProjectSurveyImagesAccessDeniedError(VALID_PROJECT_ID, USER_ID)
-      );
-      mockProjectFindUnique.mockResolvedValue({ id: VALID_PROJECT_ID, deletedAt: null });
-
-      const response = await request.get(ENDPOINT);
-
-      expect(response.status).toBe(403);
-      expect(mockProjectFindUnique).toHaveBeenCalledTimes(1);
-    });
   });
 
-  describe('プロジェクト不在', () => {
-    it('プロジェクトが存在しない場合は404を返す', async () => {
+  /**
+   * 403 と 404 の出し分けをやめた（site-survey タスク119.1、Requirement 39.2・39.3）。
+   * 範囲外と不在は経路の判定部品（requireProjectScope）が同じ汎用の 404 にする。判定の通過の後に
+   * サービスが拒否する（担当の変更との競合）場合も、案件を引き直さずに同じ汎用の 404 を返し、
+   * 本文に案件 ID を含めない。
+   */
+  describe('判定の通過の後の拒否', () => {
+    it('サービスが拒否した場合は案件を引き直さず、汎用の404を返して案件IDを含めない', async () => {
       mockImageListService.findAnnotatedByProjectIdWithUrls.mockRejectedValue(
         new ProjectSurveyImagesAccessDeniedError(VALID_PROJECT_ID, USER_ID)
       );
-      mockProjectFindUnique.mockResolvedValue(null);
 
       const response = await request.get(ENDPOINT);
 
       expect(response.status).toBe(404);
-      expect(response.body).toMatchObject({
-        status: 404,
-        code: 'PROJECT_NOT_FOUND',
-        projectId: VALID_PROJECT_ID,
-      });
-    });
-
-    it('プロジェクトが論理削除済みの場合は404を返す', async () => {
-      mockImageListService.findAnnotatedByProjectIdWithUrls.mockRejectedValue(
-        new ProjectSurveyImagesAccessDeniedError(VALID_PROJECT_ID, USER_ID)
+      expect(response.body).toMatchObject({ status: 404, code: 'NOT_FOUND' });
+      expect(response.body.projectId).toBeUndefined();
+      expect(JSON.stringify({ ...response.body, instance: undefined })).not.toContain(
+        VALID_PROJECT_ID
       );
-      mockProjectFindUnique.mockResolvedValue({
-        id: VALID_PROJECT_ID,
-        deletedAt: new Date('2026-01-01T00:00:00.000Z'),
-      });
-
-      const response = await request.get(ENDPOINT);
-
-      expect(response.status).toBe(404);
-      expect(response.body).toMatchObject({ code: 'PROJECT_NOT_FOUND' });
+      expect(mockProjectFindUnique).not.toHaveBeenCalled();
     });
   });
 });

@@ -5,8 +5,8 @@
  * - REQ-14.1: プロジェクトへのアクセス権を持つユーザーが現場調査を閲覧可能
  * - REQ-14.2: プロジェクトへの編集権限を持つユーザーが現場調査の作成・編集・削除を許可
  * - REQ-14.3: 適切な権限を持たないユーザーの操作拒否とエラーメッセージ表示
- * - REQ-38.9: 画面表示の効率化（画像一覧のリクエスト削減）にあたり REQ-14 の
- *   アクセス可否の判定結果を変更しないこと
+ * - REQ-38.9: 画面表示の効率化（画像一覧のリクエスト削減）にあたり、表示元URLを発行するか否かを
+ *   Requirement 39 の案件の閲覧範囲の判定の結果から変更しないこと（2026-10-27 改訂。タスク119.1）
  *
  * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
  *   要件14.4: アクセス権限の側は主張するが、署名付きURLの有効期限を主張していない
@@ -412,51 +412,53 @@ test.describe('現場調査アクセス制御', () => {
     });
 
     /**
-     * アクセス権限の検証（要件14.4）
+     * 閲覧範囲の判定（要件14.4、改訂後の要件38.9）
      *
      * 【このテストが引き受ける範囲】
-     * REQ-14.4 は「署名付きURLの有効期限とアクセス権限を検証する」と規定する。
-     * このうち **有効期限** は本番の `STORAGE_TYPE=r2` に固有の性質であり、
-     * `STORAGE_TYPE=local` のテスト環境では `LocalStorageProvider.getSignedUrl` が
-     * 署名も期限も伴わない静的配信URLを返すため、E2Eでは原理的に再現できない。
-     * 有効期限側は `e2e/requirement-exclusions.json` の当該の除外（要件14.4）に
-     * E2E対象外として登録済みで、バックエンドの単体・統合テストとセキュリティ監査の所管とする。
+     * REQ-14.4 は「署名付きURLの有効期限と、画像が属するプロジェクトがユーザーの閲覧範囲に含まれることを
+     * 検証する」と規定する。このうち **有効期限** は本番の `STORAGE_TYPE=r2` に固有の性質であり、
+     * `STORAGE_TYPE=local` のテスト環境では `LocalStorageProvider.getSignedUrl` が署名も期限も伴わない
+     * 静的配信URLを返すため、E2Eでは原理的に再現できない。有効期限側は `e2e/requirement-exclusions.json`
+     * の当該の除外（要件14.4）に E2E対象外として登録済みで、バックエンドの単体・統合テストと
+     * セキュリティ監査の所管とする。
      *
-     * 一方 **アクセス権限の検証** はストレージ種別に依存しない。原画像URLの払い出しは
-     * `ImageListService.findBySurveyIdWithUrls` が `validateSurveyAccess` の結果で
-     * 分岐しており、この分岐はローカルストレージ構成でもそのまま働く。
-     * よってE2Eはこちらを引き受ける。直前のテストが「未認証では払い出されない」を、
-     * 本テストが「認証済みでもプロジェクトの関係者でなければ払い出されない」を検証する。
+     * 一方 **閲覧範囲の判定** はストレージ種別に依存しない。画像一覧の経路は案件の閲覧範囲の判定部品
+     * （requireProjectScope）を経て、範囲外を存在しない現場調査と同じ 404 にし、表示元URLを一つも
+     * 発行しない（site-survey タスク119.1、Requirement 39.2・39.6）。
      *
      * 【観測の判別能力】
-     * 「原画像URLが null であること」は、権限検証が働いた結果ではなく
-     * ストレージ未構成やURL生成失敗でも成立し得る。そのため同一の画像一覧に対して
-     * 関係者（プロジェクト作成者）の払い出しを対照として同時に観測し、
-     * 同じ画像レコードに対して払い出しの有無が利用者によって分かれることを確認する。
+     * 「表示元URLが返らないこと」は、判定が働いた結果ではなくストレージ未構成やURL生成失敗でも
+     * 成立し得る。そのため同じ現場調査の画像一覧に対して関係者（プロジェクト作成者）の払い出しを
+     * 対照として同時に観測し、利用者によって払い出しの有無が分かれることを確認する。さらに、
+     * 範囲外の応答の本文が存在しない現場調査の応答の本文と（要求の経路を写す `instance` を除いて）
+     * 一致することを確かめ、範囲外であることを推測させないことを主張する。
      *
      * 【前提】
-     * 事前準備でプロジェクトを作成したのは REGULAR_USER であり、営業担当者・工事担当者は
-     * ログインユーザーが既定値となる（project-management の Requirement 1.5 / 1.6）。
-     * したがって REGULAR_USER_2 は当該プロジェクトの関係者ではない。この前提
-     * （別人であること・admin ロールを持たないこと）はテスト内で明示的に検証し、
-     * 崩れた場合は検証本体を素通りさせずに失敗させる。
+     * 事前準備でプロジェクトを作成したのは REGULAR_USER であり、営業担当者は選択肢の先頭の利用者、
+     * 工事担当者は未設定である。REGULAR_USER_2 が営業担当者に選ばれている場合や全案件閲覧の権限
+     * （project:read_all）を持つ場合は範囲内になるため、この前提（別人であり、管理者ロールを持たず、
+     * 営業担当者・工事担当者・作成者のいずれでもないこと）はテスト内で明示的に検証し、崩れた場合は
+     * 検証本体を素通りさせずに失敗させる。
      *
-     * 【REQ-38.9（効率化が判定結果を変えないこと）を引き受ける理由】
-     * Requirement 38 は画像一覧のリクエスト・クエリ削減として、権限検証を画像ごとから
-     * 現場調査ごと1回へ集約した（`ImageListService.findBySurveyIdWithUrls`）。
-     * 本テストは**その集約後の実装**に対して、関係者には原画像URLが払い出され、
-     * 非関係者には同じ画像レコードでも払い出されないことを観測する。すなわち
-     * 削減の前後で REQ-14 の判定結果（誰に払い出すか）が変わっていないことを、
-     * 対照付きで確認している。集約が「1回だけ・同じ引数で」行われることは
-     * backend/src/__tests__/unit/services/image-list.service.test.ts が併せて固定する。
+     * 【改訂後の REQ-38.9（効率化が判定結果を変えないこと）を引き受ける理由】
+     * Requirement 38 は画像一覧のリクエスト・クエリ削減として、判定を画像ごとから現場調査ごと1回へ
+     * 集約した（`ImageListService.findBySurveyIdWithUrls`）。本テストは**その集約後の実装**に対して、
+     * 関係者には原画像・サムネイルの表示元URLが払い出され、閲覧範囲外の利用者には同じ現場調査でも
+     * どの表示元URLも払い出されないことを観測する。改訂前の本テストは、範囲外の利用者の画像一覧が
+     * 200 で原画像のURLだけが空になることを主張していた（サムネイルは判定を経ずに発行していた）。
+     * 改訂後の条文（判定の元は Requirement 39 の閲覧範囲、範囲外には 3 種のURLを発行しない）に合わせ、
+     * 404 でURLが一つも返らない主張へ改めた（user-authentication の tasks.md の Implementation Notes の
+     * 52.2 の区分 C）。
      *
      * @requirement site-survey/REQ-38.9
      */
-    test('アクセス権限を持たないユーザーには原画像URLが払い出されない (site-survey/REQ-38.9)', async ({
+    test('閲覧範囲外のユーザーには画像の表示元URLが払い出されない (site-survey/REQ-38.9)', async ({
       request,
     }) => {
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
+      if (!createdSurveyId || !createdProjectId) {
+        throw new Error(
+          'createdProjectIdまたはcreatedSurveyIdが未設定です。事前準備テストが正しく実行されていません。'
+        );
       }
 
       const loginAs = async (
@@ -466,48 +468,76 @@ test.describe('現場調査アクセス制御', () => {
         return { userId: body.user.id, roles: body.user.roles, accessToken: body.accessToken };
       };
 
-      const fetchImages = async (
-        accessToken: string
-      ): Promise<Array<{ id: string; originalUrl: string | null }>> => {
-        const response = await request.get(
-          `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-        expect(response.status(), '画像一覧の取得が成功する').toBe(200);
-        return (await response.json()) as Array<{ id: string; originalUrl: string | null }>;
-      };
+      const fetchImages = (accessToken: string, surveyId: string) =>
+        request.get(`${API_BASE_URL}/api/site-surveys/${surveyId}/images`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
 
       const member = await loginAs('REGULAR_USER');
       const outsider = await loginAs('REGULAR_USER_2');
 
-      // 前提の検証: 別人であり、かつ関係者でなくても払い出されるadminロールを持たないこと
+      // 前提の検証: 別人であり、管理者ロールを持たず、案件の関係者でないこと
       expect(outsider.userId, '非関係者はプロジェクト作成者とは別のユーザーである').not.toBe(
         member.userId
       );
-      expect(outsider.roles, '非関係者はadminロールを持たない').not.toContain('admin');
+      expect(outsider.roles, '非関係者は管理者ロールを持たない').not.toContain('admin');
+      const projectResponse = await request.get(
+        `${API_BASE_URL}/api/projects/${createdProjectId}`,
+        { headers: { Authorization: `Bearer ${member.accessToken}` } }
+      );
+      expect(projectResponse.status(), '作成者はプロジェクトを取得できる').toBe(200);
+      const project = (await projectResponse.json()) as {
+        salesPerson?: { id: string } | null;
+        constructionPerson?: { id: string } | null;
+      };
+      expect(project.salesPerson?.id, '非関係者は営業担当者ではない').not.toBe(outsider.userId);
+      expect(project.constructionPerson?.id ?? null, '非関係者は工事担当者ではない').not.toBe(
+        outsider.userId
+      );
 
-      // 対照: プロジェクトの関係者には原画像URLが払い出される
-      const memberImages = await fetchImages(member.accessToken);
+      // 対照: プロジェクトの関係者には原画像・サムネイルの表示元URLが払い出される
+      const memberResponse = await fetchImages(member.accessToken, createdSurveyId);
+      expect(memberResponse.status(), '関係者の画像一覧の取得が成功する').toBe(200);
+      const memberImages = (await memberResponse.json()) as Array<{
+        id: string;
+        originalUrl: string | null;
+        thumbnailUrl: string | null;
+      }>;
       expect(memberImages.length, '事前準備でアップロードした画像が存在する').toBeGreaterThan(0);
       for (const image of memberImages) {
         expect(
           image.originalUrl,
           `関係者には原画像URLが払い出される (image=${image.id})`
         ).toBeTruthy();
+        expect(
+          image.thumbnailUrl,
+          `関係者にはサムネイルURLが払い出される (image=${image.id})`
+        ).toBeTruthy();
       }
 
-      // 本体: 同じ画像レコードでも、関係者でないユーザーには原画像URLが払い出されない
-      const outsiderImages = await fetchImages(outsider.accessToken);
+      // 本体: 同じ現場調査でも、閲覧範囲外のユーザーには存在しない現場調査と同じ 404 が返り、
+      // どの表示元URLも払い出されない
+      const missingResponse = await fetchImages(
+        outsider.accessToken,
+        '00000000-0000-4000-8000-000000038900'
+      );
+      const outsiderResponse = await fetchImages(outsider.accessToken, createdSurveyId);
+      expect(missingResponse.status(), '存在しない現場調査の画像一覧は 404').toBe(404);
+      expect(outsiderResponse.status(), '閲覧範囲外の画像一覧は 404').toBe(404);
+      const withoutInstance = (body: Record<string, unknown>) => {
+        return Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'instance'));
+      };
+      const outsiderBody = (await outsiderResponse.json()) as Record<string, unknown>;
       expect(
-        outsiderImages.map((image) => image.id),
-        '非関係者にも同じ画像レコードが返る（払い出しの有無だけが分かれる）'
-      ).toEqual(memberImages.map((image) => image.id));
-      for (const image of outsiderImages) {
-        expect(
-          image.originalUrl,
-          `非関係者には原画像URLが払い出されない (image=${image.id})`
-        ).toBeNull();
+        withoutInstance(outsiderBody),
+        '範囲外の本文は存在しない現場調査の本文と区別できない'
+      ).toEqual(withoutInstance((await missingResponse.json()) as Record<string, unknown>));
+      const exposed = JSON.stringify(outsiderBody);
+      for (const image of memberImages) {
+        expect(exposed, '範囲外の応答に画像のIDを含めない').not.toContain(image.id);
       }
+      expect(exposed, '範囲外の応答に表示元URLを含めない').not.toContain('/storage');
+      expect(exposed, '範囲外の応答にプロジェクトIDを含めない').not.toContain(createdProjectId);
     });
   });
 

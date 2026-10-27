@@ -364,7 +364,9 @@ describe('Site Survey API Integration Tests', () => {
           })
           .expect(404);
 
-        expect(response.body.code).toBe('PROJECT_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       it('バリデーションエラーで400を返す（名前なし）', async () => {
@@ -532,7 +534,9 @@ describe('Site Survey API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(404);
 
-        expect(response.body.code).toBe('SITE_SURVEY_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       it('無効なUUID形式で400を返す', async () => {
@@ -608,7 +612,9 @@ describe('Site Survey API Integration Tests', () => {
           })
           .expect(404);
 
-        expect(response.body.code).toBe('SITE_SURVEY_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -652,7 +658,9 @@ describe('Site Survey API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(404);
 
-        expect(response.body.code).toBe('SITE_SURVEY_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
   });
@@ -715,7 +723,9 @@ describe('Site Survey API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(404);
 
-        expect(response.body.code).toBe('SITE_SURVEY_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       /**
@@ -936,7 +946,9 @@ describe('Site Survey API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(404);
 
-        expect(response.body.code).toBe('ANNOTATION_IMAGE_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 

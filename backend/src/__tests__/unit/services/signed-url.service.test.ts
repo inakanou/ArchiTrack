@@ -57,6 +57,8 @@ describe('SignedUrlService', () => {
       findMany: Mock;
     };
   };
+  /** 全案件閲覧の権限（project:read_all）の判定（site-survey 39.1。ロール名では判定しない） */
+  let mockRbac: { hasPermission: Mock };
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -83,10 +85,13 @@ describe('SignedUrlService', () => {
       },
     };
 
+    mockRbac = { hasPermission: vi.fn().mockResolvedValue(false) };
+
     // サービスをインポート
     const { SignedUrlService } = await import('../../../services/signed-url.service.js');
     signedUrlService = new SignedUrlService({
       prisma: mockPrisma as unknown as PrismaClient,
+      rbac: mockRbac,
     });
   });
 
@@ -223,7 +228,7 @@ describe('SignedUrlService', () => {
       expect(result).toBe(true);
     });
 
-    it('should return true when user has admin role', async () => {
+    it('should return true when user has project:read_all permission', async () => {
       // Arrange
       const imageId = 'test-image-id';
       const userId = 'admin-user-id';
@@ -243,12 +248,8 @@ describe('SignedUrlService', () => {
         createdById: 'other-user-id', // 別のユーザーが作成
       });
 
-      // ユーザーがadminロールを持っている
-      mockPrisma.userRole.findMany.mockResolvedValue([
-        {
-          role: { name: 'admin' },
-        },
-      ]);
+      // ユーザーが全案件閲覧の権限を持っている
+      mockRbac.hasPermission.mockResolvedValue(true);
 
       // Act
       const result = await signedUrlService.validateSignedUrlAccess(imageId, userId);
@@ -298,7 +299,7 @@ describe('SignedUrlService', () => {
       expect(result).toBe(false);
     });
 
-    it('should return false when user has no project access and no admin role', async () => {
+    it('should return false when user has no project access and no project:read_all permission', async () => {
       // Arrange
       const imageId = 'test-image-id';
       const userId = 'unauthorized-user-id';
@@ -320,12 +321,8 @@ describe('SignedUrlService', () => {
         constructionPersonId: 'yet-another-user-id',
       });
 
-      // ユーザーがadminロールを持っていない
-      mockPrisma.userRole.findMany.mockResolvedValue([
-        {
-          role: { name: 'user' },
-        },
-      ]);
+      // ユーザーが全案件閲覧の権限を持っていない
+      mockRbac.hasPermission.mockResolvedValue(false);
 
       // Act
       const result = await signedUrlService.validateSignedUrlAccess(imageId, userId);
@@ -421,7 +418,7 @@ describe('SignedUrlService', () => {
       expect(mockPrisma.surveyImage.findUnique).not.toHaveBeenCalled();
     });
 
-    it('should return true when user has admin role', async () => {
+    it('should return true when user has project:read_all permission', async () => {
       // Arrange
       const surveyId = 'test-survey-id';
       const userId = 'admin-user-id';
@@ -439,7 +436,7 @@ describe('SignedUrlService', () => {
         constructionPersonId: 'yet-another-user-id',
       });
 
-      mockPrisma.userRole.findMany.mockResolvedValue([{ role: { name: 'admin' } }]);
+      mockRbac.hasPermission.mockResolvedValue(true);
 
       // Act
       const result = await signedUrlService.validateSurveyAccess(surveyId, userId);
@@ -485,7 +482,7 @@ describe('SignedUrlService', () => {
       expect(result).toBe(false);
     });
 
-    it('should return false when user has no project access and no admin role', async () => {
+    it('should return false when user has no project access and no project:read_all permission', async () => {
       // Arrange
       const surveyId = 'test-survey-id';
       const userId = 'unrelated-user-id';
@@ -503,7 +500,7 @@ describe('SignedUrlService', () => {
         constructionPersonId: 'yet-another-user-id',
       });
 
-      mockPrisma.userRole.findMany.mockResolvedValue([{ role: { name: 'user' } }]);
+      mockRbac.hasPermission.mockResolvedValue(false);
 
       // Act
       const result = await signedUrlService.validateSurveyAccess(surveyId, userId);
@@ -520,7 +517,7 @@ describe('SignedUrlService', () => {
    * プロジェクト内の写真をまとめて扱う経路では、写真ごと・現場調査ごとに判定を
    * 繰り返すと問い合わせ回数が枚数に比例する。現場調査機能の Requirement 38 が
    * 定める「枚数に比例させない」規約を満たすため、判定の入口をプロジェクト単位で
-   * 公開する。判定基準（プロジェクト関係者または admin ロール）は変更しない。
+   * 公開する。判定基準は案件の閲覧範囲（関係者、または全案件閲覧の権限。site-survey 39.1）。
    *
    * Requirements (quantity-table-generation): 49.9
    */
@@ -579,7 +576,7 @@ describe('SignedUrlService', () => {
       await expect(signedUrlService.validateProjectAccess(projectId, userId)).resolves.toBe(true);
     });
 
-    it('関係者でなくても admin ロール保持者にはアクセスを許可する', async () => {
+    it('関係者でなくても全案件閲覧の権限（project:read_all）を持つ利用者にはアクセスを許可する', async () => {
       // Arrange
       const userId = 'admin-user-id';
       mockPrisma.project.findUnique.mockResolvedValue({
@@ -589,13 +586,13 @@ describe('SignedUrlService', () => {
         salesPersonId: 'another-user-id',
         constructionPersonId: 'yet-another-user-id',
       });
-      mockPrisma.userRole.findMany.mockResolvedValue([{ role: { name: 'admin' } }]);
+      mockRbac.hasPermission.mockResolvedValue(true);
 
       // Act & Assert
       await expect(signedUrlService.validateProjectAccess(projectId, userId)).resolves.toBe(true);
     });
 
-    it('関係者でも admin でもないユーザーのアクセスを拒否する', async () => {
+    it('関係者でも全案件閲覧の権限の保持者でもないユーザーのアクセスを拒否する', async () => {
       // Arrange
       const userId = 'unrelated-user-id';
       mockPrisma.project.findUnique.mockResolvedValue({
@@ -605,7 +602,7 @@ describe('SignedUrlService', () => {
         salesPersonId: 'another-user-id',
         constructionPersonId: 'yet-another-user-id',
       });
-      mockPrisma.userRole.findMany.mockResolvedValue([{ role: { name: 'user' } }]);
+      mockRbac.hasPermission.mockResolvedValue(false);
 
       // Act & Assert
       await expect(signedUrlService.validateProjectAccess(projectId, userId)).resolves.toBe(false);
@@ -620,6 +617,28 @@ describe('SignedUrlService', () => {
 
       // Assert
       expect(result).toBe(false);
+      expect(mockRbac.hasPermission).not.toHaveBeenCalled();
+    });
+
+    it('ロール名 admin を持っていても全案件閲覧の権限が無ければ拒否する（ロール名で判定しない。site-survey 39.1）', async () => {
+      // Arrange
+      const userId = 'admin-named-user-id';
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: projectId,
+        deletedAt: null,
+        createdById: 'other-user-id',
+        salesPersonId: 'another-user-id',
+        constructionPersonId: 'yet-another-user-id',
+      });
+      mockPrisma.userRole.findMany.mockResolvedValue([{ role: { name: 'admin' } }]);
+      mockRbac.hasPermission.mockResolvedValue(false);
+
+      // Act
+      const result = await signedUrlService.validateProjectAccess(projectId, userId);
+
+      // Assert
+      expect(result).toBe(false);
+      expect(mockRbac.hasPermission).toHaveBeenCalledWith(userId, 'project:read_all');
       expect(mockPrisma.userRole.findMany).not.toHaveBeenCalled();
     });
 
@@ -757,12 +776,8 @@ describe('SignedUrlService', () => {
         constructionPersonId: 'yet-another-user-id',
       });
 
-      // ユーザーがadminロールを持っていない
-      mockPrisma.userRole.findMany.mockResolvedValue([
-        {
-          role: { name: 'user' },
-        },
-      ]);
+      // ユーザーが全案件閲覧の権限を持っていない
+      mockRbac.hasPermission.mockResolvedValue(false);
 
       // Act
       const result = await signedUrlService.getSignedUrlWithValidation(imageId, userId, type);

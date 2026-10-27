@@ -259,28 +259,26 @@ export class ImageListService {
       annotations.filter((a) => (a.hasDrawnAnnotations ?? true) === true).map((a) => a.imageId)
     );
 
-    // 原画像URLのアクセス権限は画像単位ではなく、画像が属する現場調査のプロジェクト単位で
-    // 決まる。画像ごとに検証すると同じ判定を枚数分繰り返すため（1枚あたりプロジェクト・
-    // ロール照会が発生し、写真が多い現場調査で初期表示が著しく遅くなる）、現場調査単位で
-    // 1回だけ検証する。
-    // Requirements: 16.1（画像一覧の初期表示を2秒以内に完了する）
-    const hasOriginalAccess = await this.signedUrlService.validateSurveyAccess(surveyId, userId);
+    // 表示元URLの発行の可否は画像単位ではなく、画像が属する現場調査のプロジェクトが
+    // 利用者の閲覧範囲に含まれるかで決まる。画像ごとに検証すると同じ判定を枚数分繰り返すため
+    // （写真が多い現場調査で初期表示が著しく遅くなる）、現場調査単位で1回だけ検証する。
+    // Requirements: 16.1（画像一覧の初期表示を2秒以内に完了する）、38.9
+    const hasAccess = await this.signedUrlService.validateSurveyAccess(surveyId, userId);
 
     const storageProvider = isStorageConfigured() ? getStorageProvider() : null;
 
     // 署名付きURLの生成に必要なストレージキーは findBySurveyId の結果に含まれているため、
     // 画像ごとにDBを引き直さずパスから直接生成する。
+    // 閲覧範囲外では原画像・サムネイル・注釈付きサムネイルのいずれも署名しない
+    // （Requirement 39.6、14.4。経路の判定部品の通過後に担当が外れた場合の競合でも発行しない）。
     const signUrl = (objectKey: string | null): Promise<string | null> =>
-      this.signObjectUrl(storageProvider, objectKey);
+      hasAccess ? this.signObjectUrl(storageProvider, objectKey) : Promise.resolve(null);
 
     // 各画像に署名付きURLを付与
     return Promise.all(
       images.map(async (image) => {
         const [originalUrl, thumbnailUrl, annotatedThumbnailUrl] = await Promise.all([
-          // 原画像はアクセス権限検証を通過した場合のみURLを返す
-          hasOriginalAccess ? signUrl(image.originalPath) : Promise.resolve(null),
-          // サムネイル・注釈付きサムネイルは従来から権限検証を経ずに生成しており、
-          // 本メソッドのリクエスト削減にあたっても挙動を変えていない
+          signUrl(image.originalPath),
           signUrl(image.thumbnailPath),
           signUrl(image.annotatedThumbnailPath),
         ]);

@@ -17,6 +17,8 @@
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 import logger from '../utils/logger.js';
+import { ProjectScopeService } from './project-scope.service.js';
+import { getSharedRBACService, type RBACService } from './rbac.service.js';
 
 /**
  * 署名付きURL生成の結果
@@ -54,6 +56,10 @@ export type BatchSignedUrlResult = SignedUrlResult | SignedUrlError;
  */
 export interface SignedUrlServiceDependencies {
   prisma: PrismaClient;
+  /**
+   * 全案件閲覧の権限（project:read_all）の判定。省略時は共有の RBACService（権限キャッシュを持つ）
+   */
+  rbac?: Pick<RBACService, 'hasPermission'>;
 }
 
 /**
@@ -69,9 +75,20 @@ const DEFAULT_EXPIRES_IN = 900;
  */
 export class SignedUrlService {
   private readonly prisma: PrismaClient;
+  private readonly rbac: Pick<RBACService, 'hasPermission'> | undefined;
+  private projectScope: ProjectScopeService | null = null;
 
   constructor(deps: SignedUrlServiceDependencies) {
     this.prisma = deps.prisma;
+    this.rbac = deps.rbac;
+  }
+
+  /** 案件の閲覧範囲の判定（user-authentication の ProjectScopeService）。初回の判定の時点で組み立てる */
+  private getProjectScope(): ProjectScopeService {
+    if (!this.projectScope) {
+      this.projectScope = new ProjectScopeService(this.prisma, this.rbac ?? getSharedRBACService());
+    }
+    return this.projectScope;
   }
 
   /**
@@ -153,7 +170,7 @@ export class SignedUrlService {
    * 1. 画像が紐付くプロジェクトの作成者である
    * 2. 画像が紐付くプロジェクトの営業担当者である
    * 3. 画像が紐付くプロジェクトの工事担当者である
-   * 4. ユーザーがadminロールを持っている
+   * 4. ユーザーが全案件閲覧の権限（project:read_all）を持っている（ロール名では判定しない）
    *
    * @param imageId - 画像ID
    * @param userId - ユーザーID
@@ -211,64 +228,28 @@ export class SignedUrlService {
   }
 
   /**
-   * ユーザーがプロジェクトの関係者、またはadminロール保持者かを判定する
+   * ユーザーの閲覧範囲（user-authentication の要件39.1）にプロジェクトが含まれるかを判定する
    *
    * `validateSignedUrlAccess`（画像単位）と `validateSurveyAccess`（現場調査単位）の
-   * 共通判定であり、両者はこのメソッドへ委譲する。判定基準はここが唯一の出所である。
+   * 共通判定であり、両者はこのメソッドへ委譲する。判定の規則は `ProjectScopeService.canAccessProject`
+   * （営業担当者・工事担当者・作成者、または全案件閲覧の権限 `project:read_all`）が唯一の出所であり、
+   * ロール名では判定しない（site-survey Requirement 39.1・39.6、タスク119.1）。
+   * プロジェクトの不在・論理削除は false。
    *
    * プロジェクト内の写真をまとめて扱う経路（プロジェクト単位の画像一覧など）では、
    * 画像ごと・現場調査ごとに可否を判定すると同じプロジェクト判定を件数分繰り返すことに
    * なり、問い合わせ回数が写真枚数に比例する。現場調査機能の Requirement 38 が定める
    * 「枚数に比例させない」規約を満たすため、プロジェクト単位で1回だけ判定できる入口と
-   * して公開している。判定基準そのものは公開にあたって変更していない。
+   * して公開している。
    *
    * Requirements (quantity-table-generation): 49.9
    *
    * @param projectId - プロジェクトID
    * @param userId - ユーザーID
-   * @returns アクセス権限があればtrue、なければfalse
+   * @returns 閲覧範囲内であればtrue、範囲外・不在・論理削除はfalse
    */
   async validateProjectAccess(projectId: string, userId: string): Promise<boolean> {
-    // プロジェクト情報を取得
-    const project = await this.prisma.project.findUnique({
-      where: { id: projectId },
-      select: {
-        id: true,
-        deletedAt: true,
-        createdById: true,
-        salesPersonId: true,
-        constructionPersonId: true,
-      },
-    });
-
-    if (!project || project.deletedAt !== null) {
-      return false;
-    }
-
-    // プロジェクトの関係者かチェック
-    if (
-      project.createdById === userId ||
-      project.salesPersonId === userId ||
-      project.constructionPersonId === userId
-    ) {
-      return true;
-    }
-
-    // adminロールを持っているかチェック
-    const userRoles = await this.prisma.userRole.findMany({
-      where: { userId },
-      select: {
-        role: {
-          select: {
-            name: true,
-          },
-        },
-      },
-    });
-
-    const isAdmin = userRoles.some((ur) => ur.role.name === 'admin');
-
-    return isAdmin;
+    return this.getProjectScope().canAccessProject(userId, projectId);
   }
 
   /**
