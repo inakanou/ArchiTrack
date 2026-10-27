@@ -925,7 +925,9 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
 - [ ] 30.1 Task 23.1 の判断（ロールの権限の表だけで判定）を要件39 の判定へ置き換え、旧い判断を主張する文書と統合テストを改める
   - design.md の 83〜84 行付近（プロジェクトメンバーシップ専用ガードは存在しない、工事写真・工事看板のアクセスもロールの権限の表だけで判定する）と、903 行付近・920 行付近の試験の方針（担当でない一般ユーザーが他の利用者のプロジェクトのアルバム・写真項目・看板を操作できる）を、要件39 の判定（担当者・作成者・全案件閲覧の権限だけが範囲内、範囲外は不在と同じ 404）へ改め、23.1 の判断が 2026-10-24 の判断 A で置き換えられたことを記録する（23.1 の記録は残す）
   - 要件 1.2・13.2・13.3・17.1 の「アクセス可能なプロジェクト」の読み方を要件39 の範囲に揃える。requirements.md の改訂の要否は着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 要件 1.2・13.2・13.3・17.1 の条文を改訂し、改訂の記録（採らなかった案: 条文を変えず design.md だけで読み替える案）を requirements.md の各受入基準の下に残した。design.md は「Requirement 21: 案件の閲覧範囲と出力の記録の適用」章の「要件 1.2・13.2・13.3・17.1 の読み替え」節に設計上の読み方を記し、Existing Architecture Analysis・API Contracts・Testing Strategy・Security Considerations の旧い判断の記述は 23.1 の記録として残して、2026-10-24 の判断 A と 2026-10-27 の判断で置き換えられたことを書き添えた
   - **旧い判断を主張する統合テスト（user-authentication の 52.2 の記録の区分 C）**: backend の統合テスト construction-photo-access.api.integration.test.ts（担当でない user の各操作が通ることの主張。52.2 の記録で 8 件）、construction-photo-metadata.api.integration.test.ts、construction-photo-original-image.api.integration.test.ts、construction-photo-print-image.api.integration.test.ts、construction-photo-image.api.integration.test.ts の担当外の利用者の操作。担当外は不在と同じ 404 で DB とストレージが変わらないこと、工事担当者・営業担当者・作成者に設定すると通ることの主張へ書き換える（主張を消さない）。30.2 の適用と同じ変更で行う（片方だけでは赤になる）
+  - _Requirements: 21.1, 21.2, 21.3, 1.2, 13.2, 13.3, 17.1_
   - _Boundary: 本スペックの design.md のアクセスの判定の記述と、旧い判断を主張する統合テスト_
 
 - [ ] 30.2 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
@@ -937,6 +939,8 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - アルバムの代表サムネイル・写真の一覧などの署名 URL（construction-photo-image.service.ts・construction-photo-metadata.service.ts）は範囲内に限って発行する（39.4。是正計画 §5.4 の「原本取得 API に関係者判定（閲覧範囲）を適用する」）
   - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者がアルバムの URL を直接開くと見つからない扱いになることを確かめる
   - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 21（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 21.1〜21.7 が受ける（30.1 と同じ変更で行うため 21.1〜21.3 は 30.1 と重ねて名乗る）。一括の経路は 1 件でも範囲外なら要求全体を 404 で書き込みなし（21.4）、現調コピーはコピー元の案件も判定する（21.5）と条文に定めた。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 13.2, 13.3_
   - _Boundary: 本スペックの API の案件の範囲の判定と署名 URL の発行_
   - _Depends: 30.1（同じ変更で行う）_
 
@@ -946,5 +950,6 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
     - 写真の一括 ZIP: 同ページの `handleExportStart`（1021 行付近、frontend/src/services/export/ConstructionPhotoBulkExportService.ts）。種別 `construction_photos_zip`
   - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
   - 挙動の変更であるため RED → GREEN で進め、E2E で各出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Requirements: 21.8, 21.9_
   - _Boundary: 本スペックの画面の出力の開始の処理_
   - _Depends: 30.2_

@@ -248,8 +248,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'construction-photo': {
     mode: 'ratchet',
     maxContradictions: 0,
-    minPairs: 12,
-    minTableDeclarations: 19,
+    // minPairs 12 → 16 / minTableDeclarations 19 → 23（construction-photo のタスク30 の文書の改訂、2026-10-27）。
+    // 利用者の判断で新設した Requirement 21 の章「Requirement 21: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 4 行（いずれも 21.x を名乗る）と追跡表を足し、同章の 4 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    minPairs: 16,
+    minTableDeclarations: 23,
     minDetailDeclarations: 0,
     reason:
       '追跡表の Requirement 列が要件番号だけを挙げる書式だが、突き合わせは上位番号の粒度なので成立する。現況で矛盾 0 件',

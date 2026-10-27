@@ -73,6 +73,7 @@
 - `construction-photo-images` のアップロード応答形状（201/207 と `{successful, failed}`）の変更 → `PhotoUploader.uploadFilesInWaves` の集約と再送可否判定を再検証。
 - 共有の画面部品と横断ルールの値の変更（`TAP_TARGET_MIN_PX` の値、`Breadcrumb` のモバイル幅の折り返し、`AppHeader` のモバイル幅の配置、`useMediaQuery` の判定） → 本 spec の画面のモバイル幅のタップ領域と水平のはみ出しの E2E（`construction-photo-additional.spec.ts`・`construction-photo-workflow.spec.ts`）を再検証（タスク 23.10）。
 - 利用できるかの共通の判定（`construction-photo-availability` の、対象と所属プロジェクトが取り除かれていないかの判定）またはロールの権限の表（`construction_photo:*`・`construction_signboard:*`）の変更 → アルバム・写真・メタ・看板の 4 サービスの 404 / 403 と統合テスト `construction-photo-access.api.integration.test.ts` を再検証（タスク 23.1）。
+- user-authentication の閲覧範囲の判定（`evaluateProjectAccess`・`buildProjectScopeWhere`・`canAccessProject`・`requireProjectScope`）または出力の記録（`runRecordedExport`・`POST /api/v1/audit-logs/exports`）の契約の変更 → Requirement 21 の範囲外の 404 と出力の事前記録の統合テスト・E2E を再検証（タスク30。「Requirement 21: 案件の閲覧範囲と出力の記録の適用」章を参照）。
 
 ## Architecture
 
@@ -82,6 +83,7 @@
 - フロントは React 19 + react-router 7、状態はローカル＋context、PDFは jsPDF（`PdfReportService` に3枚/ページ版組が既存）、注釈は fabric。
 - 認可は RBAC 権限（`requirePermission('<resource>:<action>')`）。プロジェクトメンバーシップ専用ガードは存在しない。
 - 工事写真・工事看板のアクセスもロールの権限の表（`requirePermission`）だけで判定し、プロジェクトの担当者（作成者・営業担当・工事担当）や admin ロールでの絞り込みは行わない（タスク 23.1、利用者の判断（2026-10-03）。初回実装は写真の一覧・メタの一括更新・並び替え・写真項目の削除・印字画像・原本にだけ担当者の限定 `canAccessProject` を掛けており、アルバム・アップロード・看板の側と食い違っていたため外した）。担当でない一般ユーザーも、権限の表が許す操作（user は閲覧・作成・編集）を全プロジェクトの工事写真・工事看板に対して行える。受入基準 13.2・13.3 の「アクセス可能なプロジェクト」は、実在し取り除かれていない（論理削除されていない）プロジェクトと読む。プロジェクトの論理削除は配下のアルバム・看板へ波及しないため、アルバム・写真項目・看板の各操作は、対象と所属プロジェクトの論理削除の状態を同じ問い合わせで読み、共通の判定（`construction-photo-availability` の `isAvailableInLiveProject`・`isProjectLive`）に掛ける。判定の順は、認証（401）→ ロールの権限の表（403）→ 対象と所属プロジェクトが実在し論理削除されていないこと、およびプロジェクト（アルバム）の配下として指したときの所属（404 / 400）である。
+- **改訂（2026-10-27、利用者の判断。タスク30.1）**: 上の 2 項（「プロジェクトメンバーシップ専用ガードは存在しない」と、ロールの権限の表だけで判定し担当者で絞り込まないこと）は、タスク 23.1 の利用者の判断（2026-10-03）の記録として残す。この判断は、user-authentication の要件39 がタスク 23.1 の判断に優先するとした利用者の判断（2026-10-24、A。user-authentication の tasks.md の Implementation Notes の 52.3）と、要件 1.2・13.2・13.3・17.1 の条文の改訂および Requirement 21 の新設（2026-10-27、利用者の判断）で置き換えられた。以後の判定は、認証（401）→ ロールの権限の表（403）→ 案件の閲覧範囲（担当者〔営業・工事〕・作成者・全案件閲覧の権限だけが範囲内。範囲外は不在と同じ汎用の 404）→ 対象と所属プロジェクトが実在し論理削除されていないこと、およびプロジェクト（アルバム）の配下として指したときの所属（404 / 400）の順とする。閲覧範囲の判定は user-authentication の `requireProjectScope` を `requirePermission` の後に置いて行い、受入基準 13.2・13.3 の「アクセス可能なプロジェクト」は閲覧範囲に含まれるプロジェクトと読む（詳細は「Requirement 21: 案件の閲覧範囲と出力の記録の適用」章）。
 
 ### Architecture Pattern & Boundary Map
 
@@ -573,7 +575,7 @@ flowchart TD
 | 10 | PDF台帳 | ConstructionPhotoLedgerService, CompositeService, CompanyInfoService | 印字URL, PdfFont | PDFフロー |
 | 11 | リクエスト効率 | AlbumService(ページ50), ImageService(一括署名URL), MetadataService(batch) | list/batch API | 保存フロー |
 | 12 | UP制約 | construction-photo-images.routes(multer), ImageService.validate | upload API | - |
-| 13 | アクセス制御 | authenticate/requirePermission, SignedUrlService | 全API | - |
+| 13 | アクセス制御（13.2・13.3 は Requirement 21 の案件の閲覧範囲で読む。2026-10-27 改訂） | authenticate/requirePermission, SignedUrlService | 全API | - |
 | 14 | 画像ビューア(ズーム/回転/パン) | ConstructionPhotoImageViewer(Page), useCanvasViewport, ZoomControls, gestures, routes.tsx, DetailPage(onPhotoClick), ImageService.getOriginalImage | GET .../original | ビューアフロー |
 | 15 | ZIP一括エクスポート | ConstructionPhotoBulkExportService, BulkExportDialog/BulkExportProgressDialog/ExportSettingsForm, PhotoItemPanel(選択), ImageService.getOriginalImage | print-image/original, JSZip | エクスポートフロー |
 | 16 | アルバム編集/削除導線 | DetailPage/ListPage/ListTable/ListCard, ConstructionPhotoEditPage(既存), AlbumDeleteDialog | PATCH/DELETE album API | - |
@@ -581,6 +583,9 @@ flowchart TD
 | 18 | 未保存離脱警告 | useUnsavedChanges, UnsavedChangesDialog, DetailPage | - | - |
 | 19 | 詳細画面モバイル | useMediaQuery, responsive, DetailPage, PhotoItemPanel | - | - |
 | 20 | アップロード失敗時の保持と再送 | PhotoUploader（送信アダプタ）, ImageUploader, usePendingUploads, PendingUploadPanel, upload-failure, ApiClient.sendFormData | UploadOutcome, FailedUpload, PendingUploadPanelProps, sendFormData | 保持・再送フロー |
+| 21.1-21.9 | 案件の閲覧範囲と出力の記録 | 工事写真・写真項目・工事看板の経路, 案件IDの解決関数, 画像の配信の判定, 出力の開始の処理 | requireProjectScope, runRecordedExport | PDFフロー, エクスポートフロー |
+
+> **改訂（2026-10-27、利用者の判断。タスク30）**: 1.2・13.2・13.3・17.1 の条文は「アクセス可能なプロジェクト」を user-authentication の要件39 の案件の閲覧範囲として読むよう改訂した（requirements.md の Requirement 1・13・17 の改訂の記録）。閲覧範囲の適用そのもの（範囲外の 404・一括と現調コピーの判定・一覧の絞り込み・画像の配信の判定・出力の記録）は Requirement 21 の受入基準として持ち、受入基準ごとの追跡は本書の「Requirement 21: 案件の閲覧範囲と出力の記録の適用」章の追跡表が持つ。本表の 1・13・17 の行の担い手は改めていない。
 
 ### Requirement 20 と site-survey Requirement 37 の対応
 
@@ -823,6 +828,7 @@ interface SignboardAssignDialogProps {
 
 **Implementation Notes**
 - Integration: ルートは `authenticate` + `requirePermission('construction_photo:<action>')`（看板は `construction_signboard:*`）+ `validate()`。二重マウントで nested/flat を提供。担当者での絞り込みはせず、対象と所属プロジェクトが取り除かれていれば 404 とする（タスク 23.1。Existing Architecture Analysis を参照）。写真の操作のルーターはアルバムの配下（nested）にも載るため、配下として指したときは写真がそのアルバムに属することをサービスで確かめる（属さなければ 404。是正前は別のアルバムの id を経由して他のアルバムの写真の原本・印字画像の取得、削除、メタの一括更新が通った）。
+  - **改訂（2026-10-27、タスク30）**: 上の「担当者での絞り込みはせず」はタスク 23.1 の判断の記録として残す。2026-10-24 の判断 A と 2026-10-27 の判断（要件 13.2・13.3 の改訂と Requirement 21 の新設）で置き換えられ、各経路は `requirePermission` の後に `requireProjectScope` を置き、閲覧範囲外の指定を不在と同じ汎用の 404（`NOT_FOUND`）にする。上表の Errors 列の 404 には閲覧範囲外が加わり、範囲外を 403 で返す経路は無い（Requirement 21.2・21.3）
 - 応答の形（タスク 23.10 で表を実装に合わせた）: アップロードは現調コピーと同じく部分失敗を許容し、本文は `{successful, failed}`、全件成功で 201・部分失敗で 207 である（表は以前、応答を `ConstructionPhotoWithUrls[]` と記していた）。原本と印字画像は署名付きURLを返さず、認証と権限の確認を経たルートがストレージから読んだバイト列を応答本文として返す（`Content-Type` は印字画像が `image/jpeg`、原本はマジックバイトから判定した形式）。
 - Validation: multer `array('images',10)` + `fileSize 10MB`、マジックバイト検証、コメント≤2000、`freeItems`/`footerText` 長制限（設計時定数化）。
 - Risks: PDF出力時の写真ごとオンデマンド合成のため、印刷対象が多いと export 時のサーバ処理が増える（低頻度操作のため許容、必要なら将来キャッシュ導入）。合成失敗は当該写真でエラー通知し export を中断。
@@ -901,6 +907,7 @@ interface SignboardAssignDialogProps {
 - 認可: 未認証401・権限なし403（R13.1,R13.3）。
 - 非合成原本エンドポイント: 看板配置済み写真でも生原本（非合成）を返し、一覧DTOに `originalUrl` を含めない。権限なし（`construction_photo:read` 非保持）は403・他プロジェクトの写真は404（存在秘匿。既存の print-image/delete/listWithUrls と同一方針）（R14.6,R15.4,R13.2,R13.4）。**タスク 23.1 で改めた**: 「他プロジェクトの写真は404」は担当者の限定（担当でない利用者には他人のプロジェクトの写真が見えない）を前提にした記述で、現在は成り立たない。担当者での絞り込みは行わず、権限を持つ利用者は担当でないプロジェクトの写真の原本も取得できる。404 になるのは、写真が無いとき、写真のアルバムか所属プロジェクトが論理削除済みのとき、アルバムの配下として指した写真がそのアルバムに属さないときである（print-image・削除・メタの一括更新も同じ判定）。
 - アクセスの判定（タスク 23.1, R1.2, R13.2, R13.3, R17.1）: 担当でない一般ユーザー（user）が、他の利用者のプロジェクトのアルバム・写真項目・看板に対して、権限の表が許す閲覧・作成・編集を行え（写真項目を取り除く操作は user の権限に無く 403）、未認証は 401・ロール無しは 403 で何も書き込まない。プロジェクト（アルバム）の配下として指したときの所属の不一致は 404 / 400、取り除かれたプロジェクトとアルバムの各操作は 404 で、DB の値が変わらず、本文に署名付きURLや保存先のパスが含まれない（`construction-photo-access.api.integration.test.ts`）。
+  - **改訂（2026-10-27、タスク30.1）**: 上の 2 項（「他プロジェクトの写真は404」が成り立たないとした記述と、担当でない一般ユーザーが他の利用者のプロジェクトのアルバム・写真項目・看板を操作できるとした試験の方針）は、タスク 23.1 の利用者の判断（2026-10-03）の記録として残す。この判断は 2026-10-24 の判断 A（user-authentication の要件39 が優先する）と 2026-10-27 の判断（要件 1.2・13.2・13.3・17.1 の改訂と Requirement 21 の新設）で置き換えられた。以後の試験の方針は、担当でない利用者（営業担当者・工事担当者・作成者のいずれでもなく、全案件閲覧の権限を持たない）の ID 指定が不在と同じ 404 になり、DB とストレージが変わらず、本文に案件 ID など存在を推測できる情報を含まないこと、同じ利用者を工事担当者・営業担当者・作成者に設定すると権限の表が許す操作が通ることである（主張を消さず書き換える。統合テストの対象はタスク30.1 の本文が挙げる 5 ファイル。Requirement 21.1〜21.7）
 - 看板の削除と写真一覧（タスク 23.3, R9.7）: 使用中の看板を削除すると、写真一覧が当該写真項目の `signboardId` / `signboardPlacement` を null で返し、DB の行も解除される。論理削除済みの看板を指す既存の行も一覧では null で返す。看板の削除をまたいだ保存は、看板に触れない変更なら成功して解除が保たれ、削除済みの看板を指定する変更は 404（`SIGNBOARD_NOT_ALLOWED`）で他の変更も書き込まれない。
 - **形式エラー文言の契約**: 不正な画像形式のアップロードに対し、207 応答の `failed[].error` が `utils/upload-failure` の判定断片（`サポートされていないファイル形式` / `サポートされていない画像形式` / `MIMEタイプと一致しません`）のいずれかを**含む**ことを検証する（R20.16,R20.17,R20.18）。
   - 既存の `construction-photo-image.api.integration.test.ts` は `failed[].fileName` のみを検証しており、メッセージ本文を保証していない。工事写真が独自の検証メッセージを持った瞬間に恒久／一時の分類が `retriable` へ倒れ、再送不可の区別が無言で壊れるため、この1項目でフロントとバックエンドの文言契約を固定する。
@@ -918,6 +925,7 @@ interface SignboardAssignDialogProps {
 - アルバム編集導線→編集画面遷移、削除導線→確認→削除後に一覧へ遷移（R16）。
 - 削除権限を持たないユーザー（user）でアルバム削除・写真削除の導線が非表示、編集権限なしで詳細が読み取り専用（R17）。
 - 担当でない一般ユーザーが一覧から他の利用者のアルバムを開き、写真項目を見て、アップロード・コメント・並び替えを保存でき、写真項目を取り除く操作手段は表示されない（R1.2, R17.2, タスク 23.1）。
+  - **改訂（2026-10-27、タスク30.1）**: 上の項はタスク 23.1 の判断の記録として残す。2026-10-24 の判断 A を受けて user-authentication のタスク52.3 が同じ E2E を、担当外は「プロジェクトが見つかりません」でアルバムの行が 0 件、工事担当者に設定すると見える、の主張へ書き直した（R1.2, R17.2）。2026-10-27 の判断の後の方針は、担当外の利用者がアルバムの URL を直接開くと見つからない扱いになること（Requirement 21.2）と、台帳の PDF・写真項目画像の一括 ZIP が生成より前に出力の記録を 1 回要求し、記録の失敗では生成もダウンロードも始まらずエラーメッセージが出ること（Requirement 21.8・21.9）を加える
 - クリックだけでプロジェクト詳細 → 一覧 → 看板マスタ → 登録 → アルバム → 「看板を配置」→ 保存まで到達できる。看板の一覧の取得に失敗しても「登録されていません」と述べず失敗の文言を示し、取得中は看板の指定を変える操作が出ず配置を消す保存が送られない（R8.1, R8.10, タスク 23.2）。
 - 使用中の看板を看板マスタで取り除くと、詳細画面の写真項目のバッジと文言が「看板なし」の側へ変わる（R9.7, タスク 23.3）。
 - 看板を選んで配置をドラッグせずに保存すると、保存の要求に既定の矩形を換算した配置が含まれ、読み込み直した後も保たれ、印字画像が原本と異なる（看板が重なる）。比較はバイト列で行う（R9.1, R9.3, タスク 24.4）。
@@ -951,6 +959,7 @@ E2E で観測できる受入基準と、共有クライアントの内部挙動�
 ## Security Considerations
 - 認可: 新規 RBAC 権限 `construction_photo:{create,read,update,delete}`、`construction_signboard:{create,read,update,delete}`。全ルートで `authenticate`＋`requirePermission`。
 - データ分離: アルバム/写真/看板の取得時に対象が要求プロジェクト配下であることをサービスで検証（R13.2）。タスク 23.1 で範囲を明確にした: 取得・更新・削除のいずれでも、対象が要求されたプロジェクト（またはアルバム）の配下にあり、対象と所属プロジェクトが論理削除されていないことをサービスで確かめる（R13.2, R13.3）。プロジェクトの配下として指したアルバム・看板の更新・削除は、別のプロジェクトの配下なら版の照合より先に 404 とする。アルバム・看板の一覧は、プロジェクトが無いか論理削除済みなら 404 とする。別のプロジェクトの id を混ぜた要求は、404（並び替え・看板の指定）または 400（複数アルバムにまたがるメタの一括更新）で拒否する。担当者での絞り込みは行わない（Existing Architecture Analysis を参照）。
+  - **改訂（2026-10-27、タスク30）**: 上の「担当者での絞り込みは行わない」はタスク 23.1 の判断の記録として残す。2026-10-24 の判断 A と 2026-10-27 の判断で置き換えられ、データ分離は配下の所属と論理削除の検証に加えて、案件の閲覧範囲（user-authentication の要件39）で判定する。範囲外は不在と同じ汎用の 404 とし、写真項目の画像（サムネイルの署名付きURL・原本・印字画像）も範囲内に限って配信する（R13.2, R13.3, Requirement 21.2・21.7）
 - 配信: サムネイルは署名付きURL（TTL 900s。プロジェクト詳細の要約の代表サムネイルもタスク 23.7 で同じ値にした, R11.6）で配信し公開パスを用いない（R13.4）。原本と印字画像（合成画像）は署名付きURLを発行せず、認証（`authenticate`）と権限（`construction_photo:read`）を経たルートがストレージから読んだバイト列を応答本文として返す（公開パスは用いない）。タスク 23.10 で、原本・合成画像も署名付きURLで配信するとした記述を実装に合わせた。
 - UI権限出し分け（R17）はフロントの体験向上であり権威ではない。実際の認可はバックエンド RBAC（`requirePermission`）が権威で、非表示化した操作もサーバ側で403となる（多重防御）。`useConstructionPhotoPermission` は権限ロード完了まで安全側（非表示）に倒す（R17.5）。
 - 未送信画像の保持（R20）はブラウザのメモリ上のみで、`File` 実体も `ObjectURL` も永続化しない。端末ローカル保存は Out of scope であり、画面離脱・リロードで保持は失われる（撮影画像が端末に残り続けることによる情報残留を作らない）。`ObjectURL` は保持から外れた時点・破棄時・アンマウント時に必ず解放する。
@@ -959,3 +968,99 @@ E2E で観測できる受入基準と、共有クライアントの内部挙動�
 ## Performance & Scalability
 - リクエスト効率（R11）は既存 site-survey 方針を踏襲: 一覧`limit=50`、詳細は写真一覧＋署名URLを一括取得（N+1回避）、サムネ優先・原本/印字画像は必要時、保存は最大2リクエスト、アップロード並列5、署名URL TTL 900s。
 - 看板合成はPDF出力時（低頻度）にオンデマンド実行し、通常の一覧・詳細・保存フローには合成処理を持ち込まない。
+
+## Requirement 21: 案件の閲覧範囲と出力の記録の適用
+
+### Overview
+
+**Purpose**: user-authentication の要件39（案件単位の閲覧範囲）と要件40.9〜40.11（データ出力の記録）を本機能の API と出力へ適用する。上流は判定の部品（`ProjectScopeService` の `evaluateProjectAccess`・`buildProjectScopeWhere`・`canAccessProject`、`requireProjectScope`）と出力の記録の手段（`ExportAuditService`、`runRecordedExport`）を実装済みであり、各業務機能への適用は各 spec の所管と定めている（user-authentication の design.md の Boundary Commitments の Out of Boundary）。本章は本機能の適用箇所を設計として固定する。
+
+**Users**: 担当外の案件の工事写真を閲覧・操作させたくないシステム管理者と、出力の経緯を追跡する監査の担当者。
+
+**Impact（既存前提の是正）**: user-authentication の機能検証（2026-10-25、HEAD `b85b8124`）で次の二点が確かめられた（タスク30 の経緯）。
+
+1. 本機能の API はロールの権限の表（`construction_photo:*`・`construction_signboard:*`）だけを判定し、案件の範囲を判定しない（タスク 23.1 の利用者の判断（2026-10-03）による）。担当外の利用者が ID 指定で他の案件のアルバム・写真項目・工事看板を読み書きできる
+2. 本機能の出力（工事写真台帳の PDF、写真項目画像の一括 ZIP）は記録を経ずに生成される。`runRecordedExport` を本番で呼び出す箇所は無い
+
+### 要件 1.2・13.2・13.3・17.1 の読み替え（2026-10-27、利用者の判断）
+
+利用者は、要件 1.2・13.2・13.3・17.1 の条文を改訂して改訂の記録を残すと判断した（採らなかった案は、条文を変えず本書だけで読み替える案）。改訂の内容と理由は requirements.md の各受入基準の改訂の記録が持ち、本書は設計上の読み方だけを記す。タスク 23.1 の判断（2026-10-03）は、2026-10-24 の判断 A（user-authentication の tasks.md の Implementation Notes の 52.3）とこの改訂で置き換えられた。23.1 の記録（tasks.md の同タスクの判断と完了時の注記、本書の Existing Architecture Analysis・API Contracts・Testing Strategy・Security Considerations の該当の記述）は消さずに残し、それぞれに置き換えの追記を置いた。
+
+| 条文 | 改訂前の設計上の読み方（タスク 23.1） | 改訂後の設計上の読み方 |
+|---|---|---|
+| 1.2 | 権限の表が閲覧を許せば、担当でないプロジェクトのアルバムの詳細画面も表示する | 閲覧範囲（営業担当者・工事担当者・作成者、または全案件閲覧の権限）に含まれるプロジェクトのアルバムに限り表示する。範囲外は存在しないアルバムと同じ扱い（21.2） |
+| 13.2 | 「アクセス可能なプロジェクト」は実在し論理削除されていないプロジェクト | 実在し論理削除されていないことに加え、閲覧範囲に含まれるプロジェクト |
+| 13.3 | 拒否の形は 401 / 403、範囲外の区別なし（担当者で絞り込まない） | 範囲外は存在しない場合と同じ汎用の 404（21.2・21.3）。ロールの権限の表の拒否（403）は範囲内で働く |
+| 17.1 | 権限の表が編集を許せば、担当でないプロジェクトのアルバムでも編集の操作手段を表示する | 編集の操作手段の出し分けは閲覧範囲内のアルバムで働く。範囲外のアルバムは表示しない（21.2） |
+
+**読み替えに伴って主張が変わる既存のテスト**（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 C。扱いはタスク30.1 の本文のとおり）: 担当でない user の各操作が通ることを主張する統合テストの主張（同記録で 8 件ほか）は、担当外は不在と同じ 404 で DB とストレージが変わらないこと、工事担当者・営業担当者・作成者に設定すると通ることの主張へ書き換える（主張を消さない）。E2E の「担当でない一般ユーザーが…」は user-authentication のタスク52.3 で既に書き直されている。
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 本機能の API の各経路への `requireProjectScope` の適用（`requirePermission` の後に置く）。対象はタスク30.2 の本文が挙げる 3 ルートファイルの 17 経路（21.1-21.7）
+- アルバム・写真項目・工事看板の ID から案件の ID を引く解決関数（新設。置き場所は実装時に決める）と、写真項目の一括の要求（メタデータの一括更新・表示順序の更新）の全件の判定（21.4）
+- 現場調査写真のコピーでのコピー元の現場調査写真の案件の判定（21.5）。同一プロジェクトに限る既存の判定（Requirement 6.4）は保つ
+- タスク 23.1 がまとめた所属の判定（`construction-photo-availability`。配下として指したときの 404 / 400、論理削除の 404）と閲覧範囲の判定の順序と重複の整理
+- 写真項目の画像の配信の判定: 写真項目一覧・アルバム一覧の代表サムネイル・メタデータ一括更新の応答の署名付きURLの発行と、原本・印字画像の取得を範囲内に限る（21.7）
+- 本機能の画面の出力の開始の処理を `runRecordedExport` で包むこと（21.8・21.9）。対象は `ConstructionPhotoDetailPage` の `handleExportPdf`（工事写真台帳の PDF、種別 `construction_photo_ledger_pdf`）と `handleExportStart`（写真項目画像の一括 ZIP、種別 `construction_photos_zip`）
+
+#### Out of Boundary
+- 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
+- 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
+- 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
+- コピー元の現場調査写真そのものの閲覧範囲の判定（site-survey の Requirement 39 が所管）。本機能はコピーの要求の受け口でコピー元の案件を判定するだけである
+- プロジェクト詳細画面の工事写真パネルのサマリ（project-management が所管するプロジェクト詳細の取得の閲覧範囲に従う）
+
+#### Allowed Dependencies
+- 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
+- 本機能の画像の配信の判定 → `canAccessProject`・`evaluateProjectAccess`
+- 本機能の出力の画面 → `runRecordedExport`（`frontend/src/api/export-audit.ts`）
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| 工事写真・写真項目・工事看板の経路 | Routes | 範囲外の ID 指定を不在と同じ 404 にし、一括・現調コピーの対象と一覧を範囲内へ限る | 21.1, 21.2, 21.3, 21.4, 21.5, 21.6 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
+| 案件IDの解決関数 | Service | アルバム・写真項目・工事看板・コピー元の現場調査写真の ID から案件の ID を引く | 21.2, 21.4, 21.5 | Prisma（P0） | Service |
+| 画像の配信の判定 | Service | 範囲内に限ってサムネイルの署名付きURLを発行し、原本・印字画像を返す | 21.7 | `canAccessProject`（P0）, SignedUrl（P1） | Service |
+| 出力の開始の処理 | UI | 台帳の PDF と一括 ZIP の生成を記録の成功の後に始め、記録の失敗では中止する | 21.8, 21.9 | `runRecordedExport`（P0） | State |
+
+**判定の順序**: 認証（401）→ `requirePermission`（403）→ `requireProjectScope`（範囲外は 404）→ 本体（所属と論理削除の 404 / 400）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
+
+**一括の経路**: メタデータの一括更新と表示順序の更新は、対象の全件の案件を判定し、一つでも不在または範囲外の案件に属すれば要求全体を不在と同じ汎用の 404 にしてどの写真項目にも書き込まない（21.4）。従来も不在の写真項目・看板が混じれば要求全体を拒否して何も変えない契約であり（タスク 23.3）、範囲外を不在と同じ扱いに寄せる。範囲外だけを除いて残りを書き込む案は、応答の件数の差から範囲外の写真項目の実在を推測させるうえ、全件か無しかの契約を部分適用へ変えるため採らない（site-survey のタスク119.1 の決定と同じ）。
+
+**現調コピー**: コピー先のアルバムの案件を経路で判定したうえで、コピー元の現場調査写真の案件も判定する。範囲外のコピー元は存在しない現場調査写真と同じ応答にし、写真項目を作成しない（21.5）。同一プロジェクトに限る既存の判定（Requirement 6.4）があるため、範囲内のアルバムへ範囲外のコピー元が通る経路は本来無いが、応答の本文で範囲外の実在を推測させないことを主張する。
+
+**出力の記録**: 種別は `ExportKind` の `construction_photo_ledger_pdf`（工事写真台帳）・`construction_photos_zip`（一括 ZIP）を用い、対象の案件を添える。記録の失敗では生成もダウンロードも始めず、`EXPORT_RECORD_FAILED_MESSAGE` を画面に表示する（21.9）。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 21.1 | 範囲内（担当者・作成者・全案件閲覧の権限）は従来どおり使える | 工事写真・写真項目・工事看板の経路, 画像の配信の判定 | `requireProjectScope`, `canAccessProject` | - |
+| 21.2 | 範囲外の ID 指定は不在と同じ 404、データを変えない | 工事写真・写真項目・工事看板の経路, 案件IDの解決関数 | `requireProjectScope` | - |
+| 21.3 | 404 の本文に存在を推測できる情報を含めない | 工事写真・写真項目・工事看板の経路 | 汎用の `NOT_FOUND` | - |
+| 21.4 | 一括の要求は 1 件でも範囲外なら全体を 404、書き込まない | 工事写真・写真項目・工事看板の経路, 案件IDの解決関数 | `evaluateProjectAccess` | 保存フロー |
+| 21.5 | 現調コピーはコピー元の案件も判定する | 工事写真・写真項目・工事看板の経路, 案件IDの解決関数 | `evaluateProjectAccess` | 追加フロー |
+| 21.6 | 一覧は範囲内だけ | 工事写真・写真項目・工事看板の経路 | `requireProjectScope` | - |
+| 21.7 | 画像の署名付きURL・原本・印字画像は範囲内に限る | 画像の配信の判定 | 画像一覧レスポンス（URL同梱）, `GET .../original`, `GET .../print-image` | ビューアフロー |
+| 21.8 | 生成の前に出力の記録を 1 回要求する | 出力の開始の処理 | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | PDFフロー, エクスポートフロー |
+| 21.9 | 記録の失敗では生成せずエラーメッセージを表示する | 出力の開始の処理 | `runRecordedExport`, `EXPORT_RECORD_FAILED_MESSAGE` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 範囲外のアルバム・写真項目・工事看板の ID 指定 | 存在しない場合と同じ 404（`NOT_FOUND`）。本文に案件 ID を含めず、データを変えない | 21.2, 21.3 |
+| 範囲外のプロジェクトのアルバム一覧・工事看板一覧 | プロジェクトの不在と同じ 404 | 21.2, 21.6 |
+| 一括の要求に範囲外の写真項目が 1 件でも含まれる | 要求全体を 404。どの写真項目にも書き込まない | 21.4 |
+| 範囲外のコピー元の現場調査写真の指定 | 不在のコピー元と同じ応答。写真項目を作成しない | 21.5 |
+| 範囲外の写真項目の原本・印字画像の取得 | 404。画像のバイト列を返さない | 21.7 |
+| 出力の記録の要求が失敗 | 生成もダウンロードも始めず、エラーメッセージを表示する | 21.9 |
+
+### Testing Strategy
+
+- **統合（バックエンド）**: 担当外の利用者の ID 指定（閲覧・書き込み・一括・現調コピー・原本・印字画像）が不在と同じ 404 になり DB とストレージが変わらないこと、本文に案件 ID が出ないこと、範囲外のプロジェクトの一覧が 404 になること、担当者・作成者・全案件閲覧の権限では従来どおりであること、範囲外ではサムネイルの署名付きURLも返らないこと（21.1-21.7）。タスク 23.1 の判断を主張する既存の統合テストは主張を消さずに書き換える（タスク30.1）
+- **E2E**: 担当外の利用者がアルバムの URL を直接開くと見つからない扱いになること（21.2）。台帳の PDF と一括 ZIP のそれぞれが生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ること（21.8, 21.9）
+- 挙動の変更であるため RED → GREEN で進める（タスク30.1・30.2・30.3）
