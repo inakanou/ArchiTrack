@@ -1217,6 +1217,7 @@ interface DeleteItemizedStatementRequest {
 - 内訳書の作成の要求が指す数量表が経路の `projectId` の案件に属するかの照合（18.4）
 - 並び順の保存の、対象の内訳書に属さない内訳項目の ID を要求全体で拒否する扱い（18.5。既存の仕組みを本要件の受入基準として持つ）
 - 内訳書詳細画面の Excel 出力の開始の処理を `runRecordedExport` で包むこと（18.7・18.8）。対象は `ItemizedStatementDetailPage` の `handleExportToExcel`（種別 `itemized_statement_xlsx`）
+  - **実装の記録（タスク27.2）**: 包んだのは `handleExportToExcel` だけで、クリップボードへのコピーの処理（Requirement 14）は変えていない。記録の要求中に詳細画面が破棄されたときの扱い（画面の側の描画の状態の参照）も本章が持つ（「出力の記録」の「実装の決定」）
 
 #### Out of Boundary
 - 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
@@ -1242,9 +1243,11 @@ interface DeleteItemizedStatementRequest {
 | 案件IDの解決関数 | Middleware | 内訳書の ID から案件の ID を引く | 18.2 | Prisma（P0） | Service |
 | 数量表の所属の照合 | Service | 作成の要求が指す数量表が経路のプロジェクトに属するかを確かめ、属さなければ不在と同じ 404 にして作成せず、数量表の案件が範囲外なら範囲外の拒否を記録する | 18.4 | `ItemizedStatementService`（P0）, `evaluateProjectAccess`（P0）, `recordProjectScopeDenied`（P0） | Service |
 | 並び順の保存の内訳項目の所属の照合 | Service | 並び順の保存の要求の内訳項目の ID が対象の内訳書に属するかを確かめ、一つでも属さなければ要求全体を拒否する | 18.5 | `ItemizedStatementService`（P0） | Service |
-| Excel出力の開始の処理 | UI | 内訳書の Excel の生成を記録の成功の後に始め、記録の失敗では中止する | 18.7, 18.8 | `runRecordedExport`（P0） | State |
+| Excel出力の開始の処理 | UI | 内訳書の Excel の生成を記録の成功の後に始め、記録の失敗では中止し、記録の要求中に画面が破棄されたら生成しない | 18.7, 18.8 | `runRecordedExport`（P0）, `EXPORT_RECORD_FAILED_MESSAGE`（P0） | State |
 
 **改訂（2026-10-28、タスク27.1）**: 表の2行を実装に合わせて改めた。改訂前は、案件IDの解決関数の Layer が Service だった。数量表の所属の照合の Intent が「作成の要求が指す数量表が経路のプロジェクトに属するかを確かめ、属さなければ不在と同じ 404 にして作成しない」まで、Key Deps が `ItemizedStatementService`（P0）だけだった。解決関数を判定部品と同じ middleware 層のファイルに置いたことと、範囲外の案件の数量表を指す作成の拒否を記録する（user-authentication の要件39.7）ことにしたことによる改訂である。
+
+**改訂（2026-10-28、タスク27.2）**: 表の「Excel出力の開始の処理」の行を実装に合わせて改めた。改訂前は、Intent が「内訳書の Excel の生成を記録の成功の後に始め、記録の失敗では中止する」まで、Key Deps が `runRecordedExport`（P0）だけだった。記録の失敗の表示に Allowed Dependencies が挙げる `EXPORT_RECORD_FAILED_MESSAGE` を用いたことと、記録の要求中に画面が破棄されたら記録の成功の後も生成しないことにした（「出力の記録」の「実装の決定」）ことによる改訂である。
 
 **判定の順序**: 認証（401）→ `requirePermission`（403）→ 経路の ID の形式の検査（400）→ `requireProjectScope`（範囲外は 404）→ 本体（内訳書・数量表の不在の 404、バリデーションの 400、競合の 409、オーバーフローの 422）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
   - **補記（2026-10-28、タスク27.1）**: 上の並びに、範囲の判定より先に来る経路の ID の形式の検査（400）を書き足した。改訂前は `requirePermission`（403）の次が `requireProjectScope` だった。実装は形式の崩れた ID を判定部品へ渡さず 400 で終える（「適用の決定」）
@@ -1277,6 +1280,16 @@ interface DeleteItemizedStatementRequest {
 
 **出力の記録**: 種別は `ExportKind` の `itemized_statement_xlsx` を用い、`projectId` に内訳書の案件（詳細の応答の `projectId`）を、`targetIds` に内訳書の ID を、`itemCount` に出力する内訳項目の件数（フィルタ後の `sortedItems` の件数。Requirement 13.6）を添える。記録は生成中の二重の開始の抑止（`isExporting`）の判定の後、`exportToExcel` の呼び出しより前に 1 回だけ要求する（18.7）。記録の失敗では生成もダウンロードも始めず、詳細画面の出力のエラー表示（`exportError`）に `EXPORT_RECORD_FAILED_MESSAGE` を表示し、ローディングの表示（13.7）を解く（18.8）。記録の後の生成の失敗（13.8）は従来の文言で表示し、記録は再送しない。
 
+**実装の決定（2026-10-28、タスク27.2 の実装）**: estimate-creation のタスク62.2・quantity-table-generation のタスク104.2 と同じ形で、次のとおりとした。
+
+- `handleExportToExcel` は生成中の表示（`isExporting`、13.7）を立ててから `runRecordedExport` を呼び、`exportToExcel` の呼び出しを記録の成功の後にだけ呼ばれる生成の処理の中に置いた。Excel の生成とダウンロード（`exportToExcel` がブラウザでファイルを書き出す）はすべてこの中で行う
+- 記録の要求中も生成中の表示のまま Excel 出力のボタンを止める（`disabled`）。要求中に押し直しても `isExporting` の判定で戻るため、記録の要求は 1 回だけである（18.7）
+- 記録の要求中に詳細画面が破棄された（画面を離れた）ときは、記録の成功の後も生成もダウンロードも始めない。画面の描画の状態を `isMountedRef` で参照し、生成の処理の入口で確かめる。React の StrictMode の二重の effect（破棄の後の再実行）でも描かれている状態へ戻すため、effect の本体で `true` に戻す。この場合は記録だけが残り出力は無い（記録は「出力を始めた」ことの記録であり、記録の後の生成の失敗と同じ扱い）
+- 記録に添える件数は、生成に渡す項目（フィルタとソートを適用した `sortedItems`）の件数とした。ソートは件数を変えないため、フィルタ後の件数（Requirement 13.6）と一致する
+- 記録の後の生成の失敗は、従来どおり `exportToExcel` の返す失敗の文言（無ければ「Excelファイルの生成に失敗しました」）を表示する。生成の処理が例外を投げたときは、従来の `catch` と同じく例外の文言を表示する（`runRecordedExport` の `GENERATION_FAILED` の原因から読む）。どちらも記録は再送しない（13.8）
+- クリップボードへのコピー（Requirement 14）の処理は変えていない（Out of Boundary）
+- 単体テストは詳細画面の Excel 出力のテストの「出力の記録」で、E2E は内訳書の Excel の出力の事前記録の spec（`@requirement itemized-statement-generation/REQ-18.7`・`REQ-18.8`）で固定した。E2E はダウンロードの実発生を Playwright のダウンロードの出来事で確かめ、記録の応答がダウンロードより前に返ることを主張する
+
 ### Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |
@@ -1299,9 +1312,14 @@ interface DeleteItemizedStatementRequest {
 | 作成の要求が経路のプロジェクトに属さない数量表を指す | 数量表の不在と同じ 404。内訳書を作成しない | 18.4 |
 | 並び順の保存の要求に対象の内訳書に属さない内訳項目の ID が一つでも含まれる | 要求全体を 400（既存の所属の検証）。どの内訳項目にも書き込まない | 18.5 |
 | 出力の記録の要求が失敗 | 生成もダウンロードも始めず、エラーメッセージを表示する | 18.8 |
+| 出力の記録の後に Excel の生成が失敗 | 従来の生成の失敗の文言を表示する。記録は再送しない | 13.8, 18.7 |
+| 出力の記録の要求中に詳細画面が破棄される | 記録の成功の後も生成もダウンロードも始めない | 18.7 |
+
+**追記（2026-10-28、タスク27.2）**: 表の末尾の2行（記録の後の生成の失敗、記録の要求中の画面の破棄）を実装に合わせて書き足した。改訂前の表は出力について「出力の記録の要求が失敗」の1行だけだった。記録の後の生成の失敗の扱いは「出力の記録」の段落に書かれていたが表に無く、画面の破棄の扱いは実装時に決めた（「出力の記録」の「実装の決定」）ためである。
 
 ### Testing Strategy
 
 - **統合（バックエンド）**: 担当外の利用者の ID 指定（内訳書の作成・一覧・直近の内訳書の要約・詳細・並び順の保存・論理的な取り除き）が不在と同じ 404 になり DB が変わらないこと、本文に案件 ID が出ないこと、他の案件の数量表を指す作成が 404 で内訳書が増えないこと、他の案件の内訳書の内訳項目の ID を混ぜた並び順の保存が要求全体の拒否でどの行も変わらないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること（18.1-18.6）
 - **E2E**: 担当外の利用者が内訳書の URL を直接開くと見つからない扱いになること（18.2）。内訳書の Excel 出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ること（18.7, 18.8）
+- **単体（フロントエンド）**（2026-10-28、タスク27.2 で追記。改訂前は統合と E2E の2項だけだった）: 詳細画面の Excel 出力で、記録の成功の後にだけ生成すること、記録に添える種別・案件・内訳書・フィルタ後の件数、記録の失敗と記録の ID の無い応答で生成せず文言を出すこと、記録の後の生成の失敗の文言と記録の再送の無いこと、記録の要求中のボタンの停止と押し直しで記録が1回であること、記録の要求中の画面の破棄で生成しないこと、StrictMode でも生成すること（18.7, 18.8）
 - 挙動の変更であるため RED → GREEN で進める（タスク27.1・27.2）
