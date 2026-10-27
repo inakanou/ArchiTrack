@@ -7,6 +7,9 @@
  * - 3系統（ローカル/カメラ/現調）で写真項目を追加 (R4, R5, R6)
  * - コメント＋印刷対象＋並び替えを1保存操作でメタバッチ＋順序の計2リクエストで確定 (R7.6, R11.4)
  *
+ * - タスク30.3: 出力（台帳の PDF・一括 ZIP）の生成の前の出力の記録と、記録の失敗での中止
+ *   （Requirement 21.8・21.9。describe「出力の記録」）
+ *
  * Requirements: 4.1, 4.2, 5.1, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4
  */
 
@@ -21,7 +24,7 @@ import * as siteSurveysApi from '../api/site-surveys';
 import * as signboardsApi from '../api/construction-signboards';
 import * as ledgerExportApi from '../services/export/ConstructionPhotoLedgerExportService';
 import { constructionPhotoBulkExportService } from '../services/export/ConstructionPhotoBulkExportService';
-import { ApiError } from '../api/client';
+import { ApiError, apiClient } from '../api/client';
 import useMediaQuery from '../hooks/useMediaQuery';
 import type {
   ConstructionPhotoAlbum,
@@ -230,6 +233,8 @@ describe('ConstructionPhotoDetailPage', () => {
       makePhoto({ id: 'photo-2', displayOrder: 2, fileName: 'b.jpg' }),
     ]);
     vi.mocked(signboardsApi.getConstructionSignboards).mockResolvedValue([mockSignboard]);
+    // 出力の記録（POST /api/v1/audit-logs/exports）は既定で成功させる（Requirement 21.8）
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
     // jsdom は URL.createObjectURL/revokeObjectURL 未実装のため、ダウンロード起動の
     // 呼び出し検証のためにスタブする（R15.1）。
     vi.stubGlobal('URL', {
@@ -241,6 +246,7 @@ describe('ConstructionPhotoDetailPage', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.mocked(apiClient.post).mockRestore();
   });
 
   it('詳細1リクエストで写真項目を取得しサムネイルを表示する (R7.8, R11.2, R11.3)', async () => {
@@ -392,6 +398,11 @@ describe('ConstructionPhotoDetailPage', () => {
   });
 
   it('PDF出力ボタン押下で台帳PDF出力オーケストレーションが写真項目・工事名で呼ばれる (R10.1)', async () => {
+    // 印刷対象が無いと画面が出力を始めない（R10.13）ため、印刷対象を含める
+    vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+      makePhoto({ id: 'photo-1', displayOrder: 1, fileName: 'a.jpg', includeInReport: true }),
+      makePhoto({ id: 'photo-2', displayOrder: 2, fileName: 'b.jpg' }),
+    ]);
     vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValue({
       generated: true,
       itemCount: 2,
@@ -881,6 +892,283 @@ describe('ConstructionPhotoDetailPage', () => {
   });
 
   // ==========================================================================
+  // タスク30.3: 出力の事前記録（Requirement 21.8, 21.9。user-authentication の要件40.9〜40.11）
+  // ==========================================================================
+
+  describe('出力の記録 (Requirement 21.8, 21.9)', () => {
+    /** 表示の文言の完全一致（余計な文言が付け足されていないこと） */
+    const RECORD_FAILED_EXACT = /^出力を記録できなかったため中止しました$/;
+
+    describe('工事写真台帳の PDF', () => {
+      beforeEach(() => {
+        // 印刷対象は photo-3（表示順 1）と photo-1（表示順 3）。photo-2 は印刷対象外
+        vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+          makePhoto({ id: 'photo-1', displayOrder: 3, fileName: 'a.jpg', includeInReport: true }),
+          makePhoto({ id: 'photo-2', displayOrder: 2, fileName: 'b.jpg' }),
+          makePhoto({ id: 'photo-3', displayOrder: 1, fileName: 'c.jpg', includeInReport: true }),
+        ]);
+        vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValue({
+          generated: true,
+          itemCount: 2,
+        });
+      });
+
+      it('生成を始める前に出力の記録を種別・案件・印刷対象つきで1回要求する', async () => {
+        const postSpy = vi.mocked(apiClient.post);
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+        await waitFor(() => {
+          expect(ledgerExportApi.exportConstructionPhotoLedger).toHaveBeenCalledTimes(1);
+        });
+        expect(postSpy).toHaveBeenCalledTimes(1);
+        expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
+          kind: 'construction_photo_ledger_pdf',
+          projectId: 'project-1',
+          targetIds: ['photo-3', 'photo-1'],
+          itemCount: 2,
+        });
+        // 記録の要求が台帳の生成より先に行われている
+        expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mock.invocationCallOrder[0]!
+        );
+      });
+
+      it('記録の要求が失敗すると台帳を生成せずエラーメッセージを表示する', async () => {
+        vi.mocked(apiClient.post).mockRejectedValue(new ApiError(500, 'Internal Server Error'));
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(RECORD_FAILED_EXACT);
+        expect(ledgerExportApi.exportConstructionPhotoLedger).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: 'PDF出力' })).toBeEnabled();
+      });
+
+      it('記録の応答に記録の ID が無いときも台帳を生成しない', async () => {
+        vi.mocked(apiClient.post).mockResolvedValue({});
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(RECORD_FAILED_EXACT);
+        expect(ledgerExportApi.exportConstructionPhotoLedger).not.toHaveBeenCalled();
+      });
+
+      it('印刷対象が0件のときは出力が無いため記録を要求せず、印刷対象が無い旨を示す (R10.13)', async () => {
+        vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+          makePhoto({ id: 'photo-1', displayOrder: 1, fileName: 'a.jpg' }),
+        ]);
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+        expect(await screen.findByText(/印刷対象の写真がありません/)).toBeInTheDocument();
+        expect(apiClient.post).not.toHaveBeenCalled();
+        expect(ledgerExportApi.exportConstructionPhotoLedger).not.toHaveBeenCalled();
+      });
+      it('記録の要求中に画面を離れると、記録の成功の後も台帳の PDF を生成しない', async () => {
+        vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+          makePhoto({ id: 'photo-1', displayOrder: 1, fileName: 'a.jpg', includeInReport: true }),
+        ]);
+        let resolveRecord: (value: { recordId: string }) => void = () => {};
+        vi.mocked(apiClient.post).mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              resolveRecord = resolve as (value: { recordId: string }) => void;
+            })
+        );
+        const { unmount } = renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+        await waitFor(() => {
+          expect(apiClient.post).toHaveBeenCalledTimes(1);
+        });
+
+        unmount();
+        await act(async () => {
+          resolveRecord({ recordId: 'record-1' });
+        });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(ledgerExportApi.exportConstructionPhotoLedger).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('写真項目画像の一括 ZIP', () => {
+      it('生成を始める前に出力の記録を種別・案件・対象つきで1回要求する', async () => {
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob(['zip']),
+          failed: [],
+        });
+        const postSpy = vi.mocked(apiClient.post);
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+        const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+        fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+
+        await waitFor(() => {
+          expect(constructionPhotoBulkExportService.export).toHaveBeenCalledTimes(1);
+        });
+        expect(postSpy).toHaveBeenCalledTimes(1);
+        expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
+          kind: 'construction_photos_zip',
+          projectId: 'project-1',
+          targetIds: ['photo-1', 'photo-2'],
+          itemCount: 2,
+        });
+        expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(constructionPhotoBulkExportService.export).mock.invocationCallOrder[0]!
+        );
+      });
+
+      it('選択エクスポートは選択した写真項目だけを対象として記録する', async () => {
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob(['zip']),
+          failed: [],
+        });
+        renderPage();
+        const items = await screen.findAllByTestId('construction-photo-item');
+        fireEvent.click(within(items[1]!).getByLabelText('エクスポート対象に含める'));
+
+        fireEvent.click(screen.getByRole('button', { name: /選択エクスポート/ }));
+        const dialog = await screen.findByRole('dialog', { name: /選択画像エクスポート/ });
+        fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+
+        await waitFor(() => {
+          expect(constructionPhotoBulkExportService.export).toHaveBeenCalledTimes(1);
+        });
+        expect(apiClient.post).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
+          kind: 'construction_photos_zip',
+          projectId: 'project-1',
+          targetIds: ['photo-2'],
+          itemCount: 1,
+        });
+      });
+
+      it('記録の要求が失敗すると生成もダウンロードも始めず、設定のダイアログの中にエラーメッセージを表示する', async () => {
+        vi.mocked(apiClient.post).mockRejectedValue(new ApiError(500, 'Internal Server Error'));
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+        const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+        fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+
+        expect(await within(dialog).findByRole('alert')).toHaveTextContent(RECORD_FAILED_EXACT);
+        expect(constructionPhotoBulkExportService.export).not.toHaveBeenCalled();
+        expect(URL.createObjectURL).not.toHaveBeenCalled();
+        expect(
+          screen.queryByRole('dialog', { name: /一括エクスポート処理中/ })
+        ).not.toBeInTheDocument();
+        // 設定のダイアログは開いたままで、開始し直せる
+        expect(within(dialog).getByRole('button', { name: '開始' })).toBeEnabled();
+      });
+
+      it('記録の要求中は設定のダイアログの開始・キャンセルを止め、記録の成功の後に生成を始める', async () => {
+        let resolveRecord: (value: { recordId: string }) => void = () => {};
+        vi.mocked(apiClient.post).mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              resolveRecord = resolve as (value: { recordId: string }) => void;
+            })
+        );
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob(['zip']),
+          failed: [],
+        });
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+        const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+        fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+
+        await waitFor(() => {
+          expect(within(dialog).getByRole('button', { name: '開始' })).toBeDisabled();
+        });
+        expect(within(dialog).getByRole('button', { name: 'キャンセル' })).toBeDisabled();
+        // 要求中に開始を押し直しても記録は1回だけ
+        fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+        expect(apiClient.post).toHaveBeenCalledTimes(1);
+        expect(constructionPhotoBulkExportService.export).not.toHaveBeenCalled();
+
+        await act(async () => {
+          resolveRecord({ recordId: 'record-1' });
+        });
+
+        await waitFor(() => {
+          expect(constructionPhotoBulkExportService.export).toHaveBeenCalledTimes(1);
+        });
+        expect(
+          screen.queryByRole('dialog', { name: /全件一括エクスポート/ })
+        ).not.toBeInTheDocument();
+      });
+
+      it('記録の要求中に画面を離れる（破棄される）と、記録の成功の後も生成もダウンロードも始めない', async () => {
+        let resolveRecord: (value: { recordId: string }) => void = () => {};
+        vi.mocked(apiClient.post).mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              resolveRecord = resolve as (value: { recordId: string }) => void;
+            })
+        );
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob(['zip']),
+          failed: [],
+        });
+        const { unmount } = renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+        const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+        fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+        await waitFor(() => {
+          expect(apiClient.post).toHaveBeenCalledTimes(1);
+        });
+
+        unmount();
+        await act(async () => {
+          resolveRecord({ recordId: 'record-1' });
+        });
+        // 記録の解決の後の非同期の続きを流し切る
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(constructionPhotoBulkExportService.export).not.toHaveBeenCalled();
+        expect(URL.createObjectURL).not.toHaveBeenCalled();
+      });
+
+      it('記録の失敗の表示は、設定のダイアログを開き直すと消える', async () => {
+        vi.mocked(apiClient.post).mockRejectedValue(new ApiError(500, 'Internal Server Error'));
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+
+        fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+        const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+        fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+        expect(await within(dialog).findByRole('alert')).toHaveTextContent(RECORD_FAILED_EXACT);
+
+        fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+        fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+        const reopened = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+        expect(within(reopened).queryByRole('alert')).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  // ==========================================================================
   // タスク 26.2: 利用者の判断（2026-10-05）で、未保存の変更があるときは PDF・ZIP の出力を始めず、
   // 保存してから出力する旨を示す。未保存の並び替えは画面の displayOrder だけを書き換えるため、
   // そのまま出力すると保存済みの表示順序（受入基準 10.12）と食い違う
@@ -918,6 +1206,11 @@ describe('ConstructionPhotoDetailPage', () => {
     });
 
     it('REQ-10.12: 保存の成功の後は、保存した表示順序の写真項目で PDF を出力する', async () => {
+      // 印刷対象が無いと画面が出力を始めない（R10.13）ため、印刷対象を含める
+      vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+        makePhoto({ id: 'photo-1', displayOrder: 1, fileName: 'a.jpg', includeInReport: true }),
+        makePhoto({ id: 'photo-2', displayOrder: 2, fileName: 'b.jpg', includeInReport: true }),
+      ]);
       vi.mocked(imagesApi.updateConstructionPhotoOrder).mockResolvedValue(undefined);
       vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValue({
         generated: true,
@@ -2366,6 +2659,10 @@ describe('ConstructionPhotoDetailPage', () => {
     });
 
     it('PDF出力が失敗すると失敗通知を表示する (R10.1)', async () => {
+      // 印刷対象が無いと画面が出力を始めない（R10.13）ため、印刷対象を含める
+      vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+        makePhoto({ id: 'photo-1', displayOrder: 1, fileName: 'a.jpg', includeInReport: true }),
+      ]);
       vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockRejectedValue(new Error('boom'));
 
       renderPage();

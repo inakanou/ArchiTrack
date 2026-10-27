@@ -944,7 +944,7 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - _Boundary: 本スペックの API の案件の範囲の判定と署名 URL の発行_
   - _Depends: 30.1（同じ変更で行う）_
 
-- [ ] 30.3 本スペックの出力に事前記録（user-authentication の要件40）を適用する
+- [x] 30.3 本スペックの出力に事前記録（user-authentication の要件40）を適用する
   - 対象（2026-10-25 の実測。着手時に測り直すこと）:
     - 工事写真台帳の PDF: frontend/src/pages/ConstructionPhotoDetailPage.tsx の `handleExportPdf`（906 行付近、`exportConstructionPhotoLedger`）。種別 `construction_photo_ledger_pdf`
     - 写真の一括 ZIP: 同ページの `handleExportStart`（1021 行付近、frontend/src/services/export/ConstructionPhotoBulkExportService.ts）。種別 `construction_photos_zip`

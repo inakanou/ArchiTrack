@@ -2,6 +2,8 @@
  * @fileoverview BulkExportDialog のテスト
  *
  * Task 11.4: エクスポート設定・進捗・中断UI
+ * Task 30.3: 出力の記録の要求中は開始・キャンセルを止め、記録の失敗のエラーメッセージを表示する
+ *   （Requirement 21.8・21.9。describe「出力の記録」）
  *
  * Requirements:
  * - 15.1: 一括ZIPダウンロード起動
@@ -175,6 +177,71 @@ describe('BulkExportDialog', () => {
 
       expect(onEmptyTarget).not.toHaveBeenCalled();
       expect(screen.getByRole('button', { name: '開始' })).not.toBeDisabled();
+    });
+  });
+
+  describe('出力の記録 (Requirement 21.8, 21.9)', () => {
+    it('記録の要求中（isStarting）は開始・キャンセルを押せず、押しても onStart・onClose を呼ばない', () => {
+      const onStart = vi.fn();
+      const onClose = vi.fn();
+      render(
+        <BulkExportDialog
+          open
+          mode="all"
+          totalCount={5}
+          selectedCount={0}
+          onClose={onClose}
+          onStart={onStart}
+          isStarting
+        />
+      );
+
+      const startButton = screen.getByRole('button', { name: '開始' });
+      const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
+      expect(startButton).toBeDisabled();
+      expect(cancelButton).toBeDisabled();
+      fireEvent.click(startButton);
+      fireEvent.click(cancelButton);
+      expect(onStart).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('記録の失敗（startError）をダイアログの中に role=alert で表示し、開始し直せる', () => {
+      const onStart = vi.fn();
+      render(
+        <BulkExportDialog
+          open
+          mode="all"
+          totalCount={5}
+          selectedCount={0}
+          onClose={vi.fn()}
+          onStart={onStart}
+          startError="出力を記録できなかったため中止しました"
+        />
+      );
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /^出力を記録できなかったため中止しました$/
+      );
+      const startButton = screen.getByRole('button', { name: '開始' });
+      expect(startButton).toBeEnabled();
+      fireEvent.click(startButton);
+      expect(onStart).toHaveBeenCalledTimes(1);
+    });
+
+    it('記録の失敗が無いときはエラーメッセージを表示しない', () => {
+      render(
+        <BulkExportDialog
+          open
+          mode="all"
+          totalCount={5}
+          selectedCount={0}
+          onClose={vi.fn()}
+          onStart={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });
 });
