@@ -324,8 +324,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'quantity-table-generation': {
     mode: 'ratchet',
     maxContradictions: 13,
-    minPairs: 24,
-    minTableDeclarations: 31,
+    // minPairs 24 → 29 / minTableDeclarations 31 → 36（quantity-table-generation のタスク104 の文書の改訂、
+    // 2026-10-27）。利用者の判断で新設した Requirement 50 の章「Requirement 50: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 5 行（いずれも 50.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾の上限 13 は据え置き
+    minPairs: 29,
+    minTableDeclarations: 36,
     minDetailDeclarations: 25,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
