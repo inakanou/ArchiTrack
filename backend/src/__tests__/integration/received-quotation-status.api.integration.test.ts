@@ -449,7 +449,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .field('lineItems', lineItems);
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       it('許可されていないファイル形式の場合は415を返す（Requirements: 11.8）', async () => {
@@ -531,7 +533,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('RECEIVED_QUOTATION_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -567,7 +571,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .field('expectedUpdatedAt', new Date().toISOString());
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('RECEIVED_QUOTATION_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -623,7 +629,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .send({ updatedAt: new Date().toISOString() });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('RECEIVED_QUOTATION_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
   });
@@ -792,7 +800,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .send({ status: 'REQUESTED' });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_STATUS_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -822,7 +832,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_STATUS_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
   });

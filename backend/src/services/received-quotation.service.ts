@@ -27,6 +27,9 @@
  * - 14.5: 論理削除
  * - 14.6: 楽観的排他制御
  *
+ * 案件の閲覧範囲（estimate-request の Requirement 42、タスク103.1）: ファイルのプレビュー用の署名付きURLは、
+ * 閲覧範囲内の案件の受領見積書に限って発行する。
+ *
  * Task 12.1: ReceivedQuotationServiceの実装
  * Task 20.2: contentType/textContent廃止、ファイル+明細行共存モデルへ移行
  * Task 21.1: 明細行管理追加（一括保存・取得・全量置換・金額検証）
@@ -46,6 +49,7 @@ import {
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 import logger from '../utils/logger.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
 
 /**
  * ファイルサイズ上限（10MB）
@@ -73,6 +77,8 @@ const ALLOWED_MIME_TYPES = [
 export interface ReceivedQuotationServiceDependencies {
   prisma: PrismaClient;
   storageProvider: StorageProvider;
+  /** 署名付きURLの発行の判定（省略時は共有のインスタンス。タスク103.1） */
+  projectScopeService?: Pick<ProjectScopeService, 'canAccessProject'>;
 }
 
 /**
@@ -182,10 +188,12 @@ type PrismaTransactionClient = Omit<
 export class ReceivedQuotationService {
   private readonly prisma: PrismaClient;
   private readonly storageProvider: StorageProvider;
+  private readonly projectScopeService: Pick<ProjectScopeService, 'canAccessProject'> | undefined;
 
   constructor(deps: ReceivedQuotationServiceDependencies) {
     this.prisma = deps.prisma;
     this.storageProvider = deps.storageProvider;
+    this.projectScopeService = deps.projectScopeService;
   }
 
   /**
@@ -734,17 +742,32 @@ export class ReceivedQuotationService {
    *
    * Requirements: 11.14
    *
+   * 受領見積書の親の見積依頼が属する案件が閲覧者の閲覧範囲に含まれる場合に限って発行する（タスク103.1）。
+   * 範囲外は受領見積書の不在と同じ扱いにし、署名付きURLを発行しない（経路の判定部品が先に 404 にするが、
+   * 発行の箇所でも判定する）
+   *
    * @param id - 受領見積書ID
+   * @param viewerId - 閲覧者のユーザーID
    * @returns 署名付きURL
-   * @throws ReceivedQuotationNotFoundError 受領見積書が存在しない場合
+   * @throws ReceivedQuotationNotFoundError 受領見積書が存在しない場合、または閲覧範囲外の場合
    * @throws InvalidContentTypeError ファイルが存在しない場合
    */
-  async getFilePreviewUrl(id: string): Promise<string> {
+  async getFilePreviewUrl(id: string, viewerId: string): Promise<string> {
     const quotation = await this.prisma.receivedQuotation.findUnique({
       where: { id },
+      include: { estimateRequest: { select: { projectId: true } } },
     });
 
     if (!quotation || quotation.deletedAt !== null) {
+      throw new ReceivedQuotationNotFoundError(id);
+    }
+
+    if (
+      !(await (this.projectScopeService ?? getSharedProjectScopeService()).canAccessProject(
+        viewerId,
+        quotation.estimateRequest.projectId
+      ))
+    ) {
       throw new ReceivedQuotationNotFoundError(id);
     }
 

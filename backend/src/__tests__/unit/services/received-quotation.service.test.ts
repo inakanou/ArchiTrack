@@ -21,7 +21,8 @@
  * @module tests/unit/services/received-quotation.service
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import type { ProjectScopeService } from '../../../services/project-scope.service.js';
 import { ReceivedQuotationService } from '../../../services/received-quotation.service.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 import type { StorageProvider } from '../../../storage/storage-provider.interface.js';
@@ -82,13 +83,19 @@ describe('ReceivedQuotationService', () => {
   let service: ReceivedQuotationService;
   let mockPrisma: PrismaClient;
   let mockStorageProvider: StorageProvider;
+  /** 署名付きURLの発行の判定（タスク103.1）。既定は範囲内 */
+  let mockProjectScope: { canAccessProject: Mock<ProjectScopeService['canAccessProject']> };
 
   beforeEach(() => {
     mockPrisma = createMockPrisma();
     mockStorageProvider = createMockStorageProvider();
+    mockProjectScope = {
+      canAccessProject: vi.fn<ProjectScopeService['canAccessProject']>().mockResolvedValue(true),
+    };
     service = new ReceivedQuotationService({
       prisma: mockPrisma,
       storageProvider: mockStorageProvider,
+      projectScopeService: mockProjectScope,
     });
   });
 
@@ -830,6 +837,7 @@ describe('ReceivedQuotationService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
+        estimateRequest: { projectId: 'project-001' },
       };
 
       vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(mockQuotation as never);
@@ -838,7 +846,7 @@ describe('ReceivedQuotationService', () => {
       );
 
       // Act
-      const result = await service.getFilePreviewUrl(quotationId);
+      const result = await service.getFilePreviewUrl(quotationId, 'user-001');
 
       // Assert
       expect(result).toBe('https://example.com/signed-url?token=xxx');
@@ -846,6 +854,31 @@ describe('ReceivedQuotationService', () => {
         'quotations/er-001/rq-001/見積書.pdf',
         expect.any(Object)
       );
+      // 親の見積依頼の案件で、閲覧者の範囲を判定する（タスク103.1）
+      expect(mockProjectScope.canAccessProject).toHaveBeenCalledWith('user-001', 'project-001');
+    });
+
+    it('閲覧範囲外の案件の受領見積書は、不在と同じエラーにして署名付きURLを発行しない（タスク103.1）', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue({
+        id: 'rq-001',
+        estimateRequestId: 'er-001',
+        filePath: 'quotations/er-001/rq-001/見積書.pdf',
+        fileName: '見積書.pdf',
+        deletedAt: null,
+        estimateRequest: { projectId: 'project-out-of-scope' },
+      } as never);
+      mockProjectScope.canAccessProject.mockResolvedValue(false);
+
+      // Act & Assert
+      await expect(service.getFilePreviewUrl('rq-001', 'user-001')).rejects.toThrow(
+        ReceivedQuotationNotFoundError
+      );
+      expect(mockProjectScope.canAccessProject).toHaveBeenCalledWith(
+        'user-001',
+        'project-out-of-scope'
+      );
+      expect(mockStorageProvider.getSignedUrl).not.toHaveBeenCalled();
     });
 
     it('ファイルなしの受領見積書の場合、エラーを発生させる', async () => {
@@ -863,12 +896,15 @@ describe('ReceivedQuotationService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
+        estimateRequest: { projectId: 'project-001' },
       };
 
       vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(mockQuotation as never);
 
       // Act & Assert
-      await expect(service.getFilePreviewUrl(quotationId)).rejects.toThrow(InvalidContentTypeError);
+      await expect(service.getFilePreviewUrl(quotationId, 'user-001')).rejects.toThrow(
+        InvalidContentTypeError
+      );
     });
 
     it('存在しない受領見積書の場合、エラーを発生させる', async () => {
@@ -876,7 +912,7 @@ describe('ReceivedQuotationService', () => {
       vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(null);
 
       // Act & Assert
-      await expect(service.getFilePreviewUrl('rq-nonexistent')).rejects.toThrow(
+      await expect(service.getFilePreviewUrl('rq-nonexistent', 'user-001')).rejects.toThrow(
         ReceivedQuotationNotFoundError
       );
     });

@@ -6593,6 +6593,17 @@ mailDisabledReason: {
 
 **項目の選択の保存（一括の経路）**: 項目の選択の保存は、対象の見積依頼の案件を判定し、不在または範囲外なら要求全体を不在と同じ汎用の 404 にしてどの項目の選択状態にも書き込まない（42.5）。要求の項目は見積依頼の配下に限って更新する既存の契約（見積依頼の ID で絞った更新）を保つため、範囲内の見積依頼の要求に範囲外の項目が混じっても他の見積依頼の項目は変わらない。範囲外の項目だけを除いて残りを書き込む案は、応答の差から範囲外の実在を推測させるうえ、全件か無しかの契約を部分適用へ変えるため採らない（site-survey のタスク119.1・construction-photo のタスク30.2 の決定と同じ）。
 
+**適用の決定（2026-10-27、タスク103.1 の実装）**: site-survey のタスク119.1・construction-photo のタスク30.2 と同じ形で、次のとおりとした。
+
+- 解決関数は次のファイルに置いた（判定そのものは `requireProjectScope` に任せる）。
+  backend/src/middleware/estimate-request-project-scope.middleware.ts
+- 見積依頼・受領見積書（親の見積依頼を経る）・作成の要求が指す内訳書の ID から案件の ID を引き、それぞれの論理削除は区別しない。範囲内の利用者には、本体の従来の 404（論理削除された見積依頼の `ESTIMATE_REQUEST_NOT_FOUND` など）がそのまま届く
+- 対象の不在も範囲外と区別できないよう汎用の 404（`NOT_FOUND`）になる。従来は見積依頼・受領見積書・ステータス・内訳書ごとの符号（`ESTIMATE_REQUEST_NOT_FOUND`・`RECEIVED_QUOTATION_NOT_FOUND`・`ESTIMATE_REQUEST_STATUS_NOT_FOUND`・`ITEMIZED_STATEMENT_NOT_FOUND`）と ID を本文に含めていた。画面は 404 を状態コードで扱っており、符号の変更の影響を受けない
+- 二重マウント（`/api/projects/:projectId/estimate-requests/:id`）では、経路の案件 ID でなく見積依頼が属する案件で判定し、両者が食い違うときは見積依頼の不在と同じ 404 にする。受領見積書の二重マウント（`/api/estimate-requests/:id/quotations/:id`）は経路のパラメータ名が重なり子の ID が優先されるため、受領見積書が属する案件で判定する
+- 受領見積書の登録・更新は、ファイルの受け取り（multipart の解析）より前に経路の ID の形式の検査と範囲の判定を置く。範囲外の要求のファイルをメモリへ読み込まない
+- 他の見積依頼での選択状態（42.6）は、サービスの `findItemsWithOtherRequestStatus` が閲覧者の `buildProjectScopeWhere` の条件と案件の論理削除の除外で他の見積依頼を絞る。全案件閲覧の権限の利用者には従来どおり別の案件の見積依頼も載る
+- 署名付きURLの発行（42.7）は経路の判定部品が先に受けたうえで、サービスの `getFilePreviewUrl` も親の見積依頼の案件を `canAccessProject` で判定し、範囲外では発行しない（二重の守り）
+
 **出力の記録**: 種別は `ExportKind` の `estimate_request_xlsx`（内訳書の Excel）・`site_survey_report_pdf`（現場調査報告書の PDF）を用い、対象の案件を添える。記録の失敗では生成もダウンロードも始めず、`EXPORT_RECORD_FAILED_MESSAGE` を画面に表示する（42.9）。項目の未選択のエラー（Requirement 5.3）と現場調査の未選択のエラー（Requirement 35.10）は記録より前に判定し、記録を要求しない。
 
 ### Requirements Traceability

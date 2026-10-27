@@ -21,7 +21,8 @@
  * @module tests/unit/services/estimate-request.service
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import type { ProjectScopeService } from '../../../services/project-scope.service.js';
 import Decimal from 'decimal.js';
 import { EstimateRequestService } from '../../../services/estimate-request.service.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
@@ -103,13 +104,23 @@ describe('EstimateRequestService', () => {
   let service: EstimateRequestService;
   let mockPrisma: PrismaClient;
   let mockAuditLogService: IAuditLogService;
+  /** 他の見積依頼の絞り込み条件（タスク103.1）。既定は全案件閲覧（絞り込みなし） */
+  let mockProjectScope: {
+    buildProjectScopeWhere: Mock<ProjectScopeService['buildProjectScopeWhere']>;
+  };
 
   beforeEach(() => {
     mockPrisma = createMockPrisma();
     mockAuditLogService = createMockAuditLogService();
+    mockProjectScope = {
+      buildProjectScopeWhere: vi
+        .fn<ProjectScopeService['buildProjectScopeWhere']>()
+        .mockResolvedValue(null),
+    };
     service = new EstimateRequestService({
       prisma: mockPrisma,
       auditLogService: mockAuditLogService,
+      projectScopeService: mockProjectScope,
     });
   });
 
@@ -1153,7 +1164,7 @@ describe('EstimateRequestService', () => {
         .mockResolvedValueOnce(mockOtherSelections as never); // 他の見積依頼での選択
 
       // Act
-      const result = await service.findItemsWithOtherRequestStatus(requestId);
+      const result = await service.findItemsWithOtherRequestStatus(requestId, 'user-001');
 
       // Assert
       expect(result).toHaveLength(2);
@@ -1162,14 +1173,48 @@ describe('EstimateRequestService', () => {
       expect(result[0]!.otherRequests[0]!.tradingPartnerName).toBe('協力業者B');
     });
 
+    it('他の見積依頼は閲覧者の閲覧範囲内の案件（論理削除されていない案件）に属するものに絞る（タスク103.1）', async () => {
+      // Arrange
+      const scopeWhere = {
+        OR: [
+          { salesPersonId: 'user-001' },
+          { constructionPersonId: 'user-001' },
+          { createdById: 'user-001' },
+        ],
+      };
+      mockProjectScope.buildProjectScopeWhere.mockResolvedValue(scopeWhere);
+      vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue({
+        id: 'er-001',
+        projectId: 'proj-001',
+        itemizedStatementId: 'is-001',
+        deletedAt: null,
+      } as never);
+      vi.mocked(mockPrisma.estimateRequestItem.findMany)
+        .mockResolvedValueOnce([] as never)
+        .mockResolvedValueOnce([] as never);
+
+      // Act
+      await service.findItemsWithOtherRequestStatus('er-001', 'user-001');
+
+      // Assert
+      expect(mockProjectScope.buildProjectScopeWhere).toHaveBeenCalledWith('user-001');
+      const otherQuery = vi.mocked(mockPrisma.estimateRequestItem.findMany).mock.calls[1]?.[0] as {
+        where: { estimateRequest: unknown };
+      };
+      expect(otherQuery.where.estimateRequest).toEqual({
+        deletedAt: null,
+        project: { deletedAt: null, ...scopeWhere },
+      });
+    });
+
     it('存在しない見積依頼の場合、エラーを発生させる', async () => {
       // Arrange
       vi.mocked(mockPrisma.estimateRequest.findUnique).mockResolvedValue(null);
 
       // Act & Assert
-      await expect(service.findItemsWithOtherRequestStatus('er-nonexistent')).rejects.toThrow(
-        EstimateRequestNotFoundError
-      );
+      await expect(
+        service.findItemsWithOtherRequestStatus('er-nonexistent', 'user-001')
+      ).rejects.toThrow(EstimateRequestNotFoundError);
     });
   });
 });

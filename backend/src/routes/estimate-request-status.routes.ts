@@ -6,6 +6,10 @@
  * - 12.9, 12.10: ステータス遷移実行
  * - 12.11: ステータス変更履歴
  *
+ * 案件の閲覧範囲（estimate-request の Requirement 42、user-authentication の要件39。タスク103.1）:
+ * 両経路で requirePermission の後に estimate-request-project-scope.middleware の判定部品を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。
+ *
  * Task 13.3: ステータス管理エンドポイントの実装
  *
  * @module routes/estimate-request-status
@@ -18,6 +22,7 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { requireEstimateRequestProjectScope } from '../middleware/estimate-request-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import { statusTransitionSchema } from '../schemas/received-quotation.schema.js';
 import { estimateRequestIdParamSchema } from '../schemas/estimate-request.schema.js';
@@ -96,6 +101,7 @@ router.patch(
   authenticate,
   requirePermission('estimate_request:update'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   validate(statusTransitionSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -211,6 +217,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };

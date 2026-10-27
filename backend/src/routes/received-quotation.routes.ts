@@ -8,6 +8,11 @@
  * - 11.14: ファイルプレビュー
  * - 11.15, 11.16, 11.17: 編集・削除
  *
+ * 案件の閲覧範囲（estimate-request の Requirement 42、user-authentication の要件39。タスク103.1）:
+ * 全経路で requirePermission の後に estimate-request-project-scope.middleware の判定部品を置き、
+ * 受領見積書は親の見積依頼の案件で判定して範囲外は不在と同じ汎用の 404 にする。登録・更新は
+ * ファイルの受け取りより前に判定する。プレビューの署名付きURLは範囲内に限って発行する。
+ *
  * Task 13.2: 受領見積書エンドポイントの実装
  *
  * @module routes/received-quotation
@@ -21,6 +26,10 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireEstimateRequestProjectScope,
+  requireReceivedQuotationProjectScope,
+} from '../middleware/estimate-request-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createReceivedQuotationSchema,
@@ -139,8 +148,9 @@ router.post(
   authenticate,
   // 受領見積書の追加は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:update'),
-  upload.single('file'),
   validate(estimateRequestIdForQuotationSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
+  upload.single('file'),
   validate(createReceivedQuotationSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -283,6 +293,7 @@ router.get(
   // 見積依頼詳細画面で受領見積書一覧を表示するため、estimate_request:read権限でアクセス可能とする
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdForQuotationSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: estimateRequestId } = req.validatedParams as { id: string };
@@ -339,6 +350,7 @@ router.get(
   // 受領見積書の閲覧は見積依頼の閲覧権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:read'),
   validate(receivedQuotationIdParamSchema, 'params'),
+  requireReceivedQuotationProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -435,8 +447,9 @@ router.put(
   authenticate,
   // 受領見積書の更新は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:update'),
-  upload.single('file'),
   validate(receivedQuotationIdParamSchema, 'params'),
+  requireReceivedQuotationProjectScope('id'),
+  upload.single('file'),
   validate(updateReceivedQuotationSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -593,6 +606,7 @@ router.delete(
   // 受領見積書の削除は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:update'),
   validate(receivedQuotationIdParamSchema, 'params'),
+  requireReceivedQuotationProjectScope('id'),
   validate(deleteReceivedQuotationBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -675,11 +689,12 @@ router.get(
   // 受領見積書の閲覧は見積依頼の閲覧権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:read'),
   validate(receivedQuotationIdParamSchema, 'params'),
+  requireReceivedQuotationProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
 
-      const url = await getReceivedQuotationService().getFilePreviewUrl(id);
+      const url = await getReceivedQuotationService().getFilePreviewUrl(id, req.user!.userId);
 
       logger.debug({ quotationId: id }, 'Received quotation preview URL generated');
 

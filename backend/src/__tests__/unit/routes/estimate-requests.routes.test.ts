@@ -51,6 +51,18 @@ const {
 }));
 
 // Mock dependencies before importing the routes
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// estimate-request-project-scope.middleware.test.ts と統合テストが確かめる。estimate-request タスク103.1）
+vi.mock('../../../middleware/estimate-request-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireEstimateRequestProjectScope: pass,
+    requireReceivedQuotationProjectScope: pass,
+    requireBodyItemizedStatementProjectScope: pass,
+  };
+});
+
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({
     $transaction: vi.fn(),

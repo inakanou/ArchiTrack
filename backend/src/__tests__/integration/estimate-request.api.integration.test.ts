@@ -426,7 +426,9 @@ describe('Estimate Request API Integration Tests', () => {
           });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ITEMIZED_STATEMENT_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       it('存在しない取引先IDで作成しようとすると404を返す', async () => {
@@ -629,7 +631,9 @@ describe('Estimate Request API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -683,7 +687,9 @@ describe('Estimate Request API Integration Tests', () => {
           });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -724,7 +730,9 @@ describe('Estimate Request API Integration Tests', () => {
           .send({ updatedAt: new Date().toISOString() });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
   });
@@ -852,7 +860,9 @@ describe('Estimate Request API Integration Tests', () => {
         });
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+      // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+      // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+      expect(response.body.code).toBe('NOT_FOUND');
     });
   });
 
@@ -920,7 +930,9 @@ describe('Estimate Request API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+      // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+      // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+      expect(response.body.code).toBe('NOT_FOUND');
     });
   });
 });

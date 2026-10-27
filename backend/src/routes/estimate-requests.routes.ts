@@ -17,6 +17,10 @@
  * - 5.1, 5.2: Excel出力
  * - 6.1: 見積依頼文生成
  *
+ * 案件の閲覧範囲（estimate-request の Requirement 42、user-authentication の要件39。タスク103.1）:
+ * 全経路で requirePermission の後に estimate-request-project-scope.middleware の判定部品を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。作成の要求が指す内訳書の案件も判定する。
+ *
  * Task 3.2: estimate-requests.routesの基本エンドポイント実装
  * Task 3.3: estimate-requests.routesの追加エンドポイント実装
  *
@@ -31,6 +35,11 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireBodyItemizedStatementProjectScope,
+  requireEstimateRequestProjectScope,
+  requireProjectParamScope,
+} from '../middleware/estimate-request-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createEstimateRequestSchema,
@@ -131,7 +140,9 @@ router.post(
   authenticate,
   requirePermission('estimate_request:create'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createEstimateRequestSchema, 'body'),
+  requireBodyItemizedStatementProjectScope('itemizedStatementId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { projectId } = req.validatedParams as { projectId: string };
@@ -258,6 +269,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(estimateRequestListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -335,6 +347,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { projectId } = req.validatedParams as { projectId: string };
@@ -392,6 +405,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -483,6 +497,7 @@ router.put(
   authenticate,
   requirePermission('estimate_request:update'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   validate(updateEstimateRequestSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -584,6 +599,7 @@ router.delete(
   authenticate,
   requirePermission('estimate_request:delete'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   validate(deleteEstimateRequestBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -684,6 +700,7 @@ router.patch(
   authenticate,
   requirePermission('estimate_request:update'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   validate(updateItemSelectionSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -750,11 +767,15 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
 
-      const items = await estimateRequestService.findItemsWithOtherRequestStatus(id);
+      const items = await estimateRequestService.findItemsWithOtherRequestStatus(
+        id,
+        req.user!.userId
+      );
 
       logger.debug(
         { userId: req.user?.userId, estimateRequestId: id, itemCount: items.length },
@@ -838,6 +859,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -934,6 +956,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
