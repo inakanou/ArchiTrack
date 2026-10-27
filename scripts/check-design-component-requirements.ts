@@ -261,8 +261,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'construction-schedule': {
     mode: 'ratchet',
     maxContradictions: 5,
-    minPairs: 12,
-    minTableDeclarations: 14,
+    // minPairs 12 → 17 / minTableDeclarations 14 → 19（construction-schedule のタスク22 の文書の改訂、
+    // 2026-10-27）。利用者の判断で新設した Requirement 13 の章「Requirement 13: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 5 行（いずれも 13.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾の上限 5 は据え置き
+    minPairs: 17,
+    minTableDeclarations: 19,
     minDetailDeclarations: 7,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
