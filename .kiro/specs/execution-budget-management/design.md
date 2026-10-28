@@ -906,6 +906,11 @@ enum AmendmentStatus {
 - 記録の手段: 経路のファイルで `ExportAuditService` を一つ作り、案件の判定は共有の `ProjectScopeService` を要求のたびに取り直して使う（監査ログの経路と同じ形）
 - 画面: 両画面とも応答の `code` が `EXPORT_RECORD_FAILED` のときだけ `EXPORT_RECORD_FAILED_MESSAGE` を表示し、ダウンロードの処理（`URL.createObjectURL` とリンクのクリック）に進まない。発注詳細画面は出力の失敗の表示欄（`role="alert"`）を設けた。従来は発注が取得済みのとき出力の失敗を表示する欄が無かったため。出来高入力画面は従来どおりトーストで表示し、記録の失敗以外の失敗の文言は変えない
 
+> **改訂（2026-10-29、機能検証の NO-GO の是正。利用者の判断）**: 出力のファイルの受け取り方と、発注詳細画面の記録の失敗以外の失敗の表示を次のとおり定めた。
+> - 改訂前: 画面の API の関数（`exportOrder`・`exportMonthlyProgress`）は共通の API クライアントの `get` で応答を受けていた。`get` は JSON 以外の本文を文字列として返すため、成功の応答でも `URL.createObjectURL` が型の誤りで失敗し、発注詳細画面は何も起きず、出来高入力画面は成功でも Excel・PDF のエクスポートの失敗のトーストを出していた（10.1・10.2・16.4・16.5 が画面から到達できなかった）。発注詳細画面は `ApiError` 以外の例外を表示せず、`ApiError` も発注の取得後は見えない `error` に入れていた
+> - 改訂後: 共通の API クライアントに成功の本文を Blob で受け取る口 `apiClient.getBlob` を設け、`exportOrder`・`exportMonthlyProgress`（と工程表の `exportSchedule`）はこれを使う。認証の付与・401 のトークン更新と送り直し・時間切れ・再試行・失敗の本文（JSON）の解析と `ApiError` の組み立ては `get` と同じ経路を通るため、記録の失敗の識別子 `EXPORT_RECORD_FAILED` は従来どおり `getApiErrorCode` で見分けられる（20.8）。発注詳細画面は記録の失敗以外の失敗（API の失敗とダウンロードの処理の失敗）も出力の失敗の表示欄に出し、文言は出来高入力画面と同じ「Excelエクスポートに失敗しました」「PDFエクスポートに失敗しました」を使う
+> - 理由: 画面ごとに素の fetch を書くと認証・トークン更新・失敗の解析が分かれるため、共通の API クライアントの一か所に受け取りの口を置いた。失敗を黙って捨てると利用者が出力の失敗に気づけないため
+
 ### Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |

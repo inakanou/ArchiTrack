@@ -67,6 +67,13 @@ interface InternalRequestControl {
   readonly omitAuthorization?: boolean;
   /** メモリの CSRF トークンを `X-CSRF-Token` ヘッダーで送る（送信の都度、最新の値を使う） */
   readonly withCsrfToken?: boolean;
+  /**
+   * 成功の応答の本文を Blob で受け取る（`getBlob` だけが立てる）
+   *
+   * 失敗の応答の本文は従来どおり JSON（またはテキスト）として解析し、`ApiError` に載せる。
+   * トークン更新後の再送にも引き継がれる（control ごと渡すため）。
+   */
+  readonly responseAsBlob?: boolean;
 }
 
 /**
@@ -451,10 +458,15 @@ class ApiClient {
         clearTimeout(timeoutId);
 
         // レスポンスボディを取得
+        // ファイルの応答（getBlob）は成功の本文だけを Blob で受け取る。text() で文字列にすると
+        // URL.createObjectURL に渡せない。失敗の本文は JSON として解析し、エラーコードを残す
+        // （execution-budget-management Requirement 10.1, 10.2, 16.4, 16.5, 20.8）
         const contentType = response.headers.get('content-type');
         let data: unknown;
 
-        if (contentType?.includes('application/json')) {
+        if (control.responseAsBlob && response.ok) {
+          data = await response.blob();
+        } else if (contentType?.includes('application/json')) {
           data = await response.json();
         } else {
           data = await response.text();
@@ -625,6 +637,18 @@ class ApiClient {
    */
   async get<T>(path: string, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<T> {
     return this.request<T>(path, { ...options, method: 'GET' });
+  }
+
+  /**
+   * ファイルを返す GET リクエスト（成功の本文を Blob で返す）
+   *
+   * サーバーで生成するファイルの出力（Excel・PDF）を受け取るための口。認証の付与・401 のトークン更新と
+   * 再送・タイムアウト・再試行・エラー応答（JSON）の解析と `ApiError` の組み立ては `get` と同じ経路を通る。
+   * 失敗の応答の `code`（例 `EXPORT_RECORD_FAILED`）は `getApiErrorCode` で取り出せる。
+   * 発注・月別出来高の出力（execution-budget-management の要件 10.1・10.2・16.4・16.5・20.8）が使う。
+   */
+  async getBlob(path: string, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<Blob> {
+    return this.request<Blob>(path, { ...options, method: 'GET' }, { responseAsBlob: true });
   }
 
   /**

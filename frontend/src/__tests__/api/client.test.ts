@@ -1259,6 +1259,140 @@ describe('ApiClient', () => {
       });
     });
   });
+
+  /**
+   * ファイルの応答を Blob で受け取る口（getBlob）
+   *
+   * サーバーで生成する出力（execution-budget-management の Requirement 10.1・10.2・16.4・16.5）は
+   * 成功の本文がファイルそのもの。text() で文字列にすると URL.createObjectURL に渡せない。
+   * 失敗の本文は JSON として解析し、記録の失敗の識別子（20.8 の EXPORT_RECORD_FAILED）を取れること。
+   */
+  describe('getBlob（ファイルの応答を Blob で受け取る）', () => {
+    const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    afterEach(() => {
+      apiClient.setTokenRefreshCallback(null);
+      apiClient.setAccessToken(null);
+    });
+
+    it('成功の応答の本文を Blob で返し、text() で文字列にしないこと', async () => {
+      const fileBlob = new Blob(['PK-xlsx-bytes'], { type: XLSX_TYPE });
+      const text = vi.fn(async () => 'PK-xlsx-bytes');
+      const json = vi.fn();
+      apiClient.setAccessToken('access-token');
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': XLSX_TYPE }),
+        blob: async () => fileBlob,
+        text,
+        json,
+      });
+
+      const result = await apiClient.getBlob('/api/files/1/export?format=xlsx');
+
+      expect(result).toBeInstanceOf(Blob);
+      expect(result).toBe(fileBlob);
+      expect(result.type).toBe(XLSX_TYPE);
+      expect(text).not.toHaveBeenCalled();
+      expect(json).not.toHaveBeenCalled();
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/files/1/export?format=xlsx',
+        expect.objectContaining({
+          method: 'GET',
+          credentials: 'include',
+          headers: expect.objectContaining({ Authorization: 'Bearer access-token' }),
+        })
+      );
+    });
+
+    it('失敗の応答は JSON の本文を持つ ApiError を投げ、code を getApiErrorCode で取れること', async () => {
+      const problem = {
+        detail: '出力を記録できなかったため中止しました',
+        code: 'EXPORT_RECORD_FAILED',
+      };
+      const blob = vi.fn();
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
+        json: async () => problem,
+        blob,
+      });
+
+      const error = await apiClient.getBlob('/api/files/1/export?format=pdf').catch((e) => e);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).statusCode).toBe(500);
+      expect((error as ApiError).message).toBe(problem.detail);
+      expect((error as ApiError).response).toEqual(problem);
+      expect(getApiErrorCode(error)).toBe('EXPORT_RECORD_FAILED');
+      expect(blob).not.toHaveBeenCalled();
+    });
+
+    it('401 ではトークンを更新して同じ要求を送り直し、送り直しの成功の本文も Blob で返すこと', async () => {
+      const mockRefreshCallback = vi.fn().mockResolvedValue('new-access-token');
+      apiClient.setTokenRefreshCallback(mockRefreshCallback);
+      apiClient.setAccessToken('old-access-token');
+      const fileBlob = new Blob(['%PDF-1.7'], { type: 'application/pdf' });
+
+      let callCount = 0;
+      globalThis.fetch = vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 401,
+            statusText: 'Unauthorized',
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({ error: 'TOKEN_EXPIRED' }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/pdf' }),
+          blob: async () => fileBlob,
+          text: async () => '%PDF-1.7',
+        });
+      });
+
+      const result = await apiClient.getBlob('/api/files/1/export?format=pdf');
+
+      expect(mockRefreshCallback).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(result).toBe(fileBlob);
+      const retryInit = vi.mocked(globalThis.fetch).mock.calls[1]?.[1] as RequestInit;
+      expect(retryInit.headers).toEqual(
+        expect.objectContaining({ Authorization: 'Bearer new-access-token' })
+      );
+    });
+
+    it('時間切れは既存の要求と同じく ApiError（statusCode 0）になること', async () => {
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            const abortError = new Error('The operation was aborted');
+            abortError.name = 'AbortError';
+            reject(abortError);
+          });
+        });
+      });
+
+      const pending = apiClient
+        .getBlob('/api/files/1/export?format=xlsx', { timeout: 50, disableRetry: true })
+        .catch((e) => e);
+      await vi.advanceTimersByTimeAsync(60);
+      const error = await pending;
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).statusCode).toBe(0);
+      expect((error as ApiError).message).toBe('Request timeout');
+    });
+  });
 });
 
 /**

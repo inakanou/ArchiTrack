@@ -34,6 +34,7 @@ vi.mock('../../api/client', async () => {
     ...actual,
     apiClient: {
       get: vi.fn(),
+      getBlob: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -259,26 +260,30 @@ describe('order-detail API client', () => {
       const mockBlob = new Blob(['test'], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       });
-      vi.mocked(apiClient.get).mockResolvedValueOnce(mockBlob);
+      vi.mocked(apiClient.getBlob).mockResolvedValueOnce(mockBlob);
 
       const result = await exportOrder(projectId, orderId, 'xlsx');
 
-      expect(apiClient.get).toHaveBeenCalledWith(
+      expect(apiClient.getBlob).toHaveBeenCalledWith(
         `/api/projects/${projectId}/execution-budget/orders/${orderId}/export?format=xlsx`
       );
       expect(result).toBeInstanceOf(Blob);
+      // 文字列にする get（text() 化）ではなく、Blob の口を通す
+      expect(apiClient.get).not.toHaveBeenCalled();
     });
 
     it('PDF形式でエクスポートする', async () => {
       const mockBlob = new Blob(['test'], { type: 'application/pdf' });
-      vi.mocked(apiClient.get).mockResolvedValueOnce(mockBlob);
+      vi.mocked(apiClient.getBlob).mockResolvedValueOnce(mockBlob);
 
       const result = await exportOrder(projectId, orderId, 'pdf');
 
-      expect(apiClient.get).toHaveBeenCalledWith(
+      expect(apiClient.getBlob).toHaveBeenCalledWith(
         `/api/projects/${projectId}/execution-budget/orders/${orderId}/export?format=pdf`
       );
       expect(result).toBeInstanceOf(Blob);
+      // 文字列にする get（text() 化）ではなく、Blob の口を通す
+      expect(apiClient.get).not.toHaveBeenCalled();
     });
   });
 });

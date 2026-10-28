@@ -38,6 +38,7 @@ vi.mock('../../api/client', async () => {
     ...actual,
     apiClient: {
       get: vi.fn(),
+      getBlob: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -334,27 +335,29 @@ describe('schedules API client', () => {
   describe('exportSchedule', () => {
     it('Excel形式でエクスポートURLを生成する', async () => {
       const mockBlob = new Blob(['test'], { type: 'application/octet-stream' });
-      vi.mocked(apiClient.get).mockResolvedValueOnce(mockBlob);
+      vi.mocked(apiClient.getBlob).mockResolvedValueOnce(mockBlob);
 
       const result = await exportSchedule('schedule-1', 'xlsx');
 
-      expect(apiClient.get).toHaveBeenCalledWith('/api/schedules/schedule-1/export?format=xlsx');
+      expect(apiClient.getBlob).toHaveBeenCalledWith(
+        '/api/schedules/schedule-1/export?format=xlsx'
+      );
       expect(result).toEqual(mockBlob);
     });
 
     it('PDF形式でエクスポートURLを生成する', async () => {
       const mockBlob = new Blob(['test'], { type: 'application/pdf' });
-      vi.mocked(apiClient.get).mockResolvedValueOnce(mockBlob);
+      vi.mocked(apiClient.getBlob).mockResolvedValueOnce(mockBlob);
 
       const result = await exportSchedule('schedule-1', 'pdf');
 
-      expect(apiClient.get).toHaveBeenCalledWith('/api/schedules/schedule-1/export?format=pdf');
+      expect(apiClient.getBlob).toHaveBeenCalledWith('/api/schedules/schedule-1/export?format=pdf');
       expect(result).toEqual(mockBlob);
     });
 
     it('エクスポートエラー時に例外をスローする', async () => {
       const mockError = new ApiError(404, 'Not Found', { detail: 'Schedule not found' });
-      vi.mocked(apiClient.get).mockRejectedValueOnce(mockError);
+      vi.mocked(apiClient.getBlob).mockRejectedValueOnce(mockError);
 
       await expect(exportSchedule('non-existent', 'xlsx')).rejects.toThrow(ApiError);
     });

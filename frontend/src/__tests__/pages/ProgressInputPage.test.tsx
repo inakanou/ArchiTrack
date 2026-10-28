@@ -812,12 +812,24 @@ describe('ProgressInputPage', () => {
         expect(screen.getByText('月別出来高集計')).toBeInTheDocument();
       });
 
+      toastMocks.error.mockClear();
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
       const excelButton = screen.getByRole('button', { name: /Excel/ });
       await user.click(excelButton);
 
       await waitFor(() => {
         expect(progressApi.exportMonthlyProgress).toHaveBeenCalledWith('project-1', 'xlsx');
       });
+      // 受け取った Blob からダウンロードを始め、成功の応答で失敗のトーストを出さない
+      await waitFor(() => {
+        expect(clickSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(createObjectURLMock).toHaveBeenCalledWith(mockBlob);
+      const anchor = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+      expect(anchor.download).toBe('出来高集計.xlsx');
+      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:test-url');
+      expect(toastMocks.error).not.toHaveBeenCalled();
+      clickSpy.mockRestore();
     });
 
     it('REQ-16.5: PDFエクスポートボタンが表示されクリックでAPIが呼ばれる', async () => {
@@ -836,12 +848,24 @@ describe('ProgressInputPage', () => {
         expect(screen.getByText('月別出来高集計')).toBeInTheDocument();
       });
 
+      toastMocks.error.mockClear();
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
       const pdfButton = screen.getByRole('button', { name: /PDF/ });
       await user.click(pdfButton);
 
       await waitFor(() => {
         expect(progressApi.exportMonthlyProgress).toHaveBeenCalledWith('project-1', 'pdf');
       });
+      // 受け取った Blob からダウンロードを始め、成功の応答で失敗のトーストを出さない
+      await waitFor(() => {
+        expect(clickSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(createObjectURLMock).toHaveBeenCalledWith(mockBlob);
+      const anchor = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+      expect(anchor.download).toBe('出来高集計.pdf');
+      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:test-url');
+      expect(toastMocks.error).not.toHaveBeenCalled();
+      clickSpy.mockRestore();
     });
 
     // execution-budget-management の Requirement 20 の受入基準8（タスク17.2）

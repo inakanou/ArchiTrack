@@ -520,9 +520,11 @@ export function OrderDetailPage() {
           setExportError(EXPORT_RECORD_FAILED_MESSAGE);
           return;
         }
-        if (err instanceof ApiError) {
-          setError(err.message);
-        }
+        // ほかの失敗（API の失敗・ダウンロードの処理の失敗）も黙って捨てず、出力の失敗の表示欄に出す。
+        // 発注の取得後は `error` を表示する欄が無いため、`exportError` に流す（10.1, 10.2）
+        setExportError(
+          format === 'xlsx' ? 'Excelエクスポートに失敗しました' : 'PDFエクスポートに失敗しました'
+        );
       }
     },
     [projectId, orderId]

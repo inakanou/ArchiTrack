@@ -459,12 +459,24 @@ describe('OrderDetailPage', () => {
         expect(screen.getByRole('button', { name: /Excel/i })).toBeInTheDocument();
       });
 
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
       const excelButton = screen.getByRole('button', { name: /Excel/i });
       await userEvent.click(excelButton);
 
       await waitFor(() => {
         expect(orderDetailApi.exportOrder).toHaveBeenCalledWith('project-1', 'order-1', 'xlsx');
       });
+      // 受け取った Blob からダウンロードを始め、失敗の表示を出さない（REQ-10.1）
+      await waitFor(() => {
+        expect(clickSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(mockCreateObjectURL).toHaveBeenCalledWith(mockBlob);
+      const anchor = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+      expect(anchor.download).toBe('order-order-1.xlsx');
+      expect(anchor.href).toBe('blob:test-url');
+      expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:test-url');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      clickSpy.mockRestore();
     });
 
     it('PDF出力ボタンクリックでエクスポートAPIを呼び出す', async () => {
@@ -484,12 +496,24 @@ describe('OrderDetailPage', () => {
         expect(screen.getByRole('button', { name: /PDF/i })).toBeInTheDocument();
       });
 
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
       const pdfButton = screen.getByRole('button', { name: /PDF/i });
       await userEvent.click(pdfButton);
 
       await waitFor(() => {
         expect(orderDetailApi.exportOrder).toHaveBeenCalledWith('project-1', 'order-1', 'pdf');
       });
+      // 受け取った Blob からダウンロードを始め、失敗の表示を出さない（REQ-10.2）
+      await waitFor(() => {
+        expect(clickSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(mockCreateObjectURL).toHaveBeenCalledWith(mockBlob);
+      const anchor = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+      expect(anchor.download).toBe('order-order-1.pdf');
+      expect(anchor.href).toBe('blob:test-url');
+      expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:test-url');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      clickSpy.mockRestore();
     });
 
     it.each([
@@ -949,24 +973,45 @@ describe('OrderDetailPage', () => {
   // エクスポートエラーテスト
   // ==========================================================================
   describe('エクスポートエラー', () => {
-    it('エクスポートAPIエラー時にエラーにならない', async () => {
+    // 記録の失敗以外の失敗も黙って捨てず、出力の失敗の表示欄（role="alert"）に出す。
+    // 文言は出来高入力画面の Excel・PDF のエクスポートの失敗と同じものを使う
+    it.each([
+      ['Excel出力', 'xlsx', 'Excelエクスポートに失敗しました'],
+      ['PDF出力', 'pdf', 'PDFエクスポートに失敗しました'],
+    ] as const)(
+      'APIの失敗（記録の失敗以外）では%sのダウンロードを始めず、出力の失敗を表示する',
+      async (buttonName, format, message) => {
+        vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
+        vi.mocked(orderDetailApi.exportOrder).mockRejectedValueOnce(
+          new ApiError(500, 'Internal Server Error', { code: 'INTERNAL_ERROR' })
+        );
+        const mockCreateObjectURL = vi.fn().mockReturnValue('blob:test-url');
+        globalThis.URL.createObjectURL = mockCreateObjectURL;
+        globalThis.URL.revokeObjectURL = vi.fn();
+
+        renderPage();
+        await userEvent.click(await screen.findByRole('button', { name: buttonName }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(message);
+        expect(orderDetailApi.exportOrder).toHaveBeenCalledWith('project-1', 'order-1', format);
+        expect(mockCreateObjectURL).not.toHaveBeenCalled();
+      }
+    );
+
+    it('ApiError 以外の例外（ダウンロードの処理の失敗）も黙って捨てず、出力の失敗を表示する', async () => {
       vi.mocked(orderDetailApi.getOrderDetail).mockResolvedValueOnce(mockOrderWithItems);
-      vi.mocked(orderDetailApi.exportOrder).mockRejectedValueOnce(
-        new ApiError(500, 'エクスポートに失敗しました')
+      vi.mocked(orderDetailApi.exportOrder).mockResolvedValueOnce(
+        new Blob(['test'], { type: 'application/pdf' })
       );
+      globalThis.URL.createObjectURL = vi.fn(() => {
+        throw new TypeError('Failed to execute createObjectURL');
+      });
+      globalThis.URL.revokeObjectURL = vi.fn();
 
       renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: 'PDF出力' }));
 
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Excel/i })).toBeInTheDocument();
-      });
-
-      const excelButton = screen.getByRole('button', { name: /Excel/i });
-      await userEvent.click(excelButton);
-
-      await waitFor(() => {
-        expect(orderDetailApi.exportOrder).toHaveBeenCalled();
-      });
+      expect(await screen.findByRole('alert')).toHaveTextContent('PDFエクスポートに失敗しました');
     });
   });
 

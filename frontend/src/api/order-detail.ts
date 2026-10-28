@@ -185,7 +185,8 @@ export async function exportOrder(
   orderId: string,
   format: ExportFormat
 ): Promise<Blob> {
-  return apiClient.get<Blob>(
+  // ファイルの本文は Blob で受け取る（get は JSON 以外を文字列にするため URL.createObjectURL に渡せない）
+  return apiClient.getBlob(
     `/api/projects/${projectId}/execution-budget/orders/${orderId}/export?format=${format}`
   );
 }
