@@ -602,7 +602,9 @@ describe('ContractService', () => {
         expect(mockPrisma.contract.create).not.toHaveBeenCalled();
       });
 
-      it('他プロジェクトの見積書の場合はContractValidationError（422）になり、作成しないこと', async () => {
+      // 他のプロジェクトの見積書は見積書の不在と同じ 404 にする（contract-management の Requirement 14.5、
+      // タスク19.1。改訂前は 422 の「同じプロジェクトの見積書である必要があります」を主張していた）
+      it('他プロジェクトの見積書の場合は見積書の不在と同じEstimateNotFoundError（404）になり、作成しないこと', async () => {
         (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
           id: estimateId,
           projectId: otherProjectId,
@@ -610,12 +612,28 @@ describe('ContractService', () => {
         });
 
         const error = await service.create(projectId, createInput).catch((e: unknown) => e);
+        (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+        const missing = await service.create(projectId, createInput).catch((e: unknown) => e);
 
-        expect(error).toBeInstanceOf(ContractValidationError);
-        expect((error as ContractValidationError).statusCode).toBe(422);
-        expect((error as ContractValidationError).message).toBe(
-          '契約の基となる見積書は同じプロジェクトの見積書である必要があります'
+        expect(error).toBeInstanceOf(EstimateNotFoundError);
+        expect((error as EstimateNotFoundError).statusCode).toBe(404);
+        expect((error as EstimateNotFoundError).message).toBe(
+          (missing as EstimateNotFoundError).message
         );
+        expect((error as EstimateNotFoundError).message).not.toContain(otherProjectId);
+        expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      });
+
+      it('他プロジェクトの論理削除済みの見積書も、同じプロジェクトの論理削除済みの 422 でなく見積書の不在と同じ 404 になること', async () => {
+        (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: estimateId,
+          projectId: otherProjectId,
+          deletedAt: new Date(),
+        });
+
+        const error = await service.create(projectId, createInput).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(EstimateNotFoundError);
         expect(mockPrisma.contract.create).not.toHaveBeenCalled();
       });
 
@@ -658,7 +676,9 @@ describe('ContractService', () => {
         expect(mockPrisma.contract.update).not.toHaveBeenCalled();
       });
 
-      it('見積書を他プロジェクトのものに変えた場合はContractValidationError（422）になり、更新しないこと', async () => {
+      // 他のプロジェクトの見積書は見積書の不在と同じ 404 にする（contract-management の Requirement 14.5、
+      // タスク19.1。改訂前は ContractValidationError（422）を主張していた）
+      it('見積書を他プロジェクトのものに変えた場合は見積書の不在と同じEstimateNotFoundError（404）になり、更新しないこと', async () => {
         (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
           id: newEstimateId,
           projectId: otherProjectId,
@@ -669,7 +689,10 @@ describe('ContractService', () => {
           .update(contractId, { ...updateInput, estimateId: newEstimateId })
           .catch((e: unknown) => e);
 
-        expect(error).toBeInstanceOf(ContractValidationError);
+        expect(error).toBeInstanceOf(EstimateNotFoundError);
+        expect((error as EstimateNotFoundError).message).toBe(
+          new EstimateNotFoundError(newEstimateId).message
+        );
         expect(mockPrisma.contract.update).not.toHaveBeenCalled();
       });
 
@@ -708,6 +731,151 @@ describe('ContractService', () => {
 
         expect(mockPrisma.contract.update).toHaveBeenCalledTimes(1);
       });
+    });
+  });
+
+  /**
+   * 参照先の所属の照合で範囲外とした案件の記録（contract-management の Requirement 14.5・14.6、タスク19.1）
+   *
+   * 応答は範囲の内外で変えず、参照先の案件が実在し実行者の閲覧範囲外のときだけ、処理の後に
+   * PROJECT_SCOPE_DENIED を 1 回記録する（user-authentication の要件39.7）。
+   */
+  describe('参照先の所属の照合と範囲外の拒否の記録（14.5・14.6）', () => {
+    const actorId = 'actor-1';
+    const foreignProjectId = '550e8400-e29b-41d4-a716-446655440098';
+    const context = {
+      requestId: 'req-1',
+      method: 'POST',
+      path: `/api/projects/${projectId}/contracts`,
+      ipAddress: '127.0.0.1',
+      userAgent: 'vitest',
+    };
+    let scope: { evaluateProjectAccess: ReturnType<typeof vi.fn> };
+    let audit: { createLog: ReturnType<typeof vi.fn> };
+    let scoped: ContractService;
+
+    beforeEach(() => {
+      scope = { evaluateProjectAccess: vi.fn().mockResolvedValue('out_of_scope') };
+      audit = { createLog: vi.fn().mockResolvedValue({}) };
+      scoped = new ContractService({
+        prisma: mockPrisma,
+        projectScope: scope as unknown as ContractServiceDependencies['projectScope'],
+        auditLogService: audit as unknown as ContractServiceDependencies['auditLogService'],
+      });
+    });
+
+    function foreignEstimate(): void {
+      (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: estimateId,
+        projectId: foreignProjectId,
+        deletedAt: null,
+      });
+    }
+
+    it('作成の要求が範囲外の案件の見積書を指すと、見積書の不在と同じ 404 にし、作成せず、範囲外の拒否を 1 回記録する', async () => {
+      foreignEstimate();
+
+      const error = await scoped
+        .create(projectId, createInput, actorId, context)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(EstimateNotFoundError);
+      expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledWith(actorId, foreignProjectId);
+      expect(audit.createLog).toHaveBeenCalledTimes(1);
+      expect(audit.createLog.mock.calls[0]?.[0]).toMatchObject({
+        action: 'PROJECT_SCOPE_DENIED',
+        actorId,
+        targetId: foreignProjectId,
+        metadata: expect.objectContaining({ requestId: 'req-1', method: 'POST' }),
+      });
+    });
+
+    it('範囲内の他のプロジェクトの見積書は、同じ 404 にして作成せず、記録しない', async () => {
+      foreignEstimate();
+      scope.evaluateProjectAccess.mockResolvedValue('allowed');
+
+      const error = await scoped
+        .create(projectId, createInput, actorId, context)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(EstimateNotFoundError);
+      expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      expect(audit.createLog).not.toHaveBeenCalled();
+    });
+
+    it('見積書の不在と同じプロジェクトの見積書では、範囲を判定せず記録しない', async () => {
+      (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+      await scoped.create(projectId, createInput, actorId, context).catch(() => undefined);
+      (mockPrisma.contract.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockContractRecord
+      );
+      await scoped.create(projectId, createInput, actorId, context);
+
+      expect(scope.evaluateProjectAccess).not.toHaveBeenCalled();
+      expect(audit.createLog).not.toHaveBeenCalled();
+    });
+
+    it('更新の要求が範囲外の案件の見積書へ付け替えると、見積書の不在と同じ 404 にし、更新せず、範囲外の拒否を 1 回記録する', async () => {
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockContractRecord
+      );
+      const newEstimateId = '550e8400-e29b-41d4-a716-446655440003';
+      (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: newEstimateId,
+        projectId: foreignProjectId,
+        deletedAt: null,
+      });
+      const { contractType: _t, parentContractId: _p, ...rest } = createInput;
+
+      const error = await scoped
+        .update(contractId, { ...rest, estimateId: newEstimateId, version: 0 }, actorId, context)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(EstimateNotFoundError);
+      expect(mockPrisma.contract.update).not.toHaveBeenCalled();
+      expect(audit.createLog).toHaveBeenCalledTimes(1);
+      expect(audit.createLog.mock.calls[0]?.[0]).toMatchObject({ targetId: foreignProjectId });
+    });
+
+    it('変更契約の作成の要求が範囲外の案件の契約書を基に指すと、不在と同じ 422 の本文にし、作成せず、範囲外の拒否を 1 回記録する', async () => {
+      const amendmentInput = {
+        ...createInput,
+        contractType: 'AMENDMENT' as const,
+        parentContractId,
+      };
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+      const missing = await scoped
+        .create(projectId, amendmentInput, actorId, context)
+        .catch((e: unknown) => e);
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ...mockContractRecord,
+        id: parentContractId,
+        projectId: foreignProjectId,
+      });
+      const foreign = await scoped
+        .create(projectId, amendmentInput, actorId, context)
+        .catch((e: unknown) => e);
+
+      expect(missing).toBeInstanceOf(ContractValidationError);
+      expect(foreign).toBeInstanceOf(ContractValidationError);
+      expect((foreign as ContractValidationError).message).toBe(
+        (missing as ContractValidationError).message
+      );
+      expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+      expect(audit.createLog).toHaveBeenCalledTimes(1);
+      expect(audit.createLog.mock.calls[0]?.[0]).toMatchObject({ targetId: foreignProjectId });
+    });
+
+    it('実行者を渡さない呼び出しでは、範囲を判定せず記録しない', async () => {
+      foreignEstimate();
+
+      const error = await scoped.create(projectId, createInput).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(EstimateNotFoundError);
+      expect(scope.evaluateProjectAccess).not.toHaveBeenCalled();
+      expect(audit.createLog).not.toHaveBeenCalled();
     });
   });
 

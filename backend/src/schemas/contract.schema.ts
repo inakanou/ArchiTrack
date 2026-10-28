@@ -62,6 +62,11 @@ export const CONTRACT_VALIDATION_MESSAGES = {
   // ソート
   SORT_BY_INVALID: '無効なソートフィールドです',
   SORT_ORDER_INVALID: '無効なソート順序です',
+
+  // 経路の ID（タスク19.1。案件の閲覧範囲の判定部品より前に検査する）
+  CONTRACT_ID_INVALID_UUID: '契約書IDの形式が不正です',
+  PROJECT_ID_REQUIRED: 'プロジェクトIDが必要です',
+  PROJECT_ID_INVALID_UUID: 'プロジェクトIDの形式が不正です',
 } as const;
 
 /**
@@ -274,3 +279,24 @@ export const updateContractStatusSchema = z.object({
  * ステータス更新入力の型
  */
 export type UpdateContractStatusInput = z.infer<typeof updateContractStatusSchema>;
+
+/**
+ * 契約書IDパラメータ用スキーマ（タスク19.1）
+ *
+ * `/:id` 配下の経路で、案件の閲覧範囲の判定部品より前に契約書 ID の形式を検査する
+ */
+export const contractIdParamSchema = z.object({
+  id: z.string().regex(UUID_REGEX, CONTRACT_VALIDATION_MESSAGES.CONTRACT_ID_INVALID_UUID),
+});
+
+/**
+ * プロジェクトIDパラメータ用スキーマ（タスク19.1）
+ *
+ * 契約書の一覧・作成の経路で、案件の閲覧範囲の判定部品より前にプロジェクト ID の形式を検査する。
+ * `/api/contracts` のマウントから届く一覧・作成は経路にプロジェクト ID が無く、この検査の 400 で終わる
+ */
+export const projectIdParamSchema = z.object({
+  projectId: z
+    .string(CONTRACT_VALIDATION_MESSAGES.PROJECT_ID_REQUIRED)
+    .regex(UUID_REGEX, CONTRACT_VALIDATION_MESSAGES.PROJECT_ID_INVALID_UUID),
+});

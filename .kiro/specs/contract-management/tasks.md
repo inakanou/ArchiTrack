@@ -305,7 +305,7 @@
 
 **経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）を実装した（同スペックのタスク52.1）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数を各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.11 が本スペックの項目（入れ子のルートでリソースが親 ID に属するかの照合、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の契約書を読み書きできる）ことを確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）。本スペックには出力の機能が無いため、要件40 の出力の記録は対象外である
 
-- [ ] 19.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用し、入れ子の経路で契約書の所属を照合する
+- [x] 19.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用し、入れ子の経路で契約書の所属を照合する
   - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
     - backend/src/routes/contracts.routes.ts（`/api/projects/:projectId/contracts` と `/api/contracts`）: `GET /`（100）、`GET /:id`（160）、`POST /`（226）、`PUT /:id`（307）、`PATCH /:id/status`（389）、`DELETE /:id`（454）
   - 契約書の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。作成の元にする見積書・基となる契約書も同じ案件の範囲で判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
