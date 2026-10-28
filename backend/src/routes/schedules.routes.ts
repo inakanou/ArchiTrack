@@ -22,18 +22,30 @@
  * 判定し、二重マウントで経路の projectId と工程表の案件が食い違えば不在と同じ 404 にする。
  * 工程表の作成の要求が指す数量表の所属の照合（13.4）は ScheduleService.create が行う。
  *
+ * 出力の記録（construction-schedule の Requirement 13.6・13.7、user-authentication の要件40.9。タスク22.2）:
+ * 出力の経路は範囲の判定と形式の検査と出力データの取得の後、ファイル（Excel・PDF）を生成する前に
+ * ExportAuditService.record を一つの要求につき 1 回呼ぶ（種別 schedule_export）。記録の失敗ではファイルを生成せず、
+ * 500（`code: 'EXPORT_RECORD_FAILED'`、`detail` は「出力を記録できなかったため中止しました」）を返す。
+ * 記録の判定が案件を範囲外・不在としたときも生成せず、不在と同じ汎用の 404 にする
+ *
  * @module routes/schedules
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { ScheduleService } from '../services/schedule.service.js';
 import { ScheduleExportService } from '../services/schedule-export.service.js';
+import { AuditLogService } from '../services/audit-log.service.js';
+import { ExportAuditService, type ExportRecordInput } from '../services/export-audit.service.js';
+import { getSharedProjectScopeService } from '../services/project-scope.service.js';
 import getPrismaClient from '../db.js';
+import { getClientIp } from '../middleware/client-ip.js';
+import { InternalServerError, NotFoundError, type ApiError } from '../errors/apiError.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
 import {
+  findProjectIdOfSchedule,
   requireProjectParamScope,
   requireScheduleProjectScope,
 } from '../middleware/construction-schedule-project-scope.middleware.js';
@@ -63,6 +75,36 @@ const router = Router({ mergeParams: true });
 const prisma = getPrismaClient();
 const scheduleService = new ScheduleService({ prisma });
 const scheduleExportService = new ScheduleExportService({ prisma });
+const exportAuditService = new ExportAuditService({
+  auditLogService: new AuditLogService({ prisma }),
+  // 共有のインスタンスは要求のたびに取り直す（PrismaClient・RBACService の作り直しに追従する）
+  scopeService: {
+    evaluateProjectAccess: (userId, projectId) =>
+      getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+  },
+});
+
+/**
+ * ファイルを生成する前に出力を記録する（Requirement 13.6・13.7）
+ *
+ * @returns 記録できたときは null。記録できなかったときは応答にする誤り
+ *   （範囲外・不在の案件は不在と同じ汎用の 404、記録の失敗は 500 の EXPORT_RECORD_FAILED）
+ */
+async function recordExportBeforeGeneration(
+  req: Request,
+  input: ExportRecordInput
+): Promise<ApiError | null> {
+  const result = await exportAuditService.record(req.user!.userId, input, {
+    ipAddress: getClientIp(req),
+    userAgent: req.get('user-agent'),
+  });
+  if (result.ok) {
+    return null;
+  }
+  return result.error.type === 'PROJECT_OUT_OF_SCOPE'
+    ? new NotFoundError()
+    : new InternalServerError('出力を記録できなかったため中止しました', 'EXPORT_RECORD_FAILED');
+}
 
 // ==========================================
 // 工程表一覧取得 GET /api/projects/:projectId/schedules
@@ -553,6 +595,8 @@ router.delete(
  *         description: 権限不足
  *       404:
  *         description: 工程表が見つからない（閲覧範囲外・論理削除済みを含む）
+ *       500:
+ *         description: 出力の記録の失敗（code EXPORT_RECORD_FAILED。ファイルを生成せず返さない）、またはファイルの生成の失敗
  */
 router.get(
   '/:id/export',
@@ -573,6 +617,24 @@ router.get(
           status: 404,
           detail: '工程表が見つかりません',
         });
+        return;
+      }
+
+      // 生成の前に記録する。対象は工程表、件数は出力対象の工程項目の数（13.6。Requirement 9.3）。
+      // 案件は判定部品と同じ解決関数で工程表から引く（`/api/schedules` のマウントには経路の案件 ID が無い）
+      const projectId = await findProjectIdOfSchedule(id);
+      if (projectId === null) {
+        next(new NotFoundError());
+        return;
+      }
+      const recordError = await recordExportBeforeGeneration(req, {
+        kind: 'schedule_export',
+        projectId,
+        targetIds: [id],
+        itemCount: exportData.items.filter((item) => item.isExportTarget).length,
+      });
+      if (recordError) {
+        next(recordError);
         return;
       }
 

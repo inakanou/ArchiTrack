@@ -15,6 +15,10 @@
  * - 2.1: 数量表選択肢表示
  * - 2.2: 数量表なしで空の工程表作成
  * - 2.3: 数量表指定時の項目自動取得
+ *
+ * 出力の記録（construction-schedule の Requirement 13.6・13.7、タスク22.2）:
+ * ファイルの生成の前に ExportAuditService.record を 1 回呼ぶこと、記録の失敗では生成せず
+ * 500 と EXPORT_RECORD_FAILED を返すこと、記録の判定が案件を範囲外・不在としたときは 404 にすることを確かめる
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -37,6 +41,8 @@ const {
   mockGetExportData,
   mockExportToExcel,
   mockExportToPdf,
+  mockRecord,
+  mockFindProjectIdOfSchedule,
 } = vi.hoisted(() => ({
   mockFindByProject: vi.fn(),
   mockFindById: vi.fn(),
@@ -47,6 +53,8 @@ const {
   mockGetExportData: vi.fn(),
   mockExportToExcel: vi.fn(),
   mockExportToPdf: vi.fn(),
+  mockRecord: vi.fn(),
+  mockFindProjectIdOfSchedule: vi.fn(),
 }));
 
 // 依存モジュールのモック
@@ -73,6 +81,21 @@ vi.mock('../../../services/schedule-export.service.js', () => ({
   },
 }));
 
+// 出力の記録（判定と記録の内容は export-audit.service.test.ts と統合テストが確かめる）
+vi.mock('../../../services/export-audit.service.js', () => ({
+  ExportAuditService: class {
+    record = mockRecord;
+  },
+}));
+
+vi.mock('../../../services/audit-log.service.js', () => ({
+  AuditLogService: class {},
+}));
+
+vi.mock('../../../services/project-scope.service.js', () => ({
+  getSharedProjectScopeService: vi.fn(),
+}));
+
 vi.mock('../../../middleware/authenticate.middleware.js', () => ({
   authenticate: (req: Request, _res: Response, next: NextFunction): void => {
     req.user = { userId: 'test-user-id', email: 'test@example.com', roles: ['user'] };
@@ -93,6 +116,7 @@ vi.mock('../../../middleware/authorize.middleware.js', () => ({
 vi.mock('../../../middleware/construction-schedule-project-scope.middleware.js', () => {
   const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
   return {
+    findProjectIdOfSchedule: mockFindProjectIdOfSchedule,
     requireProjectParamScope: pass,
     requireScheduleProjectScope: pass,
   };
@@ -168,7 +192,7 @@ function createTestApp() {
   // エラーハンドラー
   app.use(
     (
-      err: Error & { statusCode?: number; status?: number },
+      err: Error & { statusCode?: number; status?: number; code?: string },
       _req: Request,
       res: Response,
       _next: NextFunction
@@ -177,6 +201,7 @@ function createTestApp() {
       res.status(statusCode).json({
         status: statusCode,
         detail: err.message,
+        ...(err.code && { code: err.code }),
       });
     }
   );
@@ -189,6 +214,9 @@ describe('工程表ルート', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // 出力の記録は既定で成功させる（記録の失敗は個々の試験で差し替える）
+    mockFindProjectIdOfSchedule.mockResolvedValue(projectId);
+    mockRecord.mockResolvedValue({ ok: true, value: { recordId: 'record-1' } });
     app = createTestApp();
   });
 
@@ -625,6 +653,107 @@ describe('工程表ルート', () => {
       mockGetExportData.mockResolvedValue(null);
 
       await request(app).get(`/api/schedules/${scheduleId}/export?format=xlsx`).expect(404);
+      expect(mockRecord).not.toHaveBeenCalled();
+    });
+  });
+
+  // =================================================================
+  // GET /api/schedules/:id/export - 出力の記録
+  // construction-schedule の Requirement 13.6・13.7（タスク22.2）
+  // =================================================================
+  describe('GET /api/schedules/:id/export の出力の記録 (Req 13.6, 13.7)', () => {
+    const exportItem = {
+      itemName: '工程',
+      labelText: '',
+      detailText: '',
+      startDate: null,
+      duration: 1,
+      displayOrder: 0,
+    };
+    // 出力対象は 2 件（出力対象から外した 1 件は数えない。Requirement 9.3）
+    const mockExportData = {
+      id: scheduleId,
+      name: 'テスト工程表',
+      projectName: 'テストプロジェクト',
+      companyName: 'テスト建設',
+      items: [
+        { ...exportItem, id: 'item-1', isExportTarget: true },
+        { ...exportItem, id: 'item-2', isExportTarget: false },
+        { ...exportItem, id: 'item-3', isExportTarget: true },
+      ],
+    };
+
+    it.each([
+      { format: 'xlsx', generator: () => mockExportToExcel },
+      { format: 'pdf', generator: () => mockExportToPdf },
+    ])(
+      '$format の出力は生成の前に種別 schedule_export・案件・工程表・出力対象の件数で 1 回記録する',
+      async ({ format, generator }) => {
+        mockGetExportData.mockResolvedValue(mockExportData);
+        generator().mockResolvedValue(Buffer.from('file'));
+
+        await request(app)
+          .get(`/api/schedules/${scheduleId}/export?format=${format}`)
+          .set('User-Agent', 'unit-test-agent')
+          .expect(200);
+
+        expect(mockFindProjectIdOfSchedule).toHaveBeenCalledWith(scheduleId);
+        expect(mockRecord).toHaveBeenCalledTimes(1);
+        expect(mockRecord).toHaveBeenCalledWith(
+          'test-user-id',
+          { kind: 'schedule_export', projectId, targetIds: [scheduleId], itemCount: 2 },
+          expect.objectContaining({ userAgent: 'unit-test-agent' })
+        );
+        expect(mockRecord.mock.invocationCallOrder[0]).toBeLessThan(
+          generator().mock.invocationCallOrder[0]!
+        );
+      }
+    );
+
+    it.each(['xlsx', 'pdf'])(
+      '記録が失敗すると %s のファイルを生成せず 500 と EXPORT_RECORD_FAILED を返す',
+      async (format) => {
+        mockGetExportData.mockResolvedValue(mockExportData);
+        mockRecord.mockResolvedValue({ ok: false, error: { type: 'RECORD_FAILED' } });
+
+        const res = await request(app)
+          .get(`/api/schedules/${scheduleId}/export?format=${format}`)
+          .expect(500);
+
+        expect(res.headers['content-disposition']).toBeUndefined();
+        expect(res.body).toMatchObject({
+          status: 500,
+          code: 'EXPORT_RECORD_FAILED',
+          detail: '出力を記録できなかったため中止しました',
+        });
+        expect(mockExportToExcel).not.toHaveBeenCalled();
+        expect(mockExportToPdf).not.toHaveBeenCalled();
+      }
+    );
+
+    it('記録の判定が案件を範囲外・不在としたときは生成せず 404 を返す', async () => {
+      mockGetExportData.mockResolvedValue(mockExportData);
+      mockRecord.mockResolvedValue({ ok: false, error: { type: 'PROJECT_OUT_OF_SCOPE' } });
+
+      await request(app).get(`/api/schedules/${scheduleId}/export?format=xlsx`).expect(404);
+
+      expect(mockExportToExcel).not.toHaveBeenCalled();
+    });
+
+    it('出力データの取得の後に工程表の案件が引けなくなったときは記録も生成もせず 404 を返す', async () => {
+      mockGetExportData.mockResolvedValue(mockExportData);
+      mockFindProjectIdOfSchedule.mockResolvedValue(null);
+
+      await request(app).get(`/api/schedules/${scheduleId}/export?format=pdf`).expect(404);
+
+      expect(mockRecord).not.toHaveBeenCalled();
+      expect(mockExportToPdf).not.toHaveBeenCalled();
+    });
+
+    it('format の不正の 400 では記録しない', async () => {
+      await request(app).get(`/api/schedules/${scheduleId}/export?format=csv`).expect(400);
+
+      expect(mockRecord).not.toHaveBeenCalled();
     });
   });
 

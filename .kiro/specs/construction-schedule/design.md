@@ -509,12 +509,13 @@ interface ScheduleServiceInterface {
 | PUT | /api/schedules/:id | UpdateScheduleInput (body) | ScheduleDetail | 400, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`）, 409 |
 | PUT | /api/schedules/:id/bulk-save | BulkSaveScheduleItemsInput (body) | BulkSaveResult | 400, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`）, 409 |
 | DELETE | /api/schedules/:id | - | 204 No Content | 400（ID の形式不正）, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`） |
-| GET | /api/schedules/:id/export | format=xlsx\|pdf (query) | Binary file download | 400（ID の形式不正、format の不正）, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`）, 500（ファイルの生成の失敗。Requirement 7.6・8.6） |
+| GET | /api/schedules/:id/export | format=xlsx\|pdf (query) | Binary file download | 400（ID の形式不正、format の不正）, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`）, 500（ファイルの生成の失敗。Requirement 7.6・8.6）, 500（出力の記録の失敗の `EXPORT_RECORD_FAILED`。ファイルを生成せず返さない。Requirement 13.7） |
 
 - **追記（2026-10-27、タスク22）**: 上の表の Errors は当初の設計の記録として残す。全経路で、閲覧範囲外のプロジェクトとそのプロジェクトに属する工程表の指定は不在と同じ汎用の 404 になる（一覧と作成の経路にも 404 が加わる。Requirement 13.2・13.3）。出力の経路は記録の失敗でファイルを含まない 500 を返す（Requirement 13.7）。詳細は「Requirement 13: 案件の閲覧範囲と出力の記録の適用」章
 - ミドルウェアは全経路で `authenticate` + `requirePermission` + 経路の ID の形式の検査（一覧・作成は `projectIdParamSchema`、`/:id` 配下は `scheduleIdParamSchema`）+ 案件の閲覧範囲の判定部品（一覧・作成は `requireProjectParamScope('projectId')`、`/:id` 配下は `requireScheduleProjectScope('id')`。Requirement 13）の順とし、その後に本文・クエリの検査と本体を置く
 - `/:id` 配下の 5 経路（出力を含む）は `/api/projects/:projectId/schedules/:id` からも届く（二重マウント）。判定は経路の `projectId` でなく工程表の案件で行い、経路の `projectId` と工程表の案件が食い違えば工程表の不在と同じ汎用の 404 にする
 - **改訂（2026-10-28、タスク22.1）**: 上の表の Errors と Response、ミドルウェアと二重マウントの箇条を実装に合わせて改めた（上の 2026-10-27 の追記は記録として残す）。改訂前の Errors は、一覧が「401, 403」、作成が「400, 401, 403, 422」、詳細が「401, 403, 404」、更新と一括保存が「400, 401, 403, 404, 409」、論理的な取り除きが「401, 403, 404」、出力が「401, 403, 404」で、作成の Response は「ScheduleDetail」、ミドルウェアの箇条と二重マウントの箇条は無かった。理由は、Requirement 13 の適用で全経路に経路の ID の形式の検査と閲覧範囲の判定部品を置いたことである。これにより振る舞いが次のとおり変わった。存在しない工程表の 404 は、従来の `SCHEDULE_NOT_FOUND`（更新・一括保存・論理的な取り除き）と本文だけの「工程表が見つかりません」（詳細・出力）から、範囲外と区別しない汎用の `NOT_FOUND` になった。論理的に取り除かれた工程表も同じ汎用の 404 になる。存在しないプロジェクトを指定した一覧は、従来は空の 200 を返していたが 404 になる。存在しないプロジェクトを指定した作成は、従来はプロジェクトを照合しなかったが、判定部品の 404 になる。形式の崩れた ID は判定部品へ渡さず 400 で終える。作成の要求が経路のプロジェクトに属さない数量表を指すと、数量表の不在と同じ本文の 422 になる（13.4。従来は「同一プロジェクトに属していません」の本文で分かれていた）。次の 4 点は本タスクの前から実装が返していたが改訂前の表に無かった（本タスクの前からの欠陥）ため、あわせて書き足した。一覧のクエリの不正の 400、作成の数量表の項目数の上限超過の 400（Requirement 12.1、タスク 20 で追加）、出力の format の不正の 400、出力のファイルの生成の失敗の 500（Requirement 7.6・8.6）。作成の成功は従来から 201 を返していたため Response に添えた。出力の記録の失敗の 500（Requirement 13.7）はタスク22.2 の担当で、本改訂の時点では実装していないため表に入れていない
+- **改訂（2026-10-28、タスク22.2）**: 上の表の出力の行の Errors に、出力の記録の失敗の 500（`EXPORT_RECORD_FAILED`）を書き足した。改訂前の出力の行の Errors は「400（ID の形式不正、format の不正）, 401, 403, 404（工程表なし・閲覧範囲外。汎用の `NOT_FOUND`）, 500（ファイルの生成の失敗。Requirement 7.6・8.6）」だった。理由は、出力の経路がファイルの生成の前に記録し、記録の失敗ではファイルを生成せず 500 と識別子 `EXPORT_RECORD_FAILED`（`detail` は「出力を記録できなかったため中止しました」）を返すようにしたことである（Requirement 13.6・13.7。詳細は「Requirement 13: 案件の閲覧範囲と出力の記録の適用」章の「出力の記録の実装の決定」）
 
 **Implementation Notes**
 - Integration: `app.ts`にルートを登録。`/api/projects/:projectId/schedules`と`/api/schedules`の2パターン
@@ -851,6 +852,8 @@ interface BulkSaveResult {
 **Export Errors (500)**:
 - Excel出力処理失敗（ファイル生成エラー）→ エラーメッセージ返却、フロントエンドで再試行を促す（Req 7.6）
 - PDF出力処理失敗（ファイル生成エラー）→ エラーメッセージ返却、フロントエンドで再試行を促す（Req 8.6）
+- 出力の記録の失敗 → ファイルを生成せず、500 と識別子 `EXPORT_RECORD_FAILED`（`detail` は「出力を記録できなかったため中止しました」）を返す。出力のダイアログはダウンロードを始めず「出力を記録できなかったため中止しました」を表示し、再試行の釦を残す（Req 13.7）
+  - **改訂（2026-10-28、タスク22.2）**: 本項を書き足した。改訂前の Export Errors は上の Excel と PDF の生成の失敗の 2 項だけだった。理由は、出力の経路にファイルの生成の前の記録を置き、その失敗を生成の失敗と区別して返すようにしたことである（Requirement 13.6・13.7）
 
 ### Monitoring
 - pinoロガーによるCRUD操作ログ
@@ -924,13 +927,16 @@ interface BulkSaveResult {
   - **実装の記録（タスク22.1）**: 置き場所は判定部品と同じ middleware 層のファイルとした（「適用の決定」）
 - 工程表の作成の要求が指す数量表が経路の `projectId` の案件に属するかの照合の応答を、数量表の不在の応答へ揃えること（13.4）
 - 工程表の出力の経路から生成の前に `ExportAuditService.record` を呼ぶことと、記録の失敗の応答（13.6・13.7）
+  - **実装の記録（タスク22.2）**: 経路のファイルに記録の前置きの関数（`recordExportBeforeGeneration`）を置き、記録に添える案件は判定部品と同じ案件IDの解決関数で工程表から引く（「出力の記録の実装の決定」）
 - 出力のダイアログ（`ExportDialog`）の記録の失敗の表示（13.7）
+  - **実装の記録（タスク22.2）**: ダイアログは従来どおり fetch で応答を受け、失敗の応答の本文の `code` が `EXPORT_RECORD_FAILED` のときだけ記録の失敗の文言を出す（「出力の記録の実装の決定」）
 
 #### Out of Boundary
 - 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
 - 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
   - **実装の記録（タスク22.1）**: 記録の内容と部品は上流の所管のまま、工程表の作成の要求が範囲外の案件の数量表を指す拒否（数量表の所属の照合で範囲外とした拒否）は、判定部品を通らないため `ScheduleService` が上流の記録の部品を呼んで同じ形で PROJECT_SCOPE_DENIED を記録する（「適用の決定」）
 - 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
+  - **実装の記録（タスク22.2）**: 記録の内容（`ExportRecordInput` の項目、監査の行の形）と出力の種別の一覧（`EXPORT_KINDS` の `schedule_export`）は上流の所管のまま変えていない。出力の形式（xlsx・pdf）は `ExportRecordInput` に項目が無いため記録に含めない
 - 工程表作成画面が数量表の選択肢を得る数量表の一覧の取得（quantity-table-generation の Requirement 50）
 - プロジェクト詳細画面の工程表セクションのサマリ（プロジェクト詳細の取得が本機能の `ScheduleService` の `findLatestByProjectId` を呼ぶ。経路は project-management が所管し、閲覧範囲は user-authentication のタスク52.3 で適用済み）
 - 署名付きURLの発行の判定（user-authentication の要件39.4）。本機能はファイルの取得用の署名付きURLを発行しない
@@ -939,6 +945,7 @@ interface BulkSaveResult {
 - 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
   - **実装の記録（タスク22.1）**: 工程表の作成の数量表の所属の照合（`ScheduleService`）は、数量表の案件の判定に `evaluateProjectAccess`（`getSharedProjectScopeService` 経由）を、範囲外の拒否の記録に `withSurveyScopeDenialRecording`（`recordProjectScopeDenied` を処理の後に呼ぶ部品）を用いる。サービスは middleware 層に依存しない（要求の識別は経路が `projectScopeDenialContextOf` で切り出して渡す）
 - 本機能の出力の経路 → `ExportAuditService`
+  - **実装の記録（タスク22.2）**: 経路は `ExportAuditService` を `AuditLogService` と、要求のたびに取り直す共有の `ProjectScopeService`（`getSharedProjectScopeService`）で組み立て、要求の送信元は `getClientIp` で添える（execution-budget-management のタスク17.2 と同じ形）。記録に添える案件は本機能の案件IDの解決関数（`findProjectIdOfSchedule`）で引く
 - 本機能の出力の画面 → `EXPORT_RECORD_FAILED_MESSAGE`（`frontend/src/api/export-audit.ts`）
 
 ### Components and Interfaces
@@ -948,10 +955,12 @@ interface BulkSaveResult {
 | 工程表の経路 | Routes | 範囲外のプロジェクト・工程表の指定を不在と同じ 404 にし、一覧を範囲内へ限る | 13.1, 13.2, 13.3, 13.5 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
 | 案件IDの解決関数 | Middleware | 工程表の ID から案件の ID を引く。工程表が無いか論理的に取り除かれていれば null を返す | 13.2 | Prisma（P0） | Service |
 | 数量表の所属の照合 | Service | 作成の要求が指す数量表が経路のプロジェクトに属さないとき、数量表の不在と同じ応答にして作成せず、数量表の案件が範囲外なら範囲外の拒否を記録する | 13.4 | `ScheduleService`（P0）, `evaluateProjectAccess`（P0）, `recordProjectScopeDenied`（P0） | Service |
-| 出力の記録 | Routes | 工程表の Excel・PDF の生成の前に記録し、記録の失敗では生成しない | 13.6, 13.7 | `ExportAuditService`（P0） | API |
-| 出力のエラー表示 | UI | 記録の失敗の応答でダウンロードを始めず、出力を記録できなかった旨を表示する | 13.7 | `EXPORT_RECORD_FAILED_MESSAGE`（P0） | State |
+| 出力の記録 | Routes | 工程表の Excel・PDF の生成の前に記録し、記録の失敗では生成せず 500 と `EXPORT_RECORD_FAILED` を返す | 13.6, 13.7 | `ExportAuditService`（P0）, 案件IDの解決関数（P0） | API |
+| 出力のエラー表示 | UI | 記録の失敗の応答（`code` が `EXPORT_RECORD_FAILED`）でダウンロードを始めず、出力を記録できなかった旨を表示する | 13.7 | `EXPORT_RECORD_FAILED_MESSAGE`（P0） | State |
 
 **改訂（2026-10-28、タスク22.1）**: 表の2行を実装に合わせて改めた。改訂前は、案件IDの解決関数の Layer が Service だった。数量表の所属の照合の Intent が「作成の要求が指す数量表が経路のプロジェクトに属さないとき、数量表の不在と同じ応答にして作成しない」まで、Key Deps が `ScheduleService`（P0）だけだった。解決関数を判定部品と同じ middleware 層のファイルに置いたことと、範囲外の案件の数量表を指す作成の拒否を記録する（user-authentication の要件39.7）ことにしたことによる改訂である。
+
+**改訂（2026-10-28、タスク22.2）**: 表の出力の記録と出力のエラー表示の2行を実装に合わせて改めた。改訂前は、出力の記録の Intent が「工程表の Excel・PDF の生成の前に記録し、記録の失敗では生成しない」、Key Deps が `ExportAuditService`（P0）だけで、出力のエラー表示の Intent が「記録の失敗の応答でダウンロードを始めず、出力を記録できなかった旨を表示する」だった。記録に添える案件を案件IDの解決関数で引くことにしたことと、記録の失敗の応答の識別子と画面の判別を `EXPORT_RECORD_FAILED` に定めたことによる改訂である。
 
 **判定の順序**: 認証（401）→ `requirePermission`（403）→ 経路の ID の形式の検査（400）→ `requireProjectScope`（範囲外は 404）→ 本体（本文・クエリのバリデーションの 400、数量表の不在と所属の不一致の 422、競合の 409）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
   - **補記（2026-10-28、タスク22.1）**: 上の並びに、範囲の判定より先に来る経路の ID の形式の検査（400）を書き足し、本体の 400 を本文・クエリのバリデーションと書き分けた。改訂前は `requirePermission`（403）の次が `requireProjectScope` で、本体は「バリデーションの 400、数量表の不在と所属の不一致の 422、競合の 409」だった。実装は形式の崩れた ID を判定部品へ渡さず 400 で終える（「適用の決定」）
@@ -986,6 +995,14 @@ interface BulkSaveResult {
 **出力の記録**: 種別は `ExportKind` の `schedule_export` を用い、`projectId` に工程表の案件を、`targetIds` に工程表の ID を、`itemCount` に出力する工程項目の件数（出力対象の工程項目の件数。Requirement 9.3）を添え、形式（xlsx・pdf）は記録の付帯の情報に含めるかを実装時に確定する。`record` は形式の検証の後、ファイルの生成（`exportToExcel`・`exportToPdf`）の前に一つの要求につき 1 回だけ呼ぶ（13.6）。経路が `requireProjectScope` を通った後に呼ぶため、`record` の `PROJECT_OUT_OF_SCOPE` は通常起きないが、起きたときも生成せず不在と同じ 404 とする。
 
 **記録の失敗の応答**: `record` が `RECORD_FAILED` を返したときは、ファイルを生成せず、ファイルを含まない 500 の応答を返す。本文の `detail` は「出力を記録できなかったため中止しました」とし、画面が記録の失敗を他の失敗と区別できる識別子（例 `code: 'EXPORT_RECORD_FAILED'`）を添える。出力のダイアログ（`ExportDialog` の `runExport`）は、この応答でダウンロードを始めず `EXPORT_RECORD_FAILED_MESSAGE` を表示する（13.7）。再試行の釦は従来どおり示し、押すと記録からやり直す。ほかの失敗の文言（Requirement 7.6・8.6 の出力の失敗）は変えない。ブラウザで生成する出力の包み（`runRecordedExport`）は使わない。サーバーが記録する出力をブラウザからも記録すると二重の記録になるため（user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。
+
+**出力の記録の実装の決定（2026-10-28、タスク22.2 の実装）**: execution-budget-management のタスク17.2 と同じ形で、次のとおりとした。
+
+- 記録は出力の経路の本体で、範囲の判定（判定部品）・形式の検査（`exportQuerySchema`）・出力データの取得（`getExportData`）の後、`exportToExcel`・`exportToPdf` の前に一つの要求につき 1 回だけ呼ぶ。範囲外と不在の 404、ID と format の 400、権限なしの 403 の要求は記録の前に終わり、記録しない（統合テストで固定した）
+- 記録の内容は、種別 `schedule_export`、`projectId` は工程表の案件、`targetIds` は工程表の ID 一つ、`itemCount` は出力対象（`isExportTarget` が真）の工程項目の件数（出力から外した工程項目は数えない。Requirement 9.3）とした。出力の形式（xlsx・pdf）は記録に含めない（上流の `ExportRecordInput` に項目が無く、記録の内容は上流の所管のため）
+- 記録に添える案件は、判定部品と同じ案件IDの解決関数（`findProjectIdOfSchedule`）で工程表から引く。`/api/schedules` のマウントの経路には案件 ID が無く、出力データ（`ScheduleExportData`）も案件 ID を持たないため。判定部品の後に工程表が論理的に取り除かれる競合で案件を引けないときは、記録も生成もせず不在と同じ汎用の 404 にする
+- 記録の失敗（`RECORD_FAILED`）は `InternalServerError` の 500（`code: 'EXPORT_RECORD_FAILED'`、`detail` は「出力を記録できなかったため中止しました」）で、ファイルを生成せず返さない。応答の形は大域のエラーハンドラーの RFC 7807 の形である。本章の「記録の失敗の応答」の例示の識別子をそのまま採った
+- 出力のダイアログは従来どおり fetch で応答を受け（apiClient を経ないため、ファイルの応答は Blob として読まれる）、失敗の応答の本文を JSON として読めて `code` が `EXPORT_RECORD_FAILED` のときだけ `EXPORT_RECORD_FAILED_MESSAGE` を表示する。本文が JSON でない・識別子が違う失敗は従来の「工程表の出力に失敗しました」のまま（Requirement 7.6・8.6）。どちらの失敗でもダウンロードを始めず、再試行の釦を示す
 
 ### Requirements Traceability
 

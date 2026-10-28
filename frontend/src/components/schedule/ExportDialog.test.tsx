@@ -499,6 +499,76 @@ describe('ExportDialog', () => {
       expect(within(alertAfterRetry).getByRole('button', { name: '再試行' })).toBeEnabled();
       expect(defaultProps.onClose).not.toHaveBeenCalled();
     });
+
+    // construction-schedule の Requirement 13.7（タスク22.2）
+    it('出力の記録の失敗の応答（EXPORT_RECORD_FAILED）ではダウンロードを始めず、出力を記録できなかった旨を表示し、再試行で記録からやり直す', async () => {
+      const user = userEvent.setup();
+      const { mockClick, downloaded } = spyDownloadLink();
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          json: () =>
+            Promise.resolve({
+              status: 500,
+              code: 'EXPORT_RECORD_FAILED',
+              detail: '出力を記録できなかったため中止しました',
+            }),
+          blob: () => Promise.resolve(new Blob(['{}'])),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          blob: () => Promise.resolve(new Blob(['test'])),
+        });
+      globalThis.fetch = fetchMock;
+
+      render(<ExportDialog {...defaultProps} />);
+      await selectFormat(user);
+      await user.click(screen.getByRole('button', { name: '出力' }));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('出力を記録できなかったため中止しました');
+      expect(alert).not.toHaveTextContent('工程表の出力に失敗しました');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(global.URL.createObjectURL).not.toHaveBeenCalled();
+      expect(mockClick).not.toHaveBeenCalled();
+      expect(defaultProps.onClose).not.toHaveBeenCalled();
+
+      // 再試行は出力の要求（サーバーの記録と生成）をやり直す
+      await user.click(within(alert).getByRole('button', { name: '再試行' }));
+      await waitFor(() => {
+        expect(mockClick).toHaveBeenCalledTimes(1);
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        exportUrl,
+        expect.objectContaining({ method: 'GET' })
+      );
+      expect(downloaded).toEqual([`テスト工程表.${format}`]);
+    });
+
+    it('記録の失敗以外の識別子の 500 は従来の出力の失敗の文言のまま表示する', async () => {
+      const user = userEvent.setup();
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () =>
+          Promise.resolve({
+            status: 500,
+            code: 'INTERNAL_SERVER_ERROR',
+            detail: 'Internal server error',
+          }),
+      });
+
+      render(<ExportDialog {...defaultProps} />);
+      await selectFormat(user);
+      await user.click(screen.getByRole('button', { name: '出力' }));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('工程表の出力に失敗しました');
+      expect(alert).not.toHaveTextContent('出力を記録できなかったため中止しました');
+    });
   });
 
   // ============================================================================

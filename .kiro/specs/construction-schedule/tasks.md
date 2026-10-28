@@ -459,7 +459,7 @@
   - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
   - _Boundary: 本スペックの API の案件の範囲の判定_
 
-- [ ] 22.2 工程表の出力に記録（user-authentication の要件40）を適用する
+- [x] 22.2 工程表の出力に記録（user-authentication の要件40）を適用する
   - 対象（2026-10-25 の実測）: サーバーで生成する backend/src/routes/schedules.routes.ts の `GET /:id/export`（527。Excel と PDF。画面は frontend/src/components/schedule/ExportDialog.tsx から呼ぶ）。種別 `schedule_export`
   - ハンドラーが生成の前に `ExportAuditService.record`（実行者・種別・案件・対象・件数）を呼ぶ（40.9。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。記録が失敗したときの応答（出力を返さない）は同節に照らして決める
   - 挙動の変更であるため RED → GREEN で進め、統合テストで出力のたびに監査 `DATA_EXPORTED` が種別・案件つきで 1 件記録されること、記録の失敗時の応答を主張し、E2E で画面からの出力が記録を残すことを確かめる
