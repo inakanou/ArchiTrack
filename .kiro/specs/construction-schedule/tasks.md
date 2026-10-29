@@ -467,3 +467,29 @@
   - _Requirements: 13.6, 13.7_
   - _Boundary: 工程表の出力の経路の記録_
   - _Depends: 22.1_
+
+## タスク23: プロジェクトの配下の経路の食い違いの記録（user-authentication の要件39.8 の適用。利用者の判断で起票、2026-10-29）
+
+**経緯**: user-authentication が要件39.8 を加え、経路の案件と対象の実際の案件が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（利用者の判断、2026-10-29「推奨案で進める」。同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の construction-schedule の行）。本スペックの判定部品（backend/src/middleware/construction-schedule-project-scope.middleware.ts の `requireScheduleProjectScope`、70〜74 行付近。行は同日の実測で、着手時に測り直すこと）は、二重マウント（`/api/projects/:projectId/schedules/:id` とその配下。出力の `GET /:id/export` を含む）の食い違いを不在として null を返し、範囲を判定せず記録しない。工程表そのものの食い違いの条文が無かったため、requirements.md に 13.8 を加え（応答と記録の両方）、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた。作成の要求が指す数量表の所属（13.4）は、`ScheduleService.create` の照合が既に要件39.8 の振る舞いを満たすため変えない（同章の「決定」）
+
+- [ ] 23.1 プロジェクトの配下の経路の食い違いで、工程表の実際の案件が範囲外なら記録する
+  - `requireScheduleProjectScope` の解決関数が、経路の `projectId` と工程表の案件が食い違うとき、null ではなく上流の `projectMismatch`（工程表の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えずファイルを生成しない。工程表の不在と論理的な取り除きは従来どおり null で記録しない（`findProjectIdOfSchedule` の定めを保つ。design.md の同章の「決定」）。同ファイルの冒頭の注釈の食い違いの記述を改める。作成の要求が指す数量表（13.4）の照合は変えない
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（`backend/src/__tests__/unit/middleware/construction-schedule-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と工程表の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にする」は、工程表の案件が範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改め、題名も改める。論理的に取り除かれた工程表の食い違いが範囲を判定せず記録なしの 404 になることを足す。統合テスト（`backend/src/__tests__/integration/construction-schedule-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の案件と工程表の案件が食い違うと工程表の不在と同じ 404 にし、データを変えず、記録しない」（範囲内どうしの食い違い）は条文どおりで変えず、記録しない理由の注釈を範囲内どうしの食い違いであるためと改め、範囲外の案件の工程表を範囲内の案件の経路で指すと詳細・更新・一括保存・論理的な取り除き・出力が 404 でデータが変わらずファイルを返さず `PROJECT_SCOPE_DENIED` が増える（対象は工程表の実際の案件。出力の記録は増えない）テストを足す
+  - E2E（`e2e/specs/schedules/construction-schedule-project-scope.spec.ts` に新しいテスト）で、範囲外の案件の工程表を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えることを主張し、`@requirement construction-schedule/REQ-13.8` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、食い違いの要求が範囲外のときだけ記録され、どの場合も不在と同じ 404 でデータが変わらずファイルを生成しない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 13.8_
+  - _Boundary: requireScheduleProjectScope の解決関数と、食い違いの記録を主張する本スペックのテスト_
+
+## タスク24: 工程表の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 13.2 により閲覧範囲外の工程表・プロジェクトへの要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `ScheduleDetailPage.tsx` は読み込みの失敗で `ApiError` の `message`（汎用の 404 では英語の文言）をそのまま表示する（355 行付近）。`ScheduleListPage.tsx` は読み込みの失敗を一律に取得の失敗の固定の文言と再試行の釦にし（357 行付近、415 行付近）、削除の失敗も一律に削除の失敗の固定の文言で一覧を置き換える（380 行付近）。`ScheduleForm.tsx` は数量表の選択肢の読み込みの失敗を無視し（197 行付近）、`ScheduleCreatePage.tsx` は作成の失敗を 400 の利用者向けの符号を除き一律に作成の失敗の固定の文言にする（116 行付近）。`useScheduleState.ts` の保存は失敗で `ApiError` の `message` をそのまま表示に渡す（285 行付近）。`ExportDialog.tsx` は記録の失敗以外の失敗の応答を一律に出力の失敗の文言と再試行の釦にする（243 行付近）。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に Requirement 14（14.1・14.2）を加え、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた
+
+- [ ] 24.1 工程表の一覧・新規作成・詳細の画面と作成・保存・削除・出力の操作で、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンク（いずれの画面もプロジェクトの一覧）を表示し、応答の英語の文言・取得の失敗の文言と再試行の釦を出さない。新規作成の画面は数量表の選択肢の読み込みの 404 でプロジェクトが見つからない旨を表示し、404 以外の失敗は従来どおり無視する。作成・保存・削除の 404 では見つからない旨のメッセージを表示し（作成の汎用の 404 はプロジェクト、保存・削除は工程表）、出力のダイアログは出力の応答の 404 で出力の失敗の文言と再試行の釦に代えて工程表が見つからない旨を表示する。記録の失敗（13.7）、409 と 404 以外の失敗の従来の文言は保つ。文言の逐語は詳細の画面の工程表が無い場合の既存の表示を流儀として design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、各画面の読み込みの 404 の表示、作成・保存・削除と出力のダイアログの 404 のメッセージ。404 以外の失敗の従来の文言と、出力のダイアログの記録の失敗の文言は保つ）と E2E（担当外の利用者が工程表の詳細の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが出て存在しない工程表と同じ表示になる、範囲外のプロジェクトの一覧・新規作成の URL でプロジェクトが見つからない旨が出る、開いた後に論理的に取り除かれた工程表の保存・出力と、一覧を開いた後に論理的に取り除かれた工程表の削除で見つからない旨のメッセージが出る）で主張し、`@requirement construction-schedule/REQ-14.1`・`REQ-14.2` の印を置く
+  - 既存の E2E（`e2e/specs/schedules/construction-schedule-project-scope.spec.ts` の「担当外の利用者が工程表の URL を直接開くと存在しない工程表と同じ表示になり」）は `main` の本文を存在しない工程表と比べており、比較の主張は消さず、見つからない旨の表示どうしの比較として緑であることを確かめる。`construction-schedule-e2e.spec.ts` と `construction-schedule-export-audit.spec.ts` の出力の失敗と再試行のテスト（500 で差し替え）、`construction-schedule-focus-visible.spec.ts` の取得の失敗・作成の失敗・出力の失敗の本文のテスト（400 で差し替え）は、404 以外の従来の表示として緑のままであることを確かめる。ほかに、変えた表示（取得の失敗・削除の失敗・作成の失敗・出力の失敗の文言、再試行の釦、見つからない旨の文言、英語の Not found）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、応答の英語の文言と取得・操作の失敗の汎用の文言を出さない状態になる
+  - _Requirements: 14.1, 14.2_
+  - _Boundary: ScheduleListPage, ScheduleCreatePage, ScheduleForm, ScheduleDetailPage, useScheduleState, ExportDialog_
