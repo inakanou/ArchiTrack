@@ -1913,6 +1913,49 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: 全体の検証, .kiro/specs/user-authentication/design.md, docs/security/ipa-alert-20261009-remediation-plan.md_
   - _Requirements: 38.13_
 
+## タスク63: 経路の案件と対象の実際の案件の食い違いの記録（要件39.8）
+
+**経緯**: 入れ子や二重マウントの経路で経路の案件と対象の実際の案件が食い違う要求を、各業務 spec の判定部品が対象の不在として閲覧範囲を判定せずに 404 にしており、対象の実際の案件が範囲外でも記録が残らなかった（2026-10-29 の調査）。利用者の判断（2026-10-29「推奨案で進める」）で要件39.8 を加え、39.7 の読み方を明確にした（requirements.md の改訂の記録）。design.md の ProjectScopeGuard の節の「食い違いの記録」に従う。本 spec は上流の部品だけを持つ。各 spec の判定部品の切り替えと既存のテストの書き換えは、同節の「各業務 spec への起票先」の各 spec のタスクで行い、それらは 63.1 に依存する
+
+- [ ] 63.1 判定部品が食い違いを受け取り、実際の案件が範囲外のときだけ記録する
+  - 解決関数の戻り値に食い違い（対象の実際の案件 ID を持つ）を加え、作り手 `projectMismatch` を公開する。判定部品は食い違いを受けたとき実際の案件を判定し、範囲外のときだけ範囲外の記録（39.7 と同じ形）を行い、判定の結果に関わらず不在と同じ汎用の 404 を返して本体へ進めない。範囲内・不在・論理削除の実際の案件では記録しない。判定の DB の失敗は既存の分岐と同じくエラーハンドラーへ渡す
+  - 解決関数を通らない下流の独自の判定のために、同じ判定と記録を `recordProjectMismatchIfOutOfScope` として公開する（実体は一つにし、判定部品の分岐もこれを使う）。既存の `string | null` を返す解決関数は変えずに型が合うこと
+  - 単体テスト（`backend/src/__tests__/unit/middleware/project-scope.middleware.test.ts`）で、食い違いの実際の案件が範囲外なら記録が 1 件（targetId が実際の案件、経路の ID が path に残る）で 404、範囲内・不在なら記録なしで 404、いずれも本文が不在の 404 と同じで `next()` へ進まないこと、記録の失敗でも 404 であること、判定の失敗がエラーハンドラーへ渡ること、`recordProjectMismatchIfOutOfScope` の同じ三通りを確かめた状態になる
+  - _Depends: 52.1_
+  - _Boundary: ProjectScopeGuard, backend/src/middleware/project-scope.middleware.ts_
+  - _Requirements: 39.8_
+
+- [ ] 63.2 食い違いの記録を実 DB の上で確かめる（統合）
+  - 統合テストの中で、案件の配下に子のデータを置く入れ子の経路をテスト用に組み立て（本 spec の案件の経路には入れ子が無いため）、食い違いを返す解決関数で判定部品を置く。範囲外の案件の子を範囲内の案件の経路で指すと 404 で `PROJECT_SCOPE_DENIED` が 1 件増え（targetId は子の実際の案件）、範囲内の別の案件の子を指すと 404 で記録が増えず、不在の子でも同じ 404 で記録が増えないことを、応答の本文の一致とともに主張する
+  - 39.8 の受入基準の E2E の被覆は、本 spec に入れ子の経路が無いため、最初に切り替える業務 spec の E2E が担う（各 spec の起票で被覆の印を置く。それまで `check:req-coverage` は 39.8 を未被覆として数える）
+  - 実 PostgreSQL の上で上の三通りが主張どおりで、`project-scope.api.integration.test.ts` の既存のテストが緑のままの状態になる
+  - _Depends: 63.1_
+  - _Boundary: backend/src/__tests__/integration_
+  - _Requirements: 39.8_
+
+## タスク64: クリップボードへの書き込みの記録の部品（要件40.10・40.11）
+
+**経緯**: 内訳書の項目のクリップボードへのコピーが出力の記録を経ていなかった。利用者の判断（2026-10-29「推奨案で進める」）で記録の対象にする。Safari はクリックの処理の中で同期的に始めた書き込みしか許さないため、記録を待ってから書く `runRecordedExport` では書けない。design.md の ExportAuditService と ExportAuditClient の節の「クリップボードへの書き込みの記録」に従う。本 spec は種別と包みを持ち、画面への適用（内訳書の詳細画面のコピー）と条文の改訂は itemized-statement-generation のタスクで行い、それは 64.1 に依存する
+
+- [ ] 64.1 出力の種別にクリップボードのコピーを足し、記録してから書き込む包みを設ける
+  - 種別 `itemized_statement_clipboard` を backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙（`audit-log.routes.ts` の注釈と `backend/docs/api-spec.json`）へ足す。案件の指定を必須とする（案件に属さない種別に入れない）
+  - `runRecordedClipboardWrite` を `frontend/src/api/export-audit.ts` に置く。クリックの処理の中で最初の `await` より前に記録の要求を送り、記録の成功の後に中身を解決し記録の失敗で拒否する Promise を値に持つ `ClipboardItem` で書き込みを始める。`ClipboardItem` の無いブラウザでは記録の成功を待ってから文字列で書き、`navigator.clipboard` が無いときは記録せずに失敗を返す。結果と失敗の種別は `runRecordedExport` と同じにする
+  - backend の単体テストと統合テストで新しい種別の記録が受け付けられ、案件の無い要求が 400 になることを、frontend の単体テストで、書き込みが記録の要求の解決より前に始まること、記録の失敗・記録の ID の無い応答で中身が拒否され `RECORD_FAILED` になること、書き込みの失敗が `GENERATION_FAILED` になることを確かめた状態になる
+  - 実ブラウザ（Chromium と WebKit）の確認: 手元で包みを呼ぶ最小のページをボタンのクリックで動かし、書き込みがクリックで始まり記録の後に中身が入ること、記録の失敗で何も書かれないことを確かめ、手順と結果（ブラウザの版を含む）を本ファイルの Implementation Notes に記す。画面に適用した後の E2E は itemized-statement-generation が持つ
+  - _Depends: 53.4_
+  - _Boundary: ExportAuditService, ExportAuditClient, backend/src/services/export-audit.service.ts, frontend/src/api/export-audit.ts_
+  - _Requirements: 40.10, 40.11_
+
+## タスク65: 総合検証と文書の追随（要件39.8・40.10・40.11 のクリップボード）
+
+- [ ] 65.1 全ての単体・統合テストと関門を通し、文書を揃える
+  - backend と frontend の全単体テストと統合テストを回し、変えた部品（判定部品・出力の記録の種別）を使う既存の E2E を e2e/ 全体の grep で選んで回す。関門は `:update` の変種を含めず名指しで一本ずつ回し、最後に `git status --porcelain scripts/` が空であることを確かめる。`check:req-coverage` の 39.8 の未被覆は各業務 spec の切り替えの E2E で解く
+  - design.md の ProjectScopeGuard と ExportAuditService の節を実装に合わせ、`docs/security/ipa-alert-20261009-remediation-plan.md` の該当の行を改める。spec.json の phase を implementation-complete へ戻すのは `/kiro-validate-impl user-authentication` が GO を出した後に行い、tasks_summary を同じ時点で測り直す
+  - 39.8 以外の関門とテストが緑の状態になる
+  - _Depends: 63.1, 63.2, 64.1_
+  - _Boundary: 全体の検証, .kiro/specs/user-authentication/design.md, docs/security/ipa-alert-20261009-remediation-plan.md_
+  - _Requirements: 39.8, 40.10_
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば同じコミットで宣言を貼り直し、増分の帰属を記す（利用者の判断 2026-10-06。39.1・40.2 と construction-photo の 27.1 の前例に従う）。正規表現・testid への書き換えで避けるのは不当（36.7）

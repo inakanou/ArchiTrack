@@ -5329,11 +5329,12 @@ sequenceDiagram
 | 39.2 | 範囲外の ID 指定に 404 | ProjectScopeGuard | `requireProjectScope` | — |
 | 39.5 | システム管理者の既定に全案件閲覧 | DefaultPermissionSeed | `seedRolePermissions` | — |
 | 39.7 | 範囲外のアクセスの記録 | ProjectScopeGuard, SecurityAnomalyMonitor | `PROJECT_SCOPE_DENIED` | — |
+| 39.8 | 経路の案件と対象の実際の案件の食い違いは不在と同じ 404、実際の案件が範囲外なら記録 | ProjectScopeGuard | `requireProjectScope`、`projectMismatch`、`recordProjectMismatchIfOutOfScope` | — |
 | 40.1-40.5 | 認証・アカウント操作の監査 | AuthService, InvitationService, TwoFactorService, AuditLogService | `AuditLogService.createLog` | 2FA を伴うログイン |
 | 40.6 | 削除前の監査と失敗時の中止 | UserRoleService, AuditLogService | `DELETE /api/v1/users/:id` | — |
 | 40.7, 40.8 | 監査ログの保全と改変の拒否 | AuditLogService | `audit_logs` のトリガー | — |
 | 40.9 | 出力の記録 | ExportAuditService | `POST /api/v1/audit-logs/exports`、`ExportAuditService.record` | — |
-| 40.10, 40.11 | ブラウザの出力の事前記録と失敗時の中止 | ExportAuditClient | `runRecordedExport` | — |
+| 40.10, 40.11 | ブラウザの出力の事前記録と失敗時の中止 | ExportAuditClient | `runRecordedExport`、`runRecordedClipboardWrite` | — |
 | 40.12 | 招待の記録の対象に招待先のメールアドレス | AuditLogsPage | `getAuditLogTargetLabel` | — |
 | 41.1-41.6 | アーカイブ・消去・鍵の必須・改ざん検知・復元・失敗時の保全 | AuditLogArchiveService, ScheduledJobRunner, RuntimeMode, AdminNotificationService | `audit-log-archive`、`POST /api/v1/audit-logs/archives/restore` | 監査ログのアーカイブ |
 | 42.1, 42.2 | 運用設定の保護と監査 | AdminLogLevelEndpoint | `GET/POST /api/v1/admin/log-level` | — |
@@ -5933,10 +5934,21 @@ interface ProjectScopeService {
 | Field | Detail |
 |-------|--------|
 | Intent | ID 指定の要求を判定し、範囲外を存在しないものと同じ 404 にして記録する |
-| Requirements | 39.1, 39.2, 39.7 |
+| Requirements | 39.1, 39.2, 39.7, 39.8 |
 
 ```typescript
-type ProjectIdResolver = (req: Request) => Promise<string | null>;  // null は対象の不在
+/** 経路の案件（または親）と対象が実際に属する案件の食い違い（39.8）。応答は不在と同じ 404 */
+interface ProjectMismatch {
+  readonly kind: 'project_mismatch';
+  readonly ownerProjectId: string;   // 対象のデータが実際に属する案件
+}
+
+/** 案件 ID、対象の不在（null）、または食い違い */
+type ProjectIdResolution = string | null | ProjectMismatch;
+type ProjectIdResolver = (req: Request) => Promise<ProjectIdResolution>;
+
+/** 解決関数が食い違いを返すための作り手 */
+function projectMismatch(ownerProjectId: string): ProjectMismatch;
 
 interface ProjectScopeGuardOptions {
   scopeService?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;   // 省略時は共有のインスタンス
@@ -5944,6 +5956,13 @@ interface ProjectScopeGuardOptions {
 }
 
 function requireProjectScope(resolveProjectId: ProjectIdResolver, options?: ProjectScopeGuardOptions): RequestHandler;
+
+/**
+ * 解決関数を通らない下流の独自の判定（例: execution-budget-management の requireChildInProject）が、
+ * 食い違いを見つけたときに呼ぶ。実際の案件を判定し、範囲外のときだけ 39.7 と同じ形で記録する。
+ * 応答（汎用の 404）は呼び出し側が返す
+ */
+function recordProjectMismatchIfOutOfScope(req: Request, ownerProjectId: string, options?: ProjectScopeGuardOptions): Promise<void>;
 
 /** 案件 ID を経路のパラメータから読む既定の解決関数 */
 const projectIdFromParam: (paramName: string) => ProjectIdResolver;
@@ -5953,6 +5972,21 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 - 範囲外の記録と観測の部品（`recordProjectScopeDenied` と要求の識別の型 `ProjectScopeDenialContext`）は次のファイルに公開し、本判定部品と、判定部品を通らない下流のサービスの中の判定（quantity-table-generation のタスク104.1。写真の紐付けが指す現場調査・画像の案件の判定）が同じ形で記録するために共有する（2026-10-27）。要求からの識別の切り出し（`projectScopeDenialContextOf`）は本判定部品の側に置き、下流の経路が切り出してサービスへ渡す
   backend/src/services/project-scope-denial.service.ts
 - 子リソースから案件 ID を引く解決関数は各業務 spec が持つ。本 spec は案件そのもの（`/api/projects` の `GET /`、`GET /status-counts`、`GET /:id`、`GET /:id/detail-summary`、`PUT /:id`、`DELETE /:id`、`PATCH /:id/status`、`GET /:id/status-history`）に適用する
+- **食い違いの記録（39.8、2026-10-29、利用者の判断「推奨案で進める」）**: 入れ子や二重マウントの経路で、経路の案件（または親のデータ）と対象のデータが実際に属する案件（または親）が食い違うとき、解決関数は `null` ではなく `projectMismatch(対象の実際の案件 ID)` を返す。判定部品は実際の案件を `evaluateProjectAccess` で判定し、`out_of_scope` のときだけ `recordProjectScopeDenied`（39.7 と同じ形。targetId は実際の案件 ID、metadata の path に経路の ID が残る）を呼ぶ。判定の結果に関わらず応答は不在と同じ汎用の 404 とし（39.2）、`next()` へは進めない。実際の案件が範囲内（経路の誤り）・不在・論理削除のときは記録しない
+  - 経路で指定した案件は判定しない（食い違いの要求は経路の案件のデータを返さないため。要件39 の改訂の記録を参照）。判定の DB の失敗は既存の分岐と同じくエラーハンドラーへ渡す（404 にしない）。記録の失敗は 404 を変えない（`recordProjectScopeDenied` の既存の振る舞い）
+  - 判定と記録の実体は判定部品の側に一つだけ置き、解決関数を返す経路（`requireProjectScope`）と、解決関数を通らない独自の判定（`recordProjectMismatchIfOutOfScope`）の両方がそれを使う。`ProjectIdResolver` の戻り値は `string | null` を含む上位の型にするので、食い違いを扱わない既存の解決関数はそのまま型が合う
+  - 一括の要求（本文の複数の ID が経路の案件に属するかを確かめる部品）は、属さない ID の実際の案件ごとに `recordProjectMismatchIfOutOfScope` を一度ずつ呼ぶ（同じ案件を重ねて記録しない）。一括へ広げるかは各 spec の判断とする
+- 食い違いの記録の各業務 spec への起票先（本 spec は上流の部品だけを持ち、各 spec の判定部品の切り替えと、記録しないことを主張する既存のテストの書き換えは各 spec のタスクで行う）:
+  - construction-schedule: `backend/src/middleware/construction-schedule-project-scope.middleware.ts` の `requireScheduleProjectScope`（13.4）
+  - contract-management: `backend/src/middleware/contract-management-project-scope.middleware.ts` の `requireContractProjectScope`（14.4〜14.6。統合テストに範囲外の案件の契約書を指して記録の差 0 を主張するものがあり、条文どおりに書き換える）
+  - estimate-creation: `backend/src/middleware/estimate-creation-project-scope.middleware.ts` の `requireEstimateProjectScope`（57.4・57.5）
+  - itemized-statement-generation: `backend/src/middleware/itemized-statement-project-scope.middleware.ts` の `requireItemizedStatementProjectScope`（18.4・18.5）
+  - estimate-request: `backend/src/middleware/estimate-request-project-scope.middleware.ts` の `requireEstimateRequestProjectScope`（Requirement 42。食い違いの条文が無く、各 spec の起票で足す）
+  - quantity-table-generation: `backend/src/middleware/quantity-table-project-scope.middleware.ts` の `requireQuantityTableProjectScope`・`requireQuantityGroupProjectScope`・`requireQuantityItemProjectScope`（親の数量表・グループの食い違い。Requirement 50。食い違いの条文が無く、各 spec の起票で足す）
+  - execution-budget-management: `backend/src/middleware/execution-budget-project-scope.middleware.ts` の独自部品 `requireChildInProject`（20.4。解決関数を通らないため `recordProjectMismatchIfOutOfScope` を使う）と、一括の `requireBodyExecutionBudgetItemsInProject`（20.5）
+  - 各 spec の単体テスト（`backend/src/__tests__/unit/middleware/` の各 spec の `*-project-scope.middleware.test.ts`）に、食い違いを「範囲を判定せずに 404」「記録しない」と主張するものがあり、各 spec の切り替えで条文どおりに書き換える
+- 起票の対象から外す spec と理由: site-survey と construction-photo は、解決関数が経路の案件 ID を読まずに対象のデータから実際の案件を引いて判定し、経路との食い違いは後段のサービスで 404 にする。対象の実際の案件が範囲外なら判定部品が既に 39.7 として記録するため、39.8 の振る舞いを満たしており、切り替えは要らない。project-management は案件そのものの経路だけで、食い違いが生じない
+- 画面が 404 を受けたときの不在の表示（共通部品 `ResourceNotFound` を使うか、各画面の文言）は各業務 spec の画面の所管であり、本 spec はサーバーの応答（汎用の 404 `NOT_FOUND`、範囲外と不在で同じ本文）を変えない
 
 #### 監査
 
@@ -5982,7 +6016,8 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 ```typescript
 type ExportKind =
   | 'site_survey_report_pdf' | 'site_survey_images_zip' | 'quantity_table_pdf'
-  | 'itemized_statement_xlsx' | 'estimate_request_xlsx' | 'estimate_pdf' | 'estimate_xlsx'
+  | 'itemized_statement_xlsx' | 'itemized_statement_clipboard'
+  | 'estimate_request_xlsx' | 'estimate_pdf' | 'estimate_xlsx'
   | 'schedule_export' | 'order_export' | 'progress_export'
   | 'construction_photo_ledger_pdf' | 'construction_photos_zip' | 'annotated_image'
   | 'audit_log_json';
@@ -6027,6 +6062,20 @@ type RecordedExportError = { type: 'RECORD_FAILED'; message: string } | { type: 
 > - 改訂前: 共通の API クライアントの自動再試行（5xx・時間切れ・通信の失敗を最大 3 回送り直す）が、記録の要求にもサーバーで生成する出力の要求にも掛かっていた。再試行しない識別子は `ESTIMATE_SAVE_TIMEOUT` だけだった。このため、サーバーが記録を書いた後に応答が失われた・5xx を返したときに送り直され、出力 1 回に `DATA_EXPORTED` が最大 4 件残り得た。記録の失敗の 500（`EXPORT_RECORD_FAILED`）も 3 回送り直され、「出力を記録できなかったため中止しました」の表示が遅れていた。工程表の出力のダイアログは素の fetch で送るため再試行していなかった
 > - 改訂後: 記録の要求とサーバーで生成する出力の要求は送り直さない。`EXPORT_RECORD_FAILED` は要求の種類を問わず送り直さない。他の冪等でない要求の再試行の扱いは本改訂の範囲に含めない
 > - 理由: 記録の要求は送るたびに記録が 1 件増える冪等でない要求であり、サーバーで生成する出力の要求も記録を書いてから生成するので同じく冪等でない。HTTP の自動再試行は冪等な要求に限る（RFC 9110 9.2.2）。要件40.10 の「出力の開始時に 1 回」の記録を、応答が失われた場合も含めて保つため。条文（40.9〜40.11）は変えない
+
+**クリップボードへの書き込みの記録（2026-10-29、利用者の判断「推奨案で進める」）**:
+
+- 種別 `itemized_statement_clipboard`（内訳書の項目のタブ区切りのクリップボードへのコピー）を `ExportKind`（backend の `EXPORT_KINDS`、frontend の `ExportKind`、OpenAPI の列挙）へ足す。案件に属する出力であり `projectId` を必須とする（`PROJECTLESS_EXPORT_KINDS` には入れない）。クリップボードへの書き込みも、ブラウザで生成して利用者の手元へ持ち出す出力として 40.10・40.11 の対象に含める。どの出力を記録するかの条文と画面への適用は itemized-statement-generation が持つ
+- 決定: クリップボードへの書き込みは `runRecordedExport` ではなく専用の包み `runRecordedClipboardWrite` を通す。`runRecordedExport` は記録の応答を待ってから `generate` を呼ぶが、Safari（WebKit）は利用者の操作（クリック）の処理の中で同期的に始めた書き込みしか許さず、記録の応答を待った後の `navigator.clipboard.writeText` は拒否される
+- 包みはクリックの処理の中で、最初の `await` より前に、記録の要求を送り、記録の成功の後に中身（`Blob`、`text/plain`）を解決する Promise を値に持つ `ClipboardItem` を作って `navigator.clipboard.write` を呼ぶ。中身の Promise は記録の要求の成功（記録の ID が返る）の後にだけ中身を作って解決し、記録の失敗では拒否する。拒否された中身は書き込まれないので、記録の失敗ではクリップボードは変わらない（40.10 の記録を先に要求する順を保つ）
+- 結果は `runRecordedExport` と同じ `RecordedExportResult` で返す。記録の失敗は `RECORD_FAILED`（「出力を記録できなかったため中止しました」。40.11）、記録の後の書き込みの失敗は `GENERATION_FAILED` とし、記録は送り直さない
+- `ClipboardItem` を持たないブラウザでは、記録の成功を待ってから `navigator.clipboard.writeText` で書く（順は保ち、操作の猶予の切れによる書き込みの失敗は `GENERATION_FAILED` として呼び出し側が表示する）。`navigator.clipboard` が無いときは記録を要求せずに `GENERATION_FAILED` を返す（出力が起きないので記録しない）
+- 検証: 単体テストで、`navigator.clipboard.write` が記録の要求の解決より前に呼ばれること、記録の失敗で中身の Promise が拒否され書き込まれないこと、記録の ID の無い応答を失敗とすることを確かめる。加えて、実ブラウザ（Chromium と WebKit）で、クリックで書き込みが始まり記録の後に中身が入ること、記録の失敗で何も書かれないことを確かめる（擬似の `ClipboardItem` では利用者の操作の制約を再現できないため）
+
+```typescript
+// frontend
+async function runRecordedClipboardWrite(input: ExportRecordInput, produce: () => string | Promise<string>): Promise<RecordedExportResult<void>>;
+```
 
 ##### AuditLogArchiveService（変更）
 
@@ -6314,6 +6363,8 @@ model Project {
 | 2FA 未登録・初回変更中の API | 403 `TWO_FACTOR_SETUP_REQUIRED`・`PASSWORD_CHANGE_REQUIRED` | なし |
 | 無効化された利用者の API | 401 `ACCOUNT_DISABLED` | なし |
 | 範囲外の案件 | 404 `NOT_FOUND`（存在しない案件と同じ本文） | 監査 `PROJECT_SCOPE_DENIED` |
+| 経路の案件と対象の実際の案件の食い違い（39.8） | 404 `NOT_FOUND`（対象の不在と同じ本文） | 実際の案件が範囲外のときだけ監査 `PROJECT_SCOPE_DENIED`（範囲内・不在は記録なし） |
+| クリップボードへの書き込みの記録の失敗（40.11） | 書き込まない（中身の Promise を拒否）・「出力を記録できなかったため中止しました」 | なし |
 | 上限を超える付与 | 403 `FORBIDDEN`（`code` に `CeilingError` の種別） | 監査 `PERMISSION_CHECK_FAILED`、異常の検知 `permission_denied` |
 | システム管理者ロールの優先度を超える優先度の指定（38.10） | 400 `VALIDATION_ERROR`（`validate` の既定の本文） | なし |
 | Redis の不在（2FA 待ちの資格） | 503 `SERVICE_UNAVAILABLE` | エラーログ |
