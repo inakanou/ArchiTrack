@@ -4479,6 +4479,32 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - _Boundary: 数量表の編集画面の PDF の出力の開始の処理_
   - _Depends: 104.1_
 
+## Task 105: 二重マウントの経路の食い違いの記録（user-authentication の要件39.8 の適用。利用者の判断で起票、2026-10-29）
+
+**経緯**: user-authentication が要件39.8 を加え、経路の案件（または親のデータ）と対象の実際の案件（または親のデータ）が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（利用者の判断、2026-10-29「推奨案で進める」。同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の quantity-table-generation の行）。本スペックの判定部品（backend/src/middleware/quantity-table-project-scope.middleware.ts の `requireQuantityTableProjectScope`〔129〜131 行付近〕・`requireQuantityGroupProjectScope`〔155〜158 行付近〕・`requireQuantityItemProjectScope`〔182〜185 行付近〕。行は同日の実測で、着手時に測り直すこと）は、二重マウント（`/api/projects/:projectId/quantity-tables/:id`、`/api/quantity-tables/:quantityTableId/groups/:id`、`/api/quantity-groups/:groupId/items/:id` とその配下）の食い違いを不在として null を返し、範囲を判定せず記録しない。食い違いの条文が無かったため、requirements.md に 50.10 を加え（応答と記録の両方）、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた。一括の要求（50.4）と写真の紐付け（50.5）は、対象の実際の案件を判定して範囲外のときだけ記録する振る舞いが既に要件39.8 の記録の条件を満たすため変えない。保存の本文の既存の ID の所属の照合も変えない（同章の「決定」）
+
+- [ ] 105.1 二重マウントの経路の食い違いで、対象の実際の案件が範囲外なら記録する
+  - 3 つの解決関数が、経路の親（`projectId`・`quantityTableId`・`groupId`）と対象の親が食い違うとき、null ではなく上流の `projectMismatch` を返すよう切り替える。渡す案件 ID は対象の実際の案件（数量表はその案件、数量グループは実際の親の数量表の案件、数量項目は実際の親の数量グループの数量表の案件）で、経路の親の案件ではない。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えない。対象の不在は従来どおり null で記録しない。数量表の論理削除は区別しない（design.md の同章の「決定」）。同ファイルの冒頭の注釈の食い違いの記述を改める。全件の判定（`requireAllTargetsProjectScope`）、写真の紐付けのサービスの判定、保存の所属の照合は変えない
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（`backend/src/__tests__/unit/middleware/quantity-table-project-scope.middleware.test.ts`）の「二重マウントで経路の親と対象の親が食い違うときは、範囲を判定せずに不在と同じ 404 にする」は、数量表・数量グループ・数量項目のそれぞれで対象の実際の案件が範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改め、判定に渡る案件が対象の実際の案件であることを足し、題名も改める。統合テスト（`backend/src/__tests__/integration/quantity-table-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の親と対象の親が食い違うと対象の不在と同じ 404 にする」（範囲内どうしの食い違い）は条文どおりで変えず、記録が増えないことの主張を足し、範囲外の案件の数量表・数量グループ・数量項目を範囲内の親の経路で指すと読み込みと書き込みが 404 でデータが変わらず `PROJECT_SCOPE_DENIED` が増える（対象は実際の案件）テストを足す
+  - E2E（`e2e/specs/quantity-tables/quantity-table-project-scope.spec.ts` に新しいテスト）で、範囲外の案件の数量表・数量グループ・数量項目を範囲内の親の経路で指す要求が 404 になり監査の記録が増えることを主張し、`@requirement quantity-table-generation/REQ-50.10` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、食い違いの要求が範囲外のときだけ記録され、どの場合も不在と同じ 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 50.10_
+  - _Boundary: 3 つの解決関数（requireQuantityTableProjectScope・requireQuantityGroupProjectScope・requireQuantityItemProjectScope）と、食い違いの記録を主張する本スペックのテスト_
+
+## Task 106: 数量表の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 50.2 により閲覧範囲外の数量表・プロジェクトへの要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `QuantityTableEditPage.tsx` は詳細の読み込みの失敗を一律に読み込みの失敗の固定の文言と再試行の釦にし（820 行付近、1975 行付近）、数量表が見つからない旨の既存の表示（1987 行付近）には 404 では届かない。同画面の保存は 409 と紐付けた写真の失敗を除き一律に保存の失敗の文言にする（1929〜1945 行付近）。`QuantityTableListPage.tsx` は数量表の一覧とプロジェクトの読み込みの失敗を一律に取得の失敗の固定の文言と再試行の釦にし（710 行付近、826 行付近）、削除の失敗も一律に削除の失敗の文言で一覧を置き換え（750 行付近）、名称の変更は 409 を除き名称の保存の失敗の文言にする（521 行付近）。`CopyQuantityTableDialog.tsx` はコピーの失敗で `ApiError` の `message`（汎用の 404 では英語の文言）をそのまま表示する（176 行付近）。`QuantityTableCreatePage.tsx` はプロジェクトの読み込みの失敗をプロジェクトの情報の取得の失敗の文言にし（184 行付近）、作成の失敗を一律に作成の失敗の文言にする（209 行付近）。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に Requirement 51（51.1・51.2）を加え、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた
+
+- [ ] 106.1 数量表の一覧・新規作成・編集の画面と作成・保存・名称の変更・コピー・削除の操作で、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンク（いずれの画面もプロジェクトの一覧）を表示し、読み込み・取得の失敗の文言と再試行の釦を出さない。作成・保存・名称の変更・コピー・削除の 404 では見つからない旨のメッセージを表示する（作成の汎用の 404 はプロジェクト、それ以外は数量表）。保存の紐付けた写真の不在の 404 の書き分け（`describeSurveyImageLinkSaveFailure`）、409、404 以外の失敗の従来の文言、PDF の出力の記録の失敗の文言（50.9）は保つ。保存の 404 でもドラフトを保持する（42.9）。文言の逐語は編集の画面の数量表が見つからない旨の既存の表示を流儀として design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、各画面の読み込みの 404 の表示、各操作とコピーのダイアログの 404 のメッセージ。404 以外の失敗の従来の文言と、保存の紐付けた写真の失敗の文言は保つ）と E2E（担当外の利用者が数量表の編集の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが出て存在しない数量表と同じ表示になる、範囲外のプロジェクトの一覧・新規作成の URL でプロジェクトが見つからない旨が出る、開いた後に論理的に取り除かれた数量表の保存と、一覧を開いた後に論理的に取り除かれた数量表の名称の変更・コピー・削除で見つからない旨のメッセージが出る）で主張し、`@requirement quantity-table-generation/REQ-51.1`・`REQ-51.2` の印を置く
+  - 既存の E2E（`e2e/specs/quantity-tables/quantity-table-project-scope.spec.ts` の「担当外の利用者が数量表の URL を直接開くと存在しない数量表と同じ表示になり」）は `role="alert"` の要素の本文を存在しない数量表と比べている。共通部品 `ResourceNotFound` がその役割を持たなければ、見つからない旨の表示どうしの比較へ改める（比較の主張は消さない）。`e2e/specs/quantity-tables/quantity-table-focus-visible.spec.ts` の一覧の取得の失敗・コピーの失敗・作成の失敗・編集の画面の取得の失敗・保存の失敗の本文のテストは 400 で差し替えており、404 以外の従来の表示として緑のままであることを確かめる。単体テスト（`QuantityTableEditPage.test.tsx`・`QuantityTableListPage.test.tsx`・`QuantityTableCreatePage.test.tsx` とコピーのダイアログのテスト）の失敗の文言の主張も同じく確かめる。ほかに、変えた表示（読み込みの失敗・取得の失敗・削除の失敗・作成の失敗・名称の保存の失敗・保存の失敗・コピーの失敗の文言、再試行の釦、見つからない旨の文言、英語の Not found）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、応答の英語の文言と読み込み・操作の失敗の汎用の文言を出さない状態になる
+  - _Requirements: 51.1, 51.2_
+  - _Boundary: QuantityTableListPage, QuantityTableCreatePage, QuantityTableEditPage, CopyQuantityTableDialog_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。
