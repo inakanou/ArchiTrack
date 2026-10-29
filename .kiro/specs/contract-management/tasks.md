@@ -328,7 +328,7 @@
   - _Requirements: 14.8_
   - _Boundary: ContractService の変更契約の作成の基となる契約書の照合_
 
-- [ ] 20.2 入れ子の経路の食い違いで、契約書の実際の案件が範囲外なら記録する（user-authentication の要件39.8 の適用）
+- [x] 20.2 入れ子の経路の食い違いで、契約書の実際の案件が範囲外なら記録する（user-authentication の要件39.8 の適用）
   - backend/src/middleware/contract-management-project-scope.middleware.ts の `requireContractProjectScope` の解決関数が、経路の `projectId` と契約書の案件が食い違うとき、null ではなく上流の `projectMismatch`（契約書の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えない。契約書の不在・論理的な取り除きは従来どおり null で記録しない。同ファイルの冒頭の注釈を改める
   - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 統合テスト（`backend/src/__tests__/integration/contract-management-project-scope.api.integration.test.ts`）の「範囲内の案件の配下の経路で範囲外の案件の契約書を指すと、契約書の不在と同じ 404 にし、データを変えず、記録しない」は、記録の差 0 の主張を `PROJECT_SCOPE_DENIED` が 1 件増える（対象は契約書の実際の案件）主張へ改め、題名も改める。単体テスト（`backend/src/__tests__/unit/middleware/contract-management-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と契約書の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にし、記録しない（14.4）」は、範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改める。範囲内どうしの食い違いの統合テスト（記録の差 0）は条文どおりで変えない
   - E2E（`e2e/specs/contracts/contract-management-project-scope.spec.ts` の入れ子の経路のテストか新しいテスト）で、範囲外の案件の契約書を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えることを主張し、`@requirement contract-management/REQ-14.9` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く

@@ -627,6 +627,7 @@ describe('契約書の API の閲覧範囲（統合・実 DB）', () => {
   describe('プロジェクトの配下の経路の所属の照合（14.4）', () => {
     /**
      * @requirement contract-management/REQ-14.4
+     * @requirement contract-management/REQ-14.9
      */
     it('経路の案件と契約書の案件が食い違うと、範囲内どうしでも契約書の不在と同じ 404 にし、データを変えず、記録しない', async () => {
       const deniedBefore = await deniedCount(readAll.id);
@@ -666,47 +667,103 @@ describe('契約書の API の閲覧範囲（統合・実 DB）', () => {
         expect(response.body.code).toBe('NOT_FOUND');
       }
       expect(await snapshot(target)).toEqual(before);
-      // 食い違いは不在の扱いのため、範囲外の拒否としては記録しない
+      // 契約書の実際の案件が範囲内の食い違い（経路の誤り）は、範囲外の拒否としては記録しない（14.9）
       expect((await deniedCount(readAll.id)) - deniedBefore).toBe(0);
     });
 
     /**
      * 経路の案件が実行者の範囲内でも、範囲外の案件の契約書を経路に載せて読み書きできない。
+     * 応答は不在と同じ 404 のまま、契約書の実際の案件（範囲外）を対象に要求ごとに 1 件記録する（14.9）。
+     * 不在の契約書の要求は同じ 404 で記録しない。
      *
      * @requirement contract-management/REQ-14.4
+     * @requirement contract-management/REQ-14.9
      */
-    it('範囲内の案件の配下の経路で範囲外の案件の契約書を指すと、契約書の不在と同じ 404 にし、データを変えず、記録しない', async () => {
+    it('範囲内の案件の配下の経路で範囲外の案件の契約書を指すと、契約書の不在と同じ 404 にし、データを変えず、契約書の案件を対象に要求ごとに 1 件記録する', async () => {
       const victimId = await disposable(other);
       const beforeOther = await snapshot(other);
-      const deniedBefore = await deniedCount(sales.id);
+      const missingDeniedBefore = await deniedCount(sales.id);
       const missing = await request(app)
         .get(`/api/projects/${target.projectId}/contracts/${MISSING_ID}`)
         .set(...auth(sales))
         .expect(404);
+      // 不在の契約書は同じ 404 で記録しない
+      expect((await deniedCount(sales.id)) - missingDeniedBefore).toBe(0);
+
       const base = `/api/projects/${target.projectId}/contracts/${victimId}`;
       const contract = await prisma.contract.findUniqueOrThrow({ where: { id: victimId } });
-      const responses = [
-        await request(app)
-          .get(base)
-          .set(...auth(sales)),
-        await request(app)
-          .put(base)
-          .set(...auth(sales))
-          .send(updateBody(target.estimateId, contract.version)),
-        await request(app)
-          .patch(`${base}/status`)
-          .set(...auth(sales))
-          .send({ status: 'CONTRACTED' }),
-        await request(app)
-          .delete(base)
-          .set(...auth(sales)),
+      const requests: Array<[string, () => Promise<request.Response>]> = [
+        [
+          'GET',
+          () =>
+            request(app)
+              .get(base)
+              .set(...auth(sales)),
+        ],
+        [
+          'PUT',
+          () =>
+            request(app)
+              .put(base)
+              .set(...auth(sales))
+              .send(updateBody(target.estimateId, contract.version)),
+        ],
+        [
+          'PATCH',
+          () =>
+            request(app)
+              .patch(`${base}/status`)
+              .set(...auth(sales))
+              .send({ status: 'CONTRACTED' }),
+        ],
+        [
+          'DELETE',
+          () =>
+            request(app)
+              .delete(base)
+              .set(...auth(sales)),
+        ],
       ];
-      for (const response of responses) {
-        expect(response.status).toBe(404);
-        expect(withoutInstance(response.body)).toEqual(withoutInstance(missing.body));
+      for (const [label, send] of requests) {
+        const deniedBefore = await deniedCount(sales.id);
+        const ownerDeniedBefore = await deniedCount(sales.id, other.projectId);
+        const response = await send();
+        expect(response.status, label).toBe(404);
+        expect(withoutInstance(response.body), label).toEqual(withoutInstance(missing.body));
+        // 記録は 1 件だけ増え、対象は経路の案件でなく契約書の実際の案件
+        expect((await deniedCount(sales.id)) - deniedBefore, label).toBe(1);
+        expect((await deniedCount(sales.id, other.projectId)) - ownerDeniedBefore, label).toBe(1);
       }
       expect(await snapshot(other)).toEqual(beforeOther);
+    });
+
+    /**
+     * 論理削除済みの契約書は不在の扱いであり、食い違いの照合より先に不在として 404 にする。
+     * 契約書の案件が範囲外でも範囲外の拒否として記録しない（14.9 の除外）。
+     *
+     * @requirement contract-management/REQ-14.4
+     * @requirement contract-management/REQ-14.9
+     */
+    it('範囲内の案件の配下の経路で範囲外の案件の論理削除済みの契約書を指すと、契約書の不在と同じ 404 にし、データを変えず、記録しない', async () => {
+      const victimId = await disposable(other);
+      await prisma.contract.update({ where: { id: victimId }, data: { deletedAt: new Date() } });
+      const beforeOther = await snapshot(other);
+      const missing = await request(app)
+        .get(`/api/projects/${target.projectId}/contracts/${MISSING_ID}`)
+        .set(...auth(sales))
+        .expect(404);
+
+      const deniedBefore = await deniedCount(sales.id);
+      const ownerDeniedBefore = await deniedCount(sales.id, other.projectId);
+      const response = await request(app)
+        .get(`/api/projects/${target.projectId}/contracts/${victimId}`)
+        .set(...auth(sales));
+      expect(response.status).toBe(404);
+      expect(withoutInstance(response.body)).toEqual(withoutInstance(missing.body));
+      // 論理削除済みの契約書は、実行者全体でも契約書の案件でも記録しない
       expect((await deniedCount(sales.id)) - deniedBefore).toBe(0);
+      expect((await deniedCount(sales.id, other.projectId)) - ownerDeniedBefore).toBe(0);
+      expect(await snapshot(other)).toEqual(beforeOther);
     });
   });
 
