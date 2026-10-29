@@ -326,12 +326,16 @@ describe('EstimateDetailPage - 帳票出力', () => {
 
     // 57.7: ページが渡した見積書の ID と案件が出力の記録に届く（記録は1回）
     expect(apiClient.post).toHaveBeenCalledTimes(1);
-    expect(apiClient.post).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-      kind: 'estimate_xlsx',
-      projectId: 'proj-001',
-      targetIds: ['est-001'],
-      itemCount: 1,
-    });
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/v1/audit-logs/exports',
+      {
+        kind: 'estimate_xlsx',
+        projectId: 'proj-001',
+        targetIds: ['est-001'],
+        itemCount: 1,
+      },
+      { disableRetry: true }
+    );
 
     // --- 56.3: 出力は通信を1本も伴わない -----------------------------------
     // 観測窓は開いたまま。ここで閉じると 0 件の主張が空振りになる。

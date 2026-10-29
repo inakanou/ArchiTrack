@@ -214,12 +214,16 @@ describe('ExcelExportButton', () => {
         expect(global.URL.createObjectURL).toHaveBeenCalledTimes(1);
       });
       expect(postSpy).toHaveBeenCalledTimes(1);
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-        kind: 'estimate_request_xlsx',
-        projectId: 'project-1',
-        targetIds: ['eri-1', 'eri-2'],
-        itemCount: 2,
-      });
+      expect(postSpy).toHaveBeenCalledWith(
+        '/api/v1/audit-logs/exports',
+        {
+          kind: 'estimate_request_xlsx',
+          projectId: 'project-1',
+          targetIds: ['eri-1', 'eri-2'],
+          itemCount: 2,
+        },
+        { disableRetry: true }
+      );
       // 記録の要求が Excel の生成より先に行われている
       expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(XLSX.write).mock.invocationCallOrder[0]!

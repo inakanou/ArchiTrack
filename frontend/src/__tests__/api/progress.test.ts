@@ -133,7 +133,8 @@ describe('progress API', () => {
       const result = await exportMonthlyProgress('project-1', 'xlsx');
 
       expect(apiClient.getBlob).toHaveBeenCalledWith(
-        '/api/projects/project-1/execution-budget/progress/monthly/export?format=xlsx'
+        '/api/projects/project-1/execution-budget/progress/monthly/export?format=xlsx',
+        { disableRetry: true }
       );
       expect(result).toEqual(mockBlob);
     });
@@ -145,7 +146,8 @@ describe('progress API', () => {
       const result = await exportMonthlyProgress('project-1', 'pdf');
 
       expect(apiClient.getBlob).toHaveBeenCalledWith(
-        '/api/projects/project-1/execution-budget/progress/monthly/export?format=pdf'
+        '/api/projects/project-1/execution-budget/progress/monthly/export?format=pdf',
+        { disableRetry: true }
       );
       expect(result).toEqual(mockBlob);
     });

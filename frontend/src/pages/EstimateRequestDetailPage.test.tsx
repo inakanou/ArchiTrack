@@ -1072,12 +1072,16 @@ describe('EstimateRequestDetailPage', () => {
         expect(exportAndDownloadPdf).toHaveBeenCalledTimes(1);
       });
       expect(postSpy).toHaveBeenCalledTimes(1);
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-        kind: 'site_survey_report_pdf',
-        projectId: 'project-123',
-        targetIds: ['img-1', 'img-2'],
-        itemCount: 2,
-      });
+      expect(postSpy).toHaveBeenCalledWith(
+        '/api/v1/audit-logs/exports',
+        {
+          kind: 'site_survey_report_pdf',
+          projectId: 'project-123',
+          targetIds: ['img-1', 'img-2'],
+          itemCount: 2,
+        },
+        { disableRetry: true }
+      );
       // 記録の要求が注釈付き画像の描画（生成の始まり）より先に行われている
       expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(renderImagesForReport).mock.invocationCallOrder[0]!

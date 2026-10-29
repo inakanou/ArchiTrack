@@ -395,7 +395,8 @@ describe('AuditLogs Component', () => {
       // エクスポートAPIが呼ばれる
       await waitFor(() => {
         expect(apiClient.get).toHaveBeenCalledWith(
-          expect.stringContaining('/api/v1/audit-logs/export')
+          expect.stringContaining('/api/v1/audit-logs/export'),
+          { disableRetry: true }
         );
       });
 
@@ -483,7 +484,8 @@ describe('AuditLogs Component', () => {
       // エクスポートAPIにもフィルターが適用される
       await waitFor(() => {
         expect(apiClient.get).toHaveBeenCalledWith(
-          expect.stringMatching(/\/api\/v1\/audit-logs\/export.*action=LOGIN_SUCCESS/)
+          expect.stringMatching(/\/api\/v1\/audit-logs\/export.*action=LOGIN_SUCCESS/),
+          { disableRetry: true }
         );
       });
 

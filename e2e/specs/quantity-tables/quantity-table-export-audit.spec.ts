@@ -249,8 +249,11 @@ test.describe('数量表の PDF の出力の事前記録', () => {
       page.getByRole('alert').filter({ hasText: RECORD_FAILED_MESSAGE }),
       `REQ-50.9: 記録の失敗で「${RECORD_FAILED_MESSAGE}」が表示される`
     ).toBeVisible({ timeout: getTimeout(30000) });
-    // 記録の要求の 500 は API クライアントの再試行の対象のため、回数は 1 回に限らない
-    expect(recordAttempts(), '記録の要求が送られ、失敗の応答を受けている').toBeGreaterThan(0);
+    // 記録の要求は非冪等なので API クライアントは送り直さない。失敗の応答でも回数はちょうど 1 回
+    expect(
+      recordAttempts(),
+      '記録の要求はちょうど 1 回送られ、失敗の応答を受けても送り直されない'
+    ).toBe(1);
     await expect(pdfButton).toBeEnabled();
     await expect(pdfButton).toHaveText('PDF出力');
 

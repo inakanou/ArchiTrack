@@ -64,9 +64,16 @@ export const EXPORT_RECORD_FAILED_MESSAGE = '出力を記録できなかった�
  * データ出力を記録する（`POST /api/v1/audit-logs/exports`）
  *
  * 失敗（400・404・500・通信の失敗）は ApiError などの例外として呼び出し側へ伝わる。
+ *
+ * 自動再試行はしない。この要求は送るたびに記録が 1 件増える（冪等でない）ため、サーバーが
+ * 書いた後に応答が失われた・壊れた場合に送り直すと、出力 1 回に記録が重なる。HTTP の自動再試行は
+ * 冪等な要求に限る（RFC 9110 9.2.2）。失敗は 1 回で呼び出し側へ返し、利用者が出力をやり直す。
+ * 401 のトークン更新の後の送り直しは残る（要求がサーバーで弾かれ、記録されていないため）。
  */
 export async function recordExport(input: ExportRecordInput): Promise<ExportRecordResponse> {
-  return apiClient.post<ExportRecordResponse>('/api/v1/audit-logs/exports', input);
+  return apiClient.post<ExportRecordResponse>('/api/v1/audit-logs/exports', input, {
+    disableRetry: true,
+  });
 }
 
 /**

@@ -223,8 +223,9 @@ test.describe('工程表の出力の記録', () => {
     await expect(alert).not.toContainText(EXPORT_FAILED_MESSAGE);
     // ダイアログは閉じず、再試行の釦が残る
     await expect(alert.getByRole('button', { name: '再試行', exact: true })).toBeVisible();
-    expect(failure.fulfilled).toBeGreaterThan(0);
-    expect(counts.exportRequests).toBeGreaterThan(0);
+    // 出力の要求はサーバーで記録を書くので送り直さない（user-authentication の出力の記録は 1 回）
+    expect(failure.fulfilled).toBe(1);
+    expect(counts.exportRequests).toBe(1);
     expect(counts.recordRequests).toBe(0);
     expect(counts.downloads).toBe(0);
     expect(await exportRecords(owner.id)).toHaveLength(0);

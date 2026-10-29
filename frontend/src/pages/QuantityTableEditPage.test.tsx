@@ -2216,12 +2216,16 @@ describe('QuantityTableEditPage', () => {
       });
       expect(generatePdf).toHaveBeenCalledTimes(1);
       expect(postSpy).toHaveBeenCalledTimes(1);
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-        kind: 'quantity_table_pdf',
-        projectId: 'proj-456',
-        targetIds: ['qt-123'],
-        itemCount: 1,
-      });
+      expect(postSpy).toHaveBeenCalledWith(
+        '/api/v1/audit-logs/exports',
+        {
+          kind: 'quantity_table_pdf',
+          projectId: 'proj-456',
+          targetIds: ['qt-123'],
+          itemCount: 1,
+        },
+        { disableRetry: true }
+      );
       // 記録の要求が PDF の生成より先に行われている
       expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
         generatePdf.mock.invocationCallOrder[0]!

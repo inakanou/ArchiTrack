@@ -168,8 +168,16 @@ export const ESTIMATE_SAVE_TIMEOUT_CODE = 'ESTIMATE_SAVE_TIMEOUT';
  * ステータスコードでは判定しない（同じ 500 でも一時的な障害は再試行する価値がある）。
  *
  * Requirements (estimate-creation): 42.3（制限時間超過の保存を繰り返さない）
+ *
+ * `EXPORT_RECORD_FAILED` は出力の記録を書けなかったことの宣言（user-authentication の
+ * 出力の記録の失敗）。送り直しても文言の表示が遅れるだけで、送り直した要求がたまたま
+ * 記録に成功すれば出力 1 回に記録が重なる。記録の要求とサーバーで生成する出力の要求は
+ * 呼び出し側でも再試行を止めているが、止め忘れた呼び出しがあってもこのコードでは送り直さない。
  */
-const NON_RETRYABLE_ERROR_CODES: readonly string[] = [ESTIMATE_SAVE_TIMEOUT_CODE];
+const NON_RETRYABLE_ERROR_CODES: readonly string[] = [
+  ESTIMATE_SAVE_TIMEOUT_CODE,
+  'EXPORT_RECORD_FAILED',
+];
 
 /**
  * エラーレスポンスのボディからサーバーのエラーコードを取り出す

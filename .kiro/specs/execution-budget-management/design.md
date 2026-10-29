@@ -911,6 +911,8 @@ enum AmendmentStatus {
 > - 改訂後: 共通の API クライアントに成功の本文を Blob で受け取る口 `apiClient.getBlob` を設け、`exportOrder`・`exportMonthlyProgress`（と工程表の `exportSchedule`）はこれを使う。認証の付与・401 のトークン更新と送り直し・時間切れ・再試行・失敗の本文（JSON）の解析と `ApiError` の組み立ては `get` と同じ経路を通るため、記録の失敗の識別子 `EXPORT_RECORD_FAILED` は従来どおり `getApiErrorCode` で見分けられる（20.8）。発注詳細画面は記録の失敗以外の失敗（API の失敗とダウンロードの処理の失敗）も出力の失敗の表示欄に出し、文言は出来高入力画面と同じ「Excelエクスポートに失敗しました」「PDFエクスポートに失敗しました」を使う
 > - 理由: 画面ごとに素の fetch を書くと認証・トークン更新・失敗の解析が分かれるため、共通の API クライアントの一か所に受け取りの口を置いた。失敗を黙って捨てると利用者が出力の失敗に気づけないため
 
+> **改訂（2026-10-29、user-authentication の出力の記録の再試行の是正。利用者の判断「推奨案で直す」）**: 上の改訂後の「再試行…は `get` と同じ経路を通る」は `getBlob` の口の性質の記録として残す。`exportOrder`・`exportMonthlyProgress` は `{ disableRetry: true }` を渡し、自動再試行しない（サーバーで記録を書いてから生成するため、送り直すと 20.7 の 1 回が崩れる。RFC 9110 9.2.2）。401 のトークン更新の後の送り直しは残る。`EXPORT_RECORD_FAILED` は API クライアントの再試行しない識別子とした。詳細は user-authentication の design.md の ExportAuditClient の節の 2026-10-29 の改訂
+
 ### Requirements Traceability
 
 | Requirement | Summary | Components | Interfaces | Flows |

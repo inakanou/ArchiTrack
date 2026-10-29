@@ -246,12 +246,15 @@ test.describe('ブラウザで生成する出力の事前記録（調査報告�
     const exportButton = page.getByRole('button', { name: '調査報告書出力' });
     await exportButton.click();
 
-    // REQ-40.11: 出力を中止し、エラーメッセージを表示する（記録の要求は再試行の後に失敗する）
+    // REQ-40.11: 出力を中止し、エラーメッセージを表示する（記録の要求は再試行せず 1 回で失敗する）
     await expect(
       page.getByRole('alert'),
       'REQ-40.11: 記録の失敗で「出力を記録できなかったため中止しました」が表示される'
     ).toContainText('出力を記録できなかったため中止しました', { timeout: getTimeout(30000) });
-    expect(failedRecordAttempts, '記録の要求が送られ、失敗の応答を受けている').toBeGreaterThan(0);
+    expect(
+      failedRecordAttempts,
+      '記録の要求はちょうど 1 回送られ、失敗の応答を受けても送り直されない'
+    ).toBe(1);
     await expect(exportButton).toBeEnabled();
 
     // 生成もダウンロードも始まっていない

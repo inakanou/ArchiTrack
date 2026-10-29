@@ -924,12 +924,16 @@ describe('ConstructionPhotoDetailPage', () => {
           expect(ledgerExportApi.exportConstructionPhotoLedger).toHaveBeenCalledTimes(1);
         });
         expect(postSpy).toHaveBeenCalledTimes(1);
-        expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-          kind: 'construction_photo_ledger_pdf',
-          projectId: 'project-1',
-          targetIds: ['photo-3', 'photo-1'],
-          itemCount: 2,
-        });
+        expect(postSpy).toHaveBeenCalledWith(
+          '/api/v1/audit-logs/exports',
+          {
+            kind: 'construction_photo_ledger_pdf',
+            projectId: 'project-1',
+            targetIds: ['photo-3', 'photo-1'],
+            itemCount: 2,
+          },
+          { disableRetry: true }
+        );
         // 記録の要求が台帳の生成より先に行われている
         expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
           vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mock.invocationCallOrder[0]!
@@ -1021,12 +1025,16 @@ describe('ConstructionPhotoDetailPage', () => {
           expect(constructionPhotoBulkExportService.export).toHaveBeenCalledTimes(1);
         });
         expect(postSpy).toHaveBeenCalledTimes(1);
-        expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-          kind: 'construction_photos_zip',
-          projectId: 'project-1',
-          targetIds: ['photo-1', 'photo-2'],
-          itemCount: 2,
-        });
+        expect(postSpy).toHaveBeenCalledWith(
+          '/api/v1/audit-logs/exports',
+          {
+            kind: 'construction_photos_zip',
+            projectId: 'project-1',
+            targetIds: ['photo-1', 'photo-2'],
+            itemCount: 2,
+          },
+          { disableRetry: true }
+        );
         expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
           vi.mocked(constructionPhotoBulkExportService.export).mock.invocationCallOrder[0]!
         );
@@ -1048,12 +1056,16 @@ describe('ConstructionPhotoDetailPage', () => {
         await waitFor(() => {
           expect(constructionPhotoBulkExportService.export).toHaveBeenCalledTimes(1);
         });
-        expect(apiClient.post).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-          kind: 'construction_photos_zip',
-          projectId: 'project-1',
-          targetIds: ['photo-2'],
-          itemCount: 1,
-        });
+        expect(apiClient.post).toHaveBeenCalledWith(
+          '/api/v1/audit-logs/exports',
+          {
+            kind: 'construction_photos_zip',
+            projectId: 'project-1',
+            targetIds: ['photo-2'],
+            itemCount: 1,
+          },
+          { disableRetry: true }
+        );
       });
 
       it('記録の要求が失敗すると生成もダウンロードも始めず、設定のダイアログの中にエラーメッセージを表示する', async () => {

@@ -265,7 +265,8 @@ describe('order-detail API client', () => {
       const result = await exportOrder(projectId, orderId, 'xlsx');
 
       expect(apiClient.getBlob).toHaveBeenCalledWith(
-        `/api/projects/${projectId}/execution-budget/orders/${orderId}/export?format=xlsx`
+        `/api/projects/${projectId}/execution-budget/orders/${orderId}/export?format=xlsx`,
+        { disableRetry: true }
       );
       expect(result).toBeInstanceOf(Blob);
       // 文字列にする get（text() 化）ではなく、Blob の口を通す
@@ -279,7 +280,8 @@ describe('order-detail API client', () => {
       const result = await exportOrder(projectId, orderId, 'pdf');
 
       expect(apiClient.getBlob).toHaveBeenCalledWith(
-        `/api/projects/${projectId}/execution-budget/orders/${orderId}/export?format=pdf`
+        `/api/projects/${projectId}/execution-budget/orders/${orderId}/export?format=pdf`,
+        { disableRetry: true }
       );
       expect(result).toBeInstanceOf(Blob);
       // 文字列にする get（text() 化）ではなく、Blob の口を通す

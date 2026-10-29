@@ -51,7 +51,10 @@ describe('export-audit API', () => {
       const result = await recordExport(INPUT);
 
       expect(apiClient.post).toHaveBeenCalledTimes(1);
-      expect(apiClient.post).toHaveBeenCalledWith('/api/v1/audit-logs/exports', INPUT);
+      // 記録の要求は非冪等（送るたびに記録が 1 件増える）ため、自動再試行を止めて送る
+      expect(apiClient.post).toHaveBeenCalledWith('/api/v1/audit-logs/exports', INPUT, {
+        disableRetry: true,
+      });
       expect(result).toEqual({ recordId: 'record-1' });
     });
   });
@@ -67,7 +70,9 @@ describe('export-audit API', () => {
       const result = await runRecordedExport(INPUT, generate);
 
       expect(result).toEqual({ ok: true, value: 'generated-pdf' });
-      expect(apiClient.post).toHaveBeenCalledWith('/api/v1/audit-logs/exports', INPUT);
+      expect(apiClient.post).toHaveBeenCalledWith('/api/v1/audit-logs/exports', INPUT, {
+        disableRetry: true,
+      });
       expect(generate).toHaveBeenCalledTimes(1);
       const postOrder = vi.mocked(apiClient.post).mock.invocationCallOrder[0] as number;
       const generateOrder = generate.mock.invocationCallOrder[0] as number;

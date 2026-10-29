@@ -91,7 +91,10 @@ export function AuditLogs() {
         params.append('endDate', new Date(endDate).toISOString());
       }
 
-      const data = await apiClient.get<string>(`/api/v1/audit-logs/export?${params.toString()}`);
+      // この要求はサーバーで出力の記録を書いてから返すので、送り直すと記録が重なる。自動再試行はしない
+      const data = await apiClient.get<string>(`/api/v1/audit-logs/export?${params.toString()}`, {
+        disableRetry: true,
+      });
 
       // JSONダウンロード
       const blob = new Blob([data], { type: 'application/json' });

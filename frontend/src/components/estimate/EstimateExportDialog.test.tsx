@@ -563,12 +563,16 @@ describe('EstimateExportDialog - 出力の記録', () => {
     await waitFor(() => expect(downloaded).toHaveLength(2));
     const postSpy = vi.mocked(apiClient.post);
     expect(postSpy).toHaveBeenCalledTimes(1);
-    expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-      kind: 'estimate_xlsx',
-      projectId: 'proj-1',
-      targetIds: ['est-1'],
-      itemCount: 3,
-    });
+    expect(postSpy).toHaveBeenCalledWith(
+      '/api/v1/audit-logs/exports',
+      {
+        kind: 'estimate_xlsx',
+        projectId: 'proj-1',
+        targetIds: ['est-1'],
+        itemCount: 3,
+      },
+      { disableRetry: true }
+    );
     // 記録の要求がファイルの生成（Blob の URL 化）より先に行われている
     expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(URL.createObjectURL).mock.invocationCallOrder[0]!
@@ -586,12 +590,16 @@ describe('EstimateExportDialog - 出力の記録', () => {
     await waitFor(() => expect(pdfGenerateAndDownload).toHaveBeenCalledTimes(1));
     const postSpy = vi.mocked(apiClient.post);
     expect(postSpy).toHaveBeenCalledTimes(1);
-    expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-      kind: 'estimate_pdf',
-      projectId: 'proj-1',
-      targetIds: ['est-1'],
-      itemCount: 1,
-    });
+    expect(postSpy).toHaveBeenCalledWith(
+      '/api/v1/audit-logs/exports',
+      {
+        kind: 'estimate_pdf',
+        projectId: 'proj-1',
+        targetIds: ['est-1'],
+        itemCount: 1,
+      },
+      { disableRetry: true }
+    );
     expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
       loadSubject.mock.invocationCallOrder[0]!
     );
@@ -610,7 +618,8 @@ describe('EstimateExportDialog - 出力の記録', () => {
     expect(apiClient.post).toHaveBeenCalledTimes(1);
     expect(apiClient.post).toHaveBeenCalledWith(
       '/api/v1/audit-logs/exports',
-      expect.objectContaining({ kind: 'estimate_xlsx', targetIds: ['est-1'] })
+      expect.objectContaining({ kind: 'estimate_xlsx', targetIds: ['est-1'] }),
+      { disableRetry: true }
     );
   });
 

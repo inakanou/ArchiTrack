@@ -298,7 +298,10 @@ test.describe('現場調査の出力の事前記録（一括 ZIP・注釈付き�
       settingsDialog.getByRole('alert'),
       'REQ-39.8: 記録の失敗で「出力を記録できなかったため中止しました」が表示される'
     ).toContainText(RECORD_FAILED_MESSAGE, { timeout: getTimeout(30000) });
-    expect(recordAttempts(), '記録の要求が送られ、失敗の応答を受けている').toBeGreaterThan(0);
+    expect(
+      recordAttempts(),
+      '記録の要求はちょうど 1 回送られ、失敗の応答を受けても送り直されない'
+    ).toBe(1);
     await expect(startButton).toBeEnabled();
     await expect(page.getByRole('dialog', { name: '一括エクスポート処理中' })).toHaveCount(0);
 
@@ -370,7 +373,10 @@ test.describe('現場調査の出力の事前記録（一括 ZIP・注釈付き�
         page.getByRole('alert').filter({ hasText: RECORD_FAILED_MESSAGE }),
         `REQ-39.8: 記録の失敗で「${RECORD_FAILED_MESSAGE}」が表示される`
       ).toBeVisible({ timeout: getTimeout(30000) });
-      expect(recordAttempts(), '記録の要求が送られ、失敗の応答を受けている').toBeGreaterThan(0);
+      expect(
+        recordAttempts(),
+        '記録の要求はちょうど 1 回送られ、失敗の応答を受けても送り直されない'
+      ).toBe(1);
 
       expect(
         observed.events.filter((event) => event === 'generation-request'),

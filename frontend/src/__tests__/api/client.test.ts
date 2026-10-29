@@ -346,6 +346,51 @@ describe('ApiClient', () => {
       expect(fetchMock).toHaveBeenCalledTimes(4);
     });
 
+    /**
+     * 出力の記録の失敗（`code: EXPORT_RECORD_FAILED`）も終局の失敗として扱う。
+     * 記録を書けなかったことをサーバーが宣言しているので、送り直しても表示が遅れるだけで、
+     * 送り直した要求がたまたま記録に成功すれば記録が重なる（user-authentication の
+     * 出力の記録の 1 回の原則、要件40.10）。
+     */
+    const exportRecordFailedBody = {
+      type: 'https://architrack.example.com/problems/internal-server-error',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: '出力を記録できなかったため中止しました',
+      code: 'EXPORT_RECORD_FAILED',
+    };
+
+    it('EXPORT_RECORD_FAILED の 500 は再試行せず1回で失敗すること（記録の要求）', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonErrorResponse(exportRecordFailedBody));
+      globalThis.fetch = fetchMock;
+
+      await expect(
+        apiClient.post('/api/v1/audit-logs/exports', {
+          kind: 'site_survey_report_pdf',
+          projectId: 'project-1',
+          targetIds: [],
+          itemCount: 0,
+        })
+      ).rejects.toThrow(ApiError);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('EXPORT_RECORD_FAILED の 500 は再試行せず1回で失敗すること（サーバーで生成する出力）', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonErrorResponse(exportRecordFailedBody));
+      globalThis.fetch = fetchMock;
+
+      try {
+        await apiClient.getBlob('/api/projects/p-1/execution-budget/orders/o-1/export?format=pdf');
+        expect.unreachable('ApiError が送出されるはず');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect(getApiErrorCode(error)).toBe('EXPORT_RECORD_FAILED');
+      }
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('再試行を抑止しても応答の内容はそのまま呼び出し元へ渡ること', async () => {
       globalThis.fetch = vi.fn().mockResolvedValue(jsonErrorResponse(saveTimeoutBody));
 

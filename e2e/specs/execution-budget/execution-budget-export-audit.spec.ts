@@ -13,8 +13,9 @@
  * 画面から被覆する（機能検証の NO-GO の是正。応答を文字列にしていたため画面からダウンロードが始まらなかった）。
  *
  * 記録は DB の監査 `DATA_EXPORTED`（実行者・種別・案件・対象）で確かめる。記録の失敗は、サーバー生成のため
- * 出力の要求そのものを route で記録の失敗の応答（500・EXPORT_RECORD_FAILED）にして起こす。apiClient は 500 を
- * 再送するため、失敗側の出力の要求の回数は 1 以上で見る。通信の観測は URL のパスで照合する
+ * 出力の要求そのものを route で記録の失敗の応答（500・EXPORT_RECORD_FAILED）にして起こす。出力の要求は
+ * サーバーで記録を書くため、apiClient は送り直さない（user-authentication の 2026-10-29 の是正）。失敗側の
+ * 出力の要求の回数はちょうど 1 回で見る。通信の観測は URL のパスで照合する
  * （CI とローカルで API のオリジンが異なるため）。
  *
  * 検証に使う案件・見積書・契約・実行予算・発注・出来高はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、
@@ -173,8 +174,17 @@ function observe(page: Page, exportPath: string) {
   return counts;
 }
 
-/** 出力の要求を、サーバーの記録の失敗の応答（ファイルを含まない 500）にする */
-async function failExportRecord(page: Page, exportPath: string): Promise<void> {
+/**
+ * 出力の要求を、ファイルを含まない 500 にする
+ *
+ * 既定はサーバーの記録の失敗の応答（`EXPORT_RECORD_FAILED`）。`code` を変えると、記録の後に生成が失敗した
+ * 場合の 500 を表す（サーバーは記録を書いた後なので、送り直すと記録が重なる）。
+ */
+async function failExportRecord(
+  page: Page,
+  exportPath: string,
+  code: string = 'EXPORT_RECORD_FAILED'
+): Promise<void> {
   await page.route(
     (url) => url.pathname === exportPath,
     (route) =>
@@ -185,8 +195,8 @@ async function failExportRecord(page: Page, exportPath: string): Promise<void> {
           type: 'https://architrack.example.com/problems/internal-server-error',
           title: 'Internal Server Error',
           status: 500,
-          detail: RECORD_FAILED_MESSAGE,
-          code: 'EXPORT_RECORD_FAILED',
+          detail: code === 'EXPORT_RECORD_FAILED' ? RECORD_FAILED_MESSAGE : 'Internal Server Error',
+          code,
         }),
       })
   );
@@ -351,7 +361,8 @@ test.describe('発注一覧と月別出来高の出力の記録', () => {
     await expect(page.getByRole('alert').filter({ hasText: RECORD_FAILED_MESSAGE })).toBeVisible({
       timeout: getTimeout(30000),
     });
-    expect(counts.exportRequests).toBeGreaterThan(0);
+    // 出力の要求はサーバーで記録を書くので送り直さない（user-authentication の出力の記録は 1 回）
+    expect(counts.exportRequests).toBe(1);
     expect(counts.recordRequests).toBe(0);
     expect(counts.downloads).toBe(0);
   });
@@ -379,7 +390,37 @@ test.describe('発注一覧と月別出来高の出力の記録', () => {
       timeout: getTimeout(30000),
     });
     await expect(page.getByText('PDFエクスポートに失敗しました')).toHaveCount(0);
-    expect(counts.exportRequests).toBeGreaterThan(0);
+    // 出力の要求はサーバーで記録を書くので送り直さない（user-authentication の出力の記録は 1 回）
+    expect(counts.exportRequests).toBe(1);
+    expect(counts.recordRequests).toBe(0);
+    expect(counts.downloads).toBe(0);
+  });
+
+  /**
+   * @requirement user-authentication/REQ-40.10
+   */
+  test('サーバーで生成する出力の要求は、記録の後の生成の失敗（500）でも送り直さず、出力の要求はちょうど 1 回になる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const fixture = await createFixture(owner.id);
+    const exportPath = `/api/projects/${fixture.projectId}/execution-budget/orders/${fixture.orderId}/export`;
+    const counts = observe(page, exportPath);
+    await failExportRecord(page, exportPath, 'INTERNAL_ERROR');
+
+    await loginAsUser(page, owner);
+    await page.goto(`/projects/${fixture.projectId}/execution-budget/orders/${fixture.orderId}`);
+    const button = page.getByRole('button', { name: 'Excel出力' });
+    await expect(button).toBeVisible({ timeout: getTimeout(15000) });
+    await button.click();
+
+    // 記録の失敗ではない 500 は従来の出力の失敗の文言を出す
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Excelエクスポートに失敗しました' })
+    ).toBeVisible({ timeout: getTimeout(30000) });
+    await expect(page.getByText(RECORD_FAILED_MESSAGE)).toHaveCount(0);
+    // 自動再試行が残っていれば、失敗の表示は 4 回目の失敗の後になり、この時点で 4 回送られている
+    expect(counts.exportRequests, '出力の要求はちょうど 1 回で、送り直されない').toBe(1);
     expect(counts.recordRequests).toBe(0);
     expect(counts.downloads).toBe(0);
   });

@@ -340,7 +340,8 @@ describe('schedules API client', () => {
       const result = await exportSchedule('schedule-1', 'xlsx');
 
       expect(apiClient.getBlob).toHaveBeenCalledWith(
-        '/api/schedules/schedule-1/export?format=xlsx'
+        '/api/schedules/schedule-1/export?format=xlsx',
+        { disableRetry: true }
       );
       expect(result).toEqual(mockBlob);
     });
@@ -351,7 +352,12 @@ describe('schedules API client', () => {
 
       const result = await exportSchedule('schedule-1', 'pdf');
 
-      expect(apiClient.getBlob).toHaveBeenCalledWith('/api/schedules/schedule-1/export?format=pdf');
+      expect(apiClient.getBlob).toHaveBeenCalledWith(
+        '/api/schedules/schedule-1/export?format=pdf',
+        {
+          disableRetry: true,
+        }
+      );
       expect(result).toEqual(mockBlob);
     });
 

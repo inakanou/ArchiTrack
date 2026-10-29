@@ -3685,7 +3685,9 @@ describe('AnnotationEditor 出力の記録 (Requirement 39.7, 39.8)', () => {
       });
       const postSpy = vi.mocked(apiClient.post);
       expect(postSpy).toHaveBeenCalledTimes(1);
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', RECORD_INPUT);
+      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', RECORD_INPUT, {
+        disableRetry: true,
+      });
       expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
         generation().mock.invocationCallOrder[0]!
       );

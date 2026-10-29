@@ -600,12 +600,16 @@ describe('SiteSurveyDetailInfo', () => {
           .filter((img) => img.includeInReport)
           .map((img) => img.id);
         expect(postSpy).toHaveBeenCalledTimes(1);
-        expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-          kind: 'site_survey_report_pdf',
-          projectId: 'project-1',
-          targetIds: exportTargetIds,
-          itemCount: exportTargetIds.length,
-        });
+        expect(postSpy).toHaveBeenCalledWith(
+          '/api/v1/audit-logs/exports',
+          {
+            kind: 'site_survey_report_pdf',
+            projectId: 'project-1',
+            targetIds: exportTargetIds,
+            itemCount: exportTargetIds.length,
+          },
+          { disableRetry: true }
+        );
         // 記録の要求が生成の最初の処理（最新の現場調査の取得）より先に行われている
         expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
           vi.mocked(siteSurveysApi.getSiteSurvey).mock.invocationCallOrder[0]!

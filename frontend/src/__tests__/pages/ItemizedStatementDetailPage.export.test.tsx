@@ -395,12 +395,16 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
       });
       // 通信は記録の要求の1本だけ（Excel はブラウザで生成する）
       expect(postSpy).toHaveBeenCalledTimes(1);
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-        kind: 'itemized_statement_xlsx',
-        projectId: 'project-1',
-        targetIds: ['statement-1'],
-        itemCount: 5,
-      });
+      expect(postSpy).toHaveBeenCalledWith(
+        '/api/v1/audit-logs/exports',
+        {
+          kind: 'itemized_statement_xlsx',
+          projectId: 'project-1',
+          targetIds: ['statement-1'],
+          itemCount: 5,
+        },
+        { disableRetry: true }
+      );
       // 記録の要求が Excel の生成より先に行われている
       expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(exportExcelModule.exportToExcel).mock.invocationCallOrder[0]!
@@ -423,12 +427,16 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
         expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
       });
       expect(apiClient.post).toHaveBeenCalledTimes(1);
-      expect(apiClient.post).toHaveBeenCalledWith('/api/v1/audit-logs/exports', {
-        kind: 'itemized_statement_xlsx',
-        projectId: 'project-1',
-        targetIds: ['statement-1'],
-        itemCount: 2,
-      });
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/api/v1/audit-logs/exports',
+        {
+          kind: 'itemized_statement_xlsx',
+          projectId: 'project-1',
+          targetIds: ['statement-1'],
+          itemCount: 2,
+        },
+        { disableRetry: true }
+      );
       expect(vi.mocked(exportExcelModule.exportToExcel).mock.calls[0]?.[0].items).toHaveLength(2);
     });
 
