@@ -897,5 +897,110 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       expect(mismatched.body.code).toBe('NOT_FOUND');
       expect(withoutInstance(mismatched.body)).toEqual(withoutInstance(missing.body));
     });
+
+    /**
+     * 応答は不在と同じ 404 のまま、見積依頼の実際の案件が範囲外なら範囲外の拒否として記録する
+     * （estimate-request タスク104.2。user-authentication の要件39.8 の本機能への適用）。
+     * 不在の見積依頼と、範囲内の他の案件の見積依頼（経路の誤り）は記録しない。
+     *
+     * @requirement estimate-request/REQ-42.11
+     */
+    it('二重マウントの経路で、範囲外の案件の見積依頼を範囲内の案件の経路で指すと、不在と同じ 404 になり、見積依頼の案件を対象に記録が 1 件増え、データを変えない', async () => {
+      const beforeTarget = await snapshot(target);
+      const beforeOther = await snapshot(other);
+      const nested = `/api/projects/${target.projectId}/estimate-requests`;
+
+      // 不在の見積依頼: 404 で記録しない
+      const missingBefore = await deniedCount(sales);
+      const missing = await request(app)
+        .get(`${nested}/${MISSING_ID}`)
+        .set(...auth(sales))
+        .expect(404);
+      expect((await deniedCount(sales)) - missingBefore, '不在の見積依頼は記録しない').toBe(0);
+
+      // 範囲内の他の案件の見積依頼（経路の誤り。全案件閲覧の権限の利用者には other も範囲内）: 記録しない
+      const misroutedBefore = await deniedCount(readAll);
+      const misrouted = await request(app)
+        .get(`${nested}/${other.estimateRequestId}`)
+        .set(...auth(readAll))
+        .expect(404);
+      expect(withoutInstance(misrouted.body)).toEqual(withoutInstance(missing.body));
+      expect((await deniedCount(readAll)) - misroutedBefore, '範囲内の食い違いは記録しない').toBe(
+        0
+      );
+
+      // 範囲外の案件の見積依頼を、範囲内の案件の経路で読む・削除する: 要求ごとに 1 件、見積依頼の案件を対象に記録する
+      const calls: Array<[string, () => request.Test]> = [
+        ['GET', () => request(app).get(`${nested}/${other.estimateRequestId}`)],
+        ['DELETE', () => request(app).delete(`${nested}/${other.estimateRequestId}`)],
+      ];
+      for (const [label, call] of calls) {
+        const allBefore = await deniedCount(sales);
+        const foreignBefore = await deniedCount(sales, other.projectId);
+        const response = await call()
+          .set(...auth(sales))
+          .expect(404);
+        expect(response.body.code, label).toBe('NOT_FOUND');
+        expect(withoutInstance(response.body), `${label}: 見積依頼の不在と同じ本文`).toEqual(
+          withoutInstance(missing.body)
+        );
+        expect(JSON.stringify(withoutInstance(response.body)), label).not.toContain(
+          other.projectId
+        );
+        expect((await deniedCount(sales)) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(1);
+        expect(
+          (await deniedCount(sales, other.projectId)) - foreignBefore,
+          `${label}: 記録の対象は見積依頼の実際の案件`
+        ).toBe(1);
+      }
+
+      expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(await snapshot(other)).toEqual(beforeOther);
+    });
+
+    /**
+     * 見積依頼の論理削除は区別しない（design.md の 42.11 の決定）。範囲外の案件の論理削除済みの
+     * 見積依頼を範囲内の案件の経路で指しても、不在と同じ 404 で見積依頼の案件を対象に記録する。
+     *
+     * @requirement estimate-request/REQ-42.11
+     */
+    it('二重マウントの経路で、範囲外の案件の論理削除済みの見積依頼を範囲内の案件の経路で指しても、不在と同じ 404 になり、見積依頼の案件を対象に記録が 1 件増え、データを変えない', async () => {
+      const deletedRequestId = await createEstimateRequest(
+        other.projectId,
+        other.itemizedStatementId,
+        `${MARK}-deleted-foreign-request`
+      );
+      await prisma.estimateRequest.update({
+        where: { id: deletedRequestId },
+        data: { deletedAt: new Date() },
+      });
+      const beforeTarget = await snapshot(target);
+      const beforeOther = await snapshot(other);
+      const nested = `/api/projects/${target.projectId}/estimate-requests`;
+
+      const missing = await request(app)
+        .get(`${nested}/${MISSING_ID}`)
+        .set(...auth(sales))
+        .expect(404);
+
+      const allBefore = await deniedCount(sales);
+      const foreignBefore = await deniedCount(sales, other.projectId);
+      const response = await request(app)
+        .get(`${nested}/${deletedRequestId}`)
+        .set(...auth(sales))
+        .expect(404);
+      expect(response.body.code).toBe('NOT_FOUND');
+      expect(withoutInstance(response.body), '見積依頼の不在と同じ本文').toEqual(
+        withoutInstance(missing.body)
+      );
+      expect((await deniedCount(sales)) - allBefore, '記録は 1 件だけ増える').toBe(1);
+      expect(
+        (await deniedCount(sales, other.projectId)) - foreignBefore,
+        '記録の対象は見積依頼の実際の案件'
+      ).toBe(1);
+
+      expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(await snapshot(other)).toEqual(beforeOther);
+    });
   });
 });

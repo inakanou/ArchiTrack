@@ -562,6 +562,96 @@ test.describe('見積依頼・受領見積書・ステータスの案件の閲�
   });
 
   /**
+   * 応答は不在と同じ 404 のまま、見積依頼の実際の案件が範囲外なら範囲外の拒否として記録する
+   * （estimate-request タスク104.2。user-authentication の要件39.8 の本機能への適用）。
+   * 不在の見積依頼と、範囲内の他の案件の見積依頼（経路の誤り）は記録しない。
+   *
+   * @requirement estimate-request/REQ-42.11
+   * @requirement user-authentication/REQ-39.8
+   */
+  test('自分の案件の配下の経路で範囲外の案件の見積依頼を指すと 404 になり、見積依頼の案件を対象に監査の記録が 1 件増え、データは変わらない', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const partnerId = await createTradingPartner();
+    const target = await createFixture(
+      'mismatch-own',
+      { salesPersonId: owner.id, createdById: owner.id },
+      partnerId
+    );
+    const sibling = await createFixture(
+      'mismatch-sibling',
+      { salesPersonId: owner.id, createdById: owner.id },
+      partnerId
+    );
+    const foreign = await createFixture(
+      'mismatch-foreign',
+      { salesPersonId: other.id, createdById: other.id },
+      partnerId
+    );
+    const beforeSibling = await snapshot(sibling.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+    const nested = `${API_BASE_URL}/api/projects/${target.projectId}/estimate-requests`;
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      getPrismaClient().auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+
+    // 不在の見積依頼: 404 で記録しない
+    const missingBefore = await deniedCount();
+    const missing = await request.get(`${nested}/${MISSING_ID}`, { headers });
+    expect(missing.status()).toBe(404);
+    const missingBody = withoutInstance((await missing.json()) as Record<string, unknown>);
+    expect((await deniedCount()) - missingBefore, '不在の見積依頼は記録しない').toBe(0);
+
+    // 範囲内の他の案件の見積依頼（経路の誤り）: 不在と同じ 404 で記録しない
+    const siblingBefore = await deniedCount();
+    const misrouted = await request.get(`${nested}/${sibling.estimateRequestId}`, { headers });
+    expect(misrouted.status()).toBe(404);
+    expect(withoutInstance((await misrouted.json()) as Record<string, unknown>)).toEqual(
+      missingBody
+    );
+    expect((await deniedCount()) - siblingBefore, '範囲内の食い違いは記録しない').toBe(0);
+
+    // 範囲外の案件の見積依頼を読む・削除する: 不在と同じ 404 で、要求ごとに見積依頼の案件を対象に 1 件記録する
+    const calls = [
+      {
+        label: 'GET',
+        send: () => request.get(`${nested}/${foreign.estimateRequestId}`, { headers }),
+      },
+      {
+        label: 'DELETE',
+        send: () => request.delete(`${nested}/${foreign.estimateRequestId}`, { headers }),
+      },
+    ];
+    for (const { label, send } of calls) {
+      const allBefore = await deniedCount();
+      const foreignBefore = await deniedCount(foreign.projectId);
+      const outOfScope = await send();
+      expect(outOfScope.status(), label).toBe(404);
+      const body = withoutInstance((await outOfScope.json()) as Record<string, unknown>);
+      expect(body, `${label}: 見積依頼の不在と同じ本文`).toEqual(missingBody);
+      expect(JSON.stringify(body), label).not.toContain(foreign.projectId);
+      expect((await deniedCount()) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(1);
+      expect(
+        (await deniedCount(foreign.projectId)) - foreignBefore,
+        `${label}: 記録の対象は見積依頼の実際の案件`
+      ).toBe(1);
+    }
+
+    expect(await snapshot(sibling.projectId)).toEqual(beforeSibling);
+    expect(await snapshot(foreign.projectId), 'データは変わらない').toEqual(beforeForeign);
+  });
+
+  /**
    * @requirement estimate-request/REQ-42.1
    * @requirement estimate-request/REQ-42.6
    */

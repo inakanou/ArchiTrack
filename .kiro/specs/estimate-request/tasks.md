@@ -2380,7 +2380,7 @@
   - _Requirements: 42.10_
   - _Boundary: requireBodyItemizedStatementProjectScope の解決関数と、作成の内訳書の所属を主張する本機能のテスト_
 
-- [ ] 104.2 プロジェクトの配下の経路の食い違いで、見積依頼の実際の案件が範囲外なら記録する（user-authentication の要件39.8 の適用）
+- [x] 104.2 プロジェクトの配下の経路の食い違いで、見積依頼の実際の案件が範囲外なら記録する（user-authentication の要件39.8 の適用）
   - backend/src/middleware/estimate-request-project-scope.middleware.ts の `requireEstimateRequestProjectScope` の解決関数が、経路の `projectId` と見積依頼の案件が食い違うとき、null ではなく上流の `projectMismatch`（見積依頼の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えない。見積依頼の不在は従来どおり null で記録しない。同ファイルの冒頭の注釈を改める
   - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（`backend/src/__tests__/unit/middleware/estimate-request-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と見積依頼の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にする」は、範囲の判定の回数の主張を、見積依頼の案件が範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改め、題名も改める。統合テスト（`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の案件と見積依頼の案件が食い違うと見積依頼の不在と同じ 404 にする」（範囲内どうしの食い違い）は条文どおりで変えず、範囲外の案件の見積依頼を範囲内の案件の経路で指すと 404 で `PROJECT_SCOPE_DENIED` が 1 件増える（対象は見積依頼の実際の案件）テストを足す
   - E2E（`e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts` に新しいテスト）で、範囲外の案件の見積依頼を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えることを主張し、`@requirement estimate-request/REQ-42.11` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
