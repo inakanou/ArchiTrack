@@ -5975,17 +5975,31 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 - **食い違いの記録（39.8、2026-10-29、利用者の判断「推奨案で進める」）**: 入れ子や二重マウントの経路で、経路の案件（または親のデータ）と対象のデータが実際に属する案件（または親）が食い違うとき、解決関数は `null` ではなく `projectMismatch(対象の実際の案件 ID)` を返す。判定部品は実際の案件を `evaluateProjectAccess` で判定し、`out_of_scope` のときだけ `recordProjectScopeDenied`（39.7 と同じ形。targetId は実際の案件 ID、metadata の path に経路の ID が残る）を呼ぶ。判定の結果に関わらず応答は不在と同じ汎用の 404 とし（39.2）、`next()` へは進めない。実際の案件が範囲内（経路の誤り）・不在・論理削除のときは記録しない
   - 経路で指定した案件は判定しない（食い違いの要求は経路の案件のデータを返さないため。要件39 の改訂の記録を参照）。判定の DB の失敗は既存の分岐と同じくエラーハンドラーへ渡す（404 にしない）。記録の失敗は 404 を変えない（`recordProjectScopeDenied` の既存の振る舞い）
   - 判定と記録の実体は判定部品の側に一つだけ置き、解決関数を返す経路（`requireProjectScope`）と、解決関数を通らない独自の判定（`recordProjectMismatchIfOutOfScope`）の両方がそれを使う。`ProjectIdResolver` の戻り値は `string | null` を含む上位の型にするので、食い違いを扱わない既存の解決関数はそのまま型が合う
+  - 判定部品を通らず業務のサービスの中で所属を照合する経路（execution-budget-management の契約の所属の照合。同 spec のタスク 18.2）は、サービスが `evaluateProjectAccess` で実際の案件を判定し、範囲外の案件を処理の後（トランザクションの外）に、39.7 と共有の記録の部品（`recordProjectScopeDenied`。案件ごとに 1 回）で記録する。サービスは Express の要求に依存しないため `recordProjectMismatchIfOutOfScope` を使わず、要求の識別は経路が `projectScopeDenialContextOf` で切り出して渡す（quantity-table-generation の写真の紐付けの判定、estimate-creation の 57.4 と同じ形）
   - 一括の要求（本文の複数の ID が経路の案件に属するかを確かめる部品）は、属さない ID の実際の案件ごとに `recordProjectMismatchIfOutOfScope` を一度ずつ呼ぶ（同じ案件を重ねて記録しない）。一括へ広げるかは各 spec の判断とする
-- 食い違いの記録の各業務 spec への起票先（本 spec は上流の部品だけを持ち、各 spec の判定部品の切り替えと、記録しないことを主張する既存のテストの書き換えは各 spec のタスクで行う）:
+- 食い違いの記録の各業務 spec への起票先（本 spec は上流の部品だけを持ち、各 spec の判定部品の切り替えと、記録しないことを主張する既存のテストの書き換えは各 spec のタスクで行う）。各行の下の「実装」は、各 spec が起票で足した受入基準と、実装したタスクとコミット（2026-10-29）:
   - construction-schedule: `backend/src/middleware/construction-schedule-project-scope.middleware.ts` の `requireScheduleProjectScope`（Requirement 13。工程表そのものの食い違いの条文は無く、各 spec の起票で足す。13.4 は作成時に指す数量表の所属で、経路の食い違いの条文ではない）
+    - 実装: 受入基準 13.8、タスク 23.1（`32cfcef0`）。二重マウントの経路で解決関数が `projectMismatch`（工程表の案件）を返す。出力の経路でも出力の記録とファイルの生成は起きない。論理削除済みの工程表は既存の決定どおり記録しない
   - contract-management: `backend/src/middleware/contract-management-project-scope.middleware.ts` の `requireContractProjectScope`（14.4〜14.6。統合テストに範囲外の案件の契約書を指して記録の差 0 を主張するものがあり、条文どおりに書き換える）
+    - 実装: 受入基準 14.9、タスク 20.2（`34908276`）。入れ子の経路で解決関数が `projectMismatch`（契約書の案件）を返す。記録の差 0 を主張していた単体と統合は条文どおりに改めた（範囲外は要求ごとに 1 件）。論理削除済みの契約書は記録しない
   - estimate-creation: `backend/src/middleware/estimate-creation-project-scope.middleware.ts` の `requireEstimateProjectScope`（Requirement 57。見積書そのものの食い違いの条文は無く、各 spec の起票で足す。57.4・57.5 は作成時に指す内訳書と一括保存の項目の所属で、経路の食い違いの条文ではない）
+    - 実装: 受入基準 57.9、タスク 63.1（`9bb30149`）。二重マウントの経路で解決関数が `projectMismatch`（見積書の案件）を返す。論理削除済みの見積書は既存の決定どおり区別せず、範囲外なら記録する
   - itemized-statement-generation: `backend/src/middleware/itemized-statement-project-scope.middleware.ts` の `requireItemizedStatementProjectScope`（Requirement 18。食い違いの条文は無く、各 spec の起票で足す。18.4・18.5 は作成時に指す数量表と並び替えの項目の所属で、経路の食い違いの条文ではない）
-  - estimate-request: `backend/src/middleware/estimate-request-project-scope.middleware.ts` の `requireEstimateRequestProjectScope`（Requirement 42。食い違いの条文が無く、各 spec の起票で足す）
+    - 実装: 受入基準 18.11、タスク 28.2（`7c247a05`）。二重マウントの経路で解決関数が `projectMismatch`（内訳書の案件）を返す。論理削除済みの内訳書は既存の決定どおり区別せず、範囲外なら記録する
+  - estimate-request: `backend/src/middleware/estimate-request-project-scope.middleware.ts` の `requireEstimateRequestProjectScope`（Requirement 42。食い違いの条文が無く、各 spec の起票で足す）と、作成の要求が指す内訳書の判定 `requireBodyItemizedStatementProjectScope`
+    - 実装: 受入基準 42.10（作成の要求が指す内訳書が経路の案件に属さなければ、範囲の内外にかかわらず内訳書の不在と同じ 404 にし、内訳書の案件が範囲外なら記録する。タスク 104.1、`ff65ec47`）と 42.11（二重マウントの経路の食い違い。タスク 104.2、`98d1bbc0`）。どちらも解決関数が `projectMismatch` を返す。論理削除済みの見積依頼は既存の決定どおり区別せず、範囲外なら記録する
   - quantity-table-generation: `backend/src/middleware/quantity-table-project-scope.middleware.ts` の `requireQuantityTableProjectScope`・`requireQuantityGroupProjectScope`・`requireQuantityItemProjectScope`（親の数量表・グループの食い違い。Requirement 50。食い違いの条文が無く、各 spec の起票で足す）
-  - execution-budget-management: `backend/src/middleware/execution-budget-project-scope.middleware.ts` の独自部品 `requireChildInProject`（20.4。解決関数を通らないため `recordProjectMismatchIfOutOfScope` を使う）と、一括の `requireBodyExecutionBudgetItemsInProject`（20.5）
+    - 実装: 受入基準 50.10、タスク 105.1（`56f4b97e`）。3 つの解決関数が `projectMismatch` を返す。実際の案件は、数量表はその案件、グループと項目は実際の親の数量表の案件で、経路の親の案件は判定しない。一括・写真の紐付け（50.5）・保存の所属の照合は変えない
+  - execution-budget-management: `backend/src/middleware/execution-budget-project-scope.middleware.ts` の独自部品 `requireChildInProject`（20.4。解決関数を通らないため `recordProjectMismatchIfOutOfScope` を使う）と、一括の `requireBodyExecutionBudgetItemsInProject`（20.5）、およびサービスの中の契約の所属の照合（`backend/src/services/execution-budget.service.ts` の `create`・`getAmendmentDiff`・`applyAmendment`）
+    - 実装: 受入基準 20.9。子と一括はタスク 18.1（`a82d616f`）で、子は不在と食い違いを分け、食い違いのときだけ `recordProjectMismatchIfOutOfScope`（子の案件）を待ってから汎用の 404 にする。一括は属さない項目の実際の案件を重複なく引き、範囲外の案件ごとに 1 回記録する。契約はタスク 18.2（`2dfa894a`）で、上の判定部品を通らないサービスの中の経路の箇条の形で記録する。論理削除済みの子は区別せず範囲外なら記録し、論理削除済みの契約は記録しない
   - 各 spec の単体テスト（`backend/src/__tests__/unit/middleware/` の各 spec の `*-project-scope.middleware.test.ts`）に、食い違いを「範囲を判定せずに 404」「記録しない」と主張するものがあり、各 spec の切り替えで条文どおりに書き換える
+    - 実装: 上の各タスクで、主張を消さずに範囲内と範囲外の 2 本に分けて改めた
   - 訂正（2026-10-29、itemized-statement-generation の起票で判明）: 当初この一覧は construction-schedule を 13.4、estimate-creation を 57.4・57.5、itemized-statement-generation を 18.4・18.5 と書いていたが、いずれも作成時に指すデータの所属の条文で、経路の食い違いの条文ではなかったため、上の 3 行を改めた
+
+> **改訂（2026-10-30、タスク 65.1 の文書の追随）**: 起票先の一覧の各行に、各 spec の実装（受入基準・タスク・コミット）を書き添え、実装と食い違っていた記述を改めた。
+> - 改訂前: estimate-request の行は二重マウントの判定部品だけを挙げていた。execution-budget-management の行は独自部品と一括の部品だけを挙げていた。判定と記録の実体の箇条は、判定部品の 2 つの入口（解決関数と `recordProjectMismatchIfOutOfScope`）だけを挙げていた
+> - 改訂後: estimate-request の行に作成の要求が指す内訳書の判定（42.10）を、execution-budget-management の行にサービスの中の契約の所属の照合（20.9 の契約の分）を加えた。判定部品を通らずサービスの中で照合する経路が、共有の記録の部品で記録する形を箇条として足した
+> - 理由: 各 spec の起票（estimate-request の 42.10、execution-budget-management の 20.9）が本一覧より広い範囲を食い違いの記録の対象とし、その範囲で実装されたため（`ff65ec47`、`2dfa894a`）。上流の判定部品の契約（`projectMismatch`・`recordProjectMismatchIfOutOfScope` の型と振る舞い）は実装（`388bc6a4`）と一致しており変えない
 - 起票の対象から外す spec と理由: site-survey と construction-photo は、解決関数が経路の案件 ID を読まずに対象のデータから実際の案件を引いて判定し、経路との食い違いは後段のサービスで 404 にする。対象の実際の案件が範囲外なら判定部品が既に 39.7 として記録するため、39.8 の振る舞いを満たしており、切り替えは要らない。project-management は案件そのものの経路だけで、食い違いが生じない
 - 画面が 404 を受けたときの不在の表示（共通部品 `ResourceNotFound` を使うか、各画面の文言）は各業務 spec の画面の所管であり、本 spec はサーバーの応答（汎用の 404 `NOT_FOUND`、範囲外と不在で同じ本文）を変えない
 
@@ -6049,15 +6063,16 @@ type ExportAuditError = { type: 'PROJECT_OUT_OF_SCOPE' } | { type: 'RECORD_FAILE
 
 ```typescript
 // frontend
-async function runRecordedExport<T>(input: ExportRecordInput, generate: () => Promise<T>): Promise<Result<T, RecordedExportError>>;
+async function runRecordedExport<T>(input: ExportRecordInput, generate: () => Promise<T>): Promise<RecordedExportResult<T>>;
 
+type RecordedExportResult<T> = { ok: true; value: T } | { ok: false; error: RecordedExportError };
 type RecordedExportError = { type: 'RECORD_FAILED'; message: string } | { type: 'GENERATION_FAILED'; cause: unknown };
 ```
 - 記録の要求が成功したときだけ `generate` を呼ぶ（40.10）。失敗したときは生成を始めず、呼び出し側が「出力を記録できなかったため中止しました」のエラーメッセージを表示する（40.11）
 - 各業務 spec の出力処理がこの包みを呼ぶ。本 spec は包みと API の呼び出しを提供する
 - 本 spec には画面で生成する出力が無いため、40.10・40.11 は本 spec では単体テストで確かめ、本番の入口での E2E は最初の適用先（site-survey の調査報告書の PDF 出力）で行う。それまでは `e2e/requirement-exclusions.json` に区分 `pending-implementation` で登録し、対になる実装決定として、調査報告書の出力が記録を先に要求することを観測する E2E を `test.fail()` のラチェットで置く。site-survey の適用で成功へ反転させ、除外の登録を外す（利用者の判断、2026-10-16）
 - **反転の記録（2026-10-27、site-survey のタスク 119.2、`1b857057`）**: 調査報告書の出力に包みを適用し、ラチェットの `test.fail()` 2 件を外して被覆済みへ移した。被覆の印が同じ受入基準を名乗るため、`e2e/requirement-exclusions.json` の 40.10・40.11 の登録も同じ変更で外した。以後の 40.10・40.11 の被覆は最初の適用先（site-survey）の E2E が担う。ほかの業務 spec の出力への適用（数量表・内訳書・見積依頼・見積・工事写真・工程表・実行予算）は、各 spec のタスクと、各 spec が自分の受入基準として持つ適用の条文（利用者の判断、2026-10-27）で追う。site-survey の注釈の JSON はブラウザの包みだけで記録し、サーバーの出力の経路（注釈の export）は `ExportAuditService` を呼ばない（二重の記録を避けるため）
-- 記録の要求（`recordExport` の `POST /api/v1/audit-logs/exports`）は共通の API クライアントの自動再試行に載せない（`disableRetry: true`）。サーバーで記録を書いてから生成する出力の要求（発注の `exportOrder`・月別出来高の `exportMonthlyProgress`・工程表の `exportSchedule`・監査ログの JSON 出力の画面の取得）も同じく載せない。加えて、記録の失敗の識別子 `EXPORT_RECORD_FAILED` を API クライアントの再試行しない識別子に加え、止め忘れた呼び出しでも記録の失敗の 500 は送り直さない。401 のトークン更新の後の送り直しは残す（要求はサーバーで認証に弾かれ、記録は書かれていないため）。失敗は 1 回で呼び出し側へ返し、利用者が出力をやり直す
+- 記録の要求（`recordExport` の `POST /api/v1/audit-logs/exports`）は共通の API クライアントの自動再試行に載せない（`disableRetry: true`）。サーバーで記録を書いてから生成する出力の要求（発注の `exportOrder`・月別出来高の `exportMonthlyProgress`・工程表の `exportSchedule`・監査ログの JSON 出力の画面の取得）も同じく載せない。加えて、記録の失敗の識別子 `EXPORT_RECORD_FAILED` を API クライアントの再試行しない識別子に加え、止め忘れた呼び出しでも記録の失敗の 500 は送り直さない。401 のトークン更新の後の送り直しは残す（要求はサーバーで認証に弾かれ、記録は書かれていないため）。失敗は 1 回で呼び出し側へ返し、利用者が出力をやり直す（`03f1e0e7`）。クリップボードの包み `runRecordedClipboardWrite` も同じ `recordExport` で記録を要求するので、記録を送り直さない
 
 > **改訂（2026-10-29、是正。利用者の判断「推奨案で直す」）**: 記録の要求とサーバーで生成する出力の要求の再試行の扱いを、上の最後の箇条のとおり定めた。
 > - 改訂前: 共通の API クライアントの自動再試行（5xx・時間切れ・通信の失敗を最大 3 回送り直す）が、記録の要求にもサーバーで生成する出力の要求にも掛かっていた。再試行しない識別子は `ESTIMATE_SAVE_TIMEOUT` だけだった。このため、サーバーが記録を書いた後に応答が失われた・5xx を返したときに送り直され、出力 1 回に `DATA_EXPORTED` が最大 4 件残り得た。記録の失敗の 500（`EXPORT_RECORD_FAILED`）も 3 回送り直され、「出力を記録できなかったため中止しました」の表示が遅れていた。工程表の出力のダイアログは素の fetch で送るため再試行していなかった
@@ -6070,13 +6085,20 @@ type RecordedExportError = { type: 'RECORD_FAILED'; message: string } | { type: 
 - 決定: クリップボードへの書き込みは `runRecordedExport` ではなく専用の包み `runRecordedClipboardWrite` を通す。`runRecordedExport` は記録の応答を待ってから `generate` を呼ぶが、Safari（WebKit）は利用者の操作（クリック）の処理の中で同期的に始めた書き込みしか許さず、記録の応答を待った後の `navigator.clipboard.writeText` は拒否される
 - 包みはクリックの処理の中で、最初の `await` より前に、記録の要求を送り、記録の成功の後に中身（`Blob`、`text/plain`）を解決する Promise を値に持つ `ClipboardItem` を作って `navigator.clipboard.write` を呼ぶ。中身の Promise は記録の要求の成功（記録の ID が返る）の後にだけ中身を作って解決し、記録の失敗では拒否する。拒否された中身は書き込まれないので、記録の失敗ではクリップボードは変わらない（40.10 の記録を先に要求する順を保つ）
 - 結果は `runRecordedExport` と同じ `RecordedExportResult` で返す。記録の失敗は `RECORD_FAILED`（「出力を記録できなかったため中止しました」。40.11）、記録の後の書き込みの失敗は `GENERATION_FAILED` とし、記録は送り直さない
-- `ClipboardItem` を持たないブラウザでは、記録の成功を待ってから `navigator.clipboard.writeText` で書く（順は保ち、操作の猶予の切れによる書き込みの失敗は `GENERATION_FAILED` として呼び出し側が表示する）。`navigator.clipboard` が無いときは記録を要求せずに `GENERATION_FAILED` を返す（出力が起きないので記録しない）
+- `ClipboardItem` を持たない（または `navigator.clipboard.write` を持たない）ブラウザでは、記録の成功を待ってから `navigator.clipboard.writeText` で書く（順は保ち、操作の猶予の切れによる書き込みの失敗は `GENERATION_FAILED` として呼び出し側が表示する）。`navigator.clipboard` が無いときは記録を要求せずに `GENERATION_FAILED` を返す（出力が起きないので記録しない）
 - 検証: 単体テストで、`navigator.clipboard.write` が記録の要求の解決より前に呼ばれること、記録の失敗で中身の Promise が拒否され書き込まれないこと、記録の ID の無い応答を失敗とすることを確かめる。加えて、実ブラウザ（Chromium と WebKit）で、クリックで書き込みが始まり記録の後に中身が入ること、記録の失敗で何も書かれないことを確かめる（擬似の `ClipboardItem` では利用者の操作の制約を再現できないため）
 
 ```typescript
 // frontend
 async function runRecordedClipboardWrite(input: ExportRecordInput, produce: () => string | Promise<string>): Promise<RecordedExportResult<void>>;
 ```
+
+- 実装と適用（2026-10-29）: 種別と包みはタスク 64.1（`183ed769`）で設けた。実ブラウザの確認は Chromium 151 と WebKit 26.5（Playwright 1.62）で行い、記録の成功の後に中身が入り、記録の失敗では何も書かれないことを確かめた。Playwright の WebKit は Safari の操作の猶予を再現しない（tasks.md の Implementation Notes）。画面への適用は itemized-statement-generation のタスク 28.1（`0f1970a5`、受入基準 18.9・18.10）で、内訳書の詳細画面のコピーが他の `await` を挟まずに包みを呼び、クリック時点の絞り込み後の件数で記録する
+
+> **改訂（2026-10-30、タスク 65.1 の文書の追随）**: 本節の型と分岐の記述を実装（`183ed769`）に合わせた。
+> - 改訂前: `runRecordedExport` の戻り値を `Result<T, RecordedExportError>` と書いていた。文字列で書く分岐の条件を `ClipboardItem` を持たないブラウザとだけ書いていた。クリップボードの包みの再試行の扱いと、実装と適用のコミットを書いていなかった
+> - 改訂後: 戻り値を実装の `RecordedExportResult<T>`（`ok` で成否を分ける形）とし、型を示した。文字列で書く分岐の条件に `navigator.clipboard.write` を持たない場合を加えた。包みが記録を送り直さないこと（`recordExport` の `disableRetry`）と、実装と適用のタスクとコミットを書き添えた
+> - 理由: 設計の記述が実装の型と分岐の条件と一致していなかったため。振る舞い（記録の成功の後にだけ書く順、失敗の種別、再試行しない決定）は変えない
 
 ##### AuditLogArchiveService（変更）
 
