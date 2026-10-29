@@ -24,11 +24,16 @@
  *
  * Design: design.md `#### TransferQuotationDialog変更`（30.1〜30.3）
  *
+ * Task 64.1 変更: 受領見積書の一覧の読み込みが 404 を受けたときに、受領見積書が無い場合の表示に代えて
+ *   プロジェクトが見つからない旨を表示する（estimate-creation の Requirement 58.2。範囲外と不在を
+ *   区別しない）。404 以外の失敗は従来どおり無視する
+ *
  * @module components/estimate/TransferQuotationDialog
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getReceivedQuotationsByProject } from '../../api/received-quotations';
+import { getEstimateNotFoundMessage } from '../../utils/estimateNotFound';
 import type { LineItemInfo, ReceivedQuotationInfo } from '../../api/received-quotations';
 import type { EstimateItemHierarchyEdit } from '../../hooks/useEstimateEditor';
 import type {
@@ -197,6 +202,14 @@ const styles = {
     color: '#6b7280',
     padding: '24px',
   } as React.CSSProperties,
+  notFoundText: {
+    color: '#b91c1c',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '6px',
+    padding: '12px 16px',
+    margin: '0 0 16px',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -310,6 +323,8 @@ export function TransferQuotationDialog({
   const [selectedQuotationId, setSelectedQuotationId] = useState('');
   const [selectedLineItemIds, setSelectedLineItemIds] = useState<string[]>([]);
   const [targetKey, setTargetKey] = useState('');
+  // 受領見積書の一覧の読み込みの 404 の文言（Task 64.1）
+  const [notFoundMessage, setNotFoundMessage] = useState<string | null>(null);
 
   /**
    * 受領見積書一覧を取得（サーバー参照は読み取りのみ / 4.5, 17.1, 17.2）
@@ -319,11 +334,13 @@ export function TransferQuotationDialog({
       if (!isOpen) return;
 
       setIsLoading(true);
+      setNotFoundMessage(null);
       try {
         const data = await getReceivedQuotationsByProject(projectId);
         setQuotations(data);
-      } catch {
-        // エラー処理
+      } catch (err) {
+        // 404 はプロジェクトが見つからない旨を表示する（Task 64.1）。404 以外は従来どおり無視する
+        setNotFoundMessage(getEstimateNotFoundMessage(err, 'project'));
       } finally {
         setIsLoading(false);
       }
@@ -422,6 +439,18 @@ export function TransferQuotationDialog({
               `}
             </style>
           </div>
+        ) : notFoundMessage !== null ? (
+          <>
+            {/* 受領見積書の一覧の読み込みの 404（Task 64.1）。受領見積書が無い場合の表示に代える */}
+            <p role="alert" style={styles.notFoundText}>
+              {notFoundMessage}
+            </p>
+            <div style={styles.buttonGroup}>
+              <button type="button" onClick={onClose} style={styles.cancelButton}>
+                キャンセル
+              </button>
+            </div>
+          </>
         ) : (
           <>
             {/* 受領見積書選択 (REQ-4.5, REQ-17.1, REQ-35.1, REQ-35.2) */}

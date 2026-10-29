@@ -24,6 +24,7 @@ import userEvent from '@testing-library/user-event';
 import { TransferQuotationDialog } from './TransferQuotationDialog';
 import * as receivedQuotationsApi from '../../api/received-quotations';
 import * as estimatesApi from '../../api/estimates';
+import { ApiError } from '../../api/client';
 import {
   createInitialEstimateEditState,
   estimateEditReducer,
@@ -519,6 +520,46 @@ describe('TransferQuotationDialog', () => {
 
     expect(onClose).toHaveBeenCalled();
     expect(onApply).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 受領見積書の一覧の読み込みの 404（estimate-creation タスク64.1）。従来は失敗を無視し、受領見積書が
+   * 無い場合と同じ表示をしていた
+   *
+   * @requirement estimate-creation/REQ-58.2
+   */
+  it('受領見積書の一覧の読み込みの 404 で受領見積書が無い場合の表示に代えてプロジェクトが見つからない旨を表示する', async () => {
+    vi.mocked(receivedQuotationsApi.getReceivedQuotationsByProject).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' })
+    );
+    render(<TransferQuotationDialog {...defaultProps} />);
+    await waitForLoaded();
+
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      'プロジェクトが見つかりません。すでに削除された可能性があります。'
+    );
+    expect(screen.queryByLabelText('受領見積書を選択')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '転記' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Not found')).not.toBeInTheDocument();
+
+    // 閉じる操作は残る
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(onClose).toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('受領見積書の一覧の読み込みの 404 以外の失敗は従来どおり受領見積書が無い場合と同じ表示にする', async () => {
+    vi.mocked(receivedQuotationsApi.getReceivedQuotationsByProject).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error', { status: 500 })
+    );
+    render(<TransferQuotationDialog {...defaultProps} />);
+    await waitForLoaded();
+
+    const options = within(screen.getByLabelText('受領見積書を選択')).getAllByRole('option');
+    expect(options.map((option) => option.textContent)).toEqual(['選択してください']);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('受領見積書取得中はローディングを表示する', () => {

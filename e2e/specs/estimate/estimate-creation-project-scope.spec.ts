@@ -10,6 +10,10 @@
  * 被覆する受入基準（estimate-creation の Requirement 57.1〜57.6）は各テストの `@requirement` の印が名乗る。
  * 出力の記録（57.7・57.8）はタスク62.2 の担当で、本ファイルは扱わない。
  *
+ * タスク64.1 で、画面が 404 を受けたときの表示（Requirement 58.1・58.2）を足した。範囲外と不在は同じ 404 であり、
+ * 画面は見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、取得の失敗・
+ * 操作の失敗を告げる文言と再試行の釦を出さない。
+ *
  * 検証に使う案件・内訳書・見積書はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、利用者はテストの中で
  * 作る一意のメールアドレスの利用者とする。後始末で案件を先に消してから利用者を消す。
  */
@@ -150,6 +154,57 @@ async function openEstimate(page: Page, estimateId: string): Promise<number> {
   return (await loaded).status();
 }
 
+/**
+ * 読み込み中の表示が消えた後の、本文の領域の表示の文字列。
+ * 見積書の画面は共通の枠の main の内側に自分の main を置くため、内側（文書の順で後ろ）を読む
+ */
+async function settledMainText(page: Page): Promise<string> {
+  const main = page.getByRole('main').last();
+  await expect(main.getByText('読み込み中...')).toHaveCount(0, { timeout: getTimeout(15000) });
+  return main.innerText();
+}
+
+/** 画面の URL を直接開き、指定のパスの GET の応答を待つ（オリジンは問わずパスで照合する） */
+async function openAndWait(page: Page, url: string, apiPath: string): Promise<number> {
+  const loaded = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === apiPath,
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(url);
+  return (await loaded).status();
+}
+
+/** 見積書の画面が 404 を受けたときに出してはならない、障害を告げる文言（REQ-58.1・58.2） */
+const FAILURE_TEXTS = [
+  '見積書の取得に失敗しました',
+  '見積書の削除に失敗しました',
+  '見積書の作成に失敗しました',
+  '諸経費の計算に失敗しました。再度お試しください。',
+  '保存に失敗しました。再度お試しください。',
+  'Not found',
+] as const;
+
+/** 障害を告げる文言と再試行の釦が画面のどこにも無いことを主張する */
+async function expectNoFailureFeedback(page: Page): Promise<void> {
+  for (const text of FAILURE_TEXTS) {
+    await expect(page.getByText(text, { exact: true }), text).toHaveCount(0);
+  }
+  await expect(page.getByRole('button', { name: '再試行' })).toHaveCount(0);
+}
+
+/** 不在の表示（ResourceNotFound）。いずれの画面も戻り先はプロジェクトの一覧 */
+async function expectNotFoundView(page: Page, resourceType: '見積書' | 'プロジェクト') {
+  const main = page.getByRole('main').last();
+  await expect(main.getByRole('heading', { name: `${resourceType}が見つかりません` })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(main.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+    'href',
+    '/projects'
+  );
+  await expectNoFailureFeedback(page);
+}
+
 /** 見積明細の一括保存の見積項目ノード */
 function node(id: string | null, tempId: string | null, name: string): Record<string, unknown> {
   return {
@@ -211,15 +266,15 @@ test.describe('見積書・見積明細・在席・受領見積書の一覧の�
     await page.context().clearCookies();
     await page.evaluate(() => localStorage.clear());
     await loginAsUser(page, outsider);
+    // タスク64.1: 表示は不在の表示（ResourceNotFound。role="alert" を持たない）になったため、
+    // 見つからない旨の表示どうしを比べる
     expect(await openEstimate(page, MISSING_ID)).toBe(404);
-    const missingAlert = page.getByRole('main').getByRole('alert');
-    await expect(missingAlert).toBeVisible({ timeout: getTimeout(15000) });
-    const missingText = await missingAlert.innerText();
+    await expectNotFoundView(page, '見積書');
+    const missingText = await settledMainText(page);
 
     expect(await openEstimate(page, target.estimateId)).toBe(404);
-    const alert = page.getByRole('main').getByRole('alert');
-    await expect(alert).toBeVisible({ timeout: getTimeout(15000) });
-    expect(await alert.innerText(), '存在しない見積書と同じ表示').toBe(missingText);
+    await expectNotFoundView(page, '見積書');
+    expect(await settledMainText(page), '存在しない見積書と同じ表示').toBe(missingText);
     await expect(page.getByText(target.estimateName)).toHaveCount(0);
 
     // API: 一覧・直近・詳細・二重マウントの詳細・見積項目・受領見積書の一覧は、存在しない ID と同じ 404 の本文で、
@@ -513,5 +568,219 @@ test.describe('見積書・見積明細・在席・受領見積書の一覧の�
 
     expect(await snapshot(sibling.projectId)).toEqual(beforeSibling);
     expect(await snapshot(foreign.projectId), 'データは変わらない').toEqual(beforeForeign);
+  });
+
+  /**
+   * 見積書の詳細の画面は見積書の読み込みの 404 で、一覧・新規作成の画面はプロジェクトの読み込みの 404 で、
+   * 見つからない旨とプロジェクトの一覧へのリンクを表示する（estimate-creation タスク64.1）。範囲外と不在は同じ表示。
+   *
+   * @requirement estimate-creation/REQ-58.1
+   */
+  test('担当外の利用者が見積書の画面の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが表示され、存在しない対象と同じ表示になる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const outsider = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('not-found-view', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    await loginAsUser(page, outsider);
+
+    // 詳細の画面: 見積書が見つからない旨と、プロジェクトの一覧へのリンク
+    expect(await openEstimate(page, MISSING_ID)).toBe(404);
+    await expectNotFoundView(page, '見積書');
+    const missingDetailText = await settledMainText(page);
+    expect(await openEstimate(page, target.estimateId)).toBe(404);
+    await expectNotFoundView(page, '見積書');
+    expect(await settledMainText(page), '存在しない見積書と同じ表示').toBe(missingDetailText);
+    await expect(page.getByText(target.estimateName)).toHaveCount(0);
+
+    // 一覧の画面: プロジェクトが見つからない旨と、プロジェクトの一覧へのリンク
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/estimates`,
+        `/api/projects/${MISSING_ID}/estimates`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    const missingListText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/estimates`,
+        `/api/projects/${target.projectId}/estimates`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingListText);
+    await expect(page.getByText(target.estimateName)).toHaveCount(0);
+
+    // 新規作成の画面: プロジェクトが見つからない旨と、プロジェクトの一覧へのリンク。入力欄を出さない
+    // （従来は内訳書の一覧の読み込みの失敗を無視して入力欄を出していた）
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/estimates/new`,
+        `/api/projects/${MISSING_ID}/itemized-statements`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    const missingCreateText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/estimates/new`,
+        `/api/projects/${target.projectId}/itemized-statements`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingCreateText);
+    await expect(page.getByRole('button', { name: '作成', exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('見積書名')).toHaveCount(0);
+  });
+
+  /**
+   * 開いた後に案件が閲覧範囲外になる（作成ではプロジェクトが論理的に取り除かれる）と、操作の要求は 404 を受ける。
+   * 画面は見つからない旨のメッセージを表示し、操作の失敗を告げる文言を出さず、失敗を無視しない
+   * （estimate-creation タスク64.1）。範囲外と不在は同じ 404 で、画面も区別しない。諸経費の計算は見積書の
+   * 論理削除を区別しない判定部品を通った後に見積書を読まずに計算するため、案件を範囲外にして 404 を起こす。
+   * 削除も案件を範囲外にして 404 を起こす（画面の削除の要求は楽観的排他制御の基準時刻を本文でなく
+   * クエリで送っており、判定部品の後の本文の検証で 400 になるため、論理的に取り除かれた見積書では 404 に届かない）。
+   *
+   * @requirement estimate-creation/REQ-58.2
+   */
+  test('開いた後に範囲外になった案件の見積書・取り除かれたプロジェクトへの操作で、見つからない旨のメッセージが表示される', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const people = { salesPersonId: owner.id, createdById: owner.id };
+    const deleteTarget = await createFixture('gone-delete', people);
+    const scopeTarget = await createFixture('gone-scope', people);
+    const createTarget = await createFixture('gone-create', people);
+    const prisma = getPrismaClient();
+    const estimateGone = '見積書が見つかりません。すでに削除された可能性があります。';
+    const projectGone = 'プロジェクトが見つかりません。すでに削除された可能性があります。';
+    /** 指定の方法とパスの要求の応答を待つ（オリジンは問わずパスで照合する） */
+    const responseOf = (method: string, pathname: string) =>
+      page.waitForResponse(
+        (r) => r.request().method() === method && new URL(r.url()).pathname === pathname,
+        { timeout: getTimeout(30000) }
+      );
+    await loginAsUser(page, owner);
+
+    /** 開いた後に案件を閲覧範囲外にする（担当者・作成者を他の利用者へ替える） */
+    const moveOutOfScope = (fixture: Fixture) =>
+      prisma.project.update({
+        where: { id: fixture.projectId },
+        data: { salesPersonId: other.id, createdById: other.id },
+      });
+
+    // 削除（従来は画面全体を削除の失敗の文言と再試行の釦へ置き換えていた）。見積書を表示したまま
+    expect(await openEstimate(page, deleteTarget.estimateId)).toBe(200);
+    await expect(
+      page.getByRole('heading', { level: 1, name: deleteTarget.estimateName })
+    ).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByText(estimateGone)).toHaveCount(0);
+    await moveOutOfScope(deleteTarget);
+    // 見出しの横の見積書の削除の釦（明細のツールバーの行の削除の釦より文書の順で前にある）
+    await page
+      .getByTestId('estimate-detail-page')
+      .getByRole('button', { name: '削除', exact: true })
+      .first()
+      .click();
+    const deleteDialog = page.getByRole('dialog', { name: '見積書の削除' });
+    await expect(deleteDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const deleted = responseOf('DELETE', `/api/estimates/${deleteTarget.estimateId}`);
+    await deleteDialog.getByRole('button', { name: '削除', exact: true }).click();
+    expect((await deleted).status()).toBe(404);
+    const operationError = page.getByTestId('estimate-operation-error');
+    await expect(operationError.getByText(estimateGone, { exact: true })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(operationError).toHaveAttribute('role', 'alert');
+    await expect(deleteDialog).toBeHidden();
+    await expect(
+      page.getByRole('heading', { level: 1, name: deleteTarget.estimateName })
+    ).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/estimates/${deleteTarget.estimateId}$`));
+    await expectNoFailureFeedback(page);
+    expect(
+      (
+        await prisma.estimate.findUniqueOrThrow({
+          where: { id: deleteTarget.estimateId },
+          select: { deletedAt: true },
+        })
+      ).deletedAt,
+      '見積書は取り除かれない'
+    ).toBeNull();
+
+    // 諸経費の計算（従来は失敗を捕まえず何も表示しなかった）。開いた後に案件を閲覧範囲外にする
+    expect(await openEstimate(page, scopeTarget.estimateId)).toBe(200);
+    await expect(
+      page.getByRole('heading', { level: 1, name: scopeTarget.estimateName })
+    ).toBeVisible({ timeout: getTimeout(15000) });
+    await moveOutOfScope(scopeTarget);
+    await page.getByRole('button', { name: '諸経費を計算して追加' }).click();
+    const overheadDialog = page.getByTestId('overhead-cost-dialog');
+    await expect(overheadDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await overheadDialog.getByLabel('直接工事費').fill('100000');
+    await overheadDialog.getByLabel('工期').fill('12');
+    const calculated = responseOf(
+      'POST',
+      `/api/estimates/${scopeTarget.estimateId}/calculate-overhead`
+    );
+    await overheadDialog.getByRole('button', { name: '計算', exact: true }).click();
+    expect((await calculated).status()).toBe(404);
+    await expect(overheadDialog.getByRole('alert')).toHaveText(estimateGone, {
+      timeout: getTimeout(10000),
+    });
+    await expect(overheadDialog.getByTestId('calculated-amount')).toHaveCount(0);
+    await expectNoFailureFeedback(page);
+    await overheadDialog.getByRole('button', { name: '閉じる' }).click();
+    await expect(overheadDialog).toBeHidden({ timeout: getTimeout(10000) });
+
+    // 受領見積書の転記のダイアログ（従来は読み込みの失敗を無視し、受領見積書が無い場合と同じ表示だった）
+    const quotationsLoaded = responseOf('GET', `/api/projects/${scopeTarget.projectId}/quotations`);
+    await page.getByRole('button', { name: '受領見積書を業者金額に転記' }).click();
+    expect((await quotationsLoaded).status()).toBe(404);
+    const transferDialog = page.getByRole('dialog', { name: '受領見積書から転記' });
+    await expect(transferDialog.getByRole('alert')).toHaveText(projectGone, {
+      timeout: getTimeout(10000),
+    });
+    // 受領見積書の選択と転記先の選択に代えて表示する
+    await expect(transferDialog.getByRole('combobox')).toHaveCount(0);
+    await transferDialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(transferDialog).toBeHidden({ timeout: getTimeout(10000) });
+
+    // 作成（従来は作成の失敗の汎用の文言）。開いた後にプロジェクトを論理的に取り除く
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${createTarget.projectId}/estimates/new`,
+        `/api/projects/${createTarget.projectId}/itemized-statements`
+      )
+    ).toBe(200);
+    await expect(page.getByRole('combobox', { name: '内訳書を選択' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await prisma.project.update({
+      where: { id: createTarget.projectId },
+      data: { deletedAt: new Date() },
+    });
+    const created = responseOf('POST', `/api/projects/${createTarget.projectId}/estimates`);
+    await page.getByRole('button', { name: '作成', exact: true }).click();
+    expect((await created).status()).toBe(404);
+    await expect(page.getByRole('main').last().getByRole('alert')).toHaveText(projectGone, {
+      timeout: getTimeout(10000),
+    });
+    await expect(page).toHaveURL(new RegExp(`/projects/${createTarget.projectId}/estimates/new$`));
+    await expectNoFailureFeedback(page);
+    expect(
+      await prisma.estimate.count({ where: { projectId: createTarget.projectId } }),
+      '見積書は作られない'
+    ).toBe(1);
   });
 });

@@ -10,6 +10,11 @@
  * - REQ-3.4: 見積書をプロジェクトに紐付けて保存する
  * - REQ-3.5: 内訳書が選択された場合、名称・規格・単位・数量を見積金額行に転記する
  *
+ * Task 64.1 変更: プロジェクトの内訳書の一覧の取得が 404 を受けたときに、プロジェクトが見つからない旨と
+ *   プロジェクトの一覧へのリンクを表示し、入力欄を出さない（estimate-creation の Requirement 58.1）。
+ *   作成の 404 では見つからない旨（汎用の 404 はプロジェクト、内訳書の不在の符号は内訳書）を表示し、
+ *   作成の失敗の文言を出さない（同 Requirement 58.2）
+ *
  * @module pages/EstimateCreatePage
  */
 
@@ -18,7 +23,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { createEstimate } from '../api/estimates';
 import { getItemizedStatements } from '../api/itemized-statements';
 import type { CreateEstimateInput } from '../api/estimates';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import { getEstimateNotFoundMessage, isNotFoundError } from '../utils/estimateNotFound';
 
 // ============================================================================
 // 型定義
@@ -183,6 +189,8 @@ export default function EstimateCreatePage() {
   // 内訳書オプション
   const [itemizedStatements, setItemizedStatements] = useState<ItemizedStatementOption[]>([]);
   const [isLoadingStatements, setIsLoadingStatements] = useState(true);
+  // 内訳書の一覧の取得が 404 を受けた（プロジェクトの範囲外と不在を区別しない。Task 64.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   // UI状態
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -197,6 +205,7 @@ export default function EstimateCreatePage() {
       if (!projectId) return;
 
       setIsLoadingStatements(true);
+      setIsProjectNotFound(false);
       try {
         const result = await getItemizedStatements(projectId, { limit: 100 });
         setItemizedStatements(
@@ -205,8 +214,13 @@ export default function EstimateCreatePage() {
             name: is.name,
           }))
         );
-      } catch {
-        // 内訳書取得エラーは無視（選択肢が空になるだけ）
+      } catch (err) {
+        if (isNotFoundError(err)) {
+          // 経路のプロジェクトが見つからない（範囲外を含む）。見つからない旨は ResourceNotFound が告げる
+          setIsProjectNotFound(true);
+          return;
+        }
+        // 404 以外の内訳書取得エラーは無視（選択肢が空になるだけ）
       } finally {
         setIsLoadingStatements(false);
       }
@@ -242,8 +256,9 @@ export default function EstimateCreatePage() {
 
         // 詳細画面に遷移
         navigate(`/estimates/${estimate.id}`);
-      } catch {
-        setError('見積書の作成に失敗しました');
+      } catch (err) {
+        // 404 は見つからない旨（汎用の 404 は経路のプロジェクト、内訳書の不在の符号は内訳書。Task 64.1）
+        setError(getEstimateNotFoundMessage(err, 'project') ?? '見積書の作成に失敗しました');
       } finally {
         setIsSubmitting(false);
       }
@@ -259,6 +274,19 @@ export default function EstimateCreatePage() {
   }, [navigate, projectId]);
 
   const isFormValid = name.trim().length > 0;
+
+  // プロジェクトが見つからない表示（Task 64.1）。入力欄を出さない
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
+      </main>
+    );
+  }
 
   return (
     <main role="main" style={styles.container} data-testid="estimate-create-page">
