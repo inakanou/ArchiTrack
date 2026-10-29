@@ -548,3 +548,39 @@
   - **判断の結果（2026-10-27、利用者の判断。27.1 の判断と同じ）**: 本タスクの適用は Requirement 18 の 18.7・18.8 が受ける。Excel はブラウザで生成するため（サーバーの生成の経路は無い）、詳細画面が生成を始める前に記録を 1 回要求し（18.7）、記録の失敗では生成もダウンロードも始めず「出力を記録できなかったため中止しました」を表示する（18.8）と条文に定めた。記録に添える件数（フィルタ後の件数）と、記録の後の生成の失敗（13.8）の扱いは design.md の同章の「出力の記録」に記した。Requirement 14 のクリップボードへのコピーは、ファイルを生成せず是正計画 §5.9 が記録の対象を Excel 出力に限るため対象にしない（同章の Out of Boundary）。被覆の印は本タスクの E2E が名乗る（新設時点では未被覆）
   - _Requirements: 18.7, 18.8_
   - _Boundary: 内訳書の詳細画面の Excel の出力の開始の処理_
+
+## Task 28: クリップボードへのコピーの出力の記録と、プロジェクトの配下の経路の食い違いの記録（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。(1) 内訳書詳細画面のクリップボードへのコピーは出力の記録を経ず（`ItemizedStatementDetailPage.tsx` の `handleCopyToClipboard`、1200 行付近。行は同日の実測で、着手時に測り直すこと）、Excel 出力（18.7）を記録しても同じフィルタ後の全項目をコピーで記録なしに持ち出せた。user-authentication が出力の種別 `itemized_statement_clipboard` と、記録の成功の後にだけ中身を書き込む包み `runRecordedClipboardWrite` を設ける（同 spec のタスク64.1、design.md の「ExportAuditService と ExportAuditClient」の節の「クリップボードへの書き込みの記録」）。(2) user-authentication が要件39.8 を加え、経路の案件と対象の実際の案件が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の itemized-statement-generation の行）。本機能の判定部品は食い違いを不在として範囲を判定せず、記録しない。requirements.md に 18.9〜18.11 を加え、Requirement 18 の目的・In scope・Out of scope（クリップボードを記録の対象外とした記述）を改訂の記録つきで改め、design.md の末尾の章「2026-10-29 の追加: クリップボードへのコピーの記録・食い違いの記録・不在の表示」に設計を置いた
+
+- [ ] 28.1 詳細画面のクリップボードへのコピーを出力の記録の後にだけ書き込む
+  - `handleCopyToClipboard` を、二重の開始の抑止の判定の後、最初の `await` より前に `runRecordedClipboardWrite` を呼ぶ形へ改める。記録には種別 `itemized_statement_clipboard`、内訳書の案件、内訳書の ID、フィルタ後の件数を添え、中身はクリックの時点の `sortedItems` を `formatItemsForClipboard` で作る。成功で 14.6 の通知、`RECORD_FAILED` で `EXPORT_RECORD_FAILED_MESSAGE`（何も書き込まない）、`GENERATION_FAILED` で 14.7 の文言を表示し、記録は再送しない。記録の要求中はコピーのボタンを止める。`copyToClipboard` の書き込みの関数は本番の呼び出し元を測って残すか除くかを決める（design.md の同章の「決定」）
+  - 挙動の変更であるため RED → GREEN で進める。単体（`ItemizedStatementDetailPage.clipboard.test.tsx` を包みの差し替えへ改め、14.x の主張を消さずに 18.9・18.10 の主張を足す）と E2E（`e2e/specs/itemized-statements/itemized-statement-export-audit.spec.ts` に、記録が種別・案件つきで 1 回送られ記録の後に中身がフィルタ後のタブ区切りになること、記録を 500 にすると記録の失敗の文言が出てクリップボードが前の中身のまま変わらないことを足す）で主張し、`@requirement itemized-statement-generation/REQ-18.9`・`REQ-18.10` の印を置く
+  - 実ブラウザ（Chromium と WebKit）の確認: テスト環境の本番ビルドの詳細画面で、コピーのボタンのクリックで書き込みが成立し記録の後に中身が入ること、記録の失敗で何も書き込まれないことを両方のブラウザで確かめ、手順と結果（ブラウザの版を含む）を本ファイルの末尾に Implementation Notes の節を設けて記す（E2E の設定は Chromium だけのため）
+  - 振る舞いを変えるため、変えた表示とコピーの経路（クリップボード、コピーの失敗の文言）を e2e/ 全体で grep して既存の E2E を選び（`itemized-statement-crud.spec.ts` の 14.x を含む）、流す。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 単体・E2E・実ブラウザで、コピーが記録の成功の後にだけ書き込まれ、記録の失敗では何も書き込まれず記録の失敗の文言が出る状態になる
+  - _Depends: user-authentication の Task 64.1_
+  - _Requirements: 18.9, 18.10_
+  - _Boundary: 内訳書の詳細画面のクリップボードへのコピーの開始の処理_
+
+- [ ] 28.2 プロジェクトの配下の経路の食い違いで、内訳書の実際の案件が範囲外なら記録する（user-authentication の要件39.8 の適用）
+  - backend/src/middleware/itemized-statement-project-scope.middleware.ts の `requireItemizedStatementProjectScope` の解決関数が、経路の `projectId` と内訳書の案件が食い違うとき、null ではなく上流の `projectMismatch`（内訳書の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えない。内訳書の不在は従来どおり null で記録しない。内訳書の論理削除は区別しない（design.md の同章の「決定」）。同ファイルの冒頭の注釈を改める。作成の要求が指す数量表（18.4）の照合は変えない
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（`backend/src/__tests__/unit/middleware/itemized-statement-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と内訳書の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にする」は、内訳書の案件が範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改め、題名も改める。統合テスト（`backend/src/__tests__/integration/itemized-statement-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の案件と内訳書の案件が食い違うと内訳書の不在と同じ 404 にし、記録しない」（範囲内どうしの食い違い）は条文どおりで変えず、範囲外の案件の内訳書を範囲内の案件の経路で指すと 404 で `PROJECT_SCOPE_DENIED` が 1 件増える（対象は内訳書の実際の案件）テストを足す
+  - E2E（`e2e/specs/itemized-statements/itemized-statement-project-scope.spec.ts` に新しいテスト）で、範囲外の案件の内訳書を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えることを主張し、`@requirement itemized-statement-generation/REQ-18.11` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、食い違いの要求が範囲外のときだけ記録され、どの場合も不在と同じ 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 18.11_
+  - _Boundary: requireItemizedStatementProjectScope の解決関数と、食い違いの記録を主張する本機能のテスト_
+
+## Task 29: 内訳書の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 18.2 により閲覧範囲外の内訳書・プロジェクトへの要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `ItemizedStatementDetailPage.tsx` は読み込みの失敗で応答の本文を状態に入れ（940 行付近）、`error || '内訳書が見つかりません'`（1260 行付近）で応答の本文（汎用の 404 では英語の `Not found`）を優先して表示し、再試行の釦を出す。同画面の削除（1057 行付近）と並び順の保存（1191 行付近）は応答の本文をそのまま表示する。`ItemizedStatementListPage.tsx` は読み込みの失敗を一律に取得の失敗の固定の文言と再試行の釦にし（502 行付近）、削除の失敗で一覧全体を削除の失敗の文言に置き換える（542 行付近）。`ItemizedStatementCreatePage.tsx` はプロジェクトの取得の失敗の文言を出し（151 行付近）、`CreateItemizedStatementForm.tsx` の `getErrorMessage` は汎用の 404 の英語の本文をそのまま表示する。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に Requirement 19（19.1・19.2）を加え、design.md の末尾の章「2026-10-29 の追加: クリップボードへのコピーの記録・食い違いの記録・不在の表示」に設計を置いた
+
+- [ ] 29.1 内訳書の一覧・新規作成・詳細の画面と作成・削除・並び順の保存の操作で、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンク（いずれの画面もプロジェクトの一覧）を表示し、取得の失敗の文言・応答の英語の文言と再試行の釦を出さない。作成・削除（詳細と一覧の画面）・並び順の保存の 404 では、各画面の既存のエラーの欄で見つからない旨のメッセージを表示する（作成の数量表の不在は日本語の本文を表示する）。409 と 404 以外の失敗の従来の文言は保つ。Excel 出力とクリップボードへのコピーは対象外（18.8・18.10）。文言の逐語は design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、各画面の読み込みの 404 の表示、各操作の 404 のメッセージ。404 以外の失敗の従来の文言は保つ）と E2E（担当外の利用者が内訳書の詳細の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが出て存在しない内訳書と同じ表示になる、範囲外のプロジェクトの一覧・新規作成の URL でプロジェクトが見つからない旨が出る、開いた後に論理的に取り除かれた内訳書の削除・並び順の保存で見つからない旨のメッセージが出る）で主張し、`@requirement itemized-statement-generation/REQ-19.1`・`REQ-19.2` の印を置く
+  - 既存の E2E（`e2e/specs/itemized-statements/itemized-statement-project-scope.spec.ts` の「担当外の利用者が内訳書の URL を直接開くと存在しない内訳書と同じ表示になり」）は、`main` の中の `role="alert"` の要素の本文を存在しない内訳書と比べている。共通部品 `ResourceNotFound` がその役割を持たなければ、見つからない旨の表示どうしの比較へ改める（比較の主張は消さない）。ほかに、変えた表示（取得の失敗・削除の失敗の文言、再試行の釦、見つからない旨の文言）を e2e/ 全体で grep して既存の E2E を選び、流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、取得の失敗・操作の失敗の汎用の文言と応答の英語の文言を出さない状態になる
+  - _Requirements: 19.1, 19.2_
+  - _Boundary: ItemizedStatementListPage, ItemizedStatementCreatePage, ItemizedStatementDetailPage, CreateItemizedStatementForm_

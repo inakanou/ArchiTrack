@@ -336,8 +336,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // 2026-10-27）。利用者の判断で新設した Requirement 18 の章「Requirement 18: 案件の閲覧範囲と出力の記録の適用」が
     // 部品表の 5 行（いずれも 18.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
     // 入ったため、締める向きへ動かした。矛盾の上限 2 は据え置き
-    minPairs: 14,
-    minTableDeclarations: 15,
+    // minPairs 14 → 19 / minTableDeclarations 15 → 20（itemized-statement-generation のタスク28・29 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: クリップボードへのコピーの記録・食い違いの
+    // 記録・不在の表示」が部品表の 5 行（18.9・18.10・18.11・19.1・19.2 を名乗る）と追跡表を足し、同章の
+    // 5 部品が突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 2 は据え置き
+    minPairs: 19,
+    minTableDeclarations: 20,
     minDetailDeclarations: 11,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
