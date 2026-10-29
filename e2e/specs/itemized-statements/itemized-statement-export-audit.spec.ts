@@ -8,6 +8,12 @@
  *
  * 被覆する受入基準（itemized-statement-generation の Requirement 18.7・18.8）は各テストの `@requirement` の印が名乗る。
  *
+ * タスク28.1: 同じ画面のクリップボードへのコピーも、書き込みの前に出力の記録を要求し、記録の成功の後にだけ
+ * 中身を書き込み、記録の失敗では何も書き込まずに同じエラーメッセージを表示する（Requirement 18.9・18.10。
+ * describe「内訳書のクリップボードへのコピーの事前記録」）。書き込みは user-authentication の
+ * `runRecordedClipboardWrite` が行う。クリップボードの中身は Chromium に読み書きの権限を与えて読む
+ * （E2E の設定は Chromium だけ）。
+ *
  * 通信の観測は URL のパスで照合する（CI とローカルで API のオリジンが異なるため）。
  * Excel はブラウザで生成し通信を伴わないため、生成の始まりはダウンロードで観測する。
  * ダウンロードが実際に起きたことは `page.waitForEvent('download')` で確かめる（応答の成功だけで判定しない）。
@@ -33,8 +39,17 @@ const NAME_PREFIX = 'e2e-is-export-audit-';
 /** 出力の記録の経路（user-authentication タスク53.3） */
 const RECORD_PATH = '/api/v1/audit-logs/exports';
 
-/** 記録の失敗で表示するエラーメッセージ（Requirement 18.8） */
+/** 記録の失敗で表示するエラーメッセージ（Requirement 18.8・18.10） */
 const RECORD_FAILED_MESSAGE = '出力を記録できなかったため中止しました';
+
+/** コピーの成功の通知（Requirement 14.6） */
+const COPY_SUCCEEDED_MESSAGE = 'クリップボードにコピーしました';
+
+/** 記録の後の書き込みの失敗のエラーメッセージ（Requirement 14.7） */
+const COPY_FAILED_MESSAGE = 'クリップボードへのコピーに失敗しました';
+
+/** コピーの前にクリップボードへ入れておく中身（記録の失敗で変わらないことを確かめる） */
+const PREVIOUS_CLIPBOARD = 'e2e-previous-clipboard-content';
 
 interface Fixture {
   projectId: string;
@@ -258,5 +273,152 @@ test.describe('内訳書の Excel の出力の事前記録', () => {
       observed.events.filter((event) => event === 'download'),
       'REQ-18.8: 記録の失敗の後に生成もダウンロードも始まらない'
     ).toEqual([]);
+  });
+});
+
+/** クリップボードの中身を読む（Chromium に読み書きの権限を与えてある前提） */
+async function readClipboard(page: Page): Promise<string> {
+  return page.evaluate(async () => navigator.clipboard.readText());
+}
+
+/** クリップボードへ前の中身を入れ、入ったことを確かめる */
+async function seedClipboard(page: Page): Promise<void> {
+  await page.evaluate(async (text) => navigator.clipboard.writeText(text), PREVIOUS_CLIPBOARD);
+  expect(await readClipboard(page), '前提: クリップボードに前の中身が入っている').toBe(
+    PREVIOUS_CLIPBOARD
+  );
+}
+
+test.describe('内訳書のクリップボードへのコピーの事前記録', () => {
+  test.afterEach(async () => {
+    await getPrismaClient().project.deleteMany({ where: { name: { startsWith: NAME_PREFIX } } });
+    await deleteSessionUsers();
+  });
+
+  /**
+   * @requirement itemized-statement-generation/REQ-18.9
+   */
+  test('コピーは出力の記録を種別・案件・内訳書・フィルタ後の件数つきで1回要求し、記録の成功の後にだけクリップボードへ書き込む', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const owner = await createSessionUser('REGULAR_USER');
+    const fixture = await createFixture(owner);
+    await loginAsUser(page, owner);
+
+    // 記録の要求を止めておき、記録の応答より前にクリップボードが変わらないことを確かめる
+    let releaseRecord: () => void = () => {};
+    const recordGate = new Promise<void>((resolve) => {
+      releaseRecord = resolve;
+    });
+    let recordHeld!: () => void;
+    const recordArrived = new Promise<void>((resolve) => {
+      recordHeld = resolve;
+    });
+    await page.route('**/api/v1/audit-logs/exports', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      recordHeld();
+      await recordGate;
+      await route.continue();
+    });
+
+    const observed = await openAndObserve(page, fixture);
+    await seedClipboard(page);
+
+    // 工種A で絞り込み、コピーの対象を 3 件から 2 件にする（Requirement 14.5）
+    await page
+      .getByRole('region', { name: 'フィルタ' })
+      .getByLabel('工種', { exact: true })
+      .fill('工種A');
+    await expect(page.getByRole('table').getByRole('row')).toHaveCount(3);
+
+    const copyButton = page.getByRole('button', { name: 'クリップボードにコピー' });
+    await copyButton.click();
+
+    await recordArrived;
+    // 記録の要求中: コピーの操作は止まり、クリップボードは前の中身のまま
+    await expect(copyButton).toBeDisabled();
+    expect(
+      await readClipboard(page),
+      'REQ-18.9: 記録の応答より前にクリップボードへ書き込まれない'
+    ).toBe(PREVIOUS_CLIPBOARD);
+
+    releaseRecord();
+
+    await expect(
+      page.getByRole('status').filter({ hasText: COPY_SUCCEEDED_MESSAGE }),
+      'REQ-18.9: 記録の成功の後にコピーが成功する'
+    ).toBeVisible({ timeout: getTimeout(30000) });
+    await expect(copyButton).toBeEnabled();
+
+    expect(
+      observed.recordStatuses,
+      'REQ-18.9: コピーが出力の記録を 1 回要求し、201 で記録される'
+    ).toEqual([201]);
+    expect(observed.recordRequestBodies, 'REQ-18.9: 記録の要求は 1 回だけ').toHaveLength(1);
+    expect(observed.recordRequestBodies[0]).toEqual({
+      kind: 'itemized_statement_clipboard',
+      projectId: fixture.projectId,
+      targetIds: [fixture.statementId],
+      itemCount: 2,
+    });
+
+    expect(
+      await readClipboard(page),
+      'REQ-18.9: 記録の成功の後にフィルタ後の項目がタブ区切りで書き込まれる（Requirement 14.2〜14.5・14.8）'
+    ).toBe(
+      [
+        '任意分類\t工種\t名称\t規格\t数量\t単位',
+        '\t工種A\t出力の事前記録の内訳1\t\t1.00\t式',
+        '\t工種A\t出力の事前記録の内訳3\t\t3.00\tm2',
+      ].join('\n') + '\n'
+    );
+  });
+
+  /**
+   * @requirement itemized-statement-generation/REQ-18.10
+   */
+  test('出力の記録が失敗するとクリップボードへ何も書き込まず、記録の失敗のエラーメッセージを表示する', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const owner = await createSessionUser('REGULAR_USER');
+    const fixture = await createFixture(owner);
+    await loginAsUser(page, owner);
+    const recordAttempts = await failExportRecords(page);
+    await openAndObserve(page, fixture);
+    await seedClipboard(page);
+
+    const copyButton = page.getByRole('button', { name: 'クリップボードにコピー' });
+    await copyButton.click();
+
+    await expect(
+      page.getByRole('alert').filter({ hasText: RECORD_FAILED_MESSAGE }),
+      `REQ-18.10: 記録の失敗で「${RECORD_FAILED_MESSAGE}」が表示される`
+    ).toBeVisible({ timeout: getTimeout(30000) });
+    // 記録の要求は非冪等なので API クライアントは送り直さない。失敗の応答でも回数はちょうど 1 回
+    expect(
+      recordAttempts(),
+      '記録の要求はちょうど 1 回送られ、失敗の応答を受けても送り直されない'
+    ).toBe(1);
+    await expect(copyButton).toBeEnabled();
+
+    expect(
+      await readClipboard(page),
+      'REQ-18.10: 記録の失敗ではクリップボードへ何も書き込まれず、前の中身のまま'
+    ).toBe(PREVIOUS_CLIPBOARD);
+    await expect(
+      page.getByText(COPY_SUCCEEDED_MESSAGE),
+      'REQ-18.10: 記録の失敗でコピーの成功の通知を出さない'
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(COPY_FAILED_MESSAGE),
+      'REQ-18.10: 記録の失敗は 14.7 の文言に代えて記録の失敗の文言で表示する'
+    ).toHaveCount(0);
   });
 });

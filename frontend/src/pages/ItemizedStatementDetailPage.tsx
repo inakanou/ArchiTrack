@@ -9,6 +9,8 @@
  * Task 15: クリップボード出力機能の実装
  * Task 27.2: Excel出力の生成の前の出力の記録と、記録の失敗での中止
  *   （Requirement 18.7・18.8。user-authentication の要件40.9〜40.11）
+ * Task 28.1: クリップボードへのコピーを出力の記録の成功の後にだけ書き込む
+ *   （Requirement 18.9・18.10。user-authentication の要件40.9〜40.11）
  *
  * Requirements:
  * - 4.1: 集計結果をテーブル形式で表示する
@@ -78,14 +80,18 @@ import {
   deleteItemizedStatement,
   updateItemOrder,
 } from '../api/itemized-statements';
-import { EXPORT_RECORD_FAILED_MESSAGE, runRecordedExport } from '../api/export-audit';
+import {
+  EXPORT_RECORD_FAILED_MESSAGE,
+  runRecordedClipboardWrite,
+  runRecordedExport,
+} from '../api/export-audit';
 import { Breadcrumb } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import ItemizedStatementDeleteDialog from '../components/itemized-statement/ItemizedStatementDeleteDialog';
 import SortOrderButtons from '../components/quantity-table/SortOrderButtons';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { exportToExcel, type ExportToExcelResult } from '../utils/export-excel';
-import { copyToClipboard } from '../utils/copy-to-clipboard';
+import { formatItemsForClipboard } from '../utils/copy-to-clipboard';
 import type {
   ItemizedStatementDetail,
   ItemizedStatementItemInfo,
@@ -132,6 +138,9 @@ interface FilterState {
 
 /** ページあたりの項目数 */
 const PAGE_SIZE = 50;
+
+/** クリップボードへのコピーの失敗のエラーメッセージ（Req 14.7。記録の後の書き込みの失敗に用いる） */
+const COPY_FAILED_MESSAGE = 'クリップボードへのコピーに失敗しました';
 
 /** カラム定義一覧 */
 const COLUMNS: ColumnDefinition[] = [
@@ -1197,38 +1206,57 @@ export default function ItemizedStatementDetailPage() {
     }
   }, [statement, isSavingOrder, orderedItems]);
 
-  // クリップボードコピーハンドラ (Req 14.1, 14.5, 14.6, 14.7)
+  /**
+   * クリップボードコピーハンドラ (Req 14.1, 14.5, 14.6, 14.7)
+   *
+   * 書き込みの前に出力の記録（種別 `itemized_statement_clipboard`・内訳書が属する案件・内訳書・
+   * コピーする件数）を 1 回要求し、記録の成功の後にだけ中身を書き込む。記録の失敗では何も書き込まず
+   * 「出力を記録できなかったため中止しました」を表示する（Requirement 18.9, 18.10。user-authentication の
+   * 要件40.9〜40.11）。書き込みと記録は上流の `runRecordedClipboardWrite` が行う。
+   *
+   * Safari はクリックの処理の中で同期的に始めた書き込みしか許さないため、包みの呼び出しより前に
+   * `await` を置かない。記録の要求中もコピー中の表示のままボタンを止める。
+   */
   const handleCopyToClipboard = useCallback(async () => {
     if (!statement || isCopying) return;
+    const target = statement;
+    // クリックの時点のフィルタ・ソート適用後の項目を写し、記録の件数と書き込む中身をそろえる (Req 14.5)
+    const items = [...sortedItems];
 
     setIsCopying(true);
     setCopyError(null);
     setCopySuccess(false);
 
     try {
-      // フィルタ・ソート適用後のデータをコピー (Req 14.5)
-      const result = await copyToClipboard({
-        items: sortedItems,
-      });
-
-      if (result.success) {
+      const result = await runRecordedClipboardWrite(
+        {
+          kind: 'itemized_statement_clipboard',
+          projectId: target.projectId,
+          targetIds: [target.id],
+          itemCount: items.length,
+        },
+        () => formatItemsForClipboard(items)
+      );
+      // 記録の要求中に画面が破棄されたら表示を変えない（書き込みの成否は包みが決める）
+      if (!isMountedRef.current) return;
+      if (result.ok) {
         // コピー成功時にトースト通知 (Req 14.6)
         setCopySuccess(true);
         // 3秒後に成功メッセージを非表示
         setTimeout(() => {
           setCopySuccess(false);
         }, 3000);
+      } else if (result.error.type === 'RECORD_FAILED') {
+        // 記録の失敗ではクリップボードは変わらない (Requirement 18.10)
+        setCopyError(EXPORT_RECORD_FAILED_MESSAGE);
       } else {
-        setCopyError(result.error ?? 'クリップボードへのコピーに失敗しました');
+        // 記録の後の書き込みの失敗・Clipboard API が無いとき (Req 14.7)。記録は再送しない
+        setCopyError(COPY_FAILED_MESSAGE);
       }
-    } catch (err) {
-      if (err instanceof Error) {
-        setCopyError(err.message);
-      } else {
-        setCopyError('クリップボードへのコピーに失敗しました');
-      }
+    } catch {
+      if (isMountedRef.current) setCopyError(COPY_FAILED_MESSAGE);
     } finally {
-      setIsCopying(false);
+      if (isMountedRef.current) setIsCopying(false);
     }
   }, [statement, isCopying, sortedItems]);
 

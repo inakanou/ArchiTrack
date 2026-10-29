@@ -553,7 +553,7 @@
 
 **経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。(1) 内訳書詳細画面のクリップボードへのコピーは出力の記録を経ず（`ItemizedStatementDetailPage.tsx` の `handleCopyToClipboard`、1200 行付近。行は同日の実測で、着手時に測り直すこと）、Excel 出力（18.7）を記録しても同じフィルタ後の全項目をコピーで記録なしに持ち出せた。user-authentication が出力の種別 `itemized_statement_clipboard` と、記録の成功の後にだけ中身を書き込む包み `runRecordedClipboardWrite` を設ける（同 spec のタスク64.1、design.md の「ExportAuditService と ExportAuditClient」の節の「クリップボードへの書き込みの記録」）。(2) user-authentication が要件39.8 を加え、経路の案件と対象の実際の案件が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の itemized-statement-generation の行）。本機能の判定部品は食い違いを不在として範囲を判定せず、記録しない。requirements.md に 18.9〜18.11 を加え、Requirement 18 の目的・In scope・Out of scope（クリップボードを記録の対象外とした記述）を改訂の記録つきで改め、design.md の末尾の章「2026-10-29 の追加: クリップボードへのコピーの記録・食い違いの記録・不在の表示」に設計を置いた
 
-- [ ] 28.1 詳細画面のクリップボードへのコピーを出力の記録の後にだけ書き込む
+- [x] 28.1 詳細画面のクリップボードへのコピーを出力の記録の後にだけ書き込む
   - `handleCopyToClipboard` を、二重の開始の抑止の判定の後、最初の `await` より前に `runRecordedClipboardWrite` を呼ぶ形へ改める。記録には種別 `itemized_statement_clipboard`、内訳書の案件、内訳書の ID、フィルタ後の件数を添え、中身はクリックの時点の `sortedItems` を `formatItemsForClipboard` で作る。成功で 14.6 の通知、`RECORD_FAILED` で `EXPORT_RECORD_FAILED_MESSAGE`（何も書き込まない）、`GENERATION_FAILED` で 14.7 の文言を表示し、記録は再送しない。記録の要求中はコピーのボタンを止める。`copyToClipboard` の書き込みの関数は本番の呼び出し元を測って残すか除くかを決める（design.md の同章の「決定」）
   - 挙動の変更であるため RED → GREEN で進める。単体（`ItemizedStatementDetailPage.clipboard.test.tsx` を包みの差し替えへ改め、14.x の主張を消さずに 18.9・18.10 の主張を足す）と E2E（`e2e/specs/itemized-statements/itemized-statement-export-audit.spec.ts` に、記録が種別・案件つきで 1 回送られ記録の後に中身がフィルタ後のタブ区切りになること、記録を 500 にすると記録の失敗の文言が出てクリップボードが前の中身のまま変わらないことを足す）で主張し、`@requirement itemized-statement-generation/REQ-18.9`・`REQ-18.10` の印を置く
   - 実ブラウザ（Chromium と WebKit）の確認: テスト環境の本番ビルドの詳細画面で、コピーのボタンのクリックで書き込みが成立し記録の後に中身が入ること、記録の失敗で何も書き込まれないことを両方のブラウザで確かめ、手順と結果（ブラウザの版を含む）を本ファイルの末尾に Implementation Notes の節を設けて記す（E2E の設定は Chromium だけのため）
@@ -584,3 +584,10 @@
   - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、取得の失敗・操作の失敗の汎用の文言と応答の英語の文言を出さない状態になる
   - _Requirements: 19.1, 19.2_
   - _Boundary: ItemizedStatementListPage, ItemizedStatementCreatePage, ItemizedStatementDetailPage, CreateItemizedStatementForm_
+
+## Implementation Notes
+
+- clipboard-write real-browser check（2026-10-29、タスク 28.1）: テスト環境の本番ビルド（frontend 5174 / backend 3100。frontend は `--force-recreate` で作り直した後）の内訳書詳細画面で、コピーのボタンの書き込みを Chromium と WebKit の両方で確かめた。手順: リポジトリの外（スクラッチパッド）の使い捨てのスクリプトで、E2E の補助（`createSessionUser`・`loginAsUser`）を使い利用者・案件・数量表・内訳書（内訳項目 3 件、工種A が 2 件）を DB に作り、ホストの Chromium でログインした storageState をブラウザごとに書き出した。ブラウザの操作は Playwright の公式イメージ（`mcr.microsoft.com/playwright:v1.62.0-noble`）の中で、`docker run --rm --ipc=host --network host` にリポジトリの `@playwright/test`（1.62.0）を読み取り専用で渡して流した。画面で工種A に絞り込み（2 件）、画面に差し込んだ textarea へのキーボードのコピーでクリップボードへ前の中身を入れ、コピーのボタンを押し、貼り付け（`ControlOrMeta+V`）で中身を読んだ（WebKit は clipboard-read の権限を与えられないため、両方のブラウザで同じ読み方にした）。記録が成功する場合は記録の要求を `page.route` で約 500ms 止めてから実際の backend へ通し（201）、記録が失敗する場合は `page.route` で 500 を返した。後始末で作ったデータを消した
+  - WebKit 26.5（headless）: 記録が 201 のとき、記録の要求は 1 回で本文は種別 `itemized_statement_clipboard`・内訳書の案件・内訳書の ID・件数 2、記録の要求中はコピーのボタンが止まり、記録の応答の後に成功の通知が出て、貼り付けた中身はフィルタ後の 2 件のタブ区切り（ヘッダー行つき、数量は小数点以下 2 桁、行末は改行）と一致した。記録が 500 のとき、記録の要求は 1 回、記録の失敗の文言の alert が出て、貼り付けは前の中身のまま（何も書き込まれない）
+  - Chromium 151.0.7922.34（headless。`clipboard-read`・`clipboard-write` を与えた）: 同じ結果
+  - 留意: 上流のタスク 64.1 の確認と同じく、Playwright の WebKit は Safari の利用者の操作の制約（操作の猶予）を再現しない。画面の処理が包みの呼び出しより前に `await` を置かないことは単体テスト（クリックのイベントの配送が同期で戻った時点で包みが呼ばれていることの主張）が担保し、実機の Safari での確認は本環境では行えない

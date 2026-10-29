@@ -1392,6 +1392,12 @@ interface DeleteItemizedStatementRequest {
 - 記録の要求の 404（案件が範囲外になった・論理削除された）は記録の失敗として扱い、19.2 の見つからない旨の表示にしない（上流の包みは記録の失敗を `RECORD_FAILED` にまとめ、要件40.11 が記録の失敗の表示を定めるため。Excel 出力と同じ）
 - 記録の要求中も `isCopying` でコピーのボタンを止め、押し直しで記録が 2 回にならないようにする（18.9 の 1 回）。記録の要求中に画面が破棄されたときは、書き込みはクリックで始まっており中身の解決は包みが行うため、本機能は結果の表示だけを `isMountedRef`（Excel 出力と同じ）で抑える
 - `copyToClipboard`（書き込みの関数）は詳細画面から呼ばれなくなる。本番の呼び出し元が無くなれば除き、`formatItemsForClipboard` は残す（実装時に呼び出し元を測って決める）
+- **実装の記録（タスク28.1、2026-10-29）**:
+  - 置き場所: 開始の処理は `ItemizedStatementDetailPage` の `handleCopyToClipboard`。`isCopying` の判定の後、クリックの時点の `sortedItems` を写した配列（`[...sortedItems]`）を作り、表示の状態を同期で切り替えてから、最初の `await` として `runRecordedClipboardWrite` を呼ぶ。記録の件数（`itemCount`）と中身の生成（`() => formatItemsForClipboard(items)`）は同じ配列を使う
+  - 文言の逐語: `RECORD_FAILED` では `EXPORT_RECORD_FAILED_MESSAGE`（上流の定数。逐語は 18.10 の条文の文言）を、`GENERATION_FAILED` と包みの想定外の拒否では 14.7 の文言を `copyError` に出す。14.7 の文言は同じページのファイルの定数 `COPY_FAILED_MESSAGE` に置き、例外の文言（英語の DOMException の文言を含む）は表示しない。成功では従来どおり 14.6 の通知を 3 秒出す
+  - 画面の破棄: 包みの結果の後、`isMountedRef` が偽なら表示を変えない（Excel 出力と同じ参照を使う。StrictMode の二重の effect の後も真に戻る）
+  - `copyToClipboard` の扱い: 本番の呼び出し元は詳細画面だけだった（2026-10-29 に `frontend/src` を測った）ため、関数と引数・結果の型（`CopyToClipboardOptions`・`CopyToClipboardResult`）を除き、その単体テスト 6 件を除いた。`formatItemsForClipboard`（14.2〜14.4・14.8）とその単体テストは残した。project-management の design.md の別の `copyToClipboard`（文字列を受ける例示）は本機能の関数ではなく、変えていない
+  - テスト: 単体は `ItemizedStatementDetailPage.clipboard.test.tsx`（包みを差し替え、記録の入力・中身・クリックの処理の中の同期の呼び出し・要求中の停止・各結果の文言・画面の破棄・StrictMode を主張）。E2E は `itemized-statement-export-audit.spec.ts` の describe「内訳書のクリップボードへのコピーの事前記録」（18.9・18.10 の印）。実ブラウザ（Chromium と WebKit）の確認の手順と結果は tasks.md の Implementation Notes
 
 **食い違いの記録（18.11）**: user-authentication の design.md の ProjectScopeGuard の節の「食い違いの記録（39.8）」に従う。`requireItemizedStatementProjectScope` の解決関数は、経路に `projectId` があり内訳書の案件と食い違うとき、null ではなく `projectMismatch(内訳書の案件 ID)` を返す。判定と記録（内訳書の案件が範囲外のときだけ `PROJECT_SCOPE_DENIED`）と、判定の結果に関わらない汎用の 404 は上流の判定部品が行う。内訳書の不在は従来どおり null を返し、記録しない。範囲内の案件どうしの食い違い（経路の誤り）は記録しない。内訳書の論理削除は区別しない（Requirement 18 章の「適用の決定」の、内訳書の論理削除を区別せずに案件 ID を引く定めを保つ）ため、論理削除済みの内訳書の食い違いもその案件が範囲外なら記録する（`/api/itemized-statements/:id` の経路で範囲外の論理削除済みの内訳書を指したときに記録されるのと揃う）。経路に `projectId` の無い経路（`/api/itemized-statements/:id`）は食い違いが生じず、変わらない。上流のタスク63.1 が入るまで本機能は切り替えられない（タスク28.2 の Depends）。上流を待たずに解決関数の中で範囲を判定して null を返す案は、判定と記録を上流の一か所に置く上流の決定に反するため採らない。
 

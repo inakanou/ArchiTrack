@@ -1397,8 +1397,16 @@ export function findFeaturelessCoverageHeaders(
  * HEAD（`79ef74d9`）から戻した作業ツリーと戻さない作業ツリーで測り分けた（2026-10-11 に
  * リポジトリルートから `npm run check:req-coverage:json` を実行し `featurelessCoverageHeaders` を
  * 読んで実測。ヘッダー 1984 → 1983 件、眠る名乗り 5033 件のまま、938 ファイルのまま）。
+ *
+ * itemized-statement-generation のタスク 28.1 が 1 だけ下げた（1983 → 1982）。詳細画面のコピーを
+ * 出力の記録を経る user-authentication の包みへ移し、本番の呼び出し元が無くなった
+ * `frontend/src/utils/copy-to-clipboard.ts` の `copyToClipboard` を取り除いた。同関数の JSDoc が
+ * 機能名を欠く `Requirements:` ブロックを 1 件持っていた。帰属は同ファイルだけを HEAD（`a76edddf`）から
+ * 戻した作業ツリーと戻さない作業ツリーで測り分けた（2026-10-29 にリポジトリルートから
+ * `npm run check:req-coverage:json` を実行し `featurelessCoverageHeaders` を読んで実測。
+ * ヘッダー 1983 → 1982 件、938 ファイルのまま。眠る名乗りの内訳は {@link MAX_DORMANT_HEADER_NAMES} の註）。
  */
-export const MAX_FEATURELESS_COVERAGE_HEADERS = 1983;
+export const MAX_FEATURELESS_COVERAGE_HEADERS = 1982;
 
 /**
  * 機能名を欠くヘッダーの下で眠っている名乗りの上限（ラチェット）
@@ -1444,8 +1452,16 @@ export const MAX_FEATURELESS_COVERAGE_HEADERS = 1983;
  * `backend/src/types/two-factor.types.ts`）から外した。両ブロックはほかの番号を名乗り続けるため、
  * ヘッダーの数は動いていない。実測の条件と帰属の測り方は {@link MAX_FEATURELESS_COVERAGE_HEADERS} の註と
  * 同じである。
+ *
+ * itemized-statement-generation のタスク 28.1 が 8 だけ下げた（5031 → 5023）。
+ * `frontend/src/utils/copy-to-clipboard.ts` が 7 件（取り除いた `copyToClipboard` の JSDoc の
+ * `Requirements:` ブロックの 6 件と、ファイルの冒頭のブロックから外した「- 14.7: コピー失敗時はエラーを返却」の
+ * 1 件）、`frontend/src/utils/copy-to-clipboard.test.ts` が 1 件（冒頭のブロックから外した同じ 14.7 の名乗り。
+ * 同ファイルの `copyToClipboard` の単体テストを取り除いたため）である。14.7 の振る舞いは詳細画面の単体テストと
+ * E2E が引き続き主張する。帰属は二つのファイルを順に HEAD（`a76edddf`）から戻して測り分けた
+ * （5023 → 5030 → 5031。実測の条件は {@link MAX_FEATURELESS_COVERAGE_HEADERS} の註と同じである）。
  */
-export const MAX_DORMANT_HEADER_NAMES = 5031;
+export const MAX_DORMANT_HEADER_NAMES = 5023;
 
 /** 撤廃済みの受入基準を名乗っている被覆印 */
 export interface RetiredCriterionMark {
