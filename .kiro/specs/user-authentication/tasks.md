@@ -1925,7 +1925,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: ProjectScopeGuard, backend/src/middleware/project-scope.middleware.ts_
   - _Requirements: 39.8_
 
-- [ ] 63.2 食い違いの記録を実 DB の上で確かめる（統合）
+- [x] 63.2 食い違いの記録を実 DB の上で確かめる（統合）
   - 統合テストの中で、案件の配下に子のデータを置く入れ子の経路をテスト用に組み立て（本 spec の案件の経路には入れ子が無いため）、食い違いを返す解決関数で判定部品を置く。範囲外の案件の子を範囲内の案件の経路で指すと 404 で `PROJECT_SCOPE_DENIED` が 1 件増え（targetId は子の実際の案件）、範囲内の別の案件の子を指すと 404 で記録が増えず、不在の子でも同じ 404 で記録が増えないことを、応答の本文の一致とともに主張する
   - 39.8 の受入基準の E2E の被覆は、本 spec に入れ子の経路が無いため、最初に切り替える業務 spec の E2E が担う（各 spec の起票で被覆の印を置く。それまで `check:req-coverage` は 39.8 を未被覆として数える）
   - 実 PostgreSQL の上で上の三通りが主張どおりで、`project-scope.api.integration.test.ts` の既存のテストが緑のままの状態になる
