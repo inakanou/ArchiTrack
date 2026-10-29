@@ -301,12 +301,26 @@ describe('ExecutionBudgetAmendmentPage', () => {
 
     it('差分取得 ApiError 時はダイアログ内エラーを表示する', async () => {
       vi.mocked(executionBudgetApi.getAmendmentDiff).mockRejectedValue(
+        new ApiError(422, '差分を計算できません')
+      );
+      const user = userEvent.setup();
+      renderPage();
+      await user.click(await screen.findByTestId('open-detail-amendment-1'));
+      expect(await screen.findByText('差分を計算できません')).toBeInTheDocument();
+    });
+
+    // execution-budget-management の Requirement 21.2（Task 19.1）: 404 は応答の文言でなく見つからない旨
+    it('差分取得の 404 はダイアログ内に見つからない旨を表示し、応答の文言を出さない', async () => {
+      vi.mocked(executionBudgetApi.getAmendmentDiff).mockRejectedValue(
         new ApiError(404, '差分が見つかりません')
       );
       const user = userEvent.setup();
       renderPage();
       await user.click(await screen.findByTestId('open-detail-amendment-1'));
-      expect(await screen.findByText('差分が見つかりません')).toBeInTheDocument();
+      expect(
+        await screen.findByText('実行予算が見つかりません。存在しないか、削除されています。')
+      ).toBeInTheDocument();
+      expect(screen.queryByText('差分が見つかりません')).not.toBeInTheDocument();
     });
 
     it('差分取得一般エラー時は汎用メッセージを表示する', async () => {

@@ -17,6 +17,13 @@
  * - REQ-14.1-14.5: 月次締め
  * - REQ-15.1-15.8: 契約変更反映
  * - REQ-18.2, 18.4, 18.5: 数値表示
+ *
+ * Task 19.1 変更: 実行予算の取得が 404 のときに限り案件を取得し、案件の取得も 404 ならプロジェクトが見つからない
+ *   旨とプロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示して、実行予算が未作成である旨と作成の釦を
+ *   出さない。案件の取得が 404 以外で失敗したら作成の釦を出さず読み込みの失敗を表示する。作成・削除・原価の入力・
+ *   月次締め・契約書の一覧の取得の 404 は見つからない旨のメッセージを表示し、捨てていた作成・月次締め・契約書の
+ *   一覧の取得の失敗の文言を表示する欄を設ける（execution-budget-management の Requirement 21.1・21.2。
+ *   範囲外と不在を区別しない）
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -39,7 +46,11 @@ import {
 } from '../api/execution-budget';
 import { getContracts, type ContractListItem } from '../api/contracts';
 import { ApiError } from '../api/client';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getExecutionBudgetNotFoundMessage,
+  resolveMissingExecutionBudget,
+} from '../utils/executionBudgetNotFound';
 
 // ============================================================================
 // 型定義
@@ -322,6 +333,18 @@ const styles = {
     padding: '48px 24px',
     color: '#6b7280',
   } as React.CSSProperties,
+  errorBanner: {
+    padding: '12px 16px',
+    backgroundColor: '#fef2f2',
+    color: '#991b1b',
+    borderRadius: '6px',
+    overflowWrap: 'anywhere' as const,
+  } as React.CSSProperties,
+  dialogError: {
+    color: '#dc2626',
+    marginTop: '8px',
+    overflowWrap: 'anywhere' as const,
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -577,7 +600,17 @@ export function ExecutionBudgetPage() {
   const [monthlyHistory, setMonthlyHistory] = useState<MonthlyCloseHistory[]>([]);
   const [unreflectedAmendments, setUnreflectedAmendments] = useState<UnreflectedAmendment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [, setError] = useState<string | null>(null);
+  // 契約書の一覧の取得の失敗（作成の釦の下に表示する。Task 19.1 で表示欄を設けた）
+  const [error, setError] = useState<string | null>(null);
+  // 読み込みの失敗（実行予算の取得の 404 の後の案件の取得の失敗を含む。Task 19.1）
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // 実行予算の取得の 404 の後に案件の取得も 404 だった（範囲外と不在を区別しない。Task 19.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
+  // 案件の実在を確かめた（作成の釦は案件の実在を確かめたときに限る。Task 19.1）
+  const [canCreate, setCanCreate] = useState(false);
+  // 作成・月次締めの失敗（各ダイアログに表示する。Task 19.1 で表示欄を設けた）
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [monthlyCloseError, setMonthlyCloseError] = useState<string | null>(null);
   const [expandedState, setExpandedState] = useState<TreeItemState>({});
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -595,6 +628,9 @@ export function ExecutionBudgetPage() {
     if (!projectId) return;
     setIsLoading(true);
     setError(null);
+    setLoadError(null);
+    setIsProjectNotFound(false);
+    setCanCreate(false);
     try {
       const [budgetData, ordersData, historyData, amendmentsData] = await Promise.all([
         getExecutionBudget(projectId),
@@ -602,15 +638,29 @@ export function ExecutionBudgetPage() {
         getMonthlyCloseHistory(projectId).catch(() => [] as MonthlyCloseHistory[]),
         getUnreflectedAmendments(projectId).catch(() => [] as UnreflectedAmendment[]),
       ]);
+      // 実行予算の取得の 404（null）は、実行予算の未作成と案件の不在・範囲外の両方で返る。
+      // 案件を取得して見分ける（Task 19.1）
+      if (!budgetData) {
+        const resolution = await resolveMissingExecutionBudget(projectId);
+        if (resolution === 'projectNotFound') {
+          setIsProjectNotFound(true);
+        } else if (resolution === 'projectLoadFailed') {
+          setLoadError('データの取得に失敗しました');
+        } else {
+          setCanCreate(true);
+        }
+      }
       setBudget(budgetData);
       setOrders(ordersData);
       setMonthlyHistory(historyData);
       setUnreflectedAmendments(amendmentsData);
     } catch (err) {
+      // 実行予算の取得の 404 以外の失敗は従来どおり未作成の表示（作成の釦）を保ち、捨てていた文言を表示する
+      setCanCreate(true);
       if (err instanceof ApiError) {
-        setError(err.message);
+        setLoadError(err.message);
       } else {
-        setError('データの取得に失敗しました');
+        setLoadError('データの取得に失敗しました');
       }
     } finally {
       setIsLoading(false);
@@ -632,13 +682,18 @@ export function ExecutionBudgetPage() {
   // 実行予算作成
   const handleCreate = useCallback(async () => {
     if (!projectId || !selectedContractId) return;
+    setCreateError(null);
     try {
       await createExecutionBudget(projectId, { contractId: selectedContractId });
       setShowCreateDialog(false);
       await fetchData();
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
+      // 404 は見つからない旨（汎用の 404 は経路のプロジェクト。Task 19.1）
+      const notFoundMessage = getExecutionBudgetNotFoundMessage(err, 'project');
+      if (notFoundMessage) {
+        setCreateError(notFoundMessage);
+      } else if (err instanceof ApiError) {
+        setCreateError(err.message);
       }
     }
   }, [projectId, selectedContractId, fetchData]);
@@ -651,7 +706,10 @@ export function ExecutionBudgetPage() {
       setShowDeleteDialog(false);
       await fetchData();
     } catch (err) {
-      if (err instanceof ApiError) {
+      const notFoundMessage = getExecutionBudgetNotFoundMessage(err, 'project');
+      if (notFoundMessage) {
+        setDeleteError(notFoundMessage);
+      } else if (err instanceof ApiError) {
         setDeleteError(err.message);
       }
     }
@@ -671,7 +729,10 @@ export function ExecutionBudgetPage() {
         });
         await fetchData();
       } catch (err) {
-        if (err instanceof ApiError) {
+        const notFoundMessage = getExecutionBudgetNotFoundMessage(err, 'project');
+        if (notFoundMessage) {
+          setCostSaveError(notFoundMessage);
+        } else if (err instanceof ApiError) {
           setCostSaveError(err.message);
         } else {
           setCostSaveError('原価の更新に失敗しました');
@@ -686,14 +747,18 @@ export function ExecutionBudgetPage() {
   // 月次締め
   const handleMonthlyClose = useCallback(async () => {
     if (!projectId || !monthlyCloseMonth) return;
+    setMonthlyCloseError(null);
     try {
       await executeMonthlyClose(projectId, { targetMonth: monthlyCloseMonth });
       setShowMonthlyCloseDialog(false);
       setMonthlyCloseMonth('');
       await fetchData();
     } catch (e) {
-      if (e instanceof ApiError) {
-        setError(e.message);
+      const notFoundMessage = getExecutionBudgetNotFoundMessage(e, 'project');
+      if (notFoundMessage) {
+        setMonthlyCloseError(notFoundMessage);
+      } else if (e instanceof ApiError) {
+        setMonthlyCloseError(e.message);
       }
     }
   }, [projectId, monthlyCloseMonth, fetchData]);
@@ -701,12 +766,16 @@ export function ExecutionBudgetPage() {
   // 契約書選択ダイアログを開く
   const handleOpenCreateDialog = useCallback(async () => {
     if (!projectId) return;
+    setError(null);
+    setCreateError(null);
     try {
       const response = await getContracts(projectId);
       setContracts(response.contracts);
       setShowCreateDialog(true);
-    } catch {
-      setError('契約書一覧の取得に失敗しました');
+    } catch (err) {
+      setError(
+        getExecutionBudgetNotFoundMessage(err, 'project') ?? '契約書一覧の取得に失敗しました'
+      );
     }
   }, [projectId]);
 
@@ -714,6 +783,37 @@ export function ExecutionBudgetPage() {
     return (
       <div style={styles.page}>
         <div data-testid="loading-skeleton">読み込み中...</div>
+      </div>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 19.1）。実行予算の未作成の表示と作成の釦を出さない
+  if (isProjectNotFound) {
+    return (
+      <div style={styles.page}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
+      </div>
+    );
+  }
+
+  // 実行予算が読み込めず、案件の実在も確かめられない（Task 19.1）。作成の釦を出さない
+  if (!budget && !canCreate) {
+    return (
+      <div style={styles.page}>
+        <Breadcrumb
+          items={[
+            { label: 'プロジェクト', path: '/projects' },
+            { label: 'プロジェクト詳細', path: `/projects/${projectId}` },
+            { label: '実行予算' },
+          ]}
+        />
+        <div role="alert" style={styles.errorBanner}>
+          {loadError ?? 'データの取得に失敗しました'}
+        </div>
       </div>
     );
   }
@@ -738,6 +838,12 @@ export function ExecutionBudgetPage() {
           >
             実行予算を作成
           </button>
+          {/* 読み込みの失敗・契約書の一覧の取得の失敗（Task 19.1 で表示欄を設けた） */}
+          {(loadError || error) && (
+            <div role="alert" style={{ ...styles.errorBanner, marginTop: '16px' }}>
+              {error ?? loadError}
+            </div>
+          )}
         </div>
 
         {/* 契約書選択ダイアログ */}
@@ -770,10 +876,14 @@ export function ExecutionBudgetPage() {
                   </label>
                 ))}
               </div>
+              {createError && <p style={styles.dialogError}>{createError}</p>}
               <div style={styles.dialogActions}>
                 <button
                   style={{ ...styles.button, ...styles.secondaryButton }}
-                  onClick={() => setShowCreateDialog(false)}
+                  onClick={() => {
+                    setShowCreateDialog(false);
+                    setCreateError(null);
+                  }}
                 >
                   キャンセル
                 </button>
@@ -1055,12 +1165,14 @@ export function ExecutionBudgetPage() {
             <p style={{ fontSize: '13px', color: '#6b7280', marginTop: '8px' }}>
               全項目の「今月の支出」を「先月までの支出」に累積し、「今月の支出」をリセットします。
             </p>
+            {monthlyCloseError && <p style={styles.dialogError}>{monthlyCloseError}</p>}
             <div style={styles.dialogActions}>
               <button
                 style={{ ...styles.button, ...styles.secondaryButton }}
                 onClick={() => {
                   setShowMonthlyCloseDialog(false);
                   setMonthlyCloseMonth('');
+                  setMonthlyCloseError(null);
                 }}
               >
                 キャンセル

@@ -9,8 +9,12 @@
  * 経路の案件と子・一括の項目の実際の案件が食い違い、実際の案件が範囲外なら、応答を変えずに範囲外の拒否として
  * 記録する（20.9。タスク18.1、user-authentication の要件39.8 の本機能への適用）。
  *
- * 被覆する受入基準（execution-budget-management の Requirement 20.1〜20.6・20.9 と、改訂した Requirement 17.1・17.2）は
- * 各テストの `@requirement` の印が名乗る。出力の記録（20.7・20.8）はタスク17.2 の担当で、本ファイルは扱わない。
+ * 画面は 404 を受けると見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、
+ * 実行予算が未作成である旨・作成の釦・読み込みの失敗の文言・応答の英語の文言を出さない（21.1・21.2。タスク19.1）。
+ *
+ * 被覆する受入基準（execution-budget-management の Requirement 20.1〜20.6・20.9・21.1・21.2 と、改訂した
+ * Requirement 17.1・17.2）は各テストの `@requirement` の印が名乗る。出力の記録（20.7・20.8）はタスク17.2 の担当で、
+ * 本ファイルは扱わない。
  *
  * 検証に使う案件・見積書・契約・実行予算はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、利用者はテストの中で
  * 作る一意のメールアドレスの利用者とする。後始末で案件を先に消してから取引先と利用者を消す。
@@ -221,6 +225,59 @@ function withoutInstance(body: Record<string, unknown>): Record<string, unknown>
   return Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'instance'));
 }
 
+/** 画面の URL を直接開き、指定のパスの取得の応答を待つ（オリジンは問わずパスで照合する） */
+async function openAndWait(page: Page, url: string, apiPath: string): Promise<number> {
+  const loaded = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === apiPath,
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(url);
+  return (await loaded).status();
+}
+
+/** 404 を受けた画面に出してはならない、未作成・障害を告げる文言と応答の英語の文言（タスク19.1） */
+const NOT_FOUND_FORBIDDEN_TEXTS = [
+  '実行予算はまだ作成されていません。',
+  '実行予算が見つかりません',
+  '未反映の変更契約はありません',
+  'データの取得に失敗しました',
+  'データの読み込みに失敗しました',
+  '出来高の保存に失敗しました',
+  '出来高レコードの削除に失敗しました',
+  'Not found',
+] as const;
+
+/** 未作成・障害を告げる文言と応答の英語の文言、実行予算の作成の釦が画面のどこにも無いことを主張する */
+async function expectNoMisleadingFeedback(page: Page): Promise<void> {
+  for (const text of NOT_FOUND_FORBIDDEN_TEXTS) {
+    await expect(page.getByText(text, { exact: true }), text).toHaveCount(0);
+  }
+  await expect(page.getByRole('button', { name: '実行予算を作成' })).toHaveCount(0);
+}
+
+/** 不在の表示（ResourceNotFound）と戻り先のリンク。画面の本文の領域（main）の内側を読む */
+async function expectNotFoundView(
+  page: Page,
+  resourceType: 'プロジェクト' | '発注',
+  link: { name: string; href: string }
+): Promise<void> {
+  const main = page.getByRole('main').last();
+  await expect(main.getByRole('heading', { name: `${resourceType}が見つかりません` })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(main.getByRole('link', { name: link.name })).toHaveAttribute('href', link.href);
+  await expectNoMisleadingFeedback(page);
+}
+
+/** 本文の領域（main）の文字列。ID を置き換えて、存在しない対象の表示と比べられるようにする */
+async function mainText(page: Page, ids: string[]): Promise<string> {
+  let text = await page.getByRole('main').last().innerText();
+  for (const id of ids) {
+    text = text.split(id).join('<id>');
+  }
+  return text;
+}
+
 /** 実行予算の画面の URL を直接開き、実行予算の取得の応答を待つ（オリジンは問わずパスで照合する） */
 async function openExecutionBudget(page: Page, projectId: string): Promise<number> {
   const loaded = page.waitForResponse(
@@ -258,6 +315,7 @@ test.describe('実行予算・発注・出来高・原価・月次締めの案�
    * @requirement execution-budget-management/REQ-20.3
    * @requirement execution-budget-management/REQ-20.6
    * @requirement execution-budget-management/REQ-17.1
+   * @requirement execution-budget-management/REQ-21.1
    */
   test('担当外の利用者が実行予算の URL を直接開くと存在しない案件と同じ表示になり、一覧の API も存在しない案件と同じ 404 を返す', async ({
     page,
@@ -280,25 +338,21 @@ test.describe('実行予算・発注・出来高・原価・月次締めの案�
       timeout: getTimeout(15000),
     });
 
-    // 本体: 担当外の利用者は、存在しない案件の実行予算を開いたときと同じ表示になる
+    // 本体: 担当外の利用者は、存在しない案件の実行予算を開いたときと同じ表示になる。
+    // タスク19.1（21.1）: どちらもプロジェクトが見つからない旨とプロジェクトの一覧へのリンクで、実行予算が未作成で
+    // ある旨と作成の釦を出さない（従来は両方とも未作成の表示と作成の釦だった）。表示は不在の表示（ResourceNotFound）
+    // であり、本文の領域（main）の文字列を比べる主張はそのまま保つ
     await page.context().clearCookies();
     await page.evaluate(() => localStorage.clear());
     await loginAsUser(page, outsider);
+    const projectList = { name: 'プロジェクト一覧に戻る', href: '/projects' };
     expect(await openExecutionBudget(page, MISSING_ID)).toBe(404);
-    const missingMain = page.getByRole('main');
-    await expect(page.getByText('実行予算はまだ作成されていません。')).toBeVisible({
-      timeout: getTimeout(15000),
-    });
-    const missingText = (await missingMain.innerText()).split(MISSING_ID).join('<id>');
+    await expectNotFoundView(page, 'プロジェクト', projectList);
+    const missingText = await mainText(page, [MISSING_ID]);
 
     expect(await openExecutionBudget(page, target.projectId)).toBe(404);
-    await expect(page.getByText('実行予算はまだ作成されていません。')).toBeVisible({
-      timeout: getTimeout(15000),
-    });
-    expect(
-      (await page.getByRole('main').innerText()).split(target.projectId).join('<id>'),
-      '存在しない案件と同じ表示'
-    ).toBe(missingText);
+    await expectNotFoundView(page, 'プロジェクト', projectList);
+    expect(await mainText(page, [target.projectId]), '存在しない案件と同じ表示').toBe(missingText);
     await expect(page.getByText(target.itemName)).toHaveCount(0);
 
     // API: 実行予算・未反映の変更契約・発注一覧・発注詳細・出来高・月別出来高・月次締め履歴・出力は
@@ -541,5 +595,182 @@ test.describe('実行予算・発注・出来高・原価・月次締めの案�
 
     expect(await snapshot(target.projectId)).toEqual(beforeTarget);
     expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+
+  /**
+   * 変更契約の反映・出来高入力・発注詳細の画面も、担当外の案件では存在しない対象と同じ不在の表示になる（タスク19.1）
+   *
+   * @requirement execution-budget-management/REQ-21.1
+   */
+  test('担当外の利用者が変更契約の反映・出来高入力・発注詳細の URL を直接開くと存在しない対象と同じ不在の表示になり、読み込みの失敗と応答の英語の文言を出さない', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const outsider = await createSessionUser('REGULAR_USER');
+    const tradingPartnerId = await createTradingPartner();
+    const target = await createFixture(
+      'screens',
+      { salesPersonId: owner.id, createdById: owner.id },
+      tradingPartnerId
+    );
+    await loginAsUser(page, outsider);
+    const projectList = { name: 'プロジェクト一覧に戻る', href: '/projects' };
+
+    // 変更契約の反映・出来高入力の画面: 実行予算の取得が 404 の後に案件の取得も 404 で、プロジェクトの不在の表示
+    for (const screenPath of ['/amendments', '/progress']) {
+      const missingStatus = await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/execution-budget${screenPath}`,
+        `/api/projects/${MISSING_ID}`
+      );
+      expect(missingStatus, screenPath).toBe(404);
+      await expectNotFoundView(page, 'プロジェクト', projectList);
+      const missingText = await mainText(page, [MISSING_ID]);
+
+      const outOfScopeStatus = await openAndWait(
+        page,
+        `/projects/${target.projectId}/execution-budget${screenPath}`,
+        `/api/projects/${target.projectId}`
+      );
+      expect(outOfScopeStatus, screenPath).toBe(404);
+      await expectNotFoundView(page, 'プロジェクト', projectList);
+      expect(
+        await mainText(page, [target.projectId]),
+        `${screenPath}: 存在しない案件と同じ表示`
+      ).toBe(missingText);
+      await expect(page.getByText(target.itemName)).toHaveCount(0);
+    }
+
+    // 発注詳細の画面: 発注の取得の 404 で発注の不在の表示。戻り先はその案件の実行予算の画面
+    const missingOrderStatus = await openAndWait(
+      page,
+      `/projects/${target.projectId}/execution-budget/orders/${MISSING_ID}`,
+      `/api/projects/${target.projectId}/execution-budget/orders/${MISSING_ID}`
+    );
+    expect(missingOrderStatus).toBe(404);
+    const budgetLink = {
+      name: '実行予算に戻る',
+      href: `/projects/${target.projectId}/execution-budget`,
+    };
+    await expectNotFoundView(page, '発注', budgetLink);
+    const missingOrderText = await mainText(page, [MISSING_ID]);
+
+    const outOfScopeOrderStatus = await openAndWait(
+      page,
+      `/projects/${target.projectId}/execution-budget/orders/${target.orderId}`,
+      `/api/projects/${target.projectId}/execution-budget/orders/${target.orderId}`
+    );
+    expect(outOfScopeOrderStatus).toBe(404);
+    await expectNotFoundView(page, '発注', budgetLink);
+    expect(await mainText(page, [target.orderId]), '存在しない発注と同じ表示').toBe(
+      missingOrderText
+    );
+    await expect(page.getByText(target.itemName)).toHaveCount(0);
+  });
+
+  /**
+   * 画面を開いた後に発注が取り除かれた・案件が範囲外になった場合の操作の 404（タスク19.1）
+   *
+   * @requirement execution-budget-management/REQ-21.2
+   */
+  test('開いた後に取り除かれた発注の操作と、範囲外になった案件の実行予算の操作で、見つからない旨のメッセージが出て応答の英語の文言と汎用の失敗の文言を出さない', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const tradingPartnerId = await createTradingPartner();
+    const target = await createFixture(
+      'operations',
+      { salesPersonId: owner.id, createdById: owner.id },
+      tradingPartnerId
+    );
+    const prisma = getPrismaClient();
+    await loginAsUser(page, owner);
+
+    // 発注詳細の画面を開いた後に、発注が並行して取り除かれる（論理削除）
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/execution-budget/orders/${target.orderId}`,
+        `/api/projects/${target.projectId}/execution-budget/orders/${target.orderId}`
+      )
+    ).toBe(200);
+    const main = page.getByRole('main').last();
+    await expect(main.getByRole('heading', { name: '発注詳細', level: 1 })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await prisma.order.update({ where: { id: target.orderId }, data: { deletedAt: new Date() } });
+
+    const orderGone = '発注が見つかりません。存在しないか、削除されています。';
+    // ステータスの変更
+    const statusResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PATCH' &&
+        new URL(r.url()).pathname ===
+          `/api/projects/${target.projectId}/execution-budget/orders/${target.orderId}/status`
+    );
+    await main.getByRole('button', { name: '発注金額検討中にする' }).click();
+    expect((await statusResponse).status()).toBe(404);
+    await expect(main.getByText(orderGone, { exact: true })).toBeVisible();
+    // チェック済み項目の更新（取得の後の失敗の表示欄）
+    const itemsResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PUT' &&
+        new URL(r.url()).pathname ===
+          `/api/projects/${target.projectId}/execution-budget/orders/${target.orderId}/items`
+    );
+    await main.getByRole('button', { name: 'チェック状態を保存' }).click();
+    expect((await itemsResponse).status()).toBe(404);
+    await expect(main.getByRole('alert').filter({ hasText: orderGone })).toBeVisible();
+    await expect(page.getByText('Not found', { exact: true })).toHaveCount(0);
+
+    // 実行予算の画面を開いた後に、案件が範囲外になる（関係者から外れる）
+    expect(await openExecutionBudget(page, target.projectId)).toBe(200);
+    await expect(main.getByText(target.itemName, { exact: true })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await prisma.project.update({
+      where: { id: target.projectId },
+      data: { salesPersonId: other.id, createdById: other.id },
+    });
+
+    const projectGone = 'プロジェクトが見つかりません。存在しないか、削除されています。';
+    await main.getByRole('button', { name: '月次締め' }).click();
+    const closeDialog = page.getByRole('dialog', { name: '月次締め' });
+    await closeDialog.locator('input[type="month"]').fill('2026-10');
+    const closeResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        new URL(r.url()).pathname ===
+          `/api/projects/${target.projectId}/execution-budget/monthly-close`
+    );
+    await closeDialog.getByRole('button', { name: '締め処理を実行' }).click();
+    expect((await closeResponse).status()).toBe(404);
+    await expect(closeDialog.getByText(projectGone, { exact: true })).toBeVisible();
+    await expect(page.getByText('Not found', { exact: true })).toHaveCount(0);
+    await closeDialog.getByRole('button', { name: 'キャンセル' }).click();
+
+    await main.getByRole('button', { name: '削除', exact: true }).click();
+    const deleteDialog = page.getByRole('dialog', { name: '削除確認' });
+    const deleteResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'DELETE' &&
+        new URL(r.url()).pathname === `/api/projects/${target.projectId}/execution-budget`
+    );
+    await deleteDialog.getByRole('button', { name: '削除する' }).click();
+    expect((await deleteResponse).status()).toBe(404);
+    await expect(deleteDialog.getByText(projectGone, { exact: true })).toBeVisible();
+    await expect(page.getByText('Not found', { exact: true })).toHaveCount(0);
+
+    // 出来高入力の画面: 範囲外になった後の読み込みはプロジェクトの不在の表示で、トーストを出さない
+    await openAndWait(
+      page,
+      `/projects/${target.projectId}/execution-budget/progress`,
+      `/api/projects/${target.projectId}`
+    );
+    await expectNotFoundView(page, 'プロジェクト', {
+      name: 'プロジェクト一覧に戻る',
+      href: '/projects',
+    });
   });
 });

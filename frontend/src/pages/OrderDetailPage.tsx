@@ -9,6 +9,12 @@
  * - REQ-7.1-7.5: 発注の編集と削除
  * - REQ-8.1-8.9: 発注金額の確定と案分
  * - REQ-10.1-10.4: 発注一覧のエクスポート
+ *
+ * Task 19.1 変更: 発注の取得の 404 で発注が見つからない旨と実行予算の画面へのリンク（共通部品 ResourceNotFound）を
+ *   表示し、応答の文言を既定の文言より優先する表示をやめる。作成・編集（確定発注金額・取引先）・チェック済み項目の
+ *   更新・ステータスの変更・取り除きの 404 は見つからない旨のメッセージを表示し、取得の後の編集・チェック済み項目の
+ *   更新の失敗を表示する欄を設ける（execution-budget-management の Requirement 21.1・21.2。範囲外と不在を
+ *   区別しない）
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -27,7 +33,12 @@ import type { OrderStatus } from '../api/execution-budget';
 import { ApiError, getApiErrorCode } from '../api/client';
 import { EXPORT_RECORD_FAILED_MESSAGE } from '../api/export-audit';
 import TradingPartnerSelect from '../components/projects/TradingPartnerSelect';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getExecutionBudgetNotFoundMessage,
+  isExecutionBudgetNotFoundError,
+  type ExecutionBudgetNotFoundTarget,
+} from '../utils/executionBudgetNotFound';
 
 // ============================================================================
 // 金額フォーマットユーティリティ
@@ -281,6 +292,20 @@ function getStatusBadgeStyle(status: OrderStatus): React.CSSProperties {
  */
 const EXPORT_RECORD_FAILED_CODE = 'EXPORT_RECORD_FAILED';
 
+/**
+ * 操作の失敗の文言。404 は見つからない旨（Task 19.1）、それ以外は ApiError の文言（従来どおり）。
+ * ApiError 以外は null（従来どおり表示しない）
+ */
+function operationErrorMessage(
+  error: unknown,
+  routeTarget: ExecutionBudgetNotFoundTarget
+): string | null {
+  return (
+    getExecutionBudgetNotFoundMessage(error, routeTarget) ??
+    (error instanceof ApiError ? error.message : null)
+  );
+}
+
 export function OrderDetailPage() {
   const { projectId, orderId } = useParams<{ projectId: string; orderId: string }>();
   const navigate = useNavigate();
@@ -301,6 +326,10 @@ export function OrderDetailPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  // 発注の取得が 404 だった（範囲外と不在を区別しない。Task 19.1）
+  const [isOrderNotFound, setIsOrderNotFound] = useState(false);
+  // 取得の後の編集（確定発注金額・取引先）・チェック済み項目の更新の失敗（Task 19.1 で表示欄を設けた）
+  const [editError, setEditError] = useState<string | null>(null);
 
   const isOrdered = order?.status === 'ORDERED';
   const isCancelled = order?.status === 'CANCELLED';
@@ -326,6 +355,7 @@ export function OrderDetailPage() {
     }
     setIsLoading(true);
     setError(null);
+    setIsOrderNotFound(false);
     try {
       const data = await getOrderDetail(projectId, orderId);
       setOrder(data);
@@ -340,7 +370,10 @@ export function OrderDetailPage() {
       setConfirmedAmountInput(data.confirmedAmount || '');
       setSelectedTradingPartnerId(data.tradingPartnerId);
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (isExecutionBudgetNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。応答の文言は表示しない（Task 19.1）
+        setIsOrderNotFound(true);
+      } else if (err instanceof ApiError) {
         setError(err.message);
       } else {
         setError('データの取得に失敗しました');
@@ -374,30 +407,28 @@ export function OrderDetailPage() {
   // 項目保存
   const handleSaveItems = useCallback(async () => {
     if (!projectId || !orderId || isLocked) return;
+    setEditError(null);
     try {
       const data = await updateOrderItems(projectId, orderId, {
         itemIds: Array.from(checkedItemIds),
       });
       setOrder(data);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      }
+      setEditError(operationErrorMessage(err, 'order'));
     }
   }, [projectId, orderId, checkedItemIds, isLocked]);
 
   // 確定発注金額保存
   const handleSaveConfirmedAmount = useCallback(async () => {
     if (!projectId || !orderId || isLocked) return;
+    setEditError(null);
     try {
       const data = await updateOrder(projectId, orderId, {
         confirmedAmount: confirmedAmountInput || undefined,
       });
       setOrder(data);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      }
+      setEditError(operationErrorMessage(err, 'order'));
     }
   }, [projectId, orderId, confirmedAmountInput, isLocked]);
 
@@ -426,9 +457,7 @@ export function OrderDetailPage() {
         const data = await updateOrderStatus(projectId, orderId, { status: newStatus });
         setOrder(data);
       } catch (err) {
-        if (err instanceof ApiError) {
-          setStatusError(err.message);
-        }
+        setStatusError(operationErrorMessage(err, 'order'));
       }
     },
     [projectId, orderId, confirmedAmountInput]
@@ -453,9 +482,7 @@ export function OrderDetailPage() {
       });
       setCheckedItemIds(checkedIds);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setStatusError(err.message);
-      }
+      setStatusError(operationErrorMessage(err, 'order'));
       setShowOrderConfirmDialog(false);
     }
   }, [projectId, orderId, confirmedAmountInput]);
@@ -468,9 +495,7 @@ export function OrderDetailPage() {
       setOrder(data);
       setShowCancelConfirmDialog(false);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setStatusError(err.message);
-      }
+      setStatusError(operationErrorMessage(err, 'order'));
       setShowCancelConfirmDialog(false);
     }
   }, [projectId, orderId]);
@@ -493,8 +518,9 @@ export function OrderDetailPage() {
       await deleteOrder(projectId, orderId);
       navigate(`/projects/${projectId}/execution-budget`);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setDeleteError(err.message);
+      const message = operationErrorMessage(err, 'order');
+      if (message) {
+        setDeleteError(message);
       }
     }
   }, [projectId, orderId, navigate]);
@@ -541,8 +567,10 @@ export function OrderDetailPage() {
         replace: true,
       });
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
+      // 作成の経路は案件を指すため、汎用の 404 はプロジェクトが見つからない旨（Task 19.1）
+      const message = operationErrorMessage(err, 'project');
+      if (message) {
+        setError(message);
       }
     }
   }, [projectId, selectedTradingPartnerId, navigate]);
@@ -552,13 +580,12 @@ export function OrderDetailPage() {
     async (tradingPartnerId: string) => {
       setSelectedTradingPartnerId(tradingPartnerId);
       if (!isCreateMode && projectId && orderId && !isLocked && tradingPartnerId) {
+        setEditError(null);
         try {
           const data = await updateOrder(projectId, orderId, { tradingPartnerId });
           setOrder(data);
         } catch (err) {
-          if (err instanceof ApiError) {
-            setError(err.message);
-          }
+          setEditError(operationErrorMessage(err, 'order'));
         }
       }
     },
@@ -622,7 +649,20 @@ export function OrderDetailPage() {
     );
   }
 
-  // 発注が取得できない場合
+  // 発注が見つからない表示（Task 19.1）。応答の文言を出さない
+  if (isOrderNotFound) {
+    return (
+      <div style={styles.page}>
+        <ResourceNotFound
+          resourceType="発注"
+          returnPath={`/projects/${projectId}/execution-budget`}
+          returnLabel="実行予算に戻る"
+        />
+      </div>
+    );
+  }
+
+  // 発注が取得できない場合（404 以外の読み込みの失敗）
   if (!order) {
     return (
       <div style={styles.page}>
@@ -861,6 +901,23 @@ export function OrderDetailPage() {
           </table>
         </div>
       </div>
+
+      {/* 取得の後の編集・チェック済み項目の更新の失敗（Task 19.1 で表示欄を設けた） */}
+      {editError && (
+        <div
+          role="alert"
+          style={{
+            backgroundColor: '#fee2e2',
+            color: '#991b1b',
+            padding: '12px 16px',
+            borderRadius: '6px',
+            marginBottom: '16px',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {editError}
+        </div>
+      )}
 
       {/* 出力のエラー（出力の記録の失敗。Requirement 20.8） */}
       {exportError && (

@@ -1019,15 +1019,32 @@ describe('OrderDetailPage', () => {
   // データ取得エラーテスト
   // ==========================================================================
   describe('データ取得エラー', () => {
-    it('ApiErrorの場合エラーメッセージを表示する', async () => {
+    // execution-budget-management の Requirement 21.1（Task 19.1）: 404 は共通部品の不在の表示
+    it('404 の場合は発注が見つからない旨と実行予算の画面へのリンクを表示する', async () => {
       vi.mocked(orderDetailApi.getOrderDetail).mockRejectedValueOnce(
         new ApiError(404, '発注が見つかりません')
       );
 
       renderPage();
 
+      expect(
+        await screen.findByRole('heading', { name: '発注が見つかりません' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '実行予算に戻る' })).toHaveAttribute(
+        'href',
+        '/projects/project-1/execution-budget'
+      );
+    });
+
+    it('404 以外の ApiError の場合エラーメッセージを表示する', async () => {
+      vi.mocked(orderDetailApi.getOrderDetail).mockRejectedValueOnce(
+        new ApiError(500, 'サーバーエラー')
+      );
+
+      renderPage();
+
       await waitFor(() => {
-        expect(screen.getByText('発注が見つかりません')).toBeInTheDocument();
+        expect(screen.getByText('サーバーエラー')).toBeInTheDocument();
       });
     });
 

@@ -27,11 +27,14 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ExecutionBudgetPage from './ExecutionBudgetPage';
 import * as executionBudgetApi from '../api/execution-budget';
 import * as contractsApi from '../api/contracts';
+import * as projectsApi from '../api/projects';
 import { ApiError } from '../api/client';
 
 // APIモック
 vi.mock('../api/execution-budget');
 vi.mock('../api/contracts');
+// 実行予算の取得の 404（null）の後に案件の実在を確かめる（Task 19.1）
+vi.mock('../api/projects');
 vi.mock('../hooks/useToast', () => ({
   useToast: () => ({
     showSuccess: vi.fn(),
@@ -192,6 +195,10 @@ const mockMonthlyHistory: executionBudgetApi.MonthlyCloseHistory[] = [
 describe('ExecutionBudgetPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 実行予算の未作成の表示は案件の実在を確かめたときに限る（Task 19.1）。既定で案件は取得できる
+    vi.mocked(projectsApi.getProject).mockResolvedValue({
+      id: 'project-1',
+    } as unknown as Awaited<ReturnType<typeof projectsApi.getProject>>);
     // 「変更契約の反映」ボタン表示には未反映変更契約が1件以上必要 (REQ-15.1)
     // 各テストで上書きしない限り、ここで既定で1件返すモックを置く
     vi.mocked(executionBudgetApi.getUnreflectedAmendments).mockResolvedValue([

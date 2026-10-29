@@ -9,6 +9,12 @@
  * - REQ-11.1-11.11: 出来高入力機能
  * - REQ-12.3-12.6: 出来高の履歴管理
  * - REQ-16.1-16.5: 月別出来高集計
+ *
+ * Task 19.1 変更: 実行予算・出来高の履歴・月別出来高の取得が 404 のときに案件を取得し、案件の取得も 404 なら
+ *   プロジェクトが見つからない旨とプロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示して、読み込みの
+ *   失敗のトーストと実行予算が見つからない旨を出さない。出来高の保存と出来高記録の取り除きの 404 は見つからない旨の
+ *   メッセージを表示する。施工日指定の取得・月別明細の取得・出力の失敗の表示は変えない（execution-budget-management
+ *   の Requirement 21.1・21.2。範囲外と不在を区別しない）
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -33,7 +39,12 @@ import {
 } from '../api/progress';
 import { getApiErrorCode } from '../api/client';
 import { EXPORT_RECORD_FAILED_MESSAGE } from '../api/export-audit';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getExecutionBudgetNotFoundMessage,
+  isExecutionBudgetNotFoundError,
+  resolveMissingExecutionBudget,
+} from '../utils/executionBudgetNotFound';
 import { useToast } from '../hooks/useToast';
 
 /**
@@ -306,6 +317,8 @@ export default function ProgressInputPage() {
   // 状態
   const [budget, setBudget] = useState<ExecutionBudgetWithItems | null>(null);
   const [loading, setLoading] = useState(true);
+  // 読み込みの 404 の後に案件の取得も 404 だった（範囲外と不在を区別しない。Task 19.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   // 出来高入力状態
   const [constructionDate, setConstructionDate] = useState<string>(
@@ -361,6 +374,7 @@ export default function ProgressInputPage() {
   const loadData = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
+    setIsProjectNotFound(false);
     try {
       const [budgetData, historyData, monthlyData] = await Promise.all([
         getExecutionBudget(projectId),
@@ -380,8 +394,24 @@ export default function ProgressInputPage() {
             amount: 0,
           }))
         );
+      } else {
+        // 実行予算の取得の 404（null）は案件を取得して見分ける（Task 19.1）
+        const resolution = await resolveMissingExecutionBudget(projectId);
+        if (resolution === 'projectNotFound') {
+          setIsProjectNotFound(true);
+        } else if (resolution === 'projectLoadFailed') {
+          showErrorRef.current('データの読み込みに失敗しました');
+        }
       }
-    } catch {
+    } catch (err) {
+      // 出来高の履歴・月別出来高の取得の 404 も同じ見分けに掛け、案件の不在ならトーストを出さない（Task 19.1）
+      if (
+        isExecutionBudgetNotFoundError(err) &&
+        (await resolveMissingExecutionBudget(projectId)) === 'projectNotFound'
+      ) {
+        setIsProjectNotFound(true);
+        return;
+      }
       showErrorRef.current('データの読み込みに失敗しました');
     } finally {
       setLoading(false);
@@ -476,8 +506,11 @@ export default function ProgressInputPage() {
       ]);
       setHistory(historyData);
       setMonthlySummary(monthlyData);
-    } catch {
-      showErrorRef.current('出来高の保存に失敗しました');
+    } catch (err) {
+      // 404 は見つからない旨（汎用の 404 は経路のプロジェクト。Task 19.1）
+      showErrorRef.current(
+        getExecutionBudgetNotFoundMessage(err, 'project') ?? '出来高の保存に失敗しました'
+      );
     } finally {
       setSaving(false);
     }
@@ -528,8 +561,10 @@ export default function ProgressInputPage() {
       ]);
       setHistory(historyData);
       setMonthlySummary(monthlyData);
-    } catch {
-      showErrorRef.current('出来高レコードの削除に失敗しました');
+    } catch (err) {
+      showErrorRef.current(
+        getExecutionBudgetNotFoundMessage(err, 'project') ?? '出来高レコードの削除に失敗しました'
+      );
     }
   }, [projectId, deleteTargetId]);
 
@@ -585,6 +620,19 @@ export default function ProgressInputPage() {
     return (
       <div style={styles.page}>
         <p>読み込み中...</p>
+      </div>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 19.1）。実行予算が見つからない旨を出さない
+  if (isProjectNotFound) {
+    return (
+      <div style={styles.page}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </div>
     );
   }
