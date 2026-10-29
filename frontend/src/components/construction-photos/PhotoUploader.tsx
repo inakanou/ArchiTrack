@@ -22,6 +22,12 @@
  * であるため、通知の例外が伝播すると登録済みの画像まで未送信画像として残り、再送で重複
  * 登録される（工事写真 20.5, 20.14）。
  *
+ * Task 31.1: 写真のアップロードが 404 を受けたときは、失敗した画像の理由を工事写真アルバムが見つからない
+ * 旨にし、応答の英語の文言を未送信画像の表示に出さない。失敗の通知の構成（12.5）と保持と再送の区分
+ * （Requirement 20。404 は再送可能）は変えない。現場調査写真のコピーの 404（汎用の NOT_FOUND と
+ * SURVEY_IMAGE_NOT_ALLOWED）は工事写真アルバムまたは現場調査写真が見つからない旨を通知する
+ * （Requirement 22.2。範囲外と不在を区別しない）。
+ *
  * Requirements: 4.1, 4.2, 4.4, 4.5, 5.1, 5.2, 5.3, 6.1, 11.5, 12.5, 20.5, 20.14, 37.1
  */
 
@@ -33,6 +39,7 @@ import {
 } from '../../api/construction-photo-images';
 import { ApiError } from '../../api/client';
 import { toFailedUpload } from '../../utils/upload-failure';
+import { getConstructionPhotoNotFoundMessage } from '../../utils/constructionPhotoNotFound';
 import { SurveyImagePicker } from './SurveyImagePicker';
 import { useCameraAvailability } from '../../hooks/useCameraAvailability';
 import type { ConstructionPhotoWithUrls } from '../../types/construction-photo.types';
@@ -128,7 +135,14 @@ export async function uploadFilesInWaves(
             ),
           };
         } catch (err) {
-          return { successful: [], failed: [toFailedUpload(file, err)] };
+          const failure = toFailedUpload(file, err);
+          // 404 は工事写真アルバムの不在〔範囲外を含む〕。理由の文言だけを置き換え、再送の区分は保つ
+          // （Requirement 22.2、20。Task 31.1）
+          const notFoundMessage = getConstructionPhotoNotFoundMessage(err, 'album');
+          return {
+            successful: [],
+            failed: [notFoundMessage ? { ...failure, error: notFoundMessage } : failure],
+          };
         }
       })
     );
@@ -322,7 +336,10 @@ export function PhotoUploader({
         }
         setIsPickerOpen(false);
       } catch (err) {
-        const message = err instanceof ApiError ? err.message : '現調写真の追加に失敗しました';
+        // コピーの 404 はアルバムかコピー元の現場調査写真の不在〔範囲外を含む〕（Task 31.1）
+        const message =
+          getConstructionPhotoNotFoundMessage(err, 'albumOrSurveyImage') ??
+          (err instanceof ApiError ? err.message : '現調写真の追加に失敗しました');
         onNotify?.(message);
       } finally {
         setIsCopying(false);

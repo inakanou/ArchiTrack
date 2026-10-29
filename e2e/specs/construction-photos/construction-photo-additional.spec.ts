@@ -1386,11 +1386,14 @@ test.describe('工事写真 追加機能フロー', () => {
     expect(me.permissions).not.toContain('construction_photo:delete');
     expect(me.permissions).not.toContain('*:*');
 
-    // 要件39: 担当外の user には案件が見つからず、アルバムの行は描かれない
-    const notFoundAlert = page.getByRole('alert');
-    await expect(notFoundAlert).toContainText('プロジェクトが見つかりません', {
-      timeout: getTimeout(15000),
-    });
+    // 要件39: 担当外の user には案件が見つからず、アルバムの行は描かれない。
+    // タスク 31.1: 見つからない旨は共通部品 ResourceNotFound（role="alert" を持たない見出し）で出る
+    // （Requirement 22.1）ため、alert の役割でなくプロジェクトが見つからない旨の見出しで観測する
+    const notFoundHeading = page
+      .getByRole('main')
+      .last()
+      .getByRole('heading', { name: 'プロジェクトが見つかりません', exact: true });
+    await expect(notFoundHeading).toBeVisible({ timeout: getTimeout(15000) });
     await expect(page.getByTestId(`album-row-${albumId}`)).toHaveCount(0);
 
     // 対照: user を工事担当者に設定すると、次の要求から範囲内になり、アルバムの行が表示される
@@ -1403,7 +1406,7 @@ test.describe('工事写真 追加機能フロー', () => {
     await expect(page.getByTestId(`album-row-${albumId}`)).toBeVisible({
       timeout: getTimeout(15000),
     });
-    await expect(notFoundAlert).toHaveCount(0);
+    await expect(notFoundHeading).toHaveCount(0);
 
     // 一覧の行から詳細画面を開く。写真一覧の取得は 200 である
     const listResponse = page.waitForResponse(
@@ -4165,7 +4168,10 @@ test.describe('工事写真 追加機能フロー', () => {
       fs.rmSync(oversizePath, { force: true });
     }
 
-    // (3) アルバムを取得できないときのエラー表示。アルバムの取得だけを失敗させる
+    // (3) アルバムを取得できないときのエラー表示。アルバムの取得だけを失敗させる。
+    // タスク 31.1: 404 は見つからない旨（ResourceNotFound）になり取得の失敗の表示と再試行の釦を出さない
+    // （Requirement 22.1）ため、404 以外の失敗（500）に差し替え、長い文言の取得の失敗の表示がはみ出さない
+    // ことの主張を保つ
     const albumUrlMatcher = (url: URL): boolean =>
       url.pathname.endsWith(`/api/construction-photos/${albumId}`);
     const failAlbumFetch = async (route: Route): Promise<void> => {
@@ -4174,14 +4180,14 @@ test.describe('工事写真 追加機能フロー', () => {
         return;
       }
       await route.fulfill({
-        status: 404,
+        status: 500,
         contentType: 'application/json',
         body: JSON.stringify({
-          type: 'https://architrack.example.com/problems/not-found',
-          title: 'Not Found',
-          status: 404,
+          type: 'https://architrack.example.com/problems/internal-server-error',
+          title: 'Internal Server Error',
+          status: 500,
           detail: fetchErrorDetail,
-          code: 'NOT_FOUND',
+          code: 'INTERNAL_SERVER_ERROR',
         }),
       });
     };

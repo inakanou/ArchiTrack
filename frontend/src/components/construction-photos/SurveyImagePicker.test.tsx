@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { SurveyImagePicker } from './SurveyImagePicker';
 import * as siteSurveysApi from '../../api/site-surveys';
+import { ApiError } from '../../api/client';
 import type { PaginatedSiteSurveys, SiteSurveyDetail } from '../../types/site-survey.types';
 
 vi.mock('../../api/site-surveys');
@@ -175,5 +176,52 @@ describe('SurveyImagePicker', () => {
       <SurveyImagePicker projectId="project-1" open={false} onClose={vi.fn()} onSelect={vi.fn()} />
     );
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+// ============================================================================
+// タスク 31.1: コピー元の選択の読み込みの 404 の見つからない旨（Requirement 22.2）
+// ============================================================================
+
+describe('SurveyImagePicker の 404 の見つからない旨（タスク 31.1）', () => {
+  /** 汎用の 404（閲覧範囲外と不在で同じ応答。本文は英語） */
+  const genericNotFound = () =>
+    new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(mockSurveys);
+    vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+  });
+
+  it('現場調査の一覧の取得の 404 はプロジェクトが見つからない旨をエラーの欄に出し、英語の文言を出さない (22.2)', async () => {
+    vi.mocked(siteSurveysApi.getSiteSurveys).mockRejectedValue(genericNotFound());
+    render(<SurveyImagePicker projectId="project-1" open onClose={vi.fn()} onSelect={vi.fn()} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /^プロジェクトが見つかりません。存在しないか、削除されています。$/
+    );
+    expect(screen.queryByText(/Not found/i)).not.toBeInTheDocument();
+  });
+
+  it('現場調査の詳細の取得の 404 は現場調査が見つからない旨をエラーの欄に出す (22.2)', async () => {
+    vi.mocked(siteSurveysApi.getSiteSurvey).mockRejectedValue(
+      new ApiError(404, 'Site survey not found: survey-1', { code: 'SITE_SURVEY_NOT_FOUND' })
+    );
+    render(<SurveyImagePicker projectId="project-1" open onClose={vi.fn()} onSelect={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText('一次調査'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /^現場調査が見つかりません。存在しないか、削除されています。$/
+    );
+    expect(screen.queryByText(/survey-1/)).not.toBeInTheDocument();
+  });
+
+  it('404 以外の読み込みの失敗は従来の文言を出す', async () => {
+    vi.mocked(siteSurveysApi.getSiteSurveys).mockRejectedValue(new ApiError(500, 'サーバーの失敗'));
+    render(<SurveyImagePicker projectId="project-1" open onClose={vi.fn()} onSelect={vi.fn()} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/^サーバーの失敗$/);
   });
 });

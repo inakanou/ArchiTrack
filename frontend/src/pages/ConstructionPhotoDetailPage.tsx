@@ -106,6 +106,14 @@
  *   ZIP の記録の要求中は設定のダイアログの開始・キャンセルを止める。印刷対象0件の PDF は出力が無いため
  *   記録せずに通知する（construction-photo の Requirement 21.8・21.9）
  *
+ * Task 31.1 変更: アルバムの取得と写真項目の一覧の取得の 404 では、工事写真アルバムが見つからない旨と
+ *   プロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示し、応答の英語の文言・取得の失敗の
+ *   文言と再試行の釦を出さない（Requirement 22.1。経路は案件の ID を持たないため戻り先はプロジェクトの
+ *   一覧）。アルバムの削除（工事写真アルバム）、メタデータと表示順序の保存（工事写真アルバムまたは写真
+ *   項目）、台帳の PDF と一括 ZIP の出力（写真項目）の 404 は、従来の表示の場所に見つからない旨を出す
+ *   （Requirement 22.2）。取り除かれた看板の文言（タスク 24.2）・記録の失敗の文言（21.9）・ZIP の出力の
+ *   開始の失敗の文言は保つ。範囲外と不在を区別しない
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
  *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11, 17.1, 17.2, 17.3,
  *   17.4, 17.5, 18.1, 18.2, 18.3, 18.4
@@ -136,7 +144,11 @@ import type {
   ConstructionPhotoExportSettings,
 } from '../services/export/ConstructionPhotoBulkExportService';
 import { buildConstructionPhotoZipFileName } from '../services/export/constructionPhotoZipNaming';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getConstructionPhotoNotFoundMessage,
+  isConstructionPhotoNotFoundError,
+} from '../utils/constructionPhotoNotFound';
 import type { BreadcrumbItem } from '../components/common';
 import { PhotoUploader } from '../components/construction-photos/PhotoUploader';
 import {
@@ -567,6 +579,8 @@ export default function ConstructionPhotoDetailPage() {
   );
 
   const [isLoading, setIsLoading] = useState(true);
+  // アルバムの取得か写真項目の一覧の取得が 404 を受けた（範囲外と不在を区別しない。Task 31.1）
+  const [isAlbumNotFound, setIsAlbumNotFound] = useState(false);
   // 通知の枠に出す一つの表示（タスク 22.1）。通知（PDF・ZIP・アップロードの結果）と失敗（保存・
   // アルバムの削除・取得）を一つの状態に持ち、後から出たものが前のものを置き換える。消去は
   // その種類のものだけを消す（`clearPageMessage`）。アルバムの取得の失敗も失敗としてここに載り、
@@ -634,6 +648,7 @@ export default function ConstructionPhotoDetailPage() {
     if (!id) return;
 
     setIsLoading(true);
+    setIsAlbumNotFound(false);
     clearPageMessage('error');
 
     try {
@@ -654,6 +669,11 @@ export default function ConstructionPhotoDetailPage() {
       // プロジェクト取得失敗はブレッドクラムのみに影響するため致命的ではない
       setProject(projectResult.status === 'fulfilled' ? projectResult.value : null);
     } catch (err) {
+      if (isConstructionPhotoNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない（Task 31.1）
+        setIsAlbumNotFound(true);
+        return;
+      }
       showPageMessage(
         'error',
         err instanceof ApiError
@@ -809,11 +829,13 @@ export default function ConstructionPhotoDetailPage() {
       await deleteConstructionPhotoAlbum(album.id);
       navigate(`/projects/${album.projectId}/construction-photos`);
     } catch (err) {
+      // 削除の 404 は工事写真アルバムの不在〔範囲外を含む〕（Task 31.1）
       showPageMessage(
         'error',
-        err instanceof ApiError
-          ? err.message || 'アルバムの削除に失敗しました'
-          : 'アルバムの削除に失敗しました'
+        getConstructionPhotoNotFoundMessage(err, 'album') ??
+          (err instanceof ApiError
+            ? err.message || 'アルバムの削除に失敗しました'
+            : 'アルバムの削除に失敗しました')
       );
       setIsDeleteDialogOpen(false);
     } finally {
@@ -909,11 +931,11 @@ export default function ConstructionPhotoDetailPage() {
       syncDirtyWithPending();
     } catch (err) {
       // 取り除かれた看板を指定した失敗は英語の応答の文言に代えて日本語で示す（タスク 24.2）
+      // 保存の 404 はアルバムか写真項目の不在〔範囲外を含む〕で、応答からどちらかを区別しない（Task 31.1）
       const message = isRemovedSignboardError(err)
         ? toRemovedSignboardMessage(sentChanges, signboards)
-        : err instanceof ApiError
-          ? err.message
-          : '保存に失敗しました';
+        : (getConstructionPhotoNotFoundMessage(err, 'albumOrPhotoItem') ??
+          (err instanceof ApiError ? err.message : '保存に失敗しました'));
       showPageMessage('error', message, { isSaveFailure: true });
     } finally {
       setIsSaving(false);
@@ -979,9 +1001,11 @@ export default function ConstructionPhotoDetailPage() {
           showPageMessage('notice', result.error.message);
         } else {
           const cause = result.error.cause;
+          // 印字画像の取得の 404 は写真項目の不在〔範囲外を含む〕（Task 31.1）
           showPageMessage(
             'notice',
-            cause instanceof ApiError ? cause.message : 'PDF出力に失敗しました'
+            getConstructionPhotoNotFoundMessage(cause, 'photoItem') ??
+              (cause instanceof ApiError ? cause.message : 'PDF出力に失敗しました')
           );
         }
         return;
@@ -990,7 +1014,11 @@ export default function ConstructionPhotoDetailPage() {
         showPageMessage('notice', NO_PRINTABLE_PDF_EXPORT_MESSAGE);
       }
     } catch (err) {
-      showPageMessage('notice', err instanceof ApiError ? err.message : 'PDF出力に失敗しました');
+      showPageMessage(
+        'notice',
+        getConstructionPhotoNotFoundMessage(err, 'photoItem') ??
+          (err instanceof ApiError ? err.message : 'PDF出力に失敗しました')
+      );
     } finally {
       setIsExporting(false);
     }
@@ -1147,9 +1175,11 @@ export default function ConstructionPhotoDetailPage() {
           if (err instanceof DOMException && err.name === 'AbortError') {
             showPageMessage('notice', 'エクスポートを中断しました。');
           } else {
+            // 生成の全体が 404 で終わるときは写真項目の不在〔範囲外を含む〕（Task 31.1）
             showPageMessage(
               'notice',
-              err instanceof ApiError ? err.message : 'エクスポートに失敗しました'
+              getConstructionPhotoNotFoundMessage(err, 'photoItem') ??
+                (err instanceof ApiError ? err.message : 'エクスポートに失敗しました')
             );
           }
         })
@@ -1271,6 +1301,20 @@ export default function ConstructionPhotoDetailPage() {
     );
   }
 
+  // 工事写真アルバムが見つからない表示（Task 31.1）。経路は案件の ID を持たず、アルバムを読めないと
+  // 案件が分からないため、戻り先はプロジェクトの一覧とする
+  if (isAlbumNotFound) {
+    return (
+      <main role="main" style={containerStyle}>
+        <ResourceNotFound
+          resourceType="工事写真アルバム"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
+      </main>
+    );
+  }
+
   // エラー（データ未取得）
   if (pageMessage?.kind === 'error' && !album) {
     return (
@@ -1383,6 +1427,7 @@ export default function ConstructionPhotoDetailPage() {
             key={isSaveFailureShown ? 'save-failure' : 'frame'}
             role={isSaveFailureShown ? undefined : 'alert'}
             style={styles.notice}
+            data-testid="construction-photo-page-message"
           >
             {pageMessage.text}
           </div>

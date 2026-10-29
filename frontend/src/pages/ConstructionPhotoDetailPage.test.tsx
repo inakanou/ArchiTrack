@@ -1304,6 +1304,177 @@ describe('ConstructionPhotoDetailPage', () => {
   // Task 12.3: 詳細画面にアルバム編集・削除導線を結線 (R16.1, R16.2, R16.3, R16.4, R16.5)
   // ==========================================================================
 
+  // ==========================================================================
+  // タスク 31.1: 404 を受けたときの不在の表示（Requirement 22.1・22.2）
+  // ==========================================================================
+
+  describe('404 の不在の表示（タスク 31.1）', () => {
+    const ALBUM_GONE = '工事写真アルバムが見つかりません。存在しないか、削除されています。';
+    const ALBUM_OR_ITEM_GONE =
+      '工事写真アルバムまたは写真項目が見つかりません。存在しないか、削除されています。';
+    const PHOTO_ITEM_GONE = '写真項目が見つかりません。存在しないか、削除されています。';
+    /** 汎用の 404（閲覧範囲外と不在で同じ応答。本文は英語） */
+    const genericNotFound = () =>
+      new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' });
+    /** 文言の完全一致（前後に余計な文言が付いていないこと） */
+    const exactly = (text: string) => new RegExp(`^${text}$`);
+
+    async function expectAlbumNotFound() {
+      expect(
+        await screen.findByRole('heading', { name: '工事写真アルバムが見つかりません' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('工事写真アルバムの取得に失敗しました')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    }
+
+    it('アルバムの取得の 404（ID を含む本体の 404）で、工事写真アルバムが見つからない旨とプロジェクト一覧へのリンクを出す (22.1)', async () => {
+      vi.mocked(albumsApi.getConstructionPhotoAlbum).mockRejectedValue(
+        new ApiError(404, 'Construction photo album not found: album-1', {
+          code: 'CONSTRUCTION_PHOTO_ALBUM_NOT_FOUND',
+        })
+      );
+      renderPage();
+
+      await expectAlbumNotFound();
+      expect(screen.queryByText(/album-1/)).not.toBeInTheDocument();
+    });
+
+    it('写真項目の一覧の取得の 404 でも同じ不在の表示にする (22.1)', async () => {
+      vi.mocked(imagesApi.getConstructionPhotos).mockRejectedValue(genericNotFound());
+      renderPage();
+
+      await expectAlbumNotFound();
+      expect(screen.queryByRole('heading', { name: '基礎工事アルバム' })).not.toBeInTheDocument();
+    });
+
+    it('404 以外の読み込みの失敗は従来の文言と再試行の釦を出す', async () => {
+      vi.mocked(albumsApi.getConstructionPhotoAlbum).mockRejectedValue(
+        new ApiError(500, 'サーバーの失敗')
+      );
+      renderPage();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(exactly('サーバーの失敗再試行'));
+      expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument();
+    });
+
+    it('アルバムの削除の 404 は工事写真アルバムが見つからない旨を上部の枠に出す (22.2)', async () => {
+      vi.mocked(albumsApi.deleteConstructionPhotoAlbum).mockRejectedValue(genericNotFound());
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      await act(async () => {
+        fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+      });
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(exactly(ALBUM_GONE));
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('メタデータと表示順序の保存の 404 は工事写真アルバムまたは写真項目が見つからない旨を上部の枠と保存ボタンの近くに出す (22.2)', async () => {
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValue(
+        genericNotFound()
+      );
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      });
+
+      expect(await screen.findAllByText(ALBUM_OR_ITEM_GONE)).toHaveLength(2);
+      expect(
+        within(screen.getByRole('region', { name: '写真項目管理パネル' })).getByRole('alert')
+      ).toHaveTextContent(exactly(ALBUM_OR_ITEM_GONE));
+      expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+      // 失敗のときは保留を消さない（R18）
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+    });
+
+    it('表示順序の保存の 404 も同じ文言にする (22.2)', async () => {
+      vi.mocked(imagesApi.updateConstructionPhotoOrder).mockRejectedValue(
+        new ApiError(404, 'Construction photo album not found: album-1', {
+          code: 'CONSTRUCTION_PHOTO_ALBUM_NOT_FOUND',
+        })
+      );
+      renderPage();
+      await screen.findAllByTestId('construction-photo-item');
+      fireEvent.click(screen.getAllByRole('button', { name: /下へ移動/ })[0]!);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      });
+
+      expect(await screen.findAllByText(ALBUM_OR_ITEM_GONE)).toHaveLength(2);
+      expect(screen.queryByText(/album-1/)).not.toBeInTheDocument();
+    });
+
+    it('台帳の PDF の印字画像の取得の 404 は写真項目が見つからない旨を上部の枠に出す (22.2)', async () => {
+      vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+        makePhoto({ id: 'photo-1', displayOrder: 1, fileName: 'a.jpg', includeInReport: true }),
+      ]);
+      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockRejectedValue(genericNotFound());
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(exactly(PHOTO_ITEM_GONE));
+    });
+
+    it('台帳の PDF の 404 以外の生成の失敗と記録の失敗は従来の文言を保つ (21.9)', async () => {
+      vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+        makePhoto({ id: 'photo-1', displayOrder: 1, fileName: 'a.jpg', includeInReport: true }),
+      ]);
+      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockRejectedValue(
+        new ApiError(500, 'サーバーの失敗')
+      );
+      vi.mocked(apiClient.post)
+        .mockRejectedValueOnce(new ApiError(404, 'Not found', { code: 'NOT_FOUND' }))
+        .mockResolvedValue({ recordId: 'record-1' });
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      // 記録の要求が 404 で失敗しても記録の失敗の文言（21.9）
+      fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        exactly('出力を記録できなかったため中止しました')
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+      await waitFor(() =>
+        expect(screen.getByRole('alert')).toHaveTextContent(exactly('サーバーの失敗'))
+      );
+    });
+
+    it('一括 ZIP の生成の全体が 404 で終わると写真項目が見つからない旨を上部の枠に出す (22.2)', async () => {
+      vi.mocked(constructionPhotoBulkExportService.export).mockRejectedValue(genericNotFound());
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+      const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+      fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+
+      await waitFor(() =>
+        expect(
+          screen
+            .getAllByRole('alert')
+            .some((el) => exactly(PHOTO_ITEM_GONE).test(el.textContent ?? ''))
+        ).toBe(true)
+      );
+      expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe('アルバム編集・削除導線 (R16)', () => {
     beforeEach(() => {
       vi.mocked(albumsApi.deleteConstructionPhotoAlbum).mockResolvedValue(undefined);
@@ -3427,6 +3598,8 @@ describe('ConstructionPhotoDetailPage', () => {
       ).toHaveLength(2);
     });
 
+    // タスク 31.1: 看板の文言に置き換えないことは保ち、応答の英語の文言に代えて工事写真アルバムまたは
+    // 写真項目が見つからない旨を出す（Requirement 22.2）
     it('同じ 404 でも写真項目が見つからない失敗（CONSTRUCTION_PHOTO_NOT_FOUND）は看板の文言に置き換えない', async () => {
       const photoNotFound = 'Construction photo not found: photo-1';
       vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValueOnce(
@@ -3442,7 +3615,12 @@ describe('ConstructionPhotoDetailPage', () => {
 
       await clickSave();
 
-      expect(await screen.findAllByText(photoNotFound)).toHaveLength(2);
+      expect(
+        await screen.findAllByText(
+          '工事写真アルバムまたは写真項目が見つかりません。存在しないか、削除されています。'
+        )
+      ).toHaveLength(2);
+      expect(screen.queryByText(photoNotFound)).not.toBeInTheDocument();
       expect(screen.queryByText(/取り除かれています/)).not.toBeInTheDocument();
     });
 

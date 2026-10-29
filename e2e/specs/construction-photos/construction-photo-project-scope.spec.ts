@@ -20,6 +20,11 @@
  * - REQ-21.7: 範囲内の利用者には写真項目一覧・アルバム一覧の代表サムネイルの署名付きURLが発行され、原本・
  *   印字画像が返る。範囲外の利用者には署名付きURLも画像も返らない
  *
+ * タスク31.1 で、画面が 404 を受けたときの表示（Requirement 22.1・22.2）を足した。範囲外と不在は同じ 404 であり、
+ * 画面は見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、取得・操作の
+ * 失敗を告げる文言、応答の英語の文言と再試行の釦を出さない。被覆する受入基準は各テストの `@requirement` の印が
+ * 名乗る。
+ *
  * 検証に使う案件・アルバム・工事看板・現場調査写真はテストの中で DB に作り（名前の接頭辞 `PROJECT_NAME_PREFIX`）、
  * 写真項目は関係者が API でアップロードして作る（原本・印字画像・サムネイルを実ストレージに置くため）。
  * 現場調査写真は画像の実体を置かない（コピーは範囲の判定で拒否され、実体を読まない）。
@@ -30,7 +35,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'url';
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page, type Route } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
 import {
   SESSION_USER_EMAIL_PREFIX,
@@ -57,6 +62,35 @@ const ROLE_NAME_PREFIX = 'e2e-photo-scope-role-';
 
 /** どの行としても存在しない ID（版 4・変種 8 の整った UUID） */
 const MISSING_ID = '00000000-0000-4000-8000-000000030201';
+
+/** 見つからない旨のメッセージ（タスク31.1。design.md の Requirement 22 の章の決定の逐語） */
+const ALBUM_GONE = '工事写真アルバムが見つかりません。存在しないか、削除されています。';
+const PROJECT_GONE = 'プロジェクトが見つかりません。存在しないか、削除されています。';
+const PHOTO_ITEM_GONE = '写真項目が見つかりません。存在しないか、削除されています。';
+const ALBUM_OR_ITEM_GONE =
+  '工事写真アルバムまたは写真項目が見つかりません。存在しないか、削除されています。';
+const ALBUM_OR_SURVEY_IMAGE_GONE =
+  '工事写真アルバムまたは現場調査写真が見つかりません。存在しないか、削除されています。';
+const SIGNBOARD_GONE = '工事看板が見つかりません。存在しないか、削除されています。';
+
+/** 工事写真の画面が 404 を受けたときに出してはならない、障害を告げる文言（タスク31.1） */
+const FAILURE_TEXTS = [
+  '工事写真アルバムの取得に失敗しました',
+  'データの取得に失敗しました',
+  'プロジェクトの取得に失敗しました',
+  '看板一覧の取得に失敗しました',
+  'アルバムの削除に失敗しました',
+  '写真項目の削除に失敗しました',
+  '保存に失敗しました',
+  'PDF出力に失敗しました',
+  'エクスポートに失敗しました',
+  '現調写真の追加に失敗しました',
+  '原本画像の取得に失敗しました',
+  '作成中にエラーが発生しました',
+  '更新中にエラーが発生しました',
+  '登録中にエラーが発生しました',
+  '削除中にエラーが発生しました',
+] as const;
 
 interface Fixture {
   projectId: string;
@@ -134,13 +168,14 @@ async function createFixture(
 async function uploadPhoto(
   request: APIRequestContext,
   headers: Record<string, string>,
-  albumId: string
+  albumId: string,
+  fileName = 'scope.jpg'
 ): Promise<string> {
   const response = await request.post(`${API_BASE_URL}/api/construction-photos/${albumId}/images`, {
     headers,
     multipart: {
       images: {
-        name: 'scope.jpg',
+        name: fileName,
         mimeType: 'image/jpeg',
         buffer: fs.readFileSync(FIXTURE_JPG),
       },
@@ -227,6 +262,60 @@ async function bearerFor(
 
 function withoutInstance(body: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'instance'));
+}
+
+/** 画面の URL を直接開き、指定のパスの GET の応答の状態を返す（オリジンは問わずパスで照合する） */
+async function openAndWait(page: Page, url: string, apiPath: string): Promise<number> {
+  const loaded = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === apiPath,
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(url);
+  return (await loaded).status();
+}
+
+/**
+ * 読み込み中の表示が消えた後の、本文の領域の表示の文字列。
+ * 工事写真の画面は共通の枠の main の内側に自分の main を置くため、内側（文書の順で後ろ）を読む
+ */
+async function settledMainText(page: Page): Promise<string> {
+  const main = page.getByRole('main').last();
+  await expect(main.getByText('読み込み中...')).toHaveCount(0, { timeout: getTimeout(15000) });
+  return main.innerText();
+}
+
+/** 障害を告げる文言・サーバーエラーの理由・応答の英語の文言が画面のどこにも無いことを主張する */
+async function expectNoFailureFeedback(page: Page): Promise<void> {
+  for (const text of FAILURE_TEXTS) {
+    await expect(page.getByText(text, { exact: true }), text).toHaveCount(0);
+  }
+  await expect(page.getByText(/サーバーエラー|再度お試しください|not found/i)).toHaveCount(0);
+}
+
+/** 不在の表示（ResourceNotFound）。戻り先はプロジェクトの一覧で、再試行の釦を出さない */
+async function expectNotFoundView(page: Page, resourceType: '工事写真アルバム' | 'プロジェクト') {
+  const main = page.getByRole('main').last();
+  await expect(main.getByRole('heading', { name: `${resourceType}が見つかりません` })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(main.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+    'href',
+    '/projects'
+  );
+  await expect(page.getByRole('button', { name: '再試行' })).toHaveCount(0);
+  await expectNoFailureFeedback(page);
+}
+
+/**
+ * トーストの文言が完全一致で 1 件だけ出ていることを主張し、閉じる。
+ * トーストの閉じる釦の名前は文言そのものに「を閉じる」を続けたものであるため、名前の完全一致で文言の
+ * 完全一致を確かめる（前の操作のトーストと取り違えないよう、確かめた後に閉じる）
+ */
+async function expectToastAndDismiss(page: Page, message: string): Promise<void> {
+  const close = page.getByRole('button', { name: `${message}を閉じる`, exact: true });
+  await expect(close).toHaveCount(1, { timeout: getTimeout(15000) });
+  await close.click();
+  await expect(close).toHaveCount(0);
 }
 
 /** アルバムの詳細の URL を直接開き、アルバムの取得の応答を待つ（オリジンは問わずパスで照合する） */
@@ -330,15 +419,16 @@ test.describe('工事写真アルバム・写真項目・工事看板の案件�
     await page.context().clearCookies();
     await page.evaluate(() => localStorage.clear());
     await loginAsUser(page, outsider);
+    // タスク31.1: 表示は不在の表示（ResourceNotFound。role="alert" を持たない）になったため、本文の領域の
+    // 見つからない旨の表示どうしを比べる
     await openAlbumDetail(page, MISSING_ID);
-    const missingAlert = page.getByRole('alert');
-    await expect(missingAlert).toBeVisible({ timeout: getTimeout(15000) });
-    const missingText = await missingAlert.innerText();
+    await expectNotFoundView(page, '工事写真アルバム');
+    const missingText = await settledMainText(page);
+    expect(missingText.trim().length, '存在しないアルバムの表示がある').toBeGreaterThan(0);
 
     await openAlbumDetail(page, target.albumId);
-    const outOfScopeAlert = page.getByRole('alert');
-    await expect(outOfScopeAlert).toBeVisible({ timeout: getTimeout(15000) });
-    expect(await outOfScopeAlert.innerText(), '存在しないアルバムと同じ表示').toBe(missingText);
+    await expectNotFoundView(page, '工事写真アルバム');
+    expect(await settledMainText(page), '存在しないアルバムと同じ表示').toBe(missingText);
     await expect(page.getByText(target.albumName)).toHaveCount(0);
     await expect(page.getByTestId('construction-photo-item')).toHaveCount(0);
 
@@ -627,7 +717,475 @@ test.describe('工事写真アルバム・写真項目・工事看板の案件�
     );
     await page.goto(`/projects/${target.projectId}/construction-photos`);
     expect((await listed).status()).toBe(404);
-    await expect(page.getByRole('alert').first()).toBeVisible({ timeout: getTimeout(15000) });
+    // タスク31.1: プロジェクトが見つからない旨は ResourceNotFound（role="alert" を持たない）で出るため、
+    // alert の役割でなくプロジェクトが見つからない旨の表示で観測する
+    await expectNotFoundView(page, 'プロジェクト');
     await expect(page.getByText(target.albumName)).toHaveCount(0);
+  });
+
+  /**
+   * 詳細・編集の画面は工事写真アルバムの読み込みの 404 で、工事写真の一覧・アルバムの新規作成・工事看板の一覧の
+   * 画面はプロジェクトの読み込みの 404 で、見つからない旨とプロジェクトの一覧へのリンクを表示する。写真の閲覧の
+   * 画面はアルバムの読み込みの 404 と原本の取得の 404 で写真が見つからない旨とアルバムへの戻り先を表示する
+   * （construction-photo タスク31.1）。範囲外と不在は同じ表示。
+   *
+   * @requirement construction-photo/REQ-22.1
+   */
+  test('担当外の利用者が工事写真の画面の URL を開くと見つからない旨と戻り先のリンクが表示され、存在しない対象と同じ表示になる', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(getTimeout(180000));
+    const owner = await createSessionUser('REGULAR_USER');
+    const outsider = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('not-found-view', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const photoId = await uploadPhoto(request, await bearerFor(request, owner), target.albumId);
+    await loginAsUser(page, outsider);
+
+    // 詳細の画面と編集の画面: 工事写真アルバムが見つからない旨と、プロジェクトの一覧へのリンク
+    for (const suffix of ['', '/edit']) {
+      expect(
+        await openAndWait(
+          page,
+          `/construction-photos/${MISSING_ID}${suffix}`,
+          `/api/construction-photos/${MISSING_ID}`
+        )
+      ).toBe(404);
+      await expectNotFoundView(page, '工事写真アルバム');
+      const missingText = await settledMainText(page);
+      expect(
+        await openAndWait(
+          page,
+          `/construction-photos/${target.albumId}${suffix}`,
+          `/api/construction-photos/${target.albumId}`
+        )
+      ).toBe(404);
+      await expectNotFoundView(page, '工事写真アルバム');
+      expect(await settledMainText(page), `存在しないアルバムと同じ表示（${suffix}）`).toBe(
+        missingText
+      );
+      await expect(page.getByText(target.albumName)).toHaveCount(0);
+    }
+    // 編集の画面は更新の手段を出さない
+    await expect(page.getByLabel('アルバム名')).toHaveCount(0);
+
+    // 工事写真の一覧・アルバムの新規作成・工事看板の一覧の画面: プロジェクトが見つからない旨と、
+    // プロジェクトの一覧へのリンク。一覧と工事看板の一覧は一覧の取得の 404 を待つ（プロジェクトの取得と
+    // 並行するため、どちらの 404 でも同じ表示になること）
+    for (const [url, apiPath] of [
+      ['/construction-photos', '/construction-photos'],
+      ['/construction-photos/new', ''],
+      ['/construction-signboards', '/construction-signboards'],
+    ] as const) {
+      expect(
+        await openAndWait(
+          page,
+          `/projects/${MISSING_ID}${url}`,
+          `/api/projects/${MISSING_ID}${apiPath}`
+        )
+      ).toBe(404);
+      await expectNotFoundView(page, 'プロジェクト');
+      const missingText = await settledMainText(page);
+      expect(
+        await openAndWait(
+          page,
+          `/projects/${target.projectId}${url}`,
+          `/api/projects/${target.projectId}${apiPath}`
+        )
+      ).toBe(404);
+      await expectNotFoundView(page, 'プロジェクト');
+      expect(await settledMainText(page), `存在しないプロジェクトと同じ表示（${url}）`).toBe(
+        missingText
+      );
+      await expect(page.getByText(target.albumName)).toHaveCount(0);
+    }
+    // 新規作成の画面は作成の手段を出さない。工事看板の一覧の画面は看板の行と登録の手段を出さない
+    await expect(page.getByRole('button', { name: '新規登録', exact: true })).toHaveCount(0);
+    await expect(page.getByText(`not-found-view工事`)).toHaveCount(0);
+
+    // 写真の閲覧の画面: 写真が見つからない旨と、アルバムへの戻り先のリンク
+    expect(
+      await openAndWait(
+        page,
+        `/construction-photos/${MISSING_ID}/photos/${MISSING_ID}`,
+        `/api/construction-photos/${MISSING_ID}`
+      )
+    ).toBe(404);
+    const viewerHeading = page.getByRole('heading', { name: '写真が見つかりません', exact: true });
+    await expect(viewerHeading).toBeVisible({ timeout: getTimeout(15000) });
+    const missingViewerText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/construction-photos/${target.albumId}/photos/${photoId}`,
+        `/api/construction-photos/${target.albumId}`
+      )
+    ).toBe(404);
+    await expect(viewerHeading).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByRole('link', { name: '前の画面に戻る', exact: true })).toHaveAttribute(
+      'href',
+      `/construction-photos/${target.albumId}`
+    );
+    expect(await settledMainText(page), '存在しない写真と同じ表示').toBe(missingViewerText);
+    await expect(page.getByRole('button', { name: '再試行' })).toHaveCount(0);
+    await expectNoFailureFeedback(page);
+
+    // 写真の閲覧の画面の原本の取得の 404: 関係者が開き、アルバムと写真項目の読み込みの後、原本の取得の前に
+    // 写真項目が取り除かれる。原本の取得の 404 でも読み込みの 404 と同じ表示になる
+    await page.context().clearCookies();
+    await page.evaluate(() => localStorage.clear());
+    await loginAsUser(page, owner);
+    const originalPath = `/api/construction-photos/images/${photoId}/original`;
+    const removeBeforeOriginal = async (route: Route): Promise<void> => {
+      await getPrismaClient().constructionPhoto.deleteMany({ where: { id: photoId } });
+      await route.continue();
+    };
+    const originalMatcher = (url: URL): boolean => url.pathname === originalPath;
+    await page.route(originalMatcher, removeBeforeOriginal);
+    try {
+      const original = page.waitForResponse(
+        (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === originalPath,
+        { timeout: getTimeout(30000) }
+      );
+      expect(
+        await openAndWait(
+          page,
+          `/construction-photos/${target.albumId}/photos/${photoId}`,
+          `/api/construction-photos/${target.albumId}/images`
+        )
+      ).toBe(200);
+      expect((await original).status()).toBe(404);
+      await expect(viewerHeading).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(page.getByRole('link', { name: '前の画面に戻る', exact: true })).toHaveAttribute(
+        'href',
+        `/construction-photos/${target.albumId}`
+      );
+      expect(await settledMainText(page), '読み込みの 404 と同じ表示').toBe(missingViewerText);
+      await expectNoFailureFeedback(page);
+    } finally {
+      await page.unroute(originalMatcher, removeBeforeOriginal);
+    }
+  });
+
+  /**
+   * 開いた後に写真項目が削除される、またはアルバム・工事看板・プロジェクトが論理的に取り除かれると、操作の要求は
+   * 404 を受ける。画面は見つからない旨のメッセージを従来の失敗の表示の場所に表示し、操作の失敗を告げる汎用の
+   * 文言、サーバーエラーである旨や応答の英語の文言を出さない（construction-photo タスク31.1）。アップロードに
+   * 失敗した画像の保持（Requirement 20）は保つ。
+   *
+   * @requirement construction-photo/REQ-22.2
+   */
+  test('開いた後に取り除かれたアルバム・写真項目・工事看板・プロジェクトへの操作で、見つからない旨のメッセージが表示される', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(getTimeout(240000));
+    // アルバム・写真項目の削除の釦はシステム管理者のロールで出るため、システム管理者を営業担当者・作成者にする
+    const owner = await createSessionUser('ADMIN_USER');
+    const people = { salesPersonId: owner.id, createdById: owner.id };
+    const detailTarget = await createFixture('gone-detail', people);
+    const listTarget = await createFixture('gone-list', people);
+    const editTarget = await createFixture('gone-edit', people);
+    const createTarget = await createFixture('gone-create', people);
+    const signboardTarget = await createFixture('gone-signboard', people);
+    const prisma = getPrismaClient();
+    const headers = await bearerFor(request, owner);
+    /** 指定の方法とパスの要求の応答を待つ（オリジンは問わずパスで照合する） */
+    const responseOf = (method: string, pathname: string) =>
+      page.waitForResponse(
+        (r) => r.request().method() === method && new URL(r.url()).pathname === pathname,
+        { timeout: getTimeout(60000) }
+      );
+
+    // 詳細の画面の写真項目を 3 枚置き、すべて印刷対象にする（PDF の出力の対象にする）
+    const photoA = await uploadPhoto(request, headers, detailTarget.albumId, 'gone-a.jpg');
+    const photoB = await uploadPhoto(request, headers, detailTarget.albumId, 'gone-b.jpg');
+    const photoC = await uploadPhoto(request, headers, detailTarget.albumId, 'gone-c.jpg');
+    await prisma.constructionPhoto.updateMany({
+      where: { albumId: detailTarget.albumId },
+      data: { includeInReport: true },
+    });
+    await loginAsUser(page, owner);
+
+    expect(
+      await openAndWait(
+        page,
+        `/construction-photos/${detailTarget.albumId}`,
+        `/api/construction-photos/${detailTarget.albumId}/images`
+      )
+    ).toBe(200);
+    await expect(page.getByTestId('construction-photo-item')).toHaveCount(3, {
+      timeout: getTimeout(20000),
+    });
+    const pageMessage = page.getByTestId('construction-photo-page-message');
+
+    // --- 工事写真台帳の PDF の出力（従来は応答の英語の文言）。開いた後に写真項目を削除する ---
+    await prisma.constructionPhoto.delete({ where: { id: photoC } });
+    const ledgerRecorded = responseOf('POST', '/api/v1/audit-logs/exports');
+    const printImage = responseOf('GET', `/api/construction-photos/images/${photoC}/print-image`);
+    await page.getByRole('button', { name: 'PDF出力', exact: true }).click();
+    expect((await ledgerRecorded).status()).toBe(201);
+    expect((await printImage).status()).toBe(404);
+    await expect(pageMessage).toHaveText(PHOTO_ITEM_GONE, { timeout: getTimeout(30000) });
+    await expect(pageMessage).toHaveAttribute('role', 'alert');
+    await expectNoFailureFeedback(page);
+
+    // --- 写真項目の削除（従来は応答の英語の文言）。開いた後に写真項目を削除する ---
+    // 上の通知の枠にも直前の出力の失敗として同じ文言が出ているため、取り除こうとした写真項目の中の表示を
+    // 完全一致で主張する
+    await prisma.constructionPhoto.delete({ where: { id: photoB } });
+    await page.getByRole('button', { name: '写真項目を削除: gone-b.jpg', exact: true }).click();
+    const photoDeleted = responseOf('DELETE', `/api/construction-photos/images/${photoB}`);
+    await page
+      .getByRole('dialog', { name: '写真項目を削除' })
+      .getByRole('button', { name: '削除する', exact: true })
+      .click();
+    expect((await photoDeleted).status()).toBe(404);
+    const itemB = page.getByRole('article', { name: 'gone-b.jpg' });
+    await expect(itemB.getByRole('alert')).toHaveText(PHOTO_ITEM_GONE, {
+      timeout: getTimeout(10000),
+    });
+    await expectNoFailureFeedback(page);
+
+    // --- メタデータの保存（従来は応答の英語の文言）。印刷対象を変えた後に、その写真項目を削除する ---
+    const itemA = page.getByRole('article', { name: 'gone-a.jpg' });
+    await itemA.getByLabel('印刷対象に含める').click();
+    await prisma.constructionPhoto.delete({ where: { id: photoA } });
+    const metadataSaved = responseOf('PATCH', '/api/construction-photos/images/batch');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await metadataSaved).status()).toBe(404);
+    // 保存ボタンの近くの表示（タスク 22.2）。写真項目 gone-b.jpg の中の削除の失敗の表示（role=alert）も同じ
+    // パネルにあるため、保存の失敗の表示そのものを完全一致で主張する
+    await expect(
+      page
+        .getByRole('region', { name: '写真項目管理パネル' })
+        .getByRole('alert')
+        .and(page.locator('[id^="save-failure-"]'))
+    ).toHaveText(ALBUM_OR_ITEM_GONE, { timeout: getTimeout(10000) });
+    await expect(pageMessage).toHaveText(ALBUM_OR_ITEM_GONE);
+    await expectNoFailureFeedback(page);
+
+    // ここからアルバムを論理的に取り除く（開いた画面はそのまま）
+    await prisma.constructionPhotoAlbum.update({
+      where: { id: detailTarget.albumId },
+      data: { deletedAt: new Date() },
+    });
+
+    // --- 写真のアップロード（従来は失敗した画像の理由が応答の英語の文言）。失敗の通知の構成と保持を保つ ---
+    const uploaded = responseOf('POST', `/api/construction-photos/${detailTarget.albumId}/images`);
+    await page.getByTestId('file-input').setInputFiles({
+      name: 'gone-upload.jpg',
+      mimeType: 'image/jpeg',
+      buffer: fs.readFileSync(FIXTURE_JPG),
+    });
+    expect((await uploaded).status()).toBe(404);
+    await expect(pageMessage).toHaveText('全1件の追加に失敗しました。\ngone-upload.jpg', {
+      timeout: getTimeout(20000),
+    });
+    await expect(page.getByTestId('pending-upload-filename')).toHaveText('gone-upload.jpg', {
+      timeout: getTimeout(20000),
+    });
+    await expect(page.getByTestId('pending-upload-reason')).toHaveText(ALBUM_GONE);
+    await expect(page.getByTestId('pending-upload-item')).toHaveAttribute('data-kind', 'retriable');
+    await expectNoFailureFeedback(page);
+
+    // --- 現場調査写真のコピー（従来は応答の英語の文言）。コピー先のアルバムが取り除かれている ---
+    await page.getByRole('button', { name: '現場調査写真から選択', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: '現場調査写真から選択' });
+    await picker.getByText('閲覧範囲検証の現場調査 gone-detail', { exact: true }).click();
+    await picker.getByLabel('gone-detail-survey.jpg を選択').click();
+    const copied = responseOf(
+      'POST',
+      `/api/construction-photos/${detailTarget.albumId}/images/from-surveys`
+    );
+    await picker.getByRole('button', { name: /追加/ }).click();
+    expect((await copied).status()).toBe(404);
+    await expect(pageMessage).toHaveText(ALBUM_OR_SURVEY_IMAGE_GONE, {
+      timeout: getTimeout(10000),
+    });
+    await expectNoFailureFeedback(page);
+    await picker.getByRole('button', { name: 'キャンセル', exact: true }).click();
+    await expect(picker).toHaveCount(0);
+
+    // --- アルバムの削除（従来は応答の英語の文言） ---
+    await page.getByRole('button', { name: '削除', exact: true }).click();
+    const albumDeleted = responseOf('DELETE', `/api/construction-photos/${detailTarget.albumId}`);
+    await page.getByRole('dialog').getByRole('button', { name: '削除', exact: true }).click();
+    expect((await albumDeleted).status()).toBe(404);
+    await expect(pageMessage).toHaveText(ALBUM_GONE, { timeout: getTimeout(10000) });
+    await expect(page).toHaveURL(new RegExp(`/construction-photos/${detailTarget.albumId}$`));
+    await expectNoFailureFeedback(page);
+
+    // --- コピー元の選択の読み込み（従来は応答の英語の文言）。プロジェクトを論理削除してから開く ---
+    await prisma.project.update({
+      where: { id: detailTarget.projectId },
+      data: { deletedAt: new Date() },
+    });
+    const surveysListed = responseOf('GET', `/api/projects/${detailTarget.projectId}/site-surveys`);
+    await page.getByRole('button', { name: '現場調査写真から選択', exact: true }).click();
+    expect((await surveysListed).status()).toBe(404);
+    await expect(picker.getByRole('alert')).toHaveText(PROJECT_GONE, {
+      timeout: getTimeout(10000),
+    });
+    await expectNoFailureFeedback(page);
+    await picker.getByRole('button', { name: 'キャンセル', exact: true }).click();
+
+    // --- 工事写真の一覧の画面のアルバムの削除（従来は応答の英語の文言）。開いた後にアルバムを取り除く ---
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${listTarget.projectId}/construction-photos`,
+        `/api/projects/${listTarget.projectId}/construction-photos`
+      )
+    ).toBe(200);
+    const listRow = page.getByTestId(`album-row-${listTarget.albumId}`);
+    await expect(listRow).toBeVisible({ timeout: getTimeout(15000) });
+    await prisma.constructionPhotoAlbum.update({
+      where: { id: listTarget.albumId },
+      data: { deletedAt: new Date() },
+    });
+    await listRow.getByRole('button', { name: /削除/ }).click();
+    const listAlbumDeleted = responseOf('DELETE', `/api/construction-photos/${listTarget.albumId}`);
+    await page.getByRole('dialog').getByRole('button', { name: '削除', exact: true }).click();
+    expect((await listAlbumDeleted).status()).toBe(404);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('main').last().getByRole('alert')).toHaveText(ALBUM_GONE, {
+      timeout: getTimeout(10000),
+    });
+    await expectNoFailureFeedback(page);
+
+    // --- 編集の画面の更新（従来は応答の英語の文言）。開いた後にアルバムを論理的に取り除く ---
+    expect(
+      await openAndWait(
+        page,
+        `/construction-photos/${editTarget.albumId}/edit`,
+        `/api/construction-photos/${editTarget.albumId}`
+      )
+    ).toBe(200);
+    await expect(page.getByRole('heading', { name: 'アルバムを編集' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await prisma.constructionPhotoAlbum.update({
+      where: { id: editTarget.albumId },
+      data: { deletedAt: new Date() },
+    });
+    const albumUpdated = responseOf('PATCH', `/api/construction-photos/${editTarget.albumId}`);
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await albumUpdated).status()).toBe(404);
+    await expectToastAndDismiss(page, ALBUM_GONE);
+    await expect(page).toHaveURL(new RegExp(`/construction-photos/${editTarget.albumId}/edit$`));
+    await expectNoFailureFeedback(page);
+
+    // --- 新規作成の画面の作成（従来は応答の英語の文言）。開いた後にプロジェクトを論理削除する ---
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${createTarget.projectId}/construction-photos/new`,
+        `/api/projects/${createTarget.projectId}`
+      )
+    ).toBe(200);
+    await expect(page.getByRole('heading', { name: '新規アルバム' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await prisma.project.update({
+      where: { id: createTarget.projectId },
+      data: { deletedAt: new Date() },
+    });
+    await page.getByLabel('アルバム名').fill('取り除かれた後の作成');
+    const albumCreated = responseOf(
+      'POST',
+      `/api/projects/${createTarget.projectId}/construction-photos`
+    );
+    await page.getByRole('button', { name: '作成', exact: true }).click();
+    expect((await albumCreated).status()).toBe(404);
+    await expectToastAndDismiss(page, PROJECT_GONE);
+    await expect(page).toHaveURL(
+      new RegExp(`/projects/${createTarget.projectId}/construction-photos/new$`)
+    );
+    await expectNoFailureFeedback(page);
+    expect(
+      await prisma.constructionPhotoAlbum.count({ where: { projectId: createTarget.projectId } }),
+      '作成されない（fixture の 1 件のまま）'
+    ).toBe(1);
+
+    // --- 工事看板の更新・削除・登録（従来は応答の英語の文言） ---
+    const secondSignboard = await prisma.constructionSignboard.create({
+      data: {
+        projectId: signboardTarget.projectId,
+        workName: 'gone-second工事',
+        workLocation: 'gone-second現場',
+      },
+      select: { id: true },
+    });
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${signboardTarget.projectId}/construction-signboards`,
+        `/api/projects/${signboardTarget.projectId}/construction-signboards`
+      )
+    ).toBe(200);
+    const signboardRow = (workName: string) =>
+      page.getByRole('row').filter({ has: page.getByText(workName, { exact: true }) });
+    await expect(signboardRow('gone-signboard工事')).toBeVisible({ timeout: getTimeout(15000) });
+
+    // 更新: 開いた後に看板を論理的に取り除く
+    await signboardRow('gone-signboard工事').getByRole('button', { name: '編集' }).click();
+    await prisma.constructionSignboard.update({
+      where: { id: signboardTarget.signboardId },
+      data: { deletedAt: new Date() },
+    });
+    const signboardUpdated = responseOf(
+      'PATCH',
+      `/api/construction-signboards/${signboardTarget.signboardId}`
+    );
+    await page.getByRole('button', { name: '更新', exact: true }).click();
+    expect((await signboardUpdated).status()).toBe(404);
+    await expectToastAndDismiss(page, SIGNBOARD_GONE);
+    await expectNoFailureFeedback(page);
+    await page.getByRole('button', { name: 'キャンセル', exact: true }).click();
+
+    // 削除: 開いた後に看板を論理的に取り除く（直前の更新のトーストは閉じてある）
+    await prisma.constructionSignboard.update({
+      where: { id: secondSignboard.id },
+      data: { deletedAt: new Date() },
+    });
+    await signboardRow('gone-second工事').getByRole('button', { name: '削除' }).click();
+    const signboardDeleted = responseOf(
+      'DELETE',
+      `/api/construction-signboards/${secondSignboard.id}`
+    );
+    await page.getByRole('dialog').getByRole('button', { name: '削除する', exact: true }).click();
+    expect((await signboardDeleted).status()).toBe(404);
+    await expectToastAndDismiss(page, SIGNBOARD_GONE);
+    await expectNoFailureFeedback(page);
+    // 失敗では確認のダイアログが開いたまま残るため閉じる
+    await page.getByRole('dialog').getByRole('button', { name: 'キャンセル', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    // 登録: 開いた後にプロジェクトを論理削除する
+    await prisma.project.update({
+      where: { id: signboardTarget.projectId },
+      data: { deletedAt: new Date() },
+    });
+    await page.getByRole('button', { name: '新規登録', exact: true }).click();
+    await page.getByLabel(/工事件名/).fill('取り除かれた後の登録');
+    await page.getByLabel(/工事場所/).fill('取り除かれた後の現場');
+    const signboardCreated = responseOf(
+      'POST',
+      `/api/projects/${signboardTarget.projectId}/construction-signboards`
+    );
+    await page.getByRole('button', { name: '登録', exact: true }).click();
+    expect((await signboardCreated).status()).toBe(404);
+    await expectToastAndDismiss(page, PROJECT_GONE);
+    await expectNoFailureFeedback(page);
+    expect(
+      await prisma.constructionSignboard.count({
+        where: { projectId: signboardTarget.projectId },
+      }),
+      '登録されない（fixture の 2 件のまま）'
+    ).toBe(2);
   });
 });

@@ -1127,3 +1127,161 @@ describe('PhotoUploader 未送信画像の保持・再送・破棄・抑止 (R20
  * @requirement construction-photo/REQ-20.17
  * @requirement construction-photo/REQ-20.18
  */
+
+// ============================================================================
+// タスク 31.1: 404 を受けたときの見つからない旨（Requirement 22.2）
+// ============================================================================
+
+describe('PhotoUploader の 404 の見つからない旨（タスク 31.1）', () => {
+  const ALBUM_GONE = '工事写真アルバムが見つかりません。存在しないか、削除されています。';
+  const ALBUM_OR_SURVEY_IMAGE_GONE =
+    '工事写真アルバムまたは現場調査写真が見つかりません。存在しないか、削除されています。';
+  /** 汎用の 404（閲覧範囲外と不在で同じ応答。本文は英語） */
+  const genericNotFound = () =>
+    new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' });
+
+  const surveys: PaginatedSiteSurveys = {
+    data: [
+      {
+        id: 'survey-1',
+        projectId: 'project-1',
+        name: '一次調査',
+        surveyDate: '2025-01-01T00:00:00.000Z',
+        memo: null,
+        thumbnailUrl: null,
+        imageCount: 1,
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      },
+    ],
+    pagination: { page: 1, limit: 50, total: 1, totalPages: 1 },
+  };
+  const surveyDetail: SiteSurveyDetail = {
+    ...surveys.data[0]!,
+    project: { id: 'project-1', name: 'テストプロジェクト' },
+    images: [
+      {
+        id: 'survey-image-1',
+        surveyId: 'survey-1',
+        originalPath: 'orig/1',
+        thumbnailPath: 'thumb/1',
+        thumbnailUrl: 'https://example.com/s1.jpg',
+        fileName: 's1.jpg',
+        fileSize: 100,
+        width: 800,
+        height: 600,
+        displayOrder: 1,
+        createdAt: '2025-01-01T00:00:00.000Z',
+      },
+    ],
+  } as SiteSurveyDetail;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(surveys);
+    vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(surveyDetail);
+  });
+
+  it('アップロードの 404 では失敗した画像の理由を工事写真アルバムが見つからない旨にし、再送可能の区分を保つ (22.2, 20)', async () => {
+    const goneFile = makeFile('gone.jpg');
+    const serverFile = makeFile('server.jpg');
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockImplementation((_albumId, files) =>
+      files[0]!.name === 'gone.jpg'
+        ? Promise.reject(
+            new ApiError(404, 'Construction photo album not found: album-1', {
+              code: 'CONSTRUCTION_PHOTO_ALBUM_NOT_FOUND',
+            })
+          )
+        : Promise.reject(new ApiError(500, 'サーバーエラー'))
+    );
+
+    const result = await uploadFilesInWaves('album-1', [goneFile, serverFile]);
+
+    expect(result.failed).toEqual([
+      { file: goneFile, error: ALBUM_GONE, kind: 'retriable' },
+      // 404 以外の失敗の理由は従来どおり
+      { file: serverFile, error: 'サーバーエラー', kind: 'retriable' },
+    ]);
+  });
+
+  it('アップロードの 404 の理由が未送信画像の表示に日本語で出て、英語の文言を出さない。失敗の通知の構成は変えない (22.2, 12.5)', async () => {
+    vi.mocked(imagesApi.uploadConstructionPhotos).mockRejectedValue(genericNotFound());
+    const onNotify = vi.fn();
+    render(
+      <PhotoUploader
+        albumId="album-1"
+        projectId="project-1"
+        onPhotosAdded={vi.fn()}
+        onNotify={onNotify}
+      />
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('file-input'), {
+        target: { files: [makeFile('a.jpg')] },
+      });
+    });
+
+    const item = await screen.findByTestId('pending-upload-item');
+    expect(screen.getByTestId('pending-upload-reason')).toHaveTextContent(
+      new RegExp(`^${ALBUM_GONE}$`)
+    );
+    expect(item).toHaveAttribute('data-kind', 'retriable');
+    expect(screen.queryByText(/Not found/i)).not.toBeInTheDocument();
+    expect(onNotify).toHaveBeenCalledWith('全1件の追加に失敗しました。\na.jpg');
+  });
+
+  it.each([
+    ['汎用の NOT_FOUND', genericNotFound()],
+    [
+      '範囲内の別のプロジェクトのコピー元（SURVEY_IMAGE_NOT_ALLOWED）',
+      new ApiError(404, 'Survey image not allowed: survey-image-1', {
+        code: 'SURVEY_IMAGE_NOT_ALLOWED',
+      }),
+    ],
+  ])(
+    '現場調査写真のコピーの 404（%s）は工事写真アルバムまたは現場調査写真が見つからない旨を通知する (22.2)',
+    async (_label, error) => {
+      vi.mocked(imagesApi.addConstructionPhotosFromSurveys).mockRejectedValue(error);
+      const onNotify = vi.fn();
+      render(
+        <PhotoUploader
+          albumId="album-1"
+          projectId="project-1"
+          onPhotosAdded={vi.fn()}
+          onNotify={onNotify}
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: /現場調査写真から選択/ }));
+      fireEvent.click(await screen.findByText('一次調査'));
+      fireEvent.click(await screen.findByLabelText('s1.jpg を選択'));
+      fireEvent.click(screen.getByRole('button', { name: /追加/ }));
+
+      await waitFor(() => expect(onNotify).toHaveBeenCalledTimes(1));
+      expect(onNotify).toHaveBeenCalledWith(ALBUM_OR_SURVEY_IMAGE_GONE);
+    }
+  );
+
+  it('現場調査写真のコピーの 404 以外の失敗は従来の文言を通知する', async () => {
+    vi.mocked(imagesApi.addConstructionPhotosFromSurveys).mockRejectedValue(
+      new ApiError(500, 'サーバーの失敗')
+    );
+    const onNotify = vi.fn();
+    render(
+      <PhotoUploader
+        albumId="album-1"
+        projectId="project-1"
+        onPhotosAdded={vi.fn()}
+        onNotify={onNotify}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /現場調査写真から選択/ }));
+    fireEvent.click(await screen.findByText('一次調査'));
+    fireEvent.click(await screen.findByLabelText('s1.jpg を選択'));
+    fireEvent.click(screen.getByRole('button', { name: /追加/ }));
+
+    await waitFor(() => expect(onNotify).toHaveBeenCalledWith('サーバーの失敗'));
+  });
+});

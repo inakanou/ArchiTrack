@@ -215,6 +215,55 @@ describe('ConstructionPhotoCreatePage', () => {
     });
   });
 
+  // タスク 31.1: 404 を受けたときの不在の表示（Requirement 22.1・22.2）
+  describe('404 の不在の表示（タスク 31.1）', () => {
+    it('プロジェクトの読み込みの 404 では、プロジェクトが見つからない旨とプロジェクト一覧へのリンクを出す (22.1)', async () => {
+      vi.mocked(projectsApi.getProject).mockRejectedValue(
+        new ApiError(404, 'プロジェクトが見つかりません', { code: 'NOT_FOUND' })
+      );
+      renderComponent();
+
+      expect(
+        await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.queryByRole('form')).not.toBeInTheDocument();
+    });
+
+    it('404 以外の読み込みの失敗は従来の文言を出す', async () => {
+      vi.mocked(projectsApi.getProject).mockRejectedValue(new ApiError(500, 'サーバーの失敗'));
+      renderComponent();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/^サーバーの失敗$/);
+      expect(
+        screen.queryByRole('link', { name: 'プロジェクト一覧に戻る' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('作成の 404 はプロジェクトが見つからない旨をトーストに出し、英語の文言を出さない (22.2)', async () => {
+      vi.mocked(constructionPhotosApi.createConstructionPhotoAlbum).mockRejectedValue(
+        new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' })
+      );
+      renderComponent();
+      expect(await screen.findByRole('heading', { name: '新規アルバム' })).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText(/アルバム名/), {
+        target: { value: '基礎工事アルバム' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /作成/ }));
+
+      await waitFor(() => expect(mockToast.error).toHaveBeenCalledTimes(1));
+      expect(mockToast.error).toHaveBeenCalledWith(
+        'プロジェクトが見つかりません。存在しないか、削除されています。'
+      );
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+  });
+
   describe('キャンセル', () => {
     it('キャンセルで一覧ページへ戻る', async () => {
       renderComponent();
