@@ -277,8 +277,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // 2026-10-27）。利用者の判断で新設した Requirement 14 の章「Requirement 14: 案件の閲覧範囲の適用」が
     // 部品表の 5 行（いずれも 14.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
     // 入ったため、締める向きへ動かした。矛盾の上限 3 は据え置き
-    minPairs: 16,
-    minTableDeclarations: 16,
+    // minPairs 16 → 21 / minTableDeclarations 16 → 21（contract-management のタスク20・21 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 基となる契約書の論理削除・食い違いの記録・
+    // 不在の表示」が部品表の 5 行（14.8・14.9・11.8・11.9 を名乗る）と追跡表を足し、同章の 5 部品が
+    // 突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 3 は据え置き
+    minPairs: 21,
+    minTableDeclarations: 21,
     minDetailDeclarations: 11,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
