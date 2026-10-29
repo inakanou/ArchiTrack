@@ -475,8 +475,8 @@ vi.mock('fabric', () => {
 });
 
 import AnnotationEditor from '../../../components/site-surveys/AnnotationEditor';
-import { apiClient } from '../../../api/client';
-import { exportAnnotationJson } from '../../../api/survey-annotations';
+import { apiClient, ApiError } from '../../../api/client';
+import { exportAnnotationJson, saveAnnotation } from '../../../api/survey-annotations';
 import { downloadFile, downloadOriginalImage } from '../../../services/ExportService';
 import type { SurveyImageInfo } from '../../../types/site-survey.types';
 
@@ -3710,4 +3710,114 @@ describe('AnnotationEditor 出力の記録 (Requirement 39.7, 39.8)', () => {
       expect(downloadFile).not.toHaveBeenCalled();
     }
   );
+});
+
+// ============================================================================
+// タスク120.1: 注釈の保存と注釈の JSON の出力の 404（Requirement 40.2）
+// ============================================================================
+
+describe('AnnotationEditor 注釈の保存と注釈の JSON の出力の 404 (Requirement 40.2)', () => {
+  const IMAGE_GONE = '画像が見つかりません。存在しないか、削除されています。';
+  const genericNotFound = () =>
+    new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' });
+
+  const imageInfo: SurveyImageInfo = {
+    id: 'test-image-id',
+    surveyId: 'test-survey-id',
+    originalPath: 'images/photo.jpg',
+    thumbnailPath: 'thumbnails/photo.jpg',
+    originalUrl: 'https://example.com/original/photo.jpg',
+    fileName: 'photo.jpg',
+    fileSize: 1024,
+    width: 1000,
+    height: 800,
+    displayOrder: 1,
+    createdAt: '2026-10-29T00:00:00.000Z',
+  };
+
+  const renderEditor = async () => {
+    render(<AnnotationEditor {...defaultProps} projectId="project-1" imageInfo={imageInfo} />);
+    await waitFor(() => {
+      expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+    });
+  };
+
+  const exportJson = async () => {
+    fireEvent.click(screen.getByRole('button', { name: /エクスポート/ }));
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('export-annotation-json-button'));
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    mockCanvasInstance.getObjects.mockReturnValue([]);
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('注釈の保存の 404 で画像が見つからない旨を表示し、再試行の導線（9.5）は保つ', async () => {
+    vi.mocked(saveAnnotation).mockRejectedValue(genericNotFound());
+    await renderEditor();
+
+    fireEvent.click(screen.getByTestId('annotation-save-button'));
+
+    const error = await screen.findByTestId('annotation-save-error');
+    await waitFor(() => {
+      expect(error).toHaveTextContent(IMAGE_GONE);
+    });
+    expect(error).not.toHaveTextContent('Not found');
+    expect(screen.getByTestId('save-retry-button')).toBeInTheDocument();
+  });
+
+  it('注釈の保存の 404 以外の失敗は従来の文言を保つ', async () => {
+    vi.mocked(saveAnnotation).mockRejectedValue(new ApiError(500, '保存できませんでした', {}));
+    await renderEditor();
+
+    fireEvent.click(screen.getByTestId('annotation-save-button'));
+
+    const error = await screen.findByTestId('annotation-save-error');
+    await waitFor(() => {
+      expect(error).toHaveTextContent('保存できませんでした');
+    });
+    expect(screen.getByTestId('save-retry-button')).toBeInTheDocument();
+  });
+
+  it('注釈の JSON の出力の汎用の 404 で画像が見つからない旨を表示する', async () => {
+    vi.mocked(exportAnnotationJson).mockRejectedValue(genericNotFound());
+    await renderEditor();
+
+    await exportJson();
+
+    const error = await screen.findByTestId('annotation-save-error');
+    await waitFor(() => {
+      expect(error).toHaveTextContent(IMAGE_GONE);
+    });
+    expect(error).not.toHaveTextContent('保存された注釈データがありません');
+    expect(error).not.toHaveTextContent('Not found');
+  });
+
+  it('注釈の JSON の出力で注釈が未保存の 404（ANNOTATION_NOT_FOUND）は従来の文言を保つ', async () => {
+    vi.mocked(exportAnnotationJson).mockRejectedValue(
+      new ApiError(404, '注釈データが見つかりません。', {
+        status: 404,
+        code: 'ANNOTATION_NOT_FOUND',
+      })
+    );
+    await renderEditor();
+
+    await exportJson();
+
+    const error = await screen.findByTestId('annotation-save-error');
+    await waitFor(() => {
+      expect(error).toHaveTextContent('保存された注釈データがありません。先に保存してください。');
+    });
+    expect(error).not.toHaveTextContent(IMAGE_GONE);
+  });
 });

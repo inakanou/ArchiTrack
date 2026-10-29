@@ -417,6 +417,14 @@ export interface BatchUploadError {
    * （Requirement 37.16, 37.21）。
    */
   kind: UploadFailureKind;
+  /**
+   * 送信で発生した例外（`ApiError` なら状態コードを持つ）
+   *
+   * 呼び出し元が 404（現場調査が見つからない）を失敗の理由の文言へ分類するために渡す
+   * （site-survey の Requirement 40.2。タスク120.1）。失敗の理由の文字列だけでは応答の英語の文言と
+   * 状態コードを区別できないため、例外そのものを渡す。
+   */
+  cause?: unknown;
 }
 
 /**

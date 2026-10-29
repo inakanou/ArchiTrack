@@ -19,6 +19,11 @@
  *   （本機能の一覧・件数はどれもプロジェクト単位で、案件をまたぐ一覧・件数の経路は無い）
  * - REQ-39.6: 範囲内の利用者には 3 種の表示元URLが発行され、範囲外の利用者にはどれも発行されない
  *
+ * タスク120.1 で、画面が 404 を受けたときの表示（Requirement 40.1・40.2）を足した。範囲外と不在は同じ 404 であり、
+ * 画面は見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、取得・操作の
+ * 失敗を告げる文言、応答の英語の文言と再試行の釦を出さない。被覆する受入基準は各テストの `@requirement` の印が
+ * 名乗る。
+ *
  * 検証に使う案件・現場調査・画像はテストの中で DB に作り（名前の接頭辞 `PROJECT_NAME_PREFIX`）、
  * 画像の実体は置かない（テスト環境のローカルストレージは実体の有無を問わず表示元URLを発行する）。
  * 利用者はテストの中で作る一意のメールアドレスの利用者で、後始末で案件を先に消してから利用者を消す
@@ -26,6 +31,9 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { getPrismaClient } from '../../fixtures/database';
 import {
@@ -49,6 +57,33 @@ const ROLE_NAME_PREFIX = 'e2e-survey-scope-role-';
 
 /** どの行としても存在しない ID（版 4・変種 8 の整った UUID） */
 const MISSING_ID = '00000000-0000-4000-8000-000000119101';
+
+/** 実体のある画像を置くためのアップロード用フィクスチャ画像（注釈の編集の画面は画像の実体を読む） */
+const FIXTURE_IMAGE_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../fixtures/test-image.jpg'
+);
+
+/** 見つからない旨のメッセージ（タスク120.1。design.md の Requirement 40 の章の決定の逐語） */
+const SURVEY_GONE = '現場調査が見つかりません。存在しないか、削除されています。';
+const PROJECT_GONE = 'プロジェクトが見つかりません。存在しないか、削除されています。';
+const IMAGE_GONE = '画像が見つかりません。存在しないか、削除されています。';
+const SURVEY_OR_IMAGE_GONE = '現場調査または画像が見つかりません。存在しないか、削除されています。';
+
+/** 現場調査の画面が 404 を受けたときに出してはならない、障害を告げる文言（タスク120.1） */
+const FAILURE_TEXTS = [
+  '現場調査の取得に失敗しました',
+  'データの取得に失敗しました',
+  'プロジェクトの取得に失敗しました',
+  '保存に失敗しました',
+  '削除に失敗しました',
+  '画像の削除に失敗しました',
+  '作成中にエラーが発生しました',
+  '現場調査の更新に失敗しました',
+  '注釈の保存に失敗しました',
+  '保存された注釈データがありません。先に保存してください。',
+  'PDF生成に失敗しました。再度お試しください。',
+] as const;
 
 interface Fixture {
   projectId: string;
@@ -202,6 +237,76 @@ function withoutInstance(body: Record<string, unknown>): Record<string, unknown>
   return Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'instance'));
 }
 
+/** 画面の URL を直接開き、指定のパスの GET の応答の状態を返す（オリジンは問わずパスで照合する） */
+async function openAndWait(page: Page, url: string, apiPath: string): Promise<number> {
+  const loaded = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === apiPath,
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(url);
+  return (await loaded).status();
+}
+
+/**
+ * 読み込み中の表示が消えた後の、本文の領域の表示の文字列。
+ * 現場調査の画面は共通の枠の main の内側に自分の main を置くため、内側（文書の順で後ろ）を読む
+ */
+async function settledMainText(page: Page): Promise<string> {
+  const main = page.getByRole('main').last();
+  await expect(main.getByText('読み込み中...')).toHaveCount(0, { timeout: getTimeout(15000) });
+  return main.innerText();
+}
+
+/** 障害を告げる文言・サーバーエラーの理由・応答の英語の文言が画面のどこにも無いことを主張する */
+async function expectNoFailureFeedback(page: Page): Promise<void> {
+  for (const text of FAILURE_TEXTS) {
+    await expect(page.getByText(text, { exact: true }), text).toHaveCount(0);
+  }
+  await expect(page.getByText(/サーバーエラー|再度お試しください|not found/i)).toHaveCount(0);
+}
+
+/** 不在の表示（ResourceNotFound）。戻り先はプロジェクトの一覧で、再試行の釦を出さない */
+async function expectNotFoundView(page: Page, resourceType: '現場調査' | 'プロジェクト') {
+  const main = page.getByRole('main').last();
+  await expect(main.getByRole('heading', { name: `${resourceType}が見つかりません` })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(main.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+    'href',
+    '/projects'
+  );
+  await expect(page.getByRole('button', { name: '再試行' })).toHaveCount(0);
+  await expectNoFailureFeedback(page);
+}
+
+/** 実体のある画像を 1 枚アップロードし、その ID を返す */
+async function uploadRealImage(
+  request: APIRequestContext,
+  headers: Record<string, string>,
+  surveyId: string,
+  fileName: string
+): Promise<string> {
+  const response = await request.post(`${API_BASE_URL}/api/site-surveys/${surveyId}/images`, {
+    headers,
+    multipart: {
+      images: {
+        name: fileName,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_IMAGE_PATH),
+      },
+    },
+  });
+  expect(response.ok(), `前提: 画像のアップロードが成功する (status=${response.status()})`).toBe(
+    true
+  );
+  const body = (await response.json()) as { successful?: Array<{ id: string }> };
+  const imageId = body.successful?.[0]?.id;
+  if (!imageId) {
+    throw new Error('前提: アップロードした画像の ID が返らない（検証の前提の誤り）');
+  }
+  return imageId;
+}
+
 /** 現場調査の詳細の URL を直接開き、詳細の取得の応答を待つ（オリジンは問わずパスで照合する） */
 async function openSurveyDetail(page: Page, surveyId: string): Promise<void> {
   const loaded = page.waitForResponse(
@@ -268,15 +373,16 @@ test.describe('現場調査・画像・注釈の案件の閲覧範囲', () => {
     await page.context().clearCookies();
     await page.evaluate(() => localStorage.clear());
     await loginAsUser(page, outsider);
+    // タスク120.1: 表示は不在の表示（ResourceNotFound。role="alert" を持たない）になったため、本文の領域の
+    // 見つからない旨の表示どうしを比べる
     await openSurveyDetail(page, MISSING_ID);
-    const missingAlert = page.getByRole('alert');
-    await expect(missingAlert).toBeVisible({ timeout: getTimeout(15000) });
-    const missingText = await missingAlert.innerText();
+    await expectNotFoundView(page, '現場調査');
+    const missingText = await settledMainText(page);
+    expect(missingText.trim().length, '存在しない現場調査の表示がある').toBeGreaterThan(0);
 
     await openSurveyDetail(page, target.surveyId);
-    const outOfScopeAlert = page.getByRole('alert');
-    await expect(outOfScopeAlert).toBeVisible({ timeout: getTimeout(15000) });
-    expect(await outOfScopeAlert.innerText(), '存在しない現場調査と同じ表示').toBe(missingText);
+    await expectNotFoundView(page, '現場調査');
+    expect(await settledMainText(page), '存在しない現場調査と同じ表示').toBe(missingText);
     await expect(page.getByText(target.surveyName)).toHaveCount(0);
 
     // API: 詳細・画像一覧・注釈は存在しない ID と同じ 404 の本文で、表示元URLもプロジェクトID も含まない
@@ -485,5 +591,340 @@ test.describe('現場調査・画像・注釈の案件の閲覧範囲', () => {
     await page.goto(`/projects/${target.projectId}/site-surveys`);
     expect((await listed).status()).toBe(404);
     await expect(page.getByText(target.surveyName)).toHaveCount(0);
+  });
+
+  /**
+   * 詳細・編集の画面は現場調査の読み込みの 404 で、一覧・新規作成の画面はプロジェクトの読み込みの 404 で、
+   * 見つからない旨とプロジェクトの一覧へのリンクを表示する。画像の閲覧と編集の画面は画像が見つからない旨と
+   * 現場調査への戻り先のリンクを表示する（site-survey タスク120.1）。範囲外と不在は同じ表示。
+   *
+   * @requirement site-survey/REQ-40.1
+   */
+  test('担当外の利用者が現場調査の画面の URL を開くと見つからない旨と戻り先のリンクが表示され、存在しない対象と同じ表示になる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const outsider = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('not-found-view', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    await loginAsUser(page, outsider);
+
+    // 詳細の画面と編集の画面: 現場調査が見つからない旨と、プロジェクトの一覧へのリンク
+    for (const suffix of ['', '/edit']) {
+      expect(
+        await openAndWait(
+          page,
+          `/site-surveys/${MISSING_ID}${suffix}`,
+          `/api/site-surveys/${MISSING_ID}`
+        )
+      ).toBe(404);
+      await expectNotFoundView(page, '現場調査');
+      const missingText = await settledMainText(page);
+      expect(
+        await openAndWait(
+          page,
+          `/site-surveys/${target.surveyId}${suffix}`,
+          `/api/site-surveys/${target.surveyId}`
+        )
+      ).toBe(404);
+      await expectNotFoundView(page, '現場調査');
+      expect(await settledMainText(page), `存在しない現場調査と同じ表示（${suffix}）`).toBe(
+        missingText
+      );
+      await expect(page.getByText(target.surveyName)).toHaveCount(0);
+    }
+
+    // 一覧の画面と新規作成の画面: プロジェクトが見つからない旨と、プロジェクトの一覧へのリンク
+    for (const [suffix, apiSuffix] of [
+      ['', '/site-surveys'],
+      ['/new', ''],
+    ] as const) {
+      expect(
+        await openAndWait(
+          page,
+          `/projects/${MISSING_ID}/site-surveys${suffix}`,
+          `/api/projects/${MISSING_ID}${apiSuffix}`
+        )
+      ).toBe(404);
+      await expectNotFoundView(page, 'プロジェクト');
+      const missingText = await settledMainText(page);
+      expect(
+        await openAndWait(
+          page,
+          `/projects/${target.projectId}/site-surveys${suffix}`,
+          `/api/projects/${target.projectId}${apiSuffix}`
+        )
+      ).toBe(404);
+      await expectNotFoundView(page, 'プロジェクト');
+      expect(await settledMainText(page), `存在しないプロジェクトと同じ表示（${suffix}）`).toBe(
+        missingText
+      );
+      await expect(page.getByText(target.surveyName)).toHaveCount(0);
+    }
+    // 新規作成の画面は作成の手段を出さない
+    await expect(page.getByRole('button', { name: '作成', exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('調査名')).toHaveCount(0);
+
+    // 画像の閲覧と編集の画面: 画像が見つからない旨と、現場調査への戻り先のリンク
+    expect(
+      await openAndWait(
+        page,
+        `/site-surveys/${MISSING_ID}/images/${MISSING_ID}`,
+        `/api/site-surveys/${MISSING_ID}`
+      )
+    ).toBe(404);
+    const viewerMain = page.getByRole('main').last();
+    await expect(viewerMain.getByRole('heading', { name: '画像が見つかりません' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    const missingViewerText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/site-surveys/${target.surveyId}/images/${target.imageId}`,
+        `/api/site-surveys/${target.surveyId}`
+      )
+    ).toBe(404);
+    await expect(viewerMain.getByRole('heading', { name: '画像が見つかりません' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(viewerMain.getByRole('link', { name: '前の画面に戻る' })).toHaveAttribute(
+      'href',
+      `/site-surveys/${target.surveyId}`
+    );
+    expect(await settledMainText(page), '存在しない画像と同じ表示').toBe(missingViewerText);
+    await expect(page.getByRole('button', { name: '再試行' })).toHaveCount(0);
+    await expectNoFailureFeedback(page);
+  });
+
+  /**
+   * 開いた後に画像が削除される、または現場調査（作成ではプロジェクト）が論理的に取り除かれると、操作の要求は
+   * 404 を受ける。画面は見つからない旨のメッセージを従来の失敗の表示の場所に表示し、操作の失敗を告げる汎用の
+   * 文言、サーバーエラーである旨や応答の英語の文言を出さない（site-survey タスク120.1）。注釈の保存の再試行の
+   * 導線（9.5）とアップロードに失敗した画像の保持（37）は保つ。
+   *
+   * @requirement site-survey/REQ-40.2
+   */
+  test('開いた後に削除された画像・取り除かれた現場調査とプロジェクトへの操作で、見つからない旨のメッセージが表示される', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(getTimeout(180000));
+    // 画像と現場調査の削除の釦はシステム管理者のロールで出るため、システム管理者を営業担当者・作成者にする
+    const owner = await createSessionUser('ADMIN_USER');
+    const people = { salesPersonId: owner.id, createdById: owner.id };
+    const detailTarget = await createFixture('gone-detail', people);
+    const editTarget = await createFixture('gone-edit', people);
+    const createTarget = await createFixture('gone-create', people);
+    const prisma = getPrismaClient();
+    const headers = await bearerFor(request, owner);
+    /** 指定の方法とパスの要求の応答を待つ（オリジンは問わずパスで照合する） */
+    const responseOf = (method: string, pathname: string) =>
+      page.waitForResponse(
+        (r) => r.request().method() === method && new URL(r.url()).pathname === pathname,
+        { timeout: getTimeout(60000) }
+      );
+
+    // 詳細の画面の画像の削除と画像の情報の保存に使う 2 枚目の画像（実体は要らない）。報告書の出力の対象にする
+    const secondImage = await prisma.surveyImage.create({
+      data: {
+        surveyId: detailTarget.surveyId,
+        originalPath: `surveys/${detailTarget.surveyId}/second.jpg`,
+        thumbnailPath: `surveys/${detailTarget.surveyId}/second-thumbnail.jpg`,
+        fileName: 'gone-second.jpg',
+        fileSize: 1024,
+        width: 100,
+        height: 100,
+        displayOrder: 2,
+      },
+      select: { id: true },
+    });
+    await prisma.surveyImage.updateMany({
+      where: { surveyId: detailTarget.surveyId },
+      data: { includeInReport: true },
+    });
+    // 注釈の編集の画面は画像の実体を読むため、実体のある画像を 1 枚置く
+    const realImageId = await uploadRealImage(
+      request,
+      headers,
+      detailTarget.surveyId,
+      'gone-annotation.jpg'
+    );
+    await loginAsUser(page, owner);
+
+    // --- 注釈の保存（従来は応答の英語の文言）。開いた後に画像を削除する。再試行の導線は保つ ---
+    expect(
+      await openAndWait(
+        page,
+        `/site-surveys/${detailTarget.surveyId}/images/${realImageId}`,
+        `/api/site-surveys/${detailTarget.surveyId}`
+      )
+    ).toBe(200);
+    await page.getByRole('button', { name: '編集モード', exact: true }).click();
+    await expect(page.getByTestId('annotation-toolbar')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await prisma.surveyImage.delete({ where: { id: realImageId } });
+    const annotationSaved = responseOf(
+      'PUT',
+      `/api/site-surveys/images/${realImageId}/annotations`
+    );
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await annotationSaved).status()).toBe(404);
+    const annotationError = page.getByTestId('annotation-save-error');
+    await expect(annotationError).toContainText(IMAGE_GONE, { timeout: getTimeout(10000) });
+    await expect(page.getByTestId('save-retry-button')).toBeVisible();
+    await expectNoFailureFeedback(page);
+
+    // --- 注釈の JSON の出力（従来は保存された注釈データが無い旨）。記録は成功し、取得が 404 を受ける ---
+    await page.getByRole('button', { name: 'エクスポート', exact: true }).click();
+    const exportDialog = page.getByRole('dialog');
+    await expect(exportDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const recorded = responseOf('POST', '/api/v1/audit-logs/exports');
+    const exported = responseOf(
+      'GET',
+      `/api/site-surveys/images/${realImageId}/annotations/export`
+    );
+    await exportDialog
+      .getByRole('button', { name: '注釈データ(JSON)をダウンロード', exact: true })
+      .click();
+    expect((await recorded).status()).toBe(201);
+    expect((await exported).status()).toBe(404);
+    await expect(annotationError).toHaveText(IMAGE_GONE, { timeout: getTimeout(10000) });
+    // 出力の失敗の分岐は再試行の導線を外す（saveFailed: false）。直前の保存の失敗の表示が残っているだけでは
+    // この主張は成り立たないため、出力の側が表示を置き換えたことを確かめる
+    await expect(page.getByTestId('save-retry-button')).toHaveCount(0);
+    await expectNoFailureFeedback(page);
+
+    // --- 詳細の画面の画像の削除（従来は応答の英語の文言）。開いた後に画像を削除する ---
+    expect(
+      await openAndWait(
+        page,
+        `/site-surveys/${detailTarget.surveyId}`,
+        `/api/site-surveys/${detailTarget.surveyId}`
+      )
+    ).toBe(200);
+    const panelItems = page.getByTestId('photo-panel-item');
+    await expect(panelItems).toHaveCount(2, { timeout: getTimeout(15000) });
+    await prisma.surveyImage.delete({ where: { id: secondImage.id } });
+    await page.getByRole('button', { name: '画像を削除: gone-second.jpg' }).click();
+    const imageDeleted = responseOf('DELETE', `/api/site-surveys/images/${secondImage.id}`);
+    await page.getByRole('button', { name: '削除する', exact: true }).click();
+    expect((await imageDeleted).status()).toBe(404);
+    const detailError = page.getByTestId('site-survey-detail-error');
+    await expect(detailError).toHaveText(IMAGE_GONE, { timeout: getTimeout(10000) });
+    await expect(detailError).toHaveAttribute('role', 'alert');
+    await expectNoFailureFeedback(page);
+    await page.getByRole('button', { name: 'キャンセル', exact: true }).click();
+
+    // --- 画像の情報の保存（従来は応答の英語の文言）。コメントを変えた後に、その画像を削除する ---
+    const firstComment = panelItems.first().getByRole('textbox', { name: 'コメント' });
+    await firstComment.fill('削除された後の変更');
+    await prisma.surveyImage.delete({ where: { id: detailTarget.imageId } });
+    const metadataSaved = responseOf('PATCH', '/api/site-surveys/images/batch');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await metadataSaved).status()).toBe(404);
+    await expect(detailError).toHaveText(SURVEY_OR_IMAGE_GONE, { timeout: getTimeout(10000) });
+    await expectNoFailureFeedback(page);
+
+    // ここから現場調査を論理的に取り除く（開いた画面はそのまま）
+    await prisma.siteSurvey.update({
+      where: { id: detailTarget.surveyId },
+      data: { deletedAt: new Date() },
+    });
+
+    // --- 画像のアップロード（従来は失敗の理由をサーバーエラーと表示）。全件の失敗の構成と保持を保つ ---
+    const uploaded = responseOf('POST', `/api/site-surveys/${detailTarget.surveyId}/images`);
+    await page.getByTestId('file-input').setInputFiles({
+      name: 'gone-upload.jpg',
+      mimeType: 'image/jpeg',
+      buffer: fs.readFileSync(FIXTURE_IMAGE_PATH),
+    });
+    expect((await uploaded).status()).toBe(404);
+    await expect(detailError).toContainText('全1件のアップロードに失敗しました。', {
+      timeout: getTimeout(20000),
+    });
+    await expect(detailError).toContainText(`gone-upload.jpg: ${SURVEY_GONE}`);
+    await expect(page.getByTestId('pending-upload-reason')).toHaveText(SURVEY_GONE, {
+      timeout: getTimeout(20000),
+    });
+    await expectNoFailureFeedback(page);
+
+    // --- 調査報告書の PDF の出力（従来は生成の失敗と再度の試行を促す文言）。記録は成功し、取り直しが 404 ---
+    const reportRecorded = responseOf('POST', '/api/v1/audit-logs/exports');
+    const refetched = responseOf('GET', `/api/site-surveys/${detailTarget.surveyId}`);
+    await page.getByRole('button', { name: '調査報告書出力', exact: true }).click();
+    expect((await reportRecorded).status()).toBe(201);
+    expect((await refetched).status()).toBe(404);
+    // 詳細の画面の上のエラーの欄にも直前のアップロードの理由として同じ文言が出ているため、報告書の出力の
+    // エラーの欄そのものを完全一致で主張する
+    await expect(page.getByTestId('site-survey-report-export-error')).toHaveText(SURVEY_GONE, {
+      timeout: getTimeout(20000),
+    });
+    await expectNoFailureFeedback(page);
+
+    // --- 現場調査の削除（従来は応答の英語の文言） ---
+    await page.getByRole('button', { name: '削除', exact: true }).click();
+    const surveyDeleted = responseOf('DELETE', `/api/site-surveys/${detailTarget.surveyId}`);
+    await page.getByRole('button', { name: '削除する', exact: true }).click();
+    expect((await surveyDeleted).status()).toBe(404);
+    await expect(detailError).toHaveText(SURVEY_GONE, { timeout: getTimeout(10000) });
+    await expectNoFailureFeedback(page);
+
+    // --- 編集の画面の更新（従来は応答の英語の文言）。開いた後に現場調査を論理的に取り除く ---
+    expect(
+      await openAndWait(
+        page,
+        `/site-surveys/${editTarget.surveyId}/edit`,
+        `/api/site-surveys/${editTarget.surveyId}`
+      )
+    ).toBe(200);
+    await expect(page.getByRole('heading', { name: '現場調査を編集' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await prisma.siteSurvey.update({
+      where: { id: editTarget.surveyId },
+      data: { deletedAt: new Date() },
+    });
+    const updated = responseOf('PUT', `/api/site-surveys/${editTarget.surveyId}`);
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await updated).status()).toBe(404);
+    await expect(
+      page.getByRole('main').last().getByRole('alert').filter({ hasText: SURVEY_GONE })
+    ).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(page).toHaveURL(new RegExp(`/site-surveys/${editTarget.surveyId}/edit$`));
+    await expectNoFailureFeedback(page);
+
+    // --- 新規作成の画面の作成（従来は応答の英語の文言）。開いた後にプロジェクトを論理削除する ---
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${createTarget.projectId}/site-surveys/new`,
+        `/api/projects/${createTarget.projectId}`
+      )
+    ).toBe(200);
+    await expect(page.getByRole('heading', { name: '新規現場調査' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await prisma.project.update({
+      where: { id: createTarget.projectId },
+      data: { deletedAt: new Date() },
+    });
+    const created = responseOf('POST', `/api/projects/${createTarget.projectId}/site-surveys`);
+    await page.getByRole('button', { name: '作成', exact: true }).click();
+    expect((await created).status()).toBe(404);
+    await expect(
+      page.getByRole('main').last().getByRole('alert').filter({ hasText: PROJECT_GONE })
+    ).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(page).toHaveURL(
+      new RegExp(`/projects/${createTarget.projectId}/site-surveys/new$`)
+    );
+    await expectNoFailureFeedback(page);
+    expect(
+      await prisma.siteSurvey.count({ where: { projectId: createTarget.projectId } }),
+      '作成されない（fixture の 1 件のまま）'
+    ).toBe(1);
   });
 });

@@ -48,7 +48,7 @@ vi.mock('../../../api/site-surveys', () => ({
 }));
 
 import * as siteSurveysApi from '../../../api/site-surveys';
-import { apiClient } from '../../../api/client';
+import { apiClient, ApiError } from '../../../api/client';
 
 // ============================================================================
 // テストデータ
@@ -632,5 +632,68 @@ describe('SiteSurveyDetailInfo', () => {
         expect(screen.getByRole('button', { name: '調査報告書出力' })).toBeEnabled();
       });
     });
+  });
+});
+
+// ============================================================================
+// タスク120.1: 調査報告書の PDF の出力の 404（Requirement 40.2）
+// ============================================================================
+
+describe('SiteSurveyDetailInfo 調査報告書の出力の 404 (Requirement 40.2)', () => {
+  const SURVEY_GONE = '現場調査が見つかりません。存在しないか、削除されています。';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+    vi.mocked(annotationModule.renderImagesForReport).mockResolvedValue([
+      { imageInfo: mockSurveyDetail.images[0]!, dataUrl: 'data:image/jpeg;base64,test' },
+    ]);
+    vi.mocked(exportModule.exportAndDownloadPdf).mockResolvedValue();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('生成の中の現場調査の取り直しが 404 を受けると、現場調査が見つからない旨を表示し再度の試行を促さない', async () => {
+    const user = userEvent.setup();
+    vi.mocked(siteSurveysApi.getSiteSurvey).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' })
+    );
+    renderComponent();
+
+    await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(SURVEY_GONE);
+    expect(screen.queryByText(/PDF生成に失敗しました/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/再度お試しください/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Not found/)).not.toBeInTheDocument();
+    expect(exportModule.exportAndDownloadPdf).not.toHaveBeenCalled();
+  });
+
+  it('404 以外の生成の失敗は従来どおり生成の失敗の文言を表示する', async () => {
+    const user = userEvent.setup();
+    vi.mocked(siteSurveysApi.getSiteSurvey).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error', {})
+    );
+    renderComponent();
+
+    await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'PDF生成に失敗しました。再度お試しください。'
+    );
+  });
+
+  it('記録の失敗は従来どおり記録の失敗の文言を表示する（Requirement 39.8）', async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.post).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' })
+    );
+    renderComponent();
+
+    await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '出力を記録できなかったため中止しました'
+    );
+    expect(screen.queryByText(SURVEY_GONE)).not.toBeInTheDocument();
   });
 });

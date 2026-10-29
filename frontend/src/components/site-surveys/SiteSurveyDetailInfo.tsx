@@ -12,6 +12,8 @@
  * - 11.8: 調査報告書出力UIを実装する
  * - 14.1: プロジェクトへのアクセス権を持つユーザーは現場調査を閲覧可能
  * - 14.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 40.2: 調査報告書の PDF の出力が 404 を受けたときに、生成の失敗の文言に代えて現場調査が見つからない旨を
+ *   表示する（タスク120.1。範囲外と不在を区別しない）
  *
  * 機能:
  * - 調査名、調査日、メモの表示
@@ -31,6 +33,7 @@ import { loadPdfExportService } from '../../services/export/loadPdfExportService
 import type { PdfExportProgress } from '../../services/export/PdfExportService';
 import { getSiteSurvey } from '../../api/site-surveys';
 import { runRecordedExport } from '../../api/export-audit';
+import { getSiteSurveyNotFoundMessage } from '../../utils/siteSurveyNotFound';
 
 // ============================================================================
 // 型定義
@@ -352,7 +355,12 @@ export default function SiteSurveyDetailInfo({
           setExportError(result.error.message);
         } else {
           console.error('PDF generation failed:', result.error.cause);
-          setExportError('PDF生成に失敗しました。再度お試しください。');
+          // 生成の中の現場調査の取り直しの 404 は現場調査の不在〔範囲外を含む〕。再度の試行では解けないため、
+          // 再度の試行を促す文言を出さない（Task 120.1）
+          setExportError(
+            getSiteSurveyNotFoundMessage(result.error.cause, 'siteSurvey') ??
+              'PDF生成に失敗しました。再度お試しください。'
+          );
         }
       }
     } catch (error) {
@@ -433,7 +441,7 @@ export default function SiteSurveyDetailInfo({
 
       {/* エラーメッセージ表示 (Requirement 11.1) */}
       {exportError && (
-        <div role="alert" style={styles.errorMessage}>
+        <div role="alert" style={styles.errorMessage} data-testid="site-survey-report-export-error">
           <svg
             width="20"
             height="20"

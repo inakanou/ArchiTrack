@@ -299,17 +299,24 @@ test.describe('現場調査CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // REQ-1.7 は「プロジェクトが存在しない間は現場調査の作成を許可しない」と定めている。
-      // SiteSurveyCreatePage はプロジェクト取得に失敗すると role="alert" だけを描画し、
-      // 作成フォームを一切描画しない（frontend/src/pages/SiteSurveyCreatePage.tsx の
-      // `if (!project || !projectId)` 分岐）。バックエンドは 404 の detail に
-      // `Project not found: <id>` を返す（backend/src/errors/projectError.ts）。
+      // SiteSurveyCreatePage はプロジェクトの取得の 404 で、作成フォームを描画せず、プロジェクトが
+      // 見つからない旨とプロジェクトの一覧へのリンク（共通部品 ResourceNotFound。role="alert" を持たない）を
+      // 表示する（site-survey タスク120.1）。取得の失敗の文言や応答の英語の文言は出さない。
       // 「エラーが出ていなければフォームの有無を見る」観測による分岐は、
       // 作成できてしまう欠陥をそのまま緑にするため置かない。
-      const errorAlert = page.getByRole('alert').first();
-      await expect(errorAlert).toBeVisible({ timeout: getTimeout(10000) });
-      await expect(errorAlert).toContainText(
-        /プロジェクトが見つかりません|プロジェクトの取得に失敗しました|Project not found/i
+      const main = page.getByRole('main').last();
+      await expect(main.getByRole('heading', { name: 'プロジェクトが見つかりません' })).toBeVisible(
+        {
+          timeout: getTimeout(10000),
+        }
       );
+      await expect(main.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      await expect(
+        page.getByText(/プロジェクトの取得に失敗しました|Project not found/i)
+      ).toHaveCount(0);
 
       // 作成の手段が無いこと（作成フォームが描画されていないこと）を主張する
       await expect(page.getByRole('button', { name: /^作成$/i })).toHaveCount(0);

@@ -22,6 +22,8 @@
  * Requirements (site-survey):
  * - 39.7: 注釈付き画像・原画像・注釈の JSON の出力を始める前に出力の記録を1回要求する（タスク119.2）
  * - 39.8: 出力の記録の失敗では出力を生成せずエラーメッセージを表示する（タスク119.2）
+ * - 40.2: 注釈の保存と注釈の JSON の出力が 404 を受けたときに、画像が見つからない旨を表示する（タスク120.1。
+ *   注釈が未保存の 404 は従来の文言。範囲外と不在を区別しない）
  *
  * @requirement site-survey/REQ-27.1
  * @requirement site-survey/REQ-27.2
@@ -91,7 +93,8 @@ import {
   deleteAnnotatedThumbnail,
   exportAnnotationJson,
 } from '../../api/survey-annotations';
-import { ApiError } from '../../api/client';
+import { ApiError, getApiErrorCode } from '../../api/client';
+import { getSiteSurveyNotFoundMessage } from '../../utils/siteSurveyNotFound';
 import { runRecordedExport, type RecordedExportResult } from '../../api/export-audit';
 import { exportImage, downloadFile, downloadOriginalImage } from '../../services/ExportService';
 import { useToast } from '../../hooks/useToast';
@@ -2956,7 +2959,10 @@ function AnnotationEditor({
         ...prev,
         isSaving: false,
         saveFailed: true,
-        error: err instanceof Error ? err.message : '注釈の保存に失敗しました',
+        // 404 は画像の不在〔範囲外を含む〕（Task 120.1）。9.5 の再試行の導線は保つ
+        error:
+          getSiteSurveyNotFoundMessage(err, 'image') ??
+          (err instanceof Error ? err.message : '注釈の保存に失敗しました'),
       }));
     }
   }, [
@@ -3335,15 +3341,19 @@ function AnnotationEditor({
         }
         const err = result.error.cause;
         console.error('注釈データのエクスポートに失敗しました:', err);
-        const isNotFound = err instanceof ApiError && err.statusCode === 404;
+        // 注釈が未保存の 404（ANNOTATION_NOT_FOUND）は従来の文言、それ以外の 404 は画像の不在〔範囲外を
+        // 含む〕（Task 120.1）
+        const isAnnotationMissing =
+          err instanceof ApiError &&
+          err.statusCode === 404 &&
+          getApiErrorCode(err) === 'ANNOTATION_NOT_FOUND';
         setState((prev) => ({
           ...prev,
           saveFailed: false,
-          error: isNotFound
+          error: isAnnotationMissing
             ? '保存された注釈データがありません。先に保存してください。'
-            : err instanceof Error
-              ? err.message
-              : '注釈データのエクスポートに失敗しました',
+            : (getSiteSurveyNotFoundMessage(err, 'image') ??
+              (err instanceof Error ? err.message : '注釈データのエクスポートに失敗しました')),
         }));
         return;
       }
