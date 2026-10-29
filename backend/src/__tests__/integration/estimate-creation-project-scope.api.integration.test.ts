@@ -686,11 +686,193 @@ describe('見積書・見積明細・在席・受領見積書の一覧の API �
         .expect(404);
       expect(mismatchedWrite.body.code).toBe('NOT_FOUND');
       expect(await snapshot(target)).toEqual(before);
-      // 食い違いは不在の扱いのため、範囲外の拒否としては記録しない
+      // 全案件閲覧の権限の利用者には見積書の案件も範囲内であり、範囲内どうしの食い違い（経路の誤り）は
+      // 範囲外の拒否としては記録しない（57.9）
       const deniedAfter = await prisma.auditLog.count({
         where: { action: 'PROJECT_SCOPE_DENIED', actorId: readAll.id },
       });
       expect(deniedAfter - deniedBefore).toBe(0);
+    });
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象の案件を指定すればその案件だけ） */
+    function deniedCount(actorId: string, targetId?: string): Promise<number> {
+      return prisma.auditLog.count({
+        where: { action: 'PROJECT_SCOPE_DENIED', actorId, ...(targetId ? { targetId } : {}) },
+      });
+    }
+
+    /**
+     * 応答は不在と同じ 404 のまま、見積書の実際の案件が範囲外なら範囲外の拒否として記録する
+     * （estimate-creation タスク63.1。user-authentication の要件39.8 の本機能への適用）。
+     * `/:id` 配下の 8 経路（詳細・更新・一括保存・見積項目の取得・諸経費の計算・在席の通知と退出・
+     * 論理的な取り除き）のすべてで、要求ごとに 1 件記録し、データを変えない。不在の見積書は記録しない
+     * （範囲内の他の案件の見積書は直前のテストが記録しないことを確かめる）。
+     *
+     * @requirement estimate-creation/REQ-57.9
+     */
+    it('二重マウントの経路で、範囲外の案件の見積書を範囲内の案件の経路で指すと、読み込みも書き込みも不在と同じ 404 になり、見積書の案件を対象に記録が 1 件ずつ増え、データを変えない', async () => {
+      // 要求した利用者（sales）自身の在席の行を範囲外の案件の見積書に置く。退出の要求が届けば行が消え、
+      // 通知の要求が届けば lastSeenAt が変わるため、データを変えないことを snapshot で確かめられる
+      await prisma.estimateEditSession.create({
+        data: {
+          estimateId: other.estimateId,
+          userId: sales.id,
+          lastSeenAt: new Date('2026-01-01T00:00:00.000Z'),
+        },
+      });
+      try {
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+        const estimate = await prisma.estimate.findUniqueOrThrow({
+          where: { id: other.estimateId },
+        });
+        const expectedUpdatedAt = estimate.updatedAt.toISOString();
+        const nested = `/api/projects/${target.projectId}/estimates`;
+
+        // 不在の見積書: 404 で記録しない
+        const missingBefore = await deniedCount(sales.id);
+        const missing = await request(app)
+          .get(`${nested}/${MISSING_ID}`)
+          .set(...auth(sales))
+          .expect(404);
+        expect((await deniedCount(sales.id)) - missingBefore, '不在の見積書は記録しない').toBe(0);
+
+        const calls: Array<[string, () => request.Test]> = [
+          ['GET :id', () => request(app).get(`${nested}/${other.estimateId}`)],
+          [
+            'PUT :id',
+            () =>
+              request(app)
+                .put(`${nested}/${other.estimateId}`)
+                .send({ name: `${MARK}-mismatched`, expectedUpdatedAt }),
+          ],
+          [
+            'PUT :id/save',
+            () =>
+              request(app)
+                .put(`${nested}/${other.estimateId}/save`)
+                .send({
+                  expectedUpdatedAt,
+                  reportFields: { ...REPORT_FIELDS, validityPeriod: 'mismatched' },
+                  items: [
+                    nodePayload({
+                      id: other.estimateItemId,
+                      lines: [linePayload({ name: `${MARK}-mismatched-line`, quantity: '9' })],
+                    }),
+                  ],
+                }),
+          ],
+          ['GET :id/items', () => request(app).get(`${nested}/${other.estimateId}/items`)],
+          [
+            'POST :id/calculate-overhead',
+            () =>
+              request(app)
+                .post(`${nested}/${other.estimateId}/calculate-overhead`)
+                .send(OVERHEAD_REQUEST),
+          ],
+          [
+            'PUT :id/edit-session',
+            () => request(app).put(`${nested}/${other.estimateId}/edit-session`),
+          ],
+          [
+            'DELETE :id/edit-session',
+            () => request(app).delete(`${nested}/${other.estimateId}/edit-session`),
+          ],
+          [
+            'DELETE :id',
+            () =>
+              request(app)
+                .delete(`${nested}/${other.estimateId}`)
+                .send({ updatedAt: expectedUpdatedAt }),
+          ],
+        ];
+        for (const [label, call] of calls) {
+          const allBefore = await deniedCount(sales.id);
+          const foreignBefore = await deniedCount(sales.id, other.projectId);
+          const response = await call()
+            .set(...auth(sales))
+            .expect(404);
+          expect(response.body.code, label).toBe('NOT_FOUND');
+          expect(withoutInstance(response.body), `${label}: 見積書の不在と同じ本文`).toEqual(
+            withoutInstance(missing.body)
+          );
+          const exposed = JSON.stringify(withoutInstance(response.body));
+          expect(exposed, label).not.toContain(other.projectId);
+          expect(exposed, label).not.toContain(other.estimateId);
+          expect(exposed, label).not.toContain(other.estimateName);
+          expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(
+            1
+          );
+          expect(
+            (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+            `${label}: 記録の対象は見積書の実際の案件`
+          ).toBe(1);
+        }
+
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other), 'データは変わらない').toEqual(beforeOther);
+      } finally {
+        await prisma.estimateEditSession.deleteMany({
+          where: { estimateId: other.estimateId, userId: sales.id },
+        });
+      }
+    });
+
+    /**
+     * 見積書の論理削除は区別しない（design.md の 2026-10-29 の追加の章の 57.9 の決定）。範囲外の案件の
+     * 論理削除済みの見積書を範囲内の案件の経路で指しても、不在と同じ 404 で見積書の案件を対象に記録する。
+     *
+     * @requirement estimate-creation/REQ-57.9
+     */
+    it('二重マウントの経路で、範囲外の案件の論理削除済みの見積書を範囲内の案件の経路で指しても、不在と同じ 404 になり、見積書の案件を対象に記録が 1 件増え、データを変えない', async () => {
+      const { estimateId: deletedId } = await createEstimate(
+        other.projectId,
+        `${MARK}-deleted-foreign`
+      );
+      await prisma.estimate.update({ where: { id: deletedId }, data: { deletedAt: new Date() } });
+      try {
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+        const nested = `/api/projects/${target.projectId}/estimates`;
+
+        const missing = await request(app)
+          .get(`${nested}/${MISSING_ID}`)
+          .set(...auth(sales))
+          .expect(404);
+
+        const calls: Array<[string, () => request.Test]> = [
+          ['GET :id', () => request(app).get(`${nested}/${deletedId}`)],
+          [
+            'POST :id/calculate-overhead',
+            () =>
+              request(app).post(`${nested}/${deletedId}/calculate-overhead`).send(OVERHEAD_REQUEST),
+          ],
+        ];
+        for (const [label, call] of calls) {
+          const allBefore = await deniedCount(sales.id);
+          const foreignBefore = await deniedCount(sales.id, other.projectId);
+          const response = await call()
+            .set(...auth(sales))
+            .expect(404);
+          expect(response.body.code, label).toBe('NOT_FOUND');
+          expect(withoutInstance(response.body), `${label}: 見積書の不在と同じ本文`).toEqual(
+            withoutInstance(missing.body)
+          );
+          expect(JSON.stringify(withoutInstance(response.body)), label).not.toContain(deletedId);
+          expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(
+            1
+          );
+          expect(
+            (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+            `${label}: 記録の対象は見積書の実際の案件`
+          ).toBe(1);
+        }
+
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other)).toEqual(beforeOther);
+      } finally {
+        await prisma.estimate.delete({ where: { id: deletedId } });
+      }
     });
   });
 

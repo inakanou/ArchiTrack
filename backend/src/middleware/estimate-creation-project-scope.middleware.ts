@@ -12,7 +12,10 @@
  *   含めない（57.2・57.3）。範囲外だけが PROJECT_SCOPE_DENIED として記録される（`requireProjectScope` が記録する）
  * - 見積書の論理削除は区別せずに案件 ID を引く。範囲内の利用者には各経路の従来の応答（論理削除の 404 など）が返る
  * - 二重マウント（`/api/projects/:projectId/estimates/:id`）で経路の案件 ID と見積書の案件が食い違うときは、
- *   見積書の不在と同じ 404 にする（経路の案件 ID でなく対象が属する案件で判定する）
+ *   見積書の不在と同じ 404 にする（経路の案件 ID でなく対象が属する案件で判定する）。
+ *   解決関数は上流の `projectMismatch`（見積書の実際の案件 ID）を返し、見積書の案件が範囲外のときだけ
+ *   PROJECT_SCOPE_DENIED が記録される（範囲内の案件どうしの食い違いは記録しない。タスク63.1、57.9、
+ *   user-authentication の要件39.8）。見積書の不在は従来どおり null で記録しない。論理削除は区別しない
  * - 見積書の作成の要求が指す内訳書の所属の照合（57.4）は、作成のトランザクションの中で内訳書を読む
  *   `EstimateService.create` が行う（内訳書の不在と同じ応答の符号を保つため）
  */
@@ -22,6 +25,7 @@ import getPrismaClient from '../db.js';
 import {
   requireProjectScope,
   projectIdFromParam,
+  projectMismatch,
   type ProjectIdResolver,
   type ProjectScopeGuardOptions,
 } from './project-scope.middleware.js';
@@ -53,7 +57,8 @@ export function requireProjectParamScope(
 
 /**
  * 見積書の ID を経路のパラメータから読んで範囲を判定する。
- * 経路に案件 ID（`projectId`）があり、見積書の案件と食い違うときは見積書の不在と同じ 404 にする
+ * 経路に案件 ID（`projectId`）があり、見積書の案件と食い違うときは見積書の不在と同じ 404 にし、
+ * 見積書の案件が範囲外なら記録する（57.9）
  */
 export function requireEstimateProjectScope(
   paramName: string,
@@ -67,7 +72,9 @@ export function requireEstimateProjectScope(
     const projectId = await findProjectIdOfEstimate(id);
     const addressedProjectId = nonEmptyString(req.params.projectId);
     if (projectId !== null && addressedProjectId !== null && addressedProjectId !== projectId) {
-      return null;
+      // 食い違い（57.9、user-authentication の要件39.8）: 見積書の実際の案件を返し、
+      // 範囲外のときだけ上流の判定部品が記録する
+      return projectMismatch(projectId);
     }
     return projectId;
   };
