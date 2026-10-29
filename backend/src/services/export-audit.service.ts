@@ -33,6 +33,7 @@ export const EXPORT_KINDS = [
   'site_survey_images_zip',
   'quantity_table_pdf',
   'itemized_statement_xlsx',
+  'itemized_statement_clipboard',
   'estimate_request_xlsx',
   'estimate_pdf',
   'estimate_xlsx',

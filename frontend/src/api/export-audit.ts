@@ -10,16 +10,21 @@
  * 「出力を記録できなかったため中止しました」を返す（呼び出し側が画面へ表示する）。
  * 本 spec には画面で生成する出力が無いため、画面への適用は各業務機能の spec が行う
  * （最初の適用先は site-survey の調査報告書の PDF 出力）。
+ *
+ * クリップボードへの書き込みは `runRecordedClipboardWrite` を通す（タスク64.1）。Safari は
+ * クリックの処理の中で同期的に始めた書き込みしか許さないため、記録を待ってから書く
+ * `runRecordedExport` では書けない。
  */
 
 import { apiClient } from './client';
 
-/** 出力の種別（backend の export-audit.service.ts の EXPORT_KINDS と同じ 14 種） */
+/** 出力の種別（backend の export-audit.service.ts の EXPORT_KINDS と同じ 15 種） */
 export type ExportKind =
   | 'site_survey_report_pdf'
   | 'site_survey_images_zip'
   | 'quantity_table_pdf'
   | 'itemized_statement_xlsx'
+  | 'itemized_statement_clipboard'
   | 'estimate_request_xlsx'
   | 'estimate_pdf'
   | 'estimate_xlsx'
@@ -104,6 +109,111 @@ export async function runRecordedExport<T>(
   try {
     const value = await generate();
     return { ok: true, value };
+  } catch (cause) {
+    return { ok: false, error: { type: 'GENERATION_FAILED', cause } };
+  }
+}
+
+/** 記録の応答が記録の ID を持つ（記録が成功した）か */
+function hasRecordId(recorded: ExportRecordResponse | undefined): boolean {
+  return typeof recorded?.recordId === 'string' && recorded.recordId.length > 0;
+}
+
+/** 記録の失敗で中身を拒否するときの理由 */
+class ExportRecordFailedError extends Error {
+  constructor() {
+    super(EXPORT_RECORD_FAILED_MESSAGE);
+    this.name = 'ExportRecordFailedError';
+  }
+}
+
+const RECORD_FAILED_RESULT: RecordedExportResult<never> = {
+  ok: false,
+  error: { type: 'RECORD_FAILED', message: EXPORT_RECORD_FAILED_MESSAGE },
+};
+
+/**
+ * 出力を記録してからクリップボードへ書く
+ *
+ * クリックの処理の中から（他の `await` を挟まずに）呼ぶ。最初の `await` より前に、記録の要求を送り、
+ * 記録の成功の後にだけ中身（`text/plain`）を作って解決し記録の失敗では拒否する Promise を値に持つ
+ * `ClipboardItem` で `navigator.clipboard.write` を始める。拒否された中身は書き込まれないので、
+ * 記録の失敗ではクリップボードは変わらない。
+ *
+ * - `ClipboardItem` の無いブラウザでは、記録の成功を待ってから `navigator.clipboard.writeText` で書く
+ * - `navigator.clipboard` が無いときは記録を要求せずに `GENERATION_FAILED` を返す（出力が起きないため）
+ * - 結果と失敗の種別は `runRecordedExport` と同じ。記録の失敗（記録の ID の無い応答を含む）は
+ *   `RECORD_FAILED`、記録の後の中身の作成・書き込みの失敗は `GENERATION_FAILED`。記録は送り直さない
+ *
+ * @param input 記録の入力
+ * @param produce クリップボードへ書く文字列を作る処理（記録の成功の後にだけ呼ばれる）
+ */
+export async function runRecordedClipboardWrite(
+  input: ExportRecordInput,
+  produce: () => string | Promise<string>
+): Promise<RecordedExportResult<void>> {
+  const clipboard: Clipboard | undefined =
+    typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+  if (!clipboard) {
+    return {
+      ok: false,
+      error: { type: 'GENERATION_FAILED', cause: new Error('クリップボードを利用できません') },
+    };
+  }
+
+  // 記録の要求（ここまで await を挟まない）。成否だけを持つ Promise にする
+  let recording: Promise<ExportRecordResponse>;
+  try {
+    recording = recordExport(input);
+  } catch (cause) {
+    recording = Promise.reject(cause);
+  }
+  const recordSucceeded: Promise<boolean> = recording.then(hasRecordId, () => false);
+
+  const ClipboardItemCtor: typeof ClipboardItem | undefined =
+    typeof ClipboardItem === 'function' ? ClipboardItem : undefined;
+
+  if (ClipboardItemCtor && typeof clipboard.write === 'function') {
+    const content: Promise<Blob> = recordSucceeded.then(async (succeeded) => {
+      if (!succeeded) {
+        throw new ExportRecordFailedError();
+      }
+      const text = await produce();
+      return new Blob([text], { type: 'text/plain' });
+    });
+    // 書き込みが同期で失敗したときに中身の拒否が未処理にならないようにする
+    content.catch(() => undefined);
+
+    let writing: Promise<void>;
+    try {
+      writing = clipboard.write([new ClipboardItemCtor({ 'text/plain': content })]);
+    } catch (cause) {
+      writing = Promise.reject(cause);
+    }
+
+    let writeError: { cause: unknown } | null = null;
+    try {
+      await writing;
+    } catch (cause) {
+      writeError = { cause };
+    }
+    if (!(await recordSucceeded)) {
+      return RECORD_FAILED_RESULT;
+    }
+    if (writeError) {
+      return { ok: false, error: { type: 'GENERATION_FAILED', cause: writeError.cause } };
+    }
+    return { ok: true, value: undefined };
+  }
+
+  // ClipboardItem の無いブラウザ: 記録の成功を待ってから文字列で書く
+  if (!(await recordSucceeded)) {
+    return RECORD_FAILED_RESULT;
+  }
+  try {
+    const text = await produce();
+    await clipboard.writeText(text);
+    return { ok: true, value: undefined };
   } catch (cause) {
     return { ok: false, error: { type: 'GENERATION_FAILED', cause } };
   }

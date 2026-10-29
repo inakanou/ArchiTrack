@@ -240,6 +240,54 @@ describe('データ出力の記録（統合・実 DB）', () => {
   /**
    * @requirement user-authentication/REQ-40.9
    */
+  it('内訳書の項目のクリップボードへのコピーは案件に属する出力として記録され、案件の無い要求は 400 になる', async () => {
+    const exportsBefore = await auditIds(owner.id, 'DATA_EXPORTED');
+
+    await request(app)
+      .post('/api/v1/audit-logs/exports')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        kind: 'itemized_statement_clipboard',
+        projectId: null,
+        targetIds: ['statement-a'],
+        itemCount: 3,
+      })
+      .expect(400);
+    expect(await auditIds(owner.id, 'DATA_EXPORTED')).toEqual(exportsBefore);
+
+    const response = await request(app)
+      .post('/api/v1/audit-logs/exports')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        kind: 'itemized_statement_clipboard',
+        projectId,
+        targetIds: ['statement-a'],
+        itemCount: 3,
+      })
+      .expect(201);
+
+    const row = await prisma.auditLog.findUnique({ where: { id: response.body.recordId } });
+    expect(row).toMatchObject({
+      action: 'DATA_EXPORTED',
+      actorId: owner.id,
+      targetType: 'Project',
+      targetId: projectId,
+    });
+    expect(row!.metadata).toMatchObject({
+      kind: 'itemized_statement_clipboard',
+      projectId,
+      targetIds: ['statement-a'],
+      itemCount: 3,
+    });
+    const added = [...(await auditIds(owner.id, 'DATA_EXPORTED'))].filter(
+      (id) => !exportsBefore.has(id)
+    );
+    expect(added).toEqual([response.body.recordId]);
+  });
+
+  /**
+   * @requirement user-authentication/REQ-40.9
+   */
   it('監査ログの JSON 出力が、出力した行の ID と件数とともに記録される', async () => {
     // 出力する行を本テストの中で作る（一般ユーザーの出力の記録）
     await prisma.auditLog.create({

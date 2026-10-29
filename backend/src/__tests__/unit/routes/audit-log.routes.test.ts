@@ -370,6 +370,19 @@ describe('Audit Log Routes', () => {
       );
     });
 
+    it('accepts the itemized statement clipboard copy as a project export', async () => {
+      const body = { ...validBody, kind: 'itemized_statement_clipboard', targetIds: ['stmt-1'] };
+
+      const response = await request(app).post('/api/v1/audit-logs/exports').send(body);
+
+      expect(response.status).toBe(201);
+      expect(mockExportAuditService.record).toHaveBeenCalledWith(
+        'admin-user-id',
+        body,
+        expect.any(Object)
+      );
+    });
+
     it('returns the generic 404 when the project is out of scope', async () => {
       mockExportAuditService.record.mockResolvedValue({
         ok: false,
@@ -400,6 +413,10 @@ describe('Audit Log Routes', () => {
       ['a fractional count', { ...validBody, itemCount: 1.5 }],
       ['a project export without a project', { ...validBody, projectId: null }],
       ['an audit log export with a project', { ...validBody, kind: 'audit_log_json' }],
+      [
+        'an itemized statement clipboard copy without a project',
+        { ...validBody, kind: 'itemized_statement_clipboard', projectId: null },
+      ],
       ['a malformed project id', { ...validBody, projectId: 'not-a-uuid' }],
       ['non-string target ids', { ...validBody, targetIds: [1, 2] }],
       ['missing target ids', { kind: 'audit_log_json', projectId: null, itemCount: 0 }],
