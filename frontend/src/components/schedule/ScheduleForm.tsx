@@ -11,6 +11,10 @@
  * - REQ-2.2: 数量表なしで空の工程表作成
  * - REQ-2.3: 数量表指定時の項目自動取得
  *
+ * Task 24.1 変更: 数量表の選択肢の読み込みが 404 を受けたとき（経路のプロジェクトの不在・範囲外）は
+ *   `onProjectNotFound` で呼び出し元へ知らせる（construction-schedule の Requirement 14.1）。404 以外の
+ *   失敗は従来どおり無視して選択肢を空にする
+ *
  * @module components/schedule/ScheduleForm
  */
 
@@ -18,6 +22,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getQuantityTables } from '../../api/quantity-tables';
 import type { QuantityTableInfo } from '../../types/quantity-table.types';
 import type { CreateScheduleInput } from '../../api/schedules';
+import { isNotFoundError } from '../../utils/scheduleNotFound';
 
 // ============================================================================
 // 型定義
@@ -37,6 +42,11 @@ export interface ScheduleFormProps {
   isSubmitting: boolean;
   /** エラーメッセージ */
   error: string | null;
+  /**
+   * 数量表の選択肢の読み込みが 404 を受けたときのコールバック（Task 24.1）。
+   * 経路のプロジェクトが見つからない（範囲外を含む）ことを呼び出し元へ知らせる
+   */
+  onProjectNotFound?: () => void;
 }
 
 // ============================================================================
@@ -169,6 +179,7 @@ export default function ScheduleForm({
   onCancel,
   isSubmitting,
   error,
+  onProjectNotFound,
 }: ScheduleFormProps) {
   // フォーム状態
   const [name, setName] = useState('');
@@ -194,15 +205,19 @@ export default function ScheduleForm({
         if (mounted) {
           setQuantityTables(result.data);
         }
-      } catch {
-        // エラーは握りつぶす（選択肢が空になるだけ）
+      } catch (err) {
+        // 404（プロジェクトの不在・範囲外）は呼び出し元へ知らせる（Task 24.1）。
+        // それ以外のエラーは握りつぶす（選択肢が空になるだけ）
+        if (mounted && isNotFoundError(err)) {
+          onProjectNotFound?.();
+        }
       }
     };
     fetchQuantityTables();
     return () => {
       mounted = false;
     };
-  }, [projectId]);
+  }, [projectId, onProjectNotFound]);
 
   // ==========================================================================
   // イベントハンドラ

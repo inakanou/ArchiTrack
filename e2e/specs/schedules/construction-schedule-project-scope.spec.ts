@@ -9,6 +9,10 @@
  * 被覆する受入基準（construction-schedule の Requirement 13.1〜13.5、13.8〔タスク23.1〕）は各テストの `@requirement` の印が名乗る。
  * 出力の記録（13.6・13.7）はタスク22.2 の担当で、本ファイルは扱わない（出力の経路の範囲の判定は 13.2 として扱う）。
  *
+ * タスク24.1 で、画面が 404 を受けたときの表示（Requirement 14.1・14.2）を足した。範囲外と不在は同じ 404 であり、
+ * 画面は見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、取得の失敗・
+ * 操作の失敗を告げる文言、応答の英語の文言と再試行の釦を出さない。
+ *
  * 検証に使う案件・数量表・工程表はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、利用者はテストの中で
  * 作る一意のメールアドレスの利用者とする。後始末で案件を先に消してから利用者を消す。
  */
@@ -152,11 +156,55 @@ async function openSchedule(page: Page, scheduleId: string): Promise<number> {
   return (await loaded).status();
 }
 
-/** 読み込み中の表示が消えた後の、本文の領域の表示の文字列 */
+/**
+ * 読み込み中の表示が消えた後の、本文の領域の表示の文字列。
+ * 一覧・新規作成の画面は共通の枠の main の内側に自分の main を置くため、内側（文書の順で後ろ）を読む
+ */
 async function settledMainText(page: Page): Promise<string> {
-  const main = page.getByRole('main');
+  const main = page.getByRole('main').last();
   await expect(main.getByText('読み込み中...')).toHaveCount(0, { timeout: getTimeout(15000) });
   return main.innerText();
+}
+
+/** 画面の URL を直接開き、指定のパスの GET の応答を待つ（オリジンは問わずパスで照合する） */
+async function openAndWait(page: Page, url: string, apiPath: string): Promise<number> {
+  const loaded = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === apiPath,
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(url);
+  return (await loaded).status();
+}
+
+/** 工程表の画面が 404 を受けたときに出してはならない、障害を告げる文言（タスク24.1） */
+const FAILURE_TEXTS = [
+  '工程表の取得に失敗しました',
+  '工程表の読み込みに失敗しました',
+  '工程表の削除に失敗しました',
+  '工程表の作成に失敗しました',
+  '工程表の出力に失敗しました',
+  'Not found',
+] as const;
+
+/** 障害を告げる文言と再試行の釦が画面のどこにも無いことを主張する */
+async function expectNoFailureFeedback(page: Page): Promise<void> {
+  for (const text of FAILURE_TEXTS) {
+    await expect(page.getByText(text, { exact: true }), text).toHaveCount(0);
+  }
+  await expect(page.getByRole('button', { name: '再試行' })).toHaveCount(0);
+}
+
+/** 不在の表示（ResourceNotFound）。いずれの画面も戻り先はプロジェクトの一覧 */
+async function expectNotFoundView(page: Page, resourceType: '工程表' | 'プロジェクト') {
+  const main = page.getByRole('main').last();
+  await expect(main.getByRole('heading', { name: `${resourceType}が見つかりません` })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(main.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+    'href',
+    '/projects'
+  );
+  await expectNoFailureFeedback(page);
 }
 
 test.describe('工程表の案件の閲覧範囲', () => {
@@ -197,11 +245,14 @@ test.describe('工程表の案件の閲覧範囲', () => {
     await page.context().clearCookies();
     await page.evaluate(() => localStorage.clear());
     await loginAsUser(page, outsider);
+    // タスク24.1: 表示は不在の表示（ResourceNotFound）になったため、見つからない旨の表示どうしを比べる
     expect(await openSchedule(page, MISSING_ID)).toBe(404);
+    await expectNotFoundView(page, '工程表');
     const missingText = await settledMainText(page);
     expect(missingText.trim().length, '存在しない工程表の表示がある').toBeGreaterThan(0);
 
     expect(await openSchedule(page, target.scheduleId)).toBe(404);
+    await expectNotFoundView(page, '工程表');
     expect(await settledMainText(page), '存在しない工程表と同じ表示').toBe(missingText);
     await expect(page.getByText(target.scheduleName)).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 1, name: target.scheduleName })).toHaveCount(0);
@@ -419,5 +470,197 @@ test.describe('工程表の案件の閲覧範囲', () => {
 
     expect(await snapshot(target.projectId)).toEqual(beforeTarget);
     expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+  /**
+   * 工程表の詳細の画面は工程表の読み込みの 404 で、一覧・新規作成の画面はプロジェクトの読み込みの 404 で、
+   * 見つからない旨とプロジェクトの一覧へのリンクを表示する（construction-schedule タスク24.1）。
+   * 範囲外と不在は同じ表示。
+   *
+   * @requirement construction-schedule/REQ-14.1
+   */
+  test('担当外の利用者が工程表の画面の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが表示され、存在しない対象と同じ表示になる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const outsider = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('not-found-view', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    await loginAsUser(page, outsider);
+
+    // 詳細の画面: 工程表が見つからない旨と、プロジェクトの一覧へのリンク
+    expect(await openSchedule(page, MISSING_ID)).toBe(404);
+    await expectNotFoundView(page, '工程表');
+    const missingDetailText = await settledMainText(page);
+    expect(await openSchedule(page, target.scheduleId)).toBe(404);
+    await expectNotFoundView(page, '工程表');
+    expect(await settledMainText(page), '存在しない工程表と同じ表示').toBe(missingDetailText);
+    await expect(page.getByText(target.scheduleName)).toHaveCount(0);
+
+    // 一覧の画面: プロジェクトが見つからない旨と、プロジェクトの一覧へのリンク
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/schedules`,
+        `/api/projects/${MISSING_ID}/schedules`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    const missingListText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/schedules`,
+        `/api/projects/${target.projectId}/schedules`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingListText);
+    await expect(page.getByText(target.scheduleName)).toHaveCount(0);
+
+    // 新規作成の画面: 数量表の選択肢の読み込みの 404 で、プロジェクトが見つからない旨と
+    // プロジェクトの一覧へのリンク。入力欄と作成の釦を出さない
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/schedules/new`,
+        `/api/projects/${MISSING_ID}/quantity-tables`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    const missingCreateText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/schedules/new`,
+        `/api/projects/${target.projectId}/quantity-tables`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingCreateText);
+    await expect(page.getByRole('button', { name: '作成', exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('工程表名称')).toHaveCount(0);
+  });
+
+  /**
+   * 開いた後に工程表（作成ではプロジェクト）が論理的に取り除かれると、操作の要求は 404 を受ける。画面は
+   * 見つからない旨のメッセージを表示し、操作の失敗を告げる文言や応答の英語の文言を出さない
+   * （construction-schedule タスク24.1）。出力のダイアログは再試行の釦を出さず、一覧の画面の削除は一覧を
+   * 保ったまま表示する。
+   *
+   * @requirement construction-schedule/REQ-14.2
+   */
+  test('開いた後に論理的に取り除かれた工程表・プロジェクトへの操作で、見つからない旨のメッセージが表示される', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const people = { salesPersonId: owner.id, createdById: owner.id };
+    const detailTarget = await createFixture('gone-detail', people);
+    const listTarget = await createFixture('gone-list', people);
+    const createTarget = await createFixture('gone-create', people);
+    const prisma = getPrismaClient();
+    const softDeleteSchedule = (fixture: Fixture) =>
+      prisma.constructionSchedule.update({
+        where: { id: fixture.scheduleId },
+        data: { deletedAt: new Date() },
+      });
+    const scheduleGone = '工程表が見つかりません。存在しないか、削除されています。';
+    const projectGone = 'プロジェクトが見つかりません。存在しないか、削除されています。';
+    /** 指定の方法とパスの要求の応答を待つ（オリジンは問わずパスで照合する） */
+    const responseOf = (method: string, pathname: string) =>
+      page.waitForResponse(
+        (r) => r.request().method() === method && new URL(r.url()).pathname === pathname,
+        { timeout: getTimeout(30000) }
+      );
+    await loginAsUser(page, owner);
+
+    // 詳細の画面の保存（従来は応答の英語の文言）。未保存の変更は保つ
+    expect(await openSchedule(page, detailTarget.scheduleId)).toBe(200);
+    await expect(
+      page.getByRole('heading', { level: 1, name: detailTarget.scheduleName })
+    ).toBeVisible({ timeout: getTimeout(15000) });
+    await softDeleteSchedule(detailTarget);
+    const label = page.getByTestId(`label-text-${detailTarget.itemIds[0]}`);
+    await label.fill('取り除かれた後の変更');
+    const saved = responseOf('PUT', `/api/schedules/${detailTarget.scheduleId}/bulk-save`);
+    await page.getByTestId('save-button').click();
+    expect((await saved).status()).toBe(404);
+    await expect(page.getByTestId('save-error')).toHaveText(scheduleGone, {
+      timeout: getTimeout(10000),
+    });
+    await expect(page.getByText('未保存の変更があります')).toBeVisible();
+    await expect(label).toHaveValue('取り除かれた後の変更');
+    await expectNoFailureFeedback(page);
+
+    // 出力のダイアログ（従来は出力の失敗の文言と再試行の釦）。ダウンロードを始めない
+    let downloads = 0;
+    page.on('download', () => {
+      downloads += 1;
+    });
+    await page.getByTestId('export-button').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+    const exported = responseOf('GET', `/api/schedules/${detailTarget.scheduleId}/export`);
+    await dialog.getByRole('button', { name: '出力', exact: true }).click();
+    expect((await exported).status()).toBe(404);
+    const exportAlert = dialog.getByRole('alert');
+    await expect(exportAlert).toHaveText(scheduleGone, { timeout: getTimeout(10000) });
+    await expect(dialog.getByRole('button', { name: '再試行' })).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    await expectNoFailureFeedback(page);
+    expect(downloads, 'ダウンロードを始めない').toBe(0);
+
+    // 一覧の画面の削除（従来は削除の失敗の汎用の文言と再試行の釦で一覧を置き換えていた）。一覧を保つ
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${listTarget.projectId}/schedules`,
+        `/api/projects/${listTarget.projectId}/schedules`
+      )
+    ).toBe(200);
+    const row = page.getByTestId(`schedule-row-${listTarget.scheduleId}`);
+    await expect(row).toBeVisible({ timeout: getTimeout(15000) });
+    await softDeleteSchedule(listTarget);
+    await row.getByRole('button', { name: `${listTarget.scheduleName}を削除` }).click();
+    const listDialog = page.getByRole('dialog');
+    await expect(listDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const listDeleted = responseOf('DELETE', `/api/schedules/${listTarget.scheduleId}`);
+    await listDialog.getByRole('button', { name: '確認', exact: true }).click();
+    expect((await listDeleted).status()).toBe(404);
+    const listError = page.getByTestId('schedule-list-operation-error');
+    await expect(listError).toHaveText(scheduleGone, { timeout: getTimeout(10000) });
+    await expect(listError).toHaveAttribute('role', 'alert');
+    await expect(row).toBeVisible();
+    await expectNoFailureFeedback(page);
+
+    // 工程表の作成（従来は作成の失敗の汎用の文言）。開いた後にプロジェクトを論理削除する
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${createTarget.projectId}/schedules/new`,
+        `/api/projects/${createTarget.projectId}/quantity-tables`
+      )
+    ).toBe(200);
+    const nameInput = page.getByLabel('工程表名称');
+    await expect(nameInput).toBeVisible({ timeout: getTimeout(15000) });
+    await nameInput.fill('取り除かれたプロジェクトへの作成の試み');
+    await prisma.project.update({
+      where: { id: createTarget.projectId },
+      data: { deletedAt: new Date() },
+    });
+    const created = responseOf('POST', `/api/projects/${createTarget.projectId}/schedules`);
+    await page.getByRole('button', { name: '作成', exact: true }).click();
+    expect((await created).status()).toBe(404);
+    await expect(page.getByRole('alert').filter({ hasText: projectGone })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(page).toHaveURL(new RegExp(`/projects/${createTarget.projectId}/schedules/new$`));
+    await expect(nameInput).toHaveValue('取り除かれたプロジェクトへの作成の試み');
+    await expectNoFailureFeedback(page);
+    expect(
+      await prisma.constructionSchedule.count({ where: { projectId: createTarget.projectId } }),
+      '工程表は作られない'
+    ).toBe(1);
   });
 });

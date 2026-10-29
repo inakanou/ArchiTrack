@@ -10,6 +10,8 @@
  * - REQ-13.7: 出力の記録の失敗の応答（500・`code: 'EXPORT_RECORD_FAILED'`）でダウンロードを始めず、
  *   出力を記録できなかった旨を表示する（Task 22.2）。記録はサーバーが生成の前に行うため、
  *   ブラウザからは記録を要求しない（`runRecordedExport` で包むと二重の記録になる）
+ * - REQ-14.2: 出力の応答が 404（工程表の不在・範囲外）のとき、出力の失敗の文言と再試行の釦に代えて
+ *   工程表が見つからない旨を表示する（Task 24.1）。素の fetch で応答を読むため状態で判定し、本文は使わない
  *
  * @module components/schedule/ExportDialog
  */
@@ -18,6 +20,7 @@ import { useState, useCallback } from 'react';
 import type { ExportFormat } from '../../api/schedules';
 import { apiClient } from '../../api/client';
 import { EXPORT_RECORD_FAILED_MESSAGE } from '../../api/export-audit';
+import { isNotFoundResponse, SCHEDULE_NOT_FOUND_MESSAGE } from '../../utils/scheduleNotFound';
 
 // ============================================================================
 // 型定義
@@ -234,6 +237,12 @@ export function ExportDialog({ isOpen, scheduleId, scheduleName, onClose }: Expo
         });
 
         if (!response.ok) {
+          // 工程表の不在・範囲外（404）は再試行で解けない。見つからない旨を示し、再試行の釦を出さない
+          // （failedFormat を置かない。Task 24.1）。本文（英語の文言）は読まない
+          if (isNotFoundResponse(response)) {
+            setError(SCHEDULE_NOT_FOUND_MESSAGE);
+            return;
+          }
           // 出力の記録の失敗ではファイルが返らない。ダウンロードを始めず、その旨を表示する（13.7）
           if ((await errorCodeOf(response)) === EXPORT_RECORD_FAILED_CODE) {
             setError(EXPORT_RECORD_FAILED_MESSAGE);

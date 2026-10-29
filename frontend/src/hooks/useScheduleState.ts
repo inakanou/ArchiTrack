@@ -16,12 +16,17 @@
  * - REQ-6.1: ガントチャートリアルタイム更新
  * - REQ-6.6: サーバー通信なしの更新
  *
+ * Task 24.1 変更: 保存（バルク保存）が 404 を受けたときは、応答の英語の文言に代えて工程表が見つからない
+ *   旨のメッセージを `error` に渡す（construction-schedule の Requirement 14.2。範囲外と不在を区別しない）。
+ *   409 と 404 以外の失敗は従来どおり応答の文言を渡す
+ *
  * @module hooks/useScheduleState
  */
 
 import { useState, useCallback, useMemo } from 'react';
 import { bulkSaveScheduleItems } from '../api/schedules';
 import type { ScheduleDetail, ScheduleSourceType } from '../api/schedules';
+import { getScheduleNotFoundMessage } from '../utils/scheduleNotFound';
 
 // ============================================================================
 // 定数
@@ -282,7 +287,10 @@ export function useScheduleState(initialData: ScheduleDetail): UseScheduleStateR
       await bulkSaveScheduleItems(initialData.id, input);
       setIsDirty(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : '保存に失敗しました';
+      // 404 は工程表が見つからない旨（Task 24.1）。未保存の変更（isDirty）は保つ
+      const message =
+        getScheduleNotFoundMessage(err, 'schedule') ??
+        (err instanceof Error ? err.message : '保存に失敗しました');
       setError(message);
     } finally {
       setIsLoading(false);

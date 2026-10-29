@@ -569,6 +569,45 @@ describe('ExportDialog', () => {
       expect(alert).toHaveTextContent('工程表の出力に失敗しました');
       expect(alert).not.toHaveTextContent('出力を記録できなかったため中止しました');
     });
+
+    // construction-schedule の Requirement 14.2（タスク24.1）
+    it.each([
+      {
+        body: '汎用の 404（閲覧範囲外と不在）',
+        json: () => Promise.resolve({ status: 404, code: 'NOT_FOUND', detail: 'Not found' }),
+      },
+      {
+        body: '本文が JSON でない 404',
+        json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      },
+    ])(
+      '出力の応答が $body のとき、出力の失敗の文言と再試行の釦に代えて工程表が見つからない旨を表示し、ダウンロードを始めない',
+      async ({ json }) => {
+        const user = userEvent.setup();
+        const { mockClick } = spyDownloadLink();
+        const fetchMock = vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+          json,
+          blob: () => Promise.resolve(new Blob(['{}'])),
+        });
+        globalThis.fetch = fetchMock;
+
+        render(<ExportDialog {...defaultProps} />);
+        await selectFormat(user);
+        await user.click(screen.getByRole('button', { name: '出力' }));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('工程表が見つかりません。存在しないか、削除されています。');
+        expect(alert).not.toHaveTextContent('工程表の出力に失敗しました');
+        expect(alert).not.toHaveTextContent('Not found');
+        expect(within(alert).queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(global.URL.createObjectURL).not.toHaveBeenCalled();
+        expect(mockClick).not.toHaveBeenCalled();
+        expect(defaultProps.onClose).not.toHaveBeenCalled();
+      }
+    );
   });
 
   // ============================================================================
