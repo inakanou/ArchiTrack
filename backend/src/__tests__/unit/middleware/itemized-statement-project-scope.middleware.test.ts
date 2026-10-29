@@ -117,7 +117,7 @@ describe('内訳書の ID からの解決関数（18.2・18.3）', () => {
     });
   });
 
-  it('二重マウントで経路の案件 ID と内訳書の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にする', async () => {
+  it('二重マウントで経路の案件 ID と内訳書の案件が食い違い、内訳書の案件が範囲内のときは、不在と同じ 404 にし、記録しない（18.11）', async () => {
     const scope = fakeScope();
     const { app, reached } = buildApp(
       ['/projects/:projectId/itemized-statements/:id'],
@@ -128,16 +128,58 @@ describe('内訳書の ID からの解決関数（18.2・18.3）', () => {
       projectId: 'project-in-scope',
     });
     await request(app).get('/projects/project-in-scope/itemized-statements/is-1').expect(200);
+    expect(reached).toHaveBeenCalledTimes(1);
 
+    // 内訳書の不在: 汎用の 404 で記録しない
+    mockPrisma.itemizedStatement.findUnique.mockResolvedValueOnce(null);
+    const missing = await request(app)
+      .get('/projects/project-in-scope/itemized-statements/is-0')
+      .expect(404);
+
+    // 内訳書の案件は範囲内だが、経路の案件と食い違う（経路の誤り）
     mockPrisma.itemizedStatement.findUnique.mockResolvedValueOnce({
       projectId: 'project-in-scope',
     });
-    expectGenericNotFound(
-      (await request(app).get('/projects/project-other/itemized-statements/is-1').expect(404)).body
-    );
-    expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+    const misrouted = await request(app)
+      .get('/projects/project-other/itemized-statements/is-1')
+      .expect(404);
+    expectGenericNotFound(misrouted.body);
+    expect(misrouted.body.detail).toBe(missing.body.detail);
     expect(reached).toHaveBeenCalledTimes(1);
     expect(audit.createLog).not.toHaveBeenCalled();
+    // 経路の案件（project-other）は判定しない
+    expect(scope.evaluateProjectAccess).not.toHaveBeenCalledWith(USER_ID, 'project-other');
+  });
+
+  it('二重マウントで経路の案件 ID と内訳書の案件が食い違い、内訳書の案件が範囲外のときは、不在と同じ 404 にし、内訳書の案件を対象に 1 件記録する（18.11）', async () => {
+    const scope = fakeScope();
+    const { app, reached } = buildApp(
+      ['/projects/:projectId/itemized-statements/:id'],
+      requireItemizedStatementProjectScope('id', { scopeService: scope, auditLogService: audit })
+    );
+
+    mockPrisma.itemizedStatement.findUnique.mockResolvedValueOnce(null);
+    const missing = await request(app)
+      .get('/projects/project-in-scope/itemized-statements/is-9')
+      .expect(404);
+
+    // 内訳書の案件が範囲外で、経路の案件（範囲内）と食い違う
+    mockPrisma.itemizedStatement.findUnique.mockResolvedValueOnce({
+      projectId: 'project-out-of-scope',
+    });
+    const mismatched = await request(app)
+      .get('/projects/project-in-scope/itemized-statements/is-2')
+      .expect(404);
+    expectGenericNotFound(mismatched.body);
+    expect(mismatched.body.detail).toBe(missing.body.detail);
+    expect(reached).not.toHaveBeenCalled();
+    expect(scope.evaluateProjectAccess).toHaveBeenCalledWith(USER_ID, 'project-out-of-scope');
+    expect(scope.evaluateProjectAccess).not.toHaveBeenCalledWith(USER_ID, 'project-in-scope');
+    expect(audit.createLog).toHaveBeenCalledTimes(1);
+    expect(audit.createLog.mock.calls[0]?.[0]).toMatchObject({
+      action: 'PROJECT_SCOPE_DENIED',
+      targetId: 'project-out-of-scope',
+    });
   });
 
   it('案件の ID を経路のパラメータから読んで判定する（18.6）', async () => {

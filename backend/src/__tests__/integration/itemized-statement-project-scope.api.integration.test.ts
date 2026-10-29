@@ -584,8 +584,129 @@ describe('内訳書の API の閲覧範囲（統合・実 DB）', () => {
         .expect(404);
       expect(mismatchedDelete.body.code).toBe('NOT_FOUND');
       expect(await snapshot(target)).toEqual(before);
-      // 食い違いは不在の扱いのため、範囲外の拒否としては記録しない
+      // 全案件閲覧の権限の利用者には内訳書の案件も範囲内であり、範囲内どうしの食い違い（経路の誤り）は
+      // 範囲外の拒否としては記録しない（18.11）
       expect((await deniedCount(readAll.id)) - deniedBefore).toBe(0);
+    });
+
+    /**
+     * 応答は不在と同じ 404 のまま、内訳書の実際の案件が範囲外なら範囲外の拒否として記録する
+     * （itemized-statement-generation タスク28.2。user-authentication の要件39.8 の本機能への適用）。
+     * 不在の内訳書は記録しない（範囲内の他の案件の内訳書は直前のテストが記録しないことを確かめる）。
+     *
+     * @requirement itemized-statement-generation/REQ-18.11
+     */
+    it('二重マウントの経路で、範囲外の案件の内訳書を範囲内の案件の経路で指すと、不在と同じ 404 になり、内訳書の案件を対象に記録が 1 件増え、データを変えない', async () => {
+      const beforeTarget = await snapshot(target);
+      const beforeOther = await snapshot(other);
+      const nested = `/api/projects/${target.projectId}/itemized-statements`;
+
+      // 不在の内訳書: 404 で記録しない
+      const missingBefore = await deniedCount(sales.id);
+      const missing = await request(app)
+        .get(`${nested}/${MISSING_ID}`)
+        .set(...auth(sales))
+        .expect(404);
+      expect((await deniedCount(sales.id)) - missingBefore, '不在の内訳書は記録しない').toBe(0);
+
+      const statement = await prisma.itemizedStatement.findUniqueOrThrow({
+        where: { id: other.statementId },
+      });
+      const updatedAt = statement.updatedAt.toISOString();
+
+      // 範囲外の案件の内訳書を、範囲内の案件の経路で読む・並べ替える・削除する:
+      // 要求ごとに 1 件、内訳書の案件を対象に記録する
+      const calls: Array<[string, () => request.Test]> = [
+        ['GET', () => request(app).get(`${nested}/${other.statementId}`)],
+        [
+          'PATCH items/order',
+          () =>
+            request(app)
+              .patch(`${nested}/${other.statementId}/items/order`)
+              .send({
+                items: other.itemIds.map((itemId, index) => ({
+                  id: itemId,
+                  displayOrder: 10 - index,
+                })),
+                updatedAt,
+              }),
+        ],
+        ['DELETE', () => request(app).delete(`${nested}/${other.statementId}`).send({ updatedAt })],
+      ];
+      for (const [label, call] of calls) {
+        const allBefore = await deniedCount(sales.id);
+        const foreignBefore = await deniedCount(sales.id, other.projectId);
+        const response = await call()
+          .set(...auth(sales))
+          .expect(404);
+        expect(response.body.code, label).toBe('NOT_FOUND');
+        expect(withoutInstance(response.body), `${label}: 内訳書の不在と同じ本文`).toEqual(
+          withoutInstance(missing.body)
+        );
+        const exposed = JSON.stringify(withoutInstance(response.body));
+        expect(exposed, label).not.toContain(other.projectId);
+        expect(exposed, label).not.toContain(other.statementId);
+        expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(
+          1
+        );
+        expect(
+          (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+          `${label}: 記録の対象は内訳書の実際の案件`
+        ).toBe(1);
+      }
+
+      expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(await snapshot(other)).toEqual(beforeOther);
+    });
+
+    /**
+     * 内訳書の論理削除は区別しない（design.md の 2026-10-29 の追加の章の 18.11 の決定）。範囲外の案件の
+     * 論理削除済みの内訳書を範囲内の案件の経路で指しても、不在と同じ 404 で内訳書の案件を対象に記録する。
+     *
+     * @requirement itemized-statement-generation/REQ-18.11
+     */
+    it('二重マウントの経路で、範囲外の案件の論理削除済みの内訳書を範囲内の案件の経路で指しても、不在と同じ 404 になり、内訳書の案件を対象に記録が 1 件増え、データを変えない', async () => {
+      const { statementId: deletedId } = await createStatement(
+        other.projectId,
+        other.quantityTableId,
+        `${MARK}-deleted-foreign`
+      );
+      await prisma.itemizedStatement.update({
+        where: { id: deletedId },
+        data: { deletedAt: new Date() },
+      });
+      try {
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+        const nested = `/api/projects/${target.projectId}/itemized-statements`;
+
+        const missing = await request(app)
+          .get(`${nested}/${MISSING_ID}`)
+          .set(...auth(sales))
+          .expect(404);
+
+        const allBefore = await deniedCount(sales.id);
+        const foreignBefore = await deniedCount(sales.id, other.projectId);
+        const response = await request(app)
+          .get(`${nested}/${deletedId}`)
+          .set(...auth(sales))
+          .expect(404);
+        expect(response.body.code).toBe('NOT_FOUND');
+        expect(withoutInstance(response.body), '内訳書の不在と同じ本文').toEqual(
+          withoutInstance(missing.body)
+        );
+        expect(JSON.stringify(withoutInstance(response.body))).not.toContain(deletedId);
+        expect((await deniedCount(sales.id)) - allBefore, '記録は 1 件だけ増える').toBe(1);
+        expect(
+          (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+          '記録の対象は内訳書の実際の案件'
+        ).toBe(1);
+
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other)).toEqual(beforeOther);
+      } finally {
+        await prisma.itemizedStatement.delete({ where: { id: deletedId } });
+      }
     });
   });
 

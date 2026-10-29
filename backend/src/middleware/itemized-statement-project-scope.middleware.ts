@@ -11,7 +11,10 @@
  *   含めない（18.2・18.3）。範囲外だけが PROJECT_SCOPE_DENIED として記録される（`requireProjectScope` が記録する）
  * - 内訳書の論理削除は区別せずに案件 ID を引く。範囲内の利用者には各経路の従来の応答（論理削除の 404 など）が返る
  * - 二重マウント（`/api/projects/:projectId/itemized-statements/:id`）で経路の案件 ID と内訳書の案件が
- *   食い違うときは、内訳書の不在と同じ 404 にする（経路の案件 ID でなく対象が属する案件で判定する）
+ *   食い違うときは、内訳書の不在と同じ 404 にする（経路の案件 ID でなく対象が属する案件で判定する）。
+ *   解決関数は上流の `projectMismatch`（内訳書の実際の案件 ID）を返し、内訳書の案件が範囲外のときだけ
+ *   PROJECT_SCOPE_DENIED が記録される（範囲内の案件どうしの食い違いは記録しない。タスク28.2、18.11、
+ *   user-authentication の要件39.8）。内訳書の不在は従来どおり null で記録しない。論理削除は区別しない
  * - 内訳書の作成の要求が指す数量表の所属の照合（18.4）は、作成のトランザクションの中で数量表を読む
  *   `ItemizedStatementService.create` が行う（数量表の不在と同じ応答の符号を保つため）
  */
@@ -21,6 +24,7 @@ import getPrismaClient from '../db.js';
 import {
   requireProjectScope,
   projectIdFromParam,
+  projectMismatch,
   type ProjectIdResolver,
   type ProjectScopeGuardOptions,
 } from './project-scope.middleware.js';
@@ -54,7 +58,8 @@ export function requireProjectParamScope(
 
 /**
  * 内訳書の ID を経路のパラメータから読んで範囲を判定する。
- * 経路に案件 ID（`projectId`）があり、内訳書の案件と食い違うときは内訳書の不在と同じ 404 にする
+ * 経路に案件 ID（`projectId`）があり、内訳書の案件と食い違うときは内訳書の不在と同じ 404 にし、
+ * 内訳書の案件が範囲外なら記録する（18.11）
  */
 export function requireItemizedStatementProjectScope(
   paramName: string,
@@ -68,7 +73,9 @@ export function requireItemizedStatementProjectScope(
     const projectId = await findProjectIdOfItemizedStatement(id);
     const addressedProjectId = nonEmptyString(req.params.projectId);
     if (projectId !== null && addressedProjectId !== null && addressedProjectId !== projectId) {
-      return null;
+      // 食い違い（18.11、user-authentication の要件39.8）: 内訳書の実際の案件を返し、
+      // 範囲外のときだけ上流の判定部品が記録する
+      return projectMismatch(projectId);
     }
     return projectId;
   };
