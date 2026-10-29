@@ -10,6 +10,9 @@
  * - 4.1-4.5: 実行予算項目の編集
  * - 15.1-15.8: 契約変更への対応
  *
+ * 契約の所属の照合（作成・変更契約の項目差分・反映）は、経路の案件に属さない契約の案件が範囲外なら
+ * 処理の後に記録する（Requirement 20.9 のうち契約の分、タスク18.2）。
+ *
  * Task 2.1: 実行予算の作成サービス実装
  * Task 2.2: 実行予算の取得・削除・編集サービス実装
  *
@@ -27,12 +30,36 @@ import {
   AmendmentContractNotFoundError,
   AmendmentAlreadyAppliedError,
 } from '../errors/executionBudgetError.js';
+import type { IAuditLogService } from '../types/audit-log.types.js';
+import { AuditLogService } from './audit-log.service.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 
 /**
  * ExecutionBudgetService依存関係
  */
 export interface ExecutionBudgetServiceDependencies {
   prisma: PrismaClient;
+  /**
+   * 範囲外の拒否（PROJECT_SCOPE_DENIED）の記録に用いる監査ログ（任意。タスク18.2、Requirement 20.9）。
+   * 未指定の場合は `prisma` で組み立てる。
+   */
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;
+  /**
+   * 案件の閲覧範囲の判定（任意。タスク18.2、Requirement 20.9）。
+   * 要求が指す他のプロジェクトの契約の案件が範囲外かを判定し、範囲外の拒否を記録するために用いる。
+   * 未指定の場合は user-authentication の共有のインスタンス（{@link getSharedProjectScopeService}）で判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
+}
+
+/** 契約の所属の照合が読む契約の欄（{@link ExecutionBudgetService} の記録の条件） */
+interface ContractOwnership {
+  projectId: string;
+  deletedAt: Date | null;
 }
 
 /**
@@ -240,9 +267,59 @@ interface EstimateItemData {
  */
 export class ExecutionBudgetService {
   private readonly prisma: PrismaClient;
+  private readonly auditLogService: Pick<IAuditLogService, 'createLog'>;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: ExecutionBudgetServiceDependencies) {
     this.prisma = deps.prisma;
+    this.auditLogService = deps.auditLogService ?? new AuditLogService({ prisma: deps.prisma });
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
+  }
+
+  /**
+   * 契約の所属の照合（Requirement 20.4）で、契約が実在し論理削除されておらず経路の案件と食い違うとき、
+   * 契約の案件が実行者の閲覧範囲外（案件は実在する）なら `deniedProjectIds` へ入れる（Requirement 20.9、
+   * user-authentication の要件39.8）。契約の不在・論理削除と、範囲内の他の案件・案件の不在は記録しない。
+   * 契約の種別と見積書の有無は条件に含めない。応答は呼び出し元が判定の結果に関わらず契約の不在の例外にする
+   */
+  private async noteContractOfOtherProject(
+    contract: ContractOwnership | null,
+    projectId: string,
+    actorId: string | undefined,
+    deniedProjectIds: Set<string>
+  ): Promise<void> {
+    if (
+      actorId === undefined ||
+      !contract ||
+      contract.deletedAt !== null ||
+      contract.projectId === projectId
+    ) {
+      return;
+    }
+    const decision = await this.projectScope.evaluateProjectAccess(actorId, contract.projectId);
+    if (decision === 'out_of_scope') {
+      deniedProjectIds.add(contract.projectId);
+    }
+  }
+
+  /**
+   * 契約の所属の照合で範囲外とした案件を、処理の後（トランザクションの外）に PROJECT_SCOPE_DENIED として
+   * 記録する（Requirement 20.9。トランザクションは契約の不在の例外で巻き戻るため）。
+   * 実行者が分からない（経路の外から呼ばれた）ときは判定も記録もしない
+   */
+  private withContractScopeRecording<T>(
+    actorId: string | undefined,
+    scopeDenialContext: ProjectScopeDenialContext | undefined,
+    run: (deniedProjectIds: Set<string>) => Promise<T>
+  ): Promise<T> {
+    if (actorId === undefined) {
+      return run(new Set<string>());
+    }
+    return withSurveyScopeDenialRecording(actorId, scopeDenialContext, this.auditLogService, run);
   }
 
   /**
@@ -260,11 +337,30 @@ export class ExecutionBudgetService {
    *
    * @param projectId - プロジェクトID
    * @param contractId - 契約書ID
+   * @param actorId - 実行者ID（契約の案件の範囲の判定と記録に用いる。Requirement 20.9）
+   * @param scopeDenialContext - 範囲外の拒否の記録に添える要求の識別（経路が切り出して渡す）
    * @returns 作成された実行予算
    * @throws ExecutionBudgetAlreadyExistsError 既に実行予算が存在する場合
    * @throws ContractNotFoundForBudgetError 契約書が存在しない場合
    */
-  async create(projectId: string, contractId: string): Promise<ExecutionBudgetCreateResult> {
+  async create(
+    projectId: string,
+    contractId: string,
+    actorId?: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<ExecutionBudgetCreateResult> {
+    return this.withContractScopeRecording(actorId, scopeDenialContext, (deniedProjectIds) =>
+      this.createWithin(projectId, contractId, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link create} の本体。契約の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async createWithin(
+    projectId: string,
+    contractId: string,
+    actorId: string | undefined,
+    deniedProjectIds: Set<string>
+  ): Promise<ExecutionBudgetCreateResult> {
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 1. 既存実行予算の存在チェック
       const existing = await tx.executionBudget.findFirst({
@@ -286,13 +382,15 @@ export class ExecutionBudgetService {
         },
       });
 
-      // 経路の案件に属さない契約は、契約の不在と同じ扱いにする（Requirement 20.4、タスク17.1）
+      // 経路の案件に属さない契約は、契約の不在と同じ扱いにする（Requirement 20.4、タスク17.1）。
+      // 契約の案件が範囲外なら、処理の後に記録する（Requirement 20.9、タスク18.2）
       if (
         !contract ||
         contract.deletedAt !== null ||
         !contract.estimateId ||
         contract.projectId !== projectId
       ) {
+        await this.noteContractOfOtherProject(contract, projectId, actorId, deniedProjectIds);
         throw new ContractNotFoundForBudgetError(contractId);
       }
 
@@ -882,9 +980,28 @@ export class ExecutionBudgetService {
    *
    * @param projectId - プロジェクトID
    * @param contractId - 変更契約ID
+   * @param actorId - 実行者ID（契約の案件の範囲の判定と記録に用いる。Requirement 20.9）
+   * @param scopeDenialContext - 範囲外の拒否の記録に添える要求の識別（経路が切り出して渡す）
    * @returns 項目差分データ
    */
-  async getAmendmentDiff(projectId: string, contractId: string): Promise<AmendmentDiff> {
+  async getAmendmentDiff(
+    projectId: string,
+    contractId: string,
+    actorId?: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<AmendmentDiff> {
+    return this.withContractScopeRecording(actorId, scopeDenialContext, (deniedProjectIds) =>
+      this.getAmendmentDiffWithin(projectId, contractId, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link getAmendmentDiff} の本体。契約の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async getAmendmentDiffWithin(
+    projectId: string,
+    contractId: string,
+    actorId: string | undefined,
+    deniedProjectIds: Set<string>
+  ): Promise<AmendmentDiff> {
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 1. 実行予算の存在チェック
       const budget = await tx.executionBudget.findFirst({
@@ -904,13 +1021,15 @@ export class ExecutionBudgetService {
         where: { id: contractId },
       });
 
-      // 経路の案件に属さない変更契約は、変更契約の不在と同じ扱いにする（Requirement 20.4、タスク17.1）
+      // 経路の案件に属さない変更契約は、変更契約の不在と同じ扱いにする（Requirement 20.4、タスク17.1）。
+      // 契約の案件が範囲外なら、処理の後に記録する（Requirement 20.9、タスク18.2）
       if (
         !contract ||
         contract.deletedAt !== null ||
         contract.contractType !== 'AMENDMENT' ||
         contract.projectId !== projectId
       ) {
+        await this.noteContractOfOtherProject(contract, projectId, actorId, deniedProjectIds);
         throw new AmendmentContractNotFoundError(contractId);
       }
 
@@ -1002,12 +1121,31 @@ export class ExecutionBudgetService {
    *
    * @param projectId - プロジェクトID
    * @param contractId - 変更契約ID
+   * @param actorId - 実行者ID（契約の案件の範囲の判定と記録に用いる。Requirement 20.9）
+   * @param scopeDenialContext - 範囲外の拒否の記録に添える要求の識別（経路が切り出して渡す）
    * @returns 反映結果
    * @throws ExecutionBudgetNotFoundError 実行予算が存在しない場合
    * @throws AmendmentContractNotFoundError 変更契約が存在しない場合
    * @throws AmendmentAlreadyAppliedError 変更契約が既に反映済みの場合
    */
-  async applyAmendment(projectId: string, contractId: string): Promise<ApplyAmendmentResult> {
+  async applyAmendment(
+    projectId: string,
+    contractId: string,
+    actorId?: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<ApplyAmendmentResult> {
+    return this.withContractScopeRecording(actorId, scopeDenialContext, (deniedProjectIds) =>
+      this.applyAmendmentWithin(projectId, contractId, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link applyAmendment} の本体。契約の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async applyAmendmentWithin(
+    projectId: string,
+    contractId: string,
+    actorId: string | undefined,
+    deniedProjectIds: Set<string>
+  ): Promise<ApplyAmendmentResult> {
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 1. 実行予算の存在チェック
       const budget = await tx.executionBudget.findFirst({
@@ -1046,6 +1184,13 @@ export class ExecutionBudgetService {
         // 経路の案件に属さない変更契約は、変更契約の不在と同じ扱いにする（Requirement 20.4、タスク17.1）
         amendmentContract.projectId !== projectId
       ) {
+        // 契約の案件が範囲外なら、処理の後に記録する（Requirement 20.9、タスク18.2）
+        await this.noteContractOfOtherProject(
+          amendmentContract,
+          projectId,
+          actorId,
+          deniedProjectIds
+        );
         throw new AmendmentContractNotFoundError(contractId);
       }
 

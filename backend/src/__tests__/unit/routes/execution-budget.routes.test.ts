@@ -215,7 +215,16 @@ describe('実行予算ルート', () => {
       expect(res.body.id).toBe(mockBudgetCreateResult.id);
       expect(res.body.projectId).toBe(projectId);
       expect(res.body.contractId).toBe(contractId);
-      expect(mockCreate).toHaveBeenCalledWith(projectId, contractId);
+      // 実行者と要求の識別を渡す（他の案件の契約の範囲外の記録。Requirement 20.9、タスク18.2）
+      expect(mockCreate).toHaveBeenCalledWith(
+        projectId,
+        contractId,
+        'test-user-id',
+        expect.objectContaining({
+          method: 'POST',
+          path: `/api/projects/${projectId}/execution-budget/`,
+        })
+      );
     });
 
     it('contractIdが不正な形式で400エラーが返ること', async () => {
@@ -410,7 +419,16 @@ describe('実行予算ルート', () => {
       expect(res.body.modifiedCount).toBe(1);
       expect(res.body.previousContractAmount).toBe('10000000');
       expect(res.body.newContractAmount).toBe('12000000');
-      expect(mockApplyAmendment).toHaveBeenCalledWith(projectId, amendmentContractId);
+      // 実行者と要求の識別を渡す（他の案件の契約の範囲外の記録。Requirement 20.9、タスク18.2）
+      expect(mockApplyAmendment).toHaveBeenCalledWith(
+        projectId,
+        amendmentContractId,
+        'test-user-id',
+        expect.objectContaining({
+          method: 'POST',
+          path: `/api/projects/${projectId}/execution-budget/apply-amendment`,
+        })
+      );
     });
 
     it('contractIdが不正な形式で400エラーが返ること', async () => {

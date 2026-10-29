@@ -6,7 +6,7 @@
  * ProjectScopeService と RBACService）とテスト用の実データベースを通す。
  *
  * 被覆する受入基準（execution-budget-management の Requirement 20.1〜20.6・20.9〔子と一括の項目の食い違いの記録、
- * タスク18.1〕と、改訂した Requirement 17.1〜17.6）は各 it の `@requirement` の印が名乗る。出力の記録（20.7・20.8）はタスク17.2 の担当で、本ファイルは扱わない。
+ * タスク18.1。契約の食い違いの記録、タスク18.2〕と、改訂した Requirement 17.1〜17.6）は各 it の `@requirement` の印が名乗る。出力の記録（20.7・20.8）はタスク17.2 の担当で、本ファイルは扱わない。
  *
  * 利用者（いずれもテストで作るロール。ロール名は admin ではない）:
  * - MEMBER: 実行予算・発注・出来高・原価・月次締めの権限だけを持ち、全案件閲覧の権限を持たない
@@ -940,9 +940,13 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
     });
 
     /**
+     * 契約の照合はサービスが判定し、処理の後に記録する（タスク18.2。design.md の 2026-10-29 の追加の章の
+     * 「決定」）。契約の論理削除は不在と扱い記録しない
+     *
      * @requirement execution-budget-management/REQ-20.4
+     * @requirement execution-budget-management/REQ-20.9
      */
-    it('経路・要求本文の契約が経路の案件に属さなければ、存在しない契約と同じ 404 になり、実行予算を作らず変更契約を反映しない', async () => {
+    it('経路・要求本文の契約が経路の案件に属さなければ、存在しない契約と同じ 404 になり、実行予算を作らず変更契約を反映せず、契約の案件が範囲外の利用者だけ要求ごとに記録が 1 件増える', async () => {
       const fresh = await prisma.project.create({
         data: {
           name: `${MARK}-no-budget`,
@@ -988,12 +992,24 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
         },
       ];
 
+      // 案件 other が範囲外の工事担当者だけ、食い違いの要求の数だけ記録が増え（対象は案件 other）、
+      // 案件 other も範囲内の全案件閲覧の利用者は増えない。存在しない契約は誰でも記録しない（20.9）
+      const expectedIncrease = new Map([
+        [construction.id, 1],
+        [readAll.id, 0],
+      ]);
       const beforeTarget = await snapshot(target);
+      const beforeOther = await snapshot(other);
+      const deniedOtherBeforeOfConstruction = await deniedCount(construction, other.projectId);
       for (const user of [construction, readAll]) {
         for (const { build, crossedId } of cases) {
+          const beforeMissing = await deniedCount(user);
           const missing = await send(user, build(MISSING_ID));
-          const crossed = await send(user, build(crossedId));
           const label = build(crossedId).path;
+          expect((await deniedCount(user)) - beforeMissing, `${label}: 不在は記録しない`).toBe(0);
+          const deniedBeforeOfUser = await deniedCount(user);
+          const deniedOtherBeforeOfUser = await deniedCount(user, other.projectId);
+          const crossed = await send(user, build(crossedId));
           expect(missing.status, label).toBe(404);
           expect(crossed.status, label).toBe(404);
           expect(crossed.body.code, label).toBe(missing.body.code);
@@ -1001,10 +1017,74 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
             normalize(missing.body, MISSING_ID)
           );
           expect(JSON.stringify(crossed.body), label).not.toContain(other.projectId);
+          const increase = expectedIncrease.get(user.id);
+          expect((await deniedCount(user)) - deniedBeforeOfUser, `${label}: 記録の増分`).toBe(
+            increase
+          );
+          expect(
+            (await deniedCount(user, other.projectId)) - deniedOtherBeforeOfUser,
+            `${label}: 記録の対象は契約の案件`
+          ).toBe(increase);
         }
       }
+      // 工事担当者の記録は 3 経路（作成・項目差分・反映）で 3 件
+      expect(
+        (await deniedCount(construction, other.projectId)) - deniedOtherBeforeOfConstruction
+      ).toBe(3);
       expect(await prisma.executionBudget.count({ where: { projectId: fresh.id } })).toBe(0);
       expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(await snapshot(other)).toEqual(beforeOther);
+
+      // 範囲内の他の案件の契約と、範囲外の案件の論理削除済みの契約は、工事担当者でも記録しない。
+      // 応答は存在しない契約と同じ 404 のまま
+      const sibling = await createFixture('contract-sibling', {
+        salesPersonId: outsider.id,
+        constructionPersonId: construction.id,
+        createdById: outsider.id,
+      });
+      const deletedContracts = await createFixture('deleted-contracts', {
+        salesPersonId: outsider.id,
+        createdById: outsider.id,
+      });
+      await prisma.contract.updateMany({
+        where: { id: { in: [deletedContracts.contractId, deletedContracts.amendmentContractId] } },
+        data: { deletedAt: new Date() },
+      });
+      const unrecorded: Array<{ fixture: Fixture; label: string }> = [
+        { fixture: sibling, label: '範囲内の他の案件の契約' },
+        { fixture: deletedContracts, label: '範囲外の案件の論理削除済みの契約' },
+      ];
+      const beforeUnrecorded = await Promise.all(
+        [target, sibling, deletedContracts].map((fixture) => snapshot(fixture))
+      );
+      for (const { fixture, label } of unrecorded) {
+        const crossedIds = [
+          fixture.contractId,
+          fixture.amendmentContractId,
+          fixture.amendmentContractId,
+        ];
+        for (let i = 0; i < cases.length; i += 1) {
+          const { build } = cases[i]!;
+          const crossedId = crossedIds[i]!;
+          const where = `${label}: ${build(crossedId).path}`;
+          const missing = await send(construction, build(MISSING_ID));
+          const deniedBeforeOfUser = await deniedCount(construction);
+          const crossed = await send(construction, build(crossedId));
+          expect(crossed.status, where).toBe(404);
+          expect(crossed.body.code, where).toBe(missing.body.code);
+          expect(normalize(crossed.body, crossedId), where).toEqual(
+            normalize(missing.body, MISSING_ID)
+          );
+          expect(
+            (await deniedCount(construction)) - deniedBeforeOfUser,
+            `${where}: 記録しない`
+          ).toBe(0);
+        }
+      }
+      expect(
+        await Promise.all([target, sibling, deletedContracts].map((fixture) => snapshot(fixture)))
+      ).toEqual(beforeUnrecorded);
+      expect(await prisma.executionBudget.count({ where: { projectId: fresh.id } })).toBe(0);
 
       // 対照: 同じ案件の契約なら、関係者は実行予算を作成できる（20.1・17.2）
       const ownContractId = await createContract(

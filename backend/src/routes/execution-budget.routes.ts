@@ -31,6 +31,7 @@ import {
   requireExecutionBudgetItemInProject,
   requireExecutionBudgetProjectScope,
 } from '../middleware/execution-budget-project-scope.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createExecutionBudgetSchema,
@@ -82,7 +83,13 @@ router.post(
 
       const { contractId } = req.validatedBody as CreateExecutionBudgetInput;
 
-      const budget = await executionBudgetService.create(projectId, contractId);
+      // 他の案件の契約の案件が範囲外なら、サービスが処理の後に記録する（Requirement 20.9、タスク18.2）
+      const budget = await executionBudgetService.create(
+        projectId,
+        contractId,
+        req.user?.userId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         { projectId, budgetId: budget.id, userId: req.user?.userId },
@@ -311,7 +318,13 @@ router.get(
         return;
       }
 
-      const result = await executionBudgetService.getAmendmentDiff(projectId, contractId);
+      // 他の案件の契約の案件が範囲外なら、サービスが処理の後に記録する（Requirement 20.9、タスク18.2）
+      const result = await executionBudgetService.getAmendmentDiff(
+        projectId,
+        contractId,
+        req.user?.userId,
+        projectScopeDenialContextOf(req)
+      );
 
       res.json(result);
     } catch (error) {
@@ -361,7 +374,13 @@ router.post(
 
       const { contractId } = req.validatedBody as ApplyAmendmentInput;
 
-      const result = await executionBudgetService.applyAmendment(projectId, contractId);
+      // 他の案件の契約の案件が範囲外なら、サービスが処理の後に記録する（Requirement 20.9、タスク18.2）
+      const result = await executionBudgetService.applyAmendment(
+        projectId,
+        contractId,
+        req.user?.userId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         { projectId, contractId, userId: req.user?.userId },

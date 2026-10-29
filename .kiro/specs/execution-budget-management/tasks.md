@@ -436,7 +436,7 @@
   - _Requirements: 20.9_
   - _Boundary: requireChildInProject と requireBodyExecutionBudgetItemsInProject と、それらの記録を主張する本スペックのテスト_
 
-- [ ] 18.2 契約の所属の照合で、他の案件の契約の案件が範囲外なら記録する
+- [x] 18.2 契約の所属の照合で、他の案件の契約の案件が範囲外なら記録する
   - `ExecutionBudgetService` に注入できる `projectScope`（既定は user-authentication の共有のインスタンスの `evaluateProjectAccess`）と監査の記録の手段を足し、`create`・`getAmendmentDiff`・`applyAmendment` が実行者の ID と要求の識別（経路が `projectScopeDenialContextOf` で切り出す）を受け取るようにする。呼び出し元の経路（backend/src/routes/execution-budget.routes.ts の実行予算の作成・変更契約の項目差分・変更契約の反映）が渡す
   - 契約が実在し論理削除されておらず、契約の案件が経路の `projectId` と食い違うときだけ契約の案件を判定し、範囲外なら処理の後に `withSurveyScopeDenialRecording` で 1 回記録する（トランザクションの外で書く）。応答は判定の結果に関わらず従来どおりの契約の不在の例外（`ContractNotFoundForBudgetError`・`AmendmentContractNotFoundError`）とし、何も書き込まない。契約の不在・論理削除は記録しない。契約の種別と見積書の有無は記録の条件に含めない（design.md の同章の「決定」）
   - 既存の単体テスト（backend/src/__tests__/unit/services/execution-budget.service.test.ts）の他の案件の契約の扱いの主張が判定の模擬を要するかを着手時に確かめ、要すれば主張を消さずに模擬を足す。統合テストの「経路・要求本文の契約が経路の案件に属さなければ、存在しない契約と同じ 404 になり」（800 行付近）に、工事担当者で記録が 3 件増え（対象は案件 other）、全案件閲覧の権限の利用者と存在しない契約で増えないことの主張を足し、範囲外の案件の論理削除済みの契約で増えないことを足す。被覆の印 `@requirement execution-budget-management/REQ-20.9` を置く

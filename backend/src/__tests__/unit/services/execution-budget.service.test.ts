@@ -13,12 +13,14 @@
  * Task 2.2: 実行予算の取得・削除・編集サービス実装
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import {
   ExecutionBudgetService,
   type ExecutionBudgetServiceDependencies,
 } from '../../../services/execution-budget.service.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
+import type { ProjectScopeService } from '../../../services/project-scope.service.js';
+import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import {
   ExecutionBudgetAlreadyExistsError,
   ContractNotFoundForBudgetError,
@@ -2739,5 +2741,207 @@ describe('ExecutionBudgetService', () => {
         })
       );
     });
+  });
+});
+
+// execution-budget-management タスク18.2（Requirement 20.9。user-authentication の要件39.8 の適用）
+describe('ExecutionBudgetService - 他の案件の契約の範囲外の記録', () => {
+  const otherProjectId = '550e8400-e29b-41d4-a716-446655449999';
+  const actorId = 'actor-1';
+  const scopeDenialContext = {
+    requestId: 'req-1',
+    method: 'POST',
+    path: `/api/projects/${projectId}/execution-budget`,
+    ipAddress: '127.0.0.1',
+    userAgent: 'vitest',
+  };
+  const budget = { id: createdBudgetId, projectId, contractId, deletedAt: null };
+
+  let mockTx: ReturnType<typeof createMockTx>;
+  let evaluateProjectAccess: Mock<ProjectScopeService['evaluateProjectAccess']>;
+  let createLog: Mock<IAuditLogService['createLog']>;
+  let service: ExecutionBudgetService;
+
+  beforeEach(() => {
+    const mocks = createMockPrisma();
+    mockTx = mocks.mockTx;
+    evaluateProjectAccess = vi.fn<ProjectScopeService['evaluateProjectAccess']>();
+    createLog = vi
+      .fn<IAuditLogService['createLog']>()
+      .mockResolvedValue({} as Awaited<ReturnType<IAuditLogService['createLog']>>);
+    service = new ExecutionBudgetService({
+      prisma: mocks.prisma,
+      projectScope: { evaluateProjectAccess },
+      auditLogService: { createLog },
+    });
+  });
+
+  /** 3 つの照合の経路。契約の読み出しの前提を整え、契約の不在の例外を待つ */
+  const routes: Array<{
+    name: string;
+    contractOf: (projectIdOfContract: string, deletedAt: Date | null) => Record<string, unknown>;
+    run: (svc: ExecutionBudgetService) => Promise<unknown>;
+    error: new (...args: never[]) => Error;
+    arrange: (tx: ReturnType<typeof createMockTx>) => void;
+  }> = [
+    {
+      name: 'create',
+      // 見積書の無い契約でも条件に含めない（design.md の 2026-10-29 の追加の章の「決定」）
+      contractOf: (owner, deletedAt) => ({ ...mockContract, projectId: owner, deletedAt }),
+      run: (svc) => svc.create(projectId, contractId, actorId, scopeDenialContext),
+      error: ContractNotFoundForBudgetError,
+      arrange: (tx) => tx.executionBudget.findFirst.mockResolvedValue(null),
+    },
+    {
+      name: 'getAmendmentDiff',
+      contractOf: (owner, deletedAt) => ({
+        id: contractId,
+        projectId: owner,
+        contractType: 'AMENDMENT',
+        estimateId: 'est-amendment',
+        deletedAt,
+      }),
+      run: (svc) => svc.getAmendmentDiff(projectId, contractId, actorId, scopeDenialContext),
+      error: AmendmentContractNotFoundError,
+      arrange: (tx) => tx.executionBudget.findFirst.mockResolvedValue(budget),
+    },
+    {
+      name: 'applyAmendment',
+      contractOf: (owner, deletedAt) => ({
+        id: contractId,
+        projectId: owner,
+        contractType: 'AMENDMENT',
+        estimateId: 'est-amendment',
+        deletedAt,
+        estimate: { name: '他の案件の変更見積書' },
+      }),
+      run: (svc) => svc.applyAmendment(projectId, contractId, actorId, scopeDenialContext),
+      error: AmendmentContractNotFoundError,
+      arrange: (tx) => tx.executionBudget.findFirst.mockResolvedValue(budget),
+    },
+  ];
+
+  describe.each(routes)('$name', ({ contractOf, run, error, arrange }) => {
+    it('契約の案件が範囲外なら、契約の不在と同じ例外を投げ、処理の後に契約の案件を 1 回記録する', async () => {
+      arrange(mockTx);
+      mockTx.contract.findUnique.mockResolvedValue(contractOf(otherProjectId, null));
+      evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      await expect(run(service)).rejects.toThrow(error);
+
+      expect(evaluateProjectAccess).toHaveBeenCalledWith(actorId, otherProjectId);
+      expect(createLog).toHaveBeenCalledTimes(1);
+      expect(createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId,
+          targetType: 'Project',
+          targetId: otherProjectId,
+          metadata: expect.objectContaining({
+            requestId: 'req-1',
+            method: 'POST',
+            path: scopeDenialContext.path,
+          }),
+        })
+      );
+      expect(mockTx.executionBudget.create).not.toHaveBeenCalled();
+      expect(mockTx.amendmentApplyHistory.create).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, 'allowed' | 'not_found']>([
+      ['範囲内の他の案件', 'allowed'],
+      ['案件の不在・論理削除', 'not_found'],
+    ])('契約の案件が%sなら、契約の不在と同じ例外を投げ、記録しない', async (_label, decision) => {
+      arrange(mockTx);
+      mockTx.contract.findUnique.mockResolvedValue(contractOf(otherProjectId, null));
+      evaluateProjectAccess.mockResolvedValue(decision);
+
+      await expect(run(service)).rejects.toThrow(error);
+
+      expect(evaluateProjectAccess).toHaveBeenCalledWith(actorId, otherProjectId);
+      expect(createLog).not.toHaveBeenCalled();
+    });
+
+    it('契約が論理削除済みなら、範囲外の案件の契約でも判定せず記録しない', async () => {
+      arrange(mockTx);
+      mockTx.contract.findUnique.mockResolvedValue(contractOf(otherProjectId, new Date()));
+      evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      await expect(run(service)).rejects.toThrow(error);
+
+      expect(evaluateProjectAccess).not.toHaveBeenCalled();
+      expect(createLog).not.toHaveBeenCalled();
+    });
+
+    it('契約が存在しなければ、判定せず記録しない', async () => {
+      arrange(mockTx);
+      mockTx.contract.findUnique.mockResolvedValue(null);
+
+      await expect(run(service)).rejects.toThrow(error);
+
+      expect(evaluateProjectAccess).not.toHaveBeenCalled();
+      expect(createLog).not.toHaveBeenCalled();
+    });
+  });
+
+  it('見積書の無い他の案件の契約でも、案件が範囲外なら記録する（見積書の有無は条件に含めない）', async () => {
+    mockTx.executionBudget.findFirst.mockResolvedValue(null);
+    mockTx.contract.findUnique.mockResolvedValue({
+      ...mockContract,
+      projectId: otherProjectId,
+      estimateId: null,
+    });
+    evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+    await expect(
+      service.create(projectId, contractId, actorId, scopeDenialContext)
+    ).rejects.toThrow(ContractNotFoundForBudgetError);
+
+    expect(createLog).toHaveBeenCalledTimes(1);
+    expect(createLog).toHaveBeenCalledWith(expect.objectContaining({ targetId: otherProjectId }));
+  });
+
+  it('変更契約でない他の案件の契約でも、案件が範囲外なら記録する（契約の種別は条件に含めない）', async () => {
+    mockTx.executionBudget.findFirst.mockResolvedValue(budget);
+    mockTx.contract.findUnique.mockResolvedValue({
+      id: contractId,
+      projectId: otherProjectId,
+      contractType: 'NEW',
+      estimateId,
+      deletedAt: null,
+    });
+    evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+    await expect(
+      service.getAmendmentDiff(projectId, contractId, actorId, scopeDenialContext)
+    ).rejects.toThrow(AmendmentContractNotFoundError);
+
+    expect(createLog).toHaveBeenCalledTimes(1);
+    expect(createLog).toHaveBeenCalledWith(expect.objectContaining({ targetId: otherProjectId }));
+  });
+
+  it('経路の案件の契約なら、判定も記録もせずに実行予算を作成する', async () => {
+    mockTx.executionBudget.findFirst.mockResolvedValue(null);
+    mockTx.contract.findUnique.mockResolvedValue(mockContract);
+    mockTx.estimate.findUnique.mockResolvedValue({ id: estimateId, projectId, items: [] });
+    mockTx.executionBudget.create.mockResolvedValue(mockCreatedBudget);
+
+    await service.create(projectId, contractId, actorId, scopeDenialContext);
+
+    expect(evaluateProjectAccess).not.toHaveBeenCalled();
+    expect(createLog).not.toHaveBeenCalled();
+  });
+
+  it('実行者が渡されなければ（経路の外からの呼び出し）、判定も記録もしない', async () => {
+    mockTx.executionBudget.findFirst.mockResolvedValue(null);
+    mockTx.contract.findUnique.mockResolvedValue({ ...mockContract, projectId: otherProjectId });
+    evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+    await expect(service.create(projectId, contractId)).rejects.toThrow(
+      ContractNotFoundForBudgetError
+    );
+
+    expect(evaluateProjectAccess).not.toHaveBeenCalled();
+    expect(createLog).not.toHaveBeenCalled();
   });
 });
