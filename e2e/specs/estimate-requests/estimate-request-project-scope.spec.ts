@@ -476,6 +476,92 @@ test.describe('見積依頼・受領見積書・ステータスの案件の閲�
   });
 
   /**
+   * 作成の要求が指す内訳書が経路のプロジェクトに属さなければ、範囲の内外にかかわらず内訳書の不在と
+   * 同じ 404 で拒否し、内訳書の案件が範囲外のときだけ記録する（estimate-request タスク104.1）。
+   *
+   * @requirement estimate-request/REQ-42.10
+   */
+  test('見積依頼の作成の要求が範囲内の他のプロジェクトの内訳書を指すと、存在しない内訳書と同じ 404 になり、見積依頼は作成されず範囲外のときだけ記録される', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const partnerId = await createTradingPartner();
+    const target = await createFixture(
+      'belong-own',
+      { salesPersonId: owner.id, createdById: owner.id },
+      partnerId
+    );
+    const sibling = await createFixture(
+      'belong-sibling',
+      { salesPersonId: owner.id, createdById: owner.id },
+      partnerId
+    );
+    const foreign = await createFixture(
+      'belong-foreign',
+      { salesPersonId: other.id, createdById: other.id },
+      partnerId
+    );
+    const beforeTarget = await snapshot(target.projectId);
+    const beforeSibling = await snapshot(sibling.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+    const create = (itemizedStatementId: string) =>
+      request.post(`${API_BASE_URL}/api/projects/${target.projectId}/estimate-requests`, {
+        headers,
+        data: { name: 'cross-project', tradingPartnerId: partnerId, itemizedStatementId },
+      });
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      getPrismaClient().auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+
+    // 不在の内訳書: 404 で記録しない
+    const missingBefore = await deniedCount();
+    const missing = await create(MISSING_ID);
+    expect(missing.status()).toBe(404);
+    const missingBody = withoutInstance((await missing.json()) as Record<string, unknown>);
+    expect((await deniedCount()) - missingBefore, '不在の内訳書は記録しない').toBe(0);
+
+    // 範囲内の他のプロジェクトの内訳書: 不在と同じ 404 で、見積依頼を作らず記録しない
+    const siblingBefore = await deniedCount();
+    const crossed = await create(sibling.itemizedStatementId);
+    expect(crossed.status()).toBe(404);
+    const crossedBody = withoutInstance((await crossed.json()) as Record<string, unknown>);
+    expect(crossedBody.code).toBe('NOT_FOUND');
+    expect(crossedBody, '内訳書の不在と同じ本文').toEqual(missingBody);
+    expect(JSON.stringify(crossedBody)).not.toContain(sibling.projectId);
+    expect(JSON.stringify(crossedBody)).not.toContain(sibling.itemizedStatementId);
+    expect((await deniedCount()) - siblingBefore, '範囲内の食い違いは記録しない').toBe(0);
+    expect(await snapshot(target.projectId), '見積依頼は作成されない').toEqual(beforeTarget);
+
+    // 範囲外のプロジェクトの内訳書: 不在と同じ 404 で、内訳書の案件を対象に 1 件記録する
+    const allBefore = await deniedCount();
+    const foreignBefore = await deniedCount(foreign.projectId);
+    const outOfScope = await create(foreign.itemizedStatementId);
+    expect(outOfScope.status()).toBe(404);
+    expect(
+      withoutInstance((await outOfScope.json()) as Record<string, unknown>),
+      '内訳書の不在と同じ本文'
+    ).toEqual(missingBody);
+    expect((await deniedCount()) - allBefore, '記録は 1 件だけ増える').toBe(1);
+    expect(
+      (await deniedCount(foreign.projectId)) - foreignBefore,
+      '記録の対象は内訳書の実際の案件'
+    ).toBe(1);
+
+    expect(await snapshot(target.projectId)).toEqual(beforeTarget);
+    expect(await snapshot(sibling.projectId)).toEqual(beforeSibling);
+    expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+
+  /**
    * @requirement estimate-request/REQ-42.1
    * @requirement estimate-request/REQ-42.6
    */

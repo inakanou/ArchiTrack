@@ -147,6 +147,17 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
     return ['Authorization', `Bearer ${user.token}`];
   }
 
+  /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+  function deniedCount(user: TestUser, targetId?: string): Promise<number> {
+    return prisma.auditLog.count({
+      where: {
+        action: 'PROJECT_SCOPE_DENIED',
+        actorId: user.id,
+        ...(targetId ? { targetId } : {}),
+      },
+    });
+  }
+
   function withoutInstance(body: Record<string, unknown>): Record<string, unknown> {
     const { instance: _instance, ...rest } = body;
     return rest;
@@ -776,11 +787,15 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       const beforeTarget = await snapshot(target);
       const beforeOther = await snapshot(other);
 
+      const missingBefore = await deniedCount(sales);
       const missing = await request(app)
         .post(`/api/projects/${target.projectId}/estimate-requests`)
         .set(...auth(sales))
         .send({ name: `${MARK}-cross`, tradingPartnerId, itemizedStatementId: MISSING_ID })
         .expect(404);
+      expect((await deniedCount(sales)) - missingBefore, '内訳書の不在は記録しない').toBe(0);
+      const foreignBefore = await deniedCount(sales);
+      const foreignTargetBefore = await deniedCount(sales, other.projectId);
       const foreign = await request(app)
         .post(`/api/projects/${target.projectId}/estimate-requests`)
         .set(...auth(sales))
@@ -795,9 +810,76 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       const exposed = JSON.stringify(withoutInstance(foreign.body));
       expect(exposed).not.toContain(other.projectId);
       expect(exposed).not.toContain(other.itemizedStatementId);
+      // 範囲外の内訳書は内訳書の案件を対象に 1 件だけ記録する（42.4・42.10）
+      expect((await deniedCount(sales)) - foreignBefore, '記録は 1 件だけ増える').toBe(1);
+      expect(
+        (await deniedCount(sales, other.projectId)) - foreignTargetBefore,
+        '記録の対象は内訳書の実際の案件'
+      ).toBe(1);
 
       expect(await snapshot(target)).toEqual(beforeTarget);
       expect(await snapshot(other)).toEqual(beforeOther);
+    });
+
+    /**
+     * 範囲内の他のプロジェクトの内訳書を指す作成は、存在しない内訳書と同じ 404 で拒否し、
+     * 見積依頼を作成せず記録もしない（estimate-request タスク104.1）。全案件閲覧の権限の利用者には
+     * target と other の両方が範囲内である。
+     *
+     * @requirement estimate-request/REQ-42.10
+     */
+    it('作成の要求が範囲内の他のプロジェクトの内訳書を指すと、存在しない内訳書と同じ 404 になり、見積依頼を作成せず記録もしない', async () => {
+      const beforeTarget = await snapshot(target);
+      const beforeOther = await snapshot(other);
+      const path = `/api/projects/${target.projectId}/estimate-requests`;
+
+      const missing = await request(app)
+        .post(path)
+        .set(...auth(readAll))
+        .send({ name: `${MARK}-sibling-cross`, tradingPartnerId, itemizedStatementId: MISSING_ID })
+        .expect(404);
+      const deniedBefore = await deniedCount(readAll);
+      const sibling = await request(app)
+        .post(path)
+        .set(...auth(readAll))
+        .send({
+          name: `${MARK}-sibling-cross`,
+          tradingPartnerId,
+          itemizedStatementId: other.itemizedStatementId,
+        })
+        .expect(404);
+      expect(sibling.body.code).toBe('NOT_FOUND');
+      expect(withoutInstance(sibling.body)).toEqual(withoutInstance(missing.body));
+      expect(JSON.stringify(withoutInstance(sibling.body))).not.toContain(
+        other.itemizedStatementId
+      );
+      expect((await deniedCount(readAll)) - deniedBefore, '範囲内の食い違いは記録しない').toBe(0);
+      expect(
+        await prisma.estimateRequest.count({ where: { name: `${MARK}-sibling-cross` } }),
+        '見積依頼を作成しない'
+      ).toBe(0);
+
+      expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(await snapshot(other)).toEqual(beforeOther);
+
+      // 同じプロジェクトの内訳書を指す作成は従来どおり通る
+      const created = await request(app)
+        .post(path)
+        .set(...auth(readAll))
+        .send({
+          name: `${MARK}-same-project`,
+          tradingPartnerId,
+          itemizedStatementId: target.itemizedStatementId,
+        })
+        .expect(201);
+      const stored = await prisma.estimateRequest.findUniqueOrThrow({
+        where: { id: created.body.id as string },
+        select: { projectId: true, itemizedStatementId: true },
+      });
+      expect(stored).toEqual({
+        projectId: target.projectId,
+        itemizedStatementId: target.itemizedStatementId,
+      });
     });
 
     /**

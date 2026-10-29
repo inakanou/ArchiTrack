@@ -14,6 +14,10 @@
  *   （論理削除の 404 など）が返る
  * - 二重マウント（`/api/projects/:projectId/estimate-requests/:id`）で経路の案件 ID と見積依頼の案件が
  *   食い違うときは、見積依頼の不在と同じ 404 にする（経路の案件 ID でなく対象が属する案件で判定する）
+ * - 見積依頼の作成の要求が指す内訳書が経路の案件（`projectId`）に属さないときは、範囲の内外にかかわらず
+ *   内訳書の不在と同じ 404 にする。解決関数は上流の `projectMismatch`（内訳書の実際の案件 ID）を返し、
+ *   内訳書の案件が範囲外のときだけ PROJECT_SCOPE_DENIED が記録される（範囲内の他の案件の内訳書は記録しない。
+ *   タスク104.1、42.10）。内訳書の不在は従来どおり null で記録しない。内訳書の論理削除は区別しない
  * - 項目の選択の保存（42.5）は、対象の見積依頼の案件を判定して範囲外なら要求全体を 404 にする。項目は
  *   見積依頼の ID で絞って更新するため、範囲内の見積依頼の要求で他の見積依頼の項目は変わらない
  */
@@ -23,6 +27,7 @@ import getPrismaClient from '../db.js';
 import {
   requireProjectScope,
   projectIdFromParam,
+  projectMismatch,
   type ProjectIdResolver,
   type ProjectScopeGuardOptions,
 } from './project-scope.middleware.js';
@@ -115,7 +120,9 @@ export function requireReceivedQuotationProjectScope(
 
 /**
  * 見積依頼の作成の要求が指す内訳書の案件の範囲を判定する（42.4）。本文の検査の後に置く。
- * 内訳書を指さない要求（内訳書なしの作成）は判定せずに通す。内訳書の不在と範囲外は同じ汎用の 404
+ * 内訳書を指さない要求（内訳書なしの作成）は判定せずに通す。内訳書の不在と範囲外は同じ汎用の 404。
+ * 経路に案件 ID（`projectId`）があり内訳書の案件と食い違うときも内訳書の不在と同じ 404 にし、
+ * 内訳書の案件が範囲外なら記録する（42.10）
  */
 export function requireBodyItemizedStatementProjectScope(
   fieldName: string,
@@ -123,7 +130,16 @@ export function requireBodyItemizedStatementProjectScope(
 ): RequestHandler {
   const guard = requireProjectScope(async (req) => {
     const id = nonEmptyString(bodyOf(req)[fieldName]);
-    return id === null ? null : findProjectIdOfItemizedStatement(id);
+    if (id === null) {
+      return null;
+    }
+    const projectId = await findProjectIdOfItemizedStatement(id);
+    const addressedProjectId = nonEmptyString(req.params.projectId);
+    if (projectId !== null && addressedProjectId !== null && addressedProjectId !== projectId) {
+      // 食い違い（42.10）: 内訳書の実際の案件を返し、範囲外のときだけ上流の判定部品が記録する
+      return projectMismatch(projectId);
+    }
+    return projectId;
   }, options);
   return (req, res, next) => {
     if (nonEmptyString(bodyOf(req)[fieldName]) === null) {

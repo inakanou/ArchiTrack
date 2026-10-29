@@ -32,6 +32,7 @@ import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
 const USER_ID = 'user-1';
 const DECISIONS: Record<string, ProjectAccessDecision> = {
   'project-in-scope': 'allowed',
+  'project-sibling-in-scope': 'allowed',
   'project-out-of-scope': 'out_of_scope',
 };
 
@@ -216,5 +217,61 @@ describe('作成の要求が指す内訳書の判定（42.4）', () => {
     expect(outOfScope.body.detail).toBe(missing.body.detail);
     expect(JSON.stringify(outOfScope.body)).not.toContain('is-2');
     expect(reached).toHaveBeenCalledTimes(3);
+  });
+
+  it('経路のプロジェクトに属さない内訳書は範囲の内外にかかわらず不在と同じ汎用の 404 にし、範囲外のときだけ記録する（42.10）', async () => {
+    const scope = fakeScope();
+    const { app, reached } = buildApp(
+      'post',
+      ['/projects/:projectId/estimate-requests'],
+      requireBodyItemizedStatementProjectScope('itemizedStatementId', {
+        scopeService: scope,
+        auditLogService: audit,
+      })
+    );
+    const path = '/projects/project-in-scope/estimate-requests';
+
+    // 経路のプロジェクトと同じ案件の内訳書は通る
+    mockPrisma.itemizedStatement.findUnique.mockResolvedValueOnce({
+      projectId: 'project-in-scope',
+    });
+    await request(app).post(path).send({ itemizedStatementId: 'is-1' }).expect(200);
+    expect(reached).toHaveBeenCalledTimes(1);
+
+    // 内訳書の不在: 汎用の 404 で記録しない
+    mockPrisma.itemizedStatement.findUnique.mockResolvedValueOnce(null);
+    const missing = await request(app).post(path).send({ itemizedStatementId: 'is-0' }).expect(404);
+    expectGenericNotFound(missing.body);
+
+    // 範囲内の他のプロジェクトの内訳書: 不在と同じ汎用の 404 で記録しない
+    mockPrisma.itemizedStatement.findUnique.mockResolvedValueOnce({
+      projectId: 'project-sibling-in-scope',
+    });
+    const sibling = await request(app)
+      .post(path)
+      .send({ itemizedStatementId: 'is-sibling' })
+      .expect(404);
+    expectGenericNotFound(sibling.body);
+    expect(sibling.body.detail).toBe(missing.body.detail);
+    expect(JSON.stringify(sibling.body)).not.toContain('is-sibling');
+    expect(audit.createLog).not.toHaveBeenCalled();
+
+    // 範囲外の他のプロジェクトの内訳書: 不在と同じ汎用の 404 で、内訳書の案件を対象に 1 件記録する
+    mockPrisma.itemizedStatement.findUnique.mockResolvedValueOnce({
+      projectId: 'project-out-of-scope',
+    });
+    const foreign = await request(app)
+      .post(path)
+      .send({ itemizedStatementId: 'is-foreign' })
+      .expect(404);
+    expectGenericNotFound(foreign.body);
+    expect(foreign.body.detail).toBe(missing.body.detail);
+    expect(audit.createLog).toHaveBeenCalledTimes(1);
+    expect(audit.createLog.mock.calls[0]?.[0]).toMatchObject({
+      action: 'PROJECT_SCOPE_DENIED',
+      targetId: 'project-out-of-scope',
+    });
+
+    expect(reached).toHaveBeenCalledTimes(1);
   });
 });
