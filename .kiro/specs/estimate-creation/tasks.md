@@ -1803,6 +1803,32 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Boundary: 見積書の出力のダイアログの出力の開始の処理_
   - _Depends: 62.1_
 
+## タスク63: プロジェクトの配下の経路の食い違いの記録（user-authentication の要件39.8 の適用。利用者の判断で起票、2026-10-29）
+
+**経緯**: user-authentication が要件39.8 を加え、経路の案件と対象の実際の案件が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（利用者の判断、2026-10-29「推奨案で進める」。同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の estimate-creation の行）。本スペックの判定部品（backend/src/middleware/estimate-creation-project-scope.middleware.ts の `requireEstimateProjectScope`、67〜71 行付近。行は同日の実測で、着手時に測り直すこと）は、二重マウント（`/api/projects/:projectId/estimates/:id` とその配下）の食い違いを不在として null を返し、範囲を判定せず記録しない。見積書そのものの食い違いの条文が無かったため、requirements.md に 57.9 を加え（応答と記録の両方）、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた。作成の要求が指す内訳書の所属（57.4）は、`EstimateService.create` の照合が既に要件39.8 の振る舞いを満たすため変えない（同章の「決定」）
+
+- [ ] 63.1 プロジェクトの配下の経路の食い違いで、見積書の実際の案件が範囲外なら記録する
+  - `requireEstimateProjectScope` の解決関数が、経路の `projectId` と見積書の案件が食い違うとき、null ではなく上流の `projectMismatch`（見積書の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えない。見積書の不在は従来どおり null で記録しない。見積書の論理削除は区別しない（design.md の同章の「決定」）。同ファイルの冒頭の注釈の食い違いの記述を改める。作成の要求が指す内訳書（57.4）の照合は変えない
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（`backend/src/__tests__/unit/middleware/estimate-creation-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と見積書の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にする」は、見積書の案件が範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改め、題名も改める。統合テスト（`backend/src/__tests__/integration/estimate-creation-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の案件と見積書の案件が食い違うと見積書の不在と同じ 404 にする」（範囲内どうしの食い違い）は条文どおりで変えず、記録しない理由の注釈を範囲内どうしの食い違いであるためと改め、範囲外の案件の見積書を範囲内の案件の経路で指すと読み込みと書き込みが 404 でデータが変わらず `PROJECT_SCOPE_DENIED` が増える（対象は見積書の実際の案件）テストを足す
+  - E2E（`e2e/specs/estimate/estimate-creation-project-scope.spec.ts` に新しいテスト）で、範囲外の案件の見積書を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えることを主張し、`@requirement estimate-creation/REQ-57.9` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、食い違いの要求が範囲外のときだけ記録され、どの場合も不在と同じ 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 57.9_
+  - _Boundary: requireEstimateProjectScope の解決関数と、食い違いの記録を主張する本スペックのテスト_
+
+## タスク64: 見積書の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 57.2 により閲覧範囲外の見積書・プロジェクトへの要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `EstimateDetailPage.tsx` は読み込みの失敗を一律に取得の失敗の固定の文言にし（1243 行付近）、再試行の釦を出す（1476 行付近）。同画面の削除は失敗で画面全体を削除の失敗の文言と再試行の釦へ置き換える（1388 行付近）。諸経費の計算（同画面の 1321 行付近から `OverheadCostPanel.tsx` の計算の処理、406 行付近）は失敗を捕まえず何も表示しない。`TransferQuotationDialog.tsx` は受領見積書の一覧の読み込みの失敗を無視する（325 行付近）。`EstimateListPage.tsx` は読み込みの失敗を一律に取得の失敗の固定の文言と再試行の釦にする（268 行付近）。`EstimateCreatePage.tsx` は内訳書の一覧の読み込みの失敗を無視し（208 行付近）、作成の失敗を一律に作成の失敗の固定の文言にする（246 行付近）。保存の 404 だけは `toSaveErrorMessage` が見積書が見つからない旨の日本語の文言を返す（614 行付近）。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に Requirement 58（58.1・58.2）を加え、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた
+
+- [ ] 64.1 見積書の一覧・新規作成・詳細の画面と作成・保存・削除・諸経費の計算の操作、転記のダイアログで、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンク（いずれの画面もプロジェクトの一覧）を表示し、取得の失敗の文言と再試行の釦を出さない。作成・削除・諸経費の計算の 404 では見つからない旨のメッセージを表示し（作成の `ITEMIZED_STATEMENT_NOT_FOUND` は内訳書、汎用の 404 はプロジェクト）、保存の 404 の既存の文言は保つ。転記のダイアログは受領見積書の一覧の読み込みの 404 で、受領見積書が無い場合の表示に代えて見つからない旨を表示する。409 と 404 以外の失敗の従来の文言は保つ。出力のダイアログは対象外（57.8）。文言の逐語は保存の 404 の文言を流儀として design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、各画面の読み込みの 404 の表示、各操作と転記のダイアログの 404 のメッセージ。404 以外の失敗の従来の文言は保つ）と E2E（担当外の利用者が見積書の詳細の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが出て存在しない見積書と同じ表示になる、範囲外のプロジェクトの一覧・新規作成の URL でプロジェクトが見つからない旨が出る、開いた後に論理的に取り除かれた見積書の削除と、開いた後に案件が閲覧範囲外になった見積書の諸経費の計算で見つからない旨のメッセージが出る）で主張し、`@requirement estimate-creation/REQ-58.1`・`REQ-58.2` の印を置く。保存の 404 は既存の単体テスト（`EstimateDetailPage.saveError.test.tsx`）が文言を固定しているかを確かめ、58.2 の印を置く
+  - 既存の E2E（`e2e/specs/estimate/estimate-creation-project-scope.spec.ts` の「担当外の利用者が見積書の URL を直接開くと存在しない見積書と同じ表示になり」）は、`main` の中の `role="alert"` の要素の本文を存在しない見積書と比べている。共通部品 `ResourceNotFound` がその役割を持たなければ、見つからない旨の表示どうしの比較へ改める（比較の主張は消さない）。`e2e/specs/estimate/estimate-creation-focus-visible.spec.ts` の取得の失敗・作成の失敗の本文のテストは 400 で差し替えており、404 以外の従来の表示として緑のままであることを確かめる。ほかに、変えた表示（取得の失敗・削除の失敗・作成の失敗の文言、再試行の釦、見つからない旨の文言）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、取得・操作の失敗の汎用の文言を出さず、404 を無視しない状態になる
+  - _Requirements: 58.1, 58.2_
+  - _Boundary: EstimateListPage, EstimateCreatePage, EstimateDetailPage, OverheadCostPanel, TransferQuotationDialog_
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。

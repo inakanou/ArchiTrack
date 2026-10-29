@@ -293,11 +293,15 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // 2026-10-27）。利用者の判断で新設した Requirement 57 の章「Requirement 57: 案件の閲覧範囲と出力の記録の適用」が
     // 部品表の 5 行（いずれも 57.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
     // 入ったため、締める向きへ動かした。矛盾の上限 45 は据え置き
-    minPairs: 39,
+    // minPairs 39 → 44 / minTableDeclarations 45 → 50（estimate-creation のタスク63・64 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 食い違いの記録・不在の表示」が
+    // 部品表の 5 行（57.9・58.1・58.2 を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの
+    // 母集団へ入ったため、締める向きへ動かした。矛盾の上限 45 は据え置き
+    minPairs: 44,
     // 36 → 40（estimate-creation のタスク 61.1、2026-10-10）。同タスクが design.md の末尾の章
     // 「追加設計（REQ-11.7 対応）」に部品表の 4 行（EstimateEditSession / EstimateEditSessionService /
     // useEstimateEditPresence / EstimateEditPresenceNotice、いずれも 11.7）を足したため、締める向きへ動かした
-    minTableDeclarations: 45,
+    minTableDeclarations: 50,
     minDetailDeclarations: 46,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
