@@ -5977,14 +5977,15 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
   - 判定と記録の実体は判定部品の側に一つだけ置き、解決関数を返す経路（`requireProjectScope`）と、解決関数を通らない独自の判定（`recordProjectMismatchIfOutOfScope`）の両方がそれを使う。`ProjectIdResolver` の戻り値は `string | null` を含む上位の型にするので、食い違いを扱わない既存の解決関数はそのまま型が合う
   - 一括の要求（本文の複数の ID が経路の案件に属するかを確かめる部品）は、属さない ID の実際の案件ごとに `recordProjectMismatchIfOutOfScope` を一度ずつ呼ぶ（同じ案件を重ねて記録しない）。一括へ広げるかは各 spec の判断とする
 - 食い違いの記録の各業務 spec への起票先（本 spec は上流の部品だけを持ち、各 spec の判定部品の切り替えと、記録しないことを主張する既存のテストの書き換えは各 spec のタスクで行う）:
-  - construction-schedule: `backend/src/middleware/construction-schedule-project-scope.middleware.ts` の `requireScheduleProjectScope`（13.4）
+  - construction-schedule: `backend/src/middleware/construction-schedule-project-scope.middleware.ts` の `requireScheduleProjectScope`（Requirement 13。工程表そのものの食い違いの条文は無く、各 spec の起票で足す。13.4 は作成時に指す数量表の所属で、経路の食い違いの条文ではない）
   - contract-management: `backend/src/middleware/contract-management-project-scope.middleware.ts` の `requireContractProjectScope`（14.4〜14.6。統合テストに範囲外の案件の契約書を指して記録の差 0 を主張するものがあり、条文どおりに書き換える）
-  - estimate-creation: `backend/src/middleware/estimate-creation-project-scope.middleware.ts` の `requireEstimateProjectScope`（57.4・57.5）
-  - itemized-statement-generation: `backend/src/middleware/itemized-statement-project-scope.middleware.ts` の `requireItemizedStatementProjectScope`（18.4・18.5）
+  - estimate-creation: `backend/src/middleware/estimate-creation-project-scope.middleware.ts` の `requireEstimateProjectScope`（Requirement 57。見積書そのものの食い違いの条文は無く、各 spec の起票で足す。57.4・57.5 は作成時に指す内訳書と一括保存の項目の所属で、経路の食い違いの条文ではない）
+  - itemized-statement-generation: `backend/src/middleware/itemized-statement-project-scope.middleware.ts` の `requireItemizedStatementProjectScope`（Requirement 18。食い違いの条文は無く、各 spec の起票で足す。18.4・18.5 は作成時に指す数量表と並び替えの項目の所属で、経路の食い違いの条文ではない）
   - estimate-request: `backend/src/middleware/estimate-request-project-scope.middleware.ts` の `requireEstimateRequestProjectScope`（Requirement 42。食い違いの条文が無く、各 spec の起票で足す）
   - quantity-table-generation: `backend/src/middleware/quantity-table-project-scope.middleware.ts` の `requireQuantityTableProjectScope`・`requireQuantityGroupProjectScope`・`requireQuantityItemProjectScope`（親の数量表・グループの食い違い。Requirement 50。食い違いの条文が無く、各 spec の起票で足す）
   - execution-budget-management: `backend/src/middleware/execution-budget-project-scope.middleware.ts` の独自部品 `requireChildInProject`（20.4。解決関数を通らないため `recordProjectMismatchIfOutOfScope` を使う）と、一括の `requireBodyExecutionBudgetItemsInProject`（20.5）
   - 各 spec の単体テスト（`backend/src/__tests__/unit/middleware/` の各 spec の `*-project-scope.middleware.test.ts`）に、食い違いを「範囲を判定せずに 404」「記録しない」と主張するものがあり、各 spec の切り替えで条文どおりに書き換える
+  - 訂正（2026-10-29、itemized-statement-generation の起票で判明）: 当初この一覧は construction-schedule を 13.4、estimate-creation を 57.4・57.5、itemized-statement-generation を 18.4・18.5 と書いていたが、いずれも作成時に指すデータの所属の条文で、経路の食い違いの条文ではなかったため、上の 3 行を改めた
 - 起票の対象から外す spec と理由: site-survey と construction-photo は、解決関数が経路の案件 ID を読まずに対象のデータから実際の案件を引いて判定し、経路との食い違いは後段のサービスで 404 にする。対象の実際の案件が範囲外なら判定部品が既に 39.7 として記録するため、39.8 の振る舞いを満たしており、切り替えは要らない。project-management は案件そのものの経路だけで、食い違いが生じない
 - 画面が 404 を受けたときの不在の表示（共通部品 `ResourceNotFound` を使うか、各画面の文言）は各業務 spec の画面の所管であり、本 spec はサーバーの応答（汎用の 404 `NOT_FOUND`、範囲外と不在で同じ本文）を変えない
 
