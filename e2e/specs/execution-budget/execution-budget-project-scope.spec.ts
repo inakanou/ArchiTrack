@@ -6,7 +6,10 @@
  * 範囲外を存在しない場合と同じ汎用の 404 にする。経路の実行予算項目・発注・出来高記録が経路の案件に属さなければ
  * 不在と同じ 404 にし、一括の要求は属さない項目が一つでも含まれれば全体を 404 にして書き込まない。
  *
- * 被覆する受入基準（execution-budget-management の Requirement 20.1〜20.6 と、改訂した Requirement 17.1・17.2）は
+ * 経路の案件と子・一括の項目の実際の案件が食い違い、実際の案件が範囲外なら、応答を変えずに範囲外の拒否として
+ * 記録する（20.9。タスク18.1、user-authentication の要件39.8 の本機能への適用）。
+ *
+ * 被覆する受入基準（execution-budget-management の Requirement 20.1〜20.6・20.9 と、改訂した Requirement 17.1・17.2）は
  * 各テストの `@requirement` の印が名乗る。出力の記録（20.7・20.8）はタスク17.2 の担当で、本ファイルは扱わない。
  *
  * 検証に使う案件・見積書・契約・実行予算はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、利用者はテストの中で
@@ -395,10 +398,15 @@ test.describe('実行予算・発注・出来高・原価・月次締めの案�
   });
 
   /**
+   * 他の案件（利用者にとって範囲外）の子・項目を指す要求は、応答は不在と同じ 404 のまま、子・項目の実際の
+   * 案件を対象に要求ごとに 1 件記録する（20.9）。存在しない ID の要求は記録しない
+   *
    * @requirement execution-budget-management/REQ-20.4
    * @requirement execution-budget-management/REQ-20.5
+   * @requirement execution-budget-management/REQ-20.9
+   * @requirement user-authentication/REQ-39.8
    */
-  test('自分の案件の経路で他の案件の発注・項目を指すと不在と同じ 404 になり、一括の要求に他の案件の項目が混じると全体が 404 で書き込まれない', async ({
+  test('自分の案件の経路で他の案件の発注・項目を指すと不在と同じ 404 になり、一括の要求に他の案件の項目が混じると全体が 404 で書き込まれず、範囲外の案件を対象に監査の記録が要求ごとに 1 件増える', async ({
     request,
   }) => {
     const owner = await createSessionUser('REGULAR_USER');
@@ -418,14 +426,46 @@ test.describe('実行予算・発注・出来高・原価・月次締めの案�
     const beforeForeign = await snapshot(foreign.projectId);
     const headers = await bearerFor(request, owner);
     const base = `${API_BASE_URL}/api/projects/${target.projectId}/execution-budget`;
+    const prisma = getPrismaClient();
 
-    // 子リソース: 他の案件の発注・項目・出来高記録は、存在しない ID と同じ 404
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象の案件を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+    /** 要求の前後で、記録が全体で increase 件、うち案件 foreign を対象に increase 件増えたことを確かめる */
+    const expectDenied = async <T>(
+      label: string,
+      increase: number,
+      call: () => Promise<T>
+    ): Promise<T> => {
+      const allBefore = await deniedCount();
+      const foreignBefore = await deniedCount(foreign.projectId);
+      const result = await call();
+      expect((await deniedCount()) - allBefore, `${label}: 記録の増分`).toBe(increase);
+      expect(
+        (await deniedCount(foreign.projectId)) - foreignBefore,
+        `${label}: 記録の対象は子・項目の実際の案件`
+      ).toBe(increase);
+      return result;
+    };
+
+    // 子リソース: 他の案件の発注・項目・出来高記録は、存在しない ID と同じ 404。
+    // 存在しない ID は記録せず、範囲外の案件の子は要求ごとに 1 件記録する
     for (const [crossedPath, missingPath] of [
       [`/orders/${foreign.orderId}`, `/orders/${MISSING_ID}`],
       [`/orders/${foreign.orderId}/export?format=xlsx`, `/orders/${MISSING_ID}/export?format=xlsx`],
     ] as const) {
-      const missing = await request.get(`${base}${missingPath}`, { headers });
-      const crossed = await request.get(`${base}${crossedPath}`, { headers });
+      const missing = await expectDenied(missingPath, 0, () =>
+        request.get(`${base}${missingPath}`, { headers })
+      );
+      const crossed = await expectDenied(crossedPath, 1, () =>
+        request.get(`${base}${crossedPath}`, { headers })
+      );
       expect(missing.status(), crossedPath).toBe(404);
       expect(crossed.status(), crossedPath).toBe(404);
       const crossedBody = (await crossed.json()) as Record<string, unknown>;
@@ -433,14 +473,23 @@ test.describe('実行予算・発注・出来高・原価・月次締めの案�
       expect(withoutInstance(crossedBody), crossedPath).toEqual(
         withoutInstance((await missing.json()) as Record<string, unknown>)
       );
+      expect(JSON.stringify(withoutInstance(crossedBody)), crossedPath).not.toContain(
+        foreign.projectId
+      );
     }
     const crossedWrites = [
-      await request.patch(`${base}/items/${foreign.itemIds[0]}/cost`, {
-        headers,
-        data: { currentMonthExpense: '777', version: 0 },
-      }),
-      await request.delete(`${base}/progress/${foreign.progressRecordId}`, { headers }),
-      await request.delete(`${base}/orders/${foreign.orderId}`, { headers }),
+      await expectDenied('項目の原価の入力', 1, () =>
+        request.patch(`${base}/items/${foreign.itemIds[0]}/cost`, {
+          headers,
+          data: { currentMonthExpense: '777', version: 0 },
+        })
+      ),
+      await expectDenied('出来高記録の削除', 1, () =>
+        request.delete(`${base}/progress/${foreign.progressRecordId}`, { headers })
+      ),
+      await expectDenied('発注の削除', 1, () =>
+        request.delete(`${base}/orders/${foreign.orderId}`, { headers })
+      ),
     ];
     for (const response of crossedWrites) {
       expect(response.status(), response.url()).toBe(404);
@@ -463,12 +512,23 @@ test.describe('実行予算・発注・出来高・原価・月次締めの案�
           ],
         },
       });
+    // 一括: 存在しない項目は記録せず、範囲外の案件の項目が混じる要求は案件ごとに 1 件記録する
+    // （同じ案件の項目が 2 件混じっても 1 件）
     for (const [missing, crossed] of [
       [
-        await updateOrderItems([target.itemIds[1], MISSING_ID]),
-        await updateOrderItems([target.itemIds[1], foreign.itemIds[0]]),
+        await expectDenied('チェック済み項目の更新（存在しない項目）', 0, () =>
+          updateOrderItems([target.itemIds[1], MISSING_ID])
+        ),
+        await expectDenied('チェック済み項目の更新（範囲外の案件の項目 2 件）', 1, () =>
+          updateOrderItems([target.itemIds[1], foreign.itemIds[0], foreign.itemIds[1]])
+        ),
       ],
-      [await saveProgress(MISSING_ID), await saveProgress(foreign.itemIds[0])],
+      [
+        await expectDenied('出来高の保存（存在しない項目）', 0, () => saveProgress(MISSING_ID)),
+        await expectDenied('出来高の保存（範囲外の案件の項目）', 1, () =>
+          saveProgress(foreign.itemIds[0])
+        ),
+      ],
     ] as const) {
       expect(missing.status(), crossed.url()).toBe(404);
       expect(crossed.status(), crossed.url()).toBe(404);

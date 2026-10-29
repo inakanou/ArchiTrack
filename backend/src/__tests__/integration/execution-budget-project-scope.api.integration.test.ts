@@ -5,14 +5,15 @@
  * 本物のアプリ（app.ts のルート・authenticate・requirePermission・requireProjectScope・共有の
  * ProjectScopeService と RBACService）とテスト用の実データベースを通す。
  *
- * 被覆する受入基準（execution-budget-management の Requirement 20.1〜20.6 と、改訂した Requirement 17.1〜17.6）は
- * 各 it の `@requirement` の印が名乗る。出力の記録（20.7・20.8）はタスク17.2 の担当で、本ファイルは扱わない。
+ * 被覆する受入基準（execution-budget-management の Requirement 20.1〜20.6・20.9〔子と一括の項目の食い違いの記録、
+ * タスク18.1〕と、改訂した Requirement 17.1〜17.6）は各 it の `@requirement` の印が名乗る。出力の記録（20.7・20.8）はタスク17.2 の担当で、本ファイルは扱わない。
  *
  * 利用者（いずれもテストで作るロール。ロール名は admin ではない）:
  * - MEMBER: 実行予算・発注・出来高・原価・月次締めの権限だけを持ち、全案件閲覧の権限を持たない
  * - READ_ALL: MEMBER の権限に全案件閲覧の権限（project:read_all）を加えたもの
  * - 案件 target の営業担当者・工事担当者・作成者（関係者）、担当外の利用者、全案件閲覧の利用者、権限なしの利用者
- * - 案件 other の営業担当者・作成者は担当外の利用者（他の案件の子リソースを用意するため）
+ * - 案件 other の営業担当者・作成者は担当外の利用者（他の案件の子リソースを用意するため）。工事担当者にとって
+ *   案件 other は範囲外、全案件閲覧の利用者にとっては範囲内である
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -162,6 +163,17 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
   function withoutInstance(body: Record<string, unknown>): Record<string, unknown> {
     const { instance: _instance, ...rest } = body;
     return rest;
+  }
+
+  /** 利用者が残した範囲外のアクセスの記録の件数（対象の案件を指定すればその案件だけ）。前後の差で数える */
+  function deniedCount(user: TestUser, targetId?: string): Promise<number> {
+    return prisma.auditLog.count({
+      where: {
+        action: 'PROJECT_SCOPE_DENIED',
+        actorId: user.id,
+        ...(targetId === undefined ? {} : { targetId }),
+      },
+    });
   }
 
   function send(user: TestUser, call: RouteCall): request.Test {
@@ -710,11 +722,12 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
     });
   });
 
-  describe('子リソースの所属の照合（20.4）', () => {
+  describe('子リソースの所属の照合（20.4・20.9）', () => {
     /**
      * @requirement execution-budget-management/REQ-20.4
+     * @requirement execution-budget-management/REQ-20.9
      */
-    it('経路の案件に属さない実行予算項目・発注・出来高記録は、存在しない ID と同じ 404 になり、どちらの案件のデータも変えない', async () => {
+    it('経路の案件に属さない実行予算項目・発注・出来高記録は、存在しない ID と同じ 404 になり、どちらの案件のデータも変えず、子の案件が範囲外の利用者だけ要求ごとに記録が 1 件増える', async () => {
       const beforeTarget = await snapshot(target);
       const beforeOther = await snapshot(other);
       const base = `/api/projects/${target.projectId}/execution-budget`;
@@ -767,10 +780,23 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
           ],
         ]);
 
-      // 案件 other が範囲外の関係者と、案件 other も範囲内の全案件閲覧の利用者のどちらでも同じ
+      // 案件 other が範囲外の関係者と、案件 other も範囲内の全案件閲覧の利用者のどちらでも応答は同じ。
+      // 記録は、案件 other が範囲外の工事担当者だけが食い違いの要求の数だけ増え（対象は案件 other）、
+      // 全案件閲覧の利用者は増えない。存在しない ID の要求は誰でも記録しない（20.9）
+      const expectedIncrease = new Map([
+        [construction.id, 1],
+        [readAll.id, 0],
+      ]);
       for (const user of [construction, readAll]) {
         for (const [crossed, missing] of pairs) {
+          const beforeMissing = await deniedCount(user);
           const missingResponse = await send(user, missing);
+          expect(
+            (await deniedCount(user)) - beforeMissing,
+            `${missing.method} ${missing.path}: 不在は記録しない`
+          ).toBe(0);
+          const deniedBeforeOfUser = await deniedCount(user);
+          const deniedOtherBeforeOfUser = await deniedCount(user, other.projectId);
           const response = await send(user, crossed);
           const label = `${crossed.method} ${crossed.path}`;
           expect(missingResponse.status, label).toBe(404);
@@ -782,16 +808,135 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
           expect(JSON.stringify(withoutInstance(response.body)), label).not.toContain(
             other.projectId
           );
+          const increase = expectedIncrease.get(user.id);
+          expect((await deniedCount(user)) - deniedBeforeOfUser, `${label}: 記録の増分`).toBe(
+            increase
+          );
+          expect(
+            (await deniedCount(user, other.projectId)) - deniedOtherBeforeOfUser,
+            `${label}: 記録の対象は子の実際の案件`
+          ).toBe(increase);
         }
       }
 
       expect(await snapshot(target)).toEqual(beforeTarget);
       expect(await snapshot(other)).toEqual(beforeOther);
-      // 所属しない子は不在の扱いであり、範囲外としては記録しない
-      const denied = await prisma.auditLog.count({
-        where: { action: 'PROJECT_SCOPE_DENIED', actorId: { in: [construction.id, readAll.id] } },
+      // 経路の案件 target は誰にとっても範囲内であり、記録の対象にならない
+      const deniedOnTarget = await prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: { in: [construction.id, readAll.id] },
+          targetId: target.projectId,
+        },
       });
-      expect(denied).toBe(0);
+      expect(deniedOnTarget).toBe(0);
+    });
+
+    /**
+     * 子の論理削除は区別しない（design.md の 2026-10-29 の追加の章の「決定」）。範囲内の他の案件の子と、
+     * 論理削除された案件の子は記録しない（上流の判定が範囲内・不在とする）
+     *
+     * @requirement execution-budget-management/REQ-20.4
+     * @requirement execution-budget-management/REQ-20.9
+     */
+    it('範囲外の案件の論理削除済みの子は記録し、範囲内の他の案件の子と論理削除された案件の子は記録せず、どれも存在しない ID と同じ 404 でデータを変えない', async () => {
+      const sibling = await createFixture('sibling', {
+        salesPersonId: outsider.id,
+        constructionPersonId: construction.id,
+        createdById: outsider.id,
+      });
+      const deletedChildren = await createFixture('deleted-children', {
+        salesPersonId: outsider.id,
+        createdById: outsider.id,
+      });
+      const now = new Date();
+      await prisma.executionBudgetItem.updateMany({
+        where: { id: { in: deletedChildren.itemIds } },
+        data: { deletedAt: now },
+      });
+      await prisma.order.update({
+        where: { id: deletedChildren.orderId },
+        data: { deletedAt: now },
+      });
+      // 出来高記録は論理削除の欄を持たないため、親の実行予算に削除日時を入れる（親の論理削除も区別しない）
+      await prisma.executionBudget.update({
+        where: { id: deletedChildren.budgetId },
+        data: { deletedAt: now },
+      });
+      const deletedProject = await createFixture('deleted-project', {
+        salesPersonId: outsider.id,
+        createdById: outsider.id,
+      });
+      await prisma.project.update({
+        where: { id: deletedProject.projectId },
+        data: { deletedAt: now },
+      });
+
+      const base = `/api/projects/${target.projectId}/execution-budget`;
+      const childCalls = (fixture: Fixture): RouteCall[] => [
+        { method: 'get', path: `${base}/orders/${fixture.orderId}` },
+        {
+          method: 'patch',
+          path: `${base}/orders/${fixture.orderId}/status`,
+          body: { status: 'CANCELLED' },
+        },
+        {
+          method: 'patch',
+          path: `${base}/items/${fixture.itemIds[0]}`,
+          body: { executionUnitPrice: '9999', version: 0 },
+        },
+        {
+          method: 'patch',
+          path: `${base}/items/${fixture.itemIds[0]}/cost`,
+          body: { currentMonthExpense: '777', version: 0 },
+        },
+        { method: 'delete', path: `${base}/progress/${fixture.progressRecordId}` },
+      ];
+      const missingCalls = childCalls({
+        ...target,
+        orderId: MISSING_ID,
+        itemIds: [MISSING_ID, MISSING_ID],
+        progressRecordId: MISSING_ID,
+      });
+
+      const before = await Promise.all(
+        [target, sibling, deletedChildren, deletedProject].map((fixture) => snapshot(fixture))
+      );
+      const cases: Array<{ fixture: Fixture; increase: number; label: string }> = [
+        { fixture: deletedChildren, increase: 1, label: '範囲外の案件の論理削除済みの子' },
+        { fixture: sibling, increase: 0, label: '範囲内の他の案件の子' },
+        { fixture: deletedProject, increase: 0, label: '論理削除された案件の子' },
+      ];
+      for (const { fixture, increase, label } of cases) {
+        const calls = childCalls(fixture);
+        for (let i = 0; i < calls.length; i += 1) {
+          const call = calls[i]!;
+          const missingResponse = await send(construction, missingCalls[i]!);
+          const deniedBeforeOfUser = await deniedCount(construction);
+          const beforeOwner = await deniedCount(construction, fixture.projectId);
+          const response = await send(construction, call);
+          const where = `${label}: ${call.method} ${call.path}`;
+          expect(missingResponse.status, where).toBe(404);
+          expect(response.status, where).toBe(404);
+          expect(response.body.code, where).toBe('NOT_FOUND');
+          expect(withoutInstance(response.body), where).toEqual(
+            withoutInstance(missingResponse.body)
+          );
+          expect(
+            (await deniedCount(construction)) - deniedBeforeOfUser,
+            `${where}: 記録の増分`
+          ).toBe(increase);
+          expect(
+            (await deniedCount(construction, fixture.projectId)) - beforeOwner,
+            `${where}: 記録の対象は子の実際の案件`
+          ).toBe(increase);
+        }
+      }
+
+      const after = await Promise.all(
+        [target, sibling, deletedChildren, deletedProject].map((fixture) => snapshot(fixture))
+      );
+      expect(after).toEqual(before);
     });
 
     /**
@@ -875,11 +1020,12 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
     });
   });
 
-  describe('一括の要求の全件か無しか（20.5）', () => {
+  describe('一括の要求の全件か無しか（20.5・20.9）', () => {
     /**
      * @requirement execution-budget-management/REQ-20.5
+     * @requirement execution-budget-management/REQ-20.9
      */
-    it('発注のチェック済み項目の更新と出来高の保存は、他の案件の項目が 1 件でも混じると、存在しない項目が混じる要求と同じ 404 になり、どの行にも書き込まない', async () => {
+    it('発注のチェック済み項目の更新と出来高の保存は、他の案件の項目が 1 件でも混じると、存在しない項目が混じる要求と同じ 404 になり、どの行にも書き込まず、項目の案件が範囲外の利用者だけ範囲外の案件ごとに記録が 1 件増える', async () => {
       const beforeTarget = await snapshot(target);
       const beforeOther = await snapshot(other);
       const base = `/api/projects/${target.projectId}/execution-budget`;
@@ -900,20 +1046,86 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
         },
       });
 
+      // 案件 other は工事担当者には範囲外、全案件閲覧の利用者には範囲内（20.9）
+      const expectedIncrease = new Map([
+        [construction.id, 1],
+        [readAll.id, 0],
+      ]);
       for (const user of [construction, readAll]) {
         for (const build of [orderItems, saveProgress]) {
+          const beforeMissing = await deniedCount(user);
           const missing = await send(user, build(MISSING_ID));
+          expect((await deniedCount(user)) - beforeMissing, '存在しない項目は記録しない').toBe(0);
+          const deniedBeforeOfUser = await deniedCount(user);
+          const beforeOtherCount = await deniedCount(user, other.projectId);
           const crossed = await send(user, build(other.itemIds[0]));
           const label = build(other.itemIds[0]).path;
           expect(missing.status, label).toBe(404);
           expect(crossed.status, label).toBe(404);
           expect(crossed.body.code, label).toBe('NOT_FOUND');
           expect(withoutInstance(crossed.body), label).toEqual(withoutInstance(missing.body));
+          const increase = expectedIncrease.get(user.id);
+          expect((await deniedCount(user)) - deniedBeforeOfUser, `${label}: 記録の増分`).toBe(
+            increase
+          );
+          expect(
+            (await deniedCount(user, other.projectId)) - beforeOtherCount,
+            `${label}: 記録の対象は項目の実際の案件`
+          ).toBe(increase);
         }
       }
 
       expect(await snapshot(target)).toEqual(beforeTarget);
       expect(await snapshot(other)).toEqual(beforeOther);
+    });
+
+    /**
+     * @requirement execution-budget-management/REQ-20.5
+     * @requirement execution-budget-management/REQ-20.9
+     */
+    it('一括の要求に同じ範囲外の案件の項目が複数と、別の範囲外の案件の項目と存在しない項目が混じると、範囲外の案件ごとに 1 件だけ記録し、どの行にも書き込まない', async () => {
+      const second = await createFixture('other-second', {
+        salesPersonId: outsider.id,
+        createdById: outsider.id,
+      });
+      const before = await Promise.all([target, other, second].map((f) => snapshot(f)));
+      const base = `/api/projects/${target.projectId}/execution-budget`;
+      const foreignIds = [other.itemIds[0], other.itemIds[1], second.itemIds[0], MISSING_ID];
+      const calls: RouteCall[] = [
+        {
+          method: 'put',
+          path: `${base}/orders/${target.orderId}/items`,
+          body: { itemIds: [target.itemIds[1], ...foreignIds] },
+        },
+        {
+          method: 'post',
+          path: `${base}/progress`,
+          body: {
+            constructionDate: '2026-10-04',
+            items: [target.itemIds[0], ...foreignIds].map((itemId) => ({ itemId, amount: '10' })),
+          },
+        },
+      ];
+      for (const call of calls) {
+        const deniedBeforeOfUser = await deniedCount(construction);
+        const deniedOtherBeforeOfUser = await deniedCount(construction, other.projectId);
+        const beforeSecond = await deniedCount(construction, second.projectId);
+        const response = await send(construction, call);
+        expect(response.status, call.path).toBe(404);
+        expect(response.body.code, call.path).toBe('NOT_FOUND');
+        expect(
+          (await deniedCount(construction)) - deniedBeforeOfUser,
+          `${call.path}: 案件ごとに 1 件`
+        ).toBe(2);
+        expect(
+          (await deniedCount(construction, other.projectId)) - deniedOtherBeforeOfUser,
+          call.path
+        ).toBe(1);
+        expect((await deniedCount(construction, second.projectId)) - beforeSecond, call.path).toBe(
+          1
+        );
+      }
+      expect(await Promise.all([target, other, second].map((f) => snapshot(f)))).toEqual(before);
     });
   });
 });

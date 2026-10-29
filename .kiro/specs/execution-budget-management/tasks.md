@@ -424,7 +424,7 @@
 
 **経緯**: user-authentication が要件39.8 を加え、経路の案件（または親のデータ）と対象の実際の案件（または親のデータ）が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（利用者の判断、2026-10-29「推奨案で進める」。同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の execution-budget-management の行）。本スペックの子リソースの所属の照合（backend/src/middleware/execution-budget-project-scope.middleware.ts の `requireChildInProject`〔89〜108 行付近、食い違いの分岐は 99 行付近〕）と一括の照合（同ファイルの `requireBodyExecutionBudgetItemsInProject`〔151〜178 行付近、件数の照合は 166〜172 行付近〕）、契約の所属の照合（backend/src/services/execution-budget.service.ts の `create`〔290〜297 行付近〕・`getAmendmentDiff`〔909〜915 行付近〕・`applyAmendment`〔1043〜1050 行付近〕）は、食い違いを不在として扱い、実際の案件を判定せず記録しない。行は同日の実測で、着手時に測り直すこと。requirements.md に 20.9 を加え（20.4・20.5 の条文は改訂しない。理由は design.md の末尾の章の「受入基準の置き場所の判断」）、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置き、Requirement 20 章の「適用の決定」の記録しないとする項に改訂の注記を置いた
 
-- [ ] 18.1 子リソースの所属の照合と一括の照合で、実際の案件が範囲外なら記録する
+- [x] 18.1 子リソースの所属の照合と一括の照合で、実際の案件が範囲外なら記録する
   - `requireChildInProject` は、子が実在し経路の `projectId` と異なる案件に属するとき、汎用の 404 を返す前に上流の `recordProjectMismatchIfOutOfScope(req, 子の案件 ID)` を待つ。子が無いときは従来どおり記録しない。3 つの照合の部品（`requireExecutionBudgetItemInProject`・`requireOrderInProject`・`requireProgressRecordInProject`）は上流の `ProjectScopeGuardOptions` を受け取れるようにする
   - `requireBodyExecutionBudgetItemsInProject` は、件数の照合で欠けたときだけ、属さない項目が実際に属する案件の ID を重複なく引き、案件ごとに一度ずつ `recordProjectMismatchIfOutOfScope` を呼んでから汎用の 404 を返す。存在しない項目は記録しない。通る要求の問い合わせと、対象 0 件を照合せずに通すことは変えない
   - 子・項目と親の実行予算の論理削除は区別しない（design.md の同章の「決定」）。応答は範囲の内外にかかわらず従来どおり汎用の 404 で、データを変えない。同ファイルの冒頭の注釈（`@fileoverview`）の、所属しない子を記録しないとする記述を改める
