@@ -7,6 +7,11 @@
  * - 2.1: 数量表名を入力して作成を確定する
  * - 2.2: 新しい数量表を作成し、数量表編集画面に遷移する
  * - 12.3: パンくずナビゲーション「プロジェクト一覧 > {プロジェクト名} > 数量表 > 新規作成」
+ *
+ * Task 106.1 変更: プロジェクトの読み込みが 404 を受けたときに、プロジェクトが見つからない旨とプロジェクトの
+ *   一覧へのリンク（共通部品 ResourceNotFound）を表示し、プロジェクトの情報の取得の失敗の文言を出さない。
+ *   作成が 404 を受けたときはプロジェクトが見つからない旨のメッセージを表示する（quantity-table-generation の
+ *   Requirement 51.1・51.2。範囲外と不在を区別しない）
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -14,7 +19,11 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { createQuantityTable } from '../api/quantity-tables';
 import { getProject } from '../api/projects';
 import type { ProjectDetail } from '../types/project.types';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getQuantityTableNotFoundMessage,
+  isQuantityTableNotFoundError,
+} from '../utils/quantityTableNotFound';
 
 // ============================================================================
 // スタイル定義
@@ -159,6 +168,8 @@ export default function QuantityTableCreatePage() {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   const [projectError, setProjectError] = useState<string | null>(null);
+  // プロジェクトの読み込みが 404 を受けた（範囲外と不在を区別しない。Task 106.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   // フォーム状態
   const [name, setName] = useState('数量表');
@@ -176,11 +187,17 @@ export default function QuantityTableCreatePage() {
 
     setIsLoadingProject(true);
     setProjectError(null);
+    setIsProjectNotFound(false);
 
     try {
       const projectData = await getProject(projectId);
       setProject(projectData);
-    } catch {
+    } catch (err) {
+      if (isQuantityTableNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる
+        setIsProjectNotFound(true);
+        return;
+      }
       setProjectError('プロジェクト情報の取得に失敗しました');
     } finally {
       setIsLoadingProject(false);
@@ -205,8 +222,11 @@ export default function QuantityTableCreatePage() {
       const result = await createQuantityTable(projectId, { name: name.trim() });
       // REQ-2.2: 作成成功後に編集画面に遷移
       navigate(`/quantity-tables/${result.id}/edit`);
-    } catch {
-      setCreateError('数量表の作成に失敗しました');
+    } catch (err) {
+      // 作成の 404 は経路のプロジェクトの不在〔範囲外を含む〕（Task 106.1）
+      setCreateError(
+        getQuantityTableNotFoundMessage(err, 'project') ?? '数量表の作成に失敗しました'
+      );
     } finally {
       setIsCreating(false);
     }
@@ -240,6 +260,20 @@ export default function QuantityTableCreatePage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 106.1）。経路のプロジェクトが見つからない対象そのものであるため、
+  // 戻り先はプロジェクトの一覧とする
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

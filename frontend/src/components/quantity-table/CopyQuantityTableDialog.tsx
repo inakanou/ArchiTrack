@@ -7,10 +7,14 @@
  * - 17.1: コピー先の数量表名入力ダイアログ表示、デフォルト値「{元の数量表名}のコピー」
  * - 17.5: エラー発生時のエラーメッセージ表示
  * - 17.6: コピー処理中のインジケーター表示、重複操作防止
+ *
+ * Task 106.1 変更: コピーが 404 を受けたときに、応答の英語の文言に代えて数量表が見つからない旨を表示する
+ *   （quantity-table-generation の Requirement 51.2。範囲外と不在を区別しない）。404 以外の失敗は従来どおり
  */
 
 import { useState, useCallback } from 'react';
 import { copyQuantityTable } from '../../api/quantity-tables';
+import { getQuantityTableNotFoundMessage } from '../../utils/quantityTableNotFound';
 
 // ============================================================================
 // 型定義
@@ -173,7 +177,10 @@ export default function CopyQuantityTableDialog({
       const result = await copyQuantityTable(sourceTable.id, { name: trimmedName });
       onCopyComplete(result.id);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '数量表のコピーに失敗しました';
+      // 404 は数量表が見つからない旨（Task 106.1）。応答の本文（英語の文言・ID）は表示しない
+      const errorMessage =
+        getQuantityTableNotFoundMessage(err, 'quantityTable') ??
+        (err instanceof Error ? err.message : '数量表のコピーに失敗しました');
       setError(errorMessage);
     } finally {
       setIsCopying(false);

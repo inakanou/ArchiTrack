@@ -7,6 +7,12 @@
  * - 3.1: 数量表編集画面を表示する
  * - 3.2: 数量グループ一覧と各グループ内の数量項目を階層的に表示する
  * - 3.3: 該当写真の注釈付きサムネイルを関連写真表示エリアに表示する
+ *
+ * Task 106.1 変更: 数量表の詳細の読み込みが 404 を受けたときに、数量表が見つからない旨とプロジェクトの
+ *   一覧へのリンク（共通部品 ResourceNotFound）を表示し、読み込みの失敗の文言と再試行の釦を出さない。
+ *   保存が 404 を受けたときは数量表が見つからない旨のメッセージを表示し、ドラフトを保つ。紐付けた写真の
+ *   不在の 404 は従来どおりの書き分けとする（quantity-table-generation の Requirement 51.1・51.2。
+ *   範囲外と不在を区別しない）
  */
 
 import { useState, useEffect, useCallback, useReducer, useMemo, useRef } from 'react';
@@ -31,7 +37,11 @@ import {
   type DraftGroup,
   type DraftItem,
 } from './quantityTableEditReducer';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getQuantityTableNotFoundMessage,
+  isQuantityTableNotFoundError,
+} from '../utils/quantityTableNotFound';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
@@ -726,6 +736,8 @@ export default function QuantityTableEditPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null); // 読み込みエラー（全画面表示）
+  // 数量表の詳細の読み込みが 404 を受けた（範囲外と不在を区別しない。Task 106.1）
+  const [isNotFound, setIsNotFound] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null); // 操作エラー（インライン表示）
   // 描画されない欄の範囲外の既存値を既定値へ戻す操作（Task 90.1）。
   // 操作は、それを名指した告知（`message`）が表示されている間だけ出す。告知が閉じられたり
@@ -804,6 +816,7 @@ export default function QuantityTableEditPage() {
 
     setIsLoading(true);
     setLoadError(null);
+    setIsNotFound(false);
     setOperationError(null); // 操作エラーもクリア
 
     try {
@@ -816,7 +829,12 @@ export default function QuantityTableEditPage() {
       setSnapshot(result);
       setLinkedPhotoSummaries({});
       dispatch({ type: 'load', detail: result });
-    } catch {
+    } catch (err) {
+      if (isQuantityTableNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsNotFound(true);
+        return;
+      }
       setLoadError('読み込みに失敗しました');
     } finally {
       setIsLoading(false);
@@ -1936,8 +1954,11 @@ export default function QuantityTableEditPage() {
         // いずれも恒久的で、再試行しても成功しない。利用者が取るべき行動も違うため、一般の文言へ
         // 畳まずに書き分ける（Task 86.5）。原因のグループは保存要求の構築元であるドラフトの
         // 並びから引き当てる。それ以外の失敗は従来どおり一般の文言とする。
+        // 数量表の 404（範囲外と不在を区別しない）は数量表が見つからない旨とする（Task 106.1）。
+        // 紐付けた写真の不在の 404 は分類の部品が数量表の不在としないため、上の書き分けに残る
         setOperationError(
           describeSurveyImageLinkSaveFailure(error, draftToSave.groups) ??
+            getQuantityTableNotFoundMessage(error, 'quantityTable') ??
             '保存に失敗しました。再度お試しください。'
         );
       }
@@ -1961,6 +1982,20 @@ export default function QuantityTableEditPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 数量表が見つからない表示（Task 106.1）。編集の経路は案件の ID を持たず、数量表を読めないと案件が
+  // 分からないため、戻り先はプロジェクトの一覧とする
+  if (isNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="数量表"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

@@ -8,6 +8,10 @@
  *
  * 被覆する受入基準（quantity-table-generation の Requirement 50.1〜50.7、50.10〔タスク105.1〕）は各テストの `@requirement` の印が名乗る。
  *
+ * タスク106.1 で、画面が 404 を受けたときの表示（Requirement 51.1・51.2）を足した。範囲外と不在は同じ 404 であり、
+ * 画面は見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、読み込み・取得の
+ * 失敗・操作の失敗を告げる文言、応答の英語の文言と再試行の釦を出さない。
+ *
  * 検証に使う案件・現場調査・数量表はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、利用者はテストの中で
  * 作る一意のメールアドレスの利用者とする。後始末で案件を先に消してから利用者を消す。
  */
@@ -163,6 +167,59 @@ async function openQuantityTableEdit(page: Page, quantityTableId: string): Promi
   return (await loaded).status();
 }
 
+/**
+ * 読み込み中の表示が消えた後の、本文の領域の表示の文字列。
+ * 数量表の画面は共通の枠の main の内側に自分の main を置くため、内側（文書の順で後ろ）を読む
+ */
+async function settledMainText(page: Page): Promise<string> {
+  const main = page.getByRole('main').last();
+  await expect(main.getByText('読み込み中...')).toHaveCount(0, { timeout: getTimeout(15000) });
+  return main.innerText();
+}
+
+/** 画面の URL を直接開き、指定のパスの GET の応答を待つ（オリジンは問わずパスで照合する） */
+async function openAndWait(page: Page, url: string, apiPath: string): Promise<number> {
+  const loaded = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === apiPath,
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(url);
+  return (await loaded).status();
+}
+
+/** 数量表の画面が 404 を受けたときに出してはならない、障害を告げる文言（タスク106.1） */
+const FAILURE_TEXTS = [
+  '数量表の取得に失敗しました',
+  '読み込みに失敗しました',
+  'プロジェクト情報の取得に失敗しました',
+  '削除に失敗しました',
+  '数量表の作成に失敗しました',
+  '数量表名の保存に失敗しました',
+  '保存に失敗しました。再度お試しください。',
+  'Not found',
+] as const;
+
+/** 障害を告げる文言と再試行の釦が画面のどこにも無いことを主張する */
+async function expectNoFailureFeedback(page: Page): Promise<void> {
+  for (const text of FAILURE_TEXTS) {
+    await expect(page.getByText(text, { exact: true }), text).toHaveCount(0);
+  }
+  await expect(page.getByRole('button', { name: '再試行' })).toHaveCount(0);
+}
+
+/** 不在の表示（ResourceNotFound）。いずれの画面も戻り先はプロジェクトの一覧 */
+async function expectNotFoundView(page: Page, resourceType: '数量表' | 'プロジェクト') {
+  const main = page.getByRole('main').last();
+  await expect(main.getByRole('heading', { name: `${resourceType}が見つかりません` })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(main.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+    'href',
+    '/projects'
+  );
+  await expectNoFailureFeedback(page);
+}
+
 test.describe('数量表・数量グループ・数量項目・候補の案件の閲覧範囲', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -219,15 +276,16 @@ test.describe('数量表・数量グループ・数量項目・候補の案件�
     await page.context().clearCookies();
     await page.evaluate(() => localStorage.clear());
     await loginAsUser(page, outsider);
+    // タスク106.1: 表示は不在の表示（ResourceNotFound。role="alert" を持たない）になったため、本文の領域の
+    // 見つからない旨の表示どうしを比べる
     expect(await openQuantityTableEdit(page, MISSING_ID)).toBe(404);
-    const missingAlert = page.getByRole('alert');
-    await expect(missingAlert).toBeVisible({ timeout: getTimeout(15000) });
-    const missingText = await missingAlert.innerText();
+    await expectNotFoundView(page, '数量表');
+    const missingText = await settledMainText(page);
+    expect(missingText.trim().length, '存在しない数量表の表示がある').toBeGreaterThan(0);
 
     expect(await openQuantityTableEdit(page, target.quantityTableId)).toBe(404);
-    const outOfScopeAlert = page.getByRole('alert');
-    await expect(outOfScopeAlert).toBeVisible({ timeout: getTimeout(15000) });
-    expect(await outOfScopeAlert.innerText(), '存在しない数量表と同じ表示').toBe(missingText);
+    await expectNotFoundView(page, '数量表');
+    expect(await settledMainText(page), '存在しない数量表と同じ表示').toBe(missingText);
     await expect(page.getByText(target.quantityTableName)).toHaveCount(0);
     await expect(page.getByRole('textbox', { name: '数量表名' })).toHaveCount(0);
 
@@ -546,5 +604,221 @@ test.describe('数量表・数量グループ・数量項目・候補の案件�
 
     expect(await snapshot(target.projectId)).toEqual(beforeTarget);
     expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+  /**
+   * 数量表の編集の画面は数量表の読み込みの 404 で、一覧・新規作成の画面はプロジェクトの読み込みの 404 で、
+   * 見つからない旨とプロジェクトの一覧へのリンクを表示する（quantity-table-generation タスク106.1）。
+   * 範囲外と不在は同じ表示。
+   *
+   * @requirement quantity-table-generation/REQ-51.1
+   */
+  test('担当外の利用者が数量表の画面の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが表示され、存在しない対象と同じ表示になる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const outsider = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('not-found-view', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    await loginAsUser(page, outsider);
+
+    // 編集の画面: 数量表が見つからない旨と、プロジェクトの一覧へのリンク
+    expect(await openQuantityTableEdit(page, MISSING_ID)).toBe(404);
+    await expectNotFoundView(page, '数量表');
+    const missingEditText = await settledMainText(page);
+    expect(await openQuantityTableEdit(page, target.quantityTableId)).toBe(404);
+    await expectNotFoundView(page, '数量表');
+    expect(await settledMainText(page), '存在しない数量表と同じ表示').toBe(missingEditText);
+    await expect(page.getByText(target.quantityTableName)).toHaveCount(0);
+
+    // 一覧の画面: プロジェクトが見つからない旨と、プロジェクトの一覧へのリンク
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/quantity-tables`,
+        `/api/projects/${MISSING_ID}/quantity-tables`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    const missingListText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/quantity-tables`,
+        `/api/projects/${target.projectId}/quantity-tables`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingListText);
+    await expect(page.getByText(target.quantityTableName)).toHaveCount(0);
+
+    // 新規作成の画面: プロジェクトの読み込みの 404 で、プロジェクトが見つからない旨とプロジェクトの一覧への
+    // リンク。入力欄と作成の釦を出さない
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/quantity-tables/new`,
+        `/api/projects/${MISSING_ID}`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    const missingCreateText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/quantity-tables/new`,
+        `/api/projects/${target.projectId}`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingCreateText);
+    await expect(page.getByRole('button', { name: '作成', exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('数量表名')).toHaveCount(0);
+  });
+
+  /**
+   * 開いた後に数量表（作成ではプロジェクト）が論理的に取り除かれると、操作の要求は 404 を受ける。画面は
+   * 見つからない旨のメッセージを表示し、操作の失敗を告げる文言や応答の英語の文言を出さない
+   * （quantity-table-generation タスク106.1）。編集の画面の保存は未保存の変更を保ち、一覧の画面の削除は
+   * 一覧を保ったまま表示する。
+   *
+   * @requirement quantity-table-generation/REQ-51.2
+   */
+  test('開いた後に論理的に取り除かれた数量表・プロジェクトへの操作で、見つからない旨のメッセージが表示される', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const people = { salesPersonId: owner.id, createdById: owner.id };
+    const editTarget = await createFixture('gone-edit', people);
+    const listTarget = await createFixture('gone-list', people);
+    const createTarget = await createFixture('gone-create', people);
+    const prisma = getPrismaClient();
+    const softDeleteTable = (fixture: Fixture) =>
+      prisma.quantityTable.update({
+        where: { id: fixture.quantityTableId },
+        data: { deletedAt: new Date() },
+      });
+    const tableGone = '数量表が見つかりません。存在しないか、削除されています。';
+    const projectGone = 'プロジェクトが見つかりません。存在しないか、削除されています。';
+    /** 指定の方法とパスの要求の応答を待つ（オリジンは問わずパスで照合する） */
+    const responseOf = (method: string, pathname: string) =>
+      page.waitForResponse(
+        (r) => r.request().method() === method && new URL(r.url()).pathname === pathname,
+        { timeout: getTimeout(30000) }
+      );
+    await loginAsUser(page, owner);
+
+    // 編集の画面の保存（従来は保存の失敗の汎用の文言）。未保存の変更は保つ
+    expect(await openQuantityTableEdit(page, editTarget.quantityTableId)).toBe(200);
+    const nameInput = page.getByRole('textbox', { name: '数量表名' });
+    await expect(nameInput).toHaveValue(editTarget.quantityTableName, {
+      timeout: getTimeout(15000),
+    });
+    await softDeleteTable(editTarget);
+    await nameInput.fill('取り除かれた後の変更');
+    await nameInput.press('Tab');
+    await expect(page.getByTestId('unsaved-changes-badge')).toBeVisible();
+    const saved = responseOf('PUT', `/api/quantity-tables/${editTarget.quantityTableId}/save`);
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await saved).status()).toBe(404);
+    await expect(page.getByRole('alert').filter({ hasText: tableGone })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(page.getByTestId('unsaved-changes-badge')).toBeVisible();
+    await expect(nameInput).toHaveValue('取り除かれた後の変更');
+    await expectNoFailureFeedback(page);
+
+    // 一覧の画面の名称の変更・コピー・削除。一覧を開いた後に数量表を論理的に取り除く
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${listTarget.projectId}/quantity-tables`,
+        `/api/projects/${listTarget.projectId}/quantity-tables`
+      )
+    ).toBe(200);
+    const main = page.getByRole('main').last();
+    await expect(main.getByText(listTarget.quantityTableName)).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await softDeleteTable(listTarget);
+
+    // 名称の変更（従来は名称の保存の失敗の文言）。入力を保つ
+    await main.getByRole('button', { name: '名前を編集' }).click();
+    const renameInput = main.getByRole('textbox', { name: '数量表名を編集' });
+    await renameInput.fill('取り除かれた後の名称');
+    const renamed = responseOf('PUT', `/api/quantity-tables/${listTarget.quantityTableId}`);
+    await renameInput.press('Enter');
+    expect((await renamed).status()).toBe(404);
+    await expect(main.getByRole('alert').filter({ hasText: tableGone })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(renameInput).toHaveValue('取り除かれた後の名称');
+    await expectNoFailureFeedback(page);
+    await renameInput.press('Escape');
+    await expect(renameInput).toHaveCount(0);
+
+    // コピー（従来は応答の英語の文言をそのまま表示）。ダイアログを開いたまま表示する
+    await main.getByRole('button', { name: 'コピー', exact: true }).click();
+    const copyDialog = page.getByRole('dialog', { name: '数量表をコピー' });
+    await expect(copyDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const copied = responseOf('POST', `/api/quantity-tables/${listTarget.quantityTableId}/copy`);
+    await copyDialog.getByRole('button', { name: 'コピーを作成' }).click();
+    expect((await copied).status()).toBe(404);
+    await expect(copyDialog.getByRole('alert')).toHaveText(tableGone, {
+      timeout: getTimeout(10000),
+    });
+    await expectNoFailureFeedback(page);
+    await copyDialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(copyDialog).toHaveCount(0);
+
+    // 削除（従来は削除の失敗の文言と再試行の釦で一覧を置き換えていた）。一覧を保つ
+    await main.getByRole('button', { name: '削除', exact: true }).click();
+    const deleteDialog = page.getByRole('dialog');
+    await expect(deleteDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const deleted = responseOf('DELETE', `/api/quantity-tables/${listTarget.quantityTableId}`);
+    await deleteDialog.getByRole('button', { name: '削除', exact: true }).click();
+    expect((await deleted).status()).toBe(404);
+    const listError = page.getByTestId('quantity-table-list-operation-error');
+    await expect(listError).toHaveText(tableGone, { timeout: getTimeout(10000) });
+    await expect(listError).toHaveAttribute('role', 'alert');
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(main.getByText(listTarget.quantityTableName)).toBeVisible();
+    await expectNoFailureFeedback(page);
+    expect(
+      await prisma.quantityTable.count({ where: { projectId: listTarget.projectId } }),
+      'コピーは作られない'
+    ).toBe(1);
+
+    // 数量表の作成（従来は作成の失敗の汎用の文言）。開いた後にプロジェクトを論理削除する
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${createTarget.projectId}/quantity-tables/new`,
+        `/api/projects/${createTarget.projectId}`
+      )
+    ).toBe(200);
+    const createInput = page.getByLabel('数量表名');
+    await expect(createInput).toBeVisible({ timeout: getTimeout(15000) });
+    await createInput.fill('取り除かれたプロジェクトへの作成の試み');
+    await prisma.project.update({
+      where: { id: createTarget.projectId },
+      data: { deletedAt: new Date() },
+    });
+    const created = responseOf('POST', `/api/projects/${createTarget.projectId}/quantity-tables`);
+    await page.getByRole('button', { name: '作成', exact: true }).click();
+    expect((await created).status()).toBe(404);
+    await expect(page.getByRole('alert').filter({ hasText: projectGone })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(page).toHaveURL(
+      new RegExp(`/projects/${createTarget.projectId}/quantity-tables/new$`)
+    );
+    await expect(createInput).toHaveValue('取り除かれたプロジェクトへの作成の試み');
+    await expectNoFailureFeedback(page);
+    expect(
+      await prisma.quantityTable.count({ where: { projectId: createTarget.projectId } }),
+      '数量表は作られない'
+    ).toBe(1);
   });
 });
