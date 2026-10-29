@@ -332,8 +332,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // 2026-10-27）。利用者の判断で新設した Requirement 20 の章「Requirement 20: 案件の閲覧範囲と出力の記録の適用」が
     // 部品表の 4 行（いずれも 20.x を名乗る）と追跡表を足し、同章の 4 部品が突き合わせの母集団へ
     // 入ったため、締める向きへ動かした。矛盾は 0 件のまま
-    minPairs: 13,
-    minTableDeclarations: 13,
+    // minPairs 13 → 18 / minTableDeclarations 13 → 18（execution-budget-management のタスク18・19 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 食い違いの記録・不在の表示」が
+    // 部品表の 5 行（20.9・21.1・21.2 を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの
+    // 母集団へ入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    minPairs: 18,
+    minTableDeclarations: 18,
     minDetailDeclarations: 9,
     reason: '現況で矛盾 0 件。ラチェットで 0 を維持する',
   },
