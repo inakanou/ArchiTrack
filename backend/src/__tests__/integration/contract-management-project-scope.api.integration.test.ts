@@ -898,5 +898,53 @@ describe('契約書の API の閲覧範囲（統合・実 DB）', () => {
       expect((await intrusionCount()) - intrusionBefore).toBe(0);
       expect((await deniedCount(readAll.id)) - deniedBefore).toBe(0);
     });
+
+    /**
+     * 論理削除済みの基となる契約書は、同じプロジェクトのものでも範囲外の案件のものでも、存在しない
+     * 基となる契約書と同じ 422 と同じ本文にし、契約書を作成しない。論理削除を所属の不一致より先に
+     * 確かめるため、範囲外の案件の論理削除済みの契約書でも範囲外の拒否として記録しない
+     * （design.md の「2026-10-29 の追加」章の「決定」、タスク20.1）。
+     *
+     * @requirement contract-management/REQ-14.8
+     */
+    it('変更契約の作成の要求が論理削除済みの基となる契約書を指すと、存在しない基となる契約書と同じ 422 の本文になり、契約書を作成せず、記録しない', async () => {
+      const deletedOwn = await createContract(target.projectId, target.estimateId, {
+        deletedAt: new Date(),
+      });
+      const deletedForeign = await createContract(other.projectId, other.estimateId, {
+        deletedAt: new Date(),
+      });
+      const contractCountBefore = await prisma.contract.count({
+        where: { projectId: { in: [target.projectId, other.projectId] } },
+      });
+      const beforeTarget = await snapshot(target);
+      const beforeOther = await snapshot(other);
+      const deniedBefore = await deniedCount(sales.id);
+
+      const missing = await request(app)
+        .post(`/api/projects/${target.projectId}/contracts`)
+        .set(...auth(sales))
+        .send(createBody(target.estimateId, { parentContractId: MISSING_ID }))
+        .expect(422);
+      for (const parentContractId of [deletedOwn, deletedForeign]) {
+        const response = await request(app)
+          .post(`/api/projects/${target.projectId}/contracts`)
+          .set(...auth(sales))
+          .send(createBody(target.estimateId, { parentContractId }))
+          .expect(422);
+        expect(response.body.code).toBe('CONTRACT_VALIDATION_ERROR');
+        expect(response.body).toEqual(missing.body);
+        expect(JSON.stringify(response.body)).not.toContain(parentContractId);
+      }
+
+      expect(
+        await prisma.contract.count({
+          where: { projectId: { in: [target.projectId, other.projectId] } },
+        })
+      ).toBe(contractCountBefore);
+      expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(await snapshot(other)).toEqual(beforeOther);
+      expect((await deniedCount(sales.id)) - deniedBefore).toBe(0);
+    });
   });
 });

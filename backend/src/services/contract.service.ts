@@ -406,6 +406,11 @@ export class ContractService {
         where: { id: data.parentContractId },
       });
 
+      // 論理削除済みの基となる契約書は、所属の不一致より先に、不在と同じ 422 と同じ本文で拒否する（14.8）。
+      // 属する案件が範囲外でも範囲外の拒否として記録しない（解決関数が論理削除済みを不在として扱うのに揃える）
+      if (parentContract?.deletedAt) {
+        throw new ContractValidationError(PARENT_CONTRACT_NOT_REFERABLE_MESSAGE);
+      }
       // 存在しない基となる契約書と経路のプロジェクトに属さない基となる契約書は、同じ 422 と同じ本文にする
       // （14.6）。範囲外（案件は実在する）のときだけ、範囲外の拒否として記録する（要件39.7）
       if (!parentContract || parentContract.projectId !== projectId) {
