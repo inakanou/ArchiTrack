@@ -9,6 +9,8 @@
  * - REQ-7.1: 作成ボタン押下時のAPI呼び出し（POST）と契約書詳細画面への遷移
  * - REQ-7.2: キャンセルボタン押下時の前画面への遷移（何も作成しない）
  * - REQ-7.3: 作成・キャンセルボタン表示
+ * - REQ-11.8: プロジェクトの取得が 404 を受けたときにプロジェクトが見つからない旨を表示する（Task 21.1）
+ * - REQ-11.9: 作成が 404 を受けたときに見つからない旨のメッセージを表示する（Task 21.1）
  *
  * @module pages/ContractCreatePage
  */
@@ -20,7 +22,7 @@ import type { CreateContractInput } from '../api/contracts';
 import { getProject } from '../api/projects';
 import ContractForm from '../components/contract/ContractForm';
 import type { ContractFormProjectInfo } from '../components/contract/ContractForm';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 import { useToast } from '../hooks/useToast';
 import { classifyContractError } from '../utils/contractErrorHandler';
 
@@ -110,6 +112,8 @@ export default function ContractCreatePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadErrorRetryable, setLoadErrorRetryable] = useState(false);
+  // プロジェクトの取得が 404 を受けた（範囲外と不在を区別しない。REQ-11.8）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   // 作成処理の状態
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -125,6 +129,7 @@ export default function ContractCreatePage() {
     setIsLoading(true);
     setLoadError(null);
     setLoadErrorRetryable(false);
+    setIsProjectNotFound(false);
     try {
       const project = await getProject(projectId);
       setProjectInfo({
@@ -136,7 +141,12 @@ export default function ContractCreatePage() {
           : null,
       });
     } catch (err) {
-      const classified = classifyContractError(err);
+      const classified = classifyContractError(err, { notFoundTarget: 'project' });
+      if (classified.type === 'not_found') {
+        // 見つからない旨は ResourceNotFound が告げる（REQ-11.8）
+        setIsProjectNotFound(true);
+        return;
+      }
       toast.error(classified.message);
       setLoadError(classified.message);
       setLoadErrorRetryable(classified.retryable);
@@ -167,7 +177,8 @@ export default function ContractCreatePage() {
         toast.success('契約書を作成しました。');
         navigate(`/projects/${projectId}/contracts/${contract.id}`);
       } catch (err) {
-        const classified = classifyContractError(err);
+        // 作成の 404 はプロジェクトが見つからない旨（見積書の不在はサーバーの本文）。REQ-11.9
+        const classified = classifyContractError(err, { notFoundTarget: 'project' });
         toast.error(classified.message);
         setCreateError(classified.message);
       } finally {
@@ -201,6 +212,19 @@ export default function ContractCreatePage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（REQ-11.8）。再試行で解けないため再試行の釦を出さない
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

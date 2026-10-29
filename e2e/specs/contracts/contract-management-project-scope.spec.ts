@@ -9,6 +9,10 @@
  *
  * 被覆する受入基準（contract-management の Requirement 13.1、14.1〜14.7）は各テストの `@requirement` の印が名乗る。
  *
+ * タスク21.1 で、画面が 404 を受けたときの表示（Requirement 11.8・11.9）を足した。範囲外と不在は同じ 404 であり、
+ * 画面は見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、予期しない
+ * エラーや取得の失敗を告げる文言と再試行の釦を出さない。
+ *
  * 検証に使う案件・見積書・契約書はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、利用者はテストの中で
  * 作る一意のメールアドレスの利用者とする。後始末で案件を先に消してから利用者を消す。
  */
@@ -150,6 +154,57 @@ async function settledMainText(page: Page): Promise<string> {
   const main = page.getByRole('main').last();
   await expect(main.getByText('読み込み中...')).toHaveCount(0, { timeout: getTimeout(15000) });
   return main.innerText();
+}
+
+/** 画面の URL を直接開き、指定のパスの GET の応答を待つ（オリジンは問わずパスで照合する） */
+async function openAndWait(page: Page, url: string, apiPath: string): Promise<number> {
+  const loaded = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === apiPath,
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(url);
+  return (await loaded).status();
+}
+
+/** 契約書の画面が 404 を受けたときに出してはならない、障害を告げる文言（REQ-11.8・11.9） */
+const FAILURE_TEXTS = [
+  '予期しないエラーが発生しました。',
+  '契約書の取得に失敗しました',
+  '削除に失敗しました',
+] as const;
+
+/** 障害を告げる文言と再試行の釦が画面のどこにも無いことを主張する */
+async function expectNoFailureFeedback(page: Page): Promise<void> {
+  for (const text of FAILURE_TEXTS) {
+    await expect(page.getByText(text), text).toHaveCount(0);
+  }
+  await expect(page.getByRole('button', { name: '再試行' })).toHaveCount(0);
+}
+
+/** 契約書の不在の表示（ResourceNotFound）。戻り先は案件の契約書の一覧 */
+async function expectContractNotFound(page: Page, projectId: string): Promise<void> {
+  const main = page.getByRole('main').last();
+  await expect(main.getByRole('heading', { name: '契約書が見つかりません' })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(main.getByRole('link', { name: '契約書一覧に戻る' })).toHaveAttribute(
+    'href',
+    `/projects/${projectId}/contracts`
+  );
+  await expectNoFailureFeedback(page);
+}
+
+/** プロジェクトの不在の表示（ResourceNotFound）。戻り先はプロジェクトの一覧 */
+async function expectProjectNotFound(page: Page): Promise<void> {
+  const main = page.getByRole('main').last();
+  await expect(main.getByRole('heading', { name: 'プロジェクトが見つかりません' })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(main.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+    'href',
+    '/projects'
+  );
+  await expectNoFailureFeedback(page);
 }
 
 test.describe('契約書の案件の閲覧範囲', () => {
@@ -482,5 +537,171 @@ test.describe('契約書の案件の閲覧範囲', () => {
 
     expect(await snapshot(target.projectId)).toEqual(beforeTarget);
     expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+  /**
+   * 契約書の詳細・編集の画面は契約書の読み込みの 404 で、一覧・作成の画面はプロジェクトの読み込みの 404 で、
+   * 見つからない旨と戻り先の一覧へのリンクを表示する（contract-management タスク21.1）。範囲外と不在は同じ表示。
+   *
+   * @requirement contract-management/REQ-11.8
+   */
+  test('担当外の利用者が契約書の画面の URL を開くと見つからない旨と一覧へのリンクが表示され、存在しない対象と同じ表示になる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const outsider = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('not-found-view', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    await loginAsUser(page, outsider);
+
+    // 詳細・編集の画面: 契約書が見つからない旨と、案件の契約書の一覧へのリンク
+    for (const suffix of ['', '/edit']) {
+      const missingUrl = `/projects/${target.projectId}/contracts/${MISSING_ID}${suffix}`;
+      const scopedUrl = `/projects/${target.projectId}/contracts/${target.contractId}${suffix}`;
+      expect(await openAndWait(page, missingUrl, `/api/contracts/${MISSING_ID}`)).toBe(404);
+      await expectContractNotFound(page, target.projectId);
+      const missingText = await settledMainText(page);
+
+      expect(await openAndWait(page, scopedUrl, `/api/contracts/${target.contractId}`)).toBe(404);
+      await expectContractNotFound(page, target.projectId);
+      expect(await settledMainText(page), `${scopedUrl} は存在しない契約書と同じ表示`).toBe(
+        missingText
+      );
+      await expect(page.getByText(target.estimateName)).toHaveCount(0);
+    }
+
+    // 一覧の画面: プロジェクトが見つからない旨と、プロジェクトの一覧へのリンク
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/contracts`,
+        `/api/projects/${MISSING_ID}/contracts`
+      )
+    ).toBe(404);
+    await expectProjectNotFound(page);
+    const missingListText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/contracts`,
+        `/api/projects/${target.projectId}/contracts`
+      )
+    ).toBe(404);
+    await expectProjectNotFound(page);
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingListText);
+
+    // 作成の画面: プロジェクトが見つからない旨と、プロジェクトの一覧へのリンク。フォームを出さない
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/contracts/new`,
+        `/api/projects/${MISSING_ID}`
+      )
+    ).toBe(404);
+    await expectProjectNotFound(page);
+    const missingCreateText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/contracts/new`,
+        `/api/projects/${target.projectId}`
+      )
+    ).toBe(404);
+    await expectProjectNotFound(page);
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingCreateText);
+    await expect(page.getByRole('button', { name: '作成', exact: true })).toHaveCount(0);
+  });
+
+  /**
+   * 開いた後に契約書が論理削除されると、保存・ステータスの変更・削除の要求は不在と同じ 404 を受ける。
+   * 画面は契約書が見つからない旨のメッセージを表示し、予期しないエラーや削除の失敗の文言を出さない
+   * （contract-management タスク21.1）。削除の権限を持つ管理者で操作する。
+   *
+   * @requirement contract-management/REQ-11.9
+   */
+  test('開いた後に論理削除された契約書の保存・ステータスの変更・削除で、契約書が見つからない旨のメッセージが表示される', async ({
+    page,
+  }) => {
+    const admin = await createSessionUser('ADMIN_USER');
+    const editTarget = await createFixture('gone-edit', {
+      salesPersonId: admin.id,
+      createdById: admin.id,
+    });
+    const detailTarget = await createFixture('gone-detail', {
+      salesPersonId: admin.id,
+      createdById: admin.id,
+    });
+    const softDelete = (id: string) =>
+      getPrismaClient().contract.update({ where: { id }, data: { deletedAt: new Date() } });
+    const notFoundMessage = '契約書が見つかりません。存在しないか、削除されています。';
+    await loginAsUser(page, admin);
+
+    // 編集の画面の保存
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${editTarget.projectId}/contracts/${editTarget.contractId}/edit`,
+        `/api/contracts/${editTarget.contractId}`
+      )
+    ).toBe(200);
+    await expect(page.getByRole('heading', { level: 1, name: '契約書編集' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await softDelete(editTarget.contractId);
+    const saved = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PUT' &&
+        new URL(r.url()).pathname === `/api/contracts/${editTarget.contractId}`
+    );
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await saved).status()).toBe(404);
+    await expect(
+      page.getByRole('main').last().getByRole('alert').filter({ hasText: notFoundMessage })
+    ).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(page).toHaveURL(new RegExp(`/contracts/${editTarget.contractId}/edit$`));
+    await expectNoFailureFeedback(page);
+
+    // 詳細の画面のステータスの変更
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${detailTarget.projectId}/contracts/${detailTarget.contractId}`,
+        `/api/contracts/${detailTarget.contractId}`
+      )
+    ).toBe(200);
+    await expect(page.getByRole('heading', { level: 1, name: '契約書詳細' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await softDelete(detailTarget.contractId);
+    const statusChanged = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PATCH' &&
+        new URL(r.url()).pathname === `/api/contracts/${detailTarget.contractId}/status`
+    );
+    await page.getByRole('button', { name: /契約済にする/ }).click();
+    expect((await statusChanged).status()).toBe(404);
+    await expect(page.getByText(notFoundMessage).first()).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expectNoFailureFeedback(page);
+
+    // 詳細の画面の削除（確認のダイアログ）
+    await page.getByRole('button', { name: '削除', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    const deleted = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'DELETE' &&
+        new URL(r.url()).pathname === `/api/contracts/${detailTarget.contractId}`
+    );
+    await dialog.getByRole('button', { name: '削除する' }).click();
+    expect((await deleted).status()).toBe(404);
+    await expect(dialog.getByRole('alert')).toHaveText(notFoundMessage, {
+      timeout: getTimeout(10000),
+    });
+    await expectNoFailureFeedback(page);
+    // 一覧へ遷移しない（削除の成功として扱わない）
+    await expect(page).toHaveURL(new RegExp(`/contracts/${detailTarget.contractId}$`));
   });
 });

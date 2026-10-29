@@ -8,6 +8,8 @@
  * - REQ-11.2: サーバーエラー（5xx）時にトースト通知を表示する
  * - REQ-11.3: セッション期限切れ（401）時にログインページにリダイレクトする
  * - REQ-11.4: 楽観的排他制御競合（409）時にトースト通知と再読込の誘導を表示する
+ * - REQ-11.8: 読み込みの 404 を見つからない種別に分類し、画面は見つからない旨を表示する（Task 21.1）
+ * - REQ-11.9: 操作の 404 を見つからない種別に分類し、見つからない旨のメッセージを返す（Task 21.1）
  *
  * @module utils/contractErrorHandler
  */
@@ -29,7 +31,24 @@ export type ContractErrorType =
   | 'validation'
   | 'forbidden'
   | 'business'
+  | 'not_found'
   | 'unknown';
+
+/**
+ * 404 を受けたときに見つからない対象（REQ-11.8, REQ-11.9）
+ *
+ * 契約書の取得・保存・ステータスの変更・削除は契約書、一覧・作成の画面はプロジェクト。
+ * 404 は閲覧範囲外と不在で同じ応答のため、範囲外を示唆する文言は出さない。
+ */
+export type ContractNotFoundTarget = 'contract' | 'project';
+
+/**
+ * classifyContractError のオプション
+ */
+export interface ClassifyContractErrorOptions {
+  /** 404 を受けたときに見つからない対象（既定は契約書） */
+  notFoundTarget?: ContractNotFoundTarget;
+}
 
 /**
  * 分類されたエラー情報
@@ -63,6 +82,29 @@ export const CONFLICT_ERROR_MESSAGE =
 /** 権限エラーのトーストメッセージ */
 export const FORBIDDEN_ERROR_MESSAGE = 'この操作を行う権限がありません。';
 
+/** 契約書が見つからない（404）ときのメッセージ（REQ-11.8, REQ-11.9） */
+export const CONTRACT_NOT_FOUND_MESSAGE =
+  '契約書が見つかりません。存在しないか、削除されています。';
+
+/** プロジェクトが見つからない（404）ときのメッセージ（REQ-11.8, REQ-11.9） */
+export const PROJECT_NOT_FOUND_MESSAGE =
+  'プロジェクトが見つかりません。存在しないか、削除されています。';
+
+/** 見積書の不在の 404 の符号（サーバーの本文が見積書の不在を日本語で告げる） */
+const ESTIMATE_NOT_FOUND_CODE = 'ESTIMATE_NOT_FOUND';
+
+/**
+ * 応答の本文の符号を読む
+ */
+function responseCode(error: ApiError): string | undefined {
+  const body = error.response;
+  if (body && typeof body === 'object' && 'code' in body) {
+    const code = (body as { code?: unknown }).code;
+    return typeof code === 'string' ? code : undefined;
+  }
+  return undefined;
+}
+
 // ============================================================================
 // メイン関数
 // ============================================================================
@@ -71,9 +113,13 @@ export const FORBIDDEN_ERROR_MESSAGE = 'この操作を行う権限がありま�
  * エラーを分類し、適切なメッセージとメタデータを返す
  *
  * @param error - キャッチしたエラーオブジェクト
+ * @param options - 404 を受けたときに見つからない対象など
  * @returns 分類されたエラー情報
  */
-export function classifyContractError(error: unknown): ClassifiedError {
+export function classifyContractError(
+  error: unknown,
+  options: ClassifyContractErrorOptions = {}
+): ClassifiedError {
   // ApiErrorの場合はstatusCodeで分類
   if (error instanceof ApiError) {
     const statusCode = error.statusCode;
@@ -105,6 +151,29 @@ export function classifyContractError(error: unknown): ClassifiedError {
       return {
         type: 'forbidden',
         message: FORBIDDEN_ERROR_MESSAGE,
+        retryable: false,
+        originalError: error,
+      };
+    }
+
+    // 見つからない（404）。範囲外と不在は同じ応答で、画面も区別しない（REQ-11.8, REQ-11.9）
+    // 再試行で解けないため再試行可能にしない
+    if (statusCode === 404) {
+      // 見積書の不在はサーバーの本文が既に日本語で見積書が見つからない旨を告げる
+      if (responseCode(error) === ESTIMATE_NOT_FOUND_CODE && error.message) {
+        return {
+          type: 'not_found',
+          message: error.message,
+          retryable: false,
+          originalError: error,
+        };
+      }
+      return {
+        type: 'not_found',
+        message:
+          options.notFoundTarget === 'project'
+            ? PROJECT_NOT_FOUND_MESSAGE
+            : CONTRACT_NOT_FOUND_MESSAGE,
         retryable: false,
         originalError: error,
       };

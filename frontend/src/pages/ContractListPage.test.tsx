@@ -13,6 +13,7 @@
  * - REQ-1.5: ユーザーが一覧の契約書を選択した場合、選択した契約書の詳細画面に遷移する
  * - REQ-1.6: 一覧画面にパンくずナビゲーションを表示する
  * - REQ-13.5: UI要素の権限制御
+ * - REQ-11.8: 一覧の取得が 404 を受けたときにプロジェクトが見つからない旨を表示する（Task 21.1）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -22,6 +23,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ContractListPage from './ContractListPage';
 import * as contractsApi from '../api/contracts';
 import type { ContractListItem } from '../api/contracts';
+import { ApiError } from '../api/client';
 
 // モック
 vi.mock('../api/contracts');
@@ -527,5 +529,47 @@ describe('ContractListPage', () => {
         screen.queryByRole('navigation', { name: 'ページネーション' })
       ).not.toBeInTheDocument();
     });
+  });
+});
+
+// ============================================================================
+// REQ-11.8: 一覧の読み込みが 404 を受けたときの表示（Task 21.1）
+// ============================================================================
+describe('ContractListPage の 404（REQ-11.8）', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockHasPermission.mockReturnValue(true);
+    mockHasAllPermissions.mockReturnValue(true);
+    mockHasAnyPermission.mockReturnValue(true);
+  });
+
+  it('一覧の取得が 404 を受けると、プロジェクトが見つからない旨とプロジェクトの一覧へのリンクを表示し、取得の失敗の文言と再試行の釦を出さない', async () => {
+    vi.mocked(contractsApi.getContracts).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' })
+    );
+
+    renderWithRouter();
+
+    expect(
+      await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+      'href',
+      '/projects'
+    );
+    expect(screen.queryByText('契約書の取得に失敗しました')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+  });
+
+  it('404 以外の失敗では従来どおり取得の失敗の文言と再試行の釦を表示する', async () => {
+    vi.mocked(contractsApi.getContracts).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error')
+    );
+
+    renderWithRouter();
+
+    expect(await screen.findByText('契約書の取得に失敗しました')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'プロジェクトが見つかりません' })).toBeNull();
   });
 });

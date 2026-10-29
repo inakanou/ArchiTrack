@@ -16,6 +16,7 @@
  * - REQ-8.7: 編集ボタン押下時、契約書編集画面に遷移する
  * - REQ-8.8: パンくずナビゲーションを表示する
  * - REQ-13.5: UI要素の権限制御
+ * - REQ-11.8, REQ-11.9: 404 を受けたときに見つからない旨を表示する（Task 21.1）
  *
  * @module pages/ContractDetailPage.test
  */
@@ -30,6 +31,7 @@ import * as companyInfoApi from '../api/company-info';
 import type { CompanyInfo } from '../types/company-info.types';
 import type { ContractDetail } from '../api/contracts';
 import { ApiError } from '../api/client';
+import { CONTRACT_NOT_FOUND_MESSAGE } from '../utils/contractErrorHandler';
 import { ToastContext } from '../hooks/useToast';
 import type { ToastContextValue } from '../hooks/useToast';
 
@@ -976,5 +978,70 @@ describe('ContractDetailPage', () => {
       // 削除ボタン非表示
       expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
     });
+  });
+});
+
+// ============================================================================
+// REQ-11.8, REQ-11.9: 404 を受けたときの表示（Task 21.1）
+// ============================================================================
+describe('ContractDetailPage の 404（REQ-11.8, REQ-11.9）', () => {
+  /** 範囲外と不在で同じ汎用の 404 */
+  const notFound = () => new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' });
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockHasPermission.mockReturnValue(true);
+    mockHasAllPermissions.mockReturnValue(true);
+    mockHasAnyPermission.mockReturnValue(true);
+    vi.mocked(companyInfoApi.getCompanyInfo).mockResolvedValue({} as CompanyInfo);
+  });
+
+  it('契約書の読み込みが 404 を受けると、契約書が見つからない旨と案件の契約書の一覧へのリンクを表示し、予期しないエラーの文言と再試行の釦を出さない', async () => {
+    vi.mocked(contractsApi.getContractDetail).mockRejectedValue(notFound());
+
+    renderContractDetailPage('contract-1', 'project-1');
+
+    expect(
+      await screen.findByRole('heading', { name: '契約書が見つかりません' })
+    ).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: '契約書一覧に戻る' });
+    expect(link).toHaveAttribute('href', '/projects/project-1/contracts');
+    expect(screen.queryByText('予期しないエラーが発生しました。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /再試行/ })).not.toBeInTheDocument();
+    expect(mockToastContext.error).not.toHaveBeenCalledWith('予期しないエラーが発生しました。');
+  });
+
+  it('ステータスの変更が 404 を受けると、契約書が見つからない旨のメッセージを表示し、予期しないエラーの文言を出さない', async () => {
+    const user = userEvent.setup();
+    vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+    vi.mocked(contractsApi.updateContractStatus).mockRejectedValue(notFound());
+
+    renderContractDetailPage();
+
+    await user.click(await screen.findByRole('button', { name: /契約済にする/ }));
+
+    await waitFor(() => {
+      expect(mockToastContext.error).toHaveBeenCalledWith(CONTRACT_NOT_FOUND_MESSAGE);
+    });
+    expect(mockToastContext.error).not.toHaveBeenCalledWith('予期しないエラーが発生しました。');
+  });
+
+  it('削除が 404 を受けると、契約書が見つからない旨のメッセージを表示し、削除の失敗の汎用の文言を出さない', async () => {
+    const user = userEvent.setup();
+    vi.mocked(contractsApi.getContractDetail).mockResolvedValue(mockNewContractDetail);
+    vi.mocked(contractsApi.deleteContract).mockRejectedValue(notFound());
+
+    renderContractDetailPage();
+
+    await user.click(await screen.findByRole('button', { name: '削除' }));
+    await user.click(screen.getByRole('button', { name: /削除する/ }));
+
+    await waitFor(() => {
+      expect(mockToastContext.error).toHaveBeenCalledWith(CONTRACT_NOT_FOUND_MESSAGE);
+    });
+    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(
+      CONTRACT_NOT_FOUND_MESSAGE
+    );
+    expect(screen.queryByText('削除に失敗しました')).not.toBeInTheDocument();
   });
 });

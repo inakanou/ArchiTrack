@@ -8,6 +8,7 @@
  * - REQ-11.2: サーバーエラー（5xx）時のメッセージ
  * - REQ-11.3: セッション期限切れ（401）時の分類
  * - REQ-11.4: 楽観的排他制御競合（409）時のメッセージ
+ * - REQ-11.8, REQ-11.9: 404 を見つからない種別に分類する（Task 21.1）
  *
  * @module __tests__/utils/contractErrorHandler.test
  */
@@ -20,6 +21,8 @@ import {
   SERVER_ERROR_MESSAGE,
   CONFLICT_ERROR_MESSAGE,
   FORBIDDEN_ERROR_MESSAGE,
+  CONTRACT_NOT_FOUND_MESSAGE,
+  PROJECT_NOT_FOUND_MESSAGE,
 } from '../../utils/contractErrorHandler';
 
 describe('classifyContractError', () => {
@@ -176,5 +179,59 @@ describe('classifyContractError', () => {
 
       expect(result.originalError).toBe(error);
     });
+  });
+});
+
+// ============================================================================
+// REQ-11.8, REQ-11.9: 見つからない（404）。Task 21.1
+// ============================================================================
+describe('classifyContractError の 404（REQ-11.8, REQ-11.9）', () => {
+  it('404 を見つからない種別に分類し、既定では契約書が見つからない旨を返す', () => {
+    const error = new ApiError(404, 'Not found', { code: 'NOT_FOUND' });
+
+    const result = classifyContractError(error);
+
+    expect(result.type).toBe('not_found');
+    expect(result.message).toBe(CONTRACT_NOT_FOUND_MESSAGE);
+    expect(result.message).not.toBe('予期しないエラーが発生しました。');
+    expect(result.retryable).toBe(false);
+    expect(result.originalError).toBe(error);
+  });
+
+  it('見つからない対象にプロジェクトを指定すると、プロジェクトが見つからない旨を返す', () => {
+    const error = new ApiError(404, 'Not found', { code: 'NOT_FOUND' });
+
+    const result = classifyContractError(error, { notFoundTarget: 'project' });
+
+    expect(result.type).toBe('not_found');
+    expect(result.message).toBe(PROJECT_NOT_FOUND_MESSAGE);
+    expect(result.retryable).toBe(false);
+  });
+
+  it('見積書の不在（ESTIMATE_NOT_FOUND）はサーバーの本文を表示する', () => {
+    const serverMessage = '見積書が見つかりません: est-001';
+    const error = new ApiError(404, serverMessage, {
+      status: 404,
+      detail: serverMessage,
+      code: 'ESTIMATE_NOT_FOUND',
+    });
+
+    const result = classifyContractError(error, { notFoundTarget: 'project' });
+
+    expect(result.type).toBe('not_found');
+    expect(result.message).toBe(serverMessage);
+    expect(result.retryable).toBe(false);
+  });
+
+  it('文言は日本語で見つからない対象を告げ、閲覧範囲や権限に触れない', () => {
+    expect(CONTRACT_NOT_FOUND_MESSAGE).toBe(
+      '契約書が見つかりません。存在しないか、削除されています。'
+    );
+    expect(PROJECT_NOT_FOUND_MESSAGE).toBe(
+      'プロジェクトが見つかりません。存在しないか、削除されています。'
+    );
+    for (const message of [CONTRACT_NOT_FOUND_MESSAGE, PROJECT_NOT_FOUND_MESSAGE]) {
+      expect(message).not.toMatch(/権限|範囲|担当/);
+    }
   });
 });

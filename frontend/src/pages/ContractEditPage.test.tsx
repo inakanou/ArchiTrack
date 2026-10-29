@@ -11,6 +11,7 @@
  * - REQ-9.4: パンくずナビゲーションを表示する
  * - REQ-9.5: 編集時自動表示項目更新（見積書変更時の金額自動再計算）
  * - REQ-11.6: 契約書編集成功時に「契約書を更新しました。」のトースト通知を表示
+ * - REQ-11.8, REQ-11.9: 404 を受けたときに見つからない旨を表示する（Task 21.1）
  *
  * @module pages/ContractEditPage.test
  */
@@ -24,6 +25,8 @@ import * as contractsApi from '../api/contracts';
 import * as projectsApi from '../api/projects';
 import type { ContractDetail } from '../api/contracts';
 import { ToastContext } from '../hooks/useToast';
+import { ApiError } from '../api/client';
+import { CONTRACT_NOT_FOUND_MESSAGE, SERVER_ERROR_MESSAGE } from '../utils/contractErrorHandler';
 import type { ToastContextValue } from '../hooks/useToast';
 
 // モック
@@ -313,32 +316,113 @@ describe('ContractEditPage', () => {
 
   /**
    * 契約書データ取得失敗時にエラーメッセージを表示する
+   *
+   * Task 21.1（REQ-11.8）: 旧来は応答の文言 'Not Found' との一致で 404 を見分けようとしていたが、
+   * 実際の応答の文言と一致せず分岐に入らなかった。404 の見分けは ApiError の状態コードで行う
    */
-  it('契約書データ取得失敗時にエラーメッセージを表示する', async () => {
-    vi.mocked(contractsApi.getContractDetail).mockRejectedValue(new Error('Not Found'));
+  it('契約書データ取得が 404 を受けると契約書が見つからない旨と契約書の一覧へのリンクを表示する', async () => {
+    vi.mocked(contractsApi.getContractDetail).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' })
+    );
 
     renderWithRouter();
 
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('契約書の取得に失敗しました')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: '契約書が見つかりません' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '契約書一覧に戻る' })).toHaveAttribute(
+      'href',
+      '/projects/project-1/contracts'
+    );
+    expect(screen.queryByText('予期しないエラーが発生しました。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
   });
 
   /**
-   * プロジェクト情報取得失敗時にエラーメッセージを表示する
+   * プロジェクト情報取得失敗時にエラーメッセージを表示する（Task 21.1、REQ-11.8）
    */
-  it('プロジェクト情報取得失敗時にエラーメッセージを表示する', async () => {
-    vi.mocked(projectsApi.getProject).mockRejectedValue(new Error('Not Found'));
+  it('プロジェクト情報取得が 404 を受けるとプロジェクトが見つからない旨とプロジェクトの一覧へのリンクを表示する', async () => {
+    vi.mocked(projectsApi.getProject).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' })
+    );
+
+    renderWithRouter();
+
+    expect(
+      await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+      'href',
+      '/projects'
+    );
+    expect(screen.queryByText('予期しないエラーが発生しました。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+  });
+
+  /**
+   * 404 以外の読み込みの失敗は従来どおり分類の文言と（再試行できるなら）再試行の釦を表示する
+   */
+  it('契約書データ取得がサーバーエラーを受けるとシステムエラーの文言と再試行の釦を表示する', async () => {
+    vi.mocked(contractsApi.getContractDetail).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error')
+    );
 
     renderWithRouter();
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
     });
+    expect(screen.getByText(SERVER_ERROR_MESSAGE)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument();
+  });
 
-    expect(screen.getByText('プロジェクト情報の取得に失敗しました')).toBeInTheDocument();
+  /**
+   * Task 21.1（REQ-11.9）: 保存が 404 を受けたときは見つからない旨のメッセージを表示する
+   */
+  it('保存が 404 を受けると契約書が見つからない旨をトーストとエラーの欄に表示し、予期しないエラーの文言を出さない', async () => {
+    vi.mocked(contractsApi.updateContract).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' })
+    );
+
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('contract-form')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(CONTRACT_NOT_FOUND_MESSAGE);
+    });
+    expect(mockToastContext.error).toHaveBeenCalledWith(CONTRACT_NOT_FOUND_MESSAGE);
+    expect(screen.queryByText('予期しないエラーが発生しました。')).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Task 21.1（REQ-11.9）: 保存が見積書の不在の 404 を受けたときはサーバーの本文を表示する
+   */
+  it('保存が見積書の不在の 404 を受けるとサーバーの本文を表示する', async () => {
+    const serverMessage = '見積書が見つかりません: estimate-1';
+    vi.mocked(contractsApi.updateContract).mockRejectedValue(
+      new ApiError(404, serverMessage, {
+        status: 404,
+        detail: serverMessage,
+        code: 'ESTIMATE_NOT_FOUND',
+      })
+    );
+
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('contract-form')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(serverMessage);
+    });
+    expect(mockToastContext.error).toHaveBeenCalledWith(serverMessage);
   });
 
   /**

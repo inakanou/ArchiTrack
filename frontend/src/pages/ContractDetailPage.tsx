@@ -15,6 +15,8 @@
  * - REQ-8.7: 編集ボタン押下時、契約書編集画面に遷移する
  * - REQ-8.8: パンくずナビゲーションを表示する
  * - REQ-13.5: 権限に基づくUI要素の表示/非表示制御（編集、ステータス遷移、削除ボタン）
+ * - REQ-11.8: 契約書の読み込みの 404 で見つからない旨と契約書の一覧へのリンクを表示する（Task 21.1）
+ * - REQ-11.9: ステータスの変更・削除の 404 で見つからない旨のメッセージを表示する（Task 21.1）
  *
  * @module pages/ContractDetailPage
  */
@@ -25,7 +27,7 @@ import { getContractDetail, updateContractStatus } from '../api/contracts';
 import type { ContractDetail } from '../api/contracts';
 import { getCompanyInfo } from '../api/company-info';
 import type { CompanyInfo } from '../types/company-info.types';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 import { DeleteConfirmDialog } from '../components/contracts/DeleteConfirmDialog';
 import { useToast } from '../hooks/useToast';
 import { usePermission } from '../hooks/usePermission';
@@ -336,6 +338,8 @@ export default function ContractDetailPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 読み込みが 404 を受けた（範囲外と不在を区別しない。REQ-11.8）
+  const [isNotFound, setIsNotFound] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
@@ -348,12 +352,18 @@ export default function ContractDetailPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsNotFound(false);
 
     try {
       const data = await getContractDetail(contractId);
       setContract(data);
     } catch (err) {
       const classified = classifyContractError(err);
+      if (classified.type === 'not_found') {
+        // 見つからない旨は ResourceNotFound が告げる（REQ-11.8）
+        setIsNotFound(true);
+        return;
+      }
       toast.error(classified.message);
       setError(classified.message);
     } finally {
@@ -448,6 +458,19 @@ export default function ContractDetailPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 見つからない表示（REQ-11.8）。再試行で解けないため再試行の釦を出さない
+  if (isNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="契約書"
+          returnPath={`/projects/${projectId}/contracts`}
+          returnLabel="契約書一覧に戻る"
+        />
       </main>
     );
   }
