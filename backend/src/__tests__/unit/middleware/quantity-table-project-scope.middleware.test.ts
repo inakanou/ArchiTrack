@@ -115,7 +115,7 @@ describe('数量表・数量グループ・数量項目の ID からの解決関
     });
   });
 
-  it('二重マウントで経路の親と対象の親が食い違うときは、範囲を判定せずに不在と同じ 404 にする', async () => {
+  it('二重マウントで経路の親と対象の親が食い違い、対象の実際の案件が範囲内のときは、不在と同じ 404 にし、記録しない（50.10）', async () => {
     const scope = fakeScope();
     const options = { scopeService: scope, auditLogService: audit };
     const tables = buildApp(
@@ -123,8 +123,22 @@ describe('数量表・数量グループ・数量項目の ID からの解決関
       ['/projects/:projectId/quantity-tables/:id'],
       requireQuantityTableProjectScope('id', options)
     );
+    mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(null);
+    const missingTable = await request(tables.app)
+      .get('/projects/project-in-scope-2/quantity-tables/qt-9')
+      .expect(404);
+    // 数量表の案件（範囲内）が経路の案件（範囲内の別の案件）と食い違う（経路の誤り）
     mockPrisma.quantityTable.findUnique.mockResolvedValueOnce({ projectId: 'project-in-scope' });
-    await request(tables.app).get('/projects/project-in-scope-2/quantity-tables/qt-1').expect(404);
+    const tableMismatch = await request(tables.app)
+      .get('/projects/project-in-scope-2/quantity-tables/qt-1')
+      .expect(404);
+    expectGenericNotFound(tableMismatch.body);
+    expect(tableMismatch.body.detail).toBe(missingTable.body.detail);
+    expect(tables.reached).not.toHaveBeenCalled();
+    // 判定に渡るのは数量表の実際の案件で、経路の案件は判定しない
+    expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+    expect(scope.evaluateProjectAccess).toHaveBeenLastCalledWith(USER_ID, 'project-in-scope');
+    expect(scope.evaluateProjectAccess).not.toHaveBeenCalledWith(USER_ID, 'project-in-scope-2');
 
     const groups = buildApp(
       'get',
@@ -135,12 +149,19 @@ describe('数量表・数量グループ・数量項目の ID からの解決関
       quantityTableId: 'qt-1',
       quantityTable: { projectId: 'project-in-scope' },
     });
-    await request(groups.app).get('/quantity-tables/qt-other/groups/g-1').expect(404);
+    expectGenericNotFound(
+      (await request(groups.app).get('/quantity-tables/qt-other/groups/g-1').expect(404)).body
+    );
+    // 判定に渡るのは数量グループの実際の親の数量表の案件（経路の数量表の案件は引かない）
+    expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(2);
+    expect(scope.evaluateProjectAccess).toHaveBeenLastCalledWith(USER_ID, 'project-in-scope');
+    expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(2);
     mockPrisma.quantityGroup.findUnique.mockResolvedValueOnce({
       quantityTableId: 'qt-1',
       quantityTable: { projectId: 'project-in-scope' },
     });
     await request(groups.app).get('/quantity-tables/qt-1/groups/g-1').expect(200);
+    expect(groups.reached).toHaveBeenCalledTimes(1);
 
     const items = buildApp(
       'get',
@@ -151,16 +172,117 @@ describe('数量表・数量グループ・数量項目の ID からの解決関
       quantityGroupId: 'g-1',
       quantityGroup: { quantityTable: { projectId: 'project-in-scope' } },
     });
-    await request(items.app).get('/quantity-groups/g-other/items/i-1').expect(404);
+    expectGenericNotFound(
+      (await request(items.app).get('/quantity-groups/g-other/items/i-1').expect(404)).body
+    );
+    // 判定に渡るのは数量項目の実際の親の数量グループの数量表の案件（経路の数量グループの案件は引かない）
+    expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(4);
+    expect(scope.evaluateProjectAccess).toHaveBeenLastCalledWith(USER_ID, 'project-in-scope');
+    expect(mockPrisma.quantityGroup.findUnique).toHaveBeenCalledTimes(2);
     mockPrisma.quantityItem.findUnique.mockResolvedValueOnce({
       quantityGroupId: 'g-1',
       quantityGroup: { quantityTable: { projectId: 'project-in-scope' } },
     });
     await request(items.app).get('/quantity-groups/g-1/items/i-1').expect(200);
+    expect(items.reached).toHaveBeenCalledTimes(1);
 
-    // 食い違いは範囲の判定に進まない（範囲外の記録も残さない）
-    expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(2);
+    // 範囲内の案件どうしの食い違いは範囲外の拒否として記録しない
+    expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(5);
     expect(audit.createLog).not.toHaveBeenCalled();
+  });
+
+  it('二重マウントで経路の親と対象の親が食い違い、対象の実際の案件が範囲外のときは、不在と同じ 404 にし、対象の実際の案件を対象に 1 件ずつ記録する（50.10）', async () => {
+    const scope = fakeScope();
+    const options = { scopeService: scope, auditLogService: audit };
+
+    // 数量表: 経路の案件（範囲内）と数量表の案件（範囲外）が食い違う
+    const tables = buildApp(
+      'get',
+      ['/projects/:projectId/quantity-tables/:id'],
+      requireQuantityTableProjectScope('id', options)
+    );
+    mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(null);
+    const missingTable = await request(tables.app)
+      .get('/projects/project-in-scope/quantity-tables/qt-9')
+      .expect(404);
+    mockPrisma.quantityTable.findUnique.mockResolvedValueOnce({
+      projectId: 'project-out-of-scope',
+    });
+    const tableMismatch = await request(tables.app)
+      .get('/projects/project-in-scope/quantity-tables/qt-2')
+      .expect(404);
+    expectGenericNotFound(tableMismatch.body);
+    expect(tableMismatch.body.detail).toBe(missingTable.body.detail);
+    expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+    expect(scope.evaluateProjectAccess).toHaveBeenLastCalledWith(USER_ID, 'project-out-of-scope');
+    expect(scope.evaluateProjectAccess).not.toHaveBeenCalledWith(USER_ID, 'project-in-scope');
+    expect(audit.createLog).toHaveBeenCalledTimes(1);
+    expect(audit.createLog.mock.calls[0]?.[0]).toMatchObject({
+      action: 'PROJECT_SCOPE_DENIED',
+      targetId: 'project-out-of-scope',
+    });
+
+    // 数量グループ: 経路の数量表と食い違い、実際の親の数量表の案件が範囲外
+    const groups = buildApp(
+      'get',
+      ['/quantity-tables/:quantityTableId/groups/:id'],
+      requireQuantityGroupProjectScope('id', options)
+    );
+    mockPrisma.quantityGroup.findUnique.mockResolvedValueOnce(null);
+    const missingGroup = await request(groups.app)
+      .get('/quantity-tables/qt-in-scope/groups/g-9')
+      .expect(404);
+    mockPrisma.quantityGroup.findUnique.mockResolvedValueOnce({
+      quantityTableId: 'qt-foreign',
+      quantityTable: { projectId: 'project-out-of-scope' },
+    });
+    const groupMismatch = await request(groups.app)
+      .get('/quantity-tables/qt-in-scope/groups/g-2')
+      .expect(404);
+    expectGenericNotFound(groupMismatch.body);
+    expect(groupMismatch.body.detail).toBe(missingGroup.body.detail);
+    expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(2);
+    expect(scope.evaluateProjectAccess).toHaveBeenLastCalledWith(USER_ID, 'project-out-of-scope');
+    // 経路の数量表の案件は引かない
+    expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(2);
+    expect(audit.createLog).toHaveBeenCalledTimes(2);
+    expect(audit.createLog.mock.calls[1]?.[0]).toMatchObject({
+      action: 'PROJECT_SCOPE_DENIED',
+      targetId: 'project-out-of-scope',
+    });
+
+    // 数量項目: 経路の数量グループと食い違い、実際の親の数量グループの数量表の案件が範囲外
+    const items = buildApp(
+      'get',
+      ['/quantity-groups/:groupId/items/:id'],
+      requireQuantityItemProjectScope('id', options)
+    );
+    mockPrisma.quantityItem.findUnique.mockResolvedValueOnce(null);
+    const missingItem = await request(items.app)
+      .get('/quantity-groups/g-in-scope/items/i-9')
+      .expect(404);
+    mockPrisma.quantityItem.findUnique.mockResolvedValueOnce({
+      quantityGroupId: 'g-foreign',
+      quantityGroup: { quantityTable: { projectId: 'project-out-of-scope' } },
+    });
+    const itemMismatch = await request(items.app)
+      .get('/quantity-groups/g-in-scope/items/i-2')
+      .expect(404);
+    expectGenericNotFound(itemMismatch.body);
+    expect(itemMismatch.body.detail).toBe(missingItem.body.detail);
+    expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(3);
+    expect(scope.evaluateProjectAccess).toHaveBeenLastCalledWith(USER_ID, 'project-out-of-scope');
+    // 経路の数量グループの案件は引かない
+    expect(mockPrisma.quantityGroup.findUnique).toHaveBeenCalledTimes(2);
+    expect(audit.createLog).toHaveBeenCalledTimes(3);
+    expect(audit.createLog.mock.calls[2]?.[0]).toMatchObject({
+      action: 'PROJECT_SCOPE_DENIED',
+      targetId: 'project-out-of-scope',
+    });
+
+    expect(tables.reached).not.toHaveBeenCalled();
+    expect(groups.reached).not.toHaveBeenCalled();
+    expect(items.reached).not.toHaveBeenCalled();
   });
 
   it('数量グループ・数量項目は親の数量表の案件で判定する', async () => {

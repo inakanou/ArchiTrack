@@ -850,10 +850,22 @@ describe('数量表・数量グループ・数量項目・候補の API の閲�
       }
     });
 
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象の案件を指定すればその案件だけ） */
+    function deniedCount(actorId: string, targetId?: string): Promise<number> {
+      return prisma.auditLog.count({
+        where: { action: 'PROJECT_SCOPE_DENIED', actorId, ...(targetId ? { targetId } : {}) },
+      });
+    }
+
     /**
+     * 担当者には経路の親（sibling）も対象の親（target）も範囲内であり、範囲内どうしの食い違い（経路の誤り）は
+     * 範囲外の拒否としては記録しない（50.10）。
+     *
      * @requirement quantity-table-generation/REQ-50.2
+     * @requirement quantity-table-generation/REQ-50.10
      */
     it('二重マウントの経路で、経路の親と対象の親が食い違うと対象の不在と同じ 404 にする', async () => {
+      const deniedBefore = await deniedCount(sales.id);
       const pairs: Array<[string, string]> = [
         [
           `/api/projects/${sibling.projectId}/quantity-tables/${target.quantityTableId}`,
@@ -878,6 +890,226 @@ describe('数量表・数量グループ・数量項目・候補の API の閲�
           .set(...auth(sales))
           .expect(404);
         expect(withoutInstance(response.body), mismatched).toEqual(withoutInstance(missing.body));
+      }
+      expect(
+        (await deniedCount(sales.id)) - deniedBefore,
+        '範囲内どうしの食い違いは記録しない'
+      ).toBe(0);
+    });
+
+    /**
+     * 応答は不在と同じ 404 のまま、対象の実際の案件が範囲外なら範囲外の拒否として記録する
+     * （quantity-table-generation タスク105.1。user-authentication の要件39.8 の本機能への適用）。
+     * 範囲内の親（target の案件・数量表・数量グループ）の経路で、範囲外の案件（other）の数量表・数量グループ・
+     * 数量項目を指す。数量表の 5 経路（詳細・更新・保存・コピー・取り除き）、数量グループの 4 経路（詳細・更新・
+     * コピー・取り除き）、数量項目の 5 経路（詳細・更新・コピー・移動・取り除き）のすべてで、要求ごとに
+     * 対象の実際の案件を対象に 1 件記録し、データを変えない。
+     *
+     * @requirement quantity-table-generation/REQ-50.10
+     */
+    it('二重マウントの経路で、範囲外の案件の数量表・数量グループ・数量項目を範囲内の親の経路で指すと、読み込みも書き込みも不在と同じ 404 になり、対象の実際の案件を対象に記録が 1 件ずつ増え、データを変えない', async () => {
+      const beforeTarget = await snapshot(target);
+      const beforeOther = await snapshot(other);
+      const tableUpdatedAt = await updatedAtOf('table', other.quantityTableId);
+      const groupUpdatedAt = await updatedAtOf('group', other.groupId);
+      const itemUpdatedAt = await updatedAtOf('item', other.itemId);
+      const tables = `/api/projects/${target.projectId}/quantity-tables`;
+      const groups = `/api/quantity-tables/${target.quantityTableId}/groups`;
+      const items = `/api/quantity-groups/${target.groupId}/items`;
+
+      type Call = {
+        method: 'get' | 'post' | 'put' | 'delete';
+        path: string;
+        missing: string;
+        body?: Record<string, unknown>;
+      };
+      const calls: Call[] = [
+        {
+          method: 'get',
+          path: `${tables}/${other.quantityTableId}`,
+          missing: `${tables}/${MISSING_ID}`,
+        },
+        {
+          method: 'put',
+          path: `${tables}/${other.quantityTableId}`,
+          missing: `${tables}/${MISSING_ID}`,
+          body: { name: `${MARK}-mismatched`, expectedUpdatedAt: tableUpdatedAt },
+        },
+        {
+          method: 'put',
+          path: `${tables}/${other.quantityTableId}/save`,
+          missing: `${tables}/${MISSING_ID}/save`,
+          body: { expectedUpdatedAt: tableUpdatedAt, name: `${MARK}-mismatched`, groups: [] },
+        },
+        {
+          method: 'post',
+          path: `${tables}/${other.quantityTableId}/copy`,
+          missing: `${tables}/${MISSING_ID}/copy`,
+          body: { name: `${MARK}-mismatched` },
+        },
+        {
+          method: 'get',
+          path: `${groups}/${other.groupId}`,
+          missing: `${groups}/${MISSING_ID}`,
+        },
+        {
+          method: 'put',
+          path: `${groups}/${other.groupId}`,
+          missing: `${groups}/${MISSING_ID}`,
+          body: { name: 'mismatched', expectedUpdatedAt: groupUpdatedAt },
+        },
+        {
+          method: 'post',
+          path: `${groups}/${other.groupId}/copy`,
+          missing: `${groups}/${MISSING_ID}/copy`,
+        },
+        {
+          method: 'get',
+          path: `${items}/${other.itemId}`,
+          missing: `${items}/${MISSING_ID}`,
+        },
+        {
+          method: 'put',
+          path: `${items}/${other.itemId}`,
+          missing: `${items}/${MISSING_ID}`,
+          body: { name: 'mismatched', expectedUpdatedAt: itemUpdatedAt },
+        },
+        {
+          method: 'post',
+          path: `${items}/${other.itemId}/copy`,
+          missing: `${items}/${MISSING_ID}/copy`,
+        },
+        {
+          method: 'post',
+          path: `${items}/${other.itemId}/move`,
+          missing: `${items}/${MISSING_ID}/move`,
+          body: { targetGroupId: other.secondGroupId, displayOrder: 9 },
+        },
+        {
+          method: 'delete',
+          path: `${items}/${other.secondItemId}`,
+          missing: `${items}/${MISSING_ID}`,
+        },
+        {
+          method: 'delete',
+          path: `${groups}/${other.secondGroupId}`,
+          missing: `${groups}/${MISSING_ID}`,
+        },
+        {
+          method: 'delete',
+          path: `${tables}/${other.quantityTableId}`,
+          missing: `${tables}/${MISSING_ID}`,
+        },
+      ];
+
+      for (const call of calls) {
+        const label = `${call.method.toUpperCase()} ${call.path}`;
+        // 不在の対象: 404 で記録しない
+        const missingBefore = await deniedCount(sales.id);
+        const missing = await request(app)
+          [call.method](call.missing)
+          .set(...auth(sales))
+          .send(call.body ?? {});
+        expect(missing.status, `${label}（不在）`).toBe(404);
+        expect((await deniedCount(sales.id)) - missingBefore, `${label}: 不在は記録しない`).toBe(0);
+
+        const allBefore = await deniedCount(sales.id);
+        const foreignBefore = await deniedCount(sales.id, other.projectId);
+        const response = await request(app)
+          [call.method](call.path)
+          .set(...auth(sales))
+          .send(call.body ?? {});
+        expect(response.status, label).toBe(404);
+        expect(response.body.code, label).toBe('NOT_FOUND');
+        expect(withoutInstance(response.body), `${label}: 対象の不在と同じ本文`).toEqual(
+          withoutInstance(missing.body)
+        );
+        const exposed = JSON.stringify(withoutInstance(response.body));
+        for (const id of [other.projectId, other.quantityTableId, other.groupId, other.itemId]) {
+          expect(exposed, label).not.toContain(id);
+        }
+        expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(
+          1
+        );
+        expect(
+          (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+          `${label}: 記録の対象は対象の実際の案件`
+        ).toBe(1);
+      }
+
+      expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(await snapshot(other), 'データは変わらない').toEqual(beforeOther);
+    });
+
+    /**
+     * 数量表の論理削除は区別しない（design.md の 2026-10-29 の追加の章の 50.10 の決定）。範囲外の案件の
+     * 論理削除済みの数量表とその配下の数量グループ・数量項目を範囲内の親の経路で指しても、不在と同じ 404 で
+     * 数量表の案件を対象に記録する。
+     *
+     * @requirement quantity-table-generation/REQ-50.10
+     */
+    it('二重マウントの経路で、範囲外の案件の論理削除済みの数量表とその配下を範囲内の親の経路で指しても、不在と同じ 404 になり、数量表の案件を対象に記録が 1 件ずつ増え、データを変えない', async () => {
+      const deletedTable = await prisma.quantityTable.create({
+        data: { projectId: other.projectId, name: `${MARK}-deleted-foreign-qt` },
+        select: { id: true },
+      });
+      const deletedGroup = await prisma.quantityGroup.create({
+        data: { quantityTableId: deletedTable.id, name: 'deleted-foreign-group', displayOrder: 0 },
+        select: { id: true },
+      });
+      const deletedItemId = await createItem(deletedGroup.id, `${MARK}-deleted-foreign-item`, 0);
+      await prisma.quantityTable.update({
+        where: { id: deletedTable.id },
+        data: { deletedAt: new Date() },
+      });
+      try {
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+        const pairs: Array<[string, string]> = [
+          [
+            `/api/projects/${target.projectId}/quantity-tables/${deletedTable.id}`,
+            `/api/projects/${target.projectId}/quantity-tables/${MISSING_ID}`,
+          ],
+          [
+            `/api/quantity-tables/${target.quantityTableId}/groups/${deletedGroup.id}`,
+            `/api/quantity-tables/${target.quantityTableId}/groups/${MISSING_ID}`,
+          ],
+          [
+            `/api/quantity-groups/${target.groupId}/items/${deletedItemId}`,
+            `/api/quantity-groups/${target.groupId}/items/${MISSING_ID}`,
+          ],
+        ];
+        for (const [mismatched, missingPath] of pairs) {
+          const missing = await request(app)
+            .get(missingPath)
+            .set(...auth(sales))
+            .expect(404);
+          const allBefore = await deniedCount(sales.id);
+          const foreignBefore = await deniedCount(sales.id, other.projectId);
+          const response = await request(app)
+            .get(mismatched)
+            .set(...auth(sales))
+            .expect(404);
+          expect(response.body.code, mismatched).toBe('NOT_FOUND');
+          expect(withoutInstance(response.body), `${mismatched}: 対象の不在と同じ本文`).toEqual(
+            withoutInstance(missing.body)
+          );
+          const exposed = JSON.stringify(withoutInstance(response.body));
+          expect(exposed, mismatched).not.toContain(other.projectId);
+          expect(exposed, mismatched).not.toContain(deletedTable.id);
+          expect(
+            (await deniedCount(sales.id)) - allBefore,
+            `${mismatched}: 記録は 1 件だけ増える`
+          ).toBe(1);
+          expect(
+            (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+            `${mismatched}: 記録の対象は数量表の実際の案件`
+          ).toBe(1);
+        }
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other)).toEqual(beforeOther);
+      } finally {
+        await prisma.quantityTable.delete({ where: { id: deletedTable.id } });
       }
     });
   });

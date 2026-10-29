@@ -14,7 +14,11 @@
  * - 数量表の論理削除は区別せずに案件 ID を引く。範囲内の利用者には各経路の従来の応答（論理削除の 404 など）が返る
  * - 二重マウント（`/api/projects/:projectId/quantity-tables/:id`、`/api/quantity-tables/:quantityTableId/groups/:id`、
  *   `/api/quantity-groups/:groupId/items/:id`）で経路の親の ID と対象の親が食い違うときは、対象の不在と
- *   同じ 404 にする（経路の親の ID でなく対象が属する案件で判定する）
+ *   同じ 404 にする（経路の親の ID でなく対象が属する案件で判定する）。解決関数は上流の `projectMismatch`
+ *   （対象の実際の案件 ID。数量表はその案件、数量グループは実際の親の数量表の案件、数量項目は実際の親の
+ *   数量グループの数量表の案件）を返し、その案件が範囲外のときだけ PROJECT_SCOPE_DENIED が記録される
+ *   （経路の親の案件は判定しない。範囲内の案件どうしの食い違いは記録しない。数量表の論理削除は区別しない。
+ *   タスク105.1、50.10、user-authentication の要件39.8）。対象の不在は従来どおり null で記録しない
  * - 複数の対象を一度に扱う要求（数量項目の一括コピー・一括移動、数量グループ・数量項目の表示順の更新）と
  *   移動の移し先は、対象と移し先の全件の案件を判定し、1 件でも不在または範囲外なら要求全体を 404 にして
  *   何も書き込まない（50.4。決定の根拠は design.md の Requirement 50 の章）
@@ -30,6 +34,7 @@ import { NotFoundError } from '../errors/apiError.js';
 import {
   requireProjectScope,
   projectIdFromParam,
+  projectMismatch,
   type ProjectIdResolver,
   type ProjectScopeGuardOptions,
 } from './project-scope.middleware.js';
@@ -113,7 +118,8 @@ export function requireProjectParamScope(
 
 /**
  * 数量表の ID を経路のパラメータから読んで範囲を判定する。
- * 経路に案件 ID（`projectId`）があり、数量表の案件と食い違うときは数量表の不在と同じ 404 にする
+ * 経路に案件 ID（`projectId`）があり、数量表の案件と食い違うときは数量表の不在と同じ 404 にし、
+ * 数量表の案件が範囲外なら記録する（50.10）
  */
 export function requireQuantityTableProjectScope(
   paramName: string,
@@ -127,7 +133,8 @@ export function requireQuantityTableProjectScope(
     const projectId = await findProjectIdOfQuantityTable(id);
     const addressedProjectId = nonEmptyString(req.params.projectId);
     if (projectId !== null && addressedProjectId !== null && addressedProjectId !== projectId) {
-      return null;
+      // 食い違い（要件39.8）: 数量表の実際の案件を返し、範囲外のときだけ上流の判定部品が記録する（50.10）
+      return projectMismatch(projectId);
     }
     return projectId;
   };
@@ -137,7 +144,7 @@ export function requireQuantityTableProjectScope(
 /**
  * 数量グループの ID を経路のパラメータから読んで、親の数量表の案件の範囲を判定する。
  * 経路に数量表の ID（`quantityTableId`）があり、数量グループの数量表と食い違うときは
- * 数量グループの不在と同じ 404 にする
+ * 数量グループの不在と同じ 404 にし、実際の親の数量表の案件が範囲外なら記録する（50.10）
  */
 export function requireQuantityGroupProjectScope(
   paramName: string,
@@ -154,7 +161,8 @@ export function requireQuantityGroupProjectScope(
     }
     const addressedTableId = nonEmptyString(req.params.quantityTableId);
     if (addressedTableId !== null && addressedTableId !== owner.quantityTableId) {
-      return null;
+      // 食い違い（要件39.8）: 数量グループの実際の親の数量表の案件を返す。経路の数量表の案件は引かない（50.10）
+      return projectMismatch(owner.projectId);
     }
     return owner.projectId;
   };
@@ -164,7 +172,7 @@ export function requireQuantityGroupProjectScope(
 /**
  * 数量項目の ID を経路のパラメータから読んで、親の数量グループの数量表の案件の範囲を判定する。
  * 経路に数量グループの ID（`groupId`）があり、数量項目の数量グループと食い違うときは
- * 数量項目の不在と同じ 404 にする
+ * 数量項目の不在と同じ 404 にし、実際の親の数量グループの数量表の案件が範囲外なら記録する（50.10）
  */
 export function requireQuantityItemProjectScope(
   paramName: string,
@@ -181,7 +189,9 @@ export function requireQuantityItemProjectScope(
     }
     const addressedGroupId = nonEmptyString(req.params.groupId);
     if (addressedGroupId !== null && addressedGroupId !== owner.quantityGroupId) {
-      return null;
+      // 食い違い（要件39.8）: 数量項目の実際の親の数量グループの数量表の案件を返す。経路の数量グループの
+      // 案件は引かない（50.10）
+      return projectMismatch(owner.projectId);
     }
     return owner.projectId;
   };

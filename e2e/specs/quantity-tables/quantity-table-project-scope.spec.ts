@@ -6,7 +6,7 @@
  * 範囲外を存在しない場合と同じ汎用の 404 にする。一括の要求は範囲外が一つでも含まれれば全体を 404 にし、
  * 写真の紐付けが範囲外の現場調査・画像を指せば現場調査・画像の不在と同じ 404 にする。
  *
- * 被覆する受入基準（quantity-table-generation の Requirement 50.1〜50.7）は各テストの `@requirement` の印が名乗る。
+ * 被覆する受入基準（quantity-table-generation の Requirement 50.1〜50.7、50.10〔タスク105.1〕）は各テストの `@requirement` の印が名乗る。
  *
  * 検証に使う案件・現場調査・数量表はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、利用者はテストの中で
  * 作る一意のメールアドレスの利用者とする。後始末で案件を先に消してから利用者を消す。
@@ -339,6 +339,137 @@ test.describe('数量表・数量グループ・数量項目・候補の案件�
     }
 
     expect(await snapshot(target.projectId)).toEqual(before);
+  });
+
+  /**
+   * 応答は不在と同じ 404 のまま、対象の実際の案件が範囲外なら範囲外の拒否として記録する
+   * （quantity-table-generation タスク105.1。user-authentication の要件39.8 の本機能への適用）。
+   * 自分の案件・数量表・数量グループの経路で、範囲外の案件の数量表・数量グループ・数量項目を指す。
+   * 不在の対象と、範囲内の他の親の対象（経路の誤り）は記録しない。データは変わらない。
+   *
+   * @requirement quantity-table-generation/REQ-50.10
+   * @requirement user-authentication/REQ-39.8
+   */
+  test('自分の親の経路で範囲外の案件の数量表・数量グループ・数量項目を指すと 404 になり、対象の実際の案件を対象に監査の記録が 1 件ずつ増える', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('mismatch-own', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const sibling = await createFixture('mismatch-sibling', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const foreign = await createFixture('mismatch-foreign', {
+      salesPersonId: other.id,
+      createdById: other.id,
+    });
+    const prisma = getPrismaClient();
+    const foreignGroup = await prisma.quantityGroup.findUniqueOrThrow({
+      where: { id: foreign.groupId },
+      select: { updatedAt: true },
+    });
+    const beforeTarget = await snapshot(target.projectId);
+    const beforeSibling = await snapshot(sibling.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象の案件を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+
+    const tables = `${API_BASE_URL}/api/projects/${target.projectId}/quantity-tables`;
+    const groups = `${API_BASE_URL}/api/quantity-tables/${target.quantityTableId}/groups`;
+    const items = `${API_BASE_URL}/api/quantity-groups/${target.groupId}/items`;
+    const cases: Array<{
+      parent: string;
+      siblingId: string;
+      foreign: Array<() => ReturnType<APIRequestContext['get']>>;
+    }> = [
+      {
+        parent: tables,
+        siblingId: sibling.quantityTableId,
+        foreign: [
+          () => request.get(`${tables}/${foreign.quantityTableId}`, { headers }),
+          () =>
+            request.post(`${tables}/${foreign.quantityTableId}/copy`, {
+              headers,
+              data: { name: 'intrusion' },
+            }),
+        ],
+      },
+      {
+        parent: groups,
+        siblingId: sibling.groupId,
+        foreign: [
+          () => request.get(`${groups}/${foreign.groupId}`, { headers }),
+          () =>
+            request.put(`${groups}/${foreign.groupId}`, {
+              headers,
+              data: { name: 'intrusion', expectedUpdatedAt: foreignGroup.updatedAt.toISOString() },
+            }),
+        ],
+      },
+      {
+        parent: items,
+        siblingId: sibling.itemId,
+        foreign: [
+          () => request.get(`${items}/${foreign.itemId}`, { headers }),
+          () => request.delete(`${items}/${foreign.itemId}`, { headers }),
+        ],
+      },
+    ];
+
+    for (const { parent, siblingId, foreign: foreignCalls } of cases) {
+      // 不在の対象: 404 で記録しない
+      const missingBefore = await deniedCount();
+      const missing = await request.get(`${parent}/${MISSING_ID}`, { headers });
+      expect(missing.status(), parent).toBe(404);
+      const missingBody = withoutInstance((await missing.json()) as Record<string, unknown>);
+      expect(missingBody.code, parent).toBe('NOT_FOUND');
+      expect((await deniedCount()) - missingBefore, `${parent}: 不在は記録しない`).toBe(0);
+
+      // 範囲内の他の親の対象（経路の誤り）: 不在と同じ 404 で記録しない
+      const siblingBefore = await deniedCount();
+      const misrouted = await request.get(`${parent}/${siblingId}`, { headers });
+      expect(misrouted.status(), parent).toBe(404);
+      expect(withoutInstance((await misrouted.json()) as Record<string, unknown>), parent).toEqual(
+        missingBody
+      );
+      expect((await deniedCount()) - siblingBefore, `${parent}: 範囲内の食い違いは記録しない`).toBe(
+        0
+      );
+
+      // 範囲外の案件の対象: 読み込みも書き込みも不在と同じ 404 で、対象の実際の案件を対象に 1 件ずつ記録する
+      for (const call of foreignCalls) {
+        const allBefore = await deniedCount();
+        const foreignBefore = await deniedCount(foreign.projectId);
+        const outOfScope = await call();
+        const label = `${outOfScope.url()}`;
+        expect(outOfScope.status(), label).toBe(404);
+        const body = withoutInstance((await outOfScope.json()) as Record<string, unknown>);
+        expect(body, `${label}: 対象の不在と同じ本文`).toEqual(missingBody);
+        expect(JSON.stringify(body), label).not.toContain(foreign.projectId);
+        expect((await deniedCount()) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(1);
+        expect(
+          (await deniedCount(foreign.projectId)) - foreignBefore,
+          `${label}: 記録の対象は対象の実際の案件`
+        ).toBe(1);
+      }
+    }
+
+    expect(await snapshot(target.projectId)).toEqual(beforeTarget);
+    expect(await snapshot(sibling.projectId)).toEqual(beforeSibling);
+    expect(await snapshot(foreign.projectId), 'データは変わらない').toEqual(beforeForeign);
   });
 
   /**
