@@ -11,6 +11,9 @@
  * - 記録と観測の部品（`recordProjectScopeDenied`）は services/project-scope-denial.service.ts に置き、
  *   業務機能のサービスの中の判定と共有する（quantity-table-generation タスク104.1）
  * - 子リソースから案件 ID を引く解決関数は各業務機能が持つ。案件の API への適用はタスク52.3 で行う
+ * - 経路の案件と対象の実際の案件の食い違い（要件39.8、タスク63.1）は、解決関数が `projectMismatch` で返す。
+ *   実際の案件を判定し、範囲外のときだけ 39.7 と同じ形で記録し、判定の結果に関わらず不在と同じ 404 を返す。
+ *   解決関数を通らない下流の独自の判定は `recordProjectMismatchIfOutOfScope` で同じ判定と記録を行う
  */
 
 import type { Request, RequestHandler } from 'express';
@@ -27,8 +30,23 @@ import {
   type ProjectScopeDenialContext,
 } from '../services/project-scope-denial.service.js';
 
-/** 要求から案件 ID を得る。null は対象の不在 */
-export type ProjectIdResolver = (req: Request) => Promise<string | null>;
+/** 経路の案件（または親）と対象が実際に属する案件の食い違い（要件39.8）。応答は不在と同じ 404 */
+export interface ProjectMismatch {
+  readonly kind: 'project_mismatch';
+  /** 対象のデータが実際に属する案件 */
+  readonly ownerProjectId: string;
+}
+
+/** 案件 ID、対象の不在（null）、または食い違い */
+export type ProjectIdResolution = string | null | ProjectMismatch;
+
+/** 要求から案件 ID を得る。null は対象の不在、ProjectMismatch は経路と対象の案件の食い違い */
+export type ProjectIdResolver = (req: Request) => Promise<ProjectIdResolution>;
+
+/** 解決関数が食い違いを返すための作り手（要件39.8） */
+export function projectMismatch(ownerProjectId: string): ProjectMismatch {
+  return { kind: 'project_mismatch', ownerProjectId };
+}
 
 /** 案件 ID を経路のパラメータから読む既定の解決関数 */
 export const projectIdFromParam =
@@ -74,11 +92,18 @@ export function requireProjectScope(
       }
       const { userId } = req.user;
 
-      const projectId = await resolveProjectId(req);
-      if (projectId === null) {
+      const resolution = await resolveProjectId(req);
+      if (resolution === null) {
         next(notVisibleError());
         return;
       }
+      if (typeof resolution !== 'string') {
+        // 食い違い（要件39.8）: 実際の案件が範囲外なら記録し、結果に関わらず不在と同じ 404
+        await recordMismatchIfOutOfScope(req, userId, resolution.ownerProjectId, options);
+        next(notVisibleError());
+        return;
+      }
+      const projectId = resolution;
 
       // 判定は要求のたびに案件を読む（結果をキャッシュしない）
       const scopeService = options.scopeService ?? getSharedProjectScopeService();
@@ -125,4 +150,43 @@ async function recordScopeDenied(
     projectId,
     auditLogService
   );
+}
+
+/**
+ * 経路の案件と対象の実際の案件の食い違い（要件39.8）の判定と記録の実体。
+ * 実際の案件を判定し、範囲外のときだけ 39.7 と同じ形で記録する（範囲内・不在・論理削除では記録しない）。
+ * 経路で指定した案件は判定しない。判定の失敗は例外のまま呼び出し側へ返す（404 にしない）
+ */
+async function recordMismatchIfOutOfScope(
+  req: Request,
+  userId: string,
+  ownerProjectId: string,
+  options: ProjectScopeGuardOptions
+): Promise<void> {
+  const scopeService = options.scopeService ?? getSharedProjectScopeService();
+  const decision = await scopeService.evaluateProjectAccess(userId, ownerProjectId);
+  if (decision === 'out_of_scope') {
+    await recordScopeDenied(req, userId, ownerProjectId, options.auditLogService);
+  }
+}
+
+/**
+ * 解決関数を通らない下流の独自の判定（例: execution-budget-management の requireChildInProject）が、
+ * 経路の案件と対象の実際の案件の食い違いを見つけたときに呼ぶ（要件39.8）。
+ * 実際の案件を判定し、範囲外のときだけ 39.7 と同じ形で記録する。応答（汎用の 404）は呼び出し側が返す。
+ * 判定の失敗は例外として投げる（呼び出し側がエラーハンドラーへ渡す）。記録の失敗は投げない
+ *
+ * @param req - 認証済みの要求（req.user が無いときは UnauthorizedError を投げる）
+ * @param ownerProjectId - 対象のデータが実際に属する案件の ID
+ * @param options - 判定と監査のサービス（単体の検証で差し替える）
+ */
+export async function recordProjectMismatchIfOutOfScope(
+  req: Request,
+  ownerProjectId: string,
+  options: ProjectScopeGuardOptions = {}
+): Promise<void> {
+  if (!req.user) {
+    throw new UnauthorizedError('Authentication required');
+  }
+  await recordMismatchIfOutOfScope(req, req.user.userId, ownerProjectId, options);
 }
