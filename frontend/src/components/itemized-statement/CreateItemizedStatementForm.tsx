@@ -18,9 +18,14 @@
  * - 12.1: 集計処理中のローディングインジケーター
  * - 12.4: ローディング中は操作ボタンを無効化
  * - 12.5: ローディング完了時にインジケーターを非表示
+ *
+ * Task 29.1 変更: 作成が 404 を受けたときに、プロジェクトが見つからない旨（汎用の 404。範囲外を含む）
+ *   または数量表の不在の日本語の本文を表示し、応答の英語の文言を出さない
+ *   （itemized-statement-generation の Requirement 19.2）
  */
 
 import { useState, useCallback, useMemo } from 'react';
+import { getItemizedStatementNotFoundMessage } from '../../utils/itemizedStatementNotFound';
 import type { QuantityTableInfo } from '../../types/quantity-table.types';
 import type {
   ItemizedStatementInfo,
@@ -217,6 +222,11 @@ const styles = {
  * APIエラーコードからユーザーフレンドリーなメッセージに変換
  */
 function getErrorMessage(error: ApiClientError): string {
+  // 404 は見つからない旨（汎用の 404 はプロジェクトの不在。数量表の不在は日本語の本文。Task 29.1）
+  const notFoundMessage = getItemizedStatementNotFoundMessage(error, 'project');
+  if (notFoundMessage) {
+    return notFoundMessage;
+  }
   // responseプロパティからエラー詳細を取得
   const problemDetails = error.response;
   const code = problemDetails?.code;

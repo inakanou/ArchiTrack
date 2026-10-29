@@ -11,6 +11,9 @@
  *   （Requirement 18.7・18.8。user-authentication の要件40.9〜40.11）
  * Task 28.1: クリップボードへのコピーを出力の記録の成功の後にだけ書き込む
  *   （Requirement 18.9・18.10。user-authentication の要件40.9〜40.11）
+ * Task 29.1: 内訳書の読み込みの 404 で内訳書が見つからない旨とプロジェクトの一覧へのリンクを表示し、
+ *   応答の英語の文言と再試行の釦を出さない。削除・並び順の保存の 404 で見つからない旨のメッセージを
+ *   表示する（Requirement 19.1・19.2）
  *
  * Requirements:
  * - 4.1: 集計結果をテーブル形式で表示する
@@ -85,13 +88,17 @@ import {
   runRecordedClipboardWrite,
   runRecordedExport,
 } from '../api/export-audit';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import ItemizedStatementDeleteDialog from '../components/itemized-statement/ItemizedStatementDeleteDialog';
 import SortOrderButtons from '../components/quantity-table/SortOrderButtons';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { exportToExcel, type ExportToExcelResult } from '../utils/export-excel';
 import { formatItemsForClipboard } from '../utils/copy-to-clipboard';
+import {
+  getItemizedStatementNotFoundMessage,
+  isNotFoundError,
+} from '../utils/itemizedStatementNotFound';
 import type {
   ItemizedStatementDetail,
   ItemizedStatementItemInfo,
@@ -881,6 +888,8 @@ export default function ItemizedStatementDetailPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 内訳書の読み込みが 404 を受けた（範囲外と不在を区別しない。Req 19.1）
+  const [isStatementNotFound, setIsStatementNotFound] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
   // 削除機能の状態 (Req 7.1, 7.2, 12.3, 12.4)
@@ -936,6 +945,7 @@ export default function ItemizedStatementDetailPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsStatementNotFound(false);
 
     try {
       const data = await getItemizedStatementDetail(id);
@@ -945,7 +955,10 @@ export default function ItemizedStatementDetailPage() {
       setOrderedItems(sorted);
       setHasOrderChanges(false);
     } catch (err) {
-      if (err instanceof Error) {
+      if (isNotFoundError(err)) {
+        // 404 は応答の本文（汎用の 404 では英語）を使わず、ResourceNotFound が告げる（Req 19.1）
+        setIsStatementNotFound(true);
+      } else if (err instanceof Error) {
         setError(err.message);
       } else {
         setError('内訳書の取得に失敗しました');
@@ -1062,6 +1075,9 @@ export default function ItemizedStatementDetailPage() {
       // 楽観的排他制御エラー（409）の判定 (Req 10.4)
       if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
         setDeleteError('他のユーザーにより更新されました。画面を再読み込みしてください');
+      } else if (isNotFoundError(err)) {
+        // 404 は見つからない旨（応答の英語の文言を出さない。Req 19.2）
+        setDeleteError(getItemizedStatementNotFoundMessage(err, 'itemizedStatement'));
       } else if (err instanceof Error) {
         setDeleteError(err.message);
       } else {
@@ -1196,6 +1212,9 @@ export default function ItemizedStatementDetailPage() {
       // 楽観的排他制御エラー（409）
       if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
         setSaveOrderError('他のユーザーにより更新されました。画面を再読み込みしてください');
+      } else if (isNotFoundError(err)) {
+        // 404 は見つからない旨。未保存の並び順は保つ（Req 19.2・17.10）
+        setSaveOrderError(getItemizedStatementNotFoundMessage(err, 'itemizedStatement'));
       } else if (err instanceof Error) {
         setSaveOrderError(err.message);
       } else {
@@ -1276,6 +1295,20 @@ export default function ItemizedStatementDetailPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 内訳書が見つからない表示（Req 19.1）。経路が案件の ID を持たないため戻り先はプロジェクトの一覧。
+  // 再試行で解けないため再試行の釦を出さない
+  if (isStatementNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="内訳書"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

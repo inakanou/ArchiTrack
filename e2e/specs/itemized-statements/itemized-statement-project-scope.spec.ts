@@ -9,6 +9,10 @@
  * 被覆する受入基準（itemized-statement-generation の Requirement 18.1〜18.6）は各テストの `@requirement` の印が名乗る。
  * 出力の記録（18.7・18.8）はタスク27.2 の担当で、本ファイルは扱わない。
  *
+ * タスク29.1 で、画面が 404 を受けたときの表示（Requirement 19.1・19.2）を足した。範囲外と不在は同じ 404 であり、
+ * 画面は見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、取得の失敗・
+ * 操作の失敗を告げる文言、応答の英語の文言と再試行の釦を出さない。
+ *
  * 検証に使う案件・数量表・内訳書はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、利用者はテストの中で
  * 作る一意のメールアドレスの利用者とする。後始末で案件を先に消してから利用者を消す。
  */
@@ -165,6 +169,57 @@ async function openStatement(page: Page, statementId: string): Promise<number> {
   return (await loaded).status();
 }
 
+/**
+ * 読み込み中の表示が消えた後の、本文の領域の表示の文字列。
+ * 内訳書の画面は共通の枠の main の内側に自分の main を置くことがあるため、内側（文書の順で後ろ）を読む
+ */
+async function settledMainText(page: Page): Promise<string> {
+  const main = page.getByRole('main').last();
+  await expect(main.getByText('読み込み中...')).toHaveCount(0, { timeout: getTimeout(15000) });
+  return main.innerText();
+}
+
+/** 画面の URL を直接開き、指定のパスの GET の応答を待つ（オリジンは問わずパスで照合する） */
+async function openAndWait(page: Page, url: string, apiPath: string): Promise<number> {
+  const loaded = page.waitForResponse(
+    (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === apiPath,
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(url);
+  return (await loaded).status();
+}
+
+/** 内訳書の画面が 404 を受けたときに出してはならない、障害を告げる文言（REQ-19.1・19.2） */
+const FAILURE_TEXTS = [
+  '内訳書の取得に失敗しました',
+  'プロジェクトの取得に失敗しました',
+  '削除に失敗しました',
+  '並び順の保存に失敗しました',
+  '内訳書の作成中にエラーが発生しました',
+  'Not found',
+] as const;
+
+/** 障害を告げる文言と再試行の釦が画面のどこにも無いことを主張する */
+async function expectNoFailureFeedback(page: Page): Promise<void> {
+  for (const text of FAILURE_TEXTS) {
+    await expect(page.getByText(text, { exact: true }), text).toHaveCount(0);
+  }
+  await expect(page.getByRole('button', { name: '再試行' })).toHaveCount(0);
+}
+
+/** 不在の表示（ResourceNotFound）。いずれの画面も戻り先はプロジェクトの一覧 */
+async function expectNotFoundView(page: Page, resourceType: '内訳書' | 'プロジェクト') {
+  const main = page.getByRole('main').last();
+  await expect(main.getByRole('heading', { name: `${resourceType}が見つかりません` })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(main.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+    'href',
+    '/projects'
+  );
+  await expectNoFailureFeedback(page);
+}
+
 test.describe('内訳書の案件の閲覧範囲', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -203,15 +258,15 @@ test.describe('内訳書の案件の閲覧範囲', () => {
     await page.context().clearCookies();
     await page.evaluate(() => localStorage.clear());
     await loginAsUser(page, outsider);
+    // タスク29.1: 表示は不在の表示（ResourceNotFound。role="alert" を持たない）になったため、
+    // 見つからない旨の表示どうしを比べる
     expect(await openStatement(page, MISSING_ID)).toBe(404);
-    const missingAlert = page.getByRole('main').getByRole('alert');
-    await expect(missingAlert).toBeVisible({ timeout: getTimeout(15000) });
-    const missingText = await missingAlert.innerText();
+    await expectNotFoundView(page, '内訳書');
+    const missingText = await settledMainText(page);
 
     expect(await openStatement(page, target.statementId)).toBe(404);
-    const alert = page.getByRole('main').getByRole('alert');
-    await expect(alert).toBeVisible({ timeout: getTimeout(15000) });
-    expect(await alert.innerText(), '存在しない内訳書と同じ表示').toBe(missingText);
+    await expectNotFoundView(page, '内訳書');
+    expect(await settledMainText(page), '存在しない内訳書と同じ表示').toBe(missingText);
     await expect(page.getByText(target.statementName)).toHaveCount(0);
 
     // API: 一覧・直近の内訳書の要約・詳細・二重マウントの詳細は、存在しない ID と同じ 404 の本文で、
@@ -469,5 +524,206 @@ test.describe('内訳書の案件の閲覧範囲', () => {
 
     expect(await snapshot(sibling.projectId)).toEqual(beforeSibling);
     expect(await snapshot(foreign.projectId), 'データは変わらない').toEqual(beforeForeign);
+  });
+
+  /**
+   * 内訳書の詳細の画面は内訳書の読み込みの 404 で、一覧・新規作成の画面はプロジェクトの読み込みの 404 で、
+   * 見つからない旨とプロジェクトの一覧へのリンクを表示する（itemized-statement-generation タスク29.1）。
+   * 範囲外と不在は同じ表示。
+   *
+   * @requirement itemized-statement-generation/REQ-19.1
+   */
+  test('担当外の利用者が内訳書の画面の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが表示され、存在しない対象と同じ表示になる', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const outsider = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('not-found-view', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    await loginAsUser(page, outsider);
+
+    // 詳細の画面: 内訳書が見つからない旨と、プロジェクトの一覧へのリンク
+    expect(await openStatement(page, MISSING_ID)).toBe(404);
+    await expectNotFoundView(page, '内訳書');
+    const missingDetailText = await settledMainText(page);
+    expect(await openStatement(page, target.statementId)).toBe(404);
+    await expectNotFoundView(page, '内訳書');
+    expect(await settledMainText(page), '存在しない内訳書と同じ表示').toBe(missingDetailText);
+    await expect(page.getByText(target.statementName)).toHaveCount(0);
+
+    // 一覧の画面: プロジェクトが見つからない旨と、プロジェクトの一覧へのリンク
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/itemized-statements`,
+        `/api/projects/${MISSING_ID}/itemized-statements`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    const missingListText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/itemized-statements`,
+        `/api/projects/${target.projectId}/itemized-statements`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingListText);
+    await expect(page.getByText(target.statementName)).toHaveCount(0);
+
+    // 新規作成の画面: プロジェクトが見つからない旨と、プロジェクトの一覧へのリンク。フォームを出さない
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${MISSING_ID}/itemized-statements/new`,
+        `/api/projects/${MISSING_ID}`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    const missingCreateText = await settledMainText(page);
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/itemized-statements/new`,
+        `/api/projects/${target.projectId}`
+      )
+    ).toBe(404);
+    await expectNotFoundView(page, 'プロジェクト');
+    expect(await settledMainText(page), '存在しないプロジェクトと同じ表示').toBe(missingCreateText);
+    await expect(page.getByRole('button', { name: '作成', exact: true })).toHaveCount(0);
+  });
+
+  /**
+   * 開いた後に内訳書（作成ではプロジェクト）が論理削除されると、操作の要求は 404 を受ける。画面は見つからない
+   * 旨のメッセージを表示し、操作の失敗を告げる文言や応答の英語の文言を出さない
+   * （itemized-statement-generation タスク29.1）。一覧の画面の削除は一覧を保ったまま表示する。
+   *
+   * @requirement itemized-statement-generation/REQ-19.2
+   */
+  test('開いた後に論理削除された内訳書・プロジェクトへの操作で、見つからない旨のメッセージが表示される', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const people = { salesPersonId: owner.id, createdById: owner.id };
+    const orderTarget = await createFixture('gone-order', people);
+    const deleteTarget = await createFixture('gone-delete', people);
+    const listTarget = await createFixture('gone-list', people);
+    const createTarget = await createFixture('gone-create', people);
+    const prisma = getPrismaClient();
+    const softDeleteStatement = (fixture: Fixture) =>
+      prisma.itemizedStatement.update({
+        where: { id: fixture.statementId },
+        data: { deletedAt: new Date() },
+      });
+    const statementGone = '内訳書が見つかりません。存在しないか、削除されています。';
+    const projectGone = 'プロジェクトが見つかりません。存在しないか、削除されています。';
+    /** 指定の方法とパスの要求の応答を待つ（オリジンは問わずパスで照合する） */
+    const responseOf = (method: string, pathname: string) =>
+      page.waitForResponse(
+        (r) => r.request().method() === method && new URL(r.url()).pathname === pathname,
+        { timeout: getTimeout(30000) }
+      );
+    await loginAsUser(page, owner);
+
+    // 詳細の画面の並び順の保存（従来は応答の英語の文言）。未保存の並び順は保つ
+    expect(await openStatement(page, orderTarget.statementId)).toBe(200);
+    await expect(
+      page.getByRole('heading', { level: 1, name: orderTarget.statementName })
+    ).toBeVisible({ timeout: getTimeout(15000) });
+    await softDeleteStatement(orderTarget);
+    await page.getByRole('button', { name: '下へ移動' }).first().click();
+    const saved = responseOf(
+      'PATCH',
+      `/api/itemized-statements/${orderTarget.statementId}/items/order`
+    );
+    await page.getByRole('button', { name: '並び順を保存' }).click();
+    expect((await saved).status()).toBe(404);
+    const main = page.getByRole('main').last();
+    await expect(main.getByRole('alert').filter({ hasText: statementGone })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(page.getByRole('button', { name: '並び順を保存' })).toBeVisible();
+    await expectNoFailureFeedback(page);
+
+    // 詳細の画面の削除（従来は応答の英語の文言）。画面は内訳書を表示したまま
+    expect(await openStatement(page, deleteTarget.statementId)).toBe(200);
+    await expect(
+      page.getByRole('heading', { level: 1, name: deleteTarget.statementName })
+    ).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByText(statementGone)).toHaveCount(0);
+    await softDeleteStatement(deleteTarget);
+    await main.getByRole('button', { name: '削除', exact: true }).click();
+    const detailDialog = page.getByRole('dialog');
+    await expect(detailDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const detailDeleted = responseOf(
+      'DELETE',
+      `/api/itemized-statements/${deleteTarget.statementId}`
+    );
+    await detailDialog.getByRole('button', { name: '削除', exact: true }).click();
+    expect((await detailDeleted).status()).toBe(404);
+    await expect(main.getByRole('alert').filter({ hasText: statementGone })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(page).toHaveURL(new RegExp(`/itemized-statements/${deleteTarget.statementId}$`));
+    await expectNoFailureFeedback(page);
+
+    // 一覧の画面の削除（従来は削除の失敗の汎用の文言で一覧を置き換えていた）。一覧を保つ
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${listTarget.projectId}/itemized-statements`,
+        `/api/projects/${listTarget.projectId}/itemized-statements`
+      )
+    ).toBe(200);
+    const card = page.getByTestId(`statement-card-${listTarget.statementId}`);
+    await expect(card).toBeVisible({ timeout: getTimeout(15000) });
+    await softDeleteStatement(listTarget);
+    await card.getByRole('button', { name: '削除', exact: true }).click();
+    const listDialog = page.getByRole('dialog');
+    await expect(listDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const listDeleted = responseOf('DELETE', `/api/itemized-statements/${listTarget.statementId}`);
+    await listDialog.getByRole('button', { name: '削除', exact: true }).click();
+    expect((await listDeleted).status()).toBe(404);
+    const listError = page.getByTestId('itemized-statement-list-operation-error');
+    await expect(listError).toHaveText(statementGone, { timeout: getTimeout(10000) });
+    await expect(listError).toHaveAttribute('role', 'alert');
+    await expect(card).toBeVisible();
+    await expectNoFailureFeedback(page);
+
+    // 内訳書の作成（従来は応答の英語の文言）。開いた後にプロジェクトを論理削除する
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${createTarget.projectId}/itemized-statements/new`,
+        `/api/projects/${createTarget.projectId}`
+      )
+    ).toBe(200);
+    const quantityTableSelect = page.getByRole('combobox', { name: '数量表' });
+    await expect(quantityTableSelect).toBeVisible({ timeout: getTimeout(15000) });
+    await quantityTableSelect.selectOption(createTarget.quantityTableId);
+    await prisma.project.update({
+      where: { id: createTarget.projectId },
+      data: { deletedAt: new Date() },
+    });
+    const created = responseOf(
+      'POST',
+      `/api/projects/${createTarget.projectId}/itemized-statements`
+    );
+    await page.getByRole('button', { name: '作成', exact: true }).click();
+    expect((await created).status()).toBe(404);
+    await expect(page.getByText(projectGone, { exact: true })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(page).toHaveURL(
+      new RegExp(`/projects/${createTarget.projectId}/itemized-statements/new$`)
+    );
+    await expectNoFailureFeedback(page);
+    expect(
+      await prisma.itemizedStatement.count({ where: { projectId: createTarget.projectId } }),
+      '内訳書は作られない'
+    ).toBe(1);
   });
 });
