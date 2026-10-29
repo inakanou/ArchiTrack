@@ -12,7 +12,11 @@
  *   （`requireProjectScope` が記録する）
  * - 論理的に取り除かれた工程表は解決関数が null を返す（design.md の「案件IDの解決関数」の定め）
  * - 二重マウント（`/api/projects/:projectId/schedules/:id`）で経路の案件 ID と工程表の案件が
- *   食い違うときは、工程表の不在と同じ 404 にする（経路の案件 ID でなく対象が属する案件で判定する）
+ *   食い違うときは、工程表の不在と同じ 404 にする（経路の案件 ID でなく対象が属する案件で判定する）。
+ *   解決関数は上流の `projectMismatch`（工程表の実際の案件 ID）を返し、工程表の案件が範囲外のときだけ
+ *   PROJECT_SCOPE_DENIED が記録される（範囲内の案件どうしの食い違いは記録しない。タスク23.1、13.8、
+ *   user-authentication の要件39.8）。出力の経路も判定部品の 404 で終わり、出力の記録もファイルの生成も
+ *   行わない。工程表の不在・論理的な取り除きは従来どおり null で記録しない
  * - 工程表の作成の要求が指す数量表の所属の照合（13.4）は、数量表を読む `ScheduleService.create` が行う
  *   （数量表の不在と同じ 422 の応答を保つため）
  */
@@ -22,6 +26,7 @@ import getPrismaClient from '../db.js';
 import {
   requireProjectScope,
   projectIdFromParam,
+  projectMismatch,
   type ProjectIdResolver,
   type ProjectScopeGuardOptions,
 } from './project-scope.middleware.js';
@@ -56,7 +61,8 @@ export function requireProjectParamScope(
 
 /**
  * 工程表の ID を経路のパラメータから読んで範囲を判定する（詳細・更新・一括保存・論理的な取り除き・出力）。
- * 経路に案件 ID（`projectId`）があり、工程表の案件と食い違うときは工程表の不在と同じ 404 にする
+ * 経路に案件 ID（`projectId`）があり、工程表の案件と食い違うときは工程表の不在と同じ 404 にし、
+ * 工程表の案件が範囲外なら記録する（13.8）
  */
 export function requireScheduleProjectScope(
   paramName: string,
@@ -70,7 +76,8 @@ export function requireScheduleProjectScope(
     const projectId = await findProjectIdOfSchedule(id);
     const addressedProjectId = nonEmptyString(req.params.projectId);
     if (projectId !== null && addressedProjectId !== null && addressedProjectId !== projectId) {
-      return null;
+      // 食い違い（要件39.8）: 工程表の実際の案件を返し、範囲外のときだけ上流の判定部品が記録する（13.8）
+      return projectMismatch(projectId);
     }
     return projectId;
   };

@@ -4,8 +4,10 @@
  * 本物のアプリ（app.ts のルート・authenticate・requirePermission・requireProjectScope・共有の
  * ProjectScopeService と RBACService）と、テスト用の実データベースを通す。
  *
- * 被覆する受入基準（construction-schedule の Requirement 13.1〜13.5）は各 it の `@requirement` の印が名乗る。
+ * 被覆する受入基準（construction-schedule の Requirement 13.1〜13.5、13.8）は各 it の `@requirement` の印が名乗る。
+ * 13.8（二重マウントの食い違いの記録）はタスク23.1 で足した。
  * 出力の記録（13.6・13.7）はタスク22.2 の担当で、本ファイルは扱わない（出力の経路の範囲の判定は 13.2 として扱う）。
+ * ただし 13.8 の出力の経路の食い違いでは、出力の記録（DATA_EXPORTED）もファイルの生成も起きないことを確かめる。
  *
  * 利用者（いずれもテストで作るロール。ロール名は admin ではない）:
  * - MEMBER: 工程表の閲覧・作成・更新・削除の権限だけを持ち、全案件閲覧の権限を持たない
@@ -14,7 +16,7 @@
  * - 案件 other の営業担当者・作成者は担当外の利用者（範囲外の数量表・工程表を用意するため）
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
@@ -26,6 +28,7 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import tokenService from '../../services/token.service.js';
 import { getSharedRBACService } from '../../services/rbac.service.js';
+import { ScheduleExportService } from '../../services/schedule-export.service.js';
 import { seedPermissions, seedRolePermissions, seedRoles } from '../../utils/seed-helpers.js';
 import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
 import { createTestUser } from './test-user-factory.js';
@@ -609,6 +612,7 @@ describe('工程表の API の閲覧範囲（統合・実 DB）', () => {
 
     /**
      * @requirement construction-schedule/REQ-13.2
+     * @requirement construction-schedule/REQ-13.8
      */
     it('二重マウントの経路で、経路の案件と工程表の案件が食い違うと工程表の不在と同じ 404 にし、データを変えず、記録しない', async () => {
       const deniedBefore = await deniedCount(readAll.id);
@@ -650,8 +654,168 @@ describe('工程表の API の閲覧範囲（統合・実 DB）', () => {
         expect(response.headers['content-disposition']).toBeUndefined();
       }
       expect(await snapshot(target)).toEqual(before);
-      // 食い違いは不在の扱いのため、範囲外の拒否としては記録しない
+      // 全案件閲覧の権限の利用者には工程表の案件も範囲内であり、範囲内どうしの食い違い（経路の誤り）は
+      // 範囲外の拒否としては記録しない（13.8）
       expect((await deniedCount(readAll.id)) - deniedBefore).toBe(0);
+    });
+    /** 利用者が残した出力の記録（DATA_EXPORTED）の件数 */
+    async function exportedCount(actorId: string): Promise<number> {
+      return prisma.auditLog.count({ where: { action: 'DATA_EXPORTED', actorId } });
+    }
+
+    /**
+     * 応答は不在と同じ 404 のまま、工程表の実際の案件が範囲外なら範囲外の拒否として記録する
+     * （construction-schedule タスク23.1。user-authentication の要件39.8 の本機能への適用）。
+     * `/:id` 配下の経路（詳細・更新・一括保存・論理的な取り除き・出力）のすべてで、要求ごとに 1 件記録し、
+     * データを変えず、ファイルを生成せず、出力の記録（DATA_EXPORTED）も残さない。不在の工程表は記録しない
+     * （範囲内の他の案件の工程表は直前のテストが記録しないことを確かめる）。
+     *
+     * @requirement construction-schedule/REQ-13.8
+     */
+    it('二重マウントの経路で、範囲外の案件の工程表を範囲内の案件の経路で指すと、詳細・更新・一括保存・削除・出力が不在と同じ 404 になり、工程表の案件を対象に記録が 1 件ずつ増え、データを変えずファイルを生成しない', async () => {
+      const excel = vi.spyOn(ScheduleExportService.prototype, 'exportToExcel');
+      const pdf = vi.spyOn(ScheduleExportService.prototype, 'exportToPdf');
+      try {
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+        const schedule = await prisma.constructionSchedule.findUniqueOrThrow({
+          where: { id: other.scheduleId },
+        });
+        const nested = `/api/projects/${target.projectId}/schedules`;
+        const base = `${nested}/${other.scheduleId}`;
+
+        // 不在の工程表: 404 で記録しない
+        const missingBefore = await deniedCount(sales.id);
+        const missing = await request(app)
+          .get(`${nested}/${MISSING_ID}`)
+          .set(...auth(sales))
+          .expect(404);
+        expect((await deniedCount(sales.id)) - missingBefore, '不在の工程表は記録しない').toBe(0);
+
+        const calls: Array<[string, () => request.Test]> = [
+          ['GET :id', () => request(app).get(base)],
+          [
+            'PUT :id',
+            () =>
+              request(app)
+                .put(base)
+                .send({ name: `${MARK}-mismatched`, version: schedule.version }),
+          ],
+          [
+            'PUT :id/bulk-save',
+            () => request(app).put(`${base}/bulk-save`).send(bulkSaveBody(other, schedule.version)),
+          ],
+          ['DELETE :id', () => request(app).delete(base)],
+          ['GET :id/export xlsx', () => request(app).get(`${base}/export?format=xlsx`)],
+          ['GET :id/export pdf', () => request(app).get(`${base}/export?format=pdf`)],
+        ];
+        const exportedBefore = await exportedCount(sales.id);
+        for (const [label, call] of calls) {
+          const allBefore = await deniedCount(sales.id);
+          const foreignBefore = await deniedCount(sales.id, other.projectId);
+          const response = await call()
+            .set(...auth(sales))
+            .expect(404);
+          expect(response.body.code, label).toBe('NOT_FOUND');
+          expect(withoutInstance(response.body), `${label}: 工程表の不在と同じ本文`).toEqual(
+            withoutInstance(missing.body)
+          );
+          expect(response.headers['content-disposition'], label).toBeUndefined();
+          expect(response.headers['content-type'], label).toContain('json');
+          const exposed = JSON.stringify(withoutInstance(response.body));
+          expect(exposed, label).not.toContain(other.projectId);
+          expect(exposed, label).not.toContain(other.scheduleId);
+          expect(exposed, label).not.toContain(other.scheduleName);
+          expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(
+            1
+          );
+          expect(
+            (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+            `${label}: 記録の対象は工程表の実際の案件`
+          ).toBe(1);
+        }
+
+        // 出力の経路は判定部品の 404 で終わり、出力の記録もファイルの生成も行わない
+        expect((await exportedCount(sales.id)) - exportedBefore, '出力の記録は残さない').toBe(0);
+        expect(excel).not.toHaveBeenCalled();
+        expect(pdf).not.toHaveBeenCalled();
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other), 'データは変わらない').toEqual(beforeOther);
+        expect(
+          await prisma.constructionSchedule.count({ where: { name: `${MARK}-mismatched` } })
+        ).toBe(0);
+      } finally {
+        excel.mockRestore();
+        pdf.mockRestore();
+      }
+    });
+
+    /**
+     * 論理的に取り除かれた工程表は解決関数が null を返し、食い違いの照合より先に不在とする
+     * （design.md の 2026-10-29 の追加の章の「論理的に取り除かれた工程表の扱い」）。範囲外の案件の
+     * 論理的に取り除かれた工程表を範囲内の案件の経路で指しても、不在と同じ 404 で記録しない（13.8 の除外）。
+     *
+     * @requirement construction-schedule/REQ-13.8
+     */
+    it('二重マウントの経路で、範囲外の案件の論理的に取り除かれた工程表を範囲内の案件の経路で指すと、不在と同じ 404 になり、記録せず、データを変えずファイルを生成しない', async () => {
+      const { scheduleId: deletedId } = await createSchedule(
+        other.projectId,
+        `${MARK}-deleted-foreign`
+      );
+      await prisma.constructionSchedule.update({
+        where: { id: deletedId },
+        data: { deletedAt: new Date() },
+      });
+      const excel = vi.spyOn(ScheduleExportService.prototype, 'exportToExcel');
+      const pdf = vi.spyOn(ScheduleExportService.prototype, 'exportToPdf');
+      try {
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+        const nested = `/api/projects/${target.projectId}/schedules`;
+        const missing = await request(app)
+          .get(`${nested}/${MISSING_ID}`)
+          .set(...auth(sales))
+          .expect(404);
+
+        const calls: Array<[string, () => request.Test]> = [
+          ['GET :id', () => request(app).get(`${nested}/${deletedId}`)],
+          ['DELETE :id', () => request(app).delete(`${nested}/${deletedId}`)],
+          [
+            'GET :id/export xlsx',
+            () => request(app).get(`${nested}/${deletedId}/export?format=xlsx`),
+          ],
+        ];
+        const exportedBefore = await exportedCount(sales.id);
+        for (const [label, call] of calls) {
+          const allBefore = await deniedCount(sales.id);
+          const foreignBefore = await deniedCount(sales.id, other.projectId);
+          const response = await call()
+            .set(...auth(sales))
+            .expect(404);
+          expect(response.body.code, label).toBe('NOT_FOUND');
+          expect(withoutInstance(response.body), `${label}: 工程表の不在と同じ本文`).toEqual(
+            withoutInstance(missing.body)
+          );
+          expect(response.headers['content-disposition'], label).toBeUndefined();
+          expect(JSON.stringify(withoutInstance(response.body)), label).not.toContain(deletedId);
+          // 論理的に取り除かれた工程表は、実行者全体でも工程表の案件でも記録しない
+          expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録しない`).toBe(0);
+          expect(
+            (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+            `${label}: 工程表の案件を対象に記録しない`
+          ).toBe(0);
+        }
+
+        expect((await exportedCount(sales.id)) - exportedBefore, '出力の記録は残さない').toBe(0);
+        expect(excel).not.toHaveBeenCalled();
+        expect(pdf).not.toHaveBeenCalled();
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other)).toEqual(beforeOther);
+      } finally {
+        excel.mockRestore();
+        pdf.mockRestore();
+        await prisma.constructionSchedule.delete({ where: { id: deletedId } });
+      }
     });
   });
 

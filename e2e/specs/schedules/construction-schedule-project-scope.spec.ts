@@ -6,7 +6,7 @@
  * 範囲外を存在しない場合と同じ汎用の 404 にする。工程表の作成の要求が指す数量表が経路のプロジェクトに属さなければ
  * 数量表の不在と同じ 422 にして工程表を作成しない。
  *
- * 被覆する受入基準（construction-schedule の Requirement 13.1〜13.5）は各テストの `@requirement` の印が名乗る。
+ * 被覆する受入基準（construction-schedule の Requirement 13.1〜13.5、13.8〔タスク23.1〕）は各テストの `@requirement` の印が名乗る。
  * 出力の記録（13.6・13.7）はタスク22.2 の担当で、本ファイルは扱わない（出力の経路の範囲の判定は 13.2 として扱う）。
  *
  * 検証に使う案件・数量表・工程表はテストの中で DB に作り（名前の接頭辞 `NAME_PREFIX`）、利用者はテストの中で
@@ -297,6 +297,83 @@ test.describe('工程表の案件の閲覧範囲', () => {
     }
 
     expect(await snapshot(target.projectId)).toEqual(before);
+  });
+
+  /**
+   * 応答は不在と同じ 404 のまま、工程表の実際の案件が範囲外なら範囲外の拒否として記録する
+   * （construction-schedule タスク23.1。user-authentication の要件39.8 の本機能への適用）。
+   * 不在の工程表と、範囲内の他の案件の工程表（経路の誤り）は記録しない。出力の経路は 404 で終わり、
+   * 出力の記録を残さずファイルを返さない。
+   *
+   * @requirement construction-schedule/REQ-13.8
+   * @requirement user-authentication/REQ-39.8
+   */
+  test('自分の案件の配下の経路で範囲外の案件の工程表を指すと 404 になり、工程表の案件を対象に監査の記録が 1 件増える', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('own', { salesPersonId: owner.id, createdById: owner.id });
+    const sibling = await createFixture('sibling', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const foreign = await createFixture('foreign', {
+      salesPersonId: other.id,
+      createdById: other.id,
+    });
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+    const nested = `${API_BASE_URL}/api/projects/${target.projectId}/schedules`;
+
+    /** 利用者が残した監査の記録の件数（対象を指定すればその案件だけ） */
+    const auditCount = (action: string, targetId?: string): Promise<number> =>
+      getPrismaClient().auditLog.count({
+        where: { action, actorId: owner.id, ...(targetId ? { targetId } : {}) },
+      });
+    const deniedCount = (targetId?: string): Promise<number> =>
+      auditCount('PROJECT_SCOPE_DENIED', targetId);
+
+    // 不在の工程表: 404 で記録しない
+    const missingBefore = await deniedCount();
+    const missing = await request.get(`${nested}/${MISSING_ID}`, { headers });
+    expect(missing.status()).toBe(404);
+    const missingBody = withoutInstance((await missing.json()) as Record<string, unknown>);
+    expect((await deniedCount()) - missingBefore, '不在の工程表は記録しない').toBe(0);
+
+    // 範囲内の他の案件の工程表（経路の誤り）: 不在と同じ 404 で記録しない
+    const siblingBefore = await deniedCount();
+    const misrouted = await request.get(`${nested}/${sibling.scheduleId}`, { headers });
+    expect(misrouted.status()).toBe(404);
+    expect(withoutInstance((await misrouted.json()) as Record<string, unknown>)).toEqual(
+      missingBody
+    );
+    expect((await deniedCount()) - siblingBefore, '範囲内の食い違いは記録しない').toBe(0);
+
+    // 範囲外の案件の工程表: 詳細も出力も不在と同じ 404 で、工程表の案件を対象に要求ごとに 1 件記録する
+    const exportedBefore = await auditCount('DATA_EXPORTED');
+    for (const path of [
+      `${nested}/${foreign.scheduleId}`,
+      `${nested}/${foreign.scheduleId}/export?format=xlsx`,
+    ]) {
+      const allBefore = await deniedCount();
+      const foreignBefore = await deniedCount(foreign.projectId);
+      const outOfScope = await request.get(path, { headers });
+      expect(outOfScope.status(), path).toBe(404);
+      expect(outOfScope.headers()['content-disposition'], path).toBeUndefined();
+      expect(
+        withoutInstance((await outOfScope.json()) as Record<string, unknown>),
+        `${path}: 工程表の不在と同じ本文`
+      ).toEqual(missingBody);
+      expect((await deniedCount()) - allBefore, `${path}: 記録は 1 件だけ増える`).toBe(1);
+      expect(
+        (await deniedCount(foreign.projectId)) - foreignBefore,
+        `${path}: 記録の対象は工程表の実際の案件`
+      ).toBe(1);
+    }
+    expect((await auditCount('DATA_EXPORTED')) - exportedBefore, '出力の記録は残さない').toBe(0);
+
+    expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
   });
 
   /**
