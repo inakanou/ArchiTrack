@@ -42,6 +42,8 @@ vi.mock('../api/itemized-statements', () => ({
 }));
 
 import { getProject } from '../api/projects';
+import { getItemizedStatements } from '../api/itemized-statements';
+import { ApiError } from '../api/client';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -207,6 +209,63 @@ describe('EstimateRequestCreatePage', () => {
       await waitFor(() => {
         expect(getProject).toHaveBeenCalledWith('project-123');
       });
+    });
+  });
+
+  /**
+   * Task 105.1: プロジェクトの読み込みが 404 を受けたときの不在の表示（REQ-10.5）
+   */
+  describe('プロジェクトが見つからない表示 (Task 105.1, REQ-10.5)', () => {
+    const renderCreatePage = () =>
+      render(
+        <MemoryRouter initialEntries={['/projects/project-123/estimate-requests/new']}>
+          <Routes>
+            <Route
+              path="/projects/:projectId/estimate-requests/new"
+              element={<EstimateRequestCreatePage />}
+            />
+          </Routes>
+        </MemoryRouter>
+      );
+    const notFound = () =>
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND', detail: 'Not found' });
+
+    const expectProjectNotFound = async () => {
+      expect(
+        await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      expect(screen.queryByText('データの取得に失敗しました')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: '見積依頼 新規作成' })).not.toBeInTheDocument();
+    };
+
+    it('フォームの内訳書の一覧の取得が 404 を受けると、プロジェクトが見つからない旨と一覧へのリンクを表示する', async () => {
+      vi.mocked(getItemizedStatements).mockRejectedValueOnce(notFound());
+
+      renderCreatePage();
+
+      await expectProjectNotFound();
+    });
+
+    it('プロジェクトの取得が 404 を受けると、プロジェクトが見つからない旨と一覧へのリンクを表示する', async () => {
+      vi.mocked(getProject).mockRejectedValueOnce(notFound());
+
+      renderCreatePage();
+
+      await expectProjectNotFound();
+    });
+
+    it('404 以外の内訳書の一覧の取得の失敗では、従来どおりデータの取得の失敗の文言を表示する', async () => {
+      vi.mocked(getItemizedStatements).mockRejectedValueOnce(new ApiError(500, 'Internal'));
+
+      renderCreatePage();
+
+      expect(await screen.findByText('データの取得に失敗しました')).toBeInTheDocument();
+      expect(screen.queryByText('プロジェクトが見つかりません')).not.toBeInTheDocument();
     });
   });
 });

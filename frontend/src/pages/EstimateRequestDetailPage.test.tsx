@@ -15,13 +15,18 @@
  * - タスク103.2: 現場調査報告書の PDF の生成の前の出力の記録と、記録の失敗での中止
  *   （Requirement 42.8・42.9。describe「現場調査報告書の出力の記録」。内訳書の Excel は
  *   ExcelExportButton.test.tsx が持つ）
+ * - タスク105.1: 読み込みと操作が 404 を受けたときの不在の表示（Requirement 10.5・10.6。
+ *   describe「見積依頼が見つからない表示」）
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import EstimateRequestDetailPage from './EstimateRequestDetailPage';
 import { ApiError, apiClient } from '../api/client';
+
+// Task 105.1: モックのフォームの保存の結果（ページがフォームへ伝えた失敗を観測する）
+const quotationFormSubmit = vi.hoisted(() => ({ last: null as Promise<unknown> | null }));
 
 // Task 26.3: ReceivedQuotationFormをモックして、FileInlinePreview/pdfjs-distの問題を回避
 vi.mock('../components/estimate-requests/ReceivedQuotationForm', () => ({
@@ -31,7 +36,7 @@ vi.mock('../components/estimate-requests/ReceivedQuotationForm', () => ({
     isSubmitting,
   }: {
     mode?: 'create' | 'edit';
-    onSubmit: (data: unknown) => void;
+    onSubmit: (data: unknown) => unknown;
     onCancel: () => void;
     isSubmitting: boolean;
   }) => (
@@ -40,7 +45,15 @@ vi.mock('../components/estimate-requests/ReceivedQuotationForm', () => ({
       <div>提出日</div>
       <div>ファイルをドラッグ&ドロップ</div>
       <div>明細行</div>
-      <button type="button" onClick={() => onSubmit({})}>
+      <button
+        type="button"
+        onClick={() => {
+          const result = Promise.resolve(onSubmit({}));
+          // 実物のフォームは保存の失敗を捕まえて表示する。モックでは結果を保持して観測する
+          result.catch(() => undefined);
+          quotationFormSubmit.last = result;
+        }}
+      >
         保存
       </button>
       <button type="button" onClick={onCancel}>
@@ -307,6 +320,20 @@ vi.mock('../services/export/AnnotationRendererService', () => ({
 vi.mock('../services/export/PdfExportService', () => ({
   exportAndDownloadPdf: vi.fn().mockResolvedValue(undefined),
 }));
+
+import {
+  getEstimateRequestDetail,
+  getEstimateRequestItems,
+  updateEstimateRequest,
+  updateItemSelection,
+  deleteEstimateRequest,
+} from '../api/estimate-requests';
+import {
+  getReceivedQuotations,
+  createReceivedQuotation,
+  deleteReceivedQuotation,
+} from '../api/received-quotations';
+import { transitionStatus } from '../api/estimate-request-status';
 
 vi.mock('../api/estimate-request-status', () => ({
   transitionStatus: vi.fn().mockResolvedValue({
@@ -1320,6 +1347,153 @@ describe('EstimateRequestDetailPage', () => {
       expect(screen.getByRole('heading', { name: '項目選択' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Excelでエクスポート/i })).toBeInTheDocument();
       expect(screen.getByText('内訳書1')).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Task 105.1: 読み込みと操作が 404 を受けたときの不在の表示（Requirement 10.5・10.6）
+   */
+  describe('見積依頼が見つからない表示 (Task 105.1)', () => {
+    const NOT_FOUND_MESSAGE = '見積依頼が見つかりません。存在しないか、削除されています。';
+    const notFound = () =>
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND', detail: 'Not found' });
+
+    const renderPage = () =>
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+    const renderLoadedPage = async () => {
+      renderPage();
+      expect(await screen.findByRole('heading', { name: 'テスト見積依頼' })).toBeInTheDocument();
+    };
+
+    const expectEstimateRequestNotFound = async () => {
+      expect(
+        await screen.findByRole('heading', { name: '見積依頼が見つかりません' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      expect(screen.queryByText('見積依頼の取得に失敗しました')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+    };
+
+    const expectOperationNotFound = async (message = NOT_FOUND_MESSAGE) => {
+      expect(await screen.findByTestId('estimate-request-operation-error')).toHaveTextContent(
+        message
+      );
+      expect(screen.getByTestId('estimate-request-operation-error')).toHaveAttribute(
+        'role',
+        'alert'
+      );
+    };
+
+    it.each([
+      ['見積依頼', () => vi.mocked(getEstimateRequestDetail).mockRejectedValueOnce(notFound())],
+      ['項目', () => vi.mocked(getEstimateRequestItems).mockRejectedValueOnce(notFound())],
+      ['受領見積書', () => vi.mocked(getReceivedQuotations).mockRejectedValueOnce(notFound())],
+    ])(
+      '%sの読み込みが 404 を受けると、見積依頼が見つからない旨とプロジェクトの一覧へのリンクを表示し、再試行の釦を出さない（REQ-10.5）',
+      async (_label, arrange) => {
+        arrange();
+
+        renderPage();
+
+        await expectEstimateRequestNotFound();
+      }
+    );
+
+    it('404 以外の読み込みの失敗では、従来どおり取得の失敗の文言と再試行の釦を表示する', async () => {
+      vi.mocked(getEstimateRequestDetail).mockRejectedValueOnce(new ApiError(500, 'Internal'));
+
+      renderPage();
+
+      expect(await screen.findByText('見積依頼の取得に失敗しました')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument();
+    });
+
+    it('削除が 404 を受けると、見積依頼が見つからない旨を表示し、削除の失敗の文言を出さず遷移しない（REQ-10.6）', async () => {
+      vi.mocked(deleteEstimateRequest).mockRejectedValueOnce(notFound());
+      await renderLoadedPage();
+
+      fireEvent.click(screen.getAllByRole('button', { name: '削除' })[0]!);
+      const dialog = await screen.findByRole('dialog', { name: '見積依頼の削除' });
+      fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+
+      await expectOperationNotFound();
+      expect(screen.queryByText('見積依頼の削除に失敗しました')).not.toBeInTheDocument();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('ステータスの変更が 404 を受けると、見積依頼が見つからない旨を表示する（REQ-10.6）', async () => {
+      vi.mocked(transitionStatus).mockRejectedValueOnce(notFound());
+      await renderLoadedPage();
+
+      fireEvent.click(screen.getByText('依頼済にする').closest('button')!);
+
+      await expectOperationNotFound();
+      expect(screen.queryByText('ステータスの変更に失敗しました')).not.toBeInTheDocument();
+    });
+
+    it('見積依頼方法の変更が 404 を受けると、握りつぶさずに見積依頼が見つからない旨を表示する（REQ-10.6）', async () => {
+      vi.mocked(updateEstimateRequest).mockRejectedValueOnce(notFound());
+      await renderLoadedPage();
+
+      fireEvent.click(screen.getByRole('radio', { name: 'FAX' }));
+      fireEvent.click(screen.getByTestId('save-selection-button'));
+
+      await waitFor(() => {
+        expect(updateItemSelection).toHaveBeenCalled();
+        expect(updateEstimateRequest).toHaveBeenCalledWith(
+          'er-123',
+          { method: 'FAX' },
+          '2025-01-01T00:00:00.000Z'
+        );
+      });
+      await expectOperationNotFound();
+    });
+
+    it('内訳書を本文に含める設定の変更が 404 を受けると、握りつぶさずに見積依頼が見つからない旨を表示する（REQ-10.6）', async () => {
+      vi.mocked(updateEstimateRequest).mockRejectedValueOnce(notFound());
+      await renderLoadedPage();
+
+      fireEvent.click(screen.getByRole('checkbox', { name: '内訳書を本文に含める' }));
+
+      await expectOperationNotFound();
+    });
+
+    it('受領見積書の削除が 404 を受けると、握りつぶさずに受領見積書が見つからない旨を表示する（REQ-10.6）', async () => {
+      vi.mocked(deleteReceivedQuotation).mockRejectedValueOnce(notFound());
+      await renderLoadedPage();
+
+      // 受領見積書の行の削除（ヘッダーの見積依頼の削除の後に並ぶ）
+      const deleteButtons = screen.getAllByRole('button', { name: '削除' });
+      fireEvent.click(deleteButtons[deleteButtons.length - 1]!);
+      fireEvent.click(await screen.findByRole('button', { name: '削除する' }));
+
+      await expectOperationNotFound('受領見積書が見つかりません。存在しないか、削除されています。');
+    });
+
+    it('受領見積書の登録が 404 を受けると、握りつぶさずにフォームへ失敗を伝える（REQ-10.6。表示はフォームが持つ）', async () => {
+      const error = notFound();
+      vi.mocked(createReceivedQuotation).mockRejectedValueOnce(error);
+      quotationFormSubmit.last = null;
+      await renderLoadedPage();
+
+      fireEvent.click(screen.getByRole('button', { name: '受領見積書登録' }));
+      const form = await screen.findByTestId('received-quotation-form');
+      fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(quotationFormSubmit.last).not.toBeNull();
+      });
+      await expect(quotationFormSubmit.last).rejects.toBe(error);
     });
   });
 });

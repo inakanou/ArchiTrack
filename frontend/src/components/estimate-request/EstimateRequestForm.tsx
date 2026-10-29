@@ -13,11 +13,21 @@
  * - 3.7: 必須項目が未入力の場合、バリデーションエラーを表示
  * - 3.8: 協力業者の取引先が存在しない場合、メッセージを表示
  * - 3.9: プロジェクトに内訳書が存在しない場合、メッセージを表示
+ *
+ * Task 105.1 変更: 内訳書の一覧の取得（プロジェクトの読み込み）が 404 を受けたとき、データの取得の
+ *   失敗の文言を出さず、プロジェクトが見つからないことを画面へ伝える。作成が 404 を受けたときに、
+ *   見つからない旨のメッセージを表示し、応答の英語の文言を出さない
+ *   （estimate-request の Requirement 10.5・10.6）
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getItemizedStatements } from '../../api/itemized-statements';
 import TradingPartnerSelect from '../projects/TradingPartnerSelect';
+import {
+  PROJECT_NOT_FOUND_MESSAGE,
+  getEstimateRequestNotFoundMessage,
+  isNotFoundError,
+} from '../../utils/estimateRequestNotFound';
 import type { ItemizedStatementInfo } from '../../types/itemized-statement.types';
 import type {
   EstimateRequestInfo,
@@ -75,6 +85,11 @@ export interface EstimateRequestFormProps {
    * デフォルトではAPIクライアントを使用
    */
   onSubmit?: (input: CreateEstimateRequestInput) => Promise<EstimateRequestInfo>;
+  /**
+   * 内訳書の一覧の取得が 404 を受けたとき（プロジェクトが見つからない。REQ-10.5）
+   * 画面はこれを受けてプロジェクトが見つからない表示にする
+   */
+  onProjectNotFound?: () => void;
 }
 
 /**
@@ -262,6 +277,11 @@ function LoadingSpinner() {
  * APIエラーコードからユーザーフレンドリーなメッセージに変換
  */
 function getErrorMessage(error: ApiClientError): string {
+  // 404 は経路のプロジェクトと要求の内訳書のどちらの不在かを応答から区別できない（REQ-10.6）
+  const notFoundMessage = getEstimateRequestNotFoundMessage(error, 'projectOrItemizedStatement');
+  if (notFoundMessage) {
+    return notFoundMessage;
+  }
   const problemDetails = error.response;
   const code = problemDetails?.code;
   const detail = problemDetails?.detail || error.message;
@@ -300,6 +320,7 @@ export function EstimateRequestForm({
   onSuccess,
   onCancel,
   onSubmit,
+  onProjectNotFound,
 }: EstimateRequestFormProps) {
   // データ取得状態
   const [itemizedStatements, setItemizedStatements] = useState<ItemizedStatementInfo[]>([]);
@@ -327,6 +348,12 @@ export function EstimateRequestForm({
     return itemizedStatements.find((s) => s.id === itemizedStatementId);
   }, [itemizedStatements, itemizedStatementId]);
 
+  // 取得の effect を張り直さずに最新の通知先を呼ぶ
+  const onProjectNotFoundRef = useRef(onProjectNotFound);
+  useEffect(() => {
+    onProjectNotFoundRef.current = onProjectNotFound;
+  }, [onProjectNotFound]);
+
   // 内訳書データ取得
   useEffect(() => {
     let mounted = true;
@@ -344,10 +371,15 @@ export function EstimateRequestForm({
         if (mounted) {
           setItemizedStatements(statementsResult.data);
         }
-      } catch {
-        if (mounted) {
-          setDataFetchError('データの取得に失敗しました');
+      } catch (err) {
+        if (!mounted) return;
+        if (isNotFoundError(err)) {
+          // プロジェクトが見つからない（範囲外と不在を区別しない。REQ-10.5）
+          setDataFetchError(PROJECT_NOT_FOUND_MESSAGE);
+          onProjectNotFoundRef.current?.();
+          return;
         }
+        setDataFetchError('データの取得に失敗しました');
       } finally {
         if (mounted) {
           setIsLoadingData(false);

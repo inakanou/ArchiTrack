@@ -724,6 +724,80 @@ describe('ReceivedQuotationForm', () => {
       expect(submitButton).toBeDisabled();
       expect(screen.getByRole('button', { name: /キャンセル/ })).toBeDisabled();
     });
+
+    // Task 105.1: 登録・更新が 404 を受けたときの見つからない旨（REQ-10.6）
+    const notFound = () =>
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND', detail: 'Not found' });
+
+    it('登録が 404 を受けると見積依頼が見つからない旨を表示し、応答の英語の文言を出さない（Task 105.1, REQ-10.6）', async () => {
+      mockOnSubmit.mockRejectedValueOnce(notFound());
+
+      render(
+        <ReceivedQuotationForm
+          mode="create"
+          estimateRequestId={estimateRequestId}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await userEvent.type(screen.getAllByPlaceholderText(/名称/)[0]!, 'テスト品目');
+      await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+      expect(await screen.findByTestId('save-error')).toHaveTextContent(
+        '見積依頼が見つかりません。存在しないか、削除されています。'
+      );
+      expect(screen.queryByText('Not found')).not.toBeInTheDocument();
+    });
+
+    it('更新が 404 を受けると受領見積書が見つからない旨を表示し、応答の英語の文言を出さない（Task 105.1, REQ-10.6）', async () => {
+      mockOnSubmit.mockRejectedValueOnce(notFound());
+
+      render(
+        <ReceivedQuotationForm
+          mode="edit"
+          estimateRequestId={estimateRequestId}
+          initialData={{
+            id: 'rq-123',
+            estimateRequestId,
+            name: 'テスト見積書',
+            submittedAt: new Date('2025-01-15'),
+            fileName: null,
+            fileMimeType: null,
+            fileSize: null,
+            lineItems: [
+              {
+                id: 'li-1',
+                receivedQuotationId: 'rq-123',
+                sortOrder: 0,
+                customCategory: null,
+                workType: null,
+                name: '既存品目',
+                specification: null,
+                unit: '個',
+                quantity: 5,
+                unitPrice: 2000,
+                amount: 10000,
+                remarks: null,
+              },
+            ],
+            totalAmount: 10000,
+            netAmount: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }}
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+        />
+      );
+
+      await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+
+      expect(await screen.findByTestId('save-error')).toHaveTextContent(
+        '受領見積書が見つかりません。存在しないか、削除されています。'
+      );
+      expect(screen.queryByText('Not found')).not.toBeInTheDocument();
+    });
   });
 
   describe('キャンセル', () => {

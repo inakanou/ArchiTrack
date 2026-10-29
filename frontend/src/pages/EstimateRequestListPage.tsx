@@ -12,6 +12,10 @@
  * - 2.5: 新規作成ボタンをクリックすると見積依頼作成画面に遷移する
  * - 2.6: 一覧表示にページネーションを提供する
  * - 12.12: 見積依頼一覧画面に各見積依頼のステータスを表示する
+ *
+ * Task 105.1 変更: プロジェクトの読み込みが 404 を受けたときに、プロジェクトが見つからない旨と
+ *   プロジェクトの一覧へのリンクを表示し、取得の失敗の文言と再試行の釦を出さない
+ *   （estimate-request の Requirement 10.5）
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -24,10 +28,11 @@ import type {
   PaginatedEstimateRequests,
   EstimateRequestPaginationInfo,
 } from '../types/estimate-request.types';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 import { StatusBadge } from '../components/estimate-request';
 import type { EstimateRequestStatus } from '../components/estimate-request';
 import PaginationUI from '../components/projects/PaginationUI';
+import { isNotFoundError } from '../utils/estimateRequestNotFound';
 
 // ============================================================================
 // 定数定義
@@ -353,6 +358,8 @@ export default function EstimateRequestListPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // プロジェクトの読み込みが 404 を受けた（範囲外と不在を区別しない。REQ-10.5）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   /**
    * 見積依頼一覧を取得
@@ -363,6 +370,7 @@ export default function EstimateRequestListPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsProjectNotFound(false);
 
     try {
       const [result, projectData] = await Promise.all([
@@ -373,7 +381,12 @@ export default function EstimateRequestListPage() {
       if (projectData?.name) {
         setProjectName(projectData.name);
       }
-    } catch {
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる（REQ-10.5）
+        setIsProjectNotFound(true);
+        return;
+      }
       setError('見積依頼の取得に失敗しました');
     } finally {
       setIsLoading(false);
@@ -418,6 +431,19 @@ export default function EstimateRequestListPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（REQ-10.5）。再試行で解けないため再試行の釦を出さない
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

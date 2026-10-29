@@ -6,12 +6,21 @@
  * Requirements:
  * - 9.3: ユーザーが編集ボタンをクリックしたとき、見積依頼の名前を編集可能にする
  * - 9.6: ユーザーが編集内容を保存したとき、変更を保存し詳細画面に遷移する
+ *
+ * Task 105.1 変更: 見積依頼の読み込みが 404 を受けたときに、見積依頼が見つからない旨と
+ *   プロジェクトの一覧へのリンクを表示し、取得の失敗の文言と再試行の釦を出さない。
+ *   保存が 404 を受けたときに、見積依頼が見つからない旨のメッセージを表示する
+ *   （estimate-request の Requirement 10.5・10.6）
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getEstimateRequestDetail, updateEstimateRequest } from '../api/estimate-requests';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getEstimateRequestNotFoundMessage,
+  isNotFoundError,
+} from '../utils/estimateRequestNotFound';
 import type {
   EstimateRequestInfo,
   UpdateEstimateRequestInput,
@@ -216,6 +225,8 @@ export default function EstimateRequestEditPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  // 見積依頼の読み込みが 404 を受けた（範囲外と不在を区別しない。REQ-10.5）
+  const [isNotFound, setIsNotFound] = useState(false);
 
   /**
    * データ取得
@@ -225,12 +236,18 @@ export default function EstimateRequestEditPage() {
 
     setIsLoading(true);
     setFetchError(null);
+    setIsNotFound(false);
 
     try {
       const data = await getEstimateRequestDetail(id);
       setRequest(data);
       setName(data.name);
-    } catch {
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる（REQ-10.5）
+        setIsNotFound(true);
+        return;
+      }
       setFetchError('見積依頼の取得に失敗しました');
     } finally {
       setIsLoading(false);
@@ -277,9 +294,12 @@ export default function EstimateRequestEditPage() {
 
         await updateEstimateRequest(id, input, request.updatedAt);
         navigate(`/estimate-requests/${id}`);
-      } catch {
+      } catch (err) {
+        // 404 は更新の失敗ではなく、見積依頼が見つからない旨を告げる（REQ-10.6）
         setErrors({
-          general: '見積依頼の更新に失敗しました',
+          general:
+            getEstimateRequestNotFoundMessage(err, 'estimateRequest') ??
+            '見積依頼の更新に失敗しました',
         });
       } finally {
         setIsSubmitting(false);
@@ -319,6 +339,20 @@ export default function EstimateRequestEditPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 見積依頼が見つからない表示（REQ-10.5）。詳細・編集の経路は案件の ID を持たないため、
+  // 戻り先はプロジェクトの一覧とする。再試行で解けないため再試行の釦を出さない
+  if (isNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="見積依頼"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

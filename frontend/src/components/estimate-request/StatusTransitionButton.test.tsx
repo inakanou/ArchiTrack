@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StatusTransitionButton } from './StatusTransitionButton';
+import { ApiError } from '../../api/client';
 
 // モック設定
 const mockOnTransition = vi.fn();
@@ -298,6 +299,33 @@ describe('StatusTransitionButton', () => {
       await waitFor(() => {
         expect(mockOnError).toHaveBeenCalledWith('ステータスの変更に失敗しました');
       });
+    });
+
+    it('ステータスの変更が 404 を受けると、見積依頼が見つからない旨を通知し変更の失敗の文言を通知しない（Task 105.1, REQ-10.6）', async () => {
+      const mockOnError = vi.fn();
+      mockOnTransition.mockRejectedValue(
+        new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND', detail: 'Not found' })
+      );
+
+      const user = userEvent.setup();
+      render(
+        <StatusTransitionButton
+          status="BEFORE_REQUEST"
+          onTransition={mockOnTransition}
+          onSuccess={mockOnSuccess}
+          onError={mockOnError}
+        />
+      );
+
+      await user.click(screen.getByText('依頼済にする').closest('button')!);
+
+      await waitFor(() => {
+        expect(mockOnError).toHaveBeenCalledWith(
+          '見積依頼が見つかりません。存在しないか、削除されています。'
+        );
+      });
+      expect(mockOnError).not.toHaveBeenCalledWith('ステータスの変更に失敗しました');
+      expect(mockOnSuccess).not.toHaveBeenCalled();
     });
 
     it('エラー時でもボタンは再度クリック可能になる', async () => {

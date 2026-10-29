@@ -15,11 +15,15 @@
  * - 12.9: ステータス遷移ボタンをクリックするとステータスを変更
  * - 12.10: ステータス変更完了後にトースト通知を表示
  *
+ * Task 105.1 変更: ステータスの変更が 404 を受けたときに、見積依頼が見つからない旨を通知する
+ *   （estimate-request の Requirement 10.6）
+ *
  * @module components/estimate-request/StatusTransitionButton
  */
 
 import { useState, useCallback } from 'react';
 import type { EstimateRequestStatus } from './StatusBadge';
+import { getEstimateRequestNotFoundMessage } from '../../utils/estimateRequestNotFound';
 
 // ============================================================================
 // 型定義
@@ -185,10 +189,13 @@ export function StatusTransitionButton({
         // Requirements 12.10: ステータス変更完了後にトースト通知を表示
         const targetLabel = STATUS_LABELS[targetStatus];
         onSuccess(`ステータスを「${targetLabel}」に変更しました`);
-      } catch {
-        // エラーハンドリング
+      } catch (err) {
+        // エラーハンドリング。404 は変更の失敗ではなく、見積依頼が見つからない旨を告げる（REQ-10.6）
         if (onError) {
-          onError('ステータスの変更に失敗しました');
+          onError(
+            getEstimateRequestNotFoundMessage(err, 'estimateRequest') ??
+              'ステータスの変更に失敗しました'
+          );
         }
       } finally {
         setInternalLoading(false);
