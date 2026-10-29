@@ -2365,3 +2365,39 @@
   - _Requirements: 42.8, 42.9_
   - _Boundary: 見積依頼の詳細画面の出力の開始の処理_
   - _Depends: 103.1_
+
+## タスク104: 作成の要求が指す内訳書の所属の照合と、プロジェクトの配下の経路の食い違いの記録（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。(1) 見積依頼の作成は、要求が指す内訳書の案件の閲覧範囲だけを判定し（42.4）、経路のプロジェクトへの所属を照合しない。範囲内の他のプロジェクトの内訳書を指す作成が通り、他のプロジェクトの内訳書の項目を写した見積依頼ができる（2026-10-29 の調査。`requireBodyItemizedStatementProjectScope` は内訳書の案件の範囲だけを判定し、`EstimateRequestService` の `create` は内訳書の存在と論理削除だけを確かめる）。estimate-creation の Requirement 57.4 と同じ型である。(2) user-authentication が要件39.8 を加え、経路の案件と対象の実際の案件が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（同 spec の design.md の ProjectScopeGuard の節の「食い違いの記録の各業務 spec への起票先」の estimate-request の行）。本機能の判定部品は食い違いを不在として範囲を判定せず、記録しない。本機能には食い違いの条文が無かった。requirements.md に 42.10・42.11 を加え、design.md の末尾の章「2026-10-29 の追加: 作成の内訳書の所属・食い違いの記録・不在の表示」に設計を置いた
+
+- [ ] 104.1 作成の要求が指す内訳書が経路のプロジェクトに属さなければ、内訳書の不在と同じ応答で拒否し、範囲外のときだけ記録する
+  - backend/src/middleware/estimate-request-project-scope.middleware.ts の `requireBodyItemizedStatementProjectScope` の解決関数が、内訳書の案件が経路の `projectId` と食い違うとき、上流の `projectMismatch`（内訳書の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず内訳書の不在と同じ汎用の 404 のまま、見積依頼を作成しない。内訳書の不在は従来どおり null、同じプロジェクトの内訳書と内訳書を指さない作成は従来どおり。内訳書の論理削除は区別しない（design.md の同章の「決定」）。同ファイルの冒頭の注釈を改める
+  - **テスト**: 単体テスト（`backend/src/__tests__/unit/middleware/estimate-request-project-scope.middleware.test.ts`）の「作成の要求が指す内訳書の判定（42.4）」に、経路にプロジェクトの ID を持つ形で、同じプロジェクトの内訳書は通り、範囲内の他のプロジェクトの内訳書は記録なしの汎用の 404、範囲外の他のプロジェクトの内訳書は記録 1 件の汎用の 404 になる場合を足す（既存の主張は消さない）。統合テスト（`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts`）に、範囲内の他のプロジェクトの内訳書を指す作成が存在しない内訳書と同じ 404 の本文になり、見積依頼が増えず記録も増えないことを足し、範囲外の内訳書の既存のテストに記録が 1 件増える主張を足す。範囲内の他のプロジェクトの内訳書を指す作成の成功を主張する既存のテストを backend と e2e の全体で探し、あれば 42.10 に合わせて改める
+  - E2E（`e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts` の作成の内訳書のテストか新しいテスト）で、範囲内の他のプロジェクトの内訳書を指す作成の要求が 404 になり見積依頼が作成されないことを主張し、`@requirement estimate-request/REQ-42.10` の印を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、経路のプロジェクトに属さない内訳書を指す作成が範囲の内外にかかわらず不在と同じ 404 で拒否され、範囲外のときだけ記録される状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 42.10_
+  - _Boundary: requireBodyItemizedStatementProjectScope の解決関数と、作成の内訳書の所属を主張する本機能のテスト_
+
+- [ ] 104.2 プロジェクトの配下の経路の食い違いで、見積依頼の実際の案件が範囲外なら記録する（user-authentication の要件39.8 の適用）
+  - backend/src/middleware/estimate-request-project-scope.middleware.ts の `requireEstimateRequestProjectScope` の解決関数が、経路の `projectId` と見積依頼の案件が食い違うとき、null ではなく上流の `projectMismatch`（見積依頼の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えない。見積依頼の不在は従来どおり null で記録しない。同ファイルの冒頭の注釈を改める
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（`backend/src/__tests__/unit/middleware/estimate-request-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と見積依頼の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にする」は、範囲の判定の回数の主張を、見積依頼の案件が範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改め、題名も改める。統合テスト（`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の案件と見積依頼の案件が食い違うと見積依頼の不在と同じ 404 にする」（範囲内どうしの食い違い）は条文どおりで変えず、範囲外の案件の見積依頼を範囲内の案件の経路で指すと 404 で `PROJECT_SCOPE_DENIED` が 1 件増える（対象は見積依頼の実際の案件）テストを足す
+  - E2E（`e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts` に新しいテスト）で、範囲外の案件の見積依頼を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えることを主張し、`@requirement estimate-request/REQ-42.11` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、食い違いの要求が範囲外のときだけ記録され、どの場合も不在と同じ 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 42.11_
+  - _Boundary: requireEstimateRequestProjectScope の解決関数と、食い違いの記録を主張する本機能のテスト_
+
+## タスク105: 見積依頼の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 10.3・10.4 と 42.2 により閲覧範囲外の見積依頼・プロジェクトへの要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `EstimateRequestListPage.tsx` の 377 行付近と `EstimateRequestDetailPage.tsx` の 583 行付近、`EstimateRequestEditPage.tsx` の 234 行付近は読み込みの失敗を一律に取得の失敗の固定の文言にし、詳細の画面は再試行の釦を出す。新規作成の画面は `EstimateRequestForm.tsx` の 349 行付近で内訳書の一覧の取得の失敗をデータの取得の失敗の文言にする。操作は、`EstimateRequestForm.tsx` の `getErrorMessage`（264 行付近）と `ReceivedQuotationForm.tsx` の 814 行付近が応答の本文（汎用の 404 では英語の `Not found`）をそのまま表示し、詳細の画面の論理的な取り除き（741 行付近）・`EstimateRequestEditPage.tsx` の保存（282 行付近）・`StatusTransitionButton.tsx`（191 行付近）・`ItemSelectionPanel.tsx`（349 行付近）が操作の失敗の汎用の文言を表示し、詳細の画面の見積依頼方法と内訳書を本文に含める設定の変更（687・723 行付近）と受領見積書の論理的な取り除き（909 行付近）はエラーを握りつぶす。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に 10.5・10.6 を加え、design.md の末尾の章「2026-10-29 の追加: 作成の内訳書の所属・食い違いの記録・不在の表示」に設計を置いた
+
+- [ ] 105.1 見積依頼の一覧・新規作成・詳細・編集の画面と詳細の画面の操作で、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンク（いずれの画面もプロジェクトの一覧）を表示し、取得の失敗の文言と再試行の釦を出さない。詳細の画面は見積依頼・項目・受領見積書のいずれかの 404 で見積依頼が見つからない表示にする。作成・編集の保存・項目の選択の保存・見積依頼方法と内訳書を本文に含める設定の変更・ステータスの変更・論理的な取り除き・受領見積書の登録・更新・論理的な取り除きの 404 では、各画面の既存のエラーの欄・通知で見つからない旨のメッセージを表示する（握りつぶしていた操作も表示する）。見積依頼文の取得・プレビュー用の URL の取得・出力は対象外（design.md の同章の「決定」）。文言の逐語は design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、各画面の読み込みの 404 の表示、各操作の 404 のメッセージ。404 以外の失敗の従来の文言は保つ。`EstimateRequestListPage.test.tsx` の取得の失敗の主張は 404 以外の失敗として保つ）と E2E（担当外の利用者が見積依頼の詳細・編集の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが出て存在しない見積依頼と同じ表示になる、範囲外のプロジェクトの一覧・新規作成の URL でプロジェクトが見つからない旨が出る、開いた後に論理的に取り除かれた見積依頼の操作で見つからない旨のメッセージが出る）で主張し、`@requirement estimate-request/REQ-10.5`・`REQ-10.6` の印を置く
+  - 既存の E2E（`e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts` の「担当外の利用者が見積依頼の URL を直接開くと存在しない見積依頼と同じ表示になり」）は、`role="alert"` の要素の本文を存在しない見積依頼と比べている。共通部品 `ResourceNotFound` はその役割を持たないため、見つからない旨の表示どうしの比較へ改める（比較の主張は消さない）。ほかに、変えた表示（取得の失敗・操作の失敗の文言、再試行の釦）を e2e/ 全体で grep して既存の E2E を選び、流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、取得の失敗・操作の失敗の汎用の文言と応答の英語の文言を出さない状態になる
+  - _Requirements: 10.5, 10.6_
+  - _Boundary: EstimateRequestListPage, EstimateRequestCreatePage, EstimateRequestDetailPage, EstimateRequestEditPage, EstimateRequestForm, ItemSelectionPanel, StatusTransitionButton, ReceivedQuotationForm_

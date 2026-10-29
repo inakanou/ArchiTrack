@@ -308,8 +308,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // 利用者の判断で新設した Requirement 42 の章「Requirement 42: 案件の閲覧範囲と出力の記録の適用」が
     // 部品表の 5 行（いずれも 42.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
     // 入ったため、締める向きへ動かした。矛盾の上限 19 は据え置き
-    minPairs: 27,
-    minTableDeclarations: 53,
+    // minPairs 27 → 32 / minTableDeclarations 53 → 58（estimate-request のタスク104・105 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 作成の内訳書の所属・食い違いの記録・
+    // 不在の表示」が部品表の 5 行（42.10・42.11・10.5・10.6 を名乗る）と追跡表を足し、同章の 5 部品が
+    // 突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 19 は据え置き
+    minPairs: 32,
+    minTableDeclarations: 58,
     minDetailDeclarations: 57,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
