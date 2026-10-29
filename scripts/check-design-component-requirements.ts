@@ -252,8 +252,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // 利用者の判断で新設した Requirement 21 の章「Requirement 21: 案件の閲覧範囲と出力の記録の適用」が
     // 部品表の 4 行（いずれも 21.x を名乗る）と追跡表を足し、同章の 4 部品が突き合わせの母集団へ
     // 入ったため、締める向きへ動かした。矛盾は 0 件のまま
-    minPairs: 16,
-    minTableDeclarations: 23,
+    // minPairs 16 → 26 / minTableDeclarations 23 → 33（construction-photo のタスク31 の起票、2026-10-29）。
+    // 利用者の判断で新設した Requirement 22 の章「Requirement 22: 存在しない工事写真アルバム・写真項目・
+    // 工事看板・プロジェクトを受けた画面の表示」が部品表の 10 行（22.1・22.2 を名乗る）と追跡表を足し、
+    // 同章の 10 部品が突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    minPairs: 26,
+    minTableDeclarations: 33,
     minDetailDeclarations: 0,
     reason:
       '追跡表の Requirement 列が要件番号だけを挙げる書式だが、突き合わせは上位番号の粒度なので成立する。現況で矛盾 0 件',
