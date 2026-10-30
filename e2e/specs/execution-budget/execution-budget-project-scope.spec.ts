@@ -7,7 +7,8 @@
  * 不在と同じ 404 にし、一括の要求は属さない項目が一つでも含まれれば全体を 404 にして書き込まない。
  *
  * 経路の案件と子・一括の項目の実際の案件が食い違い、実際の案件が範囲外なら、応答を変えずに範囲外の拒否として
- * 記録する（20.9。タスク18.1、user-authentication の要件39.8 の本機能への適用）。
+ * 記録する（20.9。タスク18.1、user-authentication の要件39.8 の本機能への適用）。契約の所属の照合は論理削除済みの
+ * 契約も区別せず、範囲外の案件の契約なら記録する（20.9 の改訂〔2026-10-30〕。タスク20.1）。
  *
  * 画面は 404 を受けると見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、
  * 実行予算が未作成である旨・作成の釦・読み込みの失敗の文言・応答の英語の文言を出さない（21.1・21.2。タスク19.1）。
@@ -593,6 +594,161 @@ test.describe('実行予算・発注・出来高・原価・月次締めの案�
       );
     }
 
+    expect(await snapshot(target.projectId)).toEqual(beforeTarget);
+    expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+
+  /**
+   * 契約の所属の照合は論理削除済みの契約も区別せず、所属が食い違えば契約の案件で判定する（execution-budget-management
+   * タスク20.1。design.md の「2026-10-30 の追加」章の「決定」の「契約の照合の条件」）。範囲外の案件の論理削除済みの
+   * 契約を指す実行予算の作成と変更契約の項目差分は、存在しない契約と同じ 404 と本文のまま、契約の案件を対象に
+   * 要求ごとに 1 件記録し、実行予算を作らない。自分の案件の論理削除済みの契約は同じ 404 で記録しない
+   * （user-authentication の要件39.8 の改訂。対象のデータの論理削除は記録の要否を変えない）。
+   *
+   * @requirement execution-budget-management/REQ-20.9
+   * @requirement user-authentication/REQ-39.8
+   */
+  test('範囲外の案件の論理削除済みの契約を指す実行予算の作成と変更契約の項目差分は、存在しない契約と同じ 404 になり、契約の案件を対象に監査の記録が要求ごとに 1 件増え、実行予算は作られない', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const tradingPartnerId = await createTradingPartner();
+    const target = await createFixture(
+      'own-deleted-contract',
+      { salesPersonId: owner.id, createdById: owner.id },
+      tradingPartnerId
+    );
+    const foreign = await createFixture(
+      'foreign-deleted-contract',
+      { salesPersonId: other.id, createdById: other.id },
+      tradingPartnerId
+    );
+    const prisma = getPrismaClient();
+    const fresh = await prisma.project.create({
+      data: {
+        name: `${NAME_PREFIX}own-no-budget-${uniqueSuffix()}`,
+        salesPersonId: owner.id,
+        createdById: owner.id,
+      },
+      select: { id: true },
+    });
+    /** 論理削除済みの契約（新規・変更）を案件に作る */
+    const createDeletedContract = async (
+      projectId: string,
+      contractType: 'NEW' | 'AMENDMENT'
+    ): Promise<string> => {
+      const estimate = await prisma.estimate.create({
+        data: { projectId, name: `論理削除済みの契約の見積書 ${contractType}-${uniqueSuffix()}` },
+        select: { id: true },
+      });
+      const contract = await prisma.contract.create({
+        data: {
+          projectId,
+          contractType,
+          status: 'CONTRACTED',
+          estimateId: estimate.id,
+          contractDate: new Date('2026-01-01'),
+          constructionStartDate: new Date('2026-02-01'),
+          constructionEndDate: new Date('2026-12-31'),
+          deliveryDate: new Date('2027-01-15'),
+          taxRate: 0.1,
+          contractAmount: 22000,
+          constructionPrice: 20000,
+          taxAmount: 2000,
+          deletedAt: new Date(),
+        },
+        select: { id: true },
+      });
+      return contract.id;
+    };
+    const foreignNew = await createDeletedContract(foreign.projectId, 'NEW');
+    const foreignAmendment = await createDeletedContract(foreign.projectId, 'AMENDMENT');
+    const ownNew = await createDeletedContract(fresh.id, 'NEW');
+    const ownAmendment = await createDeletedContract(target.projectId, 'AMENDMENT');
+    const beforeTarget = await snapshot(target.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+    /** 本文に写る要求の契約 ID を伏せて、存在しない契約の本文と比べる形にする */
+    const masked = (body: Record<string, unknown>, contractId: string): string =>
+      JSON.stringify(withoutInstance(body)).split(contractId).join('<id>');
+
+    const routes = [
+      {
+        label: '実行予算の作成',
+        code: 'CONTRACT_NOT_FOUND_FOR_BUDGET',
+        send: (contractId: string) =>
+          request.post(`${API_BASE_URL}/api/projects/${fresh.id}/execution-budget`, {
+            headers,
+            data: { contractId },
+          }),
+        foreignId: foreignNew,
+        ownId: ownNew,
+      },
+      {
+        label: '変更契約の項目差分',
+        code: 'AMENDMENT_CONTRACT_NOT_FOUND',
+        send: (contractId: string) =>
+          request.get(
+            `${API_BASE_URL}/api/projects/${target.projectId}/execution-budget/amendment-diff/${contractId}`,
+            { headers }
+          ),
+        foreignId: foreignAmendment,
+        ownId: ownAmendment,
+      },
+    ];
+    for (const { label, code, send, foreignId, ownId } of routes) {
+      // 存在しない契約: 404 で記録しない
+      const missingBefore = await deniedCount();
+      const missing = await send(MISSING_ID);
+      expect(missing.status(), `${label}: 存在しない契約`).toBe(404);
+      const missingBody = (await missing.json()) as Record<string, unknown>;
+      expect(missingBody.code, `${label}: 存在しない契約の符号`).toBe(code);
+      const missingMasked = masked(missingBody, MISSING_ID);
+      expect((await deniedCount()) - missingBefore, `${label}: 存在しない契約は記録しない`).toBe(0);
+
+      // 範囲外の案件の論理削除済みの契約: 不在と同じ 404 で、契約の案件を対象に 1 件記録する
+      const allBefore = await deniedCount();
+      const foreignBefore = await deniedCount(foreign.projectId);
+      const crossed = await send(foreignId);
+      expect(crossed.status(), `${label}: 範囲外の案件の論理削除済みの契約`).toBe(404);
+      const crossedBody = (await crossed.json()) as Record<string, unknown>;
+      expect(masked(crossedBody, foreignId), `${label}: 存在しない契約と同じ本文`).toBe(
+        missingMasked
+      );
+      expect(JSON.stringify(withoutInstance(crossedBody)), label).not.toContain(foreign.projectId);
+      expect((await deniedCount()) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(1);
+      expect(
+        (await deniedCount(foreign.projectId)) - foreignBefore,
+        `${label}: 記録の対象は契約の案件`
+      ).toBe(1);
+
+      // 自分の案件の論理削除済みの契約: 不在と同じ 404 で記録しない
+      const ownBefore = await deniedCount();
+      const own = await send(ownId);
+      expect(own.status(), `${label}: 自分の案件の論理削除済みの契約`).toBe(404);
+      expect(
+        masked((await own.json()) as Record<string, unknown>, ownId),
+        `${label}: 自分の案件の論理削除済みの契約も不在と同じ本文`
+      ).toBe(missingMasked);
+      expect(
+        (await deniedCount()) - ownBefore,
+        `${label}: 自分の案件の論理削除済みの契約は記録しない`
+      ).toBe(0);
+    }
+
+    // 実行予算は作られず、どちらの案件のデータも変わらない
+    expect(await prisma.executionBudget.count({ where: { projectId: fresh.id } })).toBe(0);
     expect(await snapshot(target.projectId)).toEqual(beforeTarget);
     expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
   });

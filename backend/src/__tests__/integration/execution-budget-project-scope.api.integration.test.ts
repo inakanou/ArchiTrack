@@ -941,7 +941,8 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
 
     /**
      * 契約の照合はサービスが判定し、処理の後に記録する（タスク18.2。design.md の 2026-10-29 の追加の章の
-     * 「決定」）。契約の論理削除は不在と扱い記録しない
+     * 「決定」）。契約の論理削除は区別せず、所属が食い違えば契約の案件で判定する（20.9 の改訂〔2026-10-30〕、
+     * design.md の 2026-10-30 の追加の章の「決定」）。案件そのものの論理削除は記録しない
      *
      * @requirement execution-budget-management/REQ-20.4
      * @requirement execution-budget-management/REQ-20.9
@@ -1035,27 +1036,91 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
       expect(await snapshot(target)).toEqual(beforeTarget);
       expect(await snapshot(other)).toEqual(beforeOther);
 
-      // 範囲内の他の案件の契約と、範囲外の案件の論理削除済みの契約は、工事担当者でも記録しない。
-      // 応答は存在しない契約と同じ 404 のまま
-      const sibling = await createFixture('contract-sibling', {
-        salesPersonId: outsider.id,
-        constructionPersonId: construction.id,
-        createdById: outsider.id,
-      });
+      // 範囲外の案件の論理削除済みの契約も、所属が食い違えば契約の案件で判定し、工事担当者だけ要求ごとに
+      // 記録が 1 件増える（対象は契約の案件）。応答は存在しない契約と同じ 404 のまま（20.9 の改訂〔2026-10-30〕、
+      // タスク20.1、user-authentication の要件39.8 の改訂）
+      const now = new Date();
       const deletedContracts = await createFixture('deleted-contracts', {
         salesPersonId: outsider.id,
         createdById: outsider.id,
       });
       await prisma.contract.updateMany({
         where: { id: { in: [deletedContracts.contractId, deletedContracts.amendmentContractId] } },
-        data: { deletedAt: new Date() },
+        data: { deletedAt: now },
+      });
+      const deletedCrossedIds = [
+        deletedContracts.contractId,
+        deletedContracts.amendmentContractId,
+        deletedContracts.amendmentContractId,
+      ];
+      const beforeDeleted = await Promise.all(
+        [target, deletedContracts].map((fixture) => snapshot(fixture))
+      );
+      const deniedDeletedBeforeOfConstruction = await deniedCount(
+        construction,
+        deletedContracts.projectId
+      );
+      for (const user of [construction, readAll]) {
+        for (let i = 0; i < cases.length; i += 1) {
+          const { build } = cases[i]!;
+          const crossedId = deletedCrossedIds[i]!;
+          const where = `範囲外の案件の論理削除済みの契約: ${build(crossedId).path}`;
+          const missing = await send(user, build(MISSING_ID));
+          const deniedBeforeOfUser = await deniedCount(user);
+          const deniedOwnerBeforeOfUser = await deniedCount(user, deletedContracts.projectId);
+          const crossed = await send(user, build(crossedId));
+          expect(missing.status, where).toBe(404);
+          expect(crossed.status, where).toBe(404);
+          expect(crossed.body.code, where).toBe(missing.body.code);
+          expect(normalize(crossed.body, crossedId), where).toEqual(
+            normalize(missing.body, MISSING_ID)
+          );
+          expect(JSON.stringify(crossed.body), where).not.toContain(deletedContracts.projectId);
+          const increase = expectedIncrease.get(user.id);
+          expect((await deniedCount(user)) - deniedBeforeOfUser, `${where}: 記録の増分`).toBe(
+            increase
+          );
+          expect(
+            (await deniedCount(user, deletedContracts.projectId)) - deniedOwnerBeforeOfUser,
+            `${where}: 記録の対象は契約の案件`
+          ).toBe(increase);
+        }
+      }
+      // 工事担当者の記録は 3 経路（作成・項目差分・反映）で 3 件
+      expect(
+        (await deniedCount(construction, deletedContracts.projectId)) -
+          deniedDeletedBeforeOfConstruction
+      ).toBe(3);
+      expect(
+        await Promise.all([target, deletedContracts].map((fixture) => snapshot(fixture)))
+      ).toEqual(beforeDeleted);
+      expect(await prisma.executionBudget.count({ where: { projectId: fresh.id } })).toBe(0);
+
+      // 範囲内の他の案件の契約と、論理削除済みの契約を持つ案件そのものを論理削除した場合の契約は、
+      // 工事担当者でも記録しない。応答は存在しない契約と同じ 404 のまま
+      const sibling = await createFixture('contract-sibling', {
+        salesPersonId: outsider.id,
+        constructionPersonId: construction.id,
+        createdById: outsider.id,
+      });
+      const deletedProject = await createFixture('contract-deleted-project', {
+        salesPersonId: outsider.id,
+        createdById: outsider.id,
+      });
+      await prisma.contract.updateMany({
+        where: { id: { in: [deletedProject.contractId, deletedProject.amendmentContractId] } },
+        data: { deletedAt: now },
+      });
+      await prisma.project.update({
+        where: { id: deletedProject.projectId },
+        data: { deletedAt: now },
       });
       const unrecorded: Array<{ fixture: Fixture; label: string }> = [
         { fixture: sibling, label: '範囲内の他の案件の契約' },
-        { fixture: deletedContracts, label: '範囲外の案件の論理削除済みの契約' },
+        { fixture: deletedProject, label: '論理削除された案件の論理削除済みの契約' },
       ];
       const beforeUnrecorded = await Promise.all(
-        [target, sibling, deletedContracts].map((fixture) => snapshot(fixture))
+        [target, sibling, deletedProject].map((fixture) => snapshot(fixture))
       );
       for (const { fixture, label } of unrecorded) {
         const crossedIds = [
@@ -1082,7 +1147,7 @@ describe('実行予算・発注・出来高・原価・月次締め・出力の 
         }
       }
       expect(
-        await Promise.all([target, sibling, deletedContracts].map((fixture) => snapshot(fixture)))
+        await Promise.all([target, sibling, deletedProject].map((fixture) => snapshot(fixture)))
       ).toEqual(beforeUnrecorded);
       expect(await prisma.executionBudget.count({ where: { projectId: fresh.id } })).toBe(0);
 

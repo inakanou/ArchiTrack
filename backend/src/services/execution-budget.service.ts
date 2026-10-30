@@ -11,7 +11,8 @@
  * - 15.1-15.8: 契約変更への対応
  *
  * 契約の所属の照合（作成・変更契約の項目差分・反映）は、経路の案件に属さない契約の案件が範囲外なら
- * 処理の後に記録する（Requirement 20.9 のうち契約の分、タスク18.2）。
+ * 処理の後に記録する（Requirement 20.9 のうち契約の分、タスク18.2）。契約の論理削除は区別しない
+ * （20.9 の改訂〔2026-10-30〕、タスク20.1）。
  *
  * Task 2.1: 実行予算の作成サービス実装
  * Task 2.2: 実行予算の取得・削除・編集サービス実装
@@ -59,7 +60,6 @@ export interface ExecutionBudgetServiceDependencies {
 /** 契約の所属の照合が読む契約の欄（{@link ExecutionBudgetService} の記録の条件） */
 interface ContractOwnership {
   projectId: string;
-  deletedAt: Date | null;
 }
 
 /**
@@ -281,9 +281,10 @@ export class ExecutionBudgetService {
   }
 
   /**
-   * 契約の所属の照合（Requirement 20.4）で、契約が実在し論理削除されておらず経路の案件と食い違うとき、
-   * 契約の案件が実行者の閲覧範囲外（案件は実在する）なら `deniedProjectIds` へ入れる（Requirement 20.9、
-   * user-authentication の要件39.8）。契約の不在・論理削除と、範囲内の他の案件・案件の不在は記録しない。
+   * 契約の所属の照合（Requirement 20.4）で、契約が実在し経路の案件と食い違うとき、契約の案件が実行者の
+   * 閲覧範囲外（案件は実在する）なら `deniedProjectIds` へ入れる（Requirement 20.9、user-authentication の
+   * 要件39.8）。契約の論理削除は区別しない（20.9 の改訂〔2026-10-30〕、タスク20.1。論理削除済みの契約も
+   * 契約の案件で判定する）。契約の不在と、経路の案件の契約・範囲内の他の案件・案件の不在や論理削除は記録しない。
    * 契約の種別と見積書の有無は条件に含めない。応答は呼び出し元が判定の結果に関わらず契約の不在の例外にする
    */
   private async noteContractOfOtherProject(
@@ -292,12 +293,7 @@ export class ExecutionBudgetService {
     actorId: string | undefined,
     deniedProjectIds: Set<string>
   ): Promise<void> {
-    if (
-      actorId === undefined ||
-      !contract ||
-      contract.deletedAt !== null ||
-      contract.projectId === projectId
-    ) {
+    if (actorId === undefined || !contract || contract.projectId === projectId) {
       return;
     }
     const decision = await this.projectScope.evaluateProjectAccess(actorId, contract.projectId);

@@ -2862,15 +2862,61 @@ describe('ExecutionBudgetService - 他の案件の契約の範囲外の記録', 
       expect(createLog).not.toHaveBeenCalled();
     });
 
-    it('契約が論理削除済みなら、範囲外の案件の契約でも判定せず記録しない', async () => {
+    // 論理削除済みの契約も、所属が食い違えば契約の案件で判定する（Requirement 20.9 の改訂〔2026-10-30〕、
+    // タスク20.1、user-authentication の要件39.8 の改訂）
+    it('契約が論理削除済みでも、契約の案件が範囲外なら、契約の不在と同じ例外を投げ、処理の後に契約の案件を 1 回記録する', async () => {
       arrange(mockTx);
       mockTx.contract.findUnique.mockResolvedValue(contractOf(otherProjectId, new Date()));
       evaluateProjectAccess.mockResolvedValue('out_of_scope');
 
       await expect(run(service)).rejects.toThrow(error);
 
+      expect(evaluateProjectAccess).toHaveBeenCalledTimes(1);
+      expect(evaluateProjectAccess).toHaveBeenCalledWith(actorId, otherProjectId);
+      expect(createLog).toHaveBeenCalledTimes(1);
+      expect(createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId,
+          targetType: 'Project',
+          targetId: otherProjectId,
+        })
+      );
+      expect(mockTx.executionBudget.create).not.toHaveBeenCalled();
+      expect(mockTx.amendmentApplyHistory.create).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, 'allowed' | 'not_found']>([
+      ['範囲内の他の案件', 'allowed'],
+      ['案件の不在・論理削除', 'not_found'],
+    ])(
+      '契約が論理削除済みで、契約の案件が%sなら、判定して契約の不在と同じ例外を投げ、記録しない',
+      async (_label, decision) => {
+        arrange(mockTx);
+        mockTx.contract.findUnique.mockResolvedValue(contractOf(otherProjectId, new Date()));
+        evaluateProjectAccess.mockResolvedValue(decision);
+
+        await expect(run(service)).rejects.toThrow(error);
+
+        expect(evaluateProjectAccess).toHaveBeenCalledTimes(1);
+        expect(evaluateProjectAccess).toHaveBeenCalledWith(actorId, otherProjectId);
+        expect(createLog).not.toHaveBeenCalled();
+        expect(mockTx.executionBudget.create).not.toHaveBeenCalled();
+        expect(mockTx.amendmentApplyHistory.create).not.toHaveBeenCalled();
+      }
+    );
+
+    it('経路の案件の論理削除済みの契約なら、判定も記録もせず契約の不在と同じ例外を投げる', async () => {
+      arrange(mockTx);
+      mockTx.contract.findUnique.mockResolvedValue(contractOf(projectId, new Date()));
+      evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      await expect(run(service)).rejects.toThrow(error);
+
       expect(evaluateProjectAccess).not.toHaveBeenCalled();
       expect(createLog).not.toHaveBeenCalled();
+      expect(mockTx.executionBudget.create).not.toHaveBeenCalled();
+      expect(mockTx.amendmentApplyHistory.create).not.toHaveBeenCalled();
     });
 
     it('契約が存在しなければ、判定せず記録しない', async () => {
