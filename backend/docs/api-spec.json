@@ -7283,7 +7283,7 @@
       },
       "delete": {
         "summary": "見積書削除",
-        "description": "見積書を論理削除（楽観的排他制御）",
+        "description": "見積書を論理削除（楽観的排他制御）。基準時刻はクエリで受け取り、本文は読まない",
         "tags": [
           "Estimates"
         ],
@@ -7301,27 +7301,18 @@
               "type": "string",
               "format": "uuid"
             }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "updatedAt"
-                ],
-                "properties": {
-                  "updatedAt": {
-                    "type": "string",
-                    "format": "date-time"
-                  }
-                }
-              }
+          },
+          {
+            "in": "query",
+            "name": "updatedAt",
+            "required": true,
+            "description": "楽観的排他制御の基準時刻（取得した見積書の updatedAt）",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
             }
           }
-        },
+        ],
         "responses": {
           "204": {
             "description": "見積書削除成功"

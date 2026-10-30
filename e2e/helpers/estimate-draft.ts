@@ -248,6 +248,28 @@ export async function getEstimateUpdatedAt(
 }
 
 /**
+ * 見積書を API で論理削除する（後始末用）
+ *
+ * 楽観的排他制御の基準時刻（現在の updatedAt）を読み直し、画面の deleteEstimate と同じくクエリで送る。
+ * 204 以外は例外にして、後始末の失敗を見逃さない（2026-10-30 の是正まで、後始末は基準時刻を送らずに
+ * 400 を受け、状態コードを見ていなかったため見積書が残っていた）。
+ */
+export async function deleteEstimateViaApi(
+  request: APIRequestContext,
+  token: string,
+  estimateId: string
+): Promise<void> {
+  const updatedAt = await getEstimateUpdatedAt(request, token, estimateId);
+  const res = await request.delete(
+    `${SAME_ORIGIN_API_BASE_URL}/api/estimates/${estimateId}?updatedAt=${encodeURIComponent(updatedAt)}`,
+    { headers: authHeaders(token) }
+  );
+  if (res.status() !== 204) {
+    throw new Error(`estimate delete failed: ${res.status()} ${await res.text()}`);
+  }
+}
+
+/**
  * 明細ツリー全体を1リクエストで保存する（estimate-creation REQ-42.1）
  *
  * ペイロードに現れない既存項目は削除されるため、`items` は常に**全件**であること。

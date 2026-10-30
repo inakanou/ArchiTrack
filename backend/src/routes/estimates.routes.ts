@@ -573,7 +573,7 @@ router.put(
  * /api/estimates/{id}:
  *   delete:
  *     summary: 見積書削除
- *     description: 見積書を論理削除（楽観的排他制御）
+ *     description: 見積書を論理削除（楽観的排他制御）。基準時刻はクエリで受け取り、本文は読まない
  *     tags:
  *       - Estimates
  *     security:
@@ -585,18 +585,13 @@ router.put(
  *         schema:
  *           type: string
  *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - updatedAt
- *             properties:
- *               updatedAt:
- *                 type: string
- *                 format: date-time
+ *       - in: query
+ *         name: updatedAt
+ *         required: true
+ *         description: 楽観的排他制御の基準時刻（取得した見積書の updatedAt）
+ *         schema:
+ *           type: string
+ *           format: date-time
  *     responses:
  *       204:
  *         description: 見積書削除成功
@@ -617,12 +612,14 @@ router.delete(
   requirePermission('estimate:delete'),
   validate(estimateIdParamSchema, 'params'),
   requireEstimateProjectScope('id'),
-  validate(deleteEstimateSchema, 'body'),
+  // 基準時刻はクエリで受け取る（DELETE の本文は中継で落ちうる。2026-10-30 の是正）。範囲の判定の後に検証し、
+  // 範囲外は 400 より先に 404 にする（タスク62.1 の判定の順序）
+  validate(deleteEstimateSchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
       const actorId = req.user!.userId;
-      const { updatedAt } = req.validatedBody as { updatedAt: string };
+      const { updatedAt } = req.validatedQuery as { updatedAt: string };
 
       await estimateService.delete(id, actorId, new Date(updatedAt));
 

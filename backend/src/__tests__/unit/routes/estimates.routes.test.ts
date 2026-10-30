@@ -519,18 +519,48 @@ describe('estimates.routes', () => {
   });
 
   describe('DELETE /api/estimates/:id', () => {
-    const validDeleteInput = {
+    // 楽観的排他制御の基準時刻はクエリで受け取る（HTTP は DELETE の本文に意味を定めず、中継で落ちうるため。
+    // 画面の deleteEstimate もクエリで送る。2026-10-30 の是正、estimate-creation の Requirement 11.4・11.6）
+    const validDeleteQuery = {
       updatedAt: '2024-01-01T00:00:00.000Z',
     };
 
-    it('見積書を削除できること', async () => {
+    it('クエリの updatedAt で見積書を削除できること', async () => {
       mockDelete.mockResolvedValue(undefined);
 
       const response = await request(app)
         .delete(`/api/estimates/${validUUID}`)
-        .send(validDeleteInput);
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(204);
+      expect(mockDelete).toHaveBeenCalledTimes(1);
+      expect(mockDelete).toHaveBeenCalledWith(
+        validUUID,
+        expect.any(String),
+        new Date(validDeleteQuery.updatedAt)
+      );
+    });
+
+    it('updatedAt を本文だけに載せた要求は 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/estimates/${validUUID}`)
+        .send(validDeleteQuery);
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('クエリの updatedAt の形式が不正なら 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/estimates/${validUUID}`)
+        .query({ updatedAt: 'not-a-date' });
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
     });
 
     it('見積書が存在しない場合は404を返すこと', async () => {
@@ -538,7 +568,7 @@ describe('estimates.routes', () => {
 
       const response = await request(app)
         .delete(`/api/estimates/${validUUID}`)
-        .send(validDeleteInput);
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(404);
     });
@@ -548,7 +578,7 @@ describe('estimates.routes', () => {
 
       const response = await request(app)
         .delete(`/api/estimates/${validUUID}`)
-        .send(validDeleteInput);
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(409);
     });

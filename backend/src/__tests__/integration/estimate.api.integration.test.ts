@@ -1012,11 +1012,12 @@ describe('Estimate API Integration Tests', () => {
       deleteTargetUpdatedAt = response.body.updatedAt;
     });
 
+    // 楽観的排他制御の基準時刻はクエリで送る（画面の deleteEstimate と同じ形。2026-10-30 の是正）
     it('見積書を削除できる (Req 11.4)', async () => {
       const response = await request(app)
         .delete(`/api/estimates/${deleteTargetId}`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ updatedAt: deleteTargetUpdatedAt });
+        .query({ updatedAt: deleteTargetUpdatedAt });
 
       expect(response.status).toBe(204);
 
@@ -1032,17 +1033,32 @@ describe('Estimate API Integration Tests', () => {
       const response = await request(app)
         .delete(`/api/estimates/${deleteTargetId}`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ updatedAt: '2020-01-01T00:00:00.000Z' });
+        .query({ updatedAt: '2020-01-01T00:00:00.000Z' });
 
       expect(response.status).toBe(409);
       expect(response.body).toHaveProperty('code', 'ESTIMATE_CONFLICT');
+    });
+
+    it('基準時刻を本文だけに載せた削除は 400 を返し、見積書を削除しない (Req 11.6)', async () => {
+      const response = await request(app)
+        .delete(`/api/estimates/${deleteTargetId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ updatedAt: deleteTargetUpdatedAt });
+
+      expect(response.status).toBe(400);
+
+      const getResponse = await request(app)
+        .get(`/api/estimates/${deleteTargetId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(getResponse.status).toBe(200);
     });
 
     it('存在しない見積書の削除は404を返す', async () => {
       const response = await request(app)
         .delete('/api/estimates/12345678-1234-4234-a234-123456789012')
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ updatedAt: new Date().toISOString() });
+        .query({ updatedAt: new Date().toISOString() });
 
       expect(response.status).toBe(404);
       // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）

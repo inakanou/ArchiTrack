@@ -110,9 +110,12 @@ export const updateEstimateSchema = z.object({
 });
 
 /**
- * 見積書削除リクエストスキーマ
+ * 見積書削除リクエストのクエリスキーマ
  *
- * Requirements: REQ-11.6
+ * 楽観的排他制御の基準時刻はクエリ（`?updatedAt=`）で受け取る。HTTP（RFC 9110）は DELETE の本文に
+ * 意味を定めておらず中継で落ちうるため、本文では受け取らない（2026-10-30 の是正。画面の deleteEstimate と同じ形）。
+ *
+ * Requirements: REQ-11.4, REQ-11.6
  */
 export const deleteEstimateSchema = z.object({
   updatedAt: isoDateTimeSchema,

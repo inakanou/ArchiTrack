@@ -444,7 +444,7 @@ describe('見積書・見積明細・在席・受領見積書の一覧の API �
       await request(app)
         .delete(`/api/estimates/${createdId}`)
         .set(...auth(readAll))
-        .send({ updatedAt: saved.body.updatedAt })
+        .query({ updatedAt: saved.body.updatedAt })
         .expect(204);
     });
 
@@ -585,7 +585,12 @@ describe('見積書・見積明細・在席・受領見積書の一覧の API �
           (id) =>
             request(app)
               .delete(`/api/estimates/${id.estimate}`)
-              .send({ updatedAt: expectedUpdatedAt }),
+              .query({ updatedAt: expectedUpdatedAt }),
+        ],
+        // 範囲の判定はクエリの検証より先（タスク62.1 の判定の順序）。基準時刻の無い要求も 400 でなく 404
+        [
+          'DELETE estimates/:id（基準時刻なし）',
+          (id) => request(app).delete(`/api/estimates/${id.estimate}`),
         ],
       ];
 
@@ -783,7 +788,7 @@ describe('見積書・見積明細・在席・受領見積書の一覧の API �
             () =>
               request(app)
                 .delete(`${nested}/${other.estimateId}`)
-                .send({ updatedAt: expectedUpdatedAt }),
+                .query({ updatedAt: expectedUpdatedAt }),
           ],
         ];
         for (const [label, call] of calls) {

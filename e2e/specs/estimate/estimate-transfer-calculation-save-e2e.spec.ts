@@ -101,6 +101,7 @@ import { API_BASE_URL } from '../../config';
 import { observeApiRequests } from '../../helpers/api-request-observer';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import {
+  deleteEstimateViaApi,
   buildNewEstimateItemNode,
   buildSaveLine,
   findEstimateItemByName,
@@ -1334,14 +1335,12 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
 
   test.describe('クリーンアップ', () => {
     test('テストデータの削除', async ({ request }) => {
-      if (!accessToken) {
-        accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
-      }
+      // 準備で取ったアクセストークンは 15 分で失効する。長い直列のスイートでも後片付けが 401 にならないよう、
+      // 有無にかかわらず取り直す（後片付けは 204 以外を失敗にするため）
+      accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
 
       if (createdEstimateId) {
-        await request.delete(`${API_BASE_URL}/api/estimates/${createdEstimateId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await deleteEstimateViaApi(request, accessToken, createdEstimateId);
       }
       if (createdProjectId) {
         await request.delete(`${API_BASE_URL}/api/projects/${createdProjectId}`, {
