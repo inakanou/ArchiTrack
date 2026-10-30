@@ -891,4 +891,79 @@ test.describe('契約書の案件の閲覧範囲', () => {
     // 一覧へ遷移しない（削除の成功として扱わない）
     await expect(page).toHaveURL(new RegExp(`/contracts/${detailTarget.contractId}$`));
   });
+
+  /**
+   * 作成の画面を開いた後にプロジェクトが論理削除されると、作成の要求は不在と同じ 404 を受ける。画面は
+   * プロジェクトが見つからない旨のメッセージ（ContractCreatePage は作成の 404 を `notFoundTarget: 'project'` で
+   * 分類する）を表示し、予期しないエラーやシステムエラーの文言、契約書が見つからない旨を出さない。契約書は
+   * 作られない（contract-management タスク21.1）。
+   *
+   * @requirement contract-management/REQ-11.9
+   */
+  test('作成の画面を開いた後にプロジェクトが論理削除されると、作成でプロジェクトが見つからない旨のメッセージが表示され、契約書は作られない', async ({
+    page,
+  }) => {
+    const admin = await createSessionUser('ADMIN_USER');
+    const target = await createFixture('gone-create', {
+      salesPersonId: admin.id,
+      createdById: admin.id,
+    });
+    const prisma = getPrismaClient();
+    const projectGone = 'プロジェクトが見つかりません。存在しないか、削除されています。';
+    await loginAsUser(page, admin);
+
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/contracts/new`,
+        `/api/projects/${target.projectId}`
+      )
+    ).toBe(200);
+    const createPage = page.getByTestId('contract-create-page');
+    await expect(createPage.getByRole('heading', { level: 1, name: '契約書作成' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    const estimateSelect = createPage.locator('select#estimateId');
+    await expect(estimateSelect.locator(`option[value="${target.estimateId}"]`)).toHaveCount(1, {
+      timeout: getTimeout(15000),
+    });
+    await estimateSelect.selectOption(target.estimateId);
+    await createPage.locator('#contractDate').fill('2026-04-01');
+    await createPage.locator('#constructionStartDate').fill('2026-05-01');
+    await createPage.locator('#constructionEndDate').fill('2026-12-31');
+    await createPage.locator('#deliveryDate').fill('2027-01-15');
+    // 操作の前は作成の失敗の表示が無い（後の主張が前の表示を拾わない）
+    await expect(createPage.getByRole('alert')).toHaveCount(0);
+    const before = await prisma.contract.count({ where: { projectId: target.projectId } });
+
+    await prisma.project.update({
+      where: { id: target.projectId },
+      data: { deletedAt: new Date() },
+    });
+    const created = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        new URL(r.url()).pathname === `/api/projects/${target.projectId}/contracts`,
+      { timeout: getTimeout(30000) }
+    );
+    await createPage.getByRole('button', { name: '作成', exact: true }).click();
+    expect((await created).status()).toBe(404);
+
+    await expect(createPage.getByRole('alert')).toHaveText(projectGone, {
+      timeout: getTimeout(10000),
+    });
+    await expect(page).toHaveURL(new RegExp(`/projects/${target.projectId}/contracts/new$`));
+    await expectNoFailureFeedback(page);
+    for (const text of [
+      'システムエラーが発生しました。しばらくしてからお試しください。',
+      '契約書が見つかりません。存在しないか、削除されています。',
+    ]) {
+      await expect(page.getByText(text), text).toHaveCount(0);
+    }
+    expect(
+      await prisma.contract.count({ where: { projectId: target.projectId } }),
+      '契約書は作られない'
+    ).toBe(before);
+    expect(before, '作成の前の契約書は fixture の 1 件').toBe(1);
+  });
 });
