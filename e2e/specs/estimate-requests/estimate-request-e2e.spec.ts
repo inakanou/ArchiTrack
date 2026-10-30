@@ -2564,6 +2564,14 @@ test.describe('見積依頼機能', () => {
       // 削除が成功（200または204）
       expect([200, 204]).toContain(deleteResponse.status());
 
+      // 楽観的排他制御の基準時刻はクエリで送り、本文を付けない（DELETE の本文は中継で落ちうる。
+      // 2026-10-31 の是正。REQ-8.5 の基準時刻が届かず削除できなくなる経路を塞ぐ）
+      const deleteRequest = deleteResponse.request();
+      expect(new URL(deleteRequest.url()).searchParams.get('updatedAt')).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+      );
+      expect(deleteRequest.postData()).toBeNull();
+
       // 一覧画面で削除した見積依頼が表示されない（論理削除）
       await expect(page).toHaveURL(/\/estimate-requests$/, { timeout: getTimeout(10000) });
 

@@ -500,7 +500,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       await request(app)
         .delete(`/api/estimate-requests/${createdId}`)
         .set(...auth(readAll))
-        .send({ updatedAt: current.updatedAt.toISOString() })
+        .query({ updatedAt: current.updatedAt.toISOString() })
         .expect(204);
     });
 
@@ -729,7 +729,13 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
           (id) =>
             request(app)
               .delete(`/api/estimate-requests/${id.request}`)
-              .send({ updatedAt: estimateRequest.updatedAt.toISOString() }),
+              .query({ updatedAt: estimateRequest.updatedAt.toISOString() }),
+        ],
+        // 範囲の判定はクエリの検証より先（判定の順序: 権限 → ID → 案件の範囲 → クエリの検証）。
+        // 基準時刻の無い削除も 400 でなく、存在しない ID と同じ 404（2026-10-31 の是正）
+        [
+          'DELETE estimate-requests/:id（基準時刻なし）',
+          (id) => request(app).delete(`/api/estimate-requests/${id.request}`),
         ],
       ];
 

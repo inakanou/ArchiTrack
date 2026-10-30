@@ -48,7 +48,7 @@ import {
   estimateRequestIdParamSchema,
   projectIdParamSchema,
   estimateRequestListQuerySchema,
-  deleteEstimateRequestBodySchema,
+  deleteEstimateRequestQuerySchema,
 } from '../schemas/estimate-request.schema.js';
 import {
   EstimateRequestNotFoundError,
@@ -554,7 +554,7 @@ router.put(
  * /api/estimate-requests/{id}:
  *   delete:
  *     summary: 見積依頼削除
- *     description: 見積依頼を論理削除（楽観的排他制御）
+ *     description: 見積依頼を論理削除（楽観的排他制御）。基準時刻はクエリで受け取り、本文は読まない
  *     tags:
  *       - Estimate Requests
  *     security:
@@ -567,19 +567,13 @@ router.put(
  *           type: string
  *           format: uuid
  *         description: 見積依頼ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - updatedAt
- *             properties:
- *               updatedAt:
- *                 type: string
- *                 format: date-time
- *                 description: 楽観的排他制御用の更新日時
+ *       - in: query
+ *         name: updatedAt
+ *         required: true
+ *         description: 楽観的排他制御の基準時刻（取得した見積依頼の updatedAt）
+ *         schema:
+ *           type: string
+ *           format: date-time
  *     responses:
  *       204:
  *         description: 見積依頼削除成功
@@ -600,12 +594,14 @@ router.delete(
   requirePermission('estimate_request:delete'),
   validate(estimateRequestIdParamSchema, 'params'),
   requireEstimateRequestProjectScope('id'),
-  validate(deleteEstimateRequestBodySchema, 'body'),
+  // 基準時刻はクエリで受け取る（DELETE の本文は中継で落ちうる。2026-10-31 の是正、見積書の削除と同じ形）。
+  // 範囲の判定の後に検証し、範囲外は 400 より先に 404 にする（判定の順序: 権限 → ID → 案件の範囲 → クエリ）
+  validate(deleteEstimateRequestQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
       const actorId = req.user!.userId;
-      const { updatedAt } = req.validatedBody as { updatedAt: string };
+      const { updatedAt } = req.validatedQuery as { updatedAt: string };
 
       await estimateRequestService.delete(id, actorId, new Date(updatedAt));
 

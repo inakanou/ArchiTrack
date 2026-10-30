@@ -207,15 +207,18 @@ export const estimateRequestListQuerySchema = paginationSchema;
 export type EstimateRequestListQuery = z.infer<typeof estimateRequestListQuerySchema>;
 
 /**
- * 削除リクエストボディスキーマ（楽観的排他制御用）
+ * 削除リクエストのクエリスキーマ（楽観的排他制御用）
+ *
+ * 楽観的排他制御の基準時刻はクエリ（`?updatedAt=`）で受け取る。HTTP（RFC 9110）は DELETE の本文に
+ * 意味を定めておらず中継で落ちうるため、本文では受け取らない（2026-10-31 の是正。見積書の削除と同じ形）。
  */
-export const deleteEstimateRequestBodySchema = z.object({
+export const deleteEstimateRequestQuerySchema = z.object({
   updatedAt: z
     .string()
     .datetime({ message: ESTIMATE_REQUEST_VALIDATION_MESSAGES.DATETIME_INVALID }),
 });
 
 /**
- * 削除リクエストボディ型
+ * 削除リクエストのクエリ型
  */
-export type DeleteEstimateRequestBody = z.infer<typeof deleteEstimateRequestBodySchema>;
+export type DeleteEstimateRequestQuery = z.infer<typeof deleteEstimateRequestQuerySchema>;

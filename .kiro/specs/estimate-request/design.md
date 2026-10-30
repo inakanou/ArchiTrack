@@ -1071,7 +1071,7 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 | GET | /api/projects/:projectId/estimate-requests | ?page, limit | PaginatedEstimateRequests | 401, 403 |
 | GET | /api/estimate-requests/:id | - | EstimateRequestDetailInfo | 401, 403, 404 |
 | PUT | /api/estimate-requests/:id | UpdateEstimateRequestInput + updatedAt | EstimateRequestInfo | 400, 401, 403, 404, 409 |
-| DELETE | /api/estimate-requests/:id | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
+| DELETE | /api/estimate-requests/:id | ?updatedAt（クエリ。2026-10-31 の是正） | 204 No Content | 400, 401, 403, 404, 409 |
 | PATCH | /api/estimate-requests/:id/items | { items: [{ itemId, selected }] } | 200 OK | 400, 401, 403, 404 |
 | GET | /api/estimate-requests/:id/items-with-status | - | ItemWithOtherRequestStatus[] | 401, 403, 404 |
 | GET | /api/estimate-requests/:id/text | - | EstimateRequestText | 401, 403, 404, 422 |
@@ -6906,3 +6906,21 @@ mailDisabledReason: {
   e2e/specs/estimate-requests/estimate-request-export-audit.spec.ts
   e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts
 - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す（タスク106.1・107.1）
+
+## 2026-10-31 の是正: 見積依頼の削除の基準時刻をクエリで受け取る
+
+**不具合の芽**（2026-10-31 の調査。利用者の判断「推奨案で進める」）: 画面の `deleteEstimateRequest` は楽観的排他制御の基準時刻 `updatedAt` を DELETE の本文で送り、見積依頼の削除の経路は `validate(deleteEstimateRequestBodySchema, 'body')` で本文を検証していた。画面とサーバーは食い違っておらず現状で削除はできるが、HTTP（RFC 9110）は DELETE の本文に意味を定めておらず、中継の装置やクライアントの実装が本文を落とすと基準時刻が届かず 400 になり、見積依頼を消せなくなる（Requirement 8.4・8.5 を満たせなくなる）。見積書の削除は同じ理由で基準時刻をクエリで受け取る形に改めており（estimate-creation の design.md の章「2026-10-30 の是正: 見積書の削除の基準時刻をクエリで受け取る」、e5fd9877）、同じ形にそろえる。
+
+**是正**: 経路は基準時刻をクエリ（`?updatedAt=`）で受け取り、本文を読まない。検証を `validate(deleteEstimateRequestQuerySchema, 'query')` へ改め（スキーマの名前も本文からクエリへ改めた）、本体は `req.validatedQuery` から読む。画面の `deleteEstimateRequest` は `?updatedAt=` を付けて本文を送らない。本文の受け取りは残さない（見積書の是正と同じく、本文だけの要求は 400）。形式の検査と楽観的排他制御の 409 は従来どおり。判定の順序（`requirePermission` → ID の形式 → `requireEstimateRequestProjectScope` による範囲の判定 → クエリの検証 → 本体）は保ち、範囲外と不在は基準時刻の有無にかかわらず 400 より先に汎用の 404 になる（Requirement 42.2）。OpenAPI の注釈を本文からクエリの引数へ改め、api-spec.json を再生成した。上の API Contract の表の行もクエリへ改めた。受領見積書の論理的な取り除き（`/api/quotations/:id`）は本文で基準時刻を受け取るままであり、この是正の対象外である（ocr-retry-e2e.spec.ts の受領見積書の後始末は基準時刻を送らず状態を見ないため 400 を見逃しうる。同じ形にそろえるかは利用者の判断を待つ）。
+
+**被覆の所在**: 画面の操作の E2E は REQ-8.4 のテスト（`@requirement estimate-request/REQ-8.4`）で、確認のダイアログの後の要求が成功し、その要求の URL に基準時刻のクエリが付き、本文が無いことを主張する。
+  e2e/specs/estimate-requests/estimate-request-e2e.spec.ts
+後始末の共通の手続きは `deleteEstimateRequestViaApi` で、基準時刻を読み直してクエリで送り、204 以外を失敗にする。見積依頼の E2E の後始末 10 か所（7 本）をこの手続きへ改めた（従来は基準時刻を送らずに 400 を受け、状態コードを見ていなかった）。範囲外の要求の E2E は基準時刻をクエリで送る形へ改めた。
+  e2e/helpers/estimate-request-preconditions.ts
+  e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts
+
+**テスト**: 単体（経路: クエリで 204 と本体への基準時刻の受け渡し、本文だけで 400、基準時刻なしで 400、形式の不正で 400、404、409。画面の API: URL に基準時刻のクエリが付き、本文の引数を渡さない）、統合（見積依頼の要求をクエリへ改め、本文だけ・基準時刻なしの要求が 400 でデータが残ること、古い基準時刻の 409 でデータが残ることを足した。閲覧範囲の統合テストに、基準時刻の無い要求も範囲外では存在しない ID と同じ 404 になることを足した。検証を範囲の判定の前へ動かすと赤になることを確かめた）。RED は旧実装で、backend の単体 4 件、統合 5 件、frontend の単体 1 件が赤だった。
+  backend/src/__tests__/unit/routes/estimate-requests.routes.test.ts
+  backend/src/__tests__/integration/estimate-request.api.integration.test.ts
+  backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts
+  frontend/src/__tests__/api/estimate-requests.test.ts

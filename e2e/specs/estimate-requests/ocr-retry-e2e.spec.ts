@@ -28,7 +28,10 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
-import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
+import {
+  deleteEstimateRequestViaApi,
+  seedEstimateRequest,
+} from '../../helpers/estimate-request-preconditions';
 import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
 import {
   startOcrProgressIndicatorWatch,
@@ -730,12 +733,7 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // 見積依頼の削除
     if (createdEstimateRequestId) {
-      await page.request.delete(
-        `${API_BASE_URL}/api/estimate-requests/${createdEstimateRequestId}`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
-      );
+      await deleteEstimateRequestViaApi(page.request, accessToken, createdEstimateRequestId);
     }
 
     // 内訳書の削除

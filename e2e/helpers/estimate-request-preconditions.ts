@@ -16,7 +16,7 @@
  * @module e2e/helpers/estimate-request-preconditions
  */
 
-import { expect, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { assertPrepared } from './preconditions';
 import { SAME_ORIGIN_API_BASE_URL } from '../config';
 import { getAccessToken, type AuthUserRef } from './auth-api';
@@ -209,4 +209,40 @@ export async function seedEstimateRequest(
     itemizedStatementId: statement.id,
     estimateRequestId: estimateRequest.id,
   };
+}
+
+/**
+ * 見積依頼を API で論理削除する（後始末用）
+ *
+ * 楽観的排他制御の基準時刻（現在の updatedAt）を読み直し、画面の deleteEstimateRequest と同じく
+ * クエリ（`?updatedAt=`）で送る。204 以外は例外にして、後始末の失敗を見逃さない（2026-10-31 の是正まで、
+ * 後始末は基準時刻を送らずに 400 を受け、状態コードを見ていなかったため見積依頼が残っていた）。
+ *
+ * @param request - 要求のコンテキスト（`request` の fixture または `page.request`）
+ * @param token - アクセストークン
+ * @param estimateRequestId - 取り除く見積依頼のID
+ */
+export async function deleteEstimateRequestViaApi(
+  request: APIRequestContext,
+  token: string,
+  estimateRequestId: string
+): Promise<void> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const current = await request.get(
+    `${SAME_ORIGIN_API_BASE_URL}/api/estimate-requests/${estimateRequestId}`,
+    { headers }
+  );
+  if (current.status() !== 200) {
+    throw new Error(
+      `estimate request read before delete failed: ${current.status()} ${await current.text()}`
+    );
+  }
+  const { updatedAt } = (await current.json()) as { updatedAt: string };
+  const res = await request.delete(
+    `${SAME_ORIGIN_API_BASE_URL}/api/estimate-requests/${estimateRequestId}?updatedAt=${encodeURIComponent(updatedAt)}`,
+    { headers }
+  );
+  if (res.status() !== 204) {
+    throw new Error(`estimate request delete failed: ${res.status()} ${await res.text()}`);
+  }
 }

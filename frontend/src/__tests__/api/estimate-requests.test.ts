@@ -599,14 +599,17 @@ describe('estimate-requests API client', () => {
   // deleteEstimateRequest - 見積依頼削除
   // ==========================================================================
   describe('deleteEstimateRequest', () => {
-    it('見積依頼を削除できること', async () => {
+    // 楽観的排他制御の基準時刻はクエリで送り、本文を付けない（HTTP は DELETE の本文に意味を定めず、
+    // 中継で落ちうるため。見積書の deleteEstimate と同じ形。2026-10-31 の是正、Requirement 8.4・8.5）
+    it('基準時刻をクエリに付けて見積依頼を削除し、本文を送らないこと', async () => {
       vi.mocked(apiClient.delete).mockResolvedValueOnce(undefined);
 
       await deleteEstimateRequest('er-1', '2025-01-02T00:00:00.000Z');
 
-      expect(apiClient.delete).toHaveBeenCalledWith('/api/estimate-requests/er-1', {
-        body: { updatedAt: '2025-01-02T00:00:00.000Z' },
-      });
+      expect(apiClient.delete).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(apiClient.delete).mock.calls[0]).toEqual([
+        '/api/estimate-requests/er-1?updatedAt=2025-01-02T00%3A00%3A00.000Z',
+      ]);
     });
 
     it('存在しない見積依頼を削除しようとした場合、404エラーがスローされること', async () => {

@@ -8021,7 +8021,7 @@
       },
       "delete": {
         "summary": "見積依頼削除",
-        "description": "見積依頼を論理削除（楽観的排他制御）",
+        "description": "見積依頼を論理削除（楽観的排他制御）。基準時刻はクエリで受け取り、本文は読まない",
         "tags": [
           "Estimate Requests"
         ],
@@ -8040,28 +8040,18 @@
               "format": "uuid"
             },
             "description": "見積依頼ID"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "updatedAt"
-                ],
-                "properties": {
-                  "updatedAt": {
-                    "type": "string",
-                    "format": "date-time",
-                    "description": "楽観的排他制御用の更新日時"
-                  }
-                }
-              }
+          },
+          {
+            "in": "query",
+            "name": "updatedAt",
+            "required": true,
+            "description": "楽観的排他制御の基準時刻（取得した見積依頼の updatedAt）",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
             }
           }
-        },
+        ],
         "responses": {
           "204": {
             "description": "見積依頼削除成功"

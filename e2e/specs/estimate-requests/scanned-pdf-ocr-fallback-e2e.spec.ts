@@ -83,7 +83,10 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
-import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
+import {
+  deleteEstimateRequestViaApi,
+  seedEstimateRequest,
+} from '../../helpers/estimate-request-preconditions';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 import { getAccessToken } from '../../helpers/auth-api';
@@ -779,10 +782,7 @@ test.describe('スキャンPDFのOCRフォールバック経路 (Task 115.157)',
     const headers = { Authorization: `Bearer ${accessToken}` };
 
     if (createdEstimateRequestId) {
-      await page.request.delete(
-        `${API_BASE_URL}/api/estimate-requests/${createdEstimateRequestId}`,
-        { headers }
-      );
+      await deleteEstimateRequestViaApi(page.request, accessToken, createdEstimateRequestId);
     }
     if (createdItemizedStatementId) {
       await page.request.delete(

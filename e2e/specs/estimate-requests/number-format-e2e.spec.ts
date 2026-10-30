@@ -27,6 +27,7 @@ import { fileURLToPath } from 'url';
 import * as path from 'path';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { loginViaApi } from '../../helpers/auth-api';
+import { deleteEstimateRequestViaApi } from '../../helpers/estimate-request-preconditions';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -802,10 +803,9 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
   test.describe('テストデータのクリーンアップ', () => {
     test('テストデータを削除する', async ({ request }) => {
-      if (!accessToken) {
-        const loginBody = await loginViaApi(request, 'REGULAR_USER');
-        accessToken = loginBody.accessToken;
-      }
+      // 準備で取ったアクセストークンは失効しうる。見積依頼の後始末は 204 以外を失敗にするため、
+      // 有無にかかわらず取り直す
+      accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
 
       const baseUrl = API_BASE_URL;
 
@@ -818,9 +818,7 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
       // 見積依頼を削除（受領見積書もカスケード削除される）
       if (createdEstimateRequestId) {
-        await request.delete(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await deleteEstimateRequestViaApi(request, accessToken, createdEstimateRequestId);
       }
 
       // プロジェクトを削除（内訳書もカスケード削除される）

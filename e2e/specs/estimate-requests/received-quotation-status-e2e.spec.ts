@@ -22,6 +22,7 @@ import * as fs from 'fs';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { loginViaApi } from '../../helpers/auth-api';
+import { deleteEstimateRequestViaApi } from '../../helpers/estimate-request-preconditions';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -1153,9 +1154,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await expect(statusBadge).toHaveText(/見積受領済/i, { timeout: getTimeout(10000) });
 
       // クリーンアップ
-      await request.delete(`${baseUrl}/api/estimate-requests/${testEstimateRequestId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await deleteEstimateRequestViaApi(request, accessToken, testEstimateRequestId);
     });
 
     /**
@@ -1200,9 +1199,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await expect(statusBadge).toHaveText(/依頼前/i, { timeout: getTimeout(10000) });
 
       // クリーンアップ
-      await request.delete(`${baseUrl}/api/estimate-requests/${newEstimateRequest.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await deleteEstimateRequestViaApi(request, accessToken, newEstimateRequest.id);
     });
 
     /**
@@ -1257,9 +1254,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
       expect(responseData.updatedAt).toBeTruthy();
 
       // クリーンアップ
-      await request.delete(`${baseUrl}/api/estimate-requests/${testEstimateRequestId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await deleteEstimateRequestViaApi(request, accessToken, testEstimateRequestId);
     });
   });
 
@@ -1916,11 +1911,13 @@ test.describe('受領見積書・ステータス管理機能', () => {
     test('テストデータの削除', async ({ request }) => {
       // テストデータの削除（見積依頼、内訳書、プロジェクト等）
       const baseUrl = API_BASE_URL;
+      // 準備で取ったアクセストークンは失効しうる。見積依頼の後始末は 204 以外を失敗にするため取り直す
+      if (accessToken) {
+        accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
+      }
 
       if (createdEstimateRequestId && accessToken) {
-        await request.delete(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await deleteEstimateRequestViaApi(request, accessToken, createdEstimateRequestId);
       }
 
       if (createdItemizedStatementId && accessToken) {

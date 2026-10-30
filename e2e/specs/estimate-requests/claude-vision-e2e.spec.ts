@@ -32,6 +32,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { getAccessToken } from '../../helpers/auth-api';
+import { deleteEstimateRequestViaApi } from '../../helpers/estimate-request-preconditions';
 
 /**
  * 受領見積書フォームを確実に初期状態で開く
@@ -391,11 +392,8 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
         }
       }
 
-      // 見積依頼削除
-      await page.request.delete(
-        `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests/${createdEstimateRequestId}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
+      // 見積依頼削除（基準時刻をクエリで送り、204 以外を失敗にする）
+      await deleteEstimateRequestViaApi(page.request, accessToken, createdEstimateRequestId);
     }
 
     // 内訳書削除

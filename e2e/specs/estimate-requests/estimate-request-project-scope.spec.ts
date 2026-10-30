@@ -473,10 +473,11 @@ test.describe('見積依頼・受領見積書・ステータスの案件の閲�
         headers,
         data: { updatedAt: quotation.updatedAt.toISOString() },
       }),
-      await request.delete(`${API_BASE_URL}/api/estimate-requests/${target.estimateRequestId}`, {
-        headers,
-        data: { updatedAt: estimateRequest.updatedAt.toISOString() },
-      }),
+      // 見積依頼の削除の基準時刻はクエリで送る（画面の deleteEstimateRequest と同じ形。2026-10-31 の是正）
+      await request.delete(
+        `${API_BASE_URL}/api/estimate-requests/${target.estimateRequestId}?updatedAt=${encodeURIComponent(estimateRequest.updatedAt.toISOString())}`,
+        { headers }
+      ),
     ];
     for (const response of responses) {
       expect(response.status(), response.url()).toBe(404);

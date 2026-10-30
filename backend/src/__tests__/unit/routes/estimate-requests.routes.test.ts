@@ -520,14 +520,55 @@ describe('estimate-requests.routes', () => {
   });
 
   describe('DELETE /api/estimate-requests/:id', () => {
-    it('should delete estimate request and return 204', async () => {
+    // 楽観的排他制御の基準時刻はクエリで受け取る（HTTP は DELETE の本文に意味を定めず、中継で落ちうるため。
+    // 見積書の削除〔e5fd9877〕と同じ形。2026-10-31 の是正、estimate-request の Requirement 8.4・8.5）
+    const validDeleteQuery = { updatedAt: '2024-01-01T00:00:00.000Z' };
+
+    it('クエリの updatedAt で見積依頼を削除し 204 を返すこと', async () => {
       mockDelete.mockResolvedValue(undefined);
 
       const response = await request(app)
         .delete(`/api/estimate-requests/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(204);
+      expect(mockDelete).toHaveBeenCalledTimes(1);
+      expect(mockDelete).toHaveBeenCalledWith(
+        validUUID,
+        expect.any(String),
+        new Date(validDeleteQuery.updatedAt)
+      );
+    });
+
+    it('updatedAt を本文だけに載せた要求は 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/estimate-requests/${validUUID}`)
+        .send(validDeleteQuery);
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('updatedAt の無い要求は 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app).delete(`/api/estimate-requests/${validUUID}`);
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('クエリの updatedAt の形式が不正なら 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/estimate-requests/${validUUID}`)
+        .query({ updatedAt: 'not-a-date' });
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
     });
 
     it('should return 404 when estimate request not found', async () => {
@@ -535,7 +576,7 @@ describe('estimate-requests.routes', () => {
 
       const response = await request(app)
         .delete(`/api/estimate-requests/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(404);
       expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
@@ -551,7 +592,7 @@ describe('estimate-requests.routes', () => {
 
       const response = await request(app)
         .delete(`/api/estimate-requests/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(409);
       expect(response.body.code).toBe('ESTIMATE_REQUEST_CONFLICT');
@@ -560,9 +601,7 @@ describe('estimate-requests.routes', () => {
     it('should require estimate_request:delete permission', async () => {
       mockDelete.mockResolvedValue(undefined);
 
-      await request(app)
-        .delete(`/api/estimate-requests/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+      await request(app).delete(`/api/estimate-requests/${validUUID}`).query(validDeleteQuery);
 
       expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:delete');
     });
