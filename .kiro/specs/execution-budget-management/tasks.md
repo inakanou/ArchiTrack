@@ -460,6 +460,21 @@
   - _Requirements: 21.1, 21.2_
   - _Boundary: ExecutionBudgetPage, ExecutionBudgetAmendmentPage, OrderDetailPage, ProgressInputPage_
 
+## タスク20: 論理削除済みの契約の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、記録しない「論理削除」を案件そのものの論理削除に限り、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」とその起票先の一覧の execution-budget-management の行）。本機能の契約の所属の照合の `noteContractOfOtherProject`（backend/src/services/execution-budget.service.ts の 289〜307 行付近、論理削除の条件は 298 行付近。呼び出し元は `create`〔389〜394 行付近〕・`getAmendmentDiff`〔1028〜1033 行付近〕・`applyAmendment`〔1182〜1193 行付近〕。行は 2026-10-30 の実測で、着手時に測り直すこと）は、論理削除済みの契約では判定せず記録しない。子と一括の照合の部品は論理削除を区別せず、既に方針どおりであり変えない。requirements.md の 20.9 の条文から契約の論理削除の除外を外し（改訂の記録を Requirement 20 に残した）、design.md の末尾の章「2026-10-30 の追加: 論理削除済みの契約の範囲外の記録」に設計を置いた。応答とデータと画面は変えない
+
+- [ ] 20.1 契約の所属の照合で、範囲外の案件の論理削除済みの契約を記録する
+  - `noteContractOfOtherProject` の早期の戻りの条件から契約の論理削除（`deletedAt !== null`）を外し、実行者が分からない・契約が無い・契約の案件が経路の `projectId` と一致するときだけ戻る形に改める（design.md の同章の「決定」の「契約の照合の条件」）。呼び出し元の 3 つの分岐の条件と例外（`ContractNotFoundForBudgetError`・`AmendmentContractNotFoundError`）は変えず、論理削除済みの契約は従来どおり契約の不在の 404 で何も書き込まない。記録は既存の `withSurveyScopeDenialRecording` が処理の後に案件ごとに 1 回書く。`noteContractOfOtherProject` の注釈と、判定部品のファイルの冒頭の注釈の契約の項を改める
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない。上流の起票先の一覧のとおり単体 1 本と統合 1 本）: 単体（`backend/src/__tests__/unit/services/execution-budget.service.test.ts`）の「ExecutionBudgetService - 他の案件の契約の範囲外の記録」の 3 経路の表の「契約が論理削除済みなら、範囲外の案件の契約でも判定せず記録しない」を、論理削除済みの契約の案件が範囲外なら契約の不在と同じ例外で判定 1 回・記録 1 回（対象は契約の案件）、範囲内の他の案件・案件の不在なら判定して記録なし、を主張する形へ改め、題名も改める。経路の案件の論理削除済みの契約では判定も記録もせず同じ例外になることを足す。統合（`backend/src/__tests__/integration/execution-budget-project-scope.api.integration.test.ts`）の「経路・要求本文の契約が経路の案件に属さなければ、存在しない契約と同じ 404 になり」の後半は、範囲外の案件の論理削除済みの契約を範囲内の他の案件の契約と並べて工事担当者の記録 0 件を主張しており、改訂後の 20.9 と直接に矛盾する。論理削除済みの契約を「記録しない」の並びから外し、3 経路のそれぞれで存在しない契約と同じ 404 の本文のまま工事担当者の記録が 1 件ずつ増え（対象は契約の案件）全案件閲覧の権限の利用者では増えないことの主張へ改め、案件そのものを論理削除した場合に記録が増えないことを足す。範囲内の他の案件の契約で増えないこと、実行予算が作られずデータが変わらないことの主張は保つ。単体の「契約書が論理削除済みの場合はContractNotFoundForBudgetErrorを投げる」と「変更契約が論理削除済みの場合はAmendmentContractNotFoundErrorをスローする」は経路の案件の契約で実行者を渡さず、書き換えは要らない（着手時に緑のままであることを確かめる）
+  - E2E（`e2e/specs/execution-budget/execution-budget-project-scope.spec.ts`）で、自分の案件の経路で範囲外の案件の論理削除済みの契約を指す実行予算の作成（または変更契約の項目差分）が存在しない契約と同じ 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え（対象は契約の案件）、実行予算が作られないことを主張し、`@requirement execution-budget-management/REQ-20.9` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（実行予算の作成・変更契約の項目差分と反映の契約の不在の 404、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 20.9・21.1・21.2 のテストと、変更契約の反映の E2E を含む）
+  - 挙動の変更であるため RED → GREEN で進め、書き換え・追加したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、範囲外の案件の論理削除済みの契約を指す要求が契約の不在と同じ 404 のまま記録され、経路の案件・範囲内の他の案件の論理削除済みの契約と案件そのものの論理削除では記録されず、どの場合も実行予算を作らず変更契約を反映しない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 20.9_
+  - _Boundary: ExecutionBudgetService の契約の所属の照合（noteContractOfOtherProject）と、その記録を主張する本スペックのテスト_
+
 ## Implementation Notes
 - 16.1（2026-09-29）: 精度の検証の網羅は、design.md の構成要素（Service 6 つ → `execution-budget` / `order` / `progress` / `cost` / `monthly-close` / `order-export` / `progress-export` の 7 ファイル）から対象を決め、固定の grep の全ヒット行を RED / 同値 / 範囲外 / 対象外に理由付きで分類して突き合わせること。機能名の連想で対象を絞った 3 回が、毎回その回の指摘分だけを直す形になり差し戻された。Number の変異が区別できる入力は、2^53 を超える奇数の途中和（999999999999999×10 と 1 の並びの順序に注意）と、真値が二進で表せない比率（例 15/10000）で作る。fixture は案分の結果など実際に到達しうる状態であることを確かめる
 - 機能検証 NO-GO の是正（2026-10-29、出力のダウンロード）: 9.2・10.3 が画面から到達できなかった原因は、`exportOrder`・`exportMonthlyProgress` が共通の API クライアントの `get` で応答を受け、JSON 以外の本文が `response.text()` で文字列になって `URL.createObjectURL` が型の誤りで失敗していたこと（発注詳細画面は無反応、出来高入力画面は成功でも失敗のトースト）。共通の API クライアント（frontend/src/api/client.ts）に成功の本文を Blob で受け取る口 `getBlob` を一か所設け（認証・401 の更新と送り直し・時間切れ・失敗の JSON の解析は既存の経路と共有し、`EXPORT_RECORD_FAILED` は `getApiErrorCode` で引き続き判別できる）、両関数と工程表の `exportSchedule` を切り替えた。発注詳細画面は記録の失敗以外の失敗も出力の失敗の表示欄に出す。単体のモックが Blob を返して素通りし、E2E が応答の状態だけを見ていたため検出できなかったので、E2E（出力の記録の spec）は `waitForEvent('download')` でファイル名と形式の先頭の符号を確かめる
