@@ -83,6 +83,7 @@ import {
   deleteItemizedStatement,
   updateItemOrder,
 } from '../api/itemized-statements';
+import { ApiError } from '../api/client';
 import {
   EXPORT_RECORD_FAILED_MESSAGE,
   runRecordedClipboardWrite,
@@ -103,6 +104,16 @@ import type {
   ItemizedStatementDetail,
   ItemizedStatementItemInfo,
 } from '../types/itemized-statement.types';
+
+/**
+ * 楽観的排他制御の競合（409）かどうか（Req 10.4, 17.14）
+ *
+ * API の失敗は `ApiError` の `statusCode` で届く。応答の本文の文言（detail）には頼らず、
+ * 画面は固定の文言を表示する（2026-10-30 の是正。旧実装は存在しない `status` を見ていた）。
+ */
+function isOptimisticLockConflict(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.statusCode === 409;
+}
 
 // ============================================================================
 // 型定義
@@ -1072,8 +1083,8 @@ export default function ItemizedStatementDetailPage() {
       // 削除成功後にプロジェクト詳細画面に遷移
       navigate(`/projects/${statement.projectId}`);
     } catch (err) {
-      // 楽観的排他制御エラー（409）の判定 (Req 10.4)
-      if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
+      // 楽観的排他制御エラー（409）の判定 (Req 10.4)。404 の分岐より前に置く
+      if (isOptimisticLockConflict(err)) {
         setDeleteError('他のユーザーにより更新されました。画面を再読み込みしてください');
       } else if (isNotFoundError(err)) {
         // 404 は見つからない旨（応答の英語の文言を出さない。Req 19.2）
@@ -1209,8 +1220,8 @@ export default function ItemizedStatementDetailPage() {
         setSaveOrderSuccess(false);
       }, 3000);
     } catch (err) {
-      // 楽観的排他制御エラー（409）
-      if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
+      // 楽観的排他制御エラー（409）の判定 (Req 17.14, 10.4)。404 の分岐より前に置く
+      if (isOptimisticLockConflict(err)) {
         setSaveOrderError('他のユーザーにより更新されました。画面を再読み込みしてください');
       } else if (isNotFoundError(err)) {
         // 404 は見つからない旨。未保存の並び順は保つ（Req 19.2・17.10）
