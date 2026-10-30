@@ -1968,18 +1968,20 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: ProjectScopeGuard, backend/src/__tests__/unit/middleware, backend/src/__tests__/integration_
   - _Requirements: 39.8_
 
-## タスク67: 見積依頼文のクリップボードへのコピーの出力の種別（要件40.10・40.11）
+## タスク67: 見積依頼の詳細画面のコピーとメールで開く操作の出力の種別（要件40.10・40.11）
 
 **経緯**: 見積依頼の詳細画面の見積依頼文（宛先・表題・本文）のクリップボードへのコピーが出力の記録を経ていなかった。利用者の判断（2026-10-30「推奨案で進める」）で記録の対象にする。design.md の ExportAuditService と ExportAuditClient の節の「見積依頼文のクリップボードへのコピーの種別」に従う。本 spec は種別の追加だけを持ち、包み `runRecordedClipboardWrite` は 64.1 のものをそのまま使う。画面への適用と条文、メールクライアントで開く操作の扱いの判断は estimate-request のタスクで行い、それは 67.1 に依存する
 
-- [ ] 67.1 出力の種別に見積依頼文のクリップボードへのコピーを足す
-  - 種別 `estimate_request_text_clipboard` を backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙（`audit-log.routes.ts` の注釈と `backend/docs/api-spec.json`）へ足す。案件の指定を必須とする（`PROJECTLESS_EXPORT_KINDS` に入れない）
-  - backend の単体テスト（`backend/src/__tests__/unit/routes/audit-log.routes.test.ts`）と統合テスト（`backend/src/__tests__/integration/export-audit.api.integration.test.ts`）で、新しい種別の記録が受け付けられ `DATA_EXPORTED` が 1 件増えること、案件の指定の無い要求が 400 で記録が増えないことを確かめた状態になる。frontend の包みの既存の単体テスト（`frontend/src/__tests__/api/export-audit.clipboard.test.ts`）と型検査が緑のままの状態になる
+**改訂（2026-10-30、利用者の判断）**: estimate-request の起票の調べで、見積依頼の詳細画面のアクションの欄の選択した項目の一覧のコピーと、見積依頼文をメールクライアント・Gmail で開く操作も記録を経ていないと分かった。利用者はどちらも専用の種別で記録すると判断し（estimate-request の design.md の末尾の章「2026-10-30 の追加」の案 A）、67.1 は種別 `estimate_request_text_clipboard` の 1 つから、`estimate_request_items_clipboard` と `estimate_request_text_mail` を加えた 3 つを足す形へ改めた。要件40.10 の条文の対象の明記と改訂の記録は requirements.md の要件40 に、種別の設計は design.md の「見積依頼文のクリップボードへのコピーの種別」の改訂の項にある
+
+- [ ] 67.1 出力の種別に見積依頼の詳細画面のコピーとメールで開く操作の 3 種別を足す
+  - 種別 `estimate_request_text_clipboard`（見積依頼文のコピー）・`estimate_request_items_clipboard`（選択した項目の一覧のコピー）・`estimate_request_text_mail`（メールクライアント・Gmail で開く操作）を backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙（`audit-log.routes.ts` の注釈と `backend/docs/api-spec.json`）へ足す。いずれも案件の指定を必須とする（`PROJECTLESS_EXPORT_KINDS` に入れない）
+  - backend の単体テスト（`backend/src/__tests__/unit/routes/audit-log.routes.test.ts`）と統合テスト（`backend/src/__tests__/integration/export-audit.api.integration.test.ts`）で、3 つの新しい種別のそれぞれの記録が受け付けられ `DATA_EXPORTED` が 1 件増えること、案件の指定の無い要求が 400 で記録が増えないことを確かめた状態になる。frontend の包みの既存の単体テスト（`frontend/src/__tests__/api/export-audit.clipboard.test.ts`）と型検査が緑のままの状態になる
   - _Depends: 64.1_
   - _Boundary: ExportAuditService, ExportAuditClient, backend/src/services/export-audit.service.ts, frontend/src/api/export-audit.ts_
   - _Requirements: 40.10, 40.11_
 
-## タスク68: 総合検証と文書の追随（要件39.8 の改訂・40.10 の見積依頼文）
+## タスク68: 総合検証と文書の追随（要件39.8 の改訂・40.10 の見積依頼の詳細画面の 3 種別）
 
 - [ ] 68.1 全ての単体・統合テストと関門を通し、文書を揃える
   - backend と frontend の全単体テストと統合テストを回し、変えた部品（出力の記録の種別）を使う既存の E2E を e2e/ 全体の grep で選んで回す。関門は `:update` の変種を含めず名指しで一本ずつ回し、最後に `git status --porcelain scripts/` が空であることを確かめる

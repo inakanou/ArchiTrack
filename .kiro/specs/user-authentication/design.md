@@ -6072,7 +6072,8 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 type ExportKind =
   | 'site_survey_report_pdf' | 'site_survey_images_zip' | 'quantity_table_pdf'
   | 'itemized_statement_xlsx' | 'itemized_statement_clipboard'
-  | 'estimate_request_xlsx' | 'estimate_request_text_clipboard' | 'estimate_pdf' | 'estimate_xlsx'
+  | 'estimate_request_xlsx' | 'estimate_request_text_clipboard' | 'estimate_request_text_mail'
+  | 'estimate_request_items_clipboard' | 'estimate_pdf' | 'estimate_xlsx'
   | 'schedule_export' | 'order_export' | 'progress_export'
   | 'construction_photo_ledger_pdf' | 'construction_photos_zip' | 'annotated_image'
   | 'audit_log_json';
@@ -6145,6 +6146,11 @@ async function runRecordedClipboardWrite(input: ExportRecordInput, produce: () =
 - 種別 `estimate_request_text_clipboard`（見積依頼の詳細画面の見積依頼文〔宛先・表題・本文〕のクリップボードへのコピー）を `ExportKind`（backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙）へ足す。案件に属する出力であり `projectId` を必須とする（`PROJECTLESS_EXPORT_KINDS` には入れない）。記録の手段は `itemized_statement_clipboard` と同じ `runRecordedClipboardWrite` とし、包みと記録の API の振る舞いは変えない（種別の列挙の追加だけ）
 - 理由: 見積依頼文は案件の内容と宛先の取引先を含み、利用者の手元へ持ち出す出力である。内訳書のコピー（`itemized_statement_clipboard`）と同じく 40.10・40.11 の対象に含め、出力の記録の基準を機能ごとに変えない。種別を内訳書と分けるのは、監査ログの検索と異常の検知（43.4）で、どのデータが持ち出されたかを種別で見分けるため
 - 本 spec が持つのは種別の追加だけで、どの出力を記録するかの条文、画面への適用（コピーの操作から包みを呼ぶ形、記録の対象の ID と件数）、メールクライアントで開く操作を記録の対象に含めるかの判断は estimate-request が持つ。estimate-request の画面への適用のタスクは上流のタスク 67.1 に依存する
+- **改訂（2026-10-30、利用者の判断。estimate-request の design.md の末尾の章「2026-10-30 の追加」の案 A）**: 上の項までは種別を `estimate_request_text_clipboard` の一つとしていた。estimate-request の起票の調べで、見積依頼の詳細画面には見積依頼文のコピーのほかに、アクションの欄の選択した項目の一覧（内訳書の項目のタブ区切り）のコピーと、見積依頼文をメールクライアント・Gmail で開く操作があり、どちらも記録を経ていないと分かった。利用者はどちらも専用の種別で記録すると判断した。これにより `ExportKind` へ次の 2 種別を加え、計 3 種別を足す（いずれも案件必須で `PROJECTLESS_EXPORT_KINDS` に入れない。記録の API と包みの振る舞いは変えない）
+  - `estimate_request_items_clipboard`: 見積依頼の詳細画面のアクションの欄の、選択した項目の一覧のクリップボードへのコピー。記録の手段は `runRecordedClipboardWrite`
+  - `estimate_request_text_mail`: 見積依頼文の「メールで開く」（mailto）と「Gmailで開く」。記録の手段は `runRecordedExport`（記録の成功の後に起動し、失敗では開かずに中止の文言を出す。起動の形は estimate-request が持つ）
+  - 理由: 種別を分ける理由（どのデータがどの経路で持ち出されたかを種別で見分ける。43.4）は上の項と同じである。選択した項目の一覧は見積依頼文ではないため `estimate_request_text_clipboard` に入れると種別の意味と食い違い、メールで開く操作はコピーと同じ内容でも経路が違う（Gmail では内容が URL に載って外部のサービスへ送られる）。内訳書の Excel とコピーを経路ごとの種別に分けた先例（`itemized_statement_xlsx` と `itemized_statement_clipboard`）に揃える
+  - 採らなかった案: 2 つの操作を `estimate_request_text_clipboard` で記録する（監査ログで経路とデータを見分けられない）、記録しない（同じ内容を記録なしに持ち出す経路が残る）
 - 検証: backend の単体テスト（記録の経路）と統合テスト（実 DB）で、新しい種別の記録が受け付けられて `DATA_EXPORTED` が 1 件増えること、案件の指定の無い要求が 400 になることを確かめる。frontend は型の列挙に足すだけで包みの振る舞いは変えないため、既存の包みの単体テストが緑のままであることを確かめる
 
 ##### AuditLogArchiveService（変更）
