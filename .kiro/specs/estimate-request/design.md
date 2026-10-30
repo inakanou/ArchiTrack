@@ -6867,6 +6867,7 @@ mailDisabledReason: {
 - 表示の置き場所: パネルの記録の失敗（宛先・表題・本文のコピーとメールで開く操作で共有）は、パネルの見出しの直下の `role="alert"` の欄に出し、次の操作の開始で消す。`ClipboardCopyButton` の記録の失敗は、ボタンの直後（アクションの欄の中、内訳書の Excel の記録の失敗と同じ置き方）の `role="alert"` の段落に出し、次のコピーの開始で消す。記録の成功の後の書き込みの失敗は、`ClipboardCopyButton` が従来の「コピーに失敗しました」、パネルが従来どおり表示しない。記録の要求中は、各コピーのボタンと、「Gmailで開く」のボタン・「メールで開く」のリンク（`aria-disabled="true"` と無効の見た目にし、クリックは既定の動作を止めて何もしない）を止める
 - 「メールで開く」: アンカーの `href`（mailto の URL）は残し、`onClick` で既定の動作を止めて `runRecordedExport`（種別 `estimate_request_text_mail`・見積依頼の案件・見積依頼の ID・件数 1）を呼び、生成の処理で mailto の URL へ移る（`window.location.href` への代入）。中クリック（`onAuxClick` の中ボタン）も同じ処理を通し、既定の動作で記録なしに開かせない。右クリックのメニューのリンクのアドレスのコピーは記録を経ない（`href` を残す設計の帰結）
 - 「Gmailで開く」: クリックの処理の中で同期的に `window.open('', '_blank')` で空のタブを開き、開いたタブの `opener` を null にする。記録の成功の後、そのタブの文書に `rel="noreferrer"` のリンクを置いてクリックし、Gmail の作成画面へ移す。記録の失敗（`GENERATION_FAILED` を含む）ではタブを閉じる。空のタブを開けない（ポップアップが止められた）ときは何も開かないため記録を要求しない。参照元を渡さない保ち方: 後から移すにはタブの参照が要るため `noopener` は付けず、`opener` を null にして移った先から元の画面を参照させない。参照元は `noreferrer` のリンクで送らない（本番の nginx の `Referrer-Policy: no-referrer` に頼らない）。タブの操作は mail-launcher の `openMailClient`・`openBlankMailTab`・`navigateMailTab`・`closeMailTab` に置いた（URL の組み立ての関数は副作用を持たないまま）
+  - **改訂（2026-10-31、利用者の判断「推奨案で進める」）**: 上の項は 2026-10-30 の決定の記録として残す。空のタブを開けないときに記録を要求しないこと、記録の後の失敗（`GENERATION_FAILED`）でタブを閉じることは変えない。42.17・42.18 の追加により、前者ではポップアップがブロックされた旨と許可を促す文言を、後者では作成画面を開けなかった旨と再操作を促す文言を、パネルの `role="alert"` の欄に表示する。設計は末尾の章「2026-10-31 の追加: Gmail で開く操作の失敗の表示」が持つ
 - 画面の破棄: 記録の要求中にパネルが閉じられたら、mailto へは移らず、Gmail の空のタブは閉じる（内訳書の Excel の記録の要求中の破棄と同じ扱い）
 - テスト: 単体は `EstimateRequestTextPanel.test.tsx`・`ClipboardCopyButton.test.tsx`・`mail-launcher.test.ts`・`EstimateRequestDetailPage.test.tsx`（記録の要求を API クライアントの `post` の差し替えで模擬し、書き込みは上流の包みの実物）。E2E は `estimate-request-export-audit.spec.ts` の describe「見積依頼文と選択した項目の一覧のコピー・メールで開く操作の事前記録」（42.13〜42.16 の印。「メールで開く」は OS のメールクライアントを起動するため E2E では押さず、単体と下の実ブラウザの確認が受け持つ）
 - 実ブラウザの確認（2026-10-30）: テスト環境の本番ビルド（frontend 5174 / backend 3100。frontend は `--force-recreate` で作り直し、配信の束に `estimate_request_items_clipboard` が含まれることを確かめた後）の見積依頼の詳細画面で、Chromium と WebKit の両方で確かめた。手順は itemized-statement-generation のタスク28.1 と同じ形: リポジトリの外（スクラッチパッド）の使い捨てのスクリプトで、E2E の補助（`createSessionUser`・`loginAsUser`）を使い利用者・案件・取引先（メールあり）・内訳書（項目 2 件）・見積依頼（メール、項目 2 件を選択）を DB に作り、ホストの Chromium でブラウザごとに別にログインした storageState を書き出し、Playwright の公式イメージ（`mcr.microsoft.com/playwright:v1.62.0-noble`）の中で `docker run --rm --ipc=host --network host` にリポジトリの `@playwright/test`（1.62.0）を読み取り専用で渡して流した。クリップボードは画面に差し込んだ textarea へのキーボードのコピーで前の中身を入れ、貼り付け（`ControlOrMeta+V`）で読んだ。記録が成功する場合は記録の要求を `page.route` で約 500ms 止めてから実際の backend へ通し（201）、失敗する場合は 500 を返した。Gmail の作成画面の要求は `context.route` で捕まえて空のページを返した（失敗の場合は中断）。mailto の起動は、同じ URL の素のリンクを押したときの観測（Chromium は mailto の要求と `net::ERR_ABORTED`、WebKit は mailto の要求）と比べた。確かめた後にデータと利用者を消した
@@ -6924,3 +6925,94 @@ mailDisabledReason: {
   backend/src/__tests__/integration/estimate-request.api.integration.test.ts
   backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts
   frontend/src/__tests__/api/estimate-requests.test.ts
+
+## 2026-10-31 の追加: Gmail で開く操作の失敗の表示（Requirement 42.17・42.18）
+
+### Overview
+
+**Purpose**: 利用者の判断（2026-10-31「推奨案で進める」）で、「Gmailで開く」の二つの失敗を利用者に分かる日本語で表示する。(1) ブラウザがポップアップを止めて新しいタブを開けないとき（42.17）、(2) 出力の記録の成功の後に、開いたタブを Gmail の作成画面へ移す処理が例外になったとき（42.18）。どちらも今は何も表示せずに終わる。
+
+**Impact（既存前提の是正。2026-10-31 の調査）**:
+
+1. パネルの「Gmailで開く」の処理（`EstimateRequestTextPanel` の `handleOpenGmail`。タスク107.1、コミット `3cf87a04`）は、クリックの処理の中で mail-launcher の `openBlankMailTab` で空のタブを開き、null（ポップアップが止められた）なら記録を要求せずに何も表示せず戻る。開けたら上流の `runRecordedExport` で記録を要求し、成功の後に `navigateMailTab` で作成画面へ移す。結果が失敗ならタブを閉じ、記録の失敗（`RECORD_FAILED`）のときだけ `EXPORT_RECORD_FAILED_MESSAGE` をパネルの `role="alert"` の欄に出す。作成画面へ移す処理の例外（`GENERATION_FAILED`）ではタブを閉じるだけで何も表示しない。所在は次の 2 ファイル
+   frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx
+   frontend/src/utils/mail-launcher.ts
+2. 既存の単体テストの「空のタブを開けない（ポップアップが止められた）ときは記録を要求しない（Requirement 42.15）」は、記録を要求しないことに加えて `role="alert"` の要素が無いことを主張している。42.17 と矛盾するため、記録を要求しない主張は保ち、alert の主張を 42.17 の文言の表示へ改める（主張を消さない）。作成画面へ移す処理の例外を主張するテストは無い。所在は次のファイル
+   frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx
+3. E2E（見積依頼の出力の記録の E2E）の「Gmailで開く」の 2 本は、記録の成功の後に作成画面を開くことと、記録の 500 で開かずにタブを閉じ記録の失敗の文言を出すことを主張し、ポップアップの拒否と移す処理の例外は扱わない。所在は次のファイル
+   e2e/specs/estimate-requests/estimate-request-export-audit.spec.ts
+
+### 受入基準の置き場所の判断
+
+- 42.17・42.18 は Requirement 42 の続きの番号とした。どちらも「Gmailで開く」の出力の記録（42.15・42.16）と同じ処理の失敗の段を定め、記録の要否（42.17 は記録を要求しない、42.18 は記録が残る）を条文に含む。Requirement 42 の In scope は「見積依頼文をメールクライアントで開く操作（Requirement 41）の前の記録」を含み、その失敗の表示は In scope の内側として読めるため、目的・In scope・Out of scope は改訂していない
+- Requirement 41（メーラーへのワンクリック転記）へ置く案は採らない。41.3 は起動の成功を定める条文であり、失敗の段の表示と記録の要否を 41 と 42 に分けると、同じ処理の記録の扱いが二つの要件に散るため
+- 既存の受入基準の条文は改訂していない
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 「Gmailで開く」で空のタブを開けないときの表示（42.17）と、記録の成功の後に作成画面へ移せないときの表示（42.18）
+- 二つの文言と表示の置き場所
+
+#### Out of Boundary
+- 出力の記録の部品（`runRecordedExport`・`EXPORT_RECORD_FAILED_MESSAGE`）と記録の内容（user-authentication の要件40.9〜40.11）。本追加は部品と記録を変えない
+- mail-launcher のタブの操作（`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）の契約。本追加は戻り値と例外を読むだけで変えない
+- 「メールで開く」（mailto）の失敗の表示。mailto へのページの遷移は例外になる経路がほぼ無く、利用者の判断の範囲は「Gmailで開く」である。同じ形の穴（記録の後の `GENERATION_FAILED` で何も表示しない）は残り、必要なら別に起票する
+- 記録の失敗の表示（42.16）、コピーの記録（42.13・42.14）
+
+#### Allowed Dependencies
+- `EstimateRequestTextPanel` → `runRecordedExport`・mail-launcher（既存の依存。新しい依存は足さない）
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| Gmail で開く操作の失敗の表示 | Frontend/Component | 空のタブを開けないときと、記録の成功の後に作成画面へ移せないときに、原因と次の行動を示す日本語の文言をパネルの alert の欄に出す | 42.17, 42.18 | `runRecordedExport`（P0）, `mail-launcher`（P1） | State |
+
+### 決定
+
+**文言**: 次の二つとする。文言の定数の名前と置き場所は実装時に決めて本節へ記す（パネルの中の定数か、mail-launcher の隣か）。
+
+- 42.17（ポップアップが止められた）: 「ポップアップがブロックされたため Gmail を開けませんでした。ブラウザの設定でこのサイトのポップアップを許可してください。」
+- 42.18（記録の成功の後に作成画面へ移せない）: 「Gmail の作成画面を開けませんでした。もう一度お試しください。」
+
+**表示の置き場所**: 記録の失敗と同じ、パネルの見出しの直下の `role="alert"` の欄（コピーとメールで開く操作で共有する欄）に出し、次の操作の開始で消す。欄は一つであり、同時に出る文言は一つである。
+
+**処理の順**:
+
+- 42.17: `openBlankMailTab` が null を返したら、記録を要求せず（`runRecordedExport` を呼ばない）、前の文言を消して 42.17 の文言を出して戻る。記録の要求中の状態（両ボタンを止める）にはしない
+- 42.18: `runRecordedExport` の結果が `GENERATION_FAILED`（作成画面へ移す処理の例外）なら、タブを閉じ（従来どおり）、パネルが残っていれば 42.18 の文言を出す。`RECORD_FAILED` は従来どおり `EXPORT_RECORD_FAILED_MESSAGE`。パネルが閉じられた後（記録の要求中の破棄）に生成の処理がタブを閉じて戻った場合は成功の扱いで、文言は出さない（従来どおり）
+- 作成画面へ移す処理で例外が出る経路は、開いたタブが記録の待ちの間に利用者に閉じられた・別の文書へ移された（タブの文書へ触れられない）などである。どの例外でも同じ文言とし、原因を区別しない
+
+**記録の扱い（42.15・42.16 と矛盾しないこと）**:
+
+- 42.15 は「開く前に記録を要求し、成功の後にだけ開く」と定める。42.17 はタブを開けず、見積依頼文をどこへも渡さないため、42.15 の「開く操作」の記録の対象に当たらない。記録を要求しないことは 2026-10-30 の決定（空のタブを開けないときは記録を要求しない）のままであり、42.15 と矛盾しない
+- 42.16 は記録の要求の失敗の表示であり、42.17（記録の前の失敗）と 42.18（記録の成功の後の失敗）とは段が違う。文言を分け、記録の失敗の文言を記録が成功した場合に出さない
+- 42.18 では記録の要求が成功しており、記録は残る。記録は出力の開始の記録であり（user-authentication の要件40.9）、出力の後の失敗で取り消さない。内訳書の Excel・現場調査報告書の PDF（42.8・42.9）で記録の後に生成が失敗した場合と同じ扱いである。利用者がもう一度操作すれば 42.15 のとおり新たに 1 回記録する
+
+**採らなかった案**: ポップアップが止められたときに同じタブで作成画面を開く——記録の前に元の画面を離れ（記録を待てない）、編集中の状態も失わせるため。記録の失敗の文言を流用する——記録が成功した 42.18 で記録できなかったと告げることになり、42.17 では記録を要求していないため。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 42.17 | 空のタブを開けないときは記録を要求せず、ポップアップの許可を促す文言を出す | Gmail で開く操作の失敗の表示 | `window.open` | - |
+| 42.18 | 記録の成功の後に作成画面へ移せないときはタブを閉じ、再操作を促す文言を出す（記録は残る） | Gmail で開く操作の失敗の表示 | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 「Gmailで開く」で空のタブを開けない（ポップアップが止められた） | 記録を要求せず、作成画面を開かず、42.17 の文言をパネルの alert の欄に表示する | 42.17, 42.15 |
+| 記録の要求が失敗する | 従来どおり、タブを閉じ `EXPORT_RECORD_FAILED_MESSAGE` を表示する | 42.16 |
+| 記録の成功の後に作成画面へ移す処理が例外になる | タブを閉じ、42.18 の文言を表示する。記録は残る | 42.18 |
+| 記録の要求中にパネルが閉じられる | 従来どおり、タブを閉じ、文言は出さない | 42.15 |
+
+### Testing Strategy
+
+- **単体（frontend）**: パネルの単体テストで、`window.open` が null を返すと記録を要求せず 42.17 の文言が `role="alert"` に出ること（既存の「空のタブを開けない（ポップアップが止められた）ときは記録を要求しない（Requirement 42.15）」の alert が無いことの主張をこの文言の表示へ改め、記録を要求しない主張は保つ）、作成画面へ移す処理が例外になるとタブを閉じ 42.18 の文言が出て記録の要求は 1 回であること、次の操作の開始で文言が消えること、記録の失敗では従来どおり記録の失敗の文言だけが出ることを主張する。所在は次のファイル
+  frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx
+- **E2E**: 出力の記録の E2E に、`window.open` を null を返す形に差し替えて（`page.addInitScript`）「Gmailで開く」を押すと記録の要求が出ず 42.17 の文言が表示されること、開いたタブの文書へ触れられない形にして（記録の成功の後に移す処理を例外にする）作成画面を開かず 42.18 の文言が表示され記録が 1 回であることを主張し、`@requirement estimate-request/REQ-42.17`・`REQ-42.18` の印を置く。後者を E2E で再現できない場合は単体の被覆に寄せ、その理由を本節へ記す。所在は次のファイル
+  e2e/specs/estimate-requests/estimate-request-export-audit.spec.ts
+- 本番ビルドの画面で、Chromium と WebKit のポップアップの拒否の設定のもとで 42.17 の文言が出ることを確かめ、本節へ記す（タスク107.1 の実ブラウザの確認の形）。確かめられない場合は理由を記す
+- 挙動の変更であるため RED → GREEN で進め、追加・改めたテストが現状で赤になることを先に示す（タスク108.1）

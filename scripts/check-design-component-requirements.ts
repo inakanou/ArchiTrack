@@ -328,8 +328,12 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // 2026-10-30）。利用者の判断で足した章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、
     // 見積依頼文のコピー・メールで開く操作の出力の記録」が部品表の 3 行（42.12〜42.16 を名乗る）と
     // 追跡表を足し、同章の 3 部品が突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 19 は据え置き
-    minPairs: 35,
-    minTableDeclarations: 61,
+    // minPairs 35 → 36 / minTableDeclarations 61 → 62（estimate-request のタスク108 の起票、2026-10-31）。
+    // 利用者の判断で足した章「2026-10-31 の追加: Gmail で開く操作の失敗の表示」が部品表の 1 行
+    // （42.17・42.18 を名乗る）と追跡表を足し、同章の 1 部品が突き合わせの母集団へ入ったため、
+    // 締める向きへ動かした。矛盾の上限 19 は据え置き
+    minPairs: 36,
+    minTableDeclarations: 62,
     minDetailDeclarations: 57,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },

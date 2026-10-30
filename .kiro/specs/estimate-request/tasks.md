@@ -2436,3 +2436,19 @@
   - _Depends: user-authentication の Task 67.1（`estimate_request_text_clipboard`・`estimate_request_text_mail`・`estimate_request_items_clipboard` の 3 種別）_
   - _Requirements: 42.13, 42.14, 42.15, 42.16_
   - _Boundary: EstimateRequestTextPanel, ClipboardCopyButton, EstimateRequestDetailPage, mail-launcher_
+
+## タスク108: 「Gmailで開く」の失敗の表示（利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」）で起票する。パネルの「Gmailで開く」の処理（frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx の `handleOpenGmail`〔525 行付近〕。タスク107.1、`3cf87a04`。行は 2026-10-31 の実測で、着手時に測り直すこと）は、ブラウザがポップアップを止めて空のタブを開けないとき（`openBlankMailTab` が null）と、出力の記録の成功の後に作成画面へ移す処理が例外になったとき（`runRecordedExport` の `GENERATION_FAILED`）に、何も表示せずに終わる。requirements.md に 42.17・42.18 を加え（改訂の記録を Requirement 42 に残した）、design.md の末尾の章「2026-10-31 の追加: Gmail で開く操作の失敗の表示」に文言と設計を置き、2026-10-30 の章の「Gmailで開く」の決定に改訂の注記を置いた。記録の扱い（42.17 は記録を要求しない、42.18 は記録が残る）は変えない
+
+- [ ] 108.1 「Gmailで開く」で空のタブを開けないときと、記録の成功の後に作成画面へ移せないときに、日本語の文言を表示する
+  - `handleOpenGmail` で、`openBlankMailTab` が null なら記録を要求せず、前の文言を消して 42.17 の文言（design.md の同章の「決定」の「文言」）をパネルの `role="alert"` の欄に出して戻る。`runRecordedExport` の結果が `GENERATION_FAILED` なら、タブを閉じ（従来どおり）、パネルが残っていれば 42.18 の文言を出す。`RECORD_FAILED` は従来どおり `EXPORT_RECORD_FAILED_MESSAGE`。文言の定数の名前と置き場所は実装時に決めて design.md の同章の「決定」へ記す。冒頭の注釈と `handleOpenGmail` の注釈を改める。mail-launcher は変えない
+  - **既存のテストの書き換え**（主張を消さない）: 単体（`frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx`）の「空のタブを開けない（ポップアップが止められた）ときは記録を要求しない（Requirement 42.15）」は、記録を要求しない主張を保ち、`role="alert"` が無いことの主張を 42.17 の文言の表示へ改め、題名に 42.17 を足す
+  - 単体に、作成画面へ移す処理が例外になるとタブを閉じ 42.18 の文言が出て記録の要求は 1 回であること、次の操作の開始で文言が消えること、記録の失敗では従来どおり記録の失敗の文言だけが出ることを足す
+  - E2E（`e2e/specs/estimate-requests/estimate-request-export-audit.spec.ts`）で、`window.open` を null を返す形に差し替えて「Gmailで開く」を押すと記録の要求が出ず 42.17 の文言が表示されること、記録の成功の後に移す処理を例外にすると作成画面を開かず 42.18 の文言が表示され記録が 1 回であることを主張し、`@requirement estimate-request/REQ-42.17`・`REQ-42.18` の印を置く。後者を E2E で再現できない場合は単体の被覆に寄せ、理由を design.md の同章へ記す。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 本番ビルドの画面で、Chromium と WebKit のポップアップの拒否のもとで 42.17 の文言が出ることを確かめ、design.md の同章へ記す（タスク107.1 の実ブラウザの確認の形。確かめられない場合は理由を記す）
+  - 振る舞いを変えるため、変えた表示（「Gmailで開く」、パネルの `role="alert"` の文言、`POST /api/v1/audit-logs/exports` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの「Gmailで開く」の 2 本と `estimate-request-e2e.spec.ts` の Requirement 41 のテストを含む）。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 挙動の変更であるため RED → GREEN で進め、追加・改めたテストが現状で赤になることを先に示す
+  - 単体と E2E で、「Gmailで開く」の二つの失敗に原因と次の行動を示す文言が表示され、ポップアップの拒否では記録が要求されず、記録の後の失敗では記録が 1 回残る状態になる
+  - _Requirements: 42.17, 42.18_
+  - _Boundary: EstimateRequestTextPanel の handleOpenGmail と、その表示を主張する本スペックのテスト_
