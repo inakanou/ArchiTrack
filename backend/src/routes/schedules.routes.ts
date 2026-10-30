@@ -621,15 +621,16 @@ router.get(
       }
 
       // 生成の前に記録する。対象は工程表、件数は出力対象の工程項目の数（13.6。Requirement 9.3）。
-      // 案件は判定部品と同じ解決関数で工程表から引く（`/api/schedules` のマウントには経路の案件 ID が無い）
-      const projectId = await findProjectIdOfSchedule(id);
-      if (projectId === null) {
+      // 案件は判定部品と同じ解決関数で工程表から引く（`/api/schedules` のマウントには経路の案件 ID が無い）。
+      // 判定部品の後に工程表が無くなった・論理的に取り除かれた競合では、記録も生成もせず汎用の 404 にする（13.9）
+      const schedule = await findProjectIdOfSchedule(id);
+      if (schedule === null || schedule.deleted) {
         next(new NotFoundError());
         return;
       }
       const recordError = await recordExportBeforeGeneration(req, {
         kind: 'schedule_export',
-        projectId,
+        projectId: schedule.projectId,
         targetIds: [id],
         itemCount: exportData.items.filter((item) => item.isExportTarget).length,
       });

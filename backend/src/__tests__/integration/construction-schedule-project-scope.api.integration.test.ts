@@ -400,34 +400,115 @@ describe('工程表の API の閲覧範囲（統合・実 DB）', () => {
     });
 
     /**
-     * 解決関数は論理的に取り除かれた工程表に案件 ID を返さない（design.md の「案件IDの解決関数」）。
-     * 範囲の内外を問わず、存在しない工程表と同じ汎用の 404 になり、範囲外の拒否としては記録しない。
+     * 解決関数は論理的に取り除かれた工程表にも工程表の実際の案件を返し、判定部品が範囲外のときだけ記録する
+     * （design.md の「2026-10-30 の追加」の「決定」。user-authentication の要件39.8 の 2026-10-30 の改訂）。
+     * 経路の形（`/api/schedules/:id` と工程表が属する案件の配下の経路）と操作（詳細・更新・一括保存・
+     * 論理的な取り除き・出力）を問わず、範囲の内外を問わず存在しない工程表と同じ汎用の 404 になり、
+     * データを変えず、ファイルを生成せず、出力の記録（DATA_EXPORTED）も残さない。範囲外の利用者は要求ごとに
+     * 工程表の案件を対象に 1 件記録され、範囲内の利用者は記録されない。
      *
      * @requirement construction-schedule/REQ-13.2
      * @requirement construction-schedule/REQ-13.3
+     * @requirement construction-schedule/REQ-13.9
      */
-    it('論理的に取り除かれた工程表は、範囲の内外を問わず存在しない工程表と同じ汎用の 404 を返す', async () => {
-      const { scheduleId: deletedId } = await createSchedule(target.projectId, `${MARK}-deleted`);
+    it('論理的に取り除かれた工程表は、範囲の内外を問わず存在しない工程表と同じ汎用の 404 を返し、データを変えずファイルを生成せず、範囲外の利用者だけを工程表の案件を対象に要求ごとに 1 件記録する', async () => {
+      const { scheduleId: deletedId, itemIds: deletedItemIds } = await createSchedule(
+        target.projectId,
+        `${MARK}-deleted`
+      );
       await prisma.constructionSchedule.update({
         where: { id: deletedId },
         data: { deletedAt: new Date() },
       });
-
-      const missing = await request(app)
-        .get(`/api/schedules/${MISSING_ID}`)
-        .set(...auth(sales))
-        .expect(404);
-      const deniedBefore = await deniedCount(outsider.id);
-      for (const user of [sales, outsider]) {
-        const response = await request(app)
-          .get(`/api/schedules/${deletedId}`)
-          .set(...auth(user))
+      const deleted = await prisma.constructionSchedule.findUniqueOrThrow({
+        where: { id: deletedId },
+      });
+      const excel = vi.spyOn(ScheduleExportService.prototype, 'exportToExcel');
+      const pdf = vi.spyOn(ScheduleExportService.prototype, 'exportToPdf');
+      try {
+        const before = await snapshot(target);
+        const missing = await request(app)
+          .get(`/api/schedules/${MISSING_ID}`)
+          .set(...auth(sales))
           .expect(404);
-        expect(response.body.code).toBe('NOT_FOUND');
-        expect(withoutInstance(response.body)).toEqual(withoutInstance(missing.body));
+        const bases = [
+          `/api/schedules/${deletedId}`,
+          `/api/projects/${target.projectId}/schedules/${deletedId}`,
+        ];
+        // [利用者, 要求ごとの記録の増分]（sales は範囲内、outsider は範囲外）
+        const users: Array<[string, TestUser, number]> = [
+          ['範囲内', sales, 0],
+          ['範囲外', outsider, 1],
+        ];
+        const exportedBefore = {
+          sales: await prisma.auditLog.count({
+            where: { action: 'DATA_EXPORTED', actorId: sales.id },
+          }),
+          outsider: await prisma.auditLog.count({
+            where: { action: 'DATA_EXPORTED', actorId: outsider.id },
+          }),
+        };
+        for (const [who, user, expectedDenied] of users) {
+          for (const base of bases) {
+            const requests: Array<[string, () => request.Test]> = [
+              ['GET', () => request(app).get(base)],
+              [
+                'PUT',
+                () =>
+                  request(app)
+                    .put(base)
+                    .send({ name: `${MARK}-deleted-rename`, version: deleted.version }),
+              ],
+              [
+                'PUT bulk-save',
+                () =>
+                  request(app)
+                    .put(`${base}/bulk-save`)
+                    .send(bulkSaveBody({ ...target, itemIds: deletedItemIds }, deleted.version)),
+              ],
+              ['DELETE', () => request(app).delete(base)],
+              ['GET export xlsx', () => request(app).get(`${base}/export?format=xlsx`)],
+              ['GET export pdf', () => request(app).get(`${base}/export?format=pdf`)],
+            ];
+            for (const [method, send] of requests) {
+              const label = `${who} ${method} ${base}`;
+              const deniedBefore = await deniedCount(user.id);
+              const ownerDeniedBefore = await deniedCount(user.id, target.projectId);
+              const response = await send().set(...auth(user));
+              expect(response.status, label).toBe(404);
+              expect(response.body.code, label).toBe('NOT_FOUND');
+              expect(withoutInstance(response.body), label).toEqual(withoutInstance(missing.body));
+              expect(response.headers['content-disposition'], label).toBeUndefined();
+              expect((await deniedCount(user.id)) - deniedBefore, label).toBe(expectedDenied);
+              expect(
+                (await deniedCount(user.id, target.projectId)) - ownerDeniedBefore,
+                label
+              ).toBe(expectedDenied);
+            }
+          }
+        }
+        expect(
+          (await prisma.auditLog.count({ where: { action: 'DATA_EXPORTED', actorId: sales.id } })) -
+            exportedBefore.sales,
+          '範囲内の利用者の出力の記録は残さない'
+        ).toBe(0);
+        expect(
+          (await prisma.auditLog.count({
+            where: { action: 'DATA_EXPORTED', actorId: outsider.id },
+          })) - exportedBefore.outsider,
+          '範囲外の利用者の出力の記録は残さない'
+        ).toBe(0);
+        expect(excel).not.toHaveBeenCalled();
+        expect(pdf).not.toHaveBeenCalled();
+        expect(await snapshot(target), 'データは変わらない').toEqual(before);
+        expect(
+          await prisma.constructionSchedule.count({ where: { name: `${MARK}-deleted-rename` } })
+        ).toBe(0);
+      } finally {
+        excel.mockRestore();
+        pdf.mockRestore();
+        await prisma.constructionSchedule.delete({ where: { id: deletedId } });
       }
-      expect((await deniedCount(outsider.id)) - deniedBefore).toBe(0);
-      await prisma.constructionSchedule.delete({ where: { id: deletedId } });
     });
   });
 
@@ -751,14 +832,17 @@ describe('工程表の API の閲覧範囲（統合・実 DB）', () => {
     });
 
     /**
-     * 論理的に取り除かれた工程表は解決関数が null を返し、食い違いの照合より先に不在とする
-     * （design.md の 2026-10-29 の追加の章の「論理的に取り除かれた工程表の扱い」）。範囲外の案件の
-     * 論理的に取り除かれた工程表を範囲内の案件の経路で指しても、不在と同じ 404 で記録しない（13.8 の除外）。
+     * 論理的に取り除かれた工程表も、データベースに実在する限り工程表の実際の案件で判定する（13.8 の
+     * 2026-10-30 の改訂。user-authentication の要件39.8 の改訂。design.md の「2026-10-30 の追加」の「決定」）。
+     * 範囲外の案件の論理的に取り除かれた工程表を範囲内の案件の経路で指すと、応答は不在と同じ 404 のまま、
+     * 経路の案件でなく工程表の案件を対象に要求ごとに 1 件記録し、データを変えず、ファイルを生成せず、
+     * 出力の記録（DATA_EXPORTED）も残さない。
      *
      * @requirement construction-schedule/REQ-13.8
+     * @requirement construction-schedule/REQ-13.9
      */
-    it('二重マウントの経路で、範囲外の案件の論理的に取り除かれた工程表を範囲内の案件の経路で指すと、不在と同じ 404 になり、記録せず、データを変えずファイルを生成しない', async () => {
-      const { scheduleId: deletedId } = await createSchedule(
+    it('二重マウントの経路で、範囲外の案件の論理的に取り除かれた工程表を範囲内の案件の経路で指すと、不在と同じ 404 になり、工程表の案件を対象に記録が 1 件ずつ増え、データを変えずファイルを生成しない', async () => {
+      const { scheduleId: deletedId, itemIds: deletedItemIds } = await createSchedule(
         other.projectId,
         `${MARK}-deleted-foreign`
       );
@@ -779,10 +863,28 @@ describe('工程表の API の閲覧範囲（統合・実 DB）', () => {
 
         const calls: Array<[string, () => request.Test]> = [
           ['GET :id', () => request(app).get(`${nested}/${deletedId}`)],
+          [
+            'PUT :id',
+            () =>
+              request(app)
+                .put(`${nested}/${deletedId}`)
+                .send({ name: `${MARK}-deleted-foreign-rename`, version: 0 }),
+          ],
+          [
+            'PUT :id/bulk-save',
+            () =>
+              request(app)
+                .put(`${nested}/${deletedId}/bulk-save`)
+                .send(bulkSaveBody({ ...other, itemIds: deletedItemIds }, 0)),
+          ],
           ['DELETE :id', () => request(app).delete(`${nested}/${deletedId}`)],
           [
             'GET :id/export xlsx',
             () => request(app).get(`${nested}/${deletedId}/export?format=xlsx`),
+          ],
+          [
+            'GET :id/export pdf',
+            () => request(app).get(`${nested}/${deletedId}/export?format=pdf`),
           ],
         ];
         const exportedBefore = await exportedCount(sales.id);
@@ -798,19 +900,26 @@ describe('工程表の API の閲覧範囲（統合・実 DB）', () => {
           );
           expect(response.headers['content-disposition'], label).toBeUndefined();
           expect(JSON.stringify(withoutInstance(response.body)), label).not.toContain(deletedId);
-          // 論理的に取り除かれた工程表は、実行者全体でも工程表の案件でも記録しない
-          expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録しない`).toBe(0);
+          // 記録は 1 件だけ増え、対象は経路の案件でなく工程表の実際の案件
+          expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(
+            1
+          );
           expect(
             (await deniedCount(sales.id, other.projectId)) - foreignBefore,
-            `${label}: 工程表の案件を対象に記録しない`
-          ).toBe(0);
+            `${label}: 記録の対象は工程表の実際の案件`
+          ).toBe(1);
         }
 
         expect((await exportedCount(sales.id)) - exportedBefore, '出力の記録は残さない').toBe(0);
         expect(excel).not.toHaveBeenCalled();
         expect(pdf).not.toHaveBeenCalled();
         expect(await snapshot(target)).toEqual(beforeTarget);
-        expect(await snapshot(other)).toEqual(beforeOther);
+        expect(await snapshot(other), 'データは変わらない').toEqual(beforeOther);
+        expect(
+          await prisma.constructionSchedule.count({
+            where: { name: `${MARK}-deleted-foreign-rename` },
+          })
+        ).toBe(0);
       } finally {
         excel.mockRestore();
         pdf.mockRestore();

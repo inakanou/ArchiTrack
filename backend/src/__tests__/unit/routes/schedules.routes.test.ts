@@ -215,7 +215,7 @@ describe('工程表ルート', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // 出力の記録は既定で成功させる（記録の失敗は個々の試験で差し替える）
-    mockFindProjectIdOfSchedule.mockResolvedValue(projectId);
+    mockFindProjectIdOfSchedule.mockResolvedValue({ projectId, deleted: false });
     mockRecord.mockResolvedValue({ ok: true, value: { recordId: 'record-1' } });
     app = createTestApp();
   });
@@ -740,9 +740,12 @@ describe('工程表ルート', () => {
       expect(mockExportToExcel).not.toHaveBeenCalled();
     });
 
-    it('出力データの取得の後に工程表の案件が引けなくなったときは記録も生成もせず 404 を返す', async () => {
+    it.each([
+      ['工程表の行が無くなった', null],
+      ['工程表が論理的に取り除かれた', { projectId, deleted: true }],
+    ])('出力データの取得の後に%sときは記録も生成もせず 404 を返す（13.9）', async (_label, ref) => {
       mockGetExportData.mockResolvedValue(mockExportData);
-      mockFindProjectIdOfSchedule.mockResolvedValue(null);
+      mockFindProjectIdOfSchedule.mockResolvedValue(ref);
 
       await request(app).get(`/api/schedules/${scheduleId}/export?format=pdf`).expect(404);
 
