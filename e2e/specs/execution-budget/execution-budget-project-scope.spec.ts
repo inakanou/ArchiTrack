@@ -773,4 +773,73 @@ test.describe('実行予算・発注・出来高・原価・月次締めの案�
       href: '/projects',
     });
   });
+
+  /**
+   * 画面を開いた後に出来高記録が取り除かれた場合の取り除きの 404（2026-10-30 の改訂）
+   *
+   * 出来高記録は物理削除のため、別のタブで先に消された記録の取り除きは経路の出来高記録の照合の汎用の 404
+   * （`NOT_FOUND`）になる。経路が指す対象は出来高記録であり、プロジェクトが見つからない旨を出さない。
+   *
+   * @requirement execution-budget-management/REQ-21.2
+   */
+  test('開いた後に消された出来高記録を取り除くと、出来高記録が見つからない旨が出て、プロジェクトが見つからない旨と汎用の失敗の文言を出さない', async ({
+    page,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const tradingPartnerId = await createTradingPartner();
+    const target = await createFixture(
+      'progress-gone',
+      { salesPersonId: owner.id, createdById: owner.id },
+      tradingPartnerId
+    );
+    const prisma = getPrismaClient();
+    await loginAsUser(page, owner);
+
+    // 出来高入力の画面を開き、履歴に出来高記録が出るのを待つ
+    expect(
+      await openAndWait(
+        page,
+        `/projects/${target.projectId}/execution-budget/progress`,
+        `/api/projects/${target.projectId}/execution-budget/progress`
+      )
+    ).toBe(200);
+    const historyRow = page.getByTestId(`history-row-${target.progressRecordId}`);
+    await expect(historyRow).toBeVisible({ timeout: getTimeout(15000) });
+
+    // 別のタブで先に取り除かれた（物理削除）
+    await prisma.progressRecord.delete({ where: { id: target.progressRecordId } });
+
+    await historyRow.getByRole('button', { name: '削除', exact: true }).click();
+    const deleteResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'DELETE' &&
+        new URL(r.url()).pathname ===
+          `/api/projects/${target.projectId}/execution-budget/progress/${target.progressRecordId}`,
+      { timeout: getTimeout(15000) }
+    );
+    await page.getByRole('button', { name: '削除する', exact: true }).click();
+    const response = await deleteResponse;
+    expect(response.status()).toBe(404);
+    // 経路の出来高記録の照合の汎用の 404（本体の符号ではない）
+    expect(((await response.json()) as { code?: string }).code).toBe('NOT_FOUND');
+
+    // 見つからない旨のトーストが 1 件だけ出て、その文言が出来高記録の文言と完全一致する
+    // （取り違えたときはプロジェクトの文言が受け取った値として報告される）
+    const notFoundMessage = page
+      .getByRole('alert')
+      .getByText(/が見つかりません。存在しないか、削除されています。$/);
+    await expect(notFoundMessage).toHaveCount(1, { timeout: getTimeout(10000) });
+    await expect(notFoundMessage).toHaveText(
+      '出来高記録が見つかりません。存在しないか、削除されています。'
+    );
+    await expect(
+      page.getByText('プロジェクトが見つかりません。存在しないか、削除されています。', {
+        exact: true,
+      })
+    ).toHaveCount(0);
+    await expect(page.getByText('出来高レコードの削除に失敗しました', { exact: true })).toHaveCount(
+      0
+    );
+    await expect(page.getByText('Not found', { exact: true })).toHaveCount(0);
+  });
 });

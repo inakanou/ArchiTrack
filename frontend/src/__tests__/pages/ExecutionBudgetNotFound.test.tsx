@@ -764,6 +764,23 @@ describe('出来高入力の画面（ProgressInputPage）', () => {
       expect(toastMocks.error).not.toHaveBeenCalledWith('出来高レコードの削除に失敗しました');
     });
 
+    it('出来高記録の取り除きの汎用の 404 は、経路が指す出来高記録が見つからない旨にし、プロジェクトが見つからない旨を出さない（2026-10-30 の改訂）', async () => {
+      // 出来高記録は物理削除のため、別のタブで先に消された記録の取り除きは
+      // requireProgressRecordInProject の汎用の 404（NOT_FOUND）になる
+      vi.mocked(progressApi.deleteProgress).mockRejectedValueOnce(genericNotFound());
+      renderProgressPage();
+
+      const rows = await screen.findAllByTestId(/^history-row-/);
+      await userEvent.click(within(rows[0]!).getByRole('button', { name: '削除' }));
+      await userEvent.click(await screen.findByRole('button', { name: '削除する' }));
+
+      await waitFor(() => {
+        expect(toastMocks.error).toHaveBeenCalledWith(PROGRESS_RECORD_GONE);
+      });
+      expect(toastMocks.error).not.toHaveBeenCalledWith(PROJECT_GONE);
+      expect(toastMocks.error).not.toHaveBeenCalledWith('出来高レコードの削除に失敗しました');
+    });
+
     it('施工日指定の取得の失敗は対象外で、従来の文言のまま', async () => {
       vi.mocked(progressApi.getProgressByDate).mockRejectedValueOnce(genericNotFound());
       renderProgressPage();

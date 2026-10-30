@@ -25,7 +25,8 @@ import { getProject } from '../api/projects';
  * 404 を受けたときに見つからない対象
  *
  * 呼び出し元は、汎用の 404（`NOT_FOUND`）が指す対象として経路が指す対象を渡す（発注詳細の画面の発注の
- * 取得と、既存の発注を指す操作では order、それ以外では project）。本体の 404 の符号はその符号の対象になる。
+ * 取得と、既存の発注を指す操作では order、出来高記録の取り除きでは progressRecord、それ以外では project。
+ * 2026-10-30 に出来高記録の取り除きを project から改めた）。本体の 404 の符号はその符号の対象になる。
  */
 export type ExecutionBudgetNotFoundTarget =
   | 'project'

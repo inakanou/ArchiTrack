@@ -13,7 +13,7 @@
  * Task 19.1 変更: 実行予算・出来高の履歴・月別出来高の取得が 404 のときに案件を取得し、案件の取得も 404 なら
  *   プロジェクトが見つからない旨とプロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示して、読み込みの
  *   失敗のトーストと実行予算が見つからない旨を出さない。出来高の保存と出来高記録の取り除きの 404 は見つからない旨の
- *   メッセージを表示する。施工日指定の取得・月別明細の取得・出力の失敗の表示は変えない（execution-budget-management
+ *   メッセージを表示する（汎用の 404 の対象は、保存は経路のプロジェクト、取り除きは経路の出来高記録。2026-10-30 の改訂）。施工日指定の取得・月別明細の取得・出力の失敗の表示は変えない（execution-budget-management
  *   の Requirement 21.1・21.2。範囲外と不在を区別しない）
  */
 
@@ -562,8 +562,11 @@ export default function ProgressInputPage() {
       setHistory(historyData);
       setMonthlySummary(monthlyData);
     } catch (err) {
+      // 404 は見つからない旨。経路が指す対象は出来高記録で、物理削除の後の汎用の 404 も出来高記録の文言にする
+      // （2026-10-30 の改訂。Task 19.1）
       showErrorRef.current(
-        getExecutionBudgetNotFoundMessage(err, 'project') ?? '出来高レコードの削除に失敗しました'
+        getExecutionBudgetNotFoundMessage(err, 'progressRecord') ??
+          '出来高レコードの削除に失敗しました'
       );
     }
   }, [projectId, deleteTargetId]);
