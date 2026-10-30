@@ -5972,11 +5972,16 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 - 範囲外の記録と観測の部品（`recordProjectScopeDenied` と要求の識別の型 `ProjectScopeDenialContext`）は次のファイルに公開し、本判定部品と、判定部品を通らない下流のサービスの中の判定（quantity-table-generation のタスク104.1。写真の紐付けが指す現場調査・画像の案件の判定）が同じ形で記録するために共有する（2026-10-27）。要求からの識別の切り出し（`projectScopeDenialContextOf`）は本判定部品の側に置き、下流の経路が切り出してサービスへ渡す
   backend/src/services/project-scope-denial.service.ts
 - 子リソースから案件 ID を引く解決関数は各業務 spec が持つ。本 spec は案件そのもの（`/api/projects` の `GET /`、`GET /status-counts`、`GET /:id`、`GET /:id/detail-summary`、`PUT /:id`、`DELETE /:id`、`PATCH /:id/status`、`GET /:id/status-history`）に適用する
-- **食い違いの記録（39.8、2026-10-29、利用者の判断「推奨案で進める」）**: 入れ子や二重マウントの経路で、経路の案件（または親のデータ）と対象のデータが実際に属する案件（または親）が食い違うとき、解決関数は `null` ではなく `projectMismatch(対象の実際の案件 ID)` を返す。判定部品は実際の案件を `evaluateProjectAccess` で判定し、`out_of_scope` のときだけ `recordProjectScopeDenied`（39.7 と同じ形。targetId は実際の案件 ID、metadata の path に経路の ID が残る）を呼ぶ。判定の結果に関わらず応答は不在と同じ汎用の 404 とし（39.2）、`next()` へは進めない。実際の案件が範囲内（経路の誤り）・不在・論理削除のときは記録しない
+- **食い違いの記録（39.8、2026-10-29、利用者の判断「推奨案で進める」）**: 入れ子や二重マウントの経路で、経路の案件（または親のデータ）と対象のデータが実際に属する案件（または親）が食い違うとき、解決関数は `null` ではなく `projectMismatch(対象の実際の案件 ID)` を返す。判定部品は実際の案件を `evaluateProjectAccess` で判定し、`out_of_scope` のときだけ `recordProjectScopeDenied`（39.7 と同じ形。targetId は実際の案件 ID、metadata の path に経路の ID が残る）を呼ぶ。判定の結果に関わらず応答は不在と同じ汎用の 404 とし（39.2）、`next()` へは進めない。実際の案件が範囲内（経路の誤り）のときと、実際の案件そのものが不在・論理削除のときは記録しない（対象のデータの論理削除は記録の要否を変えない。下の「対象のデータの論理削除の扱い」）
   - 経路で指定した案件は判定しない（食い違いの要求は経路の案件のデータを返さないため。要件39 の改訂の記録を参照）。判定の DB の失敗は既存の分岐と同じくエラーハンドラーへ渡す（404 にしない）。記録の失敗は 404 を変えない（`recordProjectScopeDenied` の既存の振る舞い）
   - 判定と記録の実体は判定部品の側に一つだけ置き、解決関数を返す経路（`requireProjectScope`）と、解決関数を通らない独自の判定（`recordProjectMismatchIfOutOfScope`）の両方がそれを使う。`ProjectIdResolver` の戻り値は `string | null` を含む上位の型にするので、食い違いを扱わない既存の解決関数はそのまま型が合う
   - 判定部品を通らず業務のサービスの中で所属を照合する経路（execution-budget-management の契約の所属の照合。同 spec のタスク 18.2）は、サービスが `evaluateProjectAccess` で実際の案件を判定し、範囲外の案件を処理の後（トランザクションの外）に、39.7 と共有の記録の部品（`recordProjectScopeDenied`。案件ごとに 1 回）で記録する。サービスは Express の要求に依存しないため `recordProjectMismatchIfOutOfScope` を使わず、要求の識別は経路が `projectScopeDenialContextOf` で切り出して渡す（quantity-table-generation の写真の紐付けの判定、estimate-creation の 57.4 と同じ形）
   - 一括の要求（本文の複数の ID が経路の案件に属するかを確かめる部品）は、属さない ID の実際の案件ごとに `recordProjectMismatchIfOutOfScope` を一度ずつ呼ぶ（同じ案件を重ねて記録しない）。一括へ広げるかは各 spec の判断とする
+  - **対象のデータの論理削除の扱い（39.8 の改訂、2026-10-30、利用者の判断「推奨案で進める」）**: 記録しない「論理削除」は案件そのものの論理削除（`evaluateProjectAccess` が `not_found` を返す場合）だけを指し、対象のデータ（契約書・工程表・数量表・内訳書・見積書・見積依頼・実行予算の子・現場調査・工事写真など）の論理削除は記録の要否を変えない。全業務 spec に共通の方針として次のとおりとする
+    - 解決関数は、対象のデータが論理削除済みでも行が実在する限り `null` を返さず、実際の案件 ID（食い違いなら `projectMismatch`）を返す。実際の案件が範囲外なら判定部品が記録して汎用の 404 にし、範囲内の利用者には各経路の従来の応答（論理削除の 404 など）を後段のサービスが返す
+    - サービスの中の所属の照合（作成・保存の要求が指す他のデータ）は、論理削除済みのデータでも所属が食い違えば実際の案件を判定し、範囲外なら 39.7 と共有の記録の部品で記録してから従来の応答を返す（論理削除の判定を所属の照合より後に置くか、論理削除の分岐の中でも判定する）。応答の状態コードと本文は変えない
+    - 上流の部品（`requireProjectScope`・`recordProjectMismatchIfOutOfScope`・`recordProjectScopeDenied`・`evaluateProjectAccess`）の契約と振る舞いは変えない。判定部品は解決関数が返す案件 ID だけを見て対象の論理削除を知らないため、切り替えは各業務 spec の解決関数とサービスで行う
+    - 理由と改訂前の扱い、採らなかった案は requirements.md の要件39 の改訂の記録（2026-10-30）のとおり。要約: 論理削除済みのデータも案件に属し、範囲外の案件のデータを指す試みは同じ不審の合図であり、応答が不在と同じなので記録しても漏れる情報は無い。記録の基準を機能ごとに変えると探りの検知（要件43.2）に穴ができる
 - 食い違いの記録の各業務 spec への起票先（本 spec は上流の部品だけを持ち、各 spec の判定部品の切り替えと、記録しないことを主張する既存のテストの書き換えは各 spec のタスクで行う）。各行の下の「実装」は、各 spec が起票で足した受入基準と、実装したタスクとコミット（2026-10-29）:
   - construction-schedule: `backend/src/middleware/construction-schedule-project-scope.middleware.ts` の `requireScheduleProjectScope`（Requirement 13。工程表そのものの食い違いの条文は無く、各 spec の起票で足す。13.4 は作成時に指す数量表の所属で、経路の食い違いの条文ではない）
     - 実装: 受入基準 13.8、タスク 23.1（`32cfcef0`）。二重マウントの経路で解決関数が `projectMismatch`（工程表の案件）を返す。出力の経路でも出力の記録とファイルの生成は起きない。論理削除済みの工程表は既存の決定どおり記録しない
@@ -6000,6 +6005,41 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 > - 改訂前: estimate-request の行は二重マウントの判定部品だけを挙げていた。execution-budget-management の行は独自部品と一括の部品だけを挙げていた。判定と記録の実体の箇条は、判定部品の 2 つの入口（解決関数と `recordProjectMismatchIfOutOfScope`）だけを挙げていた
 > - 改訂後: estimate-request の行に作成の要求が指す内訳書の判定（42.10）を、execution-budget-management の行にサービスの中の契約の所属の照合（20.9 の契約の分）を加えた。判定部品を通らずサービスの中で照合する経路が、共有の記録の部品で記録する形を箇条として足した
 > - 理由: 各 spec の起票（estimate-request の 42.10、execution-budget-management の 20.9）が本一覧より広い範囲を食い違いの記録の対象とし、その範囲で実装されたため（`ff65ec47`、`2dfa894a`）。上流の判定部品の契約（`projectMismatch`・`recordProjectMismatchIfOutOfScope` の型と振る舞い）は実装（`388bc6a4`）と一致しており変えない
+- 対象のデータの論理削除の扱いの起票先（2026-10-30。全業務 spec のコードを調べ、論理削除済みの対象を範囲の判定より先に弾いて記録しない箇所を挙げた。各 spec の受入基準・タスクは各 spec の起票で足し、上流のタスク 66.1 に依存する）:
+  - contract-management（受入基準 14.8・14.9 の条文の「記録しない」の改訂を伴う）
+    - 解決関数 `findProjectIdOfContract` が、論理的に取り除かれた契約書で null を返す。`requireContractProjectScope` を通る詳細・更新・ステータスの変更・取り除きと、入れ子の経路の食い違い（14.9）で、範囲外の案件の契約書でも記録しない。所在は次のファイル
+      backend/src/middleware/contract-management-project-scope.middleware.ts
+    - 変更契約の作成の基となる契約書の照合（`ContractService` の `createWithin`）が、取り除き済みの基となる契約書を所属の照合より先に 422 で弾き、範囲外の案件のものでも記録しない（14.8）。所在は次のファイル
+      backend/src/services/contract.service.ts
+    - 書き換えの要る既存のテスト: 単体の解決関数が null を返すことと、範囲を判定せず記録しないことを主張する 2 本、単体のサービスの 14.8 の「記録しない」の 1 本、統合の取り除かれた契約書の記録の差 0・入れ子の経路の取り除き済みの契約書の「記録しない」・14.8 の「記録しない」の 3 本。所在は次の 3 ファイル
+      backend/src/__tests__/unit/middleware/contract-management-project-scope.middleware.test.ts
+      backend/src/__tests__/unit/services/contract.service.test.ts
+      backend/src/__tests__/integration/contract-management-project-scope.api.integration.test.ts
+  - construction-schedule（受入基準 13.8 の条文の「論理的に取り除かれている場合は記録しない」の改訂を伴う）
+    - 解決関数 `findProjectIdOfSchedule` が、論理的に取り除かれた工程表で null を返す。`requireScheduleProjectScope` を通る詳細・更新・一括保存・取り除き・出力と、二重マウントの経路の食い違い（13.8）で、範囲外の案件の工程表でも記録しない。所在は次のファイル
+      backend/src/middleware/construction-schedule-project-scope.middleware.ts
+    - 作成の要求が指す数量表の照合（`ScheduleService` の `createWithin`）が、取り除き済みの数量表を所属の照合より先に 422 で弾き、範囲外の案件のものでも記録しない（13.4）。所在は次のファイル
+      backend/src/services/schedule.service.ts
+    - 書き換えの要る既存のテスト: 単体の解決関数が null を返すこと・範囲を判定せず記録しないこと・二重マウントで記録しないこと（13.8）の 3 本、統合の取り除かれた工程表の記録の差 0・二重マウントの経路の取り除かれた工程表の「記録せず」の 2 本。単体のサービスの取り除き済みの数量表の 1 本は範囲の判定に触れておらず、範囲外の案件の取り除き済みの数量表を足して記録を主張する。所在は次の 3 ファイル
+      backend/src/__tests__/unit/middleware/construction-schedule-project-scope.middleware.test.ts
+      backend/src/__tests__/integration/construction-schedule-project-scope.api.integration.test.ts
+      backend/src/__tests__/unit/services/schedule.service.test.ts
+  - itemized-statement-generation（受入基準 18.4 は記録に触れないため、条文を改めるかは同 spec の起票で判断する）
+    - 作成の要求が指す数量表の照合（`ItemizedStatementService` の `createWithin`）が、取り除き済みの数量表を所属の照合より先に 404 で弾き、範囲外の案件のものでも記録しない（18.4）。所在は次のファイル
+      backend/src/services/itemized-statement.service.ts
+    - 記録しないことを主張する既存のテストは見当たらず、範囲外の案件の取り除き済みの数量表を指す作成の単体と統合を足す
+  - estimate-creation（受入基準 57.4 は記録に触れないため、条文を改めるかは同 spec の起票で判断する）
+    - 作成の要求が指す内訳書の照合（`EstimateService` の `createWithin`）が、取り除き済みの内訳書を所属の照合より先に 404 で弾き、範囲外の案件のものでも記録しない（57.4）。所在は次のファイル
+      backend/src/services/estimate.service.ts
+    - 単体のサービスの取り除き済みの内訳書を参照した作成の 1 本は範囲の判定に触れておらず、範囲外の案件の取り除き済みの内訳書を足して記録を主張する。統合は同じ形で足す
+  - execution-budget-management（受入基準 20.9 の「契約の論理削除は記録しない」の実装の改めを伴う。条文の扱いは同 spec の起票で判断する）
+    - 契約の所属の照合の `noteContractOfOtherProject`（`create`・`getAmendmentDiff`・`applyAmendment` から呼ばれる）が、取り除き済みの契約では判定せず記録しない。所在は次のファイル
+      backend/src/services/execution-budget.service.ts
+    - 書き換えの要る既存のテスト: 単体のサービスの「契約が…範囲外の案件の契約でも判定せず記録しない」の 1 本。統合の契約の照合の記録の主張に取り除き済みの契約を足す。所在は次の 2 ファイル
+      backend/src/__tests__/unit/services/execution-budget.service.test.ts
+      backend/src/__tests__/integration/execution-budget-project-scope.api.integration.test.ts
+  - 調べて切り替えの要らない spec と箇所: estimate-creation・itemized-statement-generation・estimate-request・quantity-table-generation・site-survey・construction-photo の解決関数は対象のデータの論理削除を区別せず案件 ID を引く。execution-budget-management の子と一括の部品も区別しない。quantity-table-generation の写真の紐付け（`filterVisibleSurveyImages`・`validateSurveyImage`）は親の現場調査の論理削除の判定より前に範囲を判定する。estimate-request の受領見積書のプレビューの `canAccessProject` は、経路の判定部品が先に判定して記録した後の重ねての確かめであり、記録の要否を左右しない。契約書の作成の要求が指す見積書の照合（14.5）は所属の照合を論理削除の判定より先に置いており、既に方針どおりである
+  - 応答と本文は各 spec とも変えない（範囲外は不在と同じ、範囲内の利用者には論理削除の従来の応答）。各 spec の E2E は、範囲外の案件の取り除き済みの対象を指す要求で不在と同じ表示になり、監査ログに `PROJECT_SCOPE_DENIED` が 1 件増えることを観測する（39.8 の被覆の印は各 spec の E2E が置く）
 - 起票の対象から外す spec と理由: site-survey と construction-photo は、解決関数が経路の案件 ID を読まずに対象のデータから実際の案件を引いて判定し、経路との食い違いは後段のサービスで 404 にする。対象の実際の案件が範囲外なら判定部品が既に 39.7 として記録するため、39.8 の振る舞いを満たしており、切り替えは要らない。project-management は案件そのものの経路だけで、食い違いが生じない
 - 画面が 404 を受けたときの不在の表示（共通部品 `ResourceNotFound` を使うか、各画面の文言）は各業務 spec の画面の所管であり、本 spec はサーバーの応答（汎用の 404 `NOT_FOUND`、範囲外と不在で同じ本文）を変えない
 
@@ -6032,7 +6072,7 @@ const projectIdFromParam: (paramName: string) => ProjectIdResolver;
 type ExportKind =
   | 'site_survey_report_pdf' | 'site_survey_images_zip' | 'quantity_table_pdf'
   | 'itemized_statement_xlsx' | 'itemized_statement_clipboard'
-  | 'estimate_request_xlsx' | 'estimate_pdf' | 'estimate_xlsx'
+  | 'estimate_request_xlsx' | 'estimate_request_text_clipboard' | 'estimate_pdf' | 'estimate_xlsx'
   | 'schedule_export' | 'order_export' | 'progress_export'
   | 'construction_photo_ledger_pdf' | 'construction_photos_zip' | 'annotated_image'
   | 'audit_log_json';
@@ -6099,6 +6139,13 @@ async function runRecordedClipboardWrite(input: ExportRecordInput, produce: () =
 > - 改訂前: `runRecordedExport` の戻り値を `Result<T, RecordedExportError>` と書いていた。文字列で書く分岐の条件を `ClipboardItem` を持たないブラウザとだけ書いていた。クリップボードの包みの再試行の扱いと、実装と適用のコミットを書いていなかった
 > - 改訂後: 戻り値を実装の `RecordedExportResult<T>`（`ok` で成否を分ける形）とし、型を示した。文字列で書く分岐の条件に `navigator.clipboard.write` を持たない場合を加えた。包みが記録を送り直さないこと（`recordExport` の `disableRetry`）と、実装と適用のタスクとコミットを書き添えた
 > - 理由: 設計の記述が実装の型と分岐の条件と一致していなかったため。振る舞い（記録の成功の後にだけ書く順、失敗の種別、再試行しない決定）は変えない
+
+**見積依頼文のクリップボードへのコピーの種別（2026-10-30、利用者の判断「推奨案で進める」）**:
+
+- 種別 `estimate_request_text_clipboard`（見積依頼の詳細画面の見積依頼文〔宛先・表題・本文〕のクリップボードへのコピー）を `ExportKind`（backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙）へ足す。案件に属する出力であり `projectId` を必須とする（`PROJECTLESS_EXPORT_KINDS` には入れない）。記録の手段は `itemized_statement_clipboard` と同じ `runRecordedClipboardWrite` とし、包みと記録の API の振る舞いは変えない（種別の列挙の追加だけ）
+- 理由: 見積依頼文は案件の内容と宛先の取引先を含み、利用者の手元へ持ち出す出力である。内訳書のコピー（`itemized_statement_clipboard`）と同じく 40.10・40.11 の対象に含め、出力の記録の基準を機能ごとに変えない。種別を内訳書と分けるのは、監査ログの検索と異常の検知（43.4）で、どのデータが持ち出されたかを種別で見分けるため
+- 本 spec が持つのは種別の追加だけで、どの出力を記録するかの条文、画面への適用（コピーの操作から包みを呼ぶ形、記録の対象の ID と件数）、メールクライアントで開く操作を記録の対象に含めるかの判断は estimate-request が持つ。estimate-request の画面への適用のタスクは上流のタスク 67.1 に依存する
+- 検証: backend の単体テスト（記録の経路）と統合テスト（実 DB）で、新しい種別の記録が受け付けられて `DATA_EXPORTED` が 1 件増えること、案件の指定の無い要求が 400 になることを確かめる。frontend は型の列挙に足すだけで包みの振る舞いは変えないため、既存の包みの単体テストが緑のままであることを確かめる
 
 ##### AuditLogArchiveService（変更）
 

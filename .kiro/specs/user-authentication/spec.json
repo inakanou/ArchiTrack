@@ -2,9 +2,9 @@
   "name": "user-authentication",
   "description": "ArchiTrackプロジェクトに招待制のユーザー認証システムを追加します。JWT（JSON Web Token）ベースの認証方式を採用し、管理者が承認したユーザーのみがシステムへアクセスできるセキュアな認証基盤を構築します。",
   "language": "Japanese",
-  "phase": "implementation-complete",
+  "phase": "tasks-generated",
   "created_at": "2025-11-20T12:00:00Z",
-  "updated_at": "2026-10-30T12:00:00Z",
+  "updated_at": "2026-10-30T18:00:00Z",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -180,6 +180,15 @@
       ],
       "tasks_added": ["63.1", "63.2", "64.1", "65.1"],
       "decision": "利用者の判断 2026-10-29「推奨案で進める」。各業務 spec の判定部品の切り替えと内訳書のコピーへの適用は各 spec のタスクで行う"
+    },
+    "requirement_update_2026_10_30": {
+      "updated_at": "2026-10-30T18:00:00Z",
+      "description": "対象のデータの論理削除は記録の要否を変えないことの明記（要件39.8 の改訂。記録しないのは案件そのものの不在・論理削除）と、見積依頼文のクリップボードへのコピーの出力の種別 estimate_request_text_clipboard",
+      "revised_criteria": [
+        "39.8（対象のデータの論理削除の扱いを加えた。改訂の記録は requirements.md の要件39）"
+      ],
+      "tasks_added": ["66.1", "67.1", "68.1"],
+      "decision": "利用者の判断 2026-10-30「推奨案で進める」。各業務 spec の解決関数とサービスの照合の切り替え（design.md の起票先の一覧）と、見積依頼文のコピーへの適用は各 spec のタスクで行う"
     }
   },
   "ready_for_implementation": true

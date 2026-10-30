@@ -1956,6 +1956,39 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: 全体の検証, .kiro/specs/user-authentication/design.md, docs/security/ipa-alert-20261009-remediation-plan.md_
   - _Requirements: 39.8, 40.10_
 
+## タスク66: 対象のデータの論理削除の記録の扱い（要件39.8 の改訂）
+
+**経緯**: 要件39.8 の「論理削除のときは記録しない」が案件そのものの論理削除とも対象のデータの論理削除とも読め、業務 spec ごとに扱いが分かれていた（契約書・工程表の解決関数と、作成の要求が指す数量表・内訳書・契約の照合は、論理削除済みの対象を範囲外の案件のものでも記録しなかった）。利用者の判断（2026-10-30「推奨案で進める」）で 39.8 に対象のデータの論理削除は記録の要否を変えないことを加えた（requirements.md の要件39 の改訂の記録）。design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」と、その起票先の一覧に従う。上流の部品の契約は変えず、本 spec は判定部品がこの方針で振る舞うことの確かめだけを持つ。各 spec の解決関数とサービスの照合の切り替え、既存のテストの書き換えは各 spec のタスクで行い、それらは 66.1 に依存する
+
+- [ ] 66.1 判定部品が対象のデータの論理削除を知らずに実際の案件で記録することを確かめる
+  - 単体テスト（`backend/src/__tests__/unit/middleware/project-scope.middleware.test.ts`）に、解決関数が案件 ID を返す（論理削除済みの対象の行から引いた想定）ときに案件が範囲外なら記録が 1 件で汎用の 404、案件そのものが論理削除済み（判定が `not_found`）なら記録なしで同じ 404 になることを、食い違い（`projectMismatch`）と `recordProjectMismatchIfOutOfScope` でも同じく足す
+  - 統合テスト（`backend/src/__tests__/integration/project-scope-mismatch.api.integration.test.ts`。63.2 のテスト用の入れ子の経路を使う）で、子の行を論理削除済みにし、論理削除を区別しない解決関数を置いて、範囲外の案件の論理削除済みの子を指すと 404 で `PROJECT_SCOPE_DENIED` が 1 件増え（targetId は子の実際の案件）、論理削除済みの案件の子では記録が増えないことを、応答の本文の一致とともに主張する
+  - 判定部品の実装は変えずに上の主張が緑で、既存の 63.1・63.2 のテストが緑のままの状態になる。39.8 の改訂の E2E の被覆は各業務 spec の切り替えの E2E が担う
+  - _Depends: 63.1, 63.2_
+  - _Boundary: ProjectScopeGuard, backend/src/__tests__/unit/middleware, backend/src/__tests__/integration_
+  - _Requirements: 39.8_
+
+## タスク67: 見積依頼文のクリップボードへのコピーの出力の種別（要件40.10・40.11）
+
+**経緯**: 見積依頼の詳細画面の見積依頼文（宛先・表題・本文）のクリップボードへのコピーが出力の記録を経ていなかった。利用者の判断（2026-10-30「推奨案で進める」）で記録の対象にする。design.md の ExportAuditService と ExportAuditClient の節の「見積依頼文のクリップボードへのコピーの種別」に従う。本 spec は種別の追加だけを持ち、包み `runRecordedClipboardWrite` は 64.1 のものをそのまま使う。画面への適用と条文、メールクライアントで開く操作の扱いの判断は estimate-request のタスクで行い、それは 67.1 に依存する
+
+- [ ] 67.1 出力の種別に見積依頼文のクリップボードへのコピーを足す
+  - 種別 `estimate_request_text_clipboard` を backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙（`audit-log.routes.ts` の注釈と `backend/docs/api-spec.json`）へ足す。案件の指定を必須とする（`PROJECTLESS_EXPORT_KINDS` に入れない）
+  - backend の単体テスト（`backend/src/__tests__/unit/routes/audit-log.routes.test.ts`）と統合テスト（`backend/src/__tests__/integration/export-audit.api.integration.test.ts`）で、新しい種別の記録が受け付けられ `DATA_EXPORTED` が 1 件増えること、案件の指定の無い要求が 400 で記録が増えないことを確かめた状態になる。frontend の包みの既存の単体テスト（`frontend/src/__tests__/api/export-audit.clipboard.test.ts`）と型検査が緑のままの状態になる
+  - _Depends: 64.1_
+  - _Boundary: ExportAuditService, ExportAuditClient, backend/src/services/export-audit.service.ts, frontend/src/api/export-audit.ts_
+  - _Requirements: 40.10, 40.11_
+
+## タスク68: 総合検証と文書の追随（要件39.8 の改訂・40.10 の見積依頼文）
+
+- [ ] 68.1 全ての単体・統合テストと関門を通し、文書を揃える
+  - backend と frontend の全単体テストと統合テストを回し、変えた部品（出力の記録の種別）を使う既存の E2E を e2e/ 全体の grep で選んで回す。関門は `:update` の変種を含めず名指しで一本ずつ回し、最後に `git status --porcelain scripts/` が空であることを確かめる
+  - design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱いの起票先」の各行に、各業務 spec の受入基準・タスク・コミットを書き添え（各 spec の切り替えの完了の後）、ExportAuditService の節の見積依頼文の種別に実装のコミットと estimate-request の適用を書き添える。`docs/security/ipa-alert-20261009-remediation-plan.md` の該当の行を改める。spec.json の phase を implementation-complete へ戻すのは `/kiro-validate-impl user-authentication` が GO を出した後に行い、tasks_summary を同じ時点で測り直す
+  - 関門とテストが緑（各業務 spec の切り替えの前に新しい受入基準が未被覆で赤になるものを除く）の状態になる
+  - _Depends: 66.1, 67.1_
+  - _Boundary: 全体の検証, .kiro/specs/user-authentication/design.md, docs/security/ipa-alert-20261009-remediation-plan.md_
+  - _Requirements: 39.8, 40.10_
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば同じコミットで宣言を貼り直し、増分の帰属を記す（利用者の判断 2026-10-06。39.1・40.2 と construction-photo の 27.1 の前例に従う）。正規表現・testid への書き換えで避けるのは不当（36.7）
