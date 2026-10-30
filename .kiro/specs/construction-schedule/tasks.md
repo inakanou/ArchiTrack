@@ -510,7 +510,7 @@
   - _Requirements: 13.8, 13.9_
   - _Boundary: findProjectIdOfSchedule, requireScheduleProjectScope の解決関数, 出力の経路の記録の案件の引き当てと、論理的に取り除かれた工程表の記録を主張する本スペックのテスト_
 
-- [ ] 25.2 工程表の作成で、範囲外の案件の論理削除済みの数量表を記録する
+- [x] 25.2 工程表の作成で、範囲外の案件の論理削除済みの数量表を記録する
   - backend/src/services/schedule.service.ts の `createWithin` の数量表の照合の順を、行が無い（422、記録しない）→ 作成先のプロジェクトに属さない（`evaluateProjectAccess` で範囲外なら `deniedProjectIds` へ入れたうえ 422）→ 作成先のプロジェクトに属し論理削除済み（422、記録しない）へ改める（design.md の同章の「決定」の「数量表の照合の順」）。応答は 3 通りとも 13.4 と同じ 422 の `SCHEDULE_VALIDATION_ERROR` と本文「指定された数量表が見つかりません」のまま、数量項目を読まず工程表と工程項目を作成しない。照合の注釈を改める
   - **既存のテストへの追加**（主張を消さない）: 単体（`backend/src/__tests__/unit/services/schedule.service.test.ts`）の「論理削除された数量表が指定された場合バリデーションエラーになること」は作成先のプロジェクトの論理削除済みの数量表として保ち、判定も記録もしない主張を足す。同ファイルの「作成先のプロジェクトに属さない数量表（Requirement 13.4、タスク22.1）」の表に、論理削除済みの数量表の場合（範囲外は判定して記録 1 回で対象は数量表の案件、範囲内の他のプロジェクト・案件の不在は記録なし。どれも不在と同じ 422 と本文で数量項目を読まず作成しない）を足す。統合（`backend/src/__tests__/integration/construction-schedule-project-scope.api.integration.test.ts` の「作成の要求が指す数量表（13.4）」）に、範囲外の案件の論理削除済みの数量表を指す作成が存在しない数量表と同じ 422 の本文で `PROJECT_SCOPE_DENIED` が 1 件増え、工程表と工程項目が増えないテストを足す。既存の範囲外の数量表の記録のテストに `@requirement construction-schedule/REQ-13.10` の印を足すかは実装時に決める
   - E2E（`e2e/specs/schedules/construction-schedule-project-scope.spec.ts`）で、範囲外の案件の論理削除済みの数量表を指す工程表の作成が存在しない数量表と同じ 422 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、工程表が作られないことを主張し、`@requirement construction-schedule/REQ-13.10` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す

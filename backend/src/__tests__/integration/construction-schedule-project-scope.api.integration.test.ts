@@ -993,5 +993,81 @@ describe('工程表の API の閲覧範囲（統合・実 DB）', () => {
       ).toBe(0);
       expect((await deniedCount(readAll.id)) - deniedBefore).toBe(0);
     });
+
+    /**
+     * 所属の照合を論理削除の確かめより先に置くため、範囲外の案件の論理削除済みの数量表を指す作成は、
+     * 存在しない数量表と同じ 422 と本文のまま、数量表の案件を対象に範囲外の拒否として 1 件記録する。
+     * 作成先のプロジェクトの論理削除済みの数量表と、範囲内の利用者が同じ論理削除済みの数量表を指す
+     * 作成は記録しない（design.md の「2026-10-30 の追加」章の「決定」の「数量表の照合の順」、
+     * タスク25.2）。
+     *
+     * @requirement construction-schedule/REQ-13.10
+     */
+    it('作成の要求が範囲外の案件の論理削除済みの数量表を指すと、存在しない数量表と同じ 422 の本文になり、工程表も工程項目も作成せず、数量表の案件を対象に範囲外の拒否として 1 件記録する', async () => {
+      const deletedForeign = await prisma.quantityTable.create({
+        data: {
+          projectId: other.projectId,
+          name: `${MARK}-other-deleted-qt`,
+          deletedAt: new Date(),
+        },
+        select: { id: true },
+      });
+      const deletedOwn = await prisma.quantityTable.create({
+        data: {
+          projectId: target.projectId,
+          name: `${MARK}-target-deleted-qt`,
+          deletedAt: new Date(),
+        },
+        select: { id: true },
+      });
+      const name = `${MARK}-cross-deleted`;
+      const create = (actor: TestUser, quantityTableId: string) =>
+        request(app)
+          .post(`/api/projects/${target.projectId}/schedules`)
+          .set(...auth(actor))
+          .send({ name, quantityTableId })
+          .expect(422);
+      try {
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+
+        const missing = await create(sales, MISSING_ID);
+        expect(missing.body.code).toBe('SCHEDULE_VALIDATION_ERROR');
+
+        // 範囲外の案件の論理削除済みの数量表: 数量表の案件を対象に 1 件記録する
+        const allBefore = await deniedCount(sales.id);
+        const foreignBefore = await deniedCount(sales.id, other.projectId);
+        const foreign = await create(sales, deletedForeign.id);
+        expect(foreign.body).toEqual(missing.body);
+        const exposed = JSON.stringify(foreign.body);
+        expect(exposed).not.toContain(other.projectId);
+        expect(exposed).not.toContain(deletedForeign.id);
+        expect((await deniedCount(sales.id)) - allBefore, '記録は 1 件だけ増える').toBe(1);
+        expect(
+          (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+          '記録の対象は数量表の案件'
+        ).toBe(1);
+
+        // 作成先のプロジェクトの論理削除済みの数量表: 同じ 422 で記録しない
+        const ownBefore = await deniedCount(sales.id);
+        const own = await create(sales, deletedOwn.id);
+        expect(own.body).toEqual(missing.body);
+        expect((await deniedCount(sales.id)) - ownBefore).toBe(0);
+
+        // 範囲内の利用者が同じ論理削除済みの数量表を指しても記録しない
+        const readAllBefore = await deniedCount(readAll.id);
+        const inScope = await create(readAll, deletedForeign.id);
+        expect(inScope.body).toEqual(missing.body);
+        expect((await deniedCount(readAll.id)) - readAllBefore).toBe(0);
+
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other)).toEqual(beforeOther);
+        expect(await prisma.constructionSchedule.count({ where: { name } })).toBe(0);
+      } finally {
+        await prisma.quantityTable.deleteMany({
+          where: { id: { in: [deletedForeign.id, deletedOwn.id] } },
+        });
+      }
+    });
   });
 });

@@ -721,6 +721,13 @@ describe('ScheduleService', () => {
       ).rejects.toThrow(ScheduleValidationError);
     });
 
+    /**
+     * 作成先のプロジェクトに属する論理削除済みの数量表は、不在と同じ 422 で拒み、範囲を判定せず
+     * 記録しない（Requirement 13.10 の後段。design.md の「2026-10-30 の追加」章の「決定」の
+     * 「数量表の照合の順」の (3)、タスク25.2）。
+     *
+     * @requirement construction-schedule/REQ-13.10
+     */
     it('論理削除された数量表が指定された場合バリデーションエラーになること', async () => {
       (mockPrisma.quantityTable.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: quantityTableId,
@@ -734,6 +741,25 @@ describe('ScheduleService', () => {
           quantityTableId,
         })
       ).rejects.toThrow(ScheduleValidationError);
+
+      // 実行者を渡しても、作成先のプロジェクトの論理削除済みの数量表は判定も記録もしない
+      const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue('out_of_scope') };
+      const auditLogService = { createLog: vi.fn().mockResolvedValue({}) };
+      const scoped = new ScheduleService({ prisma: mockPrisma, auditLogService, projectScope });
+      await expect(
+        scoped.create(projectId, { name: 'テスト工程表', quantityTableId }, 'user-001', {
+          requestId: 'req-1',
+          method: 'POST',
+          path: `/api/projects/${projectId}/schedules`,
+          ipAddress: '127.0.0.1',
+          userAgent: 'vitest',
+        })
+      ).rejects.toThrow(ScheduleValidationError);
+      expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+      expect(auditLogService.createLog).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.constructionSchedule.create).not.toHaveBeenCalled();
+      expect(mockPrisma.scheduleItem.createMany).not.toHaveBeenCalled();
     });
 
     describe('作成先のプロジェクトに属さない数量表（Requirement 13.4、タスク22.1）', () => {
@@ -766,13 +792,23 @@ describe('ScheduleService', () => {
         return { scoped, projectScope, auditLogService };
       }
 
+      /**
+       * 論理削除済みの数量表の行は、所属の照合を論理削除の確かめより先に置くため、論理削除済みでない
+       * 数量表と同じく数量表の案件を判定し、範囲外のときだけ記録する（Requirement 13.10。
+       * design.md の「2026-10-30 の追加」章の「決定」の「数量表の照合の順」の (2)、タスク25.2）。
+       *
+       * @requirement construction-schedule/REQ-13.10
+       */
       it.each([
-        ['範囲外（案件は実在する）', 'out_of_scope', 1],
-        ['範囲内の他のプロジェクト', 'allowed', 0],
-        ['案件の不在・論理削除', 'not_found', 0],
+        ['範囲外（案件は実在する）', 'out_of_scope', 1, null],
+        ['範囲内の他のプロジェクト', 'allowed', 0, null],
+        ['案件の不在・論理削除', 'not_found', 0, null],
+        ['範囲外（案件は実在する）の論理削除済み', 'out_of_scope', 1, new Date('2026-10-01')],
+        ['範囲内の他のプロジェクトの論理削除済み', 'allowed', 0, new Date('2026-10-01')],
+        ['案件の不在・論理削除の論理削除済み', 'not_found', 0, new Date('2026-10-01')],
       ] as const)(
         '%s の数量表は数量表の不在と同じ例外（同じ本文）にして工程表も工程項目も作成せず、範囲外のときだけ PROJECT_SCOPE_DENIED を記録する',
-        async (_label, decision, recorded) => {
+        async (_label, decision, recorded, deletedAt) => {
           const { scoped, projectScope, auditLogService } = build(decision);
 
           (mockPrisma.quantityTable.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
@@ -785,7 +821,7 @@ describe('ScheduleService', () => {
           (mockPrisma.quantityTable.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
             id: quantityTableId,
             projectId: 'proj-other',
-            deletedAt: null,
+            deletedAt,
           });
           const foreign = await rejectionOf(
             scoped.create(projectId, { name: 'テスト工程表', quantityTableId }, actorId, context)

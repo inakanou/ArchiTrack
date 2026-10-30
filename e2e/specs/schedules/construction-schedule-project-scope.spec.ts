@@ -6,7 +6,8 @@
  * 範囲外を存在しない場合と同じ汎用の 404 にする。工程表の作成の要求が指す数量表が経路のプロジェクトに属さなければ
  * 数量表の不在と同じ 422 にして工程表を作成しない。
  *
- * 被覆する受入基準（construction-schedule の Requirement 13.1〜13.5、13.8〔タスク23.1〕）は各テストの `@requirement` の印が名乗る。
+ * 被覆する受入基準（construction-schedule の Requirement 13.1〜13.5、13.8〔タスク23.1〕、13.9〔タスク25.1〕、13.10〔タスク25.2〕）は
+ * 各テストの `@requirement` の印が名乗る。
  * 出力の記録（13.6・13.7）はタスク22.2 の担当で、本ファイルは扱わない（出力の経路の範囲の判定は 13.2 として扱う）。
  *
  * タスク24.1 で、画面が 404 を受けたときの表示（Requirement 14.1・14.2）を足した。範囲外と不在は同じ 404 であり、
@@ -550,6 +551,103 @@ test.describe('工程表の案件の閲覧範囲', () => {
     expect(await snapshot(target.projectId)).toEqual(beforeTarget);
     expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
   });
+
+  /**
+   * 工程表の作成で、数量表の所属の照合を論理削除の確かめより先に置く（construction-schedule タスク25.2。
+   * design.md の「2026-10-30 の追加」章の「決定」の「数量表の照合の順」）。範囲外の案件の論理削除済みの
+   * 数量表を指す作成は、存在しない数量表と同じ 422 と本文のまま、数量表の案件を対象に 1 件記録し、工程表を
+   * 作らない。自分の案件の論理削除済みの数量表は同じ 422 で記録しない。
+   *
+   * @requirement construction-schedule/REQ-13.10
+   */
+  test('範囲外の案件の論理削除済みの数量表を指す工程表の作成は、存在しない数量表と同じ 422 になり、数量表の案件を対象に監査の記録が 1 件増え、工程表は作られない', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('own-qt-deleted', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const foreign = await createFixture('foreign-qt-deleted', {
+      salesPersonId: other.id,
+      createdById: other.id,
+    });
+    const prisma = getPrismaClient();
+    await prisma.quantityTable.update({
+      where: { id: foreign.quantityTableId },
+      data: { deletedAt: new Date() },
+    });
+    const ownDeleted = await prisma.quantityTable.create({
+      data: {
+        projectId: target.projectId,
+        name: `閲覧範囲検証の論理削除済みの数量表 ${uniqueSuffix()}`,
+        deletedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    const beforeTarget = await snapshot(target.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+    const scheduleName = `論理削除済みの数量表からの作成の試み ${uniqueSuffix()}`;
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+    const create = (quantityTableId: string) =>
+      request.post(`${API_BASE_URL}/api/projects/${target.projectId}/schedules`, {
+        headers,
+        data: { name: scheduleName, quantityTableId },
+      });
+
+    // 存在しない数量表: 422 で記録しない
+    const missingBefore = await deniedCount();
+    const missing = await create(MISSING_ID);
+    expect(missing.status(), '存在しない数量表').toBe(422);
+    const missingBody = withoutInstance((await missing.json()) as Record<string, unknown>);
+    expect(missingBody.code).toBe('SCHEDULE_VALIDATION_ERROR');
+    expect((await deniedCount()) - missingBefore, '存在しない数量表は記録しない').toBe(0);
+
+    // 範囲外の案件の論理削除済みの数量表: 不在と同じ 422 で、数量表の案件を対象に 1 件記録する
+    const allBefore = await deniedCount();
+    const foreignBefore = await deniedCount(foreign.projectId);
+    const foreignTable = await create(foreign.quantityTableId);
+    expect(foreignTable.status(), '範囲外の案件の論理削除済みの数量表').toBe(422);
+    const foreignBody = withoutInstance((await foreignTable.json()) as Record<string, unknown>);
+    expect(foreignBody, '存在しない数量表と同じ本文').toEqual(missingBody);
+    const exposed = JSON.stringify(foreignBody);
+    expect(exposed).not.toContain(foreign.projectId);
+    expect(exposed).not.toContain(foreign.quantityTableId);
+    expect(exposed).not.toContain(foreign.quantityItemName);
+    expect((await deniedCount()) - allBefore, '記録は 1 件だけ増える').toBe(1);
+    expect((await deniedCount(foreign.projectId)) - foreignBefore, '記録の対象は数量表の案件').toBe(
+      1
+    );
+
+    // 自分の案件の論理削除済みの数量表: 不在と同じ 422 で記録しない
+    const ownBefore = await deniedCount();
+    const ownTable = await create(ownDeleted.id);
+    expect(ownTable.status(), '自分の案件の論理削除済みの数量表').toBe(422);
+    expect(
+      withoutInstance((await ownTable.json()) as Record<string, unknown>),
+      '自分の案件の論理削除済みの数量表も不在と同じ本文'
+    ).toEqual(missingBody);
+    expect((await deniedCount()) - ownBefore, '自分の案件の論理削除済みの数量表は記録しない').toBe(
+      0
+    );
+
+    // 工程表は作られず、どちらの案件の工程表も変わらない
+    expect(await prisma.constructionSchedule.count({ where: { name: scheduleName } })).toBe(0);
+    expect(await snapshot(target.projectId)).toEqual(beforeTarget);
+    expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+
   /**
    * 工程表の詳細の画面は工程表の読み込みの 404 で、一覧・新規作成の画面はプロジェクトの読み込みの 404 で、
    * 見つからない旨とプロジェクトの一覧へのリンクを表示する（construction-schedule タスク24.1）。
