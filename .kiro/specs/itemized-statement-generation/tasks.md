@@ -585,6 +585,21 @@
   - _Requirements: 19.1, 19.2_
   - _Boundary: ItemizedStatementListPage, ItemizedStatementCreatePage, ItemizedStatementDetailPage, CreateItemizedStatementForm_
 
+## Task 30: 論理削除済みの数量表の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、記録しない「論理削除」を案件そのものの論理削除に限り、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」とその起票先の一覧の itemized-statement-generation の行）。本機能は、`ItemizedStatementService` の `createWithin` が論理削除済みの数量表を所属の照合より先に数量表の不在の 404 で弾くため、範囲外の案件のものでも記録しない（2026-10-30 の調査。230 行付近。行は着手時に測り直すこと）。内訳書そのものの解決関数 `findProjectIdOfItemizedStatement` は論理削除を区別せず、既に方針どおりであり変えない。requirements.md に 18.12 を加え（改訂の記録を Requirement 18 に残した）、design.md の末尾の章「2026-10-30 の追加: 論理削除済みの数量表の範囲外の記録」に設計を置いた。応答とデータと画面は変えない
+
+- [ ] 30.1 内訳書の作成で、範囲外の案件の論理削除済みの数量表を記録する
+  - backend/src/services/itemized-statement.service.ts の `createWithin` の数量表の照合の順を、行が無い（数量表の不在の 404、記録しない）→ 作成先のプロジェクトに属さない（`evaluateProjectAccess` で範囲外なら `deniedProjectIds` へ入れたうえ数量表の不在の 404）→ 作成先のプロジェクトに属し論理削除済み（数量表の不在の 404、記録しない）へ改める（design.md の同章の「決定」の「数量表の照合の順」）。応答は 3 通りとも 18.4 と同じ 404 の `QUANTITY_TABLE_NOT_FOUND` と本文のまま、集計を呼ばず内訳書と内訳項目を作成しない。照合の注釈と `create` の `@throws` の注釈を改める
+  - **テストの追加**（既存に論理削除済みの数量表の主張は無く、書き換えは要らない。既存の主張を消さない）: 単体（`backend/src/__tests__/unit/services/itemized-statement.service.test.ts`）の「作成先のプロジェクトに属さない数量表（Requirement 18.4、タスク27.1）」の表に、論理削除済みの数量表の場合（範囲外は判定して記録 1 回で対象は数量表の案件、範囲内の他のプロジェクト・案件の不在は記録なし。どれも数量表の不在と同じ例外で集計も作成もしない）を足し、作成先のプロジェクトの論理削除済みの数量表が判定も記録もせず同じ例外になることを足す。統合（`backend/src/__tests__/integration/itemized-statement-project-scope.api.integration.test.ts` の「作成の要求が指す数量表（18.4）」）に、範囲外の案件の論理削除済みの数量表を指す作成が存在しない数量表と同じ 404 の本文で `PROJECT_SCOPE_DENIED` が 1 件増え内訳書が増えないことと、作成先のプロジェクトの論理削除済みの数量表では記録が増えないことを足す。既存の範囲外の数量表の記録のテストに `@requirement itemized-statement-generation/REQ-18.12` の印を足すかは実装時に決める
+  - E2E（`e2e/specs/itemized-statements/itemized-statement-project-scope.spec.ts`）で、範囲外の案件の論理削除済みの数量表を指す内訳書の作成が存在しない数量表と同じ 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、内訳書が作られないことを主張し、`@requirement itemized-statement-generation/REQ-18.12` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（内訳書の作成の数量表の不在の 404、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 18.4・18.11 のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、足したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、範囲外の案件の論理削除済みの数量表を指す作成が数量表の不在と同じ 404 で記録され、作成先のプロジェクトの論理削除済みの数量表では記録されず、どの場合も内訳書が作られない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 18.12_
+  - _Boundary: ItemizedStatementService の内訳書の作成の数量表の照合と、その記録を主張する本スペックのテスト_
+
 ## Implementation Notes
 
 - clipboard-write real-browser check（2026-10-29、タスク 28.1）: テスト環境の本番ビルド（frontend 5174 / backend 3100。frontend は `--force-recreate` で作り直した後）の内訳書詳細画面で、コピーのボタンの書き込みを Chromium と WebKit の両方で確かめた。手順: リポジトリの外（スクラッチパッド）の使い捨てのスクリプトで、E2E の補助（`createSessionUser`・`loginAsUser`）を使い利用者・案件・数量表・内訳書（内訳項目 3 件、工種A が 2 件）を DB に作り、ホストの Chromium でログインした storageState をブラウザごとに書き出した。ブラウザの操作は Playwright の公式イメージ（`mcr.microsoft.com/playwright:v1.62.0-noble`）の中で、`docker run --rm --ipc=host --network host` にリポジトリの `@playwright/test`（1.62.0）を読み取り専用で渡して流した。画面で工種A に絞り込み（2 件）、画面に差し込んだ textarea へのキーボードのコピーでクリップボードへ前の中身を入れ、コピーのボタンを押し、貼り付け（`ControlOrMeta+V`）で中身を読んだ（WebKit は clipboard-read の権限を与えられないため、両方のブラウザで同じ読み方にした）。記録が成功する場合は記録の要求を `page.route` で約 500ms 止めてから実際の backend へ通し（201）、記録が失敗する場合は `page.route` で 500 を返した。後始末で作ったデータを消した
