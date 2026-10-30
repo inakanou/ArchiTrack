@@ -406,17 +406,20 @@ export class ContractService {
         where: { id: data.parentContractId },
       });
 
-      // 論理削除済みの基となる契約書は、所属の不一致より先に、不在と同じ 422 と同じ本文で拒否する（14.8）。
-      // 属する案件が範囲外でも範囲外の拒否として記録しない（解決関数が論理削除済みを不在として扱うのに揃える）
-      if (parentContract?.deletedAt) {
+      // 基となる契約書の照合の順（design.md の「2026-10-30 の追加」章の「決定」）。3 通りとも 14.6 と同じ
+      // 422 と同じ本文で拒否し、契約書を作成しない。
+      // (1) 行が無い: 記録しない
+      if (!parentContract) {
         throw new ContractValidationError(PARENT_CONTRACT_NOT_REFERABLE_MESSAGE);
       }
-      // 存在しない基となる契約書と経路のプロジェクトに属さない基となる契約書は、同じ 422 と同じ本文にする
-      // （14.6）。範囲外（案件は実在する）のときだけ、範囲外の拒否として記録する（要件39.7）
-      if (!parentContract || parentContract.projectId !== projectId) {
-        if (parentContract) {
-          await this.noteOutOfScopeReference(actorId, parentContract.projectId, deniedProjectIds);
-        }
+      // (2) 経路のプロジェクトに属さない: 論理削除済みかどうかに関わらず属する案件を判定し、範囲外（案件は
+      // 実在する）のときだけ範囲外の拒否として記録する（14.6・14.8。user-authentication の要件39.7・39.8）
+      if (parentContract.projectId !== projectId) {
+        await this.noteOutOfScopeReference(actorId, parentContract.projectId, deniedProjectIds);
+        throw new ContractValidationError(PARENT_CONTRACT_NOT_REFERABLE_MESSAGE);
+      }
+      // (3) 同じプロジェクトで論理削除済み: 記録しない（14.8）
+      if (parentContract.deletedAt) {
         throw new ContractValidationError(PARENT_CONTRACT_NOT_REFERABLE_MESSAGE);
       }
     }

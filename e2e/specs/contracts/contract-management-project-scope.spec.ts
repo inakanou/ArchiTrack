@@ -529,6 +529,114 @@ test.describe('契約書の案件の閲覧範囲', () => {
   });
 
   /**
+   * 変更契約の作成で、基となる契約書の所属の照合を論理削除の確かめより先に置く（contract-management
+   * タスク22.2。design.md の「2026-10-30 の追加」章の「決定」の「基となる契約書の照合の順」）。範囲外の案件の
+   * 論理削除済みの契約書を基に指す作成は、存在しない基と同じ 422 と本文のまま、基となる契約書の案件を対象に
+   * 1 件記録し、契約書を作らない。同じプロジェクトの論理削除済みの基は同じ 422 で記録しない。
+   *
+   * @requirement contract-management/REQ-14.8
+   */
+  test('範囲外の案件の論理削除済みの契約書を基に指す変更契約の作成は、存在しない基と同じ 422 になり、基の案件を対象に監査の記録が 1 件増え、契約書は作られない', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('amend-own-deleted', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const foreign = await createFixture('amend-foreign-deleted', {
+      salesPersonId: other.id,
+      createdById: other.id,
+    });
+    const prisma = getPrismaClient();
+    await prisma.contract.update({
+      where: { id: foreign.contractId },
+      data: { deletedAt: new Date() },
+    });
+    const ownDeleted = await prisma.contract.create({
+      data: {
+        projectId: target.projectId,
+        contractType: 'NEW',
+        status: 'BEFORE_CONTRACT',
+        estimateId: target.estimateId,
+        contractDate: new Date('2026-04-01'),
+        constructionStartDate: new Date('2026-05-01'),
+        constructionEndDate: new Date('2026-12-31'),
+        deliveryDate: new Date('2027-01-15'),
+        taxRate: 0.1,
+        contractAmount: 11000000,
+        constructionPrice: 10000000,
+        taxAmount: 1000000,
+        deletedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    const beforeTarget = await snapshot(target.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+    const createUrl = `${API_BASE_URL}/api/projects/${target.projectId}/contracts`;
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+    const amendWith = (parentContractId: string) =>
+      request.post(createUrl, {
+        headers,
+        data: { ...contractBody(target.estimateId), contractType: 'AMENDMENT', parentContractId },
+      });
+
+    // 存在しない基: 422 で記録しない
+    const missingBefore = await deniedCount();
+    const missing = await amendWith(MISSING_ID);
+    expect(missing.status(), '存在しない基').toBe(422);
+    const missingBody = withoutInstance((await missing.json()) as Record<string, unknown>);
+    expect(missingBody.code).toBe('CONTRACT_VALIDATION_ERROR');
+    expect((await deniedCount()) - missingBefore, '存在しない基は記録しない').toBe(0);
+
+    // 範囲外の案件の論理削除済みの基: 不在と同じ 422 で、基となる契約書の案件を対象に 1 件記録する
+    const allBefore = await deniedCount();
+    const foreignBefore = await deniedCount(foreign.projectId);
+    const foreignParent = await amendWith(foreign.contractId);
+    expect(foreignParent.status(), '範囲外の案件の論理削除済みの基').toBe(422);
+    const foreignParentBody = withoutInstance(
+      (await foreignParent.json()) as Record<string, unknown>
+    );
+    expect(foreignParentBody, '基となる契約書の不在と同じ本文').toEqual(missingBody);
+    const exposed = JSON.stringify(foreignParentBody);
+    expect(exposed).not.toContain(foreign.projectId);
+    expect(exposed).not.toContain(foreign.contractId);
+    expect((await deniedCount()) - allBefore, '記録は 1 件だけ増える').toBe(1);
+    expect(
+      (await deniedCount(foreign.projectId)) - foreignBefore,
+      '記録の対象は基となる契約書の案件'
+    ).toBe(1);
+
+    // 同じプロジェクトの論理削除済みの基: 不在と同じ 422 で記録しない
+    const ownBefore = await deniedCount();
+    const ownParent = await amendWith(ownDeleted.id);
+    expect(ownParent.status(), '同じプロジェクトの論理削除済みの基').toBe(422);
+    expect(
+      withoutInstance((await ownParent.json()) as Record<string, unknown>),
+      '同じプロジェクトの論理削除済みの基も不在と同じ本文'
+    ).toEqual(missingBody);
+    expect(
+      (await deniedCount()) - ownBefore,
+      '同じプロジェクトの論理削除済みの基は記録しない'
+    ).toBe(0);
+
+    // 契約書は作られず、どちらの案件の契約書も変わらない
+    expect(await snapshot(target.projectId)).toEqual(beforeTarget);
+    expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+
+  /**
    * @requirement contract-management/REQ-14.5
    * @requirement contract-management/REQ-14.6
    */

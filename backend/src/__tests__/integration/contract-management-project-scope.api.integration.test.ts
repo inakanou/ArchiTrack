@@ -1014,13 +1014,14 @@ describe('契約書の API の閲覧範囲（統合・実 DB）', () => {
 
     /**
      * 論理削除済みの基となる契約書は、同じプロジェクトのものでも範囲外の案件のものでも、存在しない
-     * 基となる契約書と同じ 422 と同じ本文にし、契約書を作成しない。論理削除を所属の不一致より先に
-     * 確かめるため、範囲外の案件の論理削除済みの契約書でも範囲外の拒否として記録しない
-     * （design.md の「2026-10-29 の追加」章の「決定」、タスク20.1）。
+     * 基となる契約書と同じ 422 と同じ本文にし、契約書を作成しない。所属の照合を論理削除の確かめより
+     * 先に置くため、同じプロジェクトの論理削除済みの基は記録せず、範囲外の案件の論理削除済みの基は
+     * 範囲外の拒否として 1 件記録する（対象は基となる契約書の案件）。範囲内の利用者は記録しない
+     * （design.md の「2026-10-30 の追加」章の「決定」の「基となる契約書の照合の順」、タスク22.2）。
      *
      * @requirement contract-management/REQ-14.8
      */
-    it('変更契約の作成の要求が論理削除済みの基となる契約書を指すと、存在しない基となる契約書と同じ 422 の本文になり、契約書を作成せず、記録しない', async () => {
+    it('変更契約の作成の要求が論理削除済みの基となる契約書を指すと、存在しない基となる契約書と同じ 422 の本文になり、契約書を作成せず、範囲外の案件の基のときだけ記録する', async () => {
       const deletedOwn = await createContract(target.projectId, target.estimateId, {
         deletedAt: new Date(),
       });
@@ -1032,23 +1033,45 @@ describe('契約書の API の閲覧範囲（統合・実 DB）', () => {
       });
       const beforeTarget = await snapshot(target);
       const beforeOther = await snapshot(other);
-      const deniedBefore = await deniedCount(sales.id);
 
       const missing = await request(app)
         .post(`/api/projects/${target.projectId}/contracts`)
         .set(...auth(sales))
         .send(createBody(target.estimateId, { parentContractId: MISSING_ID }))
         .expect(422);
-      for (const parentContractId of [deletedOwn, deletedForeign]) {
+      expect(missing.body.code).toBe('CONTRACT_VALIDATION_ERROR');
+
+      const expectSameAsMissing = async (
+        actor: TestUser,
+        parentContractId: string
+      ): Promise<void> => {
         const response = await request(app)
           .post(`/api/projects/${target.projectId}/contracts`)
-          .set(...auth(sales))
+          .set(...auth(actor))
           .send(createBody(target.estimateId, { parentContractId }))
           .expect(422);
-        expect(response.body.code).toBe('CONTRACT_VALIDATION_ERROR');
         expect(response.body).toEqual(missing.body);
-        expect(JSON.stringify(response.body)).not.toContain(parentContractId);
-      }
+        const exposed = JSON.stringify(response.body);
+        expect(exposed).not.toContain(parentContractId);
+        expect(exposed).not.toContain(other.projectId);
+      };
+
+      // 同じプロジェクトの論理削除済みの基: 記録しない
+      const ownDeniedBefore = await deniedCount(sales.id);
+      await expectSameAsMissing(sales, deletedOwn);
+      expect((await deniedCount(sales.id)) - ownDeniedBefore).toBe(0);
+
+      // 範囲外の案件の論理削除済みの基: 基となる契約書の案件で 1 件記録する
+      const foreignDeniedBefore = await deniedCount(sales.id);
+      const foreignDeniedOtherBefore = await deniedCount(sales.id, other.projectId);
+      await expectSameAsMissing(sales, deletedForeign);
+      expect((await deniedCount(sales.id)) - foreignDeniedBefore).toBe(1);
+      expect((await deniedCount(sales.id, other.projectId)) - foreignDeniedOtherBefore).toBe(1);
+
+      // 範囲内の利用者が同じ論理削除済みの基を指しても記録しない
+      const readAllDeniedBefore = await deniedCount(readAll.id);
+      await expectSameAsMissing(readAll, deletedForeign);
+      expect((await deniedCount(readAll.id)) - readAllDeniedBefore).toBe(0);
 
       expect(
         await prisma.contract.count({
@@ -1057,7 +1080,6 @@ describe('契約書の API の閲覧範囲（統合・実 DB）', () => {
       ).toBe(contractCountBefore);
       expect(await snapshot(target)).toEqual(beforeTarget);
       expect(await snapshot(other)).toEqual(beforeOther);
-      expect((await deniedCount(sales.id)) - deniedBefore).toBe(0);
     });
   });
 });

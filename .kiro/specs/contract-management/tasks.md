@@ -365,7 +365,7 @@
   - _Requirements: 14.9, 14.10_
   - _Boundary: findProjectIdOfContract, requireContractProjectScope の解決関数と、論理削除済みの契約書の記録を主張する本機能のテスト_
 
-- [ ] 22.2 変更契約の作成で、範囲外の案件の論理削除済みの基となる契約書を記録する
+- [x] 22.2 変更契約の作成で、範囲外の案件の論理削除済みの基となる契約書を記録する
   - backend/src/services/contract.service.ts の `createWithin` の基となる契約書の照合の順を、行が無い（422、記録しない）→ 経路のプロジェクトに属さない（`noteOutOfScopeReference` で範囲外なら記録のうえ 422）→ 同じプロジェクトで論理削除済み（422、記録しない）へ改める（design.md の同章の「決定」の「基となる契約書の照合の順」）。応答は 3 通りとも 14.6 と同じ 422 と同じ本文のまま、契約書を作成しない。照合の注釈を改める
   - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体（`backend/src/__tests__/unit/services/contract.service.test.ts`）の「変更契約の作成の要求が論理削除済みの基となる契約書（%s）を指すと、不在と同じ 422 の本文にし、作成せず、記録しない（14.8）」の 1 本を、同じプロジェクトでは判定も記録もせず、範囲外の案件では判定して記録 1 回（対象は基となる契約書の案件）の主張へ分ける。統合（`backend/src/__tests__/integration/contract-management-project-scope.api.integration.test.ts`）の「変更契約の作成の要求が論理削除済みの基となる契約書を指すと、…記録しない」の 1 本を、同じプロジェクトの論理削除済みの基では記録が増えず、範囲外の案件の論理削除済みの基では 1 件増える主張へ改める。どちらも不在と同じ 422 と本文、契約書の件数が変わらない主張を保つ
   - E2E（`e2e/specs/contracts/contract-management-project-scope.spec.ts`）で、範囲外の案件の論理削除済みの契約書を基に指す変更契約の作成が存在しない基と同じ 422 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、契約書が作られないことを主張し、`@requirement contract-management/REQ-14.8` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す

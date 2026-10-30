@@ -869,47 +869,80 @@ describe('ContractService', () => {
     });
 
     /**
-     * 論理削除済みの基となる契約書（contract-management の Requirement 14.8、タスク20.1）
+     * 論理削除済みの基となる契約書（contract-management の Requirement 14.8。タスク20.1、
+     * 2026-10-30 の改訂はタスク22.2）
      *
-     * 14.6 と同じく、基となる契約書の不在と同じ 422 と同じ本文で拒否し、作成しない。論理削除を
-     * 所属の不一致より先に確かめ、属する案件が範囲外でも範囲外の拒否として記録しない
-     * （design.md の「2026-10-29 の追加」章の「決定」）。
+     * 14.6 と同じく、基となる契約書の不在と同じ 422 と同じ本文で拒否し、作成しない。所属の照合を
+     * 論理削除の確かめより先に置き、同じプロジェクトの論理削除済みの基は判定も記録もせず、
+     * 経路のプロジェクトに属さない論理削除済みの基は属する案件を判定して範囲外なら記録する
+     * （design.md の「2026-10-30 の追加」章の「決定」の「基となる契約書の照合の順」）。
      */
-    it.each([
-      ['同じプロジェクト', projectId],
-      ['範囲外の案件', foreignProjectId],
-    ])(
-      '変更契約の作成の要求が論理削除済みの基となる契約書（%s）を指すと、不在と同じ 422 の本文にし、作成せず、記録しない（14.8）',
-      async (_label, parentProjectId) => {
-        const amendmentInput = {
-          ...createInput,
-          contractType: 'AMENDMENT' as const,
-          parentContractId,
-        };
-        (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-        const missing = await scoped
-          .create(projectId, amendmentInput, actorId, context)
-          .catch((e: unknown) => e);
-        (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-          ...mockContractRecord,
-          id: parentContractId,
-          projectId: parentProjectId,
-          deletedAt: new Date('2026-10-01T00:00:00Z'),
-        });
-        const deleted = await scoped
-          .create(projectId, amendmentInput, actorId, context)
-          .catch((e: unknown) => e);
+    const createWithDeletedParent = async (parentProjectId: string) => {
+      const amendmentInput = {
+        ...createInput,
+        contractType: 'AMENDMENT' as const,
+        parentContractId,
+      };
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+      const missing = await scoped
+        .create(projectId, amendmentInput, actorId, context)
+        .catch((e: unknown) => e);
+      (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ...mockContractRecord,
+        id: parentContractId,
+        projectId: parentProjectId,
+        deletedAt: new Date('2026-10-01T00:00:00Z'),
+      });
+      const deleted = await scoped
+        .create(projectId, amendmentInput, actorId, context)
+        .catch((e: unknown) => e);
+      return { missing, deleted };
+    };
 
-        expect(missing).toBeInstanceOf(ContractValidationError);
-        expect(deleted).toBeInstanceOf(ContractValidationError);
-        expect((deleted as ContractValidationError).message).toBe(
-          (missing as ContractValidationError).message
-        );
-        expect(mockPrisma.contract.create).not.toHaveBeenCalled();
-        expect(scope.evaluateProjectAccess).not.toHaveBeenCalled();
-        expect(audit.createLog).not.toHaveBeenCalled();
-      }
-    );
+    it('変更契約の作成の要求が同じプロジェクトの論理削除済みの基となる契約書を指すと、不在と同じ 422 の本文にし、作成せず、範囲を判定せず記録しない（14.8）', async () => {
+      const { missing, deleted } = await createWithDeletedParent(projectId);
+
+      expect(missing).toBeInstanceOf(ContractValidationError);
+      expect(deleted).toBeInstanceOf(ContractValidationError);
+      expect((deleted as ContractValidationError).message).toBe(
+        (missing as ContractValidationError).message
+      );
+      expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      expect(scope.evaluateProjectAccess).not.toHaveBeenCalled();
+      expect(audit.createLog).not.toHaveBeenCalled();
+    });
+
+    it('変更契約の作成の要求が範囲外の案件の論理削除済みの基となる契約書を指すと、不在と同じ 422 の本文にし、作成せず、基となる契約書の案件を判定して範囲外の拒否を 1 回記録する（14.8）', async () => {
+      const { missing, deleted } = await createWithDeletedParent(foreignProjectId);
+
+      expect(missing).toBeInstanceOf(ContractValidationError);
+      expect(deleted).toBeInstanceOf(ContractValidationError);
+      expect((deleted as ContractValidationError).message).toBe(
+        (missing as ContractValidationError).message
+      );
+      expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledWith(actorId, foreignProjectId);
+      expect(audit.createLog).toHaveBeenCalledTimes(1);
+      expect(audit.createLog.mock.calls[0]?.[0]).toMatchObject({
+        action: 'PROJECT_SCOPE_DENIED',
+        actorId,
+        targetId: foreignProjectId,
+      });
+    });
+
+    it('変更契約の作成の要求が範囲内の他のプロジェクトの論理削除済みの基となる契約書を指すと、不在と同じ 422 の本文にし、作成せず、記録しない（14.8）', async () => {
+      scope.evaluateProjectAccess.mockResolvedValue('allowed');
+      const { missing, deleted } = await createWithDeletedParent(foreignProjectId);
+
+      expect(deleted).toBeInstanceOf(ContractValidationError);
+      expect((deleted as ContractValidationError).message).toBe(
+        (missing as ContractValidationError).message
+      );
+      expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledWith(actorId, foreignProjectId);
+      expect(audit.createLog).not.toHaveBeenCalled();
+    });
 
     it('実行者を渡さない呼び出しでは、範囲を判定せず記録しない', async () => {
       foreignEstimate();
