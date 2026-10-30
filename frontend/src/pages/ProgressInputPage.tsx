@@ -486,6 +486,25 @@ export default function ProgressInputPage() {
     [updateAmount]
   );
 
+  // 操作の成功の後の履歴と月別の読み直し。失敗は操作の失敗と分け、読み込みの失敗として表示する。
+  // 読み直しの経路は出来高記録を指さないため、汎用の 404 は経路のプロジェクトの文言にする
+  // （2026-10-31 の是正。Task 19.1）
+  const reloadProgressLists = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const [historyData, monthlyData] = await Promise.all([
+        getProgressHistory(projectId),
+        getMonthlyProgress(projectId),
+      ]);
+      setHistory(historyData);
+      setMonthlySummary(monthlyData);
+    } catch (err) {
+      showErrorRef.current(
+        getExecutionBudgetNotFoundMessage(err, 'project') ?? 'データの読み込みに失敗しました'
+      );
+    }
+  }, [projectId]);
+
   // 保存 (REQ-11.1, 12.1)
   const handleSave = useCallback(async () => {
     if (!projectId) return;
@@ -499,22 +518,17 @@ export default function ProgressInputPage() {
         })),
       });
       showSuccessRef.current('出来高を保存しました');
-      // 履歴を再読み込み
-      const [historyData, monthlyData] = await Promise.all([
-        getProgressHistory(projectId),
-        getMonthlyProgress(projectId),
-      ]);
-      setHistory(historyData);
-      setMonthlySummary(monthlyData);
     } catch (err) {
       // 404 は見つからない旨（汎用の 404 は経路のプロジェクト。Task 19.1）
       showErrorRef.current(
         getExecutionBudgetNotFoundMessage(err, 'project') ?? '出来高の保存に失敗しました'
       );
+      return;
     } finally {
       setSaving(false);
     }
-  }, [projectId, constructionDate, progressItems]);
+    await reloadProgressLists();
+  }, [projectId, constructionDate, progressItems, reloadProgressLists]);
 
   // 履歴レコード選択 (REQ-12.4)
   const handleSelectHistory = useCallback(
@@ -554,13 +568,6 @@ export default function ProgressInputPage() {
       await deleteProgress(projectId, deleteTargetId);
       showSuccessRef.current('出来高レコードを削除しました');
       setDeleteTargetId(null);
-      // 履歴を再読み込み
-      const [historyData, monthlyData] = await Promise.all([
-        getProgressHistory(projectId),
-        getMonthlyProgress(projectId),
-      ]);
-      setHistory(historyData);
-      setMonthlySummary(monthlyData);
     } catch (err) {
       // 404 は見つからない旨。経路が指す対象は出来高記録で、物理削除の後の汎用の 404 も出来高記録の文言にする
       // （2026-10-30 の改訂。Task 19.1）
@@ -568,8 +575,10 @@ export default function ProgressInputPage() {
         getExecutionBudgetNotFoundMessage(err, 'progressRecord') ??
           '出来高レコードの削除に失敗しました'
       );
+      return;
     }
-  }, [projectId, deleteTargetId]);
+    await reloadProgressLists();
+  }, [projectId, deleteTargetId, reloadProgressLists]);
 
   // 月選択 (REQ-16.3)
   const handleSelectMonth = useCallback(

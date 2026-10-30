@@ -781,6 +781,52 @@ describe('出来高入力の画面（ProgressInputPage）', () => {
       expect(toastMocks.error).not.toHaveBeenCalledWith('出来高レコードの削除に失敗しました');
     });
 
+    // 操作の成功の後の一覧の読み直しの失敗は、操作の失敗と分けて扱う（2026-10-31 の是正）。
+    // 読み直しの経路は出来高記録を指さないため、汎用の 404 はプロジェクトの文言にする
+    it('出来高記録の取り除きの成功の後の読み直しの汎用の 404 はプロジェクトが見つからない旨で、出来高記録の不在と削除の失敗を出さない', async () => {
+      renderProgressPage();
+      const rows = await screen.findAllByTestId(/^history-row-/);
+      vi.mocked(progressApi.getProgressHistory).mockRejectedValueOnce(genericNotFound());
+
+      await userEvent.click(within(rows[0]!).getByRole('button', { name: '削除' }));
+      await userEvent.click(await screen.findByRole('button', { name: '削除する' }));
+
+      await waitFor(() => {
+        expect(toastMocks.error).toHaveBeenCalledWith(PROJECT_GONE);
+      });
+      expect(toastMocks.success).toHaveBeenCalledWith('出来高レコードを削除しました');
+      expect(toastMocks.error).not.toHaveBeenCalledWith(PROGRESS_RECORD_GONE);
+      expect(toastMocks.error).not.toHaveBeenCalledWith('出来高レコードの削除に失敗しました');
+    });
+
+    it('出来高記録の取り除きの成功の後の読み直しの 404 以外の失敗は読み込みの失敗で、削除の失敗を出さない', async () => {
+      renderProgressPage();
+      const rows = await screen.findAllByTestId(/^history-row-/);
+      vi.mocked(progressApi.getProgressHistory).mockRejectedValueOnce(new ApiError(500, 'boom'));
+
+      await userEvent.click(within(rows[0]!).getByRole('button', { name: '削除' }));
+      await userEvent.click(await screen.findByRole('button', { name: '削除する' }));
+
+      await waitFor(() => {
+        expect(toastMocks.error).toHaveBeenCalledWith('データの読み込みに失敗しました');
+      });
+      expect(toastMocks.error).not.toHaveBeenCalledWith('出来高レコードの削除に失敗しました');
+    });
+
+    it('出来高の保存の成功の後の読み直しの 404 以外の失敗は読み込みの失敗で、保存の失敗を出さない', async () => {
+      renderProgressPage();
+      const saveButton = await screen.findByRole('button', { name: '保存' });
+      vi.mocked(progressApi.getProgressHistory).mockRejectedValueOnce(new ApiError(500, 'boom'));
+
+      await userEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(toastMocks.error).toHaveBeenCalledWith('データの読み込みに失敗しました');
+      });
+      expect(toastMocks.success).toHaveBeenCalledWith('出来高を保存しました');
+      expect(toastMocks.error).not.toHaveBeenCalledWith('出来高の保存に失敗しました');
+    });
+
     it('施工日指定の取得の失敗は対象外で、従来の文言のまま', async () => {
       vi.mocked(progressApi.getProgressByDate).mockRejectedValueOnce(genericNotFound());
       renderProgressPage();
