@@ -4505,6 +4505,22 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - _Requirements: 51.1, 51.2_
   - _Boundary: QuantityTableListPage, QuantityTableCreatePage, QuantityTableEditPage, CopyQuantityTableDialog_
 
+## Task 107: 保存の本文の他の数量表の ID の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、受入基準7の記録の要否を作成・保存の要求が指す他のデータについて判定するときも同じ方針とし、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」）。本機能の数量表の保存（backend/src/services/quantity-table.service.ts の `saveDraftWithin`〔1090 行付近〕。所属の照合 `validateDraftOwnership` の呼び出しは 1191 行付近、本体は 1450 行付近。重複の検証の呼び出しは 1185 行付近。行は 2026-10-30 の実測で、着手時に測り直すこと）は、本文に混じった保存する数量表に属さない既存のグループ・項目の ID を、他の数量表のものか存在しないものかを引かずに一律に 400 で拒み、範囲外の案件のものでも記録しない（design.md の「2026-10-29 の追加」の章の「決定」の「保存の本文の既存の ID の扱い」で意図して記録の対象外にしていた）。requirements.md に 50.11 を加え（改訂の記録を Requirement 50 に残した）、design.md の末尾の章「2026-10-30 の追加: 保存の本文の他の数量表の ID の範囲外の記録」に設計を置き、2026-10-29 の決定に改訂の注記を置いた。応答とデータと画面は変えない
+
+- [ ] 107.1 数量表の保存の本文の属さない既存の ID の実際の案件が範囲外なら記録する
+  - 保存の本体のトランザクションの中で、保存する数量表の既存の ID の集合を読んだ後、重複の検証（`validateDraftDuplicateIds`）より前に、本文の属さない既存のグループ・項目の ID の実際の案件（グループは親の数量表、項目は親の数量グループの数量表の案件）を ID 群の一括の読み出しで引き、保存する数量表と別の案件を重複なく `evaluateProjectAccess` で判定し、`out_of_scope` なら範囲外とした案件の集合（`deniedProjectIds`）に入れる（design.md の同章の「決定」）。属さない ID が無ければ何も引かない。行の無い ID は判定しない。数量表の論理削除は条件に含めない。例外は投げず、その後の重複の検証と所属の照合（`validateDraftOwnership`）は従来の順と応答（400、同じ文言と問題箇所のキー）のまま。記録は既存の `withSurveyScopeDenialRecording` が処理の後に案件ごとに 1 回書く（写真の紐付けの判定と同じ集合）。処理の名前と置き場所は実装時に決めて design.md の同章の「決定」へ記す。所属の照合と `saveDraft` の注釈を改める
+  - **既存のテストの追随**（主張を消さない）: 単体（`backend/src/__tests__/unit/services/quantity-table.service.test.ts`）の Prisma の模擬に数量グループ・数量項目の `findMany`（既定は行が無い）を足し、「当該数量表に属さない項目IDを含む場合は保存を中断し書き込みを行わない」（監査の記録が無いことを主張する）と「当該数量表に属さないグループIDを含む場合は保存を中断し書き込みを行わない」が緑のままであることを確かめる
+  - 単体に、属さない ID の実際の案件が範囲外なら従来の 400 で判定 1 回・記録 1 回（対象はその案件）、同じ範囲外の案件の ID が複数でも記録 1 回、範囲内の他の案件・案件の不在なら記録なし、同じ案件の別の数量表と行の無い ID なら判定も記録もしない、親の数量表が論理削除済みでも判定する、重複の ID を併せて含む本文でも記録される、属さない ID の無い保存では引く問い合わせが無い、を足す。統合（`backend/src/__tests__/integration/quantity-table-project-scope.api.integration.test.ts`）に、範囲内の数量表の保存の本文へ範囲外の案件の数量表のグループ・項目の ID を混ぜると従来の 400 の本文のまま担当者の `PROJECT_SCOPE_DENIED` が 1 件増え（対象は範囲外の案件）どの数量表のデータも変わらないこと、論理削除済みの数量表の ID でも増えること、全案件閲覧の権限の利用者・同じ案件の別の数量表・範囲内の他の案件・存在しない ID・案件そのものを論理削除した場合では増えないことを足す
+  - E2E（`e2e/specs/quantity-tables/quantity-table-project-scope.spec.ts`）で、担当者が自分の数量表の保存の本文へ範囲外の案件の数量表のグループの ID を混ぜた要求が 400 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え（対象は範囲外の案件）、どちらの数量表も変わらないことを主張し、`@requirement quantity-table-generation/REQ-50.11` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（数量表の保存の 400、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 50.2・50.4・50.5・50.10 のテストと、数量表の保存の E2E を含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、保存の本文の属さない ID の実際の案件が範囲外のときだけ案件ごとに 1 回記録され、どの場合も従来の 400 でどの数量表・数量グループ・数量項目にも書き込まない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 50.11_
+  - _Boundary: QuantityTableService の保存の所属の照合（saveDraftWithin・validateDraftOwnership）と、その記録を主張する本スペックのテスト_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。
