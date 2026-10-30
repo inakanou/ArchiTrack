@@ -11,6 +11,14 @@
  *   1 回だけ要求し、その記録の応答が生成の始まりとダウンロードより前に返る
  * - REQ-42.9: 記録の要求が失敗すると生成もダウンロードも始まらず、
  *   「出力を記録できなかったため中止しました」が表示される
+ * - REQ-42.13: 見積依頼文の本文のコピーと選択した項目の一覧のコピーは、種別と案件を添えた出力の記録を 1 回だけ
+ *   要求し、記録の要求中はクリップボードが前の中身のまま、記録の成功の後にだけ中身が書き込まれる
+ *   （タスク107.1。describe「見積依頼文と選択した項目の一覧のコピー・メールで開く操作の事前記録」）
+ * - REQ-42.14: コピーの記録の要求が失敗するとクリップボードへ何も書き込まれず、エラーメッセージが表示される
+ * - REQ-42.15: 「Gmailで開く」は記録の要求の後にだけ Gmail の作成画面を開く（記録の要求中は空のタブのまま）
+ * - REQ-42.16: 「Gmailで開く」の記録の要求が失敗すると作成画面を開かず（空のタブは閉じる）、エラーメッセージが表示される
+ *   （「メールで開く」は OS のメールクライアントを起動するため E2E では押さない。記録の後の起動は単体テストと
+ *   本番ビルドの画面の実ブラウザの確認が受け持つ）
  *
  * 通信の観測は URL のパスで照合する（CI とローカルで API のオリジンが異なるため）。
  * 現場調査報告書の生成の始まりは、報告書の描画が送る取得（画像の実体の fetch と注釈の取得）で観測する。
@@ -442,5 +450,476 @@ test.describe('見積依頼の詳細画面の出力の事前記録（内訳書�
       observed.events.filter((event) => event === 'download'),
       'REQ-42.9: 記録の失敗の後にダウンロードが始まらない'
     ).toEqual([]);
+  });
+});
+
+/** コピーの前にクリップボードへ入れておく中身（記録の失敗で変わらないことを確かめる） */
+const PREVIOUS_CLIPBOARD = 'e2e-er-previous-clipboard-content';
+
+/** Gmail の作成画面の URL の照合（外部への通信は route で止める） */
+const GMAIL_URL_REGEX = /^https:\/\/mail\.google\.com\//;
+
+/** クリップボードの中身を読む（Chromium に読み書きの権限を与えてある前提） */
+async function readClipboard(page: Page): Promise<string> {
+  return page.evaluate(async () => navigator.clipboard.readText());
+}
+
+/** クリップボードへ前の中身を入れ、入ったことを確かめる */
+async function seedClipboard(page: Page): Promise<void> {
+  await page.evaluate(async (text) => navigator.clipboard.writeText(text), PREVIOUS_CLIPBOARD);
+  expect(await readClipboard(page), '前提: クリップボードに前の中身が入っている').toBe(
+    PREVIOUS_CLIPBOARD
+  );
+}
+
+/**
+ * 記録の要求を止めておく（`release` で実際の backend へ通す）
+ *
+ * `arrived` は記録の要求が届いたときに解決する。
+ */
+async function holdExportRecords(page: Page) {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let markArrived!: () => void;
+  const arrived = new Promise<void>((resolve) => {
+    markArrived = resolve;
+  });
+  await page.route('**/api/v1/audit-logs/exports', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+    markArrived();
+    await gate;
+    await route.continue();
+  });
+  return { arrived, release: () => release() };
+}
+
+test.describe('見積依頼文と選択した項目の一覧のコピー・メールで開く操作の事前記録', () => {
+  /** テストの中で作る案件・取引先の名前の接頭辞（後始末で消す） */
+  const COPY_PREFIX = `${NAME_PREFIX}copy-`;
+  let projectId: string | null = null;
+  let estimateRequestId: string | null = null;
+  /** 選択済みの見積依頼の項目の ID（表示順） */
+  let estimateRequestItemIds: string[] = [];
+
+  /**
+   * 事前準備: REGULAR_USER が営業担当者・作成者の案件に、メールアドレスのある取引先への
+   * 項目 2 件を選んだ見積依頼（見積依頼方法はメール）を作る
+   */
+  test.beforeAll(async () => {
+    const prisma = getPrismaClient();
+    const regularUser = await prisma.user.findUniqueOrThrow({
+      where: { email: TEST_USERS.REGULAR_USER.email },
+      select: { id: true },
+    });
+    const suffix = `${Date.now()}`;
+    const project = await prisma.project.create({
+      data: {
+        name: `${COPY_PREFIX}${suffix}`,
+        salesPersonId: regularUser.id,
+        createdById: regularUser.id,
+      },
+      select: { id: true },
+    });
+    projectId = project.id;
+    const partner = await prisma.tradingPartner.create({
+      data: {
+        name: `${COPY_PREFIX}partner-${suffix}`,
+        nameKana: 'イーツーイーコピーキロク',
+        address: '東京都千代田区1-1-1',
+        email: 'e2e-er-copy-audit-partner@example.com',
+        types: { create: [{ type: 'SUBCONTRACTOR' }] },
+      },
+      select: { id: true },
+    });
+    const statement = await prisma.itemizedStatement.create({
+      data: {
+        projectId: project.id,
+        name: `コピーの事前記録の内訳書 ${suffix}`,
+        sourceQuantityTableId: `${COPY_PREFIX}${suffix}-qt`,
+        sourceQuantityTableName: 'コピーの事前記録の数量表',
+        items: {
+          create: [
+            { workType: '工種1', name: '名称1', unit: '式', quantity: 1, displayOrder: 1 },
+            { workType: '工種2', name: '名称2', unit: 'm', quantity: 2, displayOrder: 2 },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    const statementItems = await prisma.itemizedStatementItem.findMany({
+      where: { itemizedStatementId: statement.id },
+      orderBy: { displayOrder: 'asc' },
+      select: { id: true },
+    });
+    const estimateRequest = await prisma.estimateRequest.create({
+      data: {
+        projectId: project.id,
+        tradingPartnerId: partner.id,
+        itemizedStatementId: statement.id,
+        name: `コピーの事前記録の見積依頼 ${suffix}`,
+        method: 'EMAIL',
+        selectedItems: {
+          create: statementItems.map((item) => ({
+            itemizedStatementItemId: item.id,
+            selected: true,
+          })),
+        },
+      },
+      select: { id: true },
+    });
+    estimateRequestId = estimateRequest.id;
+    const selectedItems = await prisma.estimateRequestItem.findMany({
+      where: { estimateRequestId: estimateRequest.id },
+      select: { id: true, itemizedStatementItemId: true },
+    });
+    estimateRequestItemIds = statementItems.map((statementItem) => {
+      const selected = selectedItems.find(
+        (item) => item.itemizedStatementItemId === statementItem.id
+      );
+      assertPrepared(selected, '内訳書の項目に対応する見積依頼の項目');
+      return selected.id;
+    });
+    expect(estimateRequestItemIds, '前提: 見積依頼の項目が 2 件選ばれている').toHaveLength(2);
+  });
+
+  test.afterAll(async () => {
+    const prisma = getPrismaClient();
+    await prisma.project.deleteMany({ where: { name: { startsWith: COPY_PREFIX } } });
+    await prisma.tradingPartner.deleteMany({ where: { name: { startsWith: COPY_PREFIX } } });
+  });
+
+  test.beforeEach(async ({ context }) => {
+    await context.clearCookies();
+  });
+
+  /** 見積依頼の詳細画面を開き、表示が落ち着いてから観測を始める */
+  async function openDetail(page: Page) {
+    assertPrepared(estimateRequestId, '事前準備で作成した見積依頼のID');
+    await page.goto(`/estimate-requests/${estimateRequestId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(page.getByRole('button', { name: 'クリップボードにコピー' })).toBeEnabled({
+      timeout: getTimeout(15000),
+    });
+    return observeExport(page);
+  }
+
+  /** 見積依頼文のパネルを開き、本文が表示されるのを待つ */
+  async function openTextPanel(page: Page) {
+    await page.getByRole('button', { name: '見積依頼文を表示' }).click();
+    const panel = page.getByRole('region', { name: '見積依頼文' });
+    await expect(panel.getByRole('heading', { name: '見積依頼文' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(panel.locator('pre')).toBeVisible({ timeout: getTimeout(15000) });
+    return panel;
+  }
+
+  /**
+   * @requirement estimate-request/REQ-42.13
+   */
+  test('見積依頼文の本文のコピーは記録を種別・案件つきで1回要求し、記録の成功の後にだけクリップボードへ書き込む (estimate-request/REQ-42.13)', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await loginAsUser(page, 'REGULAR_USER');
+    const held = await holdExportRecords(page);
+    const observed = await openDetail(page);
+    const panel = await openTextPanel(page);
+    const bodyText = await panel.locator('pre').textContent();
+    expect(bodyText, '前提: 見積依頼文の本文が表示されている').toBeTruthy();
+    await seedClipboard(page);
+
+    // 宛先・表題・本文の順のコピーのボタンのうち本文
+    const bodyCopy = panel.getByRole('button', { name: 'コピー', exact: true }).nth(2);
+    await bodyCopy.click();
+
+    await held.arrived;
+    // 記録の要求中: そのコピーのボタンは止まり、クリップボードは前の中身のまま
+    await expect(bodyCopy).toBeDisabled();
+    expect(
+      await readClipboard(page),
+      'REQ-42.13: 記録の応答より前にクリップボードへ書き込まれない'
+    ).toBe(PREVIOUS_CLIPBOARD);
+
+    held.release();
+
+    await expect(
+      panel.getByRole('button', { name: 'コピーしました', exact: true }),
+      'REQ-42.13: 記録の成功の後にコピーが成功する'
+    ).toBeVisible({ timeout: getTimeout(30000) });
+    expect(
+      observed.recordStatuses,
+      'REQ-42.13: 本文のコピーが出力の記録を 1 回要求し、201 で記録される'
+    ).toEqual([201]);
+    expect(observed.recordRequestBodies).toEqual([
+      {
+        kind: 'estimate_request_text_clipboard',
+        projectId,
+        targetIds: [estimateRequestId],
+        itemCount: 1,
+      },
+    ]);
+    expect(
+      await readClipboard(page),
+      'REQ-42.13: 記録の成功の後に表示中の本文がそのまま書き込まれる'
+    ).toBe(bodyText);
+  });
+
+  /**
+   * @requirement estimate-request/REQ-42.13
+   */
+  test('選択した項目の一覧のコピーは記録を種別・案件・選択した項目つきで1回要求し、記録の成功の後にだけ書き込む (estimate-request/REQ-42.13)', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await loginAsUser(page, 'REGULAR_USER');
+    const held = await holdExportRecords(page);
+    const observed = await openDetail(page);
+    await seedClipboard(page);
+
+    const copyButton = page.getByRole('button', { name: 'クリップボードにコピー' });
+    await copyButton.click();
+
+    await held.arrived;
+    await expect(copyButton).toBeDisabled();
+    expect(
+      await readClipboard(page),
+      'REQ-42.13: 記録の応答より前にクリップボードへ書き込まれない'
+    ).toBe(PREVIOUS_CLIPBOARD);
+
+    held.release();
+
+    await expect(
+      page.getByRole('button', { name: 'コピーしました', exact: true }),
+      'REQ-42.13: 記録の成功の後にコピーが成功する'
+    ).toBeVisible({ timeout: getTimeout(30000) });
+    expect(
+      observed.recordStatuses,
+      'REQ-42.13: 選択した項目の一覧のコピーが出力の記録を 1 回要求し、201 で記録される'
+    ).toEqual([201]);
+    expect(observed.recordRequestBodies).toEqual([
+      {
+        kind: 'estimate_request_items_clipboard',
+        projectId,
+        targetIds: estimateRequestItemIds,
+        itemCount: 2,
+      },
+    ]);
+    expect(
+      await readClipboard(page),
+      'REQ-42.13: 記録の成功の後に選択した 2 件がタブ区切りで書き込まれる'
+    ).toBe(['\t工種1\t名称1\t\t式\t1', '\t工種2\t名称2\t\tm\t2'].join('\n'));
+  });
+
+  /**
+   * @requirement estimate-request/REQ-42.14
+   */
+  test('本文のコピーの記録が失敗するとクリップボードへ何も書き込まず、パネルにエラーメッセージを表示する (estimate-request/REQ-42.14)', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await loginAsUser(page, 'REGULAR_USER');
+    const recordAttempts = await failExportRecords(page);
+    await openDetail(page);
+    const panel = await openTextPanel(page);
+    await seedClipboard(page);
+
+    const bodyCopy = panel.getByRole('button', { name: 'コピー', exact: true }).nth(2);
+    await bodyCopy.click();
+
+    await expect(
+      panel.getByRole('alert').filter({ hasText: RECORD_FAILED_MESSAGE }),
+      `REQ-42.14: 記録の失敗で「${RECORD_FAILED_MESSAGE}」がパネルに表示される`
+    ).toBeVisible({ timeout: getTimeout(30000) });
+    // 記録の要求は非冪等なので API クライアントは送り直さない。失敗の応答でも回数はちょうど 1 回
+    expect(
+      recordAttempts(),
+      '記録の要求はちょうど 1 回送られ、失敗の応答を受けても送り直されない'
+    ).toBe(1);
+    await expect(bodyCopy, '記録の失敗の後は再びコピーできる').toBeEnabled();
+    expect(
+      await readClipboard(page),
+      'REQ-42.14: 記録の失敗ではクリップボードへ何も書き込まれず、前の中身のまま'
+    ).toBe(PREVIOUS_CLIPBOARD);
+    await expect(
+      panel.getByRole('button', { name: 'コピーしました', exact: true }),
+      'REQ-42.14: 記録の失敗でコピーの成功を表示しない'
+    ).toHaveCount(0);
+  });
+
+  /**
+   * @requirement estimate-request/REQ-42.14
+   */
+  test('選択した項目の一覧のコピーの記録が失敗するとクリップボードへ何も書き込まず、エラーメッセージを表示する (estimate-request/REQ-42.14)', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await loginAsUser(page, 'REGULAR_USER');
+    const recordAttempts = await failExportRecords(page);
+    await openDetail(page);
+    await seedClipboard(page);
+
+    const copyButton = page.getByRole('button', { name: 'クリップボードにコピー' });
+    await copyButton.click();
+
+    await expect(
+      page.getByRole('alert').filter({ hasText: RECORD_FAILED_MESSAGE }),
+      `REQ-42.14: 記録の失敗で「${RECORD_FAILED_MESSAGE}」が表示される`
+    ).toBeVisible({ timeout: getTimeout(30000) });
+    expect(
+      recordAttempts(),
+      '記録の要求はちょうど 1 回送られ、失敗の応答を受けても送り直されない'
+    ).toBe(1);
+    await expect(copyButton, '記録の失敗の後は再びコピーできる').toBeEnabled();
+    expect(
+      await readClipboard(page),
+      'REQ-42.14: 記録の失敗ではクリップボードへ何も書き込まれず、前の中身のまま'
+    ).toBe(PREVIOUS_CLIPBOARD);
+    await expect(
+      page.getByRole('button', { name: 'コピーしました', exact: true }),
+      'REQ-42.14: 記録の失敗でコピーの成功を表示しない'
+    ).toHaveCount(0);
+    // 書き込みの失敗の表示（ボタンの名前が「コピーに失敗しました」へ変わる）にならず、名前は元のまま
+    await expect(
+      copyButton,
+      'REQ-42.14: 記録の失敗は書き込みの失敗の表示に代えて記録の失敗の文言で表示する'
+    ).toHaveAccessibleName('クリップボードにコピー');
+  });
+
+  /**
+   * @requirement estimate-request/REQ-42.15
+   */
+  test('「Gmailで開く」は記録を種別・案件つきで1回要求し、記録の成功の後にだけ Gmail の作成画面を開く (estimate-request/REQ-42.15)', async ({
+    page,
+    context,
+  }) => {
+    // 外部の Gmail へは通信させず、作成画面の要求を捕まえて空のページを返す
+    const gmailRequests: Array<{ url: string; referer: string | undefined }> = [];
+    const order: string[] = [];
+    await context.route(GMAIL_URL_REGEX, async (route) => {
+      gmailRequests.push({
+        url: route.request().url(),
+        referer: route.request().headers()['referer'],
+      });
+      order.push('gmail-request');
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>gmail-stub</title><p>gmail-stub</p>',
+      });
+    });
+    await loginAsUser(page, 'REGULAR_USER');
+    const held = await holdExportRecords(page);
+    const observed = await openDetail(page);
+    page.on('response', (response) => {
+      if (pathOf(response.url()) === RECORD_PATH && response.request().method() === 'POST') {
+        order.push('record-response');
+      }
+    });
+    const panel = await openTextPanel(page);
+
+    const gmailButton = panel.getByRole('button', { name: 'Gmailで開く' });
+    await expect(gmailButton).toBeEnabled();
+    const popupPromise = context.waitForEvent('page', { timeout: getTimeout(10000) });
+    await gmailButton.click();
+    const popup = await popupPromise;
+
+    await held.arrived;
+    // 記録の要求中: 両ボタンが止まり、開いたタブは空のまま（作成画面の要求は出ていない）
+    await expect(gmailButton).toBeDisabled();
+    await expect(panel.getByRole('link', { name: 'メールで開く' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    expect(gmailRequests, 'REQ-42.15: 記録の応答より前に Gmail の作成画面を開かない').toEqual([]);
+
+    held.release();
+
+    await expect
+      .poll(() => gmailRequests.length, {
+        message: 'REQ-42.15: 記録の成功の後に Gmail の作成画面を開く',
+        timeout: getTimeout(30000),
+      })
+      .toBe(1);
+    await expect(popup).toHaveURL(GMAIL_URL_REGEX, { timeout: getTimeout(10000) });
+    const gmailUrl = new URL(gmailRequests[0]!.url);
+    expect(gmailUrl.searchParams.get('view')).toBe('cm');
+    expect(gmailUrl.searchParams.get('to')).toBe('e2e-er-copy-audit-partner@example.com');
+    expect(
+      order.indexOf('record-response'),
+      'REQ-42.15: 記録の応答が作成画面の要求より前に返る'
+    ).toBeLessThan(order.indexOf('gmail-request'));
+    expect(
+      observed.recordStatuses,
+      'REQ-42.15: 「Gmailで開く」が出力の記録を 1 回要求し、201 で記録される'
+    ).toEqual([201]);
+    expect(observed.recordRequestBodies).toEqual([
+      {
+        kind: 'estimate_request_text_mail',
+        projectId,
+        targetIds: [estimateRequestId],
+        itemCount: 1,
+      },
+    ]);
+    // 従来の noopener,noreferrer の保ち方: 作成画面へ参照元を送らず、作成画面から元の画面を参照できない
+    expect(gmailRequests[0]!.referer, '作成画面の要求に参照元を付けない').toBeUndefined();
+    expect(
+      await popup.evaluate(() => ({ opener: window.opener === null, referrer: document.referrer })),
+      '作成画面から元の画面を参照できない'
+    ).toEqual({ opener: true, referrer: '' });
+    await expect(gmailButton).toBeEnabled();
+    await popup.close();
+  });
+
+  /**
+   * @requirement estimate-request/REQ-42.16
+   */
+  test('「Gmailで開く」の記録が失敗すると作成画面を開かずに空のタブを閉じ、エラーメッセージを表示する (estimate-request/REQ-42.16)', async ({
+    page,
+    context,
+  }) => {
+    const gmailRequests: string[] = [];
+    await context.route(GMAIL_URL_REGEX, async (route) => {
+      gmailRequests.push(route.request().url());
+      await route.abort();
+    });
+    await loginAsUser(page, 'REGULAR_USER');
+    const recordAttempts = await failExportRecords(page);
+    await openDetail(page);
+    const panel = await openTextPanel(page);
+
+    const gmailButton = panel.getByRole('button', { name: 'Gmailで開く' });
+    const popupPromise = context.waitForEvent('page', { timeout: getTimeout(10000) });
+    await gmailButton.click();
+    const popup = await popupPromise;
+
+    await expect(
+      panel.getByRole('alert').filter({ hasText: RECORD_FAILED_MESSAGE }),
+      `REQ-42.16: 記録の失敗で「${RECORD_FAILED_MESSAGE}」がパネルに表示される`
+    ).toBeVisible({ timeout: getTimeout(30000) });
+    await expect
+      .poll(() => popup.isClosed(), {
+        message: 'REQ-42.16: 記録の失敗で先に開いた空のタブを閉じる',
+        timeout: getTimeout(10000),
+      })
+      .toBe(true);
+    expect(
+      recordAttempts(),
+      '記録の要求はちょうど 1 回送られ、失敗の応答を受けても送り直されない'
+    ).toBe(1);
+    expect(gmailRequests, 'REQ-42.16: 記録の失敗では Gmail の作成画面を開かない').toEqual([]);
+    await expect(gmailButton, '記録の失敗の後は再び操作できる').toBeEnabled();
   });
 });

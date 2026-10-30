@@ -15,6 +15,15 @@ const meta = {
     layout: 'centered',
   },
   tags: ['autodocs'],
+  // 出力の記録の入力（Task 107.1、Requirement 42.13。ストーリーでは記録の要求は通らない）
+  args: {
+    exportRecord: {
+      kind: 'estimate_request_items_clipboard',
+      projectId: 'story-project',
+      targetIds: ['story-item-1'],
+      itemCount: 1,
+    },
+  },
 } satisfies Meta<typeof ClipboardCopyButton>;
 
 export default meta;

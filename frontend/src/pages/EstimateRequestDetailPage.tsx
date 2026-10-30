@@ -35,6 +35,8 @@
  *   現場調査の未選択（Requirement 35.10）と出力対象の写真が無いときは出力が無いため記録しない。
  *   記録の要求中は選択 UI を閉じられず、記録の要求中に画面が破棄されたら記録の成功の後も生成しない
  *   （estimate-request の Requirement 42.8・42.9。内訳書の Excel は ExcelExportButton が持つ）
+ * Task 107.1 変更: 見積依頼文のパネルへ見積依頼と案件の ID を、選択した項目の一覧のコピーへ記録の入力を渡す。
+ *   コピーとメールで開く操作は各部品が出力の記録の成功の後にだけ行う（estimate-request の Requirement 42.13〜42.16）
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -1285,6 +1287,8 @@ export default function EstimateRequestDetailPage() {
                 projectId={request.projectId}
               />
             )}
+            {/* Task 107.1: 選択した項目の一覧のコピーは出力の記録の成功の後にだけ書き込む
+                （種別 estimate_request_items_clipboard・見積依頼の案件・選択した項目の ID・件数。Requirement 42.13） */}
             <ClipboardCopyButton
               text={items
                 .filter((item) => item.selected)
@@ -1293,6 +1297,14 @@ export default function EstimateRequestDetailPage() {
                     `${item.customCategory ?? ''}\t${item.workType ?? ''}\t${item.name ?? ''}\t${item.specification ?? ''}\t${item.unit ?? ''}\t${item.quantity}`
                 )
                 .join('\n')}
+              exportRecord={{
+                kind: 'estimate_request_items_clipboard',
+                projectId: request.projectId,
+                targetIds: items
+                  .filter((item) => item.selected)
+                  .map((item) => item.estimateRequestItemId),
+                itemCount: items.filter((item) => item.selected).length,
+              }}
             />
             <button
               type="button"
@@ -1381,6 +1393,8 @@ export default function EstimateRequestDetailPage() {
         {showTextPanel && (
           <EstimateRequestTextPanel
             text={estimateText}
+            estimateRequestId={request.id}
+            projectId={request.projectId}
             loading={isTextLoading}
             errorMessage={textErrorMessage}
             showIncludeBreakdownToggle={hasItemizedStatement}

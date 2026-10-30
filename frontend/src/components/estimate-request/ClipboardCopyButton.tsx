@@ -6,9 +6,17 @@
  * Requirements:
  * - 5.1: 「クリップボードにコピー」ボタンをクリックすると見積依頼文全体をクリップボードにコピー
  * - 5.2: コピー成功時に「コピーしました」トースト表示
+ *
+ * Task 107.1: コピーは出力の記録の成功の後にだけ書き込む（Requirement 42.13・42.14。
+ * user-authentication の要件40.9〜40.11）。書き込みと記録は上流の `runRecordedClipboardWrite` が行う。
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  EXPORT_RECORD_FAILED_MESSAGE,
+  runRecordedClipboardWrite,
+  type ExportRecordInput,
+} from '../../api/export-audit';
 
 // ============================================================================
 // 型定義
@@ -22,6 +30,12 @@ export interface ClipboardCopyButtonProps {
   text: string;
   /** 無効状態 */
   disabled?: boolean;
+  /**
+   * コピーの前に要求する出力の記録の入力（Requirement 42.13）。
+   * 見積依頼の詳細画面の選択した項目の一覧は、種別 `estimate_request_items_clipboard`・見積依頼の案件・
+   * 選択した項目の ID・選択した項目の数を渡す
+   */
+  exportRecord: ExportRecordInput;
 }
 
 // ============================================================================
@@ -57,6 +71,11 @@ const styles = {
     backgroundColor: '#fef2f2',
     borderColor: '#fecaca',
     color: '#991b1b',
+  } as React.CSSProperties,
+  recordError: {
+    margin: 0,
+    fontSize: '14px',
+    color: '#dc2626', // red-600 (WCAG AA contrast ratio)
   } as React.CSSProperties,
 };
 
@@ -126,36 +145,77 @@ function CheckIcon() {
  * <ClipboardCopyButton text="コピーするテキスト" />
  * ```
  */
-export function ClipboardCopyButton({ text, disabled = false }: ClipboardCopyButtonProps) {
+export function ClipboardCopyButton({
+  text,
+  disabled = false,
+  exportRecord,
+}: ClipboardCopyButtonProps) {
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  // 出力の記録の要求中（Requirement 42.13。押し直しで記録が 2 回にならないようボタンを止める）
+  const [isRecording, setIsRecording] = useState(false);
+  // 出力の記録の失敗のエラーメッセージ（Requirement 42.14）
+  const [recordError, setRecordError] = useState<string | null>(null);
+
+  // 記録の要求中に破棄されたら結果を表示しない（StrictMode の effect の再実行でも true に戻す）
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const isDisabled = disabled || !text;
 
+  /**
+   * 書き込みの前に出力の記録を 1 回要求し、記録の成功の後にだけ中身を書き込む。
+   * 記録の失敗では何も書かず「出力を記録できなかったため中止しました」を表示する
+   * （Requirement 42.13・42.14）。Safari はクリックの処理の中で同期的に始めた書き込みしか
+   * 許さないため、包みの呼び出しより前に `await` を置かない。
+   */
   const handleCopy = useCallback(async () => {
-    if (isDisabled) return;
+    if (isDisabled || isRecording) return;
+    // クリックの時点の中身と記録の入力を使う
+    const copyText = text;
+    const record = exportRecord;
+
+    setIsRecording(true);
+    setRecordError(null);
+    setStatus('idle');
 
     try {
-      await navigator.clipboard.writeText(text);
-      setStatus('success');
+      const result = await runRecordedClipboardWrite(record, () => copyText);
+      if (!isMountedRef.current) return;
+      if (result.ok) {
+        setStatus('success');
 
-      // 2秒後に元の状態に戻す
-      setTimeout(() => {
-        setStatus('idle');
-      }, 2000);
+        // 2秒後に元の状態に戻す
+        setTimeout(() => {
+          setStatus('idle');
+        }, 2000);
+      } else if (result.error.type === 'RECORD_FAILED') {
+        // 記録の失敗ではクリップボードは変わらない（Requirement 42.14）
+        setRecordError(EXPORT_RECORD_FAILED_MESSAGE);
+      } else {
+        // 記録の後の書き込みの失敗は従来の表示（記録は再送しない）
+        setStatus('error');
+
+        // 3秒後に元の状態に戻す
+        setTimeout(() => {
+          setStatus('idle');
+        }, 3000);
+      }
     } catch {
-      setStatus('error');
-
-      // 3秒後に元の状態に戻す
-      setTimeout(() => {
-        setStatus('idle');
-      }, 3000);
+      if (isMountedRef.current) setStatus('error');
+    } finally {
+      if (isMountedRef.current) setIsRecording(false);
     }
-  }, [text, isDisabled]);
+  }, [text, exportRecord, isDisabled, isRecording]);
 
   const getButtonStyle = (): React.CSSProperties => {
     const baseStyle = { ...styles.button };
 
-    if (isDisabled) {
+    if (isDisabled || isRecording) {
       return { ...baseStyle, ...styles.buttonDisabled };
     }
 
@@ -183,16 +243,23 @@ export function ClipboardCopyButton({ text, disabled = false }: ClipboardCopyBut
   };
 
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      disabled={isDisabled}
-      style={getButtonStyle()}
-      aria-label={getAriaLabel()}
-    >
-      {status === 'success' ? <CheckIcon /> : <CopyIcon />}
-      {getButtonText()}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleCopy}
+        disabled={isDisabled || isRecording}
+        style={getButtonStyle()}
+        aria-label={getAriaLabel()}
+      >
+        {status === 'success' ? <CheckIcon /> : <CopyIcon />}
+        {getButtonText()}
+      </button>
+      {recordError && (
+        <p role="alert" style={styles.recordError}>
+          {recordError}
+        </p>
+      )}
+    </>
   );
 }
 

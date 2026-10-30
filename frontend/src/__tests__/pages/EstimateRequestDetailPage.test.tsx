@@ -23,7 +23,7 @@ import EstimateRequestDetailPage from '../../pages/EstimateRequestDetailPage';
 import * as estimateRequestApi from '../../api/estimate-requests';
 import * as receivedQuotationApi from '../../api/received-quotations';
 import * as estimateRequestStatusApi from '../../api/estimate-request-status';
-import { ApiError } from '../../api/client';
+import { ApiError, apiClient } from '../../api/client';
 
 // APIモック
 vi.mock('../../api/estimate-requests');
@@ -481,6 +481,88 @@ describe('EstimateRequestDetailPage', () => {
       });
 
       expect(screen.getByRole('button', { name: /クリップボードにコピー/i })).toBeInTheDocument();
+    });
+
+    // Task 107.1: 詳細の画面がコピーの部品へ記録の入力を渡す（Requirement 42.13）
+    it('選択した項目の一覧のコピーは種別・見積依頼の案件・選択した項目の ID・件数で記録してから書く (Requirements 42.13)', async () => {
+      // userEvent.setup() はクリップボードを差し替えるため、その後でモックを入れる
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+        writable: true,
+      });
+      const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+      try {
+        renderWithRouter();
+        await waitFor(() => {
+          expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+        });
+
+        await user.click(screen.getByRole('button', { name: /クリップボードにコピー/i }));
+
+        await waitFor(() => {
+          expect(writeText).toHaveBeenCalledTimes(1);
+        });
+        expect(postSpy).toHaveBeenCalledTimes(1);
+        expect(postSpy).toHaveBeenCalledWith(
+          '/api/v1/audit-logs/exports',
+          {
+            kind: 'estimate_request_items_clipboard',
+            projectId: 'project-1',
+            targetIds: ['eri-1'],
+            itemCount: 1,
+          },
+          { disableRetry: true }
+        );
+        expect(writeText.mock.calls[0]?.[0]).toBe('カテゴリ1\t工種1\t項目1\t規格1\t個\t10');
+      } finally {
+        postSpy.mockRestore();
+      }
+    });
+
+    it('見積依頼文のコピーは見積依頼の案件と ID で記録してから書く (Requirements 42.13)', async () => {
+      // userEvent.setup() はクリップボードを差し替えるため、その後でモックを入れる
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+        writable: true,
+      });
+      const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+      try {
+        renderWithRouter();
+        await waitFor(() => {
+          expect(screen.getByTestId('estimate-request-detail-page')).toBeInTheDocument();
+        });
+        await user.click(screen.getByRole('button', { name: /見積依頼文を表示/ }));
+        const panel = await screen.findByRole('region', { name: '見積依頼文' });
+        await waitFor(() => {
+          expect(panel).toHaveTextContent('見積依頼本文');
+        });
+
+        const copyButtons = screen.getAllByRole('button', { name: /^コピー$/ });
+        await user.click(copyButtons[2]!);
+
+        await waitFor(() => {
+          expect(writeText).toHaveBeenCalledWith('見積依頼本文');
+        });
+        expect(postSpy).toHaveBeenCalledTimes(1);
+        expect(postSpy).toHaveBeenCalledWith(
+          '/api/v1/audit-logs/exports',
+          {
+            kind: 'estimate_request_text_clipboard',
+            projectId: 'project-1',
+            targetIds: ['er-1'],
+            itemCount: 1,
+          },
+          { disableRetry: true }
+        );
+      } finally {
+        postSpy.mockRestore();
+      }
     });
   });
 

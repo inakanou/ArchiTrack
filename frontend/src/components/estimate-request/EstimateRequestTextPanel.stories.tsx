@@ -42,6 +42,11 @@ const meta = {
     layout: 'padded',
   },
   tags: ['autodocs'],
+  // 出力の記録の入力に使う見積依頼と案件の ID（Task 107.1、Requirement 42.13・42.15）
+  args: {
+    estimateRequestId: 'story-estimate-request',
+    projectId: 'story-project',
+  },
   decorators: [
     (Story) => (
       <div style={{ maxWidth: '700px', margin: '0 auto' }}>
