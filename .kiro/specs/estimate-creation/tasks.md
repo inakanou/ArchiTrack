@@ -1844,6 +1844,24 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Requirements: 57.10_
   - _Boundary: EstimateService の見積書の作成の内訳書の照合と、その記録を主張する本スペックのテスト_
 
+## タスク66: 一括保存の本文の他の見積書の見積項目の ID の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、受入基準7の記録の要否を作成・保存の要求が指す他のデータについて判定するときも同じ方針とし、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録）。本機能の見積明細の一括保存（backend/src/services/estimate-draft.service.ts の `saveDraft`〔349 行付近〕。所属の照合 `validatePayloadItemOwnership` の呼び出しは 370 行付近、本体は 602 行付近。経路の構造の不備の 422 の分岐は backend/src/routes/estimates.routes.ts の 783〜806 行付近。行は 2026-10-31 の実測で、着手時に測り直すこと）は、本文に混じった対象の見積書に属さない既存の見積項目の ID を、他の見積書のものか存在しないものかを引かずに一律に 422 で拒み、範囲外の案件のものでも記録しない。quantity-table-generation の 50.11（同 spec のタスク107.1、`8c924cd8`）と記録の基準をそろえる。requirements.md に 57.11 を加え（改訂の記録を Requirement 57 に残した）、design.md の末尾の章「2026-10-31 の追加: 一括保存の本文の他の見積書の見積項目の ID の範囲外の記録」に設計を置き、Requirement 57 章の「一括保存（全件か無しか）」に改訂の注記を置いた。応答とデータと画面は変えない
+
+- [ ] 66.1 見積明細の一括保存の本文の属さない既存の見積項目の ID の実際の案件が範囲外なら記録する
+  - `EstimateDraftService` に判定（`evaluateProjectAccess`）と記録（監査ログのサービス）の依存を足し（`EstimateService` の `projectScope` の注入の形にそろえる）、`saveDraft` を `withSurveyScopeDenialRecording` で包む。経路（`PUT /api/estimates/:id/save`）から実行者の ID と `projectScopeDenialContextOf(req)` を渡す。見積書の読み出しに案件 ID を足す
+  - 一括保存の本体で、対象の見積書の既存の見積項目の ID の集合を読んだ後、所属の照合（`validatePayloadItemOwnership`）より前に、本文の属さない既存の見積項目の ID の実際の案件（親の見積書の案件）を ID 群の一括の読み出しで引き、対象の見積書と別の案件を重複なく `evaluateProjectAccess` で判定し、`out_of_scope` なら範囲外とした案件の集合（`deniedProjectIds`）に入れる（design.md の同章の「決定」。QuantityTableService の `noteForeignDraftIdProjects` が手本）。属さない ID が無ければ何も引かない。行の無い ID は判定しない。見積書の論理削除は条件に含めない。例外は投げず、その後の所属の照合と楽観的排他制御は従来の順と応答（422、同じ文言と問題箇所のキー）のまま
+  - 明細のツリーの構造の不備だけで 422 となる要求（経路のスキーマの問題がすべて `code: 'custom'`）でも、本文の形が正しい限り同じ判定を通して記録する（応答の 422 は変えない）。形式の不正の 400 では判定しない。実現の形（形だけのスキーマで読み直し判定だけを行う処理など）は実装時に決めて design.md の同章の「決定」へ記す。処理の名前と置き場所も同じく記す。所属の照合と `saveDraft` の注釈と `@throws` を改める
+  - **既存のテストの追随**（主張を消さない）: 単体（`backend/src/__tests__/unit/services/estimate-draft.service.test.ts`）の Prisma の模擬に、属さない ID の見積項目の一括の読み出し（既定は行が無い）と判定・記録の依存の模擬を足し、「他の見積書の項目IDが含まれる場合はトランザクションを開始せずに検証エラーとする」「検証エラーには不備のあった項目が含まれる」「検証NGと楽観ロック競合が同時に成立する場合も検証NG（422）で中断し、データを変更しない」が緑のままであることを確かめる。経路の単体テストとサービスの構築の箇所が依存の追加で壊れないことを確かめる
+  - 単体に、属さない ID の実際の案件が範囲外なら従来の 422 で判定 1 回・記録 1 回（対象はその案件）、同じ範囲外の案件の ID が複数でも記録 1 回、範囲内の他の案件・案件の不在なら記録なし、同じ案件の別の見積書と行の無い ID なら判定も記録もしない、親の見積書が論理削除済みでも判定する、属さない ID の無い保存では引く問い合わせが無い、構造の不備の 422 の分岐で判定が通り形式の不正の 400 では通らない、を足す。統合（`backend/src/__tests__/integration/estimate-creation-project-scope.api.integration.test.ts` の 57.5 の describe）に、範囲内の見積書の一括保存の本文へ範囲外の案件の見積書の見積項目の ID を混ぜると従来の 422 の本文のまま担当者の `PROJECT_SCOPE_DENIED` が 1 件増え（対象は範囲外の案件）どの見積書のデータも変わらないこと、論理削除済みの見積書の見積項目の ID でも、構造の不備（重複配置）を併せて含む本文でも増えること、全案件閲覧の権限の利用者・同じ案件の別の見積書・範囲内の他の案件・存在しない ID・案件そのものを論理削除した場合では増えないことを足す
+  - E2E（`e2e/specs/estimate/estimate-creation-project-scope.spec.ts`）で、担当者が自分の見積書の一括保存の本文へ範囲外の案件の見積書の見積項目の ID を混ぜた要求が 422 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え（対象は範囲外の案件）、どちらの見積書も変わらないことを主張し、`@requirement estimate-creation/REQ-57.11` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積明細の一括保存の 422、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 57.4・57.5・57.9・57.10 のテストと、見積明細の保存の E2E を含む。`PROJECT_SCOPE_DENIED` の増加が異常の検知〔user-authentication の要件43.2〕の閾値に触れて他のテストの利用者を止めないことも確かめる）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、一括保存の本文の属さない見積項目の ID の実際の案件が範囲外のときだけ案件ごとに 1 回記録され、どの場合も従来の 422 でどの見積項目にも書き込まない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 57.11_
+  - _Boundary: EstimateDraftService の一括保存の所属の照合（saveDraft・validatePayloadItemOwnership）と依存の注入、見積書の一括保存の経路の 422 の分岐と、その記録を主張する本スペックのテスト_
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。
