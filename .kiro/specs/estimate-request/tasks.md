@@ -2441,7 +2441,7 @@
 
 **経緯**: 利用者の判断（2026-10-31「推奨案で進める」）で起票する。パネルの「Gmailで開く」の処理（frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx の `handleOpenGmail`〔525 行付近〕。タスク107.1、`3cf87a04`。行は 2026-10-31 の実測で、着手時に測り直すこと）は、ブラウザがポップアップを止めて空のタブを開けないとき（`openBlankMailTab` が null）と、出力の記録の成功の後に作成画面へ移す処理が例外になったとき（`runRecordedExport` の `GENERATION_FAILED`）に、何も表示せずに終わる。requirements.md に 42.17・42.18 を加え（改訂の記録を Requirement 42 に残した）、design.md の末尾の章「2026-10-31 の追加: Gmail で開く操作の失敗の表示」に文言と設計を置き、2026-10-30 の章の「Gmailで開く」の決定に改訂の注記を置いた。記録の扱い（42.17 は記録を要求しない、42.18 は記録が残る）は変えない
 
-- [ ] 108.1 「Gmailで開く」で空のタブを開けないときと、記録の成功の後に作成画面へ移せないときに、日本語の文言を表示する
+- [x] 108.1 「Gmailで開く」で空のタブを開けないときと、記録の成功の後に作成画面へ移せないときに、日本語の文言を表示する
   - `handleOpenGmail` で、`openBlankMailTab` が null なら記録を要求せず、前の文言を消して 42.17 の文言（design.md の同章の「決定」の「文言」）をパネルの `role="alert"` の欄に出して戻る。`runRecordedExport` の結果が `GENERATION_FAILED` なら、タブを閉じ（従来どおり）、パネルが残っていれば 42.18 の文言を出す。`RECORD_FAILED` は従来どおり `EXPORT_RECORD_FAILED_MESSAGE`。文言の定数の名前と置き場所は実装時に決めて design.md の同章の「決定」へ記す。冒頭の注釈と `handleOpenGmail` の注釈を改める。mail-launcher は変えない
   - **既存のテストの書き換え**（主張を消さない）: 単体（`frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx`）の「空のタブを開けない（ポップアップが止められた）ときは記録を要求しない（Requirement 42.15）」は、記録を要求しない主張を保ち、`role="alert"` が無いことの主張を 42.17 の文言の表示へ改め、題名に 42.17 を足す
   - 単体に、作成画面へ移す処理が例外になるとタブを閉じ 42.18 の文言が出て記録の要求は 1 回であること、次の操作の開始で文言が消えること、記録の失敗では従来どおり記録の失敗の文言だけが出ることを足す

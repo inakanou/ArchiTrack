@@ -19,6 +19,10 @@
  *   （`POST /api/v1/audit-logs/exports`）は API クライアントの `post` を差し替えて模擬し、既定は成功とする。
  *   コピーの書き込みは上流の `runRecordedClipboardWrite` の実物が行う（jsdom には `ClipboardItem` が
  *   無いため、記録の成功を待ってから `writeText` で書く）。mailto の起動（`openMailClient`）だけを差し替える。
+ *
+ * Task 108.1: 「Gmailで開く」で空のタブを開けない（ポップアップが止められた）ときは記録を要求せずに
+ *   ポップアップの許可を促す文言を、記録の成功の後に作成画面へ移せない（タブの文書へ触れられない）ときは
+ *   タブを閉じて再操作を促す文言を、パネルの `role="alert"` の欄に表示する（Requirement 42.17・42.18）。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -44,6 +48,13 @@ const ids = { estimateRequestId: 'er-1', projectId: 'project-1' };
 
 /** 記録の失敗の文言（Requirement 42.14・42.16） */
 const RECORD_FAILED_EXACT = /^出力を記録できなかったため中止しました$/;
+
+/** ポップアップが止められたときの文言（Requirement 42.17） */
+const POPUP_BLOCKED_EXACT =
+  /^ポップアップがブロックされたため Gmail を開けませんでした。ブラウザの設定でこのサイトのポップアップを許可してください。$/;
+
+/** 記録の成功の後に作成画面へ移せないときの文言（Requirement 42.18） */
+const COMPOSE_OPEN_FAILED_EXACT = /^Gmail の作成画面を開けませんでした。もう一度お試しください。$/;
 
 /** 解決を外から決める記録の要求 */
 function holdRecord() {
@@ -80,6 +91,28 @@ function fakeBlankTab() {
     }),
   };
   return { tab, navigations };
+}
+
+/**
+ * 開いた後に文書へ触れられなくなった空のタブの模擬（利用者に閉じられた・別の文書へ移された）
+ *
+ * `document` の読み出しが例外になり、作成画面へ移す処理（`navigateMailTab`）が失敗する。
+ */
+function fakeUnreachableTab() {
+  const tab = {
+    opener: window as Window | null,
+    closed: false,
+    close: vi.fn(() => {
+      tab.closed = true;
+    }),
+    get document(): Document {
+      throw new DOMException(
+        'Blocked a frame from accessing a cross-origin frame.',
+        'SecurityError'
+      );
+    },
+  };
+  return tab;
 }
 
 describe('EstimateRequestTextPanel', () => {
@@ -679,16 +712,108 @@ describe('EstimateRequestTextPanel', () => {
       expect(navigations).toHaveLength(0);
       expect(postSpy).toHaveBeenCalledTimes(1);
       await waitFor(() => expect(gmailButton).toBeEnabled());
+      // 記録の失敗では記録の失敗の文言だけを出し、42.18 の文言は出さない（Requirement 42.16・42.18）
+      expect(screen.getAllByRole('alert')).toHaveLength(1);
+      expect(screen.queryByText(COMPOSE_OPEN_FAILED_EXACT)).not.toBeInTheDocument();
     });
 
-    it('空のタブを開けない（ポップアップが止められた）ときは記録を要求しない（Requirement 42.15）', () => {
+    it('空のタブを開けない（ポップアップが止められた）ときは記録を要求せず、ポップアップの許可を促す文言を表示する（Requirement 42.15, 42.17）', async () => {
       vi.spyOn(window, 'open').mockImplementation(() => null);
       render(<EstimateRequestTextPanel {...ids} text={mockText} method="EMAIL" />);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Gmailで開く' }));
+      const gmailButton = screen.getByRole('button', { name: 'Gmailで開く' });
+      fireEvent.click(gmailButton);
 
+      expect(await screen.findByRole('alert')).toHaveTextContent(POPUP_BLOCKED_EXACT);
       expect(postSpy).not.toHaveBeenCalled();
+      // 記録の要求中の状態（両ボタンを止める）にはしない
+      expect(gmailButton).toBeEnabled();
+      expect(screen.getByRole('link', { name: 'メールで開く' })).not.toHaveAttribute(
+        'aria-disabled'
+      );
+    });
+
+    it('記録の失敗の文言が出ている状態でポップアップが止められると、前の文言を 42.17 の文言に置き換える（Requirement 42.17）', async () => {
+      postSpy.mockRejectedValueOnce(new Error('500'));
+      const { tab } = fakeBlankTab();
+      const openSpy = vi
+        .spyOn(window, 'open')
+        .mockImplementationOnce(() => tab as unknown as Window)
+        .mockImplementation(() => null);
+      render(<EstimateRequestTextPanel {...ids} text={mockText} method="EMAIL" />);
+
+      const gmailButton = screen.getByRole('button', { name: 'Gmailで開く' });
+      fireEvent.click(gmailButton);
+      expect(await screen.findByRole('alert')).toHaveTextContent(RECORD_FAILED_EXACT);
+      await waitFor(() => expect(gmailButton).toBeEnabled());
+
+      fireEvent.click(gmailButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(POPUP_BLOCKED_EXACT);
+      });
+      expect(screen.getAllByRole('alert')).toHaveLength(1);
+      expect(openSpy).toHaveBeenCalledTimes(2);
+      expect(postSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('記録の成功の後に作成画面へ移す処理が例外になるとタブを閉じ、再操作を促す文言を表示する。記録の要求は 1 回（Requirement 42.18）', async () => {
+      const tab = fakeUnreachableTab();
+      vi.spyOn(window, 'open').mockImplementation(() => tab as unknown as Window);
+      render(<EstimateRequestTextPanel {...ids} text={mockText} method="EMAIL" />);
+
+      const gmailButton = screen.getByRole('button', { name: 'Gmailで開く' });
+      fireEvent.click(gmailButton);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(COMPOSE_OPEN_FAILED_EXACT);
+      expect(tab.close).toHaveBeenCalledTimes(1);
+      expect(tab.closed).toBe(true);
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      expect(postSpy).toHaveBeenCalledWith('/api/v1/audit-logs/exports', mailRecord, {
+        disableRetry: true,
+      });
+      // 記録は成功しているため、記録の失敗の文言は出さない
+      expect(screen.queryByText(RECORD_FAILED_EXACT)).not.toBeInTheDocument();
+      await waitFor(() => expect(gmailButton).toBeEnabled());
+    });
+
+    it('42.17・42.18 の文言は次の操作の開始で消える（Requirement 42.17, 42.18）', async () => {
+      // 1 回目: ポップアップが止められる → 42.17
+      // 2 回目: 文書へ触れられないタブ → 42.18（開始の時点で 42.17 が消える）
+      // 3 回目: コピーの開始で 42.18 が消える
+      const unreachable = fakeUnreachableTab();
+      const record = holdRecord();
+      vi.spyOn(window, 'open')
+        .mockImplementationOnce(() => null)
+        .mockImplementation(() => unreachable as unknown as Window);
+      render(<EstimateRequestTextPanel {...ids} text={mockText} method="EMAIL" />);
+
+      const gmailButton = screen.getByRole('button', { name: 'Gmailで開く' });
+      fireEvent.click(gmailButton);
+      expect(await screen.findByRole('alert')).toHaveTextContent(POPUP_BLOCKED_EXACT);
+
+      postSpy.mockReturnValueOnce(record.pending);
+      act(() => {
+        fireEvent.click(gmailButton);
+      });
+      // 記録の要求中（次の操作の開始）には前の文言が無い
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      await act(async () => {
+        record.resolve({ recordId: 'record-1' });
+      });
+      expect(await screen.findByRole('alert')).toHaveTextContent(COMPOSE_OPEN_FAILED_EXACT);
+      await waitFor(() => expect(gmailButton).toBeEnabled());
+
+      const copyRecord = holdRecord();
+      postSpy.mockReturnValueOnce(copyRecord.pending);
+      const copyButtons = screen.getAllByRole('button', { name: 'コピー' });
+      act(() => {
+        fireEvent.click(copyButtons[0]!);
+      });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      await act(async () => {
+        copyRecord.resolve({ recordId: 'record-2' });
+      });
     });
   });
 });

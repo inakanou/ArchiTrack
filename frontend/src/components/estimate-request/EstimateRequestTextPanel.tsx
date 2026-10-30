@@ -15,6 +15,10 @@
  * Task 107.1: 宛先・表題・本文のコピーと「メールで開く」「Gmailで開く」は、出力の記録の成功の後にだけ行う
  * （Requirement 42.13〜42.16。user-authentication の要件40.9〜40.11）。記録の失敗ではコピーもメールの起動も
  * せず、パネルの `role="alert"` の欄に「出力を記録できなかったため中止しました」を表示する。
+ *
+ * Task 108.1: 「Gmailで開く」で、ポップアップが止められて空のタブを開けないときは記録を要求せずに
+ * ポップアップの許可を促す文言を、記録の成功の後に作成画面へ移せないときはタブを閉じて再操作を促す文言を、
+ * 同じ `role="alert"` の欄に表示する（Requirement 42.17・42.18。記録の後の失敗でも記録は残る）。
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -37,6 +41,18 @@ import {
   navigateMailTab,
   closeMailTab,
 } from '../../utils/mail-launcher';
+
+/**
+ * 「Gmailで開く」でポップアップが止められて空のタブを開けないときの文言（Requirement 42.17）
+ */
+const GMAIL_POPUP_BLOCKED_MESSAGE =
+  'ポップアップがブロックされたため Gmail を開けませんでした。ブラウザの設定でこのサイトのポップアップを許可してください。';
+
+/**
+ * 「Gmailで開く」で記録の成功の後に作成画面へ移せないときの文言（Requirement 42.18）
+ */
+const GMAIL_COMPOSE_OPEN_FAILED_MESSAGE =
+  'Gmail の作成画面を開けませんでした。もう一度お試しください。';
 
 // ============================================================================
 // 型定義
@@ -440,7 +456,8 @@ export function EstimateRequestTextPanel({
   // ============================================================================
   // 出力の記録（Task 107.1、Requirement 42.13〜42.16）
   // ============================================================================
-  // 記録の失敗のエラーメッセージ（コピーとメールの起動で共有する。パネルの role="alert" の欄）
+  // 記録の失敗と「Gmailで開く」の失敗のエラーメッセージ（コピーとメールの起動で共有する。
+  // パネルの role="alert" の欄。Requirement 42.14・42.16〜42.18）
   const [recordError, setRecordError] = useState<string | null>(null);
   // メールで開く操作の記録の要求中（両ボタンを止める）
   const [isLaunchingMail, setIsLaunchingMail] = useState(false);
@@ -521,6 +538,9 @@ export function EstimateRequestTextPanel({
    * 「Gmailで開く」: クリックの処理の中で同期的に空の新しいタブを開き（記録を待ってから開くと
    * ポップアップが止められうる）、出力の記録の成功の後に Gmail の作成画面へ移す。記録の失敗では
    * そのタブを閉じ、記録の失敗の文言を表示する（Requirement 42.15・42.16）。
+   * ポップアップが止められて空のタブを開けなければ、記録を要求せずにポップアップの許可を促す文言を
+   * 表示する（Requirement 42.17）。記録の成功の後に作成画面へ移す処理が例外になれば（タブが閉じられた・
+   * 別の文書へ移されたなど）、タブを閉じて再操作を促す文言を表示する。記録は残る（Requirement 42.18）。
    */
   const handleOpenGmail = useCallback(async () => {
     if (!text || !canLaunchMail || isLaunchingMail) return;
@@ -530,8 +550,11 @@ export function EstimateRequestTextPanel({
       body: text.body,
     });
     const tab = openBlankMailTab();
-    // ポップアップが止められて開けなければ何も開かないので記録しない
-    if (!tab) return;
+    // ポップアップが止められて開けなければ何も開かないので記録せず、許可を促す
+    if (!tab) {
+      setRecordError(GMAIL_POPUP_BLOCKED_MESSAGE);
+      return;
+    }
 
     setIsLaunchingMail(true);
     setRecordError(null);
@@ -546,8 +569,13 @@ export function EstimateRequestTextPanel({
       });
       if (!result.ok) {
         closeMailTab(tab);
-        if (isMountedRef.current && result.error.type === 'RECORD_FAILED') {
-          setRecordError(EXPORT_RECORD_FAILED_MESSAGE);
+        if (isMountedRef.current) {
+          if (result.error.type === 'RECORD_FAILED') {
+            setRecordError(EXPORT_RECORD_FAILED_MESSAGE);
+          } else {
+            // 記録の成功の後に作成画面へ移せなかった（記録は残る）
+            setRecordError(GMAIL_COMPOSE_OPEN_FAILED_MESSAGE);
+          }
         }
       }
     } finally {

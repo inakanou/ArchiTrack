@@ -19,6 +19,11 @@
  * - REQ-42.16: 「Gmailで開く」の記録の要求が失敗すると作成画面を開かず（空のタブは閉じる）、エラーメッセージが表示される
  *   （「メールで開く」は OS のメールクライアントを起動するため E2E では押さない。記録の後の起動は単体テストと
  *   本番ビルドの画面の実ブラウザの確認が受け持つ）
+ * - REQ-42.17: 「Gmailで開く」でポップアップが止められて新しいタブを開けない（`window.open` が null を返す）と、
+ *   記録を要求せず、ポップアップの許可を促す文言がパネルに表示される（タスク108.1）
+ * - REQ-42.18: 記録の成功の後に、開いたタブの文書へ触れられず作成画面へ移せない（`window.open` が返すタブの
+ *   `document` の読み出しを例外にする）と、タブを閉じ、再操作を促す文言がパネルに表示される。記録は 1 回残る
+ *   （タスク108.1）
  *
  * 通信の観測は URL のパスで照合する（CI とローカルで API のオリジンが異なるため）。
  * 現場調査報告書の生成の始まりは、報告書の描画が送る取得（画像の実体の fetch と注釈の取得）で観測する。
@@ -455,6 +460,14 @@ test.describe('見積依頼の詳細画面の出力の事前記録（内訳書�
 
 /** コピーの前にクリップボードへ入れておく中身（記録の失敗で変わらないことを確かめる） */
 const PREVIOUS_CLIPBOARD = 'e2e-er-previous-clipboard-content';
+
+/** ポップアップが止められたときの文言（Requirement 42.17。design.md の 2026-10-31 の章の「決定」） */
+const GMAIL_POPUP_BLOCKED_MESSAGE =
+  'ポップアップがブロックされたため Gmail を開けませんでした。ブラウザの設定でこのサイトのポップアップを許可してください。';
+
+/** 記録の成功の後に作成画面へ移せないときの文言（Requirement 42.18） */
+const GMAIL_COMPOSE_OPEN_FAILED_MESSAGE =
+  'Gmail の作成画面を開けませんでした。もう一度お試しください。';
 
 /** Gmail の作成画面の URL の照合（外部への通信は route で止める） */
 const GMAIL_URL_REGEX = /^https:\/\/mail\.google\.com\//;
@@ -921,5 +934,152 @@ test.describe('見積依頼文と選択した項目の一覧のコピー・メ�
     ).toBe(1);
     expect(gmailRequests, 'REQ-42.16: 記録の失敗では Gmail の作成画面を開かない').toEqual([]);
     await expect(gmailButton, '記録の失敗の後は再び操作できる').toBeEnabled();
+  });
+
+  /**
+   * @requirement estimate-request/REQ-42.17
+   */
+  test('「Gmailで開く」でポップアップが止められると記録を要求せず、ポップアップの許可を促す文言を表示する (estimate-request/REQ-42.17)', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const gmailRequests: string[] = [];
+    await context.route(GMAIL_URL_REGEX, async (route) => {
+      gmailRequests.push(route.request().url());
+      await route.abort();
+    });
+    await loginAsUser(page, 'REGULAR_USER');
+    // ブラウザがポップアップを止めたときと同じく、window.open が null を返す
+    await page.addInitScript(() => {
+      window.open = () => null;
+    });
+    const observed = await openDetail(page);
+    const panel = await openTextPanel(page);
+    const pagesBefore = context.pages().length;
+
+    const gmailButton = panel.getByRole('button', { name: 'Gmailで開く' });
+    await expect(gmailButton).toBeEnabled();
+    await gmailButton.click();
+
+    await expect(
+      panel.getByRole('alert'),
+      'REQ-42.17: ポップアップがブロックされた旨と許可を促す文言がパネルに表示される'
+    ).toHaveText(GMAIL_POPUP_BLOCKED_MESSAGE, { timeout: getTimeout(10000) });
+    await expect(gmailButton, '記録の要求中の状態にはしない').toBeEnabled();
+    expect(context.pages(), 'REQ-42.17: 新しいタブは開かない').toHaveLength(pagesBefore);
+
+    // 区切りの操作: 本文のコピー（記録を 1 回要求する）を行い、その記録の要求より前に
+    // 「Gmailで開く」の記録の要求が出ていないことを確かめる。コピーの開始で前の文言は消える
+    await panel.getByRole('button', { name: 'コピー', exact: true }).nth(2).click();
+    await expect(
+      panel.getByRole('button', { name: 'コピーしました', exact: true }),
+      '区切りのコピーが記録の成功の後に終わる'
+    ).toBeVisible({ timeout: getTimeout(30000) });
+    await expect(panel.getByRole('alert'), '次の操作の開始で文言が消える').toHaveCount(0);
+    expect(
+      observed.recordRequestBodies,
+      'REQ-42.17: 「Gmailで開く」は記録を要求しない（記録の要求は区切りのコピーの 1 回だけ）'
+    ).toEqual([
+      {
+        kind: 'estimate_request_text_clipboard',
+        projectId,
+        targetIds: [estimateRequestId],
+        itemCount: 1,
+      },
+    ]);
+    expect(gmailRequests, 'REQ-42.17: Gmail の作成画面を開かない').toEqual([]);
+  });
+
+  /**
+   * @requirement estimate-request/REQ-42.18
+   */
+  test('「Gmailで開く」の記録の成功の後に作成画面へ移せないとタブを閉じ、再操作を促す文言を表示する。記録は残る (estimate-request/REQ-42.18)', async ({
+    page,
+    context,
+  }) => {
+    assertPrepared(projectId, '事前準備で作成した案件のID');
+    const gmailRequests: string[] = [];
+    await context.route(GMAIL_URL_REGEX, async (route) => {
+      gmailRequests.push(route.request().url());
+      await route.abort();
+    });
+    const prisma = getPrismaClient();
+    const regularUser = await prisma.user.findUniqueOrThrow({
+      where: { email: TEST_USERS.REGULAR_USER.email },
+      select: { id: true },
+    });
+    /** この案件の「Gmailで開く」（メールで開く操作）の出力の記録の件数 */
+    const mailRecordCount = (): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'DATA_EXPORTED',
+          actorId: regularUser.id,
+          targetId: projectId!,
+          metadata: { path: ['kind'], equals: 'estimate_request_text_mail' },
+        },
+      });
+    await loginAsUser(page, 'REGULAR_USER');
+    // 実際に開いたタブを使い、その文書の読み出しだけを例外にする（利用者に閉じられた・別のオリジンへ
+    // 移されたタブと同じく、元の画面からタブの文書へ触れられない）。閉じる操作は実際のタブへ渡す
+    await page.addInitScript(() => {
+      const realOpen = window.open.bind(window);
+      window.open = (...args: Parameters<typeof window.open>) => {
+        const real = realOpen(...args);
+        if (!real) return null;
+        const unreachable = {
+          get document(): Document {
+            throw new DOMException(
+              'Blocked a frame from accessing a cross-origin frame.',
+              'SecurityError'
+            );
+          },
+          get closed() {
+            return real.closed;
+          },
+          close: () => real.close(),
+          get opener() {
+            return real.opener;
+          },
+          set opener(value: Window | null) {
+            real.opener = value;
+          },
+        };
+        return unreachable as unknown as Window;
+      };
+    });
+    const held = await holdExportRecords(page);
+    const observed = await openDetail(page);
+    const panel = await openTextPanel(page);
+    const recordsBefore = await mailRecordCount();
+
+    const gmailButton = panel.getByRole('button', { name: 'Gmailで開く' });
+    const popupPromise = context.waitForEvent('page', { timeout: getTimeout(10000) });
+    await gmailButton.click();
+    const popup = await popupPromise;
+    await held.arrived;
+    expect(popup.isClosed(), '前提: 記録の要求中は開いたタブが開いている').toBe(false);
+
+    held.release();
+
+    await expect(
+      panel.getByRole('alert'),
+      'REQ-42.18: 作成画面を開けなかった旨と再操作を促す文言がパネルに表示される'
+    ).toHaveText(GMAIL_COMPOSE_OPEN_FAILED_MESSAGE, { timeout: getTimeout(30000) });
+    await expect
+      .poll(() => popup.isClosed(), {
+        message: 'REQ-42.18: 作成画面へ移せなかったタブを閉じる',
+        timeout: getTimeout(10000),
+      })
+      .toBe(true);
+    expect(observed.recordStatuses, 'REQ-42.18: 記録の要求は 1 回で、201 で記録される').toEqual([
+      201,
+    ]);
+    expect(
+      (await mailRecordCount()) - recordsBefore,
+      'REQ-42.18: 記録は残り、取り消されない（1 件）'
+    ).toBe(1);
+    expect(gmailRequests, 'REQ-42.18: Gmail の作成画面を開かない').toEqual([]);
+    await expect(gmailButton, '失敗の後は再び操作できる').toBeEnabled();
   });
 });
