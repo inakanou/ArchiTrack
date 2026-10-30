@@ -1983,7 +1983,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 ## タスク68: 総合検証と文書の追随（要件39.8 の改訂・40.10 の見積依頼の詳細画面の 3 種別）
 
-- [ ] 68.1 全ての単体・統合テストと関門を通し、文書を揃える
+- [x] 68.1 全ての単体・統合テストと関門を通し、文書を揃える
   - backend と frontend の全単体テストと統合テストを回し、変えた部品（出力の記録の種別）を使う既存の E2E を e2e/ 全体の grep で選んで回す。関門は `:update` の変種を含めず名指しで一本ずつ回し、最後に `git status --porcelain scripts/` が空であることを確かめる
   - design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱いの起票先」の各行に、各業務 spec の受入基準・タスク・コミットを書き添え（各 spec の切り替えの完了の後）、ExportAuditService の節の見積依頼文の種別に実装のコミットと estimate-request の適用を書き添える。`docs/security/ipa-alert-20261009-remediation-plan.md` の該当の行を改める。spec.json の phase を implementation-complete へ戻すのは `/kiro-validate-impl user-authentication` が GO を出した後に行い、tasks_summary を同じ時点で測り直す
   - 関門とテストが緑（各業務 spec の切り替えの前に新しい受入基準が未被覆で赤になるものを除く）の状態になる
