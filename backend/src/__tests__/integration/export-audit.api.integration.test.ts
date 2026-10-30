@@ -288,6 +288,56 @@ describe('データ出力の記録（統合・実 DB）', () => {
   /**
    * @requirement user-authentication/REQ-40.9
    */
+  it.each([
+    ['見積依頼文のクリップボードへのコピー', 'estimate_request_text_clipboard', 1],
+    [
+      '見積依頼の選択した項目の一覧のクリップボードへのコピー',
+      'estimate_request_items_clipboard',
+      4,
+    ],
+    ['見積依頼文をメールクライアント・Gmail で開く操作', 'estimate_request_text_mail', 1],
+  ])(
+    '%s は案件に属する出力として記録され、案件の無い要求は 400 で記録が増えない',
+    async (_label, kind, itemCount) => {
+      const exportsBefore = await auditIds(owner.id, 'DATA_EXPORTED');
+
+      const rejected = await request(app)
+        .post('/api/v1/audit-logs/exports')
+        .set('Authorization', `Bearer ${owner.token}`)
+        .send({ kind, projectId: null, targetIds: ['estimate-request-a'], itemCount })
+        .expect(400);
+      expect(rejected.body.recordId).toBeUndefined();
+      expect(await auditIds(owner.id, 'DATA_EXPORTED')).toEqual(exportsBefore);
+
+      const response = await request(app)
+        .post('/api/v1/audit-logs/exports')
+        .set('Authorization', `Bearer ${owner.token}`)
+        .send({ kind, projectId, targetIds: ['estimate-request-a'], itemCount })
+        .expect(201);
+
+      const row = await prisma.auditLog.findUnique({ where: { id: response.body.recordId } });
+      expect(row).toMatchObject({
+        action: 'DATA_EXPORTED',
+        actorId: owner.id,
+        targetType: 'Project',
+        targetId: projectId,
+      });
+      expect(row!.metadata).toMatchObject({
+        kind,
+        projectId,
+        targetIds: ['estimate-request-a'],
+        itemCount,
+      });
+      const added = [...(await auditIds(owner.id, 'DATA_EXPORTED'))].filter(
+        (id) => !exportsBefore.has(id)
+      );
+      expect(added).toEqual([response.body.recordId]);
+    }
+  );
+
+  /**
+   * @requirement user-authentication/REQ-40.9
+   */
   it('監査ログの JSON 出力が、出力した行の ID と件数とともに記録される', async () => {
     // 出力する行を本テストの中で作る（一般ユーザーの出力の記録）
     await prisma.auditLog.create({

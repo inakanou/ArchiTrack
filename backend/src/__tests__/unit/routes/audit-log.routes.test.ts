@@ -383,6 +383,25 @@ describe('Audit Log Routes', () => {
       );
     });
 
+    it.each([
+      ['the estimate request text clipboard copy', 'estimate_request_text_clipboard'],
+      ['the estimate request selected items clipboard copy', 'estimate_request_items_clipboard'],
+      ['the estimate request text opened in a mail client', 'estimate_request_text_mail'],
+    ])('accepts %s as a project export', async (_label, kind) => {
+      const body = { ...validBody, kind, targetIds: ['estimate-request-1'] };
+
+      const response = await request(app).post('/api/v1/audit-logs/exports').send(body);
+
+      expect(response.status).toBe(201);
+      expect(response.body).toEqual({ recordId: 'rec-1' });
+      expect(mockExportAuditService.record).toHaveBeenCalledTimes(1);
+      expect(mockExportAuditService.record).toHaveBeenCalledWith(
+        'admin-user-id',
+        body,
+        expect.any(Object)
+      );
+    });
+
     it('returns the generic 404 when the project is out of scope', async () => {
       mockExportAuditService.record.mockResolvedValue({
         ok: false,
@@ -416,6 +435,18 @@ describe('Audit Log Routes', () => {
       [
         'an itemized statement clipboard copy without a project',
         { ...validBody, kind: 'itemized_statement_clipboard', projectId: null },
+      ],
+      [
+        'an estimate request text clipboard copy without a project',
+        { ...validBody, kind: 'estimate_request_text_clipboard', projectId: null },
+      ],
+      [
+        'an estimate request selected items clipboard copy without a project',
+        { ...validBody, kind: 'estimate_request_items_clipboard', projectId: null },
+      ],
+      [
+        'an estimate request text mail launch without a project',
+        { ...validBody, kind: 'estimate_request_text_mail', projectId: null },
       ],
       ['a malformed project id', { ...validBody, projectId: 'not-a-uuid' }],
       ['non-string target ids', { ...validBody, targetIds: [1, 2] }],

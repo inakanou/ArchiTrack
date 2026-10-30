@@ -18,7 +18,7 @@
 
 import { apiClient } from './client';
 
-/** 出力の種別（backend の export-audit.service.ts の EXPORT_KINDS と同じ 15 種） */
+/** 出力の種別（backend の export-audit.service.ts の EXPORT_KINDS と同じ並び） */
 export type ExportKind =
   | 'site_survey_report_pdf'
   | 'site_survey_images_zip'
@@ -26,6 +26,9 @@ export type ExportKind =
   | 'itemized_statement_xlsx'
   | 'itemized_statement_clipboard'
   | 'estimate_request_xlsx'
+  | 'estimate_request_text_clipboard'
+  | 'estimate_request_items_clipboard'
+  | 'estimate_request_text_mail'
   | 'estimate_pdf'
   | 'estimate_xlsx'
   | 'schedule_export'

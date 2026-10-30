@@ -1974,7 +1974,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 **改訂（2026-10-30、利用者の判断）**: estimate-request の起票の調べで、見積依頼の詳細画面のアクションの欄の選択した項目の一覧のコピーと、見積依頼文をメールクライアント・Gmail で開く操作も記録を経ていないと分かった。利用者はどちらも専用の種別で記録すると判断し（estimate-request の design.md の末尾の章「2026-10-30 の追加」の案 A）、67.1 は種別 `estimate_request_text_clipboard` の 1 つから、`estimate_request_items_clipboard` と `estimate_request_text_mail` を加えた 3 つを足す形へ改めた。要件40.10 の条文の対象の明記と改訂の記録は requirements.md の要件40 に、種別の設計は design.md の「見積依頼文のクリップボードへのコピーの種別」の改訂の項にある
 
-- [ ] 67.1 出力の種別に見積依頼の詳細画面のコピーとメールで開く操作の 3 種別を足す
+- [x] 67.1 出力の種別に見積依頼の詳細画面のコピーとメールで開く操作の 3 種別を足す
   - 種別 `estimate_request_text_clipboard`（見積依頼文のコピー）・`estimate_request_items_clipboard`（選択した項目の一覧のコピー）・`estimate_request_text_mail`（メールクライアント・Gmail で開く操作）を backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙（`audit-log.routes.ts` の注釈と `backend/docs/api-spec.json`）へ足す。いずれも案件の指定を必須とする（`PROJECTLESS_EXPORT_KINDS` に入れない）
   - backend の単体テスト（`backend/src/__tests__/unit/routes/audit-log.routes.test.ts`）と統合テスト（`backend/src/__tests__/integration/export-audit.api.integration.test.ts`）で、3 つの新しい種別のそれぞれの記録が受け付けられ `DATA_EXPORTED` が 1 件増えること、案件の指定の無い要求が 400 で記録が増えないことを確かめた状態になる。frontend の包みの既存の単体テスト（`frontend/src/__tests__/api/export-audit.clipboard.test.ts`）と型検査が緑のままの状態になる
   - _Depends: 64.1_
