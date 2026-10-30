@@ -196,8 +196,9 @@ export class ItemizedStatementService {
    * @param actorId - 実行者ID
    * @param scopeDenialContext - 範囲外の拒否の記録に添える要求の識別（経路が要求から切り出して渡す）
    * @returns 作成された内訳書情報
-   * @throws QuantityTableNotFoundError 数量表が存在しない、または作成先のプロジェクトに属さない場合
-   *   （Requirement 18.4）
+   * @throws QuantityTableNotFoundError 数量表が存在しない・論理削除済み・作成先のプロジェクトに属さない場合
+   *   （Requirement 18.4）。作成先のプロジェクトに属さない数量表は、論理削除済みかどうかに関わらず
+   *   数量表の案件を判定し、範囲外のときだけ範囲外の拒否として記録する（Requirement 18.12）
    * @throws EmptyQuantityItemsError 数量表に項目がない場合
    * @throws DuplicateItemizedStatementNameError 同名の内訳書が既に存在する場合
    */
@@ -229,13 +230,17 @@ export class ItemizedStatementService {
         select: { id: true, name: true, projectId: true, deletedAt: true },
       });
 
-      if (!quantityTable || quantityTable.deletedAt !== null) {
+      // 数量表の照合の順（design.md の「2026-10-30 の追加」章の「決定」の「数量表の照合の順」）。3 通りとも
+      // 18.4 と同じ 404（数量表の不在）で拒み、集計を呼ばず内訳書も内訳項目も作成しない。
+      // (1) 行が無い: 記録しない
+      if (!quantityTable) {
         throw new QuantityTableNotFoundError(input.sourceQuantityTableId);
       }
 
-      // 作成先のプロジェクトに属さない数量表は、範囲の内外を問わず不在と同じ応答にする（18.4）。
-      // 範囲の内外で応答を変えると範囲外の数量表の実在を推測させるため。範囲外（案件は実在する）の
-      // ときだけ、範囲外の拒否として記録する（user-authentication の要件39.7）
+      // (2) 作成先のプロジェクトに属さない: 論理削除済みかどうかに関わらず数量表の案件を判定する（18.4・
+      // 18.12）。範囲の内外で応答を変えると範囲外の数量表の実在を推測させるため、範囲の内外を問わず
+      // 不在と同じ応答にする。範囲外（案件は実在する）のときだけ、範囲外の拒否として記録する
+      // （user-authentication の要件39.7・39.8）
       if (quantityTable.projectId !== input.projectId) {
         const decision = await this.projectScope.evaluateProjectAccess(
           actorId,
@@ -244,6 +249,11 @@ export class ItemizedStatementService {
         if (decision === 'out_of_scope') {
           deniedProjectIds.add(quantityTable.projectId);
         }
+        throw new QuantityTableNotFoundError(input.sourceQuantityTableId);
+      }
+
+      // (3) 作成先のプロジェクトに属し論理削除済み: 記録しない（18.4・18.12）
+      if (quantityTable.deletedAt !== null) {
         throw new QuantityTableNotFoundError(input.sourceQuantityTableId);
       }
 

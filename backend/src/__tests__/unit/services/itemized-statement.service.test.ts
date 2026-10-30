@@ -264,7 +264,10 @@ describe('ItemizedStatementService', () => {
         userAgent: 'vitest',
       };
 
-      function arrange(quantityTableProjectId: string): {
+      function arrange(
+        quantityTableProjectId: string,
+        deletedAt: Date | null = null
+      ): {
         statementCreate: ReturnType<typeof vi.fn>;
         itemsCreate: ReturnType<typeof vi.fn>;
       } {
@@ -286,7 +289,7 @@ describe('ItemizedStatementService', () => {
                 id: input.sourceQuantityTableId,
                 name: '数量表',
                 projectId: quantityTableProjectId,
-                deletedAt: null,
+                deletedAt,
               }),
             },
             itemizedStatement: {
@@ -313,13 +316,23 @@ describe('ItemizedStatementService', () => {
         return { statementCreate, itemsCreate };
       }
 
+      /**
+       * 論理削除済みの数量表の行は、所属の照合を論理削除の確かめより先に置くため、論理削除済みでない
+       * 数量表と同じく数量表の案件を判定し、範囲外のときだけ記録する（Requirement 18.12。
+       * design.md の「2026-10-30 の追加」章の「決定」の「数量表の照合の順」の (2)、タスク30.1）。
+       *
+       * @requirement itemized-statement-generation/REQ-18.12
+       */
       it.each([
-        ['範囲外（案件は実在する）', 'out_of_scope', 1],
-        ['範囲内の他のプロジェクト', 'allowed', 0],
-        ['案件の不在・論理削除', 'not_found', 0],
+        ['範囲外（案件は実在する）', 'out_of_scope', 1, null],
+        ['範囲内の他のプロジェクト', 'allowed', 0, null],
+        ['案件の不在・論理削除', 'not_found', 0, null],
+        ['範囲外（案件は実在する）の論理削除済み', 'out_of_scope', 1, new Date('2026-10-01')],
+        ['範囲内の他のプロジェクトの論理削除済み', 'allowed', 0, new Date('2026-10-01')],
+        ['案件の不在・論理削除の論理削除済み', 'not_found', 0, new Date('2026-10-01')],
       ] as const)(
         '%s の数量表は数量表の不在と同じ例外にして集計も内訳書の作成もせず、範囲外のときだけ PROJECT_SCOPE_DENIED を記録する',
-        async (_label, decision, recorded) => {
+        async (_label, decision, recorded, deletedAt) => {
           const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue(decision) };
           service = new ItemizedStatementService({
             prisma: mockPrisma,
@@ -327,7 +340,7 @@ describe('ItemizedStatementService', () => {
             pivotService: mockPivotService,
             projectScope,
           });
-          const { statementCreate, itemsCreate } = arrange('proj-other');
+          const { statementCreate, itemsCreate } = arrange('proj-other', deletedAt);
 
           await expect(service.create(input, actorId, context)).rejects.toThrow(
             QuantityTableNotFoundError
@@ -371,6 +384,37 @@ describe('ItemizedStatementService', () => {
         expect(result.id).toBe('is-001');
         expect(statementCreate).toHaveBeenCalledTimes(1);
         expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+        const denials = vi
+          .mocked(mockAuditLogService.createLog)
+          .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+        expect(denials).toHaveLength(0);
+      });
+
+      /**
+       * 作成先のプロジェクトに属する論理削除済みの数量表は、不在と同じ例外で拒み、範囲を判定せず
+       * 記録しない（Requirement 18.12 の後段。design.md の「2026-10-30 の追加」章の「決定」の
+       * 「数量表の照合の順」の (3)、タスク30.1）。
+       *
+       * @requirement itemized-statement-generation/REQ-18.12
+       */
+      it('作成先のプロジェクトの論理削除済みの数量表は範囲を判定も記録もせず、数量表の不在と同じ例外にして集計も内訳書の作成もしない', async () => {
+        const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue('out_of_scope') };
+        service = new ItemizedStatementService({
+          prisma: mockPrisma,
+          auditLogService: mockAuditLogService,
+          pivotService: mockPivotService,
+          projectScope,
+        });
+        const { statementCreate, itemsCreate } = arrange('proj-001', new Date('2026-10-01'));
+
+        await expect(
+          service.create({ ...input, sourceQuantityTableId: 'qt-own' }, actorId, context)
+        ).rejects.toThrow(QuantityTableNotFoundError);
+
+        expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+        expect(mockPivotService.aggregateByQuantityTable).not.toHaveBeenCalled();
+        expect(statementCreate).not.toHaveBeenCalled();
+        expect(itemsCreate).not.toHaveBeenCalled();
         const denials = vi
           .mocked(mockAuditLogService.createLog)
           .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
