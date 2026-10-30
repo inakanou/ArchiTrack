@@ -493,3 +493,29 @@
   - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、応答の英語の文言と取得・操作の失敗の汎用の文言を出さない状態になる
   - _Requirements: 14.1, 14.2_
   - _Boundary: ScheduleListPage, ScheduleCreatePage, ScheduleForm, ScheduleDetailPage, useScheduleState, ExportDialog_
+
+## タスク25: 論理的に取り除かれた工程表・論理削除済みの数量表の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、記録しない「論理削除」を案件そのものの論理削除に限り、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」とその起票先の一覧の construction-schedule の行）。本スペックは、解決関数 `findProjectIdOfSchedule` が論理的に取り除かれた工程表で null を返し、`ScheduleService` の `createWithin` が論理削除済みの数量表を所属の照合より先に 422 で弾くため、範囲外の案件のものでも記録しない（2026-10-30 の調査。行は着手時に測り直すこと）。requirements.md の 13.8 を改め（改訂の記録を同要件に残した）、13.9・13.10 を加え、design.md の末尾の章「2026-10-30 の追加: 論理的に取り除かれた工程表・論理削除済みの数量表の範囲外の記録」に設計を置いた。応答とデータと画面は変えない
+
+- [ ] 25.1 解決関数が論理的に取り除かれた工程表にも実際の案件を返し、範囲外なら記録されるようにする
+  - backend/src/middleware/construction-schedule-project-scope.middleware.ts の `findProjectIdOfSchedule` を、行が無いときだけ null を返し、行が実在すれば論理的に取り除かれているかどうかを添えて案件 ID を返す形へ改める。`requireScheduleProjectScope` の解決関数は、論理的に取り除かれた工程表では経路の形（`/api/schedules/:id`、同じ案件の配下の経路、食い違いの経路）を問わず `projectMismatch(工程表の案件 ID)` を返す（同じ案件の経路と `/api/schedules` のマウントで取り除かれた工程表を指したときの従来の汎用の 404 を保つための切り分け。design.md の同章の「決定」の表）。取り除かれていない工程表の振る舞い（一致なら案件 ID、食い違いなら `projectMismatch`）は変えない。同ファイルの冒頭の注釈と関数の注釈を改める
+  - backend/src/routes/schedules.routes.ts の出力の経路が記録に添える案件を `findProjectIdOfSchedule` で引く箇所を新しい戻り値に合わせ、行が無いときと論理的に取り除かれているときは従来の競合の扱い（`NotFoundError` の汎用の 404。出力の記録も生成もしない）とする
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体（`backend/src/__tests__/unit/middleware/construction-schedule-project-scope.middleware.test.ts`）の「工程表の ID から案件 ID を引き、工程表が無いか論理的に取り除かれていれば null を返す」「論理的に取り除かれた工程表は、案件が範囲外でも範囲を判定せずに不在と同じ 404 にし、記録しない」「二重マウントで論理的に取り除かれた工程表を指すと、工程表の案件が範囲外で経路の案件と食い違っても、範囲を判定せずに不在と同じ 404 にし、記録しない（13.8）」の 3 本。統合（`backend/src/__tests__/integration/construction-schedule-project-scope.api.integration.test.ts`）の「論理的に取り除かれた工程表は、範囲の内外を問わず存在しない工程表と同じ汎用の 404 を返す」（範囲外の利用者で記録の差 0）と「二重マウントの経路で、範囲外の案件の論理的に取り除かれた工程表を範囲内の案件の経路で指すと、不在と同じ 404 になり、記録せず、データを変えずファイルを生成しない」の 2 本。改め方は design.md の同章の「既存のテストの書き換え」のとおり（範囲外なら記録 1 件、範囲内と案件そのものの論理削除では記録なし、どれも存在しない工程表と同じ汎用の 404 で本体へ進まずデータが変わらず、出力の経路でファイルと `DATA_EXPORTED` が増えない）。題名と記録しない理由の注釈も改める
+  - E2E（`e2e/specs/schedules/construction-schedule-project-scope.spec.ts`）で、担当外の利用者が範囲外の案件の論理的に取り除かれた工程表を `/api/schedules/:id` の詳細と範囲内の案件の配下の経路で指すと、存在しない工程表と同じ 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件ずつ増えることを主張し、`@requirement construction-schedule/REQ-13.8`・`REQ-13.9` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（工程表の詳細・更新・一括保存・取り除き・出力の 404、`PROJECT_SCOPE_DENIED` と `DATA_EXPORTED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 13.8 の二重マウントのテスト、14.2 の開いた後に論理的に取り除かれた工程表の保存・出力・削除のテスト、`construction-schedule-export-audit.spec.ts` を含む）
+  - 挙動の変更であるため RED → GREEN で進め、書き換えたテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、論理的に取り除かれた工程表の ID 指定が範囲外のときだけ記録され、どの場合も存在しない工程表と同じ汎用の 404 でデータが変わらずファイルを生成しない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 13.8, 13.9_
+  - _Boundary: findProjectIdOfSchedule, requireScheduleProjectScope の解決関数, 出力の経路の記録の案件の引き当てと、論理的に取り除かれた工程表の記録を主張する本スペックのテスト_
+
+- [ ] 25.2 工程表の作成で、範囲外の案件の論理削除済みの数量表を記録する
+  - backend/src/services/schedule.service.ts の `createWithin` の数量表の照合の順を、行が無い（422、記録しない）→ 作成先のプロジェクトに属さない（`evaluateProjectAccess` で範囲外なら `deniedProjectIds` へ入れたうえ 422）→ 作成先のプロジェクトに属し論理削除済み（422、記録しない）へ改める（design.md の同章の「決定」の「数量表の照合の順」）。応答は 3 通りとも 13.4 と同じ 422 の `SCHEDULE_VALIDATION_ERROR` と本文「指定された数量表が見つかりません」のまま、数量項目を読まず工程表と工程項目を作成しない。照合の注釈を改める
+  - **既存のテストへの追加**（主張を消さない）: 単体（`backend/src/__tests__/unit/services/schedule.service.test.ts`）の「論理削除された数量表が指定された場合バリデーションエラーになること」は作成先のプロジェクトの論理削除済みの数量表として保ち、判定も記録もしない主張を足す。同ファイルの「作成先のプロジェクトに属さない数量表（Requirement 13.4、タスク22.1）」の表に、論理削除済みの数量表の場合（範囲外は判定して記録 1 回で対象は数量表の案件、範囲内の他のプロジェクト・案件の不在は記録なし。どれも不在と同じ 422 と本文で数量項目を読まず作成しない）を足す。統合（`backend/src/__tests__/integration/construction-schedule-project-scope.api.integration.test.ts` の「作成の要求が指す数量表（13.4）」）に、範囲外の案件の論理削除済みの数量表を指す作成が存在しない数量表と同じ 422 の本文で `PROJECT_SCOPE_DENIED` が 1 件増え、工程表と工程項目が増えないテストを足す。既存の範囲外の数量表の記録のテストに `@requirement construction-schedule/REQ-13.10` の印を足すかは実装時に決める
+  - E2E（`e2e/specs/schedules/construction-schedule-project-scope.spec.ts`）で、範囲外の案件の論理削除済みの数量表を指す工程表の作成が存在しない数量表と同じ 422 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、工程表が作られないことを主張し、`@requirement construction-schedule/REQ-13.10` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 挙動の変更であるため RED → GREEN で進め、足したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、範囲外の案件の論理削除済みの数量表を指す作成が不在と同じ 422 で記録され、作成先のプロジェクトの論理削除済みの数量表では記録されない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 13.10_
+  - _Boundary: ScheduleService の工程表の作成の数量表の照合と、その記録を主張する本スペックのテスト_
