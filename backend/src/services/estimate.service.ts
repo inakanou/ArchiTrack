@@ -266,8 +266,9 @@ export class EstimateService {
    * @param actorId - 実行者ID
    * @returns 作成された見積書情報
    * @throws ProjectNotFoundError プロジェクトが存在しない場合
-   * @throws ItemizedStatementNotFoundForEstimateError 内訳書が存在しない、または作成先のプロジェクトに
-   *   属さない場合（Requirement 57.4）
+   * @throws ItemizedStatementNotFoundForEstimateError 内訳書が存在しない・論理削除済み・作成先のプロジェクトに
+   *   属さない場合（Requirement 57.4）。作成先のプロジェクトに属さない内訳書は、論理削除済みかどうかに関わらず
+   *   内訳書の案件を判定し、範囲外のときだけ範囲外の拒否として記録する（Requirement 57.10）
    * @throws DuplicateEstimateNameError 同名の見積書が既に存在する場合
    */
   async create(
@@ -333,16 +334,17 @@ export class EstimateService {
           },
         });
 
-        if (
-          !itemizedStatement ||
-          (itemizedStatement as { deletedAt?: Date | null }).deletedAt !== null
-        ) {
+        // 内訳書の照合の順（design.md の「2026-10-30 の追加」章の「決定」の「内訳書の照合の順」）。3 通りとも
+        // 57.4 と同じ 404（内訳書の不在）で拒み、同名の見積書の確かめに進まず見積書も見積項目も作成しない。
+        // (1) 行が無い: 記録しない
+        if (!itemizedStatement) {
           throw new ItemizedStatementNotFoundForEstimateError(input.sourceItemizedStatementId);
         }
 
-        // 作成先のプロジェクトに属さない内訳書は、範囲の内外を問わず不在と同じ応答にする（57.4）。
-        // 範囲の内外で応答を変えると範囲外の内訳書の実在を推測させるため。範囲外（案件は実在する）の
-        // ときだけ、範囲外の拒否として記録する（user-authentication の要件39.7）
+        // (2) 作成先のプロジェクトに属さない: 論理削除済みかどうかに関わらず内訳書の案件を判定する（57.4・
+        // 57.10）。範囲の内外で応答を変えると範囲外の内訳書の実在を推測させるため、範囲の内外を問わず
+        // 不在と同じ応答にする。範囲外（案件は実在する）のときだけ、範囲外の拒否として記録する
+        // （user-authentication の要件39.7・39.8）
         const statementProjectId = itemizedStatement.projectId;
         if (statementProjectId !== input.projectId) {
           const decision = await this.projectScope.evaluateProjectAccess(
@@ -352,6 +354,11 @@ export class EstimateService {
           if (decision === 'out_of_scope') {
             deniedProjectIds.add(statementProjectId);
           }
+          throw new ItemizedStatementNotFoundForEstimateError(input.sourceItemizedStatementId);
+        }
+
+        // (3) 作成先のプロジェクトに属し論理削除済み: 記録しない（57.4・57.10）
+        if ((itemizedStatement as { deletedAt?: Date | null }).deletedAt !== null) {
           throw new ItemizedStatementNotFoundForEstimateError(input.sourceItemizedStatementId);
         }
       }

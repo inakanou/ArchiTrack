@@ -334,7 +334,10 @@ describe('EstimateService', () => {
         userAgent: 'vitest',
       };
 
-      function arrange(): { estimateCreate: ReturnType<typeof vi.fn> } {
+      function arrange(
+        statementProjectId = 'proj-other',
+        deletedAt: Date | null = null
+      ): { estimateCreate: ReturnType<typeof vi.fn> } {
         const estimateCreate = vi.fn();
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
@@ -347,8 +350,8 @@ describe('EstimateService', () => {
               findUnique: vi.fn().mockResolvedValue({
                 id: 'is-foreign',
                 name: '他の案件の内訳書',
-                projectId: 'proj-other',
-                deletedAt: null,
+                projectId: statementProjectId,
+                deletedAt,
                 items: [],
               }),
             },
@@ -359,20 +362,30 @@ describe('EstimateService', () => {
         return { estimateCreate };
       }
 
+      /**
+       * 論理削除済みの内訳書の行は、所属の照合を論理削除の確かめより先に置くため、論理削除済みでない
+       * 内訳書と同じく内訳書の案件を判定し、範囲外のときだけ記録する（Requirement 57.10。
+       * design.md の「2026-10-30 の追加」章の「決定」の「内訳書の照合の順」の (2)、タスク65.1）。
+       *
+       * @requirement estimate-creation/REQ-57.10
+       */
       it.each([
-        ['範囲外（案件は実在する）', 'out_of_scope', 1],
-        ['範囲内の他のプロジェクト', 'allowed', 0],
-        ['案件の不在・論理削除', 'not_found', 0],
+        ['範囲外（案件は実在する）', 'out_of_scope', 1, null],
+        ['範囲内の他のプロジェクト', 'allowed', 0, null],
+        ['案件の不在・論理削除', 'not_found', 0, null],
+        ['範囲外（案件は実在する）の論理削除済み', 'out_of_scope', 1, new Date('2026-10-01')],
+        ['範囲内の他のプロジェクトの論理削除済み', 'allowed', 0, new Date('2026-10-01')],
+        ['案件の不在・論理削除の論理削除済み', 'not_found', 0, new Date('2026-10-01')],
       ] as const)(
         '%s の内訳書は内訳書の不在と同じ例外にして見積書を作らず、範囲外のときだけ PROJECT_SCOPE_DENIED を記録する',
-        async (_label, decision, recorded) => {
+        async (_label, decision, recorded, deletedAt) => {
           const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue(decision) };
           service = new EstimateService({
             prisma: mockPrisma,
             auditLogService: mockAuditLogService,
             projectScope,
           });
-          const { estimateCreate } = arrange();
+          const { estimateCreate } = arrange('proj-other', deletedAt);
 
           await expect(service.create(input, actorId, context)).rejects.toThrow(
             ItemizedStatementNotFoundForEstimateError
@@ -444,6 +457,34 @@ describe('EstimateService', () => {
 
         expect(result.sourceItemizedStatementId).toBe('is-own');
         expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+      });
+
+      /**
+       * 作成先のプロジェクトに属する論理削除済みの内訳書は、不在と同じ例外で拒み、範囲を判定せず
+       * 記録しない（Requirement 57.10 の後段。design.md の「2026-10-30 の追加」章の「決定」の
+       * 「内訳書の照合の順」の (3)、タスク65.1）。
+       *
+       * @requirement estimate-creation/REQ-57.10
+       */
+      it('作成先のプロジェクトの論理削除済みの内訳書は範囲を判定も記録もせず、内訳書の不在と同じ例外にして見積書を作らない', async () => {
+        const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue('out_of_scope') };
+        service = new EstimateService({
+          prisma: mockPrisma,
+          auditLogService: mockAuditLogService,
+          projectScope,
+        });
+        const { estimateCreate } = arrange('proj-001', new Date('2026-10-01'));
+
+        await expect(
+          service.create({ ...input, sourceItemizedStatementId: 'is-own' }, actorId, context)
+        ).rejects.toThrow(ItemizedStatementNotFoundForEstimateError);
+
+        expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+        expect(estimateCreate).not.toHaveBeenCalled();
+        const denials = vi
+          .mocked(mockAuditLogService.createLog)
+          .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+        expect(denials).toHaveLength(0);
       });
     });
 
@@ -858,6 +899,7 @@ describe('EstimateService', () => {
       const mockDeletedItemizedStatement = {
         id: 'is-deleted',
         name: 'テスト内訳書',
+        projectId: 'proj-001', // 作成先のプロジェクトの論理削除済みの内訳書（タスク65.1）
         deletedAt: new Date(), // 削除済み
         items: [],
       };

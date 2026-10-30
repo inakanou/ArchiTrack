@@ -7,7 +7,8 @@
  * 範囲外を存在しない場合と同じ汎用の 404 にする。見積書の作成の要求が指す内訳書が経路のプロジェクトに属さなければ
  * 内訳書の不在と同じ 404 にし、見積明細の一括保存に他の見積書の見積項目が混じれば要求全体を 422 で拒否する。
  *
- * 被覆する受入基準（estimate-creation の Requirement 57.1〜57.6）は各テストの `@requirement` の印が名乗る。
+ * 被覆する受入基準（estimate-creation の Requirement 57.1〜57.6、57.9〔タスク63.1〕、57.10〔タスク65.1〕）は
+ * 各テストの `@requirement` の印が名乗る。
  * 出力の記録（57.7・57.8）はタスク62.2 の担当で、本ファイルは扱わない。
  *
  * タスク64.1 で、画面が 404 を受けたときの表示（Requirement 58.1・58.2）を足した。範囲外と不在は同じ 404 であり、
@@ -568,6 +569,110 @@ test.describe('見積書・見積明細・在席・受領見積書の一覧の�
 
     expect(await snapshot(sibling.projectId)).toEqual(beforeSibling);
     expect(await snapshot(foreign.projectId), 'データは変わらない').toEqual(beforeForeign);
+  });
+
+  /**
+   * 見積書の作成で、内訳書の所属の照合を論理削除の確かめより先に置く（estimate-creation タスク65.1。
+   * design.md の「2026-10-30 の追加」章の「決定」の「内訳書の照合の順」）。範囲外の案件の論理削除済みの
+   * 内訳書を指す作成は、存在しない内訳書と同じ 404 と本文のまま、内訳書の案件を対象に 1 件記録し、見積書を
+   * 作らない。自分の案件の論理削除済みの内訳書は同じ 404 で記録しない（user-authentication の要件39.8 の
+   * 改訂。対象のデータの論理削除は記録の要否を変えない）。
+   *
+   * @requirement estimate-creation/REQ-57.10
+   * @requirement user-authentication/REQ-39.8
+   */
+  test('範囲外の案件の論理削除済みの内訳書を指す見積書の作成は、存在しない内訳書と同じ 404 になり、内訳書の案件を対象に監査の記録が 1 件増え、見積書は作られない', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('own-is-deleted', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const foreign = await createFixture('foreign-is-deleted', {
+      salesPersonId: other.id,
+      createdById: other.id,
+    });
+    const prisma = getPrismaClient();
+    await prisma.itemizedStatement.update({
+      where: { id: foreign.itemizedStatementId },
+      data: { deletedAt: new Date() },
+    });
+    const ownSuffix = uniqueSuffix();
+    const ownDeleted = await prisma.itemizedStatement.create({
+      data: {
+        projectId: target.projectId,
+        name: `閲覧範囲検証の論理削除済みの内訳書 ${ownSuffix}`,
+        sourceQuantityTableId: `${NAME_PREFIX}own-deleted-${ownSuffix}-qt`,
+        sourceQuantityTableName: '論理削除済みの内訳書の数量表',
+        deletedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    const beforeTarget = await snapshot(target.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+    const estimateName = `論理削除済みの内訳書からの作成の試み ${uniqueSuffix()}`;
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+    const create = (sourceItemizedStatementId: string) =>
+      request.post(`${API_BASE_URL}/api/projects/${target.projectId}/estimates`, {
+        headers,
+        data: { name: estimateName, sourceItemizedStatementId },
+      });
+    /** 本文に写る要求の内訳書 ID を伏せて、存在しない内訳書の本文と比べる形にする */
+    const masked = (body: Record<string, unknown>, statementId: string): string =>
+      JSON.stringify(withoutInstance(body)).split(statementId).join('<id>');
+
+    // 存在しない内訳書: 404 で記録しない
+    const missingBefore = await deniedCount();
+    const missing = await create(MISSING_ID);
+    expect(missing.status(), '存在しない内訳書').toBe(404);
+    const missingBody = (await missing.json()) as Record<string, unknown>;
+    expect(missingBody.code).toBe('ITEMIZED_STATEMENT_NOT_FOUND');
+    const missingMasked = masked(missingBody, MISSING_ID);
+    expect((await deniedCount()) - missingBefore, '存在しない内訳書は記録しない').toBe(0);
+
+    // 範囲外の案件の論理削除済みの内訳書: 不在と同じ 404 で、内訳書の案件を対象に 1 件記録する
+    const allBefore = await deniedCount();
+    const foreignBefore = await deniedCount(foreign.projectId);
+    const foreignStatement = await create(foreign.itemizedStatementId);
+    expect(foreignStatement.status(), '範囲外の案件の論理削除済みの内訳書').toBe(404);
+    const foreignBody = (await foreignStatement.json()) as Record<string, unknown>;
+    expect(masked(foreignBody, foreign.itemizedStatementId), '存在しない内訳書と同じ本文').toBe(
+      missingMasked
+    );
+    expect(JSON.stringify(withoutInstance(foreignBody))).not.toContain(foreign.projectId);
+    expect((await deniedCount()) - allBefore, '記録は 1 件だけ増える').toBe(1);
+    expect((await deniedCount(foreign.projectId)) - foreignBefore, '記録の対象は内訳書の案件').toBe(
+      1
+    );
+
+    // 自分の案件の論理削除済みの内訳書: 不在と同じ 404 で記録しない
+    const ownBefore = await deniedCount();
+    const ownStatement = await create(ownDeleted.id);
+    expect(ownStatement.status(), '自分の案件の論理削除済みの内訳書').toBe(404);
+    expect(
+      masked((await ownStatement.json()) as Record<string, unknown>, ownDeleted.id),
+      '自分の案件の論理削除済みの内訳書も不在と同じ本文'
+    ).toBe(missingMasked);
+    expect((await deniedCount()) - ownBefore, '自分の案件の論理削除済みの内訳書は記録しない').toBe(
+      0
+    );
+
+    // 見積書は作られず、どちらの案件の見積書も変わらない
+    expect(await prisma.estimate.count({ where: { name: estimateName } })).toBe(0);
+    expect(await snapshot(target.projectId)).toEqual(beforeTarget);
+    expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
   });
 
   /**

@@ -965,6 +965,83 @@ describe('見積書・見積明細・在席・受領見積書の一覧の API �
         })
       ).toBe(deniedBefore);
     });
+
+    /**
+     * 所属の照合を論理削除の確かめより先に置くため、範囲外の案件の論理削除済みの内訳書を指す作成は、
+     * 存在しない内訳書と同じ 404 の本文のまま、内訳書の案件を対象に範囲外の拒否として 1 件記録する。
+     * 作成先のプロジェクトの論理削除済みの内訳書と、範囲内の利用者が同じ論理削除済みの内訳書を指す
+     * 作成は記録しない（design.md の「2026-10-30 の追加」章の「決定」の「内訳書の照合の順」、
+     * タスク65.1）。
+     *
+     * @requirement estimate-creation/REQ-57.10
+     */
+    it('作成の要求が範囲外の案件の論理削除済みの内訳書を指すと、存在しない内訳書と同じ 404 の本文になり、見積書を作成せず、内訳書の案件を対象に範囲外の拒否として 1 件記録する', async () => {
+      const deletedStatement = (projectId: string, label: string) =>
+        prisma.itemizedStatement.create({
+          data: {
+            projectId,
+            name: `${MARK}-${label}-deleted-statement`,
+            sourceQuantityTableId: `${MARK}-${label}-deleted-qt`,
+            sourceQuantityTableName: `${label} の論理削除済みの数量表`,
+            deletedAt: new Date(),
+          },
+          select: { id: true },
+        });
+      const deletedForeign = await deletedStatement(other.projectId, 'other');
+      const deletedOwn = await deletedStatement(target.projectId, 'target');
+      const deniedCount = (actorId: string, targetId?: string): Promise<number> =>
+        prisma.auditLog.count({
+          where: { action: 'PROJECT_SCOPE_DENIED', actorId, ...(targetId ? { targetId } : {}) },
+        });
+      const name = `${MARK}-cross-deleted`;
+      const create = (actor: TestUser, sourceItemizedStatementId: string) =>
+        request(app)
+          .post(`/api/projects/${target.projectId}/estimates`)
+          .set(...auth(actor))
+          .send({ name, sourceItemizedStatementId })
+          .expect(404);
+      try {
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+
+        const missing = await create(sales, MISSING_ID);
+        expect(missing.body.code).toBe('ITEMIZED_STATEMENT_NOT_FOUND');
+        const missingMasked = maskStatementId(missing.body, MISSING_ID);
+
+        // 範囲外の案件の論理削除済みの内訳書: 内訳書の案件を対象に 1 件記録する
+        const allBefore = await deniedCount(sales.id);
+        const foreignBefore = await deniedCount(sales.id, other.projectId);
+        const foreign = await create(sales, deletedForeign.id);
+        expect(foreign.body.code).toBe('ITEMIZED_STATEMENT_NOT_FOUND');
+        expect(maskStatementId(foreign.body, deletedForeign.id)).toBe(missingMasked);
+        expect(JSON.stringify(withoutInstance(foreign.body))).not.toContain(other.projectId);
+        expect((await deniedCount(sales.id)) - allBefore, '記録は 1 件だけ増える').toBe(1);
+        expect(
+          (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+          '記録の対象は内訳書の案件'
+        ).toBe(1);
+
+        // 作成先のプロジェクトの論理削除済みの内訳書: 同じ 404 で記録しない
+        const ownBefore = await deniedCount(sales.id);
+        const own = await create(sales, deletedOwn.id);
+        expect(maskStatementId(own.body, deletedOwn.id)).toBe(missingMasked);
+        expect((await deniedCount(sales.id)) - ownBefore).toBe(0);
+
+        // 範囲内の利用者が同じ論理削除済みの内訳書を指しても記録しない
+        const readAllBefore = await deniedCount(readAll.id);
+        const inScope = await create(readAll, deletedForeign.id);
+        expect(maskStatementId(inScope.body, deletedForeign.id)).toBe(missingMasked);
+        expect((await deniedCount(readAll.id)) - readAllBefore).toBe(0);
+
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other)).toEqual(beforeOther);
+        expect(await prisma.estimate.count({ where: { name } })).toBe(0);
+      } finally {
+        await prisma.itemizedStatement.deleteMany({
+          where: { id: { in: [deletedForeign.id, deletedOwn.id] } },
+        });
+      }
+    });
   });
 
   describe('見積明細の一括保存の見積項目の所属（57.5）', () => {
