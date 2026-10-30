@@ -7,6 +7,11 @@
  * 入れ子の経路をこのテストの中だけで組み立てる（本番の経路は変えない）。
  * 39.8 の被覆の印は、最初に切り替える業務 spec の E2E が担うため、ここには置かない（タスク63.2）。
  *
+ * 対象のデータの論理削除の扱い（要件39.8 の改訂、2026-10-30、タスク66.1）: 論理削除を持つ子（数量表）を
+ * 指す入れ子の経路も組み立て、論理削除を区別しない解決関数を置く。判定部品は対象の論理削除を知らずに
+ * 子の実際の案件で判定し、範囲外なら記録し、案件そのものが論理削除済みなら記録しないことを確かめる。
+ * 39.8 の改訂の被覆の印は各業務 spec の切り替えの E2E が担うため、ここには置かない。
+ *
  * 記録の数は、このテストの利用者の前後の差で数える（他のテストの記録に左右されない）。
  */
 
@@ -57,8 +62,38 @@ function childProjectResolver(prisma: PrismaClient): ProjectIdResolver {
   };
 }
 
+/**
+ * 入れ子の経路の子（数量表）から案件を解決する。数量表と案件の論理削除を区別せず、行が実在する限り
+ * 実際の案件を返す（要件39.8 の改訂の方針の解決関数）。案件そのものの論理削除は判定部品の判定
+ * （evaluateProjectAccess の not_found）に任せる。経路の案件と食い違えば projectMismatch
+ */
+function softDeletableChildProjectResolver(prisma: PrismaClient): ProjectIdResolver {
+  return async (req) => {
+    const routeProjectId = req.params.projectId as string;
+    const table = await prisma.quantityTable.findUnique({
+      where: { id: req.params.tableId as string },
+      select: { projectId: true },
+    });
+    if (!table) {
+      return null;
+    }
+    if (table.projectId !== routeProjectId) {
+      return projectMismatch(table.projectId);
+    }
+    return routeProjectId;
+  };
+}
+
 function buildNestedApp(prisma: PrismaClient): express.Express {
   const app = express();
+  app.get(
+    '/test/projects/:projectId/tables/:tableId',
+    authenticate,
+    requireProjectScope(softDeletableChildProjectResolver(prisma)),
+    (_req: Request, res: Response) => {
+      res.status(200).json({ reached: true });
+    }
+  );
   app.get(
     '/test/projects/:projectId/children/:childId',
     authenticate,
@@ -114,6 +149,7 @@ describe('経路の案件と子の実際の案件の食い違いの記録（統�
       ],
     });
     await prisma.projectStatusHistory.deleteMany({ where: { projectId: { in: projectIds } } });
+    await prisma.quantityTable.deleteMany({ where: { projectId: { in: projectIds } } });
     await prisma.project.deleteMany({ where: { id: { in: projectIds } } });
     await prisma.userRole.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
@@ -250,5 +286,98 @@ describe('経路の案件と子の実際の案件の食い違いの記録（統�
     // 不在と範囲外の食い違いの本文が一致する（見分けられない）
     expect(withoutInstance(missing.body)).toEqual(withoutInstance(mismatch.body));
     expect((await deniedLogsOfMember()).length).toBe(before);
+  });
+  describe('対象のデータの論理削除（要件39.8 の改訂）', () => {
+    const SOFT_DELETED_AT = new Date('2026-10-01T00:00:00Z');
+    /** 範囲外の案件（実在）の論理削除済みの数量表 */
+    let deletedTableOfOutOfScopeId: string;
+    /** 論理削除済みの範囲外の案件の論理削除済みの数量表 */
+    let deletedProjectId: string;
+    let deletedTableOfDeletedProjectId: string;
+
+    async function createSoftDeletedTable(projectId: string, suffix: string): Promise<string> {
+      const table = await prisma.quantityTable.create({
+        data: { projectId, name: `${MARK}-${suffix}`, deletedAt: SOFT_DELETED_AT },
+        select: { id: true },
+      });
+      return table.id;
+    }
+
+    function getTable(projectId: string, tableId: string) {
+      return request(app)
+        .get(`/test/projects/${projectId}/tables/${tableId}`)
+        .set('Authorization', `Bearer ${member.token}`);
+    }
+
+    beforeAll(async () => {
+      deletedTableOfOutOfScopeId = await createSoftDeletedTable(
+        outOfScopeProjectId,
+        'deleted-table-of-out-of-scope'
+      );
+      ({ projectId: deletedProjectId } = await createProjectWithChild('deleted-project', owner.id));
+      deletedTableOfDeletedProjectId = await createSoftDeletedTable(
+        deletedProjectId,
+        'deleted-table-of-deleted-project'
+      );
+      await prisma.project.update({
+        where: { id: deletedProjectId },
+        data: { deletedAt: SOFT_DELETED_AT },
+      });
+
+      // 前提: 対象の数量表はどちらも論理削除済みで、行は実在する
+      const tables = await prisma.quantityTable.findMany({
+        where: { id: { in: [deletedTableOfOutOfScopeId, deletedTableOfDeletedProjectId] } },
+        select: { deletedAt: true },
+      });
+      expect(tables).toHaveLength(2);
+      expect(tables.every((table) => table.deletedAt !== null)).toBe(true);
+    });
+
+    it.each([
+      ['経路の案件が範囲内の別の案件（食い違い）', () => routeProjectId],
+      ['経路の案件が子の実際の案件（食い違いなし）', () => outOfScopeProjectId],
+    ])(
+      '範囲外の案件の論理削除済みの子を指すと、%sでも不在と同じ 404 で、子の実際の案件を対象に 1 件記録される',
+      async (_label, routeOf) => {
+        const route = routeOf();
+        const beforeIds = new Set((await deniedLogsOfMember()).map((log) => log.id));
+
+        const missing = await getTable(route, MISSING_CHILD_ID).expect(404);
+        const deleted = await getTable(route, deletedTableOfOutOfScopeId).expect(404);
+
+        expect(deleted.body.code).toBe('NOT_FOUND');
+        expect(deleted.body).not.toHaveProperty('reached');
+        expect(withoutInstance(deleted.body)).toEqual(withoutInstance(missing.body));
+        // 本文（経路を写す instance を除く）に子の実際の案件の ID を含めない
+        expect(JSON.stringify(withoutInstance(deleted.body))).not.toContain(outOfScopeProjectId);
+
+        const added = (await deniedLogsOfMember()).filter((log) => !beforeIds.has(log.id));
+        expect(added).toHaveLength(1);
+        expect(added[0]).toMatchObject({ targetType: 'Project', targetId: outOfScopeProjectId });
+        expect(added[0]?.metadata).toMatchObject({
+          method: 'GET',
+          path: `/test/projects/${route}/tables/${deletedTableOfOutOfScopeId}`,
+        });
+      }
+    );
+
+    it('論理削除済みの案件の論理削除済みの子を指すと、不在と同じ 404 で記録は増えない', async () => {
+      const before = (await deniedLogsOfMember()).length;
+
+      const missing = await getTable(routeProjectId, MISSING_CHILD_ID).expect(404);
+      const deleted = await getTable(routeProjectId, deletedTableOfDeletedProjectId).expect(404);
+
+      expect(deleted.body.code).toBe('NOT_FOUND');
+      expect(deleted.body).not.toHaveProperty('reached');
+      expect(withoutInstance(deleted.body)).toEqual(withoutInstance(missing.body));
+      expect(JSON.stringify(deleted.body)).not.toContain(deletedProjectId);
+      expect((await deniedLogsOfMember()).length).toBe(before);
+      // 案件そのものの記録も増えていない（利用者を問わず）
+      expect(
+        await prisma.auditLog.count({
+          where: { action: 'PROJECT_SCOPE_DENIED', targetId: deletedProjectId },
+        })
+      ).toBe(0);
+    });
   });
 });

@@ -386,3 +386,188 @@ describe('recordProjectMismatchIfOutOfScope（要件39.8）', () => {
     expect(evaluateFailed.status).toBe(500);
   });
 });
+
+/**
+ * 対象のデータの論理削除の扱い（要件39.8 の改訂、2026-10-30、タスク66.1）。
+ * 判定部品は解決関数が返す案件 ID だけを見て、対象のデータの論理削除を知らない。解決関数が論理削除済みの
+ * 対象の行から実際の案件を引いて返したとき、その案件が範囲外なら記録し、案件そのものが論理削除済み
+ * （判定が not_found）なら記録しない。応答はいずれも不在と同じ汎用の 404 で、本体へ進めない。
+ * 39.8 の改訂の被覆の印は、各業務 spec の切り替えの E2E が担うため、ここには置かない。
+ */
+describe('対象のデータの論理削除（要件39.8 の改訂）', () => {
+  /** 案件そのものが論理削除済み（判定は not_found を返す） */
+  const DELETED_PROJECT = 'project-soft-deleted';
+  const SOFT_DELETED_AT = new Date('2026-10-01T00:00:00Z');
+
+  /** 論理削除済みの対象のデータの行（解決関数が引く想定） */
+  const SOFT_DELETED_ROWS: Record<string, { projectId: string; deletedAt: Date }> = {
+    'child-deleted-of-out-of-scope': {
+      projectId: EXISTING_OUT_OF_SCOPE,
+      deletedAt: SOFT_DELETED_AT,
+    },
+    'child-deleted-of-deleted-project': {
+      projectId: DELETED_PROJECT,
+      deletedAt: SOFT_DELETED_AT,
+    },
+  };
+
+  /** 論理削除を区別しない（行が実在する限り実際の案件を返す）ときの、行の実際の案件 */
+  function ownerOfRow(childId: string): string {
+    const row = SOFT_DELETED_ROWS[childId];
+    if (!row) {
+      throw new Error(`テストの前提の行が無い: ${childId}`);
+    }
+    // 前提: 対象のデータは論理削除済み
+    expect(row.deletedAt).toBeInstanceOf(Date);
+    return row.projectId;
+  }
+
+  /** 範囲外と論理削除の案件の判定を持つ偽物（論理削除の案件は not_found） */
+  function fakeScopeWithDeletedProject() {
+    const scope = fakeScope();
+    scope.evaluateProjectAccess.mockImplementation(
+      async (_userId: string, projectId: string): Promise<ProjectAccessDecision> =>
+        projectId === DELETED_PROJECT ? 'not_found' : (DECISIONS[projectId] ?? 'not_found')
+    );
+    return scope;
+  }
+
+  /** 不在の 404 の本文（解決関数が null を返したとき）を同じ経路で得る */
+  async function missingBody(path: string) {
+    const res = await request(
+      buildApp(fakeScope(), fakeAudit(), { resolver: async () => null })
+    ).get(path);
+    return res.body as Record<string, unknown>;
+  }
+
+  /** 解決関数の二通り: 案件 ID を返す（経路の食い違いなし）と、食い違いとして返す */
+  const RESOLVERS: Array<[string, (childId: string) => ProjectIdResolver]> = [
+    ['案件 ID', (childId) => async () => ownerOfRow(childId)],
+    ['食い違い（projectMismatch）', (childId) => async () => projectMismatch(ownerOfRow(childId))],
+  ];
+
+  it.each(RESOLVERS)(
+    '解決関数が論理削除済みの対象の行から範囲外の案件を%sで返すと、その案件を対象に 1 件記録し、不在と同じ 404 で本体へ進めない',
+    async (_label, resolverOf) => {
+      const scope = fakeScopeWithDeletedProject();
+      const audit = fakeAudit();
+      const app = buildApp(scope, audit, {
+        resolver: resolverOf('child-deleted-of-out-of-scope'),
+      });
+
+      const res = await request(app).get(`/api/projects/${IN_SCOPE}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual(await missingBody(`/api/projects/${IN_SCOPE}`));
+      expect(res.body).not.toEqual({ ok: true });
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledWith(USER_ID, EXISTING_OUT_OF_SCOPE);
+      expect(audit.createLog).toHaveBeenCalledTimes(1);
+      const [input] = audit.createLog.mock.calls[0] as [Record<string, unknown>];
+      expect(input).toMatchObject({
+        action: 'PROJECT_SCOPE_DENIED',
+        actorId: USER_ID,
+        targetType: 'Project',
+        targetId: EXISTING_OUT_OF_SCOPE,
+      });
+      expect(input.metadata).toMatchObject({ method: 'GET', path: `/api/projects/${IN_SCOPE}` });
+    }
+  );
+
+  it.each(RESOLVERS)(
+    '論理削除済みの案件の論理削除済みの対象の行から案件を%sで返すと（判定は not_found）、記録せず不在と同じ 404 で本体へ進めない',
+    async (_label, resolverOf) => {
+      const scope = fakeScopeWithDeletedProject();
+      const audit = fakeAudit();
+      const app = buildApp(scope, audit, {
+        resolver: resolverOf('child-deleted-of-deleted-project'),
+      });
+
+      const res = await request(app).get(`/api/projects/${IN_SCOPE}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual(await missingBody(`/api/projects/${IN_SCOPE}`));
+      expect(res.body).not.toEqual({ ok: true });
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledWith(USER_ID, DELETED_PROJECT);
+      await expect(
+        scope.evaluateProjectAccess.mock.results[0]?.value as Promise<ProjectAccessDecision>
+      ).resolves.toBe('not_found');
+      expect(audit.createLog).not.toHaveBeenCalled();
+    }
+  );
+
+  describe('recordProjectMismatchIfOutOfScope', () => {
+    /** 解決関数を通らない下流の独自の判定を模す: 論理削除を区別せず行の実際の案件で記録を頼む */
+    function buildCustomGuardApp(
+      scope: ReturnType<typeof fakeScope>,
+      audit: ReturnType<typeof fakeAudit>
+    ) {
+      const app = express();
+      app.use((req: Request, _res: Response, next: NextFunction) => {
+        req.user = { userId: USER_ID, email: 'user@example.com' } as Request['user'];
+        next();
+      });
+      app.get(
+        '/api/projects/:id/children/:childId',
+        async (req: Request, _res: Response, next: NextFunction) => {
+          try {
+            await recordProjectMismatchIfOutOfScope(req, ownerOfRow(req.params.childId as string), {
+              scopeService: scope as unknown as Pick<ProjectScopeService, 'evaluateProjectAccess'>,
+              auditLogService: audit as unknown as Pick<IAuditLogService, 'createLog'>,
+            });
+            next(new NotFoundError());
+          } catch (error) {
+            next(error);
+          }
+        },
+        (_req, res) => {
+          res.status(200).json({ ok: true });
+        }
+      );
+      app.use(errorHandler);
+      return app;
+    }
+
+    it('論理削除済みの対象の行の実際の案件が範囲外なら、その案件を対象に 1 件記録する', async () => {
+      const scope = fakeScopeWithDeletedProject();
+      const audit = fakeAudit();
+
+      const res = await request(buildCustomGuardApp(scope, audit)).get(
+        `/api/projects/${IN_SCOPE}/children/child-deleted-of-out-of-scope`
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body).not.toEqual({ ok: true });
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledWith(USER_ID, EXISTING_OUT_OF_SCOPE);
+      expect(audit.createLog).toHaveBeenCalledTimes(1);
+      const [input] = audit.createLog.mock.calls[0] as [Record<string, unknown>];
+      expect(input).toMatchObject({
+        action: 'PROJECT_SCOPE_DENIED',
+        actorId: USER_ID,
+        targetType: 'Project',
+        targetId: EXISTING_OUT_OF_SCOPE,
+      });
+      expect(input.metadata).toMatchObject({
+        method: 'GET',
+        path: `/api/projects/${IN_SCOPE}/children/child-deleted-of-out-of-scope`,
+      });
+    });
+
+    it('論理削除済みの案件の論理削除済みの対象の行なら（判定は not_found）、記録しない', async () => {
+      const scope = fakeScopeWithDeletedProject();
+      const audit = fakeAudit();
+
+      const res = await request(buildCustomGuardApp(scope, audit)).get(
+        `/api/projects/${IN_SCOPE}/children/child-deleted-of-deleted-project`
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body).not.toEqual({ ok: true });
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+      expect(scope.evaluateProjectAccess).toHaveBeenCalledWith(USER_ID, DELETED_PROJECT);
+      expect(audit.createLog).not.toHaveBeenCalled();
+    });
+  });
+});
