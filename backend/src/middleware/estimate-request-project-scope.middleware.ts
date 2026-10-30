@@ -21,6 +21,14 @@
  *   内訳書の不在と同じ 404 にする。解決関数は上流の `projectMismatch`（内訳書の実際の案件 ID）を返し、
  *   内訳書の案件が範囲外のときだけ PROJECT_SCOPE_DENIED が記録される（範囲内の他の案件の内訳書は記録しない。
  *   タスク104.1、42.10）。内訳書の不在は従来どおり null で記録しない。内訳書の論理削除は区別しない
+ * - 受領見積書の経路は `/api/estimate-requests/:id/quotations` と `/api/quotations` に二重にマウントされる。
+ *   見積依頼の配下の経路で、受領見積書（経路の引数 `quotationId`）が経路の見積依頼（親の経路の引数 `id`）に
+ *   属さないときは、範囲の内外にかかわらず受領見積書の不在と同じ 404 にする。解決関数は上流の
+ *   `projectMismatch`（受領見積書の実際の案件 ID）を返し、受領見積書の案件が範囲外のときだけ
+ *   PROJECT_SCOPE_DENIED が記録される（範囲内の別の見積依頼の受領見積書は記録しない。タスク106.1、42.12、
+ *   user-authentication の要件39.8）。経路の見積依頼そのものの範囲は判定しない。受領見積書の不在は従来どおり
+ *   null で記録しない。受領見積書と見積依頼の論理削除は区別しない。`/api/quotations` の経路は見積依頼の ID を
+ *   持たないため照合しない
  * - 項目の選択の保存（42.5）は、対象の見積依頼の案件を判定して範囲外なら要求全体を 404 にする。項目は
  *   見積依頼の ID で絞って更新するため、範囲内の見積依頼の要求で他の見積依頼の項目は変わらない
  */
@@ -57,16 +65,33 @@ export async function findProjectIdOfEstimateRequest(
   return estimateRequest?.projectId ?? null;
 }
 
-/** 受領見積書の ID から、親の見積依頼の案件 ID を引く。受領見積書が無ければ null（論理削除は区別しない） */
-export async function findProjectIdOfReceivedQuotation(
+/** 受領見積書が属する見積依頼の ID と、その見積依頼の案件 ID */
+export interface ReceivedQuotationOwner {
+  estimateRequestId: string;
+  projectId: string;
+}
+
+/**
+ * 受領見積書の ID から、親の見積依頼の ID と案件 ID を引く。受領見積書が無ければ null
+ * （受領見積書と見積依頼の論理削除は区別しない）
+ */
+export async function findOwnerOfReceivedQuotation(
   quotationId: string
-): Promise<string | null> {
+): Promise<ReceivedQuotationOwner | null> {
   const quotation = await getPrismaClient().receivedQuotation.findUnique({
     where: { id: quotationId },
-    select: { estimateRequest: { select: { projectId: true } } },
+    select: { estimateRequestId: true, estimateRequest: { select: { projectId: true } } },
   });
-  return quotation?.estimateRequest.projectId ?? null;
+  return quotation === null
+    ? null
+    : {
+        estimateRequestId: quotation.estimateRequestId,
+        projectId: quotation.estimateRequest.projectId,
+      };
 }
+
+/** 受領見積書の経路の親（`/api/estimate-requests/:id/quotations`）の見積依頼の ID の引数名 */
+const ESTIMATE_REQUEST_PARENT_PARAM = 'id';
 
 /** 内訳書の ID から案件 ID を引く。内訳書が無ければ null（論理削除は区別しない） */
 export async function findProjectIdOfItemizedStatement(
@@ -113,15 +138,40 @@ export function requireEstimateRequestProjectScope(
   return requireProjectScope(resolver, options);
 }
 
-/** 受領見積書の ID を経路のパラメータから読んで、親の見積依頼の案件の範囲を判定する */
+/**
+ * 受領見積書の ID を経路のパラメータから読んで、親の見積依頼の案件の範囲を判定する。
+ * 見積依頼の配下の経路で、受領見積書が経路の見積依頼（親の経路の引数 `id`）に属さないときは
+ * 受領見積書の不在と同じ 404 にし、受領見積書の案件が範囲外なら記録する（42.12）。
+ * 受領見積書の引数名が親の引数名と同じだと親の値は子の値に上書きされて読めないため、照合しない
+ */
 export function requireReceivedQuotationProjectScope(
   paramName: string,
   options?: ProjectScopeGuardOptions
 ): RequestHandler {
-  return requireProjectScope(async (req) => {
+  const resolver: ProjectIdResolver = async (req) => {
     const id = nonEmptyString(req.params[paramName]);
-    return id === null ? null : findProjectIdOfReceivedQuotation(id);
-  }, options);
+    if (id === null) {
+      return null;
+    }
+    const owner = await findOwnerOfReceivedQuotation(id);
+    if (owner === null) {
+      return null;
+    }
+    const addressedEstimateRequestId =
+      paramName === ESTIMATE_REQUEST_PARENT_PARAM
+        ? null
+        : nonEmptyString(req.params[ESTIMATE_REQUEST_PARENT_PARAM]);
+    if (
+      addressedEstimateRequestId !== null &&
+      addressedEstimateRequestId !== owner.estimateRequestId
+    ) {
+      // 食い違い（42.12、user-authentication の要件39.8）: 受領見積書の実際の案件を返し、
+      // 範囲外のときだけ上流の判定部品が記録する。経路の見積依頼そのものの範囲は判定しない
+      return projectMismatch(owner.projectId);
+    }
+    return owner.projectId;
+  };
+  return requireProjectScope(resolver, options);
 }
 
 /**

@@ -15,6 +15,8 @@
  * - 案件 other の営業担当者・作成者は担当外の利用者（範囲外の内訳書・見積依頼を用意するため）
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
@@ -278,6 +280,22 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         where: { estimateRequest: { projectId: fixture.projectId } },
       }),
     };
+  }
+
+  /** 見積依頼ごとの受領見積書のファイルの一覧（ローカルストレージ。要求の前後で変わらないことを比べる） */
+  function storedQuotationFiles(estimateRequestIds: string[]): string[] {
+    const root = process.env.LOCAL_STORAGE_PATH;
+    expect(root, '前提: ローカルストレージのパス').toBeTruthy();
+    const files: string[] = [];
+    for (const estimateRequestId of estimateRequestIds) {
+      const dir = path.join(root ?? '', 'quotations', estimateRequestId);
+      if (fs.existsSync(dir)) {
+        for (const entry of fs.readdirSync(dir, { recursive: true })) {
+          files.push(path.join(estimateRequestId, String(entry)));
+        }
+      }
+    }
+    return files.sort();
   }
 
   beforeAll(async () => {
@@ -1001,6 +1019,202 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
 
       expect(await snapshot(target)).toEqual(beforeTarget);
       expect(await snapshot(other)).toEqual(beforeOther);
+    });
+  });
+
+  describe('見積依頼の配下の受領見積書の経路の食い違い（42.12）', () => {
+    /** 受領見積書を DB で作る（ファイルの実体は置かない） */
+    async function createQuotation(
+      estimateRequestId: string,
+      label: string,
+      deletedAt: Date | null = null
+    ): Promise<{ id: string; updatedAt: Date }> {
+      return prisma.receivedQuotation.create({
+        data: {
+          estimateRequestId,
+          name: `${MARK}-${label}-quotation`,
+          submittedAt: new Date('2026-10-01'),
+          filePath: `quotations/${estimateRequestId}/${label}.pdf`,
+          fileName: `${label}.pdf`,
+          fileMimeType: 'application/pdf',
+          fileSize: 1024,
+          deletedAt,
+        },
+        select: { id: true, updatedAt: true },
+      });
+    }
+
+    type QuotationCall = (base: string, quotation: { id: string; updatedAt: Date }) => request.Test;
+    /** 見積依頼の配下の /:quotationId の四つの経路（詳細の取得・更新・論理的な取り除き・プレビュー） */
+    const nestedCalls: Array<[string, QuotationCall]> = [
+      ['GET', (base, q) => request(app).get(`${base}/${q.id}`)],
+      [
+        'PUT',
+        (base, q) =>
+          request(app)
+            .put(`${base}/${q.id}`)
+            .field('name', `${MARK}-misrouted`)
+            .field('expectedUpdatedAt', q.updatedAt.toISOString())
+            .attach('file', Buffer.from('%PDF-1.4 misrouted'), {
+              filename: 'misrouted.pdf',
+              contentType: 'application/pdf',
+            }),
+      ],
+      [
+        'DELETE',
+        (base, q) =>
+          request(app).delete(`${base}/${q.id}`).send({ updatedAt: q.updatedAt.toISOString() }),
+      ],
+      ['GET preview', (base, q) => request(app).get(`${base}/${q.id}/preview`)],
+    ];
+
+    /**
+     * 経路で指定した見積依頼に属さない受領見積書は、範囲内なら記録なしの、範囲外なら受領見積書の
+     * 案件を対象に記録 1 件の、いずれも不在と同じ汎用の 404 になる（タスク106.1。user-authentication の
+     * 要件39.8 とその 2026-10-30 の改訂〔論理削除済みの対象も実際の案件で記録する〕の本機能への適用）
+     *
+     * @requirement estimate-request/REQ-42.12
+     * @requirement user-authentication/REQ-39.8
+     */
+    it('見積依頼の配下の経路で、同じ案件の別の見積依頼の受領見積書を指すと不在と同じ 404 になり、データとストレージを変えず記録もしない', async () => {
+      const siblingQuotation = await createQuotation(siblingRequestId, 'sibling');
+      const base = `/api/estimate-requests/${target.estimateRequestId}/quotations`;
+      const beforeTarget = await snapshot(target);
+      const beforeFiles = storedQuotationFiles([target.estimateRequestId, siblingRequestId]);
+
+      for (const [label, call] of nestedCalls) {
+        const missing = await call(base, { id: MISSING_ID, updatedAt: siblingQuotation.updatedAt })
+          .set(...auth(sales))
+          .expect(404);
+        const recordsBefore = await deniedCount(sales);
+        const misrouted = await call(base, siblingQuotation)
+          .set(...auth(sales))
+          .expect(404);
+        expect(misrouted.body.code, label).toBe('NOT_FOUND');
+        expect(withoutInstance(misrouted.body), `${label}: 受領見積書の不在と同じ本文`).toEqual(
+          withoutInstance(missing.body)
+        );
+        const exposed = JSON.stringify(withoutInstance(misrouted.body));
+        expect(exposed, label).not.toContain(siblingQuotation.id);
+        expect(exposed, label).not.toContain(target.projectId);
+        expect(misrouted.body.url, `${label}: 署名付きURLを返さない`).toBeUndefined();
+        expect((await deniedCount(sales)) - recordsBefore, `${label}: 範囲内は記録しない`).toBe(0);
+      }
+
+      // 存在しない見積依頼の ID を経路に置いても、受領見積書はそれに属さないので同じ 404（記録しない）
+      const recordsBefore = await deniedCount(sales);
+      const missingRequest = await request(app)
+        .get(`/api/estimate-requests/${MISSING_ID}/quotations/${target.quotationId}`)
+        .set(...auth(sales))
+        .expect(404);
+      expect(missingRequest.body.code).toBe('NOT_FOUND');
+      expect((await deniedCount(sales)) - recordsBefore).toBe(0);
+
+      expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(storedQuotationFiles([target.estimateRequestId, siblingRequestId])).toEqual(
+        beforeFiles
+      );
+    });
+
+    /**
+     * @requirement estimate-request/REQ-42.12
+     * @requirement user-authentication/REQ-39.8
+     */
+    it('見積依頼の配下の経路で、範囲外の案件の受領見積書（論理削除済みを含む）を指すと不在と同じ 404 になり、受領見積書の案件を対象に記録が 1 件増え、データとストレージを変えない', async () => {
+      const deletedForeign = await createQuotation(
+        other.estimateRequestId,
+        'deleted-foreign',
+        new Date()
+      );
+      const otherQuotation = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: other.quotationId },
+        select: { id: true, updatedAt: true },
+      });
+      const base = `/api/estimate-requests/${target.estimateRequestId}/quotations`;
+      const beforeTarget = await snapshot(target);
+      const beforeOther = await snapshot(other);
+      const beforeFiles = storedQuotationFiles([target.estimateRequestId, other.estimateRequestId]);
+
+      for (const [label, call] of nestedCalls) {
+        for (const [kind, quotation] of [
+          ['範囲外', otherQuotation],
+          ['範囲外の論理削除済み', deletedForeign],
+        ] as const) {
+          const missing = await call(base, { id: MISSING_ID, updatedAt: quotation.updatedAt })
+            .set(...auth(sales))
+            .expect(404);
+          const allBefore = await deniedCount(sales);
+          const foreignBefore = await deniedCount(sales, other.projectId);
+          const response = await call(base, quotation)
+            .set(...auth(sales))
+            .expect(404);
+          const name = `${label} ${kind}`;
+          expect(response.body.code, name).toBe('NOT_FOUND');
+          expect(withoutInstance(response.body), `${name}: 受領見積書の不在と同じ本文`).toEqual(
+            withoutInstance(missing.body)
+          );
+          expect(JSON.stringify(withoutInstance(response.body)), name).not.toContain(
+            other.projectId
+          );
+          expect(response.body.url, `${name}: 署名付きURLを返さない`).toBeUndefined();
+          expect((await deniedCount(sales)) - allBefore, `${name}: 記録は 1 件だけ増える`).toBe(1);
+          expect(
+            (await deniedCount(sales, other.projectId)) - foreignBefore,
+            `${name}: 記録の対象は受領見積書の実際の案件`
+          ).toBe(1);
+        }
+      }
+
+      expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(await snapshot(other)).toEqual(beforeOther);
+      expect(storedQuotationFiles([target.estimateRequestId, other.estimateRequestId])).toEqual(
+        beforeFiles
+      );
+    });
+
+    /**
+     * @requirement estimate-request/REQ-42.12
+     */
+    it('見積依頼の配下の経路で属する受領見積書と、/api/quotations の経路は従来どおり通る', async () => {
+      const base = `/api/estimate-requests/${target.estimateRequestId}/quotations`;
+      const detail = await request(app)
+        .get(`${base}/${target.quotationId}`)
+        .set(...auth(sales))
+        .expect(200);
+      expect(detail.body.id).toBe(target.quotationId);
+      const preview = await request(app)
+        .get(`${base}/${target.quotationId}/preview`)
+        .set(...auth(sales))
+        .expect(200);
+      expect(preview.body.url, '受領見積書のファイルの署名付きURL').toBeTruthy();
+
+      const own = await createQuotation(target.estimateRequestId, 'own');
+      const updated = await request(app)
+        .put(`${base}/${own.id}`)
+        .set(...auth(sales))
+        .field('name', `${MARK}-own-renamed`)
+        .field('expectedUpdatedAt', own.updatedAt.toISOString())
+        .expect(200);
+      expect(updated.body.name).toBe(`${MARK}-own-renamed`);
+      await request(app)
+        .delete(`${base}/${own.id}`)
+        .set(...auth(sales))
+        .send({ updatedAt: updated.body.updatedAt })
+        .expect(204);
+      const removed = await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: own.id } });
+      expect(removed.deletedAt).not.toBeNull();
+
+      // 見積依頼の ID を持たない経路は、範囲内の別の見積依頼の受領見積書もそのまま読める
+      const siblingQuotation = await createQuotation(siblingRequestId, 'sibling-flat');
+      const flat = await request(app)
+        .get(`/api/quotations/${siblingQuotation.id}`)
+        .set(...auth(sales))
+        .expect(200);
+      expect(flat.body.id).toBe(siblingQuotation.id);
+      await request(app)
+        .get(`/api/quotations/${siblingQuotation.id}/preview`)
+        .set(...auth(sales))
+        .expect(200);
     });
   });
 });

@@ -179,26 +179,117 @@ describe('見積依頼・受領見積書・案件の ID からの解決関数', 
     const scope = fakeScope();
     const { app, reached } = buildApp(
       'get',
-      ['/quotations/:id'],
-      requireReceivedQuotationProjectScope('id', { scopeService: scope, auditLogService: audit })
+      ['/quotations/:quotationId'],
+      requireReceivedQuotationProjectScope('quotationId', {
+        scopeService: scope,
+        auditLogService: audit,
+      })
     );
 
     mockPrisma.receivedQuotation.findUnique.mockResolvedValueOnce({
+      estimateRequestId: 'er-1',
       estimateRequest: { projectId: 'project-in-scope' },
     });
     await request(app).get('/quotations/q-1').expect(200);
+    // 経路の見積依頼との照合のため、受領見積書の見積依頼の ID も引く（42.12）
     expect(mockPrisma.receivedQuotation.findUnique).toHaveBeenCalledWith({
       where: { id: 'q-1' },
-      select: { estimateRequest: { select: { projectId: true } } },
+      select: { estimateRequestId: true, estimateRequest: { select: { projectId: true } } },
     });
 
     mockPrisma.receivedQuotation.findUnique.mockResolvedValueOnce({
+      estimateRequestId: 'er-2',
       estimateRequest: { projectId: 'project-out-of-scope' },
     });
     expectGenericNotFound((await request(app).get('/quotations/q-2').expect(404)).body);
     mockPrisma.receivedQuotation.findUnique.mockResolvedValueOnce(null);
     expectGenericNotFound((await request(app).get('/quotations/q-3').expect(404)).body);
     expect(reached).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * 見積依頼の配下の経路（`/api/estimate-requests/:id/quotations/:quotationId`）では、受領見積書が
+   * 経路の見積依頼に属さなければ範囲の内外にかかわらず不在と同じ汎用の 404 にし、受領見積書の
+   * 実際の案件が範囲外のときだけ記録する（タスク106.1、user-authentication の要件39.8）
+   *
+   * @requirement estimate-request/REQ-42.12
+   */
+  it('見積依頼の配下の経路で、経路の見積依頼に属さない受領見積書は不在と同じ汎用の 404 にし、受領見積書の案件が範囲外のときだけ記録する（42.12）', async () => {
+    const scope = fakeScope();
+    const { app, reached } = buildApp(
+      'get',
+      ['/estimate-requests/:id/quotations/:quotationId'],
+      requireReceivedQuotationProjectScope('quotationId', {
+        scopeService: scope,
+        auditLogService: audit,
+      })
+    );
+
+    // 経路の見積依頼に属する受領見積書は通る
+    mockPrisma.receivedQuotation.findUnique.mockResolvedValueOnce({
+      estimateRequestId: 'er-1',
+      estimateRequest: { projectId: 'project-in-scope' },
+    });
+    await request(app).get('/estimate-requests/er-1/quotations/q-1').expect(200);
+    expect(reached).toHaveBeenCalledTimes(1);
+
+    // 受領見積書の不在: 汎用の 404 で記録しない
+    mockPrisma.receivedQuotation.findUnique.mockResolvedValueOnce(null);
+    const missing = await request(app).get('/estimate-requests/er-1/quotations/q-0').expect(404);
+    expectGenericNotFound(missing.body);
+
+    // 範囲内の別の見積依頼（同じ案件）の受領見積書（経路の誤り）: 不在と同じ汎用の 404 で記録しない
+    mockPrisma.receivedQuotation.findUnique.mockResolvedValueOnce({
+      estimateRequestId: 'er-sibling',
+      estimateRequest: { projectId: 'project-in-scope' },
+    });
+    const sibling = await request(app)
+      .get('/estimate-requests/er-1/quotations/q-sibling')
+      .expect(404);
+    expectGenericNotFound(sibling.body);
+    expect(sibling.body.detail).toBe(missing.body.detail);
+    expect(JSON.stringify(sibling.body)).not.toContain('er-sibling');
+    expect(audit.createLog).not.toHaveBeenCalled();
+
+    // 範囲外の案件の受領見積書: 不在と同じ汎用の 404 で、受領見積書の案件を対象に 1 件記録する
+    mockPrisma.receivedQuotation.findUnique.mockResolvedValueOnce({
+      estimateRequestId: 'er-foreign',
+      estimateRequest: { projectId: 'project-out-of-scope' },
+    });
+    const foreign = await request(app)
+      .get('/estimate-requests/er-1/quotations/q-foreign')
+      .expect(404);
+    expectGenericNotFound(foreign.body);
+    expect(foreign.body.detail).toBe(missing.body.detail);
+    expect(audit.createLog).toHaveBeenCalledTimes(1);
+    expect(audit.createLog.mock.calls[0]?.[0]).toMatchObject({
+      action: 'PROJECT_SCOPE_DENIED',
+      targetId: 'project-out-of-scope',
+    });
+
+    expect(reached).toHaveBeenCalledTimes(1);
+    // 経路の見積依頼そのものは引かない（記録の対象は受領見積書の実際の案件）
+    expect(mockPrisma.estimateRequest.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('見積依頼の ID を持たない経路（/api/quotations）では、受領見積書の見積依頼と照合せずに従来どおり判定する', async () => {
+    const scope = fakeScope();
+    const { app, reached } = buildApp(
+      'get',
+      ['/quotations/:quotationId'],
+      requireReceivedQuotationProjectScope('quotationId', {
+        scopeService: scope,
+        auditLogService: audit,
+      })
+    );
+
+    mockPrisma.receivedQuotation.findUnique.mockResolvedValueOnce({
+      estimateRequestId: 'er-sibling',
+      estimateRequest: { projectId: 'project-sibling-in-scope' },
+    });
+    await request(app).get('/quotations/q-sibling').expect(200);
+    expect(reached).toHaveBeenCalledTimes(1);
+    expect(audit.createLog).not.toHaveBeenCalled();
   });
 
   it('案件の ID を経路のパラメータから読んで判定する', async () => {

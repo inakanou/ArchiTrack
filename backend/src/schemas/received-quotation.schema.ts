@@ -134,9 +134,11 @@ export type UpdateReceivedQuotationInput = z.infer<typeof updateReceivedQuotatio
 
 /**
  * 受領見積書IDパラメータスキーマ
+ *
+ * 経路の引数名は `quotationId`（見積依頼の配下の経路の親の引数 `id` と分ける。タスク106.1、42.12）
  */
 export const receivedQuotationIdParamSchema = z.object({
-  id: z
+  quotationId: z
     .string()
     .min(1, RECEIVED_QUOTATION_VALIDATION_MESSAGES.ID_REQUIRED)
     .regex(UUID_REGEX, RECEIVED_QUOTATION_VALIDATION_MESSAGES.ID_INVALID_UUID),

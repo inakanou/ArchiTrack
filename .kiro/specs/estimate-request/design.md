@@ -6816,6 +6816,8 @@ mailDisabledReason: {
 - 上流の判定部品へ照合を移す案は採らない。親のデータと対象の照合は各業務 spec の解決関数が受け持つ上流の定め（user-authentication の design.md の ProjectScopeGuard の節）に従う。見積依頼の配下の `/:id` の経路を閉じる案は、画面が使っていなくても API の利用者の経路を予告なく変えるため採らない
 - 経路の部品の冒頭の注釈（`mergeParams` の理由）と判定部品のファイルの冒頭の注釈に食い違いの扱いを書き足す
 - 上流のタスク66.1（論理削除済みの対象でも実際の案件で記録することの確かめ）に依存する（各 spec の切り替えを 66.1 に依存させる上流の起票の定め）
+- **実装の決定（2026-10-30、タスク106.1）**: 子（受領見積書の経路の部品）の引数名を改めた。`/:id` の四つの経路を `/:quotationId` にし、ID の形式の検査の構造 `receivedQuotationIdParamSchema` の鍵と各経路の本体が読む引数も `quotationId` にした。親のマウント（`/api/estimate-requests/:id/quotations`）と登録・一覧の経路（`estimateRequestIdForQuotationSchema` の `id`）は変えていない。解決関数は受領見積書の行から見積依頼の ID と案件 ID を引き（`findOwnerOfReceivedQuotation`）、親の経路の引数 `id` があり受領見積書の見積依頼と異なるとき `projectMismatch(受領見積書の案件 ID)` を返す。受領見積書の引数名に `id` を渡された場合は親の値が子に上書きされて読めないため照合しない。URL は変わらず、`docs:generate` で作り直した OpenAPI の文書にも差分は出なかった（文書の `/api/quotations/{id}` の引数名は注釈の上の名前のまま）
+  - 引数名を改めたことに伴う唯一の外から見える変化は、形式の誤った受領見積書の ID（`/api/quotations/invalid-uuid` など）の 400 の本文の `details[].path` が `id` から `quotationId` に変わることである。状態コードと文言は変わらない。画面は形式の誤った ID を送らず、本文の `details[].path` を読まない。親の引数名を改める案は、登録・一覧の経路の同じ 400 の `path` を変え、見積依頼の判定部品の引数も改める必要があるため採らなかった
 
 **クリップボードへのコピー（42.13・42.14）**: itemized-statement-generation のタスク28.1（`0f1970a5`）と同じ形で、各コピーのクリックの処理の中で `await` を挟まずに上流の `runRecordedClipboardWrite` を呼ぶ（Safari はクリックの処理の中で同期的に始めた書き込みしか許さない）。記録の入力は次のとおりとする。
 

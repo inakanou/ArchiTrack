@@ -13,6 +13,12 @@
  * 受領見積書は親の見積依頼の案件で判定して範囲外は不在と同じ汎用の 404 にする。登録・更新は
  * ファイルの受け取りより前に判定する。プレビューの署名付きURLは範囲内に限って発行する。
  *
+ * 経路の引数名（タスク106.1、Requirement 42.12）: 本部品は `/api/estimate-requests/:id/quotations` と
+ * `/api/quotations` に二重にマウントされる。受領見積書の経路の引数名を `quotationId` とし、親の見積依頼の
+ * 経路の引数名 `id` と分ける（名前が重なると mergeParams で子の値が優先され、経路の見積依頼が読めない）。
+ * 見積依頼の配下の経路で受領見積書が経路の見積依頼に属さないときは、判定部品が不在と同じ汎用の 404 にし、
+ * 受領見積書の案件が範囲外のときだけ記録する。URL（OpenAPI の `/api/quotations/{id}`）は変わらない。
+ *
  * Task 13.2: 受領見積書エンドポイントの実装
  *
  * @module routes/received-quotation
@@ -49,7 +55,8 @@ import {
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 
-// mergeParams: true を設定してネストされたルートからestimateRequestIdを取得できるようにする
+// mergeParams: true を設定してネストされたルートから見積依頼の ID（親の経路の引数 `id`）を取得できるようにする。
+// 受領見積書の経路の引数は `quotationId` とし、親の `id` を上書きしない（タスク106.1、42.12）
 const router = Router({ mergeParams: true });
 const prisma = getPrismaClient();
 
@@ -345,15 +352,15 @@ router.get(
  *         description: 受領見積書が見つからない
  */
 router.get(
-  '/:id',
+  '/:quotationId',
   authenticate,
   // 受領見積書の閲覧は見積依頼の閲覧権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:read'),
   validate(receivedQuotationIdParamSchema, 'params'),
-  requireReceivedQuotationProjectScope('id'),
+  requireReceivedQuotationProjectScope('quotationId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.validatedParams as { id: string };
+      const { quotationId: id } = req.validatedParams as { quotationId: string };
 
       const quotation = await getReceivedQuotationService().findById(id);
 
@@ -443,17 +450,17 @@ router.get(
  *         description: ファイル形式エラー
  */
 router.put(
-  '/:id',
+  '/:quotationId',
   authenticate,
   // 受領見積書の更新は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:update'),
   validate(receivedQuotationIdParamSchema, 'params'),
-  requireReceivedQuotationProjectScope('id'),
+  requireReceivedQuotationProjectScope('quotationId'),
   upload.single('file'),
   validate(updateReceivedQuotationSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.validatedParams as { id: string };
+      const { quotationId: id } = req.validatedParams as { quotationId: string };
       const { expectedUpdatedAt, ...updateData } = req.validatedBody as {
         expectedUpdatedAt: string;
         name?: string;
@@ -601,16 +608,16 @@ router.put(
  *         description: 楽観的排他制御エラー（競合）
  */
 router.delete(
-  '/:id',
+  '/:quotationId',
   authenticate,
   // 受領見積書の削除は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:update'),
   validate(receivedQuotationIdParamSchema, 'params'),
-  requireReceivedQuotationProjectScope('id'),
+  requireReceivedQuotationProjectScope('quotationId'),
   validate(deleteReceivedQuotationBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.validatedParams as { id: string };
+      const { quotationId: id } = req.validatedParams as { quotationId: string };
       const { updatedAt } = req.validatedBody as { updatedAt: string };
 
       await getReceivedQuotationService().delete(id, new Date(updatedAt));
@@ -684,15 +691,15 @@ router.delete(
  *         description: テキストコンテンツの場合（ファイルなし）
  */
 router.get(
-  '/:id/preview',
+  '/:quotationId/preview',
   authenticate,
   // 受領見積書の閲覧は見積依頼の閲覧権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:read'),
   validate(receivedQuotationIdParamSchema, 'params'),
-  requireReceivedQuotationProjectScope('id'),
+  requireReceivedQuotationProjectScope('quotationId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.validatedParams as { id: string };
+      const { quotationId: id } = req.validatedParams as { quotationId: string };
 
       const url = await getReceivedQuotationService().getFilePreviewUrl(id, req.user!.userId);
 

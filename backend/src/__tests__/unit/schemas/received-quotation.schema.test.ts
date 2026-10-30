@@ -301,7 +301,7 @@ describe('received-quotation.schema', () => {
 
   describe('receivedQuotationIdParamSchema', () => {
     it('should accept valid UUID', () => {
-      const input = { id: validUUID };
+      const input = { quotationId: validUUID };
 
       const result = receivedQuotationIdParamSchema.safeParse(input);
 
@@ -309,7 +309,7 @@ describe('received-quotation.schema', () => {
     });
 
     it('should reject invalid UUID', () => {
-      const input = { id: 'invalid-uuid' };
+      const input = { quotationId: 'invalid-uuid' };
 
       const result = receivedQuotationIdParamSchema.safeParse(input);
 
@@ -322,7 +322,7 @@ describe('received-quotation.schema', () => {
     });
 
     it('should reject empty id', () => {
-      const input = { id: '' };
+      const input = { quotationId: '' };
 
       const result = receivedQuotationIdParamSchema.safeParse(input);
 

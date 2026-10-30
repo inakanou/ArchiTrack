@@ -709,6 +709,123 @@ test.describe('見積依頼・受領見積書・ステータスの案件の閲�
   });
 
   /**
+   * 見積依頼の配下の受領見積書の経路（`/api/estimate-requests/:id/quotations/:quotationId`）で、経路の
+   * 見積依頼に属さない受領見積書は範囲の内外にかかわらず不在と同じ 404 になり、受領見積書の実際の案件が
+   * 範囲外のときだけ範囲外の拒否として記録する（estimate-request タスク106.1。user-authentication の
+   * 要件39.8 とその 2026-10-30 の改訂〔論理削除済みの対象も実際の案件で記録する〕の本機能への適用）。
+   *
+   * @requirement estimate-request/REQ-42.12
+   * @requirement user-authentication/REQ-39.8
+   */
+  test('見積依頼の配下の経路で範囲外の案件の受領見積書を指すと 404 になり監査の記録が 1 件増え、同じ案件の別の見積依頼の受領見積書を指すと 404 になり記録は増えない', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const partnerId = await createTradingPartner();
+    const target = await createFixture(
+      'quotation-own',
+      { salesPersonId: owner.id, createdById: owner.id },
+      partnerId
+    );
+    const foreign = await createFixture(
+      'quotation-foreign',
+      { salesPersonId: other.id, createdById: other.id },
+      partnerId
+    );
+    const prisma = getPrismaClient();
+    // 同じ案件の別の見積依頼とその受領見積書
+    const siblingRequestId = await createEstimateRequest(
+      target.projectId,
+      target.itemizedStatementId,
+      partnerId,
+      `閲覧範囲検証の見積依頼 quotation-sibling-${uniqueSuffix()}`
+    );
+    const siblingQuotation = await prisma.receivedQuotation.create({
+      data: {
+        estimateRequestId: siblingRequestId,
+        name: '閲覧範囲検証の受領見積書 quotation-sibling',
+        submittedAt: new Date('2026-10-01'),
+        filePath: `quotations/${siblingRequestId}/quotation-sibling.pdf`,
+        fileName: 'quotation-sibling.pdf',
+        fileMimeType: 'application/pdf',
+        fileSize: 1024,
+      },
+      select: { id: true },
+    });
+    const beforeTarget = await snapshot(target.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+    const nested = `${API_BASE_URL}/api/estimate-requests/${target.estimateRequestId}/quotations`;
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+
+    // 対照: 経路の見積依頼に属する受領見積書は従来どおり読める
+    const own = await request.get(`${nested}/${target.quotationId}`, { headers });
+    expect(own.status(), '属する受領見積書').toBe(200);
+    expect(((await own.json()) as { id: string }).id).toBe(target.quotationId);
+
+    // 不在の受領見積書: 404 で記録しない
+    const missingBefore = await deniedCount();
+    const missing = await request.get(`${nested}/${MISSING_ID}`, { headers });
+    expect(missing.status()).toBe(404);
+    const missingBody = withoutInstance((await missing.json()) as Record<string, unknown>);
+    expect((await deniedCount()) - missingBefore, '不在の受領見積書は記録しない').toBe(0);
+
+    // 同じ案件の別の見積依頼の受領見積書（経路の誤り）: 不在と同じ 404 で記録しない
+    const siblingBefore = await deniedCount();
+    const misrouted = await request.get(`${nested}/${siblingQuotation.id}`, { headers });
+    expect(misrouted.status(), '同じ案件の別の見積依頼の受領見積書').toBe(404);
+    expect(withoutInstance((await misrouted.json()) as Record<string, unknown>)).toEqual(
+      missingBody
+    );
+    expect((await deniedCount()) - siblingBefore, '範囲内の食い違いは記録しない').toBe(0);
+
+    // 範囲外の案件の受領見積書を読む・プレビューする: 不在と同じ 404 で、要求ごとに受領見積書の案件を対象に 1 件記録する
+    const calls = [
+      {
+        label: 'GET',
+        missingPath: `${nested}/${MISSING_ID}`,
+        send: () => request.get(`${nested}/${foreign.quotationId}`, { headers }),
+      },
+      {
+        label: 'GET preview',
+        missingPath: `${nested}/${MISSING_ID}/preview`,
+        send: () => request.get(`${nested}/${foreign.quotationId}/preview`, { headers }),
+      },
+    ];
+    for (const { label, missingPath, send } of calls) {
+      const missingResponse = await request.get(missingPath, { headers });
+      expect(missingResponse.status(), `${label}: 不在`).toBe(404);
+      const expected = withoutInstance((await missingResponse.json()) as Record<string, unknown>);
+      const allBefore = await deniedCount();
+      const foreignBefore = await deniedCount(foreign.projectId);
+      const outOfScope = await send();
+      expect(outOfScope.status(), label).toBe(404);
+      const body = withoutInstance((await outOfScope.json()) as Record<string, unknown>);
+      expect(body, `${label}: 受領見積書の不在と同じ本文`).toEqual(expected);
+      expect(JSON.stringify(body), label).not.toContain(foreign.projectId);
+      expect(body.url, `${label}: 署名付きURLを返さない`).toBeUndefined();
+      expect((await deniedCount()) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(1);
+      expect(
+        (await deniedCount(foreign.projectId)) - foreignBefore,
+        `${label}: 記録の対象は受領見積書の実際の案件`
+      ).toBe(1);
+    }
+
+    expect(await snapshot(target.projectId), 'データは変わらない').toEqual(beforeTarget);
+    expect(await snapshot(foreign.projectId), 'データは変わらない').toEqual(beforeForeign);
+  });
+
+  /**
    * @requirement estimate-request/REQ-42.1
    * @requirement estimate-request/REQ-42.6
    */
