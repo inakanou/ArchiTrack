@@ -2401,3 +2401,37 @@
   - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、取得の失敗・操作の失敗の汎用の文言と応答の英語の文言を出さない状態になる
   - _Requirements: 10.5, 10.6_
   - _Boundary: EstimateRequestListPage, EstimateRequestCreatePage, EstimateRequestDetailPage, EstimateRequestEditPage, EstimateRequestForm, ItemSelectionPanel, StatusTransitionButton, ReceivedQuotationForm_
+
+## タスク106: 見積依頼の配下の受領見積書の経路の食い違いの記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。受領見積書の経路は `/api/estimate-requests/:id/quotations` と `/api/quotations` に二重にマウントされ、経路の部品は `mergeParams: true` で作られている。見積依頼の配下の `/:id` の経路（詳細の取得・更新・論理的な取り除き・プレビュー）では子の `:id`（受領見積書）が親の `:id`（見積依頼）を上書きし、判定部品 `requireReceivedQuotationProjectScope` は受領見積書の ID だけから案件を引くため、経路で指定した見積依頼が読まれない。範囲内の別の見積依頼の受領見積書を指す要求が 404 にならず通る（2026-10-30 の調査。範囲外の案件の受領見積書は従来から汎用の 404 で記録される）。画面はこの経路を使わず `/api/quotations/:id` を使うため、画面の変更は要らない。user-authentication が要件39.8 を改め、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録）。requirements.md に 42.12 を加え（改訂の記録を Requirement 42 に残した）、design.md の末尾の章「2026-10-30 の追加」に設計を置き、Requirement 42 章の「適用の決定」と 2026-10-29 の章の Out of Boundary の受領見積書の二重マウントの記述に改訂の注記を置いた
+
+- [ ] 106.1 見積依頼の配下の経路で、その見積依頼に属さない受領見積書を不在と同じ 404 にし、受領見積書の案件が範囲外なら記録する
+  - backend/src/routes/received-quotation.routes.ts の `/:id` の四つの経路の引数名を受領見積書の名前（例 `quotationId`）へ改めて見積依頼の経路の引数名と分け、ID の形式の検査の構造（`receivedQuotationIdParamSchema`）と各経路の本体が読む引数名を合わせる（どちらを改めるかは画面と OpenAPI の URL を変えない範囲で決め、design.md の同章の「決定」へ記す）。backend/src/middleware/estimate-request-project-scope.middleware.ts の `requireReceivedQuotationProjectScope` の解決関数が受領見積書の見積依頼の ID と案件 ID を引き、経路に見積依頼の ID があり食い違うとき上流の `projectMismatch`（受領見積書の案件 ID）を返すよう切り替える。受領見積書の不在は従来どおり null。受領見積書と見積依頼が論理的に取り除かれているかは区別しない。経路の見積依頼そのものの範囲は判定しない。経路の部品と判定部品の冒頭の注釈を改める
+  - **既存のテストの追随**（主張を消さない）: 単体（`backend/src/__tests__/unit/middleware/estimate-request-project-scope.middleware.test.ts`）の「受領見積書の ID は親の見積依頼を経て案件を引く」の問い合わせの選択の形の主張を、見積依頼の ID を引く形に合わせる。範囲の内外と不在の主張は保つ
+  - 単体に、経路に見積依頼の ID を持つ形で、属する受領見積書は通り、範囲内の別の見積依頼の受領見積書は記録なしの汎用の 404、範囲外の案件の受領見積書は記録 1 件の汎用の 404、受領見積書の不在は記録なしの 404 を足す。統合（`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts`）に、見積依頼の配下の経路の詳細の取得・更新・論理的な取り除き・プレビューで、同じ案件の別の見積依頼の受領見積書を指すと不在と同じ汎用の 404 の本文でデータとストレージが変わらず記録も増えないこと、範囲外の案件の受領見積書（論理的に取り除き済みのものを含む）では同じ 404 で担当者の `PROJECT_SCOPE_DENIED` が 1 件増えること（対象は受領見積書の案件）、属する受領見積書と `/api/quotations` の経路は従来どおりであることを足す
+  - E2E（`e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts`）で、見積依頼の配下の経路で範囲外の案件の受領見積書を指す要求が 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、同じ案件の別の見積依頼の受領見積書を指す要求が 404 になり記録が増えないことを主張し、`@requirement estimate-request/REQ-42.12` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた経路（受領見積書の詳細の取得・更新・論理的な取り除き・プレビュー）を e2e/ 全体で grep して既存の E2E を選び、流す（受領見積書の登録・編集・プレビューの E2E を含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、見積依頼の配下の経路で、その見積依頼に属さない受領見積書が範囲の内外にかかわらず不在と同じ 404 になり、範囲外のときだけ記録され、`/api/quotations` の経路と画面が変わらない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 42.12_
+  - _Boundary: 受領見積書の経路の引数名と requireReceivedQuotationProjectScope の解決関数と、受領見積書の食い違いを主張する本スペックのテスト_
+
+## タスク107: 見積依頼文のコピー・選択した項目の一覧のコピー・メールで開く操作の出力の記録（利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。見積依頼の詳細画面のクリップボードへのコピー（見積依頼文のパネルの内部の `InlineCopyButton` の宛先・表題・本文と、アクションの欄の `ClipboardCopyButton` の選択した項目の一覧）と、「メールで開く」（アンカーの mailto）・「Gmailで開く」（`window.open`）が出力の記録を経ていない。user-authentication が見積依頼文のコピーの出力の種別 `estimate_request_text_clipboard` を設け（同 spec の design.md の「見積依頼文のクリップボードへのコピーの種別」、タスク67.1）、条文と画面への適用とメールで開く操作の判断を本機能に委ねた。requirements.md に 42.13〜42.16 を加え（改訂の記録を Requirement 42 に残した）、design.md の末尾の章「2026-10-30 の追加」に設計と案の比較を置いた。メールで開く操作と選択した項目の一覧のコピーは、利用者の判断（2026-10-30、案 A）で、それぞれ専用の種別 `estimate_request_text_mail`・`estimate_request_items_clipboard` で記録する（上流のタスク67.1 が 3 種別を足す形へ改訂された）
+
+- [ ] 107.1 見積依頼の詳細画面のコピーとメールで開く操作を、出力の記録の成功の後にだけ行う
+  - `EstimateRequestTextPanel` の宛先・表題・本文のコピーと `ClipboardCopyButton` のコピーを、クリックの処理の中で `await` を挟まずに上流の `runRecordedClipboardWrite` で包む。記録の入力は、パネルが種別 `estimate_request_text_clipboard`・見積依頼の案件・見積依頼の ID・件数 1、`ClipboardCopyButton` が種別 `estimate_request_items_clipboard`・見積依頼の案件・選択した項目の ID・選択した項目の数（design.md の同章の「決定」）。パネルへ見積依頼と案件の ID を、`ClipboardCopyButton` へ記録の入力を渡す props を足し、詳細の画面から渡す。記録の失敗では何も書かず `EXPORT_RECORD_FAILED_MESSAGE` を表示し、記録の要求中はボタンを止める
+  - 「メールで開く」はアンカーの `href` を残してクリックの既定の動作を止め、`runRecordedExport`（種別 `estimate_request_text_mail`・見積依頼の案件・見積依頼の ID・件数 1）の成功の後に mailto の URL へ移る。「Gmailで開く」はクリックの処理の中で同期的に空の新しいタブを開き、記録の成功の後に作成画面の URL へ移し、記録の失敗では閉じる。記録の失敗では `EXPORT_RECORD_FAILED_MESSAGE` をパネルの `role="alert"` の欄に表示し、記録の要求中は両ボタンを止める。表示の置き場所と、参照元を渡さない保ち方は design.md の同章の「決定」へ記す
+  - **既存のテストの追随**（主張を消さない）: `frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx` と `ClipboardCopyButton.test.tsx` の主張（コピーの完了の表示、非活性の条件、mailto のリンクの描画、Gmail の URL）を記録の成功の模擬のもとで保つ
+  - 単体（frontend）に、記録の要求の前にクリップボードへ書かないこと、成功の後に中身を書くこと、記録の失敗で何も書かずエラーメッセージを出すこと、記録の入力、要求中にボタンが止まること、メールで開く操作が記録の成功の後にだけ起動し失敗では起動せず（空のタブを閉じ）エラーメッセージを出すことを足す
+  - E2E（`e2e/specs/estimate-requests/estimate-request-export-audit.spec.ts`）で、本文のコピーと選択した項目の一覧のコピーが記録を種別・案件つきで 1 回要求し、要求中はクリップボードが前の中身のまま、成功の後に中身が書かれること、記録を 500 にすると何も書かれずエラーメッセージが出ること、「Gmailで開く」が記録の後に作成画面を開き、記録を 500 にすると開かずエラーメッセージが出ることを主張し、`@requirement estimate-request/REQ-42.13`〜`REQ-42.16` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 本番ビルドの画面で、コピーと Gmail・mailto の起動を Chromium と WebKit で確かめ、design.md の同章の「決定」へ記す（itemized-statement-generation のタスク28.1 の実ブラウザの確認の形）
+  - 振る舞いを変えるため、変えた表示と操作（「コピー」「クリップボードにコピー」「メールで開く」「Gmailで開く」、`POST /api/v1/audit-logs/exports` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（`estimate-request-e2e.spec.ts` のコピーと Requirement 41 のテストを含む）。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す。上流の 67.1 が入る前に着手しない
+  - 単体と E2E で、見積依頼の詳細画面のコピーとメールで開く操作が記録の成功の後にだけ行われ、記録の失敗では何も書かれず開かれずにエラーメッセージが表示される状態になる
+  - _Depends: user-authentication の Task 67.1（`estimate_request_text_clipboard`・`estimate_request_text_mail`・`estimate_request_items_clipboard` の 3 種別）_
+  - _Requirements: 42.13, 42.14, 42.15, 42.16_
+  - _Boundary: EstimateRequestTextPanel, ClipboardCopyButton, EstimateRequestDetailPage, mail-launcher_
