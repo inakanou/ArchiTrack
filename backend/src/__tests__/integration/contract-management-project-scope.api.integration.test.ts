@@ -390,31 +390,86 @@ describe('契約書の API の閲覧範囲（統合・実 DB）', () => {
     });
 
     /**
-     * 解決関数は論理的に取り除かれた契約書に案件 ID を返さない（design.md の「案件IDの解決関数」）。
-     * 範囲の内外を問わず、存在しない契約書と同じ汎用の 404 になり、範囲外の拒否としては記録しない。
+     * 解決関数は論理的に取り除かれた契約書にも契約書の実際の案件を返し、判定部品が範囲外のときだけ記録する
+     * （design.md の「2026-10-30 の追加」の「決定」。user-authentication の要件39.8 の 2026-10-30 の改訂）。
+     * 経路の形（`/api/contracts/:id` と契約書が属する案件の配下の経路）と操作（詳細・更新・ステータスの変更・
+     * 論理的な取り除き）を問わず、範囲の内外を問わず存在しない契約書と同じ汎用の 404 になり、データを変えない。
+     * 範囲外の利用者は要求ごとに契約書の案件を対象に 1 件記録され、範囲内の利用者は記録されない。
      *
      * @requirement contract-management/REQ-14.2
      * @requirement contract-management/REQ-14.3
+     * @requirement contract-management/REQ-14.10
      */
-    it('論理的に取り除かれた契約書は、範囲の内外を問わず存在しない契約書と同じ汎用の 404 を返す', async () => {
+    it('論理的に取り除かれた契約書は、範囲の内外を問わず存在しない契約書と同じ汎用の 404 を返し、データを変えず、範囲外の利用者だけを契約書の案件を対象に要求ごとに 1 件記録する', async () => {
       const deletedId = await createContract(target.projectId, target.estimateId, {
         deletedAt: new Date(),
       });
+      const deleted = await prisma.contract.findUniqueOrThrow({ where: { id: deletedId } });
+      const before = await snapshot(target);
 
       const missing = await request(app)
         .get(`/api/contracts/${MISSING_ID}`)
         .set(...auth(sales))
         .expect(404);
-      const deniedBefore = await deniedCount(outsider.id);
-      for (const user of [sales, outsider]) {
-        const response = await request(app)
-          .get(`/api/contracts/${deletedId}`)
-          .set(...auth(user))
-          .expect(404);
-        expect(response.body.code).toBe('NOT_FOUND');
-        expect(withoutInstance(response.body)).toEqual(withoutInstance(missing.body));
+      const bases = [
+        `/api/contracts/${deletedId}`,
+        `/api/projects/${target.projectId}/contracts/${deletedId}`,
+      ];
+      // [利用者, 要求ごとの記録の増分]（sales は範囲内、outsider は範囲外）
+      const users: Array<[string, TestUser, number]> = [
+        ['範囲内', sales, 0],
+        ['範囲外', outsider, 1],
+      ];
+      for (const [who, user, expectedDenied] of users) {
+        for (const base of bases) {
+          const requests: Array<[string, () => Promise<request.Response>]> = [
+            [
+              'GET',
+              () =>
+                request(app)
+                  .get(base)
+                  .set(...auth(user)),
+            ],
+            [
+              'PUT',
+              () =>
+                request(app)
+                  .put(base)
+                  .set(...auth(user))
+                  .send(updateBody(target.estimateId, deleted.version)),
+            ],
+            [
+              'PATCH',
+              () =>
+                request(app)
+                  .patch(`${base}/status`)
+                  .set(...auth(user))
+                  .send({ status: 'CONTRACTED' }),
+            ],
+            [
+              'DELETE',
+              () =>
+                request(app)
+                  .delete(base)
+                  .set(...auth(user)),
+            ],
+          ];
+          for (const [method, send] of requests) {
+            const label = `${who} ${method} ${base}`;
+            const deniedBefore = await deniedCount(user.id);
+            const ownerDeniedBefore = await deniedCount(user.id, target.projectId);
+            const response = await send();
+            expect(response.status, label).toBe(404);
+            expect(response.body.code, label).toBe('NOT_FOUND');
+            expect(withoutInstance(response.body), label).toEqual(withoutInstance(missing.body));
+            expect((await deniedCount(user.id)) - deniedBefore, label).toBe(expectedDenied);
+            expect((await deniedCount(user.id, target.projectId)) - ownerDeniedBefore, label).toBe(
+              expectedDenied
+            );
+          }
+        }
       }
-      expect((await deniedCount(outsider.id)) - deniedBefore).toBe(0);
+      expect(await snapshot(target)).toEqual(before);
       await prisma.contract.delete({ where: { id: deletedId } });
     });
   });
@@ -738,13 +793,14 @@ describe('契約書の API の閲覧範囲（統合・実 DB）', () => {
     });
 
     /**
-     * 論理削除済みの契約書は不在の扱いであり、食い違いの照合より先に不在として 404 にする。
-     * 契約書の案件が範囲外でも範囲外の拒否として記録しない（14.9 の除外）。
+     * 論理削除済みの契約書も、データベースに実在する限り契約書の実際の案件で判定する（14.9 の 2026-10-30 の
+     * 改訂。user-authentication の要件39.8 の改訂）。応答は不在と同じ 404 のまま、契約書の案件（範囲外）を
+     * 対象に 1 件記録し、データを変えない。
      *
      * @requirement contract-management/REQ-14.4
      * @requirement contract-management/REQ-14.9
      */
-    it('範囲内の案件の配下の経路で範囲外の案件の論理削除済みの契約書を指すと、契約書の不在と同じ 404 にし、データを変えず、記録しない', async () => {
+    it('範囲内の案件の配下の経路で範囲外の案件の論理削除済みの契約書を指すと、契約書の不在と同じ 404 にし、データを変えず、契約書の案件を対象に 1 件記録する', async () => {
       const victimId = await disposable(other);
       await prisma.contract.update({ where: { id: victimId }, data: { deletedAt: new Date() } });
       const beforeOther = await snapshot(other);
@@ -760,9 +816,9 @@ describe('契約書の API の閲覧範囲（統合・実 DB）', () => {
         .set(...auth(sales));
       expect(response.status).toBe(404);
       expect(withoutInstance(response.body)).toEqual(withoutInstance(missing.body));
-      // 論理削除済みの契約書は、実行者全体でも契約書の案件でも記録しない
-      expect((await deniedCount(sales.id)) - deniedBefore).toBe(0);
-      expect((await deniedCount(sales.id, other.projectId)) - ownerDeniedBefore).toBe(0);
+      // 記録は 1 件だけ増え、対象は経路の案件でなく契約書の実際の案件
+      expect((await deniedCount(sales.id)) - deniedBefore).toBe(1);
+      expect((await deniedCount(sales.id, other.projectId)) - ownerDeniedBefore).toBe(1);
       expect(await snapshot(other)).toEqual(beforeOther);
     });
   });

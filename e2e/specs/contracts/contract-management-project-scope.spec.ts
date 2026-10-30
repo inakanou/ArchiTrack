@@ -450,6 +450,85 @@ test.describe('契約書の案件の閲覧範囲', () => {
   });
 
   /**
+   * 論理削除済みの契約書も、データベースに実在する限り契約書の実際の案件で判定する（contract-management
+   * タスク22.1。user-authentication の要件39.8 の 2026-10-30 の改訂の本機能への適用）。範囲外の案件の
+   * 論理削除済みの契約書を `/api/contracts/:id` の詳細と、自分の案件の配下の経路で指すと、存在しない契約書と
+   * 同じ 404 のまま、契約書の案件を対象に要求ごとに 1 件記録する。データは変わらない。
+   *
+   * @requirement contract-management/REQ-14.9
+   * @requirement contract-management/REQ-14.10
+   * @requirement user-authentication/REQ-39.8
+   */
+  test('範囲外の案件の論理削除済みの契約書を詳細の API と自分の案件の配下の経路で指すと、存在しない契約書と同じ 404 になり、契約書の案件を対象に監査の記録が 1 件ずつ増える', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('own-deleted', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const foreign = await createFixture('foreign-deleted', {
+      salesPersonId: other.id,
+      createdById: other.id,
+    });
+    await getPrismaClient().contract.update({
+      where: { id: foreign.contractId },
+      data: { deletedAt: new Date() },
+    });
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      getPrismaClient().auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+
+    const cases: Array<[string, string, string]> = [
+      [
+        '詳細の API',
+        `${API_BASE_URL}/api/contracts/${foreign.contractId}`,
+        `${API_BASE_URL}/api/contracts/${MISSING_ID}`,
+      ],
+      [
+        '自分の案件の配下の経路',
+        `${API_BASE_URL}/api/projects/${target.projectId}/contracts/${foreign.contractId}`,
+        `${API_BASE_URL}/api/projects/${target.projectId}/contracts/${MISSING_ID}`,
+      ],
+    ];
+    for (const [label, deletedUrl, missingUrl] of cases) {
+      // 存在しない契約書: 404 で記録しない
+      const missingBefore = await deniedCount();
+      const missing = await request.get(missingUrl, { headers });
+      expect(missing.status(), `${label}: 不在`).toBe(404);
+      const missingBody = withoutInstance((await missing.json()) as Record<string, unknown>);
+      expect((await deniedCount()) - missingBefore, `${label}: 不在の契約書は記録しない`).toBe(0);
+
+      // 範囲外の案件の論理削除済みの契約書: 不在と同じ 404 で、契約書の案件を対象に 1 件記録する
+      const allBefore = await deniedCount();
+      const foreignBefore = await deniedCount(foreign.projectId);
+      const response = await request.get(deletedUrl, { headers });
+      expect(response.status(), label).toBe(404);
+      expect(
+        withoutInstance((await response.json()) as Record<string, unknown>),
+        `${label}: 契約書の不在と同じ本文`
+      ).toEqual(missingBody);
+      expect((await deniedCount()) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(1);
+      expect(
+        (await deniedCount(foreign.projectId)) - foreignBefore,
+        `${label}: 記録の対象は契約書の実際の案件`
+      ).toBe(1);
+    }
+
+    expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+
+  /**
    * @requirement contract-management/REQ-14.5
    * @requirement contract-management/REQ-14.6
    */
