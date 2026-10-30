@@ -1501,4 +1501,190 @@ describe('数量表・数量グループ・数量項目・候補の API の閲�
       expect(fromSurvey.body.code).toBe('SITE_SURVEY_PROJECT_MISMATCH');
     });
   });
+
+  describe('保存の本文の属さない既存の ID の実際の案件（50.11）', () => {
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象の案件を指定すればその案件だけ） */
+    function deniedCount(actorId: string, targetId?: string): Promise<number> {
+      return prisma.auditLog.count({
+        where: { action: 'PROJECT_SCOPE_DENIED', actorId, ...(targetId ? { targetId } : {}) },
+      });
+    }
+
+    const draftItem = (id: string, name: string, displayOrder: number) => ({
+      id,
+      majorCategory: '土工事',
+      middleCategory: null,
+      minorCategory: null,
+      customCategory: null,
+      workType: '掘削',
+      name,
+      specification: null,
+      unit: 'm3',
+      calculationMethod: 'STANDARD',
+      calculationParams: null,
+      adjustmentFactor: 1.0,
+      roundingUnit: 0.01,
+      quantity: 1,
+      remarks: null,
+      displayOrder,
+    });
+
+    /**
+     * target の数量表の保存の本文。自分の数量表のグループ・項目に、属さないグループ ID と項目 ID を 1 つずつ混ぜる
+     */
+    const saveBody = async (
+      foreignGroupId: string,
+      foreignItemId: string
+    ): Promise<Record<string, unknown>> => ({
+      expectedUpdatedAt: await updatedAtOf('table', target.quantityTableId),
+      name: `${MARK}-target-qt`,
+      groups: [
+        {
+          id: target.groupId,
+          name: 'target-group',
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [
+            draftItem(target.itemId, `${MARK}-target-item`, 0),
+            draftItem(foreignItemId, `${MARK}-intruder-item`, 1),
+          ],
+        },
+        { id: foreignGroupId, name: 'intruder', surveyImageId: null, displayOrder: 1, items: [] },
+      ],
+    });
+
+    const save = (user: TestUser, body: Record<string, unknown>) =>
+      request(app)
+        .put(`/api/quantity-tables/${target.quantityTableId}/save`)
+        .set(...auth(user))
+        .send(body);
+
+    /** 指定の案件に数量表・数量グループ・数量項目を 1 つずつ作る */
+    async function createTableTree(
+      projectId: string,
+      label: string
+    ): Promise<{ tableId: string; groupId: string; itemId: string }> {
+      const table = await prisma.quantityTable.create({
+        data: { projectId, name: `${MARK}-${label}-qt` },
+        select: { id: true },
+      });
+      const group = await prisma.quantityGroup.create({
+        data: { quantityTableId: table.id, name: `${label}-group`, displayOrder: 0 },
+        select: { id: true },
+      });
+      const itemId = await createItem(group.id, `${MARK}-${label}-item`, 0);
+      return { tableId: table.id, groupId: group.id, itemId };
+    }
+
+    /**
+     * 応答は属さない ID の従来の 400（不在の ID と同じ本文）のまま、属さない ID の実際の案件が範囲外なら
+     * その案件を対象に記録が 1 件増え、どの数量表のデータも変わらない（quantity-table-generation タスク107.1。
+     * user-authentication の要件39.8 の改訂の本機能への適用）。数量表が論理削除済みでも、その数量表の案件で
+     * 判定する。
+     *
+     * @requirement quantity-table-generation/REQ-50.11
+     */
+    it('担当者が範囲内の数量表の保存の本文へ範囲外の案件の数量グループ・数量項目の ID を混ぜると、従来の 400 の本文のまま範囲外の案件を対象に記録が 1 件増え、どの数量表も変わらない', async () => {
+      const deleted = await createTableTree(other.projectId, 'deleted-foreign');
+      await prisma.quantityTable.update({
+        where: { id: deleted.tableId },
+        data: { deletedAt: new Date() },
+      });
+      try {
+        const missing = await save(construction, await saveBody(MISSING_ID, MISSING_ID_2));
+        expect(missing.status, '前提: 不在の ID は従来の 400').toBe(400);
+        // 問題箇所は本文の直下にキーとして載る（RFC 9457 の拡張メンバー）
+        expect(missing.body).toMatchObject({
+          code: 'QUANTITY_TABLE_VALIDATION_ERROR',
+          'groups[0].items[1].id': 'この数量表に属さない数量項目が指定されています',
+          'groups[1].id': 'この数量表に属さない数量グループが指定されています',
+        });
+
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+        const beforeSibling = await snapshot(sibling);
+        const cases: Array<[string, string, string]> = [
+          ['範囲外の案件の数量表', other.groupId, other.itemId],
+          ['範囲外の案件の論理削除済みの数量表', deleted.groupId, deleted.itemId],
+        ];
+        for (const [label, foreignGroupId, foreignItemId] of cases) {
+          const allBefore = await deniedCount(construction.id);
+          const foreignBefore = await deniedCount(construction.id, other.projectId);
+          const response = await save(construction, await saveBody(foreignGroupId, foreignItemId));
+          expect(response.status, label).toBe(400);
+          expect(withoutInstance(response.body), `${label}: 不在の ID と同じ本文`).toEqual(
+            withoutInstance(missing.body)
+          );
+          const exposed = JSON.stringify(withoutInstance(response.body));
+          expect(exposed, label).not.toContain(other.projectId);
+          expect(
+            (await deniedCount(construction.id)) - allBefore,
+            `${label}: グループと項目が同じ案件を指しても記録は 1 件だけ増える`
+          ).toBe(1);
+          expect(
+            (await deniedCount(construction.id, other.projectId)) - foreignBefore,
+            `${label}: 記録の対象は属さない ID の実際の案件`
+          ).toBe(1);
+        }
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other)).toEqual(beforeOther);
+        expect(await snapshot(sibling)).toEqual(beforeSibling);
+      } finally {
+        await prisma.quantityTable.delete({ where: { id: deleted.tableId } });
+      }
+    });
+
+    /**
+     * 全案件閲覧の権限の利用者・同じ案件の別の数量表・範囲内の他の案件・存在しない ID・案件そのものが
+     * 論理削除済みの数量表では、従来の 400 のまま記録しない（50.11）。
+     *
+     * @requirement quantity-table-generation/REQ-50.11
+     */
+    it('全案件閲覧の権限の利用者・同じ案件の別の数量表・範囲内の他の案件・存在しない ID・論理削除済みの案件では、従来の 400 のまま記録が増えない', async () => {
+      const sameProject = await createTableTree(target.projectId, 'same-project-other');
+      const deletedProject = await prisma.project.create({
+        data: {
+          name: `${MARK}-deleted-project`,
+          salesPersonId: outsider.id,
+          createdById: outsider.id,
+        },
+        select: { id: true },
+      });
+      const inDeletedProject = await createTableTree(deletedProject.id, 'deleted-project');
+      await prisma.project.update({
+        where: { id: deletedProject.id },
+        data: { deletedAt: new Date() },
+      });
+      try {
+        const missing = await save(construction, await saveBody(MISSING_ID, MISSING_ID_2));
+        expect(missing.status, '前提: 不在の ID は従来の 400').toBe(400);
+
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+        const beforeSibling = await snapshot(sibling);
+        const cases: Array<[string, TestUser, string, string]> = [
+          ['全案件閲覧の権限の利用者', readAll, other.groupId, other.itemId],
+          ['同じ案件の別の数量表', construction, sameProject.groupId, sameProject.itemId],
+          ['範囲内の他の案件', construction, sibling.groupId, sibling.itemId],
+          ['存在しない ID', construction, MISSING_ID, MISSING_ID_2],
+          ['論理削除済みの案件', construction, inDeletedProject.groupId, inDeletedProject.itemId],
+        ];
+        for (const [label, user, foreignGroupId, foreignItemId] of cases) {
+          const before = await deniedCount(user.id);
+          const response = await save(user, await saveBody(foreignGroupId, foreignItemId));
+          expect(response.status, label).toBe(400);
+          expect(withoutInstance(response.body), `${label}: 不在の ID と同じ本文`).toEqual(
+            withoutInstance(missing.body)
+          );
+          expect((await deniedCount(user.id)) - before, `${label}: 記録しない`).toBe(0);
+        }
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other)).toEqual(beforeOther);
+        expect(await snapshot(sibling)).toEqual(beforeSibling);
+      } finally {
+        await prisma.quantityTable.delete({ where: { id: sameProject.tableId } });
+        await prisma.project.delete({ where: { id: deletedProject.id } });
+      }
+    });
+  });
 });

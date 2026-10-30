@@ -1076,8 +1076,9 @@ export class QuantityTableService {
     actorId: string,
     scopeDenialContext?: ProjectScopeDenialContext
   ): Promise<QuantityTableDetailWithItems> {
-    // 写真の紐付けの判定（Requirement 50.5）で範囲外とした案件は、処理の後（トランザクションの外）で
-    // PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7）
+    // 写真の紐付けの判定（Requirement 50.5）と、本文の属さない既存の ID の実際の案件の判定
+    // （Requirement 50.11、タスク107.1）で範囲外とした案件は、処理の後（トランザクションの外）で
+    // 案件ごとに 1 回 PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7・39.8）
     return withSurveyScopeDenialRecording(
       actorId,
       scopeDenialContext,
@@ -1175,6 +1176,19 @@ export class QuantityTableService {
         input.groups
           .flatMap((g) => g.items.map((it) => it.id))
           .filter((iid): iid is string => iid !== null)
+      );
+
+      // 2-0-0. 本文の属さない既存の ID の実際の案件の範囲の判定（Requirement 50.11、タスク107.1）。
+      //      属さない ID の実際の案件が範囲外なら、処理の後に記録する（応答は下の所属検証の 400 のまま）。
+      //      重複検証より前に置き、本文に重複を一つ混ぜるだけで記録を避けられないようにする。
+      await this.noteForeignDraftIdProjects(
+        tx,
+        input,
+        dbGroupIds,
+        dbItemIds,
+        current.projectId,
+        actorId,
+        deniedProjectIds
       );
 
       // 2-0-1. 重複検証: payload 内で同じ既存ID（グループ・項目）が複数回現れないことを確認する。
@@ -1430,12 +1444,100 @@ export class QuantityTableService {
   }
 
   /**
+   * 保存の本文の属さない既存の ID の実際の案件の範囲の判定（Requirement 50.11、タスク107.1）
+   *
+   * 本文の既存のグループ・項目の ID のうち、保存する数量表に属さないもの（属さない ID）の行を引き、
+   * その実際の案件（グループは親の数量表、項目は親の数量グループの数量表の案件）が保存する数量表の
+   * 案件と別なら、案件ごとに 1 回だけ閲覧範囲を判定する。範囲外（案件は実在する）と判定した案件は
+   * `deniedProjectIds` へ入れ、処理の後に {@link saveDraft} が記録する（user-authentication の要件39.7・39.8）。
+   *
+   * - 属さない ID が無ければ何も引かない（正常な保存の問い合わせは増えない）
+   * - 引くのはグループ・項目それぞれ ID 群の一括の読み出し 1 回に限る
+   * - 行の無い ID は判定しない（不在は記録しない）。数量表の論理削除は条件に含めない
+   *   （行が実在する限りその数量表の案件で判定する）
+   * - 同じ案件の別の数量表の ID は判定しない（経路の判定が保存する数量表の案件を範囲内と確かめている）。
+   *   範囲内の他の案件（`allowed`）と案件の不在・論理削除（`not_found`）は記録しない
+   * - 例外は投げない。応答はこの後の重複検証・所属検証（{@link validateDraftOwnership}）の従来の 400 のまま
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param input - フル状態同期保存入力
+   * @param dbGroupIds - 保存対象の数量表に属する既存グループIDの全集合
+   * @param dbItemIds - 保存対象の数量表に属する既存項目IDの全集合
+   * @param projectId - 保存対象の数量表が属するプロジェクトID
+   * @param actorId - 実行者ID（属さない ID の案件の閲覧範囲の判定に用いる）
+   * @param deniedProjectIds - 範囲外と判定した案件 ID を入れる集合（記録は {@link saveDraft} が行う）
+   */
+  private async noteForeignDraftIdProjects(
+    tx: PrismaTransactionClient,
+    input: SaveQuantityTableDraftInput,
+    dbGroupIds: string[],
+    dbItemIds: string[],
+    projectId: string,
+    actorId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<void> {
+    const groupIdSet = new Set(dbGroupIds);
+    const itemIdSet = new Set(dbItemIds);
+    const foreignGroupIds = [
+      ...new Set(
+        input.groups
+          .map((group) => group.id)
+          .filter((groupId): groupId is string => groupId !== null && !groupIdSet.has(groupId))
+      ),
+    ];
+    const foreignItemIds = [
+      ...new Set(
+        input.groups
+          .flatMap((group) => group.items.map((item) => item.id))
+          .filter((itemId): itemId is string => itemId !== null && !itemIdSet.has(itemId))
+      ),
+    ];
+
+    if (foreignGroupIds.length === 0 && foreignItemIds.length === 0) {
+      return;
+    }
+
+    const ownerProjectIds: string[] = [];
+    if (foreignGroupIds.length > 0) {
+      const groups = await tx.quantityGroup.findMany({
+        where: { id: { in: foreignGroupIds } },
+        select: { id: true, quantityTable: { select: { projectId: true } } },
+      });
+      ownerProjectIds.push(...groups.map((group) => group.quantityTable.projectId));
+    }
+    if (foreignItemIds.length > 0) {
+      const items = await tx.quantityItem.findMany({
+        where: { id: { in: foreignItemIds } },
+        select: {
+          id: true,
+          quantityGroup: { select: { quantityTable: { select: { projectId: true } } } },
+        },
+      });
+      ownerProjectIds.push(...items.map((item) => item.quantityGroup.quantityTable.projectId));
+    }
+
+    const foreignProjectIds = [
+      ...new Set(ownerProjectIds.filter((ownerProjectId) => ownerProjectId !== projectId)),
+    ];
+    for (const foreignProjectId of foreignProjectIds) {
+      const decision = await this.projectScope.evaluateProjectAccess(actorId, foreignProjectId);
+      if (decision === 'out_of_scope') {
+        deniedProjectIds.add(foreignProjectId);
+      }
+    }
+  }
+
+  /**
    * フル状態同期保存（saveDraft）の所属検証
    *
    * payload に含まれる既存ID（グループ・項目）が、保存対象の数量表に属することを検証する。
    * 形式（UUID）が正しくても他の数量表のIDであれば、更新時に quantityGroupId を明示する
    * 実装上、他の数量表の項目が本数量表のグループへ付け替えられる。属さないIDは
    * QuantityTableValidationError で拒否し、書き込み前に保存を中断する。
+   *
+   * 属さない ID は、他の数量表のものか存在しないものか、範囲の内外を問わず同じ 400 で拒む（応答で区別しない）。
+   * 属さない ID の実際の案件が範囲外なら記録するが、その判定は本検証より前（重複検証の前）の
+   * {@link noteForeignDraftIdProjects} が行う（Requirement 50.11、タスク107.1）。
    *
    * Requirements:
    * - 42.9: 整合性エラー時はエラーを返し保存を中断する

@@ -4181,6 +4181,8 @@ sequenceDiagram
 
 **判定の位置と問い合わせ（50.11）**: 保存の本体（`saveDraftWithin`）のトランザクションの中で、保存する数量表の既存の ID の集合を読んだ後に、本文の既存の ID のうちその集合に無いもの（属さない ID）を求める。属さない ID が無ければ何も引かない（正常な保存の問い合わせは増えない）。属さない ID があれば、グループの ID は数量グループの行から親の数量表の案件を、項目の ID は数量項目の行から親の数量グループの数量表の案件を、それぞれ 1 回の問い合わせ（ID 群の一括の読み出し）で引く。行の無い ID は判定しない（不在は記録しない）。数量表の論理削除は条件に含めない（行が実在する限りその数量表の案件で判定する）。引いた案件のうち保存する数量表の案件と異なるものを重複なく並べ、案件ごとに 1 回 `evaluateProjectAccess` で判定し、`out_of_scope` なら範囲外とした案件の集合（`deniedProjectIds`）に入れる。判定と集合への追加は写真の紐付けの判定の `filterVisibleSurveyImages` と同じ形とし、処理の名前と置き場所は実装時に決めて本節へ記す。
 
+- **処理の名前と置き場所（タスク107.1 で決めた）**: `QuantityTableService` の private メソッド `noteForeignDraftIdProjects` とし、`saveDraftWithin` のトランザクションの中で、差分元の既存の ID の集合（`dbGroupIds`・`dbItemIds`）を求めた直後、重複の検証（`validateDraftDuplicateIds`）の呼び出しの前に呼ぶ。グループは `quantityGroup.findMany`（親の数量表の `projectId` を select）、項目は `quantityItem.findMany`（親の数量グループの数量表の `projectId` を select）で、属さない ID があるほうだけを ID 群の一括の読み出し 1 回ずつで引く。条件は ID だけで、数量表の `deletedAt` を含めない。判定は `evaluateProjectAccess` を案件ごとに 1 回呼び、`out_of_scope` のときだけ `deniedProjectIds` へ入れる
+
 - 判定は重複の検証（`validateDraftDuplicateIds`）より前に置き、例外を投げない（集合へ入れるだけ）。その後の重複の検証と所属の照合（`validateDraftOwnership`）は従来の順と応答のまま例外を投げる。重複と属さない ID の両方を含む本文でも、応答は従来どおり重複の 400 のまま記録が残る。判定を所属の照合の中や後に置くと、本文に重複を一つ混ぜるだけで記録を避けられるため採らない
 - 応答は記録の有無に関わらず所属の照合の従来の 400（`QuantityTableValidationError`、同じ文言と問題箇所のキー）とする。範囲外の案件の ID を不在と同じ扱いにする既存の応答は、範囲外・不在・範囲内の別の数量表を区別しないので、漏洩は無い（上流の要件39.8 の改訂の記録）
 - 記録は既存の `withSurveyScopeDenialRecording` が処理の後（例外でトランザクションを巻き戻した後）に案件ごとに 1 回書く。写真の紐付けの判定と同じ集合を使うため、一つの要求で写真と本文の ID が同じ範囲外の案件を指しても記録は 1 回である

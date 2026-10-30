@@ -6,7 +6,7 @@
  * 範囲外を存在しない場合と同じ汎用の 404 にする。一括の要求は範囲外が一つでも含まれれば全体を 404 にし、
  * 写真の紐付けが範囲外の現場調査・画像を指せば現場調査・画像の不在と同じ 404 にする。
  *
- * 被覆する受入基準（quantity-table-generation の Requirement 50.1〜50.7、50.10〔タスク105.1〕）は各テストの `@requirement` の印が名乗る。
+ * 被覆する受入基準（quantity-table-generation の Requirement 50.1〜50.7、50.10〔タスク105.1〕、50.11〔タスク107.1〕）は各テストの `@requirement` の印が名乗る。
  *
  * タスク106.1 で、画面が 404 を受けたときの表示（Requirement 51.1・51.2）を足した。範囲外と不在は同じ 404 であり、
  * 画面は見つからない旨（共通部品 ResourceNotFound、操作では見つからない旨のメッセージ）を表示し、読み込み・取得の
@@ -528,6 +528,113 @@ test.describe('数量表・数量グループ・数量項目・候補の案件�
     expect(await snapshot(target.projectId)).toEqual(beforeTarget);
     expect(await snapshot(sibling.projectId)).toEqual(beforeSibling);
     expect(await snapshot(foreign.projectId), 'データは変わらない').toEqual(beforeForeign);
+  });
+
+  /**
+   * 数量表の保存の本文に、保存する数量表に属さない既存の ID が混じると、応答は不在の ID と同じ従来の 400 の
+   * まま、その ID の実際の案件が範囲外なら範囲外の拒否として記録する（quantity-table-generation タスク107.1。
+   * user-authentication の要件39.8 の改訂〔作成・保存の要求が指す他のデータ〕の本機能への適用）。
+   * 不在の ID は記録しない。どちらの数量表も変わらない。
+   *
+   * @requirement quantity-table-generation/REQ-50.11
+   * @requirement user-authentication/REQ-39.8
+   */
+  test('自分の数量表の保存の本文へ範囲外の案件の数量グループの ID を混ぜると 400 になり、その案件を対象に監査の記録が 1 件増え、どちらの数量表も変わらない', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('save-foreign-own', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const foreign = await createFixture('save-foreign-other', {
+      salesPersonId: other.id,
+      createdById: other.id,
+    });
+    const prisma = getPrismaClient();
+    const targetTable = await prisma.quantityTable.findUniqueOrThrow({
+      where: { id: target.quantityTableId },
+      select: { updatedAt: true },
+    });
+    const beforeTarget = await snapshot(target.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象の案件を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+
+    /** 自分の数量表のグループと項目に、属さないグループの ID を 1 つ混ぜた保存の要求 */
+    const saveWith = (strayGroupId: string) =>
+      request.put(`${API_BASE_URL}/api/quantity-tables/${target.quantityTableId}/save`, {
+        headers,
+        data: {
+          expectedUpdatedAt: targetTable.updatedAt.toISOString(),
+          name: target.quantityTableName,
+          groups: [
+            {
+              id: target.groupId,
+              name: '閲覧範囲検証のグループ save-foreign-own',
+              surveyImageId: target.surveyImageId,
+              displayOrder: 0,
+              items: [
+                {
+                  id: target.itemId,
+                  majorCategory: '土工事',
+                  middleCategory: null,
+                  minorCategory: null,
+                  customCategory: null,
+                  workType: '掘削',
+                  name: '閲覧範囲検証の項目 save-foreign-own',
+                  specification: null,
+                  unit: 'm3',
+                  calculationMethod: 'STANDARD',
+                  calculationParams: null,
+                  adjustmentFactor: 1,
+                  roundingUnit: 0.01,
+                  quantity: 1,
+                  remarks: null,
+                  displayOrder: 0,
+                },
+              ],
+            },
+            { id: strayGroupId, name: '混入', surveyImageId: null, displayOrder: 1, items: [] },
+          ],
+        },
+      });
+
+    // 不在の ID: 従来の 400 で記録しない
+    const missingBefore = await deniedCount();
+    const missing = await saveWith(MISSING_ID);
+    expect(missing.status(), '不在の ID').toBe(400);
+    const missingBody = withoutInstance((await missing.json()) as Record<string, unknown>);
+    expect(missingBody.code).toBe('QUANTITY_TABLE_VALIDATION_ERROR');
+    expect(missingBody['groups[1].id']).toBe('この数量表に属さない数量グループが指定されています');
+    expect((await deniedCount()) - missingBefore, '不在の ID は記録しない').toBe(0);
+
+    // 範囲外の案件の数量表のグループの ID: 不在の ID と同じ 400 の本文で、その案件を対象に 1 件記録する
+    const allBefore = await deniedCount();
+    const foreignBefore = await deniedCount(foreign.projectId);
+    const outOfScope = await saveWith(foreign.groupId);
+    expect(outOfScope.status(), '範囲外の案件の ID').toBe(400);
+    const body = withoutInstance((await outOfScope.json()) as Record<string, unknown>);
+    expect(body, '不在の ID と同じ本文').toEqual(missingBody);
+    expect(JSON.stringify(body)).not.toContain(foreign.projectId);
+    expect((await deniedCount()) - allBefore, '記録は 1 件だけ増える').toBe(1);
+    expect(
+      (await deniedCount(foreign.projectId)) - foreignBefore,
+      '記録の対象は混ぜた ID の実際の案件'
+    ).toBe(1);
+
+    expect(await snapshot(target.projectId), '保存する数量表は変わらない').toEqual(beforeTarget);
+    expect(await snapshot(foreign.projectId), '範囲外の数量表は変わらない').toEqual(beforeForeign);
   });
 
   /**
