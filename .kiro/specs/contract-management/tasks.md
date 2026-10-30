@@ -349,3 +349,28 @@
   - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、予期しないエラー・取得の失敗の文言を出さない状態になる
   - _Requirements: 11.8, 11.9_
   - _Boundary: ContractListPage, ContractCreatePage, ContractDetailPage, ContractEditPage, DeleteConfirmDialog, classifyContractError_
+
+## Task 22: 論理削除済みの契約書・基となる契約書の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、記録しない「論理削除」を案件そのものの論理削除に限り、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」とその起票先の一覧の contract-management の行）。本機能は、解決関数 `findProjectIdOfContract` が論理削除済みの契約書で null を返し、`ContractService` の `createWithin` が論理削除済みの基となる契約書を所属の照合より先に 422 で弾くため、範囲外の案件のものでも記録しない（2026-10-30 の調査）。requirements.md の 14.8・14.9 を改め（改訂の記録を同要件に残した）、14.10 を加え、design.md の末尾の章「2026-10-30 の追加: 論理削除済みの契約書の範囲外の記録」に設計を置いた。応答とデータと画面は変えない
+
+- [ ] 22.1 解決関数が論理削除済みの契約書にも実際の案件を返し、範囲外なら記録されるようにする
+  - backend/src/middleware/contract-management-project-scope.middleware.ts の `findProjectIdOfContract` を、行が無いときだけ null を返し、行が実在すれば論理削除済みかどうかを添えて案件 ID を返す形へ改める。`requireContractProjectScope` の解決関数は、論理削除済みの契約書では経路の形（`/api/contracts/:id`、同じ案件の配下の経路、食い違いの経路）を問わず `projectMismatch(契約書の案件 ID)` を返す（同じ案件の経路と `/api/contracts` のマウントで論理削除済みの契約書を指したときの従来の汎用の 404 を保つための切り分け。design.md の同章の「決定」の表）。論理削除済みでない契約書の振る舞い（一致なら案件 ID、食い違いなら `projectMismatch`）は変えない。同ファイルの冒頭の注釈と関数の注釈を改める
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体（`backend/src/__tests__/unit/middleware/contract-management-project-scope.middleware.test.ts`）の「契約書の ID から案件 ID を引き、契約書が無いか論理的に取り除かれていれば null を返す」と「論理的に取り除かれた契約書は、案件が範囲外でも範囲を判定せずに不在と同じ 404 にし、記録しない」の 2 本。統合（`backend/src/__tests__/integration/contract-management-project-scope.api.integration.test.ts`）の「論理的に取り除かれた契約書は、範囲の内外を問わず存在しない契約書と同じ汎用の 404 を返す」（範囲外の利用者で記録の差 0）と「範囲内の案件の配下の経路で範囲外の案件の論理削除済みの契約書を指すと、…記録しない」の 2 本。改め方は design.md の同章の「既存のテストの書き換え」のとおり（範囲外なら記録 1 件、範囲内と案件そのものの論理削除では記録なし、どれも存在しない契約書と同じ汎用の 404 で本体へ進まずデータが変わらない）
+  - E2E（`e2e/specs/contracts/contract-management-project-scope.spec.ts`）で、担当外の利用者が範囲外の案件の論理削除済みの契約書を `/api/contracts/:id` の詳細と範囲内の案件の配下の経路で指すと、存在しない契約書と同じ 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件ずつ増えることを主張し、`@requirement contract-management/REQ-14.9`・`REQ-14.10` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（契約書の詳細・更新・ステータスの変更・取り除きの 404、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 14.9 の入れ子の経路のテスト、11.9 の開いた後に論理削除された契約書の操作のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、書き換えたテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、論理削除済みの契約書の ID 指定が範囲外のときだけ記録され、どの場合も存在しない契約書と同じ汎用の 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 14.9, 14.10_
+  - _Boundary: findProjectIdOfContract, requireContractProjectScope の解決関数と、論理削除済みの契約書の記録を主張する本機能のテスト_
+
+- [ ] 22.2 変更契約の作成で、範囲外の案件の論理削除済みの基となる契約書を記録する
+  - backend/src/services/contract.service.ts の `createWithin` の基となる契約書の照合の順を、行が無い（422、記録しない）→ 経路のプロジェクトに属さない（`noteOutOfScopeReference` で範囲外なら記録のうえ 422）→ 同じプロジェクトで論理削除済み（422、記録しない）へ改める（design.md の同章の「決定」の「基となる契約書の照合の順」）。応答は 3 通りとも 14.6 と同じ 422 と同じ本文のまま、契約書を作成しない。照合の注釈を改める
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体（`backend/src/__tests__/unit/services/contract.service.test.ts`）の「変更契約の作成の要求が論理削除済みの基となる契約書（%s）を指すと、不在と同じ 422 の本文にし、作成せず、記録しない（14.8）」の 1 本を、同じプロジェクトでは判定も記録もせず、範囲外の案件では判定して記録 1 回（対象は基となる契約書の案件）の主張へ分ける。統合（`backend/src/__tests__/integration/contract-management-project-scope.api.integration.test.ts`）の「変更契約の作成の要求が論理削除済みの基となる契約書を指すと、…記録しない」の 1 本を、同じプロジェクトの論理削除済みの基では記録が増えず、範囲外の案件の論理削除済みの基では 1 件増える主張へ改める。どちらも不在と同じ 422 と本文、契約書の件数が変わらない主張を保つ
+  - E2E（`e2e/specs/contracts/contract-management-project-scope.spec.ts`）で、範囲外の案件の論理削除済みの契約書を基に指す変更契約の作成が存在しない基と同じ 422 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、契約書が作られないことを主張し、`@requirement contract-management/REQ-14.8` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 挙動の変更であるため RED → GREEN で進め、書き換えたテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、範囲外の案件の論理削除済みの基となる契約書を指す変更契約の作成が不在と同じ 422 で記録され、同じプロジェクトの論理削除済みの基では記録されない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 14.8_
+  - _Boundary: ContractService の変更契約の作成の基となる契約書の照合と、その記録を主張する本機能のテスト_
