@@ -17,7 +17,8 @@
  * `/api/quotations` に二重にマウントされる。受領見積書の経路の引数名を `quotationId` とし、親の見積依頼の
  * 経路の引数名 `id` と分ける（名前が重なると mergeParams で子の値が優先され、経路の見積依頼が読めない）。
  * 見積依頼の配下の経路で受領見積書が経路の見積依頼に属さないときは、判定部品が不在と同じ汎用の 404 にし、
- * 受領見積書の案件が範囲外のときだけ記録する。URL（OpenAPI の `/api/quotations/{id}`）は変わらない。
+ * 受領見積書の案件が範囲外のときだけ記録する。URL は変わらない。OpenAPI の注釈の経路の引数名も実装に合わせて
+ * `/api/quotations/{quotationId}` とした（2026-10-31 の機能検証の指摘）。
  *
  * Task 13.2: 受領見積書エンドポイントの実装
  *
@@ -325,7 +326,7 @@ router.get(
 
 /**
  * @swagger
- * /api/quotations/{id}:
+ * /api/quotations/{quotationId}:
  *   get:
  *     summary: 受領見積書詳細取得
  *     description: 受領見積書の詳細情報を取得
@@ -335,12 +336,12 @@ router.get(
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: quotationId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: 受領見積書ID
+ *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
  *     responses:
  *       200:
  *         description: 受領見積書詳細
@@ -387,7 +388,7 @@ router.get(
 
 /**
  * @swagger
- * /api/quotations/{id}:
+ * /api/quotations/{quotationId}:
  *   put:
  *     summary: 受領見積書更新
  *     description: 受領見積書の情報を更新（楽観的排他制御）
@@ -397,12 +398,12 @@ router.get(
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: quotationId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: 受領見積書ID
+ *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
  *     requestBody:
  *       required: true
  *       content:
@@ -564,7 +565,7 @@ router.put(
 
 /**
  * @swagger
- * /api/quotations/{id}:
+ * /api/quotations/{quotationId}:
  *   delete:
  *     summary: 受領見積書削除
  *     description: 受領見積書を論理削除（楽観的排他制御、ファイル物理削除）
@@ -574,12 +575,12 @@ router.put(
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: quotationId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: 受領見積書ID
+ *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
  *     requestBody:
  *       required: true
  *       content:
@@ -653,7 +654,7 @@ router.delete(
 
 /**
  * @swagger
- * /api/quotations/{id}/preview:
+ * /api/quotations/{quotationId}/preview:
  *   get:
  *     summary: ファイルプレビューURL取得
  *     description: 受領見積書のファイルプレビュー用署名付きURLを取得
@@ -663,12 +664,12 @@ router.delete(
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: quotationId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: 受領見積書ID
+ *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
  *     responses:
  *       200:
  *         description: 署名付きURL

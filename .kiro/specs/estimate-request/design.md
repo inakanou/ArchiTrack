@@ -219,6 +219,8 @@ sequenceDiagram
     UI->>UI: コピー完了フィードバック表示
 ```
 
+> **改訂の注記（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 上の図のコピーは `navigator.clipboard.writeText()` を直接呼ぶ形であり、タスク107.1（`3cf87a04`、Requirement 42.13・42.14）の前の記録である。現在の宛先・表題・本文のコピーは、クリックの処理の中で最初の `await` として user-authentication の `runRecordedClipboardWrite` を呼び、出力の記録（種別 `estimate_request_text_clipboard`）の成功の後にだけ書き込み、記録の失敗では何も書かずに `EXPORT_RECORD_FAILED_MESSAGE` を表示する。現在の正本は末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「クリップボードへのコピー（42.13・42.14）」と「実装の記録（タスク107.1、2026-10-30）」
+
 ### 受領見積書登録フロー（ファイル + 構造化データ）
 
 ```mermaid
@@ -6125,6 +6127,8 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 
 本追記は Requirement 41 の 11 件の Acceptance Criteria を満たす設計を定義する。Light Discovery（Extension）を適用し、新規データ取得・新規 API・新規ライブラリなしで実装する。
 
+> **改訂の注記（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 本章の起動の方式は、タスク107.1（`3cf87a04`、Requirement 42.15・42.16）の前の記録である。現在は「メールで開く」「Gmailで開く」とも出力の記録（種別 `estimate_request_text_mail`）の成功の後にだけ起動する。「Gmailで開く」は `window.open(url, '_blank', 'noopener,noreferrer')` でなく、クリックの処理の中で空のタブを開いて `opener` を null にし、記録の成功の後に `rel="noreferrer"` のリンクで Gmail の作成画面へ移し、記録の失敗ではタブを閉じる。`mail-launcher` は URL の組み立ての関数（副作用なし）に加えて、タブとメールクライアントを操作する関数（`openMailClient`・`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）を持つため、本章の「`mail-launcher` は副作用なし」は URL の組み立ての関数についてだけ今も成り立つ。本章の Boundary Commitments・Architecture・Requirements Traceability・Components and Interfaces・Testing Strategy・Security Considerations・File Structure Plan・Open Questions / Risks（R-41-4）の該当の記述は改訂前の記録として残し、現在の正本は末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」とする
+
 ### Goals（追記9）
 
 - 見積依頼文の宛先・表題・本文を、個別コピー＆ペーストなしでメールクライアントへワンクリック転記する
@@ -6151,6 +6155,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 - ボタン用の新規 styles（`mailActionRow`, `mailButton`, `mailButtonDisabled`, `mailDisabledReason`）
 - `EstimateRequestDetailPage.tsx` から `EstimateRequestTextPanel` への `method={request.method}` 伝搬（1 行追加）
 - メーラー起動は mailto をアンカー `<a href>`（副作用なし）、Gmail を `window.open`（onClick ハンドラ内）で行い、副作用を最小化する
+  - **改訂の注記（2026-10-31）**: 上の 2 項（`mail-launcher` の副作用なし、起動の方式）はタスク107.1 の前の記録である。現在の `mail-launcher` はタブとメールクライアントを操作する関数も持ち、起動は記録の成功の後に行う（本章の冒頭の改訂の注記と、末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」）
 
 #### スコープ外（Out of Boundary）
 
@@ -6194,6 +6199,7 @@ graph TB
 - `EstimateRequestDetailPage`: `EstimateRequestTextPanel` に `method={request.method}` を追加伝搬（既存の `text` / `loading` / `showIncludeBreakdownToggle` に加える）
 - `EstimateRequestTextPanel`: 宛先セクション付近に `MailActionRow`（2 ボタン + 無効化理由）を描画。活性条件は props から派生
 - `mail-launcher.ts`: `buildMailtoUrl` / `buildGmailComposeUrl` の純粋関数。副作用（window 操作）は持たない
+  - **改訂の注記（2026-10-31）**: タスク107.1 の前の記録である。現在は window の操作（`openMailClient`・`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）も本部品に置く（末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」）
 - 依存方向: `utils（mail-launcher）→ component（TextPanel）→ page（DetailPage）`。UI 層から utils を一方向に import（既存の依存方向と整合）
 
 #### 活性/非活性の決定（Req 41 AC 8/9/10）
@@ -6225,6 +6231,7 @@ const mailDisabledReason = (() => {
   - **無効化時の扱い**: アンカーは `disabled` 属性を持てないため、`canLaunchMail === false` のときは `<a>` を描画せず `<button disabled>`（同一スタイル）を描画する条件分岐とする。これにより Req 41 AC 9/10 の無効化表示を実現
 - **「Gmail で開く」（compose）**: `window.open(buildGmailComposeUrl(...), '_blank', 'noopener,noreferrer')` を採用
   - 理由: ブラウザ版 Gmail の新規作成画面を新規タブで確実に開く。`noopener,noreferrer` で被参照元の漏洩を防止（`EstimateRequestDetailPage.tsx` の既存 `window.open` 方針と整合）。`vi.spyOn(window, 'open')` でユニットテスト容易（`EstimateRequestDetailPage.test.tsx:809` の既存パターン）
+  - **改訂の注記（2026-10-31）**: 上の採用はタスク107.1 の前の記録である。現在は空のタブを開いて `opener` を null にし、記録の成功の後に `rel="noreferrer"` のリンクで移し、記録の失敗ではタブを閉じる（末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」）
 
 #### URL ビルダー契約（R-41-2 確定 / build-vs-adopt: RFC 6068 mailto + Gmail compose URL を採用）
 
@@ -6397,6 +6404,7 @@ const handleOpenGmail = useCallback(() => {
 - 「メールで開く」は活性時に `<a href={mailtoUrl}>`（ボタン風スタイル）として描画し、クリックで OS 既定メーラーを起動（Req 41 AC 2）。`href` 属性をテストで assert でき、ナビゲーション副作用・location モックを伴わない（design review 2026-06-02 Critical Issue 1 対応）
 - アンカーは `disabled` を持てないため、無効化時は `<button disabled>`（同一スタイル）に切り替える（Req 41 AC 9/10）
 - 「Gmailで開く」は `window.open(..., '_blank', 'noopener,noreferrer')` で起動（Req 41 AC 3）
+  - **改訂の注記（2026-10-31）**: 本項と上のハンドラの例（`handleOpenGmail`）はタスク107.1 の前の記録である。現在の起動の形は本章の冒頭の改訂の注記と末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」による
 - ボタン群は見積依頼文表示の表示領域内（宛先セクション付近）に配置し、Req 41 AC 1 を満たす（R-41-3 確定: TextPanel 内配置。`method` は親 DetailPage から伝搬）
 - 無効化はスタイル＋（button の）`disabled` 属性で表現し、`mailDisabledReason` を併記（Req 41 AC 9/10）
 - 既存の `InlineCopyButton` 3 か所（宛先・表題・本文）には一切手を加えない（Req 41 AC 11）
@@ -6481,6 +6489,7 @@ mailDisabledReason: {
 9. **FAX 方法で無効化＋理由**: `method="FAX"` のとき、両ボタンが `disabled` で「FAX依頼のためメール起動の対象外です」が表示されることを検証（Req 41 AC 10）
 10. **mailto アンカー href**: 活性時、「メールで開く」アンカー（`<a>`）の `href` 属性が `buildMailtoUrl(...)` 相当の値（`mailto:` で始まり `subject`/`body` を含む）であることを検証。ナビゲーションや `window.location` モックは不要（design review 2026-06-02 Critical Issue 1 対応、Req 41 AC 2）。無効化時は `<a>` が存在せず `<button disabled>` が描画されることを検証
 11. **Gmail クリック起動**: 「Gmailで開く」クリックで `window.open` が Gmail compose URL と `'_blank', 'noopener,noreferrer'` で呼ばれることを検証（`window.open` をモック）（Req 41 AC 3）
+    - **改訂の注記（2026-10-31）**: タスク107.1 の前の記録である。現在の単体テストは、空のタブを開くこと、記録の成功の後に作成画面へ移ること、記録の失敗でタブを閉じることを主張する（末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」の「テスト」の項）
 12. **既存コピー機能の非影響**: 宛先・表題・本文の `InlineCopyButton` が従来通り存在し、コピー動作に変化がないことを検証（Req 41 AC 11）
 
 #### Frontend E2E Tests（追記9）— `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`（改訂）
@@ -6505,6 +6514,8 @@ mailDisabledReason: {
 - URL インジェクション対策: `to`/`subject`/`body` は `encodeURIComponent` / `URLSearchParams` で確実にエンコードし、クエリパラメータ境界の破壊（`&`/`=` 等の混入）を防止
 - 宛先・本文の内容はサーバーへ送信されず、ブラウザからメールクライアントへ直接渡る（外部送信は発生しない）
 
+> **改訂の注記（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 上の `window.open` の `noopener,noreferrer` の項はタスク107.1（`3cf87a04`）の前の記録である。現在は、空のタブを開いて `opener` を null にすることで移った先から元の画面を参照させず、記録の成功の後に `rel="noreferrer"` のリンクで移ることで参照元を渡さない（後から移すにはタブの参照が要るため `noopener` は付けない）。記録の失敗ではタブを閉じる。また起動の前に出力の記録（種別 `estimate_request_text_mail`。見積依頼の案件・見積依頼の ID・件数）をサーバーへ送る。見積依頼文の宛先・本文の内容は記録に載せない。現在の正本は末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」
+
 ### Performance & Scalability（追記9）
 
 - 描画コスト: ボタン 2 個 + 理由ラベル 1 個の追加のみで無視できる
@@ -6521,6 +6532,8 @@ mailDisabledReason: {
 | `frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx` | Modified | Testing Strategy §Unit 7-12（活性条件・無効化理由・mailto/Gmail 起動・既存コピー非影響） |
 | `frontend/src/pages/EstimateRequestDetailPage.tsx` | Modified | `EstimateRequestTextPanel` 呼び出しに `method={request.method}` を追加（1 行、Req 41.8-41.10） |
 | `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` | Modified | Testing Strategy §E2E 1-2（メール方法でのボタン活性・Gmail 起動、未登録/FAX での無効化） |
+
+> **改訂の注記（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 上表の `mail-launcher.ts` の「副作用なし」と `EstimateRequestTextPanel.tsx` の `handleOpenGmail` の記述はタスク107.1（`3cf87a04`）の前の記録である。現在の `mail-launcher.ts` は URL の組み立ての関数に加えてタブとメールクライアントを操作する関数（`openMailClient`・`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）を持ち、パネルは出力の記録の成功の後にだけ起動する。現在の正本は末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」
 
 ### Open Questions / Risks（追記9）
 
@@ -6757,7 +6770,7 @@ mailDisabledReason: {
 
 ### Overview
 
-**Purpose**: 利用者の判断（2026-10-30「推奨案で進める」）で起票した二件を設計として固定する。(1) 見積依頼の配下の受領見積書の経路で、経路で指定した見積依頼に属さない受領見積書を不在と同じ汎用の 404 にし、受領見積書の実際の案件が閲覧範囲外なら範囲外の拒否として記録する（42.12。user-authentication の要件39.8 とその 2026-10-30 の改訂〔対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録する。同 spec の design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」〕の本機能への適用）。(2) 見積依頼の詳細画面のクリップボードへのコピーと、見積依頼文をメールクライアント・Gmail で開く操作を、出力の記録の成功の後にだけ行う（42.13〜42.16。user-authentication の要件40.10・40.11 と、同 spec の design.md の ExportAuditService の節の「見積依頼文のクリップボードへのコピーの種別」）。
+**Purpose**: 利用者の判断（2026-10-30「推奨案で進める」）で起票した二件を設計として固定する。(1) 見積依頼の配下の受領見積書の経路で、経路で指定した見積依頼に属さない受領見積書を不在と同じ汎用の 404 にし、受領見積書の実際の案件が閲覧範囲外なら範囲外の拒否として記録する（42.12。user-authentication の要件39.8 とその 2026-10-30 の改訂〔対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録する。同 spec の design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」〕の本機能への適用）。(2) 見積依頼の詳細画面のクリップボードへのコピーと、見積依頼文をメールクライアント・Gmail で開く操作を、出力の記録の成功の後にだけ行う（42.13〜42.16。user-authentication の要件40.10・40.11 と、同 spec の design.md の ExportAuditService の節の「見積依頼の詳細画面のコピーとメールで開く操作の種別」）。
 
 **Impact（既存前提の是正。2026-10-30 の調査）**:
 
@@ -6788,7 +6801,7 @@ mailDisabledReason: {
 #### Out of Boundary
 - 判定と記録の実体（user-authentication の `requireProjectScope`・`projectMismatch`・`recordProjectScopeDenied`）と記録の内容（同要件39.7）。上流の部品の契約と振る舞いは変えない（同 spec のタスク66.1 が確かめる）
 - 出力の種別の列挙と記録の受け口、包み `runRecordedClipboardWrite`・`runRecordedExport` の振る舞い（user-authentication の要件40.9〜40.11。種別の追加は同 spec のタスク67.1）
-- `/api/quotations` の経路の URL と応答、受領見積書の OpenAPI の経路（`/api/quotations/{id}` の引数名は文書の上の名前であり、経路の部品の引数名を改めても URL は変わらない）
+- `/api/quotations` の経路の URL と応答、受領見積書の OpenAPI の経路（`/api/quotations/{id}` の引数名は文書の上の名前であり、経路の部品の引数名を改めても URL は変わらない）。2026-10-31 に OpenAPI の引数名を実装に合わせて `{quotationId}` へ改めた（「決定」の節のタスク106.1 の項の改訂の注記）
 - 見積依頼文の生成の内容（Requirement 6）、メールの URL の組み立て（`mail-launcher` の `buildMailtoUrl`・`buildGmailComposeUrl`）、活性の条件と非活性の理由の表示（Requirement 41.8〜41.10）
 - Requirement 7.6（クリップボードの API が使えないときのフォールバック）。包みはクリップボードの API の無い環境で記録を要求せずに失敗を返し、本追加はその扱いを変えない
 
@@ -6818,6 +6831,7 @@ mailDisabledReason: {
 - 上流のタスク66.1（論理削除済みの対象でも実際の案件で記録することの確かめ）に依存する（各 spec の切り替えを 66.1 に依存させる上流の起票の定め）
 - **実装の決定（2026-10-30、タスク106.1）**: 子（受領見積書の経路の部品）の引数名を改めた。`/:id` の四つの経路を `/:quotationId` にし、ID の形式の検査の構造 `receivedQuotationIdParamSchema` の鍵と各経路の本体が読む引数も `quotationId` にした。親のマウント（`/api/estimate-requests/:id/quotations`）と登録・一覧の経路（`estimateRequestIdForQuotationSchema` の `id`）は変えていない。解決関数は受領見積書の行から見積依頼の ID と案件 ID を引き（`findOwnerOfReceivedQuotation`）、親の経路の引数 `id` があり受領見積書の見積依頼と異なるとき `projectMismatch(受領見積書の案件 ID)` を返す。受領見積書の引数名に `id` を渡された場合は親の値が子に上書きされて読めないため照合しない。URL は変わらず、`docs:generate` で作り直した OpenAPI の文書にも差分は出なかった（文書の `/api/quotations/{id}` の引数名は注釈の上の名前のまま）
   - 引数名を改めたことに伴う唯一の外から見える変化は、形式の誤った受領見積書の ID（`/api/quotations/invalid-uuid` など）の 400 の本文の `details[].path` が `id` から `quotationId` に変わることである。状態コードと文言は変わらない。画面は形式の誤った ID を送らず、本文の `details[].path` を読まない。親の引数名を改める案は、登録・一覧の経路の同じ 400 の `path` を変え、見積依頼の判定部品の引数も改める必要があるため採らなかった
+  - **改訂（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: OpenAPI の注釈の経路の引数名も実装の経路の引数名に合わせ、受領見積書の 4 つの操作（`/api/quotations/{quotationId}` の GET・PUT・DELETE と `/api/quotations/{quotationId}/preview` の GET）の経路の引数名を改め、`docs:generate` で `backend/docs/api-spec.json` を作り直した（差分は 4 つの操作の経路の引数名と引数の説明だけ）。引数の説明に、形式の誤った ID の 400 の `details[].path` が `quotationId` であることを書いた。URL と応答は変わらない。見積依頼の配下の登録・一覧（`/api/estimate-requests/{id}/quotations`）の親の引数名 `id` は変えていない。上の項の「文書の `/api/quotations/{id}` の引数名は注釈の上の名前のまま」は本改訂の前の記録である
 
 **クリップボードへのコピー（42.13・42.14）**: itemized-statement-generation のタスク28.1（`0f1970a5`）と同じ形で、各コピーのクリックの処理の中で `await` を挟まずに上流の `runRecordedClipboardWrite` を呼ぶ（Safari はクリックの処理の中で同期的に始めた書き込みしか許さない）。記録の入力は次のとおりとする。
 

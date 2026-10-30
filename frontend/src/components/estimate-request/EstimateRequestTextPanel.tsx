@@ -394,7 +394,10 @@ function InlineCopyButton({
  * ```tsx
  * <EstimateRequestTextPanel
  *   text={estimateRequestText}
+ *   estimateRequestId={request.id}
+ *   projectId={request.projectId}
  *   loading={isLoading}
+ *   method={request.method}
  * />
  * ```
  */

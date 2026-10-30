@@ -1086,11 +1086,11 @@ enum AmendmentStatus {
 
 **Impact（既存前提の是正。2026-10-30 の調査）**:
 
-1. `ExecutionBudgetService` の契約の所属の照合の `noteContractOfOtherProject` は、契約が論理削除済み（`deletedAt` が入っている）なら判定せずに戻る。呼び出し元の `create`・`getAmendmentDiff`・`applyAmendment` はいずれも契約の行を論理削除の条件なしに読み、論理削除済みの契約も所属の食い違いと同じ分岐で契約の不在の例外にしてから `noteContractOfOtherProject` を呼ぶ。このため論理削除済みの契約は、範囲外の案件のものでも `evaluateProjectAccess` の判定を通らず記録されない（2026-10-29 の章の「決定」の「契約の食い違いの記録」）。所在は次のファイル
+1. `ExecutionBudgetService` の契約の所属の照合の `noteContractOfOtherProject` は（タスク20.1 の前）、契約が論理削除済み（`deletedAt` が入っている）なら判定せずに戻る。呼び出し元の `create`・`getAmendmentDiff`・`applyAmendment` はいずれも契約の行を論理削除の条件なしに読み、論理削除済みの契約も所属の食い違いと同じ分岐で契約の不在の例外にしてから `noteContractOfOtherProject` を呼ぶ。このため論理削除済みの契約は、範囲外の案件のものでも `evaluateProjectAccess` の判定を通らず記録されない（2026-10-29 の章の「決定」の「契約の食い違いの記録」）。所在は次のファイル
    backend/src/services/execution-budget.service.ts
 2. 子の案件を引く関数（`findProjectIdOfExecutionBudgetItem`・`findProjectIdOfOrder`・`findProjectIdOfProgressRecord`）は、子の行を論理削除の条件なしに引き、行が無いときだけ null を返す。親の実行予算の論理削除も条件に含めない。一括の照合（`requireBodyExecutionBudgetItemsInProject`）の件数の照合と属さない項目の案件の引き出しも、項目と親の実行予算の論理削除を条件に含めない。論理削除済みの子・項目も実際の案件で判定され、範囲外なら上流の `recordProjectMismatchIfOutOfScope` が記録する（統合テストの「範囲外の案件の論理削除済みの子は記録し」が既に記録を主張している）。上流の方針を既に満たすため変えない（2026-10-30 に関数の本体と同ファイルの冒頭の注釈で確かめた。出来高記録は論理削除の欄を持たない）。所在は次のファイル
    backend/src/middleware/execution-budget-project-scope.middleware.ts
-3. 論理削除済みの契約で判定も記録もしないことを主張する既存のテストは 2 本ある。単体（サービスの「他の案件の契約の範囲外の記録」の describe の 3 経路の表の「契約が論理削除済みなら、範囲外の案件の契約でも判定せず記録しない」）と、統合（閲覧範囲の統合テストの「経路・要求本文の契約が経路の案件に属さなければ」の後半の、範囲外の案件の論理削除済みの契約を範囲内の他の案件の契約と並べて「記録しない」とする主張）である。どちらも改訂後の 20.9 と直接に矛盾するため書き換える。サービスの単体テストの「契約書が論理削除済みの場合はContractNotFoundForBudgetErrorを投げる」「変更契約が論理削除済みの場合はAmendmentContractNotFoundErrorをスローする」は契約が経路の案件に属し実行者を渡さないため、改めても判定を呼ばず、書き換えは要らない（2026-10-30 に確かめた）
+3. 論理削除済みの契約で判定も記録もしないことを主張する既存のテストは（タスク20.1 の前）2 本ある。単体（サービスの「他の案件の契約の範囲外の記録」の describe の 3 経路の表の「契約が論理削除済みなら、範囲外の案件の契約でも判定せず記録しない」）と、統合（閲覧範囲の統合テストの「経路・要求本文の契約が経路の案件に属さなければ」の後半の、範囲外の案件の論理削除済みの契約を範囲内の他の案件の契約と並べて「記録しない」とする主張）である。どちらも改訂後の 20.9 と直接に矛盾するため書き換える。サービスの単体テストの「契約書が論理削除済みの場合はContractNotFoundForBudgetErrorを投げる」「変更契約が論理削除済みの場合はAmendmentContractNotFoundErrorをスローする」は契約が経路の案件に属し実行者を渡さないため、改めても判定を呼ばず、書き換えは要らない（2026-10-30 に確かめた）
 
 ### 受入基準の置き場所の判断
 

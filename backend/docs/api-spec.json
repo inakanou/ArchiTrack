@@ -3758,7 +3758,7 @@
         }
       }
     },
-    "/api/quotations/{id}": {
+    "/api/quotations/{quotationId}": {
       "get": {
         "summary": "受領見積書詳細取得",
         "description": "受領見積書の詳細情報を取得",
@@ -3773,13 +3773,13 @@
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "quotationId",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
             },
-            "description": "受領見積書ID"
+            "description": "受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）"
           }
         ],
         "responses": {
@@ -3811,13 +3811,13 @@
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "quotationId",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
             },
-            "description": "受領見積書ID"
+            "description": "受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）"
           }
         ],
         "requestBody": {
@@ -3900,13 +3900,13 @@
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "quotationId",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
             },
-            "description": "受領見積書ID"
+            "description": "受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）"
           }
         ],
         "requestBody": {
@@ -3951,7 +3951,7 @@
         }
       }
     },
-    "/api/quotations/{id}/preview": {
+    "/api/quotations/{quotationId}/preview": {
       "get": {
         "summary": "ファイルプレビューURL取得",
         "description": "受領見積書のファイルプレビュー用署名付きURLを取得",
@@ -3966,13 +3966,13 @@
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "quotationId",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
             },
-            "description": "受領見積書ID"
+            "description": "受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）"
           }
         ],
         "responses": {

@@ -7,6 +7,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { fn } from 'storybook/test';
 import { CreateItemizedStatementForm } from './CreateItemizedStatementForm';
+import { ApiError } from '../../api/client';
 import type { QuantityTableInfo } from '../../types/quantity-table.types';
 
 // ============================================================================
@@ -227,12 +228,15 @@ export const DuplicateNameError: Story = {
   args: {
     projectId: 'project-1',
     quantityTables: mockQuantityTables,
+    // 製品の API クライアントと同じ ApiError を投げる（フォームは response.code で重複を見分ける）
     onSubmit: async () => {
-      throw {
+      throw new ApiError(409, '同名の内訳書が既に存在します', {
+        type: 'https://architrack.example.com/problems/duplicate-itemized-statement-name',
+        title: 'Duplicate Name',
         status: 409,
         code: 'DUPLICATE_ITEMIZED_STATEMENT_NAME',
         detail: '同名の内訳書が既に存在します',
-      };
+      });
     },
   },
   parameters: {

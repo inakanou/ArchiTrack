@@ -313,6 +313,8 @@ sequenceDiagram
 | exportToExcel | Frontend/Utility | Excelファイル生成・ダウンロード | 13 | xlsx (P0) | Function |
 | copyToClipboard | Frontend/Utility | タブ区切りテキストのクリップボードコピー | 14 | Clipboard API (P0) | Function |
 
+> **改訂の注記（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 本表と上の Requirements Traceability の 14 の行の `copyToClipboard` は改訂前の記録である。タスク28.1（`0f1970a5`）で詳細画面のコピーの書き込みは user-authentication の `runRecordedClipboardWrite` へ移り、`copyToClipboard` の書き込みの関数は呼び出し元が無くなったため除いた。本部品が持ち続けるのはタブ区切りテキストの生成（`formatItemsForClipboard`）である。現在の正本は末尾の章「2026-10-29 の追加: クリップボードへのコピーの記録・食い違いの記録・不在の表示」の「決定」の節（`copyToClipboard` の扱いの項）
+
 ### Backend / Service Layer
 
 #### ItemizedStatementService
@@ -1144,6 +1146,7 @@ interface DeleteItemizedStatementRequest {
 - Zodスキーマ: バリデーションルール（必須チェック、文字数制限、UUID形式、並び順更新スキーマ）
 - exportToExcel: Excelファイル生成、カラム順序、数量精度、ファイル名形式
 - copyToClipboard: タブ区切り変換、ヘッダー行、数量精度、エラーハンドリング
+  - **改訂の注記（2026-10-31）**: 上の項は改訂前の記録である。タスク28.1（`0f1970a5`）で `copyToClipboard` とその単体テスト 6 件を除き、タブ区切り変換・ヘッダー行・数量精度は `formatItemsForClipboard` の単体テストが受け持つ。コピーの書き込みと記録は `runRecordedClipboardWrite` を経る（末尾の章「2026-10-29 の追加: クリップボードへのコピーの記録・食い違いの記録・不在の表示」の Testing Strategy）
 - ItemizedStatementCreatePage: 画面レンダリング、フォーム送信、ナビゲーション
 - ItemizedStatementSectionCard: 数量表有無による条件分岐表示
 - ItemizedStatementListPage: 数量表有無による条件分岐表示、ナビゲーション

@@ -6148,7 +6148,9 @@ async function runRecordedClipboardWrite(input: ExportRecordInput, produce: () =
 > - 改訂後: 戻り値を実装の `RecordedExportResult<T>`（`ok` で成否を分ける形）とし、型を示した。文字列で書く分岐の条件に `navigator.clipboard.write` を持たない場合を加えた。包みが記録を送り直さないこと（`recordExport` の `disableRetry`）と、実装と適用のタスクとコミットを書き添えた
 > - 理由: 設計の記述が実装の型と分岐の条件と一致していなかったため。振る舞い（記録の成功の後にだけ書く順、失敗の種別、再試行しない決定）は変えない
 
-**見積依頼文のクリップボードへのコピーの種別（2026-10-30、利用者の判断「推奨案で進める」）**:
+**見積依頼の詳細画面のコピーとメールで開く操作の種別（2026-10-30、利用者の判断「推奨案で進める」）**:
+
+- **見出しの改訂（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 本項の見出しは「見積依頼文のクリップボードへのコピーの種別」だったが、中身は見積依頼の詳細画面の 3 種別（`estimate_request_text_clipboard`・`estimate_request_items_clipboard`・`estimate_request_text_mail`）であり、見積依頼文でないコピーとコピーでない操作を含むため改めた。本項を名指す他の文書（本 spec の tasks.md、estimate-request の requirements.md・design.md・tasks.md）の引用も新しい見出しへ揃えた
 
 - 種別 `estimate_request_text_clipboard`（見積依頼の詳細画面の見積依頼文〔宛先・表題・本文〕のクリップボードへのコピー）を `ExportKind`（backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙）へ足す。案件に属する出力であり `projectId` を必須とする（`PROJECTLESS_EXPORT_KINDS` には入れない）。記録の手段は `itemized_statement_clipboard` と同じ `runRecordedClipboardWrite` とし、包みと記録の API の振る舞いは変えない（種別の列挙の追加だけ）
 - 理由: 見積依頼文は案件の内容と宛先の取引先を含み、利用者の手元へ持ち出す出力である。内訳書のコピー（`itemized_statement_clipboard`）と同じく 40.10・40.11 の対象に含め、出力の記録の基準を機能ごとに変えない。種別を内訳書と分けるのは、監査ログの検索と異常の検知（43.4）で、どのデータが持ち出されたかを種別で見分けるため

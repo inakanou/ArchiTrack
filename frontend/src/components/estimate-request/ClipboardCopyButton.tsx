@@ -4,7 +4,8 @@
  * Task 5.6: ClipboardCopyButtonコンポーネントを実装する
  *
  * Requirements:
- * - 5.1: 「クリップボードにコピー」ボタンをクリックすると見積依頼文全体をクリップボードにコピー
+ * - 5.1: 「クリップボードにコピー」ボタンをクリックすると、選択した項目の一覧（タブ区切り。内訳書の Excel 出力と
+ *   同じ項目）をクリップボードにコピー。見積依頼文（宛先・表題・本文）のコピーは EstimateRequestTextPanel が持つ
  * - 5.2: コピー成功時に「コピーしました」トースト表示
  *
  * Task 107.1: コピーは出力の記録の成功の後にだけ書き込む（Requirement 42.13・42.14。
@@ -142,7 +143,15 @@ function CheckIcon() {
  *
  * @example
  * ```tsx
- * <ClipboardCopyButton text="コピーするテキスト" />
+ * <ClipboardCopyButton
+ *   text={selectedItemsTsv}
+ *   exportRecord={{
+ *     kind: 'estimate_request_items_clipboard',
+ *     projectId: request.projectId,
+ *     targetIds: selectedItemIds,
+ *     itemCount: selectedItemIds.length,
+ *   }}
+ * />
  * ```
  */
 export function ClipboardCopyButton({
