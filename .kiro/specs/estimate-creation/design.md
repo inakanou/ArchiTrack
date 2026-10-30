@@ -4977,6 +4977,15 @@ model EstimateEditSession {
 - 上流の判定部品（`requireProjectScope`・`recordProjectMismatchIfOutOfScope`）へ移す案は採らない。属さない ID は経路のパラメータでなく本文で指され、応答は判定部品の汎用の 404 でなくサービスの 422 であり、経路の部品で記録だけを先に行うと対象の見積書の見積項目の ID の集合を二か所で読むことになるため（quantity-table-generation のタスク107.1、execution-budget-management のタスク18.2 と同じ判断）
 - サービスの所属の照合の注釈（属さない ID を引かない旨）と、`saveDraft` の注釈と `@throws` を改める
 
+**実装の決定（2026-10-31、タスク66.1 の実装）**: 上の「実装時に決めて本節へ記す」とした点を次のとおりとした。
+
+- **処理の名前と置き場所**: 判定は `EstimateDraftService` の非公開の処理 `noteForeignItemProjects` に置く。`saveDraft` は `withSurveyScopeDenialRecording` で本体（`saveDraftWithin`）を包み、本体は見積書（案件 ID を読み出しに足した）と既存の見積項目を読み、本文を平坦化した直後、所属の照合（`validatePayloadItemOwnership`）と楽観的排他制御の照合の前に `noteForeignItemProjects` を呼ぶ。`saveDraft` の引数に実行者の ID と要求の識別（省略可）を足し、経路は `projectScopeDenialContextOf(req)` を渡す
+- **問い合わせの形**: 属さない ID の実際の案件は、見積項目の側でなく見積書の側から 1 回で引く（`estimate.findMany` の条件を「属さない ID のいずれかの見積項目を持つ」とし、案件 ID だけを読む）。見積書の論理削除の条件は含めない。見積項目の行の読み出し（既存の見積項目の ID の集合の読み出し）と問い合わせの口を分けたため、既存の単体テストの模擬（見積項目の読み出しを一律の値で返す）と取り違えない
+- **依存の注入**: `EstimateDraftServiceDependencies` に監査ログ（省略時は `prisma` で組み立てる）と閲覧範囲の判定（省略時は共有の判定の部品を判定の時に引く）を任意で足した（execution-budget-management の `ExecutionBudgetService` の形）。経路は見積書のサービスと同じ監査ログのインスタンスを渡す
+- **構造の不備の 422 の実現の形**: 本文の形だけのスキーマ `saveEstimateDraftShapeSchema`（構造の検証を除いた形。カスタムの検証を持たない）を切り出し、`saveEstimateDraftSchema` はそれに構造の検証（superRefine）を足したものとした。経路は問題がすべて `code: 'custom'` のとき、形だけのスキーマで本文を読み直し、読めれば公開の処理 `recordForeignItemScopeDenials`（見積書を読み、不在・論理削除なら何もしない。あれば既存の見積項目を読んで `noteForeignItemProjects` で判定し、`withSurveyScopeDenialRecording` で記録する）を呼んでから従来の 422 を投げる。形だけのスキーマはカスタムの検証を持たないため、問題がすべて `code: 'custom'` なら必ず読める。形式の不正（400）の分岐では呼ばない
+- **異常の検知への影響（2026-10-31 の確認）**: 記録が増えるのは範囲外の案件の見積項目を本文に混ぜる要求だけで、記録の部品（`recordProjectScopeDenied`）が異常の検知へ送る観測は管理者への通知の計数に入るだけで、利用者の停止や要求の拒否は行わない。57.5 の既存の統合テストと E2E は担当者の記録が 1 件ずつ増えるが、記録の件数を主張しておらず緑のまま
+- **構造の不備の 422 の分岐の判定の件数（2026-10-31、レビューの指摘）**: この分岐では総数の上限（`SAVE_ESTIMATE_MAX_ITEMS`）を超えた本文も判定へ進むため、問い合わせの属さない ID の件数を抑えるのは明細の上限ではなく本文の大きさの上限（5MB）である。ID の重複を除き 1 ノードに 200 バイト以上かかるため最大でも約 2 万件で、データベースの束縛の件数の上限の内側に収まる
+
 **上流を待つ理由**: 判定と記録の部品は既存のものを使い、上流の部品の契約は変えない。記録の要否の方針（作成・保存の要求が指す他のデータで、論理削除済みでも判定する）はuser-authentication のタスク66.1 が確かめたため、本機能のタスク66.1 は user-authentication のタスク66.1 に依存する（各 spec の切り替えを同タスクに依存させる上流の起票の定め。同タスクは完了済み）。
 
 ### Requirements Traceability

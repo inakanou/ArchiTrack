@@ -580,19 +580,27 @@ function validateSaveEstimateItemTree(
  * Requirements (estimate-creation): 42.4, 42.8, 54.1
  * Task 52.3: 明細の一括保存リクエストのスキーマとバリデーション
  */
-export const saveEstimateDraftSchema = z
-  .object({
-    expectedUpdatedAt: isoDateTimeSchema,
-    // design.md「estimate-draft.service」の API Contract にある `SaveEstimateDraftRequest` に
-    // 合わせ省略不可とする。
-    // 本APIはフル状態同期のため、省略を許すと保存済みの提出日・有効期限・別途工事
-    // （54.1〜54.3）を null / 空配列で静かに上書き消去する経路が生まれる
-    reportFields: saveEstimateReportFieldsSchema,
-    items: z.array(saveEstimateItemNodeSchema),
-  })
-  .superRefine((value, ctx) => {
-    validateSaveEstimateItemTree(value.items, ctx);
-  });
+export const saveEstimateDraftShapeSchema = z.object({
+  expectedUpdatedAt: isoDateTimeSchema,
+  // design.md「estimate-draft.service」の API Contract にある `SaveEstimateDraftRequest` に
+  // 合わせ省略不可とする。
+  // 本APIはフル状態同期のため、省略を許すと保存済みの提出日・有効期限・別途工事
+  // （54.1〜54.3）を null / 空配列で静かに上書き消去する経路が生まれる
+  reportFields: saveEstimateReportFieldsSchema,
+  items: z.array(saveEstimateItemNodeSchema),
+});
+
+/**
+ * 明細の一括保存リクエストスキーマ（形の検証＋明細ツリーの構造の検証）
+ *
+ * 形だけの {@link saveEstimateDraftShapeSchema} はカスタムの検証（`code: 'custom'`）を持たない。
+ * そのため本スキーマの問題がすべて `code: 'custom'`（構造の不備）なら、形だけのスキーマでは本文を読める。
+ * 経路はそれを使い、構造の不備の 422 で終わる要求でも本文の属さない見積項目の ID の範囲外の記録を行う
+ * （Requirement 57.11、タスク66.1）。
+ */
+export const saveEstimateDraftSchema = saveEstimateDraftShapeSchema.superRefine((value, ctx) => {
+  validateSaveEstimateItemTree(value.items, ctx);
+});
 
 // 型エクスポート
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;

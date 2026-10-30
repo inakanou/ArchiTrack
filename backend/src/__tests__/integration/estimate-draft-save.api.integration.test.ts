@@ -2177,11 +2177,15 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
       });
 
       const error = await gatedService
-        .saveDraft(ids.estimateId, {
-          expectedUpdatedAt,
-          reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
-          items: buildComplexSaveItems(ids) as never,
-        })
+        .saveDraft(
+          ids.estimateId,
+          {
+            expectedUpdatedAt,
+            reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+            items: buildComplexSaveItems(ids) as never,
+          },
+          'actor-not-used-by-this-test'
+        )
         .then(
           () => null,
           (e: unknown) => e

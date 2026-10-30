@@ -83,6 +83,7 @@ import {
   calculateOverheadSchema,
   getItemsQuerySchema,
   saveEstimateDraftSchema,
+  saveEstimateDraftShapeSchema,
 } from '../schemas/estimate.schema.js';
 import { ValidationError } from '../errors/apiError.js';
 import {
@@ -104,7 +105,7 @@ const estimateService = new EstimateService({
   auditLogService,
 });
 const estimateItemService = new EstimateItemService({ prisma });
-const estimateDraftService = new EstimateDraftService({ prisma });
+const estimateDraftService = new EstimateDraftService({ prisma, auditLogService });
 const overheadCostService = new OverheadCostService();
 const estimateEditSessionService = new EstimateEditSessionService({ prisma });
 
@@ -792,6 +793,18 @@ router.put(
         }));
 
         if (parsed.error.issues.every((issue) => issue.code === 'custom')) {
+          // 構造の不備だけなら本文の形は正しい。構造の不備を一つ混ぜるだけで記録を避けられないよう、
+          // 本文の属さない見積項目の ID の実際の案件が範囲外なら記録してから従来の 422 を返す
+          // （Requirement 57.11、タスク66.1）。形式の不正（400）では判定しない
+          const shape = saveEstimateDraftShapeSchema.safeParse(req.body);
+          if (shape.success) {
+            await estimateDraftService.recordForeignItemScopeDenials(
+              id,
+              shape.data.items,
+              actorId,
+              projectScopeDenialContextOf(req)
+            );
+          }
           throw new EstimateDraftValidationError(issues);
         }
 
@@ -805,7 +818,12 @@ router.put(
         );
       }
 
-      const result = await estimateDraftService.saveDraft(id, parsed.data);
+      const result = await estimateDraftService.saveDraft(
+        id,
+        parsed.data,
+        actorId,
+        projectScopeDenialContextOf(req)
+      );
 
       // `saveDraft` の戻り値は見積書サマリ（id / updatedAt / 帳票用入力項目）のため、
       // `GET /api/estimates/:id` と同じ詳細レスポンスへ揃えるべく残りを合成する。

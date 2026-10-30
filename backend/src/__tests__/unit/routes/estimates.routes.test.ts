@@ -180,6 +180,7 @@ import {
 } from '../../../errors/estimateError.js';
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
 import { ValidationError } from '../../../errors/apiError.js';
+import { EstimateDraftService } from '../../../services/estimate-draft.service.js';
 
 describe('estimates.routes', () => {
   let app: express.Express;
@@ -829,6 +830,90 @@ describe('estimates.routes', () => {
 
       expect(response.status).toBe(200);
       expect(mockGetHierarchy).toHaveBeenCalledWith(validUUID);
+    });
+  });
+
+  /**
+   * 構造の不備だけで 422 となる要求でも、本文の形が正しい限り属さない見積項目の ID の範囲外の判定を通し、
+   * 形式の不正の 400 では判定しない（タスク66.1。design.md の「2026-10-31 の追加」章の「決定」）。
+   * 判定と記録の中身はサービスの単体テストと閲覧範囲の統合テストが確かめる。
+   *
+   * @requirement estimate-creation/REQ-57.11
+   */
+  describe('PUT /api/estimates/:id/save の構造の不備の 422 の分岐の範囲外の判定', () => {
+    const duplicatedId = '550e8400-e29b-41d4-a716-446655440066';
+    const saveNode = (id: string | null, tempId: string | null): Record<string, unknown> => ({
+      id,
+      tempId,
+      itemType: 'STANDARD',
+      lines: [
+        {
+          lineType: 'ESTIMATE',
+          name: '項目',
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount: null,
+          remarks: null,
+          sourceVendorName: null,
+        },
+      ],
+      children: [],
+    });
+    const body = (expectedUpdatedAt: string): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+      // 同じ既存 ID の重複配置（構造の不備）
+      items: [saveNode(duplicatedId, null), saveNode(duplicatedId, null)],
+    });
+
+    let recordSpy: ReturnType<typeof vi.spyOn>;
+    let statusApp: express.Express;
+
+    beforeEach(() => {
+      recordSpy = vi
+        .spyOn(EstimateDraftService.prototype, 'recordForeignItemScopeDenials')
+        .mockResolvedValue(undefined);
+      statusApp = express();
+      statusApp.use(express.json());
+      statusApp.use('/api/estimates', estimatesRoutes);
+      statusApp.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+        const status = (err as { statusCode?: number }).statusCode ?? 500;
+        res.status(status).json({ code: (err as { code?: string }).code ?? null });
+      });
+    });
+
+    afterEach(() => {
+      recordSpy.mockRestore();
+    });
+
+    it('構造の不備だけの 422 では、本文の明細ツリーと実行者と要求の識別を渡して判定の処理を呼ぶ', async () => {
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body('2026-10-31T00:00:00.000Z'));
+
+      expect(response.status).toBe(422);
+      expect(response.body.code).toBe('ESTIMATE_DRAFT_VALIDATION_ERROR');
+      expect(recordSpy).toHaveBeenCalledTimes(1);
+      expect(recordSpy).toHaveBeenCalledWith(
+        validUUID,
+        [
+          expect.objectContaining({ id: duplicatedId }),
+          expect.objectContaining({ id: duplicatedId }),
+        ],
+        'test-user-id',
+        expect.objectContaining({ method: 'PUT', path: `/api/estimates/${validUUID}/save` })
+      );
+    });
+
+    it('形式の不正を含む 400 では判定の処理を呼ばない', async () => {
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body('日時ではない'));
+
+      expect(response.status).toBe(400);
+      expect(recordSpy).not.toHaveBeenCalled();
     });
   });
 });

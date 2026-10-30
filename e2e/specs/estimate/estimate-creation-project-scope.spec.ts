@@ -7,7 +7,8 @@
  * 範囲外を存在しない場合と同じ汎用の 404 にする。見積書の作成の要求が指す内訳書が経路のプロジェクトに属さなければ
  * 内訳書の不在と同じ 404 にし、見積明細の一括保存に他の見積書の見積項目が混じれば要求全体を 422 で拒否する。
  *
- * 被覆する受入基準（estimate-creation の Requirement 57.1〜57.6、57.9〔タスク63.1〕、57.10〔タスク65.1〕）は
+ * 被覆する受入基準（estimate-creation の Requirement 57.1〜57.6、57.9〔タスク63.1〕、57.10〔タスク65.1〕、
+ * 57.11〔タスク66.1〕）は
  * 各テストの `@requirement` の印が名乗る。
  * 出力の記録（57.7・57.8）はタスク62.2 の担当で、本ファイルは扱わない。
  *
@@ -671,6 +672,92 @@ test.describe('見積書・見積明細・在席・受領見積書の一覧の�
 
     // 見積書は作られず、どちらの案件の見積書も変わらない
     expect(await prisma.estimate.count({ where: { name: estimateName } })).toBe(0);
+    expect(await snapshot(target.projectId)).toEqual(beforeTarget);
+    expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
+  });
+
+  /**
+   * 応答は 57.5 の 422 のまま、一括保存の本文の属さない見積項目の ID の実際の案件が範囲外なら、その案件を対象に
+   * 範囲外の拒否として 1 件記録する（estimate-creation タスク66.1。user-authentication の要件39.8 の改訂〔作成・保存の
+   * 要求が指す他のデータも同じ方針で判定する〕の本機能への適用。同 spec のタスク66.1 の申し送り）。
+   * 存在しない ID は同じ 422 で記録しない。
+   *
+   * @requirement estimate-creation/REQ-57.11
+   * @requirement user-authentication/REQ-39.8
+   */
+  test('自分の見積書の一括保存の本文に範囲外の案件の見積項目の ID を混ぜると 422 になり、その案件を対象に監査の記録が 1 件増え、どちらの見積書も変わらない', async ({
+    request,
+  }) => {
+    const owner = await createSessionUser('REGULAR_USER');
+    const other = await createSessionUser('REGULAR_USER');
+    const target = await createFixture('body-own', {
+      salesPersonId: owner.id,
+      createdById: owner.id,
+    });
+    const foreign = await createFixture('body-foreign', {
+      salesPersonId: other.id,
+      createdById: other.id,
+    });
+    const prisma = getPrismaClient();
+    const beforeTarget = await snapshot(target.projectId);
+    const beforeForeign = await snapshot(foreign.projectId);
+    const headers = await bearerFor(request, owner);
+
+    /** 利用者が残した範囲外のアクセスの記録の件数（対象を指定すればその案件だけ） */
+    const deniedCount = (targetId?: string): Promise<number> =>
+      prisma.auditLog.count({
+        where: {
+          action: 'PROJECT_SCOPE_DENIED',
+          actorId: owner.id,
+          ...(targetId ? { targetId } : {}),
+        },
+      });
+    const estimate = await prisma.estimate.findUniqueOrThrow({ where: { id: target.estimateId } });
+    const save = (mixedId: string) =>
+      request.put(`${API_BASE_URL}/api/estimates/${target.estimateId}/save`, {
+        headers,
+        data: {
+          expectedUpdatedAt: estimate.updatedAt.toISOString(),
+          reportFields: {
+            submissionDate: null,
+            validityPeriod: '書き換えの試み',
+            separateWorks: [],
+          },
+          items: [
+            node(target.estimateItemId, null, '書き換えの試み'),
+            node(mixedId, null, '他の案件の見積項目の書き換えの試み'),
+          ],
+        },
+      });
+    /** 本文に写る要求の見積項目 ID を伏せて、存在しない ID の本文と比べる形にする */
+    const masked = (body: Record<string, unknown>, itemId: string): string =>
+      JSON.stringify(withoutInstance(body)).split(itemId).join('<id>');
+
+    // 存在しない ID: 422 で記録しない
+    const missingBefore = await deniedCount();
+    const missing = await save(MISSING_ID);
+    expect(missing.status(), '存在しない ID').toBe(422);
+    const missingMasked = masked((await missing.json()) as Record<string, unknown>, MISSING_ID);
+    expect((await deniedCount()) - missingBefore, '存在しない ID は記録しない').toBe(0);
+
+    // 範囲外の案件の見積項目: 存在しない ID と同じ 422 の本文で、その案件を対象に 1 件記録する
+    const allBefore = await deniedCount();
+    const foreignBefore = await deniedCount(foreign.projectId);
+    const foreignItem = await save(foreign.estimateItemId);
+    expect(foreignItem.status(), '範囲外の案件の見積項目').toBe(422);
+    const foreignBody = (await foreignItem.json()) as Record<string, unknown>;
+    expect(foreignBody.code).toBe('ESTIMATE_DRAFT_VALIDATION_ERROR');
+    expect(masked(foreignBody, foreign.estimateItemId), '存在しない ID と同じ本文').toBe(
+      missingMasked
+    );
+    expect(JSON.stringify(withoutInstance(foreignBody))).not.toContain(foreign.projectId);
+    expect((await deniedCount()) - allBefore, '記録は 1 件だけ増える').toBe(1);
+    expect(
+      (await deniedCount(foreign.projectId)) - foreignBefore,
+      '記録の対象は見積項目の実際の案件'
+    ).toBe(1);
+
+    // どちらの見積書も変わらない
     expect(await snapshot(target.projectId)).toEqual(beforeTarget);
     expect(await snapshot(foreign.projectId)).toEqual(beforeForeign);
   });

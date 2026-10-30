@@ -1092,5 +1092,148 @@ describe('見積書・見積明細・在席・受領見積書の一覧の API �
       expect(await snapshot(target)).toEqual(beforeTarget);
       expect(await snapshot(other)).toEqual(beforeOther);
     });
+
+    /**
+     * 応答は 57.5 の 422 のまま、属さない見積項目の ID の実際の案件が範囲外なら、その案件を対象に範囲外の拒否として
+     * 1 件記録する（タスク66.1。design.md の「2026-10-31 の追加」章。user-authentication の要件39.7・39.8）。
+     * 見積書が論理削除済みでも行が実在すればその案件で判定し、構造の不備（重複配置）の 422 で終わる本文でも記録する。
+     * 全案件閲覧の権限の利用者・同じ案件の別の見積書・範囲内の他の案件・存在しない ID・案件そのものの論理削除と、
+     * 形式の不正の 400 では記録しない。
+     *
+     * @requirement estimate-creation/REQ-57.11
+     */
+    it('自案件の見積書の一括保存の本文に範囲外の案件の見積項目の ID が混じると、従来の 422 の本文のまま範囲外の案件を対象に記録が 1 件増え、どの見積書のデータも変わらない', async () => {
+      const deniedCount = (actorId: string, targetId?: string): Promise<number> =>
+        prisma.auditLog.count({
+          where: { action: 'PROJECT_SCOPE_DENIED', actorId, ...(targetId ? { targetId } : {}) },
+        });
+      // 範囲外の案件の論理削除済みの見積書の見積項目
+      const deletedForeign = await createEstimate(
+        other.projectId,
+        `${MARK}-other-deleted-estimate`
+      );
+      await prisma.estimate.update({
+        where: { id: deletedForeign.estimateId },
+        data: { deletedAt: new Date() },
+      });
+      // 同じ案件の別の見積書の見積項目
+      const sameProject = await createEstimate(target.projectId, `${MARK}-target-second-estimate`);
+      // 範囲内の他の案件（担当者が営業担当者）の見積項目
+      const inScope = await createFixture('in-scope', {
+        salesPersonId: sales.id,
+        createdById: sales.id,
+      });
+      // 案件そのものが論理削除された、担当外の案件の見積項目
+      const gone = await createFixture('gone', {
+        salesPersonId: outsider.id,
+        createdById: outsider.id,
+      });
+      await prisma.project.update({
+        where: { id: gone.projectId },
+        data: { deletedAt: new Date() },
+      });
+
+      try {
+        const beforeTarget = await snapshot(target);
+        const beforeOther = await snapshot(other);
+        const estimate = await prisma.estimate.findUniqueOrThrow({
+          where: { id: target.estimateId },
+        });
+        const body = (mixedId: string, extra: Record<string, unknown>[] = []) => ({
+          expectedUpdatedAt: estimate.updatedAt.toISOString(),
+          reportFields: { ...REPORT_FIELDS, validityPeriod: '書き換えの試み' },
+          items: [
+            nodePayload({
+              id: target.estimateItemId,
+              lines: [linePayload({ name: '書き換えの試み' })],
+            }),
+            ...extra,
+            nodePayload({
+              id: mixedId,
+              lines: [linePayload({ name: '他の見積書の見積項目の書き換えの試み' })],
+            }),
+          ],
+        });
+        const save = (actor: TestUser, payload: Record<string, unknown>): request.Test =>
+          request(app)
+            .put(`/api/estimates/${target.estimateId}/save`)
+            .set(...auth(actor))
+            .send(payload);
+        const masked = (res: request.Response, id: string): string =>
+          JSON.stringify(withoutInstance(res.body)).split(id).join('<id>');
+
+        const missing = await save(sales, body(MISSING_ID)).expect(422);
+        const missingMasked = masked(missing, MISSING_ID);
+
+        // 記録する: 範囲外の案件の見積項目（見積書が論理削除済みでも同じ）
+        for (const [label, itemId] of [
+          ['範囲外の案件の見積項目', other.estimateItemId],
+          ['範囲外の案件の論理削除済みの見積書の見積項目', deletedForeign.estimateItemId],
+        ] as const) {
+          const allBefore = await deniedCount(sales.id);
+          const foreignBefore = await deniedCount(sales.id, other.projectId);
+          const res = await save(sales, body(itemId)).expect(422);
+          expect(masked(res, itemId), `${label}: 存在しない ID と同じ本文`).toBe(missingMasked);
+          expect(JSON.stringify(withoutInstance(res.body)), label).not.toContain(other.projectId);
+          expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録は 1 件だけ増える`).toBe(
+            1
+          );
+          expect(
+            (await deniedCount(sales.id, other.projectId)) - foreignBefore,
+            `${label}: 記録の対象は見積項目の実際の案件`
+          ).toBe(1);
+        }
+
+        // 記録する: 構造の不備（同じ既存 ID の重複配置）を併せて含む本文。応答は構造の不備の 422
+        const duplicated = nodePayload({ id: target.estimateItemId });
+        const structuralBefore = await deniedCount(sales.id, other.projectId);
+        const structural = await save(sales, body(other.estimateItemId, [duplicated])).expect(422);
+        expect(structural.body.code).toBe('ESTIMATE_DRAFT_VALIDATION_ERROR');
+        expect(JSON.stringify(withoutInstance(structural.body))).not.toContain(other.projectId);
+        expect(
+          (await deniedCount(sales.id, other.projectId)) - structuralBefore,
+          '構造の不備の 422 で終わる本文でも記録する'
+        ).toBe(1);
+
+        // 記録しない: 形式の不正の 400 で終わる本文
+        const formatBefore = await deniedCount(sales.id);
+        await save(sales, {
+          ...body(other.estimateItemId),
+          expectedUpdatedAt: '日時ではない',
+        }).expect(400);
+        expect((await deniedCount(sales.id)) - formatBefore, '形式の不正の 400 は判定しない').toBe(
+          0
+        );
+
+        // 記録しない: 同じ案件の別の見積書・範囲内の他の案件・存在しない ID・案件そのものの論理削除
+        for (const [label, itemId] of [
+          ['同じ案件の別の見積書の見積項目', sameProject.estimateItemId],
+          ['範囲内の他の案件の見積項目', inScope.estimateItemId],
+          ['存在しない ID', MISSING_ID],
+          ['案件そのものが論理削除された見積項目', gone.estimateItemId],
+        ] as const) {
+          const allBefore = await deniedCount(sales.id);
+          const res = await save(sales, body(itemId)).expect(422);
+          expect(masked(res, itemId), `${label}: 存在しない ID と同じ本文`).toBe(missingMasked);
+          expect((await deniedCount(sales.id)) - allBefore, `${label}: 記録しない`).toBe(0);
+        }
+
+        // 記録しない: 全案件閲覧の権限の利用者
+        const readAllBefore = await deniedCount(readAll.id);
+        const readAllRes = await save(readAll, body(other.estimateItemId)).expect(422);
+        expect(masked(readAllRes, other.estimateItemId)).toBe(missingMasked);
+        expect(
+          (await deniedCount(readAll.id)) - readAllBefore,
+          '全案件閲覧の利用者は記録しない'
+        ).toBe(0);
+
+        expect(await snapshot(target)).toEqual(beforeTarget);
+        expect(await snapshot(other)).toEqual(beforeOther);
+      } finally {
+        await prisma.estimate.deleteMany({
+          where: { id: { in: [deletedForeign.estimateId, sameProject.estimateId] } },
+        });
+      }
+    });
   });
 });
