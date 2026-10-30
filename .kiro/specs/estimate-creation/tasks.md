@@ -1829,6 +1829,21 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Requirements: 58.1, 58.2_
   - _Boundary: EstimateListPage, EstimateCreatePage, EstimateDetailPage, OverheadCostPanel, TransferQuotationDialog_
 
+## タスク65: 論理削除済みの内訳書の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、記録しない「論理削除」を案件そのものの論理削除に限り、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」とその起票先の一覧の estimate-creation の行）。本機能は、`EstimateService` の `createWithin` が論理削除済みの内訳書を所属の照合より先に内訳書の不在の 404 で弾くため、範囲外の案件のものでも記録しない（2026-10-30 の調査。336 行付近。行は着手時に測り直すこと）。見積書そのものの解決関数 `findProjectIdOfEstimate` は論理削除を区別せず、既に方針どおりであり変えない。requirements.md に 57.10 を加え（改訂の記録を Requirement 57 に残した）、design.md の末尾の章「2026-10-30 の追加: 論理削除済みの内訳書の範囲外の記録」に設計を置いた。応答とデータと画面は変えない
+
+- [ ] 65.1 見積書の作成で、範囲外の案件の論理削除済みの内訳書を記録する
+  - backend/src/services/estimate.service.ts の `createWithin` の内訳書の照合の順を、行が無い（内訳書の不在の 404、記録しない）→ 作成先のプロジェクトに属さない（`evaluateProjectAccess` で範囲外なら `deniedProjectIds` へ入れたうえ内訳書の不在の 404）→ 作成先のプロジェクトに属し論理削除済み（内訳書の不在の 404、記録しない）へ改める（design.md の同章の「決定」の「内訳書の照合の順」）。応答は 3 通りとも 57.4 と同じ 404 の `ITEMIZED_STATEMENT_NOT_FOUND` と本文のまま、見積書と見積項目を作成しない。照合の注釈と `create` の `@throws` の注釈を改める
+  - **テストの追加**（既存に論理削除済みの内訳書の記録の主張は無く、書き換えは要らない。既存の主張を消さない）: 単体（`backend/src/__tests__/unit/services/estimate.service.test.ts`）の「作成先のプロジェクトに属さない内訳書（Requirement 57.4、タスク62.1）」の表に、論理削除済みの内訳書の場合（範囲外は判定して記録 1 回で対象は内訳書の案件、範囲内の他のプロジェクト・案件の不在は記録なし。どれも内訳書の不在と同じ例外で見積書を作らない）を足し、作成先のプロジェクトの論理削除済みの内訳書が判定も記録もせず同じ例外になることを足す。既存の「削除済み内訳書を参照した見積書作成時、エラーを発生させる」は内訳書の模擬が `projectId` を持たず、照合の順を改めると判定の部品を呼ぶため、模擬に作成先の `projectId` を足す（例外の主張は変えない）。統合（`backend/src/__tests__/integration/estimate-creation-project-scope.api.integration.test.ts` の「作成の要求が指す内訳書（57.4）」）に、範囲外の案件の論理削除済みの内訳書を指す作成が存在しない内訳書と同じ 404 の本文で `PROJECT_SCOPE_DENIED` が 1 件増え見積書が増えないことと、作成先のプロジェクトの論理削除済みの内訳書では記録が増えないことを足す。既存の範囲外の内訳書の記録のテストに `@requirement estimate-creation/REQ-57.10` の印を足すかは実装時に決める
+  - E2E（`e2e/specs/estimate/estimate-creation-project-scope.spec.ts`）で、範囲外の案件の論理削除済みの内訳書を指す見積書の作成が存在しない内訳書と同じ 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、見積書が作られないことを主張し、`@requirement estimate-creation/REQ-57.10` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積書の作成の内訳書の不在の 404、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 57.4・57.9・58.2 のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、足したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、範囲外の案件の論理削除済みの内訳書を指す作成が内訳書の不在と同じ 404 で記録され、作成先のプロジェクトの論理削除済みの内訳書では記録されず、どの場合も見積書が作られない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 57.10_
+  - _Boundary: EstimateService の見積書の作成の内訳書の照合と、その記録を主張する本スペックのテスト_
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。
