@@ -1948,7 +1948,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 ## タスク65: 総合検証と文書の追随（要件39.8・40.10・40.11 のクリップボード）
 
-- [ ] 65.1 全ての単体・統合テストと関門を通し、文書を揃える
+- [x] 65.1 全ての単体・統合テストと関門を通し、文書を揃える
   - backend と frontend の全単体テストと統合テストを回し、変えた部品（判定部品・出力の記録の種別）を使う既存の E2E を e2e/ 全体の grep で選んで回す。関門は `:update` の変種を含めず名指しで一本ずつ回し、最後に `git status --porcelain scripts/` が空であることを確かめる。`check:req-coverage` の 39.8 の未被覆は各業務 spec の切り替えの E2E で解く
   - design.md の ProjectScopeGuard と ExportAuditService の節を実装に合わせ、`docs/security/ipa-alert-20261009-remediation-plan.md` の該当の行を改める。spec.json の phase を implementation-complete へ戻すのは `/kiro-validate-impl user-authentication` が GO を出した後に行い、tasks_summary を同じ時点で測り直す
   - 39.8 以外の関門とテストが緑の状態になる

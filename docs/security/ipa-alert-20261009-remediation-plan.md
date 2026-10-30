@@ -64,7 +64,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 
 2026-10-26 の時点で、本節の各項目は user-authentication の要件7.3・32〜45 とタスク44〜62 で実装した（各行の「状況」の列。対応する要件と、tasks.md の _Requirements_ にその要件を持つタスクの番号を記す）。RBAC の上限の行の残件 4 件（既存のロールの優先度の引き上げ、高い優先度のロールの作成、保有しない権限の追加、上限を超えるロールの割り当ての解除）は、2026-10-26 の利用者の判断で要件38.6〜38.10 として要件38 へ取り込み、併せて上限より上のロールの変更・消去の拒否（38.11）とシステムロールの優先度の変更の拒否（38.12）を加え、タスク58 で実装した。続く最終検証で見つかった、上限を超えるユーザーの削除・無効化・再有効化・2FA の再設定の拒否（38.13）を同日の利用者の判断で加え、タスク62 で実装した。
 
-2026-10-29 の利用者の判断（「推奨案で進める」「推奨案で直す」）で、経路の案件と対象の実際の案件の食い違いの記録（要件39.8）、出力の記録の要求の再試行の是正（要件40.10 の是正。条文は変えない）、クリップボードへのコピーの出力の記録（要件40.10・40.11 の対象の拡張）を加え、タスク63・64 と各業務 spec のタスクで実装した。併せて各業務 spec が、閲覧範囲外と不在の 404 を受けた画面の日本語の不在の表示を自分の受入基準として起票し実装した。2026-10-30 の時点で、これらは総合検証（タスク65.1）と `/kiro-validate-impl` の前であり、表の「状況」を「実装済み」とする（GO の後に「完了」へ改める）。
+2026-10-29 の利用者の判断（「推奨案で進める」「推奨案で直す」）で、経路の案件と対象の実際の案件の食い違いの記録（要件39.8）、出力の記録の要求の再試行の是正（要件40.10 の是正。条文は変えない）、クリップボードへのコピーの出力の記録（要件40.10・40.11 の対象の拡張）を加え、タスク63・64 と各業務 spec のタスクで実装した。併せて各業務 spec が、閲覧範囲外と不在の 404 を受けた画面の日本語の不在の表示を自分の受入基準として起票し実装した。総合検証（タスク65.1）と全 10 spec の `/kiro-validate-impl` が 2026-10-30 に GO を出したため、表の「状況」を「完了」とした（それまでは「実装済み」）。
 
 | 区分 | 項目 | 深刻度 | 関係する既存要件 | 状況 |
 |---|---|---|---|---|
@@ -97,10 +97,10 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 | ログ | URL クエリのトークン伏せ字、Sentry へ `req.body` を送らない・`beforeSend` での伏せ字 | 中 | 要件26.11 | 完了（要件42.3・42.4。タスク55.2・55.3） |
 | ログ | request-id をサーバーで生成する、アクセスログに userId を付ける | 低〜中 | 要件22.11 | 完了（要件42.5・42.6。タスク55.2） |
 | メール | Bull に `REDIS_URL` を渡す、`removeOnComplete`・`removeOnFail` を設定する | 中 | 要件24（メール送信の切り離し） | 完了（要件45。タスク44.8・44.12） |
-| RBAC | 入れ子・二重マウントの経路で、経路の案件と対象の実際の案件が食い違う要求を不在として扱い、対象の案件が閲覧範囲外でも記録していなかった | 中 | 要件39.2、39.7 | 実装済み（要件39.8。タスク63.1・63.2。各業務 spec の適用: contract-management 20.2、estimate-request 104.1・104.2、itemized-statement-generation 28.2、estimate-creation 63.1、construction-schedule 23.1、quantity-table-generation 105.1、execution-budget-management 18.1・18.2。総合検証はタスク65.1） |
-| 監査 | 出力の記録の要求と、サーバーで記録してから生成する出力の要求が、API クライアントの自動再試行（最大 3 回）で送り直され、出力 1 回に記録が重なり得た | 中 | 要件40.10 | 実装済み（要件40.10 の是正。条文は変えない。`03f1e0e7`。design.md の ExportAuditService と ExportAuditClient の節の改訂の記録。総合検証はタスク65.1） |
-| 監査 | 内訳書の項目のクリップボードへのコピーが出力の記録の対象に入っていなかった | 中 | 要件40.10、40.11 | 実装済み（種別 `itemized_statement_clipboard` と記録してから書き込む包み。タスク64.1。画面への適用は itemized-statement-generation 28.1。総合検証はタスク65.1） |
-| RBAC | 閲覧範囲外と不在の 404 を受けた画面が、英語の本文や取得の失敗の文言と再試行の釦を出していた（範囲外と不在は同じ表示にする。サーバーの応答は変えない） | 低 | 要件39.2 | 実装済み（各業務 spec の受入基準とタスク: contract-management 21.1、estimate-request 105.1、itemized-statement-generation 29.1、estimate-creation 64.1、construction-schedule 24.1、quantity-table-generation 106.1、execution-budget-management 19.1、site-survey 120.1、construction-photo 31.1。共通の表示部品 `ResourceNotFound` を使う） |
+| RBAC | 入れ子・二重マウントの経路で、経路の案件と対象の実際の案件が食い違う要求を不在として扱い、対象の案件が閲覧範囲外でも記録していなかった | 中 | 要件39.2、39.7 | 完了（要件39.8。タスク63.1・63.2。各業務 spec の適用: contract-management 20.2、estimate-request 104.1・104.2、itemized-statement-generation 28.2、estimate-creation 63.1、construction-schedule 23.1、quantity-table-generation 105.1、execution-budget-management 18.1・18.2。総合検証はタスク65.1） |
+| 監査 | 出力の記録の要求と、サーバーで記録してから生成する出力の要求が、API クライアントの自動再試行（最大 3 回）で送り直され、出力 1 回に記録が重なり得た | 中 | 要件40.10 | 完了（要件40.10 の是正。条文は変えない。`03f1e0e7`。design.md の ExportAuditService と ExportAuditClient の節の改訂の記録。総合検証はタスク65.1） |
+| 監査 | 内訳書の項目のクリップボードへのコピーが出力の記録の対象に入っていなかった | 中 | 要件40.10、40.11 | 完了（種別 `itemized_statement_clipboard` と記録してから書き込む包み。タスク64.1。画面への適用は itemized-statement-generation 28.1。総合検証はタスク65.1） |
+| RBAC | 閲覧範囲外と不在の 404 を受けた画面が、英語の本文や取得の失敗の文言と再試行の釦を出していた（範囲外と不在は同じ表示にする。サーバーの応答は変えない） | 低 | 要件39.2 | 完了（各業務 spec の受入基準とタスク: contract-management 21.1、estimate-request 105.1、itemized-statement-generation 29.1、estimate-creation 64.1、construction-schedule 24.1、quantity-table-generation 106.1、execution-budget-management 19.1、site-survey 120.1、construction-photo 31.1。共通の表示部品 `ResourceNotFound` を使う） |
 
 ### 5.2 site-survey（共通画像基盤を所有）
 
