@@ -67,11 +67,46 @@ import Decimal from 'decimal.js';
  *   本エラーの識別が失われる。設定値に対する待機の実測は環境の揺らぎで最大 1.56 倍まで
  *   伸びたため、2000 ms なら最悪でも約 3.1 秒で、大きな保存の所要（約 0.3 秒）を足しても
  *   5 秒に届かない。3000 ms では同じ揺らぎで 4.5 秒となり余裕が無い
+ * - その後、件数の上限いっぱいの保存のためにトランザクションの制限時間を 15 秒に明示した
+ *   （タスク108.1、{@link QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS}）。本上限はなお制限時間より
+ *   十分に手前で効く
  *
  * 実測はいずれも 2026-09-12、コミット `21d95ac1` の作業ツリー（本タスクの変更を入れる前の
  * 状態）で、リポジトリルートから統合検証の一時プローブとして行った。
  */
 export const SAVE_DRAFT_LOCK_TIMEOUT_MS = 2000;
+
+/**
+ * `saveDraft` のトランザクションの制限時間（quantity-table-generation タスク108.1、Requirement 42.11）
+ *
+ * Prisma の既定は `timeout` 5000 ms / `maxWait` 2000 ms。保存の本文の件数の上限
+ * （routes/quantity-tables.routes.ts の `SAVE_QUANTITY_TABLE_MAX_GROUPS` = 1000、
+ * `SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP` = 2000、`SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS` = 5000）
+ * いっぱいの保存は、書き込みが 1 行ずつのため既定の 5000 ms に収まらない。
+ *
+ * `timeout`（15000 ms）の根拠（2026-10-31 の実測。統合検証の一時の計測で、トランザクションの
+ * 所要を単調時計で測った。WSL2 / ローカル DB）:
+ * - 1000 グループ・総数 5000 項目（2000・2000・1000）の 3 回で、全件新規 6646 / 3582 / 4661 ms、
+ *   全件更新 7039 / 3958 / 3652 ms。最悪は 7.0 秒で、ロック待ちを足す前から既定を超える
+ * - トランザクションの中で行ロックを待つため、ロック待ちの上限（{@link SAVE_DRAFT_LOCK_TIMEOUT_MS}、
+ *   揺らぎで最大約 3.1 秒）が加わる。最悪 7.0 秒＋3.1 秒の約 10.1 秒に余裕を見て 15000 ms とする
+ *   （利用者の判断、2026-10-31。estimate-creation の `ESTIMATE_SAVE_TRANSACTION_OPTIONS` の
+ *   `timeout` と同じ値。`maxWait` は下のとおり前例と異なる）
+ * - 15000 ms を入れた後に同じ規模を 5 回ずつ 2 実行で測り直した。全件新規 8565 / 5364 / 4946 /
+ *   5175 / 5154 ms と 7544 / 4841 / 4957 / 5150 / 4777 ms、全件更新 6145 / 5304 / 5308 / 5113 /
+ *   5057 ms と 6318 / 5146 / 4787 / 4507 / 4819 ms。最悪は各実行の 1 回目の 8.6 秒で、ロック待ちの
+ *   3.1 秒を足しても約 11.7 秒で 15 秒に収まる
+ *
+ * `maxWait` は既定の 2000 ms を明示するだけで変えない。`maxWait` は接続の取得を待つ上限で、
+ * 行ロックの待ち（{@link SAVE_DRAFT_LOCK_TIMEOUT_MS}）とは別である。前例（見積の保存）は上限規模の
+ * 保存が接続を持つ間に後続が接続を待てるよう 5000 ms としたが、本機能の同じ数量表への後続の保存は
+ * 接続ではなく行ロックで待ち 503 になるため、接続の待ちを延ばす根拠が無い（2026-10-31、レビューの指摘）。
+ * 件数の上限か書き込みの方式を変えるときは、同じ規模で測り直して本値を見直すこと。
+ */
+export const QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS: { timeout: number; maxWait: number } = {
+  timeout: 15000,
+  maxWait: 2000,
+};
 
 /** 生SQLの失敗を表す Prisma のエラーコード */
 const PRISMA_RAW_QUERY_ERROR_CODE = 'P2010';
@@ -1314,7 +1349,7 @@ export class QuantityTableService {
           itemCount: input.groups.reduce((sum, g) => sum + g.items.length, 0),
         },
       });
-    });
+    }, QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS);
 
     // 6. 最新の数量表詳細（項目を含む）を返却（REQ-42.8 同期用）
     const detail = await this.findById(id);

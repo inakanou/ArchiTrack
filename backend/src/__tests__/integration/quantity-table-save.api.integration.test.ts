@@ -1682,4 +1682,129 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
       expect(afterRelease.status).toBe(200);
     }, 60_000);
   });
+
+  /**
+   * 保存の本文の配列の件数の上限（quantity-table-generation タスク108.1）
+   *
+   * 上限（数量グループ 1000・一つの数量グループの数量項目 2000・数量項目の総数 5000）を
+   * 1 件超えた本文は本文の検証の 400 になり、数量表・数量グループ・数量項目のどれも変わらない。
+   * 上限ちょうどの本文は従来どおり保存される。
+   *
+   * @requirement quantity-table-generation/REQ-42.11
+   */
+  describe('保存の本文の配列の件数の上限', () => {
+    /** 数量表と配下の数量グループ・数量項目の状態の写し（変化の検出用） */
+    const snapshotTable = async (tableId: string) => {
+      const table = await prisma.quantityTable.findUniqueOrThrow({
+        where: { id: tableId },
+        select: { name: true, updatedAt: true, deletedAt: true },
+      });
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: tableId },
+        orderBy: { displayOrder: 'asc' },
+        include: { items: { orderBy: { displayOrder: 'asc' } } },
+      });
+      return { table, groups };
+    };
+
+    /** 各数量グループの数量項目の数を指定して、全件新規の保存の本文を作る */
+    const buildBody = (
+      expectedUpdatedAt: string,
+      itemCounts: number[],
+      name = '上限超えの保存'
+    ): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      name,
+      groups: itemCounts.map((count, groupIndex) => ({
+        id: null,
+        name: `上限グループ${groupIndex}`,
+        surveyImageId: null,
+        displayOrder: groupIndex,
+        items: Array.from({ length: count }, (_, itemIndex) =>
+          itemPayload({ name: `上限項目${groupIndex}-${itemIndex}`, displayOrder: itemIndex })
+        ),
+      })),
+    });
+
+    const overLimitCases: Array<{
+      label: string;
+      itemCounts: number[];
+      message: string;
+      path: string;
+    }> = [
+      {
+        label: '数量グループの数が上限を1件超える（1001件）',
+        itemCounts: Array.from({ length: 1001 }, () => 0),
+        message: '数量グループは1000件以内で保存してください',
+        path: 'groups',
+      },
+      {
+        label: '一つの数量グループの数量項目の数が上限を1件超える（2001件）',
+        itemCounts: [0, 2001],
+        message: '一つの数量グループの数量項目は2000件以内で保存してください',
+        path: 'groups.1.items',
+      },
+      {
+        label: '数量項目の総数が上限を1件超える（5001件。各数量グループは上限の内側）',
+        itemCounts: [2000, 2000, 1001],
+        message: '数量項目は合計5000件以内で保存してください',
+        path: 'groups',
+      },
+    ];
+
+    it.each(overLimitCases)(
+      '$label 本文は 400 で拒まれ、データベースは変わらない',
+      async ({ itemCounts, message, path }) => {
+        const { tableId } = await createSeededTable(testProjectId, '上限超えの前の名前');
+        const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+        const before = await snapshotTable(tableId);
+        // 写しが空でないこと（既存の 2 グループ・3 項目がある）
+        expect(before.groups).toHaveLength(2);
+
+        const response = await request(app)
+          .put(`/api/quantity-tables/${tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(buildBody(expectedUpdatedAt, itemCounts));
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(response.body.message).toBe(message);
+        expect(response.body.details).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path, message })])
+        );
+
+        // 通っていれば名前が変わり既存の 2 グループが消えて新規が入る。どれも起きていない
+        const after = await snapshotTable(tableId);
+        expect(after).toEqual(before);
+      },
+      60_000
+    );
+
+    it('数量グループ・数量項目とも上限ちょうど（1000グループ・一つのグループに2000項目・総数5000項目）の本文は保存される', async () => {
+      const { tableId } = await createSeededTable(testProjectId, '上限ちょうどの前の名前');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+      const itemCounts = Array.from({ length: 1000 }, (_, index) =>
+        index === 0 ? 2000 : index === 1 ? 2000 : index === 2 ? 1000 : 0
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(buildBody(expectedUpdatedAt, itemCounts, '上限ちょうどの保存'));
+
+      expect(response.status).toBe(200);
+      const table = await prisma.quantityTable.findUniqueOrThrow({ where: { id: tableId } });
+      expect(table.name).toBe('上限ちょうどの保存');
+      expect(await prisma.quantityGroup.count({ where: { quantityTableId: tableId } })).toBe(1000);
+      expect(
+        await prisma.quantityItem.count({ where: { quantityGroup: { quantityTableId: tableId } } })
+      ).toBe(5000);
+      const firstGroup = await prisma.quantityGroup.findFirstOrThrow({
+        where: { quantityTableId: tableId, displayOrder: 0 },
+      });
+      expect(await prisma.quantityItem.count({ where: { quantityGroupId: firstGroup.id } })).toBe(
+        2000
+      );
+    }, 120_000);
+  });
 });

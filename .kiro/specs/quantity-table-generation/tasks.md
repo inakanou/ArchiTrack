@@ -4525,8 +4525,8 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
 
 **経緯**: 利用者の判断（2026-10-31「推奨案で進める」）で起票する。数量表の保存（`PUT /api/quantity-tables/:id/save`）の本文の検証のスキーマ（backend/src/routes/quantity-tables.routes.ts の `saveQuantityTableDraftSchema`〔254 行付近〕と `saveDraftGroupSchema`〔237 行付近〕。行は 2026-10-31 の実測で、着手時に測り直すこと）は、数量グループの一覧と各数量グループの数量項目の一覧に件数の上限を持たず、本文の大きさは JSON の受け口の上限（5MB）だけで抑えられている。requirements.md に 42.11 を加え（改訂の記録を Requirement 42 に残した）、design.md の末尾の章「2026-10-31 の追加: 保存の本文の配列の件数の上限」に設計と推奨値を置いた。**上限の値は 2026-10-31 に利用者が推奨値のとおり確定した（グループ 1000・一つのグループの項目 2000・項目の総数 5000。design.md の同章の「決定」の表）**
 
-- [ ] 108.1 数量表の保存の本文の配列に件数の上限を設け、超えたら本文の検証と同じ形の 400 で拒む
-  - 保存の経路の本文の検証のスキーマで、数量グループの数と一つの数量グループの数量項目の数を Zod の配列の件数の検証で、数量項目の総数をスキーマの `superRefine` で数え、上限を超えたら本文の検証の 400（`validate` の既存の形）で、超えた上限を示す日本語のメッセージと問題箇所（`groups`、`groups.<i>.items`）を返す。上限の値は利用者が確定した値とし、名前を付けた定数をスキーマの近くに置く（名前と置き場所は design.md の同章の「決定」へ記す）。サービスと画面は変えない
+- [x] 108.1 数量表の保存の本文の配列に件数の上限を設け、超えたら本文の検証と同じ形の 400 で拒む
+  - 保存の経路の本文の検証のスキーマで、数量グループの数と一つの数量グループの数量項目の数を Zod の配列の件数の検証で、数量項目の総数をスキーマの `superRefine` で数え、上限を超えたら本文の検証の 400（`validate` の既存の形）で、超えた上限を示す日本語のメッセージと問題箇所（`groups`、`groups.<i>.items`）を返す。上限の値は利用者が確定した値とし、名前を付けた定数をスキーマの近くに置く（名前と置き場所は design.md の同章の「決定」へ記す）。画面は変えない。サービスは、起票の時点では変えないとしたが、上限いっぱいの保存が既定の制限時間（5 秒）に収まらなかったため、利用者の判断（2026-10-31）で保存のトランザクションの制限時間の明示（`QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS`、15 秒）だけを変える（design.md の同章の「Boundary の改訂の記録（2026-10-31）」）
   - 上限いっぱい（数量グループ・数量項目とも上限の件数、全件新規と全件更新）の保存の所要を統合テストの一時の計測で測り、ロック待ちの上限（2000 ms）と足してトランザクションの制限時間（5 秒）に収まることを確かめて design.md の同章へ記す（計測の器具は提出物に残さない）。収まらなければ着手を止めて利用者に諮る
   - 単体（`backend/src/__tests__/unit/routes/quantity-tables.routes.test.ts`）に、上限ちょうどで通り 1 件超えると 400 で上限を示すメッセージと問題箇所を返しサービスを呼ばないことを、三つの上限のそれぞれで足す。統合（`backend/src/__tests__/integration/quantity-table-save.api.integration.test.ts`）に、上限を 1 件超えた本文が 400 になりデータベースが変わらないこと、上限ちょうどの本文が保存されることを足す
   - E2E（`e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、保存の API へ数量グループの数が上限を 1 件超えた本文を送ると 400 になり数量表が変わらないことを主張し、`@requirement quantity-table-generation/REQ-42.11` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
@@ -4534,7 +4534,7 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
   - 単体・統合・E2E で、保存の本文の配列が上限を超えると本文の検証の 400 になりどこにも書き込まず、上限の内側の保存が従来どおりである状態になる
   - _Requirements: 42.11_
-  - _Boundary: 数量表の保存の経路の本文の検証のスキーマ（saveQuantityTableDraftSchema・saveDraftGroupSchema）と、その上限を主張する本スペックのテスト_
+  - _Boundary: 数量表の保存の経路の本文の検証のスキーマ（saveQuantityTableDraftSchema・saveDraftGroupSchema）、保存のトランザクションの制限時間（QuantityTableService の QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS。2026-10-31 の利用者の判断で加えた）と、その上限と制限時間を主張する本スペックのテスト_
 
 ## Implementation Notes（Task 75 以降）
 

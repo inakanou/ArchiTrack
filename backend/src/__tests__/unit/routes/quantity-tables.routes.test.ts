@@ -1277,5 +1277,176 @@ describe('QuantityTablesRoutes', () => {
         });
       });
     });
+
+    /**
+     * 保存の本文の配列の件数の上限（quantity-table-generation タスク108.1）
+     *
+     * 数量グループの数・一つの数量グループの数量項目の数・数量項目の総数のそれぞれで、
+     * 上限ちょうどは通り、1 件超えると本文の検証の 400（既存の形）で上限を示す日本語の
+     * メッセージと問題箇所を返し、サービスを呼ばない（書き込まない）ことを確かめる。
+     * 本番と同じく JSON の受け口の上限を 5MB にし、errorHandler で応答の形を得る。
+     *
+     * @requirement quantity-table-generation/REQ-42.11
+     */
+    describe('本文の配列の件数の上限', () => {
+      let limitApp: Express;
+      let limits: {
+        SAVE_QUANTITY_TABLE_MAX_GROUPS: number;
+        SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP: number;
+        SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS: number;
+        SAVE_QUANTITY_TABLE_LIMIT_MESSAGES: {
+          GROUPS_TOO_MANY: string;
+          ITEMS_PER_GROUP_TOO_MANY: string;
+          TOTAL_ITEMS_TOO_MANY: string;
+        };
+      };
+
+      const latestDetail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      };
+
+      beforeEach(async () => {
+        // 外側の beforeEach の resetModules の後の同じモジュール群から読む（ApiError の同一性のため）
+        const routesModule = await import('../../../routes/quantity-tables.routes.js');
+        const { errorHandler } = await import('../../../middleware/errorHandler.middleware.js');
+        limits = routesModule;
+        limitApp = express();
+        limitApp.use(express.json({ limit: '5mb' }));
+        limitApp.use('/api/quantity-tables', routesModule.default);
+        limitApp.use(errorHandler);
+      });
+
+      const buildItem = (index: number) => ({
+        id: null,
+        tempId: `tmp-item-${index}`,
+        majorCategory: null,
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '工種',
+        name: `項目${index}`,
+        specification: null,
+        unit: 'm',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: 1,
+        roundingUnit: 1,
+        quantity: 1,
+        remarks: null,
+        displayOrder: index,
+      });
+
+      /** 各数量グループの数量項目の数を指定して保存の本文を作る */
+      const buildBody = (itemCounts: number[]) => ({
+        expectedUpdatedAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+        name: '上限の数量表',
+        groups: itemCounts.map((count, groupIndex) => ({
+          id: null,
+          tempId: `tmp-group-${groupIndex}`,
+          name: `グループ${groupIndex}`,
+          surveyImageId: null,
+          displayOrder: groupIndex,
+          items: Array.from({ length: count }, (_, itemIndex) => buildItem(itemIndex)),
+        })),
+      });
+
+      const save = (body: object) =>
+        request(limitApp).put(`/api/quantity-tables/${tableId}/save`).send(body);
+
+      /** 既存の本文の検証の 400（不正な日時）と同じ形であることと、メッセージ・問題箇所を確かめる */
+      const expectLimitRejection = async (
+        response: request.Response,
+        message: string,
+        path: string
+      ) => {
+        const reference = await save({ ...buildBody([1]), expectedUpdatedAt: 'not-a-date' });
+        expect(reference.status).toBe(400);
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe(reference.body.code);
+        expect(response.body.type).toBe(reference.body.type);
+        expect(response.body.title).toBe(reference.body.title);
+        expect(Object.keys(response.body).sort()).toEqual(Object.keys(reference.body).sort());
+        expect(response.body.message).toBe(message);
+        expect(response.body.details).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path, message })])
+        );
+        expect(mockService.saveDraft).not.toHaveBeenCalled();
+      };
+
+      it('数量グループの数が上限ちょうどなら保存する', async () => {
+        mockService.saveDraft.mockResolvedValue(latestDetail);
+
+        const response = await save(
+          buildBody(Array.from({ length: limits.SAVE_QUANTITY_TABLE_MAX_GROUPS }, () => 0))
+        );
+
+        expect(response.status).toBe(200);
+        expect(mockService.saveDraft).toHaveBeenCalledTimes(1);
+        expect(mockService.saveDraft.mock.calls[0]![1].groups).toHaveLength(1000);
+      });
+
+      it('数量グループの数が上限を1件超えると400で上限を示し、サービスを呼ばない', async () => {
+        const response = await save(
+          buildBody(Array.from({ length: limits.SAVE_QUANTITY_TABLE_MAX_GROUPS + 1 }, () => 0))
+        );
+
+        await expectLimitRejection(
+          response,
+          '数量グループは1000件以内で保存してください',
+          'groups'
+        );
+        expect(limits.SAVE_QUANTITY_TABLE_LIMIT_MESSAGES.GROUPS_TOO_MANY).toBe(
+          '数量グループは1000件以内で保存してください'
+        );
+      });
+
+      it('一つの数量グループの数量項目の数が上限ちょうどなら保存する', async () => {
+        mockService.saveDraft.mockResolvedValue(latestDetail);
+
+        const response = await save(buildBody([1, limits.SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP]));
+
+        expect(response.status).toBe(200);
+        expect(mockService.saveDraft).toHaveBeenCalledTimes(1);
+        expect(mockService.saveDraft.mock.calls[0]![1].groups[1].items).toHaveLength(2000);
+      });
+
+      it('一つの数量グループの数量項目の数が上限を1件超えると400で問題のグループを示し、サービスを呼ばない', async () => {
+        const response = await save(
+          buildBody([1, limits.SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP + 1])
+        );
+
+        await expectLimitRejection(
+          response,
+          '一つの数量グループの数量項目は2000件以内で保存してください',
+          'groups.1.items'
+        );
+      });
+
+      it('数量項目の総数が上限ちょうどなら保存する', async () => {
+        mockService.saveDraft.mockResolvedValue(latestDetail);
+
+        // 各数量グループは上限の内側で、総数がちょうど 5000
+        const response = await save(buildBody([2000, 2000, 1000]));
+
+        expect(limits.SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS).toBe(5000);
+        expect(response.status).toBe(200);
+        expect(mockService.saveDraft).toHaveBeenCalledTimes(1);
+      });
+
+      it('数量項目の総数が上限を1件超えると（各グループは上限の内側）400で上限を示し、サービスを呼ばない', async () => {
+        const response = await save(buildBody([2000, 2000, 1001]));
+
+        await expectLimitRejection(
+          response,
+          '数量項目は合計5000件以内で保存してください',
+          'groups'
+        );
+      });
+    });
   });
 });

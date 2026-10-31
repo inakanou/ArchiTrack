@@ -227,12 +227,34 @@ const saveDraftItemSchema = withCalculationParams(
 );
 
 /**
+ * 保存（saveDraft）の本文の配列の件数の上限（Requirement 42.11。OWASP API Security の API4）
+ *
+ * 値は利用者が 2026-10-31 に確定した（design.md の「2026-10-31 の追加: 保存の本文の配列の
+ * 件数の上限」の「決定」の表）。超えた要求は本文の検証（`validate` の 400）で拒み、
+ * サービスを呼ばない。
+ */
+/** 一つの数量表の数量グループの数の上限 */
+export const SAVE_QUANTITY_TABLE_MAX_GROUPS = 1000;
+/** 一つの数量グループの数量項目の数の上限 */
+export const SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP = 2000;
+/** 一つの数量表の数量項目の総数の上限 */
+export const SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS = 5000;
+
+/** 件数の上限を超えたときの日本語のメッセージ（Requirement 42.11） */
+export const SAVE_QUANTITY_TABLE_LIMIT_MESSAGES = {
+  GROUPS_TOO_MANY: `数量グループは${SAVE_QUANTITY_TABLE_MAX_GROUPS}件以内で保存してください`,
+  ITEMS_PER_GROUP_TOO_MANY: `一つの数量グループの数量項目は${SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP}件以内で保存してください`,
+  TOTAL_ITEMS_TOO_MANY: `数量項目は合計${SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS}件以内で保存してください`,
+} as const;
+
+/**
  * フル状態同期保存（saveDraft）用のグループスキーマ
  *
  * 既存=UUID / 新規=null。新規グループはクライアント仮ID（tempId）を任意で付与できる。
- * 写真紐づけ（surveyImageId）は参照のみ。
+ * 写真紐づけ（surveyImageId）は参照のみ。数量項目の数は
+ * `SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP` までとする（42.11）。
  *
- * Requirements: 42.5
+ * Requirements: 42.5, 42.11
  */
 const saveDraftGroupSchema = z.object({
   id: z.string().uuid('グループIDの形式が不正です').nullable(),
@@ -240,7 +262,9 @@ const saveDraftGroupSchema = z.object({
   name: z.string().max(200),
   surveyImageId: z.string().uuid('写真IDの形式が不正です').nullable(),
   displayOrder: z.number().int().min(0),
-  items: z.array(saveDraftItemSchema),
+  items: z.array(saveDraftItemSchema).max(SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP, {
+    message: SAVE_QUANTITY_TABLE_LIMIT_MESSAGES.ITEMS_PER_GROUP_TOO_MANY,
+  }),
 });
 
 /**
@@ -248,14 +272,29 @@ const saveDraftGroupSchema = z.object({
  *
  * 数量表名・全グループ・全項目の最終状態（表示順）と楽観ロック用の
  * expectedUpdatedAt を保持する。既存 bulk-save スキーマを統合・置換する。
+ * 数量グループの数は `SAVE_QUANTITY_TABLE_MAX_GROUPS` まで、数量項目の総数は
+ * `SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS` まで（`superRefine` で数える）とする（42.11）。
  *
- * Requirements: 42.5, 42.8
+ * Requirements: 42.5, 42.8, 42.11
  */
-const saveQuantityTableDraftSchema = z.object({
-  expectedUpdatedAt: z.string().datetime({ message: '日時の形式が不正です' }),
-  name: z.string().max(200),
-  groups: z.array(saveDraftGroupSchema),
-});
+const saveQuantityTableDraftSchema = z
+  .object({
+    expectedUpdatedAt: z.string().datetime({ message: '日時の形式が不正です' }),
+    name: z.string().max(200),
+    groups: z.array(saveDraftGroupSchema).max(SAVE_QUANTITY_TABLE_MAX_GROUPS, {
+      message: SAVE_QUANTITY_TABLE_LIMIT_MESSAGES.GROUPS_TOO_MANY,
+    }),
+  })
+  .superRefine((body, ctx) => {
+    const totalItems = body.groups.reduce((sum, group) => sum + group.items.length, 0);
+    if (totalItems > SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['groups'],
+        message: SAVE_QUANTITY_TABLE_LIMIT_MESSAGES.TOTAL_ITEMS_TOO_MANY,
+      });
+    }
+  });
 
 /**
  * @swagger

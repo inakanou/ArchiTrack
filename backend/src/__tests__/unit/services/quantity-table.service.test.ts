@@ -2447,6 +2447,42 @@ describe('QuantityTableService', () => {
       });
     });
 
+    /**
+     * トランザクションの制限時間（quantity-table-generation タスク108.1、Requirement 42.11）
+     *
+     * 期待値をリテラルで書くのは意図的（定数をそのまま突き合わせると、定数を書き換えても
+     * 緑のままになり、実測で決めた値を固定できない）。値を変えるときは同じ規模で測り直すこと。
+     */
+    describe('トランザクションの制限時間（タスク108.1）', () => {
+      const EXPECTED_TIMEOUT_MS = 15000;
+      const EXPECTED_MAX_WAIT_MS = 2000;
+
+      it('$transaction に実測で決めた timeout と maxWait を明示して渡す', async () => {
+        setupFindUnique(currentState(), reloadedDetail());
+
+        await service.saveDraft(
+          quantityTableId,
+          { expectedUpdatedAt: expectedUpdatedAtIso, name: '数量表', groups: [] } as never,
+          actorId
+        );
+
+        expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.$transaction.mock.calls[0]![1]).toEqual({
+          timeout: EXPECTED_TIMEOUT_MS,
+          maxWait: EXPECTED_MAX_WAIT_MS,
+        });
+      });
+
+      it('公開定数は実測で決めた値そのものである', async () => {
+        const { QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS } =
+          await import('../../../services/quantity-table.service.js');
+        expect(QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS).toEqual({
+          timeout: EXPECTED_TIMEOUT_MS,
+          maxWait: EXPECTED_MAX_WAIT_MS,
+        });
+      });
+    });
+
     it('数量表名・グループ名・写真紐づけ・新規グループ/項目をフル状態で保存できる（REQ-42.5, 11.1）', async () => {
       // Arrange: DBは空の数量表。payloadで1グループ+1項目を新規作成
       setupFindUnique(
