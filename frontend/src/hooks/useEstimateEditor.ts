@@ -558,7 +558,7 @@ type EstimateItemMetaMap = Map<NodeKey, EstimateItemMeta>;
 /**
  * ツリーを葉から順に写像する（明示スタックによる後行順走査）
  *
- * 再帰を用いないため階層の深さに上限を設けない（2.5）。
+ * 再帰を用いないため深さに再帰の上限を作らない（2.5。保存は100段を超える深さを拒むが、既存のデータと編集中の状態はそれを超えうる）。
  */
 function mapTreeBottomUp<S, T>(
   roots: readonly S[],

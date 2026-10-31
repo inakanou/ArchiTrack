@@ -248,7 +248,7 @@ function canHostTransferredItem(itemType: EstimateEditItemType): boolean {
 /**
  * 編集中の明細ツリーから転記先の選択肢を組み立てる（30.2, 30.4）
  *
- * 階層の深さに上限を設けない（2.5）ため明示スタックで先行順に走査する。
+ * 明示スタックで先行順に走査し、深さに再帰の上限を作らない（2.5。保存は100段を超える深さを拒むが、既存のデータと編集中の状態はそれを超えうる）。
  */
 function collectTransferTargets(
   items: readonly EstimateItemHierarchyEdit[]

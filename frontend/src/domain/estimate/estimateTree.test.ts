@@ -3,7 +3,8 @@
  *
  * Requirements (estimate-creation):
  * - 2.4: 複数階層のネストをサポートする
- * - 2.5: 階層の深さに上限を設けない
+ * - 2.5: 走査は深さに再帰の上限を作らない（保存は100段を超える深さを拒むが、既存のデータと
+ *   編集中の状態はそれを超えうる）
  * - 2.6: 項目の階層レベルをインデント表示で視覚的に区別する
  * - 29.1: 子項目を持つ項目の単価フィールドを編集不可とする（＝金額は導出値）
  * - 29.2: 子項目の金額合計を親項目の金額として自動計算する
@@ -185,7 +186,7 @@ describe('depthOf', () => {
     expect(depthOf(sampleTree(), 'missing')).toBe(-1);
   });
 
-  it('階層の深さに上限を設けない（2.5）', () => {
+  it('保存の上限（100段）を超える深さでも再帰の上限を作らない（2.5）', () => {
     const deep = buildChain(2000);
     expect(depthOf(deep, 'n-1999')).toBe(1999);
   });
@@ -561,7 +562,7 @@ describe('toHierarchyNodes', () => {
     expect(nodes.map((n) => n.itemType)).toEqual(['NOTE', 'DISCOUNT']);
   });
 
-  it('階層の深さに上限を設けない（2.5）', () => {
+  it('保存の上限（100段）を超える深さでも再帰の上限を作らない（2.5）', () => {
     const nodes = toHierarchyNodes(buildChain(2000));
     let current = at(nodes, 0);
     let depth = 0;
@@ -617,7 +618,7 @@ describe('flattenForGrid', () => {
     expect(at(rows, 0).item).toBe(at(tree, 0));
   });
 
-  it('階層の深さに上限を設けない（2.5）', () => {
+  it('保存の上限（100段）を超える深さでも再帰の上限を作らない（2.5）', () => {
     const rows = flattenForGrid(buildChain(2000), new Set());
     expect(rows).toHaveLength(2000);
     expect(at(rows, 1999).depth).toBe(1999);
@@ -664,7 +665,7 @@ describe('pathToDisplayRow', () => {
     );
   });
 
-  it('階層の深さに上限を設けない（2.5）', () => {
+  it('保存の上限（100段）を超える深さでも再帰の上限を作らない（2.5）', () => {
     const rows = flattenForGrid(buildChain(2000), new Set());
     expect(pathToDisplayRow(rows, 'n-1999')).toHaveLength(2000);
   });

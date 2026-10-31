@@ -1903,7 +1903,7 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - 単体・E2E で、上限を超えた保存ではどの上限かが表示され汎用の文言と要約の文言が表示されず、編集中の内容が残り、他の失敗の表示は従来どおりである状態になる
   - _Requirements: 42.13_
   - _Boundary: 見積書詳細画面の保存の失敗の文言（EstimateDetailPage の toSaveErrorMessage）と、新設する保存の上限の判定の関数（frontend/src/utils/estimate-save-limit-feedback.ts）と、その表示を主張する本スペックのテスト_
-- [ ] 68.2 frontend の注釈とテストの名前を Requirement 2.5 の改訂後の文へ追随させる
+- [x] 68.2 frontend の注釈とテストの名前を Requirement 2.5 の改訂後の文へ追随させる
   - 「2.5: 階層の深さに上限を設けない」の趣旨の注釈を、design.md の同章の「決定」の「frontend の注釈の Requirement 2.5 の追随」の趣旨（画面の走査は明示のスタックの反復で深さに再帰の上限を作らない。保存は 42.12 で 100 段までに拒むが、既存のデータと編集中の状態はそれを超えうる）へ改める。対象は 2026-11-01 の実測で次のとおり（行は着手時に `階層の深さに上限を設けない` を frontend/src の下で検索して測り直す）: `estimateTree.ts`（5 か所）、`estimateEditReducer.ts`、`useEstimateEditor.ts`、`estimateAmountLimit.ts`、`NetAllocationDialog.tsx`、`TransferQuotationDialog.tsx`、`ProfitRateDialog.tsx`、`estimateReportLayout.ts`（3 か所）
   - テストの名前と見出し（`estimateTree.test.ts` の見出しと `it` 4 つ、`estimateAmountLimit.test.ts` の `it` 1 つ、`estimateReportLayout.deepHierarchy.test.ts` の見出し）を同じ趣旨へ改める。主張と走査の方式は変えない
   - 振る舞いを変えないため、改めたファイルの単体を流して緑のままであることを確かめる。テストの名前に要件の印が含まれる場合は、改めた後に `check:design-measurement-freshness` を名指しで流す
