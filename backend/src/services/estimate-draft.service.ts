@@ -338,6 +338,11 @@ interface TraversalFrame {
   readonly parentTempId: string | null;
 }
 
+/** 平坦化した本文の見積項目の ID（新規の項目は null） */
+function payloadItemIdsOf(frames: readonly TraversalFrame[]): (string | null)[] {
+  return frames.map((frame) => frame.node.id);
+}
+
 /**
  * 見積明細一括保存サービス
  */
@@ -421,6 +426,37 @@ export class EstimateDraftService {
     actorId: string,
     scopeDenialContext?: ProjectScopeDenialContext
   ): Promise<void> {
+    await this.recordForeignItemIdScopeDenials(
+      estimateId,
+      payloadItemIdsOf(this.flattenPayload(items)).filter((id): id is string => id !== null),
+      actorId,
+      scopeDenialContext
+    );
+  }
+
+  /**
+   * 本文の総数・深さの上限で打ち切った要求の、読んだ見積項目の ID の範囲外の記録
+   * （Requirement 57.11 と 42.10・42.12、タスク67.1）
+   *
+   * 経路は Zod の検証の前に生の本文を数え（`scanSaveEstimateItemTree`）、上限を超えたら打ち切って 422 を返す。
+   * 件数や深さを上限より大きくするだけで記録を避けられないよう、経路は打ち切るまでに読んだ節点の UUID の形の
+   * ID を渡してこの処理を呼ぶ。打ち切った後ろの節点の ID は渡らない。
+   *
+   * - 判定は {@link recordForeignItemScopeDenials} と同じ（{@link noteForeignItemProjects}）
+   * - 見積書が不在・論理削除済みなら何もしない
+   * - 例外は投げない（判定の DB の失敗を除く）。書き込みはしない
+   *
+   * @param estimateId - 見積書ID
+   * @param itemIds - 本文の見積項目の ID（重複を含みうる）
+   * @param actorId - 実行者ID
+   * @param scopeDenialContext - 範囲外の拒否の記録に載せる要求の識別
+   */
+  async recordForeignItemIdScopeDenials(
+    estimateId: string,
+    itemIds: readonly string[],
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<void> {
     await withSurveyScopeDenialRecording(
       actorId,
       scopeDenialContext,
@@ -438,7 +474,7 @@ export class EstimateDraftService {
           select: { id: true, parentId: true },
         });
         await this.noteForeignItemProjects(
-          this.flattenPayload(items),
+          itemIds,
           existingItems,
           estimate.projectId,
           actorId,
@@ -476,7 +512,7 @@ export class EstimateDraftService {
     // 範囲外なら処理の後に記録する（応答は下の所属の照合の 422 のまま）。所属の照合と楽観ロックの照合
     // より前に置き、版を合わせなくても判定に届くようにする
     await this.noteForeignItemProjects(
-      frames,
+      payloadItemIdsOf(frames),
       existingItems,
       estimate.projectId,
       actorId,
@@ -724,14 +760,14 @@ export class EstimateDraftService {
    *   範囲内の他の案件（`allowed`）と案件の不在・論理削除（`not_found`）は記録しない
    * - 例外は投げない。応答はこの後の所属の照合（{@link validatePayloadItemOwnership}）の従来の 422 のまま
    *
-   * @param frames - 本文の明細ツリーを平坦化したもの
+   * @param payloadItemIds - 本文の見積項目の ID（新規の項目の null を含みうる）
    * @param existingItems - 対象の見積書に属する既存の見積項目の全件
    * @param projectId - 対象の見積書が属するプロジェクトID
    * @param actorId - 実行者ID
    * @param deniedProjectIds - 範囲外と判定した案件 ID を入れる集合
    */
   private async noteForeignItemProjects(
-    frames: readonly TraversalFrame[],
+    payloadItemIds: readonly (string | null)[],
     existingItems: readonly ExistingItemRow[],
     projectId: string,
     actorId: string,
@@ -739,11 +775,7 @@ export class EstimateDraftService {
   ): Promise<void> {
     const existingIds = new Set(existingItems.map((item) => item.id));
     const foreignItemIds = [
-      ...new Set(
-        frames
-          .map((frame) => frame.node.id)
-          .filter((id): id is string => id !== null && !existingIds.has(id))
-      ),
+      ...new Set(payloadItemIds.filter((id): id is string => id !== null && !existingIds.has(id))),
     ];
     if (foreignItemIds.length === 0) {
       return;

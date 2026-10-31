@@ -1921,6 +1921,189 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
   });
 
   // ==========================================
+  // 総数と階層の深さの前倒しの数え上げ（42.10, 42.12 / タスク67.1）
+  //
+  // 総数が上限（2000）か深さが上限（100段）を超えた本文は、Zod の検証の前に打ち切られ、
+  // 件数の上限の 422 と同じ形（状態・コード・メッセージ・問題の一覧）で拒まれる。
+  // 深い鎖の本文は supertest の `send(object)` の直列化（JSON.stringify）が深さの限界に
+  // 達するため、JSON の文字列を反復で組み立てて送る。
+  // ==========================================
+  /**
+   * @requirement estimate-creation/REQ-42.10
+   * @requirement estimate-creation/REQ-42.12
+   */
+  describe('総数と階層の深さの前倒しの数え上げ（42.10, 42.12）', () => {
+    const ITEMS_TOO_MANY = '見積明細は合計2000件以内で保存してください';
+    const ITEMS_TOO_DEEP = '見積項目の階層は100段以内で保存してください';
+    const LINE_JSON = JSON.stringify(linePayload({ name: '深さ検証' }));
+
+    /** 各節点が一つの子を持つ鎖の `items` の JSON（再帰も JSON.stringify も使わない） */
+    const chainItemsJson = (depth: number, prefix: string): string => {
+      const parts: string[] = [];
+      for (let level = 1; level <= depth; level += 1) {
+        parts.push(
+          `{"id":null,"tempId":"${prefix}-${level}","itemType":"STANDARD","lines":[${LINE_JSON}],"children":[`
+        );
+      }
+      for (let level = 1; level <= depth; level += 1) {
+        parts.push(']}');
+      }
+      return parts.join('');
+    };
+
+    const saveRaw = (estimateId: string, json: string): request.Test =>
+      request(app)
+        .put(`/api/estimates/${estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .set('Content-Type', 'application/json')
+        .send(json);
+
+    const rawBody = (expectedUpdatedAt: string, itemsJson: string): string =>
+      `{"expectedUpdatedAt":${JSON.stringify(expectedUpdatedAt)},"reportFields":${JSON.stringify(
+        reportFieldsPayload()
+      )},"items":[${itemsJson}]}`;
+
+    /** 件数の上限の 422 と同じ形の応答で、問題が一つ（`items`）であること */
+    const expectLimitResponse = (response: request.Response, message: string): void => {
+      expect(response.status).toBe(422);
+      expect(response.body).toMatchObject({
+        status: 422,
+        code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+        message: '見積明細の入力内容に不備があるため保存できません',
+        details: { issues: [{ path: 'items', message }] },
+      });
+      expect(response.body.details.issues).toHaveLength(1);
+    };
+
+    /** 見積書の版と既存の明細が変わっていないこと */
+    const expectUnchanged = async (
+      estimateId: string,
+      expectedUpdatedAt: string,
+      before: unknown
+    ): Promise<void> => {
+      expect(await snapshotItems(estimateId)).toEqual(before);
+      const estimate = await prisma.estimate.findUniqueOrThrow({
+        where: { id: estimateId },
+        select: { updatedAt: true },
+      });
+      expect(estimate.updatedAt.toISOString()).toBe(expectedUpdatedAt);
+    };
+
+    it('総数が 2001 件の本文は件数の上限の 422 になり、データベースは変わらない', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_総数2001');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const response = await request(app)
+        .put(`/api/estimates/${estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          reportFields: reportFieldsPayload(),
+          items: Array.from({ length: 2001 }, (_, index) =>
+            nodePayload({ tempId: `tmp-${index}` })
+          ),
+        });
+
+      expectLimitResponse(response, ITEMS_TOO_MANY);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('深い入れ子（81 段の鎖 25 本、計 2025 件）で総数が上限を超える本文は件数の上限の 422 になり、データベースは変わらない', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_入れ子で総数超過');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const itemsJson = Array.from({ length: 25 }, (_, index) =>
+        chainItemsJson(81, `c${index}`)
+      ).join(',');
+      const response = await saveRaw(estimateId, rawBody(expectedUpdatedAt, itemsJson));
+
+      expectLimitResponse(response, ITEMS_TOO_MANY);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('総数が上限を超え形式の不正も含む本文は、形式の不正の 400 ではなく件数の上限の 422 になる', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_総数超過と形式不正');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const response = await request(app)
+        .put(`/api/estimates/${estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          // 形式不正: 別途工事が上限（5件）超過
+          reportFields: reportFieldsPayload({ separateWorks: ['1', '2', '3', '4', '5', '6'] }),
+          items: Array.from({ length: 2001 }, (_, index) =>
+            nodePayload({ tempId: `tmp-${index}` })
+          ),
+        });
+
+      expectLimitResponse(response, ITEMS_TOO_MANY);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('深さ 101 段の鎖の本文は深さの上限の 422 になり、データベースは変わらない', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_深さ101');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const response = await saveRaw(
+        estimateId,
+        rawBody(expectedUpdatedAt, chainItemsJson(101, 'd'))
+      );
+
+      expectLimitResponse(response, ITEMS_TOO_DEEP);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('深さ 2000 段の鎖の本文は 500 にならず深さの上限の 422 になり、データベースは変わらない', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_深さ2000');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const response = await saveRaw(
+        estimateId,
+        rawBody(expectedUpdatedAt, chainItemsJson(2000, 'd'))
+      );
+
+      expectLimitResponse(response, ITEMS_TOO_DEEP);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('深さ 100 段ちょうどの鎖の本文は保存され、応答の明細ツリーも 100 段で返る', async () => {
+      const estimate = await prisma.estimate.create({
+        data: { projectId: testProjectId, name: '前倒し_深さ100' },
+      });
+      const expectedUpdatedAt = estimate.updatedAt.toISOString();
+
+      const response = await saveRaw(
+        estimate.id,
+        rawBody(expectedUpdatedAt, chainItemsJson(100, 'd'))
+      );
+
+      expect(response.status).toBe(200);
+      // 応答の明細ツリーを葉までたどる（応答の直列化が 100 段で成功している）
+      let depth = 0;
+      let level: { children: unknown[] }[] = response.body.items;
+      while (level.length > 0) {
+        expect(level).toHaveLength(1);
+        depth += 1;
+        level = level[0]!.children as { children: unknown[] }[];
+      }
+      expect(depth).toBe(100);
+
+      const saved = await prisma.estimateItem.findMany({
+        where: { estimateId: estimate.id },
+        select: { id: true, parentId: true },
+      });
+      expect(saved).toHaveLength(100);
+      expect(saved.filter((item) => item.parentId === null)).toHaveLength(1);
+    });
+  });
+
+  // ==========================================
   // 形式不正と検証NGが同時に含まれるペイロード（42.4, 42.8）
   // ==========================================
   describe('形式不正と検証NGの混在ペイロード', () => {

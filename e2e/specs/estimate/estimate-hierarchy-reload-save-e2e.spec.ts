@@ -23,6 +23,8 @@
  * - REQ-42.1: 追加・削除・更新・並び順の変更・階層の変更を1回の保存操作でまとめて確定する
  * - REQ-45.2: 階層表示モードのデフォルトを「ツリー表示」とする
  * - REQ-45.3: ツリー表示では全階層をインデント付きで一覧表示する
+ * - REQ-42.10: 本文の見積項目の総数が上限を超えると検証の前に件数の上限の 422 で拒み、書き込まない
+ * - REQ-42.12: 本文の見積項目の階層の深さが上限を超えると検証の前に深さの上限の 422 で拒み、書き込まない
  *
  * @module e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec
  */
@@ -37,6 +39,7 @@ import {
   buildNewEstimateItemNode,
   findEstimateItemByName,
   getEstimateItemTree,
+  getEstimateUpdatedAt,
   saveEstimateDraft,
   type EstimateItemNode,
 } from '../../helpers/estimate-draft';
@@ -345,6 +348,127 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
       // ルート項目は親を持たないので無効のまま（判定が常に有効化していないことの対比）
       await selectRow(page, siblingId);
       await expect(page.getByRole('button', { name: /上の階層へ/ })).toBeDisabled();
+    });
+  });
+
+  // ==========================================================================
+  // 一括保存の本文の総数と階層の深さの上限（タスク67.1）
+  //
+  // 画面の操作で 2001 件や 101 段の見積項目を作ることは現実的でないため、一括保存の API へ
+  // 直接送って確かめる（design.md の「2026-10-31 の追加: 一括保存の本文の件数の前倒しの数え上げと
+  // 備考の文字数の上限」の章の Testing Strategy）。深い鎖の本文は JSON.stringify が深さの限界に
+  // 達するため、JSON の文字列を反復で組み立てて送る。
+  // ==========================================================================
+
+  test.describe('一括保存の本文の総数と階層の深さの上限', () => {
+    const LINE_JSON = JSON.stringify({
+      lineType: 'ESTIMATE',
+      name: '上限検証',
+      specification: null,
+      unit: null,
+      quantity: null,
+      unitPrice: null,
+      amount: null,
+      remarks: null,
+      sourceVendorName: null,
+    });
+    const nodeJson = (tempId: string, childrenJson = ''): string =>
+      `{"id":null,"tempId":"${tempId}","itemType":"STANDARD","lines":[${LINE_JSON}],"children":[${childrenJson}]}`;
+    /** 各節点が一つの子を持つ深さ `depth` の鎖（再帰も JSON.stringify も使わない） */
+    const chainJson = (depth: number): string => {
+      const parts: string[] = [];
+      for (let level = 1; level <= depth; level += 1) {
+        parts.push(
+          `{"id":null,"tempId":"deep-${level}","itemType":"STANDARD","lines":[${LINE_JSON}],"children":[`
+        );
+      }
+      for (let level = 1; level <= depth; level += 1) {
+        parts.push(']}');
+      }
+      return parts.join('');
+    };
+
+    /** 本文を送り、応答と、見積書の版と明細ツリーが送る前のままであることを返す */
+    const saveRawAndExpectUnchanged = async (
+      page: Page,
+      itemsJson: string,
+      reportFieldsJson = '{"submissionDate":null,"validityPeriod":null,"separateWorks":[]}'
+    ): Promise<{ status: number; body: Record<string, unknown> }> => {
+      const beforeTree = await fetchTree(page);
+      const expectedUpdatedAt = await getEstimateUpdatedAt(
+        page.request,
+        accessToken,
+        createdEstimateId!
+      );
+      const res = await page.request.put(
+        `${API_BASE_URL}/api/estimates/${createdEstimateId}/save`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          data: `{"expectedUpdatedAt":${JSON.stringify(expectedUpdatedAt)},"reportFields":${reportFieldsJson},"items":[${itemsJson}]}`,
+        }
+      );
+      const result = { status: res.status(), body: (await res.json()) as Record<string, unknown> };
+
+      expect(await fetchTree(page)).toEqual(beforeTree);
+      expect(await getEstimateUpdatedAt(page.request, accessToken, createdEstimateId!)).toBe(
+        expectedUpdatedAt
+      );
+      return result;
+    };
+
+    /**
+     * @requirement estimate-creation/REQ-42.10
+     */
+    test('一括保存の API へ総数が上限を 1 件超えた本文を送ると件数の上限の 422 になり、見積書は変わらない (estimate-creation/REQ-42.10)', async ({
+      page,
+    }) => {
+      expect(createdEstimateId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
+      await resetHierarchy(page);
+
+      const itemsJson = Array.from({ length: 2001 }, (_, index) => nodeJson(`over-${index}`)).join(
+        ','
+      );
+      // 形式の正しい本文と、形式の不正（別途工事が上限の 5 件を超える）を併せて含む本文。
+      // 後者は各見積項目の内容の検証より前に数えて拒むため、形式の不正の 400 ではなく 422 になる
+      for (const [label, reportFieldsJson] of [
+        ['形式の正しい本文', undefined],
+        [
+          '形式の不正を併せて含む本文',
+          '{"submissionDate":null,"validityPeriod":null,"separateWorks":["1","2","3","4","5","6"]}',
+        ],
+      ] as const) {
+        const { status, body } = await saveRawAndExpectUnchanged(page, itemsJson, reportFieldsJson);
+
+        expect(status, label).toBe(422);
+        expect(body.code, label).toBe('ESTIMATE_DRAFT_VALIDATION_ERROR');
+        expect(body.details, label).toEqual({
+          issues: [{ path: 'items', message: '見積明細は合計2000件以内で保存してください' }],
+        });
+      }
+    });
+
+    /**
+     * @requirement estimate-creation/REQ-42.12
+     */
+    test('一括保存の API へ階層の深さが上限を超えた本文（101 段・2000 段）を送ると深さの上限の 422 になり、見積書は変わらない (estimate-creation/REQ-42.12)', async ({
+      page,
+    }) => {
+      expect(createdEstimateId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
+      await resetHierarchy(page);
+
+      for (const depth of [101, 2000]) {
+        const { status, body } = await saveRawAndExpectUnchanged(page, chainJson(depth));
+
+        expect(status, `${depth} 段`).toBe(422);
+        expect(body.code, `${depth} 段`).toBe('ESTIMATE_DRAFT_VALIDATION_ERROR');
+        expect(body.details, `${depth} 段`).toEqual({
+          issues: [{ path: 'items', message: '見積項目の階層は100段以内で保存してください' }],
+        });
+      }
     });
   });
 });

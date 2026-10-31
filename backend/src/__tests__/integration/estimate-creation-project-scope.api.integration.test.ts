@@ -1235,5 +1235,80 @@ describe('見積書・見積明細・在席・受領見積書の一覧の API �
         });
       }
     });
+
+    /**
+     * 総数の上限（2000）か深さの上限（100段）で Zod の検証の前に打ち切った本文も、読んだ節点の ID で
+     * 57.11 の判定と記録を行う（タスク67.1。design.md の「2026-10-31 の追加: 一括保存の本文の件数の前倒しの
+     * 数え上げと備考の文字数の上限」の章の「決定」）。打ち切った後ろの節点の ID は読まない。
+     *
+     * @requirement estimate-creation/REQ-57.11
+     * @requirement estimate-creation/REQ-42.10
+     * @requirement estimate-creation/REQ-42.12
+     */
+    it('件数・深さの上限を超えた本文に範囲外の案件の見積項目の ID を含めると、上限の 422 のまま範囲外の案件を対象に記録が 1 件増え、どの見積書のデータも変わらない', async () => {
+      const deniedCount = (actorId: string, targetId: string): Promise<number> =>
+        prisma.auditLog.count({ where: { action: 'PROJECT_SCOPE_DENIED', actorId, targetId } });
+      const beforeTarget = await snapshot(target);
+      const beforeOther = await snapshot(other);
+      const estimate = await prisma.estimate.findUniqueOrThrow({
+        where: { id: target.estimateId },
+      });
+      const body = (items: Record<string, unknown>[]) => ({
+        expectedUpdatedAt: estimate.updatedAt.toISOString(),
+        reportFields: { ...REPORT_FIELDS, validityPeriod: '書き換えの試み' },
+        items,
+      });
+      const fresh = (count: number): Record<string, unknown>[] =>
+        Array.from({ length: count }, (_, index) => nodePayload({ tempId: `over-${index}` }));
+      const foreignNode = (children: Record<string, unknown>[] = []): Record<string, unknown> =>
+        nodePayload({ id: other.estimateItemId, children });
+      /** 範囲外の案件の見積項目を根に置いた深さ `depth` の鎖 */
+      const deepChain = (depth: number): Record<string, unknown> => {
+        let current = nodePayload({ tempId: `deep-${depth}` });
+        for (let level = depth - 1; level >= 2; level -= 1) {
+          current = nodePayload({ tempId: `deep-${level}`, children: [current] });
+        }
+        return foreignNode([current]);
+      };
+      const save = (payload: Record<string, unknown>): request.Test =>
+        request(app)
+          .put(`/api/estimates/${target.estimateId}/save`)
+          .set(...auth(sales))
+          .send(payload);
+
+      for (const [label, items, message] of [
+        [
+          '総数が 2001 件（範囲外の ID は先頭）',
+          [foreignNode(), ...fresh(2000)],
+          '見積明細は合計2000件以内で保存してください',
+        ],
+        [
+          '深さが 101 段（範囲外の ID は根）',
+          [deepChain(101)],
+          '見積項目の階層は100段以内で保存してください',
+        ],
+      ] as const) {
+        const before = await deniedCount(sales.id, other.projectId);
+        const res = await save(body([...items])).expect(422);
+        expect(res.body.code, label).toBe('ESTIMATE_DRAFT_VALIDATION_ERROR');
+        expect(res.body.details.issues, label).toEqual([{ path: 'items', message }]);
+        expect(JSON.stringify(withoutInstance(res.body)), label).not.toContain(other.projectId);
+        expect(
+          (await deniedCount(sales.id, other.projectId)) - before,
+          `${label}: 記録の対象は見積項目の実際の案件で 1 件`
+        ).toBe(1);
+      }
+
+      // 打ち切った後ろ（2002 件目）の範囲外の ID は読まないため記録しない
+      const afterCutBefore = await deniedCount(sales.id, other.projectId);
+      await save(body([...fresh(2001), foreignNode()])).expect(422);
+      expect(
+        (await deniedCount(sales.id, other.projectId)) - afterCutBefore,
+        '打ち切った後ろの ID は判定しない'
+      ).toBe(0);
+
+      expect(await snapshot(target)).toEqual(beforeTarget);
+      expect(await snapshot(other)).toEqual(beforeOther);
+    });
   });
 });

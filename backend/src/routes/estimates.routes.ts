@@ -84,6 +84,8 @@ import {
   getItemsQuerySchema,
   saveEstimateDraftSchema,
   saveEstimateDraftShapeSchema,
+  scanSaveEstimateItemTree,
+  SAVE_ESTIMATE_VALIDATION_MESSAGES,
 } from '../schemas/estimate.schema.js';
 import { ValidationError } from '../errors/apiError.js';
 import {
@@ -779,6 +781,23 @@ router.put(
     try {
       const { id } = req.validatedParams as { id: string };
       const actorId = req.user!.userId;
+
+      // 本文の検証（Zod は入れ子を再帰で検証する）の前に、生の本文の見積項目の総数と階層の深さを数え、
+      // 上限を超えたら打ち切って 422 で拒む（Requirement 42.10・42.12、タスク67.1）。Zod の検証もサービスの保存も
+      // 呼ばない。件数や深さを上限より大きくするだけで記録を避けられないよう、打ち切るまでに読んだ節点の ID で
+      // 属さない見積項目の ID の範囲外の判定と記録を行ってから拒む（Requirement 57.11）
+      const scan = scanSaveEstimateItemTree(req.body);
+      if (scan.exceeded !== null) {
+        await estimateDraftService.recordForeignItemIdScopeDenials(
+          id,
+          scan.itemIds,
+          actorId,
+          projectScopeDenialContextOf(req)
+        );
+        throw new EstimateDraftValidationError([
+          { path: 'items', message: SAVE_ESTIMATE_VALIDATION_MESSAGES[scan.exceeded] },
+        ]);
+      }
 
       // ボディ検証はミドルウェアに委ねず、ここで 400 と 422 を切り分ける。
       // - 形式不正（キー欠落・型違い・長さ・書式・列挙値）は 400

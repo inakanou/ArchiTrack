@@ -1791,5 +1791,65 @@ describe('EstimateDraftService', () => {
         expectNoWrites();
       });
     });
+
+    /**
+     * 総数・深さの上限で打ち切った本文の判定（タスク67.1。読んだ節点の ID の一覧を受け取る）
+     *
+     * @requirement estimate-creation/REQ-57.11
+     */
+    describe('recordForeignItemIdScopeDenials（総数・深さの上限の 422 の経路から呼ぶ）', () => {
+      it('読んだ ID のうち属さない ID の実際の案件が範囲外なら案件ごとに 1 回記録し、何も書き込まない', async () => {
+        mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+        foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+        foreignItemOwners.set(FOREIGN_ITEM_2, OTHER_PROJECT_ID);
+        mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+        await service.recordForeignItemIdScopeDenials(
+          ESTIMATE_ID,
+          [ITEM_A, FOREIGN_ITEM, FOREIGN_ITEM_2, FOREIGN_ITEM],
+          ACTOR_ID,
+          CONTEXT
+        );
+
+        expectOwnerLookup([FOREIGN_ITEM, FOREIGN_ITEM_2]);
+        expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+        expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+        expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'PROJECT_SCOPE_DENIED',
+            actorId: ACTOR_ID,
+            targetId: OTHER_PROJECT_ID,
+            metadata: CONTEXT,
+          })
+        );
+        expectNoWrites();
+      });
+
+      it('属さない ID が無ければ所属を引かず記録しない', async () => {
+        mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+
+        await service.recordForeignItemIdScopeDenials(ESTIMATE_ID, [ITEM_A], ACTOR_ID, CONTEXT);
+
+        expect(mockPrisma.estimate.findMany).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+        expectNoWrites();
+      });
+
+      it('見積書が不在なら何も引かず記録しない', async () => {
+        mockPrisma.estimate.findUnique.mockResolvedValue(null);
+        foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+        mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+        await service.recordForeignItemIdScopeDenials(
+          ESTIMATE_ID,
+          [FOREIGN_ITEM],
+          ACTOR_ID,
+          CONTEXT
+        );
+
+        expect(mockPrisma.estimate.findMany).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
+    });
   });
 });

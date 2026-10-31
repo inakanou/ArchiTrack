@@ -277,6 +277,16 @@ export const getItemsQuerySchema = z.object({
  */
 export const SAVE_ESTIMATE_MAX_ITEMS = 2000;
 
+/**
+ * 一括保存で受け付ける見積項目の階層の深さの上限（Requirement 2.5・42.12。ルートの見積項目を 1 段目と数える）
+ *
+ * 2026-10-31 に利用者が確定した値（タスク67.1）。本文の検証（Zod）は入れ子を再帰で処理するため、
+ * おおむね 700〜1000 段を超える鎖の本文は処理の深さの限界に達して 500 になっていた（同日の計測。境界は
+ * 実行ごとに揺れる）。経路は {@link scanSaveEstimateItemTree} で Zod の検証の前に深さを数え、
+ * 上限を超えたら打ち切って 422 で拒む。
+ */
+export const SAVE_ESTIMATE_MAX_DEPTH = 100;
+
 /** 別途工事の最大件数（54.1） */
 const SEPARATE_WORKS_MAX_COUNT = 5;
 
@@ -307,6 +317,7 @@ const AMOUNT_DECIMAL_PATTERN = /^-?\d{1,13}(\.\d{1,2})?$/;
  */
 export const SAVE_ESTIMATE_VALIDATION_MESSAGES = {
   ITEMS_TOO_MANY: `見積明細は合計${SAVE_ESTIMATE_MAX_ITEMS}件以内で保存してください`,
+  ITEMS_TOO_DEEP: `見積項目の階層は${SAVE_ESTIMATE_MAX_DEPTH}段以内で保存してください`,
   ITEM_IDENTIFIER_REQUIRED: '新規の見積項目には一時IDが必要です',
   ITEM_IDENTIFIER_AMBIGUOUS: '見積項目のIDと一時IDは同時に指定できません',
   ITEM_ID_DUPLICATED: '同じ見積項目が複数の位置に存在します',
@@ -569,6 +580,73 @@ function validateSaveEstimateItemTree(
       message: SAVE_ESTIMATE_VALIDATION_MESSAGES.ITEMS_TOO_MANY,
     });
   }
+}
+
+/** {@link scanSaveEstimateItemTree} が打ち切った上限（文言は `SAVE_ESTIMATE_VALIDATION_MESSAGES` の同名のキー） */
+export type SaveEstimateItemTreeLimit = 'ITEMS_TOO_MANY' | 'ITEMS_TOO_DEEP';
+
+/** {@link scanSaveEstimateItemTree} の結果 */
+export interface SaveEstimateItemTreeScan {
+  /** 超えた上限。上限の内側で数え終えたら null */
+  readonly exceeded: SaveEstimateItemTreeLimit | null;
+  /** 読んだ節点の数（打ち切った場合は打ち切った節点を含む） */
+  readonly counted: number;
+  /** 読んだ節点の `id` のうち UUID の形の文字列（Requirement 57.11 の判定に渡す） */
+  readonly itemIds: readonly string[];
+}
+
+/** 生の本文の値がオブジェクト（配列でない）か */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 一括保存の生の本文の見積項目の総数と階層の深さの前倒しの数え上げ（Requirement 42.10・42.12、タスク67.1）
+ *
+ * 経路が本文の検証（{@link saveEstimateDraftSchema} の `safeParse`）の前に呼ぶ。Zod は入れ子を再帰で検証するため、
+ * 上限を大きく超える本文や深い入れ子の本文を検証へ渡す前に打ち切る。
+ *
+ * - `items` と各節点の `children` の要素を明示のスタックで走査する（再帰を使わない）
+ * - 要素は積むときに数え、総数が {@link SAVE_ESTIMATE_MAX_ITEMS} を超えたら `ITEMS_TOO_MANY`、
+ *   深さ（ルートを 1 段目）が {@link SAVE_ESTIMATE_MAX_DEPTH} を超えたら `ITEMS_TOO_DEEP` でその要素で打ち切る
+ *   （走査の途中で先に超えた方。一つの節点の `children` が大きくても積む前に数えて打ち切る）
+ * - 本文がオブジェクトでない場合と、`items`・`children` が配列でない場合は数えずに進む（形の不正は Zod の 400 に委ねる）
+ * - 読んだ要素の `id` のうち UUID の形の文字列を集める。打ち切った後ろの要素は読まない
+ *
+ * @param body - 生の本文（`req.body`）
+ */
+export function scanSaveEstimateItemTree(body: unknown): SaveEstimateItemTreeScan {
+  const itemIds: string[] = [];
+  let counted = 0;
+  const roots = isPlainRecord(body) ? body.items : undefined;
+  if (!Array.isArray(roots)) {
+    return { exceeded: null, counted, itemIds };
+  }
+
+  // 子を読む前の節点と、その深さ
+  const stack: { readonly children: readonly unknown[]; readonly depth: number }[] = [
+    { children: roots, depth: 1 },
+  ];
+  for (let frame = stack.pop(); frame !== undefined; frame = stack.pop()) {
+    for (const element of frame.children) {
+      counted += 1;
+      if (isPlainRecord(element) && typeof element.id === 'string') {
+        if (uuidSchema.safeParse(element.id).success) {
+          itemIds.push(element.id);
+        }
+      }
+      if (counted > SAVE_ESTIMATE_MAX_ITEMS) {
+        return { exceeded: 'ITEMS_TOO_MANY', counted, itemIds };
+      }
+      if (frame.depth > SAVE_ESTIMATE_MAX_DEPTH) {
+        return { exceeded: 'ITEMS_TOO_DEEP', counted, itemIds };
+      }
+      if (isPlainRecord(element) && Array.isArray(element.children)) {
+        stack.push({ children: element.children, depth: frame.depth + 1 });
+      }
+    }
+  }
+  return { exceeded: null, counted, itemIds };
 }
 
 /**

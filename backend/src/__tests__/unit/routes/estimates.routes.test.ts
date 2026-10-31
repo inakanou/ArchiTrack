@@ -181,6 +181,7 @@ import {
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
 import { ValidationError } from '../../../errors/apiError.js';
 import { EstimateDraftService } from '../../../services/estimate-draft.service.js';
+import { saveEstimateDraftSchema } from '../../../schemas/estimate.schema.js';
 
 describe('estimates.routes', () => {
   let app: express.Express;
@@ -914,6 +915,173 @@ describe('estimates.routes', () => {
 
       expect(response.status).toBe(400);
       expect(recordSpy).not.toHaveBeenCalled();
+    });
+  });
+  /**
+   * 一括保存の本文の見積項目の総数と階層の深さの前倒しの数え上げ（タスク67.1）
+   *
+   * 総数の上限（2000）か深さの上限（100段）を超えた本文は、Zod の検証とサービスの保存を呼ばずに
+   * 従来の 422 の形で拒む。読んだ節点の ID で 57.11 の判定の処理を呼ぶ（B 案）。
+   *
+   * @requirement estimate-creation/REQ-42.10
+   * @requirement estimate-creation/REQ-42.12
+   */
+  describe('PUT /api/estimates/:id/save の総数と深さの前倒しの数え上げ', () => {
+    const foreignId = '550e8400-e29b-41d4-a716-446655440077';
+    const saveNode = (
+      children: unknown[] = [],
+      id: string | null = null,
+      tempId: string | null = 'tmp'
+    ): Record<string, unknown> => ({
+      id,
+      tempId,
+      itemType: 'STANDARD',
+      lines: [
+        {
+          lineType: 'ESTIMATE',
+          name: '項目',
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount: null,
+          remarks: null,
+          sourceVendorName: null,
+        },
+      ],
+      children,
+    });
+    const body = (items: unknown[], expectedUpdatedAt = '2026-10-31T00:00:00.000Z') => ({
+      expectedUpdatedAt,
+      reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+      items,
+    });
+    const chain = (depth: number): Record<string, unknown> => {
+      let current = saveNode([], null, `tmp-${depth}`);
+      for (let level = depth - 1; level >= 1; level -= 1) {
+        current = saveNode([current], null, `tmp-${level}`);
+      }
+      return current;
+    };
+
+    let recordIdsSpy: ReturnType<typeof vi.spyOn>;
+    let recordTreeSpy: ReturnType<typeof vi.spyOn>;
+    let saveDraftSpy: ReturnType<typeof vi.spyOn>;
+    let safeParseSpy: ReturnType<typeof vi.spyOn>;
+    let statusApp: express.Express;
+
+    beforeEach(() => {
+      recordIdsSpy = vi
+        .spyOn(EstimateDraftService.prototype, 'recordForeignItemIdScopeDenials')
+        .mockResolvedValue(undefined);
+      recordTreeSpy = vi
+        .spyOn(EstimateDraftService.prototype, 'recordForeignItemScopeDenials')
+        .mockResolvedValue(undefined);
+      saveDraftSpy = vi
+        .spyOn(EstimateDraftService.prototype, 'saveDraft')
+        .mockRejectedValue(new Error('saveDraft は呼ばれない想定'));
+      safeParseSpy = vi.spyOn(saveEstimateDraftSchema, 'safeParse');
+      statusApp = express();
+      statusApp.use(express.json({ limit: '5mb' }));
+      statusApp.use('/api/estimates', estimatesRoutes);
+      statusApp.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+        const apiErr = err as { statusCode?: number; code?: string; details?: unknown };
+        res.status(apiErr.statusCode ?? 500).json({
+          code: apiErr.code ?? null,
+          message: err.message,
+          details: apiErr.details ?? null,
+        });
+      });
+    });
+
+    afterEach(() => {
+      recordIdsSpy.mockRestore();
+      recordTreeSpy.mockRestore();
+      saveDraftSpy.mockRestore();
+      safeParseSpy.mockRestore();
+    });
+
+    it('総数が 2001 件の本文は、Zod の検証とサービスの保存を呼ばずに件数の上限の 422 になる', async () => {
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body(Array.from({ length: 2001 }, (_, index) => saveNode([], null, `tmp-${index}`))));
+
+      expect(response.status).toBe(422);
+      expect(response.body).toEqual({
+        code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+        message: '見積明細の入力内容に不備があるため保存できません',
+        details: {
+          issues: [{ path: 'items', message: '見積明細は合計2000件以内で保存してください' }],
+        },
+      });
+      expect(safeParseSpy).not.toHaveBeenCalled();
+      expect(saveDraftSpy).not.toHaveBeenCalled();
+      expect(recordTreeSpy).not.toHaveBeenCalled();
+    });
+
+    it('深さ 101 段の本文は、Zod の検証とサービスの保存を呼ばずに深さの上限の 422 になる', async () => {
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body([chain(101)]));
+
+      expect(response.status).toBe(422);
+      expect(response.body).toEqual({
+        code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+        message: '見積明細の入力内容に不備があるため保存できません',
+        details: {
+          issues: [{ path: 'items', message: '見積項目の階層は100段以内で保存してください' }],
+        },
+      });
+      expect(safeParseSpy).not.toHaveBeenCalled();
+      expect(saveDraftSpy).not.toHaveBeenCalled();
+    });
+
+    it('上限を超え、形式の不正も併せて含む本文も 422 になる（従来は 400）', async () => {
+      const items = Array.from({ length: 2001 }, (_, index) => saveNode([], null, `tmp-${index}`));
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body(items, '日時ではない'));
+
+      expect(response.status).toBe(422);
+      expect(response.body.details.issues).toEqual([
+        { path: 'items', message: '見積明細は合計2000件以内で保存してください' },
+      ]);
+      expect(safeParseSpy).not.toHaveBeenCalled();
+    });
+
+    it('打ち切った本文でも、読んだ節点の ID と実行者と要求の識別で 57.11 の判定の処理を呼ぶ', async () => {
+      const items = [
+        saveNode([], foreignId, null),
+        ...Array.from({ length: 2000 }, (_, index) => saveNode([], null, `tmp-${index}`)),
+      ];
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body(items));
+
+      expect(response.status).toBe(422);
+      expect(recordIdsSpy).toHaveBeenCalledTimes(1);
+      expect(recordIdsSpy).toHaveBeenCalledWith(
+        validUUID,
+        [foreignId],
+        'test-user-id',
+        expect.objectContaining({ method: 'PUT', path: `/api/estimates/${validUUID}/save` })
+      );
+    });
+
+    it('上限ちょうど（2000 件・100 段）の本文は従来どおり Zod の検証へ進み、打ち切りの判定を呼ばない', async () => {
+      saveDraftSpy.mockRejectedValue(Object.assign(new Error('到達'), { statusCode: 418 }));
+      const flatResponse = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body(Array.from({ length: 2000 }, (_, index) => saveNode([], null, `tmp-${index}`))));
+      const deepResponse = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body([chain(100)]));
+
+      expect(flatResponse.status).toBe(418);
+      expect(deepResponse.status).toBe(418);
+      expect(safeParseSpy).toHaveBeenCalledTimes(2);
+      expect(saveDraftSpy).toHaveBeenCalledTimes(2);
+      expect(recordIdsSpy).not.toHaveBeenCalled();
     });
   });
 });
