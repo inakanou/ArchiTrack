@@ -40,6 +40,7 @@ import {
   EstimateConflictError,
   DuplicateEstimateNameError,
   ItemizedStatementNotFoundForEstimateError,
+  EstimateDraftValidationError,
 } from '../../../errors/estimateError.js';
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
 
@@ -851,6 +852,205 @@ describe('EstimateService', () => {
         EstimateNotFoundError
       );
     });
+  });
+
+  /**
+   * 内訳書から作る見積項目の数の上限（Requirement 3.6、タスク69.1。design.md の「2026-11-01 の追加」章の
+   * 「決定」の「内訳書からの作成の件数の上限」）。上限は一括保存の総数の上限（42.10、2000）と同じで、
+   * 超えたら一括保存と同じ例外（422、`path` `items`、ITEMS_TOO_MANY）で拒み、何も書かない。判定は
+   * 内訳書の照合（57.4・57.10 の 404）の後、同名の見積書の確かめ（409）の前に置く。
+   *
+   * @requirement estimate-creation/REQ-3.6
+   */
+  describe('内訳書から作る見積項目の数の上限（Requirement 3.6、タスク69.1）', () => {
+    const actorId = 'user-001';
+    const ITEMS_TOO_MANY = '見積明細は合計2000件以内で保存してください';
+    const context = {
+      requestId: 'req-limit',
+      method: 'POST',
+      path: '/api/projects/proj-001/estimates',
+      ipAddress: '127.0.0.1',
+      userAgent: 'vitest',
+    };
+
+    const statementItems = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `isi-${index}`,
+        customCategory: null,
+        workType: '工種',
+        name: `項目${index}`,
+        specification: null,
+        unit: 'm',
+        quantity: 1,
+        displayOrder: index,
+      }));
+
+    function arrange(options: {
+      itemCount: number;
+      statementProjectId?: string;
+      deletedAt?: Date | null;
+      duplicateCount?: number;
+    }) {
+      const estimateCount = vi.fn().mockResolvedValue(options.duplicateCount ?? 0);
+      const estimateCreate = vi.fn().mockResolvedValue({
+        id: 'est-limit',
+        projectId: 'proj-001',
+        name: '上限検証見積書',
+        sourceItemizedStatementId: 'is-limit',
+        sourceItemizedStatementName: '上限検証内訳書',
+        createdAt: new Date('2026-11-01T00:00:00Z'),
+        updatedAt: new Date('2026-11-01T00:00:00Z'),
+        deletedAt: null,
+      });
+      const estimateItemCreateMany = vi.fn().mockImplementation(({ data }) => ({
+        count: data.length,
+      }));
+      const estimateItemFindMany = vi.fn().mockImplementation(async () =>
+        Array.from({ length: options.itemCount }, (_, index) => ({
+          id: `ei-${index}`,
+          estimateId: 'est-limit',
+          displayOrder: index,
+        }))
+      );
+      const estimateItemLineCreateMany = vi.fn().mockImplementation(({ data }) => ({
+        count: data.length,
+      }));
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          project: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+          },
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'is-limit',
+              name: '上限検証内訳書',
+              projectId: options.statementProjectId ?? 'proj-001',
+              deletedAt: options.deletedAt ?? null,
+              items: statementItems(options.itemCount),
+            }),
+          },
+          estimate: { count: estimateCount, create: estimateCreate },
+          estimateItem: { createMany: estimateItemCreateMany, findMany: estimateItemFindMany },
+          estimateItemLine: { createMany: estimateItemLineCreateMany },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+      return {
+        estimateCount,
+        estimateCreate,
+        estimateItemCreateMany,
+        estimateItemLineCreateMany,
+      };
+    }
+
+    const input = {
+      projectId: 'proj-001',
+      name: '上限検証見積書',
+      sourceItemizedStatementId: 'is-limit',
+    };
+
+    it('項目が 2001 件の内訳書からの作成は一括保存と同じ 422 の例外で拒み、見積書・見積項目・監査ログを書かない', async () => {
+      const { estimateCount, estimateCreate, estimateItemCreateMany, estimateItemLineCreateMany } =
+        arrange({ itemCount: 2001 });
+
+      const error = await service.create(input, actorId).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(EstimateDraftValidationError);
+      expect(error).toMatchObject({
+        statusCode: 422,
+        code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+        message: '見積明細の入力内容に不備があるため保存できません',
+        details: { issues: [{ path: 'items', message: ITEMS_TOO_MANY }] },
+      });
+      expect((error as EstimateDraftValidationError).issues).toEqual([
+        { path: 'items', message: ITEMS_TOO_MANY },
+      ]);
+      expect(estimateCount).not.toHaveBeenCalled();
+      expect(estimateCreate).not.toHaveBeenCalled();
+      expect(estimateItemCreateMany).not.toHaveBeenCalled();
+      expect(estimateItemLineCreateMany).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('項目がちょうど 2000 件の内訳書からは従来どおり見積書と見積項目 2000 件・行 6000 行を作る', async () => {
+      const { estimateCreate, estimateItemCreateMany, estimateItemLineCreateMany } = arrange({
+        itemCount: 2000,
+      });
+
+      const result = await service.create(input, actorId);
+
+      expect(result.itemCount).toBe(2000);
+      expect(estimateCreate).toHaveBeenCalledTimes(1);
+      expect(estimateItemCreateMany.mock.calls[0]?.[0].data).toHaveLength(2000);
+      expect(estimateItemLineCreateMany.mock.calls[0]?.[0].data).toHaveLength(6000);
+      const created = vi
+        .mocked(mockAuditLogService.createLog)
+        .mock.calls.filter(([log]) => log.action === 'ESTIMATE_CREATED');
+      expect(created).toHaveLength(1);
+    });
+
+    it('項目が 2001 件で同名の見積書があっても、同名の 409 より先に件数の上限の 422 で拒む', async () => {
+      const { estimateCount, estimateCreate } = arrange({ itemCount: 2001, duplicateCount: 1 });
+
+      const error = await service.create(input, actorId).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(EstimateDraftValidationError);
+      expect(error).not.toBeInstanceOf(DuplicateEstimateNameError);
+      expect(estimateCount).not.toHaveBeenCalled();
+      expect(estimateCreate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['範囲外の他のプロジェクトの内訳書', 'proj-other', null, 'out_of_scope', 1],
+      ['範囲内の他のプロジェクトの内訳書', 'proj-other', null, 'allowed', 0],
+      [
+        '範囲外の他のプロジェクトの論理削除済みの内訳書',
+        'proj-other',
+        new Date('2026-10-01'),
+        'out_of_scope',
+        1,
+      ],
+      [
+        '作成先のプロジェクトの論理削除済みの内訳書',
+        'proj-001',
+        new Date('2026-10-01'),
+        'out_of_scope',
+        0,
+      ],
+    ] as const)(
+      '項目が 2001 件でも %s は件数の上限を判定せず従来の内訳書の不在（404）にし、範囲外の記録は従来どおり',
+      async (_label, statementProjectId, deletedAt, decision, recorded) => {
+        const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue(decision) };
+        service = new EstimateService({
+          prisma: mockPrisma,
+          auditLogService: mockAuditLogService,
+          projectScope,
+        });
+        const { estimateCreate } = arrange({ itemCount: 2001, statementProjectId, deletedAt });
+
+        const error = await service
+          .create(input, actorId, context)
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ItemizedStatementNotFoundForEstimateError);
+        expect(error).not.toBeInstanceOf(EstimateDraftValidationError);
+        expect(estimateCreate).not.toHaveBeenCalled();
+        const denials = vi
+          .mocked(mockAuditLogService.createLog)
+          .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+        expect(denials).toHaveLength(recorded);
+        if (recorded === 1) {
+          expect(denials[0]?.[0]).toMatchObject({
+            actorId,
+            targetType: 'Project',
+            targetId: 'proj-other',
+            metadata: { requestId: 'req-limit', method: 'POST', path: context.path },
+          });
+        }
+      }
+    );
   });
 
   describe('create - エッジケース', () => {

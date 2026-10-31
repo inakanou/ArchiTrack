@@ -733,6 +733,107 @@ describe('Estimate API Integration Tests', () => {
 
       expect(response.status).toBe(400);
     });
+
+    /**
+     * 内訳書から作る見積項目の数の上限（Requirement 3.6、タスク69.1）。内訳書の項目 1 件につき根の見積項目
+     * 1 件を作るため、項目が一括保存の総数の上限（42.10、2000）を超える内訳書からの作成は、一括保存と同じ
+     * 422 の本文で拒み、見積書・見積項目・監査ログのどれも書かない。上限ちょうど（2000 件）の作成は所要が
+     * 作成のトランザクションの既定の制限時間に迫る（実測で 9738 ms の 500 が 1 回）ため本ファイルに常設せず、
+     * 上限ちょうどで作れることは作成のサービスの単体が主張する。本ファイルは上限の内側（3 件）の対照を置く。
+     * 内訳書は経路を通さず DB へ直接作る（数量表の集計を経る作り方は E2E が担う）。
+     *
+     * @requirement estimate-creation/REQ-3.6
+     */
+    describe('内訳書から作る見積項目の数の上限（Requirement 3.6）', () => {
+      const ITEMS_TOO_MANY = '見積明細は合計2000件以内で保存してください';
+
+      /** 項目を `count` 件持つ内訳書を作成先のプロジェクトに作る */
+      const createStatementWithItems = async (name: string, count: number): Promise<string> => {
+        const statement = await prisma.itemizedStatement.create({
+          data: {
+            projectId: testProjectId,
+            name,
+            sourceQuantityTableId: testQuantityTableId,
+            sourceQuantityTableName: 'テスト数量表',
+          },
+        });
+        await prisma.itemizedStatementItem.createMany({
+          data: Array.from({ length: count }, (_, index) => ({
+            itemizedStatementId: statement.id,
+            customCategory: null,
+            workType: '工種',
+            name: `上限検証項目${index}`,
+            specification: null,
+            unit: 'm',
+            quantity: 1,
+            displayOrder: index,
+          })),
+        });
+        return statement.id;
+      };
+
+      /** 作成先のプロジェクトの見積書・見積項目と、利用者の見積書の作成の監査ログの数 */
+      const snapshotCounts = async () => ({
+        estimates: await prisma.estimate.count({ where: { projectId: testProjectId } }),
+        estimateItems: await prisma.estimateItem.count({
+          where: { estimate: { projectId: testProjectId } },
+        }),
+        createdLogs: await prisma.auditLog.count({
+          where: { actorId: testUserId, action: 'ESTIMATE_CREATED' },
+        }),
+      });
+
+      it('項目が 2001 件の内訳書からの作成は一括保存と同じ 422 になり、見積書も見積項目も監査ログも増えない', async () => {
+        const statementId = await createStatementWithItems('上限超過内訳書', 2001);
+        const before = await snapshotCounts();
+
+        const response = await request(app)
+          .post(`/api/projects/${testProjectId}/estimates`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ name: '上限超過見積書', sourceItemizedStatementId: statementId });
+
+        expect(response.status, JSON.stringify(response.body)).toBe(422);
+        expect(response.body).toMatchObject({
+          status: 422,
+          code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+          message: '見積明細の入力内容に不備があるため保存できません',
+          details: { issues: [{ path: 'items', message: ITEMS_TOO_MANY }] },
+        });
+        expect(response.body.details.issues).toHaveLength(1);
+        expect(await snapshotCounts()).toEqual(before);
+        expect(
+          await prisma.estimate.count({
+            where: { projectId: testProjectId, name: '上限超過見積書' },
+          })
+        ).toBe(0);
+      });
+
+      it('項目が上限の内側（3 件）の内訳書からは見積書と見積項目 3 件・行 9 行を作る（対照）', async () => {
+        const statementId = await createStatementWithItems('上限の内側の内訳書', 3);
+        const before = await snapshotCounts();
+
+        const response = await request(app)
+          .post(`/api/projects/${testProjectId}/estimates`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ name: '上限の内側の見積書', sourceItemizedStatementId: statementId });
+
+        expect(response.status, JSON.stringify(response.body)).toBe(201);
+        expect(response.body.itemCount).toBe(3);
+        expect(await prisma.estimateItem.count({ where: { estimateId: response.body.id } })).toBe(
+          3
+        );
+        expect(
+          await prisma.estimateItemLine.count({
+            where: { estimateItem: { estimateId: response.body.id } },
+          })
+        ).toBe(9);
+        expect(await snapshotCounts()).toEqual({
+          estimates: before.estimates + 1,
+          estimateItems: before.estimateItems + 3,
+          createdLogs: before.createdLogs + 1,
+        });
+      });
+    });
   });
 
   // ==========================================

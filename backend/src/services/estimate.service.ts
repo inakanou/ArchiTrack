@@ -33,7 +33,12 @@ import {
   EstimateConflictError,
   DuplicateEstimateNameError,
   ItemizedStatementNotFoundForEstimateError,
+  EstimateDraftValidationError,
 } from '../errors/estimateError.js';
+import {
+  SAVE_ESTIMATE_MAX_ITEMS,
+  SAVE_ESTIMATE_VALIDATION_MESSAGES,
+} from '../schemas/estimate.schema.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
 import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
 import {
@@ -255,12 +260,13 @@ export class EstimateService {
    * トランザクション内で以下を実行:
    * 1. プロジェクトの存在確認
    * 2. 内訳書の存在確認（指定された場合）
+   *    続けて、内訳書から作る見積項目の数が一括保存の総数の上限を超えないことを確認（Requirement 3.6）
    * 3. 同名の見積書が存在しないことを確認
    * 4. 見積書の作成
    * 5. 内訳書から見積項目を初期作成（指定された場合）
    * 6. 監査ログの記録
    *
-   * Requirements: REQ-3.1, REQ-3.2, REQ-3.3, REQ-3.4, REQ-3.5
+   * Requirements: REQ-3.1, REQ-3.2, REQ-3.3, REQ-3.4, REQ-3.5, REQ-3.6
    *
    * @param input - 作成入力
    * @param actorId - 実行者ID
@@ -269,6 +275,9 @@ export class EstimateService {
    * @throws ItemizedStatementNotFoundForEstimateError 内訳書が存在しない・論理削除済み・作成先のプロジェクトに
    *   属さない場合（Requirement 57.4）。作成先のプロジェクトに属さない内訳書は、論理削除済みかどうかに関わらず
    *   内訳書の案件を判定し、範囲外のときだけ範囲外の拒否として記録する（Requirement 57.10）
+   * @throws EstimateDraftValidationError 内訳書の項目の数（作る見積項目の数）が一括保存の総数の上限
+   *   （`SAVE_ESTIMATE_MAX_ITEMS`）を超える場合（Requirement 3.6）。一括保存と同じ 422（`path` `items`、
+   *   ITEMS_TOO_MANY）で、内訳書の照合の 404 の後、同名の見積書の確かめの前に投げ、何も書かない
    * @throws DuplicateEstimateNameError 同名の見積書が既に存在する場合
    */
   async create(
@@ -361,6 +370,18 @@ export class EstimateService {
         if ((itemizedStatement as { deletedAt?: Date | null }).deletedAt !== null) {
           throw new ItemizedStatementNotFoundForEstimateError(input.sourceItemizedStatementId);
         }
+      }
+
+      // 内訳書から作る見積項目の数の上限（Requirement 3.6、タスク69.1。design.md の「2026-11-01 の追加」章の
+      // 「決定」の「内訳書からの作成の件数の上限」）。作る見積項目は内訳書の項目 1 件につき根の 1 件で、
+      // 上限は一括保存の総数の上限（42.10）と同じ。超えた見積書は作った直後から一括保存が 422 になり
+      // 一度も保存できないため、一括保存と同じ 422 で拒み、何も書かない。内訳書の照合（57.4・57.10 の
+      // 404）の後に置き、範囲外・不在の内訳書の実在と件数を件数の上限の応答で漏らさない。同名の見積書の
+      // 確かめ（409）より前に置き、作成先の名前を直しても成功しない失敗を先に知らせる
+      if (itemizedStatement && itemizedStatement.items.length > SAVE_ESTIMATE_MAX_ITEMS) {
+        throw new EstimateDraftValidationError([
+          { path: 'items', message: SAVE_ESTIMATE_VALIDATION_MESSAGES.ITEMS_TOO_MANY },
+        ]);
       }
 
       // 3. 同名の見積書が存在しないことを確認
