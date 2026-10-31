@@ -332,6 +332,60 @@ describe('数量項目の並び順の個別 API の displayOrder 重複（Task 9
         { name: 'A', displayOrder: 1 },
       ]);
     });
+
+    /**
+     * `orderUpdates` の件数の上限（quantity-table-generation タスク110.2）。上限を 1 件超えた要求は
+     * 本文の検証の 400 になり、表示順は変わらず、並び替えの監査記録も残らない。送る並びは上限が
+     * 無ければ通る（重ならない逆順）ものにして、上限だけが拒む理由であることを保つ。
+     *
+     * @requirement quantity-table-generation/REQ-42.14
+     */
+    it('上限（2000件）を1件超える並び替えは本文の検証の 400 で拒まれ、並びは変わらない', async () => {
+      const { groupId } = await createGroup('件数の上限を超える並び替え');
+      const count = 2001;
+      await prisma.quantityItem.createMany({
+        data: Array.from({ length: count }, (_, index) => ({
+          quantityGroupId: groupId,
+          majorCategory: '土工事',
+          workType: '掘削',
+          name: `I${index}`,
+          unit: 'm3',
+          calculationMethod: 'STANDARD' as const,
+          adjustmentFactor: 1,
+          roundingUnit: 0.01,
+          quantity: 1,
+          displayOrder: index,
+        })),
+      });
+      const before = await readOrders(groupId);
+      expect(before).toHaveLength(count);
+      const items = await prisma.quantityItem.findMany({
+        where: { quantityGroupId: groupId },
+        select: { id: true, displayOrder: true },
+      });
+
+      const response = await putOrder(
+        groupId,
+        items.map((item) => ({ id: item.id, displayOrder: count - 1 - item.displayOrder }))
+      );
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe('VALIDATION_ERROR');
+      expect(response.body.message).toBe('数量項目は2000件以内で指定してください');
+      expect(response.body.details).toEqual([
+        expect.objectContaining({ path: 'orderUpdates', code: 'too_big' }),
+      ]);
+      expect(await readOrders(groupId)).toEqual(before);
+      expect(
+        await prisma.auditLog.count({
+          where: {
+            targetType: 'QuantityGroup',
+            targetId: groupId,
+            action: 'QUANTITY_ITEM_UPDATED',
+          },
+        })
+      ).toBe(0);
+    });
   });
 
   describe('PUT /api/quantity-items/:id', () => {

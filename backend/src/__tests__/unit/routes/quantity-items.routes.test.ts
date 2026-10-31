@@ -24,13 +24,24 @@ import express, { type Express } from 'express';
 // Mock dependencies before importing routes
 // 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
 // quantity-table-project-scope.middleware.test.ts と統合テストが確かめる。quantity-table-generation タスク104.1）
+// 表示順の更新と一括の操作の要素の判定部品は、呼ばれたことを数える（件数の上限を超えた要求で
+// 呼ばれないことを確かめるため。quantity-table-generation タスク110.2）
+const scopeSpies = vi.hoisted(() => ({ orderedItems: vi.fn(), bulkItems: vi.fn() }));
 vi.mock('../../../middleware/quantity-table-project-scope.middleware.js', () => {
   const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
   return {
     requireQuantityGroupParamProjectScope: pass,
     requireQuantityItemProjectScope: pass,
-    requireOrderedQuantityItemsProjectScope: pass,
-    requireBulkQuantityItemsProjectScope: pass,
+    requireOrderedQuantityItemsProjectScope:
+      () => (_req: unknown, _res: unknown, next: () => void) => {
+        scopeSpies.orderedItems();
+        next();
+      },
+    requireBulkQuantityItemsProjectScope:
+      () => (_req: unknown, _res: unknown, next: () => void) => {
+        scopeSpies.bulkItems();
+        next();
+      },
   };
 });
 
@@ -632,6 +643,164 @@ describe('QuantityItemsRoutes', () => {
         .expect(204);
 
       expect(mockService.bulkMove).toHaveBeenCalledWith(itemIds, targetGroupId, 'test-user-id');
+    });
+  });
+  /**
+   * 表示順の更新の `orderUpdates` と一括コピー・一括移動の `itemIds` の件数の上限
+   * （quantity-table-generation タスク110.2）
+   *
+   * 各経路で上限ちょうどは通り、1 件超えると本文の検証の 400（既存の形）で上限を示す日本語の
+   * メッセージと問題箇所を返し、要素の閲覧範囲の判定とサービスを呼ばない（判定も書き込みもしない）
+   * ことを確かめる。本番と同じく JSON の受け口の上限を 5MB にし、errorHandler で応答の形を得る。
+   *
+   * @requirement quantity-table-generation/REQ-42.14
+   */
+  describe('配列の件数の上限', () => {
+    const groupId = '123e4567-e89b-12d3-a456-426614174000';
+    const targetGroupId = '123e4567-e89b-12d3-a456-426614174010';
+    let limitApp: Express;
+    let limits: {
+      QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES: number;
+      QUANTITY_ITEM_BULK_MAX_ITEMS: number;
+      QUANTITY_ITEM_LIMIT_MESSAGES: { DISPLAY_ORDER_TOO_MANY: string; BULK_ITEMS_TOO_MANY: string };
+    };
+
+    beforeEach(async () => {
+      // 外側の beforeEach の resetModules の後の同じモジュール群から読む（ApiError の同一性のため）
+      const routesModule = await import('../../../routes/quantity-items.routes.js');
+      const { errorHandler } = await import('../../../middleware/errorHandler.middleware.js');
+      limits = routesModule;
+      limitApp = express();
+      limitApp.use(express.json({ limit: '5mb' }));
+      limitApp.use('/api/quantity-groups/:groupId/items', routesModule.default);
+      limitApp.use('/api/quantity-items', routesModule.default);
+      limitApp.use(errorHandler);
+    });
+
+    const uuidOf = (index: number) =>
+      `123e4567-e89b-12d3-a456-${(426614175000 + index).toString().padStart(12, '0')}`;
+    const idsOf = (count: number) => Array.from({ length: count }, (_, index) => uuidOf(index));
+
+    const putOrder = (body: object) =>
+      request(limitApp).put(`/api/quantity-groups/${groupId}/items/order`).send(body);
+    const bulkCopy = (body: object) =>
+      request(limitApp).post('/api/quantity-items/bulk-copy').send(body);
+    const bulkMove = (body: object) =>
+      request(limitApp).post('/api/quantity-items/bulk-move').send(body);
+
+    /** 既存の本文の検証の 400 と同じ形で、上限のメッセージと問題箇所だけを返すことを確かめる */
+    const expectLimitRejection = (
+      response: request.Response,
+      reference: request.Response,
+      message: string,
+      path: string
+    ) => {
+      expect(reference.status).toBe(400);
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe(reference.body.code);
+      expect(response.body.type).toBe(reference.body.type);
+      expect(Object.keys(response.body).sort()).toEqual(Object.keys(reference.body).sort());
+      expect(response.body.message).toBe(message);
+      expect(response.body.details).toEqual([
+        expect.objectContaining({ path, message, code: 'too_big' }),
+      ]);
+    };
+
+    it('定数と文言が決定の値である', () => {
+      expect(limits.QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES).toBe(2000);
+      expect(limits.QUANTITY_ITEM_BULK_MAX_ITEMS).toBe(1000);
+      expect(limits.QUANTITY_ITEM_LIMIT_MESSAGES.DISPLAY_ORDER_TOO_MANY).toBe(
+        '数量項目は2000件以内で指定してください'
+      );
+      expect(limits.QUANTITY_ITEM_LIMIT_MESSAGES.BULK_ITEMS_TOO_MANY).toBe(
+        '数量項目は1000件以内で選択してください'
+      );
+    });
+
+    it('表示順の更新は上限ちょうどなら要素の判定とサービスへ渡す', async () => {
+      mockService.updateDisplayOrder.mockResolvedValue(undefined);
+      const orderUpdates = idsOf(2000).map((id, index) => ({ id, displayOrder: index }));
+
+      const response = await putOrder({ orderUpdates });
+
+      expect(response.status).toBe(204);
+      expect(scopeSpies.orderedItems).toHaveBeenCalledTimes(1);
+      expect(mockService.updateDisplayOrder).toHaveBeenCalledTimes(1);
+      expect(mockService.updateDisplayOrder.mock.calls[0]![1]).toHaveLength(2000);
+    });
+
+    it('表示順の更新が上限を1件超えると400で上限を示し、要素の判定とサービスを呼ばない', async () => {
+      const reference = await putOrder({ orderUpdates: 'not-an-array' });
+      scopeSpies.orderedItems.mockClear();
+      const orderUpdates = idsOf(2001).map((id, index) => ({ id, displayOrder: index }));
+
+      const response = await putOrder({ orderUpdates });
+
+      expectLimitRejection(
+        response,
+        reference,
+        '数量項目は2000件以内で指定してください',
+        'orderUpdates'
+      );
+      expect(scopeSpies.orderedItems).not.toHaveBeenCalled();
+      expect(mockService.updateDisplayOrder).not.toHaveBeenCalled();
+    });
+
+    it('一括コピーは上限ちょうどなら要素の判定とサービスへ渡す', async () => {
+      mockService.bulkCopy.mockResolvedValue([]);
+
+      const response = await bulkCopy({ itemIds: idsOf(1000) });
+
+      expect(response.status).toBe(201);
+      expect(scopeSpies.bulkItems).toHaveBeenCalledTimes(1);
+      expect(mockService.bulkCopy).toHaveBeenCalledTimes(1);
+      expect(mockService.bulkCopy.mock.calls[0]![0]).toHaveLength(1000);
+    });
+
+    it('一括コピーが上限を1件超えると400で上限を示し、要素の判定とサービスを呼ばない', async () => {
+      const reference = await bulkCopy({ itemIds: [] });
+      scopeSpies.bulkItems.mockClear();
+
+      const response = await bulkCopy({ itemIds: idsOf(1001) });
+
+      expect(reference.body.details).toEqual([
+        expect.objectContaining({ path: 'itemIds', code: 'too_small' }),
+      ]);
+      expectLimitRejection(
+        response,
+        reference,
+        '数量項目は1000件以内で選択してください',
+        'itemIds'
+      );
+      expect(scopeSpies.bulkItems).not.toHaveBeenCalled();
+      expect(mockService.bulkCopy).not.toHaveBeenCalled();
+    });
+
+    it('一括移動は上限ちょうどなら要素の判定とサービスへ渡す', async () => {
+      mockService.bulkMove.mockResolvedValue(undefined);
+
+      const response = await bulkMove({ itemIds: idsOf(1000), targetGroupId });
+
+      expect(response.status).toBe(204);
+      expect(scopeSpies.bulkItems).toHaveBeenCalledTimes(1);
+      expect(mockService.bulkMove).toHaveBeenCalledTimes(1);
+      expect(mockService.bulkMove.mock.calls[0]![0]).toHaveLength(1000);
+    });
+
+    it('一括移動が上限を1件超えると400で上限を示し、要素の判定とサービスを呼ばない', async () => {
+      const reference = await bulkMove({ itemIds: [], targetGroupId });
+      scopeSpies.bulkItems.mockClear();
+
+      const response = await bulkMove({ itemIds: idsOf(1001), targetGroupId });
+
+      expectLimitRejection(
+        response,
+        reference,
+        '数量項目は1000件以内で選択してください',
+        'itemIds'
+      );
+      expect(scopeSpies.bulkItems).not.toHaveBeenCalled();
+      expect(mockService.bulkMove).not.toHaveBeenCalled();
     });
   });
 });

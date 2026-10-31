@@ -4564,9 +4564,9 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - 単体・統合・E2E で、保存の本文の仮 ID・計算用パラメータのキー・備考が上限を超えると本文の検証の 400 になりどこにも書き込まず、上限の内側の保存が従来どおりである状態になる
   - _Requirements: 42.13_
   - _Boundary: 数量表の保存の経路の本文の検証のスキーマ（saveDraftItemSchema・saveDraftGroupSchema）と、その上限を主張する本スペックのテスト_
-- [ ] 110.2 表示順の更新と一括コピー・一括移動の配列に件数の上限を設ける
-  - 数量グループの表示順の更新の `orderUpdates` を 1000 件、数量項目の表示順の更新の `orderUpdates` と一括コピー・一括移動の `itemIds` を 2000 件までとし、超えたら本文の検証の 400 で、design.md の同章の「決定」の日本語のメッセージと問題箇所（`orderUpdates`、`itemIds`）を返す。本文の検証が閲覧範囲の判定部品より前にあることを保つ（上限を超えた要求は要素の判定と書き込みを行わない）。定数の名前と置き場所、文言の最終形を design.md の同章の「決定」へ記す
-  - 上限ちょうどの表示順の更新と一括コピー・一括移動の所要を統合テストの一時の計測で測り、design.md の同章へ記す（計測の器具は提出物に残さない）。制限時間を持つトランザクションに収まらなければ着手を止めて利用者に諮る
+- [x] 110.2 表示順の更新と一括コピー・一括移動の配列に件数の上限を設ける
+  - 数量グループの表示順の更新の `orderUpdates` を 1000 件、数量項目の表示順の更新の `orderUpdates` を 2000 件、一括コピー・一括移動の `itemIds` を 1000 件までとし（一括コピー・一括移動は起票の時点の 2000 件を、上限ちょうどの計測で一括コピーが既定の制限時間 5 秒を超えたため、利用者の決定〔2026-10-31〕で 1000 件に改めた。design.md の同章の「改訂の記録（2026-10-31）」）、超えたら本文の検証の 400 で、design.md の同章の「決定」の日本語のメッセージと問題箇所（`orderUpdates`、`itemIds`）を返す。本文の検証が閲覧範囲の判定部品より前にあることを保つ（上限を超えた要求は要素の判定と書き込みを行わない）。定数の名前と置き場所、文言の最終形を design.md の同章の「決定」へ記す
+  - 上限ちょうどの表示順の更新と一括コピー・一括移動の所要を統合テストの一時の計測で測り、design.md の同章へ記す（計測の器具は提出物に残さない）。制限時間を持つトランザクションに収まらなければ着手を止めて利用者に諮る（実際は一括コピーの 2000 件が 5 秒に収まらず、利用者の決定で上限を 1000 件に下げた。制限時間は変えない）
   - 単体（`backend/src/__tests__/unit/routes/quantity-groups.routes.test.ts`・`backend/src/__tests__/unit/routes/quantity-items.routes.test.ts`）に、上限ちょうどで通り 1 件超えると 400 で閲覧範囲の判定とサービスを呼ばないことを、4 経路のそれぞれで足す。統合（`backend/src/__tests__/integration/quantity-item-display-order.api.integration.test.ts`・`backend/src/__tests__/integration/quantity-group-display-order.api.integration.test.ts`）に、上限を 1 件超えた要求が 400 になり表示順が変わらないことを足す
   - E2E（`e2e/specs/quantity-tables/bulk-item-operations-e2e.spec.ts`）で、一括コピーの API へ上限を 1 件超えた `itemIds` を送ると 400 になり数量項目が増えないことを主張し、`@requirement quantity-table-generation/REQ-42.14` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
   - 振る舞いを変えるため、変えた応答の経路（表示順の更新・一括コピー・一括移動の 400）を e2e/ 全体で grep して既存の E2E を選び、流す（閲覧範囲の E2E `e2e/specs/quantity-tables/quantity-table-project-scope.spec.ts` の一括操作のテストを含む）

@@ -20,12 +20,19 @@ import express, { type Express } from 'express';
 // Mock dependencies before importing routes
 // 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
 // quantity-table-project-scope.middleware.test.ts と統合テストが確かめる。quantity-table-generation タスク104.1）
+// 表示順の更新の要素の判定部品は、呼ばれたことを数える（件数の上限を超えた要求で呼ばれないことを
+// 確かめるため。quantity-table-generation タスク110.2）
+const scopeSpies = vi.hoisted(() => ({ orderedGroups: vi.fn() }));
 vi.mock('../../../middleware/quantity-table-project-scope.middleware.js', () => {
   const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
   return {
     requireQuantityTableParamProjectScope: pass,
     requireQuantityGroupProjectScope: pass,
-    requireOrderedQuantityGroupsProjectScope: pass,
+    requireOrderedQuantityGroupsProjectScope:
+      () => (_req: unknown, _res: unknown, next: () => void) => {
+        scopeSpies.orderedGroups();
+        next();
+      },
   };
 });
 
@@ -393,6 +400,80 @@ describe('QuantityGroupsRoutes', () => {
         orderUpdates,
         'test-user-id'
       );
+    });
+
+    /**
+     * 表示順の更新の `orderUpdates` の件数の上限（quantity-table-generation タスク110.2）
+     *
+     * 上限ちょうどは通り、1 件超えると本文の検証の 400（既存の形）で上限を示す日本語のメッセージと
+     * 問題箇所を返し、要素の閲覧範囲の判定とサービスを呼ばない（判定も書き込みもしない）ことを確かめる。
+     * 本番と同じく JSON の受け口の上限を 5MB にし、errorHandler で応答の形を得る。
+     *
+     * @requirement quantity-table-generation/REQ-42.14
+     */
+    describe('orderUpdates の件数の上限', () => {
+      const quantityTableId = '123e4567-e89b-12d3-a456-426614174000';
+      let limitApp: Express;
+      let limits: {
+        QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES: number;
+        QUANTITY_GROUP_DISPLAY_ORDER_LIMIT_MESSAGE: string;
+      };
+
+      beforeEach(async () => {
+        // 外側の beforeEach の resetModules の後の同じモジュール群から読む（ApiError の同一性のため）
+        const routesModule = await import('../../../routes/quantity-groups.routes.js');
+        const { errorHandler } = await import('../../../middleware/errorHandler.middleware.js');
+        limits = routesModule;
+        limitApp = express();
+        limitApp.use(express.json({ limit: '5mb' }));
+        limitApp.use('/api/quantity-tables/:quantityTableId/groups', routesModule.default);
+        limitApp.use(errorHandler);
+      });
+
+      const uuidOf = (index: number) =>
+        `123e4567-e89b-12d3-a456-${(426614174000 + index).toString().padStart(12, '0')}`;
+      const buildUpdates = (count: number) =>
+        Array.from({ length: count }, (_, index) => ({ id: uuidOf(index), displayOrder: index }));
+      const putOrder = (body: object) =>
+        request(limitApp).put(`/api/quantity-tables/${quantityTableId}/groups/order`).send(body);
+
+      it('上限ちょうどなら要素の判定とサービスへ渡す', async () => {
+        mockService.updateDisplayOrder.mockResolvedValue(undefined);
+
+        const response = await putOrder({ orderUpdates: buildUpdates(1000) });
+
+        expect(response.status).toBe(204);
+        expect(scopeSpies.orderedGroups).toHaveBeenCalledTimes(1);
+        expect(mockService.updateDisplayOrder).toHaveBeenCalledTimes(1);
+        expect(mockService.updateDisplayOrder.mock.calls[0]![1]).toHaveLength(1000);
+      });
+
+      it('上限を1件超えると400で上限を示し、要素の判定とサービスを呼ばない', async () => {
+        const reference = await putOrder({ orderUpdates: 'not-an-array' });
+        expect(reference.status).toBe(400);
+        scopeSpies.orderedGroups.mockClear();
+
+        const response = await putOrder({ orderUpdates: buildUpdates(1001) });
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe(reference.body.code);
+        expect(response.body.type).toBe(reference.body.type);
+        expect(Object.keys(response.body).sort()).toEqual(Object.keys(reference.body).sort());
+        expect(response.body.message).toBe('数量グループは1000件以内で指定してください');
+        expect(response.body.details).toEqual([
+          expect.objectContaining({
+            path: 'orderUpdates',
+            message: '数量グループは1000件以内で指定してください',
+            code: 'too_big',
+          }),
+        ]);
+        expect(limits.QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES).toBe(1000);
+        expect(limits.QUANTITY_GROUP_DISPLAY_ORDER_LIMIT_MESSAGE).toBe(
+          '数量グループは1000件以内で指定してください'
+        );
+        expect(scopeSpies.orderedGroups).not.toHaveBeenCalled();
+        expect(mockService.updateDisplayOrder).not.toHaveBeenCalled();
+      });
     });
   });
 

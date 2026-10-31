@@ -82,15 +82,35 @@ const updateQuantityGroupRequestSchema = updateQuantityGroupSchema.extend({
 });
 
 /**
+ * 数量グループの表示順の更新の `orderUpdates` の件数の上限（Requirement 42.14。OWASP API Security の API4）
+ *
+ * 値は利用者が 2026-10-31 に確定した（design.md の「2026-10-31 の追加: 件数の上限の画面の表示と、
+ * 本文の文字列・計算用パラメータ・個別の操作の配列の上限」の「決定」の表）。一つの数量表の数量グループの
+ * 数の上限（42.11 の `SAVE_QUANTITY_TABLE_MAX_GROUPS`）と同じ値である。保存の経路のモジュールは
+ * 経路とサービスを組み立てるため import せず、本経路の近くに置く。超えた要求は本文の検証の 400 で拒み、
+ * 後段の閲覧範囲の判定（`requireOrderedQuantityGroupsProjectScope`）とサービスを呼ばない。
+ */
+export const QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES = 1000;
+
+/** 表示順の更新の件数の上限を超えたときの日本語のメッセージ（Requirement 42.14） */
+export const QUANTITY_GROUP_DISPLAY_ORDER_LIMIT_MESSAGE = `数量グループは${QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES}件以内で指定してください`;
+
+/**
  * 表示順序更新スキーマ
+ *
+ * `orderUpdates` は `QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES` 件まで（42.14）。
  */
 const updateDisplayOrderSchema = z.object({
-  orderUpdates: z.array(
-    z.object({
-      id: z.string().uuid('グループIDの形式が不正です'),
-      displayOrder: z.number().int().min(0, '表示順序は0以上の整数を入力してください'),
-    })
-  ),
+  orderUpdates: z
+    .array(
+      z.object({
+        id: z.string().uuid('グループIDの形式が不正です'),
+        displayOrder: z.number().int().min(0, '表示順序は0以上の整数を入力してください'),
+      })
+    )
+    .max(QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES, {
+      message: QUANTITY_GROUP_DISPLAY_ORDER_LIMIT_MESSAGE,
+    }),
 });
 
 /**

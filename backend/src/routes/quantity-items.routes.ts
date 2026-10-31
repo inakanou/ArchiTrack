@@ -88,15 +88,52 @@ const updateQuantityItemRequestSchema = updateQuantityItemSchema.extend({
 });
 
 /**
+ * 表示順の更新と一括コピー・一括移動の配列の件数の上限（Requirement 42.14。OWASP API Security の API4）
+ *
+ * 値は利用者が 2026-10-31 に確定した（design.md の「2026-10-31 の追加: 件数の上限の画面の表示と、
+ * 本文の文字列・計算用パラメータ・個別の操作の配列の上限」の「決定」の表）。表示順の更新は一つの
+ * 数量グループの数量項目の数の上限（42.11 の `SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP`）と同じ 2000。
+ * 一括コピー・一括移動は、2000 件の一括コピーが既定のトランザクションの制限時間（5 秒）を超えると
+ * 実測したため、利用者の決定（2026-10-31）で 1000 とした。保存の経路のモジュールは経路とサービスを
+ * 組み立てるため import せず、本経路の近くに置く。超えた要求は本文の検証の 400 で拒み、後段の
+ * 閲覧範囲の判定（`requireOrderedQuantityItemsProjectScope`・`requireBulkQuantityItemsProjectScope`）と
+ * サービスを呼ばない。
+ */
+/** 数量項目の表示順の更新の `orderUpdates` の件数の上限 */
+export const QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES = 2000;
+/** 数量項目の一括コピー・一括移動の `itemIds` の件数の上限 */
+export const QUANTITY_ITEM_BULK_MAX_ITEMS = 1000;
+
+/** 件数の上限を超えたときの日本語のメッセージ（Requirement 42.14） */
+export const QUANTITY_ITEM_LIMIT_MESSAGES = {
+  DISPLAY_ORDER_TOO_MANY: `数量項目は${QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES}件以内で指定してください`,
+  BULK_ITEMS_TOO_MANY: `数量項目は${QUANTITY_ITEM_BULK_MAX_ITEMS}件以内で選択してください`,
+} as const;
+
+/** 一括コピー・一括移動の `itemIds`（1 件以上、`QUANTITY_ITEM_BULK_MAX_ITEMS` 件まで。42.14） */
+const bulkItemIdsSchema = z
+  .array(z.string().uuid('項目IDの形式が不正です'))
+  .min(1, '項目を1つ以上選択してください')
+  .max(QUANTITY_ITEM_BULK_MAX_ITEMS, {
+    message: QUANTITY_ITEM_LIMIT_MESSAGES.BULK_ITEMS_TOO_MANY,
+  });
+
+/**
  * 表示順序更新スキーマ
+ *
+ * `orderUpdates` は `QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES` 件まで（42.14）。
  */
 const updateDisplayOrderSchema = z.object({
-  orderUpdates: z.array(
-    z.object({
-      id: z.string().uuid('項目IDの形式が不正です'),
-      displayOrder: z.number().int().min(0, '表示順序は0以上の整数を入力してください'),
-    })
-  ),
+  orderUpdates: z
+    .array(
+      z.object({
+        id: z.string().uuid('項目IDの形式が不正です'),
+        displayOrder: z.number().int().min(0, '表示順序は0以上の整数を入力してください'),
+      })
+    )
+    .max(QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES, {
+      message: QUANTITY_ITEM_LIMIT_MESSAGES.DISPLAY_ORDER_TOO_MANY,
+    }),
 });
 
 /**
@@ -109,20 +146,20 @@ const moveItemSchema = z.object({
 
 /**
  * 一括コピースキーマ
+ *
+ * `itemIds` は 1 件以上、`QUANTITY_ITEM_BULK_MAX_ITEMS` 件まで（42.14）。
  */
 const bulkCopySchema = z.object({
-  itemIds: z
-    .array(z.string().uuid('項目IDの形式が不正です'))
-    .min(1, '項目を1つ以上選択してください'),
+  itemIds: bulkItemIdsSchema,
 });
 
 /**
  * 一括移動スキーマ
+ *
+ * `itemIds` は 1 件以上、`QUANTITY_ITEM_BULK_MAX_ITEMS` 件まで（42.14）。
  */
 const bulkMoveSchema = z.object({
-  itemIds: z
-    .array(z.string().uuid('項目IDの形式が不正です'))
-    .min(1, '項目を1つ以上選択してください'),
+  itemIds: bulkItemIdsSchema,
   targetGroupId: z.string().uuid('移動先グループIDの形式が不正です'),
 });
 
