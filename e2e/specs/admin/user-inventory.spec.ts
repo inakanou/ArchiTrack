@@ -42,6 +42,7 @@ import { getAccessToken, loginViaApi, waitForAuthenticatedSession } from '../../
 import { TEST_USERS } from '../../helpers/test-users';
 import { API_BASE_URL } from '../../config';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { invalidateUserStateCache } from '../../helpers/user-state-cache';
 
 const INVENTORY_PATH = '/api/v1/users/inventory';
 /** 棚卸し画面の 1 ページの件数（UserInventoryPage の PAGE_SIZE） */
@@ -314,15 +315,29 @@ test.describe('アカウントの無効化・棚卸し・管理者による 2FA 
     const prisma = getPrismaClient();
 
     // 要件36.7: ログインの成功で最終ログイン日時を記録する
+    // 前のログインの値と取り違えないよう、ログインの前に最終ログイン日時を空にする
+    await prisma.user.update({ where: { id: target.id }, data: { lastLoginAt: null } });
+    await invalidateUserStateCache([target.id]);
     const loginStartedAt = Date.now();
     await loginViaApi(request, target);
+    const loginFinishedAt = Date.now();
     const stored = await prisma.user.findUniqueOrThrow({
       where: { id: target.id },
       select: { lastLoginAt: true, createdAt: true },
     });
     expect(stored.lastLoginAt, '最終ログイン日時').not.toBeNull();
     const lastLoginAt = stored.lastLoginAt as Date;
-    expect(lastLoginAt.getTime()).toBeGreaterThanOrEqual(loginStartedAt - 1000);
+    // 壁時計は戻ることがある（WSL2 では約 30 秒ごとに約 2.85 秒戻る実測）。ログインの前後の
+    // 時刻の間にあることを、戻り 1 回分より広い 5 秒の余裕で確かめる
+    const CLOCK_STEP_MARGIN_MS = 5000;
+    expect(
+      lastLoginAt.getTime(),
+      `最終ログイン日時 ${lastLoginAt.toISOString()} がログインの前（${new Date(loginStartedAt).toISOString()}）より大きく前`
+    ).toBeGreaterThanOrEqual(loginStartedAt - CLOCK_STEP_MARGIN_MS);
+    expect(
+      lastLoginAt.getTime(),
+      `最終ログイン日時 ${lastLoginAt.toISOString()} がログインの後（${new Date(loginFinishedAt).toISOString()}）より大きく後`
+    ).toBeLessThanOrEqual(loginFinishedAt + CLOCK_STEP_MARGIN_MS);
 
     const token = await adminAccessToken(page);
     await loginAsUser(page, 'ADMIN_USER');
