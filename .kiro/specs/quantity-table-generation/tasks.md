@@ -4536,6 +4536,45 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - _Requirements: 42.11_
   - _Boundary: 数量表の保存の経路の本文の検証のスキーマ（saveQuantityTableDraftSchema・saveDraftGroupSchema）、保存のトランザクションの制限時間（QuantityTableService の QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS。2026-10-31 の利用者の判断で加えた）と、その上限と制限時間を主張する本スペックのテスト_
 
+## Task 109: 件数の上限を超えた保存の画面の表示（利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」）で起票する。42.11（タスク108.1、`76c2916f`）で保存の本文の配列が件数の上限を超えると本文の検証の 400 になったが、画面（frontend/src/pages/QuantityTableEditPage.tsx の `handleSave` の失敗の分岐〔1945〜1966 行付近。行は 2026-10-31 の実測で、着手時に測り直すこと〕）はその 400 を他の失敗と区別せず「保存に失敗しました。再度お試しください。」を表示する。件数を減らさない限り成功しないのに再操作を促す。requirements.md に 42.12 を加え（改訂の記録を Requirement 42 に残した）、design.md の末尾の章「2026-10-31 の追加: 件数の上限の画面の表示と、本文の文字列・計算用パラメータ・個別の操作の配列の上限」に設計を置いた
+
+- [ ] 109.1 件数の上限を超えた保存の 400 を判定し、上限のメッセージを表示する
+  - 応答の本文の `code`（`VALIDATION_ERROR`）と `details` の `path`・`code` の組（`groups` と `too_big`・`custom`、`groups.<数字>.items` と `too_big`）で件数の上限の超過を判定し、当たった要素の `message` を重複なく「保存できません: 」に続けた文言を返す関数を、新設の `frontend/src/utils/quantity-table-save-limit-feedback.ts` に置く（design.md の同章の「決定」の「画面の判定と表示」）。メッセージの文字列では判定しない。画面に上限の値を持たない
+  - `handleSave` の失敗の分岐で、現調画像の紐付けの書き分けの前にこの関数を呼び、当たればその文言を表示する。当たらなければ従来の順（現調画像の紐付け、数量表の不在、汎用の文言）のまま。409 の分岐と編集状態の保持（42.9）は変えない。関数の名前を design.md の同章の「決定」へ記す
+  - 単体（関数の新設のテストと `frontend/src/pages/QuantityTableEditPage.test.tsx`）に、3 つの上限の 400 で上限のメッセージ（重複なし）を表示し汎用の文言を表示せず未保存の変更を保つこと、`QUANTITY_TABLE_VALIDATION_ERROR` の 400・件数の上限でない本文の検証の 400・409・404 では従来の表示のままであることを足す
+  - E2E（`e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts`）で、画面で編集して保存し、保存の要求を経路の差し替えで件数の上限の 400（実際の応答と同じ形の本文。42.11 の E2E の応答で形を確かめる）にすると、上限のメッセージが表示され「保存に失敗しました。再度お試しください。」が表示されず、編集中の内容と未保存の表示が残ることを主張し、`@requirement quantity-table-generation/REQ-42.12` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた表示（「保存に失敗しました。再度お試しください。」と「保存できません: 」）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたので、テスト環境の frontend を作り直してから流す
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・E2E で、件数の上限を超えた保存では上限のメッセージが表示され汎用の文言が表示されず、編集状態が残り、他の失敗の表示は従来どおりである状態になる
+  - _Requirements: 42.12_
+  - _Boundary: QuantityTableEditPage の保存の処理（handleSave）の失敗の分岐と、新設する件数の上限の判定の関数（frontend/src/utils/quantity-table-save-limit-feedback.ts）と、その表示を主張する本スペックのテスト_
+
+## Task 110: 保存の本文の文字列・計算用パラメータと、個別の操作の配列の上限（OWASP API Security の API4 への対策。利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」、値は同日に利用者が確定）で起票する。保存の経路のスキーマ（backend/src/routes/quantity-tables.routes.ts の `saveDraftItemSchema`〔203 行付近〕・`saveDraftGroupSchema`〔259 行付近〕）は `tempId` の長さ、`calculationParams` のキーの数と各キーの長さ、`remarks` の文字数の上限を持たない。表示順の更新（backend/src/routes/quantity-groups.routes.ts の `updateDisplayOrderSchema`〔87 行付近〕、backend/src/routes/quantity-items.routes.ts の `updateDisplayOrderSchema`〔93 行付近〕）の `orderUpdates` と、一括コピー・一括移動（同ファイルの `bulkCopySchema`・`bulkMoveSchema`〔113・122 行付近〕）の `itemIds` は件数の上限を持たない。行は 2026-10-31 の実測で、着手時に測り直すこと。requirements.md に 42.13・42.14 を加え、design.md の末尾の章（Task 109 と同じ章）に設計と確定した値を置いた
+
+- [ ] 110.1 保存の本文の仮 ID・計算用パラメータのキー・備考に上限を設ける
+  - 保存の経路のスキーマで、数量グループと数量項目の `tempId` を 1〜100 文字、`calculationParams` のキーの数を 10・各キーの長さを 50 文字、`remarks` を 50 文字までとし、超えたら本文の検証の 400（`validate` の既存の形）で、design.md の同章の「決定」の日本語のメッセージと問題箇所を返す。`remarks` の文言は `FIELD_CONSTRAINTS.REMARKS` の値から組み立てる。キーの検証は `withCalculationParams` より前に拒む。サービスの幅の検証と `withCalculationParams` の条件は変えない。定数の名前と文言の最終形を design.md の同章の「決定」へ記す
+  - 単体（`backend/src/__tests__/unit/routes/quantity-tables.routes.test.ts`）に、各上限ちょうどで通り、超えると（`tempId` は空も）400 で上限を示すメッセージと問題箇所を返しサービスを呼ばないこと、`remarks` が 50 文字以内で幅の上限を超える値は従来どおりサービスの幅の検証に届くことを足す。統合（`backend/src/__tests__/integration/quantity-table-save.api.integration.test.ts`）に、各上限を超えた本文が 400 になりデータベースが変わらないことを足す
+  - E2E（`e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts`）で、保存の API へ `calculationParams` のキーが上限を超えた本文を送ると 400 になり数量表が変わらないことを主張し、`@requirement quantity-table-generation/REQ-42.13` の印を置く
+  - 振る舞いを変えるため、変えた応答の経路（数量表の保存の 400）を e2e/ 全体で grep して既存の E2E を選び、流す（42.11 の E2E と、備考を入力して保存する E2E を含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、保存の本文の仮 ID・計算用パラメータのキー・備考が上限を超えると本文の検証の 400 になりどこにも書き込まず、上限の内側の保存が従来どおりである状態になる
+  - _Requirements: 42.13_
+  - _Boundary: 数量表の保存の経路の本文の検証のスキーマ（saveDraftItemSchema・saveDraftGroupSchema）と、その上限を主張する本スペックのテスト_
+- [ ] 110.2 表示順の更新と一括コピー・一括移動の配列に件数の上限を設ける
+  - 数量グループの表示順の更新の `orderUpdates` を 1000 件、数量項目の表示順の更新の `orderUpdates` と一括コピー・一括移動の `itemIds` を 2000 件までとし、超えたら本文の検証の 400 で、design.md の同章の「決定」の日本語のメッセージと問題箇所（`orderUpdates`、`itemIds`）を返す。本文の検証が閲覧範囲の判定部品より前にあることを保つ（上限を超えた要求は要素の判定と書き込みを行わない）。定数の名前と置き場所、文言の最終形を design.md の同章の「決定」へ記す
+  - 上限ちょうどの表示順の更新と一括コピー・一括移動の所要を統合テストの一時の計測で測り、design.md の同章へ記す（計測の器具は提出物に残さない）。制限時間を持つトランザクションに収まらなければ着手を止めて利用者に諮る
+  - 単体（`backend/src/__tests__/unit/routes/quantity-groups.routes.test.ts`・`backend/src/__tests__/unit/routes/quantity-items.routes.test.ts`）に、上限ちょうどで通り 1 件超えると 400 で閲覧範囲の判定とサービスを呼ばないことを、4 経路のそれぞれで足す。統合（`backend/src/__tests__/integration/quantity-item-display-order.api.integration.test.ts`・`backend/src/__tests__/integration/quantity-group-display-order.api.integration.test.ts`）に、上限を 1 件超えた要求が 400 になり表示順が変わらないことを足す
+  - E2E（`e2e/specs/quantity-tables/bulk-item-operations-e2e.spec.ts`）で、一括コピーの API へ上限を 1 件超えた `itemIds` を送ると 400 になり数量項目が増えないことを主張し、`@requirement quantity-table-generation/REQ-42.14` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（表示順の更新・一括コピー・一括移動の 400）を e2e/ 全体で grep して既存の E2E を選び、流す（閲覧範囲の E2E `e2e/specs/quantity-tables/quantity-table-project-scope.spec.ts` の一括操作のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、表示順の更新と一括コピー・一括移動の配列が上限を超えると本文の検証の 400 になり判定も書き込みもせず、上限の内側の要求が従来どおりである状態になる
+  - _Requirements: 42.14_
+  - _Boundary: 数量グループ・数量項目の経路の本文の検証のスキーマ（updateDisplayOrderSchema・bulkCopySchema・bulkMoveSchema）と、その上限を主張する本スペックのテスト_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。
