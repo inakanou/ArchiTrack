@@ -191,7 +191,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 | 数量表の保存の本文の配列の件数（グループ 1000・一つのグループの項目 2000・項目の総数 5000） | quantity-table-generation | 完了（受入基準42.11。タスク108.1 `76c2916f`） |
 | 数量表の保存の件数の上限を超えたときの画面の表示 | quantity-table-generation | 完了（受入基準42.12。タスク109.1 `f126a974`） |
 | 数量表の保存の本文の仮 ID（1〜100 字）・計算用パラメータのキーの数（10）とキーの長さ（50 字）・備考（50 字） | quantity-table-generation | 完了（受入基準42.13。タスク110.1 `b34b3169`） |
-| 数量グループ・数量項目の表示順の更新の `orderUpdates`（1000・2000）と一括コピー・一括移動の `itemIds`（1000。起票時の 2000 は一括コピーが既定の制限時間 5 秒を超えたため 2026-10-31 に利用者の決定で改訂） | quantity-table-generation | 完了（受入基準42.14。タスク110.2 `78b84feb`） |
+| 数量グループ・数量項目の表示順の更新の `orderUpdates`（1000・2000）と一括コピー・一括移動の `itemIds`（500。起票時の 2000 は一括コピーが既定の制限時間 5 秒を超えたため 2026-10-31 に利用者の決定で 1000 へ改訂。さらに 1000 件の一括コピーの最悪 5034 ms が制限時間に近いため 2026-11-01 に利用者の決定で 500 へ改訂） | quantity-table-generation | 完了（受入基準42.14。タスク110.2 `78b84feb`、タスク111.1（コミット待ち）） |
 | 見積明細の一括保存の見積項目の総数（2000）を検証の前に数えて打ち切る（深い入れ子のスタックあふれも抑える。着手時の計測を受け、2026-10-31 に利用者の決定で階層の深さにも 100 段の上限を設けた） | estimate-creation | 完了（受入基準42.10・42.12。タスク67.1 `949f57ee`） |
 | 見積明細の一括保存の見積項目行の備考（2000 字） | estimate-creation | 完了（受入基準42.11。タスク67.2 `7457a405`） |
 
@@ -208,7 +208,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 | 受領見積書の明細の `lineItems` と各文字列（名称・規格・単位・備考など） | backend/src/schemas/received-quotation.schema.ts の `lineItemsArraySchema`・`lineItemSchema` | estimate-request | 実測が無く値を決めかねている。明細の備考は上限を持たず、見積明細へ転記すると estimate-creation の受入基準42.11（備考 2000 字）を超えて見積書を保存できなくなりうる（estimate-creation の design.md の同章の Out of Boundary） |
 | ロールの権限の追加の `permissionIds`、ユーザーのロールの追加の `roleIds` | backend/src/routes/roles.routes.ts の `addPermissionSchema`、backend/src/routes/user-roles.routes.ts の `addRolesSchema` | user-authentication | |
 | 数量項目の作成・更新の `calculationParams`・`remarks`（保存の経路の受入基準42.13 と同じ上限を広げるか） | backend/src/routes/quantity-items.routes.ts | quantity-table-generation | 受入基準42.13 は保存の経路だけを変える |
-| 数量項目の一括コピー・一括移動の書き込みをまとめて所要を縮める（上限ちょうどの 1000 件の一括コピーが最悪約 5 秒で、既定の制限時間 5 秒に迫る。2026-10-31 の実測） | backend/src/services/quantity-item.service.ts の `bulkCopy`・`bulkMove` | quantity-table-generation | 件数の上限ではなく所要の改善。今は 1 件ごとに並び順の問い合わせ・作成・監査記録を行う。画面はこの 2 経路を呼ばない |
+| 数量項目の一括コピー・一括移動の書き込みをまとめて所要を縮める（上限ちょうどの 1000 件の一括コピーが最悪約 5 秒で、既定の制限時間 5 秒に迫る。2026-10-31 の実測。2026-11-01 に上限を 500 へ下げ、500 件は最悪 2801 ms〔平常時〕） | backend/src/services/quantity-item.service.ts の `bulkCopy`・`bulkMove` | quantity-table-generation | 件数の上限ではなく所要の改善。今は 1 件ごとに並び順の問い合わせ・作成・監査記録を行う。画面はこの 2 経路を呼ばない |
 
 ## 6. 新規 spec を起票しない理由
 

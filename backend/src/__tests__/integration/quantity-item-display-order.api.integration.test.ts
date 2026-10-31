@@ -509,4 +509,132 @@ describe('数量項目の並び順の個別 API の displayOrder 重複（Task 9
       ]);
     });
   });
+
+  /**
+   * 一括コピー・一括移動の `itemIds` の件数の上限（quantity-table-generation タスク111.1。
+   * タスク110.2 の 1000 件を 2026-11-01 の利用者の決定で 500 件へ下げた）。上限を 1 件超えた要求は
+   * 本文の検証の 400 になり、数量項目も監査記録も増えず所属も変わらない。上限の内側の要求
+   * （10 件）は従来どおり全件を書き込む（対照）。送る ID はいずれも実在し実行者の範囲内のもので、
+   * 上限だけが拒む理由であることを保つ。上限ちょうど（500 件）は所要が制限時間（5 秒）に迫りうる
+   * ため常設せず（タスク111.1 の実測で平常は最悪 2801 ms、テストの backend の再起動の直後は 5618 ms
+   * で超過）、上限ちょうどで通ることは経路の単体が主張する。
+   *
+   * @requirement quantity-table-generation/REQ-42.14
+   */
+  describe('POST /api/quantity-items/bulk-copy・bulk-move の itemIds の件数の上限', () => {
+    const LIMIT = 500;
+    /** 対照の上限の内側の件数 */
+    const WITHIN = 10;
+
+    /** 当該グループへ数量項目を count 件まとめて作り、displayOrder 昇順の ID を返す */
+    const seedItems = async (groupId: string, count: number): Promise<string[]> => {
+      await prisma.quantityItem.createMany({
+        data: Array.from({ length: count }, (_, index) => ({
+          quantityGroupId: groupId,
+          majorCategory: '土工事',
+          workType: '掘削',
+          name: `I${index}`,
+          unit: 'm3',
+          calculationMethod: 'STANDARD' as const,
+          adjustmentFactor: 1,
+          roundingUnit: 0.01,
+          quantity: 1,
+          displayOrder: index,
+        })),
+      });
+      const items = await prisma.quantityItem.findMany({
+        where: { quantityGroupId: groupId },
+        select: { id: true },
+        orderBy: { displayOrder: 'asc' },
+      });
+      return items.map((item) => item.id);
+    };
+
+    const countItems = async (groupId: string): Promise<number> =>
+      await prisma.quantityItem.count({ where: { quantityGroupId: groupId } });
+
+    const countAudit = async (action: string): Promise<number> =>
+      await prisma.auditLog.count({ where: { actorId: testUserId, action } });
+
+    const bulkCopy = async (itemIds: string[]): Promise<request.Response> =>
+      await request(app)
+        .post('/api/quantity-items/bulk-copy')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ itemIds });
+
+    const bulkMove = async (itemIds: string[], targetGroupId: string): Promise<request.Response> =>
+      await request(app)
+        .post('/api/quantity-items/bulk-move')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ itemIds, targetGroupId });
+
+    const expectLimitRejection = (response: request.Response): void => {
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe('VALIDATION_ERROR');
+      expect(response.body.message).toBe('数量項目は500件以内で選択してください');
+      expect(response.body.details).toEqual([
+        expect.objectContaining({ path: 'itemIds', code: 'too_big' }),
+      ]);
+    };
+
+    it('一括コピーの itemIds が上限（500件）を1件超えると 400 で拒まれ、数量項目も監査記録も増えない', async () => {
+      const { groupId } = await createGroup('一括コピーの上限超過');
+      const itemIds = await seedItems(groupId, LIMIT + 1);
+      expect(itemIds).toHaveLength(LIMIT + 1);
+      const auditBefore = await countAudit('QUANTITY_ITEM_COPIED');
+
+      const response = await bulkCopy(itemIds);
+
+      expectLimitRejection(response);
+      expect(await countItems(groupId)).toBe(LIMIT + 1);
+      expect(await countAudit('QUANTITY_ITEM_COPIED')).toBe(auditBefore);
+    });
+
+    it('一括コピーの itemIds が上限の内側（10件）なら全件が複製される（対照）', async () => {
+      const { groupId } = await createGroup('一括コピーの上限の内側');
+      const itemIds = await seedItems(groupId, WITHIN);
+      const auditBefore = await countAudit('QUANTITY_ITEM_COPIED');
+
+      const response = await bulkCopy(itemIds);
+
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveLength(WITHIN);
+      expect(await countItems(groupId)).toBe(WITHIN * 2);
+      expect(await countAudit('QUANTITY_ITEM_COPIED')).toBe(auditBefore + WITHIN);
+      expectNoOverlap(await readOrders(groupId));
+    });
+
+    it('一括移動の itemIds が上限（500件）を1件超えると 400 で拒まれ、所属も監査記録も変わらない', async () => {
+      const { tableId, groupId } = await createGroup('一括移動の上限超過');
+      const targetGroup = await prisma.quantityGroup.create({
+        data: { quantityTableId: tableId, name: '移動先', displayOrder: 1 },
+      });
+      const itemIds = await seedItems(groupId, LIMIT + 1);
+      const auditBefore = await countAudit('QUANTITY_ITEM_MOVED');
+
+      const response = await bulkMove(itemIds, targetGroup.id);
+
+      expectLimitRejection(response);
+      expect(await countItems(groupId)).toBe(LIMIT + 1);
+      expect(await countItems(targetGroup.id)).toBe(0);
+      expect(await countAudit('QUANTITY_ITEM_MOVED')).toBe(auditBefore);
+    });
+
+    it('一括移動の itemIds が上限の内側（10件）なら全件が移動する（対照）', async () => {
+      const { tableId, groupId } = await createGroup('一括移動の上限の内側');
+      const targetGroup = await prisma.quantityGroup.create({
+        data: { quantityTableId: tableId, name: '移動先', displayOrder: 1 },
+      });
+      const itemIds = await seedItems(groupId, WITHIN);
+      const auditBefore = await countAudit('QUANTITY_ITEM_MOVED');
+
+      const response = await bulkMove(itemIds, targetGroup.id);
+
+      expect(response.status).toBe(204);
+      expect(await countItems(groupId)).toBe(0);
+      expect(await countItems(targetGroup.id)).toBe(WITHIN);
+      expect(await countAudit('QUANTITY_ITEM_MOVED')).toBe(auditBefore + WITHIN);
+      expectNoOverlap(await readOrders(targetGroup.id));
+    });
+  });
 });

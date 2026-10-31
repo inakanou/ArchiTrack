@@ -4575,6 +4575,21 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - _Requirements: 42.14_
   - _Boundary: 数量グループ・数量項目の経路の本文の検証のスキーマ（updateDisplayOrderSchema・bulkCopySchema・bulkMoveSchema）と、その上限を主張する本スペックのテスト_
 
+## Task 111: 一括コピー・一括移動の `itemIds` の上限を 500 件へ下げる（42.14 の設計の値の 2 回目の改訂。利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「推奨案で進める」）で起票する。タスク110.2（`78b84feb`）で一括コピー・一括移動の `itemIds` の上限を 1000 件にしたが、上限ちょうどの一括コピーの所要が最悪 5034 ms（2953〜5034 ms）で、既定のトランザクションの制限時間（5 秒）に近い。上限を 500 件へ下げる（両経路は `itemIds` のスキーマを共有するため、どちらも 500 件）。表示順の更新の上限と制限時間は変えない。完了済みのタスク110.2 は書き換えず、改訂を requirements.md の Requirement 42 の「受入基準14の設計の値の 2 回目の改訂（2026-11-01）」と design.md の末尾の章の「改訂の記録（2026-11-01）」に記した
+
+- [x] 111.1 一括コピー・一括移動の `itemIds` の件数の上限を 500 件にする
+  - 数量項目の経路（`backend/src/routes/quantity-items.routes.ts`）の `QUANTITY_ITEM_BULK_MAX_ITEMS` を 500 にし、文言を「数量項目は500件以内で選択してください」にする。コメントの値も追随させる。問題の種別・問題箇所・経路の順序（本文の検証が閲覧範囲の判定部品より前）は変えない
+  - 上限ちょうど（500 件）の一括コピー・一括移動の所要を統合テストの一時の計測で各 3 回程度測り、最悪の値を design.md の同章の「上限ちょうどの所要（タスク111.1）」へ記す（計測の器具は提出物に残さない）
+  - 単体（`backend/src/__tests__/unit/routes/quantity-items.routes.test.ts`）の定数・文言・境界値（500 件で通り 501 件で 400）を直す。統合（`backend/src/__tests__/integration/quantity-item-display-order.api.integration.test.ts`）に、一括コピー・一括移動の `itemIds` が 501 件だと 400 になり書き込まれず、上限の内側（10 件）なら全件が書き込まれることを足す。上限ちょうど（500 件）の要求は所要が制限時間に迫りうる（着手時の実測でテストの backend の再起動の直後に 5 秒を超えた）ため統合・E2E に常設せず、上限ちょうどで通ることは単体が主張する
+  - E2E（`e2e/specs/quantity-tables/bulk-item-operations-e2e.spec.ts` の 42.14 のテスト）を、501 件で 400（500 の文言）になり数量項目が増えず、上限の内側の 10 件なら複製される形に直す。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた文言（「1000件以内」）と経路（一括コピー・一括移動）を e2e/ 全体で grep して既存の E2E を選び、流す
+  - 挙動の変更であるため RED → GREEN で進め、直したテストが現状（1000 件）で赤になることを先に示す
+  - 単体・統合・E2E で、一括コピー・一括移動の `itemIds` が 500 件を超えると本文の検証の 400 になり判定も書き込みもせず、500 件以内の要求が従来どおりである状態になる
+  - _Requirements: 42.14_
+  - _Boundary: 数量項目の経路の定数（quantity-items.routes.ts の QUANTITY_ITEM_BULK_MAX_ITEMS と QUANTITY_ITEM_LIMIT_MESSAGES）と、その上限を主張する本スペックのテスト_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。

@@ -144,7 +144,7 @@ test.describe('数量項目の一括操作 (quantity-table-generation/REQ-6.5)',
   let quantityTableId: string | null = null;
   let testProjectId: string | null = null;
   /**
-   * 件数の上限の検証（タスク110.2）が作った数量表の ID。数量項目を 1001 件以上持つため、
+   * 件数の上限の検証（タスク110.2・111.1）が作った数量表の ID。数量項目を 501 件以上持つため、
    * テストが途中で落ちても afterEach で DB から消す。
    */
   const limitTableIdsToRemove: string[] = [];
@@ -262,10 +262,10 @@ test.describe('数量項目の一括操作 (quantity-table-generation/REQ-6.5)',
       .toEqual([ITEM_NAMES[1]]);
   });
   /**
-   * 一括コピーの経路（POST /api/quantity-items/bulk-copy）の `itemIds` の件数の上限（1000）。
-   * 画面は一括の操作をクライアントの編集状態にだけ反映してこの経路を呼ばないため、API の要求で
-   * 確かめる。数量項目を 1001 件持つ数量表を保存の経路で用意し、その全件の ID を送る（上限が無ければ
-   * 全件が複製される要求）。
+   * 一括コピーの経路（POST /api/quantity-items/bulk-copy）の `itemIds` の件数の上限（500。タスク111.1 で
+   * 1000 から下げた）。画面は一括の操作をクライアントの編集状態にだけ反映してこの経路を呼ばないため、
+   * API の要求で確かめる。数量項目を 501 件持つ数量表を保存の経路で用意し、その全件の ID を送る
+   * （上限が無ければ全件が複製される要求）。続けて上限の内側の 10 件を送り、複製されることを確かめる。
    *
    * @requirement quantity-table-generation/REQ-42.14
    */
@@ -277,7 +277,7 @@ test.describe('数量項目の一括操作 (quantity-table-generation/REQ-6.5)',
     const token = await getAccessToken(page, 'REGULAR_USER');
     assertPrepared(token, 'アクセストークン');
     const headers = { Authorization: `Bearer ${token}` };
-    const count = 1001;
+    const count = 501;
 
     const created = await page.request.post(
       `${API_BASE_URL}/api/projects/${testProjectId}/quantity-tables`,
@@ -301,7 +301,7 @@ test.describe('数量項目の一括操作 (quantity-table-generation/REQ-6.5)',
     const itemNames = (table: TableDetail) =>
       table.groups.flatMap((group) => group.items.map((item) => item.name)).sort();
 
-    // 前提: 数量項目を 1001 件持つ数量表（保存の経路の上限〔42.11〕の内側）
+    // 前提: 数量項目を 501 件持つ数量表（保存の経路の上限〔42.11〕の内側）
     const initial = await readTable();
     const prepared = await page.request.put(`${API_BASE_URL}/api/quantity-tables/${tableId}/save`, {
       headers,
@@ -338,12 +338,12 @@ test.describe('数量項目の一括操作 (quantity-table-generation/REQ-6.5)',
         ],
       },
     });
-    expect(prepared.status(), '前提: 1001 件の数量項目を保存できる').toBe(200);
+    expect(prepared.status(), '前提: 501 件の数量項目を保存できる').toBe(200);
     const before = await readTable();
     const itemIds = before.groups.flatMap((group) => group.items.map((item) => item.id));
-    expect(itemIds, '前提: 数量項目が 1001 件ある').toHaveLength(count);
+    expect(itemIds, '前提: 数量項目が 501 件ある').toHaveLength(count);
 
-    // 上限（1000）を 1 件超えた itemIds
+    // 上限（500）を 1 件超えた itemIds
     const rejected = await page.request.post(`${API_BASE_URL}/api/quantity-items/bulk-copy`, {
       headers,
       data: { itemIds },
@@ -355,21 +355,22 @@ test.describe('数量項目の一括操作 (quantity-table-generation/REQ-6.5)',
       details: Array<{ path: string; message: string }>;
     };
     expect(rejectedBody.code).toBe('VALIDATION_ERROR');
-    expect(rejectedBody.message).toBe('数量項目は1000件以内で選択してください');
+    expect(rejectedBody.message).toBe('数量項目は500件以内で選択してください');
     expect(rejectedBody.details).toEqual([
       expect.objectContaining({
         path: 'itemIds',
-        message: '数量項目は1000件以内で選択してください',
+        message: '数量項目は500件以内で選択してください',
       }),
     ]);
 
-    // 数量項目は増えない（通っていれば 1001 件が複製されて 2002 件になる）
+    // 数量項目は増えない（通っていれば 501 件が複製されて 1002 件になる）
     const afterRejected = await readTable();
     expect(itemNames(afterRejected)).toEqual(itemNames(before));
 
     // 非空証明: 同じ項目の一部（10 件）なら複製される。400 は件数による。
-    // 上限ちょうど（1000 件）の一括コピーは所要が最悪で約 5 秒（制限時間 5 秒に迫る実測、
-    // design の 42.14 の所要）のため E2E では送らない。上限ちょうどで通ることは経路の単体が主張する
+    // 上限ちょうど（500 件）の一括コピーは所要が制限時間（5 秒）に迫りうるため E2E では送らない
+    // （タスク111.1 の実測で平常は最悪 2801 ms、テストの backend の再起動の直後は 5618 ms で超過した。
+    // design の 42.14 の所要）。上限ちょうどで通ることは経路の単体が主張する
     const acceptedCount = 10;
     const accepted = await page.request.post(`${API_BASE_URL}/api/quantity-items/bulk-copy`, {
       headers,

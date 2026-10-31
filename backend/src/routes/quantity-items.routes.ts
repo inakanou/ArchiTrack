@@ -94,7 +94,9 @@ const updateQuantityItemRequestSchema = updateQuantityItemSchema.extend({
  * 本文の文字列・計算用パラメータ・個別の操作の配列の上限」の「決定」の表）。表示順の更新は一つの
  * 数量グループの数量項目の数の上限（42.11 の `SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP`）と同じ 2000。
  * 一括コピー・一括移動は、2000 件の一括コピーが既定のトランザクションの制限時間（5 秒）を超えると
- * 実測したため、利用者の決定（2026-10-31）で 1000 とした。保存の経路のモジュールは経路とサービスを
+ * 実測したため、利用者の決定（2026-10-31）で 1000 とし、さらに 1000 件の一括コピーの最悪の所要
+ * （5034 ms）が制限時間に近いため、利用者の決定（2026-11-01、タスク111.1）で 500 とした。
+ * 両経路は `bulkItemIdsSchema` を共有するため、どちらも 500。保存の経路のモジュールは経路とサービスを
  * 組み立てるため import せず、本経路の近くに置く。超えた要求は本文の検証の 400 で拒み、後段の
  * 閲覧範囲の判定（`requireOrderedQuantityItemsProjectScope`・`requireBulkQuantityItemsProjectScope`）と
  * サービスを呼ばない。
@@ -102,7 +104,7 @@ const updateQuantityItemRequestSchema = updateQuantityItemSchema.extend({
 /** 数量項目の表示順の更新の `orderUpdates` の件数の上限 */
 export const QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES = 2000;
 /** 数量項目の一括コピー・一括移動の `itemIds` の件数の上限 */
-export const QUANTITY_ITEM_BULK_MAX_ITEMS = 1000;
+export const QUANTITY_ITEM_BULK_MAX_ITEMS = 500;
 
 /** 件数の上限を超えたときの日本語のメッセージ（Requirement 42.14） */
 export const QUANTITY_ITEM_LIMIT_MESSAGES = {
