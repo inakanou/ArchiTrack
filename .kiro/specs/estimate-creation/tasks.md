@@ -1893,7 +1893,7 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
 
 **経緯**: 利用者の判断（2026-11-01「推奨案で進める」の 2・4）で起票する。42.10〜42.12（タスク67.1・67.2）で一括保存が件数・深さの上限の 422 と備考の上限の 400 で拒まれるようになったが、見積書詳細画面（frontend/src/pages/EstimateDetailPage.tsx の `toSaveErrorMessage`）は 400 と 422 を一律に「保存できません: 」に例外の `message` を続けて表示し、422 は固定の要約の文言になってどの上限かが出ない。frontend の注釈とテストの名前は、改訂前の Requirement 2.5（階層の深さに上限を設けない）を名乗る。requirements.md に 42.13 を加え（改訂の記録を Requirement 42 に、追記を Requirement 2 に残した）、design.md の末尾の章「2026-11-01 の追加: 保存の上限の超過の画面の表示と、内訳書からの作成の件数の上限」に設計を置いた
 
-- [ ] 68.1 保存の上限の超過の 422 と 400 を判定し、上限のメッセージを表示する
+- [x] 68.1 保存の上限の超過の 422 と 400 を判定し、上限のメッセージを表示する
   - 422（`ESTIMATE_DRAFT_VALIDATION_ERROR`、`details.issues` の `path` が `items` に完全一致）と 400（`VALIDATION_ERROR`、`details` の `path` が `^items\.\d+(\.children\.\d+)*\.lines\.\d+\.remarks$` に完全一致し `code` が `too_big`）で上限の超過を判定し、当たった `message` を重複なく「、」でつなぎ「保存できません: 」に続けた文言を返す関数 `describeEstimateSaveLimitFailure(error): string | null` を、新設の frontend/src/utils/estimate-save-limit-feedback.ts に置く（design.md の同章の「決定」の「保存の上限の超過の判定と表示」）。メッセージの文字列で件数と深さを判定しない。画面に上限の値を持たない
   - `toSaveErrorMessage` の先頭でこの関数を呼び、当たればその文言を表示する。当たらなければ従来の分岐のまま。編集中の内容の保持（`useEstimateEditor` の保存の処理の `catch`）は変えない。関数の最終形を design.md の同章の「決定」へ記す
   - 単体（関数の新設のテストと `frontend/src/pages/EstimateDetailPage.test.tsx`）に、件数・深さの 422 と備考の 400（子孫の節点を含む）で上限のメッセージ（重複なし）を表示し要約の文言と汎用の文言を表示せず編集中の内容を保つこと、属さない ID の `items.<uuid>`・仮 ID の解決の失敗・構造の検証の 422、他の欄の `too_big` の 400、409・404 では従来の表示のままであることを足す

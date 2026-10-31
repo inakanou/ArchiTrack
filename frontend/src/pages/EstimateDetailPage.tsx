@@ -52,6 +52,7 @@ import type {
   SavedEstimateItemHierarchy,
 } from '../api/estimates';
 import { ApiError, getApiErrorCode, ESTIMATE_SAVE_TIMEOUT_CODE } from '../api/client';
+import { describeEstimateSaveLimitFailure } from '../utils/estimate-save-limit-feedback';
 import { OverheadCostPanel } from '../components/estimate/OverheadCostPanel';
 import type {
   CalculateOverheadParams,
@@ -603,11 +604,19 @@ const SAVE_TIMEOUT_MESSAGE =
  *   （制限時間超過は `code: ESTIMATE_SAVE_TIMEOUT` で識別する。HTTP ステータスだけでは
  *   他の 500 と区別できず、メッセージ文字列での判定は文言変更で壊れる）
  * - 42.5: 競合が発生したことを表示する（409）。編集中の内容は呼び出し元が保持する
+ * - 42.13: 件数・深さの上限の 422 と備考の文字数の上限の 400 は、超えた上限のメッセージを表示する
+ *   （判定は `utils/estimate-save-limit-feedback` の `describeEstimateSaveLimitFailure`）
  *
  * 上記以外（400 / 403 / 404 / 422 / 500）はサーバーの応答内容を提示するのみで、
  * 保存前のクライアント検証は行わない（それを求める 42.4 は本タスクの範囲外）。
  */
 function toSaveErrorMessage(error: unknown): string {
+  // 42.13: 件数・深さの上限の 422 と備考の文字数の上限の 400 は、超えた上限のメッセージを表示する
+  // （要約の文言と再操作を促す汎用の文言を出さない。当たらなければ下の従来の書き分けへ）
+  const saveLimitMessage = describeEstimateSaveLimitFailure(error);
+  if (saveLimitMessage !== null) {
+    return saveLimitMessage;
+  }
   if (error instanceof ApiError) {
     if (getApiErrorCode(error) === ESTIMATE_SAVE_TIMEOUT_CODE) {
       return SAVE_TIMEOUT_MESSAGE;

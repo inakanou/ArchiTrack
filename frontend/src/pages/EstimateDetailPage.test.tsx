@@ -2120,6 +2120,221 @@ describe('EstimateDetailPage', () => {
     });
 
     /**
+     * 42.13: 上限（42.10 の件数・42.12 の深さの 422、42.11 の備考の文字数の 400）を超えた保存は、
+     * 超えた上限のメッセージを表示し、422 の要約の文言と汎用の文言を表示せず、編集中の内容を保つ。
+     * 応答の本文は一括保存の経路の実際の形を写す。
+     */
+    describe('保存の上限の超過の表示 (42.13)', () => {
+      const DRAFT_SUMMARY = '見積明細の入力内容に不備があるため保存できません';
+      const GENERIC_MESSAGE = '保存に失敗しました。再度お試しください。';
+
+      const draftLimitError = (messages: string[]): ApiError =>
+        new ApiError(422, DRAFT_SUMMARY, {
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Unprocessable Entity',
+          status: 422,
+          detail: DRAFT_SUMMARY,
+          code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+          details: { issues: messages.map((message) => ({ path: 'items', message })) },
+        });
+
+      const remarksLimitError = (paths: string[]): ApiError =>
+        new ApiError(400, '備考は2000文字以内で入力してください', {
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Bad Request',
+          status: 400,
+          detail: '備考は2000文字以内で入力してください',
+          code: 'VALIDATION_ERROR',
+          details: paths.map((path) => ({
+            path,
+            message: '備考は2000文字以内で入力してください',
+            code: 'too_big',
+          })),
+        });
+
+      const QUANTITY_INVALID = '数量は整数部11桁・小数部4桁以内の数値で入力してください';
+
+      const LIMIT_CASES: Array<{
+        label: string;
+        error: () => ApiError;
+        expected: string;
+        absent?: string[];
+      }> = [
+        {
+          label: '件数の上限の 422',
+          error: () => draftLimitError(['見積明細は合計2000件以内で保存してください']),
+          expected: '保存できません: 見積明細は合計2000件以内で保存してください',
+        },
+        {
+          label: '深さの上限の 422',
+          error: () => draftLimitError(['見積項目の階層は100段以内で保存してください']),
+          expected: '保存できません: 見積項目の階層は100段以内で保存してください',
+        },
+        {
+          label: '備考の文字数の上限の 400（子孫の節点を含み、重複を除く）',
+          error: () =>
+            remarksLimitError([
+              'items.0.lines.0.remarks',
+              'items.0.children.3.children.0.lines.2.remarks',
+            ]),
+          expected: '保存できません: 備考は2000文字以内で入力してください',
+        },
+        {
+          // 本文の検証は欄の順（名称 → 数量 → … → 備考）に問題を並べ、応答の detail（例外の message）は
+          // 最初の問題になる。備考の前に他の欄の問題がある 400 でも、上限の文言だけを表示する
+          label: '数量の書式の問題が備考の上限より前に並ぶ 400',
+          error: () =>
+            new ApiError(400, QUANTITY_INVALID, {
+              type: 'https://architrack.example.com/problems/validation-error',
+              title: 'Bad Request',
+              status: 400,
+              detail: QUANTITY_INVALID,
+              code: 'VALIDATION_ERROR',
+              details: [
+                {
+                  path: 'items.0.lines.0.quantity',
+                  message: QUANTITY_INVALID,
+                  code: 'invalid_format',
+                },
+                {
+                  path: 'items.0.children.0.lines.0.remarks',
+                  message: '備考は2000文字以内で入力してください',
+                  code: 'too_big',
+                },
+              ],
+            }),
+          expected: '保存できません: 備考は2000文字以内で入力してください',
+          absent: [QUANTITY_INVALID],
+        },
+      ];
+
+      for (const limitCase of LIMIT_CASES) {
+        /**
+         * @requirement estimate-creation/REQ-42.13 上限を超えた保存はどの上限かを表示し、汎用の文言を出さず編集中の内容を保つ
+         */
+        it(`${limitCase.label}は上限のメッセージだけを表示し、要約・汎用の文言を出さず編集中の内容を保つこと (42.13)`, async () => {
+          vi.mocked(estimatesApi.saveEstimateDraft).mockRejectedValue(limitCase.error());
+          const user = userEvent.setup();
+          renderPage();
+
+          await waitFor(() => {
+            expect(tableItems()).toHaveLength(1);
+          });
+          await editEstimateName('編集済み名称');
+          await user.click(screen.getByRole('button', { name: '保存' }));
+
+          await waitFor(() => {
+            expect(screen.getByTestId('estimate-save-error')).toBeInTheDocument();
+          });
+          const banner = screen.getByTestId('estimate-save-error');
+          expect(within(banner).getByText(limitCase.expected, { exact: true })).toBeInTheDocument();
+          expect(banner).not.toHaveTextContent(DRAFT_SUMMARY);
+          expect(banner).not.toHaveTextContent(GENERIC_MESSAGE);
+          for (const text of limitCase.absent ?? []) {
+            expect(banner).not.toHaveTextContent(text);
+          }
+          expect(screen.queryByText(GENERIC_MESSAGE)).not.toBeInTheDocument();
+          // 編集中の内容は破棄されず、未保存のまま再保存できる
+          expect(tableItems()[0]?.lines.find((line) => line.lineType === 'ESTIMATE')?.name).toBe(
+            '編集済み名称'
+          );
+          expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+          expect(screen.getByTestId('mock-item-table')).toBeInTheDocument();
+        });
+      }
+
+      const UNCHANGED_CASES: Array<{ label: string; error: () => ApiError; expected: string }> = [
+        {
+          label: '属さない ID（items.<uuid>）の 422',
+          error: () =>
+            new ApiError(422, DRAFT_SUMMARY, {
+              code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+              details: {
+                issues: [
+                  {
+                    path: 'items.6f1c2a3b-0000-4000-8000-000000000001',
+                    message: 'この見積書に属さない見積項目が含まれています',
+                  },
+                ],
+              },
+            }),
+          expected: `保存できません: ${DRAFT_SUMMARY}`,
+        },
+        {
+          label: '仮 ID の解決の失敗（items.<tempId>）の 422',
+          error: () =>
+            new ApiError(422, DRAFT_SUMMARY, {
+              code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+              details: { issues: [{ path: 'items.temp-1', message: '仮IDを解決できません' }] },
+            }),
+          expected: `保存できません: ${DRAFT_SUMMARY}`,
+        },
+        {
+          label: '構造の検証（items.<i>.children.<j>.id）の 422',
+          error: () =>
+            new ApiError(422, DRAFT_SUMMARY, {
+              code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+              details: {
+                issues: [
+                  { path: 'items.0.children.1.id', message: '見積項目のIDが重複しています' },
+                ],
+              },
+            }),
+          expected: `保存できません: ${DRAFT_SUMMARY}`,
+        },
+        {
+          label: '名称の too_big の 400',
+          error: () =>
+            new ApiError(400, '名称は200文字以内で入力してください', {
+              code: 'VALIDATION_ERROR',
+              details: [
+                {
+                  path: 'items.0.lines.0.name',
+                  message: '名称は200文字以内で入力してください',
+                  code: 'too_big',
+                },
+              ],
+            }),
+          expected: '保存できません: 名称は200文字以内で入力してください',
+        },
+        {
+          label: '409 の競合',
+          error: () => new ApiError(409, '他のユーザーによって更新されています'),
+          expected:
+            '他のユーザーによって更新されました。編集中の内容は保持しています。再読み込みして最新の内容を確認してください。',
+        },
+        {
+          label: '404 の不在',
+          error: () => new ApiError(404, 'Not Found'),
+          expected: '見積書が見つかりません。すでに削除された可能性があります。',
+        },
+      ];
+
+      for (const unchangedCase of UNCHANGED_CASES) {
+        it(`${unchangedCase.label}は従来の表示のままであること (42.13 の対象外)`, async () => {
+          vi.mocked(estimatesApi.saveEstimateDraft).mockRejectedValue(unchangedCase.error());
+          const user = userEvent.setup();
+          renderPage();
+
+          await waitFor(() => {
+            expect(tableItems()).toHaveLength(1);
+          });
+          await editEstimateName('編集済み名称');
+          await user.click(screen.getByRole('button', { name: '保存' }));
+
+          await waitFor(() => {
+            expect(screen.getByTestId('estimate-save-error')).toBeInTheDocument();
+          });
+          expect(
+            within(screen.getByTestId('estimate-save-error')).getByText(unchangedCase.expected, {
+              exact: true,
+            })
+          ).toBeInTheDocument();
+        });
+      }
+    });
+
+    /**
      * 42.5: 連続保存で基準時刻を更新しないと、2回目が必ず競合になる。
      */
     it('2回目の保存で応答のupdatedAtを基準時刻として送ること (42.5)', async () => {
