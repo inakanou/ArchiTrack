@@ -182,6 +182,33 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 
 - 一般ロールの既定権限から `company_info:update` を外す（振込先などの改ざん防止）
 
+### 5.14 要求の本文の配列の件数と文字列の長さの上限（横断。OWASP API Security の API4）
+
+2026-10-31 の機能検証で、要求の本文の配列と文字列に上限を持たず、本文の大きさ（`express.json` の 5MB）だけで抑えている経路が見つかった。一つの要求でサーバーの処理時間・メモリ・データベースの負荷を大きく消費させうる（OWASP API Security Top 10 の API4 Unrestricted Resource Consumption）。利用者の判断（2026-10-31）で、見積（estimate-creation）と数量表（quantity-table-generation）だけを起票・実装し、他の経路は次の候補として記録だけする。
+
+| 経路 | 所管 spec | 状況 |
+|---|---|---|
+| 数量表の保存の本文の配列の件数（グループ 1000・一つのグループの項目 2000・項目の総数 5000） | quantity-table-generation | 完了（受入基準42.11。タスク108.1 `76c2916f`） |
+| 数量表の保存の件数の上限を超えたときの画面の表示 | quantity-table-generation | 起票（受入基準42.12。タスク109.1） |
+| 数量表の保存の本文の仮 ID（1〜100 字）・計算用パラメータのキーの数（10）とキーの長さ（50 字）・備考（50 字） | quantity-table-generation | 起票（受入基準42.13。タスク110.1） |
+| 数量グループ・数量項目の表示順の更新の `orderUpdates`（1000・2000）と一括コピー・一括移動の `itemIds`（2000） | quantity-table-generation | 起票（受入基準42.14。タスク110.2） |
+| 見積明細の一括保存の見積項目の総数（2000）を検証の前に数えて打ち切る（深い入れ子のスタックあふれも抑える） | estimate-creation | 起票（受入基準42.10。タスク67.1） |
+| 見積明細の一括保存の見積項目行の備考（2000 字） | estimate-creation | 起票（受入基準42.11。タスク67.2） |
+
+**次の候補（未起票）**: 次の経路の本文の配列（と一部の文字列）は件数・長さの上限を持たない（2026-10-31 にスキーマを読んで確かめた）。値の根拠（画面の制限・既存の定数・実データの規模）を集めてから、所管の spec へ起票する。
+
+| 経路の本文 | 所在（ファイルとスキーマ） | 所管 spec | 備考 |
+|---|---|---|---|
+| 内訳書の項目の並び順の `items` | backend/src/schemas/itemized-statement.schema.ts の `updateItemOrderBodySchema` | itemized-statement-generation | |
+| 見積依頼の項目の選択の `items` | backend/src/schemas/estimate-request.schema.ts の `updateItemSelectionSchema` | estimate-request | |
+| 発注の項目の `itemIds`、出来高の保存の `items` | backend/src/schemas/execution-budget.schema.ts の `updateOrderItemsSchema`・`saveProgressSchema` | execution-budget-management | |
+| 現場調査の写真の並び順の `orders`、メタデータの一括更新の `updates` | backend/src/routes/survey-images.routes.ts の `imageOrderBodySchema`・`batchImageMetadataUpdateBodySchema` | site-survey | |
+| 施工写真のメタデータの一括更新の `items`、並び順の `orders` | backend/src/schemas/construction-photo.schema.ts の `updatePhotoMetadataBatchSchema`・`updatePhotoOrderSchema` | construction-photo | 実測が無く値を決めかねている |
+| 注釈の `objects`・`viewportTransform` | backend/src/schemas/annotation.schema.ts の `annotationDataSchema` | site-survey | 実測が無く値を決めかねている（一枚の写真の注釈の図形の数の実データが無い） |
+| 受領見積書の明細の `lineItems` と各文字列（名称・規格・単位・備考など） | backend/src/schemas/received-quotation.schema.ts の `lineItemsArraySchema`・`lineItemSchema` | estimate-request | 実測が無く値を決めかねている。明細の備考は上限を持たず、見積明細へ転記すると estimate-creation の受入基準42.11（備考 2000 字）を超えて見積書を保存できなくなりうる（estimate-creation の design.md の同章の Out of Boundary） |
+| ロールの権限の追加の `permissionIds`、ユーザーのロールの追加の `roleIds` | backend/src/routes/roles.routes.ts の `addPermissionSchema`、backend/src/routes/user-roles.routes.ts の `addRolesSchema` | user-authentication | |
+| 数量項目の作成・更新の `calculationParams`・`remarks`（保存の経路の受入基準42.13 と同じ上限を広げるか） | backend/src/routes/quantity-items.routes.ts | quantity-table-generation | 受入基準42.13 は保存の経路だけを変える |
+
 ## 6. 新規 spec を起票しない理由
 
 どの既存 spec の要件・設計にも記載がない項目は、依存・CI・イメージ・シークレット・運用基盤の設定変更である。次の理由で spec にせず、直接実装（Path B）・運用作業・文書化として扱う。
