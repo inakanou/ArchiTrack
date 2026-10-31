@@ -1862,6 +1862,32 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Requirements: 57.11_
   - _Boundary: EstimateDraftService の一括保存の所属の照合（saveDraft・validatePayloadItemOwnership）と依存の注入、見積書の一括保存の経路の 422 の分岐と、その記録を主張する本スペックのテスト_
 
+## タスク67: 一括保存の本文の件数の前倒しの数え上げと備考の文字数の上限（OWASP API Security の API4 への対策。利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」、値は同日に利用者が確定）で起票する。見積明細の一括保存の経路（backend/src/routes/estimates.routes.ts の `PUT /:id/save`〔772 行付近。本文の検証の `safeParse` は 788 行付近〕）は、本文の見積項目の総数の上限（`SAVE_ESTIMATE_MAX_ITEMS`、2000）を、スキーマが本文の全体を再帰で検証した後の `superRefine`（backend/src/schemas/estimate.schema.ts の `validateSaveEstimateItemTree`〔453 行付近〕）で数えるため、上限を大きく超える本文や深い入れ子の本文も全件が検証へ渡る。見積項目行のスキーマ（同ファイルの `saveEstimateLineSchema`〔353 行付近〕）の `remarks` は長さの上限を持たない。行は 2026-10-31 の実測で、着手時に測り直すこと。requirements.md に 42.10・42.11 を加え（改訂の記録を Requirement 42 に、57.11 の判定の範囲の補足を Requirement 57 に残した）、design.md の末尾の章「2026-10-31 の追加: 一括保存の本文の件数の前倒しの数え上げと備考の文字数の上限」に設計と確定した値を置いた
+
+- [ ] 67.1 一括保存の本文の見積項目の総数を検証の前に数え、上限を超えたら打ち切って従来の 422 で拒む
+  - 生の本文の `items` と各節点の `children` の節点を明示のスタックで数える関数を置き（再帰を使わない。積むときに数え、2001 件目で打ち切る。配列でない `items`・`children` は数えずに進む。読んだ節点の UUID の形の `id` を集める）、経路で `saveEstimateDraftSchema` の `safeParse` の前に呼ぶ。打ち切ったら、集めた ID で 57.11 の属さない ID の判定と記録を行ってから、従来の件数の上限の 422（`EstimateDraftValidationError`、`path` `items`、`ITEMS_TOO_MANY` の文言）を投げ、Zod の検証とサービスの保存を呼ばない（design.md の同章の「決定」の「総数の前倒しの数え上げ」）。構造の検証の中の総数の検査は残す。関数の名前と置き場所、57.11 の判定へ ID を渡す形を design.md の同章の「決定」へ記す
+  - 2000 段の鎖（各節点が一つの子を持つ）の本文の一括保存が 500 にならず、構造の検証の 422 か保存で終わることを統合テストで確かめ、所要を一時の計測で測って design.md の同章へ記す。上限いっぱい（2000 件、全件新規）の保存の所要が制限時間（15 秒、`ESTIMATE_SAVE_TRANSACTION_OPTIONS`）に収まることも一時の計測で再確認して記す（計測の器具は提出物に残さない）。2000 段の鎖を読み切れなければ着手を止めて利用者に諮る
+  - 単体（`backend/src/__tests__/unit/schemas/estimate.schema.test.ts`）に、数え上げの関数が 2000 件で数え終え 2001 件で打ち切ること（`items` だけ、`children` の入れ子、一つの節点の `children` が大きい場合）、配列でない値を数えずに進むこと、数万段の鎖でも例外にならないこと、読んだ節点の ID を集めることを足す。経路の単体（`backend/src/__tests__/unit/routes/estimates.routes.test.ts`）に、上限を超えた本文で Zod の検証とサービスの保存を呼ばずに件数の上限の 422 になること、形式の不正を併せて含んでも 422 になること、57.11 の判定が読んだ ID で呼ばれることを足す
+  - 統合（`backend/src/__tests__/integration/estimate-draft-save.api.integration.test.ts`）に、総数 2001 件の本文と深い入れ子で上限を超える本文が 422 になりデータベースが変わらないことを足す。閲覧範囲の統合（`backend/src/__tests__/integration/estimate-creation-project-scope.api.integration.test.ts` の 57.11 のテストの近く）に、件数の上限を超えた本文に範囲外の案件の見積項目の ID を含めると担当者の `PROJECT_SCOPE_DENIED` が 1 件増え 422 のままであることを足す
+  - E2E（`e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、一括保存の API へ総数が上限を 1 件超えた本文を送ると 422 になり見積書が変わらないことを主張し、`@requirement estimate-creation/REQ-42.10` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積明細の一括保存の 422 と 400）を e2e/ 全体で grep して既存の E2E を選び、流す（見積明細の保存の E2E と閲覧範囲の E2E の 57.5・57.11 のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、総数が上限を超えた本文は検証の前に従来の 422 で拒まれどこにも書き込まず、読んだ節点の範囲外の ID は記録され、上限の内側の保存が従来どおりである状態になる
+  - _Requirements: 42.10_
+  - _Boundary: 見積書の一括保存の経路（PUT /:id/save の本文の検証の前段）、estimate.schema の数え上げの関数、57.11 の判定の処理へ ID を渡す形（EstimateDraftService.recordForeignItemScopeDenials の周辺）と、それらを主張する本スペックのテスト_
+- [ ] 67.2 見積項目行の備考に文字数の上限を設ける
+  - `saveEstimateLineSchema` の `remarks` を 2000 文字までとし、超えたら他の文字列の欄と同じ形式の不正の 400 で、「備考は2000文字以内で入力してください」の趣旨のメッセージと問題箇所（`items.<i>.lines.<j>.remarks` など）を返す（design.md の同章の「決定」の「備考の文字数の上限」）。上限を設けないとしていたスキーマの注釈を改める。文言の定数の名前と最終形を design.md の同章の「決定」へ記す
+  - テスト環境の DB（読むだけ）で見積項目行の備考の最大の長さを確かめ、design.md の同章へ記す
+  - 単体（`backend/src/__tests__/unit/schemas/estimate.schema.test.ts`）に、`remarks` が 2000 文字で通り 2001 文字で 400 の問題（メッセージと問題箇所）になることを足す。統合（`backend/src/__tests__/integration/estimate-draft-save.api.integration.test.ts`）に、備考が 2001 文字の本文が 400 になりデータベースが変わらないことを足す
+  - E2E（`e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、一括保存の API へ備考が上限を超えた本文を送ると 400 になり見積書が変わらないことを主張し、`@requirement estimate-creation/REQ-42.11` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積明細の一括保存の 400）を e2e/ 全体で grep して既存の E2E を選び、流す（受領見積書からの転記の保存の E2E を含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、見積項目行の備考が 2000 文字を超える本文は 400 で拒まれどこにも書き込まず、上限の内側の保存が従来どおりである状態になる
+  - _Requirements: 42.11_
+  - _Boundary: estimate.schema の見積項目行のスキーマ（saveEstimateLineSchema）と、その上限を主張する本スペックのテスト_
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。
