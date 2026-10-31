@@ -1878,7 +1878,7 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - 単体・統合・E2E で、総数が上限を超えた本文は検証の前に従来の 422 で拒まれどこにも書き込まず、読んだ節点の範囲外の ID は記録され、上限の内側の保存が従来どおりである状態になる
   - _Requirements: 42.10, 42.12, 2.5_
   - _Boundary: 見積書の一括保存の経路（PUT /:id/save の本文の検証の前段）、estimate.schema の数え上げの関数、57.11 の判定の処理へ ID を渡す形（EstimateDraftService.recordForeignItemScopeDenials の周辺）と、それらを主張する本スペックのテスト_
-- [ ] 67.2 見積項目行の備考に文字数の上限を設ける
+- [x] 67.2 見積項目行の備考に文字数の上限を設ける
   - `saveEstimateLineSchema` の `remarks` を 2000 文字までとし、超えたら他の文字列の欄と同じ形式の不正の 400 で、「備考は2000文字以内で入力してください」の趣旨のメッセージと問題箇所（`items.<i>.lines.<j>.remarks` など）を返す（design.md の同章の「決定」の「備考の文字数の上限」）。上限を設けないとしていたスキーマの注釈を改める。文言の定数の名前と最終形を design.md の同章の「決定」へ記す
   - テスト環境の DB（読むだけ）で見積項目行の備考の最大の長さを確かめ、design.md の同章へ記す
   - 単体（`backend/src/__tests__/unit/schemas/estimate.schema.test.ts`）に、`remarks` が 2000 文字で通り 2001 文字で 400 の問題（メッセージと問題箇所）になることを足す。統合（`backend/src/__tests__/integration/estimate-draft-save.api.integration.test.ts`）に、備考が 2001 文字の本文が 400 になりデータベースが変わらないことを足す

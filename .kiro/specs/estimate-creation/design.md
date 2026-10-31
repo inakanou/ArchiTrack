@@ -5111,6 +5111,8 @@ model EstimateEditSession {
 - 超えたときの応答: 他の文字列の欄と同じ形式の不正の 400（`ValidationError`、`code` `too_big`）で、問題箇所は `items.<i>.lines.<j>.remarks`（子孫は `items.<i>.children.<k>.lines.<j>.remarks`）、メッセージは「備考は2000文字以内で入力してください」とする。文言の定数の名前と最終形は実装時に決めて本節へ記す。スキーマの注釈（Prisma の `TEXT` に合わせて上限を設けない）を改める
 - データベースの列（`EstimateItemLine.remarks`、`TEXT`）は変えない。既存のデータに 2000 文字を超える備考があると、その見積書は備考を短くするまで保存できなくなる。実装のタスクでテスト環境の DB の備考の最大の長さを読むだけで確かめ、本節へ記す（本番の値は測れないため、超える備考があれば 400 の文言で利用者が短くする）
 - 2000 文字の備考を全行に入れた上限いっぱい（2000 項目）の本文は 5MB を超えるため、件数と備考の上限はどちらも本文の大きさの上限の内側で働く
+- **実装（タスク67.2、2026-10-31）**: 上限の値は `SAVE_ESTIMATE_LINE_REMARKS_MAX_LENGTH`（2000）、文言は `SAVE_ESTIMATE_VALIDATION_MESSAGES.REMARKS_TOO_LONG`（最終形「備考は2000文字以内で入力してください」。値の定数から組み立てる）とし、どちらも estimate.schema に置いた。`saveEstimateLineSchema` の `remarks` は `z.string().max(SAVE_ESTIMATE_LINE_REMARKS_MAX_LENGTH, …).nullable()` で、上限を設けないとしていた注釈を改めた。文字数は他の文字列の欄と同じく Zod の `max` で数える（符号位置の数で、サロゲートペアの絵文字は 1 文字。単体テストで固定した）。超えた応答は他の文字列の欄と同じ 400（`code` `VALIDATION_ERROR`、`message` と `detail` が上の文言、`details` が `[{ path: 'items.0.lines.0.remarks', message, code: 'too_big' }]` の形）で、画面は「保存できません: 備考は2000文字以内で入力してください」と表示する（どの行かは表示しない。画面は変えない）
+- **既存のデータ（2026-10-31）**: テスト環境の DB（読むだけの SELECT。表 `estimate_item_lines` の列 `remarks` の `char_length` の最大）の見積項目行は 33 行で、備考を持つ行は 0 行、最大の長さは 0 文字、2000 文字を超える行は 0 行だった（E2E と統合テストが後始末で消すため）。本番の値は測れない
 
 ### Requirements Traceability
 

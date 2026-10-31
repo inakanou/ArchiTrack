@@ -2104,6 +2104,98 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
   });
 
   // ==========================================
+  // 見積項目行の備考の文字数の上限（42.11、タスク67.2）
+  // ==========================================
+  describe('見積項目行の備考の文字数の上限（42.11）', () => {
+    const REMARKS_TOO_LONG = '備考は2000文字以内で入力してください';
+
+    it.each([
+      {
+        label: 'ルートの既存項目の見積金額行',
+        path: 'items.0.lines.0.remarks',
+        items: (ids: { root1Id: string; child1Id: string; root2Id: string }) => [
+          nodePayload({
+            id: ids.root1Id,
+            lines: [linePayload({ name: '上限超えで書き換え', remarks: 'あ'.repeat(2001) })],
+            children: [nodePayload({ id: ids.child1Id })],
+          }),
+          nodePayload({ id: ids.root2Id }),
+        ],
+      },
+      {
+        label: '子孫の新規項目の実行予算行',
+        path: 'items.0.children.1.lines.1.remarks',
+        items: (ids: { root1Id: string; child1Id: string; root2Id: string }) => [
+          nodePayload({
+            id: ids.root1Id,
+            lines: [linePayload({ name: '上限超えで書き換え' })],
+            children: [
+              nodePayload({ id: ids.child1Id }),
+              nodePayload({
+                tempId: 'tmp-over-remarks',
+                lines: [
+                  linePayload(),
+                  linePayload({ lineType: 'EXECUTION', remarks: 'r'.repeat(2001) }),
+                ],
+              }),
+            ],
+          }),
+          nodePayload({ id: ids.root2Id }),
+        ],
+      },
+    ])(
+      '$label の備考が2001文字の本文は 400 で拒まれ、データベースは変わらない',
+      async ({ label, path, items }) => {
+        const seeded = await createSeededEstimate(`備考上限超え_${label}`);
+        const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.estimateId);
+        const before = await snapshotItems(seeded.estimateId);
+
+        const response = await request(app)
+          .put(`/api/estimates/${seeded.estimateId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ expectedUpdatedAt, reportFields: reportFieldsPayload(), items: items(seeded) });
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(response.body.message).toBe(REMARKS_TOO_LONG);
+        expect(response.body.details).toEqual([
+          { path, message: REMARKS_TOO_LONG, code: 'too_big' },
+        ]);
+
+        // 通っていれば既存ルート1の名前が変わり、既存ルート1の他の行が消える。どれも起きていない
+        expect(await snapshotItems(seeded.estimateId)).toEqual(before);
+        const estimate = await prisma.estimate.findUniqueOrThrow({
+          where: { id: seeded.estimateId },
+          select: { updatedAt: true },
+        });
+        expect(estimate.updatedAt.toISOString()).toBe(expectedUpdatedAt);
+      }
+    );
+
+    it('備考が2000文字ちょうどの本文は従来どおり保存され、備考がそのまま残る', async () => {
+      const seeded = await createSeededEstimate('備考上限ちょうど');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.estimateId);
+      const remarks = 'あ'.repeat(2000);
+
+      const response = await request(app)
+        .put(`/api/estimates/${seeded.estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          reportFields: reportFieldsPayload(),
+          items: [nodePayload({ id: seeded.root2Id, lines: [linePayload({ remarks })] })],
+        });
+
+      expect(response.status).toBe(200);
+      const saved = await prisma.estimateItemLine.findMany({
+        where: { estimateItem: { estimateId: seeded.estimateId } },
+        select: { remarks: true, estimateItemId: true },
+      });
+      expect(saved).toEqual([{ remarks, estimateItemId: seeded.root2Id }]);
+    });
+  });
+
+  // ==========================================
   // 形式不正と検証NGが同時に含まれるペイロード（42.4, 42.8）
   // ==========================================
   describe('形式不正と検証NGの混在ペイロード', () => {

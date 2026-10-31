@@ -287,6 +287,16 @@ export const SAVE_ESTIMATE_MAX_ITEMS = 2000;
  */
 export const SAVE_ESTIMATE_MAX_DEPTH = 100;
 
+/**
+ * 一括保存の見積項目行の備考（`remarks`）の最大文字数（Requirement 42.11）
+ *
+ * 2026-10-31 に利用者が確定した値（タスク67.2）。site-survey の現場調査のメモと写真のコメントの上限
+ * （2000 文字）の前例に合わせる。文字数は他の文字列の欄と同じく Zod の `max` で数える（符号位置の数）。
+ * データベースの列（`EstimateItemLine.remarks`、`TEXT`）は長さの制約を持たないが、一件の備考の大きさで
+ * 本文を膨らませる経路を塞ぐため（OWASP API Security の API4）スキーマで上限を設ける。
+ */
+export const SAVE_ESTIMATE_LINE_REMARKS_MAX_LENGTH = 2000;
+
 /** 別途工事の最大件数（54.1） */
 const SEPARATE_WORKS_MAX_COUNT = 5;
 
@@ -334,6 +344,7 @@ export const SAVE_ESTIMATE_VALIDATION_MESSAGES = {
   UNIT_PRICE_DECIMAL_INVALID: '単価は整数部13桁・小数部2桁以内の数値で入力してください',
   AMOUNT_DECIMAL_INVALID: '金額は整数部13桁・小数部2桁以内の数値で入力してください',
   TEMP_ID_REQUIRED: '一時IDは1文字以上100文字以内で指定してください',
+  REMARKS_TOO_LONG: `備考は${SAVE_ESTIMATE_LINE_REMARKS_MAX_LENGTH}文字以内で入力してください`,
 } as const;
 
 /**
@@ -381,10 +392,13 @@ export const saveEstimateLineSchema = z.object({
     .string()
     .regex(AMOUNT_DECIMAL_PATTERN, SAVE_ESTIMATE_VALIDATION_MESSAGES.AMOUNT_DECIMAL_INVALID)
     .nullable(),
-  // `remarks` は Prisma 上も長さ制約のない TEXT（`EstimateItemLine.remarks`）のため、
-  // 他8フィールドと異なり最大長を設けない。DB 側に制約が無い以上、
-  // スキーマ独自の上限は保存できるはずの値を弾くことになる
-  remarks: z.string().nullable(),
+  // `remarks` は Prisma 上は長さ制約のない TEXT（`EstimateItemLine.remarks`）だが、
+  // 一件の大きさで本文を膨らませないよう 2000 文字の上限を設ける（Requirement 42.11、タスク67.2）。
+  // 超えたら他の文字列の欄と同じ `too_big` の形式の不正（400）になる
+  remarks: z
+    .string()
+    .max(SAVE_ESTIMATE_LINE_REMARKS_MAX_LENGTH, SAVE_ESTIMATE_VALIDATION_MESSAGES.REMARKS_TOO_LONG)
+    .nullable(),
   sourceVendorName: z.string().max(200).nullable(),
 });
 

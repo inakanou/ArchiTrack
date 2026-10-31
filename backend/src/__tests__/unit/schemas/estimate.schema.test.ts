@@ -1000,6 +1000,84 @@ describe('estimate.schema', () => {
       });
     });
 
+    /**
+     * 見積項目行の備考の文字数の上限（タスク67.2）。超えたら他の文字列の欄と同じ形式の不正
+     * （`too_big`。経路が 400 にする）で、問題箇所とメッセージを返す
+     *
+     * @requirement estimate-creation/REQ-42.11
+     */
+    describe('備考の文字数の上限（42.11）', () => {
+      const remarksIssues = (result: { success: boolean; error?: z.ZodError }) =>
+        (result.error?.issues ?? []).map((issue) => ({
+          path: issue.path.join('.'),
+          code: issue.code,
+          message: issue.message,
+        }));
+
+      it('備考が2000文字ちょうどなら受け入れる', () => {
+        const result = saveEstimateDraftSchema.safeParse(
+          draft([existingNode({ lines: [estimateLine({ remarks: 'あ'.repeat(2000) })] })])
+        );
+        expect(result.success).toBe(true);
+      });
+
+      it('備考が2001文字なら問題箇所とメッセージを持つ too_big の問題になる', () => {
+        const result = saveEstimateDraftSchema.safeParse(
+          draft([existingNode({ lines: [estimateLine({ remarks: 'あ'.repeat(2001) })] })])
+        );
+        expect(result.success).toBe(false);
+        expect(remarksIssues(result)).toEqual([
+          {
+            path: 'items.0.lines.0.remarks',
+            code: 'too_big',
+            message: '備考は2000文字以内で入力してください',
+          },
+        ]);
+        expect(SAVE_ESTIMATE_VALIDATION_MESSAGES.REMARKS_TOO_LONG).toBe(
+          '備考は2000文字以内で入力してください'
+        );
+      });
+
+      it('子孫の節点の2行目の備考が2001文字なら、その位置を問題箇所として返す', () => {
+        const result = saveEstimateDraftSchema.safeParse(
+          draft([
+            existingNode({
+              children: [
+                newNode('tmp-child', {
+                  lines: [
+                    estimateLine(),
+                    estimateLine({ lineType: 'EXECUTION', remarks: 'r'.repeat(2001) }),
+                  ],
+                }),
+              ],
+            }),
+          ])
+        );
+        expect(result.success).toBe(false);
+        expect(remarksIssues(result)).toEqual([
+          {
+            path: 'items.0.children.0.lines.1.remarks',
+            code: 'too_big',
+            message: '備考は2000文字以内で入力してください',
+          },
+        ]);
+      });
+
+      // 文字数は他の文字列の欄と同じく Zod の max で数える（符号位置の数。サロゲートペアの絵文字は 1 文字）
+      it('サロゲートペアの文字は1文字として数える（2000文字は受け入れ、2001文字は拒否する）', () => {
+        const accepted = saveEstimateDraftSchema.safeParse(
+          draft([existingNode({ lines: [estimateLine({ remarks: '😀'.repeat(2000) })] })])
+        );
+        expect(accepted.success).toBe(true);
+
+        const rejected = saveEstimateDraftSchema.safeParse(
+          draft([existingNode({ lines: [estimateLine({ remarks: '😀'.repeat(2001) })] })])
+        );
+        expect(rejected.success).toBe(false);
+        expect(issuePaths(rejected)).toEqual(['items.0.lines.0.remarks']);
+      });
+    });
+
     describe('ノードのフィールド必須性（design.md 4305-4311）', () => {
       it.each(['id', 'tempId', 'children'])('%s を省略したリクエストは拒否する', (field) => {
         const node = existingNode() as Record<string, unknown>;

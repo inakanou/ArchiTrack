@@ -25,6 +25,7 @@
  * - REQ-45.3: ツリー表示では全階層をインデント付きで一覧表示する
  * - REQ-42.10: 本文の見積項目の総数が上限を超えると検証の前に件数の上限の 422 で拒み、書き込まない
  * - REQ-42.12: 本文の見積項目の階層の深さが上限を超えると検証の前に深さの上限の 422 で拒み、書き込まない
+ * - REQ-42.11: 本文の見積項目行の備考が文字数の上限を超えると他の文字列の欄と同じ 400 で拒み、書き込まない
  *
  * @module e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec
  */
@@ -360,8 +361,8 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
   // 達するため、JSON の文字列を反復で組み立てて送る。
   // ==========================================================================
 
-  test.describe('一括保存の本文の総数と階層の深さの上限', () => {
-    const LINE_JSON = JSON.stringify({
+  test.describe('一括保存の本文の総数・階層の深さ・備考の文字数の上限', () => {
+    const LINE = {
       lineType: 'ESTIMATE',
       name: '上限検証',
       specification: null,
@@ -371,7 +372,8 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
       amount: null,
       remarks: null,
       sourceVendorName: null,
-    });
+    };
+    const LINE_JSON = JSON.stringify(LINE);
     const nodeJson = (tempId: string, childrenJson = ''): string =>
       `{"id":null,"tempId":"${tempId}","itemType":"STANDARD","lines":[${LINE_JSON}],"children":[${childrenJson}]}`;
     /** 各節点が一つの子を持つ深さ `depth` の鎖（再帰も JSON.stringify も使わない） */
@@ -469,6 +471,62 @@ test.describe('既存見積書の階層が再読み込みと保存で維持さ�
           issues: [{ path: 'items', message: '見積項目の階層は100段以内で保存してください' }],
         });
       }
+    });
+
+    /**
+     * @requirement estimate-creation/REQ-42.11
+     */
+    test('一括保存の API へ備考が上限を超えた本文を送ると 400 になり見積書は変わらず、上限ちょうどの備考は保存される (estimate-creation/REQ-42.11)', async ({
+      page,
+    }) => {
+      expect(createdEstimateId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
+      await resetHierarchy(page);
+
+      const nodeWithRemarksJson = (tempId: string, remarks: string): string =>
+        `{"id":null,"tempId":"${tempId}","itemType":"STANDARD","lines":[${JSON.stringify({ ...LINE, name: tempId, remarks })}],"children":[]}`;
+
+      // 上限を 1 文字超える備考は、他の文字列の欄と同じ形式の不正の 400（問題箇所とメッセージ）で拒まれる
+      const { status, body } = await saveRawAndExpectUnchanged(
+        page,
+        nodeWithRemarksJson('remarks-over', 'あ'.repeat(2001))
+      );
+      expect(status).toBe(400);
+      expect(body.code).toBe('VALIDATION_ERROR');
+      expect(body.message).toBe('備考は2000文字以内で入力してください');
+      // 画面は応答の detail を「保存できません: 」に続けて表示する（42.4。画面は変えない）
+      expect(body.detail).toBe('備考は2000文字以内で入力してください');
+      expect(body.details).toEqual([
+        {
+          path: 'items.0.lines.0.remarks',
+          message: '備考は2000文字以内で入力してください',
+          code: 'too_big',
+        },
+      ]);
+
+      // 上限ちょうどの備考は従来どおり保存され、再取得しても同じ備考が残る
+      const remarks = 'あ'.repeat(2000);
+      const expectedUpdatedAt = await getEstimateUpdatedAt(
+        page.request,
+        accessToken,
+        createdEstimateId!
+      );
+      const res = await page.request.put(
+        `${API_BASE_URL}/api/estimates/${createdEstimateId}/save`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          data: `{"expectedUpdatedAt":${JSON.stringify(expectedUpdatedAt)},"reportFields":{"submissionDate":null,"validityPeriod":null,"separateWorks":[]},"items":[${nodeWithRemarksJson('remarks-max', remarks)}]}`,
+        }
+      );
+      expect(res.status()).toBe(200);
+      const tree = await fetchTree(page);
+      expect(tree).toHaveLength(1);
+      expect(tree[0]!.lines.map((line) => [line.name, line.remarks])).toEqual([
+        ['remarks-max', remarks],
+      ]);
+
+      await resetHierarchy(page);
     });
   });
 });
