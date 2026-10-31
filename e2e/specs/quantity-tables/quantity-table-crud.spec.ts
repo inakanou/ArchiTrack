@@ -629,6 +629,25 @@ test.describe('数量表CRUD操作', () => {
       const olderTable = await createTestQuantityTable(page, orderingProjectId, 'REQ2_3_先に作成');
       const newerTable = await createTestQuantityTable(page, orderingProjectId, 'REQ2_3_後に作成');
 
+      // 作成日時は backend の壁時計で付く。この WSL2 の壁時計は約 30 秒ごとに約 2.85 秒戻る
+      // ことが実測されており、2 件を続けて作る間に戻ると「後に作成」の方が古い時刻になって
+      // 並びが逆転する（全件の実行で一度だけ並びが逆になった原因）。作成の順序と作成日時の
+      // 前後を一致させるため、2 件の createdAt を時計の揺れより十分に離して書き直す。
+      // 書き直した値の前後が一覧の並びに現れることを主張するので、並び替えの判定は弱めない。
+      // 数量表の一覧はキャッシュを持たない（quantity-table.service.ts の一覧は毎回 DB を引く）ため、
+      // 書き直しの後の無効化は要らない。
+      const now = Date.now();
+      const olderCreatedAt = new Date(now - 2 * 60 * 60 * 1000);
+      const newerCreatedAt = new Date(now - 1 * 60 * 60 * 1000);
+      await getPrismaClient().quantityTable.update({
+        where: { id: olderTable.id },
+        data: { createdAt: olderCreatedAt },
+      });
+      await getPrismaClient().quantityTable.update({
+        where: { id: newerTable.id },
+        data: { createdAt: newerCreatedAt },
+      });
+
       await page.goto(`/projects/${orderingProjectId}/quantity-tables`);
       await page.waitForLoadState('networkidle');
 
@@ -643,8 +662,7 @@ test.describe('数量表CRUD操作', () => {
       const labels = await listItems.evaluateAll((elements) =>
         elements.map((element) => element.getAttribute('aria-label') ?? '')
       );
-      // 全件の実行で一度だけ並びが逆になり再試行で回復したが、原因は特定できていない。
-      // 次に落ちたときに追えるよう、DB 上の2件の作成時刻を失敗のメッセージへ載せる。
+      // 失敗したときに追えるよう、DB 上の2件の作成時刻を失敗のメッセージへ載せる。
       const storedTables = await getPrismaClient().quantityTable.findMany({
         where: { id: { in: [olderTable.id, newerTable.id] } },
         select: { id: true, name: true, createdAt: true },

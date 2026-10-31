@@ -306,7 +306,7 @@ sequenceDiagram
 | 11.9-11.21 | 受領見積書登録（構造化データ入力） | LineItemEditor | POST /api/estimate-requests/:id/quotations | 明細行入力 |
 | 11.22-11.24 | 受領見積書登録バリデーション | ReceivedQuotationForm | POST /api/estimate-requests/:id/quotations | 登録バリデーション |
 | 11.25-11.27 | 受領見積書一覧表示 | ReceivedQuotationList | GET /api/estimate-requests/:id/quotations | 一覧取得 |
-| 11.28-11.30 | 受領見積書編集・削除 | ReceivedQuotationForm | PUT/DELETE /api/quotations/:id | 編集・削除 |
+| 11.28-11.30 | 受領見積書編集・削除 | ReceivedQuotationForm | PUT/DELETE /api/quotations/:quotationId | 編集・削除 |
 | 12.1-12.4 | ステータス表示 | StatusBadge, StatusTransitionButton | GET /api/estimate-requests/:id | ステータス表示 |
 | 12.5-12.8 | ステータス遷移ボタン | StatusTransitionButton | PATCH /api/estimate-requests/:id/status | ステータス遷移 |
 | 12.9-12.10 | ステータス遷移実行 | EstimateRequestStatusService | PATCH /api/estimate-requests/:id/status | ステータス更新 |
@@ -319,9 +319,9 @@ sequenceDiagram
 | 13.14 | OCRエラーハンドリング | OcrDataExtractor | - | エラー処理 |
 | 14.1-14.6 | 受領見積書データ管理 | ReceivedQuotationService, ReceivedQuotationLineItem Model | CRUD APIs | データ永続化 |
 | 15.1-15.11 | 項目選択一括転記 | ReceivedQuotationForm, ItemSelectionPanel, LineItemEditor | クライアントサイドデータフロー | 項目選択一括転記フロー |
-| 16.1-16.4 | 編集画面OCR実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:id/preview | 既存ファイルOCR実行フロー |
+| 16.1-16.4 | 編集画面OCR実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:quotationId/preview | 既存ファイルOCR実行フロー |
 | 16.5-16.6 | OCRリトライ | OcrDataExtractor | - | OCRリトライフロー |
-| 16.7-16.8 | 編集画面データパース実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:id/preview | 既存ファイルデータパースフロー |
+| 16.7-16.8 | 編集画面データパース実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:quotationId/preview | 既存ファイルデータパースフロー |
 | 16.9 | OCR失敗時の保存許可 | ReceivedQuotationForm | - | バリデーションフロー |
 | 16.10-16.12 | 編集画面OCR結果取り込み | OcrDataExtractor, LineItemEditor | - | データ取り込みフロー |
 | 17.1-17.5 | PDFテキスト抽出ハイブリッドアプローチ | OcrDataExtractor | - | PDFテキスト抽出フロー（pdfjs-dist → Tesseract OCRフォールバック） |
@@ -942,10 +942,10 @@ interface ReceivedQuotationService {
 |--------|----------|---------|----------|--------|
 | POST | /api/estimate-requests/:id/quotations | CreateReceivedQuotationInput (multipart) | ReceivedQuotationInfo | 400, 401, 403, 404, 413, 415 |
 | GET | /api/estimate-requests/:id/quotations | - | ReceivedQuotationInfo[] | 401, 403, 404 |
-| GET | /api/quotations/:id | - | ReceivedQuotationInfo | 401, 403, 404 |
-| PUT | /api/quotations/:id | UpdateReceivedQuotationInput (multipart) + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
-| DELETE | /api/quotations/:id | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
-| GET | /api/quotations/:id/preview | - | { url: string } | 401, 403, 404, 422 |
+| GET | /api/quotations/:quotationId | - | ReceivedQuotationInfo | 401, 403, 404 |
+| PUT | /api/quotations/:quotationId | UpdateReceivedQuotationInput (multipart) + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
+| DELETE | /api/quotations/:quotationId | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
+| GET | /api/quotations/:quotationId/preview | - | { url: string } | 401, 403, 404, 422 |
 
 **multipart/form-data フィールド構成（改訂版）**:
 - `name` (string, 必須): 受領見積書名
@@ -1078,10 +1078,10 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 | GET | /api/estimate-requests/:id/excel | - | Blob (xlsx) | 400, 401, 403, 404 |
 | POST | /api/estimate-requests/:id/quotations | multipart/form-data | ReceivedQuotationInfo | 400, 401, 403, 404, 413, 415 |
 | GET | /api/estimate-requests/:id/quotations | - | ReceivedQuotationInfo[] | 401, 403, 404 |
-| GET | /api/quotations/:id | - | ReceivedQuotationInfo | 401, 403, 404 |
-| PUT | /api/quotations/:id | multipart/form-data + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
-| DELETE | /api/quotations/:id | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
-| GET | /api/quotations/:id/preview | - | { url: string } | 401, 403, 404, 422 |
+| GET | /api/quotations/:quotationId | - | ReceivedQuotationInfo | 401, 403, 404 |
+| PUT | /api/quotations/:quotationId | multipart/form-data + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
+| DELETE | /api/quotations/:quotationId | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
+| GET | /api/quotations/:quotationId/preview | - | { url: string } | 401, 403, 404, 422 |
 | PATCH | /api/estimate-requests/:id/status | { status: EstimateRequestStatus } | { id, status, updatedAt } | 400, 401, 403, 404 |
 | GET | /api/estimate-requests/:id/status-history | - | EstimateRequestStatusHistory[] | 401, 403, 404 |
 
@@ -6638,7 +6638,7 @@ mailDisabledReason: {
 | 42.4 | 作成の要求が指す範囲外の内訳書は不在と同じ 404、作成しない | 見積依頼・受領見積書・ステータスの経路, 案件IDの解決関数 | `evaluateProjectAccess` | 見積依頼作成フロー |
 | 42.5 | 項目の選択の保存は範囲外なら全体を 404、書き込まない | 見積依頼・受領見積書・ステータスの経路, 案件IDの解決関数 | `requireProjectScope` | 項目選択・保存フロー |
 | 42.6 | 一覧・直近・受領見積書の一覧・他の見積依頼での選択状態は範囲内だけ | 見積依頼・受領見積書・ステータスの経路, 他の見積依頼の絞り込み | `requireProjectScope`, `buildProjectScopeWhere` | - |
-| 42.7 | 受領見積書のファイルの署名付きURLは範囲内に限る | 署名付きURLの発行の判定 | `GET /api/quotations/:id/preview` | - |
+| 42.7 | 受領見積書のファイルの署名付きURLは範囲内に限る | 署名付きURLの発行の判定 | `GET /api/quotations/:quotationId/preview` | - |
 | 42.8 | 生成の前に出力の記録を 1 回要求する | 出力の開始の処理 | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | Excel生成 |
 | 42.9 | 記録の失敗では生成せずエラーメッセージを表示する | 出力の開始の処理 | `runRecordedExport`, `EXPORT_RECORD_FAILED_MESSAGE` | - |
 
@@ -6957,7 +6957,7 @@ mailDisabledReason: {
 #### Out of Boundary
 - 出力の記録の部品（`runRecordedExport`・`EXPORT_RECORD_FAILED_MESSAGE`）と記録の内容（user-authentication の要件40.9〜40.11）。本追加は部品と記録を変えない
 - mail-launcher のタブの操作（`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）の契約。本追加は戻り値と例外を読むだけで変えない
-- 「メールで開く」（mailto）の失敗の表示。mailto へのページの遷移は例外になる経路がほぼ無く、利用者の判断の範囲は「Gmailで開く」である。同じ形の穴（記録の後の `GENERATION_FAILED` で何も表示しない）は残り、必要なら別に起票する
+- 「メールで開く」（mailto）の失敗の表示。mailto へのページの遷移は例外になる経路がほぼ無く、利用者の判断の範囲は「Gmailで開く」である。同じ形の穴（記録の後の `GENERATION_FAILED` で何も表示しない）は残り、必要なら別に起票する。加えて、メールソフトを開けなかったこと（既定のメールソフトが無い、利用者が起動を断った等）は画面から検知できない。mailto はブラウザが外部のメールソフトへ渡し、開けたかどうかを画面へ返さないためである（追記 2026-10-31、機能検証の指摘）
 - 記録の失敗の表示（42.16）、コピーの記録（42.13・42.14）
 
 #### Allowed Dependencies

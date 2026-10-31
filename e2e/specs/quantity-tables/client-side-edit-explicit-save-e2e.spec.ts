@@ -39,6 +39,7 @@ import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { API_BASE_URL } from '../../config';
 import { getAccessToken } from '../../helpers/auth-api';
 import { assertPrepared } from '../../helpers/preconditions';
+import { getPrismaClient } from '../../fixtures/database';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,6 +48,11 @@ const RUN_ID = Date.now();
 
 let testProjectId: string | null = null;
 let surveyWithPhotosId: string | null = null;
+/**
+ * 上限の検証（タスク108.1）が作った数量表の ID。数量グループを 1000 件持つため、
+ * テストが途中で落ちても afterEach で DB から消す。
+ */
+const limitTableIdsToRemove: string[] = [];
 // 注意: 生成グループ名は現場調査名から派生する（「{調査名} 1」等）。共有ヘルパー
 // saveQuantityTableDraft は getByRole('button', { name: '保存' }) で保存ボタンを探すが、
 // このマッチはアクセシブル名の部分一致であるため、グループ名に「保存」を含めると
@@ -396,6 +402,25 @@ test.describe('REQ-42: クライアントサイド編集・明示保存モデル
     await loginAsUser(page, 'REGULAR_USER');
   });
 
+  // 上限の検証が作った数量表（数量グループ 1000 件）を消す。削除の API は論理削除で
+  // 行もグループも DB に残すため、Prisma で物理削除する（グループ・項目は onDelete: Cascade）。
+  // 消せなければ例外のまま落とし、消えたことを件数で確かめる（失敗を握りつぶさない）。
+  // テスト本体の try/finally では本体の失敗を後始末の失敗が上書きしうるため、afterEach に置く。
+  test.afterEach(async () => {
+    const prisma = getPrismaClient();
+    for (const tableId of limitTableIdsToRemove.splice(0)) {
+      await prisma.quantityTable.delete({ where: { id: tableId } });
+      expect(
+        await prisma.quantityTable.count({ where: { id: tableId } }),
+        `後始末: 上限の検証の数量表 ${tableId} が DB から消える`
+      ).toBe(0);
+      expect(
+        await prisma.quantityGroup.count({ where: { quantityTableId: tableId } }),
+        `後始末: 上限の検証の数量表 ${tableId} の数量グループが DB から消える`
+      ).toBe(0);
+    }
+  });
+
   // --------------------------------------------------------------------------
   // 事前準備
   // --------------------------------------------------------------------------
@@ -627,6 +652,7 @@ test.describe('REQ-42: クライアントサイド編集・明示保存モデル
     );
     expect(created.status(), '前提: 数量表を作成できる').toBe(201);
     const { id: tableId } = (await created.json()) as { id: string };
+    limitTableIdsToRemove.push(tableId);
 
     const readTable = async () => {
       const detail = await page.request.get(`${API_BASE_URL}/api/quantity-tables/${tableId}`, {
