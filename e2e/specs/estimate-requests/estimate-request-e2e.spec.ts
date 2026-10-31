@@ -2950,6 +2950,12 @@ test.describe('見積依頼機能', () => {
       const subjectCopyButton = copyButtons.nth(1);
       await subjectCopyButton.click();
 
+      // 書き込みは出力の記録の応答を待ってから行われる（runRecordedClipboardWrite）。
+      // 書き込みの後に出る「コピーしました」を待ってから読む（直後に読むと前の中身を読む）
+      await expect(panel.getByRole('button', { name: 'コピーしました' })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
       // クリップボードの内容を確認
       const clipboardContent = await page.evaluate(() => navigator.clipboard.readText());
 
@@ -4492,6 +4498,10 @@ test.describe('見積依頼機能', () => {
 
       // 宛先コピーボタン（1番目）押下で宛先メールアドレスがクリップボードへコピーされる（挙動不変）
       await copyButtons.first().click();
+      // 書き込みは出力の記録の応答の後。書き込みの後に出る「コピーしました」を待ってから読む
+      await expect(panel.getByRole('button', { name: 'コピーしました' })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
       const clipboardRecipient = await page.evaluate(() => navigator.clipboard.readText());
       expect(clipboardRecipient).toBe('test-subcontractor@example.com');
     });
