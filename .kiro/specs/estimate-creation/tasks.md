@@ -1889,6 +1889,51 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Requirements: 42.11_
   - _Boundary: estimate.schema の見積項目行のスキーマ（saveEstimateLineSchema）と、その上限を主張する本スペックのテスト_
 
+## タスク68: 保存の上限の超過の画面の表示と、Requirement 2.5 の改訂の注釈への追随（利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「推奨案で進める」の 2・4）で起票する。42.10〜42.12（タスク67.1・67.2）で一括保存が件数・深さの上限の 422 と備考の上限の 400 で拒まれるようになったが、見積書詳細画面（frontend/src/pages/EstimateDetailPage.tsx の `toSaveErrorMessage`）は 400 と 422 を一律に「保存できません: 」に例外の `message` を続けて表示し、422 は固定の要約の文言になってどの上限かが出ない。frontend の注釈とテストの名前は、改訂前の Requirement 2.5（階層の深さに上限を設けない）を名乗る。requirements.md に 42.13 を加え（改訂の記録を Requirement 42 に、追記を Requirement 2 に残した）、design.md の末尾の章「2026-11-01 の追加: 保存の上限の超過の画面の表示と、内訳書からの作成の件数の上限」に設計を置いた
+
+- [ ] 68.1 保存の上限の超過の 422 と 400 を判定し、上限のメッセージを表示する
+  - 422（`ESTIMATE_DRAFT_VALIDATION_ERROR`、`details.issues` の `path` が `items` に完全一致）と 400（`VALIDATION_ERROR`、`details` の `path` が `^items\.\d+(\.children\.\d+)*\.lines\.\d+\.remarks$` に完全一致し `code` が `too_big`）で上限の超過を判定し、当たった `message` を重複なく「、」でつなぎ「保存できません: 」に続けた文言を返す関数 `describeEstimateSaveLimitFailure(error): string | null` を、新設の frontend/src/utils/estimate-save-limit-feedback.ts に置く（design.md の同章の「決定」の「保存の上限の超過の判定と表示」）。メッセージの文字列で件数と深さを判定しない。画面に上限の値を持たない
+  - `toSaveErrorMessage` の先頭でこの関数を呼び、当たればその文言を表示する。当たらなければ従来の分岐のまま。編集中の内容の保持（`useEstimateEditor` の保存の処理の `catch`）は変えない。関数の最終形を design.md の同章の「決定」へ記す
+  - 単体（関数の新設のテストと `frontend/src/pages/EstimateDetailPage.test.tsx`）に、件数・深さの 422 と備考の 400（子孫の節点を含む）で上限のメッセージ（重複なし）を表示し要約の文言と汎用の文言を表示せず編集中の内容を保つこと、属さない ID の `items.<uuid>`・仮 ID の解決の失敗・構造の検証の 422、他の欄の `too_big` の 400、409・404 では従来の表示のままであることを足す
+  - E2E（`e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、画面で編集して保存し、画面が送る保存の要求の本文を経路の差し替え（`route.continue` の `postData`。quantity-table-generation のタスク109.1 の手法）で 42.10〜42.12 の上限を超えるまで増やし、バックエンドの実際の 422 と 400 を受けて、上限のメッセージが表示され要約の文言と汎用の文言が表示されず、編集中の内容と未保存の表示が残ることを、3 つの上限のそれぞれで主張し、`@requirement estimate-creation/REQ-42.13` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた表示（「保存できません: 」と保存の失敗のバナー `estimate-save-error`）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたので、テスト環境の frontend を作り直してから流す
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・E2E で、上限を超えた保存ではどの上限かが表示され汎用の文言と要約の文言が表示されず、編集中の内容が残り、他の失敗の表示は従来どおりである状態になる
+  - _Requirements: 42.13_
+  - _Boundary: 見積書詳細画面の保存の失敗の文言（EstimateDetailPage の toSaveErrorMessage）と、新設する保存の上限の判定の関数（frontend/src/utils/estimate-save-limit-feedback.ts）と、その表示を主張する本スペックのテスト_
+- [ ] 68.2 frontend の注釈とテストの名前を Requirement 2.5 の改訂後の文へ追随させる
+  - 「2.5: 階層の深さに上限を設けない」の趣旨の注釈を、design.md の同章の「決定」の「frontend の注釈の Requirement 2.5 の追随」の趣旨（画面の走査は明示のスタックの反復で深さに再帰の上限を作らない。保存は 42.12 で 100 段までに拒むが、既存のデータと編集中の状態はそれを超えうる）へ改める。対象は 2026-11-01 の実測で次のとおり（行は着手時に `階層の深さに上限を設けない` を frontend/src の下で検索して測り直す）: `estimateTree.ts`（5 か所）、`estimateEditReducer.ts`、`useEstimateEditor.ts`、`estimateAmountLimit.ts`、`NetAllocationDialog.tsx`、`TransferQuotationDialog.tsx`、`ProfitRateDialog.tsx`、`estimateReportLayout.ts`（3 か所）
+  - テストの名前と見出し（`estimateTree.test.ts` の見出しと `it` 4 つ、`estimateAmountLimit.test.ts` の `it` 1 つ、`estimateReportLayout.deepHierarchy.test.ts` の見出し）を同じ趣旨へ改める。主張と走査の方式は変えない
+  - 振る舞いを変えないため、改めたファイルの単体を流して緑のままであることを確かめる。テストの名前に要件の印が含まれる場合は、改めた後に `check:design-measurement-freshness` を名指しで流す
+  - _Requirements: 2.5_
+  - _Boundary: 上の frontend の注釈とテストの名前（estimateTree・estimateEditReducer・useEstimateEditor・estimateAmountLimit・NetAllocationDialog・TransferQuotationDialog・ProfitRateDialog・estimateReportLayout とそのテスト）。コードの振る舞いは変えない_
+
+## タスク69: 内訳書からの見積書の作成の件数の上限（利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「作成時に拒む」）で起票する。内訳書からの見積書の作成（backend/src/services/estimate.service.ts の `createWithin`。内訳書の項目 1 件につき根の見積項目 1 件を `createMany` で作る）は、作る見積項目の数に上限を持たない。内訳書は数量表の集計の結果で 2000 を超える項目を持ちうるため、そうした内訳書から作った見積書は作った直後から一括保存が 42.10 の 422 になり、一度も保存できない。見積書作成画面（frontend/src/pages/EstimateCreatePage.tsx の `handleSubmit`）は 422 を「見積書の作成に失敗しました」で表示する。requirements.md に 3.6・3.7 を加え（改訂の記録を Requirement 3 に残した）、design.md の末尾の章（タスク68 と同じ章）に設計を置いた
+
+- [ ] 69.1 内訳書から作る見積項目の数が上限を超えたら、一括保存と同じ 422 で見積書を作らない
+  - 作成のサービスの本体のトランザクションの中で、内訳書の照合（57.4・57.10 の 404）の後、同名の見積書の確かめと見積書の作成の前に、内訳書の項目の数が `SAVE_ESTIMATE_MAX_ITEMS` を超えたら `EstimateDraftValidationError`（`path` `items`、`SAVE_ESTIMATE_VALIDATION_MESSAGES.ITEMS_TOO_MANY`）を投げる（design.md の同章の「決定」の「内訳書からの作成の件数の上限」）。新しい定数を作らない。経路の作成の分岐がこの例外をエラーハンドラーへ渡し一括保存と同じ 422 の本文になることを確かめ、経路の変更の要否を design.md の同章の「決定」へ記す
+  - 単体（`backend/src/__tests__/unit/services/estimate.service.test.ts`）に、項目が 2001 件の内訳書で 422 の例外を投げ見積書の作成を呼ばないこと、2000 件で作成すること、範囲外・不在の内訳書は件数によらず従来の 404 になり範囲外の記録（57.10）が従来どおりであること、同名の見積書があっても件数の上限で先に拒むことを足す。経路の単体または統合に、2001 件の内訳書からの作成が 422（一括保存と同じ本文の形）になり見積書も見積項目も増えないことを足す
+  - E2E（`e2e/specs/estimate/estimate-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、項目が 2001 件の内訳書を API で用意し（数量表の保存と内訳書の作成の API。集計で一つにまとまらない名前にする）、作成の API へその内訳書を指定すると 422 になり見積書が増えないことと、2000 件ちょうどなら作成されることを主張し、`@requirement estimate-creation/REQ-3.6` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積書の作成の 422）を e2e/ 全体で grep して既存の E2E を選び、流す（見積書の作成の E2E と閲覧範囲の E2E の 57.4・57.10 のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、上限を超える内訳書からの作成は一括保存と同じ 422 で拒まれどこにも書き込まず、上限の内側の作成と内訳書の照合の 404 が従来どおりである状態になる
+  - _Requirements: 3.6_
+  - _Boundary: EstimateService の見積書の作成の本体（createWithin の内訳書の照合の後、見積書の作成の前）と、その上限を主張する本スペックのテスト_
+- [ ] 69.2 見積書作成画面で作成の件数の上限の 422 を表示する
+  - 42.13 の判定と同じ条件（422、`ESTIMATE_DRAFT_VALIDATION_ERROR`、`details.issues` の `path` が `items` に完全一致）で作成の件数の上限を判定し、当たった `message` を重複なく「見積書を作成できません: 」に続けた文言を返す関数を、68.1 の新設のファイルに置き（422 の判定を共有する）、`EstimateCreatePage` の `handleSubmit` の失敗の分岐の先頭で呼ぶ。当たらなければ従来の書き分け（404 の不在、汎用の文言）のまま。関数の名前を design.md の同章の「決定」へ記す
+  - 単体（関数のテストと `frontend/src/pages/EstimateCreatePage.test.tsx`）に、作成が件数の上限の 422 で失敗すると上限のメッセージを表示し「見積書の作成に失敗しました」を表示せず、入力中の見積書名と選択中の内訳書を保ち画面を移らないこと、404・409・上限でない 422 では従来の表示のままであることを足す
+  - E2E（69.1 と同じファイル）で、項目が 2001 件の内訳書を見積書作成画面で選んで作成すると、上限のメッセージが表示され「見積書の作成に失敗しました」が表示されず、作成画面に留まり見積書が増えないことを主張し、`@requirement estimate-creation/REQ-3.7` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた表示（「見積書の作成に失敗しました」）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたので、テスト環境の frontend を作り直してから流す
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す。69.1 が入る前に着手しない
+  - 単体・E2E で、作成が件数の上限で拒まれるとどの上限かが表示され汎用の文言が表示されず入力が残り、他の失敗の表示は従来どおりである状態になる
+  - _Depends: 69.1, 68.1_
+  - _Requirements: 3.7_
+  - _Boundary: 見積書作成画面の作成の失敗の分岐（EstimateCreatePage の handleSubmit）と、68.1 の新設のファイルに足す作成の上限の判定の関数と、その表示を主張する本スペックのテスト_
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。
