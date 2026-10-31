@@ -16,7 +16,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { ApiError } from '../api/client';
-import { describeEstimateSaveLimitFailure } from './estimate-save-limit-feedback';
+import {
+  describeEstimateCreateLimitFailure,
+  describeEstimateSaveLimitFailure,
+} from './estimate-save-limit-feedback';
 
 const ITEMS_TOO_MANY = '見積明細は合計2000件以内で保存してください';
 const ITEMS_TOO_DEEP = '見積項目の階層は100段以内で保存してください';
@@ -245,6 +248,93 @@ describe('describeEstimateSaveLimitFailure', () => {
         )
       ).toBeNull();
       expect(describeEstimateSaveLimitFailure(new Error(ITEMS_TOO_MANY))).toBeNull();
+    });
+  });
+});
+
+/**
+ * Task 69.2: 内訳書からの見積書の作成（`POST /api/projects/:projectId/estimates`）が件数の上限
+ * （Requirement 3.6）で拒まれた 422 は、一括保存の件数・深さの 422 と同じ形（同じ例外の
+ * `EstimateDraftValidationError`）である。判定は 42.13 の 422 と同じ条件で、書き出しだけが違う。
+ *
+ * @requirement estimate-creation/REQ-3.7
+ */
+describe('describeEstimateCreateLimitFailure', () => {
+  describe('作成の件数の上限の超過（3.6）', () => {
+    it('件数の上限の 422（path items）は「見積書を作成できません: 」に上限のメッセージを続け、要約の文言を含めない', () => {
+      const error = draftValidationError([{ path: 'items', message: ITEMS_TOO_MANY }]);
+
+      expect(describeEstimateCreateLimitFailure(error)).toBe(
+        '見積書を作成できません: 見積明細は合計2000件以内で保存してください'
+      );
+    });
+
+    it('当たった問題のメッセージを重複なく応答の順に「、」でつなぎ、当たらない問題は含めない', () => {
+      const error = draftValidationError([
+        { path: 'items', message: ITEMS_TOO_MANY },
+        { path: 'items.0', message: '別の構造の問題' },
+        { path: 'items', message: ITEMS_TOO_DEEP },
+        { path: 'items', message: ITEMS_TOO_MANY },
+      ]);
+
+      expect(describeEstimateCreateLimitFailure(error)).toBe(
+        '見積書を作成できません: 見積明細は合計2000件以内で保存してください、見積項目の階層は100段以内で保存してください'
+      );
+    });
+  });
+
+  describe('作成の件数の上限の超過でない失敗（従来の表示へ委ねる）', () => {
+    it('path が items に完全一致しない 422 は当てない', () => {
+      const error = draftValidationError([
+        {
+          path: 'items.6f1c2a3b-0000-4000-8000-000000000001',
+          message: 'この見積書に属さない見積項目が含まれています',
+        },
+        { path: 'items.temp-1', message: '仮IDを解決できません' },
+        { path: 'itemsX', message: ITEMS_TOO_MANY },
+      ]);
+
+      expect(describeEstimateCreateLimitFailure(error)).toBeNull();
+    });
+
+    it('422 でもコードが ESTIMATE_DRAFT_VALIDATION_ERROR でなければ当てない', () => {
+      const error = draftValidationError(
+        [{ path: 'items', message: ITEMS_TOO_MANY }],
+        'VALIDATION_ERROR'
+      );
+
+      expect(describeEstimateCreateLimitFailure(error)).toBeNull();
+    });
+
+    it('備考の文字数の上限の 400 は当てない（作成の要求は備考を送らず、保存の上限だけの判定）', () => {
+      const error = validationError([
+        { path: 'items.0.lines.0.remarks', message: REMARKS_TOO_LONG, code: 'too_big' },
+      ]);
+
+      expect(describeEstimateCreateLimitFailure(error)).toBeNull();
+    });
+
+    it('409・404・400・500 は、422 と同じ本文でも当てない', () => {
+      for (const status of [409, 404, 400, 500]) {
+        expect(
+          describeEstimateCreateLimitFailure(
+            draftValidationError([{ path: 'items', message: ITEMS_TOO_MANY }], undefined, status)
+          )
+        ).toBeNull();
+      }
+    });
+
+    it('本文を持たない 422、details の形が違う応答、ApiError でない例外は当てない', () => {
+      expect(describeEstimateCreateLimitFailure(new ApiError(422, DRAFT_SUMMARY))).toBeNull();
+      expect(
+        describeEstimateCreateLimitFailure(
+          new ApiError(422, DRAFT_SUMMARY, {
+            code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+            details: [{ path: 'items', message: ITEMS_TOO_MANY }],
+          })
+        )
+      ).toBeNull();
+      expect(describeEstimateCreateLimitFailure(new Error(ITEMS_TOO_MANY))).toBeNull();
     });
   });
 });

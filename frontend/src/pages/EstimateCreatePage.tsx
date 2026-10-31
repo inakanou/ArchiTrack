@@ -10,6 +10,10 @@
  * - REQ-3.4: 見積書をプロジェクトに紐付けて保存する
  * - REQ-3.5: 内訳書が選択された場合、名称・規格・単位・数量を見積金額行に転記する
  *
+ * Task 69.2 変更: 内訳書からの作成が件数の上限（estimate-creation の Requirement 3.6）の 422 で拒まれたら、
+ *   「見積書を作成できません: 」に上限のメッセージを続けて表示し、汎用の作成の失敗の文言を出さない
+ *   （同 Requirement 3.7）。入力中の見積書名と選択中の内訳書は保つ
+ *
  * Task 64.1 変更: プロジェクトの内訳書の一覧の取得が 404 を受けたときに、プロジェクトが見つからない旨と
  *   プロジェクトの一覧へのリンクを表示し、入力欄を出さない（estimate-creation の Requirement 58.1）。
  *   作成の 404 では見つからない旨（汎用の 404 はプロジェクト、内訳書の不在の符号は内訳書）を表示し、
@@ -25,6 +29,7 @@ import { getItemizedStatements } from '../api/itemized-statements';
 import type { CreateEstimateInput } from '../api/estimates';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
 import { getEstimateNotFoundMessage, isNotFoundError } from '../utils/estimateNotFound';
+import { describeEstimateCreateLimitFailure } from '../utils/estimate-save-limit-feedback';
 
 // ============================================================================
 // 型定義
@@ -257,6 +262,12 @@ export default function EstimateCreatePage() {
         // 詳細画面に遷移
         navigate(`/estimates/${estimate.id}`);
       } catch (err) {
+        // 件数の上限（Requirement 3.6）の 422 はどの上限かを表示する（Task 69.2）。入力は保ち画面を移らない
+        const limitMessage = describeEstimateCreateLimitFailure(err);
+        if (limitMessage !== null) {
+          setError(limitMessage);
+          return;
+        }
         // 404 は見つからない旨（汎用の 404 は経路のプロジェクト、内訳書の不在の符号は内訳書。Task 64.1）
         setError(getEstimateNotFoundMessage(err, 'project') ?? '見積書の作成に失敗しました');
       } finally {

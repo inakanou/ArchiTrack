@@ -16,7 +16,10 @@
  * 一つの数量グループの数量項目を 2000 件までに限るため（quantity-table-generation の 42.11）、
  * 2000 件ごとに数量グループを分ける。
  *
- * 画面の表示（Requirement 3.7）はタスク69.2 の担当で、69.2 で本ファイルへ足す予定である。
+ * 画面の表示（Requirement 3.7。タスク69.2）: 見積書作成画面で 2001 件の内訳書を選んで作成すると、
+ * 画面はバックエンドの実際の 422 を受け、「見積書を作成できません: 」に上限のメッセージを続けて
+ * 表示する。汎用の「見積書の作成に失敗しました」と 422 の要約の文言は出さず、入力中の見積書名と
+ * 選択中の内訳書を保ち、作成画面に留まる（応答は差し替えない）。
  */
 
 import { test, expect, type APIRequestContext } from '@playwright/test';
@@ -42,6 +45,12 @@ const QUANTITY_ITEMS_PER_GROUP = 2000;
 
 /** 件数の上限の 422 の文言（backend の SAVE_ESTIMATE_VALIDATION_MESSAGES.ITEMS_TOO_MANY） */
 const ITEMS_TOO_MANY = '見積明細は合計2000件以内で保存してください';
+
+/** 件数の上限の 422 の固定の要約（backend の EstimateDraftValidationError の message） */
+const DRAFT_SUMMARY = '見積明細の入力内容に不備があるため保存できません';
+
+/** 見積書作成画面の汎用の作成の失敗の文言（改訂前の画面が 422 で出していた文言） */
+const CREATE_GENERIC_FAILURE = '見積書の作成に失敗しました';
 
 /**
  * 内訳書の項目を `count` 件持つ内訳書を、数量表の保存と内訳書の作成の API で用意する。
@@ -200,7 +209,7 @@ test.describe('内訳書からの見積書の作成の件数の上限 (estimate-
       details: { issues: Array<{ path: string; message: string }> };
     };
     expect(body.code).toBe('ESTIMATE_DRAFT_VALIDATION_ERROR');
-    expect(body.message).toBe('見積明細の入力内容に不備があるため保存できません');
+    expect(body.message).toBe(DRAFT_SUMMARY);
     expect(body.details.issues).toEqual([{ path: 'items', message: ITEMS_TOO_MANY }]);
 
     expect(await countEstimateRows(projectId), '見積書も見積項目も増えない').toEqual(before);
@@ -250,5 +259,80 @@ test.describe('内訳書からの見積書の作成の件数の上限 (estimate-
       estimates: before.estimates + 1,
       items: before.items + WITHIN_LIMIT_ITEMS,
     });
+  });
+
+  /**
+   * 見積書作成画面で項目が 2001 件の内訳書を選んで作成すると、画面は実際の 422 を受けて
+   * 「見積書を作成できません: 」に上限のメッセージを続けて表示し、汎用の文言と要約の文言を出さない。
+   * 入力中の見積書名と選択中の内訳書を保ち、作成画面に留まり、見積書も見積項目も増えない。
+   *
+   * @requirement estimate-creation/REQ-3.7
+   */
+  test('見積書作成画面で項目が 2001 件の内訳書を選んで作成すると、上限のメッセージを表示し汎用の文言を出さず、入力を保って画面に留まる', async ({
+    page,
+  }) => {
+    test.setTimeout(getTimeout(180000));
+    assertPrepared(projectId, '事前準備で作成したプロジェクトのID');
+    await loginAsUser(page, 'REGULAR_USER');
+    const token = await getAccessToken(page, 'REGULAR_USER');
+    const statementId = await prepareItemizedStatement(
+      page.request,
+      token,
+      projectId,
+      '画面',
+      SAVE_ESTIMATE_MAX_ITEMS + 1
+    );
+    const before = await countEstimateRows(projectId);
+    const estimateName = `画面の件数上限超過の見積書_${RUN_ID}`;
+    const createPath = `/projects/${projectId}/estimates/new`;
+
+    await page.goto(createPath);
+    const main = page.getByRole('main').last();
+    const statementSelect = main.getByRole('combobox', { name: '内訳書を選択' });
+    await expect(
+      statementSelect.locator(`option[value="${statementId}"]`),
+      '前提: 2001 件の内訳書が選択肢にある'
+    ).toHaveCount(1, { timeout: getTimeout(15000) });
+    await main.getByLabel('見積書名').fill(estimateName);
+    await statementSelect.selectOption(statementId);
+    // 前提: 作成の前は失敗の表示が無い（前の表示と取り違えない）
+    await expect(main.getByRole('alert')).toHaveCount(0);
+
+    const created = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        new URL(r.url()).pathname === `/api/projects/${projectId}/estimates`,
+      { timeout: getTimeout(60000) }
+    );
+    await main.getByRole('button', { name: '作成', exact: true }).click();
+    const response = await created;
+    expect(response.status(), '前提: 作成の要求は件数の上限の 422 で拒まれる').toBe(422);
+    const body = (await response.json()) as {
+      code: string;
+      details: { issues: Array<{ path: string; message: string }> };
+    };
+    expect(body.code).toBe('ESTIMATE_DRAFT_VALIDATION_ERROR');
+    expect(body.details.issues).toEqual([{ path: 'items', message: ITEMS_TOO_MANY }]);
+
+    const alert = main.getByRole('alert');
+    await expect(alert).toHaveCount(1, { timeout: getTimeout(10000) });
+    await expect(alert).toHaveText(`見積書を作成できません: ${ITEMS_TOO_MANY}`, {
+      useInnerText: true,
+    });
+    await expect(page.getByText(CREATE_GENERIC_FAILURE)).toHaveCount(0);
+    await expect(page.getByText(DRAFT_SUMMARY)).toHaveCount(0);
+
+    // 作成画面に留まり、入力中の見積書名と選択中の内訳書を保つ。再び作成できる
+    expect(new URL(page.url()).pathname).toBe(createPath);
+    await expect(main.getByLabel('見積書名')).toHaveValue(estimateName);
+    await expect(statementSelect).toHaveValue(statementId);
+    await expect(main.getByRole('button', { name: '作成', exact: true })).toBeEnabled();
+
+    expect(await countEstimateRows(projectId), '見積書も見積項目も増えない').toEqual(before);
+    const prisma = getPrismaClient();
+    expect(
+      await prisma.estimate.count({ where: { projectId, name: estimateName } }),
+      '拒まれた名前の見積書は無い'
+    ).toBe(0);
   });
 });
