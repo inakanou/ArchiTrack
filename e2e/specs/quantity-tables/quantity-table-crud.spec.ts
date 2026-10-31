@@ -51,6 +51,7 @@ import {
 } from '../../helpers/quantity-table-preconditions';
 import { breadcrumbNav, readBreadcrumbTrail } from '../../helpers/breadcrumb';
 import { getAccessToken, type AuthUserRef } from '../../helpers/auth-api';
+import { getPrismaClient } from '../../fixtures/database';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -642,7 +643,19 @@ test.describe('数量表CRUD操作', () => {
       const labels = await listItems.evaluateAll((elements) =>
         elements.map((element) => element.getAttribute('aria-label') ?? '')
       );
-      expect(labels, 'REQ-2.3: 作成日時順（新しい順）に並ぶ').toEqual([
+      // 全件の実行で一度だけ並びが逆になり再試行で回復したが、原因は特定できていない。
+      // 次に落ちたときに追えるよう、DB 上の2件の作成時刻を失敗のメッセージへ載せる。
+      const storedTables = await getPrismaClient().quantityTable.findMany({
+        where: { id: { in: [olderTable.id, newerTable.id] } },
+        select: { id: true, name: true, createdAt: true },
+      });
+      const createdAtOf = (id: string): string =>
+        storedTables.find((table) => table.id === id)?.createdAt.toISOString() ?? '(DBに無い)';
+      const orderingDiagnostics =
+        `先に作成=${olderTable.name}(createdAt=${createdAtOf(olderTable.id)}) / ` +
+        `後に作成=${newerTable.name}(createdAt=${createdAtOf(newerTable.id)}) / ` +
+        `一覧の並び=${JSON.stringify(labels)}`;
+      expect(labels, `REQ-2.3: 作成日時順（新しい順）に並ぶ。${orderingDiagnostics}`).toEqual([
         `${newerTable.name}の数量表詳細を見る`,
         `${olderTable.name}の数量表詳細を見る`,
       ]);
@@ -787,8 +800,18 @@ test.describe('数量表CRUD操作', () => {
 
       // 一覧画面が正しく表示されることを確認
       await page.waitForLoadState('networkidle');
-      // 404エラーが表示されていないことを確認
-      await expect(page.getByText(/404|ページが見つかりません/)).not.toBeVisible({ timeout: 3000 });
+      // 遷移先が数量表一覧の画面として実際に描画されたことを肯定側で確かめる
+      // （QuantityTableListPage の h1）。不在の確認だけでは何も描画されなくても真になる。
+      await expect(
+        page.getByRole('heading', { level: 1, name: '数量表一覧', exact: true }),
+        'REQ-25.4: 遷移先に数量表一覧の画面の見出しが表示されない'
+      ).toBeVisible({ timeout: getTimeout(10000) });
+      // 404 の画面（routes.tsx の h1「404 - ページが見つかりません」）が出ていないこと。
+      // 以前は getByText(/404|ページが見つかりません/) で、数量表名に含まれる
+      // Date.now() の数字列（例 1793404…）に 404 が一致し、時刻しだいで赤になっていた。
+      await expect(
+        page.getByRole('heading', { name: '404 - ページが見つかりません', exact: true })
+      ).toHaveCount(0);
     });
 
     test('数量表カードをクリックして編集画面に遷移する (project-management/REQ-25.5)', async ({
@@ -827,8 +850,13 @@ test.describe('数量表CRUD操作', () => {
 
       // 編集画面が正しく表示されることを確認
       await page.waitForLoadState('networkidle');
-      // 404エラーが表示されていないことを確認（必須）
-      await expect(page.getByText(/404|ページが見つかりません/)).not.toBeVisible({ timeout: 3000 });
+      // 404 の画面（routes.tsx の h1「404 - ページが見つかりません」）が出ていないこと（必須）。
+      // 以前は getByText(/404|ページが見つかりません/) で、数量表名に含まれる
+      // Date.now() の数字列に 404 が一致し、時刻しだいで赤になっていた。
+      // 遷移先が実際に描画されたことは直後の編集エリアの表示で肯定側から確かめる。
+      await expect(
+        page.getByRole('heading', { name: '404 - ページが見つかりません', exact: true })
+      ).toHaveCount(0);
 
       // 編集画面の基本要素が表示されることを確認（必須）
       const editArea = page.getByTestId('quantity-table-edit-area');
