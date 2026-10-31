@@ -1807,4 +1807,185 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
       );
     }, 120_000);
   });
+
+  /**
+   * 保存の本文の仮 ID・計算用パラメータのキー・備考の上限（quantity-table-generation タスク110.1）
+   *
+   * `tempId`（1〜100 文字）、`calculationParams` のキーの数（10）と各キーの長さ（50 文字）、
+   * `remarks`（50 文字）を超えた本文は本文の検証の 400 になり、数量表・数量グループ・数量項目の
+   * どれも変わらない。上限ちょうどの本文は従来どおり保存され、50 文字以内で幅の上限を超える
+   * 備考は従来どおりサービスの幅の検証の 400 になる。
+   *
+   * @requirement quantity-table-generation/REQ-42.13
+   */
+  describe('保存の本文の仮ID・計算用パラメータのキー・備考の上限', () => {
+    /** 数量表と配下の数量グループ・数量項目の状態の写し（変化の検出用） */
+    const snapshotTable = async (tableId: string) => {
+      const table = await prisma.quantityTable.findUniqueOrThrow({
+        where: { id: tableId },
+        select: { name: true, updatedAt: true, deletedAt: true },
+      });
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: tableId },
+        orderBy: { displayOrder: 'asc' },
+        include: { items: { orderBy: { displayOrder: 'asc' } } },
+      });
+      return { table, groups };
+    };
+
+    /** 全件新規の 1 グループ・1 項目の保存の本文を作り、グループと項目を差し替える */
+    const buildBody = (
+      expectedUpdatedAt: string,
+      options: { group?: Record<string, unknown>; item?: Record<string, unknown> },
+      name = '上限超えの保存'
+    ): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      name,
+      groups: [
+        {
+          id: null,
+          tempId: 'temp-group-0',
+          name: '上限グループ',
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [itemPayload({ tempId: 'temp-item-0', name: '上限項目', ...options.item })],
+          ...options.group,
+        },
+      ],
+    });
+
+    const areaVolumeParams = (extraKeys: string[]) => ({
+      width: 2,
+      depth: 3,
+      height: 1,
+      ...Object.fromEntries(extraKeys.map((key) => [key, 1])),
+    });
+
+    const overLimitCases: Array<{
+      label: string;
+      options: { group?: Record<string, unknown>; item?: Record<string, unknown> };
+      message: string;
+      path: string;
+    }> = [
+      {
+        label: '数量グループの仮IDが101文字',
+        options: { group: { tempId: 'g'.repeat(101) } },
+        message: '仮IDは1文字以上100文字以内で指定してください',
+        path: 'groups.0.tempId',
+      },
+      {
+        label: '数量項目の仮IDが空',
+        options: { item: { tempId: '' } },
+        message: '仮IDは1文字以上100文字以内で指定してください',
+        path: 'groups.0.items.0.tempId',
+      },
+      {
+        label: '計算用パラメータのキーが11個',
+        options: {
+          item: {
+            calculationMethod: 'AREA_VOLUME',
+            calculationParams: areaVolumeParams(['k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7', 'k8']),
+          },
+        },
+        message: '計算用パラメータは10項目以内で指定してください',
+        path: 'groups.0.items.0.calculationParams',
+      },
+      {
+        label: '計算用パラメータに51文字のキー',
+        options: {
+          item: {
+            calculationMethod: 'AREA_VOLUME',
+            calculationParams: areaVolumeParams(['k'.repeat(51)]),
+          },
+        },
+        message: '計算用パラメータの名前は50文字以内で指定してください',
+        path: 'groups.0.items.0.calculationParams',
+      },
+      {
+        label: '備考が51文字',
+        options: { item: { remarks: 'r'.repeat(51) } },
+        message: '備考は全角25文字/半角50文字以内で入力してください',
+        path: 'groups.0.items.0.remarks',
+      },
+    ];
+
+    it.each(overLimitCases)(
+      '$label の本文は 400 で拒まれ、データベースは変わらない',
+      async ({ options, message, path }) => {
+        const { tableId } = await createSeededTable(testProjectId, '上限超えの前の名前');
+        const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+        const before = await snapshotTable(tableId);
+        // 写しが空でないこと（既存の 2 グループ・3 項目がある）
+        expect(before.groups).toHaveLength(2);
+
+        const response = await request(app)
+          .put(`/api/quantity-tables/${tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(buildBody(expectedUpdatedAt, options));
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(response.body.message).toBe(message);
+        expect(response.body.details).toEqual([expect.objectContaining({ path, message })]);
+
+        // 通っていれば名前が変わり既存の 2 グループが消えて新規が入る。どれも起きていない
+        const after = await snapshotTable(tableId);
+        expect(after).toEqual(before);
+      }
+    );
+
+    it('上限ちょうど（仮ID100文字・キー10個と50文字のキー・備考50文字）の本文は保存される', async () => {
+      const { tableId } = await createSeededTable(testProjectId, '上限ちょうどの前の名前');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+      const params = areaVolumeParams(['k'.repeat(50), 'k2', 'k3', 'k4', 'k5', 'k6', 'k7']);
+      expect(Object.keys(params)).toHaveLength(10);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(
+          buildBody(
+            expectedUpdatedAt,
+            {
+              group: { tempId: 'g'.repeat(100) },
+              item: {
+                tempId: 'i'.repeat(100),
+                calculationMethod: 'AREA_VOLUME',
+                calculationParams: params,
+                remarks: 'r'.repeat(50),
+              },
+            },
+            '上限ちょうどの保存'
+          )
+        );
+
+      expect(response.status).toBe(200);
+      const after = await snapshotTable(tableId);
+      expect(after.table.name).toBe('上限ちょうどの保存');
+      expect(after.groups).toHaveLength(1);
+      expect(after.groups[0]!.items).toHaveLength(1);
+      expect(after.groups[0]!.items[0]!.remarks).toBe('r'.repeat(50));
+      // 使わないキーは従来どおり捨てて永続化する（withCalculationParams の条件は変えない）
+      expect(after.groups[0]!.items[0]!.calculationParams).toEqual({
+        width: 2,
+        depth: 3,
+        height: 1,
+      });
+    });
+
+    it('50文字以内で幅の上限を超える備考（全角26文字）は、従来どおりサービスの幅の検証の 400 になり、データベースは変わらない', async () => {
+      const { tableId } = await createSeededTable(testProjectId, '幅の検証の前の名前');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+      const before = await snapshotTable(tableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(buildBody(expectedUpdatedAt, { item: { remarks: 'あ'.repeat(26) } }));
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe('QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(await snapshotTable(tableId)).toEqual(before);
+    });
+  });
 });

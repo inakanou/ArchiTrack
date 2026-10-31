@@ -4555,7 +4555,7 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
 
 **経緯**: 利用者の判断（2026-10-31「推奨案で進める」、値は同日に利用者が確定）で起票する。保存の経路のスキーマ（backend/src/routes/quantity-tables.routes.ts の `saveDraftItemSchema`〔203 行付近〕・`saveDraftGroupSchema`〔259 行付近〕）は `tempId` の長さ、`calculationParams` のキーの数と各キーの長さ、`remarks` の文字数の上限を持たない。表示順の更新（backend/src/routes/quantity-groups.routes.ts の `updateDisplayOrderSchema`〔87 行付近〕、backend/src/routes/quantity-items.routes.ts の `updateDisplayOrderSchema`〔93 行付近〕）の `orderUpdates` と、一括コピー・一括移動（同ファイルの `bulkCopySchema`・`bulkMoveSchema`〔113・122 行付近〕）の `itemIds` は件数の上限を持たない。行は 2026-10-31 の実測で、着手時に測り直すこと。requirements.md に 42.13・42.14 を加え、design.md の末尾の章（Task 109 と同じ章）に設計と確定した値を置いた
 
-- [ ] 110.1 保存の本文の仮 ID・計算用パラメータのキー・備考に上限を設ける
+- [x] 110.1 保存の本文の仮 ID・計算用パラメータのキー・備考に上限を設ける
   - 保存の経路のスキーマで、数量グループと数量項目の `tempId` を 1〜100 文字、`calculationParams` のキーの数を 10・各キーの長さを 50 文字、`remarks` を 50 文字までとし、超えたら本文の検証の 400（`validate` の既存の形）で、design.md の同章の「決定」の日本語のメッセージと問題箇所を返す。`remarks` の文言は `FIELD_CONSTRAINTS.REMARKS` の値から組み立てる。キーの検証は `withCalculationParams` より前に拒む。サービスの幅の検証と `withCalculationParams` の条件は変えない。定数の名前と文言の最終形を design.md の同章の「決定」へ記す
   - 単体（`backend/src/__tests__/unit/routes/quantity-tables.routes.test.ts`）に、各上限ちょうどで通り、超えると（`tempId` は空も）400 で上限を示すメッセージと問題箇所を返しサービスを呼ばないこと、`remarks` が 50 文字以内で幅の上限を超える値は従来どおりサービスの幅の検証に届くことを足す。統合（`backend/src/__tests__/integration/quantity-table-save.api.integration.test.ts`）に、各上限を超えた本文が 400 になりデータベースが変わらないことを足す
   - E2E（`e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts`）で、保存の API へ `calculationParams` のキーが上限を超えた本文を送ると 400 になり数量表が変わらないことを主張し、`@requirement quantity-table-generation/REQ-42.13` の印を置く

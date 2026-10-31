@@ -4414,12 +4414,14 @@ sequenceDiagram
 | 数量グループ・数量項目の `tempId` | 1〜100 文字 | 見積明細の一括保存の `tempId`（1〜100 文字）と同じ。画面が付ける仮 ID は 41 文字 |
 | `calculationParams` のキーの数 | 10 | 計算方法ごとに使うキーは最大 6。捨てる前のキーも本文の検証で全件読まれるため、使わないキーを大量に送る要求を止める |
 | `calculationParams` の各キーの長さ | 50 文字 | 使うキーの名前はいずれも 20 文字未満 |
-| `remarks` の文字数 | 50 文字 | 幅の検証（半角 50）の上限。文字数は幅を超えない（ASCII と半角カタカナは 1 文字で幅 1、それ以外は 1 文字〔サロゲートペアは 2 単位〕で幅 2）ため、幅の検証を通る値を拒まない |
+| `remarks` の文字数 | 50 文字 | 幅の検証（半角 50）の上限。文字数は幅を超えない（ASCII と半角カタカナは 1 文字で幅 1、それ以外は 1 文字で幅 2。Zod の `max` は UTF-16 の単位でなく符号位置の数で数えるので、サロゲートペアも 1 文字）ため、幅の検証を通る値を拒まない |
 
 - 超えたときの応答: 42.11 と同じ経路の本文の検証の 400（`VALIDATION_ERROR`）で、問題箇所は `groups.<i>.tempId`、`groups.<i>.items.<j>.tempId`、`groups.<i>.items.<j>.calculationParams`（キーの数とキーの長さ）、`groups.<i>.items.<j>.remarks` とする。日本語のメッセージは、`tempId` は「仮IDは1文字以上100文字以内で指定してください」、キーの数は「計算用パラメータは10項目以内で指定してください」、キーの長さは「計算用パラメータの名前は50文字以内で指定してください」、`remarks` は幅の検証と同じ「備考は全角25文字/半角50文字以内で入力してください」（`FIELD_CONSTRAINTS.REMARKS` の値から組み立て、文言を二か所に書かない）とする。文言の最終形と定数の名前は実装時に決めて本節へ記す
 - キーの数と各キーの長さは、`calculationParams` の連想配列の検証に付け、計算方法ごとの検証（`withCalculationParams`）より前に拒む。`withCalculationParams` の条件と応答は変えない
 - `remarks` が 50 文字以内で幅の検証に当たる値（全角 26〜50 文字など）は、従来どおりサービスの幅の検証の 400（`QUANTITY_TABLE_VALIDATION_ERROR`）になる。51 文字以上の値は、従来はサービスの幅の検証の 400 だったものが経路の本文の検証の 400 に変わる（どちらも書き込まない。画面は保存の前に幅を検証するため、画面の操作では起きない）
 - 空の `tempId`（0 文字）は従来通ったが拒むようになる。画面は空の仮 ID を送らない
+- 実装（タスク110.1、2026-10-31）: 定数は保存の経路のファイル（`quantity-tables.routes.ts`）に 42.11 の定数と並べて置いた。名前は `SAVE_QUANTITY_TABLE_MAX_TEMP_ID_LENGTH`（100）、`SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEYS`（10）、`SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEY_LENGTH`（50）、`SAVE_QUANTITY_TABLE_MAX_REMARKS_LENGTH`（`FIELD_CONSTRAINTS.REMARKS.hankaku` を読む）、文言は `SAVE_QUANTITY_TABLE_FIELD_LIMIT_MESSAGES` の `TEMP_ID_LENGTH`・`CALCULATION_PARAM_KEYS_TOO_MANY`・`CALCULATION_PARAM_KEY_TOO_LONG`・`REMARKS_TOO_LONG` である。文言の最終形は上の箇条の 4 つのとおりで、`REMARKS_TOO_LONG` は `FIELD_CONSTRAINTS.REMARKS` の全角・半角の値から組み立てる（単体テストが幅の検証の文言との一致を主張する）。`tempId` の空と 101 文字以上は同じ文言で、Zod の問題の種別は `too_small` と `too_big`。キーの数と各キーの長さは連想配列の検証の `refine` に `abort: true` を付けて置き（問題の種別は `custom`）、超えたら同じ数量項目の `withCalculationParams` を走らせない（応答の `details` はキーの上限の 1 件だけになる）
+- 42.12 の画面の判定との関係: 42.13 の問題箇所は `groups.<i>.tempId`、`groups.<i>.items.<j>.tempId`、`groups.<i>.items.<j>.calculationParams`、`groups.<i>.items.<j>.remarks` で、いずれも 42.12 の判定の `path`（`groups` と `groups.<数字>.items`）と一致しない。判定は `path` の完全一致（前方一致でなく）で行うこと。前方一致にすると `groups.<i>.items.<j>.tempId` の `too_big` が `groups.<数字>.items` に当たり、42.13 の 400 を件数の上限と取り違える。同じ本文が 42.11 と 42.13 の両方を超える場合、数量グループの数と一つの数量グループの数量項目の数の上限は従来どおり応答に出る（Zod 4.6.7 で、配列の件数を超えると要素の問題を含めずにその件数の問題だけを返すことを 2026-10-31 に試して確かめた）。ただしキーの上限（`abort: true`）に当たると、数量項目の総数の `superRefine` は走らない（総数だけが上限を超える本文では、応答の `details` はキーの上限だけになる）。画面はキーを計算方法ごとに 6 つまでしか送らないため、画面の操作では起きない
 
 **表示順の更新と一括コピー・一括移動の配列の件数の上限（42.14。2026-10-31 に利用者が確定）**:
 

@@ -48,6 +48,7 @@ import {
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
 import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
+import { FIELD_CONSTRAINTS } from '../services/quantity-field-validation.service.js';
 import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
 import type {
   SaveQuantityTableDraftInput,
@@ -184,6 +185,85 @@ const updateQuantityTableRequestSchema = updateQuantityTableSchema.extend({
 });
 
 /**
+ * 保存（saveDraft）の本文の仮 ID・計算用パラメータのキー・備考の上限
+ * （Requirement 42.13。OWASP API Security の API4）
+ *
+ * 値は利用者が 2026-10-31 に確定した（design.md の「2026-10-31 の追加: 件数の上限の画面の表示と、
+ * 本文の文字列・計算用パラメータ・個別の操作の配列の上限」の「決定」の表）。超えた要求は
+ * 本文の検証（`validate` の 400）で拒み、サービスを呼ばない。
+ */
+/** 数量グループ・数量項目の仮 ID（tempId）の長さの上限（下限は 1 文字） */
+export const SAVE_QUANTITY_TABLE_MAX_TEMP_ID_LENGTH = 100;
+/** 計算用パラメータ（calculationParams）のキーの数の上限 */
+export const SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEYS = 10;
+/** 計算用パラメータ（calculationParams）の各キーの長さの上限 */
+export const SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEY_LENGTH = 50;
+/**
+ * 備考（remarks）の文字数の上限
+ *
+ * 幅の検証（`FIELD_CONSTRAINTS.REMARKS`。全角を 2、ASCII と半角カタカナを 1 として数える）の
+ * 半角の上限と同じ値。Zod の文字列の長さは符号位置の数で数え、符号位置ごとの幅は 1 以上なので、
+ * 符号位置の数は幅を超えない。このため幅の検証を通る値を
+ * 拒まない。幅の検証は従来どおりサービスに残し、ここは 51 文字以上を早く拒むだけである。
+ */
+export const SAVE_QUANTITY_TABLE_MAX_REMARKS_LENGTH = FIELD_CONSTRAINTS.REMARKS.hankaku;
+
+/** 仮 ID・計算用パラメータのキー・備考の上限を超えたときの日本語のメッセージ（Requirement 42.13） */
+export const SAVE_QUANTITY_TABLE_FIELD_LIMIT_MESSAGES = {
+  TEMP_ID_LENGTH: `仮IDは1文字以上${SAVE_QUANTITY_TABLE_MAX_TEMP_ID_LENGTH}文字以内で指定してください`,
+  CALCULATION_PARAM_KEYS_TOO_MANY: `計算用パラメータは${SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEYS}項目以内で指定してください`,
+  CALCULATION_PARAM_KEY_TOO_LONG: `計算用パラメータの名前は${SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEY_LENGTH}文字以内で指定してください`,
+  // 幅の検証（validateRemarks）と同じ文言を、同じ FIELD_CONSTRAINTS.REMARKS の値から組み立てる
+  REMARKS_TOO_LONG: `備考は全角${FIELD_CONSTRAINTS.REMARKS.zenkaku}文字/半角${FIELD_CONSTRAINTS.REMARKS.hankaku}文字以内で入力してください`,
+} as const;
+
+/** 数量グループ・数量項目の仮 ID（1〜100 文字。既存の要素は省略する） */
+const saveDraftTempIdSchema = z
+  .string()
+  .min(1, SAVE_QUANTITY_TABLE_FIELD_LIMIT_MESSAGES.TEMP_ID_LENGTH)
+  .max(
+    SAVE_QUANTITY_TABLE_MAX_TEMP_ID_LENGTH,
+    SAVE_QUANTITY_TABLE_FIELD_LIMIT_MESSAGES.TEMP_ID_LENGTH
+  )
+  .optional();
+
+/**
+ * 計算用パラメータ（数値のみの連想配列）。キーの数と各キーの長さに上限を付ける。
+ *
+ * どちらも `abort: true` で、超えたら同じ数量項目の計算方法ごとの検証（`withCalculationParams`）を
+ * 走らせずに拒む（design.md の 42.13 の「決定」）。`withCalculationParams` の条件は変えない。
+ */
+const saveDraftCalculationParamsSchema = z
+  .record(z.string(), z.number())
+  .refine(
+    (params) => Object.keys(params).length <= SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEYS,
+    {
+      message: SAVE_QUANTITY_TABLE_FIELD_LIMIT_MESSAGES.CALCULATION_PARAM_KEYS_TOO_MANY,
+      abort: true,
+    }
+  )
+  .refine(
+    (params) =>
+      Object.keys(params).every(
+        (key) => key.length <= SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEY_LENGTH
+      ),
+    {
+      message: SAVE_QUANTITY_TABLE_FIELD_LIMIT_MESSAGES.CALCULATION_PARAM_KEY_TOO_LONG,
+      abort: true,
+    }
+  )
+  .nullable();
+
+/** 備考（50 文字まで。幅の検証はサービスに残す） */
+const saveDraftRemarksSchema = z
+  .string()
+  .max(
+    SAVE_QUANTITY_TABLE_MAX_REMARKS_LENGTH,
+    SAVE_QUANTITY_TABLE_FIELD_LIMIT_MESSAGES.REMARKS_TOO_LONG
+  )
+  .nullable();
+
+/**
  * フル状態同期保存（saveDraft）用の項目スキーマ
  *
  * Field Specifications 準拠の全フィールド（大項目〜備考、計算用フィールド、
@@ -203,7 +283,7 @@ const updateQuantityTableRequestSchema = updateQuantityTableSchema.extend({
 const saveDraftItemSchema = withCalculationParams(
   z.object({
     id: z.string().uuid('項目IDの形式が不正です').nullable(),
-    tempId: z.string().optional(),
+    tempId: saveDraftTempIdSchema,
     majorCategory: z.string().max(100).nullable(),
     middleCategory: z.string().max(100).nullable(),
     minorCategory: z.string().max(100).nullable(),
@@ -213,7 +293,7 @@ const saveDraftItemSchema = withCalculationParams(
     specification: z.string().max(500).nullable(),
     unit: z.string().max(50),
     calculationMethod: z.enum(CALCULATION_METHODS),
-    calculationParams: z.record(z.string(), z.number()).nullable(),
+    calculationParams: saveDraftCalculationParamsSchema,
     // 数値欄の範囲はここでは課さない。範囲の唯一の出所は
     // `quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS` であり、
     // 検証は `validateDraft` → `validateItemFieldSpecs` が担う（Task 85.1）。
@@ -221,7 +301,7 @@ const saveDraftItemSchema = withCalculationParams(
     adjustmentFactor: z.number(),
     roundingUnit: z.number(),
     quantity: z.number(),
-    remarks: z.string().nullable(),
+    remarks: saveDraftRemarksSchema,
     displayOrder: z.number().int().min(0),
   })
 );
@@ -258,7 +338,7 @@ export const SAVE_QUANTITY_TABLE_LIMIT_MESSAGES = {
  */
 const saveDraftGroupSchema = z.object({
   id: z.string().uuid('グループIDの形式が不正です').nullable(),
-  tempId: z.string().optional(),
+  tempId: saveDraftTempIdSchema,
   name: z.string().max(200),
   surveyImageId: z.string().uuid('写真IDの形式が不正です').nullable(),
   displayOrder: z.number().int().min(0),
