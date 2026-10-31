@@ -157,18 +157,21 @@ export const estimateRequestIdForQuotationSchema = z.object({
 });
 
 /**
- * 削除リクエストボディスキーマ（楽観的排他制御用）
+ * 削除リクエストのクエリスキーマ（楽観的排他制御用）
+ *
+ * 楽観的排他制御の基準時刻はクエリ（`?updatedAt=`）で受け取る。HTTP（RFC 9110）は DELETE の本文に
+ * 意味を定めておらず中継で落ちうるため、本文では受け取らない（2026-10-31 の是正。見積依頼の削除と同じ形）。
  */
-export const deleteReceivedQuotationBodySchema = z.object({
+export const deleteReceivedQuotationQuerySchema = z.object({
   updatedAt: z
     .string()
     .datetime({ message: RECEIVED_QUOTATION_VALIDATION_MESSAGES.DATETIME_INVALID }),
 });
 
 /**
- * 削除リクエストボディ型
+ * 削除リクエストのクエリ型
  */
-export type DeleteReceivedQuotationBody = z.infer<typeof deleteReceivedQuotationBodySchema>;
+export type DeleteReceivedQuotationQuery = z.infer<typeof deleteReceivedQuotationQuerySchema>;
 
 /**
  * ステータス遷移リクエストスキーマ

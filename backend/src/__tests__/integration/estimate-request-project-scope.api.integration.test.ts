@@ -493,7 +493,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       await request(app)
         .delete(`/api/quotations/${quotation.body.id}`)
         .set(...auth(sales))
-        .send({ updatedAt: quotationUpdated.body.updatedAt })
+        .query({ updatedAt: quotationUpdated.body.updatedAt })
         .expect(204);
 
       const current = await prisma.estimateRequest.findUniqueOrThrow({ where: { id: createdId } });
@@ -722,7 +722,13 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
           (id) =>
             request(app)
               .delete(`/api/quotations/${id.quotation}`)
-              .send({ updatedAt: quotation.updatedAt.toISOString() }),
+              .query({ updatedAt: quotation.updatedAt.toISOString() }),
+        ],
+        // 受領見積書の削除も範囲の判定がクエリの検証より先（判定の順序: 権限 → ID → 案件の範囲 → クエリの
+        // 検証）。基準時刻の無い削除も 400 でなく、存在しない ID と同じ 404（2026-10-31 の是正）
+        [
+          'DELETE quotations/:id（基準時刻なし）',
+          (id) => request(app).delete(`/api/quotations/${id.quotation}`),
         ],
         [
           'DELETE estimate-requests/:id',
@@ -1069,7 +1075,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       [
         'DELETE',
         (base, q) =>
-          request(app).delete(`${base}/${q.id}`).send({ updatedAt: q.updatedAt.toISOString() }),
+          request(app).delete(`${base}/${q.id}`).query({ updatedAt: q.updatedAt.toISOString() }),
       ],
       ['GET preview', (base, q) => request(app).get(`${base}/${q.id}/preview`)],
     ];
@@ -1205,7 +1211,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       await request(app)
         .delete(`${base}/${own.id}`)
         .set(...auth(sales))
-        .send({ updatedAt: updated.body.updatedAt })
+        .query({ updatedAt: updated.body.updatedAt })
         .expect(204);
       const removed = await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: own.id } });
       expect(removed.deletedAt).not.toBeNull();

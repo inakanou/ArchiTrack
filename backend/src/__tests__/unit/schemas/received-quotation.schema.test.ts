@@ -18,7 +18,7 @@ import {
   createReceivedQuotationSchema,
   updateReceivedQuotationSchema,
   receivedQuotationIdParamSchema,
-  deleteReceivedQuotationBodySchema,
+  deleteReceivedQuotationQuerySchema,
   statusTransitionSchema,
   RECEIVED_QUOTATION_VALIDATION_MESSAGES,
 } from '../../../schemas/received-quotation.schema.js';
@@ -330,11 +330,12 @@ describe('received-quotation.schema', () => {
     });
   });
 
-  describe('deleteReceivedQuotationBodySchema', () => {
+  // 削除の基準時刻はクエリ（`?updatedAt=`）で受け取る（2026-10-31 の是正。見積依頼の削除と同じ形）
+  describe('deleteReceivedQuotationQuerySchema', () => {
     it('should accept valid updatedAt', () => {
       const input = { updatedAt: '2024-01-15T00:00:00.000Z' };
 
-      const result = deleteReceivedQuotationBodySchema.safeParse(input);
+      const result = deleteReceivedQuotationQuerySchema.safeParse(input);
 
       expect(result.success).toBe(true);
     });
@@ -342,7 +343,7 @@ describe('received-quotation.schema', () => {
     it('should reject missing updatedAt', () => {
       const input = {};
 
-      const result = deleteReceivedQuotationBodySchema.safeParse(input);
+      const result = deleteReceivedQuotationQuerySchema.safeParse(input);
 
       expect(result.success).toBe(false);
     });
@@ -350,7 +351,7 @@ describe('received-quotation.schema', () => {
     it('should reject invalid datetime format', () => {
       const input = { updatedAt: 'not-a-date' };
 
-      const result = deleteReceivedQuotationBodySchema.safeParse(input);
+      const result = deleteReceivedQuotationQuerySchema.safeParse(input);
 
       expect(result.success).toBe(false);
     });

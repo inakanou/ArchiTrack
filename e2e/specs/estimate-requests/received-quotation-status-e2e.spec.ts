@@ -798,6 +798,15 @@ test.describe('受領見積書・ステータス管理機能', () => {
       // 削除APIは204（No Content）または200を返す
       expect([200, 204]).toContain(response.status());
 
+      // 楽観的排他制御の基準時刻はクエリで送り、本文を付けない（DELETE の本文は中継で落ちうる。
+      // 2026-10-31 の是正。基準時刻が届かず受領見積書を削除できなくなる経路を塞ぐ）
+      const deleteRequest = response.request();
+      expect(new URL(deleteRequest.url()).pathname).toMatch(/^\/api\/quotations\/[0-9a-f-]{36}$/);
+      expect(new URL(deleteRequest.url()).searchParams.get('updatedAt')).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+      );
+      expect(deleteRequest.postData()).toBeNull();
+
       // ダイアログが閉じるのを待機
       await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: getTimeout(10000) });
     });

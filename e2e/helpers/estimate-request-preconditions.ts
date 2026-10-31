@@ -246,3 +246,38 @@ export async function deleteEstimateRequestViaApi(
     throw new Error(`estimate request delete failed: ${res.status()} ${await res.text()}`);
   }
 }
+
+/**
+ * 受領見積書を API で論理削除する（後始末用）
+ *
+ * 楽観的排他制御の基準時刻（現在の updatedAt）を読み直し、画面の deleteReceivedQuotation と同じく
+ * クエリ（`?updatedAt=`）で送る。204 以外は例外にして、後始末の失敗を見逃さない（2026-10-31 の是正まで、
+ * 受領見積書の後始末は状態コードを見ておらず、削除できなくても気づけなかった）。
+ *
+ * @param request - 要求のコンテキスト（`request` の fixture または `page.request`）
+ * @param token - アクセストークン
+ * @param quotationId - 取り除く受領見積書のID
+ */
+export async function deleteReceivedQuotationViaApi(
+  request: APIRequestContext,
+  token: string,
+  quotationId: string
+): Promise<void> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const current = await request.get(`${SAME_ORIGIN_API_BASE_URL}/api/quotations/${quotationId}`, {
+    headers,
+  });
+  if (current.status() !== 200) {
+    throw new Error(
+      `received quotation read before delete failed: ${current.status()} ${await current.text()}`
+    );
+  }
+  const { updatedAt } = (await current.json()) as { updatedAt: string };
+  const res = await request.delete(
+    `${SAME_ORIGIN_API_BASE_URL}/api/quotations/${quotationId}?updatedAt=${encodeURIComponent(updatedAt)}`,
+    { headers }
+  );
+  if (res.status() !== 204) {
+    throw new Error(`received quotation delete failed: ${res.status()} ${await res.text()}`);
+  }
+}

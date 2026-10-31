@@ -590,11 +590,13 @@ describe('Received Quotation & Status API Integration Tests', () => {
         testQuotationUpdatedAt = quotation.updatedAt.toISOString();
       });
 
-      it('受領見積書を削除できる', async () => {
+      // 楽観的排他制御の基準時刻はクエリで送る（画面の deleteReceivedQuotation と同じ形。HTTP は DELETE の
+      // 本文に意味を定めず中継で落ちうるため。2026-10-31 の是正、Requirement 11.30・14.5・14.6）
+      it('基準時刻をクエリで送って受領見積書を削除できる', async () => {
         const response = await request(app)
           .delete(`/api/quotations/${testQuotationId}`)
           .set('Authorization', `Bearer ${accessToken}`)
-          .send({ updatedAt: testQuotationUpdatedAt });
+          .query({ updatedAt: testQuotationUpdatedAt });
 
         expect(response.status).toBe(204);
 
@@ -610,7 +612,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const response = await request(app)
           .delete(`/api/quotations/${testQuotationId}`)
           .set('Authorization', `Bearer ${accessToken}`)
-          .send({ updatedAt: testQuotationUpdatedAt });
+          .query({ updatedAt: testQuotationUpdatedAt });
 
         expect(response.status).toBe(204);
 
@@ -622,11 +624,38 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(stored?.deletedAt).not.toBeNull();
       });
 
+      it('基準時刻を本文だけに載せた削除は 400 を返し、受領見積書を削除しない', async () => {
+        const response = await request(app)
+          .delete(`/api/quotations/${testQuotationId}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ updatedAt: testQuotationUpdatedAt });
+
+        expect(response.status).toBe(400);
+
+        const stored = await prisma.receivedQuotation.findUniqueOrThrow({
+          where: { id: testQuotationId },
+        });
+        expect(stored.deletedAt).toBeNull();
+      });
+
+      it('基準時刻の無い削除は 400 を返し、受領見積書を削除しない', async () => {
+        const response = await request(app)
+          .delete(`/api/quotations/${testQuotationId}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(response.status).toBe(400);
+
+        const stored = await prisma.receivedQuotation.findUniqueOrThrow({
+          where: { id: testQuotationId },
+        });
+        expect(stored.deletedAt).toBeNull();
+      });
+
       it('存在しない受領見積書を削除しようとすると404を返す', async () => {
         const response = await request(app)
           .delete('/api/quotations/12345678-1234-4234-a234-123456789012')
           .set('Authorization', `Bearer ${accessToken}`)
-          .send({ updatedAt: new Date().toISOString() });
+          .query({ updatedAt: new Date().toISOString() });
 
         expect(response.status).toBe(404);
         // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
@@ -679,10 +708,16 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const response = await request(app)
         .delete(`/api/quotations/${testQuotationId}`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ updatedAt: '2020-01-01T00:00:00.000Z' }); // 過去のタイムスタンプ
+        .query({ updatedAt: '2020-01-01T00:00:00.000Z' }); // 過去のタイムスタンプ
 
       expect(response.status).toBe(409);
       expect(response.body.code).toBe('RECEIVED_QUOTATION_CONFLICT');
+
+      // 競合した削除は受領見積書を取り除かない
+      const stored = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: testQuotationId },
+      });
+      expect(stored.deletedAt).toBeNull();
     });
   });
 

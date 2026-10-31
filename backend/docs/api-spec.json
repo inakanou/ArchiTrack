@@ -3888,7 +3888,7 @@
       },
       "delete": {
         "summary": "受領見積書削除",
-        "description": "受領見積書を論理削除（楽観的排他制御、ファイル物理削除）",
+        "description": "受領見積書を論理削除（楽観的排他制御、ファイル物理削除）。基準時刻はクエリで受け取り、本文は読まない",
         "tags": [
           "Received Quotations"
         ],
@@ -3907,28 +3907,18 @@
               "format": "uuid"
             },
             "description": "受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "updatedAt"
-                ],
-                "properties": {
-                  "updatedAt": {
-                    "type": "string",
-                    "format": "date-time",
-                    "description": "楽観的排他制御用の更新日時"
-                  }
-                }
-              }
+          },
+          {
+            "in": "query",
+            "name": "updatedAt",
+            "required": true,
+            "description": "楽観的排他制御の基準時刻（取得した受領見積書の updatedAt）",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
             }
           }
-        },
+        ],
         "responses": {
           "204": {
             "description": "受領見積書削除成功"

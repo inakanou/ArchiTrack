@@ -2163,6 +2163,7 @@
 - Task 90.3（Requirement 41 メーラー転記 E2E）は本実装セッションのサンドボックスに docker テストDB（postgres:5433）が無いため **E2E 実行（グリーン確認）が未実施**。lint + type-check は PASS、スペックのロジック/セレクタ/アサーションはレビューで妥当性確認済み（テスト skip/無効化なし＝第3原則準拠）。MEMORY「見積要件はE2Eで検証必須」に従い、docker テスト環境（`npm run test:docker` 起動 + frontend 再ビルド）で `npm run test:e2e -- estimate-request-e2e` を実行しグリーンを確認する作業が**残タスク**として必要。
   - **解消（2026-10-06、HEAD `00147512`）**: docker テスト環境で frontend を再ビルドしたうえで `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`（Requirement 41 の test を含む）が 86/86、`e2e/specs/estimate-requests/` 全体が 330/330 緑であることを、機能検証で確かめた。
 - **【2026-10-31 の是正・見積依頼の削除の基準時刻】** RFC 9110 で意味の定まらない DELETE の本文で基準時刻を受け取っていたため、estimate-creation の見積書の削除（e5fd9877）と同じくクエリ（`?updatedAt=`）の検証へ改めた（本文だけの要求は 400）。E2E の後始末は補助 `deleteEstimateRequestViaApi`（e2e/helpers/estimate-request-preconditions.ts）で基準時刻を読み直してクエリで送り、204 以外を失敗にする。受領見積書の削除は本文のまま（design.md の 2026-10-31 の章）
+- **【2026-10-31 の是正・受領見積書の削除の基準時刻】** 同じ画面の見積依頼の削除とそろえ、受領見積書の論理的な取り除き（見積依頼の配下の経路を含む）もクエリ（`?updatedAt=`）の検証へ改めた（本文だけの要求は 400、範囲外は 400 より先に 404）。E2E の後始末は補助 `deleteReceivedQuotationViaApi`（e2e/helpers/estimate-request-preconditions.ts）で基準時刻を読み直してクエリで送り、204 以外を失敗にする（design.md の 2026-10-31 の章「受領見積書の論理的な取り除きの基準時刻をクエリで受け取る」）
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 

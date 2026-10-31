@@ -777,7 +777,9 @@ describe('received-quotations API client', () => {
   // deleteReceivedQuotation - 受領見積書削除
   // ==========================================================================
   describe('deleteReceivedQuotation', () => {
-    it('受領見積書を削除できること', async () => {
+    // 楽観的排他制御の基準時刻はクエリで送り、本文を付けない（HTTP は DELETE の本文に意味を定めず、
+    // 中継で落ちうるため。見積依頼の deleteEstimateRequest と同じ形。2026-10-31 の是正）
+    it('基準時刻をクエリに付けて受領見積書を削除し、本文を送らないこと', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 204,
@@ -787,13 +789,13 @@ describe('received-quotations API client', () => {
 
       await deleteReceivedQuotation('quotation-1', '2025-01-20T00:00:00.000Z');
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/\/api\/quotations\/quotation-1$/),
-        expect.objectContaining({
-          method: 'DELETE',
-          credentials: 'include',
-        })
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toMatch(
+        /\/api\/quotations\/quotation-1\?updatedAt=2025-01-20T00%3A00%3A00\.000Z$/
       );
+      expect(init).toEqual(expect.objectContaining({ method: 'DELETE', credentials: 'include' }));
+      expect(init.body).toBeUndefined();
     });
 
     it('存在しない受領見積書を削除しようとした場合、404エラーがスローされること', async () => {

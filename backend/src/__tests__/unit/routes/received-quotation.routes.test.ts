@@ -384,14 +384,51 @@ describe('received-quotation.routes', () => {
   });
 
   describe('DELETE /api/quotations/:id', () => {
-    it('should delete quotation and return 204', async () => {
+    // 楽観的排他制御の基準時刻はクエリで受け取る（HTTP は DELETE の本文に意味を定めず、中継で落ちうるため。
+    // 見積依頼の削除〔59e5f4fd〕と同じ形。2026-10-31 の是正、estimate-request の Requirement 11.30・14.5・14.6）
+    const validDeleteQuery = { updatedAt: '2024-01-01T00:00:00.000Z' };
+
+    it('クエリの updatedAt で受領見積書を削除し 204 を返すこと', async () => {
       mockDelete.mockResolvedValue(undefined);
 
       const response = await request(app)
         .delete(`/api/quotations/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(204);
+      expect(mockDelete).toHaveBeenCalledTimes(1);
+      expect(mockDelete).toHaveBeenCalledWith(validUUID, new Date(validDeleteQuery.updatedAt));
+    });
+
+    it('updatedAt を本文だけに載せた要求は 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/quotations/${validUUID}`)
+        .send(validDeleteQuery);
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('updatedAt の無い要求は 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app).delete(`/api/quotations/${validUUID}`);
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('クエリの updatedAt の形式が不正なら 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/quotations/${validUUID}`)
+        .query({ updatedAt: 'not-a-date' });
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
     });
 
     it('should return 404 when quotation not found', async () => {
@@ -399,7 +436,7 @@ describe('received-quotation.routes', () => {
 
       const response = await request(app)
         .delete(`/api/quotations/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(404);
       expect(response.body.code).toBe('RECEIVED_QUOTATION_NOT_FOUND');
@@ -415,7 +452,7 @@ describe('received-quotation.routes', () => {
 
       const response = await request(app)
         .delete(`/api/quotations/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(409);
       expect(response.body.code).toBe('RECEIVED_QUOTATION_CONFLICT');
@@ -425,9 +462,7 @@ describe('received-quotation.routes', () => {
       // 受領見積書の削除は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
       mockDelete.mockResolvedValue(undefined);
 
-      await request(app)
-        .delete(`/api/quotations/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+      await request(app).delete(`/api/quotations/${validUUID}`).query(validDeleteQuery);
 
       expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:update');
     });

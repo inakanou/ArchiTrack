@@ -43,7 +43,7 @@ import {
   updateReceivedQuotationSchema,
   receivedQuotationIdParamSchema,
   estimateRequestIdForQuotationSchema,
-  deleteReceivedQuotationBodySchema,
+  deleteReceivedQuotationQuerySchema,
   parseLineItemsFromMultipart,
 } from '../schemas/received-quotation.schema.js';
 import {
@@ -568,7 +568,7 @@ router.put(
  * /api/quotations/{quotationId}:
  *   delete:
  *     summary: 受領見積書削除
- *     description: 受領見積書を論理削除（楽観的排他制御、ファイル物理削除）
+ *     description: 受領見積書を論理削除（楽観的排他制御、ファイル物理削除）。基準時刻はクエリで受け取り、本文は読まない
  *     tags:
  *       - Received Quotations
  *     security:
@@ -581,19 +581,13 @@ router.put(
  *           type: string
  *           format: uuid
  *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - updatedAt
- *             properties:
- *               updatedAt:
- *                 type: string
- *                 format: date-time
- *                 description: 楽観的排他制御用の更新日時
+ *       - in: query
+ *         name: updatedAt
+ *         required: true
+ *         description: 楽観的排他制御の基準時刻（取得した受領見積書の updatedAt）
+ *         schema:
+ *           type: string
+ *           format: date-time
  *     responses:
  *       204:
  *         description: 受領見積書削除成功
@@ -615,11 +609,13 @@ router.delete(
   requirePermission('estimate_request:update'),
   validate(receivedQuotationIdParamSchema, 'params'),
   requireReceivedQuotationProjectScope('quotationId'),
-  validate(deleteReceivedQuotationBodySchema, 'body'),
+  // 基準時刻はクエリで受け取る（DELETE の本文は中継で落ちうる。2026-10-31 の是正、見積依頼の削除と同じ形）。
+  // 範囲の判定の後に検証し、範囲外は 400 より先に 404 にする（判定の順序: 権限 → ID → 案件の範囲 → クエリ）
+  validate(deleteReceivedQuotationQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { quotationId: id } = req.validatedParams as { quotationId: string };
-      const { updatedAt } = req.validatedBody as { updatedAt: string };
+      const { updatedAt } = req.validatedQuery as { updatedAt: string };
 
       await getReceivedQuotationService().delete(id, new Date(updatedAt));
 

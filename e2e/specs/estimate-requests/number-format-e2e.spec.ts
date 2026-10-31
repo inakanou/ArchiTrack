@@ -27,7 +27,10 @@ import { fileURLToPath } from 'url';
 import * as path from 'path';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { loginViaApi } from '../../helpers/auth-api';
-import { deleteEstimateRequestViaApi } from '../../helpers/estimate-request-preconditions';
+import {
+  deleteEstimateRequestViaApi,
+  deleteReceivedQuotationViaApi,
+} from '../../helpers/estimate-request-preconditions';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -809,11 +812,9 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
       const baseUrl = API_BASE_URL;
 
-      // 受領見積書を削除
+      // 受領見積書を削除（基準時刻をクエリで送り、204 以外を失敗にする。2026-10-31 の是正）
       if (createdQuotationId) {
-        await request.delete(`${baseUrl}/api/quotations/${createdQuotationId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await deleteReceivedQuotationViaApi(request, accessToken, createdQuotationId);
       }
 
       // 見積依頼を削除（受領見積書もカスケード削除される）

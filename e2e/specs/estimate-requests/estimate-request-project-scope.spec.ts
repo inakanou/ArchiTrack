@@ -469,10 +469,11 @@ test.describe('見積依頼・受領見積書・ステータスの案件の閲�
           },
         }
       ),
-      await request.delete(`${API_BASE_URL}/api/quotations/${target.quotationId}`, {
-        headers,
-        data: { updatedAt: quotation.updatedAt.toISOString() },
-      }),
+      // 受領見積書の削除の基準時刻もクエリで送る（画面の deleteReceivedQuotation と同じ形。2026-10-31 の是正）
+      await request.delete(
+        `${API_BASE_URL}/api/quotations/${target.quotationId}?updatedAt=${encodeURIComponent(quotation.updatedAt.toISOString())}`,
+        { headers }
+      ),
       // 見積依頼の削除の基準時刻はクエリで送る（画面の deleteEstimateRequest と同じ形。2026-10-31 の是正）
       await request.delete(
         `${API_BASE_URL}/api/estimate-requests/${target.estimateRequestId}?updatedAt=${encodeURIComponent(estimateRequest.updatedAt.toISOString())}`,

@@ -30,6 +30,7 @@ import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import {
   deleteEstimateRequestViaApi,
+  deleteReceivedQuotationViaApi,
   seedEstimateRequest,
 } from '../../helpers/estimate-request-preconditions';
 import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
@@ -724,11 +725,9 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     accessToken = await getAccessToken(page, 'ADMIN_USER');
 
-    // 受領見積書の削除
+    // 受領見積書の削除（基準時刻をクエリで送り、204 以外を失敗にする。2026-10-31 の是正）
     if (createdQuotationId) {
-      await page.request.delete(`${API_BASE_URL}/api/quotations/${createdQuotationId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await deleteReceivedQuotationViaApi(page.request, accessToken, createdQuotationId);
     }
 
     // 見積依頼の削除
