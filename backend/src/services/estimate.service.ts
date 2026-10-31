@@ -41,6 +41,7 @@ import {
 } from '../schemas/estimate.schema.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
 import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import { ESTIMATE_SAVE_TRANSACTION_OPTIONS } from './estimate-draft.service.js';
 import {
   withSurveyScopeDenialRecording,
   type ProjectScopeDenialContext,
@@ -301,6 +302,10 @@ export class EstimateService {
     actorId: string,
     deniedProjectIds: Set<string>
   ): Promise<EstimateInfo> {
+    // 制限時間は一括保存と同じ値（ESTIMATE_SAVE_TRANSACTION_OPTIONS）を参照する（タスク69.3、利用者の判断
+    // 2026-11-01）。上限ちょうど（2000 件）の作成は見積項目 2000 件と明細 6000 件を書き、所要が Prisma の
+    // 既定の 5 秒に近い（実測は design.md の「2026-11-01 の追加」章の「決定」の「作成のトランザクションの
+    // 制限時間」）。超過（P2028）はエラーハンドラーの 500 のままで、巻き戻しにより見積書・見積項目・明細を書かない
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 1. プロジェクトの存在確認
       const project = await tx.project.findUnique({
@@ -515,7 +520,7 @@ export class EstimateService {
       });
 
       return this.toEstimateInfo(estimate, itemizedStatement?.items.length ?? 0);
-    });
+    }, ESTIMATE_SAVE_TRANSACTION_OPTIONS);
   }
 
   /**

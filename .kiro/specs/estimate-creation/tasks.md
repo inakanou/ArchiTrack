@@ -1933,6 +1933,14 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Depends: 69.1, 68.1_
   - _Requirements: 3.7_
   - _Boundary: 見積書作成画面の作成の失敗の分岐（EstimateCreatePage の handleSubmit）と、68.1 の新設のファイルに足す作成の上限の判定の関数と、その表示を主張する本スペックのテスト_
+- [x] 69.3 内訳書からの見積書の作成のトランザクションに、一括保存と同じ制限時間を明示する
+  - 利用者の判断（2026-11-01「保存と同じ 15 秒にする」）で 69.1 の後に加えた。作成のサービス（`EstimateService` の `create` が包む `createWithin`）の `$transaction` は制限時間を指定せず Prisma の既定（`timeout` 5 秒、`maxWait` 2 秒）で動く。上限ちょうど（2000 件）の作成は統合の実測で 2.8〜4.0 秒、負荷の高い時に一度 9738 ms で 500 になった（既定の 5 秒の超過と推定。design.md の同章の「決定」の「作成のトランザクションの制限時間」）
+  - `createWithin` の `$transaction` の第 2 引数に、一括保存と同じ値（`timeout` 15000 ms、`maxWait` 5000 ms）を渡す。値を二か所に持たないよう、一括保存の `ESTIMATE_SAVE_TRANSACTION_OPTIONS` を参照する（新しい値を作らない）。超過時の応答の変換は足さない（エラーハンドラーの P2028 の 500 のまま）。内訳書の照合・件数の上限（69.1）・書き込みの順序と方式は変えない
+  - 単体（`backend/src/__tests__/unit/services/estimate.service.test.ts`）に、内訳書からの作成と内訳書を選ばない作成が `$transaction` へ `timeout` 15000・`maxWait` 5000 を渡すことを、期待値をリテラルで書いて足す（タスク57.6 の形）。統合（`backend/src/__tests__/integration/estimate.api.integration.test.ts`）は従来のテストが緑のままであることを確かめ、上限ちょうど（2000 件）の作成を常設しない（69.1 と quantity-table-generation のタスク111.1 と同じ扱い）。2000 件の作成の所要を一時の計測で測ったときは、値を design.md の同章へ記す（計測の器具は提出物に残さない）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体と統合で、作成のトランザクションが一括保存と同じ制限時間で動き、作成の結果と応答が従来どおりである状態になる
+  - _Requirements: 3.6_
+  - _Boundary: EstimateService の見積書の作成のトランザクション（createWithin の $transaction の options）と、その制限時間を主張する本スペックのテスト_
 
 ## Implementation Notes
 

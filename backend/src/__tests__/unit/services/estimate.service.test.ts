@@ -1053,6 +1053,113 @@ describe('EstimateService', () => {
     );
   });
 
+  /**
+   * 作成のトランザクションの制限時間（タスク69.3、利用者の判断 2026-11-01「保存と同じ 15 秒にする」）。
+   * 上限ちょうど（2000 件）の内訳書からの作成は統合の実測で 2.8〜4.0 秒、負荷の高い時に一度 9738 ms で
+   * 500 になったため、一括保存と同じ制限時間を明示する。期待値をリテラルで書くのは意図的
+   * （定数をそのまま突き合わせると、定数を書き換えてもテストが緑のままになる。タスク57.6 と同じ形）。
+   */
+  describe('作成のトランザクションの制限時間（タスク69.3）', () => {
+    const EXPECTED_TIMEOUT_MS = 15000;
+    const EXPECTED_MAX_WAIT_MS = 5000;
+    const actorId = 'user-001';
+    const createdEstimate = {
+      id: 'est-timeout',
+      projectId: 'proj-001',
+      name: '制限時間検証見積書',
+      sourceItemizedStatementId: null,
+      sourceItemizedStatementName: null,
+      createdAt: new Date('2026-11-01T00:00:00Z'),
+      updatedAt: new Date('2026-11-01T00:00:00Z'),
+      deletedAt: null,
+    };
+
+    /** 作成のトランザクションの本体を、内訳書の項目を `itemCount` 件として通す */
+    function arrangeTransaction(itemCount: number) {
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          project: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+          },
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'is-timeout',
+              name: '制限時間検証内訳書',
+              projectId: 'proj-001',
+              deletedAt: null,
+              items: Array.from({ length: itemCount }, (_, index) => ({
+                id: `isi-${index}`,
+                customCategory: null,
+                workType: '工種',
+                name: `項目${index}`,
+                specification: null,
+                unit: 'm',
+                quantity: 1,
+                displayOrder: index,
+              })),
+            }),
+          },
+          estimate: {
+            count: vi.fn().mockResolvedValue(0),
+            create: vi.fn().mockResolvedValue(createdEstimate),
+          },
+          estimateItem: {
+            createMany: vi.fn().mockResolvedValue({ count: itemCount }),
+            findMany: vi.fn().mockResolvedValue(
+              Array.from({ length: itemCount }, (_, index) => ({
+                id: `ei-${index}`,
+                estimateId: 'est-timeout',
+                displayOrder: index,
+              }))
+            ),
+          },
+          estimateItemLine: {
+            createMany: vi.fn().mockResolvedValue({ count: itemCount * 3 }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+    }
+
+    it('内訳書からの作成は $transaction へ一括保存と同じ timeout と maxWait を明示して渡す', async () => {
+      arrangeTransaction(3);
+
+      const result = await service.create(
+        {
+          projectId: 'proj-001',
+          name: '制限時間検証見積書',
+          sourceItemizedStatementId: 'is-timeout',
+        },
+        actorId
+      );
+
+      expect(result.itemCount).toBe(3);
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(mockPrisma.$transaction).mock.calls[0]?.[1]).toEqual({
+        timeout: EXPECTED_TIMEOUT_MS,
+        maxWait: EXPECTED_MAX_WAIT_MS,
+      });
+    });
+
+    it('内訳書を選ばない作成も $transaction へ同じ timeout と maxWait を明示して渡す', async () => {
+      arrangeTransaction(0);
+
+      const result = await service.create(
+        { projectId: 'proj-001', name: '制限時間検証見積書' },
+        actorId
+      );
+
+      expect(result.id).toBe('est-timeout');
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(mockPrisma.$transaction).mock.calls[0]?.[1]).toEqual({
+        timeout: EXPECTED_TIMEOUT_MS,
+        maxWait: EXPECTED_MAX_WAIT_MS,
+      });
+    });
+  });
+
   describe('create - エッジケース', () => {
     it('削除済みプロジェクトへの見積書作成時、エラーを発生させる', async () => {
       // Arrange
