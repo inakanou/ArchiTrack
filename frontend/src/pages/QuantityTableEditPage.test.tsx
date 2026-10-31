@@ -2075,6 +2075,170 @@ describe('QuantityTableEditPage', () => {
   });
 
   // ====================================================================
+  // Task 109.1: 件数の上限を超えた保存の 400 の表示
+  // ====================================================================
+
+  describe('件数の上限を超えた保存の表示', () => {
+    const GENERIC_SAVE_FAILURE = '保存に失敗しました。再度お試しください。';
+
+    /** 経路の本文の検証（validate）の 400 と同じ形の例外を作る */
+    const validationError = (
+      details: Array<{ path: string; message: string; code: string }>,
+      code = 'VALIDATION_ERROR'
+    ) =>
+      new ApiError(400, details[0]?.message ?? 'Validation failed', {
+        status: 400,
+        code,
+        detail: details[0]?.message,
+        details,
+      });
+
+    /** 項目名を編集してから保存し、失敗の表示を待つ。表示された警告の文言を返す */
+    const editAndSave = async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('足場')).toBeInTheDocument();
+      });
+      const nameInput = screen.getByDisplayValue('足場');
+      await user.clear(nameInput);
+      await user.type(nameInput, '足場（編集中）');
+      await waitFor(() => {
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(mockSaveQuantityTableDraft).toHaveBeenCalledTimes(1);
+      });
+      const alert = await screen.findByRole('alert');
+      await waitFor(() => {
+        expect(screen.queryByText('保存中...')).not.toBeInTheDocument();
+      });
+      return alert.querySelector('p')?.textContent ?? '';
+    };
+
+    // @requirement quantity-table-generation/REQ-42.12: 件数の上限の 400 は上限のメッセージを表示し、汎用の文言を出さず編集状態を保つ
+    it.each([
+      {
+        label: '数量グループの数',
+        details: [
+          {
+            path: 'groups',
+            message: '数量グループは1000件以内で保存してください',
+            code: 'too_big',
+          },
+        ],
+        expected: '保存できません: 数量グループは1000件以内で保存してください',
+      },
+      {
+        label: '一つの数量グループの数量項目の数',
+        details: [
+          {
+            path: 'groups.0.items',
+            message: '一つの数量グループの数量項目は2000件以内で保存してください',
+            code: 'too_big',
+          },
+          {
+            path: 'groups.1.items',
+            message: '一つの数量グループの数量項目は2000件以内で保存してください',
+            code: 'too_big',
+          },
+        ],
+        expected: '保存できません: 一つの数量グループの数量項目は2000件以内で保存してください',
+      },
+      {
+        label: '数量項目の総数',
+        details: [
+          { path: 'groups', message: '数量項目は合計5000件以内で保存してください', code: 'custom' },
+        ],
+        expected: '保存できません: 数量項目は合計5000件以内で保存してください',
+      },
+    ])(
+      '$label の上限を超えた 400 では上限のメッセージ（重複なし）を表示し、汎用の文言を出さず未保存の変更を保つ',
+      async ({ details, expected }) => {
+        mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+        mockSaveQuantityTableDraft.mockRejectedValue(validationError(details));
+
+        const shown = await editAndSave();
+
+        expect(shown).toBe(expected);
+        expect(screen.queryByText(GENERIC_SAVE_FAILURE)).not.toBeInTheDocument();
+        // 再取得せず、編集中の値と未保存の表示が残る（42.9）
+        expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
+        expect(screen.getByDisplayValue('足場（編集中）')).toBeInTheDocument();
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+      }
+    );
+
+    it.each([
+      {
+        label: 'サービスの検証の 400（QUANTITY_TABLE_VALIDATION_ERROR）',
+        error: validationError(
+          [
+            {
+              path: 'groups',
+              message: '数量グループは1000件以内で保存してください',
+              code: 'too_big',
+            },
+          ],
+          'QUANTITY_TABLE_VALIDATION_ERROR'
+        ),
+      },
+      {
+        label: '件数の上限でない本文の検証の 400（42.13 の数量項目の仮 ID）',
+        error: validationError([
+          {
+            path: 'groups.0.items.0.tempId',
+            message: '仮IDは1文字以上100文字以内で指定してください',
+            code: 'too_big',
+          },
+        ]),
+      },
+    ])('$label では従来どおり汎用の文言を表示する', async ({ error }) => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockSaveQuantityTableDraft.mockRejectedValue(error);
+
+      const shown = await editAndSave();
+
+      expect(shown).toBe(GENERIC_SAVE_FAILURE);
+      expect(screen.getByDisplayValue('足場（編集中）')).toBeInTheDocument();
+    });
+
+    it('409 では従来どおり競合の文言を表示する', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockSaveQuantityTableDraft.mockRejectedValue(
+        new ApiError(409, 'Conflict', {
+          code: 'VALIDATION_ERROR',
+          details: [
+            {
+              path: 'groups',
+              message: '数量グループは1000件以内で保存してください',
+              code: 'too_big',
+            },
+          ],
+        })
+      );
+
+      const shown = await editAndSave();
+
+      expect(shown).toBe(
+        '他のユーザーによって更新されました。ページを再読み込みして最新データを確認してください。'
+      );
+    });
+
+    it('数量表の 404 では従来どおり数量表が見つからない旨を表示する', async () => {
+      mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
+      mockSaveQuantityTableDraft.mockRejectedValue(
+        new ApiError(404, 'Not found', { code: 'QUANTITY_TABLE_NOT_FOUND' })
+      );
+
+      const shown = await editAndSave();
+
+      expect(shown).toBe('数量表が見つかりません。存在しないか、削除されています。');
+    });
+  });
+
+  // ====================================================================
   // 追加カバレッジテスト: 写真紐付け失敗 (REQ 4.3)
   // ====================================================================
 

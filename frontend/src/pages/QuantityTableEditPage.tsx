@@ -66,6 +66,7 @@ import {
   describeDroppedSurveyImageLinks,
   describeSurveyImageLinkSaveFailure,
 } from '../utils/survey-image-link-feedback';
+import { describeQuantityTableSaveLimitFailure } from '../utils/quantity-table-save-limit-feedback';
 import { loadPdfExportService } from '../services/export/loadPdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
@@ -1820,6 +1821,8 @@ export default function QuantityTableEditPage() {
    *   saveDraft レスポンスで同期するため保存後の再取得（GET）は行わない。
    * - 失敗時: 409 は競合専用メッセージ、現調画像の紐付けの失敗（400 他プロジェクト / 404 写真の削除 /
    *   410 現場調査の削除）は {@link describeSurveyImageLinkSaveFailure} が書き分けた文言（Task 86.5）、
+   *   件数の上限の超過の 400 は {@link describeQuantityTableSaveLimitFailure} が組み立てた上限の文言
+   *   （Task 109.1、REQ-42.12）、
    *   それ以外（500等）は一般エラーメッセージを表示し、ドラフト（未保存の変更）を保持したまま
    *   再保存可能とする（REQ-42.9）。
    * - 自動保存は持たず、永続化は本保存操作時にのみ実行する（REQ-42.7）。
@@ -1956,8 +1959,11 @@ export default function QuantityTableEditPage() {
         // 並びから引き当てる。それ以外の失敗は従来どおり一般の文言とする。
         // 数量表の 404（範囲外と不在を区別しない）は数量表が見つからない旨とする（Task 106.1）。
         // 紐付けた写真の不在の 404 は分類の部品が数量表の不在としないため、上の書き分けに残る
+        // 件数の上限（42.11）を超えた 400 は件数を減らさない限り成功しないため、再操作を促す一般の
+        // 文言でなく超えた上限のメッセージを、写真の紐付けの書き分けより先に判定して表示する（Task 109.1、REQ-42.12）
         setOperationError(
-          describeSurveyImageLinkSaveFailure(error, draftToSave.groups) ??
+          describeQuantityTableSaveLimitFailure(error) ??
+            describeSurveyImageLinkSaveFailure(error, draftToSave.groups) ??
             getQuantityTableNotFoundMessage(error, 'quantityTable') ??
             '保存に失敗しました。再度お試しください。'
         );
