@@ -6617,7 +6617,7 @@ mailDisabledReason: {
   backend/src/middleware/estimate-request-project-scope.middleware.ts
 - 見積依頼・受領見積書（親の見積依頼を経る）・作成の要求が指す内訳書の ID から案件の ID を引き、それぞれの論理削除は区別しない。範囲内の利用者には、本体の従来の 404（論理削除された見積依頼の `ESTIMATE_REQUEST_NOT_FOUND` など）がそのまま届く
 - 対象の不在も範囲外と区別できないよう汎用の 404（`NOT_FOUND`）になる。従来は見積依頼・受領見積書・ステータス・内訳書ごとの符号（`ESTIMATE_REQUEST_NOT_FOUND`・`RECEIVED_QUOTATION_NOT_FOUND`・`ESTIMATE_REQUEST_STATUS_NOT_FOUND`・`ITEMIZED_STATEMENT_NOT_FOUND`）と ID を本文に含めていた。画面は 404 を状態コードで扱っており、符号の変更の影響を受けない
-- 二重マウント（`/api/projects/:projectId/estimate-requests/:id`）では、経路の案件 ID でなく見積依頼が属する案件で判定し、両者が食い違うときは見積依頼の不在と同じ 404 にする。受領見積書の二重マウント（`/api/estimate-requests/:id/quotations/:id`）は経路のパラメータ名が重なり子の ID が優先されるため、受領見積書が属する案件で判定する
+- 二重マウント（`/api/projects/:projectId/estimate-requests/:id`）では、経路の案件 ID でなく見積依頼が属する案件で判定し、両者が食い違うときは見積依頼の不在と同じ 404 にする。受領見積書の二重マウント（`/api/estimate-requests/:id/quotations/:id`）は経路のパラメータ名が重なり子の ID が優先されるため、受領見積書が属する案件で判定する（タスク 106.1・Requirement 42.12 で受領見積書の経路の引数名を `quotationId` へ改め、重なりは解消した。現況の経路は `/api/estimate-requests/:id/quotations/:quotationId` で、経路の見積依頼に属さない受領見積書は不在と同じ 404 にする）
   - **改訂（2026-10-30、利用者の判断「推奨案で進める」）**: 上の項の受領見積書の二重マウントの記述は 2026-10-27 の実装の記録として残す。子の ID が優先されるため経路で指定した見積依頼が読まれず、範囲内の別の見積依頼の受領見積書を指す要求が通っていた。42.12 の追加により、受領見積書の経路の引数名を見積依頼の経路の引数名と分け、受領見積書が経路の見積依頼に属さなければ上流の `projectMismatch`（受領見積書の実際の案件 ID）を返す形へ改める（応答は不在と同じ汎用の 404。タスク106.1。末尾の章「2026-10-30 の追加」の「決定」）
   - **改訂（2026-10-29、利用者の判断「推奨案で進める」）**: 上の項は 2026-10-27 の実装の記録として残す。食い違いは解決関数が null（不在）を返し、判定部品が範囲を判定しないため記録されなかった。42.11 の追加により、解決関数は食い違いを null ではなく上流の `projectMismatch`（見積依頼の実際の案件 ID）で返し、上流の判定部品が実際の案件を判定して範囲外のときだけ記録する形へ改める（応答は同じ汎用の 404。タスク104.2。末尾の章の「決定」）
 - 受領見積書の登録・更新は、ファイルの受け取り（multipart の解析）より前に経路の ID の形式の検査と範囲の判定を置く。範囲外の要求のファイルをメモリへ読み込まない
@@ -6690,7 +6690,7 @@ mailDisabledReason: {
 - サーバーの 404 の応答の形（汎用の `NOT_FOUND`。範囲外と不在を区別しない。user-authentication の要件39.2）。本追加は応答を変えない
 - 共通部品 `ResourceNotFound` の見た目と文言（共通部品の所管。本機能は使うだけ）
 - プロジェクト詳細画面の見積依頼セクション（project-management の所管）と、見積依頼の詳細画面から使う現場調査の取得（site-survey の所管）
-- 受領見積書の二重マウント（`/api/estimate-requests/:id/quotations/:id`）。経路のパラメータ名が重なり子の ID だけが残るため、経路の親と対象の食い違いが生じない（Requirement 42 章の「適用の決定」）
+- 受領見積書の二重マウント（`/api/estimate-requests/:id/quotations/:id`）。経路のパラメータ名が重なり子の ID だけが残るため、経路の親と対象の食い違いが生じない（Requirement 42 章の「適用の決定」）。※ タスク 106.1・Requirement 42.12 で引数名を `quotationId` へ改めたため、現況では経路の見積依頼が読め、属さない受領見積書は不在と同じ 404 になる
   - **改訂（2026-10-30、利用者の判断「推奨案で進める」）**: 上の項は 2026-10-29 の判断の記録として残す。子の ID だけが残ることは食い違いが生じないことではなく、経路で指定した見積依頼が照合されないことであった。42.12 で受領見積書の食い違いを本機能の受け持ちとし、設計は末尾の章「2026-10-30 の追加」が持つ
 
 #### Allowed Dependencies
@@ -6912,7 +6912,7 @@ mailDisabledReason: {
 
 **不具合の芽**（2026-10-31 の調査。利用者の判断「推奨案で進める」）: 画面の `deleteEstimateRequest` は楽観的排他制御の基準時刻 `updatedAt` を DELETE の本文で送り、見積依頼の削除の経路は `validate(deleteEstimateRequestBodySchema, 'body')` で本文を検証していた。画面とサーバーは食い違っておらず現状で削除はできるが、HTTP（RFC 9110）は DELETE の本文に意味を定めておらず、中継の装置やクライアントの実装が本文を落とすと基準時刻が届かず 400 になり、見積依頼を消せなくなる（Requirement 8.4・8.5 を満たせなくなる）。見積書の削除は同じ理由で基準時刻をクエリで受け取る形に改めており（estimate-creation の design.md の章「2026-10-30 の是正: 見積書の削除の基準時刻をクエリで受け取る」、e5fd9877）、同じ形にそろえる。
 
-**是正**: 経路は基準時刻をクエリ（`?updatedAt=`）で受け取り、本文を読まない。検証を `validate(deleteEstimateRequestQuerySchema, 'query')` へ改め（スキーマの名前も本文からクエリへ改めた）、本体は `req.validatedQuery` から読む。画面の `deleteEstimateRequest` は `?updatedAt=` を付けて本文を送らない。本文の受け取りは残さない（見積書の是正と同じく、本文だけの要求は 400）。形式の検査と楽観的排他制御の 409 は従来どおり。判定の順序（`requirePermission` → ID の形式 → `requireEstimateRequestProjectScope` による範囲の判定 → クエリの検証 → 本体）は保ち、範囲外と不在は基準時刻の有無にかかわらず 400 より先に汎用の 404 になる（Requirement 42.2）。OpenAPI の注釈を本文からクエリの引数へ改め、api-spec.json を再生成した。上の API Contract の表の行もクエリへ改めた。受領見積書の論理的な取り除き（`/api/quotations/:id`）はこの是正の時点では本文で基準時刻を受け取っており対象外としたが、利用者の判断を受けて同じ形にそろえた（次の章「2026-10-31 の是正: 受領見積書の論理的な取り除きの基準時刻をクエリで受け取る」）。
+**是正**: 経路は基準時刻をクエリ（`?updatedAt=`）で受け取り、本文を読まない。検証を `validate(deleteEstimateRequestQuerySchema, 'query')` へ改め（スキーマの名前も本文からクエリへ改めた）、本体は `req.validatedQuery` から読む。画面の `deleteEstimateRequest` は `?updatedAt=` を付けて本文を送らない。本文の受け取りは残さない（見積書の是正と同じく、本文だけの要求は 400）。形式の検査と楽観的排他制御の 409 は従来どおり。判定の順序（`requirePermission` → ID の形式 → `requireEstimateRequestProjectScope` による範囲の判定 → クエリの検証 → 本体）は保ち、範囲外と不在は基準時刻の有無にかかわらず 400 より先に汎用の 404 になる（Requirement 42.2）。OpenAPI の注釈を本文からクエリの引数へ改め、api-spec.json を再生成した。上の API Contract の表の行もクエリへ改めた。受領見積書の論理的な取り除き（`/api/quotations/:quotationId`）はこの是正の時点では本文で基準時刻を受け取っており対象外としたが、利用者の判断を受けて同じ形にそろえた（次の章「2026-10-31 の是正: 受領見積書の論理的な取り除きの基準時刻をクエリで受け取る」）。
 
 **被覆の所在**: 画面の操作の E2E は REQ-8.4 のテスト（`@requirement estimate-request/REQ-8.4`）で、確認のダイアログの後の要求が成功し、その要求の URL に基準時刻のクエリが付き、本文が無いことを主張する。
   e2e/specs/estimate-requests/estimate-request-e2e.spec.ts

@@ -3931,7 +3931,7 @@ flowchart TD
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 2.5, 2.7 | 階層深さ無制限・折りたたみ | estimateTree, EstimateItemTable | — | 階層表示モード |
+| 2.5, 2.7 | 階層深さ無制限・折りたたみ（2.5 は 2026-10-31 に改訂: 上限 100 段まで。末尾の追跡表の 2.5 の行を参照） | estimateTree, EstimateItemTable | — | 階層表示モード |
 | 4.6 | 転記結果を未保存の変更へ | estimateEditReducer, TransferQuotationDialog | reducer action `applyQuotationTransfer` | 転記・計算の反映 |
 | 5.8, 5.9 | 案分を編集中の値で・新規行対象化 | estimateCalculations, NetAllocationDialog | `allocateNet(rows, netAmount, excludeIds)` | 転記・計算の反映 |
 | 6.7, 6.8, 6.9 | 利益率の判定基準と一致性 | estimateCalculations, ProfitRateDialog | `applyProfitRate(rows, rate, overwriteOption)` | 転記・計算の反映 |

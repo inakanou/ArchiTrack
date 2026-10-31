@@ -795,8 +795,8 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
       await page.getByRole('button', { name: /削除する/i }).click();
       const response = await deletePromise;
-      // 削除APIは204（No Content）または200を返す
-      expect([200, 204]).toContain(response.status());
+      // 削除APIは204（No Content）を返す（経路と後始末の補助 deleteReceivedQuotationViaApi も 204 に固定）
+      expect(response.status()).toBe(204);
 
       // 楽観的排他制御の基準時刻はクエリで送り、本文を付けない（DELETE の本文は中継で落ちうる。
       // 2026-10-31 の是正。基準時刻が届かず受領見積書を削除できなくなる経路を塞ぐ）

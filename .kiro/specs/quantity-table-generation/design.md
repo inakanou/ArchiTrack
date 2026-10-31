@@ -4471,7 +4471,8 @@ sequenceDiagram
 - **統合（backend）**: 保存の統合テストに、42.13 の各上限を超えた本文が 400 になりデータベースが変わらないことを足す。表示順の更新の統合テストに、上限を 1 件超えた `orderUpdates` が 400 になり表示順が変わらないことと、上限ちょうどの所要の一時の計測を足す。所在は次のファイル
   backend/src/__tests__/integration/quantity-table-save.api.integration.test.ts
   backend/src/__tests__/integration/quantity-item-display-order.api.integration.test.ts
-- **E2E**: 42.12 は、画面で保存し、保存の要求を Playwright の経路の差し替えで件数の上限の 400（実際の応答と同じ形の本文）にして、上限のメッセージが表示され汎用の文言が表示されず、編集中の内容が残ることを主張し、`@requirement quantity-table-generation/REQ-42.12` の印を置く（画面の操作で 1000 件の数量グループを作ることは現実的でないため。応答の形は 42.11 の E2E が実際の API で固定している）。42.13・42.14 は API の要求で、上限を超えた本文が 400 になり数量表が変わらないことを主張し、`@requirement quantity-table-generation/REQ-42.13`・`@requirement quantity-table-generation/REQ-42.14` の印を置く。置き場所は明示保存の E2E と一括操作の E2E の次のファイルとする
+  backend/src/__tests__/integration/quantity-group-display-order.api.integration.test.ts（グループの表示順の更新。タスク 110.2 の実装で足した）
+- **E2E**: （改訂 2026-10-31、タスク 109.1 の実装: 42.12 は応答の差し替えでなく、画面が送る本文を `route.continue` で上限を超える件数まで増やし、実際の 400 を受けて確かめる形にした。理由は実装の箇条を参照）42.12 は、画面で保存し、保存の要求を Playwright の経路の差し替えで件数の上限の 400（実際の応答と同じ形の本文）にして、上限のメッセージが表示され汎用の文言が表示されず、編集中の内容が残ることを主張し、`@requirement quantity-table-generation/REQ-42.12` の印を置く（画面の操作で 1000 件の数量グループを作ることは現実的でないため。応答の形は 42.11 の E2E が実際の API で固定している）。42.13・42.14 は API の要求で、上限を超えた本文が 400 になり数量表が変わらないことを主張し、`@requirement quantity-table-generation/REQ-42.13`・`@requirement quantity-table-generation/REQ-42.14` の印を置く。置き場所は明示保存の E2E と一括操作の E2E の次のファイルとする
   e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts
   e2e/specs/quantity-tables/bulk-item-operations-e2e.spec.ts
 - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す（タスク109.1・110.1・110.2）
