@@ -42,6 +42,9 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
 import { createTestUser } from './test-user-factory.js';
+import { EstimateService } from '../../services/estimate.service.js';
+import { AuditLogService } from '../../services/audit-log.service.js';
+import type { IAuditLogService } from '../../types/audit-log.types.js';
 
 /**
  * 見積書API統合テスト
@@ -1164,6 +1167,132 @@ describe('Estimate API Integration Tests', () => {
       expect(response.status).toBe(404);
       // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
       expect(response.body).toHaveProperty('code', 'NOT_FOUND');
+    });
+  });
+
+  // ==========================================
+  // 監査ログをトランザクションの中で書く（タスク70.1）
+  // ==========================================
+
+  /**
+   * 見積書の作成・更新・論理削除の監査ログは、見積書の変更と同じトランザクションの中で書く。
+   * 経路はモジュールの読み込み時にサービスを組み立てて依存を差し替えられないため、
+   * サービスを直接組み立てて、記録の後にトランザクションを巻き戻す状況を作る。
+   * 監査ログの数は、テスト用の DB の既存の記録に引っ張られないよう、このテストが作った対象の
+   * targetId で数える。
+   *
+   * @requirement estimate-creation/REQ-11.8
+   */
+  describe('見積書の監査ログとトランザクション（Requirement 11.8）', () => {
+    const FAILURE_AFTER_LOG = '監査ログの記録の後の失敗（巻き戻しの検証）';
+    let realAuditLogService: AuditLogService;
+    let committingService: EstimateService;
+    let rollingBackService: EstimateService;
+    let loggedTargetIds: string[];
+
+    beforeAll(() => {
+      realAuditLogService = new AuditLogService({ prisma });
+      committingService = new EstimateService({ prisma, auditLogService: realAuditLogService });
+    });
+
+    beforeEach(() => {
+      loggedTargetIds = [];
+      // 本物の createLog(input, tx) で記録してから例外を投げ、トランザクションを巻き戻させる包み
+      const failingAfterLog: IAuditLogService = {
+        createLog: async (input, tx) => {
+          loggedTargetIds.push(input.targetId);
+          await realAuditLogService.createLog(input, tx);
+          throw new Error(FAILURE_AFTER_LOG);
+        },
+        getLogs: (filter) => realAuditLogService.getLogs(filter),
+        exportLogs: (filter) => realAuditLogService.exportLogs(filter),
+      };
+      rollingBackService = new EstimateService({ prisma, auditLogService: failingAfterLog });
+    });
+
+    const uniqueName = (label: string): string =>
+      `監査ログ検証_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const countLogs = (action: string, targetId: string): Promise<number> =>
+      prisma.auditLog.count({ where: { action, targetType: 'Estimate', targetId } });
+
+    it('記録の後に作成が巻き戻ると、見積書も ESTIMATE_CREATED の監査ログも残らない', async () => {
+      const name = uniqueName('作成の巻き戻し');
+
+      await expect(
+        rollingBackService.create({ projectId: testProjectId, name }, testUserId)
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toHaveLength(1);
+      const targetId = String(loggedTargetIds[0]);
+      expect(await prisma.estimate.count({ where: { id: targetId } })).toBe(0);
+      expect(await prisma.estimate.count({ where: { projectId: testProjectId, name } })).toBe(0);
+      expect(await countLogs('ESTIMATE_CREATED', targetId)).toBe(0);
+    });
+
+    it('記録の後に更新が巻き戻ると、名前は変わらず ESTIMATE_UPDATED の監査ログも残らない', async () => {
+      const originalName = uniqueName('更新の対象');
+      const created = await committingService.create(
+        { projectId: testProjectId, name: originalName },
+        testUserId
+      );
+
+      await expect(
+        rollingBackService.update(
+          created.id,
+          { name: uniqueName('更新の巻き戻し') },
+          testUserId,
+          new Date(created.updatedAt)
+        )
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([created.id]);
+      const stored = await prisma.estimate.findUnique({ where: { id: created.id } });
+      expect(stored?.name).toBe(originalName);
+      expect(stored?.updatedAt.getTime()).toBe(new Date(created.updatedAt).getTime());
+      expect(await countLogs('ESTIMATE_UPDATED', created.id)).toBe(0);
+    });
+
+    it('記録の後に論理削除が巻き戻ると、見積書は論理削除されず ESTIMATE_DELETED の監査ログも残らない', async () => {
+      const created = await committingService.create(
+        { projectId: testProjectId, name: uniqueName('論理削除の対象') },
+        testUserId
+      );
+
+      await expect(
+        rollingBackService.delete(created.id, testUserId, new Date(created.updatedAt))
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([created.id]);
+      const stored = await prisma.estimate.findUnique({ where: { id: created.id } });
+      expect(stored).not.toBeNull();
+      expect(stored?.deletedAt).toBeNull();
+      expect(await countLogs('ESTIMATE_DELETED', created.id)).toBe(0);
+    });
+
+    it('確定した作成・更新・論理削除は、それぞれの監査ログを 1 件ずつ記録する（対照）', async () => {
+      const created = await committingService.create(
+        { projectId: testProjectId, name: uniqueName('確定の作成') },
+        testUserId
+      );
+      expect(await prisma.estimate.count({ where: { id: created.id } })).toBe(1);
+      expect(await countLogs('ESTIMATE_CREATED', created.id)).toBe(1);
+
+      const renamed = uniqueName('確定の更新');
+      const updated = await committingService.update(
+        created.id,
+        { name: renamed },
+        testUserId,
+        new Date(created.updatedAt)
+      );
+      expect((await prisma.estimate.findUnique({ where: { id: created.id } }))?.name).toBe(renamed);
+      expect(await countLogs('ESTIMATE_UPDATED', created.id)).toBe(1);
+
+      await committingService.delete(created.id, testUserId, new Date(updated.updatedAt));
+      expect(
+        (await prisma.estimate.findUnique({ where: { id: created.id } }))?.deletedAt
+      ).not.toBeNull();
+      expect(await countLogs('ESTIMATE_DELETED', created.id)).toBe(1);
     });
   });
 

@@ -1160,6 +1160,145 @@ describe('EstimateService', () => {
     });
   });
 
+  describe('監査ログをトランザクションの中で書く（タスク70.1）', () => {
+    // 作成・更新・論理削除の監査ログは、$transaction のコールバックが受けるトランザクションの
+    // クライアントを createLog の第 2 引数に渡して書く。渡さないとトランザクションの外の接続で
+    // 書かれ、巻き戻った操作の監査ログだけが残る（受入基準 11.8。巻き戻しの実際は統合テストで確かめる）
+    const actorId = 'user-001';
+    const createdEstimate = {
+      id: 'est-tx',
+      projectId: 'proj-001',
+      name: '監査ログ検証見積書',
+      sourceItemizedStatementId: null,
+      sourceItemizedStatementName: null,
+      createdAt: new Date('2026-11-01T00:00:00Z'),
+      updatedAt: new Date('2026-11-01T00:00:00Z'),
+      deletedAt: null,
+    };
+
+    /** `$transaction` がコールバックへ渡すクライアントを捕まえる */
+    function captureTransactionClient(txClient: Record<string, unknown>): { current: unknown } {
+      const captured: { current: unknown } = { current: undefined };
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        captured.current = txClient;
+        return fn(txClient as unknown as PrismaClient);
+      });
+      return captured;
+    }
+
+    function secondArgumentOfCreateLog(): unknown {
+      expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+      return vi.mocked(mockAuditLogService.createLog).mock.calls[0]?.[1];
+    }
+
+    it('内訳書からの作成は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const captured = captureTransactionClient({
+        project: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+        },
+        itemizedStatement: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'is-tx',
+            name: '監査ログ検証内訳書',
+            projectId: 'proj-001',
+            deletedAt: null,
+            items: [
+              {
+                id: 'isi-0',
+                customCategory: null,
+                workType: '工種',
+                name: '項目0',
+                specification: null,
+                unit: 'm',
+                quantity: 1,
+                displayOrder: 0,
+              },
+            ],
+          }),
+        },
+        estimate: {
+          count: vi.fn().mockResolvedValue(0),
+          create: vi.fn().mockResolvedValue({
+            ...createdEstimate,
+            sourceItemizedStatementId: 'is-tx',
+            sourceItemizedStatementName: '監査ログ検証内訳書',
+          }),
+        },
+        estimateItem: {
+          createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          findMany: vi
+            .fn()
+            .mockResolvedValue([{ id: 'ei-0', estimateId: 'est-tx', displayOrder: 0 }]),
+        },
+        estimateItemLine: {
+          createMany: vi.fn().mockResolvedValue({ count: 3 }),
+        },
+      });
+
+      await service.create(
+        { projectId: 'proj-001', name: '監査ログ検証見積書', sourceItemizedStatementId: 'is-tx' },
+        actorId
+      );
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('内訳書を選ばない作成は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const captured = captureTransactionClient({
+        project: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+        },
+        estimate: {
+          count: vi.fn().mockResolvedValue(0),
+          create: vi.fn().mockResolvedValue(createdEstimate),
+        },
+      });
+
+      await service.create({ projectId: 'proj-001', name: '監査ログ検証見積書' }, actorId);
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('更新は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const expectedUpdatedAt = new Date('2026-11-01T00:00:00Z');
+      const captured = captureTransactionClient({
+        estimate: {
+          findUnique: vi.fn().mockResolvedValue({ ...createdEstimate, name: '旧名' }),
+          count: vi.fn().mockResolvedValue(0),
+          update: vi
+            .fn()
+            .mockResolvedValue({ ...createdEstimate, name: '新名', _count: { items: 0 } }),
+        },
+      });
+
+      await service.update('est-tx', { name: '新名' }, actorId, expectedUpdatedAt);
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('論理削除は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const expectedUpdatedAt = new Date('2026-11-01T00:00:00Z');
+      const captured = captureTransactionClient({
+        estimate: {
+          findUnique: vi.fn().mockResolvedValue(createdEstimate),
+          update: vi.fn().mockResolvedValue({ ...createdEstimate, deletedAt: new Date() }),
+        },
+      });
+
+      await service.delete('est-tx', actorId, expectedUpdatedAt);
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+  });
+
   describe('create - エッジケース', () => {
     it('削除済みプロジェクトへの見積書作成時、エラーを発生させる', async () => {
       // Arrange

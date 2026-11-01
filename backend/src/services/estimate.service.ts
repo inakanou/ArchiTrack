@@ -26,7 +26,7 @@
  * @module services/estimate
  */
 
-import type { PrismaClient } from '../generated/prisma/client.js';
+import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import {
   EstimateNotFoundError,
@@ -227,11 +227,11 @@ export interface PaginatedEstimates {
 
 /**
  * Prismaトランザクションクライアント型
+ *
+ * 監査ログを同じトランザクションで書くため（`IAuditLogService.createLog` の第 2 引数。タスク70.1）、
+ * `$transaction` のコールバックが受ける Prisma の型そのものとする
  */
-type PrismaTransactionClient = Omit<
-  PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
+type PrismaTransactionClient = Prisma.TransactionClient;
 
 /**
  * 見積書サービス
@@ -504,20 +504,23 @@ export class EstimateService {
         });
       }
 
-      // 6. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_CREATED',
-        actorId,
-        targetType: 'Estimate',
-        targetId: estimate.id,
-        before: null,
-        after: {
-          projectId: estimate.projectId,
-          name: estimate.name,
-          sourceItemizedStatementId: estimate.sourceItemizedStatementId,
-          sourceItemizedStatementName: estimate.sourceItemizedStatementName,
+      // 6. 監査ログの記録（同じトランザクションで書き、巻き戻れば記録も残さない。Requirement 11.8、タスク70.1）
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_CREATED',
+          actorId,
+          targetType: 'Estimate',
+          targetId: estimate.id,
+          before: null,
+          after: {
+            projectId: estimate.projectId,
+            name: estimate.name,
+            sourceItemizedStatementId: estimate.sourceItemizedStatementId,
+            sourceItemizedStatementName: estimate.sourceItemizedStatementName,
+          },
         },
-      });
+        tx
+      );
 
       return this.toEstimateInfo(estimate, itemizedStatement?.items.length ?? 0);
     }, ESTIMATE_SAVE_TRANSACTION_OPTIONS);
@@ -695,15 +698,18 @@ export class EstimateService {
         },
       });
 
-      // 5. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_UPDATED',
-        actorId,
-        targetType: 'Estimate',
-        targetId: id,
-        before: { name: oldName },
-        after: { name: updatedEstimate.name },
-      });
+      // 5. 監査ログの記録（同じトランザクションで書く。Requirement 11.8、タスク70.1）
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_UPDATED',
+          actorId,
+          targetType: 'Estimate',
+          targetId: id,
+          before: { name: oldName },
+          after: { name: updatedEstimate.name },
+        },
+        tx
+      );
 
       return this.toEstimateInfo(updatedEstimate);
     });
@@ -754,20 +760,23 @@ export class EstimateService {
         data: { deletedAt: new Date() },
       });
 
-      // 4. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_DELETED',
-        actorId,
-        targetType: 'Estimate',
-        targetId: id,
-        before: {
-          projectId: estimate.projectId,
-          name: estimate.name,
-          sourceItemizedStatementId: estimate.sourceItemizedStatementId,
-          sourceItemizedStatementName: estimate.sourceItemizedStatementName,
+      // 4. 監査ログの記録（同じトランザクションで書く。Requirement 11.8、タスク70.1）
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_DELETED',
+          actorId,
+          targetType: 'Estimate',
+          targetId: id,
+          before: {
+            projectId: estimate.projectId,
+            name: estimate.name,
+            sourceItemizedStatementId: estimate.sourceItemizedStatementId,
+            sourceItemizedStatementName: estimate.sourceItemizedStatementName,
+          },
+          after: null,
         },
-        after: null,
-      });
+        tx
+      );
     });
   }
 

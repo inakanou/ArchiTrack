@@ -705,6 +705,20 @@
       }
     },
     {
+      "id": "estimate-creation/REQ-11.8",
+      "requirement": "REQ-11: 見積書CRUD操作",
+      "title": "巻き戻った見積書の作成・更新・論理削除の監査ログを残さない",
+      "criterionText": "If 見積書の作成・更新・論理削除の処理がデータベースで確定せずに巻き戻った場合（トランザクションの制限時間の超過、確定の時の失敗を含む）, then the 見積書作成システム shall その操作の監査ログを残さず、処理が確定した場合に限り従来どおりその操作の監査ログを1件記録する",
+      "reason": "巻き戻し（監査ログの記録の後のトランザクションの制限時間の超過や確定の時の失敗）は画面からもテストの経路の差し替えからも起こせず、確定した場合の振る舞い（応答と監査ログ 1 件）は変えないため E2E を置かない。実際の DB でサービスを直接組み立てる統合テストで、トランザクションの境界を検証する（estimate-creation の design.md の「2026-11-01 の追加: 見積書の作成・更新・論理削除の監査ログをトランザクションの中で書く（Requirement 11.8）」の章の Testing Strategy、タスク70.1）",
+      "category": "data-integrity",
+      "alternativeVerification": {
+        "method": "integration-test",
+        "tool": "Vitest / Prisma",
+        "description": "backend/src/__tests__/integration/estimate.api.integration.test.ts の describe(\"見積書の監査ログとトランザクション（Requirement 11.8）\")（@requirement estimate-creation/REQ-11.8）が、本物の AuditLogService の createLog(input, tx) を呼んでから例外を投げる包みを EstimateService に注入し、作成・更新・論理削除のそれぞれで見積書が作られず・名前が変わらず・論理削除されず、その操作の種別の監査ログが対象の targetId で 0 件であることを確認する。対照として、包まない本物の AuditLogService で 3 つの操作が確定し、それぞれの監査ログが 1 件残ることを確認する。createLog の第 2 引数に $transaction のコールバックのクライアントが渡ることは backend/src/__tests__/unit/services/estimate.service.test.ts の describe(\"監査ログをトランザクションの中で書く（タスク70.1）\") が確かめる",
+        "threshold": "audit_log_on_rollback: none, audit_log_on_commit: 1"
+      }
+    },
+    {
       "id": "estimate-request/REQ-11.20",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "Tabキーによるフィールド間の順次移動をサポートする",
@@ -1787,9 +1801,9 @@
     }
   },
   "summary": {
-    "totalExclusions": 129,
+    "totalExclusions": 130,
     "byCategory": {
-      "data-integrity": 19,
+      "data-integrity": 20,
       "fault-tolerance": 6,
       "infrastructure": 46,
       "integration-test": 36,

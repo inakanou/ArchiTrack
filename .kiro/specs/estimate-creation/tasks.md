@@ -1946,7 +1946,7 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
 
 **経緯**: 利用者の判断（2026-11-01「推奨案で進めてください」）で起票する。見積書のサービス（backend/src/services/estimate.service.ts の `EstimateService`）の作成の本体（`createWithin`）・更新（`update`）・論理削除（`delete`）は、`$transaction` のコールバックの中で `auditLogService.createLog` をトランザクションのクライアントを渡さずに呼び、監査ログをトランザクションの外の接続で書く（#292 から）。記録の後にトランザクションが巻き戻ると、見積書は変わらないのに監査ログだけが残る。requirements.md に 11.8 を加え（改訂の記録を Requirement 11 に残した）、design.md の末尾に章「2026-11-01 の追加: 見積書の作成・更新・論理削除の監査ログをトランザクションの中で書く（Requirement 11.8）」を置いた
 
-- [ ] 70.1 見積書の作成・更新・論理削除の監査ログを、見積書の変更と同じトランザクションの中で書く
+- [x] 70.1 見積書の作成・更新・論理削除の監査ログを、見積書の変更と同じトランザクションの中で書く
   - 作成の本体・更新・論理削除の 3 か所の `this.auditLogService.createLog({...})` の第 2 引数に、それぞれの `$transaction` のコールバックが受ける `tx` を渡す（各 1 行。design.md の同章の「決定」）。記録の入力・記録の時点・応答・トランザクションの制限時間は変えない。`AuditLogService` と受領見積書のサービスなど同じ形の他の箇所は変えない
   - 単体（`backend/src/__tests__/unit/services/estimate.service.test.ts`）に、作成（内訳書からの作成と内訳書を選ばない作成）・更新・論理削除で `createLog` の第 2 引数が `$transaction` のコールバックへ渡された `tx` と同じオブジェクトであることを足す
   - 統合（`backend/src/__tests__/integration/estimate.api.integration.test.ts`）に、見積書のサービスを直接組み立て、本物の `AuditLogService` の `createLog(input, tx)` を呼んでから例外を投げる包みを依存に注入して、作成・更新・論理削除のそれぞれで見積書が作られず・変わらず・論理削除されず、その操作の監査ログが 0 件であることを主張する。対照として、包まない本物の `AuditLogService` で 3 つの操作が確定し、その操作の監査ログが 1 件残ることを主張する。`@requirement estimate-creation/REQ-11.8` の印を置き、印を足したら `check:design-measurement-freshness` を名指しで流す
