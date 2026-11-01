@@ -1942,6 +1942,21 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Requirements: 3.6_
   - _Boundary: EstimateService の見積書の作成のトランザクション（createWithin の $transaction の options）と、その制限時間を主張する本スペックのテスト_
 
+## タスク70: 見積書の作成・更新・論理削除の監査ログをトランザクションの中で書く（利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「推奨案で進めてください」）で起票する。見積書のサービス（backend/src/services/estimate.service.ts の `EstimateService`）の作成の本体（`createWithin`）・更新（`update`）・論理削除（`delete`）は、`$transaction` のコールバックの中で `auditLogService.createLog` をトランザクションのクライアントを渡さずに呼び、監査ログをトランザクションの外の接続で書く（#292 から）。記録の後にトランザクションが巻き戻ると、見積書は変わらないのに監査ログだけが残る。requirements.md に 11.8 を加え（改訂の記録を Requirement 11 に残した）、design.md の末尾に章「2026-11-01 の追加: 見積書の作成・更新・論理削除の監査ログをトランザクションの中で書く（Requirement 11.8）」を置いた
+
+- [ ] 70.1 見積書の作成・更新・論理削除の監査ログを、見積書の変更と同じトランザクションの中で書く
+  - 作成の本体・更新・論理削除の 3 か所の `this.auditLogService.createLog({...})` の第 2 引数に、それぞれの `$transaction` のコールバックが受ける `tx` を渡す（各 1 行。design.md の同章の「決定」）。記録の入力・記録の時点・応答・トランザクションの制限時間は変えない。`AuditLogService` と受領見積書のサービスなど同じ形の他の箇所は変えない
+  - 単体（`backend/src/__tests__/unit/services/estimate.service.test.ts`）に、作成（内訳書からの作成と内訳書を選ばない作成）・更新・論理削除で `createLog` の第 2 引数が `$transaction` のコールバックへ渡された `tx` と同じオブジェクトであることを足す
+  - 統合（`backend/src/__tests__/integration/estimate.api.integration.test.ts`）に、見積書のサービスを直接組み立て、本物の `AuditLogService` の `createLog(input, tx)` を呼んでから例外を投げる包みを依存に注入して、作成・更新・論理削除のそれぞれで見積書が作られず・変わらず・論理削除されず、その操作の監査ログが 0 件であることを主張する。対照として、包まない本物の `AuditLogService` で 3 つの操作が確定し、その操作の監査ログが 1 件残ることを主張する。`@requirement estimate-creation/REQ-11.8` の印を置き、印を足したら `check:design-measurement-freshness` を名指しで流す
+  - E2E は新しく置かない（巻き戻しは画面からもテストの経路の差し替えからも起こせない。design.md の同章の Testing Strategy）。見積の既存の E2E（`e2e/specs/estimate/` の全件）を流し、回帰が無いことを確かめる。frontend は変えないため、テスト環境の frontend の作り直しは要らない
+  - E2E を置かないため、E2E の除外の台帳（`e2e/requirement-exclusions.json`）に 11.8 を一件足し、代替検証に上の統合テストを名指す（design.md の同章の Testing Strategy の「E2E の被覆の対象からの除外」）。足した後に `check:req-coverage` を名指しで流し、11.8 が被覆か除外として数えられ緑になることを確かめる
+  - 挙動の変更であるため RED → GREEN で進め、追加した単体と統合が改修の前に赤になる（単体は第 2 引数が `undefined`、統合は監査ログが 1 件残る）ことを先に示す
+  - 単体・統合で、巻き戻った作成・更新・論理削除の監査ログが残らず、確定した操作の監査ログが従来どおり 1 件記録される状態になる
+  - _Requirements: 11.8_
+  - _Boundary: EstimateService の作成の本体（createWithin）・更新（update）・論理削除（delete）の 3 か所の createLog の呼び出しと、その記録を主張する本スペックのテスト（estimate.service.test.ts と estimate.api.integration.test.ts）と、E2E の除外の台帳の 11.8 の一件_
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。
