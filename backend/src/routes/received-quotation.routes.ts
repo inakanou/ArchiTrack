@@ -28,6 +28,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import multer from 'multer';
 import { ReceivedQuotationService } from '../services/received-quotation.service.js';
+import { AuditLogService } from '../services/audit-log.service.js';
 import { getStorageProvider } from '../storage/storage-factory.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
@@ -81,6 +82,8 @@ function getReceivedQuotationService(): ReceivedQuotationService {
   receivedQuotationService = new ReceivedQuotationService({
     prisma,
     storageProvider,
+    // 作成・更新・論理削除の監査ログ（estimate-request の Requirement 14.7、タスク111.1）
+    auditLogService: new AuditLogService({ prisma }),
   });
   return receivedQuotationService;
 }
@@ -200,7 +203,8 @@ router.post(
         netAmount: validatedBody.netAmount,
       };
 
-      const quotation = await getReceivedQuotationService().create(input);
+      // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
+      const quotation = await getReceivedQuotationService().create(input, req.user!.userId);
 
       logger.info(
         {
@@ -498,10 +502,12 @@ router.put(
         lineItems,
       };
 
+      // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
       const quotation = await getReceivedQuotationService().update(
         id,
         input,
-        new Date(expectedUpdatedAt)
+        new Date(expectedUpdatedAt),
+        req.user!.userId
       );
 
       logger.info({ quotationId: id }, 'Received quotation updated successfully');
@@ -617,7 +623,8 @@ router.delete(
       const { quotationId: id } = req.validatedParams as { quotationId: string };
       const { updatedAt } = req.validatedQuery as { updatedAt: string };
 
-      await getReceivedQuotationService().delete(id, new Date(updatedAt));
+      // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
+      await getReceivedQuotationService().delete(id, new Date(updatedAt), req.user!.userId);
 
       logger.info({ quotationId: id }, 'Received quotation deleted successfully');
 

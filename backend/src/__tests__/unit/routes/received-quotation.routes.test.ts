@@ -206,6 +206,22 @@ describe('received-quotation.routes', () => {
       );
     });
 
+    // 操作した利用者を監査ログの実行者として渡す（estimate-request の Requirement 14.7、タスク111.1）
+    it('認証した利用者の ID を作成の第 2 引数に渡すこと', async () => {
+      mockCreate.mockResolvedValue(mockQuotation);
+
+      const response = await request(app)
+        .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+        .send(validCreateInput);
+
+      expect(response.status).toBe(201);
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ estimateRequestId, name: 'テスト受領見積書' }),
+        'test-user-id'
+      );
+    });
+
     it('should return 400 for invalid request body', async () => {
       const response = await request(app)
         .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
@@ -346,6 +362,24 @@ describe('received-quotation.routes', () => {
       expect(response.body.name).toBe('更新後の見積書名');
     });
 
+    // 操作した利用者を監査ログの実行者として渡す（estimate-request の Requirement 14.7、タスク111.1）
+    it('認証した利用者の ID を更新の第 4 引数に渡すこと', async () => {
+      mockUpdate.mockResolvedValue({ ...mockQuotation, name: validUpdateInput.name });
+
+      const response = await request(app)
+        .put(`/api/quotations/${validUUID}`)
+        .send(validUpdateInput);
+
+      expect(response.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+      expect(mockUpdate).toHaveBeenCalledWith(
+        validUUID,
+        expect.objectContaining({ name: validUpdateInput.name }),
+        new Date(validUpdateInput.expectedUpdatedAt),
+        'test-user-id'
+      );
+    });
+
     it('should return 404 when quotation not found', async () => {
       mockUpdate.mockRejectedValue(new ReceivedQuotationNotFoundError(validUUID));
 
@@ -397,7 +431,12 @@ describe('received-quotation.routes', () => {
 
       expect(response.status).toBe(204);
       expect(mockDelete).toHaveBeenCalledTimes(1);
-      expect(mockDelete).toHaveBeenCalledWith(validUUID, new Date(validDeleteQuery.updatedAt));
+      // 第 3 引数は操作した利用者（監査ログの実行者。estimate-request の Requirement 14.7、タスク111.1）
+      expect(mockDelete).toHaveBeenCalledWith(
+        validUUID,
+        new Date(validDeleteQuery.updatedAt),
+        'test-user-id'
+      );
     });
 
     it('updatedAt を本文だけに載せた要求は 400 を返し、削除しないこと', async () => {
@@ -524,7 +563,8 @@ describe('received-quotation.routes', () => {
           lineItems: expect.arrayContaining([
             expect.objectContaining({ name: '工事A', sortOrder: 0 }),
           ]),
-        })
+        }),
+        'test-user-id'
       );
     });
 
@@ -596,7 +636,8 @@ describe('received-quotation.routes', () => {
         expect.objectContaining({
           lineItems: expect.arrayContaining([expect.objectContaining({ name: '新工事A' })]),
         }),
-        expect.any(Date)
+        expect.any(Date),
+        'test-user-id'
       );
     });
   });

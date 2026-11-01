@@ -26,6 +26,7 @@ import type { ProjectScopeService } from '../../../services/project-scope.servic
 import { ReceivedQuotationService } from '../../../services/received-quotation.service.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 import type { StorageProvider } from '../../../storage/storage-provider.interface.js';
+import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import {
   ReceivedQuotationNotFoundError,
   ReceivedQuotationConflictError,
@@ -79,12 +80,21 @@ const createMockStorageProvider = (): StorageProvider => ({
   disconnect: vi.fn().mockResolvedValue(undefined),
 });
 
+/** 操作した利用者（監査ログの実行者。estimate-request の Requirement 14.7、タスク111.1） */
+const ACTOR_ID = 'user-actor-001';
+
 describe('ReceivedQuotationService', () => {
   let service: ReceivedQuotationService;
   let mockPrisma: PrismaClient;
   let mockStorageProvider: StorageProvider;
   /** 署名付きURLの発行の判定（タスク103.1）。既定は範囲内 */
   let mockProjectScope: { canAccessProject: Mock<ProjectScopeService['canAccessProject']> };
+  /** 監査ログの記録（タスク111.1） */
+  let mockAuditLogService: {
+    createLog: Mock<IAuditLogService['createLog']>;
+    getLogs: Mock<IAuditLogService['getLogs']>;
+    exportLogs: Mock<IAuditLogService['exportLogs']>;
+  };
 
   beforeEach(() => {
     mockPrisma = createMockPrisma();
@@ -92,9 +102,15 @@ describe('ReceivedQuotationService', () => {
     mockProjectScope = {
       canAccessProject: vi.fn<ProjectScopeService['canAccessProject']>().mockResolvedValue(true),
     };
+    mockAuditLogService = {
+      createLog: vi.fn<IAuditLogService['createLog']>(),
+      getLogs: vi.fn<IAuditLogService['getLogs']>(),
+      exportLogs: vi.fn<IAuditLogService['exportLogs']>(),
+    };
     service = new ReceivedQuotationService({
       prisma: mockPrisma,
       storageProvider: mockStorageProvider,
+      auditLogService: mockAuditLogService,
       projectScopeService: mockProjectScope,
     });
   });
@@ -176,7 +192,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(input);
+      const result = await service.create(input, ACTOR_ID);
 
       // Assert
       expect(result.id).toBe('rq-001');
@@ -240,7 +256,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(input);
+      const result = await service.create(input, ACTOR_ID);
 
       // Assert
       expect(result.id).toBe('rq-002');
@@ -268,7 +284,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act & Assert
-      await expect(service.create(input)).rejects.toThrow(EstimateRequestNotFoundError);
+      await expect(service.create(input, ACTOR_ID)).rejects.toThrow(EstimateRequestNotFoundError);
     });
 
     it('許可されていないファイル形式の場合、エラーを発生させる（Requirements: 11.8）', async () => {
@@ -286,7 +302,7 @@ describe('ReceivedQuotationService', () => {
       };
 
       // Act & Assert
-      await expect(service.create(input)).rejects.toThrow(InvalidFileTypeError);
+      await expect(service.create(input, ACTOR_ID)).rejects.toThrow(InvalidFileTypeError);
     });
 
     it('ファイルサイズが10MBを超える場合、エラーを発生させる（Requirements: 11.9）', async () => {
@@ -304,7 +320,7 @@ describe('ReceivedQuotationService', () => {
       };
 
       // Act & Assert
-      await expect(service.create(input)).rejects.toThrow(FileSizeLimitExceededError);
+      await expect(service.create(input, ACTOR_ID)).rejects.toThrow(FileSizeLimitExceededError);
     });
 
     it('Excelファイルで受領見積書を作成する', async () => {
@@ -354,7 +370,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(input);
+      const result = await service.create(input, ACTOR_ID);
 
       // Assert
       expect(result.fileMimeType).toBe(
@@ -409,7 +425,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(input);
+      const result = await service.create(input, ACTOR_ID);
 
       // Assert
       expect(result.fileMimeType).toBe('image/jpeg');
@@ -587,7 +603,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.update(quotationId, input, expectedUpdatedAt);
+      const result = await service.update(quotationId, input, expectedUpdatedAt, ACTOR_ID);
 
       // Assert
       expect(result.name).toBe('更新後の受領見積書名');
@@ -623,7 +639,7 @@ describe('ReceivedQuotationService', () => {
 
       // Act & Assert
       await expect(
-        service.update('rq-001', { name: '新しい名前' }, expectedUpdatedAt)
+        service.update('rq-001', { name: '新しい名前' }, expectedUpdatedAt, ACTOR_ID)
       ).rejects.toThrow(ReceivedQuotationConflictError);
     });
 
@@ -673,7 +689,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      await service.update(quotationId, input, expectedUpdatedAt);
+      await service.update(quotationId, input, expectedUpdatedAt, ACTOR_ID);
 
       // Assert
       expect(mockStorageProvider.upload).toHaveBeenCalled();
@@ -714,7 +730,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      await service.delete(quotationId, expectedUpdatedAt);
+      await service.delete(quotationId, expectedUpdatedAt, ACTOR_ID);
 
       // Assert
       expect(mockStorageProvider.delete).toHaveBeenCalledWith(
@@ -752,7 +768,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      await service.delete(quotationId, expectedUpdatedAt);
+      await service.delete(quotationId, expectedUpdatedAt, ACTOR_ID);
 
       // Assert
       expect(mockStorageProvider.delete).not.toHaveBeenCalled();
@@ -793,7 +809,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      await service.delete(quotationId, expectedUpdatedAt);
+      await service.delete(quotationId, expectedUpdatedAt, ACTOR_ID);
 
       // Assert
       expect(txUpdate).toHaveBeenCalledWith({
@@ -815,7 +831,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act & Assert
-      await expect(service.delete('rq-nonexistent', new Date())).rejects.toThrow(
+      await expect(service.delete('rq-nonexistent', new Date(), ACTOR_ID)).rejects.toThrow(
         ReceivedQuotationNotFoundError
       );
     });
@@ -1007,7 +1023,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         // Assert
         expect(result.id).toBe('rq-010');
@@ -1069,7 +1085,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         // Assert
         expect(result.fileName).toBe('見積書.pdf');
@@ -1088,7 +1104,7 @@ describe('ReceivedQuotationService', () => {
         };
 
         // Act & Assert
-        await expect(service.create(input)).rejects.toThrow(
+        await expect(service.create(input, ACTOR_ID)).rejects.toThrow(
           'ファイルのアップロードまたは明細行データの入力が必要です'
         );
       });
@@ -1152,7 +1168,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         // Assert: サーバーサイドで金額を再計算して保存
         expect(result.lineItems[0]!.amount).toBe(10000);
@@ -1344,7 +1360,8 @@ describe('ReceivedQuotationService', () => {
         const result = await service.update(
           quotationId,
           { lineItems: newLineItems },
-          expectedUpdatedAt
+          expectedUpdatedAt,
+          ACTOR_ID
         );
 
         // Assert
@@ -1391,7 +1408,9 @@ describe('ReceivedQuotationService', () => {
         vi.mocked(mockStorageProvider.delete).mockRejectedValue(new Error('Storage delete failed'));
 
         // Act - エラーがスローされないことを確認
-        await expect(service.delete(quotationId, expectedUpdatedAt)).resolves.toBeUndefined();
+        await expect(
+          service.delete(quotationId, expectedUpdatedAt, ACTOR_ID)
+        ).resolves.toBeUndefined();
 
         // Assert: ファイル削除が試みられたが、エラーは伝播されない
         expect(mockStorageProvider.delete).toHaveBeenCalledWith(
@@ -1484,7 +1503,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         // Assert
         expect(result.id).toBe('rq-new-001');
@@ -1546,7 +1565,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         // Assert: ファイルと明細行の両方が存在
         expect(result.fileName).toBe('設備見積.pdf');
@@ -1600,7 +1619,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         // Assert: ファイルのみで明細行なし
         expect(result.fileName).toBe('見積書.xlsx');
@@ -1658,7 +1677,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         // Assert: 明細行のみでファイルなし
         expect(result.fileName).toBeNull();
@@ -1677,7 +1696,7 @@ describe('ReceivedQuotationService', () => {
         };
 
         // Act & Assert
-        await expect(service.create(input)).rejects.toThrow(
+        await expect(service.create(input, ACTOR_ID)).rejects.toThrow(
           'ファイルのアップロードまたは明細行データの入力が必要です'
         );
       });
@@ -1692,7 +1711,7 @@ describe('ReceivedQuotationService', () => {
         };
 
         // Act & Assert
-        await expect(service.create(input)).rejects.toThrow(
+        await expect(service.create(input, ACTOR_ID)).rejects.toThrow(
           'ファイルのアップロードまたは明細行データの入力が必要です'
         );
       });
@@ -1765,7 +1784,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         // Assert: 金額がサーバーサイドで再計算されている
         expect(result.lineItems[0]!.amount).toBe(100000);
@@ -1836,7 +1855,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         // Assert: 金額はnull
         expect(result.lineItems[0]!.amount).toBeNull();
@@ -1921,7 +1940,8 @@ describe('ReceivedQuotationService', () => {
         const result = await service.update(
           quotationId,
           { lineItems: newLineItems },
-          expectedUpdatedAt
+          expectedUpdatedAt,
+          ACTOR_ID
         );
 
         // Assert
@@ -1981,7 +2001,12 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.update(quotationId, { lineItems: [] }, expectedUpdatedAt);
+        const result = await service.update(
+          quotationId,
+          { lineItems: [] },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
 
         // Assert: 全削除される
         expect(mockDeleteMany).toHaveBeenCalledWith({
@@ -2263,7 +2288,7 @@ describe('ReceivedQuotationService', () => {
           return fn(txClient as unknown as PrismaClient);
         });
 
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         expect(result.lineItems).toHaveLength(2);
         expect(result.lineItems[0]?.customCategory).toBe('躯体工事');
@@ -2336,7 +2361,7 @@ describe('ReceivedQuotationService', () => {
           return fn(txClient as unknown as PrismaClient);
         });
 
-        const result = await service.create(input);
+        const result = await service.create(input, ACTOR_ID);
 
         expect(result.lineItems).toHaveLength(1);
         expect(result.lineItems[0]?.customCategory).toBeNull();
@@ -2465,7 +2490,7 @@ describe('ReceivedQuotationService', () => {
         return fn(txClient as unknown as PrismaClient);
       });
 
-      const result = await service.create(input);
+      const result = await service.create(input, ACTOR_ID);
 
       expect(result.id).toBe('rq-net-001');
       expect(result.netAmount).toBe(9000);
@@ -2611,7 +2636,7 @@ describe('ReceivedQuotationService', () => {
         return fn(txClient as unknown as PrismaClient);
       });
 
-      await service.create(input);
+      await service.create(input, ACTOR_ID);
 
       // createManyに渡された明細行データにnetAmountが含まれていないことを確認
       expect(capturedLineItemData).not.toBeNull();
@@ -2664,7 +2689,7 @@ describe('ReceivedQuotationService', () => {
         return fn(txClient as unknown as PrismaClient);
       });
 
-      const result = await service.update(quotationId, input, expectedUpdatedAt);
+      const result = await service.update(quotationId, input, expectedUpdatedAt, ACTOR_ID);
 
       expect(result.netAmount).toBe(12000);
       // updateに渡されたデータにnetAmountが含まれていることを確認
@@ -2712,7 +2737,7 @@ describe('ReceivedQuotationService', () => {
         return fn(txClient as unknown as PrismaClient);
       });
 
-      const result = await service.update(quotationId, input, expectedUpdatedAt);
+      const result = await service.update(quotationId, input, expectedUpdatedAt, ACTOR_ID);
 
       expect(result.netAmount).toBeNull();
     });
@@ -2773,6 +2798,408 @@ describe('ReceivedQuotationService', () => {
       expect(result).toHaveLength(2);
       expect(result[0]!.netAmount).toBe(50000);
       expect(result[1]!.netAmount).toBeNull();
+    });
+  });
+
+  // ==========================================
+  // 監査ログ（estimate-request の Requirement 14.7、タスク111.1）
+  // ==========================================
+
+  /**
+   * 受領見積書の作成・更新・論理削除が確定したときに、その操作の監査ログを変更と同じ
+   * トランザクションの中で 1 件記録する。記録は `$transaction` のコールバックが受けたクライアント
+   * （tx）を `createLog` の第 2 引数に渡して書く。協力業者の金額（netAmount・明細行の中身）と
+   * ファイルの格納先（filePath）は社外秘のため記録に入れない。記録はデータベースの変更の後、
+   * ストレージの操作（作成のファイルの送信、更新の差し替え前のファイルの取り除き）の前に置く。
+   */
+  describe('監査ログ（Requirement 14.7、タスク111.1）', () => {
+    const NET_AMOUNT = 4_567_890;
+    const UNIT_PRICE = 123_457;
+    const STORED_FILE_PATH = 'quotations/er-001/rq-audit/旧見積書.pdf';
+
+    const existingQuotation = (overrides: Record<string, unknown> = {}) => ({
+      id: 'rq-audit',
+      estimateRequestId: 'er-001',
+      name: '変更前の受領見積書',
+      submittedAt: new Date('2026-01-23T00:00:00.000Z'),
+      filePath: STORED_FILE_PATH,
+      fileName: '旧見積書.pdf',
+      fileMimeType: 'application/pdf',
+      fileSize: 10000,
+      netAmount: NET_AMOUNT,
+      createdAt: new Date('2026-01-22T00:00:00Z'),
+      updatedAt: new Date('2026-01-23T00:00:00Z'),
+      deletedAt: null,
+      ...overrides,
+    });
+
+    /** 記録の入力に金額・明細行の中身・ファイルの格納先が入らないこと */
+    const expectNoConfidentialValues = (input: unknown): void => {
+      const serialized = JSON.stringify(input);
+      expect(serialized).not.toContain(String(NET_AMOUNT));
+      expect(serialized).not.toContain(String(UNIT_PRICE));
+      expect(serialized).not.toContain('netAmount');
+      expect(serialized).not.toContain('unitPrice');
+      expect(serialized).not.toContain('amount');
+      expect(serialized).not.toContain('filePath');
+      expect(serialized).not.toContain('quotations/');
+      expect(serialized).not.toContain('秘匿の明細');
+    };
+
+    describe('create', () => {
+      const setupCreateTx = (created: Record<string, unknown>) => {
+        const txClient = {
+          estimateRequest: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'er-001', deletedAt: null }),
+          },
+          receivedQuotation: {
+            create: vi.fn().mockResolvedValue({ ...created, lineItems: [] }),
+            update: vi.fn().mockResolvedValue(created),
+          },
+          receivedQuotationLineItem: {
+            createMany: vi.fn().mockResolvedValue({ count: 2 }),
+          },
+        };
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+          fn(txClient as unknown as PrismaClient)
+        );
+        return txClient;
+      };
+
+      it('明細行だけの作成が確定すると RECEIVED_QUOTATION_CREATED を tx で 1 件記録し、金額を入れない', async () => {
+        const txClient = setupCreateTx({
+          id: 'rq-audit',
+          estimateRequestId: 'er-001',
+          name: '監査ログの受領見積書',
+          submittedAt: new Date('2026-01-24T00:00:00.000Z'),
+          filePath: null,
+          fileName: null,
+          fileMimeType: null,
+          fileSize: null,
+          netAmount: NET_AMOUNT,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+        });
+
+        await service.create(
+          {
+            estimateRequestId: 'er-001',
+            name: '監査ログの受領見積書',
+            submittedAt: new Date('2026-01-24T00:00:00.000Z'),
+            netAmount: NET_AMOUNT,
+            lineItems: [
+              { name: '秘匿の明細A', sortOrder: 0, quantity: 2, unitPrice: UNIT_PRICE },
+              { name: '秘匿の明細B', sortOrder: 1, quantity: 1, unitPrice: UNIT_PRICE },
+            ],
+          },
+          ACTOR_ID
+        );
+
+        expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+        const [input, tx] = mockAuditLogService.createLog.mock.calls[0]!;
+        expect(input).toEqual({
+          action: 'RECEIVED_QUOTATION_CREATED',
+          actorId: ACTOR_ID,
+          targetType: 'ReceivedQuotation',
+          targetId: 'rq-audit',
+          before: null,
+          after: {
+            estimateRequestId: 'er-001',
+            name: '監査ログの受領見積書',
+            submittedAt: '2026-01-24T00:00:00.000Z',
+            fileName: null,
+            lineItemCount: 2,
+          },
+        });
+        expect(tx).toBe(txClient);
+        expectNoConfidentialValues(input);
+      });
+
+      it('ファイルありの作成は、記録をストレージへの送信より先に呼び、明細行の数を 0 で記録する', async () => {
+        const txClient = setupCreateTx({
+          id: 'rq-audit',
+          estimateRequestId: 'er-001',
+          name: 'ファイルの受領見積書',
+          submittedAt: new Date('2026-01-24T00:00:00.000Z'),
+          filePath: null,
+          fileName: '見積書.pdf',
+          fileMimeType: 'application/pdf',
+          fileSize: 10000,
+          netAmount: NET_AMOUNT,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+        });
+
+        await service.create(
+          {
+            estimateRequestId: 'er-001',
+            name: 'ファイルの受領見積書',
+            submittedAt: new Date('2026-01-24T00:00:00.000Z'),
+            netAmount: NET_AMOUNT,
+            file: {
+              buffer: Buffer.from('PDF'),
+              originalName: '見積書.pdf',
+              mimeType: 'application/pdf',
+              size: 10000,
+            },
+          },
+          ACTOR_ID
+        );
+
+        expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+        const [input, tx] = mockAuditLogService.createLog.mock.calls[0]!;
+        expect(input).toEqual({
+          action: 'RECEIVED_QUOTATION_CREATED',
+          actorId: ACTOR_ID,
+          targetType: 'ReceivedQuotation',
+          targetId: 'rq-audit',
+          before: null,
+          after: {
+            estimateRequestId: 'er-001',
+            name: 'ファイルの受領見積書',
+            submittedAt: '2026-01-24T00:00:00.000Z',
+            fileName: '見積書.pdf',
+            lineItemCount: 0,
+          },
+        });
+        expect(tx).toBe(txClient);
+        expectNoConfidentialValues(input);
+        expect(mockStorageProvider.upload).toHaveBeenCalledTimes(1);
+        expect(mockAuditLogService.createLog.mock.invocationCallOrder[0]!).toBeLessThan(
+          vi.mocked(mockStorageProvider.upload).mock.invocationCallOrder[0]!
+        );
+      });
+
+      it('記録が失敗すると作成は例外で終わり、ファイルをストレージへ送らない', async () => {
+        setupCreateTx({
+          id: 'rq-audit',
+          estimateRequestId: 'er-001',
+          name: 'ファイルの受領見積書',
+          submittedAt: new Date('2026-01-24T00:00:00.000Z'),
+          filePath: null,
+          fileName: '見積書.pdf',
+          fileMimeType: 'application/pdf',
+          fileSize: 10000,
+          netAmount: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+        });
+        mockAuditLogService.createLog.mockRejectedValue(new Error('監査ログの記録の失敗'));
+
+        await expect(
+          service.create(
+            {
+              estimateRequestId: 'er-001',
+              name: 'ファイルの受領見積書',
+              submittedAt: new Date('2026-01-24T00:00:00.000Z'),
+              file: {
+                buffer: Buffer.from('PDF'),
+                originalName: '見積書.pdf',
+                mimeType: 'application/pdf',
+                size: 10000,
+              },
+            },
+            ACTOR_ID
+          )
+        ).rejects.toThrow('監査ログの記録の失敗');
+
+        expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+        expect(mockStorageProvider.upload).not.toHaveBeenCalled();
+      });
+
+      it('見積依頼が無い作成は記録しない', async () => {
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+          fn({
+            estimateRequest: { findUnique: vi.fn().mockResolvedValue(null) },
+          } as unknown as PrismaClient)
+        );
+
+        await expect(
+          service.create(
+            {
+              estimateRequestId: 'er-missing',
+              name: '不在',
+              submittedAt: new Date('2026-01-24'),
+              lineItems: [{ name: '明細', sortOrder: 0 }],
+            },
+            ACTOR_ID
+          )
+        ).rejects.toThrow(EstimateRequestNotFoundError);
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('update', () => {
+      const expectedUpdatedAt = new Date('2026-01-23T00:00:00Z');
+      const replacementFile = {
+        buffer: Buffer.from('New PDF'),
+        originalName: '新見積書.pdf',
+        mimeType: 'application/pdf',
+        size: 20000,
+      };
+
+      const setupUpdateTx = (
+        current: Record<string, unknown>,
+        updated: Record<string, unknown>
+      ) => {
+        const txClient = {
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue(current),
+            update: vi.fn().mockResolvedValue({ ...updated, lineItems: [] }),
+          },
+          receivedQuotationLineItem: {
+            deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          },
+        };
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+          fn(txClient as unknown as PrismaClient)
+        );
+        return txClient;
+      };
+
+      it('更新が確定すると RECEIVED_QUOTATION_UPDATED を変更の前後と tx で 1 件記録し、差し替え前のファイルの取り除きより先に呼ぶ', async () => {
+        const current = existingQuotation();
+        const txClient = setupUpdateTx(current, {
+          ...current,
+          name: '変更後の受領見積書',
+          submittedAt: new Date('2026-02-01T00:00:00.000Z'),
+          filePath: 'quotations/er-001/rq-audit/新見積書.pdf',
+          fileName: '新見積書.pdf',
+          netAmount: NET_AMOUNT + 1,
+          updatedAt: new Date('2026-01-23T01:00:00Z'),
+        });
+
+        await service.update(
+          'rq-audit',
+          {
+            name: '変更後の受領見積書',
+            submittedAt: new Date('2026-02-01T00:00:00.000Z'),
+            netAmount: NET_AMOUNT + 1,
+            file: replacementFile,
+            lineItems: [{ name: '秘匿の明細C', sortOrder: 0, quantity: 1, unitPrice: UNIT_PRICE }],
+          },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+        const [input, tx] = mockAuditLogService.createLog.mock.calls[0]!;
+        expect(input).toEqual({
+          action: 'RECEIVED_QUOTATION_UPDATED',
+          actorId: ACTOR_ID,
+          targetType: 'ReceivedQuotation',
+          targetId: 'rq-audit',
+          before: {
+            name: '変更前の受領見積書',
+            submittedAt: '2026-01-23T00:00:00.000Z',
+            fileName: '旧見積書.pdf',
+          },
+          after: {
+            name: '変更後の受領見積書',
+            submittedAt: '2026-02-01T00:00:00.000Z',
+            fileName: '新見積書.pdf',
+          },
+        });
+        expect(tx).toBe(txClient);
+        expectNoConfidentialValues(input);
+        expect(JSON.stringify(input)).not.toContain(String(NET_AMOUNT + 1));
+        expect(mockStorageProvider.delete).toHaveBeenCalledWith(STORED_FILE_PATH);
+        expect(mockAuditLogService.createLog.mock.invocationCallOrder[0]!).toBeLessThan(
+          vi.mocked(mockStorageProvider.delete).mock.invocationCallOrder[0]!
+        );
+      });
+
+      it('記録が失敗すると更新は例外で終わり、差し替え前のファイルを取り除かない', async () => {
+        const current = existingQuotation();
+        setupUpdateTx(current, { ...current, fileName: '新見積書.pdf' });
+        mockAuditLogService.createLog.mockRejectedValue(new Error('監査ログの記録の失敗'));
+
+        await expect(
+          service.update('rq-audit', { file: replacementFile }, expectedUpdatedAt, ACTOR_ID)
+        ).rejects.toThrow('監査ログの記録の失敗');
+
+        expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+        expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+      });
+
+      it('受領見積書が無い更新と楽観的排他制御の競合は記録しない', async () => {
+        setupUpdateTx(existingQuotation({ deletedAt: new Date() }), existingQuotation());
+        await expect(
+          service.update('rq-audit', { name: '不在' }, expectedUpdatedAt, ACTOR_ID)
+        ).rejects.toThrow(ReceivedQuotationNotFoundError);
+
+        setupUpdateTx(
+          existingQuotation({ updatedAt: new Date('2026-01-23T05:00:00Z') }),
+          existingQuotation()
+        );
+        await expect(
+          service.update('rq-audit', { name: '競合' }, expectedUpdatedAt, ACTOR_ID)
+        ).rejects.toThrow(ReceivedQuotationConflictError);
+
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('delete', () => {
+      const expectedUpdatedAt = new Date('2026-01-23T00:00:00Z');
+
+      const setupDeleteTx = (current: Record<string, unknown>) => {
+        const txClient = {
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue(current),
+            update: vi.fn().mockResolvedValue({ ...current, deletedAt: new Date() }),
+          },
+        };
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+          fn(txClient as unknown as PrismaClient)
+        );
+        return txClient;
+      };
+
+      it('論理削除が確定すると RECEIVED_QUOTATION_DELETED を変更の前と tx で 1 件記録し、論理削除の更新の後に呼ぶ', async () => {
+        const txClient = setupDeleteTx(existingQuotation());
+
+        await service.delete('rq-audit', expectedUpdatedAt, ACTOR_ID);
+
+        expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+        const [input, tx] = mockAuditLogService.createLog.mock.calls[0]!;
+        expect(input).toEqual({
+          action: 'RECEIVED_QUOTATION_DELETED',
+          actorId: ACTOR_ID,
+          targetType: 'ReceivedQuotation',
+          targetId: 'rq-audit',
+          before: {
+            estimateRequestId: 'er-001',
+            name: '変更前の受領見積書',
+            submittedAt: '2026-01-23T00:00:00.000Z',
+            fileName: '旧見積書.pdf',
+          },
+          after: null,
+        });
+        expect(tx).toBe(txClient);
+        expectNoConfidentialValues(input);
+        expect(txClient.receivedQuotation.update.mock.invocationCallOrder[0]!).toBeLessThan(
+          mockAuditLogService.createLog.mock.invocationCallOrder[0]!
+        );
+      });
+
+      it('受領見積書が無い論理削除と楽観的排他制御の競合は記録しない', async () => {
+        setupDeleteTx(existingQuotation({ deletedAt: new Date() }));
+        await expect(service.delete('rq-audit', expectedUpdatedAt, ACTOR_ID)).rejects.toThrow(
+          ReceivedQuotationNotFoundError
+        );
+
+        setupDeleteTx(existingQuotation({ updatedAt: new Date('2026-01-23T05:00:00Z') }));
+        await expect(service.delete('rq-audit', expectedUpdatedAt, ACTOR_ID)).rejects.toThrow(
+          ReceivedQuotationConflictError
+        );
+
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
     });
   });
 });

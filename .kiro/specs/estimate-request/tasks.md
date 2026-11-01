@@ -2488,7 +2488,7 @@
 
 **経緯**: 利用者の判断（2026-11-01「推奨案で進めて下さい」）で起票する。受領見積書のサービス（backend/src/services/received-quotation.service.ts の `ReceivedQuotationService`）の作成（`create`）・更新（`update`）・論理削除（`delete`）は監査ログを一度も書かない。種別 `RECEIVED_QUOTATION_CREATED`・`RECEIVED_QUOTATION_UPDATED`・`RECEIVED_QUOTATION_DELETED` は定義済みで、どこからも使われていない。タスク109.1 の design.md の章の Out of Boundary が「必要なら別に起票する」と記録していた。requirements.md に 14.7 を加え（改訂の記録を Requirement 14 に残した）、design.md の末尾に章「2026-11-01 の追加: 受領見積書の作成・更新・論理削除の監査ログ（Requirement 14.7）」を置いた
 
-- [ ] 111.1 受領見積書の作成・更新・論理削除が確定したときに、その操作の監査ログを同じトランザクションの中で 1 件記録する
+- [x] 111.1 受領見積書の作成・更新・論理削除が確定したときに、その操作の監査ログを同じトランザクションの中で 1 件記録する
   - `ReceivedQuotationServiceDependencies` に `auditLogService: IAuditLogService` を足し、受領見積書の経路と案件の配下の受領見積書の一覧の経路の組み立てで `new AuditLogService({ prisma })` を渡す（design.md の同章の「決定」の「依存の注入」）
   - 三つの操作が操作した利用者の ID を受け、受領見積書の経路が `req.user!.userId` を渡す（同「操作した利用者」）。既存の呼び出し（経路とテスト）を新しい引数に追随させる
   - 三つの操作の `$transaction` のコールバックの中で、`this.auditLogService.createLog({...}, tx)` を定義済みの 3 種別・対象の種類 `RECEIVED_QUOTATION_TARGET_TYPE`・同「記録の中身」の before と after で呼ぶ。金額・明細行の中身・ファイルの格納先は入れない。記録はデータベースの変更の後、ストレージの操作（作成のファイルの送信、更新の差し替え前のファイルの取り除き）の前に置く（同「記録の時点」）。新しい種別は足さない

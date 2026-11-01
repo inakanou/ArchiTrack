@@ -18,6 +18,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { ReceivedQuotationService } from '../services/received-quotation.service.js';
+import { AuditLogService } from '../services/audit-log.service.js';
 import { getStorageProvider } from '../storage/storage-factory.js';
 import getPrismaClient from '../db.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -43,6 +44,8 @@ function getService(): ReceivedQuotationService {
   receivedQuotationService = new ReceivedQuotationService({
     prisma,
     storageProvider,
+    // 一覧は記録する操作を呼ばないが、必須の依存のため渡す（estimate-request の Requirement 14.7、タスク111.1）
+    auditLogService: new AuditLogService({ prisma }),
   });
   return receivedQuotationService;
 }
