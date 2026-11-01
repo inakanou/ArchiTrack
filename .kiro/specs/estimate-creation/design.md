@@ -5330,6 +5330,7 @@ model EstimateEditSession {
 - 作成・更新・論理削除の応答、トランザクションの制限時間（作成は 69.3 の 15 秒のまま、更新と論理削除は既定のまま）、書き込みの順序と方式
 - 作成の閲覧範囲外の記録（`withSurveyScopeDenialRecording` の `PROJECT_SCOPE_DENIED`）。user-authentication の要件39.7 の定めどおり、処理の後にトランザクションの外で書く記録であり、本追加の対象にしない
 - 同じ形（`$transaction` のコールバックの中で `createLog` に `tx` を渡さない）は本機能の外にもある。2026-11-01 に読んだ範囲では、見積依頼のサービスの `create`・`update`・`delete`・`updateItemSelection` の 4 か所（`ESTIMATE_REQUEST_CREATED`・`ESTIMATE_REQUEST_UPDATED`・`ESTIMATE_REQUEST_DELETED`・`ESTIMATE_REQUEST_ITEMS_UPDATED`）が同じ形である。これらは別に扱い、本追加では変えない（他のサービスは調べ尽くしていない）。所在は次のファイル
+  - 追記（2026-11-01）: 見積依頼の側は estimate-request のタスク109.1（受入基準8.6）で直した。対象は見積依頼のサービスの 4 か所に、ステータスの変更のサービスの 1 か所を加えた 5 か所
   backend/src/services/estimate-request.service.ts
 
 #### Allowed Dependencies
