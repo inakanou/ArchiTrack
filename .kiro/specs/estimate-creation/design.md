@@ -5294,5 +5294,6 @@ model EstimateEditSession {
 - **E2E**: 42.13 は、画面で見積書を編集して保存し、画面が送る保存の要求の本文を Playwright の経路の差し替え（`route.continue` の `postData`）で 42.10〜42.12 の上限を超えるまで増やして（見積項目を 2001 件に、階層を 101 段に、備考を 2001 文字に）、バックエンドの実際の 422 と 400 を画面に受けさせ、上限のメッセージが表示され要約の文言と汎用の文言が表示されず、編集中の内容と未保存の表示が残ることを主張する（quantity-table-generation のタスク109.1 の手法。応答は差し替えない）。`@requirement estimate-creation/REQ-42.13` の印を置く。3.6・3.7 は、項目が 2001 件の内訳書を API で用意し（数量表の保存と内訳書の作成の API。集計で一つにまとまらない名前にする）、見積書作成画面でその内訳書を選んで作成すると 422 で上限のメッセージが表示され、画面に留まり見積書が増えないことを主張し、`@requirement estimate-creation/REQ-3.6`・`@requirement estimate-creation/REQ-3.7` の印を置く。置き場所は見積明細の保存の E2E と見積書の作成の E2E の次のファイルとし、新設が要るときは同じディレクトリに置く
   e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec.ts
   e2e/specs/estimate/estimate-e2e.spec.ts
+  e2e/specs/estimate/estimate-create-item-limit-e2e.spec.ts（実装で新設。3.6・3.7 の E2E はこのファイルに置いた〔タスク69.1・69.2〕）
 - 振る舞いを変えるため、変えた表示（「保存できません: 」「見積書の作成に失敗しました」、保存の失敗のバナー）を e2e/ 全体で grep して既存の E2E を選び、流す
 - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す（タスク68.1・69.1・69.2）。注釈とテストの名前の追随は振る舞いを変えないため、関係する単体を流して緑のままであることを確かめる
