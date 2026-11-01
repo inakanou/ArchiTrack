@@ -30,8 +30,8 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
-import { assertPrepared } from '../../helpers/preconditions';
 import { loginViaApi } from '../../helpers/auth-api';
+import { cleanupProjectFixtures } from '../../helpers/itemized-statement-preconditions';
 
 /**
  * 内訳書項目の並び替え機能のE2Eテスト
@@ -48,6 +48,13 @@ test.describe('内訳書項目の並び替え', () => {
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+  });
+
+  test.afterAll(async () => {
+    // 事前準備のプロジェクトを、配下の内訳書・数量表とともに管理者で消す。204 以外は失敗にする
+    // （2026-11-02 の是正まで、serial の最後の test で一般利用者が消して 403 を受け、状態コードを
+    // 見ていなかった。プロジェクトの論理削除は配下を消さない）
+    await cleanupProjectFixtures({ projectIds: [testProjectId] });
   });
 
   /**
@@ -1149,26 +1156,6 @@ test.describe('内訳書項目の並び替え', () => {
       expect(replacedStatuses).toEqual([409, 409]);
 
       await page.unroute(`**/api/itemized-statements/${statementId}**`);
-    });
-  });
-
-  /**
-   * クリーンアップ
-   */
-  test.describe('クリーンアップ', () => {
-    test('テストデータを削除する', async ({ request }) => {
-      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
-      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
-      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
-
-      const baseUrl = API_BASE_URL;
-      const loginBody = await loginViaApi(request, 'REGULAR_USER');
-      const accessToken = loginBody.accessToken;
-
-      // プロジェクト削除（カスケードで内訳書・数量表も削除される）
-      await request.delete(`${baseUrl}/api/projects/${testProjectId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
     });
   });
 });

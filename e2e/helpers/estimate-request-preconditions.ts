@@ -20,13 +20,18 @@ import {
   expect,
   request as playwrightRequest,
   type APIRequestContext,
-  type APIResponse,
   type Page,
 } from '@playwright/test';
 import { assertPrepared } from './preconditions';
 import { SAME_ORIGIN_API_BASE_URL } from '../config';
 import { getAccessToken, loginViaApi, type AuthUserRef } from './auth-api';
-import { deleteItemizedStatementViaApi } from './itemized-statement-preconditions';
+import {
+  deleteItemizedStatementViaApi,
+  runCleanupSteps,
+  type CleanupStep,
+} from './itemized-statement-preconditions';
+import { deleteQuantityTableViaApi } from './quantity-table-preconditions';
+import { deleteProjectViaApi, deleteTradingPartnerViaApi } from './project-list-preconditions';
 
 /**
  * 前提として作成する数量項目の内容
@@ -290,18 +295,6 @@ export async function deleteReceivedQuotationViaApi(
 }
 
 /**
- * 後始末の削除が 204 で終わったことを確かめる。204 以外は例外にする。
- *
- * @param res - 削除の応答
- * @param label - 何を消そうとしていたか
- */
-async function expectDeleted(res: APIResponse, label: string): Promise<void> {
-  if (res.status() !== 204) {
-    throw new Error(`${label} failed: ${res.status()} ${await res.text()}`);
-  }
-}
-
-/**
  * 見積依頼の E2E が作った資源の識別子（後始末の対象）。作られなかったもの（null・未設定）は飛ばす。
  */
 export interface EstimateRequestCleanupTargets {
@@ -324,10 +317,12 @@ export interface EstimateRequestCleanupTargets {
  * 一般ユーザーには project:delete が無くプロジェクトの削除が 403 になるため、管理者で消す。
  *
  * 受領見積書（見積依頼の配下を一覧で拾う）→ 見積依頼 → 内訳書 → 数量表 → プロジェクト → 取引先
- * の順（子から親）に消す。いずれの経路も 204 以外は例外にして、後始末の失敗を握りつぶさない。
- * 最初の失敗で止める（2026-11-01 の是正まで、見積依頼の E2E の後始末は serial の最後の test に
- * 置かれ、途中の検証が落ちると走らず、内訳書は基準時刻を送らずに 400 を受け、どの削除も
- * 状態コードを見ていなかった。claude-vision-e2e の afterAll をここへ寄せた）。
+ * の順（子から親）に消す。いずれの経路も 204 以外は失敗とし、後始末の失敗を握りつぶさない。
+ * 最初の失敗で止めず、すべての削除を試した後に失敗をまとめて例外にする（`runCleanupSteps`。
+ * 2026-11-02 の是正まで最初の失敗で止まり、その後ろの親の資源が消えずに残っていた）。
+ * 2026-11-01 の是正まで、見積依頼の E2E の後始末は serial の最後の test に置かれ、途中の検証が
+ * 落ちると走らず、内訳書は基準時刻を送らずに 400 を受け、どの削除も状態コードを見ていなかった
+ * （claude-vision-e2e の afterAll をここへ寄せた）。
  *
  * @param targets - 片付ける資源の識別子
  * @throws 管理者のトークンが得られない・いずれかの削除が 204 で終わらない場合
@@ -344,53 +339,64 @@ export async function cleanupEstimateRequestFixtures(
     const headers = { Authorization: `Bearer ${adminToken}` };
     const { estimateRequestId, itemizedStatementId, quantityTableId, projectId, tradingPartnerId } =
       targets;
+    const steps: CleanupStep[] = [];
 
     if (estimateRequestId) {
-      // 受領見積書の一覧は GET /api/estimate-requests/:id/quotations が配列で返す
-      const quotationsRes = await api.get(
-        `${SAME_ORIGIN_API_BASE_URL}/api/estimate-requests/${estimateRequestId}/quotations`,
-        { headers }
+      steps.push(
+        {
+          label: `received quotations of estimate request ${estimateRequestId}`,
+          run: async () => {
+            // 受領見積書の一覧は GET /api/estimate-requests/:id/quotations が配列で返す
+            const quotationsRes = await api.get(
+              `${SAME_ORIGIN_API_BASE_URL}/api/estimate-requests/${estimateRequestId}/quotations`,
+              { headers }
+            );
+            if (quotationsRes.status() !== 200) {
+              throw new Error(
+                `received quotation list failed: ${quotationsRes.status()} ${await quotationsRes.text()}`
+              );
+            }
+            const quotations = (await quotationsRes.json()) as Array<{ id: string }>;
+            await runCleanupSteps(
+              quotations.map((quotation) => ({
+                label: `received quotation ${quotation.id}`,
+                run: () => deleteReceivedQuotationViaApi(api, adminToken, quotation.id),
+              }))
+            );
+          },
+        },
+        {
+          label: `estimate request ${estimateRequestId}`,
+          run: () => deleteEstimateRequestViaApi(api, adminToken, estimateRequestId),
+        }
       );
-      if (quotationsRes.status() !== 200) {
-        throw new Error(
-          `received quotation list failed: ${quotationsRes.status()} ${await quotationsRes.text()}`
-        );
-      }
-      const quotations = (await quotationsRes.json()) as Array<{ id: string }>;
-      for (const quotation of quotations) {
-        await deleteReceivedQuotationViaApi(api, adminToken, quotation.id);
-      }
-      await deleteEstimateRequestViaApi(api, adminToken, estimateRequestId);
     }
-
     if (itemizedStatementId) {
-      await deleteItemizedStatementViaApi(api, adminToken, itemizedStatementId);
+      steps.push({
+        label: `itemized statement ${itemizedStatementId}`,
+        run: () => deleteItemizedStatementViaApi(api, adminToken, itemizedStatementId),
+      });
     }
-
     if (quantityTableId) {
-      await expectDeleted(
-        await api.delete(`${SAME_ORIGIN_API_BASE_URL}/api/quantity-tables/${quantityTableId}`, {
-          headers,
-        }),
-        'quantity table delete'
-      );
+      steps.push({
+        label: `quantity table ${quantityTableId}`,
+        run: () => deleteQuantityTableViaApi(api, adminToken, quantityTableId),
+      });
     }
-
     if (projectId) {
-      await expectDeleted(
-        await api.delete(`${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}`, { headers }),
-        'project delete'
-      );
+      steps.push({
+        label: `project ${projectId}`,
+        run: () => deleteProjectViaApi(api, adminToken, projectId),
+      });
+    }
+    if (tradingPartnerId) {
+      steps.push({
+        label: `trading partner ${tradingPartnerId}`,
+        run: () => deleteTradingPartnerViaApi(api, adminToken, tradingPartnerId),
+      });
     }
 
-    if (tradingPartnerId) {
-      await expectDeleted(
-        await api.delete(`${SAME_ORIGIN_API_BASE_URL}/api/trading-partners/${tradingPartnerId}`, {
-          headers,
-        }),
-        'trading partner delete'
-      );
-    }
+    await runCleanupSteps(steps);
   } finally {
     await api.dispose();
   }

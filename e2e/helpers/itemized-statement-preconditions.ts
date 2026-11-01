@@ -9,9 +9,18 @@
  * @module e2e/helpers/itemized-statement-preconditions
  */
 
-import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import {
+  expect,
+  request as playwrightRequest,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from '@playwright/test';
 import { getTimeout } from './wait-helpers';
 import { SAME_ORIGIN_API_BASE_URL } from '../config';
+import { loginViaApi } from './auth-api';
+import { deleteQuantityTableViaApi } from './quantity-table-preconditions';
+import { deleteProjectViaApi, deleteTradingPartnerViaApi } from './project-list-preconditions';
 
 /** 内訳書詳細画面がフィルタを提供するカラム (itemized-statement-generation/REQ-6.2) */
 export type ItemizedStatementFilterColumn =
@@ -98,5 +107,177 @@ export async function deleteItemizedStatementViaApi(
   );
   if (res.status() !== 204) {
     throw new Error(`itemized statement delete failed: ${res.status()} ${await res.text()}`);
+  }
+}
+
+/** 後始末の一つの手順（何を消すかの名前と、その削除） */
+export interface CleanupStep {
+  /** 失敗の報告に出す名前（資源の種類と ID） */
+  label: string;
+  /** 削除の本体。失敗は例外で知らせる */
+  run: () => Promise<void>;
+}
+
+/**
+ * 後始末の手順を順に**すべて**走らせ、失敗を集めて最後にまとめて例外にする。
+ *
+ * 最初の失敗で止めると、その後ろの資源（親のプロジェクト・取引先など）が消えずに残る。
+ * 各手順の失敗は握りつぶさず、すべての手順を試した後に件数と内容をまとめて投げるため、
+ * 後始末が一つでも失敗すれば必ず赤になる（2026-11-02 の是正）。
+ *
+ * @param steps - 子から親の順に並べた後始末の手順
+ * @throws いずれかの手順が失敗した場合（失敗したすべての手順の名前と理由を含む）
+ */
+export async function runCleanupSteps(steps: ReadonlyArray<CleanupStep>): Promise<void> {
+  const failures: string[] = [];
+  for (const step of steps) {
+    try {
+      await step.run();
+    } catch (error) {
+      failures.push(`${step.label}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`cleanup failed (${failures.length}件):\n${failures.join('\n')}`);
+  }
+}
+
+/**
+ * プロジェクトの配下の内訳書・数量表の ID を一覧の API で（全ページ）拾う。
+ *
+ * @param request - 要求のコンテキスト
+ * @param token - アクセストークン
+ * @param projectId - 対象のプロジェクトのID
+ * @param resource - 'itemized-statements' または 'quantity-tables'
+ * @returns 論理削除されていない資源の ID
+ * @throws 一覧の取得が 200 で終わらない場合
+ */
+async function listProjectChildIds(
+  request: APIRequestContext,
+  token: string,
+  projectId: string,
+  resource: 'itemized-statements' | 'quantity-tables'
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (let page = 1; ; page += 1) {
+    const res = await request.get(
+      `${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}/${resource}?page=${page}&limit=100`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (res.status() !== 200) {
+      throw new Error(`${resource} list failed: ${res.status()} ${await res.text()}`);
+    }
+    const body = (await res.json()) as {
+      data: Array<{ id: string }>;
+      pagination: { totalPages: number };
+    };
+    ids.push(...body.data.map((row) => row.id));
+    if (page >= body.pagination.totalPages) {
+      return ids;
+    }
+  }
+}
+
+/**
+ * 内訳書の E2E が作った資源の識別子（後始末の対象）。作られなかったもの（null・未設定）は飛ばす。
+ */
+export interface ProjectFixtureCleanupTargets {
+  /** 内訳書のID */
+  itemizedStatementIds?: ReadonlyArray<string | null | undefined>;
+  /** 数量表のID */
+  quantityTableIds?: ReadonlyArray<string | null | undefined>;
+  /**
+   * 配下の内訳書・数量表を一覧で拾ってすべて消してから消すプロジェクトのID。
+   * 画面の操作で作った内訳書のように ID を控えていない子も、これで取り残さない
+   */
+  projectIds?: ReadonlyArray<string | null | undefined>;
+  /** 取引先のID（プロジェクトの後に消す） */
+  tradingPartnerIds?: ReadonlyArray<string | null | undefined>;
+}
+
+/** null・未設定を除き、重複を取り除く */
+function presentIds(ids: ReadonlyArray<string | null | undefined> | undefined): string[] {
+  return [...new Set((ids ?? []).filter((id): id is string => !!id))];
+}
+
+/**
+ * 内訳書の E2E が作った資源を管理者として API で片付ける（`test.afterEach`・`test.afterAll` 用）
+ *
+ * 新しい要求のコンテキストで管理者としてログインし直す（一般利用者には project:delete が無く、
+ * プロジェクトの削除が 403 になる）。内訳書 → 数量表 → プロジェクト（配下を一覧で拾って先に消す）→
+ * 取引先の順（子から親）に消す。プロジェクトの論理削除は配下を消さないため、配下を先に消す。
+ * いずれの削除も 204 以外は失敗とし、すべてを試した後にまとめて例外にする（`runCleanupSteps`）。
+ * 対象が一つも無ければ何もしない（ログインもしない）。
+ *
+ * @param targets - 片付ける資源の識別子
+ * @throws 管理者のトークンが得られない・いずれかの削除（一覧の取得を含む）が成功しない場合
+ */
+export async function cleanupProjectFixtures(targets: ProjectFixtureCleanupTargets): Promise<void> {
+  const itemizedStatementIds = presentIds(targets.itemizedStatementIds);
+  const quantityTableIds = presentIds(targets.quantityTableIds);
+  const projectIds = presentIds(targets.projectIds);
+  const tradingPartnerIds = presentIds(targets.tradingPartnerIds);
+  if (
+    itemizedStatementIds.length +
+      quantityTableIds.length +
+      projectIds.length +
+      tradingPartnerIds.length ===
+    0
+  ) {
+    return;
+  }
+
+  const api = await playwrightRequest.newContext();
+  try {
+    const { accessToken: adminToken } = await loginViaApi(api, 'ADMIN_USER');
+    if (!adminToken) {
+      throw new Error('cleanup: 管理者のアクセストークンが得られない');
+    }
+    const steps: CleanupStep[] = [
+      ...itemizedStatementIds.map((id) => ({
+        label: `itemized statement ${id}`,
+        run: () => deleteItemizedStatementViaApi(api, adminToken, id),
+      })),
+      ...quantityTableIds.map((id) => ({
+        label: `quantity table ${id}`,
+        run: () => deleteQuantityTableViaApi(api, adminToken, id),
+      })),
+      // 配下の内訳書・数量表を一覧で拾って先に消す。一覧が取れない・一つ消せないときも、
+      // 残りとプロジェクトそのものの削除は試す
+      ...projectIds.flatMap((id) => [
+        {
+          label: `itemized statements of project ${id}`,
+          run: async () =>
+            runCleanupSteps(
+              (await listProjectChildIds(api, adminToken, id, 'itemized-statements')).map(
+                (childId) => ({
+                  label: `itemized statement ${childId}`,
+                  run: () => deleteItemizedStatementViaApi(api, adminToken, childId),
+                })
+              )
+            ),
+        },
+        {
+          label: `quantity tables of project ${id}`,
+          run: async () =>
+            runCleanupSteps(
+              (await listProjectChildIds(api, adminToken, id, 'quantity-tables')).map(
+                (childId) => ({
+                  label: `quantity table ${childId}`,
+                  run: () => deleteQuantityTableViaApi(api, adminToken, childId),
+                })
+              )
+            ),
+        },
+        { label: `project ${id}`, run: () => deleteProjectViaApi(api, adminToken, id) },
+      ]),
+      ...tradingPartnerIds.map((id) => ({
+        label: `trading partner ${id}`,
+        run: () => deleteTradingPartnerViaApi(api, adminToken, id),
+      })),
+    ];
+    await runCleanupSteps(steps);
+  } finally {
+    await api.dispose();
   }
 }

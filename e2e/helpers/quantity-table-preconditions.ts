@@ -23,7 +23,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { getTimeout } from './wait-helpers';
 import { selectFirstRealOption } from './form-preconditions';
 import { assertPrepared } from './preconditions';
@@ -462,4 +462,29 @@ export async function attachPhotoToGroup(
   ).toBeVisible({ timeout: getTimeout(10000) });
 
   return fileName;
+}
+
+/**
+ * 数量表を API で論理削除する（後始末用）
+ *
+ * `DELETE /api/quantity-tables/:id`（quantity-tables.routes.ts）は基準時刻を求めない。204 以外は
+ * 例外にして後始末の失敗を見逃さない（2026-11-02 の是正まで、内訳書の E2E の後始末は数量表の削除の
+ * 状態コードを見ていなかった）。
+ *
+ * @param request - 要求のコンテキスト（`request` の fixture・`page.request`・`request.newContext()`）
+ * @param token - アクセストークン（quantity_table:delete を持つ利用者）
+ * @param quantityTableId - 取り除く数量表のID
+ */
+export async function deleteQuantityTableViaApi(
+  request: APIRequestContext,
+  token: string,
+  quantityTableId: string
+): Promise<void> {
+  const res = await request.delete(
+    `${SAME_ORIGIN_API_BASE_URL}/api/quantity-tables/${quantityTableId}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (res.status() !== 204) {
+    throw new Error(`quantity table delete failed: ${res.status()} ${await res.text()}`);
+  }
 }

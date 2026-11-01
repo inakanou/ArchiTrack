@@ -22,7 +22,7 @@
  * @module e2e/helpers/project-list-preconditions
  */
 
-import { expect, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { assertPrepared } from './preconditions';
 import { SAME_ORIGIN_API_BASE_URL } from '../config';
 import { getAccessToken, type AuthUserRef } from './auth-api';
@@ -164,4 +164,54 @@ export async function seedTradingPartner(
   assertPrepared(partner.id, '作成した取引先のID');
 
   return { id: partner.id, name, ...optionalFields };
+}
+
+/**
+ * プロジェクトを API で論理削除する（後始末用）
+ *
+ * `DELETE /api/projects/:id` は基準時刻を求めない。一般利用者は project:delete を持たず 403 になるため、
+ * 管理者のトークンで呼ぶ。プロジェクトの論理削除は配下の数量表・内訳書を消さない
+ * （ProjectService.deleteProject はプロジェクトの行だけを更新する）ため、配下は先に消すこと。
+ * 204 以外は例外にして後始末の失敗を見逃さない（2026-11-02 の是正まで、内訳書の E2E の後始末は
+ * 一般利用者で消して 403 を受け、状態コードを見ていなかったためプロジェクトが残っていた）。
+ *
+ * @param request - 要求のコンテキスト（`request` の fixture・`page.request`・`request.newContext()`）
+ * @param token - 管理者のアクセストークン
+ * @param projectId - 取り除くプロジェクトのID
+ */
+export async function deleteProjectViaApi(
+  request: APIRequestContext,
+  token: string,
+  projectId: string
+): Promise<void> {
+  const res = await request.delete(`${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status() !== 204) {
+    throw new Error(`project delete failed: ${res.status()} ${await res.text()}`);
+  }
+}
+
+/**
+ * 取引先を API で論理削除する（後始末用）
+ *
+ * `DELETE /api/trading-partners/:id` は基準時刻を求めない。紐づくプロジェクトが残っていると 409 になるため、
+ * プロジェクトを先に消すこと。204 以外は例外にして後始末の失敗を見逃さない。
+ *
+ * @param request - 要求のコンテキスト（`request` の fixture・`page.request`・`request.newContext()`）
+ * @param token - trading-partner:delete を持つ利用者のアクセストークン
+ * @param tradingPartnerId - 取り除く取引先のID
+ */
+export async function deleteTradingPartnerViaApi(
+  request: APIRequestContext,
+  token: string,
+  tradingPartnerId: string
+): Promise<void> {
+  const res = await request.delete(
+    `${SAME_ORIGIN_API_BASE_URL}/api/trading-partners/${tradingPartnerId}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (res.status() !== 204) {
+    throw new Error(`trading partner delete failed: ${res.status()} ${await res.text()}`);
+  }
 }

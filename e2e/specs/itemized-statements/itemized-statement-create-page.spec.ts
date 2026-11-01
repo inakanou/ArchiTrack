@@ -20,6 +20,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { loginViaApi } from '../../helpers/auth-api';
+import { cleanupProjectFixtures } from '../../helpers/itemized-statement-preconditions';
 
 /**
  * 内訳書専用作成画面のE2Eテスト
@@ -36,6 +37,13 @@ test.describe('内訳書専用作成画面', () => {
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+  });
+
+  test.afterAll(async () => {
+    // 事前準備のプロジェクトを、配下の内訳書・数量表（画面の操作で作ったものを含む）とともに
+    // 管理者で消す。204 以外は失敗にする（2026-11-02 の是正まで、serial の最後の test で一般利用者が
+    // 消して 403 を許容しており、プロジェクトと配下が残っていた）
+    await cleanupProjectFixtures({ projectIds: [testProjectId] });
   });
 
   /**
@@ -568,34 +576,6 @@ test.describe('内訳書専用作成画面', () => {
       await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/itemized-statements$`), {
         timeout: getTimeout(10000),
       });
-    });
-  });
-
-  /**
-   * クリーンアップ: テスト用リソースを削除
-   * 注意: プロジェクト削除には管理者権限が必要な場合があるため、
-   * エラーが発生してもテスト失敗とはしない
-   */
-  test.describe('クリーンアップ', () => {
-    test('テスト用プロジェクトを削除する', async ({ request }) => {
-      if (!testProjectId) {
-        return; // プロジェクトが作成されていない場合はスキップ
-      }
-
-      const baseUrl = API_BASE_URL;
-
-      // APIトークンを取得
-      const loginBody = await loginViaApi(request, 'REGULAR_USER');
-      const accessToken = loginBody.accessToken;
-
-      // プロジェクトを削除（権限エラーが発生する可能性があるため、成功しなくても良い）
-      const deleteResponse = await request.delete(`${baseUrl}/api/projects/${testProjectId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-
-      // 削除成功または権限エラーを許容（200, 204, 403）
-      // テストデータはテストデータベースリセット時にクリーンアップされる
-      expect([200, 204, 403]).toContain(deleteResponse.status());
     });
   });
 });
