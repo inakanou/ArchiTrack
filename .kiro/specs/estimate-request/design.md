@@ -4516,6 +4516,7 @@ function useResizableHeight(): ResizableHeightHandle {
 - Persistence: localStorage 書込失敗（プライベートブラウジング、容量超過、無効化）時は黙ってフォールバックし、ダイアログ動作を阻害しない（Req 36.11 と整合）
 - Persistence: 保存値は `Math.floor(height)` で整数化し、復元時に min/max でクランプして異常値を防御する（Req 36.7, 36.8）
 - Compatibility: Pointer Events は IE 非対応だが、本プロダクトのサポート対象（Chrome/Firefox/Safari/Edge 最新）では問題ない
+- Compatibility（追記 2026-11-01）: 上のサポート対象は、steering の tech.md の「対応ブラウザ」の節に全体の定めとして引き上げた（利用者の判断 2026-11-01）。対応ブラウザの権威はその節であり、本行は過去の記述として残す
 
 ##### スタイル変更
 
@@ -6982,6 +6983,7 @@ mailDisabledReason: {
 - 記録の失敗の表示（42.16）、コピーの記録（42.13・42.14）
 - 先送り（利用者の判断（2026-11-01、推奨案で進める））: 「メールで開く」（mailto）でメールソフトを開けなかったこと（既定のメールソフトが無い、利用者が起動を断った等）の検知は行わない。ブラウザが mailto を外部のメールソフトへ渡し、開けたかどうかの結果を画面へ返さないため検知できず、制約として受け入れる（上の「メールで開く」の失敗の表示の項の後半）
 - 先送り（利用者の判断（2026-11-01、推奨案で進める））: WebKit（Safari）でポップアップが止められたときに 42.17 の文言が出ることの実ブラウザの確認は、Safari を対応ブラウザに入れると決めたときに確かめる。Playwright の WebKit はポップアップを止めず Safari の「ポップアップウインドウをブロック」の設定を再現できない（下の Testing Strategy の「実施の記録（タスク108.1、2026-10-31）」の WebKit の項）。止められたときの分岐（`window.open` が null）は単体と E2E が主張する
+- 先送りの条件が満たされた（追記 2026-11-01）: steering の tech.md の「対応ブラウザ」の節で Safari を対応ブラウザに定めた（利用者の判断 2026-11-01、推奨案で進める）。上の WebKit（Safari）の実ブラウザの確認は、タスク110.1 で実機の Safari（macOS の最新版）を使って確かめ、結果を下の Testing Strategy の「実施の記録」の WebKit の項の続きへ記す
 
 #### Allowed Dependencies
 - `EstimateRequestTextPanel` → `runRecordedExport`・mail-launcher（既存の依存。新しい依存は足さない）
@@ -7077,6 +7079,7 @@ mailDisabledReason: {
 - 閲覧範囲外の記録（`PROJECT_SCOPE_DENIED`）と出力の記録（Requirement 42）。user-authentication の要件39.7・40.9 の定めどおりトランザクションの外で書く記録であり、`$transaction` のコールバックの中で書くものではないため、欠陥の型が違い本追加の対象にしない
 - 受領見積書のサービス（`ReceivedQuotationService` の `create`・`update`・`delete`）。`$transaction` を使うが `createLog` を呼ばず、監査ログを書かない（2026-11-01 に読んだ範囲）。巻き戻りで監査ログだけが残る形ではなく本追加の対象にしない。受領見積書の操作を監査ログに記録するかは別の判断であり、必要なら別に起票する。所在は次のファイル
   backend/src/services/received-quotation.service.ts
+- 追記（2026-11-01、利用者の判断「推奨案で進めて下さい」）: 上の受領見積書の操作の監査ログは、受入基準14.7 として起票した（本書の末尾の章「2026-11-01 の追加: 受領見積書の作成・更新・論理削除の監査ログ（Requirement 14.7）」、タスク111.1）
 - 見積依頼文のサービス（`EstimateRequestTextService`）。読み出しだけで、トランザクションも監査ログも持たない
 - 本機能の外の同じ形（他の業務のサービスの `$transaction` の中の `createLog`）。本機能の所管ではなく調べ尽くしていない
 
@@ -7126,3 +7129,96 @@ mailDisabledReason: {
 - **E2E の被覆の対象からの除外**: 要件の被覆の関門（`check:req-coverage`）は 8.6 を E2E の適用対象として数え、E2E の印が無いと赤にする。E2E を置かないため、実装で E2E の除外の台帳に 8.6 を一件足す（`category` は `data-integrity`、`alternativeVerification` の `method` は `integration-test` で、上の統合テストのファイルと `@requirement estimate-request/REQ-8.6` を名指す。`criterionText` は条文の逐語）。台帳の件数を宣言する関門があれば宣言を追随させる（estimate-creation のタスク70.1 では `requirement-exclusions-total` が 129 から 130 へ動いた）。所在は次のファイル
   e2e/requirement-exclusions.json
 - 挙動の変更であるため RED → GREEN で進め、追加した単体と統合が改修の前に赤になることを先に示す
+
+## 2026-11-01 の追加: 受領見積書の作成・更新・論理削除の監査ログ（Requirement 14.7）
+
+### Overview
+
+**Purpose**: 利用者の判断（2026-11-01「推奨案で進めて下さい」）で、受領見積書の作成・更新・論理削除が確定したときに、その操作の監査ログを見積依頼（8.6）・見積書（estimate-creation の Requirement 11.8）とそろえて 1 件記録する。記録はその操作の変更と同じトランザクションの中で、トランザクションのクライアントを渡して書き（タスク109.1、estimate-creation のタスク70.1 と同じ形）、確定しなかった操作の監査ログを残さない（14.7）。
+
+**Impact（既存前提の是正。2026-11-01 の調べもの〔読むだけ。HEAD `3924e697`〕）**:
+
+1. `ReceivedQuotationService` の作成（`create`）・更新（`update`）・論理削除（`delete`）は、いずれも `prisma.$transaction` のコールバックの中で受領見積書を変えるが、`createLog` を一度も呼ばず、監査ログを書かない。サービスは監査ログのサービスを依存に持たず（依存は `prisma`・`storageProvider`・`projectScopeService`）、三つの操作は操作した利用者を引数に受けない。所在は次のファイル
+   backend/src/services/received-quotation.service.ts
+2. 監査ログの種別 `RECEIVED_QUOTATION_CREATED`・`RECEIVED_QUOTATION_UPDATED`・`RECEIVED_QUOTATION_DELETED`、その一覧 `RECEIVED_QUOTATION_AUDIT_ACTIONS`、対象の種類 `RECEIVED_QUOTATION_TARGET_TYPE`（`ReceivedQuotation`）は定義済みで、定義の外のどこからも使われていない（backend・frontend・e2e を grep した）。所在は次のファイル
+   backend/src/types/audit-log.types.ts
+3. サービスを組み立てる所は二つある。受領見積書の経路（遅延の組み立て `getReceivedQuotationService`）と、案件の配下の受領見積書の一覧の経路（`getService`。読み出しだけ）。見積依頼の経路は監査ログのサービスをモジュールの読み込み時に `new AuditLogService({ prisma })` で組み立てて `EstimateRequestService` へ注入している。所在は次のファイル
+   backend/src/routes/received-quotation.routes.ts
+   backend/src/routes/project-quotations.routes.ts
+   backend/src/routes/estimate-requests.routes.ts
+4. 受領見積書の状態の遷移の経路は無い。状態の遷移（`statusTransitionSchema`）は見積依頼のステータスの変更（Requirement 12、`ESTIMATE_REQUEST_STATUS_CHANGED`）であり、8.6 の記録の対象である
+5. 作成はコールバックの中でファイルをストレージへ送り（手順 7）、更新はコールバックの中で新しいファイルを送り、差し替え前のファイルをストレージから取り除く（手順 4・7）。いずれもトランザクションで巻き戻らない外部の副作用である
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 受領見積書の作成・更新・論理削除が確定したときにその操作の監査ログを 1 件記録し、確定しなかった操作の監査ログを残さないこと（14.7）
+- 記録に入れる変更の前後の中身（下の「決定」の「記録の中身」）
+
+#### Out of Boundary
+- 監査ログの記録の部品（`AuditLogService` と `createLog`。user-authentication の要件40 の所管）と、監査ログの閲覧・出力の画面と API。本追加は部品を変えない
+- 新しい監査ログの種別。定義済みの 3 種別に限る（ファイルの差し替え・明細行の変更を分けた種別は足さない。requirements.md の 14.7 の「採らなかった案」）
+- 受領見積書の OCR・データパース・ファイルのプレビューの署名付き URL の発行（データを変えない操作）と、受領見積書の一覧・詳細の読み出し
+- 三つの操作の応答・検証・楽観的排他制御・トランザクションの制限時間（Prisma の既定のまま）・ファイルの扱い。上の Impact の 5 の外部の副作用（巻き戻ってもストレージのファイルが残る、または取り除かれる）は従来からの性質であり、本追加は直さない。本追加で記録の失敗が新しい失敗の段になるため、記録を外部の副作用より前に置いて新しい窓を作らない（下の「決定」の「記録の時点」）
+- 見積依頼の操作の監査ログ（8.6、タスク109.1 で実装済み）と、閲覧範囲外の記録・出力の記録（Requirement 42）
+
+#### Allowed Dependencies
+- `ReceivedQuotationService` → `IAuditLogService` の `createLog(input, tx)`（見積依頼のサービスと同じ依存。新しく足す依存）
+- 受領見積書の経路と案件の配下の一覧の経路 → `AuditLogService` の組み立て（見積依頼の経路と同じ形）
+
+### 決定
+
+**依存の注入**: `ReceivedQuotationServiceDependencies` に `auditLogService: IAuditLogService` を足し、コンストラクタで受ける（`EstimateRequestServiceDependencies` と同じ形の必須の依存）。二つの経路の組み立てで `new AuditLogService({ prisma })` を渡す。案件の配下の一覧の経路は記録する操作を呼ばないが、必須の依存のため同じく渡す（任意の依存にして省略時に記録しない形は、組み立ての漏れで記録が黙って止まるため採らない）
+
+**操作した利用者**: `create(input, actorId)`・`update(id, input, expectedUpdatedAt, actorId)`・`delete(id, expectedUpdatedAt, actorId)` のように、三つの操作が操作した利用者の ID を受ける。経路は `req.user!.userId` を渡す（ファイルのプレビューの経路が `getFilePreviewUrl(id, req.user!.userId)` で渡している形）。引数の位置は実装時に決めて本節へ記す
+
+**記録の呼び方**: 三つの操作の `$transaction` のコールバックの中で、`this.auditLogService.createLog({ action, actorId, targetType: RECEIVED_QUOTATION_TARGET_TYPE, targetId, before, after }, tx)` を呼ぶ。第 2 引数はコールバックが受けるトランザクションのクライアントである。サービスの局所の型 `PrismaTransactionClient`（`Omit` の形）は `Prisma.TransactionClient` の別名にそろえる（型だけの変更で、キャストは使わない。タスク109.1 で `Omit` の形のままでは tsc が通らないことを確かめた）
+
+**記録の中身**: 見積依頼・見積書の既存の記録と同じく、識別子と名前などの属性だけを入れ、金額は入れない（見積依頼は案件・取引先・内訳書の ID・名前・方法・項目の数、見積書は案件・名前・元の内訳書の ID と名前で、いずれも金額を持たない）。
+
+| 種別 | before | after |
+|---|---|---|
+| `RECEIVED_QUOTATION_CREATED` | null | `estimateRequestId`・`name`・`submittedAt`・`fileName`・`lineItemCount` |
+| `RECEIVED_QUOTATION_UPDATED` | 変更の前の `name`・`submittedAt`・`fileName` | 変更の後の `name`・`submittedAt`・`fileName` |
+| `RECEIVED_QUOTATION_DELETED` | `estimateRequestId`・`name`・`submittedAt`・`fileName` | null |
+
+- 入れないもの: NET 金額（`netAmount`）、明細行の中身（名称・数量・単価・金額など）、ファイルの中身とストレージの格納先（`filePath`）。協力業者の金額は取引先との間の社外秘の情報であり、監査ログの一覧と出力（`GET /api/v1/audit-logs` と同 `/export`、JSON）は閲覧の権限（`audit:read`）だけで判定し、案件の閲覧範囲で絞らないため、記録に入れた金額は案件の範囲外の人にも読めるからである。監査ログの目的（誰がいつどの受領見積書を登録し・直し・取り除いたか）には識別子と名前で足りる。金額の変更の経緯を監査ログで追う要望が出たら、別に判断する
+- `submittedAt` は ISO 8601 の文字列で入れる。`lineItemCount` は作成で保存した明細行の数（入力が無ければ 0）とする。更新の明細行の数の前後は入れない（変更の前の数を読むための追加の読み出しを持ち込まないため。見積依頼の更新の記録も項目の数を持たない）
+
+**記録の時点**: 記録は、受領見積書のデータベースの変更を済ませた後、かつトランザクションで巻き戻らない外部の副作用の前に置く。
+
+- 作成: レコードと明細行を作った後（手順 6 の後）、ファイルをストレージへ送る前（手順 7 の前）。記録の失敗ではファイルを送らずに巻き戻る
+- 更新: 本体の更新の後（手順 6 の後）、差し替え前のファイルをストレージから取り除く前（手順 7 の前）。記録の失敗で差し替え前のファイルを失わない。新しいファイルの送信（手順 4）は記録より前のままで、記録の失敗で新しいファイルがストレージに残るのは、手順 5・6 の失敗と同じ従来の性質である（Out of Boundary）
+- 論理削除: 論理削除の更新の後、コールバックの最後。ファイルの取り除きはもとからトランザクションの外（確定の後）である
+- 効果: 監査ログの行と実行者の写しの読み出しが受領見積書の変更と同じトランザクションに入る。確定すれば監査ログも 1 件確定し、巻き戻れば監査ログも書かれない。記録の失敗では受領見積書の変更も巻き戻る（8.6 と同じ）。入力の検証・不在・競合で拒否される操作は記録の前に例外で終わり、記録しない
+
+**実装の記録**: 実装時に、変えた所、引数の位置、型の別名の扱い、テストの結果を本節へ記す（タスク111.1）
+
+**採らなかった案**: 記録を確定の後にトランザクションの外で書く——確定の後に記録が失敗すると起きた操作の記録が残らないため採らない（8.6 と同じ）。記録をコールバックの最後に置く（見積依頼と同じ位置）——作成と更新ではコールバックの途中にストレージの操作があり、最後に置くと記録の失敗でストレージの操作だけが残る新しい窓ができるため採らない。経路で記録する——サービスの変更と同じトランザクションに入れられないため採らない
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 14.7 | 受領見積書の作成・更新・論理削除が確定したら監査ログを 1 件記録し、確定しなかったら残さない | ReceivedQuotationService の create・update・delete, AuditLogService の createLog, 受領見積書の経路と案件の配下の一覧の経路の組み立て | `POST /api/estimate-requests/:id/quotations`, `PUT /api/quotations/:quotationId`, `DELETE /api/quotations/:quotationId`（見積依頼の配下の同じ経路を含む） | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 入力の検証、見積依頼または受領見積書の不在、楽観的排他制御の競合で拒否される | 従来どおりの応答。記録の前に例外で終わり、監査ログを残さない | 14.7 |
+| 記録の後に三つの操作のトランザクションが巻き戻る（制限時間の超過、確定の時の失敗） | 受領見積書の変更も監査ログも残らない。応答は従来どおり（P2028 はエラーハンドラーの 500 など） | 14.7 |
+| 監査ログの記録が失敗する | トランザクションが巻き戻り、受領見積書の変更も残らない。作成ではファイルを送らず、更新では差し替え前のファイルを取り除かない（上の「記録の時点」） | 14.7 |
+| 三つの操作が確定する | その操作の監査ログを 1 件記録する（上の「記録の中身」） | 14.7 |
+
+### Testing Strategy
+
+- **単体（backend）**: 受領見積書のサービスの単体に、作成（ファイルありと明細行だけ）・更新・論理削除で、`createLog` が種別（`RECEIVED_QUOTATION_CREATED` など）・対象の種類 `ReceivedQuotation`・対象の ID・操作した利用者・上の「記録の中身」の before と after で呼ばれ、第 2 引数が `$transaction` のコールバックへ渡したクライアントと同じオブジェクトであること（`toBe`）を主張する。金額（`netAmount`・明細行の金額）が記録の入力に入らないことも主張する。作成と更新で `createLog` がストレージへの送信・取り除きより先に呼ばれること（呼び出しの順）と、記録が失敗するとストレージの取り除きを呼ばないことを主張する。不在と競合では `createLog` を呼ばないことを主張する。経路の単体で、三つの経路がサービスへ `req.user` の利用者の ID を渡すことを主張する。改修の前は `createLog` が呼ばれず赤になることを先に示す。所在は次のファイル
+  backend/src/__tests__/unit/services/received-quotation.service.test.ts
+  backend/src/__tests__/unit/routes/received-quotation.routes.test.ts
+- **統合（backend）**: 実際の DB で、三つの操作が確定するとその操作の種別の監査ログが対象の `targetId` で 1 件残ること（対照）と、サービスを統合テストの中で直接組み立て、依存の監査ログのサービスに本物の `AuditLogService` の `createLog(input, tx)` を呼んでから例外を投げる包みを注入すると、操作が例外で終わり、受領見積書が作られず・変わらず・論理削除されず、その操作の種別の監査ログが対象の `targetId` で 0 件であることを主張する（作成の巻き戻しは包みが受けた `targetId` で数える。タスク109.1 と同じ形）。`@requirement estimate-request/REQ-14.7` の被覆の印を置き、印を足したら `check:design-measurement-freshness` を名指しで流す。置き場所は受領見積書の既存の統合テストのファイル。所在は次のファイル
+  backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts
+- **E2E**: 確定した場合の記録は画面の操作の結果として観測できるため、E2E で確かめる。受領見積書の既存の E2E（登録・編集・取り除きの画面の流れ）に、画面で受領見積書を登録・更新・取り除いた後、記録先の `audit_logs` を対象の種類 `ReceivedQuotation`・対象の ID・種別で数えて 1 件であることを主張する。数え方は取引先の監査ログの E2E（`expectAuditLogRecorded`。E2E の Prisma のクライアントで `auditLog.count` を `expect.poll` で待つ）と、見積依頼の閲覧範囲の E2E の `auditLog.count` の形に揃える。ブラウザは監査ログの API を呼ばないため、画面のリクエストの観測では判定できないからである。対象の ID は登録の応答から読む。`@requirement estimate-request/REQ-14.7` の印を置く。巻き戻し（記録の後の制限時間の超過や確定の時の失敗）は画面から起こせないため、単体と統合が主張する。所在は次のファイル
+  e2e/specs/estimate-requests/received-quotation-status-e2e.spec.ts
+- backend の変更だけで frontend は変えないため、テスト環境の frontend の作り直しは要らない。振る舞いを変えるため、受領見積書の経路（`/quotations`）を e2e/ 全体で grep して既存の E2E を選び、流す
+- 挙動の変更であるため RED → GREEN で進め、追加した単体・統合・E2E が改修の前に赤になる（単体は `createLog` が呼ばれない、統合と E2E は監査ログが 0 件）ことを先に示す

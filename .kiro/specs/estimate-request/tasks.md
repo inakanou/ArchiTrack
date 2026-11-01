@@ -2469,3 +2469,34 @@
   - 単体・統合で、巻き戻った五つの操作の監査ログが残らず、確定した操作の監査ログが従来どおり 1 件記録される状態になる
   - _Requirements: 8.6_
   - _Boundary: EstimateRequestService の create・update・delete・updateItemSelection と EstimateRequestStatusService の transitionStatus の 5 か所の createLog の呼び出しと二つのサービスの局所の型の別名、その記録を主張する本スペックのテスト（estimate-request.service.test.ts・estimate-request-status.service.test.ts・estimate-request.api.integration.test.ts）と、E2E の除外の台帳の 8.6 の一件_
+
+## タスク110: 実機の Safari で「Gmailで開く」のポップアップの遮断の表示を確かめる（利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「推奨案で進めて下さい」）で起票する。steering の tech.md に「対応ブラウザ」の節を設け、Safari を対応ブラウザに定めた。design.md の章「2026-10-31 の追加: Gmail で開く操作の失敗の表示（Requirement 42.17・42.18）」の Out of Boundary は、WebKit（Safari）でポップアップが止められたときに 42.17 の文言が出ることの実ブラウザの確認を「Safari を対応ブラウザに入れると決めたときに確かめる」と先送りしていた（Playwright の WebKit はポップアップを止めず、Safari の設定を再現できない。同章の Testing Strategy の「実施の記録（タスク108.1、2026-10-31）」の WebKit の項）。先送りの条件が満たされたため確かめる。WSL の開発環境には Safari が無いため、**利用者が実機の Safari で確かめるタスク**である
+
+- [ ] 110.1 実機の Safari（macOS の最新版）で、ポップアップの遮断のもと「Gmailで開く」を押すと 42.17 の文言が出ることを確かめ、設計へ記す
+  - Safari の設定でこのサイトの「ポップアップウインドウ」を「ブロック」（または「ブロックして通知」）にし、本番ビルドの画面（テスト環境の frontend）または本番の画面で、見積依頼の詳細画面の「Gmailで開く」を押す
+  - 42.17 の文言（design.md の同章の「決定」の「文言」、定数 `GMAIL_POPUP_BLOCKED_MESSAGE`）がパネルの alert の欄に表示されること、Gmail の作成画面が開かないこと、記録の要求（`POST /api/v1/audit-logs/exports`）が出ないこと（Safari の Web インスペクタのネットワークの欄で数える）を確かめる
+  - 利用者の操作の直後のクリックでは Safari がポップアップを通すことがある場合は、そのことと通したときの挙動（記録が 1 回、Gmail の作成画面が開く）も記す
+  - 結果（Safari と macOS の版、設定、文言の表示の有無、記録の要求の件数）を design.md の同章の Testing Strategy の「実施の記録」の WebKit の項の続きへ記す
+  - 文言が出ない、または記録の要求が出るときは、本タスクでコードを変えず、結果を記して別のタスクを起票する
+  - 実機の Safari で、ポップアップの遮断のもとの「Gmailで開く」の表示と記録の要求の件数が確かめられ、設計に記されている状態になる
+  - _Requirements: 42.17_
+  - _Boundary: 検証の記録だけ（design.md の同章の Testing Strategy の「実施の記録」への追記。コードとテストの変更なし）_
+
+## タスク111: 受領見積書の作成・更新・論理削除の監査ログを記録する（利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「推奨案で進めて下さい」）で起票する。受領見積書のサービス（backend/src/services/received-quotation.service.ts の `ReceivedQuotationService`）の作成（`create`）・更新（`update`）・論理削除（`delete`）は監査ログを一度も書かない。種別 `RECEIVED_QUOTATION_CREATED`・`RECEIVED_QUOTATION_UPDATED`・`RECEIVED_QUOTATION_DELETED` は定義済みで、どこからも使われていない。タスク109.1 の design.md の章の Out of Boundary が「必要なら別に起票する」と記録していた。requirements.md に 14.7 を加え（改訂の記録を Requirement 14 に残した）、design.md の末尾に章「2026-11-01 の追加: 受領見積書の作成・更新・論理削除の監査ログ（Requirement 14.7）」を置いた
+
+- [ ] 111.1 受領見積書の作成・更新・論理削除が確定したときに、その操作の監査ログを同じトランザクションの中で 1 件記録する
+  - `ReceivedQuotationServiceDependencies` に `auditLogService: IAuditLogService` を足し、受領見積書の経路と案件の配下の受領見積書の一覧の経路の組み立てで `new AuditLogService({ prisma })` を渡す（design.md の同章の「決定」の「依存の注入」）
+  - 三つの操作が操作した利用者の ID を受け、受領見積書の経路が `req.user!.userId` を渡す（同「操作した利用者」）。既存の呼び出し（経路とテスト）を新しい引数に追随させる
+  - 三つの操作の `$transaction` のコールバックの中で、`this.auditLogService.createLog({...}, tx)` を定義済みの 3 種別・対象の種類 `RECEIVED_QUOTATION_TARGET_TYPE`・同「記録の中身」の before と after で呼ぶ。金額・明細行の中身・ファイルの格納先は入れない。記録はデータベースの変更の後、ストレージの操作（作成のファイルの送信、更新の差し替え前のファイルの取り除き）の前に置く（同「記録の時点」）。新しい種別は足さない
+  - サービスの局所の型 `PrismaTransactionClient`（`Omit` の形）を `Prisma.TransactionClient` の別名にそろえる（型だけ、キャストは使わない）
+  - 単体（`backend/src/__tests__/unit/services/received-quotation.service.test.ts`）に、作成（ファイルありと明細行だけ）・更新・論理削除で `createLog` が種別・対象・操作した利用者・before と after で呼ばれ、第 2 引数が `$transaction` のコールバックへ渡された `tx` と同じオブジェクトであること（`toBe`）、金額が入らないこと、ストレージの操作より先に呼ばれること、記録の失敗で差し替え前のファイルを取り除かないこと、不在と競合では呼ばれないことを足す。経路の単体（`backend/src/__tests__/unit/routes/received-quotation.routes.test.ts`）に、三つの経路が利用者の ID を渡すことを足す
+  - 統合（`backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts`）に、三つの操作が確定するとその操作の監査ログが対象の `targetId` で 1 件残ること（対照）と、サービスを直接組み立て、本物の `AuditLogService` の `createLog(input, tx)` を呼んでから例外を投げる包みを注入すると、受領見積書が変わらず監査ログが 0 件であることを主張する。`@requirement estimate-request/REQ-14.7` の印を置き、印を足したら `check:design-measurement-freshness` を名指しで流す
+  - E2E（`e2e/specs/estimate-requests/received-quotation-status-e2e.spec.ts`）で、画面で受領見積書を登録・更新・取り除いた後、`audit_logs` を対象の種類 `ReceivedQuotation`・対象の ID・種別で数えて 1 件であることを主張し（取引先の監査ログの E2E の `expectAuditLogRecorded` の形）、`@requirement estimate-request/REQ-14.7` の印を置く。backend の変更だけのため frontend の作り直しは要らない。受領見積書の経路（`/quotations`）を e2e/ 全体で grep して既存の E2E を選び、流す
+  - 挙動の変更であるため RED → GREEN で進め、追加した単体・統合・E2E が改修の前に赤になる（単体は `createLog` が呼ばれない、統合と E2E は監査ログが 0 件）ことを先に示す
+  - 単体・統合・E2E で、確定した受領見積書の作成・更新・論理削除の監査ログが 1 件ずつ記録され、確定しなかった操作の監査ログが残らない状態になる
+  - _Requirements: 14.7_
+  - _Boundary: ReceivedQuotationService の依存・create・update・delete の記録と局所の型の別名、受領見積書の経路と案件の配下の一覧の経路の組み立てと利用者の ID の受け渡し、その記録を主張する本スペックのテスト（received-quotation.service.test.ts・received-quotation.routes.test.ts・received-quotation-status.api.integration.test.ts・received-quotation-status-e2e.spec.ts）_
