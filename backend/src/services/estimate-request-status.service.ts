@@ -17,7 +17,7 @@
  * @module services/estimate-request-status
  */
 
-import type { PrismaClient } from '../generated/prisma/client.js';
+import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import type {
   EstimateRequestStatus,
@@ -55,11 +55,11 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 
 /**
  * Prismaトランザクションクライアント型
+ *
+ * 監査ログを同じトランザクションで書くため（`IAuditLogService.createLog` の第 2 引数。タスク109.1）、
+ * `$transaction` のコールバックが受ける Prisma の型そのものとする
  */
-type PrismaTransactionClient = Omit<
-  PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
+type PrismaTransactionClient = Prisma.TransactionClient;
 
 /**
  * 見積依頼ステータスサービス
@@ -177,14 +177,17 @@ export class EstimateRequestStatusService {
       });
 
       // 5. 監査ログ記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_REQUEST_STATUS_CHANGED',
-        actorId,
-        targetType: 'EstimateRequest',
-        targetId: estimateRequestId,
-        before: { status: currentStatus },
-        after: { status: newStatus },
-      });
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_REQUEST_STATUS_CHANGED',
+          actorId,
+          targetType: 'EstimateRequest',
+          targetId: estimateRequestId,
+          before: { status: currentStatus },
+          after: { status: newStatus },
+        },
+        tx
+      );
 
       return {
         id: updatedRequest.id,

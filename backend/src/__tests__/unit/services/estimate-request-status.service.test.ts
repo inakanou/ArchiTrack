@@ -392,6 +392,43 @@ describe('EstimateRequestStatusService', () => {
     });
   });
 
+  describe('監査ログをトランザクションの中で書く（タスク109.1）', () => {
+    // ステータスの変更の監査ログは、$transaction のコールバックが受けるトランザクションの
+    // クライアントを createLog の第 2 引数に渡して書く。渡さないとトランザクションの外の接続で書かれ、
+    // 巻き戻ったステータスの変更の監査ログだけが残る（受入基準 8.6。巻き戻しの実際は統合テストで確かめる）
+    it('ステータスの変更は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const txClient = {
+        estimateRequest: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'er-tx',
+            status: 'BEFORE_REQUEST',
+            updatedAt: new Date('2026-11-01T00:00:00Z'),
+            deletedAt: null,
+          }),
+          update: vi.fn().mockResolvedValue({
+            id: 'er-tx',
+            status: 'REQUESTED',
+            updatedAt: new Date('2026-11-01T01:00:00Z'),
+          }),
+        },
+        estimateRequestStatusHistory: {
+          create: vi.fn().mockResolvedValue({}),
+        },
+      };
+      let captured: unknown;
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        captured = txClient;
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      await service.transitionStatus('er-tx', 'REQUESTED', 'user-001');
+
+      expect(captured).toBeDefined();
+      expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(mockAuditLogService.createLog).mock.calls[0]?.[1]).toBe(captured);
+    });
+  });
+
   describe('getStatusHistory', () => {
     it('ステータス変更履歴を取得する（Requirements: 12.11）', async () => {
       // Arrange

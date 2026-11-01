@@ -24,7 +24,7 @@
  * @module services/estimate-request
  */
 
-import type { PrismaClient, EstimateRequestMethod } from '../generated/prisma/client.js';
+import type { PrismaClient, Prisma, EstimateRequestMethod } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import { ESTIMATE_REQUEST_TARGET_TYPE } from '../types/audit-log.types.js';
 import {
@@ -160,11 +160,11 @@ export interface ItemWithSelectionInfo {
 
 /**
  * Prismaトランザクションクライアント型
+ *
+ * 監査ログを同じトランザクションで書くため（`IAuditLogService.createLog` の第 2 引数。タスク109.1）、
+ * `$transaction` のコールバックが受ける Prisma の型そのものとする
  */
-type PrismaTransactionClient = Omit<
-  PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
+type PrismaTransactionClient = Prisma.TransactionClient;
 
 /**
  * 見積依頼サービス
@@ -298,21 +298,24 @@ export class EstimateRequestService {
       }
 
       // 6. 監査ログの記録（itemizedStatementId / itemCount は nullable / 0 で記録）
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_REQUEST_CREATED',
-        actorId,
-        targetType: ESTIMATE_REQUEST_TARGET_TYPE,
-        targetId: estimateRequest.id,
-        before: null,
-        after: {
-          projectId: estimateRequest.projectId,
-          tradingPartnerId: estimateRequest.tradingPartnerId,
-          itemizedStatementId: estimateRequest.itemizedStatementId,
-          name: estimateRequest.name,
-          method: estimateRequest.method,
-          itemCount,
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_REQUEST_CREATED',
+          actorId,
+          targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+          targetId: estimateRequest.id,
+          before: null,
+          after: {
+            projectId: estimateRequest.projectId,
+            tradingPartnerId: estimateRequest.tradingPartnerId,
+            itemizedStatementId: estimateRequest.itemizedStatementId,
+            name: estimateRequest.name,
+            method: estimateRequest.method,
+            itemCount,
+          },
         },
-      });
+        tx
+      );
 
       return this.toEstimateRequestInfo(estimateRequest);
     });
@@ -509,18 +512,21 @@ export class EstimateRequestService {
       });
 
       // 5. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_REQUEST_UPDATED',
-        actorId,
-        targetType: ESTIMATE_REQUEST_TARGET_TYPE,
-        targetId: id,
-        before,
-        after: {
-          name: updatedRequest.name,
-          method: updatedRequest.method,
-          includeBreakdownInBody: updatedRequest.includeBreakdownInBody,
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_REQUEST_UPDATED',
+          actorId,
+          targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+          targetId: id,
+          before,
+          after: {
+            name: updatedRequest.name,
+            method: updatedRequest.method,
+            includeBreakdownInBody: updatedRequest.includeBreakdownInBody,
+          },
         },
-      });
+        tx
+      );
 
       return this.toEstimateRequestInfo(updatedRequest);
     });
@@ -573,20 +579,23 @@ export class EstimateRequestService {
       });
 
       // 4. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_REQUEST_DELETED',
-        actorId,
-        targetType: ESTIMATE_REQUEST_TARGET_TYPE,
-        targetId: id,
-        before: {
-          projectId: estimateRequest.projectId,
-          tradingPartnerId: estimateRequest.tradingPartnerId,
-          itemizedStatementId: estimateRequest.itemizedStatementId,
-          name: estimateRequest.name,
-          method: estimateRequest.method,
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_REQUEST_DELETED',
+          actorId,
+          targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+          targetId: id,
+          before: {
+            projectId: estimateRequest.projectId,
+            tradingPartnerId: estimateRequest.tradingPartnerId,
+            itemizedStatementId: estimateRequest.itemizedStatementId,
+            name: estimateRequest.name,
+            method: estimateRequest.method,
+          },
+          after: null,
         },
-        after: null,
-      });
+        tx
+      );
     });
   }
 
@@ -628,16 +637,19 @@ export class EstimateRequestService {
       }
 
       // 3. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_REQUEST_ITEMS_UPDATED',
-        actorId,
-        targetType: ESTIMATE_REQUEST_TARGET_TYPE,
-        targetId: estimateRequestId,
-        before: null,
-        after: {
-          updatedItems: itemSelections.map((s) => ({ itemId: s.itemId, selected: s.selected })),
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_REQUEST_ITEMS_UPDATED',
+          actorId,
+          targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+          targetId: estimateRequestId,
+          before: null,
+          after: {
+            updatedItems: itemSelections.map((s) => ({ itemId: s.itemId, selected: s.selected })),
+          },
         },
-      });
+        tx
+      );
     });
   }
 

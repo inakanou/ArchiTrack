@@ -2458,7 +2458,7 @@
 
 **経緯**: 利用者の判断（2026-11-01「推奨案で進めて下さい」）で起票する。見積依頼のサービス（backend/src/services/estimate-request.service.ts の `EstimateRequestService`）の作成（`create`）・更新（`update`）・論理削除（`delete`）・項目の選択の保存（`updateItemSelection`）と、ステータスのサービス（backend/src/services/estimate-request-status.service.ts の `EstimateRequestStatusService`）のステータスの変更（`transitionStatus`）は、`$transaction` のコールバックの中で `auditLogService.createLog` をトランザクションのクライアントを渡さずに呼び、監査ログをトランザクションの外の接続で書く。記録の後にトランザクションが巻き戻ると、見積依頼は変わらないのに監査ログだけが残る。estimate-creation のタスク70.1（`750843e5`）が見積書の同じ形を直した際に、同 spec の design.md が本機能の同じ形を範囲外として記録していた。requirements.md に 8.6 を加え（改訂の記録を Requirement 8 に残した）、design.md の末尾に章「2026-11-01 の追加: 見積依頼の作成・更新・論理削除・項目の選択・ステータスの変更の監査ログをトランザクションの中で書く（Requirement 8.6）」を置いた
 
-- [ ] 109.1 見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更の監査ログを、見積依頼の変更と同じトランザクションの中で書く
+- [x] 109.1 見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更の監査ログを、見積依頼の変更と同じトランザクションの中で書く
   - 五か所の `this.auditLogService.createLog({...})` の第 2 引数に、それぞれの `$transaction` のコールバックが受ける `tx` を渡す（各 1 行。design.md の同章の「決定」）。記録の入力・記録の時点・応答・トランザクションの制限時間・ステータスの変更の履歴は変えない。`AuditLogService`、受領見積書のサービス、閲覧範囲外の記録と出力の記録は変えない
   - 二つのサービスの局所の型 `PrismaTransactionClient`（`Omit` の形）を `Prisma.TransactionClient` の別名にそろえる（型だけ、キャストは使わない。design.md の同章の「決定」の「型の別名」）
   - 単体（`backend/src/__tests__/unit/services/estimate-request.service.test.ts` と `backend/src/__tests__/unit/services/estimate-request-status.service.test.ts`）に、作成（内訳書ありと内訳書なし）・更新・論理削除・項目の選択の保存・ステータスの変更で `createLog` の第 2 引数が `$transaction` のコールバックへ渡された `tx` と同じオブジェクトであることを `toBe` で足す

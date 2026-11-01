@@ -378,7 +378,9 @@ describe('EstimateRequestService', () => {
             itemizedStatementId: null,
             itemCount: 0,
           }),
-        })
+        }),
+        // 第 2 引数はトランザクションのクライアント（タスク109.1）
+        expect.anything()
       );
     });
 
@@ -478,7 +480,9 @@ describe('EstimateRequestService', () => {
             itemizedStatementId: null,
             itemCount: 0,
           }),
-        })
+        }),
+        // 第 2 引数はトランザクションのクライアント（タスク109.1）
+        expect.anything()
       );
     });
 
@@ -606,6 +610,145 @@ describe('EstimateRequestService', () => {
       await expect(service.create(input, actorId)).rejects.toThrow(
         EmptyItemizedStatementItemsError
       );
+    });
+  });
+
+  describe('監査ログをトランザクションの中で書く（タスク109.1）', () => {
+    // 作成・更新・論理削除・項目の選択の保存の監査ログは、$transaction のコールバックが受ける
+    // トランザクションのクライアントを createLog の第 2 引数に渡して書く。渡さないとトランザクションの
+    // 外の接続で書かれ、巻き戻った操作の監査ログだけが残る（受入基準 8.6。巻き戻しの実際は統合テストで確かめる）
+    const actorId = 'user-001';
+    const tradingPartner = { id: 'tp-tx', name: '監査ログ検証協力業者', deletedAt: null };
+    const typeMapping = { id: 'tpm-tx', tradingPartnerId: 'tp-tx', type: 'SUBCONTRACTOR' };
+    const storedRequest = {
+      id: 'er-tx',
+      projectId: 'proj-001',
+      tradingPartnerId: 'tp-tx',
+      itemizedStatementId: 'is-tx',
+      name: '監査ログ検証見積依頼',
+      method: 'EMAIL',
+      includeBreakdownInBody: false,
+      createdAt: new Date('2026-11-01T00:00:00Z'),
+      updatedAt: new Date('2026-11-01T00:00:00Z'),
+      deletedAt: null,
+      tradingPartner: { id: 'tp-tx', name: '監査ログ検証協力業者' },
+      itemizedStatement: { id: 'is-tx', name: '監査ログ検証内訳書' },
+    };
+
+    /** `$transaction` がコールバックへ渡すクライアントを捕まえる */
+    function captureTransactionClient(txClient: Record<string, unknown>): { current: unknown } {
+      const captured: { current: unknown } = { current: undefined };
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        captured.current = txClient;
+        return fn(txClient as unknown as PrismaClient);
+      });
+      return captured;
+    }
+
+    function secondArgumentOfCreateLog(): unknown {
+      expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+      return vi.mocked(mockAuditLogService.createLog).mock.calls[0]?.[1];
+    }
+
+    it('内訳書ありの作成は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const captured = captureTransactionClient({
+        tradingPartner: { findUnique: vi.fn().mockResolvedValue(tradingPartner) },
+        tradingPartnerTypeMapping: { findFirst: vi.fn().mockResolvedValue(typeMapping) },
+        itemizedStatement: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'is-tx',
+            name: '監査ログ検証内訳書',
+            projectId: 'proj-001',
+            deletedAt: null,
+            items: [{ id: 'isi-tx', displayOrder: 0 }],
+          }),
+        },
+        estimateRequest: { create: vi.fn().mockResolvedValue(storedRequest) },
+        estimateRequestItem: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      });
+
+      await service.create(
+        {
+          name: '監査ログ検証見積依頼',
+          projectId: 'proj-001',
+          tradingPartnerId: 'tp-tx',
+          itemizedStatementId: 'is-tx',
+          method: 'EMAIL',
+        },
+        actorId
+      );
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('内訳書なしの作成は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const captured = captureTransactionClient({
+        tradingPartner: { findUnique: vi.fn().mockResolvedValue(tradingPartner) },
+        tradingPartnerTypeMapping: { findFirst: vi.fn().mockResolvedValue(typeMapping) },
+        estimateRequest: {
+          create: vi.fn().mockResolvedValue({
+            ...storedRequest,
+            itemizedStatementId: null,
+            itemizedStatement: null,
+          }),
+        },
+      });
+
+      await service.create(
+        {
+          name: '監査ログ検証見積依頼',
+          projectId: 'proj-001',
+          tradingPartnerId: 'tp-tx',
+          method: 'EMAIL',
+        },
+        actorId
+      );
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('更新は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const captured = captureTransactionClient({
+        estimateRequest: {
+          findUnique: vi.fn().mockResolvedValue(storedRequest),
+          update: vi.fn().mockResolvedValue({ ...storedRequest, name: '新名' }),
+        },
+      });
+
+      await service.update('er-tx', { name: '新名' }, actorId, storedRequest.updatedAt);
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('論理削除は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const captured = captureTransactionClient({
+        estimateRequest: {
+          findUnique: vi.fn().mockResolvedValue(storedRequest),
+          update: vi.fn().mockResolvedValue({ ...storedRequest, deletedAt: new Date() }),
+        },
+      });
+
+      await service.delete('er-tx', actorId, storedRequest.updatedAt);
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('項目の選択の保存は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const captured = captureTransactionClient({
+        estimateRequest: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'er-tx', deletedAt: null }),
+        },
+        estimateRequestItem: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      });
+
+      await service.updateItemSelection('er-tx', [{ itemId: 'eri-tx', selected: true }], actorId);
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
     });
   });
 
@@ -893,7 +1036,9 @@ describe('EstimateRequestService', () => {
           after: expect.objectContaining({
             includeBreakdownInBody: false,
           }),
-        })
+        }),
+        // 第 2 引数はトランザクションのクライアント（タスク109.1）
+        expect.anything()
       );
     });
 

@@ -7093,6 +7093,11 @@ mailDisabledReason: {
 - 副作用の扱い: `createLog` は記録の後の副作用を持たないため、トランザクションの中へ入れて確定の前に外へ漏れるものは無い。実行者の写しの読み出しも同じ `tx` で行う
 - 記録の時点: 五か所とも記録はコールバックの最後（変更の後、結果を返す前）のまま変えない。記録の分だけトランザクションの所要が延びるが、行 1 件の作成と写しの読み出し 1 回であり、既定の制限時間 5 秒に対して無視できる
 - 実装の記録: 実装時に、変えた五か所、型の別名の扱い、テストの結果を本節へ記す（タスク109.1）
+- 実装（タスク109.1、2026-11-01）: `EstimateRequestService` の `create`（`ESTIMATE_REQUEST_CREATED`）・`update`（`ESTIMATE_REQUEST_UPDATED`）・`delete`（`ESTIMATE_REQUEST_DELETED`）・`updateItemSelection`（`ESTIMATE_REQUEST_ITEMS_UPDATED`）と `EstimateRequestStatusService` の `transitionStatus`（`ESTIMATE_REQUEST_STATUS_CHANGED`）の 5 か所の `createLog` の第 2 引数に `tx` を渡した。記録の入力・記録の時点・応答・制限時間・ステータスの変更の履歴は変えていない。二つのサービスの局所の型 `PrismaTransactionClient` を `Prisma.TransactionClient` の別名に改めた（キャストは使っていない）。`Omit` の形のまま `tx` を渡すと tsc が `Argument of type 'PrismaTransactionClient' is not assignable to parameter of type 'TransactionClient'` で失敗することを確かめた（estimate-creation のタスク70.1 と同じ）。使う所は 5 つの `$transaction` のコールバックの注記だけで、振る舞いは変わらない
+  - 単体: 見積依頼のサービスの単体の 5 件（内訳書ありの作成・内訳書なしの作成・更新・論理削除・項目の選択の保存）とステータスのサービスの単体の 1 件で、`createLog` の第 2 引数が `$transaction` のコールバックへ渡したクライアントと同じオブジェクトであることを `toBe` で主張する。改修の前（第 2 引数を渡さない形）では 6 件とも `expected undefined to be` で赤だった。`createLog` の呼び出しを引数の数ごと主張していた既存の 3 件（内訳書なしの作成 2 件、内訳書なしの更新の正規化 1 件）は、第 2 引数に `expect.anything()` を足した。backend の単体の全件は 263 ファイル・7275 件が緑
+  - 統合: 見積依頼の API の統合テストのファイルの `describe` 「見積依頼の監査ログとトランザクション（Requirement 8.6）」に、巻き戻しの 5 件と確定の対照 1 件を置いた。監査ログは対象の `targetId` と操作の種別で数える（作成の巻き戻しは包みが受けた `targetId`）。改修の前は巻き戻しの 5 件とも監査ログが 1 件残って `expected 1 to be +0` で赤になり、見積依頼・項目・名前・論理削除・項目の選択・ステータスとその履歴の主張は通っていた（巻き戻し自体は従来から起きていて、残っていたのは監査ログだけであることの確認）。改修の後は同ファイルの 39 件が緑。backend の統合の全件は 118 ファイル・1542 件が緑
+  - 見積依頼の既存の E2E（e2e/specs/estimate-requests/ の全件）は 358 件が緑（backend の変更だけで frontend は作り直していない）
+  - E2E は置かず、E2E の除外の台帳に 8.6 を一件足した（`category` は `data-integrity`、`method` は `integration-test`）。台帳の件数の宣言（`requirement-exclusions-total`）が 130 から 131 へ、統合テストのファイルが機能名つきの印を得たことで機能名を欠く見出しの自機能での解決の数の宣言が 586 から 588 へ動き、いずれも帰属つきで貼り直した
 
 **採らなかった案**: 記録を確定の後にトランザクションの外で書く——確定の後に記録が失敗すると起きた操作の記録が残らず、user-authentication の要件40 の監査の完全さを損なうため採らない。ステータスの変更を別のタスクに分ける——同じ spec の同じ形の欠陥で、同じテストの形で被覆でき、分けると片方だけ直った状態が生じるため採らない。受領見積書のサービスを併せて扱う——監査ログを書いておらず欠陥の型が違うため採らない（Out of Boundary）
 
