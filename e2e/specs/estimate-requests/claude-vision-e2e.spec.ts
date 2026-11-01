@@ -27,22 +27,12 @@
  * @module e2e/specs/estimate-requests/claude-vision-e2e.spec
  */
 
-import {
-  test,
-  expect,
-  request as playwrightRequest,
-  type APIRequestContext,
-  type APIResponse,
-  type Page,
-} from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
-import { getAccessToken, loginViaApi } from '../../helpers/auth-api';
-import {
-  deleteEstimateRequestViaApi,
-  deleteReceivedQuotationViaApi,
-} from '../../helpers/estimate-request-preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
+import { cleanupEstimateRequestFixtures } from '../../helpers/estimate-request-preconditions';
 
 /**
  * 受領見積書フォームを確実に初期状態で開く
@@ -62,53 +52,6 @@ async function openReceivedQuotationForm(page: Page) {
 
   // フォームが表示されるまで待機
   await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
-}
-
-/**
- * 後始末の削除が 204 で終わったことを確かめる。204 以外は例外にする。
- *
- * @param res - 削除の応答
- * @param label - 何を消そうとしていたか
- */
-async function expectNoContent(res: APIResponse, label: string): Promise<void> {
-  if (res.status() !== 204) {
-    throw new Error(`${label} failed: ${res.status()} ${await res.text()}`);
-  }
-}
-
-/**
- * 内訳書を API で論理削除する（後始末用）
- *
- * `DELETE /api/itemized-statements/:id` は楽観的排他制御の基準時刻（updatedAt）を本文で求める
- * （画面の deleteItemizedStatement と同じ）。現在の updatedAt を読み直して送り、204 以外は例外にする。
- *
- * @param request - 要求のコンテキスト
- * @param token - アクセストークン
- * @param itemizedStatementId - 取り除く内訳書のID
- */
-async function deleteItemizedStatementViaApi(
-  request: APIRequestContext,
-  token: string,
-  itemizedStatementId: string
-): Promise<void> {
-  const headers = { Authorization: `Bearer ${token}` };
-  const current = await request.get(
-    `${API_BASE_URL}/api/itemized-statements/${itemizedStatementId}`,
-    { headers }
-  );
-  if (current.status() !== 200) {
-    throw new Error(
-      `itemized statement read before delete failed: ${current.status()} ${await current.text()}`
-    );
-  }
-  const { updatedAt } = (await current.json()) as { updatedAt: string };
-  await expectNoContent(
-    await request.delete(`${API_BASE_URL}/api/itemized-statements/${itemizedStatementId}`, {
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      data: { updatedAt },
-    }),
-    'itemized statement delete'
-  );
 }
 
 /**
@@ -428,74 +371,19 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
    * 落ちても後始末が走るようにする（2026-11-01、前例 5ce78747）。作られなかった資源
    * （ID が未設定のもの）は飛ばす。
    *
-   * afterAll では page を使えないため、管理者のトークンを新しい要求のコンテキストで取る。
-   * 一般ユーザーには project:delete が無く、プロジェクトの削除が 403 になるため、
-   * 同じ階層の見積依頼の E2E と同じく管理者で消す。
-   *
-   * 受領見積書 → 見積依頼 → 内訳書 → 数量表 → プロジェクト → 取引先 の順（子から親）に消す。
-   * いずれの経路も 204 以外は例外にして、後始末の失敗を握りつぶさない（2026-11-01 の是正まで、
-   * 受領見積書は存在しない経路へ送られ、内訳書は基準時刻を送らずに 400 を受け、
-   * どの削除も状態コードを見ていなかった）。最初の失敗で止める（ocr-retry-e2e などの前例と同じ）。
+   * 片付けは共通の補助 `cleanupEstimateRequestFixtures`（e2e/helpers/estimate-request-preconditions.ts）
+   * が担う。管理者で、受領見積書 → 見積依頼 → 内訳書 → 数量表 → プロジェクト → 取引先 の順に消し、
+   * いずれの経路も 204 以外は例外にする（2026-11-01 の是正まで、受領見積書は存在しない経路へ
+   * 送られ、内訳書は基準時刻を送らずに 400 を受け、どの削除も状態コードを見ていなかった。
+   * このファイルに置いていた補助は、同じ欠陥を持つ他の見積依頼の E2E と共有するため移した）。
    */
   test.afterAll(async () => {
-    const api = await playwrightRequest.newContext();
-    try {
-      const { accessToken: adminToken } = await loginViaApi(api, 'ADMIN_USER');
-      if (!adminToken) {
-        throw new Error('cleanup: 管理者のアクセストークンが得られない');
-      }
-      const headers = { Authorization: `Bearer ${adminToken}` };
-
-      if (createdEstimateRequestId) {
-        // 受領見積書の一覧は GET /api/estimate-requests/:id/quotations が配列で返す
-        const quotationsRes = await api.get(
-          `${API_BASE_URL}/api/estimate-requests/${createdEstimateRequestId}/quotations`,
-          { headers }
-        );
-        if (quotationsRes.status() !== 200) {
-          throw new Error(
-            `received quotation list failed: ${quotationsRes.status()} ${await quotationsRes.text()}`
-          );
-        }
-        const quotations = (await quotationsRes.json()) as Array<{ id: string }>;
-        for (const q of quotations) {
-          await deleteReceivedQuotationViaApi(api, adminToken, q.id);
-        }
-
-        // 見積依頼削除（基準時刻をクエリで送り、204 以外を失敗にする）
-        await deleteEstimateRequestViaApi(api, adminToken, createdEstimateRequestId);
-      }
-
-      if (createdItemizedStatementId) {
-        await deleteItemizedStatementViaApi(api, adminToken, createdItemizedStatementId);
-      }
-
-      if (createdQuantityTableId) {
-        await expectNoContent(
-          await api.delete(`${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`, {
-            headers,
-          }),
-          'quantity table delete'
-        );
-      }
-
-      if (createdProjectId) {
-        await expectNoContent(
-          await api.delete(`${API_BASE_URL}/api/projects/${createdProjectId}`, { headers }),
-          'project delete'
-        );
-      }
-
-      if (createdTradingPartnerId) {
-        await expectNoContent(
-          await api.delete(`${API_BASE_URL}/api/trading-partners/${createdTradingPartnerId}`, {
-            headers,
-          }),
-          'trading partner delete'
-        );
-      }
-    } finally {
-      await api.dispose();
-    }
+    await cleanupEstimateRequestFixtures({
+      estimateRequestId: createdEstimateRequestId,
+      itemizedStatementId: createdItemizedStatementId,
+      quantityTableId: createdQuantityTableId,
+      projectId: createdProjectId,
+      tradingPartnerId: createdTradingPartnerId,
+    });
   });
 });

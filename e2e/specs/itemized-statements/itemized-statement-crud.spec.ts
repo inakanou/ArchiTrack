@@ -68,6 +68,7 @@ import ExcelJS from 'exceljs';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import {
+  deleteItemizedStatementViaApi,
   requireItemizedStatementFilterClearButton,
   requireItemizedStatementFilterInput,
 } from '../../helpers/itemized-statement-preconditions';
@@ -846,11 +847,8 @@ test.describe('内訳書CRUD操作', () => {
         timeout: getTimeout(10000),
       });
 
-      // クリーンアップ: 作成した内訳書を削除
-      await request.delete(`${baseUrl}/api/itemized-statements/${createdStatement.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: createdStatement.updatedAt },
-      });
+      // クリーンアップ: 作成した内訳書を削除（基準時刻を読み直して本文で送り、204 以外を失敗にする）
+      await deleteItemizedStatementViaApi(request, accessToken, createdStatement.id);
     });
   });
 
@@ -1718,11 +1716,8 @@ test.describe('内訳書CRUD操作', () => {
       // 項目数が変わっていないことを確認（スナップショット独立性）
       expect(reloadedIs.itemCount).toBe(originalItemCount);
 
-      // クリーンアップ
-      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: reloadedIs.updatedAt },
-      });
+      // クリーンアップ（内訳書は基準時刻を読み直して本文で送り、204 以外を失敗にする）
+      await deleteItemizedStatementViaApi(request, accessToken, is.id);
 
       const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -2170,11 +2165,8 @@ test.describe('内訳書CRUD操作', () => {
       const quantityText = await quantityCells.first().textContent();
       expect(quantityText).toBe('31.00');
 
-      // クリーンアップ
-      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: is.updatedAt },
-      });
+      // クリーンアップ（内訳書は基準時刻を読み直して本文で送り、204 以外を失敗にする）
+      await deleteItemizedStatementViaApi(request, accessToken, is.id);
 
       const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -2384,15 +2376,8 @@ test.describe('内訳書CRUD操作', () => {
       // 2ページ目に10件の項目が表示されていることを確認
       await expect(rows).toHaveCount(10);
 
-      // クリーンアップ
-      const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const isDetail = await isDetailResponse.json();
-      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: isDetail.updatedAt },
-      });
+      // クリーンアップ（内訳書は基準時刻を読み直して本文で送り、204 以外を失敗にする）
+      await deleteItemizedStatementViaApi(request, accessToken, is.id);
 
       const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -2494,15 +2479,8 @@ test.describe('内訳書CRUD操作', () => {
         timeout: getTimeout(5000),
       });
 
-      // クリーンアップ
-      const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const isDetail = await isDetailResponse.json();
-      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: isDetail.updatedAt },
-      });
+      // クリーンアップ（内訳書は基準時刻を読み直して本文で送り、204 以外を失敗にする）
+      await deleteItemizedStatementViaApi(request, accessToken, is.id);
 
       const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },

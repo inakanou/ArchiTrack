@@ -9,8 +9,9 @@
  * @module e2e/helpers/itemized-statement-preconditions
  */
 
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { getTimeout } from './wait-helpers';
+import { SAME_ORIGIN_API_BASE_URL } from '../config';
 
 /** 内訳書詳細画面がフィルタを提供するカラム (itemized-statement-generation/REQ-6.2) */
 export type ItemizedStatementFilterColumn =
@@ -57,4 +58,45 @@ export async function requireItemizedStatementFilterClearButton(page: Page): Pro
     timeout: getTimeout(10000),
   });
   return clearButton;
+}
+
+/**
+ * 内訳書を API で論理削除する（後始末用）
+ *
+ * `DELETE /api/itemized-statements/:id` は楽観的排他制御の基準時刻（updatedAt）を**本文**で求める
+ * （画面の deleteItemizedStatement と同じ。見積依頼・受領見積書のクエリとは異なる）。現在の
+ * updatedAt を読み直して送り、204 以外は例外にして後始末の失敗を見逃さない（2026-11-01 の是正まで、
+ * 見積依頼の E2E の後始末は基準時刻を送らずに 400 を受け、状態コードを見ていなかったため
+ * 内訳書がテスト DB に残っていた。claude-vision-e2e のファイル内の補助をここへ移した）。
+ *
+ * @param request - 要求のコンテキスト（`request` の fixture・`page.request`・`request.newContext()`）
+ * @param token - アクセストークン
+ * @param itemizedStatementId - 取り除く内訳書のID
+ */
+export async function deleteItemizedStatementViaApi(
+  request: APIRequestContext,
+  token: string,
+  itemizedStatementId: string
+): Promise<void> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const current = await request.get(
+    `${SAME_ORIGIN_API_BASE_URL}/api/itemized-statements/${itemizedStatementId}`,
+    { headers }
+  );
+  if (current.status() !== 200) {
+    throw new Error(
+      `itemized statement read before delete failed: ${current.status()} ${await current.text()}`
+    );
+  }
+  const { updatedAt } = (await current.json()) as { updatedAt: string };
+  const res = await request.delete(
+    `${SAME_ORIGIN_API_BASE_URL}/api/itemized-statements/${itemizedStatementId}`,
+    {
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      data: { updatedAt },
+    }
+  );
+  if (res.status() !== 204) {
+    throw new Error(`itemized statement delete failed: ${res.status()} ${await res.text()}`);
+  }
 }

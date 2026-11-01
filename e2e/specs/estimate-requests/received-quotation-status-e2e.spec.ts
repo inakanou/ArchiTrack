@@ -22,7 +22,10 @@ import * as fs from 'fs';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { loginViaApi } from '../../helpers/auth-api';
-import { deleteEstimateRequestViaApi } from '../../helpers/estimate-request-preconditions';
+import {
+  cleanupEstimateRequestFixtures,
+  deleteEstimateRequestViaApi,
+} from '../../helpers/estimate-request-preconditions';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -50,6 +53,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
   // テストデータの保存
   let createdProjectId: string | null = null;
   let createdTradingPartnerId: string | null = null;
+  let createdQuantityTableId: string | null = null;
   let createdItemizedStatementId: string | null = null;
   let createdEstimateRequestId: string | null = null;
   let createdReceivedQuotationId: string | null = null;
@@ -195,6 +199,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
       const quantityTableId = createResponseBody.id;
       expect(quantityTableId).toBeTruthy();
+      createdQuantityTableId = quantityTableId;
 
       // APIトークンを取得
       const baseUrl = API_BASE_URL;
@@ -1916,44 +1921,22 @@ test.describe('受領見積書・ステータス管理機能', () => {
   // クリーンアップ
   // ============================================================================
 
-  test.describe('クリーンアップ', () => {
-    test('テストデータの削除', async ({ request }) => {
-      // テストデータの削除（見積依頼、内訳書、プロジェクト等）
-      const baseUrl = API_BASE_URL;
-      // 準備で取ったアクセストークンは失効しうる。見積依頼の後始末は 204 以外を失敗にするため取り直す
-      if (accessToken) {
-        accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
-      }
-
-      if (createdEstimateRequestId && accessToken) {
-        await deleteEstimateRequestViaApi(request, accessToken, createdEstimateRequestId);
-      }
-
-      if (createdItemizedStatementId && accessToken) {
-        await request.delete(`${baseUrl}/api/itemized-statements/${createdItemizedStatementId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      if (createdProjectId && accessToken) {
-        await request.delete(`${baseUrl}/api/projects/${createdProjectId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      if (createdTradingPartnerId && accessToken) {
-        await request.delete(`${baseUrl}/api/trading-partners/${createdTradingPartnerId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      // 末尾に置かれていた `expect(true).toBe(true)` を削除した。あれは何も確かめておらず、
-      // 「検証がある」と偽って数えられるだけの恒真だった。
-      // 本ブロックは検証ではなく後始末であり、主張は置かない。
-      // なお実測では、この後始末の削除はいずれも成立していない
-      // （見積依頼の削除は本体に updatedAt を要し、プロジェクトの削除も 2xx を返さない）。
-      // 後始末が効いていないこと自体は別タスクとして起票する。削除そのものの検証は
-      // 当該要件のテスト（見積依頼・プロジェクトの削除）が担う。
+  /**
+   * 作成したデータを片付ける。serial の最後の test ではなく afterAll に置き、途中の検証が
+   * 落ちても後始末が走るようにする（2026-11-01 の是正。前例 claude-vision-e2e）。
+   * 共通の補助 `cleanupEstimateRequestFixtures` が管理者で、受領見積書（見積依頼の配下を一覧で
+   * 拾う）→ 見積依頼 → 内訳書 → 数量表 → プロジェクト → 取引先 の順に消し、いずれも 204 以外は
+   * 例外にする。是正まで、後始末は一般ユーザーで走り（project:delete が無くプロジェクトの削除は
+   * 403）、内訳書は基準時刻を送らずに 400 を受け、受領見積書と数量表は消しておらず、
+   * 見積依頼以外の削除は状態コードを見ていなかった。後始末は検証ではないため主張は置かない。
+   */
+  test.afterAll(async () => {
+    await cleanupEstimateRequestFixtures({
+      estimateRequestId: createdEstimateRequestId,
+      itemizedStatementId: createdItemizedStatementId,
+      quantityTableId: createdQuantityTableId,
+      projectId: createdProjectId,
+      tradingPartnerId: createdTradingPartnerId,
     });
   });
 });

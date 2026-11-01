@@ -38,10 +38,9 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
-import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import {
-  deleteEstimateRequestViaApi,
+  cleanupEstimateRequestFixtures,
   seedEstimateRequest,
 } from '../../helpers/estimate-request-preconditions';
 import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
@@ -51,7 +50,6 @@ import {
 } from '../../helpers/ocr-observations';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
-import { getAccessToken } from '../../helpers/auth-api';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -100,9 +98,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
   // テストデータの保存
   let createdProjectId: string | null = null;
   let createdTradingPartnerId: string | null = null;
+  let createdQuantityTableId: string | null = null;
   let createdItemizedStatementId: string | null = null;
   let createdEstimateRequestId: string | null = null;
-  let accessToken: string = '';
 
   // ============================================================================
   // テストデータセットアップ
@@ -128,9 +126,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
       },
     });
 
-    accessToken = seed.accessToken;
     createdProjectId = seed.projectId;
     createdTradingPartnerId = seed.tradingPartnerId;
+    createdQuantityTableId = seed.quantityTableId;
     createdItemizedStatementId = seed.itemizedStatementId;
     createdEstimateRequestId = seed.estimateRequestId;
   });
@@ -661,43 +659,21 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     });
   });
 
-  // ============================================================================
-  // テストデータクリーンアップ
-  // ============================================================================
-
-  test('テストデータをクリーンアップする', async ({ page }) => {
-    await loginAsUser(page, 'ADMIN_USER');
-
-    // 認証トークン取得（localStorageから取得）
-    accessToken = await getAccessToken(page, 'ADMIN_USER');
-
-    // 見積依頼の削除
-    if (createdEstimateRequestId) {
-      await deleteEstimateRequestViaApi(page.request, accessToken, createdEstimateRequestId);
-    }
-
-    // 内訳書の削除
-    if (createdItemizedStatementId) {
-      await page.request.delete(
-        `${API_BASE_URL}/api/itemized-statements/${createdItemizedStatementId}`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
-      );
-    }
-
-    // 取引先の削除
-    if (createdTradingPartnerId) {
-      await page.request.delete(`${API_BASE_URL}/api/trading-partners/${createdTradingPartnerId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
-
-    // プロジェクトの削除
-    if (createdProjectId) {
-      await page.request.delete(`${API_BASE_URL}/api/projects/${createdProjectId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
+  /**
+   * 作成したデータを片付ける。serial の最後の test ではなく afterAll に置き、途中の検証が
+   * 落ちても後始末が走るようにする（2026-11-01 の是正。前例 claude-vision-e2e）。
+   * 共通の補助 `cleanupEstimateRequestFixtures` が管理者で、受領見積書（見積依頼の配下を一覧で
+   * 拾う）→ 見積依頼 → 内訳書 → 数量表 → プロジェクト → 取引先 の順に消し、いずれも 204 以外は
+   * 例外にする（是正まで、内訳書は基準時刻を送らずに 400 を受け、数量表は消しておらず、
+   * 内訳書・取引先・プロジェクトの削除は状態コードを見ていなかった）。
+   */
+  test.afterAll(async () => {
+    await cleanupEstimateRequestFixtures({
+      estimateRequestId: createdEstimateRequestId,
+      itemizedStatementId: createdItemizedStatementId,
+      quantityTableId: createdQuantityTableId,
+      projectId: createdProjectId,
+      tradingPartnerId: createdTradingPartnerId,
+    });
   });
 });
