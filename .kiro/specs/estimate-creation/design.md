@@ -5206,6 +5206,7 @@ model EstimateEditSession {
 - 内訳書の作成（itemized-statement の所管）の件数。内訳書の項目の数の上限は設けない（見積書の作成の入口で拒む）
 - 受領見積書の明細の `remarks` の上限（上の章の Out of Boundary のとおり是正計画の次の候補）
 - 作成のトランザクションの書き込みの方式（見積書 1 行、見積項目と行の `createMany`）と順序、制限時間を超えたときの応答（エラーハンドラーの P2028 の 500 のまま。一括保存の `EstimateSaveTimeoutError` への変換は作成には足さない）
+- 先送り（利用者の判断（2026-11-01、推奨案で進める））: 一括保存と作成のトランザクションの制限時間（`ESTIMATE_SAVE_TRANSACTION_OPTIONS`、15 秒）の余裕の見直しは行わず、値は変えない。本番で制限時間の超過の 500 が出るかを Sentry で監視し、出たら見直す。作成の超過はエラーハンドラーの P2028 の分岐が `errorType` を `transaction_timeout` として送り、一括保存の超過は `EstimateSaveTimeoutError`（コード `ESTIMATE_SAVE_TIMEOUT`）に変わって 5xx の `ApiError` の分岐が状態コード 500 として送るため、二つを見る。理由: 実測の最悪（作成 5934 ms、一括保存の最悪経路 4,244 ms）に対して 15 秒は約 2.5 倍以上の余裕があり、テスト環境の計測では本番の負荷を再現できないため
 
 #### Allowed Dependencies
 - 画面 → 応答の本文の読み出し（`ApiError` の `response`。quantity-table-generation の `describeQuantityTableSaveLimitFailure` が既に読む形）

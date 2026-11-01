@@ -2453,3 +2453,19 @@
   - 単体と E2E で、「Gmailで開く」の二つの失敗に原因と次の行動を示す文言が表示され、ポップアップの拒否では記録が要求されず、記録の後の失敗では記録が 1 回残る状態になる
   - _Requirements: 42.17, 42.18_
   - _Boundary: EstimateRequestTextPanel の handleOpenGmail と、その表示を主張する本スペックのテスト_
+
+## タスク109: 見積依頼の作成・更新・論理削除・項目の選択・ステータスの変更の監査ログをトランザクションの中で書く（利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「推奨案で進めて下さい」）で起票する。見積依頼のサービス（backend/src/services/estimate-request.service.ts の `EstimateRequestService`）の作成（`create`）・更新（`update`）・論理削除（`delete`）・項目の選択の保存（`updateItemSelection`）と、ステータスのサービス（backend/src/services/estimate-request-status.service.ts の `EstimateRequestStatusService`）のステータスの変更（`transitionStatus`）は、`$transaction` のコールバックの中で `auditLogService.createLog` をトランザクションのクライアントを渡さずに呼び、監査ログをトランザクションの外の接続で書く。記録の後にトランザクションが巻き戻ると、見積依頼は変わらないのに監査ログだけが残る。estimate-creation のタスク70.1（`750843e5`）が見積書の同じ形を直した際に、同 spec の design.md が本機能の同じ形を範囲外として記録していた。requirements.md に 8.6 を加え（改訂の記録を Requirement 8 に残した）、design.md の末尾に章「2026-11-01 の追加: 見積依頼の作成・更新・論理削除・項目の選択・ステータスの変更の監査ログをトランザクションの中で書く（Requirement 8.6）」を置いた
+
+- [ ] 109.1 見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更の監査ログを、見積依頼の変更と同じトランザクションの中で書く
+  - 五か所の `this.auditLogService.createLog({...})` の第 2 引数に、それぞれの `$transaction` のコールバックが受ける `tx` を渡す（各 1 行。design.md の同章の「決定」）。記録の入力・記録の時点・応答・トランザクションの制限時間・ステータスの変更の履歴は変えない。`AuditLogService`、受領見積書のサービス、閲覧範囲外の記録と出力の記録は変えない
+  - 二つのサービスの局所の型 `PrismaTransactionClient`（`Omit` の形）を `Prisma.TransactionClient` の別名にそろえる（型だけ、キャストは使わない。design.md の同章の「決定」の「型の別名」）
+  - 単体（`backend/src/__tests__/unit/services/estimate-request.service.test.ts` と `backend/src/__tests__/unit/services/estimate-request-status.service.test.ts`）に、作成（内訳書ありと内訳書なし）・更新・論理削除・項目の選択の保存・ステータスの変更で `createLog` の第 2 引数が `$transaction` のコールバックへ渡された `tx` と同じオブジェクトであることを `toBe` で足す
+  - 統合（`backend/src/__tests__/integration/estimate-request.api.integration.test.ts`）に、二つのサービスを直接組み立て、本物の `AuditLogService` の `createLog(input, tx)` を呼んでから例外を投げる包みを依存に注入して、五つの操作のそれぞれで見積依頼・項目の選択・ステータスとその履歴が変わらず、その操作の監査ログが対象の `targetId` で 0 件であることを主張する。対照として、包まない本物の `AuditLogService` で五つの操作が確定し、その操作の監査ログが 1 件残ることを主張する。`@requirement estimate-request/REQ-8.6` の印を置き、印を足したら `check:design-measurement-freshness` を名指しで流す
+  - E2E は新しく置かない（巻き戻しは画面からもテストの経路の差し替えからも起こせない。design.md の同章の Testing Strategy）。見積依頼の既存の E2E（`e2e/specs/estimate-requests/` の全件）を流し、回帰が無いことを確かめる。frontend は変えないため、テスト環境の frontend の作り直しは要らない
+  - E2E を置かないため、E2E の除外の台帳（`e2e/requirement-exclusions.json`）に 8.6 を一件足し（`category` は `data-integrity`）、代替検証に上の統合テストを名指す。足した後に `check:req-coverage` を名指しで流し、8.6 が被覆か除外として数えられ緑になることを確かめる。台帳の件数の宣言が動けば帰属つきで追随させる
+  - 挙動の変更であるため RED → GREEN で進め、追加した単体と統合が改修の前に赤になる（単体は第 2 引数が `undefined`、統合は監査ログが 1 件残る）ことを先に示す
+  - 単体・統合で、巻き戻った五つの操作の監査ログが残らず、確定した操作の監査ログが従来どおり 1 件記録される状態になる
+  - _Requirements: 8.6_
+  - _Boundary: EstimateRequestService の create・update・delete・updateItemSelection と EstimateRequestStatusService の transitionStatus の 5 か所の createLog の呼び出しと二つのサービスの局所の型の別名、その記録を主張する本スペックのテスト（estimate-request.service.test.ts・estimate-request-status.service.test.ts・estimate-request.api.integration.test.ts）と、E2E の除外の台帳の 8.6 の一件_

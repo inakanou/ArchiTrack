@@ -6980,6 +6980,8 @@ mailDisabledReason: {
 - mail-launcher のタブの操作（`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）の契約。本追加は戻り値と例外を読むだけで変えない
 - 「メールで開く」（mailto）の失敗の表示。mailto へのページの遷移は例外になる経路がほぼ無く、利用者の判断の範囲は「Gmailで開く」である。同じ形の穴（記録の後の `GENERATION_FAILED` で何も表示しない）は残り、必要なら別に起票する。加えて、メールソフトを開けなかったこと（既定のメールソフトが無い、利用者が起動を断った等）は画面から検知できない。mailto はブラウザが外部のメールソフトへ渡し、開けたかどうかを画面へ返さないためである（追記 2026-10-31、機能検証の指摘）
 - 記録の失敗の表示（42.16）、コピーの記録（42.13・42.14）
+- 先送り（利用者の判断（2026-11-01、推奨案で進める））: 「メールで開く」（mailto）でメールソフトを開けなかったこと（既定のメールソフトが無い、利用者が起動を断った等）の検知は行わない。ブラウザが mailto を外部のメールソフトへ渡し、開けたかどうかの結果を画面へ返さないため検知できず、制約として受け入れる（上の「メールで開く」の失敗の表示の項の後半）
+- 先送り（利用者の判断（2026-11-01、推奨案で進める））: WebKit（Safari）でポップアップが止められたときに 42.17 の文言が出ることの実ブラウザの確認は、Safari を対応ブラウザに入れると決めたときに確かめる。Playwright の WebKit はポップアップを止めず Safari の「ポップアップウインドウをブロック」の設定を再現できない（下の Testing Strategy の「実施の記録（タスク108.1、2026-10-31）」の WebKit の項）。止められたときの分岐（`window.open` が null）は単体と E2E が主張する
 
 #### Allowed Dependencies
 - `EstimateRequestTextPanel` → `runRecordedExport`・mail-launcher（既存の依存。新しい依存は足さない）
@@ -7042,3 +7044,80 @@ mailDisabledReason: {
   - E2E の 42.18 は、`page.addInitScript` で `window.open` を包み、実際に開いたタブを使いつつ、返すタブの `document` の読み出しだけを例外（`SecurityError`）にして再現した（閉じる操作は実際のタブへ渡し、タブが閉じたことを `popup.isClosed()` で主張する）。先に、記録の要求中に開いたタブを Playwright で別のオリジンの文書へ移す形を試したところ、42.18 の文言は表示されたが、タブは閉じなかった。利用者の操作で別のオリジンへ移ったタブは、元の画面のスクリプトから閉じられない（ブラウザの制約。mail-launcher の `closeMailTab` は従来どおり例外を握り、そのタブは利用者が閉じる）。この場合も文言は出るため利用者は失敗を知る
   - 実ブラウザの確認（Chromium）: 本番ビルドの画面（テスト環境の frontend）で、Playwright の既定の `--disable-popup-blocking` を外した新しい headless の Chromium を使い、利用者の操作の扱いが切れた後（6 秒後）のクリックで「Gmailで開く」を押した。ポップアップブロッカーが `window.open` を止めて null を返し、記録の要求が出ず、42.17 の文言がパネルの alert に表示された（一時的な spec で確かめ、spec は残していない）。サイト単位のポップアップの拒否の設定（`popups: 2`）は利用者のクリックによる `window.open` を止めなかった（実測）
   - 実ブラウザの確認（WebKit）: 確かめられなかった。Playwright の WebKit はポップアップを止めない（実測: 利用者の操作の無い `window.open` もタブを返す）ため、Safari の「ポップアップウインドウをブロック」の設定を再現できない。WebKit でも止められたときの `window.open` の戻り値は null であり、その分岐は単体と E2E（null を返す差し替え）が主張する
+
+## 2026-11-01 の追加: 見積依頼の作成・更新・論理削除・項目の選択・ステータスの変更の監査ログをトランザクションの中で書く（Requirement 8.6）
+
+### Overview
+
+**Purpose**: 利用者の判断（2026-11-01「推奨案で進めて下さい」。親の推奨「同じ spec の同じ欠陥はまとめて直す。各 1 行で、記録を同じトランザクションの中で書く」）で、見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更の監査ログを、見積依頼の変更と同じトランザクションの中で書く。処理が確定しなかった（巻き戻った）操作の監査ログを残さず、確定した操作だけを従来どおり記録する（8.6）。estimate-creation の Requirement 11.8（タスク70.1、`750843e5`）と同じ直し方である。
+
+**Impact（既存前提の是正。2026-11-01 の調べもの〔読むだけ。HEAD `cda7b00a`〕）**:
+
+1. `EstimateRequestService` の作成（`create`。種別 `ESTIMATE_REQUEST_CREATED`）・更新（`update`。`ESTIMATE_REQUEST_UPDATED`）・論理削除（`delete`。`ESTIMATE_REQUEST_DELETED`）・項目の選択の保存（`updateItemSelection`。`ESTIMATE_REQUEST_ITEMS_UPDATED`）は、いずれも `prisma.$transaction` のコールバックの中で `this.auditLogService.createLog({...})` を第 2 引数（トランザクションのクライアント）を渡さずに呼ぶ。所在は次のファイル
+   backend/src/services/estimate-request.service.ts
+2. `EstimateRequestStatusService` のステータスの変更（`transitionStatus`。種別 `ESTIMATE_REQUEST_STATUS_CHANGED`）も同じ形である。同じコールバックの中のステータスの変更の履歴（`tx.estimateRequestStatusHistory.create`、Requirement 12.11）は `tx` で書いており、監査ログだけがトランザクションの外にある。所在は次のファイル
+   backend/src/services/estimate-request-status.service.ts
+3. `AuditLogService` の `createLog(input, tx?)` は、`tx` を受けるとその `tx` で実行者の写しを読み（`snapshotAuditActor`）監査ログの行を書き、`tx` が無いとトランザクションの外の接続で読み書きする。記録の後の副作用は持たない。型（`IAuditLogService`）も `tx` を任意で受ける形で、呼び出し側の型の変更は要らない（estimate-creation の design.md の同じ追加の章の Impact の 2）
+4. そのため、記録の後にトランザクションが巻き戻ると（Prisma の既定の制限時間 5 秒の超過、確定の時の失敗など）、見積依頼・項目の選択・ステータスは変わらないのに監査ログだけが残る。逆向き（記録の失敗）は、`createLog` の例外がコールバックから投げられてトランザクションが巻き戻るため、従来から見積依頼の変更も残らない
+5. 型の申し送り: 二つのサービスはそれぞれ局所の型 `PrismaTransactionClient` を `PrismaClient` から接続の操作を除いた形（`Omit`）で持ち、コールバックの引数の注記に使う（どちらもファイルの冒頭の型の宣言）。estimate-creation のタスク70.1 では同じ形の局所の型が `createLog` の受ける `Prisma.TransactionClient` へ代入できなかった（同 spec の design.md の同章の「実装（タスク70.1、2026-11-01）」）。本追加でも同じになる見込みが高い
+
+### 受入基準の置き場所の判断
+
+- 8.6 は Requirement 8（見積依頼データ管理）の続きの番号とした。本機能の requirements.md に見積依頼の操作の監査ログを定める受入基準は無い（Requirement 42 の記録は出力の記録と閲覧範囲外の記録である）。記録の対象の五つの操作は Requirement 3・4・9・12 に分かれるが、どれも見積依頼のデータの追跡性の定めであり、Requirement 8 の目的（データの整合性と追跡性）に最も近い
+- 五つの操作を一つの条文にまとめた。どれも同じ形の同じ変更（`createLog` に `tx` を渡す）で決まり、同じテストの対照（確定した場合の 1 件）と本体（巻き戻した場合の 0 件）で被覆するため、被覆の印とタスクを分けない
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更の監査ログを、見積依頼の変更と同じトランザクションの中で書くこと（8.6）
+
+#### Out of Boundary
+- 監査ログの記録の内容（操作の種別・対象・変更の前後）と記録の部品（`AuditLogService`。user-authentication の要件40 の所管）。`createLog` は変えない
+- 五つの操作の応答、トランザクションの制限時間（いずれも Prisma の既定のまま）、書き込みの順序と方式、ステータスの変更の履歴（12.11）
+- 閲覧範囲外の記録（`PROJECT_SCOPE_DENIED`）と出力の記録（Requirement 42）。user-authentication の要件39.7・40.9 の定めどおりトランザクションの外で書く記録であり、`$transaction` のコールバックの中で書くものではないため、欠陥の型が違い本追加の対象にしない
+- 受領見積書のサービス（`ReceivedQuotationService` の `create`・`update`・`delete`）。`$transaction` を使うが `createLog` を呼ばず、監査ログを書かない（2026-11-01 に読んだ範囲）。巻き戻りで監査ログだけが残る形ではなく本追加の対象にしない。受領見積書の操作を監査ログに記録するかは別の判断であり、必要なら別に起票する。所在は次のファイル
+  backend/src/services/received-quotation.service.ts
+- 見積依頼文のサービス（`EstimateRequestTextService`）。読み出しだけで、トランザクションも監査ログも持たない
+- 本機能の外の同じ形（他の業務のサービスの `$transaction` の中の `createLog`）。本機能の所管ではなく調べ尽くしていない
+
+#### Allowed Dependencies
+- 見積依頼のサービスとステータスのサービス → 監査ログのサービスの `createLog` の第 2 引数（トランザクションのクライアント。既存の型が受ける形）
+
+### 決定
+
+**記録をトランザクションの中で書く（8.6）**:
+
+- 直し方: 上の Impact の 1・2 の五か所の `this.auditLogService.createLog({...})` の第 2 引数に、それぞれの `$transaction` のコールバックが受けるトランザクションのクライアント（`tx`）を渡す。各 1 行の変更で、記録の入力（`action`・`actorId`・`targetType`・`targetId`・`before`・`after`）は変えない
+- 型の別名: 二つのサービスの局所の型 `PrismaTransactionClient` を `Prisma.TransactionClient` の別名にそろえる（型だけの変更で、キャストは使わない）。`Omit` の形のまま `as` で通す案は、型の食い違いを隠すため採らない。使う所はコールバックの引数の注記だけで、振る舞いは変わらない（estimate-creation のタスク70.1 と同じ形）
+- 効果: 監査ログの行と実行者の写しの読み出しが見積依頼の変更と同じトランザクションに入る。トランザクションが確定すれば監査ログも 1 件確定し、巻き戻れば監査ログも書かれない。記録の失敗で見積依頼の変更も巻き戻る振る舞いは従来どおりである
+- 副作用の扱い: `createLog` は記録の後の副作用を持たないため、トランザクションの中へ入れて確定の前に外へ漏れるものは無い。実行者の写しの読み出しも同じ `tx` で行う
+- 記録の時点: 五か所とも記録はコールバックの最後（変更の後、結果を返す前）のまま変えない。記録の分だけトランザクションの所要が延びるが、行 1 件の作成と写しの読み出し 1 回であり、既定の制限時間 5 秒に対して無視できる
+- 実装の記録: 実装時に、変えた五か所、型の別名の扱い、テストの結果を本節へ記す（タスク109.1）
+
+**採らなかった案**: 記録を確定の後にトランザクションの外で書く——確定の後に記録が失敗すると起きた操作の記録が残らず、user-authentication の要件40 の監査の完全さを損なうため採らない。ステータスの変更を別のタスクに分ける——同じ spec の同じ形の欠陥で、同じテストの形で被覆でき、分けると片方だけ直った状態が生じるため採らない。受領見積書のサービスを併せて扱う——監査ログを書いておらず欠陥の型が違うため採らない（Out of Boundary）
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 8.6 | 見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更が巻き戻ったら監査ログを残さず、確定したら従来どおり 1 件記録する | EstimateRequestService の create・update・delete・updateItemSelection, EstimateRequestStatusService の transitionStatus, AuditLogService の createLog | `POST /api/projects/:projectId/estimate-requests`, `PUT /api/estimate-requests/:id`, `DELETE /api/estimate-requests/:id`, `PATCH /api/estimate-requests/:id/items`, `PATCH /api/estimate-requests/:id/status` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 監査ログの記録の後に五つの操作のトランザクションが巻き戻る（制限時間の超過、確定の時の失敗） | 見積依頼・項目の選択・ステータス・ステータスの変更の履歴も監査ログも残らない。応答は従来どおり（P2028 はエラーハンドラーの 500 など） | 8.6 |
+| 五つの操作が確定する | 従来どおり監査ログを 1 件記録する（内容は変えない） | 8.6 |
+| 監査ログの記録が失敗する | 従来どおりトランザクションが巻き戻り、見積依頼の変更も残らない | 8.6 |
+
+### Testing Strategy
+
+- **単体（backend）**: 見積依頼のサービスの単体に、作成（内訳書ありと内訳書なし）・更新・論理削除・項目の選択の保存で、ステータスのサービスの単体に、ステータスの変更で、`createLog` が第 2 引数に `$transaction` のコールバックへ渡されたトランザクションのクライアントと同じオブジェクトを受けることを足す（モックの `$transaction` が渡す `tx` を捕まえて `toBe` で比べる）。改修の前は第 2 引数が `undefined` で赤になることを先に示す。所在は次のファイル
+  backend/src/__tests__/unit/services/estimate-request.service.test.ts
+  backend/src/__tests__/unit/services/estimate-request-status.service.test.ts
+- **統合（backend）**: 実際の DB で、記録の後に巻き戻す状況を作る。二つのサービスを統合テストの中で直接組み立て、依存の監査ログのサービスに、本物の `AuditLogService` の `createLog(input, tx)` を呼んでから例外を投げる包みを注入する。五つの操作のそれぞれで、操作が例外で終わり、見積依頼が作られず・名前が変わらず・論理削除されず・項目の選択が変わらず・ステータスとその変更の履歴が変わらず、その操作の種別の監査ログが対象の `targetId` で 0 件であることを主張する（作成の巻き戻しは包みが受けた `targetId` で数える）。改修の前は包みが受ける `tx` が `undefined` のため本物の `createLog` がトランザクションの外で書き、監査ログが 1 件残って赤になることを先に示す。対照として、包まない本物の `AuditLogService` で同じ五つの操作が確定し、その操作の監査ログが 1 件残ることを主張する。`@requirement estimate-request/REQ-8.6` の被覆の印を置き、印を足したら `check:design-measurement-freshness` を名指しで流す。置き場所は既存の見積依頼の API の統合テストのファイル（経路はモジュールの読み込み時にサービスを組み立てるため依存を差し替えられず、サービスを直接組み立てる `describe` を足す）。所在は次のファイル
+  backend/src/__tests__/integration/estimate-request.api.integration.test.ts
+- **E2E**: 新しい E2E は置かない。巻き戻し（記録の後の制限時間の超過や確定の時の失敗）は画面からもテストの経路の差し替えからも起こせず、確定した場合の振る舞い（応答と監査ログ 1 件）は変えないためである。見積依頼の既存の E2E（e2e/specs/estimate-requests/ の全件）を流し、作成・更新・論理削除・項目の選択・ステータスの変更と閲覧範囲・出力の記録に回帰の起きないことを確かめる。backend の変更だけで frontend は変えないため、テスト環境の frontend の作り直しは要らない
+- **E2E の被覆の対象からの除外**: 要件の被覆の関門（`check:req-coverage`）は 8.6 を E2E の適用対象として数え、E2E の印が無いと赤にする。E2E を置かないため、実装で E2E の除外の台帳に 8.6 を一件足す（`category` は `data-integrity`、`alternativeVerification` の `method` は `integration-test` で、上の統合テストのファイルと `@requirement estimate-request/REQ-8.6` を名指す。`criterionText` は条文の逐語）。台帳の件数を宣言する関門があれば宣言を追随させる（estimate-creation のタスク70.1 では `requirement-exclusions-total` が 129 から 130 へ動いた）。所在は次のファイル
+  e2e/requirement-exclusions.json
+- 挙動の変更であるため RED → GREEN で進め、追加した単体と統合が改修の前に赤になることを先に示す
