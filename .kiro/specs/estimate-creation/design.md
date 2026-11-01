@@ -5328,7 +5328,7 @@ model EstimateEditSession {
 - 監査ログの記録の内容（操作の種別・対象・変更の前後）と記録の部品（`AuditLogService`。user-authentication の要件40 の所管）。`createLog` は変えない
 - 作成・更新・論理削除の応答、トランザクションの制限時間（作成は 69.3 の 15 秒のまま、更新と論理削除は既定のまま）、書き込みの順序と方式
 - 作成の閲覧範囲外の記録（`withSurveyScopeDenialRecording` の `PROJECT_SCOPE_DENIED`）。user-authentication の要件39.7 の定めどおり、処理の後にトランザクションの外で書く記録であり、本追加の対象にしない
-- 同じ形（`$transaction` のコールバックの中で `createLog` に `tx` を渡さない）は本機能の外にもある。2026-11-01 に読んだ範囲では、受領見積書のサービスの `create`・`update`・`delete`・`updateItemSelection` の 4 か所（`ESTIMATE_REQUEST_CREATED`・`ESTIMATE_REQUEST_UPDATED`・`ESTIMATE_REQUEST_DELETED`・`ESTIMATE_REQUEST_ITEMS_UPDATED`）が同じ形である。これらは別に扱い、本追加では変えない（他のサービスは調べ尽くしていない）。所在は次のファイル
+- 同じ形（`$transaction` のコールバックの中で `createLog` に `tx` を渡さない）は本機能の外にもある。2026-11-01 に読んだ範囲では、見積依頼のサービスの `create`・`update`・`delete`・`updateItemSelection` の 4 か所（`ESTIMATE_REQUEST_CREATED`・`ESTIMATE_REQUEST_UPDATED`・`ESTIMATE_REQUEST_DELETED`・`ESTIMATE_REQUEST_ITEMS_UPDATED`）が同じ形である。これらは別に扱い、本追加では変えない（他のサービスは調べ尽くしていない）。所在は次のファイル
   backend/src/services/estimate-request.service.ts
 
 #### Allowed Dependencies
@@ -5348,7 +5348,7 @@ model EstimateEditSession {
   - 統合: 見積書の API の統合テストのファイルの `describe` 「見積書の監査ログとトランザクション（Requirement 11.8）」に、巻き戻しの 3 件と確定の対照 1 件を置いた。監査ログは対象の `targetId` と操作の種別で数える（作成の巻き戻しは包みが受けた `targetId`）。改修の前は巻き戻しの 3 件とも監査ログが 1 件残って `expected 1 to be +0` で赤になり、見積書の作成・名前・論理削除の主張は通っていた（巻き戻し自体は従来から起きていて、残っていたのは監査ログだけであることの確認）。改修の後は 4 件とも緑
   - E2E は置かず、E2E の除外の台帳に 11.8 を一件足した（`category` は `data-integrity`、`method` は `integration-test`）
 
-**採らなかった案**: 記録を確定の後にトランザクションの外で書く——確定の後に記録が失敗すると起きた操作の記録が残らず、user-authentication の要件40 の監査の完全さを損なうため採らない。受領見積書のサービスなど同じ形の他の箇所を本追加で併せて直す——利用者に示した範囲が見積書の 3 つだけであり、各サービスのテストと所管の spec が別であるため、本追加では扱わない
+**採らなかった案**: 記録を確定の後にトランザクションの外で書く——確定の後に記録が失敗すると起きた操作の記録が残らず、user-authentication の要件40 の監査の完全さを損なうため採らない。見積依頼のサービスなど同じ形の他の箇所を本追加で併せて直す——利用者に示した範囲が見積書の 3 つだけであり、各サービスのテストと所管の spec が別であるため、本追加では扱わない
 
 ### Requirements Traceability
 
