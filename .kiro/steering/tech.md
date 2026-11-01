@@ -163,7 +163,7 @@ ArchiTrack/
 - **対象**: Chrome・Firefox・Safari・Edge の各最新版
 - **出典**: 利用者の判断（2026-11-01、推奨案で進める）。estimate-request の design.md の受領見積書のプレビューの縦幅の変更の節の Compatibility の記述（「サポート対象（Chrome/Firefox/Safari/Edge 最新）」）を、機能ごとの記述から全体の定めへ引き上げた。各機能の文書が Safari を対象として扱っている記述（itemized-statement-generation のクリップボードへのコピーの Safari の制約への対応、site-survey の localStorage のエラーの検出のクロスブラウザ対応）とも揃う
 - **自動テストの範囲**: E2E の自動化は Chromium だけである（`playwright.config.ts` の `projects` は `chromium` の一つ）。Playwright の WebKit は Safari の利用者の操作の制約（ポップアップの遮断など）を再現しない（estimate-request の design.md の Gmail で開く操作の失敗の表示の章の「実施の記録（タスク108.1）」の WebKit の項）。そのため Safari 固有の挙動は実機の Safari で確かめる。WSL の開発環境には Safari が無く、実機の確認は利用者が行う
-- **スマートフォン**: スマートフォンのブラウザ（iOS の Safari など）を対象に含めるかは本節では定めていない（既存の文書に記述が無い）。狭い幅の表示の規約は次の「レスポンシブ・ビューポート方針」による
+- **スマートフォン**: iOS の Safari・Android の Chrome の各最新版も対象に含める（利用者の判断、2026-11-02、推奨案で進める）。現場調査などを実機のスマートフォンで使う前提で、スマートフォン表示の是正を重ねてきたことによる。狭い幅の表示の規約は次の「レスポンシブ・ビューポート方針」による。E2E は Chromium の狭い幅で表示を確かめ、iOS の Safari 固有の挙動は実機で確かめる
 
 ### レスポンシブ・ビューポート方針
 
