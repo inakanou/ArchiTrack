@@ -213,6 +213,12 @@ test.describe('現場調査の出力の事前記録（一括 ZIP・注釈付き�
     await expect(page.getByTestId('annotation-toolbar')).toBeVisible({
       timeout: getTimeout(15000),
     });
+    // 編集モードへの切り替えは描画面を作り直し、画像と注釈を読み直す（読み込み中の表示は
+    // 注釈の取得を終えるまで出る）。読み直しの注釈の取得が観測の始まりより後に届くと、
+    // 出力の生成の始まりと数えてしまうため、読み込み中の表示が消えてから観測を始める。
+    await expect(
+      page.getByTestId('annotation-editor-container').getByRole('status', { name: '読み込み中' })
+    ).toHaveCount(0, { timeout: getTimeout(15000) });
     await page.waitForLoadState('networkidle');
 
     const observed = observeExport(page);
