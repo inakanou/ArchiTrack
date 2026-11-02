@@ -455,13 +455,14 @@ describe('QuantityTableEditPage', () => {
         await waitFor(() => {
           expect(screen.getByAltText('photo1.jpg')).toBeInTheDocument();
         });
-        act(() => {
-          triggerAllIntersections(true);
-        });
-
         // 表題部は縮小表示のため、原寸画像ではなくサムネイルを使用する
         // （数量グループ数に比例した原寸画像のダウンロードを避ける）
+        // 発火は待機の各回で行う。高負荷の実行では発火の後に観測が張り直されることがあり、
+        // 一度だけの発火では新しい観測に届かず表示元が設定されないため
         await waitFor(() => {
+          act(() => {
+            triggerAllIntersections(true);
+          });
           const thumbnail = screen.getByAltText('photo1.jpg');
           expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
         });
