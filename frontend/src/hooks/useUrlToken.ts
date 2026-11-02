@@ -71,6 +71,12 @@ export function useUrlToken(): string {
   const [token, setToken] = useState(() => readUrlToken(location.search, location.hash) ?? '');
 
   useEffect(() => {
+    // 描画で読んだ後・この副作用の前にフラグメントが変わった（認証の初期化を待って遅れて描画された画面へ
+    // 同じタブでリンクを開いた）ときは hashchange を受け取れないため、取り除く前にブラウザの URL から読む
+    const current = readUrlToken(window.location.search, window.location.hash);
+    if (current) {
+      setToken(current);
+    }
     removeUrlToken();
 
     const handleHashChange = () => {

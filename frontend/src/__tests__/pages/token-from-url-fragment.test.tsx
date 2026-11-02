@@ -10,14 +10,14 @@
  */
 
 import { StrictMode, type ReactNode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter, Routes, Route } from 'react-router-dom';
 import { RegisterPage } from '../../pages/RegisterPage';
 import { PasswordResetPage } from '../../pages/PasswordResetPage';
 import { AuthContext, type AuthContextValue } from '../../contexts/AuthContext';
-import { readUrlToken } from '../../hooks/useUrlToken';
+import { readUrlToken, useUrlToken } from '../../hooks/useUrlToken';
 
 vi.mock('../../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/client')>();
@@ -30,7 +30,7 @@ vi.mock('../../api/client', async (importOriginal) => {
   };
 });
 
-import { apiClient } from '../../api/client';
+import { apiClient, ApiError } from '../../api/client';
 
 const INVITATION_VERIFY_PATH = '/api/v1/invitations/verify';
 const RESET_VERIFY_PATH = '/api/v1/auth/password/verify-reset';
@@ -113,6 +113,30 @@ describe('登録とリセットの画面のトークンの受け取り（要件3
       expect(readUrlToken('?token=query', '#token=frag')).toBe('frag');
       expect(readUrlToken('?other=1', '#section')).toBeNull();
       expect(readUrlToken('', '')).toBeNull();
+    });
+  });
+
+  describe('useUrlToken', () => {
+    /**
+     * 描画で URL を読んだ後、副作用の登録の前にフラグメントが変わった（認証の初期化を待って遅れて
+     * 描画された画面へ同じタブでリンクを開いた）ときも、URL から取り除く前にトークンを読む。
+     * ルーターの位置（描画で読んだ値）にはトークンが無く、ブラウザの URL にだけトークンがある状態で再現する
+     *
+     * @requirement user-authentication/REQ-37.3
+     */
+    it('描画の後・副作用の前にフラグメントへ置かれたトークンも、取り除く前に読む', async () => {
+      window.history.replaceState(null, '', '/password-reset#token=late-arrival-token');
+
+      const { result } = renderHook(() => useUrlToken(), {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <MemoryRouter initialEntries={['/password-reset']}>{children}</MemoryRouter>
+        ),
+      });
+
+      await waitFor(() => {
+        expect(result.current).toBe('late-arrival-token');
+      });
+      expect(window.location.href).not.toContain('late-arrival-token');
     });
   });
 
@@ -212,6 +236,48 @@ describe('登録とリセットの画面のトークンの受け取り（要件3
       expect(window.location.href).not.toContain('same-tab-reset-token');
       expect(
         await screen.findByRole('heading', { name: /^パスワードリセット$/ })
+      ).toBeInTheDocument();
+    });
+
+    /**
+     * 画面を開いたまま別のリセットのリンクを開いたとき、前のトークンの検証の応答が後から届いても
+     * 新しいトークンの検証の結果を上書きしない
+     *
+     * @requirement user-authentication/REQ-37.3
+     */
+    it('前のトークンの検証の応答が遅れて届いても、新しいトークンの結果を上書きしない', async () => {
+      let resolveOld: (value: unknown) => void = () => {};
+      vi.mocked(apiClient.post).mockImplementation(async (path: string, body?: unknown) => {
+        const token = (body as { token?: string } | undefined)?.token;
+        if (path === RESET_VERIFY_PATH && token === 'old-valid-reset-token') {
+          return new Promise((resolve) => {
+            resolveOld = resolve;
+          });
+        }
+        if (path === RESET_VERIFY_PATH) {
+          throw new ApiError(400, 'invalid', { code: 'INVALID_RESET_TOKEN' });
+        }
+        return {};
+      });
+
+      renderAt('/password-reset#token=old-valid-reset-token', <PasswordResetPage />);
+      await waitFor(() => {
+        expect(verifiedBodies(RESET_VERIFY_PATH)).toContainEqual({
+          token: 'old-valid-reset-token',
+        });
+      });
+
+      window.location.hash = '#token=new-invalid-reset-token';
+      expect(
+        await screen.findByText('無効なリセットリンクです。再度リセットを要求してください。')
+      ).toBeInTheDocument();
+
+      resolveOld({ valid: true });
+
+      // 遅れて届いた前の応答で入力できるフォームへ切り替わらない
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(
+        screen.getByText('無効なリセットリンクです。再度リセットを要求してください。')
       ).toBeInTheDocument();
     });
 

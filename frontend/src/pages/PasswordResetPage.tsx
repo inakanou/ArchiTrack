@@ -30,6 +30,8 @@ export function PasswordResetPage() {
 
   // トークン検証（ページロード時）
   useEffect(() => {
+    // トークンが変わった後に前のトークンの検証の応答が届いても、新しい結果を上書きしない
+    let cancelled = false;
     const validateToken = async () => {
       if (!resetToken) {
         setIsTokenValid(true); // トークンがない場合はリセット要求モード
@@ -40,9 +42,15 @@ export function PasswordResetPage() {
       try {
         // トークン検証API呼び出し（トークンは URL に載せず本文で送る。要件37.3）
         await apiClient.post('/api/v1/auth/password/verify-reset', { token: resetToken });
+        if (cancelled) {
+          return;
+        }
         setIsTokenValid(true);
         setTokenError('');
       } catch (error) {
+        if (cancelled) {
+          return;
+        }
         setIsTokenValid(false);
         // エラーコードに基づいてメッセージを設定
         if (error instanceof ApiError) {
@@ -63,11 +71,16 @@ export function PasswordResetPage() {
           setTokenError('リセットリンクの検証に失敗しました。再度リセットを要求してください。');
         }
       } finally {
-        setIsValidating(false);
+        if (!cancelled) {
+          setIsValidating(false);
+        }
       }
     };
 
     validateToken();
+    return () => {
+      cancelled = true;
+    };
   }, [resetToken]);
 
   /**

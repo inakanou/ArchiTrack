@@ -14,6 +14,50 @@ describe('RegisterForm', () => {
   });
 
   describe('招待トークン検証', () => {
+    /**
+     * 画面を開いたまま別の招待リンクを開いたとき、前のトークンの検証の応答が後から届いても
+     * 新しいトークンの検証の結果を上書きしない
+     *
+     * @requirement user-authentication/REQ-2.2
+     */
+    it('前のトークンの検証の応答が遅れて届いても、新しいトークンの結果を上書きしないこと', async () => {
+      let resolveOld: (value: InvitationVerificationResult) => void = () => {};
+      mockOnVerifyInvitation.mockImplementation((token: string) => {
+        if (token === 'old-valid-token') {
+          return new Promise<InvitationVerificationResult>((resolve) => {
+            resolveOld = resolve;
+          });
+        }
+        return Promise.resolve({
+          valid: false,
+          error: '招待トークンが無効です',
+        } as InvitationVerificationResult);
+      });
+
+      const { rerender } = render(
+        <RegisterForm
+          invitationToken="old-valid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+      rerender(
+        <RegisterForm
+          invitationToken="new-invalid-token"
+          onRegister={mockOnRegister}
+          onVerifyInvitation={mockOnVerifyInvitation}
+        />
+      );
+      expect(await screen.findByText('招待トークンが無効です')).toBeInTheDocument();
+
+      resolveOld({ valid: true, email: 'stale@example.com' } as InvitationVerificationResult);
+
+      // 遅れて届いた前の応答で登録フォームへ切り替わらない
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(screen.getByText('招待トークンが無効です')).toBeInTheDocument();
+      expect(screen.queryByDisplayValue('stale@example.com')).not.toBeInTheDocument();
+    });
+
     it('有効な招待トークンの場合、メールアドレスと登録フォームが表示されること', async () => {
       mockOnVerifyInvitation.mockResolvedValue({
         valid: true,
