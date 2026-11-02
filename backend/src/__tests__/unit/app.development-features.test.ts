@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 
+/** 試験専用の 2 要素認証の暗号化鍵（環境変数の検証が必須とする。開発者の .env に頼らない） */
+const TEST_ONLY_TWO_FACTOR_KEY = '1a2b3c4d5e6f70811a2b3c4d5e6f70811a2b3c4d5e6f70811a2b3c4d5e6f7081';
+
 /**
  * 実際の app の組み立てで、開発用の機能（API ドキュメント `/docs`）が
  * 実行環境の明示（NODE_ENV が development / test）のときだけ有効になることを確かめる
@@ -47,6 +50,7 @@ describe('app の開発用の機能（API ドキュメント）', () => {
     // 本番の検証は DATABASE_URL と REDIS_URL を求める（接続はモックする）
     process.env.DATABASE_URL ??= 'postgresql://test:test@localhost:5432/test';
     process.env.REDIS_URL ??= 'redis://localhost:6379';
+    process.env.TWO_FACTOR_ENCRYPTION_KEY = TEST_ONLY_TWO_FACTOR_KEY;
     const { default: app } = await import('../../app.js');
     return app;
   }

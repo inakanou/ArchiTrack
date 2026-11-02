@@ -3,6 +3,9 @@ import request from 'supertest';
 import type { Express } from 'express';
 import { AUTH_RATE_LIMITS } from '../../middleware/rateLimit.middleware.js';
 
+/** 試験専用の 2 要素認証の暗号化鍵（環境変数の検証が必須とする。開発者の .env に頼らない） */
+const TEST_ONLY_TWO_FACTOR_KEY = '1a2b3c4d5e6f70811a2b3c4d5e6f70811a2b3c4d5e6f70811a2b3c4d5e6f7081';
+
 /**
  * 実際の app の組み立てに認証系の専用の制限が掛かることを確かめる
  * （user-authentication タスク48.1、design.md の RateLimitPolicy）。
@@ -86,6 +89,7 @@ describe('app の認証系の専用の制限', () => {
     // 本番の検証は DATABASE_URL と REDIS_URL を求める（接続はモックする）
     process.env.DATABASE_URL ??= 'postgresql://test:test@localhost:5432/test';
     process.env.REDIS_URL ??= 'redis://localhost:6379';
+    process.env.TWO_FACTOR_ENCRYPTION_KEY = TEST_ONLY_TWO_FACTOR_KEY;
     const { default: app } = await import('../../app.js');
     return app;
   }

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 
+/** 試験専用の 2 要素認証の暗号化鍵（環境変数の検証が必須とする。開発者の .env に頼らない） */
+const TEST_ONLY_TWO_FACTOR_KEY = '1a2b3c4d5e6f70811a2b3c4d5e6f70811a2b3c4d5e6f70811a2b3c4d5e6f7081';
+
 /**
  * 起動の入口（src/index.ts）が定期処理の実行基盤を待ち受けの開始の後に始め、
  * graceful shutdown で止めることを確かめる（user-authentication タスク44.9）。
@@ -79,6 +82,7 @@ describe('起動の入口の定期処理', () => {
     process.env.NODE_ENV = 'development';
     process.env.DATABASE_URL = 'postgresql://dev:dev@localhost:5432/architrack';
     process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.TWO_FACTOR_ENCRYPTION_KEY = TEST_ONLY_TWO_FACTOR_KEY;
   });
 
   afterEach(() => {

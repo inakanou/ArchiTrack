@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 
+/** 試験専用の 2 要素認証の暗号化鍵（環境変数の検証が必須とする。開発者の .env に頼らない） */
+const TEST_ONLY_TWO_FACTOR_KEY = '1a2b3c4d5e6f70811a2b3c4d5e6f70811a2b3c4d5e6f70811a2b3c4d5e6f7081';
+
 /**
  * デプロイ前の環境変数の検査（src/check-env.ts、ci.yml の staging・production の `check:env`）が、
  * 起動と同じ本番の前提の検査を通すことを確かめる（user-authentication タスク44.6）。
@@ -24,6 +27,7 @@ describe('check-env', () => {
     process.env.REDIS_URL = 'redis://redis.internal:6379';
     process.env.TRUST_PROXY_HOPS = '2';
     process.env.ARCHIVE_ENCRYPTION_KEY = TEST_ONLY_ARCHIVE_KEY;
+    process.env.TWO_FACTOR_ENCRYPTION_KEY = TEST_ONLY_TWO_FACTOR_KEY;
   });
 
   afterEach(() => {
