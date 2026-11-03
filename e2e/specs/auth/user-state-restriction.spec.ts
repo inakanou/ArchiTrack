@@ -134,7 +134,7 @@ test.describe('利用者の状態による API の拒否と画面の遷移の制
     });
 
     // 要件34.1: パスワードの検証の後、2FA 設定の画面へ進む
-    await expect(page).toHaveURL(TWO_FACTOR_SETUP_URL, { timeout: getTimeout(15000) });
+    await waitForTwoFactorSetupStarted(page);
     await expect(page.getByRole('heading', { name: '2要素認証の設定' })).toBeVisible();
     await expectRestrictedLayout(page);
 
@@ -149,9 +149,12 @@ test.describe('利用者の状態による API の拒否と画面の遷移の制
     });
 
     // 要件34.3: 他の画面の URL を開いても 2FA 設定の画面へ置き換わる
+    // 各画面の設定の開始（秘密鍵の発行）が終わってから次へ移る。終わる前に移ると、離れた画面の発行が
+    // 後から秘密鍵を上書きし、最後の画面に表示された秘密鍵のコードが検証で拒否される
     for (const path of ['/dashboard', '/profile', '/setup/password', '/trading-partners']) {
       await page.goto(path);
       await expect(page, path).toHaveURL(TWO_FACTOR_SETUP_URL, { timeout: getTimeout(15000) });
+      await waitForTwoFactorSetupStarted(page);
     }
 
     // 要件34.4: 設定を完了すると、置き換えの前に開こうとした画面へ戻る
@@ -180,7 +183,7 @@ test.describe('利用者の状態による API の拒否と画面の遷移の制
 
     await loginAsUser(page, { ...user, twoFactorEnabled: false });
 
-    await expect(page).toHaveURL(TWO_FACTOR_SETUP_URL, { timeout: getTimeout(15000) });
+    await waitForTwoFactorSetupStarted(page);
     await expectRestrictedLayout(page);
     await page.goto('/dashboard');
     await waitForTwoFactorSetupStarted(page);
