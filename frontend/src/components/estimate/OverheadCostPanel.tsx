@@ -16,11 +16,19 @@
  * - REQ-8.1〜8.6: 現場管理費（同様）
  * - REQ-9.1〜9.6: 一般管理費（同様）
  *
+ * Task 64.1 変更: 計算の失敗を捕まえて表示する。404 では見積書が見つからない旨を表示し
+ *   （estimate-creation の Requirement 58.2）、404 以外では計算の失敗の文言を表示する
+ *   （従来は失敗を捕まえず何も表示しなかった）
+ *
  * @module components/estimate/OverheadCostPanel
  */
 
 import { useState, useCallback } from 'react';
 import Decimal from 'decimal.js';
+import { getEstimateNotFoundMessage } from '../../utils/estimateNotFound';
+
+/** 計算の 404 以外の失敗の文言（Task 64.1） */
+const CALCULATION_FAILED_MESSAGE = '諸経費の計算に失敗しました。再度お試しください。';
 
 // ============================================================================
 // 型定義
@@ -179,6 +187,15 @@ const styles = {
     color: '#ef4444',
     fontSize: '12px',
     marginTop: '4px',
+  } as React.CSSProperties,
+  calculationErrorText: {
+    color: '#b91c1c',
+    fontSize: '14px',
+    marginBottom: '16px',
+    padding: '8px 12px',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '6px',
   } as React.CSSProperties,
   resultSection: {
     marginTop: '16px',
@@ -344,6 +361,8 @@ export function OverheadCostPanel({
   const [calculatedAmountError, setCalculatedAmountError] = useState<string | null>(null);
   const [calculationResult, setCalculationResult] = useState<OverheadCostResult | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
+  // 計算の失敗の文言（Task 64.1）
+  const [calculationError, setCalculationError] = useState<string | null>(null);
 
   // 入力ハンドラー
   const handleDirectCostChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -387,6 +406,7 @@ export function OverheadCostPanel({
     if (!onCalculate) return;
 
     setIsCalculating(true);
+    setCalculationError(null);
 
     try {
       const params: CalculateOverheadParams = {
@@ -408,6 +428,11 @@ export function OverheadCostPanel({
         setCalculationResult(result);
         setCalculatedAmount(result.amount);
       }
+    } catch (err) {
+      // 404 は見積書が見つからない旨（範囲外と不在を区別しない）。それ以外は計算の失敗の文言
+      setCalculationError(
+        getEstimateNotFoundMessage(err, 'estimate') ?? CALCULATION_FAILED_MESSAGE
+      );
     } finally {
       setIsCalculating(false);
     }
@@ -574,6 +599,17 @@ export function OverheadCostPanel({
           改修工事（未チェック時は新営工事）
         </label>
       </div>
+
+      {/* 計算の失敗の表示（Task 64.1） */}
+      {calculationError && (
+        <div
+          role="alert"
+          style={styles.calculationErrorText}
+          data-testid="overhead-calculation-error"
+        >
+          {calculationError}
+        </div>
+      )}
 
       {/* 計算結果表示 */}
       {calculationResult && (

@@ -11,6 +11,11 @@
  *
  * Design Reference: design.md - ProgressService API Contract セクション
  *
+ * 案件の閲覧範囲（Requirement 20、user-authentication の要件39。タスク17.1）:
+ * 全経路で requirePermission の後に ID の形式の検査と execution-budget-project-scope.middleware の
+ * 判定部品を置き、範囲外は不在と同じ汎用の 404 にする。経路の出来高記録が経路の案件に属さなければ
+ * 不在と同じ 404、出来高の保存は属さない項目が 1 件でもあれば要求全体を 404 にして書き込まない
+ *
  * Task 4.3: 出来高のルーター実装
  *
  * @module routes/progress
@@ -23,8 +28,19 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  progressItemIdsOf,
+  requireBodyExecutionBudgetItemsInProject,
+  requireExecutionBudgetProjectScope,
+  requireProgressRecordInProject,
+} from '../middleware/execution-budget-project-scope.middleware.js';
 import logger from '../utils/logger.js';
-import { saveProgressSchema, type SaveProgressInput } from '../schemas/execution-budget.schema.js';
+import {
+  executionBudgetProjectParamsSchema,
+  progressRecordParamsSchema,
+  saveProgressSchema,
+  type SaveProgressInput,
+} from '../schemas/execution-budget.schema.js';
 import {
   ProgressRecordNotFoundError,
   ExecutionBudgetNotFoundForProgressError,
@@ -57,6 +73,8 @@ router.get(
   '/monthly',
   authenticate,
   requirePermission('progress:read'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;
@@ -104,6 +122,8 @@ router.get(
   '/monthly/:yearMonth',
   authenticate,
   requirePermission('progress:read'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;
@@ -155,7 +175,10 @@ router.post(
   '/',
   authenticate,
   requirePermission('progress:write'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   validate(saveProgressSchema, 'body'),
+  requireBodyExecutionBudgetItemsInProject(progressItemIdsOf),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;
@@ -215,6 +238,8 @@ router.get(
   '/',
   authenticate,
   requirePermission('progress:read'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;
@@ -254,6 +279,8 @@ router.get(
   '/:date',
   authenticate,
   requirePermission('progress:read'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;
@@ -304,6 +331,9 @@ router.delete(
   '/:progressRecordId',
   authenticate,
   requirePermission('progress:write'),
+  validate(progressRecordParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
+  requireProgressRecordInProject('progressRecordId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const progressRecordId = req.params.progressRecordId as string;

@@ -11,6 +11,7 @@
  * - REQ-1.5: ユーザーが一覧の契約書を選択した場合、選択した契約書の詳細画面に遷移する
  * - REQ-1.6: 一覧画面にパンくずナビゲーションを表示する
  * - REQ-13.5: contract:create権限がない場合、新規作成ボタンを非表示にする
+ * - REQ-11.8: 一覧の取得が 404 を受けたときにプロジェクトが見つからない旨を表示する（Task 21.1）
  *
  * Task 18.4: ページ送り（project-management の PaginationUI）を付け、21 件目以降に到達できるようにする
  *
@@ -21,10 +22,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getContracts } from '../api/contracts';
 import type { ContractsResponse, ContractListItem } from '../api/contracts';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 import PaginationUI from '../components/projects/PaginationUI';
 import type { PaginationInfo } from '../types/project.types';
 import { usePermission } from '../hooks/usePermission';
+import { classifyContractError } from '../utils/contractErrorHandler';
 
 // ============================================================================
 // 定数定義
@@ -321,6 +323,8 @@ export default function ContractListPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 一覧の取得が 404 を受けた（プロジェクトの範囲外と不在を区別しない。REQ-11.8）
+  const [isNotFound, setIsNotFound] = useState(false);
 
   /**
    * 契約書一覧を取得
@@ -331,11 +335,17 @@ export default function ContractListPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsNotFound(false);
 
     try {
       const result = await getContracts(projectId, { page, limit });
       setData(result);
-    } catch {
+    } catch (err) {
+      // 404 はプロジェクトが見つからない旨を表示する（REQ-11.8）。固定の取得の失敗の文言は 404 以外に限る
+      if (classifyContractError(err, { notFoundTarget: 'project' }).type === 'not_found') {
+        setIsNotFound(true);
+        return;
+      }
       setError('契約書の取得に失敗しました');
     } finally {
       setIsLoading(false);
@@ -380,6 +390,19 @@ export default function ContractListPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 見つからない表示（REQ-11.8）。再試行で解けないため再試行の釦を出さない
+  if (isNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

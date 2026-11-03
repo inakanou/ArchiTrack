@@ -94,7 +94,7 @@ describe('estimateAmountLimit', () => {
       expect(countOverflowingAmountLines(tree)).toBe(1);
     });
 
-    it('深い階層の上限超過も数える（深さに上限を設けない）', () => {
+    it('深い階層の上限超過も数える（深さに再帰の上限を作らない）', () => {
       let node = item(['20000000000000']);
       for (let depth = 0; depth < 50; depth++) {
         node = item(['1'], [node]);

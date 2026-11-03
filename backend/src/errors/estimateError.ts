@@ -168,8 +168,9 @@ export class EstimateDraftValidationError extends ApiError {
  * 500 Internal Server Error
  *
  * Prisma のインタラクティブトランザクションが `timeout` または `maxWait` を超えると
- * `P2028` を投げる。これをそのまま流すと `errorHandler` の汎用 Prisma 分岐に落ちて
- * 400「Database operation failed」になり、利用者には「入力が悪いらしい」としか伝わらない。
+ * `P2028` を投げる。これをそのまま流すと `errorHandler` の P2028 の分岐で汎用の
+ * 500「Transaction Timeout」（英文の詳細）になり、明細の件数の上限や見積書が保存前の
+ * 状態のままであることを利用者に伝えられない。
  *
  * design.md「Error Handling / Error Strategy」の「トランザクション途中の失敗 → 500、
  * 全ロールバック」に合わせて 500 とし、メッセージで

@@ -26,6 +26,7 @@ import type {
   SurveyImageMetadata,
 } from '../../../services/export/bulkExportService';
 import type { SurveyImageInfo } from '../../../types/site-survey.types';
+import { apiClient } from '../../../api/client';
 
 // ============================================================================
 // テスト用ヘルパー
@@ -109,7 +110,10 @@ describe('BulkExportDialog', () => {
   const mockOnEmptyTarget = vi.fn();
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
+    // 出力の記録（POST /api/v1/audit-logs/exports）は既定で成功させる
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
   });
 
   // ==========================================================================
@@ -126,6 +130,7 @@ describe('BulkExportDialog', () => {
           open={false}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -146,6 +151,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -170,6 +176,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="selected"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -191,6 +198,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -218,6 +226,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={[]}
           service={service}
@@ -242,6 +251,7 @@ describe('BulkExportDialog', () => {
           open={false}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={[]}
           service={service}
@@ -269,6 +279,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -300,6 +311,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -324,6 +336,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -357,6 +370,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -394,6 +408,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -426,6 +441,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -450,6 +466,7 @@ describe('BulkExportDialog', () => {
           open={true}
           mode="all"
           surveyId="survey-1"
+          projectId="project-1"
           surveyName="現場A"
           images={images}
           service={service}
@@ -471,6 +488,98 @@ describe('BulkExportDialog', () => {
       await waitFor(() => {
         expect(mockOnProgress).toHaveBeenCalledWith(progress);
       });
+    });
+  });
+
+  // ==========================================================================
+  // 出力の記録（タスク119.2、Requirement 39.7, 39.8）
+  // ==========================================================================
+
+  describe('出力の記録 (Requirement 39.7, 39.8)', () => {
+    const renderDialog = (service: BulkExportService, images: SurveyImageMetadata[]) =>
+      render(
+        <BulkExportDialog
+          open={true}
+          mode="selected"
+          surveyId="survey-1"
+          projectId="project-1"
+          surveyName="現場A"
+          images={images}
+          service={service}
+          onClose={mockOnClose}
+          onStart={mockOnStart}
+        />
+      );
+
+    it('開始で出力の記録を種別・案件・対象つきで1回要求してから execute を呼ぶ', async () => {
+      const postSpy = vi.mocked(apiClient.post);
+      const { service, executeFn } = makeServiceSpy();
+      const images: SurveyImageMetadata[] = [makeImage('img-1'), makeImage('img-2')];
+      const user = userEvent.setup();
+
+      renderDialog(service, images);
+      await user.click(screen.getByRole('button', { name: /開始/ }));
+
+      await waitFor(() => {
+        expect(executeFn).toHaveBeenCalledTimes(1);
+      });
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      expect(postSpy).toHaveBeenCalledWith(
+        '/api/v1/audit-logs/exports',
+        {
+          kind: 'site_survey_images_zip',
+          projectId: 'project-1',
+          targetIds: ['img-1', 'img-2'],
+          itemCount: 2,
+        },
+        { disableRetry: true }
+      );
+      // 記録の要求が生成（execute）より先に行われている
+      expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        executeFn.mock.invocationCallOrder[0]!
+      );
+      expect(mockOnStart).toHaveBeenCalledTimes(1);
+      expect(mockOnClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('記録の成功の応答が返るまで execute を呼ばず、開始ボタンを非活性にする', async () => {
+      const recordDeferred = createDeferred<{ recordId: string }>();
+      vi.mocked(apiClient.post).mockReturnValue(recordDeferred.promise);
+      const { service, executeFn } = makeServiceSpy();
+      const user = userEvent.setup();
+
+      renderDialog(service, [makeImage('img-1')]);
+      const startButton = screen.getByRole('button', { name: /開始/ });
+      await user.click(startButton);
+
+      await waitFor(() => {
+        expect(startButton).toBeDisabled();
+      });
+      expect(executeFn).not.toHaveBeenCalled();
+
+      recordDeferred.resolve({ recordId: 'record-1' });
+      await waitFor(() => {
+        expect(executeFn).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('記録の要求が失敗すると execute を呼ばず、ダイアログに留まってエラーメッセージを表示する', async () => {
+      vi.mocked(apiClient.post).mockRejectedValue(new Error('500 Internal Server Error'));
+      const { service, executeFn } = makeServiceSpy();
+      const user = userEvent.setup();
+
+      renderDialog(service, [makeImage('img-1')]);
+      const startButton = screen.getByRole('button', { name: /開始/ });
+      await user.click(startButton);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        '出力を記録できなかったため中止しました'
+      );
+      expect(executeFn).not.toHaveBeenCalled();
+      expect(mockOnStart).not.toHaveBeenCalled();
+      expect(mockOnClose).not.toHaveBeenCalled();
+      // 再度の開始を受け付ける
+      expect(startButton).toBeEnabled();
     });
   });
 });

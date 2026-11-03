@@ -18,9 +18,12 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtures';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
+import { getPrismaClient } from '../../fixtures/database';
 
 /**
  * 現場調査CRUD機能のE2Eテスト
@@ -37,6 +40,10 @@ test.describe('現場調査CRUD操作', () => {
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+  });
+
+  test.afterEach(async () => {
+    await deleteSessionUsers();
   });
 
   /**
@@ -292,17 +299,24 @@ test.describe('現場調査CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // REQ-1.7 は「プロジェクトが存在しない間は現場調査の作成を許可しない」と定めている。
-      // SiteSurveyCreatePage はプロジェクト取得に失敗すると role="alert" だけを描画し、
-      // 作成フォームを一切描画しない（frontend/src/pages/SiteSurveyCreatePage.tsx の
-      // `if (!project || !projectId)` 分岐）。バックエンドは 404 の detail に
-      // `Project not found: <id>` を返す（backend/src/errors/projectError.ts）。
+      // SiteSurveyCreatePage はプロジェクトの取得の 404 で、作成フォームを描画せず、プロジェクトが
+      // 見つからない旨とプロジェクトの一覧へのリンク（共通部品 ResourceNotFound。role="alert" を持たない）を
+      // 表示する（site-survey タスク120.1）。取得の失敗の文言や応答の英語の文言は出さない。
       // 「エラーが出ていなければフォームの有無を見る」観測による分岐は、
       // 作成できてしまう欠陥をそのまま緑にするため置かない。
-      const errorAlert = page.getByRole('alert').first();
-      await expect(errorAlert).toBeVisible({ timeout: getTimeout(10000) });
-      await expect(errorAlert).toContainText(
-        /プロジェクトが見つかりません|プロジェクトの取得に失敗しました|Project not found/i
+      const main = page.getByRole('main').last();
+      await expect(main.getByRole('heading', { name: 'プロジェクトが見つかりません' })).toBeVisible(
+        {
+          timeout: getTimeout(10000),
+        }
       );
+      await expect(main.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      await expect(
+        page.getByText(/プロジェクトの取得に失敗しました|Project not found/i)
+      ).toHaveCount(0);
 
       // 作成の手段が無いこと（作成フォームが描画されていないこと）を主張する
       await expect(page.getByRole('button', { name: /^作成$/i })).toHaveCount(0);
@@ -483,7 +497,16 @@ test.describe('現場調査CRUD操作', () => {
       assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
       const testSurveyId = createdSurveyId;
 
-      await loginAsUser(page, 'REGULAR_USER');
+      // 同じセッションを二つのタブで開くため、共有の役割の利用者ではなく
+      // テストの中で作る利用者のセッションで行う（要件33.6）
+      const sessionUser = await createSessionUser('REGULAR_USER');
+      // 作った利用者も案件を開けるよう工事担当者にする（案件の閲覧範囲。user-authentication 要件39）。
+      // 利用者の削除（deleteSessionUsers）が工事担当者の参照を外す
+      await getPrismaClient().project.update({
+        where: { id: createdProjectId },
+        data: { constructionPersonId: sessionUser.id },
+      });
+      await loginAsUser(page, sessionUser);
 
       // 1つ目のブラウザコンテキストで編集ページを開く
       await page.goto(`/site-surveys/${testSurveyId}/edit`);
@@ -492,7 +515,7 @@ test.describe('現場調査CRUD操作', () => {
 
       // 2つ目のブラウザコンテキストを作成して同じ現場調査を編集
       const page2 = await context.newPage();
-      await loginAsUser(page2, 'REGULAR_USER');
+      await loginAsUser(page2, sessionUser);
       await page2.goto(`/site-surveys/${testSurveyId}/edit`);
       await page2.waitForLoadState('networkidle');
       await expect(page2.getByLabel(/調査名/i)).toHaveValue(/.+/, { timeout: getTimeout(10000) });
@@ -593,21 +616,24 @@ test.describe('現場調査CRUD操作', () => {
 
       // 存在しないプロジェクトIDで現場調査作成APIを呼び出し
       const nonExistentProjectId = '00000000-0000-0000-0000-000000000000';
-      const response = await page.evaluate(async (projectId) => {
-        const accessToken = localStorage.getItem('accessToken');
-        const res = await fetch(`/api/projects/${projectId}/site-surveys`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name: 'テスト現場調査',
-            surveyDate: new Date().toISOString().split('T')[0],
-          }),
-        });
-        return { status: res.status };
-      }, nonExistentProjectId);
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
+      const response = await page.evaluate(
+        async ({ projectId, token }) => {
+          const res = await fetch(`/api/projects/${projectId}/site-surveys`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: 'テスト現場調査',
+              surveyDate: new Date().toISOString().split('T')[0],
+            }),
+          });
+          return { status: res.status };
+        },
+        { projectId: nonExistentProjectId, token: accessToken }
+      );
 
       // 400, 404, または405エラーが返されることを確認
       // 405はルーティング層でメソッドが拒否された場合に返される

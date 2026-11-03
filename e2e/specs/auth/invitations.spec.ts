@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
-import { createAllTestUsers } from '../../fixtures/auth.fixtures';
+import { createAllTestUsers, createInvitation } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 
@@ -137,7 +137,8 @@ test.describe('管理者招待機能', () => {
     });
 
     expect(invitation).toBeTruthy();
-    expect(invitation!.token).toBeTruthy();
+    // 保存されるのはトークンの原文でなく SHA-256 の 16 進（user-authentication 要件37.1）
+    expect(invitation!.tokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect(invitation!.expiresAt).toBeTruthy();
 
     // 有効期限が7日後であることを確認
@@ -182,7 +183,8 @@ test.describe('管理者招待機能', () => {
       const nav = navigator as any;
       return await nav.clipboard.readText();
     });
-    expect(clipboardText).toContain('/register?token=');
+    expect(clipboardText).toContain('/register#token=');
+    expect(clipboardText).not.toContain('?token=');
   });
 
   /**
@@ -235,37 +237,40 @@ test.describe('管理者招待機能', () => {
     });
 
     // 未使用の招待を作成
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: 'unused@example.com',
         token: 'unused-token-123',
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7日後
         usedAt: null,
       },
-    });
+      prisma
+    );
 
     // 使用済みの招待を作成
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: 'used@example.com',
         token: 'used-token-123',
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         usedAt: new Date(), // 使用済み
       },
-    });
+      prisma
+    );
 
     // 期限切れの招待を作成
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: 'expired@example.com',
         token: 'expired-token-123',
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() - 1000), // 1秒前に期限切れ
         usedAt: null,
       },
-    });
+      prisma
+    );
 
     // ページをリロードして招待一覧を更新
     await reloadInvitationsPage(page);
@@ -304,15 +309,16 @@ test.describe('管理者招待機能', () => {
       where: { email: 'admin@example.com' },
     });
 
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: 'cancel-test@example.com',
         token: 'cancel-token-123',
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         usedAt: null,
       },
-    });
+      prisma
+    );
 
     await reloadInvitationsPage(page);
 
@@ -343,8 +349,8 @@ test.describe('管理者招待機能', () => {
     const uniqueEmail = `resend-test-${uniqueSuffix}@example.com`;
     const uniqueToken = `resend-token-${uniqueSuffix}`;
 
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: uniqueEmail,
         token: uniqueToken,
         inviterId: admin!.id,
@@ -352,7 +358,8 @@ test.describe('管理者招待機能', () => {
         expiresAt: new Date(Date.now() - 1000), // 期限切れ
         usedAt: null,
       },
-    });
+      prisma
+    );
 
     await reloadInvitationsPage(page);
 
@@ -421,14 +428,15 @@ test.describe('管理者招待機能', () => {
 
     // 15件の招待を作成
     for (let i = 0; i < 15; i++) {
-      await prisma.invitation.create({
-        data: {
+      await createInvitation(
+        {
           email: `testuser${i}@example.com`,
           token: `token-${i}`,
           inviterId: admin!.id,
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
-      });
+        prisma
+      );
     }
 
     await reloadInvitationsPage(page);
@@ -457,35 +465,38 @@ test.describe('管理者招待機能', () => {
     });
 
     // 各ステータスの招待を作成
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: 'visual-unused@example.com',
         token: 'visual-unused-token',
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         usedAt: null,
       },
-    });
+      prisma
+    );
 
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: 'visual-used@example.com',
         token: 'visual-used-token',
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         usedAt: new Date(),
       },
-    });
+      prisma
+    );
 
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: 'visual-expired@example.com',
         token: 'visual-expired-token',
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() - 1000),
         usedAt: null,
       },
-    });
+      prisma
+    );
 
     await reloadInvitationsPage(page);
 
@@ -524,14 +535,15 @@ test.describe('管理者招待機能', () => {
 
     // ユニークなトークンを生成
     const uniqueToken = `mobile-token-${Date.now()}`;
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: 'mobile-test@example.com',
         token: uniqueToken,
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     // モバイルビューポートに設定
     await page.setViewportSize({ width: 375, height: 667 });
@@ -610,14 +622,15 @@ test.describe('管理者招待機能', () => {
     });
 
     const uniqueToken = `dialog-token-${Date.now()}`;
-    await prisma.invitation.create({
-      data: {
+    await createInvitation(
+      {
         email: 'dialog-test@example.com',
         token: uniqueToken,
         inviterId: admin!.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
     await reloadInvitationsPage(page);
 

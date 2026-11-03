@@ -22,6 +22,9 @@
  * - REQ-32.8: いずれのチェックボックスもチェックされていない場合、出力ボタンを無効化する
  * - REQ-38.1: デフォルト値として「見積」と「実行」をONとする
  * - REQ-56.1〜56.4: 未保存の変更を含む帳票を、保存を伴わずに出力し、その旨を画面に示す
+ * - REQ-57.7: 生成を始める前に、出力の種別と対象の案件を添えた出力の記録を1回だけ要求する
+ * - REQ-57.8: 記録の要求が失敗したら生成もダウンロードもせず、エラーメッセージを表示する
+ *   （タスク62.2。user-authentication の要件40.9〜40.11 の適用）
  *
  * 32.2 / 32.3 / 32.6（ファイル分割・順序・ファイル名）は出力サービスの責務であり、
  * 本ダイアログはチェックされた行タイプの配列を渡すだけでこれらを満たす。
@@ -29,7 +32,8 @@
  * @module components/estimate/EstimateExportDialog
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { runRecordedExport } from '../../api/export-audit';
 import type {
   EditableItem,
   EstimateReportFields,
@@ -74,6 +78,8 @@ export interface EstimateExportDialogProps {
   isOpen: boolean;
   /** 見積書名（ファイル名・帳票の表題用） */
   estimateName: string;
+  /** 見積書のID（出力の記録の対象として添える / 57.7） */
+  estimateId: string;
   /** 見積書が属するプロジェクトID（表紙の周辺情報の取得に用いる） */
   projectId: string;
   /** 編集中の明細ツリー（未保存の変更を含む / 56.1, 56.2） */
@@ -274,6 +280,15 @@ function getSelectedLineTypeArray(selected: SelectedLineTypes): ExportLineType[]
 }
 
 /**
+ * 出力する見積項目の件数（出力の記録の `itemCount` / 57.7）
+ *
+ * 編集中のツリーの見積項目を、子の見積項目まで含めて数える（行タイプの明細行の数ではない）。
+ */
+function countEstimateItems(items: readonly EditableItem[]): number {
+  return items.reduce((total, item) => total + 1 + countEstimateItems(item.children), 0);
+}
+
+/**
  * 例外から利用者向けのメッセージを取り出す
  *
  * 両出力サービスは失敗をそのまま画面に出せる日本語メッセージへ包んで送出する
@@ -303,6 +318,7 @@ function toDisplayMessage(error: unknown): string {
 export function EstimateExportDialog({
   isOpen,
   estimateName,
+  estimateId,
   projectId,
   items,
   reportFields,
@@ -315,6 +331,22 @@ export function EstimateExportDialog({
   const [error, setError] = useState<string | null>(null);
   /** 出力処理の進捗メッセージ（REQ-10.7）。PDF出力のみ段階を報告する */
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
+
+  /**
+   * ダイアログが開いて描かれているか（57.7）
+   *
+   * 出力の記録の要求中にダイアログが閉じられた・画面が破棄されたら、記録の成功の後も
+   * 生成もダウンロードも始めない。閉じたダイアログは描画されないが部品は残るため、
+   * 破棄と `isOpen` の両方を見る。
+   */
+  const isActiveRef = useRef(isOpen);
+  useEffect(() => {
+    // StrictMode の二重の effect（破棄の後の再実行）でも描かれている状態へ戻す
+    isActiveRef.current = isOpen;
+    return () => {
+      isActiveRef.current = false;
+    };
+  }, [isOpen]);
 
   /** いずれかのチェックボックスが選択されているか（REQ-32.8） */
   const hasSelectedLineType =
@@ -336,22 +368,32 @@ export function EstimateExportDialog({
    * **編集中のツリー（`items`）と帳票用入力項目（`reportFields`）をそのまま渡す**。
    * サーバーから読み直さないため未保存の変更が帳票に載り（56.2）、
    * 保存要求を1本も出さないため未保存の変更は画面に残る（56.3）。
+   *
+   * 生成を始める前に出力の記録（種別 `estimate_pdf`・`estimate_xlsx`、見積書の案件、
+   * 見積書の ID、見積項目の件数）を1回要求する。帳票サービスと表紙の周辺情報の読み込み、
+   * 生成、ダウンロードはすべて記録の成功の後に行う。記録の要求中も出力中の表示のまま
+   * 出力とキャンセルの釦を止める。記録の失敗では生成もダウンロードもせず
+   * 「出力を記録できなかったため中止しました」を表示し、ダイアログは閉じない（57.7, 57.8。
+   * user-authentication の要件40.9〜40.11）。記録の後の失敗（日本語描画の準備の失敗〔10.8〕
+   * を含む）は従来の文言で表示し、記録は再送しない。
    */
   const handleExport = useCallback(async () => {
     if (!hasSelectedLineType) return;
 
     const lineTypes = getSelectedLineTypeArray(selectedLineTypes);
-    setIsExporting(true);
-    setError(null);
-    setProgressMessage(null);
+    const format = selectedFormat;
 
-    try {
-      if (selectedFormat === 'pdf') {
+    /** 生成とダウンロード（出力の記録が成功した後にだけ呼ぶ / 57.7）。生成したら true */
+    const generate = async (): Promise<boolean> => {
+      // 記録の要求中にダイアログが閉じられた・画面が破棄されたら、生成もダウンロードもしない
+      if (!isActiveRef.current) return false;
+      if (format === 'pdf') {
         // 表紙の周辺情報（工事名・宛先・自社情報）は読み取りのみ。
         const [service, subject] = await Promise.all([
           loadEstimatePdfExportService(),
           loadEstimateReportSubject(projectId),
         ]);
+        if (!isActiveRef.current) return false;
         await service.generateAndDownload({
           tree: items,
           lineTypes,
@@ -368,15 +410,40 @@ export function EstimateExportDialog({
           estimate: { name: estimateName },
         });
       }
-      onClose();
-    } catch (caught) {
-      setError(toDisplayMessage(caught));
+      return true;
+    };
+
+    setIsExporting(true);
+    setError(null);
+    setProgressMessage(null);
+
+    try {
+      const result = await runRecordedExport(
+        {
+          kind: format === 'pdf' ? 'estimate_pdf' : 'estimate_xlsx',
+          projectId,
+          targetIds: [estimateId],
+          itemCount: countEstimateItems(items),
+        },
+        generate
+      );
+      if (result.ok) {
+        if (result.value) onClose();
+      } else {
+        setError(
+          result.error.type === 'RECORD_FAILED'
+            ? result.error.message
+            : // 記録の後の失敗は従来の文言（10.8 の日本語描画の準備の失敗を含む）
+              toDisplayMessage(result.error.cause)
+        );
+      }
     } finally {
       setIsExporting(false);
       setProgressMessage(null);
     }
   }, [
     estimateName,
+    estimateId,
     projectId,
     items,
     reportFields,

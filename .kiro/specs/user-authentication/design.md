@@ -12,6 +12,8 @@
 
 **影響**: 既存のExpress + Prisma + PostgreSQL + Redisアーキテクチャに認証・認可機能を追加します。既存のミドルウェアパターン（errorHandler, validate, logger）を活用し、新規ミドルウェア（authenticate, authorize）を統合します。
 
+**改訂（2026-10-16）**: 要件32〜45（IPA注意喚起 2026-10-09 に基づくセキュリティ是正）の設計を末尾の章「Requirements 32-45: セキュリティ是正（IPA注意喚起 2026-10-09）」に置いた。同章の判断は本書の前半の記述に優先する。置き換わる前半の節は同章の「既存設計との関係」に挙げる（トークンの保存場所、2FA のログインと無効化、監査ログの保存先と外部キーなど）。
+
 ### Goals
 
 - 招待制ユーザー登録システムの実装（管理者による招待→ユーザー登録）
@@ -866,7 +868,8 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     User->>Frontend: 招待URL アクセス
-    Frontend->>Backend: GET /api/v1/invitations/verify?token={token}
+    Frontend->>Frontend: URL のフラグメント（#token=…）からトークンを読み、URL から取り除く
+    Frontend->>Backend: POST /api/v1/invitations/verify（本文 { token }）
     Backend->>DB: 招待トークン検証
     alt トークンが無効または期限切れ
         DB-->>Backend: エラー
@@ -1053,7 +1056,7 @@ sequenceDiagram
 | 要件 | 要件概要 | コンポーネント | インターフェース | フロー |
 |------|---------|--------------|----------------|--------|
 | 1 | 管理者によるユーザー招待 | InvitationService, EmailService | POST /api/v1/invitations | ユーザー招待フロー |
-| 2 | 招待を受けたユーザーのアカウント作成 | AuthService, PasswordService | POST /api/v1/auth/register, GET /api/v1/invitations/verify | ユーザー登録フロー |
+| 2 | 招待を受けたユーザーのアカウント作成 | AuthService, PasswordService | POST /api/v1/auth/register, POST /api/v1/invitations/verify | ユーザー登録フロー |
 | 3 | 初期管理者アカウントのセットアップ | AuthService | データベースシーディング | - |
 | 4 | ログイン | AuthService, PasswordService, SessionService | POST /api/v1/auth/login | ログインフロー |
 | 5 | トークン管理 | TokenService, SessionService | POST /api/v1/auth/refresh, authenticate middleware | トークンリフレッシュフロー |
@@ -1068,7 +1071,8 @@ sequenceDiagram
 | 23-26 | 非機能要件（パフォーマンス、フォールトトレランス、データ整合性、セキュリティ） | Redis Cache, Prisma Transaction, ApiError | 全コンポーネント | - |
 | 27系列 | 二要素認証（2FA）設定・ログイン・管理・セキュリティ・UI/UX・アクセシビリティ | TwoFactorService | POST /api/v1/auth/2fa/setup, POST /api/v1/auth/2fa/enable, POST /api/v1/auth/verify-2fa | 2FA設定フロー、ログインフロー |
 | 28 | 画面遷移とナビゲーション | Router, ProtectedRoute, Navigation | React Router, History API | 全フロー |
-| 29 | パスワードリセット画面のUI/UX | PasswordResetRequestPage, PasswordResetPage | POST /api/v1/auth/password/reset-request, GET /api/v1/auth/password/verify-reset, POST /api/v1/auth/password/reset | パスワードリセットフロー |
+| 29 | パスワードリセット画面のUI/UX | PasswordResetRequestPage, PasswordResetPage | POST /api/v1/auth/password/reset-request, POST /api/v1/auth/password/verify-reset, POST /api/v1/auth/password/reset | パスワードリセットフロー |
+| 32-45 | セキュリティ是正（2026-10-16 追加） | 末尾の章の Component Summary を参照 | 末尾の章の各部品を参照 | 末尾の章の System Flows を参照 |
 
 ## Type Definitions
 
@@ -1982,7 +1986,7 @@ type TwoFactorError =
 - **秘密鍵暗号化**: AES-256-GCM（環境変数`TWO_FACTOR_ENCRYPTION_KEY`、256ビット鍵）
 - **バックアップコードハッシュ化**: Argon2id（メモリコスト: 64MB、時間コスト: 3、並列度: 4）
 - **TOTP設定**: SHA-1（Google Authenticator互換）、6桁、30秒ウィンドウ、±1ステップ許容
-- **バックアップコード**: 10個、8文字英数字、1回限り使用
+- **バックアップコード**: 10個、8文字英数字、1回限り使用。消費は取引の中で `usedAt: null` を条件にした更新で行い、更新した件数が 1 のときだけ成功とする（並行の検証が同じコードを使った場合は無効。27A.6、27A.7）。2FA の失敗回数は `{ increment: 1 }` で原子的に加算し、加算した後の値でロックを決める（27A.4）
 - **無効化時のパスワード確認**: アカウント乗っ取り防止
 - **トランザクション**: 2FA無効化時に秘密鍵とバックアップコードを同時削除、全リフレッシュトークン無効化
 
@@ -2196,15 +2200,15 @@ app.delete('/api/v1/users/:id', authenticate, authorize('user:delete'), deleteUs
 | PATCH | /api/v1/users/me | ユーザー情報更新 | UpdateProfileRequest | UserProfile | authenticate, validate |
 | POST | /api/v1/auth/2fa/setup | 2FA設定開始 | - | TwoFactorSetupData | authenticate |
 | POST | /api/v1/auth/2fa/enable | 2FA有効化 | EnableTwoFactorRequest | TwoFactorEnabledData | authenticate, validate |
-| POST | /api/v1/auth/2fa/disable | 2FA無効化 | DisableTwoFactorRequest | void | authenticate, validate |
+| POST | /api/v1/auth/2fa/disable | 2FA無効化（要件34.6 により自己の無効化は 403 `TWO_FACTOR_DISABLE_NOT_ALLOWED` で拒否する） | - | 403 | authenticate |
 | POST | /api/v1/auth/2fa/backup-codes/regenerate | バックアップコード再生成 | - | BackupCodesData | authenticate |
 | POST | /api/v1/invitations | 招待作成 | CreateInvitationRequest | Invitation | authenticate, authorize('user:invite') |
 | GET | /api/v1/invitations | 招待一覧取得 | InvitationFilter | Invitation[] | authenticate, authorize('user:invite') |
 | POST | /api/v1/invitations/:id/revoke | 招待取り消し | - | void | authenticate, authorize('user:invite') |
 | POST | /api/v1/invitations/:id/resend | 招待再送信 | - | Invitation | authenticate, authorize('user:invite') |
-| GET | /api/v1/invitations/verify | 招待検証 | ?token={token} | InvitationInfo | - |
+| POST | /api/v1/invitations/verify | 招待検証 | `{ token }`（本文） | InvitationInfo | validate |
 | POST | /api/v1/auth/password/reset-request | パスワードリセット要求 | PasswordResetRequest | void | validate |
-| GET | /api/v1/auth/password/verify-reset | リセットトークン検証 | ?token={token} | void | - |
+| POST | /api/v1/auth/password/verify-reset | リセットトークン検証 | `{ token }`（本文） | `{ valid: true }` | - |
 | POST | /api/v1/auth/password/reset | パスワードリセット実行 | ResetPasswordRequest | void | validate |
 | GET | /api/v1/roles | ロール一覧取得 | - | Role[] | authenticate, authorize('role:read') |
 | POST | /api/v1/roles | ロール作成 | CreateRoleRequest | Role | authenticate, authorize('role:create') |
@@ -3465,7 +3469,7 @@ model AuditLog {
 - **再試行回数の環境変数**（2026-09-27 タスク35.9 で追記、利用者の裁定「0〜10 を受け、間隔を倍々で延ばす」）: 要件の環境変数表の `DATABASE_RETRY_COUNT` を 0〜10 の整数として受け付け、未設定なら条文 24.6 どおり 3 回とする。n 回目（1 始まり）の再試行までの間隔は 1000 × 2^(n−1) ms とし、条文が挙げる 3 回の 1000ms・2000ms・4000ms をそのまま 4 回目以降へ延ばす（5 回なら 1000ms・2000ms・4000ms・8000ms・16000ms、10 回目は 512000 ms）。0 は再試行しない。範囲外（11・-1）・小数・非数値は拒否する。検証は `backend/src/config/env.ts` の `parseDatabaseRetryCount` に置き、環境変数の検証（validateEnv）と DB クライアントの生成（`backend/src/db.ts` の getPrismaClient）の両方が同じ関数を通す。`RetryingPool` は設定の `retryCount`（省略時 3）から間隔列を求める。上限の 10 回では待ち時間の総和が 1000 × (2^10 − 1) = 1023000 ms（1023 秒、約 17 分）になり、これに各試行の接続タイムアウト（既定 5000 ms × 11 試行 = 55 秒）が加わるため、失敗の応答まで約 18 分かかる。大きな値は応答を長く待たせることを踏まえて設定する
 - **24.1 との関係**: 24.6 の再試行を使い切った後の失敗が 24.1 の「タイムアウト以内に確立できない」に当たる。上の実測のとおり、そのエラーは素の Error として返り、現在のエラーハンドラの分岐（503 は Prisma の初期化エラー等に限る）では 503 ではなく既定の 500 になる。これを 503 へ対応づけることは 24.1 の範囲とし、後続（タスク35.8）として起票する
 - **認証系のエンドポイントでの 503（要件24.1）**（2026-09-27 タスク35.11 で追記）: 接続のタイムアウトは**サービス層で `DATABASE_ERROR` へ飲み込まず投げ直し**、ルートの `next(error)` からエラーハンドラーの 503「Service Unavailable」（Problem Details、`detail: 'Database connection error'`）へ届ける。ルートごとに 503 へ変換する方式は採らない。変換をルートへ置くと、`DATABASE_ERROR` を個別に扱うルート（ログイン・2FA 検証）と扱わずに汎用の 500 を返すルート（現在のユーザーの取得・トークンの更新・登録など）のすべてへ同じ分岐を書き足すことになり、応答の形もエラーハンドラーの 503 と二重に定義されるため
-  - **判定の置き場所**: 判定は `backend/src/utils/db-connection-timeout.ts` の `isDatabaseConnectionTimeout`（pg-pool の2つのタイムアウト文言の完全一致・`code === 'ETIMEDOUT'`・P1008 の `PrismaClientKnownRequestError`）ひとつに置き、エラーハンドラーとサービス層が同じ関数を使う。サービス層は同じモジュールの `rethrowIfDatabaseConnectionTimeout(error)` を、DB 例外を `DATABASE_ERROR` へ変える catch の先頭で呼ぶ（auth 8・permission 3・role-permission 3・role 4・session 3・user-role 3 の計 24 か所）
+  - **判定の置き場所**: 判定は `backend/src/utils/db-connection-timeout.ts` の `isDatabaseConnectionTimeout`（pg-pool の2つのタイムアウト文言の完全一致・`code === 'ETIMEDOUT'`・P1008 の `PrismaClientKnownRequestError`）ひとつに置き、エラーハンドラーとサービス層が同じ関数を使う。サービス層は同じモジュールの `rethrowIfDatabaseConnectionTimeout(error)` を、DB 例外を `DATABASE_ERROR` へ変える catch の先頭で呼ぶ（auth 8・permission 3・role-permission 3・role 4・session 3・user-role 3 の計 24 か所。2026-10-25 のタスク57.2 の再計数では auth 9・permission 3・role-permission 3・role 4・session 1・user-role 3 の計 23 か所で、auth の 1 か所は `rethrowIfDatabaseConnectionTimeout(updateError)` の形である）
   - **それ以外の DB 例外**: 接続のタイムアウトでない例外（一般の Error、P1001 など）は何も変えず、各サービスの既存のログと `DATABASE_ERROR`、各ルートの既存の状態コードと本文のまま返す
   - **伝播の前提**: 上の 6 サービスを呼ぶルート（auth / roles / permissions / session / user-roles）のハンドラーはすべて `try { … } catch (error) { next(error); }` で投げられた例外をエラーハンドラーへ渡す（Express 5.2）。6 サービスの該当メソッドを呼ぶのはこれらのルートだけである
   - **この方式で 503 になるエンドポイント**: 対話型トランザクションを開始する前に DB へ問い合わせるもの——ログイン、現在のユーザーの取得（GET /api/v1/auth/me）、トークンの更新、ログアウト、全デバイスからのログアウト、登録（招待の検証が最初の問い合わせ）。いずれも統合検証 `backend/src/__tests__/integration/auth-db-connection-timeout-503.integration.test.ts` で、応答しない TCP サーバーへ向けた本物のアプリに対して 503 と Problem Details を確かめる
@@ -3485,13 +3489,13 @@ model AuditLog {
   - **適用の範囲**: `requirePermission` は認証系の外（projects・estimates など）のルートでも使われるため、それらのエンドポイントも権限の判定の DB 接続タイムアウトで 503 を返す。接続のタイムアウト以外の応答（401・403・500・権限ありの通過）は変わらない
   - **統合検証**: `backend/src/__tests__/integration/authorize-db-connection-timeout-503.integration.test.ts` は、RBACService を差し替えない本物のアプリを応答しない TCP サーバーへ向け（`DATABASE_RETRY_COUNT=0`・`DATABASE_CONNECTION_TIMEOUT=200`）、GET /api/v1/roles、GET /api/v1/roles/:id/permissions、GET /api/v1/permissions、GET /api/v1/users、GET /api/v1/users/:id/roles が 503 と Problem Details を返すことを確かめる。上の 5 つの書き込みも同じく差し替えなしで 503 を確かめる（トランザクションの開始の経路の退行検出は、上の 35.12 の「統合検証」のとおり差し替えた別の describe が担う）
 - **パスワードと二要素認証の経路での 503（要件24.1）**（2026-09-28 タスク36.3 で追記）: PasswordService と TwoFactorService も、上の「認証系のエンドポイントでの 503」と同じく、DB 例外を自前のエラーへ変える catch の先頭で `rethrowIfDatabaseConnectionTimeout(error)` を呼び、接続のタイムアウトをルートの `next(error)` からエラーハンドラーの 503「Service Unavailable」（Problem Details、`detail: 'Database connection error'`）へ届ける。35.11 の時点ではこの 2 サービスを対象外とし、DB 障害が利用者には「パスワード／コードが違う」と見えていた（パスワードの変更は「Current password is incorrect」の 400、リセットの確定は「Invalid reset token」の 400、リセットの要求は 200、2FA は 400 / 404）
-  - **適用する箇所**: PasswordService の catch 3 か所（リセットの要求・リセットの確定・パスワードの変更）、TwoFactorService の catch 7 か所（設定の開始・TOTP の検証・バックアップコードの検証・有効化・無効化・バックアップコードの状態の取得・再生成）。設定の開始（`setupTwoFactor`）の catch はタスク36.3 の実測の一覧に無かったが、同じく DB 例外を `USER_NOT_FOUND` の 404 へ変えるため含めた
+  - **適用する箇所**: PasswordService の catch 3 か所（リセットの要求・リセットの確定・パスワードの変更）、TwoFactorService の catch 7 か所（設定の開始・TOTP の検証・バックアップコードの検証・有効化・無効化・バックアップコードの状態の取得・再生成）。タスク47.1 で 2FA の自己の無効化を DB に触れず 403 を返す経路に改めたため、2026-10-25 の時点の TwoFactorService の catch は 6 か所である。設定の開始（`setupTwoFactor`）の catch はタスク36.3 の実測の一覧に無かったが、同じく DB 例外を `USER_NOT_FOUND` の 404 へ変えるため含めた
   - **2FA のログインの失敗回数**: `AuthService.verify2FA` と `verify2FABackupCode` は、TwoFactorService の検証が返した失敗を「コードの不一致」として失敗回数（`twoFactorFailures`）を加算する。検証の中の接続のタイムアウトは上の投げ直しで検証の結果にならずに外側の catch（35.11 で投げ直し済み）へ届くため、失敗回数を加算しない。失敗回数の更新自体を囲む内側の catch も、接続のタイムアウトは投げ直す（それ以外の更新の失敗は従来どおりログに残して検証の失敗の 401 を返す）。DB に到達できないときの 401 は利用者に「コードが違う」と誤認させ、失敗回数も記録されないため、503 に揃える
   - **対話型トランザクションの開始の待ち**: この 2 サービスの対話型トランザクション（リセットの要求・リセットの確定・パスワードの変更・2FA の設定の開始・有効化・バックアップコードの再生成の 6 か所）は開始の前に同じ要求の中で DB へ問い合わせるが、その問い合わせの後に接続が失われると、開始は新しい接続の確立を待つ。実測（2026-09-28、Prisma 7.9.1・`RetryingPool`（再試行 1 回・接続タイムアウト 1000ms、予算 3000ms）、実データベースへの中継で先行の問い合わせの後に確立済みの接続を切り無応答にした使い捨ての検証）で、`maxWait` なしでは約 2.0 秒で P2028（catch が自前のエラーへ変える）、`connectBudgetTransactionOptions()` を渡すと約 3.0 秒で pg-pool の接続タイムアウトの素の Error となった。既定の設定（3 回・5000ms、予算 27000ms）でも同じく P2028 が先に来るため、上の「対話型トランザクションの開始の待ち」と同じ `maxWait` を 6 か所に渡す。配列を渡す `$transaction([...])`（バックアップコードの検証・2FA の無効化）は開始の待ちの打ち切りを持たないため変えない。P2028 を接続のタイムアウトとして区別しない方針（上の「P2028 の判定を区別する案を採らない理由」）は変えない
   - **それ以外の DB 例外**: 接続のタイムアウトでない例外（一般の Error、P1001、P2028 など）は、各サービスの既存のログと自前のエラー、各ルートの既存の状態コードと本文のまま返す
   - **リセットの要求の応答の差（列挙の観点）**: DB に最初から到達できないときは、メールアドレスの有無に関わらず 503 となり差は出ない。差が出るのは、ユーザーの検索の成功の直後に接続が失われた場合だけで、存在するアカウントは 503（トークンの保存が届かない）、存在しないアカウントは 200 となる。攻撃者が意図して起こせる状況ではなく、既存の処理量の差（トランザクションの有無）以上の手がかりにならないため、受け入れる（タスク36.3 の独立レビューの指摘）
   - **伝播の前提**: 2 サービスを呼ぶ認証ルート（`/password/*`・`/2fa/*`・`/verify-2fa`・`/verify-2fa/backup`）のハンドラーはすべて投げられた例外を `next(error)` でエラーハンドラーへ渡す。`authenticate` は DB を引かず、`requirePermission` は通らない
-  - **統合検証**: `backend/src/__tests__/integration/password-two-factor-db-connection-timeout-503.integration.test.ts`（`DATABASE_RETRY_COUNT=0`・`DATABASE_CONNECTION_TIMEOUT=200`）は、最初から DB に到達できないとき、パスワードの変更・リセットの要求と確定・2FA の設定の開始・有効化・無効化・バックアップコードの再生成と状態の取得・2FA のログインの検証が 503 と Problem Details を返すことを確かめる。2FA のログインの検証（TOTP・バックアップコード）は、TwoFactorService の検証メソッドの呼び出しの間だけ DB を無応答にし（メソッドは本物）、503 を返して失敗回数が 0 のままであることを、検証の後の失敗回数の更新だけを無応答にし 503 を返すことと合わせて確かめる。`backend/src/__tests__/integration/password-two-factor-transaction-db-connection-timeout-503.integration.test.ts`（再試行 1 回・1000ms、予算 3000ms）は、トランザクションの直前のメソッド（`hashPassword`・`generateQRCode`・`decryptSecret`）の後に DB を無応答にし、パスワードの変更・リセットの確定・2FA の設定の開始・有効化が予算の後に 503 を返し、書き込みが残らないことを確かめる。接続の転送と無応答の切り替えは、実データベースへの TCP の中継 `backend/src/__tests__/integration/switchable-database-relay.ts` が担う（無応答へ切り替えるときは確立済みの接続も切り、次の問い合わせに新しい接続の確立を強いる）
+  - **統合検証**: `backend/src/__tests__/integration/password-two-factor-db-connection-timeout-503.integration.test.ts`（`DATABASE_RETRY_COUNT=0`・`DATABASE_CONNECTION_TIMEOUT=200`）は、最初から DB に到達できないとき、パスワードの変更・リセットの要求と確定・2FA の設定の開始・有効化・無効化・バックアップコードの再生成と状態の取得・2FA のログインの検証が 503 と Problem Details を返すことを確かめる（タスク47.1 の後は、2FA の自己の無効化は DB に触れず 403 を返すため、同テストの対象から外した）。2FA のログインの検証（TOTP・バックアップコード）は、TwoFactorService の検証メソッドの呼び出しの間だけ DB を無応答にし（メソッドは本物）、503 を返して失敗回数が 0 のままであることを、検証の後の失敗回数の更新だけを無応答にし 503 を返すことと合わせて確かめる。`backend/src/__tests__/integration/password-two-factor-transaction-db-connection-timeout-503.integration.test.ts`（再試行 1 回・1000ms、予算 3000ms）は、トランザクションの直前のメソッド（`hashPassword`・`generateQRCode`・`decryptSecret`）の後に DB を無応答にし、パスワードの変更・リセットの確定・2FA の設定の開始・有効化が予算の後に 503 を返し、書き込みが残らないことを確かめる。接続の転送と無応答の切り替えは、実データベースへの TCP の中継 `backend/src/__tests__/integration/switchable-database-relay.ts` が担う（無応答へ切り替えるときは確立済みの接続も切り、次の問い合わせに新しい接続の確立を強いる）
 
 ## Testing Strategy
 
@@ -4339,7 +4343,7 @@ export function PasswordResetPage(): ReactElement {
   useEffect(() => {
     async function verifyToken() {
       try {
-        await apiClient.get(`/api/v1/auth/password/verify-reset?token=${resetToken}`);
+        await apiClient.post('/api/v1/auth/password/verify-reset', { token: resetToken });
         setIsTokenValid(true);
       } catch {
         setIsTokenValid(false);
@@ -4510,7 +4514,7 @@ sequenceDiagram
     FE->>BE: POST /api/v1/auth/password/reset-request
     BE->>DB: ユーザー検索（email）
     alt ユーザーが存在する
-        BE->>BE: リセットトークン生成（24時間有効）
+        BE->>BE: リセットトークン生成（1時間有効。要件7.3）
         BE->>DB: PasswordResetToken保存
         BE->>Email: パスワードリセットメール送信
     end
@@ -4518,7 +4522,8 @@ sequenceDiagram
     FE-->>User: 「メールを送信しました」メッセージ表示
 
     User->>FE: リセットメールのリンクをクリック
-    FE->>BE: GET /api/v1/auth/password/verify-reset?token={token}
+    FE->>FE: URL のフラグメント（#token=…）からトークンを読み、URL から取り除く
+    FE->>BE: POST /api/v1/auth/password/verify-reset（本文 { token }）
     BE->>DB: リセットトークン検証
     alt トークンが有効
         BE-->>FE: 200 OK
@@ -4569,7 +4574,7 @@ _追加日: 2026-02-09_
 interface SessionExpiredModalProps {
   isOpen: boolean;
   userEmail: string;          // 前回ログインメールアドレス（自動入力用）
-  onReauthSuccess: () => void; // 再認証成功時コールバック
+  onReauthSuccess: (session: ReauthSession) => void; // 再認証成功時コールバック（ログインまたは 2FA 検証の応答を渡す）
   onNavigateToLogin: () => void; // ログイン画面遷移時コールバック
 }
 ```
@@ -4609,7 +4614,7 @@ interface AuthContextValue {
   sessionExpired: boolean;
   // 新規追加
   sessionExpiredDuringOperation: boolean;  // 操作中のセッション切れ（モーダル表示用）
-  handleReauthSuccess: () => void;         // 再認証成功時のハンドラー
+  handleReauthSuccess: (session: ReauthSession) => void; // 再認証成功時のハンドラー（パスワードのみ・2FA の両経路で同じ）
   navigateToLogin: () => void;             // ログイン画面遷移ハンドラー
 }
 ```
@@ -4624,12 +4629,13 @@ isInitialized === true の状態でリフレッシュ失敗
   → sessionExpiredDuringOperation = true（新規: モーダル方式）
 ```
 
+**再認証の API 呼び出し（モーダル側）:**
+- 再認証の API はモーダルが呼ぶ。パスワードのみの再認証（`POST /api/v1/auth/login`）と 2FA の再認証（`POST /api/v1/auth/verify-2fa`）のどちらでも、応答（`ReauthSession`：アクセストークンと有効期限・利用者）を同じ共通処理で `apiClient` へ置き、`handleReauthSuccess(session)` へ渡す。アクセストークンの無い応答は成功として扱わない（要件 30.9）
+
 **handleReauthSuccess の処理:**
-1. ログインAPI呼び出し（既存の `login` と同等）
-2. 新しいトークンの保存
-3. TokenRefreshManager の再初期化
-4. `sessionExpiredDuringOperation = false` に設定
-5. `apiClient` のトークンを更新
+1. 応答に利用者があれば、ログイン中の利用者を置き換える（無ければそのまま保つ）
+2. アクセストークンを `apiClient` へ置き、TokenRefreshManager を再初期化し、リフレッシュとセッション切れの経路を張り直す（ログイン時と同じ処理）
+3. `sessionExpiredDuringOperation = false` に設定する
 
 #### 3. API Client の変更
 
@@ -4789,7 +4795,7 @@ sequenceDiagram
     Modal->>BE: POST /api/v1/auth/login
     BE-->>Modal: 200 OK (accessToken + refreshToken)
 
-    Modal->>Auth: handleReauthSuccess()
+    Modal->>Auth: handleReauthSuccess(session)
     Auth->>Auth: トークン更新、TRM再初期化
     Auth->>Auth: sessionExpiredDuringOperation = false
     Auth->>Modal: モーダルを閉じる
@@ -4807,6 +4813,7 @@ sequenceDiagram
 sequenceDiagram
     actor User
     participant Modal as SessionExpiredModal
+    participant Auth as AuthContext
     participant BE as Backend
 
     User->>Modal: パスワード入力 + 再ログインボタン
@@ -4817,7 +4824,11 @@ sequenceDiagram
     User->>Modal: TOTPコード入力
     Modal->>BE: POST /api/v1/auth/verify-2fa
     BE-->>Modal: 200 OK (accessToken + refreshToken)
-    Modal->>Modal: 再認証成功 → モーダルを閉じる
+    Modal->>Modal: apiClient.setAccessToken(accessToken)
+    Modal->>Auth: handleReauthSuccess(session)
+    Auth->>Auth: トークン更新、TRM再初期化
+    Auth->>Auth: sessionExpiredDuringOperation = false
+    Auth->>Modal: モーダルを閉じる
 ```
 
 ### テスト設計
@@ -4850,3 +4861,1671 @@ sequenceDiagram
 | 30.16-30.17 | SessionExpiredModal エラーハンドリング |
 | 30.18-30.20 | SessionExpiredModal アクセシビリティ設計 |
 | 30.21 | SessionExpiredModal レスポンシブ対応 |
+
+---
+
+## Requirements 32-45: セキュリティ是正（IPA注意喚起 2026-10-09）
+
+### 概要
+
+本章は要件32〜45（2026-10-16 追加）の設計である。IPA の注意喚起（2026-10-09）を受けた監査で、認証基盤に次の三類の欠陥が見つかった。調査の記録と判断の詳細は `.kiro/specs/user-authentication/research.md` にある。
+
+1. **状態を持たない検証**: 2FA 検証がパスワード成功の証跡を求めない。トークンが種別・発行者・利用者を持たない。認証ミドルウェアが利用者の状態を見ない。
+2. **記録と保管の欠落**: 監査されない操作がある。監査ログが連鎖して消える。トークンが原文で保存・記録される。アーカイブ処理が配線されていない。
+3. **境界の開放**: 認証の無い管理用エンドポイントがある。偽装できる送信元識別がある。画面の配信にセキュリティヘッダーが無い。案件の閲覧範囲が無い。
+
+本章の判断は、本書の前半（要件1〜31 の設計）の該当箇所に優先する。前半で置き換わる記述の一覧は本章の「既存設計との関係」に置く。
+
+**利用者**: システム管理者（棚卸し、無効化、2FA の再設定、監査ログの確認と復元）、全ての利用者（2FA 必須のログイン、2FA の再登録）。
+
+**影響**: 全利用者のセッションが移行時に一度切れる（リフレッシュトークンの保存形式の変更）。全利用者が次回ログインで 2FA の登録を求められる（要件34）。
+
+### Goals
+
+- 2FA の検証をパスワード認証の直後の一回限りの資格に結び付け、TOTP の再利用を拒否する
+- アクセストークンとリフレッシュトークンを種別・発行者・利用者で区別し、リフレッシュトークンを HttpOnly Cookie とハッシュ保存に限定し、再利用を検知して系列ごと失効させる
+- 2FA を全利用者で必須にし、自己の無効化を禁じ、管理者による再設定と利用者による再登録を設ける
+- アカウントの無効化・再有効化・90 日の自動無効化と棚卸し画面を設ける
+- 案件の閲覧範囲の判定規則と適用の部品を提供する
+- 認証・アカウント操作・データ出力を監査し、監査ログを保全・アーカイブする
+- 送信元の識別、管理用エンドポイント、ログ・エラー応答、画面配信のヘッダー、メールキューを是正する
+- 異常を検知して管理者へ通知する
+
+### Non-Goals
+
+- 各業務機能（現場調査、数量表、内訳書、見積依頼、見積書、契約、工程表、実行予算、工事写真）への閲覧範囲の適用と出力の記録の呼び出し（各 spec が受入基準として持つ）
+- 案件そのもの以外の子リソースから案件 ID を引く解決関数（各業務 spec が持つ）
+- WebAuthn・パスキーなど TOTP 以外の第二要素
+- 外部の SIEM・ログ基盤の導入
+- tesseract.js の取得先の自前配信への切り替え
+- ~~ロールへの権限追加を実行者の保有する権限の範囲に限る制限（要件38 は全権限 `*:*` に限って定める）~~ 2026-10-26 の要件38.8 の追加（利用者の判断）により本章の範囲へ移した（PrivilegeCeilingPolicy の節）
+
+### Boundary Commitments
+
+#### This Spec Owns
+
+- 2FA 待ちの資格の発行・検証・消費と、TOTP の再利用の拒否
+- アクセストークン・リフレッシュトークンの形式、検証、保存、ローテーション、再利用検知、失効、Cookie の属性と CSRF の検査
+- 認証済みの要求ごとの利用者の状態（有効・2FA 登録・初回のパスワード変更）の照合と、状態による API の拒否
+- 2FA の必須化の画面遷移、自己の無効化の拒否、管理者による再設定、利用者による再登録
+- 送信元 IP の識別の規則と、認証系の試行回数の制限
+- アカウントの無効化・再有効化・自動無効化、最終ログイン日時の記録、棚卸しの API と画面
+- 招待・リセットのトークンの保存形式・提示方法・掃除、招待の取り消しの権限、初期管理者のパスワード検証と初回変更
+- ロール割り当て・権限追加の上限と、既定の権限（`user` から `user:read` を外す、`project:read_all` の新設）、担当者候補の API の応答項目
+- 案件の閲覧範囲の判定規則（`ProjectScopeService`）と、ID 指定の要求の判定部品（`requireProjectScope`）、範囲外アクセスの記録。案件そのもの（`/api/projects` の一覧・件数・詳細・更新・状態変更）への適用
+- 監査ログの記録対象の追加、改変の禁止、実行者の写しの保持、データ出力の記録の API とフロントの記録部品
+- 監査ログのアーカイブ・削除・復元と、定期処理の実行基盤
+- 管理用エンドポイントの保護、アクセスログ・エラー監視への送信内容、要求識別子、開発用機能の有効化の条件
+- 異常の検知と管理者への通知
+- 画面配信（nginx）のセキュリティヘッダーと、API の同一オリジンへの中継、アクセスログの形式
+- メールキューの接続と、ジョブの後始末
+
+#### Out of Boundary
+
+- 各業務機能の API への `requireProjectScope` の適用と、子リソースから案件 ID を引く解決関数（site-survey、project-management の画面、quantity-table-generation、itemized-statement-generation、estimate-request、estimate-creation、contract-management、construction-schedule、execution-budget-management、construction-photo の各 spec）
+- 各業務機能の出力処理からの記録の呼び出し（同上）
+- 署名 URL の発行処理（`SignedUrlService`、site-survey の所管）の判定の差し替え。本 spec は判定の関数を提供するだけである
+- 案件の画面・業務規則・担当者の変更の操作（project-management の所管）。担当者選択の部品は 36.6 の表示に限って変更する
+- 取引先・自社情報の権限と保持（trading-partner-management、company-info の所管）
+- 依存・CI・コンテナイメージ・シークレットの設定と運用作業（是正計画の D・O・W の項目）
+
+#### Allowed Dependencies
+
+- 既存の `RBACService.hasPermission`（Redis キャッシュ）による権限の判定
+- Prisma（PostgreSQL）、ioredis（`REDIS_URL`）、Bull v4（同じ `REDIS_URL`）、jose（EdDSA）、otplib、argon2、Node の `crypto`
+- 既存の `StorageProvider`（本番は R2）へのアーカイブの書き込み（site-survey が所有する抽象への依存。読み書きの API だけを使う）
+- 案件のモデルの `salesPersonId`・`constructionPersonId`・`createdById`・`deletedAt`（project-management が所有する列の読み取りだけ）
+- 依存の向き: Types → Config → Repository（Prisma）→ Service → Middleware → Routes。フロントは Types → API Client → Context → Components/Pages。逆向きの import は誤りとして扱う
+
+#### Revalidation Triggers
+
+- アクセストークン・リフレッシュトークンのクレームや Cookie の名前・Path の変更（全てのフロント・E2E の補助関数が影響を受ける）
+- `ProjectScopeService` の判定規則や `requireProjectScope` の署名の変更（全業務 spec の適用が影響を受ける）
+- 監査ログの記録 API（`ExportAuditService.record` と `POST /api/v1/audit-logs/exports`）の入力の変更（全業務 spec の出力の記録が影響を受ける）
+- 利用者の状態と許可する経路の表の変更（2FA 未登録・初回変更中に呼べる API が変わる）
+- nginx の中継の構成や `TRUST_PROXY_HOPS` の変更（送信元の識別と Cookie の送信が影響を受ける）
+- `users`・`audit_logs`・`refresh_tokens`・`invitations`・`password_reset_tokens` の列の変更
+
+### 既存設計との関係
+
+本章は本書の前半の次の記述に優先する。前半の記述は経緯の記録として残す。
+
+| 前半の節 | 置き換える内容 | 根拠の要件 |
+|---|---|---|
+| `#### トークンストレージ戦略`（Frontend Architecture）と `### トークンストレージ戦略`（Security Considerations） | アクセストークンはメモリだけに保持し、リフレッシュトークンは HttpOnly Cookie だけで扱う。localStorage には置かない | 33.8〜33.11 |
+| `#### 要件16A実装: 認証状態初期化時のUIチラつき防止` の localStorage からの復元 | Cookie によるリフレッシュで復元する | 33.11 |
+| `#### 決定2: トークンリフレッシュの自動化とRace Condition対策` のタブ間の同期 | Web Locks による直列化と BroadcastChannel による結果の配布 | 33.6、33.10 |
+| `### ログインフロー`・`### 二要素認証（2FA）設定フロー` | 2FA 待ちの資格を介した検証と、2FA 未登録時の設定画面への遷移 | 32、34 |
+| `#### TwoFactorService` の `disableTwoFactor` と API 表の `POST /api/v1/auth/2fa/disable` | 自己の無効化は拒否する。管理者による再設定と利用者による再登録に置き換える | 34.6、34.7、34.11 |
+| `### 監査ログの保持期間・ローテーション戦略` の保存先・暗号化 | アーカイブは `StorageProvider` へ AES-256-GCM で暗号化して保存し、鍵は本番で必須とする | 41 |
+| `### Physical Data Model（PostgreSQL）` の `audit_logs.actor_id` の外部キー | 外部キーを外し、実行者の写しを持つ | 40.7 |
+
+### Architecture
+
+#### 既存アーキテクチャとの統合
+
+既存の Express の要求の流れ（`httpLogger` → helmet → CORS → `apiLimiter` → ルーター → `authenticate` → `requirePermission` → `validate` → ハンドラー → `errorHandler`）を保つ。本章は次の点を差し込む。
+
+- `httpLogger` の要求識別子の生成とクエリの伏せ字、利用者 ID の付与
+- `authenticate` の後段での利用者の状態の照合
+- ID 指定の業務 API での `requireProjectScope`（`requirePermission` の後）
+- `errorHandler` と Sentry の送信内容の伏せ字、5xx の計数
+- 画面配信の nginx が `/api/` と `/csrf-token` を backend へ中継する
+
+```mermaid
+graph TB
+    Browser --> Nginx
+    Nginx --> StaticFiles
+    Nginx --> ExpressApp
+    ExpressApp --> HttpLogger
+    HttpLogger --> RateLimitPolicy
+    RateLimitPolicy --> AuthRoutes
+    RateLimitPolicy --> BusinessRoutes
+    AuthRoutes --> AuthService
+    AuthService --> TwoFactorChallengeService
+    AuthService --> TokenService
+    AuthService --> SessionService
+    BusinessRoutes --> AuthenticateMiddleware
+    AuthenticateMiddleware --> AuthenticatedUserStateService
+    AuthenticateMiddleware --> RequirePermission
+    RequirePermission --> ProjectScopeGuard
+    ProjectScopeGuard --> ProjectScopeService
+    ProjectScopeGuard --> SecurityAnomalyMonitor
+    AuthService --> AuditLogService
+    ExportAuditService --> AuditLogService
+    ScheduledJobRunner --> AuditLogArchiveService
+    ScheduledJobRunner --> AccountStatusService
+    ScheduledJobRunner --> TokenCleanupJob
+    SecurityAnomalyMonitor --> AdminNotificationService
+    AccountStatusService --> AdminNotificationService
+    AdminNotificationService --> EmailQueue
+    TwoFactorChallengeService --> Redis
+    AuthenticatedUserStateService --> Redis
+    SecurityAnomalyMonitor --> Redis
+    EmailQueue --> Redis
+    ScheduledJobRunner --> Redis
+    AuditLogArchiveService --> ObjectStorage
+```
+
+**Key Decisions**:
+- 利用者の状態の照合は `authenticate` の中で行い、`requirePermission` より前に拒否する（2FA 未登録・無効化の利用者に権限の判定を走らせない）
+- 範囲外の案件への ID 指定のアクセスは、存在しない案件と同じ 404 の本文を返す（`NotFoundError` と同じ Problem Details）
+- 画面と API を同一オリジンにし、Cookie を `SameSite=Strict` のまま使う
+
+#### Technology Stack
+
+| Layer | Choice / Version | Role in Feature | Notes |
+|-------|------------------|-----------------|-------|
+| Backend | Express 5、jose（EdDSA）、otplib、argon2 | トークンの種別・発行者・利用者の検証、TOTP のステップの記録 | 新規の依存なし |
+| Backend | express-rate-limit 8.5.2 | 認証系の専用の制限、`req.ip` による識別 | `trust proxy` を段数の数値にする |
+| Data | PostgreSQL 15、Prisma | 利用者の状態の列、トークンのハッシュ列、監査ログの改変を禁じるトリガー | トリガーは Prisma の移行に生の SQL で置く |
+| Cache / Queue | Redis 7、ioredis 5.10.1、Bull 4.16.5 | 2FA 待ちの資格、利用者の状態のキャッシュ、異常検知の計数、メールキュー、繰り返しジョブ | 全て `REDIS_URL` で接続する |
+| Storage | 既存の `StorageProvider`（R2） | 監査ログのアーカイブ | 接頭辞 `audit-archives/` |
+| Frontend | React 19、Web Locks API、BroadcastChannel | メモリだけのアクセストークン、タブ間のリフレッシュの直列化 | 新規の依存なし |
+| Web server | nginx（`nginx:alpine`） | セキュリティヘッダー、API の中継、アクセスログの形式 | テンプレートの環境変数で CSP の取得先を渡す |
+
+### File Structure Plan
+
+#### 新設するファイル
+
+タスク44〜56 の実装で作ったファイルを実在のパスで記す（2026-10-25、タスク57.2）。計画の段階で一本とした DB の移行は、適用済みの移行を書き換えないため、タスクごとの移行に分けた（次の表の末尾と「移行」の節）。計画の段階で置いた三つの名前は、実装で次のとおりになった: 異常の検知は `backend/src/services/security-anomaly-monitor.service.ts`、保存用の SHA-256 は単独のファイルを設けず各所（`backend/src/services/session.service.ts`、`backend/src/utils/invitation-token.ts`、`backend/src/utils/password-reset-token.ts`、`backend/src/services/two-factor-challenge.service.ts`）に置き、記録してから出力する包み `runRecordedExport` は `frontend/src/api/export-audit.ts` に置いた。
+
+| ファイル | 役割 |
+|---|---|
+| `backend/src/config/runtime-mode.ts` | 開発用機能の有効化の判定（`NODE_ENV` の明示だけを見る）と本番の前提の検査 |
+| `backend/src/config/jwt-claims.ts` | トークンの発行者・想定利用者の既定値 |
+| `backend/src/config/security-alert.ts` | 異常の検知の閾値・時間窓・抑止の時間の既定値と環境変数の検証 |
+| `backend/src/services/two-factor-challenge.service.ts` | 2FA 待ちの資格の発行・照会・消費（Redis） |
+| `backend/src/services/authenticated-user-state.service.ts` | 利用者の状態の取得とキャッシュの無効化 |
+| `backend/src/services/authenticated-user-state-cache.ts` | 利用者の状態のキャッシュ（Redis の鍵と世代の照合） |
+| `backend/src/services/account-status.service.ts` | 無効化・再有効化・自動無効化、上限を超えるユーザーの無効化・再有効化の拒否（38.13） |
+| `backend/src/services/user-inventory.service.ts` | 棚卸しの一覧と絞り込み |
+| `backend/src/services/privilege-ceiling.ts` | ロール割り当て・権限追加・他のユーザーの管理の上限の判定 |
+| `backend/src/services/project-scope.service.ts` | 案件の閲覧範囲の判定と一覧の絞り込み条件 |
+| `backend/src/services/export-audit.service.ts` | データ出力の記録 |
+| `backend/src/services/admin-notification.service.ts` | 全システム管理者への通知 |
+| `backend/src/services/security-anomaly-monitor.service.ts` | 時間窓の計数と閾値の判定・通知の抑止 |
+| `backend/src/jobs/scheduled-job-runner.ts` | Bull の繰り返しジョブの登録と実行 |
+| `backend/src/jobs/inactive-user-deactivation.job.ts` | 90 日の自動無効化 |
+| `backend/src/jobs/expired-token-cleanup.job.ts` | 使用済み・期限切れのトークンの消去 |
+| `backend/src/jobs/failed-email-job-cleanup.job.ts` | メールキューの失敗のジョブの掃除（45.3） |
+| `backend/src/jobs/audit-log-archive.job.ts` | 月次のアーカイブと 8 年を過ぎたアーカイブの消去 |
+| `backend/src/jobs/security-anomaly-overflow-summary.job.ts` | 異常の通知の総数の上限で送らなかった通知（溢れ分）の要約の定期処理（`*/10 * * * *`。43.9、タスク60.1） |
+| `backend/src/middleware/project-scope.middleware.ts` | `requireProjectScope` |
+| `backend/src/middleware/client-ip.ts` | `req.ip` による送信元の識別（`getClientIp`） |
+| `backend/src/routes/user-inventory.routes.ts` | 棚卸し・無効化・再有効化・2FA の再設定、上限を超えるユーザーへの操作の拒否と異常の検知への観測（38.13、43.2） |
+| `backend/src/schemas/export-audit.schema.ts` | 出力の記録の要求本文の検証 |
+| `backend/src/schemas/audit-log-archive-restore.schema.ts` | アーカイブの復元の要求本文の検証 |
+| `backend/src/scripts/reactivate-user.ts` | 再有効化の運用スクリプト（サーバー上で実行） |
+| `backend/src/templates/admin-notification-email.hbs` | 管理者への通知のメールのテンプレート |
+| `backend/src/utils/audit-text.ts` | 監査に書く入力由来の値の切り詰め（`boundAuditText`）と上限の定数 |
+| `backend/src/utils/audit-log-archive-permission.ts` | 監査ログの行の消去を、アーカイブの許可の設定を置いた取引の中で行う補助 |
+| `backend/src/utils/invitation-token.ts` | 招待のトークンのハッシュと招待 URL（フラグメントの形）の組み立て |
+| `backend/src/utils/password-reset-token.ts` | リセットのトークンのハッシュとリセットのリンク（フラグメントの形）の組み立て |
+| `backend/src/utils/refresh-token-lock.ts` | 利用者ごとのリフレッシュトークンの勧告ロック（`lockUserRefreshTokens`）と取引の中の全失効 |
+| `backend/src/utils/sentry-request-context.ts` | Sentry へ送る要求の文脈（経路・メソッド・要求識別子・利用者 ID） |
+| `backend/src/utils/url-query-redaction.ts` | URL のクエリの伏せ字（HttpLogger と Sentry で共通） |
+| `frontend/src/api/export-audit.ts` | 出力の記録の API 呼び出しと、記録してから出力する包み（`runRecordedExport`） |
+| `frontend/src/api/user-inventory.ts` | 棚卸しの API 呼び出し |
+| `frontend/src/hooks/useUrlToken.ts` | 招待・リセットのリンクのトークンを URL から読み、URL から取り除く |
+| `frontend/src/pages/UserInventoryPage.tsx` | 棚卸し画面 |
+| `frontend/src/pages/SetupPasswordPage.tsx` | 初回のパスワード変更の画面（`/setup/password`） |
+| `frontend/src/components/PasswordChangeSection.tsx` | パスワード変更の区画（プロフィールと初回変更の画面で共通） |
+| `frontend/src/components/TwoFactorReenrollForm.tsx` | 2FA の再登録の手順 |
+| `frontend/src/components/TwoFactorBackupCodes.tsx` | バックアップコードの表示 |
+| `frontend/src/utils/audit-log-actions.ts` | 監査ログの種別の表示名と実行者の表示 |
+| `frontend/src/utils/user-restriction.ts` | 利用者の状態による遷移の制限の判定 |
+| `frontend/src/utils/zod-csp-config.ts` | Zod の JIT を止め、CSP の下で eval の試行による違反を起こさない（44.4） |
+| `frontend/src/utils/url-query-redaction.ts` | 画面側の Sentry へ送る URL のクエリとフラグメントの伏せ字（backend の同名の規則の写し） |
+| `frontend/nginx-security-headers.conf` | セキュリティヘッダーの取り込みファイル（テンプレート） |
+| `frontend/nginx-proxy-params.conf` | API の中継の共通の設定 |
+| `frontend/nginx-require-backend-internal-url.sh` | 中継先 `BACKEND_INTERNAL_URL` の起動前の検査 |
+| `e2e/helpers/auth-api.ts` | E2E のアクセストークンの取得とログイン API の呼び出しの補助 |
+| `e2e/helpers/shared-sessions.ts` | 共有の役割のセッションの保持と受け渡し |
+| `e2e/helpers/two-factor-totp.ts` | TOTP の計算と最後に使った時間ステップの巻き戻し |
+| `e2e/helpers/user-state-cache.ts` | 利用者の状態のキャッシュの無効化 |
+| `e2e/helpers/mailpit.ts` | 試験のメールの受信箱の読み取り |
+| `e2e/helpers/frontend-security-headers.ts` | 画面の配信のセキュリティヘッダーの観測 |
+| `backend/prisma/migrations/20261017000000_security_remediation_ipa_20261009_user_status/migration.sql` | 利用者の状態の列・招待者・索引（タスク44.1） |
+| `backend/prisma/migrations/20261017010000_security_remediation_ipa_20261009_audit_log_protection/migration.sql` | 監査ログの実行者の写しと改変を禁じるトリガー（タスク44.2） |
+| `backend/prisma/migrations/20261017020000_security_remediation_ipa_20261009_default_permissions/migration.sql` | 既定の権限の改め（タスク44.4） |
+| `backend/prisma/migrations/20261018000000_security_remediation_ipa_20261009_invitation_token_nullable/migration.sql` | 招待のトークンの列に空を許す（タスク44.9） |
+| `backend/prisma/migrations/20261018010000_security_remediation_ipa_20261009_refresh_token_family/migration.sql` | リフレッシュトークンのハッシュ・系列（タスク45.2） |
+| `backend/prisma/migrations/20261022000000_security_remediation_ipa_20261009_access_token_generation/migration.sql` | アクセストークンの世代（タスク47.11） |
+| `backend/prisma/migrations/20261022010000_security_remediation_ipa_20261009_reactivated_at/migration.sql` | 最後の再有効化の日時（タスク49.4） |
+| `backend/prisma/migrations/20261023000000_security_remediation_ipa_20261009_invitation_token_hash/migration.sql` | 招待のトークンのハッシュ保存（タスク50.1） |
+| `backend/prisma/migrations/20261023010000_security_remediation_ipa_20261009_password_reset_token_hash/migration.sql` | リセットのトークンのハッシュ保存（タスク50.2） |
+
+#### 変更するファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `backend/prisma/schema.prisma` | `User` に状態の列、`RefreshToken`・`Invitation`・`PasswordResetToken` にハッシュ列、`AuditLog` の実行者の写しと外部キーの解除、`Project` に検索用の索引 |
+| `backend/src/config/env.ts` | `TRUST_PROXY_HOPS`・`JWT_ISSUER`・`JWT_AUDIENCE`・`ARCHIVE_ENCRYPTION_KEY`・`SECURITY_ALERT_*`・`REFRESH_COOKIE_*` の検証。本番で必須の変数の追加 |
+| `backend/src/config/security.constants.ts` | リセットの有効期限を 1 時間に一本化、2FA 待ちの資格・自動無効化の日数・異常検知の既定値 |
+| `backend/src/app.ts` | `trust proxy` を段数の数値に、CORS の許可ヘッダーに `X-CSRF-Token`、管理用ルートを `/api/v1/admin` へ、API ドキュメントの有効化の条件 |
+| `backend/src/index.ts` | 起動時の本番の前提の検査（アーカイブの鍵）、繰り返しジョブの登録 |
+| `backend/src/routes/auth.routes.ts` | ログイン・2FA 検証の応答、Cookie による refresh・logout、CSRF の適用、専用の制限、本文からリフレッシュトークンを外す、検証の POST 化 |
+| `backend/src/routes/admin.routes.ts` | 認証・権限の検査と監査の記録 |
+| `backend/src/routes/invitation.routes.ts` | 一覧の応答からトークンを外す、検証の POST 化、取り消しの権限 |
+| `backend/src/routes/user-roles.routes.ts` | ユーザーを消す要求の事前の監査、上限の検査の呼び出し、上限を超えるロールの割り当ての解除の拒否と異常の検知への観測（38.9、43.2）、上限を超えるユーザーを消す要求の拒否と観測（38.13） |
+| `backend/src/routes/roles.routes.ts` | システムロールの名前の変更の拒否、全権限の追加の上限、ロールの作成・優先度の変更の上限と範囲の検証、保有しない権限の追加の拒否、上限より上のロールの変更・消去とシステムロールの優先度の変更の拒否と異常の検知への観測（38.6〜38.8、38.10〜38.12、43.2） |
+| `backend/src/routes/users.routes.ts` | 担当者候補を有効な利用者の ID と表示名に限る |
+| `backend/src/routes/audit-log.routes.ts` | 出力の記録 API、アーカイブの復元 API |
+| `backend/src/routes/projects.routes.ts` | 案件の一覧・件数・詳細・更新・状態変更への閲覧範囲の適用 |
+| `backend/src/services/auth.service.ts` | 2FA 待ちの資格、状態による拒否、最終ログインの記録、ログインの監査、DB 障害の汎用化 |
+| `backend/src/services/token.service.ts` | 種別・発行者・利用者のクレームと検証 |
+| `backend/src/services/session.service.ts` | ハッシュ保存、系列、再利用検知、ログアウトの失効 |
+| `backend/src/services/two-factor.service.ts` | 再利用の拒否、固定値の受理を取り除く、自己の無効化の拒否、管理者の再設定、再登録、上限を超えるユーザーの再設定の拒否（38.13） |
+| `backend/src/services/password.service.ts` | ハッシュ保存、有効期限 1 時間、要求ごとの制限、登録の有無を推測させない応答 |
+| `backend/src/services/invitation.service.ts` | ハッシュ保存、一覧の項目、取り消しの権限、監査の記録 |
+| `backend/src/services/user-role.service.ts` | 上限の検査、利用者を消す前の監査、通知の一般化への置き換え、割り当ての解除の上限（38.9）、上限を超える利用者を消す要求の拒否（38.13） |
+| `backend/src/services/role-permission.service.ts` | 全権限の追加の上限、保有しない権限の追加の上限（38.8）、上限より上のロールの権限の追加・消去の拒否（38.11） |
+| `backend/src/services/role.service.ts` | システムロールの名前の変更の拒否、ロールの作成・優先度の変更の上限（38.6、38.7）、上限より上のロールの変更・消去の拒否（38.11）、システムロールの優先度の変更の拒否（38.12） |
+| `backend/src/schemas/auth-update.schema.ts` | `updateRoleSchema` の `priority` の上限（38.10） |
+| `backend/src/services/privilege-ceiling.ts` | 優先度の上限の判定の追加（作成・優先度の変更・割り当ての解除・上限より上のロールの変更と消去）、保有しない権限の追加の判定、システムロールの優先度の変更の判定、範囲の上限の定数、他のユーザーの管理の判定（38.6〜38.13。2026-10-26 の要件38 の拡張） |
+| `backend/src/services/security-anomaly-monitor.service.ts` | データ出力の通知の抑止を利用者ごとに、通知の総数の上限と溢れ分の記録・添え書き・要約（43.8、43.9） |
+| `backend/src/config/security-alert.ts` | 通知の総数の上限と時間窓の既定値と環境変数（43.9） |
+| `backend/src/jobs/scheduled-job-runner.ts` | 溢れ分の要約のジョブ `security-anomaly-overflow-summary` の登録（43.9） |
+| `backend/src/services/audit-log.service.ts` | 実行者の写し、記録対象の追加、改変の拒否 |
+| `backend/src/services/audit-log-archive.service.ts` | 保存先を `StorageProvider` に、gzip と AES-256-GCM、件数とハッシュの付与、復元、失敗時の保全 |
+| `backend/src/services/email.service.ts` | `REDIS_URL` による接続、ジョブの後始末、接続失敗の通知 |
+| `backend/src/middleware/authenticate.middleware.ts` | アクセストークンの種別の検証と利用者の状態の照合 |
+| `backend/src/middleware/csrf.middleware.ts` | 試験環境での素通りを外し、Origin の照合を加える |
+| `backend/src/middleware/rateLimit.middleware.ts` | `req.ip` による識別、専用の制限、本番での無効化設定の無視、Redis 障害時のメモリへの退避 |
+| `backend/src/middleware/RedisRateLimitStore.ts` | 障害時に制限を無効にせず退避先へ渡す |
+| `backend/src/middleware/logger.middleware.ts` | 要求識別子のサーバー生成、クエリの伏せ字、利用者 ID |
+| `backend/src/middleware/errorHandler.middleware.ts` | Sentry へ要求本文を送らない、5xx の計数 |
+| `backend/src/utils/sentry.ts` | `beforeSend` の伏せ字 |
+| `backend/src/utils/seed-helpers.ts` | 初期管理者のパスワード検証と初回変更、既定の権限 |
+| `backend/src/types/audit-log.types.ts` | 監査の種別の追加 |
+| `backend/src/types/express.d.ts` | `req.user` に `id` と状態を足す |
+| `frontend/src/api/client.ts` | アクセストークンをメモリだけに保持、CSRF ヘッダー、Cookie によるリフレッシュ |
+| `frontend/src/api/auth.ts` | 2FA 待ちの資格を伴う検証、本文にリフレッシュトークンを送らない |
+| `frontend/src/contexts/AuthContext.tsx` | localStorage を使わない復元、2FA 未登録・初回変更の状態、再認証の応答でのセッションの立て直し |
+| `frontend/src/utils/sentry.ts` | breadcrumb・事象・トレース・リプレイの URL のトークンの伏せ字 |
+| `frontend/src/services/TokenRefreshManager.ts` | Web Locks による直列化 |
+| `frontend/src/components/ProtectedRoute.tsx` | 2FA 未登録・初回変更中の遷移の制限 |
+| `frontend/src/components/TwoFactorVerificationForm.tsx` | 資格を伴う検証 |
+| `frontend/src/components/SessionExpiredModal.tsx` | localStorage への書き込みを取り除く、パスワードのみと 2FA の再認証を同じ処理でセッションの立て直しへ渡す |
+| `frontend/src/components/schedule/ExportDialog.tsx` | API クライアント経由の取得に揃える |
+| `frontend/src/components/projects/UserSelect.tsx` | 無効化された担当者の表示名の表示、localStorage を読まない |
+| `frontend/src/components/InvitationManager.tsx` | 作成直後だけ招待 URL を表示、他者の招待の取り消し |
+| `frontend/src/utils/audit-log-actions.ts` | 対象の欄の表示 `getAuditLogTargetLabel`（招待の記録は招待先のメールアドレス。40.12） |
+| `frontend/src/pages/AuditLogs.tsx` | 対象の欄を `getAuditLogTargetLabel` で表示（40.12） |
+| `frontend/src/components/AuditLogViewer.tsx` | 同上 |
+| `frontend/src/pages/TwoFactorSetupPage.tsx` | 必須の登録と再登録の手順 |
+| `frontend/src/pages/Profile.tsx` | 2FA の無効化の操作を取り除き、再登録への導線に替える |
+| `frontend/src/pages/RegisterPage.tsx` | URL のフラグメントからトークンを読む、POST の検証 |
+| `frontend/src/pages/PasswordResetPage.tsx` | 同上 |
+| `frontend/src/routes.tsx` | 棚卸し画面と初回のパスワード変更画面（`/setup/password`）のルート |
+| `backend/package.json` | 再有効化スクリプトの実行コマンド（`user:reactivate`） |
+| `frontend/nginx.conf` | セキュリティヘッダー、`server_tokens off`、API の中継、アクセスログの形式 |
+| `frontend/Dockerfile` | CSP の取得先・HSTS・中継先の環境変数と起動前の検査、統計の出力物を配信物から外す |
+| `docker-compose.test.yml` | frontend の `VITE_API_URL` を画面と同じオリジンに、`BACKEND_INTERNAL_URL` を backend のサービスに |
+| `docker-compose.ci.yml` | 同上 |
+| `e2e/requirement-exclusions.json` | 40.10・40.11 の `pending-implementation` の登録（site-survey の適用で外す。2026-10-27 のタスク 119.2 で外した） |
+| `e2e/global-setup.ts` | 役割ごとのログインとセッションの保持 |
+| `e2e/helpers/auth-actions.ts` | TOTP の計算、セッションの受け渡しと回収 |
+
+### System Flows
+
+#### 2FA を伴うログイン（要件32・34・35・40）
+
+```mermaid
+sequenceDiagram
+    participant U as Browser
+    participant A as AuthRoutes
+    participant S as AuthService
+    participant C as TwoFactorChallengeService
+    participant T as TwoFactorService
+    participant R as Redis
+    U->>A: POST login email password
+    A->>S: login
+    S->>S: password verify and status check
+    alt 2FA registered
+        S->>C: issue userId
+        C->>R: SET challenge hash TTL 300
+        A-->>U: 200 requires2FA challengeToken
+        U->>A: POST verify-2fa challengeToken code
+        A->>C: peek challengeToken
+        C-->>A: userId
+        A->>T: verifyTOTP with step record
+        T-->>A: ok
+        A->>C: consume challengeToken
+        C->>R: DEL returns 1
+        A-->>U: 200 accessToken and Set-Cookie refresh
+    else 2FA not registered
+        A-->>U: 200 accessToken and Set-Cookie refresh and twoFactorSetupRequired
+        U->>U: navigate to 2FA setup
+    end
+```
+
+- ログインの応答は `userId` を含まない（42.7）。2FA 待ちの資格は 2FA 登録済みの利用者にだけ発行する
+- 検証が失敗しても資格は消費しない（期限内の再試行を認める）。失敗は既存のアカウント単位のロックと送信元単位の制限（35.3）で抑える
+- `consume` の `DEL` が 0 を返したとき（同時の二重成功）はトークンを発行しない（32.4）
+
+#### リフレッシュとローテーション（要件33）
+
+```mermaid
+sequenceDiagram
+    participant Tab as Browser Tab
+    participant L as WebLocks
+    participant A as AuthRoutes
+    participant SS as SessionService
+    Tab->>L: request architrack-auth-refresh
+    L-->>Tab: granted
+    Tab->>A: POST refresh with Cookie and X-CSRF-Token
+    A->>A: csrf and origin check
+    A->>SS: rotate tokenHash
+    alt active token
+        SS->>SS: mark replaced and create successor in same family
+        A-->>Tab: 200 accessToken and Set-Cookie successor
+        Tab->>Tab: broadcast accessToken to other tabs
+    else replaced token presented
+        SS->>SS: revoke whole family
+        A-->>Tab: 401 and clear Cookie
+    end
+    Tab->>L: release
+```
+
+#### 利用者の状態の照合（要件33・34・36・37）
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active
+    Active --> PasswordChangeRequired: initial admin seeded
+    PasswordChangeRequired --> TwoFactorSetupRequired: password changed and relogin
+    Active --> TwoFactorSetupRequired: 2FA not registered or reset by admin
+    TwoFactorSetupRequired --> Active: 2FA enabled
+    Active --> Deactivated: admin deactivates or 90 days inactive
+    TwoFactorSetupRequired --> Deactivated: admin deactivates or 90 days inactive
+    Deactivated --> Active: admin reactivates
+```
+
+| 状態 | 許可する API | それ以外への応答 |
+|---|---|---|
+| Active | 全て（権限の判定に従う） | — |
+| PasswordChangeRequired | `POST /api/v1/auth/password/change`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/logout-all` | 403 `PASSWORD_CHANGE_REQUIRED` |
+| TwoFactorSetupRequired | `POST /api/v1/auth/2fa/setup`、`POST /api/v1/auth/2fa/enable`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/logout-all` | 403 `TWO_FACTOR_SETUP_REQUIRED` |
+| Deactivated | なし（ログイン・リフレッシュも拒否） | 401 `ACCOUNT_DISABLED`（ログイン時は通常の認証エラーと同じ本文） |
+
+- 状態の優先順位は Deactivated → PasswordChangeRequired → TwoFactorSetupRequired → Active とする
+- 初回のパスワード変更を要する利用者は 2FA も未登録だが、要件34.2 の例外によりパスワード変更だけを許す。変更の完了で全リフレッシュトークンが失効し（要件7.5）、再ログインの後は TwoFactorSetupRequired になる（要件34.1）
+- 制限中の利用者は `GET /api/v1/auth/me` も呼べない（要件34.2 の許可の範囲外）。画面が状態を知るため、ログイン・リフレッシュ・2FA の検証・2FA の有効化・パスワード変更の応答に `AuthUserView`（`twoFactorEnabled`・`mustChangePassword` を含む）を載せる
+- 無効化された利用者のログインは、パスワードの正否に関わらず通常の認証エラー（`INVALID_CREDENTIALS`）と同じ本文で拒否する（36.2。存在や状態を推測させない）
+
+#### 監査ログのアーカイブ（要件41）
+
+```mermaid
+sequenceDiagram
+    participant J as ScheduledJobRunner
+    participant AR as AuditLogArchiveService
+    participant DB as PostgreSQL
+    participant OS as ObjectStorage
+    participant N as AdminNotificationService
+    J->>AR: archiveMonth target month
+    AR->>DB: select logs of month older than 13 months
+    AR->>AR: gzip and AES-256-GCM and manifest with count and sha256
+    AR->>OS: put archive and manifest
+    AR->>OS: get and verify manifest
+    alt verified
+        AR->>DB: delete archived rows under archive flag in one transaction
+    else failure
+        AR->>N: notify all admins
+    end
+```
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|---|---|---|---|---|
+| 7.3 | リセットの有効期限を 1 時間 | PasswordService | `POST /api/v1/auth/password/reset-request` | — |
+| 32.1-32.5 | 2FA 待ちの資格の発行・要求・期限・一回限り・取り違えの拒否 | TwoFactorChallengeService, AuthService | `POST /api/v1/auth/login`、`POST /api/v1/auth/verify-2fa` | 2FA を伴うログイン |
+| 32.6 | バックアップコードも同じ資格を要求 | TwoFactorChallengeService, TwoFactorService | `POST /api/v1/auth/verify-2fa/backup` | 2FA を伴うログイン |
+| 32.7 | TOTP の再利用の拒否 | TwoFactorService | `TwoFactorService.verifyTOTP` | 2FA を伴うログイン |
+| 33.1 | アクセストークン以外を保護 API で拒否 | TokenService, AuthenticateMiddleware | `authenticate` | 利用者の状態の照合 |
+| 33.2 | リフレッシュトークン以外での refresh を拒否 | TokenService, AuthService | `POST /api/v1/auth/refresh` | リフレッシュとローテーション |
+| 33.3 | 発行者・想定利用者の検証 | TokenService | `TokenService.verifyToken` | — |
+| 33.4-33.7 | ログアウト・全失効・再利用検知・ハッシュ保存 | SessionService, AuthService, PasswordService | `POST /api/v1/auth/logout`、`POST /api/v1/auth/logout-all` | リフレッシュとローテーション |
+| 33.8, 33.10 | HttpOnly Cookie だけ・永続ストレージに置かない | ApiClient, TokenRefreshManager, AuthContext | `apiClient`、`TokenRefreshManager` | リフレッシュとローテーション |
+| 33.9 | 応答本文にリフレッシュトークンを含めない | AuthService | 認証系の応答 | — |
+| 33.11 | 再読み込み時の復元 | AuthContext | `AuthContext` の初期化 | リフレッシュとローテーション |
+| 33.12 | Cookie で受ける状態変更の CSRF 検証 | CsrfProtection | `csrfProtection` | リフレッシュとローテーション |
+| 34.1, 34.5 | 2FA 未登録・招待登録の直後に設定画面へ | AuthContext, ProtectedRoute | `ProtectedRoute` | 利用者の状態の照合 |
+| 34.2 | 2FA 未登録の API を 403 | AuthenticateMiddleware | `authenticate` | 利用者の状態の照合 |
+| 34.3, 34.8 | 2FA 未登録・再設定後は設定画面だけ | ProtectedRoute | `ProtectedRoute` | 利用者の状態の照合 |
+| 34.4 | 設定完了後に通常の遷移先へ | TwoFactorSetupPage | `TwoFactorSetupPage` | 利用者の状態の照合 |
+| 34.6 | 自己の無効化の拒否 | TwoFactorService, ProfilePage | `POST /api/v1/auth/2fa/disable` | — |
+| 34.7, 34.9, 34.10 | 管理者による再設定・自己の再設定の拒否・監査 | TwoFactorService, UserInventoryPage | `POST /api/v1/users/:id/2fa/reset` | — |
+| 34.11 | TOTP による再登録 | TwoFactorService, TwoFactorSetupPage | `POST /api/v1/auth/2fa/reenroll/start`、`POST /api/v1/auth/2fa/reenroll/confirm` | — |
+| 35.1, 35.2 | 信頼する中継装置の情報だけで識別・記録 | ClientIpResolver, RateLimitPolicy | `getClientIp` | — |
+| 35.3-35.5 | 2FA 検証・リセット・登録の制限 | RateLimitPolicy | 専用の制限 | — |
+| 35.6 | 本番で無効化設定を無視 | RateLimitPolicy, RuntimeMode | `isRateLimitBypassAllowed` | — |
+| 35.7 | 登録の有無を推測させない応答 | PasswordService | `POST /api/v1/auth/password/reset-request` | — |
+| 36.1, 36.3, 36.5 | 無効化・再有効化・自己と最後の管理者の保護 | AccountStatusService, AuthenticateMiddleware | `POST /api/v1/users/:id/deactivate`、`POST /api/v1/users/:id/reactivate` | 利用者の状態の照合 |
+| 36.2, 36.7 | 無効化者のログイン拒否・最終ログインの記録 | AuthService | `POST /api/v1/auth/login` | 利用者の状態の照合 |
+| 36.4, 36.9 | 通知と監査 | AccountStatusService, AdminNotificationService | `notifyAllAdmins` | — |
+| 36.6 | 無効化された担当者の表示名の表示 | UserSelect | `UserSelect` | — |
+| 36.8 | 90 日の自動無効化 | AccountStatusService, ScheduledJobRunner | `inactive-user-deactivation` | — |
+| 36.10, 36.11 | 棚卸しの表示と絞り込み | UserInventoryPage, UserInventoryService | `GET /api/v1/users/inventory` | — |
+| 36.12 | 一般ユーザーへの 403 | UserInventoryService | `GET /api/v1/users/inventory` | — |
+| 37.1 | トークンのハッシュ保存 | InvitationService, PasswordService | 招待・リセットの作成 | — |
+| 37.2, 37.5 | 一覧にトークンを含めない・作成者以外の取り消し | InvitationService, InvitationManager | `GET /api/v1/invitations`、`DELETE /api/v1/invitations/:id` | — |
+| 37.3 | 記録にトークンを残さない | HttpLogger, FrontendNginxConfig, RegisterPage, PasswordResetPage | `POST /api/v1/invitations/verify`、`POST /api/v1/auth/password/verify-reset` | — |
+| 37.4, 37.8 | 使用済み・期限切れのトークンの消去 | TokenCleanupJob, ScheduledJobRunner | `expired-token-cleanup` | — |
+| 37.6 | 初期管理者のパスワード検証 | InitialAdminSeeder | `seedAdminUser` | — |
+| 37.7 | 初回ログインのパスワード変更の強制 | ProtectedRoute, AuthContext | `ProtectedRoute` | 利用者の状態の照合 |
+| 38.1-38.3 | 割り当て・全権限・システムロール名の上限 | PrivilegeCeilingPolicy | `assertCanAssignRole`、`assertCanGrantPermission` | — |
+| 38.6, 38.7, 38.10 | ロールの作成・優先度の変更の上限と範囲 | PrivilegeCeilingPolicy | `assertCanSetRolePriority`、`POST /api/v1/roles`、`PATCH /api/v1/roles/:id` | — |
+| 38.11 | 上限より上のロールの変更・削除の拒否 | PrivilegeCeilingPolicy | `assertCanModifyRole`、`PATCH /api/v1/roles/:id`、`POST /api/v1/roles/:id/permissions`、`DELETE /api/v1/roles/:id/permissions/:permissionId`、`DELETE /api/v1/roles/:id` | — |
+| 38.12 | システムロールの優先度の変更の拒否 | PrivilegeCeilingPolicy | `assertCanChangeRolePriority`、`PATCH /api/v1/roles/:id` | — |
+| 38.8 | 保有しない権限の追加の拒否 | PrivilegeCeilingPolicy | `assertCanGrantPermission`、`POST /api/v1/roles/:id/permissions` | — |
+| 38.9 | 上限を超えるロールの割り当ての解除の拒否 | PrivilegeCeilingPolicy, UserRoleService | `assertCanRevokeRole`、`DELETE /api/v1/users/:id/roles/:roleId` | — |
+| 38.13 | 上限を超えるユーザーの削除・無効化・再有効化・2FAの再設定の拒否 | PrivilegeCeilingPolicy, UserRoleService, AccountStatusService, TwoFactorService | `assertCanManageUser`、`DELETE /api/v1/users/:id`、`POST /api/v1/users/:id/deactivate`、`POST /api/v1/users/:id/reactivate`、`POST /api/v1/users/:id/2fa/reset` | — |
+| 38.4 | 一般ユーザーの既定権限から一覧の閲覧を外す | DefaultPermissionSeed | `seedRolePermissions` | — |
+| 38.5 | 担当者候補は ID と表示名だけ | AssignableUsersEndpoint | `GET /api/users/assignable` | — |
+| 39.1, 39.3, 39.4, 39.6 | 判定の規則・一覧の絞り込み・ファイル URL・担当者の変更の反映 | ProjectScopeService, ProjectScopeGuard | `canAccessProject`、`buildProjectScopeWhere` | — |
+| 39.2 | 範囲外の ID 指定に 404 | ProjectScopeGuard | `requireProjectScope` | — |
+| 39.5 | システム管理者の既定に全案件閲覧 | DefaultPermissionSeed | `seedRolePermissions` | — |
+| 39.7 | 範囲外のアクセスの記録 | ProjectScopeGuard, SecurityAnomalyMonitor | `PROJECT_SCOPE_DENIED` | — |
+| 39.8 | 経路の案件と対象の実際の案件の食い違いは不在と同じ 404、実際の案件が範囲外なら記録 | ProjectScopeGuard | `requireProjectScope`、`projectMismatch`、`recordProjectMismatchIfOutOfScope` | — |
+| 40.1-40.5 | 認証・アカウント操作の監査 | AuthService, InvitationService, TwoFactorService, AuditLogService | `AuditLogService.createLog` | 2FA を伴うログイン |
+| 40.6 | 削除前の監査と失敗時の中止 | UserRoleService, AuditLogService | `DELETE /api/v1/users/:id` | — |
+| 40.7, 40.8 | 監査ログの保全と改変の拒否 | AuditLogService | `audit_logs` のトリガー | — |
+| 40.9 | 出力の記録 | ExportAuditService | `POST /api/v1/audit-logs/exports`、`ExportAuditService.record` | — |
+| 40.10, 40.11 | ブラウザの出力の事前記録と失敗時の中止 | ExportAuditClient | `runRecordedExport`、`runRecordedClipboardWrite` | — |
+| 40.12 | 招待の記録の対象に招待先のメールアドレス | AuditLogsPage | `getAuditLogTargetLabel` | — |
+| 41.1-41.6 | アーカイブ・消去・鍵の必須・改ざん検知・復元・失敗時の保全 | AuditLogArchiveService, ScheduledJobRunner, RuntimeMode, AdminNotificationService | `audit-log-archive`、`POST /api/v1/audit-logs/archives/restore` | 監査ログのアーカイブ |
+| 42.1, 42.2 | 運用設定の保護と監査 | AdminLogLevelEndpoint | `GET/POST /api/v1/admin/log-level` | — |
+| 42.3, 42.5, 42.6 | クエリの伏せ字・要求識別子・利用者 ID | HttpLogger | `httpLogger` | — |
+| 42.4 | エラー監視へ機密を送らない | SentryScrubber, ErrorHandler | `beforeSend` | — |
+| 42.7 | ログイン失敗の応答にユーザー ID を含めない | AuthService | `POST /api/v1/auth/login` | 2FA を伴うログイン |
+| 42.8 | DB 障害の詳細を返さない | AuthService, ErrorHandler | 認証系の応答 | — |
+| 42.9 | 実行環境の指定が無いときの開発用機能 | RuntimeMode | `isDevelopmentFeatureEnabled` | — |
+| 43.1-43.2, 43.4-43.7 | 異常の検知・通知の内容・抑止・設定 | SecurityAnomalyMonitor, AdminNotificationService, ExportAuditService | `SecurityAnomalyMonitor.observe` | — |
+| 43.3 | 429・5xx の急増 | SecurityAnomalyMonitor, RateLimitPolicy, ErrorHandler | `SecurityAnomalyMonitor.observe` | — |
+| 43.8, 43.9 | 利用者ごとの抑止・通知の総数の上限と溢れ分の通知 | SecurityAnomalyMonitor, ScheduledJobRunner | `SecurityAnomalyMonitor.observe`、`security-anomaly-overflow-summary` | — |
+| 44.1-44.4 | 画面配信のセキュリティヘッダー | FrontendNginxConfig | `frontend/nginx.conf` | — |
+| 45.1-45.4 | メールキューの接続と後始末 | EmailQueue | `EmailService` | — |
+
+### Components and Interfaces
+
+#### Component Summary
+
+| Component | Domain | Intent | Req Coverage | Key Dependencies | Contracts |
+|---|---|---|---|---|---|
+| TwoFactorChallengeService | Backend Service | 2FA 待ちの資格の発行・照会・消費 | 32 | Redis (P0) | Service |
+| TwoFactorService | Backend Service | TOTP の再利用の拒否、再設定、再登録 | 32, 34, 38, 40 | Prisma (P0), AuditLogService (P1), PrivilegeCeilingPolicy (P0) | Service, API |
+| AuthService | Backend Service | ログイン・リフレッシュ・ログアウトの是正 | 32, 33, 36, 40, 42 | TokenService (P0), SessionService (P0) | Service, API |
+| TokenService | Backend Service | クレームの種別・発行者・利用者 | 33 | jose (P0) | Service |
+| SessionService | Backend Service | ハッシュ保存・系列・再利用検知・失効 | 33 | Prisma (P0) | Service |
+| PasswordService | Backend Service | リセットのトークンの保存と期限・応答 | 7, 33, 35, 37 | Prisma (P0), EmailQueue (P1) | Service, API |
+| AuthenticateMiddleware | Backend Middleware | 種別の検証と状態の照合 | 33, 34, 36 | AuthenticatedUserStateService (P0) | Service |
+| CsrfProtection | Backend Middleware | Cookie を受ける要求の CSRF・Origin の検証 | 33 | — | Service |
+| ClientIpResolver | Backend Middleware | 送信元 IP の識別 | 35 | Express `trust proxy` (P0) | Service |
+| RateLimitPolicy | Backend Middleware | 認証系の専用の制限 | 35, 43 | Redis (P1) | Service |
+| RuntimeMode | Backend Config | 開発用機能・本番の前提の判定 | 35, 41, 42 | — | Service |
+| AccountStatusService | Backend Service | 無効化・再有効化・自動無効化 | 36, 38 | SessionService (P0), AdminNotificationService (P1), PrivilegeCeilingPolicy (P0) | Service, API |
+| UserInventoryService | Backend Service | 棚卸しの一覧と絞り込み | 36 | Prisma (P0) | Service, API |
+| AdminNotificationService | Backend Service | 全システム管理者への通知 | 36, 41, 43 | EmailQueue (P0), Sentry (P2) | Service |
+| ScheduledJobRunner | Backend Job | 繰り返しジョブの登録と実行 | 36, 37, 41, 43 | Bull (P0) | Batch |
+| TokenCleanupJob | Backend Job | 使用済み・期限切れのトークンの消去 | 37 | Prisma (P0) | Batch |
+| InvitationService | Backend Service | 招待のトークンの保存・一覧・取り消し・監査 | 37, 40 | Prisma (P0) | Service, API |
+| InitialAdminSeeder | Backend Seed | 初期管理者のパスワード検証と初回変更 | 37 | PasswordService (P0) | Batch |
+| HttpLogger | Backend Middleware | 要求識別子・伏せ字・利用者 ID | 37, 42 | pino-http (P0) | Service |
+| FrontendNginxConfig | Web Server | ヘッダー・中継・アクセスログ | 37, 44 | nginx (P0) | — |
+| RegisterPage | Frontend Page | フラグメントのトークンと POST の検証 | 37 | ApiClient (P0) | State |
+| PasswordResetPage | Frontend Page | フラグメントのトークンと POST の検証 | 37 | ApiClient (P0) | State |
+| InvitationManager | Frontend Component | 作成直後だけの URL 表示と取り消し | 37 | ApiClient (P0) | State |
+| PrivilegeCeilingPolicy | Backend Service | 割り当て・権限追加の上限 | 38 | RBACService (P0) | Service |
+| DefaultPermissionSeed | Backend Seed | 既定の権限の改訂 | 38, 39 | Prisma (P0) | Batch |
+| AssignableUsersEndpoint | Backend Route | 担当者候補の応答項目 | 38 | Prisma (P0) | API |
+| ProjectScopeService | Backend Service | 案件の閲覧範囲の判定と絞り込み条件 | 39 | RBACService (P0), Prisma (P0) | Service |
+| ProjectScopeGuard | Backend Middleware | ID 指定の要求の判定と 404 化・記録 | 39 | ProjectScopeService (P0), AuditLogService (P1) | Service |
+| SecurityAnomalyMonitor | Backend Service | 時間窓の計数・閾値・通知の抑止・通知の総数の上限と溢れ分 | 39, 43 | Redis (P0), AdminNotificationService (P0) | Service |
+| AuditLogService | Backend Service | 監査の記録・保全・改変の拒否 | 40, 41 | Prisma (P0) | Service |
+| UserRoleService | Backend Service | 削除前の監査と上限の呼び出し | 38, 40 | AuditLogService (P0) | Service |
+| ExportAuditService | Backend Service | データ出力の記録 | 40, 43 | AuditLogService (P0), ProjectScopeService (P0) | Service, API |
+| ExportAuditClient | Frontend Service | 出力の事前記録と失敗時の中止 | 40 | ApiClient (P0) | Service |
+| AuditLogArchiveService | Backend Service | アーカイブ・消去・復元 | 41 | StorageProvider (P0) | Service, Batch, API |
+| AdminLogLevelEndpoint | Backend Route | 運用設定の保護と監査 | 42 | requirePermission (P0) | API |
+| SentryScrubber | Backend Util | エラー監視への送信内容の伏せ字 | 42 | Sentry (P0) | Service |
+| ErrorHandler | Backend Middleware | 送信内容の制限と 5xx の計数 | 42, 43 | SentryScrubber (P0) | Service |
+| EmailQueue | Backend Service | 接続と後始末 | 45 | Bull (P0) | Service |
+| ApiClient | Frontend Service | メモリだけのアクセストークンと CSRF | 33 | — | Service |
+| TokenRefreshManager | Frontend Service | タブ間のリフレッシュの直列化 | 33 | Web Locks (P0) | Service |
+| AuthContext | Frontend Context | 復元・2FA 未登録・初回変更の状態 | 33, 34, 37 | ApiClient (P0) | State |
+| ProtectedRoute | Frontend Component | 状態による遷移の制限 | 34, 37 | AuthContext (P0) | State |
+| TwoFactorSetupPage | Frontend Page | 必須登録と再登録 | 34 | ApiClient (P0) | State |
+| ProfilePage | Frontend Page | 無効化の操作を外し再登録へ導く | 34 | — | State |
+| UserInventoryPage | Frontend Page | 棚卸し・無効化・再有効化・2FA 再設定 | 34, 36 | ApiClient (P0) | State |
+| UserSelect | Frontend Component | 無効化された担当者の表示名 | 36 | ApiClient (P0) | State |
+
+#### 認証・トークン
+
+##### TwoFactorChallengeService
+
+| Field | Detail |
+|-------|--------|
+| Intent | パスワード認証の成功に結び付いた、5 分・一回限りの 2FA 検証の資格を扱う |
+| Requirements | 32.1, 32.2, 32.3, 32.4, 32.5, 32.6 |
+
+**Responsibilities & Constraints**
+- 資格は 32 バイトの乱数を base64url にした不透明な文字列で、JWT ではない（アクセス・リフレッシュの JWT を資格として受理しない。32.5）
+- Redis に鍵 `2fa:challenge:<SHA-256(資格)>`、値 `{ userId, issuedAt }`、TTL 300 秒で置く
+- Redis が `ready` でないときは発行も照会も行わず、503 を返す（2FA の検証を素通りさせない）
+
+**Dependencies**
+- Outbound: Redis — 資格の保存と消費 (P0)
+
+**Contracts**: Service [x]
+
+```typescript
+interface TwoFactorChallengeService {
+  issue(userId: string): Promise<Result<{ challengeToken: string; expiresIn: number }, ChallengeError>>;
+  peek(challengeToken: string): Promise<Result<{ userId: string }, ChallengeError>>;
+  consume(challengeToken: string): Promise<Result<void, ChallengeError>>;
+}
+
+type ChallengeError =
+  | { type: 'CHALLENGE_INVALID' }      // 不在・期限切れ・消費済み（区別しない）
+  | { type: 'CHALLENGE_STORE_UNAVAILABLE' };
+```
+- 事前条件: `issue` は AuthService がパスワードの検証と状態の確認に成功した後だけ呼ぶ
+- 事後条件: `consume` は `DEL` が 1 を返したときだけ成功する。成功後の `peek` は `CHALLENGE_INVALID`
+
+##### TwoFactorService（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | TOTP の再利用の拒否、自己の無効化の拒否、管理者による再設定、利用者による再登録 |
+| Requirements | 32.6, 32.7, 34.6, 34.7, 34.9, 34.10, 34.11, 38.13, 40.3 |
+
+**Responsibilities & Constraints**
+- `verifyTOTP` は otplib の `checkDelta` で一致した時間ステップを求め、`users.two_factor_last_used_step` がそれ未満（または未設定）のときだけ条件付き更新で記録して成功とする（32.7）
+- `NODE_ENV` による固定値（`123456`・`ABCD1234`）の受理を全環境で取り除く
+- バックアップコードの照合は正規化した値で行う
+- 自己の無効化（`POST /api/v1/auth/2fa/disable`）は 403 `TWO_FACTOR_DISABLE_NOT_ALLOWED` を返す（34.6）
+- 再設定・再登録・検証の成功と失敗を監査する（34.10、40.3）
+
+**Contracts**: Service [x] / API [x]
+
+```typescript
+interface TwoFactorService {
+  verifyTOTP(userId: string, code: string): Promise<Result<boolean, TwoFactorError>>;        // Ok(false) はコードの不一致
+  verifyBackupCode(userId: string, backupCode: string): Promise<Result<boolean, TwoFactorError>>;
+  resetByAdmin(actorId: string, targetUserId: string, ctx?: TwoFactorRequestContext): Promise<Result<void, TwoFactorResetError>>;
+  startReenrollment(userId: string, currentCode: string): Promise<Result<TwoFactorReenrollmentStartData, TwoFactorError>>;
+  confirmReenrollment(userId: string, newCode: string, ctx?: TwoFactorRequestContext): Promise<Result<TwoFactorEnabledData, TwoFactorError>>;
+}
+
+// 実装は既存の種別の名前を使う（本章の当初の案の INVALID_CODE・NOT_ENABLED・LOCKED は置かなかった）。
+// 次は本章で扱う種別の抜粋。ロックは TwoFactorService でなく AuthService の ACCOUNT_LOCKED で返す
+type TwoFactorError =
+  | { type: 'INVALID_TOTP_CODE' }
+  | { type: 'INVALID_BACKUP_CODE' }
+  | { type: 'BACKUP_CODE_ALREADY_USED' }
+  | { type: 'CODE_ALREADY_USED' }          // 32.7
+  | { type: 'TWO_FACTOR_NOT_ENABLED' }
+  | { type: 'USER_NOT_FOUND' }
+  | { type: 'REENROLLMENT_NOT_STARTED' }
+  | { type: 'DECRYPTION_FAILED'; message: string };
+
+type TwoFactorResetError =
+  | { type: 'SELF_RESET_FORBIDDEN' }   // 34.9
+  | { type: 'USER_NOT_FOUND' };
+
+interface TwoFactorRequestContext { ipAddress?: string; userAgent?: string }   // ipAddress は getClientIp で得る
+```
+
+| Method | Endpoint | Request | Response | Errors |
+|---|---|---|---|---|
+| POST | /api/v1/auth/verify-2fa | `{ challengeToken, code }` | `{ accessToken, expiresIn, user }` + Set-Cookie | 401, 429, 503 |
+| POST | /api/v1/auth/verify-2fa/backup | `{ challengeToken, backupCode }` | 同上 | 401, 429, 503 |
+| POST | /api/v1/auth/2fa/disable | — | — | 403 |
+| POST | /api/v1/users/:id/2fa/reset | — | 204 | 403, 404 |
+| POST | /api/v1/auth/2fa/reenroll/start | `{ currentCode }` | `{ qrCodeDataUrl, secretForManualEntry }` | 400, 401 |
+| POST | /api/v1/auth/2fa/reenroll/confirm | `{ newCode }` | `{ backupCodes }` | 400 |
+
+- 再設定は 1 トランザクションで `two_factor_secret`・`two_factor_pending_secret`・バックアップコードを消去し、`two_factor_enabled=false`、全リフレッシュトークンを失効させ、`access_token_generation` を 1 つ進め、監査 `TWO_FACTOR_RESET_BY_ADMIN`（実行者・対象）を記録する。コミット後に利用者の状態のキャッシュを無効化する（34.7、34.10）
+- 再設定より前に発行されたアクセストークンは、トークンの世代（`gen`）が利用者の `access_token_generation` より小さくなり、AuthenticateMiddleware が拒否する（34.7）。世代は時刻でなく番号で比べる（`iat` は秒の精度のため、再設定と同じ秒に再ログインしたトークンを誤って拒否しうる）
+- 再登録は現在の TOTP の検証の後、新しい秘密鍵を `two_factor_pending_secret` に置き、新しい秘密鍵の TOTP の確認で本採用し、バックアップコードを作り直す（34.11）。確認までは既存の秘密鍵が有効である
+- 再設定の権限は `user:manage` とする
+- 再設定は `two_factor_last_used_step`・失敗回数・ロックの列を書き換えない（実装の判断。タスク47.8）
+
+##### AuthService（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | ログイン・リフレッシュ・ログアウトを資格・状態・監査に結び付ける |
+| Requirements | 32.1, 33.2, 33.4, 33.9, 36.2, 36.7, 40.1, 40.2, 40.3, 40.4, 42.7, 42.8 |
+
+**Responsibilities & Constraints**
+- `login`: パスワードの検証の前に無効化を確認し、無効化されていればパスワードの正否に関わらず `INVALID_CREDENTIALS` を返す（36.2）。2FA 登録済みなら資格を発行し `{ requires2FA: true, challengeToken, expiresIn }` を返す。応答に `userId` を含めない（42.7）
+- ログインの成功で `last_login_at` を記録する（36.7）。ログインの成功・失敗（パスワード誤り・存在しないメールアドレス）、ロック、2FA の成功・失敗、ログアウト・全デバイスのログアウトを監査する（40.1〜40.4）。監査の書き込みの失敗はログインの結果を変えず、エラーログと Sentry へ送る
+- DB 障害は `INTERNAL_ERROR` の汎用の本文で返し、`detail` に障害の内容を含めない（42.8）
+- 応答本文にリフレッシュトークンを含めない（33.9）。リフレッシュトークンは `Set-Cookie` だけで渡す
+
+**Contracts**: Service [x] / API [x]
+
+```typescript
+type LoginResponse =
+  | { type: 'SUCCESS'; accessToken: string; refreshToken: string; user: UserProfile }
+  | { type: '2FA_REQUIRED'; challengeToken: string; expiresIn: number };
+
+interface AuthResponse { accessToken: string; refreshToken: string; user: UserProfile }
+
+// 画面の状態の判定に使う項目（UserProfile の部分）
+type AuthUserView = Pick<UserProfile, 'id' | 'email' | 'displayName' | 'roles' | 'twoFactorEnabled' | 'mustChangePassword'>;
+
+interface AuthService {
+  login(email: string, password: string, ctx?: RequestContext): Promise<Result<LoginResponse, AuthError>>;
+  completeTwoFactorLogin(challengeToken: string, proof: TwoFactorProof, ctx?: RequestContext): Promise<Result<AuthResponse, AuthError>>;
+  refreshToken(refreshToken: string, ctx?: RequestContext): Promise<Result<AuthResponse, AuthError>>;
+  logout(userId: string, refreshToken: string, ctx?: RequestContext): Promise<Result<void, AuthError>>;
+  logoutAll(userId: string, ctx?: RequestContext): Promise<Result<void, AuthError>>;
+}
+
+type TwoFactorProof = { kind: 'totp'; code: string } | { kind: 'backup'; backupCode: string };
+
+interface RequestContext { ipAddress?: string; userAgent?: string }   // ルートが getClientIp と User-Agent から作る
+
+// 本章で扱う種別の抜粋（既存の登録・プロフィールの種別は省く）
+type AuthError =
+  | { type: 'INVALID_CREDENTIALS' }
+  | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }
+  | { type: 'ACCOUNT_DISABLED' }
+  | { type: 'CHALLENGE_INVALID' }
+  | { type: 'INVALID_2FA_CODE' }
+  | { type: 'INVALID_BACKUP_CODE' }
+  | { type: 'INVALID_REFRESH_TOKEN' }
+  | { type: 'REFRESH_TOKEN_EXPIRED' }
+  | { type: 'TOKEN_REUSE_DETECTED' }
+  | { type: 'SERVICE_UNAVAILABLE' }
+  | { type: 'DATABASE_ERROR'; message: string };   // 応答は汎用の本文（42.8）
+```
+
+- `refresh`・`logout` の入力は Cookie `refreshToken` から読み、本文は読まない。両エンドポイントは `csrfProtection` を通す
+- 監査は `recordAuthAudit` の一本で書く。存在しないメールアドレスのログインの失敗は targetType `Email`（targetId は入力のメールアドレス）、資格を照会できない 2FA の失敗は targetType `TwoFactorChallenge`（targetId `unknown`）とする。入力由来の値は `boundAuditText` で切り詰める（メールアドレスと targetId は 254 字、userAgent は 512 字、ipAddress は 64 字。タスク53.1）
+
+##### TokenService（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | アクセストークンとリフレッシュトークンを種別・発行者・想定利用者で区別する |
+| Requirements | 33.1, 33.2, 33.3, 34.7 |
+
+**Contracts**: Service [x]
+
+```typescript
+type TokenKind = 'access' | 'refresh';
+
+interface IssuedClaims {
+  sub: string;              // userId
+  token_use: TokenKind;
+  iss: string;              // JWT_ISSUER（既定 'architrack'）
+  aud: string;              // JWT_AUDIENCE（既定 'architrack-api'）
+  jti: string;
+  iat: number;
+  exp: number;
+  email?: string;           // access のみ
+  roles?: string[];         // access のみ
+  gen?: number;             // access のみ。発行時の利用者の access_token_generation（34.7）
+  fam?: string;             // refresh のみ（系列 ID）
+}
+
+// 実装の引数と戻り値は既存の TokenPayload の形を保った（IssuedClaims は JWT のクレームの形）
+interface TokenPayload { userId: string; email: string; roles: string[]; permissions?: string[]; accessTokenGeneration?: number }
+type AccessTokenIssuePayload = TokenPayload & { accessTokenGeneration: number };
+
+interface TokenService {
+  generateAccessToken(payload: AccessTokenIssuePayload): Promise<string>;
+  generateRefreshToken(userId: string, familyId: string): Promise<string>;
+  verifyToken(token: string, type: TokenKind): Promise<Result<TokenPayload, TokenError>>;   // gen を持たないトークンは accessTokenGeneration が undefined
+}
+
+type TokenError = { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' };
+```
+- `verifyToken` は jose の `jwtVerify` に `issuer`・`audience` を渡し、`token_use` が `expected` と一致しないものを `TOKEN_INVALID` とする
+- アクセストークンの JOSE ヘッダーの `typ` は `at+jwt`（RFC 9068）とする
+- 互換: 移行前に発行されたトークン（`token_use` を持たない）は全て `TOKEN_INVALID` になる。移行時の再ログインとして扱う
+
+##### SessionService（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | リフレッシュトークンをハッシュで保存し、系列で再利用を検知する |
+| Requirements | 33.4, 33.5, 33.6, 33.7 |
+
+**Contracts**: Service [x]
+
+```typescript
+interface SessionService {
+  createSession(userId: string, deviceInfo?: string | null): Promise<{ refreshToken: string; familyId: string }>;
+  rotate(presentedToken: string): Promise<Result<{ userId: string; familyId: string; refreshToken: string }, RotationError>>;
+  revokeByToken(presentedToken: string, userId?: string): Promise<number>;     // 33.4: 同じ系列を全て失効
+  revokeAllForUser(userId: string, tx?: RefreshTokenClient): Promise<number>;  // 33.5、34.7、36.1
+}
+
+type RotationError =
+  | { type: 'NOT_FOUND' }
+  | { type: 'EXPIRED' }
+  | { type: 'REUSE_DETECTED'; userId: string; familyId: string };
+```
+- 保存する値は `SHA-256(トークン)` の 16 進（33.7）。照合は `token_hash` の一意索引で行う
+- `rotate` は 1 トランザクションで、行が `replaced_at` を持てば系列の全行を消去して `REUSE_DETECTED` を返し（33.6）、持たなければ `replaced_at` を記録して後継を同じ `family_id` で作る。置き換え済みの行は有効期限まで残し、再利用の検知に使う
+- `REUSE_DETECTED` は監査 `REFRESH_TOKEN_REUSE_DETECTED`（metadata に familyId・ipAddress・userAgent）を記録する。応答は 401 と Cookie の消去で、本文の code は既存の `INVALID_REFRESH_TOKEN` とする（`TOKEN_INVALID` は置かなかった）
+- 利用者のリフレッシュトークンを変える取引（ローテーション・ログアウト・全デバイスのログアウト・パスワードの変更とリセット・利用者の削除）は、リフレッシュトークンの表に触れる前に `lockUserRefreshTokens`（利用者ごとの勧告ロック）を取る。他の更新と同じ取引で全てを失効させるとき（パスワードの変更とリセット・無効化・2FA の再設定）は、ロックを取ってから消す `revokeAllRefreshTokensForUser` を使う（タスク45.2）
+
+##### AuthenticateMiddleware と AuthenticatedUserStateService（変更・新設）
+
+| Field | Detail |
+|-------|--------|
+| Intent | アクセストークンだけを受け付け、利用者の状態で要求を拒否する |
+| Requirements | 33.1, 34.2, 34.7, 36.1 |
+
+**Responsibilities & Constraints**
+- `verifyToken(token, 'access')` の後、`AuthenticatedUserStateService.getState(userId)` で状態を得て、「利用者の状態の照合」の表に従って拒否する
+- 表の照合より前に、トークンの `gen`（無いトークンは 0）が状態の `accessTokenGeneration` より小さいものを、署名の不正なトークンと同じ 401 で拒否する（34.7。画面はリフレッシュを試み、失効済みのためログイン画面へ戻る）
+- 状態のキャッシュは Redis の鍵 `auth:user-state:<userId>`、TTL 60 秒。書き込みは既存の RBAC のキャッシュと同じく世代の照合で古い値の書き戻しを防ぐ。Redis が `ready` でないときは DB から読む
+- 状態を変える処理（無効化・再有効化・2FA の登録と再設定・初回のパスワード変更の完了）はコミットの後に `invalidate(userId)` を呼ぶ
+
+```typescript
+interface AuthenticatedUserState {
+  isActive: boolean;
+  twoFactorEnabled: boolean;
+  mustChangePassword: boolean;
+  accessTokenGeneration: number;  // 34.7
+}
+
+interface AuthenticatedUserStateService {
+  getState(userId: string): Promise<AuthenticatedUserState | null>;  // null は利用者の不在（401）
+  invalidate(userId: string): Promise<void>;
+}
+```
+
+##### CsrfProtection（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | Cookie で認証情報を受け付ける状態変更の要求に CSRF の検証を課す |
+| Requirements | 33.12 |
+
+- 対象は Cookie を読む `POST /api/v1/auth/refresh` と `POST /api/v1/auth/logout`。Bearer で認証する API はブラウザが自動で付けないため対象外とする
+- 二重送信（Cookie `csrf-token` とヘッダー `X-CSRF-Token` の定数時間比較）に加え、`Origin`（無ければ `Referer`）が `FRONTEND_URL` と一致することを確かめる
+- `NODE_ENV=test` での素通りを外す。CORS の許可ヘッダーに `X-CSRF-Token` を加える
+
+#### 送信元の識別と回数制限
+
+##### ClientIpResolver
+
+| Field | Detail |
+|-------|--------|
+| Intent | 信頼する中継装置の段数に基づく `req.ip` だけを送信元とする |
+| Requirements | 35.1, 35.2 |
+
+- `app.set('trust proxy', env.TRUST_PROXY_HOPS)`。本番では `TRUST_PROXY_HOPS` を必須とし、`true` は設定の検証で拒否する。開発・試験の既定は 0
+- `getClientIp(req): string` は `req.ip` を返す。`X-Forwarded-For`・`X-Real-IP` を直接読む処理は全て置き換える（回数制限、監査ログの `metadata.ipAddress`、セキュリティログ）
+- 本章で加えた監査の経路は IP を `metadata.ipAddress` に書く。既存の `PERMISSION_CHECK_FAILED` の記録（`recordPermissionCheckFailure`）は値を `getClientIp` で得るが、キーは従来どおり `metadata.ip` である
+- 配備の構成は「Railway のエッジ → frontend の nginx → backend（プライベートネットワーク）」とし、本番の値は 2 を想定する。配備時に `req.ip` の実測で確かめ、backend の公開ドメインは閉じる
+
+##### RateLimitPolicy（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 認証系の専用の制限を設け、識別を `req.ip` に揃え、無効化の設定を本番で無視する |
+| Requirements | 35.3, 35.4, 35.5, 35.6, 43.3 |
+
+| 制限 | 対象 | 識別 | 既定（時間窓 / 上限） | 超過時 |
+|---|---|---|---|---|
+| `twoFactorVerifyLimiter` | `/verify-2fa`、`/verify-2fa/backup` | `req.ip` | 5 分 / 10 | 429 |
+| `passwordResetRequestLimiter` | `/password/reset-request` | `req.ip` と メールアドレスの SHA-256 | 1 時間 / 5（各識別） | IP の超過は 429。メールアドレスの超過は通常の受理と同じ 200 を返し送信しない |
+| `passwordResetLimiter` | `/password/reset`、`/password/verify-reset` | `req.ip` | 15 分 / 10 | 429 |
+| `registrationLimiter` | `/auth/register`、`/invitations/verify` | `req.ip` | 15 分 / 10 | 429 |
+
+- `skip` は `OPTIONS` と、`RuntimeMode.isRateLimitBypassAllowed()`（`NODE_ENV` が明示的に `test`、または `development` で `DISABLE_RATE_LIMIT==='true'`）に限る。本番では `DISABLE_RATE_LIMIT` を読まない（35.6）
+- Redis のストアが失敗したときは、制限を無効にせずプロセス内のメモリのストアへ退避する
+- 429 の応答のたびに `SecurityAnomalyMonitor.observe('rate_limited', …)` を呼ぶ（43.3）
+
+##### RuntimeMode
+
+| Field | Detail |
+|-------|--------|
+| Intent | 開発用機能の有効化と本番の前提を一箇所で判定する |
+| Requirements | 35.6, 41.3, 42.9 |
+
+```typescript
+type RuntimeKind = 'production' | 'development' | 'test' | 'unspecified';
+
+interface RuntimeMode {
+  kind(): RuntimeKind;                       // process.env.NODE_ENV をそのまま読む（スキーマの既定値を使わない）
+  isDevelopmentFeatureEnabled(): boolean;    // 'development' または 'test' の明示のときだけ true
+  isRateLimitBypassAllowed(): boolean;
+  assertProductionPrerequisites(): void;     // 本番の前提の欠落で起動を止める
+}
+```
+- API ドキュメント（`/docs`）とエラー応答のスタックトレースは `isDevelopmentFeatureEnabled()` のときだけ有効にする（42.9）
+- `assertProductionPrerequisites` は `kind()` が `production` のとき、`ARCHIVE_ENCRYPTION_KEY`（64 桁の 16 進）、`TRUST_PROXY_HOPS`、`REDIS_URL` の欠落で例外を投げ、`index.ts` は起動を止める（41.3）
+
+#### アカウント
+
+##### AccountStatusService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 無効化・再有効化・90 日の自動無効化 |
+| Requirements | 36.1, 36.3, 36.4, 36.5, 36.8, 36.9, 38.13 |
+
+**Contracts**: Service [x] / API [x]
+
+```typescript
+interface AccountStatusService {
+  deactivate(actorId: string, targetUserId: string, reason: string, ctx: RequestContext): Promise<Result<void, AccountStatusError>>;
+  reactivate(actorId: string, targetUserId: string, reason: string, ctx: RequestContext): Promise<Result<void, AccountStatusError>>;
+  deactivateInactiveUsers(now: Date): Promise<{ deactivatedUserIds: string[] }>;
+}
+
+type AccountStatusError =
+  | { type: 'SELF_DEACTIVATION_FORBIDDEN' }
+  | { type: 'LAST_ACTIVE_ADMIN_PROTECTED' }
+  | { type: 'USER_NOT_FOUND' }
+  | { type: 'ALREADY_IN_STATE' };
+```
+
+| Method | Endpoint | Request | Response | Errors |
+|---|---|---|---|---|
+| POST | /api/v1/users/:id/deactivate | `{ reason }` | 204 | 400, 403, 404, 409 |
+| POST | /api/v1/users/:id/reactivate | `{ reason }` | 204 | 400, 403, 404, 409 |
+
+- 権限は `user:manage`。無効化は 1 トランザクションで `is_active=false`・`deactivated_at`・`deactivation_reason` を書き、全リフレッシュトークンを失効させ、監査 `USER_DEACTIVATED`（実行者・対象・理由）を記録する。コミットの後に状態のキャッシュを無効化し、全システム管理者へ通知する（36.1、36.4）
+- 最後の有効なシステム管理者の判定は、`admin` ロールを持ち `is_active=true` の利用者の数で行う（36.5）
+- 再有効化（画面と復旧のスクリプトの両方）は `reactivated_at` に現在の日時を書く。`last_login_at` は書き換えない（36.8、36.10）
+- 自動無効化は `is_active=true` かつ `GREATEST(created_at, last_login_at, reactivated_at) < now - 90日`（PostgreSQL の `GREATEST` は NULL を無視する）の利用者を対象とし、監査 `USER_AUTO_DEACTIVATED`（実行者なし、`metadata.trigger='inactivity'`）を記録し、対象の一覧を一通の通知にまとめて全システム管理者へ送る（36.8、36.9）。冪等であり、日次の実行で漏れを追う
+- 自動無効化は唯一の有効なシステム管理者も対象とする（要件36.8 の文言どおり）。復旧はサーバー上の `npm run user:reactivate -- --email <address>`（`reactivate-user` スクリプト）で行い、監査 `USER_REACTIVATED`（`metadata.trigger='operator_script'`）を記録する
+- ロック（要件4.6 の `is_locked`）とは別の列であり、ログインの成功や時間の経過で解除しない
+
+##### UserInventoryService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 全利用者の棚卸しの一覧と絞り込み |
+| Requirements | 36.10, 36.11, 36.12 |
+
+| Method | Endpoint | Request | Response | Errors |
+|---|---|---|---|---|
+| GET | /api/v1/users/inventory | `?status=active|inactive&inactiveDaysAtLeast=N&page&limit` | `UserInventoryItem[]` とページ情報 | 403 |
+
+```typescript
+interface UserInventoryItem {
+  id: string;
+  displayName: string;
+  email: string;
+  roles: string[];
+  status: 'active' | 'inactive';
+  twoFactorEnabled: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  invitedBy: { id: string; displayName: string } | null;
+}
+```
+- 権限は `user:read`（要件38.4 の後は一般ユーザーが持たないため 403。36.12）
+- 招待者は `users.invited_by_id` から引く（招待の行は使用後もトークンを消して残るが、招待の作成者の削除や招待の取り消しに左右されない利用者の属性として、登録時に写す）
+
+##### AdminNotificationService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 全ての有効なシステム管理者へ通知する一般の手段 |
+| Requirements | 36.4, 36.9, 41.6, 43.1, 43.5 |
+
+```typescript
+type AdminNotificationKind =
+  | 'USER_DEACTIVATED' | 'USER_REACTIVATED' | 'USERS_AUTO_DEACTIVATED'
+  | 'AUDIT_ARCHIVE_FAILED' | 'SECURITY_ANOMALY' | 'ADMIN_ROLE_CHANGED';
+
+interface AdminNotification {
+  kind: AdminNotificationKind;
+  subject: string;
+  lines: string[];            // 本文の各行。トークン・パスワードを含めない
+}
+
+interface AdminNotificationService {
+  notifyAllAdmins(notification: AdminNotification): Promise<void>;  // 失敗はログと Sentry へ送り、呼び出し元を失敗にしない
+}
+```
+- 宛先は `admin` ロールを持つ `is_active=true` の利用者。メールキューに投入し、同時に Sentry の `captureMessage` を送る
+- 既存の `UserRoleService` の管理者ロール変更の通知はこの手段へ置き換える
+
+##### ScheduledJobRunner と TokenCleanupJob
+
+| Field | Detail |
+|-------|--------|
+| Intent | 定期処理を一つの実行基盤で動かす |
+| Requirements | 36.8, 37.4, 37.8, 41.1, 41.2, 43.9, 45.3 |
+
+**Contracts**: Batch [x]
+
+| Job | 周期（cron、Asia/Tokyo） | 処理 | 冪等性 |
+|---|---|---|---|
+| `inactive-user-deactivation` | 毎日 03:00 | `AccountStatusService.deactivateInactiveUsers` | 対象の条件で再判定する |
+| `expired-token-cleanup` | 毎時 15 分 | 使用済み・期限切れの招待・リセットのトークン、期限切れのリフレッシュトークンの消去 | 条件による一括の消去 |
+| `audit-log-archive` | 毎月 1 日 04:00 | 13 か月以上前の月ごとのアーカイブと、8 年以上前のアーカイブの消去 | 月ごとの目録の有無で済みを判定する |
+| `security-anomaly-overflow-summary` | 10 分ごと | 異常の通知の総数の上限で送らなかった通知（溢れ分）が残り、その上限の時間窓が明けていれば、件数・期間・種類ごとの内訳の要約を全システム管理者へ 1 通送り、溢れ分の記録を消す（43.9、2026-10-26 追加） | 溢れ分の記録の取り出しと消去を一つの操作で行い、二重に送らない |
+| `failed-email-job-cleanup` | 毎時 45 分 | メールキューの失敗のジョブのうち、失敗から 1 時間を過ぎたものを中身ごと消す（`queue.clean`。45.3、タスク44.12） | 時刻の条件による一括の消去 |
+
+- キュー `scheduled-jobs` を `REDIS_URL` で接続し、Bull の `repeat` で登録する。起動のたびに同じ `jobId` で登録し直し、定義の重複を作らない
+- 消去の対象（37.4、37.8）: 招待は `status IN ('used','revoked')` または `expires_at < now` の行の `token_hash` を NULL にし、行そのものは残す（状態・期限・作成者を保ち、招待一覧の状態の返却と表示（要件1.7・13.2）と期限切れの招待の再送信（要件13.7）を維持する。37.4 が求めるのはトークンの消去である）。リセットは `used_at IS NOT NULL` または `expires_at < now` の行を、リフレッシュトークンは `expires_at < now` の行を消す。毎時の実行で 24 時間以内の消去を満たす（利用者の判断、2026-10-16。タスク作成のレビューが、招待の行を消すと要件1.7・13.2・13.7 と食い違うことを指摘した）
+- 失敗は Bull の再試行（3 回）の後、エラーログと Sentry へ送る。アーカイブの失敗は管理者へ通知する（41.6）
+
+##### InvitationService（変更）・PasswordService（変更）・InitialAdminSeeder
+
+| Field | Detail |
+|-------|--------|
+| Intent | 招待・リセットのトークンの保存と提示、取り消しの権限、初期管理者の保護 |
+| Requirements | 7.3, 33.5, 35.7, 37.1, 37.2, 37.5, 37.6, 40.5 |
+
+- 招待・リセットのトークンは `token_hash`（SHA-256）だけを保存する（37.1）。原文はメールの本文と、招待の作成直後の応答の `invitationUrl` にだけ現れる（要件13.3・13.5 を維持）
+- 招待一覧（`GET /api/v1/invitations`）の応答は `id, email, status, expiresAt, createdAt, inviter { id, displayName }` とし、トークンと招待 URL を含めない（37.2）
+- 取り消しは `user:invite` の権限を持つ利用者なら作成者でなくても受け付ける（37.5）
+- 招待の作成・取り消し・再送信、招待経由の登録を監査する（40.5）。再送信は経路 `POST /api/v1/invitations/:id/resend`（権限 `user:invite`）で受け、新しいトークンを発行して同じ行の `token_hash` と期限を置き換え、古いトークンを失効させ、`INVITATION_RESENT` を記録する（掃除で `token_hash` が NULL になった期限切れの招待も再送信できる）。作成と再送信の応答は、サーバーが組み立てた `invitationUrl`（フラグメントの形）を返し、画面はトークンから URL を組み立てない
+- 招待の検証は `token_hash` の一致で引くため、`token_hash` が NULL の招待はどのトークンとも一致せず、無効なトークンとして扱う
+- リセットの有効期限は `SESSION_CONFIG.PASSWORD_RESET_TOKEN_EXPIRY_MS`（1 時間）に一本化し、`RESET_TOKEN_EXPIRY` の重複を取り除く（7.3）。新しい要求は同じ利用者の未使用のトークンを失効させる
+- リセット要求の応答は、登録の有無と制限の有無に関わらず同じ 200 と同じ本文を返す（35.7）
+- パスワードの変更・リセットは全リフレッシュトークンを失効させる（33.5、既存の挙動を維持）。初回変更の完了で `must_change_password=false` にする
+- 初期管理者の seed は `PasswordService.validatePasswordStrength`（要件2.5〜2.8）を通し、満たさなければ例外で seed を止める。作成する初期管理者は `must_change_password=true` とする（37.6、37.7）
+- メールのリンクは `/register#token=…`・`/password-reset#token=…` とし、トークンを URL のフラグメントに置く（サーバーへ送られずアクセスログに残らない。37.3）。検証は `POST /api/v1/invitations/verify`・`POST /api/v1/auth/password/verify-reset` の本文で受ける。移行期間はクエリの形のリンクも画面が読み、読んだ直後に `history.replaceState` で URL から取り除く。画面を開いたまま同じタブでリンクを開いた（フラグメントだけが変わり再読み込みされない）ときは、`hashchange` で新しいトークンを読み、同じく URL から取り除く（`useUrlToken`。タスク50.3）
+
+##### PrivilegeCeilingPolicy・DefaultPermissionSeed・AssignableUsersEndpoint
+
+| Field | Detail |
+|-------|--------|
+| Intent | 自分を超える権限の付与を拒否し、既定の権限と担当者候補の応答を絞る |
+| Requirements | 38.1, 38.2, 38.3, 38.4, 38.5, 38.6, 38.7, 38.8, 38.9, 38.10, 38.11, 38.12, 38.13, 39.5 |
+
+```typescript
+interface PrivilegeCeilingPolicy {
+  assertCanAssignRole(actorId: string, roleId: string): Promise<Result<void, CeilingError>>;
+  assertCanGrantPermission(actorId: string, permission: { resource: string; action: string }): Promise<Result<void, CeilingError>>;
+  assertCanRenameRole(roleId: string): Promise<Result<void, CeilingError>>;
+  // 2026-10-26 追加（38.6、38.7）。変更後（作成では作成する）ロールの優先度を判定する
+  assertCanSetRolePriority(actorId: string, priority: number): Promise<Result<void, CeilingError>>;
+  // 2026-10-26 追加（38.11）。対象のロールの現在の優先度を判定する（優先度の変更、権限の追加・削除、ロールの削除の前）
+  assertCanModifyRole(actorId: string, roleId: string): Promise<Result<void, CeilingError>>;
+  // 2026-10-26 追加（38.12）。呼び出し側は優先度が実際に変わるときだけ呼ぶ
+  assertCanChangeRolePriority(roleId: string): Promise<Result<void, CeilingError>>;
+  // 2026-10-26 追加（38.9）
+  assertCanRevokeRole(actorId: string, targetUserId: string, roleId: string): Promise<Result<void, CeilingError>>;
+  // 2026-10-26 追加（38.13）。対象のユーザーの保有するロールの優先度の最大値を判定する（削除・無効化・再有効化・2FAの再設定の前）
+  assertCanManageUser(actorId: string, targetUserId: string): Promise<Result<void, CeilingError>>;
+}
+
+type CeilingError =
+  | { type: 'ROLE_PRIORITY_EXCEEDS_ACTOR' }               // 38.1、38.6、38.7、38.9、38.11
+  | { type: 'SYSTEM_ADMIN_REQUIRED' }                     // 38.2
+  | { type: 'SYSTEM_ROLE_RENAME_FORBIDDEN' }              // 38.3
+  | { type: 'PERMISSION_NOT_HELD_BY_ACTOR' }              // 38.8
+  | { type: 'SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN' }     // 38.12
+  | { type: 'TARGET_USER_EXCEEDS_ACTOR'; targetPriority: number }; // 38.13
+
+// システム管理者ロールの優先度（seed の値。38.12 により変わらない）。38.10 の上限の値
+const SYSTEM_ADMIN_ROLE_PRIORITY = 100;
+```
+- 実行者の上限は保有ロールの `priority` の最大値。割り当てるロールの `priority` がそれを超えると 403（38.1）
+- `*:*` の追加と `admin` ロールの割り当ては、実行者が `admin` ロールを持つときだけ許す（38.2）
+- `isSystem` のロールの `name` の変更を拒否する（38.3）
+- 上限の比べ方（38.1、38.6、38.7、38.9、38.11、38.13 で共通）: 実行者の上限は保有ロールの `priority` の最大値で、対象の `priority` が上限より大きいときだけ拒否する。上限と等しい値は許す（38.1 の実装と 51.2 の E2E の対照「上限ちょうどの優先度」に揃える）。ロールを持たない実行者の上限は -Infinity とする。`admin` ロールを持つ実行者にも同じ規則を当てるが、38.10 により `admin` の優先度を超えるロールは作れないため、`admin` は実質的に拒否されない
+- ロールの作成（38.7）と優先度の変更（38.6）: `RoleService.createRole`・`updateRole` が、書き込みと同じトランザクションのクライアントで `assertCanSetRolePriority` を呼ぶ。作成で `priority` を省いたときは既定の 0 で判定する。変更は `priority` が与えられ、かつ現在の値と異なるときだけ判定する（画面は説明だけの変更でも現在の優先度を送るため。38.3 の同じ名前を拒否しない扱いと揃える）
+- 範囲の検証（38.10）: `priority` の上限を定数 `SYSTEM_ADMIN_ROLE_PRIORITY`（100。seed の `admin` の値と同じ定数を参照する）とし、ロールの作成の `createRoleSchema`（`roles.routes.ts`）と変更の `updateRoleSchema`（`auth-update.schema.ts`）の zod の `max` で検証する。超えると `validate` の既定の 400 `VALIDATION_ERROR` を返す。38.12 で `admin` の優先度は変えられないため、行から読まず定数で足りる。範囲の検証は入力の誤りであり、権限チェックの失敗として記録せず、異常の検知へも送らない
+- 既存のデータの手当て（38.10・38.11、運用）: 38.10 より前の API では優先度が 100 を超えるロールを作れた。そのようなロールは admin（100）の上限より上になり、38.11 により admin でも優先度の変更・権限の追加と取り外し・消去ができず、38.10 により値の修正もできない。本番への展開の前に `SELECT id, name, priority FROM roles WHERE priority > 100` で確かめ、該当があれば DB で直接 100 以下へ改める（移行は設けない）
+- 上限より上のロールの変更・削除（38.11）: 対象のロールの現在の `priority` が実行者の上限より大きいとき、優先度の変更（上げる・下げるを問わない）、権限の追加（`RolePermissionService.assignPermissionInTransaction`）・削除（`RolePermissionService.removePermissions` の取引の中）、ロールの削除（`RoleService.deleteRole`）を `ROLE_PRIORITY_EXCEEDS_ACTOR` で拒否する。38.6 は変更後の値、38.11 は現在の値を見るため両方を残す（上限以下のロールを上限より上げる変更は 38.6、上限より上のロールを下げてから割り当てる抜け道は 38.11 が塞ぐ）。名前と説明だけの変更は 38.11 の対象外とする（権限が動かないため。システムロールの名前は 38.3 が拒否する）。ロールの削除を含めた理由: 上限より上のロールを消すことは、上位の利用者が作った権限の構成を下位の利用者が壊す操作であり、変更と同じ向きの越権であるため
+- システムロールの優先度の変更（38.12）: `isSystem` のロール（`admin`・`user`）の `priority` が実際に変わる変更を、38.3 と同じく実行者によらず `SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN` で拒否する。応答は 38.3 の `SYSTEM_ROLE_RENAME_FORBIDDEN` と同じ 403 `{ error: 'FORBIDDEN', message, code }` とし、38.3 と同じく監査 `PERMISSION_CHECK_FAILED` を記録し、異常の検知へ `permission_denied` を送る（ee6316cd が 38.3 の拒否に加えた観測と揃える）
+- 判定の順（`updateRole`）: 存在の確認 → 38.3（名前）→ 38.12（システムロールの優先度）→ 38.11（現在の優先度）→ 38.6（変更後の優先度）。38.10 の範囲の検証は zod の段で先に済む。権限の追加は 38.11 → 38.2 → 38.8 の順、削除は 38.11 だけ、ロールの削除は存在の確認 → 38.11 → 既存のシステムロールの保護（`SYSTEM_ROLE_PROTECTED`）・使用中（`ROLE_IN_USE`）の順とする
+- 判定と書き込みの間の割り込みの防止（タスク58.1）: 判定は書き込みと同じトランザクションのクライアントで行う。ロールの削除と権限の追加・削除は、対象のロールの行を判定の前にロックする（優先度の変更は、版を伴わない経路が `FOR NO KEY UPDATE` でロックし、版を伴う経路は `updatedAt` を条件にした更新で並行の変更を競合として検出する）。ロールの削除（`RoleService.deleteRole`）は存在の確認の後に `SELECT … FROM roles … FOR UPDATE` でロックしてから 38.11 を判定し、使用中の件数を数える（要件17.5 の使用中の判定と同じロック）。権限の追加・削除は、ロールと権限の存在の確認の後、38.11 の判定の前に同じ行を `FOR SHARE` でロックする。優先度の変更（`UPDATE` が取る行のロック）とロールの削除はこのロックを取った取引の終わりまで待つため、判定から書き込みまでの間に対象のロールの優先度が上限より上へ変わらない。並行する権限の追加・削除どうしは `FOR SHARE` のため互いを待たない
+- 権限の追加（38.8）: `*:*` は従来どおり `SYSTEM_ADMIN_REQUIRED`（38.2）。それ以外は、`admin` ロールを持たない実行者について、実行者の保有ロールの権限（同じトランザクションのクライアントで `user_roles` → `role_permissions` → `permissions` を読む。Redis のキャッシュの `RBACService.hasPermission` は使わない）のいずれかが、追加する権限を要件21 のワイルドカードの照合（`*:*`、`*:action`、`resource:*`、完全一致）で包含しなければ `PERMISSION_NOT_HELD_BY_ACTOR` とする。追加する権限が `project:*` のようなワイルドカードのときは、同じ照合で包含する権限（`project:*` または `*:*`）を持つ場合だけ許す。一括の追加は 1 件でも違反があれば全体をロールバックする（51.1 と同じ）
+- 割り当ての解除（38.9）: `UserRoleService.removeRoleInTransaction` が、最後の管理者の判定より前に `assertCanRevokeRole` を呼ぶ。対象の利用者が実行者自身のときは判定しない（38.9 は他のユーザーからの解除を対象とする。自分の保有するロールは上限を超えない）
+- 他のユーザーの管理（38.13）: ユーザーの削除（`UserRoleService.deleteUser`）、無効化・再有効化（`AccountStatusService.deactivate`・`reactivate`）、2FAの再設定（`TwoFactorService.resetByAdmin`）が、書き込みと同じトランザクションのクライアントで `assertCanManageUser` を呼ぶ。対象のユーザーの上限は保有ロールの `priority` の最大値（ロールを持たないユーザーは -Infinity）で、実行者の上限より大きいときだけ `TARGET_USER_EXCEEDS_ACTOR` で拒否する（上限と等しいときは許す。`admin` 同士の操作は従来どおり通る）。対象が実行者自身のときは判定しない（自己の削除・無効化・2FAの再設定は既存の拒否が先に止める）。判定の順は、存在の確認 → 38.13 → 既存の業務上の保護とする（無効化は従来どおり状態の確認（`ALREADY_IN_STATE`）→ 最後の有効な管理者の保護（`LAST_ACTIVE_ADMIN_PROTECTED`）、再有効化は状態の確認、ユーザーを消す要求は最後の管理者の保護（`LAST_ADMIN_PROTECTED`）。38.13 はいずれの保護よりも先に判定し、既存の保護どうしの順は変えない）。判定の前に、対象の利用者のリフレッシュトークンの取引ロック（`lockUserRefreshTokens`）を取り、続けて対象の利用者の行を `SELECT … FROM users … FOR UPDATE` でロックしてから対象の保有ロールを読む（並行するロールの割り当ての `user_roles` の INSERT は外部キーの検査で同じ行の `FOR KEY SHARE` を取って待つため、判定から書き込みまでの間に対象へ上位のロールが割り当てられない）。取引ロックを先に取るのは、ローテーション・ログイン・パスワードの変更が「取引ロック → users の行」の順で取るためであり、逆順にするとデッドロックになる。同じ理由で、自動無効化（`deactivateInactiveUser`）も users の行を書き換える前に取引ロックを取る（タスク62.1）。最後の管理者の判定が取る `admin` ロールの行のロックがある経路では、そのロックの後に取る（既存の経路とロックの順を揃える）。拒否は監査の metadata に拒否の時点の対象の優先度を書くため、`TARGET_USER_EXCEEDS_ACTOR` の種別は `targetPriority` を持つ。拒否の応答は 403 `{ error: 'FORBIDDEN', message, code: 'TARGET_USER_EXCEEDS_ACTOR' }` とし、既存の拒否の形（`CANNOT_DELETE_SELF` の 400、`SELF_RESET_FORBIDDEN` の 403 など）は変えない
+- 拒否の扱い（38.6〜38.9、38.11〜38.13）: 既存の 3 つの上限の拒否と同じく、403 `{ error: 'FORBIDDEN', message, code: <CeilingError の種別> }` を返し、`recordCeilingRejection` で監査 `PERMISSION_CHECK_FAILED` をトランザクションの外（ロールバックの後）で記録し、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2。SecurityAnomalyMonitor の節の 43.2 の定義）。ルートの送り出しは `roles.routes.ts` の `rejectByCeiling` と `user-roles.routes.ts` の割り当て・解除・ユーザーを消す要求の拒否、`user-inventory.routes.ts` の無効化・再有効化・2FAの再設定の拒否で行う
+- 上限の拒否の監査の形（`recordCeilingRejection`。`before`・`after` は null、`metadata.reason` は `CeilingError` の種別、他の metadata の値は文字列）:
+  - ロールの作成（38.7）: targetType `role`、targetId は要求されたロールの名前（ロールは作られず ID が無いため）、metadata `{ reason, requestedName, requestedPriority }`
+  - ロールの優先度の変更（38.6、38.11、38.12）: targetType `role`、targetId はロールの ID、metadata `{ reason, currentPriority, requestedPriority }`
+  - ロールの削除（38.11）: targetType `role`、targetId はロールの ID、metadata `{ reason, roleName }`
+  - システムロールの名前の変更（38.3）: targetType `role`、targetId はロールの ID、metadata `{ reason, currentName, requestedName }`
+  - 権限の追加・削除（38.2、38.8、38.11）: targetType `role-permission`、targetId はロールの ID、metadata `{ reason, permissionId, permission }`（`permission` は `resource:action`）
+  - ロールの割り当て・割り当ての解除（38.1、38.9）: targetType `user-role`、targetId は対象の利用者の ID、metadata `{ reason, roleId }`
+  - 他のユーザーの管理（38.13）: targetType `user`、targetId は対象の利用者の ID、metadata `{ reason, operation, targetPriority }`（`operation` は `delete`・`deactivate`・`reactivate`・`two_factor_reset`）
+- 画面: ロール管理・ユーザー管理の画面は 403 の `code` を出し分けておらず、既存の汎用のエラー表示のままとする（新しい表示文言は設けない）
+- 移行: 不要（列・既定の権限の変更は無い）。既に `admin` の優先度を超えるロールや、実行者の上限を超えて作られたロールがあっても書き換えない。`admin` の優先度が 100 であることは seed が定め、`user` は 0 である（38.12 の後は変わらない）
+- 既定の権限: `user` ロールから `user:read` を外す（38.4）。権限 `project:read_all` を新設する。`admin` は `*:*` で全てを持つ（39.5）。本番の既存データは移行の SQL で `user` ロールの `user:read` の割り当てを外す
+- `GET /api/users/assignable` は `is_active=true` の利用者の `{ id, displayName }` だけを返す（38.5）
+
+#### 案件の閲覧範囲
+
+##### ProjectScopeService
+
+| Field | Detail |
+|-------|--------|
+| Intent | 案件の閲覧範囲の判定規則と、一覧の絞り込み条件を一箇所で持つ |
+| Requirements | 39.1, 39.3, 39.4, 39.6 |
+
+**Contracts**: Service [x]
+
+```typescript
+type ProjectAccessDecision = 'allowed' | 'not_found' | 'out_of_scope';
+
+interface ProjectScopeService {
+  /** 案件の不在・論理削除は not_found、関係者または全案件閲覧の権限は allowed、それ以外は out_of_scope */
+  evaluateProjectAccess(userId: string, projectId: string): Promise<ProjectAccessDecision>;
+  /** 範囲内なら true。案件の不在・論理削除も false（呼び出し側で区別しない） */
+  canAccessProject(userId: string, projectId: string): Promise<boolean>;
+  /** 全案件閲覧の権限を持つなら null（絞り込みなし）、持たなければ関係者の条件 */
+  buildProjectScopeWhere(userId: string): Promise<Prisma.ProjectWhereInput | null>;
+  hasAllProjectsAccess(userId: string): Promise<boolean>;   // project:read_all
+}
+```
+- 関係者は `salesPersonId`・`constructionPersonId`・`createdById` のいずれかが利用者 ID と一致すること。全案件の判定は `RBACService.hasPermission(userId, 'project:read_all')` で行い、ロール名を直書きしない（39.1）
+- 判定は要求のたびに案件の行を読む（担当者の変更が次の要求から反映される。39.6）。案件の判定結果はキャッシュしない
+- 一覧・検索・件数は `buildProjectScopeWhere` の条件を `deletedAt: null` と AND で結ぶ（39.3）
+- ファイルの取得用 URL の発行（各業務 spec と site-survey の `SignedUrlService`）は `canAccessProject` を呼ぶ（39.4）。既存の `SignedUrlService.validateProjectAccess` のロール名の判定の差し替えは site-survey の所管である
+- 一覧の絞り込みのため、`projects` に `construction_person_id` と `created_by_id` の索引を加える
+
+##### ProjectScopeGuard（`requireProjectScope`）
+
+| Field | Detail |
+|-------|--------|
+| Intent | ID 指定の要求を判定し、範囲外を存在しないものと同じ 404 にして記録する |
+| Requirements | 39.1, 39.2, 39.7, 39.8 |
+
+```typescript
+/** 経路の案件（または親）と対象が実際に属する案件の食い違い（39.8）。応答は不在と同じ 404 */
+interface ProjectMismatch {
+  readonly kind: 'project_mismatch';
+  readonly ownerProjectId: string;   // 対象のデータが実際に属する案件
+}
+
+/** 案件 ID、対象の不在（null）、または食い違い */
+type ProjectIdResolution = string | null | ProjectMismatch;
+type ProjectIdResolver = (req: Request) => Promise<ProjectIdResolution>;
+
+/** 解決関数が食い違いを返すための作り手 */
+function projectMismatch(ownerProjectId: string): ProjectMismatch;
+
+interface ProjectScopeGuardOptions {
+  scopeService?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;   // 省略時は共有のインスタンス
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;               // 省略時は共有の PrismaClient で組み立てる
+}
+
+function requireProjectScope(resolveProjectId: ProjectIdResolver, options?: ProjectScopeGuardOptions): RequestHandler;
+
+/**
+ * 解決関数を通らない下流の独自の判定（例: execution-budget-management の requireChildInProject）が、
+ * 食い違いを見つけたときに呼ぶ。実際の案件を判定し、範囲外のときだけ 39.7 と同じ形で記録する。
+ * 応答（汎用の 404）は呼び出し側が返す
+ */
+function recordProjectMismatchIfOutOfScope(req: Request, ownerProjectId: string, options?: ProjectScopeGuardOptions): Promise<void>;
+
+/** 案件 ID を経路のパラメータから読む既定の解決関数 */
+const projectIdFromParam: (paramName: string) => ProjectIdResolver;
+```
+- `requirePermission` の後に置く。判定は `evaluateProjectAccess` で行う。解決関数が `null` を返す、または判定が `allowed` でないとき、`NotFoundError` と同じ Problem Details（`404 NOT_FOUND`、汎用の本文）を返す（39.2）
+- 範囲外のとき（案件が実在し範囲外のときだけ）、監査 `PROJECT_SCOPE_DENIED`（利用者・targetType `Project` と案件 ID・日時。metadata に要求識別子・メソッド・問い合わせ文字列を除いたパス・ipAddress・userAgent）を記録し（記録の失敗は 404 を変えない）、`SecurityAnomalyMonitor.observe('scope_denied', …)` を呼ぶ（39.7）
+- 範囲外の記録と観測の部品（`recordProjectScopeDenied` と要求の識別の型 `ProjectScopeDenialContext`）は次のファイルに公開し、本判定部品と、判定部品を通らない下流のサービスの中の判定（quantity-table-generation のタスク104.1。写真の紐付けが指す現場調査・画像の案件の判定）が同じ形で記録するために共有する（2026-10-27）。要求からの識別の切り出し（`projectScopeDenialContextOf`）は本判定部品の側に置き、下流の経路が切り出してサービスへ渡す
+  backend/src/services/project-scope-denial.service.ts
+- 子リソースから案件 ID を引く解決関数は各業務 spec が持つ。本 spec は案件そのもの（`/api/projects` の `GET /`、`GET /status-counts`、`GET /:id`、`GET /:id/detail-summary`、`PUT /:id`、`DELETE /:id`、`PATCH /:id/status`、`GET /:id/status-history`）に適用する
+- **食い違いの記録（39.8、2026-10-29、利用者の判断「推奨案で進める」）**: 入れ子や二重マウントの経路で、経路の案件（または親のデータ）と対象のデータが実際に属する案件（または親）が食い違うとき、解決関数は `null` ではなく `projectMismatch(対象の実際の案件 ID)` を返す。判定部品は実際の案件を `evaluateProjectAccess` で判定し、`out_of_scope` のときだけ `recordProjectScopeDenied`（39.7 と同じ形。targetId は実際の案件 ID、metadata の path に経路の ID が残る）を呼ぶ。判定の結果に関わらず応答は不在と同じ汎用の 404 とし（39.2）、`next()` へは進めない。実際の案件が範囲内（経路の誤り）のときと、実際の案件そのものが不在・論理削除のときは記録しない（対象のデータの論理削除は記録の要否を変えない。下の「対象のデータの論理削除の扱い」）
+  - 経路で指定した案件は判定しない（食い違いの要求は経路の案件のデータを返さないため。要件39 の改訂の記録を参照）。判定の DB の失敗は既存の分岐と同じくエラーハンドラーへ渡す（404 にしない）。記録の失敗は 404 を変えない（`recordProjectScopeDenied` の既存の振る舞い）
+  - 判定と記録の実体は判定部品の側に一つだけ置き、解決関数を返す経路（`requireProjectScope`）と、解決関数を通らない独自の判定（`recordProjectMismatchIfOutOfScope`）の両方がそれを使う。`ProjectIdResolver` の戻り値は `string | null` を含む上位の型にするので、食い違いを扱わない既存の解決関数はそのまま型が合う
+  - 判定部品を通らず業務のサービスの中で所属を照合する経路（execution-budget-management の契約の所属の照合。同 spec のタスク 18.2）は、サービスが `evaluateProjectAccess` で実際の案件を判定し、範囲外の案件を処理の後（トランザクションの外）に、39.7 と共有の記録の部品（`recordProjectScopeDenied`。案件ごとに 1 回）で記録する。サービスは Express の要求に依存しないため `recordProjectMismatchIfOutOfScope` を使わず、要求の識別は経路が `projectScopeDenialContextOf` で切り出して渡す（quantity-table-generation の写真の紐付けの判定、estimate-creation の 57.4 と同じ形）
+  - 一括の要求（本文の複数の ID が経路の案件に属するかを確かめる部品）は、属さない ID の実際の案件ごとに `recordProjectMismatchIfOutOfScope` を一度ずつ呼ぶ（同じ案件を重ねて記録しない）。一括へ広げるかは各 spec の判断とする
+  - **対象のデータの論理削除の扱い（39.8 の改訂、2026-10-30、利用者の判断「推奨案で進める」）**: 記録しない「論理削除」は案件そのものの論理削除（`evaluateProjectAccess` が `not_found` を返す場合）だけを指し、対象のデータ（契約書・工程表・数量表・内訳書・見積書・見積依頼・実行予算の子・現場調査・工事写真など）の論理削除は記録の要否を変えない。全業務 spec に共通の方針として次のとおりとする
+    - 解決関数は、対象のデータが論理削除済みでも行が実在する限り `null` を返さず、実際の案件 ID（食い違いなら `projectMismatch`）を返す。実際の案件が範囲外なら判定部品が記録して汎用の 404 にし、範囲内の利用者には各経路の従来の応答（論理削除の 404 など）を後段のサービスが返す
+    - サービスの中の所属の照合（作成・保存の要求が指す他のデータ）は、論理削除済みのデータでも所属が食い違えば実際の案件を判定し、範囲外なら 39.7 と共有の記録の部品で記録してから従来の応答を返す（論理削除の判定を所属の照合より後に置くか、論理削除の分岐の中でも判定する）。応答の状態コードと本文は変えない
+    - 上流の部品（`requireProjectScope`・`recordProjectMismatchIfOutOfScope`・`recordProjectScopeDenied`・`evaluateProjectAccess`）の契約と振る舞いは変えない。判定部品は解決関数が返す案件 ID だけを見て対象の論理削除を知らないため、切り替えは各業務 spec の解決関数とサービスで行う
+    - 理由と改訂前の扱い、採らなかった案は requirements.md の要件39 の改訂の記録（2026-10-30）のとおり。要約: 論理削除済みのデータも案件に属し、範囲外の案件のデータを指す試みは同じ不審の合図であり、応答が不在と同じなので記録しても漏れる情報は無い。記録の基準を機能ごとに変えると探りの検知（要件43.2）に穴ができる
+- 食い違いの記録の各業務 spec への起票先（本 spec は上流の部品だけを持ち、各 spec の判定部品の切り替えと、記録しないことを主張する既存のテストの書き換えは各 spec のタスクで行う）。各行の下の「実装」は、各 spec が起票で足した受入基準と、実装したタスクとコミット（2026-10-29）:
+  - construction-schedule: `backend/src/middleware/construction-schedule-project-scope.middleware.ts` の `requireScheduleProjectScope`（Requirement 13。工程表そのものの食い違いの条文は無く、各 spec の起票で足す。13.4 は作成時に指す数量表の所属で、経路の食い違いの条文ではない）
+    - 実装: 受入基準 13.8、タスク 23.1（`32cfcef0`）。二重マウントの経路で解決関数が `projectMismatch`（工程表の案件）を返す。出力の経路でも出力の記録とファイルの生成は起きない。論理削除済みの工程表は既存の決定どおり記録しない
+  - contract-management: `backend/src/middleware/contract-management-project-scope.middleware.ts` の `requireContractProjectScope`（14.4〜14.6。統合テストに範囲外の案件の契約書を指して記録の差 0 を主張するものがあり、条文どおりに書き換える）
+    - 実装: 受入基準 14.9、タスク 20.2（`34908276`）。入れ子の経路で解決関数が `projectMismatch`（契約書の案件）を返す。記録の差 0 を主張していた単体と統合は条文どおりに改めた（範囲外は要求ごとに 1 件）。論理削除済みの契約書は記録しない
+  - estimate-creation: `backend/src/middleware/estimate-creation-project-scope.middleware.ts` の `requireEstimateProjectScope`（Requirement 57。見積書そのものの食い違いの条文は無く、各 spec の起票で足す。57.4・57.5 は作成時に指す内訳書と一括保存の項目の所属で、経路の食い違いの条文ではない）
+    - 実装: 受入基準 57.9、タスク 63.1（`9bb30149`）。二重マウントの経路で解決関数が `projectMismatch`（見積書の案件）を返す。論理削除済みの見積書は既存の決定どおり区別せず、範囲外なら記録する
+  - itemized-statement-generation: `backend/src/middleware/itemized-statement-project-scope.middleware.ts` の `requireItemizedStatementProjectScope`（Requirement 18。食い違いの条文は無く、各 spec の起票で足す。18.4・18.5 は作成時に指す数量表と並び替えの項目の所属で、経路の食い違いの条文ではない）
+    - 実装: 受入基準 18.11、タスク 28.2（`7c247a05`）。二重マウントの経路で解決関数が `projectMismatch`（内訳書の案件）を返す。論理削除済みの内訳書は既存の決定どおり区別せず、範囲外なら記録する
+  - estimate-request: `backend/src/middleware/estimate-request-project-scope.middleware.ts` の `requireEstimateRequestProjectScope`（Requirement 42。食い違いの条文が無く、各 spec の起票で足す）と、作成の要求が指す内訳書の判定 `requireBodyItemizedStatementProjectScope`
+    - 実装: 受入基準 42.10（作成の要求が指す内訳書が経路の案件に属さなければ、範囲の内外にかかわらず内訳書の不在と同じ 404 にし、内訳書の案件が範囲外なら記録する。タスク 104.1、`ff65ec47`）と 42.11（二重マウントの経路の食い違い。タスク 104.2、`98d1bbc0`）。どちらも解決関数が `projectMismatch` を返す。論理削除済みの見積依頼は既存の決定どおり区別せず、範囲外なら記録する
+    - 追加の実装（2026-10-30、利用者の判断「推奨案で進める」）: 受入基準 42.12、タスク 106.1（`aa2f93bb`）。見積依頼の配下の経路で指す受領見積書がその見積依頼に属さないとき、解決関数が `projectMismatch`（受領見積書の案件）を返し、範囲外なら記録して受領見積書の不在と同じ汎用の 404 にする。経路の引数を受領見積書の名前（`quotationId`）へ改め、親の見積依頼の ID が子の引数に上書きされて経路の見積依頼を読めていなかった欠陥を併せて直した
+  - quantity-table-generation: `backend/src/middleware/quantity-table-project-scope.middleware.ts` の `requireQuantityTableProjectScope`・`requireQuantityGroupProjectScope`・`requireQuantityItemProjectScope`（親の数量表・グループの食い違い。Requirement 50。食い違いの条文が無く、各 spec の起票で足す）
+    - 実装: 受入基準 50.10、タスク 105.1（`56f4b97e`）。3 つの解決関数が `projectMismatch` を返す。実際の案件は、数量表はその案件、グループと項目は実際の親の数量表の案件で、経路の親の案件は判定しない。一括・写真の紐付け（50.5）・保存の所属の照合は変えない
+    - 追加の実装（2026-10-30、利用者の判断「推奨案で進める」）: 受入基準 50.11、タスク 107.1（`8c924cd8`）。上の「一括へ広げるかは各 spec の判断」により、保存の要求の本文の、保存する数量表に属さない既存のグループ・項目の ID の実際の案件を一括で引き、範囲外の案件ごとに 1 回記録する（親の数量表が論理削除済みでも実在すれば判定する）。応答は従来の 400 のままで書き込まない。同じ案件・範囲内・行の無い ID は記録しない
+  - execution-budget-management: `backend/src/middleware/execution-budget-project-scope.middleware.ts` の独自部品 `requireChildInProject`（20.4。解決関数を通らないため `recordProjectMismatchIfOutOfScope` を使う）と、一括の `requireBodyExecutionBudgetItemsInProject`（20.5）、およびサービスの中の契約の所属の照合（`backend/src/services/execution-budget.service.ts` の `create`・`getAmendmentDiff`・`applyAmendment`）
+    - 実装: 受入基準 20.9。子と一括はタスク 18.1（`a82d616f`）で、子は不在と食い違いを分け、食い違いのときだけ `recordProjectMismatchIfOutOfScope`（子の案件）を待ってから汎用の 404 にする。一括は属さない項目の実際の案件を重複なく引き、範囲外の案件ごとに 1 回記録する。契約はタスク 18.2（`2dfa894a`）で、上の判定部品を通らないサービスの中の経路の箇条の形で記録する。論理削除済みの子は区別せず範囲外なら記録し、論理削除済みの契約は記録しない
+  - 各 spec の単体テスト（`backend/src/__tests__/unit/middleware/` の各 spec の `*-project-scope.middleware.test.ts`）に、食い違いを「範囲を判定せずに 404」「記録しない」と主張するものがあり、各 spec の切り替えで条文どおりに書き換える
+    - 実装: 上の各タスクで、主張を消さずに範囲内と範囲外の 2 本に分けて改めた
+  - 訂正（2026-10-29、itemized-statement-generation の起票で判明）: 当初この一覧は construction-schedule を 13.4、estimate-creation を 57.4・57.5、itemized-statement-generation を 18.4・18.5 と書いていたが、いずれも作成時に指すデータの所属の条文で、経路の食い違いの条文ではなかったため、上の 3 行を改めた
+
+> **改訂（2026-10-30、タスク 65.1 の文書の追随）**: 起票先の一覧の各行に、各 spec の実装（受入基準・タスク・コミット）を書き添え、実装と食い違っていた記述を改めた。
+> - 改訂前: estimate-request の行は二重マウントの判定部品だけを挙げていた。execution-budget-management の行は独自部品と一括の部品だけを挙げていた。判定と記録の実体の箇条は、判定部品の 2 つの入口（解決関数と `recordProjectMismatchIfOutOfScope`）だけを挙げていた
+> - 改訂後: estimate-request の行に作成の要求が指す内訳書の判定（42.10）を、execution-budget-management の行にサービスの中の契約の所属の照合（20.9 の契約の分）を加えた。判定部品を通らずサービスの中で照合する経路が、共有の記録の部品で記録する形を箇条として足した
+> - 理由: 各 spec の起票（estimate-request の 42.10、execution-budget-management の 20.9）が本一覧より広い範囲を食い違いの記録の対象とし、その範囲で実装されたため（`ff65ec47`、`2dfa894a`）。上流の判定部品の契約（`projectMismatch`・`recordProjectMismatchIfOutOfScope` の型と振る舞い）は実装（`388bc6a4`）と一致しており変えない
+- 対象のデータの論理削除の扱いの起票先（2026-10-30。全業務 spec のコードを調べ、論理削除済みの対象を範囲の判定より先に弾いて記録しない箇所を挙げた。各 spec の受入基準・タスクは各 spec の起票で足し、上流のタスク 66.1 に依存する）。各行の下の「実装」は、各 spec が起票で足した受入基準と、実装したタスクとコミット（2026-10-30）。上流のタスク 66.1（`2674fdf0`）は、判定部品が対象のデータの論理削除を知らずに解決関数が返す実際の案件で判定し記録することを単体と統合で確かめた（部品の契約と振る舞いは変えない）:
+  - contract-management（受入基準 14.8・14.9 の条文の「記録しない」の改訂を伴う）
+    - 解決関数 `findProjectIdOfContract` が、論理的に取り除かれた契約書で null を返す。`requireContractProjectScope` を通る詳細・更新・ステータスの変更・取り除きと、入れ子の経路の食い違い（14.9）で、範囲外の案件の契約書でも記録しない。所在は次のファイル
+      backend/src/middleware/contract-management-project-scope.middleware.ts
+    - 変更契約の作成の基となる契約書の照合（`ContractService` の `createWithin`）が、取り除き済みの基となる契約書を所属の照合より先に 422 で弾き、範囲外の案件のものでも記録しない（14.8）。所在は次のファイル
+      backend/src/services/contract.service.ts
+    - 書き換えの要る既存のテスト: 単体の解決関数が null を返すことと、範囲を判定せず記録しないことを主張する 2 本、単体のサービスの 14.8 の「記録しない」の 1 本、統合の取り除かれた契約書の記録の差 0・入れ子の経路の取り除き済みの契約書の「記録しない」・14.8 の「記録しない」の 3 本。所在は次の 3 ファイル
+      backend/src/__tests__/unit/middleware/contract-management-project-scope.middleware.test.ts
+      backend/src/__tests__/unit/services/contract.service.test.ts
+      backend/src/__tests__/integration/contract-management-project-scope.api.integration.test.ts
+    - 実装: 解決関数は受入基準 14.9 の改訂と 14.10、タスク 22.1（`a1494b1a`）。論理削除済みの契約書では経路の形を問わず `projectMismatch`（契約書の案件）を返し、範囲外なら記録して汎用の 404 にする。変更契約の作成の基となる契約書は受入基準 14.8 の改訂、タスク 22.2（`f4b466a1`）。範囲外の案件の論理削除済みの基となる契約書を記録してから従来の 422 を返す
+  - construction-schedule（受入基準 13.8 の条文の「論理的に取り除かれている場合は記録しない」の改訂を伴う）
+    - 解決関数 `findProjectIdOfSchedule` が、論理的に取り除かれた工程表で null を返す。`requireScheduleProjectScope` を通る詳細・更新・一括保存・取り除き・出力と、二重マウントの経路の食い違い（13.8）で、範囲外の案件の工程表でも記録しない。所在は次のファイル
+      backend/src/middleware/construction-schedule-project-scope.middleware.ts
+    - 作成の要求が指す数量表の照合（`ScheduleService` の `createWithin`）が、取り除き済みの数量表を所属の照合より先に 422 で弾き、範囲外の案件のものでも記録しない（13.4）。所在は次のファイル
+      backend/src/services/schedule.service.ts
+    - 書き換えの要る既存のテスト: 単体の解決関数が null を返すこと・範囲を判定せず記録しないこと・二重マウントで記録しないこと（13.8）の 3 本、統合の取り除かれた工程表の記録の差 0・二重マウントの経路の取り除かれた工程表の「記録せず」の 2 本。単体のサービスの取り除き済みの数量表の 1 本は範囲の判定に触れておらず、範囲外の案件の取り除き済みの数量表を足して記録を主張する。所在は次の 3 ファイル
+      backend/src/__tests__/unit/middleware/construction-schedule-project-scope.middleware.test.ts
+      backend/src/__tests__/integration/construction-schedule-project-scope.api.integration.test.ts
+      backend/src/__tests__/unit/services/schedule.service.test.ts
+    - 実装: 解決関数は受入基準 13.8 の改訂と 13.9、タスク 25.1（`6f171cb1`）。論理的に取り除かれた工程表でも実際の案件を返し、範囲外なら記録して汎用の 404 にする。作成の要求が指す数量表は受入基準 13.10、タスク 25.2（`774dfbdd`）。範囲外の案件の論理削除済みの数量表を記録してから従来の 422 を返す
+  - itemized-statement-generation（受入基準 18.4 は記録に触れないため、条文を改めるかは同 spec の起票で判断する）
+    - 作成の要求が指す数量表の照合（`ItemizedStatementService` の `createWithin`）が、取り除き済みの数量表を所属の照合より先に 404 で弾き、範囲外の案件のものでも記録しない（18.4）。所在は次のファイル
+      backend/src/services/itemized-statement.service.ts
+    - 記録しないことを主張する既存のテストは見当たらず、範囲外の案件の取り除き済みの数量表を指す作成の単体と統合を足す
+    - 実装: 受入基準 18.12、タスク 30.1（`6de8723a`）。範囲外の案件の論理削除済みの数量表を記録してから従来の 404 を返す
+  - estimate-creation（受入基準 57.4 は記録に触れないため、条文を改めるかは同 spec の起票で判断する）
+    - 作成の要求が指す内訳書の照合（`EstimateService` の `createWithin`）が、取り除き済みの内訳書を所属の照合より先に 404 で弾き、範囲外の案件のものでも記録しない（57.4）。所在は次のファイル
+      backend/src/services/estimate.service.ts
+    - 単体のサービスの取り除き済みの内訳書を参照した作成の 1 本は範囲の判定に触れておらず、範囲外の案件の取り除き済みの内訳書を足して記録を主張する。統合は同じ形で足す
+    - 実装: 受入基準 57.10、タスク 65.1（`8c99952f`）。範囲外の案件の論理削除済みの内訳書を記録してから従来の 404 を返す
+  - execution-budget-management（受入基準 20.9 の「契約の論理削除は記録しない」の実装の改めを伴う。条文の扱いは同 spec の起票で判断する）
+    - 契約の所属の照合の `noteContractOfOtherProject`（`create`・`getAmendmentDiff`・`applyAmendment` から呼ばれる）が、取り除き済みの契約では判定せず記録しない。所在は次のファイル
+      backend/src/services/execution-budget.service.ts
+    - 書き換えの要る既存のテスト: 単体のサービスの「契約が…範囲外の案件の契約でも判定せず記録しない」の 1 本。統合の契約の照合の記録の主張に取り除き済みの契約を足す。所在は次の 2 ファイル
+      backend/src/__tests__/unit/services/execution-budget.service.test.ts
+      backend/src/__tests__/integration/execution-budget-project-scope.api.integration.test.ts
+    - 実装: 受入基準 20.9 の改訂（契約の論理削除を記録しない例外から外した）、タスク 20.1（`25dffd0f`）。論理削除済みの契約でも所属が食い違えば実際の案件を判定し、範囲外なら記録してから従来の応答を返す
+  - 調べて切り替えの要らない spec と箇所: estimate-creation・itemized-statement-generation・estimate-request・quantity-table-generation・site-survey・construction-photo の解決関数は対象のデータの論理削除を区別せず案件 ID を引く。execution-budget-management の子と一括の部品も区別しない。quantity-table-generation の写真の紐付け（`filterVisibleSurveyImages`・`validateSurveyImage`）は親の現場調査の論理削除の判定より前に範囲を判定する。estimate-request の受領見積書のプレビューの `canAccessProject` は、経路の判定部品が先に判定して記録した後の重ねての確かめであり、記録の要否を左右しない。契約書の作成の要求が指す見積書の照合（14.5）は所属の照合を論理削除の判定より先に置いており、既に方針どおりである
+  - 応答と本文は各 spec とも変えない（範囲外は不在と同じ、範囲内の利用者には論理削除の従来の応答）。各 spec の E2E は、範囲外の案件の取り除き済みの対象を指す要求で不在と同じ表示になり、監査ログに `PROJECT_SCOPE_DENIED` が 1 件増えることを観測する（39.8 の被覆の印は各 spec の E2E が置く）
+- 起票の対象から外す spec と理由: site-survey と construction-photo は、解決関数が経路の案件 ID を読まずに対象のデータから実際の案件を引いて判定し、経路との食い違いは後段のサービスで 404 にする。対象の実際の案件が範囲外なら判定部品が既に 39.7 として記録するため、39.8 の振る舞いを満たしており、切り替えは要らない。project-management は案件そのものの経路だけで、食い違いが生じない
+- 画面が 404 を受けたときの不在の表示（共通部品 `ResourceNotFound` を使うか、各画面の文言）は各業務 spec の画面の所管であり、本 spec はサーバーの応答（汎用の 404 `NOT_FOUND`、範囲外と不在で同じ本文）を変えない
+
+#### 監査
+
+##### AuditLogService（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 記録対象の追加、実行者の写しの保持、改変の拒否 |
+| Requirements | 40.1, 40.2, 40.3, 40.4, 40.5, 40.6, 40.7, 40.8, 41.1 |
+
+- 追加する種別: `LOGIN_LOCKED`、`TWO_FACTOR_VERIFIED`、`TWO_FACTOR_FAILED`、`LOGOUT_ALL`、`INVITATION_RESENT`、`INVITATION_ACCEPTED`、`USER_DEACTIVATED`、`USER_REACTIVATED`、`USER_AUTO_DEACTIVATED`、`TWO_FACTOR_RESET_BY_ADMIN`、`TWO_FACTOR_REENROLLED`、`REFRESH_TOKEN_REUSE_DETECTED`、`PROJECT_SCOPE_DENIED`、`DATA_EXPORTED`、`OPERATIONAL_SETTING_CHANGED`、`AUDIT_ARCHIVE_CREATED`、`AUDIT_ARCHIVE_FAILED`、`AUDIT_ARCHIVE_RESTORED`
+- `actor_id` は外部キーを持たない文字列とし、無人の処理（自動無効化・アーカイブ）では null とする。記録時に `actor_email`・`actor_display_name` を写す（40.7）
+- ログインの失敗は `actor_id` を null、`metadata` に対象のメールアドレス・送信元 IP・ユーザーエージェントを記録する（40.1）
+- DB のトリガー `audit_logs_immutable` が UPDATE を常に拒否し、DELETE は `current_setting('architrack.audit_archive', true) = 'on'` のときだけ許す（40.8）。アプリの API は監査ログの更新・削除の経路を持たない
+- ユーザーの削除（`UserRoleService.deleteUser`）は、同じトランザクションの中で、管理者ロールのロック・対象の読み出し・不在と最後の管理者の判定の後、削除の最初の書き込みの前に `USER_DELETED`（実行者・削除対象のメールアドレスと表示名）を記録し、記録の失敗でトランザクションごと中止する（40.6。判定より前に記録すると、削除しない要求にも記録が残るため）
+- 対象の種別（targetType）は既存の `User`・`Invitation`・`Permission` などに加えて、`Project`（範囲外のアクセスと案件に属する出力）、`DataExport`（案件に属さない出力。targetId は出力の種別）、`Email`（存在しないメールアドレスのログインの失敗。targetId は入力のメールアドレス）、`TwoFactorChallenge`（資格を照会できない 2FA の失敗。targetId `unknown`）を使う
+
+##### ExportAuditService と ExportAuditClient
+
+| Field | Detail |
+|-------|--------|
+| Intent | データの出力・一括ダウンロードを記録する共通の手段 |
+| Requirements | 40.9, 40.10, 40.11, 43.4 |
+
+**Contracts**: Service [x] / API [x]
+
+```typescript
+type ExportKind =
+  | 'site_survey_report_pdf' | 'site_survey_images_zip' | 'quantity_table_pdf'
+  | 'itemized_statement_xlsx' | 'itemized_statement_clipboard'
+  | 'estimate_request_xlsx' | 'estimate_request_text_clipboard' | 'estimate_request_text_mail'
+  | 'estimate_request_items_clipboard' | 'estimate_pdf' | 'estimate_xlsx'
+  | 'schedule_export' | 'order_export' | 'progress_export'
+  | 'construction_photo_ledger_pdf' | 'construction_photos_zip' | 'annotated_image'
+  | 'audit_log_json';
+
+interface ExportRecordInput {
+  kind: ExportKind;
+  projectId: string | null;     // 案件に属する出力は必須
+  targetIds: string[];          // 出力の対象のデータの ID
+  itemCount: number;
+}
+
+interface ExportAuditService {
+  record(actorId: string, input: ExportRecordInput, ctx: RequestContext): Promise<Result<{ recordId: string }, ExportAuditError>>;
+}
+
+type ExportAuditError = { type: 'PROJECT_OUT_OF_SCOPE' } | { type: 'RECORD_FAILED' };
+```
+
+| Method | Endpoint | Request | Response | Errors |
+|---|---|---|---|---|
+| POST | /api/v1/audit-logs/exports | `ExportRecordInput` | 201 `{ recordId }` | 400, 404（範囲外の案件）, 500 |
+
+- 認証済みの全利用者が呼べる。`projectId` を指定したときは `evaluateProjectAccess` で判定し、範囲外・不在・論理削除は汎用の 404 とする（実在して範囲外のときだけ `PROJECT_SCOPE_DENIED` を記録する）
+- 要求本文は strict な zod で検証する（`backend/src/schemas/export-audit.schema.ts`）。`audit_log_json` は `projectId` を null とし、それ以外の種別は `projectId` を必須とする。`targetIds` は 1〜256 字を最大 10000 件、`itemCount` は 0 以上の整数とする
+- 監査 `DATA_EXPORTED`（実行者・種別・案件・対象・件数・日時）を記録する。targetType は案件があれば `Project`（targetId は案件 ID）、無ければ `DataExport`（targetId は種別）とし、metadata は kind・projectId・targetIds（1000 件・各 128 字で切り詰め、`targetIdCount` と切り詰めたときの `targetIdsTruncated`）・itemCount・ipAddress・userAgent（512 字）とする。記録の後に `SecurityAnomalyMonitor.observe('data_export', actorId)` を呼ぶ（40.9、43.4）
+- サーバー側で生成する出力は、各業務 spec がハンドラーから `ExportAuditService.record` を直接呼ぶ。本 spec の監査ログの JSON 出力（`GET /api/v1/audit-logs/export`）は本 spec が呼ぶ
+- `POST /api/v1/audit-logs/exports` は種別 `audit_log_json` も受け付けるため、利用者は自分の名義で監査ログの出力の記録を足せる（他人の名義の記録や記録の消去はできない。受け付けを続けるかは利用者の判断を待つ）
+
+```typescript
+// frontend
+async function runRecordedExport<T>(input: ExportRecordInput, generate: () => Promise<T>): Promise<RecordedExportResult<T>>;
+
+type RecordedExportResult<T> = { ok: true; value: T } | { ok: false; error: RecordedExportError };
+type RecordedExportError = { type: 'RECORD_FAILED'; message: string } | { type: 'GENERATION_FAILED'; cause: unknown };
+```
+- 記録の要求が成功したときだけ `generate` を呼ぶ（40.10）。失敗したときは生成を始めず、呼び出し側が「出力を記録できなかったため中止しました」のエラーメッセージを表示する（40.11）
+- 各業務 spec の出力処理がこの包みを呼ぶ。本 spec は包みと API の呼び出しを提供する
+- 本 spec には画面で生成する出力が無いため、40.10・40.11 は本 spec では単体テストで確かめ、本番の入口での E2E は最初の適用先（site-survey の調査報告書の PDF 出力）で行う。それまでは `e2e/requirement-exclusions.json` に区分 `pending-implementation` で登録し、対になる実装決定として、調査報告書の出力が記録を先に要求することを観測する E2E を `test.fail()` のラチェットで置く。site-survey の適用で成功へ反転させ、除外の登録を外す（利用者の判断、2026-10-16）
+- **反転の記録（2026-10-27、site-survey のタスク 119.2、`1b857057`）**: 調査報告書の出力に包みを適用し、ラチェットの `test.fail()` 2 件を外して被覆済みへ移した。被覆の印が同じ受入基準を名乗るため、`e2e/requirement-exclusions.json` の 40.10・40.11 の登録も同じ変更で外した。以後の 40.10・40.11 の被覆は最初の適用先（site-survey）の E2E が担う。ほかの業務 spec の出力への適用（数量表・内訳書・見積依頼・見積・工事写真・工程表・実行予算）は、各 spec のタスクと、各 spec が自分の受入基準として持つ適用の条文（利用者の判断、2026-10-27）で追う。site-survey の注釈の JSON はブラウザの包みだけで記録し、サーバーの出力の経路（注釈の export）は `ExportAuditService` を呼ばない（二重の記録を避けるため）
+- 記録の要求（`recordExport` の `POST /api/v1/audit-logs/exports`）は共通の API クライアントの自動再試行に載せない（`disableRetry: true`）。サーバーで記録を書いてから生成する出力の要求（発注の `exportOrder`・月別出来高の `exportMonthlyProgress`・工程表の `exportSchedule`・監査ログの JSON 出力の画面の取得）も同じく載せない。加えて、記録の失敗の識別子 `EXPORT_RECORD_FAILED` を API クライアントの再試行しない識別子に加え、止め忘れた呼び出しでも記録の失敗の 500 は送り直さない。401 のトークン更新の後の送り直しは残す（要求はサーバーで認証に弾かれ、記録は書かれていないため）。失敗は 1 回で呼び出し側へ返し、利用者が出力をやり直す（`03f1e0e7`）。クリップボードの包み `runRecordedClipboardWrite` も同じ `recordExport` で記録を要求するので、記録を送り直さない
+
+> **改訂（2026-10-29、是正。利用者の判断「推奨案で直す」）**: 記録の要求とサーバーで生成する出力の要求の再試行の扱いを、上の最後の箇条のとおり定めた。
+> - 改訂前: 共通の API クライアントの自動再試行（5xx・時間切れ・通信の失敗を最大 3 回送り直す）が、記録の要求にもサーバーで生成する出力の要求にも掛かっていた。再試行しない識別子は `ESTIMATE_SAVE_TIMEOUT` だけだった。このため、サーバーが記録を書いた後に応答が失われた・5xx を返したときに送り直され、出力 1 回に `DATA_EXPORTED` が最大 4 件残り得た。記録の失敗の 500（`EXPORT_RECORD_FAILED`）も 3 回送り直され、「出力を記録できなかったため中止しました」の表示が遅れていた。工程表の出力のダイアログは素の fetch で送るため再試行していなかった
+> - 改訂後: 記録の要求とサーバーで生成する出力の要求は送り直さない。`EXPORT_RECORD_FAILED` は要求の種類を問わず送り直さない。他の冪等でない要求の再試行の扱いは本改訂の範囲に含めない
+> - 理由: 記録の要求は送るたびに記録が 1 件増える冪等でない要求であり、サーバーで生成する出力の要求も記録を書いてから生成するので同じく冪等でない。HTTP の自動再試行は冪等な要求に限る（RFC 9110 9.2.2）。要件40.10 の「出力の開始時に 1 回」の記録を、応答が失われた場合も含めて保つため。条文（40.9〜40.11）は変えない
+
+**クリップボードへの書き込みの記録（2026-10-29、利用者の判断「推奨案で進める」）**:
+
+- 種別 `itemized_statement_clipboard`（内訳書の項目のタブ区切りのクリップボードへのコピー）を `ExportKind`（backend の `EXPORT_KINDS`、frontend の `ExportKind`、OpenAPI の列挙）へ足す。案件に属する出力であり `projectId` を必須とする（`PROJECTLESS_EXPORT_KINDS` には入れない）。クリップボードへの書き込みも、ブラウザで生成して利用者の手元へ持ち出す出力として 40.10・40.11 の対象に含める。どの出力を記録するかの条文と画面への適用は itemized-statement-generation が持つ
+- 決定: クリップボードへの書き込みは `runRecordedExport` ではなく専用の包み `runRecordedClipboardWrite` を通す。`runRecordedExport` は記録の応答を待ってから `generate` を呼ぶが、Safari（WebKit）は利用者の操作（クリック）の処理の中で同期的に始めた書き込みしか許さず、記録の応答を待った後の `navigator.clipboard.writeText` は拒否される
+- 包みはクリックの処理の中で、最初の `await` より前に、記録の要求を送り、記録の成功の後に中身（`Blob`、`text/plain`）を解決する Promise を値に持つ `ClipboardItem` を作って `navigator.clipboard.write` を呼ぶ。中身の Promise は記録の要求の成功（記録の ID が返る）の後にだけ中身を作って解決し、記録の失敗では拒否する。拒否された中身は書き込まれないので、記録の失敗ではクリップボードは変わらない（40.10 の記録を先に要求する順を保つ）
+- 結果は `runRecordedExport` と同じ `RecordedExportResult` で返す。記録の失敗は `RECORD_FAILED`（「出力を記録できなかったため中止しました」。40.11）、記録の後の書き込みの失敗は `GENERATION_FAILED` とし、記録は送り直さない
+- `ClipboardItem` を持たない（または `navigator.clipboard.write` を持たない）ブラウザでは、記録の成功を待ってから `navigator.clipboard.writeText` で書く（順は保ち、操作の猶予の切れによる書き込みの失敗は `GENERATION_FAILED` として呼び出し側が表示する）。`navigator.clipboard` が無いときは記録を要求せずに `GENERATION_FAILED` を返す（出力が起きないので記録しない）
+- 検証: 単体テストで、`navigator.clipboard.write` が記録の要求の解決より前に呼ばれること、記録の失敗で中身の Promise が拒否され書き込まれないこと、記録の ID の無い応答を失敗とすることを確かめる。加えて、実ブラウザ（Chromium と WebKit）で、クリックで書き込みが始まり記録の後に中身が入ること、記録の失敗で何も書かれないことを確かめる（擬似の `ClipboardItem` では利用者の操作の制約を再現できないため）
+
+```typescript
+// frontend
+async function runRecordedClipboardWrite(input: ExportRecordInput, produce: () => string | Promise<string>): Promise<RecordedExportResult<void>>;
+```
+
+- 実装と適用（2026-10-29）: 種別と包みはタスク 64.1（`183ed769`）で設けた。実ブラウザの確認は Chromium 151 と WebKit 26.5（Playwright 1.62）で行い、記録の成功の後に中身が入り、記録の失敗では何も書かれないことを確かめた。Playwright の WebKit は Safari の操作の猶予を再現しない（tasks.md の Implementation Notes）。画面への適用は itemized-statement-generation のタスク 28.1（`0f1970a5`、受入基準 18.9・18.10）で、内訳書の詳細画面のコピーが他の `await` を挟まずに包みを呼び、クリック時点の絞り込み後の件数で記録する
+
+> **改訂（2026-10-30、タスク 65.1 の文書の追随）**: 本節の型と分岐の記述を実装（`183ed769`）に合わせた。
+> - 改訂前: `runRecordedExport` の戻り値を `Result<T, RecordedExportError>` と書いていた。文字列で書く分岐の条件を `ClipboardItem` を持たないブラウザとだけ書いていた。クリップボードの包みの再試行の扱いと、実装と適用のコミットを書いていなかった
+> - 改訂後: 戻り値を実装の `RecordedExportResult<T>`（`ok` で成否を分ける形）とし、型を示した。文字列で書く分岐の条件に `navigator.clipboard.write` を持たない場合を加えた。包みが記録を送り直さないこと（`recordExport` の `disableRetry`）と、実装と適用のタスクとコミットを書き添えた
+> - 理由: 設計の記述が実装の型と分岐の条件と一致していなかったため。振る舞い（記録の成功の後にだけ書く順、失敗の種別、再試行しない決定）は変えない
+
+**見積依頼の詳細画面のコピーとメールで開く操作の種別（2026-10-30、利用者の判断「推奨案で進める」）**:
+
+- **見出しの改訂（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 本項の見出しは「見積依頼文のクリップボードへのコピーの種別」だったが、中身は見積依頼の詳細画面の 3 種別（`estimate_request_text_clipboard`・`estimate_request_items_clipboard`・`estimate_request_text_mail`）であり、見積依頼文でないコピーとコピーでない操作を含むため改めた。本項を名指す他の文書（本 spec の tasks.md、estimate-request の requirements.md・design.md・tasks.md）の引用も新しい見出しへ揃えた
+
+- 種別 `estimate_request_text_clipboard`（見積依頼の詳細画面の見積依頼文〔宛先・表題・本文〕のクリップボードへのコピー）を `ExportKind`（backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙）へ足す。案件に属する出力であり `projectId` を必須とする（`PROJECTLESS_EXPORT_KINDS` には入れない）。記録の手段は `itemized_statement_clipboard` と同じ `runRecordedClipboardWrite` とし、包みと記録の API の振る舞いは変えない（種別の列挙の追加だけ）
+- 理由: 見積依頼文は案件の内容と宛先の取引先を含み、利用者の手元へ持ち出す出力である。内訳書のコピー（`itemized_statement_clipboard`）と同じく 40.10・40.11 の対象に含め、出力の記録の基準を機能ごとに変えない。種別を内訳書と分けるのは、監査ログの検索と異常の検知（43.4）で、どのデータが持ち出されたかを種別で見分けるため
+- 本 spec が持つのは種別の追加だけで、どの出力を記録するかの条文、画面への適用（コピーの操作から包みを呼ぶ形、記録の対象の ID と件数）、メールクライアントで開く操作を記録の対象に含めるかの判断は estimate-request が持つ。estimate-request の画面への適用のタスクは上流のタスク 67.1 に依存する
+- **改訂（2026-10-30、利用者の判断。estimate-request の design.md の末尾の章「2026-10-30 の追加」の案 A）**: 上の項までは種別を `estimate_request_text_clipboard` の一つとしていた。estimate-request の起票の調べで、見積依頼の詳細画面には見積依頼文のコピーのほかに、アクションの欄の選択した項目の一覧（内訳書の項目のタブ区切り）のコピーと、見積依頼文をメールクライアント・Gmail で開く操作があり、どちらも記録を経ていないと分かった。利用者はどちらも専用の種別で記録すると判断した。これにより `ExportKind` へ次の 2 種別を加え、計 3 種別を足す（いずれも案件必須で `PROJECTLESS_EXPORT_KINDS` に入れない。記録の API と包みの振る舞いは変えない）
+  - `estimate_request_items_clipboard`: 見積依頼の詳細画面のアクションの欄の、選択した項目の一覧のクリップボードへのコピー。記録の手段は `runRecordedClipboardWrite`
+  - `estimate_request_text_mail`: 見積依頼文の「メールで開く」（mailto）と「Gmailで開く」。記録の手段は `runRecordedExport`（記録の成功の後に起動し、失敗では開かずに中止の文言を出す。起動の形は estimate-request が持つ）
+  - 理由: 種別を分ける理由（どのデータがどの経路で持ち出されたかを種別で見分ける。43.4）は上の項と同じである。選択した項目の一覧は見積依頼文ではないため `estimate_request_text_clipboard` に入れると種別の意味と食い違い、メールで開く操作はコピーと同じ内容でも経路が違う（Gmail では内容が URL に載って外部のサービスへ送られる）。内訳書の Excel とコピーを経路ごとの種別に分けた先例（`itemized_statement_xlsx` と `itemized_statement_clipboard`）に揃える
+  - 採らなかった案: 2 つの操作を `estimate_request_text_clipboard` で記録する（監査ログで経路とデータを見分けられない）、記録しない（同じ内容を記録なしに持ち出す経路が残る）
+- 検証: backend の単体テスト（記録の経路）と統合テスト（実 DB）で、新しい種別の記録が受け付けられて `DATA_EXPORTED` が 1 件増えること、案件の指定の無い要求が 400 になることを確かめる。frontend は型の列挙に足すだけで包みの振る舞いは変えないため、既存の包みの単体テストが緑のままであることを確かめる
+- 実装: 3 種別の追加はタスク 67.1（`4901104f`）。backend の `EXPORT_KINDS`、frontend の `ExportKind`、記録の API の OpenAPI の列挙に 3 種別を足し（いずれも案件必須）、単体と統合で 3 種別の記録が受け付けられて `DATA_EXPORTED` が 1 件増えることと、案件の指定の無い要求が 400 で記録が増えないことを確かめた
+- estimate-request の適用: 受入基準 42.13〜42.16、タスク 107.1（`3cf87a04`）。見積依頼文のコピーを `estimate_request_text_clipboard`、選択した項目の一覧のコピーを `estimate_request_items_clipboard` で `runRecordedClipboardWrite` に包み、「メールで開く」「Gmailで開く」は `estimate_request_text_mail` の記録の成功の後にだけ開く。記録の失敗では何も書き込まず開かずに中止の文言を出す
+
+##### AuditLogArchiveService（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 監査ログの月次のアーカイブ・8 年の消去・復元 |
+| Requirements | 41.1, 41.2, 41.3, 41.4, 41.5, 41.6 |
+
+**Contracts**: Service [x] / Batch [x] / API [x]
+
+```typescript
+interface ArchiveManifest {
+  period: { from: string; to: string };     // 対象の月（UTC の月初から月末）
+  recordCount: number;
+  plaintextSha256: string;                  // 圧縮前の JSON Lines の SHA-256
+  hmacSha256: string;                       // 目録の内容への HMAC（鍵は ARCHIVE_ENCRYPTION_KEY から導出）
+  createdAt: string;
+  keyId: string;
+}
+
+interface AuditLogArchiveService {
+  archiveMonth(month: string): Promise<Result<ArchiveManifest, ArchiveError>>;
+  deleteArchivesOlderThan(years: number, now: Date): Promise<{ deleted: string[] }>;
+  restore(from: Date, to: Date): Promise<Result<AsyncIterable<AuditLogRecord>, ArchiveError>>;
+}
+
+type ArchiveError =
+  | { type: 'KEY_MISSING' }
+  | { type: 'STORAGE_FAILED'; cause: string }
+  | { type: 'INTEGRITY_FAILED'; month: string };
+```
+- 保存先は `StorageProvider` の `audit-archives/YYYY/MM.jsonl.gz.enc` と `audit-archives/YYYY/MM.manifest.json`。本文は gzip の後に AES-256-GCM で暗号化する（41.1、41.4）
+- 書き込みの後に読み戻して目録と照合し、一致したときだけ、アーカイブの許可の設定の下で同じ月の行を 1 トランザクションで消去する。失敗したときは行を残し、監査 `AUDIT_ARCHIVE_FAILED` と管理者への通知を行う（41.6）
+- 8 年の判定は目録の `period.to` で行う（ファイルの作成日時を使わない。41.2）
+- 鍵の欠落時に乱数の鍵を作る処理を取り除き、`KEY_MISSING` を返す。本番では起動時に停止する（41.3）
+- 復元は `POST /api/v1/audit-logs/archives/restore`（`{ from, to }`、`audit:read`）で、指定期間の月のアーカイブを復号し、目録の照合の後に JSON Lines で返す。照合に失敗した月は `INTEGRITY_FAILED` とし、監査 `AUDIT_ARCHIVE_RESTORED` を記録する（41.5）
+
+#### 運用・記録・検知
+
+##### AdminLogLevelEndpoint
+
+| Field | Detail |
+|-------|--------|
+| Intent | 運用設定の変更・参照をシステム管理者に限り、変更を監査する |
+| Requirements | 42.1, 42.2 |
+
+- 経路を `/admin/log-level` から `/api/v1/admin/log-level` へ移し、`authenticate` と `requirePermission('ops:manage')` を通す。`ops:manage` は `user` ロールへ割り当てない（`admin` は `*:*` で持つ）
+- 変更は監査 `OPERATIONAL_SETTING_CHANGED`（実行者、`before`・`after` のログレベル）を記録する（42.2）
+
+##### HttpLogger
+
+| Field | Detail |
+|-------|--------|
+| Intent | アクセスログの要求識別子・伏せ字・利用者 ID |
+| Requirements | 37.3, 42.3, 42.5, 42.6 |
+
+- 要求識別子は常に `randomUUID()` で生成し、応答ヘッダー `X-Request-Id` で返す。受信した `x-request-id`・`x-railway-request-id` は別の項目（`clientRequestId`・`edgeRequestId`、128 文字に切り詰め）として記録するだけにする（42.5）
+- 記録する URL はクエリの値を伏せ字にする。対象のキーは `token`、`password`、`code`、`backupCode`、`refreshToken`、`secret`、`key`、`signature`、`X-Amz-Signature`、`X-Amz-Credential`（大文字小文字を区別しない。37.3、42.3）
+- 認証済みの要求は `userId` を記録する（42.6。`authenticate` が `req.user` を設定した後、応答の完了時に読む）
+
+##### SentryScrubber と ErrorHandler
+
+| Field | Detail |
+|-------|--------|
+| Intent | エラー監視へ機密を送らず、5xx を計数する |
+| Requirements | 42.4, 42.8, 43.3 |
+
+- `errorHandler` は Sentry の文脈に要求本文を付けない。付けるのは経路・メソッド・要求識別子・利用者 ID に限る
+- `initSentry` の `beforeSend` で、`event.request` の `data`・`cookies` を消去し、`headers` の `authorization`・`cookie`・`x-csrf-token` を `[Filtered]` にし、`query_string` を HttpLogger と同じ規則で伏せ字にする。`sendDefaultPii` は false とする（42.4）。実装は同じ規則を `beforeSendTransaction`（トレースの事象）にも当て、`beforeBreadcrumb` で HTTP の breadcrumb の url・クエリ・フラグメントも伏せる（タスク55.3）
+- 5xx の応答のたびに `SecurityAnomalyMonitor.observe('server_error', …)` を呼ぶ（43.3）
+- 画面側の Sentry（`frontend/src/utils/sentry.ts` の `initSentry`）も、送る URL のトークンを伏せる（42.4）。`beforeBreadcrumb`（遷移の from・to、fetch・xhr の url）、`beforeSend`（`event.request` の url・クエリ・`Referer`）、`beforeSendTransaction`、セッションリプレイの `beforeAddRecordingEvent`（記録の事象の href・span・breadcrumb）と、クライアントの `preprocessEvent`（replay の事象の `urls`・`request`）の各経路で、`?token=`・`&token=` などのクエリの値と `#token=` のフラグメントを伏せる。`beforeSend`・`beforeSendTransaction` が共に使う `scrubSentryEvent` は、トレースの文脈（`contexts.trace.data`。`browserTracingIntegration` が pageload の span に付ける `url.full` は、初期化が画面の描画より前のため断片の `#token=` を含む）と子 span（`spans[].data` の `url.full`・`http.url`・`url` など URL を持つ属性、`url.query`・`http.query` のクエリ、`url.fragment`・`http.fragment` の断片、`spans[].description` の URL）と事象名（`transaction`）も伏せる
+- 画面側の規則は `frontend/src/utils/url-query-redaction.ts` に置く。backend の `backend/src/utils/url-query-redaction.ts` を画面から読み込めないための写しで、対象のキーと伏せ字の文字列は backend と同じにし、両方を揃えて変える（テストは同じ事例を固定する）。画面側だけの規則として、クエリの有無にかかわらず空でないフラグメントは丸ごと `#[REDACTED]` にする（招待・リセットのリンクはトークンをフラグメントで運ぶため）
+
+##### SecurityAnomalyMonitor
+
+| Field | Detail |
+|-------|--------|
+| Intent | 時間窓の件数で異常を検知し、重複を抑えて管理者へ通知する |
+| Requirements | 39.7, 43.1, 43.2, 43.3, 43.4, 43.5, 43.6, 43.7, 43.8, 43.9 |
+
+**Contracts**: Service [x]
+
+```typescript
+type AnomalySignal = 'login_failed' | 'permission_denied' | 'scope_denied' | 'rate_limited' | 'server_error' | 'data_export';
+
+interface AnomalyObservation {
+  signal: AnomalySignal;
+  sourceIp: string | null;
+  userId: string | null;
+}
+
+interface SecurityAnomalyMonitor {
+  observe(observation: AnomalyObservation): void;   // 非同期に計数し、要求の応答を待たせない
+}
+
+interface AnomalyThreshold { windowSeconds: number; threshold: number; cooldownSeconds: number }
+
+// 2026-10-26 追加（43.9）。SecurityAlertConfig に notificationLimit として持たせる
+interface NotificationLimit { maxNotifications: number; windowSeconds: number }
+
+// 一件の観測の処理の結果に 'capped'（上限により送らず溢れ分に数えた）を加える
+type AnomalyRecordOutcome = 'dropped' | 'counted' | 'notified' | 'suppressed' | 'capped';
+```
+- 計数は Redis の分単位の桶（`anomaly:<signal>:<分>`、`INCR` と `EXPIRE`）で行い、時間窓の合計が閾値を超えたら通知する。`data_export` は利用者ごとの桶で数える（43.4）
+- 通知の抑止は `SET anomaly:notified:<signal> NX EX cooldownSeconds` で行う（43.6）。2026-10-26 の改訂（43.8）で、`data_export` の抑止の鍵を利用者ごとの `anomaly:notified:data_export:user:<userId>` に改める。計数の鍵（利用者ごと）と抑止の鍵の単位が揃い、利用者 A の通知の抑止の時間内でも利用者 B の急増は通知される。他の群の抑止の鍵（群ごと）は変えない
+- 通知の総数の上限（43.9、2026-10-26 追加）: 抑止の鍵を取れた（送るべき）通知について、固定の時間窓の計数 `anomaly:notify-budget:<窓の番号>`（`INCR` と `EXPIRE`。窓の番号は `floor(now / windowSeconds)`）を進め、`maxNotifications` を超えたら送らず、溢れ分として `anomaly:overflow:count`（`INCR`）、`anomaly:overflow:groups`（ハッシュ。群ごとの件数）、`anomaly:overflow:since`（`SET NX`。最初の溢れの時刻）、`anomaly:overflow:last`（最後の溢れの時刻）に記録して `'capped'` を返す。抑止の鍵は取ったまま残す（同じ種類の再送は抑止の時間の間止まり、溢れ分の通知で知らせる）
+- 溢れ分の通知（43.9）: 上限の内で通知を送るときは、送る前に溢れ分の鍵を一つの `MULTI`（読み出しと `DEL`）で取り出し、残っていれば本文の末尾に「上限により送らなかった通知: N 件（期間 since 〜 last、内訳 群: 件数）」を添える。次の通知が無いまま上限の時間窓が明けたときに備え、定期処理 `security-anomaly-overflow-summary`（10 分ごと。ScheduledJobRunner の節）が、溢れ分が残り、最初の溢れの属する時間窓が明けていれば、同じ取り出しで要約を 1 通送る。要約は上限の計数に含めない（1 回の実行で 1 通に限り、溢れ分が無ければ送らないため、要約による殺到は起きない）。要約の件名は「【重要】セキュリティ上の異常の検知: 上限により送らなかった通知の要約」とし、本文は上限の設定（「異常の通知の総数の上限（W 秒あたり N 通）により送らなかった通知の要約」）と上の添え書きと同じ 1 行とする
+- 取り出した溢れ分を戻す範囲（43.9）: 取り出しの後に `getNotifier()` か `notifyAllAdmins` が例外を投げたときだけ、件数と内訳を溢れ分へ戻して例外を投げ直す（要約は定期処理の次の実行が送り直す）。`AdminNotificationService.notifyAllAdmins` は宛先の取得とメールのキューへの投入の失敗を自身の中で警告ログに留めて例外にしないため、その失敗では溢れ分は戻らず、添え書き・要約の内容は失われうる（通知そのものの失敗と同じ扱いで、ログに残る）
+- 二重送信の防止と既知の制約（43.9）: 二重に送らないことは、溢れ分の読み出しと消去を一つの `MULTI` で行う取り出しが担う（重なった取り出しの片方だけが中身を得る）。要約の処理の排他の鍵 `anomaly:overflow:summary-lock`（`SET NX EX 60`）は同じ時刻の重複の実行を避ける補助であり、処理の後に所有の照合をせずに消す（期限の切れた後に他の実行が取った鍵を消しうるが、取り出しが一つであるため二重には送らない）。戻すときの `since` は無条件の上書き、`last` は `SET NX` で、取り出しと戻しの間に新しい溢れが記録された場合の最初・最後の時刻は最小・最大の比較をしないため、期間の表示が厳密でないことがある。件数と内訳は `INCRBY`・`HINCRBY` で足し戻すため失われない
+- 上限と時間窓は環境変数 `SECURITY_ALERT_NOTIFICATION_LIMIT`（既定 10 通）と `SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS`（既定 3600 秒）で変える（43.7 と同じく `backend/src/config/security-alert.ts` で検証する）。既定の 10 通 / 時は、群ごとの抑止 1800 秒の下で利用者ごとでない 4 群が出しうる最大の 8 通 / 時を上回り、利用者ごとのデータ出力の通知が多数の利用者で同時に起きた場合にだけ効く値である。試験と CI の環境は E2E と統合テストの全件で超えない値にし、上限の振る舞いは単体と統合のテストの中で設定を下げて確かめる
+- 通知の本文は、検知の種類、時間窓、件数、上位 5 件の送信元 IP・利用者 ID を含める（43.5）。主な送信元・利用者は桶ごとの Redis のソート済み集合で数える
+- 閾値・時間窓・抑止の時間は検知の群ごとの環境変数 `SECURITY_ALERT_<GROUP>_THRESHOLD`・`_WINDOW_SECONDS`・`_COOLDOWN_SECONDS` で変える（43.7。`backend/src/config/security-alert.ts`）。群は `LOGIN_FAILED`・`PERMISSION_DENIED`（`permission_denied` と `scope_denied` の合算）・`RATE_LIMITED`・`SERVER_ERROR`・`DATA_EXPORT` の 5 つで、例えば `SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD` とする。計数の鍵と通知の抑止の鍵も群ごとに持つ（`data_export` は計数の鍵・抑止の鍵とも利用者ごと。43.4、43.8）。既定は `login_failed` 20 件 / 300 秒、`permission_denied`・`scope_denied` 合算 30 件 / 300 秒、`rate_limited` 100 件 / 300 秒、`server_error` 20 件 / 300 秒、`data_export` 利用者ごと 50 件 / 3600 秒、抑止 1800 秒
+- `permission_denied` は既存の `recordPermissionCheckFailure` から、`login_failed` は AuthService から呼ぶ（43.1、43.2）。権限の上限による 3 つの 403（`user-roles.routes.ts` のロールの割り当て、`roles.routes.ts` の権限の付与とシステムロールの名前の変更）も、ルートで `observeSecurityAnomaly` に `permission_denied` を送る（43.2）。2026-10-26 に加えた上限の 403（38.6 のロールの優先度の変更・38.7 のロールの作成・38.8 の保有しない権限の追加は `roles.routes.ts`、38.9 の割り当ての解除は `user-roles.routes.ts`、38.11 の上限より上のロールの変更・消去と 38.12 のシステムロールの優先度の変更は `roles.routes.ts`、38.13 の上限を超えるユーザーを消す要求は `user-roles.routes.ts`、無効化・再有効化・2FAの再設定は `user-inventory.routes.ts`）も同じく送る。38.10 の 400 は入力の誤りであり送らない
+- 43.2 の権限チェックの失敗（403）の定義（2026-10-26、利用者の判断）: 数えるのは、RBAC の権限の不足による拒否（`requirePermission` の `authorize` による 403）と、権限付与の上限による拒否（要件38 の 38.1〜38.3・38.6〜38.9・38.11〜38.13）の二つである。業務上の保護による拒否（`SYSTEM_ROLE_PROTECTED`、`LAST_ADMIN_PROTECTED`、`SELF_RESET_FORBIDDEN`、`TWO_FACTOR_DISABLE_NOT_ALLOWED`、2FA 未登録・初回のパスワード変更中などの利用者の状態による制限。応答の状態コードが 403 か 400 かを問わない）は数えない。これらは通常の運用の中で起きる拒否であり、数えると本当の兆候が埋もれるためである（OWASP のログの指針を踏まえた利用者の判断）
+- Redis が使えないときは計数を捨て、警告ログを残す（検知の欠落は要求の失敗にしない）
+
+##### EmailQueue（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | メールキューの接続とジョブの後始末 |
+| Requirements | 45.1, 45.2, 45.3, 45.4 |
+
+- `new Queue('email-queue', env.REDIS_URL, …)` とし、`REDIS_HOST`・`REDIS_PORT` を使わない（45.1）
+- ジョブの既定に `removeOnComplete: true` を置く（45.2）
+- `failed` イベントで最終の試行（`attemptsMade >= opts.attempts`）のとき、種別・宛先のドメイン・失敗の理由（トークンを含まない）だけをエラーログと Sentry へ送り、`job.remove()` で消す（45.3）
+- 本番でキューの `error` イベントを受けたら Sentry へ送る（45.4）
+
+#### 画面配信
+
+##### FrontendNginxConfig
+
+| Field | Detail |
+|-------|--------|
+| Intent | 画面と静的ファイルの全応答にセキュリティヘッダーを付け、API を同一オリジンへ中継する |
+| Requirements | 37.3, 44.1, 44.2, 44.3, 44.4 |
+
+- `server_tokens off;`（44.3）
+- ヘッダーは一つの取り込みファイル（テンプレートから生成）にまとめ、サーバーの階層と `add_header` を持つ全ての `location` で取り込む（nginx の継承の規則による欠落を防ぐ。44.1、44.2）
+- CSP（44.1、44.4）:
+  - `default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: ${CSP_IMG_SRC_EXTRA}; connect-src 'self' blob: data: https://cdn.jsdelivr.net https://tessdata.projectnaptha.com ${CSP_CONNECT_SRC_EXTRA}; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
+  - `CSP_IMG_SRC_EXTRA` と `CSP_CONNECT_SRC_EXTRA` は R2 の署名 URL の取得先と Sentry の取り込み先を環境ごとに渡す
+  - connect-src の `blob:` と `data:` は、PDF のプレビューで react-pdf が blob の URL を fetch し、現場調査の一括エクスポートで bulkExportService が data の URL を fetch するために要る（2026-10-25 の利用者の判断。44.4）
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains` は本番だけ付ける（`NGINX_HSTS_VALUE` が空の環境では付かない。44.2）
+- `X-Frame-Options: DENY`、`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`（44.2）。`X-XSS-Protection` は外す
+- `location /api/` と `location = /csrf-token` を `${BACKEND_INTERNAL_URL}` へ中継し、`X-Forwarded-For $proxy_add_x_forwarded_for`、`X-Forwarded-Proto` を付ける
+- 中継は本番だけでなく試験（`docker-compose.test.yml`）と CI（`docker-compose.ci.yml`）でも用いる（本番と同じ nginx のイメージで検証する方針）。各環境の `VITE_API_URL` は画面と同じオリジンとし、`BACKEND_INTERNAL_URL` は compose の backend のサービス名で渡す。`BACKEND_INTERNAL_URL` が空のときはコンテナの起動前の検査で失敗させる（中継先の無い nginx を黙って起動しない）
+- アクセスログの書式はクエリを含めない `$uri` を使う（37.3）。`$uri` は `try_files` の内部の置き換えの後の値のため、画面の経路（SPA のルート）への要求は `/index.html` として記録される
+- CSP の `script-src` は `'unsafe-eval'` を含めないため、画面の入口（`main.tsx`）が最初に `frontend/src/utils/zod-csp-config.ts` を読み込み、Zod の JIT（`new Function` による eval の試行）を止める（`z.config({ jitless: true })`。検証の結果は変わらず、試行のたびに起きる CSP の違反を無くす。44.4）
+- 配信物から可視化の統計（`stats.html`）を外す
+
+#### フロント
+
+##### ApiClient・TokenRefreshManager（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | アクセストークンをメモリだけに置き、リフレッシュを Cookie とタブ間の直列化で行う |
+| Requirements | 33.8, 33.10 |
+
+- `ApiClient` はアクセストークンをインスタンスの変数だけに持ち、localStorage・sessionStorage・IndexedDB に書かない（33.10）
+- リフレッシュは `POST /api/v1/auth/refresh` を本文なし・`credentials: 'include'`・`X-CSRF-Token` 付きで送る（33.8）。CSRF トークンは `GET /csrf-token` の応答本文から得てメモリに持つ
+- `TokenRefreshManager.refreshToken()` は `navigator.locks.request('architrack-auth-refresh', …)` の中で、ロックの取得時に他のタブが直前に配った新しいアクセストークンがあればそれを使い、無ければリフレッシュを送る。結果は BroadcastChannel で配る（ブラウザの同一オリジンの中に限り、永続しない）
+- 工程表の出力と担当者選択の localStorage の直接の読み取りは `apiClient` 経由に置き換える
+
+##### AuthContext・ProtectedRoute（変更）
+
+| Field | Detail |
+|-------|--------|
+| Intent | 再読み込み時の復元と、利用者の状態による遷移の制限 |
+| Requirements | 33.11, 34.1, 34.3, 34.5, 34.8, 37.7 |
+
+- 初期化は CSRF トークンの取得 → Cookie によるリフレッシュの順で行い、リフレッシュの応答の `user` で利用者を復元する。localStorage を読まない（33.11）
+- `user.mustChangePassword` が真ならパスワード変更の画面（`/profile` のパスワード変更の区画を単独で表示する `/setup/password`）だけを許し、それ以外の経路は同画面へ置き換える（37.7）
+- `user.twoFactorEnabled` が偽なら `/profile/2fa-setup` だけを許す（34.1、34.3、34.5、34.8）。どちらの制限中もヘッダーのナビゲーションは表示せず、ログアウトだけを置く
+- 初回のパスワード変更の完了でリフレッシュトークンが全て失効するため、ログイン画面へ戻し、再ログインの後に 2FA の設定へ進める
+
+##### その他の画面（要約）
+
+- **TwoFactorSetupPage**（34.4、34.11）: 設定の完了後、`ProtectedRoute` が保存した遷移先（無ければ `/dashboard`）へ遷移する。2FA 登録済みの利用者には「認証アプリを変更する」の手順（現在のコード → 新しい QR → 新しいコード → 新しいバックアップコード）を表示する
+- **ProfilePage**（34.6）: 2FA の無効化の操作を取り除き、再登録の手順への導線に替える
+- **UserInventoryPage**（34.7、36.10、36.11）: `/admin/user-inventory`。表示名、メールアドレス、ロール、状態、2FA 登録の有無、最終ログイン日時、作成日時、招待者の列と、状態・経過日数の絞り込み、無効化・再有効化（理由の入力）・2FA の再設定の操作。自分自身の行の操作は無効にする
+- **UserSelect**（36.6）: 現在の値が候補（有効な利用者だけ）に無いときも、案件の詳細から渡された表示名で「（無効）」を添えて表示する
+- **InvitationManager**（37.2、37.5）: 招待 URL は作成直後の応答の値だけを表示し、一覧には表示しない。取り消しは全ての未使用の招待で可能にする
+- **RegisterPage・PasswordResetPage**（37.3）: トークンをフラグメントから読み、POST で検証し、読んだ直後に URL から取り除く。フラグメントだけが変わったときは `hashchange` で読み直す（`useUrlToken`）
+- **AuditLogsPage**（40.12、2026-10-26 追加）: 監査ログ画面の対象の欄に、招待の記録では招待先のメールアドレスを表示する。表示は次の関数で組み立てる
+
+  ```typescript
+  // frontend/src/utils/audit-log-actions.ts
+  function getAuditLogTargetLabel(log: Pick<AuditLog, 'targetType' | 'targetId' | 'targetName' | 'metadata'>): string;
+  ```
+  - `targetType` が `Invitation` で `metadata.email` が空でない文字列なら、その値を返す。それ以外は従来どおり `targetName || targetId || '-'` を返す
+  - 監査ログ画面（`AuditLogs`、`/admin/audit-logs`）の対象の欄と、`AuditLogViewer` の対象の欄の両方がこの関数を使う
+  - 表示を画面の側で組み立てる理由: 招待の記録（`INVITATION_CREATED`・`INVITATION_REVOKED`・`INVITATION_RESENT`）は `InvitationService.recordAudit` が `metadata.email` を書いており、既に書かれた行もメールアドレスを持つ。`audit_logs` には対象の名前の列が無く、トリガー `audit_logs_immutable` が UPDATE を拒否するため、既存の行へ名前を書き足すことはできない。記録の時点で名前の写しを書く案（列の追加と移行）は既存の行に効かず、40.12 を既存の行で満たせないため採らない。記録、API の応答（`metadata` を含む）、JSON の出力は変えない
+  - `INVITATION_ACCEPTED`（招待経由の登録、targetType `Invitation`、`metadata.email` を持つ）も同じ表示になる。40.12 の対象外だが、同じ招待を指す記録の表示を揃える
+  - 対象の種別の列（`AuditLogViewer` の 1 行目の `targetType`）は変えない
+
+### Data Models
+
+#### Physical Data Model（追加・変更）
+
+```prisma
+model User {
+  // 既存の列は変更しない
+  isActive               Boolean   @default(true)  @map("is_active")
+  deactivatedAt          DateTime? @map("deactivated_at")
+  deactivationReason     String?   @map("deactivation_reason")
+  lastLoginAt            DateTime? @map("last_login_at")
+  reactivatedAt          DateTime? @map("reactivated_at")  // 最後の再有効化（36.8 の起点）
+  accessTokenGeneration  Int       @default(0) @map("access_token_generation")  // 34.7
+  mustChangePassword     Boolean   @default(false) @map("must_change_password")
+  twoFactorLastUsedStep  Int?      @map("two_factor_last_used_step")
+  twoFactorPendingSecret String?   @map("two_factor_pending_secret")  // AES-256-GCM
+  invitedById            String?   @map("invited_by_id")
+  invitedBy              User?     @relation("InvitedUsers", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([isActive, lastLoginAt])
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique @map("token_hash")
+  familyId   String    @map("family_id")
+  replacedAt DateTime? @map("replaced_at")
+  deviceInfo String?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+
+  @@index([familyId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Invitation          { tokenHash String? @unique @map("token_hash") }  // token 列を置き換える。掃除で NULL にする（行は残す）
+model PasswordResetToken  { tokenHash String @unique @map("token_hash") }  // token 列を置き換える
+
+model AuditLog {
+  actorId          String? @map("actor_id")            // 外部キーを持たない
+  actorEmail       String? @map("actor_email")
+  actorDisplayName String? @map("actor_display_name")
+}
+
+model Project {
+  @@index([constructionPersonId])
+  @@index([createdById])
+}
+```
+
+- 不変条件: `is_active=false` の利用者は有効なリフレッシュトークンを持たない（無効化と同じトランザクションで失効させる）
+- 不変条件: 同じ `family_id` の中で `replaced_at` が null の行は高々 1 行
+- `audit_logs` のトリガー（生の SQL）: `BEFORE UPDATE` は常に例外、`BEFORE DELETE` は `current_setting('architrack.audit_archive', true) IS DISTINCT FROM 'on'` のとき例外
+
+#### 移行
+
+1. 列の追加（既定値あり）と索引の追加。既存の利用者は `is_active=true`・`must_change_password=false`・`last_login_at=null`（自動無効化の起点は作成日時になるため、移行日から 90 日の猶予を置く目的で、移行時に `last_login_at` を移行日時で埋める）
+2. `refresh_tokens` は全行を消去し、新しい列の形で作り直す（原文のトークンからハッシュの移行はしない。全利用者が再ログインする）
+3. `invitations`・`password_reset_tokens` の `token` は SHA-256 を計算して `token_hash` へ移し、`token` 列を取り除く（未使用の招待のリンクは有効のまま残る）
+4. `invitations` の使用済みの行から `users.invited_by_id` を埋める
+5. `audit_logs` の外部キーを外し、既存の行の `actor_email`・`actor_display_name` を利用者から埋め、トリガーを作る（トリガーは埋めた後に作る）
+6. `role_permissions` から `user` ロールの `user:read` を外し、`permissions` に `project:read_all` と `ops:manage` を加える
+7. `users` に `reactivated_at`（null）と `access_token_generation`（既定 0）を加える（2026-10-22 の要件34.7・36.8 の改訂による追加。既存のアクセストークンは `gen` を持たず 0 として扱うため、移行で無効にならない）
+
+上の 1〜7 は一本の移行でなく、タスクごとの移行に分けて適用した（適用済みの移行は書き換えないため）。実在の移行と上の項目の対応は次のとおり（2026-10-25、タスク57.2）。
+
+| 移行 | 項目 |
+|---|---|
+| `backend/prisma/migrations/20261017000000_security_remediation_ipa_20261009_user_status/migration.sql` | 1（利用者の状態の列・索引）、4 |
+| `backend/prisma/migrations/20261017010000_security_remediation_ipa_20261009_audit_log_protection/migration.sql` | 5 |
+| `backend/prisma/migrations/20261017020000_security_remediation_ipa_20261009_default_permissions/migration.sql` | 6 |
+| `backend/prisma/migrations/20261018000000_security_remediation_ipa_20261009_invitation_token_nullable/migration.sql` | 3 の前段（掃除のため招待のトークンの列に空を許す） |
+| `backend/prisma/migrations/20261018010000_security_remediation_ipa_20261009_refresh_token_family/migration.sql` | 2 |
+| `backend/prisma/migrations/20261022000000_security_remediation_ipa_20261009_access_token_generation/migration.sql` | 7（`access_token_generation`） |
+| `backend/prisma/migrations/20261022010000_security_remediation_ipa_20261009_reactivated_at/migration.sql` | 7（`reactivated_at`） |
+| `backend/prisma/migrations/20261023000000_security_remediation_ipa_20261009_invitation_token_hash/migration.sql` | 3（招待） |
+| `backend/prisma/migrations/20261023010000_security_remediation_ipa_20261009_password_reset_token_hash/migration.sql` | 3（パスワードリセット） |
+
+### Error Handling
+
+| 状況 | 応答 | 記録 |
+|---|---|---|
+| 2FA 待ちの資格の不在・期限切れ・消費済み | 401 `INVALID_CHALLENGE`（区別しない） | 監査 `TWO_FACTOR_FAILED` |
+| TOTP の再利用 | 401 `INVALID_2FA_CODE`（通常の誤りと同じ本文） | 監査 `TWO_FACTOR_FAILED`（`metadata.reason='replay'`） |
+| リフレッシュトークンの再利用 | 401 `INVALID_REFRESH_TOKEN` と Cookie の消去 | 監査 `REFRESH_TOKEN_REUSE_DETECTED` |
+| 2FA 未登録・初回変更中の API | 403 `TWO_FACTOR_SETUP_REQUIRED`・`PASSWORD_CHANGE_REQUIRED` | なし |
+| 無効化された利用者の API | 401 `ACCOUNT_DISABLED` | なし |
+| 範囲外の案件 | 404 `NOT_FOUND`（存在しない案件と同じ本文） | 監査 `PROJECT_SCOPE_DENIED` |
+| 経路の案件と対象の実際の案件の食い違い（39.8） | 404 `NOT_FOUND`（対象の不在と同じ本文） | 実際の案件が範囲外のときだけ監査 `PROJECT_SCOPE_DENIED`（範囲内・不在は記録なし） |
+| クリップボードへの書き込みの記録の失敗（40.11） | 書き込まない（中身の Promise を拒否）・「出力を記録できなかったため中止しました」 | なし |
+| 上限を超える付与 | 403 `FORBIDDEN`（`code` に `CeilingError` の種別） | 監査 `PERMISSION_CHECK_FAILED`、異常の検知 `permission_denied` |
+| システム管理者ロールの優先度を超える優先度の指定（38.10） | 400 `VALIDATION_ERROR`（`validate` の既定の本文） | なし |
+| Redis の不在（2FA 待ちの資格） | 503 `SERVICE_UNAVAILABLE` | エラーログ |
+| 認証中の DB 障害 | 500 `INTERNAL_ERROR`（汎用の本文） | エラーログ、Sentry（伏せ字の後） |
+
+フロントは 403 `TWO_FACTOR_SETUP_REQUIRED`・`PASSWORD_CHANGE_REQUIRED` を受けたら `AuthContext` の利用者を取り直し、`ProtectedRoute` の制限に委ねる。
+
+### Testing Strategy
+
+#### 単体テスト（Vitest）
+
+- `TwoFactorChallengeService`: 発行した資格の `peek` が利用者 ID を返す。`consume` の二度目が `CHALLENGE_INVALID`。TTL の経過後の `peek` が `CHALLENGE_INVALID`。Redis 不在で `CHALLENGE_STORE_UNAVAILABLE`（32.2〜32.5）
+- `TwoFactorService.verifyTOTP`: 同じステップのコードの二度目を `CODE_ALREADY_USED`。前のステップのコードの後の現在のステップは成功（32.7）。固定値 `123456` を全環境で拒否
+- `TokenService.verifyToken`: リフレッシュトークンを `access` で検証すると `TOKEN_INVALID`。発行者・利用者の違うトークンを拒否（33.1〜33.3）
+- `SessionService.rotate`: 置き換え済みの再提示で系列の全行が消える（33.6）。保存値が原文と異なり SHA-256 と一致（33.7）
+- `PrivilegeCeilingPolicy`: priority 50 の実行者が 100 のロールを割り当てられない。`admin` を持たない実行者の `*:*` の追加を拒否（38.1〜38.3）
+- `PrivilegeCeilingPolicy`（2026-10-26 追加）: priority 50 の実行者が既存のロールの優先度を 51 へ上げられず、50 へは上げられ、上限以下（例: 50）のロールの優先度を 40 へ下げられる。上限より上（例: 80）のロールの優先度を下げる変更は 38.6 の判定（変更後の値）を通っても 38.11 が拒否する。同じ値の再送は判定しない（38.6）。51 のロールを作れず 50 は作れる（38.7）。`project:read` だけを持つ実行者が `project:update` を追加できず、`project:read` は追加でき、`project:*` を持つ実行者は `project:update` を追加でき `*:update` は追加できない（38.8）。他の利用者から 51 のロールを外せず、50 は外せ、自分からは外せる（38.9）。`admin` の優先度を超える値は `admin` の実行者でも 400、等しい値は通る（38.10。スキーマの単体）。priority 50 の実行者が 80 のロールの優先度を 40 へ下げられず、権限の追加・削除とロールの削除もできず、50 のロールではできる。80 のロールの説明の変更はできる（38.11）。`admin`・`user` の優先度の変更は `admin` の実行者でも 403、同じ値の再送は通る（38.12）
+- `ProjectScopeService`: 営業・工事・作成者の各一致で true、無関係で false、`project:read_all` で true、論理削除で false（39.1、39.6）
+- `SecurityAnomalyMonitor`: 閾値の超過で一度だけ通知し、抑止の時間内は送らない（43.1〜43.6）
+- `SecurityAnomalyMonitor`（2026-10-26 追加）: 利用者 A のデータ出力の急増の通知の後、抑止の時間内に利用者 B の急増が通知され、A の再度の超過は送られない（43.8）。上限 2 の設定で 3 件目の通知が送られず溢れ分に数えられ、次の時間窓の最初の通知に件数・期間・内訳が添えられ、溢れ分が消える。次の通知が無いまま時間窓が明けると要約のジョブが 1 通だけ送る（43.9。時刻は注入した `now` で進める）
+- `RuntimeMode`: `NODE_ENV` 未設定で開発用機能が無効、本番で `DISABLE_RATE_LIMIT` を無視（35.6、42.9）
+- `HttpLogger` と `SentryScrubber`: `?token=abc` が記録で伏せ字になる。要求本文・Cookie が Sentry の事象に含まれない（42.3、42.4）
+- `ApiClient`・`AuthContext`: localStorage へ書き込まない。再読み込みの初期化で Cookie のリフレッシュから復元する（33.10、33.11）
+- `runRecordedExport`: 記録の失敗で生成を呼ばない（40.11）
+- `recordExport`: 記録の失敗の 500・ほかの 5xx・通信の失敗で記録の要求を 1 回だけ送り、送り直さない。401 のトークン更新の後の送り直しは残る（40.10、2026-10-29 の是正）
+
+#### 統合テスト（Vitest + 実 PostgreSQL・実 Redis）
+
+- 監査ログのトリガー: UPDATE と、許可の設定の無い DELETE が失敗する。ユーザーの削除の後も監査ログが残る（40.7、40.8）
+- アーカイブ: 13 か月より前の月を書き出し、読み戻して照合し、行を消す。保存の失敗で行が残る。目録の改ざんで復元が `INTEGRITY_FAILED`（41.1、41.4〜41.6）
+- 送信元の識別: `TRUST_PROXY_HOPS=1` で `X-Forwarded-For` の先頭を偽っても回数制限の識別が変わらない（35.1）
+- 無効化: トランザクションの中でリフレッシュトークンが消え、状態のキャッシュが無効化される（36.1）
+- メールキュー: 完了したジョブが Redis に残らない。最終の失敗で消える（45.2、45.3）
+
+#### E2E テスト（Playwright）
+
+- 2FA のログイン: パスワード → コード → ダッシュボード。メールアドレスとコードだけの直接の検証の要求が 401（32.1、32.2）
+- 2FA の必須化: 未登録の利用者がログインすると設定画面へ遷移し、他の画面の URL を開いても設定画面へ戻る。設定の後に元の遷移先へ（34.1〜34.4）
+- 管理者による 2FA の再設定: 棚卸し画面で再設定 → 対象者の次のログインで設定画面へ（34.7、34.8）
+- 再読み込み: ログイン後に再読み込みしてもログイン画面へ戻らない。localStorage にトークンが無い（33.8〜33.11）
+- ログアウト: ログアウトの後に保持した Cookie で refresh が 401（33.4）
+- 無効化: 棚卸し画面で無効化 → 対象者の操作が拒否され、ログインできない。再有効化で戻る（36.1〜36.3）。案件の詳細で無効化された担当者の名前が表示される（36.6）
+- 棚卸し: 列と絞り込み。一般ユーザーで画面が開けない（36.10〜36.12）
+- 招待: 一覧にトークン・URL が表示されない。他の管理者の招待を取り消せる（37.2、37.5）
+- 初期管理者: 初回ログインでパスワード変更の画面だけが開く（37.7）
+- 閲覧範囲: 担当外の利用者の案件一覧に案件が出ない。詳細の URL を直接開くと「見つかりません」になる（39.2、39.3）
+- 管理用エンドポイント: 未認証・一般ユーザーのログレベルの変更が拒否される（42.1）
+- 権限付与の上限の残り（2026-10-26 追加。38.11 は `role:update`・`role:delete` だけを持つ実行者が上限より上のロールの優先度を下げる・権限を足す・外す・ロールを消すことの拒否、38.12 はシステム管理者による `admin`・`user` の優先度の変更の拒否を主張する。`e2e/specs/admin/privilege-ceiling.spec.ts` と同じく API で主張する）: `role:update` だけを持つ実行者が既存のロールの優先度を上限より上げられない、`role:create` だけを持つ実行者が上限より高いロールを作れない、`role:update` だけを持つ実行者が持たない権限を追加できない、`user:update` だけを持つ実行者が上限より高いロールを他の利用者から外せない（403、`code`、DB の不変、`PERMISSION_CHECK_FAILED` の記録）。システム管理者がその優先度を超えるロールを作れない（400）。各々に上限内の操作の対照を置く（38.6〜38.12）
+- 監査ログ画面の招待の対象: 招待を作成・再送信・取り消した後、監査ログ画面の該当の行の対象の欄に招待先のメールアドレスが表示され、招待の ID が表示されない（40.12）
+- 画面配信: 応答に CSP・HSTS（本番の構成）・Referrer-Policy・X-Content-Type-Options があり、`Server` に版が無い。主要画面でコンソールに CSP の違反が出ない（44.1〜44.4）
+
+#### 起動時の確認の判定（2026-10-26、利用者の判断）
+
+- 未ログインの状態で画面を開くと、`AuthContext` の初期化が Cookie によるリフレッシュ `POST /api/v1/auth/refresh` を送り、リフレッシュの Cookie が無いため 400 が返る。ブラウザはこの応答について、ネットワークの層のコンソールのエラー（`Failed to load resource`）を出す
+- これは設計どおりの応答であり（Cookie の無い refresh は `readRefreshTokenCredential` が検証エラーの 400 `Refresh token is required` を返す）、起動時のアプリケーションのエラーに数えない。スモークの確認・E2E のコンソールの監視で起動時のエラーを数えるときは、未ログインの状態の refresh の 400 による `Failed to load resource` の 1 件を除いて判定する。それ以外の 4xx・5xx、アプリケーションのコードが出すエラー、CSP の違反は従来どおりエラーに数える
+
+#### E2E の認証基盤の移行
+
+- 全体の準備で共有の役割ごと（管理者・一般ユーザー）にログインし、リフレッシュの Cookie を保持する。各テストのコンテキストへ Cookie を渡し、終了時に回収して次のテストへ渡す（E2E は直列実行）。状態を変える検証（2FA 未登録・初回のパスワード変更・無効化・ロック・2FA の再設定など）は共有の Cookie を使わず、専用の利用者でテストの中でログインし、各テストの開始時に初期化の補助で状態を戻す
+- 試験用の利用者は既知の TOTP の秘密鍵で seed し、補助関数が otplib でコードを計算する。同じ利用者の連続ログインで再使用として拒否されないよう、補助関数はコードを計算する前に DB の最後に使った時間ステップを戻す（次の時間ステップを待たない）
+- localStorage の `accessToken` を読んで Bearer にし、API で前提データを作っている補助関数・テストは、トークンの取得を一つの補助へ集める。その補助は、画面のセッションと別の Cookie の入れ物（Playwright の独立した要求のコンテキスト）でログイン API を呼び、応答のアクセストークンを返す。画面の Cookie によるリフレッシュを共有しないので、Web Locks で直列化されない二重のリフレッシュによる再利用の検知は起きない。localStorage の `accessToken` で画面の状態を観測していたテストは、画面の表示（ログイン後の画面が開けるか）と、認証済みの API の成否の観測へ置き換える
+- E2E の補助は、状態のキャッシュ（`auth:user-state:<userId>`）を backend の `invalidate` と同じ「消して世代を進める」処理で無効化する。このため E2E の実行環境は backend と同じ Redis の論理 DB へ接続する。`REDIS_URL` が無いときは、試験環境の既定値 `redis://localhost:6380/1` を使う
+- 認証の Cookie を伴う API の呼び出しは、画面と同じオリジン（nginx の中継）を通す。backend へ直接つなぐ `API_BASE_URL` は、認証の Cookie を要しない確認（ヘルスチェック、Cookie を持たない要求の拒否の観測）に限る。ブラウザは `localhost` の Cookie を `127.0.0.1` へ送らないため、CI の `API_BASE_URL`（`127.0.0.1`）では Cookie が渡らない
+
+### Security Considerations
+
+- 脅威と対策の対応: 資格の窃取によるなりすまし（2FA 待ちの資格は 5 分・一回限り・パスワードの成功に結び付く）、XSS によるトークンの窃取（リフレッシュトークンは HttpOnly、アクセストークンはメモリだけ、CSP）、CSRF（`SameSite=Strict`・二重送信・Origin の照合）、トークンの再利用（系列の失効）、送信元の偽装（段数の固定）、記録からの漏洩（伏せ字・ハッシュ保存・フラグメント）、権限の昇格（上限の検査）、横方向の閲覧（閲覧範囲）、痕跡の消去（外部キーの解除・トリガー）
+- Cookie の属性: `refreshToken` は `HttpOnly; Secure`（本番）`; SameSite=Strict; Path=/api/v1/auth; Max-Age=<REFRESH_TOKEN_EXPIRY>`。`csrf-token` は `Secure; SameSite=Strict; Path=/`（スクリプトから読めるが、本文の値を正とする）
+- 範囲外を 404 にするため、存在の確認に使える差（応答時間を除く）を残さない。応答時間の差は対象外とする
+
+### 配備の前提と移行の順序
+
+1. backend: 移行の適用、`TRUST_PROXY_HOPS`・`ARCHIVE_ENCRYPTION_KEY`・`JWT_ISSUER`・`JWT_AUDIENCE` の設定
+2. frontend: nginx の中継（`BACKEND_INTERNAL_URL`）、CSP の取得先・HSTS の環境変数、`VITE_API_URL` を画面と同じオリジンに
+3. staging で確認: `req.ip` が自分の公開 IP と一致すること、再読み込みでログインが保たれること、主要画面で CSP の違反が無いこと
+4. backend の公開ドメインを閉じる（是正計画の運用作業 O4 に追記する）
+5. 利用者への告知: 全員の再ログインと 2FA の登録

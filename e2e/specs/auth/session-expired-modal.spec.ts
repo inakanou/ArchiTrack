@@ -5,6 +5,9 @@ import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { assertPresent } from '../../helpers/preconditions';
+import { waitForAuthenticatedSession } from '../../helpers/auth-api';
+import { prepareTotpCode } from '../../helpers/two-factor-totp';
+import { TEST_USERS } from '../../helpers/test-users';
 
 /**
  * セッション切れモーダル再認証のE2Eテスト
@@ -93,12 +96,8 @@ async function setupAuthenticatedProfilePage(page: import('@playwright/test').Pa
   await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
   await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-  // 認証が確立されていることを確認
-  await page.waitForFunction(
-    () =>
-      localStorage.getItem('refreshToken') !== null && localStorage.getItem('accessToken') !== null,
-    { timeout: getTimeout(15000), polling: 500 }
-  );
+  // 認証が確立されていることを確認（画面のセッションで認証済みの API が成功する）
+  await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 500 });
 }
 
 test.describe('セッション切れモーダル再認証', () => {
@@ -294,7 +293,6 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           accessToken: 'new-access-token',
-          refreshToken: 'new-refresh-token',
           user: { id: 'test-id', email: 'user@example.com', displayName: 'Test User' },
         }),
       });
@@ -337,7 +335,6 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           accessToken: 'renewed-access-token-12345',
-          refreshToken: 'renewed-refresh-token-12345',
           user: { id: 'test-id', email: 'user@example.com', displayName: 'Test User' },
         }),
       });
@@ -351,9 +348,15 @@ test.describe('セッション切れモーダル再認証', () => {
     // モーダルが閉じることを確認
     await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
 
-    // トークンが更新されていることを確認
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    // 画面のメモリのアクセストークンが更新されていることを確認（永続ストレージには置かない。要件33.10）
+    const accessToken = await page.evaluate(
+      () =>
+        (
+          window as unknown as { __apiClient?: { getAccessToken: () => string | null } }
+        ).__apiClient?.getAccessToken() ?? null
+    );
     expect(accessToken).toBe('renewed-access-token-12345');
+    expect(await page.evaluate(() => localStorage.getItem('accessToken'))).toBeNull();
   });
 
   /**
@@ -395,7 +398,6 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           accessToken: 'renewed-access-token',
-          refreshToken: 'renewed-refresh-token',
           user: { id: 'test-id', email: 'user@example.com', displayName: 'Test User' },
         }),
       });
@@ -477,19 +479,8 @@ test.describe('セッション切れモーダル再認証', () => {
    */
   test('REQ-30.12: 2FA有効ユーザーで2FA検証フィールドが表示される', async ({ page }) => {
     await createTestUser('TWO_FA_USER');
+    // ログインの補助が、既知の秘密鍵から計算した TOTP コードで 2FA の検証まで行う
     await loginAsUser(page, 'TWO_FA_USER');
-    // 2FAユーザーはloginAsUser後に2FA検証を完了させる必要がある
-    // テスト環境では固定コード "123456" でバイパス（分割入力UI対応）
-    await page
-      .getByTestId('totp-digit-0')
-      .waitFor({ state: 'visible', timeout: getTimeout(10000) });
-    await page.getByTestId('totp-digit-0').click();
-    await page.keyboard.type('123456');
-    await page.getByRole('button', { name: /検証/i }).click();
-    await page.waitForURL((url) => !url.pathname.includes('/login'), {
-      timeout: getTimeout(15000),
-    });
-    await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
     await setupAuthenticatedProfilePage(page);
 
     await triggerSessionExpiredModal(page);
@@ -501,7 +492,8 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           requires2FA: true,
-          tempToken: 'temp-2fa-token',
+          challengeToken: 'e2e-2fa-challenge',
+          expiresIn: 300,
         }),
       });
     });
@@ -514,6 +506,83 @@ test.describe('セッション切れモーダル再認証', () => {
     // 2FAコード入力フィールドが表示されることを確認
     const totpInput = page.getByLabel(/認証コード|TOTP|2FA|ワンタイム/i);
     await expect(totpInput).toBeVisible({ timeout: getTimeout(10000) });
+  });
+
+  /**
+   * REQ-30.9: 2FA の再認証の成功でもセッションを立て直す
+   *
+   * @requirement user-authentication/REQ-30.9
+   *
+   * テスト手順:
+   * 1. 2FA 有効の利用者でログインし、セッション切れモーダルを表示する（リフレッシュは失敗のまま）
+   * 2. 画面の手元のアクセストークンを期限切れの値へ置き換える（期限切れのアクセストークンを再現）
+   * 3. モーダルで本物のログイン → 既知の秘密鍵から計算した本物の TOTP コードで 2FA の検証を行う
+   * 4. 2FA の検証の応答のアクセストークンが画面へ置かれ、続く認証済みの API がリフレッシュも
+   *    2 回目のモーダルも無しに成功することを確認する
+   */
+  test('REQ-30.9: 2FA の再認証の成功でトークンが更新され、続く認証済みの API が成功する', async ({
+    page,
+  }) => {
+    const twoFactorUser = TEST_USERS.TWO_FA_USER;
+    await createTestUser('TWO_FA_USER');
+    await loginAsUser(page, 'TWO_FA_USER');
+    await setupAuthenticatedProfilePage(page);
+
+    const dialog = await triggerSessionExpiredModal(page);
+
+    // 期限切れのアクセストークンを再現する（リフレッシュは失敗のまま）
+    await page.evaluate(() => {
+      (
+        window as unknown as { __apiClient: { setAccessToken: (token: string) => void } }
+      ).__apiClient.setAccessToken('expired-access-token');
+    });
+
+    // 本物のログイン（2FA 要求）
+    await page.getByLabel('パスワード', { exact: true }).fill(twoFactorUser.password);
+    await page.getByRole('button', { name: '再ログイン' }).click();
+    const totpInput = page.getByLabel('認証コード');
+    await expect(totpInput).toBeVisible({ timeout: getTimeout(10000) });
+
+    // 本物の TOTP コードで 2FA の検証
+    await totpInput.fill(await prepareTotpCode(twoFactorUser.email));
+    const verifyResponsePromise = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/v1/auth/verify-2fa' &&
+        response.request().method() === 'POST'
+    );
+    await page.getByRole('button', { name: '再ログイン' }).click();
+    const verifyResponse = await verifyResponsePromise;
+    expect(verifyResponse.status()).toBe(200);
+    const verifyBody = (await verifyResponse.json()) as { accessToken?: string };
+    const issuedAccessToken = verifyBody.accessToken;
+    expect(typeof issuedAccessToken, '2FA の検証の応答にアクセストークンがあること').toBe('string');
+
+    await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+
+    // 2FA の検証の応答のアクセストークンが画面のメモリへ置かれている（要件30.9, 33.10）
+    const accessToken = await page.evaluate(() =>
+      (
+        window as unknown as { __apiClient: { getAccessToken: () => string | null } }
+      ).__apiClient.getAccessToken()
+    );
+    expect(accessToken).toBe(issuedAccessToken);
+
+    // 続く認証済みの API がリフレッシュ無しで成功し、2 回目のモーダルが出ない
+    const refreshRequests: string[] = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/v1/auth/refresh') {
+        refreshRequests.push(request.url());
+      }
+    });
+    const me = await page.evaluate(async () => {
+      const client = (
+        window as unknown as { __apiClient: { get: (path: string) => Promise<unknown> } }
+      ).__apiClient;
+      return (await client.get('/api/v1/auth/me')) as { email?: string };
+    });
+    expect(me.email).toBe(twoFactorUser.email);
+    expect(refreshRequests).toEqual([]);
+    await expect(page.getByRole('dialog')).toBeHidden();
   });
 
   /**
@@ -604,7 +673,6 @@ test.describe('セッション切れモーダル再認証', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           accessToken: 'renewed-access-token',
-          refreshToken: 'renewed-refresh-token',
           user: { id: 'test-id', email: 'user@example.com', displayName: 'Test User' },
         }),
       });

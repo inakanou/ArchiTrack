@@ -4,11 +4,11 @@
  * 要件22: 監査ログとコンプライアンス
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AuditLogs } from '../../pages/AuditLogs';
-import type { AuditLog } from '../../types/audit-log.types';
+import type { AuditLog, AuditLogAction } from '../../types/audit-log.types';
 
 // API clientをモック
 vi.mock('../../api/client', () => ({
@@ -16,6 +16,32 @@ vi.mock('../../api/client', () => ({
     get: vi.fn(),
   },
 }));
+
+// セキュリティ是正で加えた監査の種別とその表示名（要件40.1）
+const securityRemediationActionLabels = {
+  LOGIN_LOCKED: 'アカウントロック',
+  TWO_FACTOR_VERIFIED: '2FA検証成功',
+  TWO_FACTOR_FAILED: '2FA検証失敗',
+  LOGOUT_ALL: '全デバイスからログアウト',
+  REFRESH_TOKEN_REUSE_DETECTED: 'リフレッシュトークン再利用検知',
+  INVITATION_RESENT: '招待再送信',
+  INVITATION_ACCEPTED: '招待経由の登録',
+  USER_DEACTIVATED: 'ユーザー無効化',
+  USER_REACTIVATED: 'ユーザー再有効化',
+  USER_AUTO_DEACTIVATED: 'ユーザー自動無効化',
+  TWO_FACTOR_RESET_BY_ADMIN: '2FA再設定（管理者）',
+  TWO_FACTOR_REENROLLED: '2FA再登録',
+  PROJECT_SCOPE_DENIED: '案件範囲外のアクセス',
+  DATA_EXPORTED: 'データ出力',
+  OPERATIONAL_SETTING_CHANGED: '運用設定変更',
+  AUDIT_ARCHIVE_CREATED: '監査ログのアーカイブ',
+  AUDIT_ARCHIVE_FAILED: '監査ログのアーカイブ失敗',
+  AUDIT_ARCHIVE_RESTORED: '監査ログの復元',
+} as const satisfies Partial<Record<AuditLogAction, string>>;
+
+const securityRemediationActions = Object.keys(
+  securityRemediationActionLabels
+) as (keyof typeof securityRemediationActionLabels)[];
 
 // document.createElementの元の参照を保存
 const _originalCreateElement = document.createElement.bind(document);
@@ -369,7 +395,8 @@ describe('AuditLogs Component', () => {
       // エクスポートAPIが呼ばれる
       await waitFor(() => {
         expect(apiClient.get).toHaveBeenCalledWith(
-          expect.stringContaining('/api/v1/audit-logs/export')
+          expect.stringContaining('/api/v1/audit-logs/export'),
+          { disableRetry: true }
         );
       });
 
@@ -457,7 +484,8 @@ describe('AuditLogs Component', () => {
       // エクスポートAPIにもフィルターが適用される
       await waitFor(() => {
         expect(apiClient.get).toHaveBeenCalledWith(
-          expect.stringMatching(/\/api\/v1\/audit-logs\/export.*action=LOGIN_SUCCESS/)
+          expect.stringMatching(/\/api\/v1\/audit-logs\/export.*action=LOGIN_SUCCESS/),
+          { disableRetry: true }
         );
       });
 
@@ -544,6 +572,278 @@ describe('AuditLogs Component', () => {
       });
 
       vi.mocked(document.createElement).mockRestore();
+    });
+  });
+
+  describe('セキュリティ是正の監査の種別と実行者の無い記録（要件40.1）', () => {
+    const securityLogs: AuditLog[] = securityRemediationActions.map((action, i) => ({
+      id: `sec-${i}`,
+      actorId: 'admin-1',
+      actorEmail: 'admin@example.com',
+      action,
+      targetType: 'user',
+      targetId: `target-${i}`,
+      createdAt: '2026-10-17T00:00:00Z',
+    }));
+
+    it('新しい種別を一覧で表示名により表示する', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue(securityLogs);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      for (const action of securityRemediationActions) {
+        const row = within(table)
+          .getByText(`target-${securityRemediationActions.indexOf(action)}`)
+          .closest('tr') as HTMLElement;
+        expect(within(row).getByText(securityRemediationActionLabels[action])).toBeInTheDocument();
+        expect(within(row).queryByText(action)).not.toBeInTheDocument();
+      }
+    });
+
+    it('イベント種別の絞り込みの一覧に新しい種別を表示名で並べる', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([]);
+
+      render(<AuditLogs />);
+
+      const actionFilter = screen.getByLabelText('イベント種別');
+      for (const action of securityRemediationActions) {
+        const option = within(actionFilter).getByRole('option', {
+          name: securityRemediationActionLabels[action],
+        });
+        expect(option).toHaveValue(action);
+      }
+    });
+
+    it.each(securityRemediationActions)(
+      'イベント種別 %s で絞り込むと、その種別で再取得する',
+      async (action) => {
+        const user = userEvent.setup();
+        const { apiClient } = await import('../../api/client');
+        vi.mocked(apiClient.get).mockResolvedValue([]);
+
+        render(<AuditLogs />);
+        await screen.findByText('監査ログがありません');
+
+        await user.selectOptions(screen.getByLabelText('イベント種別'), action);
+
+        await waitFor(() => {
+          expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining(`action=${action}`));
+        });
+      }
+    );
+
+    it('実行者の無い記録の実行者を「システム」と表示する', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'auto-1',
+          actorId: null,
+          action: 'USER_AUTO_DEACTIVATED',
+          targetType: 'user',
+          targetId: 'inactive-user',
+          metadata: { trigger: 'inactivity' },
+          createdAt: '2026-10-17T00:00:00Z',
+        },
+        {
+          id: 'login-failed-1',
+          actorId: null,
+          action: 'LOGIN_FAILED',
+          targetType: 'user',
+          targetId: 'unknown-email',
+          metadata: { email: 'nobody@example.com' },
+          createdAt: '2026-10-17T00:00:00Z',
+        },
+        ...basicMockLogs,
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const autoRow = within(table).getByText('inactive-user').closest('tr') as HTMLElement;
+      const failedRow = within(table).getByText('unknown-email').closest('tr') as HTMLElement;
+      expect(within(autoRow).getAllByRole('cell')[2]).toHaveTextContent(/^システム$/);
+      expect(within(failedRow).getAllByRole('cell')[2]).toHaveTextContent(/^システム$/);
+      // 実行者のある記録は従来どおりメールアドレスを表示する
+      const actorRow = within(table).getByText('Manager').closest('tr') as HTMLElement;
+      expect(within(actorRow).getAllByRole('cell')[2]).toHaveTextContent('admin@example.com');
+    });
+  });
+
+  describe('招待の作成と取り消しの監査の種別（要件40.5）', () => {
+    const invitationActionLabels = {
+      INVITATION_CREATED: '招待作成',
+      INVITATION_REVOKED: '招待取り消し',
+    } as const satisfies Partial<Record<AuditLogAction, string>>;
+    const invitationActions = Object.keys(
+      invitationActionLabels
+    ) as (keyof typeof invitationActionLabels)[];
+
+    it('招待の作成と取り消しを一覧で表示名により表示する', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue(
+        invitationActions.map((action, i) => ({
+          id: `inv-${i}`,
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action,
+          targetType: 'Invitation',
+          targetId: `invitation-${i}`,
+          createdAt: '2026-10-24T00:00:00Z',
+        })) satisfies AuditLog[]
+      );
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      invitationActions.forEach((action, i) => {
+        const row = within(table).getByText(`invitation-${i}`).closest('tr') as HTMLElement;
+        expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(
+          new RegExp(`^${invitationActionLabels[action]}$`)
+        );
+      });
+    });
+
+    it.each(invitationActions)(
+      'イベント種別の絞り込みに %s を表示名で並べ、選ぶとその種別で再取得する',
+      async (action) => {
+        const user = userEvent.setup();
+        const { apiClient } = await import('../../api/client');
+        vi.mocked(apiClient.get).mockResolvedValue([]);
+
+        render(<AuditLogs />);
+        await screen.findByText('監査ログがありません');
+
+        const actionFilter = screen.getByLabelText('イベント種別');
+        const option = within(actionFilter).getByRole('option', {
+          name: invitationActionLabels[action],
+        });
+        expect(option).toHaveValue(action);
+
+        await user.selectOptions(actionFilter, invitationActionLabels[action]);
+
+        await waitFor(() => {
+          expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining(`action=${action}`));
+        });
+      }
+    );
+  });
+
+  describe('招待の記録の対象の表示（要件40.12）', () => {
+    /**
+     * @requirement user-authentication/REQ-40.12
+     */
+    it('招待の作成・取り消し・再送信の記録の対象の欄に招待先のメールアドレスを表示し、招待の ID を出さない', async () => {
+      const { apiClient } = await import('../../api/client');
+      const actions = ['INVITATION_CREATED', 'INVITATION_REVOKED', 'INVITATION_RESENT'] as const;
+      vi.mocked(apiClient.get).mockResolvedValue(
+        actions.map((action, i) => ({
+          id: `inv-${i}`,
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action,
+          targetType: 'Invitation',
+          targetId: `invitation-id-${i}`,
+          metadata: { email: `invitee-${i}@example.com`, inviterId: 'admin-1' },
+          createdAt: '2026-10-26T00:00:00Z',
+        })) satisfies AuditLog[]
+      );
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      actions.forEach((_, i) => {
+        const row = within(table)
+          .getByText(`invitee-${i}@example.com`)
+          .closest('tr') as HTMLElement;
+        expect(within(row).getAllByRole('cell')[3]).toHaveTextContent(
+          new RegExp(`^invitee-${i}@example\\.com$`)
+        );
+      });
+      expect(within(table).queryByText(/invitation-id-/)).not.toBeInTheDocument();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-40.12
+     */
+    it('メールアドレスの無い招待の記録と他の種別の記録は従来どおり対象の名前または ID を表示する', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'inv-no-email',
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action: 'INVITATION_CREATED',
+          targetType: 'Invitation',
+          targetId: 'invitation-without-email',
+          createdAt: '2026-10-26T00:00:00Z',
+        },
+        {
+          id: 'login-failed-1',
+          actorId: null,
+          action: 'LOGIN_FAILED',
+          targetType: 'user',
+          targetId: 'unknown-email',
+          metadata: { email: 'nobody@example.com' },
+          createdAt: '2026-10-26T00:00:00Z',
+        },
+        ...basicMockLogs,
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const cells = (text: string) =>
+        within(within(table).getByText(text).closest('tr') as HTMLElement).getAllByRole('cell');
+      expect(cells('invitation-without-email')[3]).toHaveTextContent(/^invitation-without-email$/);
+      expect(cells('unknown-email')[3]).toHaveTextContent(/^unknown-email$/);
+      expect(cells('Manager')[3]).toHaveTextContent(/^Manager$/);
+      expect(within(table).queryByText('nobody@example.com')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('ユーザーの削除の監査の種別（要件40.6）', () => {
+    it('ユーザーの削除を一覧で表示名により表示し、種別のコードを出さない', async () => {
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([
+        {
+          id: 'deleted-1',
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action: 'USER_DELETED',
+          targetType: 'User',
+          targetId: 'deleted-user-1',
+          createdAt: '2026-10-25T00:00:00Z',
+        },
+      ] satisfies AuditLog[]);
+
+      render(<AuditLogs />);
+
+      const table = await screen.findByRole('table');
+      const row = within(table).getByText('deleted-user-1').closest('tr') as HTMLElement;
+      expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(/^ユーザー削除$/);
+      expect(within(table).queryByText('USER_DELETED')).not.toBeInTheDocument();
+    });
+
+    it('イベント種別の絞り込みにユーザーの削除を表示名で並べ、選ぶとその種別で再取得する', async () => {
+      const user = userEvent.setup();
+      const { apiClient } = await import('../../api/client');
+      vi.mocked(apiClient.get).mockResolvedValue([]);
+
+      render(<AuditLogs />);
+      await screen.findByText('監査ログがありません');
+
+      const actionFilter = screen.getByLabelText('イベント種別');
+      const option = within(actionFilter).getByRole('option', { name: 'ユーザー削除' });
+      expect(option).toHaveValue('USER_DELETED');
+
+      await user.selectOptions(actionFilter, 'ユーザー削除');
+
+      await waitFor(() => {
+        expect(apiClient.get).toHaveBeenCalledWith(expect.stringContaining('action=USER_DELETED'));
+      });
     });
   });
 });

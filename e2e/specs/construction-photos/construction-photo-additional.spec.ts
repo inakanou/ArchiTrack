@@ -79,8 +79,9 @@
  *     ある（要件の印は掲げない。タスク 23.9 の是正 1 巡目、利用者の判断（2026-10-04））
  * 24. 担当でない一般ユーザー: admin が作り、営業担当も工事担当も別人のプロジェクトのアルバムを、
  *     user が一覧から開いて写真項目を見る・原本を開く・写真を追加する・コメントと並び替えを保存
- *     でき、削除の操作手段は表示されない（R1.2, R17.2。アクセスはロールの権限の表だけで判定する
- *     タスク 23.1 の利用者の判断）
+ *     でき、削除の操作手段は表示されない（R1.2, R17.2。タスク 23.1 の利用者の判断（ロールの権限の表だけで
+ *     判定）は user-authentication の要件39・本スペックの Requirement 21 で置き換えられ、現在は担当外では
+ *     見つからず、工事担当者に設定すると操作できることを主張する）
  * 25. 写真項目の削除の成功の後の未保存の状態: コメントを編集した写真項目を取り除いたとき、他の
  *     写真項目の編集が残る間は未保存のままで保存はその編集だけを送り、保留が空になれば未保存の
  *     表示が消え「保存」は押せず、ブレッドクラムの遷移で離脱の確認が出ない（R18.3。タスク 23.6）
@@ -127,9 +128,11 @@ import { fileURLToPath } from 'url';
 import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { hashPassword, TEST_USERS } from '../../helpers/test-users';
+import { TEST_USERS } from '../../helpers/test-users';
+import { createCustomUser } from '../../fixtures/auth.fixtures';
 import { getPrismaClient } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ESモジュールでの __dirname 代替
 const __filename = fileURLToPath(import.meta.url);
@@ -884,8 +887,9 @@ test.describe('工事写真 追加機能フロー', () => {
    * なく R17.1（編集権限なしの読み取り専用）に帰属させるためである。削除権限を欠くロールでは
    * 削除ハンドラが渡らないため、読み取り専用の抑止が壊れても削除ボタンは出ず、主張が検出力を
    * 持たない。削除権限で現れるアルバム削除の導線は 17.1 の列挙に無いため主張しない。
-   * 閲覧専用の利用者はプロジェクトの担当者（作成者・営業担当・工事担当）に据えない。アクセスは
-   * ロールの権限の表だけで判定し、担当者での絞り込みは無い（タスク 23.1 の利用者の判断）。
+   * 閲覧専用の利用者はプロジェクトの工事担当者に据える。案件の閲覧範囲（user-authentication 要件39）は
+   * 営業担当者・工事担当者・作成者だけに案件を見せるため、担当者でない利用者では詳細画面が開けない
+   * （user-authentication タスク52.2）。権限の出し分けはロールの権限の表で判定する。
    * user ロールの権限を書き換えないのは、永続テストDBに権限が固着した
    * 前例（seedRolePermissions の notIn による是正で解消）を再び作らないためである。非システム
    * ロールは cleanDatabase が消すうえ、本テストの finally でも消す。
@@ -960,6 +964,7 @@ test.describe('工事写真 追加機能フロー', () => {
 
     let viewerUserId: string | null = null;
     let viewerRoleId: string | null = null;
+    let viewerProjectId: string | null = null;
     try {
       // 準備: admin でプロジェクト・アルバムを作り、写真項目を1枚追加する
       await loginAsUser(page, 'ADMIN_USER');
@@ -983,8 +988,8 @@ test.describe('工事写真 追加機能フロー', () => {
       await expect(saveButton).toBeVisible();
       await expect(deletePhotoItem).toBeVisible();
 
-      // 編集権限を持たない閲覧専用ロールと利用者を用意する。プロジェクトの担当者には据えない
-      // （アクセスはロールの権限の表だけで判定する。タスク 23.1 の利用者の判断）
+      // 編集権限を持たない閲覧専用ロールと利用者を用意する。案件の閲覧範囲（user-authentication
+      // 要件39）の下でも詳細画面を開けるよう、プロジェクトの工事担当者に据える
       const permissions = await prisma.permission.findMany({
         where: {
           OR: viewerPermissionKeys.map((key) => {
@@ -1007,15 +1012,18 @@ test.describe('工事写真 追加機能フロー', () => {
       await prisma.rolePermission.createMany({
         data: permissions.map((p) => ({ roleId: viewerRole.id, permissionId: p.id })),
       });
-      const viewer = await prisma.user.create({
-        data: {
-          email: viewerEmail,
-          displayName: 'E2E 閲覧専用',
-          passwordHash: await hashPassword(viewerPassword),
-        },
+      const viewer = await createCustomUser({
+        email: viewerEmail,
+        password: viewerPassword,
+        displayName: 'E2E 閲覧専用',
+        roles: [viewerRole.name],
       });
       viewerUserId = viewer.id;
-      await prisma.userRole.create({ data: { userId: viewer.id, roleId: viewerRole.id } });
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { constructionPersonId: viewer.id },
+      });
+      viewerProjectId = projectId;
 
       // 閲覧専用の利用者へ切り替える
       await page.context().clearCookies();
@@ -1049,6 +1057,12 @@ test.describe('工事写真 追加機能フロー', () => {
       await expect(deletePhotoItem).toHaveCount(0);
     } finally {
       // 後始末の失敗が本体の失敗を上書きしないよう、各段を個別に捕まえて記録する
+      if (viewerProjectId) {
+        const id = viewerProjectId;
+        await runCleanup(() =>
+          prisma.project.update({ where: { id }, data: { constructionPersonId: null } })
+        );
+      }
       if (viewerUserId) {
         const id = viewerUserId;
         await runCleanup(() => prisma.user.delete({ where: { id } }));
@@ -1133,10 +1147,22 @@ test.describe('工事写真 追加機能フロー', () => {
 
     let viewerUserId: string | null = null;
     let viewerRoleId: string | null = null;
+    let viewerProjectId: string | null = null;
     try {
       // admin: 前件（*:*）を確かめ、看板を1件登録し、三つの操作がすべて表示されることを主張する
       await loginAsUser(page, 'ADMIN_USER');
       const projectId = await createProject(page, 'signboard-permission');
+      // user も看板マスタを開けるよう営業担当者にする（案件の閲覧範囲。user-authentication 要件39）
+      const regularUser = await prisma.user.findUnique({
+        where: { email: TEST_USERS.REGULAR_USER.email },
+      });
+      if (!regularUser) {
+        throw new Error('前提: REGULAR_USER が存在しない。global-setup を確認すること');
+      }
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { salesPersonId: regularUser.id },
+      });
       const adminPermissions = await openMasterAndReadPermissions(projectId);
       expect(adminPermissions).toContain('*:*');
 
@@ -1201,15 +1227,19 @@ test.describe('工事写真 追加機能フロー', () => {
       await prisma.rolePermission.createMany({
         data: permissions.map((p) => ({ roleId: viewerRole.id, permissionId: p.id })),
       });
-      const viewer = await prisma.user.create({
-        data: {
-          email: viewerEmail,
-          displayName: 'E2E 看板閲覧専用',
-          passwordHash: await hashPassword(viewerPassword),
-        },
+      const viewer = await createCustomUser({
+        email: viewerEmail,
+        password: viewerPassword,
+        displayName: 'E2E 看板閲覧専用',
+        roles: [viewerRole.name],
       });
       viewerUserId = viewer.id;
-      await prisma.userRole.create({ data: { userId: viewer.id, roleId: viewerRole.id } });
+      // 閲覧だけのロールの利用者も看板マスタを開けるよう工事担当者にする（要件39）
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { constructionPersonId: viewer.id },
+      });
+      viewerProjectId = projectId;
 
       // 閲覧だけのロール: 前件（画面が受け取った権限が閲覧の権限そのもの）を確かめ、いずれも表示しない
       await switchUser();
@@ -1224,6 +1254,12 @@ test.describe('工事写真 追加機能フロー', () => {
       await expect(page.getByRole('button', { name: '削除', exact: true })).toHaveCount(0);
     } finally {
       // 後始末の失敗が本体の失敗を上書きしないよう、各段を個別に捕まえて記録する
+      if (viewerProjectId) {
+        const id = viewerProjectId;
+        await runCleanup(() =>
+          prisma.project.update({ where: { id }, data: { constructionPersonId: null } })
+        );
+      }
       if (viewerUserId) {
         const id = viewerUserId;
         await runCleanup(() => prisma.user.delete({ where: { id } }));
@@ -1239,11 +1275,19 @@ test.describe('工事写真 追加機能フロー', () => {
   });
 
   /**
-   * 担当でない一般ユーザー（タスク 23.1）:
-   * admin が作り、営業担当も工事担当も admin のプロジェクトのアルバムを、user（担当者のいずれでもない
-   * 一般ユーザー）がアルバムの一覧から開く。詳細画面にアルバムの基本情報と写真項目が表示され（R1.2）、
-   * 権限の表が user に許す操作——原本の表示・写真の追加・コメントと並び替えの保存——ができ、許さない
-   * 操作（削除）の操作手段は表示されない（R17.2）。
+   * 担当でない一般ユーザーと、工事担当者に設定した後の一般ユーザー:
+   * admin が作り、営業担当も工事担当も admin のプロジェクトのアルバムの一覧を、user（担当者のいずれでもない
+   * 一般ユーザー）が開くと、プロジェクトが見つからない表示になり、アルバムの行は描かれない。
+   * 同じ user をプロジェクトの工事担当者に設定すると、アルバムの一覧から詳細画面を開け、アルバムの基本情報と
+   * 写真項目が表示され（R1.2）、権限の表が user に許す操作——原本の表示・写真の追加・コメントと並び替えの
+   * 保存——ができ、許さない操作（削除）の操作手段は表示されない（R17.2）。
+   *
+   * 案件の閲覧範囲: user-authentication 要件39（2026-10-24 の利用者の判断）が、案件の見え方について
+   * construction-photo タスク 23.1 の判断（ロールの権限の表だけで判定）に優先する。担当外の利用者には
+   * 案件（GET /api/projects/:id）が見つからず、アルバムの一覧の画面は案件の取得に失敗して何も描かない。
+   * 工事写真の API そのもの（アルバムの ID 指定など）への閲覧範囲の適用は construction-photo の Requirement 21
+   * （タスク30.1・30.2）が受け、construction-photo-project-scope.spec.ts が主張する。本テストはその後も、
+   * 工事担当者に設定した user には範囲内として従来どおりの操作が通ることを主張する。
    *
    * @requirement construction-photo/REQ-1.2
    * @requirement construction-photo/REQ-17.2
@@ -1251,17 +1295,21 @@ test.describe('工事写真 追加機能フロー', () => {
    * 経緯: タスク 23.1 の前は、写真一覧・メタの一括更新・並び替え・写真項目の削除・印字画像・原本だけが
    * プロジェクトの担当者（作成者・営業担当・工事担当）と admin に限られていた。担当でない user には
    * アルバムの一覧と取得・アップロードは通る一方で、写真一覧が 404 になり、詳細画面は英語の
-   * not found の文言を出して写真項目 0 件になっていた。利用者の判断で、アクセスはロールの権限の表
-   * （RBAC）だけで判定する。
+   * not found の文言を出して写真項目 0 件になっていた。利用者の判断（2026-10-03）で、アクセスはロールの権限の表
+   * （RBAC）だけで判定するとした。この判断は 2026-10-24 の判断 A（user-authentication の要件39）と 2026-10-27 の
+   * 判断（construction-photo の Requirement 21）で置き換えられ、担当外の利用者には工事写真の API も不在と同じ
+   * 404 を返す（タスク30.1）。
    *
    * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
-   *  - プロジェクトの作成者・営業担当・工事担当のいずれも user ではない（DB で確かめる。
-   *    `createProject` は営業担当に先頭の利用者を選ぶため、admin を営業担当に据え直す）
+   *  - 見つからない表示を主張する時点で、プロジェクトの作成者・営業担当・工事担当のいずれも user ではない
+   *    （DB で確かめる。`createProject` は営業担当に先頭の利用者を選ぶため、admin を営業担当に据え直す）
+   *  - 見つからない表示の主張が、画面が描かれていないだけで成り立たないように、同じ画面で工事担当者に
+   *    設定した後にアルバムの行が表示されることを確かめる
    *  - 画面が受け取った user の権限は閲覧・作成・編集を含み、削除を含まない（権限の表の user の行）
    *  - 削除の操作手段の不在を主張する前に、同じ画面を admin で開くと写真項目の削除の操作手段が
    *    表示されることを確かめる（不在の主張が、画面が描かれていないだけで成り立たないように）
    */
-  test('担当でない一般ユーザーが他の利用者のプロジェクトのアルバムを一覧から開き、写真項目の閲覧・追加・コメントと並び替えの保存ができ、削除の操作手段は表示されない', async ({
+  test('担当でない一般ユーザーには他の利用者のプロジェクトのアルバムの一覧が見つからず、工事担当者に設定すると一覧から開いて写真項目の閲覧・追加・コメントと並び替えの保存ができ、削除の操作手段は表示されない', async ({
     page,
   }) => {
     const prisma = getPrismaClient();
@@ -1337,6 +1385,28 @@ test.describe('工事写真 追加機能フロー', () => {
     );
     expect(me.permissions).not.toContain('construction_photo:delete');
     expect(me.permissions).not.toContain('*:*');
+
+    // 要件39: 担当外の user には案件が見つからず、アルバムの行は描かれない。
+    // タスク 31.1: 見つからない旨は共通部品 ResourceNotFound（role="alert" を持たない見出し）で出る
+    // （Requirement 22.1）ため、alert の役割でなくプロジェクトが見つからない旨の見出しで観測する
+    const notFoundHeading = page
+      .getByRole('main')
+      .last()
+      .getByRole('heading', { name: 'プロジェクトが見つかりません', exact: true });
+    await expect(notFoundHeading).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByTestId(`album-row-${albumId}`)).toHaveCount(0);
+
+    // 対照: user を工事担当者に設定すると、次の要求から範囲内になり、アルバムの行が表示される
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { constructionPersonId: regularUser.id },
+    });
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId(`album-row-${albumId}`)).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(notFoundHeading).toHaveCount(0);
 
     // 一覧の行から詳細画面を開く。写真一覧の取得は 200 である
     const listResponse = page.waitForResponse(
@@ -3121,7 +3191,7 @@ test.describe('工事写真 追加機能フロー', () => {
       `${API_BASE_URL}/api/construction-photos/${albumId}/images`,
       {
         headers: {
-          Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
+          Authorization: `Bearer ${await getAccessToken(page, 'ADMIN_USER')}`,
         },
       }
     );
@@ -4098,7 +4168,10 @@ test.describe('工事写真 追加機能フロー', () => {
       fs.rmSync(oversizePath, { force: true });
     }
 
-    // (3) アルバムを取得できないときのエラー表示。アルバムの取得だけを失敗させる
+    // (3) アルバムを取得できないときのエラー表示。アルバムの取得だけを失敗させる。
+    // タスク 31.1: 404 は見つからない旨（ResourceNotFound）になり取得の失敗の表示と再試行の釦を出さない
+    // （Requirement 22.1）ため、404 以外の失敗（500）に差し替え、長い文言の取得の失敗の表示がはみ出さない
+    // ことの主張を保つ
     const albumUrlMatcher = (url: URL): boolean =>
       url.pathname.endsWith(`/api/construction-photos/${albumId}`);
     const failAlbumFetch = async (route: Route): Promise<void> => {
@@ -4107,14 +4180,14 @@ test.describe('工事写真 追加機能フロー', () => {
         return;
       }
       await route.fulfill({
-        status: 404,
+        status: 500,
         contentType: 'application/json',
         body: JSON.stringify({
-          type: 'https://architrack.example.com/problems/not-found',
-          title: 'Not Found',
-          status: 404,
+          type: 'https://architrack.example.com/problems/internal-server-error',
+          title: 'Internal Server Error',
+          status: 500,
           detail: fetchErrorDetail,
-          code: 'NOT_FOUND',
+          code: 'INTERNAL_SERVER_ERROR',
         }),
       });
     };
@@ -6521,7 +6594,7 @@ test.describe('工事写真 追加機能フロー', () => {
     await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
 
     // 他の利用者の操作の代わりに、API で看板を取り除く（画面は読み込み直さない）
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(page, 'ADMIN_USER');
     expect(accessToken).toBeTruthy();
     const removal = await page.request.delete(
       `${API_BASE_URL}/api/construction-signboards/${signboardId}`,

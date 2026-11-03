@@ -22,9 +22,10 @@
  * @module e2e/helpers/project-list-preconditions
  */
 
-import { expect, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { assertPrepared } from './preconditions';
-import { API_BASE_URL } from '../config';
+import { SAME_ORIGIN_API_BASE_URL } from '../config';
+import { getAccessToken, type AuthUserRef } from './auth-api';
 
 /**
  * 前提として作成したプロジェクト
@@ -64,11 +65,12 @@ export interface SeedTradingPartnerOptions {
  * ログイン済みのページから API 呼び出し用の認証ヘッダを得る。
  *
  * @param page Playwright のページ（`loginAsUser` 済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @returns Authorization ヘッダ
  * @throws 認証トークンが取得できない場合
  */
-async function authHeaders(page: Page): Promise<{ Authorization: string }> {
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+async function authHeaders(page: Page, user: AuthUserRef): Promise<{ Authorization: string }> {
+  const accessToken = await getAccessToken(page, user);
   assertPrepared(accessToken, '認証トークン');
   return { Authorization: `Bearer ${accessToken}` };
 }
@@ -80,14 +82,21 @@ async function authHeaders(page: Page): Promise<{ Authorization: string }> {
  * 無条件に置ける。作成に失敗した場合はその場で失敗する。
  *
  * @param page Playwright のページ（`loginAsUser` 済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param label 作成するプロジェクト名に含める識別子（テストの出所が分かる文字列）
  * @returns 作成したプロジェクト
  * @throws 担当者候補が無い・作成APIが成功しない・IDが得られない場合
  */
-export async function seedProject(page: Page, label: string): Promise<SeededProject> {
-  const headers = await authHeaders(page);
+export async function seedProject(
+  page: Page,
+  user: AuthUserRef,
+  label: string
+): Promise<SeededProject> {
+  const headers = await authHeaders(page, user);
 
-  const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, { headers });
+  const assignableRes = await page.request.get(`${SAME_ORIGIN_API_BASE_URL}/api/users/assignable`, {
+    headers,
+  });
   expect(
     assignableRes.ok(),
     `前提: 担当者候補を取得できる (status=${assignableRes.status()})`
@@ -98,7 +107,7 @@ export async function seedProject(page: Page, label: string): Promise<SeededProj
   assertPrepared(salesPersonId, '担当者候補のID');
 
   const name = `${label}-${Date.now()}`;
-  const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
+  const projectRes = await page.request.post(`${SAME_ORIGIN_API_BASE_URL}/api/projects`, {
     headers,
     data: { name, salesPersonId },
   });
@@ -116,16 +125,18 @@ export async function seedProject(page: Page, label: string): Promise<SeededProj
  * 取引先一覧が空でないことを前提とする検証のために、取引先を1件作成する。
  *
  * @param page Playwright のページ（`loginAsUser` 済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param label 作成する取引先名に含める識別子（テストの出所が分かる文字列）
  * @returns 作成した取引先
  * @throws 作成APIが成功しない・IDが得られない場合
  */
 export async function seedTradingPartner(
   page: Page,
+  user: AuthUserRef,
   label: string,
   options: SeedTradingPartnerOptions = {}
 ): Promise<SeededTradingPartner> {
-  const headers = await authHeaders(page);
+  const headers = await authHeaders(page, user);
 
   const optionalFields = {
     ...(options.branchName === undefined ? {} : { branchName: options.branchName }),
@@ -136,7 +147,7 @@ export async function seedTradingPartner(
 
   const stamp = Date.now();
   const name = `${label}-${stamp}`;
-  const partnerRes = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
+  const partnerRes = await page.request.post(`${SAME_ORIGIN_API_BASE_URL}/api/trading-partners`, {
     headers,
     data: {
       name,
@@ -153,4 +164,54 @@ export async function seedTradingPartner(
   assertPrepared(partner.id, '作成した取引先のID');
 
   return { id: partner.id, name, ...optionalFields };
+}
+
+/**
+ * プロジェクトを API で論理削除する（後始末用）
+ *
+ * `DELETE /api/projects/:id` は基準時刻を求めない。一般利用者は project:delete を持たず 403 になるため、
+ * 管理者のトークンで呼ぶ。プロジェクトの論理削除は配下の数量表・内訳書を消さない
+ * （ProjectService.deleteProject はプロジェクトの行だけを更新する）ため、配下は先に消すこと。
+ * 204 以外は例外にして後始末の失敗を見逃さない（2026-11-02 の是正まで、内訳書の E2E の後始末は
+ * 一般利用者で消して 403 を受け、状態コードを見ていなかったためプロジェクトが残っていた）。
+ *
+ * @param request - 要求のコンテキスト（`request` の fixture・`page.request`・`request.newContext()`）
+ * @param token - 管理者のアクセストークン
+ * @param projectId - 取り除くプロジェクトのID
+ */
+export async function deleteProjectViaApi(
+  request: APIRequestContext,
+  token: string,
+  projectId: string
+): Promise<void> {
+  const res = await request.delete(`${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status() !== 204) {
+    throw new Error(`project delete failed: ${res.status()} ${await res.text()}`);
+  }
+}
+
+/**
+ * 取引先を API で論理削除する（後始末用）
+ *
+ * `DELETE /api/trading-partners/:id` は基準時刻を求めない。紐づくプロジェクトが残っていると 409 になるため、
+ * プロジェクトを先に消すこと。204 以外は例外にして後始末の失敗を見逃さない。
+ *
+ * @param request - 要求のコンテキスト（`request` の fixture・`page.request`・`request.newContext()`）
+ * @param token - trading-partner:delete を持つ利用者のアクセストークン
+ * @param tradingPartnerId - 取り除く取引先のID
+ */
+export async function deleteTradingPartnerViaApi(
+  request: APIRequestContext,
+  token: string,
+  tradingPartnerId: string
+): Promise<void> {
+  const res = await request.delete(
+    `${SAME_ORIGIN_API_BASE_URL}/api/trading-partners/${tradingPartnerId}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (res.status() !== 204) {
+    throw new Error(`trading partner delete failed: ${res.status()} ${await res.text()}`);
+  }
 }

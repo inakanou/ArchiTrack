@@ -48,6 +48,7 @@ vi.mock('../../../api/site-surveys', () => ({
 }));
 
 import * as siteSurveysApi from '../../../api/site-surveys';
+import { apiClient, ApiError } from '../../../api/client';
 
 // ============================================================================
 // テストデータ
@@ -136,7 +137,10 @@ function renderComponent(
 
 describe('SiteSurveyDetailInfo', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
+    // 出力の記録（POST /api/v1/audit-logs/exports）は既定で成功させる
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
   });
 
   // ==========================================================================
@@ -569,5 +573,127 @@ describe('SiteSurveyDetailInfo', () => {
         }
       });
     });
+
+    describe('出力の記録 (Requirement 39.7, 39.8)', () => {
+      beforeEach(() => {
+        vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+        vi.mocked(annotationModule.renderImagesForReport).mockResolvedValue([
+          {
+            imageInfo: mockSurveyDetail.images[0]!,
+            dataUrl: 'data:image/jpeg;base64,test',
+          },
+        ]);
+        vi.mocked(exportModule.exportAndDownloadPdf).mockResolvedValue();
+      });
+
+      it('生成を始める前に出力の記録を種別・案件・対象つきで1回要求する', async () => {
+        const user = userEvent.setup();
+        const postSpy = vi.mocked(apiClient.post);
+        renderComponent();
+
+        await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+        await waitFor(() => {
+          expect(exportModule.exportAndDownloadPdf).toHaveBeenCalledTimes(1);
+        });
+        const exportTargetIds = mockSurveyDetail.images
+          .filter((img) => img.includeInReport)
+          .map((img) => img.id);
+        expect(postSpy).toHaveBeenCalledTimes(1);
+        expect(postSpy).toHaveBeenCalledWith(
+          '/api/v1/audit-logs/exports',
+          {
+            kind: 'site_survey_report_pdf',
+            projectId: 'project-1',
+            targetIds: exportTargetIds,
+            itemCount: exportTargetIds.length,
+          },
+          { disableRetry: true }
+        );
+        // 記録の要求が生成の最初の処理（最新の現場調査の取得）より先に行われている
+        expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+          vi.mocked(siteSurveysApi.getSiteSurvey).mock.invocationCallOrder[0]!
+        );
+      });
+
+      it('記録の要求が失敗すると生成を始めずエラーメッセージを表示する', async () => {
+        const user = userEvent.setup();
+        vi.mocked(apiClient.post).mockRejectedValue(new Error('500 Internal Server Error'));
+        renderComponent();
+
+        await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          '出力を記録できなかったため中止しました'
+        );
+        expect(siteSurveysApi.getSiteSurvey).not.toHaveBeenCalled();
+        expect(annotationModule.renderImagesForReport).not.toHaveBeenCalled();
+        expect(exportModule.exportAndDownloadPdf).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: '調査報告書出力' })).toBeEnabled();
+      });
+    });
+  });
+});
+
+// ============================================================================
+// タスク120.1: 調査報告書の PDF の出力の 404（Requirement 40.2）
+// ============================================================================
+
+describe('SiteSurveyDetailInfo 調査報告書の出力の 404 (Requirement 40.2)', () => {
+  const SURVEY_GONE = '現場調査が見つかりません。存在しないか、削除されています。';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+    vi.mocked(annotationModule.renderImagesForReport).mockResolvedValue([
+      { imageInfo: mockSurveyDetail.images[0]!, dataUrl: 'data:image/jpeg;base64,test' },
+    ]);
+    vi.mocked(exportModule.exportAndDownloadPdf).mockResolvedValue();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('生成の中の現場調査の取り直しが 404 を受けると、現場調査が見つからない旨を表示し再度の試行を促さない', async () => {
+    const user = userEvent.setup();
+    vi.mocked(siteSurveysApi.getSiteSurvey).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' })
+    );
+    renderComponent();
+
+    await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(SURVEY_GONE);
+    expect(screen.queryByText(/PDF生成に失敗しました/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/再度お試しください/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Not found/)).not.toBeInTheDocument();
+    expect(exportModule.exportAndDownloadPdf).not.toHaveBeenCalled();
+  });
+
+  it('404 以外の生成の失敗は従来どおり生成の失敗の文言を表示する', async () => {
+    const user = userEvent.setup();
+    vi.mocked(siteSurveysApi.getSiteSurvey).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error', {})
+    );
+    renderComponent();
+
+    await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'PDF生成に失敗しました。再度お試しください。'
+    );
+  });
+
+  it('記録の失敗は従来どおり記録の失敗の文言を表示する（Requirement 39.8）', async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.post).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' })
+    );
+    renderComponent();
+
+    await user.click(screen.getByRole('button', { name: '調査報告書出力' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '出力を記録できなかったため中止しました'
+    );
+    expect(screen.queryByText(SURVEY_GONE)).not.toBeInTheDocument();
   });
 });

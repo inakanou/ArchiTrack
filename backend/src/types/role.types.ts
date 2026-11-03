@@ -6,6 +6,7 @@
  */
 
 import type { Result } from './result.js';
+import type { CeilingError } from '../services/privilege-ceiling.js';
 
 /**
  * ロールサービスのインターフェース
@@ -119,4 +120,7 @@ export type RoleError =
   | { type: 'ROLE_IN_USE'; userCount: number }
   | { type: 'SYSTEM_ROLE_PROTECTED' }
   | { type: 'ROLE_CONFLICT'; expectedUpdatedAt: Date; actualUpdatedAt: Date }
+  // 権限付与の上限による拒否（user-authentication タスク51.1 のシステムロールの名前の変更、タスク58.1 の
+  // 上限を超える優先度・上限より上のロールの変更と削除・システムロールの優先度の変更）
+  | CeilingError
   | { type: 'DATABASE_ERROR'; message: string };

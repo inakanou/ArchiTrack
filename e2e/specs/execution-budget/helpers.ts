@@ -7,36 +7,23 @@
  * @module e2e/specs/execution-budget/helpers
  */
 
-import type { APIRequestContext, Page } from '@playwright/test';
-import { API_BASE_URL } from '../../config';
+import type { APIRequestContext } from '@playwright/test';
+import { SAME_ORIGIN_API_BASE_URL } from '../../config';
 import { getPrismaClient } from '../../fixtures/database';
 import { appendEstimateItem, buildNewEstimateItemNode } from '../../helpers/estimate-draft';
+import { loginViaApi, type AuthUserRef } from '../../helpers/auth-api';
 
 /**
- * APIアクセストークンを取得する
+ * APIアクセストークンを取得する（ログイン API を画面と同じオリジンで呼ぶ）
  */
 export async function getApiToken(
   request: APIRequestContext,
-  email = 'user@example.com',
-  password = 'Password123!'
+  user: AuthUserRef = 'REGULAR_USER'
 ): Promise<string> {
-  const res = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-    data: { email, password },
+  const { accessToken } = await loginViaApi(request, user, {
+    baseUrl: SAME_ORIGIN_API_BASE_URL,
   });
-  if (!res.ok()) {
-    throw new Error(`login failed: status ${res.status()}`);
-  }
-  const body = (await res.json()) as { accessToken: string };
-  return body.accessToken;
-}
-
-/**
- * ブラウザの localStorage からアクセストークンを取得する
- */
-export async function getAccessTokenFromPage(page: Page): Promise<string> {
-  const token = await page.evaluate(() => localStorage.getItem('accessToken'));
-  if (!token) throw new Error('accessToken not found in localStorage');
-  return token;
+  return accessToken;
 }
 
 /**
@@ -50,7 +37,7 @@ export function authHeaders(token: string): Record<string, string> {
  * 担当者一覧から1件取得（プロジェクト作成用）
  */
 export async function getSalesPersonId(request: APIRequestContext, token: string): Promise<string> {
-  const res = await request.get(`${API_BASE_URL}/api/users/assignable`, {
+  const res = await request.get(`${SAME_ORIGIN_API_BASE_URL}/api/users/assignable`, {
     headers: authHeaders(token),
   });
   const users = (await res.json()) as Array<{ id: string }>;
@@ -69,7 +56,7 @@ export async function createTestProject(
   namePrefix = 'E2E実行予算'
 ): Promise<string> {
   const salesPersonId = await getSalesPersonId(request, token);
-  const res = await request.post(`${API_BASE_URL}/api/projects`, {
+  const res = await request.post(`${SAME_ORIGIN_API_BASE_URL}/api/projects`, {
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     data: {
       name: `${namePrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -95,7 +82,7 @@ export async function createTestSubcontractor(
   const name =
     options?.name ?? `E2E業者_実行予算_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const nameKana = options?.nameKana ?? 'イーツーイーギョウシャ';
-  const res = await request.post(`${API_BASE_URL}/api/trading-partners`, {
+  const res = await request.post(`${SAME_ORIGIN_API_BASE_URL}/api/trading-partners`, {
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     data: {
       name,
@@ -120,10 +107,13 @@ export async function createTestEstimate(
   projectId: string,
   name?: string
 ): Promise<string> {
-  const res = await request.post(`${API_BASE_URL}/api/projects/${projectId}/estimates`, {
-    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
-    data: { name: name ?? `E2E見積_${Date.now()}` },
-  });
+  const res = await request.post(
+    `${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}/estimates`,
+    {
+      headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+      data: { name: name ?? `E2E見積_${Date.now()}` },
+    }
+  );
   if (res.status() !== 201) {
     throw new Error(`estimate create failed: ${res.status()} ${await res.text()}`);
   }
@@ -222,25 +212,28 @@ export async function createTestContract(
   const constructionPrice = options?.constructionPrice ?? 1000000;
   const taxAmount = options?.taxAmount ?? Math.floor(constructionPrice * 0.1);
   const contractAmount = options?.contractAmount ?? constructionPrice + taxAmount;
-  const res = await request.post(`${API_BASE_URL}/api/projects/${projectId}/contracts`, {
-    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
-    data: {
-      contractType: options?.contractType ?? 'NEW',
-      parentContractId: options?.parentContractId ?? null,
-      estimateId,
-      contractDate: '2024-06-01',
-      constructionStartDate: '2024-07-01',
-      constructionEndDate: '2024-12-31',
-      deliveryDate: '2025-01-15',
-      taxRate: 0.1,
-      paymentTerms: '契約時50%、完了時50%',
-      separateConstruction: '',
-      otherNotes: '',
-      contractAmount,
-      constructionPrice,
-      taxAmount,
-    },
-  });
+  const res = await request.post(
+    `${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}/contracts`,
+    {
+      headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+      data: {
+        contractType: options?.contractType ?? 'NEW',
+        parentContractId: options?.parentContractId ?? null,
+        estimateId,
+        contractDate: '2024-06-01',
+        constructionStartDate: '2024-07-01',
+        constructionEndDate: '2024-12-31',
+        deliveryDate: '2025-01-15',
+        taxRate: 0.1,
+        paymentTerms: '契約時50%、完了時50%',
+        separateConstruction: '',
+        otherNotes: '',
+        contractAmount,
+        constructionPrice,
+        taxAmount,
+      },
+    }
+  );
   if (res.status() !== 201) {
     throw new Error(`contract create failed: ${res.status()} ${await res.text()}`);
   }
@@ -259,10 +252,13 @@ export async function setContractContracted(
   token: string,
   contractId: string
 ): Promise<void> {
-  const res = await request.patch(`${API_BASE_URL}/api/contracts/${contractId}/status`, {
-    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
-    data: { status: 'CONTRACTED' },
-  });
+  const res = await request.patch(
+    `${SAME_ORIGIN_API_BASE_URL}/api/contracts/${contractId}/status`,
+    {
+      headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+      data: { status: 'CONTRACTED' },
+    }
+  );
   if (!res.ok()) {
     throw new Error(`contract status update failed: ${res.status()} ${await res.text()}`);
   }
@@ -277,10 +273,13 @@ export async function createTestExecutionBudget(
   projectId: string,
   contractId: string
 ): Promise<{ id: string }> {
-  const res = await request.post(`${API_BASE_URL}/api/projects/${projectId}/execution-budget`, {
-    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
-    data: { contractId },
-  });
+  const res = await request.post(
+    `${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}/execution-budget`,
+    {
+      headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+      data: { contractId },
+    }
+  );
   if (res.status() !== 201) {
     throw new Error(`execution budget create failed: ${res.status()} ${await res.text()}`);
   }
@@ -298,7 +297,7 @@ export async function createTestOrder(
   tradingPartnerId: string
 ): Promise<{ id: string; status: string }> {
   const res = await request.post(
-    `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders`,
+    `${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}/execution-budget/orders`,
     {
       headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
       data: { tradingPartnerId },
@@ -322,7 +321,7 @@ export async function updateOrderItems(
   itemIds: string[]
 ): Promise<unknown> {
   const res = await request.put(
-    `${API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${orderId}/items`,
+    `${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}/execution-budget/orders/${orderId}/items`,
     {
       headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
       data: { itemIds },
@@ -342,7 +341,7 @@ export async function deleteProject(
   token: string,
   projectId: string
 ): Promise<void> {
-  await request.delete(`${API_BASE_URL}/api/projects/${projectId}`, {
+  await request.delete(`${SAME_ORIGIN_API_BASE_URL}/api/projects/${projectId}`, {
     headers: authHeaders(token),
   });
 }
@@ -355,7 +354,7 @@ export async function deleteTradingPartner(
   token: string,
   tradingPartnerId: string
 ): Promise<void> {
-  await request.delete(`${API_BASE_URL}/api/trading-partners/${tradingPartnerId}`, {
+  await request.delete(`${SAME_ORIGIN_API_BASE_URL}/api/trading-partners/${tradingPartnerId}`, {
     headers: authHeaders(token),
   });
 }

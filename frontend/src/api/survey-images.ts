@@ -241,6 +241,9 @@ export async function uploadSurveyImages(
           // 失敗理由の文字列だけであり、そこからでは 413（サイズ上限超過）を
           // 再送不可と判定できず再送可へ倒れてしまう（Requirement 37.16, 37.21）
           kind: classifyUploadFailure(error),
+          // 呼び出し元が 404 を見つからない旨の理由へ分類できるよう、例外そのものを渡す
+          // （site-survey の Requirement 40.2。タスク120.1）
+          cause: error,
         });
         completed++;
         return { success: false as const, error: errorMessage };

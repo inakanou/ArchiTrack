@@ -6,6 +6,11 @@
  * Requirements:
  * - 1.1: 現場調査作成フォームで必須フィールド（調査名、調査日）を入力可能
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
+ *
+ * Task 120.1 変更: プロジェクトの読み込みが 404 を受けたときに、プロジェクトが見つからない旨とプロジェクトの
+ *   一覧へのリンク（共通部品 ResourceNotFound）を表示する。作成が 404 を受けたときはプロジェクトが見つからない
+ *   旨のメッセージを表示とトーストに出し、応答の英語の文言を出さない（site-survey の Requirement 40.1・40.2。
+ *   範囲外と不在を区別しない）
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -16,7 +21,11 @@ import { ApiError } from '../api/client';
 import { useToast } from '../hooks/useToast';
 import SiteSurveyForm from '../components/site-surveys/SiteSurveyForm';
 import type { SiteSurveyFormData } from '../components/site-surveys/SiteSurveyForm';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getSiteSurveyNotFoundMessage,
+  isSiteSurveyNotFoundError,
+} from '../utils/siteSurveyNotFound';
 import { buildSiteSurveyCreateBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import type { ProjectDetail } from '../types/project.types';
 
@@ -107,6 +116,8 @@ export default function SiteSurveyCreatePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<unknown | null>(null);
+  // プロジェクトの読み込みが 404 を受けた（範囲外と不在を区別しない。Task 120.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   /**
    * プロジェクト情報を取得
@@ -119,6 +130,11 @@ export default function SiteSurveyCreatePage() {
         const data = await getProject(projectId);
         setProject(data);
       } catch (err) {
+        if (isSiteSurveyNotFoundError(err)) {
+          // 見つからない旨は ResourceNotFound が告げる（Task 120.1）
+          setIsProjectNotFound(true);
+          return;
+        }
         if (err instanceof ApiError) {
           setError(err.message || 'プロジェクトの取得に失敗しました');
         } else {
@@ -156,7 +172,10 @@ export default function SiteSurveyCreatePage() {
         navigate(`/site-surveys/${created.id}`);
       } catch (err) {
         if (err instanceof ApiError) {
-          const errorMessage = err.message || '作成中にエラーが発生しました';
+          // 作成の 404 は経路のプロジェクトの不在〔範囲外を含む〕（Task 120.1）
+          const errorMessage =
+            getSiteSurveyNotFoundMessage(err, 'project') ??
+            (err.message || '作成中にエラーが発生しました');
           setError(errorMessage);
           toast.error(errorMessage);
 
@@ -202,6 +221,20 @@ export default function SiteSurveyCreatePage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 120.1）。経路のプロジェクトが見つからない対象そのものであるため、
+  // 戻り先はプロジェクトの一覧とする
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

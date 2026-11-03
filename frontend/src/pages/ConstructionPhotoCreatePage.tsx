@@ -12,6 +12,11 @@
  *
  * Requirements:
  * - 1.1: アルバム作成フォーム送信で新規アルバムレコードを作成する
+ *
+ * Task 31.1 変更: プロジェクトの読み込みが 404 を受けたときに、プロジェクトが見つからない旨とプロジェクトの
+ *   一覧へのリンク（共通部品 ResourceNotFound）を表示する（Requirement 22.1）。作成が 404 を受けたときは
+ *   プロジェクトが見つからない旨をトーストに出し、応答の英語の文言を出さない（Requirement 22.2）。
+ *   範囲外と不在を区別しない
  */
 
 import { useState, useCallback, useEffect, type FormEvent } from 'react';
@@ -20,7 +25,11 @@ import { createConstructionPhotoAlbum } from '../api/construction-photos';
 import { getProject } from '../api/projects';
 import { ApiError } from '../api/client';
 import { useToast } from '../hooks/useToast';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getConstructionPhotoNotFoundMessage,
+  isConstructionPhotoNotFoundError,
+} from '../utils/constructionPhotoNotFound';
 import type { BreadcrumbItem } from '../components/common';
 import type { ProjectDetail } from '../types/project.types';
 
@@ -213,6 +222,8 @@ export default function ConstructionPhotoCreatePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // プロジェクトの読み込みが 404 を受けた（範囲外と不在を区別しない。Task 31.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   // フォーム状態
   const [name, setName] = useState('');
@@ -231,6 +242,11 @@ export default function ConstructionPhotoCreatePage() {
         const data = await getProject(projectId);
         setProject(data);
       } catch (err) {
+        if (isConstructionPhotoNotFoundError(err)) {
+          // 見つからない旨は ResourceNotFound が告げる（Task 31.1）
+          setIsProjectNotFound(true);
+          return;
+        }
         if (err instanceof ApiError) {
           setError(err.message || 'プロジェクトの取得に失敗しました');
         } else {
@@ -272,8 +288,10 @@ export default function ConstructionPhotoCreatePage() {
         // 作成したアルバムを一覧に反映するため一覧へ遷移する
         navigate(`/projects/${projectId}/construction-photos`);
       } catch (err) {
+        // 作成の 404 は経路のプロジェクトの不在〔範囲外を含む〕（Task 31.1）
         const message =
-          err instanceof ApiError && err.message ? err.message : '作成中にエラーが発生しました';
+          getConstructionPhotoNotFoundMessage(err, 'project') ??
+          (err instanceof ApiError && err.message ? err.message : '作成中にエラーが発生しました');
         toast.error(message);
       } finally {
         setIsSubmitting(false);
@@ -309,6 +327,20 @@ export default function ConstructionPhotoCreatePage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 31.1）。経路のプロジェクトが見つからない対象そのものであるため、
+  // 戻り先はプロジェクトの一覧とする
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

@@ -2,580 +2,408 @@
  * @fileoverview SessionServiceの単体テスト
  *
  * Requirements:
- * - 8.1-8.5: セッション管理（マルチデバイス対応、有効期限延長）
+ * - 8.1-8.5: セッション管理（マルチデバイス対応）
+ *
+ * リフレッシュトークンのハッシュ保存と、系列による失効・再利用の検知（要件33.4〜33.7）も確かめる。
  */
 
+import { createHash } from 'crypto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SessionService } from '../../../services/session.service.js';
+import { SessionService, hashRefreshToken } from '../../../services/session.service.js';
+import type { TokenService } from '../../../services/token.service.js';
 import type { PrismaClient, RefreshToken } from '../../../generated/prisma/client.js';
 
-// Prisma Clientのモック
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Prisma Clientのモック（$transaction は同じモックを取引のクライアントとして渡す）
 const mockPrismaClient = {
   refreshToken: {
     create: vi.fn(),
     findUnique: vi.fn(),
-    delete: vi.fn(),
+    findFirst: vi.fn(),
     deleteMany: vi.fn(),
     findMany: vi.fn(),
-    update: vi.fn(),
+    updateMany: vi.fn(),
   },
+  $executeRaw: vi.fn(),
+  $transaction: vi.fn(),
 } as unknown as PrismaClient;
+
+const executeRawMock = (mockPrismaClient as unknown as { $executeRaw: ReturnType<typeof vi.fn> })
+  .$executeRaw;
+
+/** 利用者単位の取引ロック（pg_advisory_xact_lock）を、その利用者で取ったこと */
+function expectUserLockTaken(userId: string): void {
+  expect(executeRawMock).toHaveBeenCalledTimes(1);
+  const [strings, ...values] = executeRawMock.mock.calls[0]!;
+  expect((strings as string[]).join('?')).toContain('pg_advisory_xact_lock');
+  expect(values).toContain(userId);
+}
+
+const mockTokenService = {
+  generateRefreshToken: vi.fn(),
+} as unknown as TokenService;
+
+const refreshTokenMock = mockPrismaClient.refreshToken as unknown as Record<
+  'create' | 'findUnique' | 'findFirst' | 'deleteMany' | 'findMany' | 'updateMany',
+  ReturnType<typeof vi.fn>
+>;
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function storedRow(overrides: Partial<RefreshToken> = {}): RefreshToken {
+  return {
+    id: 'session-1',
+    userId: 'user-1',
+    tokenHash: sha256Hex('presented-token'),
+    familyId: 'family-1',
+    replacedAt: null,
+    deviceInfo: 'Chrome on Windows',
+    expiresAt: new Date(Date.now() + 7 * DAY_MS),
+    createdAt: new Date(),
+    ...overrides,
+  };
+}
 
 describe('SessionService', () => {
   let sessionService: SessionService;
+  let issued: number;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    sessionService = new SessionService(mockPrismaClient);
+    issued = 0;
+    (mockTokenService.generateRefreshToken as ReturnType<typeof vi.fn>).mockImplementation(
+      async (userId: string, familyId: string) => `refresh-${userId}-${familyId}-${++issued}`
+    );
+    (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (fn: (tx: PrismaClient) => Promise<unknown>) => fn(mockPrismaClient)
+    );
+    refreshTokenMock.create.mockResolvedValue({});
+    refreshTokenMock.deleteMany.mockResolvedValue({ count: 0 });
+    executeRawMock.mockResolvedValue(1);
+    sessionService = new SessionService(mockPrismaClient, mockTokenService);
+  });
+
+  describe('hashRefreshToken()', () => {
+    it('SHA-256 の 16 進を返し、原文と異なる', () => {
+      expect(hashRefreshToken('raw-token')).toBe(sha256Hex('raw-token'));
+      expect(hashRefreshToken('raw-token')).not.toBe('raw-token');
+      expect(hashRefreshToken('raw-token')).toMatch(/^[0-9a-f]{64}$/);
+    });
   });
 
   describe('createSession()', () => {
-    it('デバイス情報付きでセッションを作成できる', async () => {
-      // Arrange
-      const userId = 'user-123';
-      const refreshToken = 'refresh-token-abc';
+    it('新しい系列でトークンを発行し、原文でなくハッシュを保存する', async () => {
       const deviceInfo = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
-      // SessionServiceはUser-Agentをパースして"Browser on OS"形式に変換する
-      const parsedDeviceInfo = 'Unknown Browser on Windows';
 
-      const mockRefreshToken: RefreshToken = {
-        id: 'session-1',
-        userId,
-        token: refreshToken,
-        deviceInfo: parsedDeviceInfo,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7日後
-        createdAt: new Date(),
-      };
+      const result = await sessionService.createSession('user-123', deviceInfo);
 
-      (mockPrismaClient.refreshToken.create as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockRefreshToken
+      expect(mockTokenService.generateRefreshToken).toHaveBeenCalledWith(
+        'user-123',
+        result.familyId
       );
-
-      // Act
-      await sessionService.createSession(userId, refreshToken, deviceInfo);
-
-      // Assert
-      expect(mockPrismaClient.refreshToken.create).toHaveBeenCalledWith({
-        data: {
-          userId,
-          token: refreshToken,
-          deviceInfo: parsedDeviceInfo,
-          expiresAt: expect.any(Date),
-        },
+      expect(result.familyId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      );
+      const { data } = refreshTokenMock.create.mock.calls[0]![0] as {
+        data: Record<string, unknown>;
+      };
+      expect(data).toEqual({
+        userId: 'user-123',
+        tokenHash: sha256Hex(result.refreshToken),
+        familyId: result.familyId,
+        // SessionServiceはUser-Agentをパースして"Browser on OS"形式に変換する
+        deviceInfo: 'Unknown Browser on Windows',
+        expiresAt: expect.any(Date),
       });
+      expect(data.tokenHash).not.toBe(result.refreshToken);
+      expect(Object.values(data)).not.toContain(result.refreshToken);
     });
 
-    it('デバイス情報なしでセッションを作成できる', async () => {
-      // Arrange
-      const userId = 'user-456';
-      const refreshToken = 'refresh-token-xyz';
+    it('ログインのたびに別の系列を作る（デバイスごとに独立したセッション）', async () => {
+      const first = await sessionService.createSession('user-1');
+      const second = await sessionService.createSession('user-1');
 
-      const mockRefreshToken: RefreshToken = {
-        id: 'session-2',
-        userId,
-        token: refreshToken,
-        deviceInfo: null,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-      };
-
-      (mockPrismaClient.refreshToken.create as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockRefreshToken
-      );
-
-      // Act
-      await sessionService.createSession(userId, refreshToken);
-
-      // Assert
-      expect(mockPrismaClient.refreshToken.create).toHaveBeenCalledWith({
-        data: {
-          userId,
-          token: refreshToken,
-          deviceInfo: undefined,
-          expiresAt: expect.any(Date),
-        },
+      expect(first.familyId).not.toBe(second.familyId);
+      expect(refreshTokenMock.create).toHaveBeenNthCalledWith(1, {
+        data: expect.objectContaining({ deviceInfo: undefined }),
       });
     });
 
     it('データベースエラー時にエラーをスローする', async () => {
-      // Arrange
-      const userId = 'user-error';
-      const refreshToken = 'refresh-token-error';
-      const dbError = new Error('Database connection lost');
+      refreshTokenMock.create.mockRejectedValue(new Error('Database connection lost'));
 
-      (mockPrismaClient.refreshToken.create as ReturnType<typeof vi.fn>).mockRejectedValue(dbError);
-
-      // Act & Assert
-      await expect(sessionService.createSession(userId, refreshToken)).rejects.toThrow(
+      await expect(sessionService.createSession('user-error')).rejects.toThrow(
         'Database connection lost'
       );
     });
   });
 
-  describe('deleteSession()', () => {
-    it('セッションを削除できる', async () => {
-      // Arrange
-      const refreshToken = 'refresh-token-delete';
+  describe('rotate()', () => {
+    it('有効なトークンは置き換えの日時を記録し、同じ系列の後継を一つの取引で作る', async () => {
+      refreshTokenMock.findUnique.mockResolvedValue(storedRow());
+      refreshTokenMock.updateMany.mockResolvedValue({ count: 1 });
 
-      const mockRefreshToken: RefreshToken = {
-        id: 'session-3',
-        userId: 'user-789',
-        token: refreshToken,
-        deviceInfo: null,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-      };
+      const result = await sessionService.rotate('presented-token');
 
-      (mockPrismaClient.refreshToken.delete as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockRefreshToken
-      );
-
-      // Act
-      const result = await sessionService.deleteSession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(true);
-      expect(mockPrismaClient.refreshToken.delete).toHaveBeenCalledWith({
-        where: { token: refreshToken },
+      expect(result).toEqual({
+        ok: true,
+        value: {
+          userId: 'user-1',
+          familyId: 'family-1',
+          refreshToken: 'refresh-user-1-family-1-1',
+        },
       });
+      expect(mockPrismaClient.$transaction).toHaveBeenCalledTimes(1);
+      expect(refreshTokenMock.findUnique).toHaveBeenCalledWith({
+        where: { tokenHash: sha256Hex('presented-token') },
+      });
+      // 置き換えの記録は、まだ置き換えられていない行に限る（同時の提示の一方だけが通る）
+      expect(refreshTokenMock.updateMany).toHaveBeenCalledWith({
+        where: { id: 'session-1', replacedAt: null },
+        data: { replacedAt: expect.any(Date) },
+      });
+      expect(refreshTokenMock.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          tokenHash: sha256Hex('refresh-user-1-family-1-1'),
+          familyId: 'family-1',
+          deviceInfo: 'Chrome on Windows',
+          expiresAt: expect.any(Date),
+        },
+      });
+      expect(refreshTokenMock.deleteMany).not.toHaveBeenCalled();
+      // 利用者単位の取引ロックを、行を変える前に取り、その後に行を読み直す
+      expectUserLockTaken('user-1');
+      expect(executeRawMock.mock.invocationCallOrder[0]!).toBeLessThan(
+        refreshTokenMock.updateMany.mock.invocationCallOrder[0]!
+      );
+      expect(refreshTokenMock.findUnique).toHaveBeenCalledTimes(2);
+      expect(refreshTokenMock.findUnique.mock.invocationCallOrder[1]!).toBeGreaterThan(
+        executeRawMock.mock.invocationCallOrder[0]!
+      );
     });
 
-    it('存在しないトークンでSESSION_NOT_FOUNDエラーを返す', async () => {
-      // Arrange
-      const refreshToken = 'non-existent-token';
+    it('ロックを待つ間に行が消されていたら NOT_FOUND で、後継を作らない', async () => {
+      refreshTokenMock.findUnique.mockResolvedValueOnce(storedRow()).mockResolvedValueOnce(null);
 
-      (mockPrismaClient.refreshToken.delete as ReturnType<typeof vi.fn>).mockRejectedValue({
-        code: 'P2025', // Prisma "Record not found" error
+      await expect(sessionService.rotate('presented-token')).resolves.toEqual({
+        ok: false,
+        error: { type: 'NOT_FOUND' },
       });
-
-      // Act
-      const result = await sessionService.deleteSession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('SESSION_NOT_FOUND');
-      }
+      expectUserLockTaken('user-1');
+      expect(refreshTokenMock.updateMany).not.toHaveBeenCalled();
+      expect(refreshTokenMock.create).not.toHaveBeenCalled();
     });
 
-    it('データベースエラーでDATABASE_ERRORを返す', async () => {
-      // Arrange
-      const refreshToken = 'token-with-db-error';
+    it('保存の無いトークンは NOT_FOUND', async () => {
+      refreshTokenMock.findUnique.mockResolvedValue(null);
 
-      (mockPrismaClient.refreshToken.delete as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('Database connection failed')
+      await expect(sessionService.rotate('unknown')).resolves.toEqual({
+        ok: false,
+        error: { type: 'NOT_FOUND' },
+      });
+      expect(refreshTokenMock.create).not.toHaveBeenCalled();
+    });
+
+    it('有効期限の切れたトークンは EXPIRED で、後継を作らない', async () => {
+      refreshTokenMock.findUnique.mockResolvedValue(
+        storedRow({ expiresAt: new Date(Date.now() - 1000) })
       );
 
-      // Act
-      const result = await sessionService.deleteSession(refreshToken);
+      await expect(sessionService.rotate('presented-token')).resolves.toEqual({
+        ok: false,
+        error: { type: 'EXPIRED' },
+      });
+      expect(refreshTokenMock.updateMany).not.toHaveBeenCalled();
+      expect(refreshTokenMock.create).not.toHaveBeenCalled();
+    });
 
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('DATABASE_ERROR');
-        if (result.error.type === 'DATABASE_ERROR') {
-          expect(result.error.message).toBe('Database connection failed');
-        }
-      }
+    it('置き換え済みのトークンの再提示は系列の全行を消して REUSE_DETECTED', async () => {
+      refreshTokenMock.findUnique.mockResolvedValue(storedRow({ replacedAt: new Date() }));
+      refreshTokenMock.deleteMany.mockResolvedValue({ count: 3 });
+
+      const result = await sessionService.rotate('presented-token');
+
+      expect(result).toEqual({
+        ok: false,
+        error: { type: 'REUSE_DETECTED', userId: 'user-1', familyId: 'family-1' },
+      });
+      expect(refreshTokenMock.deleteMany).toHaveBeenCalledWith({
+        where: { familyId: 'family-1' },
+      });
+      expect(refreshTokenMock.updateMany).not.toHaveBeenCalled();
+      expect(refreshTokenMock.create).not.toHaveBeenCalled();
+      expect(mockTokenService.generateRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('同時の提示で先に置き換えられていたとき（条件付きの更新が 0 件）は再利用として系列を消す', async () => {
+      refreshTokenMock.findUnique.mockResolvedValue(storedRow());
+      refreshTokenMock.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await sessionService.rotate('presented-token');
+
+      expect(result).toEqual({
+        ok: false,
+        error: { type: 'REUSE_DETECTED', userId: 'user-1', familyId: 'family-1' },
+      });
+      expect(refreshTokenMock.deleteMany).toHaveBeenCalledWith({
+        where: { familyId: 'family-1' },
+      });
+      expect(refreshTokenMock.create).not.toHaveBeenCalled();
+    });
+
+    it('後継の作成の失敗は取引ごと失敗させる（例外を投げる）', async () => {
+      refreshTokenMock.findUnique.mockResolvedValue(storedRow());
+      refreshTokenMock.updateMany.mockResolvedValue({ count: 1 });
+      refreshTokenMock.create.mockRejectedValue(new Error('insert failed'));
+
+      await expect(sessionService.rotate('presented-token')).rejects.toThrow('insert failed');
     });
   });
 
-  describe('deleteAllSessions()', () => {
-    it('ユーザーの全セッションを削除できる', async () => {
-      // Arrange
-      const userId = 'user-all-sessions';
+  describe('revokeByToken()', () => {
+    it('提示したトークンの系列の全行を消す（ログアウトはそのセッションの系列だけ）', async () => {
+      refreshTokenMock.findUnique.mockResolvedValue(storedRow());
+      refreshTokenMock.deleteMany.mockResolvedValue({ count: 2 });
 
-      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({
-        count: 3,
+      await expect(sessionService.revokeByToken('presented-token', 'user-1')).resolves.toBe(2);
+
+      expect(refreshTokenMock.findUnique).toHaveBeenCalledWith({
+        where: { tokenHash: sha256Hex('presented-token') },
       });
-
-      // Act
-      await sessionService.deleteAllSessions(userId);
-
-      // Assert
-      expect(mockPrismaClient.refreshToken.deleteMany).toHaveBeenCalledWith({
-        where: { userId },
+      expect(refreshTokenMock.deleteMany).toHaveBeenCalledWith({
+        where: { familyId: 'family-1', userId: 'user-1' },
       });
+      // ローテーションと直列化してから、一つの取引で系列を消す
+      expect(mockPrismaClient.$transaction).toHaveBeenCalledTimes(1);
+      expectUserLockTaken('user-1');
+      expect(executeRawMock.mock.invocationCallOrder[0]!).toBeLessThan(
+        refreshTokenMock.deleteMany.mock.invocationCallOrder[0]!
+      );
     });
 
-    it('データベースエラー時にエラーをスローする', async () => {
-      // Arrange
-      const userId = 'user-delete-all-error';
-      const dbError = new Error('Database transaction failed');
+    it('他の利用者のトークンは消さない', async () => {
+      refreshTokenMock.findUnique.mockResolvedValue(storedRow({ userId: 'someone-else' }));
 
-      (mockPrismaClient.refreshToken.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(
-        dbError
-      );
+      await expect(sessionService.revokeByToken('presented-token', 'user-1')).resolves.toBe(0);
+      expect(refreshTokenMock.deleteMany).not.toHaveBeenCalled();
+    });
 
-      // Act & Assert
-      await expect(sessionService.deleteAllSessions(userId)).rejects.toThrow(
-        'Database transaction failed'
-      );
+    it('保存の無いトークンは何も消さない', async () => {
+      refreshTokenMock.findUnique.mockResolvedValue(null);
+
+      await expect(sessionService.revokeByToken('unknown')).resolves.toBe(0);
+      expect(refreshTokenMock.deleteMany).not.toHaveBeenCalled();
     });
   });
 
-  describe('verifySession()', () => {
-    it('有効なセッションで検証に成功する', async () => {
-      // Arrange
-      const refreshToken = 'valid-refresh-token';
-      const mockRefreshToken: RefreshToken = {
-        id: 'session-verify-1',
-        userId: 'user-verify',
-        token: refreshToken,
-        deviceInfo: 'Chrome on macOS',
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 未来の日時
-        createdAt: new Date(),
+  describe('revokeAllForUser()', () => {
+    it('利用者の全てのリフレッシュトークンを消し、消した数を返す', async () => {
+      refreshTokenMock.deleteMany.mockResolvedValue({ count: 5 });
+
+      await expect(sessionService.revokeAllForUser('user-1')).resolves.toBe(5);
+      expect(refreshTokenMock.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+      expect(mockPrismaClient.$transaction).toHaveBeenCalledTimes(1);
+      expectUserLockTaken('user-1');
+      expect(executeRawMock.mock.invocationCallOrder[0]!).toBeLessThan(
+        refreshTokenMock.deleteMany.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('取引を渡すと取引のクライアントでロックを取ってから消す', async () => {
+      const tx = {
+        refreshToken: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        $executeRaw: vi.fn().mockResolvedValue(1),
       };
 
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockRefreshToken
+      await expect(
+        sessionService.revokeAllForUser(
+          'user-1',
+          tx as unknown as Parameters<SessionService['revokeAllForUser']>[1]
+        )
+      ).resolves.toBe(1);
+      expect(tx.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+      expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(refreshTokenMock.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrismaClient.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('revokeSessionById()', () => {
+    it('自分のセッションの系列を消す', async () => {
+      refreshTokenMock.findFirst.mockResolvedValue(storedRow());
+      refreshTokenMock.deleteMany.mockResolvedValue({ count: 1 });
+
+      await expect(sessionService.revokeSessionById('user-1', 'session-1')).resolves.toEqual({
+        ok: true,
+        value: undefined,
+      });
+      expect(refreshTokenMock.findFirst).toHaveBeenCalledWith({
+        where: { id: 'session-1', userId: 'user-1' },
+      });
+      expect(refreshTokenMock.deleteMany).toHaveBeenCalledWith({
+        where: { familyId: 'family-1', userId: 'user-1' },
+      });
+      expectUserLockTaken('user-1');
+      expect(executeRawMock.mock.invocationCallOrder[0]!).toBeLessThan(
+        refreshTokenMock.deleteMany.mock.invocationCallOrder[0]!
       );
-
-      // Act
-      const result = await sessionService.verifySession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.id).toBe('session-verify-1');
-        expect(result.value.userId).toBe('user-verify');
-        expect(result.value.deviceInfo).toBe('Chrome on macOS');
-        expect(result.value.expiresAt).toBeInstanceOf(Date);
-        expect(result.value.createdAt).toBeInstanceOf(Date);
-      }
     });
 
-    it('存在しないトークンでSESSION_NOT_FOUNDエラーを返す', async () => {
-      // Arrange
-      const refreshToken = 'non-existent-token';
+    it('自分のものでない・存在しないセッションは SESSION_NOT_FOUND', async () => {
+      refreshTokenMock.findFirst.mockResolvedValue(null);
 
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        null
-      );
-
-      // Act
-      const result = await sessionService.verifySession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('SESSION_NOT_FOUND');
-      }
+      await expect(sessionService.revokeSessionById('user-1', 'other')).resolves.toEqual({
+        ok: false,
+        error: { type: 'SESSION_NOT_FOUND' },
+      });
+      expect(refreshTokenMock.deleteMany).not.toHaveBeenCalled();
     });
 
-    it('期限切れトークンでSESSION_EXPIREDエラーを返す', async () => {
-      // Arrange
-      const refreshToken = 'expired-token';
-      const mockRefreshToken: RefreshToken = {
-        id: 'session-expired',
-        userId: 'user-expired',
-        token: refreshToken,
-        deviceInfo: null,
-        expiresAt: new Date(Date.now() - 1000), // 過去の日時
-        createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
-      };
+    it('データベースエラーで DATABASE_ERROR を返す（Error でない値は文字列にする）', async () => {
+      refreshTokenMock.findFirst.mockRejectedValue('String error');
 
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockRefreshToken
-      );
-
-      // Act
-      const result = await sessionService.verifySession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('SESSION_EXPIRED');
-      }
-    });
-
-    it('データベースエラーでDATABASE_ERRORを返す', async () => {
-      // Arrange
-      const refreshToken = 'token-verify-db-error';
-
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('Database query timeout')
-      );
-
-      // Act
-      const result = await sessionService.verifySession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('DATABASE_ERROR');
-        if (result.error.type === 'DATABASE_ERROR') {
-          expect(result.error.message).toBe('Database query timeout');
-        }
-      }
+      await expect(sessionService.revokeSessionById('user-1', 'session-1')).resolves.toEqual({
+        ok: false,
+        error: { type: 'DATABASE_ERROR', message: 'String error' },
+      });
     });
   });
 
   describe('listSessions()', () => {
-    it('ユーザーのセッション一覧を取得できる（複数デバイス）', async () => {
-      // Arrange
+    it('系列ごとの現行の行（置き換えられていない行）だけを一覧にする', async () => {
       const userId = 'user-multi-device';
-      const mockSessions: RefreshToken[] = [
-        {
-          id: 'session-device-1',
-          userId,
-          token: 'token-1',
-          deviceInfo: 'Chrome on Windows',
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-          createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-        },
-        {
+      refreshTokenMock.findMany.mockResolvedValue([
+        storedRow({ id: 'session-device-1', userId, deviceInfo: 'Chrome on Windows' }),
+        storedRow({
           id: 'session-device-2',
           userId,
-          token: 'token-2',
-          deviceInfo: 'Safari on iPhone',
-          expiresAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-          createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-        },
-        {
-          id: 'session-device-3',
-          userId,
-          token: 'token-3',
+          familyId: 'family-2',
           deviceInfo: null,
-          expiresAt: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000),
-          createdAt: new Date(),
-        },
-      ];
+        }),
+      ]);
 
-      (mockPrismaClient.refreshToken.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockSessions
-      );
-
-      // Act
       const sessions = await sessionService.listSessions(userId);
 
-      // Assert
-      expect(sessions).toHaveLength(3);
+      expect(sessions).toHaveLength(2);
       expect(sessions[0]!.deviceInfo).toBe('Chrome on Windows');
-      expect(sessions[1]!.deviceInfo).toBe('Safari on iPhone');
-      expect(sessions[2]!.deviceInfo).toBeUndefined();
-      expect(mockPrismaClient.refreshToken.findMany).toHaveBeenCalledWith({
-        where: { userId },
+      expect(sessions[1]!.deviceInfo).toBeUndefined();
+      expect(sessions[0]).not.toHaveProperty('tokenHash');
+      expect(refreshTokenMock.findMany).toHaveBeenCalledWith({
+        where: { userId, replacedAt: null },
         orderBy: { createdAt: 'desc' },
       });
     });
 
-    it('セッションが存在しない場合は空配列を返す', async () => {
-      // Arrange
-      const userId = 'user-no-sessions';
-
-      (mockPrismaClient.refreshToken.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-
-      // Act
-      const sessions = await sessionService.listSessions(userId);
-
-      // Assert
-      expect(sessions).toHaveLength(0);
-    });
-
     it('データベースエラー時にエラーをスローする', async () => {
-      // Arrange
-      const userId = 'user-list-error';
-      const dbError = new Error('Database query failed');
+      refreshTokenMock.findMany.mockRejectedValue(new Error('Database query failed'));
 
-      (mockPrismaClient.refreshToken.findMany as ReturnType<typeof vi.fn>).mockRejectedValue(
-        dbError
+      await expect(sessionService.listSessions('user-list-error')).rejects.toThrow(
+        'Database query failed'
       );
-
-      // Act & Assert
-      await expect(sessionService.listSessions(userId)).rejects.toThrow('Database query failed');
-    });
-  });
-
-  describe('deleteSession() edge cases', () => {
-    it('非Errorオブジェクトの場合はString変換されたメッセージを返す', async () => {
-      // Arrange
-      const refreshToken = 'token-with-unknown-error';
-
-      (mockPrismaClient.refreshToken.delete as ReturnType<typeof vi.fn>).mockRejectedValue(
-        'String error'
-      );
-
-      // Act
-      const result = await sessionService.deleteSession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('DATABASE_ERROR');
-        if (result.error.type === 'DATABASE_ERROR') {
-          expect(result.error.message).toBe('String error');
-        }
-      }
-    });
-  });
-
-  describe('verifySession() edge cases', () => {
-    it('非Errorオブジェクトの場合はString変換されたメッセージを返す', async () => {
-      // Arrange
-      const refreshToken = 'token-verify-unknown-error';
-      const errorObj = { code: 'UNKNOWN' };
-
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(
-        errorObj
-      );
-
-      // Act
-      const result = await sessionService.verifySession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('DATABASE_ERROR');
-        if (result.error.type === 'DATABASE_ERROR') {
-          expect(result.error.message).toBe('[object Object]');
-        }
-      }
-    });
-  });
-
-  describe('extendSession() edge cases', () => {
-    it('非Errorオブジェクトの場合はString変換されたメッセージを返す', async () => {
-      // Arrange
-      const refreshToken = 'token-extend-unknown-error';
-      const mockRefreshToken = {
-        id: 'session-extend-unknown',
-        userId: 'user-extend-unknown',
-        token: refreshToken,
-        deviceInfo: null,
-        expiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-      };
-
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockRefreshToken
-      );
-      (mockPrismaClient.refreshToken.update as ReturnType<typeof vi.fn>).mockRejectedValue(
-        'String error'
-      );
-
-      // Act
-      const result = await sessionService.extendSession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('DATABASE_ERROR');
-        if (result.error.type === 'DATABASE_ERROR') {
-          expect(result.error.message).toBe('String error');
-        }
-      }
-    });
-  });
-
-  describe('extendSession()', () => {
-    it('セッションの有効期限を延長できる', async () => {
-      // Arrange
-      const refreshToken = 'token-to-extend';
-      const mockRefreshToken: RefreshToken = {
-        id: 'session-extend',
-        userId: 'user-extend',
-        token: refreshToken,
-        deviceInfo: 'Firefox on Linux',
-        expiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // 残り2日
-        createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-      };
-
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockRefreshToken
-      );
-      (mockPrismaClient.refreshToken.update as ReturnType<typeof vi.fn>).mockResolvedValue({
-        ...mockRefreshToken,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      });
-
-      // Act
-      const result = await sessionService.extendSession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(true);
-      expect(mockPrismaClient.refreshToken.update).toHaveBeenCalledWith({
-        where: { token: refreshToken },
-        data: {
-          expiresAt: expect.any(Date),
-        },
-      });
-    });
-
-    it('存在しないトークンでSESSION_NOT_FOUNDエラーを返す', async () => {
-      // Arrange
-      const refreshToken = 'non-existent-token';
-
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        null
-      );
-
-      // Act
-      const result = await sessionService.extendSession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('SESSION_NOT_FOUND');
-      }
-    });
-
-    it('期限切れトークンでSESSION_EXPIREDエラーを返す', async () => {
-      // Arrange
-      const refreshToken = 'expired-token-extend';
-      const mockRefreshToken: RefreshToken = {
-        id: 'session-expired-extend',
-        userId: 'user-expired-extend',
-        token: refreshToken,
-        deviceInfo: null,
-        expiresAt: new Date(Date.now() - 1000), // 過去の日時
-        createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
-      };
-
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockRefreshToken
-      );
-
-      // Act
-      const result = await sessionService.extendSession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('SESSION_EXPIRED');
-      }
-    });
-
-    it('データベースエラーでDATABASE_ERRORを返す', async () => {
-      // Arrange
-      const refreshToken = 'token-extend-db-error';
-      const mockRefreshToken: RefreshToken = {
-        id: 'session-extend-db',
-        userId: 'user-extend-db',
-        token: refreshToken,
-        deviceInfo: null,
-        expiresAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-      };
-
-      (mockPrismaClient.refreshToken.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        mockRefreshToken
-      );
-      (mockPrismaClient.refreshToken.update as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('Database write failed')
-      );
-
-      // Act
-      const result = await sessionService.extendSession(refreshToken);
-
-      // Assert
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('DATABASE_ERROR');
-        if (result.error.type === 'DATABASE_ERROR') {
-          expect(result.error.message).toBe('Database write failed');
-        }
-      }
     });
   });
 });

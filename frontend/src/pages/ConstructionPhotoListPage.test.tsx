@@ -494,3 +494,106 @@ describe('ConstructionPhotoListPage', () => {
  * @requirement construction-photo/REQ-3.1
  * @requirement construction-photo/REQ-3.2
  */
+
+// ============================================================================
+// タスク 31.1: 404 を受けたときの不在の表示（Requirement 22.1・22.2）
+// ============================================================================
+
+describe('ConstructionPhotoListPage の 404 の不在の表示（タスク 31.1）', () => {
+  const ALBUM_GONE = '工事写真アルバムが見つかりません。存在しないか、削除されています。';
+  /** 汎用の 404（閲覧範囲外と不在で同じ応答。本文は英語） */
+  const genericNotFound = () =>
+    new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    navigateMock.mockClear();
+    mockUseConstructionPhotoPermission.mockReturnValue(fullPermission);
+    vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
+    vi.mocked(constructionPhotosApi.getConstructionPhotoAlbums).mockResolvedValue(mockAlbums);
+    setMatchMedia(() => false);
+  });
+
+  async function expectProjectNotFound() {
+    expect(
+      await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+      'href',
+      '/projects'
+    );
+    expect(screen.queryByText(/Not found/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('データの取得に失敗しました')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  }
+
+  it('アルバムの一覧の取得の 404 が先に届き、プロジェクトの取得が後から別の失敗で終わっても、プロジェクトの不在の表示にする (22.1)', async () => {
+    let rejectProject: (reason: unknown) => void = () => {};
+    vi.mocked(projectsApi.getProject).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectProject = reject;
+      })
+    );
+    vi.mocked(constructionPhotosApi.getConstructionPhotoAlbums).mockRejectedValue(
+      genericNotFound()
+    );
+    renderWithRouter('/projects/project-123/construction-photos');
+    await waitFor(() =>
+      expect(constructionPhotosApi.getConstructionPhotoAlbums).toHaveBeenCalled()
+    );
+    rejectProject(new ApiError(500, 'Internal Server Error'));
+
+    await expectProjectNotFound();
+  });
+
+  it('プロジェクトの取得の 404 が後から届いても、同じプロジェクトの不在の表示にする (22.1)', async () => {
+    let rejectProject: (reason: unknown) => void = () => {};
+    vi.mocked(projectsApi.getProject).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectProject = reject;
+      })
+    );
+    vi.mocked(constructionPhotosApi.getConstructionPhotoAlbums).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error')
+    );
+    renderWithRouter('/projects/project-123/construction-photos');
+    await waitFor(() =>
+      expect(constructionPhotosApi.getConstructionPhotoAlbums).toHaveBeenCalled()
+    );
+    rejectProject(new ApiError(404, 'プロジェクトが見つかりません', { code: 'NOT_FOUND' }));
+
+    await expectProjectNotFound();
+  });
+
+  it('404 以外の読み込みの失敗は従来の文言と再試行の釦を出す', async () => {
+    vi.mocked(constructionPhotosApi.getConstructionPhotoAlbums).mockRejectedValue(
+      new ApiError(500, 'サーバーの失敗')
+    );
+    renderWithRouter('/projects/project-123/construction-photos');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('サーバーの失敗');
+    expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument();
+  });
+
+  it('アルバムの削除の 404 は工事写真アルバムが見つからない旨をエラーの帯に出し、ID を含む英語の文言を出さない (22.2)', async () => {
+    vi.mocked(constructionPhotosApi.deleteConstructionPhotoAlbum).mockRejectedValue(
+      new ApiError(404, 'Construction photo album not found: album-1', {
+        code: 'CONSTRUCTION_PHOTO_ALBUM_NOT_FOUND',
+      })
+    );
+    renderWithRouter('/projects/project-123/construction-photos');
+
+    const row = await screen.findByTestId('album-row-album-1');
+    fireEvent.click(within(row).getByRole('button', { name: /削除/ }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+
+    // 失敗後はダイアログが閉じ、エラーの帯だけが role=alert で残る
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    const alerts = await screen.findAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent(new RegExp(`^${ALBUM_GONE}$`));
+    expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+  });
+});

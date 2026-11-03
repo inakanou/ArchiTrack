@@ -3,37 +3,19 @@
  *
  * Task 15.1: クリップボードコピーユーティリティの実装
  *
- * 内訳書データをタブ区切り形式でクリップボードにコピーする機能を提供します。
+ * 内訳書データをクリップボードへコピーするタブ区切り形式のテキストを作る。
+ * クリップボードへの書き込みは、出力の記録を経る user-authentication の
+ * `runRecordedClipboardWrite`（`src/api/export-audit.ts`）が行う（タスク28.1。Requirement 18.9・18.10）。
+ * 書き込みまで行っていた従来の関数（`copyToClipboard`）は本番の呼び出し元が無くなったため除いた。
  *
  * Requirements:
  * - 14.2: タブ区切り形式でコピー
  * - 14.3: ヘッダー行を含む
  * - 14.4: 各行はタブ文字で区切り、行末は改行文字で終端
- * - 14.7: コピー失敗時はエラーを返却
  * - 14.8: 数量は小数点以下2桁の文字列として出力
  */
 
 import type { ItemizedStatementItemInfo } from '../types/itemized-statement.types';
-
-// ============================================================================
-// 型定義
-// ============================================================================
-
-/**
- * クリップボードコピーオプション
- */
-export interface CopyToClipboardOptions {
-  /** 内訳書項目一覧（フィルタ・ソート適用後） */
-  items: ItemizedStatementItemInfo[];
-}
-
-/**
- * クリップボードコピー結果
- */
-export interface CopyToClipboardResult {
-  success: boolean;
-  error?: string;
-}
 
 // ============================================================================
 // 定数定義
@@ -105,45 +87,4 @@ export function formatItemsForClipboard(items: ItemizedStatementItemInfo[]): str
 
   // ヘッダーとデータを結合し、最後に改行を追加 (Req 14.4)
   return [headerLine, ...dataLines].join(NEWLINE) + NEWLINE;
-}
-
-/**
- * 内訳書データをタブ区切り形式でクリップボードにコピー
- *
- * Requirements:
- * - 14.2: タブ区切り形式でコピー
- * - 14.3: ヘッダー行を含む
- * - 14.4: 各行はタブ文字で区切り、行末は改行文字
- * - 14.5: フィルタ適用後のデータのみコピー（呼び出し側で対応）
- * - 14.7: コピー失敗時はエラーを返却
- * - 14.8: 数量は小数点以下2桁の文字列
- *
- * @param options - コピーオプション
- * @returns コピー結果（Promise）
- */
-export async function copyToClipboard(
-  options: CopyToClipboardOptions
-): Promise<CopyToClipboardResult> {
-  const { items } = options;
-
-  try {
-    // Clipboard APIの利用可否チェック
-    if (!navigator.clipboard) {
-      return { success: false, error: 'クリップボードAPIが利用できません' };
-    }
-
-    // タブ区切りテキストを生成
-    const text = formatItemsForClipboard(items);
-
-    // クリップボードにコピー
-    await navigator.clipboard.writeText(text);
-
-    return { success: true };
-  } catch (error) {
-    // エラーハンドリング (Req 14.7)
-    if (error instanceof Error) {
-      return { success: false, error: error.message };
-    }
-    return { success: false, error: 'クリップボードへのコピーに失敗しました' };
-  }
 }

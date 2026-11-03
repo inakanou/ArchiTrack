@@ -8,6 +8,7 @@
  * - 19.2: REQ-11.11 ~ REQ-11.17 受領見積書一覧・編集・削除
  * - 19.3: REQ-12.1 ~ REQ-12.12 ステータス管理
  * - 37.3: REQ-15.1 ~ REQ-15.11 項目選択一括転記機能
+ * - REQ-14.7 受領見積書の登録・更新・削除の監査ログ（audit_logs を直接数える）
  *
  * @module e2e/specs/estimate-requests/received-quotation-status-e2e.spec
  */
@@ -21,10 +22,47 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
+import {
+  cleanupEstimateRequestFixtures,
+  deleteEstimateRequestViaApi,
+} from '../../helpers/estimate-request-preconditions';
+import { getPrismaClient } from '../../fixtures/database';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * 受領見積書の操作の監査ログが、対象の受領見積書・種別で 1 件記録されていることを主張する。
+ *
+ * estimate-request の REQ-14.7 の監査ログはサーバ側で、受領見積書の変更と同じトランザクションの中で
+ * 記録される（`ReceivedQuotationService` が `AuditLogService.createLog(input, tx)` を呼ぶ）。
+ * ブラウザは監査ログの API を呼ばないため、画面のリクエストの観測では記録の有無を判定できない。
+ * 記録先である `audit_logs` を対象の種類 `ReceivedQuotation`・対象の ID・種別で直接数える
+ * （取引先の監査ログの E2E の `expectAuditLogRecorded` と同じ形）。
+ *
+ * @param quotationId 対象の受領見積書の ID
+ * @param action 期待する種別（`RECEIVED_QUOTATION_CREATED` など）
+ */
+async function expectReceivedQuotationAuditLogRecorded(
+  quotationId: string,
+  action: 'RECEIVED_QUOTATION_CREATED' | 'RECEIVED_QUOTATION_UPDATED' | 'RECEIVED_QUOTATION_DELETED'
+): Promise<void> {
+  const prisma = getPrismaClient();
+  await expect
+    .poll(
+      async () =>
+        prisma.auditLog.count({
+          where: { targetType: 'ReceivedQuotation', targetId: quotationId, action },
+        }),
+      {
+        timeout: getTimeout(10000),
+        message: `REQ-14.7: ${action} が監査ログに 1 件記録される (targetId=${quotationId})`,
+      }
+    )
+    .toBe(1);
+}
 
 /**
  * 保存ボタンをクリックして保存完了を待機するヘルパー
@@ -48,6 +86,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
   // テストデータの保存
   let createdProjectId: string | null = null;
   let createdTradingPartnerId: string | null = null;
+  let createdQuantityTableId: string | null = null;
   let createdItemizedStatementId: string | null = null;
   let createdEstimateRequestId: string | null = null;
   let createdReceivedQuotationId: string | null = null;
@@ -193,16 +232,11 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
       const quantityTableId = createResponseBody.id;
       expect(quantityTableId).toBeTruthy();
+      createdQuantityTableId = quantityTableId;
 
       // APIトークンを取得
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
 
       // グループを作成
@@ -431,6 +465,9 @@ test.describe('受領見積書・ステータス管理機能', () => {
     /**
      * @requirement estimate-request/REQ-11.9
      * 構造化データ入力エリア（明細行）を表示する
+     *
+     * @requirement estimate-request/REQ-14.7
+     * 画面で登録した受領見積書の RECEIVED_QUOTATION_CREATED の監査ログが 1 件記録される（タスク111.1）
      */
     test('REQ-11.9: 構造化データ入力エリア（明細行）で受領見積書を登録できる', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -471,6 +508,12 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
       // 登録後、一覧に表示される
       await expect(page.getByText(quotationName)).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-14.7: 確定した登録の監査ログが、登録の応答の ID で 1 件記録される
+      await expectReceivedQuotationAuditLogRecorded(
+        String(responseBody.id),
+        'RECEIVED_QUOTATION_CREATED'
+      );
     });
 
     /**
@@ -662,6 +705,9 @@ test.describe('受領見積書・ステータス管理機能', () => {
      * @requirement estimate-request/REQ-11.28
      * 受領見積書の編集機能を提供する
      *
+     * @requirement estimate-request/REQ-14.7
+     * 画面で更新した受領見積書の RECEIVED_QUOTATION_UPDATED の監査ログが 1 件記録される（タスク111.1）
+     *
      * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
      * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
@@ -714,6 +760,18 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
       // 更新後の名前が表示される
       await expect(page.getByText(updatedName)).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-14.7: 確定した更新の監査ログが、更新した受領見積書の ID で 1 件記録される
+      // （画面がどの受領見積書を更新したかは要求のパスから読む）
+      const updatedPath = new URL(response.request().url()).pathname;
+      const updatedMatch = updatedPath.match(/^\/api\/quotations\/([0-9a-f-]{36})$/);
+      expect(updatedMatch, `更新の要求のパス: ${updatedPath}`).not.toBeNull();
+      const updatedQuotationId = String(updatedMatch?.[1]);
+      expect((await response.json()).id).toBe(updatedQuotationId);
+      await expectReceivedQuotationAuditLogRecorded(
+        updatedQuotationId,
+        'RECEIVED_QUOTATION_UPDATED'
+      );
     });
 
     /**
@@ -743,6 +801,10 @@ test.describe('受領見積書・ステータス管理機能', () => {
     /**
      * @requirement estimate-request/REQ-11.30
      * 受領見積書を削除しようとしたとき、削除確認ダイアログを表示する
+     *
+     * @requirement estimate-request/REQ-14.7
+     * 画面で登録・削除した受領見積書の RECEIVED_QUOTATION_CREATED と RECEIVED_QUOTATION_DELETED の
+     * 監査ログが 1 件ずつ記録される（タスク111.1）
      *
      * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
      * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
@@ -777,10 +839,15 @@ test.describe('受領見積書・ステータス管理機能', () => {
       );
 
       await page.getByRole('button', { name: /^登録$/i }).click();
-      await createPromise;
+      const createResponse = await createPromise;
+      expect(createResponse.status()).toBe(201);
+      const deleteTargetId = String((await createResponse.json()).id);
 
       // 登録を確認
       await expect(page.getByText(deleteTestName)).toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-14.7: 確定した登録の監査ログが 1 件記録される
+      await expectReceivedQuotationAuditLogRecorded(deleteTargetId, 'RECEIVED_QUOTATION_CREATED');
 
       // 削除ボタンをクリック
       const deleteButtons = page.getByRole('button', { name: /削除/i });
@@ -799,11 +866,32 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
       await page.getByRole('button', { name: /削除する/i }).click();
       const response = await deletePromise;
-      // 削除APIは204（No Content）または200を返す
-      expect([200, 204]).toContain(response.status());
+      // 削除APIは204（No Content）を返す（経路と後始末の補助 deleteReceivedQuotationViaApi も 204 に固定）
+      expect(response.status()).toBe(204);
+
+      // 楽観的排他制御の基準時刻はクエリで送り、本文を付けない（DELETE の本文は中継で落ちうる。
+      // 2026-10-31 の是正。基準時刻が届かず受領見積書を削除できなくなる経路を塞ぐ）
+      const deleteRequest = response.request();
+      expect(new URL(deleteRequest.url()).pathname).toMatch(/^\/api\/quotations\/[0-9a-f-]{36}$/);
+      expect(new URL(deleteRequest.url()).searchParams.get('updatedAt')).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+      );
+      expect(deleteRequest.postData()).toBeNull();
 
       // ダイアログが閉じるのを待機
       await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: getTimeout(10000) });
+
+      // REQ-14.7: 確定した削除の監査ログが、取り除いた受領見積書の ID で 1 件記録される
+      // （画面がどの受領見積書を取り除いたかは削除の要求のパスから読む）
+      const deletedPathMatch = new URL(deleteRequest.url()).pathname.match(
+        /^\/api\/quotations\/([0-9a-f-]{36})$/
+      );
+      expect(deletedPathMatch).not.toBeNull();
+      const deletedQuotationId = String(deletedPathMatch?.[1]);
+      await expectReceivedQuotationAuditLogRecorded(
+        deletedQuotationId,
+        'RECEIVED_QUOTATION_DELETED'
+      );
     });
   });
 
@@ -1158,9 +1246,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await expect(statusBadge).toHaveText(/見積受領済/i, { timeout: getTimeout(10000) });
 
       // クリーンアップ
-      await request.delete(`${baseUrl}/api/estimate-requests/${testEstimateRequestId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await deleteEstimateRequestViaApi(request, accessToken, testEstimateRequestId);
     });
 
     /**
@@ -1205,9 +1291,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
       await expect(statusBadge).toHaveText(/依頼前/i, { timeout: getTimeout(10000) });
 
       // クリーンアップ
-      await request.delete(`${baseUrl}/api/estimate-requests/${newEstimateRequest.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await deleteEstimateRequestViaApi(request, accessToken, newEstimateRequest.id);
     });
 
     /**
@@ -1262,9 +1346,7 @@ test.describe('受領見積書・ステータス管理機能', () => {
       expect(responseData.updatedAt).toBeTruthy();
 
       // クリーンアップ
-      await request.delete(`${baseUrl}/api/estimate-requests/${testEstimateRequestId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await deleteEstimateRequestViaApi(request, accessToken, testEstimateRequestId);
     });
   });
 
@@ -1917,42 +1999,22 @@ test.describe('受領見積書・ステータス管理機能', () => {
   // クリーンアップ
   // ============================================================================
 
-  test.describe('クリーンアップ', () => {
-    test('テストデータの削除', async ({ request }) => {
-      // テストデータの削除（見積依頼、内訳書、プロジェクト等）
-      const baseUrl = API_BASE_URL;
-
-      if (createdEstimateRequestId && accessToken) {
-        await request.delete(`${baseUrl}/api/estimate-requests/${createdEstimateRequestId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      if (createdItemizedStatementId && accessToken) {
-        await request.delete(`${baseUrl}/api/itemized-statements/${createdItemizedStatementId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      if (createdProjectId && accessToken) {
-        await request.delete(`${baseUrl}/api/projects/${createdProjectId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      if (createdTradingPartnerId && accessToken) {
-        await request.delete(`${baseUrl}/api/trading-partners/${createdTradingPartnerId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
-
-      // 末尾に置かれていた `expect(true).toBe(true)` を削除した。あれは何も確かめておらず、
-      // 「検証がある」と偽って数えられるだけの恒真だった。
-      // 本ブロックは検証ではなく後始末であり、主張は置かない。
-      // なお実測では、この後始末の削除はいずれも成立していない
-      // （見積依頼の削除は本体に updatedAt を要し、プロジェクトの削除も 2xx を返さない）。
-      // 後始末が効いていないこと自体は別タスクとして起票する。削除そのものの検証は
-      // 当該要件のテスト（見積依頼・プロジェクトの削除）が担う。
+  /**
+   * 作成したデータを片付ける。serial の最後の test ではなく afterAll に置き、途中の検証が
+   * 落ちても後始末が走るようにする（2026-11-01 の是正。前例 claude-vision-e2e）。
+   * 共通の補助 `cleanupEstimateRequestFixtures` が管理者で、受領見積書（見積依頼の配下を一覧で
+   * 拾う）→ 見積依頼 → 内訳書 → 数量表 → プロジェクト → 取引先 の順に消し、いずれも 204 以外は
+   * 例外にする。是正まで、後始末は一般ユーザーで走り（project:delete が無くプロジェクトの削除は
+   * 403）、内訳書は基準時刻を送らずに 400 を受け、受領見積書と数量表は消しておらず、
+   * 見積依頼以外の削除は状態コードを見ていなかった。後始末は検証ではないため主張は置かない。
+   */
+  test.afterAll(async () => {
+    await cleanupEstimateRequestFixtures({
+      estimateRequestId: createdEstimateRequestId,
+      itemizedStatementId: createdItemizedStatementId,
+      quantityTableId: createdQuantityTableId,
+      projectId: createdProjectId,
+      tradingPartnerId: createdTradingPartnerId,
     });
   });
 });

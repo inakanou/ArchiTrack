@@ -25,6 +25,11 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireProjectParamScope,
+  requireSurveyProjectScope,
+} from '../middleware/site-survey-project-scope.middleware.js';
+import { NotFoundError } from '../errors/apiError.js';
 import logger from '../utils/logger.js';
 import {
   createSiteSurveySchema,
@@ -127,6 +132,7 @@ router.post(
   authenticate,
   requirePermission('site_survey:create'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createSiteSurveyBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -229,6 +235,7 @@ router.get(
   authenticate,
   requirePermission('site_survey:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(latestSurveysQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -344,6 +351,7 @@ router.get(
   authenticate,
   requirePermission('site_survey:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(siteSurveyListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -489,6 +497,7 @@ router.get(
   authenticate,
   requirePermission('site_survey:read'),
   validate(siteSurveyIdParamSchema, 'params'),
+  requireSurveyProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -598,6 +607,7 @@ router.put(
   authenticate,
   requirePermission('site_survey:update'),
   validate(siteSurveyIdParamSchema, 'params'),
+  requireSurveyProjectScope('id'),
   validate(updateSiteSurveyRequestSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -683,6 +693,7 @@ router.delete(
   authenticate,
   requirePermission('site_survey:delete'),
   validate(siteSurveyIdParamSchema, 'params'),
+  requireSurveyProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -827,13 +838,14 @@ const projectSurveyImagesQuerySchema = z.object({
  *       403:
  *         description: 権限不足
  *       404:
- *         description: プロジェクトが見つからない
+ *         description: プロジェクトが見つからない、または閲覧範囲外（区別しない汎用の NOT_FOUND）
  */
 projectSurveyImagesRouter.get(
   '/',
   authenticate,
   requirePermission('site_survey:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(projectSurveyImagesQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const { projectId } = req.validatedParams as { projectId: string };
@@ -854,27 +866,10 @@ projectSurveyImagesRouter.get(
       res.json(result);
     } catch (error) {
       if (error instanceof ProjectSurveyImagesAccessDeniedError) {
-        // 拒否の理由を切り分ける。`validateProjectAccess` は「不在・論理削除」でも
-        // 「権限なし」でも false を返すため、サービスの拒否だけでは 404 と 403 を
-        // 区別できない。存在確認は**この拒否の経路でのみ**行う。正常な経路へ足すと、
-        // プロジェクト単位の問い合わせ回数が1回増える。
-        const project = await prisma.project.findUnique({
-          where: { id: projectId },
-          select: { id: true, deletedAt: true },
-        });
-
-        if (!project || project.deletedAt !== null) {
-          res.status(404).json({
-            type: 'https://architrack.example.com/problems/project-not-found',
-            title: 'Project Not Found',
-            status: 404,
-            detail: `Project not found: ${projectId}`,
-            code: 'PROJECT_NOT_FOUND',
-            projectId,
-          });
-          return;
-        }
-        // プロジェクトは存在する。すなわち権限不足であり、既定の403へ委ねる。
+        // 判定部品（requireProjectScope）の通過の後に範囲から外れた場合（担当の変更との競合）。
+        // 不在と区別しない汎用の 404 にし、本文に案件 ID を含めない（Requirement 39.2, 39.3）
+        next(new NotFoundError());
+        return;
       }
       next(error);
     }

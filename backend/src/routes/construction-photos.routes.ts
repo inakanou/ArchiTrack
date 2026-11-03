@@ -5,6 +5,10 @@
  * flat `/api/construction-photos`）で提供する。既存の現場調査ルート
  * （site-surveys.routes.ts）の実装パターンを踏襲する。
  *
+ * 案件の閲覧範囲（construction-photo の Requirement 21、user-authentication の要件39。タスク30.2）:
+ * requirePermission の後に範囲の判定部品（construction-photo-project-scope.middleware）を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。一覧の代表サムネイルの署名付きURLは範囲内の要求でだけ発行する。
+ *
  * Requirements:
  * - 1.1: プロジェクトに紐付く新規アルバムレコードを作成する
  * - 1.2: アルバムの基本情報を取得する
@@ -31,6 +35,10 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireAlbumProjectScope,
+  requireProjectParamScope,
+} from '../middleware/construction-photo-project-scope.middleware.js';
 import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 import logger from '../utils/logger.js';
 import {
@@ -97,6 +105,7 @@ router.post(
   authenticate,
   requirePermission('construction_photo:create'),
   validate(constructionPhotoProjectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createConstructionPhotoAlbumSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -176,6 +185,7 @@ router.get(
   authenticate,
   requirePermission('construction_photo:read'),
   validate(constructionPhotoProjectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(constructionPhotoAlbumListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -264,6 +274,7 @@ router.get(
   authenticate,
   requirePermission('construction_photo:read'),
   validate(constructionPhotoIdParamSchema, 'params'),
+  requireAlbumProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -336,6 +347,7 @@ router.patch(
   authenticate,
   requirePermission('construction_photo:update'),
   validate(constructionPhotoIdParamSchema, 'params'),
+  requireAlbumProjectScope('id'),
   validate(updateConstructionPhotoAlbumSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -392,6 +404,7 @@ router.delete(
   authenticate,
   requirePermission('construction_photo:delete'),
   validate(constructionPhotoIdParamSchema, 'params'),
+  requireAlbumProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };

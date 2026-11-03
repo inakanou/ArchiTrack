@@ -33,6 +33,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const PERMITTED_EMAIL = 'test-quantity-table-save-permitted@example.com';
 const NO_PERMISSION_EMAIL = 'test-quantity-table-save-no-permission@example.com';
@@ -67,12 +69,10 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
   const setupPermittedUser = async (): Promise<{ token: string; userId: string }> => {
     const passwordHash = await hashPassword();
 
-    const user = await prisma.user.create({
-      data: {
-        email: PERMITTED_EMAIL,
-        displayName: 'Quantity Table Save Permitted User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: PERMITTED_EMAIL,
+      displayName: 'Quantity Table Save Permitted User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -112,11 +112,12 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
       });
     }
 
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: PERMITTED_EMAIL, password: PASSWORD });
+    const accessToken = await loginForAccessToken(app, {
+      email: PERMITTED_EMAIL,
+      password: PASSWORD,
+    });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   /**
@@ -125,19 +126,18 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
   const setupNoPermissionUser = async (): Promise<string> => {
     const passwordHash = await hashPassword();
 
-    await prisma.user.create({
-      data: {
-        email: NO_PERMISSION_EMAIL,
-        displayName: 'Quantity Table Save No Permission User',
-        passwordHash,
-      },
+    await createTestUser(prisma, {
+      email: NO_PERMISSION_EMAIL,
+      displayName: 'Quantity Table Save No Permission User',
+      passwordHash,
     });
 
-    const loginResponse = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: NO_PERMISSION_EMAIL, password: PASSWORD });
+    const accessToken = await loginForAccessToken(app, {
+      email: NO_PERMISSION_EMAIL,
+      password: PASSWORD,
+    });
 
-    return loginResponse.body.accessToken;
+    return accessToken;
   };
 
   /**
@@ -338,7 +338,7 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
       expect(groups).toHaveLength(2);
     });
 
-    it('存在しない数量表では 404（QUANTITY_TABLE_NOT_FOUND）が返る', async () => {
+    it('存在しない数量表では 404（範囲外と同じ汎用の NOT_FOUND）が返る', async () => {
       const response = await request(app)
         .put(`/api/quantity-tables/${NON_EXISTENT_UUID}/save`)
         .set('Authorization', `Bearer ${accessToken}`)
@@ -348,8 +348,9 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
           groups: [],
         });
 
+      // 不在と範囲外は同じ汎用の 404（quantity-table-generation タスク104.1、Requirement 50.3）
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
 
     it('論理削除済みの数量表では 404（QUANTITY_TABLE_NOT_FOUND）が返る', async () => {
@@ -370,11 +371,13 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
     });
 
     it(
-      '他プロジェクトの数量表でも、quantity_table:update を持つユーザーは保存できる' +
-        '（本エンドポイントは RBAC のみでプロジェクト単位スコープ制御を行わない: design L2127）。' +
-        'プロジェクト境界の保護は権限欠如（403）で担保される',
+      '他プロジェクトの数量表は、案件の閲覧範囲内（担当者・作成者）なら quantity_table:update を持つユーザーが保存でき、' +
+        '範囲外なら不在と同じ 404 で保存されない。権限なしユーザーは範囲の判定より先に 403 になる' +
+        '（quantity-table-generation タスク104.1 で、ロールの権限の表だけの判定〔design.md の Security Considerations の' +
+        '「プロジェクトへのアクセス権限チェック（既存のRBAC使用）」〕を' +
+        'Requirement 50 の判定へ置き換えた）',
       async () => {
-        // 別プロジェクトの数量表に対して、権限ありユーザーで保存
+        // 別プロジェクト（同じ利用者が営業担当者・作成者の範囲内の案件）の数量表に対して、権限ありユーザーで保存
         const { tableId } = await createSeededTable(otherProjectId, '他プロジェクト保存テスト');
         const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
 
@@ -387,9 +390,48 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
             groups: [],
           });
 
-        // RBAC のみのため 200（プロジェクトに依らず権限で許可される）
+        // 閲覧範囲内のため 200（Requirement 50.1）
         expect(okResponse.status).toBe(200);
         expect(okResponse.body.name).toBe('他プロジェクト保存後');
+
+        // 閲覧範囲外（担当者・作成者が別の利用者で、全案件閲覧の権限も無い）の案件の数量表は、
+        // 権限があっても不在と同じ 404 になり、保存されない（Requirement 50.2）
+        const stranger = await prisma.user.findUniqueOrThrow({
+          where: { email: NO_PERMISSION_EMAIL },
+          select: { id: true },
+        });
+        const outOfScopeProject = await prisma.project.create({
+          data: {
+            name: '保存テスト_範囲外プロジェクト',
+            status: 'PREPARING',
+            salesPersonId: stranger.id,
+            createdById: stranger.id,
+          },
+        });
+        try {
+          const { tableId: outOfScopeTableId } = await createSeededTable(
+            outOfScopeProject.id,
+            '範囲外保存テスト'
+          );
+          const denied = await request(app)
+            .put(`/api/quantity-tables/${outOfScopeTableId}/save`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({
+              expectedUpdatedAt: await getExpectedUpdatedAt(outOfScopeTableId),
+              name: '範囲外保存後',
+              groups: [],
+            });
+          expect(denied.status).toBe(404);
+          expect(denied.body).toHaveProperty('code', 'NOT_FOUND');
+          const unchanged = await prisma.quantityTable.findUniqueOrThrow({
+            where: { id: outOfScopeTableId },
+            select: { name: true, _count: { select: { groups: true } } },
+          });
+          expect(unchanged.name).toBe('範囲外保存テスト');
+          expect(unchanged._count.groups).toBe(2);
+        } finally {
+          await prisma.project.delete({ where: { id: outOfScopeProject.id } });
+        }
 
         // 一方、権限なしユーザーは他プロジェクトの数量表に対しても 403（境界保護）
         const { tableId: tableId2 } = await createSeededTable(
@@ -1639,5 +1681,311 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
         .send(appendGroupPayload(seeded, baseExpected, '解放後'));
       expect(afterRelease.status).toBe(200);
     }, 60_000);
+  });
+
+  /**
+   * 保存の本文の配列の件数の上限（quantity-table-generation タスク108.1）
+   *
+   * 上限（数量グループ 1000・一つの数量グループの数量項目 2000・数量項目の総数 5000）を
+   * 1 件超えた本文は本文の検証の 400 になり、数量表・数量グループ・数量項目のどれも変わらない。
+   * 上限ちょうどの本文は従来どおり保存される。
+   *
+   * @requirement quantity-table-generation/REQ-42.11
+   */
+  describe('保存の本文の配列の件数の上限', () => {
+    /** 数量表と配下の数量グループ・数量項目の状態の写し（変化の検出用） */
+    const snapshotTable = async (tableId: string) => {
+      const table = await prisma.quantityTable.findUniqueOrThrow({
+        where: { id: tableId },
+        select: { name: true, updatedAt: true, deletedAt: true },
+      });
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: tableId },
+        orderBy: { displayOrder: 'asc' },
+        include: { items: { orderBy: { displayOrder: 'asc' } } },
+      });
+      return { table, groups };
+    };
+
+    /** 各数量グループの数量項目の数を指定して、全件新規の保存の本文を作る */
+    const buildBody = (
+      expectedUpdatedAt: string,
+      itemCounts: number[],
+      name = '上限超えの保存'
+    ): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      name,
+      groups: itemCounts.map((count, groupIndex) => ({
+        id: null,
+        name: `上限グループ${groupIndex}`,
+        surveyImageId: null,
+        displayOrder: groupIndex,
+        items: Array.from({ length: count }, (_, itemIndex) =>
+          itemPayload({ name: `上限項目${groupIndex}-${itemIndex}`, displayOrder: itemIndex })
+        ),
+      })),
+    });
+
+    const overLimitCases: Array<{
+      label: string;
+      itemCounts: number[];
+      message: string;
+      path: string;
+    }> = [
+      {
+        label: '数量グループの数が上限を1件超える（1001件）',
+        itemCounts: Array.from({ length: 1001 }, () => 0),
+        message: '数量グループは1000件以内で保存してください',
+        path: 'groups',
+      },
+      {
+        label: '一つの数量グループの数量項目の数が上限を1件超える（2001件）',
+        itemCounts: [0, 2001],
+        message: '一つの数量グループの数量項目は2000件以内で保存してください',
+        path: 'groups.1.items',
+      },
+      {
+        label: '数量項目の総数が上限を1件超える（5001件。各数量グループは上限の内側）',
+        itemCounts: [2000, 2000, 1001],
+        message: '数量項目は合計5000件以内で保存してください',
+        path: 'groups',
+      },
+    ];
+
+    it.each(overLimitCases)(
+      '$label 本文は 400 で拒まれ、データベースは変わらない',
+      async ({ itemCounts, message, path }) => {
+        const { tableId } = await createSeededTable(testProjectId, '上限超えの前の名前');
+        const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+        const before = await snapshotTable(tableId);
+        // 写しが空でないこと（既存の 2 グループ・3 項目がある）
+        expect(before.groups).toHaveLength(2);
+
+        const response = await request(app)
+          .put(`/api/quantity-tables/${tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(buildBody(expectedUpdatedAt, itemCounts));
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(response.body.message).toBe(message);
+        expect(response.body.details).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path, message })])
+        );
+
+        // 通っていれば名前が変わり既存の 2 グループが消えて新規が入る。どれも起きていない
+        const after = await snapshotTable(tableId);
+        expect(after).toEqual(before);
+      },
+      60_000
+    );
+
+    it('数量グループ・数量項目とも上限ちょうど（1000グループ・一つのグループに2000項目・総数5000項目）の本文は保存される', async () => {
+      const { tableId } = await createSeededTable(testProjectId, '上限ちょうどの前の名前');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+      const itemCounts = Array.from({ length: 1000 }, (_, index) =>
+        index === 0 ? 2000 : index === 1 ? 2000 : index === 2 ? 1000 : 0
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(buildBody(expectedUpdatedAt, itemCounts, '上限ちょうどの保存'));
+
+      expect(response.status).toBe(200);
+      const table = await prisma.quantityTable.findUniqueOrThrow({ where: { id: tableId } });
+      expect(table.name).toBe('上限ちょうどの保存');
+      expect(await prisma.quantityGroup.count({ where: { quantityTableId: tableId } })).toBe(1000);
+      expect(
+        await prisma.quantityItem.count({ where: { quantityGroup: { quantityTableId: tableId } } })
+      ).toBe(5000);
+      const firstGroup = await prisma.quantityGroup.findFirstOrThrow({
+        where: { quantityTableId: tableId, displayOrder: 0 },
+      });
+      expect(await prisma.quantityItem.count({ where: { quantityGroupId: firstGroup.id } })).toBe(
+        2000
+      );
+    }, 120_000);
+  });
+
+  /**
+   * 保存の本文の仮 ID・計算用パラメータのキー・備考の上限（quantity-table-generation タスク110.1）
+   *
+   * `tempId`（1〜100 文字）、`calculationParams` のキーの数（10）と各キーの長さ（50 文字）、
+   * `remarks`（50 文字）を超えた本文は本文の検証の 400 になり、数量表・数量グループ・数量項目の
+   * どれも変わらない。上限ちょうどの本文は従来どおり保存され、50 文字以内で幅の上限を超える
+   * 備考は従来どおりサービスの幅の検証の 400 になる。
+   *
+   * @requirement quantity-table-generation/REQ-42.13
+   */
+  describe('保存の本文の仮ID・計算用パラメータのキー・備考の上限', () => {
+    /** 数量表と配下の数量グループ・数量項目の状態の写し（変化の検出用） */
+    const snapshotTable = async (tableId: string) => {
+      const table = await prisma.quantityTable.findUniqueOrThrow({
+        where: { id: tableId },
+        select: { name: true, updatedAt: true, deletedAt: true },
+      });
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: tableId },
+        orderBy: { displayOrder: 'asc' },
+        include: { items: { orderBy: { displayOrder: 'asc' } } },
+      });
+      return { table, groups };
+    };
+
+    /** 全件新規の 1 グループ・1 項目の保存の本文を作り、グループと項目を差し替える */
+    const buildBody = (
+      expectedUpdatedAt: string,
+      options: { group?: Record<string, unknown>; item?: Record<string, unknown> },
+      name = '上限超えの保存'
+    ): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      name,
+      groups: [
+        {
+          id: null,
+          tempId: 'temp-group-0',
+          name: '上限グループ',
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [itemPayload({ tempId: 'temp-item-0', name: '上限項目', ...options.item })],
+          ...options.group,
+        },
+      ],
+    });
+
+    const areaVolumeParams = (extraKeys: string[]) => ({
+      width: 2,
+      depth: 3,
+      height: 1,
+      ...Object.fromEntries(extraKeys.map((key) => [key, 1])),
+    });
+
+    const overLimitCases: Array<{
+      label: string;
+      options: { group?: Record<string, unknown>; item?: Record<string, unknown> };
+      message: string;
+      path: string;
+    }> = [
+      {
+        label: '数量グループの仮IDが101文字',
+        options: { group: { tempId: 'g'.repeat(101) } },
+        message: '仮IDは1文字以上100文字以内で指定してください',
+        path: 'groups.0.tempId',
+      },
+      {
+        label: '数量項目の仮IDが空',
+        options: { item: { tempId: '' } },
+        message: '仮IDは1文字以上100文字以内で指定してください',
+        path: 'groups.0.items.0.tempId',
+      },
+      {
+        label: '計算用パラメータのキーが11個',
+        options: {
+          item: {
+            calculationMethod: 'AREA_VOLUME',
+            calculationParams: areaVolumeParams(['k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7', 'k8']),
+          },
+        },
+        message: '計算用パラメータは10項目以内で指定してください',
+        path: 'groups.0.items.0.calculationParams',
+      },
+      {
+        label: '計算用パラメータに51文字のキー',
+        options: {
+          item: {
+            calculationMethod: 'AREA_VOLUME',
+            calculationParams: areaVolumeParams(['k'.repeat(51)]),
+          },
+        },
+        message: '計算用パラメータの名前は50文字以内で指定してください',
+        path: 'groups.0.items.0.calculationParams',
+      },
+      {
+        label: '備考が51文字',
+        options: { item: { remarks: 'r'.repeat(51) } },
+        message: '備考は全角25文字/半角50文字以内で入力してください',
+        path: 'groups.0.items.0.remarks',
+      },
+    ];
+
+    it.each(overLimitCases)(
+      '$label の本文は 400 で拒まれ、データベースは変わらない',
+      async ({ options, message, path }) => {
+        const { tableId } = await createSeededTable(testProjectId, '上限超えの前の名前');
+        const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+        const before = await snapshotTable(tableId);
+        // 写しが空でないこと（既存の 2 グループ・3 項目がある）
+        expect(before.groups).toHaveLength(2);
+
+        const response = await request(app)
+          .put(`/api/quantity-tables/${tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(buildBody(expectedUpdatedAt, options));
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(response.body.message).toBe(message);
+        expect(response.body.details).toEqual([expect.objectContaining({ path, message })]);
+
+        // 通っていれば名前が変わり既存の 2 グループが消えて新規が入る。どれも起きていない
+        const after = await snapshotTable(tableId);
+        expect(after).toEqual(before);
+      }
+    );
+
+    it('上限ちょうど（仮ID100文字・キー10個と50文字のキー・備考50文字）の本文は保存される', async () => {
+      const { tableId } = await createSeededTable(testProjectId, '上限ちょうどの前の名前');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+      const params = areaVolumeParams(['k'.repeat(50), 'k2', 'k3', 'k4', 'k5', 'k6', 'k7']);
+      expect(Object.keys(params)).toHaveLength(10);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(
+          buildBody(
+            expectedUpdatedAt,
+            {
+              group: { tempId: 'g'.repeat(100) },
+              item: {
+                tempId: 'i'.repeat(100),
+                calculationMethod: 'AREA_VOLUME',
+                calculationParams: params,
+                remarks: 'r'.repeat(50),
+              },
+            },
+            '上限ちょうどの保存'
+          )
+        );
+
+      expect(response.status).toBe(200);
+      const after = await snapshotTable(tableId);
+      expect(after.table.name).toBe('上限ちょうどの保存');
+      expect(after.groups).toHaveLength(1);
+      expect(after.groups[0]!.items).toHaveLength(1);
+      expect(after.groups[0]!.items[0]!.remarks).toBe('r'.repeat(50));
+      // 使わないキーは従来どおり捨てて永続化する（withCalculationParams の条件は変えない）
+      expect(after.groups[0]!.items[0]!.calculationParams).toEqual({
+        width: 2,
+        depth: 3,
+        height: 1,
+      });
+    });
+
+    it('50文字以内で幅の上限を超える備考（全角26文字）は、従来どおりサービスの幅の検証の 400 になり、データベースは変わらない', async () => {
+      const { tableId } = await createSeededTable(testProjectId, '幅の検証の前の名前');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(tableId);
+      const before = await snapshotTable(tableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(buildBody(expectedUpdatedAt, { item: { remarks: 'あ'.repeat(26) } }));
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe('QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(await snapshotTable(tableId)).toEqual(before);
+    });
   });
 });

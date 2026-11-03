@@ -64,6 +64,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { getFabricObjectCount } from '../../helpers/fabric-canvas';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -559,7 +560,7 @@ test.describe('白縁取り切替UI', () => {
     // --- 画像を API で直接アップロード（8 ツールを描き分ける広さを確保する） ---
     const testImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
     expect(fs.existsSync(testImagePath)).toBeTruthy();
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
     const imageBuffer = fs.readFileSync(testImagePath);
 
     async function uploadImage(): Promise<string | null> {
@@ -595,7 +596,7 @@ test.describe('白縁取り切替UI', () => {
     const cleanupPage = await cleanupContext.newPage();
     try {
       await loginAsUser(cleanupPage, 'ADMIN_USER');
-      const adminToken = await cleanupPage.evaluate(() => localStorage.getItem('accessToken'));
+      const adminToken = await getAccessToken(cleanupPage, 'ADMIN_USER');
       const headers = { Authorization: `Bearer ${adminToken}` };
       if (createdSurveyId) {
         await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {

@@ -30,6 +30,7 @@ vi.mock('../api/projects', () => ({
 
 import { getEstimateRequests } from '../api/estimate-requests';
 import { getProject } from '../api/projects';
+import { ApiError } from '../api/client';
 
 // モックデータ
 const mockEstimateRequests: PaginatedEstimateRequests = {
@@ -225,8 +226,9 @@ describe('EstimateRequestListPage', () => {
     });
   });
 
+  // 404 以外の失敗（Task 105.1 の後も取得の失敗の文言と再試行の釦を保つ）
   describe('エラー状態', () => {
-    it('エラー時はエラーメッセージを表示する', async () => {
+    it('エラー時（404 以外の失敗）はエラーメッセージを表示する', async () => {
       vi.mocked(getEstimateRequests).mockRejectedValue(new Error('Network error'));
 
       renderWithRouter();
@@ -236,7 +238,7 @@ describe('EstimateRequestListPage', () => {
       });
     });
 
-    it('エラー時は再試行ボタンを表示する', async () => {
+    it('エラー時（404 以外の失敗）は再試行ボタンを表示する', async () => {
       vi.mocked(getEstimateRequests).mockRejectedValue(new Error('Network error'));
 
       renderWithRouter();
@@ -244,6 +246,45 @@ describe('EstimateRequestListPage', () => {
       await waitFor(() => {
         expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument();
       });
+    });
+  });
+
+  /**
+   * Task 105.1: 一覧の取得・プロジェクトの取得が 404 を受けたときの不在の表示（REQ-10.5）
+   */
+  describe('プロジェクトが見つからない表示 (Task 105.1, REQ-10.5)', () => {
+    const notFound = () =>
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND', detail: 'Not found' });
+
+    const expectProjectNotFound = async () => {
+      expect(
+        await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      expect(screen.queryByText('見積依頼の取得に失敗しました')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+    };
+
+    it('一覧の取得が 404 を受けると、プロジェクトが見つからない旨と一覧へのリンクを表示する', async () => {
+      vi.mocked(getEstimateRequests).mockRejectedValue(notFound());
+      vi.mocked(getProject).mockRejectedValue(notFound());
+
+      renderWithRouter();
+
+      await expectProjectNotFound();
+    });
+
+    it('プロジェクトの取得だけが 404 を受けても、プロジェクトが見つからない旨を表示する', async () => {
+      vi.mocked(getEstimateRequests).mockResolvedValue(mockEstimateRequests);
+      vi.mocked(getProject).mockRejectedValue(notFound());
+
+      renderWithRouter();
+
+      await expectProjectNotFound();
+      expect(screen.queryByText('見積依頼#1')).not.toBeInTheDocument();
     });
   });
 

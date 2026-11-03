@@ -8,6 +8,12 @@
  * - 2.3: プロジェクトに紐づく全ての数量表を作成日時順に一覧表示する
  * - 2.4: 数量表を選択して削除操作を行う
  * - 2.5: 一覧画面で数量表名を編集し、変更を即座に保存する
+ *
+ * Task 106.1 変更: 数量表の一覧またはプロジェクトの読み込みが 404 を受けたときに、プロジェクトが見つからない
+ *   旨とプロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示し、取得の失敗の文言と再試行の釦を
+ *   出さない。削除が 404 を受けたときは一覧を保ったまま数量表が見つからない旨のメッセージを表示し、再試行の
+ *   釦を出さない。名称の変更の 404 は名称の欄に数量表が見つからない旨を表示する（quantity-table-generation の
+ *   Requirement 51.1・51.2。範囲外と不在を区別しない）
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -20,7 +26,11 @@ import {
 import { ApiError } from '../api/client';
 import { getProject } from '../api/projects';
 import type { QuantityTableInfo, PaginatedQuantityTables } from '../types/quantity-table.types';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getQuantityTableNotFoundMessage,
+  isQuantityTableNotFoundError,
+} from '../utils/quantityTableNotFound';
 import CopyQuantityTableDialog from '../components/quantity-table/CopyQuantityTableDialog';
 
 /** 数量表名の最大文字数（backend の updateQuantityTableSchema と同じ上限） */
@@ -196,6 +206,16 @@ const styles = {
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
     marginBottom: '16px',
+  } as React.CSSProperties,
+  operationError: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    padding: '12px 16px',
+    marginBottom: '16px',
+    color: '#991b1b',
+    fontSize: '14px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   errorContainer: {
     backgroundColor: '#fef2f2',
@@ -519,10 +539,12 @@ function TableCard({
       await onRename(table, trimmed);
       finishNameEditing();
     } catch (error) {
+      // 404 は数量表が見つからない旨（Task 106.1）。範囲外と不在を区別しない
       setNameError(
         error instanceof ApiError && error.statusCode === 409
           ? '他のユーザーによって更新されました。ページを再読み込みして最新データを確認してください。'
-          : '数量表名の保存に失敗しました'
+          : (getQuantityTableNotFoundMessage(error, 'quantityTable') ??
+              '数量表名の保存に失敗しました')
       );
     } finally {
       isSavingNameRef.current = false;
@@ -678,6 +700,11 @@ export default function QuantityTableListPage() {
   const [error, setError] = useState<string | null>(null);
   const [tableToDelete, setTableToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // 数量表の一覧またはプロジェクトの読み込みが 404 を受けた（プロジェクトの不在。範囲外と不在を区別しない。
+  // Task 106.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
+  // 削除が 404 を受けたときの見つからない旨のメッセージ（一覧は保つ。Task 106.1）
+  const [deleteNotFoundMessage, setDeleteNotFoundMessage] = useState<string | null>(null);
 
   // プロジェクト名（パンくず表示用）
   const [projectName, setProjectName] = useState<string>('');
@@ -693,6 +720,8 @@ export default function QuantityTableListPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsProjectNotFound(false);
+    setDeleteNotFoundMessage(null);
 
     try {
       const [result, projectData] = await Promise.all([
@@ -706,7 +735,12 @@ export default function QuantityTableListPage() {
       if (projectData?.name) {
         setProjectName(projectData.name);
       }
-    } catch {
+    } catch (err) {
+      if (isQuantityTableNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsProjectNotFound(true);
+        return;
+      }
       setError('数量表の取得に失敗しました');
     } finally {
       setIsLoading(false);
@@ -732,6 +766,7 @@ export default function QuantityTableListPage() {
     if (!tableToDelete) return;
 
     setIsDeleting(true);
+    setDeleteNotFoundMessage(null);
     try {
       await deleteQuantityTable(tableToDelete);
       setData((prev) => {
@@ -746,7 +781,15 @@ export default function QuantityTableListPage() {
         };
       });
       setTableToDelete(null);
-    } catch {
+    } catch (err) {
+      const notFoundMessage = getQuantityTableNotFoundMessage(err, 'quantityTable');
+      if (notFoundMessage) {
+        // 404 では一覧を保ったまま見つからない旨を表示する。取り直すと、案件が範囲外になった・
+        // 論理削除された場合に一覧全体がプロジェクトの不在の表示へ替わり、メッセージが見えなくなるため
+        setDeleteNotFoundMessage(notFoundMessage);
+        setTableToDelete(null);
+        return;
+      }
       setError('削除に失敗しました');
     } finally {
       setIsDeleting(false);
@@ -823,6 +866,19 @@ export default function QuantityTableListPage() {
     );
   }
 
+  // プロジェクトが見つからない表示（Task 106.1）。再試行で解けないため再試行の釦を出さない
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
+      </main>
+    );
+  }
+
   // エラー表示
   if (error) {
     return (
@@ -874,6 +930,17 @@ export default function QuantityTableListPage() {
           </Link>
         )}
       </div>
+
+      {/* 削除の 404 の見つからない旨（Task 106.1） */}
+      {deleteNotFoundMessage && (
+        <div
+          role="alert"
+          style={styles.operationError}
+          data-testid="quantity-table-list-operation-error"
+        >
+          {deleteNotFoundMessage}
+        </div>
+      )}
 
       {/* 一覧 */}
       {totalCount === 0 ? (

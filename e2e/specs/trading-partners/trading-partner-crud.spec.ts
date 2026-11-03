@@ -19,9 +19,11 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken, type AuthUserRef } from '../../helpers/auth-api';
 
 /**
  * 取引先CRUD機能のE2Eテスト
@@ -46,6 +48,10 @@ test.describe('取引先CRUD操作', () => {
     await page.evaluate(() => {
       localStorage.clear();
     });
+  });
+
+  test.afterEach(async () => {
+    await deleteSessionUsers();
   });
 
   /**
@@ -587,7 +593,7 @@ test.describe('取引先CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const stamp = Date.now();
-      const api = await relatedProjectsApi(page);
+      const api = await relatedProjectsApi(page, 'REGULAR_USER');
       const linkedPartnerId = await api.createPartner(
         `関連プロジェクト絞り込み_紐付きあり_${stamp}`
       );
@@ -990,7 +996,10 @@ test.describe('取引先CRUD操作', () => {
       page,
       context,
     }) => {
-      await loginAsUser(page, 'REGULAR_USER');
+      // 同じセッションを二つのタブで開くため、共有の役割の利用者ではなく
+      // テストの中で作る利用者のセッションで行う（要件33.6）
+      const sessionUser = await createSessionUser('REGULAR_USER');
+      await loginAsUser(page, sessionUser);
 
       // テスト用取引先を作成
       if (!createdTradingPartnerId) {
@@ -1005,7 +1014,7 @@ test.describe('取引先CRUD操作', () => {
 
       // 2つ目のブラウザコンテキストを作成して同じ取引先を編集
       const page2 = await context.newPage();
-      await loginAsUser(page2, 'REGULAR_USER');
+      await loginAsUser(page2, sessionUser);
       await page2.goto(`/trading-partners/${createdTradingPartnerId}/edit`);
       await page2.waitForLoadState('networkidle');
       await expect(page2.getByLabel('取引先名')).toHaveValue(/.+/, { timeout: getTimeout(10000) });
@@ -1574,8 +1583,8 @@ test.describe('取引先CRUD操作', () => {
  *
  * 取引先と営業担当者つきのプロジェクトを API から作る。作成に失敗した場合は前提の主張で失敗する。
  */
-async function relatedProjectsApi(page: Page) {
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+async function relatedProjectsApi(page: Page, user: AuthUserRef) {
+  const accessToken = await getAccessToken(page, user);
   assertPrepared(accessToken, '認証トークン');
   const headers = { Authorization: `Bearer ${accessToken}` };
 

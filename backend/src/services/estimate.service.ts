@@ -19,18 +19,33 @@
  *
  * Task 2.1: EstimateServiceの実装
  *
+ * 案件の閲覧範囲（Requirement 57.4、タスク62.1）: 見積書の作成の要求が指す内訳書が経路のプロジェクトに
+ * 属さなければ、内訳書の不在と同じ 404 にして見積書を作成しない。内訳書の案件が実在し実行者の閲覧範囲外なら、
+ * user-authentication の要件39.7 に従い PROJECT_SCOPE_DENIED をトランザクションの外で記録する。
+ *
  * @module services/estimate
  */
 
-import type { PrismaClient } from '../generated/prisma/client.js';
+import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import {
   EstimateNotFoundError,
   EstimateConflictError,
   DuplicateEstimateNameError,
   ItemizedStatementNotFoundForEstimateError,
+  EstimateDraftValidationError,
 } from '../errors/estimateError.js';
+import {
+  SAVE_ESTIMATE_MAX_ITEMS,
+  SAVE_ESTIMATE_VALIDATION_MESSAGES,
+} from '../schemas/estimate.schema.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import { ESTIMATE_SAVE_TRANSACTION_OPTIONS } from './estimate-draft.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 
 /**
  * 見積書サービス依存関係
@@ -45,6 +60,12 @@ export interface EstimateServiceDependencies {
    * 「当日」の判定をテストから固定できない。
    */
   now?: () => Date;
+  /**
+   * 案件の閲覧範囲の判定（任意。タスク62.1、Requirement 57.4）。
+   * 作成の要求が指す他のプロジェクトの内訳書の案件が範囲外かを判定し、範囲外の拒否を記録するために用いる。
+   * 未指定の場合は user-authentication の共有のインスタンス（{@link getSharedProjectScopeService}）で判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 }
 
 /**
@@ -206,11 +227,11 @@ export interface PaginatedEstimates {
 
 /**
  * Prismaトランザクションクライアント型
+ *
+ * 監査ログを同じトランザクションで書くため（`IAuditLogService.createLog` の第 2 引数。タスク70.1）、
+ * `$transaction` のコールバックが受ける Prisma の型そのものとする
  */
-type PrismaTransactionClient = Omit<
-  PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
+type PrismaTransactionClient = Prisma.TransactionClient;
 
 /**
  * 見積書サービス
@@ -221,8 +242,14 @@ export class EstimateService {
   private readonly prisma: PrismaClient;
   private readonly auditLogService: IAuditLogService;
   private readonly now: () => Date;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: EstimateServiceDependencies) {
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
     this.now = deps.now ?? ((): Date => new Date());
@@ -234,21 +261,51 @@ export class EstimateService {
    * トランザクション内で以下を実行:
    * 1. プロジェクトの存在確認
    * 2. 内訳書の存在確認（指定された場合）
+   *    続けて、内訳書から作る見積項目の数が一括保存の総数の上限を超えないことを確認（Requirement 3.6）
    * 3. 同名の見積書が存在しないことを確認
    * 4. 見積書の作成
    * 5. 内訳書から見積項目を初期作成（指定された場合）
    * 6. 監査ログの記録
    *
-   * Requirements: REQ-3.1, REQ-3.2, REQ-3.3, REQ-3.4, REQ-3.5
+   * Requirements: REQ-3.1, REQ-3.2, REQ-3.3, REQ-3.4, REQ-3.5, REQ-3.6
    *
    * @param input - 作成入力
    * @param actorId - 実行者ID
    * @returns 作成された見積書情報
    * @throws ProjectNotFoundError プロジェクトが存在しない場合
-   * @throws ItemizedStatementNotFoundForEstimateError 内訳書が存在しない場合
+   * @throws ItemizedStatementNotFoundForEstimateError 内訳書が存在しない・論理削除済み・作成先のプロジェクトに
+   *   属さない場合（Requirement 57.4）。作成先のプロジェクトに属さない内訳書は、論理削除済みかどうかに関わらず
+   *   内訳書の案件を判定し、範囲外のときだけ範囲外の拒否として記録する（Requirement 57.10）
+   * @throws EstimateDraftValidationError 内訳書の項目の数（作る見積項目の数）が一括保存の総数の上限
+   *   （`SAVE_ESTIMATE_MAX_ITEMS`）を超える場合（Requirement 3.6）。一括保存と同じ 422（`path` `items`、
+   *   ITEMS_TOO_MANY）で、内訳書の照合の 404 の後、同名の見積書の確かめの前に投げ、何も書かない
    * @throws DuplicateEstimateNameError 同名の見積書が既に存在する場合
    */
-  async create(input: CreateEstimateInput, actorId: string): Promise<EstimateInfo> {
+  async create(
+    input: CreateEstimateInput,
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<EstimateInfo> {
+    // 内訳書の所属の照合（57.4）で範囲外とした案件は、処理の後（トランザクションの外）で
+    // PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7）
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) => this.createWithin(input, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link create} の本体。内訳書の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async createWithin(
+    input: CreateEstimateInput,
+    actorId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<EstimateInfo> {
+    // 制限時間は一括保存と同じ値（ESTIMATE_SAVE_TRANSACTION_OPTIONS）を参照する（タスク69.3、利用者の判断
+    // 2026-11-01）。上限ちょうど（2000 件）の作成は見積項目 2000 件と明細 6000 件を書き、所要が Prisma の
+    // 既定の 5 秒に近い（実測は design.md の「2026-11-01 の追加」章の「決定」の「作成のトランザクションの
+    // 制限時間」）。超過（P2028）はエラーハンドラーの 500 のままで、巻き戻しにより見積書・見積項目・明細を書かない
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 1. プロジェクトの存在確認
       const project = await tx.project.findUnique({
@@ -264,6 +321,7 @@ export class EstimateService {
       let itemizedStatement: {
         id: string;
         name: string;
+        projectId: string;
         items: Array<{
           id: string;
           customCategory: string | null;
@@ -282,6 +340,7 @@ export class EstimateService {
           select: {
             id: true,
             name: true,
+            projectId: true,
             deletedAt: true,
             items: {
               orderBy: { displayOrder: 'asc' },
@@ -289,12 +348,45 @@ export class EstimateService {
           },
         });
 
-        if (
-          !itemizedStatement ||
-          (itemizedStatement as { deletedAt?: Date | null }).deletedAt !== null
-        ) {
+        // 内訳書の照合の順（design.md の「2026-10-30 の追加」章の「決定」の「内訳書の照合の順」）。3 通りとも
+        // 57.4 と同じ 404（内訳書の不在）で拒み、同名の見積書の確かめに進まず見積書も見積項目も作成しない。
+        // (1) 行が無い: 記録しない
+        if (!itemizedStatement) {
           throw new ItemizedStatementNotFoundForEstimateError(input.sourceItemizedStatementId);
         }
+
+        // (2) 作成先のプロジェクトに属さない: 論理削除済みかどうかに関わらず内訳書の案件を判定する（57.4・
+        // 57.10）。範囲の内外で応答を変えると範囲外の内訳書の実在を推測させるため、範囲の内外を問わず
+        // 不在と同じ応答にする。範囲外（案件は実在する）のときだけ、範囲外の拒否として記録する
+        // （user-authentication の要件39.7・39.8）
+        const statementProjectId = itemizedStatement.projectId;
+        if (statementProjectId !== input.projectId) {
+          const decision = await this.projectScope.evaluateProjectAccess(
+            actorId,
+            statementProjectId
+          );
+          if (decision === 'out_of_scope') {
+            deniedProjectIds.add(statementProjectId);
+          }
+          throw new ItemizedStatementNotFoundForEstimateError(input.sourceItemizedStatementId);
+        }
+
+        // (3) 作成先のプロジェクトに属し論理削除済み: 記録しない（57.4・57.10）
+        if ((itemizedStatement as { deletedAt?: Date | null }).deletedAt !== null) {
+          throw new ItemizedStatementNotFoundForEstimateError(input.sourceItemizedStatementId);
+        }
+      }
+
+      // 内訳書から作る見積項目の数の上限（Requirement 3.6、タスク69.1。design.md の「2026-11-01 の追加」章の
+      // 「決定」の「内訳書からの作成の件数の上限」）。作る見積項目は内訳書の項目 1 件につき根の 1 件で、
+      // 上限は一括保存の総数の上限（42.10）と同じ。超えた見積書は作った直後から一括保存が 422 になり
+      // 一度も保存できないため、一括保存と同じ 422 で拒み、何も書かない。内訳書の照合（57.4・57.10 の
+      // 404）の後に置き、範囲外・不在の内訳書の実在と件数を件数の上限の応答で漏らさない。同名の見積書の
+      // 確かめ（409）より前に置き、作成先の名前を直しても成功しない失敗を先に知らせる
+      if (itemizedStatement && itemizedStatement.items.length > SAVE_ESTIMATE_MAX_ITEMS) {
+        throw new EstimateDraftValidationError([
+          { path: 'items', message: SAVE_ESTIMATE_VALIDATION_MESSAGES.ITEMS_TOO_MANY },
+        ]);
       }
 
       // 3. 同名の見積書が存在しないことを確認
@@ -412,23 +504,26 @@ export class EstimateService {
         });
       }
 
-      // 6. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_CREATED',
-        actorId,
-        targetType: 'Estimate',
-        targetId: estimate.id,
-        before: null,
-        after: {
-          projectId: estimate.projectId,
-          name: estimate.name,
-          sourceItemizedStatementId: estimate.sourceItemizedStatementId,
-          sourceItemizedStatementName: estimate.sourceItemizedStatementName,
+      // 6. 監査ログの記録（同じトランザクションで書き、巻き戻れば記録も残さない。Requirement 11.8、タスク70.1）
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_CREATED',
+          actorId,
+          targetType: 'Estimate',
+          targetId: estimate.id,
+          before: null,
+          after: {
+            projectId: estimate.projectId,
+            name: estimate.name,
+            sourceItemizedStatementId: estimate.sourceItemizedStatementId,
+            sourceItemizedStatementName: estimate.sourceItemizedStatementName,
+          },
         },
-      });
+        tx
+      );
 
       return this.toEstimateInfo(estimate, itemizedStatement?.items.length ?? 0);
-    });
+    }, ESTIMATE_SAVE_TRANSACTION_OPTIONS);
   }
 
   /**
@@ -603,15 +698,18 @@ export class EstimateService {
         },
       });
 
-      // 5. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_UPDATED',
-        actorId,
-        targetType: 'Estimate',
-        targetId: id,
-        before: { name: oldName },
-        after: { name: updatedEstimate.name },
-      });
+      // 5. 監査ログの記録（同じトランザクションで書く。Requirement 11.8、タスク70.1）
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_UPDATED',
+          actorId,
+          targetType: 'Estimate',
+          targetId: id,
+          before: { name: oldName },
+          after: { name: updatedEstimate.name },
+        },
+        tx
+      );
 
       return this.toEstimateInfo(updatedEstimate);
     });
@@ -662,20 +760,23 @@ export class EstimateService {
         data: { deletedAt: new Date() },
       });
 
-      // 4. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_DELETED',
-        actorId,
-        targetType: 'Estimate',
-        targetId: id,
-        before: {
-          projectId: estimate.projectId,
-          name: estimate.name,
-          sourceItemizedStatementId: estimate.sourceItemizedStatementId,
-          sourceItemizedStatementName: estimate.sourceItemizedStatementName,
+      // 4. 監査ログの記録（同じトランザクションで書く。Requirement 11.8、タスク70.1）
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_DELETED',
+          actorId,
+          targetType: 'Estimate',
+          targetId: id,
+          before: {
+            projectId: estimate.projectId,
+            name: estimate.name,
+            sourceItemizedStatementId: estimate.sourceItemizedStatementId,
+            sourceItemizedStatementName: estimate.sourceItemizedStatementName,
+          },
+          after: null,
         },
-        after: null,
-      });
+        tx
+      );
     });
   }
 

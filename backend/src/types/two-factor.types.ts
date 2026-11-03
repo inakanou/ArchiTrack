@@ -4,8 +4,10 @@
  * Requirements:
  * - 27.1-27.8: 二要素認証設定機能
  * - 27C.1-27C.6: 二要素認証セキュリティ要件
- * - 27.9-27.10, 27A.3-27A.7, 27B.4-27B.6: 2FA検証・管理機能
+ * - 27.9-27.10, 27A.3-27A.7: 2FA検証・管理機能
  */
+
+import type { TargetUserExceedsActorError } from '../services/privilege-ceiling.js';
 
 /**
  * Result型: 成功（Ok）または失敗（Err）を表現
@@ -96,10 +98,11 @@ export interface ITwoFactorService {
    * TOTP検証
    *
    * 30秒ウィンドウ、±1ステップ許容（合計90秒）で検証する。
+   * 最後に使った時間ステップ以下のコードは再利用として拒否する。
    *
    * @param userId - ユーザーID
    * @param totpCode - 6桁のTOTPコード
-   * @returns 検証成功ならtrue、失敗ならfalse
+   * @returns 検証成功ならtrue、不一致ならfalse、再利用ならCODE_ALREADY_USED
    */
   verifyTOTP(userId: string, totpCode: string): Promise<Result<boolean, TwoFactorError>>;
 
@@ -129,17 +132,6 @@ export interface ITwoFactorService {
   ): Promise<Result<TwoFactorEnabledData, TwoFactorError>>;
 
   /**
-   * 2FA無効化
-   *
-   * パスワード確認後、秘密鍵とバックアップコードを削除し、全セッションを無効化する。
-   *
-   * @param userId - ユーザーID
-   * @param password - パスワード（確認用）
-   * @returns void
-   */
-  disableTwoFactor(userId: string, password: string): Promise<Result<void, TwoFactorError>>;
-
-  /**
    * バックアップコード再生成
    *
    * 既存のバックアップコードを全て削除し、新しく10個のバックアップコードを生成する。
@@ -148,7 +140,72 @@ export interface ITwoFactorService {
    * @returns 10個の平文バックアップコード配列（最後の表示機会）
    */
   regenerateBackupCodes(userId: string): Promise<Result<string[], TwoFactorError>>;
+
+  /**
+   * 管理者による他の利用者の 2FA の再設定
+   *
+   * 秘密鍵・再登録中の秘密鍵・バックアップコードを消し、全リフレッシュトークンを失効させ、監査を記録する。
+   * コミットの後に対象者の状態のキャッシュを無効化する。自分自身の再設定は拒否する。
+   *
+   * @param actorId - 実行者（管理者）の ID
+   * @param targetUserId - 対象者の ID
+   * @param ctx - 監査に記録する送信元の情報
+   */
+  resetByAdmin(
+    actorId: string,
+    targetUserId: string,
+    ctx?: TwoFactorRequestContext
+  ): Promise<Result<void, TwoFactorResetError>>;
+
+  /**
+   * 再登録の開始（現在の TOTP の確認の後、新しい秘密鍵を再登録中の秘密鍵として置く）
+   *
+   * @param userId - 利用者 ID
+   * @param currentCode - 現在の秘密鍵の TOTP コード
+   */
+  startReenrollment(
+    userId: string,
+    currentCode: string
+  ): Promise<Result<TwoFactorReenrollmentStartData, TwoFactorError>>;
+
+  /**
+   * 再登録の確認（新しい秘密鍵の TOTP で本採用し、バックアップコードを作り直す）
+   *
+   * @param userId - 利用者 ID
+   * @param newCode - 新しい秘密鍵の TOTP コード
+   */
+  confirmReenrollment(
+    userId: string,
+    newCode: string,
+    ctx?: TwoFactorRequestContext
+  ): Promise<Result<TwoFactorEnabledData, TwoFactorError>>;
 }
+
+/**
+ * 監査に記録する送信元の情報
+ */
+export interface TwoFactorRequestContext {
+  /** 送信元 IP（getClientIp で得たもの） */
+  ipAddress?: string;
+  /** User-Agent */
+  userAgent?: string;
+}
+
+/**
+ * 再登録の開始時のレスポンスデータ
+ */
+export interface TwoFactorReenrollmentStartData {
+  qrCodeDataUrl: string; // 新しい秘密鍵の QR コード（Data URL 形式）
+  secretForManualEntry: string; // 新しい秘密鍵（Base32、手入力用）
+}
+
+/**
+ * 管理者による 2FA の再設定のエラー型
+ */
+export type TwoFactorResetError =
+  | { type: 'SELF_RESET_FORBIDDEN' } // 要件34.9
+  | { type: 'USER_NOT_FOUND' }
+  | TargetUserExceedsActorError; // 要件38.13
 
 /**
  * 2FA設定開始時のレスポンスデータ
@@ -181,4 +238,6 @@ export type TwoFactorError =
   | { type: 'INVALID_TOTP_CODE' }
   | { type: 'INVALID_BACKUP_CODE' }
   | { type: 'BACKUP_CODE_ALREADY_USED' }
-  | { type: 'INVALID_PASSWORD' };
+  | { type: 'CODE_ALREADY_USED' }
+  | { type: 'INVALID_PASSWORD' }
+  | { type: 'REENROLLMENT_NOT_STARTED' };

@@ -249,6 +249,179 @@ describe('ItemizedStatementService', () => {
       await expect(service.create(input, actorId)).rejects.toThrow(QuantityTableNotFoundError);
     });
 
+    describe('作成先のプロジェクトに属さない数量表（Requirement 18.4、タスク27.1）', () => {
+      const actorId = 'user-001';
+      const input = {
+        name: 'テスト内訳書',
+        projectId: 'proj-001',
+        sourceQuantityTableId: 'qt-foreign',
+      };
+      const context = {
+        requestId: 'req-1',
+        method: 'POST',
+        path: '/api/projects/proj-001/itemized-statements',
+        ipAddress: '127.0.0.1',
+        userAgent: 'vitest',
+      };
+
+      function arrange(
+        quantityTableProjectId: string,
+        deletedAt: Date | null = null
+      ): {
+        statementCreate: ReturnType<typeof vi.fn>;
+        itemsCreate: ReturnType<typeof vi.fn>;
+      } {
+        const statementCreate = vi.fn().mockResolvedValue({
+          id: 'is-001',
+          projectId: 'proj-001',
+          name: 'テスト内訳書',
+          sourceQuantityTableId: 'qt-own',
+          sourceQuantityTableName: '自案件の数量表',
+          createdAt: new Date('2026-10-28T00:00:00Z'),
+          updatedAt: new Date('2026-10-28T00:00:00Z'),
+          deletedAt: null,
+        });
+        const itemsCreate = vi.fn().mockResolvedValue({ count: 1 });
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            quantityTable: {
+              findUnique: vi.fn().mockResolvedValue({
+                id: input.sourceQuantityTableId,
+                name: '数量表',
+                projectId: quantityTableProjectId,
+                deletedAt,
+              }),
+            },
+            itemizedStatement: {
+              count: vi.fn().mockResolvedValue(0),
+              create: statementCreate,
+            },
+            itemizedStatementItem: { createMany: itemsCreate },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+        vi.mocked(mockPivotService.aggregateByQuantityTable).mockResolvedValue({
+          items: [
+            {
+              customCategory: '分類A',
+              workType: '工種1',
+              name: '名称1',
+              specification: '規格1',
+              unit: 'm',
+              quantity: 1,
+            },
+          ],
+          sourceItemCount: 1,
+        });
+        return { statementCreate, itemsCreate };
+      }
+
+      /**
+       * 論理削除済みの数量表の行は、所属の照合を論理削除の確かめより先に置くため、論理削除済みでない
+       * 数量表と同じく数量表の案件を判定し、範囲外のときだけ記録する（Requirement 18.12。
+       * design.md の「2026-10-30 の追加」章の「決定」の「数量表の照合の順」の (2)、タスク30.1）。
+       *
+       * @requirement itemized-statement-generation/REQ-18.12
+       */
+      it.each([
+        ['範囲外（案件は実在する）', 'out_of_scope', 1, null],
+        ['範囲内の他のプロジェクト', 'allowed', 0, null],
+        ['案件の不在・論理削除', 'not_found', 0, null],
+        ['範囲外（案件は実在する）の論理削除済み', 'out_of_scope', 1, new Date('2026-10-01')],
+        ['範囲内の他のプロジェクトの論理削除済み', 'allowed', 0, new Date('2026-10-01')],
+        ['案件の不在・論理削除の論理削除済み', 'not_found', 0, new Date('2026-10-01')],
+      ] as const)(
+        '%s の数量表は数量表の不在と同じ例外にして集計も内訳書の作成もせず、範囲外のときだけ PROJECT_SCOPE_DENIED を記録する',
+        async (_label, decision, recorded, deletedAt) => {
+          const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue(decision) };
+          service = new ItemizedStatementService({
+            prisma: mockPrisma,
+            auditLogService: mockAuditLogService,
+            pivotService: mockPivotService,
+            projectScope,
+          });
+          const { statementCreate, itemsCreate } = arrange('proj-other', deletedAt);
+
+          await expect(service.create(input, actorId, context)).rejects.toThrow(
+            QuantityTableNotFoundError
+          );
+
+          expect(mockPivotService.aggregateByQuantityTable).not.toHaveBeenCalled();
+          expect(statementCreate).not.toHaveBeenCalled();
+          expect(itemsCreate).not.toHaveBeenCalled();
+          expect(projectScope.evaluateProjectAccess).toHaveBeenCalledWith(actorId, 'proj-other');
+          const denials = vi
+            .mocked(mockAuditLogService.createLog)
+            .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+          expect(denials).toHaveLength(recorded);
+          if (recorded === 1) {
+            expect(denials[0]?.[0]).toMatchObject({
+              actorId,
+              targetType: 'Project',
+              targetId: 'proj-other',
+              metadata: { requestId: 'req-1', method: 'POST', path: context.path },
+            });
+          }
+        }
+      );
+
+      it('作成先のプロジェクトの数量表は範囲を判定せずに内訳書を作る', async () => {
+        const projectScope = { evaluateProjectAccess: vi.fn() };
+        service = new ItemizedStatementService({
+          prisma: mockPrisma,
+          auditLogService: mockAuditLogService,
+          pivotService: mockPivotService,
+          projectScope,
+        });
+        const { statementCreate } = arrange('proj-001');
+
+        const result = await service.create(
+          { ...input, sourceQuantityTableId: 'qt-own' },
+          actorId,
+          context
+        );
+
+        expect(result.id).toBe('is-001');
+        expect(statementCreate).toHaveBeenCalledTimes(1);
+        expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+        const denials = vi
+          .mocked(mockAuditLogService.createLog)
+          .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+        expect(denials).toHaveLength(0);
+      });
+
+      /**
+       * 作成先のプロジェクトに属する論理削除済みの数量表は、不在と同じ例外で拒み、範囲を判定せず
+       * 記録しない（Requirement 18.12 の後段。design.md の「2026-10-30 の追加」章の「決定」の
+       * 「数量表の照合の順」の (3)、タスク30.1）。
+       *
+       * @requirement itemized-statement-generation/REQ-18.12
+       */
+      it('作成先のプロジェクトの論理削除済みの数量表は範囲を判定も記録もせず、数量表の不在と同じ例外にして集計も内訳書の作成もしない', async () => {
+        const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue('out_of_scope') };
+        service = new ItemizedStatementService({
+          prisma: mockPrisma,
+          auditLogService: mockAuditLogService,
+          pivotService: mockPivotService,
+          projectScope,
+        });
+        const { statementCreate, itemsCreate } = arrange('proj-001', new Date('2026-10-01'));
+
+        await expect(
+          service.create({ ...input, sourceQuantityTableId: 'qt-own' }, actorId, context)
+        ).rejects.toThrow(QuantityTableNotFoundError);
+
+        expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+        expect(mockPivotService.aggregateByQuantityTable).not.toHaveBeenCalled();
+        expect(statementCreate).not.toHaveBeenCalled();
+        expect(itemsCreate).not.toHaveBeenCalled();
+        const denials = vi
+          .mocked(mockAuditLogService.createLog)
+          .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+        expect(denials).toHaveLength(0);
+      });
+    });
+
     it('数量表に項目がない場合、エラーを発生させる（Requirements: 1.9）', async () => {
       // Arrange
       const actorId = 'user-001';

@@ -13,11 +13,17 @@
  * - 2.10: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
  * - 14.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  * - 3.1: 当該プロジェクトに紐付く現場調査をページネーション付きで表示する
+ *
+ * Task 120.1 変更: プロジェクトの取得と現場調査の一覧の取得のどちらかが 404 を受けたときに、応答の順序に
+ *   よらずプロジェクトが見つからない旨とプロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示し、
+ *   応答の英語の文言・取得の失敗の文言と再試行の釦を出さない（site-survey の Requirement 40.1。範囲外と
+ *   不在を区別しない）
  */
 
 import { useState, useEffect, useCallback, type ChangeEvent, type FormEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import { isSiteSurveyNotFoundError } from '../utils/siteSurveyNotFound';
 import { buildSiteSurveyListBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import { getProject } from '../api/projects';
 import { getSiteSurveys } from '../api/site-surveys';
@@ -223,6 +229,9 @@ export default function SiteSurveyListPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // プロジェクトの取得か現場調査の一覧の取得が 404 を受けた（プロジェクトの不在。範囲外と不在を区別しない。
+  // Task 120.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   // フィルター状態
   const [filter, setFilter] = useState<SiteSurveyFilter>({});
@@ -244,9 +253,12 @@ export default function SiteSurveyListPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsProjectNotFound(false);
 
     try {
-      const [projectData, surveysData] = await Promise.all([
+      // 二つの取得の両方の結果を待つ。先に失敗した側だけを見ると、どちらの失敗を表示するかが応答の順序で
+      // 決まるため（Task 120.1）
+      const [projectResult, surveysResult] = await Promise.allSettled([
         getProject(projectId),
         getSiteSurveys(projectId, {
           // Requirement 3.1: 取得条件は画面が保持するページ番号・表示件数に従う
@@ -257,11 +269,25 @@ export default function SiteSurveyListPage() {
           order: sortOrder,
         }),
       ]);
-
-      setProject(projectData);
-      setSiteSurveys(surveysData);
+      const failures = [projectResult, surveysResult].flatMap((result) =>
+        result.status === 'rejected' ? [result.reason as unknown] : []
+      );
+      // どちらかの 404 は経路のプロジェクトの不在〔範囲外を含む〕。それ以外の失敗は先頭の取得のものを表示する
+      const failure = failures.find(isSiteSurveyNotFoundError) ?? failures[0];
+      if (failures.length > 0) {
+        throw failure;
+      }
+      if (projectResult.status === 'fulfilled' && surveysResult.status === 'fulfilled') {
+        setProject(projectResult.value);
+        setSiteSurveys(surveysResult.value);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
+      if (isSiteSurveyNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsProjectNotFound(true);
+      } else {
+        setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
+      }
       // 捕捉した誤りを監視基盤へ送る (Task 115.84, Requirement 16.8)。
       // 要件16.8 はエラー時の「表示」と「Sentry へのログ送信」の双方を求める。
       // 全画面共通の ErrorBoundary は描画時の未捕捉例外しか拾わないため、
@@ -401,6 +427,20 @@ export default function SiteSurveyListPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 120.1）。経路のプロジェクトが見つからない対象そのものであるため、
+  // 戻り先はプロジェクトの一覧とする
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={STYLES.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

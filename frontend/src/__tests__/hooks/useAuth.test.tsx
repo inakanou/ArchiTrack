@@ -26,6 +26,8 @@ describe('useAuth', () => {
     verify2FA: vi.fn(),
     verifyBackupCode: vi.fn(),
     cancel2FA: vi.fn(),
+    establishSession: vi.fn(),
+    updateUser: vi.fn(),
   };
 
   it('AuthProvider内で使用した場合、AuthContextの値を返す', () => {

@@ -32,6 +32,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const TEST_EMAIL = 'test-qg-display-order-integration@example.com';
 const PASSWORD = 'TestPassword123!';
@@ -51,12 +53,10 @@ describe('数量グループの並び順の個別 API の displayOrder 重複（
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({
-      data: {
-        email: TEST_EMAIL,
-        displayName: 'Quantity Group Display Order Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: TEST_EMAIL,
+      displayName: 'Quantity Group Display Order Test User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -96,12 +96,12 @@ describe('数量グループの並び順の個別 API の displayOrder 重複（
       });
     }
 
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: TEST_EMAIL,
       password: PASSWORD,
     });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   /** 数量表を1件作る（グループは0件） */
@@ -317,6 +317,53 @@ describe('数量グループの並び順の個別 API の displayOrder 重複（
         { name: 'B', displayOrder: 0 },
         { name: 'A', displayOrder: 1 },
       ]);
+    });
+
+    /**
+     * `orderUpdates` の件数の上限（quantity-table-generation タスク110.2）。上限を 1 件超えた要求は
+     * 本文の検証の 400 になり、表示順は変わらず、並び替えの監査記録も残らない。送る並びは上限が
+     * 無ければ通る（重ならない逆順）ものにして、上限だけが拒む理由であることを保つ。
+     *
+     * @requirement quantity-table-generation/REQ-42.14
+     */
+    it('上限（1000件）を1件超える並び替えは本文の検証の 400 で拒まれ、並びは変わらない', async () => {
+      const tableId = await createQuantityTable('件数の上限を超える並び替え');
+      const count = 1001;
+      await prisma.quantityGroup.createMany({
+        data: Array.from({ length: count }, (_, index) => ({
+          quantityTableId: tableId,
+          name: `G${index}`,
+          displayOrder: index,
+        })),
+      });
+      const before = await readOrders(tableId);
+      expect(before).toHaveLength(count);
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: tableId },
+        select: { id: true, displayOrder: true },
+      });
+
+      const response = await putOrder(
+        tableId,
+        groups.map((group) => ({ id: group.id, displayOrder: count - 1 - group.displayOrder }))
+      );
+
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe('VALIDATION_ERROR');
+      expect(response.body.message).toBe('数量グループは1000件以内で指定してください');
+      expect(response.body.details).toEqual([
+        expect.objectContaining({ path: 'orderUpdates', code: 'too_big' }),
+      ]);
+      expect(await readOrders(tableId)).toEqual(before);
+      expect(
+        await prisma.auditLog.count({
+          where: {
+            targetType: 'QuantityTable',
+            targetId: tableId,
+            action: 'QUANTITY_GROUP_UPDATED',
+          },
+        })
+      ).toBe(0);
     });
   });
 

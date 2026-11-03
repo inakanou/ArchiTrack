@@ -21,11 +21,21 @@
  * - 31.1: 全件一括エクスポート起動
  * - 31.2: 選択画像エクスポート起動
  * - 31.3: 選択件数の UI 反映
+ *
+ * Task 120.1 変更: 現場調査の読み込みが 404 を受けたときに、現場調査が見つからない旨とプロジェクトの一覧への
+ *   リンク（共通部品 ResourceNotFound）を表示し、応答の英語の文言と再試行の釦を出さない。画像の情報と並び順の
+ *   保存・現場調査の削除・画像の削除が 404 を受けたときは、画面の上のエラーの欄に見つからない旨のメッセージを
+ *   表示する。画像のアップロードは全件・一部の失敗のメッセージの構成を保ち、404 で失敗したファイルの理由を
+ *   現場調査が見つからない旨にする（site-survey の Requirement 40.1・40.2。範囲外と不在を区別しない）
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getSiteSurveyNotFoundMessage,
+  isSiteSurveyNotFoundError,
+} from '../utils/siteSurveyNotFound';
 import { buildSiteSurveyDetailBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import { getSiteSurvey, deleteSiteSurvey } from '../api/site-surveys';
 import {
@@ -439,6 +449,8 @@ export default function SiteSurveyDetailPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 現場調査の読み込みが 404 を受けた（範囲外と不在を区別しない。Task 120.1）
+  const [isNotFound, setIsNotFound] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -487,6 +499,7 @@ export default function SiteSurveyDetailPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsNotFound(false);
 
     try {
       const data = await getSiteSurvey(id);
@@ -497,7 +510,12 @@ export default function SiteSurveyDetailPage() {
       // 詳細が得られなかった場合は画像一覧そのものが描画されないため、選択も空になる。
       setSelectedImageIds((prev) => pruneSelectionToExistingImages(prev, data?.images));
     } catch (err) {
-      setError(err instanceof Error ? err.message : '現場調査の取得に失敗しました');
+      if (isSiteSurveyNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsNotFound(true);
+      } else {
+        setError(err instanceof Error ? err.message : '現場調査の取得に失敗しました');
+      }
       reportCaughtError(err, 'fetchSiteSurveyDetail', { surveyId: id });
     } finally {
       setIsLoading(false);
@@ -643,7 +661,12 @@ export default function SiteSurveyDetailPage() {
       pendingOrderRef.current = null;
       markAsSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存に失敗しました');
+      // 一括更新の 404 は対象の画像のいずれかの不在、並び順の保存の 404 は現場調査の不在であり、応答から
+      // どちらかを区別しない（いずれも範囲外を含む。Task 120.1）
+      setError(
+        getSiteSurveyNotFoundMessage(err, 'siteSurveyOrImage') ??
+          (err instanceof Error ? err.message : '保存に失敗しました')
+      );
       reportCaughtError(err, 'saveImageMetadata', { surveyId: id });
     } finally {
       setIsSavingMetadata(false);
@@ -676,7 +699,11 @@ export default function SiteSurveyDetailPage() {
       // 削除成功後、現場調査一覧へ遷移
       navigate(`/projects/${survey.projectId}/site-surveys`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '削除に失敗しました');
+      // 削除の 404 は現場調査の不在〔範囲外を含む〕（Task 120.1）
+      setError(
+        getSiteSurveyNotFoundMessage(err, 'siteSurvey') ??
+          (err instanceof Error ? err.message : '削除に失敗しました')
+      );
       reportCaughtError(err, 'deleteSiteSurvey', { surveyId: id });
       setShowDeleteDialog(false);
     } finally {
@@ -736,7 +763,11 @@ export default function SiteSurveyDetailPage() {
         return next;
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : '画像の削除に失敗しました');
+      // 画像の削除の 404 は画像の不在〔範囲外を含む〕（Task 120.1）
+      setError(
+        getSiteSurveyNotFoundMessage(err, 'image') ??
+          (err instanceof Error ? err.message : '画像の削除に失敗しました')
+      );
       reportCaughtError(err, 'deleteSurveyImage', { imageId });
       throw err; // PhotoManagementPanelにエラーを伝播
     }
@@ -812,9 +843,12 @@ export default function SiteSurveyDetailPage() {
                 // 判定の二重定義を避けるため、形式エラーの述語は
                 // `utils/upload-failure` の `isUnsupportedFormatMessage` に一元化する。
                 // 判定対象の文言集合は従来の3断片と同一であり、表示文言は変わらない。
-                const reason = isUnsupportedFormatMessage(err.error)
-                  ? 'サポートされていないファイル形式'
-                  : 'サーバーエラー';
+                // 404 は現場調査の不在〔範囲外を含む〕であり、サーバーエラーと表示しない（Task 120.1）
+                const reason =
+                  getSiteSurveyNotFoundMessage(err.cause, 'siteSurvey') ??
+                  (isUnsupportedFormatMessage(err.error)
+                    ? 'サポートされていないファイル形式'
+                    : 'サーバーエラー');
                 return `${err.fileName}: ${reason}`;
               })
               .join('\n');
@@ -854,9 +888,11 @@ export default function SiteSurveyDetailPage() {
         // 失敗した画像を ImageUploader へ返し、未送信画像として保持させる（37.1）。
         // 再送可否の区分は送信例外を参照できる API 層で確定済みのため、
         // ここでは文言から再判定せずそのまま引き渡す（37.16, 37.21）。
+        // 保持する画像の失敗の理由も、404 では応答の英語の文言に代えて現場調査が見つからない旨にする。
+        // 再送可否の区分（kind）は変えない（Task 120.1）
         const failed: FailedUpload[] = errors.map((err) => ({
           file: err.file,
-          error: err.error,
+          error: getSiteSurveyNotFoundMessage(err.cause, 'siteSurvey') ?? err.error,
           kind: err.kind,
         }));
 
@@ -1037,6 +1073,20 @@ export default function SiteSurveyDetailPage() {
     );
   }
 
+  // 現場調査が見つからない表示（Task 120.1）。詳細の経路は案件の ID を持たず、現場調査を読めないと案件が
+  // 分からないため、戻り先はプロジェクトの一覧とする（編集の画面の既存の表示と同じ）
+  if (isNotFound) {
+    return (
+      <main role="main" style={containerStyle}>
+        <ResourceNotFound
+          resourceType="現場調査"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
+      </main>
+    );
+  }
+
   // エラー表示
   if (error && !survey) {
     return (
@@ -1190,6 +1240,7 @@ export default function SiteSurveyDetailPage() {
           open={true}
           mode={bulkExportMode}
           surveyId={survey.id}
+          projectId={survey.projectId}
           surveyName={survey.name}
           images={bulkExportImages}
           onClose={handleBulkExportDialogClose}

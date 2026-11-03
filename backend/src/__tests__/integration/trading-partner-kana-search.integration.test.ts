@@ -22,6 +22,9 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * かな変換検索の統合テスト
@@ -44,12 +47,10 @@ describe('Kana Conversion Search Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-kana-search-integration@example.com',
-        displayName: 'Kana Search Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-kana-search-integration@example.com',
+      displayName: 'Kana Search Test User',
+      passwordHash,
     });
 
     // adminロールを取得して割り当て
@@ -67,16 +68,13 @@ describe('Kana Conversion Search Integration Tests', () => {
     }
 
     // ログイン
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({
-        email: 'test-kana-search-integration@example.com',
-        password: 'TestPassword123!',
-      })
-      .expect(200);
+    const accessToken = await loginForAccessToken(app, {
+      email: 'test-kana-search-integration@example.com',
+      password: 'TestPassword123!',
+    });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -117,10 +115,8 @@ describe('Kana Conversion Search Integration Tests', () => {
     });
 
     // 3. 監査ログを削除
-    await prisma.auditLog.deleteMany({
-      where: {
-        actorId: testUserId,
-      },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      actorId: testUserId,
     });
 
     // 4. ユーザーロールを削除
@@ -173,15 +169,13 @@ describe('Kana Conversion Search Integration Tests', () => {
       },
     });
 
-    await prisma.auditLog.deleteMany({
-      where: {
-        OR: [
-          { action: 'TRADING_PARTNER_CREATED' },
-          { action: 'TRADING_PARTNER_UPDATED' },
-          { action: 'TRADING_PARTNER_DELETED' },
-        ],
-        actorId: testUserId,
-      },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      OR: [
+        { action: 'TRADING_PARTNER_CREATED' },
+        { action: 'TRADING_PARTNER_UPDATED' },
+        { action: 'TRADING_PARTNER_DELETED' },
+      ],
+      actorId: testUserId,
     });
 
     await prisma.userRole.deleteMany({

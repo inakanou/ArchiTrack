@@ -921,6 +921,18 @@ jobs:
           JWT_PUBLIC_KEY: ${{ secrets.TEST_JWT_PUBLIC_KEY }}
           JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
+          # 監査ログのアーカイブの暗号鍵（user-authentication 要件41.3）。試験専用の固定値で秘密ではない
+          # （docker-compose.test.yml・docker-compose.ci.yml と同じ値。本番・staging では使わない）
+          ARCHIVE_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+          # 異常の検知の閾値（user-authentication 要件43.7）。全件の実行で超えない値にし、検知の振る舞いは
+          # security-anomaly-monitor.integration.test.ts が閾値を下げた部品で確かめる
+          SECURITY_ALERT_LOGIN_FAILED_THRESHOLD: "1000000"
+          SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD: "1000000"
+          SECURITY_ALERT_RATE_LIMITED_THRESHOLD: "1000000"
+          SECURITY_ALERT_SERVER_ERROR_THRESHOLD: "1000000"
+          SECURITY_ALERT_DATA_EXPORT_THRESHOLD: "1000000"
+          # 異常の通知の総数の上限（要件43.9）。上限の振る舞いは単体と統合のテストが上限を下げた部品で確かめる
+          SECURITY_ALERT_NOTIFICATION_LIMIT: "1000000"
 
       - name: Create .env file for E2E
         run: |
@@ -932,11 +944,20 @@ jobs:
           echo "FRONTEND_URL=http://localhost:5173" >> .env
           echo "ACCESS_TOKEN_EXPIRY=15m" >> .env
           echo "REFRESH_TOKEN_EXPIRY=7d" >> .env
-          echo "VITE_API_URL=http://localhost:3000" >> .env
+          # 画面の API の接続先は画面と同じオリジン（frontend の nginx が /api/ を backend へ中継する）
+          echo "VITE_API_URL=http://localhost:5173" >> .env
           echo "JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}" >> .env
           echo "JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}" >> .env
           echo "TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" >> .env
           echo "DISABLE_RATE_LIMIT=true" >> .env
+          # 異常の検知の閾値（user-authentication 要件43.7）。E2E の全件の実行で超えず、途中で管理者への
+          # 通知が流れない値にする（docker-compose.ci.yml の backend へ渡す）
+          echo "SECURITY_ALERT_LOGIN_FAILED_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_RATE_LIMITED_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_SERVER_ERROR_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_DATA_EXPORT_THRESHOLD=1000000" >> .env
+          echo "SECURITY_ALERT_NOTIFICATION_LIMIT=1000000" >> .env
 
       - name: Start Docker Compose for E2E
         run: |
@@ -969,6 +990,11 @@ jobs:
           # E2Eテストで使用するAPI URL（バックエンドはポート3000で起動）
           API_BASE_URL: http://127.0.0.1:3000
           DATABASE_URL: postgresql://postgres:dev@localhost:5432/architrack_test
+          # 2FA の試験用の利用者の TOTP の秘密鍵を backend と同じ鍵で暗号化して seed する（user-authentication 46.2）
+          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
+          # 試験の補助が DB を直接書いた後に、backend と同じ論理 DB の利用者の状態のキャッシュを無効化する
+          # （backend の REDIS_URL は redis://redis:6379。user-authentication 47.5）
+          REDIS_URL: redis://localhost:6379
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
@@ -1094,6 +1120,9 @@ jobs:
           JWT_PUBLIC_KEY: ${{ secrets.STAGING_JWT_PUBLIC_KEY }}
           JWT_PRIVATE_KEY: ${{ secrets.STAGING_JWT_PRIVATE_KEY }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.STAGING_TWO_FACTOR_ENCRYPTION_KEY }}
+          # 本番の前提（起動時の検査と同じ。user-authentication 要件41.3・35.1）
+          ARCHIVE_ENCRYPTION_KEY: ${{ secrets.STAGING_ARCHIVE_ENCRYPTION_KEY }}
+          TRUST_PROXY_HOPS: ${{ secrets.STAGING_TRUST_PROXY_HOPS }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
       - name: Pre-deployment notification
@@ -1276,6 +1305,9 @@ jobs:
           JWT_PUBLIC_KEY: ${{ secrets.PRODUCTION_JWT_PUBLIC_KEY }}
           JWT_PRIVATE_KEY: ${{ secrets.PRODUCTION_JWT_PRIVATE_KEY }}
           TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY }}
+          # 本番の前提（起動時の検査と同じ。user-authentication 要件41.3・35.1）
+          ARCHIVE_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_ARCHIVE_ENCRYPTION_KEY }}
+          TRUST_PROXY_HOPS: ${{ secrets.PRODUCTION_TRUST_PROXY_HOPS }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
       - name: Pre-deployment notification

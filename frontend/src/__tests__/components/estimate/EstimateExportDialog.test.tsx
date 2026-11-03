@@ -24,6 +24,7 @@ import type { EstimateExportDialogProps } from '../../../components/estimate/Est
 const props: EstimateExportDialogProps = {
   isOpen: true,
   estimateName: 'テスト見積書',
+  estimateId: 'est-1',
   projectId: 'proj-1',
   items: [],
   reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },

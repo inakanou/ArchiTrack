@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import logger from '../utils/logger.js';
+import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from './jwt-claims.js';
+import { securityAlertEnvSchema } from './security-alert.js';
 
 /**
  * 環境変数検証用の定数
@@ -79,6 +81,59 @@ export function parseDatabaseRetryCount(value: string | undefined): number {
 }
 
 /**
+ * TRUST_PROXY_HOPS の検証スキーマ（信頼する中継の段数。0 以上の整数）
+ *
+ * Express の `trust proxy` に `true`（全面的な信頼）や名前・アドレス帯を与えると、利用者が
+ * `X-Forwarded-For` の先頭に足した値が送信元になる（要件35.1）。段数の整数だけを受け付け、
+ * `true` などは拒否する。未設定は undefined のまま返し、開発・試験では段数 0 として扱う
+ * （`middleware/client-ip.ts` の `configureTrustProxy`）。
+ */
+const trustProxyHopsSchema = z
+  .string()
+  .optional()
+  .refine((val) => val === undefined || /^(0|[1-9][0-9]*)$/.test(val), {
+    message:
+      'TRUST_PROXY_HOPS must be a non-negative integer (the number of trusted proxy hops); ' +
+      '"true" (trusting every proxy) and other values are rejected',
+  })
+  .transform((val) => (val === undefined ? undefined : parseInt(val, 10)));
+
+/**
+ * 監査ログのアーカイブの暗号鍵の形式（AES-256 の鍵を表す 64 桁の 16 進）
+ *
+ * 本番での必須の判定は起動時の前提の検査（`config/runtime-mode.ts` の
+ * `assertProductionPrerequisites`）が行う（要件41.3）。
+ */
+export const ARCHIVE_ENCRYPTION_KEY_PATTERN = /^[0-9a-f]{64}$/i;
+
+/**
+ * ARCHIVE_ENCRYPTION_KEY の検証スキーマ（未設定は undefined のまま返す）
+ */
+const archiveEncryptionKeySchema = z
+  .string()
+  .optional()
+  .refine((val) => val === undefined || ARCHIVE_ENCRYPTION_KEY_PATTERN.test(val), {
+    message: 'ARCHIVE_ENCRYPTION_KEY must be exactly 64 hex characters',
+  });
+
+/**
+ * トークンの発行者・想定利用者（JWT の iss・aud）の検証スキーマを作る
+ *
+ * 空や前後の空白を含む値は、発行と検証で食い違いの元になるため拒否する。
+ * @param name 環境変数名
+ * @param defaultValue 未設定のときの既定値
+ */
+function jwtClaimSchema(name: string, defaultValue: string) {
+  return z
+    .string()
+    .optional()
+    .default(defaultValue)
+    .refine((val) => val.length > 0 && val.trim() === val, {
+      message: `${name} must be a non-empty string without leading or trailing whitespace`,
+    });
+}
+
+/**
  * 機密情報としてマスキングする環境変数のパターン
  * セキュリティベストプラクティス: 機密情報をログに出力しない
  */
@@ -149,6 +204,9 @@ const envSchema = z
     // Redis
     REDIS_URL: z.string().url().optional(),
 
+    // 信頼する中継の段数（送信元 IP の識別。要件35.1、35.2）
+    TRUST_PROXY_HOPS: trustProxyHopsSchema,
+
     // Frontend
     FRONTEND_URL: z.string().url().optional().default('http://localhost:5173'),
 
@@ -202,6 +260,10 @@ const envSchema = z
 
     // JWT Key Rotation Support (OPTIONAL)
     // 旧公開鍵：キーローテーション時に、古い鍵で署名されたトークンの検証に使用
+    // トークンの発行者・想定利用者（design.md の TokenService の IssuedClaims）
+    JWT_ISSUER: jwtClaimSchema('JWT_ISSUER', DEFAULT_JWT_ISSUER),
+    JWT_AUDIENCE: jwtClaimSchema('JWT_AUDIENCE', DEFAULT_JWT_AUDIENCE),
+
     JWT_PUBLIC_KEY_OLD: z
       .string()
       .optional()
@@ -218,6 +280,12 @@ const envSchema = z
         },
         { message: `JWT_PUBLIC_KEY_OLD must be a valid Base64-encoded ${JWT_CURVE} JWK` }
       ),
+
+    // 監査ログのアーカイブの暗号鍵（要件41.3。本番での必須は起動時の前提の検査が判定する）
+    ARCHIVE_ENCRYPTION_KEY: archiveEncryptionKeySchema,
+
+    // セキュリティ上の異常の検知の閾値・時間窓・抑止の時間（要件43.7。正の整数。未設定は既定値）
+    ...securityAlertEnvSchema,
 
     // Two-Factor Authentication
     TWO_FACTOR_ENCRYPTION_KEY: z
@@ -317,6 +385,20 @@ export function validateEnv(): Env {
           );
         } else if (path === 'PORT') {
           console.error('     Fix: Set PORT to a value between 1 and 65535 (default: 3000)');
+        } else if (path === 'TRUST_PROXY_HOPS') {
+          console.error(
+            '     Fix: Set TRUST_PROXY_HOPS to the number of proxies in front of the backend (e.g. 0 or 1)'
+          );
+        } else if (path === 'ARCHIVE_ENCRYPTION_KEY') {
+          console.error(
+            "     Fix: Generate a 256-bit key: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+          );
+        } else if (path === 'JWT_ISSUER' || path === 'JWT_AUDIENCE') {
+          console.error(
+            '     Fix: Unset it to use the default, or set a non-empty value without surrounding spaces'
+          );
+        } else if (path.startsWith('SECURITY_ALERT_')) {
+          console.error('     Fix: Unset it to use the default, or set a positive integer');
         } else if (path === 'NODE_ENV') {
           console.error('     Fix: Set NODE_ENV to one of: development, production, test');
         }

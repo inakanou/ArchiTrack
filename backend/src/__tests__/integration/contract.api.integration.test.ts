@@ -31,6 +31,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 契約書API統合テスト（削除制約・権限チェック）
@@ -68,12 +70,10 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     }
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-contract-admin-integration@example.com',
-        displayName: 'Contract Admin Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-contract-admin-integration@example.com',
+      displayName: 'Contract Admin Test User',
+      passwordHash,
     });
 
     // adminロールを取得して割り当て
@@ -91,13 +91,13 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-contract-admin-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -124,12 +124,10 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     }
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-contract-limited-integration@example.com',
-        displayName: 'Contract Limited Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-contract-limited-integration@example.com',
+      displayName: 'Contract Limited Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て（contract:deleteなし）
@@ -147,13 +145,13 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-contract-limited-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -226,6 +224,9 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
         name: 'テスト用プロジェクト_契約書統合テスト',
         status: 'PREPARING',
         salesPersonId: testUserId,
+        // 制限ユーザー（user ロール）も案件を扱えるよう工事担当者にする（案件の閲覧範囲。
+        // user-authentication 要件39）
+        constructionPersonId: limitedUserId,
         createdById: testUserId,
       },
     });
@@ -423,7 +424,9 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     });
 
     it('存在しない契約書の削除で404エラーが返ること', async () => {
-      const fakeId = '00000000-0000-0000-0000-000000000000';
+      // 版と変種の整った UUID にする（経路の ID の形式の検査が範囲の判定より前に置かれ、形式の崩れた ID は
+      // 400 になるため。contract-management タスク19.1）
+      const fakeId = '00000000-0000-4000-8000-000000000000';
 
       const response = await request(app)
         .delete(`/api/contracts/${fakeId}`)
@@ -591,7 +594,9 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
     const countContracts = async (): Promise<number> =>
       prisma.contract.count({ where: { projectId: testProjectId } });
 
-    it('POST: プロジェクトが存在しない場合は404（PROJECT_NOT_FOUND）が返り、契約書は作成されないこと', async () => {
+    // 存在しないプロジェクトは閲覧範囲の判定部品が範囲外と同じ汎用の 404 にする（contract-management の
+    // Requirement 14.3、タスク19.1。改訂前は PROJECT_NOT_FOUND を主張していた）
+    it('POST: プロジェクトが存在しない場合は404（NOT_FOUND）が返り、契約書は作成されないこと', async () => {
       const before = await prisma.contract.count();
 
       const response = await request(app)
@@ -600,7 +605,7 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
         .send(buildBody(testEstimateId));
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('PROJECT_NOT_FOUND');
+      expect(response.body.code).toBe('NOT_FOUND');
       expect(response.body.status).toBe(404);
       expect(await prisma.contract.count()).toBe(before);
     });
@@ -617,7 +622,9 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
       expect(await countContracts()).toBe(0);
     });
 
-    it('POST: 他プロジェクトの見積書の場合は422が返り、契約書は作成されないこと', async () => {
+    // 他のプロジェクトの見積書は見積書の不在と同じ 404 にする（contract-management の Requirement 14.5、
+    // タスク19.1。改訂前は 422 と「同じプロジェクトの見積書である必要があります」の本文を主張していた）
+    it('POST: 他プロジェクトの見積書の場合は見積書の不在と同じ404（ESTIMATE_NOT_FOUND）が返り、契約書は作成されないこと', async () => {
       const foreignEstimateId = await createForeignEstimate();
 
       const response = await request(app)
@@ -625,11 +632,9 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
         .set('Authorization', `Bearer ${accessToken}`)
         .send(buildBody(foreignEstimateId));
 
-      expect(response.status).toBe(422);
-      expect(response.body.code).toBe('CONTRACT_VALIDATION_ERROR');
-      expect(response.body.detail).toBe(
-        '契約の基となる見積書は同じプロジェクトの見積書である必要があります'
-      );
+      expect(response.status).toBe(404);
+      expect(response.body.code).toBe('ESTIMATE_NOT_FOUND');
+      expect(response.body.detail).toBe(`見積書が見つかりません: ${foreignEstimateId}`);
       expect(await countContracts()).toBe(0);
     });
 
@@ -673,7 +678,9 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
         await expectUnchanged(contractId);
       });
 
-      it('PUT: 見積書を他プロジェクトのものに変えると422が返り、更新されないこと', async () => {
+      // 他のプロジェクトの見積書は見積書の不在と同じ 404 にする（contract-management の Requirement 14.5、
+      // タスク19.1。改訂前は 422 と「同じプロジェクトの見積書である必要があります」の本文を主張していた）
+      it('PUT: 見積書を他プロジェクトのものに変えると見積書の不在と同じ404（ESTIMATE_NOT_FOUND）が返り、更新されないこと', async () => {
         const contractId = await createTestContract();
         const foreignEstimateId = await createForeignEstimate();
 
@@ -682,11 +689,9 @@ describe('Contract API Integration Tests - Deletion Constraints & Permissions', 
           .set('Authorization', `Bearer ${accessToken}`)
           .send(putBody(foreignEstimateId));
 
-        expect(response.status).toBe(422);
-        expect(response.body.code).toBe('CONTRACT_VALIDATION_ERROR');
-        expect(response.body.detail).toBe(
-          '契約の基となる見積書は同じプロジェクトの見積書である必要があります'
-        );
+        expect(response.status).toBe(404);
+        expect(response.body.code).toBe('ESTIMATE_NOT_FOUND');
+        expect(response.body.detail).toBe(`見積書が見つかりません: ${foreignEstimateId}`);
         await expectUnchanged(contractId);
       });
 

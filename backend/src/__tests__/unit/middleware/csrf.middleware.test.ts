@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
+
+const FRONTEND_URL = 'https://app.example.com';
+
+vi.mock('../../../config/env.js', () => ({
+  getEnv: () => ({ FRONTEND_URL }),
+}));
+
 import { csrfProtection, generateCsrfToken } from '../../../middleware/csrf.middleware.js';
 
 describe('CSRF Middleware', () => {
@@ -11,7 +18,7 @@ describe('CSRF Middleware', () => {
     mockRequest = {
       method: 'POST',
       cookies: {},
-      headers: {},
+      headers: { origin: FRONTEND_URL },
       log: {
         warn: vi.fn(),
       } as unknown as Request['log'],
@@ -27,11 +34,6 @@ describe('CSRF Middleware', () => {
   });
 
   describe('csrfProtection', () => {
-    beforeEach(() => {
-      // テスト環境フラグを一時的に無効化
-      delete process.env.NODE_ENV;
-    });
-
     it('GET/HEAD/OPTIONSリクエストはスキップする', () => {
       mockRequest.method = 'GET';
 
@@ -41,23 +43,20 @@ describe('CSRF Middleware', () => {
       expect(mockResponse.status).not.toHaveBeenCalled();
     });
 
-    it('テスト環境ではスキップする', () => {
-      process.env.NODE_ENV = 'test';
-
-      mockRequest.method = 'POST';
+    it('テスト環境（NODE_ENV=test）でも素通りさせず、トークンが無ければ403エラーを返す', () => {
+      // vitest は NODE_ENV=test で動く
+      expect(process.env.NODE_ENV).toBe('test');
 
       csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
 
-      expect(nextFunction).toHaveBeenCalled();
-      expect(mockResponse.status).not.toHaveBeenCalled();
-
-      delete process.env.NODE_ENV;
+      expect(mockResponse.status).toHaveBeenCalledWith(403);
+      expect(nextFunction).not.toHaveBeenCalled();
     });
 
     it('CSRFトークンが一致する場合は通過する', () => {
       const token = 'valid-csrf-token-12345';
       mockRequest.cookies = { 'csrf-token': token };
-      mockRequest.headers = { 'x-csrf-token': token };
+      mockRequest.headers = { 'x-csrf-token': token, origin: FRONTEND_URL };
 
       csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
 
@@ -65,48 +64,111 @@ describe('CSRF Middleware', () => {
       expect(mockResponse.status).not.toHaveBeenCalled();
     });
 
-    it('CSRFトークンがCookieに存在しない場合は403エラーを返す', () => {
-      mockRequest.cookies = {};
-      mockRequest.headers = { 'x-csrf-token': 'some-token' };
+    it('Originが無いときはRefererのオリジンで照合して通過する', () => {
+      const token = 'valid-csrf-token-12345';
+      mockRequest.cookies = { 'csrf-token': token };
+      mockRequest.headers = { 'x-csrf-token': token, referer: `${FRONTEND_URL}/dashboard?x=1` };
+
+      csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(nextFunction).toHaveBeenCalled();
+      expect(mockResponse.status).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['異なるオリジンのOrigin', { origin: 'https://attacker.example' }],
+      ['ポートの異なるOrigin', { origin: 'https://app.example.com:8443' }],
+      ['不透明なOrigin（null）', { origin: 'null' }],
+      ['解釈できないOrigin', { origin: 'not a url' }],
+      ['異なるオリジンのReferer', { referer: 'https://attacker.example/page' }],
+      ['OriginもRefererも無い', {}],
+    ])('%sの場合はトークンが一致しても403エラーを返す', (_label, originHeaders) => {
+      const token = 'valid-csrf-token-12345';
+      mockRequest.cookies = { 'csrf-token': token };
+      mockRequest.headers = { 'x-csrf-token': token, ...originHeaders };
 
       csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
 
       expect(mockResponse.status).toHaveBeenCalledWith(403);
       expect(mockResponse.json).toHaveBeenCalledWith({
-        error: 'CSRF token missing',
+        error: 'Invalid request origin',
+        code: 'CSRF_ORIGIN_MISMATCH',
       });
       expect(nextFunction).not.toHaveBeenCalled();
     });
 
-    it('CSRFトークンがヘッダーに存在しない場合は403エラーを返す', () => {
-      mockRequest.cookies = { 'csrf-token': 'some-token' };
-      mockRequest.headers = {};
+    it('Originが一致すればRefererが異なっていても通過する（Originを優先する）', () => {
+      const token = 'valid-csrf-token-12345';
+      mockRequest.cookies = { 'csrf-token': token };
+      mockRequest.headers = {
+        'x-csrf-token': token,
+        origin: FRONTEND_URL,
+        referer: 'https://attacker.example/page',
+      };
 
       csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
 
-      expect(mockResponse.status).toHaveBeenCalledWith(403);
-      expect(mockResponse.json).toHaveBeenCalledWith({
-        error: 'CSRF token missing',
-      });
-      expect(nextFunction).not.toHaveBeenCalled();
+      expect(nextFunction).toHaveBeenCalled();
     });
 
-    it('CSRFトークンが一致しない場合は403エラーを返す', () => {
-      mockRequest.cookies = { 'csrf-token': 'token-in-cookie' };
-      mockRequest.headers = { 'x-csrf-token': 'token-in-header' };
+    it('長さの異なるトークンは一致しないとして403エラーを返す', () => {
+      mockRequest.cookies = { 'csrf-token': 'short' };
+      mockRequest.headers = { 'x-csrf-token': 'short-but-longer', origin: FRONTEND_URL };
 
       csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
 
       expect(mockResponse.status).toHaveBeenCalledWith(403);
       expect(mockResponse.json).toHaveBeenCalledWith({
         error: 'Invalid CSRF token',
+        code: 'CSRF_TOKEN_INVALID',
+      });
+    });
+
+    it('CSRFトークンがCookieに存在しない場合は403エラーを返す', () => {
+      mockRequest.cookies = {};
+      mockRequest.headers = { 'x-csrf-token': 'some-token', origin: FRONTEND_URL };
+
+      csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(403);
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        error: 'CSRF token missing',
+        code: 'CSRF_TOKEN_MISSING',
+      });
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+
+    it('CSRFトークンがヘッダーに存在しない場合は403エラーを返す', () => {
+      mockRequest.cookies = { 'csrf-token': 'some-token' };
+      mockRequest.headers = { origin: FRONTEND_URL };
+
+      csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(403);
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        error: 'CSRF token missing',
+        code: 'CSRF_TOKEN_MISSING',
+      });
+      expect(nextFunction).not.toHaveBeenCalled();
+    });
+
+    it('CSRFトークンが一致しない場合は403エラーを返す', () => {
+      mockRequest.cookies = { 'csrf-token': 'token-in-cookie' };
+      mockRequest.headers = { 'x-csrf-token': 'token-in-header', origin: FRONTEND_URL };
+
+      csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
+
+      expect(mockResponse.status).toHaveBeenCalledWith(403);
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        error: 'Invalid CSRF token',
+        code: 'CSRF_TOKEN_INVALID',
       });
       expect(nextFunction).not.toHaveBeenCalled();
     });
 
     it('CSRF検証失敗時に警告ログを記録する', () => {
       mockRequest.cookies = { 'csrf-token': 'token-in-cookie' };
-      mockRequest.headers = { 'x-csrf-token': 'token-in-header' };
+      mockRequest.headers = { 'x-csrf-token': 'token-in-header', origin: FRONTEND_URL };
 
       csrfProtection(mockRequest as Request, mockResponse as Response, nextFunction);
 

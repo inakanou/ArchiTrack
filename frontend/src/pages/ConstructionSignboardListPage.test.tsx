@@ -573,3 +573,150 @@ describe('ConstructionSignboardListPage', () => {
  * @requirement construction-photo/REQ-8.8
  * @requirement construction-photo/REQ-17.4
  */
+
+// ============================================================================
+// タスク 31.1: 404 を受けたときの不在の表示（Requirement 22.1・22.2）
+// ============================================================================
+
+describe('ConstructionSignboardListPage の 404 の不在の表示（タスク 31.1）', () => {
+  const PROJECT_GONE = 'プロジェクトが見つかりません。存在しないか、削除されています。';
+  const SIGNBOARD_GONE = '工事看板が見つかりません。存在しないか、削除されています。';
+  /** 汎用の 404（閲覧範囲外と不在で同じ応答。本文は英語） */
+  const genericNotFound = () =>
+    new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    routerState.projectId = 'project-123';
+    mockUseConstructionPhotoPermission.mockReturnValue(fullPermission);
+    vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
+    vi.mocked(signboardsApi.getConstructionSignboards).mockResolvedValue([
+      signboardUnused,
+      signboardInUse,
+    ]);
+  });
+
+  /** プロジェクトの不在の表示（ResourceNotFound）と、出さないもの */
+  async function expectProjectNotFound() {
+    expect(
+      await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+      'href',
+      '/projects'
+    );
+    expect(screen.queryByText(/Not found/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('看板一覧の取得に失敗しました')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  }
+
+  it('看板の一覧の取得が 404 を先に受けても、プロジェクトが見つからない旨とプロジェクト一覧へのリンクを出す (22.1)', async () => {
+    let rejectProject: (reason: unknown) => void = () => {};
+    vi.mocked(projectsApi.getProject).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectProject = reject;
+      })
+    );
+    vi.mocked(signboardsApi.getConstructionSignboards).mockRejectedValue(genericNotFound());
+    renderComponent();
+    // プロジェクトの取得は後から 403 以外の失敗で終わる（応答の順序で表示が変わらないこと）
+    await waitFor(() => expect(signboardsApi.getConstructionSignboards).toHaveBeenCalled());
+    rejectProject(new ApiError(500, 'Internal Server Error'));
+
+    await expectProjectNotFound();
+  });
+
+  it('プロジェクトの取得が 404 を後から受けても、同じ不在の表示にする (22.1)', async () => {
+    let rejectProject: (reason: unknown) => void = () => {};
+    vi.mocked(projectsApi.getProject).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectProject = reject;
+      })
+    );
+    vi.mocked(signboardsApi.getConstructionSignboards).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error')
+    );
+    renderComponent();
+    await waitFor(() => expect(signboardsApi.getConstructionSignboards).toHaveBeenCalled());
+    rejectProject(new ApiError(404, 'プロジェクトが見つかりません', { code: 'NOT_FOUND' }));
+
+    await expectProjectNotFound();
+  });
+
+  it('404 以外の読み込みの失敗は従来の文言を出す（403 は権限が無い旨）', async () => {
+    vi.mocked(signboardsApi.getConstructionSignboards).mockRejectedValue(
+      new ApiError(403, 'Forbidden')
+    );
+    renderComponent();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /^工事看板を閲覧する権限がありません$/
+    );
+    expect(
+      screen.queryByRole('heading', { name: 'プロジェクトが見つかりません' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('看板の登録の 404 はプロジェクトが見つからない旨をトーストに出す (22.2)', async () => {
+    vi.mocked(signboardsApi.createConstructionSignboard).mockRejectedValue(genericNotFound());
+    renderComponent();
+    await waitFor(() => expect(screen.getByText('基礎工事')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
+    fireEvent.change(screen.getByLabelText(/工事件名/), { target: { value: '内装工事' } });
+    fireEvent.change(screen.getByLabelText(/工事場所/), { target: { value: '港区' } });
+    fireEvent.click(screen.getByRole('button', { name: '登録' }));
+
+    await waitFor(() => expect(mockToast.error).toHaveBeenCalledTimes(1));
+    expect(mockToast.error).toHaveBeenCalledWith(PROJECT_GONE);
+  });
+
+  it('看板の更新の 404 は工事看板が見つからない旨をトーストに出し、ID を含む英語の文言を出さない (22.2)', async () => {
+    vi.mocked(signboardsApi.updateConstructionSignboard).mockRejectedValue(
+      new ApiError(404, 'Construction signboard not found: sb-2', {
+        code: 'CONSTRUCTION_SIGNBOARD_NOT_FOUND',
+      })
+    );
+    renderComponent();
+    await waitFor(() => expect(screen.getByText('鉄骨工事')).toBeInTheDocument());
+
+    const row = screen.getByText('鉄骨工事').closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: '編集' }));
+    await waitFor(() => expect(screen.getByLabelText(/工事件名/)).toHaveValue('鉄骨工事'));
+    fireEvent.click(screen.getByRole('button', { name: '更新' }));
+
+    await waitFor(() => expect(mockToast.error).toHaveBeenCalledTimes(1));
+    expect(mockToast.error).toHaveBeenCalledWith(SIGNBOARD_GONE);
+  });
+
+  it('看板の削除の 404 は工事看板が見つからない旨をトーストに出す (22.2)', async () => {
+    vi.mocked(signboardsApi.deleteConstructionSignboard).mockRejectedValue(genericNotFound());
+    renderComponent();
+    await waitFor(() => expect(screen.getByText('基礎工事')).toBeInTheDocument());
+
+    const row = screen.getByText('基礎工事').closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: '削除' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '削除する' }));
+
+    await waitFor(() => expect(mockToast.error).toHaveBeenCalledTimes(1));
+    expect(mockToast.error).toHaveBeenCalledWith(SIGNBOARD_GONE);
+  });
+
+  it('削除の 403 と 404 以外の失敗は従来の文言を保つ', async () => {
+    vi.mocked(signboardsApi.deleteConstructionSignboard)
+      .mockRejectedValueOnce(new ApiError(403, 'Forbidden'))
+      .mockRejectedValueOnce(new ApiError(500, 'サーバーの失敗'));
+    renderComponent();
+    await waitFor(() => expect(screen.getByText('基礎工事')).toBeInTheDocument());
+
+    for (const expected of ['工事看板を削除する権限がありません', 'サーバーの失敗']) {
+      const row = screen.getByText('基礎工事').closest('tr') as HTMLElement;
+      fireEvent.click(within(row).getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: '削除する' }));
+      await waitFor(() => expect(mockToast.error).toHaveBeenLastCalledWith(expected));
+    }
+  });
+});

@@ -19,8 +19,8 @@
  * ## 観測方式
  *
  * リクエストの選別は**オリジンではなくパス**で行う。ブラウザが使うAPIオリジン
- * （`VITE_API_URL`）とE2E側の `API_BASE_URL` は同一とは限らず（CIでは前者が
- * `localhost:3000`、後者が `127.0.0.1:3000`）、オリジン文字列で選別すると観測対象が
+ * （`VITE_API_URL`。画面と同じオリジン）とE2E側の `API_BASE_URL`（backend へ直接）は
+ * 同一ではなく（CIでは前者が `localhost:5173`、後者が `127.0.0.1:3000`）、オリジン文字列で選別すると観測対象が
  * 1件も残らないまま「個別リクエストは発生していない」が常に成立してしまうため。
  *
  * 画像本体の判定はストレージキーの後方一致で行う。表示用URLの実体は通常サムネイルと
@@ -58,6 +58,7 @@ import {
 } from '../../helpers/quantity-table-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ============================================================================
 // 定数
@@ -316,7 +317,7 @@ test.describe('写真選択ダイアログの一括取得とサムネイル表�
 
       createdProjectId = await createTestProject(page, 'REQ49_写真選択');
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       assertPrepared(accessToken, 'アクセストークン');
       authHeaders = { Authorization: `Bearer ${accessToken}` };
 
@@ -341,6 +342,7 @@ test.describe('写真選択ダイアログの一括取得とサムネイル表�
       for (let index = 0; index < SURVEY_COUNT; index += 1) {
         const seeded = await seedSurveyPhotosWithComments(
           page,
+          'REGULAR_USER',
           createdProjectId,
           `REQ49_調査${index + 1}`,
           Array.from({ length: PHOTOS_PER_SURVEY }, () => null),

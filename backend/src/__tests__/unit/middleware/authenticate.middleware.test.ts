@@ -18,6 +18,18 @@ import { Ok, Err } from '../../../types/result.js';
 // TokenServiceのモック
 vi.mock('../../../services/token.service');
 
+/**
+ * 有効で 2FA 登録済みの利用者の状態（状態の照合を通る。照合そのものは authenticate.user-state.test.ts で確かめる）
+ */
+const activeUserState = {
+  getState: async () => ({
+    isActive: true,
+    twoFactorEnabled: true,
+    mustChangePassword: false,
+    accessTokenGeneration: 0,
+  }),
+};
+
 describe('authenticate middleware', () => {
   let mockRequest: Partial<Request>;
   let mockResponse: Partial<Response>;
@@ -58,7 +70,7 @@ describe('authenticate middleware', () => {
 
       (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(mockPayload));
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockTokenService.verifyToken).toHaveBeenCalledWith(token, 'access');
@@ -71,7 +83,7 @@ describe('authenticate middleware', () => {
         authorization: 'invalid-format-token',
       };
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -85,7 +97,7 @@ describe('authenticate middleware', () => {
     it('Authorizationヘッダーがない場合はエラーを返す', async () => {
       mockRequest.headers = {};
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -101,7 +113,7 @@ describe('authenticate middleware', () => {
         authorization: 'Bearer ',
       };
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -117,7 +129,7 @@ describe('authenticate middleware', () => {
         authorization: 'Bearer    ',
       };
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -144,7 +156,7 @@ describe('authenticate middleware', () => {
 
       (mockTokenService.verifyToken as ReturnType<typeof vi.fn>).mockResolvedValue(Ok(mockPayload));
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockRequest.user).toEqual(mockPayload);
@@ -164,7 +176,7 @@ describe('authenticate middleware', () => {
         Err({ type: 'TOKEN_INVALID' })
       );
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -186,7 +198,7 @@ describe('authenticate middleware', () => {
         Err({ type: 'TOKEN_EXPIRED' })
       );
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -207,7 +219,7 @@ describe('authenticate middleware', () => {
         Err({ type: 'TOKEN_INVALID' })
       );
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);
@@ -230,7 +242,7 @@ describe('authenticate middleware', () => {
         new Error('Unexpected error')
       );
 
-      const middleware = createAuthMiddleware(mockTokenService);
+      const middleware = createAuthMiddleware(mockTokenService, activeUserState);
       await middleware(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockResponse.status).toHaveBeenCalledWith(401);

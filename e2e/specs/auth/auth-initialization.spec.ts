@@ -1,6 +1,8 @@
 import { test, expect, Page } from '@playwright/test';
 import { TEST_USERS } from '../../helpers/test-users';
+import { completeTwoFactorVerification } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { FRONTEND_BASE_URL } from '../../config';
 
 /**
  * E2Eテスト: 認証状態初期化時のUIチラつき防止
@@ -151,15 +153,23 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, TEST_USERS.ADMIN_USER);
 
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
       timeout: getTimeout(10000),
     });
 
-    // リフレッシュトークンがlocalStorageに保存されていることを確認
-    const refreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(refreshToken).toBeTruthy();
+    // リフレッシュトークンは HttpOnly Cookie にあり、永続ストレージには無いことを確認（要件33.8, 33.10）
+    const refreshCookie = (await page.context().cookies()).find((c) => c.name === 'refreshToken');
+    expect(refreshCookie?.value).toBeTruthy();
+    expect(refreshCookie?.httpOnly).toBe(true);
+    const storedTokens = await page.evaluate(() => [
+      localStorage.getItem('refreshToken'),
+      localStorage.getItem('accessToken'),
+    ]);
+    expect(storedTokens).toEqual([null, null]);
 
     // Step 2: ページをリロード
     // セッション復元に十分な遅延を追加（ローディング状態を観測可能にする）
@@ -203,6 +213,8 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, TEST_USERS.ADMIN_USER);
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
       timeout: getTimeout(10000),
@@ -248,11 +260,17 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
   test('should discard credentials and redirect to login when session restoration fails', async ({
     page,
   }) => {
-    // Step 1: localStorageに無効なリフレッシュトークンを設定
-    await page.goto('');
-    await page.evaluate(() => {
-      localStorage.setItem('refreshToken', 'invalid-refresh-token');
-    });
+    // Step 1: 無効なリフレッシュトークンの Cookie を設定（backend の Cookie と同じ Path）
+    await page.context().addCookies([
+      {
+        name: 'refreshToken',
+        value: 'invalid-refresh-token',
+        domain: new URL(FRONTEND_BASE_URL).hostname,
+        path: '/api/v1/auth',
+        httpOnly: true,
+        sameSite: 'Strict',
+      },
+    ]);
 
     // Step 2: 保護されたページにアクセス
     await page.goto('/dashboard');
@@ -261,9 +279,9 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.waitForURL('**/login**', { timeout: getTimeout(10000) });
     expect(await isOnLoginPage(page)).toBe(true);
 
-    // リフレッシュトークンがlocalStorageから削除されていることを確認
-    const refreshToken = await page.evaluate(() => localStorage.getItem('refreshToken'));
-    expect(refreshToken).toBeNull();
+    // 拒否されたリフレッシュトークンの Cookie が削除されていることを確認（backend が 401 の応答で消す）
+    const refreshCookie = (await page.context().cookies()).find((c) => c.name === 'refreshToken');
+    expect(refreshCookie).toBeUndefined();
   });
 
   /**
@@ -280,6 +298,8 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     await page.fill('input[type="email"]', TEST_USERS.ADMIN_USER.email);
     await page.fill('input[type="password"]', TEST_USERS.ADMIN_USER.password);
     await page.click('button[type="submit"]');
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, TEST_USERS.ADMIN_USER);
     // ログインページから離れることを待機（/dashboard または / へのリダイレクト）
     await page.waitForURL((url) => !url.pathname.includes('/login'), {
       timeout: getTimeout(10000),

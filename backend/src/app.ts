@@ -10,9 +10,20 @@ import { fileURLToPath } from 'url';
 import getPrismaClient from './db.js';
 import redis from './redis.js';
 import { httpLogger } from './middleware/logger.middleware.js';
-import { apiLimiter, healthCheckLimiter } from './middleware/rateLimit.middleware.js';
+import {
+  apiLimiter,
+  healthCheckLimiter,
+  mountAuthRateLimitPolicy,
+  rateLimiters,
+} from './middleware/rateLimit.middleware.js';
 import { validateEnv } from './config/env.js';
-import { errorHandler, notFoundHandler } from './middleware/errorHandler.middleware.js';
+import { runtimeMode } from './config/runtime-mode.js';
+import { configureTrustProxy } from './middleware/client-ip.js';
+import {
+  errorHandler,
+  notFoundHandler,
+  observeServerErrorResponses,
+} from './middleware/errorHandler.middleware.js';
 import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import { generateCsrfToken } from './middleware/csrf.middleware.js';
 import { getStorageType } from './storage/index.js';
@@ -22,6 +33,7 @@ import { createInvitationRoutes } from './routes/invitation.routes.js';
 import rolesRoutes from './routes/roles.routes.js';
 import permissionsRoutes from './routes/permissions.routes.js';
 import userRolesRoutes from './routes/user-roles.routes.js';
+import userInventoryRoutes from './routes/user-inventory.routes.js';
 import auditLogRoutes from './routes/audit-log.routes.js';
 import sessionRoutes from './routes/session.routes.js';
 import jwksRoutes from './routes/jwks.routes.js';
@@ -58,9 +70,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
-// Trust proxy - Required for proxy environments like Railway
-// Trust X-Forwarded-* headers
-app.set('trust proxy', true);
+// Validate and retrieve environment variables
+const env = validateEnv();
+
+// 信頼する中継の段数だけ X-Forwarded-* を読む（全面的な信頼にしない。要件35.1、35.2）
+configureTrustProxy(app, env.TRUST_PROXY_HOPS);
 
 // Middleware
 // Force HTTPS (production only)
@@ -70,8 +84,8 @@ app.use(hsts);
 // Apply HTTP logging
 app.use(httpLogger);
 
-// Validate and retrieve environment variables
-const env = validateEnv();
+// 5xx の応答を異常の検知へ送る（user-authentication 要件43.3）
+app.use(observeServerErrorResponses);
 
 // Configure security headers
 app.use(
@@ -97,7 +111,8 @@ app.use(
     origin: env.FRONTEND_URL,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+    // X-Request-Id はサーバーで生成した要求識別子（logger.middleware の REQUEST_ID_HEADER。要件42.5）
     exposedHeaders: ['Content-Length', 'X-Request-Id'],
     maxAge: 86400, // 24 hours - preflight cache
   })
@@ -120,8 +135,8 @@ app.use('/api/claude-vision', claudeVisionRoutes);
 app.use(express.json({ limit: '5mb' })); // サムネイル更新のBase64画像データ用に制限を増加
 app.use(cookieParser());
 
-// Swagger UI setup (development環境のみ有効)
-if (env.NODE_ENV !== 'production') {
+// Swagger UI setup（開発用の機能。実行環境が development / test と明示されたときだけ有効。要件42.9）
+if (runtimeMode.isDevelopmentFeatureEnabled()) {
   try {
     const swaggerSpec = JSON.parse(readFileSync(join(__dirname, '../docs/api-spec.json'), 'utf-8'));
     app.use(
@@ -300,8 +315,8 @@ app.get('/api', (_req: Request, res: Response) => {
   });
 });
 
-// Admin routes (TODO: add authentication middleware)
-app.use('/admin', adminRoutes);
+// 認証系の専用の制限（2FA の検証・リセットの実行と検証・登録と招待の検証）。認証・招待のルーターより前に掛ける
+mountAuthRateLimitPolicy(app, rateLimiters);
 
 // Authentication routes
 app.use('/api/v1/auth', authRoutes);
@@ -313,10 +328,16 @@ app.use('/api/v1/invitations', createInvitationRoutes(prisma));
 // RBAC routes
 app.use('/api/v1/roles', rolesRoutes);
 app.use('/api/v1/permissions', permissionsRoutes);
+// 管理者向けの利用者の操作（棚卸し・2FA の再設定など）は user-roles.routes.ts より前に置く。
+// 後に置くと user-roles.routes.ts の `/:id` 系の経路が固定の経路（inventory など）を ID として拾う
+app.use('/api/v1/users', userInventoryRoutes);
 app.use('/api/v1/users', userRolesRoutes);
 
 // Audit log routes
 app.use('/api/v1/audit-logs', auditLogRoutes);
+
+// 運用設定（ログレベル）の管理。認証と ops:manage の権限を経路ごとに課す（認証の無い旧経路 /admin は設けない）
+app.use('/api/v1/admin', adminRoutes);
 
 // Session management routes
 app.use('/api/v1/auth/sessions', sessionRoutes);

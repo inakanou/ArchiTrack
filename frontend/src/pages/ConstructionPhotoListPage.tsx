@@ -29,12 +29,22 @@
  * （…> 工事写真一覧 > 工事看板マスタ）、看板はプロジェクト単位で登録するため、プロジェクトの
  * 工事写真の入口である本画面に置く。リンクは看板の閲覧の権限（construction_signboard:read）を
  * 持つ利用者にだけ出す（権限ロード中は安全側で出さない, R17.5）。
+ *
+ * Task 31.1 変更: プロジェクトの取得とアルバムの一覧の取得のどちらかが 404 を受けたときに、応答の
+ *   順序によらずプロジェクトが見つからない旨とプロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を
+ *   表示し、応答の英語の文言・取得の失敗の文言と再試行の釦を出さない（Requirement 22.1）。アルバムの
+ *   削除が 404 を受けたときは工事写真アルバムが見つからない旨をエラーの帯に出す（Requirement 22.2）。
+ *   範囲外と不在を区別しない
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 import type { BreadcrumbItem } from '../components/common';
+import {
+  getConstructionPhotoNotFoundMessage,
+  isConstructionPhotoNotFoundError,
+} from '../utils/constructionPhotoNotFound';
 import { getProject } from '../api/projects';
 import {
   getConstructionPhotoAlbums,
@@ -242,6 +252,9 @@ export default function ConstructionPhotoListPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // プロジェクトの取得かアルバムの一覧の取得が 404 を受けた（プロジェクトの不在。範囲外と不在を
+  // 区別しない。Task 31.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   // フィルター状態
   const [filter, setFilter] = useState<ConstructionPhotoAlbumFilter>({});
@@ -265,9 +278,12 @@ export default function ConstructionPhotoListPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsProjectNotFound(false);
 
     try {
-      const [projectData, albumsData] = await Promise.all([
+      // 二つの取得の両方の結果を待つ。先に失敗した側だけを見ると、どちらの失敗を表示するかが応答の
+      // 順序で決まるため（Task 31.1）
+      const [projectResult, albumsResult] = await Promise.allSettled([
         getProject(projectId),
         getConstructionPhotoAlbums(projectId, {
           page,
@@ -277,11 +293,24 @@ export default function ConstructionPhotoListPage() {
           order: sortOrder,
         }),
       ]);
-
-      setProject(projectData);
-      setAlbums(albumsData);
+      const failures = [projectResult, albumsResult].flatMap((result) =>
+        result.status === 'rejected' ? [result.reason as unknown] : []
+      );
+      if (failures.length > 0) {
+        // どちらかの 404 は経路のプロジェクトの不在〔範囲外を含む〕。それ以外の失敗は先頭の取得のものを表示する
+        throw failures.find(isConstructionPhotoNotFoundError) ?? failures[0];
+      }
+      if (projectResult.status === 'fulfilled' && albumsResult.status === 'fulfilled') {
+        setProject(projectResult.value);
+        setAlbums(albumsResult.value);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
+      if (isConstructionPhotoNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsProjectNotFound(true);
+      } else {
+        setError(err instanceof Error ? err.message : 'データの取得に失敗しました');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -378,10 +407,12 @@ export default function ConstructionPhotoListPage() {
       // 削除失敗時はダイアログを閉じ、通常表示ツリーのエラーバナーで理由を提示する
       // （確認ダイアログが開いたままだと背後のバナーが視認できないため）
       setDeleteTarget(null);
+      // 削除の 404 は工事写真アルバムの不在〔範囲外を含む〕（Task 31.1）
       setError(
-        err instanceof ApiError
-          ? err.message || 'アルバムの削除に失敗しました'
-          : 'アルバムの削除に失敗しました'
+        getConstructionPhotoNotFoundMessage(err, 'album') ??
+          (err instanceof ApiError
+            ? err.message || 'アルバムの削除に失敗しました'
+            : 'アルバムの削除に失敗しました')
       );
     } finally {
       setIsDeletingAlbum(false);
@@ -415,6 +446,20 @@ export default function ConstructionPhotoListPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 31.1）。経路のプロジェクトが見つからない対象そのものであるため、
+  // 戻り先はプロジェクトの一覧とする
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={STYLES.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

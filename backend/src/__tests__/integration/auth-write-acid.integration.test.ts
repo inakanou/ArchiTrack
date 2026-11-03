@@ -27,12 +27,15 @@ validateEnv();
 
 import getPrismaClient from '../../db.js';
 import { AuthService } from '../../services/auth.service.js';
+import { hashInvitationToken } from '../../services/invitation.service.js';
 import { AuditLogService } from '../../services/audit-log.service.js';
 import { UserRoleService } from '../../services/user-role.service.js';
 import { RolePermissionService } from '../../services/role-permission.service.js';
 import { PasswordService } from '../../services/password.service.js';
 import { EmailService } from '../../services/email.service.js';
 import { seedRoles } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua356-acid';
 const DOCUMENTED_ISOLATION = 'read committed';
@@ -75,8 +78,8 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
       select: { id: true },
     });
     const roleIds = roles.map((r) => r.id);
-    await prisma.auditLog.deleteMany({
-      where: { OR: [{ actorId: { in: userIds } }, { targetId: { in: userIds } }] },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      OR: [{ actorId: { in: userIds } }, { targetId: { in: userIds } }],
     });
     await prisma.refreshToken.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.passwordResetToken.deleteMany({ where: { userId: { in: userIds } } });
@@ -98,20 +101,16 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
   beforeEach(async () => {
     await cleanup();
 
-    const actor = await prisma.user.create({
-      data: {
-        email: `${MARK}-actor@example.com`,
-        displayName: 'ACID Actor',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const actor = await createTestUser(prisma, {
+      email: `${MARK}-actor@example.com`,
+      displayName: 'ACID Actor',
+      passwordHash: 'not-used-in-this-test',
     });
     actorId = actor.id;
-    const target = await prisma.user.create({
-      data: {
-        email: `${MARK}-target@example.com`,
-        displayName: 'ACID Target',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const target = await createTestUser(prisma, {
+      email: `${MARK}-target@example.com`,
+      displayName: 'ACID Target',
+      passwordHash: 'not-used-in-this-test',
     });
     targetUserId = target.id;
 
@@ -237,7 +236,7 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
       await prisma.invitation.create({
         data: {
           email: `${MARK}-invitee@example.com`,
-          token,
+          tokenHash: hashInvitationToken(token),
           inviterId: actorId,
           expiresAt: new Date(Date.now() + 60 * 60 * 1000),
         },
@@ -302,7 +301,7 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
      * @requirement user-authentication/REQ-25.4
      */
     it('パスワードリセット要求（リセットトークンと監査ログ）は READ COMMITTED で書き込まれる', async () => {
-      const queue = { add: vi.fn().mockResolvedValue(undefined), process: vi.fn() };
+      const queue = { add: vi.fn().mockResolvedValue(undefined), process: vi.fn(), on: vi.fn() };
       const unusedTransporter = { sendMail: vi.fn() } as unknown as Transporter;
       const passwordService = new PasswordService(
         prisma,
@@ -445,19 +444,15 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
       });
       await prisma.userRole.deleteMany({ where: { roleId: adminRoleId } });
 
-      const adminX = await prisma.user.create({
-        data: {
-          email: `${MARK}-admin-x@example.com`,
-          displayName: 'ACID Admin X',
-          passwordHash: 'not-used-in-this-test',
-        },
+      const adminX = await createTestUser(prisma, {
+        email: `${MARK}-admin-x@example.com`,
+        displayName: 'ACID Admin X',
+        passwordHash: 'not-used-in-this-test',
       });
-      const adminY = await prisma.user.create({
-        data: {
-          email: `${MARK}-admin-y@example.com`,
-          displayName: 'ACID Admin Y',
-          passwordHash: 'not-used-in-this-test',
-        },
+      const adminY = await createTestUser(prisma, {
+        email: `${MARK}-admin-y@example.com`,
+        displayName: 'ACID Admin Y',
+        passwordHash: 'not-used-in-this-test',
       });
       adminXId = adminX.id;
       adminYId = adminY.id;
@@ -629,7 +624,7 @@ describe('認証系の書き込みの ACID 特性（統合）', () => {
       await waitUntilPausedOnAdvisory();
 
       // 後続: 管理者 Y のユーザーそのものを削除する
-      const contender = userRoleService.deleteUser(adminYId);
+      const contender = userRoleService.deleteUser(adminYId, adminXId);
       const contenderState = await settleOrBlock(contender);
 
       releasePause?.();

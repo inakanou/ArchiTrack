@@ -29,8 +29,8 @@ import {
   createTestEstimate,
   createTestExecutionBudget,
   createTestProject as createTestProjectViaApi,
-  getAccessTokenFromPage,
 } from '../execution-budget/helpers';
+import { getAccessToken } from '../../helpers/auth-api';
 
 test.describe('プロジェクト詳細画面 - 実行予算セクション', () => {
   test.describe.configure({ mode: 'serial' });
@@ -220,7 +220,7 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション（�
     page: Page,
     label: string
   ): Promise<SeededExecutionBudget> {
-    const token = await getAccessTokenFromPage(page);
+    const token = await getAccessToken(page, 'REGULAR_USER');
     const projectId = await createTestProjectViaApi(page.request, token, label);
     const estimateName = `${label}見積_${Date.now()}`;
     const estimateId = await createTestEstimate(page.request, token, projectId, estimateName);
@@ -325,7 +325,7 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション（�
   }) => {
     await loginAsUser(page, 'REGULAR_USER');
     const seeded = await seedProjectWithExecutionBudget(page, 'E2E実行予算API');
-    const token = await getAccessTokenFromPage(page);
+    const token = await getAccessToken(page, 'REGULAR_USER');
 
     const res = await page.request.get(
       `${API_BASE_URL}/api/projects/${seeded.projectId}/detail-summary`,

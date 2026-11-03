@@ -37,6 +37,10 @@
  * @requirement site-survey/REQ-31.4 エクスポート設定 UI
  * @requirement site-survey/REQ-31.5 設定確定 → 一括実行
  * @requirement site-survey/REQ-31.15 対象 0 件時の通知 + クローズ
+ *
+ * Requirements (site-survey):
+ * - 39.7: 一括 ZIP の生成を始める前に出力の記録を1回要求する（タスク119.2）
+ * - 39.8: 記録の失敗では生成を始めずエラーメッセージを表示する（タスク119.2）
  * @see .kiro/specs/site-survey/design.md `##### BulkExportDialog`
  */
 
@@ -50,6 +54,7 @@ import {
   type BulkExportService,
   type SurveyImageMetadata,
 } from '../../services/export/bulkExportService';
+import { runRecordedExport } from '../../api/export-audit';
 
 // ============================================================================
 // 型定義
@@ -88,6 +93,8 @@ export interface BulkExportDialogProps {
   mode: BulkExportDialogMode;
   /** 現場調査 ID（`BulkExportInput.surveyId` にそのまま渡す） */
   surveyId: string;
+  /** 現場調査が属するプロジェクトの ID（出力の記録の対象の案件。Requirement 39.7） */
+  projectId: string;
   /** 現場調査名（ZIP ファイル名 / 進捗ダイアログのヘッダ表示用） */
   surveyName: string;
   /**
@@ -203,6 +210,15 @@ const styles = {
     borderColor: '#6b7280',
     cursor: 'not-allowed',
   },
+  errorMessage: {
+    margin: '16px 0 0 0',
+    padding: '8px 12px',
+    fontSize: '13px',
+    color: '#b91c1c', // WCAG 2.1 AA 準拠 (6.5:1 on #fef2f2)
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '6px',
+  },
 };
 
 // ============================================================================
@@ -228,6 +244,7 @@ const BulkExportDialog: React.FC<BulkExportDialogProps> = ({
   open,
   mode,
   surveyId,
+  projectId,
   surveyName,
   images,
   onClose,
@@ -240,6 +257,10 @@ const BulkExportDialog: React.FC<BulkExportDialogProps> = ({
 
   // フォーム設定 state（ExportSettingsForm に渡す）
   const [settings, setSettings] = useState<ExportSettings>(DEFAULT_SETTINGS);
+  // 出力の記録の要求中（開始ボタンの二重押下を防ぐ。Requirement 39.7）
+  const [isRecording, setIsRecording] = useState(false);
+  // 出力の記録の失敗のエラーメッセージ（Requirement 39.8）
+  const [recordError, setRecordError] = useState<string | null>(null);
 
   // 対象 0 件時のクローズ通知（要件 31.15）
   //
@@ -270,8 +291,13 @@ const BulkExportDialog: React.FC<BulkExportDialogProps> = ({
   const titleText =
     mode === 'all' ? '全件一括エクスポート' : `${images.length} 件選択画像エクスポート`;
 
-  // 開始ボタン押下: AbortController を生成し execute を起動、onStart に引き継ぐ
-  const handleStart = () => {
+  // 開始ボタン押下: 出力の記録が成功した後に AbortController を生成し execute を起動、
+  // onStart に引き継ぐ。記録の失敗では execute を呼ばず、ダイアログに留まって
+  // エラーメッセージを表示する（Requirement 39.7, 39.8）
+  const handleStart = async () => {
+    if (isRecording) {
+      return;
+    }
     // 対象 0 件は useEffect で処理済みのため、この時点で images.length > 0 が保証される。
     // 念のため二重防御として明示的に検査する。
     if (images.length === 0) {
@@ -294,9 +320,34 @@ const BulkExportDialog: React.FC<BulkExportDialogProps> = ({
       }
     };
 
-    const promise = service.execute(input, onProgressBridge, controller.signal);
+    // 生成の開始。execute の完了は待たず（進捗ダイアログが待つ）、開始した promise を返す
+    const startGeneration = async () => ({
+      promise: service.execute(input, onProgressBridge, controller.signal),
+    });
 
-    onStart({ promise, controller, surveyName });
+    setIsRecording(true);
+    setRecordError(null);
+    const result = await runRecordedExport(
+      {
+        kind: 'site_survey_images_zip',
+        projectId,
+        targetIds: images.map((image) => image.id),
+        itemCount: images.length,
+      },
+      startGeneration
+    );
+    setIsRecording(false);
+
+    if (!result.ok) {
+      setRecordError(
+        result.error.type === 'RECORD_FAILED'
+          ? result.error.message
+          : '一括エクスポートを開始できませんでした。再度お試しください。'
+      );
+      return;
+    }
+
+    onStart({ promise: result.value.promise, controller, surveyName });
     onClose();
   };
 
@@ -313,7 +364,12 @@ const BulkExportDialog: React.FC<BulkExportDialogProps> = ({
 
         {/* コンテンツ */}
         <div style={styles.content}>
-          <ExportSettingsForm value={settings} onChange={setSettings} />
+          <ExportSettingsForm value={settings} onChange={setSettings} disabled={isRecording} />
+          {recordError && (
+            <p role="alert" style={styles.errorMessage}>
+              {recordError}
+            </p>
+          )}
         </div>
 
         {/* フッター */}
@@ -321,14 +377,23 @@ const BulkExportDialog: React.FC<BulkExportDialogProps> = ({
           <button
             type="button"
             onClick={onClose}
+            // 出力の記録の要求中は閉じない（記録の後に生成が始まり、閉じた画面の外で進むため）
+            disabled={isRecording}
             style={{ ...styles.button, ...styles.cancelButton }}
           >
             キャンセル
           </button>
           <button
             type="button"
-            onClick={handleStart}
-            style={{ ...styles.button, ...styles.primaryButton }}
+            onClick={() => {
+              void handleStart();
+            }}
+            disabled={isRecording}
+            style={{
+              ...styles.button,
+              ...styles.primaryButton,
+              ...(isRecording ? styles.primaryButtonDisabled : {}),
+            }}
           >
             開始
           </button>

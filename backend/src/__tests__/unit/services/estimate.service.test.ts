@@ -40,6 +40,7 @@ import {
   EstimateConflictError,
   DuplicateEstimateNameError,
   ItemizedStatementNotFoundForEstimateError,
+  EstimateDraftValidationError,
 } from '../../../errors/estimateError.js';
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
 
@@ -317,6 +318,175 @@ describe('EstimateService', () => {
       await expect(service.create(input, actorId)).rejects.toThrow(
         ItemizedStatementNotFoundForEstimateError
       );
+    });
+
+    describe('作成先のプロジェクトに属さない内訳書（Requirement 57.4、タスク62.1）', () => {
+      const actorId = 'user-001';
+      const input = {
+        projectId: 'proj-001',
+        name: 'テスト見積書',
+        sourceItemizedStatementId: 'is-foreign',
+      };
+      const context = {
+        requestId: 'req-1',
+        method: 'POST',
+        path: '/api/projects/proj-001/estimates',
+        ipAddress: '127.0.0.1',
+        userAgent: 'vitest',
+      };
+
+      function arrange(
+        statementProjectId = 'proj-other',
+        deletedAt: Date | null = null
+      ): { estimateCreate: ReturnType<typeof vi.fn> } {
+        const estimateCreate = vi.fn();
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            project: {
+              findUnique: vi
+                .fn()
+                .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+            },
+            itemizedStatement: {
+              findUnique: vi.fn().mockResolvedValue({
+                id: 'is-foreign',
+                name: '他の案件の内訳書',
+                projectId: statementProjectId,
+                deletedAt,
+                items: [],
+              }),
+            },
+            estimate: { count: vi.fn().mockResolvedValue(0), create: estimateCreate },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+        return { estimateCreate };
+      }
+
+      /**
+       * 論理削除済みの内訳書の行は、所属の照合を論理削除の確かめより先に置くため、論理削除済みでない
+       * 内訳書と同じく内訳書の案件を判定し、範囲外のときだけ記録する（Requirement 57.10。
+       * design.md の「2026-10-30 の追加」章の「決定」の「内訳書の照合の順」の (2)、タスク65.1）。
+       *
+       * @requirement estimate-creation/REQ-57.10
+       */
+      it.each([
+        ['範囲外（案件は実在する）', 'out_of_scope', 1, null],
+        ['範囲内の他のプロジェクト', 'allowed', 0, null],
+        ['案件の不在・論理削除', 'not_found', 0, null],
+        ['範囲外（案件は実在する）の論理削除済み', 'out_of_scope', 1, new Date('2026-10-01')],
+        ['範囲内の他のプロジェクトの論理削除済み', 'allowed', 0, new Date('2026-10-01')],
+        ['案件の不在・論理削除の論理削除済み', 'not_found', 0, new Date('2026-10-01')],
+      ] as const)(
+        '%s の内訳書は内訳書の不在と同じ例外にして見積書を作らず、範囲外のときだけ PROJECT_SCOPE_DENIED を記録する',
+        async (_label, decision, recorded, deletedAt) => {
+          const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue(decision) };
+          service = new EstimateService({
+            prisma: mockPrisma,
+            auditLogService: mockAuditLogService,
+            projectScope,
+          });
+          const { estimateCreate } = arrange('proj-other', deletedAt);
+
+          await expect(service.create(input, actorId, context)).rejects.toThrow(
+            ItemizedStatementNotFoundForEstimateError
+          );
+
+          expect(estimateCreate).not.toHaveBeenCalled();
+          expect(projectScope.evaluateProjectAccess).toHaveBeenCalledWith(actorId, 'proj-other');
+          const denials = vi
+            .mocked(mockAuditLogService.createLog)
+            .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+          expect(denials).toHaveLength(recorded);
+          if (recorded === 1) {
+            expect(denials[0]?.[0]).toMatchObject({
+              actorId,
+              targetType: 'Project',
+              targetId: 'proj-other',
+              metadata: { requestId: 'req-1', method: 'POST', path: context.path },
+            });
+          }
+        }
+      );
+
+      it('作成先のプロジェクトの内訳書は範囲を判定せずに見積書を作る', async () => {
+        const projectScope = { evaluateProjectAccess: vi.fn() };
+        service = new EstimateService({
+          prisma: mockPrisma,
+          auditLogService: mockAuditLogService,
+          projectScope,
+        });
+        const created = {
+          id: 'est-001',
+          projectId: 'proj-001',
+          name: 'テスト見積書',
+          sourceItemizedStatementId: 'is-own',
+          sourceItemizedStatementName: '自案件の内訳書',
+          createdAt: new Date('2026-02-03T00:00:00Z'),
+          updatedAt: new Date('2026-02-03T00:00:00Z'),
+          deletedAt: null,
+        };
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+          const txClient = {
+            project: {
+              findUnique: vi
+                .fn()
+                .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+            },
+            itemizedStatement: {
+              findUnique: vi.fn().mockResolvedValue({
+                id: 'is-own',
+                name: '自案件の内訳書',
+                projectId: 'proj-001',
+                deletedAt: null,
+                items: [],
+              }),
+            },
+            estimate: {
+              count: vi.fn().mockResolvedValue(0),
+              create: vi.fn().mockResolvedValue(created),
+            },
+          };
+          return fn(txClient as unknown as PrismaClient);
+        });
+
+        const result = await service.create(
+          { ...input, sourceItemizedStatementId: 'is-own' },
+          actorId,
+          context
+        );
+
+        expect(result.sourceItemizedStatementId).toBe('is-own');
+        expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+      });
+
+      /**
+       * 作成先のプロジェクトに属する論理削除済みの内訳書は、不在と同じ例外で拒み、範囲を判定せず
+       * 記録しない（Requirement 57.10 の後段。design.md の「2026-10-30 の追加」章の「決定」の
+       * 「内訳書の照合の順」の (3)、タスク65.1）。
+       *
+       * @requirement estimate-creation/REQ-57.10
+       */
+      it('作成先のプロジェクトの論理削除済みの内訳書は範囲を判定も記録もせず、内訳書の不在と同じ例外にして見積書を作らない', async () => {
+        const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue('out_of_scope') };
+        service = new EstimateService({
+          prisma: mockPrisma,
+          auditLogService: mockAuditLogService,
+          projectScope,
+        });
+        const { estimateCreate } = arrange('proj-001', new Date('2026-10-01'));
+
+        await expect(
+          service.create({ ...input, sourceItemizedStatementId: 'is-own' }, actorId, context)
+        ).rejects.toThrow(ItemizedStatementNotFoundForEstimateError);
+
+        expect(projectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+        expect(estimateCreate).not.toHaveBeenCalled();
+        const denials = vi
+          .mocked(mockAuditLogService.createLog)
+          .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+        expect(denials).toHaveLength(0);
+      });
     });
 
     it('同名の見積書が既に存在する場合、エラーを発生させる', async () => {
@@ -684,6 +854,451 @@ describe('EstimateService', () => {
     });
   });
 
+  /**
+   * 内訳書から作る見積項目の数の上限（Requirement 3.6、タスク69.1。design.md の「2026-11-01 の追加」章の
+   * 「決定」の「内訳書からの作成の件数の上限」）。上限は一括保存の総数の上限（42.10、2000）と同じで、
+   * 超えたら一括保存と同じ例外（422、`path` `items`、ITEMS_TOO_MANY）で拒み、何も書かない。判定は
+   * 内訳書の照合（57.4・57.10 の 404）の後、同名の見積書の確かめ（409）の前に置く。
+   *
+   * @requirement estimate-creation/REQ-3.6
+   */
+  describe('内訳書から作る見積項目の数の上限（Requirement 3.6、タスク69.1）', () => {
+    const actorId = 'user-001';
+    const ITEMS_TOO_MANY = '見積明細は合計2000件以内で保存してください';
+    const context = {
+      requestId: 'req-limit',
+      method: 'POST',
+      path: '/api/projects/proj-001/estimates',
+      ipAddress: '127.0.0.1',
+      userAgent: 'vitest',
+    };
+
+    const statementItems = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: `isi-${index}`,
+        customCategory: null,
+        workType: '工種',
+        name: `項目${index}`,
+        specification: null,
+        unit: 'm',
+        quantity: 1,
+        displayOrder: index,
+      }));
+
+    function arrange(options: {
+      itemCount: number;
+      statementProjectId?: string;
+      deletedAt?: Date | null;
+      duplicateCount?: number;
+    }) {
+      const estimateCount = vi.fn().mockResolvedValue(options.duplicateCount ?? 0);
+      const estimateCreate = vi.fn().mockResolvedValue({
+        id: 'est-limit',
+        projectId: 'proj-001',
+        name: '上限検証見積書',
+        sourceItemizedStatementId: 'is-limit',
+        sourceItemizedStatementName: '上限検証内訳書',
+        createdAt: new Date('2026-11-01T00:00:00Z'),
+        updatedAt: new Date('2026-11-01T00:00:00Z'),
+        deletedAt: null,
+      });
+      const estimateItemCreateMany = vi.fn().mockImplementation(({ data }) => ({
+        count: data.length,
+      }));
+      const estimateItemFindMany = vi.fn().mockImplementation(async () =>
+        Array.from({ length: options.itemCount }, (_, index) => ({
+          id: `ei-${index}`,
+          estimateId: 'est-limit',
+          displayOrder: index,
+        }))
+      );
+      const estimateItemLineCreateMany = vi.fn().mockImplementation(({ data }) => ({
+        count: data.length,
+      }));
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          project: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+          },
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'is-limit',
+              name: '上限検証内訳書',
+              projectId: options.statementProjectId ?? 'proj-001',
+              deletedAt: options.deletedAt ?? null,
+              items: statementItems(options.itemCount),
+            }),
+          },
+          estimate: { count: estimateCount, create: estimateCreate },
+          estimateItem: { createMany: estimateItemCreateMany, findMany: estimateItemFindMany },
+          estimateItemLine: { createMany: estimateItemLineCreateMany },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+      return {
+        estimateCount,
+        estimateCreate,
+        estimateItemCreateMany,
+        estimateItemLineCreateMany,
+      };
+    }
+
+    const input = {
+      projectId: 'proj-001',
+      name: '上限検証見積書',
+      sourceItemizedStatementId: 'is-limit',
+    };
+
+    it('項目が 2001 件の内訳書からの作成は一括保存と同じ 422 の例外で拒み、見積書・見積項目・監査ログを書かない', async () => {
+      const { estimateCount, estimateCreate, estimateItemCreateMany, estimateItemLineCreateMany } =
+        arrange({ itemCount: 2001 });
+
+      const error = await service.create(input, actorId).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(EstimateDraftValidationError);
+      expect(error).toMatchObject({
+        statusCode: 422,
+        code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+        message: '見積明細の入力内容に不備があるため保存できません',
+        details: { issues: [{ path: 'items', message: ITEMS_TOO_MANY }] },
+      });
+      expect((error as EstimateDraftValidationError).issues).toEqual([
+        { path: 'items', message: ITEMS_TOO_MANY },
+      ]);
+      expect(estimateCount).not.toHaveBeenCalled();
+      expect(estimateCreate).not.toHaveBeenCalled();
+      expect(estimateItemCreateMany).not.toHaveBeenCalled();
+      expect(estimateItemLineCreateMany).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('項目がちょうど 2000 件の内訳書からは従来どおり見積書と見積項目 2000 件・行 6000 行を作る', async () => {
+      const { estimateCreate, estimateItemCreateMany, estimateItemLineCreateMany } = arrange({
+        itemCount: 2000,
+      });
+
+      const result = await service.create(input, actorId);
+
+      expect(result.itemCount).toBe(2000);
+      expect(estimateCreate).toHaveBeenCalledTimes(1);
+      expect(estimateItemCreateMany.mock.calls[0]?.[0].data).toHaveLength(2000);
+      expect(estimateItemLineCreateMany.mock.calls[0]?.[0].data).toHaveLength(6000);
+      const created = vi
+        .mocked(mockAuditLogService.createLog)
+        .mock.calls.filter(([log]) => log.action === 'ESTIMATE_CREATED');
+      expect(created).toHaveLength(1);
+    });
+
+    it('項目が 2001 件で同名の見積書があっても、同名の 409 より先に件数の上限の 422 で拒む', async () => {
+      const { estimateCount, estimateCreate } = arrange({ itemCount: 2001, duplicateCount: 1 });
+
+      const error = await service.create(input, actorId).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(EstimateDraftValidationError);
+      expect(error).not.toBeInstanceOf(DuplicateEstimateNameError);
+      expect(estimateCount).not.toHaveBeenCalled();
+      expect(estimateCreate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['範囲外の他のプロジェクトの内訳書', 'proj-other', null, 'out_of_scope', 1],
+      ['範囲内の他のプロジェクトの内訳書', 'proj-other', null, 'allowed', 0],
+      [
+        '範囲外の他のプロジェクトの論理削除済みの内訳書',
+        'proj-other',
+        new Date('2026-10-01'),
+        'out_of_scope',
+        1,
+      ],
+      [
+        '作成先のプロジェクトの論理削除済みの内訳書',
+        'proj-001',
+        new Date('2026-10-01'),
+        'out_of_scope',
+        0,
+      ],
+    ] as const)(
+      '項目が 2001 件でも %s は件数の上限を判定せず従来の内訳書の不在（404）にし、範囲外の記録は従来どおり',
+      async (_label, statementProjectId, deletedAt, decision, recorded) => {
+        const projectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue(decision) };
+        service = new EstimateService({
+          prisma: mockPrisma,
+          auditLogService: mockAuditLogService,
+          projectScope,
+        });
+        const { estimateCreate } = arrange({ itemCount: 2001, statementProjectId, deletedAt });
+
+        const error = await service
+          .create(input, actorId, context)
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ItemizedStatementNotFoundForEstimateError);
+        expect(error).not.toBeInstanceOf(EstimateDraftValidationError);
+        expect(estimateCreate).not.toHaveBeenCalled();
+        const denials = vi
+          .mocked(mockAuditLogService.createLog)
+          .mock.calls.filter(([log]) => log.action === 'PROJECT_SCOPE_DENIED');
+        expect(denials).toHaveLength(recorded);
+        if (recorded === 1) {
+          expect(denials[0]?.[0]).toMatchObject({
+            actorId,
+            targetType: 'Project',
+            targetId: 'proj-other',
+            metadata: { requestId: 'req-limit', method: 'POST', path: context.path },
+          });
+        }
+      }
+    );
+  });
+
+  /**
+   * 作成のトランザクションの制限時間（タスク69.3、利用者の判断 2026-11-01「保存と同じ 15 秒にする」）。
+   * 上限ちょうど（2000 件）の内訳書からの作成は統合の実測で 2.8〜4.0 秒、負荷の高い時に一度 9738 ms で
+   * 500 になったため、一括保存と同じ制限時間を明示する。期待値をリテラルで書くのは意図的
+   * （定数をそのまま突き合わせると、定数を書き換えてもテストが緑のままになる。タスク57.6 と同じ形）。
+   */
+  describe('作成のトランザクションの制限時間（タスク69.3）', () => {
+    const EXPECTED_TIMEOUT_MS = 15000;
+    const EXPECTED_MAX_WAIT_MS = 5000;
+    const actorId = 'user-001';
+    const createdEstimate = {
+      id: 'est-timeout',
+      projectId: 'proj-001',
+      name: '制限時間検証見積書',
+      sourceItemizedStatementId: null,
+      sourceItemizedStatementName: null,
+      createdAt: new Date('2026-11-01T00:00:00Z'),
+      updatedAt: new Date('2026-11-01T00:00:00Z'),
+      deletedAt: null,
+    };
+
+    /** 作成のトランザクションの本体を、内訳書の項目を `itemCount` 件として通す */
+    function arrangeTransaction(itemCount: number) {
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          project: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+          },
+          itemizedStatement: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'is-timeout',
+              name: '制限時間検証内訳書',
+              projectId: 'proj-001',
+              deletedAt: null,
+              items: Array.from({ length: itemCount }, (_, index) => ({
+                id: `isi-${index}`,
+                customCategory: null,
+                workType: '工種',
+                name: `項目${index}`,
+                specification: null,
+                unit: 'm',
+                quantity: 1,
+                displayOrder: index,
+              })),
+            }),
+          },
+          estimate: {
+            count: vi.fn().mockResolvedValue(0),
+            create: vi.fn().mockResolvedValue(createdEstimate),
+          },
+          estimateItem: {
+            createMany: vi.fn().mockResolvedValue({ count: itemCount }),
+            findMany: vi.fn().mockResolvedValue(
+              Array.from({ length: itemCount }, (_, index) => ({
+                id: `ei-${index}`,
+                estimateId: 'est-timeout',
+                displayOrder: index,
+              }))
+            ),
+          },
+          estimateItemLine: {
+            createMany: vi.fn().mockResolvedValue({ count: itemCount * 3 }),
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+    }
+
+    it('内訳書からの作成は $transaction へ一括保存と同じ timeout と maxWait を明示して渡す', async () => {
+      arrangeTransaction(3);
+
+      const result = await service.create(
+        {
+          projectId: 'proj-001',
+          name: '制限時間検証見積書',
+          sourceItemizedStatementId: 'is-timeout',
+        },
+        actorId
+      );
+
+      expect(result.itemCount).toBe(3);
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(mockPrisma.$transaction).mock.calls[0]?.[1]).toEqual({
+        timeout: EXPECTED_TIMEOUT_MS,
+        maxWait: EXPECTED_MAX_WAIT_MS,
+      });
+    });
+
+    it('内訳書を選ばない作成も $transaction へ同じ timeout と maxWait を明示して渡す', async () => {
+      arrangeTransaction(0);
+
+      const result = await service.create(
+        { projectId: 'proj-001', name: '制限時間検証見積書' },
+        actorId
+      );
+
+      expect(result.id).toBe('est-timeout');
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(mockPrisma.$transaction).mock.calls[0]?.[1]).toEqual({
+        timeout: EXPECTED_TIMEOUT_MS,
+        maxWait: EXPECTED_MAX_WAIT_MS,
+      });
+    });
+  });
+
+  describe('監査ログをトランザクションの中で書く（タスク70.1）', () => {
+    // 作成・更新・論理削除の監査ログは、$transaction のコールバックが受けるトランザクションの
+    // クライアントを createLog の第 2 引数に渡して書く。渡さないとトランザクションの外の接続で
+    // 書かれ、巻き戻った操作の監査ログだけが残る（受入基準 11.8。巻き戻しの実際は統合テストで確かめる）
+    const actorId = 'user-001';
+    const createdEstimate = {
+      id: 'est-tx',
+      projectId: 'proj-001',
+      name: '監査ログ検証見積書',
+      sourceItemizedStatementId: null,
+      sourceItemizedStatementName: null,
+      createdAt: new Date('2026-11-01T00:00:00Z'),
+      updatedAt: new Date('2026-11-01T00:00:00Z'),
+      deletedAt: null,
+    };
+
+    /** `$transaction` がコールバックへ渡すクライアントを捕まえる */
+    function captureTransactionClient(txClient: Record<string, unknown>): { current: unknown } {
+      const captured: { current: unknown } = { current: undefined };
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        captured.current = txClient;
+        return fn(txClient as unknown as PrismaClient);
+      });
+      return captured;
+    }
+
+    function secondArgumentOfCreateLog(): unknown {
+      expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+      return vi.mocked(mockAuditLogService.createLog).mock.calls[0]?.[1];
+    }
+
+    it('内訳書からの作成は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const captured = captureTransactionClient({
+        project: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+        },
+        itemizedStatement: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'is-tx',
+            name: '監査ログ検証内訳書',
+            projectId: 'proj-001',
+            deletedAt: null,
+            items: [
+              {
+                id: 'isi-0',
+                customCategory: null,
+                workType: '工種',
+                name: '項目0',
+                specification: null,
+                unit: 'm',
+                quantity: 1,
+                displayOrder: 0,
+              },
+            ],
+          }),
+        },
+        estimate: {
+          count: vi.fn().mockResolvedValue(0),
+          create: vi.fn().mockResolvedValue({
+            ...createdEstimate,
+            sourceItemizedStatementId: 'is-tx',
+            sourceItemizedStatementName: '監査ログ検証内訳書',
+          }),
+        },
+        estimateItem: {
+          createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          findMany: vi
+            .fn()
+            .mockResolvedValue([{ id: 'ei-0', estimateId: 'est-tx', displayOrder: 0 }]),
+        },
+        estimateItemLine: {
+          createMany: vi.fn().mockResolvedValue({ count: 3 }),
+        },
+      });
+
+      await service.create(
+        { projectId: 'proj-001', name: '監査ログ検証見積書', sourceItemizedStatementId: 'is-tx' },
+        actorId
+      );
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('内訳書を選ばない作成は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const captured = captureTransactionClient({
+        project: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValue({ id: 'proj-001', name: 'テストプロジェクト', deletedAt: null }),
+        },
+        estimate: {
+          count: vi.fn().mockResolvedValue(0),
+          create: vi.fn().mockResolvedValue(createdEstimate),
+        },
+      });
+
+      await service.create({ projectId: 'proj-001', name: '監査ログ検証見積書' }, actorId);
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('更新は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const expectedUpdatedAt = new Date('2026-11-01T00:00:00Z');
+      const captured = captureTransactionClient({
+        estimate: {
+          findUnique: vi.fn().mockResolvedValue({ ...createdEstimate, name: '旧名' }),
+          count: vi.fn().mockResolvedValue(0),
+          update: vi
+            .fn()
+            .mockResolvedValue({ ...createdEstimate, name: '新名', _count: { items: 0 } }),
+        },
+      });
+
+      await service.update('est-tx', { name: '新名' }, actorId, expectedUpdatedAt);
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+
+    it('論理削除は createLog の第 2 引数にトランザクションのクライアントを渡す', async () => {
+      const expectedUpdatedAt = new Date('2026-11-01T00:00:00Z');
+      const captured = captureTransactionClient({
+        estimate: {
+          findUnique: vi.fn().mockResolvedValue(createdEstimate),
+          update: vi.fn().mockResolvedValue({ ...createdEstimate, deletedAt: new Date() }),
+        },
+      });
+
+      await service.delete('est-tx', actorId, expectedUpdatedAt);
+
+      expect(captured.current).toBeDefined();
+      expect(secondArgumentOfCreateLog()).toBe(captured.current);
+    });
+  });
+
   describe('create - エッジケース', () => {
     it('削除済みプロジェクトへの見積書作成時、エラーを発生させる', async () => {
       // Arrange
@@ -730,6 +1345,7 @@ describe('EstimateService', () => {
       const mockDeletedItemizedStatement = {
         id: 'is-deleted',
         name: 'テスト内訳書',
+        projectId: 'proj-001', // 作成先のプロジェクトの論理削除済みの内訳書（タスク65.1）
         deletedAt: new Date(), // 削除済み
         items: [],
       };

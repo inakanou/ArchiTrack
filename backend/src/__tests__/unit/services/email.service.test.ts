@@ -12,6 +12,8 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EmailService } from '../../../services/email.service.js';
 import type { Queue } from 'bull';
 import type { Transporter } from 'nodemailer';
+import logger from '../../../utils/logger.js';
+import { captureException } from '../../../utils/sentry.js';
 
 // nodemailerのモック
 vi.mock('nodemailer', () => ({
@@ -23,6 +25,11 @@ vi.mock('nodemailer', () => ({
 // bullのモック
 vi.mock('bull', () => ({
   default: vi.fn(),
+}));
+
+// Sentry 送信のモック（送った内容を観測する）
+vi.mock('../../../utils/sentry.js', () => ({
+  captureException: vi.fn(),
 }));
 
 // fsのモック
@@ -52,6 +59,7 @@ describe('EmailService', () => {
     mockQueue = {
       add: vi.fn().mockResolvedValue({ id: 'test-job-id' }),
       process: vi.fn(),
+      on: vi.fn(),
     };
 
     // EmailServiceのインスタンス作成（モックを注入）
@@ -160,72 +168,23 @@ describe('EmailService', () => {
     });
   });
 
-  describe('sendAdminRoleChangedAlert', () => {
+  describe('sendAdminNotificationEmail', () => {
     /**
      * @requirement user-authentication/REQ-24.3: メール送信をキューに保存し、初回に続けて最大5回まで再送する戦略で投入する
      */
-    it('システム管理者ロール変更アラートメールをキューに追加する', async () => {
-      const adminEmails = ['admin1@example.com', 'admin2@example.com'];
-      const targetUser = {
-        email: 'user@example.com',
-        displayName: 'Test User',
-      };
-      const action = 'assigned' as const;
-      const roleName = 'System Administrator';
-      const performedBy = {
-        email: 'superadmin@example.com',
-        displayName: 'Super Admin',
-      };
+    it('システム管理者への通知メールを宛先ごとのジョブとしてキューに追加する', async () => {
+      const lines = ['対象: 対象 太郎 (target@example.com)', '理由: 退職'];
 
-      await emailService.sendAdminRoleChangedAlert(
-        adminEmails,
-        targetUser,
-        action,
-        roleName,
-        performedBy
-      );
+      await emailService.sendAdminNotificationEmail('admin1@example.com', '件名', lines);
 
       expect(mockQueue.add).toHaveBeenCalledWith(
-        'admin-role-changed-alert',
-        {
-          adminEmails,
-          targetUser,
-          action,
-          roleName,
-          performedBy,
-        },
+        'admin-notification-email',
+        { to: 'admin1@example.com', subject: '件名', lines },
         expect.objectContaining({
           attempts: 6,
           backoff: { type: 'email-retry-schedule' },
         })
       );
-    });
-
-    it('複数の管理者にアラートメールを送信する', async () => {
-      const adminEmails = ['admin1@example.com', 'admin2@example.com', 'admin3@example.com'];
-      const targetUser = {
-        email: 'user@example.com',
-        displayName: 'Test User',
-      };
-      const action = 'revoked' as const;
-      const roleName = 'System Administrator';
-      const performedBy = {
-        email: 'superadmin@example.com',
-        displayName: 'Super Admin',
-      };
-
-      await emailService.sendAdminRoleChangedAlert(
-        adminEmails,
-        targetUser,
-        action,
-        roleName,
-        performedBy
-      );
-
-      expect(mockQueue.add).toHaveBeenCalled();
-      const callArgs = (mockQueue.add as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(callArgs).toBeDefined();
-      expect(callArgs![1].adminEmails).toHaveLength(3);
     });
   });
 
@@ -236,10 +195,10 @@ describe('EmailService', () => {
     const createQueueSettings = async () => {
       const Bull = (await import('bull')).default as unknown as ReturnType<typeof vi.fn>;
       Bull.mockImplementation(function () {
-        return { add: vi.fn(), process: vi.fn() };
+        return { add: vi.fn(), process: vi.fn(), on: vi.fn() };
       });
       new EmailService();
-      const options = Bull.mock.calls[0]?.[1] as {
+      const options = Bull.mock.calls[0]?.at(-1) as {
         settings?: {
           backoffStrategies?: Record<string, (attemptsMade: number, err: Error) => number>;
         };
@@ -280,6 +239,411 @@ describe('EmailService', () => {
 
       expect(strategy).toBeTypeOf('function');
       expect(strategy!(attemptsMade, new Error('SMTP timeout'))).toBe(expectedDelay);
+    });
+  });
+
+  describe('キューの接続とジョブの後始末（要件45）', () => {
+    type QueueHandler = (...args: unknown[]) => unknown;
+
+    /**
+     * 本番の経路（依存を注入しない生成）で Bull キューを作り、生成の引数と登録されたイベントの受け手を取り出す
+     */
+    const createProductionQueue = async () => {
+      const Bull = (await import('bull')).default as unknown as ReturnType<typeof vi.fn>;
+      const handlers: Record<string, QueueHandler> = {};
+      Bull.mockImplementation(function () {
+        return {
+          add: vi.fn(),
+          process: vi.fn(),
+          on: vi.fn((event: string, handler: QueueHandler) => {
+            handlers[event] = handler;
+          }),
+        };
+      });
+      new EmailService();
+      return { args: Bull.mock.calls.at(-1) ?? [], handlers };
+    };
+
+    /**
+     * キューを注入して EmailService を作り、そのキューに登録されたイベントの受け手を取り出す
+     */
+    const handlersOf = (queue: Partial<Queue>): Record<string, QueueHandler> => {
+      const on = queue.on as ReturnType<typeof vi.fn>;
+      on.mockClear();
+      new EmailService(mockTransporter as Transporter, queue as Queue);
+      const handlers: Record<string, QueueHandler> = {};
+      for (const [event, handler] of on.mock.calls) {
+        handlers[event as string] = handler as QueueHandler;
+      }
+      return handlers;
+    };
+
+    const failedJob = (overrides: Record<string, unknown> = {}) => ({
+      id: 'job-1',
+      name: 'password-reset-email',
+      data: { to: 'victim@corp.example.com', resetToken: 'secret-reset-token-xyz' },
+      opts: { attempts: 6 },
+      attemptsMade: 6,
+      // 失敗の集合にある（最終の失敗）。再試行の待ちのジョブは遅延の集合にあり false
+      isFailed: vi.fn().mockResolvedValue(true),
+      remove: vi.fn().mockResolvedValue(undefined),
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      vi.stubEnv('REDIS_HOST', 'legacy-redis-host');
+      vi.stubEnv('REDIS_PORT', '6390');
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.1: メールキューへキャッシュ基盤と同じ接続情報（認証情報を含む）で接続する
+     */
+    it('メールキューをキャッシュ基盤と同じ REDIS_URL（認証情報と論理 DB を含む）で接続し、REDIS_HOST・REDIS_PORT を使わない', async () => {
+      vi.stubEnv('REDIS_URL', 'redis://default:s3cret@cache.internal:6385/2');
+
+      const { args } = await createProductionQueue();
+
+      expect(args[0]).toBe('email-queue');
+      expect(args[1]).toBe('redis://default:s3cret@cache.internal:6385/2');
+      expect(JSON.stringify(args[2] ?? {})).not.toContain('legacy-redis-host');
+      expect(JSON.stringify(args[2] ?? {})).not.toContain('6390');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.1: TLS の接続先（rediss）でも同じ接続情報で接続する
+     */
+    it('接続先が rediss のときは TLS で接続する', async () => {
+      vi.stubEnv('REDIS_URL', 'rediss://default:s3cret@cache.internal:6385');
+
+      const { args } = await createProductionQueue();
+
+      expect(args[1]).toBe('rediss://default:s3cret@cache.internal:6385');
+      expect(args[2]).toEqual(expect.objectContaining({ redis: { tls: {} } }));
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.2: 送信が完了したジョブ（宛先とトークンを含む）を消す
+     */
+    it('ジョブの既定で、完了したジョブを消す', async () => {
+      vi.stubEnv('REDIS_URL', 'redis://cache.internal:6379');
+
+      const { args } = await createProductionQueue();
+
+      expect(args[2]).toEqual(
+        expect.objectContaining({
+          defaultJobOptions: expect.objectContaining({ removeOnComplete: true }),
+        })
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.3: 再試行の上限で失敗したジョブを、トークンを含まない形で記録してから消す
+     */
+    it('最終の試行の失敗で、種別・宛先のドメイン・理由だけを記録して Sentry へ送り、ジョブを消す', async () => {
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+      const job = failedJob();
+      const error = new Error(
+        'SMTP rejected https://app.example.com/password-reset?token=secret-reset-token-xyz for victim@corp.example.com'
+      );
+
+      await handlers.failed!(job, error);
+
+      expect(job.remove).toHaveBeenCalledTimes(1);
+      expect(errorLog).toHaveBeenCalledTimes(1);
+      const [record] = errorLog.mock.calls[0]!;
+      expect(record).toEqual(
+        expect.objectContaining({
+          jobType: 'password-reset-email',
+          recipientDomains: ['corp.example.com'],
+          attemptsMade: 6,
+        })
+      );
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain('secret-reset-token-xyz');
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain('victim@corp.example.com');
+
+      expect(captureException).toHaveBeenCalledTimes(1);
+      const [sentError, context] = vi.mocked(captureException).mock.calls[0]!;
+      expect(context).toEqual(
+        expect.objectContaining({
+          jobType: 'password-reset-email',
+          recipientDomains: ['corp.example.com'],
+        })
+      );
+      const sent = JSON.stringify({ message: sentError.message, stack: sentError.stack, context });
+      expect(sent).not.toContain('secret-reset-token-xyz');
+      expect(sent).not.toContain('victim@corp.example.com');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.3: 招待のトークンも失敗の記録に含めない
+     */
+    it('招待メールの最終の失敗でも招待のトークンを記録に含めない', async () => {
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+      const job = failedJob({
+        name: 'invitation-email',
+        data: { to: 'invitee@partner.example.org', invitationToken: 'secret-invite-token-abc' },
+      });
+
+      await handlers.failed!(job, new Error('Invalid token secret-invite-token-abc'));
+
+      expect(job.remove).toHaveBeenCalledTimes(1);
+      expect(errorLog.mock.calls[0]![0]).toEqual(
+        expect.objectContaining({
+          jobType: 'invitation-email',
+          recipientDomains: ['partner.example.org'],
+        })
+      );
+      const recorded = JSON.stringify([
+        errorLog.mock.calls,
+        vi.mocked(captureException).mock.calls,
+      ]);
+      expect(recorded).not.toContain('secret-invite-token-abc');
+      expect(recorded).not.toContain('invitee@partner.example.org');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.3: 再試行の残るジョブは消さず、失敗としても記録しない
+     */
+    it('再試行が残る失敗では、ジョブを消さず、Sentry へも送らない', async () => {
+      const handlers = handlersOf(mockQueue);
+      const errorLog = vi.spyOn(logger, 'error');
+      const job = failedJob({ attemptsMade: 3, isFailed: vi.fn().mockResolvedValue(false) });
+
+      await handlers.failed!(job, new Error('SMTP timeout'));
+
+      expect(job.remove).not.toHaveBeenCalled();
+      expect(captureException).not.toHaveBeenCalled();
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.3: 止まったジョブ（stalled）の最終の失敗も、トークンを含まない形で記録してから消す
+     */
+    it('止まったジョブが失敗の集合へ移ったとき（試行の回数は増えない）も、記録してから消す', async () => {
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+      const job = failedJob({ attemptsMade: 0 });
+
+      await handlers.failed!(job, new Error('job stalled more than allowable limit'));
+
+      expect(job.remove).toHaveBeenCalledTimes(1);
+      expect(errorLog).toHaveBeenCalledWith(
+        {
+          jobType: 'password-reset-email',
+          recipientDomains: ['corp.example.com'],
+          attemptsMade: 0,
+          reason: 'job stalled more than allowable limit',
+        },
+        'Email job failed after the final attempt'
+      );
+      expect(captureException).toHaveBeenCalledTimes(1);
+      const recorded = JSON.stringify([
+        errorLog.mock.calls,
+        vi.mocked(captureException).mock.calls,
+      ]);
+      expect(recorded).not.toContain('secret-reset-token-xyz');
+      expect(recorded).not.toContain('victim@corp.example.com');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.3: 止まったジョブの通知でジョブを読めなかったとき（null）は何もせず、例外を漏らさない
+     */
+    it('ジョブが null のときは例外を投げず、記録もしない', async () => {
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+
+      await expect(
+        handlers.failed!(null, new Error('job stalled more than allowable limit'))
+      ).resolves.toBeUndefined();
+
+      expect(captureException).not.toHaveBeenCalled();
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.3: 失敗の処理そのものが失敗しても例外を漏らさず、トークンと宛先を記録に含めない
+     */
+    it('失敗の処理で例外が起きても、例外を漏らさず、トークンと宛先を含めずに記録する', async () => {
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+      const job = failedJob({
+        isFailed: vi
+          .fn()
+          .mockRejectedValue(new Error('READONLY victim@corp.example.com secret-reset-token-xyz')),
+      });
+
+      await expect(handlers.failed!(job, new Error('SMTP timeout'))).resolves.toBeUndefined();
+
+      expect(job.remove).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledWith(
+        expect.objectContaining({ jobType: 'password-reset-email' }),
+        'Failed to handle the failed email job'
+      );
+      const recorded = JSON.stringify([
+        errorLog.mock.calls,
+        vi.mocked(captureException).mock.calls,
+      ]);
+      expect(recorded).not.toContain('secret-reset-token-xyz');
+      expect(recorded).not.toContain('victim@corp.example.com');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.3: 大文字・小文字を変えた宛先とトークンも失敗の理由から伏せる
+     */
+    it('大文字・小文字の違う宛先とトークン（正規表現の特殊文字を含む）を理由から伏せる', async () => {
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+      const job = failedJob({
+        data: { to: 'Victim+tag@Corp.Example.com', resetToken: 'a.b*c(d)Token' },
+      });
+
+      await handlers.failed!(
+        job,
+        new Error('550 VICTIM+TAG@CORP.EXAMPLE.COM rejected; token A.B*C(D)TOKEN; axbxc(d)token')
+      );
+
+      const reason = (errorLog.mock.calls[0]![0] as { reason: string }).reason;
+      expect(reason.toLowerCase()).not.toContain('victim+tag@corp.example.com');
+      expect(reason.toLowerCase()).not.toContain('a.b*c(d)token');
+      // 特殊文字を正規表現として解釈しない（似た別の文字列は伏せない）
+      expect(reason).toContain('axbxc(d)token');
+      expect(reason).toContain('[REDACTED]');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-37.3: フラグメントの形のリンクのトークンも失敗の理由から伏せる
+     */
+    it('フラグメントの形のリンクに載ったトークン（ジョブのトークンと別の値）も理由から伏せる', async () => {
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+      const job = failedJob();
+
+      await handlers.failed!(
+        job,
+        new Error('550 rejected https://app.example.com/register#token=other-fragment-token-xyz')
+      );
+
+      const reason = (errorLog.mock.calls[0]![0] as { reason: string }).reason;
+      expect(reason).not.toContain('other-fragment-token-xyz');
+      expect(reason).toContain('#token=[REDACTED]');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.1: 接続先が未設定のとき（開発のみ。本番は起動前の検査で止まる）は既定の接続先を使い、警告を残す
+     */
+    it('REDIS_URL が未設定のときは警告を残し、同じジョブの既定でキューを作る', async () => {
+      vi.stubEnv('REDIS_URL', '');
+      const warnLog = vi.spyOn(logger, 'warn');
+
+      const { args } = await createProductionQueue();
+
+      expect(args).toHaveLength(2);
+      expect(args[1]).toEqual(
+        expect.objectContaining({
+          defaultJobOptions: expect.objectContaining({ removeOnComplete: true }),
+        })
+      );
+      expect(JSON.stringify(args[1])).not.toContain('legacy-redis-host');
+      expect(warnLog).toHaveBeenCalledWith(expect.stringContaining('REDIS_URL'));
+    });
+
+    it('SMTP の認証情報があるときは transporter に渡す', async () => {
+      vi.stubEnv('SMTP_USER', 'mailer');
+      vi.stubEnv('SMTP_PASS', 'mailer-pass');
+      const nodemailer = (await import('nodemailer')).default;
+
+      await createProductionQueue();
+
+      expect(nodemailer.createTransport).toHaveBeenCalledWith(
+        expect.objectContaining({ auth: { user: 'mailer', pass: 'mailer-pass' } })
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.3: 管理者への通知の最終の失敗は、宛先のドメインだけを記録する
+     */
+    it('管理者への通知の最終の失敗で、宛先のドメインを重複なく記録し、ジョブを消す', async () => {
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+      const job = failedJob({
+        name: 'admin-role-changed-alert',
+        data: {
+          adminEmails: ['a@corp.example.com', 'b@Corp.Example.com', 'c@other.example.net'],
+          targetUser: { email: 'user@example.com', displayName: 'User' },
+        },
+        opts: {},
+        attemptsMade: 1,
+      });
+
+      await handlers.failed!(job, undefined as unknown as Error);
+
+      expect(job.remove).toHaveBeenCalledTimes(1);
+      expect(errorLog.mock.calls[0]![0]).toEqual({
+        jobType: 'admin-role-changed-alert',
+        recipientDomains: ['corp.example.com', 'other.example.net'],
+        attemptsMade: 1,
+        reason: 'Unknown reason',
+      });
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain('a@corp.example.com');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.3: 失敗したジョブを消せなかったときは、内容を含めずに記録する
+     */
+    it.each([
+      [new Error('Could not remove job job-1'), 'Could not remove job job-1'],
+      ['lock is held', 'lock is held'],
+    ])(
+      'ジョブを消せなかったとき（%s）はその旨をトークンを含めずに記録する',
+      async (thrown, reason) => {
+        const errorLog = vi.spyOn(logger, 'error');
+        const handlers = handlersOf(mockQueue);
+        const job = failedJob({ remove: vi.fn().mockRejectedValue(thrown) });
+
+        await handlers.failed!(job, new Error('SMTP timeout'));
+
+        expect(errorLog).toHaveBeenLastCalledWith(
+          { jobType: 'password-reset-email', reason },
+          'Failed to remove the failed email job'
+        );
+        expect(JSON.stringify(errorLog.mock.calls)).not.toContain('secret-reset-token-xyz');
+      }
+    );
+
+    /**
+     * @requirement user-authentication/REQ-45.4: 本番でメールキューへ接続できないとき、エラー監視へ通知する
+     */
+    it('本番でキューの接続のエラーを受けたら Sentry へ送る', async () => {
+      vi.stubEnv('NODE_ENV', 'production');
+      const handlers = handlersOf(mockQueue);
+      const error = new Error('connect ECONNREFUSED 10.0.0.5:6379');
+
+      handlers.error!(error);
+
+      expect(captureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({ queue: 'email-queue' })
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-45.4: 本番以外ではキューのエラーをエラー監視へ送らず、記録だけを残す
+     */
+    it('本番以外ではキューのエラーを Sentry へ送らず、エラーログに残す', async () => {
+      vi.stubEnv('NODE_ENV', 'test');
+      const errorLog = vi.spyOn(logger, 'error');
+      const handlers = handlersOf(mockQueue);
+
+      handlers.error!(new Error('connect ECONNREFUSED 127.0.0.1:6379'));
+
+      expect(captureException).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -373,6 +737,35 @@ describe('EmailService', () => {
           })
         );
       });
+
+      /**
+       * @requirement user-authentication/REQ-37.3: 招待メールのリンクはトークンを URL のフラグメントに置く
+       */
+      it('招待メールのリンクはトークンをフラグメントに置き、クエリに載せない', async () => {
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+        const mockTemplate = vi.fn().mockReturnValue('<html>Invitation</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue(
+          '<html>{{invitationUrl}}</html>'
+        );
+        let invitationCallback:
+          ((job: { data: { to: string; invitationToken: string } }) => Promise<void>) | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'invitation-email') {
+            invitationCallback = callback;
+          }
+        });
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        await invitationCallback!({
+          data: { to: 'newuser@example.com', invitationToken: 'fragment-invite-token' },
+        });
+
+        const { invitationUrl } = mockTemplate.mock.calls[0]![0] as { invitationUrl: string };
+        expect(invitationUrl).toMatch(/\/register#token=fragment-invite-token$/);
+        expect(new URL(invitationUrl).search).toBe('');
+      });
     });
 
     describe('processPasswordResetEmail', () => {
@@ -417,6 +810,33 @@ describe('EmailService', () => {
           })
         );
       });
+
+      /**
+       * @requirement user-authentication/REQ-37.3: リセットメールのリンクはトークンを URL のフラグメントに置く
+       */
+      it('リセットメールのリンクはトークンをフラグメントに置き、クエリに載せない', async () => {
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+        const mockTemplate = vi.fn().mockReturnValue('<html>Password Reset Email</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>{{resetUrl}}</html>');
+        let passwordResetCallback:
+          ((job: { data: { to: string; resetToken: string } }) => Promise<void>) | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'password-reset-email') {
+            passwordResetCallback = callback;
+          }
+        });
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+
+        await passwordResetCallback!({
+          data: { to: 'user@example.com', resetToken: 'fragment-reset-token' },
+        });
+
+        const { resetUrl } = mockTemplate.mock.calls[0]![0] as { resetUrl: string };
+        expect(resetUrl).toMatch(/\/password-reset#token=fragment-reset-token$/);
+        expect(new URL(resetUrl).search).toBe('');
+      });
     });
 
     describe('process2FAEnabledEmail', () => {
@@ -457,6 +877,50 @@ describe('EmailService', () => {
         expect(mockTemplate).toHaveBeenCalledWith(
           expect.objectContaining({
             frontendUrl: expect.any(String),
+          })
+        );
+      });
+    });
+
+    describe('processAdminNotificationEmail', () => {
+      it('システム管理者への通知メールを件名と本文の行で送信する', async () => {
+        const { readFileSync } = await import('fs');
+        const Handlebars = await import('handlebars');
+
+        const mockTemplate = vi.fn().mockReturnValue('<html>Admin Notification</html>');
+        (Handlebars.default.compile as ReturnType<typeof vi.fn>).mockReturnValue(mockTemplate);
+        (readFileSync as ReturnType<typeof vi.fn>).mockReturnValue('<html>{{subject}}</html>');
+
+        let notificationCallback:
+          | ((job: { data: { to: string; subject: string; lines: string[] } }) => Promise<void>)
+          | null = null;
+        (mockQueue.process as ReturnType<typeof vi.fn>).mockImplementation((name, callback) => {
+          if (name === 'admin-notification-email') {
+            notificationCallback = callback;
+          }
+        });
+
+        emailService = new EmailService(mockTransporter as Transporter, mockQueue as Queue);
+        const lines = ['対象: 対象 太郎 (target@example.com)'];
+
+        expect(notificationCallback).toBeDefined();
+        await notificationCallback!({
+          data: { to: 'admin1@example.com', subject: '利用者が無効化されました', lines },
+        });
+
+        expect(readFileSync).toHaveBeenCalledWith(
+          expect.stringContaining('admin-notification-email.hbs'),
+          'utf-8'
+        );
+        expect(mockTemplate).toHaveBeenCalledWith(
+          expect.objectContaining({ subject: '利用者が無効化されました', lines })
+        );
+        expect(mockTransporter.sendMail).toHaveBeenCalledTimes(1);
+        expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            to: 'admin1@example.com',
+            subject: '利用者が無効化されました',
+            html: '<html>Admin Notification</html>',
           })
         );
       });

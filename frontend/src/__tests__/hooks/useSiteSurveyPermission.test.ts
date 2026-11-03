@@ -48,6 +48,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -78,6 +80,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -103,6 +107,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -135,6 +141,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -167,6 +175,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -194,6 +204,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -223,6 +235,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -249,6 +263,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -275,6 +291,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -306,6 +324,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -337,6 +357,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -367,6 +389,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());
@@ -397,6 +421,8 @@ describe('useSiteSurveyPermission', () => {
         verify2FA: vi.fn(),
         verifyBackupCode: vi.fn(),
         cancel2FA: vi.fn(),
+        establishSession: vi.fn(),
+        updateUser: vi.fn(),
       });
 
       const { result } = renderHook(() => useSiteSurveyPermission());

@@ -44,6 +44,8 @@ const mockAuthContextValue: AuthContextValue = {
   verify2FA: vi.fn(),
   verifyBackupCode: vi.fn(),
   cancel2FA: vi.fn(),
+  establishSession: vi.fn(),
+  updateUser: vi.fn(),
 };
 
 /**

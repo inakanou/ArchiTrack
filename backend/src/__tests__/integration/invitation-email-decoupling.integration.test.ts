@@ -17,11 +17,12 @@ validateEnv();
 
 import getPrismaClient from '../../db.js';
 import { EmailService } from '../../services/email.service.js';
-import { InvitationService } from '../../services/invitation.service.js';
+import { InvitationService, hashInvitationToken } from '../../services/invitation.service.js';
 import { PasswordService } from '../../services/password.service.js';
 import { AuthService } from '../../services/auth.service.js';
 import { seedRoles } from '../../utils/seed-helpers.js';
 import logger from '../../utils/logger.js';
+import { createTestUser } from './test-user-factory.js';
 
 const EMAIL_MARK = 'test-invitation-email-decoupling';
 const inviteeEmail = `${EMAIL_MARK}-invitee@example.com`;
@@ -55,19 +56,21 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
   beforeEach(async () => {
     await cleanup();
 
-    const admin = await prisma.user.create({
-      data: {
-        email: adminEmail,
-        displayName: 'Invitation Email Decoupling Admin',
-        passwordHash: 'not-used-in-this-test',
-      },
+    const admin = await createTestUser(prisma, {
+      email: adminEmail,
+      displayName: 'Invitation Email Decoupling Admin',
+      passwordHash: 'not-used-in-this-test',
     });
     adminId = admin.id;
 
     // メール送信の外部サービスが利用できない状態: キューへの投入が失敗する
     queueError = new Error('Redis connection refused');
     queueAdd = vi.fn().mockRejectedValue(queueError);
-    const unavailableQueue = { add: queueAdd, process: vi.fn() } as unknown as Queue;
+    const unavailableQueue = {
+      add: queueAdd,
+      process: vi.fn(),
+      on: vi.fn(),
+    } as unknown as Queue;
     const unusedTransporter = { sendMail: vi.fn() } as unknown as Transporter;
     const emailService = new EmailService(unusedTransporter, unavailableQueue);
 
@@ -103,16 +106,19 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
       expect.objectContaining({ attempts: 6 })
     );
 
-    const stored = await prisma.invitation.findUnique({ where: { id: result.value.id } });
+    const stored = await prisma.invitation.findUnique({
+      where: { id: result.value.invitation.id },
+    });
     expect(stored).not.toBeNull();
     expect(stored?.email).toBe(inviteeEmail);
     expect(stored?.inviterId).toBe(adminId);
     expect(stored?.status).toBe('pending');
-    expect(stored?.token).toBe(result.value.token);
+    // 保存は原文の SHA-256 だけ（要件37.1）
+    expect(stored?.tokenHash).toBe(hashInvitationToken(result.value.token));
 
     await vi.waitFor(() =>
       expect(warnSpy).toHaveBeenCalledWith(
-        { err: queueError, invitationId: result.value.id },
+        { err: queueError, invitationId: result.value.invitation.id },
         'Failed to queue invitation email; invitation was created'
       )
     );
@@ -157,8 +163,9 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     expect(queueAdd).toHaveBeenCalledTimes(1);
+    const invitationToken = created.value.token;
 
-    const registered = await authService.register(created.value.token, {
+    const registered = await authService.register(invitationToken, {
       password: 'Decoupl1ng!Pass#2026',
       displayName: 'Decoupled Invitee',
     });
@@ -173,7 +180,9 @@ describe('招待・登録とメール送信の切り離し（統合）', () => {
     expect(user?.id).toBe(registered.value.user.id);
     expect(user?.userRoles.map((ur) => ur.role.name)).toContain('user');
 
-    const invitation = await prisma.invitation.findUnique({ where: { id: created.value.id } });
+    const invitation = await prisma.invitation.findUnique({
+      where: { id: created.value.invitation.id },
+    });
     expect(invitation?.status).toBe('used');
     expect(invitation?.userId).toBe(user?.id);
     expect(invitation?.usedAt).not.toBeNull();

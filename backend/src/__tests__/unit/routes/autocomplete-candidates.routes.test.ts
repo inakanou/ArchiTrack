@@ -18,6 +18,13 @@ import request from 'supertest';
 import express, { type Express } from 'express';
 
 // Mock dependencies before importing routes
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// quantity-table-project-scope.middleware.test.ts と統合テストが確かめる。quantity-table-generation タスク104.1）
+vi.mock('../../../middleware/quantity-table-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return { requireProjectParamScope: pass };
+});
+
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({
     quantityItem: {
@@ -230,12 +237,18 @@ describe('AutocompleteCandidatesRoutes', () => {
       expect(response.body.candidates.majorCategory).toEqual(sorted);
     });
 
-    it('should return 404 when project does not exist', async () => {
+    it('プロジェクトの不在の 404 は前段の閲覧範囲の判定に任せ、経路の本体はプロジェクトを引かない（quantity-table-generation タスク104.1）', async () => {
+      // 不在・範囲外の案件が汎用の 404 になることは、判定部品の単体テスト
+      // （quantity-table-project-scope.middleware.test.ts）と統合テスト
+      // （quantity-table-project-scope.api.integration.test.ts の候補の経路）が確かめる。
+      // 本テストでは判定部品を素通りさせているため、本体まで届いて候補を返す
       mockPrisma.project.findUnique.mockResolvedValue(null);
+      mockPrisma.quantityItem.groupBy.mockResolvedValue([]);
 
       await request(app)
         .get(`/api/projects/nonexistent-project/quantity-items/autocomplete-candidates`)
-        .expect(404);
+        .expect(200);
+      expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
     });
 
     it('should return empty arrays when no quantity items exist', async () => {

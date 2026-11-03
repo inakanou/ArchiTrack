@@ -23,8 +23,8 @@
  * ## 観測方式
  *
  * リクエストの選別は**オリジンではなくパス**で行う。ブラウザが使うAPIオリジン
- * （`VITE_API_URL`）とE2E側の `API_BASE_URL` は同一とは限らず（CIでは前者が
- * `localhost:3000`、後者が `127.0.0.1:3000`）、オリジン文字列で選別すると
+ * （`VITE_API_URL`。画面と同じオリジン）とE2E側の `API_BASE_URL`（backend へ直接）は
+ * 同一ではなく（CIでは前者が `localhost:5173`、後者が `127.0.0.1:3000`）、オリジン文字列で選別すると
  * 観測対象が1件も残らないまま「リクエストは少ない」が常に成立してしまうため。
  *
  * 画像本体の判定はストレージキーの後方一致で行う。キーは現場調査詳細の取得経路から
@@ -52,6 +52,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -258,7 +259,7 @@ test.describe('現場調査一覧の表示リクエストが件数に比例し�
       smallProjectId = page.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
       expect(smallProjectId).toBeTruthy();
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
       const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
@@ -388,7 +389,7 @@ test.describe('現場調査一覧の表示リクエストが件数に比例し�
     const page = await context.newPage();
     try {
       await loginAsUser(page, 'ADMIN_USER');
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'ADMIN_USER');
       for (const projectId of [smallProjectId, largeProjectId]) {
         const deleteResponse = await page.request.delete(
           `${API_BASE_URL}/api/projects/${projectId}`,

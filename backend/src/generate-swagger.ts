@@ -36,6 +36,28 @@ const options = {
         },
       },
       schemas: {
+        // 認証の応答に載せる利用者と状態（user-authentication design.md の AuthUserView、タスク47.5・47.6）
+        AuthUserView: {
+          type: 'object',
+          description:
+            'Authenticated user and the account state the screen uses to restrict navigation',
+          properties: {
+            id: { type: 'string', format: 'uuid', description: 'User ID' },
+            email: { type: 'string', format: 'email' },
+            displayName: { type: 'string' },
+            roles: { type: 'array', items: { type: 'string' } },
+            twoFactorEnabled: {
+              type: 'boolean',
+              description:
+                'False when 2FA is not enrolled (all APIs except 2FA setup and logout return 403 TWO_FACTOR_SETUP_REQUIRED)',
+            },
+            mustChangePassword: {
+              type: 'boolean',
+              description:
+                'True when the initial password change is required (all APIs except password change and logout return 403 PASSWORD_CHANGE_REQUIRED)',
+            },
+          },
+        },
         // Project Management Schemas
         UserRef: {
           type: 'object',

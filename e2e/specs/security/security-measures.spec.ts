@@ -3,7 +3,8 @@ import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/d
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
-import { API_BASE_URL } from '../../config';
+import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
+import { completeApiLogin, loginViaApi, refreshWithCookie } from '../../helpers/auth-api';
 
 /**
  * セキュリティ対策（脅威モデリング）のE2Eテスト
@@ -76,12 +77,9 @@ test.describe('セキュリティ対策', () => {
    * @requirement user-authentication/REQ-26.7
    */
   test('認証CookieにはHttpOnly属性が設定される', async ({ request }) => {
-    const response = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
+    // 利用者は 2FA 登録済みのため、リフレッシュトークンの Cookie はログインの完了（2FA の検証）の
+    // 応答で発行される。ログインの補助で 2FA の検証まで行い、その応答の Set-Cookie を調べる
+    const response = await completeApiLogin(request, 'ADMIN_USER', API_BASE_URL);
 
     expect(response.ok()).toBeTruthy();
 
@@ -173,14 +171,7 @@ test.describe('セキュリティ対策', () => {
    */
   test('改ざんされたトークンでアクセスが拒否される', async ({ request }) => {
     // 正規のログインでトークンを取得
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    expect(loginResponse.status()).toBe(200);
-    const { accessToken } = (await loginResponse.json()) as { accessToken: string };
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
     assertPrepared(accessToken, '正規ログインで取得したアクセストークン');
 
     // 要件5.8: アクセストークンは EdDSA 署名の JWT であり、必ず
@@ -210,13 +201,7 @@ test.describe('セキュリティ対策', () => {
    * @requirement user-authentication/REQ-26.11
    */
   test('APIレスポンスにパスワードが含まれない', async ({ request }) => {
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // ユーザー情報を取得
     const userResponse = await request.get(`${API_BASE_URL}/api/v1/auth/me`, {
@@ -237,13 +222,20 @@ test.describe('セキュリティ対策', () => {
    * 期限切れトークンでのアクセス拒否
    * @requirement user-authentication/REQ-5.2
    */
-  test('期限切れのリフレッシュトークンでリフレッシュできない', async ({ request }) => {
-    // 無効なリフレッシュトークンでリフレッシュを試みる
-    const response = await request.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
-      data: {
-        refreshToken: 'expired-refresh-token',
+  test('期限切れのリフレッシュトークンでリフレッシュできない', async ({ page }) => {
+    // 無効なリフレッシュトークンの Cookie を、画面と同じ契約（Cookie と CSRF・Origin）で提示する
+    await page.context().addCookies([
+      {
+        name: 'refreshToken',
+        value: 'expired-refresh-token',
+        domain: new URL(FRONTEND_BASE_URL).hostname,
+        path: '/api/v1/auth',
+        httpOnly: true,
+        sameSite: 'Strict',
       },
-    });
+    ]);
+
+    const response = await refreshWithCookie(page.request);
 
     expect(response.status()).toBe(401);
   });

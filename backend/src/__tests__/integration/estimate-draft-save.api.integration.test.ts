@@ -47,6 +47,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const PERMITTED_EMAIL = 'test-estimate-draft-save-permitted@example.com';
 const NO_PERMISSION_EMAIL = 'test-estimate-draft-save-no-permission@example.com';
@@ -107,12 +109,10 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
   const setupPermittedUser = async (): Promise<{ token: string; userId: string }> => {
     const passwordHash = await hashPassword();
 
-    const user = await prisma.user.create({
-      data: {
-        email: PERMITTED_EMAIL,
-        displayName: 'Estimate Draft Save Permitted User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: PERMITTED_EMAIL,
+      displayName: 'Estimate Draft Save Permitted User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -149,30 +149,30 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
       });
     }
 
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: PERMITTED_EMAIL, password: PASSWORD });
+    const accessToken = await loginForAccessToken(app, {
+      email: PERMITTED_EMAIL,
+      password: PASSWORD,
+    });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   /** ロール未割り当て＝`estimate:update` 権限なしのユーザーを作成してログイン */
   const setupNoPermissionUser = async (): Promise<string> => {
     const passwordHash = await hashPassword();
 
-    await prisma.user.create({
-      data: {
-        email: NO_PERMISSION_EMAIL,
-        displayName: 'Estimate Draft Save No Permission User',
-        passwordHash,
-      },
+    await createTestUser(prisma, {
+      email: NO_PERMISSION_EMAIL,
+      displayName: 'Estimate Draft Save No Permission User',
+      passwordHash,
     });
 
-    const loginResponse = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: NO_PERMISSION_EMAIL, password: PASSWORD });
+    const accessToken = await loginForAccessToken(app, {
+      email: NO_PERMISSION_EMAIL,
+      password: PASSWORD,
+    });
 
-    return loginResponse.body.accessToken;
+    return accessToken;
   };
 
   /**
@@ -658,7 +658,8 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
         });
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('ESTIMATE_NOT_FOUND');
+      // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body.code).toBe('NOT_FOUND');
     });
 
     it('論理削除済みの見積書は404を返す', async () => {
@@ -1920,6 +1921,281 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
   });
 
   // ==========================================
+  // 総数と階層の深さの前倒しの数え上げ（42.10, 42.12 / タスク67.1）
+  //
+  // 総数が上限（2000）か深さが上限（100段）を超えた本文は、Zod の検証の前に打ち切られ、
+  // 件数の上限の 422 と同じ形（状態・コード・メッセージ・問題の一覧）で拒まれる。
+  // 深い鎖の本文は supertest の `send(object)` の直列化（JSON.stringify）が深さの限界に
+  // 達するため、JSON の文字列を反復で組み立てて送る。
+  // ==========================================
+  /**
+   * @requirement estimate-creation/REQ-42.10
+   * @requirement estimate-creation/REQ-42.12
+   */
+  describe('総数と階層の深さの前倒しの数え上げ（42.10, 42.12）', () => {
+    const ITEMS_TOO_MANY = '見積明細は合計2000件以内で保存してください';
+    const ITEMS_TOO_DEEP = '見積項目の階層は100段以内で保存してください';
+    const LINE_JSON = JSON.stringify(linePayload({ name: '深さ検証' }));
+
+    /** 各節点が一つの子を持つ鎖の `items` の JSON（再帰も JSON.stringify も使わない） */
+    const chainItemsJson = (depth: number, prefix: string): string => {
+      const parts: string[] = [];
+      for (let level = 1; level <= depth; level += 1) {
+        parts.push(
+          `{"id":null,"tempId":"${prefix}-${level}","itemType":"STANDARD","lines":[${LINE_JSON}],"children":[`
+        );
+      }
+      for (let level = 1; level <= depth; level += 1) {
+        parts.push(']}');
+      }
+      return parts.join('');
+    };
+
+    const saveRaw = (estimateId: string, json: string): request.Test =>
+      request(app)
+        .put(`/api/estimates/${estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .set('Content-Type', 'application/json')
+        .send(json);
+
+    const rawBody = (expectedUpdatedAt: string, itemsJson: string): string =>
+      `{"expectedUpdatedAt":${JSON.stringify(expectedUpdatedAt)},"reportFields":${JSON.stringify(
+        reportFieldsPayload()
+      )},"items":[${itemsJson}]}`;
+
+    /** 件数の上限の 422 と同じ形の応答で、問題が一つ（`items`）であること */
+    const expectLimitResponse = (response: request.Response, message: string): void => {
+      expect(response.status).toBe(422);
+      expect(response.body).toMatchObject({
+        status: 422,
+        code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+        message: '見積明細の入力内容に不備があるため保存できません',
+        details: { issues: [{ path: 'items', message }] },
+      });
+      expect(response.body.details.issues).toHaveLength(1);
+    };
+
+    /** 見積書の版と既存の明細が変わっていないこと */
+    const expectUnchanged = async (
+      estimateId: string,
+      expectedUpdatedAt: string,
+      before: unknown
+    ): Promise<void> => {
+      expect(await snapshotItems(estimateId)).toEqual(before);
+      const estimate = await prisma.estimate.findUniqueOrThrow({
+        where: { id: estimateId },
+        select: { updatedAt: true },
+      });
+      expect(estimate.updatedAt.toISOString()).toBe(expectedUpdatedAt);
+    };
+
+    it('総数が 2001 件の本文は件数の上限の 422 になり、データベースは変わらない', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_総数2001');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const response = await request(app)
+        .put(`/api/estimates/${estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          reportFields: reportFieldsPayload(),
+          items: Array.from({ length: 2001 }, (_, index) =>
+            nodePayload({ tempId: `tmp-${index}` })
+          ),
+        });
+
+      expectLimitResponse(response, ITEMS_TOO_MANY);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('深い入れ子（81 段の鎖 25 本、計 2025 件）で総数が上限を超える本文は件数の上限の 422 になり、データベースは変わらない', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_入れ子で総数超過');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const itemsJson = Array.from({ length: 25 }, (_, index) =>
+        chainItemsJson(81, `c${index}`)
+      ).join(',');
+      const response = await saveRaw(estimateId, rawBody(expectedUpdatedAt, itemsJson));
+
+      expectLimitResponse(response, ITEMS_TOO_MANY);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('総数が上限を超え形式の不正も含む本文は、形式の不正の 400 ではなく件数の上限の 422 になる', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_総数超過と形式不正');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const response = await request(app)
+        .put(`/api/estimates/${estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          // 形式不正: 別途工事が上限（5件）超過
+          reportFields: reportFieldsPayload({ separateWorks: ['1', '2', '3', '4', '5', '6'] }),
+          items: Array.from({ length: 2001 }, (_, index) =>
+            nodePayload({ tempId: `tmp-${index}` })
+          ),
+        });
+
+      expectLimitResponse(response, ITEMS_TOO_MANY);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('深さ 101 段の鎖の本文は深さの上限の 422 になり、データベースは変わらない', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_深さ101');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const response = await saveRaw(
+        estimateId,
+        rawBody(expectedUpdatedAt, chainItemsJson(101, 'd'))
+      );
+
+      expectLimitResponse(response, ITEMS_TOO_DEEP);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('深さ 2000 段の鎖の本文は 500 にならず深さの上限の 422 になり、データベースは変わらない', async () => {
+      const { estimateId } = await createSeededEstimate('前倒し_深さ2000');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(estimateId);
+      const before = await snapshotItems(estimateId);
+
+      const response = await saveRaw(
+        estimateId,
+        rawBody(expectedUpdatedAt, chainItemsJson(2000, 'd'))
+      );
+
+      expectLimitResponse(response, ITEMS_TOO_DEEP);
+      await expectUnchanged(estimateId, expectedUpdatedAt, before);
+    });
+
+    it('深さ 100 段ちょうどの鎖の本文は保存され、応答の明細ツリーも 100 段で返る', async () => {
+      const estimate = await prisma.estimate.create({
+        data: { projectId: testProjectId, name: '前倒し_深さ100' },
+      });
+      const expectedUpdatedAt = estimate.updatedAt.toISOString();
+
+      const response = await saveRaw(
+        estimate.id,
+        rawBody(expectedUpdatedAt, chainItemsJson(100, 'd'))
+      );
+
+      expect(response.status).toBe(200);
+      // 応答の明細ツリーを葉までたどる（応答の直列化が 100 段で成功している）
+      let depth = 0;
+      let level: { children: unknown[] }[] = response.body.items;
+      while (level.length > 0) {
+        expect(level).toHaveLength(1);
+        depth += 1;
+        level = level[0]!.children as { children: unknown[] }[];
+      }
+      expect(depth).toBe(100);
+
+      const saved = await prisma.estimateItem.findMany({
+        where: { estimateId: estimate.id },
+        select: { id: true, parentId: true },
+      });
+      expect(saved).toHaveLength(100);
+      expect(saved.filter((item) => item.parentId === null)).toHaveLength(1);
+    });
+  });
+
+  // ==========================================
+  // 見積項目行の備考の文字数の上限（42.11、タスク67.2）
+  // ==========================================
+  describe('見積項目行の備考の文字数の上限（42.11）', () => {
+    const REMARKS_TOO_LONG = '備考は2000文字以内で入力してください';
+
+    it.each([
+      {
+        label: 'ルートの既存項目の見積金額行',
+        path: 'items.0.lines.0.remarks',
+        items: (ids: { root1Id: string; child1Id: string; root2Id: string }) => [
+          nodePayload({
+            id: ids.root1Id,
+            lines: [linePayload({ name: '上限超えで書き換え', remarks: 'あ'.repeat(2001) })],
+            children: [nodePayload({ id: ids.child1Id })],
+          }),
+          nodePayload({ id: ids.root2Id }),
+        ],
+      },
+      {
+        label: '子孫の新規項目の実行予算行',
+        path: 'items.0.children.1.lines.1.remarks',
+        items: (ids: { root1Id: string; child1Id: string; root2Id: string }) => [
+          nodePayload({
+            id: ids.root1Id,
+            lines: [linePayload({ name: '上限超えで書き換え' })],
+            children: [
+              nodePayload({ id: ids.child1Id }),
+              nodePayload({
+                tempId: 'tmp-over-remarks',
+                lines: [
+                  linePayload(),
+                  linePayload({ lineType: 'EXECUTION', remarks: 'r'.repeat(2001) }),
+                ],
+              }),
+            ],
+          }),
+          nodePayload({ id: ids.root2Id }),
+        ],
+      },
+    ])(
+      '$label の備考が2001文字の本文は 400 で拒まれ、データベースは変わらない',
+      async ({ label, path, items }) => {
+        const seeded = await createSeededEstimate(`備考上限超え_${label}`);
+        const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.estimateId);
+        const before = await snapshotItems(seeded.estimateId);
+
+        const response = await request(app)
+          .put(`/api/estimates/${seeded.estimateId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ expectedUpdatedAt, reportFields: reportFieldsPayload(), items: items(seeded) });
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(response.body.message).toBe(REMARKS_TOO_LONG);
+        expect(response.body.details).toEqual([
+          { path, message: REMARKS_TOO_LONG, code: 'too_big' },
+        ]);
+
+        // 通っていれば既存ルート1の名前が変わり、既存ルート1の他の行が消える。どれも起きていない
+        expect(await snapshotItems(seeded.estimateId)).toEqual(before);
+        const estimate = await prisma.estimate.findUniqueOrThrow({
+          where: { id: seeded.estimateId },
+          select: { updatedAt: true },
+        });
+        expect(estimate.updatedAt.toISOString()).toBe(expectedUpdatedAt);
+      }
+    );
+
+    it('備考が2000文字ちょうどの本文は従来どおり保存され、備考がそのまま残る', async () => {
+      const seeded = await createSeededEstimate('備考上限ちょうど');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.estimateId);
+      const remarks = 'あ'.repeat(2000);
+
+      const response = await request(app)
+        .put(`/api/estimates/${seeded.estimateId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          reportFields: reportFieldsPayload(),
+          items: [nodePayload({ id: seeded.root2Id, lines: [linePayload({ remarks })] })],
+        });
+
+      expect(response.status).toBe(200);
+      const saved = await prisma.estimateItemLine.findMany({
+        where: { estimateItem: { estimateId: seeded.estimateId } },
+        select: { remarks: true, estimateItemId: true },
+      });
+      expect(saved).toEqual([{ remarks, estimateItemId: seeded.root2Id }]);
+    });
+  });
+
+  // ==========================================
   // 形式不正と検証NGが同時に含まれるペイロード（42.4, 42.8）
   // ==========================================
   describe('形式不正と検証NGの混在ペイロード', () => {
@@ -2176,11 +2452,15 @@ describe('Estimate Draft Save (PUT /api/estimates/:id/save) API Integration Test
       });
 
       const error = await gatedService
-        .saveDraft(ids.estimateId, {
-          expectedUpdatedAt,
-          reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
-          items: buildComplexSaveItems(ids) as never,
-        })
+        .saveDraft(
+          ids.estimateId,
+          {
+            expectedUpdatedAt,
+            reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+            items: buildComplexSaveItems(ids) as never,
+          },
+          'actor-not-used-by-this-test'
+        )
         .then(
           () => null,
           (e: unknown) => e

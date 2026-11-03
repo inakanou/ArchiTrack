@@ -1,7 +1,11 @@
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
-import { createAllTestUsers } from '../../fixtures/auth.fixtures';
+import {
+  createAllTestUsers,
+  createSessionUser,
+  deleteSessionUsers,
+} from '../../fixtures/auth.fixtures';
 import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 import {
@@ -384,20 +388,28 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await createAllTestUsers(prisma);
   });
 
+  test.afterEach(async () => {
+    await deleteSessionUsers();
+  });
+
   /**
    * 要件7.4: パスワード変更時の現在パスワード確認
    * @requirement user-authentication/REQ-7.4
    * @requirement user-authentication/REQ-14.7 @requirement user-authentication/REQ-14.8
    */
   test('パスワードを変更できる', async ({ page }) => {
-    // ログイン。`loginAsUser` はアクセストークンとリフレッシュトークンが
-    // localStorage に載るまで待ってから戻るため、以降の要求には必ず認証が載る。
-    await loginAsUser(page, 'REGULAR_USER');
+    // パスワードの変更は共有の役割の利用者の系列を失効させるため、
+    // テストの中で作る利用者で行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
+
+    // ログイン。`loginAsUser` は画面のセッションで認証済みの API が成功するまで
+    // 待ってから戻るため、以降の要求には必ず認証が載る。
+    await loginAsUser(page, sessionUser);
 
     // 前提（認証が効いた状態でプロフィール画面が開けていること）を無条件に主張する。
     // 従来はここで MISSING_TOKEN の表示を観測して黙って再ログイン・再入力していたため、
     // 認証が壊れていても検証は緑のまま通り、何回目の試行が主張されたのかも読めなかった。
-    await openProfilePage(page, 'user@example.com');
+    await openProfilePage(page, sessionUser.email);
 
     // 要件7.4 / 要件14.7: 現在のパスワードを添えて変更を要求し、確認ダイアログを経て確定する
     await submitPasswordChange(page, 'Password123!', 'SecureTest123!@#');
@@ -444,10 +456,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
 
       // 要件7.5: パスワード変更で既存のリフレッシュトークンは無効化される。
       // 残っているトークンを捨ててから、新しいパスワードで再ログインする。
-      await page.evaluate(() => {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-      });
+      await page.context().clearCookies({ name: 'refreshToken' });
       await loginWithCredentials(page, USER2_EMAIL, newPwd);
       await openProfilePage(page, USER2_EMAIL);
     };
@@ -480,11 +489,15 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
    * @requirement user-authentication/REQ-7.6 @requirement user-authentication/REQ-7.8
    */
   test('過去4回前のパスワードは再利用できる', async ({ page }) => {
+    // パスワードの変更は共有の役割の利用者の系列を失効させるため、
+    // テストの中で作る利用者で行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
+
     // ログイン
-    await loginAsUser(page, 'REGULAR_USER');
+    await loginAsUser(page, sessionUser);
     await page.goto('/profile');
     // AuthContextの初期化が完了するまで待機（ユーザー情報の表示を確認）
-    await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+    await expect(page.getByLabel(/メールアドレス/i)).toHaveValue(sessionUser.email, {
       timeout: getTimeout(10000),
     });
     await expect(page.locator('input#currentPassword')).toBeVisible({
@@ -509,7 +522,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       const headingVisible = await page.getByRole('heading', { name: /プロフィール/i }).isVisible();
       if (!headingVisible || page.url().includes('/login')) {
         // 認証状態が失われている場合は再ログイン
-        await loginWithCredentials(page, 'user@example.com', currentPwd);
+        await loginWithCredentials(page, sessionUser.email, currentPwd);
         await page.goto('/profile');
         await page.waitForLoadState('networkidle');
       }
@@ -577,7 +590,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
       }
 
       // 新しいパスワードで再ログイン
-      await loginWithCredentials(page, 'user@example.com', newPwd);
+      await loginWithCredentials(page, sessionUser.email, newPwd);
 
       // プロフィールページに遷移
       await page.goto('/profile');
@@ -585,13 +598,13 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
 
       // 認証が失われている場合は再試行
       if (page.url().includes('/login')) {
-        await loginWithCredentials(page, 'user@example.com', newPwd);
+        await loginWithCredentials(page, sessionUser.email, newPwd);
         await page.goto('/profile');
         await page.waitForLoadState('networkidle');
       }
 
       // AuthContextの初期化が完了するまで待機
-      await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
+      await expect(page.getByLabel(/メールアドレス/i)).toHaveValue(sessionUser.email, {
         timeout: getTimeout(15000),
       });
       await expect(page.locator('input#currentPassword')).toBeVisible({
@@ -617,7 +630,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     const headingVisible = await page.getByRole('heading', { name: /プロフィール/i }).isVisible();
     if (!headingVisible || page.url().includes('/login')) {
       // 認証状態が失われている場合は再ログイン
-      await loginWithCredentials(page, 'user@example.com', currentPassword);
+      await loginWithCredentials(page, sessionUser.email, currentPassword);
       await page.goto('/profile');
       await page.waitForLoadState('networkidle');
     }

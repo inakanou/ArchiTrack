@@ -380,6 +380,10 @@ export default function ProjectEditPage() {
           key={project.id}
           mode="edit"
           initialData={initialData}
+          currentAssignees={{
+            salesPerson: project.salesPerson,
+            constructionPerson: project.constructionPerson,
+          }}
           onSubmit={handleSubmit}
           onCancel={handleCancel}
           isSubmitting={isSubmitting}

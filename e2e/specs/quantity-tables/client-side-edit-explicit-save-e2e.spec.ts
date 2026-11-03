@@ -14,6 +14,9 @@
  * - REQ-42.6: 保存前は永続化目的のサーバーアクセスを一切発生させない（ネットワーク監視）
  * - REQ-42.7: 一定間隔の自動保存を行わず永続化は保存操作時のみ（編集セッション全体のネットワーク監視で検証）
  * - REQ-42.8: 保存成功時に最新データを取得・同期し、保存完了メッセージを表示する
+ * - REQ-42.11: 保存の本文の数量グループの数が上限を超えると本文の検証の400になり書き込まない（API の要求で検証）
+ * - REQ-42.12: 件数の上限を超えた保存の400では上限のメッセージを表示し、汎用の文言を出さず編集状態を保つ（画面の保存の本文を件数の上限を超えるまで増やして実際の400を得る）
+ * - REQ-42.13: 保存の本文の計算用パラメータのキーが上限を超えると本文の検証の400になり書き込まない（API の要求で検証）
  *
  * このスペックは Task 63.1（既存スペックの移行）とは独立した「明示保存モデルの
  * 専用検証」である。中核となるのは「保存ボタン押下までは数量表サブリソースへの
@@ -35,6 +38,10 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
+import { assertPrepared } from '../../helpers/preconditions';
+import { getPrismaClient } from '../../fixtures/database';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +50,11 @@ const RUN_ID = Date.now();
 
 let testProjectId: string | null = null;
 let surveyWithPhotosId: string | null = null;
+/**
+ * 上限の検証（タスク108.1・110.1）が作った数量表の ID。108.1 の表は数量グループを 1000 件持つため、
+ * テストが途中で落ちても afterEach で DB から消す（110.1 の小さな表も同じく消す）。
+ */
+const limitTableIdsToRemove: string[] = [];
 // 注意: 生成グループ名は現場調査名から派生する（「{調査名} 1」等）。共有ヘルパー
 // saveQuantityTableDraft は getByRole('button', { name: '保存' }) で保存ボタンを探すが、
 // このマッチはアクセシブル名の部分一致であるため、グループ名に「保存」を含めると
@@ -392,6 +404,25 @@ test.describe('REQ-42: クライアントサイド編集・明示保存モデル
     await loginAsUser(page, 'REGULAR_USER');
   });
 
+  // 上限の検証が作った数量表（数量グループ 1000 件）を消す。削除の API は論理削除で
+  // 行もグループも DB に残すため、Prisma で物理削除する（グループ・項目は onDelete: Cascade）。
+  // 消せなければ例外のまま落とし、消えたことを件数で確かめる（失敗を握りつぶさない）。
+  // テスト本体の try/finally では本体の失敗を後始末の失敗が上書きしうるため、afterEach に置く。
+  test.afterEach(async () => {
+    const prisma = getPrismaClient();
+    for (const tableId of limitTableIdsToRemove.splice(0)) {
+      await prisma.quantityTable.delete({ where: { id: tableId } });
+      expect(
+        await prisma.quantityTable.count({ where: { id: tableId } }),
+        `後始末: 上限の検証の数量表 ${tableId} が DB から消える`
+      ).toBe(0);
+      expect(
+        await prisma.quantityGroup.count({ where: { quantityTableId: tableId } }),
+        `後始末: 上限の検証の数量表 ${tableId} の数量グループが DB から消える`
+      ).toBe(0);
+    }
+  });
+
   // --------------------------------------------------------------------------
   // 事前準備
   // --------------------------------------------------------------------------
@@ -595,6 +626,447 @@ test.describe('REQ-42: クライアントサイド編集・明示保存モデル
     await expect(groupCards).toHaveCount(0, { timeout: getTimeout(10000) });
     await expect(page.getByText('破棄されるべきグループ')).toHaveCount(0);
   });
+
+  // --------------------------------------------------------------------------
+  // シナリオ: 保存の本文の配列の件数の上限（quantity-table-generation タスク108.1）
+  // --------------------------------------------------------------------------
+  /**
+   * 画面の操作で上限（数量グループ 1000 件）を超えることは現実的でないため、
+   * 編集画面と同じ保存の経路（PUT /api/quantity-tables/:id/save）へ API で送って確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-42.11
+   */
+  test('数量グループの数が上限を1件超えた保存は400になり数量表は変わらず、上限ちょうどは保存される', async ({
+    page,
+  }) => {
+    if (!testProjectId) {
+      throw new Error('testProjectId が未設定です。');
+    }
+    const token = await getAccessToken(page, 'REGULAR_USER');
+    assertPrepared(token, 'アクセストークン');
+    const headers = { Authorization: `Bearer ${token}` };
+    const tableName = `上限検証数量表_${RUN_ID}`;
+    const existingGroupName = `上限検証の既存グループ_${RUN_ID}`;
+
+    const created = await page.request.post(
+      `${API_BASE_URL}/api/projects/${testProjectId}/quantity-tables`,
+      { headers, data: { name: tableName } }
+    );
+    expect(created.status(), '前提: 数量表を作成できる').toBe(201);
+    const { id: tableId } = (await created.json()) as { id: string };
+    limitTableIdsToRemove.push(tableId);
+
+    const readTable = async () => {
+      const detail = await page.request.get(`${API_BASE_URL}/api/quantity-tables/${tableId}`, {
+        headers,
+      });
+      expect(detail.status(), '数量表を取得できる').toBe(200);
+      return (await detail.json()) as {
+        name: string;
+        updatedAt: string;
+        groups: Array<{ id: string; name: string | null }>;
+      };
+    };
+    const emptyGroups = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: null,
+        name: `上限グループ${index}`,
+        surveyImageId: null,
+        displayOrder: index,
+        items: [],
+      }));
+
+    // 前提: 既存のグループが 1 件ある数量表
+    const initial = await readTable();
+    const prepared = await page.request.put(`${API_BASE_URL}/api/quantity-tables/${tableId}/save`, {
+      headers,
+      data: {
+        expectedUpdatedAt: initial.updatedAt,
+        name: tableName,
+        groups: [
+          { id: null, name: existingGroupName, surveyImageId: null, displayOrder: 0, items: [] },
+        ],
+      },
+    });
+    expect(prepared.status(), '前提: 既存のグループを保存できる').toBe(200);
+    const before = await readTable();
+    expect(before.groups.map((group) => group.name)).toEqual([existingGroupName]);
+
+    // 上限（1000）を 1 件超えた本文
+    const rejected = await page.request.put(`${API_BASE_URL}/api/quantity-tables/${tableId}/save`, {
+      headers,
+      data: {
+        expectedUpdatedAt: before.updatedAt,
+        name: '書き込まれてはならない名前',
+        groups: emptyGroups(1001),
+      },
+    });
+    expect(rejected.status()).toBe(400);
+    const rejectedBody = (await rejected.json()) as {
+      code: string;
+      message: string;
+      details: Array<{ path: string; message: string }>;
+    };
+    expect(rejectedBody.code).toBe('VALIDATION_ERROR');
+    expect(rejectedBody.message).toBe('数量グループは1000件以内で保存してください');
+    expect(rejectedBody.details).toContainEqual(
+      expect.objectContaining({
+        path: 'groups',
+        message: '数量グループは1000件以内で保存してください',
+      })
+    );
+
+    // 数量表は変わらない（通っていれば名前が変わり、既存のグループが消えて 1001 件になる）
+    const afterRejected = await readTable();
+    expect(afterRejected.name).toBe(tableName);
+    expect(afterRejected.updatedAt).toBe(before.updatedAt);
+    expect(afterRejected.groups.map((group) => [group.id, group.name])).toEqual(
+      before.groups.map((group) => [group.id, group.name])
+    );
+
+    // 非空証明: 同じ形で上限ちょうど（1000）なら保存される。400 は件数による
+    const accepted = await page.request.put(`${API_BASE_URL}/api/quantity-tables/${tableId}/save`, {
+      headers,
+      data: {
+        expectedUpdatedAt: before.updatedAt,
+        name: `${tableName}_上限ちょうど`,
+        groups: emptyGroups(1000),
+      },
+    });
+    expect(accepted.status(), `上限ちょうどは保存される (status=${accepted.status()})`).toBe(200);
+    const afterAccepted = await readTable();
+    expect(afterAccepted.name).toBe(`${tableName}_上限ちょうど`);
+    expect(afterAccepted.groups).toHaveLength(1000);
+  });
+
+  // --------------------------------------------------------------------------
+  // シナリオ: 保存の本文の計算用パラメータのキーの上限（quantity-table-generation タスク110.1）
+  // --------------------------------------------------------------------------
+  /**
+   * 画面は計算方法ごとに使うキー（最大 6）しか送らないため、編集画面と同じ保存の経路
+   * （PUT /api/quantity-tables/:id/save）へ API で、キーが上限（10）を超えた本文を送って確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-42.13
+   */
+  test('計算用パラメータのキーが上限を超えた保存は400になり数量表は変わらず、上限ちょうどは保存される', async ({
+    page,
+  }) => {
+    if (!testProjectId) {
+      throw new Error('testProjectId が未設定です。');
+    }
+    const token = await getAccessToken(page, 'REGULAR_USER');
+    assertPrepared(token, 'アクセストークン');
+    const headers = { Authorization: `Bearer ${token}` };
+    const tableName = `キー上限検証数量表_${RUN_ID}`;
+    const groupName = `キー上限検証のグループ_${RUN_ID}`;
+    const usedParams = { width: 2, depth: 3, height: 1 };
+
+    const created = await page.request.post(
+      `${API_BASE_URL}/api/projects/${testProjectId}/quantity-tables`,
+      { headers, data: { name: tableName } }
+    );
+    expect(created.status(), '前提: 数量表を作成できる').toBe(201);
+    const { id: tableId } = (await created.json()) as { id: string };
+    limitTableIdsToRemove.push(tableId);
+
+    type TableDetail = {
+      name: string;
+      updatedAt: string;
+      groups: Array<{
+        id: string;
+        name: string | null;
+        items: Array<{ id: string; name: string; calculationParams: unknown }>;
+      }>;
+    };
+    const readTable = async (): Promise<TableDetail> => {
+      const detail = await page.request.get(`${API_BASE_URL}/api/quantity-tables/${tableId}`, {
+        headers,
+      });
+      expect(detail.status(), '数量表を取得できる').toBe(200);
+      return (await detail.json()) as TableDetail;
+    };
+    const itemWithParams = (name: string, calculationParams: Record<string, number>) => ({
+      id: null,
+      tempId: 'temp-item-0',
+      majorCategory: null,
+      middleCategory: null,
+      minorCategory: null,
+      customCategory: null,
+      workType: '工種',
+      name,
+      specification: null,
+      unit: 'm3',
+      calculationMethod: 'AREA_VOLUME',
+      calculationParams,
+      adjustmentFactor: 1,
+      roundingUnit: 0.01,
+      quantity: 6,
+      remarks: null,
+      displayOrder: 0,
+    });
+    const bodyWith = (
+      expectedUpdatedAt: string,
+      name: string,
+      itemName: string,
+      calculationParams: Record<string, number>
+    ) => ({
+      expectedUpdatedAt,
+      name,
+      groups: [
+        {
+          id: null,
+          tempId: 'temp-group-0',
+          name: groupName,
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [itemWithParams(itemName, calculationParams)],
+        },
+      ],
+    });
+    /** 使うキー（3 つ）に使わないキーを足して、指定の数のキーにする */
+    const paramsWithKeys = (count: number) => ({
+      ...usedParams,
+      ...Object.fromEntries(
+        Array.from({ length: count - Object.keys(usedParams).length }, (_, index) => [
+          `unused${index}`,
+          1,
+        ])
+      ),
+    });
+    const summarize = (table: TableDetail) =>
+      table.groups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        items: group.items.map((item) => [item.id, item.name, item.calculationParams]),
+      }));
+
+    // 前提: 計算用パラメータを持つ数量項目が 1 件ある数量表
+    const initial = await readTable();
+    const prepared = await page.request.put(`${API_BASE_URL}/api/quantity-tables/${tableId}/save`, {
+      headers,
+      data: bodyWith(initial.updatedAt, tableName, '既存の項目', usedParams),
+    });
+    expect(prepared.status(), '前提: 既存の数量項目を保存できる').toBe(200);
+    const before = await readTable();
+    expect(summarize(before)).toEqual([
+      {
+        id: expect.any(String),
+        name: groupName,
+        items: [[expect.any(String), '既存の項目', usedParams]],
+      },
+    ]);
+
+    // 上限（10）を超えたキーの本文
+    const rejected = await page.request.put(`${API_BASE_URL}/api/quantity-tables/${tableId}/save`, {
+      headers,
+      data: bodyWith(
+        before.updatedAt,
+        '書き込まれてはならない名前',
+        '書き込まれてはならない項目',
+        paramsWithKeys(11)
+      ),
+    });
+    expect(rejected.status()).toBe(400);
+    const rejectedBody = (await rejected.json()) as {
+      code: string;
+      message: string;
+      details: Array<{ path: string; message: string }>;
+    };
+    expect(rejectedBody.code).toBe('VALIDATION_ERROR');
+    expect(rejectedBody.message).toBe('計算用パラメータは10項目以内で指定してください');
+    expect(rejectedBody.details).toEqual([
+      expect.objectContaining({
+        path: 'groups.0.items.0.calculationParams',
+        message: '計算用パラメータは10項目以内で指定してください',
+      }),
+    ]);
+
+    // 数量表は変わらない（通っていれば名前が変わり、既存の数量項目が新規の項目に置き換わる）
+    const afterRejected = await readTable();
+    expect(afterRejected.name).toBe(tableName);
+    expect(afterRejected.updatedAt).toBe(before.updatedAt);
+    expect(summarize(afterRejected)).toEqual(summarize(before));
+
+    // 非空証明: 同じ形で上限ちょうど（10）なら保存される。400 はキーの数による
+    const accepted = await page.request.put(`${API_BASE_URL}/api/quantity-tables/${tableId}/save`, {
+      headers,
+      data: bodyWith(
+        before.updatedAt,
+        `${tableName}_上限ちょうど`,
+        '上限ちょうどの項目',
+        paramsWithKeys(10)
+      ),
+    });
+    expect(accepted.status(), `上限ちょうどは保存される (status=${accepted.status()})`).toBe(200);
+    const afterAccepted = await readTable();
+    expect(afterAccepted.name).toBe(`${tableName}_上限ちょうど`);
+    // 使わないキーは従来どおり捨てて永続化する
+    expect(summarize(afterAccepted)).toEqual([
+      {
+        id: expect.any(String),
+        name: groupName,
+        items: [[expect.any(String), '上限ちょうどの項目', usedParams]],
+      },
+    ]);
+  });
+
+  // --------------------------------------------------------------------------
+  // シナリオ: 件数の上限を超えた保存の画面の表示（quantity-table-generation タスク109.1）
+  // --------------------------------------------------------------------------
+  /**
+   * 画面の操作で上限（数量グループ 1000 件など）を超えることは現実的でないため、画面で編集して
+   * 保存し、送られる保存の要求の本文だけを経路の差し替え（`route.continue` の `postData`）で
+   * 件数の上限を超えるまで増やす。応答は差し替えず、バックエンドの実際の 400 を画面が受ける。
+   * 画面の編集の部分（先頭の数量グループと、その中の編集した数量項目）は本文に残す。
+   */
+  const SAVE_LIMIT_CASES: Array<{
+    label: string;
+    expectedMessage: string;
+    inflate: (groups: Array<Record<string, unknown>>) => Array<Record<string, unknown>>;
+  }> = [
+    {
+      label: '数量グループの数',
+      expectedMessage: '保存できません: 数量グループは1000件以内で保存してください',
+      inflate: (groups) => [
+        ...groups,
+        ...Array.from({ length: 1001 - groups.length }, (_, index) => ({
+          id: null,
+          tempId: `temp-pad-group-${index}`,
+          name: `上限超過の埋め草${index}`,
+          surveyImageId: null,
+          displayOrder: groups.length + index,
+          items: [],
+        })),
+      ],
+    },
+    {
+      label: '一つの数量グループの数量項目の数',
+      expectedMessage: '保存できません: 一つの数量グループの数量項目は2000件以内で保存してください',
+      inflate: (groups) => [
+        { ...groups[0], items: copiesOfFirstItem(groups, 'items', 2001) },
+        ...groups.slice(1),
+      ],
+    },
+    {
+      label: '数量項目の総数',
+      // 一つの数量グループは 1667 件（上限 2000 の内側）で、3 つの合計が 5001 件
+      expectedMessage: '保存できません: 数量項目は合計5000件以内で保存してください',
+      inflate: (groups) => [
+        { ...groups[0], items: copiesOfFirstItem(groups, 'total0', 1667) },
+        ...[1, 2].map((n) => ({
+          id: null,
+          tempId: `temp-pad-group-${n}`,
+          name: `上限超過の埋め草${n}`,
+          surveyImageId: null,
+          displayOrder: n,
+          items: copiesOfFirstItem(groups, `total${n}`, 1667),
+        })),
+      ],
+    },
+  ];
+
+  /** 先頭の数量グループの先頭の数量項目（画面で編集したもの）を新規の数量項目として count 件に複製する */
+  function copiesOfFirstItem(
+    groups: Array<Record<string, unknown>>,
+    prefix: string,
+    count: number
+  ): Array<Record<string, unknown>> {
+    const firstItem = (groups[0]?.items as Array<Record<string, unknown>> | undefined)?.[0];
+    assertPrepared(firstItem, '保存の本文の先頭の数量項目');
+    return Array.from({ length: count }, (_, index) => ({
+      ...firstItem,
+      id: null,
+      tempId: `temp-pad-${prefix}-${index}`,
+      displayOrder: index,
+    }));
+  }
+
+  for (const limitCase of SAVE_LIMIT_CASES) {
+    /**
+     * @requirement quantity-table-generation/REQ-42.12
+     */
+    test(`${limitCase.label}の上限を超えた保存は上限のメッセージを表示し、汎用の文言を出さず編集中の内容と未保存の表示が残る`, async ({
+      page,
+    }) => {
+      if (!testProjectId) {
+        throw new Error('testProjectId が未設定です。');
+      }
+      const tableName = `上限表示検証数量表_${limitCase.label}_${RUN_ID}`;
+      const editedTableName = `${tableName}_編集中`;
+      const groupName = `上限表示検証のグループ_${RUN_ID}`;
+      const tableId = await createQuantityTable(page, tableName);
+      limitTableIdsToRemove.push(tableId);
+
+      // 画面で編集する（いずれも保存しない）
+      const groupCards = page.locator('[data-testid="quantity-group-card"]');
+      await addGroup(page, 1);
+      await renameGroupAt(page, 0, groupName);
+      await addItemToGroupAt(page, 0, 1, { workType: '上限工種', name: '上限名称', unit: 'm2' });
+      await renameTable(page, editedTableName);
+      const unsavedIndicator = page.getByText('未保存の変更があります', { exact: true });
+      await expect(unsavedIndicator).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 保存の要求の本文だけを件数の上限を超えるまで増やす（応答はバックエンドの実際のもの）
+      const savePattern = `**/api/quantity-tables/${tableId}/save`;
+      const sentGroupNames: unknown[][] = [];
+      await page.route(savePattern, async (route) => {
+        const body = route.request().postDataJSON() as {
+          groups: Array<Record<string, unknown>>;
+        };
+        sentGroupNames.push(body.groups.map((group) => group.name));
+        await route.continue({
+          postData: JSON.stringify({ ...body, groups: limitCase.inflate(body.groups) }),
+        });
+      });
+
+      const rejectedResponse = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/api/quantity-tables/${tableId}/save`) &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(60000) }
+      );
+      await page.getByRole('button', { name: '保存' }).click();
+      const rejected = await rejectedResponse;
+      expect(sentGroupNames, '前提: 画面の編集が保存の本文に載っている').toEqual([[groupName]]);
+      expect(rejected.status(), '前提: バックエンドが件数の上限の 400 を返す').toBe(400);
+
+      // 上限のメッセージを完全一致で表示し、汎用の文言は出さない
+      const operationAlert = page.getByRole('alert').filter({ hasText: '保存できません: ' });
+      await expect(operationAlert.locator('p').first()).toHaveText(limitCase.expectedMessage, {
+        timeout: getTimeout(10000),
+      });
+      await expect(page.getByText('保存に失敗しました。再度お試しください。')).toHaveCount(0);
+
+      // 編集中の内容と未保存の表示が残る（42.9）
+      await expect(page.getByLabel('数量表名')).toHaveValue(editedTableName);
+      await expect(groupCards).toHaveCount(1);
+      await expect(groupCards.nth(0).locator('h3').first()).toHaveText(groupName);
+      await expect(
+        groupCards
+          .nth(0)
+          .locator('[data-testid="quantity-item-row"]')
+          .first()
+          .locator('input[id$="-name"]')
+      ).toHaveValue('上限名称');
+      await expect(unsavedIndicator).toBeVisible();
+
+      // 何も書き込まれていない（数量表名は作成時のまま、数量グループは無い）
+      const token = await getAccessToken(page, 'REGULAR_USER');
+      assertPrepared(token, 'アクセストークン');
+      const detail = await page.request.get(`${API_BASE_URL}/api/quantity-tables/${tableId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(detail.status(), '数量表を取得できる').toBe(200);
+      const persisted = (await detail.json()) as { name: string; groups: unknown[] };
+      expect(persisted.name).toBe(tableName);
+      expect(persisted.groups).toEqual([]);
+
+      // 非空証明: 本文を増やさずに保存し直すと保存される（400 は増やした件数による）
+      await page.unroute(savePattern);
+      await saveQuantityTableDraft(page);
+      await expect(unsavedIndicator).toHaveCount(0);
+    });
+  }
 
   // --------------------------------------------------------------------------
   // クリーンアップ

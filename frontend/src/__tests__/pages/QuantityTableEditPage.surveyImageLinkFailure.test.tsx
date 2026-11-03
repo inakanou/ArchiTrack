@@ -204,13 +204,31 @@ describe('QuantityTableEditPage - 現調画像の紐付けの失敗の提示（T
       expect(alert).not.toHaveTextContent('再度お試しください');
     });
 
-    it('写真の紐付けに関わらない失敗は従来どおり一般の文言になる（数量表の 404 は状態コードでなくコードで見分ける）', async () => {
+    // Task 106.1 で、数量表の 404 は一般の文言から数量表が見つからない旨へ改めた
+    // （本ファイルは受入基準番号を名乗らない。被覆は QuantityTableNotFound.test.tsx）。写真の失敗の書き分けへ取り込まれないこと
+    // （数量表の 404 は状態コードでなくコードで見分ける）の主張は保つ
+    it('写真の紐付けに関わらない数量表の 404 は写真の書き分けにならず、数量表が見つからない旨になる（数量表の 404 は状態コードでなくコードで見分ける）', async () => {
       const user = userEvent.setup();
       mockSaveQuantityTableDraft.mockRejectedValue(
         new ApiError(404, 'Quantity table not found', {
           status: 404,
           code: 'QUANTITY_TABLE_NOT_FOUND',
         })
+      );
+      renderPage();
+
+      await clickSave(user);
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('数量表が見つかりません。存在しないか、削除されています。');
+      expect(alert).not.toHaveTextContent('写真');
+      expect(alert).not.toHaveTextContent('再度お試しください');
+    });
+
+    it('写真の紐付けに関わらない 404 以外の失敗は従来どおり一般の文言になる', async () => {
+      const user = userEvent.setup();
+      mockSaveQuantityTableDraft.mockRejectedValue(
+        new ApiError(500, 'Internal Server Error', { status: 500, code: 'INTERNAL_ERROR' })
       );
       renderPage();
 

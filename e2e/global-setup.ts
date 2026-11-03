@@ -9,6 +9,7 @@
 import { seedRoles, seedPermissions, seedRolePermissions } from './fixtures/seed-helpers';
 import { getPrismaClient, cleanDatabase } from './fixtures/database';
 import { createAllTestUsers } from './fixtures/auth.fixtures';
+import { establishSharedSessions } from './helpers/shared-sessions';
 
 /**
  * バックエンドAPIの準備完了を待機
@@ -82,6 +83,7 @@ async function waitForDatabase(
  * 1. データベースクリーンアップ（既存のテストデータを削除）
  * 2. マスターデータ初期化（Role, Permission, RolePermission）
  * 3. 共通テストユーザー作成（REGULAR_USER, ADMIN_USER等）
+ * 4. 共有の役割のログインとリフレッシュの Cookie の保持
  *
  * 処理フロー:
  * - 全テストデータをクリア（User, Invitation, RefreshTokenなど）
@@ -89,7 +91,7 @@ async function waitForDatabase(
  * - Permissionテーブルに各種権限を作成（*:*, adr:*, user:*など）
  * - RolePermissionテーブルでロールと権限を紐付け
  *   - adminロール → *:* 権限（全権限）
- *   - userロール → adr:read, adr:create, adr:update, user:read, settings:read
+ *   - userロール → adr:read, adr:create, adr:update, settings:read ほか業務の権限（user:read は含めない。要件38.4）
  * - 全テストユーザーを作成（user@example.com, admin@example.com等）
  *
  * Note: 共通テストユーザーはグローバルセットアップで作成され、全テストで再利用されます。
@@ -125,6 +127,12 @@ export default async function globalSetup() {
     // 3. 共通テストユーザーを作成
     console.log('  - Creating test users...');
     await createAllTestUsers(prisma);
+
+    // 4. 共有の役割（管理者・一般ユーザー）ごとにログインし、リフレッシュの Cookie を保持する
+    // 各テストの loginAsUser がこの Cookie を渡して認証させ、ローテーション後の Cookie を回収する
+    // （user-authentication タスク45.4、design.md「E2E の認証基盤の移行」）
+    console.log('  - Establishing shared sessions...');
+    await establishSharedSessions();
 
     console.log('✅ E2E Global Setup: Test database initialized successfully');
     console.log('   - Roles: admin, user');

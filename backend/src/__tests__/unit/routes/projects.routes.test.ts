@@ -36,6 +36,7 @@ const mockAuditLogService = vi.hoisted(() => ({
 const mockProjectStatusService = vi.hoisted(() => ({
   getStatusHistory: vi.fn(),
   changeStatus: vi.fn(),
+  transitionStatus: vi.fn(),
 }));
 
 const mockSiteSurveyService = vi.hoisted(() => ({
@@ -70,6 +71,12 @@ const mockScheduleService = vi.hoisted(() => ({
 
 const mockExecutionBudgetService = vi.hoisted(() => ({
   getSummaryByProjectId: vi.fn(),
+}));
+
+// 案件の閲覧範囲（user-authentication タスク52.3）の判定と絞り込み条件
+const mockProjectScopeService = vi.hoisted(() => ({
+  evaluateProjectAccess: vi.fn(),
+  buildProjectScopeWhere: vi.fn(),
 }));
 
 const mockIsStorageConfigured = vi.hoisted(() => vi.fn());
@@ -213,6 +220,11 @@ vi.mock('../../../errors/projectError', async (importOriginal) => {
   };
 });
 
+// モック: 案件の閲覧範囲（既定は全案件を範囲内とする。各テストで差し替える）
+vi.mock('../../../services/project-scope.service', () => ({
+  getSharedProjectScopeService: () => mockProjectScopeService,
+}));
+
 // 実際のルートとミドルウェアをインポート（モックの後にインポート）
 import projectsRouter from '../../../routes/projects.routes.js';
 import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
@@ -252,6 +264,8 @@ describe('Projects Routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockProjectScopeService.evaluateProjectAccess.mockResolvedValue('allowed');
+    mockProjectScopeService.buildProjectScopeWhere.mockResolvedValue(null);
 
     app = express();
     app.use(express.json());
@@ -310,7 +324,8 @@ describe('Projects Routes', () => {
       expect(mockProjectService.getProjects).toHaveBeenCalledWith(
         expect.any(Object),
         expect.objectContaining({ page: 2, limit: 50 }),
-        expect.any(Object)
+        expect.any(Object),
+        null
       );
     });
 
@@ -328,7 +343,8 @@ describe('Projects Routes', () => {
       expect(mockProjectService.getProjects).toHaveBeenCalledWith(
         expect.objectContaining({ search: 'テスト' }),
         expect.any(Object),
-        expect.any(Object)
+        expect.any(Object),
+        null
       );
     });
 
@@ -346,7 +362,8 @@ describe('Projects Routes', () => {
       expect(mockProjectService.getProjects).toHaveBeenCalledWith(
         expect.objectContaining({ status: ['PREPARING', 'SURVEYING'] }),
         expect.any(Object),
-        expect.any(Object)
+        expect.any(Object),
+        null
       );
     });
 
@@ -369,7 +386,8 @@ describe('Projects Routes', () => {
           createdTo: '2025-12-31',
         }),
         expect.any(Object),
-        expect.any(Object)
+        expect.any(Object),
+        null
       );
     });
 
@@ -390,7 +408,8 @@ describe('Projects Routes', () => {
       expect(mockProjectService.getProjects).toHaveBeenCalledWith(
         expect.objectContaining({ tradingPartnerId }),
         expect.any(Object),
-        expect.any(Object)
+        expect.any(Object),
+        null
       );
     });
 
@@ -424,7 +443,8 @@ describe('Projects Routes', () => {
       expect(mockProjectService.getProjects).toHaveBeenCalledWith(
         expect.any(Object),
         expect.any(Object),
-        expect.objectContaining({ sort: 'name', order: 'asc' })
+        expect.objectContaining({ sort: 'name', order: 'asc' }),
+        null
       );
     });
 
@@ -887,7 +907,8 @@ describe('Projects Routes', () => {
       expect(mockProjectService.getProjects).toHaveBeenCalledWith(
         expect.any(Object),
         expect.objectContaining({ limit: 100 }),
-        expect.any(Object)
+        expect.any(Object),
+        null
       );
     });
   });
@@ -908,7 +929,8 @@ describe('Projects Routes', () => {
       expect(mockProjectService.getProjects).toHaveBeenCalledWith(
         expect.objectContaining({ excludeTerminalStatuses: true }),
         expect.any(Object),
-        expect.any(Object)
+        expect.any(Object),
+        null
       );
     });
 
@@ -923,7 +945,8 @@ describe('Projects Routes', () => {
       expect(mockProjectService.getProjects).toHaveBeenCalledWith(
         expect.objectContaining({ excludeTerminalStatuses: undefined }),
         expect.any(Object),
-        expect.any(Object)
+        expect.any(Object),
+        null
       );
     });
   });
@@ -1404,6 +1427,99 @@ describe('Projects Routes', () => {
       expect(response.body.sections.schedules).toBeDefined();
       // 実行予算セクションはデフォルト値
       expect(response.body.sections.executionBudget).toBeNull();
+    });
+  });
+
+  describe('案件の閲覧範囲（user-authentication タスク52.3）', () => {
+    const scopeWhere = {
+      OR: [
+        { salesPersonId: 'test-user-id' },
+        { constructionPersonId: 'test-user-id' },
+        { createdById: 'test-user-id' },
+      ],
+    };
+
+    it('一覧は利用者の絞り込み条件をサービスへ渡す', async () => {
+      mockProjectScopeService.buildProjectScopeWhere.mockResolvedValue(scopeWhere);
+      mockProjectService.getProjects.mockResolvedValue({
+        data: [],
+        pagination: { page: 1, limit: 100, total: 0, totalPages: 0 },
+      });
+
+      const response = await request(app).get('/api/projects?search=テスト');
+
+      expect(response.status).toBe(200);
+      expect(mockProjectScopeService.buildProjectScopeWhere).toHaveBeenCalledWith('test-user-id');
+      expect(mockProjectService.getProjects).toHaveBeenCalledWith(
+        expect.objectContaining({ search: 'テスト' }),
+        expect.any(Object),
+        expect.any(Object),
+        scopeWhere
+      );
+    });
+
+    it('状態ごとの件数は利用者の絞り込み条件をサービスへ渡す', async () => {
+      mockProjectScopeService.buildProjectScopeWhere.mockResolvedValue(scopeWhere);
+      mockProjectService.getStatusCounts.mockResolvedValue({ counts: {}, total: 0 });
+
+      const response = await request(app).get('/api/projects/status-counts');
+
+      expect(response.status).toBe(200);
+      expect(mockProjectService.getStatusCounts).toHaveBeenCalledWith(scopeWhere);
+    });
+
+    const idRoutes: Array<{
+      name: string;
+      method: 'get' | 'put' | 'delete' | 'patch';
+      path: string;
+      body?: object;
+    }> = [
+      { name: '詳細', method: 'get', path: '' },
+      { name: '詳細の集計', method: 'get', path: '/detail-summary' },
+      { name: '状態の履歴', method: 'get', path: '/status-history' },
+      {
+        name: '更新',
+        method: 'put',
+        path: '',
+        body: { name: '更新', expectedUpdatedAt: '2025-01-01T00:00:00.000Z' },
+      },
+      { name: '削除', method: 'delete', path: '' },
+      { name: '状態変更', method: 'patch', path: '/status', body: { status: 'SURVEYING' } },
+    ];
+
+    for (const route of idRoutes) {
+      it(`${route.name}は範囲外のとき汎用の 404 になり、処理を呼ばない`, async () => {
+        mockProjectScopeService.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+        const response = await request(app)
+          [route.method](`/api/projects/${TEST_PROJECT_ID}${route.path}`)
+          .send(route.body ?? {});
+
+        expect(response.status).toBe(404);
+        expect(response.body.code).toBe('NOT_FOUND');
+        expect(JSON.stringify({ ...response.body, instance: undefined })).not.toContain(
+          TEST_PROJECT_ID
+        );
+        expect(mockProjectScopeService.evaluateProjectAccess).toHaveBeenCalledWith(
+          'test-user-id',
+          TEST_PROJECT_ID
+        );
+        expect(mockProjectService.getProject).not.toHaveBeenCalled();
+        expect(mockProjectService.updateProject).not.toHaveBeenCalled();
+        expect(mockProjectService.deleteProject).not.toHaveBeenCalled();
+        expect(mockProjectStatusService.getStatusHistory).not.toHaveBeenCalled();
+        expect(mockProjectStatusService.transitionStatus).not.toHaveBeenCalled();
+      });
+    }
+
+    it('案件が無いときも範囲外と同じ汎用の 404 になる', async () => {
+      mockProjectScopeService.evaluateProjectAccess.mockResolvedValue('not_found');
+
+      const response = await request(app).get(`/api/projects/${TEST_PROJECT_ID}`);
+
+      expect(response.status).toBe(404);
+      expect(response.body.code).toBe('NOT_FOUND');
+      expect(mockProjectService.getProject).not.toHaveBeenCalled();
     });
   });
 });

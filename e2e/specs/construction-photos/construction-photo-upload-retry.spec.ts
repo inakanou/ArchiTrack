@@ -15,7 +15,8 @@
  *   解除は登録時と同一のハンドラ参照を渡す `page.unroute` で行う
  *   （無名関数を再度渡しても解除されないため、matcher・handler ともに参照を保持する）。
  * - 応答差し替えの一致判定は**オリジンではなくパス**で行う。CI とローカルで API の
- *   オリジンが食い違い（CI は VITE_API_URL=localhost:3000 / API_BASE_URL=127.0.0.1:3000）、
+ *   オリジンが食い違い（CI は画面の API が画面と同じオリジンの VITE_API_URL=localhost:5173、
+ *   backend へ直接つなぐ API_BASE_URL=127.0.0.1:3000）、
  *   オリジン依存の判定は全件素通りして「常に成功する無意味なテスト」になるためである。
  * - 一時的な通信障害は `503` 応答で再現する。localhost では `context.setOffline` が
  *   機能しないため用いない（design.md 同節）。

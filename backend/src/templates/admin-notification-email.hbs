@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{subject}}</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background-color: #f4f4f4; padding: 20px; border-radius: 5px;">
+    <h1 style="color: #c0392b; margin-bottom: 20px; font-size: 20px;">{{subject}}</h1>
+
+    <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+      <p style="margin: 0; color: #856404;">
+        <strong>システム管理者への通知</strong><br>
+        アカウントや権限に関わる操作が行われました。
+      </p>
+    </div>
+
+    <ul style="padding-left: 20px;">
+      {{#each lines}}
+      <li style="overflow-wrap: anywhere;">{{this}}</li>
+      {{/each}}
+    </ul>
+
+    <p>この操作に心当たりがない場合は、監査ログで詳細を確認し、関係者に確認してください。</p>
+
+    <div style="background-color: #e9ecef; padding: 15px; margin: 20px 0; border-radius: 5px;">
+      <p style="margin: 0;">
+        <a href="{{frontendUrl}}/admin/audit-logs" style="color: #007bff; text-decoration: none; font-weight: bold;">
+          監査ログを確認する →
+        </a>
+      </p>
+    </div>
+
+    <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;">
+
+    <p style="font-size: 12px; color: #95a5a6;">
+      このメールは全てのシステム管理者へ送られる通知です。
+    </p>
+  </div>
+</body>
+</html>

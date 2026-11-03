@@ -3,9 +3,32 @@ import { ZodError } from 'zod';
 import { ApiError, ValidationError } from '../errors/apiError.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { captureException } from '../utils/sentry.js';
+import { sentryRequestContext } from '../utils/sentry-request-context.js';
 import logger from '../utils/logger.js';
 import { createProblemDetails, PROBLEM_TYPES } from '../types/problem-details.js';
 import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import { runtimeMode } from '../config/runtime-mode.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
+import { getClientIp } from './client-ip.js';
+
+/**
+ * 5xx の応答を異常の検知へ送る（user-authentication タスク55.4、要件43.3）
+ *
+ * エラーハンドラーを経ずに経路が直接返す 5xx も数えるため、応答の完了で状態コードを読む。
+ * 利用者 ID は authenticate が設定した後の値を完了時に読む。計数は応答を待たせない。
+ */
+export function observeServerErrorResponses(req: Request, res: Response, next: NextFunction): void {
+  res.on('finish', () => {
+    if (res.statusCode >= 500) {
+      observeSecurityAnomaly({
+        signal: 'server_error',
+        sourceIp: getClientIp(req),
+        userId: req.user?.userId ?? null,
+      });
+    }
+  });
+  next();
+}
 
 /**
  * データベースへ接続できないことを 503 Service Unavailable（Problem Details）で返す
@@ -20,11 +43,7 @@ function respondDatabaseUnavailable(
   log.error({ err }, logMessage);
 
   // Send database connection errors to Sentry
-  captureException(err, {
-    url: req.url,
-    method: req.method,
-    errorType: 'database_connection',
-  });
+  captureException(err, { ...sentryRequestContext(req), errorType: 'database_connection' });
 
   res.status(503).json(
     createProblemDetails({
@@ -51,12 +70,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
 
     // Send 5xx errors to Sentry
     if (err.statusCode >= 500) {
-      captureException(err, {
-        url: req.url,
-        method: req.method,
-        ip: req.ip,
-        statusCode: err.statusCode,
-      });
+      captureException(err, { ...sentryRequestContext(req), statusCode: err.statusCode });
     }
 
     res.status(err.statusCode).json(err.toProblemDetails(req.url));
@@ -122,11 +136,7 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     // 400 "Database Error" would blame the request format and hide that fact from the client.
     if (err.code === 'P2028') {
       // 5xx として扱うため、他の 5xx と同様に Sentry へ送る
-      captureException(err, {
-        url: req.url,
-        method: req.method,
-        errorType: 'transaction_timeout',
-      });
+      captureException(err, { ...sentryRequestContext(req), errorType: 'transaction_timeout' });
 
       res.status(500).json(
         createProblemDetails({
@@ -167,17 +177,10 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
   log.error({ err }, 'Internal server error');
 
   // Send unexpected errors to Sentry
-  captureException(err, {
-    url: req.url,
-    method: req.method,
-    ip: req.ip,
-    body: req.body,
-    query: req.query,
-    params: req.params,
-  });
+  captureException(err, sentryRequestContext(req));
 
-  // Hide stack trace in production
-  const isDevelopment = process.env.NODE_ENV === 'development';
+  // スタックトレースは開発用の機能（実行環境が development / test と明示されたときだけ付ける。要件42.9）
+  const isDevelopment = runtimeMode.isDevelopmentFeatureEnabled();
 
   res.status(500).json(
     createProblemDetails({

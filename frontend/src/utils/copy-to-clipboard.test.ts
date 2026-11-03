@@ -7,11 +7,10 @@
  * - 14.2: タブ区切り形式でコピー
  * - 14.3: ヘッダー行を含む
  * - 14.4: 各行はタブ文字で区切り、行末は改行文字
- * - 14.7: コピー失敗時はエラーを返却
  * - 14.8: 数量は小数点以下2桁の文字列
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import type { ItemizedStatementItemInfo } from '../types/itemized-statement.types';
 
 // テストデータ
@@ -50,20 +49,6 @@ const mockItems: ItemizedStatementItemInfo[] = [
 
 // テストスイート
 describe('copy-to-clipboard', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // Clipboard APIのモック
-    Object.assign(navigator, {
-      clipboard: {
-        writeText: vi.fn().mockResolvedValue(undefined),
-      },
-    });
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   describe('formatItemsForClipboard', () => {
     it('項目をタブ区切りテキストに変換する (Req 14.2)', async () => {
       const { formatItemsForClipboard } = await import('./copy-to-clipboard');
@@ -182,75 +167,6 @@ describe('copy-to-clipboard', () => {
 
       // ヘッダー行のみ
       expect(text).toBe('任意分類\t工種\t名称\t規格\t数量\t単位\n');
-    });
-  });
-
-  describe('copyToClipboard', () => {
-    it('クリップボードにコピー成功時はsuccessを返す', async () => {
-      const { copyToClipboard } = await import('./copy-to-clipboard');
-
-      const result = await copyToClipboard({ items: mockItems });
-
-      expect(result.success).toBe(true);
-      expect(result.error).toBeUndefined();
-      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
-    });
-
-    it('正しいテキストがクリップボードにコピーされる', async () => {
-      const { copyToClipboard, formatItemsForClipboard } = await import('./copy-to-clipboard');
-
-      await copyToClipboard({ items: mockItems });
-
-      const expectedText = formatItemsForClipboard(mockItems);
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedText);
-    });
-
-    it('空配列でも正常に動作する', async () => {
-      const { copyToClipboard } = await import('./copy-to-clipboard');
-
-      const result = await copyToClipboard({ items: [] });
-
-      expect(result.success).toBe(true);
-    });
-
-    it('Clipboard APIでエラーが発生した場合はエラーを返す (Req 14.7)', async () => {
-      const { copyToClipboard } = await import('./copy-to-clipboard');
-
-      // writeTextでエラーをスロー
-      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(
-        new Error('Permission denied')
-      );
-
-      const result = await copyToClipboard({ items: mockItems });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Permission denied');
-    });
-
-    it('未知のエラーも適切にハンドリングする', async () => {
-      const { copyToClipboard } = await import('./copy-to-clipboard');
-
-      // 非Errorオブジェクトをスロー
-      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce('unknown error');
-
-      const result = await copyToClipboard({ items: mockItems });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('クリップボードへのコピーに失敗しました');
-    });
-
-    it('Clipboard APIが利用不可の場合はエラーを返す', async () => {
-      const { copyToClipboard } = await import('./copy-to-clipboard');
-
-      // navigator.clipboardをundefinedに設定
-      Object.assign(navigator, {
-        clipboard: undefined,
-      });
-
-      const result = await copyToClipboard({ items: mockItems });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('クリップボードAPIが利用できません');
     });
   });
 });

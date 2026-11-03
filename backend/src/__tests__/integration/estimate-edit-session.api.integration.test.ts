@@ -30,6 +30,8 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { ESTIMATE_EDIT_SESSION_TTL_SECONDS } from '../../services/estimate-edit-session.service.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const PASSWORD = 'TestPassword123!';
 
@@ -67,14 +69,26 @@ describe('Estimate Edit Session API Integration Tests (REQ-11.7)', () => {
     const existing = await prisma.user.findUnique({ where: { email } });
     if (!existing) return;
     const projects = await prisma.project.findMany({
-      where: { OR: [{ salesPersonId: existing.id }, { createdById: existing.id }] },
+      where: {
+        OR: [
+          { salesPersonId: existing.id },
+          { constructionPersonId: existing.id },
+          { createdById: existing.id },
+        ],
+      },
       select: { id: true },
     });
     for (const project of projects) {
       await prisma.estimate.deleteMany({ where: { projectId: project.id } });
     }
     await prisma.project.deleteMany({
-      where: { OR: [{ salesPersonId: existing.id }, { createdById: existing.id }] },
+      where: {
+        OR: [
+          { salesPersonId: existing.id },
+          { constructionPersonId: existing.id },
+          { createdById: existing.id },
+        ],
+      },
     });
     await prisma.userRole.deleteMany({ where: { userId: existing.id } });
     await prisma.user.delete({ where: { id: existing.id } });
@@ -85,19 +99,21 @@ describe('Estimate Edit Session API Integration Tests (REQ-11.7)', () => {
     const passwordHash = await (
       await import('@node-rs/argon2')
     ).hash(PASSWORD, { memoryCost: 65536, timeCost: 3, parallelism: 4 });
-    const user = await prisma.user.create({
-      data: { email: account.email, displayName: account.displayName, passwordHash },
+    const user = await createTestUser(prisma, {
+      email: account.email,
+      displayName: account.displayName,
+      passwordHash,
     });
     if (account.roleName) {
       const role = await prisma.role.findUnique({ where: { name: account.roleName } });
       expect(role).not.toBeNull();
       await prisma.userRole.create({ data: { userId: user.id, roleId: role!.id } });
     }
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: account.email, password: PASSWORD });
-    expect(response.status).toBe(200);
-    tokens[account.email] = response.body.accessToken;
+    const accessToken = await loginForAccessToken(app, {
+      email: account.email,
+      password: PASSWORD,
+    });
+    tokens[account.email] = accessToken;
     userIds[account.email] = user.id;
   };
 
@@ -127,6 +143,8 @@ describe('Estimate Edit Session API Integration Tests (REQ-11.7)', () => {
         name: 'テスト用プロジェクト_編集セッション統合テスト',
         status: 'PREPARING',
         salesPersonId: userIds[EDITOR_A.email]!,
+        // 利用者 B も同じ見積書を開けるよう工事担当者にする（案件の閲覧範囲。user-authentication 要件39）
+        constructionPersonId: userIds[EDITOR_B.email]!,
         createdById: userIds[EDITOR_A.email]!,
       },
     });

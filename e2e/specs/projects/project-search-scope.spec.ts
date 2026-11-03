@@ -14,7 +14,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { getPrismaClient } from '../../fixtures/database';
-import { hashPassword } from '../../helpers/test-users';
+import { createCustomUser } from '../../fixtures/auth.fixtures';
 
 // Prisma Client型定義
 type PrismaClientType = ReturnType<typeof getPrismaClient>;
@@ -61,33 +61,21 @@ test.describe('検索対象拡張 (Task 25.3)', () => {
 
       // テスト用営業担当者ユーザーを作成
       const salesPersonEmail = `${TEST_PREFIX}sales@test.com`;
-      const salesPerson = await prisma.user.create({
-        data: {
-          email: salesPersonEmail,
-          passwordHash: await hashPassword('Password123!'),
-          displayName: SALES_PERSON_NAME,
-          userRoles: {
-            create: {
-              roleId: userRole.id,
-            },
-          },
-        },
+      const salesPerson = await createCustomUser({
+        email: salesPersonEmail,
+        password: 'Password123!',
+        displayName: SALES_PERSON_NAME,
+        roles: [userRole.name],
       });
       testSalesPersonId = salesPerson.id;
 
       // テスト用工事担当者ユーザーを作成
       const constructionPersonEmail = `${TEST_PREFIX}construction@test.com`;
-      const constructionPerson = await prisma.user.create({
-        data: {
-          email: constructionPersonEmail,
-          passwordHash: await hashPassword('Password123!'),
-          displayName: CONSTRUCTION_PERSON_NAME,
-          userRoles: {
-            create: {
-              roleId: userRole.id,
-            },
-          },
-        },
+      const constructionPerson = await createCustomUser({
+        email: constructionPersonEmail,
+        password: 'Password123!',
+        displayName: CONSTRUCTION_PERSON_NAME,
+        roles: [userRole.name],
       });
       testConstructionPersonId = constructionPerson.id;
 

@@ -25,16 +25,21 @@
  * - 56.3: 保存操作を伴わせず、未保存の変更を保持する
  * - 56.4: 未保存の変更がある間、帳票が未保存の内容を含むことを画面上で示す
  *
+ * タスク62.2: 出力の記録（57.7）は既定で成功させる前提を足した。ページがダイアログへ渡す
+ * 見積書の ID が記録に届くことも、実物のダイアログを通して確かめる
+ * （@requirement estimate-creation/REQ-57.7）。
+ *
  * @module pages/EstimateDetailPage.export
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import EstimateDetailPage from './EstimateDetailPage';
 import * as estimatesApi from '../api/estimates';
+import { apiClient } from '../api/client';
 
 vi.mock('../api/estimates');
 
@@ -210,6 +215,9 @@ beforeEach(() => {
   downloaded.length = 0;
   nextBlob = null;
   installRequestRecorder();
+  // 出力の記録（POST /api/v1/audit-logs/exports）は既定で成功させる（57.7）。
+  // `requestLog` は見積書の API モジュールの関数だけを記録するため、記録の要求は載らない。
+  vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
 
   Object.defineProperty(URL, 'createObjectURL', {
     configurable: true,
@@ -224,6 +232,10 @@ beforeEach(() => {
   ) {
     downloaded.push({ fileName: this.download, blob: nextBlob! });
   });
+});
+
+afterEach(() => {
+  vi.mocked(apiClient.post).mockRestore();
 });
 
 // ============================================================================
@@ -311,6 +323,19 @@ describe('EstimateDetailPage - 帳票出力', () => {
     const executionSheet = await sheetTextOf(downloaded[1]!.blob);
     expect(executionSheet).toContain(EDITED_EXECUTION_NAME);
     expect(executionSheet).not.toContain(SAVED_NAME);
+
+    // 57.7: ページが渡した見積書の ID と案件が出力の記録に届く（記録は1回）
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/api/v1/audit-logs/exports',
+      {
+        kind: 'estimate_xlsx',
+        projectId: 'proj-001',
+        targetIds: ['est-001'],
+        itemCount: 1,
+      },
+      { disableRetry: true }
+    );
 
     // --- 56.3: 出力は通信を1本も伴わない -----------------------------------
     // 観測窓は開いたまま。ここで閉じると 0 件の主張が空振りになる。

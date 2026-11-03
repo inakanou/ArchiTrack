@@ -27,15 +27,17 @@
  * @module e2e/specs/estimate-requests/claude-vision-e2e.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
+import { cleanupEstimateRequestFixtures } from '../../helpers/estimate-request-preconditions';
 
 /**
  * 受領見積書フォームを確実に初期状態で開く
  */
-async function openReceivedQuotationForm(page: import('@playwright/test').Page) {
+async function openReceivedQuotationForm(page: Page) {
   // フォームが開いている場合は一度閉じる
   const cancelButton = page.getByRole('button', { name: /^キャンセル$/i });
   if (await isVisibleWithin(cancelButton, 1000)) {
@@ -82,7 +84,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
     await loginAsUser(page, 'REGULAR_USER');
 
     // トークン取得
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).not.toBe('');
 
     // 担当者候補を取得
@@ -205,7 +207,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       // Claude Vision APIをインターセプトして成功レスポンスを返す
       await page.route('**/api/claude-vision/extract', async (route) => {
@@ -312,7 +314,7 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       // Claude Vision APIをインターセプトして503を返す（API無効）
       await page.route('**/api/claude-vision/extract', async (route) => {
@@ -365,65 +367,23 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
   // ==========================================================================
 
   /**
-   * 作成した見積依頼を片付ける。受入基準の判定ではないため、
-   * 意図して `@requirement` を持たない（Task 115.177）。
+   * 作成したデータを片付ける。serial の最後の test ではなく afterAll に置き、途中の検証が
+   * 落ちても後始末が走るようにする（2026-11-01、前例 5ce78747）。作られなかった資源
+   * （ID が未設定のもの）は飛ばす。
+   *
+   * 片付けは共通の補助 `cleanupEstimateRequestFixtures`（e2e/helpers/estimate-request-preconditions.ts）
+   * が担う。管理者で、受領見積書 → 見積依頼 → 内訳書 → 数量表 → プロジェクト → 取引先 の順に消し、
+   * いずれの経路も 204 以外は例外にする（2026-11-01 の是正まで、受領見積書は存在しない経路へ
+   * 送られ、内訳書は基準時刻を送らずに 400 を受け、どの削除も状態コードを見ていなかった。
+   * このファイルに置いていた補助は、同じ欠陥を持つ他の見積依頼の E2E と共有するため移した）。
    */
-  test('テストデータをクリーンアップする', async ({ page }) => {
-    await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-
-    // 見積依頼の受領見積書を削除
-    if (createdEstimateRequestId && createdProjectId) {
-      // 見積依頼の受領見積書一覧を取得して削除
-      const quotationsRes = await page.request.get(
-        `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests/${createdEstimateRequestId}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-      if (quotationsRes.ok()) {
-        const data = await quotationsRes.json();
-        const quotations = data.receivedQuotations ?? [];
-        for (const q of quotations) {
-          await page.request.delete(
-            `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests/${createdEstimateRequestId}/received-quotations/${q.id}`,
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-        }
-      }
-
-      // 見積依頼削除
-      await page.request.delete(
-        `${API_BASE_URL}/api/projects/${createdProjectId}/estimate-requests/${createdEstimateRequestId}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-    }
-
-    // 内訳書削除
-    if (createdItemizedStatementId && createdProjectId) {
-      await page.request.delete(
-        `${API_BASE_URL}/api/projects/${createdProjectId}/itemized-statements/${createdItemizedStatementId}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-    }
-
-    // 数量表削除
-    if (createdQuantityTableId) {
-      await page.request.delete(`${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
-
-    // プロジェクト削除
-    if (createdProjectId) {
-      await page.request.delete(`${API_BASE_URL}/api/projects/${createdProjectId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
-
-    // 取引先削除
-    if (createdTradingPartnerId) {
-      await page.request.delete(`${API_BASE_URL}/api/trading-partners/${createdTradingPartnerId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
+  test.afterAll(async () => {
+    await cleanupEstimateRequestFixtures({
+      estimateRequestId: createdEstimateRequestId,
+      itemizedStatementId: createdItemizedStatementId,
+      quantityTableId: createdQuantityTableId,
+      projectId: createdProjectId,
+      tradingPartnerId: createdTradingPartnerId,
+    });
   });
 });

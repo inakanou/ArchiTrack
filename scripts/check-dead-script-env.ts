@@ -52,7 +52,7 @@
  * 変数を設定したスクリプトが起こすプロセスは、その package の外へ出るためである。実測（同日）:
  * ルートの `test:e2e` が設定する `DATABASE_URL` の読み手は `backend/vitest.global-setup.ts` と
  * `e2e/fixtures/database.ts`、`DISABLE_RATE_LIMIT` の読み手は
- * `backend/src/middleware/rateLimit.middleware.ts` にある。package ごとに走査根を閉じると、
+ * `backend/src/config/runtime-mode.ts` にある。package ごとに走査根を閉じると、
  * この 2 変数は「読み手なし」と誤って告発される。
  *
  * **これは緩い側の選択である。** リポジトリ全体を読み手の母集団にすると、無関係な package が

@@ -255,7 +255,8 @@ export async function getEstimateRequestText(id: string): Promise<EstimateReques
 /**
  * 見積依頼を削除する（論理削除）
  *
- * 楽観的排他制御を使用して見積依頼を論理削除します。
+ * 楽観的排他制御を使用して見積依頼を論理削除します。基準時刻はクエリ（`?updatedAt=`）で送り、
+ * 本文を付けません（HTTP は DELETE の本文に意味を定めず、中継で落ちうるため。見積書の削除と同じ形）。
  *
  * @param id - 見積依頼ID（UUID）
  * @param updatedAt - 楽観的排他制御用の更新日時（ISO8601形式）
@@ -268,7 +269,7 @@ export async function getEstimateRequestText(id: string): Promise<EstimateReques
  * await deleteEstimateRequest('er-123', '2025-01-02T00:00:00.000Z');
  */
 export async function deleteEstimateRequest(id: string, updatedAt: string): Promise<void> {
-  return apiClient.delete<void>(`/api/estimate-requests/${id}`, {
-    body: { updatedAt },
-  });
+  return apiClient.delete<void>(
+    `/api/estimate-requests/${id}?updatedAt=${encodeURIComponent(updatedAt)}`
+  );
 }

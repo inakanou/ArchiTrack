@@ -32,6 +32,13 @@
  * @requirement construction-photo/15.6 選択エクスポート起動
  * @requirement construction-photo/15.7 選択0件時の選択エクスポート無効化
  * @requirement construction-photo/15.11 対象0件時の非実行+通知
+ *
+ * # 出力の記録の要求中と記録の失敗（Requirement 21.8, 21.9。タスク30.3）
+ *
+ * 出力の記録（`runRecordedExport`）は親（詳細画面）が「開始」の後に要求する。要求中は
+ * `isStarting` を受けて「開始」「キャンセル」と設定のフォームを止め（二重の記録と、記録の後に
+ * 閉じた画面の外で生成が始まることを防ぐ）、記録の失敗は `startError` を受けてダイアログの中に
+ * role=alert で表示する。
  * @see .kiro/specs/construction-photo/design.md BulkExportDialog（追加機能ファイル, R15）
  * @module components/construction-photos/BulkExportDialog
  */
@@ -75,6 +82,14 @@ export interface BulkExportDialogProps {
    * 要件15.11に対応。snackbar / alert 等の UI 選択は親に委ねる。
    */
   onEmptyTarget?: () => void;
+  /**
+   * 親が出力の記録を要求している間 true（Requirement 21.8）
+   *
+   * true の間は「開始」「キャンセル」と設定のフォームを止める。
+   */
+  isStarting?: boolean;
+  /** 出力の記録の失敗などで開始できなかったときのエラーメッセージ（Requirement 21.9） */
+  startError?: string | null;
 }
 
 // ============================================================================
@@ -157,6 +172,15 @@ const styles = {
     borderColor: '#9ca3af',
     cursor: 'not-allowed',
   },
+  errorMessage: {
+    margin: '16px 0 0 0',
+    padding: '8px 12px',
+    fontSize: '13px',
+    color: '#b91c1c', // WCAG 2.1 AA 準拠 (6.5:1 on #fef2f2)
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '6px',
+  },
 };
 
 // ============================================================================
@@ -185,6 +209,8 @@ export function BulkExportDialog({
   onClose,
   onStart,
   onEmptyTarget,
+  isStarting = false,
+  startError = null,
 }: BulkExportDialogProps): React.ReactElement | null {
   const titleId = useId();
 
@@ -211,10 +237,12 @@ export function BulkExportDialog({
     mode === 'all' ? '全件一括エクスポート' : `${selectedCount} 件選択画像エクスポート`;
 
   const isEmpty = targetCount === 0;
+  // 開始できない状態: 対象0件（R15.7）または出力の記録の要求中（Requirement 21.8）
+  const isStartDisabled = isEmpty || isStarting;
 
   const handleStart = (): void => {
-    // 対象0件は非活性ボタンで防止済み。念のため二重防御する（R15.7, R15.11）。
-    if (isEmpty) {
+    // 対象0件・記録の要求中は非活性ボタンで防止済み。念のため二重防御する（R15.7, R15.11, 21.8）。
+    if (isStartDisabled) {
       return;
     }
     onStart(settings);
@@ -242,7 +270,16 @@ export function BulkExportDialog({
                 : 'エクスポート対象の写真項目がありません。'}
             </p>
           )}
-          <ExportSettingsForm value={settings} onChange={setSettings} disabled={isEmpty} />
+          <ExportSettingsForm
+            value={settings}
+            onChange={setSettings}
+            disabled={isEmpty || isStarting}
+          />
+          {startError && (
+            <p role="alert" style={styles.errorMessage}>
+              {startError}
+            </p>
+          )}
         </div>
 
         {/* フッター */}
@@ -250,6 +287,8 @@ export function BulkExportDialog({
           <button
             type="button"
             onClick={onClose}
+            // 出力の記録の要求中は閉じない（記録の後に生成が始まり、閉じた画面の外で進むため）
+            disabled={isStarting}
             style={{ ...styles.button, ...styles.cancelButton }}
           >
             キャンセル
@@ -257,10 +296,10 @@ export function BulkExportDialog({
           <button
             type="button"
             onClick={handleStart}
-            disabled={isEmpty}
+            disabled={isStartDisabled}
             style={{
               ...styles.button,
-              ...(isEmpty ? styles.primaryButtonDisabled : styles.primaryButton),
+              ...(isStartDisabled ? styles.primaryButtonDisabled : styles.primaryButton),
             }}
           >
             開始

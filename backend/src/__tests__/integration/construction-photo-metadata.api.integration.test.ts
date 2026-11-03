@@ -9,7 +9,8 @@
  * - 7.7: 写真項目削除で写真と関連データ（看板配置）が消える
  * - 9.1, 9.5: 看板の関連付け・配置の保持（合成しない）
  * - 11.4: メタ一括更新＋順序更新の最大2リクエストで確定
- * - 13.1, 13.2: 認証(401)。担当でない一般ユーザーも権限があれば更新・削除できる。他プロジェクトの看板は404
+ * - 13.1, 13.2: 認証(401)。担当でない一般ユーザーは存在しない場合と同じ 404 で、工事担当者・営業担当者・作成者に
+ *   設定すると権限に従って更新・削除できる（21.1・21.2。タスク30.1 で Task 23.1 の判断を置き換えた）。他プロジェクトの看板は404
  *
  * Scope:
  * - flat/nested 二重マウント（PATCH /images/batch, PUT /:id/images/order, DELETE /images/:imageId）
@@ -31,6 +32,8 @@ import { getStorageProvider } from '../../storage/index.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { initializeConstructionPhotoImageServices } from '../../routes/construction-photo-images.routes.js';
 import { ConstructionSignboardService } from '../../services/construction-signboard.service.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 describe('Construction Photo Metadata/Order/Delete API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -40,6 +43,7 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
   let signboardId: string;
   let accessToken: string;
   let outsiderToken: string;
+  let outsiderId: string;
   let validJpeg: Buffer;
 
   const TEST_EMAIL = 'test-construction-photo-metadata-integration@example.com';
@@ -58,7 +62,7 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({ data: { email, displayName, passwordHash } });
+    const user = await createTestUser(prisma, { email, displayName, passwordHash });
 
     for (const roleName of roles) {
       const role = await prisma.role.findUnique({ where: { name: roleName } });
@@ -67,12 +71,12 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
       }
     }
 
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email,
       password: 'TestPassword123!@#',
     });
 
-    return { userId: user.id, accessToken: loginResponse.body.accessToken };
+    return { userId: user.id, accessToken };
   };
 
   const uploadPhoto = async (fileName: string): Promise<string> => {
@@ -83,6 +87,28 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
     expect(res.status).toBe(201);
     return res.body.successful[0].id as string;
   };
+
+  /**
+   * プロジェクトの担当の欄（工事担当者・営業担当者・作成者）の一つに outsider を設定して検証し、元へ戻す
+   * （タスク30.1。担当外の利用者は閲覧範囲の外であり、担当者に設定すると範囲内になる）
+   */
+  const asAssignedOutsider = async (
+    field: 'constructionPersonId' | 'salesPersonId' | 'createdById',
+    run: () => Promise<void>
+  ): Promise<void> => {
+    const original = await prisma.project.findUniqueOrThrow({
+      where: { id: projectId },
+      select: { salesPersonId: true, constructionPersonId: true, createdById: true },
+    });
+    await prisma.project.update({ where: { id: projectId }, data: { [field]: outsiderId } });
+    try {
+      await run();
+    } finally {
+      await prisma.project.update({ where: { id: projectId }, data: original });
+    }
+  };
+
+  const ASSIGNED_FIELDS = ['constructionPersonId', 'salesPersonId', 'createdById'] as const;
 
   beforeAll(async () => {
     prisma = getPrismaClient();
@@ -146,6 +172,7 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
       ['user']
     );
     outsiderToken = outsider.accessToken;
+    outsiderId = outsider.userId;
 
     const project = await prisma.project.create({
       data: { name: PROJECT_NAME, salesPersonId: testUserId, createdById: testUserId },
@@ -283,19 +310,49 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
       await prisma.constructionPhoto.deleteMany({ where: { id: { in: [p1, p2, p3] } } });
     });
 
-    it('担当でない一般ユーザーも、編集の権限（construction_photo:update）があればメタを更新できる', async () => {
-      // outsider は当該プロジェクトの作成者・営業担当・工事担当のいずれでもない user ロールの利用者。
-      // アクセスはロールの権限の表（RBAC）だけで判定する（Task 23.1 の利用者の判断）
+    it('担当でない一般ユーザーのメタの更新は、編集の権限（construction_photo:update）があっても存在しない写真項目と同じ 404 で、書き込まれない', async () => {
+      // Task 23.1 の利用者の判断（ロールの権限の表だけで判定）のもとでは担当でない一般ユーザーも通ることを
+      // 主張していた。同判断は 2026-10-24 の判断 A（user-authentication の要件39）と 2026-10-27 の判断
+      // （本スペックの Requirement 21）で置き換えられた（タスク30.1）。主張は消さずに、担当外は存在しない
+      // 場合と同じ 404 でデータが変わらないこと（21.2）と、工事担当者・営業担当者・作成者に設定すると通る
+      // こと（21.1）へ書き換えた
       const p1 = await uploadPhoto('boundary.jpg');
+      const missing = await request(app)
+        .patch('/api/construction-photos/images/batch')
+        .set('Authorization', `Bearer ${outsiderToken}`)
+        .send({ items: [{ id: '99999999-9999-4999-8999-999999999999', comment: 'x' }] });
       const res = await request(app)
         .patch('/api/construction-photos/images/batch')
         .set('Authorization', `Bearer ${outsiderToken}`)
         .send({ items: [{ id: p1, comment: 'x' }] });
-      expect(res.status).toBe(200);
+      expect({ missing: missing.status, outOfScope: res.status }).toEqual({
+        missing: 404,
+        outOfScope: 404,
+      });
+      expect(res.body.code).toBe('NOT_FOUND');
+      expect(res.body.detail).toBe(missing.body.detail);
+      expect(JSON.stringify(res.body)).not.toContain(projectId);
       const row = await prisma.constructionPhoto.findUnique({ where: { id: p1 } });
-      expect(row?.comment).toBe('x');
+      expect(row?.comment).toBeNull();
       await prisma.constructionPhoto.deleteMany({ where: { id: p1 } });
     });
+
+    it.each(ASSIGNED_FIELDS)(
+      '担当でない一般ユーザーを %s に設定すると、編集の権限（construction_photo:update）でメタを更新できる',
+      async (field) => {
+        const p1 = await uploadPhoto(`boundary-${field}.jpg`);
+        await asAssignedOutsider(field, async () => {
+          const res = await request(app)
+            .patch('/api/construction-photos/images/batch')
+            .set('Authorization', `Bearer ${outsiderToken}`)
+            .send({ items: [{ id: p1, comment: 'x' }] });
+          expect(res.status).toBe(200);
+          const row = await prisma.constructionPhoto.findUnique({ where: { id: p1 } });
+          expect(row?.comment).toBe('x');
+        });
+        await prisma.constructionPhoto.deleteMany({ where: { id: p1 } });
+      }
+    );
 
     it('他プロジェクトの signboardId 指定は404で弾く（REQ 9.1, 13.2）', async () => {
       const otherProject = await prisma.project.create({
@@ -581,17 +638,44 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
       expect(res.status).toBe(404);
     });
 
-    it('担当でない利用者も、削除の権限（construction_photo:delete）を持てば削除できる', async () => {
+    it('担当でない利用者の削除は、削除の権限（construction_photo:delete）を持っても存在しない写真項目と同じ 404 で、行もストレージも残る', async () => {
       // 本ファイルの beforeAll は user ロールへ construction_photo:delete を足している（削除の
-      // 検証のため）。outsider は担当者ではないが、その権限を持つため削除できる。
-      // 権限を持たない user ロール（シードの定義）が 403 になることは
+      // 検証のため）。権限を持たない user ロール（シードの定義）が 403 になることは
       // construction-photo-access.api.integration.test.ts が確かめる
+      // Task 23.1 の利用者の判断（ロールの権限の表だけで判定）のもとでは担当でない一般ユーザーも通ることを
+      // 主張していた。同判断は 2026-10-24 の判断 A（user-authentication の要件39）と 2026-10-27 の判断
+      // （本スペックの Requirement 21）で置き換えられた（タスク30.1）。主張は消さずに、担当外は存在しない
+      // 場合と同じ 404 でデータが変わらないこと（21.2）と、工事担当者・営業担当者・作成者に設定すると通る
+      // こと（21.1）へ書き換えた
       const p1 = await uploadPhoto('delboundary.jpg');
       const res = await request(app)
         .delete(`/api/construction-photos/images/${p1}`)
         .set('Authorization', `Bearer ${outsiderToken}`);
-      expect(res.status).toBe(204);
-      expect(await prisma.constructionPhoto.findUnique({ where: { id: p1 } })).toBeNull();
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('NOT_FOUND');
+      expect(JSON.stringify(res.body)).not.toContain(projectId);
+      const row = await prisma.constructionPhoto.findUnique({ where: { id: p1 } });
+      expect(row).not.toBeNull();
+      // ストレージの原本も残る（担当者が同じ原本を取得できる）
+      const original = await request(app)
+        .get(`/api/construction-photos/images/${p1}/original`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(original.status).toBe(200);
+      await prisma.constructionPhoto.deleteMany({ where: { id: p1 } });
     });
+
+    it.each(ASSIGNED_FIELDS)(
+      '担当でない利用者を %s に設定すると、削除の権限（construction_photo:delete）で削除できる',
+      async (field) => {
+        const p1 = await uploadPhoto(`delboundary-${field}.jpg`);
+        await asAssignedOutsider(field, async () => {
+          const res = await request(app)
+            .delete(`/api/construction-photos/images/${p1}`)
+            .set('Authorization', `Bearer ${outsiderToken}`);
+          expect(res.status).toBe(204);
+          expect(await prisma.constructionPhoto.findUnique({ where: { id: p1 } })).toBeNull();
+        });
+      }
+    );
   });
 });

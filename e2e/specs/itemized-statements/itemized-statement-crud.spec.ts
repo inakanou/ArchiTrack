@@ -62,16 +62,17 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import ExcelJS from 'exceljs';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import {
+  cleanupProjectFixtures,
   requireItemizedStatementFilterClearButton,
   requireItemizedStatementFilterInput,
 } from '../../helpers/itemized-statement-preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 内訳書CRUD機能のE2Eテスト
@@ -93,9 +94,36 @@ test.describe('内訳書CRUD操作', () => {
   let itemizedStatementName: string = '';
   let projectName: string = '';
 
+  /**
+   * 各テストが作った資源（`test.afterEach` で管理者として消す）。
+   * テストの本体の末尾で消すと、途中の主張が落ちたときに後片付けが走らず資源が残るため、
+   * 作った直後にここへ積み、テストの成否によらず消す。プロジェクトは配下の内訳書・数量表を
+   * 一覧で拾って先に消す（プロジェクトの論理削除は配下を消さない）
+   */
+  const createdInTest = {
+    itemizedStatementIds: [] as Array<string | null | undefined>,
+    quantityTableIds: [] as Array<string | null | undefined>,
+    projectIds: [] as Array<string | null | undefined>,
+  };
+
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+  });
+
+  test.afterEach(async () => {
+    // 204 以外の削除は失敗としてまとめて例外になる（後片付けの失敗を見逃さない）
+    await cleanupProjectFixtures({
+      itemizedStatementIds: createdInTest.itemizedStatementIds.splice(0),
+      quantityTableIds: createdInTest.quantityTableIds.splice(0),
+      projectIds: createdInTest.projectIds.splice(0),
+    });
+  });
+
+  test.afterAll(async () => {
+    // 事前準備のプロジェクトを、配下の内訳書・数量表（画面の操作で作ったものを含む）とともに消す。
+    // serial の最後の test に置くと途中の検証が落ちたときに走らないため afterAll で消す
+    await cleanupProjectFixtures({ projectIds: [testProjectId] });
   });
 
   /**
@@ -180,13 +208,7 @@ test.describe('内訳書CRUD操作', () => {
       const baseUrl = API_BASE_URL;
 
       // APIトークンを取得（ログインAPIから）
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // グループを作成
@@ -799,13 +821,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 重複テスト用に内訳書を先に作成（APIで直接作成）
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表IDを取得
@@ -833,6 +849,7 @@ test.describe('内訳書CRUD操作', () => {
       );
       expect(createResponse.status()).toBe(201);
       const createdStatement = await createResponse.json();
+      createdInTest.itemizedStatementIds.push(createdStatement.id);
 
       // 内訳書新規作成画面に移動
       await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
@@ -857,12 +874,6 @@ test.describe('内訳書CRUD操作', () => {
       await expect(page.getByText(/同名の内訳書が既に存在します/i)).toBeVisible({
         timeout: getTimeout(10000),
       });
-
-      // クリーンアップ: 作成した内訳書を削除
-      await request.delete(`${baseUrl}/api/itemized-statements/${createdStatement.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: createdStatement.updatedAt },
-      });
     });
   });
 
@@ -880,13 +891,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 空の数量表を作成（項目なし）
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       const emptyTableName = `空の数量表_${Date.now()}`;
@@ -901,6 +906,7 @@ test.describe('内訳書CRUD操作', () => {
       );
       const emptyTableBody = await createEmptyTableResponse.json();
       const emptyTableId = emptyTableBody.id;
+      createdInTest.quantityTableIds.push(emptyTableId);
       expect(emptyTableId).toBeTruthy();
 
       // 内訳書新規作成画面に移動
@@ -930,12 +936,6 @@ test.describe('内訳書CRUD操作', () => {
           .or(page.locator('[role="alert"]').filter({ hasText: /項目がありません/ }))
       ).toBeVisible({
         timeout: getTimeout(10000),
-      });
-
-      // クリーンアップ: 空の数量表を削除
-      await request.delete(`${baseUrl}/api/quantity-tables/${emptyTableId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: emptyTableBody.updatedAt },
       });
     });
   });
@@ -985,13 +985,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // APIで先に更新を行い、updatedAtを変更する
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 内訳書の詳細を取得して現在のupdatedAtを確認
@@ -1164,7 +1158,6 @@ test.describe('内訳書CRUD操作', () => {
      */
     test('プロジェクトに数量表が存在しない場合は新規作成ボタンが非表示となる (itemized-statement-generation/REQ-1.8)', async ({
       page,
-      request,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -1201,6 +1194,8 @@ test.describe('内訳書CRUD操作', () => {
       const emptyProjectUrl = page.url();
       const emptyProjectMatch = emptyProjectUrl.match(/\/projects\/([0-9a-f-]+)$/);
       const emptyProjectId = emptyProjectMatch?.[1];
+      assertPrepared(emptyProjectId, '数量表なし検証用に作成したプロジェクトのID');
+      createdInTest.projectIds.push(emptyProjectId);
 
       // 内訳書セクションを確認
       const itemizedStatementSection = page.getByTestId('itemized-statement-section');
@@ -1217,22 +1212,6 @@ test.describe('内訳書CRUD操作', () => {
       // REQ-1.8: 「まず数量表を作成してください」メッセージを表示する
       await expect(itemizedStatementSection.getByText('まず数量表を作成してください')).toBeVisible({
         timeout: getTimeout(5000),
-      });
-
-      // クリーンアップ：作成したプロジェクトを削除
-      assertPrepared(emptyProjectId, '数量表なし検証用に作成したプロジェクトのID');
-      const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
-      const accessToken = loginBody.accessToken;
-
-      await request.delete(`${baseUrl}/api/projects/${emptyProjectId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
       });
     });
   });
@@ -1255,13 +1234,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 空のプロジェクトを作成
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // ユーザー情報を取得（salesPersonId用）
@@ -1277,6 +1250,7 @@ test.describe('内訳書CRUD操作', () => {
         data: { name: emptyProjectName, salesPersonId: userId },
       });
       const newProject = await createProjectResponse.json();
+      createdInTest.projectIds.push(newProject.id);
 
       await page.goto(`/projects/${newProject.id}`);
       await page.waitForLoadState('networkidle');
@@ -1288,11 +1262,6 @@ test.describe('内訳書CRUD操作', () => {
       await expect(itemizedStatementSection.getByText(/まず数量表を作成してください/i)).toBeVisible(
         { timeout: getTimeout(5000) }
       );
-
-      // クリーンアップ
-      await request.delete(`${baseUrl}/api/projects/${newProject.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
     });
 
     /**
@@ -1675,13 +1644,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表とグループ、項目を作成
@@ -1693,6 +1656,7 @@ test.describe('内訳書CRUD操作', () => {
         }
       );
       const qt = await qtResponse.json();
+      createdInTest.quantityTableIds.push(qt.id);
 
       const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qt.id}/groups`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -1729,6 +1693,7 @@ test.describe('内訳書CRUD操作', () => {
         }
       );
       const is = await isResponse.json();
+      createdInTest.itemizedStatementIds.push(is.id);
 
       // 内訳書の項目数を記録
       const originalItemCount = is.itemCount;
@@ -1759,21 +1724,6 @@ test.describe('内訳書CRUD操作', () => {
 
       // 項目数が変わっていないことを確認（スナップショット独立性）
       expect(reloadedIs.itemCount).toBe(originalItemCount);
-
-      // クリーンアップ
-      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: reloadedIs.updatedAt },
-      });
-
-      const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const qtDetail = await qtDetailResponse.json();
-      await request.delete(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: qtDetail.updatedAt },
-      });
     });
 
     /**
@@ -1798,11 +1748,7 @@ test.describe('内訳書CRUD操作', () => {
       ];
 
       // --- 前提: プロジェクト・数量表・数量項目・内訳書を API で作る ---
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: { email: 'user@example.com', password: 'Password123!' },
-      });
-      expect(loginResponse.status(), 'API のログインに失敗した').toBe(200);
-      const accessToken: string = (await loginResponse.json()).accessToken;
+      const accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
       const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
       const meResponse = await request.get(`${baseUrl}/api/v1/auth/me`, { headers: authHeaders });
@@ -1819,6 +1765,7 @@ test.describe('内訳書CRUD操作', () => {
       });
       expect(projectResponse.status(), 'プロジェクトを作成できない').toBe(201);
       const projectId: string = (await projectResponse.json()).id;
+      createdInTest.projectIds.push(projectId);
 
       const qtResponse = await request.post(
         `${baseUrl}/api/projects/${projectId}/quantity-tables`,
@@ -1935,18 +1882,6 @@ test.describe('内訳書CRUD操作', () => {
 
       // --- 削除の後: 内訳書の詳細画面の名前・項目・集計元の数量表名が変わらない ---
       await expectStatementDetailUnchanged();
-
-      // 後片付け: 本テストで作ったプロジェクトを消す（内訳書もあわせて取り除かれる）。
-      // 一般利用者はプロジェクトの削除の権限を持たないため、管理者で消す
-      const adminLoginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: { email: TEST_USERS.ADMIN_USER.email, password: TEST_USERS.ADMIN_USER.password },
-      });
-      expect(adminLoginResponse.status(), '管理者の API のログインに失敗した').toBe(200);
-      const adminToken: string = (await adminLoginResponse.json()).accessToken;
-      const cleanupResponse = await request.delete(`${baseUrl}/api/projects/${projectId}`, {
-        headers: { Authorization: `Bearer ${adminToken}` },
-      });
-      expect(cleanupResponse.status(), 'テスト用プロジェクトを削除できない').toBe(204);
     });
   });
 
@@ -2140,13 +2075,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表を作成
@@ -2158,6 +2087,7 @@ test.describe('内訳書CRUD操作', () => {
         }
       );
       const qt = await qtResponse.json();
+      createdInTest.quantityTableIds.push(qt.id);
 
       const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qt.id}/groups`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -2212,6 +2142,7 @@ test.describe('内訳書CRUD操作', () => {
         }
       );
       const is = await isResponse.json();
+      createdInTest.itemizedStatementIds.push(is.id);
 
       // 内訳書詳細を確認
       await page.goto(`/itemized-statements/${is.id}`);
@@ -2225,21 +2156,6 @@ test.describe('内訳書CRUD操作', () => {
       const quantityCells = page.locator('tbody td:nth-child(6)');
       const quantityText = await quantityCells.first().textContent();
       expect(quantityText).toBe('31.00');
-
-      // クリーンアップ
-      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: is.updatedAt },
-      });
-
-      const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const qtDetail = await qtDetailResponse.json();
-      await request.delete(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: qtDetail.updatedAt },
-      });
     });
 
     /**
@@ -2254,13 +2170,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表を作成
@@ -2272,6 +2182,7 @@ test.describe('内訳書CRUD操作', () => {
         }
       );
       const qt = await qtResponse.json();
+      createdInTest.quantityTableIds.push(qt.id);
 
       const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qt.id}/groups`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -2335,16 +2246,6 @@ test.describe('内訳書CRUD操作', () => {
       await expect(page.getByText(/許容範囲を超えています/i)).toBeVisible({
         timeout: getTimeout(10000),
       });
-
-      // クリーンアップ
-      const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const qtDetail = await qtDetailResponse.json();
-      await request.delete(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: qtDetail.updatedAt },
-      });
     });
   });
 
@@ -2366,13 +2267,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表を作成
@@ -2384,6 +2279,7 @@ test.describe('内訳書CRUD操作', () => {
         }
       );
       const qt = await qtResponse.json();
+      createdInTest.quantityTableIds.push(qt.id);
 
       const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qt.id}/groups`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -2423,6 +2319,7 @@ test.describe('内訳書CRUD操作', () => {
         }
       );
       const is = await isResponse.json();
+      createdInTest.itemizedStatementIds.push(is.id);
 
       // 内訳書詳細画面に移動
       await page.goto(`/itemized-statements/${is.id}`);
@@ -2451,25 +2348,6 @@ test.describe('内訳書CRUD操作', () => {
 
       // 2ページ目に10件の項目が表示されていることを確認
       await expect(rows).toHaveCount(10);
-
-      // クリーンアップ
-      const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const isDetail = await isDetailResponse.json();
-      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: isDetail.updatedAt },
-      });
-
-      const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const qtDetail = await qtDetailResponse.json();
-      await request.delete(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: qtDetail.updatedAt },
-      });
     });
   });
 
@@ -2489,13 +2367,7 @@ test.describe('内訳書CRUD操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 数量表を作成
@@ -2507,6 +2379,7 @@ test.describe('内訳書CRUD操作', () => {
         }
       );
       const qt = await qtResponse.json();
+      createdInTest.quantityTableIds.push(qt.id);
 
       const groupResponse = await request.post(`${baseUrl}/api/quantity-tables/${qt.id}/groups`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -2547,6 +2420,7 @@ test.describe('内訳書CRUD操作', () => {
         }
       );
       const is = await isResponse.json();
+      createdInTest.itemizedStatementIds.push(is.id);
 
       // 内訳書詳細画面に移動
       await page.goto(`/itemized-statements/${is.id}`);
@@ -2566,25 +2440,6 @@ test.describe('内訳書CRUD操作', () => {
       // REQ-6.7: フィルタ後の総ページ数が変わることを確認（60件 -> 2ページ）
       await expect(pagination.getByText('1 / 2')).toBeVisible({
         timeout: getTimeout(5000),
-      });
-
-      // クリーンアップ
-      const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const isDetail = await isDetailResponse.json();
-      await request.delete(`${baseUrl}/api/itemized-statements/${is.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: isDetail.updatedAt },
-      });
-
-      const qtDetailResponse = await request.get(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const qtDetail = await qtDetailResponse.json();
-      await request.delete(`${baseUrl}/api/quantity-tables/${qt.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        data: { updatedAt: qtDetail.updatedAt },
       });
     });
   });
@@ -2697,13 +2552,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // 内訳書のない新規プロジェクトを作成
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // ユーザー情報を取得（salesPersonId用）
@@ -2719,6 +2568,8 @@ test.describe('内訳書CRUD操作', () => {
         data: { name: `内訳書なしテスト_${Date.now()}`, salesPersonId: userId },
       });
       const project = await projectResponse.json();
+      // 数量表はプロジェクトの配下として後片付けで一覧から拾って消す
+      createdInTest.projectIds.push(project.id);
 
       // 数量表を作成（内訳書一覧で「内訳書はまだありません」を表示するには数量表が必要）
       const quantityTableResponse = await request.post(
@@ -2728,44 +2579,16 @@ test.describe('内訳書CRUD操作', () => {
           data: { name: `数量表_${Date.now()}` },
         }
       );
-      const quantityTable = await quantityTableResponse.json();
+      expect(quantityTableResponse.status(), '前提: 数量表を作成できる').toBe(201);
 
-      try {
-        // 内訳書一覧画面に移動
-        await page.goto(`/projects/${project.id}/itemized-statements`);
-        await page.waitForLoadState('networkidle');
+      // 内訳書一覧画面に移動
+      await page.goto(`/projects/${project.id}/itemized-statements`);
+      await page.waitForLoadState('networkidle');
 
-        // 空状態のメッセージを確認
-        await expect(page.getByText(/内訳書はまだありません/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-      } finally {
-        // クリーンアップ: 数量表を削除
-        const qtDetailResponse = await request.get(
-          `${baseUrl}/api/projects/${project.id}/quantity-tables/${quantityTable.id}`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          }
-        );
-        const qtDetail = await qtDetailResponse.json();
-        await request.delete(
-          `${baseUrl}/api/projects/${project.id}/quantity-tables/${quantityTable.id}`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            data: { updatedAt: qtDetail.updatedAt },
-          }
-        );
-
-        // クリーンアップ: プロジェクトを削除
-        const projectDetailResponse = await request.get(`${baseUrl}/api/projects/${project.id}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        const projectDetail = await projectDetailResponse.json();
-        await request.delete(`${baseUrl}/api/projects/${project.id}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          data: { updatedAt: projectDetail.updatedAt },
-        });
-      }
+      // 空状態のメッセージを確認
+      await expect(page.getByText(/内訳書はまだありません/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
   });
 
@@ -3303,43 +3126,6 @@ test.describe('内訳書CRUD操作', () => {
         clipboardText,
         'REQ-14.5: フィルタで除外した項目がクリップボードにコピーされている'
       ).not.toContain(SEEDED_ITEM_NAME);
-    });
-  });
-
-  /**
-   * クリーンアップ
-   */
-  test.describe('クリーンアップ', () => {
-    test('テストデータを削除する', async ({ request }) => {
-      // テスト用プロジェクトをAPI経由で削除（カスケードで内訳書・数量表も削除される）
-      if (testProjectId) {
-        const baseUrl = API_BASE_URL;
-
-        // ログインしてアクセストークンを取得
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
-        const accessToken = loginBody.accessToken;
-
-        // プロジェクトの最新情報を取得（updatedAt用）
-        const projectResponse = await request.get(`${baseUrl}/api/projects/${testProjectId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-
-        if (projectResponse.ok()) {
-          const project = await projectResponse.json();
-
-          // プロジェクトを削除
-          await request.delete(`${baseUrl}/api/projects/${testProjectId}`, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            data: { updatedAt: project.updatedAt },
-          });
-        }
-      }
     });
   });
 });

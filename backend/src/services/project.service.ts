@@ -308,17 +308,25 @@ export class ProjectService {
    * @param filter - フィルター条件
    * @param pagination - ページネーション入力
    * @param sort - ソート入力
+   * @param scopeWhere - 閲覧範囲の絞り込み条件（user-authentication 要件39.3）。
+   *   null・省略のときは絞り込まない（全案件閲覧の権限を持つ利用者）
    * @returns ページネーション付きプロジェクト一覧
    */
   async getProjects(
     filter: ProjectFilter,
     pagination: PaginationInput,
-    sort: SortInput
+    sort: SortInput,
+    scopeWhere: Prisma.ProjectWhereInput | null = null
   ): Promise<PaginatedProjects> {
     // WHERE条件の構築
     const where: Prisma.ProjectWhereInput = {
       deletedAt: null,
     };
+
+    // 閲覧範囲（関係者の OR 条件）は検索の OR と混ざらないよう AND で結ぶ
+    if (scopeWhere) {
+      where.AND = [scopeWhere];
+    }
 
     // 検索キーワード（プロジェクト名・取引先名・営業担当者・工事担当者の部分一致）
     // Requirements: 4.1a, 4.1b - 検索対象に営業担当者・工事担当者を追加
@@ -937,28 +945,31 @@ export class ProjectService {
   /**
    * ステータス別プロジェクト件数を取得
    *
-   * 全プロジェクト（論理削除を除く）のステータス別件数を集計する。
+   * 閲覧範囲内の全プロジェクト（論理削除を除く）のステータス別件数を集計する。
    * 検索条件・フィルタ条件は一切適用しない。
    *
    * Requirements:
-   * - 23.2: カウント対象はDBに登録されている全プロジェクト（論理削除を除く）
-   * - 23.3: 検索条件やフィルタ条件を適用せず、常に全プロジェクトの件数を表示
+   * - 23.2: カウント対象は閲覧範囲（user-authentication 要件39）内の全プロジェクト（論理削除を除く）
+   * - 23.3: 検索条件やフィルタ条件を適用せず、常に閲覧範囲内の全プロジェクトの件数を表示
    * - 23.4: 全12ステータスごとの件数を表示
    * - 23.5: 0件のステータスも「0」と表示
    * - 23.6: 全ステータスの合計件数も併せて表示
    *
+   * 閲覧範囲の絞り込み条件（user-authentication 要件39.3）を与えたときは、範囲内の案件だけを数える。
+   *
+   * @param scopeWhere - 閲覧範囲の絞り込み条件。null・省略のときは絞り込まない
    * @returns ステータス別件数と合計件数
    */
-  async getStatusCounts(): Promise<StatusCountsResponse> {
+  async getStatusCounts(
+    scopeWhere: Prisma.ProjectWhereInput | null = null
+  ): Promise<StatusCountsResponse> {
     // Prisma groupByでステータス別にカウント
     const groupedCounts = await this.prisma.project.groupBy({
       by: ['status'],
       _count: {
         _all: true,
       },
-      where: {
-        deletedAt: null,
-      },
+      where: scopeWhere ? { deletedAt: null, AND: [scopeWhere] } : { deletedAt: null },
     });
 
     // 全12ステータスの初期値を0で設定 (23.5)

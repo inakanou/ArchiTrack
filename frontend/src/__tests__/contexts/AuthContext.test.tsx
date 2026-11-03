@@ -23,12 +23,59 @@ vi.mock('../../utils/logger', () => ({
   },
 }));
 
+/**
+ * パスごとの応答
+ *
+ * 値が関数のときは呼び出しごとに評価する。Error を投げると通信の失敗になる。
+ */
+type RouteReply = { status: number; body: unknown } | (() => { status: number; body: unknown });
+
+type Routes = Record<string, RouteReply>;
+
+/** 初期化の既定の応答: CSRF トークンは取れ、リフレッシュの Cookie は無い（400） */
+const NO_COOKIE_ROUTES: Routes = {
+  'GET /csrf-token': { status: 200, body: { csrfToken: 'csrf-token' } },
+  'POST /api/v1/auth/refresh': {
+    status: 400,
+    body: { error: 'Refresh token is required', code: 'VALIDATION_ERROR' },
+  },
+};
+
+/**
+ * fetch をメソッドとパスで応答を返す代替に差し替える（記録した要求を返す）
+ */
+function mockFetch(routes: Routes): Array<{ key: string; init?: RequestInit }> {
+  const calls: Array<{ key: string; init?: RequestInit }> = [];
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const key = `${init?.method ?? 'GET'} ${url.pathname}`;
+    calls.push({ key, init });
+    const reply = routes[key];
+    if (!reply) {
+      throw new Error(`Unexpected URL: ${key}`);
+    }
+    const { status, body } = typeof reply === 'function' ? reply() : reply;
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof globalThis.fetch;
+  return calls;
+}
+
+const mockUser = {
+  id: '1',
+  email: 'test@example.com',
+  displayName: 'Test User',
+};
+
 describe('AuthContext', () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     localStorage.clear();
+    mockFetch(NO_COOKIE_ROUTES);
   });
 
   afterEach(() => {
@@ -36,59 +83,35 @@ describe('AuthContext', () => {
     localStorage.clear();
     // apiClientの状態をクリア（テスト間で共有されるため）
     apiClient.setTokenRefreshCallback(null);
-    apiClient.setAccessToken(null);
+    apiClient.setSessionExpiredCallback(null);
+    apiClient.clearCredentials();
     vi.clearAllMocks();
   });
 
   describe('初期状態', () => {
-    it('リフレッシュトークンがない場合、isLoadingがfalseになること', async () => {
-      // localStorageにトークンがない状態
-      localStorage.clear();
-
+    it('リフレッシュの Cookie がない場合、isLoadingがfalseになること', async () => {
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
 
-      // useEffectが実行され、リフレッシュトークンがないためisLoading=falseになる
+      // Cookie が無いリフレッシュは 400 になり、未認証で初期化を終える
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
         expect(result.current.isAuthenticated).toBe(false);
         expect(result.current.user).toBeNull();
+        expect(result.current.sessionExpired).toBe(false);
       });
     });
 
-    it('リフレッシュトークンがある場合、セッション復元後にisLoadingがfalseになること', async () => {
-      // localStorageにリフレッシュトークンを設定
-      localStorage.setItem('refreshToken', 'test-refresh-token');
-
-      const mockUser = {
-        id: '1',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      };
-
-      // /api/v1/auth/refresh のモック
-      globalThis.fetch = vi.fn().mockImplementation((url) => {
-        if (url.toString().includes('/api/v1/auth/refresh')) {
-          return Promise.resolve({
-            ok: true,
-            status: 200,
-            headers: new Headers({ 'content-type': 'application/json' }),
-            json: async () => ({
-              accessToken: 'new-access-token',
-            }),
-          });
-        }
+    it('リフレッシュの Cookie がある場合、セッション復元後にisLoadingがfalseになること', async () => {
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/refresh': {
+          status: 200,
+          body: { accessToken: 'new-access-token', user: mockUser },
+        },
         // /api/v1/auth/me のモック（APIは直接ユーザーオブジェクトを返す）
-        if (url.toString().includes('/api/v1/auth/me')) {
-          return Promise.resolve({
-            ok: true,
-            status: 200,
-            headers: new Headers({ 'content-type': 'application/json' }),
-            json: async () => mockUser,
-          });
-        }
-        return Promise.reject(new Error('Unexpected URL'));
+        'GET /api/v1/auth/me': { status: 200, body: mockUser },
       });
 
       const { result } = renderHook(() => useAuth(), {
@@ -104,39 +127,30 @@ describe('AuthContext', () => {
         expect(result.current.isAuthenticated).toBe(true);
         expect(result.current.user).toEqual(mockUser);
       });
+      expect(apiClient.getAccessToken()).toBe('new-access-token');
     });
   });
 
   describe('login', () => {
     it('ログインに成功するとisAuthenticatedがtrueになること', async () => {
-      const mockUser = {
-        id: '1',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      };
-
-      const mockTokens = {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-        expiresIn: 900000, // 15分
-      };
-
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          type: 'SUCCESS',
-          user: mockUser,
-          accessToken: mockTokens.accessToken,
-          refreshToken: mockTokens.refreshToken,
-          expiresIn: mockTokens.expiresIn,
-        }),
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/login': {
+          status: 200,
+          body: {
+            type: 'SUCCESS',
+            user: mockUser,
+            accessToken: 'test-access-token',
+            refreshToken: 'test-refresh-token',
+            expiresIn: 900000, // 15分
+          },
+        },
       });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await act(async () => {
         await result.current.login('test@example.com', 'password123');
@@ -147,20 +161,21 @@ describe('AuthContext', () => {
         expect(result.current.user).toEqual(mockUser);
         expect(result.current.isLoading).toBe(false);
       });
+      expect(apiClient.getAccessToken()).toBe('test-access-token');
+      // トークンを永続ストレージに書かない（要件33.8, 33.10）
+      expect(localStorage.length).toBe(0);
     });
 
     it('ログイン失敗時にエラーをスローすること', async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        statusText: 'Unauthorized',
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ error: 'Invalid credentials' }),
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/login': { status: 401, body: { error: 'Invalid credentials' } },
       });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await expect(
         act(async () => {
@@ -175,46 +190,28 @@ describe('AuthContext', () => {
 
   describe('logout', () => {
     it('ログアウト後は未認証状態になること', async () => {
-      const mockUser = {
-        id: '1',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      };
-
-      const mockTokens = {
-        accessToken: 'test-access-token',
-        refreshToken: 'test-refresh-token',
-        expiresIn: 900000,
-      };
-
-      // ログイン
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          type: 'SUCCESS',
-          user: mockUser,
-          accessToken: mockTokens.accessToken,
-          refreshToken: mockTokens.refreshToken,
-          expiresIn: mockTokens.expiresIn,
-        }),
+      const calls = mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/login': {
+          status: 200,
+          body: {
+            type: 'SUCCESS',
+            user: mockUser,
+            accessToken: 'test-access-token',
+            refreshToken: 'test-refresh-token',
+            expiresIn: 900000,
+          },
+        },
+        'POST /api/v1/auth/logout': { status: 200, body: { success: true } },
       });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await act(async () => {
         await result.current.login('test@example.com', 'password123');
-      });
-
-      // ログアウトAPIのモック
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ success: true }),
       });
 
       await act(async () => {
@@ -225,24 +222,31 @@ describe('AuthContext', () => {
         expect(result.current.isAuthenticated).toBe(false);
         expect(result.current.user).toBeNull();
       });
+      expect(apiClient.getAccessToken()).toBeNull();
+      const logoutCall = calls.find((c) => c.key === 'POST /api/v1/auth/logout');
+      expect(logoutCall?.init?.body).toBeUndefined();
+      expect((logoutCall?.init?.headers as Record<string, string>)['X-CSRF-Token']).toBe(
+        'csrf-token'
+      );
     });
   });
 
   describe('2FA認証', () => {
-    it('2FA要求時にtwoFactorStateが設定されること', async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
+    const requires2FARoutes: Routes = {
+      ...NO_COOKIE_ROUTES,
+      'POST /api/v1/auth/login': {
         status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          requires2FA: true,
-          userId: 'user-123',
-        }),
-      });
+        body: { requires2FA: true, challengeToken: 'challenge-abc', expiresIn: 300 },
+      },
+    };
+
+    it('2FA要求時にtwoFactorStateが設定されること', async () => {
+      mockFetch(requires2FARoutes);
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await act(async () => {
         await result.current.login('test@example.com', 'password123');
@@ -251,33 +255,30 @@ describe('AuthContext', () => {
       await waitFor(() => {
         expect(result.current.twoFactorState).toEqual({
           required: true,
-          email: 'test@example.com',
+          challengeToken: 'challenge-abc',
         });
         expect(result.current.isAuthenticated).toBe(false);
       });
     });
 
     it('verify2FAで2FA認証を完了できること', async () => {
-      const mockUser = {
-        id: '1',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      };
-
-      // 1. ログイン → 2FA要求
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          requires2FA: true,
-          userId: 'user-123',
-        }),
+      mockFetch({
+        ...requires2FARoutes,
+        'POST /api/v1/auth/verify-2fa': {
+          status: 200,
+          body: {
+            accessToken: 'test-access-token',
+            refreshToken: 'test-refresh-token',
+            user: mockUser,
+            expiresIn: 900000,
+          },
+        },
       });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await act(async () => {
         await result.current.login('test@example.com', 'password123');
@@ -285,19 +286,6 @@ describe('AuthContext', () => {
 
       await waitFor(() => {
         expect(result.current.twoFactorState?.required).toBe(true);
-      });
-
-      // 2. 2FA検証成功
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          accessToken: 'test-access-token',
-          refreshToken: 'test-refresh-token',
-          user: mockUser,
-          expiresIn: 900000,
-        }),
       });
 
       await act(async () => {
@@ -309,29 +297,27 @@ describe('AuthContext', () => {
         expect(result.current.user).toEqual(mockUser);
         expect(result.current.twoFactorState).toBeNull();
       });
+      expect(apiClient.getAccessToken()).toBe('test-access-token');
+      expect(localStorage.length).toBe(0);
     });
 
     it('verifyBackupCodeでバックアップコード認証を完了できること', async () => {
-      const mockUser = {
-        id: '1',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      };
-
-      // 1. ログイン → 2FA要求
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          requires2FA: true,
-          userId: 'user-123',
-        }),
+      mockFetch({
+        ...requires2FARoutes,
+        'POST /api/v1/auth/verify-2fa/backup': {
+          status: 200,
+          body: {
+            accessToken: 'test-access-token',
+            refreshToken: 'test-refresh-token',
+            user: mockUser,
+          },
+        },
       });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await act(async () => {
         await result.current.login('test@example.com', 'password123');
@@ -339,18 +325,6 @@ describe('AuthContext', () => {
 
       await waitFor(() => {
         expect(result.current.twoFactorState?.required).toBe(true);
-      });
-
-      // 2. バックアップコード検証成功
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          accessToken: 'test-access-token',
-          refreshToken: 'test-refresh-token',
-          user: mockUser,
-        }),
       });
 
       await act(async () => {
@@ -361,23 +335,16 @@ describe('AuthContext', () => {
         expect(result.current.isAuthenticated).toBe(true);
         expect(result.current.twoFactorState).toBeNull();
       });
+      expect(localStorage.length).toBe(0);
     });
 
     it('cancel2FAで2FA状態をクリアできること', async () => {
-      // ログイン → 2FA要求
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          requires2FA: true,
-          userId: 'user-123',
-        }),
-      });
+      mockFetch(requires2FARoutes);
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await act(async () => {
         await result.current.login('test@example.com', 'password123');
@@ -430,19 +397,16 @@ describe('AuthContext', () => {
 
   describe('セッション管理', () => {
     it('ログインレスポンスが不正な形式の場合エラーをスローすること', async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          // user, accessToken, refreshTokenがない
-          type: 'SUCCESS',
-        }),
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        // user, accessTokenがない
+        'POST /api/v1/auth/login': { status: 200, body: { type: 'SUCCESS' } },
       });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await expect(
         act(async () => {
@@ -452,14 +416,14 @@ describe('AuthContext', () => {
     });
 
     it('clearSessionExpiredでセッション期限切れフラグをクリアできること', async () => {
-      // リフレッシュ失敗でセッション期限切れを設定
-      // accessTokenもrefreshTokenも設定してネットワークエラーでフォールバック失敗させる
-      localStorage.setItem('refreshToken', 'old-refresh-token');
-      localStorage.setItem('accessToken', 'old-access-token');
-
-      // ネットワークエラーでリフレッシュ失敗（isAuthError = false）
-      // フォールバックでaccessTokenを使ったAPI呼び出しも失敗
-      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+      // Cookie が拒否されたリフレッシュでセッション期限切れを設定
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/refresh': {
+          status: 401,
+          body: { error: 'Invalid refresh token', code: 'INVALID_REFRESH_TOKEN' },
+        },
+      });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
@@ -478,28 +442,28 @@ describe('AuthContext', () => {
     });
 
     it('ログアウトAPI失敗時もローカル状態がクリアされること', async () => {
-      const mockUser = {
-        id: '1',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      };
-
-      // ログイン
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          user: mockUser,
-          accessToken: 'test-access-token',
-          refreshToken: 'test-refresh-token',
-          expiresIn: 900000,
-        }),
+      let logoutFails = false;
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/login': {
+          status: 200,
+          body: {
+            user: mockUser,
+            accessToken: 'test-access-token',
+            refreshToken: 'test-refresh-token',
+            expiresIn: 900000,
+          },
+        },
+        'POST /api/v1/auth/logout': () => {
+          logoutFails = true;
+          throw new Error('Network error');
+        },
       });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await act(async () => {
         await result.current.login('test@example.com', 'password123');
@@ -509,66 +473,21 @@ describe('AuthContext', () => {
         expect(result.current.isAuthenticated).toBe(true);
       });
 
-      // ログアウトAPI失敗
-      globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'));
-
       await act(async () => {
         await result.current.logout();
       });
 
+      expect(logoutFails).toBe(true);
       await waitFor(() => {
         expect(result.current.isAuthenticated).toBe(false);
         expect(result.current.user).toBeNull();
       });
-    });
-
-    it('リフレッシュトークンなしでセッション復元不可の場合も既存accessTokenで初期化すること', async () => {
-      // accessTokenのみ設定（refreshTokenなし）
-      localStorage.setItem('accessToken', 'existing-access-token');
-
-      const { result } = renderHook(() => useAuth(), {
-        wrapper: AuthProvider,
-      });
-
-      await waitFor(() => {
-        expect(result.current.isInitialized).toBe(true);
-        expect(result.current.isLoading).toBe(false);
-      });
+      expect(apiClient.getAccessToken()).toBeNull();
     });
   });
 
   describe('トークンリフレッシュ', () => {
-    it('TokenRefreshManagerなしでもrefreshTokenを直接呼び出せること', async () => {
-      // refreshTokenのみ設定（ログインしていない状態）
-      localStorage.setItem('refreshToken', 'test-refresh-token');
-
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          accessToken: 'new-access-token',
-          refreshToken: 'new-refresh-token',
-        }),
-      });
-
-      const { result } = renderHook(() => useAuth(), {
-        wrapper: AuthProvider,
-      });
-
-      // 初期化を待つ
-      await waitFor(() => {
-        expect(result.current.isInitialized).toBe(true);
-      });
-
-      // ログインせずにrefreshTokenを呼び出し
-      // 注意: TokenRefreshManagerがないため直接APIを呼び出す
-      // ただし初期化中にセッションが復元されるため、別のテストが必要
-    });
-
-    it('refreshTokenがない場合エラーをスローすること', async () => {
-      localStorage.clear();
-
+    it('Cookie が無い状態で refreshToken を呼ぶとエラーをスローすること', async () => {
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
@@ -581,91 +500,69 @@ describe('AuthContext', () => {
         act(async () => {
           await result.current.refreshToken();
         })
-      ).rejects.toThrow('No refresh token available');
+      ).rejects.toThrow('Refresh token is required');
     });
 
-    it('自動的にトークンをリフレッシュできること', async () => {
-      const mockUser = {
-        id: '1',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      };
-
-      const mockTokens = {
-        accessToken: 'initial-access-token',
-        refreshToken: 'test-refresh-token',
-        expiresIn: 900000,
-      };
-
-      const newMockTokens = {
-        accessToken: 'refreshed-access-token',
-        refreshToken: 'test-refresh-token',
-        expiresIn: 900000,
-      };
-
-      // ログイン
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          type: 'SUCCESS',
-          user: mockUser,
-          accessToken: mockTokens.accessToken,
-          refreshToken: mockTokens.refreshToken,
-          expiresIn: mockTokens.expiresIn,
-        }),
+    it('ログイン後に Cookie でトークンをリフレッシュできること', async () => {
+      const calls = mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/login': {
+          status: 200,
+          body: {
+            type: 'SUCCESS',
+            user: mockUser,
+            accessToken: 'initial-access-token',
+            refreshToken: 'test-refresh-token',
+            expiresIn: 900000,
+          },
+        },
       });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await act(async () => {
         await result.current.login('test@example.com', 'password123');
       });
 
-      // リフレッシュAPIのモック
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          accessToken: newMockTokens.accessToken,
-          refreshToken: newMockTokens.refreshToken,
-        }),
+      // ログイン後は Cookie がある
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/refresh': {
+          status: 200,
+          body: { accessToken: 'refreshed-access-token', user: mockUser },
+        },
       });
+      expect(calls.length).toBeGreaterThan(0);
 
       // 手動でリフレッシュを実行
       await act(async () => {
         const newToken = await result.current.refreshToken();
         expect(newToken).toBe('refreshed-access-token');
       });
+      expect(apiClient.getAccessToken()).toBe('refreshed-access-token');
+      expect(localStorage.length).toBe(0);
     });
 
     it('expiresInがない場合も正常にログインできること', async () => {
-      const mockUser = {
-        id: '1',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      };
-
-      // expiresInなしでログイン成功
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          user: mockUser,
-          accessToken: 'test-access-token',
-          refreshToken: 'test-refresh-token',
-          // expiresInなし
-        }),
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/login': {
+          status: 200,
+          body: {
+            user: mockUser,
+            accessToken: 'test-access-token',
+            // expiresInなし
+          },
+        },
       });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
+      await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
       await act(async () => {
         await result.current.login('test@example.com', 'password123');
@@ -676,63 +573,17 @@ describe('AuthContext', () => {
         expect(result.current.user).toEqual(mockUser);
       });
     });
-
-    it('新しいリフレッシュトークンが返されない場合も既存トークンを維持すること', async () => {
-      const mockUser = {
-        id: '1',
-        email: 'test@example.com',
-        displayName: 'Test User',
-      };
-
-      // ログイン
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          user: mockUser,
-          accessToken: 'test-access-token',
-          refreshToken: 'test-refresh-token',
-          expiresIn: 900000,
-        }),
-      });
-
-      const { result } = renderHook(() => useAuth(), {
-        wrapper: AuthProvider,
-      });
-
-      await act(async () => {
-        await result.current.login('test@example.com', 'password123');
-      });
-
-      // リフレッシュAPIのモック（新しいリフレッシュトークンなし）
-      globalThis.fetch = vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          accessToken: 'new-access-token',
-          // refreshTokenなし
-        }),
-      });
-
-      await act(async () => {
-        const newToken = await result.current.refreshToken();
-        expect(newToken).toBe('new-access-token');
-      });
-
-      // 既存のリフレッシュトークンが維持されていること
-      expect(localStorage.getItem('refreshToken')).toBe('test-refresh-token');
-    });
   });
 
   describe('セッション復元詳細', () => {
-    it('認証エラー（401）の場合フォールバックせずセッション期限切れとなること', async () => {
-      localStorage.setItem('refreshToken', 'expired-refresh-token');
-      localStorage.setItem('accessToken', 'expired-access-token');
-
-      // 401エラーでリフレッシュ失敗（Unauthorizedメッセージを含む）
-      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Unauthorized'));
+    it('認証エラー（401）の場合セッション期限切れとなること', async () => {
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/refresh': {
+          status: 401,
+          body: { error: 'Invalid refresh token', code: 'INVALID_REFRESH_TOKEN' },
+        },
+      });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
@@ -745,31 +596,34 @@ describe('AuthContext', () => {
       });
     });
 
-    it('ネットワークエラー時に既存トークンでフォールバック成功すること', async () => {
-      localStorage.setItem('refreshToken', 'valid-refresh-token');
-      localStorage.setItem('accessToken', 'valid-access-token');
+    it('ネットワークエラーでリフレッシュできない場合はセッション期限切れとなること', async () => {
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/refresh': () => {
+          throw new Error('Network error');
+        },
+      });
 
-      // 最初のリフレッシュAPIがネットワークエラー（401や認証エラーではない）
-      // リトライ機構により最大4回（初回 + 3回リトライ）試行されるため、4回分のネットワークエラーをモック
-      globalThis.fetch = vi
-        .fn()
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockRejectedValueOnce(new Error('Network error'))
-        // 5回目：既存トークンでユーザー情報取得成功（フォールバック）
-        .mockResolvedValueOnce({
-          ok: true,
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
+
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+        expect(result.current.sessionExpired).toBe(true);
+        expect(result.current.user).toBeNull();
+      });
+    });
+
+    it('利用者の情報の取得に失敗してもリフレッシュの応答の利用者で復元すること', async () => {
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/refresh': {
           status: 200,
-          headers: new Headers({ 'content-type': 'application/json' }),
-          json: async () => ({
-            id: 'user-1',
-            email: 'test@example.com',
-            displayName: 'Test User',
-            role: 'user',
-            twoFactorEnabled: false,
-          }),
-        });
+          body: { accessToken: 'new-access-token', user: mockUser },
+        },
+        'GET /api/v1/auth/me': { status: 404, body: { error: 'User not found' } },
+      });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
@@ -777,25 +631,19 @@ describe('AuthContext', () => {
 
       await waitFor(() => {
         expect(result.current.isInitialized).toBe(true);
-        expect(result.current.user).not.toBeNull();
-        expect(result.current.user?.email).toBe('test@example.com');
+        expect(result.current.user).toEqual(mockUser);
       });
     });
 
-    it('ネットワークエラー後、既存トークンでもユーザー情報取得失敗するとセッション期限切れとなること', async () => {
-      localStorage.setItem('refreshToken', 'valid-refresh-token');
-      localStorage.setItem('accessToken', 'invalid-access-token');
-
-      // 最初のリフレッシュAPIがネットワークエラー
-      // リトライ機構により最大4回（初回 + 3回リトライ）試行されるため、4回分のネットワークエラーをモック
-      globalThis.fetch = vi
-        .fn()
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockRejectedValueOnce(new Error('Network error'))
-        // 5回目：既存トークンでもユーザー情報取得失敗（フォールバック失敗）
-        .mockRejectedValueOnce(new Error('Token invalid'));
+    it('リフレッシュの応答に利用者が無く、利用者の情報も取れないときは未認証になること', async () => {
+      mockFetch({
+        ...NO_COOKIE_ROUTES,
+        'POST /api/v1/auth/refresh': {
+          status: 200,
+          body: { accessToken: 'new-access-token' },
+        },
+        'GET /api/v1/auth/me': { status: 404, body: { error: 'User not found' } },
+      });
 
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
@@ -806,6 +654,7 @@ describe('AuthContext', () => {
         expect(result.current.sessionExpired).toBe(true);
         expect(result.current.user).toBeNull();
       });
+      expect(apiClient.getAccessToken()).toBeNull();
     });
   });
 
@@ -815,8 +664,6 @@ describe('AuthContext', () => {
    */
   describe('sessionExpiredDuringOperation（操作中セッション切れ）', () => {
     it('初期状態でsessionExpiredDuringOperationがfalseであること', async () => {
-      localStorage.clear();
-
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
@@ -829,8 +676,6 @@ describe('AuthContext', () => {
     });
 
     it('handleReauthSuccess関数が公開されていること', async () => {
-      localStorage.clear();
-
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });
@@ -842,9 +687,37 @@ describe('AuthContext', () => {
       expect(typeof result.current.handleReauthSuccess).toBe('function');
     });
 
-    it('navigateToLogin関数が公開されていること', async () => {
-      localStorage.clear();
+    /**
+     * 要件30.9: 再認証の成功で、アクセストークンを更新し TokenRefreshManager を再初期化する
+     * （ログイン・2FA の検証と同じセッションの開始の経路を通る）
+     */
+    it('handleReauthSuccessは再認証の応答でアクセストークンを更新し、リフレッシュとセッション切れの経路を張り直すこと', async () => {
+      const setRefreshSpy = vi.spyOn(apiClient, 'setTokenRefreshCallback');
+      const setExpiredSpy = vi.spyOn(apiClient, 'setSessionExpiredCallback');
+      const { result } = renderHook(() => useAuth(), {
+        wrapper: AuthProvider,
+      });
 
+      await waitFor(() => {
+        expect(result.current.isInitialized).toBe(true);
+      });
+      setRefreshSpy.mockClear();
+      setExpiredSpy.mockClear();
+
+      act(() => {
+        result.current.handleReauthSuccess({ accessToken: 'reauth-token', user: mockUser });
+      });
+
+      expect(apiClient.getAccessToken()).toBe('reauth-token');
+      expect(result.current.user).toEqual(mockUser);
+      expect(result.current.sessionExpiredDuringOperation).toBe(false);
+      expect(setRefreshSpy).toHaveBeenCalledWith(expect.any(Function));
+      expect(setExpiredSpy).toHaveBeenCalledWith(expect.any(Function));
+      setRefreshSpy.mockRestore();
+      setExpiredSpy.mockRestore();
+    });
+
+    it('navigateToLogin関数が公開されていること', async () => {
       const { result } = renderHook(() => useAuth(), {
         wrapper: AuthProvider,
       });

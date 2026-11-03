@@ -108,30 +108,6 @@ describe('rateLimit middleware', () => {
   });
 
   describe('keyGenerator', () => {
-    it('x-forwarded-forヘッダーからIPを取得すること', async () => {
-      const { apiLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = apiLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '192.168.1.100, 10.0.0.1' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('192.168.1.100');
-    });
-
-    it('x-real-ipヘッダーからIPを取得すること', async () => {
-      const { apiLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = apiLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '10.0.0.50' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('10.0.0.50');
-    });
-
     it('req.ipからIPを取得すること', async () => {
       const { apiLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = apiLimiter as unknown as { keyGenerator: (req: Request) => string };
@@ -161,12 +137,11 @@ describe('rateLimit middleware', () => {
       const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = invitationLimiter as unknown as { keyGenerator: (req: Request) => string };
 
-      const req = createMockRequest() as Request & {
-        user?: { id: string; userId: string; email: string; roles: string[] };
-      };
-      req.user = { id: 'user-123', userId: 'user-123', email: 'test@example.com', roles: ['user'] };
+      // authenticate が設定する形（userId）だけを与える（id は読まない）
+      const req = createMockRequest();
+      req.user = { userId: 'user-123', email: 'test@example.com', roles: ['user'] };
 
-      const key = limiter.keyGenerator(req as Request);
+      const key = limiter.keyGenerator(req);
       expect(key).toBe('user:user-123');
     });
 
@@ -180,30 +155,6 @@ describe('rateLimit middleware', () => {
 
       const key = limiter.keyGenerator(req);
       expect(key).toBe('ip:192.168.1.1');
-    });
-
-    it('loginLimiter keyGeneratorがx-forwarded-forからIPを取得すること', async () => {
-      const { loginLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = loginLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '10.0.0.100, 192.168.1.1' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('10.0.0.100');
-    });
-
-    it('loginLimiter keyGeneratorがx-real-ipからIPを取得すること', async () => {
-      const { loginLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = loginLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '10.0.0.50' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('10.0.0.50');
     });
 
     it('loginLimiter keyGeneratorがreq.ipからIPを取得すること', async () => {
@@ -224,30 +175,6 @@ describe('rateLimit middleware', () => {
       expect(key).toBe('unknown');
     });
 
-    it('refreshLimiter keyGeneratorがx-forwarded-forからIPを取得すること', async () => {
-      const { refreshLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = refreshLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '203.0.113.10, 10.0.0.1' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('203.0.113.10');
-    });
-
-    it('refreshLimiter keyGeneratorがx-real-ipからIPを取得すること', async () => {
-      const { refreshLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = refreshLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '203.0.113.20' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('203.0.113.20');
-    });
-
     it('refreshLimiter keyGeneratorがreq.ipからIPを取得すること', async () => {
       const { refreshLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = refreshLimiter as unknown as { keyGenerator: (req: Request) => string };
@@ -264,30 +191,6 @@ describe('rateLimit middleware', () => {
       const req = createMockRequest({ ip: undefined, headers: {} });
       const key = limiter.keyGenerator(req);
       expect(key).toBe('unknown');
-    });
-
-    it('healthCheckLimiter keyGeneratorがx-forwarded-forからIPを取得すること', async () => {
-      const { healthCheckLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = healthCheckLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '198.51.100.50' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('198.51.100.50');
-    });
-
-    it('healthCheckLimiter keyGeneratorがx-real-ipからIPを取得すること', async () => {
-      const { healthCheckLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = healthCheckLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '198.51.100.60' },
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('198.51.100.60');
     });
 
     it('healthCheckLimiter keyGeneratorがreq.ipからIPを取得すること', async () => {
@@ -308,32 +211,6 @@ describe('rateLimit middleware', () => {
       expect(key).toBe('unknown');
     });
 
-    it('invitationLimiter keyGeneratorがx-forwarded-forからIPを取得すること（ユーザーなし）', async () => {
-      const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = invitationLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-forwarded-for': '203.0.113.100' },
-        ip: undefined,
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('ip:203.0.113.100');
-    });
-
-    it('invitationLimiter keyGeneratorがx-real-ipからIPを取得すること（ユーザーなし）', async () => {
-      const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
-      const limiter = invitationLimiter as unknown as { keyGenerator: (req: Request) => string };
-
-      const req = createMockRequest({
-        headers: { 'x-real-ip': '203.0.113.200' },
-        ip: undefined,
-      });
-
-      const key = limiter.keyGenerator(req);
-      expect(key).toBe('ip:203.0.113.200');
-    });
-
     it('invitationLimiter keyGeneratorがIPなしの場合ip:unknownを返すこと', async () => {
       const { invitationLimiter } = await import('../../../middleware/rateLimit.middleware.js');
       const limiter = invitationLimiter as unknown as { keyGenerator: (req: Request) => string };
@@ -342,6 +219,32 @@ describe('rateLimit middleware', () => {
       const key = limiter.keyGenerator(req);
       expect(key).toBe('ip:unknown');
     });
+    // 要件35.1: 送信元の識別は信頼する中継の段数に基づく req.ip だけを用い、
+    // 利用者が指定できる X-Forwarded-For / X-Real-IP を直接読まない
+    const SPOOFED_HEADERS = {
+      'x-forwarded-for': '198.51.100.250, 10.0.0.1',
+      'x-real-ip': '198.51.100.251',
+    };
+
+    it.each([
+      ['apiLimiter', ''],
+      ['loginLimiter', ''],
+      ['refreshLimiter', ''],
+      ['healthCheckLimiter', ''],
+      ['invitationLimiter', 'ip:'],
+    ] as const)(
+      '%s keyGeneratorはX-Forwarded-For・X-Real-IPを読まずreq.ipで識別すること',
+      async (name, prefix) => {
+        const mod = await import('../../../middleware/rateLimit.middleware.js');
+        const limiter = mod[name] as unknown as { keyGenerator: (req: Request) => string };
+
+        const req = createMockRequest({ headers: SPOOFED_HEADERS, ip: '172.16.0.9' });
+        expect(limiter.keyGenerator(req)).toBe(`${prefix}172.16.0.9`);
+
+        const noIp = createMockRequest({ headers: SPOOFED_HEADERS, ip: undefined });
+        expect(limiter.keyGenerator(noIp)).toBe(`${prefix}unknown`);
+      }
+    );
   });
 
   describe('skip', () => {
@@ -364,8 +267,21 @@ describe('rateLimit middleware', () => {
       expect(limiter.skip(req)).toBe(true);
     });
 
-    it('DISABLE_RATE_LIMIT=trueの場合スキップすること', async () => {
+    // 本番では無効化の設定を無視する（user-authentication タスク48.1）
+    it('本番ではDISABLE_RATE_LIMIT=trueでもスキップしないこと', async () => {
       process.env.NODE_ENV = 'production';
+      process.env.DISABLE_RATE_LIMIT = 'true';
+      vi.resetModules();
+
+      const { apiLimiter } = await import('../../../middleware/rateLimit.middleware.js');
+      const limiter = apiLimiter as unknown as { skip: (req: Request) => boolean };
+
+      const req = createMockRequest({ method: 'POST' });
+      expect(limiter.skip(req)).toBe(false);
+    });
+
+    it('開発ではDISABLE_RATE_LIMIT=trueの明示でスキップすること', async () => {
+      process.env.NODE_ENV = 'development';
       process.env.DISABLE_RATE_LIMIT = 'true';
       vi.resetModules();
 
@@ -452,7 +368,7 @@ describe('rateLimit middleware', () => {
       expect(limiter.skip(req)).toBe(true);
     });
 
-    it('loginLimiterがDISABLE_RATE_LIMIT=trueでスキップすること', async () => {
+    it('loginLimiterが本番ではDISABLE_RATE_LIMIT=trueでもスキップしないこと', async () => {
       process.env.NODE_ENV = 'production';
       process.env.DISABLE_RATE_LIMIT = 'true';
       vi.resetModules();
@@ -461,10 +377,10 @@ describe('rateLimit middleware', () => {
       const limiter = loginLimiter as unknown as { skip: (req: Request) => boolean };
 
       const req = createMockRequest({ method: 'POST' });
-      expect(limiter.skip(req)).toBe(true);
+      expect(limiter.skip(req)).toBe(false);
     });
 
-    it('refreshLimiterがDISABLE_RATE_LIMIT=trueでスキップすること', async () => {
+    it('refreshLimiterが本番ではDISABLE_RATE_LIMIT=trueでもスキップしないこと', async () => {
       process.env.NODE_ENV = 'production';
       process.env.DISABLE_RATE_LIMIT = 'true';
       vi.resetModules();
@@ -473,10 +389,10 @@ describe('rateLimit middleware', () => {
       const limiter = refreshLimiter as unknown as { skip: (req: Request) => boolean };
 
       const req = createMockRequest({ method: 'POST' });
-      expect(limiter.skip(req)).toBe(true);
+      expect(limiter.skip(req)).toBe(false);
     });
 
-    it('invitationLimiterがDISABLE_RATE_LIMIT=trueでスキップすること', async () => {
+    it('invitationLimiterが本番ではDISABLE_RATE_LIMIT=trueでもスキップしないこと', async () => {
       process.env.NODE_ENV = 'production';
       process.env.DISABLE_RATE_LIMIT = 'true';
       vi.resetModules();
@@ -485,7 +401,7 @@ describe('rateLimit middleware', () => {
       const limiter = invitationLimiter as unknown as { skip: (req: Request) => boolean };
 
       const req = createMockRequest({ method: 'POST' });
-      expect(limiter.skip(req)).toBe(true);
+      expect(limiter.skip(req)).toBe(false);
     });
 
     it('loginLimiterが通常リクエストをスキップしないこと', async () => {
@@ -586,14 +502,16 @@ describe('rateLimit middleware', () => {
         handler: (req: Request, res: Response) => void;
       };
 
-      const req = createMockRequest() as Request & {
-        user?: { id: string; userId: string; email: string; roles: string[] };
-      };
-      req.user = { id: 'user-456', userId: 'user-456', email: 'test@example.com', roles: ['user'] };
+      const req = createMockRequest();
+      req.user = { userId: 'user-456', email: 'test@example.com', roles: ['user'] };
       const res = createMockResponse();
 
-      limiter.handler(req as Request, res);
+      limiter.handler(req, res);
 
+      expect(req.log.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-456' }),
+        'Invitation rate limit exceeded'
+      );
       expect(res.status).toHaveBeenCalledWith(429);
       expect(res.json).toHaveBeenCalledWith({
         error: 'Too many invitation requests, please try again later.',

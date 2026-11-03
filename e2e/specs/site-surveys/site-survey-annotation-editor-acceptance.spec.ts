@@ -40,6 +40,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { getFabricObjectCount } from '../../helpers/fabric-canvas';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -370,7 +371,7 @@ test.describe('注釈編集画面の受入基準（背景色・吹き出し・�
     status: number;
     objects: unknown[];
   }> {
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
     const response = await sharedPage.request.get(
       `${API_BASE_URL}/api/site-surveys/images/${imageId}/annotations`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -438,7 +439,7 @@ test.describe('注釈編集画面の受入基準（背景色・吹き出し・�
     // --- 画像を API で直接アップロード（検証ごとに 1 枚ずつ使う） ---
     const testImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
     expect(fs.existsSync(testImagePath)).toBeTruthy();
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
     const imageBuffer = fs.readFileSync(testImagePath);
 
     for (let i = 0; i < IMAGE_COUNT; i++) {
@@ -471,7 +472,7 @@ test.describe('注釈編集画面の受入基準（背景色・吹き出し・�
     const cleanupPage = await cleanupContext.newPage();
     try {
       await loginAsUser(cleanupPage, 'ADMIN_USER');
-      const adminToken = await cleanupPage.evaluate(() => localStorage.getItem('accessToken'));
+      const adminToken = await getAccessToken(cleanupPage, 'ADMIN_USER');
       const headers = { Authorization: `Bearer ${adminToken}` };
       if (createdSurveyId) {
         await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {

@@ -7,12 +7,20 @@
  * - REQ-7.1: Excel出力ボタン押下時にExcel形式（.xlsx）のファイルをダウンロード
  * - REQ-8.1: PDF出力ボタン押下時にPDF形式のファイルをダウンロード
  * - REQ-7.6 / REQ-8.6: 出力失敗時にエラーメッセージを表示し、再試行ボタンで直前の形式の出力をやり直す（Task 18.1）
+ * - REQ-13.7: 出力の記録の失敗の応答（500・`code: 'EXPORT_RECORD_FAILED'`）でダウンロードを始めず、
+ *   出力を記録できなかった旨を表示する（Task 22.2）。記録はサーバーが生成の前に行うため、
+ *   ブラウザからは記録を要求しない（`runRecordedExport` で包むと二重の記録になる）
+ * - REQ-14.2: 出力の応答が 404（工程表の不在・範囲外）のとき、出力の失敗の文言と再試行の釦に代えて
+ *   工程表が見つからない旨を表示する（Task 24.1）。素の fetch で応答を読むため状態で判定し、本文は使わない
  *
  * @module components/schedule/ExportDialog
  */
 
 import { useState, useCallback } from 'react';
 import type { ExportFormat } from '../../api/schedules';
+import { apiClient } from '../../api/client';
+import { EXPORT_RECORD_FAILED_MESSAGE } from '../../api/export-audit';
+import { isNotFoundResponse, SCHEDULE_NOT_FOUND_MESSAGE } from '../../utils/scheduleNotFound';
 
 // ============================================================================
 // 型定義
@@ -27,6 +35,29 @@ export interface ExportDialogProps {
   scheduleName: string;
   /** ダイアログを閉じるコールバック */
   onClose: () => void;
+}
+
+/**
+ * 出力の記録の失敗を表すサーバーの識別子（construction-schedule の Requirement 13.7）
+ *
+ * サーバーで生成する工程表の出力は、記録が失敗するとファイルを返さず 500 とこの識別子を返す。
+ */
+const EXPORT_RECORD_FAILED_CODE = 'EXPORT_RECORD_FAILED';
+
+/** 出力の失敗の汎用の文言（Requirement 7.6・8.6） */
+const EXPORT_FAILED_MESSAGE = '工程表の出力に失敗しました';
+
+/** 失敗の応答の本文の `code` を読む。本文が JSON でなければ null */
+async function errorCodeOf(response: Response): Promise<string | null> {
+  try {
+    const body: unknown = await response.json();
+    if (body && typeof body === 'object' && 'code' in body && typeof body.code === 'string') {
+      return body.code;
+    }
+  } catch {
+    // 本文が JSON でない失敗は汎用の文言で扱う
+  }
+  return null;
 }
 
 // ============================================================================
@@ -173,6 +204,8 @@ const styles = {
  * - REQ-7.1: Excel出力
  * - REQ-8.1: PDF出力
  * - REQ-7.6 / REQ-8.6: 出力失敗時の再試行
+ *
+ * 出力の記録の失敗の表示（construction-schedule の Requirement 13 の受入基準7）は、ファイル冒頭の注記のとおり
  */
 export function ExportDialog({ isOpen, scheduleId, scheduleName, onClose }: ExportDialogProps) {
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('xlsx');
@@ -196,15 +229,27 @@ export function ExportDialog({ isOpen, scheduleId, scheduleName, onClose }: Expo
         const url = `${baseUrl}/api/schedules/${scheduleId}/export?format=${format}`;
 
         // fetchでAPIリクエストを実行しレスポンスを検証
+        // アクセストークンは ApiClient のメモリから得る（永続ストレージに置かない。要件33.10）
+        const accessToken = apiClient.getAccessToken();
         const response = await fetch(url, {
           method: 'GET',
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-          },
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
         });
 
         if (!response.ok) {
-          throw new Error('工程表の出力に失敗しました');
+          // 工程表の不在・範囲外（404）は再試行で解けない。見つからない旨を示し、再試行の釦を出さない
+          // （failedFormat を置かない。Task 24.1）。本文（英語の文言）は読まない
+          if (isNotFoundResponse(response)) {
+            setError(SCHEDULE_NOT_FOUND_MESSAGE);
+            return;
+          }
+          // 出力の記録の失敗ではファイルが返らない。ダウンロードを始めず、その旨を表示する（13.7）
+          if ((await errorCodeOf(response)) === EXPORT_RECORD_FAILED_CODE) {
+            setError(EXPORT_RECORD_FAILED_MESSAGE);
+            setFailedFormat(format);
+            return;
+          }
+          throw new Error(EXPORT_FAILED_MESSAGE);
         }
 
         // レスポンスからBlobを取得してダウンロード
@@ -224,7 +269,7 @@ export function ExportDialog({ isOpen, scheduleId, scheduleName, onClose }: Expo
         URL.revokeObjectURL(blobUrl);
         onClose();
       } catch {
-        setError('工程表の出力に失敗しました');
+        setError(EXPORT_FAILED_MESSAGE);
         setFailedFormat(format);
       } finally {
         setIsExporting(false);

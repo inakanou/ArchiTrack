@@ -55,6 +55,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { waitForFabricCanvas } from '../../helpers/fabric-canvas';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken, type AuthUserRef } from '../../helpers/auth-api';
 
 // ============================================================================
 // 定数
@@ -272,8 +273,8 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
   let savedAnnotatedThumbnailPath: string | null = null;
 
   /** ログイン済みページの認証ヘッダを組み立てる */
-  async function getAuthHeaders(page: Page): Promise<Record<string, string>> {
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+  async function getAuthHeaders(page: Page, user: AuthUserRef): Promise<Record<string, string>> {
+    const accessToken = await getAccessToken(page, user);
     expect(accessToken, 'アクセストークンが取得できる').toBeTruthy();
     return { Authorization: `Bearer ${accessToken}` };
   }
@@ -282,7 +283,7 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
   async function fetchDetailImage(): Promise<DetailImage> {
     const response = await sharedPage.request.get(
       `${API_BASE_URL}${surveyDetailPath(createdSurveyId!)}`,
-      { headers: await getAuthHeaders(sharedPage) }
+      { headers: await getAuthHeaders(sharedPage, 'REGULAR_USER') }
     );
     expect(response.ok(), '現場調査詳細の取得が成功する').toBeTruthy();
     const images = ((await response.json()) as { images: DetailImage[] }).images;
@@ -541,7 +542,7 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
     createdProjectId = sharedPage.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
     expect(createdProjectId, 'プロジェクトが作成されている').toBeTruthy();
 
-    const authHeaders = await getAuthHeaders(sharedPage);
+    const authHeaders = await getAuthHeaders(sharedPage, 'REGULAR_USER');
 
     // --- 現場調査作成 ---
     surveyName = `注釈サムネイル検証用現場調査_${Date.now()}`;
@@ -595,7 +596,7 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
     const cleanupPage = await cleanupContext.newPage();
     try {
       await loginAsUser(cleanupPage, 'ADMIN_USER');
-      const adminToken = await cleanupPage.evaluate(() => localStorage.getItem('accessToken'));
+      const adminToken = await getAccessToken(cleanupPage, 'ADMIN_USER');
       const headers = { Authorization: `Bearer ${adminToken}` };
       if (createdSurveyId) {
         await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {

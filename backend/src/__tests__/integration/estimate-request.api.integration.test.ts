@@ -16,7 +16,7 @@
  * @module __tests__/integration/estimate-request.api.integration.test
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
@@ -28,6 +28,12 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
+import { EstimateRequestService } from '../../services/estimate-request.service.js';
+import { EstimateRequestStatusService } from '../../services/estimate-request-status.service.js';
+import { AuditLogService } from '../../services/audit-log.service.js';
+import type { IAuditLogService } from '../../types/audit-log.types.js';
 
 /**
  * 見積依頼API統合テスト
@@ -53,12 +59,10 @@ describe('Estimate Request API Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-estimate-request-integration@example.com',
-        displayName: 'Estimate Request Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-estimate-request-integration@example.com',
+      displayName: 'Estimate Request Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -113,13 +117,13 @@ describe('Estimate Request API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-estimate-request-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -137,22 +141,20 @@ describe('Estimate Request API Integration Tests', () => {
     });
 
     // 権限なしのテストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-estimate-request-no-permission@example.com',
-        displayName: 'No Permission Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-estimate-request-no-permission@example.com',
+      displayName: 'No Permission Test User',
+      passwordHash,
     });
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-estimate-request-no-permission@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -321,7 +323,7 @@ describe('Estimate Request API Integration Tests', () => {
       it('認証なしで見積依頼を削除しようとすると401を返す', async () => {
         const response = await request(app)
           .delete('/api/estimate-requests/12345678-1234-4234-a234-123456789012')
-          .send({ updatedAt: new Date().toISOString() });
+          .query({ updatedAt: new Date().toISOString() });
 
         expect(response.status).toBe(401);
       });
@@ -428,7 +430,9 @@ describe('Estimate Request API Integration Tests', () => {
           });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ITEMIZED_STATEMENT_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       it('存在しない取引先IDで作成しようとすると404を返す', async () => {
@@ -631,7 +635,9 @@ describe('Estimate Request API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -685,7 +691,9 @@ describe('Estimate Request API Integration Tests', () => {
           });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -703,11 +711,13 @@ describe('Estimate Request API Integration Tests', () => {
         testEstimateRequestUpdatedAt = estimateRequest.updatedAt.toISOString();
       });
 
-      it('見積依頼を削除できる', async () => {
+      // 楽観的排他制御の基準時刻はクエリで送る（画面の deleteEstimateRequest と同じ形。HTTP は DELETE の
+      // 本文に意味を定めず中継で落ちうるため。2026-10-31 の是正、Requirement 8.4・8.5）
+      it('基準時刻をクエリで送って見積依頼を削除できる', async () => {
         const response = await request(app)
           .delete(`/api/estimate-requests/${testEstimateRequestId}`)
           .set('Authorization', `Bearer ${accessToken}`)
-          .send({ updatedAt: testEstimateRequestUpdatedAt });
+          .query({ updatedAt: testEstimateRequestUpdatedAt });
 
         expect(response.status).toBe(204);
 
@@ -719,14 +729,43 @@ describe('Estimate Request API Integration Tests', () => {
         expect(getResponse.status).toBe(404);
       });
 
+      it('基準時刻を本文だけに載せた削除は 400 を返し、見積依頼を削除しない', async () => {
+        const response = await request(app)
+          .delete(`/api/estimate-requests/${testEstimateRequestId}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ updatedAt: testEstimateRequestUpdatedAt });
+
+        expect(response.status).toBe(400);
+
+        const stored = await prisma.estimateRequest.findUniqueOrThrow({
+          where: { id: testEstimateRequestId },
+        });
+        expect(stored.deletedAt).toBeNull();
+      });
+
+      it('基準時刻の無い削除は 400 を返し、見積依頼を削除しない', async () => {
+        const response = await request(app)
+          .delete(`/api/estimate-requests/${testEstimateRequestId}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(response.status).toBe(400);
+
+        const stored = await prisma.estimateRequest.findUniqueOrThrow({
+          where: { id: testEstimateRequestId },
+        });
+        expect(stored.deletedAt).toBeNull();
+      });
+
       it('存在しない見積依頼を削除しようとすると404を返す', async () => {
         const response = await request(app)
           .delete('/api/estimate-requests/12345678-1234-4234-a234-123456789012')
           .set('Authorization', `Bearer ${accessToken}`)
-          .send({ updatedAt: new Date().toISOString() });
+          .query({ updatedAt: new Date().toISOString() });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
   });
@@ -782,10 +821,16 @@ describe('Estimate Request API Integration Tests', () => {
       const response = await request(app)
         .delete(`/api/estimate-requests/${testEstimateRequestId}`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ updatedAt: '2020-01-01T00:00:00.000Z' }); // 過去のタイムスタンプ
+        .query({ updatedAt: '2020-01-01T00:00:00.000Z' }); // 過去のタイムスタンプ
 
       expect(response.status).toBe(409);
       expect(response.body.code).toBe('ESTIMATE_REQUEST_CONFLICT');
+
+      // 競合した削除は見積依頼を取り除かない
+      const stored = await prisma.estimateRequest.findUniqueOrThrow({
+        where: { id: testEstimateRequestId },
+      });
+      expect(stored.deletedAt).toBeNull();
     });
   });
 
@@ -854,7 +899,9 @@ describe('Estimate Request API Integration Tests', () => {
         });
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+      // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+      // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+      expect(response.body.code).toBe('NOT_FOUND');
     });
   });
 
@@ -922,7 +969,249 @@ describe('Estimate Request API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(response.status).toBe(404);
-      expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+      // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+      // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+      expect(response.body.code).toBe('NOT_FOUND');
+    });
+  });
+  // ==========================================
+  // 監査ログをトランザクションの中で書く（タスク109.1）
+  // ==========================================
+
+  /**
+   * 見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更の監査ログは、
+   * 見積依頼の変更と同じトランザクションの中で書く。
+   * 経路はモジュールの読み込み時にサービスを組み立てて依存を差し替えられないため、
+   * サービスを直接組み立てて、記録の後にトランザクションを巻き戻す状況を作る。
+   * 監査ログの数は、テスト用の DB の既存の記録に引っ張られないよう、このテストが作った対象の
+   * targetId と操作の種別で数える。
+   *
+   * @requirement estimate-request/REQ-8.6
+   */
+  describe('見積依頼の監査ログとトランザクション（Requirement 8.6）', () => {
+    const FAILURE_AFTER_LOG = '監査ログの記録の後の失敗（巻き戻しの検証）';
+    let realAuditLogService: AuditLogService;
+    let committingService: EstimateRequestService;
+    let committingStatusService: EstimateRequestStatusService;
+    let rollingBackService: EstimateRequestService;
+    let rollingBackStatusService: EstimateRequestStatusService;
+    let loggedTargetIds: string[];
+
+    beforeAll(() => {
+      realAuditLogService = new AuditLogService({ prisma });
+      committingService = new EstimateRequestService({
+        prisma,
+        auditLogService: realAuditLogService,
+      });
+      committingStatusService = new EstimateRequestStatusService({
+        prisma,
+        auditLogService: realAuditLogService,
+      });
+    });
+
+    beforeEach(() => {
+      loggedTargetIds = [];
+      // 本物の createLog(input, tx) で記録してから例外を投げ、トランザクションを巻き戻させる包み
+      const failingAfterLog: IAuditLogService = {
+        createLog: async (input, tx) => {
+          loggedTargetIds.push(input.targetId);
+          await realAuditLogService.createLog(input, tx);
+          throw new Error(FAILURE_AFTER_LOG);
+        },
+        getLogs: (filter) => realAuditLogService.getLogs(filter),
+        exportLogs: (filter) => realAuditLogService.exportLogs(filter),
+      };
+      rollingBackService = new EstimateRequestService({
+        prisma,
+        auditLogService: failingAfterLog,
+      });
+      rollingBackStatusService = new EstimateRequestStatusService({
+        prisma,
+        auditLogService: failingAfterLog,
+      });
+    });
+
+    afterEach(async () => {
+      await prisma.estimateRequest.deleteMany({
+        where: { projectId: testProjectId },
+      });
+    });
+
+    const uniqueName = (label: string): string =>
+      `監査ログ検証_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const countLogs = (action: string, targetId: string): Promise<number> =>
+      prisma.auditLog.count({ where: { action, targetType: 'EstimateRequest', targetId } });
+
+    /** 確定する経路で内訳書ありの見積依頼を作る（更新・論理削除・項目の選択・ステータスの対象） */
+    const createCommitted = (label: string) =>
+      committingService.create(
+        {
+          projectId: testProjectId,
+          tradingPartnerId: testTradingPartnerId,
+          itemizedStatementId: testItemizedStatementId,
+          name: uniqueName(label),
+          method: 'EMAIL',
+        },
+        testUserId
+      );
+
+    it('記録の後に作成が巻き戻ると、見積依頼も項目も ESTIMATE_REQUEST_CREATED の監査ログも残らない', async () => {
+      const name = uniqueName('作成の巻き戻し');
+
+      await expect(
+        rollingBackService.create(
+          {
+            projectId: testProjectId,
+            tradingPartnerId: testTradingPartnerId,
+            itemizedStatementId: testItemizedStatementId,
+            name,
+            method: 'EMAIL',
+          },
+          testUserId
+        )
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toHaveLength(1);
+      const targetId = String(loggedTargetIds[0]);
+      expect(await prisma.estimateRequest.count({ where: { id: targetId } })).toBe(0);
+      expect(
+        await prisma.estimateRequest.count({ where: { projectId: testProjectId, name } })
+      ).toBe(0);
+      expect(
+        await prisma.estimateRequestItem.count({ where: { estimateRequestId: targetId } })
+      ).toBe(0);
+      expect(await countLogs('ESTIMATE_REQUEST_CREATED', targetId)).toBe(0);
+    });
+
+    it('記録の後に更新が巻き戻ると、名前は変わらず ESTIMATE_REQUEST_UPDATED の監査ログも残らない', async () => {
+      const created = await createCommitted('更新の対象');
+
+      await expect(
+        rollingBackService.update(
+          created.id,
+          { name: uniqueName('更新の巻き戻し') },
+          testUserId,
+          new Date(created.updatedAt)
+        )
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([created.id]);
+      const stored = await prisma.estimateRequest.findUnique({ where: { id: created.id } });
+      expect(stored?.name).toBe(created.name);
+      expect(stored?.updatedAt.getTime()).toBe(new Date(created.updatedAt).getTime());
+      expect(await countLogs('ESTIMATE_REQUEST_UPDATED', created.id)).toBe(0);
+    });
+
+    it('記録の後に論理削除が巻き戻ると、見積依頼は論理削除されず ESTIMATE_REQUEST_DELETED の監査ログも残らない', async () => {
+      const created = await createCommitted('論理削除の対象');
+
+      await expect(
+        rollingBackService.delete(created.id, testUserId, new Date(created.updatedAt))
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([created.id]);
+      const stored = await prisma.estimateRequest.findUnique({ where: { id: created.id } });
+      expect(stored).not.toBeNull();
+      expect(stored?.deletedAt).toBeNull();
+      expect(await countLogs('ESTIMATE_REQUEST_DELETED', created.id)).toBe(0);
+    });
+
+    it('記録の後に項目の選択の保存が巻き戻ると、選択は変わらず ESTIMATE_REQUEST_ITEMS_UPDATED の監査ログも残らない', async () => {
+      const created = await createCommitted('項目の選択の対象');
+      const items = await prisma.estimateRequestItem.findMany({
+        where: { estimateRequestId: created.id },
+        orderBy: { id: 'asc' },
+      });
+      expect(items.length).toBeGreaterThan(0);
+      expect(items.every((item) => item.selected === false)).toBe(true);
+
+      await expect(
+        rollingBackService.updateItemSelection(
+          created.id,
+          items.map((item) => ({ itemId: item.id, selected: true })),
+          testUserId
+        )
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([created.id]);
+      const stored = await prisma.estimateRequestItem.findMany({
+        where: { estimateRequestId: created.id },
+      });
+      expect(stored).toHaveLength(items.length);
+      expect(stored.every((item) => item.selected === false)).toBe(true);
+      expect(await countLogs('ESTIMATE_REQUEST_ITEMS_UPDATED', created.id)).toBe(0);
+    });
+
+    it('記録の後にステータスの変更が巻き戻ると、ステータスも履歴も変わらず ESTIMATE_REQUEST_STATUS_CHANGED の監査ログも残らない', async () => {
+      const created = await createCommitted('ステータスの対象');
+      expect(created.status).toBe('BEFORE_REQUEST');
+      const historyBefore = await prisma.estimateRequestStatusHistory.count({
+        where: { estimateRequestId: created.id },
+      });
+
+      await expect(
+        rollingBackStatusService.transitionStatus(created.id, 'REQUESTED', testUserId)
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([created.id]);
+      const stored = await prisma.estimateRequest.findUnique({ where: { id: created.id } });
+      expect(stored?.status).toBe('BEFORE_REQUEST');
+      expect(
+        await prisma.estimateRequestStatusHistory.count({
+          where: { estimateRequestId: created.id },
+        })
+      ).toBe(historyBefore);
+      expect(await countLogs('ESTIMATE_REQUEST_STATUS_CHANGED', created.id)).toBe(0);
+    });
+
+    it('確定した作成・更新・項目の選択の保存・ステータスの変更・論理削除は、それぞれの監査ログを 1 件ずつ記録する（対照）', async () => {
+      const created = await createCommitted('確定の作成');
+      expect(await prisma.estimateRequest.count({ where: { id: created.id } })).toBe(1);
+      expect(await countLogs('ESTIMATE_REQUEST_CREATED', created.id)).toBe(1);
+
+      const renamed = uniqueName('確定の更新');
+      await committingService.update(
+        created.id,
+        { name: renamed },
+        testUserId,
+        new Date(created.updatedAt)
+      );
+      expect((await prisma.estimateRequest.findUnique({ where: { id: created.id } }))?.name).toBe(
+        renamed
+      );
+      expect(await countLogs('ESTIMATE_REQUEST_UPDATED', created.id)).toBe(1);
+
+      const items = await prisma.estimateRequestItem.findMany({
+        where: { estimateRequestId: created.id },
+      });
+      expect(items.length).toBeGreaterThan(0);
+      await committingService.updateItemSelection(
+        created.id,
+        items.map((item) => ({ itemId: item.id, selected: true })),
+        testUserId
+      );
+      const selected = await prisma.estimateRequestItem.findMany({
+        where: { estimateRequestId: created.id },
+      });
+      expect(selected.every((item) => item.selected === true)).toBe(true);
+      expect(await countLogs('ESTIMATE_REQUEST_ITEMS_UPDATED', created.id)).toBe(1);
+
+      const transitioned = await committingStatusService.transitionStatus(
+        created.id,
+        'REQUESTED',
+        testUserId
+      );
+      expect((await prisma.estimateRequest.findUnique({ where: { id: created.id } }))?.status).toBe(
+        'REQUESTED'
+      );
+      expect(await countLogs('ESTIMATE_REQUEST_STATUS_CHANGED', created.id)).toBe(1);
+
+      await committingService.delete(created.id, testUserId, new Date(transitioned.updatedAt));
+      expect(
+        (await prisma.estimateRequest.findUnique({ where: { id: created.id } }))?.deletedAt
+      ).not.toBeNull();
+      expect(await countLogs('ESTIMATE_REQUEST_DELETED', created.id)).toBe(1);
     });
   });
 });

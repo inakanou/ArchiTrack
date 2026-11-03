@@ -75,6 +75,7 @@ import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
 import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 import { ApiError } from '../../api/client';
+import { getConstructionPhotoNotFoundMessage } from '../../utils/constructionPhotoNotFound';
 
 // ============================================================================
 // 型定義
@@ -158,8 +159,15 @@ const PHOTO_DELETE_FAILED_MESSAGE = '写真項目の削除に失敗しました'
  * `ApiError` でない例外は既定の文言にする。通信の失敗（ネットワークの断など）は共通の API クライアント
  * （`api/client.ts`）が `ApiError(0, 'Network error')` に包んで投げるため、既定の文言ではなく
  * 「Network error」が表示される（規則は 21.3 のまま変えていない）。
+ *
+ * タスク 31.1: 404 は写真項目が見つからない旨にし、応答の英語の文言（本体の 404 では写真項目の ID を
+ * 含む）を出さない（Requirement 22.2。範囲外と不在を区別しない）。
  */
 function toPhotoDeleteFailureMessage(error: unknown): string {
+  const notFoundMessage = getConstructionPhotoNotFoundMessage(error, 'photoItem');
+  if (notFoundMessage) {
+    return notFoundMessage;
+  }
   return error instanceof ApiError
     ? error.message || PHOTO_DELETE_FAILED_MESSAGE
     : PHOTO_DELETE_FAILED_MESSAGE;

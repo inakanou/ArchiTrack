@@ -32,6 +32,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 数量表API統合テスト
@@ -57,12 +59,10 @@ describe('Quantity Table API Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-quantity-table-integration@example.com',
-        displayName: 'Quantity Table Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-quantity-table-integration@example.com',
+      displayName: 'Quantity Table Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -113,13 +113,13 @@ describe('Quantity Table API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-quantity-table-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -205,8 +205,11 @@ describe('Quantity Table API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: 'テスト数量表' });
 
+        // 案件の閲覧範囲の判定（quantity-table-generation タスク104.1）が案件の不在を範囲外と
+        // 同じ汎用の 404 にする。本文に案件 ID を含めない（Requirement 50.3）
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'PROJECT_NOT_FOUND');
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
+        expect(response.body).not.toHaveProperty('projectId');
       });
 
       it('認証なしでは401を返す', async () => {
@@ -301,8 +304,9 @@ describe('Quantity Table API Integration Tests', () => {
           .get('/api/quantity-tables/12345678-1234-4234-a234-123456789012')
           .set('Authorization', `Bearer ${accessToken}`);
 
+        // 不在と範囲外は同じ汎用の 404（quantity-table-generation タスク104.1、Requirement 50.3）
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
       });
     });
 
@@ -707,8 +711,9 @@ describe('Quantity Table API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: 'コピー名' });
 
+        // 不在と範囲外は同じ汎用の 404（quantity-table-generation タスク104.1、Requirement 50.3）
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
       });
 
       it('認証なしでは401を返す', async () => {
@@ -720,8 +725,13 @@ describe('Quantity Table API Integration Tests', () => {
       });
 
       it('数量表名が空の場合は400を返す', async () => {
+        // 本文の検査は案件の閲覧範囲の判定（quantity-table-generation タスク104.1）の後に置かれるため、
+        // 実在する範囲内の数量表をコピー元にして本文の検査まで届かせる
+        const sourceTable = await prisma.quantityTable.create({
+          data: { projectId: testProjectId, name: '空名コピーのコピー元' },
+        });
         const response = await request(app)
-          .post('/api/quantity-tables/12345678-1234-4234-a234-123456789012/copy')
+          .post(`/api/quantity-tables/${sourceTable.id}/copy`)
           .set('Authorization', `Bearer ${accessToken}`)
           .send({ name: '' });
 
@@ -832,20 +842,16 @@ describe('Quantity Table API Integration Tests', () => {
           parallelism: 4,
         });
 
-        await prisma.user.create({
-          data: {
-            email: NO_PERMISSION_EMAIL,
-            displayName: 'No Permission User (Group Copy Test)',
-            passwordHash,
-          },
+        await createTestUser(prisma, {
+          email: NO_PERMISSION_EMAIL,
+          displayName: 'No Permission User (Group Copy Test)',
+          passwordHash,
         });
 
-        const loginResponse = await request(app).post('/api/v1/auth/login').send({
+        noPermissionAccessToken = await loginForAccessToken(app, {
           email: NO_PERMISSION_EMAIL,
           password: 'TestPassword123!',
         });
-
-        noPermissionAccessToken = loginResponse.body.accessToken;
       });
 
       afterAll(async () => {
@@ -1018,9 +1024,9 @@ describe('Quantity Table API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .send();
 
-        // Assert
+        // Assert（不在と範囲外は同じ汎用の 404。quantity-table-generation タスク104.1、Requirement 50.3）
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'QUANTITY_GROUP_NOT_FOUND');
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
       });
 
       it('同一グループへの並行コピー操作で、両方 201（displayOrder が連続シフト）または片方 409 となり、データ不整合が発生しない (Req 38.10)', async () => {

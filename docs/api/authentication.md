@@ -34,15 +34,20 @@ Content-Type: application/json
 **成功（201 Created）:**
 ```json
 {
-  "data": {
-    "user": {
-      "id": "user-id",
-      "email": "john.doe@example.com",
-      "displayName": "John Doe"
-    }
+  "accessToken": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "user-id",
+    "email": "user@example.com",
+    "displayName": "John Doe",
+    "roles": ["user"],
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "twoFactorEnabled": true,
+    "mustChangePassword": false
   }
 }
 ```
+
+リフレッシュトークンは応答本文に含めず、`Set-Cookie` の HttpOnly Cookie `refreshToken`（`SameSite=Strict`、Path `/api/v1/auth`、本番は `Secure`）だけで渡します。アクセストークンは画面のメモリだけに保持します。
 
 ---
 
@@ -70,26 +75,39 @@ Content-Type: application/json
 }
 ```
 
-### レスポンス（2FA無効の場合）
+### レスポンス（2FA未登録の場合）
 
 **成功（200 OK）:**
 ```json
 {
+  "type": "SUCCESS",
   "accessToken": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
-  "expiresIn": 900
+  "user": {
+    "id": "user-id",
+    "email": "user@example.com",
+    "displayName": "John Doe",
+    "roles": ["user"],
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "twoFactorEnabled": false,
+    "mustChangePassword": false
+  }
 }
 ```
+
+リフレッシュトークンは応答本文に含めず、`Set-Cookie` の HttpOnly Cookie `refreshToken`（`SameSite=Strict`、Path `/api/v1/auth`、本番は `Secure`）だけで渡します。アクセストークンは画面のメモリだけに保持します。2FA は全利用者で必須のため、`twoFactorEnabled` が `false` の利用者は 2FA の設定画面へ進み、設定とログアウト以外の API は 403（`TWO_FACTOR_SETUP_REQUIRED`）になります。
 
 ### レスポンス（2FA有効の場合）
 
 **2FA要求（200 OK）:**
 ```json
 {
-  "tempToken": "temporary-token-for-2fa",
-  "requires2FA": true
+  "requires2FA": true,
+  "challengeToken": "2fa-challenge-from-login",
+  "expiresIn": 300
 }
 ```
+
+`challengeToken` はパスワードの検証の成功に結び付いた 2FA 待ちの資格です（不透明な文字列、5 分・一回限り）。応答に利用者 ID は含みません。資格の保存先（Redis）が使えないときは 503（`SERVICE_UNAVAILABLE`）を返します。
 
 ---
 
@@ -103,7 +121,7 @@ POST /api/v1/auth/verify-2fa
 
 ### 説明
 
-TOTPコードで2FA検証を実行します。
+TOTPコードで2FA検証を実行します。ログインの応答の `challengeToken` を必ず送ります。メールアドレスやアクセストークン・リフレッシュトークンは資格として受理しません。成功で資格を消費します。バックアップコードの検証（`POST /api/v1/auth/verify-2fa/backup`、本文は `{ "challengeToken", "backupCode" }`）も同じ資格を要求します。
 
 ### リクエスト
 
@@ -112,10 +130,12 @@ POST /api/v1/auth/verify-2fa
 Content-Type: application/json
 
 {
-  "tempToken": "temporary-token-from-login",
-  "totpCode": "123456"
+  "challengeToken": "2fa-challenge-from-login",
+  "code": "123456"
 }
 ```
+
+資格が無い・期限切れ・消費済みのときは 401（`INVALID_CHALLENGE`）、資格の保存先が使えないときは 503（`SERVICE_UNAVAILABLE`）を返します。
 
 ### レスポンス
 
@@ -123,10 +143,19 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
-  "refreshToken": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
-  "expiresIn": 900
+  "user": {
+    "id": "user-id",
+    "email": "user@example.com",
+    "displayName": "John Doe",
+    "roles": ["user"],
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "twoFactorEnabled": true,
+    "mustChangePassword": false
+  }
 }
 ```
+
+リフレッシュトークンは応答本文に含めず、`Set-Cookie` の HttpOnly Cookie `refreshToken`（`SameSite=Strict`、Path `/api/v1/auth`、本番は `Secure`）だけで渡します。アクセストークンは画面のメモリだけに保持します。
 
 ---
 
@@ -140,13 +169,15 @@ POST /api/v1/auth/refresh
 
 ### 説明
 
-リフレッシュトークンを使用して新しいアクセストークンを取得します。
+Cookie のリフレッシュトークンを使用して新しいアクセストークンを取得します。本文は読みません。CSRF の二重送信（Cookie `csrf-token` とヘッダー `X-CSRF-Token` の一致。値は `GET /csrf-token` で得る）と、`Origin`（無ければ `Referer`）が画面のオリジンと一致することを確かめます。成功するとリフレッシュトークンをローテーションし、後継を `Set-Cookie` で渡します。置き換え済みのリフレッシュトークンが再び提示されると、その系列を全て失効させ、401（`INVALID_REFRESH_TOKEN`）と Cookie の消去を返します。
 
 ### リクエスト
 
 ```bash
 POST /api/v1/auth/refresh
-Authorization: Bearer <refreshToken>
+Cookie: refreshToken=<リフレッシュトークン>; csrf-token=<CSRF トークン>
+X-CSRF-Token: <CSRF トークン>
+Origin: <画面のオリジン>
 ```
 
 ### レスポンス
@@ -155,9 +186,19 @@ Authorization: Bearer <refreshToken>
 ```json
 {
   "accessToken": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...",
-  "expiresIn": 900
+  "user": {
+    "id": "user-id",
+    "email": "user@example.com",
+    "displayName": "John Doe",
+    "roles": ["user"],
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "twoFactorEnabled": true,
+    "mustChangePassword": false
+  }
 }
 ```
+
+Cookie が無いときは 400、CSRF トークンや Origin が合わないときは 403 を返します。
 
 ---
 
@@ -213,18 +254,26 @@ POST /api/v1/auth/logout
 
 ### 説明
 
-現在のセッションをログアウトします。
+現在のセッションをログアウトします。Cookie のリフレッシュトークンの系列を失効させ、Cookie を消します。リフレッシュと同じく CSRF の二重送信と Origin の照合を通します。
 
 ### リクエスト
 
 ```bash
 POST /api/v1/auth/logout
 Authorization: Bearer <accessToken>
+Cookie: refreshToken=<リフレッシュトークン>; csrf-token=<CSRF トークン>
+X-CSRF-Token: <CSRF トークン>
+Origin: <画面のオリジン>
 ```
 
 ### レスポンス
 
-**成功（204 No Content）:**
+**成功（200 OK）:**
+```json
+{
+  "message": "Logged out successfully"
+}
+```
 
 ---
 
@@ -249,7 +298,12 @@ Authorization: Bearer <accessToken>
 
 ### レスポンス
 
-**成功（204 No Content）:**
+**成功（200 OK）:**
+```json
+{
+  "message": "Logged out from all devices successfully"
+}
+```
 
 ---
 
@@ -326,7 +380,7 @@ Content-Type: application/json
 }
 ```
 
-### 2FA無効化
+### 2FA無効化（拒否）
 
 #### エンドポイント
 
@@ -336,28 +390,27 @@ POST /api/v1/auth/2fa/disable
 
 #### 説明
 
-TOTPコードを検証して2FAを無効化します。
+2FA は全ユーザーで必須のため、利用者自身による無効化の要求は常に拒否します（要件34.6）。第二要素を失った場合の復旧は管理者による 2FA の再設定で、端末の交換は現在の TOTP コードによる再登録で行います。
 
 #### リクエスト
 
 ```bash
 POST /api/v1/auth/2fa/disable
 Authorization: Bearer <accessToken>
-Content-Type: application/json
-
-{
-  "totpCode": "123456"
-}
 ```
 
 #### レスポンス
 
-**成功（200 OK）:**
+**拒否（403 Forbidden）:**
 ```json
 {
-  "data": {
-    "twoFactorEnabled": false
-  }
+  "type": "https://api.architrack.com/errors/forbidden",
+  "title": "TWO_FACTOR_DISABLE_NOT_ALLOWED",
+  "status": 403,
+  "detail": "Disabling two-factor authentication is not allowed",
+  "instance": "/api/v1/auth/2fa/disable",
+  "code": "TWO_FACTOR_DISABLE_NOT_ALLOWED",
+  "message": "Disabling two-factor authentication is not allowed"
 }
 ```
 
@@ -424,9 +477,14 @@ Content-Type: application/json
 
 #### レスポンス
 
-**成功（204 No Content）:**
+**成功（200 OK）:**
+```json
+{
+  "message": "If an account exists, a password reset email has been sent"
+}
+```
 
-（セキュリティのため、メールアドレスの存在有無に関わらず成功を返します）
+（セキュリティのため、メールアドレスの登録の有無に関わらず同じ応答を返します）
 
 ### リセットトークン検証
 
@@ -438,7 +496,7 @@ POST /api/v1/auth/password/verify-reset
 
 #### 説明
 
-パスワードリセットトークンの有効性を検証します。
+パスワードリセットトークンの有効性を検証します。トークンは URL に載せず、要求本文の `token` で送ります（メールのリンクはトークンを URL のフラグメント `#token=…` に置き、画面がそれを読んで本文で送ります）。
 
 #### リクエスト
 
@@ -447,7 +505,7 @@ POST /api/v1/auth/password/verify-reset
 Content-Type: application/json
 
 {
-  "resetToken": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  "token": "<メールのリンクのフラグメントで受け取ったトークン>"
 }
 ```
 
@@ -456,9 +514,7 @@ Content-Type: application/json
 **成功（200 OK）:**
 ```json
 {
-  "data": {
-    "valid": true
-  }
+  "valid": true
 }
 ```
 
@@ -481,7 +537,7 @@ POST /api/v1/auth/password/reset
 Content-Type: application/json
 
 {
-  "resetToken": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "token": "<メールのリンクのフラグメントで受け取ったトークン>",
   "newPassword": "NewStrongPassword123!"
 }
 ```
@@ -491,9 +547,7 @@ Content-Type: application/json
 **成功（200 OK）:**
 ```json
 {
-  "data": {
-    "success": true
-  }
+  "message": "Password reset successfully"
 }
 ```
 

@@ -455,14 +455,11 @@ describe('UserSelect', () => {
   });
 
   describe('トークンリトライ', () => {
-    it('トークンがない場合はlocalStorageから復元を試みる', async () => {
+    it('トークンがまだ無い場合は永続ストレージを読まず、メモリのトークンが揃うまで待って再試行する', async () => {
       const { apiClient } = await import('../../../api/client');
       // 最初はトークンなし、2回目で成功
       vi.mocked(apiClient.getAccessToken).mockReturnValueOnce(null).mockReturnValue('mock-token');
-
-      // localStorageにトークンを設定
-      const storedToken = 'stored-access-token';
-      localStorage.setItem('accessToken', storedToken);
+      const getItem = vi.spyOn(Storage.prototype, 'getItem');
 
       const onChange = vi.fn();
       render(<UserSelect value="" onChange={onChange} label="営業担当者" />);
@@ -471,8 +468,10 @@ describe('UserSelect', () => {
       await waitFor(() => {
         expect(screen.queryByText(/読み込み中/)).not.toBeInTheDocument();
       });
-
-      localStorage.removeItem('accessToken');
+      expect(getAssignableUsers).toHaveBeenCalled();
+      // トークンを永続ストレージから復元しない（要件33.10）
+      expect(getItem).not.toHaveBeenCalledWith('accessToken');
+      getItem.mockRestore();
     });
   });
 

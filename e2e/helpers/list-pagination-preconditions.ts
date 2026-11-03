@@ -32,6 +32,7 @@ import {
   type SeededProject,
   type SeededTradingPartner,
 } from './project-list-preconditions';
+import type { AuthUserRef } from './auth-api';
 
 /**
  * 2ページ目を持たせるために用いる1ページあたりの表示件数
@@ -52,16 +53,18 @@ export const SECOND_PAGE_SEED_COUNT = PAGINATED_LIMIT + 1;
  * 作成に失敗した場合はその場で失敗する。
  *
  * @param page Playwright のページ（`loginAsUser` 済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param label 作成する取引先名に含める識別子（テストの出所が分かる文字列）
  * @returns 作成した取引先の一覧
  */
 export async function seedTradingPartnersForSecondPage(
   page: Page,
+  user: AuthUserRef,
   label: string
 ): Promise<SeededTradingPartner[]> {
   const seeded: SeededTradingPartner[] = [];
   for (let index = 1; index <= SECOND_PAGE_SEED_COUNT; index += 1) {
-    seeded.push(await seedTradingPartner(page, `${label}${index}`));
+    seeded.push(await seedTradingPartner(page, user, `${label}${index}`));
   }
   return seeded;
 }
@@ -70,16 +73,18 @@ export async function seedTradingPartnersForSecondPage(
  * プロジェクト一覧が `limit={@link PAGINATED_LIMIT}` で2ページ以上になる件数を用意する。
  *
  * @param page Playwright のページ（`loginAsUser` 済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param label 作成するプロジェクト名に含める識別子（テストの出所が分かる文字列）
  * @returns 作成したプロジェクトの一覧
  */
 export async function seedProjectsForSecondPage(
   page: Page,
+  user: AuthUserRef,
   label: string
 ): Promise<SeededProject[]> {
   const seeded: SeededProject[] = [];
   for (let index = 1; index <= SECOND_PAGE_SEED_COUNT; index += 1) {
-    seeded.push(await seedProject(page, `${label}${index}`));
+    seeded.push(await seedProject(page, user, `${label}${index}`));
   }
   return seeded;
 }

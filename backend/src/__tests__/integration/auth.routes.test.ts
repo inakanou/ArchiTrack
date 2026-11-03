@@ -8,9 +8,17 @@ import type { PrismaClient } from '../../generated/prisma/client.js';
 validateEnv();
 
 import app from '../../app.js';
+import { hashInvitationToken } from '../../services/invitation.service.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { hash } from '@node-rs/argon2';
+import {
+  issuedRefreshToken,
+  logoutWithCookie,
+  refreshWithCookie,
+} from './refresh-cookie-client.js';
+import { loginForTokens } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 認証API統合テスト
@@ -82,12 +90,10 @@ describe('Authentication API Integration Tests', () => {
       parallelism: 4,
     });
 
-    const admin = await prisma.user.create({
-      data: {
-        email: 'test-auth-admin@example.com',
-        displayName: 'Test Admin',
-        passwordHash,
-      },
+    const admin = await createTestUser(prisma, {
+      email: 'test-auth-admin@example.com',
+      displayName: 'Test Admin',
+      passwordHash,
     });
 
     // 管理者ロールを割り当て
@@ -102,7 +108,7 @@ describe('Authentication API Integration Tests', () => {
     }
 
     // 管理者としてログインしてトークンを取得
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const loginResponse = await loginForTokens(app, {
       email: 'test-auth-admin@example.com',
       password: 'AdminPassword123!',
     });
@@ -111,7 +117,7 @@ describe('Authentication API Integration Tests', () => {
       id: admin.id,
       email: admin.email,
       accessToken: loginResponse.body.accessToken,
-      refreshToken: loginResponse.body.refreshToken,
+      refreshToken: issuedRefreshToken(loginResponse),
     };
   }, 20000); // タイムアウトを20秒に設定（DB初期化・パスワードハッシュ化・ログインを考慮）
 
@@ -201,24 +207,25 @@ describe('Authentication API Integration Tests', () => {
   describe('POST /api/v1/auth/register', () => {
     it('有効な招待トークンでユーザー登録が成功すること', async () => {
       // まず招待を作成
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-newuser1@example.com',
-          token: 'valid-invitation-token-1',
+          tokenHash: hashInvitationToken('valid-invitation-token-1'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7日後
           inviterId: adminUser.id,
         },
       });
 
       const response = await request(app).post('/api/v1/auth/register').send({
-        invitationToken: invitation.token,
+        invitationToken: 'valid-invitation-token-1',
         displayName: 'New User 1',
         password: 'xK9#mP2$vL7@qR5!wN8', // ランダムで強力なパスワード
       });
 
       expect(response.status).toBe(201);
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(issuedRefreshToken(response)).not.toBe('');
       expect(response.body).toHaveProperty('user');
       expect(response.body.user.email).toBe('test-auth-newuser1@example.com');
       expect(response.body.user.displayName).toBe('New User 1');
@@ -237,17 +244,17 @@ describe('Authentication API Integration Tests', () => {
 
     it('期限切れの招待トークンで登録が失敗すること', async () => {
       // 期限切れの招待を作成
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-newuser2@example.com',
-          token: 'expired-invitation-token',
+          tokenHash: hashInvitationToken('expired-invitation-token'),
           expiresAt: new Date(Date.now() - 1000), // 過去の日時
           inviterId: adminUser.id,
         },
       });
 
       const response = await request(app).post('/api/v1/auth/register').send({
-        invitationToken: invitation.token,
+        invitationToken: 'expired-invitation-token',
         displayName: 'New User 2',
         password: 'xK9#mP2$vL7@qR5!wN8',
       });
@@ -257,17 +264,17 @@ describe('Authentication API Integration Tests', () => {
     });
 
     it('弱いパスワードで登録が失敗すること', async () => {
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-newuser3@example.com',
-          token: 'valid-invitation-token-3',
+          tokenHash: hashInvitationToken('valid-invitation-token-3'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: adminUser.id,
         },
       });
 
       const response = await request(app).post('/api/v1/auth/register').send({
-        invitationToken: invitation.token,
+        invitationToken: 'valid-invitation-token-3',
         displayName: 'New User 3',
         password: 'weak', // 弱いパスワード
       });
@@ -304,13 +311,15 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      const user = await prisma.user.create({
-        data: {
+      const user = await createTestUser(
+        prisma,
+        {
           email: 'test-auth-login@example.com',
           displayName: 'Login Test User',
           passwordHash,
         },
-      });
+        { twoFactor: false }
+      );
 
       // 一般ユーザーロールを割り当て
       const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -332,7 +341,8 @@ describe('Authentication API Integration Tests', () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(issuedRefreshToken(response)).not.toBe('');
       expect(response.body).toHaveProperty('user');
       expect(response.body.user.email).toBe('test-auth-login@example.com');
     });
@@ -360,19 +370,17 @@ describe('Authentication API Integration Tests', () => {
 
   describe('POST /api/v1/auth/refresh', () => {
     it('有効なリフレッシュトークンで新しいアクセストークンを取得できること', async () => {
-      const response = await request(app).post('/api/v1/auth/refresh').send({
-        refreshToken: adminUser.refreshToken,
-      });
+      const response = await refreshWithCookie(app, adminUser.refreshToken);
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      // 後継は Set-Cookie だけで渡る。以降のテストは後継を使う
+      adminUser.refreshToken = issuedRefreshToken(response);
     });
 
     it('無効なリフレッシュトークンでリフレッシュが失敗すること', async () => {
-      const response = await request(app).post('/api/v1/auth/refresh').send({
-        refreshToken: 'invalid-refresh-token',
-      });
+      const response = await refreshWithCookie(app, 'invalid-refresh-token');
 
       expect(response.status).toBe(401);
       expect(response.body).toHaveProperty('error');
@@ -432,23 +440,72 @@ describe('Authentication API Integration Tests', () => {
     });
   });
 
+  describe('POST /api/v1/auth/2fa/disable', () => {
+    /**
+     * @requirement user-authentication/REQ-34.6
+     */
+    it('2FA 登録済みの利用者が正しいパスワードで自己の無効化を求めても 403 で拒否し、秘密鍵・バックアップコード・セッションを残す', async () => {
+      const original = await prisma.user.findUniqueOrThrow({
+        where: { id: adminUser.id },
+        select: { twoFactorEnabled: true, twoFactorSecret: true },
+      });
+      await prisma.user.update({
+        where: { id: adminUser.id },
+        data: { twoFactorEnabled: true, twoFactorSecret: 'test-auth-2fa-disable-secret' },
+      });
+      await prisma.twoFactorBackupCode.create({
+        data: { userId: adminUser.id, codeHash: 'test-auth-2fa-disable-code-hash' },
+      });
+      const refreshTokensBefore = await prisma.refreshToken.count({
+        where: { userId: adminUser.id },
+      });
+
+      try {
+        expect(refreshTokensBefore).toBeGreaterThan(0);
+
+        const response = await request(app)
+          .post('/api/v1/auth/2fa/disable')
+          .set('Authorization', `Bearer ${adminUser.accessToken}`)
+          .send({ password: 'AdminPassword123!' });
+
+        expect(response.status).toBe(403);
+        expect(response.body).toMatchObject({
+          status: 403,
+          code: 'TWO_FACTOR_DISABLE_NOT_ALLOWED',
+          instance: '/api/v1/auth/2fa/disable',
+        });
+
+        const after = await prisma.user.findUniqueOrThrow({
+          where: { id: adminUser.id },
+          select: { twoFactorEnabled: true, twoFactorSecret: true },
+        });
+        expect(after).toEqual({
+          twoFactorEnabled: true,
+          twoFactorSecret: 'test-auth-2fa-disable-secret',
+        });
+        expect(await prisma.twoFactorBackupCode.count({ where: { userId: adminUser.id } })).toBe(1);
+        expect(await prisma.refreshToken.count({ where: { userId: adminUser.id } })).toBe(
+          refreshTokensBefore
+        );
+      } finally {
+        await prisma.twoFactorBackupCode.deleteMany({ where: { userId: adminUser.id } });
+        await prisma.user.update({ where: { id: adminUser.id }, data: original });
+      }
+    });
+  });
+
   describe('POST /api/v1/auth/logout', () => {
     it('認証済みユーザーがログアウトできること', async () => {
-      const response = await request(app)
-        .post('/api/v1/auth/logout')
-        .set('Authorization', `Bearer ${adminUser.accessToken}`)
-        .send({
-          refreshToken: adminUser.refreshToken,
-        });
+      const response = await logoutWithCookie(app, adminUser.accessToken, adminUser.refreshToken);
 
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('message');
     });
 
     it('認証トークンなしで401エラーを返すこと', async () => {
-      const response = await request(app).post('/api/v1/auth/logout').send({
-        refreshToken: adminUser.refreshToken,
-      });
+      const response = await request(app)
+        .post('/api/v1/auth/logout')
+        .set('Cookie', [`refreshToken=${adminUser.refreshToken}`]);
 
       expect(response.status).toBe(401);
       expect(response.body).toHaveProperty('error');
@@ -474,16 +531,34 @@ describe('Authentication API Integration Tests', () => {
   });
 
   describe('POST /api/v1/auth/verify-2fa', () => {
-    it('2FA検証エンドポイントが存在すること', async () => {
+    /**
+     * @requirement user-authentication/REQ-32.2
+     * @requirement user-authentication/REQ-32.5
+     */
+    it('2FA 待ちの資格の無い検証は、アクセストークンを添えても 401 INVALID_CHALLENGE を返しトークンを発行しない', async () => {
       const response = await request(app)
         .post('/api/v1/auth/verify-2fa')
         .set('Authorization', `Bearer ${adminUser.accessToken}`)
-        .send({
-          token: '123456',
-        });
+        .send({ code: '123456', email: 'test-auth-admin@example.com' });
 
-      // 実装されていない場合は404、実装済みの場合は適切なステータスコードを返す
-      expect([200, 400, 401, 404]).toContain(response.status);
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe('INVALID_CHALLENGE');
+      expect(response.body).not.toHaveProperty('accessToken');
+      expect(response.headers['set-cookie'] ?? []).not.toEqual(
+        expect.arrayContaining([expect.stringMatching(/^refreshToken=[^;]+/)])
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-32.5
+     */
+    it('アクセストークンを資格として送った検証は 401 INVALID_CHALLENGE を返す', async () => {
+      const response = await request(app)
+        .post('/api/v1/auth/verify-2fa')
+        .send({ challengeToken: adminUser.accessToken, code: '123456' });
+
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe('INVALID_CHALLENGE');
     });
   });
 });

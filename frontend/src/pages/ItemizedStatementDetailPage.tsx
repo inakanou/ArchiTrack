@@ -7,6 +7,13 @@
  * Task 10: 内訳書削除機能の実装
  * Task 14: Excel出力機能の実装
  * Task 15: クリップボード出力機能の実装
+ * Task 27.2: Excel出力の生成の前の出力の記録と、記録の失敗での中止
+ *   （Requirement 18.7・18.8。user-authentication の要件40.9〜40.11）
+ * Task 28.1: クリップボードへのコピーを出力の記録の成功の後にだけ書き込む
+ *   （Requirement 18.9・18.10。user-authentication の要件40.9〜40.11）
+ * Task 29.1: 内訳書の読み込みの 404 で内訳書が見つからない旨とプロジェクトの一覧へのリンクを表示し、
+ *   応答の英語の文言と再試行の釦を出さない。削除・並び順の保存の 404 で見つからない旨のメッセージを
+ *   表示する（Requirement 19.1・19.2）
  *
  * Requirements:
  * - 4.1: 集計結果をテーブル形式で表示する
@@ -69,24 +76,44 @@
  * - 17.14: updatedAtによる楽観的排他制御を適用する
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, Link, useNavigate, useBlocker } from 'react-router-dom';
 import {
   getItemizedStatementDetail,
   deleteItemizedStatement,
   updateItemOrder,
 } from '../api/itemized-statements';
-import { Breadcrumb } from '../components/common';
+import { ApiError } from '../api/client';
+import {
+  EXPORT_RECORD_FAILED_MESSAGE,
+  runRecordedClipboardWrite,
+  runRecordedExport,
+} from '../api/export-audit';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import ItemizedStatementDeleteDialog from '../components/itemized-statement/ItemizedStatementDeleteDialog';
 import SortOrderButtons from '../components/quantity-table/SortOrderButtons';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
-import { exportToExcel } from '../utils/export-excel';
-import { copyToClipboard } from '../utils/copy-to-clipboard';
+import { exportToExcel, type ExportToExcelResult } from '../utils/export-excel';
+import { formatItemsForClipboard } from '../utils/copy-to-clipboard';
+import {
+  getItemizedStatementNotFoundMessage,
+  isNotFoundError,
+} from '../utils/itemizedStatementNotFound';
 import type {
   ItemizedStatementDetail,
   ItemizedStatementItemInfo,
 } from '../types/itemized-statement.types';
+
+/**
+ * 楽観的排他制御の競合（409）かどうか（Req 10.4, 17.14）
+ *
+ * API の失敗は `ApiError` の `statusCode` で届く。応答の本文の文言（detail）には頼らず、
+ * 画面は固定の文言を表示する（2026-10-30 の是正。旧実装は存在しない `status` を見ていた）。
+ */
+function isOptimisticLockConflict(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.statusCode === 409;
+}
 
 // ============================================================================
 // 型定義
@@ -129,6 +156,9 @@ interface FilterState {
 
 /** ページあたりの項目数 */
 const PAGE_SIZE = 50;
+
+/** クリップボードへのコピーの失敗のエラーメッセージ（Req 14.7。記録の後の書き込みの失敗に用いる） */
+const COPY_FAILED_MESSAGE = 'クリップボードへのコピーに失敗しました';
 
 /** カラム定義一覧 */
 const COLUMNS: ColumnDefinition[] = [
@@ -869,6 +899,8 @@ export default function ItemizedStatementDetailPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 内訳書の読み込みが 404 を受けた（範囲外と不在を区別しない。Req 19.1）
+  const [isStatementNotFound, setIsStatementNotFound] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
   // 削除機能の状態 (Req 7.1, 7.2, 12.3, 12.4)
@@ -888,6 +920,15 @@ export default function ItemizedStatementDetailPage() {
   // Excel出力機能の状態 (Req 13.1, 13.7, 13.8)
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // 画面が描かれているか（出力の記録の要求中に破棄されたら、記録の後に生成を始めない。Requirement 18.7）
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    // StrictMode の二重の effect（破棄の後の再実行）でも描かれている状態へ戻す
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // クリップボードコピー機能の状態 (Req 14.1, 14.6, 14.7)
   const [isCopying, setIsCopying] = useState(false);
@@ -915,6 +956,7 @@ export default function ItemizedStatementDetailPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsStatementNotFound(false);
 
     try {
       const data = await getItemizedStatementDetail(id);
@@ -924,7 +966,10 @@ export default function ItemizedStatementDetailPage() {
       setOrderedItems(sorted);
       setHasOrderChanges(false);
     } catch (err) {
-      if (err instanceof Error) {
+      if (isNotFoundError(err)) {
+        // 404 は応答の本文（汎用の 404 では英語）を使わず、ResourceNotFound が告げる（Req 19.1）
+        setIsStatementNotFound(true);
+      } else if (err instanceof Error) {
         setError(err.message);
       } else {
         setError('内訳書の取得に失敗しました');
@@ -1038,9 +1083,12 @@ export default function ItemizedStatementDetailPage() {
       // 削除成功後にプロジェクト詳細画面に遷移
       navigate(`/projects/${statement.projectId}`);
     } catch (err) {
-      // 楽観的排他制御エラー（409）の判定 (Req 10.4)
-      if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
+      // 楽観的排他制御エラー（409）の判定 (Req 10.4)。404 の分岐より前に置く
+      if (isOptimisticLockConflict(err)) {
         setDeleteError('他のユーザーにより更新されました。画面を再読み込みしてください');
+      } else if (isNotFoundError(err)) {
+        // 404 は見つからない旨（応答の英語の文言を出さない。Req 19.2）
+        setDeleteError(getItemizedStatementNotFoundMessage(err, 'itemizedStatement'));
       } else if (err instanceof Error) {
         setDeleteError(err.message);
       } else {
@@ -1052,31 +1100,61 @@ export default function ItemizedStatementDetailPage() {
     }
   }, [statement, navigate]);
 
-  // Excelエクスポートハンドラ (Req 13.1, 13.6, 13.7, 13.8)
-  const handleExportToExcel = useCallback(() => {
+  /**
+   * Excelエクスポートハンドラ (Req 13.1, 13.6, 13.7, 13.8)
+   *
+   * 生成中の表示（Req 13.7）を立てた後、Excel の生成より前に、出力の記録
+   * （種別 `itemized_statement_xlsx`・内訳書が属する案件・内訳書・フィルタ後の件数）を 1 回要求する。
+   * 記録の要求中も生成中の表示のまま Excel 出力のボタンを止める。記録の失敗では生成も
+   * ダウンロードも始めず「出力を記録できなかったため中止しました」を表示する
+   * （Requirement 18.7, 18.8。user-authentication の要件40.9〜40.11）。
+   */
+  const handleExportToExcel = useCallback(async () => {
     if (!statement || isExporting) return;
+    const target = statement;
+    // フィルタ・ソート適用後のデータを出力 (Req 13.6)
+    const items = sortedItems;
+
+    /** Excel の生成とダウンロード（出力の記録が成功した後にだけ呼ぶ。Requirement 18.7） */
+    const generateExcel = async (): Promise<ExportToExcelResult | null> => {
+      // 記録の要求中に画面が破棄されたら、生成もダウンロードもしない（記録は済んでいるが出力は無い）
+      if (!isMountedRef.current) return null;
+      return exportToExcel({
+        items,
+        statementName: target.name,
+      });
+    };
 
     setIsExporting(true);
     setExportError(null);
 
     try {
-      // フィルタ・ソート適用後のデータを出力 (Req 13.6)
-      const result = exportToExcel({
-        items: sortedItems,
-        statementName: statement.name,
-      });
-
-      if (!result.success) {
-        setExportError(result.error ?? 'Excelファイルの生成に失敗しました');
-      }
-    } catch (err) {
-      if (err instanceof Error) {
-        setExportError(err.message);
-      } else {
-        setExportError('Excelファイルの生成に失敗しました');
+      // 生成を始める前に出力の記録を1回要求し、記録の失敗では生成しない（Requirement 18.7, 18.8）
+      const result = await runRecordedExport(
+        {
+          kind: 'itemized_statement_xlsx',
+          projectId: target.projectId,
+          targetIds: [target.id],
+          itemCount: items.length,
+        },
+        generateExcel
+      );
+      if (!isMountedRef.current) return;
+      if (!result.ok) {
+        if (result.error.type === 'RECORD_FAILED') {
+          setExportError(EXPORT_RECORD_FAILED_MESSAGE);
+        } else {
+          // Req 13.8: 記録の後の生成の失敗は従来の文言で表示する（記録は再送しない）
+          const cause = result.error.cause;
+          setExportError(
+            cause instanceof Error ? cause.message : 'Excelファイルの生成に失敗しました'
+          );
+        }
+      } else if (result.value && !result.value.success) {
+        setExportError(result.value.error ?? 'Excelファイルの生成に失敗しました');
       }
     } finally {
-      setIsExporting(false);
+      if (isMountedRef.current) setIsExporting(false);
     }
   }, [statement, isExporting, sortedItems]);
 
@@ -1142,9 +1220,12 @@ export default function ItemizedStatementDetailPage() {
         setSaveOrderSuccess(false);
       }, 3000);
     } catch (err) {
-      // 楽観的排他制御エラー（409）
-      if (err && typeof err === 'object' && 'status' in err && err.status === 409) {
+      // 楽観的排他制御エラー（409）の判定 (Req 17.14, 10.4)。404 の分岐より前に置く
+      if (isOptimisticLockConflict(err)) {
         setSaveOrderError('他のユーザーにより更新されました。画面を再読み込みしてください');
+      } else if (isNotFoundError(err)) {
+        // 404 は見つからない旨。未保存の並び順は保つ（Req 19.2・17.10）
+        setSaveOrderError(getItemizedStatementNotFoundMessage(err, 'itemizedStatement'));
       } else if (err instanceof Error) {
         setSaveOrderError(err.message);
       } else {
@@ -1155,38 +1236,57 @@ export default function ItemizedStatementDetailPage() {
     }
   }, [statement, isSavingOrder, orderedItems]);
 
-  // クリップボードコピーハンドラ (Req 14.1, 14.5, 14.6, 14.7)
+  /**
+   * クリップボードコピーハンドラ (Req 14.1, 14.5, 14.6, 14.7)
+   *
+   * 書き込みの前に出力の記録（種別 `itemized_statement_clipboard`・内訳書が属する案件・内訳書・
+   * コピーする件数）を 1 回要求し、記録の成功の後にだけ中身を書き込む。記録の失敗では何も書き込まず
+   * 「出力を記録できなかったため中止しました」を表示する（Requirement 18.9, 18.10。user-authentication の
+   * 要件40.9〜40.11）。書き込みと記録は上流の `runRecordedClipboardWrite` が行う。
+   *
+   * Safari はクリックの処理の中で同期的に始めた書き込みしか許さないため、包みの呼び出しより前に
+   * `await` を置かない。記録の要求中もコピー中の表示のままボタンを止める。
+   */
   const handleCopyToClipboard = useCallback(async () => {
     if (!statement || isCopying) return;
+    const target = statement;
+    // クリックの時点のフィルタ・ソート適用後の項目を写し、記録の件数と書き込む中身をそろえる (Req 14.5)
+    const items = [...sortedItems];
 
     setIsCopying(true);
     setCopyError(null);
     setCopySuccess(false);
 
     try {
-      // フィルタ・ソート適用後のデータをコピー (Req 14.5)
-      const result = await copyToClipboard({
-        items: sortedItems,
-      });
-
-      if (result.success) {
+      const result = await runRecordedClipboardWrite(
+        {
+          kind: 'itemized_statement_clipboard',
+          projectId: target.projectId,
+          targetIds: [target.id],
+          itemCount: items.length,
+        },
+        () => formatItemsForClipboard(items)
+      );
+      // 記録の要求中に画面が破棄されたら表示を変えない（書き込みの成否は包みが決める）
+      if (!isMountedRef.current) return;
+      if (result.ok) {
         // コピー成功時にトースト通知 (Req 14.6)
         setCopySuccess(true);
         // 3秒後に成功メッセージを非表示
         setTimeout(() => {
           setCopySuccess(false);
         }, 3000);
+      } else if (result.error.type === 'RECORD_FAILED') {
+        // 記録の失敗ではクリップボードは変わらない (Requirement 18.10)
+        setCopyError(EXPORT_RECORD_FAILED_MESSAGE);
       } else {
-        setCopyError(result.error ?? 'クリップボードへのコピーに失敗しました');
+        // 記録の後の書き込みの失敗・Clipboard API が無いとき (Req 14.7)。記録は再送しない
+        setCopyError(COPY_FAILED_MESSAGE);
       }
-    } catch (err) {
-      if (err instanceof Error) {
-        setCopyError(err.message);
-      } else {
-        setCopyError('クリップボードへのコピーに失敗しました');
-      }
+    } catch {
+      if (isMountedRef.current) setCopyError(COPY_FAILED_MESSAGE);
     } finally {
-      setIsCopying(false);
+      if (isMountedRef.current) setIsCopying(false);
     }
   }, [statement, isCopying, sortedItems]);
 
@@ -1206,6 +1306,20 @@ export default function ItemizedStatementDetailPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 内訳書が見つからない表示（Req 19.1）。経路が案件の ID を持たないため戻り先はプロジェクトの一覧。
+  // 再試行で解けないため再試行の釦を出さない
+  if (isStatementNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="内訳書"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

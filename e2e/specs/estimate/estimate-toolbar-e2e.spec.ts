@@ -23,6 +23,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /**
  * 見積項目操作ツールバーのE2Eテスト
@@ -86,7 +87,7 @@ test.describe('見積項目操作ツールバー', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // アクセストークンを取得
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
 
       // APIで直接見積書を作成

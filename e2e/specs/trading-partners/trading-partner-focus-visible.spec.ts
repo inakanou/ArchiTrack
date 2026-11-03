@@ -482,7 +482,7 @@ test.describe('取引先のフォームの入力部品のフォーカス表示',
     page,
   }) => {
     await loginAsUser(page, 'REGULAR_USER');
-    const partner = await seedTradingPartner(page, 'フォーカス表示編集');
+    const partner = await seedTradingPartner(page, 'REGULAR_USER', 'フォーカス表示編集');
     await page.goto(`/trading-partners/${partner.id}/edit`);
     await expect(page.getByRole('heading', { name: /取引先の編集/ })).toBeVisible({
       timeout: getTimeout(10000),
@@ -524,7 +524,11 @@ test.describe('取引先の一覧画面のフォーカス表示', () => {
     // 検索語で今回の取引先だけに絞り、1 ページ 10 件で 2 ページ目を作る
     const keyword = `フォーカス一覧${Date.now()}`;
     for (let index = 0; index < LIST_SEED_COUNT; index += 1) {
-      await seedTradingPartner(page, `${keyword}-${String(index).padStart(2, '0')}`);
+      await seedTradingPartner(
+        page,
+        'REGULAR_USER',
+        `${keyword}-${String(index).padStart(2, '0')}`
+      );
     }
     await page.goto(`/trading-partners?search=${encodeURIComponent(keyword)}&limit=10`);
     await expect(page.getByRole('heading', { name: '取引先一覧' })).toBeVisible({

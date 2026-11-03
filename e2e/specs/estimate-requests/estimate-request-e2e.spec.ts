@@ -26,6 +26,7 @@ import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { observeDialogs } from '../../helpers/dialog-observer';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 保存ボタンをクリックして保存完了を待機するヘルパー
@@ -266,13 +267,7 @@ test.describe('見積依頼機能', () => {
 
       // APIトークンを取得
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
 
       // グループを作成
@@ -2569,6 +2564,14 @@ test.describe('見積依頼機能', () => {
       // 削除が成功（200または204）
       expect([200, 204]).toContain(deleteResponse.status());
 
+      // 楽観的排他制御の基準時刻はクエリで送り、本文を付けない（DELETE の本文は中継で落ちうる。
+      // 2026-10-31 の是正。REQ-8.5 の基準時刻が届かず削除できなくなる経路を塞ぐ）
+      const deleteRequest = deleteResponse.request();
+      expect(new URL(deleteRequest.url()).searchParams.get('updatedAt')).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+      );
+      expect(deleteRequest.postData()).toBeNull();
+
       // 一覧画面で削除した見積依頼が表示されない（論理削除）
       await expect(page).toHaveURL(/\/estimate-requests$/, { timeout: getTimeout(10000) });
 
@@ -2946,6 +2949,12 @@ test.describe('見積依頼機能', () => {
       // 表題セクションのコピーボタン（2番目）をクリック
       const subjectCopyButton = copyButtons.nth(1);
       await subjectCopyButton.click();
+
+      // 書き込みは出力の記録の応答を待ってから行われる（runRecordedClipboardWrite）。
+      // 書き込みの後に出る「コピーしました」を待ってから読む（直後に読むと前の中身を読む）
+      await expect(panel.getByRole('button', { name: 'コピーしました' })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       // クリップボードの内容を確認
       const clipboardContent = await page.evaluate(() => navigator.clipboard.readText());
@@ -4489,6 +4498,10 @@ test.describe('見積依頼機能', () => {
 
       // 宛先コピーボタン（1番目）押下で宛先メールアドレスがクリップボードへコピーされる（挙動不変）
       await copyButtons.first().click();
+      // 書き込みは出力の記録の応答の後。書き込みの後に出る「コピーしました」を待ってから読む
+      await expect(panel.getByRole('button', { name: 'コピーしました' })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
       const clipboardRecipient = await page.evaluate(() => navigator.clipboard.readText());
       expect(clipboardRecipient).toBe('test-subcontractor@example.com');
     });

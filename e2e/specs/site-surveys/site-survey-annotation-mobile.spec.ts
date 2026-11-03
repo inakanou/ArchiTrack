@@ -94,6 +94,7 @@ import {
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPresent, assertPrepared } from '../../helpers/preconditions';
 import { getFabricObjectCount } from '../../helpers/fabric-canvas';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -916,7 +917,7 @@ test.describe('モバイル Viewport 注釈機能', () => {
     // --- 画像を API で直接アップロード ---
     const testImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
     expect(fs.existsSync(testImagePath)).toBeTruthy();
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
     const uploadResponse = await sharedPage.request.post(
       `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
       {
@@ -943,7 +944,7 @@ test.describe('モバイル Viewport 注釈機能', () => {
     const cleanupPage = await cleanupContext.newPage();
     try {
       await loginAsUser(cleanupPage, 'ADMIN_USER');
-      const adminToken = await cleanupPage.evaluate(() => localStorage.getItem('accessToken'));
+      const adminToken = await getAccessToken(cleanupPage, 'ADMIN_USER');
       const headers = { Authorization: `Bearer ${adminToken}` };
       if (createdSurveyId) {
         await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {
@@ -2231,7 +2232,7 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     // 画像を API で直接アップロード（拡大の余地を確保するため大きめ画像を使用）
     const testImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
     expect(fs.existsSync(testImagePath)).toBeTruthy();
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
     const uploadResponse = await sharedPage.request.post(
       `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
       {
@@ -2876,7 +2877,7 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     // 画像を API で直接アップロード（拡大の余地を確保するため大きめ画像を使用）
     const testImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
     expect(fs.existsSync(testImagePath)).toBeTruthy();
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
     const uploadResponse = await sharedPage.request.post(
       `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
       {
@@ -3374,7 +3375,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
     // モバイル幅の作業領域より小さい原寸の画像を用いる。
     const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
     expect(fs.existsSync(testImagePath)).toBeTruthy();
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
     const uploadResponse = await sharedPage.request.post(
       `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
       {

@@ -9,6 +9,11 @@
  * - REQ-15.3: ユーザーが変更内容を確認して適用すると実行予算に反映する
  * - REQ-15.6: 変更前後の契約金額を並べて表示する
  *
+ * Task 19.1 変更: 実行予算の取得が 404 のときに案件を取得し、案件の取得も 404 ならプロジェクトが見つからない旨と
+ *   プロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示して、未反映の変更契約が無い旨を出さない。
+ *   項目差分の取得と反映の 404 は見つからない旨のメッセージを表示する（execution-budget-management の
+ *   Requirement 21.1・21.2。範囲外と不在を区別しない）
+ *
  * @module pages/ExecutionBudgetAmendmentPage
  */
 
@@ -24,7 +29,11 @@ import {
   type AmendmentDiff,
 } from '../api/execution-budget';
 import { ApiError } from '../api/client';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getExecutionBudgetNotFoundMessage,
+  resolveMissingExecutionBudget,
+} from '../utils/executionBudgetNotFound';
 
 // ============================================================================
 // ユーティリティ
@@ -219,17 +228,31 @@ export function ExecutionBudgetAmendmentPage(): React.ReactElement {
   const [diff, setDiff] = useState<AmendmentDiff | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  // 実行予算の取得の 404 の後に案件の取得も 404 だった（範囲外と不在を区別しない。Task 19.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   // データ取得
   const fetchData = useCallback(async () => {
     if (!projectId) return;
     setIsLoading(true);
     setError(null);
+    setIsProjectNotFound(false);
     try {
       const [budgetData, amendmentsData] = await Promise.all([
         getExecutionBudget(projectId),
         getUnreflectedAmendments(projectId).catch(() => [] as UnreflectedAmendment[]),
       ]);
+      // 実行予算の取得の 404（null）は案件を取得して見分ける（Task 19.1）
+      if (!budgetData) {
+        const resolution = await resolveMissingExecutionBudget(projectId);
+        if (resolution === 'projectNotFound') {
+          setIsProjectNotFound(true);
+          return;
+        }
+        if (resolution === 'projectLoadFailed') {
+          setError('データの取得に失敗しました');
+        }
+      }
       setBudget(budgetData);
       setAmendments(amendmentsData);
     } catch (err) {
@@ -258,7 +281,11 @@ export function ExecutionBudgetAmendmentPage(): React.ReactElement {
         const diffData = await getAmendmentDiff(projectId, contractId);
         setDiff(diffData);
       } catch (err) {
-        if (err instanceof ApiError) {
+        // 404 は見つからない旨（汎用の 404 は経路のプロジェクト。Task 19.1）
+        const notFoundMessage = getExecutionBudgetNotFoundMessage(err, 'project');
+        if (notFoundMessage) {
+          setDialogError(notFoundMessage);
+        } else if (err instanceof ApiError) {
           setDialogError(err.message);
         } else {
           setDialogError('差分の取得に失敗しました');
@@ -286,7 +313,10 @@ export function ExecutionBudgetAmendmentPage(): React.ReactElement {
       // 一覧を再取得（反映済み契約は除外される）
       await fetchData();
     } catch (err) {
-      if (err instanceof ApiError) {
+      const notFoundMessage = getExecutionBudgetNotFoundMessage(err, 'project');
+      if (notFoundMessage) {
+        setDialogError(notFoundMessage);
+      } else if (err instanceof ApiError) {
         setDialogError(err.message);
       } else {
         setDialogError('反映に失敗しました');
@@ -300,6 +330,19 @@ export function ExecutionBudgetAmendmentPage(): React.ReactElement {
     return (
       <div style={styles.page}>
         <div data-testid="loading-skeleton">読み込み中...</div>
+      </div>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 19.1）。未反映の変更契約が無い旨を出さない
+  if (isProjectNotFound) {
+    return (
+      <div style={styles.page}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </div>
     );
   }

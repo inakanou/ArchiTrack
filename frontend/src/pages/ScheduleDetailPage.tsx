@@ -37,6 +37,11 @@
  * - REQ-7.1: Excel出力
  * - REQ-8.1: PDF出力
  *
+ * Task 24.1 変更: 工程表の読み込みが 404 を受けたときに、工程表が見つからない旨とプロジェクトの一覧への
+ *   リンク（共通部品 ResourceNotFound）を表示し、応答の英語の文言を出さない。保存の 404 は
+ *   useScheduleState が工程表が見つからない旨のメッセージにする（construction-schedule の
+ *   Requirement 14.1・14.2。範囲外と不在を区別しない）
+ *
  * @module pages/ScheduleDetailPage
  */
 
@@ -48,7 +53,8 @@ import { useScheduleState, MAX_SCHEDULE_ITEMS } from '../hooks/useScheduleState'
 import { useHolidayCalendar } from '../hooks/useHolidayCalendar';
 import { SortableScheduleList } from '../components/schedule/SortableScheduleList';
 import { GanttChartPanel } from '../components/schedule/GanttChartPanel';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import { isNotFoundError } from '../utils/scheduleNotFound';
 import { ExportDialog } from '../components/schedule/ExportDialog';
 
 /** 項目数の上限に達した旨の表示の要素 ID（項目追加の釦の説明として参照する） */
@@ -334,6 +340,8 @@ export default function ScheduleDetailPage() {
   const [scheduleData, setScheduleData] = useState<ScheduleDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 工程表の読み込みが 404 を受けた（範囲外と不在を区別しない。Task 24.1）
+  const [isNotFound, setIsNotFound] = useState(false);
 
   // 工程表データを取得
   useEffect(() => {
@@ -344,6 +352,7 @@ export default function ScheduleDetailPage() {
     async function loadSchedule() {
       setIsLoading(true);
       setError(null);
+      setIsNotFound(false);
 
       try {
         const data = await getScheduleDetail(id!);
@@ -352,7 +361,12 @@ export default function ScheduleDetailPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '工程表の読み込みに失敗しました');
+          if (isNotFoundError(err)) {
+            // 見つからない旨は ResourceNotFound が告げる。応答の本文（英語の文言）は使わない
+            setIsNotFound(true);
+          } else {
+            setError(err instanceof Error ? err.message : '工程表の読み込みに失敗しました');
+          }
         }
       } finally {
         if (!cancelled) {
@@ -389,6 +403,20 @@ export default function ScheduleDetailPage() {
     return (
       <div style={styles.container}>
         <div style={styles.loading}>読み込み中...</div>
+      </div>
+    );
+  }
+
+  // 工程表が見つからない表示（Task 24.1）。工程表を読めないと案件が分からないため、戻り先は
+  // プロジェクトの一覧とする
+  if (isNotFound) {
+    return (
+      <div style={styles.container}>
+        <ResourceNotFound
+          resourceType="工程表"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </div>
     );
   }

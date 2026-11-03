@@ -19,6 +19,10 @@
  * - 11.23: 必須項目バリデーション
  * - 11.24: ファイル未アップロード・全明細行空の場合のエラー表示
  * - 11.25: 受領見積書の編集機能
+ *
+ * Task 105.1 変更: 登録・更新が 404 を受けたときに、見つからない旨のメッセージを表示し、応答の
+ *   英語の文言を出さない（登録は見積依頼、更新は受領見積書が見つからない旨）
+ *   （estimate-request の Requirement 10.6）
  */
 
 import {
@@ -39,6 +43,7 @@ import type {
   LineItemInput,
 } from '../../api/received-quotations';
 import { ApiError } from '../../api/client';
+import { getEstimateRequestNotFoundMessage } from '../../utils/estimateRequestNotFound';
 import {
   LineItemEditor,
   createEmptyLineItem,
@@ -810,8 +815,13 @@ export function ReceivedQuotationForm({
       if (err instanceof ApiError && err.statusCode === 401) {
         return;
       }
+      // 404 は見つからない旨を告げる（登録は見積依頼、更新は受領見積書。REQ-10.6）
+      const notFoundMessage = getEstimateRequestNotFoundMessage(
+        err,
+        mode === 'edit' ? 'receivedQuotation' : 'estimateRequest'
+      );
       // それ以外の保存エラー
-      setSaveError(err instanceof Error ? err.message : '保存に失敗しました');
+      setSaveError(notFoundMessage ?? (err instanceof Error ? err.message : '保存に失敗しました'));
       clearPendingSave();
     }
   }, [
@@ -823,6 +833,7 @@ export function ReceivedQuotationForm({
     netAmount,
     onSubmit,
     clearPendingSave,
+    mode,
   ]);
 
   const handleSubmit = useCallback(

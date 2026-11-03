@@ -29,6 +29,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 内訳書API統合テスト
@@ -54,12 +56,10 @@ describe('Itemized Statement API Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-itemized-statement-integration@example.com',
-        displayName: 'Itemized Statement Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-itemized-statement-integration@example.com',
+      displayName: 'Itemized Statement Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -114,13 +114,13 @@ describe('Itemized Statement API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-itemized-statement-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -499,7 +499,9 @@ describe('Itemized Statement API Integration Tests', () => {
         .send({ updatedAt: new Date().toISOString() });
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'ITEMIZED_STATEMENT_NOT_FOUND');
+      // 存在しない内訳書は閲覧範囲の判定部品が範囲外と同じ汎用の 404 にする
+      // （itemized-statement-generation の Requirement 18.3、タスク27.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
   });
 

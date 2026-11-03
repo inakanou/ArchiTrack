@@ -8,6 +8,11 @@
  * - 4.4: 数量グループに写真が紐づけられている状態で、注釈付き写真と数量項目の関連性を視覚的に表示する
  * - 4.5: 数量グループの削除操作を行う
  *
+ * 案件の閲覧範囲（quantity-table-generation の Requirement 50、user-authentication の要件39。タスク104.1）:
+ * 全経路で requirePermission の後に quantity-table-project-scope.middleware の判定部品を置き、
+ * 数量グループは親の数量表の案件で判定して範囲外は不在と同じ汎用の 404 にする。表示順の更新は対象の
+ * 全件を判定する。写真の紐付けが指す現場調査・画像の範囲は QuantityGroupService が判定する。
+ *
  * @module routes/quantity-groups
  */
 
@@ -19,6 +24,12 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
+import {
+  requireOrderedQuantityGroupsProjectScope,
+  requireQuantityGroupProjectScope,
+  requireQuantityTableParamProjectScope,
+} from '../middleware/quantity-table-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createQuantityGroupSchema,
@@ -71,15 +82,35 @@ const updateQuantityGroupRequestSchema = updateQuantityGroupSchema.extend({
 });
 
 /**
+ * 数量グループの表示順の更新の `orderUpdates` の件数の上限（Requirement 42.14。OWASP API Security の API4）
+ *
+ * 値は利用者が 2026-10-31 に確定した（design.md の「2026-10-31 の追加: 件数の上限の画面の表示と、
+ * 本文の文字列・計算用パラメータ・個別の操作の配列の上限」の「決定」の表）。一つの数量表の数量グループの
+ * 数の上限（42.11 の `SAVE_QUANTITY_TABLE_MAX_GROUPS`）と同じ値である。保存の経路のモジュールは
+ * 経路とサービスを組み立てるため import せず、本経路の近くに置く。超えた要求は本文の検証の 400 で拒み、
+ * 後段の閲覧範囲の判定（`requireOrderedQuantityGroupsProjectScope`）とサービスを呼ばない。
+ */
+export const QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES = 1000;
+
+/** 表示順の更新の件数の上限を超えたときの日本語のメッセージ（Requirement 42.14） */
+export const QUANTITY_GROUP_DISPLAY_ORDER_LIMIT_MESSAGE = `数量グループは${QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES}件以内で指定してください`;
+
+/**
  * 表示順序更新スキーマ
+ *
+ * `orderUpdates` は `QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES` 件まで（42.14）。
  */
 const updateDisplayOrderSchema = z.object({
-  orderUpdates: z.array(
-    z.object({
-      id: z.string().uuid('グループIDの形式が不正です'),
-      displayOrder: z.number().int().min(0, '表示順序は0以上の整数を入力してください'),
-    })
-  ),
+  orderUpdates: z
+    .array(
+      z.object({
+        id: z.string().uuid('グループIDの形式が不正です'),
+        displayOrder: z.number().int().min(0, '表示順序は0以上の整数を入力してください'),
+      })
+    )
+    .max(QUANTITY_GROUP_DISPLAY_ORDER_MAX_UPDATES, {
+      message: QUANTITY_GROUP_DISPLAY_ORDER_LIMIT_MESSAGE,
+    }),
 });
 
 /**
@@ -140,6 +171,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityTableIdUrlParamSchema, 'params'),
+  requireQuantityTableParamProjectScope('quantityTableId'),
   validate(createQuantityGroupBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -156,7 +188,11 @@ router.post(
         quantityTableId,
       };
 
-      const quantityGroup = await quantityGroupService.create(input, actorId);
+      const quantityGroup = await quantityGroupService.create(
+        input,
+        actorId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         {
@@ -243,6 +279,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(quantityTableIdUrlParamSchema, 'params'),
+  requireQuantityTableParamProjectScope('quantityTableId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { quantityTableId } = req.validatedParams as { quantityTableId: string };
@@ -315,7 +352,9 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityTableIdUrlParamSchema, 'params'),
+  requireQuantityTableParamProjectScope('quantityTableId'),
   validate(updateDisplayOrderSchema, 'body'),
+  requireOrderedQuantityGroupsProjectScope('orderUpdates'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { quantityTableId } = req.validatedParams as { quantityTableId: string };
@@ -391,6 +430,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(quantityGroupIdParamSchema, 'params'),
+  requireQuantityGroupProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -479,6 +519,7 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityGroupIdParamSchema, 'params'),
+  requireQuantityGroupProjectScope('id'),
   validate(updateQuantityGroupRequestSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -495,7 +536,8 @@ router.put(
         id,
         updateData,
         actorId,
-        new Date(expectedUpdatedAt)
+        new Date(expectedUpdatedAt),
+        projectScopeDenialContextOf(req)
       );
 
       logger.info({ userId: actorId, quantityGroupId: id }, 'Quantity group updated successfully');
@@ -589,6 +631,7 @@ router.delete(
   authenticate,
   requirePermission('quantity_table:delete'),
   validate(quantityGroupIdParamSchema, 'params'),
+  requireQuantityGroupProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -662,6 +705,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:create'),
   validate(quantityGroupIdParamSchema, 'params'),
+  requireQuantityGroupProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -774,6 +818,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:create'),
   validate(quantityTableIdUrlParamSchema, 'params'),
+  requireQuantityTableParamProjectScope('quantityTableId'),
   validate(createGroupsFromSurveyBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -784,7 +829,8 @@ router.post(
       const result = await quantityGroupService.createGroupsFromSurvey(
         quantityTableId,
         siteSurveyId,
-        actorId
+        actorId,
+        projectScopeDenialContextOf(req)
       );
 
       logger.info(

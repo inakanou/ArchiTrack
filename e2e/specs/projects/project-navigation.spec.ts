@@ -6,7 +6,7 @@
  */
 
 import { test, expect, type Page, type Response } from '@playwright/test';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { completeTwoFactorVerification, loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { TEST_USERS } from '../../helpers/test-users';
@@ -798,6 +798,8 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       await emailInput.fill(user.email);
       await passwordInput.fill(user.password);
       await loginButton.click();
+      // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+      await completeTwoFactorVerification(page, user);
 
       // 元のページ（/projects）に遷移することを確認
       await expect(page).toHaveURL(/\/projects/, { timeout: getTimeout(10000) });

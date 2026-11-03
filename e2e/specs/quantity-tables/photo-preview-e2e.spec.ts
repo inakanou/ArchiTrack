@@ -126,6 +126,7 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
       // 写真選択ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
       await seedSurveyPhotosWithComments(
         page,
+        'REGULAR_USER',
         testProjectId,
         'REQ20_現場調査',
         PREVIEW_PHOTO_COMMENTS,

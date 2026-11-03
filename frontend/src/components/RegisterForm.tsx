@@ -33,22 +33,33 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
 
   // 招待トークン検証
   useEffect(() => {
+    // トークンが変わった後に前のトークンの検証の応答が届いても、新しい結果を上書きしない
+    let cancelled = false;
     const verifyToken = async () => {
       setVerifying(true);
       try {
         const result = await onVerifyInvitation(invitationToken);
-        setVerificationResult(result);
+        if (!cancelled) {
+          setVerificationResult(result);
+        }
       } catch {
-        setVerificationResult({
-          valid: false,
-          error: '招待トークンの検証に失敗しました',
-        });
+        if (!cancelled) {
+          setVerificationResult({
+            valid: false,
+            error: '招待トークンの検証に失敗しました',
+          });
+        }
       } finally {
-        setVerifying(false);
+        if (!cancelled) {
+          setVerifying(false);
+        }
       }
     };
 
     verifyToken();
+    return () => {
+      cancelled = true;
+    };
   }, [invitationToken, onVerifyInvitation]);
 
   // パスワード要件チェック

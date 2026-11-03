@@ -28,6 +28,38 @@
       }
     },
     "schemas": {
+      "AuthUserView": {
+        "type": "object",
+        "description": "Authenticated user and the account state the screen uses to restrict navigation",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User ID"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "twoFactorEnabled": {
+            "type": "boolean",
+            "description": "False when 2FA is not enrolled (all APIs except 2FA setup and logout return 403 TWO_FACTOR_SETUP_REQUIRED)"
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "description": "True when the initial password change is required (all APIs except password change and logout return 403 PASSWORD_CHANGE_REQUIRED)"
+          }
+        }
+      },
       "UserRef": {
         "type": "object",
         "description": "User reference with id and display name",
@@ -654,7 +686,7 @@
     "/api/users/assignable": {
       "get": {
         "summary": "担当者候補一覧取得",
-        "description": "admin以外の有効なユーザー一覧を取得（id, displayName）",
+        "description": "admin以外の有効な（無効化・ロックされていない）ユーザー一覧を取得（id, displayName のみ）",
         "tags": [
           "Users"
         ],
@@ -785,7 +817,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または権限付与の上限による拒否（code が ROLE_PRIORITY_EXCEEDS_ACTOR・SYSTEM_ADMIN_REQUIRED）"
           },
           "404": {
             "description": "ユーザーまたはロールが見つからない"
@@ -873,7 +905,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または上限を超えるロールの他の利用者からの解除（code が ROLE_PRIORITY_EXCEEDS_ACTOR）"
           },
           "404": {
             "description": "ユーザーまたはロール割り当てが見つからない"
@@ -884,7 +916,7 @@
     "/api/v1/users/{id}": {
       "delete": {
         "summary": "ユーザー削除",
-        "description": "ユーザーと関連データを削除（自分自身と最後の管理者は削除不可）",
+        "description": "ユーザーと関連データを削除（自分自身と最後の管理者、実行者の上限を超えるロールを持つユーザーは削除不可）",
         "tags": [
           "Users"
         ],
@@ -915,10 +947,350 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つユーザーの削除（code が TARGET_USER_EXCEEDS_ACTOR。要件38.13）"
           },
           "404": {
             "description": "ユーザーが見つからない"
+          }
+        }
+      }
+    },
+    "/api/v1/users/inventory": {
+      "get": {
+        "summary": "利用者の棚卸しの一覧",
+        "description": "全利用者の表示名・メールアドレス・ロール・状態・2FA 登録の有無・最終ログイン日時・作成日時・招待者を返す\n（要件36.10）。状態と最終ログインからの経過日数で絞り込める（要件36.11。両方を組み合わせられる）。\nログインの実績が無い利用者の経過日数は作成日時から数える。並び順は、ログインの実績が無い利用者を先に、\n続いて最終ログインの古い順、作成日時の古い順、ID の順。権限 user:read を求め、一般ユーザーは 403\n（要件36.12）。\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "inactive"
+              ]
+            },
+            "description": "状態（有効・無効）で絞り込む"
+          },
+          {
+            "in": "query",
+            "name": "inactiveDaysAtLeast",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 36500
+            },
+            "description": "最終ログイン（実績が無ければ作成日時）からの経過日数がこの値以上の利用者に絞り込む"
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": "ページ番号"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "1 ページの件数"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "棚卸しの一覧とページ情報",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "displayName",
+                          "email",
+                          "roles",
+                          "status",
+                          "twoFactorEnabled",
+                          "lastLoginAt",
+                          "createdAt",
+                          "invitedBy"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "roles": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "ロール名（優先度の高い順）"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "active",
+                              "inactive"
+                            ]
+                          },
+                          "twoFactorEnabled": {
+                            "type": "boolean"
+                          },
+                          "lastLoginAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "invitedBy": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "totalPages": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "クエリの不正（code は VALIDATION_ERROR）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "権限の不足（user:read）"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}/2fa/reset": {
+      "post": {
+        "summary": "管理者による 2FA の再設定",
+        "description": "対象者の 2FA の秘密鍵とバックアップコードを消して未登録にし、全てのリフレッシュトークンを失効させる\n（要件34.7）。監査（TWO_FACTOR_RESET_BY_ADMIN）に実行者と対象者を記録する（要件34.10）。\n対象者は次の要求から 2FA の設定だけを行える。自分自身の再設定は拒否する（要件34.9）。\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "対象者のユーザーID"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "再設定の完了"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "権限の不足（user:manage）、自分自身の再設定（code は SELF_RESET_FORBIDDEN）、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つ利用者の再設定（code は TARGET_USER_EXCEEDS_ACTOR。要件38.13）"
+          },
+          "404": {
+            "description": "対象者が見つからない（code は USER_NOT_FOUND）"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}/deactivate": {
+      "post": {
+        "summary": "管理者による利用者の無効化",
+        "description": "対象者を無効化し、全てのリフレッシュトークンを失効させる。以後の対象者のリフレッシュと API は\n401 ACCOUNT_DISABLED になる（要件36.1）。監査（USER_DEACTIVATED）に実行者・対象・理由を記録し、\n全システム管理者へ通知する（要件36.4）。自分自身と最後の有効なシステム管理者の無効化は拒否する（要件36.5）。\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "対象者のユーザーID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "description": "無効化の理由"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "無効化の完了"
+          },
+          "400": {
+            "description": "理由の欠落（code は VALIDATION_ERROR）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "権限の不足（user:manage）、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つ利用者への操作（code は TARGET_USER_EXCEEDS_ACTOR。要件38.13）"
+          },
+          "404": {
+            "description": "対象者が見つからない（code は USER_NOT_FOUND）"
+          },
+          "409": {
+            "description": "自分自身（SELF_DEACTIVATION_FORBIDDEN）、最後の有効なシステム管理者（LAST_ACTIVE_ADMIN_PROTECTED）、既に無効（ALREADY_IN_STATE）"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}/reactivate": {
+      "post": {
+        "summary": "管理者による利用者の再有効化",
+        "description": "無効化された対象者を再有効化し、再びログインできるようにする（要件36.3）。監査（USER_REACTIVATED）に\n実行者・対象・理由を記録し、全システム管理者へ通知する（要件36.4）。\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "対象者のユーザーID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reason"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "description": "再有効化の理由"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "再有効化の完了"
+          },
+          "400": {
+            "description": "理由の欠落（code は VALIDATION_ERROR）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "権限の不足（user:manage）、または実行者の保有ロールの最高の優先度より高い優先度のロールを持つ利用者への操作（code は TARGET_USER_EXCEEDS_ACTOR。要件38.13）"
+          },
+          "404": {
+            "description": "対象者が見つからない（code は USER_NOT_FOUND）"
+          },
+          "409": {
+            "description": "既に有効（ALREADY_IN_STATE）"
           }
         }
       }
@@ -2391,7 +2763,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "プロジェクトが見つからない"
+            "description": "プロジェクトが見つからない、または閲覧範囲外（区別しない汎用の NOT_FOUND）"
           }
         }
       }
@@ -2601,11 +2973,17 @@
           "200": {
             "description": "工程表一覧"
           },
+          "400": {
+            "description": "バリデーションエラー（projectId の形式不正など）"
+          },
           "401": {
             "description": "認証エラー"
           },
           "403": {
             "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）"
           }
         }
       },
@@ -2646,7 +3024,7 @@
             "description": "工程表作成成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（projectId の形式不正、数量表の項目数の上限超過を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -2654,8 +3032,11 @@
           "403": {
             "description": "権限不足"
           },
+          "404": {
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）"
+          },
           "422": {
-            "description": "ビジネスロジックエラー"
+            "description": "数量表が見つからない（論理削除済み・経路のプロジェクトに属さない数量表を含む。本文は同一）"
           }
         }
       }
@@ -2687,6 +3068,9 @@
           "200": {
             "description": "工程表詳細"
           },
+          "400": {
+            "description": "工程表IDの形式不正"
+          },
           "401": {
             "description": "認証エラー"
           },
@@ -2694,7 +3078,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "工程表が見つからない"
+            "description": "工程表が見つからない（閲覧範囲外・論理削除済みを含む）"
           }
         }
       },
@@ -2735,7 +3119,7 @@
             "description": "工程表更新成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（工程表IDの形式不正を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -2744,7 +3128,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "工程表が見つからない"
+            "description": "工程表が見つからない（閲覧範囲外・論理削除済みを含む）"
           },
           "409": {
             "description": "楽観的排他制御エラー（競合）"
@@ -2777,6 +3161,9 @@
           "204": {
             "description": "削除成功"
           },
+          "400": {
+            "description": "工程表IDの形式不正"
+          },
           "401": {
             "description": "認証エラー"
           },
@@ -2784,7 +3171,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "工程表が見つからない"
+            "description": "工程表が見つからない（閲覧範囲外・論理削除済みを含む）"
           }
         }
       }
@@ -2827,7 +3214,7 @@
             "description": "バルク保存成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（工程表IDの形式不正を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -2836,7 +3223,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "工程表が見つからない"
+            "description": "工程表が見つからない（閲覧範囲外・論理削除済みを含む）"
           },
           "409": {
             "description": "楽観的排他制御エラー（競合）"
@@ -2884,7 +3271,7 @@
             "description": "エクスポート成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（工程表IDの形式不正を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -2893,7 +3280,10 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "工程表が見つからない"
+            "description": "工程表が見つからない（閲覧範囲外・論理削除済みを含む）"
+          },
+          "500": {
+            "description": "出力の記録の失敗（code EXPORT_RECORD_FAILED。ファイルを生成せず返さない）、またはファイルの生成の失敗"
           }
         }
       }
@@ -2953,6 +3343,7 @@
                   },
                   "priority": {
                     "type": "integer",
+                    "maximum": 100,
                     "example": 50
                   }
                 }
@@ -2965,13 +3356,13 @@
             "description": "ロール作成成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（優先度がシステム管理者ロールの 100 を超えるときを含む）"
           },
           "401": {
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または実行者の上限を超える優先度のロールの作成（code が ROLE_PRIORITY_EXCEEDS_ACTOR）"
           },
           "409": {
             "description": "ロール名の重複"
@@ -3016,7 +3407,8 @@
                     "type": "string"
                   },
                   "priority": {
-                    "type": "integer"
+                    "type": "integer",
+                    "maximum": 100
                   },
                   "expectedUpdatedAt": {
                     "type": "string",
@@ -3039,7 +3431,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、またはシステムロールの名前・優先度の変更、上限を超える優先度、上限より上のロールの変更（code が CeilingError の種別）"
           },
           "404": {
             "description": "ロールが見つからない"
@@ -3082,7 +3474,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または実行者の上限より上のロールの消去（code が ROLE_PRIORITY_EXCEEDS_ACTOR）"
           },
           "404": {
             "description": "ロールが見つからない"
@@ -3189,7 +3581,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または権限付与の上限による拒否（code が SYSTEM_ADMIN_REQUIRED・PERMISSION_NOT_HELD_BY_ACTOR・ROLE_PRIORITY_EXCEEDS_ACTOR）"
           },
           "404": {
             "description": "ロールまたは権限が見つからない"
@@ -3240,7 +3632,7 @@
             "description": "認証エラー"
           },
           "403": {
-            "description": "権限不足"
+            "description": "権限不足、または実行者の上限より上のロールの権限の取り外し（code が ROLE_PRIORITY_EXCEEDS_ACTOR）"
           },
           "404": {
             "description": "ロールまたは権限が見つからない"
@@ -3366,7 +3758,7 @@
         }
       }
     },
-    "/api/quotations/{id}": {
+    "/api/quotations/{quotationId}": {
       "get": {
         "summary": "受領見積書詳細取得",
         "description": "受領見積書の詳細情報を取得",
@@ -3381,13 +3773,13 @@
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "quotationId",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
             },
-            "description": "受領見積書ID"
+            "description": "受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）"
           }
         ],
         "responses": {
@@ -3419,13 +3811,13 @@
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "quotationId",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
             },
-            "description": "受領見積書ID"
+            "description": "受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）"
           }
         ],
         "requestBody": {
@@ -3496,7 +3888,7 @@
       },
       "delete": {
         "summary": "受領見積書削除",
-        "description": "受領見積書を論理削除（楽観的排他制御、ファイル物理削除）",
+        "description": "受領見積書を論理削除（楽観的排他制御、ファイル物理削除）。基準時刻はクエリで受け取り、本文は読まない",
         "tags": [
           "Received Quotations"
         ],
@@ -3508,35 +3900,25 @@
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "quotationId",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
             },
-            "description": "受領見積書ID"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "updatedAt"
-                ],
-                "properties": {
-                  "updatedAt": {
-                    "type": "string",
-                    "format": "date-time",
-                    "description": "楽観的排他制御用の更新日時"
-                  }
-                }
-              }
+            "description": "受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）"
+          },
+          {
+            "in": "query",
+            "name": "updatedAt",
+            "required": true,
+            "description": "楽観的排他制御の基準時刻（取得した受領見積書の updatedAt）",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
             }
           }
-        },
+        ],
         "responses": {
           "204": {
             "description": "受領見積書削除成功"
@@ -3559,7 +3941,7 @@
         }
       }
     },
-    "/api/quotations/{id}/preview": {
+    "/api/quotations/{quotationId}/preview": {
       "get": {
         "summary": "ファイルプレビューURL取得",
         "description": "受領見積書のファイルプレビュー用署名付きURLを取得",
@@ -3574,13 +3956,13 @@
         "parameters": [
           {
             "in": "path",
-            "name": "id",
+            "name": "quotationId",
             "required": true,
             "schema": {
               "type": "string",
               "format": "uuid"
             },
-            "description": "受領見積書ID"
+            "description": "受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）"
           }
         ],
         "responses": {
@@ -6030,7 +6412,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "数量表が見つからない"
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）、または数量表が見つからない（経路のプロジェクトに属さない数量表を含む）"
           },
           "409": {
             "description": "同名の内訳書が既に存在"
@@ -6120,11 +6502,17 @@
           "200": {
             "description": "内訳書一覧"
           },
+          "400": {
+            "description": "バリデーションエラー（projectId の形式不正など）"
+          },
           "401": {
             "description": "認証エラー"
           },
           "403": {
             "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）"
           }
         }
       }
@@ -6168,11 +6556,17 @@
           "200": {
             "description": "直近N件の内訳書と総数"
           },
+          "400": {
+            "description": "バリデーションエラー（projectId の形式不正など）"
+          },
           "401": {
             "description": "認証エラー"
           },
           "403": {
             "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）"
           }
         }
       }
@@ -6205,6 +6599,9 @@
           "200": {
             "description": "内訳書詳細"
           },
+          "400": {
+            "description": "内訳書IDの形式不正"
+          },
           "401": {
             "description": "認証エラー"
           },
@@ -6212,7 +6609,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "内訳書が見つからない"
+            "description": "内訳書が見つからない（閲覧範囲外を含む）"
           }
         }
       },
@@ -6273,7 +6670,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "内訳書が見つからない"
+            "description": "内訳書が見つからない（閲覧範囲外を含む）"
           },
           "409": {
             "description": "楽観的排他制御エラー（競合）"
@@ -6360,7 +6757,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "内訳書が見つからない"
+            "description": "内訳書が見つからない（閲覧範囲外を含む）"
           },
           "409": {
             "description": "楽観的排他制御エラー"
@@ -6398,7 +6795,7 @@
         },
         "responses": {
           "201": {
-            "description": "招待作成成功"
+            "description": "招待作成成功。招待の要約（id, email, status, expiresAt, createdAt, inviter）と、サーバーが組み立てた招待 URL（invitationUrl）を返す。招待 URL はこの応答と再送信の応答にだけ現れ、トークンは原文の SHA-256 だけを保存する"
           },
           "400": {
             "description": "バリデーションエラー"
@@ -6439,7 +6836,7 @@
         ],
         "responses": {
           "200": {
-            "description": "招待一覧取得成功"
+            "description": "招待一覧取得成功。各招待は id, email, status, expiresAt, createdAt, inviter（id, displayName）だけを持ち、招待トークンと招待 URL を含まない"
           },
           "403": {
             "description": "権限不足"
@@ -6450,6 +6847,7 @@
     "/api/v1/invitations/{id}": {
       "delete": {
         "summary": "招待を取り消す",
+        "description": "招待の権限（user:invite）を持つ利用者なら、招待の作成者でなくても取り消せる",
         "tags": [
           "Invitations"
         ],
@@ -6473,6 +6871,9 @@
           "204": {
             "description": "招待取り消し成功"
           },
+          "400": {
+            "description": "使用済みの招待は取り消せない"
+          },
           "403": {
             "description": "権限不足"
           },
@@ -6482,23 +6883,74 @@
         }
       }
     },
-    "/api/v1/invitations/verify": {
-      "get": {
-        "summary": "招待トークンを検証",
+    "/api/v1/invitations/{id}/resend": {
+      "post": {
+        "summary": "招待を再送信する",
+        "description": "新しいトークンを発行して同じ招待の行のトークンのハッシュと有効期限（7 日）を置き換え、古いトークンを失効させ、招待メールを送り直す。定期処理でトークンが消された期限切れの招待も再送信できる",
         "tags": [
           "Invitations"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "parameters": [
           {
-            "in": "query",
-            "name": "token",
+            "in": "path",
+            "name": "id",
             "required": true,
             "schema": {
               "type": "string"
             },
-            "description": "招待トークン"
+            "description": "招待ID"
           }
         ],
+        "responses": {
+          "200": {
+            "description": "再送信成功。招待の要約（id, email, status, expiresAt, createdAt, inviter）と、新しいトークンの招待 URL（invitationUrl）を返す"
+          },
+          "400": {
+            "description": "使用済み・取り消し済みの招待は再送信できない"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "招待が見つかりません"
+          },
+          "409": {
+            "description": "メールアドレスが既に登録済み"
+          }
+        }
+      }
+    },
+    "/api/v1/invitations/verify": {
+      "post": {
+        "summary": "招待トークンを検証",
+        "description": "トークンは URL に載せず本文で送る（アクセスログに残さない）",
+        "tags": [
+          "Invitations"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "招待トークン"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "トークン検証成功"
@@ -6658,6 +7110,9 @@
           },
           "403": {
             "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）"
           }
         }
       }
@@ -6704,6 +7159,9 @@
           },
           "403": {
             "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）"
           }
         }
       }
@@ -6815,7 +7273,7 @@
       },
       "delete": {
         "summary": "見積書削除",
-        "description": "見積書を論理削除（楽観的排他制御）",
+        "description": "見積書を論理削除（楽観的排他制御）。基準時刻はクエリで受け取り、本文は読まない",
         "tags": [
           "Estimates"
         ],
@@ -6833,27 +7291,18 @@
               "type": "string",
               "format": "uuid"
             }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "updatedAt"
-                ],
-                "properties": {
-                  "updatedAt": {
-                    "type": "string",
-                    "format": "date-time"
-                  }
-                }
-              }
+          },
+          {
+            "in": "query",
+            "name": "updatedAt",
+            "required": true,
+            "description": "楽観的排他制御の基準時刻（取得した見積書の updatedAt）",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
             }
           }
-        },
+        ],
         "responses": {
           "204": {
             "description": "見積書削除成功"
@@ -7104,6 +7553,9 @@
           },
           "403": {
             "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない（閲覧範囲外を含む）"
           }
         }
       }
@@ -7216,6 +7668,9 @@
           },
           "403": {
             "description": "権限不足"
+          },
+          "404": {
+            "description": "見積書が見つからない（閲覧範囲外を含む）"
           }
         }
       }
@@ -7556,7 +8011,7 @@
       },
       "delete": {
         "summary": "見積依頼削除",
-        "description": "見積依頼を論理削除（楽観的排他制御）",
+        "description": "見積依頼を論理削除（楽観的排他制御）。基準時刻はクエリで受け取り、本文は読まない",
         "tags": [
           "Estimate Requests"
         ],
@@ -7575,28 +8030,18 @@
               "format": "uuid"
             },
             "description": "見積依頼ID"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "updatedAt"
-                ],
-                "properties": {
-                  "updatedAt": {
-                    "type": "string",
-                    "format": "date-time",
-                    "description": "楽観的排他制御用の更新日時"
-                  }
-                }
-              }
+          },
+          {
+            "in": "query",
+            "name": "updatedAt",
+            "required": true,
+            "description": "楽観的排他制御の基準時刻（取得した見積依頼の updatedAt）",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
             }
           }
-        },
+        ],
         "responses": {
           "204": {
             "description": "見積依頼削除成功"
@@ -8134,11 +8579,17 @@
           "200": {
             "description": "契約書一覧"
           },
+          "400": {
+            "description": "バリデーションエラー（projectId の形式不正、クエリの不正）"
+          },
           "401": {
             "description": "認証エラー"
           },
           "403": {
             "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）"
           }
         }
       },
@@ -8179,7 +8630,7 @@
             "description": "契約書作成成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（projectId の形式不正を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -8187,8 +8638,11 @@
           "403": {
             "description": "権限不足"
           },
+          "404": {
+            "description": "プロジェクトが見つからない（閲覧範囲外を含む）、または見積書が見つからない（経路のプロジェクトに属さない見積書を含む。本文は同一）"
+          },
           "422": {
-            "description": "ビジネスロジックエラー"
+            "description": "基となる契約書が見つからない・同じプロジェクトに属さない（本文は同一）、または同じプロジェクトの論理削除済みの見積書"
           }
         }
       }
@@ -8220,6 +8674,9 @@
           "200": {
             "description": "契約書詳細"
           },
+          "400": {
+            "description": "契約書IDの形式不正"
+          },
           "401": {
             "description": "認証エラー"
           },
@@ -8227,7 +8684,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "契約書が見つからない"
+            "description": "契約書が見つからない（閲覧範囲外・論理削除済み・経路のプロジェクトに属さない契約書を含む）"
           }
         }
       },
@@ -8268,7 +8725,7 @@
             "description": "契約書更新成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（契約書IDの形式不正を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -8277,10 +8734,13 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "契約書が見つからない"
+            "description": "契約書が見つからない（閲覧範囲外・論理削除済み・経路のプロジェクトに属さない契約書を含む）、または見積書が見つからない（契約書のプロジェクトに属さない見積書を含む。本文は同一）"
           },
           "409": {
             "description": "楽観的排他制御エラー（競合）"
+          },
+          "422": {
+            "description": "同じプロジェクトの論理削除済みの見積書"
           }
         }
       },
@@ -8310,6 +8770,9 @@
           "204": {
             "description": "削除成功"
           },
+          "400": {
+            "description": "契約書IDの形式不正"
+          },
           "401": {
             "description": "認証エラー"
           },
@@ -8317,7 +8780,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "契約書が見つからない"
+            "description": "契約書が見つからない（閲覧範囲外・論理削除済み・経路のプロジェクトに属さない契約書を含む）"
           },
           "422": {
             "description": "削除制約エラー（子契約存在・契約済ステータス）"
@@ -8375,7 +8838,7 @@
             "description": "ステータス更新成功"
           },
           "400": {
-            "description": "バリデーションエラー"
+            "description": "バリデーションエラー（契約書IDの形式不正を含む）"
           },
           "401": {
             "description": "認証エラー"
@@ -8384,7 +8847,7 @@
             "description": "権限不足"
           },
           "404": {
-            "description": "契約書が見つからない"
+            "description": "契約書が見つからない（閲覧範囲外・論理削除済み・経路のプロジェクトに属さない契約書を含む）"
           }
         }
       }
@@ -9625,22 +10088,9 @@
                     "accessToken": {
                       "type": "string"
                     },
-                    "refreshToken": {
-                      "type": "string"
-                    },
                     "user": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "email": {
-                          "type": "string"
-                        },
-                        "displayName": {
-                          "type": "string"
-                        }
-                      }
+                      "$ref": "#/components/schemas/AuthUserView",
+                      "description": "The registered user. twoFactorEnabled is false, so the screen moves to the 2FA setup before any other use (requirement 34.5)."
                     }
                   }
                 }
@@ -9656,7 +10106,7 @@
     "/api/v1/auth/login": {
       "post": {
         "summary": "Login",
-        "description": "Authenticate a user and return access and refresh tokens",
+        "description": "Authenticate a user and return an access token. The refresh token is set only in the HttpOnly refreshToken cookie, never in the response body.",
         "tags": [
           "Authentication"
         ],
@@ -9697,26 +10147,20 @@
                     "accessToken": {
                       "type": "string"
                     },
-                    "refreshToken": {
-                      "type": "string"
-                    },
                     "user": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string"
-                        },
-                        "email": {
-                          "type": "string"
-                        },
-                        "displayName": {
-                          "type": "string"
-                        }
-                      }
+                      "$ref": "#/components/schemas/AuthUserView"
                     },
                     "requires2FA": {
                       "type": "boolean",
                       "description": "True if 2FA is required"
+                    },
+                    "challengeToken": {
+                      "type": "string",
+                      "description": "Opaque 2FA challenge bound to this successful password verification (single use, valid for expiresIn seconds). Present only when requires2FA is true. The response never contains the user ID before 2FA succeeds."
+                    },
+                    "expiresIn": {
+                      "type": "integer",
+                      "description": "Lifetime of the challenge in seconds (when requires2FA is true)"
                     }
                   }
                 }
@@ -9725,6 +10169,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "description": "The 2FA challenge store is unavailable"
           }
         }
       }
@@ -9732,29 +10179,21 @@
     "/api/v1/auth/refresh": {
       "post": {
         "summary": "Refresh access token",
-        "description": "Get a new access token using a valid refresh token",
+        "description": "Get a new access token using the refresh token in the refreshToken cookie. The request body is not read. The request must carry the X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403. The rotated refresh token is returned only in the Set-Cookie header, never in the response body.",
         "tags": [
           "Authentication"
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "refreshToken"
-                ],
-                "properties": {
-                  "refreshToken": {
-                    "type": "string",
-                    "description": "Valid refresh token"
-                  }
-                }
-              }
-            }
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "CSRF token obtained from GET /csrf-token (must match the csrf-token cookie)"
           }
-        },
+        ],
         "responses": {
           "200": {
             "description": "Token refreshed successfully",
@@ -9765,9 +10204,6 @@
                   "properties": {
                     "accessToken": {
                       "type": "string"
-                    },
-                    "refreshToken": {
-                      "type": "string"
                     }
                   }
                 }
@@ -9776,6 +10212,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "CSRF token missing or invalid, or request origin not allowed"
           }
         }
       }
@@ -9908,7 +10347,7 @@
     "/api/v1/auth/logout": {
       "post": {
         "summary": "Logout",
-        "description": "Logout the current user from the current device",
+        "description": "Logout the current user from the current device. The refresh token to invalidate is read from the refreshToken cookie; the request body is not read. The request must carry the X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403.",
         "tags": [
           "Authentication"
         ],
@@ -9917,25 +10356,17 @@
             "bearerAuth": []
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "refreshToken"
-                ],
-                "properties": {
-                  "refreshToken": {
-                    "type": "string",
-                    "description": "Refresh token to invalidate"
-                  }
-                }
-              }
-            }
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "CSRF token obtained from GET /csrf-token (must match the csrf-token cookie)"
           }
-        },
+        ],
         "responses": {
           "200": {
             "description": "Logged out successfully",
@@ -9954,6 +10385,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "CSRF token missing or invalid, or request origin not allowed"
           }
         }
       }
@@ -9995,14 +10429,9 @@
     "/api/v1/auth/verify-2fa": {
       "post": {
         "summary": "Verify 2FA token",
-        "description": "Verify a TOTP token for two-factor authentication",
+        "description": "Complete a login with a TOTP code. Requires the challengeToken returned by the login response; an email address or a JWT is never accepted as the challenge. The challenge is consumed on success.",
         "tags": [
           "Authentication"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
         ],
         "requestBody": {
           "required": true,
@@ -10011,22 +10440,18 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "token"
+                  "challengeToken",
+                  "code"
                 ],
                 "properties": {
-                  "token": {
+                  "challengeToken": {
                     "type": "string",
-                    "description": "6-digit TOTP token",
+                    "description": "2FA challenge from the login response"
+                  },
+                  "code": {
+                    "type": "string",
+                    "description": "6-digit TOTP code",
                     "example": "123456"
-                  },
-                  "email": {
-                    "type": "string",
-                    "format": "email",
-                    "description": "Email (for login flow)"
-                  },
-                  "tempToken": {
-                    "type": "string",
-                    "description": "Temporary token from login"
                   }
                 }
               }
@@ -10044,9 +10469,6 @@
                     "accessToken": {
                       "type": "string"
                     },
-                    "refreshToken": {
-                      "type": "string"
-                    },
                     "user": {
                       "type": "object"
                     }
@@ -10056,7 +10478,13 @@
             }
           },
           "401": {
-            "$ref": "#/components/responses/Unauthorized"
+            "description": "Missing, expired or consumed challenge (INVALID_CHALLENGE), or invalid code"
+          },
+          "429": {
+            "description": "2FA is locked after too many failures"
+          },
+          "503": {
+            "description": "The 2FA challenge store is unavailable"
           }
         }
       }
@@ -10064,7 +10492,7 @@
     "/api/v1/auth/verify-2fa/backup": {
       "post": {
         "summary": "Verify 2FA backup code",
-        "description": "Verify a backup code for two-factor authentication",
+        "description": "Complete a login with a backup code. Requires the same challengeToken as the TOTP verification; an email address is never accepted. The challenge is consumed on success.",
         "tags": [
           "Authentication"
         ],
@@ -10075,19 +10503,18 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "backupCode",
-                  "email"
+                  "challengeToken",
+                  "backupCode"
                 ],
                 "properties": {
+                  "challengeToken": {
+                    "type": "string",
+                    "description": "2FA challenge from the login response"
+                  },
                   "backupCode": {
                     "type": "string",
                     "description": "8-character backup code",
                     "example": "ABCD1234"
-                  },
-                  "email": {
-                    "type": "string",
-                    "format": "email",
-                    "description": "Email (for login flow)"
                   }
                 }
               }
@@ -10105,9 +10532,6 @@
                     "accessToken": {
                       "type": "string"
                     },
-                    "refreshToken": {
-                      "type": "string"
-                    },
                     "user": {
                       "type": "object"
                     }
@@ -10117,7 +10541,13 @@
             }
           },
           "401": {
-            "$ref": "#/components/responses/Unauthorized"
+            "description": "Missing, expired or consumed challenge (INVALID_CHALLENGE), or invalid backup code"
+          },
+          "429": {
+            "description": "2FA is locked after too many failures"
+          },
+          "503": {
+            "description": "The 2FA challenge store is unavailable"
           }
         }
       }
@@ -10217,6 +10647,10 @@
                         "type": "string"
                       },
                       "description": "バックアップコード（最後の表示機会）"
+                    },
+                    "user": {
+                      "$ref": "#/components/schemas/AuthUserView",
+                      "description": "有効化の後の利用者と状態（読めないときは省く）"
                     }
                   }
                 }
@@ -10234,8 +10668,30 @@
     },
     "/api/v1/auth/2fa/disable": {
       "post": {
-        "summary": "2FA無効化",
-        "description": "パスワードを確認して2FAを無効化する",
+        "summary": "2FA無効化（拒否）",
+        "description": "2FA は全ユーザーで必須のため、利用者自身による無効化の要求は常に 403 で拒否する（要件34.6）。\n第二要素を失った場合の復旧は管理者による 2FA の再設定で、端末の交換は現在の TOTP コードによる\n再登録で行う。\n",
+        "tags": [
+          "Two-Factor Authentication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "2FA の自己の無効化は許可されていない（code は TWO_FACTOR_DISABLE_NOT_ALLOWED）"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/2fa/reenroll/start": {
+      "post": {
+        "summary": "2FA の再登録の開始",
+        "description": "現在の秘密鍵の TOTP コードを確かめ、新しい秘密鍵を発行する（要件34.11）。\n新しい秘密鍵は確認（reenroll/confirm）まで採用されず、それまでは既存の秘密鍵が有効である。\n",
         "tags": [
           "Two-Factor Authentication"
         ],
@@ -10251,13 +10707,13 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "password"
+                  "currentCode"
                 ],
                 "properties": {
-                  "password": {
+                  "currentCode": {
                     "type": "string",
-                    "format": "password",
-                    "description": "ユーザーの現在のパスワード"
+                    "description": "現在の秘密鍵の 6 桁の TOTP コード",
+                    "example": "123456"
                   }
                 }
               }
@@ -10266,15 +10722,19 @@
         },
         "responses": {
           "200": {
-            "description": "2FA無効化成功",
+            "description": "新しい秘密鍵の発行",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "message": {
+                    "qrCodeDataUrl": {
                       "type": "string",
-                      "example": "2FA disabled successfully"
+                      "description": "新しい秘密鍵の QR コード（Data URL 形式）"
+                    },
+                    "secretForManualEntry": {
+                      "type": "string",
+                      "description": "新しい秘密鍵（Base32、手入力用）"
                     }
                   }
                 }
@@ -10282,7 +10742,68 @@
             }
           },
           "400": {
-            "description": "無効なパスワードまたは2FAが未有効化"
+            "description": "TOTP コードの誤り・再利用（code は INVALID_TOTP_CODE）、または 2FA が未登録"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/2fa/reenroll/confirm": {
+      "post": {
+        "summary": "2FA の再登録の確認",
+        "description": "新しい秘密鍵の TOTP コードを確かめて既存の秘密鍵を置き換え、バックアップコードを作り直す（要件34.11）。\n再登録を監査（TWO_FACTOR_REENROLLED）に記録する。\n",
+        "tags": [
+          "Two-Factor Authentication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "newCode"
+                ],
+                "properties": {
+                  "newCode": {
+                    "type": "string",
+                    "description": "新しい秘密鍵の 6 桁の TOTP コード",
+                    "example": "123456"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "再登録の完了",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "backupCodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "新しいバックアップコード（最後の表示機会）"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "TOTP コードの誤り（INVALID_TOTP_CODE）、または再登録が開始されていない（REENROLLMENT_NOT_STARTED）"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -10437,28 +10958,39 @@
           },
           "400": {
             "description": "Validation error"
+          },
+          "429": {
+            "description": "Too many requests from the same client (per-email limit returns the same 200)"
           }
         }
       }
     },
     "/api/v1/auth/password/verify-reset": {
-      "get": {
+      "post": {
         "summary": "Verify password reset token",
-        "description": "Verify if a password reset token is valid and not expired",
+        "description": "Verify if a password reset token is valid and not expired. The token is sent in the request body, not in the URL.",
         "tags": [
           "Authentication"
         ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Password reset token"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "Password reset token"
+                  }
+                }
+              }
+            }
           }
-        ],
+        },
         "responses": {
           "200": {
             "description": "Token is valid",
@@ -10582,7 +11114,7 @@
         },
         "responses": {
           "200": {
-            "description": "Password changed successfully",
+            "description": "Password changed successfully. All refresh tokens are revoked and the initial password change requirement (mustChangePassword) is cleared.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10590,6 +11122,10 @@
                   "properties": {
                     "message": {
                       "type": "string"
+                    },
+                    "user": {
+                      "$ref": "#/components/schemas/AuthUserView",
+                      "description": "The user and state after the change (omitted when unreadable)"
                     }
                   }
                 }
@@ -10762,6 +11298,184 @@
           },
           "403": {
             "description": "権限不足"
+          },
+          "500": {
+            "description": "出力の記録の失敗（出力は返さない）"
+          }
+        }
+      }
+    },
+    "/api/v1/audit-logs/exports": {
+      "post": {
+        "summary": "データ出力の記録",
+        "description": "データの出力・一括ダウンロードを監査ログ（DATA_EXPORTED）に記録する。認証済みの全利用者が呼べる。\nブラウザで生成する出力は、生成を始める前にこの記録を要求し、失敗したときは出力を中止する。\n案件を指定したときは閲覧範囲で判定し、範囲外の案件は存在しない案件と同じ 404 を返す。\n",
+        "tags": [
+          "Audit Logs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "projectId",
+                  "targetIds",
+                  "itemCount"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "site_survey_report_pdf",
+                      "site_survey_images_zip",
+                      "quantity_table_pdf",
+                      "itemized_statement_xlsx",
+                      "itemized_statement_clipboard",
+                      "estimate_request_xlsx",
+                      "estimate_request_text_clipboard",
+                      "estimate_request_items_clipboard",
+                      "estimate_request_text_mail",
+                      "estimate_pdf",
+                      "estimate_xlsx",
+                      "schedule_export",
+                      "order_export",
+                      "progress_export",
+                      "construction_photo_ledger_pdf",
+                      "construction_photos_zip",
+                      "annotated_image",
+                      "audit_log_json"
+                    ],
+                    "description": "出力の種別"
+                  },
+                  "projectId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true,
+                    "description": "対象の案件（案件に属する出力は必須、audit_log_json は null）"
+                  },
+                  "targetIds": {
+                    "type": "array",
+                    "maxItems": 10000,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "description": "出力の対象のデータの ID"
+                  },
+                  "itemCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "出力した件数"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "記録した監査ログの ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recordId": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "入力の検証エラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "404": {
+            "description": "案件が存在しない、または閲覧範囲外"
+          },
+          "500": {
+            "description": "記録の失敗"
+          }
+        }
+      }
+    },
+    "/api/v1/audit-logs/archives/restore": {
+      "post": {
+        "summary": "監査ログのアーカイブの復元",
+        "description": "指定期間（両端を含む）に重なる月のアーカイブを復号し、目録（件数・SHA-256・HMAC）と照合した後に、\n期間の監査ログを JSON Lines で返す。アーカイブの無い月は飛ばし、本文だけがあり目録の無い月は照合の失敗とする。照合に失敗した月があれば行を返さず\nARCHIVE_INTEGRITY_FAILED を返す。成否を監査（AUDIT_ARCHIVE_RESTORED）に記録し、記録できないときは\n行を返さない。復元した行はアクティブな監査ログへ戻さない。\n",
+        "tags": [
+          "Audit Logs"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "期間の始まり（時差を含む ISO 8601）"
+                  },
+                  "to": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "期間の終わり（時差を含む ISO 8601。始まり以降、重なる月は 120 か月以内）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "期間の監査ログ（1 行に 1 件の JSON）",
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "入力の検証エラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "500": {
+            "description": "照合の失敗（ARCHIVE_INTEGRITY_FAILED、details.month に月）、暗号鍵の未設定、または復元の記録の失敗"
+          },
+          "503": {
+            "description": "保存先を読み取れない"
           }
         }
       }
@@ -11076,12 +11790,17 @@
         }
       }
     },
-    "/admin/log-level": {
+    "/api/v1/admin/log-level": {
       "post": {
-        "summary": "Change log level",
-        "description": "Change the application's log level. Requires authentication in production.",
+        "summary": "ログレベルの変更",
+        "description": "アプリケーションのログレベルを変更する。運用設定の管理の権限（ops:manage。システム管理者が持つ）が必要。\n変更は監査ログ（OPERATIONAL_SETTING_CHANGED、変更前後のログレベル）に記録し、記録できないときは変更しない。\n",
         "tags": [
           "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
         ],
         "requestBody": {
           "required": true,
@@ -11103,7 +11822,7 @@
                       "error",
                       "fatal"
                     ],
-                    "description": "The log level to set"
+                    "description": "設定するログレベル"
                   }
                 }
               }
@@ -11112,7 +11831,7 @@
         },
         "responses": {
           "200": {
-            "description": "Log level changed successfully",
+            "description": "ログレベルを変更した",
             "content": {
               "application/json": {
                 "schema": {
@@ -11135,19 +11854,33 @@
             }
           },
           "400": {
-            "$ref": "#/components/responses/BadRequest"
+            "description": "許可された値に無いログレベル（INVALID_LOG_LEVEL）"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "500": {
+            "description": "変更を監査に記録できなかった（OPERATIONAL_SETTING_RECORD_FAILED。ログレベルは変わらない）"
           }
         }
       },
       "get": {
-        "summary": "Get current log level",
-        "description": "Retrieve the current application log level and environment",
+        "summary": "現在のログレベルの取得",
+        "description": "現在のログレベルと実行環境を返す。運用設定の管理の権限（ops:manage。システム管理者が持つ）が必要。",
         "tags": [
           "Admin"
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Current log level retrieved successfully",
+            "description": "現在のログレベル",
             "content": {
               "application/json": {
                 "schema": {
@@ -11169,6 +11902,12 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
           }
         }
       }

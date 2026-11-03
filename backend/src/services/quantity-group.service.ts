@@ -34,6 +34,11 @@ import { ForbiddenError } from '../errors/apiError.js';
 import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 import { QUANTITY_GROUP_TARGET_TYPE } from '../types/audit-log.types.js';
 import { QuantityValidationService } from './quantity-validation.service.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 
 /**
  * 数量グループのコピー時に元名へ付与するサフィックス（Requirements: 38.5）
@@ -52,6 +57,12 @@ export interface QuantityGroupServiceDependencies {
    * 未指定の場合は内部で {@link QuantityValidationService} を生成する。
    */
   quantityValidationService?: QuantityValidationService;
+  /**
+   * 案件の閲覧範囲の判定（任意。quantity-table-generation タスク104.1、Requirement 50.5）。
+   * 写真の紐付けが指す現場調査・画像の案件の判定に用いる。未指定の場合は user-authentication の
+   * 共有のインスタンス（{@link getSharedProjectScopeService}）で判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 }
 
 /**
@@ -134,12 +145,46 @@ export class QuantityGroupService {
   private readonly prisma: PrismaClient;
   private readonly auditLogService: IAuditLogService;
   private readonly quantityValidationService: QuantityValidationService;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: QuantityGroupServiceDependencies) {
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
     this.quantityValidationService =
       deps.quantityValidationService ?? new QuantityValidationService();
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
+  }
+
+  /**
+   * 写真の紐付けが指す現場調査・画像の案件が、実行者に見えるかを判定する（Requirement 50.5）
+   *
+   * 数量表と同じ案件の現場調査は、経路の判定（数量表の案件の範囲）を通っているので見える。
+   * 別の案件の現場調査は、その案件が実行者の閲覧範囲に含まれるときだけ見える。見えない現場調査・画像は
+   * 呼び出し側で不在と同じ扱い（SITE_SURVEY_NOT_FOUND・SURVEY_IMAGE_NOT_FOUND の 404）にする。
+   * 同じプロジェクトに限って紐付ける既存の検証（別の案件は 400・403）より前に置くこと。
+   * 後に置くと、範囲外の写真が 400・403 で拒まれ、不在の 404 との差から範囲外の実在を推測させる。
+   * 範囲外（案件は実在する）と判定した案件は `deniedProjectIds` へ入れ、呼び出し元の公開メソッドが
+   * トランザクションの外で PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7）。
+   * 案件の不在・論理削除は記録しない。
+   */
+  private async isSurveyProjectVisible(
+    actorId: string,
+    surveyProjectId: string,
+    quantityTableProjectId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<boolean> {
+    if (surveyProjectId === quantityTableProjectId) {
+      return true;
+    }
+    const decision = await this.projectScope.evaluateProjectAccess(actorId, surveyProjectId);
+    if (decision === 'out_of_scope') {
+      deniedProjectIds.add(surveyProjectId);
+    }
+    return decision === 'allowed';
   }
 
   /**
@@ -153,13 +198,31 @@ export class QuantityGroupService {
    *
    * @param input - 作成入力
    * @param actorId - 実行者ID
+   * @param scopeDenialContext - 範囲外のアクセスの記録に添える要求の識別（経路から渡す。Requirement 50.5）
    * @returns 作成された数量グループ情報
    * @throws QuantityTableNotFoundError 数量表が存在しない、または論理削除済みの場合
    * @throws SurveyImageNotFoundError 現場調査画像が存在しない場合
    * @throws QuantityTableValidationError 異なるプロジェクトの画像を指定した場合
    * @throws SurveyDeletedError 指定した現場調査画像の親の現場調査が論理削除済みの場合（410）
    */
-  async create(input: CreateQuantityGroupInput, actorId: string): Promise<QuantityGroupInfo> {
+  async create(
+    input: CreateQuantityGroupInput,
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<QuantityGroupInfo> {
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) => this.createInTransaction(input, actorId, deniedProjectIds)
+    );
+  }
+
+  private async createInTransaction(
+    input: CreateQuantityGroupInput,
+    actorId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<QuantityGroupInfo> {
     return await this.prisma.$transaction(async (tx) => {
       // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
       //    （Task 92.4。採番・重複検査より前に取る）
@@ -170,7 +233,13 @@ export class QuantityGroupService {
 
       // 2. 現場調査画像の検証（指定されている場合）
       if (input.surveyImageId) {
-        await this.validateSurveyImage(tx, input.surveyImageId, quantityTable.projectId);
+        await this.validateSurveyImage(
+          tx,
+          input.surveyImageId,
+          quantityTable.projectId,
+          actorId,
+          deniedProjectIds
+        );
       }
 
       // 3. 表示順序の決定（明示された値は重なりを拒み、省略時は末尾へ採番する）
@@ -349,14 +418,18 @@ export class QuantityGroupService {
    * @param tx - Prismaトランザクションクライアント
    * @param surveyImageId - 現場調査画像ID
    * @param projectId - プロジェクトID
-   * @throws SurveyImageNotFoundError 現場調査画像が存在しない場合
+   * @param actorId - 実行者ID（画像の案件の閲覧範囲の判定に用いる。Requirement 50.5）
+   * @param deniedProjectIds - 範囲外と判定した案件 ID を入れる集合（記録は呼び出し元が行う）
+   * @throws SurveyImageNotFoundError 現場調査画像が存在しない場合、または画像の案件が閲覧範囲外の場合
    * @throws QuantityTableValidationError 異なるプロジェクトの画像を指定した場合
    * @throws SurveyDeletedError 親の現場調査が論理削除済みの場合
    */
   private async validateSurveyImage(
     tx: PrismaTransactionClient,
     surveyImageId: string,
-    projectId: string
+    projectId: string,
+    actorId: string,
+    deniedProjectIds: Set<string>
   ): Promise<void> {
     const surveyImage = await tx.surveyImage.findUnique({
       where: { id: surveyImageId },
@@ -369,7 +442,17 @@ export class QuantityGroupService {
       },
     });
 
-    if (!surveyImage) {
+    // 閲覧範囲外の案件の画像は、存在しない画像と同じ 404 にする（Requirement 50.5）。
+    // 同じプロジェクトに限る下の検証（400）より前に判定する
+    if (
+      !surveyImage ||
+      !(await this.isSurveyProjectVisible(
+        actorId,
+        surveyImage.survey.projectId,
+        projectId,
+        deniedProjectIds
+      ))
+    ) {
       throw new SurveyImageNotFoundError(surveyImageId);
     }
 
@@ -488,7 +571,24 @@ export class QuantityGroupService {
     id: string,
     input: UpdateQuantityGroupInput,
     actorId: string,
-    expectedUpdatedAt: Date
+    expectedUpdatedAt: Date,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<QuantityGroupInfo> {
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) =>
+        this.updateInTransaction(id, input, actorId, expectedUpdatedAt, deniedProjectIds)
+    );
+  }
+
+  private async updateInTransaction(
+    id: string,
+    input: UpdateQuantityGroupInput,
+    actorId: string,
+    expectedUpdatedAt: Date,
+    deniedProjectIds: Set<string>
   ): Promise<QuantityGroupInfo> {
     return await this.prisma.$transaction(async (tx) => {
       // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
@@ -532,7 +632,9 @@ export class QuantityGroupService {
         await this.validateSurveyImage(
           tx,
           input.surveyImageId,
-          quantityGroup.quantityTable.projectId
+          quantityGroup.quantityTable.projectId,
+          actorId,
+          deniedProjectIds
         );
       }
 
@@ -970,7 +1072,28 @@ export class QuantityGroupService {
   async createGroupsFromSurvey(
     quantityTableId: string,
     siteSurveyId: string,
-    actorId: string
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<CreateGroupsFromSurveyResult> {
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) =>
+        this.createGroupsFromSurveyInTransaction(
+          quantityTableId,
+          siteSurveyId,
+          actorId,
+          deniedProjectIds
+        )
+    );
+  }
+
+  private async createGroupsFromSurveyInTransaction(
+    quantityTableId: string,
+    siteSurveyId: string,
+    actorId: string,
+    deniedProjectIds: Set<string>
   ): Promise<CreateGroupsFromSurveyResult> {
     return await this.prisma.$transaction(async (tx) => {
       // 1. 数量表存在確認（論理削除済みは存在しない扱い）
@@ -1005,7 +1128,18 @@ export class QuantityGroupService {
         select: { id: true, name: true, deletedAt: true, projectId: true },
       });
 
-      if (!siteSurvey || siteSurvey.deletedAt !== null) {
+      // 閲覧範囲外の案件の現場調査は、存在しない現場調査と同じ 404 にする（Requirement 50.5）。
+      // 同じプロジェクトに限る下の検証（403）より前に判定する
+      if (
+        !siteSurvey ||
+        siteSurvey.deletedAt !== null ||
+        !(await this.isSurveyProjectVisible(
+          actorId,
+          siteSurvey.projectId,
+          quantityTable.projectId,
+          deniedProjectIds
+        ))
+      ) {
         throw new SiteSurveyNotFoundError(siteSurveyId);
       }
 

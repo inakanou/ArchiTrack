@@ -506,6 +506,128 @@ describe('env module', () => {
         expect(() => validateEnv()).toThrow('Failed to validate environment variables');
       }
     );
+
+    // 中継の段数 TRUST_PROXY_HOPS（user-authentication タスク44.5、design.md の ClientIpResolver）
+    it('TRUST_PROXY_HOPSが未設定の場合、未設定（undefined）として検証される', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      delete process.env.TRUST_PROXY_HOPS;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      expect(validateEnv().TRUST_PROXY_HOPS).toBeUndefined();
+    });
+
+    it.each([
+      ['0', 0],
+      ['1', 1],
+      ['2', 2],
+    ])('TRUST_PROXY_HOPS=%s の場合、段数%iとして検証される', async (value, expected) => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      process.env.TRUST_PROXY_HOPS = value;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      expect(validateEnv().TRUST_PROXY_HOPS).toBe(expected);
+    });
+
+    it.each(['true', 'TRUE', 'false', 'loopback', '10.0.0.0/8', '-1', '1.5', 'abc', '01', ''])(
+      'TRUST_PROXY_HOPS=%s（全面的な信頼や段数の整数でない値）の場合、エラーを投げる',
+      async (value) => {
+        process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+        process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+        process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+        process.env.TRUST_PROXY_HOPS = value;
+
+        const { validateEnv } = await import('../../../config/env.js');
+
+        expect(() => validateEnv()).toThrow('Failed to validate environment variables');
+      }
+    );
+
+    // アーカイブの鍵・トークンの発行者と想定利用者（user-authentication タスク44.6、design.md の RuntimeMode・TokenService）
+    it('ARCHIVE_ENCRYPTION_KEYが未設定の場合、未設定（undefined）として検証される（本番の必須は起動時の前提の検査が判定する）', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      delete process.env.ARCHIVE_ENCRYPTION_KEY;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      expect(validateEnv().ARCHIVE_ENCRYPTION_KEY).toBeUndefined();
+    });
+
+    it('ARCHIVE_ENCRYPTION_KEYが64桁の16進の場合、検証に成功する', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      process.env.ARCHIVE_ENCRYPTION_KEY = mock2FAKey.toUpperCase();
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      expect(validateEnv().ARCHIVE_ENCRYPTION_KEY).toBe(mock2FAKey.toUpperCase());
+    });
+
+    it.each(['0123456789abcdef', `${mock2FAKey}00`, `z${mock2FAKey.slice(1)}`, ''])(
+      'ARCHIVE_ENCRYPTION_KEY=%s（64桁の16進でない）の場合、エラーを投げる',
+      async (value) => {
+        process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+        process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+        process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+        process.env.ARCHIVE_ENCRYPTION_KEY = value;
+
+        const { validateEnv } = await import('../../../config/env.js');
+
+        expect(() => validateEnv()).toThrow('Failed to validate environment variables');
+      }
+    );
+
+    it('JWT_ISSUERとJWT_AUDIENCEが未設定の場合、既定 architrack と architrack-api が使用される', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      delete process.env.JWT_ISSUER;
+      delete process.env.JWT_AUDIENCE;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      const result = validateEnv();
+      expect(result.JWT_ISSUER).toBe('architrack');
+      expect(result.JWT_AUDIENCE).toBe('architrack-api');
+    });
+
+    it('JWT_ISSUERとJWT_AUDIENCEが設定された場合、その値が使用される', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      process.env.JWT_ISSUER = 'architrack-staging';
+      process.env.JWT_AUDIENCE = 'architrack-staging-api';
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      const result = validateEnv();
+      expect(result.JWT_ISSUER).toBe('architrack-staging');
+      expect(result.JWT_AUDIENCE).toBe('architrack-staging-api');
+    });
+
+    it.each([
+      ['JWT_ISSUER', ''],
+      ['JWT_ISSUER', '   '],
+      ['JWT_AUDIENCE', ''],
+      ['JWT_AUDIENCE', ' architrack-api'],
+    ])('%s=「%s」（空・前後の空白）の場合、エラーを投げる', async (name, value) => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      process.env[name] = value;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      expect(() => validateEnv()).toThrow('Failed to validate environment variables');
+    });
   });
 
   describe('parseDatabaseRetryCount', () => {

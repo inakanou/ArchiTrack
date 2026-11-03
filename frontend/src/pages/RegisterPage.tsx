@@ -1,11 +1,15 @@
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
+import type { User } from '../contexts/AuthContext';
+import { TWO_FACTOR_SETUP_NOTICE_KEY } from '../utils/user-restriction';
+import { useUrlToken } from '../hooks/useUrlToken';
+
+/** 招待経由の登録の直後に 2FA 設定の画面に出す案内（要件34.5） */
+const REGISTERED_NOTICE = 'ユーザー登録が完了しました。二要素認証を設定してください。';
 import RegisterForm from '../components/RegisterForm';
-import type {
-  RegisterFormData,
-  InvitationVerificationResult,
-  AuthResponse,
-} from '../types/auth.types';
+import type { RegisterFormData, InvitationVerificationResult } from '../types/auth.types';
 
 /**
  * ユーザー登録ページ
@@ -15,7 +19,8 @@ import type {
  * ## 機能
  * - 招待トークンの検証
  * - ユーザー登録フォーム表示
- * - 登録成功時にログインページへ遷移
+ * - 登録成功時は応答でセッションを始めてダッシュボードへ進める。2FA 未登録のため ProtectedRoute が
+ *   2FA 設定の画面へ置き換え、設定の完了後にダッシュボードへ戻る（要件34.5・12.9・28.19）
  *
  * ## 要件
  * @requirement user-authentication/REQ-11: 招待経由のユーザー登録
@@ -23,56 +28,84 @@ import type {
  */
 export function RegisterPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const { establishSession } = useAuth();
 
-  // URLクエリパラメータから招待トークンを取得
-  const invitationToken = searchParams.get('token') || '';
+  // 招待 URL のフラグメント（移行期間はクエリも）から招待トークンを読み、読んだ直後に URL から取り除く（要件37.3）
+  const invitationToken = useUrlToken();
 
   /**
    * 招待トークン検証処理
+   *
+   * 登録フォームは関数の参照が変わると検証をやり直す（入力の途中で検証中の表示へ戻り、フォーカスを失う）。
+   * この画面は認証の状態の変化（初期化の完了など）で再描画されるため、参照を固定する
    */
-  const handleVerifyInvitation = async (token: string): Promise<InvitationVerificationResult> => {
-    try {
-      const response = await apiClient.get<{
-        email: string;
-      }>(`/api/v1/invitations/verify?token=${token}`);
+  const handleVerifyInvitation = useCallback(
+    async (token: string): Promise<InvitationVerificationResult> => {
+      try {
+        // トークンは URL に載せず本文で送る（アクセスログに残さない。要件37.3）
+        const response = await apiClient.post<{ email: string }>('/api/v1/invitations/verify', {
+          token,
+        });
 
-      return {
-        valid: true,
-        email: response.email,
-      };
-    } catch {
-      // エラー時は無効な招待として扱う
-      return {
-        valid: false,
-        error: '招待トークンの検証に失敗しました',
-      };
-    }
-  };
+        return {
+          valid: true,
+          email: response.email,
+        };
+      } catch {
+        // エラー時は無効な招待として扱う
+        return {
+          valid: false,
+          error: '招待トークンの検証に失敗しました',
+        };
+      }
+    },
+    []
+  );
 
   /**
    * ユーザー登録処理
    */
-  const handleRegister = async (data: RegisterFormData): Promise<void> => {
-    try {
-      // ユーザー登録API呼び出し
-      await apiClient.post<AuthResponse>('/api/v1/auth/register', {
-        invitationToken: data.invitationToken,
-        displayName: data.displayName,
-        password: data.password,
-      });
+  const handleRegister = useCallback(
+    async (data: RegisterFormData): Promise<void> => {
+      try {
+        // ユーザー登録API呼び出し
+        const response = await apiClient.post<{
+          accessToken?: string;
+          expiresIn?: number;
+          user?: User;
+        }>('/api/v1/auth/register', {
+          invitationToken: data.invitationToken,
+          displayName: data.displayName,
+          password: data.password,
+        });
 
-      // 登録成功後、ログインページへ遷移
-      navigate('/login', {
-        state: {
-          message: 'ユーザー登録が完了しました。ログインしてください。',
-        },
-      });
-    } catch (error) {
-      // エラーをRegisterFormに伝播させる（RegisterFormがエラーハンドリングを行う）
-      throw error;
-    }
-  };
+        // 要件34.5: 登録の応答でセッションを始め、利用開始の前に 2FA の設定へ進める
+        // （リフレッシュトークンは応答の HttpOnly Cookie に置かれる）。2FA 未登録のため ProtectedRoute が
+        // ダッシュボードを 2FA 設定の画面へ置き換える。完了の案内は 2FA 設定の画面が表示の時点で読む
+        if (response?.accessToken && response.user) {
+          sessionStorage.setItem(TWO_FACTOR_SETUP_NOTICE_KEY, REGISTERED_NOTICE);
+          establishSession({
+            accessToken: response.accessToken,
+            expiresIn: response.expiresIn,
+            user: response.user,
+          });
+          navigate('/dashboard', { replace: true });
+          return;
+        }
+
+        // 応答にアクセストークンが無いときはログインページへ遷移する
+        navigate('/login', {
+          state: {
+            message: 'ユーザー登録が完了しました。ログインしてください。',
+          },
+        });
+      } catch (error) {
+        // エラーをRegisterFormに伝播させる（RegisterFormがエラーハンドリングを行う）
+        throw error;
+      }
+    },
+    [establishSession, navigate]
+  );
 
   // 招待トークンが存在しない場合
   if (!invitationToken) {

@@ -24,6 +24,11 @@ vi.mock('../../api/client', async (importOriginal) => {
 
 import { apiClient } from '../../api/client';
 
+/** トークンの検証（本文で送る POST）と、それ以外の POST（要求・実行）の応答を分けて与える */
+const VERIFY_RESET_PATH = '/api/v1/auth/password/verify-reset';
+const mockVerifyReset = vi.fn();
+const mockOtherPost = vi.fn();
+
 // react-router-domのuseNavigateをモック
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -97,7 +102,11 @@ describe('PasswordResetPage Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // トークン検証のデフォルトモック（成功）
-    vi.mocked(apiClient.get).mockResolvedValue({});
+    mockVerifyReset.mockReset().mockResolvedValue({});
+    mockOtherPost.mockReset().mockResolvedValue({});
+    vi.mocked(apiClient.post).mockImplementation((path: string, body?: unknown) =>
+      path === VERIFY_RESET_PATH ? mockVerifyReset(body) : mockOtherPost(path, body)
+    );
   });
 
   describe('リセット要求モード（トークンなし）', () => {
@@ -144,7 +153,7 @@ describe('PasswordResetPage Component', () => {
   describe('リセット要求処理', () => {
     it('リセット要求が成功する場合', async () => {
       const user = userEvent.setup();
-      vi.mocked(apiClient.post).mockResolvedValueOnce({});
+      mockOtherPost.mockResolvedValueOnce({});
 
       renderPasswordResetPage();
 
@@ -160,7 +169,7 @@ describe('PasswordResetPage Component', () => {
     it('リセット要求が失敗した場合にAPIが呼ばれることを確認する', async () => {
       const user = userEvent.setup();
       const error = new Error('Request failed');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(error);
+      mockOtherPost.mockRejectedValueOnce(error);
 
       renderPasswordResetPage();
 
@@ -175,7 +184,7 @@ describe('PasswordResetPage Component', () => {
   describe('リセット実行処理', () => {
     it('リセット成功時にログインページへ遷移する', async () => {
       const user = userEvent.setup();
-      vi.mocked(apiClient.post).mockResolvedValueOnce({});
+      mockOtherPost.mockResolvedValueOnce({});
 
       renderPasswordResetPage('?token=reset-token-123');
 
@@ -202,7 +211,7 @@ describe('PasswordResetPage Component', () => {
     it('リセット失敗時にAPIが呼ばれることを確認する', async () => {
       const user = userEvent.setup();
       const error = new Error('Reset failed');
-      vi.mocked(apiClient.post).mockRejectedValueOnce(error);
+      mockOtherPost.mockRejectedValueOnce(error);
 
       renderPasswordResetPage('?token=reset-token-123');
 
@@ -214,7 +223,10 @@ describe('PasswordResetPage Component', () => {
       await user.click(screen.getByTestId('reset-button'));
 
       await waitFor(() => {
-        expect(apiClient.post).toHaveBeenCalled();
+        expect(mockOtherPost).toHaveBeenCalledWith(
+          '/api/v1/auth/password/reset',
+          expect.anything()
+        );
       });
     });
   });
@@ -243,7 +255,7 @@ describe('PasswordResetPage Component', () => {
 
     it('送信成功時に確認メッセージが表示されること', async () => {
       const user = userEvent.setup();
-      vi.mocked(apiClient.post).mockResolvedValueOnce({});
+      mockOtherPost.mockResolvedValueOnce({});
 
       renderPasswordResetPage();
 
@@ -280,7 +292,7 @@ describe('PasswordResetPage Component', () => {
     it('存在しないメールアドレスでもAPIが成功を返し同一メッセージが表示されること', async () => {
       const user = userEvent.setup();
       // 存在しないメールアドレスでもAPIは成功を返す（セキュリティ上の理由）
-      vi.mocked(apiClient.post).mockResolvedValueOnce({});
+      mockOtherPost.mockResolvedValueOnce({});
 
       renderPasswordResetPage();
 
@@ -295,16 +307,21 @@ describe('PasswordResetPage Component', () => {
 
   describe('要件29.2: パスワード再設定画面の実装検証', () => {
     describe('トークン検証', () => {
+      /**
+       * @requirement user-authentication/REQ-37.3
+       */
       it('ページロード時にトークン検証APIが呼ばれること（要件29.2-11）', async () => {
-        vi.mocked(apiClient.get).mockResolvedValueOnce({});
+        mockVerifyReset.mockResolvedValueOnce({});
 
         renderPasswordResetPage('?token=test-reset-token');
 
+        // トークンは URL に載せず本文で送る（要件37.3）
         await waitFor(() => {
-          expect(apiClient.get).toHaveBeenCalledWith(
-            '/api/v1/auth/password/verify-reset?token=test-reset-token'
-          );
+          expect(apiClient.post).toHaveBeenCalledWith(VERIFY_RESET_PATH, {
+            token: 'test-reset-token',
+          });
         });
+        expect(apiClient.get).not.toHaveBeenCalled();
       });
 
       it('トークン検証中はローディング表示されること（要件29.2-11）', async () => {
@@ -313,7 +330,7 @@ describe('PasswordResetPage Component', () => {
         const getPromise = new Promise((resolve) => {
           resolveGet = resolve;
         });
-        vi.mocked(apiClient.get).mockReturnValueOnce(getPromise as Promise<unknown>);
+        mockVerifyReset.mockReturnValueOnce(getPromise as Promise<unknown>);
 
         renderPasswordResetPage('?token=test-reset-token');
 
@@ -330,7 +347,7 @@ describe('PasswordResetPage Component', () => {
       it('トークンが期限切れの場合、期限切れエラーが表示されること（要件29.2-12）', async () => {
         const { ApiError } = await import('../../api/client');
         const expiredError = new ApiError(400, 'Token expired', { code: 'TOKEN_EXPIRED' });
-        vi.mocked(apiClient.get).mockRejectedValueOnce(expiredError);
+        mockVerifyReset.mockRejectedValueOnce(expiredError);
 
         renderPasswordResetPage('?token=expired-token');
 
@@ -344,7 +361,7 @@ describe('PasswordResetPage Component', () => {
         const invalidError = new ApiError(400, 'Invalid token', {
           code: 'INVALID_RESET_TOKEN',
         });
-        vi.mocked(apiClient.get).mockRejectedValueOnce(invalidError);
+        mockVerifyReset.mockRejectedValueOnce(invalidError);
 
         renderPasswordResetPage('?token=invalid-token');
 
@@ -356,7 +373,7 @@ describe('PasswordResetPage Component', () => {
       it('トークンが既に使用済みの場合、無効エラーが表示されること（要件29.2-12）', async () => {
         const { ApiError } = await import('../../api/client');
         const usedError = new ApiError(400, 'Token used', { code: 'TOKEN_USED' });
-        vi.mocked(apiClient.get).mockRejectedValueOnce(usedError);
+        mockVerifyReset.mockRejectedValueOnce(usedError);
 
         renderPasswordResetPage('?token=used-token');
 
@@ -369,7 +386,7 @@ describe('PasswordResetPage Component', () => {
     describe('リセット成功後のリダイレクト', () => {
       it('リセット成功後にログイン画面へリダイレクトすること（要件29.2-17,18）', async () => {
         const user = userEvent.setup();
-        vi.mocked(apiClient.post).mockResolvedValueOnce({});
+        mockOtherPost.mockResolvedValueOnce({});
 
         renderPasswordResetPage('?token=valid-token');
 
@@ -382,7 +399,10 @@ describe('PasswordResetPage Component', () => {
 
         // API呼び出しを確認
         await waitFor(() => {
-          expect(apiClient.post).toHaveBeenCalled();
+          expect(mockOtherPost).toHaveBeenCalledWith(
+            '/api/v1/auth/password/reset',
+            expect.anything()
+          );
         });
 
         // リダイレクトが呼ばれること

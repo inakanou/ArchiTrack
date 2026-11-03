@@ -23,6 +23,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import ItemizedStatementDetailPage from '../../pages/ItemizedStatementDetailPage';
 import * as itemizedStatementsApi from '../../api/itemized-statements';
+import { ApiError } from '../../api/client';
 import type { ItemizedStatementDetail } from '../../types/itemized-statement.types';
 
 // APIモック
@@ -346,6 +347,37 @@ describe('ItemizedStatementDetailPage - 並び替え機能', () => {
 
       // APIが呼ばれていないことを確認
       expect(itemizedStatementsApi.updateItemOrder).not.toHaveBeenCalled();
+    });
+  });
+
+  // 並び順の保存の楽観的排他制御（Requirement 17.14・10.4）。2026-10-30 の是正: 実際の API の
+  // 409 は ApiError（statusCode）で届く。サーバーの文言と別の画面の固定の文言を表示する
+  describe('Requirement 17.14: 並び順の保存の 409 で競合のメッセージを表示', () => {
+    it('ApiError の 409 でサーバーの文言でなく画面の文言を表示し、未保存の並び順を保つ', async () => {
+      const user = userEvent.setup();
+      vi.mocked(itemizedStatementsApi.updateItemOrder).mockRejectedValue(
+        new ApiError(409, 'サーバーが返した競合の説明', {
+          type: 'https://architrack.example.com/problems/itemized-statement-conflict',
+          title: 'Conflict',
+          status: 409,
+          detail: 'サーバーが返した競合の説明',
+          code: 'ITEMIZED_STATEMENT_CONFLICT',
+        })
+      );
+
+      renderComponent();
+      await screen.findByRole('table');
+
+      await user.click(screen.getAllByRole('button', { name: '下へ移動' })[0]!);
+      await user.click(screen.getByRole('button', { name: /並び順を保存/i }));
+
+      const message = await screen.findByText(
+        '他のユーザーにより更新されました。画面を再読み込みしてください'
+      );
+      expect(message.closest('[role="alert"]')).not.toBeNull();
+      expect(screen.queryByText('サーバーが返した競合の説明')).not.toBeInTheDocument();
+      // 未保存の並び順は保たれ、保存の釦が残る（Requirement 17.10）
+      expect(screen.getByRole('button', { name: /並び順を保存/i })).toBeInTheDocument();
     });
   });
 });

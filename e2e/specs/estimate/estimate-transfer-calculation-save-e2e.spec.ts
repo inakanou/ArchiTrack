@@ -101,6 +101,7 @@ import { API_BASE_URL } from '../../config';
 import { observeApiRequests } from '../../helpers/api-request-observer';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import {
+  deleteEstimateViaApi,
   buildNewEstimateItemNode,
   buildSaveLine,
   findEstimateItemByName,
@@ -111,6 +112,7 @@ import {
   type SaveLineType,
   type SaveNodePayload,
 } from '../../helpers/estimate-draft';
+import { getAccessToken, loginViaApi } from '../../helpers/auth-api';
 
 // ============================================================================
 // フィクスチャ定義
@@ -404,7 +406,7 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
   /** ログインしてアクセストークンを取得する */
   const loginAndCaptureToken = async (page: Page): Promise<void> => {
     await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).toBeTruthy();
   };
 
@@ -630,10 +632,7 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
     test('準備3: APIトークン取得・数量表・内訳書を作成する', async ({ request }) => {
       expect(createdProjectId).toBeTruthy();
 
-      const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-        data: { email: 'user@example.com', password: 'Password123!' },
-      });
-      accessToken = (await loginResponse.json()).accessToken;
+      accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
       expect(accessToken).toBeTruthy();
 
       const quantityTableResponse = await request.post(
@@ -1336,17 +1335,12 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
 
   test.describe('クリーンアップ', () => {
     test('テストデータの削除', async ({ request }) => {
-      if (!accessToken) {
-        const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-          data: { email: 'user@example.com', password: 'Password123!' },
-        });
-        accessToken = (await loginResponse.json()).accessToken;
-      }
+      // 準備で取ったアクセストークンは 15 分で失効する。長い直列のスイートでも後片付けが 401 にならないよう、
+      // 有無にかかわらず取り直す（後片付けは 204 以外を失敗にするため）
+      accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
 
       if (createdEstimateId) {
-        await request.delete(`${API_BASE_URL}/api/estimates/${createdEstimateId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await deleteEstimateViaApi(request, accessToken, createdEstimateId);
       }
       if (createdProjectId) {
         await request.delete(`${API_BASE_URL}/api/projects/${createdProjectId}`, {

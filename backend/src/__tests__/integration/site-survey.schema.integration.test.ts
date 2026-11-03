@@ -7,6 +7,7 @@ import type { PrismaClient } from '../../generated/prisma/client.js';
 validateEnv();
 
 import getPrismaClient from '../../db.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 現場調査スキーマ統合テスト
@@ -22,12 +23,10 @@ describe('Site Survey Schema Integration Tests', () => {
     prisma = getPrismaClient();
 
     // テスト用ユーザーの作成
-    const testUser = await prisma.user.create({
-      data: {
-        email: 'test-site-survey-schema@example.com',
-        displayName: 'Site Survey Schema Test User',
-        passwordHash: 'test-hash',
-      },
+    const testUser = await createTestUser(prisma, {
+      email: 'test-site-survey-schema@example.com',
+      displayName: 'Site Survey Schema Test User',
+      passwordHash: 'test-hash',
     });
     testUserId = testUser.id;
 

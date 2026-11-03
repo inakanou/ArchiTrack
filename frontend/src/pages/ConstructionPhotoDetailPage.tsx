@@ -100,6 +100,20 @@
  *   サーバーの保存済みの値で描かれる看板の重畳と一つの出力の中で混ざるためである。ZIP はエクスポート
  *   の設定のダイアログも開かない。未保存の変更が無いときの振る舞いは変えない
  *
+ * Task 30.3 変更: 台帳の PDF と一括 ZIP の生成を、出力の記録（`runRecordedExport`、
+ *   user-authentication の要件40.9〜40.11）の成功の後にだけ始める。記録の失敗では生成もダウンロードも
+ *   始めず「出力を記録できなかったため中止しました」を示す（PDF は通知の枠、ZIP は設定のダイアログの中）。
+ *   ZIP の記録の要求中は設定のダイアログの開始・キャンセルを止める。印刷対象0件の PDF は出力が無いため
+ *   記録せずに通知する（construction-photo の Requirement 21.8・21.9）
+ *
+ * Task 31.1 変更: アルバムの取得と写真項目の一覧の取得の 404 では、工事写真アルバムが見つからない旨と
+ *   プロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示し、応答の英語の文言・取得の失敗の
+ *   文言と再試行の釦を出さない（Requirement 22.1。経路は案件の ID を持たないため戻り先はプロジェクトの
+ *   一覧）。アルバムの削除（工事写真アルバム）、メタデータと表示順序の保存（工事写真アルバムまたは写真
+ *   項目）、台帳の PDF と一括 ZIP の出力（写真項目）の 404 は、従来の表示の場所に見つからない旨を出す
+ *   （Requirement 22.2）。取り除かれた看板の文言（タスク 24.2）・記録の失敗の文言（21.9）・ZIP の出力の
+ *   開始の失敗の文言は保つ。範囲外と不在を区別しない
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
  *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11, 17.1, 17.2, 17.3,
  *   17.4, 17.5, 18.1, 18.2, 18.3, 18.4
@@ -120,6 +134,7 @@ import {
 import { getProject } from '../api/projects';
 import { getConstructionSignboards } from '../api/construction-signboards';
 import { ApiError } from '../api/client';
+import { runRecordedExport } from '../api/export-audit';
 // 台帳PDF出力サービスは日本語フォント資産（約3MB）へ静的に到達するため、
 // 値としては静的 import せず出力実行時に動的読み込みする（初期チャンクからの分離）
 import { loadConstructionPhotoLedgerExportService } from '../services/export/loadConstructionPhotoLedgerExportService';
@@ -129,7 +144,11 @@ import type {
   ConstructionPhotoExportSettings,
 } from '../services/export/ConstructionPhotoBulkExportService';
 import { buildConstructionPhotoZipFileName } from '../services/export/constructionPhotoZipNaming';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getConstructionPhotoNotFoundMessage,
+  isConstructionPhotoNotFoundError,
+} from '../utils/constructionPhotoNotFound';
 import type { BreadcrumbItem } from '../components/common';
 import { PhotoUploader } from '../components/construction-photos/PhotoUploader';
 import {
@@ -477,6 +496,14 @@ const UNSAVED_PDF_EXPORT_MESSAGE = '未保存の変更があります。保存�
 /** 未保存の変更があるときに ZIP の一括エクスポートを止めた旨の通知（タスク 26.2） */
 const UNSAVED_ZIP_EXPORT_MESSAGE = '未保存の変更があります。保存してからエクスポートしてください。';
 
+/** 印刷対象0件のため PDF を出力しなかった旨の通知（R10.13） */
+const NO_PRINTABLE_PDF_EXPORT_MESSAGE =
+  '印刷対象の写真がありません。印刷対象を選択してからPDF出力してください。';
+
+/** 出力の記録の後に一括 ZIP の生成を始められなかったときの表示（Requirement 21.8） */
+const ZIP_EXPORT_START_FAILED_MESSAGE =
+  '一括エクスポートを開始できませんでした。再度お試しください。';
+
 /**
  * 通知の枠に出す表示の種類（タスク 22.1）。`notice` は PDF・ZIP・アップロードの結果の通知、
  * `error` は保存・アルバムの削除・取得の失敗である。描画はどちらも同じ枠・同じ見た目で、枠は
@@ -552,6 +579,8 @@ export default function ConstructionPhotoDetailPage() {
   );
 
   const [isLoading, setIsLoading] = useState(true);
+  // アルバムの取得か写真項目の一覧の取得が 404 を受けた（範囲外と不在を区別しない。Task 31.1）
+  const [isAlbumNotFound, setIsAlbumNotFound] = useState(false);
   // 通知の枠に出す一つの表示（タスク 22.1）。通知（PDF・ZIP・アップロードの結果）と失敗（保存・
   // アルバムの削除・取得）を一つの状態に持ち、後から出たものが前のものを置き換える。消去は
   // その種類のものだけを消す（`clearPageMessage`）。アルバムの取得の失敗も失敗としてここに載り、
@@ -584,6 +613,10 @@ export default function ConstructionPhotoDetailPage() {
   const [exportProgress, setExportProgress] = useState<ConstructionPhotoExportProgress | null>(
     null
   );
+  // 一括 ZIP の出力の記録の要求中（設定のダイアログの開始・キャンセルを止める, Requirement 21.8）
+  const [isRecordingZipExport, setIsRecordingZipExport] = useState(false);
+  // 一括 ZIP の出力の記録の失敗など、開始できなかったときのエラーメッセージ（Requirement 21.9）
+  const [zipExportStartError, setZipExportStartError] = useState<string | null>(null);
   // エクスポート処理が実行中かどうか（false=完了/中断確定）
   const [isExportRunning, setIsExportRunning] = useState(false);
   // 実行中の AbortController（中断操作で abort() を呼ぶ, R15.9）
@@ -593,9 +626,14 @@ export default function ConstructionPhotoDetailPage() {
   // 一部失敗・全件失敗の結果（進捗ダイアログの結果の段に出す, R15.10）
   const [exportOutcome, setExportOutcome] = useState<BulkExportOutcome | null>(null);
 
+  // 画面が描かれているか（出力の記録の要求中に破棄されたら、記録の後に生成を始めない。Requirement 21.8）
+  const isMountedRef = useRef(true);
+
   // 画面の破棄時は、実行中のエクスポートを中断し、保留中の ZIP を手放す
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       exportControllerRef.current?.abort();
       exportControllerRef.current = null;
       pendingExportRef.current = null;
@@ -610,6 +648,7 @@ export default function ConstructionPhotoDetailPage() {
     if (!id) return;
 
     setIsLoading(true);
+    setIsAlbumNotFound(false);
     clearPageMessage('error');
 
     try {
@@ -630,6 +669,11 @@ export default function ConstructionPhotoDetailPage() {
       // プロジェクト取得失敗はブレッドクラムのみに影響するため致命的ではない
       setProject(projectResult.status === 'fulfilled' ? projectResult.value : null);
     } catch (err) {
+      if (isConstructionPhotoNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない（Task 31.1）
+        setIsAlbumNotFound(true);
+        return;
+      }
       showPageMessage(
         'error',
         err instanceof ApiError
@@ -785,11 +829,13 @@ export default function ConstructionPhotoDetailPage() {
       await deleteConstructionPhotoAlbum(album.id);
       navigate(`/projects/${album.projectId}/construction-photos`);
     } catch (err) {
+      // 削除の 404 は工事写真アルバムの不在〔範囲外を含む〕（Task 31.1）
       showPageMessage(
         'error',
-        err instanceof ApiError
-          ? err.message || 'アルバムの削除に失敗しました'
-          : 'アルバムの削除に失敗しました'
+        getConstructionPhotoNotFoundMessage(err, 'album') ??
+          (err instanceof ApiError
+            ? err.message || 'アルバムの削除に失敗しました'
+            : 'アルバムの削除に失敗しました')
       );
       setIsDeleteDialogOpen(false);
     } finally {
@@ -885,11 +931,11 @@ export default function ConstructionPhotoDetailPage() {
       syncDirtyWithPending();
     } catch (err) {
       // 取り除かれた看板を指定した失敗は英語の応答の文言に代えて日本語で示す（タスク 24.2）
+      // 保存の 404 はアルバムか写真項目の不在〔範囲外を含む〕で、応答からどちらかを区別しない（Task 31.1）
       const message = isRemovedSignboardError(err)
         ? toRemovedSignboardMessage(sentChanges, signboards)
-        : err instanceof ApiError
-          ? err.message
-          : '保存に失敗しました';
+        : (getConstructionPhotoNotFoundMessage(err, 'albumOrPhotoItem') ??
+          (err instanceof ApiError ? err.message : '保存に失敗しました'));
       showPageMessage('error', message, { isSaveFailure: true });
     } finally {
       setIsSaving(false);
@@ -902,6 +948,10 @@ export default function ConstructionPhotoDetailPage() {
    * 印刷対象のみ・保存表示順で印字画像をオンデマンド取得して台帳PDFを出力する。
    * 看板重畳はサーバの印字画像エンドポイントに委譲する。印刷対象0件は非実行で通知する。
    * 未保存の変更があるときは出力せず、保存を促す（タスク 26.2）。
+   *
+   * 生成を始める前に出力の記録（種別 `construction_photo_ledger_pdf`・案件・印刷対象の写真項目）を
+   * 1回要求し、記録の失敗では生成せずにエラーメッセージを表示する（Requirement 21.8, 21.9）。
+   * 印刷対象0件は出力が無いため記録せずに通知する。
    */
   const handleExportPdf = useCallback(async () => {
     if (!album) return;
@@ -910,21 +960,65 @@ export default function ConstructionPhotoDetailPage() {
       return;
     }
     clearPageMessage('notice');
-    setIsExporting(true);
-    try {
+
+    // 印刷対象のみ・保存表示順（台帳の生成と同じ正規化。要件10.1, 10.12）
+    const printablePhotos = photos
+      .filter((photo) => photo.includeInReport)
+      .sort((a, b) => a.displayOrder - b.displayOrder);
+    if (printablePhotos.length === 0) {
+      // 印刷対象0件は非実行で通知する（要件10.13）。出力しないため記録もしない
+      showPageMessage('notice', NO_PRINTABLE_PDF_EXPORT_MESSAGE);
+      return;
+    }
+
+    /** 台帳の生成（出力の記録が成功した後にだけ呼ぶ。Requirement 21.8） */
+    const generateLedger = async () => {
+      // 記録の要求中に画面が破棄されたら生成しない（記録は済んでいるが出力は無い）
+      if (!isMountedRef.current) {
+        return { generated: true as const, itemCount: 0 };
+      }
       const { exportConstructionPhotoLedger } = await loadConstructionPhotoLedgerExportService();
-      const result = await exportConstructionPhotoLedger({
+      return exportConstructionPhotoLedger({
         photos,
         workName: project?.name ?? album.name,
       });
-      if (!result.generated) {
-        showPageMessage(
-          'notice',
-          '印刷対象の写真がありません。印刷対象を選択してからPDF出力してください。'
-        );
+    };
+
+    setIsExporting(true);
+    try {
+      // 生成を始める前に出力の記録を1回要求し、記録の失敗では生成しない（Requirement 21.8, 21.9）
+      const result = await runRecordedExport(
+        {
+          kind: 'construction_photo_ledger_pdf',
+          projectId: album.projectId,
+          targetIds: printablePhotos.map((photo) => photo.id),
+          itemCount: printablePhotos.length,
+        },
+        generateLedger
+      );
+      if (!result.ok) {
+        if (result.error.type === 'RECORD_FAILED') {
+          showPageMessage('notice', result.error.message);
+        } else {
+          const cause = result.error.cause;
+          // 印字画像の取得の 404 は写真項目の不在〔範囲外を含む〕（Task 31.1）
+          showPageMessage(
+            'notice',
+            getConstructionPhotoNotFoundMessage(cause, 'photoItem') ??
+              (cause instanceof ApiError ? cause.message : 'PDF出力に失敗しました')
+          );
+        }
+        return;
+      }
+      if (!result.value.generated) {
+        showPageMessage('notice', NO_PRINTABLE_PDF_EXPORT_MESSAGE);
       }
     } catch (err) {
-      showPageMessage('notice', err instanceof ApiError ? err.message : 'PDF出力に失敗しました');
+      showPageMessage(
+        'notice',
+        getConstructionPhotoNotFoundMessage(err, 'photoItem') ??
+          (err instanceof ApiError ? err.message : 'PDF出力に失敗しました')
+      );
     } finally {
       setIsExporting(false);
     }
@@ -989,6 +1083,7 @@ export default function ConstructionPhotoDetailPage() {
       showPageMessage('notice', UNSAVED_ZIP_EXPORT_MESSAGE);
       return;
     }
+    setZipExportStartError(null);
     setBulkExportMode('all');
   }, [isDirty, showPageMessage]);
 
@@ -998,11 +1093,13 @@ export default function ConstructionPhotoDetailPage() {
       showPageMessage('notice', UNSAVED_ZIP_EXPORT_MESSAGE);
       return;
     }
+    setZipExportStartError(null);
     setBulkExportMode('selected');
   }, [isDirty, showPageMessage]);
 
   /** BulkExportDialog のキャンセル close */
   const handleExportDialogClose = useCallback(() => {
+    setZipExportStartError(null);
     setBulkExportMode(null);
   }, []);
 
@@ -1012,30 +1109,17 @@ export default function ConstructionPhotoDetailPage() {
   }, [showPageMessage]);
 
   /**
-   * ZIP一括エクスポートの実行オーケストレーション（R15.1, R15.5, R15.6, R15.8, R15.9）
+   * ZIP一括エクスポートの生成の開始（R15.1, R15.5, R15.6, R15.8, R15.9）
    *
-   * `AbortController` を生成して `ConstructionPhotoBulkExportService.export` を呼び出し、
-   * `onProgress` で進捗 state を更新する。完了後は ZIP Blob を `a` タグでダウンロードし、
-   * 部分失敗（`failed`）はユーザーへ通知する。`AbortError` は中断として扱う。
+   * 設定のダイアログを閉じ、`AbortController` を生成して `ConstructionPhotoBulkExportService.export`
+   * を呼び出し、`onProgress` で進捗 state を更新する。完了後は ZIP Blob を `a` タグでダウンロードし、
+   * 部分失敗（`failed`）はユーザーへ通知する。`AbortError` は中断として扱う。生成の完了は待たない
+   * （進捗ダイアログが待つ）。出力の記録が成功した後にだけ呼ぶ（Requirement 21.8）。
    */
-  const handleExportStart = useCallback(
-    (settings: ConstructionPhotoExportSettings) => {
+  const startBulkExport = useCallback(
+    (targets: ConstructionPhotoWithUrls[], settings: ConstructionPhotoExportSettings) => {
       if (!album) return;
-      const mode = bulkExportMode;
-      // 並べ替えは displayOrder を書き換えるだけで配列の並びを変えないため、対象は保存済みの
-      // 表示順（displayOrder の昇順、同値は元の並び）に並べてから渡す。ZIP の連番と部分失敗の
-      // 順番はこの並びから作られ、画面の一覧と PDF の順に揃う（タスク 27.1）
-      const targets = (
-        mode === 'selected' ? photos.filter((p) => selectedPhotoIds.has(p.id)) : [...photos]
-      ).sort((a, b) => a.displayOrder - b.displayOrder);
-
       setBulkExportMode(null);
-
-      if (targets.length === 0) {
-        // BulkExportDialog 側で開始ボタン非活性により既に防止済みだが念のため二重防御する
-        showPageMessage('notice', 'エクスポート対象の写真項目がありません。');
-        return;
-      }
 
       const controller = new AbortController();
       exportControllerRef.current = controller;
@@ -1091,9 +1175,11 @@ export default function ConstructionPhotoDetailPage() {
           if (err instanceof DOMException && err.name === 'AbortError') {
             showPageMessage('notice', 'エクスポートを中断しました。');
           } else {
+            // 生成の全体が 404 で終わるときは写真項目の不在〔範囲外を含む〕（Task 31.1）
             showPageMessage(
               'notice',
-              err instanceof ApiError ? err.message : 'エクスポートに失敗しました'
+              getConstructionPhotoNotFoundMessage(err, 'photoItem') ??
+                (err instanceof ApiError ? err.message : 'エクスポートに失敗しました')
             );
           }
         })
@@ -1102,7 +1188,72 @@ export default function ConstructionPhotoDetailPage() {
           exportControllerRef.current = null;
         });
     },
-    [album, bulkExportMode, photos, selectedPhotoIds, clearPageMessage, showPageMessage]
+    [album, clearPageMessage, showPageMessage]
+  );
+
+  /**
+   * ZIP一括エクスポートの開始（設定のダイアログの「開始」, R15.5, R15.6, Requirement 21.8, 21.9）
+   *
+   * 対象を保存済みの表示順に並べ、出力の記録（種別 `construction_photos_zip`・案件・対象の写真項目）
+   * を1回要求してから {@link startBulkExport} で生成を始める。記録の失敗では生成せず、設定の
+   * ダイアログの中にエラーメッセージを表示する。
+   */
+  const handleExportStart = useCallback(
+    async (settings: ConstructionPhotoExportSettings) => {
+      if (!album || isRecordingZipExport) return;
+      const mode = bulkExportMode;
+      // 並べ替えは displayOrder を書き換えるだけで配列の並びを変えないため、対象は保存済みの
+      // 表示順（displayOrder の昇順、同値は元の並び）に並べてから渡す。ZIP の連番と部分失敗の
+      // 順番はこの並びから作られ、画面の一覧と PDF の順に揃う（タスク 27.1）
+      const targets = (
+        mode === 'selected' ? photos.filter((p) => selectedPhotoIds.has(p.id)) : [...photos]
+      ).sort((a, b) => a.displayOrder - b.displayOrder);
+
+      if (targets.length === 0) {
+        setBulkExportMode(null);
+        // BulkExportDialog 側で開始ボタン非活性により既に防止済みだが念のため二重防御する
+        showPageMessage('notice', 'エクスポート対象の写真項目がありません。');
+        return;
+      }
+
+      // 生成を始める前に出力の記録を1回要求し、記録の失敗では生成しない（Requirement 21.8, 21.9）。
+      // 要求中は設定のダイアログを開いたまま開始・キャンセルを止め、失敗はダイアログの中に出す
+      setIsRecordingZipExport(true);
+      setZipExportStartError(null);
+      const result = await runRecordedExport(
+        {
+          kind: 'construction_photos_zip',
+          projectId: album.projectId,
+          targetIds: targets.map((photo) => photo.id),
+          itemCount: targets.length,
+        },
+        async () => {
+          // 記録の要求中に画面が破棄されたら生成を始めない。破棄時の中断（上の useEffect の
+          // 後始末）は既に済んでおり、ここで始めた生成は誰にも中断されないため（記録は済んでいる）
+          if (!isMountedRef.current) {
+            return;
+          }
+          startBulkExport(targets, settings);
+        }
+      );
+      setIsRecordingZipExport(false);
+      if (!result.ok) {
+        setZipExportStartError(
+          result.error.type === 'RECORD_FAILED'
+            ? result.error.message
+            : ZIP_EXPORT_START_FAILED_MESSAGE
+        );
+      }
+    },
+    [
+      album,
+      bulkExportMode,
+      photos,
+      selectedPhotoIds,
+      isRecordingZipExport,
+      startBulkExport,
+      showPageMessage,
+    ]
   );
 
   /** 進捗ダイアログの中断ボタン（R15.9） */
@@ -1146,6 +1297,20 @@ export default function ConstructionPhotoDetailPage() {
           <p>読み込み中...</p>
         </div>
         <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+      </main>
+    );
+  }
+
+  // 工事写真アルバムが見つからない表示（Task 31.1）。経路は案件の ID を持たず、アルバムを読めないと
+  // 案件が分からないため、戻り先はプロジェクトの一覧とする
+  if (isAlbumNotFound) {
+    return (
+      <main role="main" style={containerStyle}>
+        <ResourceNotFound
+          resourceType="工事写真アルバム"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }
@@ -1262,6 +1427,7 @@ export default function ConstructionPhotoDetailPage() {
             key={isSaveFailureShown ? 'save-failure' : 'frame'}
             role={isSaveFailureShown ? undefined : 'alert'}
             style={styles.notice}
+            data-testid="construction-photo-page-message"
           >
             {pageMessage.text}
           </div>
@@ -1324,8 +1490,12 @@ export default function ConstructionPhotoDetailPage() {
           totalCount={photos.length}
           selectedCount={selectedPhotoIds.size}
           onClose={handleExportDialogClose}
-          onStart={handleExportStart}
+          onStart={(settings) => {
+            void handleExportStart(settings);
+          }}
           onEmptyTarget={handleExportEmptyTarget}
+          isStarting={isRecordingZipExport}
+          startError={zipExportStartError}
         />
       )}
 

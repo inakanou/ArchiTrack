@@ -10,8 +10,8 @@
  * - REQ-38.10: 再認証後の保存リトライで楽観的排他制御による競合検出時に競合エラーフローで対処（再認証フローと別系統）
  * - REQ-38.11: ダイアログ内のファイルアップロード/OCR/データパース処理中にセッション切れが発生したとき、当該処理を中断して再認証モーダルを表示
  *
- * セッション切れシミュレーション: 既存パターン（accessToken/refreshToken を無効値に
- * 上書きして次回 API 呼び出し時に 401→リフレッシュ失敗→SessionExpiredModal 起動）を踏襲。
+ * セッション切れシミュレーション: リフレッシュトークンの Cookie を消し、保存とリフレッシュの
+ * API を 401 で返して、次回 API 呼び出し時に 401→リフレッシュ失敗→SessionExpiredModal 起動を起こす。
  *
  * @module e2e/specs/estimate-requests/session-expired-protection-extra-e2e.spec
  */
@@ -20,7 +20,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
-import { TEST_USERS } from '../../helpers/test-users';
+import { loginViaApi } from '../../helpers/auth-api';
 
 async function openCreateDialog(page: Page, estimateRequestId: string) {
   await page.goto(`/estimate-requests/${estimateRequestId}`);
@@ -35,18 +35,13 @@ async function openCreateDialog(page: Page, estimateRequestId: string) {
 }
 
 async function simulateSessionExpiration(page: Page) {
-  // localStorage の accessToken/refreshToken を書き換えても、AuthContext のメモリ内 state には
-  // valid なトークンが保持されたままになるため、API リクエストが成功してしまう。
+  // アクセストークンは画面のメモリだけにあり（user-authentication 要件33.10）、外から失効させられない。
   // そこで、受領見積書 POST/PUT を「最初の 1 回だけ」401 で返すルートモックを設定し、
   // refresh API も 401 で返して、リトライ時には外して通常フローに戻す。
   // これにより以下の認証フローが確実に発火する:
   //   1) 保存リクエスト → 401 (mock)
   //   2) リフレッシュ試行 → 401 (mock)
   //   3) sendFormData が apiClient.triggerSessionExpired() を呼び出して SessionExpiredModal 表示
-  await page.evaluate(() => {
-    localStorage.setItem('accessToken', 'invalid-expired-token-for-e2e');
-    localStorage.setItem('refreshToken', 'invalid-expired-refresh-token-for-e2e');
-  });
   await page.context().clearCookies();
   let saveFailed = false;
   await page.route(
@@ -91,13 +86,7 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
   test.describe('テストデータ準備', () => {
     test('プロジェクト・取引先・内訳書・見積依頼を作成する', async ({ request }) => {
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: TEST_USERS.REGULAR_USER.email,
-          password: TEST_USERS.REGULAR_USER.password,
-        },
-      });
-      accessToken = (await loginResponse.json()).accessToken;
+      accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
 
       // 営業担当者 ID を取得（プロジェクト作成スキーマで salesPersonId が必須）
       const usersResponse = await request.get(`${baseUrl}/api/users/assignable`, {
@@ -446,13 +435,7 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
     test('テストデータの削除', async ({ request }) => {
       const baseUrl = API_BASE_URL;
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: TEST_USERS.REGULAR_USER.email,
-            password: TEST_USERS.REGULAR_USER.password,
-          },
-        });
-        accessToken = (await loginResponse.json()).accessToken;
+        accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
       }
       if (createdProjectId) {
         await request.delete(`${baseUrl}/api/projects/${createdProjectId}`, {

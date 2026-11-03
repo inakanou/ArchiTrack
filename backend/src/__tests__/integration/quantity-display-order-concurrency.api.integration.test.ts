@@ -36,6 +36,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const TEST_EMAIL = 'test-qdo-concurrency-integration@example.com';
 const PASSWORD = 'TestPassword123!';
@@ -51,8 +53,10 @@ describe('並び順の個別 API の並行制御（Task 92.4）', () => {
       await import('@node-rs/argon2')
     ).hash(PASSWORD, { memoryCost: 65536, timeCost: 3, parallelism: 4 });
 
-    const user = await prisma.user.create({
-      data: { email: TEST_EMAIL, displayName: 'QDO Concurrency Test User', passwordHash },
+    const user = await createTestUser(prisma, {
+      email: TEST_EMAIL,
+      displayName: 'QDO Concurrency Test User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -89,11 +93,9 @@ describe('並び順の個別 API の並行制御（Task 92.4）', () => {
       });
     }
 
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: TEST_EMAIL, password: PASSWORD });
+    const accessToken = await loginForAccessToken(app, { email: TEST_EMAIL, password: PASSWORD });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   const createQuantityTable = async (name: string): Promise<string> => {

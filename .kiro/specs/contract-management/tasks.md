@@ -300,3 +300,77 @@
   - _Boundary: 契約書のフォームの監理者の候補の取得_
 
 **検証が記録した警告（起票していない。扱いは利用者の判断を待つ）**: (a) 11.1 の再試行ボタンは読み込みの失敗のときだけで、作成・保存・ステータス変更の失敗はトーストだけ。削除のダイアログは 422 以外をすべて「削除に失敗しました」にする（`DeleteConfirmDialog.tsx` の 147 行付近）。(b) 11.4 に最新データを読み直す導線が無い（`ContractEditPage.tsx` の 198〜202 行付近）。(c) 楽観ロックの確認と更新が別の処理で、同時更新の競合を防げない（`contract.service.ts` の 345〜356 行付近）。(d) 同じ router を 2 か所に割り当て（`app.ts` の 403〜404 行付近）、`/api/projects/:pid/contracts/:id` で URL の projectId と契約書の所属を確かめていない。(e) 金額が整数に限られず、税率の表示が `String(rate*100)` で浮動小数の誤差が出うる。(f) 作成・編集画面は URL を直接開けば権限が無くても表示される。(g) E2E の主張が見出しだけ・無い受入基準がある（4.1〜4.5、11.1〜11.6 のトースト、13.5）
+
+## Task 19: 案件の閲覧範囲（user-authentication の要件39）を本スペックの API へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）を実装した（同スペックのタスク52.1）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数を各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.11 が本スペックの項目（入れ子のルートでリソースが親 ID に属するかの照合、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の契約書を読み書きできる）ことを確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）。本スペックには出力の機能が無いため、要件40 の出力の記録は対象外である
+
+- [x] 19.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用し、入れ子の経路で契約書の所属を照合する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/contracts.routes.ts（`/api/projects/:projectId/contracts` と `/api/contracts`）: `GET /`（100）、`GET /:id`（160）、`POST /`（226）、`PUT /:id`（307）、`PATCH /:id/status`（389）、`DELETE /:id`（454）
+  - 契約書の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。作成の元にする見積書・基となる契約書も同じ案件の範囲で判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
+  - **入れ子の経路の所属の照合**（是正計画 §5.11、Task 18 の検証が記録した警告 (d)）: 同じ router が 2 か所に載り、`/api/projects/:projectId/contracts/:id` で URL の `projectId` と契約書の所属を確かめていない。所属しない組み合わせは不在と同じ 404 にする（判定は契約書が属する案件で行い、URL の `projectId` だけで範囲を判定しない）
+  - **既存のテストの扱い**（user-authentication の 52.2 の記録の区分 B）: 統合 contract.api の `PROJECT_NOT_FOUND` の主張は、404 の本文が `NOT_FOUND` に変わるだけで落ちる。範囲外と不在を同じ本文にする 39.2 に合わせて改める（主張を消さない）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定と所属しない入れ子の経路が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が契約書の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 14（案件の閲覧範囲の適用）を新設した。本タスクの適用は 14.1〜14.7 が受ける。入れ子の経路（`/api/projects/:projectId/contracts/:id`）で契約書が経路のプロジェクトに属さなければ不在と同じ 404 でデータを変えない（14.4。判定は契約書が属する案件で行う）と条文に定めた。作成・更新の要求が指す見積書は契約書のプロジェクトとの所属を照合しているが、存在しない見積書の 404 と他のプロジェクトの見積書の 422 で応答が分かれ実在を推測させるため、属さなければ見積書の不在と同じ応答で作成・更新しない（14.5）と定めた（不在の側の 404 へ揃える。422 へ揃える案を採らない理由は design.md の同章の「作成・更新の見積書」）。変更契約の基となる契約書は不在と他のプロジェクトの場合が既に同じ 422 と同じ本文であり、これを 14.6 として固定した。複数の契約書を一度に指定する一括の経路は無く（2026-10-27 の実測）、全件か無しかの受入基準は置かない。案件をまたぐ一覧・検索・件数の経路は無く（2026-10-27 の実測）、契約書の一覧は経路の `projectId` の判定で範囲内に限られる（14.7）。本スペックはファイルの署名付きURLを発行せず、出力の機能も無い（2026-10-27 の実測）。案件の範囲を含意する既存の条文を requirements.md で検め、Requirement 13.1（認証済みユーザーのみに一覧・詳細の閲覧を許可する）・13.2（適切な権限チェック）・13.4（権限のないユーザーに 403）が、認証とロールの権限だけで全プロジェクトの契約書の閲覧・操作を許し範囲外も 403 で拒否すると読めたため、閲覧範囲で読む形へ改訂し改訂の記録と採らなかった案（design.md だけで読み替える案）を同要件に残した。design.md は「Requirement 14: 案件の閲覧範囲の適用」章を足し、Requirements Traceability・API Contract・Error Categories and Responses・Security Considerations の当初の記述は記録として残して置き換えを書き添えた。上の「既存のテストの扱い」に加え、他のプロジェクトの見積書を指す作成・更新の 422 を主張する統合テストは 14.5 に合わせて改める（主張を消さない）。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 13.1, 13.2, 13.4, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7_
+  - _Boundary: 本スペックの API の案件の範囲の判定と入れ子の経路の所属の照合_
+
+## Task 20: 論理削除済みの基となる契約書の拒否と、入れ子の経路の食い違いの記録（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。(1) 変更契約の作成が基となる契約書の論理削除を確かめず、同じプロジェクトの論理削除済みの契約書を基に変更契約を作成できる（2026-10-29 の調査。`ContractService` の `create` が基となる契約書を `findUnique` で読み `deletedAt` を見ていない）。(2) user-authentication が要件39.8 を加え、入れ子の経路で経路の案件と対象の実際の案件が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（同 spec の design.md の ProjectScopeGuard の節の「食い違いの記録の各業務 spec への起票先」の contract-management の行）。本機能の判定部品は食い違いを不在として範囲を判定せず、記録しない。requirements.md に 14.8・14.9 を加え、design.md の末尾の章「2026-10-29 の追加: 基となる契約書の論理削除・食い違いの記録・不在の表示」に設計を置いた
+
+- [x] 20.1 変更契約の作成で、論理削除済みの基となる契約書を不在と同じ応答で拒否する
+  - `ContractService` の作成の処理で、基となる契約書が論理削除済みなら、存在しない・経路のプロジェクトに属さない基となる契約書と同じ 422（`CONTRACT_VALIDATION_ERROR`、14.6 と同じ本文）で拒否し、契約書を作成しない。論理削除を所属の不一致より先に確かめ、論理削除済みの基となる契約書は属する案件が範囲外でも範囲外の拒否として記録しない（design.md の同章の「決定」）
+  - 挙動の変更であるため RED → GREEN で進める。単体（`ContractService` の作成。同じプロジェクトと範囲外の案件の論理削除済みの基となる契約書で 422 と同じ本文、作成されず記録されない）と統合（存在しない基となる契約書と同じ 422 と本文、契約書の件数が変わらない）で主張し、現状で赤になることを先に示す
+  - 統合テストと単体テストで、論理削除済みの基となる契約書を指す変更契約の作成が不在と同じ応答で拒否され、契約書が増えない状態になる
+  - _Requirements: 14.8_
+  - _Boundary: ContractService の変更契約の作成の基となる契約書の照合_
+
+- [x] 20.2 入れ子の経路の食い違いで、契約書の実際の案件が範囲外なら記録する（user-authentication の要件39.8 の適用）
+  - backend/src/middleware/contract-management-project-scope.middleware.ts の `requireContractProjectScope` の解決関数が、経路の `projectId` と契約書の案件が食い違うとき、null ではなく上流の `projectMismatch`（契約書の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えない。契約書の不在・論理的な取り除きは従来どおり null で記録しない。同ファイルの冒頭の注釈を改める
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 統合テスト（`backend/src/__tests__/integration/contract-management-project-scope.api.integration.test.ts`）の「範囲内の案件の配下の経路で範囲外の案件の契約書を指すと、契約書の不在と同じ 404 にし、データを変えず、記録しない」は、記録の差 0 の主張を `PROJECT_SCOPE_DENIED` が 1 件増える（対象は契約書の実際の案件）主張へ改め、題名も改める。単体テスト（`backend/src/__tests__/unit/middleware/contract-management-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と契約書の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にし、記録しない（14.4）」は、範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改める。範囲内どうしの食い違いの統合テスト（記録の差 0）は条文どおりで変えない
+  - E2E（`e2e/specs/contracts/contract-management-project-scope.spec.ts` の入れ子の経路のテストか新しいテスト）で、範囲外の案件の契約書を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えることを主張し、`@requirement contract-management/REQ-14.9` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、食い違いの要求が範囲外のときだけ記録され、どの場合も不在と同じ 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 14.9_
+  - _Boundary: requireContractProjectScope の解決関数と、食い違いの記録を主張する本機能のテスト_
+
+## Task 21: 契約書の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 14.2・14.3 により閲覧範囲外の契約書・プロジェクトへの要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `frontend/src/utils/contractErrorHandler.ts` の `classifyContractError` に 404 の分岐が無く、予期しないエラーの文言になる（`ContractDetailPage.tsx` の 356・408 行付近、`ContractCreatePage.tsx` の 139・170 行付近）。`ContractEditPage.tsx` の 154 行付近は `err.message === 'Not Found'` で比べており、応答の文言と一致せず分岐に入らない（不具合）。`ContractListPage.tsx` の 339 行付近は失敗を一律に取得の失敗の固定の文言にする。`DeleteConfirmDialog.tsx` の 142 行付近は 422 以外を一律に削除の失敗にする。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に 11.8・11.9 を加え、design.md の末尾の章「2026-10-29 の追加: 基となる契約書の論理削除・食い違いの記録・不在の表示」に設計を置いた
+
+- [x] 21.1 契約書の一覧・詳細・作成・編集の画面と削除のダイアログで、404 を見つからない旨の表示にする
+  - `classifyContractError` に 404 の分岐を足し、見つからない種別と日本語の文言を返す（見積書の不在 `ESTIMATE_NOT_FOUND` はサーバーの本文を表示する）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンク（契約書の画面は案件の契約書の一覧、一覧・作成の画面はプロジェクトの一覧）を表示し、予期しないエラー・取得の失敗の文言と再試行の釦を出さない。編集の画面の 404 の見分けを状態コードで行うよう直す。作成・保存・ステータスの変更・削除の 404 では見つからない旨のメッセージを表示する。文言の逐語は design.md の同章の「決定」へ記す
+  - 挙動の変更・不具合の修正であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（`classifyContractError` の 404、各画面の 404 の表示、編集の画面の 404、削除のダイアログの 404）と E2E（担当外の利用者が契約書の詳細・編集の URL を開くと見つからない旨と一覧へのリンクが出て存在しない契約書と同じ表示になる、範囲外のプロジェクトの一覧・作成の URL でプロジェクトが見つからない旨が出る、開いた後に論理削除された契約書の操作で見つからない旨のメッセージが出る）で主張し、`@requirement contract-management/REQ-11.8`・`REQ-11.9` の印を置く
+  - 振る舞いを変えるため、変えた表示（予期しないエラー・取得の失敗の文言、再試行の釦）を e2e/ 全体で grep して既存の E2E を選び、流す（`contract-management-project-scope.spec.ts` の直接 URL を開くテストは不在と同じ表示の比較を持つ）
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、予期しないエラー・取得の失敗の文言を出さない状態になる
+  - _Requirements: 11.8, 11.9_
+  - _Boundary: ContractListPage, ContractCreatePage, ContractDetailPage, ContractEditPage, DeleteConfirmDialog, classifyContractError_
+
+## Task 22: 論理削除済みの契約書・基となる契約書の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、記録しない「論理削除」を案件そのものの論理削除に限り、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」とその起票先の一覧の contract-management の行）。本機能は、解決関数 `findProjectIdOfContract` が論理削除済みの契約書で null を返し、`ContractService` の `createWithin` が論理削除済みの基となる契約書を所属の照合より先に 422 で弾くため、範囲外の案件のものでも記録しない（2026-10-30 の調査）。requirements.md の 14.8・14.9 を改め（改訂の記録を同要件に残した）、14.10 を加え、design.md の末尾の章「2026-10-30 の追加: 論理削除済みの契約書の範囲外の記録」に設計を置いた。応答とデータと画面は変えない
+
+- [x] 22.1 解決関数が論理削除済みの契約書にも実際の案件を返し、範囲外なら記録されるようにする
+  - backend/src/middleware/contract-management-project-scope.middleware.ts の `findProjectIdOfContract` を、行が無いときだけ null を返し、行が実在すれば論理削除済みかどうかを添えて案件 ID を返す形へ改める。`requireContractProjectScope` の解決関数は、論理削除済みの契約書では経路の形（`/api/contracts/:id`、同じ案件の配下の経路、食い違いの経路）を問わず `projectMismatch(契約書の案件 ID)` を返す（同じ案件の経路と `/api/contracts` のマウントで論理削除済みの契約書を指したときの従来の汎用の 404 を保つための切り分け。design.md の同章の「決定」の表）。論理削除済みでない契約書の振る舞い（一致なら案件 ID、食い違いなら `projectMismatch`）は変えない。同ファイルの冒頭の注釈と関数の注釈を改める
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体（`backend/src/__tests__/unit/middleware/contract-management-project-scope.middleware.test.ts`）の「契約書の ID から案件 ID を引き、契約書が無いか論理的に取り除かれていれば null を返す」と「論理的に取り除かれた契約書は、案件が範囲外でも範囲を判定せずに不在と同じ 404 にし、記録しない」の 2 本。統合（`backend/src/__tests__/integration/contract-management-project-scope.api.integration.test.ts`）の「論理的に取り除かれた契約書は、範囲の内外を問わず存在しない契約書と同じ汎用の 404 を返す」（範囲外の利用者で記録の差 0）と「範囲内の案件の配下の経路で範囲外の案件の論理削除済みの契約書を指すと、…記録しない」の 2 本。改め方は design.md の同章の「既存のテストの書き換え」のとおり（範囲外なら記録 1 件、範囲内と案件そのものの論理削除では記録なし、どれも存在しない契約書と同じ汎用の 404 で本体へ進まずデータが変わらない）
+  - E2E（`e2e/specs/contracts/contract-management-project-scope.spec.ts`）で、担当外の利用者が範囲外の案件の論理削除済みの契約書を `/api/contracts/:id` の詳細と範囲内の案件の配下の経路で指すと、存在しない契約書と同じ 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件ずつ増えることを主張し、`@requirement contract-management/REQ-14.9`・`REQ-14.10` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（契約書の詳細・更新・ステータスの変更・取り除きの 404、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 14.9 の入れ子の経路のテスト、11.9 の開いた後に論理削除された契約書の操作のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、書き換えたテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、論理削除済みの契約書の ID 指定が範囲外のときだけ記録され、どの場合も存在しない契約書と同じ汎用の 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 14.9, 14.10_
+  - _Boundary: findProjectIdOfContract, requireContractProjectScope の解決関数と、論理削除済みの契約書の記録を主張する本機能のテスト_
+
+- [x] 22.2 変更契約の作成で、範囲外の案件の論理削除済みの基となる契約書を記録する
+  - backend/src/services/contract.service.ts の `createWithin` の基となる契約書の照合の順を、行が無い（422、記録しない）→ 経路のプロジェクトに属さない（`noteOutOfScopeReference` で範囲外なら記録のうえ 422）→ 同じプロジェクトで論理削除済み（422、記録しない）へ改める（design.md の同章の「決定」の「基となる契約書の照合の順」）。応答は 3 通りとも 14.6 と同じ 422 と同じ本文のまま、契約書を作成しない。照合の注釈を改める
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体（`backend/src/__tests__/unit/services/contract.service.test.ts`）の「変更契約の作成の要求が論理削除済みの基となる契約書（%s）を指すと、不在と同じ 422 の本文にし、作成せず、記録しない（14.8）」の 1 本を、同じプロジェクトでは判定も記録もせず、範囲外の案件では判定して記録 1 回（対象は基となる契約書の案件）の主張へ分ける。統合（`backend/src/__tests__/integration/contract-management-project-scope.api.integration.test.ts`）の「変更契約の作成の要求が論理削除済みの基となる契約書を指すと、…記録しない」の 1 本を、同じプロジェクトの論理削除済みの基では記録が増えず、範囲外の案件の論理削除済みの基では 1 件増える主張へ改める。どちらも不在と同じ 422 と本文、契約書の件数が変わらない主張を保つ
+  - E2E（`e2e/specs/contracts/contract-management-project-scope.spec.ts`）で、範囲外の案件の論理削除済みの契約書を基に指す変更契約の作成が存在しない基と同じ 422 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、契約書が作られないことを主張し、`@requirement contract-management/REQ-14.8` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 挙動の変更であるため RED → GREEN で進め、書き換えたテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、範囲外の案件の論理削除済みの基となる契約書を指す変更契約の作成が不在と同じ 422 で記録され、同じプロジェクトの論理削除済みの基では記録されない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 14.8_
+  - _Boundary: ContractService の変更契約の作成の基となる契約書の照合と、その記録を主張する本機能のテスト_

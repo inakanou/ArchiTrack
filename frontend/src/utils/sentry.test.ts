@@ -9,7 +9,32 @@ vi.mock('@sentry/react', () => ({
   captureMessage: vi.fn(),
   browserTracingIntegration: vi.fn(() => ({})),
   replayIntegration: vi.fn(() => ({})),
+  getClient: vi.fn(() => undefined),
 }));
+
+/** 直前の Sentry.init に渡した設定 */
+function lastInitOptions(): Record<string, unknown> {
+  const calls = (Sentry.init as ReturnType<typeof vi.fn>).mock.calls;
+  const options = calls[calls.length - 1]?.[0];
+  expect(options, 'Sentry.init が呼ばれていること').toBeDefined();
+  return options as Record<string, unknown>;
+}
+
+/** 直前の replayIntegration に渡した設定 */
+function lastReplayOptions(): Record<string, unknown> {
+  const calls = (Sentry.replayIntegration as ReturnType<typeof vi.fn>).mock.calls;
+  const options = calls[calls.length - 1]?.[0];
+  expect(options, 'replayIntegration が呼ばれていること').toBeDefined();
+  return options as Record<string, unknown>;
+}
+
+type Hook = (value: unknown, hint?: unknown) => unknown;
+
+function requireHook(options: Record<string, unknown>, name: string): Hook {
+  const hook = options[name];
+  expect(typeof hook, `${name} が設定されていること`).toBe('function');
+  return hook as Hook;
+}
 
 describe('Sentry Utilities', () => {
   beforeEach(() => {
@@ -91,10 +116,12 @@ describe('Sentry Utilities', () => {
       const initCall = (Sentry.init as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
       expect(initCall.integrations).toHaveLength(2);
       expect(Sentry.browserTracingIntegration).toHaveBeenCalled();
-      expect(Sentry.replayIntegration).toHaveBeenCalledWith({
-        maskAllText: true,
-        blockAllMedia: true,
-      });
+      expect(Sentry.replayIntegration).toHaveBeenCalledWith(
+        expect.objectContaining({
+          maskAllText: true,
+          blockAllMedia: true,
+        })
+      );
     });
   });
 
@@ -155,6 +182,262 @@ describe('Sentry Utilities', () => {
       beforeSend(event, hint);
 
       expect(console.debug).toHaveBeenCalledWith('[Sentry] Event captured:', event, hint);
+    });
+  });
+
+  /**
+   * user-authentication 要件37.3, 42.4: エラー監視へ送る URL のトークンを伏せる
+   * （backend の url-query-redaction と同じ規則。画面側は断片の #token=… も伏せる）
+   */
+  describe('URL のトークンの伏せ字', () => {
+    beforeEach(() => {
+      vi.stubEnv('VITE_SENTRY_DSN', 'https://example@sentry.io/123');
+      vi.stubEnv('DEV', false);
+    });
+
+    it('画面遷移の breadcrumb の from / to のトークン（#token= / ?token= / &token=）を伏せること', () => {
+      initSentry();
+      const beforeBreadcrumb = requireHook(lastInitOptions(), 'beforeBreadcrumb');
+
+      const result = beforeBreadcrumb({
+        category: 'navigation',
+        data: {
+          from: '/reset-password#token=reset-secret',
+          to: '/invitations/accept?lang=ja&token=invite-secret',
+        },
+      }) as { data: Record<string, string> };
+
+      expect(result.data.from).toBe('/reset-password#[REDACTED]');
+      expect(result.data.to).toBe('/invitations/accept?lang=ja&token=[REDACTED]');
+      expect(JSON.stringify(result)).not.toMatch(/reset-secret|invite-secret/);
+    });
+
+    it('fetch / xhr の breadcrumb の url のトークンを伏せ、他の値は残すこと', () => {
+      initSentry();
+      const beforeBreadcrumb = requireHook(lastInitOptions(), 'beforeBreadcrumb');
+
+      const fetchCrumb = beforeBreadcrumb({
+        category: 'fetch',
+        data: { method: 'GET', url: 'https://api.example.com/api/v1/x?token=fetch-secret&page=2' },
+      }) as { data: Record<string, unknown> };
+      const xhrCrumb = beforeBreadcrumb({
+        category: 'xhr',
+        data: { method: 'POST', url: '/api/v1/y?code=123456', status_code: 200 },
+      }) as { data: Record<string, unknown> };
+
+      expect(fetchCrumb.data.url).toBe('https://api.example.com/api/v1/x?token=[REDACTED]&page=2');
+      expect(fetchCrumb.data.method).toBe('GET');
+      expect(xhrCrumb.data.url).toBe('/api/v1/y?code=[REDACTED]');
+      expect(xhrCrumb.data.status_code).toBe(200);
+    });
+
+    it('URL を持たない breadcrumb はそのまま返すこと', () => {
+      initSentry();
+      const beforeBreadcrumb = requireHook(lastInitOptions(), 'beforeBreadcrumb');
+      const crumb = { category: 'ui.click', message: 'button' };
+
+      expect(beforeBreadcrumb(crumb)).toEqual({ category: 'ui.click', message: 'button' });
+    });
+
+    it('事象の request の url・query_string・Referer と、事象が持つ breadcrumb のトークンを伏せること', () => {
+      initSentry();
+      const beforeSend = requireHook(lastInitOptions(), 'beforeSend');
+
+      const result = beforeSend(
+        {
+          exception: { values: [{ value: 'Some error' }] },
+          request: {
+            url: 'https://app.example.com/reset-password#token=reset-secret',
+            query_string: 'token=query-secret&page=1',
+            headers: { Referer: 'https://app.example.com/register?token=invite-secret' },
+          },
+          breadcrumbs: [
+            { category: 'navigation', data: { from: '/a#token=crumb-secret', to: '/b' } },
+          ],
+        },
+        {}
+      ) as {
+        request: { url: string; query_string: string; headers: Record<string, string> };
+        breadcrumbs: Array<{ data: Record<string, string> }>;
+      };
+
+      expect(result.request.url).toBe('https://app.example.com/reset-password#[REDACTED]');
+      expect(result.request.query_string).toBe('token=[REDACTED]&page=1');
+      expect(result.request.headers.Referer).toBe(
+        'https://app.example.com/register?token=[REDACTED]'
+      );
+      expect(result.breadcrumbs[0]!.data.from).toBe('/a#[REDACTED]');
+      expect(JSON.stringify(result)).not.toMatch(/secret/);
+    });
+
+    it('トレースの事象の request の url のトークンも伏せること', () => {
+      initSentry();
+      const beforeSendTransaction = requireHook(lastInitOptions(), 'beforeSendTransaction');
+
+      const result = beforeSendTransaction({
+        type: 'transaction',
+        request: { url: 'https://app.example.com/register?token=invite-secret' },
+      }) as { request: { url: string } };
+
+      expect(result.request.url).toBe('https://app.example.com/register?token=[REDACTED]');
+    });
+
+    it('トレースの事象の trace の data（pageload の url.full）・子 span の data と description・事象名のトークンを伏せること', () => {
+      initSentry();
+      const beforeSendTransaction = requireHook(lastInitOptions(), 'beforeSendTransaction');
+
+      // browserTracingIntegration は pageload の span に url.full（断片を含む href）を付ける。
+      // 子 span（fetch / xhr / resource）は url.full・http.url・http.query・http.fragment・description に URL を持つ
+      const result = beforeSendTransaction({
+        type: 'transaction',
+        transaction: 'GET https://api.example.com/v1/auth/invitations/verify?token=name-secret',
+        contexts: {
+          trace: {
+            op: 'pageload',
+            data: {
+              'url.full': 'https://app.example.com/register#token=invite-secret',
+              'url.path': '/register',
+              'sentry.op': 'pageload',
+            },
+          },
+        },
+        spans: [
+          {
+            op: 'http.client',
+            description: 'GET https://api.example.com/v1/auth/password/verify?token=desc-secret',
+            data: {
+              'url.full': 'https://api.example.com/v1/auth/password/verify?token=full-secret',
+              'http.url': 'https://api.example.com/v1/auth/password/verify?token=http-secret',
+              url: '/v1/auth/password/verify?token=url-secret',
+              'http.query': '?token=query-secret&page=2',
+              'http.fragment': '#token=fragment-secret',
+              'url.query': '?token=urlquery-secret',
+              'url.fragment': '#token=urlfragment-secret',
+              'http.method': 'GET',
+            },
+          },
+          {
+            op: 'resource.img',
+            description: 'https://app.example.com/password-reset#token=resource-secret',
+            data: { 'server.address': 'app.example.com' },
+          },
+        ],
+      }) as {
+        transaction: string;
+        contexts: { trace: { data: Record<string, string> } };
+        spans: Array<{ description: string; data: Record<string, string> }>;
+      };
+
+      expect(JSON.stringify(result)).not.toMatch(/secret/);
+      expect(result.contexts.trace.data['url.full']).toBe(
+        'https://app.example.com/register#[REDACTED]'
+      );
+      expect(result.contexts.trace.data['url.path']).toBe('/register');
+      expect(result.transaction).toBe(
+        'GET https://api.example.com/v1/auth/invitations/verify?token=[REDACTED]'
+      );
+      const [httpSpan, resourceSpan] = result.spans;
+      expect(httpSpan!.description).toBe(
+        'GET https://api.example.com/v1/auth/password/verify?token=[REDACTED]'
+      );
+      expect(httpSpan!.data['url.full']).toBe(
+        'https://api.example.com/v1/auth/password/verify?token=[REDACTED]'
+      );
+      expect(httpSpan!.data['http.query']).toBe('?token=[REDACTED]&page=2');
+      expect(httpSpan!.data['http.fragment']).toBe('#[REDACTED]');
+      expect(httpSpan!.data['url.query']).toBe('?token=[REDACTED]');
+      expect(httpSpan!.data['url.fragment']).toBe('#[REDACTED]');
+      expect(httpSpan!.data['http.method']).toBe('GET');
+      expect(resourceSpan!.description).toBe('https://app.example.com/password-reset#[REDACTED]');
+      expect(resourceSpan!.data['server.address']).toBe('app.example.com');
+    });
+
+    it('エラーの事象の trace の data の url.full のトークンも伏せること', () => {
+      initSentry();
+      const beforeSend = requireHook(lastInitOptions(), 'beforeSend');
+
+      const result = beforeSend(
+        {
+          contexts: {
+            trace: { data: { 'url.full': 'https://app.example.com/password-reset#token=s-1' } },
+          },
+        },
+        {}
+      ) as { contexts: { trace: { data: Record<string, string> } } };
+
+      expect(result.contexts.trace.data['url.full']).toBe(
+        'https://app.example.com/password-reset#[REDACTED]'
+      );
+    });
+
+    it('セッションリプレイの記録（ページの href・遷移の span・breadcrumb）のトークンを伏せること', () => {
+      initSentry();
+      const beforeAddRecordingEvent = requireHook(lastReplayOptions(), 'beforeAddRecordingEvent');
+
+      const meta = beforeAddRecordingEvent({
+        type: 4,
+        timestamp: 1,
+        data: { href: 'https://app.example.com/reset-password#token=reset-secret' },
+      });
+      const span = beforeAddRecordingEvent({
+        type: 5,
+        timestamp: 2,
+        data: {
+          tag: 'performanceSpan',
+          payload: {
+            op: 'navigation.push',
+            description: 'https://app.example.com/register?token=invite-secret',
+            data: { previous: '/reset-password#token=reset-secret' },
+          },
+        },
+      });
+      const crumb = beforeAddRecordingEvent({
+        type: 5,
+        timestamp: 3,
+        data: {
+          tag: 'breadcrumb',
+          payload: {
+            category: 'navigation',
+            data: { from: '/a?token=from-secret', to: '/b#token=to-secret', url: '/c?token=u' },
+          },
+        },
+      });
+
+      expect(JSON.stringify([meta, span, crumb])).not.toMatch(/secret|token=u/);
+      expect((meta as { data: { href: string } }).data.href).toBe(
+        'https://app.example.com/reset-password#[REDACTED]'
+      );
+      expect(
+        (span as { data: { payload: { description: string } } }).data.payload.description
+      ).toBe('https://app.example.com/register?token=[REDACTED]');
+    });
+
+    it('セッションリプレイの事象の urls と request の url のトークンを伏せること', () => {
+      const on = vi.fn();
+      vi.mocked(Sentry.getClient).mockReturnValue({ on } as unknown as ReturnType<
+        typeof Sentry.getClient
+      >);
+      initSentry();
+
+      const registration = on.mock.calls.find(([name]) => name === 'preprocessEvent');
+      expect(registration, 'preprocessEvent を購読していること').toBeDefined();
+      const preprocess = registration![1] as (event: unknown) => void;
+
+      const replayEvent = {
+        type: 'replay_event',
+        urls: [
+          'https://app.example.com/reset-password#token=reset-secret',
+          'https://app.example.com/register?token=invite-secret',
+        ],
+        request: { url: 'https://app.example.com/reset-password#token=reset-secret' },
+      };
+      preprocess(replayEvent);
+
+      expect(replayEvent.urls).toEqual([
+        'https://app.example.com/reset-password#[REDACTED]',
+        'https://app.example.com/register?token=[REDACTED]',
+      ]);
+      expect(replayEvent.request.url).toBe('https://app.example.com/reset-password#[REDACTED]');
     });
   });
 

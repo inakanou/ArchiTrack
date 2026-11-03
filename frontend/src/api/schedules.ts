@@ -245,5 +245,9 @@ export async function bulkSaveScheduleItems(
  * @returns ファイルデータ
  */
 export async function exportSchedule(id: string, format: ExportFormat): Promise<Blob> {
-  return apiClient.get<Blob>(`/api/schedules/${id}/export?format=${format}`);
+  // ファイルの本文は Blob で受け取る（get は JSON 以外を文字列にするため URL.createObjectURL に渡せない）
+  // この要求はサーバーで出力の記録を書いてから生成するので、送り直すと記録が重なる。自動再試行はしない
+  return apiClient.getBlob(`/api/schedules/${id}/export?format=${format}`, {
+    disableRetry: true,
+  });
 }

@@ -6,6 +6,10 @@
  * Requirements:
  * - 1.3: 現場調査情報を編集して保存（楽観的排他制御）
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
+ *
+ * Task 120.1 変更: 更新が 404 を受けたときに、現場調査が見つからない旨のメッセージを送信のエラーの欄と
+ *   トーストに出し、応答の英語の文言を出さない（site-survey の Requirement 40.2。範囲外と不在を区別しない）。
+ *   読み込みの 404 の既存の表示（共通部品 ResourceNotFound）は変えない
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -18,6 +22,7 @@ import SiteSurveyForm from '../components/site-surveys/SiteSurveyForm';
 import type { SiteSurveyFormData } from '../components/site-surveys/SiteSurveyForm';
 import { buildSiteSurveyEditBreadcrumb } from '../utils/siteSurveyBreadcrumb';
 import { useToast } from '../hooks/useToast';
+import { getSiteSurveyNotFoundMessage } from '../utils/siteSurveyNotFound';
 
 // ============================================================================
 // スタイル定義
@@ -186,7 +191,10 @@ export default function SiteSurveyEditPage() {
         navigate(`/site-surveys/${id}`);
       } catch (err) {
         if (err instanceof ApiError) {
-          const errorMessage = err.message || '現場調査の更新に失敗しました';
+          // 更新の 404 は現場調査の不在〔範囲外を含む〕（Task 120.1）
+          const errorMessage =
+            getSiteSurveyNotFoundMessage(err, 'siteSurvey') ??
+            (err.message || '現場調査の更新に失敗しました');
 
           // トースト通知でエラーを表示
           toast.error(errorMessage);

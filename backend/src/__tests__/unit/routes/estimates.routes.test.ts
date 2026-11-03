@@ -69,6 +69,16 @@ const {
 }));
 
 // Mock dependencies before importing the routes
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は estimate-creation-project-scope.middleware.test.ts と
+// 統合テストが確かめる。estimate-creation タスク62.1）
+vi.mock('../../../middleware/estimate-creation-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireEstimateProjectScope: pass,
+  };
+});
+
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({
     $transaction: mockPrismaTransaction,
@@ -170,6 +180,8 @@ import {
 } from '../../../errors/estimateError.js';
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
 import { ValidationError } from '../../../errors/apiError.js';
+import { EstimateDraftService } from '../../../services/estimate-draft.service.js';
+import { saveEstimateDraftSchema } from '../../../schemas/estimate.schema.js';
 
 describe('estimates.routes', () => {
   let app: express.Express;
@@ -305,7 +317,12 @@ describe('estimates.routes', () => {
           projectId,
           name: 'テスト見積書',
         }),
-        'test-user-id'
+        'test-user-id',
+        // 内訳書の所属の照合で範囲外とした拒否の記録に添える要求の識別（タスク62.1、57.4）
+        expect.objectContaining({
+          method: 'POST',
+          path: expect.stringContaining(`/api/projects/${projectId}/estimates`),
+        })
       );
     });
 
@@ -324,7 +341,8 @@ describe('estimates.routes', () => {
         expect.objectContaining({
           sourceItemizedStatementId: itemizedStatementId,
         }),
-        'test-user-id'
+        'test-user-id',
+        expect.objectContaining({ method: 'POST' })
       );
     });
 
@@ -503,18 +521,48 @@ describe('estimates.routes', () => {
   });
 
   describe('DELETE /api/estimates/:id', () => {
-    const validDeleteInput = {
+    // 楽観的排他制御の基準時刻はクエリで受け取る（HTTP は DELETE の本文に意味を定めず、中継で落ちうるため。
+    // 画面の deleteEstimate もクエリで送る。2026-10-30 の是正、estimate-creation の Requirement 11.4・11.6）
+    const validDeleteQuery = {
       updatedAt: '2024-01-01T00:00:00.000Z',
     };
 
-    it('見積書を削除できること', async () => {
+    it('クエリの updatedAt で見積書を削除できること', async () => {
       mockDelete.mockResolvedValue(undefined);
 
       const response = await request(app)
         .delete(`/api/estimates/${validUUID}`)
-        .send(validDeleteInput);
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(204);
+      expect(mockDelete).toHaveBeenCalledTimes(1);
+      expect(mockDelete).toHaveBeenCalledWith(
+        validUUID,
+        expect.any(String),
+        new Date(validDeleteQuery.updatedAt)
+      );
+    });
+
+    it('updatedAt を本文だけに載せた要求は 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/estimates/${validUUID}`)
+        .send(validDeleteQuery);
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('クエリの updatedAt の形式が不正なら 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/estimates/${validUUID}`)
+        .query({ updatedAt: 'not-a-date' });
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
     });
 
     it('見積書が存在しない場合は404を返すこと', async () => {
@@ -522,7 +570,7 @@ describe('estimates.routes', () => {
 
       const response = await request(app)
         .delete(`/api/estimates/${validUUID}`)
-        .send(validDeleteInput);
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(404);
     });
@@ -532,7 +580,7 @@ describe('estimates.routes', () => {
 
       const response = await request(app)
         .delete(`/api/estimates/${validUUID}`)
-        .send(validDeleteInput);
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(409);
     });
@@ -783,6 +831,257 @@ describe('estimates.routes', () => {
 
       expect(response.status).toBe(200);
       expect(mockGetHierarchy).toHaveBeenCalledWith(validUUID);
+    });
+  });
+
+  /**
+   * 構造の不備だけで 422 となる要求でも、本文の形が正しい限り属さない見積項目の ID の範囲外の判定を通し、
+   * 形式の不正の 400 では判定しない（タスク66.1。design.md の「2026-10-31 の追加」章の「決定」）。
+   * 判定と記録の中身はサービスの単体テストと閲覧範囲の統合テストが確かめる。
+   *
+   * @requirement estimate-creation/REQ-57.11
+   */
+  describe('PUT /api/estimates/:id/save の構造の不備の 422 の分岐の範囲外の判定', () => {
+    const duplicatedId = '550e8400-e29b-41d4-a716-446655440066';
+    const saveNode = (id: string | null, tempId: string | null): Record<string, unknown> => ({
+      id,
+      tempId,
+      itemType: 'STANDARD',
+      lines: [
+        {
+          lineType: 'ESTIMATE',
+          name: '項目',
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount: null,
+          remarks: null,
+          sourceVendorName: null,
+        },
+      ],
+      children: [],
+    });
+    const body = (expectedUpdatedAt: string): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+      // 同じ既存 ID の重複配置（構造の不備）
+      items: [saveNode(duplicatedId, null), saveNode(duplicatedId, null)],
+    });
+
+    let recordSpy: ReturnType<typeof vi.spyOn>;
+    let statusApp: express.Express;
+
+    beforeEach(() => {
+      recordSpy = vi
+        .spyOn(EstimateDraftService.prototype, 'recordForeignItemScopeDenials')
+        .mockResolvedValue(undefined);
+      statusApp = express();
+      statusApp.use(express.json());
+      statusApp.use('/api/estimates', estimatesRoutes);
+      statusApp.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+        const status = (err as { statusCode?: number }).statusCode ?? 500;
+        res.status(status).json({ code: (err as { code?: string }).code ?? null });
+      });
+    });
+
+    afterEach(() => {
+      recordSpy.mockRestore();
+    });
+
+    it('構造の不備だけの 422 では、本文の明細ツリーと実行者と要求の識別を渡して判定の処理を呼ぶ', async () => {
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body('2026-10-31T00:00:00.000Z'));
+
+      expect(response.status).toBe(422);
+      expect(response.body.code).toBe('ESTIMATE_DRAFT_VALIDATION_ERROR');
+      expect(recordSpy).toHaveBeenCalledTimes(1);
+      expect(recordSpy).toHaveBeenCalledWith(
+        validUUID,
+        [
+          expect.objectContaining({ id: duplicatedId }),
+          expect.objectContaining({ id: duplicatedId }),
+        ],
+        'test-user-id',
+        expect.objectContaining({ method: 'PUT', path: `/api/estimates/${validUUID}/save` })
+      );
+    });
+
+    it('形式の不正を含む 400 では判定の処理を呼ばない', async () => {
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body('日時ではない'));
+
+      expect(response.status).toBe(400);
+      expect(recordSpy).not.toHaveBeenCalled();
+    });
+  });
+  /**
+   * 一括保存の本文の見積項目の総数と階層の深さの前倒しの数え上げ（タスク67.1）
+   *
+   * 総数の上限（2000）か深さの上限（100段）を超えた本文は、Zod の検証とサービスの保存を呼ばずに
+   * 従来の 422 の形で拒む。読んだ節点の ID で 57.11 の判定の処理を呼ぶ（B 案）。
+   *
+   * @requirement estimate-creation/REQ-42.10
+   * @requirement estimate-creation/REQ-42.12
+   */
+  describe('PUT /api/estimates/:id/save の総数と深さの前倒しの数え上げ', () => {
+    const foreignId = '550e8400-e29b-41d4-a716-446655440077';
+    const saveNode = (
+      children: unknown[] = [],
+      id: string | null = null,
+      tempId: string | null = 'tmp'
+    ): Record<string, unknown> => ({
+      id,
+      tempId,
+      itemType: 'STANDARD',
+      lines: [
+        {
+          lineType: 'ESTIMATE',
+          name: '項目',
+          specification: null,
+          unit: null,
+          quantity: null,
+          unitPrice: null,
+          amount: null,
+          remarks: null,
+          sourceVendorName: null,
+        },
+      ],
+      children,
+    });
+    const body = (items: unknown[], expectedUpdatedAt = '2026-10-31T00:00:00.000Z') => ({
+      expectedUpdatedAt,
+      reportFields: { submissionDate: null, validityPeriod: null, separateWorks: [] },
+      items,
+    });
+    const chain = (depth: number): Record<string, unknown> => {
+      let current = saveNode([], null, `tmp-${depth}`);
+      for (let level = depth - 1; level >= 1; level -= 1) {
+        current = saveNode([current], null, `tmp-${level}`);
+      }
+      return current;
+    };
+
+    let recordIdsSpy: ReturnType<typeof vi.spyOn>;
+    let recordTreeSpy: ReturnType<typeof vi.spyOn>;
+    let saveDraftSpy: ReturnType<typeof vi.spyOn>;
+    let safeParseSpy: ReturnType<typeof vi.spyOn>;
+    let statusApp: express.Express;
+
+    beforeEach(() => {
+      recordIdsSpy = vi
+        .spyOn(EstimateDraftService.prototype, 'recordForeignItemIdScopeDenials')
+        .mockResolvedValue(undefined);
+      recordTreeSpy = vi
+        .spyOn(EstimateDraftService.prototype, 'recordForeignItemScopeDenials')
+        .mockResolvedValue(undefined);
+      saveDraftSpy = vi
+        .spyOn(EstimateDraftService.prototype, 'saveDraft')
+        .mockRejectedValue(new Error('saveDraft は呼ばれない想定'));
+      safeParseSpy = vi.spyOn(saveEstimateDraftSchema, 'safeParse');
+      statusApp = express();
+      statusApp.use(express.json({ limit: '5mb' }));
+      statusApp.use('/api/estimates', estimatesRoutes);
+      statusApp.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+        const apiErr = err as { statusCode?: number; code?: string; details?: unknown };
+        res.status(apiErr.statusCode ?? 500).json({
+          code: apiErr.code ?? null,
+          message: err.message,
+          details: apiErr.details ?? null,
+        });
+      });
+    });
+
+    afterEach(() => {
+      recordIdsSpy.mockRestore();
+      recordTreeSpy.mockRestore();
+      saveDraftSpy.mockRestore();
+      safeParseSpy.mockRestore();
+    });
+
+    it('総数が 2001 件の本文は、Zod の検証とサービスの保存を呼ばずに件数の上限の 422 になる', async () => {
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body(Array.from({ length: 2001 }, (_, index) => saveNode([], null, `tmp-${index}`))));
+
+      expect(response.status).toBe(422);
+      expect(response.body).toEqual({
+        code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+        message: '見積明細の入力内容に不備があるため保存できません',
+        details: {
+          issues: [{ path: 'items', message: '見積明細は合計2000件以内で保存してください' }],
+        },
+      });
+      expect(safeParseSpy).not.toHaveBeenCalled();
+      expect(saveDraftSpy).not.toHaveBeenCalled();
+      expect(recordTreeSpy).not.toHaveBeenCalled();
+    });
+
+    it('深さ 101 段の本文は、Zod の検証とサービスの保存を呼ばずに深さの上限の 422 になる', async () => {
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body([chain(101)]));
+
+      expect(response.status).toBe(422);
+      expect(response.body).toEqual({
+        code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+        message: '見積明細の入力内容に不備があるため保存できません',
+        details: {
+          issues: [{ path: 'items', message: '見積項目の階層は100段以内で保存してください' }],
+        },
+      });
+      expect(safeParseSpy).not.toHaveBeenCalled();
+      expect(saveDraftSpy).not.toHaveBeenCalled();
+    });
+
+    it('上限を超え、形式の不正も併せて含む本文も 422 になる（従来は 400）', async () => {
+      const items = Array.from({ length: 2001 }, (_, index) => saveNode([], null, `tmp-${index}`));
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body(items, '日時ではない'));
+
+      expect(response.status).toBe(422);
+      expect(response.body.details.issues).toEqual([
+        { path: 'items', message: '見積明細は合計2000件以内で保存してください' },
+      ]);
+      expect(safeParseSpy).not.toHaveBeenCalled();
+    });
+
+    it('打ち切った本文でも、読んだ節点の ID と実行者と要求の識別で 57.11 の判定の処理を呼ぶ', async () => {
+      const items = [
+        saveNode([], foreignId, null),
+        ...Array.from({ length: 2000 }, (_, index) => saveNode([], null, `tmp-${index}`)),
+      ];
+      const response = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body(items));
+
+      expect(response.status).toBe(422);
+      expect(recordIdsSpy).toHaveBeenCalledTimes(1);
+      expect(recordIdsSpy).toHaveBeenCalledWith(
+        validUUID,
+        [foreignId],
+        'test-user-id',
+        expect.objectContaining({ method: 'PUT', path: `/api/estimates/${validUUID}/save` })
+      );
+    });
+
+    it('上限ちょうど（2000 件・100 段）の本文は従来どおり Zod の検証へ進み、打ち切りの判定を呼ばない', async () => {
+      saveDraftSpy.mockRejectedValue(Object.assign(new Error('到達'), { statusCode: 418 }));
+      const flatResponse = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body(Array.from({ length: 2000 }, (_, index) => saveNode([], null, `tmp-${index}`))));
+      const deepResponse = await request(statusApp)
+        .put(`/api/estimates/${validUUID}/save`)
+        .send(body([chain(100)]));
+
+      expect(flatResponse.status).toBe(418);
+      expect(deepResponse.status).toBe(418);
+      expect(safeParseSpy).toHaveBeenCalledTimes(2);
+      expect(saveDraftSpy).toHaveBeenCalledTimes(2);
+      expect(recordIdsSpy).not.toHaveBeenCalled();
     });
   });
 });

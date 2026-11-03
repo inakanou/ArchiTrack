@@ -2,24 +2,30 @@
  * @fileoverview 工事写真のアクセスの判定の API 統合テスト（担当でない一般ユーザー）
  *
  * Task 23.1: プロジェクトへのアクセスの判定が機能の中で食い違う状態を解消する
+ * Task 30.1: Task 23.1 の判断を要件39（本スペックの Requirement 21）の判定へ置き換える
  *
  * 利用者の判断（2026-10-03）により、工事写真・工事看板のアクセスはロールの権限の表（RBAC）
- * だけで判定する。プロジェクトの担当者（作成者・営業担当・工事担当）や admin ロールでの
- * 絞り込みは行わない。受入基準 13.2・13.3 の「アクセス可能なプロジェクト」は、実在し
- * 取り除かれていないプロジェクトと読む。
+ * だけで判定していた（Task 23.1）。同判断は、2026-10-24 の判断 A（user-authentication の要件39）と
+ * 2026-10-27 の判断（本スペックの Requirement 21 の新設と要件 1.2・13.2・13.3・17.1 の改訂）で
+ * 置き換えられた。閲覧範囲（営業担当者・工事担当者・作成者、または全案件閲覧の権限）の外は
+ * 存在しない場合と同じ 404 になる。範囲内での操作ごとの許否は従来どおりロールの権限の表で決める。
  *
  * 本ファイルが確かめること:
- * - 担当でない一般ユーザー（user ロール）が、権限の表の許す操作（閲覧・作成・編集）を
- *   他の利用者のプロジェクトの工事写真に対して行える（写真一覧・メタの一括更新・並び替え・
- *   原本・印字画像・アップロード）
- * - 権限の表が許さない操作（user ロールの写真項目の削除）は 403 で、行は残る
+ * - 担当でない一般ユーザー（user ロール）の他の利用者のプロジェクトの工事写真への要求（写真一覧・
+ *   メタの一括更新・並び替え・原本・印字画像・アップロード）は、存在しない id と同じ 404 で、
+ *   データベースとストレージが変わらない（Task 23.1 の「行える」の主張を書き換えた）
+ * - 同じ利用者を工事担当者・営業担当者・作成者に設定すると、同じ要求が通る
+ * - 権限の表が許さない操作（user ロールの写真項目の削除）は 403 で、行は残る（範囲の判定より先）
  * - 判定を広げていないこと: 未認証は 401、権限なしは 403、取り除かれたプロジェクト・
  *   論理削除済みのアルバム・存在しない id は 404、別のプロジェクトの id を混ぜた要求は拒否
+ *   （これらは範囲内の一般ユーザーで要求する）
  *
  * Scope:
  * - 実ストレージ（STORAGE_TYPE=local）＋実 sharp。テストは自己クリーンアップ
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
@@ -31,6 +37,8 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { initializeConstructionPhotoImageServices } from '../../routes/construction-photo-images.routes.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 describe('Construction Photo Access API Integration Tests（担当でない一般ユーザー）', () => {
   let prisma: PrismaClient;
@@ -89,20 +97,19 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({ data: { email, displayName, passwordHash } });
+    const user = await createTestUser(prisma, { email, displayName, passwordHash });
 
     for (const roleName of roles) {
       const role = await prisma.role.findUniqueOrThrow({ where: { name: roleName } });
       await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
     }
 
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email,
       password: 'TestPassword123!@#',
     });
-    expect(loginResponse.status).toBe(200);
 
-    return { userId: user.id, accessToken: loginResponse.body.accessToken as string };
+    return { userId: user.id, accessToken };
   };
 
   /** 指定の利用者でアルバムへ写真を1枚アップロードし、写真項目の id を返す */
@@ -113,6 +120,13 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
       .attach('images', validJpeg, { filename: fileName, contentType: 'image/jpeg' });
     expect(res.status).toBe(201);
     return res.body.successful[0].id as string;
+  };
+
+  /** ローカルストレージにあるアルバムの配下のファイル名を昇順で返す（無ければ空） */
+  const storedFilesOfAlbum = (albumId: string): string[] => {
+    const dir = path.join(process.env.LOCAL_STORAGE_PATH ?? '', 'construction-photos', albumId);
+    expect(process.env.LOCAL_STORAGE_PATH, '前提: ローカルストレージのパス').toBeTruthy();
+    return fs.existsSync(dir) ? fs.readdirSync(dir).sort() : [];
   };
 
   /** ロールが持つ権限のうち、指定のリソースの操作を昇順で返す */
@@ -352,101 +366,179 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     });
   });
 
-  describe('担当でない一般ユーザーは、権限の表が許す操作を他の利用者のプロジェクトに行える', () => {
-    it('写真一覧は 200 で、アルバムの写真項目を返す', async () => {
-      const res = await request(app)
-        .get(`/api/construction-photos/${albumAId}/images`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
-
-      expect(res.status).toBe(200);
-      expect((res.body as Array<{ id: string }>).map((p) => p.id).sort()).toEqual(
-        [photoA1, photoA2].sort()
-      );
-    });
-
-    it('メタの一括更新は 200 で、コメントが書き込まれる', async () => {
-      const res = await request(app)
-        .patch('/api/construction-photos/images/batch')
-        .set('Authorization', `Bearer ${outsiderToken}`)
-        .send({ items: [{ id: photoA1, comment: '担当でない利用者のコメント' }] });
-
-      expect(res.status).toBe(200);
-      expect((res.body as Array<{ id: string; comment: string | null }>)[0]).toMatchObject({
-        id: photoA1,
-        comment: '担当でない利用者のコメント',
+  // Task 23.1 の利用者の判断（2026-10-03、ロールの権限の表だけで判定する）のもとで、本区間は
+  // 「担当でない一般ユーザーは、権限の表が許す操作を他の利用者のプロジェクトに行える」を主張していた。
+  // 同判断は 2026-10-24 の判断 A（user-authentication の要件39）と 2026-10-27 の判断（本スペックの
+  // Requirement 21、要件 1.2・13.2・13.3・17.1 の改訂）で置き換えられた（タスク30.1）。主張は消さずに、
+  // 担当外は不在と同じ 404 でデータベースとストレージが変わらないこと（21.2・21.3）と、工事担当者・
+  // 営業担当者・作成者に設定すると同じ操作が通ること（21.1）へ書き換えた
+  describe('担当でない一般ユーザーには、他の利用者のプロジェクトの工事写真が不在と同じ 404 になり、データベースとストレージは変わらない', () => {
+    it('写真一覧・メタの一括更新・並び替え・原本・印字画像・アップロードはいずれも存在しない id と同じ 404 で、案件の id を返さず、書き込みも起きない', async () => {
+      const auth = { Authorization: `Bearer ${outsiderToken}` };
+      const before = await prisma.constructionPhoto.findMany({
+        where: { albumId: albumAId },
+        select: { id: true, comment: true, displayOrder: true, originalPath: true },
+        orderBy: { id: 'asc' },
       });
-      const row = await prisma.constructionPhoto.findUniqueOrThrow({ where: { id: photoA1 } });
-      expect(row.comment).toBe('担当でない利用者のコメント');
-    });
+      const filesBefore = storedFilesOfAlbum(albumAId);
 
-    it('並び替えは 204 で、表示順が書き込まれる', async () => {
-      const res = await request(app)
+      const missing = await request(app)
+        .get(`/api/construction-photos/${MISSING_ID}/images`)
+        .set(auth);
+      expect(missing.status).toBe(404);
+
+      const list = await request(app).get(`/api/construction-photos/${albumAId}/images`).set(auth);
+      const batch = await request(app)
+        .patch('/api/construction-photos/images/batch')
+        .set(auth)
+        .send({ items: [{ id: photoA1, comment: '担当でない利用者のコメント' }] });
+      const order = await request(app)
         .put(`/api/construction-photos/${albumAId}/images/order`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set(auth)
         .send({
           orders: [
             { id: photoA2, order: 1 },
             { id: photoA1, order: 2 },
           ],
         });
-
-      expect(res.status).toBe(204);
-      const rows = await prisma.constructionPhoto.findMany({
-        where: { albumId: albumAId },
-        orderBy: { displayOrder: 'asc' },
-        select: { id: true },
-      });
-      expect(rows.map((r) => r.id)).toEqual([photoA2, photoA1]);
-    });
-
-    it('原本は 200 で、作成者が取得する原本と同じバイト列を返す', async () => {
-      const asOwner = await request(app)
-        .get(`/api/construction-photos/images/${photoA1}/original`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .responseType('blob');
-      expect(asOwner.status).toBe(200);
-
-      const res = await request(app)
-        .get(`/api/construction-photos/images/${photoA1}/original`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
-        .responseType('blob');
-
-      expect(res.status).toBe(200);
-      expect(res.headers['content-type']).toContain('image/');
-      expect((res.body as Buffer).length).toBeGreaterThan(0);
-      expect(Buffer.compare(res.body as Buffer, asOwner.body as Buffer)).toBe(0);
-    });
-
-    it('印字画像は 200 で、看板を配置した写真項目では看板を重畳した画像を返す', async () => {
       const original = await request(app)
-        .get(`/api/construction-photos/images/${photoA2}/original`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
-        .responseType('blob');
-      expect(original.status).toBe(200);
-
-      const res = await request(app)
+        .get(`/api/construction-photos/images/${photoA1}/original`)
+        .set(auth);
+      const printImage = await request(app)
         .get(`/api/construction-photos/images/${photoA2}/print-image`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
-        .responseType('blob');
+        .set(auth);
+      const upload = await request(app)
+        .post(`/api/construction-photos/${albumAId}/images`)
+        .set(auth)
+        .attach('images', validJpeg, {
+          filename: 'outsider-upload.jpg',
+          contentType: 'image/jpeg',
+        });
 
-      expect(res.status).toBe(200);
-      expect(res.headers['content-type']).toContain('image/jpeg');
-      expect((res.body as Buffer).length).toBeGreaterThan(0);
-      // 重畳した画像は原本のバイト列と一致しない
-      expect(Buffer.compare(res.body as Buffer, original.body as Buffer)).not.toBe(0);
+      const responses = { list, batch, order, original, printImage, upload };
+      expect(
+        Object.fromEntries(Object.entries(responses).map(([key, res]) => [key, res.status]))
+      ).toEqual({ list: 404, batch: 404, order: 404, original: 404, printImage: 404, upload: 404 });
+      for (const [label, res] of Object.entries(responses)) {
+        expect(res.headers['content-type'], label).not.toContain('image/');
+        expect(res.body.code, label).toBe('NOT_FOUND');
+        expect(res.body.detail, label).toBe(missing.body.detail);
+        expect(JSON.stringify(res.body), label).not.toContain(projectAId);
+      }
+
+      const after = await prisma.constructionPhoto.findMany({
+        where: { albumId: albumAId },
+        select: { id: true, comment: true, displayOrder: true, originalPath: true },
+        orderBy: { id: 'asc' },
+      });
+      expect(after).toEqual(before);
+      expect(storedFilesOfAlbum(albumAId)).toEqual(filesBefore);
     });
+  });
 
-    it('アップロードは 201 で、写真項目が一覧に加わる', async () => {
-      const uploadedId = await uploadPhoto(outsiderToken, albumAId, 'outsider-upload.jpg');
+  describe('工事担当者・営業担当者・作成者に設定すると、権限の表が許す操作を他の利用者のプロジェクトに行える', () => {
+    const assignments: ReadonlyArray<
+      readonly [string, 'constructionPersonId' | 'salesPersonId' | 'createdById']
+    > = [
+      ['工事担当者', 'constructionPersonId'],
+      ['営業担当者', 'salesPersonId'],
+      ['作成者', 'createdById'],
+    ];
 
-      const list = await request(app)
-        .get(`/api/construction-photos/${albumAId}/images`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
-      expect(list.status).toBe(200);
-      expect((list.body as Array<{ id: string }>).map((p) => p.id)).toContain(uploadedId);
+    it.each(assignments)(
+      '%s に設定すると、写真一覧・メタの一括更新・並び替え・原本・印字画像・アップロードが通る',
+      async (_label, field) => {
+        const original = await prisma.project.findUniqueOrThrow({
+          where: { id: projectAId },
+          select: { salesPersonId: true, constructionPersonId: true, createdById: true },
+        });
+        await prisma.project.update({ where: { id: projectAId }, data: { [field]: outsiderId } });
+        try {
+          // 写真一覧は 200 で、アルバムの写真項目を返す
+          const list = await request(app)
+            .get(`/api/construction-photos/${albumAId}/images`)
+            .set('Authorization', `Bearer ${outsiderToken}`);
+          expect(list.status).toBe(200);
+          expect((list.body as Array<{ id: string }>).map((p) => p.id).sort()).toEqual(
+            [photoA1, photoA2].sort()
+          );
 
-      await prisma.constructionPhoto.deleteMany({ where: { id: uploadedId } });
-    });
+          // メタの一括更新は 200 で、コメントが書き込まれる
+          const comment = `${field} に設定した利用者のコメント`;
+          const batch = await request(app)
+            .patch('/api/construction-photos/images/batch')
+            .set('Authorization', `Bearer ${outsiderToken}`)
+            .send({ items: [{ id: photoA1, comment }] });
+          expect(batch.status).toBe(200);
+          expect((batch.body as Array<{ id: string; comment: string | null }>)[0]).toMatchObject({
+            id: photoA1,
+            comment,
+          });
+          const row = await prisma.constructionPhoto.findUniqueOrThrow({ where: { id: photoA1 } });
+          expect(row.comment).toBe(comment);
+
+          // 並び替えは 204 で、表示順が書き込まれる
+          const order = await request(app)
+            .put(`/api/construction-photos/${albumAId}/images/order`)
+            .set('Authorization', `Bearer ${outsiderToken}`)
+            .send({
+              orders: [
+                { id: photoA2, order: 1 },
+                { id: photoA1, order: 2 },
+              ],
+            });
+          expect(order.status).toBe(204);
+          const rows = await prisma.constructionPhoto.findMany({
+            where: { albumId: albumAId },
+            orderBy: { displayOrder: 'asc' },
+            select: { id: true },
+          });
+          expect(rows.map((r) => r.id)).toEqual([photoA2, photoA1]);
+
+          // 原本は 200 で、作成者が取得する原本と同じバイト列を返す
+          const asOwner = await request(app)
+            .get(`/api/construction-photos/images/${photoA1}/original`)
+            .set('Authorization', `Bearer ${ownerToken}`)
+            .responseType('blob');
+          expect(asOwner.status).toBe(200);
+          const originalImage = await request(app)
+            .get(`/api/construction-photos/images/${photoA1}/original`)
+            .set('Authorization', `Bearer ${outsiderToken}`)
+            .responseType('blob');
+          expect(originalImage.status).toBe(200);
+          expect(originalImage.headers['content-type']).toContain('image/');
+          expect(Buffer.compare(originalImage.body as Buffer, asOwner.body as Buffer)).toBe(0);
+
+          // 印字画像は 200 で、看板を配置した写真項目では看板を重畳した画像を返す
+          const originalA2 = await request(app)
+            .get(`/api/construction-photos/images/${photoA2}/original`)
+            .set('Authorization', `Bearer ${outsiderToken}`)
+            .responseType('blob');
+          expect(originalA2.status).toBe(200);
+          const printImage = await request(app)
+            .get(`/api/construction-photos/images/${photoA2}/print-image`)
+            .set('Authorization', `Bearer ${outsiderToken}`)
+            .responseType('blob');
+          expect(printImage.status).toBe(200);
+          expect(printImage.headers['content-type']).toContain('image/jpeg');
+          // 空の応答でも原本と異なるため、中身があることを先に主張する
+          expect((originalA2.body as Buffer).length).toBeGreaterThan(0);
+          expect((printImage.body as Buffer).length).toBeGreaterThan(0);
+          expect(Buffer.compare(printImage.body as Buffer, originalA2.body as Buffer)).not.toBe(0);
+
+          // アップロードは 201 で、写真項目が一覧に加わる
+          const uploadedId = await uploadPhoto(outsiderToken, albumAId, `outsider-${field}.jpg`);
+          const listAfter = await request(app)
+            .get(`/api/construction-photos/${albumAId}/images`)
+            .set('Authorization', `Bearer ${outsiderToken}`);
+          expect(listAfter.status).toBe(200);
+          expect((listAfter.body as Array<{ id: string }>).map((p) => p.id)).toContain(uploadedId);
+          await prisma.constructionPhoto.deleteMany({ where: { id: uploadedId } });
+        } finally {
+          await prisma.project.update({ where: { id: projectAId }, data: original });
+        }
+      }
+    );
   });
 
   describe('権限の表が許さない操作は拒否する（写真項目の削除）', () => {
@@ -544,13 +636,17 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     });
   });
 
+  // 以降の区間は、プロジェクトの境界・取り除かれたプロジェクト・論理削除の扱い（Task 23.1 の所属の判定、
+  // construction-photo-availability）を主張する。主張の対象は案件の閲覧範囲ではないため、範囲内の
+  // 一般ユーザー（プロジェクト A・B・C の作成者・営業担当の owner）で要求する（タスク30.1 で前提を整えた。
+  // 担当外の利用者では閲覧範囲の判定が先に 404 を返し、所属の判定へ届かない）
   describe('プロジェクトの境界は保つ（別のプロジェクトの id を混ぜた要求は拒否する）', () => {
     it('別のプロジェクトのアルバムを指す並び替えに他プロジェクトの写真項目を渡すと 404 で、表示順は変わらない', async () => {
       const before = await prisma.constructionPhoto.findUniqueOrThrow({ where: { id: photoA1 } });
 
       const res = await request(app)
         .put(`/api/construction-photos/${albumBId}/images/order`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({
           orders: [
             { id: photoB1, order: 2 },
@@ -566,7 +662,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('別のプロジェクトの看板を指定するメタの一括更新は 404 で、看板は指定されない', async () => {
       const res = await request(app)
         .patch('/api/construction-photos/images/batch')
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({ items: [{ id: photoA1, signboardId: signboardBId }] });
 
       expect(res.status).toBe(404);
@@ -578,7 +674,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('2 つのプロジェクトの写真項目を混ぜたメタの一括更新は 400 で、どちらにも書き込まない', async () => {
       const res = await request(app)
         .patch('/api/construction-photos/images/batch')
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({
           items: [
             { id: photoA1, comment: '混在A' },
@@ -600,10 +696,10 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('別のプロジェクトの配下としてアルバムを取得すると 404（自プロジェクトの配下なら 200）', async () => {
       const wrong = await request(app)
         .get(`/api/projects/${projectBId}/construction-photos/${albumAId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
+        .set('Authorization', `Bearer ${ownerToken}`);
       const right = await request(app)
         .get(`/api/projects/${projectAId}/construction-photos/${albumAId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
+        .set('Authorization', `Bearer ${ownerToken}`);
 
       expect({ wrong: wrong.status, right: right.status }).toEqual({ wrong: 404, right: 200 });
     });
@@ -617,13 +713,13 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
 
       const original = await request(app)
         .get(`${base}/${photoA1}/original`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
+        .set('Authorization', `Bearer ${ownerToken}`);
       const printImage = await request(app)
         .get(`${base}/${photoA1}/print-image`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
+        .set('Authorization', `Bearer ${ownerToken}`);
       const batch = await request(app)
         .patch(`${base}/batch`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({ items: [{ id: photoA1, comment: '別のアルバムの配下からの書き込み' }] });
       const del = await request(app)
         .delete(`${base}/${photoA1}`)
@@ -643,7 +739,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('写真項目を自身のアルバムの配下として指すときは、原本を返す（対照）', async () => {
       const res = await request(app)
         .get(`/api/construction-photos/${albumAId}/images/${photoA1}/original`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
+        .set('Authorization', `Bearer ${ownerToken}`);
 
       expect(res.status).toBe(200);
     });
@@ -655,7 +751,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
 
       const res = await request(app)
         .patch(`/api/projects/${projectBId}/construction-signboards/${signboardAId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({ workName: '境界を越えた書き換え', updatedAt: signboard.updatedAt.toISOString() });
 
       expect(res.status).toBe(404);
@@ -668,7 +764,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
 
   describe('取り除かれたプロジェクト・論理削除済みのアルバム・存在しない id は 404', () => {
     it('取り除かれたプロジェクトの写真一覧・メタの一括更新・並び替え・原本・印字画像は 404 で、書き込みも起きない', async () => {
-      const auth = { Authorization: `Bearer ${outsiderToken}` };
+      const auth = { Authorization: `Bearer ${ownerToken}` };
 
       const list = await request(app).get(`/api/construction-photos/${albumCId}/images`).set(auth);
       const batch = await request(app)
@@ -704,7 +800,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('取り除かれたプロジェクトのアルバムへのアップロードは 404 で、写真項目は増えない', async () => {
       const res = await request(app)
         .post(`/api/construction-photos/${albumCId}/images`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .attach('images', validJpeg, { filename: 'removed.jpg', contentType: 'image/jpeg' });
 
       expect(res.status).toBe(404);
@@ -764,7 +860,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     });
 
     it('存在しないアルバム・写真項目の id は 404', async () => {
-      const auth = { Authorization: `Bearer ${outsiderToken}` };
+      const auth = { Authorization: `Bearer ${ownerToken}` };
 
       const list = await request(app)
         .get(`/api/construction-photos/${MISSING_ID}/images`)
@@ -797,7 +893,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('取り除かれたプロジェクトのアルバムの一覧は 404 で、アルバムも署名付き URL も返さない', async () => {
       const res = await request(app)
         .get(`/api/projects/${projectCId}/construction-photos`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
+        .set('Authorization', `Bearer ${ownerToken}`);
 
       expect(res.status).toBe(404);
       expect(res.body.data).toBeUndefined();
@@ -810,10 +906,10 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('取り除かれたプロジェクトのアルバムの取得は、flat でもプロジェクトの配下でも 404', async () => {
       const flat = await request(app)
         .get(`/api/construction-photos/${albumCId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
+        .set('Authorization', `Bearer ${ownerToken}`);
       const nested = await request(app)
         .get(`/api/projects/${projectCId}/construction-photos/${albumCId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
+        .set('Authorization', `Bearer ${ownerToken}`);
 
       expect({ flat: flat.status, nested: nested.status }).toEqual({ flat: 404, nested: 404 });
       expect(JSON.stringify(flat.body)).not.toContain('アクセス判定用アルバムC');
@@ -826,7 +922,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
 
       const res = await request(app)
         .patch(`/api/construction-photos/${albumCId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({
           name: '取り除かれたプロジェクトへの書き換え',
           updatedAt: album.updatedAt.toISOString(),
@@ -855,7 +951,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('取り除かれたプロジェクトの看板の一覧は 404 で、看板を返さない', async () => {
       const res = await request(app)
         .get(`/api/projects/${projectCId}/construction-signboards`)
-        .set('Authorization', `Bearer ${outsiderToken}`);
+        .set('Authorization', `Bearer ${ownerToken}`);
 
       expect(res.status).toBe(404);
       expect(Array.isArray(res.body)).toBe(false);
@@ -873,11 +969,11 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
 
       const flat = await request(app)
         .patch(`/api/construction-signboards/${signboardCId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send(body);
       const nested = await request(app)
         .patch(`/api/projects/${projectCId}/construction-signboards/${signboardCId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send(body);
 
       expect({ flat: flat.status, nested: nested.status }).toEqual({ flat: 404, nested: 404 });
@@ -906,7 +1002,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('取り除かれたプロジェクトのアルバムへの現調写真のコピーは 404 で、写真項目は増えない', async () => {
       const res = await request(app)
         .post(`/api/construction-photos/${albumCId}/images/from-surveys`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({ surveyImageIds: [surveyImageCId] });
 
       expect(res.status).toBe(404);
@@ -922,7 +1018,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
 
       const res = await request(app)
         .patch(`/api/projects/${projectBId}/construction-photos/${albumEId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({ name: '境界を越えた書き換え', updatedAt: album.updatedAt.toISOString() });
 
       expect(res.status).toBe(404);
@@ -936,7 +1032,7 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
     it('存在しないプロジェクトの配下としてアルバムを更新すると、版の照合（409）より先に 404 になる', async () => {
       const res = await request(app)
         .patch(`/api/projects/${MISSING_ID}/construction-photos/${albumEId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({
           name: '存在しないプロジェクトからの書き換え',
           updatedAt: '2000-01-01T00:00:00.000Z',
@@ -968,14 +1064,14 @@ describe('Construction Photo Access API Integration Tests（担当でない一�
 
       const nested = await request(app)
         .patch(`/api/projects/${projectAId}/construction-photos/${albumEId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({ name: 'アルバムE（配下から更新）', updatedAt: album.updatedAt.toISOString() });
       expect(nested.status).toBe(200);
       expect(nested.body.name).toBe('アルバムE（配下から更新）');
 
       const flat = await request(app)
         .patch(`/api/construction-photos/${albumEId}`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
         .send({ name: 'アルバムE（flat で更新）', updatedAt: nested.body.updatedAt as string });
       expect(flat.status).toBe(200);
       expect(flat.body.name).toBe('アルバムE（flat で更新）');

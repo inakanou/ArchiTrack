@@ -8,6 +8,7 @@
  * - REQ-8.11: 削除確認時に契約書を論理削除する
  * - REQ-12.1: 子契約が存在する場合に削除を拒否し、エラーメッセージを表示する
  * - REQ-12.2: 契約済ステータスの場合に削除を拒否し、エラーメッセージを表示する
+ * - REQ-11.9: 削除が 404 を受けたときに契約書が見つからない旨を表示する（Task 21.1）
  *
  * @module components/contracts/DeleteConfirmDialog
  */
@@ -15,6 +16,7 @@
 import { useState, useCallback } from 'react';
 import { deleteContract } from '../../api/contracts';
 import { ApiError } from '../../api/client';
+import { classifyContractError } from '../../utils/contractErrorHandler';
 
 // ============================================================================
 // 型定義
@@ -116,6 +118,7 @@ const styles = {
  * - 削除API呼び出し（DELETE /api/contracts/:id）
  * - 削除成功時にダイアログを閉じ、onDeleteSuccessコールバックで通知
  * - 422エラー（削除制約）のメッセージをダイアログ内に表示
+ * - 404（範囲外と不在を区別しない）は契約書が見つからない旨をダイアログ内に表示（REQ-11.9）
  */
 export function DeleteConfirmDialog({
   contractId,
@@ -139,10 +142,15 @@ export function DeleteConfirmDialog({
       onClose();
       onDeleteSuccess();
     } catch (err) {
+      const classified = classifyContractError(err);
       if (err instanceof ApiError && err.statusCode === 422) {
         const msg = err.message;
         setErrorMessage(msg);
         onDeleteError?.(msg);
+      } else if (classified.type === 'not_found') {
+        // 削除の失敗ではなく、契約書が見つからない旨を告げる（REQ-11.9）
+        setErrorMessage(classified.message);
+        onDeleteError?.(classified.message);
       } else {
         const msg = '削除に失敗しました';
         setErrorMessage(msg);
@@ -168,7 +176,7 @@ export function DeleteConfirmDialog({
         </h2>
         <p style={styles.message}>この操作は取り消せません。</p>
 
-        {/* エラーメッセージ表示 (REQ-12.1, REQ-12.2) */}
+        {/* エラーメッセージ表示 (REQ-12.1, REQ-12.2, REQ-11.9) */}
         {errorMessage && (
           <div role="alert" style={styles.errorMessage}>
             {errorMessage}

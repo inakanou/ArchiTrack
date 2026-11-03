@@ -35,22 +35,24 @@ export async function login(email: string, password: string): Promise<LoginRespo
 
 /**
  * 2FA検証（ログイン時）
- * @param userId ユーザーID
- * @param totpCode TOTPコード（6桁）
+ * @param challengeToken ログインの応答の 2FA 待ちの資格（要件32.1）
+ * @param code TOTPコード（6桁）
  * @returns 認証レスポンス（アクセストークン、ユーザー情報）
  */
-export async function verify2FA(userId: string, totpCode: string): Promise<AuthResponse> {
+export async function verify2FA(challengeToken: string, code: string): Promise<AuthResponse> {
   return apiClient.post<AuthResponse>('/api/v1/auth/verify-2fa', {
-    userId,
-    totpCode,
+    challengeToken,
+    code,
   });
 }
 
 /**
  * ログアウト（現在のデバイス）
+ *
+ * 本文を送らず、Cookie と X-CSRF-Token で送る（要件33.4, 33.12）
  */
 export async function logout(): Promise<void> {
-  await apiClient.post<void>('/api/v1/auth/logout');
+  await apiClient.logoutSession();
 }
 
 /**
@@ -65,7 +67,8 @@ export async function logoutAll(): Promise<void> {
  * @returns 認証レスポンス（新しいアクセストークン、ユーザー情報）
  */
 export async function refreshToken(): Promise<AuthResponse> {
-  return apiClient.post<AuthResponse>('/api/v1/auth/refresh');
+  // 本文を送らず、Cookie と X-CSRF-Token で送る（要件33.8, 33.12）
+  return (await apiClient.refreshSession<AuthResponse['user']>()) as AuthResponse;
 }
 
 /**

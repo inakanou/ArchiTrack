@@ -915,3 +915,54 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
   - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
   - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
+
+## Task 30: 案件の閲覧範囲（user-authentication の要件39）と出力の事前記録（同 要件40）を本スペックの API と出力へ適用し、Task 23.1 の判断を要件39 へ置き換える（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（`POST /api/v1/audit-logs/exports` を受ける `ExportAuditService`、frontend/src/api/export-audit.ts の `runRecordedExport`）を実装した（同スペックのタスク52.1・53.3・53.4）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.4 が本スペックの項目（原本の取得への関係者の判定、台帳 PDF と ZIP の出力の記録）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件のアルバム・写真・看板を読み書きできる）ことと、出力が記録を経ないこと（`runRecordedExport` の本番の呼び出し元は 0 件）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）。
+
+**利用者の判断（2026-10-24、A。user-authentication の tasks.md の Implementation Notes の 52.3）**: 案件の閲覧範囲は、user-authentication の要件39 が本スペックの Task 23.1 の利用者の判断（2026-10-03、ロールの権限の表だけで判定する）に優先する。同スペックの 52.3 はこれに従って E2E construction-photo-additional.spec.ts の「担当でない一般ユーザーが…」を、担当外は「プロジェクトが見つかりません」でアルバムの行が 0 件、工事担当者に設定すると見える、の主張へ書き直した。本スペックの API・設計文書・統合テストは旧い判断のまま残っている
+
+- [x] 30.1 Task 23.1 の判断（ロールの権限の表だけで判定）を要件39 の判定へ置き換え、旧い判断を主張する文書と統合テストを改める
+  - design.md の 83〜84 行付近（プロジェクトメンバーシップ専用ガードは存在しない、工事写真・工事看板のアクセスもロールの権限の表だけで判定する）と、903 行付近・920 行付近の試験の方針（担当でない一般ユーザーが他の利用者のプロジェクトのアルバム・写真項目・看板を操作できる）を、要件39 の判定（担当者・作成者・全案件閲覧の権限だけが範囲内、範囲外は不在と同じ 404）へ改め、23.1 の判断が 2026-10-24 の判断 A で置き換えられたことを記録する（23.1 の記録は残す）
+  - 要件 1.2・13.2・13.3・17.1 の「アクセス可能なプロジェクト」の読み方を要件39 の範囲に揃える。requirements.md の改訂の要否は着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 要件 1.2・13.2・13.3・17.1 の条文を改訂し、改訂の記録（採らなかった案: 条文を変えず design.md だけで読み替える案）を requirements.md の各受入基準の下に残した。design.md は「Requirement 21: 案件の閲覧範囲と出力の記録の適用」章の「要件 1.2・13.2・13.3・17.1 の読み替え」節に設計上の読み方を記し、Existing Architecture Analysis・API Contracts・Testing Strategy・Security Considerations の旧い判断の記述は 23.1 の記録として残して、2026-10-24 の判断 A と 2026-10-27 の判断で置き換えられたことを書き添えた
+  - **旧い判断を主張する統合テスト（user-authentication の 52.2 の記録の区分 C）**: backend の統合テスト construction-photo-access.api.integration.test.ts（担当でない user の各操作が通ることの主張。52.2 の記録で 8 件）、construction-photo-metadata.api.integration.test.ts、construction-photo-original-image.api.integration.test.ts、construction-photo-print-image.api.integration.test.ts、construction-photo-image.api.integration.test.ts の担当外の利用者の操作。担当外は不在と同じ 404 で DB とストレージが変わらないこと、工事担当者・営業担当者・作成者に設定すると通ることの主張へ書き換える（主張を消さない）。30.2 の適用と同じ変更で行う（片方だけでは赤になる）
+  - _Requirements: 21.1, 21.2, 21.3, 1.2, 13.2, 13.3, 17.1_
+  - _Boundary: 本スペックの design.md のアクセスの判定の記述と、旧い判断を主張する統合テスト_
+
+- [x] 30.2 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/construction-photos.routes.ts（`/api/projects/:projectId/construction-photos` と `/api/construction-photos`）: `POST /`（95）、`GET /`（174）、`GET /:id`（262）、`PATCH /:id`（334）、`DELETE /:id`（390）
+    - backend/src/routes/construction-photo-images.routes.ts（`/api/construction-photos/:id/images` と `/api/construction-photos/images`）: `GET /`（241）、`POST /`（332）、`POST /from-surveys`（452）、`PATCH /batch`（560）、`PUT /order`（643）、`DELETE /:imageId`（712）、`GET /:imageId/print-image`（782）、`GET /:imageId/original`（867）
+    - backend/src/routes/construction-signboards.routes.ts（`/api/projects/:projectId/construction-signboards` と `/api/construction-signboards`）: `POST /`（104）、`GET /`（160）、`PATCH /:id`（240）、`DELETE /:id`（298）
+  - アルバム・写真・看板の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。Task 23.1 が backend/src/services/construction-photo-availability.ts にまとめた所属の判定（配下として指したときの 404 / 400）との順序と重複を整理する。一括の経路（`PATCH /batch`、`PUT /order`）は対象の全件の案件を判定し、現調コピー（`POST /from-surveys`）はコピー元の現場調査の案件も判定する
+  - アルバムの代表サムネイル・写真の一覧などの署名 URL（construction-photo-image.service.ts・construction-photo-metadata.service.ts）は範囲内に限って発行する（39.4。是正計画 §5.4 の「原本取得 API に関係者判定（閲覧範囲）を適用する」）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者がアルバムの URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 21（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 21.1〜21.7 が受ける（30.1 と同じ変更で行うため 21.1〜21.3 は 30.1 と重ねて名乗る）。一括の経路は 1 件でも範囲外なら要求全体を 404 で書き込みなし（21.4）、現調コピーはコピー元の案件も判定する（21.5）と条文に定めた。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 21.1, 21.2, 21.3, 21.4, 21.5, 21.6, 21.7, 13.2, 13.3_
+  - _Boundary: 本スペックの API の案件の範囲の判定と署名 URL の発行_
+  - _Depends: 30.1（同じ変更で行う）_
+
+- [x] 30.3 本スペックの出力に事前記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測。着手時に測り直すこと）:
+    - 工事写真台帳の PDF: frontend/src/pages/ConstructionPhotoDetailPage.tsx の `handleExportPdf`（906 行付近、`exportConstructionPhotoLedger`）。種別 `construction_photo_ledger_pdf`
+    - 写真の一括 ZIP: 同ページの `handleExportStart`（1021 行付近、frontend/src/services/export/ConstructionPhotoBulkExportService.ts）。種別 `construction_photos_zip`
+  - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
+  - 挙動の変更であるため RED → GREEN で進め、E2E で各出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Requirements: 21.8, 21.9_
+  - _Boundary: 本スペックの画面の出力の開始の処理_
+  - _Depends: 30.2_
+
+## Task 31: 工事写真の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 21.2 により閲覧範囲外のアルバム・写真項目・工事看板・プロジェクトへの要求は不在と同じ 404 になるが、画面の多くは 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `ConstructionPhotoDetailPage.tsx` は読み込みの失敗で `ApiError` の `message`（汎用の 404 では英語の文言、範囲内の本体の 404 ではアルバムの ID を含む英語の文言）と再試行の釦を表示し（656 行付近、1278 行付近）、アルバムの削除（811 行付近）・メタデータと表示順序の保存（910 行付近）・台帳の PDF の出力（984 行付近、993 行付近）・一括 ZIP の出力（1152 行付近）も `message` をそのまま出す。`ConstructionPhotoListPage.tsx` と `ConstructionSignboardListPage.tsx` は二つの取得を並行して待ち、先に失敗した側の文言を出すため、応答の順序で英語の文言になる（270 行付近・284 行付近、321 行付近・328 行付近）。一覧の画面のアルバムの削除（383 行付近）、看板の登録・更新・削除（349 行付近・378 行付近・398 行付近）、`ConstructionPhotoCreatePage.tsx` の作成（276 行付近）、`ConstructionPhotoEditPage.tsx` の更新（307 行付近）も `message` をそのまま出す。新規作成の画面（320 行付近）・編集の画面（331 行付近）・工事看板の一覧の画面（423 行付近）の見つからない旨の表示は戻り先のリンクを持たない。`ConstructionPhotoImageViewerPage.tsx` は原本の取得の 404 で `message` を出す（115 行付近）。`PhotoItemPanel.tsx` の写真項目の削除（164 行付近）、`PhotoUploader.tsx` のアップロードの失敗した画像の理由（131 行付近）と現場調査写真のコピー（325 行付近）、`SurveyImagePicker.tsx` のコピー元の選択の読み込み（247 行付近・271 行付近）も `message` をそのまま出す。写真の閲覧の画面のアルバムと写真項目の読み込みは既に `ResourceNotFound` を表示している。サーバーの応答は変えない（Requirement 21.2・21.3）。食い違いの記録（user-authentication の要件39.8）は、本機能の解決関数が対象の実際の案件で判定しているため対象外である。requirements.md に Requirement 22（22.1・22.2）を加え、design.md の「Requirement 22: 存在しない工事写真アルバム・写真項目・工事看板・プロジェクトを受けた画面の表示」章に設計を置いた
+
+- [x] 31.1 工事写真の画面の読み込みと操作で、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める。site-survey のタスク120.1 の部品と共用にするなら横断の層に置き、site-survey の文言を変えない）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンクを表示し、応答の英語の文言・取得の失敗の文言と再試行の釦を出さない（詳細・編集の画面は工事写真アルバム、一覧・新規作成・工事看板の一覧の画面はプロジェクト。戻り先はいずれもプロジェクトの一覧）。一覧の画面と工事看板の一覧の画面は二つの取得のどちらの 404 でも、応答の順序によらず同じプロジェクトの不在の表示にする。写真の閲覧の画面は原本の取得の 404 でも既存の読み込みの 404 と同じ表示にする
+  - 操作の 404 では、従来の失敗の表示の場所に見つからない旨のメッセージを出す: アルバムの削除と更新（工事写真アルバム）、作成（プロジェクト）、メタデータと表示順序の保存（工事写真アルバムまたは写真項目）、写真項目の削除（写真項目。写真項目の中の表示の構成〔タスク 23.9〕を保つ）、写真のアップロード（失敗した画像の理由を工事写真アルバムが見つからない旨にする。部分失敗の継続〔12.5〕と保持と再送〔Requirement 20〕は変えない）、現場調査写真のコピー（`SURVEY_IMAGE_NOT_ALLOWED` を含めて工事写真アルバムまたは現場調査写真）とコピー元の選択の読み込み、台帳の PDF と一括 ZIP の出力（写真項目）、看板の登録（プロジェクト）・更新と削除（工事看板）。取り除かれた看板を指定した保存の文言（タスク 24.2）、記録の失敗の文言（21.9）、ZIP の出力の開始の失敗の文言、看板の 403 の文言、409 と 404 以外の失敗の従来の文言は保つ。文言の逐語は `ResourceNotFound` の見出しの形と編集の画面の既存の文言とプロジェクトの取得の既存の置き換えの文言を流儀として design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、各画面の読み込みの 404 の表示と、一覧の画面と工事看板の一覧の画面の二つの取得の順序の両方、写真の閲覧の画面の原本の取得の 404、各操作の 404 のメッセージ。404 以外の失敗の従来の文言と記録の失敗の文言と取り除かれた看板の文言は保つ）と E2E（担当外の利用者がアルバムの詳細の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが出て存在しないアルバムと同じ表示になる、範囲外のプロジェクトの工事写真の一覧・アルバムの新規作成・工事看板の一覧の URL でプロジェクトが見つからない旨が出る、アルバムの編集の画面と写真の閲覧の画面の URL でも見つからない旨が出る、開いた後に取り除かれたアルバムの削除・更新・保存・アップロード・出力と、開いた後に取り除かれた写真項目・工事看板の削除などで見つからない旨のメッセージが出る）で主張し、`@requirement construction-photo/REQ-22.1`・`REQ-22.2` の印を置く
+  - 既存の E2E の扱い: `e2e/specs/construction-photos/construction-photo-project-scope.spec.ts` の担当外の利用者が存在しないアルバムと同じ表示になることの主張は `role="alert"` の本文を比べており（334 行付近）、`ResourceNotFound` は `alert` の役割を持たないため観測が成り立たなくなる。比較の主張は消さず、見つからない旨の表示どうしの比較へ改める。同ファイルの担当外の利用者がアルバムの一覧の URL を開く主張（630 行付近）も `alert` の役割で観測しており、プロジェクトが見つからない旨の表示の観測へ改める（アルバムの行が出ないことの主張は残す）。`construction-photo-additional.spec.ts` の担当外の一般ユーザーの主張（1390 行付近）も `alert` の役割の中のプロジェクトが見つからない旨で観測しており、同じく改める。同ファイルの「モバイル幅で区切りの無い長いファイル名・文言でも通知とエラー表示が水平にはみ出さない」の (3)（4170 行付近）はアルバムの取得を 404 に差し替えて取得の失敗の表示と再試行の釦を観測しており、404 では再試行の釦が出なくなるため、404 以外の失敗（500 など）への差し替えに改めて、長い文言の取得の失敗の表示がはみ出さないことの主張を保つ。`construction-photo-focus-visible.spec.ts`（897 行付近）と `construction-photo-additional.spec.ts`（6724 行付近）の画像の取得の 404 の差し替えは一括 ZIP の写真項目ごとの失敗であり、緑のままであることを確かめる。`construction-photo-upload-retry.spec.ts` のアップロードの失敗の保持と再送は、404 以外の従来の表示として緑のままであることを確かめる。ほかに、変えた表示（取得の失敗・削除の失敗・作成と更新の失敗・PDF の出力の失敗・エクスポートの失敗・現調写真の追加の失敗の文言、再試行の釦、見つからない旨の文言、英語の Not found）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、応答の英語の文言と取得・操作の失敗の汎用の文言を出さない状態になる
+  - _Requirements: 22.1, 22.2_
+  - _Boundary: ConstructionPhotoListPage, ConstructionPhotoCreatePage, ConstructionPhotoDetailPage, ConstructionPhotoEditPage, ConstructionPhotoImageViewerPage, ConstructionSignboardListPage, PhotoItemPanel, PhotoUploader, SurveyImagePicker_

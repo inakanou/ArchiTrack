@@ -29,6 +29,9 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /** 本テストが作るユーザー（他の統合テストと衝突しない接頭辞） */
 const OWNER_EMAIL = 'test-project-name-validation-owner@example.com';
@@ -108,8 +111,9 @@ describe('プロジェクト名の制約（project-management/REQ-13.1）', () =
     const projectIds = projects.map((project) => project.id);
     if (projectIds.length > 0) {
       await prisma.projectStatusHistory.deleteMany({ where: { projectId: { in: projectIds } } });
-      await prisma.auditLog.deleteMany({
-        where: { targetType: 'Project', targetId: { in: projectIds } },
+      await deleteAuditLogsWithArchivePermission(prisma, {
+        targetType: 'Project',
+        targetId: { in: projectIds },
       });
       await prisma.project.deleteMany({ where: { id: { in: projectIds } } });
     }
@@ -123,7 +127,7 @@ describe('プロジェクト名の制約（project-management/REQ-13.1）', () =
     });
     const userIds = users.map((user) => user.id);
     if (userIds.length === 0) return;
-    await prisma.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
+    await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: userIds } });
     await prisma.userRole.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   };
@@ -134,7 +138,7 @@ describe('プロジェクト名の制約（project-management/REQ-13.1）', () =
       await import('@node-rs/argon2')
     ).hash(PASSWORD, { memoryCost: 65536, timeCost: 3, parallelism: 4 });
 
-    const user = await prisma.user.create({ data: { email, displayName, passwordHash } });
+    const user = await createTestUser(prisma, { email, displayName, passwordHash });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
     if (!userRole) {
@@ -168,11 +172,7 @@ describe('プロジェクト名の制約（project-management/REQ-13.1）', () =
       }
     }
 
-    const loginResponse = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: OWNER_EMAIL, password: PASSWORD })
-      .expect(200);
-    accessToken = loginResponse.body.accessToken;
+    accessToken = await loginForAccessToken(app, { email: OWNER_EMAIL, password: PASSWORD });
   });
 
   // 作成の入口には同名の拒否があるため、各観測の前に本テストが作った分を取り除く

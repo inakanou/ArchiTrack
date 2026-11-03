@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { createInvitation, createTestUser } from '../../fixtures/auth.fixtures';
+import { completeTwoFactorVerification, loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout, nullWhenTimedOut, waitForApiResponse } from '../../helpers/wait-helpers';
 import AxeBuilder from '@axe-core/playwright';
+import { FRONTEND_BASE_URL } from '../../config';
 
 /**
  * セキュリティとアクセシビリティの統合テスト
@@ -262,12 +264,20 @@ test.describe('セキュリティテスト', () => {
     // プロフィールページが表示されることを確認
     await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible();
 
-    // リフレッシュトークンを改ざん（セッション復元時に使用される）
-    await page.evaluate(() => {
-      const tamperedToken =
-        'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.TAMPERED_PAYLOAD.TAMPERED_SIGNATURE';
-      localStorage.setItem('refreshToken', tamperedToken);
-    });
+    // リフレッシュトークンの Cookie を改ざん（セッション復元時に使用される）
+    const tamperedToken =
+      'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.TAMPERED_PAYLOAD.TAMPERED_SIGNATURE';
+    await page.context().clearCookies({ name: 'refreshToken' });
+    await page.context().addCookies([
+      {
+        name: 'refreshToken',
+        value: tamperedToken,
+        domain: new URL(FRONTEND_BASE_URL).hostname,
+        path: '/api/v1/auth',
+        httpOnly: true,
+        sameSite: 'Strict',
+      },
+    ]);
 
     // ページをリロードしてセッション復元を試みる
     await page.reload();
@@ -347,16 +357,17 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
     const prisma = getPrismaClient();
 
     const admin = await createTestUser('ADMIN_USER');
-    const invitation = await prisma.invitation.create({
-      data: {
+    const invitation = await createInvitation(
+      {
         email: 'accessibility-test@example.com',
         token: 'accessibility-test-token',
         inviterId: admin.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
-    });
+      prisma
+    );
 
-    await page.goto(`/register?token=${invitation.token}`);
+    await page.goto(`/register#token=${invitation.token}`);
 
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
@@ -412,6 +423,9 @@ test.describe('アクセシビリティテスト（WCAG 2.1 AA準拠）', () => 
 
     // Enterキーでボタンをクリック
     await page.keyboard.press('Enter');
+
+    // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+    await completeTwoFactorVerification(page, TEST_USERS.REGULAR_USER);
 
     // ログイン成功（ダッシュボードへリダイレクト）
     await expect(page).toHaveURL(/\//);

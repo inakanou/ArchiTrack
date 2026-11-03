@@ -18,6 +18,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import { hash, verify } from '@node-rs/argon2';
+import { createTestUser } from './test-user-factory.js';
 
 const connectionString = process.env.DATABASE_URL!;
 const adapter = new PrismaPg({ connectionString });
@@ -234,7 +235,8 @@ describe('Seed Script Integration Tests', () => {
     );
     expect(permissions).toContain('adr:read');
     expect(permissions).toContain('adr:create');
-    expect(permissions).toContain('user:read');
+    // user-authentication 要件38.4: 一般ユーザーロールの既定権限にユーザー一覧の閲覧を含めない
+    expect(permissions).not.toContain('user:read');
   });
 
   it('初期管理者アカウントが正しく作成される', async () => {
@@ -262,6 +264,8 @@ describe('Seed Script Integration Tests', () => {
     expect(adminUser).toBeDefined();
     expect(adminUser?.displayName).toBe('Test Admin');
     expect(adminUser?.email).toBe('admin@test.example.com');
+    // Assert: 初回ログインでパスワードの変更を要する（user-authentication 要件37.7）
+    expect(adminUser?.mustChangePassword).toBe(true);
 
     // Assert: パスワードがハッシュ化されている
     expect(adminUser?.passwordHash).toBeDefined();
@@ -350,12 +354,10 @@ describe('Seed Script Integration Tests', () => {
       parallelism: 4,
     });
 
-    await prisma.user.create({
-      data: {
-        email: 'admin@test.example.com',
-        displayName: 'Existing Admin',
-        passwordHash: existingAdminPassword,
-      },
+    await createTestUser(prisma, {
+      email: 'admin@test.example.com',
+      displayName: 'Existing Admin',
+      passwordHash: existingAdminPassword,
     });
 
     // Act: Seedスクリプト実行

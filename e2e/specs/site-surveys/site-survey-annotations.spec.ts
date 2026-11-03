@@ -17,6 +17,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -123,7 +124,7 @@ test.describe('現場調査注釈エディタ', () => {
     const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
     expect(fs.existsSync(testImagePath), 'テスト用画像ファイルが存在しない').toBeTruthy();
 
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
     assertPrepared(accessToken, 'API直接呼び出し用のアクセストークン');
 
     const uploadResponse = await sharedPage.request.post(

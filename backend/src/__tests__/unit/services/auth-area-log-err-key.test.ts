@@ -7,7 +7,7 @@
  *
  * 各サービスの catch へ実際に到達させ、ログの第1引数を本物のロガー（importActual で取り出した
  * pino の実体）のシリアライザに通したうえで、障害の message と stack が JSON に残ることを主張する。
- * 対象は two-factor（10 か所）・role（4）・role-permission（3）・user-role（3）・permission（3）・
+ * 対象は two-factor（9 か所）・role（4）・role-permission（3）・user-role（3）・permission（3）・
  * session（1）・auth（2）。rbac の分はタスク36.2 で改め、統合検証
  * （rbac-permission-cache.integration.test.ts）で主張している。
  */
@@ -21,6 +21,7 @@ import { RolePermissionService } from '../../../services/role-permission.service
 import { UserRoleService } from '../../../services/user-role.service.js';
 import { PermissionService } from '../../../services/permission.service.js';
 import { SessionService } from '../../../services/session.service.js';
+import type { TwoFactorChallengeService } from '../../../services/two-factor-challenge.service.js';
 import { AuthService } from '../../../services/auth.service.js';
 import type { InvitationService } from '../../../services/invitation.service.js';
 import type { PasswordService } from '../../../services/password.service.js';
@@ -147,8 +148,18 @@ function authServiceFailingCounterUpdate(error: Error): AuthService {
     {} as PasswordService,
     {} as TokenService,
     twoFactor,
-    {} as SessionService
+    {} as SessionService,
+    challengeForUser1()
   );
+}
+
+/** 利用者 user-1 に結び付いた 2FA 待ちの資格を照会・消費できる代役 */
+function challengeForUser1(): TwoFactorChallengeService {
+  return {
+    issue: vi.fn(),
+    peek: vi.fn().mockResolvedValue(Ok({ userId: 'user-1' })),
+    consume: vi.fn().mockResolvedValue(Ok(undefined)),
+  } as unknown as TwoFactorChallengeService;
 }
 
 type Level = 'error' | 'warn';
@@ -162,7 +173,7 @@ type LogCase = [string, Level, string, (failure: Error) => Promise<unknown>, Reg
 const dbFailure = (name: string) => new Error(`Database failure in ${name}`);
 
 const cases: LogCase[] = [
-  // two-factor（DB の失敗で到達する 7 か所）
+  // two-factor（DB の失敗で到達する 6 か所）
   [
     'TwoFactorService.setupTwoFactor',
     'error',
@@ -189,13 +200,6 @@ const cases: LogCase[] = [
     'error',
     '2FA有効化中にエラーが発生しました',
     (e) => twoFactorService(rejectingPrisma(e)).enableTwoFactor('user-1', '000000'),
-    null,
-  ],
-  [
-    'TwoFactorService.disableTwoFactor',
-    'error',
-    '2FA無効化中にエラーが発生しました',
-    (e) => twoFactorService(rejectingPrisma(e)).disableTwoFactor('user-1', 'password'),
     null,
   ],
   [
@@ -358,9 +362,11 @@ const cases: LogCase[] = [
       const prisma = {
         refreshToken: { create: vi.fn().mockResolvedValue({}) },
       } as unknown as PrismaClient;
-      return new SessionService(prisma).createSession(
+      const tokenService = {
+        generateRefreshToken: vi.fn().mockResolvedValue('refresh-token'),
+      } as unknown as TokenService;
+      return new SessionService(prisma, tokenService).createSession(
         'user-1',
-        'refresh-token',
         `Mozilla/5.0 ${'x'.repeat(120)}`
       );
     },
@@ -368,17 +374,25 @@ const cases: LogCase[] = [
   ],
   // auth（2FA のログインの検証の失敗回数の更新の失敗）
   [
-    'AuthService.verify2FA（失敗回数の更新の失敗）',
+    'AuthService.completeTwoFactorLogin（TOTP。失敗回数の更新の失敗）',
     'error',
     '2FA失敗カウンター更新に失敗',
-    (e) => authServiceFailingCounterUpdate(e).verify2FA('user-1', '000000'),
+    (e) =>
+      authServiceFailingCounterUpdate(e).completeTwoFactorLogin('challenge', {
+        kind: 'totp',
+        code: '000000',
+      }),
     null,
   ],
   [
-    'AuthService.verify2FABackupCode（失敗回数の更新の失敗）',
+    'AuthService.completeTwoFactorLogin（バックアップコード。失敗回数の更新の失敗）',
     'error',
     '2FA失敗カウンター更新に失敗',
-    (e) => authServiceFailingCounterUpdate(e).verify2FABackupCode('user-1', 'ZZZZ9999'),
+    (e) =>
+      authServiceFailingCounterUpdate(e).completeTwoFactorLogin('challenge', {
+        kind: 'backup',
+        backupCode: 'ZZZZ9999',
+      }),
     null,
   ],
 ];

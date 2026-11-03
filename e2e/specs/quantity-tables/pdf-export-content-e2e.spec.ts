@@ -413,6 +413,7 @@ test.describe('REQ-26: 数量表PDF出力の生成物の内容', () => {
       // 写真選択ダイアログの候補は注釈レコードを持つ写真のみであるため、注釈まで保存する
       const seeded = await seedSurveyPhotosWithComments(
         page,
+        'REGULAR_USER',
         project.id,
         'PDF内容検証調査',
         [PHOTO_COMMENT],

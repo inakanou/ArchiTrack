@@ -219,6 +219,8 @@ sequenceDiagram
     UI->>UI: コピー完了フィードバック表示
 ```
 
+> **改訂の注記（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 上の図のコピーは `navigator.clipboard.writeText()` を直接呼ぶ形であり、タスク107.1（`3cf87a04`、Requirement 42.13・42.14）の前の記録である。現在の宛先・表題・本文のコピーは、クリックの処理の中で最初の `await` として user-authentication の `runRecordedClipboardWrite` を呼び、出力の記録（種別 `estimate_request_text_clipboard`）の成功の後にだけ書き込み、記録の失敗では何も書かずに `EXPORT_RECORD_FAILED_MESSAGE` を表示する。現在の正本は末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「クリップボードへのコピー（42.13・42.14）」と「実装の記録（タスク107.1、2026-10-30）」
+
 ### 受領見積書登録フロー（ファイル + 構造化データ）
 
 ```mermaid
@@ -299,12 +301,12 @@ sequenceDiagram
 | 7.1-7.6 | クリップボードコピー機能 | ClipboardCopyButton, copy-to-clipboard.ts | - | クリップボード操作 |
 | 8.1-8.5 | 見積依頼データ管理 | EstimateRequestService | CRUD APIs | データ管理 |
 | 9.1-9.6 | 見積依頼編集・削除 | EstimateRequestEditPage | PUT/DELETE APIs | 編集・削除 |
-| 10.1-10.4 | 権限管理 | authorize.middleware | RBAC | 権限制御 |
+| 10.1-10.4 | 権限管理（Requirement 42 の案件の閲覧範囲で読む。2026-10-27 改訂） | authorize.middleware | RBAC | 権限制御 |
 | 11.1-11.8 | 受領見積書登録（フォーム・ファイル） | ReceivedQuotationForm, FileInlinePreview | POST /api/estimate-requests/:id/quotations | 受領見積書登録 |
 | 11.9-11.21 | 受領見積書登録（構造化データ入力） | LineItemEditor | POST /api/estimate-requests/:id/quotations | 明細行入力 |
 | 11.22-11.24 | 受領見積書登録バリデーション | ReceivedQuotationForm | POST /api/estimate-requests/:id/quotations | 登録バリデーション |
 | 11.25-11.27 | 受領見積書一覧表示 | ReceivedQuotationList | GET /api/estimate-requests/:id/quotations | 一覧取得 |
-| 11.28-11.30 | 受領見積書編集・削除 | ReceivedQuotationForm | PUT/DELETE /api/quotations/:id | 編集・削除 |
+| 11.28-11.30 | 受領見積書編集・削除 | ReceivedQuotationForm | PUT/DELETE /api/quotations/:quotationId | 編集・削除 |
 | 12.1-12.4 | ステータス表示 | StatusBadge, StatusTransitionButton | GET /api/estimate-requests/:id | ステータス表示 |
 | 12.5-12.8 | ステータス遷移ボタン | StatusTransitionButton | PATCH /api/estimate-requests/:id/status | ステータス遷移 |
 | 12.9-12.10 | ステータス遷移実行 | EstimateRequestStatusService | PATCH /api/estimate-requests/:id/status | ステータス更新 |
@@ -317,9 +319,9 @@ sequenceDiagram
 | 13.14 | OCRエラーハンドリング | OcrDataExtractor | - | エラー処理 |
 | 14.1-14.6 | 受領見積書データ管理 | ReceivedQuotationService, ReceivedQuotationLineItem Model | CRUD APIs | データ永続化 |
 | 15.1-15.11 | 項目選択一括転記 | ReceivedQuotationForm, ItemSelectionPanel, LineItemEditor | クライアントサイドデータフロー | 項目選択一括転記フロー |
-| 16.1-16.4 | 編集画面OCR実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:id/preview | 既存ファイルOCR実行フロー |
+| 16.1-16.4 | 編集画面OCR実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:quotationId/preview | 既存ファイルOCR実行フロー |
 | 16.5-16.6 | OCRリトライ | OcrDataExtractor | - | OCRリトライフロー |
-| 16.7-16.8 | 編集画面データパース実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:id/preview | 既存ファイルデータパースフロー |
+| 16.7-16.8 | 編集画面データパース実行 | ReceivedQuotationForm, OcrDataExtractor | GET /api/quotations/:quotationId/preview | 既存ファイルデータパースフロー |
 | 16.9 | OCR失敗時の保存許可 | ReceivedQuotationForm | - | バリデーションフロー |
 | 16.10-16.12 | 編集画面OCR結果取り込み | OcrDataExtractor, LineItemEditor | - | データ取り込みフロー |
 | 17.1-17.5 | PDFテキスト抽出ハイブリッドアプローチ | OcrDataExtractor | - | PDFテキスト抽出フロー（pdfjs-dist → Tesseract OCRフォールバック） |
@@ -348,6 +350,10 @@ sequenceDiagram
 | 20.4 | カンマ区切り数値の正規化 | OcrDataExtractor | - | テキスト変換改善 |
 | 20.5 | フィルタ適用タイミング（行分割直後） | OcrDataExtractor | - | テキスト変換改善 |
 | 20.6 | Excelパース処理への非影響 | OcrDataExtractor | - | テキスト変換改善 |
+
+> **改訂（2026-10-27、利用者の判断。タスク103）**: 10.1〜10.4 の条文は「プロジェクトの閲覧権限」「プロジェクトの編集権限」を、user-authentication の要件39 の案件の閲覧範囲とロールの権限の表の両方として読むよう改訂した（requirements.md の Requirement 10 の改訂の記録）。閲覧範囲の適用そのもの（範囲外の 404・作成の内訳書と項目の選択の保存の判定・一覧の絞り込み・署名付きURLの発行の判定・出力の記録）は Requirement 42 の受入基準として持ち、受入基準ごとの追跡は本書の「Requirement 42: 案件の閲覧範囲と出力の記録の適用」章の追跡表が持つ。本表の 10 の行の担い手は改めていない。
+
+> **追記（2026-10-29、利用者の判断「推奨案で進める」。タスク104・105）**: 本表は行を足していない。10.5・10.6（画面が 404 を受けたときの表示）と 42.10（作成の要求が指す内訳書の所属）・42.11（プロジェクトの配下の経路の食い違いの記録）の追跡は、末尾の章「2026-10-29 の追加: 作成の内訳書の所属・食い違いの記録・不在の表示」の追跡表が持つ
 
 ## Components and Interfaces
 
@@ -936,10 +942,10 @@ interface ReceivedQuotationService {
 |--------|----------|---------|----------|--------|
 | POST | /api/estimate-requests/:id/quotations | CreateReceivedQuotationInput (multipart) | ReceivedQuotationInfo | 400, 401, 403, 404, 413, 415 |
 | GET | /api/estimate-requests/:id/quotations | - | ReceivedQuotationInfo[] | 401, 403, 404 |
-| GET | /api/quotations/:id | - | ReceivedQuotationInfo | 401, 403, 404 |
-| PUT | /api/quotations/:id | UpdateReceivedQuotationInput (multipart) + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
-| DELETE | /api/quotations/:id | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
-| GET | /api/quotations/:id/preview | - | { url: string } | 401, 403, 404, 422 |
+| GET | /api/quotations/:quotationId | - | ReceivedQuotationInfo | 401, 403, 404 |
+| PUT | /api/quotations/:quotationId | UpdateReceivedQuotationInput (multipart) + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
+| DELETE | /api/quotations/:quotationId | ?updatedAt（クエリ。2026-10-31 の是正） | 204 No Content | 400, 401, 403, 404, 409 |
+| GET | /api/quotations/:quotationId/preview | - | { url: string } | 401, 403, 404, 422 |
 
 **multipart/form-data フィールド構成（改訂版）**:
 - `name` (string, 必須): 受領見積書名
@@ -1065,17 +1071,17 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 | GET | /api/projects/:projectId/estimate-requests | ?page, limit | PaginatedEstimateRequests | 401, 403 |
 | GET | /api/estimate-requests/:id | - | EstimateRequestDetailInfo | 401, 403, 404 |
 | PUT | /api/estimate-requests/:id | UpdateEstimateRequestInput + updatedAt | EstimateRequestInfo | 400, 401, 403, 404, 409 |
-| DELETE | /api/estimate-requests/:id | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
+| DELETE | /api/estimate-requests/:id | ?updatedAt（クエリ。2026-10-31 の是正） | 204 No Content | 400, 401, 403, 404, 409 |
 | PATCH | /api/estimate-requests/:id/items | { items: [{ itemId, selected }] } | 200 OK | 400, 401, 403, 404 |
 | GET | /api/estimate-requests/:id/items-with-status | - | ItemWithOtherRequestStatus[] | 401, 403, 404 |
 | GET | /api/estimate-requests/:id/text | - | EstimateRequestText | 401, 403, 404, 422 |
 | GET | /api/estimate-requests/:id/excel | - | Blob (xlsx) | 400, 401, 403, 404 |
 | POST | /api/estimate-requests/:id/quotations | multipart/form-data | ReceivedQuotationInfo | 400, 401, 403, 404, 413, 415 |
 | GET | /api/estimate-requests/:id/quotations | - | ReceivedQuotationInfo[] | 401, 403, 404 |
-| GET | /api/quotations/:id | - | ReceivedQuotationInfo | 401, 403, 404 |
-| PUT | /api/quotations/:id | multipart/form-data + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
-| DELETE | /api/quotations/:id | { updatedAt } | 204 No Content | 401, 403, 404, 409 |
-| GET | /api/quotations/:id/preview | - | { url: string } | 401, 403, 404, 422 |
+| GET | /api/quotations/:quotationId | - | ReceivedQuotationInfo | 401, 403, 404 |
+| PUT | /api/quotations/:quotationId | multipart/form-data + updatedAt | ReceivedQuotationInfo | 400, 401, 403, 404, 409, 413, 415 |
+| DELETE | /api/quotations/:quotationId | ?updatedAt（クエリ。2026-10-31 の是正） | 204 No Content | 400, 401, 403, 404, 409 |
+| GET | /api/quotations/:quotationId/preview | - | { url: string } | 401, 403, 404, 422 |
 | PATCH | /api/estimate-requests/:id/status | { status: EstimateRequestStatus } | { id, status, updatedAt } | 400, 401, 403, 404 |
 | GET | /api/estimate-requests/:id/status-history | - | EstimateRequestStatusHistory[] | 401, 403, 404 |
 
@@ -1083,6 +1089,7 @@ const STATUS_TRANSITIONS: Record<EstimateRequestStatus, EstimateRequestStatus[]>
 - Integration: authenticate + requirePermission ミドルウェアで認証・認可を実装
 - Validation: Zodスキーマによるリクエストバリデーション。lineItemsフィールドはJSON文字列としてmultipart内で送信し、バックエンドでパース・検証。lineItemsの各要素にcustomCategory、workTypeフィールドを含むZodスキーマに更新
 - Risks: 権限管理はプロジェクトの閲覧/編集権限に基づく（10.1-10.4）
+  - **改訂（2026-10-27、タスク103）**: 上の項の「プロジェクトの閲覧/編集権限」は、実装上ロールの権限の表（`requirePermission`）だけを指し、案件の範囲を判定していなかった。2026-10-27 の判断（Requirement 10 の改訂と Requirement 42 の新設）で、各経路は `requirePermission` の後に `requireProjectScope` を置き、閲覧範囲外の指定を不在と同じ汎用の 404（`NOT_FOUND`）にする。上表の Errors 列の 404 には閲覧範囲外が加わり、範囲外を 403 で返す経路は無い（Requirement 42.2・42.3。詳細は「Requirement 42: 案件の閲覧範囲と出力の記録の適用」章）
 
 ### Frontend Components
 
@@ -1983,6 +1990,7 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - 401 Unauthorized: 認証エラー
 - 403 Forbidden: 権限不足
 - 404 Not Found: リソースが見つからない（見積依頼、プロジェクト、取引先、内訳書）
+  - **追記（2026-10-29、タスク105）**: 画面は 404 を分類しておらず、取得の失敗・操作の失敗の汎用の文言や応答の英語の文言を表示していた。404 は見つからない種別に分類し、読み込みでは共通部品 `ResourceNotFound`、操作では見つからない旨の日本語のメッセージを表示する（Requirement 10.5・10.6。末尾の章「2026-10-29 の追加: 作成の内訳書の所属・食い違いの記録・不在の表示」）
 - 409 Conflict: 楽観的排他制御エラー、同名重複
 
 **Business Logic Errors (422)**:
@@ -2066,6 +2074,7 @@ User 1--* EstimateRequestStatusHistory (changedBy)
 - **認証**: JWT認証（既存の authenticate ミドルウェア）
 - **認可**: RBAC（estimate_request:create, estimate_request:read, estimate_request:update, estimate_request:delete）
 - **権限継承**: プロジェクトの閲覧権限->見積依頼の閲覧権限、プロジェクトの編集権限->見積依頼のCUD権限
+  - **改訂（2026-10-27、タスク103）**: 上の項は当初の設計の記録として残す。実装はこれをロールの権限の表だけで読み、担当外の利用者もID指定で他の案件の見積依頼・受領見積書を読み書きできた（user-authentication の機能検証、2026-10-25）。2026-10-27 の判断（Requirement 10 の改訂と Requirement 42 の新設）で、データ分離は案件の閲覧範囲（user-authentication の要件39）とロールの権限の表の両方で判定する。範囲外は不在と同じ汎用の 404 とし、受領見積書のファイルの署名付きURLも範囲内に限って発行する（R10.1-10.4, Requirement 42.2・42.7）
 - **データ保護**: 論理削除による監査証跡の保持
 - **ファイルアップロード**: MIMEタイプ検証、ファイルサイズ制限（10MB）、署名付きURLによるアクセス制御
 - **OCR処理**: ブラウザサイド実行のため、サーバーにOCRデータは送信されない（プライバシー保護）
@@ -4507,6 +4516,7 @@ function useResizableHeight(): ResizableHeightHandle {
 - Persistence: localStorage 書込失敗（プライベートブラウジング、容量超過、無効化）時は黙ってフォールバックし、ダイアログ動作を阻害しない（Req 36.11 と整合）
 - Persistence: 保存値は `Math.floor(height)` で整数化し、復元時に min/max でクランプして異常値を防御する（Req 36.7, 36.8）
 - Compatibility: Pointer Events は IE 非対応だが、本プロダクトのサポート対象（Chrome/Firefox/Safari/Edge 最新）では問題ない
+- Compatibility（追記 2026-11-01）: 上のサポート対象は、steering の tech.md の「対応ブラウザ」の節に全体の定めとして引き上げた（利用者の判断 2026-11-01）。対応ブラウザの権威はその節であり、本行は過去の記述として残す
 
 ##### スタイル変更
 
@@ -6118,6 +6128,8 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 
 本追記は Requirement 41 の 11 件の Acceptance Criteria を満たす設計を定義する。Light Discovery（Extension）を適用し、新規データ取得・新規 API・新規ライブラリなしで実装する。
 
+> **改訂の注記（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 本章の起動の方式は、タスク107.1（`3cf87a04`、Requirement 42.15・42.16）の前の記録である。現在は「メールで開く」「Gmailで開く」とも出力の記録（種別 `estimate_request_text_mail`）の成功の後にだけ起動する。「Gmailで開く」は `window.open(url, '_blank', 'noopener,noreferrer')` でなく、クリックの処理の中で空のタブを開いて `opener` を null にし、記録の成功の後に `rel="noreferrer"` のリンクで Gmail の作成画面へ移し、記録の失敗ではタブを閉じる。`mail-launcher` は URL の組み立ての関数（副作用なし）に加えて、タブとメールクライアントを操作する関数（`openMailClient`・`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）を持つため、本章の「`mail-launcher` は副作用なし」は URL の組み立ての関数についてだけ今も成り立つ。本章の Boundary Commitments・Architecture・Requirements Traceability・Components and Interfaces・Testing Strategy・Security Considerations・File Structure Plan・Open Questions / Risks（R-41-4）の該当の記述は改訂前の記録として残し、現在の正本は末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」とする
+
 ### Goals（追記9）
 
 - 見積依頼文の宛先・表題・本文を、個別コピー＆ペーストなしでメールクライアントへワンクリック転記する
@@ -6144,6 +6156,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 - ボタン用の新規 styles（`mailActionRow`, `mailButton`, `mailButtonDisabled`, `mailDisabledReason`）
 - `EstimateRequestDetailPage.tsx` から `EstimateRequestTextPanel` への `method={request.method}` 伝搬（1 行追加）
 - メーラー起動は mailto をアンカー `<a href>`（副作用なし）、Gmail を `window.open`（onClick ハンドラ内）で行い、副作用を最小化する
+  - **改訂の注記（2026-10-31）**: 上の 2 項（`mail-launcher` の副作用なし、起動の方式）はタスク107.1 の前の記録である。現在の `mail-launcher` はタブとメールクライアントを操作する関数も持ち、起動は記録の成功の後に行う（本章の冒頭の改訂の注記と、末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」）
 
 #### スコープ外（Out of Boundary）
 
@@ -6187,6 +6200,7 @@ graph TB
 - `EstimateRequestDetailPage`: `EstimateRequestTextPanel` に `method={request.method}` を追加伝搬（既存の `text` / `loading` / `showIncludeBreakdownToggle` に加える）
 - `EstimateRequestTextPanel`: 宛先セクション付近に `MailActionRow`（2 ボタン + 無効化理由）を描画。活性条件は props から派生
 - `mail-launcher.ts`: `buildMailtoUrl` / `buildGmailComposeUrl` の純粋関数。副作用（window 操作）は持たない
+  - **改訂の注記（2026-10-31）**: タスク107.1 の前の記録である。現在は window の操作（`openMailClient`・`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）も本部品に置く（末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」）
 - 依存方向: `utils（mail-launcher）→ component（TextPanel）→ page（DetailPage）`。UI 層から utils を一方向に import（既存の依存方向と整合）
 
 #### 活性/非活性の決定（Req 41 AC 8/9/10）
@@ -6218,6 +6232,7 @@ const mailDisabledReason = (() => {
   - **無効化時の扱い**: アンカーは `disabled` 属性を持てないため、`canLaunchMail === false` のときは `<a>` を描画せず `<button disabled>`（同一スタイル）を描画する条件分岐とする。これにより Req 41 AC 9/10 の無効化表示を実現
 - **「Gmail で開く」（compose）**: `window.open(buildGmailComposeUrl(...), '_blank', 'noopener,noreferrer')` を採用
   - 理由: ブラウザ版 Gmail の新規作成画面を新規タブで確実に開く。`noopener,noreferrer` で被参照元の漏洩を防止（`EstimateRequestDetailPage.tsx` の既存 `window.open` 方針と整合）。`vi.spyOn(window, 'open')` でユニットテスト容易（`EstimateRequestDetailPage.test.tsx:809` の既存パターン）
+  - **改訂の注記（2026-10-31）**: 上の採用はタスク107.1 の前の記録である。現在は空のタブを開いて `opener` を null にし、記録の成功の後に `rel="noreferrer"` のリンクで移し、記録の失敗ではタブを閉じる（末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」）
 
 #### URL ビルダー契約（R-41-2 確定 / build-vs-adopt: RFC 6068 mailto + Gmail compose URL を採用）
 
@@ -6390,6 +6405,7 @@ const handleOpenGmail = useCallback(() => {
 - 「メールで開く」は活性時に `<a href={mailtoUrl}>`（ボタン風スタイル）として描画し、クリックで OS 既定メーラーを起動（Req 41 AC 2）。`href` 属性をテストで assert でき、ナビゲーション副作用・location モックを伴わない（design review 2026-06-02 Critical Issue 1 対応）
 - アンカーは `disabled` を持てないため、無効化時は `<button disabled>`（同一スタイル）に切り替える（Req 41 AC 9/10）
 - 「Gmailで開く」は `window.open(..., '_blank', 'noopener,noreferrer')` で起動（Req 41 AC 3）
+  - **改訂の注記（2026-10-31）**: 本項と上のハンドラの例（`handleOpenGmail`）はタスク107.1 の前の記録である。現在の起動の形は本章の冒頭の改訂の注記と末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」による
 - ボタン群は見積依頼文表示の表示領域内（宛先セクション付近）に配置し、Req 41 AC 1 を満たす（R-41-3 確定: TextPanel 内配置。`method` は親 DetailPage から伝搬）
 - 無効化はスタイル＋（button の）`disabled` 属性で表現し、`mailDisabledReason` を併記（Req 41 AC 9/10）
 - 既存の `InlineCopyButton` 3 か所（宛先・表題・本文）には一切手を加えない（Req 41 AC 11）
@@ -6474,6 +6490,7 @@ mailDisabledReason: {
 9. **FAX 方法で無効化＋理由**: `method="FAX"` のとき、両ボタンが `disabled` で「FAX依頼のためメール起動の対象外です」が表示されることを検証（Req 41 AC 10）
 10. **mailto アンカー href**: 活性時、「メールで開く」アンカー（`<a>`）の `href` 属性が `buildMailtoUrl(...)` 相当の値（`mailto:` で始まり `subject`/`body` を含む）であることを検証。ナビゲーションや `window.location` モックは不要（design review 2026-06-02 Critical Issue 1 対応、Req 41 AC 2）。無効化時は `<a>` が存在せず `<button disabled>` が描画されることを検証
 11. **Gmail クリック起動**: 「Gmailで開く」クリックで `window.open` が Gmail compose URL と `'_blank', 'noopener,noreferrer'` で呼ばれることを検証（`window.open` をモック）（Req 41 AC 3）
+    - **改訂の注記（2026-10-31）**: タスク107.1 の前の記録である。現在の単体テストは、空のタブを開くこと、記録の成功の後に作成画面へ移ること、記録の失敗でタブを閉じることを主張する（末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」の「テスト」の項）
 12. **既存コピー機能の非影響**: 宛先・表題・本文の `InlineCopyButton` が従来通り存在し、コピー動作に変化がないことを検証（Req 41 AC 11）
 
 #### Frontend E2E Tests（追記9）— `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`（改訂）
@@ -6498,6 +6515,8 @@ mailDisabledReason: {
 - URL インジェクション対策: `to`/`subject`/`body` は `encodeURIComponent` / `URLSearchParams` で確実にエンコードし、クエリパラメータ境界の破壊（`&`/`=` 等の混入）を防止
 - 宛先・本文の内容はサーバーへ送信されず、ブラウザからメールクライアントへ直接渡る（外部送信は発生しない）
 
+> **改訂の注記（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 上の `window.open` の `noopener,noreferrer` の項はタスク107.1（`3cf87a04`）の前の記録である。現在は、空のタブを開いて `opener` を null にすることで移った先から元の画面を参照させず、記録の成功の後に `rel="noreferrer"` のリンクで移ることで参照元を渡さない（後から移すにはタブの参照が要るため `noopener` は付けない）。記録の失敗ではタブを閉じる。また起動の前に出力の記録（種別 `estimate_request_text_mail`。見積依頼の案件・見積依頼の ID・件数）をサーバーへ送る。見積依頼文の宛先・本文の内容は記録に載せない。現在の正本は末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」
+
 ### Performance & Scalability（追記9）
 
 - 描画コスト: ボタン 2 個 + 理由ラベル 1 個の追加のみで無視できる
@@ -6515,6 +6534,8 @@ mailDisabledReason: {
 | `frontend/src/pages/EstimateRequestDetailPage.tsx` | Modified | `EstimateRequestTextPanel` 呼び出しに `method={request.method}` を追加（1 行、Req 41.8-41.10） |
 | `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` | Modified | Testing Strategy §E2E 1-2（メール方法でのボタン活性・Gmail 起動、未登録/FAX での無効化） |
 
+> **改訂の注記（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: 上表の `mail-launcher.ts` の「副作用なし」と `EstimateRequestTextPanel.tsx` の `handleOpenGmail` の記述はタスク107.1（`3cf87a04`）の前の記録である。現在の `mail-launcher.ts` は URL の組み立ての関数に加えてタブとメールクライアントを操作する関数（`openMailClient`・`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）を持ち、パネルは出力の記録の成功の後にだけ起動する。現在の正本は末尾の章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）」の「決定」の節の「実装の記録（タスク107.1、2026-10-30）」
+
 ### Open Questions / Risks（追記9）
 
 - **R-41-1（本文 URL 長制約）確定**: 本文全体の転記（AC 6）を優先し切り詰めは行わない。長大な本文で `mailto`/Gmail compose URL が環境上限を超える場合は欠落の可能性があるが、フォールバックとして既存のクリップボードコピー（Req 6 / AC 11 で維持）で本文全文を手動転記できる。常態化する場合は Revalidation Triggers に従い UX を再設計
@@ -6524,3 +6545,688 @@ mailDisabledReason: {
 - **Design Review Outcomes（2026-06-02, kiro-validate-design）**: GO 判断。Critical Issue 1（mailto を `window.location.href` 代入で起動する設計のユニットテスト脆弱性）に対し、ユーザー選択により「メールで開く」をアンカー方式に変更。起動方式 / Handlers / JSX / Styles（`textDecoration:'none'`）/ Requirements Traceability 41.2 / Testing Strategy §Unit 10 / File Structure Plan を更新。無効化理由は `mailDisabledReason` のロジックを維持（FAX 方法かつ有効な FAX 番号ありのケースは `recipientError` が空のため、`recipientError` 再利用では表現できず本ロジックが必要）。approvals.design.approved は引き続き false（ユーザーレビュー待ち）
 - **R-41-5（自動送信なし / AC 7）確定**: 実装に送信 API 呼び出し・フォーム自動 submit を一切含めない。mailto/compose はメールクライアントの作成画面までを開くのみ。E2E では Gmail compose URL が開かれること（=作成画面まで）を検証し、送信は対象外
 - **依存性のリスク**: なし。新規ライブラリ・新規 API・新規 DB マイグレーションは一切なし
+
+## Requirement 42: 案件の閲覧範囲と出力の記録の適用
+
+### Overview
+
+**Purpose**: user-authentication の要件39（案件単位の閲覧範囲）と要件40.9〜40.11（データ出力の記録）を本機能の API と出力へ適用する。上流は判定の部品（`ProjectScopeService` の `evaluateProjectAccess`・`buildProjectScopeWhere`、`canAccessProject`、`requireProjectScope`）と出力の記録の手段（`ExportAuditService`、`runRecordedExport`）を実装済みであり、各業務機能への適用は各 spec の所管と定めている（user-authentication の design.md の Boundary Commitments の Out of Boundary）。本章は本機能の適用箇所を設計として固定する。
+
+**Users**: 担当外の案件の見積依頼・受領見積書を閲覧・操作させたくないシステム管理者と、出力の経緯を追跡する監査の担当者。
+
+**Impact（既存前提の是正）**: user-authentication の機能検証（2026-10-25、HEAD `b85b8124`）で次の二点が確かめられた（タスク103 の経緯）。
+
+1. 本機能の API はロールの権限の表（見積依頼の閲覧・作成・編集・削除の権限）だけを判定し、案件の範囲を判定しない。担当外の利用者が ID 指定で他の案件の見積依頼・受領見積書を読み書きできる
+2. 本機能の出力（内訳書の Excel、現場調査報告書の PDF）は記録を経ずに生成される。`runRecordedExport` を本番で呼び出す箇所は無い
+
+### 要件 10.1〜10.4 の読み替え（2026-10-27、利用者の判断）
+
+利用者は、要件 10.1〜10.4 の条文を改訂して改訂の記録を残すと判断した（採らなかった案は、条文を変えず本書だけで読み替える案）。改訂の内容と理由は requirements.md の Requirement 10 の改訂の記録が持ち、本書は設計上の読み方だけを記す。当初の設計の記述（Backend Routes の Implementation Notes の Risks、Security Considerations の権限継承）は消さずに残し、それぞれに置き換えの追記を置いた。
+
+| 条文 | 改訂前の設計上の読み方 | 改訂後の設計上の読み方 |
+|---|---|---|
+| 10.1 | 見積依頼の閲覧の権限（ロールの権限の表）を持てば、全プロジェクトの見積依頼を閲覧できる | 閲覧範囲（営業担当者・工事担当者・作成者、または全案件閲覧の権限）に含まれるプロジェクトの見積依頼に限り、閲覧の権限に従って閲覧できる |
+| 10.2 | 見積依頼の作成・編集・削除の権限を持てば、全プロジェクトの見積依頼を操作できる | 閲覧範囲に含まれるプロジェクトの見積依頼に限り、作成・編集・削除の権限に従って操作できる |
+| 10.3 | 権限の無いアクセスは 401 / 403。範囲外の区別なし | 閲覧範囲内で権限の無いアクセスは従来どおり拒否。範囲外は存在しない場合と同じ汎用の 404（42.2・42.3） |
+| 10.4 | 権限の無い操作は 401 / 403。範囲外の区別なし | 閲覧範囲内で権限の無い操作は従来どおり拒否。範囲外は存在しない場合と同じ汎用の 404（42.2・42.3） |
+
+**読み替えに伴って主張が変わる既存のテスト**: Requirement 10 を名乗る既存の E2E（認証済みの利用者が一覧を表示できること、未認証はログイン画面へ送られること）は、前提のプロジェクトを当該の利用者が閲覧範囲に含む限り主張を変えない。担当外の利用者の操作が通ることを主張する統合テストがあれば、担当外は不在と同じ 404 でデータが変わらないこと、工事担当者・営業担当者・作成者に設定すると通ることの主張へ書き換える（主張を消さない。対象の洗い出しはタスク103.1 の着手時に行う）。
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 本機能の API の各経路への `requireProjectScope` の適用（`requirePermission` の後に置く）。対象はタスク103.1 の本文が挙げる 3 ルートファイルの 18 経路（42.1-42.6）
+- 見積依頼・受領見積書の ID から案件の ID を引く解決関数（新設。置き場所は実装時に決める。受領見積書は親の見積依頼の案件で判定する）
+- 見積依頼の作成の要求が指す内訳書の案件の判定（42.4）と、項目の選択の保存の全件か無しかの扱い（42.5）
+- 他の見積依頼での選択状態（`findItemsWithOtherRequestStatus`）に載せる他の見積依頼を範囲内へ限ること（42.6）
+- 受領見積書のファイルのプレビュー用の署名付きURL（`getFilePreviewUrl`）の発行を範囲内に限ること（42.7）
+- 見積依頼の詳細画面の出力の開始の処理を `runRecordedExport` で包むこと（42.8・42.9）。対象は `ExcelExportButton` の `handleExport`（内訳書の Excel、種別 `estimate_request_xlsx`）と `EstimateRequestDetailPage` の `handleGenerateReport`（現場調査報告書の PDF、種別 `site_survey_report_pdf`）
+
+#### Out of Boundary
+- 閲覧範囲の判定の規則と判定の部品の実装（user-authentication の要件39 と同 spec の `ProjectScopeService`・`ProjectScopeGuard`）
+- 範囲外のアクセスの拒否のセキュリティログ（user-authentication の要件39.7。`requireProjectScope` が記録する）
+- 出力の記録の受け口と記録の内容（user-authentication の要件40.9 と `ExportAuditService`）
+- 現場調査報告書の出力に用いる現場調査の一覧・詳細・画像の取得の閲覧範囲（site-survey の Requirement 39 が所管）。本機能は出力の開始の記録だけを持つ
+- プロジェクト単位の受領見積書の取得（`/api/projects/:projectId/quotations`。estimate-creation が所管）と、案件を指さない Claude Vision の抽出の経路
+
+#### Allowed Dependencies
+- 本機能のルート → user-authentication の `requireProjectScope`・`ProjectScopeService`
+- 本機能の署名付きURLの発行の判定と他の見積依頼の絞り込み → `canAccessProject`・`evaluateProjectAccess`・`buildProjectScopeWhere`
+- 本機能の出力の画面 → `runRecordedExport`（`frontend/src/api/export-audit.ts`）
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| 見積依頼・受領見積書・ステータスの経路 | Routes | 範囲外の ID 指定を不在と同じ 404 にし、作成の内訳書・項目の選択の保存の対象と一覧を範囲内へ限る | 42.1, 42.2, 42.3, 42.4, 42.5, 42.6 | `requireProjectScope`（P0）, 案件IDの解決関数（P0） | API |
+| 案件IDの解決関数 | Service | 見積依頼・受領見積書・作成の要求が指す内訳書の ID から案件の ID を引く | 42.2, 42.4, 42.5 | Prisma（P0） | Service |
+| 他の見積依頼の絞り込み | Service | 他の見積依頼での選択状態に載せる見積依頼を範囲内に限る | 42.6 | `buildProjectScopeWhere`（P0） | Service |
+| 署名付きURLの発行の判定 | Service | 範囲内に限って受領見積書のファイルの署名付きURLを発行する | 42.7 | `canAccessProject`（P0）, StorageProvider（P1） | Service |
+| 出力の開始の処理 | UI | 内訳書の Excel と現場調査報告書の PDF の生成を記録の成功の後に始め、記録の失敗では中止する | 42.8, 42.9 | `runRecordedExport`（P0） | State |
+
+**判定の順序**: 認証（401）→ `requirePermission`（403）→ `requireProjectScope`（範囲外は 404）→ 本体（見積依頼・受領見積書・内訳書の不在と論理削除の 404、バリデーションの 400、競合の 409）の順とする。逆にすると権限なしの 403 を主張する既存の統合テストが 404 で落ちる（user-authentication の tasks.md の Implementation Notes の 52.2 の区分 D）。
+
+**作成の内訳書**: 見積依頼の作成は、経路で作成先のプロジェクトを判定したうえで、要求が指す内訳書の案件も判定する。範囲外の内訳書は存在しない内訳書と同じ 404 にし、見積依頼を作成しない（42.4）。
+
+**追記（2026-10-29、利用者の判断「推奨案で進める」。タスク104.1）**: 上の段落は範囲外の内訳書だけを拒否しており、範囲内の他のプロジェクトの内訳書を指す作成は通っていた。42.10 により、経路のプロジェクトに属さない内訳書は範囲の内外にかかわらず不在と同じ汎用の 404 にし、範囲外のときだけ記録する（末尾の章「2026-10-29 の追加: 作成の内訳書の所属・食い違いの記録・不在の表示」の「決定」）
+
+**項目の選択の保存（一括の経路）**: 項目の選択の保存は、対象の見積依頼の案件を判定し、不在または範囲外なら要求全体を不在と同じ汎用の 404 にしてどの項目の選択状態にも書き込まない（42.5）。要求の項目は見積依頼の配下に限って更新する既存の契約（見積依頼の ID で絞った更新）を保つため、範囲内の見積依頼の要求に範囲外の項目が混じっても他の見積依頼の項目は変わらない。範囲外の項目だけを除いて残りを書き込む案は、応答の差から範囲外の実在を推測させるうえ、全件か無しかの契約を部分適用へ変えるため採らない（site-survey のタスク119.1・construction-photo のタスク30.2 の決定と同じ）。
+
+**適用の決定（2026-10-27、タスク103.1 の実装）**: site-survey のタスク119.1・construction-photo のタスク30.2 と同じ形で、次のとおりとした。
+
+- 解決関数は次のファイルに置いた（判定そのものは `requireProjectScope` に任せる）。
+  backend/src/middleware/estimate-request-project-scope.middleware.ts
+- 見積依頼・受領見積書（親の見積依頼を経る）・作成の要求が指す内訳書の ID から案件の ID を引き、それぞれの論理削除は区別しない。範囲内の利用者には、本体の従来の 404（論理削除された見積依頼の `ESTIMATE_REQUEST_NOT_FOUND` など）がそのまま届く
+- 対象の不在も範囲外と区別できないよう汎用の 404（`NOT_FOUND`）になる。従来は見積依頼・受領見積書・ステータス・内訳書ごとの符号（`ESTIMATE_REQUEST_NOT_FOUND`・`RECEIVED_QUOTATION_NOT_FOUND`・`ESTIMATE_REQUEST_STATUS_NOT_FOUND`・`ITEMIZED_STATEMENT_NOT_FOUND`）と ID を本文に含めていた。画面は 404 を状態コードで扱っており、符号の変更の影響を受けない
+- 二重マウント（`/api/projects/:projectId/estimate-requests/:id`）では、経路の案件 ID でなく見積依頼が属する案件で判定し、両者が食い違うときは見積依頼の不在と同じ 404 にする。受領見積書の二重マウント（`/api/estimate-requests/:id/quotations/:id`）は経路のパラメータ名が重なり子の ID が優先されるため、受領見積書が属する案件で判定する（タスク 106.1・Requirement 42.12 で受領見積書の経路の引数名を `quotationId` へ改め、重なりは解消した。現況の経路は `/api/estimate-requests/:id/quotations/:quotationId` で、経路の見積依頼に属さない受領見積書は不在と同じ 404 にする）
+  - **改訂（2026-10-30、利用者の判断「推奨案で進める」）**: 上の項の受領見積書の二重マウントの記述は 2026-10-27 の実装の記録として残す。子の ID が優先されるため経路で指定した見積依頼が読まれず、範囲内の別の見積依頼の受領見積書を指す要求が通っていた。42.12 の追加により、受領見積書の経路の引数名を見積依頼の経路の引数名と分け、受領見積書が経路の見積依頼に属さなければ上流の `projectMismatch`（受領見積書の実際の案件 ID）を返す形へ改める（応答は不在と同じ汎用の 404。タスク106.1。末尾の章「2026-10-30 の追加」の「決定」）
+  - **改訂（2026-10-29、利用者の判断「推奨案で進める」）**: 上の項は 2026-10-27 の実装の記録として残す。食い違いは解決関数が null（不在）を返し、判定部品が範囲を判定しないため記録されなかった。42.11 の追加により、解決関数は食い違いを null ではなく上流の `projectMismatch`（見積依頼の実際の案件 ID）で返し、上流の判定部品が実際の案件を判定して範囲外のときだけ記録する形へ改める（応答は同じ汎用の 404。タスク104.2。末尾の章の「決定」）
+- 受領見積書の登録・更新は、ファイルの受け取り（multipart の解析）より前に経路の ID の形式の検査と範囲の判定を置く。範囲外の要求のファイルをメモリへ読み込まない
+- 他の見積依頼での選択状態（42.6）は、サービスの `findItemsWithOtherRequestStatus` が閲覧者の `buildProjectScopeWhere` の条件と案件の論理削除の除外で他の見積依頼を絞る。全案件閲覧の権限の利用者には従来どおり別の案件の見積依頼も載る
+- 署名付きURLの発行（42.7）は経路の判定部品が先に受けたうえで、サービスの `getFilePreviewUrl` も親の見積依頼の案件を `canAccessProject` で判定し、範囲外では発行しない（二重の守り）
+
+**出力の記録**: 種別は `ExportKind` の `estimate_request_xlsx`（内訳書の Excel）・`site_survey_report_pdf`（現場調査報告書の PDF）を用い、対象の案件を添える。記録の失敗では生成もダウンロードも始めず、`EXPORT_RECORD_FAILED_MESSAGE` を画面に表示する（42.9）。項目の未選択のエラー（Requirement 5.3）と現場調査の未選択のエラー（Requirement 35.10）は記録より前に判定し、記録を要求しない。
+
+**追記（2026-10-30、利用者の判断「推奨案で進める」。タスク107.1）**: 上の段落は記録の対象をファイルを生成する二つの出力に限っていた。42.13〜42.16 により、見積依頼文の宛先・表題・本文と選択した項目の一覧のクリップボードへのコピー、見積依頼文をメールクライアント・Gmail で開く操作も記録の対象とする（末尾の章「2026-10-30 の追加」の「決定」）
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 42.1 | 範囲内（担当者・作成者・全案件閲覧の権限）は従来どおり使える | 見積依頼・受領見積書・ステータスの経路 | `requireProjectScope` | - |
+| 42.2 | 範囲外の ID 指定は不在と同じ 404、データを変えない | 見積依頼・受領見積書・ステータスの経路, 案件IDの解決関数 | `requireProjectScope` | - |
+| 42.3 | 404 の本文に存在を推測できる情報を含めない | 見積依頼・受領見積書・ステータスの経路 | 汎用の `NOT_FOUND` | - |
+| 42.4 | 作成の要求が指す範囲外の内訳書は不在と同じ 404、作成しない | 見積依頼・受領見積書・ステータスの経路, 案件IDの解決関数 | `evaluateProjectAccess` | 見積依頼作成フロー |
+| 42.5 | 項目の選択の保存は範囲外なら全体を 404、書き込まない | 見積依頼・受領見積書・ステータスの経路, 案件IDの解決関数 | `requireProjectScope` | 項目選択・保存フロー |
+| 42.6 | 一覧・直近・受領見積書の一覧・他の見積依頼での選択状態は範囲内だけ | 見積依頼・受領見積書・ステータスの経路, 他の見積依頼の絞り込み | `requireProjectScope`, `buildProjectScopeWhere` | - |
+| 42.7 | 受領見積書のファイルの署名付きURLは範囲内に限る | 署名付きURLの発行の判定 | `GET /api/quotations/:quotationId/preview` | - |
+| 42.8 | 生成の前に出力の記録を 1 回要求する | 出力の開始の処理 | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | Excel生成 |
+| 42.9 | 記録の失敗では生成せずエラーメッセージを表示する | 出力の開始の処理 | `runRecordedExport`, `EXPORT_RECORD_FAILED_MESSAGE` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 範囲外の見積依頼・受領見積書の ID 指定 | 存在しない場合と同じ 404（`NOT_FOUND`）。本文に案件 ID を含めず、データを変えない | 42.2, 42.3 |
+| 範囲外のプロジェクトの見積依頼の一覧・直近の見積依頼・見積依頼の作成 | プロジェクトの不在と同じ 404 | 42.2, 42.6 |
+| 作成の要求が範囲外の内訳書を指す | 内訳書の不在と同じ 404。見積依頼を作成しない | 42.4 |
+| 範囲外の見積依頼への項目の選択の保存 | 要求全体を 404。どの項目の選択状態にも書き込まない | 42.5 |
+| 範囲外の受領見積書のファイルのプレビュー | 404。署名付きURLを返さない | 42.7 |
+| 出力の記録の要求が失敗 | 生成もダウンロードも始めず、エラーメッセージを表示する | 42.9 |
+
+### Testing Strategy
+
+- **統合（バックエンド）**: 担当外の利用者の ID 指定（見積依頼・受領見積書の閲覧・書き込み・項目の選択の保存・ステータスの変更・ステータス変更履歴・見積依頼文・プレビュー）が不在と同じ 404 になり DB とストレージが変わらないこと、本文に案件 ID が出ないこと、範囲外のプロジェクトの一覧と作成が 404 になること、範囲外の内訳書を指す作成が 404 で見積依頼が増えないこと、他の見積依頼での選択状態に範囲外の見積依頼が載らないこと、担当者・作成者・全案件閲覧の権限では従来どおりであること、範囲外では署名付きURLが返らないこと（42.1-42.7）
+- **E2E**: 担当外の利用者が見積依頼の URL を直接開くと見つからない扱いになること（42.2）。内訳書の Excel と現場調査報告書の PDF のそれぞれが生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ること（42.8, 42.9）
+- 挙動の変更であるため RED → GREEN で進める（タスク103.1・103.2）
+
+## 2026-10-29 の追加: 作成の内訳書の所属・食い違いの記録・不在の表示（Requirement 42.10・42.11、10.5・10.6）
+
+### Overview
+
+**Purpose**: 利用者の判断（2026-10-29「推奨案で進める」）で起票した三件を設計として固定する。(1) 見積依頼の作成の要求が指す内訳書が経路のプロジェクトに属さないとき、範囲の内外にかかわらず内訳書の不在と同じ応答で拒否し、範囲外のときだけ記録する（42.10。estimate-creation の Requirement 57.4 と同じ型）。(2) プロジェクトの配下の経路の食い違いで、汎用の 404 を保ったまま、見積依頼の実際の案件が閲覧範囲外なら範囲外の拒否として記録する（42.11。user-authentication の要件39.8 の本機能への適用）。(3) 見積依頼の画面が 404 を受けたときに、障害ではなく見つからない旨を表示する（10.5・10.6）。
+
+**Impact（既存前提の是正。2026-10-29 の調査）**:
+
+1. 作成の要求が指す内訳書の判定部品（`requireBodyItemizedStatementProjectScope`）は内訳書の案件の閲覧範囲だけを判定し、経路のプロジェクトとの所属を照合しない。サービスの作成の処理（`EstimateRequestService` の `create`）も内訳書の存在と論理削除だけを確かめる。そのため範囲内の他のプロジェクトの内訳書を指す作成が通り、他のプロジェクトの内訳書の項目を写した見積依頼ができる。範囲外のプロジェクトの内訳書は判定部品が汎用の 404 にして記録している（42.4）
+2. 見積依頼の判定部品の解決関数（`requireEstimateRequestProjectScope`）は、経路の案件と見積依頼の案件が食い違うと null（不在）を返し、判定部品は範囲を判定せずに 404 にする。見積依頼の実際の案件が範囲外でも記録が残らない（本書の「Requirement 42: 案件の閲覧範囲と出力の記録の適用」章の「適用の決定」）
+3. 見積依頼の画面は 404 を分類しない。一覧・詳細・編集の画面は読み込みの失敗を一律に取得の失敗の固定の文言にし、詳細の画面は再試行の釦を出す。新規作成の画面はフォームの内訳書の取得の失敗をデータの取得の失敗の文言にする。操作は、見積依頼の作成と受領見積書の保存が応答の本文（汎用の 404 では英語の `Not found`）をそのまま表示し、見積依頼の論理的な取り除き・編集の保存・ステータスの変更・項目の選択の保存が操作の失敗の汎用の文言を表示し、見積依頼方法と内訳書を本文に含める設定の変更と受領見積書の論理的な取り除きはエラーを握りつぶす
+
+### 受入基準の置き場所の判断
+
+- 42.10・42.11 は Requirement 42 の続きの番号とした。42.10 は 42.4（作成の要求が指す範囲外の内訳書）の対象を経路のプロジェクトに属さない内訳書全体へ広げるもの、42.11 は同要件の In scope（本機能の API への閲覧範囲の適用）の内側にある二重マウントの経路の応答と記録を定めるものである。新しい Requirement を立てると、同じ要求の応答と記録の定めが二つの要件に分かれる。42.11 は、上流の起票先の一覧が記すとおり本機能に食い違いの条文が無かったため、記録だけでなく応答（見積依頼の不在と同じ 404）も条文に含めた
+- 10.5・10.6 は Requirement 10（権限管理）の続きの番号とした。同要件は見積依頼へのアクセス・操作が拒否されたときの画面の表示を定め（10.3・10.4 のアクセス拒否エラー・操作拒否エラー）、範囲外を存在しない見積依頼と同じ扱いとすることも条文に持つ。存在しない見積依頼・プロジェクトを受けたときの表示はその補いに当たる。本機能にはエラーの種別ごとの画面のフィードバックをまとめた要件が無い（contract-management の Requirement 11 に相当する要件が無い）。Requirement 42 は API と出力の開始の記録を In scope とし画面の表示を含まないため、置くと In scope の改訂が要る。Requirement 2（一覧）・9（編集・削除）など画面ごとの要件に分けて置く案は、同じ 404 の分類を画面ごとの要件に散らすため採らない。新しい Requirement を立てる案は、10.3・10.4 と同じ拒否の表示の並びを別の要件に分けるため採らない
+- 既存の受入基準の条文は改訂していない。42.4 は 42.10 に含まれる。二重マウントの食い違いを記録しないとしていたのは本書の Requirement 42 章の設計の記述と実装であり、その記述には下の「決定」に従い改訂の記録を置いた
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 作成の要求が指す内訳書の判定部品の解決関数が、内訳書の案件が経路のプロジェクトと食い違うとき、上流の `projectMismatch`（内訳書の実際の案件 ID）を返すこと（42.10）
+- 見積依頼の判定部品の解決関数（`requireEstimateRequestProjectScope` の解決関数）が、食い違いを null ではなく上流の `projectMismatch`（見積依頼の実際の案件 ID）で返すこと（42.11）
+- 食い違いを「範囲を判定しない」「記録しない」と主張する本機能の既存のテストの書き換え（42.11）と、範囲内の他のプロジェクトの内訳書を指す作成のテストの追加（42.10）
+- 見積依頼の画面（一覧・新規作成・詳細・編集）と、詳細の画面の操作（項目の選択の保存・見積依頼方法と内訳書を本文に含める設定の変更・ステータスの変更・論理的な取り除き・受領見積書の登録・更新・論理的な取り除き）が 404 を受けたときの表示（10.5・10.6）
+
+#### Out of Boundary
+- 食い違いを受けたときの判定と記録の実体（user-authentication の `requireProjectScope`・`projectMismatch`。同 spec のタスク63.1）と記録の内容（同要件39.7）
+- サーバーの 404 の応答の形（汎用の `NOT_FOUND`。範囲外と不在を区別しない。user-authentication の要件39.2）。本追加は応答を変えない
+- 共通部品 `ResourceNotFound` の見た目と文言（共通部品の所管。本機能は使うだけ）
+- プロジェクト詳細画面の見積依頼セクション（project-management の所管）と、見積依頼の詳細画面から使う現場調査の取得（site-survey の所管）
+- 受領見積書の二重マウント（`/api/estimate-requests/:id/quotations/:id`）。経路のパラメータ名が重なり子の ID だけが残るため、経路の親と対象の食い違いが生じない（Requirement 42 章の「適用の決定」）。※ タスク 106.1・Requirement 42.12 で引数名を `quotationId` へ改めたため、現況では経路の見積依頼が読め、属さない受領見積書は不在と同じ 404 になる
+  - **改訂（2026-10-30、利用者の判断「推奨案で進める」）**: 上の項は 2026-10-29 の判断の記録として残す。子の ID だけが残ることは食い違いが生じないことではなく、経路で指定した見積依頼が照合されないことであった。42.12 で受領見積書の食い違いを本機能の受け持ちとし、設計は末尾の章「2026-10-30 の追加」が持つ
+
+#### Allowed Dependencies
+- 本機能の判定部品 → user-authentication の `projectMismatch`（`ProjectIdResolver` の戻り値の上位の型）
+- 本機能の画面 → 共通部品 `ResourceNotFound`
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| 作成の内訳書の所属の照合 | Middleware | 作成の要求が指す内訳書の案件が経路のプロジェクトと食い違うとき、内訳書の実際の案件 ID を食い違いとして判定部品へ返す | 42.10 | `projectMismatch`（P0）, `requireProjectScope`（P0） | Service |
+| 見積依頼の食い違いの解決 | Middleware | 経路の案件と見積依頼の案件が食い違うとき、見積依頼の実際の案件 ID を食い違いとして判定部品へ返す | 42.11 | `projectMismatch`（P0）, `requireProjectScope`（P0） | Service |
+| 404 の分類 | Frontend/Util | 見積依頼の画面の失敗のうち 404（code `NOT_FOUND` を含む）を見つからない種別に分類し、対象ごとの日本語の文言を返す | 10.5, 10.6 | `ApiError`（P0） | - |
+| 見積依頼の画面の不在の表示 | Frontend/Page | 一覧・新規作成・詳細・編集の画面が読み込みの 404 で見つからない旨と戻り先のリンクを表示する | 10.5 | `ResourceNotFound`（P0）, 404 の分類（P0） | State |
+| 操作の不在のメッセージ | Frontend/Page | 作成・編集の保存・項目の選択の保存・設定の変更・ステータスの変更・論理的な取り除き・受領見積書の保存と論理的な取り除きの 404 で見つからない旨のメッセージを表示する | 10.6 | 404 の分類（P0）, `ItemSelectionPanel`（P1）, `StatusTransitionButton`（P1）, `ReceivedQuotationForm`（P1） | State |
+
+### 決定
+
+**作成の内訳書の所属（42.10）**: 作成の要求が指す内訳書の判定部品の解決関数が、内訳書の案件を引いた後、経路の `projectId` と食い違えば `projectMismatch(内訳書の案件 ID)` を返す。上流の判定部品が内訳書の実際の案件を判定し、範囲外のときだけ `PROJECT_SCOPE_DENIED` を記録し、判定の結果に関わらず汎用の 404 を返す。内訳書の不在は従来どおり null で汎用の 404（記録なし）になるため、食い違いと不在は同じ応答になる。同じプロジェクトの内訳書は従来どおり案件 ID を返し、サービスの存在・論理削除・項目 0 件の確かめへ進む。内訳書を指さない作成（内訳書なし）は従来どおり判定しない。
+
+- 範囲外の内訳書の扱いは変わらない。従来も判定部品が内訳書の案件を判定して範囲外を記録しており（42.4）、食い違いの経路でも同じ形の記録が 1 件残る。変わるのは範囲内の他のプロジェクトの内訳書で、従来は通っていたものが記録なしの汎用の 404 になる
+- 内訳書の論理削除は区別しない（Requirement 42 章の「適用の決定」の、見積依頼・受領見積書・内訳書の論理削除を区別せずに案件 ID を引く定めを保つ）。他のプロジェクトの論理削除済みの内訳書は食い違いとして扱い、その案件が範囲外なら記録する（従来も範囲外として記録していた）
+- **estimate-creation の 57.4 と置き場所が違う理由**: estimate-creation は内訳書を判定部品で判定せず、サービスの作成の処理の中で所属を照合し、内訳書の不在の符号（`ITEMIZED_STATEMENT_NOT_FOUND`）と同じ応答にした。本機能は 42.4 で内訳書を判定部品で判定しており、内訳書の不在の応答は判定部品の汎用の 404 である。不在と同じ応答にするには食い違いも判定部品で汎用の 404 にする必要があり、サービスで照合すると不在と異なる符号と本文になるか、サービスが汎用の 404 を投げる例外的な形になる。範囲外の記録も既に判定部品が行っており、サービスに置くと記録が二つの層に分かれる。受入基準（属さなければ不在と同じ応答、範囲外だけ記録）と観測できる振る舞いは 57.4 と揃う
+- 上流の `projectMismatch` を使うため、上流のタスク63.1 が入るまで本機能は切り替えられない（タスク104.1 の Depends）。上流を待たずに解決関数の中で範囲を判定して null を返す案は、判定と記録を上流の一か所に置く上流の決定（user-authentication の design.md の ProjectScopeGuard の節の「食い違いの記録（39.8）」）に反するため採らない
+- 更新の要求は内訳書を指さない（更新の本文の検査は名前・見積依頼方法・内訳書を本文に含める設定だけを受け取る）ため、更新の側には置かない
+
+**食い違いの記録（42.11）**: user-authentication の design.md の ProjectScopeGuard の節の「食い違いの記録（39.8）」に従う。`requireEstimateRequestProjectScope` の解決関数は、経路に `projectId` があり見積依頼の案件と食い違うとき、null ではなく `projectMismatch(見積依頼の案件 ID)` を返す。判定と記録（見積依頼の案件が範囲外のときだけ `PROJECT_SCOPE_DENIED`）と、判定の結果に関わらない汎用の 404 は上流の判定部品が行う。見積依頼の不在は従来どおり null を返し、記録しない。範囲内の案件どうしの食い違い（経路の誤り）は記録しない。見積依頼の論理削除は区別しない（Requirement 42 章の「適用の決定」）ため、論理削除済みの見積依頼の食い違いもその案件が範囲外なら記録する（`/api/estimate-requests/:id` の経路で範囲外の論理削除済みの見積依頼を指したときに記録されるのと揃う）。経路に `projectId` の無い経路（`/api/estimate-requests/:id` と受領見積書の経路）は食い違いが生じず、変わらない。上流のタスク63.1 が入るまで本機能は切り替えられない（タスク104.2 の Depends）。
+
+**改訂（2026-10-29、利用者の判断「推奨案で進める」）**: 本書の「Requirement 42: 案件の閲覧範囲と出力の記録の適用」章の「適用の決定」の二重マウントの項は、食い違いを見積依頼の不在と同じ 404 にするとだけ定め、実装は範囲を判定せず記録しなかった（改訂前の文は同章にそのまま残し、本節を指す改訂の注記を置いた）。改訂後は、食い違いのうち見積依頼の実際の案件が範囲外のものを記録する（42.11）。応答（範囲の内外にかかわらず不在と同じ汎用の 404、データを変えない）は改訂の対象外である。理由は上流の要件39.8 の改訂の記録のとおり（範囲内の案件を経路に置いて範囲外の見積依頼の ID を総当たりする探りが、応答では区別できない一方で記録にも検知にも現れなかったため）。判定部品のファイルの冒頭の注釈（`@fileoverview`）の食い違いの記述にも記録の条件を書き足す。
+
+**既存のテストの書き換え（42.10・42.11）**: 次のテストは食い違いで「範囲を判定しない」ことを主張しており、条文どおりに書き換える（主張を消さない）。
+
+- 単体テスト（`backend/src/__tests__/unit/middleware/estimate-request-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と見積依頼の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にする」: 範囲の判定の回数が 1 回（食い違わない要求の分だけ）であることの主張を、見積依頼の案件が範囲外の場合に記録が 1 件で 404、範囲内の場合に記録なしで 404 を主張する形へ改める
+- 同じ単体テストの「作成の要求が指す内訳書の判定（42.4）」は経路にプロジェクトの ID を持たない形で組まれている。経路のプロジェクトと同じ案件の内訳書は通り、範囲内の他のプロジェクトの内訳書は記録なしの汎用の 404、範囲外の他のプロジェクトの内訳書は記録 1 件の汎用の 404 になる場合を、経路にプロジェクトの ID を持つ形で足す（既存の主張は消さない）
+- 統合テスト（`backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の案件と見積依頼の案件が食い違うと見積依頼の不在と同じ 404 にする」は全案件閲覧の権限の利用者（範囲内どうしの食い違い）で 404 だけを主張しており、条文どおりで変えない。範囲外の案件の見積依頼を範囲内の案件の経路で指す場合（記録が 1 件増える）を足す。同じ describe の「作成の要求が範囲外の案件の内訳書を指すと」のテストは主張を変えず、範囲内の他のプロジェクトの内訳書を指す作成が内訳書の不在と同じ 404 で見積依頼が増えず記録も増えない場合を足す
+- 範囲内の他のプロジェクトの内訳書を指す作成が成功することを主張する既存のテストは、2026-10-29 の調査では見当たらない。着手時に backend と e2e の全体で探し、あれば 42.10 に合わせて改める
+
+**404 の分類（10.5・10.6）**: 見積依頼の画面の失敗のうち、`ApiError` の状態コードが 404 のもの（汎用の `NOT_FOUND` と、範囲内の利用者に届く本体の 404 の両方）を見つからない種別に分類する部品を本機能の画面の共通に置き（置き場所は実装時に決める）、対象ごとの日本語の文言を返す。文言の逐語は実装時に決め、本節へ記す。404 は範囲外と不在で同じ応答であり、画面も区別しない（範囲外を示唆する文言を出さない）。再試行で解けないため再試行の釦は出さない。見積依頼の作成の 404 は経路のプロジェクトと要求の内訳書のどちらの不在かを応答から区別できない（いずれも汎用の 404）ため、両方を含む文言とする。取引先の不在など本体の固有の符号を持つ 404 で、本文が日本語のものはその本文を表示する。
+
+**文言の逐語（2026-10-29、タスク105.1 で決定）**: 404 の分類の文言は、見積依頼が対象のとき「見積依頼が見つかりません。存在しないか、削除されています。」、プロジェクトが対象のとき「プロジェクトが見つかりません。存在しないか、削除されています。」、見積依頼の作成のとき「プロジェクトまたは内訳書が見つかりません。存在しないか、削除されています。」、受領見積書が対象のとき「受領見積書が見つかりません。存在しないか、削除されています。」とする（定数 `ESTIMATE_REQUEST_NOT_FOUND_MESSAGE`・`PROJECT_NOT_FOUND_MESSAGE`・`PROJECT_OR_ITEMIZED_STATEMENT_NOT_FOUND_MESSAGE`・`RECEIVED_QUOTATION_NOT_FOUND_MESSAGE`）。共通部品 `ResourceNotFound` の見出しと説明の文に揃え、contract-management のタスク21.1 の文言の型とも揃えた。対象は分類の関数 `getEstimateRequestNotFoundMessage` の第二引数で選ぶ。見積依頼の取得・編集の保存・項目の選択の保存・設定の変更・ステータスの変更・見積依頼の論理的な取り除き・受領見積書の登録は見積依頼、一覧の画面と新規作成の画面の読み込みはプロジェクト、見積依頼の作成は両方を含む文言、受領見積書の更新と論理的な取り除きは受領見積書を対象とする。見積依頼・受領見積書・内訳書の不在の符号（`ESTIMATE_REQUEST_NOT_FOUND`・`ESTIMATE_REQUEST_STATUS_NOT_FOUND`・`RECEIVED_QUOTATION_NOT_FOUND`・`ITEMIZED_STATEMENT_NOT_FOUND`）の本文は対象の ID を含み範囲外の汎用の 404 と文言が異なるため、本文を出さずに対象ごとの文言にそろえる（範囲外と不在を区別しない表示）。それ以外の 404 で本文が日本語のもの（取引先の不在。符号は汎用の `NOT_FOUND`）はその本文を表示する。読み込みの 404 の `ResourceNotFound` は、詳細・編集の画面で対象の名前を「見積依頼」、一覧・新規作成の画面で「プロジェクト」とし、戻り先のリンクの文言はいずれも「プロジェクト一覧に戻る」とする。詳細の画面で従来エラーの欄を持たなかった操作（設定の変更・ステータスの変更・見積依頼と受領見積書の論理的な取り除き）の見つからない旨は、ヘッダーの下の通知の欄（`role="alert"`）に表示する。ステータスの変更は部品 `StatusTransitionButton` のエラーの通知（`onError`）を詳細の画面がこの欄へ結ぶ（従来は詳細の画面が `onError` を渡しておらず、ステータスの変更の失敗は 404 以外も表示されていなかった。結んだ後は 404 以外の失敗も部品の従来の文言でこの欄に出る）。受領見積書の登録・更新の 404 は、詳細の画面の保存の処理が失敗をフォームへ伝え、フォームの既存の保存のエラーの欄に表示する
+
+文言の定数と 404 の分類は `frontend/src/utils/estimateRequestNotFound.ts` に置く（タスク105.1）
+
+**読み込みの表示（10.5）**: 詳細・編集の画面は見積依頼の読み込みの 404 で、一覧・新規作成の画面はプロジェクトの読み込み（一覧の取得とプロジェクトの取得、新規作成のフォームの内訳書の一覧の取得）の 404 で、共通部品 `ResourceNotFound` を表示する。詳細・編集の経路は案件の ID を持たず、見積依頼を読めないと案件が分からないため、戻り先はプロジェクトの一覧とする。一覧・新規作成の画面の戻り先もプロジェクトの一覧とする。詳細の画面は見積依頼・項目・受領見積書を同時に読むため、いずれかが 404 なら見積依頼が見つからない表示にする。404 以外の失敗の従来の文言（取得の失敗）と再試行の釦は残す。
+
+**操作のメッセージ（10.6）**: 見積依頼の作成・編集の保存は画面の既存のエラーの欄に、項目の選択の保存は項目選択のパネルの既存のフィードバックに（Requirement 4.9 の選択状態の復元は保つ）、ステータスの変更は既存のエラーの通知に（詳細の画面はもともと `StatusTransitionButton` の失敗の通知を受け取っておらず、ステータスの変更の失敗は何も表示されていなかった。タスク105.1 でこれを繋いだため、404 以外の失敗も部品の従来の文言で表示されるようになった。2026-10-30、機能検証の指摘で書き添えた）、受領見積書の登録・更新はフォームの既存の保存のエラーの欄に、見つからない旨を表示する。見積依頼の論理的な取り除きは、従来は失敗で画面全体を取得の失敗の表示へ置き換えていたが、404 では見つからない旨を表示する。見積依頼方法と内訳書を本文に含める設定の変更と受領見積書の論理的な取り除きは従来エラーを握りつぶしていたため、404 で見つからない旨を表示する（404 以外の失敗の扱いは本追加の対象外）。見積依頼文の取得（Requirement 6 のパネル）・受領見積書のプレビュー用の URL の取得・出力（Requirement 5・35）は、画面を読み込んだ後の付随の読み取りで、従来の表示が英語でも汎用の障害でもない（見積依頼文を取得できない旨、プレビューを使えない表示、出力の失敗の文言）ため本追加の対象としない。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 10.5 | 画面の読み込みの 404 で見つからない旨と戻り先のリンク | 見積依頼の画面の不在の表示, 404 の分類 | `ResourceNotFound` | - |
+| 10.6 | 操作の 404 で見つからない旨のメッセージ | 操作の不在のメッセージ, 404 の分類 | `ItemSelectionPanel`, `StatusTransitionButton`, `ReceivedQuotationForm` | - |
+| 42.10 | 作成の要求が指す、経路のプロジェクトに属さない内訳書は不在と同じ 404、範囲外だけ記録 | 作成の内訳書の所属の照合 | `POST /api/projects/:projectId/estimate-requests`, `projectMismatch` | 見積依頼作成フロー |
+| 42.11 | プロジェクトの配下の経路の食い違いは不在と同じ 404、見積依頼の案件が範囲外なら記録 | 見積依頼の食い違いの解決 | `requireProjectScope`, `projectMismatch` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 作成の要求が範囲内の他のプロジェクトの内訳書を指す | 内訳書の不在と同じ汎用の 404。見積依頼を作成せず、記録しない | 42.10 |
+| 作成の要求が範囲外のプロジェクトの内訳書を指す | 内訳書の不在と同じ汎用の 404。見積依頼を作成しない。`PROJECT_SCOPE_DENIED` を 1 回記録する（対象は内訳書の案件） | 42.4, 42.10 |
+| プロジェクトの配下の経路で、範囲外の案件の見積依頼を指す | 不在と同じ汎用の 404。データを変えない。`PROJECT_SCOPE_DENIED` を 1 回記録する（対象は見積依頼の案件） | 42.11 |
+| プロジェクトの配下の経路で、範囲内の他の案件の見積依頼を指す | 不在と同じ汎用の 404。データを変えず、記録しない | 42.11 |
+| 画面の読み込みが 404 を受ける | `ResourceNotFound` で見つからない旨と戻り先のリンク。取得の失敗の文言と再試行の釦を出さない | 10.5 |
+| 作成・保存・設定の変更・ステータスの変更・論理的な取り除きが 404 を受ける | 見つからない旨の日本語のメッセージ。応答の英語の文言と操作の失敗の汎用の文言を出さず、握りつぶさない | 10.6 |
+
+### Testing Strategy
+
+- **単体（backend）**: 判定部品の単体テストの書き換えと追加（42.10・42.11。上の「既存のテストの書き換え」）
+- **統合（backend）**: 範囲内の他のプロジェクトの内訳書を指す作成が存在しない内訳書と同じ 404 になり、見積依頼が増えず記録も増えないこと、範囲外のプロジェクトの内訳書では同じ 404 で記録が 1 件増えること（42.10）。範囲外の案件の見積依頼を範囲内の案件の経路で指すと 404 で記録が 1 件増え、範囲内の他の案件では増えず、不在の見積依頼でも同じ 404 で増えないこと（42.11）
+- **単体（frontend）**: 404 の分類、各画面が読み込みの 404 で `ResourceNotFound` を表示し取得の失敗の文言と再試行の釦を出さないこと、各操作が 404 で見つからない旨を表示し英語の文言と汎用の失敗の文言を出さないこと（現状で赤になることを先に示す。10.5・10.6）
+- **E2E**: 担当外の利用者が見積依頼の詳細・編集の URL を直接開くと見つからない旨とプロジェクトの一覧へのリンクが表示され、存在しない見積依頼の表示と同じになること、範囲外のプロジェクトの見積依頼の一覧・新規作成の URL ではプロジェクトが見つからない旨が表示されること（10.5）。開いた後に見積依頼が論理的に取り除かれた状態で、項目の選択の保存・ステータスの変更・受領見積書の登録などを行うと見つからない旨のメッセージが出ること（10.6）。範囲外の案件の見積依頼を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えること（42.11。上流の要件39.8 の E2E の被覆も兼ねる）、範囲内の他のプロジェクトの内訳書を指す作成が 404 になり見積依頼が作成されないこと（42.10）
+- 挙動の変更であるため RED → GREEN で進める（タスク104.1・104.2・105.1）
+
+## 2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、見積依頼文のコピー・メールで開く操作の出力の記録（Requirement 42.12〜42.16）
+
+### Overview
+
+**Purpose**: 利用者の判断（2026-10-30「推奨案で進める」）で起票した二件を設計として固定する。(1) 見積依頼の配下の受領見積書の経路で、経路で指定した見積依頼に属さない受領見積書を不在と同じ汎用の 404 にし、受領見積書の実際の案件が閲覧範囲外なら範囲外の拒否として記録する（42.12。user-authentication の要件39.8 とその 2026-10-30 の改訂〔対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録する。同 spec の design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」〕の本機能への適用）。(2) 見積依頼の詳細画面のクリップボードへのコピーと、見積依頼文をメールクライアント・Gmail で開く操作を、出力の記録の成功の後にだけ行う（42.13〜42.16。user-authentication の要件40.10・40.11 と、同 spec の design.md の ExportAuditService の節の「見積依頼の詳細画面のコピーとメールで開く操作の種別」）。
+
+**Impact（既存前提の是正。2026-10-30 の調査）**:
+
+1. 受領見積書の経路は二つにマウントされている（`/api/estimate-requests/:id/quotations` と `/api/quotations`）。経路の部品は `mergeParams: true` で作られ、配下の `/:id` の経路（詳細の取得、更新、論理的な取り除き、プレビュー用の署名付きURLの発行の四つ）では子の `:id`（受領見積書）が親の `:id`（見積依頼）を上書きする（Express の `mergeParams` は名前が重なると子の値を優先する）。判定部品 `requireReceivedQuotationProjectScope` は受領見積書の ID だけから案件を引くため、経路で指定した見積依頼は読まれない。そのため範囲内の別の見積依頼（同じ案件か範囲内の別の案件）の受領見積書を指す要求が 404 にならず通り、存在しない見積依頼の ID を経路に置いても通る。範囲外の案件の受領見積書は受領見積書の実際の案件で判定され、従来から不在と同じ汎用の 404 で `PROJECT_SCOPE_DENIED` が記録されている（受領見積書と見積依頼の論理削除は区別しない）。所在は次の 3 ファイル
+   backend/src/app.ts
+   backend/src/routes/received-quotation.routes.ts
+   backend/src/middleware/estimate-request-project-scope.middleware.ts
+2. 画面は受領見積書の配下の `/:id` の経路を使わない。画面の API の部品は見積依頼の配下の経路を登録と一覧（`POST /` と `GET /`）にだけ使い、詳細・更新・論理的な取り除き・プレビューは `/api/quotations/:id` を使う（2026-10-30 に frontend/src の全体を検めた）。画面の API の部品の所在は次のファイル
+   frontend/src/api/received-quotations.ts
+   - e2e/ と backend のテストにも見積依頼の配下の `/:id` の経路を呼ぶものは見当たらない（Claude Vision の E2E の後始末が呼ぶ `received-quotations` の経路は別の経路で、本件と関わらない）。したがって画面の変更は要らない
+3. 見積依頼の詳細画面のクリップボードへのコピーは二か所ある。見積依頼文のパネル（`EstimateRequestTextPanel`）の内部の部品 `InlineCopyButton` が宛先・表題・本文を一つずつ書き込み（Requirement 7.1〜7.4）、アクションの欄の `ClipboardCopyButton` が選択した項目の一覧（任意分類・工種・名称・規格・単位・数量のタブ区切り）を書き込む。どちらも `navigator.clipboard.writeText` を直接呼び、出力の記録を経ない。本書の当初の設計は `ClipboardCopyButton` を Requirement 7 の部品としているが、実装ではパネルの内部の部品が Requirement 7 を受け持ち、`ClipboardCopyButton` は選択した項目の一覧のコピーになっている
+4. 「メールで開く」は活性時にアンカー（`href` に mailto の URL）で、「Gmailで開く」はクリックの処理の中の `window.open` で起動し、どちらも出力の記録を経ない（「見積依頼文のメーラーワンクリック転記 - 設計追記（Requirement 41）」章）。パネルは見積依頼と案件の ID を受け取っていない
+
+### 受入基準の置き場所の判断
+
+- 42.12〜42.16 は Requirement 42 の続きの番号とした。42.12 は同要件の In scope（本機能の API への閲覧範囲の適用）の内側にある受領見積書の経路の応答と記録、42.13〜42.16 は同要件の出力の記録（42.8・42.9）の対象を広げるものである。新しい Requirement を立てると、同じ API と同じ詳細画面の出力の記録の定めが二つの要件に分かれる。目的・In scope・Out of scope は改訂した（requirements.md の Requirement 42 の改訂の記録）
+- 42.12 は 42.11（プロジェクトの配下の経路の食い違い）と同じ型であるが、経路の親が見積依頼で対象が受領見積書であるため別の受入基準とした
+- 既存の受入基準の条文は改訂していない。受領見積書の二重マウントで食い違いが生じないとしていたのは本書の Requirement 42 章の「適用の決定」と 2026-10-29 の章の Out of Boundary であり、それぞれに改訂の注記を置いた
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 受領見積書の経路の引数名を見積依頼の経路の引数名と分けることと、受領見積書の判定部品の解決関数が、経路に見積依頼の ID があり受領見積書がその見積依頼に属さないとき、上流の `projectMismatch`（受領見積書の実際の案件 ID）を返すこと（42.12）
+- 見積依頼の詳細画面のクリップボードへのコピー（パネルの宛先・表題・本文、アクションの欄の選択した項目の一覧）を上流の `runRecordedClipboardWrite` で包むこと（42.13・42.14）
+- 「メールで開く」「Gmailで開く」の起動を出力の記録の成功の後に行うこと（42.15・42.16）
+- 上の振る舞いを主張する本機能のテストの追加と、既存のテストの追随
+
+#### Out of Boundary
+- 判定と記録の実体（user-authentication の `requireProjectScope`・`projectMismatch`・`recordProjectScopeDenied`）と記録の内容（同要件39.7）。上流の部品の契約と振る舞いは変えない（同 spec のタスク66.1 が確かめる）
+- 出力の種別の列挙と記録の受け口、包み `runRecordedClipboardWrite`・`runRecordedExport` の振る舞い（user-authentication の要件40.9〜40.11。種別の追加は同 spec のタスク67.1）
+- `/api/quotations` の経路の URL と応答、受領見積書の OpenAPI の経路（`/api/quotations/{id}` の引数名は文書の上の名前であり、経路の部品の引数名を改めても URL は変わらない）。2026-10-31 に OpenAPI の引数名を実装に合わせて `{quotationId}` へ改めた（「決定」の節のタスク106.1 の項の改訂の注記）
+- 見積依頼文の生成の内容（Requirement 6）、メールの URL の組み立て（`mail-launcher` の `buildMailtoUrl`・`buildGmailComposeUrl`）、活性の条件と非活性の理由の表示（Requirement 41.8〜41.10）
+- Requirement 7.6（クリップボードの API が使えないときのフォールバック）。包みはクリップボードの API の無い環境で記録を要求せずに失敗を返し、本追加はその扱いを変えない
+
+#### Allowed Dependencies
+- 本機能の判定部品 → user-authentication の `projectMismatch`（既存の依存）
+- 本機能の画面 → `runRecordedClipboardWrite`・`runRecordedExport`・`EXPORT_RECORD_FAILED_MESSAGE`（`frontend/src/api/export-audit.ts`。既存の依存）
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| 受領見積書の食い違いの解決 | Middleware | 経路の見積依頼に属さない受領見積書の実際の案件 ID を食い違いとして判定部品へ返す | 42.12 | `projectMismatch`（P0）, `requireProjectScope`（P0） | Service |
+| 記録されるコピー | Frontend/Component | パネルの宛先・表題・本文とアクションの欄の選択した項目の一覧のコピーを、記録の成功の後にだけ書き込み、記録の失敗では何も書かずにエラーメッセージを表示する | 42.13, 42.14 | `runRecordedClipboardWrite`（P0） | State |
+| 記録されるメールの起動 | Frontend/Component | 「メールで開く」「Gmailで開く」を記録の成功の後にだけ起動し、記録の失敗では開かずにエラーメッセージを表示する | 42.15, 42.16 | `runRecordedExport`（P0）, `mail-launcher`（P1） | State |
+
+### 決定
+
+**受領見積書の経路の食い違い（42.12）**: 受領見積書の経路の部品の `/:id` の経路の引数名を受領見積書の名前（例 `quotationId`）へ改め、見積依頼の経路の引数名（`id`）と分ける。ID の形式の検査の構造（`receivedQuotationIdParamSchema`）と各経路の本体が読む引数名も合わせて改める。どちらの引数名を改めるかは、画面と OpenAPI の URL を変えない範囲で実装時に決めて本節へ記す（既定は子を改める）。`requireReceivedQuotationProjectScope` の解決関数は、受領見積書の行から親の見積依頼の ID とその案件 ID を引き、経路に見積依頼の ID があり受領見積書の見積依頼と食い違うとき `projectMismatch(受領見積書の案件 ID)` を返す。上流の判定部品が実際の案件を判定し、範囲外のときだけ `PROJECT_SCOPE_DENIED` を記録し、判定の結果に関わらず汎用の 404 を返す。
+
+- 受領見積書の不在は従来どおり null で汎用の 404（記録なし）になり、食い違いと不在は同じ応答になる。経路の見積依頼に属する受領見積書は従来どおり案件 ID を返し、本体の不在・論理削除の 404、409、400 へ進む
+- 受領見積書と見積依頼の論理削除は区別しない（Requirement 42 章の「適用の決定」と上流の 39.8 の 2026-10-30 の改訂）。範囲外の案件の論理削除済みの受領見積書を食い違いの経路で指しても記録する
+- 経路の見積依頼そのものの範囲は判定しない。記録の対象は対象のデータ（受領見積書）の実際の案件であり、42.11 の判定（経路の案件でなく見積依頼の実際の案件で判定する）と上流の 39.8 の設計に揃える。経路の見積依頼が存在しなくても、受領見積書がそれに属さないので食い違いとして扱う
+- 同じ案件の別の見積依頼の受領見積書と範囲内の他の案件の受領見積書は、判定が `allowed` となり記録しない（経路の誤り）。変わるのはこれらの要求で、従来は通っていたものが記録なしの汎用の 404 になる。範囲外の案件の受領見積書の応答と記録は変わらない
+- `/api/quotations` の経路は経路に見積依頼の ID を持たず、食い違いが生じないため振る舞いは変わらない。登録と一覧（見積依頼の配下の `POST /` と `GET /`）は見積依頼の判定部品で判定しており変わらない
+- 上流の判定部品へ照合を移す案は採らない。親のデータと対象の照合は各業務 spec の解決関数が受け持つ上流の定め（user-authentication の design.md の ProjectScopeGuard の節）に従う。見積依頼の配下の `/:id` の経路を閉じる案は、画面が使っていなくても API の利用者の経路を予告なく変えるため採らない
+- 経路の部品の冒頭の注釈（`mergeParams` の理由）と判定部品のファイルの冒頭の注釈に食い違いの扱いを書き足す
+- 上流のタスク66.1（論理削除済みの対象でも実際の案件で記録することの確かめ）に依存する（各 spec の切り替えを 66.1 に依存させる上流の起票の定め）
+- **実装の決定（2026-10-30、タスク106.1）**: 子（受領見積書の経路の部品）の引数名を改めた。`/:id` の四つの経路を `/:quotationId` にし、ID の形式の検査の構造 `receivedQuotationIdParamSchema` の鍵と各経路の本体が読む引数も `quotationId` にした。親のマウント（`/api/estimate-requests/:id/quotations`）と登録・一覧の経路（`estimateRequestIdForQuotationSchema` の `id`）は変えていない。解決関数は受領見積書の行から見積依頼の ID と案件 ID を引き（`findOwnerOfReceivedQuotation`）、親の経路の引数 `id` があり受領見積書の見積依頼と異なるとき `projectMismatch(受領見積書の案件 ID)` を返す。受領見積書の引数名に `id` を渡された場合は親の値が子に上書きされて読めないため照合しない。URL は変わらず、`docs:generate` で作り直した OpenAPI の文書にも差分は出なかった（文書の `/api/quotations/{id}` の引数名は注釈の上の名前のまま）
+  - 引数名を改めたことに伴う唯一の外から見える変化は、形式の誤った受領見積書の ID（`/api/quotations/invalid-uuid` など）の 400 の本文の `details[].path` が `id` から `quotationId` に変わることである。状態コードと文言は変わらない。画面は形式の誤った ID を送らず、本文の `details[].path` を読まない。親の引数名を改める案は、登録・一覧の経路の同じ 400 の `path` を変え、見積依頼の判定部品の引数も改める必要があるため採らなかった
+  - **改訂（2026-10-31、機能検証の指摘。利用者の判断「推奨案で進める」）**: OpenAPI の注釈の経路の引数名も実装の経路の引数名に合わせ、受領見積書の 4 つの操作（`/api/quotations/{quotationId}` の GET・PUT・DELETE と `/api/quotations/{quotationId}/preview` の GET）の経路の引数名を改め、`docs:generate` で `backend/docs/api-spec.json` を作り直した（差分は 4 つの操作の経路の引数名と引数の説明だけ）。引数の説明に、形式の誤った ID の 400 の `details[].path` が `quotationId` であることを書いた。URL と応答は変わらない。見積依頼の配下の登録・一覧（`/api/estimate-requests/{id}/quotations`）の親の引数名 `id` は変えていない。上の項の「文書の `/api/quotations/{id}` の引数名は注釈の上の名前のまま」は本改訂の前の記録である
+
+**クリップボードへのコピー（42.13・42.14）**: itemized-statement-generation のタスク28.1（`0f1970a5`）と同じ形で、各コピーのクリックの処理の中で `await` を挟まずに上流の `runRecordedClipboardWrite` を呼ぶ（Safari はクリックの処理の中で同期的に始めた書き込みしか許さない）。記録の入力は次のとおりとする。
+
+- パネルの宛先・表題・本文: 種別 `estimate_request_text_clipboard`、案件は見積依頼の案件、対象は見積依頼の ID、件数は 1。宛先だけのコピーも記録する（宛先は取引先の連絡先であり、項目ごとに記録の要否を分けると基準が増える）。パネルへ見積依頼の ID と案件の ID を渡す props を足す
+- アクションの欄の選択した項目の一覧: 種別 `estimate_request_items_clipboard`（下の「案の比較（種別）」の案 A。利用者の判断）、案件は見積依頼の案件、対象は選択した項目の ID（内訳書の Excel の `estimate_request_xlsx` と同じ）、件数は選択した項目の数。`ClipboardCopyButton` へ記録の入力を渡す props を足す
+- 中身は記録の成功の後にだけ作る。記録の失敗では何も書かず、`EXPORT_RECORD_FAILED_MESSAGE` を表示する。記録の成功の後の書き込みの失敗は各部品の従来の表示（`ClipboardCopyButton` の「コピーに失敗しました」、パネルは従来どおり表示しない）のままとする。記録の要求中はボタンを止める。表示の置き場所（パネルは `role="alert"` の欄、`ClipboardCopyButton` はボタンの近く）は実装時に決めて本節へ記す
+
+**メールクライアントで開く操作を記録の対象にするか（42.15・42.16）**: 次の案を比べ、案 A を推奨した。記録の種別の追加（上流の改訂）と、記録の失敗でメールを開かない振る舞いの変化を伴うため利用者の判断を仰ぎ、利用者の判断（2026-10-30、案 A）で案 A に決まった。専用の種別 `estimate_request_text_mail` で記録し、記録の成功の後に開き、失敗では開かずに中止の文言を出す。
+
+| 案 | 内容 | 長所 | 短所 |
+|---|---|---|---|
+| A（推奨） | 記録する。上流に種別 `estimate_request_text_mail`（案件必須）を足す | 見積依頼文の持ち出しの経路を全て記録し、記録の基準が経路で変わらない。種別でコピーとメールを見分けられる | 上流のタスク67.1 の種別の追加を広げる起票の改訂が要る。記録の失敗でメールを開けない |
+| B | 記録する。種別はコピーの `estimate_request_text_clipboard` を使う | 上流の変更が要らない | 種別の名前と操作が食い違い、監査ログの検索で経路を見分けられない |
+| C | 記録しない | 変更が要らない | コピーを記録しても同じ内容をメールで開く操作で記録なしに持ち出せる。Gmail で開く操作は内容を URL に載せて外部のサービスへ送る |
+
+- 理由: 「メールで開く」「Gmailで開く」は見積依頼文の宛先・表題・本文をそのままアプリの外へ渡す操作であり、コピーと同じ持ち出しの経路である。Gmail で開く操作は内容を URL に載せて Google のサービスへ送るため、手元へのコピーより外へ出る度合いが大きい。上流がコピーの種別を設けた理由（どの出力かを種別で見分ける）と、内訳書の Excel とコピーを種別で分けた先例（`itemized_statement_xlsx` と `itemized_statement_clipboard`）から、経路ごとの種別とする
+- 起動の形: 記録の入力は種別 `estimate_request_text_mail`、見積依頼の案件、対象は見積依頼の ID、件数は 1 とし、上流の `runRecordedExport` の生成の処理で起動する。「メールで開く」はアンカーのまま、クリックの既定の動作を止めて記録を要求し、成功の後に mailto の URL へ移る（`href` は残し、既存の E2E が主張するリンクの描画を保つ）。「Gmailで開く」は、記録を待ってから `window.open` すると利用者の操作による起動の扱いが切れてポップアップが止められうるため、クリックの処理の中で同期的に空の新しいタブを開き、記録の成功の後に Gmail の作成画面の URL へ移し、記録の失敗ではそのタブを閉じる。参照元を Gmail へ渡さない（従来の `noopener,noreferrer`）保ち方と、mailto の起動が記録の待ちの後も各ブラウザで働くことは、実装時に本番ビルドの画面を Chromium と WebKit で確かめて本節へ記す（itemized-statement-generation のタスク28.1 の実ブラウザの確認の形）
+- 記録の失敗ではメールクライアントも Gmail も開かず、パネルの `role="alert"` の欄に `EXPORT_RECORD_FAILED_MESSAGE` を表示する。記録の要求中は両ボタンを止める
+
+**案の比較（種別。選択した項目の一覧のコピー）**: アクションの欄の `ClipboardCopyButton` の中身は見積依頼文ではなく、内訳書の項目の選択の一覧（内訳書の Excel と同じ項目）である。次の案を比べ、案 A を推奨し、利用者の判断（2026-10-30、案 A）で案 A に決まった。
+
+| 案 | 内容 | 長所 | 短所 |
+|---|---|---|---|
+| A（推奨） | 上流に種別 `estimate_request_items_clipboard`（案件必須）を足す | 種別でどのデータが持ち出されたかを見分けられる（上流がコピーの種別を内訳書と分けた理由と同じ） | 上流のタスク67.1 の起票の改訂が要る |
+| B | 見積依頼文の種別 `estimate_request_text_clipboard` を使う | 上流の変更が要らない | 上流の定める種別の意味（見積依頼文の宛先・表題・本文）と食い違う |
+| C | 記録の対象にしない | 変更が要らない | 内訳書の Excel を記録しても同じ項目をコピーで記録なしに持ち出せる |
+
+**上流を待つ理由**: タスク106.1 は上流のタスク66.1（論理削除済みの対象でも実際の案件で記録する方針の確かめ）に、タスク107.1 は上流のタスク67.1（種別の追加）に依存する。利用者の判断（案 A）を受け、上流の 67.1 は `estimate_request_text_clipboard`・`estimate_request_text_mail`・`estimate_request_items_clipboard` の 3 種別を足す形へ改訂した（user-authentication の要件40.10 の改訂の記録、2026-10-30）。
+
+**実装の記録（タスク107.1、2026-10-30）**:
+
+- 置き場所: 見積依頼文のパネル（`EstimateRequestTextPanel`）は props に `estimateRequestId` と `projectId`（必須）を足し、詳細の画面が見積依頼の ID と案件の ID を渡す。パネルの内部の `InlineCopyButton` は記録の入力と、記録の開始・失敗をパネルへ知らせる関数を受け取る。`ClipboardCopyButton` は props に記録の入力 `exportRecord`（必須）を足し、詳細の画面が種別 `estimate_request_items_clipboard`・見積依頼の案件・選択した項目の `estimateRequestItemId`（表示順）・選択した項目の数を渡す。各コピーのクリックの処理は、押し直しの判定と表示の状態の切り替えの後、最初の `await` として `runRecordedClipboardWrite` を呼ぶ
+- 表示の置き場所: パネルの記録の失敗（宛先・表題・本文のコピーとメールで開く操作で共有）は、パネルの見出しの直下の `role="alert"` の欄に出し、次の操作の開始で消す。`ClipboardCopyButton` の記録の失敗は、ボタンの直後（アクションの欄の中、内訳書の Excel の記録の失敗と同じ置き方）の `role="alert"` の段落に出し、次のコピーの開始で消す。記録の成功の後の書き込みの失敗は、`ClipboardCopyButton` が従来の「コピーに失敗しました」、パネルが従来どおり表示しない。記録の要求中は、各コピーのボタンと、「Gmailで開く」のボタン・「メールで開く」のリンク（`aria-disabled="true"` と無効の見た目にし、クリックは既定の動作を止めて何もしない）を止める
+- 「メールで開く」: アンカーの `href`（mailto の URL）は残し、`onClick` で既定の動作を止めて `runRecordedExport`（種別 `estimate_request_text_mail`・見積依頼の案件・見積依頼の ID・件数 1）を呼び、生成の処理で mailto の URL へ移る（`window.location.href` への代入）。中クリック（`onAuxClick` の中ボタン）も同じ処理を通し、既定の動作で記録なしに開かせない。右クリックのメニューのリンクのアドレスのコピーは記録を経ない（`href` を残す設計の帰結）
+- 「Gmailで開く」: クリックの処理の中で同期的に `window.open('', '_blank')` で空のタブを開き、開いたタブの `opener` を null にする。記録の成功の後、そのタブの文書に `rel="noreferrer"` のリンクを置いてクリックし、Gmail の作成画面へ移す。記録の失敗（`GENERATION_FAILED` を含む）ではタブを閉じる。空のタブを開けない（ポップアップが止められた）ときは何も開かないため記録を要求しない。参照元を渡さない保ち方: 後から移すにはタブの参照が要るため `noopener` は付けず、`opener` を null にして移った先から元の画面を参照させない。参照元は `noreferrer` のリンクで送らない（本番の nginx の `Referrer-Policy: no-referrer` に頼らない）。タブの操作は mail-launcher の `openMailClient`・`openBlankMailTab`・`navigateMailTab`・`closeMailTab` に置いた（URL の組み立ての関数は副作用を持たないまま）
+  - **改訂（2026-10-31、利用者の判断「推奨案で進める」）**: 上の項は 2026-10-30 の決定の記録として残す。空のタブを開けないときに記録を要求しないこと、記録の後の失敗（`GENERATION_FAILED`）でタブを閉じることは変えない。42.17・42.18 の追加により、前者ではポップアップがブロックされた旨と許可を促す文言を、後者では作成画面を開けなかった旨と再操作を促す文言を、パネルの `role="alert"` の欄に表示する。設計は末尾の章「2026-10-31 の追加: Gmail で開く操作の失敗の表示」が持つ
+- 画面の破棄: 記録の要求中にパネルが閉じられたら、mailto へは移らず、Gmail の空のタブは閉じる（内訳書の Excel の記録の要求中の破棄と同じ扱い）
+- テスト: 単体は `EstimateRequestTextPanel.test.tsx`・`ClipboardCopyButton.test.tsx`・`mail-launcher.test.ts`・`EstimateRequestDetailPage.test.tsx`（記録の要求を API クライアントの `post` の差し替えで模擬し、書き込みは上流の包みの実物）。E2E は `estimate-request-export-audit.spec.ts` の describe「見積依頼文と選択した項目の一覧のコピー・メールで開く操作の事前記録」（42.13〜42.16 の印。「メールで開く」は OS のメールクライアントを起動するため E2E では押さず、単体と下の実ブラウザの確認が受け持つ）
+- 実ブラウザの確認（2026-10-30）: テスト環境の本番ビルド（frontend 5174 / backend 3100。frontend は `--force-recreate` で作り直し、配信の束に `estimate_request_items_clipboard` が含まれることを確かめた後）の見積依頼の詳細画面で、Chromium と WebKit の両方で確かめた。手順は itemized-statement-generation のタスク28.1 と同じ形: リポジトリの外（スクラッチパッド）の使い捨てのスクリプトで、E2E の補助（`createSessionUser`・`loginAsUser`）を使い利用者・案件・取引先（メールあり）・内訳書（項目 2 件）・見積依頼（メール、項目 2 件を選択）を DB に作り、ホストの Chromium でブラウザごとに別にログインした storageState を書き出し、Playwright の公式イメージ（`mcr.microsoft.com/playwright:v1.62.0-noble`）の中で `docker run --rm --ipc=host --network host` にリポジトリの `@playwright/test`（1.62.0）を読み取り専用で渡して流した。クリップボードは画面に差し込んだ textarea へのキーボードのコピーで前の中身を入れ、貼り付け（`ControlOrMeta+V`）で読んだ。記録が成功する場合は記録の要求を `page.route` で約 500ms 止めてから実際の backend へ通し（201）、失敗する場合は 500 を返した。Gmail の作成画面の要求は `context.route` で捕まえて空のページを返した（失敗の場合は中断）。mailto の起動は、同じ URL の素のリンクを押したときの観測（Chromium は mailto の要求と `net::ERR_ABORTED`、WebKit は mailto の要求）と比べた。確かめた後にデータと利用者を消した
+  - WebKit 26.5（headless）: 本文のコピーは記録の要求が 1 回（種別 `estimate_request_text_clipboard`・見積依頼の案件・見積依頼の ID・件数 1）、要求中はボタンが止まり、記録の応答の後に貼り付けた中身が表示中の本文と一致した。選択した項目の一覧のコピーは記録の要求が 1 回（種別 `estimate_request_items_clipboard`・案件・選択した項目の ID 2 件・件数 2）、貼り付けはタブ区切りの 2 行。記録が 500 のときは、本文・項目の一覧のどちらも記録の要求が 1 回ずつ、記録の失敗の文言の alert が出て、貼り付けは前の中身のまま。「Gmailで開く」は記録の要求中は両ボタンが止まり作成画面の要求が出ず、記録の応答（201）の後に空のタブが `mail.google.com` の作成画面（`view=cm`、宛先つき）へ移り、その要求に `Referer` が無く、移った先の `window.opener` は null、`document.referrer` は空だった。記録が 500 のときは作成画面の要求が出ず、空のタブは閉じ、記録の失敗の文言が出た。「メールで開く」は記録の要求中にリンクが `aria-disabled="true"` になり、記録の応答（201）の後に素のリンクと同じ mailto の起動の観測が出て、画面は詳細の画面のまま。記録の要求を約 6 秒止めた場合（Chromium の利用者の操作の猶予の 5 秒を超える）も同じく起動した。記録が 500 のときは起動の観測が出ず、記録の失敗の文言が出た
+  - Chromium 151.0.7922.34（headless。`clipboard-read`・`clipboard-write` を与えた）: 同じ結果
+  - 留意: Playwright の WebKit は Safari の利用者の操作の制約を再現せず、headless のブラウザは mailto を OS のメールクライアントへ渡さない（観測は mailto の要求の発生まで）。コピーの包みの呼び出しと空のタブを開く処理がクリックの処理の中で `await` より前に行われることは単体テスト（クリックのイベントの配送が同期で戻った時点で記録の要求が送られていること、`window.open` が呼ばれていること）が担保し、実機の Safari とメールクライアントでの確認は本環境では行えない
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 42.12 | 見積依頼の配下の経路で、その見積依頼に属さない受領見積書は不在と同じ 404、受領見積書の案件が範囲外なら記録 | 受領見積書の食い違いの解決 | `requireProjectScope`, `projectMismatch` | - |
+| 42.13 | 宛先・表題・本文と選択した項目の一覧のコピーは記録の成功の後にだけ書き込む | 記録されるコピー | `runRecordedClipboardWrite`, `POST /api/v1/audit-logs/exports` | クリップボード操作 |
+| 42.14 | コピーの記録の失敗では何も書かずエラーメッセージを表示する | 記録されるコピー | `runRecordedClipboardWrite`, `EXPORT_RECORD_FAILED_MESSAGE` | - |
+| 42.15 | メールで開く・Gmail で開くは記録の成功の後にだけ起動する | 記録されるメールの起動 | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | - |
+| 42.16 | メールで開く操作の記録の失敗では開かずエラーメッセージを表示する | 記録されるメールの起動 | `runRecordedExport`, `EXPORT_RECORD_FAILED_MESSAGE` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 見積依頼の配下の経路で、範囲外の案件の受領見積書（論理削除済みを含む）を指す | 不在と同じ汎用の 404。データとストレージを変えず、署名付きURLを返さない。`PROJECT_SCOPE_DENIED` を 1 回記録する（対象は受領見積書の案件） | 42.12 |
+| 同じ経路で、同じ案件の別の見積依頼か範囲内の他の案件の受領見積書を指す | 不在と同じ汎用の 404。データを変えず、記録しない | 42.12 |
+| 同じ経路で、存在しない受領見積書を指す | 不在と同じ汎用の 404。記録しない | 42.12 |
+| コピーの記録の要求が失敗する | クリップボードへ何も書かず、`EXPORT_RECORD_FAILED_MESSAGE` を表示する | 42.14 |
+| 記録の成功の後のクリップボードへの書き込みが失敗する | 各部品の従来の表示。記録は再送しない | 42.13 |
+| メールで開く操作の記録の要求が失敗する | メールクライアントも Gmail も開かず（先に開いた空のタブは閉じる）、`EXPORT_RECORD_FAILED_MESSAGE` を表示する | 42.16 |
+
+### Testing Strategy
+
+- **単体（backend）**: 判定部品の単体テストで、経路に見積依頼の ID を持つ形で、属する受領見積書は通り、範囲内の別の見積依頼の受領見積書は記録なしの汎用の 404、範囲外の案件の受領見積書は記録 1 件の汎用の 404、受領見積書の不在は記録なしの 404 になることを足す。既存の「受領見積書の ID は親の見積依頼を経て案件を引く」は問い合わせの選択の形を主張しており、見積依頼の ID を引く形に合わせて改める（範囲の内外と不在の主張は消さない）。所在は次のファイル
+  backend/src/__tests__/unit/middleware/estimate-request-project-scope.middleware.test.ts
+- **統合（backend）**: 閲覧範囲の統合テストに、見積依頼の配下の経路の詳細の取得・更新・論理的な取り除き・プレビューで、同じ案件の別の見積依頼の受領見積書を指すと不在と同じ汎用の 404 になりデータとストレージが変わらず記録も増えないこと、範囲外の案件の受領見積書（論理削除済みを含む）では同じ 404 で `PROJECT_SCOPE_DENIED` が 1 件増えること（対象は受領見積書の案件）、属する受領見積書では従来どおり通ること、`/api/quotations` の経路が変わらないことを足す。所在は次のファイル
+  backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts
+- **単体（frontend）**: パネルの宛先・表題・本文のコピーと `ClipboardCopyButton` が、記録の要求の前にクリップボードへ書かず、記録の成功の後に中身を書き、記録の失敗では何も書かずエラーメッセージを出すこと、記録の入力（種別・案件・対象・件数）、要求中にボタンが止まること。「メールで開く」「Gmailで開く」が記録の成功の後にだけ起動し、記録の失敗では起動せず（先に開いた空のタブを閉じ）エラーメッセージを出すこと。既存の `EstimateRequestTextPanel.test.tsx`・`ClipboardCopyButton.test.tsx` の主張（コピーの完了の表示、非活性の条件、mailto のリンクの描画）が記録の成功の模擬のもとで緑のままであることを確かめる
+- **E2E**: 見積依頼の詳細画面で、見積依頼文の本文のコピーと選択した項目の一覧のコピーが `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求し、記録の要求中はクリップボードが前の中身のまま、成功の後に中身が書かれること、記録を 500 にすると何も書かれずエラーメッセージが出ること。「Gmailで開く」が記録の後に Gmail の作成画面を開き、記録を 500 にすると開かずエラーメッセージが出ること。見積依頼の配下の経路で範囲外の案件の受領見積書を指す要求が 404 になり監査の記録が 1 件増え、同じ案件の別の見積依頼の受領見積書を指す要求が 404 になること（42.12。上流の要件39.8 の改訂の被覆も兼ねる）。所在は次の 2 ファイル
+  e2e/specs/estimate-requests/estimate-request-export-audit.spec.ts
+  e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts
+- 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す（タスク106.1・107.1）
+
+## 2026-10-31 の是正: 見積依頼の削除の基準時刻をクエリで受け取る
+
+**不具合の芽**（2026-10-31 の調査。利用者の判断「推奨案で進める」）: 画面の `deleteEstimateRequest` は楽観的排他制御の基準時刻 `updatedAt` を DELETE の本文で送り、見積依頼の削除の経路は `validate(deleteEstimateRequestBodySchema, 'body')` で本文を検証していた。画面とサーバーは食い違っておらず現状で削除はできるが、HTTP（RFC 9110）は DELETE の本文に意味を定めておらず、中継の装置やクライアントの実装が本文を落とすと基準時刻が届かず 400 になり、見積依頼を消せなくなる（Requirement 8.4・8.5 を満たせなくなる）。見積書の削除は同じ理由で基準時刻をクエリで受け取る形に改めており（estimate-creation の design.md の章「2026-10-30 の是正: 見積書の削除の基準時刻をクエリで受け取る」、e5fd9877）、同じ形にそろえる。
+
+**是正**: 経路は基準時刻をクエリ（`?updatedAt=`）で受け取り、本文を読まない。検証を `validate(deleteEstimateRequestQuerySchema, 'query')` へ改め（スキーマの名前も本文からクエリへ改めた）、本体は `req.validatedQuery` から読む。画面の `deleteEstimateRequest` は `?updatedAt=` を付けて本文を送らない。本文の受け取りは残さない（見積書の是正と同じく、本文だけの要求は 400）。形式の検査と楽観的排他制御の 409 は従来どおり。判定の順序（`requirePermission` → ID の形式 → `requireEstimateRequestProjectScope` による範囲の判定 → クエリの検証 → 本体）は保ち、範囲外と不在は基準時刻の有無にかかわらず 400 より先に汎用の 404 になる（Requirement 42.2）。OpenAPI の注釈を本文からクエリの引数へ改め、api-spec.json を再生成した。上の API Contract の表の行もクエリへ改めた。受領見積書の論理的な取り除き（`/api/quotations/:quotationId`）はこの是正の時点では本文で基準時刻を受け取っており対象外としたが、利用者の判断を受けて同じ形にそろえた（次の章「2026-10-31 の是正: 受領見積書の論理的な取り除きの基準時刻をクエリで受け取る」）。
+
+**被覆の所在**: 画面の操作の E2E は REQ-8.4 のテスト（`@requirement estimate-request/REQ-8.4`）で、確認のダイアログの後の要求が成功し、その要求の URL に基準時刻のクエリが付き、本文が無いことを主張する。
+  e2e/specs/estimate-requests/estimate-request-e2e.spec.ts
+後始末の共通の手続きは `deleteEstimateRequestViaApi` で、基準時刻を読み直してクエリで送り、204 以外を失敗にする。見積依頼の E2E の後始末 10 か所（7 本）をこの手続きへ改めた（従来は基準時刻を送らずに 400 を受け、状態コードを見ていなかった）。範囲外の要求の E2E は基準時刻をクエリで送る形へ改めた。
+  e2e/helpers/estimate-request-preconditions.ts
+  e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts
+
+**テスト**: 単体（経路: クエリで 204 と本体への基準時刻の受け渡し、本文だけで 400、基準時刻なしで 400、形式の不正で 400、404、409。画面の API: URL に基準時刻のクエリが付き、本文の引数を渡さない）、統合（見積依頼の要求をクエリへ改め、本文だけ・基準時刻なしの要求が 400 でデータが残ること、古い基準時刻の 409 でデータが残ることを足した。閲覧範囲の統合テストに、基準時刻の無い要求も範囲外では存在しない ID と同じ 404 になることを足した。検証を範囲の判定の前へ動かすと赤になることを確かめた）。RED は旧実装で、backend の単体 4 件、統合 5 件、frontend の単体 1 件が赤だった。
+  backend/src/__tests__/unit/routes/estimate-requests.routes.test.ts
+  backend/src/__tests__/integration/estimate-request.api.integration.test.ts
+  backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts
+  frontend/src/__tests__/api/estimate-requests.test.ts
+
+## 2026-10-31 の是正: 受領見積書の論理的な取り除きの基準時刻をクエリで受け取る
+
+**不具合の芽**（2026-10-31 の機能検証。利用者の判断「推奨案で進める」）: 前の章で見積依頼の削除の基準時刻をクエリへ改めた後も、画面の `deleteReceivedQuotation` は楽観的排他制御の基準時刻 `updatedAt` を DELETE の本文で送り、受領見積書の論理的な取り除きの経路は `validate(deleteReceivedQuotationBodySchema, 'body')` で本文を検証していた。HTTP（RFC 9110）は DELETE の本文に意味を定めておらず、中継の装置やクライアントの実装が本文を落とすと基準時刻が届かず 400 になり、受領見積書を取り除けなくなる（Requirement 11.29・11.30・14.5・14.6 を満たせなくなる）。同じ詳細の画面の中で見積依頼の削除と受け取り方が分かれてもいた。また ocr-retry-e2e.spec.ts と number-format-e2e.spec.ts の受領見積書の後始末は基準時刻を送らずに状態コードを見ておらず、400 で残っても気づけなかった。
+
+**是正**: 前の章と同じ形にそろえる。経路は基準時刻をクエリ（`?updatedAt=`）で受け取り、本文を読まない。検証を `validate(deleteReceivedQuotationQuerySchema, 'query')` へ改め（スキーマの名前も本文からクエリへ改めた）、本体は `req.validatedQuery` から読む。画面の `deleteReceivedQuotation` は `?updatedAt=` を付けて本文を送らない。本文の受け取りは残さない（本文だけの要求は 400）。形式の検査と楽観的排他制御の 409 は従来どおり。判定の順序（`requirePermission` → ID の形式 → `requireReceivedQuotationProjectScope` による範囲の判定 → クエリの検証 → 本体）は保ち、範囲外と不在は基準時刻の有無にかかわらず 400 より先に汎用の 404 になる（Requirement 42.2）。同じ経路の部品は見積依頼の配下（`/api/estimate-requests/:id/quotations/:quotationId`）にも載っているため、配下の経路の取り除きも同じくクエリで受け取る。OpenAPI の注釈を本文からクエリの引数へ改め、api-spec.json を再生成した。上の二つの API Contract の表の行もクエリへ改めた。
+
+**被覆の所在**: 画面の操作の E2E は REQ-11.30 のテスト（`@requirement estimate-request/REQ-11.30`）で、確認のダイアログの後の要求が成功し、その要求の URL に基準時刻のクエリが付き、本文が無いことを主張する。
+  e2e/specs/estimate-requests/received-quotation-status-e2e.spec.ts
+後始末の共通の手続きは `deleteReceivedQuotationViaApi` で、基準時刻を読み直してクエリで送り、204 以外を失敗にする。受領見積書の E2E の後始末 2 か所（2 本）をこの手続きへ改めた。範囲外の要求の E2E は基準時刻をクエリで送る形へ改めた。
+  e2e/helpers/estimate-request-preconditions.ts
+  e2e/specs/estimate-requests/ocr-retry-e2e.spec.ts
+  e2e/specs/estimate-requests/number-format-e2e.spec.ts
+  e2e/specs/estimate-requests/estimate-request-project-scope.spec.ts
+
+**テスト**: 単体（経路: クエリで 204 と本体への基準時刻の受け渡し、本文だけで 400、基準時刻なしで 400、形式の不正で 400、404、409。スキーマの名前の改め。画面の API: URL に基準時刻のクエリが付き、本文を送らない）、統合（受領見積書の要求をクエリへ改め、本文だけ・基準時刻なしの要求が 400 でデータが残ること、古い基準時刻の 409 でデータが残ることを足した。閲覧範囲の統合テストに、基準時刻の無い要求も範囲外では存在しない ID と同じ 404 になることを足し、見積依頼の配下の経路の要求もクエリへ改めた。検証を範囲の判定の前へ動かすと赤になることを確かめた）。RED は旧実装で、backend の単体 7 件（経路 4・スキーマ 3）、統合 6 件（うち 1 件は前のテストの後始末が残した見積依頼による巻き添え）、frontend の単体 1 件が赤だった。
+  backend/src/__tests__/unit/routes/received-quotation.routes.test.ts
+  backend/src/__tests__/unit/schemas/received-quotation.schema.test.ts
+  backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts
+  backend/src/__tests__/integration/estimate-request-project-scope.api.integration.test.ts
+  frontend/src/__tests__/api/received-quotations.test.ts
+
+## 2026-10-31 の追加: Gmail で開く操作の失敗の表示（Requirement 42.17・42.18）
+
+### Overview
+
+**Purpose**: 利用者の判断（2026-10-31「推奨案で進める」）で、「Gmailで開く」の二つの失敗を利用者に分かる日本語で表示する。(1) ブラウザがポップアップを止めて新しいタブを開けないとき（42.17）、(2) 出力の記録の成功の後に、開いたタブを Gmail の作成画面へ移す処理が例外になったとき（42.18）。どちらも今は何も表示せずに終わる。
+
+**Impact（既存前提の是正。2026-10-31 の調査）**:
+
+1. パネルの「Gmailで開く」の処理（`EstimateRequestTextPanel` の `handleOpenGmail`。タスク107.1、コミット `3cf87a04`）は、クリックの処理の中で mail-launcher の `openBlankMailTab` で空のタブを開き、null（ポップアップが止められた）なら記録を要求せずに何も表示せず戻る。開けたら上流の `runRecordedExport` で記録を要求し、成功の後に `navigateMailTab` で作成画面へ移す。結果が失敗ならタブを閉じ、記録の失敗（`RECORD_FAILED`）のときだけ `EXPORT_RECORD_FAILED_MESSAGE` をパネルの `role="alert"` の欄に出す。作成画面へ移す処理の例外（`GENERATION_FAILED`）ではタブを閉じるだけで何も表示しない。所在は次の 2 ファイル
+   frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx
+   frontend/src/utils/mail-launcher.ts
+2. 既存の単体テストの「空のタブを開けない（ポップアップが止められた）ときは記録を要求しない（Requirement 42.15）」は、記録を要求しないことに加えて `role="alert"` の要素が無いことを主張している。42.17 と矛盾するため、記録を要求しない主張は保ち、alert の主張を 42.17 の文言の表示へ改める（主張を消さない）。作成画面へ移す処理の例外を主張するテストは無い。所在は次のファイル
+   frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx
+3. E2E（見積依頼の出力の記録の E2E）の「Gmailで開く」の 2 本は、記録の成功の後に作成画面を開くことと、記録の 500 で開かずにタブを閉じ記録の失敗の文言を出すことを主張し、ポップアップの拒否と移す処理の例外は扱わない。所在は次のファイル
+   e2e/specs/estimate-requests/estimate-request-export-audit.spec.ts
+
+### 受入基準の置き場所の判断
+
+- 42.17・42.18 は Requirement 42 の続きの番号とした。どちらも「Gmailで開く」の出力の記録（42.15・42.16）と同じ処理の失敗の段を定め、記録の要否（42.17 は記録を要求しない、42.18 は記録が残る）を条文に含む。Requirement 42 の In scope は「見積依頼文をメールクライアントで開く操作（Requirement 41）の前の記録」を含み、その失敗の表示は In scope の内側として読めるため、目的・In scope・Out of scope は改訂していない
+- Requirement 41（メーラーへのワンクリック転記）へ置く案は採らない。41.3 は起動の成功を定める条文であり、失敗の段の表示と記録の要否を 41 と 42 に分けると、同じ処理の記録の扱いが二つの要件に散るため
+- 既存の受入基準の条文は改訂していない
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 「Gmailで開く」で空のタブを開けないときの表示（42.17）と、記録の成功の後に作成画面へ移せないときの表示（42.18）
+- 二つの文言と表示の置き場所
+
+#### Out of Boundary
+- 出力の記録の部品（`runRecordedExport`・`EXPORT_RECORD_FAILED_MESSAGE`）と記録の内容（user-authentication の要件40.9〜40.11）。本追加は部品と記録を変えない
+- mail-launcher のタブの操作（`openBlankMailTab`・`navigateMailTab`・`closeMailTab`）の契約。本追加は戻り値と例外を読むだけで変えない
+- 「メールで開く」（mailto）の失敗の表示。mailto へのページの遷移は例外になる経路がほぼ無く、利用者の判断の範囲は「Gmailで開く」である。同じ形の穴（記録の後の `GENERATION_FAILED` で何も表示しない）は残り、必要なら別に起票する。加えて、メールソフトを開けなかったこと（既定のメールソフトが無い、利用者が起動を断った等）は画面から検知できない。mailto はブラウザが外部のメールソフトへ渡し、開けたかどうかを画面へ返さないためである（追記 2026-10-31、機能検証の指摘）
+- 記録の失敗の表示（42.16）、コピーの記録（42.13・42.14）
+- 先送り（利用者の判断（2026-11-01、推奨案で進める））: 「メールで開く」（mailto）でメールソフトを開けなかったこと（既定のメールソフトが無い、利用者が起動を断った等）の検知は行わない。ブラウザが mailto を外部のメールソフトへ渡し、開けたかどうかの結果を画面へ返さないため検知できず、制約として受け入れる（上の「メールで開く」の失敗の表示の項の後半）
+- 先送り（利用者の判断（2026-11-01、推奨案で進める））: WebKit（Safari）でポップアップが止められたときに 42.17 の文言が出ることの実ブラウザの確認は、Safari を対応ブラウザに入れると決めたときに確かめる。Playwright の WebKit はポップアップを止めず Safari の「ポップアップウインドウをブロック」の設定を再現できない（下の Testing Strategy の「実施の記録（タスク108.1、2026-10-31）」の WebKit の項）。止められたときの分岐（`window.open` が null）は単体と E2E が主張する
+- 先送りの条件が満たされた（追記 2026-11-01）: steering の tech.md の「対応ブラウザ」の節で Safari を対応ブラウザに定めた（利用者の判断 2026-11-01、推奨案で進める）。上の WebKit（Safari）の実ブラウザの確認は、タスク110.1 で実機の Safari（macOS の最新版）を使って確かめ、結果を下の Testing Strategy の「実施の記録」の WebKit の項の続きへ記す
+
+#### Allowed Dependencies
+- `EstimateRequestTextPanel` → `runRecordedExport`・mail-launcher（既存の依存。新しい依存は足さない）
+
+### Components and Interfaces
+
+| Component | Layer | Intent | Req | Key Deps | Contracts |
+|-----------|-------|--------|-----|----------|-----------|
+| Gmail で開く操作の失敗の表示 | Frontend/Component | 空のタブを開けないときと、記録の成功の後に作成画面へ移せないときに、原因と次の行動を示す日本語の文言をパネルの alert の欄に出す | 42.17, 42.18 | `runRecordedExport`（P0）, `mail-launcher`（P1） | State |
+
+### 決定
+
+**文言**: 次の二つとする。文言の定数の名前と置き場所は実装時に決めて本節へ記す（パネルの中の定数か、mail-launcher の隣か）。
+
+- 42.17（ポップアップが止められた）: 「ポップアップがブロックされたため Gmail を開けませんでした。ブラウザの設定でこのサイトのポップアップを許可してください。」
+- 42.18（記録の成功の後に作成画面へ移せない）: 「Gmail の作成画面を開けませんでした。もう一度お試しください。」
+- 定数（タスク108.1 で決定）: パネルの中のモジュールの定数 `GMAIL_POPUP_BLOCKED_MESSAGE`（42.17）と `GMAIL_COMPOSE_OPEN_FAILED_MESSAGE`（42.18）とした。表示するのはパネルだけであり、mail-launcher はタブの操作だけを持つ（Out of Boundary のとおり契約を変えない）ため、文言をその隣へ置かない。export はしない（テストは文言を完全一致で主張する）
+
+**表示の置き場所**: 記録の失敗と同じ、パネルの見出しの直下の `role="alert"` の欄（コピーとメールで開く操作で共有する欄）に出し、次の操作の開始で消す。欄は一つであり、同時に出る文言は一つである。
+
+**処理の順**:
+
+- 42.17: `openBlankMailTab` が null を返したら、記録を要求せず（`runRecordedExport` を呼ばない）、前の文言を消して 42.17 の文言を出して戻る。記録の要求中の状態（両ボタンを止める）にはしない
+- 42.18: `runRecordedExport` の結果が `GENERATION_FAILED`（作成画面へ移す処理の例外）なら、タブを閉じ（従来どおり）、パネルが残っていれば 42.18 の文言を出す。`RECORD_FAILED` は従来どおり `EXPORT_RECORD_FAILED_MESSAGE`。パネルが閉じられた後（記録の要求中の破棄）に生成の処理がタブを閉じて戻った場合は成功の扱いで、文言は出さない（従来どおり）
+- 作成画面へ移す処理で例外が出る経路は、開いたタブが記録の待ちの間に利用者に閉じられた・別の文書へ移された（タブの文書へ触れられない）などである。どの例外でも同じ文言とし、原因を区別しない
+
+**記録の扱い（42.15・42.16 と矛盾しないこと）**:
+
+- 42.15 は「開く前に記録を要求し、成功の後にだけ開く」と定める。42.17 はタブを開けず、見積依頼文をどこへも渡さないため、42.15 の「開く操作」の記録の対象に当たらない。記録を要求しないことは 2026-10-30 の決定（空のタブを開けないときは記録を要求しない）のままであり、42.15 と矛盾しない
+- 42.16 は記録の要求の失敗の表示であり、42.17（記録の前の失敗）と 42.18（記録の成功の後の失敗）とは段が違う。文言を分け、記録の失敗の文言を記録が成功した場合に出さない
+- 42.18 では記録の要求が成功しており、記録は残る。記録は出力の開始の記録であり（user-authentication の要件40.9）、出力の後の失敗で取り消さない。内訳書の Excel・現場調査報告書の PDF（42.8・42.9）で記録の後に生成が失敗した場合と同じ扱いである。利用者がもう一度操作すれば 42.15 のとおり新たに 1 回記録する
+
+**採らなかった案**: ポップアップが止められたときに同じタブで作成画面を開く——記録の前に元の画面を離れ（記録を待てない）、編集中の状態も失わせるため。記録の失敗の文言を流用する——記録が成功した 42.18 で記録できなかったと告げることになり、42.17 では記録を要求していないため。
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 42.17 | 空のタブを開けないときは記録を要求せず、ポップアップの許可を促す文言を出す | Gmail で開く操作の失敗の表示 | `window.open` | - |
+| 42.18 | 記録の成功の後に作成画面へ移せないときはタブを閉じ、再操作を促す文言を出す（記録は残る） | Gmail で開く操作の失敗の表示 | `runRecordedExport`, `POST /api/v1/audit-logs/exports` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 「Gmailで開く」で空のタブを開けない（ポップアップが止められた） | 記録を要求せず、作成画面を開かず、42.17 の文言をパネルの alert の欄に表示する | 42.17, 42.15 |
+| 記録の要求が失敗する | 従来どおり、タブを閉じ `EXPORT_RECORD_FAILED_MESSAGE` を表示する | 42.16 |
+| 記録の成功の後に作成画面へ移す処理が例外になる | タブを閉じ、42.18 の文言を表示する。記録は残る | 42.18 |
+| 記録の要求中にパネルが閉じられる | 従来どおり、タブを閉じ、文言は出さない | 42.15 |
+
+### Testing Strategy
+
+- **単体（frontend）**: パネルの単体テストで、`window.open` が null を返すと記録を要求せず 42.17 の文言が `role="alert"` に出ること（既存の「空のタブを開けない（ポップアップが止められた）ときは記録を要求しない（Requirement 42.15）」の alert が無いことの主張をこの文言の表示へ改め、記録を要求しない主張は保つ）、作成画面へ移す処理が例外になるとタブを閉じ 42.18 の文言が出て記録の要求は 1 回であること、次の操作の開始で文言が消えること、記録の失敗では従来どおり記録の失敗の文言だけが出ることを主張する。所在は次のファイル
+  frontend/src/components/estimate-request/EstimateRequestTextPanel.test.tsx
+- **E2E**: 出力の記録の E2E に、`window.open` を null を返す形に差し替えて（`page.addInitScript`）「Gmailで開く」を押すと記録の要求が出ず 42.17 の文言が表示されること、開いたタブの文書へ触れられない形にして（記録の成功の後に移す処理を例外にする）作成画面を開かず 42.18 の文言が表示され記録が 1 回であることを主張し、`@requirement estimate-request/REQ-42.17`・`REQ-42.18` の印を置く。後者を E2E で再現できない場合は単体の被覆に寄せ、その理由を本節へ記す。所在は次のファイル
+  e2e/specs/estimate-requests/estimate-request-export-audit.spec.ts
+- 本番ビルドの画面で、Chromium と WebKit のポップアップの拒否の設定のもとで 42.17 の文言が出ることを確かめ、本節へ記す（タスク107.1 の実ブラウザの確認の形）。確かめられない場合は理由を記す
+- 挙動の変更であるため RED → GREEN で進め、追加・改めたテストが現状で赤になることを先に示す（タスク108.1）
+- **実施の記録（タスク108.1、2026-10-31）**:
+  - E2E の 42.18 は、`page.addInitScript` で `window.open` を包み、実際に開いたタブを使いつつ、返すタブの `document` の読み出しだけを例外（`SecurityError`）にして再現した（閉じる操作は実際のタブへ渡し、タブが閉じたことを `popup.isClosed()` で主張する）。先に、記録の要求中に開いたタブを Playwright で別のオリジンの文書へ移す形を試したところ、42.18 の文言は表示されたが、タブは閉じなかった。利用者の操作で別のオリジンへ移ったタブは、元の画面のスクリプトから閉じられない（ブラウザの制約。mail-launcher の `closeMailTab` は従来どおり例外を握り、そのタブは利用者が閉じる）。この場合も文言は出るため利用者は失敗を知る
+  - 実ブラウザの確認（Chromium）: 本番ビルドの画面（テスト環境の frontend）で、Playwright の既定の `--disable-popup-blocking` を外した新しい headless の Chromium を使い、利用者の操作の扱いが切れた後（6 秒後）のクリックで「Gmailで開く」を押した。ポップアップブロッカーが `window.open` を止めて null を返し、記録の要求が出ず、42.17 の文言がパネルの alert に表示された（一時的な spec で確かめ、spec は残していない）。サイト単位のポップアップの拒否の設定（`popups: 2`）は利用者のクリックによる `window.open` を止めなかった（実測）
+  - 実ブラウザの確認（WebKit）: 確かめられなかった。Playwright の WebKit はポップアップを止めない（実測: 利用者の操作の無い `window.open` もタブを返す）ため、Safari の「ポップアップウインドウをブロック」の設定を再現できない。WebKit でも止められたときの `window.open` の戻り値は null であり、その分岐は単体と E2E（null を返す差し替え）が主張する
+
+## 2026-11-01 の追加: 見積依頼の作成・更新・論理削除・項目の選択・ステータスの変更の監査ログをトランザクションの中で書く（Requirement 8.6）
+
+### Overview
+
+**Purpose**: 利用者の判断（2026-11-01「推奨案で進めて下さい」。親の推奨「同じ spec の同じ欠陥はまとめて直す。各 1 行で、記録を同じトランザクションの中で書く」）で、見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更の監査ログを、見積依頼の変更と同じトランザクションの中で書く。処理が確定しなかった（巻き戻った）操作の監査ログを残さず、確定した操作だけを従来どおり記録する（8.6）。estimate-creation の Requirement 11.8（タスク70.1、`750843e5`）と同じ直し方である。
+
+**Impact（既存前提の是正。2026-11-01 の調べもの〔読むだけ。HEAD `cda7b00a`〕）**:
+
+1. `EstimateRequestService` の作成（`create`。種別 `ESTIMATE_REQUEST_CREATED`）・更新（`update`。`ESTIMATE_REQUEST_UPDATED`）・論理削除（`delete`。`ESTIMATE_REQUEST_DELETED`）・項目の選択の保存（`updateItemSelection`。`ESTIMATE_REQUEST_ITEMS_UPDATED`）は、いずれも `prisma.$transaction` のコールバックの中で `this.auditLogService.createLog({...})` を第 2 引数（トランザクションのクライアント）を渡さずに呼ぶ。所在は次のファイル
+   backend/src/services/estimate-request.service.ts
+2. `EstimateRequestStatusService` のステータスの変更（`transitionStatus`。種別 `ESTIMATE_REQUEST_STATUS_CHANGED`）も同じ形である。同じコールバックの中のステータスの変更の履歴（`tx.estimateRequestStatusHistory.create`、Requirement 12.11）は `tx` で書いており、監査ログだけがトランザクションの外にある。所在は次のファイル
+   backend/src/services/estimate-request-status.service.ts
+3. `AuditLogService` の `createLog(input, tx?)` は、`tx` を受けるとその `tx` で実行者の写しを読み（`snapshotAuditActor`）監査ログの行を書き、`tx` が無いとトランザクションの外の接続で読み書きする。記録の後の副作用は持たない。型（`IAuditLogService`）も `tx` を任意で受ける形で、呼び出し側の型の変更は要らない（estimate-creation の design.md の同じ追加の章の Impact の 2）
+4. そのため、記録の後にトランザクションが巻き戻ると（Prisma の既定の制限時間 5 秒の超過、確定の時の失敗など）、見積依頼・項目の選択・ステータスは変わらないのに監査ログだけが残る。逆向き（記録の失敗）は、`createLog` の例外がコールバックから投げられてトランザクションが巻き戻るため、従来から見積依頼の変更も残らない
+5. 型の申し送り: 二つのサービスはそれぞれ局所の型 `PrismaTransactionClient` を `PrismaClient` から接続の操作を除いた形（`Omit`）で持ち、コールバックの引数の注記に使う（どちらもファイルの冒頭の型の宣言）。estimate-creation のタスク70.1 では同じ形の局所の型が `createLog` の受ける `Prisma.TransactionClient` へ代入できなかった（同 spec の design.md の同章の「実装（タスク70.1、2026-11-01）」）。本追加でも同じになる見込みが高い
+
+### 受入基準の置き場所の判断
+
+- 8.6 は Requirement 8（見積依頼データ管理）の続きの番号とした。本機能の requirements.md に見積依頼の操作の監査ログを定める受入基準は無い（Requirement 42 の記録は出力の記録と閲覧範囲外の記録である）。記録の対象の五つの操作は Requirement 3・4・9・12 に分かれるが、どれも見積依頼のデータの追跡性の定めであり、Requirement 8 の目的（データの整合性と追跡性）に最も近い
+- 五つの操作を一つの条文にまとめた。どれも同じ形の同じ変更（`createLog` に `tx` を渡す）で決まり、同じテストの対照（確定した場合の 1 件）と本体（巻き戻した場合の 0 件）で被覆するため、被覆の印とタスクを分けない
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更の監査ログを、見積依頼の変更と同じトランザクションの中で書くこと（8.6）
+
+#### Out of Boundary
+- 監査ログの記録の内容（操作の種別・対象・変更の前後）と記録の部品（`AuditLogService`。user-authentication の要件40 の所管）。`createLog` は変えない
+- 五つの操作の応答、トランザクションの制限時間（いずれも Prisma の既定のまま）、書き込みの順序と方式、ステータスの変更の履歴（12.11）
+- 閲覧範囲外の記録（`PROJECT_SCOPE_DENIED`）と出力の記録（Requirement 42）。user-authentication の要件39.7・40.9 の定めどおりトランザクションの外で書く記録であり、`$transaction` のコールバックの中で書くものではないため、欠陥の型が違い本追加の対象にしない
+- 受領見積書のサービス（`ReceivedQuotationService` の `create`・`update`・`delete`）。`$transaction` を使うが `createLog` を呼ばず、監査ログを書かない（2026-11-01 に読んだ範囲）。巻き戻りで監査ログだけが残る形ではなく本追加の対象にしない。受領見積書の操作を監査ログに記録するかは別の判断であり、必要なら別に起票する。所在は次のファイル
+  backend/src/services/received-quotation.service.ts
+- 追記（2026-11-01、利用者の判断「推奨案で進めて下さい」）: 上の受領見積書の操作の監査ログは、受入基準14.7 として起票した（本書の末尾の章「2026-11-01 の追加: 受領見積書の作成・更新・論理削除の監査ログ（Requirement 14.7）」、タスク111.1）
+- 見積依頼文のサービス（`EstimateRequestTextService`）。読み出しだけで、トランザクションも監査ログも持たない
+- 本機能の外の同じ形（他の業務のサービスの `$transaction` の中の `createLog`）。本機能の所管ではなく調べ尽くしていない
+
+#### Allowed Dependencies
+- 見積依頼のサービスとステータスのサービス → 監査ログのサービスの `createLog` の第 2 引数（トランザクションのクライアント。既存の型が受ける形）
+
+### 決定
+
+**記録をトランザクションの中で書く（8.6）**:
+
+- 直し方: 上の Impact の 1・2 の五か所の `this.auditLogService.createLog({...})` の第 2 引数に、それぞれの `$transaction` のコールバックが受けるトランザクションのクライアント（`tx`）を渡す。各 1 行の変更で、記録の入力（`action`・`actorId`・`targetType`・`targetId`・`before`・`after`）は変えない
+- 型の別名: 二つのサービスの局所の型 `PrismaTransactionClient` を `Prisma.TransactionClient` の別名にそろえる（型だけの変更で、キャストは使わない）。`Omit` の形のまま `as` で通す案は、型の食い違いを隠すため採らない。使う所はコールバックの引数の注記だけで、振る舞いは変わらない（estimate-creation のタスク70.1 と同じ形）
+- 効果: 監査ログの行と実行者の写しの読み出しが見積依頼の変更と同じトランザクションに入る。トランザクションが確定すれば監査ログも 1 件確定し、巻き戻れば監査ログも書かれない。記録の失敗で見積依頼の変更も巻き戻る振る舞いは従来どおりである
+- 副作用の扱い: `createLog` は記録の後の副作用を持たないため、トランザクションの中へ入れて確定の前に外へ漏れるものは無い。実行者の写しの読み出しも同じ `tx` で行う
+- 記録の時点: 五か所とも記録はコールバックの最後（変更の後、結果を返す前）のまま変えない。記録の分だけトランザクションの所要が延びるが、行 1 件の作成と写しの読み出し 1 回であり、既定の制限時間 5 秒に対して無視できる
+- 実装の記録: 実装時に、変えた五か所、型の別名の扱い、テストの結果を本節へ記す（タスク109.1）
+- 実装（タスク109.1、2026-11-01）: `EstimateRequestService` の `create`（`ESTIMATE_REQUEST_CREATED`）・`update`（`ESTIMATE_REQUEST_UPDATED`）・`delete`（`ESTIMATE_REQUEST_DELETED`）・`updateItemSelection`（`ESTIMATE_REQUEST_ITEMS_UPDATED`）と `EstimateRequestStatusService` の `transitionStatus`（`ESTIMATE_REQUEST_STATUS_CHANGED`）の 5 か所の `createLog` の第 2 引数に `tx` を渡した。記録の入力・記録の時点・応答・制限時間・ステータスの変更の履歴は変えていない。二つのサービスの局所の型 `PrismaTransactionClient` を `Prisma.TransactionClient` の別名に改めた（キャストは使っていない）。`Omit` の形のまま `tx` を渡すと tsc が `Argument of type 'PrismaTransactionClient' is not assignable to parameter of type 'TransactionClient'` で失敗することを確かめた（estimate-creation のタスク70.1 と同じ）。使う所は 5 つの `$transaction` のコールバックの注記だけで、振る舞いは変わらない
+  - 単体: 見積依頼のサービスの単体の 5 件（内訳書ありの作成・内訳書なしの作成・更新・論理削除・項目の選択の保存）とステータスのサービスの単体の 1 件で、`createLog` の第 2 引数が `$transaction` のコールバックへ渡したクライアントと同じオブジェクトであることを `toBe` で主張する。改修の前（第 2 引数を渡さない形）では 6 件とも `expected undefined to be` で赤だった。`createLog` の呼び出しを引数の数ごと主張していた既存の 3 件（内訳書なしの作成 2 件、内訳書なしの更新の正規化 1 件）は、第 2 引数に `expect.anything()` を足した。backend の単体の全件は 263 ファイル・7275 件が緑
+  - 統合: 見積依頼の API の統合テストのファイルの `describe` 「見積依頼の監査ログとトランザクション（Requirement 8.6）」に、巻き戻しの 5 件と確定の対照 1 件を置いた。監査ログは対象の `targetId` と操作の種別で数える（作成の巻き戻しは包みが受けた `targetId`）。改修の前は巻き戻しの 5 件とも監査ログが 1 件残って `expected 1 to be +0` で赤になり、見積依頼・項目・名前・論理削除・項目の選択・ステータスとその履歴の主張は通っていた（巻き戻し自体は従来から起きていて、残っていたのは監査ログだけであることの確認）。改修の後は同ファイルの 39 件が緑。backend の統合の全件は 118 ファイル・1542 件が緑
+  - 見積依頼の既存の E2E（e2e/specs/estimate-requests/ の全件）は 358 件が緑（backend の変更だけで frontend は作り直していない）
+  - E2E は置かず、E2E の除外の台帳に 8.6 を一件足した（`category` は `data-integrity`、`method` は `integration-test`）。台帳の件数の宣言（`requirement-exclusions-total`）が 130 から 131 へ、統合テストのファイルが機能名つきの印を得たことで機能名を欠く見出しの自機能での解決の数の宣言が 586 から 588 へ動き、いずれも帰属つきで貼り直した
+
+**採らなかった案**: 記録を確定の後にトランザクションの外で書く——確定の後に記録が失敗すると起きた操作の記録が残らず、user-authentication の要件40 の監査の完全さを損なうため採らない。ステータスの変更を別のタスクに分ける——同じ spec の同じ形の欠陥で、同じテストの形で被覆でき、分けると片方だけ直った状態が生じるため採らない。受領見積書のサービスを併せて扱う——監査ログを書いておらず欠陥の型が違うため採らない（Out of Boundary）
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 8.6 | 見積依頼の作成・更新・論理削除・項目の選択の保存・ステータスの変更が巻き戻ったら監査ログを残さず、確定したら従来どおり 1 件記録する | EstimateRequestService の create・update・delete・updateItemSelection, EstimateRequestStatusService の transitionStatus, AuditLogService の createLog | `POST /api/projects/:projectId/estimate-requests`, `PUT /api/estimate-requests/:id`, `DELETE /api/estimate-requests/:id`, `PATCH /api/estimate-requests/:id/items`, `PATCH /api/estimate-requests/:id/status` | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 監査ログの記録の後に五つの操作のトランザクションが巻き戻る（制限時間の超過、確定の時の失敗） | 見積依頼・項目の選択・ステータス・ステータスの変更の履歴も監査ログも残らない。応答は従来どおり（P2028 はエラーハンドラーの 500 など） | 8.6 |
+| 五つの操作が確定する | 従来どおり監査ログを 1 件記録する（内容は変えない） | 8.6 |
+| 監査ログの記録が失敗する | 従来どおりトランザクションが巻き戻り、見積依頼の変更も残らない | 8.6 |
+
+### Testing Strategy
+
+- **単体（backend）**: 見積依頼のサービスの単体に、作成（内訳書ありと内訳書なし）・更新・論理削除・項目の選択の保存で、ステータスのサービスの単体に、ステータスの変更で、`createLog` が第 2 引数に `$transaction` のコールバックへ渡されたトランザクションのクライアントと同じオブジェクトを受けることを足す（モックの `$transaction` が渡す `tx` を捕まえて `toBe` で比べる）。改修の前は第 2 引数が `undefined` で赤になることを先に示す。所在は次のファイル
+  backend/src/__tests__/unit/services/estimate-request.service.test.ts
+  backend/src/__tests__/unit/services/estimate-request-status.service.test.ts
+- **統合（backend）**: 実際の DB で、記録の後に巻き戻す状況を作る。二つのサービスを統合テストの中で直接組み立て、依存の監査ログのサービスに、本物の `AuditLogService` の `createLog(input, tx)` を呼んでから例外を投げる包みを注入する。五つの操作のそれぞれで、操作が例外で終わり、見積依頼が作られず・名前が変わらず・論理削除されず・項目の選択が変わらず・ステータスとその変更の履歴が変わらず、その操作の種別の監査ログが対象の `targetId` で 0 件であることを主張する（作成の巻き戻しは包みが受けた `targetId` で数える）。改修の前は包みが受ける `tx` が `undefined` のため本物の `createLog` がトランザクションの外で書き、監査ログが 1 件残って赤になることを先に示す。対照として、包まない本物の `AuditLogService` で同じ五つの操作が確定し、その操作の監査ログが 1 件残ることを主張する。`@requirement estimate-request/REQ-8.6` の被覆の印を置き、印を足したら `check:design-measurement-freshness` を名指しで流す。置き場所は既存の見積依頼の API の統合テストのファイル（経路はモジュールの読み込み時にサービスを組み立てるため依存を差し替えられず、サービスを直接組み立てる `describe` を足す）。所在は次のファイル
+  backend/src/__tests__/integration/estimate-request.api.integration.test.ts
+- **E2E**: 新しい E2E は置かない。巻き戻し（記録の後の制限時間の超過や確定の時の失敗）は画面からもテストの経路の差し替えからも起こせず、確定した場合の振る舞い（応答と監査ログ 1 件）は変えないためである。見積依頼の既存の E2E（e2e/specs/estimate-requests/ の全件）を流し、作成・更新・論理削除・項目の選択・ステータスの変更と閲覧範囲・出力の記録に回帰の起きないことを確かめる。backend の変更だけで frontend は変えないため、テスト環境の frontend の作り直しは要らない
+- **E2E の被覆の対象からの除外**: 要件の被覆の関門（`check:req-coverage`）は 8.6 を E2E の適用対象として数え、E2E の印が無いと赤にする。E2E を置かないため、実装で E2E の除外の台帳に 8.6 を一件足す（`category` は `data-integrity`、`alternativeVerification` の `method` は `integration-test` で、上の統合テストのファイルと `@requirement estimate-request/REQ-8.6` を名指す。`criterionText` は条文の逐語）。台帳の件数を宣言する関門があれば宣言を追随させる（estimate-creation のタスク70.1 では `requirement-exclusions-total` が 129 から 130 へ動いた）。所在は次のファイル
+  e2e/requirement-exclusions.json
+- 挙動の変更であるため RED → GREEN で進め、追加した単体と統合が改修の前に赤になることを先に示す
+
+## 2026-11-01 の追加: 受領見積書の作成・更新・論理削除の監査ログ（Requirement 14.7）
+
+### Overview
+
+**Purpose**: 利用者の判断（2026-11-01「推奨案で進めて下さい」）で、受領見積書の作成・更新・論理削除が確定したときに、その操作の監査ログを見積依頼（8.6）・見積書（estimate-creation の Requirement 11.8）とそろえて 1 件記録する。記録はその操作の変更と同じトランザクションの中で、トランザクションのクライアントを渡して書き（タスク109.1、estimate-creation のタスク70.1 と同じ形）、確定しなかった操作の監査ログを残さない（14.7）。
+
+**Impact（既存前提の是正。2026-11-01 の調べもの〔読むだけ。HEAD `3924e697`〕）**:
+
+1. `ReceivedQuotationService` の作成（`create`）・更新（`update`）・論理削除（`delete`）は、いずれも `prisma.$transaction` のコールバックの中で受領見積書を変えるが、`createLog` を一度も呼ばず、監査ログを書かない。サービスは監査ログのサービスを依存に持たず（依存は `prisma`・`storageProvider`・`projectScopeService`）、三つの操作は操作した利用者を引数に受けない。所在は次のファイル
+   backend/src/services/received-quotation.service.ts
+2. 監査ログの種別 `RECEIVED_QUOTATION_CREATED`・`RECEIVED_QUOTATION_UPDATED`・`RECEIVED_QUOTATION_DELETED`、その一覧 `RECEIVED_QUOTATION_AUDIT_ACTIONS`、対象の種類 `RECEIVED_QUOTATION_TARGET_TYPE`（`ReceivedQuotation`）は定義済みで、定義の外のどこからも使われていない（backend・frontend・e2e を grep した）。所在は次のファイル
+   backend/src/types/audit-log.types.ts
+3. サービスを組み立てる所は二つある。受領見積書の経路（遅延の組み立て `getReceivedQuotationService`）と、案件の配下の受領見積書の一覧の経路（`getService`。読み出しだけ）。見積依頼の経路は監査ログのサービスをモジュールの読み込み時に `new AuditLogService({ prisma })` で組み立てて `EstimateRequestService` へ注入している。所在は次のファイル
+   backend/src/routes/received-quotation.routes.ts
+   backend/src/routes/project-quotations.routes.ts
+   backend/src/routes/estimate-requests.routes.ts
+4. 受領見積書の状態の遷移の経路は無い。状態の遷移（`statusTransitionSchema`）は見積依頼のステータスの変更（Requirement 12、`ESTIMATE_REQUEST_STATUS_CHANGED`）であり、8.6 の記録の対象である
+5. 作成はコールバックの中でファイルをストレージへ送り（手順 7）、更新はコールバックの中で新しいファイルを送り、差し替え前のファイルをストレージから取り除く（手順 4・7）。いずれもトランザクションで巻き戻らない外部の副作用である
+
+### Boundary Commitments
+
+#### This Spec Owns
+- 受領見積書の作成・更新・論理削除が確定したときにその操作の監査ログを 1 件記録し、確定しなかった操作の監査ログを残さないこと（14.7）
+- 記録に入れる変更の前後の中身（下の「決定」の「記録の中身」）
+
+#### Out of Boundary
+- 監査ログの記録の部品（`AuditLogService` と `createLog`。user-authentication の要件40 の所管）と、監査ログの閲覧・出力の画面と API。本追加は部品を変えない
+- 新しい監査ログの種別。定義済みの 3 種別に限る（ファイルの差し替え・明細行の変更を分けた種別は足さない。requirements.md の 14.7 の「採らなかった案」）
+- 受領見積書の OCR・データパース・ファイルのプレビューの署名付き URL の発行（データを変えない操作）と、受領見積書の一覧・詳細の読み出し
+- 三つの操作の応答・検証・楽観的排他制御・トランザクションの制限時間（Prisma の既定のまま）・ファイルの扱い。上の Impact の 5 の外部の副作用（巻き戻ってもストレージのファイルが残る、または取り除かれる）は従来からの性質であり、本追加は直さない。本追加で記録の失敗が新しい失敗の段になるため、記録を外部の副作用より前に置いて新しい窓を作らない（下の「決定」の「記録の時点」）
+- 見積依頼の操作の監査ログ（8.6、タスク109.1 で実装済み）と、閲覧範囲外の記録・出力の記録（Requirement 42）
+
+#### Allowed Dependencies
+- `ReceivedQuotationService` → `IAuditLogService` の `createLog(input, tx)`（見積依頼のサービスと同じ依存。新しく足す依存）
+- 受領見積書の経路と案件の配下の一覧の経路 → `AuditLogService` の組み立て（見積依頼の経路と同じ形）
+
+### 決定
+
+**依存の注入**: `ReceivedQuotationServiceDependencies` に `auditLogService: IAuditLogService` を足し、コンストラクタで受ける（`EstimateRequestServiceDependencies` と同じ形の必須の依存）。二つの経路の組み立てで `new AuditLogService({ prisma })` を渡す。案件の配下の一覧の経路は記録する操作を呼ばないが、必須の依存のため同じく渡す（任意の依存にして省略時に記録しない形は、組み立ての漏れで記録が黙って止まるため採らない）
+
+**操作した利用者**: `create(input, actorId)`・`update(id, input, expectedUpdatedAt, actorId)`・`delete(id, expectedUpdatedAt, actorId)` のように、三つの操作が操作した利用者の ID を受ける。経路は `req.user!.userId` を渡す（ファイルのプレビューの経路が `getFilePreviewUrl(id, req.user!.userId)` で渡している形）。引数の位置は実装時に決めて本節へ記す
+- 決めた位置（タスク111.1、2026-11-01）: いずれも最後の引数に足した。`create(input, actorId)`・`update(id, input, expectedUpdatedAt, actorId)`・`delete(id, expectedUpdatedAt, actorId)`。見積依頼のサービス（`update(id, input, actorId, expectedUpdatedAt)`）とは位置が違うが、既存の引数の並びを変えずに足すことを選んだ（既存の呼び出しとテストの引数の意味が入れ替わらない）
+
+**記録の呼び方**: 三つの操作の `$transaction` のコールバックの中で、`this.auditLogService.createLog({ action, actorId, targetType: RECEIVED_QUOTATION_TARGET_TYPE, targetId, before, after }, tx)` を呼ぶ。第 2 引数はコールバックが受けるトランザクションのクライアントである。サービスの局所の型 `PrismaTransactionClient`（`Omit` の形）は `Prisma.TransactionClient` の別名にそろえる（型だけの変更で、キャストは使わない。タスク109.1 で `Omit` の形のままでは tsc が通らないことを確かめた）
+
+**記録の中身**: 見積依頼・見積書の既存の記録と同じく、識別子と名前などの属性だけを入れ、金額は入れない（見積依頼は案件・取引先・内訳書の ID・名前・方法・項目の数、見積書は案件・名前・元の内訳書の ID と名前で、いずれも金額を持たない）。
+
+| 種別 | before | after |
+|---|---|---|
+| `RECEIVED_QUOTATION_CREATED` | null | `estimateRequestId`・`name`・`submittedAt`・`fileName`・`lineItemCount` |
+| `RECEIVED_QUOTATION_UPDATED` | 変更の前の `name`・`submittedAt`・`fileName` | 変更の後の `name`・`submittedAt`・`fileName` |
+| `RECEIVED_QUOTATION_DELETED` | `estimateRequestId`・`name`・`submittedAt`・`fileName` | null |
+
+- 入れないもの: NET 金額（`netAmount`）、明細行の中身（名称・数量・単価・金額など）、ファイルの中身とストレージの格納先（`filePath`）。協力業者の金額は取引先との間の社外秘の情報であり、監査ログの一覧と出力（`GET /api/v1/audit-logs` と同 `/export`、JSON）は閲覧の権限（`audit:read`）だけで判定し、案件の閲覧範囲で絞らないため、記録に入れた金額は案件の範囲外の人にも読めるからである。監査ログの目的（誰がいつどの受領見積書を登録し・直し・取り除いたか）には識別子と名前で足りる。金額の変更の経緯を監査ログで追う要望が出たら、別に判断する
+- `submittedAt` は ISO 8601 の文字列で入れる。`lineItemCount` は作成で保存した明細行の数（入力が無ければ 0）とする。更新の明細行の数の前後は入れない（変更の前の数を読むための追加の読み出しを持ち込まないため。見積依頼の更新の記録も項目の数を持たない）
+
+**記録の時点**: 記録は、受領見積書のデータベースの変更を済ませた後、かつトランザクションで巻き戻らない外部の副作用の前に置く。
+
+- 作成: レコードと明細行を作った後（手順 6 の後）、ファイルをストレージへ送る前（手順 7 の前）。記録の失敗ではファイルを送らずに巻き戻る
+- 更新: 本体の更新の後（手順 6 の後）、差し替え前のファイルをストレージから取り除く前（手順 7 の前）。記録の失敗で差し替え前のファイルを失わない。新しいファイルの送信（手順 4）は記録より前のままで、記録の失敗で新しいファイルがストレージに残るのは、手順 5・6 の失敗と同じ従来の性質である（Out of Boundary）
+- 論理削除: 論理削除の更新の後、コールバックの最後。ファイルの取り除きはもとからトランザクションの外（確定の後）である
+- 効果: 監査ログの行と実行者の写しの読み出しが受領見積書の変更と同じトランザクションに入る。確定すれば監査ログも 1 件確定し、巻き戻れば監査ログも書かれない。記録の失敗では受領見積書の変更も巻き戻る（8.6 と同じ）。入力の検証・不在・競合で拒否される操作は記録の前に例外で終わり、記録しない
+
+**実装の記録**: 実装時に、変えた所、引数の位置、型の別名の扱い、テストの結果を本節へ記す（タスク111.1）
+
+- 実装（タスク111.1、2026-11-01）: `ReceivedQuotationServiceDependencies` に必須の `auditLogService: IAuditLogService` を足し、受領見積書の経路の `getReceivedQuotationService` と案件の配下の一覧の経路の `getService` の組み立てで `new AuditLogService({ prisma })` を渡した。三つの操作は最後の引数に操作した利用者の ID を受け（上の「操作した利用者」の「決めた位置」）、受領見積書の経路の作成・更新・論理削除が `req.user!.userId` を渡す。記録は上の「記録の中身」の表のとおりで、作成は明細行の保存の後・ファイルの送信の前、更新は本体の更新の後・差し替え前のファイルの取り除きの前、論理削除は論理削除の更新の後（コールバックの最後）に `createLog(input, tx)` で呼ぶ。`submittedAt` は `toISOString()`、`lineItemCount` は金額の補正の後の明細行の数（入力が無ければ 0）とした。局所の型 `PrismaTransactionClient` は `Prisma.TransactionClient` の別名に改めた（キャストは使っていない）。新しい種別は足していない
+  - 単体: 受領見積書のサービスの単体の `describe` 「監査ログ（Requirement 14.7、タスク111.1）」に 9 件を置いた（作成は明細行だけ・ファイルあり・記録の失敗・見積依頼の不在、更新は確定・記録の失敗・不在と競合、論理削除は確定・不在と競合）。確定の 4 件は記録の入力を `toEqual` で、第 2 引数を `toBe` で主張し、入力の JSON に金額・単価・`filePath`・明細行の名称が現れないことを主張する。作成と更新は `createLog` がストレージの送信・取り除きより先に呼ばれることを呼び出しの順で、記録の失敗では送信・取り除きを呼ばないことを主張する。経路の単体に、作成・更新が利用者の ID を渡す 2 件を足し、引数を数ごと主張していた既存の 3 件（論理削除・明細行つきの作成・明細行つきの更新）に利用者の ID を足した。既存のサービスの単体の呼び出し 36 か所に利用者の ID を足した。改修の前（記録を外したフラグの状態）は確定の 4 件と記録の失敗の 2 件の計 6 件が赤だった。改修の後は 2 ファイル 107 件が緑、backend の単体の全件は 263 ファイル・7286 件が緑
+  - 統合: 受領見積書の統合テストのファイルの `describe` 「受領見積書の監査ログとトランザクション（Requirement 14.7）」に、経路を通る確定の対照 1 件（三つの操作の監査ログが `targetId` と種別で 1 件ずつ、実行者が要求の利用者、before と after が上の表のとおりで金額を含まない）、本物の `createLog(input, tx)` の後に例外を投げる包みを注入した巻き戻しの 3 件、競合で拒否された更新と論理削除の監査ログが 0 件の 1 件を置いた。改修の前は対照（`expected +0 to be 1`）と巻き戻しの 3 件（例外が出ない）の 4 件が赤だった。改修の後は同ファイルの 42 件が緑、backend の統合の全件は 118 ファイル・1547 件が緑
+  - 変異: 論理削除の経路が `req.user!.email` を渡す形と、更新の `createLog` から `tx` を外す形を同時に当てると、経路の単体の 1 件とサービスの単体の 1 件、統合の対照（実行者の主張）と更新の巻き戻し（監査ログが 1 件残る `expected 1 to be +0`）の 2 件が赤になることを確かめ、元へ戻した
+  - E2E: 受領見積書の既存の E2E の登録（明細行）・編集・削除確認の 3 件に、`audit_logs` を対象の種類 `ReceivedQuotation`・対象の ID（登録の応答と、更新・削除の要求のパスから読む）・種別で数えて 1 件であることの主張と `@requirement estimate-request/REQ-14.7` の印を足した。改修の前は登録・更新・削除の各段で `REQ-14.7: ... が監査ログに 1 件記録される` の主張が赤になることを、三つの記録を順に外して確かめた（同じファイルが順に実行されるため、前の段の記録を戻して次の段を測った）。改修の後は見積依頼の E2E のディレクトリの全件 353 件が緑（backend の変更だけで frontend は作り直していない）
+  - 統合テストのファイルが機能名つきの印を得たため、機能名を欠く見出しの自機能での解決の数の宣言が 588 から 590 へ動き、帰属つきで貼り直した（同ファイルだけを HEAD の版へ戻すと 588 へ戻る）
+
+**採らなかった案**: 記録を確定の後にトランザクションの外で書く——確定の後に記録が失敗すると起きた操作の記録が残らないため採らない（8.6 と同じ）。記録をコールバックの最後に置く（見積依頼と同じ位置）——作成と更新ではコールバックの途中にストレージの操作があり、最後に置くと記録の失敗でストレージの操作だけが残る新しい窓ができるため採らない。経路で記録する——サービスの変更と同じトランザクションに入れられないため採らない
+
+### Requirements Traceability
+
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 14.7 | 受領見積書の作成・更新・論理削除が確定したら監査ログを 1 件記録し、確定しなかったら残さない | ReceivedQuotationService の create・update・delete, AuditLogService の createLog, 受領見積書の経路と案件の配下の一覧の経路の組み立て | `POST /api/estimate-requests/:id/quotations`, `PUT /api/quotations/:quotationId`, `DELETE /api/quotations/:quotationId`（見積依頼の配下の同じ経路を含む） | - |
+
+### Error Handling
+
+| 失敗 | 挙動 | 根拠 |
+|---|---|---|
+| 入力の検証、見積依頼または受領見積書の不在、楽観的排他制御の競合で拒否される | 従来どおりの応答。記録の前に例外で終わり、監査ログを残さない | 14.7 |
+| 記録の後に三つの操作のトランザクションが巻き戻る（制限時間の超過、確定の時の失敗） | 受領見積書の変更も監査ログも残らない。応答は従来どおり（P2028 はエラーハンドラーの 500 など） | 14.7 |
+| 監査ログの記録が失敗する | トランザクションが巻き戻り、受領見積書の変更も残らない。作成ではファイルを送らず、更新では差し替え前のファイルを取り除かない（上の「記録の時点」） | 14.7 |
+| 三つの操作が確定する | その操作の監査ログを 1 件記録する（上の「記録の中身」） | 14.7 |
+
+### Testing Strategy
+
+- **単体（backend）**: 受領見積書のサービスの単体に、作成（ファイルありと明細行だけ）・更新・論理削除で、`createLog` が種別（`RECEIVED_QUOTATION_CREATED` など）・対象の種類 `ReceivedQuotation`・対象の ID・操作した利用者・上の「記録の中身」の before と after で呼ばれ、第 2 引数が `$transaction` のコールバックへ渡したクライアントと同じオブジェクトであること（`toBe`）を主張する。金額（`netAmount`・明細行の金額）が記録の入力に入らないことも主張する。作成と更新で `createLog` がストレージへの送信・取り除きより先に呼ばれること（呼び出しの順）と、記録が失敗するとストレージの取り除きを呼ばないことを主張する。不在と競合では `createLog` を呼ばないことを主張する。経路の単体で、三つの経路がサービスへ `req.user` の利用者の ID を渡すことを主張する。改修の前は `createLog` が呼ばれず赤になることを先に示す。所在は次のファイル
+  backend/src/__tests__/unit/services/received-quotation.service.test.ts
+  backend/src/__tests__/unit/routes/received-quotation.routes.test.ts
+- **統合（backend）**: 実際の DB で、三つの操作が確定するとその操作の種別の監査ログが対象の `targetId` で 1 件残ること（対照）と、サービスを統合テストの中で直接組み立て、依存の監査ログのサービスに本物の `AuditLogService` の `createLog(input, tx)` を呼んでから例外を投げる包みを注入すると、操作が例外で終わり、受領見積書が作られず・変わらず・論理削除されず、その操作の種別の監査ログが対象の `targetId` で 0 件であることを主張する（作成の巻き戻しは包みが受けた `targetId` で数える。タスク109.1 と同じ形）。`@requirement estimate-request/REQ-14.7` の被覆の印を置き、印を足したら `check:design-measurement-freshness` を名指しで流す。置き場所は受領見積書の既存の統合テストのファイル。所在は次のファイル
+  backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts
+- **E2E**: 確定した場合の記録は画面の操作の結果として観測できるため、E2E で確かめる。受領見積書の既存の E2E（登録・編集・取り除きの画面の流れ）に、画面で受領見積書を登録・更新・取り除いた後、記録先の `audit_logs` を対象の種類 `ReceivedQuotation`・対象の ID・種別で数えて 1 件であることを主張する。数え方は取引先の監査ログの E2E（`expectAuditLogRecorded`。E2E の Prisma のクライアントで `auditLog.count` を `expect.poll` で待つ）と、見積依頼の閲覧範囲の E2E の `auditLog.count` の形に揃える。ブラウザは監査ログの API を呼ばないため、画面のリクエストの観測では判定できないからである。対象の ID は登録の応答から読む。`@requirement estimate-request/REQ-14.7` の印を置く。巻き戻し（記録の後の制限時間の超過や確定の時の失敗）は画面から起こせないため、単体と統合が主張する。所在は次のファイル
+  e2e/specs/estimate-requests/received-quotation-status-e2e.spec.ts
+- backend の変更だけで frontend は変えないため、テスト環境の frontend の作り直しは要らない。振る舞いを変えるため、受領見積書の経路（`/quotations`）を e2e/ 全体で grep して既存の E2E を選び、流す
+- 挙動の変更であるため RED → GREEN で進め、追加した単体・統合・E2E が改修の前に赤になる（単体は `createLog` が呼ばれない、統合と E2E は監査ログが 0 件）ことを先に示す

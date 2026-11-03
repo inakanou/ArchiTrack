@@ -433,6 +433,7 @@ export default function SiteSurveyImageViewerPage() {
             imageUrl={image.originalUrl}
             imageId={image.id}
             surveyId={id}
+            projectId={survey.projectId}
             initialZoom={viewState?.zoom}
             initialRotation={viewState?.rotation}
             initialPan={viewState?.pan}

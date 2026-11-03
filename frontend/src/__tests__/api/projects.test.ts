@@ -25,6 +25,7 @@ import {
   transitionStatus,
   getStatusHistory,
   getAssignableUsers,
+  getProjectDetailSummary,
 } from '../../api/projects';
 import {
   isDuplicateProjectNameErrorResponse,
@@ -736,5 +737,80 @@ describe('projects API client', () => {
         expect((error as ApiError).message).toBe('Request timeout');
       }
     });
+  });
+});
+
+// ============================================================================
+// 案件の 404（user-authentication タスク52.3）
+// 範囲外と不在はどちらも汎用の 404（code: NOT_FOUND, detail: 'Not found'）で返るため、
+// 案件の API の 404 は画面に出せる文言へ揃える
+// ============================================================================
+describe('案件の 404 の文言', () => {
+  const genericNotFound = {
+    type: 'https://architrack.example.com/problems/not-found',
+    title: 'Not Found',
+    status: 404,
+    detail: 'Not found',
+    code: 'NOT_FOUND',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const cases: Array<{
+    name: string;
+    method: 'get' | 'put' | 'patch' | 'delete';
+    call: () => Promise<unknown>;
+  }> = [
+    { name: 'getProject', method: 'get', call: () => getProject('p-1') },
+    { name: 'getProjectDetailSummary', method: 'get', call: () => getProjectDetailSummary('p-1') },
+    { name: 'getStatusHistory', method: 'get', call: () => getStatusHistory('p-1') },
+    {
+      name: 'updateProject',
+      method: 'put',
+      call: () => updateProject('p-1', { name: '更新' }, '2025-01-01T00:00:00.000Z'),
+    },
+    { name: 'deleteProject', method: 'delete', call: () => deleteProject('p-1') },
+    {
+      name: 'transitionStatus',
+      method: 'patch',
+      call: () => transitionStatus('p-1', { status: 'SURVEYING' }),
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name} は汎用の 404 を「プロジェクトが見つかりません」の ApiError にする`, async () => {
+      vi.mocked(apiClient[c.method]).mockRejectedValue(
+        new ApiError(404, 'Not found', genericNotFound)
+      );
+
+      const error = await c.call().catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).statusCode).toBe(404);
+      expect((error as ApiError).message).toBe('プロジェクトが見つかりません');
+      expect((error as ApiError).response).toEqual(genericNotFound);
+    });
+  }
+
+  it('404 以外のエラーはそのまま投げる', async () => {
+    const original = new ApiError(409, '他のユーザーが更新しました');
+    vi.mocked(apiClient.put).mockRejectedValue(original);
+
+    const error = await updateProject('p-1', { name: '更新' }, '2025-01-01T00:00:00.000Z').catch(
+      (e: unknown) => e
+    );
+
+    expect(error).toBe(original);
+  });
+
+  it('ApiError でないエラーはそのまま投げる', async () => {
+    const original = new TypeError('Failed to fetch');
+    vi.mocked(apiClient.get).mockRejectedValue(original);
+
+    const error = await getProject('p-1').catch((e: unknown) => e);
+
+    expect(error).toBe(original);
   });
 });

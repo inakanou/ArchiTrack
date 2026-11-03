@@ -15,6 +15,36 @@ declare global {
       // Redis
       REDIS_URL?: string;
 
+      // 信頼する中継の段数（送信元 IP の識別）
+      TRUST_PROXY_HOPS?: string;
+
+      // トークンの発行者・想定利用者（JWT の iss・aud）
+      JWT_ISSUER?: string;
+      JWT_AUDIENCE?: string;
+
+      // 監査ログのアーカイブの暗号鍵（64 桁の 16 進。本番で必須）
+      ARCHIVE_ENCRYPTION_KEY?: string;
+
+      // セキュリティ上の異常の検知の閾値・時間窓（秒）・抑止の時間（秒）（正の整数。未設定は既定値）
+      SECURITY_ALERT_LOGIN_FAILED_THRESHOLD?: string;
+      SECURITY_ALERT_LOGIN_FAILED_WINDOW_SECONDS?: string;
+      SECURITY_ALERT_LOGIN_FAILED_COOLDOWN_SECONDS?: string;
+      SECURITY_ALERT_PERMISSION_DENIED_THRESHOLD?: string;
+      SECURITY_ALERT_PERMISSION_DENIED_WINDOW_SECONDS?: string;
+      SECURITY_ALERT_PERMISSION_DENIED_COOLDOWN_SECONDS?: string;
+      SECURITY_ALERT_RATE_LIMITED_THRESHOLD?: string;
+      SECURITY_ALERT_RATE_LIMITED_WINDOW_SECONDS?: string;
+      SECURITY_ALERT_RATE_LIMITED_COOLDOWN_SECONDS?: string;
+      SECURITY_ALERT_SERVER_ERROR_THRESHOLD?: string;
+      SECURITY_ALERT_SERVER_ERROR_WINDOW_SECONDS?: string;
+      SECURITY_ALERT_SERVER_ERROR_COOLDOWN_SECONDS?: string;
+      SECURITY_ALERT_DATA_EXPORT_THRESHOLD?: string;
+      SECURITY_ALERT_DATA_EXPORT_WINDOW_SECONDS?: string;
+      SECURITY_ALERT_DATA_EXPORT_COOLDOWN_SECONDS?: string;
+      // 異常の通知の総数の上限と時間窓（秒）（正の整数。未設定は 10 通 / 3600 秒）
+      SECURITY_ALERT_NOTIFICATION_LIMIT?: string;
+      SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS?: string;
+
       // Frontend
       FRONTEND_URL?: string;
 

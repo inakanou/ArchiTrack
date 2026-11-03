@@ -38,6 +38,7 @@ vi.mock('react-router-dom', async () => {
 
 import QuantityTableEditPage from '../../pages/QuantityTableEditPage';
 import * as quantityTablesApi from '../../api/quantity-tables';
+import { apiClient } from '../../api/client';
 import type { QuantityItemDetail, QuantityTableDetail } from '../../types/quantity-table.types';
 import { FIELD_RANGE_CONFIG } from '../../utils/numeric-range-validation';
 
@@ -675,13 +676,20 @@ describe('QuantityTableEditPage - 保存前の計算パラメータ検証（Task
       const { generateQuantityTablePdf } =
         await import('../../services/export/QuantityTablePdfExportService');
       vi.mocked(generateQuantityTablePdf).mockRejectedValue(new Error('PDF generation failed'));
-      await user.click(screen.getByRole('button', { name: /PDF/ }));
+      // PDF の生成は出力の記録の成功の後に始まる（quantity-table-generation の Requirement 50.8）。
+      // 生成の失敗まで届かせるため、記録の要求は成功させる
+      const recordSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+      try {
+        await user.click(screen.getByRole('button', { name: /PDF/ }));
 
-      const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent('PDF生成中にエラーが発生しました');
-      expect(
-        screen.queryByRole('button', { name: '丸め設定を既定値（0.01）に戻す' })
-      ).not.toBeInTheDocument();
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('PDF生成中にエラーが発生しました');
+        expect(
+          screen.queryByRole('button', { name: '丸め設定を既定値（0.01）に戻す' })
+        ).not.toBeInTheDocument();
+      } finally {
+        recordSpy.mockRestore();
+      }
     });
   });
 });

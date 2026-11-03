@@ -239,4 +239,26 @@ describe('EstimateDetailPage 保存エラーの提示（実物のコンポーネ
     expect(document.querySelectorAll('[data-estimate-row-key]')).toHaveLength(rowCountAfterAdd);
     expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
   });
+
+  /**
+   * 保存の 404 は見積書が見つからない旨の既存の文言を表示する（estimate-creation タスク64.1 が文言を固定した。
+   * 文言は他の操作の 404 の文言の流儀でもある）。汎用の 404 の英語の本文と汎用の文言を出さない
+   *
+   * @requirement estimate-creation/REQ-58.2
+   */
+  it('保存の 404 で見積書が見つからない旨を表示し、汎用の文言と応答の英語の本文を出さないこと', async () => {
+    vi.mocked(estimatesApi.saveEstimateDraft).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' })
+    );
+    renderPage();
+    await waitForItems();
+    await addRootItem();
+
+    clickSave();
+
+    const banner = await saveErrorBanner();
+    expect(banner).toHaveTextContent('見積書が見つかりません。すでに削除された可能性があります。');
+    expect(banner).not.toHaveTextContent(GENERIC_SAVE_ERROR_MESSAGE);
+    expect(banner).not.toHaveTextContent('Not found');
+  });
 });

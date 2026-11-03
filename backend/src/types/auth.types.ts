@@ -31,15 +31,30 @@ export interface AuthResponse {
 
 /**
  * ログイン成功時のレスポンス
- * 2FA有効ユーザーの場合は2FA_REQUIREDを返す
+ *
+ * 2FA有効ユーザーの場合は 2FA_REQUIRED と、パスワードの成功に結び付いた 2FA 待ちの資格を返す
+ * （要件32.1）。利用者 ID は含めない（要件42.7）
  */
-export interface LoginResponse {
-  type: 'SUCCESS' | '2FA_REQUIRED';
-  accessToken?: string;
-  refreshToken?: string;
-  userId?: string;
-  user?: UserProfile;
-}
+export type LoginResponse =
+  | {
+      type: 'SUCCESS';
+      accessToken: string;
+      refreshToken: string;
+      user: UserProfile;
+    }
+  | {
+      type: '2FA_REQUIRED';
+      /** 2FA 待ちの資格（不透明な文字列。5 分・一回限り） */
+      challengeToken: string;
+      /** 資格の有効期間（秒） */
+      expiresIn: number;
+    };
+
+/**
+ * 2FA の検証で提示する第二要素
+ */
+export type TwoFactorProof =
+  { kind: 'totp'; code: string } | { kind: 'backup'; backupCode: string };
 
 /**
  * ユーザープロフィール情報
@@ -54,7 +69,19 @@ export interface UserProfile {
   /** 更新日時。プロフィールの更新で楽観的ロックの版（expectedUpdatedAt）として送り返す */
   updatedAt?: Date;
   twoFactorEnabled: boolean;
+  /** 初回のパスワード変更を要するか（要件34・37.7。画面が利用者の状態を知るために返す） */
+  mustChangePassword: boolean;
 }
+
+/**
+ * 画面へ返す利用者と状態（design.md「利用者の状態の照合」の AuthUserView）
+ *
+ * ログイン・リフレッシュ・2FA の検証と有効化・パスワード変更の応答に載せる（タスク47.5）
+ */
+export type AuthUserView = Pick<
+  UserProfile,
+  'id' | 'email' | 'displayName' | 'roles' | 'twoFactorEnabled' | 'mustChangePassword'
+>;
 
 /**
  * 認証関連のエラー型
@@ -67,14 +94,27 @@ export type AuthError =
   | { type: 'WEAK_PASSWORD'; violations: PasswordViolation[] }
   | { type: 'INVALID_CREDENTIALS' }
   | { type: 'ACCOUNT_LOCKED'; unlockAt: Date }
-  | { type: '2FA_REQUIRED'; userId: string }
+  | { type: 'CHALLENGE_INVALID' }
+  | { type: 'SERVICE_UNAVAILABLE' }
   | { type: 'INVALID_2FA_CODE' }
   | { type: 'INVALID_BACKUP_CODE' }
   | { type: 'INVALID_REFRESH_TOKEN' }
   | { type: 'REFRESH_TOKEN_EXPIRED' }
+  | { type: 'TOKEN_REUSE_DETECTED' }
+  | { type: 'ACCOUNT_DISABLED' }
   | { type: 'USER_NOT_FOUND' }
   | { type: 'PROFILE_CONFLICT'; expectedUpdatedAt: Date; actualUpdatedAt: Date }
   | { type: 'DATABASE_ERROR'; message: string };
+
+/**
+ * 要求の送信元の情報（監査の記録に使う）
+ */
+export interface RequestContext {
+  /** 送信元 IP（getClientIp で得たもの） */
+  ipAddress?: string;
+  /** User-Agent */
+  userAgent?: string;
+}
 
 /**
  * AuthService インターフェース
@@ -89,34 +129,41 @@ export interface IAuthService {
    * @param data 登録データ（表示名、パスワード）
    * @returns 認証レスポンスまたはエラー
    */
-  register(invitationToken: string, data: RegisterData): Promise<Result<AuthResponse, AuthError>>;
+  register(
+    invitationToken: string,
+    data: RegisterData,
+    ctx?: RequestContext
+  ): Promise<Result<AuthResponse, AuthError>>;
 
   /**
    * ログイン
    *
    * @param email メールアドレス
    * @param password パスワード
-   * @param deviceInfo デバイス情報（User-Agent）
+   * @param ctx 要求の送信元（User-Agent はセッションの端末情報にも使う。監査の記録に使う。要件40.1）
    * @returns ログインレスポンスまたはエラー
    */
   login(
     email: string,
     password: string,
-    deviceInfo?: string
+    ctx?: RequestContext
   ): Promise<Result<LoginResponse, AuthError>>;
 
   /**
-   * 2FA検証（ログイン時）
+   * 2FA の検証を完了する（ログイン時）
    *
-   * @param userId ユーザーID
-   * @param totpCode TOTPコード（6桁）
-   * @param deviceInfo デバイス情報（User-Agent）
+   * ログインで発行した 2FA 待ちの資格に結び付いた利用者の第二要素を検証し、成功で資格を消費してから
+   * トークンを発行する（要件32.1〜32.6）
+   *
+   * @param challengeToken ログインの応答の 2FA 待ちの資格
+   * @param proof TOTP コードまたはバックアップコード
+   * @param ctx 要求の送信元（User-Agent はセッションの端末情報にも使う。監査の記録に使う。要件40.3）
    * @returns 認証レスポンスまたはエラー
    */
-  verify2FA(
-    userId: string,
-    totpCode: string,
-    deviceInfo?: string
+  completeTwoFactorLogin(
+    challengeToken: string,
+    proof: TwoFactorProof,
+    ctx?: RequestContext
   ): Promise<Result<AuthResponse, AuthError>>;
 
   /**
@@ -124,17 +171,23 @@ export interface IAuthService {
    *
    * @param userId ユーザーID
    * @param refreshToken リフレッシュトークン
+   * @param ctx 要求の送信元（監査の記録に使う。要件40.4）
    * @returns 成功またはエラー
    */
-  logout(userId: string, refreshToken: string): Promise<Result<void, AuthError>>;
+  logout(
+    userId: string,
+    refreshToken: string,
+    ctx?: RequestContext
+  ): Promise<Result<void, AuthError>>;
 
   /**
    * 全デバイスからログアウト
    *
    * @param userId ユーザーID
+   * @param ctx 要求の送信元（監査の記録に使う。要件40.4）
    * @returns 成功またはエラー
    */
-  logoutAll(userId: string): Promise<Result<void, AuthError>>;
+  logoutAll(userId: string, ctx?: RequestContext): Promise<Result<void, AuthError>>;
 
   /**
    * 現在のユーザー情報取得
@@ -143,6 +196,14 @@ export interface IAuthService {
    * @returns ユーザープロフィールまたはエラー
    */
   getCurrentUser(userId: string): Promise<Result<UserProfile, AuthError>>;
+
+  /**
+   * 画面へ返す利用者と状態を取得する（状態は AuthenticatedUserStateService を経由する）
+   *
+   * @param userId ユーザーID
+   * @returns 利用者と状態、またはエラー（利用者の不在は USER_NOT_FOUND）
+   */
+  getAuthUserView(userId: string): Promise<Result<AuthUserView, AuthError>>;
 
   /**
    * 楽観的ロック付きのプロフィール更新
@@ -166,5 +227,8 @@ export interface IAuthService {
    * @param refreshToken リフレッシュトークン
    * @returns 新しいトークンペアまたはエラー
    */
-  refreshToken(refreshToken: string): Promise<Result<AuthResponse, AuthError>>;
+  refreshToken(
+    refreshToken: string,
+    ctx?: RequestContext
+  ): Promise<Result<AuthResponse, AuthError>>;
 }

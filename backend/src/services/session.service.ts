@@ -2,32 +2,64 @@
  * @fileoverview セッション管理サービス
  *
  * Requirements:
- * - 8.1-8.5: セッション管理（マルチデバイス対応、有効期限延長）
+ * - 8.1-8.5: セッション管理（マルチデバイス対応）
+ *
+ * リフレッシュトークンのハッシュ保存と、系列による失効・再利用の検知（要件33.4〜33.7）も担う。
  *
  * 責任と境界:
- * - 主要責任: セッション管理（作成、削除、検証、一覧取得、有効期限延長）
+ * - 主要責任: リフレッシュトークンの発行・保存（ハッシュ）・ローテーション・失効、セッション一覧
  * - ドメイン境界: セッションドメイン
  * - データ所有権: RefreshToken
- * - トランザクション境界: なし
+ * - トランザクション境界: ローテーション（置き換えの記録と後継の作成、または系列の失効）
  *
  * 依存関係:
- * - インバウンド: AuthService
- * - アウトバウンド: なし
+ * - インバウンド: AuthService, セッションの API
+ * - アウトバウンド: TokenService（リフレッシュトークンの署名）
  * - 外部: Prisma Client
  */
 
+import { createHash, randomUUID } from 'crypto';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { UAParser } from 'ua-parser-js';
 import { Result, Ok, Err } from '../types/result.js';
-import type { ISessionService, SessionInfo, SessionError } from '../types/session.types.js';
+import type {
+  CreatedSession,
+  ISessionService,
+  RefreshTokenClient,
+  RotationError,
+  RotationResult,
+  SessionInfo,
+  SessionError,
+} from '../types/session.types.js';
+import { TokenService } from './token.service.js';
+import tokenServiceInstance from './token.service.js';
 import logger from '../utils/logger.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
+import {
+  lockUserRefreshTokens,
+  revokeAllRefreshTokensForUser,
+} from '../utils/refresh-token-lock.js';
+
+/**
+ * 保存するリフレッシュトークンの値（原文の SHA-256 の 16 進）
+ *
+ * 原文は保存しない。照合は提示された原文のハッシュで一意索引を引く（要件33.7）。
+ */
+export function hashRefreshToken(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex');
+}
 
 export class SessionService implements ISessionService {
   // リフレッシュトークンの有効期限（デフォルト: 7日間）
   private readonly REFRESH_TOKEN_EXPIRY: number;
+  private readonly tokenService: TokenService;
 
-  constructor(private readonly prisma: PrismaClient) {
+  constructor(
+    private readonly prisma: PrismaClient,
+    tokenService?: TokenService
+  ) {
+    this.tokenService = tokenService || tokenServiceInstance;
     // 環境変数から有効期限を取得（日数で指定、デフォルト: 7日）
     const expiryDays = parseInt(process.env.REFRESH_TOKEN_EXPIRY_DAYS || '7', 10);
     this.REFRESH_TOKEN_EXPIRY = expiryDays * 24 * 60 * 60 * 1000; // ミリ秒に変換
@@ -72,16 +104,18 @@ export class SessionService implements ISessionService {
   /**
    * セッション作成
    *
-   * RefreshTokenレコードを作成し、デバイス情報を含むセッションを管理します。
+   * 新しい系列でリフレッシュトークンを発行し、原文でなくハッシュを保存する（要件33.7）。
    * @requirement user-authentication/REQ-8.1: ユーザーがログインするとセッション情報を永続化する
    * @requirement user-authentication/REQ-8.3: 複数デバイスからログインする場合、各デバイスで独立したセッションを管理する
    *
    * @param userId ユーザーID
-   * @param refreshToken リフレッシュトークン
    * @param deviceInfo デバイス情報（User-Agent等）
+   * @returns リフレッシュトークンの原文と系列 ID
    */
-  async createSession(userId: string, refreshToken: string, deviceInfo?: string): Promise<void> {
+  async createSession(userId: string, deviceInfo?: string | null): Promise<CreatedSession> {
     try {
+      const familyId = randomUUID();
+      const refreshToken = await this.tokenService.generateRefreshToken(userId, familyId);
       const expiresAt = new Date(Date.now() + this.REFRESH_TOKEN_EXPIRY);
 
       // User-Agentをパースして読みやすい形式に変換
@@ -90,7 +124,8 @@ export class SessionService implements ISessionService {
       await this.prisma.refreshToken.create({
         data: {
           userId,
-          token: refreshToken,
+          tokenHash: hashRefreshToken(refreshToken),
+          familyId,
           deviceInfo: parsedDeviceInfo,
           expiresAt,
         },
@@ -99,11 +134,14 @@ export class SessionService implements ISessionService {
       logger.info(
         {
           userId,
+          familyId,
           deviceInfo: parsedDeviceInfo,
           expiresAt,
         },
         'Session created successfully'
       );
+
+      return { refreshToken, familyId };
     } catch (error) {
       logger.error(
         {
@@ -117,65 +155,143 @@ export class SessionService implements ISessionService {
   }
 
   /**
-   * セッション削除（単一デバイス）
+   * リフレッシュトークンのローテーション
    *
-   * 指定されたリフレッシュトークンに対応するセッションを削除します。
-   * @requirement user-authentication/REQ-8.4: ユーザーがログアウトすると、対象デバイスのセッションのみを削除する
+   * 一つのトランザクションで、提示されたトークンの行に置き換えの日時を記録し、同じ系列の後継を作る。
+   * 置き換え済みの行が再び提示されたら、系列の全行を消して REUSE_DETECTED を返す（要件33.6）。
+   * 利用者単位の取引ロック（lockUserRefreshTokens）を取ってから行を読み直して判定するため、
+   * 同じトークンの同時の提示は一方だけが置き換えに成功し、もう一方は置き換え済みの行を読んで
+   * 系列の全行を消す（先に成功した側の後継も含む。猶予は設けない。タブ間のリフレッシュの直列化は
+   * 画面の側で行う）。系列や利用者単位の失効と並行しても、後継が失効を逃れて残らない。
    *
-   * @param refreshToken リフレッシュトークン
-   * @returns 成功またはエラー
+   * @param presentedToken 提示されたリフレッシュトークンの原文
+   * @returns 後継のリフレッシュトークンの原文、または NOT_FOUND・EXPIRED・REUSE_DETECTED
    */
-  async deleteSession(refreshToken: string): Promise<Result<void, SessionError>> {
-    try {
-      await this.prisma.refreshToken.delete({
-        where: { token: refreshToken },
-      });
+  async rotate(presentedToken: string): Promise<Result<RotationResult, RotationError>> {
+    const tokenHash = hashRefreshToken(presentedToken);
 
-      logger.info({ refreshToken }, 'Session deleted successfully');
-      return Ok(undefined);
-    } catch (error) {
-      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
-      rethrowIfDatabaseConnectionTimeout(error);
-      // Prisma P2025: Record not found
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'P2025'
-      ) {
-        logger.debug({ refreshToken }, 'Session not found');
-        return Err({ type: 'SESSION_NOT_FOUND' });
+    return this.prisma.$transaction(async (tx) => {
+      const found = await tx.refreshToken.findUnique({ where: { tokenHash } });
+
+      if (!found) {
+        return Err({ type: 'NOT_FOUND' as const });
       }
 
-      logger.error(
-        {
-          error: error instanceof Error ? error.message : String(error),
-          refreshToken,
-        },
-        'Failed to delete session'
-      );
-      return Err({
-        type: 'DATABASE_ERROR',
-        message: error instanceof Error ? error.message : String(error),
+      // 同じ利用者の他のローテーション・失効と直列化し、ロックを待つ間の変更を読み直す
+      await lockUserRefreshTokens(tx, found.userId);
+      const current = await tx.refreshToken.findUnique({ where: { tokenHash } });
+
+      if (!current) {
+        return Err({ type: 'NOT_FOUND' as const });
+      }
+
+      const revokeFamily = async (): Promise<Result<RotationResult, RotationError>> => {
+        const { count } = await tx.refreshToken.deleteMany({
+          where: { familyId: current.familyId },
+        });
+        logger.warn(
+          { userId: current.userId, familyId: current.familyId, revokedCount: count },
+          'Refresh token reuse detected; revoked the whole family'
+        );
+        return Err({
+          type: 'REUSE_DETECTED' as const,
+          userId: current.userId,
+          familyId: current.familyId,
+        });
+      };
+
+      if (current.replacedAt) {
+        return revokeFamily();
+      }
+
+      const now = new Date();
+      if (current.expiresAt < now) {
+        return Err({ type: 'EXPIRED' as const });
+      }
+
+      const { count } = await tx.refreshToken.updateMany({
+        where: { id: current.id, replacedAt: null },
+        data: { replacedAt: now },
       });
-    }
+      if (count === 0) {
+        // ロックの下では起きない（読み直した行は置き換えられていない）。防御として再利用と同じに扱う
+        return revokeFamily();
+      }
+
+      const refreshToken = await this.tokenService.generateRefreshToken(
+        current.userId,
+        current.familyId
+      );
+      await tx.refreshToken.create({
+        data: {
+          userId: current.userId,
+          tokenHash: hashRefreshToken(refreshToken),
+          familyId: current.familyId,
+          deviceInfo: current.deviceInfo,
+          expiresAt: new Date(now.getTime() + this.REFRESH_TOKEN_EXPIRY),
+        },
+      });
+
+      return Ok({ userId: current.userId, familyId: current.familyId, refreshToken });
+    }, connectBudgetTransactionOptions());
   }
 
   /**
-   * 全セッション削除（全デバイス）
+   * 提示されたトークンの系列の全てを失効させる（ログアウト）
    *
-   * 指定されたユーザーの全てのセッションを削除します。
+   * @requirement user-authentication/REQ-8.4: ユーザーがログアウトすると、対象デバイスのセッションのみを削除する
+   *
+   * @param presentedToken 提示されたリフレッシュトークンの原文
+   * @param userId 指定すると、その利用者のトークンに限る
+   * @returns 消した行の数
+   */
+  async revokeByToken(presentedToken: string, userId?: string): Promise<number> {
+    const tokenHash = hashRefreshToken(presentedToken);
+    const revoked = await this.prisma.$transaction(async (tx) => {
+      const current = await tx.refreshToken.findUnique({ where: { tokenHash } });
+      if (!current || (userId !== undefined && current.userId !== userId)) {
+        return null;
+      }
+      // 並行するローテーションの後継も消すよう、ローテーションと直列化してから系列を消す
+      await lockUserRefreshTokens(tx, current.userId);
+      const { count } = await tx.refreshToken.deleteMany({
+        where: { familyId: current.familyId, userId: current.userId },
+      });
+      return { current, count };
+    }, connectBudgetTransactionOptions());
+
+    if (!revoked) {
+      logger.debug({ userId }, 'Session not found for logout');
+      return 0;
+    }
+    const { current, count } = revoked;
+    logger.info(
+      { userId: current.userId, familyId: current.familyId, revokedCount: count },
+      'Session family revoked'
+    );
+    return count;
+  }
+
+  /**
+   * 利用者の全てのリフレッシュトークンを失効させる（全デバイスのログアウト、パスワードの変更・リセット）
+   *
    * @requirement user-authentication/REQ-8.5: 全デバイスログアウト機能を使用すると、全てのセッションを削除する
    *
    * @param userId ユーザーID
+   * @param tx 呼び出し元のトランザクション（省略時は単独で消す）
+   * @returns 消した行の数
    */
-  async deleteAllSessions(userId: string): Promise<void> {
+  async revokeAllForUser(userId: string, tx?: RefreshTokenClient): Promise<number> {
     try {
-      const result = await this.prisma.refreshToken.deleteMany({
-        where: { userId },
-      });
+      const count = tx
+        ? await revokeAllRefreshTokensForUser(tx, userId)
+        : await this.prisma.$transaction(
+            (client) => revokeAllRefreshTokensForUser(client, userId),
+            connectBudgetTransactionOptions()
+          );
 
-      logger.info({ userId, deletedCount: result.count }, 'All sessions deleted successfully');
+      logger.info({ userId, deletedCount: count }, 'All sessions deleted successfully');
+      return count;
     } catch (error) {
       logger.error(
         {
@@ -189,48 +305,46 @@ export class SessionService implements ISessionService {
   }
 
   /**
-   * セッション検証
+   * 自分のセッション（セッション一覧の行の ID）の系列を失効させる
    *
-   * リフレッシュトークンの存在と有効期限をチェックします。
-   *
-   * @param refreshToken リフレッシュトークン
-   * @returns セッション情報またはエラー
+   * @param userId ユーザーID（自分のセッションに限る）
+   * @param sessionId セッション一覧の行の ID
+   * @returns 成功、SESSION_NOT_FOUND、DATABASE_ERROR のいずれか
    */
-  async verifySession(refreshToken: string): Promise<Result<SessionInfo, SessionError>> {
+  async revokeSessionById(userId: string, sessionId: string): Promise<Result<void, SessionError>> {
     try {
-      const session = await this.prisma.refreshToken.findUnique({
-        where: { token: refreshToken },
-      });
+      const found = await this.prisma.$transaction(async (tx) => {
+        const session = await tx.refreshToken.findFirst({
+          where: { id: sessionId, userId },
+        });
+        if (!session) {
+          return false;
+        }
+        // 並行するローテーションの後継も消すよう、ローテーションと直列化してから系列を消す
+        await lockUserRefreshTokens(tx, userId);
+        await tx.refreshToken.deleteMany({
+          where: { familyId: session.familyId, userId },
+        });
+        return true;
+      }, connectBudgetTransactionOptions());
 
-      if (!session) {
-        logger.debug({ refreshToken }, 'Session not found');
+      if (!found) {
+        logger.debug({ userId, sessionId }, 'Session not found');
         return Err({ type: 'SESSION_NOT_FOUND' });
       }
 
-      // 有効期限チェック
-      if (session.expiresAt < new Date()) {
-        logger.debug({ refreshToken, expiresAt: session.expiresAt }, 'Session expired');
-        return Err({ type: 'SESSION_EXPIRED' });
-      }
-
-      const sessionInfo: SessionInfo = {
-        id: session.id,
-        userId: session.userId,
-        deviceInfo: session.deviceInfo ?? undefined,
-        expiresAt: session.expiresAt,
-        createdAt: session.createdAt,
-      };
-
-      return Ok(sessionInfo);
+      logger.info({ userId, sessionId }, 'Session deleted successfully');
+      return Ok(undefined);
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       logger.error(
         {
           error: error instanceof Error ? error.message : String(error),
-          refreshToken,
+          userId,
+          sessionId,
         },
-        'Failed to verify session'
+        'Failed to delete session'
       );
       return Err({
         type: 'DATABASE_ERROR',
@@ -242,7 +356,7 @@ export class SessionService implements ISessionService {
   /**
    * セッション一覧取得
    *
-   * 指定されたユーザーの全てのアクティブなセッションを取得します。
+   * 指定されたユーザーのセッション（系列ごとの現行の行。置き換え済みの行は除く）を取得します。
    * デバイス情報を含むため、ユーザーは各デバイスのセッションを確認できます。
    *
    * @param userId ユーザーID
@@ -251,7 +365,7 @@ export class SessionService implements ISessionService {
   async listSessions(userId: string): Promise<SessionInfo[]> {
     try {
       const sessions = await this.prisma.refreshToken.findMany({
-        where: { userId },
+        where: { userId, replacedAt: null },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -271,67 +385,6 @@ export class SessionService implements ISessionService {
         'Failed to list sessions'
       );
       throw error;
-    }
-  }
-
-  /**
-   * セッション有効期限延長
-   *
-   * アクティブなユーザーのセッション有効期限を延長します。
-   * 要件8.2: ユーザーがアクティブである間、セッションの有効期限を延長する
-   *
-   * @param refreshToken リフレッシュトークン
-   * @returns 成功またはエラー
-   */
-  async extendSession(refreshToken: string): Promise<Result<void, SessionError>> {
-    try {
-      // まず、セッションが存在し、有効期限内であることを確認
-      const session = await this.prisma.refreshToken.findUnique({
-        where: { token: refreshToken },
-      });
-
-      if (!session) {
-        logger.debug({ refreshToken }, 'Session not found');
-        return Err({ type: 'SESSION_NOT_FOUND' });
-      }
-
-      // 有効期限チェック
-      if (session.expiresAt < new Date()) {
-        logger.debug({ refreshToken, expiresAt: session.expiresAt }, 'Session expired');
-        return Err({ type: 'SESSION_EXPIRED' });
-      }
-
-      // 有効期限を現在時刻から7日後に延長
-      const newExpiresAt = new Date(Date.now() + this.REFRESH_TOKEN_EXPIRY);
-
-      await this.prisma.refreshToken.update({
-        where: { token: refreshToken },
-        data: { expiresAt: newExpiresAt },
-      });
-
-      logger.info(
-        {
-          refreshToken,
-          newExpiresAt,
-        },
-        'Session extended successfully'
-      );
-
-      return Ok(undefined);
-    } catch (error) {
-      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
-      rethrowIfDatabaseConnectionTimeout(error);
-      logger.error(
-        {
-          error: error instanceof Error ? error.message : String(error),
-          refreshToken,
-        },
-        'Failed to extend session'
-      );
-      return Err({
-        type: 'DATABASE_ERROR',
-        message: error instanceof Error ? error.message : String(error),
-      });
     }
   }
 }

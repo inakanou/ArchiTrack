@@ -128,6 +128,12 @@ describe('SessionExpiredModal', () => {
       await waitFor(() => {
         expect(defaultProps.onReauthSuccess).toHaveBeenCalledTimes(1);
       });
+
+      // アクセストークンは ApiClient のメモリだけに置き、トークンを永続ストレージへ書かない（要件33.8, 33.10）
+      const { apiClient } = await import('../../api/client');
+      expect(apiClient.setAccessToken).toHaveBeenCalledWith('new-token');
+      expect(localStorage.getItem('accessToken')).toBeNull();
+      expect(localStorage.getItem('refreshToken')).toBeNull();
     });
 
     /**
@@ -393,8 +399,12 @@ describe('SessionExpiredModal', () => {
   describe('2FA完全フロー', () => {
     it('2FA要求後にTOTPコード送信で認証成功すること', async () => {
       const user = userEvent.setup();
-      // ログインで2FA要求
-      mockApiClientPost.mockResolvedValueOnce({ requires2FA: true });
+      // ログインで2FA要求（2FA 待ちの資格を返す）
+      mockApiClientPost.mockResolvedValueOnce({
+        requires2FA: true,
+        challengeToken: 'challenge-xyz',
+        expiresIn: 300,
+      });
       // 2FA検証で成功
       mockApiClientPost.mockResolvedValueOnce({ accessToken: 'token' });
 
@@ -417,10 +427,96 @@ describe('SessionExpiredModal', () => {
         expect(defaultProps.onReauthSuccess).toHaveBeenCalled();
       });
 
-      expect(mockApiClientPost).toHaveBeenCalledWith('/api/v1/auth/verify-2fa', {
-        token: '123456',
-        email: 'test@example.com',
+      // ログインの応答の資格を送り、メールアドレスを送らない（要件32.1, 32.2）
+      expect(mockApiClientPost).toHaveBeenLastCalledWith('/api/v1/auth/verify-2fa', {
+        challengeToken: 'challenge-xyz',
+        code: '123456',
       });
+    });
+
+    /**
+     * 要件30.9: 2FA の再認証の成功でも、パスワードだけの再認証と同じくアクセストークンを
+     * ApiClient へ置き、新しいトークンをセッションの立て直しへ渡す
+     */
+    it('2FA の再認証の成功でアクセストークンを ApiClient へ置き、応答をセッションの立て直しへ渡すこと', async () => {
+      const user = userEvent.setup();
+      const reauthUser = { id: '1', email: 'test@example.com', displayName: 'Test' };
+      mockApiClientPost.mockResolvedValueOnce({
+        requires2FA: true,
+        challengeToken: 'challenge-xyz',
+        expiresIn: 300,
+      });
+      mockApiClientPost.mockResolvedValueOnce({
+        accessToken: 'two-factor-token',
+        user: reauthUser,
+        expiresIn: 900,
+      });
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+      await waitFor(() => {
+        expect(screen.getByLabelText('認証コード')).toBeInTheDocument();
+      });
+      await user.type(screen.getByLabelText('認証コード'), '123456');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(defaultProps.onReauthSuccess).toHaveBeenCalledTimes(1);
+      });
+      expect(apiClient.setAccessToken).toHaveBeenCalledWith('two-factor-token');
+      expect(defaultProps.onReauthSuccess).toHaveBeenCalledWith({
+        accessToken: 'two-factor-token',
+        user: reauthUser,
+        expiresIn: 900,
+      });
+    });
+
+    it('パスワードだけの再認証の成功でも、応答をセッションの立て直しへ渡すこと', async () => {
+      const user = userEvent.setup();
+      const reauthUser = { id: '1', email: 'test@example.com', displayName: 'Test' };
+      mockApiClientPost.mockResolvedValueOnce({
+        accessToken: 'password-token',
+        user: reauthUser,
+        expiresIn: 900,
+      });
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(defaultProps.onReauthSuccess).toHaveBeenCalledWith({
+          accessToken: 'password-token',
+          user: reauthUser,
+          expiresIn: 900,
+        });
+      });
+      expect(apiClient.setAccessToken).toHaveBeenCalledWith('password-token');
+    });
+
+    it('2FA の検証の応答にアクセストークンが無いときは成功として扱わず、エラーを示すこと', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockResolvedValueOnce({ requires2FA: true, challengeToken: 'c' });
+      mockApiClientPost.mockResolvedValueOnce({});
+
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await user.type(screen.getByLabelText('パスワード'), 'password');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+      await waitFor(() => {
+        expect(screen.getByLabelText('認証コード')).toBeInTheDocument();
+      });
+      await user.type(screen.getByLabelText('認証コード'), '123456');
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent('認証に失敗しました');
+      });
+      expect(defaultProps.onReauthSuccess).not.toHaveBeenCalled();
+      expect(apiClient.setAccessToken).not.toHaveBeenCalled();
     });
 
     it('2FA認証コード未入力でエラーが表示されること', async () => {

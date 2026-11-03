@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PasswordService } from '../../../services/password.service.js';
 import { PasswordViolation } from '../../../types/password.types.js';
 import type {
@@ -9,6 +9,8 @@ import type {
 } from '../../../generated/prisma/client.js';
 import { EmailService } from '../../../services/email.service.js';
 import logger from '../../../utils/logger.js';
+import { SESSION_CONFIG } from '../../../config/security.constants.js';
+import { hashPasswordResetToken } from '../../../utils/password-reset-token.js';
 
 // Prisma Clientのモック
 const mockPrismaClient = {
@@ -20,6 +22,7 @@ const mockPrismaClient = {
     create: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
+    deleteMany: vi.fn(),
   },
   passwordHistory: {
     findMany: vi.fn(),
@@ -46,6 +49,21 @@ describe('PasswordService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     passwordService = new PasswordService(mockPrismaClient, mockEmailService);
+  });
+
+  describe('hashPasswordResetToken', () => {
+    /**
+     * @requirement user-authentication/REQ-37.1
+     */
+    it('保存する値は原文の UTF-8 の SHA-256 の 16 進（小文字）で、原文と一致しない', () => {
+      // SHA-256("abc") の既知の値（FIPS 180-2 の試験ベクトル）
+      expect(hashPasswordResetToken('abc')).toBe(
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+      );
+      const raw = 'a'.repeat(64);
+      expect(hashPasswordResetToken(raw)).toMatch(/^[0-9a-f]{64}$/);
+      expect(hashPasswordResetToken(raw)).not.toBe(raw);
+    });
   });
 
   describe('hashPassword', () => {
@@ -293,12 +311,22 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
+        accessTokenGeneration: 0,
+        reactivatedAt: null,
       };
 
       const mockResetToken: PasswordResetToken = {
         id: 'reset-token-1',
         userId: 'user-1',
-        token: 'generated-token-123',
+        tokenHash: hashPasswordResetToken('generated-token-123'),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: null,
@@ -351,11 +379,14 @@ describe('PasswordService', () => {
     const email = 'reset-order@example.com';
     const userId = 'user-reset-order';
     const txClient = {
-      passwordResetToken: { create: vi.fn() },
+      passwordResetToken: { create: vi.fn(), deleteMany: vi.fn() },
       auditLog: { create: vi.fn() },
+      // 監査ログの実行者の写しを同じトランザクションで読む（要件40.7）
+      user: { findUnique: vi.fn() },
     };
 
     beforeEach(() => {
+      txClient.user.findUnique.mockResolvedValue({ email, displayName: 'Reset User' });
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: userId,
         email,
@@ -379,6 +410,7 @@ describe('PasswordService', () => {
 
     /**
      * @requirement user-authentication/REQ-25.6
+     * @requirement user-authentication/REQ-37.1
      */
     it('トークンと監査ログを同じトランザクションで書き、コミット後にメールを投入する', async () => {
       (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mockResolvedValue(
@@ -397,12 +429,20 @@ describe('PasswordService', () => {
           data: expect.objectContaining({
             action: 'PASSWORD_RESET_REQUESTED',
             actorId: userId,
+            actorEmail: email,
+            actorDisplayName: 'Reset User',
             targetId: userId,
           }),
         })
       );
-      const token = txClient.passwordResetToken.create.mock.calls[0]![0].data.token;
-      expect(mockEmailService.sendPasswordResetEmail).toHaveBeenCalledWith(email, token);
+      // メールへは原文を渡し、DB へは原文の SHA-256 だけを書く（要件37.1）
+      const rawToken = (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mock
+        .calls[0]![1] as string;
+      expect(rawToken).toMatch(/^[0-9a-f]{64}$/);
+      const stored = txClient.passwordResetToken.create.mock.calls[0]![0].data;
+      expect(stored).not.toHaveProperty('token');
+      expect(stored.tokenHash).toBe(hashPasswordResetToken(rawToken));
+      expect(stored.tokenHash).not.toBe(rawToken);
       // 投入はトランザクションの完了（コミット）の後
       const txDone = (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mock.results[0]!
         .value as Promise<unknown>;
@@ -447,6 +487,130 @@ describe('PasswordService', () => {
     });
   });
 
+  describe('リセットトークンの有効期限と未使用のトークンの失効（タスク48.2）', () => {
+    const email = 'expiry@example.com';
+    const userId = 'user-expiry';
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const requestedAt = new Date('2026-10-22T09:00:00.000Z');
+    const txClient = {
+      passwordResetToken: { create: vi.fn(), deleteMany: vi.fn() },
+      auditLog: { create: vi.fn() },
+      user: { findUnique: vi.fn() },
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(requestedAt);
+      txClient.user.findUnique.mockResolvedValue({ email, displayName: 'Expiry User' });
+      txClient.passwordResetToken.create.mockResolvedValue({ id: 'reset-token-expiry' });
+      txClient.passwordResetToken.deleteMany.mockResolvedValue({ count: 0 });
+      txClient.auditLog.create.mockResolvedValue({ id: 'audit-expiry' });
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: userId,
+        email,
+      });
+      (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        (callback: (tx: unknown) => Promise<unknown>) => callback(txClient)
+      );
+      (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mockResolvedValue(
+        undefined
+      );
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /**
+     * 要求で作られたトークンの行（作成の引数）を検証で読む行として、メールへ渡した原文とともに返す
+     */
+    async function requestAndStoredToken(): Promise<PasswordResetToken & { rawToken: string }> {
+      const result = await passwordService.requestPasswordReset(email);
+      expect(result).toEqual({ ok: true, value: undefined });
+      const data = txClient.passwordResetToken.create.mock.calls[0]![0].data as {
+        userId: string;
+        tokenHash: string;
+        expiresAt: Date;
+      };
+      const rawToken = (mockEmailService.sendPasswordResetEmail as ReturnType<typeof vi.fn>).mock
+        .calls[0]![1] as string;
+      return {
+        id: 'reset-token-expiry',
+        userId: data.userId,
+        tokenHash: data.tokenHash,
+        expiresAt: data.expiresAt,
+        createdAt: requestedAt,
+        usedAt: null,
+        rawToken,
+      };
+    }
+
+    /**
+     * @requirement user-authentication/REQ-7.3
+     */
+    it('要求で作るトークンの有効期限は 1 時間の一つの定義（SESSION_CONFIG）に従う', async () => {
+      const stored = await requestAndStoredToken();
+
+      expect(SESSION_CONFIG.PASSWORD_RESET_TOKEN_EXPIRY_MS).toBe(ONE_HOUR_MS);
+      expect(stored.expiresAt.getTime() - requestedAt.getTime()).toBe(ONE_HOUR_MS);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-7.3
+     */
+    it('要求から 1 時間を超えたトークンは無効（RESET_TOKEN_EXPIRED）になる', async () => {
+      const stored = await requestAndStoredToken();
+      (
+        mockPrismaClient.passwordResetToken.findUnique as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(stored);
+
+      vi.setSystemTime(new Date(requestedAt.getTime() + ONE_HOUR_MS + 1));
+      const result = await passwordService.resetPassword(stored.rawToken, 'NewSecurePass123!');
+
+      expect(result).toEqual({ ok: false, error: { type: 'RESET_TOKEN_EXPIRED' } });
+      expect(mockPrismaClient.$transaction).toHaveBeenCalledTimes(1); // 要求の分だけ
+    });
+
+    /**
+     * @requirement user-authentication/REQ-7.3
+     */
+    it('要求から 1 時間以内のトークンではパスワードを更新できる', async () => {
+      const stored = await requestAndStoredToken();
+      (
+        mockPrismaClient.passwordResetToken.findUnique as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(stored);
+      (mockPrismaClient.passwordHistory.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (mockPrismaClient.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+      vi.setSystemTime(new Date(requestedAt.getTime() + ONE_HOUR_MS - 60 * 1000));
+      const result = await passwordService.resetPassword(stored.rawToken, 'NewSecurePass123!');
+
+      expect(result).toEqual({ ok: true, value: undefined });
+    });
+
+    it('新しい要求は同じ利用者の未使用のトークンを、新しいトークンの作成より前に同じトランザクションで失効させる', async () => {
+      await requestAndStoredToken();
+
+      expect(txClient.passwordResetToken.deleteMany).toHaveBeenCalledWith({
+        where: { userId, usedAt: null },
+      });
+      expect(mockPrismaClient.passwordResetToken.deleteMany).not.toHaveBeenCalled();
+      expect(txClient.passwordResetToken.deleteMany.mock.invocationCallOrder[0]!).toBeLessThan(
+        txClient.passwordResetToken.create.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('登録の無いメールアドレスの要求はトークンを失効も作成もしない', async () => {
+      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      const result = await passwordService.requestPasswordReset('nobody@example.com');
+
+      expect(result).toEqual({ ok: true, value: undefined });
+      expect(txClient.passwordResetToken.deleteMany).not.toHaveBeenCalled();
+      expect(txClient.passwordResetToken.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('resetPassword', () => {
     it('有効なトークンでパスワードをリセットできる', async () => {
       const resetToken = 'valid-token-123';
@@ -456,7 +620,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId,
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 未来の日時
         createdAt: new Date(),
         usedAt: null,
@@ -476,6 +640,16 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
+        accessTokenGeneration: 0,
+        reactivatedAt: null,
       };
 
       (
@@ -487,8 +661,9 @@ describe('PasswordService', () => {
       const result = await passwordService.resetPassword(resetToken, newPassword);
 
       expect(result.ok).toBe(true);
+      // 提示された原文の SHA-256 で一意索引を引く（要件37.1）
       expect(mockPrismaClient.passwordResetToken.findUnique).toHaveBeenCalledWith({
-        where: { token: resetToken },
+        where: { tokenHash: hashPasswordResetToken(resetToken) },
       });
       expect(mockPrismaClient.$transaction).toHaveBeenCalled();
     });
@@ -516,7 +691,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId: 'user-1',
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() - 1000), // 過去の日時
         createdAt: new Date(),
         usedAt: null,
@@ -541,7 +716,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId: 'user-1',
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: new Date(), // すでに使用済み
@@ -566,7 +741,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId: 'user-1',
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: null,
@@ -592,7 +767,7 @@ describe('PasswordService', () => {
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId,
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: null,
@@ -619,11 +794,16 @@ describe('PasswordService', () => {
       const resetToken = 'valid-token';
       const newPassword = 'NewSecurePass123!';
       const userId = 'user-1';
+      const txMocks: Array<{
+        user: { update: ReturnType<typeof vi.fn> };
+        refreshToken: { deleteMany: ReturnType<typeof vi.fn> };
+        $executeRaw: ReturnType<typeof vi.fn>;
+      }> = [];
 
       const mockResetTokenData: PasswordResetToken = {
         id: 'reset-token-1',
         userId,
-        token: resetToken,
+        tokenHash: hashPasswordResetToken(resetToken),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         createdAt: new Date(),
         usedAt: null,
@@ -665,9 +845,11 @@ describe('PasswordService', () => {
               update: vi.fn(),
             },
             refreshToken: {
-              deleteMany: vi.fn(),
+              deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
             },
+            $executeRaw: vi.fn().mockResolvedValue(1),
           };
+          txMocks.push(txMock);
           return await callback(txMock);
         }
       );
@@ -675,6 +857,18 @@ describe('PasswordService', () => {
       const result = await passwordService.resetPassword(resetToken, newPassword);
 
       expect(result.ok).toBe(true);
+      // 全リフレッシュトークンの無効化は、利用者単位の取引ロックを取ってから行う（要件33.5）
+      expect(txMocks).toHaveLength(1);
+      // 取引の先頭（users の行の更新の前）で取り、全セッションの無効化でも同じロックを取り直す
+      expect(txMocks[0]!.$executeRaw).toHaveBeenCalledTimes(2);
+      expect(txMocks[0]!.$executeRaw.mock.calls[0]).toContain(userId);
+      expect(txMocks[0]!.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
+        txMocks[0]!.user.update.mock.invocationCallOrder[0]!
+      );
+      expect(txMocks[0]!.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId } });
+      expect(txMocks[0]!.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
+        txMocks[0]!.refreshToken.deleteMany.mock.invocationCallOrder[0]!
+      );
     });
   });
 
@@ -700,6 +894,16 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
+        accessTokenGeneration: 0,
+        reactivatedAt: null,
       };
 
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
@@ -734,6 +938,16 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
+        accessTokenGeneration: 0,
+        reactivatedAt: null,
       };
 
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);
@@ -772,6 +986,16 @@ describe('PasswordService', () => {
         twoFactorLockedUntil: null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        isActive: true,
+        deactivatedAt: null,
+        deactivationReason: null,
+        lastLoginAt: null,
+        mustChangePassword: false,
+        twoFactorLastUsedStep: null,
+        twoFactorPendingSecret: null,
+        invitedById: null,
+        accessTokenGeneration: 0,
+        reactivatedAt: null,
       };
 
       (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(mockUser);

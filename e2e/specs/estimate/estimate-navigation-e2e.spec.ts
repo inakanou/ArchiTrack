@@ -52,6 +52,8 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
+import { deleteEstimateViaApi } from '../../helpers/estimate-draft';
 
 /**
  * 見積書画面構成・ナビゲーション関連のE2Eテスト
@@ -129,14 +131,7 @@ test.describe('見積書画面構成・ナビゲーション', () => {
      * テスト準備：APIトークンの取得
      */
     test('準備2：APIトークンを取得する', async ({ request }) => {
-      const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
 
       expect(accessToken).toBeTruthy();
@@ -1187,29 +1182,17 @@ test.describe('見積書画面構成・ナビゲーション', () => {
     test('テストデータの削除', async ({ request }) => {
       const baseUrl = API_BASE_URL;
 
-      // アクセストークンが無い場合は再取得
-      if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
-        accessToken = loginBody.accessToken;
-      }
+      // 準備で取ったアクセストークンは 15 分で失効する。長い直列のスイートでも後片付けが 401 にならないよう、
+      // 有無にかかわらず取り直す（後片付けは 204 以外を失敗にするため）
+      accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
 
       // 見積書を削除
       if (createdEstimateId) {
-        await request.delete(`${baseUrl}/api/estimates/${createdEstimateId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await deleteEstimateViaApi(request, accessToken, createdEstimateId);
       }
 
       if (createdEstimateId2) {
-        await request.delete(`${baseUrl}/api/estimates/${createdEstimateId2}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await deleteEstimateViaApi(request, accessToken, createdEstimateId2);
       }
 
       // プロジェクトを削除（カスケードで関連データも削除される）

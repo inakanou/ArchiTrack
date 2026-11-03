@@ -139,7 +139,11 @@ const cases: Array<[string, unknown, (prisma: PrismaClient) => Promise<unknown>]
     null,
     (p) => new UserRoleService(p).removeRoleFromUser('user-1', 'role-1'),
   ],
-  ['UserRoleService.deleteUser', null, (p) => new UserRoleService(p).deleteUser('user-1')],
+  [
+    'UserRoleService.deleteUser',
+    null,
+    (p) => new UserRoleService(p).deleteUser('user-1', 'actor-1'),
+  ],
 ];
 
 describe('接続の再試行の予算（タスク35.12）', () => {

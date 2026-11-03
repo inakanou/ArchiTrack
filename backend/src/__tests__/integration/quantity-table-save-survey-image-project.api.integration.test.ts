@@ -50,6 +50,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 describe('Quantity Table Save Survey Image Project Boundary Integration Tests', () => {
   let prisma: PrismaClient;
@@ -77,12 +79,10 @@ describe('Quantity Table Save Survey Image Project Boundary Integration Tests', 
   const setupPermittedUser = async (): Promise<{ token: string; userId: string }> => {
     const passwordHash = await hashPassword();
 
-    const user = await prisma.user.create({
-      data: {
-        email: PERMITTED_EMAIL,
-        displayName: 'QT Save Image Project User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: PERMITTED_EMAIL,
+      displayName: 'QT Save Image Project User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -123,12 +123,12 @@ describe('Quantity Table Save Survey Image Project Boundary Integration Tests', 
       });
     }
 
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: PERMITTED_EMAIL,
       password: PASSWORD,
     });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   const createProject = async (name: string): Promise<string> => {

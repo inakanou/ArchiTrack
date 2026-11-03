@@ -21,8 +21,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EstimateRequestForm } from './EstimateRequestForm';
+import { ApiError } from '../../api/client';
 import type { TradingPartnerInfo } from '../../types/trading-partner.types';
 import type { ItemizedStatementInfo } from '../../types/itemized-statement.types';
+import type {
+  CreateEstimateRequestInput,
+  EstimateRequestInfo,
+} from '../../types/estimate-request.types';
 
 // APIモック
 vi.mock('../../api/trading-partners', () => ({
@@ -559,6 +564,75 @@ describe('EstimateRequestForm', () => {
       await waitFor(() => {
         expect(mockOnSuccess).toHaveBeenCalledWith(createdRequest);
       });
+    });
+  });
+
+  /**
+   * Task 105.1: 内訳書の一覧の取得と作成が 404 を受けたときの表示（REQ-10.5, REQ-10.6）
+   */
+  describe('404 を受けたとき (Task 105.1)', () => {
+    const notFound = () =>
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND', detail: 'Not found' });
+
+    const submitFilledForm = async (
+      mockOnSubmit: (input: CreateEstimateRequestInput) => Promise<EstimateRequestInfo>
+    ) => {
+      const user = userEvent.setup();
+      render(<EstimateRequestForm {...defaultProps} onSubmit={mockOnSubmit} />);
+      await waitFor(() => {
+        expect(screen.getByLabelText(/見積依頼名/)).toBeInTheDocument();
+      });
+      fireEvent.change(screen.getByLabelText(/見積依頼名/), { target: { value: '見積依頼#1' } });
+      await selectTradingPartner(user, '協力業者A');
+      fireEvent.change(screen.getByLabelText(/内訳書/), { target: { value: 'is-1' } });
+      fireEvent.click(screen.getByRole('button', { name: /作成/ }));
+    };
+
+    it('内訳書の一覧の取得が 404 を受けると画面へプロジェクトが見つからないことを伝え、データの取得の失敗の文言を出さない（REQ-10.5）', async () => {
+      mockedGetItemizedStatements.mockRejectedValue(notFound());
+      const onProjectNotFound = vi.fn();
+
+      render(<EstimateRequestForm {...defaultProps} onProjectNotFound={onProjectNotFound} />);
+
+      await waitFor(() => {
+        expect(onProjectNotFound).toHaveBeenCalledTimes(1);
+      });
+      expect(screen.queryByText('データの取得に失敗しました')).not.toBeInTheDocument();
+    });
+
+    it('404 以外の内訳書の一覧の取得の失敗では、従来どおりデータの取得の失敗の文言を表示する', async () => {
+      mockedGetItemizedStatements.mockRejectedValue(new ApiError(500, 'Internal'));
+      const onProjectNotFound = vi.fn();
+
+      render(<EstimateRequestForm {...defaultProps} onProjectNotFound={onProjectNotFound} />);
+
+      expect(await screen.findByText('データの取得に失敗しました')).toBeInTheDocument();
+      expect(onProjectNotFound).not.toHaveBeenCalled();
+    });
+
+    it('作成が汎用の 404 を受けると、プロジェクトまたは内訳書が見つからない旨を表示し、応答の英語の文言を出さない（REQ-10.6）', async () => {
+      const mockOnSubmit = vi.fn().mockRejectedValue(notFound());
+
+      await submitFilledForm(mockOnSubmit);
+
+      expect(
+        await screen.findByText(
+          'プロジェクトまたは内訳書が見つかりません。存在しないか、削除されています。'
+        )
+      ).toBeInTheDocument();
+      expect(screen.queryByText('Not found')).not.toBeInTheDocument();
+      expect(screen.queryByText('見積依頼の作成中にエラーが発生しました')).not.toBeInTheDocument();
+    });
+
+    it('作成が取引先の不在の 404（本文が日本語）を受けると、その本文を表示する（REQ-10.6）', async () => {
+      const detail = '取引先が見つかりません: tp-1';
+      const mockOnSubmit = vi
+        .fn()
+        .mockRejectedValue(new ApiError(404, detail, { status: 404, code: 'NOT_FOUND', detail }));
+
+      await submitFilledForm(mockOnSubmit);
+
+      expect(await screen.findByText(detail)).toBeInTheDocument();
     });
   });
 

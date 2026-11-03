@@ -14,6 +14,13 @@
  *
  * Design Reference: design.md - contracts.routes セクション
  *
+ * 案件の閲覧範囲（contract-management の Requirement 13.1・13.2・13.4、14.1〜14.7、user-authentication の
+ * 要件39。タスク19.1）: 全経路で requirePermission と経路の ID の形式の検査の後に
+ * contract-management-project-scope.middleware の判定部品を置き、範囲外は不在と同じ汎用の 404 にする。
+ * `/:id` 配下は経路の projectId でなく契約書が属する案件で判定し、二重マウントで経路の projectId と
+ * 契約書の案件が食い違えば不在と同じ 404 にする（14.4）。作成・更新の要求が指す見積書と、変更契約の
+ * 作成の要求が指す基となる契約書の所属の照合（14.5・14.6）は ContractService が行う。
+ *
  * @module routes/contracts
  */
 
@@ -23,12 +30,19 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
+import {
+  requireProjectParamScope,
+  requireContractProjectScope,
+} from '../middleware/contract-management-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createContractSchema,
   updateContractSchema,
   contractListQuerySchema,
   updateContractStatusSchema,
+  contractIdParamSchema,
+  projectIdParamSchema,
   type CreateContractInput,
   type UpdateContractInput,
   type ContractListQuery,
@@ -92,26 +106,27 @@ const contractService = new ContractService({ prisma });
  *     responses:
  *       200:
  *         description: 契約書一覧
+ *       400:
+ *         description: バリデーションエラー（projectId の形式不正、クエリの不正）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
  */
 router.get(
   '/',
   authenticate,
   requirePermission('contract:read'),
+  validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(contractListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const projectId = req.params.projectId;
-      if (!projectId) {
-        res.status(400).json({
-          status: 400,
-          detail: 'プロジェクトIDが必要です',
-        });
-        return;
-      }
+      // 経路のプロジェクト ID は形式の検査（projectIdParamSchema）を通っている。`/api/contracts` のマウント
+      // から届く要求は経路にプロジェクト ID が無く、その検査の 400 で終わる（タスク19.1）
+      const { projectId } = req.validatedParams as { projectId: string };
 
       const query = req.validatedQuery as ContractListQuery;
 
@@ -150,17 +165,21 @@ router.get(
  *     responses:
  *       200:
  *         description: 契約書詳細
+ *       400:
+ *         description: 契約書IDの形式不正
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 契約書が見つからない
+ *         description: 契約書が見つからない（閲覧範囲外・論理削除済み・経路のプロジェクトに属さない契約書を含む）
  */
 router.get(
   '/:id',
   authenticate,
   requirePermission('contract:read'),
+  validate(contractIdParamSchema, 'params'),
+  requireContractProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = req.params.id as string;
@@ -215,33 +234,37 @@ router.get(
  *       201:
  *         description: 契約書作成成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（projectId の形式不正を含む）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）、または見積書が見つからない（経路のプロジェクトに属さない見積書を含む。本文は同一）
  *       422:
- *         description: ビジネスロジックエラー
+ *         description: 基となる契約書が見つからない・同じプロジェクトに属さない（本文は同一）、または同じプロジェクトの論理削除済みの見積書
  */
 router.post(
   '/',
   authenticate,
   requirePermission('contract:create'),
+  validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createContractSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const projectId = req.params.projectId;
-      if (!projectId) {
-        res.status(400).json({
-          status: 400,
-          detail: 'プロジェクトIDが必要です',
-        });
-        return;
-      }
+      // 経路のプロジェクト ID は形式の検査（projectIdParamSchema）を通っている。`/api/contracts` のマウント
+      // から届く要求は経路にプロジェクト ID が無く、その検査の 400 で終わる（タスク19.1）
+      const { projectId } = req.validatedParams as { projectId: string };
 
       const data = req.validatedBody as CreateContractInput;
 
-      const contract = await contractService.create(projectId, data);
+      const contract = await contractService.create(
+        projectId,
+        data,
+        req.user?.userId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         { projectId, contractId: contract.id, userId: req.user?.userId },
@@ -294,27 +317,36 @@ router.post(
  *       200:
  *         description: 契約書更新成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（契約書IDの形式不正を含む）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 契約書が見つからない
+ *         description: 契約書が見つからない（閲覧範囲外・論理削除済み・経路のプロジェクトに属さない契約書を含む）、または見積書が見つからない（契約書のプロジェクトに属さない見積書を含む。本文は同一）
  *       409:
  *         description: 楽観的排他制御エラー（競合）
+ *       422:
+ *         description: 同じプロジェクトの論理削除済みの見積書
  */
 router.put(
   '/:id',
   authenticate,
   requirePermission('contract:update'),
+  validate(contractIdParamSchema, 'params'),
+  requireContractProjectScope('id'),
   validate(updateContractSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = req.params.id as string;
       const data = req.validatedBody as UpdateContractInput;
 
-      const contract = await contractService.update(id, data);
+      const contract = await contractService.update(
+        id,
+        data,
+        req.user?.userId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info({ contractId: id, userId: req.user?.userId }, 'Contract updated');
 
@@ -378,18 +410,20 @@ router.put(
  *       200:
  *         description: ステータス更新成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（契約書IDの形式不正を含む）
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 契約書が見つからない
+ *         description: 契約書が見つからない（閲覧範囲外・論理削除済み・経路のプロジェクトに属さない契約書を含む）
  */
 router.patch(
   '/:id/status',
   authenticate,
   requirePermission('contract:update'),
+  validate(contractIdParamSchema, 'params'),
+  requireContractProjectScope('id'),
   validate(updateContractStatusSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -442,12 +476,14 @@ router.patch(
  *     responses:
  *       204:
  *         description: 削除成功
+ *       400:
+ *         description: 契約書IDの形式不正
  *       401:
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 契約書が見つからない
+ *         description: 契約書が見つからない（閲覧範囲外・論理削除済み・経路のプロジェクトに属さない契約書を含む）
  *       422:
  *         description: 削除制約エラー（子契約存在・契約済ステータス）
  */
@@ -455,6 +491,8 @@ router.delete(
   '/:id',
   authenticate,
   requirePermission('contract:delete'),
+  validate(contractIdParamSchema, 'params'),
+  requireContractProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = req.params.id as string;

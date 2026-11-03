@@ -53,6 +53,20 @@ const mockStorageProvider = vi.hoisted(() => ({
 }));
 
 // モック: データベースとRedis
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// site-survey-project-scope.middleware.test.ts と統合テストが確かめる。site-survey タスク119.1）
+vi.mock('../../../middleware/site-survey-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireSurveyProjectScope: pass,
+    requireImageProjectScope: pass,
+    requireBodySurveyProjectScope: pass,
+    requireImagesProjectScope: pass,
+    imageIdsFromBodyArray: () => () => [],
+  };
+});
+
 vi.mock('../../../db', () => ({
   default: vi.fn(() => ({})),
 }));

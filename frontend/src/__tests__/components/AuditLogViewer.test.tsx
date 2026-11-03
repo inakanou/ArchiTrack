@@ -5,10 +5,36 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AuditLogViewer from '../../components/AuditLogViewer';
-import type { AuditLog } from '../../types/audit-log.types';
+import type { AuditLog, AuditLogAction } from '../../types/audit-log.types';
+
+// セキュリティ是正で加えた監査の種別とその表示名（要件40.1）
+const securityRemediationActionLabels = {
+  LOGIN_LOCKED: 'アカウントロック',
+  TWO_FACTOR_VERIFIED: '2FA検証成功',
+  TWO_FACTOR_FAILED: '2FA検証失敗',
+  LOGOUT_ALL: '全デバイスからログアウト',
+  REFRESH_TOKEN_REUSE_DETECTED: 'リフレッシュトークン再利用検知',
+  INVITATION_RESENT: '招待再送信',
+  INVITATION_ACCEPTED: '招待経由の登録',
+  USER_DEACTIVATED: 'ユーザー無効化',
+  USER_REACTIVATED: 'ユーザー再有効化',
+  USER_AUTO_DEACTIVATED: 'ユーザー自動無効化',
+  TWO_FACTOR_RESET_BY_ADMIN: '2FA再設定（管理者）',
+  TWO_FACTOR_REENROLLED: '2FA再登録',
+  PROJECT_SCOPE_DENIED: '案件範囲外のアクセス',
+  DATA_EXPORTED: 'データ出力',
+  OPERATIONAL_SETTING_CHANGED: '運用設定変更',
+  AUDIT_ARCHIVE_CREATED: '監査ログのアーカイブ',
+  AUDIT_ARCHIVE_FAILED: '監査ログのアーカイブ失敗',
+  AUDIT_ARCHIVE_RESTORED: '監査ログの復元',
+} as const satisfies Partial<Record<AuditLogAction, string>>;
+
+const securityRemediationActions = Object.keys(
+  securityRemediationActionLabels
+) as (keyof typeof securityRemediationActionLabels)[];
 
 // モックデータ
 const mockLogs: AuditLog[] = [
@@ -191,5 +217,145 @@ describe('AuditLogViewer', () => {
         endDate: '2025-12-31',
       });
     });
+  });
+
+  describe('セキュリティ是正の監査の種別と実行者の無い記録（要件40.1）', () => {
+    it('新しい種別を表示名で表示する', () => {
+      const logs: AuditLog[] = securityRemediationActions.map((action, i) => ({
+        id: `sec-${i}`,
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action,
+        createdAt: new Date().toISOString(),
+      }));
+
+      render(<AuditLogViewer logs={logs} loading={false} />);
+
+      for (const action of securityRemediationActions) {
+        expect(screen.getByText(securityRemediationActionLabels[action])).toBeInTheDocument();
+        expect(screen.queryByText(action)).not.toBeInTheDocument();
+      }
+    });
+
+    it('実行者の無い記録の実行者を「システム」と表示する', () => {
+      const logs: AuditLog[] = [
+        {
+          id: 'archive-1',
+          actorId: null,
+          action: 'AUDIT_ARCHIVE_CREATED',
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      render(<AuditLogViewer logs={logs} loading={false} />);
+
+      const row = screen.getByText('監査ログのアーカイブ').closest('tr') as HTMLElement;
+      expect(within(row).getAllByRole('cell')[1]).toHaveTextContent(/^システム$/);
+    });
+  });
+
+  it('招待の作成と取り消しの記録を表示名で表示する（要件40.5）', () => {
+    const logs: AuditLog[] = [
+      {
+        id: 'inv-created',
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action: 'INVITATION_CREATED',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'inv-revoked',
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action: 'INVITATION_REVOKED',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    render(<AuditLogViewer logs={logs} loading={false} />);
+
+    expect(screen.getByText('招待作成')).toBeInTheDocument();
+    expect(screen.getByText('招待取り消し')).toBeInTheDocument();
+    expect(screen.queryByText('INVITATION_CREATED')).not.toBeInTheDocument();
+    expect(screen.queryByText('INVITATION_REVOKED')).not.toBeInTheDocument();
+  });
+
+  describe('招待の記録の対象の表示（要件40.12）', () => {
+    /**
+     * @requirement user-authentication/REQ-40.12
+     */
+    it('招待の作成・取り消し・再送信の記録の対象に招待先のメールアドレスを表示し、招待の ID を出さない', () => {
+      const actions = ['INVITATION_CREATED', 'INVITATION_REVOKED', 'INVITATION_RESENT'] as const;
+      const logs: AuditLog[] = actions.map((action, i) => ({
+        id: `inv-${i}`,
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action,
+        targetType: 'Invitation',
+        targetId: `invitation-id-${i}`,
+        metadata: { email: `invitee-${i}@example.com` },
+        createdAt: new Date().toISOString(),
+      }));
+
+      render(<AuditLogViewer logs={logs} loading={false} />);
+
+      actions.forEach((_, i) => {
+        const email = screen.getByText(`invitee-${i}@example.com`);
+        // 1行目の対象の種別は変えない
+        expect(email.previousElementSibling).toHaveTextContent(/^Invitation$/);
+      });
+      expect(screen.queryByText(/invitation-id-/)).not.toBeInTheDocument();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-40.12
+     */
+    it('メールアドレスの無い招待の記録と他の種別の記録は従来どおり対象の名前または ID を表示する', () => {
+      const logs: AuditLog[] = [
+        {
+          id: 'inv-no-email',
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action: 'INVITATION_CREATED',
+          targetType: 'Invitation',
+          targetId: 'invitation-without-email',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'user-row',
+          actorId: 'admin-1',
+          actorEmail: 'admin@example.com',
+          action: 'USER_DEACTIVATED',
+          targetType: 'user',
+          targetId: 'user-1',
+          targetName: '山田太郎',
+          metadata: { email: 'other@example.com' },
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      render(<AuditLogViewer logs={logs} loading={false} />);
+
+      expect(screen.getByText('invitation-without-email')).toBeInTheDocument();
+      expect(screen.getByText('山田太郎')).toBeInTheDocument();
+      expect(screen.queryByText('other@example.com')).not.toBeInTheDocument();
+    });
+  });
+
+  it('ユーザーの削除の記録を表示名で表示する（要件40.6）', () => {
+    const logs: AuditLog[] = [
+      {
+        id: 'user-deleted',
+        actorId: 'admin-1',
+        actorEmail: 'admin@example.com',
+        action: 'USER_DELETED',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    render(<AuditLogViewer logs={logs} loading={false} />);
+
+    expect(screen.getByText('ユーザー削除')).toBeInTheDocument();
+    expect(screen.queryByText('USER_DELETED')).not.toBeInTheDocument();
   });
 });

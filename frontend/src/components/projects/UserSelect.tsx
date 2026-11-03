@@ -3,7 +3,7 @@ import { getAssignableUsers } from '../../api/projects';
 import { apiClient } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { logger } from '../../utils/logger';
-import type { AssignableUser } from '../../types/project.types';
+import type { AssignableUser, UserSummary } from '../../types/project.types';
 
 /**
  * UserSelectコンポーネントのプロパティ
@@ -30,6 +30,13 @@ export interface UserSelectProps {
    * valueが空の場合のみ適用される
    */
   defaultToCurrentUser?: boolean;
+  /**
+   * 案件に設定済みの担当者（案件の詳細から渡す）
+   *
+   * 担当者候補は有効な利用者だけのため、無効化された担当者は候補に無い。
+   * 候補に無いときも、この表示名に「（無効）」を添えた選択肢として表示する（要件36.6）
+   */
+  currentAssignee?: UserSummary;
 }
 
 /** スタイル定数 */
@@ -79,6 +86,9 @@ const STYLES = {
  * - 17.10: 担当者候補を取得中にローディングインジケータを表示する
  * - 17.11: 有効なユーザーが存在しない場合に「選択可能なユーザーがありません」というメッセージを表示する
  * - 20.2: アクセシビリティ属性を設定
+ *
+ * タスク49.7（user-authentication の要件36.6）: 候補（有効な利用者だけ）に無い現在の担当者は、
+ * 案件の詳細から渡された表示名に「（無効）」を添えて表示する
  */
 function UserSelect({
   value,
@@ -90,6 +100,7 @@ function UserSelect({
   disabled = false,
   error,
   defaultToCurrentUser = false,
+  currentAssignee,
 }: UserSelectProps) {
   const [users, setUsers] = useState<AssignableUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -108,6 +119,13 @@ function UserSelect({
   const displayError = error || fetchError;
   const hasError = !!displayError;
 
+  // 候補（有効な利用者だけ）に無い現在の担当者。無効化された担当者の表示名を表示するために使う（要件36.6）
+  const assigneeNotInCandidates =
+    currentAssignee?.id && !users.some((u) => u.id === currentAssignee.id) ? currentAssignee : null;
+  // 候補の取得に失敗したときは有効かどうかを判定できないため、「（無効）」を付けずに表示名だけを出す
+  const inactiveAssignee = fetchError ? null : assigneeNotInCandidates;
+  const unverifiedAssignee = fetchError ? assigneeNotInCandidates : null;
+
   /**
    * ユーザー一覧を取得
    * 認証の初期化が完了し、かつ認証されている場合のみAPIを呼び出す
@@ -125,16 +143,8 @@ function UserSelect({
       // APIクライアントにトークンが設定されていることを確認
       // AuthContextの初期化とReactの状態更新のタイミングによっては、
       // isAuthenticatedがtrueでもapiClientにトークンが設定されていない場合がある
-      let token = apiClient.getAccessToken();
-
-      if (!token) {
-        // トークンがない場合、localStorageから復元を試みる
-        const storedToken = localStorage.getItem('accessToken');
-        if (storedToken) {
-          apiClient.setAccessToken(storedToken);
-          token = storedToken;
-        }
-      }
+      // トークンは ApiClient のメモリだけにある（永続ストレージから復元しない。要件33.10）
+      const token = apiClient.getAccessToken();
 
       // トークンがまだない場合は、短い遅延後に再試行
       if (!token) {
@@ -282,7 +292,7 @@ function UserSelect({
   }
 
   // ユーザーが存在しない場合
-  if (users.length === 0 && !fetchError) {
+  if (users.length === 0 && !inactiveAssignee && !fetchError) {
     return (
       <div style={{ marginBottom: '1rem' }}>
         {/* ラベル */}
@@ -388,6 +398,16 @@ function UserSelect({
         <option value="" disabled={required}>
           {placeholder}
         </option>
+
+        {/* 候補に無い現在の担当者（無効化された利用者） */}
+        {inactiveAssignee && (
+          <option value={inactiveAssignee.id}>{inactiveAssignee.displayName}（無効）</option>
+        )}
+
+        {/* 候補の取得に失敗したときの現在の担当者（有効かどうか不明のため注記しない） */}
+        {unverifiedAssignee && (
+          <option value={unverifiedAssignee.id}>{unverifiedAssignee.displayName}</option>
+        )}
 
         {/* ユーザー候補 */}
         {users.map((user) => (

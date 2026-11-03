@@ -35,6 +35,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 const TEST_EMAIL = 'test-quantity-item-calc-params@example.com';
 const PASSWORD = 'TestPassword123!';
@@ -91,12 +93,10 @@ describe('Quantity Item Calculation Params (判別子検証) API Integration Tes
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({
-      data: {
-        email: TEST_EMAIL,
-        displayName: 'Quantity Item Calc Params Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: TEST_EMAIL,
+      displayName: 'Quantity Item Calc Params Test User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -135,11 +135,9 @@ describe('Quantity Item Calculation Params (判別子検証) API Integration Tes
       });
     }
 
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({ email: TEST_EMAIL, password: PASSWORD });
+    const accessToken = await loginForAccessToken(app, { email: TEST_EMAIL, password: PASSWORD });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   /**

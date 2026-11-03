@@ -10,11 +10,16 @@
  * - 2.2: 招待トークンが無効または存在しない場合はエラーメッセージを返す
  * - 2.3: 招待トークンが期限切れの場合はエラーメッセージを返す
  * - 2.4: 招待トークンが既に使用済みの場合はエラーメッセージを返す
+ *
+ * タスク50.1 のトークンのハッシュ保存・一覧・取り消し・再送信・監査は、各試験の `@requirement` の印で名乗る。
  */
 
+import { createHash } from 'crypto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   InvitationService,
+  hashInvitationToken,
+  buildInvitationUrl,
   type InvitationEmailSender,
 } from '../../../services/invitation.service.js';
 import { InvitationStatus } from '../../../types/invitation.types.js';
@@ -30,7 +35,9 @@ vi.mock('../../../utils/logger.js', () => ({
   },
 }));
 
-// Prisma Clientのモック
+const INVITER = { id: 'admin-user-id', displayName: 'Admin' };
+
+// Prisma Clientのモック（$transaction は同じクライアントで本体を実行する）
 const mockPrismaClient = {
   invitation: {
     create: vi.fn(),
@@ -41,114 +48,168 @@ const mockPrismaClient = {
   user: {
     findUnique: vi.fn(),
   },
+  auditLog: {
+    create: vi.fn(),
+  },
+  $transaction: vi.fn(),
 } as unknown as PrismaClient;
+
+const mocked = (fn: unknown) => fn as ReturnType<typeof vi.fn>;
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+/** 作成・再送信の select の結果を模した行（inviterId と要約の列） */
+function selectedRow(data: { email: string; inviterId: string; expiresAt: Date }) {
+  return {
+    id: 'invitation-1',
+    email: data.email,
+    status: InvitationStatus.PENDING,
+    expiresAt: data.expiresAt,
+    createdAt: new Date(),
+    inviterId: data.inviterId,
+    inviter: INVITER,
+  };
+}
+
+function invitationRow(overrides: Partial<Invitation> = {}): Invitation {
+  return {
+    id: 'invitation-1',
+    email: 'user@example.com',
+    tokenHash: 'stored-hash',
+    inviterId: INVITER.id,
+    status: InvitationStatus.PENDING,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    createdAt: new Date(),
+    usedAt: null,
+    userId: null,
+    ...overrides,
+  };
+}
 
 describe('InvitationService', () => {
   let invitationService: InvitationService;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked(mockPrismaClient.$transaction).mockImplementation(
+      async (fn: (tx: PrismaClient) => Promise<unknown>) => fn(mockPrismaClient)
+    );
+    mocked(mockPrismaClient.user.findUnique).mockImplementation(
+      async ({ where }: { where: { id?: string; email?: string } }) =>
+        where.id ? { email: 'actor@example.com', displayName: 'Actor' } : null
+    );
+    mocked(mockPrismaClient.invitation.create).mockImplementation(
+      async ({ data }: { data: { email: string; inviterId: string; expiresAt: Date } }) =>
+        selectedRow(data)
+    );
     invitationService = new InvitationService(mockPrismaClient);
   });
 
+  describe('hashInvitationToken / buildInvitationUrl', () => {
+    /**
+     * @requirement user-authentication/REQ-37.1
+     */
+    it('保存する値は原文の SHA-256 の 16 進で、原文とは異なる', () => {
+      expect(hashInvitationToken('abc')).toBe(
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+      );
+      expect(hashInvitationToken('abc')).not.toBe('abc');
+    });
+
+    /**
+     * @requirement user-authentication/REQ-37.3: 招待 URL はトークンをフラグメントに置き、サーバーへ送られるクエリに載せない
+     */
+    it('招待 URL は画面のオリジンの登録画面にトークンをフラグメントで渡す', () => {
+      const url = buildInvitationUrl('t0k3n', 'https://app.example.com');
+      expect(url).toBe('https://app.example.com/register#token=t0k3n');
+      expect(new URL(url).search).toBe('');
+    });
+  });
+
   describe('createInvitation', () => {
-    it('一意の招待トークンを生成する', async () => {
-      const inviterId = 'admin-user-id';
-      const email = 'newuser@example.com';
-
-      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-      (mockPrismaClient.invitation.create as ReturnType<typeof vi.fn>).mockResolvedValue({
-        id: 'invitation-1',
-        email,
-        token: 'unique-token-123',
-        inviterId,
-        status: InvitationStatus.PENDING,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-        usedAt: null,
-        userId: null,
-      });
-
-      const result = await invitationService.createInvitation(inviterId, email);
+    /**
+     * @requirement user-authentication/REQ-37.1
+     */
+    it('一意の招待トークンを生成し、保存はそのハッシュだけで原文を保存しない', async () => {
+      const result = await invitationService.createInvitation(INVITER.id, 'new@example.com');
 
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.token).toBeDefined();
-        expect(result.value.token.length).toBeGreaterThan(0);
-      }
+      if (!result.ok) return;
+      expect(result.value.token).toMatch(/^[0-9a-f]{64}$/);
+      const { data } = mocked(mockPrismaClient.invitation.create).mock.calls[0]![0] as {
+        data: Record<string, unknown>;
+      };
+      expect(data.tokenHash).toBe(sha256Hex(result.value.token));
+      expect(data).not.toHaveProperty('token');
+      expect(Object.values(data)).not.toContain(result.value.token);
     });
 
     it('7日間の有効期限を設定する', async () => {
-      const inviterId = 'admin-user-id';
-      const email = 'newuser@example.com';
       const now = Date.now();
 
-      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-      (mockPrismaClient.invitation.create as ReturnType<typeof vi.fn>).mockResolvedValue({
-        id: 'invitation-1',
-        email,
-        token: 'unique-token-123',
-        inviterId,
-        status: InvitationStatus.PENDING,
-        expiresAt: new Date(now + 7 * 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-        usedAt: null,
-        userId: null,
-      });
-
-      const result = await invitationService.createInvitation(inviterId, email);
+      const result = await invitationService.createInvitation(INVITER.id, 'new@example.com');
 
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        const expiresAt = result.value.expiresAt.getTime();
-        const expectedExpiry = now + 7 * 24 * 60 * 60 * 1000;
-        // 許容誤差: 1秒
-        expect(Math.abs(expiresAt - expectedExpiry)).toBeLessThan(1000);
-      }
+      if (!result.ok) return;
+      const expectedExpiry = now + 7 * 24 * 60 * 60 * 1000;
+      expect(Math.abs(result.value.invitation.expiresAt.getTime() - expectedExpiry)).toBeLessThan(
+        1000
+      );
     });
 
-    it('既存メールアドレスの場合はエラーを返す', async () => {
-      const inviterId = 'admin-user-id';
-      const email = 'existing@example.com';
+    it('既存メールアドレスの場合はエラーを返し、招待も監査も作らない', async () => {
+      mocked(mockPrismaClient.user.findUnique).mockResolvedValue({ id: 'existing-user-id' });
 
-      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-        id: 'existing-user-id',
-        email,
-      });
+      const result = await invitationService.createInvitation(INVITER.id, 'existing@example.com');
 
-      const result = await invitationService.createInvitation(inviterId, email);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('EMAIL_ALREADY_REGISTERED');
-      }
+      expect(result).toEqual({ ok: false, error: { type: 'EMAIL_ALREADY_REGISTERED' } });
+      expect(mockPrismaClient.invitation.create).not.toHaveBeenCalled();
+      expect(mockPrismaClient.auditLog.create).not.toHaveBeenCalled();
     });
 
-    it('招待データをデータベースに保存する', async () => {
-      const inviterId = 'admin-user-id';
-      const email = 'newuser@example.com';
+    /**
+     * @requirement user-authentication/REQ-37.2
+     */
+    it('戻り値の招待はトークンのハッシュと作成者の ID を持たず、招待 URL はトークンから組み立てる', async () => {
+      const result = await invitationService.createInvitation(INVITER.id, 'new@example.com');
 
-      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-      (mockPrismaClient.invitation.create as ReturnType<typeof vi.fn>).mockResolvedValue({
-        id: 'invitation-1',
-        email,
-        token: 'unique-token-123',
-        inviterId,
-        status: InvitationStatus.PENDING,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-        usedAt: null,
-        userId: null,
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(Object.keys(result.value.invitation).sort()).toEqual(
+        ['createdAt', 'email', 'expiresAt', 'id', 'inviter', 'status'].sort()
+      );
+      expect(result.value.invitation.inviter).toEqual(INVITER);
+      expect(result.value.invitationUrl).toBe(buildInvitationUrl(result.value.token));
+    });
+
+    /**
+     * @requirement user-authentication/REQ-40.5
+     */
+    it('作成を同じトランザクションで実行者と対象のメールアドレスとともに監査する', async () => {
+      const result = await invitationService.createInvitation(INVITER.id, 'new@example.com', {
+        ipAddress: '192.0.2.1',
+        userAgent: 'vitest',
       });
 
-      await invitationService.createInvitation(inviterId, email);
-
-      expect(mockPrismaClient.invitation.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          email,
-          inviterId,
-          status: InvitationStatus.PENDING,
-        }),
+      expect(result.ok).toBe(true);
+      expect(mockPrismaClient.$transaction).toHaveBeenCalledTimes(1);
+      expect(mockPrismaClient.auditLog.create).toHaveBeenCalledWith({
+        data: {
+          action: 'INVITATION_CREATED',
+          actorId: INVITER.id,
+          actorEmail: 'actor@example.com',
+          actorDisplayName: 'Actor',
+          targetType: 'Invitation',
+          targetId: 'invitation-1',
+          metadata: {
+            email: 'new@example.com',
+            inviterId: INVITER.id,
+            ipAddress: '192.0.2.1',
+            userAgent: 'vitest',
+          },
+        },
       });
     });
   });
@@ -160,7 +221,6 @@ describe('InvitationService', () => {
    * メール送信（キュー投入）が利用できなくても招待の作成は成功する（要件24.8）。
    */
   describe('createInvitation の招待メール', () => {
-    const inviterId = 'admin-user-id';
     const email = 'invitee@example.com';
     let sendInvitationEmail: ReturnType<typeof vi.fn>;
     let serviceWithEmail: InvitationService;
@@ -171,18 +231,6 @@ describe('InvitationService', () => {
         sendInvitationEmail: sendInvitationEmail as InvitationEmailSender['sendInvitationEmail'],
       };
       serviceWithEmail = new InvitationService(mockPrismaClient, emailSender);
-
-      (mockPrismaClient.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-      (mockPrismaClient.invitation.create as ReturnType<typeof vi.fn>).mockImplementation(
-        async ({ data }: { data: Pick<Invitation, 'email' | 'token' | 'inviterId'> }) => ({
-          id: 'invitation-1',
-          ...data,
-          status: InvitationStatus.PENDING,
-          createdAt: new Date(),
-          usedAt: null,
-          userId: null,
-        })
-      );
     });
 
     /**
@@ -191,7 +239,7 @@ describe('InvitationService', () => {
     it('作成した招待のトークンで招待メールを対象メールアドレスへ1回投入する', async () => {
       sendInvitationEmail.mockResolvedValue(undefined);
 
-      const result = await serviceWithEmail.createInvitation(inviterId, email);
+      const result = await serviceWithEmail.createInvitation(INVITER.id, email);
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -207,13 +255,13 @@ describe('InvitationService', () => {
       const queueError = new Error('Redis connection refused');
       sendInvitationEmail.mockRejectedValue(queueError);
 
-      const result = await serviceWithEmail.createInvitation(inviterId, email);
+      const result = await serviceWithEmail.createInvitation(INVITER.id, email);
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      expect(result.value.id).toBe('invitation-1');
-      expect(result.value.email).toBe(email);
-      expect(result.value.status).toBe(InvitationStatus.PENDING);
+      expect(result.value.invitation.id).toBe('invitation-1');
+      expect(result.value.invitation.email).toBe(email);
+      expect(result.value.invitation.status).toBe(InvitationStatus.PENDING);
       expect(mockPrismaClient.invitation.create).toHaveBeenCalledTimes(1);
       expect(sendInvitationEmail).toHaveBeenCalledWith(email, result.value.token);
       await vi.waitFor(() => expect(logger.warn).toHaveBeenCalledTimes(1));
@@ -230,17 +278,17 @@ describe('InvitationService', () => {
       sendInvitationEmail.mockReturnValue(new Promise<void>(() => {}));
 
       const outcome = await Promise.race([
-        serviceWithEmail.createInvitation(inviterId, email),
+        serviceWithEmail.createInvitation(INVITER.id, email),
         new Promise<'TIMED_OUT'>((resolve) => setTimeout(() => resolve('TIMED_OUT'), 1000)),
       ]);
 
       expect(outcome).not.toBe('TIMED_OUT');
-      expect(outcome).toMatchObject({ ok: true, value: { id: 'invitation-1', email } });
+      expect(outcome).toMatchObject({ ok: true, value: { invitation: { id: 'invitation-1' } } });
       expect(sendInvitationEmail).toHaveBeenCalledTimes(1);
     });
 
     it('送信口が無い構成では招待を作成し、未送信を警告ログに残す', async () => {
-      const result = await invitationService.createInvitation(inviterId, email);
+      const result = await invitationService.createInvitation(INVITER.id, email);
 
       expect(result.ok).toBe(true);
       expect(logger.warn).toHaveBeenCalledTimes(1);
@@ -252,303 +300,254 @@ describe('InvitationService', () => {
   });
 
   describe('validateInvitation', () => {
-    it('有効な招待トークンの検証に成功する', async () => {
-      const token = 'valid-token-123';
-      const invitation: Invitation = {
-        id: 'invitation-1',
-        email: 'user@example.com',
-        token,
-        inviterId: 'admin-id',
-        status: InvitationStatus.PENDING,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 1日後
-        createdAt: new Date(),
-        usedAt: null,
-        userId: null,
-      };
+    /**
+     * @requirement user-authentication/REQ-37.1
+     */
+    it('提示された原文のハッシュで招待を引き、有効な招待を返す', async () => {
+      const invitation = invitationRow();
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue(invitation);
 
-      (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        invitation
-      );
+      const result = await invitationService.validateInvitation('valid-token-123');
 
-      const result = await invitationService.validateInvitation(token);
-
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.id).toBe(invitation.id);
-        expect(result.value.email).toBe(invitation.email);
-      }
+      expect(result).toEqual({ ok: true, value: invitation });
+      expect(mockPrismaClient.invitation.findUnique).toHaveBeenCalledWith({
+        where: { tokenHash: sha256Hex('valid-token-123') },
+      });
     });
 
     it('無効なトークンの場合はエラーを返す', async () => {
-      const token = 'invalid-token';
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue(null);
 
-      (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      const result = await invitationService.validateInvitation('invalid-token');
 
-      const result = await invitationService.validateInvitation(token);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('INVALID_TOKEN');
-      }
+      expect(result).toEqual({ ok: false, error: { type: 'INVALID_TOKEN' } });
     });
 
     it('期限切れトークンの場合はエラーを返す', async () => {
-      const token = 'expired-token';
-      const invitation: Invitation = {
-        id: 'invitation-1',
-        email: 'user@example.com',
-        token,
-        inviterId: 'admin-id',
-        status: InvitationStatus.PENDING,
-        expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1日前
-        createdAt: new Date(),
-        usedAt: null,
-        userId: null,
-      };
-
-      (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        invitation
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue(
+        invitationRow({ expiresAt: new Date(Date.now() - 1000) })
       );
 
-      const result = await invitationService.validateInvitation(token);
+      const result = await invitationService.validateInvitation('expired-token');
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('EXPIRED_TOKEN');
-      }
+      expect(result).toEqual({ ok: false, error: { type: 'EXPIRED_TOKEN' } });
     });
 
     it('使用済みトークンの場合はエラーを返す', async () => {
-      const token = 'used-token';
-      const invitation: Invitation = {
-        id: 'invitation-1',
-        email: 'user@example.com',
-        token,
-        inviterId: 'admin-id',
-        status: InvitationStatus.USED,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-        usedAt: new Date(),
-        userId: 'user-id',
-      };
-
-      (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        invitation
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue(
+        invitationRow({ status: InvitationStatus.USED, usedAt: new Date() })
       );
 
-      const result = await invitationService.validateInvitation(token);
+      const result = await invitationService.validateInvitation('used-token');
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('USED_TOKEN');
-      }
+      expect(result).toEqual({ ok: false, error: { type: 'USED_TOKEN' } });
     });
 
     it('取り消し済みトークンの場合はエラーを返す', async () => {
-      const token = 'revoked-token';
-      const invitation: Invitation = {
-        id: 'invitation-1',
-        email: 'user@example.com',
-        token,
-        inviterId: 'admin-id',
-        status: InvitationStatus.REVOKED,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-        usedAt: null,
-        userId: null,
-      };
-
-      (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        invitation
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue(
+        invitationRow({ status: InvitationStatus.REVOKED })
       );
 
-      const result = await invitationService.validateInvitation(token);
+      const result = await invitationService.validateInvitation('revoked-token');
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('REVOKED_TOKEN');
-      }
+      expect(result).toEqual({ ok: false, error: { type: 'REVOKED_TOKEN' } });
     });
   });
 
   describe('revokeInvitation', () => {
-    it('未使用の招待を取り消す', async () => {
-      const invitationId = 'invitation-1';
-      const userId = 'admin-id';
-      const invitation: Invitation = {
-        id: invitationId,
+    /**
+     * @requirement user-authentication/REQ-37.5
+     * @requirement user-authentication/REQ-40.5
+     */
+    it('作成者でない管理者も未使用の招待を取り消せ、取り消しを監査する', async () => {
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue({
+        id: 'invitation-1',
         email: 'user@example.com',
-        token: 'token-123',
-        inviterId: userId,
+        inviterId: 'creator-admin-id',
         status: InvitationStatus.PENDING,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-        usedAt: null,
-        userId: null,
-      };
-
-      (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        invitation
-      );
-      (mockPrismaClient.invitation.update as ReturnType<typeof vi.fn>).mockResolvedValue({
-        ...invitation,
-        status: InvitationStatus.REVOKED,
       });
 
-      const result = await invitationService.revokeInvitation(invitationId, userId);
+      const result = await invitationService.revokeInvitation('invitation-1', 'other-admin-id');
 
-      expect(result.ok).toBe(true);
+      expect(result).toEqual({ ok: true, value: undefined });
       expect(mockPrismaClient.invitation.update).toHaveBeenCalledWith({
-        where: { id: invitationId },
+        where: { id: 'invitation-1' },
         data: { status: InvitationStatus.REVOKED },
       });
+      expect(mockPrismaClient.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'INVITATION_REVOKED',
+          actorId: 'other-admin-id',
+          targetType: 'Invitation',
+          targetId: 'invitation-1',
+          metadata: { email: 'user@example.com', inviterId: 'creator-admin-id' },
+        }),
+      });
     });
 
-    it('招待が見つからない場合はエラーを返す', async () => {
-      const invitationId = 'non-existent-id';
-      const userId = 'admin-id';
+    it('招待が見つからない場合はエラーを返し、監査しない', async () => {
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue(null);
 
-      (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      const result = await invitationService.revokeInvitation('nonexistent', INVITER.id);
 
-      const result = await invitationService.revokeInvitation(invitationId, userId);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('INVITATION_NOT_FOUND');
-      }
+      expect(result).toEqual({ ok: false, error: { type: 'INVITATION_NOT_FOUND' } });
+      expect(mockPrismaClient.auditLog.create).not.toHaveBeenCalled();
     });
 
-    it('他の管理者が作成した招待は取り消せない', async () => {
-      const invitationId = 'invitation-1';
-      const userId = 'admin-1';
-      const invitation: Invitation = {
-        id: invitationId,
+    it('既に使用済みの招待は取り消せず、監査しない', async () => {
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue({
+        id: 'invitation-1',
         email: 'user@example.com',
-        token: 'token-123',
-        inviterId: 'admin-2', // 別の管理者
-        status: InvitationStatus.PENDING,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-        usedAt: null,
-        userId: null,
-      };
-
-      (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        invitation
-      );
-
-      const result = await invitationService.revokeInvitation(invitationId, userId);
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('UNAUTHORIZED');
-      }
-    });
-
-    it('既に使用済みの招待は取り消せない', async () => {
-      const invitationId = 'invitation-1';
-      const userId = 'admin-id';
-      const invitation: Invitation = {
-        id: invitationId,
-        email: 'user@example.com',
-        token: 'token-123',
-        inviterId: userId,
+        inviterId: INVITER.id,
         status: InvitationStatus.USED,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        createdAt: new Date(),
-        usedAt: new Date(),
-        userId: 'user-id',
-      };
+      });
 
-      (mockPrismaClient.invitation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-        invitation
+      const result = await invitationService.revokeInvitation('invitation-1', INVITER.id);
+
+      expect(result).toEqual({ ok: false, error: { type: 'USED_TOKEN' } });
+      expect(mockPrismaClient.invitation.update).not.toHaveBeenCalled();
+      expect(mockPrismaClient.auditLog.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resendInvitation', () => {
+    const current = {
+      id: 'invitation-1',
+      email: 'user@example.com',
+      inviterId: 'creator-admin-id',
+      status: InvitationStatus.EXPIRED,
+      expiresAt: new Date(Date.now() - 1000),
+    };
+
+    beforeEach(() => {
+      mocked(mockPrismaClient.invitation.update).mockImplementation(
+        async ({ data }: { data: { expiresAt: Date } }) =>
+          selectedRow({
+            email: current.email,
+            inviterId: current.inviterId,
+            expiresAt: data.expiresAt,
+          })
       );
+    });
 
-      const result = await invitationService.revokeInvitation(invitationId, userId);
+    /**
+     * @requirement user-authentication/REQ-37.1
+     * @requirement user-authentication/REQ-40.5
+     */
+    it('同じ行のハッシュと期限を新しいトークンのもので置き換え、メールを送り直し、再送信を監査する', async () => {
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue(current);
+      const sendInvitationEmail = vi.fn().mockResolvedValue(undefined);
+      const service = new InvitationService(mockPrismaClient, {
+        sendInvitationEmail: sendInvitationEmail as InvitationEmailSender['sendInvitationEmail'],
+      });
+      const now = Date.now();
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.type).toBe('USED_TOKEN');
-      }
+      const result = await service.resendInvitation('invitation-1', 'other-admin-id');
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const { where, data } = mocked(mockPrismaClient.invitation.update).mock.calls[0]![0] as {
+        where: { id: string };
+        data: { tokenHash: string; expiresAt: Date; status: string };
+      };
+      expect(where).toEqual({ id: 'invitation-1' });
+      expect(data.tokenHash).toBe(sha256Hex(result.value.token));
+      expect(data.status).toBe(InvitationStatus.PENDING);
+      expect(Math.abs(data.expiresAt.getTime() - (now + 7 * 24 * 60 * 60 * 1000))).toBeLessThan(
+        1000
+      );
+      expect(result.value.invitationUrl).toBe(buildInvitationUrl(result.value.token));
+      expect(sendInvitationEmail).toHaveBeenCalledWith('user@example.com', result.value.token);
+      expect(mockPrismaClient.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'INVITATION_RESENT',
+          actorId: 'other-admin-id',
+          targetType: 'Invitation',
+          targetId: 'invitation-1',
+          metadata: { email: 'user@example.com', inviterId: 'creator-admin-id' },
+        }),
+      });
+    });
+
+    it.each([
+      [InvitationStatus.USED, 'USED_TOKEN'],
+      [InvitationStatus.REVOKED, 'REVOKED_TOKEN'],
+    ])('状態が %s の招待は再送信せず %s を返す', async (status, errorType) => {
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue({ ...current, status });
+
+      const result = await invitationService.resendInvitation('invitation-1', INVITER.id);
+
+      expect(result).toEqual({ ok: false, error: { type: errorType } });
+      expect(mockPrismaClient.invitation.update).not.toHaveBeenCalled();
+      expect(mockPrismaClient.auditLog.create).not.toHaveBeenCalled();
+    });
+
+    it('招待が見つからない場合は INVITATION_NOT_FOUND を返す', async () => {
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue(null);
+
+      const result = await invitationService.resendInvitation('nonexistent', INVITER.id);
+
+      expect(result).toEqual({ ok: false, error: { type: 'INVITATION_NOT_FOUND' } });
+      expect(mockPrismaClient.invitation.update).not.toHaveBeenCalled();
+    });
+
+    it('招待の後に登録済みになったメールアドレスへは再送信しない', async () => {
+      mocked(mockPrismaClient.invitation.findUnique).mockResolvedValue(current);
+      mocked(mockPrismaClient.user.findUnique).mockResolvedValue({ id: 'registered-user' });
+
+      const result = await invitationService.resendInvitation('invitation-1', INVITER.id);
+
+      expect(result).toEqual({ ok: false, error: { type: 'EMAIL_ALREADY_REGISTERED' } });
+      expect(mockPrismaClient.invitation.update).not.toHaveBeenCalled();
+      expect(mockPrismaClient.auditLog.create).not.toHaveBeenCalled();
     });
   });
 
   describe('listInvitations', () => {
-    it('全ての招待を取得する', async () => {
-      const invitations: Invitation[] = [
+    /**
+     * @requirement user-authentication/REQ-37.2
+     */
+    it('トークンのハッシュを読まずに招待の要約と作成者を返す', async () => {
+      const rows = [
         {
-          id: 'invitation-1',
-          email: 'user1@example.com',
-          token: 'token-1',
-          inviterId: 'admin-id',
-          status: InvitationStatus.PENDING,
-          expiresAt: new Date(),
-          createdAt: new Date(),
-          usedAt: null,
-          userId: null,
-        },
-        {
-          id: 'invitation-2',
-          email: 'user2@example.com',
-          token: 'token-2',
-          inviterId: 'admin-id',
-          status: InvitationStatus.USED,
-          expiresAt: new Date(),
-          createdAt: new Date(),
-          usedAt: new Date(),
-          userId: 'user-id',
+          ...selectedRow({ email: 'a@example.com', inviterId: INVITER.id, expiresAt: new Date() }),
         },
       ];
-
-      (mockPrismaClient.invitation.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
-        invitations
-      );
+      mocked(mockPrismaClient.invitation.findMany).mockResolvedValue(rows);
 
       const result = await invitationService.listInvitations();
 
-      expect(result).toHaveLength(2);
-      expect(result[0]!.email).toBe('user1@example.com');
-      expect(result[1]!.email).toBe('user2@example.com');
-    });
-
-    it('ステータス別にフィルタリングできる', async () => {
-      const pendingInvitations: Invitation[] = [
-        {
-          id: 'invitation-1',
-          email: 'user1@example.com',
-          token: 'token-1',
-          inviterId: 'admin-id',
-          status: InvitationStatus.PENDING,
-          expiresAt: new Date(),
-          createdAt: new Date(),
-          usedAt: null,
-          userId: null,
-        },
-      ];
-
-      (mockPrismaClient.invitation.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
-        pendingInvitations
-      );
-
-      const result = await invitationService.listInvitations({
-        status: InvitationStatus.PENDING,
-      });
-
-      expect(result).toHaveLength(1);
-      expect(result[0]!.status).toBe(InvitationStatus.PENDING);
-      expect(mockPrismaClient.invitation.findMany).toHaveBeenCalledWith({
-        where: { status: InvitationStatus.PENDING },
-        orderBy: { createdAt: 'desc' },
+      expect(result).toBe(rows);
+      const args = mocked(mockPrismaClient.invitation.findMany).mock.calls[0]![0] as {
+        select: Record<string, unknown>;
+      };
+      expect(args.select).toEqual({
+        id: true,
+        email: true,
+        status: true,
+        expiresAt: true,
+        createdAt: true,
+        inviter: { select: { id: true, displayName: true } },
       });
     });
 
-    it('作成日時の降順でソートされる', async () => {
+    it('ステータス別にフィルタリングでき、作成日時の降順で並べる', async () => {
+      mocked(mockPrismaClient.invitation.findMany).mockResolvedValue([]);
+
+      await invitationService.listInvitations({ status: InvitationStatus.PENDING });
       await invitationService.listInvitations();
 
-      expect(mockPrismaClient.invitation.findMany).toHaveBeenCalledWith({
-        where: {},
-        orderBy: { createdAt: 'desc' },
-      });
+      expect(mockPrismaClient.invitation.findMany).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          where: { status: InvitationStatus.PENDING },
+          orderBy: { createdAt: 'desc' },
+        })
+      );
+      expect(mockPrismaClient.invitation.findMany).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ where: {}, orderBy: { createdAt: 'desc' } })
+      );
     });
   });
 });

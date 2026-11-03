@@ -365,7 +365,8 @@ export async function updateReceivedQuotation(
 /**
  * 受領見積書を削除する（論理削除）
  *
- * 楽観的排他制御を使用。ファイルが存在する場合は物理削除も行われる。
+ * 楽観的排他制御を使用。ファイルが存在する場合は物理削除も行われる。基準時刻はクエリ（`?updatedAt=`）で
+ * 送り、本文を付けない（HTTP は DELETE の本文に意味を定めず、中継で落ちうるため。見積依頼の削除と同じ形）。
  *
  * @param id - 受領見積書ID
  * @param updatedAt - 楽観的排他制御用の更新日時（ISO8601形式）
@@ -373,9 +374,7 @@ export async function updateReceivedQuotation(
  * @throws ApiError 受領見積書が見つからない（404）、競合（409）
  */
 export async function deleteReceivedQuotation(id: string, updatedAt: string): Promise<void> {
-  return apiClient.delete<void>(`/api/quotations/${id}`, {
-    body: { updatedAt },
-  });
+  return apiClient.delete<void>(`/api/quotations/${id}?updatedAt=${encodeURIComponent(updatedAt)}`);
 }
 
 /**

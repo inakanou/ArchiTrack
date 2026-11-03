@@ -8,9 +8,9 @@
       {
         "package": "xlsx",
         "severity": "high",
-        "reason": "Excel file processing library. No fix available (npm版は非推奨)。Prototype Pollution (GHSA-4r6h-8v6p-xvw6) and ReDoS (GHSA-5pgg-2g8v-p4x9) vulnerabilities. Mitigated by server-side input validation and trusted file sources only. 2026-06-02 再評価: 依存ツリーに現存・fixAvailable=false を確認し延長。2026-07-28 再評価: fixAvailable=false のまま現存を確認し延長。",
+        "reason": "Excel file processing library. No fix available (npm版は非推奨)。Prototype Pollution (GHSA-4r6h-8v6p-xvw6) and ReDoS (GHSA-5pgg-2g8v-p4x9) vulnerabilities. Mitigated by server-side input validation and trusted file sources only. 2026-06-02 再評価: 依存ツリーに現存・fixAvailable=false を確認し延長。2026-07-28 再評価: fixAvailable=false のまま現存を確認し延長。2026-10-25 再評価: fixAvailable=false のまま現存を確認し延長。",
         "reference": "https://github.com/advisories/GHSA-4r6h-8v6p-xvw6",
-        "expires": "2026-10-31",
+        "expires": "2027-01-31",
         "addedBy": "claude",
         "addedDate": "2026-02-04"
       }

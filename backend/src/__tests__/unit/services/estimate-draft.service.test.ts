@@ -26,6 +26,8 @@
  * Task 52.6: 明細更新の一括化とN+1クエリの解消
  * Task 52.7: 一括保存処理の単体テスト（42.3, 42.4, 42.5, 42.6, 42.9 の受入観点を網羅）
  * Task 57.6: トランザクションの制限時間の明示と、超過（P2028）時の応答（42.1, 42.3）
+ * Task 66.1: 本文の属さない見積項目の ID の実際の案件が範囲外なら、従来の 422 のまま記録する。
+ *   被覆の印は該当の describe の @requirement estimate-creation/REQ-57.11 が名乗る
  *
  * @module __tests__/unit/services/estimate-draft.service.test
  */
@@ -72,7 +74,11 @@ type MockTxClient = {
 
 /** 読み取り系＋トランザクション起点のモック */
 type MockPrismaClient = Omit<MockTxClient, 'estimate'> & {
-  estimate: { findUnique: Mock };
+  /**
+   * `findMany` は本文の属さない見積項目の ID を持つ見積書の案件の一括の読み出し（タスク66.1）。
+   * 既定は行が無い（{@link foreignItemOwners} が空）
+   */
+  estimate: { findUnique: Mock; findMany: Mock };
   estimateItem: MockTxClient['estimateItem'];
   $transaction: Mock;
 };
@@ -143,6 +149,14 @@ const ITEM_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const ITEM_D = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const ITEM_E = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const FOREIGN_ITEM = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const FOREIGN_ITEM_2 = '99999999-9999-4999-8999-999999999999';
+/** 実行者（一括保存の要求者） */
+const ACTOR_ID = 'actor-0000-4000-8000-000000000066';
+/** 対象の見積書が属するプロジェクト */
+const PROJECT_ID = '22222222-2222-4222-8222-222222222222';
+/** 属さない見積項目の実際の案件（別の案件） */
+const OTHER_PROJECT_ID = '33333333-3333-4333-8333-333333333333';
+const OTHER_PROJECT_ID_2 = '44444444-4444-4444-8444-444444444444';
 
 /** DB上の `Estimate.updatedAt`（楽観ロックの基準時刻） */
 const CURRENT_UPDATED_AT = new Date('2026-07-31T00:00:00.000Z');
@@ -235,6 +249,10 @@ describe('EstimateDraftService', () => {
   let service: EstimateDraftService;
   let mockPrisma: MockPrismaClient;
   let mockTx: MockTxClient;
+  let mockAuditLogService: { createLog: Mock };
+  let mockProjectScope: { evaluateProjectAccess: Mock };
+  /** 見積項目の ID → その見積項目が実際に属する見積書の案件（DB に行がある見積項目だけを載せる） */
+  let foreignItemOwners: Map<string, string>;
 
   beforeEach(() => {
     mockTx = {
@@ -266,11 +284,21 @@ describe('EstimateDraftService', () => {
       $executeRaw: vi.fn(async (query: Prisma.Sql) => countBulkUpdateRows(query)),
     };
 
+    foreignItemOwners = new Map();
     mockPrisma = {
       estimate: {
-        findUnique: vi
-          .fn()
-          .mockResolvedValue({ id: ESTIMATE_ID, deletedAt: null, updatedAt: CURRENT_UPDATED_AT }),
+        findUnique: vi.fn().mockResolvedValue({
+          id: ESTIMATE_ID,
+          projectId: PROJECT_ID,
+          deletedAt: null,
+          updatedAt: CURRENT_UPDATED_AT,
+        }),
+        // 指定の見積項目を持つ見積書（論理削除の有無を問わない）の案件を返す。既定は行が無い
+        findMany: vi.fn(async (args: { where: { items: { some: { id: { in: string[] } } } } }) =>
+          args.where.items.some.id.in
+            .filter((id) => foreignItemOwners.has(id))
+            .map((id) => ({ projectId: foreignItemOwners.get(id)! }))
+        ),
       },
       estimateItem: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -292,8 +320,13 @@ describe('EstimateDraftService', () => {
       ),
     };
 
+    mockAuditLogService = { createLog: vi.fn().mockResolvedValue(undefined) };
+    mockProjectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue('allowed') };
+
     service = new EstimateDraftService({
       prisma: mockPrisma as unknown as PrismaClient,
+      auditLogService: mockAuditLogService,
+      projectScope: mockProjectScope,
     });
   });
 
@@ -402,9 +435,9 @@ describe('EstimateDraftService', () => {
     it('見積書が存在しない場合は書き込みを一切行わずに 404 相当のエラーを投げる', async () => {
       mockPrisma.estimate.findUnique.mockResolvedValue(null);
 
-      await expect(service.saveDraft(ESTIMATE_ID, buildInput([buildNode()]))).rejects.toThrow(
-        EstimateNotFoundError
-      );
+      await expect(
+        service.saveDraft(ESTIMATE_ID, buildInput([buildNode()]), ACTOR_ID)
+      ).rejects.toThrow(EstimateNotFoundError);
 
       expectNoWrites();
     });
@@ -415,7 +448,7 @@ describe('EstimateDraftService', () => {
         deletedAt: new Date('2026-01-01T00:00:00.000Z'),
       });
 
-      await expect(service.saveDraft(ESTIMATE_ID, buildInput([]))).rejects.toThrow(
+      await expect(service.saveDraft(ESTIMATE_ID, buildInput([]), ACTOR_ID)).rejects.toThrow(
         EstimateNotFoundError
       );
 
@@ -427,7 +460,7 @@ describe('EstimateDraftService', () => {
 
       const input = buildInput([buildNode({ id: ITEM_A }), buildNode({ id: FOREIGN_ITEM })]);
 
-      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toThrow(
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID)).rejects.toThrow(
         EstimateDraftValidationError
       );
 
@@ -439,7 +472,7 @@ describe('EstimateDraftService', () => {
 
       const input = buildInput([buildNode({ id: FOREIGN_ITEM })]);
 
-      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toMatchObject({
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID)).rejects.toMatchObject({
         statusCode: 422,
         issues: [expect.objectContaining({ path: `items.${FOREIGN_ITEM}` })],
       });
@@ -456,7 +489,7 @@ describe('EstimateDraftService', () => {
 
       const input = buildInput([buildNode({ id: ITEM_A }), buildNode({ id: FOREIGN_ITEM })]);
 
-      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toMatchObject({
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID)).rejects.toMatchObject({
         statusCode: 422,
         issues: [expect.objectContaining({ path: `items.${FOREIGN_ITEM}` })],
       });
@@ -477,7 +510,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toMatchObject({
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID)).rejects.toMatchObject({
         statusCode: 422,
         issues: [expect.objectContaining({ path: `items.${FOREIGN_ITEM}` })],
       });
@@ -495,7 +528,11 @@ describe('EstimateDraftService', () => {
         { id: ITEM_C, parentId: null },
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: ITEM_C })]));
+      const result = await service.saveDraft(
+        ESTIMATE_ID,
+        buildInput([buildNode({ id: ITEM_C })]),
+        ACTOR_ID
+      );
 
       // 削除は「削除対象の根」のみ。子孫 B は onDelete: Cascade に委ねる
       expect(mockTx.estimateItem.deleteMany).toHaveBeenCalledTimes(1);
@@ -508,7 +545,7 @@ describe('EstimateDraftService', () => {
     it('削除対象が無い場合は削除を発行しない', async () => {
       mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
 
-      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: ITEM_A })]));
+      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: ITEM_A })]), ACTOR_ID);
 
       expect(mockTx.estimateItem.deleteMany).not.toHaveBeenCalled();
     });
@@ -520,7 +557,7 @@ describe('EstimateDraftService', () => {
         { id: ITEM_B, parentId: ITEM_A },
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: ITEM_B })]));
+      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: ITEM_B })]), ACTOR_ID);
 
       expect(mockTx.estimateItem.updateMany).toHaveBeenCalledWith({
         where: { id: { in: [ITEM_B] } },
@@ -546,7 +583,8 @@ describe('EstimateDraftService', () => {
 
       await service.saveDraft(
         ESTIMATE_ID,
-        buildInput([buildNode({ id: ITEM_C, children: [buildNode({ id: ITEM_B })] })])
+        buildInput([buildNode({ id: ITEM_C, children: [buildNode({ id: ITEM_B })] })]),
+        ACTOR_ID
       );
 
       // 切り離しでいったん null にした B は、一括UPDATEで新しい親 C へ張り替えられる
@@ -575,7 +613,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       // 削除＋再作成を行わない（既存IDのまま一括UPDATEの対象になる）
       expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
@@ -597,7 +635,8 @@ describe('EstimateDraftService', () => {
 
       const result = await service.saveDraft(
         ESTIMATE_ID,
-        buildInput([buildNode({ id: ITEM_C, lines: [buildLine({ name: '存続する項目' })] })])
+        buildInput([buildNode({ id: ITEM_C, lines: [buildLine({ name: '存続する項目' })] })]),
+        ACTOR_ID
       );
 
       // 削除されるのはペイロードに含まれない A のみ（B は連鎖削除に委ねる）
@@ -632,7 +671,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       expect(readBulkLineUpsertRows()).toEqual([
         expect.objectContaining({
@@ -660,7 +699,7 @@ describe('EstimateDraftService', () => {
         buildNode({ id: ITEM_A, lines: [buildLine({ lineType: 'ESTIMATE' })] }),
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       expect(mockTx.estimateItemLine.deleteMany).toHaveBeenCalledWith({
         where: { estimateItemId: { in: [ITEM_A] }, lineType: 'EXECUTION' },
@@ -682,7 +721,7 @@ describe('EstimateDraftService', () => {
 
       const input = buildInput([buildNode({ id: ITEM_A, children: [buildNode({ id: ITEM_B })] })]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       expect(readBulkItemUpdateRows()).toContainEqual(
         expect.objectContaining({ id: ITEM_B, parentId: ITEM_A })
@@ -707,7 +746,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       // 個別 create は発行せず、1回の createMany でまとめて登録する
       expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
@@ -746,7 +785,7 @@ describe('EstimateDraftService', () => {
         buildNode({ id: ITEM_A, children: [buildNode({ tempId: 'tmp-new' })] }),
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       expect(readBulkItemUpdateRows()).toContainEqual(
         expect.objectContaining({ id: result.createdItemIds[0], parentId: ITEM_A })
@@ -765,7 +804,7 @@ describe('EstimateDraftService', () => {
         buildNode({ id: ITEM_A }),
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       expect(result.createdItemIds).toHaveLength(1);
       const newParentId = result.createdItemIds[0]!;
@@ -792,7 +831,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
       const createdId = result.createdItemIds[0];
 
       expect(readBulkLineUpsertRows()).toEqual([
@@ -820,7 +859,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       const createRows = mockTx.estimateItem.createMany.mock.calls[0]![0].data as {
         itemType: string;
@@ -853,7 +892,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       expect(readBulkLineUpsertRows()).toEqual([
         {
@@ -877,7 +916,7 @@ describe('EstimateDraftService', () => {
     it('通常項目の明細行は入力値をそのまま保持する', async () => {
       const input = buildInput([buildNode({ tempId: 'tmp-standard' })]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       expect(readBulkLineUpsertRows()[0]).toMatchObject({
         specification: 'RC造',
@@ -901,7 +940,7 @@ describe('EstimateDraftService', () => {
         buildNode({ id: ITEM_A, children: [buildNode({ tempId: 'tmp-new' })] }),
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
       // 書き込みはトランザクションクライアント経由のみ
@@ -927,7 +966,9 @@ describe('EstimateDraftService', () => {
         buildNode({ tempId: 'tmp-after-failure' }),
       ]);
 
-      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toThrow('DB書き込み失敗');
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID)).rejects.toThrow(
+        'DB書き込み失敗'
+      );
 
       // 失敗以降の書き込みは発行されない（ロールバックは $transaction に委ねる）
       expect(mockTx.$executeRaw).not.toHaveBeenCalled();
@@ -941,7 +982,7 @@ describe('EstimateDraftService', () => {
 
       const input = buildInput([buildNode({ id: ITEM_A })]);
 
-      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toThrow(
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID)).rejects.toThrow(
         /一括更新で対象件数が一致しませんでした/
       );
     });
@@ -957,7 +998,9 @@ describe('EstimateDraftService', () => {
 
       const input = buildInput([buildNode({ tempId: 'tmp-new' })]);
 
-      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toThrow(EstimateConflictError);
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID)).rejects.toThrow(
+        EstimateConflictError
+      );
 
       expectNoWrites();
     });
@@ -970,7 +1013,7 @@ describe('EstimateDraftService', () => {
         updatedAt: actualUpdatedAt,
       });
 
-      await expect(service.saveDraft(ESTIMATE_ID, buildInput([]))).rejects.toMatchObject({
+      await expect(service.saveDraft(ESTIMATE_ID, buildInput([]), ACTOR_ID)).rejects.toMatchObject({
         statusCode: 409,
         details: {
           expectedUpdatedAt: CURRENT_UPDATED_AT.toISOString(),
@@ -980,7 +1023,11 @@ describe('EstimateDraftService', () => {
     });
 
     it('基準時刻が一致する場合は基準時刻を条件に含めた更新で保存を確定する', async () => {
-      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-new' })]));
+      await service.saveDraft(
+        ESTIMATE_ID,
+        buildInput([buildNode({ tempId: 'tmp-new' })]),
+        ACTOR_ID
+      );
 
       expect(mockTx.estimate.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -996,7 +1043,9 @@ describe('EstimateDraftService', () => {
 
       const input = buildInput([buildNode({ id: ITEM_A }), buildNode({ tempId: 'tmp-new' })]);
 
-      await expect(service.saveDraft(ESTIMATE_ID, input)).rejects.toThrow(EstimateConflictError);
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID)).rejects.toThrow(
+        EstimateConflictError
+      );
 
       // 明細への書き込みは発行されない（トランザクションは巻き戻る）
       expect(mockTx.estimateItem.create).not.toHaveBeenCalled();
@@ -1024,7 +1073,7 @@ describe('EstimateDraftService', () => {
         buildNode({ id: ITEM_A }),
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       // 新規・既存を同じ一括UPDATEで確定するため、採番が衝突しない
       expect(readBulkItemUpdateRows()).toEqual([
@@ -1048,7 +1097,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       // ルートスコープは0起点、子スコープも親をまたいで通し番号にしない
       expect(readBulkItemUpdateRows()).toEqual([
@@ -1077,7 +1126,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       // 事前順（A → D → B → E → C）で、各兄弟スコープが0起点の連番になる
       expect(readBulkItemUpdateRows()).toEqual([
@@ -1105,7 +1154,7 @@ describe('EstimateDraftService', () => {
         },
       });
 
-      await service.saveDraft(ESTIMATE_ID, input);
+      await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       expect(mockTx.estimate.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1119,7 +1168,7 @@ describe('EstimateDraftService', () => {
     });
 
     it('未入力の帳票用入力項目は null と空配列として保存する', async () => {
-      await service.saveDraft(ESTIMATE_ID, buildInput([]));
+      await service.saveDraft(ESTIMATE_ID, buildInput([]), ACTOR_ID);
 
       expect(mockTx.estimate.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1141,7 +1190,7 @@ describe('EstimateDraftService', () => {
         separateWorks: ['電気工事'],
       });
 
-      const result = await service.saveDraft(ESTIMATE_ID, buildInput([]));
+      const result = await service.saveDraft(ESTIMATE_ID, buildInput([]), ACTOR_ID);
 
       expect(result.estimate.reportFields).toEqual({
         submissionDate: new Date('2026-08-01T00:00:00.000Z'),
@@ -1164,7 +1213,8 @@ describe('EstimateDraftService', () => {
 
       const result = await service.saveDraft(
         ESTIMATE_ID,
-        buildInput([buildNode({ id: ITEM_A, children: [buildNode({ id: ITEM_B })] })])
+        buildInput([buildNode({ id: ITEM_A, children: [buildNode({ id: ITEM_B })] })]),
+        ACTOR_ID
       );
 
       // 保存後の読み直しは同一トランザクション内で行う
@@ -1218,7 +1268,7 @@ describe('EstimateDraftService', () => {
         }),
       ]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, input);
+      const result = await service.saveDraft(ESTIMATE_ID, input, ACTOR_ID);
 
       // 集計金額がそのまま永続化される
       expect(readBulkLineUpsertRows()).toContainEqual(
@@ -1233,7 +1283,7 @@ describe('EstimateDraftService', () => {
     });
 
     it('保存後の更新日時を返し、次回保存の基準時刻として使えるようにする', async () => {
-      const result = await service.saveDraft(ESTIMATE_ID, buildInput([]));
+      const result = await service.saveDraft(ESTIMATE_ID, buildInput([]), ACTOR_ID);
 
       expect(result.estimate.id).toBe(ESTIMATE_ID);
       expect(result.estimate.updatedAt).toEqual(new Date('2026-07-31T01:00:00.000Z'));
@@ -1243,7 +1293,7 @@ describe('EstimateDraftService', () => {
     it('明細行の数量・単価・金額は数値として返す', async () => {
       mockTx.estimateItem.findMany.mockResolvedValue([buildSavedRow()]);
 
-      const result = await service.saveDraft(ESTIMATE_ID, buildInput([]));
+      const result = await service.saveDraft(ESTIMATE_ID, buildInput([]), ACTOR_ID);
 
       expect(result.items[0]!.lines[0]).toMatchObject({
         quantity: 1,
@@ -1309,11 +1359,11 @@ describe('EstimateDraftService', () => {
       const buildNewItems = (count: number): SaveEstimateItemNodeInput[] =>
         Array.from({ length: count }, (_, index) => buildNode({ tempId: `tmp-${index}` }));
 
-      await service.saveDraft(ESTIMATE_ID, buildInput(buildNewItems(10)));
+      await service.saveDraft(ESTIMATE_ID, buildInput(buildNewItems(10)), ACTOR_ID);
       const queriesFor10 = countTransactionQueries();
 
       vi.clearAllMocks();
-      await service.saveDraft(ESTIMATE_ID, buildInput(buildNewItems(100)));
+      await service.saveDraft(ESTIMATE_ID, buildInput(buildNewItems(100)), ACTOR_ID);
       const queriesFor100 = countTransactionQueries();
 
       expect(queriesFor100).toBeLessThanOrEqual(MAX_TRANSACTION_QUERIES);
@@ -1325,12 +1375,12 @@ describe('EstimateDraftService', () => {
         Array.from({ length: count }, (_, index) => buildNode({ id: `existing-${index}` }));
 
       mockPrisma.estimateItem.findMany.mockResolvedValue(buildExistingRows(10));
-      await service.saveDraft(ESTIMATE_ID, buildInput(buildExistingItems(10)));
+      await service.saveDraft(ESTIMATE_ID, buildInput(buildExistingItems(10)), ACTOR_ID);
       const queriesFor10 = countTransactionQueries();
 
       vi.clearAllMocks();
       mockPrisma.estimateItem.findMany.mockResolvedValue(buildExistingRows(100));
-      await service.saveDraft(ESTIMATE_ID, buildInput(buildExistingItems(100)));
+      await service.saveDraft(ESTIMATE_ID, buildInput(buildExistingItems(100)), ACTOR_ID);
       const queriesFor100 = countTransactionQueries();
 
       expect(queriesFor100).toBeLessThanOrEqual(MAX_TRANSACTION_QUERIES);
@@ -1342,7 +1392,7 @@ describe('EstimateDraftService', () => {
       // 子孫の特定は事前読み込み済みの1件のクエリ結果に対する単一走査で完結する
       mockPrisma.estimateItem.findMany.mockResolvedValue(buildExistingChain(100));
 
-      const result = await service.saveDraft(ESTIMATE_ID, buildInput([]));
+      const result = await service.saveDraft(ESTIMATE_ID, buildInput([]), ACTOR_ID);
 
       expect(countTransactionQueries()).toBeLessThanOrEqual(MAX_TRANSACTION_QUERIES);
       // 削除は根1件のみ。子孫99件は onDelete: Cascade に委ねる
@@ -1366,7 +1416,7 @@ describe('EstimateDraftService', () => {
         })
       );
 
-      await service.saveDraft(ESTIMATE_ID, buildInput(items));
+      await service.saveDraft(ESTIMATE_ID, buildInput(items), ACTOR_ID);
 
       const lineStatements = mockTx.$executeRaw.mock.calls
         .map((args) => args[0] as Prisma.Sql)
@@ -1394,7 +1444,7 @@ describe('EstimateDraftService', () => {
         })
       );
 
-      const result = await service.saveDraft(ESTIMATE_ID, buildInput(items));
+      const result = await service.saveDraft(ESTIMATE_ID, buildInput(items), ACTOR_ID);
 
       const upsertRows = readBulkLineUpsertRows();
       expect(upsertRows).toHaveLength(3000);
@@ -1421,7 +1471,7 @@ describe('EstimateDraftService', () => {
     it('一括UPDATEはパラメータ化され、値をSQL文字列へ埋め込まない', async () => {
       mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
 
-      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: ITEM_A })]));
+      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: ITEM_A })]), ACTOR_ID);
 
       const updateCall = mockTx.$executeRaw.mock.calls.find((call) =>
         (call[0] as Prisma.Sql).text.trimStart().startsWith('UPDATE "estimate_items"')
@@ -1451,7 +1501,7 @@ describe('EstimateDraftService', () => {
     const EXPECTED_MAX_WAIT_MS = 5000;
 
     it('$transaction に実測で確定した timeout と maxWait を明示して渡す', async () => {
-      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-1' })]));
+      await service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-1' })]), ACTOR_ID);
 
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
       const options = mockPrisma.$transaction.mock.calls[0]![1] as unknown;
@@ -1474,7 +1524,7 @@ describe('EstimateDraftService', () => {
       );
 
       const error = await service
-        .saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-1' })]))
+        .saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-1' })]), ACTOR_ID)
         .then(
           () => null,
           (e: unknown) => e
@@ -1501,8 +1551,305 @@ describe('EstimateDraftService', () => {
       mockPrisma.$transaction.mockRejectedValueOnce(foreignKeyError);
 
       await expect(
-        service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-1' })]))
+        service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ tempId: 'tmp-1' })]), ACTOR_ID)
       ).rejects.toBe(foreignKeyError);
+    });
+  });
+
+  /**
+   * 一括保存の本文の属さない既存の見積項目の ID の実際の案件が範囲外なら、従来の 422 のまま範囲外の拒否として
+   * 案件ごとに 1 回記録する（タスク66.1。design.md の「2026-10-31 の追加」章の「決定」）。
+   *
+   * @requirement estimate-creation/REQ-57.11
+   */
+  describe('saveDraft: 本文の属さない見積項目の ID の範囲外の記録', () => {
+    /** 本文の属さない ID の見積書の案件の一括の読み出しの期待形（論理削除の条件を含まない） */
+    function expectOwnerLookup(itemIds: string[]): void {
+      expect(mockPrisma.estimate.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.estimate.findMany).toHaveBeenCalledWith({
+        where: { items: { some: { id: { in: itemIds } } } },
+        select: { projectId: true },
+      });
+    }
+
+    /** 記録された範囲外の拒否の対象の案件（記録の順） */
+    function deniedTargets(): unknown[] {
+      return mockAuditLogService.createLog.mock.calls
+        .map(([entry]) => entry as { action: string; targetId: string })
+        .filter((entry) => entry.action === 'PROJECT_SCOPE_DENIED')
+        .map((entry) => entry.targetId);
+    }
+
+    const CONTEXT = {
+      requestId: 'req-66-1',
+      method: 'PUT',
+      path: `/api/estimates/${ESTIMATE_ID}/save`,
+      ipAddress: '192.0.2.10',
+      userAgent: 'unit-test',
+    };
+
+    it('属さない ID の実際の案件が範囲外なら、従来の 422（同じ問題箇所のキー）のまま判定 1 回・記録 1 回を行い、何も書き込まない', async () => {
+      mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+      foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+      mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      const input = buildInput([buildNode({ id: ITEM_A }), buildNode({ id: FOREIGN_ITEM })]);
+
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID, CONTEXT)).rejects.toMatchObject({
+        statusCode: 422,
+        issues: [
+          {
+            path: `items.${FOREIGN_ITEM}`,
+            message: '指定された見積項目はこの見積書に存在しません',
+          },
+        ],
+      });
+
+      expectOwnerLookup([FOREIGN_ITEM]);
+      expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+      expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+        ACTOR_ID,
+        OTHER_PROJECT_ID
+      );
+      expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith({
+        action: 'PROJECT_SCOPE_DENIED',
+        actorId: ACTOR_ID,
+        targetType: 'Project',
+        targetId: OTHER_PROJECT_ID,
+        metadata: CONTEXT,
+      });
+      expectNoWrites();
+    });
+
+    it('同じ範囲外の案件の ID が複数あっても判定と記録は 1 回、別の範囲外の案件はそれぞれ 1 回', async () => {
+      const OTHER_ITEM = '77777777-7777-4777-8777-777777777777';
+      foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+      foreignItemOwners.set(FOREIGN_ITEM_2, OTHER_PROJECT_ID);
+      foreignItemOwners.set(OTHER_ITEM, OTHER_PROJECT_ID_2);
+      mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      const input = buildInput([
+        buildNode({ id: FOREIGN_ITEM, children: [buildNode({ id: FOREIGN_ITEM_2 })] }),
+        buildNode({ id: OTHER_ITEM }),
+      ]);
+
+      await expect(service.saveDraft(ESTIMATE_ID, input, ACTOR_ID)).rejects.toThrow(
+        EstimateDraftValidationError
+      );
+
+      expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledTimes(2);
+      expect(deniedTargets()).toEqual([OTHER_PROJECT_ID, OTHER_PROJECT_ID_2]);
+      expectNoWrites();
+    });
+
+    it.each(['allowed', 'not_found'] as const)(
+      '実際の案件の判定が %s（範囲内の他の案件・案件の不在や論理削除）なら判定して記録しない',
+      async (decision) => {
+        foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+        mockProjectScope.evaluateProjectAccess.mockResolvedValue(decision);
+
+        await expect(
+          service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: FOREIGN_ITEM })]), ACTOR_ID)
+        ).rejects.toMatchObject({
+          statusCode: 422,
+          issues: [expect.objectContaining({ path: `items.${FOREIGN_ITEM}` })],
+        });
+
+        expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+          ACTOR_ID,
+          OTHER_PROJECT_ID
+        );
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+        expectNoWrites();
+      }
+    );
+
+    it('同じ案件の別の見積書の ID と、行の無い ID は判定も記録もしない', async () => {
+      foreignItemOwners.set(FOREIGN_ITEM, PROJECT_ID);
+      mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      await expect(
+        service.saveDraft(
+          ESTIMATE_ID,
+          buildInput([buildNode({ id: FOREIGN_ITEM }), buildNode({ id: FOREIGN_ITEM_2 })]),
+          ACTOR_ID
+        )
+      ).rejects.toThrow(EstimateDraftValidationError);
+
+      expectOwnerLookup([FOREIGN_ITEM, FOREIGN_ITEM_2]);
+      expect(mockProjectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      expectNoWrites();
+    });
+
+    it('親の見積書が論理削除済みでも行が実在すればその案件で判定する（読み出しに論理削除の条件を含めない）', async () => {
+      // 模擬の見積書の読み出しは論理削除を問わず返す。読み出しの条件に deletedAt が入れば上の期待形と食い違う
+      foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+      mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      await expect(
+        service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: FOREIGN_ITEM })]), ACTOR_ID)
+      ).rejects.toThrow(EstimateDraftValidationError);
+
+      expectOwnerLookup([FOREIGN_ITEM]);
+      expect(deniedTargets()).toEqual([OTHER_PROJECT_ID]);
+    });
+
+    it('楽観ロックの基準時刻がずれていても、判定と記録は 409 の前に行われ、応答は 422 のまま', async () => {
+      mockPrisma.estimate.findUnique.mockResolvedValue({
+        id: ESTIMATE_ID,
+        projectId: PROJECT_ID,
+        deletedAt: null,
+        updatedAt: new Date('2026-07-31T09:00:00.000Z'),
+      });
+      foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+      mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      await expect(
+        service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: FOREIGN_ITEM })]), ACTOR_ID)
+      ).rejects.toMatchObject({ statusCode: 422 });
+
+      expect(deniedTargets()).toEqual([OTHER_PROJECT_ID]);
+      expectNoWrites();
+    });
+
+    it('属さない ID の無い保存では、属さない ID の案件を引く問い合わせも判定も記録も無い', async () => {
+      mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+
+      await service.saveDraft(
+        ESTIMATE_ID,
+        buildInput([buildNode({ id: ITEM_A }), buildNode({ tempId: 'tmp-1' })]),
+        ACTOR_ID
+      );
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.estimate.findMany).not.toHaveBeenCalled();
+      expect(mockProjectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('判定の DB の失敗は 422 にせずそのまま投げ、記録しない', async () => {
+      const dbError = new Error('属さない ID の案件の読み出しの失敗');
+      mockPrisma.estimate.findMany.mockRejectedValue(dbError);
+
+      await expect(
+        service.saveDraft(ESTIMATE_ID, buildInput([buildNode({ id: FOREIGN_ITEM })]), ACTOR_ID)
+      ).rejects.toBe(dbError);
+
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      expectNoWrites();
+    });
+
+    describe('recordForeignItemScopeDenials（構造の不備の 422 の経路から呼ぶ）', () => {
+      it('本文の属さない ID の実際の案件が範囲外なら案件ごとに 1 回記録し、何も書き込まない', async () => {
+        mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+        foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+        mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+        await service.recordForeignItemScopeDenials(
+          ESTIMATE_ID,
+          // 構造の不備（同じ ID の重複配置）を含む本文でも判定する
+          [buildNode({ id: ITEM_A }), buildNode({ id: ITEM_A }), buildNode({ id: FOREIGN_ITEM })],
+          ACTOR_ID,
+          CONTEXT
+        );
+
+        expectOwnerLookup([FOREIGN_ITEM]);
+        expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+        expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'PROJECT_SCOPE_DENIED',
+            actorId: ACTOR_ID,
+            targetId: OTHER_PROJECT_ID,
+            metadata: CONTEXT,
+          })
+        );
+        expectNoWrites();
+      });
+
+      it.each([
+        ['見積書が不在', null],
+        [
+          '見積書が論理削除済み',
+          { id: ESTIMATE_ID, projectId: PROJECT_ID, deletedAt: new Date('2026-01-01T00:00:00Z') },
+        ],
+      ])('%s なら何も引かず記録しない', async (_label, estimate) => {
+        mockPrisma.estimate.findUnique.mockResolvedValue(estimate);
+        foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+        mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+        await service.recordForeignItemScopeDenials(
+          ESTIMATE_ID,
+          [buildNode({ id: FOREIGN_ITEM })],
+          ACTOR_ID,
+          CONTEXT
+        );
+
+        expect(mockPrisma.estimate.findMany).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+        expectNoWrites();
+      });
+    });
+
+    /**
+     * 総数・深さの上限で打ち切った本文の判定（タスク67.1。読んだ節点の ID の一覧を受け取る）
+     *
+     * @requirement estimate-creation/REQ-57.11
+     */
+    describe('recordForeignItemIdScopeDenials（総数・深さの上限の 422 の経路から呼ぶ）', () => {
+      it('読んだ ID のうち属さない ID の実際の案件が範囲外なら案件ごとに 1 回記録し、何も書き込まない', async () => {
+        mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+        foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+        foreignItemOwners.set(FOREIGN_ITEM_2, OTHER_PROJECT_ID);
+        mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+        await service.recordForeignItemIdScopeDenials(
+          ESTIMATE_ID,
+          [ITEM_A, FOREIGN_ITEM, FOREIGN_ITEM_2, FOREIGN_ITEM],
+          ACTOR_ID,
+          CONTEXT
+        );
+
+        expectOwnerLookup([FOREIGN_ITEM, FOREIGN_ITEM_2]);
+        expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+        expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+        expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'PROJECT_SCOPE_DENIED',
+            actorId: ACTOR_ID,
+            targetId: OTHER_PROJECT_ID,
+            metadata: CONTEXT,
+          })
+        );
+        expectNoWrites();
+      });
+
+      it('属さない ID が無ければ所属を引かず記録しない', async () => {
+        mockPrisma.estimateItem.findMany.mockResolvedValue([{ id: ITEM_A, parentId: null }]);
+
+        await service.recordForeignItemIdScopeDenials(ESTIMATE_ID, [ITEM_A], ACTOR_ID, CONTEXT);
+
+        expect(mockPrisma.estimate.findMany).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+        expectNoWrites();
+      });
+
+      it('見積書が不在なら何も引かず記録しない', async () => {
+        mockPrisma.estimate.findUnique.mockResolvedValue(null);
+        foreignItemOwners.set(FOREIGN_ITEM, OTHER_PROJECT_ID);
+        mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+        await service.recordForeignItemIdScopeDenials(
+          ESTIMATE_ID,
+          [FOREIGN_ITEM],
+          ACTOR_ID,
+          CONTEXT
+        );
+
+        expect(mockPrisma.estimate.findMany).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
     });
   });
 });

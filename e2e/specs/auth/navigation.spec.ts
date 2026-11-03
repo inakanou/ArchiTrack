@@ -1,7 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createAllTestUsers } from '../../fixtures/auth.fixtures';
+import {
+  createAllTestUsers,
+  createSessionUser,
+  deleteSessionUsers,
+} from '../../fixtures/auth.fixtures';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 
 /**
@@ -25,6 +29,10 @@ test.describe('画面遷移とナビゲーション', () => {
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
+  });
+
+  test.afterEach(async () => {
+    await deleteSessionUsers();
   });
 
   /**
@@ -310,7 +318,9 @@ test.describe('画面遷移とナビゲーション', () => {
    * THEN ログアウト処理を実行し、ログイン画面へリダイレクトする
    */
   test('ログアウトボタンでログアウトできる', async ({ page }) => {
-    await loginAsUser(page, 'REGULAR_USER');
+    // ログアウトは共有の役割の利用者の系列を失効させるため、テストの中で作る利用者で行う（要件33.6）
+    const sessionUser = await createSessionUser('REGULAR_USER');
+    await loginAsUser(page, sessionUser);
 
     await page.goto('/profile');
 

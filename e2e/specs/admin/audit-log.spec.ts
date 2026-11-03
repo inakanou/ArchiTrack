@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { API_BASE_URL } from '../../config';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 監査ログとコンプライアンスのE2Eテスト
@@ -30,13 +31,7 @@ test.describe('監査ログとコンプライアンス', () => {
     await createTestUser('ADMIN_USER');
 
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
   });
 
@@ -337,13 +332,7 @@ test.describe('監査ログとコンプライアンス', () => {
     await createTestUser('REGULAR_USER');
 
     // 一般ユーザーとしてログイン
-    const userLoginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'user@example.com',
-        password: 'Password123!',
-      },
-    });
-    const { accessToken: userToken } = await userLoginResponse.json();
+    const { accessToken: userToken } = await loginViaApi(request, 'REGULAR_USER');
 
     // 監査ログにアクセス試行
     const logsResponse = await request.get(`${API_BASE_URL}/api/v1/audit-logs`, {

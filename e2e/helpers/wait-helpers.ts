@@ -7,6 +7,7 @@
 
 import type { Page, Locator } from '@playwright/test';
 import { expect } from '@playwright/test';
+import { waitForAuthenticatedSession } from './auth-api';
 
 /**
  * CI環境かどうかを判定
@@ -53,7 +54,7 @@ export async function waitForPageStable(
 /**
  * 認証状態が確立するまで待機
  *
- * localStorageにリフレッシュトークンが保存されるまで待機します。
+ * 画面のセッションで認証済みの API（GET /api/v1/auth/me）が成功するまで待機します。
  * CI環境では複数回リトライします。
  *
  * @param page - Playwrightのページオブジェクト
@@ -84,16 +85,9 @@ export async function waitForAuthState(
       // ネットワークアイドルを待機
       await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
-      // リフレッシュトークンとアクセストークンの両方の存在を確認
-      await page.waitForFunction(
-        () =>
-          localStorage.getItem('refreshToken') !== null &&
-          localStorage.getItem('accessToken') !== null,
-        {
-          timeout,
-          polling: 500,
-        }
-      );
+      // 画面のセッションで認証済みの API が成功することを確認
+      // （トークンは画面のメモリと HttpOnly Cookie だけにあり、永続ストレージに無い）
+      await waitForAuthenticatedSession(page, { timeout, polling: 500 });
 
       return true;
     } catch (error) {

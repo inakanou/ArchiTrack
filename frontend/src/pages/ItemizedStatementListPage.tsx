@@ -13,6 +13,11 @@
  * - 11.5: 内訳書セクションは一覧画面へのリンクを表示する
  * - 15.8: 内訳書一覧画面の新規作成ボタンは内訳書新規作成画面に遷移する
  * - 15.9: 内訳書一覧画面からキャンセルする場合、システムは内訳書一覧画面に遷移する
+ *
+ * Task 29.1 変更: プロジェクトの読み込み（内訳書の一覧・数量表の一覧・プロジェクトの取得）が 404 を
+ *   受けたときに、プロジェクトが見つからない旨とプロジェクトの一覧へのリンクを表示し、取得の失敗の
+ *   文言と再試行の釦を出さない。削除が 404 を受けたときは一覧を保ったまま内訳書が見つからない旨の
+ *   メッセージを表示する（itemized-statement-generation の Requirement 19.1・19.2）
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -25,7 +30,11 @@ import type {
   PaginatedItemizedStatements,
 } from '../types/itemized-statement.types';
 import type { QuantityTableInfo } from '../types/quantity-table.types';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getItemizedStatementNotFoundMessage,
+  isNotFoundError,
+} from '../utils/itemizedStatementNotFound';
 
 // ============================================================================
 // スタイル定義
@@ -181,6 +190,16 @@ const styles = {
     fontWeight: 500,
     borderRadius: '6px',
     cursor: 'pointer',
+  } as React.CSSProperties,
+  operationError: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    padding: '12px 16px',
+    marginBottom: '16px',
+    color: '#991b1b',
+    fontSize: '14px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   cardActions: {
     display: 'flex',
@@ -473,6 +492,10 @@ export default function ItemizedStatementListPage() {
     updatedAt: string;
   } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // プロジェクトの読み込みが 404 を受けた（範囲外と不在を区別しない。Task 29.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
+  // 削除が 404 を受けたときの見つからない旨のメッセージ（一覧は保つ。Task 29.1）
+  const [deleteNotFoundMessage, setDeleteNotFoundMessage] = useState<string | null>(null);
 
   /**
    * 内訳書一覧を取得
@@ -483,6 +506,8 @@ export default function ItemizedStatementListPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsProjectNotFound(false);
+    setDeleteNotFoundMessage(null);
 
     try {
       const [statementsResult, tablesResult, projectData] = await Promise.all([
@@ -498,7 +523,12 @@ export default function ItemizedStatementListPage() {
       if (projectData?.name) {
         setProjectName(projectData.name);
       }
-    } catch {
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsProjectNotFound(true);
+        return;
+      }
       setError('内訳書の取得に失敗しました');
     } finally {
       setIsLoading(false);
@@ -524,6 +554,7 @@ export default function ItemizedStatementListPage() {
     if (!statementToDelete) return;
 
     setIsDeleting(true);
+    setDeleteNotFoundMessage(null);
     try {
       await deleteItemizedStatement(statementToDelete.id, statementToDelete.updatedAt);
       setData((prev) => {
@@ -538,7 +569,15 @@ export default function ItemizedStatementListPage() {
         };
       });
       setStatementToDelete(null);
-    } catch {
+    } catch (err) {
+      const notFoundMessage = getItemizedStatementNotFoundMessage(err, 'itemizedStatement');
+      if (notFoundMessage) {
+        // 404 では一覧を保ったまま見つからない旨を表示する。取り直すと、案件が範囲外になった・
+        // 論理削除された場合に一覧全体がプロジェクトの不在の表示へ替わり、メッセージが見えなくなるため
+        setDeleteNotFoundMessage(notFoundMessage);
+        setStatementToDelete(null);
+        return;
+      }
       setError('削除に失敗しました');
     } finally {
       setIsDeleting(false);
@@ -568,6 +607,19 @@ export default function ItemizedStatementListPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 29.1）。再試行で解けないため再試行の釦を出さない
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }
@@ -627,6 +679,17 @@ export default function ItemizedStatementListPage() {
           </Link>
         )}
       </div>
+
+      {/* 削除の 404 の見つからない旨（Task 29.1） */}
+      {deleteNotFoundMessage && (
+        <div
+          role="alert"
+          style={styles.operationError}
+          data-testid="itemized-statement-list-operation-error"
+        >
+          {deleteNotFoundMessage}
+        </div>
+      )}
 
       {/* 一覧 */}
       {totalCount === 0 ? (

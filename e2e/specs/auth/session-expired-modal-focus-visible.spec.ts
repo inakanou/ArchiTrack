@@ -20,6 +20,7 @@
 import { test, expect, type ElementHandle, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { waitForAuthenticatedSession } from '../../helpers/auth-api';
 
 // ============================================================================
 // フォーカス表示の判定（trading-partner-focus-visible.spec.ts と同じ基準）
@@ -352,11 +353,7 @@ async function setupAuthenticatedProfilePage(page: Page): Promise<void> {
   await page.goto('/profile');
   await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
   await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
-  await page.waitForFunction(
-    () =>
-      localStorage.getItem('refreshToken') !== null && localStorage.getItem('accessToken') !== null,
-    { timeout: getTimeout(15000), polling: 500 }
-  );
+  await waitForAuthenticatedSession(page, { timeout: getTimeout(15000), polling: 500 });
 }
 
 /**
@@ -482,7 +479,11 @@ test.describe('セッション切れのモーダルのフォーカス表示', ()
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ requires2FA: true }),
+        body: JSON.stringify({
+          requires2FA: true,
+          challengeToken: 'e2e-2fa-challenge',
+          expiresIn: 300,
+        }),
       });
     });
     const dialog = page.getByRole('dialog');

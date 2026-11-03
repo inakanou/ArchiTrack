@@ -672,7 +672,7 @@ test.describe('プロジェクト一覧操作', () => {
 
       // REQ-3.1 は一覧が空でないときの表示件数を定める。一覧が空だと
       // ページネーション自体が描画されず主張が一つも実行されないため、前提を自分で用意する。
-      await seedProject(page, 'E2E一覧デフォルト件数');
+      await seedProject(page, 'REGULAR_USER', 'E2E一覧デフォルト件数');
 
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
@@ -709,7 +709,7 @@ test.describe('プロジェクト一覧操作', () => {
       // REQ-3.4 は一覧のページネーション表示（現在のページ番号・総ページ数・総件数）を定める。
       // 一覧が空だとページネーション自体が描画されず主張が一つも実行されないため、
       // プロジェクトが存在する状態を前提として自分で用意する。
-      await seedProject(page, 'E2Eページネーション表示');
+      await seedProject(page, 'REGULAR_USER', 'E2Eページネーション表示');
 
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
@@ -736,7 +736,7 @@ test.describe('プロジェクト一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // ページネーションはプロジェクトが1件以上あるときだけ描画される。前提を自分で用意する。
-      await seedProject(page, 'E2E表示件数変更');
+      await seedProject(page, 'REGULAR_USER', 'E2E表示件数変更');
 
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
@@ -765,7 +765,7 @@ test.describe('プロジェクト一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 2ページ目が必ず存在する件数を用意する（既存データの件数に依存させない）
-      await seedProjectsForSecondPage(page, 'E2Eページ番号');
+      await seedProjectsForSecondPage(page, 'REGULAR_USER', 'E2Eページ番号');
 
       // 表示件数を少なくしてページ数を増やす
       await page.goto(`/projects?limit=${PAGINATED_LIMIT}`);
@@ -808,7 +808,7 @@ test.describe('プロジェクト一覧操作', () => {
 
       // REQ-15.1 のデスクトップ表示はテーブルの描画を前提とする。
       // 一覧が空だとテーブルごと描画されないため、前提を自分で用意する。
-      await seedProject(page, 'E2Eデスクトップ表示');
+      await seedProject(page, 'REGULAR_USER', 'E2Eデスクトップ表示');
 
       // デスクトップサイズを設定
       await page.setViewportSize({ width: 1280, height: 720 });
@@ -863,7 +863,7 @@ test.describe('プロジェクト一覧操作', () => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // REQ-15.3 の切り替えは一覧に行があることを前提とする。前提を自分で用意する。
-      await seedProject(page, 'E2E画面幅切替');
+      await seedProject(page, 'REGULAR_USER', 'E2E画面幅切替');
 
       // デスクトップサイズで開始
       await page.setViewportSize({ width: 1280, height: 720 });
@@ -902,7 +902,7 @@ test.describe('プロジェクト一覧操作', () => {
 
       // 検索語「プロジェクト」に一致するプロジェクトを用意する。
       // 検索結果が0件だと表もページネーションも描画されず、Step 2・Step 3 が沈黙するため。
-      await seedProject(page, 'E2E統合フロープロジェクト');
+      await seedProject(page, 'REGULAR_USER', 'E2E統合フロープロジェクト');
 
       // デスクトップサイズを設定
       await page.setViewportSize({ width: 1280, height: 720 });

@@ -24,6 +24,9 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 取引先API統合テスト
@@ -48,12 +51,10 @@ describe('Trading Partner API Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-trading-partner-integration@example.com',
-        displayName: 'Trading Partner Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-trading-partner-integration@example.com',
+      displayName: 'Trading Partner Test User',
+      passwordHash,
     });
 
     // adminロールを取得して割り当て（全権限を持つ）
@@ -71,16 +72,13 @@ describe('Trading Partner API Integration Tests', () => {
     }
 
     // ログイン
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({
-        email: 'test-trading-partner-integration@example.com',
-        password: 'TestPassword123!',
-      })
-      .expect(200);
+    const accessToken = await loginForAccessToken(app, {
+      email: 'test-trading-partner-integration@example.com',
+      password: 'TestPassword123!',
+    });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -98,12 +96,10 @@ describe('Trading Partner API Integration Tests', () => {
     });
 
     // テストユーザーを作成（権限なし）
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-trading-partner-no-perm@example.com',
-        displayName: 'No Permission User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-trading-partner-no-perm@example.com',
+      displayName: 'No Permission User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て（権限は付与しない）
@@ -121,16 +117,13 @@ describe('Trading Partner API Integration Tests', () => {
     }
 
     // ログイン
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({
-        email: 'test-trading-partner-no-perm@example.com',
-        password: 'TestPassword123!',
-      })
-      .expect(200);
+    const accessToken = await loginForAccessToken(app, {
+      email: 'test-trading-partner-no-perm@example.com',
+      password: 'TestPassword123!',
+    });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -171,11 +164,9 @@ describe('Trading Partner API Integration Tests', () => {
     });
 
     // 3. 監査ログを削除
-    await prisma.auditLog.deleteMany({
-      where: {
-        actorId: {
-          in: [testUserId, noPermissionUserId].filter(Boolean),
-        },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      actorId: {
+        in: [testUserId, noPermissionUserId].filter(Boolean),
       },
     });
 
@@ -239,16 +230,14 @@ describe('Trading Partner API Integration Tests', () => {
       },
     });
 
-    await prisma.auditLog.deleteMany({
-      where: {
-        OR: [
-          { action: 'TRADING_PARTNER_CREATED' },
-          { action: 'TRADING_PARTNER_UPDATED' },
-          { action: 'TRADING_PARTNER_DELETED' },
-        ],
-        actorId: {
-          in: [testUserId, noPermissionUserId].filter(Boolean),
-        },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      OR: [
+        { action: 'TRADING_PARTNER_CREATED' },
+        { action: 'TRADING_PARTNER_UPDATED' },
+        { action: 'TRADING_PARTNER_DELETED' },
+      ],
+      actorId: {
+        in: [testUserId, noPermissionUserId].filter(Boolean),
       },
     });
 

@@ -19,6 +19,7 @@ import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 test.describe('プロジェクト詳細画面 - セクション表示とAPI効率化', () => {
   test.describe.configure({ mode: 'serial' });
@@ -132,7 +133,7 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     quantityTableId: string;
     headers: { Authorization: string };
   }> {
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    const accessToken = await getAccessToken(page, 'REGULAR_USER');
     assertPrepared(accessToken, '認証トークン');
     const headers = { Authorization: `Bearer ${accessToken}` };
     const stamp = Date.now();
@@ -555,7 +556,7 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       await loginAsUser(page, 'REGULAR_USER');
 
       const stamp = Date.now();
-      const seed = await seedEstimateRequest(page, {
+      const seed = await seedEstimateRequest(page, 'REGULAR_USER', {
         label: 'REQ-27.5一覧',
         siteAddress: '東京都渋谷区見積依頼一覧1-2-3',
         partnerEmail: `req-27-5-${stamp}@example.com`,
@@ -978,7 +979,7 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(15000) });
 
       // アクセストークンを取得
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
 
       // Playwright APIリクエストコンテキストでdetail-summary APIを直接呼び出して構造を検証
@@ -1035,7 +1036,7 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
       const stamp = Date.now();
       // 数量表・内訳書・見積依頼までを用意する
-      const seed = await seedEstimateRequest(page, {
+      const seed = await seedEstimateRequest(page, 'REGULAR_USER', {
         label: 'REQ-29.6互換',
         siteAddress: '東京都渋谷区互換1-2-3',
         partnerEmail: `req-29-6-${stamp}@example.com`,

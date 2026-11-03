@@ -10,6 +10,11 @@
  * - 6.2: 数量項目の移動
  * - 6.4: 複数項目の一括コピー・移動
  *
+ * 案件の閲覧範囲（quantity-table-generation の Requirement 50、user-authentication の要件39。タスク104.1）:
+ * 全経路で requirePermission の後に quantity-table-project-scope.middleware の判定部品を置き、
+ * 数量項目は親の数量グループの数量表の案件で判定して範囲外は不在と同じ汎用の 404 にする。
+ * 移動・一括コピー・一括移動・表示順の更新は対象と移し先の全件を判定する。
+ *
  * @module routes/quantity-items
  */
 
@@ -21,6 +26,12 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireBulkQuantityItemsProjectScope,
+  requireOrderedQuantityItemsProjectScope,
+  requireQuantityGroupParamProjectScope,
+  requireQuantityItemProjectScope,
+} from '../middleware/quantity-table-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createQuantityItemBaseSchema,
@@ -77,15 +88,54 @@ const updateQuantityItemRequestSchema = updateQuantityItemSchema.extend({
 });
 
 /**
+ * 表示順の更新と一括コピー・一括移動の配列の件数の上限（Requirement 42.14。OWASP API Security の API4）
+ *
+ * 値は利用者が 2026-10-31 に確定した（design.md の「2026-10-31 の追加: 件数の上限の画面の表示と、
+ * 本文の文字列・計算用パラメータ・個別の操作の配列の上限」の「決定」の表）。表示順の更新は一つの
+ * 数量グループの数量項目の数の上限（42.11 の `SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP`）と同じ 2000。
+ * 一括コピー・一括移動は、2000 件の一括コピーが既定のトランザクションの制限時間（5 秒）を超えると
+ * 実測したため、利用者の決定（2026-10-31）で 1000 とし、さらに 1000 件の一括コピーの最悪の所要
+ * （5034 ms）が制限時間に近いため、利用者の決定（2026-11-01、タスク111.1）で 500 とした。
+ * 両経路は `bulkItemIdsSchema` を共有するため、どちらも 500。保存の経路のモジュールは経路とサービスを
+ * 組み立てるため import せず、本経路の近くに置く。超えた要求は本文の検証の 400 で拒み、後段の
+ * 閲覧範囲の判定（`requireOrderedQuantityItemsProjectScope`・`requireBulkQuantityItemsProjectScope`）と
+ * サービスを呼ばない。
+ */
+/** 数量項目の表示順の更新の `orderUpdates` の件数の上限 */
+export const QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES = 2000;
+/** 数量項目の一括コピー・一括移動の `itemIds` の件数の上限 */
+export const QUANTITY_ITEM_BULK_MAX_ITEMS = 500;
+
+/** 件数の上限を超えたときの日本語のメッセージ（Requirement 42.14） */
+export const QUANTITY_ITEM_LIMIT_MESSAGES = {
+  DISPLAY_ORDER_TOO_MANY: `数量項目は${QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES}件以内で指定してください`,
+  BULK_ITEMS_TOO_MANY: `数量項目は${QUANTITY_ITEM_BULK_MAX_ITEMS}件以内で選択してください`,
+} as const;
+
+/** 一括コピー・一括移動の `itemIds`（1 件以上、`QUANTITY_ITEM_BULK_MAX_ITEMS` 件まで。42.14） */
+const bulkItemIdsSchema = z
+  .array(z.string().uuid('項目IDの形式が不正です'))
+  .min(1, '項目を1つ以上選択してください')
+  .max(QUANTITY_ITEM_BULK_MAX_ITEMS, {
+    message: QUANTITY_ITEM_LIMIT_MESSAGES.BULK_ITEMS_TOO_MANY,
+  });
+
+/**
  * 表示順序更新スキーマ
+ *
+ * `orderUpdates` は `QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES` 件まで（42.14）。
  */
 const updateDisplayOrderSchema = z.object({
-  orderUpdates: z.array(
-    z.object({
-      id: z.string().uuid('項目IDの形式が不正です'),
-      displayOrder: z.number().int().min(0, '表示順序は0以上の整数を入力してください'),
-    })
-  ),
+  orderUpdates: z
+    .array(
+      z.object({
+        id: z.string().uuid('項目IDの形式が不正です'),
+        displayOrder: z.number().int().min(0, '表示順序は0以上の整数を入力してください'),
+      })
+    )
+    .max(QUANTITY_ITEM_DISPLAY_ORDER_MAX_UPDATES, {
+      message: QUANTITY_ITEM_LIMIT_MESSAGES.DISPLAY_ORDER_TOO_MANY,
+    }),
 });
 
 /**
@@ -98,20 +148,20 @@ const moveItemSchema = z.object({
 
 /**
  * 一括コピースキーマ
+ *
+ * `itemIds` は 1 件以上、`QUANTITY_ITEM_BULK_MAX_ITEMS` 件まで（42.14）。
  */
 const bulkCopySchema = z.object({
-  itemIds: z
-    .array(z.string().uuid('項目IDの形式が不正です'))
-    .min(1, '項目を1つ以上選択してください'),
+  itemIds: bulkItemIdsSchema,
 });
 
 /**
  * 一括移動スキーマ
+ *
+ * `itemIds` は 1 件以上、`QUANTITY_ITEM_BULK_MAX_ITEMS` 件まで（42.14）。
  */
 const bulkMoveSchema = z.object({
-  itemIds: z
-    .array(z.string().uuid('項目IDの形式が不正です'))
-    .min(1, '項目を1つ以上選択してください'),
+  itemIds: bulkItemIdsSchema,
   targetGroupId: z.string().uuid('移動先グループIDの形式が不正です'),
 });
 
@@ -201,6 +251,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(groupIdUrlParamSchema, 'params'),
+  requireQuantityGroupParamProjectScope('groupId'),
   validate(createQuantityItemBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -289,6 +340,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(groupIdUrlParamSchema, 'params'),
+  requireQuantityGroupParamProjectScope('groupId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { groupId } = req.validatedParams as { groupId: string };
@@ -359,7 +411,9 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(groupIdUrlParamSchema, 'params'),
+  requireQuantityGroupParamProjectScope('groupId'),
   validate(updateDisplayOrderSchema, 'body'),
+  requireOrderedQuantityItemsProjectScope('orderUpdates'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { groupId } = req.validatedParams as { groupId: string };
@@ -435,6 +489,7 @@ router.get(
   authenticate,
   requirePermission('quantity_table:read'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -531,6 +586,7 @@ router.put(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   validate(updateQuantityItemRequestSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -625,6 +681,7 @@ router.delete(
   authenticate,
   requirePermission('quantity_table:delete'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -684,6 +741,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -763,7 +821,9 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(quantityItemIdParamSchema, 'params'),
+  requireQuantityItemProjectScope('id'),
   validate(moveItemSchema, 'body'),
+  requireBulkQuantityItemsProjectScope({ targetGroupId: 'targetGroupId' }),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -856,6 +916,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(bulkCopySchema, 'body'),
+  requireBulkQuantityItemsProjectScope({ itemIds: 'itemIds' }),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const actorId = req.user!.userId;
@@ -920,6 +981,7 @@ router.post(
   authenticate,
   requirePermission('quantity_table:update'),
   validate(bulkMoveSchema, 'body'),
+  requireBulkQuantityItemsProjectScope({ itemIds: 'itemIds', targetGroupId: 'targetGroupId' }),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const actorId = req.user!.userId;

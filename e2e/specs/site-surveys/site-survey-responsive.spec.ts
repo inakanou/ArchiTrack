@@ -32,6 +32,7 @@ import { getFabricObjectCount, waitForFabricCanvas } from '../../helpers/fabric-
 // 自動保存の間隔は本番の一元管理された定数を直接参照する。
 // テスト側に数値を複製すると、間隔が変わったときに検証だけが古い前提のまま緑になる。
 import { DEFAULT_AUTO_SAVE_INTERVAL_MS } from '../../../frontend/src/services/AutoSaveManager';
+import { getAccessToken } from '../../helpers/auth-api';
 
 /**
  * 描画から下書きが書き出されるまでに最低限あいているべき時間（ミリ秒）。
@@ -255,7 +256,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       const annotationImagePath = path.join(__dirname, '../../fixtures/test-image-large.jpg');
       expect(fs.existsSync(annotationImagePath)).toBeTruthy();
 
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
       const annotationUploadResponse = await page.request.post(
         `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
         {

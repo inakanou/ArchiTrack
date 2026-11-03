@@ -12,6 +12,12 @@
  *
  * Design Reference: design.md - ContractService セクション
  *
+ * 案件の閲覧範囲（contract-management の Requirement 14.5・14.6、タスク19.1）: 契約書の作成・更新の要求が指す
+ * 見積書が契約書のプロジェクトに属さなければ、見積書の不在と同じ 404 にして契約書を作成・更新しない。
+ * 変更契約の作成の要求が指す基となる契約書が経路のプロジェクトに属さなければ、不在と同じ 422 にする。
+ * 参照先の案件が実在し実行者の閲覧範囲外なら、user-authentication の要件39.7 に従い PROJECT_SCOPE_DENIED を
+ * 処理の後に記録する。
+ *
  * @module services/contract
  */
 
@@ -29,13 +35,39 @@ import {
 } from '../errors/contractError.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
 import { EstimateNotFoundError } from '../errors/estimateError.js';
+import type { IAuditLogService } from '../types/audit-log.types.js';
+import { AuditLogService } from './audit-log.service.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 
 /**
  * ContractService依存関係
  */
 export interface ContractServiceDependencies {
   prisma: PrismaClient;
+  /**
+   * 範囲外の拒否（PROJECT_SCOPE_DENIED）の記録に用いる監査ログ（任意。タスク19.1、Requirement 14.5・14.6）。
+   * 未指定の場合は `prisma` で組み立てる。
+   */
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;
+  /**
+   * 案件の閲覧範囲の判定（任意。タスク19.1、Requirement 14.5・14.6）。
+   * 要求が指す他のプロジェクトの見積書・基となる契約書の案件が範囲外かを判定し、範囲外の拒否を記録するために
+   * 用いる。未指定の場合は user-authentication の共有のインスタンス（{@link getSharedProjectScopeService}）で
+   * 判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 }
+
+/**
+ * 変更契約の作成の要求が指す基となる契約書が見つからない場合の本文。
+ * 経路のプロジェクトに属さない基となる契約書も同じ本文にする（Requirement 14.6）
+ */
+const PARENT_CONTRACT_NOT_REFERABLE_MESSAGE =
+  '基となる契約書は同じプロジェクトの契約書である必要があります';
 
 /**
  * 契約書一覧アイテム
@@ -225,9 +257,51 @@ function toContractListItem(record: any): ContractListItem {
  */
 export class ContractService {
   private readonly prisma: PrismaClient;
+  private readonly auditLogService: Pick<IAuditLogService, 'createLog'>;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: ContractServiceDependencies) {
     this.prisma = deps.prisma;
+    this.auditLogService = deps.auditLogService ?? new AuditLogService({ prisma: deps.prisma });
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
+  }
+
+  /**
+   * 参照先（見積書・基となる契約書）の案件が作成先・更新先のプロジェクトと食い違うとき、その案件が実行者の
+   * 閲覧範囲外（案件は実在する）なら `deniedProjectIds` へ入れる（user-authentication の要件39.7）。
+   * 範囲内の他のプロジェクトと案件の不在・論理削除は記録しない
+   */
+  private async noteOutOfScopeReference(
+    actorId: string | undefined,
+    referencedProjectId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<void> {
+    if (actorId === undefined) {
+      return;
+    }
+    const decision = await this.projectScope.evaluateProjectAccess(actorId, referencedProjectId);
+    if (decision === 'out_of_scope') {
+      deniedProjectIds.add(referencedProjectId);
+    }
+  }
+
+  /**
+   * 参照先の照合で範囲外とした案件を、処理の後に PROJECT_SCOPE_DENIED として記録する
+   * （user-authentication の要件39.7）。実行者が分からない（経路の外から呼ばれた）ときは記録しない
+   */
+  private withReferenceScopeRecording<T>(
+    actorId: string | undefined,
+    scopeDenialContext: ProjectScopeDenialContext | undefined,
+    run: (deniedProjectIds: Set<string>) => Promise<T>
+  ): Promise<T> {
+    if (actorId === undefined) {
+      return run(new Set<string>());
+    }
+    return withSurveyScopeDenialRecording(actorId, scopeDenialContext, this.auditLogService, run);
   }
 
   /**
@@ -296,7 +370,26 @@ export class ContractService {
    * - 7.1: 契約書作成
    * - 8.1: ステータスBEFORE_CONTRACTで初期化
    */
-  async create(projectId: string, data: CreateContractInput): Promise<ContractDetail> {
+  async create(
+    projectId: string,
+    data: CreateContractInput,
+    actorId?: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<ContractDetail> {
+    // 見積書・基となる契約書の所属の照合（14.5・14.6）で範囲外とした案件は、処理の後に
+    // PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7）
+    return this.withReferenceScopeRecording(actorId, scopeDenialContext, (deniedProjectIds) =>
+      this.createWithin(projectId, data, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link create} の本体。参照先の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async createWithin(
+    projectId: string,
+    data: CreateContractInput,
+    actorId: string | undefined,
+    deniedProjectIds: Set<string>
+  ): Promise<ContractDetail> {
     // 参照先の検証（design.md の Preconditions・Error Handling）
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
@@ -305,7 +398,7 @@ export class ContractService {
     if (!project || project.deletedAt) {
       throw new ProjectNotFoundError(projectId);
     }
-    await this.assertEstimateReferable(projectId, data.estimateId);
+    await this.assertEstimateReferable(projectId, data.estimateId, actorId, deniedProjectIds);
 
     // 変更契約の場合、parentContractIdが同プロジェクトであることを検証
     if (data.contractType === 'AMENDMENT' && data.parentContractId) {
@@ -313,10 +406,21 @@ export class ContractService {
         where: { id: data.parentContractId },
       });
 
-      if (!parentContract || parentContract.projectId !== projectId) {
-        throw new ContractValidationError(
-          '基となる契約書は同じプロジェクトの契約書である必要があります'
-        );
+      // 基となる契約書の照合の順（design.md の「2026-10-30 の追加」章の「決定」）。3 通りとも 14.6 と同じ
+      // 422 と同じ本文で拒否し、契約書を作成しない。
+      // (1) 行が無い: 記録しない
+      if (!parentContract) {
+        throw new ContractValidationError(PARENT_CONTRACT_NOT_REFERABLE_MESSAGE);
+      }
+      // (2) 経路のプロジェクトに属さない: 論理削除済みかどうかに関わらず属する案件を判定し、範囲外（案件は
+      // 実在する）のときだけ範囲外の拒否として記録する（14.6・14.8。user-authentication の要件39.7・39.8）
+      if (parentContract.projectId !== projectId) {
+        await this.noteOutOfScopeReference(actorId, parentContract.projectId, deniedProjectIds);
+        throw new ContractValidationError(PARENT_CONTRACT_NOT_REFERABLE_MESSAGE);
+      }
+      // (3) 同じプロジェクトで論理削除済み: 記録しない（14.8）
+      if (parentContract.deletedAt) {
+        throw new ContractValidationError(PARENT_CONTRACT_NOT_REFERABLE_MESSAGE);
       }
     }
 
@@ -352,7 +456,26 @@ export class ContractService {
    * Requirements:
    * - 9.2: 楽観的排他制御（version検証）
    */
-  async update(id: string, data: UpdateContractInput): Promise<ContractDetail> {
+  async update(
+    id: string,
+    data: UpdateContractInput,
+    actorId?: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<ContractDetail> {
+    // 見積書の所属の照合（14.5）で範囲外とした案件は、処理の後に PROJECT_SCOPE_DENIED として記録する
+    // （user-authentication の要件39.7）
+    return this.withReferenceScopeRecording(actorId, scopeDenialContext, (deniedProjectIds) =>
+      this.updateWithin(id, data, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link update} の本体。見積書の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async updateWithin(
+    id: string,
+    data: UpdateContractInput,
+    actorId: string | undefined,
+    deniedProjectIds: Set<string>
+  ): Promise<ContractDetail> {
     // 既存レコードの取得と検証
     const existing = await this.prisma.contract.findUnique({
       where: { id },
@@ -370,7 +493,12 @@ export class ContractService {
     // 見積書を付け替える場合だけ参照先を検証する。付け替えない場合は、作成後に
     // 見積書が論理削除されていても他の項目の編集を妨げない
     if (data.estimateId !== existing.estimateId) {
-      await this.assertEstimateReferable(existing.projectId, data.estimateId);
+      await this.assertEstimateReferable(
+        existing.projectId,
+        data.estimateId,
+        actorId,
+        deniedProjectIds
+      );
     }
 
     const record = await this.prisma.contract.update({
@@ -402,11 +530,20 @@ export class ContractService {
    *
    * design.md の ContractService の Preconditions（見積書は同じプロジェクトのもの）と
    * Error Handling（見積書が見つからなければ 404、論理削除済みの見積書の参照は 422）に従う。
+   * 契約書のプロジェクトに属さない見積書は、範囲の内外と論理削除の有無を問わず見積書の不在と同じ 404 にする
+   * （Requirement 14.5。他のプロジェクトの見積書の実在を推測させない）。
    *
-   * @throws EstimateNotFoundError 見積書が存在しない場合（404）
-   * @throws ContractValidationError 他プロジェクトの見積書、または論理削除済みの見積書の場合（422）
+   * @param actorId - 実行者ID（属さない見積書の案件が範囲外かの判定に用いる）
+   * @param deniedProjectIds - 範囲外と判定した案件を入れる集合（処理の後に記録する）
+   * @throws EstimateNotFoundError 見積書が存在しない、または契約書のプロジェクトに属さない場合（404）
+   * @throws ContractValidationError 同じプロジェクトの論理削除済みの見積書の場合（422）
    */
-  private async assertEstimateReferable(projectId: string, estimateId: string): Promise<void> {
+  private async assertEstimateReferable(
+    projectId: string,
+    estimateId: string,
+    actorId: string | undefined,
+    deniedProjectIds: Set<string>
+  ): Promise<void> {
     const estimate = await this.prisma.estimate.findUnique({
       where: { id: estimateId },
       select: { id: true, projectId: true, deletedAt: true },
@@ -416,9 +553,10 @@ export class ContractService {
       throw new EstimateNotFoundError(estimateId);
     }
     if (estimate.projectId !== projectId) {
-      throw new ContractValidationError(
-        '契約の基となる見積書は同じプロジェクトの見積書である必要があります'
-      );
+      // 範囲の内外で応答を変えると他のプロジェクトの見積書の実在を推測させるため、不在と同じ応答にする。
+      // 範囲外（案件は実在する）のときだけ、範囲外の拒否として記録する（要件39.7）
+      await this.noteOutOfScopeReference(actorId, estimate.projectId, deniedProjectIds);
+      throw new EstimateNotFoundError(estimateId);
     }
     if (estimate.deletedAt) {
       throw new ContractValidationError('削除された見積書は契約の基として選択できません');

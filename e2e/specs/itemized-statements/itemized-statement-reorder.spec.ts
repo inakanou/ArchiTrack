@@ -30,7 +30,8 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
-import { assertPrepared } from '../../helpers/preconditions';
+import { loginViaApi } from '../../helpers/auth-api';
+import { cleanupProjectFixtures } from '../../helpers/itemized-statement-preconditions';
 
 /**
  * 内訳書項目の並び替え機能のE2Eテスト
@@ -49,6 +50,13 @@ test.describe('内訳書項目の並び替え', () => {
     await context.clearCookies();
   });
 
+  test.afterAll(async () => {
+    // 事前準備のプロジェクトを、配下の内訳書・数量表とともに管理者で消す。204 以外は失敗にする
+    // （2026-11-02 の是正まで、serial の最後の test で一般利用者が消して 403 を受け、状態コードを
+    // 見ていなかった。プロジェクトの論理削除は配下を消さない）
+    await cleanupProjectFixtures({ projectIds: [testProjectId] });
+  });
+
   /**
    * 事前準備: テスト用プロジェクト・数量表・内訳書を作成
    */
@@ -58,13 +66,7 @@ test.describe('内訳書項目の並び替え', () => {
 
       // APIトークンを取得
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // ユーザー情報を取得（salesPersonId用）
@@ -476,13 +478,7 @@ test.describe('内訳書項目の並び替え', () => {
 
       // APIトークンを取得
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 新しい内訳書を作成
@@ -537,13 +533,7 @@ test.describe('内訳書項目の並び替え', () => {
       }
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 新しい内訳書を作成
@@ -594,13 +584,7 @@ test.describe('内訳書項目の並び替え', () => {
       }
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 専用の数量表を作成（null任意分類を含む項目を投入）
@@ -715,13 +699,7 @@ test.describe('内訳書項目の並び替え', () => {
       }
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 専用の内訳書を作成（既存の並び替え操作テストと干渉しないように）
@@ -959,13 +937,7 @@ test.describe('内訳書項目の並び替え', () => {
       }
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
       // 楽観的排他制御テスト専用の内訳書を作成
@@ -1047,31 +1019,143 @@ test.describe('内訳書項目の並び替え', () => {
         page.getByText(/他のユーザーにより更新されました.*画面を再読み込みしてください/)
       ).toBeVisible({ timeout: getTimeout(5000) });
     });
-  });
 
-  /**
-   * クリーンアップ
-   */
-  test.describe('クリーンアップ', () => {
-    test('テストデータを削除する', async ({ request }) => {
-      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
-      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
-      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
+    /**
+     * 2026-10-30 の是正: 画面は 409 を ApiError の statusCode で判定し、応答の本文の文言に頼らず
+     * 固定の文言を表示する。サーバーの 409 の detail は画面の文言と同じなので、上のテストでは
+     * 判定が外れても（detail がそのまま出ても）緑になる。ここでは実際の 409 の detail を別の文言に
+     * 差し替え、並び順の保存と削除の両方で画面の文言が出て差し替えた文言が出ないことを確かめる。
+     *
+     * @requirement itemized-statement-generation/REQ-17.14: 並び順の保存の 409 で画面の固定の文言を表示する（応答の文言に依らない）
+     * @requirement itemized-statement-generation/REQ-10.4: 削除の 409 で画面の固定の文言を表示する（応答の文言に依らない）
+     */
+    test('409 の応答の文言を差し替えても、並び順の保存と削除で画面の固定の文言を表示する', async ({
+      page,
+      request,
+    }) => {
+      if (!testProjectId || !testQuantityTableId) {
+        throw new Error('テスト用リソースが未設定です');
+      }
 
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       const accessToken = loginBody.accessToken;
 
-      // プロジェクト削除（カスケードで内訳書・数量表も削除される）
-      await request.delete(`${baseUrl}/api/projects/${testProjectId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
+      const statementResponse = await request.post(
+        `${baseUrl}/api/projects/${testProjectId}/itemized-statements`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            name: `競合の文言の判定テスト内訳書_${Date.now()}`,
+            quantityTableId: testQuantityTableId,
+          },
+        }
+      );
+      expect(statementResponse.status()).toBe(201);
+      const statementId: string = (await statementResponse.json()).id;
+
+      const detailResponse = await request.get(
+        `${baseUrl}/api/itemized-statements/${statementId}`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      const detailBody = await detailResponse.json();
+      const initialUpdatedAt: string = detailBody.updatedAt;
+      const itemIds: string[] = [...detailBody.items]
+        .sort(
+          (a: { displayOrder: number }, b: { displayOrder: number }) =>
+            a.displayOrder - b.displayOrder
+        )
+        .map((item: { id: string }) => item.id);
+      expect(itemIds.length).toBeGreaterThan(1);
+
+      const SCREEN_MESSAGE = '他のユーザーにより更新されました。画面を再読み込みしてください';
+      const REPLACED_DETAIL = '差し替えた競合の説明（画面には出ない）';
+
+      // 実際の応答を受け、本文の detail だけを差し替えて返す。応答の状態は条件にせず記録し、
+      // 後で「ちょうど 2 回とも 409」であることを主張する（409 以外なら後の主張で失敗する）
+      const replacedStatuses: number[] = [];
+      await page.route(`**/api/itemized-statements/${statementId}**`, async (route) => {
+        const method = route.request().method();
+        if (method !== 'PATCH' && method !== 'DELETE') {
+          await route.continue();
+          return;
+        }
+        const response = await route.fetch();
+        const body = await response.json();
+        replacedStatuses.push(response.status());
+        await route.fulfill({ response, json: { ...body, detail: REPLACED_DETAIL } });
       });
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${statementId}`);
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 画面の並び替え（未保存）
+      await page
+        .getByRole('table')
+        .locator('tbody tr')
+        .first()
+        .getByRole('button', { name: '下へ移動' })
+        .click();
+
+      // 別経路で並び順を更新し updatedAt を進める（画面が持つ updatedAt は古くなる）
+      const externalUpdateResponse = await request.patch(
+        `${baseUrl}/api/itemized-statements/${statementId}/items/order`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: {
+            items: [...itemIds].reverse().map((id, index) => ({ id, displayOrder: index })),
+            updatedAt: initialUpdatedAt,
+          },
+        }
+      );
+      expect(externalUpdateResponse.status()).toBe(200);
+
+      // 並び順の保存: 実際の 409（detail を差し替え）を受けて、画面の固定の文言を表示する
+      const saveConflict = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/itemized-statements/${statementId}/items/order`) &&
+          response.request().method() === 'PATCH'
+      );
+      await page.getByRole('button', { name: /並び順を保存/ }).click();
+      expect((await saveConflict).status()).toBe(409);
+
+      const alerts = page.getByRole('alert');
+      await expect(alerts.filter({ hasText: SCREEN_MESSAGE })).toHaveCount(1, {
+        timeout: getTimeout(5000),
+      });
+      await expect(alerts.filter({ hasText: SCREEN_MESSAGE }).first()).toHaveText(SCREEN_MESSAGE);
+      await expect(page.getByText(REPLACED_DETAIL)).toHaveCount(0);
+      // 未保存の並び順は保たれ、保存の釦が残る（REQ-17.10）
+      await expect(page.getByRole('button', { name: /並び順を保存/ })).toBeVisible();
+
+      // 削除: 画面の updatedAt は古いままなので実際の 409 になる。detail を差し替えても画面の文言を表示する
+      await page.getByRole('button', { name: '削除', exact: true }).first().click();
+      const confirmDialog = page.getByRole('dialog');
+      await expect(confirmDialog).toBeVisible();
+      const deleteConflict = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/itemized-statements/${statementId}`) &&
+          response.request().method() === 'DELETE'
+      );
+      await confirmDialog.getByRole('button', { name: /^削除$/ }).click();
+      expect((await deleteConflict).status()).toBe(409);
+
+      // 並び順の保存の欄と削除の欄の 2 つに画面の文言が出て、差し替えた文言はどこにも出ない
+      await expect(alerts.filter({ hasText: SCREEN_MESSAGE })).toHaveCount(2, {
+        timeout: getTimeout(5000),
+      });
+      for (const alert of await alerts.filter({ hasText: SCREEN_MESSAGE }).all()) {
+        await expect(alert).toHaveText(SCREEN_MESSAGE);
+      }
+      await expect(page.getByText(REPLACED_DETAIL)).toHaveCount(0);
+      await expect(page).toHaveURL(new RegExp(`/itemized-statements/${statementId}$`));
+      // 差し替えたのは実際の 409 の 2 件（並び順の保存と削除）
+      expect(replacedStatuses).toEqual([409, 409]);
+
+      await page.unroute(`**/api/itemized-statements/${statementId}**`);
     });
   });
 });

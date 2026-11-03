@@ -26,6 +26,12 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
+import { ReceivedQuotationService } from '../../services/received-quotation.service.js';
+import { AuditLogService } from '../../services/audit-log.service.js';
+import type { IAuditLogService } from '../../types/audit-log.types.js';
+import type { StorageProvider } from '../../storage/storage-provider.interface.js';
 
 /**
  * 受領見積書・ステータス管理API統合テスト
@@ -52,12 +58,10 @@ describe('Received Quotation & Status API Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-received-quotation-integration@example.com',
-        displayName: 'Received Quotation Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-received-quotation-integration@example.com',
+      displayName: 'Received Quotation Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -116,13 +120,13 @@ describe('Received Quotation & Status API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-received-quotation-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -140,22 +144,20 @@ describe('Received Quotation & Status API Integration Tests', () => {
     });
 
     // 権限なしのテストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-quotation-no-permission@example.com',
-        displayName: 'No Permission Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-quotation-no-permission@example.com',
+      displayName: 'No Permission Test User',
+      passwordHash,
     });
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-quotation-no-permission@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -451,7 +453,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .field('lineItems', lineItems);
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       it('許可されていないファイル形式の場合は415を返す（Requirements: 11.8）', async () => {
@@ -533,7 +537,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('RECEIVED_QUOTATION_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -569,7 +575,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .field('expectedUpdatedAt', new Date().toISOString());
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('RECEIVED_QUOTATION_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -586,11 +594,13 @@ describe('Received Quotation & Status API Integration Tests', () => {
         testQuotationUpdatedAt = quotation.updatedAt.toISOString();
       });
 
-      it('受領見積書を削除できる', async () => {
+      // 楽観的排他制御の基準時刻はクエリで送る（画面の deleteReceivedQuotation と同じ形。HTTP は DELETE の
+      // 本文に意味を定めず中継で落ちうるため。2026-10-31 の是正、Requirement 11.30・14.5・14.6）
+      it('基準時刻をクエリで送って受領見積書を削除できる', async () => {
         const response = await request(app)
           .delete(`/api/quotations/${testQuotationId}`)
           .set('Authorization', `Bearer ${accessToken}`)
-          .send({ updatedAt: testQuotationUpdatedAt });
+          .query({ updatedAt: testQuotationUpdatedAt });
 
         expect(response.status).toBe(204);
 
@@ -606,7 +616,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const response = await request(app)
           .delete(`/api/quotations/${testQuotationId}`)
           .set('Authorization', `Bearer ${accessToken}`)
-          .send({ updatedAt: testQuotationUpdatedAt });
+          .query({ updatedAt: testQuotationUpdatedAt });
 
         expect(response.status).toBe(204);
 
@@ -618,14 +628,43 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(stored?.deletedAt).not.toBeNull();
       });
 
+      it('基準時刻を本文だけに載せた削除は 400 を返し、受領見積書を削除しない', async () => {
+        const response = await request(app)
+          .delete(`/api/quotations/${testQuotationId}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ updatedAt: testQuotationUpdatedAt });
+
+        expect(response.status).toBe(400);
+
+        const stored = await prisma.receivedQuotation.findUniqueOrThrow({
+          where: { id: testQuotationId },
+        });
+        expect(stored.deletedAt).toBeNull();
+      });
+
+      it('基準時刻の無い削除は 400 を返し、受領見積書を削除しない', async () => {
+        const response = await request(app)
+          .delete(`/api/quotations/${testQuotationId}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(response.status).toBe(400);
+
+        const stored = await prisma.receivedQuotation.findUniqueOrThrow({
+          where: { id: testQuotationId },
+        });
+        expect(stored.deletedAt).toBeNull();
+      });
+
       it('存在しない受領見積書を削除しようとすると404を返す', async () => {
         const response = await request(app)
           .delete('/api/quotations/12345678-1234-4234-a234-123456789012')
           .set('Authorization', `Bearer ${accessToken}`)
-          .send({ updatedAt: new Date().toISOString() });
+          .query({ updatedAt: new Date().toISOString() });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('RECEIVED_QUOTATION_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
   });
@@ -673,10 +712,16 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const response = await request(app)
         .delete(`/api/quotations/${testQuotationId}`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ updatedAt: '2020-01-01T00:00:00.000Z' }); // 過去のタイムスタンプ
+        .query({ updatedAt: '2020-01-01T00:00:00.000Z' }); // 過去のタイムスタンプ
 
       expect(response.status).toBe(409);
       expect(response.body.code).toBe('RECEIVED_QUOTATION_CONFLICT');
+
+      // 競合した削除は受領見積書を取り除かない
+      const stored = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: testQuotationId },
+      });
+      expect(stored.deletedAt).toBeNull();
     });
   });
 
@@ -794,7 +839,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .send({ status: 'REQUESTED' });
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_STATUS_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -824,7 +871,9 @@ describe('Received Quotation & Status API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`);
 
         expect(response.status).toBe(404);
-        expect(response.body.code).toBe('ESTIMATE_REQUEST_STATUS_NOT_FOUND');
+        // 存在しない ID は案件の閲覧範囲の判定部品が汎用の 404（NOT_FOUND）にする。範囲外と区別しない
+        // （estimate-request の Requirement 42.2・42.3、タスク103.1）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
   });
@@ -1139,6 +1188,243 @@ describe('Received Quotation & Status API Integration Tests', () => {
         expect(quotation2.lineItems).toHaveLength(2);
         expect(quotation2.totalAmount).toBe(90000);
       });
+    });
+  });
+
+  // ==========================================
+  // 監査ログをトランザクションの中で書く（タスク111.1）
+  // ==========================================
+
+  /**
+   * 受領見積書の作成・更新・論理削除が確定したときに、その操作の監査ログを 1 件記録し、
+   * 確定しなかった操作（記録の後の巻き戻し、不在・競合による拒否）の監査ログを残さない。
+   * 確定の対照は経路（`req.user` の利用者の受け渡しと組み立てを含む）を通して確かめる。
+   * 巻き戻しは経路の組み立てでは依存を差し替えられないため、サービスを直接組み立てて、
+   * 本物の `createLog(input, tx)` で記録してから例外を投げる包みを注入する（タスク109.1 と同じ形）。
+   * 監査ログの数は、テスト用の DB の既存の記録に引っ張られないよう、このテストが作った対象の
+   * targetId と操作の種別で数える。
+   *
+   * @requirement estimate-request/REQ-14.7
+   */
+  describe('受領見積書の監査ログとトランザクション（Requirement 14.7）', () => {
+    const FAILURE_AFTER_LOG = '監査ログの記録の後の失敗（巻き戻しの検証）';
+    const NET_AMOUNT = 7_654_321;
+    let realAuditLogService: AuditLogService;
+    let rollingBackService: ReceivedQuotationService;
+    let loggedTargetIds: string[];
+
+    /** 巻き戻しの検証はファイルを扱わないため、ストレージは呼ばれたら失敗させる */
+    const unusedStorage = {
+      upload: () => Promise.reject(new Error('ストレージは呼ばれない前提')),
+      delete: () => Promise.reject(new Error('ストレージは呼ばれない前提')),
+      getSignedUrl: () => Promise.reject(new Error('ストレージは呼ばれない前提')),
+    } as unknown as StorageProvider;
+
+    beforeAll(() => {
+      realAuditLogService = new AuditLogService({ prisma });
+    });
+
+    beforeEach(async () => {
+      await prisma.receivedQuotation.deleteMany({
+        where: { estimateRequestId: testEstimateRequestId },
+      });
+      loggedTargetIds = [];
+      // 本物の createLog(input, tx) で記録してから例外を投げ、トランザクションを巻き戻させる包み
+      const failingAfterLog: IAuditLogService = {
+        createLog: async (input, tx) => {
+          loggedTargetIds.push(input.targetId);
+          await realAuditLogService.createLog(input, tx);
+          throw new Error(FAILURE_AFTER_LOG);
+        },
+        getLogs: (filter) => realAuditLogService.getLogs(filter),
+        exportLogs: (filter) => realAuditLogService.exportLogs(filter),
+      };
+      rollingBackService = new ReceivedQuotationService({
+        prisma,
+        storageProvider: unusedStorage,
+        auditLogService: failingAfterLog,
+      });
+    });
+
+    const uniqueName = (label: string): string =>
+      `監査ログ検証_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const countLogs = (action: string, targetId: string): Promise<number> =>
+      prisma.auditLog.count({ where: { action, targetType: 'ReceivedQuotation', targetId } });
+
+    const createStored = async (label: string) =>
+      prisma.receivedQuotation.create({
+        data: {
+          estimateRequestId: testEstimateRequestId,
+          name: uniqueName(label),
+          submittedAt: new Date('2026-01-23T00:00:00.000Z'),
+          netAmount: NET_AMOUNT,
+        },
+      });
+
+    it('確定した作成・更新・論理削除は、それぞれの監査ログを操作した利用者で 1 件ずつ記録し、金額を入れない（対照）', async () => {
+      const name = uniqueName('確定の作成');
+      const createResponse = await request(app)
+        .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('name', name)
+        .field('submittedAt', '2026-01-23T00:00:00.000Z')
+        .field('netAmount', String(NET_AMOUNT))
+        .field(
+          'lineItems',
+          JSON.stringify([{ name: '明細', sortOrder: 0, quantity: 3, unitPrice: 1000 }])
+        );
+      expect(createResponse.status).toBe(201);
+      const quotationId: string = createResponse.body.id;
+      expect(await countLogs('RECEIVED_QUOTATION_CREATED', quotationId)).toBe(1);
+      const createdLog = await prisma.auditLog.findFirstOrThrow({
+        where: {
+          action: 'RECEIVED_QUOTATION_CREATED',
+          targetType: 'ReceivedQuotation',
+          targetId: quotationId,
+        },
+      });
+      expect(createdLog.actorId).toBe(testUserId);
+      expect(createdLog.before).toBeNull();
+      expect(createdLog.after).toEqual({
+        estimateRequestId: testEstimateRequestId,
+        name,
+        submittedAt: '2026-01-23T00:00:00.000Z',
+        fileName: null,
+        lineItemCount: 1,
+      });
+      expect(JSON.stringify(createdLog.after)).not.toContain(String(NET_AMOUNT));
+
+      const renamed = uniqueName('確定の更新');
+      const updateResponse = await request(app)
+        .put(`/api/quotations/${quotationId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('name', renamed)
+        .field('expectedUpdatedAt', createResponse.body.updatedAt);
+      expect(updateResponse.status).toBe(200);
+      expect(await countLogs('RECEIVED_QUOTATION_UPDATED', quotationId)).toBe(1);
+      const updatedLog = await prisma.auditLog.findFirstOrThrow({
+        where: {
+          action: 'RECEIVED_QUOTATION_UPDATED',
+          targetType: 'ReceivedQuotation',
+          targetId: quotationId,
+        },
+      });
+      expect(updatedLog.actorId).toBe(testUserId);
+      expect(updatedLog.before).toEqual({
+        name,
+        submittedAt: '2026-01-23T00:00:00.000Z',
+        fileName: null,
+      });
+      expect(updatedLog.after).toEqual({
+        name: renamed,
+        submittedAt: '2026-01-23T00:00:00.000Z',
+        fileName: null,
+      });
+
+      const deleteResponse = await request(app)
+        .delete(`/api/quotations/${quotationId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .query({ updatedAt: updateResponse.body.updatedAt });
+      expect(deleteResponse.status).toBe(204);
+      expect(await countLogs('RECEIVED_QUOTATION_DELETED', quotationId)).toBe(1);
+      const deletedLog = await prisma.auditLog.findFirstOrThrow({
+        where: {
+          action: 'RECEIVED_QUOTATION_DELETED',
+          targetType: 'ReceivedQuotation',
+          targetId: quotationId,
+        },
+      });
+      expect(deletedLog.actorId).toBe(testUserId);
+      expect(deletedLog.after).toBeNull();
+      expect(deletedLog.before).toEqual({
+        estimateRequestId: testEstimateRequestId,
+        name: renamed,
+        submittedAt: '2026-01-23T00:00:00.000Z',
+        fileName: null,
+      });
+    });
+
+    it('記録の後に作成が巻き戻ると、受領見積書も明細行も RECEIVED_QUOTATION_CREATED の監査ログも残らない', async () => {
+      const name = uniqueName('作成の巻き戻し');
+
+      await expect(
+        rollingBackService.create(
+          {
+            estimateRequestId: testEstimateRequestId,
+            name,
+            submittedAt: new Date('2026-01-23T00:00:00.000Z'),
+            lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
+          },
+          testUserId
+        )
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toHaveLength(1);
+      const targetId = String(loggedTargetIds[0]);
+      expect(await prisma.receivedQuotation.count({ where: { id: targetId } })).toBe(0);
+      expect(
+        await prisma.receivedQuotation.count({
+          where: { estimateRequestId: testEstimateRequestId, name },
+        })
+      ).toBe(0);
+      expect(
+        await prisma.receivedQuotationLineItem.count({ where: { receivedQuotationId: targetId } })
+      ).toBe(0);
+      expect(await countLogs('RECEIVED_QUOTATION_CREATED', targetId)).toBe(0);
+    });
+
+    it('記録の後に更新が巻き戻ると、名前は変わらず RECEIVED_QUOTATION_UPDATED の監査ログも残らない', async () => {
+      const stored = await createStored('更新の対象');
+
+      await expect(
+        rollingBackService.update(
+          stored.id,
+          { name: uniqueName('更新の巻き戻し') },
+          stored.updatedAt,
+          testUserId
+        )
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([stored.id]);
+      const after = await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: stored.id } });
+      expect(after.name).toBe(stored.name);
+      expect(after.updatedAt.getTime()).toBe(stored.updatedAt.getTime());
+      expect(await countLogs('RECEIVED_QUOTATION_UPDATED', stored.id)).toBe(0);
+    });
+
+    it('記録の後に論理削除が巻き戻ると、受領見積書は論理削除されず RECEIVED_QUOTATION_DELETED の監査ログも残らない', async () => {
+      const stored = await createStored('論理削除の対象');
+
+      await expect(
+        rollingBackService.delete(stored.id, stored.updatedAt, testUserId)
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([stored.id]);
+      const after = await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: stored.id } });
+      expect(after.deletedAt).toBeNull();
+      expect(await countLogs('RECEIVED_QUOTATION_DELETED', stored.id)).toBe(0);
+    });
+
+    it('楽観的排他制御の競合で拒否された更新と論理削除は監査ログを残さない', async () => {
+      const stored = await createStored('競合の対象');
+      const staleUpdatedAt = '2020-01-01T00:00:00.000Z';
+
+      const updateResponse = await request(app)
+        .put(`/api/quotations/${stored.id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('name', uniqueName('競合の更新'))
+        .field('expectedUpdatedAt', staleUpdatedAt);
+      expect(updateResponse.status).toBe(409);
+
+      const deleteResponse = await request(app)
+        .delete(`/api/quotations/${stored.id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .query({ updatedAt: staleUpdatedAt });
+      expect(deleteResponse.status).toBe(409);
+
+      expect(await countLogs('RECEIVED_QUOTATION_UPDATED', stored.id)).toBe(0);
+      expect(await countLogs('RECEIVED_QUOTATION_DELETED', stored.id)).toBe(0);
     });
   });
 });

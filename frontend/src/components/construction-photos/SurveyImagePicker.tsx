@@ -9,11 +9,16 @@
  *
  * 参照対象は同一プロジェクトの現場調査写真に限定する（projectId でスコープ）。
  *
+ * Task 31.1: コピー元の選択の読み込みが 404 を受けたときは、現場調査の一覧の取得ではプロジェクト、
+ * 現場調査の詳細の取得では現場調査が見つからない旨をエラーの欄に出し、応答の英語の文言を出さない
+ * （Requirement 22.2。範囲外と不在を区別しない）。
+ *
  * Requirements: 6.1, 6.4
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { getSiteSurvey, getSiteSurveys } from '../../api/site-surveys';
+import { getConstructionPhotoNotFoundMessage } from '../../utils/constructionPhotoNotFound';
 import type { SiteSurveyInfo, SurveyImageInfo } from '../../types/site-survey.types';
 
 // ============================================================================
@@ -244,7 +249,10 @@ export function SurveyImagePicker({
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '現場調査の取得に失敗しました');
+          setError(
+            getConstructionPhotoNotFoundMessage(err, 'project') ??
+              (err instanceof Error ? err.message : '現場調査の取得に失敗しました')
+          );
         }
       })
       .finally(() => {
@@ -268,7 +276,10 @@ export function SurveyImagePicker({
       const detail = await getSiteSurvey(surveyId);
       setSurveyImages(detail.images);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '現場調査写真の取得に失敗しました');
+      setError(
+        getConstructionPhotoNotFoundMessage(err, 'siteSurvey') ??
+          (err instanceof Error ? err.message : '現場調査写真の取得に失敗しました')
+      );
     } finally {
       setIsLoadingImages(false);
     }

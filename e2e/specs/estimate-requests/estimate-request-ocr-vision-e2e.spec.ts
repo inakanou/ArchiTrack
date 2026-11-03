@@ -76,6 +76,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -96,7 +97,7 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
 
   test('準備: 認証トークンを取得する', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).toBeTruthy();
   });
 
@@ -627,7 +628,7 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
 
   test('準備: プロジェクト・協力業者・見積依頼を作成する', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).toBeTruthy();
 
     const headers = { Authorization: `Bearer ${accessToken}` };
@@ -1483,7 +1484,7 @@ test.describe('Claude Vision機能無効時のエラーレスポンス', () => {
     page,
   }) => {
     await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).toBeTruthy();
 
     const minimalPngBase64 =

@@ -52,6 +52,8 @@ describe('認証系のエンドポイントの DB 接続タイムアウト時の
   let disconnectPrisma: () => Promise<void>;
   let accessToken: string;
   let refreshToken: string;
+  /** Cookie と CSRF の経路のリフレッシュ・ログアウト（環境変数の書き換えの後に読み込む） */
+  let cookieClient: typeof import('./refresh-cookie-client.js');
 
   beforeAll(async () => {
     // TCP 接続は受け付けるが、PostgreSQL の起動メッセージに一切応答しない
@@ -76,10 +78,16 @@ describe('認証系のエンドポイントの DB 接続タイムアウト時の
     const db = await import('../../db.js');
     disconnectPrisma = db.disconnectPrisma;
     const tokenService = (await import('../../services/token.service.js')).default;
+    cookieClient = await import('./refresh-cookie-client.js');
 
-    const payload = { userId: 'ua3511-user', email: 'ua3511@example.com', roles: ['user'] };
+    const payload = {
+      userId: 'ua3511-user',
+      email: 'ua3511@example.com',
+      roles: ['user'],
+      accessTokenGeneration: 0,
+    };
     accessToken = await tokenService.generateAccessToken(payload);
-    refreshToken = await tokenService.generateRefreshToken(payload);
+    refreshToken = await tokenService.generateRefreshToken(payload.userId, 'ua3511-family');
   }, BEFORE_ALL_TIMEOUT_MS);
 
   afterAll(async () => {
@@ -125,7 +133,7 @@ describe('認証系のエンドポイントの DB 接続タイムアウト時の
    * @requirement user-authentication/REQ-24.1
    */
   it('トークンの更新（POST /api/v1/auth/refresh）は 503 と Problem Details を返す', async () => {
-    const response = await request(app).post('/api/v1/auth/refresh').send({ refreshToken });
+    const response = await cookieClient.refreshWithCookie(app, refreshToken);
 
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ ...SERVICE_UNAVAILABLE, instance: '/api/v1/auth/refresh' });
@@ -135,10 +143,7 @@ describe('認証系のエンドポイントの DB 接続タイムアウト時の
    * @requirement user-authentication/REQ-24.1
    */
   it('ログアウト（POST /api/v1/auth/logout）は 503 と Problem Details を返す', async () => {
-    const response = await request(app)
-      .post('/api/v1/auth/logout')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .send({ refreshToken });
+    const response = await cookieClient.logoutWithCookie(app, accessToken, refreshToken);
 
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ ...SERVICE_UNAVAILABLE, instance: '/api/v1/auth/logout' });

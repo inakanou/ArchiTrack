@@ -11,6 +11,11 @@
  * - REQ-2.2: 数量表なしで空の工程表作成
  * - REQ-2.3: 数量表指定時の項目自動取得
  *
+ * Task 24.1 変更: 数量表の選択肢の読み込みが 404 を受けたときに、プロジェクトが見つからない旨と
+ *   プロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示し、入力欄を出さない。作成が 404 を
+ *   受けたときは作成の失敗の文言に代えてプロジェクトが見つからない旨を表示する
+ *   （construction-schedule の Requirement 14.1・14.2。範囲外と不在を区別しない）
+ *
  * @module pages/ScheduleCreatePage
  */
 
@@ -20,7 +25,8 @@ import { createSchedule } from '../api/schedules';
 import { ApiError, getApiErrorCode } from '../api/client';
 import type { CreateScheduleInput } from '../api/schedules';
 import ScheduleForm from '../components/schedule/ScheduleForm';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import { getScheduleNotFoundMessage } from '../utils/scheduleNotFound';
 
 // ============================================================================
 // スタイル定義
@@ -86,6 +92,9 @@ export default function ScheduleCreatePage() {
   // 作成処理の状態
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // 数量表の選択肢の読み込みが 404 を受けた（プロジェクトの不在。範囲外と不在を区別しない。Task 24.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
+  const handleProjectNotFound = useCallback(() => setIsProjectNotFound(true), []);
 
   /**
    * フォーム送信処理
@@ -102,6 +111,13 @@ export default function ScheduleCreatePage() {
         const schedule = await createSchedule(projectId, data);
         navigate(`/schedules/${schedule.id}`);
       } catch (err) {
+        // 作成の汎用の 404 は経路のプロジェクトの不在（範囲外を含む）。応答の本文を出さず、
+        // 作成の失敗の文言に代えてプロジェクトが見つからない旨を示す（Task 24.1）
+        const notFoundMessage = getScheduleNotFoundMessage(err, 'project');
+        if (notFoundMessage) {
+          setCreateError(notFoundMessage);
+          return;
+        }
         // 上限超過（Req 12.1）と入力の検証エラーの 400 は、サーバーが入力を拒んだ理由を detail に
         // 持つため、そのまま示す。それ以外の失敗（Prisma 由来の 400 の「Database operation failed」
         // など、code を持たない 400 を含む）は汎用の文言を示す（Task 21.2）
@@ -133,6 +149,19 @@ export default function ScheduleCreatePage() {
     return null;
   }
 
+  // プロジェクトが見つからない表示（Task 24.1）。入力欄を出さない
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
+      </main>
+    );
+  }
+
   return (
     <main role="main" style={styles.container} data-testid="schedule-create-page">
       {/* パンくずナビゲーション */}
@@ -160,6 +189,7 @@ export default function ScheduleCreatePage() {
         onCancel={handleCancel}
         isSubmitting={isSubmitting}
         error={createError}
+        onProjectNotFound={handleProjectNotFound}
       />
     </main>
   );

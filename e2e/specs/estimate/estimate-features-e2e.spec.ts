@@ -39,8 +39,13 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
-import { flattenEstimateItems, getEstimateItemTree } from '../../helpers/estimate-draft';
+import {
+  deleteEstimateViaApi,
+  flattenEstimateItems,
+  getEstimateItemTree,
+} from '../../helpers/estimate-draft';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken, loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 見積書機能追加のE2Eテスト
@@ -149,10 +154,7 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       const baseUrl = API_BASE_URL;
 
       // APIトークンを取得
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: { email: 'user@example.com', password: 'Password123!' },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
@@ -1177,7 +1179,7 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       expect(tradingPartnerName).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
 
       await page.goto(`/estimates/${createdEstimateId}`);
@@ -1590,8 +1592,15 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
       // 記録の仕組みが生きていること（表紙の周辺情報を読み取るリクエストが載る）
       expect(apiRequestUrls.length).toBeGreaterThan(0);
 
-      // そのうえで、出力をサーバーへ依頼したリクエストは1本も無い
-      expect(apiRequestUrls.filter((url) => url.includes('/export'))).toEqual([]);
+      // そのうえで、出力をサーバーへ依頼したリクエストは1本も無い。
+      // 出力の記録（`POST /api/v1/audit-logs/exports`。タスク62.2 / Requirement 57.7）は
+      // 生成の前の記録であり出力の依頼ではないため除く（記録そのものは
+      // `estimate-export-audit.spec.ts` が検証する）
+      expect(
+        apiRequestUrls.filter(
+          (url) => url.includes('/export') && new URL(url).pathname !== '/api/v1/audit-logs/exports'
+        )
+      ).toEqual([]);
     });
   });
 
@@ -1603,18 +1612,12 @@ test.describe('見積書機能追加 (REQ-25～REQ-34)', () => {
     test('テストデータの削除', async ({ request }) => {
       const baseUrl = API_BASE_URL;
 
-      if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: { email: 'user@example.com', password: 'Password123!' },
-        });
-        const loginBody = await loginResponse.json();
-        accessToken = loginBody.accessToken;
-      }
+      // 準備で取ったアクセストークンは 15 分で失効する。長い直列のスイートでも後片付けが 401 にならないよう、
+      // 有無にかかわらず取り直す（後片付けは 204 以外を失敗にするため）
+      accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
 
       if (createdEstimateId) {
-        await request.delete(`${baseUrl}/api/estimates/${createdEstimateId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await deleteEstimateViaApi(request, accessToken, createdEstimateId);
       }
 
       if (createdProjectId) {

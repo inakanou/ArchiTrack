@@ -11,6 +11,7 @@
  * - REQ-7.2: キャンセルボタン押下時に前画面への遷移（何も作成しない）
  * - REQ-7.3: 作成・キャンセルボタン表示
  * - REQ-11.5: 契約書作成成功時に「契約書を作成しました。」のトースト通知を表示
+ * - REQ-11.8, REQ-11.9: 404 を受けたときに見つからない旨を表示する（Task 21.1）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -21,6 +22,8 @@ import ContractCreatePage from './ContractCreatePage';
 import * as contractsApi from '../api/contracts';
 import * as projectsApi from '../api/projects';
 import { ToastContext } from '../hooks/useToast';
+import { ApiError } from '../api/client';
+import { PROJECT_NOT_FOUND_MESSAGE } from '../utils/contractErrorHandler';
 import type { ToastContextValue } from '../hooks/useToast';
 
 // モック
@@ -371,5 +374,71 @@ describe('ContractCreatePage', () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/projects/proj-001/contracts/contract-new-001');
     });
+  });
+});
+
+// ============================================================================
+// REQ-11.8, REQ-11.9: 404 を受けたときの表示（Task 21.1）
+// ============================================================================
+describe('ContractCreatePage の 404（REQ-11.8, REQ-11.9）', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(projectsApi.getProject).mockResolvedValue(mockProjectDetail);
+  });
+
+  it('プロジェクトの取得が 404 を受けると、プロジェクトが見つからない旨とプロジェクトの一覧へのリンクを表示し、予期しないエラーの文言と再試行の釦を出さない', async () => {
+    vi.mocked(projectsApi.getProject).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' })
+    );
+
+    renderWithRouter('proj-001');
+
+    expect(
+      await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+      'href',
+      '/projects'
+    );
+    expect(screen.queryByText('予期しないエラーが発生しました。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('contract-form')).not.toBeInTheDocument();
+  });
+
+  it('作成が 404 を受けると、プロジェクトが見つからない旨をトーストとエラーの欄に表示し、予期しないエラーの文言を出さない', async () => {
+    vi.mocked(contractsApi.createContract).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' })
+    );
+
+    renderWithRouter();
+
+    await userEvent.click(await screen.findByRole('button', { name: '作成' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(PROJECT_NOT_FOUND_MESSAGE);
+    });
+    expect(mockToastContext.error).toHaveBeenCalledWith(PROJECT_NOT_FOUND_MESSAGE);
+    expect(screen.queryByText('予期しないエラーが発生しました。')).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('作成が見積書の不在の 404 を受けると、サーバーの本文を表示する', async () => {
+    const serverMessage = '見積書が見つかりません: est-001';
+    vi.mocked(contractsApi.createContract).mockRejectedValue(
+      new ApiError(404, serverMessage, {
+        status: 404,
+        detail: serverMessage,
+        code: 'ESTIMATE_NOT_FOUND',
+      })
+    );
+
+    renderWithRouter();
+
+    await userEvent.click(await screen.findByRole('button', { name: '作成' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(serverMessage);
+    });
+    expect(mockToastContext.error).toHaveBeenCalledWith(serverMessage);
   });
 });

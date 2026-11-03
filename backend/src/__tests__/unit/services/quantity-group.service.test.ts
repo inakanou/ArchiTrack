@@ -26,7 +26,10 @@ import {
   QuantityGroupNotFoundError,
   OptimisticLockError,
 } from '../../../errors/quantityTableError.js';
-import { SiteSurveyNotFoundError } from '../../../errors/siteSurveyError.js';
+import {
+  SiteSurveyNotFoundError,
+  SurveyImageNotFoundError,
+} from '../../../errors/siteSurveyError.js';
 import { SurveyDeletedError } from '../../../utils/survey-deleted-guard.js';
 import { ForbiddenError } from '../../../errors/apiError.js';
 import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
@@ -66,6 +69,7 @@ describe('QuantityGroupService', () => {
   let service: QuantityGroupService;
   let mockPrisma: MockPrismaClient;
   let mockAuditLogService: { createLog: Mock };
+  let mockProjectScope: { evaluateProjectAccess: Mock };
 
   beforeEach(() => {
     // Mock Prismaクライアント
@@ -103,9 +107,14 @@ describe('QuantityGroupService', () => {
       createLog: vi.fn().mockResolvedValue(undefined),
     };
 
+    // 案件の閲覧範囲の判定（quantity-table-generation タスク104.1）。既定は範囲内とし、
+    // 範囲外の振る舞いは「写真の紐付けの閲覧範囲（Requirement 50.5）」の節で確かめる
+    mockProjectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue('allowed') };
+
     service = new QuantityGroupService({
       prisma: mockPrisma as unknown as PrismaClient,
       auditLogService: mockAuditLogService as unknown as IAuditLogService,
+      projectScope: mockProjectScope,
     });
   });
 
@@ -249,6 +258,126 @@ describe('QuantityGroupService', () => {
       await expect(service.create(inputWithImage, actorId)).rejects.toThrow(
         '異なるプロジェクトの現場調査画像は紐付けできません'
       );
+      // 範囲の判定は画像の案件について行う（Requirement 50.5）
+      expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+        actorId,
+        'different-project-id'
+      );
+    });
+
+    it('閲覧範囲外の案件の現場調査画像は、存在しない画像と同じ SurveyImageNotFoundError で拒み作成しない（Requirement 50.5）', async () => {
+      // Arrange
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174004';
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: surveyImageId,
+        surveyId: 'survey-out-of-scope',
+        survey: { projectId: 'out-of-scope-project', deletedAt: null },
+      });
+      mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      // Act & Assert: 同じプロジェクトに限る検証（400）より前に、不在と同じ 404 の例外になる
+      const error = await service.create({ ...input, surveyImageId }, actorId).catch((e) => e);
+      expect(error).toBeInstanceOf(SurveyImageNotFoundError);
+      expect(error.surveyImageId).toBe(surveyImageId);
+      expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+        actorId,
+        'out-of-scope-project'
+      );
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      // 範囲外の拒否は、トランザクションの外で要求の識別とともに記録する（user-authentication の要件39.7）
+      expect(mockAuditLogService.createLog).toHaveBeenCalledTimes(1);
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith({
+        action: 'PROJECT_SCOPE_DENIED',
+        actorId,
+        targetType: 'Project',
+        targetId: 'out-of-scope-project',
+        metadata: {
+          requestId: null,
+          method: 'UNKNOWN',
+          path: '',
+          ipAddress: 'unknown',
+          userAgent: 'unknown',
+        },
+      });
+    });
+
+    it('経路から渡した要求の識別を範囲外の記録に添え、案件の不在（not_found）は記録しない（Requirement 50.5）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174004';
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: surveyImageId,
+        surveyId: 'survey-foreign',
+        survey: { projectId: 'foreign-project', deletedAt: null },
+      });
+      const context = {
+        requestId: 'req-1',
+        method: 'POST',
+        path: '/api/quantity-tables/qt/groups',
+        ipAddress: '203.0.113.1',
+        userAgent: 'agent',
+      };
+
+      // 案件の不在・論理削除は記録しない
+      mockProjectScope.evaluateProjectAccess.mockResolvedValueOnce('not_found');
+      await expect(
+        service.create({ ...input, surveyImageId }, actorId, context)
+      ).rejects.toBeInstanceOf(SurveyImageNotFoundError);
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+
+      // 範囲外は経路の識別とともに記録する
+      mockProjectScope.evaluateProjectAccess.mockResolvedValueOnce('out_of_scope');
+      await expect(
+        service.create({ ...input, surveyImageId }, actorId, context)
+      ).rejects.toBeInstanceOf(SurveyImageNotFoundError);
+      expect(mockAuditLogService.createLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'PROJECT_SCOPE_DENIED',
+          targetId: 'foreign-project',
+          metadata: context,
+        })
+      );
+    });
+
+    it('数量表と同じ案件の画像は範囲の判定を重ねない（経路の判定を通っているため）', async () => {
+      // Arrange
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174004';
+      const projectOfTable = '123e4567-e89b-12d3-a456-426614174003';
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: projectOfTable,
+      });
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: surveyImageId,
+        surveyId: 'survey-own',
+        survey: { projectId: projectOfTable, deletedAt: null },
+      });
+      mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+      mockPrisma.quantityGroup.create.mockResolvedValue({
+        id: 'created-group',
+        quantityTableId,
+        name: null,
+        surveyImageId,
+        displayOrder: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Act
+      await service.create({ ...input, surveyImageId }, actorId).catch(() => undefined);
+
+      // Assert: 画像の検査まで届いたうえで、範囲の判定を呼ばない
+      expect(mockPrisma.surveyImage.findUnique).toHaveBeenCalled();
+      expect(mockProjectScope.evaluateProjectAccess).not.toHaveBeenCalled();
     });
 
     it('親の現場調査が論理削除済みの現場調査画像は紐付けを拒む（Task 81.1）', async () => {
@@ -2006,6 +2135,32 @@ describe('QuantityGroupService', () => {
       await expect(
         service.createGroupsFromSurvey(quantityTableId, siteSurveyId, actorId)
       ).rejects.toThrow(ForbiddenError);
+      expect(mockPrisma.quantityGroup.createManyAndReturn).not.toHaveBeenCalled();
+    });
+
+    it('閲覧範囲外の案件の現場調査は、存在しない現場調査と同じ SiteSurveyNotFoundError で拒み生成しない（Requirement 50.5）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId,
+      });
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: siteSurveyId,
+        name: '現場A',
+        deletedAt: null,
+        projectId: 'out-of-scope-project',
+      });
+      mockProjectScope.evaluateProjectAccess.mockResolvedValue('out_of_scope');
+
+      // Act & Assert: 同じプロジェクトに限る検証（403）より前に、不在と同じ 404 の例外になる
+      await expect(
+        service.createGroupsFromSurvey(quantityTableId, siteSurveyId, actorId)
+      ).rejects.toThrow(SiteSurveyNotFoundError);
+      expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+        actorId,
+        'out-of-scope-project'
+      );
       expect(mockPrisma.quantityGroup.createManyAndReturn).not.toHaveBeenCalled();
     });
 

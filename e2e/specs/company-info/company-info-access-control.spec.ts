@@ -9,7 +9,8 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { completeTwoFactorVerification, loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout } from '../../helpers/wait-helpers';
 
 test.describe('自社情報アクセス制御・エラー回復', () => {
@@ -99,6 +100,9 @@ test.describe('自社情報アクセス制御・エラー回復', () => {
       // ログインボタンをクリック
       const loginButton = page.getByRole('button', { name: /ログイン|Login/i });
       await loginButton.click();
+
+      // 利用者は 2FA 登録済みのため、2FA の検証の画面でコードを補助で入れて検証する
+      await completeTwoFactorVerification(page, TEST_USERS.REGULAR_USER);
 
       // 元のページ（/company-info）にリダイレクトされることを確認
       await expect(page).toHaveURL(/\/company-info/, { timeout: getTimeout(15000) });

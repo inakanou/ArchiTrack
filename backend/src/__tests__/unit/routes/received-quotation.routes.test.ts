@@ -41,6 +41,18 @@ const {
 }));
 
 // Mock dependencies before importing the routes
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// estimate-request-project-scope.middleware.test.ts と統合テストが確かめる。estimate-request タスク103.1）
+vi.mock('../../../middleware/estimate-request-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireEstimateRequestProjectScope: pass,
+    requireReceivedQuotationProjectScope: pass,
+    requireBodyItemizedStatementProjectScope: pass,
+  };
+});
+
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({
     $transaction: vi.fn(),
@@ -194,6 +206,22 @@ describe('received-quotation.routes', () => {
       );
     });
 
+    // 操作した利用者を監査ログの実行者として渡す（estimate-request の Requirement 14.7、タスク111.1）
+    it('認証した利用者の ID を作成の第 2 引数に渡すこと', async () => {
+      mockCreate.mockResolvedValue(mockQuotation);
+
+      const response = await request(app)
+        .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+        .send(validCreateInput);
+
+      expect(response.status).toBe(201);
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ estimateRequestId, name: 'テスト受領見積書' }),
+        'test-user-id'
+      );
+    });
+
     it('should return 400 for invalid request body', async () => {
       const response = await request(app)
         .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
@@ -334,6 +362,24 @@ describe('received-quotation.routes', () => {
       expect(response.body.name).toBe('更新後の見積書名');
     });
 
+    // 操作した利用者を監査ログの実行者として渡す（estimate-request の Requirement 14.7、タスク111.1）
+    it('認証した利用者の ID を更新の第 4 引数に渡すこと', async () => {
+      mockUpdate.mockResolvedValue({ ...mockQuotation, name: validUpdateInput.name });
+
+      const response = await request(app)
+        .put(`/api/quotations/${validUUID}`)
+        .send(validUpdateInput);
+
+      expect(response.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+      expect(mockUpdate).toHaveBeenCalledWith(
+        validUUID,
+        expect.objectContaining({ name: validUpdateInput.name }),
+        new Date(validUpdateInput.expectedUpdatedAt),
+        'test-user-id'
+      );
+    });
+
     it('should return 404 when quotation not found', async () => {
       mockUpdate.mockRejectedValue(new ReceivedQuotationNotFoundError(validUUID));
 
@@ -372,14 +418,56 @@ describe('received-quotation.routes', () => {
   });
 
   describe('DELETE /api/quotations/:id', () => {
-    it('should delete quotation and return 204', async () => {
+    // 楽観的排他制御の基準時刻はクエリで受け取る（HTTP は DELETE の本文に意味を定めず、中継で落ちうるため。
+    // 見積依頼の削除〔59e5f4fd〕と同じ形。2026-10-31 の是正、estimate-request の Requirement 11.30・14.5・14.6）
+    const validDeleteQuery = { updatedAt: '2024-01-01T00:00:00.000Z' };
+
+    it('クエリの updatedAt で受領見積書を削除し 204 を返すこと', async () => {
       mockDelete.mockResolvedValue(undefined);
 
       const response = await request(app)
         .delete(`/api/quotations/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(204);
+      expect(mockDelete).toHaveBeenCalledTimes(1);
+      // 第 3 引数は操作した利用者（監査ログの実行者。estimate-request の Requirement 14.7、タスク111.1）
+      expect(mockDelete).toHaveBeenCalledWith(
+        validUUID,
+        new Date(validDeleteQuery.updatedAt),
+        'test-user-id'
+      );
+    });
+
+    it('updatedAt を本文だけに載せた要求は 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/quotations/${validUUID}`)
+        .send(validDeleteQuery);
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('updatedAt の無い要求は 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app).delete(`/api/quotations/${validUUID}`);
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it('クエリの updatedAt の形式が不正なら 400 を返し、削除しないこと', async () => {
+      mockDelete.mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .delete(`/api/quotations/${validUUID}`)
+        .query({ updatedAt: 'not-a-date' });
+
+      expect(response.status).toBe(400);
+      expect(mockDelete).not.toHaveBeenCalled();
     });
 
     it('should return 404 when quotation not found', async () => {
@@ -387,7 +475,7 @@ describe('received-quotation.routes', () => {
 
       const response = await request(app)
         .delete(`/api/quotations/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(404);
       expect(response.body.code).toBe('RECEIVED_QUOTATION_NOT_FOUND');
@@ -403,7 +491,7 @@ describe('received-quotation.routes', () => {
 
       const response = await request(app)
         .delete(`/api/quotations/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+        .query(validDeleteQuery);
 
       expect(response.status).toBe(409);
       expect(response.body.code).toBe('RECEIVED_QUOTATION_CONFLICT');
@@ -413,9 +501,7 @@ describe('received-quotation.routes', () => {
       // 受領見積書の削除は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
       mockDelete.mockResolvedValue(undefined);
 
-      await request(app)
-        .delete(`/api/quotations/${validUUID}`)
-        .send({ updatedAt: '2024-01-01T00:00:00.000Z' });
+      await request(app).delete(`/api/quotations/${validUUID}`).query(validDeleteQuery);
 
       expect(mockRequirePermission).toHaveBeenCalledWith('estimate_request:update');
     });
@@ -477,7 +563,8 @@ describe('received-quotation.routes', () => {
           lineItems: expect.arrayContaining([
             expect.objectContaining({ name: '工事A', sortOrder: 0 }),
           ]),
-        })
+        }),
+        'test-user-id'
       );
     });
 
@@ -549,7 +636,8 @@ describe('received-quotation.routes', () => {
         expect.objectContaining({
           lineItems: expect.arrayContaining([expect.objectContaining({ name: '新工事A' })]),
         }),
-        expect.any(Date)
+        expect.any(Date),
+        'test-user-id'
       );
     });
   });

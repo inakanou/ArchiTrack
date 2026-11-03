@@ -1778,6 +1778,185 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
 
 **検証が記録した警告（起票していない）**: (a) 明細行の入力に 13.1 / 13.2 / 13.4 の入力時のエラー・警告の表示が無く、不正な値は保存時の 400 で初めて出る。(b) 内訳書からの作成（`estimate.service.ts` の 331〜412 行付近）に 2000 件の上限が無い。(c) `app.ts` の `express.json` の 5mb の上限で 2000 件近い保存が汎用の 500 になる恐れ。(d) PUT / DELETE `/:id` の楽観ロックが並行の要求に耐えない。(e) 保存・読込の変換が再帰のまま。(f) 2001 件 → 422 の検証が schema の単体だけ。(g) 1819 行付近の注記が 53.16 で解消済みなのに「未配線」のまま
 
+## タスク62: 案件の閲覧範囲（user-authentication の要件39）と出力の事前記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（`POST /api/v1/audit-logs/exports` を受ける `ExportAuditService`、frontend/src/api/export-audit.ts の `runRecordedExport`）を実装した（同スペックのタスク52.1・53.3・53.4）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.8 が本スペックの項目（見積書出力の記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の見積書を読み書きできる）ことと、出力が記録を経ないこと（`runRecordedExport` の本番の呼び出し元は 0 件）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [x] 62.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/estimates.routes.ts（`/api/projects/:projectId/estimates` と `/api/estimates`）: `POST /`（153）、`GET /`（275）、`GET /latest`（348）、`GET /:id`（407）、`PUT /:id`（486）、`DELETE /:id`（590）、`PUT /:id/save`（749）、`GET /:id/items`（916）、`POST /:id/calculate-overhead`（996）、`PUT /:id/edit-session`（1190）、`DELETE /:id/edit-session`（1217）
+    - backend/src/routes/project-quotations.routes.ts（`/api/projects/:projectId/quotations`）: `GET /`（49）
+  - 見積書の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。転記の元（受領見積書・内訳書）も同じ案件の範囲で判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
+  - **既存のテストの扱い**（user-authentication の 52.2 の記録の区分 B）: 統合 estimate.api の `PROJECT_NOT_FOUND` の主張は、404 の本文が `NOT_FOUND` に変わるだけで落ちる。範囲外と不在を同じ本文にする 39.2 に合わせて改める（主張を消さない）。同時編集の検証（estimate-edit-session.api・estimate-edit-presence-e2e.spec.ts）は同 52.2 で利用者 B を工事担当者にしてあり、範囲内のまま成り立つことを確かめる
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が見積書の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 57（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 57.1〜57.6 が受ける。見積書の作成の要求が指す内訳書（`sourceItemizedStatementId`）は ID だけで引かれ経路の案件との照合が無かったため、経路のプロジェクトに属さなければ内訳書の不在と同じ 404 で見積書を作成しない（57.4）と条文に定めた。見積明細の一括保存は、対象の見積書に属さない見積項目の ID が一つでも含まれれば既存の検証（Requirement 42.4 の 422）が要求全体を拒否し書き込まない振る舞いを 57.5 として固定した（応答の形は変えない）。案件をまたぐ一覧・検索・件数の経路は無く（2026-10-27 の実測）、一覧は経路の `projectId` の判定で範囲内に限られる（57.6）。本スペックはファイルの署名付きURLを発行しない。案件の範囲を含意する既存の条文を requirements.md で検めたが、ロールや権限だけで閲覧・操作を許すと読める条文は無く（3.1・11.1・14.2・17.1 は「プロジェクトに紐付く」一覧で、範囲は 57 が定める）、既存の条文は改訂していない。design.md は「Requirement 57: 案件の閲覧範囲と出力の記録の適用」章を足し、Security Considerations の当初の記述（プロジェクト所属ユーザーに限定）は記録として残して置き換えを書き添えた。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 57.1, 57.2, 57.3, 57.4, 57.5, 57.6_
+  - _Boundary: 本スペックの API の案件の範囲の判定_
+
+- [x] 62.2 見積書の出力に事前記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測）: frontend/src/components/estimate/EstimateExportDialog.tsx の PDF（355 行付近の `service.generateAndDownload`）と Excel（365 行付近の `estimateExcelExportService.generateAndDownload`）。種別 `estimate_pdf`・`estimate_xlsx`
+  - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
+  - 挙動の変更であるため RED → GREEN で進め、E2E で各形式の出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - **判断の結果（2026-10-27、利用者の判断。62.1 の判断と同じ）**: 本タスクの適用は Requirement 57 の 57.7・57.8 が受ける。出力はブラウザで生成するため、出力のダイアログが生成を始める前に記録を 1 回要求し（57.7）、記録の失敗では生成もダウンロードも始めず「出力を記録できなかったため中止しました」を表示する（57.8）と条文に定めた。未保存の変更がある状態の出力（Requirement 56）も同じダイアログを通るため同じ記録を経る。記録に添える見積書の ID のためにダイアログの属性を足すこと、記録の後の失敗（日本語文字の描画準備の失敗〔10.8〕を含む）の扱いは design.md の同章の「出力の記録」に記した。被覆の印は本タスクの E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 57.7, 57.8_
+  - _Boundary: 見積書の出力のダイアログの出力の開始の処理_
+  - _Depends: 62.1_
+
+## タスク63: プロジェクトの配下の経路の食い違いの記録（user-authentication の要件39.8 の適用。利用者の判断で起票、2026-10-29）
+
+**経緯**: user-authentication が要件39.8 を加え、経路の案件と対象の実際の案件が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（利用者の判断、2026-10-29「推奨案で進める」。同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の estimate-creation の行）。本スペックの判定部品（backend/src/middleware/estimate-creation-project-scope.middleware.ts の `requireEstimateProjectScope`、67〜71 行付近。行は同日の実測で、着手時に測り直すこと）は、二重マウント（`/api/projects/:projectId/estimates/:id` とその配下）の食い違いを不在として null を返し、範囲を判定せず記録しない。見積書そのものの食い違いの条文が無かったため、requirements.md に 57.9 を加え（応答と記録の両方）、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた。作成の要求が指す内訳書の所属（57.4）は、`EstimateService.create` の照合が既に要件39.8 の振る舞いを満たすため変えない（同章の「決定」）
+
+- [x] 63.1 プロジェクトの配下の経路の食い違いで、見積書の実際の案件が範囲外なら記録する
+  - `requireEstimateProjectScope` の解決関数が、経路の `projectId` と見積書の案件が食い違うとき、null ではなく上流の `projectMismatch`（見積書の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えない。見積書の不在は従来どおり null で記録しない。見積書の論理削除は区別しない（design.md の同章の「決定」）。同ファイルの冒頭の注釈の食い違いの記述を改める。作成の要求が指す内訳書（57.4）の照合は変えない
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（`backend/src/__tests__/unit/middleware/estimate-creation-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と見積書の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にする」は、見積書の案件が範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改め、題名も改める。統合テスト（`backend/src/__tests__/integration/estimate-creation-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の案件と見積書の案件が食い違うと見積書の不在と同じ 404 にする」（範囲内どうしの食い違い）は条文どおりで変えず、記録しない理由の注釈を範囲内どうしの食い違いであるためと改め、範囲外の案件の見積書を範囲内の案件の経路で指すと読み込みと書き込みが 404 でデータが変わらず `PROJECT_SCOPE_DENIED` が増える（対象は見積書の実際の案件）テストを足す
+  - E2E（`e2e/specs/estimate/estimate-creation-project-scope.spec.ts` に新しいテスト）で、範囲外の案件の見積書を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えることを主張し、`@requirement estimate-creation/REQ-57.9` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、食い違いの要求が範囲外のときだけ記録され、どの場合も不在と同じ 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 57.9_
+  - _Boundary: requireEstimateProjectScope の解決関数と、食い違いの記録を主張する本スペックのテスト_
+
+## タスク64: 見積書の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 57.2 により閲覧範囲外の見積書・プロジェクトへの要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `EstimateDetailPage.tsx` は読み込みの失敗を一律に取得の失敗の固定の文言にし（1243 行付近）、再試行の釦を出す（1476 行付近）。同画面の削除は失敗で画面全体を削除の失敗の文言と再試行の釦へ置き換える（1388 行付近）。諸経費の計算（同画面の 1321 行付近から `OverheadCostPanel.tsx` の計算の処理、406 行付近）は失敗を捕まえず何も表示しない。`TransferQuotationDialog.tsx` は受領見積書の一覧の読み込みの失敗を無視する（325 行付近）。`EstimateListPage.tsx` は読み込みの失敗を一律に取得の失敗の固定の文言と再試行の釦にする（268 行付近）。`EstimateCreatePage.tsx` は内訳書の一覧の読み込みの失敗を無視し（208 行付近）、作成の失敗を一律に作成の失敗の固定の文言にする（246 行付近）。保存の 404 だけは `toSaveErrorMessage` が見積書が見つからない旨の日本語の文言を返す（614 行付近）。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に Requirement 58（58.1・58.2）を加え、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた
+
+- [x] 64.1 見積書の一覧・新規作成・詳細の画面と作成・保存・削除・諸経費の計算の操作、転記のダイアログで、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンク（いずれの画面もプロジェクトの一覧）を表示し、取得の失敗の文言と再試行の釦を出さない。作成・削除・諸経費の計算の 404 では見つからない旨のメッセージを表示し（作成の `ITEMIZED_STATEMENT_NOT_FOUND` は内訳書、汎用の 404 はプロジェクト）、保存の 404 の既存の文言は保つ。転記のダイアログは受領見積書の一覧の読み込みの 404 で、受領見積書が無い場合の表示に代えて見つからない旨を表示する。409 と 404 以外の失敗の従来の文言は保つ。出力のダイアログは対象外（57.8）。文言の逐語は保存の 404 の文言を流儀として design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、各画面の読み込みの 404 の表示、各操作と転記のダイアログの 404 のメッセージ。404 以外の失敗の従来の文言は保つ）と E2E（担当外の利用者が見積書の詳細の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが出て存在しない見積書と同じ表示になる、範囲外のプロジェクトの一覧・新規作成の URL でプロジェクトが見つからない旨が出る、開いた後に論理的に取り除かれた見積書の削除と、開いた後に案件が閲覧範囲外になった見積書の諸経費の計算で見つからない旨のメッセージが出る）で主張し、`@requirement estimate-creation/REQ-58.1`・`REQ-58.2` の印を置く。保存の 404 は既存の単体テスト（`EstimateDetailPage.saveError.test.tsx`）が文言を固定しているかを確かめ、58.2 の印を置く
+  - 既存の E2E（`e2e/specs/estimate/estimate-creation-project-scope.spec.ts` の「担当外の利用者が見積書の URL を直接開くと存在しない見積書と同じ表示になり」）は、`main` の中の `role="alert"` の要素の本文を存在しない見積書と比べている。共通部品 `ResourceNotFound` がその役割を持たなければ、見つからない旨の表示どうしの比較へ改める（比較の主張は消さない）。`e2e/specs/estimate/estimate-creation-focus-visible.spec.ts` の取得の失敗・作成の失敗の本文のテストは 400 で差し替えており、404 以外の従来の表示として緑のままであることを確かめる。ほかに、変えた表示（取得の失敗・削除の失敗・作成の失敗の文言、再試行の釦、見つからない旨の文言）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、取得・操作の失敗の汎用の文言を出さず、404 を無視しない状態になる
+  - _Requirements: 58.1, 58.2_
+  - _Boundary: EstimateListPage, EstimateCreatePage, EstimateDetailPage, OverheadCostPanel, TransferQuotationDialog_
+
+## タスク65: 論理削除済みの内訳書の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、記録しない「論理削除」を案件そのものの論理削除に限り、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」とその起票先の一覧の estimate-creation の行）。本機能は、`EstimateService` の `createWithin` が論理削除済みの内訳書を所属の照合より先に内訳書の不在の 404 で弾くため、範囲外の案件のものでも記録しない（2026-10-30 の調査。336 行付近。行は着手時に測り直すこと）。見積書そのものの解決関数 `findProjectIdOfEstimate` は論理削除を区別せず、既に方針どおりであり変えない。requirements.md に 57.10 を加え（改訂の記録を Requirement 57 に残した）、design.md の末尾の章「2026-10-30 の追加: 論理削除済みの内訳書の範囲外の記録」に設計を置いた。応答とデータと画面は変えない
+
+- [x] 65.1 見積書の作成で、範囲外の案件の論理削除済みの内訳書を記録する
+  - backend/src/services/estimate.service.ts の `createWithin` の内訳書の照合の順を、行が無い（内訳書の不在の 404、記録しない）→ 作成先のプロジェクトに属さない（`evaluateProjectAccess` で範囲外なら `deniedProjectIds` へ入れたうえ内訳書の不在の 404）→ 作成先のプロジェクトに属し論理削除済み（内訳書の不在の 404、記録しない）へ改める（design.md の同章の「決定」の「内訳書の照合の順」）。応答は 3 通りとも 57.4 と同じ 404 の `ITEMIZED_STATEMENT_NOT_FOUND` と本文のまま、見積書と見積項目を作成しない。照合の注釈と `create` の `@throws` の注釈を改める
+  - **テストの追加**（既存に論理削除済みの内訳書の記録の主張は無く、書き換えは要らない。既存の主張を消さない）: 単体（`backend/src/__tests__/unit/services/estimate.service.test.ts`）の「作成先のプロジェクトに属さない内訳書（Requirement 57.4、タスク62.1）」の表に、論理削除済みの内訳書の場合（範囲外は判定して記録 1 回で対象は内訳書の案件、範囲内の他のプロジェクト・案件の不在は記録なし。どれも内訳書の不在と同じ例外で見積書を作らない）を足し、作成先のプロジェクトの論理削除済みの内訳書が判定も記録もせず同じ例外になることを足す。既存の「削除済み内訳書を参照した見積書作成時、エラーを発生させる」は内訳書の模擬が `projectId` を持たず、照合の順を改めると判定の部品を呼ぶため、模擬に作成先の `projectId` を足す（例外の主張は変えない）。統合（`backend/src/__tests__/integration/estimate-creation-project-scope.api.integration.test.ts` の「作成の要求が指す内訳書（57.4）」）に、範囲外の案件の論理削除済みの内訳書を指す作成が存在しない内訳書と同じ 404 の本文で `PROJECT_SCOPE_DENIED` が 1 件増え見積書が増えないことと、作成先のプロジェクトの論理削除済みの内訳書では記録が増えないことを足す。既存の範囲外の内訳書の記録のテストに `@requirement estimate-creation/REQ-57.10` の印を足すかは実装時に決める
+  - E2E（`e2e/specs/estimate/estimate-creation-project-scope.spec.ts`）で、範囲外の案件の論理削除済みの内訳書を指す見積書の作成が存在しない内訳書と同じ 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、見積書が作られないことを主張し、`@requirement estimate-creation/REQ-57.10` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積書の作成の内訳書の不在の 404、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 57.4・57.9・58.2 のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、足したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、範囲外の案件の論理削除済みの内訳書を指す作成が内訳書の不在と同じ 404 で記録され、作成先のプロジェクトの論理削除済みの内訳書では記録されず、どの場合も見積書が作られない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 57.10_
+  - _Boundary: EstimateService の見積書の作成の内訳書の照合と、その記録を主張する本スペックのテスト_
+
+## タスク66: 一括保存の本文の他の見積書の見積項目の ID の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、受入基準7の記録の要否を作成・保存の要求が指す他のデータについて判定するときも同じ方針とし、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録）。本機能の見積明細の一括保存（backend/src/services/estimate-draft.service.ts の `saveDraft`〔349 行付近〕。所属の照合 `validatePayloadItemOwnership` の呼び出しは 370 行付近、本体は 602 行付近。経路の構造の不備の 422 の分岐は backend/src/routes/estimates.routes.ts の 783〜806 行付近。行は 2026-10-31 の実測で、着手時に測り直すこと）は、本文に混じった対象の見積書に属さない既存の見積項目の ID を、他の見積書のものか存在しないものかを引かずに一律に 422 で拒み、範囲外の案件のものでも記録しない。quantity-table-generation の 50.11（同 spec のタスク107.1、`8c924cd8`）と記録の基準をそろえる。requirements.md に 57.11 を加え（改訂の記録を Requirement 57 に残した）、design.md の末尾の章「2026-10-31 の追加: 一括保存の本文の他の見積書の見積項目の ID の範囲外の記録」に設計を置き、Requirement 57 章の「一括保存（全件か無しか）」に改訂の注記を置いた。応答とデータと画面は変えない
+
+- [x] 66.1 見積明細の一括保存の本文の属さない既存の見積項目の ID の実際の案件が範囲外なら記録する
+  - `EstimateDraftService` に判定（`evaluateProjectAccess`）と記録（監査ログのサービス）の依存を足し（`EstimateService` の `projectScope` の注入の形にそろえる）、`saveDraft` を `withSurveyScopeDenialRecording` で包む。経路（`PUT /api/estimates/:id/save`）から実行者の ID と `projectScopeDenialContextOf(req)` を渡す。見積書の読み出しに案件 ID を足す
+  - 一括保存の本体で、対象の見積書の既存の見積項目の ID の集合を読んだ後、所属の照合（`validatePayloadItemOwnership`）より前に、本文の属さない既存の見積項目の ID の実際の案件（親の見積書の案件）を ID 群の一括の読み出しで引き、対象の見積書と別の案件を重複なく `evaluateProjectAccess` で判定し、`out_of_scope` なら範囲外とした案件の集合（`deniedProjectIds`）に入れる（design.md の同章の「決定」。QuantityTableService の `noteForeignDraftIdProjects` が手本）。属さない ID が無ければ何も引かない。行の無い ID は判定しない。見積書の論理削除は条件に含めない。例外は投げず、その後の所属の照合と楽観的排他制御は従来の順と応答（422、同じ文言と問題箇所のキー）のまま
+  - 明細のツリーの構造の不備だけで 422 となる要求（経路のスキーマの問題がすべて `code: 'custom'`）でも、本文の形が正しい限り同じ判定を通して記録する（応答の 422 は変えない）。形式の不正の 400 では判定しない。実現の形（形だけのスキーマで読み直し判定だけを行う処理など）は実装時に決めて design.md の同章の「決定」へ記す。処理の名前と置き場所も同じく記す。所属の照合と `saveDraft` の注釈と `@throws` を改める
+  - **既存のテストの追随**（主張を消さない）: 単体（`backend/src/__tests__/unit/services/estimate-draft.service.test.ts`）の Prisma の模擬に、属さない ID の見積項目の一括の読み出し（既定は行が無い）と判定・記録の依存の模擬を足し、「他の見積書の項目IDが含まれる場合はトランザクションを開始せずに検証エラーとする」「検証エラーには不備のあった項目が含まれる」「検証NGと楽観ロック競合が同時に成立する場合も検証NG（422）で中断し、データを変更しない」が緑のままであることを確かめる。経路の単体テストとサービスの構築の箇所が依存の追加で壊れないことを確かめる
+  - 単体に、属さない ID の実際の案件が範囲外なら従来の 422 で判定 1 回・記録 1 回（対象はその案件）、同じ範囲外の案件の ID が複数でも記録 1 回、範囲内の他の案件・案件の不在なら記録なし、同じ案件の別の見積書と行の無い ID なら判定も記録もしない、親の見積書が論理削除済みでも判定する、属さない ID の無い保存では引く問い合わせが無い、構造の不備の 422 の分岐で判定が通り形式の不正の 400 では通らない、を足す。統合（`backend/src/__tests__/integration/estimate-creation-project-scope.api.integration.test.ts` の 57.5 の describe）に、範囲内の見積書の一括保存の本文へ範囲外の案件の見積書の見積項目の ID を混ぜると従来の 422 の本文のまま担当者の `PROJECT_SCOPE_DENIED` が 1 件増え（対象は範囲外の案件）どの見積書のデータも変わらないこと、論理削除済みの見積書の見積項目の ID でも、構造の不備（重複配置）を併せて含む本文でも増えること、全案件閲覧の権限の利用者・同じ案件の別の見積書・範囲内の他の案件・存在しない ID・案件そのものを論理削除した場合では増えないことを足す
+  - E2E（`e2e/specs/estimate/estimate-creation-project-scope.spec.ts`）で、担当者が自分の見積書の一括保存の本文へ範囲外の案件の見積書の見積項目の ID を混ぜた要求が 422 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え（対象は範囲外の案件）、どちらの見積書も変わらないことを主張し、`@requirement estimate-creation/REQ-57.11` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積明細の一括保存の 422、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 57.4・57.5・57.9・57.10 のテストと、見積明細の保存の E2E を含む。`PROJECT_SCOPE_DENIED` の増加が異常の検知〔user-authentication の要件43.2〕の閾値に触れて他のテストの利用者を止めないことも確かめる）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、一括保存の本文の属さない見積項目の ID の実際の案件が範囲外のときだけ案件ごとに 1 回記録され、どの場合も従来の 422 でどの見積項目にも書き込まない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 57.11_
+  - _Boundary: EstimateDraftService の一括保存の所属の照合（saveDraft・validatePayloadItemOwnership）と依存の注入、見積書の一括保存の経路の 422 の分岐と、その記録を主張する本スペックのテスト_
+
+## タスク67: 一括保存の本文の件数の前倒しの数え上げと備考の文字数の上限（OWASP API Security の API4 への対策。利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」、値は同日に利用者が確定）で起票する。見積明細の一括保存の経路（backend/src/routes/estimates.routes.ts の `PUT /:id/save`〔772 行付近。本文の検証の `safeParse` は 788 行付近〕）は、本文の見積項目の総数の上限（`SAVE_ESTIMATE_MAX_ITEMS`、2000）を、スキーマが本文の全体を再帰で検証した後の `superRefine`（backend/src/schemas/estimate.schema.ts の `validateSaveEstimateItemTree`〔453 行付近〕）で数えるため、上限を大きく超える本文や深い入れ子の本文も全件が検証へ渡る。見積項目行のスキーマ（同ファイルの `saveEstimateLineSchema`〔353 行付近〕）の `remarks` は長さの上限を持たない。行は 2026-10-31 の実測で、着手時に測り直すこと。requirements.md に 42.10・42.11 を加え（改訂の記録を Requirement 42 に、57.11 の判定の範囲の補足を Requirement 57 に残した）、design.md の末尾の章「2026-10-31 の追加: 一括保存の本文の件数の前倒しの数え上げと備考の文字数の上限」に設計と確定した値を置いた
+
+- [x] 67.1 一括保存の本文の見積項目の総数を検証の前に数え、上限を超えたら打ち切って従来の 422 で拒む
+  - **改訂（2026-10-31、利用者の判断「深さに上限を設ける（100段）」）**: 着手時の計測で 2000 段の鎖の本文が Zod の再帰の検証の深さの限界で 500 になると分かり（design.md の同章の「決定」の「深い入れ子」の計測の結果）、Requirement 2.5 を改訂して受入基準 42.12 を加えた。本タスクは同じ数え上げで階層の深さも数え、100 段（`SAVE_ESTIMATE_MAX_DEPTH`）を超えたら Zod の前に打ち切り、件数の上限の 422 と同じ形で深さの上限の文言（`ITEMS_TOO_DEEP`、「見積項目の階層は100段以内で保存してください」）で拒む。深さで打ち切った本文も読んだ節点の ID で 57.11 の判定と記録を行う。100 段ちょうどは保存でき（応答の直列化を含む）、101 段と 2000 段の鎖は 422 で書き込まないことを単体・統合・E2E で確かめ、`@requirement estimate-creation/REQ-42.12` の印を置く。下の各項の「2000 段の鎖が 500 にならず構造の検証の 422 か保存で終わる」は「深さの上限の 422 で終わる」と読み替える
+  - 生の本文の `items` と各節点の `children` の節点を明示のスタックで数える関数を置き（再帰を使わない。積むときに数え、2001 件目で打ち切る。配列でない `items`・`children` は数えずに進む。読んだ節点の UUID の形の `id` を集める）、経路で `saveEstimateDraftSchema` の `safeParse` の前に呼ぶ。打ち切ったら、集めた ID で 57.11 の属さない ID の判定と記録を行ってから、従来の件数の上限の 422（`EstimateDraftValidationError`、`path` `items`、`ITEMS_TOO_MANY` の文言）を投げ、Zod の検証とサービスの保存を呼ばない（design.md の同章の「決定」の「総数の前倒しの数え上げ」）。構造の検証の中の総数の検査は残す。関数の名前と置き場所、57.11 の判定へ ID を渡す形を design.md の同章の「決定」へ記す
+  - 2000 段の鎖（各節点が一つの子を持つ）の本文の一括保存が 500 にならず、構造の検証の 422 か保存で終わることを統合テストで確かめ、所要を一時の計測で測って design.md の同章へ記す。上限いっぱい（2000 件、全件新規）の保存の所要が制限時間（15 秒、`ESTIMATE_SAVE_TRANSACTION_OPTIONS`）に収まることも一時の計測で再確認して記す（計測の器具は提出物に残さない）。2000 段の鎖を読み切れなければ着手を止めて利用者に諮る
+  - 単体（`backend/src/__tests__/unit/schemas/estimate.schema.test.ts`）に、数え上げの関数が 2000 件で数え終え 2001 件で打ち切ること（`items` だけ、`children` の入れ子、一つの節点の `children` が大きい場合）、配列でない値を数えずに進むこと、数万段の鎖でも例外にならないこと、読んだ節点の ID を集めることを足す。経路の単体（`backend/src/__tests__/unit/routes/estimates.routes.test.ts`）に、上限を超えた本文で Zod の検証とサービスの保存を呼ばずに件数の上限の 422 になること、形式の不正を併せて含んでも 422 になること、57.11 の判定が読んだ ID で呼ばれることを足す
+  - 統合（`backend/src/__tests__/integration/estimate-draft-save.api.integration.test.ts`）に、総数 2001 件の本文と深い入れ子で上限を超える本文が 422 になりデータベースが変わらないことを足す。閲覧範囲の統合（`backend/src/__tests__/integration/estimate-creation-project-scope.api.integration.test.ts` の 57.11 のテストの近く）に、件数の上限を超えた本文に範囲外の案件の見積項目の ID を含めると担当者の `PROJECT_SCOPE_DENIED` が 1 件増え 422 のままであることを足す
+  - E2E（`e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、一括保存の API へ総数が上限を 1 件超えた本文を送ると 422 になり見積書が変わらないことを主張し、`@requirement estimate-creation/REQ-42.10` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積明細の一括保存の 422 と 400）を e2e/ 全体で grep して既存の E2E を選び、流す（見積明細の保存の E2E と閲覧範囲の E2E の 57.5・57.11 のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、総数が上限を超えた本文は検証の前に従来の 422 で拒まれどこにも書き込まず、読んだ節点の範囲外の ID は記録され、上限の内側の保存が従来どおりである状態になる
+  - _Requirements: 42.10, 42.12, 2.5_
+  - _Boundary: 見積書の一括保存の経路（PUT /:id/save の本文の検証の前段）、estimate.schema の数え上げの関数、57.11 の判定の処理へ ID を渡す形（EstimateDraftService.recordForeignItemScopeDenials の周辺）と、それらを主張する本スペックのテスト_
+- [x] 67.2 見積項目行の備考に文字数の上限を設ける
+  - `saveEstimateLineSchema` の `remarks` を 2000 文字までとし、超えたら他の文字列の欄と同じ形式の不正の 400 で、「備考は2000文字以内で入力してください」の趣旨のメッセージと問題箇所（`items.<i>.lines.<j>.remarks` など）を返す（design.md の同章の「決定」の「備考の文字数の上限」）。上限を設けないとしていたスキーマの注釈を改める。文言の定数の名前と最終形を design.md の同章の「決定」へ記す
+  - テスト環境の DB（読むだけ）で見積項目行の備考の最大の長さを確かめ、design.md の同章へ記す
+  - 単体（`backend/src/__tests__/unit/schemas/estimate.schema.test.ts`）に、`remarks` が 2000 文字で通り 2001 文字で 400 の問題（メッセージと問題箇所）になることを足す。統合（`backend/src/__tests__/integration/estimate-draft-save.api.integration.test.ts`）に、備考が 2001 文字の本文が 400 になりデータベースが変わらないことを足す
+  - E2E（`e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、一括保存の API へ備考が上限を超えた本文を送ると 400 になり見積書が変わらないことを主張し、`@requirement estimate-creation/REQ-42.11` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積明細の一括保存の 400）を e2e/ 全体で grep して既存の E2E を選び、流す（受領見積書からの転記の保存の E2E を含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、見積項目行の備考が 2000 文字を超える本文は 400 で拒まれどこにも書き込まず、上限の内側の保存が従来どおりである状態になる
+  - _Requirements: 42.11_
+  - _Boundary: estimate.schema の見積項目行のスキーマ（saveEstimateLineSchema）と、その上限を主張する本スペックのテスト_
+
+## タスク68: 保存の上限の超過の画面の表示と、Requirement 2.5 の改訂の注釈への追随（利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「推奨案で進める」の 2・4）で起票する。42.10〜42.12（タスク67.1・67.2）で一括保存が件数・深さの上限の 422 と備考の上限の 400 で拒まれるようになったが、見積書詳細画面（frontend/src/pages/EstimateDetailPage.tsx の `toSaveErrorMessage`）は 400 と 422 を一律に「保存できません: 」に例外の `message` を続けて表示し、422 は固定の要約の文言になってどの上限かが出ない。frontend の注釈とテストの名前は、改訂前の Requirement 2.5（階層の深さに上限を設けない）を名乗る。requirements.md に 42.13 を加え（改訂の記録を Requirement 42 に、追記を Requirement 2 に残した）、design.md の末尾の章「2026-11-01 の追加: 保存の上限の超過の画面の表示と、内訳書からの作成の件数の上限」に設計を置いた
+
+- [x] 68.1 保存の上限の超過の 422 と 400 を判定し、上限のメッセージを表示する
+  - 422（`ESTIMATE_DRAFT_VALIDATION_ERROR`、`details.issues` の `path` が `items` に完全一致）と 400（`VALIDATION_ERROR`、`details` の `path` が `^items\.\d+(\.children\.\d+)*\.lines\.\d+\.remarks$` に完全一致し `code` が `too_big`）で上限の超過を判定し、当たった `message` を重複なく「、」でつなぎ「保存できません: 」に続けた文言を返す関数 `describeEstimateSaveLimitFailure(error): string | null` を、新設の frontend/src/utils/estimate-save-limit-feedback.ts に置く（design.md の同章の「決定」の「保存の上限の超過の判定と表示」）。メッセージの文字列で件数と深さを判定しない。画面に上限の値を持たない
+  - `toSaveErrorMessage` の先頭でこの関数を呼び、当たればその文言を表示する。当たらなければ従来の分岐のまま。編集中の内容の保持（`useEstimateEditor` の保存の処理の `catch`）は変えない。関数の最終形を design.md の同章の「決定」へ記す
+  - 単体（関数の新設のテストと `frontend/src/pages/EstimateDetailPage.test.tsx`）に、件数・深さの 422 と備考の 400（子孫の節点を含む）で上限のメッセージ（重複なし）を表示し要約の文言と汎用の文言を表示せず編集中の内容を保つこと、属さない ID の `items.<uuid>`・仮 ID の解決の失敗・構造の検証の 422、他の欄の `too_big` の 400、409・404 では従来の表示のままであることを足す
+  - E2E（`e2e/specs/estimate/estimate-hierarchy-reload-save-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、画面で編集して保存し、画面が送る保存の要求の本文を経路の差し替え（`route.continue` の `postData`。quantity-table-generation のタスク109.1 の手法）で 42.10〜42.12 の上限を超えるまで増やし、バックエンドの実際の 422 と 400 を受けて、上限のメッセージが表示され要約の文言と汎用の文言が表示されず、編集中の内容と未保存の表示が残ることを、3 つの上限のそれぞれで主張し、`@requirement estimate-creation/REQ-42.13` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた表示（「保存できません: 」と保存の失敗のバナー `estimate-save-error`）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたので、テスト環境の frontend を作り直してから流す
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・E2E で、上限を超えた保存ではどの上限かが表示され汎用の文言と要約の文言が表示されず、編集中の内容が残り、他の失敗の表示は従来どおりである状態になる
+  - _Requirements: 42.13_
+  - _Boundary: 見積書詳細画面の保存の失敗の文言（EstimateDetailPage の toSaveErrorMessage）と、新設する保存の上限の判定の関数（frontend/src/utils/estimate-save-limit-feedback.ts）と、その表示を主張する本スペックのテスト_
+- [x] 68.2 frontend の注釈とテストの名前を Requirement 2.5 の改訂後の文へ追随させる
+  - 「2.5: 階層の深さに上限を設けない」の趣旨の注釈を、design.md の同章の「決定」の「frontend の注釈の Requirement 2.5 の追随」の趣旨（画面の走査は明示のスタックの反復で深さに再帰の上限を作らない。保存は 42.12 で 100 段までに拒むが、既存のデータと編集中の状態はそれを超えうる）へ改める。対象は 2026-11-01 の実測で次のとおり（行は着手時に `階層の深さに上限を設けない` を frontend/src の下で検索して測り直す）: `estimateTree.ts`（5 か所）、`estimateEditReducer.ts`、`useEstimateEditor.ts`、`estimateAmountLimit.ts`、`NetAllocationDialog.tsx`、`TransferQuotationDialog.tsx`、`ProfitRateDialog.tsx`、`estimateReportLayout.ts`（3 か所）
+  - テストの名前と見出し（`estimateTree.test.ts` の見出しと `it` 4 つ、`estimateAmountLimit.test.ts` の `it` 1 つ、`estimateReportLayout.deepHierarchy.test.ts` の見出し）を同じ趣旨へ改める。主張と走査の方式は変えない
+  - 振る舞いを変えないため、改めたファイルの単体を流して緑のままであることを確かめる。テストの名前に要件の印が含まれる場合は、改めた後に `check:design-measurement-freshness` を名指しで流す
+  - _Requirements: 2.5_
+  - _Boundary: 上の frontend の注釈とテストの名前（estimateTree・estimateEditReducer・useEstimateEditor・estimateAmountLimit・NetAllocationDialog・TransferQuotationDialog・ProfitRateDialog・estimateReportLayout とそのテスト）。コードの振る舞いは変えない_
+
+## タスク69: 内訳書からの見積書の作成の件数の上限（利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「作成時に拒む」）で起票する。内訳書からの見積書の作成（backend/src/services/estimate.service.ts の `createWithin`。内訳書の項目 1 件につき根の見積項目 1 件を `createMany` で作る）は、作る見積項目の数に上限を持たない。内訳書は数量表の集計の結果で 2000 を超える項目を持ちうるため、そうした内訳書から作った見積書は作った直後から一括保存が 42.10 の 422 になり、一度も保存できない。見積書作成画面（frontend/src/pages/EstimateCreatePage.tsx の `handleSubmit`）は 422 を「見積書の作成に失敗しました」で表示する。requirements.md に 3.6・3.7 を加え（改訂の記録を Requirement 3 に残した）、design.md の末尾の章（タスク68 と同じ章）に設計を置いた
+
+- [x] 69.1 内訳書から作る見積項目の数が上限を超えたら、一括保存と同じ 422 で見積書を作らない
+  - 作成のサービスの本体のトランザクションの中で、内訳書の照合（57.4・57.10 の 404）の後、同名の見積書の確かめと見積書の作成の前に、内訳書の項目の数が `SAVE_ESTIMATE_MAX_ITEMS` を超えたら `EstimateDraftValidationError`（`path` `items`、`SAVE_ESTIMATE_VALIDATION_MESSAGES.ITEMS_TOO_MANY`）を投げる（design.md の同章の「決定」の「内訳書からの作成の件数の上限」）。新しい定数を作らない。経路の作成の分岐がこの例外をエラーハンドラーへ渡し一括保存と同じ 422 の本文になることを確かめ、経路の変更の要否を design.md の同章の「決定」へ記す
+  - 単体（`backend/src/__tests__/unit/services/estimate.service.test.ts`）に、項目が 2001 件の内訳書で 422 の例外を投げ見積書の作成を呼ばないこと、2000 件で作成すること、範囲外・不在の内訳書は件数によらず従来の 404 になり範囲外の記録（57.10）が従来どおりであること、同名の見積書があっても件数の上限で先に拒むことを足す。経路の単体または統合に、2001 件の内訳書からの作成が 422（一括保存と同じ本文の形）になり見積書も見積項目も増えないことと、上限の内側（3 件）の対照で作成されることを足す。上限ちょうど（2000 件）の作成は所要が作成のトランザクションの既定の制限時間に迫る（2026-11-01 の統合の実測で 9738 ms の 500 が 1 回）ため統合・E2E に常設せず、上限ちょうどで作れることは単体が主張する（quantity-table-generation のタスク111.1 と同じ扱い）。作成の制限時間を一括保存と同じ 15 秒にすることは別のタスクで扱う
+  - E2E（`e2e/specs/estimate/estimate-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、項目が 2001 件の内訳書を API で用意し（数量表の保存と内訳書の作成の API。集計で一つにまとまらない名前にする）、作成の API へその内訳書を指定すると 422 になり見積書が増えないことと、上限の内側の少ない件数の対照なら作成されることを主張し、`@requirement estimate-creation/REQ-3.6` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（見積書の作成の 422）を e2e/ 全体で grep して既存の E2E を選び、流す（見積書の作成の E2E と閲覧範囲の E2E の 57.4・57.10 のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、上限を超える内訳書からの作成は一括保存と同じ 422 で拒まれどこにも書き込まず、上限の内側の作成と内訳書の照合の 404 が従来どおりである状態になる
+  - _Requirements: 3.6_
+  - _Boundary: EstimateService の見積書の作成の本体（createWithin の内訳書の照合の後、見積書の作成の前）と、その上限を主張する本スペックのテスト_
+- [x] 69.2 見積書作成画面で作成の件数の上限の 422 を表示する
+  - 42.13 の判定と同じ条件（422、`ESTIMATE_DRAFT_VALIDATION_ERROR`、`details.issues` の `path` が `items` に完全一致）で作成の件数の上限を判定し、当たった `message` を重複なく「見積書を作成できません: 」に続けた文言を返す関数を、68.1 の新設のファイルに置き（422 の判定を共有する）、`EstimateCreatePage` の `handleSubmit` の失敗の分岐の先頭で呼ぶ。当たらなければ従来の書き分け（404 の不在、汎用の文言）のまま。関数の名前を design.md の同章の「決定」へ記す
+  - 単体（関数のテストと `frontend/src/pages/EstimateCreatePage.test.tsx`）に、作成が件数の上限の 422 で失敗すると上限のメッセージを表示し「見積書の作成に失敗しました」を表示せず、入力中の見積書名と選択中の内訳書を保ち画面を移らないこと、404・409・上限でない 422 では従来の表示のままであることを足す
+  - E2E（69.1 と同じファイル）で、項目が 2001 件の内訳書を見積書作成画面で選んで作成すると、上限のメッセージが表示され「見積書の作成に失敗しました」が表示されず、作成画面に留まり見積書が増えないことを主張し、`@requirement estimate-creation/REQ-3.7` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた表示（「見積書の作成に失敗しました」）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたので、テスト環境の frontend を作り直してから流す
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す。69.1 が入る前に着手しない
+  - 単体・E2E で、作成が件数の上限で拒まれるとどの上限かが表示され汎用の文言が表示されず入力が残り、他の失敗の表示は従来どおりである状態になる
+  - _Depends: 69.1, 68.1_
+  - _Requirements: 3.7_
+  - _Boundary: 見積書作成画面の作成の失敗の分岐（EstimateCreatePage の handleSubmit）と、68.1 の新設のファイルに足す作成の上限の判定の関数と、その表示を主張する本スペックのテスト_
+- [x] 69.3 内訳書からの見積書の作成のトランザクションに、一括保存と同じ制限時間を明示する
+  - 利用者の判断（2026-11-01「保存と同じ 15 秒にする」）で 69.1 の後に加えた。作成のサービス（`EstimateService` の `create` が包む `createWithin`）の `$transaction` は制限時間を指定せず Prisma の既定（`timeout` 5 秒、`maxWait` 2 秒）で動く。上限ちょうど（2000 件）の作成は統合の実測で 2.8〜4.0 秒、負荷の高い時に一度 9738 ms で 500 になった（既定の 5 秒の超過と推定。design.md の同章の「決定」の「作成のトランザクションの制限時間」）
+  - `createWithin` の `$transaction` の第 2 引数に、一括保存と同じ値（`timeout` 15000 ms、`maxWait` 5000 ms）を渡す。値を二か所に持たないよう、一括保存の `ESTIMATE_SAVE_TRANSACTION_OPTIONS` を参照する（新しい値を作らない）。超過時の応答の変換は足さない（エラーハンドラーの P2028 の 500 のまま）。内訳書の照合・件数の上限（69.1）・書き込みの順序と方式は変えない
+  - 単体（`backend/src/__tests__/unit/services/estimate.service.test.ts`）に、内訳書からの作成と内訳書を選ばない作成が `$transaction` へ `timeout` 15000・`maxWait` 5000 を渡すことを、期待値をリテラルで書いて足す（タスク57.6 の形）。統合（`backend/src/__tests__/integration/estimate.api.integration.test.ts`）は従来のテストが緑のままであることを確かめ、上限ちょうど（2000 件）の作成を常設しない（69.1 と quantity-table-generation のタスク111.1 と同じ扱い）。2000 件の作成の所要を一時の計測で測ったときは、値を design.md の同章へ記す（計測の器具は提出物に残さない）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体と統合で、作成のトランザクションが一括保存と同じ制限時間で動き、作成の結果と応答が従来どおりである状態になる
+  - _Requirements: 3.6_
+  - _Boundary: EstimateService の見積書の作成のトランザクション（createWithin の $transaction の options）と、その制限時間を主張する本スペックのテスト_
+
+## タスク70: 見積書の作成・更新・論理削除の監査ログをトランザクションの中で書く（利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「推奨案で進めてください」）で起票する。見積書のサービス（backend/src/services/estimate.service.ts の `EstimateService`）の作成の本体（`createWithin`）・更新（`update`）・論理削除（`delete`）は、`$transaction` のコールバックの中で `auditLogService.createLog` をトランザクションのクライアントを渡さずに呼び、監査ログをトランザクションの外の接続で書く（#292 から）。記録の後にトランザクションが巻き戻ると、見積書は変わらないのに監査ログだけが残る。requirements.md に 11.8 を加え（改訂の記録を Requirement 11 に残した）、design.md の末尾に章「2026-11-01 の追加: 見積書の作成・更新・論理削除の監査ログをトランザクションの中で書く（Requirement 11.8）」を置いた
+
+- [x] 70.1 見積書の作成・更新・論理削除の監査ログを、見積書の変更と同じトランザクションの中で書く
+  - 作成の本体・更新・論理削除の 3 か所の `this.auditLogService.createLog({...})` の第 2 引数に、それぞれの `$transaction` のコールバックが受ける `tx` を渡す（各 1 行。design.md の同章の「決定」）。記録の入力・記録の時点・応答・トランザクションの制限時間は変えない。`AuditLogService` と受領見積書のサービスなど同じ形の他の箇所は変えない
+  - 単体（`backend/src/__tests__/unit/services/estimate.service.test.ts`）に、作成（内訳書からの作成と内訳書を選ばない作成）・更新・論理削除で `createLog` の第 2 引数が `$transaction` のコールバックへ渡された `tx` と同じオブジェクトであることを足す
+  - 統合（`backend/src/__tests__/integration/estimate.api.integration.test.ts`）に、見積書のサービスを直接組み立て、本物の `AuditLogService` の `createLog(input, tx)` を呼んでから例外を投げる包みを依存に注入して、作成・更新・論理削除のそれぞれで見積書が作られず・変わらず・論理削除されず、その操作の監査ログが 0 件であることを主張する。対照として、包まない本物の `AuditLogService` で 3 つの操作が確定し、その操作の監査ログが 1 件残ることを主張する。`@requirement estimate-creation/REQ-11.8` の印を置き、印を足したら `check:design-measurement-freshness` を名指しで流す
+  - E2E は新しく置かない（巻き戻しは画面からもテストの経路の差し替えからも起こせない。design.md の同章の Testing Strategy）。見積の既存の E2E（`e2e/specs/estimate/` の全件）を流し、回帰が無いことを確かめる。frontend は変えないため、テスト環境の frontend の作り直しは要らない
+  - E2E を置かないため、E2E の除外の台帳（`e2e/requirement-exclusions.json`）に 11.8 を一件足し、代替検証に上の統合テストを名指す（design.md の同章の Testing Strategy の「E2E の被覆の対象からの除外」）。足した後に `check:req-coverage` を名指しで流し、11.8 が被覆か除外として数えられ緑になることを確かめる
+  - 挙動の変更であるため RED → GREEN で進め、追加した単体と統合が改修の前に赤になる（単体は第 2 引数が `undefined`、統合は監査ログが 1 件残る）ことを先に示す
+  - 単体・統合で、巻き戻った作成・更新・論理削除の監査ログが残らず、確定した操作の監査ログが従来どおり 1 件記録される状態になる
+  - _Requirements: 11.8_
+  - _Boundary: EstimateService の作成の本体（createWithin）・更新（update）・論理削除（delete）の 3 か所の createLog の呼び出しと、その記録を主張する本スペックのテスト（estimate.service.test.ts と estimate.api.integration.test.ts）と、E2E の除外の台帳の 11.8 の一件_
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。
@@ -1913,3 +2092,5 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
 - **【57.3 で判明・現場調査E2Eにも同種の自動無効化が12件】** 白縁取り2・注釈サムネイル2・モバイルViewport5・一括エクスポート3。いずれも0〜2msで先行タイムアウトを伴わない自己スキップ。回帰対象外だが `site-survey` spec 側の課題として別途起票が望ましい。
 
 - **【57.9 で判明・要件カバレッジゲートが未達のままだった】** `/kiro-validate-impl` の独立検証で `npm run check:req-coverage` が **exit 1**（`estimate-creation` のE2E適用対象 **70.5%** / 未カバー受入基準 **114件**）と判明した。**このゲートは `.husky/scripts/pre-push.sh:688`（E2E実行の前提条件）と `.github/workflows/ci.yml:94` の両方でブロッキング**であり、分岐元 `7312962` の CI 実行は success だったので**本ブランチで発生した退行**である。57.3 が「全スイート緑」を実測した際に `npx playwright test` を直接叩いており、pre-push を経由しなかったためゲートが一度も走っていなかった（ブランチ自体も未pushでCIにもかかっていない）。**教訓: 「全スイート実行」はテストランナーの緑だけでは足りない。push/CIがブロッキングで課すゲートを同じ順序で通すまで「回帰なし」とは言えない。** 未カバー114件の内訳は3種で、いずれも段階1〜4の改修が持ち込んだもの: (1) **仕様の後始末漏れ19件** — REQ-16.1〜16.13 は本文で「project-management/Requirement 28 へ全AC移動」と宣言済み、REQ-24.1〜24.5 は「撤廃・Requirement 44/42 へ移管」と宣言済みなのに、`~~取り消し線~~` の番号付き受入基準が残り `check-requirement-coverage.ts` の `^(\d+)\.` に一致して未充足として計上され続けていた（追跡用の非番号記述へ置換して解消。移管先 `project-management/REQ-28.1`〜`28.13` に全件タグが実在することを確認済み）。(2) **帳票要件45件の帰属欠落** — REQ-50〜55 の実装と単体テスト136件（`EstimateCoverRenderer` / `EstimateTableRenderer` / `EstimatePdfExportService` / `EstimateExcelExportService` / `estimateReportLayout*`）は存在したが `@requirement estimate-creation/REQ-5x` タグが**全コードベースで0件**だった。(3) **既存要件に追加されたACの帰属欠落50件** — REQ-27(4→7)、REQ-41(10→12)、REQ-12(6→8)、REQ-18(9→10) のように段階1〜4で受入基準が増えたが、テスト名には `(42.6)` のような**機能名なしの番号**しか書かれておらず、`scripts/check-requirement-coverage.ts:434-446` の抽出規則（機能名の前置が必須）に合致していなかった。**タグ付与は「テスト名に番号が書いてあるから」では行わず、各テスト本文を読んで当該受入基準を実際に断言していることを確認してから付けた**（例: REQ-53.8 は `' 御見積金額 ￥１３，４２０，０００ '` と `not.toContain(',')` の全角断言、REQ-52.4 は外枠・見出し区切りのみ太線であることの断言、REQ-51.13 は `estimateReportSubject.test.ts` が `getCompanyInfo()` 由来であることを固定している側へ付与）。**★実装が成立しない要件2件を撤廃（要人間承認）**: REQ-18.9 / REQ-19.7 の「処理中インジケーターを表示する」は、段階3（REQ-49.3）で案分・利益率適用がサーバー往復を伴わずクライアント内で同期完結するようになったため**処理中として観測できる期間が存在しない**（`NetAllocationDialog.tsx:25` / `ProfitRateDialog.tsx:29` に実装側の判断が記録済み）。除外リストは代替検証方法の記載を要求するが検証すべき振る舞い自体が無いため、取り消し線付きの追跡記述へ置換した。**要件の削除にあたるため人間承認が必要**。**検証結果**: カバレッジ 70.5%→**100.0%**（全13機能100.0%、exit 0）、backend単体 223/6164、frontend単体 507/11260（skipped 0）、backend統合 44/811、両プロジェクトの型チェック、E2E全件 2244件中 2209 passed / **failed 0** / skipped 35（1h36m、exit 0）。**変更はテストへのJSDocコメント追加と requirements.md のみで、断言・本番コードは1行も変えていない**。E2Eの skipped 35件は全て quantity-table-generation と site-survey に属し `estimate-creation` は0件（本specの境界外の既存債務）。
+
+- **【2026-10-30 の是正・見積書の削除の基準時刻】** 画面はクエリで送り経路は本文で検証していたため、画面からの見積書の削除が常に 400 だった（28d3a5c4〔#292〕からの既存）。経路をクエリの検証へ改め、画面の削除の操作から成功を主張する E2E（estimate-delete-e2e.spec.ts、11.4）を足し、見積書の E2E の後始末 12 本を状態コードを確かめる `deleteEstimateViaApi` へ改めた（design.md の末尾の章「2026-10-30 の是正: 見積書の削除の基準時刻をクエリで受け取る」）。

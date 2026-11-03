@@ -21,8 +21,8 @@
  * - 「× ボタン」シナリオ（task 81.5 仕様）について、受領見積書ダイアログには ×
  *   ボタンが存在せず「キャンセル」ボタンのみのため、キャンセルボタン押下に置き換えて
  *   useUnsavedChangesGuard.confirmCloseIfDirty が起動することを検証する（Req 38.12）。
- * - セッション切れシミュレーションは localStorage の accessToken/refreshToken を
- *   無効値に上書きすることで、次回保存 API 呼び出し時に 401 → リフレッシュ失敗 →
+ * - セッション切れシミュレーションは保存とリフレッシュの API を 401 で返すことで、
+ *   次回保存 API 呼び出し時に 401 → リフレッシュ失敗 →
  *   sessionExpiredCallback 経由で SessionExpiredModal を表示させる経路を利用する。
  *   バックエンド側の強制セッション失効ヘルパーは存在しないが、フロントエンドの
  *   セッション切れフローを忠実に再現するため、本シミュレーションが妥当。
@@ -31,10 +31,11 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { loginAsUser, submitSessionExpiredTwoFactorCode } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { TEST_USERS } from '../../helpers/test-users';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * useResizableHeight が利用する localStorage キー
@@ -68,15 +69,14 @@ async function openReceivedQuotationCreateDialog(page: Page, estimateRequestId: 
 /**
  * セッション切れをシミュレートする
  *
- * localStorage 上の accessToken / refreshToken を無効値に書き換えることで、
+ * 保存とリフレッシュの API を 401 で返すことで、
  * 次回 API 呼び出し時に 401 + リフレッシュ失敗 → sessionExpiredCallback 経由で
  * SessionExpiredModal が表示される動線を再現する。
  *
  * 既存のフロントエンド設計（frontend/src/api/client.ts L185-235）に依存。
  */
 async function simulateSessionExpiration(page: Page) {
-  // localStorage の accessToken/refreshToken を書き換えても、AuthContext のメモリ内 state には
-  // valid なトークンが保持されたままになるため、API リクエストが成功してしまう。
+  // アクセストークンは画面のメモリだけにあり（user-authentication 要件33.10）、外から失効させられない。
   // そこで、受領見積書 POST を「最初の 1 回だけ」401 で返すルートモックを設定し、
   // refresh API も 401 で返して、リトライ時には外して通常フローに戻す。
   // これにより以下の認証フローが確実に発火する:
@@ -129,14 +129,7 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       const baseUrl = API_BASE_URL;
 
       // ログイン → アクセストークン取得
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: TEST_USERS.REGULAR_USER.email,
-          password: TEST_USERS.REGULAR_USER.password,
-        },
-      });
-      expect(loginResponse.ok()).toBe(true);
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
       expect(accessToken).toBeTruthy();
 
@@ -638,6 +631,8 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
         { timeout: getTimeout(30000) }
       );
       await reauthSubmitButton.click();
+      // 利用者は 2FA 登録済みのため、モーダルの認証コードの欄へ補助でコードを入れて再ログインする
+      await submitSessionExpiredTwoFactorCode(page, TEST_USERS.REGULAR_USER);
       const saveResponse = await savePromise;
       expect(saveResponse.status()).toBe(201);
 
@@ -924,13 +919,7 @@ test.describe('受領見積書ダイアログ改善2 (Req 36-38, task 81.5)', ()
       const baseUrl = API_BASE_URL;
 
       if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: TEST_USERS.REGULAR_USER.email,
-            password: TEST_USERS.REGULAR_USER.password,
-          },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
       }
 

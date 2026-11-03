@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import * as jose from 'jose';
 import type { CryptoKey } from 'jose';
 import { TokenService } from '../../../services/token.service.js';
-import type { TokenPayload } from '../../../services/token.service.js';
+import type { AccessTokenIssuePayload } from '../../../services/token.service.js';
+import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from '../../../config/jwt-claims.js';
 
 describe('TokenService', () => {
   let tokenService: TokenService;
@@ -30,7 +31,8 @@ describe('TokenService', () => {
 
   describe('generateAccessToken', () => {
     it('EdDSA署名でアクセストークンを生成できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -49,7 +51,8 @@ describe('TokenService', () => {
     });
 
     it('トークンにEdDSAアルゴリズムが設定されている', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -62,7 +65,8 @@ describe('TokenService', () => {
     });
 
     it('環境変数で設定された有効期限が適用される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -80,7 +84,8 @@ describe('TokenService', () => {
     });
 
     it('permissionsがオプションで含まれる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['admin'],
@@ -96,32 +101,36 @@ describe('TokenService', () => {
 
   describe('generateRefreshToken', () => {
     it('EdDSA署名でリフレッシュトークンを生成できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
       };
 
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
 
       expect(token).toBeTruthy();
       expect(typeof token).toBe('string');
 
-      // トークンをデコードして検証
+      // トークンをデコードして検証（利用者は sub、系列は fam。メールアドレスとロールは載せない）
       const decoded = jose.decodeJwt(token);
-      expect(decoded.userId).toBe(payload.userId);
-      expect(decoded.email).toBe(payload.email);
-      expect(decoded.roles).toEqual(payload.roles);
+      expect(decoded.sub).toBe(payload.userId);
+      expect(decoded.fam).toBe('family-1');
+      expect(decoded).not.toHaveProperty('email');
+      expect(decoded).not.toHaveProperty('roles');
+      expect(decoded).not.toHaveProperty('userId');
     });
 
     it('環境変数で設定された有効期限が適用される（7日間）', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
       };
 
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
       const decoded = jose.decodeJwt(token);
 
       expect(decoded.exp).toBeTruthy();
@@ -135,7 +144,8 @@ describe('TokenService', () => {
 
   describe('verifyToken', () => {
     it('有効なアクセストークンを検証できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -153,13 +163,14 @@ describe('TokenService', () => {
     });
 
     it('有効なリフレッシュトークンを検証できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
       };
 
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
       const result = await tokenService.verifyToken(token, 'refresh');
 
       expect(result.ok).toBe(true);
@@ -196,8 +207,11 @@ describe('TokenService', () => {
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
+        token_use: 'access',
       })
-        .setProtectedHeader({ alg: 'EdDSA' })
+        .setProtectedHeader({ alg: 'EdDSA', typ: 'at+jwt' })
+        .setIssuer('architrack')
+        .setAudience('architrack-api')
         .setIssuedAt(oneHourAgo - 60) // 発行時刻を過去に設定
         .setExpirationTime(oneHourAgo) // 1時間前に期限切れ
         .sign(privateKey);
@@ -227,7 +241,7 @@ describe('TokenService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
 
@@ -237,13 +251,14 @@ describe('TokenService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
 
     it('permissionsを含むトークンを正しく検証できる', async () => {
       // Arrange
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user456',
         email: 'admin@example.com',
         roles: ['admin'],
@@ -274,15 +289,16 @@ describe('TokenService', () => {
       // Assert
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        // 空文字列や完全に不正な形式はTOKEN_INVALID or TOKEN_MALFORMEDとして扱われる
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        // 空文字列や完全に不正な形式はTOKEN_INVALIDとして扱われる
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
   });
 
   describe('decodeToken', () => {
     it('有効なトークンを検証なしでデコードできる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -298,7 +314,8 @@ describe('TokenService', () => {
     });
 
     it('permissionsを含むトークンをデコードできる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['admin'],
@@ -338,28 +355,22 @@ describe('TokenService', () => {
   });
 
   describe('generateRefreshToken追加テスト', () => {
-    it('permissionsを含むリフレッシュトークンを生成できる', async () => {
-      const payload: TokenPayload = {
-        userId: 'user123',
-        email: 'test@example.com',
-        roles: ['admin'],
-        permissions: ['user:manage', 'project:delete'],
-      };
-
-      const token = await tokenService.generateRefreshToken(payload);
+    it('リフレッシュトークンは権限を載せない', async () => {
+      const token = await tokenService.generateRefreshToken('user123', 'family-1');
       const decoded = jose.decodeJwt(token);
 
-      expect(decoded.permissions).toEqual(payload.permissions);
+      expect(decoded).not.toHaveProperty('permissions');
     });
 
     it('リフレッシュトークンにjtiが設定される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
       };
 
-      const token = await tokenService.generateRefreshToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
       const decoded = jose.decodeJwt(token);
 
       expect(decoded.jti).toBeTruthy();
@@ -367,14 +378,15 @@ describe('TokenService', () => {
     });
 
     it('複数回生成すると異なるjtiが設定される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
       };
 
-      const token1 = await tokenService.generateRefreshToken(payload);
-      const token2 = await tokenService.generateRefreshToken(payload);
+      const token1 = await tokenService.generateRefreshToken(payload.userId, 'family-1');
+      const token2 = await tokenService.generateRefreshToken(payload.userId, 'family-1');
 
       const decoded1 = jose.decodeJwt(token1);
       const decoded2 = jose.decodeJwt(token2);
@@ -385,7 +397,8 @@ describe('TokenService', () => {
 
   describe('generateAccessToken追加テスト', () => {
     it('アクセストークンにjtiが設定される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -399,7 +412,8 @@ describe('TokenService', () => {
     });
 
     it('複数回生成すると異なるjtiが設定される', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -415,7 +429,8 @@ describe('TokenService', () => {
     });
 
     it('空のrolesでも生成できる', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: [],
@@ -429,15 +444,15 @@ describe('TokenService', () => {
   });
 
   describe('verifyToken追加テスト', () => {
-    it('refresh typeで検証しても結果は同じ', async () => {
-      // access tokenをrefresh typeとして検証しても成功する（署名は同じ鍵）
-      const payload: TokenPayload = {
+    it('refresh typeで検証したリフレッシュトークンからペイロードを得る', async () => {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
       };
 
-      const token = await tokenService.generateAccessToken(payload);
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
       const result = await tokenService.verifyToken(token, 'refresh');
 
       expect(result.ok).toBe(true);
@@ -532,7 +547,8 @@ describe('TokenService', () => {
       delete process.env.JWT_PRIVATE_KEY;
 
       const invalidService = new TokenService();
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -559,7 +575,8 @@ describe('TokenService', () => {
       delete process.env.JWT_PRIVATE_KEY;
 
       const invalidService = new TokenService();
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -570,7 +587,9 @@ describe('TokenService', () => {
         await (
           invalidService as unknown as { keysInitialized: Promise<void> }
         ).keysInitialized.catch(() => {});
-        await expect(invalidService.generateRefreshToken(payload)).rejects.toThrow();
+        await expect(
+          invalidService.generateRefreshToken(payload.userId, 'family-1')
+        ).rejects.toThrow();
       } finally {
         process.env.JWT_PUBLIC_KEY = originalPublicKey;
         process.env.JWT_PRIVATE_KEY = originalPrivateKey;
@@ -579,7 +598,7 @@ describe('TokenService', () => {
   });
 
   describe('verifyToken error handling', () => {
-    it('should return TOKEN_MALFORMED for completely invalid token structure', async () => {
+    it('should return TOKEN_INVALID for completely invalid token structure', async () => {
       // JWSInvalidエラーをトリガーする特殊なケース
       // 有効なBase64だが不正なJWT構造
       const invalidToken = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJ0ZXN0IjoxfQ';
@@ -587,7 +606,7 @@ describe('TokenService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
   });
@@ -629,7 +648,8 @@ describe('TokenService', () => {
         await (serviceWithDefaults as unknown as { keysInitialized: Promise<void> })
           .keysInitialized;
 
-        const payload: TokenPayload = {
+        const payload: AccessTokenIssuePayload = {
+          accessTokenGeneration: 0,
           userId: 'user123',
           email: 'test@example.com',
           roles: ['user'],
@@ -662,13 +682,14 @@ describe('TokenService', () => {
         await (serviceWithDefaults as unknown as { keysInitialized: Promise<void> })
           .keysInitialized;
 
-        const payload: TokenPayload = {
+        const payload: AccessTokenIssuePayload = {
+          accessTokenGeneration: 0,
           userId: 'user123',
           email: 'test@example.com',
           roles: ['user'],
         };
 
-        const token = await serviceWithDefaults.generateRefreshToken(payload);
+        const token = await serviceWithDefaults.generateRefreshToken(payload.userId, 'family-1');
         const decoded = jose.decodeJwt(token);
 
         // デフォルトは7日（604800秒）
@@ -710,7 +731,7 @@ describe('TokenService', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(['TOKEN_INVALID', 'TOKEN_MALFORMED']).toContain(result.error.type);
+        expect(result.error.type).toBe('TOKEN_INVALID');
       }
     });
   });
@@ -718,7 +739,8 @@ describe('TokenService', () => {
   describe('verifyToken with permissions', () => {
     it('should handle token without permissions field correctly', async () => {
       // permissionsなしのペイロード
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -736,7 +758,8 @@ describe('TokenService', () => {
 
   describe('decodeToken with permissions', () => {
     it('should handle token without permissions field correctly', async () => {
-      const payload: TokenPayload = {
+      const payload: AccessTokenIssuePayload = {
+        accessTokenGeneration: 0,
         userId: 'user123',
         email: 'test@example.com',
         roles: ['user'],
@@ -783,6 +806,278 @@ describe('TokenService', () => {
         'access'
       );
       expect(result2.ok).toBe(false);
+    });
+  });
+  describe('トークンの種別・発行者・想定利用者（要件33.1〜33.3）', () => {
+    const payload: AccessTokenIssuePayload = {
+      accessTokenGeneration: 0,
+      userId: 'user-kind-1',
+      email: 'kind@example.com',
+      roles: ['user'],
+    };
+
+    /** 同じ鍵で、クレームを指定して署名したトークン（既定は正規のアクセストークンと同じ値） */
+    async function signWith(options: {
+      tokenUse?: string;
+      issuer?: string;
+      audience?: string;
+      typ?: string;
+    }): Promise<string> {
+      const claims: Record<string, unknown> = { ...payload };
+      if (options.tokenUse !== undefined) {
+        claims.token_use = options.tokenUse;
+      }
+      let jwt = new jose.SignJWT(claims)
+        .setProtectedHeader(
+          options.typ === undefined ? { alg: 'EdDSA' } : { alg: 'EdDSA', typ: options.typ }
+        )
+        .setIssuedAt()
+        .setExpirationTime('15m');
+      if (options.issuer !== undefined) {
+        jwt = jwt.setIssuer(options.issuer);
+      }
+      if (options.audience !== undefined) {
+        jwt = jwt.setAudience(options.audience);
+      }
+      return jwt.sign(privateKey);
+    }
+
+    it('アクセストークンに種別 access・既定の発行者・想定利用者・主体・typ（at+jwt）を載せる', async () => {
+      const token = await tokenService.generateAccessToken(payload);
+      const decoded = jose.decodeJwt(token);
+      const header = jose.decodeProtectedHeader(token);
+
+      expect(decoded.token_use).toBe('access');
+      expect(decoded.iss).toBe('architrack');
+      expect(decoded.aud).toBe('architrack-api');
+      expect(decoded.sub).toBe(payload.userId);
+      expect(header.typ).toBe('at+jwt');
+    });
+
+    it('リフレッシュトークンに種別 refresh・既定の発行者・想定利用者を載せ、typ は at+jwt にしない', async () => {
+      const token = await tokenService.generateRefreshToken(payload.userId, 'family-1');
+      const decoded = jose.decodeJwt(token);
+      const header = jose.decodeProtectedHeader(token);
+
+      expect(decoded.token_use).toBe('refresh');
+      expect(decoded.iss).toBe('architrack');
+      expect(decoded.aud).toBe('architrack-api');
+      expect(header.typ).not.toBe('at+jwt');
+    });
+
+    /**
+     * 保護 API の検証（expected = 'access'）でリフレッシュトークンを拒否する（33.1 の判定の部品）
+     */
+    it('リフレッシュトークンを access として検証すると TOKEN_INVALID になる', async () => {
+      const refreshToken = await tokenService.generateRefreshToken(payload.userId, 'family-1');
+
+      const result = await tokenService.verifyToken(refreshToken, 'access');
+
+      expect(result).toEqual({ ok: false, error: { type: 'TOKEN_INVALID' } });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-33.2: リフレッシュの検証（expected = 'refresh'）でリフレッシュトークン以外を拒否する
+     */
+    it('アクセストークンを refresh として検証すると TOKEN_INVALID になる', async () => {
+      const accessToken = await tokenService.generateAccessToken(payload);
+
+      const result = await tokenService.verifyToken(accessToken, 'refresh');
+
+      expect(result).toEqual({ ok: false, error: { type: 'TOKEN_INVALID' } });
+    });
+
+    it('種別を持たないトークン（種別の導入より前の形）は access でも refresh でも TOKEN_INVALID になる', async () => {
+      const legacy = await signWith({
+        issuer: 'architrack',
+        audience: 'architrack-api',
+        typ: 'at+jwt',
+      });
+
+      expect(await tokenService.verifyToken(legacy, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+      expect(await tokenService.verifyToken(legacy, 'refresh')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    it('種別が未知の値のトークンは TOKEN_INVALID になる', async () => {
+      const unknownKind = await signWith({
+        tokenUse: 'id',
+        issuer: 'architrack',
+        audience: 'architrack-api',
+        typ: 'at+jwt',
+      });
+
+      expect(await tokenService.verifyToken(unknownKind, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    it('正規の鍵と同じクレームで署名したアクセストークンは access として受け付ける（対照）', async () => {
+      const token = await signWith({
+        tokenUse: 'access',
+        issuer: 'architrack',
+        audience: 'architrack-api',
+        typ: 'at+jwt',
+      });
+
+      const result = await tokenService.verifyToken(token, 'access');
+
+      expect(result.ok).toBe(true);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-33.3: 発行者が本システムでないトークンを拒否する
+     */
+    it.each([
+      ['発行者が異なる', { issuer: 'other-issuer', audience: 'architrack-api' }],
+      ['発行者が無い', { audience: 'architrack-api' }],
+    ])('%s アクセストークンは TOKEN_INVALID になる', async (_label, claims) => {
+      const token = await signWith({ tokenUse: 'access', typ: 'at+jwt', ...claims });
+
+      expect(await tokenService.verifyToken(token, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    /**
+     * @requirement user-authentication/REQ-33.3: 想定利用者が本システムでないトークンを拒否する
+     */
+    it.each([
+      ['想定利用者が異なる', { issuer: 'architrack', audience: 'other-api' }],
+      ['想定利用者が無い', { issuer: 'architrack' }],
+    ])('%s トークンは access でも refresh でも TOKEN_INVALID になる', async (_label, claims) => {
+      const access = await signWith({ tokenUse: 'access', typ: 'at+jwt', ...claims });
+      const refresh = await signWith({ tokenUse: 'refresh', ...claims });
+
+      expect(await tokenService.verifyToken(access, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+      expect(await tokenService.verifyToken(refresh, 'refresh')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    it('typ が at+jwt でないアクセストークンは TOKEN_INVALID になる', async () => {
+      const token = await signWith({
+        tokenUse: 'access',
+        issuer: 'architrack',
+        audience: 'architrack-api',
+      });
+
+      expect(await tokenService.verifyToken(token, 'access')).toEqual({
+        ok: false,
+        error: { type: 'TOKEN_INVALID' },
+      });
+    });
+
+    describe('JWT_ISSUER・JWT_AUDIENCE を設定したとき', () => {
+      const saved = { issuer: process.env.JWT_ISSUER, audience: process.env.JWT_AUDIENCE };
+
+      afterEach(() => {
+        if (saved.issuer === undefined) {
+          delete process.env.JWT_ISSUER;
+        } else {
+          process.env.JWT_ISSUER = saved.issuer;
+        }
+        if (saved.audience === undefined) {
+          delete process.env.JWT_AUDIENCE;
+        } else {
+          process.env.JWT_AUDIENCE = saved.audience;
+        }
+      });
+
+      /**
+       * @requirement user-authentication/REQ-33.3: 設定した発行者・想定利用者で発行し、既定値で発行したトークンを拒否する
+       */
+      it('設定値で発行・検証し、既定値の発行者・想定利用者のトークンを拒否する', async () => {
+        const defaultToken = await tokenService.generateAccessToken(payload);
+
+        process.env.JWT_ISSUER = 'architrack-staging';
+        process.env.JWT_AUDIENCE = 'architrack-staging-api';
+        const configuredToken = await tokenService.generateAccessToken(payload);
+        const decoded = jose.decodeJwt(configuredToken);
+
+        expect(decoded.iss).toBe('architrack-staging');
+        expect(decoded.aud).toBe('architrack-staging-api');
+        expect((await tokenService.verifyToken(configuredToken, 'access')).ok).toBe(true);
+        expect(await tokenService.verifyToken(defaultToken, 'access')).toEqual({
+          ok: false,
+          error: { type: 'TOKEN_INVALID' },
+        });
+      });
+    });
+  });
+
+  /**
+   * @requirement user-authentication/REQ-34.7: アクセストークンに発行時の利用者の世代を載せ、検証で読み出す
+   */
+  describe('アクセストークンの世代（要件34.7）', () => {
+    it('発行時の世代をクレーム gen に載せ、検証の結果の accessTokenGeneration で返す', async () => {
+      const token = await tokenService.generateAccessToken({
+        userId: 'user-gen-1',
+        email: 'gen@example.com',
+        roles: ['user'],
+        accessTokenGeneration: 3,
+      });
+
+      expect(jose.decodeJwt(token).gen).toBe(3);
+      const result = await tokenService.verifyToken(token, 'access');
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.value.accessTokenGeneration).toBe(3);
+    });
+
+    it('世代 0 も gen: 0 として載せる', async () => {
+      const token = await tokenService.generateAccessToken({
+        userId: 'user-gen-0',
+        email: 'gen0@example.com',
+        roles: [],
+        accessTokenGeneration: 0,
+      });
+
+      expect(jose.decodeJwt(token).gen).toBe(0);
+      const result = await tokenService.verifyToken(token, 'access');
+      expect(result.ok && result.value.accessTokenGeneration).toBe(0);
+    });
+
+    it('gen を持たない・整数でないアクセストークンは世代を返さない（照合する側が 0 として扱う）', async () => {
+      const sign = (extra: Record<string, unknown>) =>
+        new jose.SignJWT({
+          email: 'legacy@example.com',
+          roles: ['user'],
+          token_use: 'access',
+          ...extra,
+        })
+          .setProtectedHeader({ alg: 'EdDSA', typ: 'at+jwt' })
+          .setSubject('user-legacy')
+          .setIssuer(process.env.JWT_ISSUER || DEFAULT_JWT_ISSUER)
+          .setAudience(process.env.JWT_AUDIENCE || DEFAULT_JWT_AUDIENCE)
+          .setIssuedAt()
+          .setExpirationTime('15m')
+          .sign(privateKey);
+
+      for (const token of [await sign({}), await sign({ gen: '1' }), await sign({ gen: 1.5 })]) {
+        const result = await tokenService.verifyToken(token, 'access');
+        expect(result.ok).toBe(true);
+        expect(result.ok && result.value.userId).toBe('user-legacy');
+        expect(result.ok && result.value.accessTokenGeneration).toBeUndefined();
+      }
+    });
+
+    it('リフレッシュトークンは世代を持たない', async () => {
+      const refresh = await tokenService.generateRefreshToken('user-gen-1', 'family-1');
+
+      expect(jose.decodeJwt(refresh).gen).toBeUndefined();
+      const result = await tokenService.verifyToken(refresh, 'refresh');
+      expect(result.ok && result.value.accessTokenGeneration).toBeUndefined();
     });
   });
 });

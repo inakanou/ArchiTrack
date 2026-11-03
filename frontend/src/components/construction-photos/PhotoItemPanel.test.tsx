@@ -787,6 +787,22 @@ describe('PhotoItemPanel', () => {
     };
 
     describe('文言の規則（21.3 のまま）', () => {
+      // タスク 31.1: 404 は写真項目が見つからない旨にし、ID を含む英語の文言を出さない（Requirement 22.2）。
+      // 表示の場所（取り除こうとした写真項目の中。タスク 23.9）は変えない
+      it('404 の失敗は写真項目が見つからない旨をその写真項目の中に表示し、英語の文言を出さない（タスク 31.1）', async () => {
+        renderWithFailingDelete(
+          new ApiError(404, 'Construction photo not found: p1', {
+            code: 'CONSTRUCTION_PHOTO_NOT_FOUND',
+          })
+        );
+        await deleteOf('first.jpg');
+        expect(within(itemOf('first.jpg')).getByRole('alert')).toHaveTextContent(
+          /^写真項目が見つかりません。存在しないか、削除されています。$/
+        );
+        expect(screen.getAllByRole('alert')).toHaveLength(1);
+        expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+      });
+
       it('サーバーが理由を返した失敗（ApiError の message）はその理由を表示する', async () => {
         renderWithFailingDelete(new ApiError(500, 'サーバー内部エラーが発生しました'));
         await deleteOf('first.jpg');

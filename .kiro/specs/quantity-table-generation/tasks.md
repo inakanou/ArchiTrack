@@ -4453,6 +4453,143 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - 挙動（表示）の変更であるため RED → GREEN で進め、E2E（375 幅でカードの要素の右端がカードの内側に収まり、ページに水平スクロールが出ない）で主張する。Task 102.1 の E2E（`e2e/specs/quantity-tables/quantity-table-focus-visible.spec.ts`）の 375 幅の期待値への影響を確かめる
   - _Boundary: 数量グループのカードの 375 幅の配置_
 
+## Task 104: 案件の閲覧範囲（user-authentication の要件39）と出力の事前記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（`POST /api/v1/audit-logs/exports` を受ける `ExportAuditService`、frontend/src/api/export-audit.ts の `runRecordedExport`）を実装した（同スペックのタスク52.1・53.3・53.4）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.6 が本スペックの項目（数量表 PDF の出力の記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の数量表を読み書きできる）ことと、出力が記録を経ないこと（`runRecordedExport` の本番の呼び出し元は 0 件）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [x] 104.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/quantity-tables.routes.ts（`/api/projects/:projectId/quantity-tables` と `/api/quantity-tables`）: `POST /`（293）、`GET /summary`（369）、`GET /`（452）、`GET /:id`（522）、`PUT /:id`（608）、`PUT /:id/save`（755）、`POST /:id/copy`（928）、`DELETE /:id`（1008）
+    - backend/src/routes/quantity-groups.routes.ts（`/api/quantity-tables/:quantityTableId/groups` と `/api/quantity-groups`）: `POST /`（138）、`GET /`（241）、`PUT /order`（313）、`GET /:id`（389）、`PUT /:id`（477）、`DELETE /:id`（587）、`POST /:id/copy`（660）、`POST /from-survey`（772）
+    - backend/src/routes/quantity-items.routes.ts（`/api/quantity-groups/:groupId/items` と `/api/quantity-items`）: `POST /`（199）、`GET /`（287）、`PUT /order`（357）、`GET /:id`（433）、`PUT /:id`（529）、`DELETE /:id`（623）、`POST /:id/copy`（682）、`POST /:id/move`（761）、`POST /bulk-copy`（854）、`POST /bulk-move`（918）
+    - backend/src/routes/autocomplete.routes.ts（`/api/projects/:projectId/quantity-items`）: `GET /autocomplete-candidates`（132）
+  - 数量表・グループ・項目の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。移動・複写・一括の経路（`POST /:id/move`、`POST /bulk-copy`、`POST /bulk-move` など）は移し先の数量表・グループの案件も判定し、写真の紐付け（`POST /from-survey`、`PUT /:id/save`）は紐付ける現場調査の画像の案件も判定する。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）。紐付けた写真の署名 URL は範囲内に限って発行する（39.4）
+  - **既存のテストの扱い**（user-authentication の 52.2 の記録の区分 B）: 統合 quantity-table.api の `PROJECT_NOT_FOUND` の主張は、404 の本文が `NOT_FOUND` に変わるだけで落ちる。範囲外と不在を同じ本文にする 39.2 に合わせて改める（主張を消さない）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧・集計に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が数量表の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 50（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 50.1〜50.7 が受ける。一括の要求（数量項目の一括コピー・一括移動、表示順の更新、数量表の保存）は範囲外が一つでも含まれれば要求全体を 404 で書き込みなし（50.4）、写真の紐付けが範囲外の現場調査・画像を指せば現場調査・画像の不在と同じ 404 で紐付けなし（50.5）、紐付けた写真の署名 URL は範囲内に限る（50.7）と条文に定めた。既存の受入基準には案件の範囲を含意する条文（アクセス可能なプロジェクト、権限を持つユーザー等）が無いため、条文の改訂は行っていない（該当する条文があれば改訂して改訂の記録を残し、無ければ改訂しないとの判断による）。design.md は「Requirement 50: 案件の閲覧範囲と出力の記録の適用」章を足し、Security Considerations の「プロジェクトへのアクセス権限チェック（既存のRBAC使用）」は当初の設計の記録として残して置き換えを書き添えた。Requirement 49 章のプロジェクト写真一覧エンドポイント（`GET /api/projects/:projectId/survey-images`）の認可とエラーの行は、site-survey のタスク119.1 の実装（範囲外・不在とも汎用の 404）に追随させ、改訂前の記述を改訂の記録に残した。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 50.1, 50.2, 50.3, 50.4, 50.5, 50.6, 50.7_
+  - _Boundary: 本スペックの API の案件の範囲の判定_
+
+- [x] 104.2 数量表の PDF の出力に事前記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測）: frontend/src/pages/QuantityTableEditPage.tsx の `handlePdfExport`（1403 行付近、1570 行付近の `generateQuantityTablePdf`）。種別 `quantity_table_pdf`
+  - `runRecordedExport` で包み、記録が成功したときだけ生成を始め、記録の失敗では生成せずにエラーメッセージ（出力を記録できなかったため中止しました）を表示する（40.10・40.11。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節）
+  - 挙動の変更であるため RED → GREEN で進め、E2E で出力が生成より前に `POST /api/v1/audit-logs/exports` を種別・案件つきで 1 回要求すること、記録を 500 にすると生成もダウンロードも始まらずエラーメッセージが出ることを主張する
+  - _Requirements: 50.8, 50.9_
+  - _Boundary: 数量表の編集画面の PDF の出力の開始の処理_
+  - _Depends: 104.1_
+
+## Task 105: 二重マウントの経路の食い違いの記録（user-authentication の要件39.8 の適用。利用者の判断で起票、2026-10-29）
+
+**経緯**: user-authentication が要件39.8 を加え、経路の案件（または親のデータ）と対象の実際の案件（または親のデータ）が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（利用者の判断、2026-10-29「推奨案で進める」。同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の quantity-table-generation の行）。本スペックの判定部品（backend/src/middleware/quantity-table-project-scope.middleware.ts の `requireQuantityTableProjectScope`〔129〜131 行付近〕・`requireQuantityGroupProjectScope`〔155〜158 行付近〕・`requireQuantityItemProjectScope`〔182〜185 行付近〕。行は同日の実測で、着手時に測り直すこと）は、二重マウント（`/api/projects/:projectId/quantity-tables/:id`、`/api/quantity-tables/:quantityTableId/groups/:id`、`/api/quantity-groups/:groupId/items/:id` とその配下）の食い違いを不在として null を返し、範囲を判定せず記録しない。食い違いの条文が無かったため、requirements.md に 50.10 を加え（応答と記録の両方）、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた。一括の要求（50.4）と写真の紐付け（50.5）は、対象の実際の案件を判定して範囲外のときだけ記録する振る舞いが既に要件39.8 の記録の条件を満たすため変えない。保存の本文の既存の ID の所属の照合も変えない（同章の「決定」）
+
+- [x] 105.1 二重マウントの経路の食い違いで、対象の実際の案件が範囲外なら記録する
+  - 3 つの解決関数が、経路の親（`projectId`・`quantityTableId`・`groupId`）と対象の親が食い違うとき、null ではなく上流の `projectMismatch` を返すよう切り替える。渡す案件 ID は対象の実際の案件（数量表はその案件、数量グループは実際の親の数量表の案件、数量項目は実際の親の数量グループの数量表の案件）で、経路の親の案件ではない。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えない。対象の不在は従来どおり null で記録しない。数量表の論理削除は区別しない（design.md の同章の「決定」）。同ファイルの冒頭の注釈の食い違いの記述を改める。全件の判定（`requireAllTargetsProjectScope`）、写真の紐付けのサービスの判定、保存の所属の照合は変えない
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（`backend/src/__tests__/unit/middleware/quantity-table-project-scope.middleware.test.ts`）の「二重マウントで経路の親と対象の親が食い違うときは、範囲を判定せずに不在と同じ 404 にする」は、数量表・数量グループ・数量項目のそれぞれで対象の実際の案件が範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改め、判定に渡る案件が対象の実際の案件であることを足し、題名も改める。統合テスト（`backend/src/__tests__/integration/quantity-table-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の親と対象の親が食い違うと対象の不在と同じ 404 にする」（範囲内どうしの食い違い）は条文どおりで変えず、記録が増えないことの主張を足し、範囲外の案件の数量表・数量グループ・数量項目を範囲内の親の経路で指すと読み込みと書き込みが 404 でデータが変わらず `PROJECT_SCOPE_DENIED` が増える（対象は実際の案件）テストを足す
+  - E2E（`e2e/specs/quantity-tables/quantity-table-project-scope.spec.ts` に新しいテスト）で、範囲外の案件の数量表・数量グループ・数量項目を範囲内の親の経路で指す要求が 404 になり監査の記録が増えることを主張し、`@requirement quantity-table-generation/REQ-50.10` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、食い違いの要求が範囲外のときだけ記録され、どの場合も不在と同じ 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 50.10_
+  - _Boundary: 3 つの解決関数（requireQuantityTableProjectScope・requireQuantityGroupProjectScope・requireQuantityItemProjectScope）と、食い違いの記録を主張する本スペックのテスト_
+
+## Task 106: 数量表の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 50.2 により閲覧範囲外の数量表・プロジェクトへの要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `QuantityTableEditPage.tsx` は詳細の読み込みの失敗を一律に読み込みの失敗の固定の文言と再試行の釦にし（820 行付近、1975 行付近）、数量表が見つからない旨の既存の表示（1987 行付近）には 404 では届かない。同画面の保存は 409 と紐付けた写真の失敗を除き一律に保存の失敗の文言にする（1929〜1945 行付近）。`QuantityTableListPage.tsx` は数量表の一覧とプロジェクトの読み込みの失敗を一律に取得の失敗の固定の文言と再試行の釦にし（710 行付近、826 行付近）、削除の失敗も一律に削除の失敗の文言で一覧を置き換え（750 行付近）、名称の変更は 409 を除き名称の保存の失敗の文言にする（521 行付近）。`CopyQuantityTableDialog.tsx` はコピーの失敗で `ApiError` の `message`（汎用の 404 では英語の文言）をそのまま表示する（176 行付近）。`QuantityTableCreatePage.tsx` はプロジェクトの読み込みの失敗をプロジェクトの情報の取得の失敗の文言にし（184 行付近）、作成の失敗を一律に作成の失敗の文言にする（209 行付近）。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に Requirement 51（51.1・51.2）を加え、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた
+
+- [x] 106.1 数量表の一覧・新規作成・編集の画面と作成・保存・名称の変更・コピー・削除の操作で、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンク（いずれの画面もプロジェクトの一覧）を表示し、読み込み・取得の失敗の文言と再試行の釦を出さない。作成・保存・名称の変更・コピー・削除の 404 では見つからない旨のメッセージを表示する（作成の汎用の 404 はプロジェクト、それ以外は数量表）。保存の紐付けた写真の不在の 404 の書き分け（`describeSurveyImageLinkSaveFailure`）、409、404 以外の失敗の従来の文言、PDF の出力の記録の失敗の文言（50.9）は保つ。保存の 404 でもドラフトを保持する（42.9）。文言の逐語は編集の画面の数量表が見つからない旨の既存の表示を流儀として design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、各画面の読み込みの 404 の表示、各操作とコピーのダイアログの 404 のメッセージ。404 以外の失敗の従来の文言と、保存の紐付けた写真の失敗の文言は保つ）と E2E（担当外の利用者が数量表の編集の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが出て存在しない数量表と同じ表示になる、範囲外のプロジェクトの一覧・新規作成の URL でプロジェクトが見つからない旨が出る、開いた後に論理的に取り除かれた数量表の保存と、一覧を開いた後に論理的に取り除かれた数量表の名称の変更・コピー・削除で見つからない旨のメッセージが出る）で主張し、`@requirement quantity-table-generation/REQ-51.1`・`REQ-51.2` の印を置く
+  - 既存の E2E（`e2e/specs/quantity-tables/quantity-table-project-scope.spec.ts` の「担当外の利用者が数量表の URL を直接開くと存在しない数量表と同じ表示になり」）は `role="alert"` の要素の本文を存在しない数量表と比べている。共通部品 `ResourceNotFound` がその役割を持たなければ、見つからない旨の表示どうしの比較へ改める（比較の主張は消さない）。`e2e/specs/quantity-tables/quantity-table-focus-visible.spec.ts` の一覧の取得の失敗・コピーの失敗・作成の失敗・編集の画面の取得の失敗・保存の失敗の本文のテストは 400 で差し替えており、404 以外の従来の表示として緑のままであることを確かめる。単体テスト（`QuantityTableEditPage.test.tsx`・`QuantityTableListPage.test.tsx`・`QuantityTableCreatePage.test.tsx` とコピーのダイアログのテスト）の失敗の文言の主張も同じく確かめる。ほかに、変えた表示（読み込みの失敗・取得の失敗・削除の失敗・作成の失敗・名称の保存の失敗・保存の失敗・コピーの失敗の文言、再試行の釦、見つからない旨の文言、英語の Not found）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、応答の英語の文言と読み込み・操作の失敗の汎用の文言を出さない状態になる
+  - _Requirements: 51.1, 51.2_
+  - _Boundary: QuantityTableListPage, QuantityTableCreatePage, QuantityTableEditPage, CopyQuantityTableDialog_
+
+## Task 107: 保存の本文の他の数量表の ID の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、受入基準7の記録の要否を作成・保存の要求が指す他のデータについて判定するときも同じ方針とし、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」）。本機能の数量表の保存（backend/src/services/quantity-table.service.ts の `saveDraftWithin`〔1090 行付近〕。所属の照合 `validateDraftOwnership` の呼び出しは 1191 行付近、本体は 1450 行付近。重複の検証の呼び出しは 1185 行付近。行は 2026-10-30 の実測で、着手時に測り直すこと）は、本文に混じった保存する数量表に属さない既存のグループ・項目の ID を、他の数量表のものか存在しないものかを引かずに一律に 400 で拒み、範囲外の案件のものでも記録しない（design.md の「2026-10-29 の追加」の章の「決定」の「保存の本文の既存の ID の扱い」で意図して記録の対象外にしていた）。requirements.md に 50.11 を加え（改訂の記録を Requirement 50 に残した）、design.md の末尾の章「2026-10-30 の追加: 保存の本文の他の数量表の ID の範囲外の記録」に設計を置き、2026-10-29 の決定に改訂の注記を置いた。応答とデータと画面は変えない
+
+- [x] 107.1 数量表の保存の本文の属さない既存の ID の実際の案件が範囲外なら記録する
+  - 保存の本体のトランザクションの中で、保存する数量表の既存の ID の集合を読んだ後、重複の検証（`validateDraftDuplicateIds`）より前に、本文の属さない既存のグループ・項目の ID の実際の案件（グループは親の数量表、項目は親の数量グループの数量表の案件）を ID 群の一括の読み出しで引き、保存する数量表と別の案件を重複なく `evaluateProjectAccess` で判定し、`out_of_scope` なら範囲外とした案件の集合（`deniedProjectIds`）に入れる（design.md の同章の「決定」）。属さない ID が無ければ何も引かない。行の無い ID は判定しない。数量表の論理削除は条件に含めない。例外は投げず、その後の重複の検証と所属の照合（`validateDraftOwnership`）は従来の順と応答（400、同じ文言と問題箇所のキー）のまま。記録は既存の `withSurveyScopeDenialRecording` が処理の後に案件ごとに 1 回書く（写真の紐付けの判定と同じ集合）。処理の名前と置き場所は実装時に決めて design.md の同章の「決定」へ記す。所属の照合と `saveDraft` の注釈を改める
+  - **既存のテストの追随**（主張を消さない）: 単体（`backend/src/__tests__/unit/services/quantity-table.service.test.ts`）の Prisma の模擬に数量グループ・数量項目の `findMany`（既定は行が無い）を足し、「当該数量表に属さない項目IDを含む場合は保存を中断し書き込みを行わない」（監査の記録が無いことを主張する）と「当該数量表に属さないグループIDを含む場合は保存を中断し書き込みを行わない」が緑のままであることを確かめる
+  - 単体に、属さない ID の実際の案件が範囲外なら従来の 400 で判定 1 回・記録 1 回（対象はその案件）、同じ範囲外の案件の ID が複数でも記録 1 回、範囲内の他の案件・案件の不在なら記録なし、同じ案件の別の数量表と行の無い ID なら判定も記録もしない、親の数量表が論理削除済みでも判定する、重複の ID を併せて含む本文でも記録される、属さない ID の無い保存では引く問い合わせが無い、を足す。統合（`backend/src/__tests__/integration/quantity-table-project-scope.api.integration.test.ts`）に、範囲内の数量表の保存の本文へ範囲外の案件の数量表のグループ・項目の ID を混ぜると従来の 400 の本文のまま担当者の `PROJECT_SCOPE_DENIED` が 1 件増え（対象は範囲外の案件）どの数量表のデータも変わらないこと、論理削除済みの数量表の ID でも増えること、全案件閲覧の権限の利用者・同じ案件の別の数量表・範囲内の他の案件・存在しない ID・案件そのものを論理削除した場合では増えないことを足す
+  - E2E（`e2e/specs/quantity-tables/quantity-table-project-scope.spec.ts`）で、担当者が自分の数量表の保存の本文へ範囲外の案件の数量表のグループの ID を混ぜた要求が 400 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え（対象は範囲外の案件）、どちらの数量表も変わらないことを主張し、`@requirement quantity-table-generation/REQ-50.11` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（数量表の保存の 400、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 50.2・50.4・50.5・50.10 のテストと、数量表の保存の E2E を含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、保存の本文の属さない ID の実際の案件が範囲外のときだけ案件ごとに 1 回記録され、どの場合も従来の 400 でどの数量表・数量グループ・数量項目にも書き込まない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 50.11_
+  - _Boundary: QuantityTableService の保存の所属の照合（saveDraftWithin・validateDraftOwnership）と、その記録を主張する本スペックのテスト_
+
+## Task 108: 保存の本文の配列の件数の上限（OWASP API Security の API4 への対策。利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」）で起票する。数量表の保存（`PUT /api/quantity-tables/:id/save`）の本文の検証のスキーマ（backend/src/routes/quantity-tables.routes.ts の `saveQuantityTableDraftSchema`〔254 行付近〕と `saveDraftGroupSchema`〔237 行付近〕。行は 2026-10-31 の実測で、着手時に測り直すこと）は、数量グループの一覧と各数量グループの数量項目の一覧に件数の上限を持たず、本文の大きさは JSON の受け口の上限（5MB）だけで抑えられている。requirements.md に 42.11 を加え（改訂の記録を Requirement 42 に残した）、design.md の末尾の章「2026-10-31 の追加: 保存の本文の配列の件数の上限」に設計と推奨値を置いた。**上限の値は 2026-10-31 に利用者が推奨値のとおり確定した（グループ 1000・一つのグループの項目 2000・項目の総数 5000。design.md の同章の「決定」の表）**
+
+- [x] 108.1 数量表の保存の本文の配列に件数の上限を設け、超えたら本文の検証と同じ形の 400 で拒む
+  - 保存の経路の本文の検証のスキーマで、数量グループの数と一つの数量グループの数量項目の数を Zod の配列の件数の検証で、数量項目の総数をスキーマの `superRefine` で数え、上限を超えたら本文の検証の 400（`validate` の既存の形）で、超えた上限を示す日本語のメッセージと問題箇所（`groups`、`groups.<i>.items`）を返す。上限の値は利用者が確定した値とし、名前を付けた定数をスキーマの近くに置く（名前と置き場所は design.md の同章の「決定」へ記す）。画面は変えない。サービスは、起票の時点では変えないとしたが、上限いっぱいの保存が既定の制限時間（5 秒）に収まらなかったため、利用者の判断（2026-10-31）で保存のトランザクションの制限時間の明示（`QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS`、15 秒）だけを変える（design.md の同章の「Boundary の改訂の記録（2026-10-31）」）
+  - 上限いっぱい（数量グループ・数量項目とも上限の件数、全件新規と全件更新）の保存の所要を統合テストの一時の計測で測り、ロック待ちの上限（2000 ms）と足してトランザクションの制限時間（5 秒）に収まることを確かめて design.md の同章へ記す（計測の器具は提出物に残さない）。収まらなければ着手を止めて利用者に諮る（実際は 5 秒に収まらず、利用者の決定〔2026-10-31〕で保存のトランザクションの制限時間を `QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS` で 15 秒に明示し、15 秒に収まることを確かめた。上の箇条と design.md の同章の「Boundary の改訂の記録（2026-10-31）」）
+  - 単体（`backend/src/__tests__/unit/routes/quantity-tables.routes.test.ts`）に、上限ちょうどで通り 1 件超えると 400 で上限を示すメッセージと問題箇所を返しサービスを呼ばないことを、三つの上限のそれぞれで足す。統合（`backend/src/__tests__/integration/quantity-table-save.api.integration.test.ts`）に、上限を 1 件超えた本文が 400 になりデータベースが変わらないこと、上限ちょうどの本文が保存されることを足す
+  - E2E（`e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts`。新設が要るときは同じディレクトリ）で、保存の API へ数量グループの数が上限を 1 件超えた本文を送ると 400 になり数量表が変わらないことを主張し、`@requirement quantity-table-generation/REQ-42.11` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（数量表の保存の 400）を e2e/ 全体で grep して既存の E2E を選び、流す（保存を行う数量表の E2E のうち、最大の規模のもの〔写真の要求の規模の E2E、写真の選択の重なりの E2E〕を含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、保存の本文の配列が上限を超えると本文の検証の 400 になりどこにも書き込まず、上限の内側の保存が従来どおりである状態になる
+  - _Requirements: 42.11_
+  - _Boundary: 数量表の保存の経路の本文の検証のスキーマ（saveQuantityTableDraftSchema・saveDraftGroupSchema）、保存のトランザクションの制限時間（QuantityTableService の QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS。2026-10-31 の利用者の判断で加えた）と、その上限と制限時間を主張する本スペックのテスト_
+
+## Task 109: 件数の上限を超えた保存の画面の表示（利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」）で起票する。42.11（タスク108.1、`76c2916f`）で保存の本文の配列が件数の上限を超えると本文の検証の 400 になったが、画面（frontend/src/pages/QuantityTableEditPage.tsx の `handleSave` の失敗の分岐〔1945〜1966 行付近。行は 2026-10-31 の実測で、着手時に測り直すこと〕）はその 400 を他の失敗と区別せず「保存に失敗しました。再度お試しください。」を表示する。件数を減らさない限り成功しないのに再操作を促す。requirements.md に 42.12 を加え（改訂の記録を Requirement 42 に残した）、design.md の末尾の章「2026-10-31 の追加: 件数の上限の画面の表示と、本文の文字列・計算用パラメータ・個別の操作の配列の上限」に設計を置いた
+
+- [x] 109.1 件数の上限を超えた保存の 400 を判定し、上限のメッセージを表示する
+  - 応答の本文の `code`（`VALIDATION_ERROR`）と `details` の `path`・`code` の組（`groups` と `too_big`・`custom`、`groups.<数字>.items` と `too_big`）で件数の上限の超過を判定し、当たった要素の `message` を重複なく「保存できません: 」に続けた文言を返す関数を、新設の `frontend/src/utils/quantity-table-save-limit-feedback.ts` に置く（design.md の同章の「決定」の「画面の判定と表示」）。メッセージの文字列では判定しない。画面に上限の値を持たない
+  - `handleSave` の失敗の分岐で、現調画像の紐付けの書き分けの前にこの関数を呼び、当たればその文言を表示する。当たらなければ従来の順（現調画像の紐付け、数量表の不在、汎用の文言）のまま。409 の分岐と編集状態の保持（42.9）は変えない。関数の名前を design.md の同章の「決定」へ記す
+  - 単体（関数の新設のテストと `frontend/src/pages/QuantityTableEditPage.test.tsx`）に、3 つの上限の 400 で上限のメッセージ（重複なし）を表示し汎用の文言を表示せず未保存の変更を保つこと、`QUANTITY_TABLE_VALIDATION_ERROR` の 400・件数の上限でない本文の検証の 400・409・404 では従来の表示のままであることを足す
+  - E2E（`e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts`）で、画面で編集して保存し、保存の要求を経路の差し替えで件数の上限の 400（実際の応答と同じ形の本文。42.11 の E2E の応答で形を確かめる）にすると、上限のメッセージが表示され「保存に失敗しました。再度お試しください。」が表示されず、編集中の内容と未保存の表示が残ることを主張し、`@requirement quantity-table-generation/REQ-42.12` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた表示（「保存に失敗しました。再度お試しください。」と「保存できません: 」）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたので、テスト環境の frontend を作り直してから流す
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・E2E で、件数の上限を超えた保存では上限のメッセージが表示され汎用の文言が表示されず、編集状態が残り、他の失敗の表示は従来どおりである状態になる
+  - _Requirements: 42.12_
+  - _Boundary: QuantityTableEditPage の保存の処理（handleSave）の失敗の分岐と、新設する件数の上限の判定の関数（frontend/src/utils/quantity-table-save-limit-feedback.ts）と、その表示を主張する本スペックのテスト_
+
+## Task 110: 保存の本文の文字列・計算用パラメータと、個別の操作の配列の上限（OWASP API Security の API4 への対策。利用者の判断で起票、2026-10-31）
+
+**経緯**: 利用者の判断（2026-10-31「推奨案で進める」、値は同日に利用者が確定）で起票する。保存の経路のスキーマ（backend/src/routes/quantity-tables.routes.ts の `saveDraftItemSchema`〔203 行付近〕・`saveDraftGroupSchema`〔259 行付近〕）は `tempId` の長さ、`calculationParams` のキーの数と各キーの長さ、`remarks` の文字数の上限を持たない。表示順の更新（backend/src/routes/quantity-groups.routes.ts の `updateDisplayOrderSchema`〔87 行付近〕、backend/src/routes/quantity-items.routes.ts の `updateDisplayOrderSchema`〔93 行付近〕）の `orderUpdates` と、一括コピー・一括移動（同ファイルの `bulkCopySchema`・`bulkMoveSchema`〔113・122 行付近〕）の `itemIds` は件数の上限を持たない。行は 2026-10-31 の実測で、着手時に測り直すこと。requirements.md に 42.13・42.14 を加え、design.md の末尾の章（Task 109 と同じ章）に設計と確定した値を置いた
+
+- [x] 110.1 保存の本文の仮 ID・計算用パラメータのキー・備考に上限を設ける
+  - 保存の経路のスキーマで、数量グループと数量項目の `tempId` を 1〜100 文字、`calculationParams` のキーの数を 10・各キーの長さを 50 文字、`remarks` を 50 文字までとし、超えたら本文の検証の 400（`validate` の既存の形）で、design.md の同章の「決定」の日本語のメッセージと問題箇所を返す。`remarks` の文言は `FIELD_CONSTRAINTS.REMARKS` の値から組み立てる。キーの検証は `withCalculationParams` より前に拒む。サービスの幅の検証と `withCalculationParams` の条件は変えない。定数の名前と文言の最終形を design.md の同章の「決定」へ記す
+  - 単体（`backend/src/__tests__/unit/routes/quantity-tables.routes.test.ts`）に、各上限ちょうどで通り、超えると（`tempId` は空も）400 で上限を示すメッセージと問題箇所を返しサービスを呼ばないこと、`remarks` が 50 文字以内で幅の上限を超える値は従来どおりサービスの幅の検証に届くことを足す。統合（`backend/src/__tests__/integration/quantity-table-save.api.integration.test.ts`）に、各上限を超えた本文が 400 になりデータベースが変わらないことを足す
+  - E2E（`e2e/specs/quantity-tables/client-side-edit-explicit-save-e2e.spec.ts`）で、保存の API へ `calculationParams` のキーが上限を超えた本文を送ると 400 になり数量表が変わらないことを主張し、`@requirement quantity-table-generation/REQ-42.13` の印を置く
+  - 振る舞いを変えるため、変えた応答の経路（数量表の保存の 400）を e2e/ 全体で grep して既存の E2E を選び、流す（42.11 の E2E と、備考を入力して保存する E2E を含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、保存の本文の仮 ID・計算用パラメータのキー・備考が上限を超えると本文の検証の 400 になりどこにも書き込まず、上限の内側の保存が従来どおりである状態になる
+  - _Requirements: 42.13_
+  - _Boundary: 数量表の保存の経路の本文の検証のスキーマ（saveDraftItemSchema・saveDraftGroupSchema）と、その上限を主張する本スペックのテスト_
+- [x] 110.2 表示順の更新と一括コピー・一括移動の配列に件数の上限を設ける
+  - 数量グループの表示順の更新の `orderUpdates` を 1000 件、数量項目の表示順の更新の `orderUpdates` を 2000 件、一括コピー・一括移動の `itemIds` を 1000 件までとし（一括コピー・一括移動は起票の時点の 2000 件を、上限ちょうどの計測で一括コピーが既定の制限時間 5 秒を超えたため、利用者の決定〔2026-10-31〕で 1000 件に改めた。design.md の同章の「改訂の記録（2026-10-31）」）、超えたら本文の検証の 400 で、design.md の同章の「決定」の日本語のメッセージと問題箇所（`orderUpdates`、`itemIds`）を返す。本文の検証が閲覧範囲の判定部品より前にあることを保つ（上限を超えた要求は要素の判定と書き込みを行わない）。定数の名前と置き場所、文言の最終形を design.md の同章の「決定」へ記す
+  - 上限ちょうどの表示順の更新と一括コピー・一括移動の所要を統合テストの一時の計測で測り、design.md の同章へ記す（計測の器具は提出物に残さない）。制限時間を持つトランザクションに収まらなければ着手を止めて利用者に諮る（実際は一括コピーの 2000 件が 5 秒に収まらず、利用者の決定で上限を 1000 件に下げた。制限時間は変えない）
+  - 単体（`backend/src/__tests__/unit/routes/quantity-groups.routes.test.ts`・`backend/src/__tests__/unit/routes/quantity-items.routes.test.ts`）に、上限ちょうどで通り 1 件超えると 400 で閲覧範囲の判定とサービスを呼ばないことを、4 経路のそれぞれで足す。統合（`backend/src/__tests__/integration/quantity-item-display-order.api.integration.test.ts`・`backend/src/__tests__/integration/quantity-group-display-order.api.integration.test.ts`）に、上限を 1 件超えた要求が 400 になり表示順が変わらないことを足す
+  - E2E（`e2e/specs/quantity-tables/bulk-item-operations-e2e.spec.ts`）で、一括コピーの API へ上限を 1 件超えた `itemIds` を送ると 400 になり数量項目が増えないことを主張し、`@requirement quantity-table-generation/REQ-42.14` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（表示順の更新・一括コピー・一括移動の 400）を e2e/ 全体で grep して既存の E2E を選び、流す（閲覧範囲の E2E `e2e/specs/quantity-tables/quantity-table-project-scope.spec.ts` の一括操作のテストを含む）
+  - 挙動の変更であるため RED → GREEN で進め、追加したテストが現状で赤になることを先に示す
+  - 単体・統合・E2E で、表示順の更新と一括コピー・一括移動の配列が上限を超えると本文の検証の 400 になり判定も書き込みもせず、上限の内側の要求が従来どおりである状態になる
+  - _Requirements: 42.14_
+  - _Boundary: 数量グループ・数量項目の経路の本文の検証のスキーマ（updateDisplayOrderSchema・bulkCopySchema・bulkMoveSchema）と、その上限を主張する本スペックのテスト_
+
+## Task 111: 一括コピー・一括移動の `itemIds` の上限を 500 件へ下げる（42.14 の設計の値の 2 回目の改訂。利用者の判断で起票、2026-11-01）
+
+**経緯**: 利用者の判断（2026-11-01「推奨案で進める」）で起票する。タスク110.2（`78b84feb`）で一括コピー・一括移動の `itemIds` の上限を 1000 件にしたが、上限ちょうどの一括コピーの所要が最悪 5034 ms（2953〜5034 ms）で、既定のトランザクションの制限時間（5 秒）に近い。上限を 500 件へ下げる（両経路は `itemIds` のスキーマを共有するため、どちらも 500 件）。表示順の更新の上限と制限時間は変えない。完了済みのタスク110.2 は書き換えず、改訂を requirements.md の Requirement 42 の「受入基準14の設計の値の 2 回目の改訂（2026-11-01）」と design.md の末尾の章の「改訂の記録（2026-11-01）」に記した
+
+- [x] 111.1 一括コピー・一括移動の `itemIds` の件数の上限を 500 件にする
+  - 数量項目の経路（`backend/src/routes/quantity-items.routes.ts`）の `QUANTITY_ITEM_BULK_MAX_ITEMS` を 500 にし、文言を「数量項目は500件以内で選択してください」にする。コメントの値も追随させる。問題の種別・問題箇所・経路の順序（本文の検証が閲覧範囲の判定部品より前）は変えない
+  - 上限ちょうど（500 件）の一括コピー・一括移動の所要を統合テストの一時の計測で各 3 回程度測り、最悪の値を design.md の同章の「上限ちょうどの所要（タスク111.1）」へ記す（計測の器具は提出物に残さない）
+  - 単体（`backend/src/__tests__/unit/routes/quantity-items.routes.test.ts`）の定数・文言・境界値（500 件で通り 501 件で 400）を直す。統合（`backend/src/__tests__/integration/quantity-item-display-order.api.integration.test.ts`）に、一括コピー・一括移動の `itemIds` が 501 件だと 400 になり書き込まれず、上限の内側（10 件）なら全件が書き込まれることを足す。上限ちょうど（500 件）の要求は所要が制限時間に迫りうる（着手時の実測でテストの backend の再起動の直後に 5 秒を超えた）ため統合・E2E に常設せず、上限ちょうどで通ることは単体が主張する
+  - E2E（`e2e/specs/quantity-tables/bulk-item-operations-e2e.spec.ts` の 42.14 のテスト）を、501 件で 400（500 の文言）になり数量項目が増えず、上限の内側の 10 件なら複製される形に直す。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた文言（「1000件以内」）と経路（一括コピー・一括移動）を e2e/ 全体で grep して既存の E2E を選び、流す
+  - 挙動の変更であるため RED → GREEN で進め、直したテストが現状（1000 件）で赤になることを先に示す
+  - 単体・統合・E2E で、一括コピー・一括移動の `itemIds` が 500 件を超えると本文の検証の 400 になり判定も書き込みもせず、500 件以内の要求が従来どおりである状態になる
+  - _Requirements: 42.14_
+  - _Boundary: 数量項目の経路の定数（quantity-items.routes.ts の QUANTITY_ITEM_BULK_MAX_ITEMS と QUANTITY_ITEM_LIMIT_MESSAGES）と、その上限を主張する本スペックのテスト_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。

@@ -1,3 +1,5 @@
+// Zod の JIT（eval の試行）を、スキーマを作るモジュールより先に止める（CSP。user-authentication 要件44.4）
+import './utils/zod-csp-config';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { initSentry } from './utils/sentry.ts';

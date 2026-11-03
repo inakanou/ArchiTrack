@@ -26,6 +26,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 describe('Site Survey API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -51,12 +53,10 @@ describe('Site Survey API Integration Tests', () => {
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({
-      data: {
-        email,
-        displayName,
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email,
+      displayName,
+      passwordHash,
     });
 
     // ロールを割り当て
@@ -73,14 +73,14 @@ describe('Site Survey API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email,
       password: 'TestPassword123!@#',
     });
 
     return {
       userId: user.id,
-      accessToken: loginResponse.body.accessToken,
+      accessToken,
     };
   };
 
@@ -364,7 +364,9 @@ describe('Site Survey API Integration Tests', () => {
           })
           .expect(404);
 
-        expect(response.body.code).toBe('PROJECT_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       it('バリデーションエラーで400を返す（名前なし）', async () => {
@@ -532,7 +534,9 @@ describe('Site Survey API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(404);
 
-        expect(response.body.code).toBe('SITE_SURVEY_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       it('無効なUUID形式で400を返す', async () => {
@@ -608,7 +612,9 @@ describe('Site Survey API Integration Tests', () => {
           })
           .expect(404);
 
-        expect(response.body.code).toBe('SITE_SURVEY_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 
@@ -652,7 +658,9 @@ describe('Site Survey API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(404);
 
-        expect(response.body.code).toBe('SITE_SURVEY_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
   });
@@ -715,7 +723,9 @@ describe('Site Survey API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(404);
 
-        expect(response.body.code).toBe('SITE_SURVEY_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
 
       /**
@@ -936,7 +946,9 @@ describe('Site Survey API Integration Tests', () => {
           .set('Authorization', `Bearer ${accessToken}`)
           .expect(404);
 
-        expect(response.body.code).toBe('ANNOTATION_IMAGE_NOT_FOUND');
+        // 不在と閲覧範囲外は同じ汎用の 404（NOT_FOUND）になる（site-survey 39.2・39.3、タスク119.1。
+        // user-authentication の tasks.md の Implementation Notes の 52.2 の区分 B）
+        expect(response.body.code).toBe('NOT_FOUND');
       });
     });
 

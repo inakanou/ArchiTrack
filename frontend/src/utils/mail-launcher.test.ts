@@ -10,10 +10,19 @@
  *
  * 対象は副作用を持たない純粋関数（buildMailtoUrl / buildGmailComposeUrl）。
  * DOM・モック不要で入出力（URL 文字列）を直接アサートする。
+ *
+ * Task 107.1: 出力の記録の成功の後に Gmail の作成画面を開くための、空のタブの操作
+ * （openBlankMailTab / navigateMailTab / closeMailTab。Requirement 42.15・42.16）は window.open を差し替えて確かめる。
  */
 
-import { describe, it, expect } from 'vitest';
-import { buildMailtoUrl, buildGmailComposeUrl } from './mail-launcher';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import {
+  buildMailtoUrl,
+  buildGmailComposeUrl,
+  openBlankMailTab,
+  navigateMailTab,
+  closeMailTab,
+} from './mail-launcher';
 
 describe('mail-launcher', () => {
   describe('buildMailtoUrl', () => {
@@ -142,6 +151,65 @@ describe('mail-launcher', () => {
       expect(params.get('su')).toBe('見積依頼');
       // CRLF 正規化されるため、デコード結果は \r\n
       expect(params.get('body')).toBe('一行目\r\n二行目');
+    });
+  });
+  describe('Gmail の作成画面を開く空のタブの操作（Task 107.1, Requirement 42.15, 42.16）', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function fakeTab() {
+      const doc = document.implementation.createHTMLDocument('');
+      const clicked: Array<{ href: string; rel: string; target: string }> = [];
+      doc.addEventListener('click', (event) => {
+        const a = event.target as HTMLAnchorElement;
+        clicked.push({ href: a.href, rel: a.rel, target: a.target });
+        event.preventDefault();
+      });
+      const tab = {
+        document: doc,
+        opener: window as Window | null,
+        closed: false,
+        close: vi.fn(() => {
+          tab.closed = true;
+        }),
+      };
+      return { tab, clicked };
+    }
+
+    it('openBlankMailTab は空の新しいタブ（_blank）を開き、元の画面への参照（opener）を切る', () => {
+      const { tab } = fakeTab();
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => tab as unknown as Window);
+
+      const opened = openBlankMailTab();
+
+      expect(openSpy).toHaveBeenCalledWith('', '_blank');
+      expect(opened).toBe(tab);
+      expect(tab.opener).toBeNull();
+    });
+
+    it('openBlankMailTab はタブを開けないと null を返す', () => {
+      vi.spyOn(window, 'open').mockImplementation(() => null);
+
+      expect(openBlankMailTab()).toBeNull();
+    });
+
+    it('navigateMailTab はタブの中の参照元を送らないリンク（rel="noreferrer"）で URL へ移す', () => {
+      const { tab, clicked } = fakeTab();
+      const url = buildGmailComposeUrl({ to: 'a@example.com', subject: '件名', body: '本文' });
+
+      navigateMailTab(tab as unknown as Window, url);
+
+      expect(clicked).toEqual([{ href: url, rel: 'noreferrer', target: '' }]);
+    });
+
+    it('closeMailTab は開いているタブを閉じ、閉じたタブには何もしない', () => {
+      const { tab } = fakeTab();
+
+      closeMailTab(tab as unknown as Window);
+      closeMailTab(tab as unknown as Window);
+
+      expect(tab.close).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -8,15 +8,21 @@
  * - 13.6: フィルタが適用されている状態でExcelダウンロードを実行すると、フィルタ後のデータのみを出力する
  * - 13.7: Excelファイル生成中のローディングインジケーターを表示する
  * - 13.8: エラー発生時にエラーメッセージを表示する
+ *
+ * タスク27.2: 内訳書の Excel の生成の前の出力の記録と、記録の失敗での中止
+ * （itemized-statement-generation の Requirement 18.7・18.8。describe「出力の記録」）
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, within, act } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import ItemizedStatementDetailPage from '../../pages/ItemizedStatementDetailPage';
 import * as itemizedStatementsApi from '../../api/itemized-statements';
 import * as exportExcelModule from '../../utils/export-excel';
+import { ApiError, apiClient } from '../../api/client';
 import type { ItemizedStatementDetail } from '../../types/itemized-statement.types';
 
 // APIモック
@@ -115,6 +121,12 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
       mockStatementDetail
     );
     vi.mocked(exportExcelModule.exportToExcel).mockReturnValue({ success: true });
+    // 出力の記録（POST /api/v1/audit-logs/exports）は既定で成功させる（Requirement 18.7）
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ recordId: 'record-1' });
+  });
+
+  afterEach(() => {
+    vi.mocked(apiClient.post).mockRestore();
   });
 
   // テスト用レンダリングヘルパー
@@ -150,7 +162,9 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
       const excelButton = screen.getByRole('button', { name: /Excel/i });
       await user.click(excelButton);
 
-      expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
     });
 
     it('exportToExcelに内訳書名が渡される', async () => {
@@ -164,6 +178,9 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
       const excelButton = screen.getByRole('button', { name: /Excel/i });
       await user.click(excelButton);
 
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
       expect(exportExcelModule.exportToExcel).toHaveBeenCalledWith(
         expect.objectContaining({
           statementName: 'テスト内訳書',
@@ -198,6 +215,9 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
       await user.click(excelButton);
 
       // exportToExcelに渡された項目数を確認
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
       const calls = vi.mocked(exportExcelModule.exportToExcel).mock.calls;
       expect(calls.length).toBeGreaterThan(0);
       const call = calls[0]?.[0];
@@ -228,6 +248,9 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
       await user.click(excelButton);
 
       // すべての項目が渡されることを確認
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
       const calls = vi.mocked(exportExcelModule.exportToExcel).mock.calls;
       expect(calls.length).toBeGreaterThan(0);
       const call = calls[0]?.[0];
@@ -252,10 +275,12 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
 
       // クリック後はexportToExcelが呼ばれていることを確認
       await user.click(excelButton);
-      expect(exportExcelModule.exportToExcel).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalled();
+      });
     });
 
-    it('ボタンはクリック可能である（disabled属性は同期処理のため表示されない）', async () => {
+    it('ボタンはクリック可能で、出力の完了の後は再びクリック可能に戻る', async () => {
       const user = userEvent.setup();
       renderWithRouter();
 
@@ -268,8 +293,13 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
       expect(excelButton).not.toBeDisabled();
 
       await user.click(excelButton);
-      // 同期処理なのでクリック後も無効化されていない
-      expect(excelButton).not.toBeDisabled();
+      // 出力の完了の後は無効化されていない（記録の要求中の無効化は「出力の記録」で主張する）
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(excelButton).not.toBeDisabled();
+      });
     });
   });
 
@@ -317,9 +347,238 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
       });
 
       // 2回目（成功）
+      await waitFor(() => {
+        expect(excelButton).toBeEnabled();
+      });
       await user.click(excelButton);
 
-      expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(2);
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(2);
+      });
+    });
+  });
+
+  // ====================================================================
+  // タスク27.2: 出力の事前記録（Requirement 18.7, 18.8。user-authentication の要件40.9〜40.11）
+  // ====================================================================
+
+  describe('出力の記録 (Requirement 18.7, 18.8)', () => {
+    /** 表示の文言の完全一致（余計な文言が付け足されていないこと） */
+    const RECORD_FAILED_EXACT = /^出力を記録できなかったため中止しました$/;
+
+    /** 記録の要求を保留にし、解決の関数を返す */
+    function holdRecord() {
+      const holder: { resolve: (value: { recordId: string }) => void } = { resolve: () => {} };
+      vi.mocked(apiClient.post).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            holder.resolve = resolve as (value: { recordId: string }) => void;
+          })
+      );
+      return holder;
+    }
+
+    async function waitForHeading() {
+      await screen.findByRole('heading', { name: 'テスト内訳書' });
+    }
+
+    it('生成を始める前に出力の記録を種別・案件・内訳書・件数つきで1回要求する', async () => {
+      const user = userEvent.setup();
+      const postSpy = vi.mocked(apiClient.post);
+      renderWithRouter();
+      await waitForHeading();
+
+      await user.click(screen.getByRole('button', { name: 'Excelダウンロード' }));
+
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
+      // 通信は記録の要求の1本だけ（Excel はブラウザで生成する）
+      expect(postSpy).toHaveBeenCalledTimes(1);
+      expect(postSpy).toHaveBeenCalledWith(
+        '/api/v1/audit-logs/exports',
+        {
+          kind: 'itemized_statement_xlsx',
+          projectId: 'project-1',
+          targetIds: ['statement-1'],
+          itemCount: 5,
+        },
+        { disableRetry: true }
+      );
+      // 記録の要求が Excel の生成より先に行われている
+      expect(postSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(exportExcelModule.exportToExcel).mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('フィルタが適用されているときは、記録の件数にフィルタ後の件数を添える (Req 13.6)', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+      await waitForHeading();
+
+      await user.type(screen.getByLabelText('任意分類'), '分類A');
+      await waitFor(() => {
+        expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(3);
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Excelダウンロード' }));
+
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/api/v1/audit-logs/exports',
+        {
+          kind: 'itemized_statement_xlsx',
+          projectId: 'project-1',
+          targetIds: ['statement-1'],
+          itemCount: 2,
+        },
+        { disableRetry: true }
+      );
+      expect(vi.mocked(exportExcelModule.exportToExcel).mock.calls[0]?.[0].items).toHaveLength(2);
+    });
+
+    it('記録の要求が失敗すると Excel を生成せず、エラーメッセージを表示する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(apiClient.post).mockRejectedValue(new ApiError(500, 'Internal Server Error'));
+      renderWithRouter();
+      await waitForHeading();
+
+      await user.click(screen.getByRole('button', { name: 'Excelダウンロード' }));
+
+      expect(within(await screen.findByRole('alert')).getByText(RECORD_FAILED_EXACT)).toBeVisible();
+      expect(exportExcelModule.exportToExcel).not.toHaveBeenCalled();
+      // 生成中の表示は解かれ、出力し直せる (Req 13.7)
+      const button = screen.getByRole('button', { name: 'Excelダウンロード' });
+      expect(button).toBeEnabled();
+      expect(button).toHaveTextContent(/^Excel$/);
+    });
+
+    it('記録の応答に記録の ID が無いときも Excel を生成しない', async () => {
+      const user = userEvent.setup();
+      vi.mocked(apiClient.post).mockResolvedValue({});
+      renderWithRouter();
+      await waitForHeading();
+
+      await user.click(screen.getByRole('button', { name: 'Excelダウンロード' }));
+
+      expect(within(await screen.findByRole('alert')).getByText(RECORD_FAILED_EXACT)).toBeVisible();
+      expect(exportExcelModule.exportToExcel).not.toHaveBeenCalled();
+    });
+
+    it('記録の後に生成が失敗したときは、従来どおり生成のエラーの文言を表示し、記録は再送しない (Req 13.8)', async () => {
+      const user = userEvent.setup();
+      vi.mocked(exportExcelModule.exportToExcel).mockReturnValue({
+        success: false,
+        error: 'ファイル書き込みエラー',
+      });
+      renderWithRouter();
+      await waitForHeading();
+
+      await user.click(screen.getByRole('button', { name: 'Excelダウンロード' }));
+
+      expect(
+        within(await screen.findByRole('alert')).getByText(/^ファイル書き込みエラー$/)
+      ).toBeVisible();
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('記録の後に生成が例外を投げたときも、その文言を表示する (Req 13.8)', async () => {
+      const user = userEvent.setup();
+      vi.mocked(exportExcelModule.exportToExcel).mockImplementation(() => {
+        throw new Error('予期しない生成のエラー');
+      });
+      renderWithRouter();
+      await waitForHeading();
+
+      await user.click(screen.getByRole('button', { name: 'Excelダウンロード' }));
+
+      expect(
+        within(await screen.findByRole('alert')).getByText(/^予期しない生成のエラー$/)
+      ).toBeVisible();
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('記録の要求中は Excel 出力の操作を止め、記録の成功の後に生成を始める', async () => {
+      const record = holdRecord();
+      renderWithRouter();
+      await waitForHeading();
+
+      act(() => {
+        screen.getByRole('button', { name: 'Excelダウンロード' }).click();
+      });
+
+      await waitFor(() => {
+        expect(apiClient.post).toHaveBeenCalledTimes(1);
+      });
+      const busyButton = screen.getByRole('button', { name: 'Excelダウンロード' });
+      expect(busyButton).toBeDisabled();
+      expect(busyButton).toHaveTextContent('Excel生成中...');
+      // 要求中に押し直しても記録は1回だけで、生成はまだ始まらない
+      act(() => {
+        busyButton.click();
+      });
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(exportExcelModule.exportToExcel).not.toHaveBeenCalled();
+
+      await act(async () => {
+        record.resolve({ recordId: 'record-1' });
+      });
+
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Excelダウンロード' })).toBeEnabled();
+      });
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('記録の要求中に画面を離れる（破棄される）と、記録の成功の後も Excel を生成しない', async () => {
+      const record = holdRecord();
+      const { unmount } = renderWithRouter();
+      await waitForHeading();
+
+      act(() => {
+        screen.getByRole('button', { name: 'Excelダウンロード' }).click();
+      });
+      await waitFor(() => {
+        expect(apiClient.post).toHaveBeenCalledTimes(1);
+      });
+
+      unmount();
+      await act(async () => {
+        record.resolve({ recordId: 'record-1' });
+      });
+      // 記録の解決の後の非同期の続きを流し切る
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(exportExcelModule.exportToExcel).not.toHaveBeenCalled();
+    });
+
+    it('StrictMode の二重の effect の後も、記録の成功の後に Excel を生成する', async () => {
+      const user = userEvent.setup();
+      render(
+        <StrictMode>
+          <MemoryRouter initialEntries={['/itemized-statements/statement-1']}>
+            <Routes>
+              <Route path="/itemized-statements/:id" element={<ItemizedStatementDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </StrictMode>
+      );
+      await waitForHeading();
+
+      await user.click(screen.getByRole('button', { name: 'Excelダウンロード' }));
+
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -342,6 +601,9 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
       await user.click(excelButton);
 
       // ソート後の順序でデータが渡されることを確認
+      await waitFor(() => {
+        expect(exportExcelModule.exportToExcel).toHaveBeenCalledTimes(1);
+      });
       const calls = vi.mocked(exportExcelModule.exportToExcel).mock.calls;
       expect(calls.length).toBeGreaterThan(0);
       const call = calls[0]?.[0];

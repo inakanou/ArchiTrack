@@ -1,71 +1,135 @@
 /**
- * 監査ログアーカイブサービスのインターフェースと型定義
+ * 監査ログのアーカイブの型（user-authentication 要件41、design.md の AuditLogArchiveService の節）
  *
- * 13ヶ月以上前の監査ログをアーカイブし、8年以上前のアーカイブを削除する機能を提供します。
- * - JSON Lines形式での圧縮
- * - AES-256-GCM暗号化
- * - S3/GCS統合（オプション）
+ * 13 か月以上前の月ごとの監査ログを gzip と AES-256-GCM で保存先（StorageProvider）へ移し、
+ * 8 年を過ぎたアーカイブを目録の期間で消す。
  */
 
-import { PrismaClient } from '../generated/prisma/client.js';
+import type { PrismaClient } from '../generated/prisma/client.js';
+import type { StorageProvider } from '../storage/storage-provider.interface.js';
+import type { IAdminNotificationService } from '../services/admin-notification.service.js';
+import type { IAuditLogService } from './audit-log.types.js';
+import type { Result } from './result.js';
 
 /**
- * 監査ログアーカイブサービスインターフェース
+ * アーカイブの目録（`audit-archives/YYYY/MM.manifest.json`）
+ */
+export interface ArchiveManifest {
+  /** 対象の月（UTC の月初から月末。ISO 8601） */
+  period: { from: string; to: string };
+  /** アーカイブに含む行の数 */
+  recordCount: number;
+  /** 圧縮前の JSON Lines の SHA-256（16 進） */
+  plaintextSha256: string;
+  /** 目録の内容への HMAC-SHA256（鍵は ARCHIVE_ENCRYPTION_KEY から導出。16 進） */
+  hmacSha256: string;
+  /** 目録の作成日時（ISO 8601） */
+  createdAt: string;
+  /** 暗号鍵の識別子（鍵から導出した値で、鍵そのものを表さない） */
+  keyId: string;
+}
+
+/**
+ * アーカイブの失敗
+ */
+export type ArchiveError =
+  | { type: 'KEY_MISSING' }
+  | { type: 'STORAGE_FAILED'; cause: string }
+  | { type: 'INTEGRITY_FAILED'; month: string };
+
+/**
+ * アーカイブから復元した監査ログの 1 行（JSON Lines の 1 行の形。日時は ISO 8601）
+ */
+export interface AuditLogRecord {
+  id: string;
+  action: string;
+  actorId: string | null;
+  actorEmail: string | null;
+  actorDisplayName: string | null;
+  targetType: string;
+  targetId: string;
+  before: unknown;
+  after: unknown;
+  metadata: unknown;
+  createdAt: string;
+}
+
+/**
+ * 復元の結果: 照合を済ませた月の行を順に返す
+ *
+ * 繰り返しのたびに保存先から読み直して照合し直し、照合に失敗すると例外
+ * （audit-log-archive.service.ts の ArchiveFailure）を投げる。
+ */
+export interface RestoredAuditLogs extends AsyncIterable<AuditLogRecord> {
+  /** 期間に重なる月のうち、アーカイブがあり照合を済ませた月（YYYY-MM） */
+  months: string[];
+  /** 期間に含まれる行の数 */
+  recordCount: number;
+}
+
+/**
+ * 月次の実行で処理できなかった月（想定外の例外は UNEXPECTED とする）
+ */
+export interface FailedArchiveMonth {
+  month: string;
+  error: ArchiveError | { type: 'UNEXPECTED'; cause: string };
+}
+
+/**
+ * 月次の実行の結果
+ */
+export interface MonthlyArchiveRunResult {
+  /** アーカイブして行を消した月（YYYY-MM） */
+  archivedMonths: string[];
+  /** 失敗した月（行は残っている） */
+  failedMonths: FailedArchiveMonth[];
+  /** 8 年を過ぎて消したアーカイブの月（YYYY-MM） */
+  deletedArchives: string[];
+}
+
+/**
+ * 監査ログのアーカイブ
  */
 export interface IAuditLogArchiveService {
   /**
-   * 13ヶ月以上前の監査ログをアーカイブする
-   * @returns アーカイブ結果
+   * 指定の月（YYYY-MM、UTC）の監査ログをアーカイブし、照合の後に行を消す
    */
-  archiveOldLogs(): Promise<ArchiveResult>;
+  archiveMonth(month: string): Promise<Result<ArchiveManifest, ArchiveError>>;
 
   /**
-   * 8年以上前のアーカイブを削除する
-   * @returns 削除結果
+   * 目録の期間の終わりから years 年を過ぎたアーカイブを消す
    */
-  deleteOldArchives(): Promise<DeleteArchiveResult>;
+  deleteArchivesOlderThan(years: number, now: Date): Promise<{ deleted: string[] }>;
+
+  /**
+   * 月次の処理: 13 か月以上前の月をアーカイブし、8 年を過ぎたアーカイブを消す
+   */
+  runMonthly(now: Date): Promise<MonthlyArchiveRunResult>;
+
+  /**
+   * 指定期間（from から to まで、両端を含む）に重なる月のアーカイブを復号・照合し、期間の行を返す
+   *
+   * 本文も目録も無い月は飛ばし、本文だけがあり目録の無い月は INTEGRITY_FAILED とする。
+   * 照合に失敗した月があれば行を返さず INTEGRITY_FAILED を返す。
+   */
+  restore(from: Date, to: Date): Promise<Result<RestoredAuditLogs, ArchiveError>>;
 }
 
 /**
- * アーカイブ結果
- */
-export interface ArchiveResult {
-  /** アーカイブされたログ件数 */
-  archivedCount: number;
-  /** アーカイブファイルパス（S3/GCSキーまたはローカルパス） */
-  archiveFilePath: string;
-  /** アーカイブサイズ（バイト） */
-  archiveSize: number;
-  /** 暗号化済みか */
-  encrypted: boolean;
-  /** 圧縮済みか */
-  compressed: boolean;
-}
-
-/**
- * アーカイブ削除結果
- */
-export interface DeleteArchiveResult {
-  /** 削除されたアーカイブ件数 */
-  deletedCount: number;
-  /** 削除されたアーカイブファイルパス一覧 */
-  deletedFilePaths: string[];
-}
-
-/**
- * アーカイブエラー種別
- */
-export type ArchiveError =
-  | 'DATABASE_ERROR'
-  | 'STORAGE_ERROR'
-  | 'ENCRYPTION_ERROR'
-  | 'COMPRESSION_ERROR'
-  | 'NO_LOGS_TO_ARCHIVE';
-
-/**
- * 監査ログアーカイブサービス依存関係
+ * 監査ログのアーカイブの依存
  */
 export interface AuditLogArchiveServiceDependencies {
-  /** Prisma Client */
   prisma: PrismaClient;
+  /** 保存先（未設定は null。アーカイブは STORAGE_FAILED になる） */
+  storage: StorageProvider | null;
+  /** 暗号鍵（64 桁の 16 進。未設定・形式違いはアーカイブを KEY_MISSING にする） */
+  encryptionKey: string | undefined;
+  auditLogService: Pick<IAuditLogService, 'createLog'>;
+  adminNotificationService: IAdminNotificationService;
+  /** 現在の時刻（既定は new Date()） */
+  clock?: () => Date;
+  /**
+   * 8 年の消去で目録を探す最も古い月（YYYY-MM。既定は ARCHIVE_EARLIEST_MONTH）
+   */
+  earliestArchiveMonth?: string;
 }

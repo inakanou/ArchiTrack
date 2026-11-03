@@ -28,6 +28,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../helpers/auth-actions';
 import { getTimeout } from '../helpers/wait-helpers';
 import { API_BASE_URL } from '../config';
+import { getAccessToken } from '../helpers/auth-api';
 
 test.describe('プロジェクト詳細画面 - 実行予算セクション', () => {
   test.describe.configure({ mode: 'serial', retries: 0 });
@@ -43,11 +44,6 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション', ()
   // ヘルパー関数
   // ============================================================================
 
-  async function getAccessToken(page: import('@playwright/test').Page): Promise<string> {
-    const token = await page.evaluate(() => localStorage.getItem('accessToken'));
-    return token ?? '';
-  }
-
   async function apiRequest(
     page: import('@playwright/test').Page,
     httpMethod: string,
@@ -55,39 +51,16 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション', ()
     authToken: string,
     requestBody?: Record<string, unknown>
   ) {
-    return page.evaluate(
-      async ({
-        apiUrl,
-        method,
-        path,
-        token,
-        body,
-      }: {
-        apiUrl: string;
-        method: string;
-        path: string;
-        token: string;
-        body?: Record<string, unknown>;
-      }) => {
-        const res = await fetch(`${apiUrl}${path}`, {
-          method,
-          headers: {
-            Authorization: `Bearer ${token}`,
-            ...(body ? { 'Content-Type': 'application/json' } : {}),
-          },
-          ...(body ? { body: JSON.stringify(body) } : {}),
-        });
-        if (method === 'DELETE') return { ok: res.ok };
-        return res.json();
-      },
-      {
-        apiUrl: API_BASE_URL,
-        method: httpMethod,
-        path: apiPath,
-        token: authToken,
-        body: requestBody,
-      }
-    );
+    // 画面の CSP（connect-src）の外で送るため page.request を使う。CI は API_BASE_URL が 127.0.0.1 で
+    // CSP の追加の接続先（docker-compose.ci.yml の CSP_CONNECT_SRC_EXTRA）が localhost のため、
+    // 画面の中の fetch では拒否される
+    const res = await page.request.fetch(`${API_BASE_URL}${apiPath}`, {
+      method: httpMethod,
+      headers: { Authorization: `Bearer ${authToken}` },
+      ...(requestBody ? { data: requestBody } : {}),
+    });
+    if (httpMethod === 'DELETE') return { ok: res.ok() };
+    return res.json();
   }
 
   // ============================================================================
@@ -96,7 +69,7 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション', ()
 
   test('準備：テスト用プロジェクトを作成する', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
-    accessToken = await getAccessToken(page);
+    accessToken = await getAccessToken(page, 'REGULAR_USER');
     expect(accessToken).toBeTruthy();
 
     // 担当者一覧を取得
@@ -207,7 +180,7 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション', ()
     await loginAsUser(page, 'REGULAR_USER');
 
     if (!accessToken) {
-      accessToken = await getAccessToken(page);
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
     }
 
     // detail-summary APIを直接呼び出して構造を検証
@@ -245,7 +218,7 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション', ()
     await loginAsUser(page, 'REGULAR_USER');
 
     if (!accessToken) {
-      accessToken = await getAccessToken(page);
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
     }
 
     // detail-summary APIを呼び出し、executionBudgetセクションの構造がデフォルト値を返せる形式であることを検証

@@ -30,7 +30,9 @@ import { z } from 'zod';
 import {
   saveEstimateDraftSchema,
   SAVE_ESTIMATE_MAX_ITEMS,
+  SAVE_ESTIMATE_MAX_DEPTH,
   SAVE_ESTIMATE_VALIDATION_MESSAGES,
+  scanSaveEstimateItemTree,
   createEstimateSchema,
   updateEstimateSchema,
   estimateItemLineSchema,
@@ -998,6 +1000,84 @@ describe('estimate.schema', () => {
       });
     });
 
+    /**
+     * 見積項目行の備考の文字数の上限（タスク67.2）。超えたら他の文字列の欄と同じ形式の不正
+     * （`too_big`。経路が 400 にする）で、問題箇所とメッセージを返す
+     *
+     * @requirement estimate-creation/REQ-42.11
+     */
+    describe('備考の文字数の上限（42.11）', () => {
+      const remarksIssues = (result: { success: boolean; error?: z.ZodError }) =>
+        (result.error?.issues ?? []).map((issue) => ({
+          path: issue.path.join('.'),
+          code: issue.code,
+          message: issue.message,
+        }));
+
+      it('備考が2000文字ちょうどなら受け入れる', () => {
+        const result = saveEstimateDraftSchema.safeParse(
+          draft([existingNode({ lines: [estimateLine({ remarks: 'あ'.repeat(2000) })] })])
+        );
+        expect(result.success).toBe(true);
+      });
+
+      it('備考が2001文字なら問題箇所とメッセージを持つ too_big の問題になる', () => {
+        const result = saveEstimateDraftSchema.safeParse(
+          draft([existingNode({ lines: [estimateLine({ remarks: 'あ'.repeat(2001) })] })])
+        );
+        expect(result.success).toBe(false);
+        expect(remarksIssues(result)).toEqual([
+          {
+            path: 'items.0.lines.0.remarks',
+            code: 'too_big',
+            message: '備考は2000文字以内で入力してください',
+          },
+        ]);
+        expect(SAVE_ESTIMATE_VALIDATION_MESSAGES.REMARKS_TOO_LONG).toBe(
+          '備考は2000文字以内で入力してください'
+        );
+      });
+
+      it('子孫の節点の2行目の備考が2001文字なら、その位置を問題箇所として返す', () => {
+        const result = saveEstimateDraftSchema.safeParse(
+          draft([
+            existingNode({
+              children: [
+                newNode('tmp-child', {
+                  lines: [
+                    estimateLine(),
+                    estimateLine({ lineType: 'EXECUTION', remarks: 'r'.repeat(2001) }),
+                  ],
+                }),
+              ],
+            }),
+          ])
+        );
+        expect(result.success).toBe(false);
+        expect(remarksIssues(result)).toEqual([
+          {
+            path: 'items.0.children.0.lines.1.remarks',
+            code: 'too_big',
+            message: '備考は2000文字以内で入力してください',
+          },
+        ]);
+      });
+
+      // 文字数は他の文字列の欄と同じく Zod の max で数える（符号位置の数。サロゲートペアの絵文字は 1 文字）
+      it('サロゲートペアの文字は1文字として数える（2000文字は受け入れ、2001文字は拒否する）', () => {
+        const accepted = saveEstimateDraftSchema.safeParse(
+          draft([existingNode({ lines: [estimateLine({ remarks: '😀'.repeat(2000) })] })])
+        );
+        expect(accepted.success).toBe(true);
+
+        const rejected = saveEstimateDraftSchema.safeParse(
+          draft([existingNode({ lines: [estimateLine({ remarks: '😀'.repeat(2001) })] })])
+        );
+        expect(rejected.success).toBe(false);
+        expect(issuePaths(rejected)).toEqual(['items.0.lines.0.remarks']);
+      });
+    });
+
     describe('ノードのフィールド必須性（design.md 4305-4311）', () => {
       it.each(['id', 'tempId', 'children'])('%s を省略したリクエストは拒否する', (field) => {
         const node = existingNode() as Record<string, unknown>;
@@ -1040,6 +1120,142 @@ describe('estimate.schema', () => {
         const messages = (result.error?.issues ?? []).map((issue) => issue.message);
         expect(messages).toContain(SAVE_ESTIMATE_VALIDATION_MESSAGES.ITEM_CHILDREN_NOT_ALLOWED);
       });
+    });
+  });
+  /**
+   * 一括保存の本文の見積項目の総数と階層の深さの前倒しの数え上げ（タスク67.1）
+   *
+   * 経路が Zod の検証の前に生の本文を数え、総数の上限（2000）か深さの上限（100段）を超えたら
+   * 打ち切る。再帰を使わず、読んだ節点の UUID の形の ID を集める（57.11 の判定に渡す）。
+   *
+   * @requirement estimate-creation/REQ-42.10
+   * @requirement estimate-creation/REQ-42.12
+   */
+  describe('scanSaveEstimateItemTree', () => {
+    const uuidOf = (n: number): string =>
+      `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
+    const node = (children: unknown = [], id: unknown = null): Record<string, unknown> => ({
+      id,
+      tempId: id === null ? 't' : null,
+      itemType: 'STANDARD',
+      lines: [],
+      children,
+    });
+    const flat = (count: number): Record<string, unknown>[] =>
+      Array.from({ length: count }, () => node());
+    /** 各節点が一つの子を持つ鎖（葉から順に包む。再帰を使わない） */
+    const chain = (depth: number): Record<string, unknown> => {
+      let current = node([], uuidOf(depth));
+      for (let level = depth - 1; level >= 1; level -= 1) {
+        current = node([current], uuidOf(level));
+      }
+      return current;
+    };
+
+    it('上限の値は総数 2000・深さ 100 段', () => {
+      expect(SAVE_ESTIMATE_MAX_ITEMS).toBe(2000);
+      expect(SAVE_ESTIMATE_MAX_DEPTH).toBe(100);
+      expect(SAVE_ESTIMATE_VALIDATION_MESSAGES.ITEMS_TOO_DEEP).toBe(
+        '見積項目の階層は100段以内で保存してください'
+      );
+    });
+
+    it('items だけで 2000 件なら数え終え、2001 件なら 2001 件目で打ち切る', () => {
+      expect(scanSaveEstimateItemTree({ items: flat(2000) })).toMatchObject({
+        exceeded: null,
+        counted: 2000,
+      });
+      expect(scanSaveEstimateItemTree({ items: flat(2001) })).toMatchObject({
+        exceeded: 'ITEMS_TOO_MANY',
+        counted: 2001,
+      });
+    });
+
+    it('children の入れ子を含む総数で数える', () => {
+      const items = Array.from({ length: 1000 }, () => node([node()]));
+      expect(scanSaveEstimateItemTree({ items })).toMatchObject({ exceeded: null, counted: 2000 });
+      items[0] = node([node(), node()]);
+      expect(scanSaveEstimateItemTree({ items })).toMatchObject({
+        exceeded: 'ITEMS_TOO_MANY',
+        counted: 2001,
+      });
+    });
+
+    it('一つの節点の children が大きくても、積む前に数えて 2001 件目で打ち切る', () => {
+      const children = Array.from({ length: 50000 }, (_, index) => node([], uuidOf(index + 2)));
+      const scan = scanSaveEstimateItemTree({ items: [node(children, uuidOf(1))] });
+      expect(scan.exceeded).toBe('ITEMS_TOO_MANY');
+      expect(scan.counted).toBe(2001);
+      // 打ち切った後ろの節点の ID は読まない
+      expect(scan.itemIds).toHaveLength(2001);
+      expect(scan.itemIds).not.toContain(uuidOf(2002));
+    });
+
+    it('深さ 100 段の鎖は数え終え、101 段の鎖は 101 段目で打ち切る', () => {
+      expect(scanSaveEstimateItemTree({ items: [chain(100)] })).toMatchObject({
+        exceeded: null,
+        counted: 100,
+      });
+      expect(scanSaveEstimateItemTree({ items: [chain(101)] })).toMatchObject({
+        exceeded: 'ITEMS_TOO_DEEP',
+        counted: 101,
+      });
+    });
+
+    it('101 段の鎖の葉に子 2000 件を付けた本文は、総数の上限より先に深さの上限で打ち切る', () => {
+      let current = node(flat(2000), uuidOf(101));
+      for (let level = 100; level >= 1; level -= 1) {
+        current = node([current], uuidOf(level));
+      }
+      expect(scanSaveEstimateItemTree({ items: [current] })).toMatchObject({
+        exceeded: 'ITEMS_TOO_DEEP',
+        counted: 101,
+      });
+    });
+
+    it('総数 2001 件目が深さ 101 段目の要素なら（同じ要素で両方を超える）件数の上限で打ち切る', () => {
+      // 平らな根 1900 件と 101 段の鎖: 根の段で 1901 件、鎖の k 段目が 1900 + k 件目になる
+      const scan = scanSaveEstimateItemTree({ items: [...flat(1900), chain(101)] });
+      expect(scan).toMatchObject({ exceeded: 'ITEMS_TOO_MANY', counted: 2001 });
+    });
+
+    it('数万段の鎖でも例外にならず、深さの上限で打ち切る（再帰を使わない）', () => {
+      const deep = chain(50000);
+      let scan: ReturnType<typeof scanSaveEstimateItemTree> | undefined;
+      expect(() => {
+        scan = scanSaveEstimateItemTree({ items: [deep] });
+      }).not.toThrow();
+      expect(scan).toMatchObject({ exceeded: 'ITEMS_TOO_DEEP', counted: 101 });
+    });
+
+    it('配列でない items・children と、オブジェクトでない本文は数えずに進む', () => {
+      for (const body of [null, undefined, 'text', 1, [], {}, { items: 'x' }, { items: {} }]) {
+        expect(scanSaveEstimateItemTree(body)).toEqual({ exceeded: null, counted: 0, itemIds: [] });
+      }
+      const scan = scanSaveEstimateItemTree({
+        items: [node('abc'), node({ 0: node() }), node(null), 'not-a-node', 7],
+      });
+      expect(scan).toEqual({ exceeded: null, counted: 5, itemIds: [] });
+    });
+
+    it('読んだ節点の UUID の形の ID だけを集める', () => {
+      const scan = scanSaveEstimateItemTree({
+        items: [
+          node([node([], uuidOf(2)), node([], 'not-a-uuid')], uuidOf(1)),
+          node([], 12345),
+          node([], uuidOf(3)),
+        ],
+      });
+      expect(scan.exceeded).toBeNull();
+      expect([...scan.itemIds].sort()).toEqual([uuidOf(1), uuidOf(2), uuidOf(3)]);
+    });
+
+    it('深さで打ち切った本文も、読んだ節点の ID を集める', () => {
+      const scan = scanSaveEstimateItemTree({ items: [chain(150)] });
+      expect(scan.exceeded).toBe('ITEMS_TOO_DEEP');
+      expect(scan.itemIds).toHaveLength(101);
+      expect(scan.itemIds).toContain(uuidOf(101));
+      expect(scan.itemIds).not.toContain(uuidOf(102));
     });
   });
 });

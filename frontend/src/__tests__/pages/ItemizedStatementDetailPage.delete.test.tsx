@@ -22,6 +22,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import ItemizedStatementDetailPage from '../../pages/ItemizedStatementDetailPage';
 import * as itemizedStatementsApi from '../../api/itemized-statements';
+import { ApiError } from '../../api/client';
 import type { ItemizedStatementDetail } from '../../types/itemized-statement.types';
 
 // APIモック
@@ -347,9 +348,15 @@ describe('ItemizedStatementDetailPage - 削除機能', () => {
       vi.mocked(itemizedStatementsApi.getItemizedStatementDetail).mockResolvedValue(
         mockStatementDetail
       );
-      // 409 Conflictエラーをシミュレート
-      const conflictError = new Error('Conflict');
-      Object.assign(conflictError, { status: 409 });
+      // 実際の API の 409（ApiError は statusCode を持つ）。サーバーの文言は画面の文言と
+      // 別にして、画面が 409 を判定して固定の文言を出すことを確かめる（2026-10-30 の是正）
+      const conflictError = new ApiError(409, 'サーバーが返した競合の説明', {
+        type: 'https://architrack.example.com/problems/itemized-statement-conflict',
+        title: 'Conflict',
+        status: 409,
+        detail: 'サーバーが返した競合の説明',
+        code: 'ITEMIZED_STATEMENT_CONFLICT',
+      });
       vi.mocked(itemizedStatementsApi.deleteItemizedStatement).mockRejectedValue(conflictError);
       const user = userEvent.setup();
 
@@ -373,12 +380,13 @@ describe('ItemizedStatementDetailPage - 削除機能', () => {
       });
       await user.click(confirmDeleteButton);
 
-      // 楽観的排他制御エラーのメッセージが表示される
-      await waitFor(() => {
-        expect(
-          screen.getByText(/他のユーザーにより更新されました。画面を再読み込みしてください/)
-        ).toBeInTheDocument();
-      });
+      // 楽観的排他制御エラーのメッセージが表示され、サーバーの文言は出ない
+      expect(
+        await screen.findByText('他のユーザーにより更新されました。画面を再読み込みしてください')
+      ).toBeInTheDocument();
+      expect(screen.queryByText('サーバーが返した競合の説明')).not.toBeInTheDocument();
+      // 削除せず詳細画面に留まる
+      expect(screen.getByRole('heading', { name: 'テスト内訳書' })).toBeInTheDocument();
     });
   });
 

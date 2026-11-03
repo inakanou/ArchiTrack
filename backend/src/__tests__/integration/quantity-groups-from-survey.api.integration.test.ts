@@ -35,6 +35,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 一括生成API統合テスト
@@ -76,12 +78,10 @@ describe('Quantity Groups From Survey API Integration Tests', () => {
   const setupPermittedUser = async (): Promise<{ token: string; userId: string }> => {
     const passwordHash = await hashPassword();
 
-    const user = await prisma.user.create({
-      data: {
-        email: PERMITTED_EMAIL,
-        displayName: 'From Survey Permitted User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: PERMITTED_EMAIL,
+      displayName: 'From Survey Permitted User',
+      passwordHash,
     });
 
     const userRole = await prisma.role.findUnique({ where: { name: 'user' } });
@@ -123,12 +123,12 @@ describe('Quantity Groups From Survey API Integration Tests', () => {
       });
     }
 
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: PERMITTED_EMAIL,
       password: PASSWORD,
     });
 
-    return { token: response.body.accessToken, userId: user.id };
+    return { token: accessToken, userId: user.id };
   };
 
   /**
@@ -137,20 +137,18 @@ describe('Quantity Groups From Survey API Integration Tests', () => {
   const setupNoPermissionUser = async (): Promise<string> => {
     const passwordHash = await hashPassword();
 
-    await prisma.user.create({
-      data: {
-        email: NO_PERMISSION_EMAIL,
-        displayName: 'From Survey No Permission User',
-        passwordHash,
-      },
+    await createTestUser(prisma, {
+      email: NO_PERMISSION_EMAIL,
+      displayName: 'From Survey No Permission User',
+      passwordHash,
     });
 
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: NO_PERMISSION_EMAIL,
       password: PASSWORD,
     });
 
-    return loginResponse.body.accessToken;
+    return accessToken;
   };
 
   /**
@@ -280,7 +278,7 @@ describe('Quantity Groups From Survey API Integration Tests', () => {
       expect(response.status).toBe(403);
     });
 
-    it('存在しない数量表では 404（QUANTITY_TABLE_NOT_FOUND）が返る (Req 40.10)', async () => {
+    it('存在しない数量表では 404（範囲外と同じ汎用の NOT_FOUND）が返る (Req 40.10)', async () => {
       const surveyId = await createSurvey(testProjectId, '数量表不存在テスト現場調査');
 
       const response = await request(app)
@@ -288,8 +286,9 @@ describe('Quantity Groups From Survey API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ siteSurveyId: surveyId });
 
+      // 不在と範囲外は同じ汎用の 404（quantity-table-generation タスク104.1、Requirement 50.3）
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
 
     it('存在しない現場調査では 404（SITE_SURVEY_NOT_FOUND）が返る (Req 40.10)', async () => {

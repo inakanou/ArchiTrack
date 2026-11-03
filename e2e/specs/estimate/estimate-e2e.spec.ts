@@ -12,7 +12,7 @@
  *
  * Requirements coverage (estimate-creation):
  * - REQ-1.3: 数量または単価の入力に応じて金額を単価×数量として自動計算する
- * - REQ-2.5: 階層の深さに上限を設けない
+ * - REQ-2.5: 上限（100 段）までの深さの階層を作成・保存でき、上限を超える深さの保存は 42.12 で拒む（2026-10-31 の改訂）
  * - REQ-2.7: 親項目の展開・折りたたみで子項目の表示/非表示を切り替える
  * - REQ-3.1: 見積書新規作成時にプロジェクトの内訳書選択画面を表示する
  * - REQ-3.2: 選択した内訳書の内容を見積書の初期値とする
@@ -49,6 +49,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import {
+  deleteEstimateViaApi,
   buildNewEstimateItemNode,
   findEstimateItemByName,
   getEstimateItemTree,
@@ -56,6 +57,7 @@ import {
 } from '../../helpers/estimate-draft';
 import type { SaveNodePayload } from '../../helpers/estimate-draft';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken, loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 見積書機能のE2Eテスト
@@ -221,13 +223,7 @@ test.describe('見積書機能', () => {
 
         // APIトークンを取得
         const baseUrl = API_BASE_URL;
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
+        const loginBody = await loginViaApi(request, 'REGULAR_USER');
         accessToken = loginBody.accessToken;
 
         // グループを作成
@@ -501,9 +497,11 @@ test.describe('見積書機能', () => {
       /**
        * 深い階層のフィクスチャ（第1階層 → … → 第5階層）
        *
-       * 2.5 は「階層の深さに上限を設けない」を要求する。要件 2.4 が例示する3階層
-       * （建築工事 > 直接仮設工事 > 遣り方）を**超える**5階層を作り、すべてが
-       * 画面に描かれることを確かめる。深さで打ち切る実装が入れば深い側から消える。
+       * 2.5 は設計で定める上限（100段）までの深さの階層を作成・保存できることを要求する
+       * （2026-10-31 の改訂の前は「階層の深さに上限を設けない」。上限を超える保存の拒否は
+       * 42.12 で、estimate-hierarchy-reload-save-e2e.spec.ts が主張する）。要件 2.4 が例示する
+       * 3階層（建築工事 > 直接仮設工事 > 遣り方）を**超える**5階層を作り、すべてが
+       * 画面に描かれることを確かめる。上限より浅い深さで打ち切る実装が入れば深い側から消える。
        */
       const DEEP_NAMES = [
         '階層深さ検証_第1階層',
@@ -516,7 +514,7 @@ test.describe('見積書機能', () => {
       /**
        * @requirement estimate-creation/REQ-2.5
        * @requirement estimate-creation/REQ-2.7
-       * 上限のない深さの階層が表示され、展開/折りたたみで子孫の表示が切り替わる
+       * 上限の内側の深い階層が表示され、展開/折りたたみで子孫の表示が切り替わる
        *
        * かつてこのテストは「展開/折りたたみボタンが1件以上あれば押す」という
        * `if (expandCount > 0)` のガードだけを持ち、最後は素の
@@ -532,7 +530,7 @@ test.describe('見積書機能', () => {
         expect(createdEstimateIdWithoutItemizedStatement).toBeTruthy();
 
         await loginAsUser(page, 'REGULAR_USER');
-        const token = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+        const token = await getAccessToken(page, 'REGULAR_USER');
         expect(token).toBeTruthy();
 
         // 5階層の入れ子を作る（最も深い項目から順に親へ包んでいく）
@@ -1226,32 +1224,17 @@ test.describe('見積書機能', () => {
     test('テストデータの削除', async ({ request }) => {
       const baseUrl = API_BASE_URL;
 
-      // アクセストークンが無い場合は再取得
-      if (!accessToken) {
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
-        accessToken = loginBody.accessToken;
-      }
+      // 準備で取ったアクセストークンは 15 分で失効する。長い直列のスイートでも後片付けが 401 にならないよう、
+      // 有無にかかわらず取り直す（後片付けは 204 以外を失敗にするため）
+      accessToken = (await loginViaApi(request, 'REGULAR_USER')).accessToken;
 
       // 見積書を削除
       if (createdEstimateId) {
-        await request.delete(`${baseUrl}/api/estimates/${createdEstimateId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await deleteEstimateViaApi(request, accessToken, createdEstimateId);
       }
 
       if (createdEstimateIdWithoutItemizedStatement) {
-        await request.delete(
-          `${baseUrl}/api/estimates/${createdEstimateIdWithoutItemizedStatement}`,
-          {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          }
-        );
+        await deleteEstimateViaApi(request, accessToken, createdEstimateIdWithoutItemizedStatement);
       }
 
       // プロジェクトを削除（カスケードで関連データも削除される）

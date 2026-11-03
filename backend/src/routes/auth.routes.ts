@@ -7,6 +7,7 @@
  * - REQ-5: トークン管理（リフレッシュ、ログアウト）
  * - REQ-9: ユーザー情報取得・更新
  * - REQ-27A: 2FA検証
+ * - 要件32: 2FA を伴うログインの完全性（2FA 待ちの資格）
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -14,28 +15,111 @@ import { z } from 'zod';
 import { AuthService } from '../services/auth.service.js';
 import { TwoFactorService } from '../services/two-factor.service.js';
 import { PasswordService } from '../services/password.service.js';
+import { getSharedAuthenticatedUserStateService } from '../services/authenticated-user-state.service.js';
 // import { SessionService } from '../services/session.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
+import { csrfProtection } from '../middleware/csrf.middleware.js';
 import { loginLimiter, refreshLimiter } from '../middleware/rateLimit.middleware.js';
+import { getClientIp } from '../middleware/client-ip.js';
 import logger from '../utils/logger.js';
-import { SECURITY_CONFIG } from '../config/security.constants.js';
+import { captureException } from '../utils/sentry.js';
+import { sentryRequestContext } from '../utils/sentry-request-context.js';
+import {
+  PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE,
+  SECURITY_CONFIG,
+} from '../config/security.constants.js';
 import { PasswordViolation } from '../types/password.types.js';
 import { updateProfileSchema } from '../schemas/auth-update.schema.js';
-import { ConflictError, NotFoundError } from '../errors/apiError.js';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from '../errors/apiError.js';
+import type { AuthError, AuthUserView, RequestContext } from '../types/auth.types.js';
+import type { TwoFactorError } from '../types/two-factor.types.js';
+import { hashPasswordResetToken } from '../utils/password-reset-token.js';
+
+/**
+ * リフレッシュトークンの Cookie の Path（リフレッシュとログアウトの経路にだけ送られるよう認証の経路に限る）
+ */
+const REFRESH_TOKEN_COOKIE_PATH = '/api/v1/auth';
+
+/** 認証の DB 障害の汎用の応答の本文（要件42.8） */
+const AUTH_DATABASE_ERROR_BODY = {
+  error: 'Internal server error',
+  code: 'INTERNAL_ERROR',
+} as const;
+
+/**
+ * 認証の処理中の DB 障害を記録し、汎用の本文の 500 を返す（要件42.4、42.8）
+ *
+ * 障害の文言はエラーログとエラー監視にだけ残す。エラー監視の文脈は経路・メソッド・要求識別子・
+ * 利用者 ID に限り、要求本文（パスワード・コード・資格）は付けない。
+ */
+function sendAuthDatabaseError(
+  req: Request,
+  res: Response,
+  message: string,
+  logMessage: string
+): void {
+  logger.error({ error: message }, logMessage);
+  captureException(new Error(message), {
+    ...sentryRequestContext(req),
+    errorType: 'auth_database_error',
+  });
+  res.status(500).json(AUTH_DATABASE_ERROR_BODY);
+}
+
+/**
+ * 要求の送信元（`getClientIp` の送信元 IP と User-Agent）を返す（監査の記録とセッションの端末情報に使う）
+ */
+function requestContext(req: Request): RequestContext {
+  return { ipAddress: getClientIp(req), userAgent: req.headers['user-agent'] };
+}
+
+/**
+ * Path を認証の経路に限る前に Path=/ で発行した Cookie を消す
+ *
+ * 同じ名前の Cookie が二つ送られると、ブラウザは Path の長い方を先に並べるため新しい方が読まれるが、
+ * 古い方が残ると期限まで送られ続ける。発行・消去のたびにあわせて消す。
+ */
+function clearLegacyRootRefreshTokenCookie(res: Response): void {
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+  });
+}
 
 /**
  * リフレッシュトークンをHTTPOnly Cookieに設定する
  * @requirement user-authentication/REQ-26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
  */
 function setRefreshTokenCookie(res: Response, refreshToken: string): void {
+  clearLegacyRootRefreshTokenCookie(res);
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    path: '/',
+    path: REFRESH_TOKEN_COOKIE_PATH,
+  });
+}
+
+/**
+ * リフレッシュトークンの Cookie を消す（発行と同じ属性で消す）
+ */
+function clearRefreshTokenCookie(res: Response): void {
+  clearLegacyRootRefreshTokenCookie(res);
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: REFRESH_TOKEN_COOKIE_PATH,
   });
 }
 
@@ -92,23 +176,115 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-const refreshSchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token is required'),
-});
+/**
+ * リフレッシュとログアウトで提示されたリフレッシュトークンを Cookie から読み、`res.locals.refreshToken` に置く
+ *
+ * 全ての要求に CSRF の二重送信と Origin の照合を課す（要件33.12）。本文は読まない
+ * （本文に `refreshToken` があっても CSRF を免れず、本文の値は使わない）。Cookie が無ければ 400。
+ */
+function readRefreshTokenCredential(req: Request, res: Response, next: NextFunction): void {
+  csrfProtection(req, res, () => {
+    const cookieToken: unknown = req.cookies?.refreshToken;
+    if (typeof cookieToken !== 'string' || cookieToken === '') {
+      next(new ValidationError('Refresh token is required'));
+      return;
+    }
+    res.locals.refreshToken = cookieToken;
+    next();
+  });
+}
 
-const logoutSchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token is required'),
-});
+/**
+ * 認証の成功の応答本文からリフレッシュトークンを外す（要件33.9。リフレッシュトークンは Set-Cookie だけで渡す）
+ */
+function withoutRefreshToken<T extends { refreshToken?: string }>(
+  authResponse: T
+): Omit<T, 'refreshToken'> {
+  const { refreshToken: _refreshToken, ...body } = authResponse;
+  return body;
+}
+
+/**
+ * 応答に載せる利用者と状態（AuthUserView）を読む（タスク47.5）
+ *
+ * 操作そのものは成功しているため、読めないときは応答を失敗にせず、`user` を省いて警告を残す。
+ */
+async function readAuthUserView(userId: string): Promise<{ user?: AuthUserView }> {
+  const view = await authService.getAuthUserView(userId);
+  if (!view.ok) {
+    logger.warn({ userId, errorType: view.error.type }, 'Failed to read user state for response');
+    return {};
+  }
+  return { user: view.value };
+}
+
+/**
+ * 2FA 待ちの資格の保存先（Redis）が使えないときの 503（2FA の検証を素通りさせない。要件32）
+ */
+function sendTwoFactorChallengeUnavailable(res: Response): void {
+  res.status(503).json({
+    error: 'Service temporarily unavailable',
+    code: 'SERVICE_UNAVAILABLE',
+  });
+}
+
+/**
+ * 2FA の検証（TOTP・バックアップコード）に共通の失敗を応答する。応答したら true
+ *
+ * - 資格の不在・期限切れ・消費済み、資格に結び付いた利用者の不在: 401 INVALID_CHALLENGE（区別しない。要件32.2〜32.5）
+ * - 資格の保存先が使えない: 503 SERVICE_UNAVAILABLE
+ * - 2FA のロック: 429
+ * - DB の障害: 500
+ */
+function sendTwoFactorLoginError(
+  req: Request,
+  res: Response,
+  error: AuthError,
+  databaseErrorLog: string
+): boolean {
+  if (error.type === 'CHALLENGE_INVALID' || error.type === 'USER_NOT_FOUND') {
+    res.status(401).json({
+      error: '認証の有効期限が切れました。もう一度ログインしてください',
+      code: 'INVALID_CHALLENGE',
+    });
+    return true;
+  }
+  if (error.type === 'SERVICE_UNAVAILABLE') {
+    sendTwoFactorChallengeUnavailable(res);
+    return true;
+  }
+  if (error.type === 'ACCOUNT_LOCKED') {
+    res.status(429).json({
+      error: 'アカウントが一時的にロックされました。5分後に再試行してください',
+      detail: 'アカウントがロックされています',
+      code: error.type,
+      unlockAt: error.unlockAt,
+    });
+    return true;
+  }
+  if (error.type === 'DATABASE_ERROR') {
+    sendAuthDatabaseError(req, res, error.message, databaseErrorLog);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 2FA 待ちの資格（ログインの応答の challengeToken）
+ *
+ * 欠けた要求も検証の段で 401 にする（要件32.2）ため、形式の検証では必須にしない。
+ * メールアドレス・JWT などの他の項目は資格として読まない（要件32.5）。
+ */
+const challengeTokenField = z.string().max(4096).optional();
 
 const verify2FASchema = z.object({
-  token: z
+  challengeToken: challengeTokenField,
+  code: z
     .string()
     .length(
       SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH,
-      `TOTP token must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
+      `TOTP code must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
     ),
-  email: z.string().email('Invalid email format').optional(),
-  tempToken: z.string().optional(),
 });
 
 const enableTwoFactorSchema = z.object({
@@ -120,9 +296,18 @@ const enableTwoFactorSchema = z.object({
     ),
 });
 
-const disableTwoFactorSchema = z.object({
-  password: z.string().min(1, 'Password is required'),
-});
+const totpCodeField = z
+  .string()
+  .length(
+    SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH,
+    `TOTP code must be ${SECURITY_CONFIG.TWO_FACTOR.CODE_LENGTH} digits`
+  );
+
+/** 再登録の開始（現在の秘密鍵の TOTP コード、要件34.11） */
+const reenrollStartSchema = z.object({ currentCode: totpCodeField });
+
+/** 再登録の確認（新しい秘密鍵の TOTP コード、要件34.11） */
+const reenrollConfirmSchema = z.object({ newCode: totpCodeField });
 
 const passwordResetRequestSchema = z.object({
   email: z.string().email('Invalid email format'),
@@ -191,17 +376,11 @@ const changePasswordSchema = z.object({
  *               properties:
  *                 accessToken:
  *                   type: string
- *                 refreshToken:
- *                   type: string
  *                 user:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     email:
- *                       type: string
- *                     displayName:
- *                       type: string
+ *                   $ref: '#/components/schemas/AuthUserView'
+ *                   description: >-
+ *                     The registered user. twoFactorEnabled is false, so the screen moves to the 2FA
+ *                     setup before any other use (requirement 34.5).
  *       400:
  *         $ref: '#/components/responses/BadRequest'
  */
@@ -212,10 +391,12 @@ router.post(
     try {
       const { invitationToken, displayName, password } = req.body;
 
-      const result = await authService.register(invitationToken, {
-        displayName,
-        password,
-      });
+      const result = await authService.register(
+        invitationToken,
+        { displayName, password },
+        // 招待経由のアカウント作成の監査に載せる送信元（要件40.5）
+        { ipAddress: getClientIp(req), userAgent: req.headers['user-agent'] }
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -260,7 +441,7 @@ router.post(
         'User registered successfully'
       );
 
-      res.status(201).json(authResponse);
+      res.status(201).json(withoutRefreshToken(authResponse));
     } catch (error) {
       next(error);
     }
@@ -272,7 +453,9 @@ router.post(
  * /api/v1/auth/login:
  *   post:
  *     summary: Login
- *     description: Authenticate a user and return access and refresh tokens
+ *     description: >-
+ *       Authenticate a user and return an access token. The refresh token is set only in the
+ *       HttpOnly refreshToken cookie, never in the response body.
  *     tags:
  *       - Authentication
  *     requestBody:
@@ -303,22 +486,24 @@ router.post(
  *               properties:
  *                 accessToken:
  *                   type: string
- *                 refreshToken:
- *                   type: string
  *                 user:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     email:
- *                       type: string
- *                     displayName:
- *                       type: string
+ *                   $ref: '#/components/schemas/AuthUserView'
  *                 requires2FA:
  *                   type: boolean
  *                   description: True if 2FA is required
+ *                 challengeToken:
+ *                   type: string
+ *                   description: >-
+ *                     Opaque 2FA challenge bound to this successful password verification
+ *                     (single use, valid for expiresIn seconds). Present only when requires2FA is true.
+ *                     The response never contains the user ID before 2FA succeeds.
+ *                 expiresIn:
+ *                   type: integer
+ *                   description: Lifetime of the challenge in seconds (when requires2FA is true)
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       503:
+ *         description: The 2FA challenge store is unavailable
  */
 router.post(
   '/login',
@@ -327,9 +512,9 @@ router.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { email, password } = req.body;
-      const userAgent = req.headers['user-agent'];
 
-      const result = await authService.login(email, password, userAgent);
+      // 送信元とユーザーエージェントをログインの監査に記録する（要件40.1）
+      const result = await authService.login(email, password, requestContext(req));
 
       if (!result.ok) {
         const error = result.error;
@@ -344,19 +529,13 @@ router.post(
             unlockAt: error.unlockAt,
           });
           return;
-        } else if (error.type === '2FA_REQUIRED') {
-          res.status(200).json({
-            requires2FA: true,
-            userId: error.userId,
-          });
+        } else if (error.type === 'SERVICE_UNAVAILABLE') {
+          // 2FA 待ちの資格を保存できないときは 2FA の検証へ進めない（要件32）
+          sendTwoFactorChallengeUnavailable(res);
           return;
         } else if (error.type === 'DATABASE_ERROR') {
-          logger.error({ error: error.message }, 'Database error during login');
-          res.status(500).json({
-            error: 'Internal server error',
-            code: error.type,
-            detail: error.message,
-          });
+          // 障害の詳細は記録にだけ残し、応答は汎用の本文にする（要件42.8）
+          sendAuthDatabaseError(req, res, error.message, 'Database error during login');
           return;
         }
 
@@ -366,28 +545,26 @@ router.post(
 
       const loginResponse = result.value;
 
-      // 2FA有効ユーザーの場合は2FA検証を要求
+      // 2FA有効ユーザーの場合は、2FA 待ちの資格を返して2FA検証を要求する（要件32.1）。
+      // 利用者 ID は含めない（要件42.7）
       if (loginResponse.type === '2FA_REQUIRED') {
         res.status(200).json({
           requires2FA: true,
-          userId: loginResponse.userId,
+          challengeToken: loginResponse.challengeToken,
+          expiresIn: loginResponse.expiresIn,
         });
         return;
       }
 
       // 要件26.5: リフレッシュトークンをHTTPOnly Cookieに設定
-      if (loginResponse.refreshToken) {
-        setRefreshTokenCookie(res, loginResponse.refreshToken);
-      }
+      setRefreshTokenCookie(res, loginResponse.refreshToken);
 
-      if (loginResponse.user) {
-        logger.info(
-          { userId: loginResponse.user.id, email: loginResponse.user.email },
-          'User logged in'
-        );
-      }
+      logger.info(
+        { userId: loginResponse.user.id, email: loginResponse.user.email },
+        'User logged in'
+      );
 
-      res.status(200).json(loginResponse);
+      res.status(200).json(withoutRefreshToken(loginResponse));
     } catch (error) {
       next(error);
     }
@@ -399,21 +576,20 @@ router.post(
  * /api/v1/auth/refresh:
  *   post:
  *     summary: Refresh access token
- *     description: Get a new access token using a valid refresh token
+ *     description: >-
+ *       Get a new access token using the refresh token in the refreshToken cookie. The request
+ *       body is not read. The request must carry the X-CSRF-Token header matching the csrf-token
+ *       cookie and an Origin (or Referer) of FRONTEND_URL; otherwise 403. The rotated refresh
+ *       token is returned only in the Set-Cookie header, never in the response body.
  *     tags:
  *       - Authentication
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - refreshToken
- *             properties:
- *               refreshToken:
- *                 type: string
- *                 description: Valid refresh token
+ *     parameters:
+ *       - in: header
+ *         name: X-CSRF-Token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: CSRF token obtained from GET /csrf-token (must match the csrf-token cookie)
  *     responses:
  *       200:
  *         description: Token refreshed successfully
@@ -424,24 +600,48 @@ router.post(
  *               properties:
  *                 accessToken:
  *                   type: string
- *                 refreshToken:
- *                   type: string
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: CSRF token missing or invalid, or request origin not allowed
  */
 router.post(
   '/refresh',
   refreshLimiter,
-  validate(refreshSchema),
+  readRefreshTokenCredential,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { refreshToken } = req.body;
+      const refreshToken = res.locals.refreshToken as string;
 
-      const result = await authService.refreshToken(refreshToken);
+      const result = await authService.refreshToken(refreshToken, {
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+      });
 
       if (!result.ok) {
         const error = result.error;
+        if (error.type === 'TOKEN_REUSE_DETECTED') {
+          // 系列の全てを失効させた（要件33.6）。本文は無効なトークンと同じにし、Cookie を消す
+          clearRefreshTokenCookie(res);
+          res.status(401).json({
+            error: 'Invalid refresh token',
+            detail: '無効なトークンです (Invalid token)',
+            code: 'INVALID_REFRESH_TOKEN',
+          });
+          return;
+        }
+        if (error.type === 'ACCOUNT_DISABLED') {
+          // 無効化された利用者（要件36.1）。Cookie を消し、認証ミドルウェアと同じコードで拒否する
+          clearRefreshTokenCookie(res);
+          res.status(401).json({
+            error: 'Account is disabled',
+            detail: 'アカウントは無効化されています (Account is disabled)',
+            code: error.type,
+          });
+          return;
+        }
         if (error.type === 'INVALID_REFRESH_TOKEN') {
+          clearRefreshTokenCookie(res);
           res.status(401).json({
             error: 'Invalid refresh token',
             detail: '無効なトークンです (Invalid token)',
@@ -449,6 +649,7 @@ router.post(
           });
           return;
         } else if (error.type === 'REFRESH_TOKEN_EXPIRED') {
+          clearRefreshTokenCookie(res);
           res.status(401).json({
             error: 'Refresh token expired',
             detail: 'トークンの有効期限が切れています (Token expired)',
@@ -471,7 +672,7 @@ router.post(
         'Token refreshed successfully'
       );
 
-      res.status(200).json(authResponse);
+      res.status(200).json(withoutRefreshToken(authResponse));
     } catch (error) {
       next(error);
     }
@@ -672,23 +873,22 @@ router.patch(
  * /api/v1/auth/logout:
  *   post:
  *     summary: Logout
- *     description: Logout the current user from the current device
+ *     description: >-
+ *       Logout the current user from the current device. The refresh token to invalidate is read
+ *       from the refreshToken cookie; the request body is not read. The request must carry the
+ *       X-CSRF-Token header matching the csrf-token cookie and an Origin (or Referer) of
+ *       FRONTEND_URL; otherwise 403.
  *     tags:
  *       - Authentication
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - refreshToken
- *             properties:
- *               refreshToken:
- *                 type: string
- *                 description: Refresh token to invalidate
+ *     parameters:
+ *       - in: header
+ *         name: X-CSRF-Token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: CSRF token obtained from GET /csrf-token (must match the csrf-token cookie)
  *     responses:
  *       200:
  *         description: Logged out successfully
@@ -701,11 +901,13 @@ router.patch(
  *                   type: string
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: CSRF token missing or invalid, or request origin not allowed
  */
 router.post(
   '/logout',
   authenticate,
-  validate(logoutSchema),
+  readRefreshTokenCredential,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
@@ -713,15 +915,17 @@ router.post(
         return;
       }
 
-      const { refreshToken } = req.body;
+      const refreshToken = res.locals.refreshToken as string;
 
-      const result = await authService.logout(req.user.userId, refreshToken);
+      const result = await authService.logout(req.user.userId, refreshToken, requestContext(req));
 
       if (!result.ok) {
         const error = result.error;
         res.status(400).json({ error: 'Logout failed', code: error.type });
         return;
       }
+
+      clearRefreshTokenCookie(res);
 
       logger.info({ userId: req.user.userId }, 'User logged out');
 
@@ -765,7 +969,7 @@ router.post(
         return;
       }
 
-      const result = await authService.logoutAll(req.user.userId);
+      const result = await authService.logoutAll(req.user.userId, requestContext(req));
 
       if (!result.ok) {
         const error = result.error;
@@ -787,11 +991,12 @@ router.post(
  * /api/v1/auth/verify-2fa:
  *   post:
  *     summary: Verify 2FA token
- *     description: Verify a TOTP token for two-factor authentication
+ *     description: >-
+ *       Complete a login with a TOTP code. Requires the challengeToken returned by the login
+ *       response; an email address or a JWT is never accepted as the challenge. The challenge
+ *       is consumed on success.
  *     tags:
  *       - Authentication
- *     security:
- *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -799,19 +1004,16 @@ router.post(
  *           schema:
  *             type: object
  *             required:
- *               - token
+ *               - challengeToken
+ *               - code
  *             properties:
- *               token:
+ *               challengeToken:
  *                 type: string
- *                 description: 6-digit TOTP token
+ *                 description: 2FA challenge from the login response
+ *               code:
+ *                 type: string
+ *                 description: 6-digit TOTP code
  *                 example: "123456"
- *               email:
- *                 type: string
- *                 format: email
- *                 description: Email (for login flow)
- *               tempToken:
- *                 type: string
- *                 description: Temporary token from login
  *     responses:
  *       200:
  *         description: 2FA verification successful
@@ -822,47 +1024,28 @@ router.post(
  *               properties:
  *                 accessToken:
  *                   type: string
- *                 refreshToken:
- *                   type: string
  *                 user:
  *                   type: object
  *       401:
- *         $ref: '#/components/responses/Unauthorized'
+ *         description: Missing, expired or consumed challenge (INVALID_CHALLENGE), or invalid code
+ *       429:
+ *         description: 2FA is locked after too many failures
+ *       503:
+ *         description: The 2FA challenge store is unavailable
  */
 router.post(
   '/verify-2fa',
   validate(verify2FASchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { token, email, tempToken } = req.body;
+      const { challengeToken, code } = req.body as { challengeToken?: string; code: string };
 
-      // ログイン時の2FA検証の場合、emailまたはtempTokenからuserIdを取得
-      let userId: string;
-
-      if (tempToken) {
-        // tempTokenからuserIdを抽出（実装はシンプルにJWTデコードを想定）
-        const verifyResult = await authService['tokenService'].verifyToken(tempToken, 'access');
-        if (!verifyResult.ok) {
-          res.status(401).json({ error: 'Invalid temporary token', code: 'INVALID_TEMP_TOKEN' });
-          return;
-        }
-        userId = verifyResult.value.userId;
-      } else if (email) {
-        // emailからユーザーを検索
-        const user = await prisma.user.findUnique({ where: { email } });
-        if (!user) {
-          res.status(401).json({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
-          return;
-        }
-        userId = user.id;
-      } else {
-        res.status(400).json({ error: 'Email or tempToken is required', code: 'MISSING_PARAM' });
-        return;
-      }
-
-      // 2FA検証を実行
-      const userAgent = req.headers['user-agent'];
-      const result = await authService.verify2FA(userId, token, userAgent);
+      // ログインの応答の 2FA 待ちの資格に結び付いた利用者だけを検証する（要件32.1〜32.5）
+      const result = await authService.completeTwoFactorLogin(
+        challengeToken ?? '',
+        { kind: 'totp', code },
+        requestContext(req)
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -873,20 +1056,8 @@ router.post(
             code: error.type,
           });
           return;
-        } else if (error.type === 'ACCOUNT_LOCKED') {
-          res.status(429).json({
-            error: 'アカウントが一時的にロックされました。5分後に再試行してください',
-            detail: 'アカウントがロックされています',
-            code: error.type,
-            unlockAt: error.unlockAt,
-          });
-          return;
-        } else if (error.type === 'USER_NOT_FOUND') {
-          res.status(404).json({ error: 'User not found', code: error.type });
-          return;
-        } else if (error.type === 'DATABASE_ERROR') {
-          logger.error({ error }, 'Database error during 2FA verification');
-          res.status(500).json({ error: '2FA verification failed', code: '2FA_ERROR' });
+        }
+        if (sendTwoFactorLoginError(req, res, error, 'Database error during 2FA verification')) {
           return;
         }
 
@@ -903,7 +1074,7 @@ router.post(
 
       logger.info({ userId: authResponse.user.id }, '2FA verification successful');
 
-      res.status(200).json(authResponse);
+      res.status(200).json(withoutRefreshToken(authResponse));
     } catch (error) {
       next(error);
     }
@@ -912,8 +1083,8 @@ router.post(
 
 // バックアップコード検証用のスキーマ
 const verifyBackupCodeSchema = z.object({
+  challengeToken: challengeTokenField,
   backupCode: z.string().min(1, 'Backup code is required'),
-  email: z.string().email('Invalid email format'),
 });
 
 /**
@@ -921,7 +1092,9 @@ const verifyBackupCodeSchema = z.object({
  * /api/v1/auth/verify-2fa/backup:
  *   post:
  *     summary: Verify 2FA backup code
- *     description: Verify a backup code for two-factor authentication
+ *     description: >-
+ *       Complete a login with a backup code. Requires the same challengeToken as the TOTP
+ *       verification; an email address is never accepted. The challenge is consumed on success.
  *     tags:
  *       - Authentication
  *     requestBody:
@@ -931,17 +1104,16 @@ const verifyBackupCodeSchema = z.object({
  *           schema:
  *             type: object
  *             required:
+ *               - challengeToken
  *               - backupCode
- *               - email
  *             properties:
+ *               challengeToken:
+ *                 type: string
+ *                 description: 2FA challenge from the login response
  *               backupCode:
  *                 type: string
  *                 description: 8-character backup code
  *                 example: "ABCD1234"
- *               email:
- *                 type: string
- *                 format: email
- *                 description: Email (for login flow)
  *     responses:
  *       200:
  *         description: 2FA verification successful
@@ -952,30 +1124,31 @@ const verifyBackupCodeSchema = z.object({
  *               properties:
  *                 accessToken:
  *                   type: string
- *                 refreshToken:
- *                   type: string
  *                 user:
  *                   type: object
  *       401:
- *         $ref: '#/components/responses/Unauthorized'
+ *         description: Missing, expired or consumed challenge (INVALID_CHALLENGE), or invalid backup code
+ *       429:
+ *         description: 2FA is locked after too many failures
+ *       503:
+ *         description: The 2FA challenge store is unavailable
  */
 router.post(
   '/verify-2fa/backup',
   validate(verifyBackupCodeSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { backupCode, email } = req.body;
+      const { challengeToken, backupCode } = req.body as {
+        challengeToken?: string;
+        backupCode: string;
+      };
 
-      // emailからユーザーを検索
-      const user = await prisma.user.findUnique({ where: { email } });
-      if (!user) {
-        res.status(401).json({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
-        return;
-      }
-
-      // バックアップコード検証を実行
-      const userAgent = req.headers['user-agent'];
-      const result = await authService.verify2FABackupCode(user.id, backupCode, userAgent);
+      // バックアップコードも TOTP と同じ 2FA 待ちの資格を要求する（要件32.6）
+      const result = await authService.completeTwoFactorLogin(
+        challengeToken ?? '',
+        { kind: 'backup', backupCode },
+        requestContext(req)
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -986,20 +1159,10 @@ router.post(
             code: error.type,
           });
           return;
-        } else if (error.type === 'ACCOUNT_LOCKED') {
-          res.status(429).json({
-            error: 'アカウントが一時的にロックされました。5分後に再試行してください',
-            detail: 'アカウントがロックされています',
-            code: error.type,
-            unlockAt: error.unlockAt,
-          });
-          return;
-        } else if (error.type === 'USER_NOT_FOUND') {
-          res.status(404).json({ error: 'User not found', code: error.type });
-          return;
-        } else if (error.type === 'DATABASE_ERROR') {
-          logger.error({ error }, 'Database error during backup code verification');
-          res.status(500).json({ error: 'Backup code verification failed', code: '2FA_ERROR' });
+        }
+        if (
+          sendTwoFactorLoginError(req, res, error, 'Database error during backup code verification')
+        ) {
           return;
         }
 
@@ -1016,7 +1179,7 @@ router.post(
 
       logger.info({ userId: authResponse.user.id }, 'Backup code verification successful');
 
-      res.status(200).json(authResponse);
+      res.status(200).json(withoutRefreshToken(authResponse));
     } catch (error) {
       next(error);
     }
@@ -1130,6 +1293,9 @@ router.post(
  *                   items:
  *                     type: string
  *                   description: バックアップコード（最後の表示機会）
+ *                 user:
+ *                   $ref: '#/components/schemas/AuthUserView'
+ *                   description: 有効化の後の利用者と状態（読めないときは省く）
  *       400:
  *         description: 無効なTOTPコード
  *       401:
@@ -1169,9 +1335,12 @@ router.post(
 
       const enabledData = result.value;
 
+      // 2FA の登録で利用者の状態が変わったので、コミットの後に状態のキャッシュを無効化する（タスク47.5）
+      await getSharedAuthenticatedUserStateService().invalidate(req.user.userId);
+
       logger.info({ userId: req.user.userId }, '2FA enabled successfully');
 
-      res.status(200).json(enabledData);
+      res.status(200).json({ ...enabledData, ...(await readAuthUserView(req.user.userId)) });
     } catch (error) {
       next(error);
     }
@@ -1182,8 +1351,61 @@ router.post(
  * @swagger
  * /api/v1/auth/2fa/disable:
  *   post:
- *     summary: 2FA無効化
- *     description: パスワードを確認して2FAを無効化する
+ *     summary: 2FA無効化（拒否）
+ *     description: |
+ *       2FA は全ユーザーで必須のため、利用者自身による無効化の要求は常に 403 で拒否する（要件34.6）。
+ *       第二要素を失った場合の復旧は管理者による 2FA の再設定で、端末の交換は現在の TOTP コードによる
+ *       再登録で行う。
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: 2FA の自己の無効化は許可されていない（code は TWO_FACTOR_DISABLE_NOT_ALLOWED）
+ */
+router.post('/2fa/disable', authenticate, (_req: Request, _res: Response, next: NextFunction) => {
+  // 要件34.6: 2FA の全ユーザー必須化により、自己の無効化は本文の内容に関わらず拒否する
+  next(
+    new ForbiddenError(
+      'Disabling two-factor authentication is not allowed',
+      'TWO_FACTOR_DISABLE_NOT_ALLOWED'
+    )
+  );
+});
+
+/** 再登録の誤りを応答へ写す（400 は本文の code で区別する） */
+function sendReenrollmentError(res: Response, error: TwoFactorError): void {
+  switch (error.type) {
+    case 'USER_NOT_FOUND':
+      res.status(404).json({ error: 'User not found', code: error.type });
+      return;
+    case 'TWO_FACTOR_NOT_ENABLED':
+      res.status(400).json({ error: '2FA is not enabled', code: error.type });
+      return;
+    case 'REENROLLMENT_NOT_STARTED':
+      res.status(400).json({ error: '2FA reenrollment is not started', code: error.type });
+      return;
+    case 'INVALID_TOTP_CODE':
+    case 'CODE_ALREADY_USED':
+      // 再利用は通常の誤りと同じ本文で返す
+      res.status(400).json({ error: 'Invalid TOTP code', code: 'INVALID_TOTP_CODE' });
+      return;
+    default:
+      res.status(500).json({ error: '2FA reenrollment failed', code: '2FA_REENROLL_ERROR' });
+  }
+}
+
+/**
+ * @swagger
+ * /api/v1/auth/2fa/reenroll/start:
+ *   post:
+ *     summary: 2FA の再登録の開始
+ *     description: |
+ *       現在の秘密鍵の TOTP コードを確かめ、新しい秘密鍵を発行する（要件34.11）。
+ *       新しい秘密鍵は確認（reenroll/confirm）まで採用されず、それまでは既存の秘密鍵が有効である。
  *     tags:
  *       - Two-Factor Authentication
  *     security:
@@ -1195,63 +1417,110 @@ router.post(
  *           schema:
  *             type: object
  *             required:
- *               - password
+ *               - currentCode
  *             properties:
- *               password:
+ *               currentCode:
  *                 type: string
- *                 format: password
- *                 description: ユーザーの現在のパスワード
+ *                 description: 現在の秘密鍵の 6 桁の TOTP コード
+ *                 example: "123456"
  *     responses:
  *       200:
- *         description: 2FA無効化成功
+ *         description: 新しい秘密鍵の発行
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 message:
+ *                 qrCodeDataUrl:
  *                   type: string
- *                   example: "2FA disabled successfully"
+ *                   description: 新しい秘密鍵の QR コード（Data URL 形式）
+ *                 secretForManualEntry:
+ *                   type: string
+ *                   description: 新しい秘密鍵（Base32、手入力用）
  *       400:
- *         description: 無効なパスワードまたは2FAが未有効化
+ *         description: TOTP コードの誤り・再利用（code は INVALID_TOTP_CODE）、または 2FA が未登録
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
 router.post(
-  '/2fa/disable',
+  '/2fa/reenroll/start',
   authenticate,
-  validate(disableTwoFactorSchema),
+  validate(reenrollStartSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (!req.user) {
-        res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
-        return;
-      }
-
-      const { password } = req.body;
-
-      const result = await twoFactorService.disableTwoFactor(req.user.userId, password);
-
+      const userId = req.user!.userId;
+      const result = await twoFactorService.startReenrollment(userId, req.body.currentCode);
       if (!result.ok) {
-        const error = result.error;
-        if (error.type === 'USER_NOT_FOUND') {
-          res.status(404).json({ error: 'User not found', code: error.type });
-          return;
-        } else if (error.type === 'TWO_FACTOR_NOT_ENABLED') {
-          res.status(400).json({ error: '2FA is not enabled', code: error.type });
-          return;
-        } else if (error.type === 'INVALID_PASSWORD') {
-          res.status(400).json({ error: 'Invalid password', code: error.type });
-          return;
-        }
-
-        res.status(500).json({ error: '2FA disable failed', code: '2FA_DISABLE_ERROR' });
+        sendReenrollmentError(res, result.error);
         return;
       }
+      res.status(200).json(result.value);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
-      logger.info({ userId: req.user.userId }, '2FA disabled successfully');
-
-      res.status(200).json({ message: '2FA disabled successfully' });
+/**
+ * @swagger
+ * /api/v1/auth/2fa/reenroll/confirm:
+ *   post:
+ *     summary: 2FA の再登録の確認
+ *     description: |
+ *       新しい秘密鍵の TOTP コードを確かめて既存の秘密鍵を置き換え、バックアップコードを作り直す（要件34.11）。
+ *       再登録を監査（TWO_FACTOR_REENROLLED）に記録する。
+ *     tags:
+ *       - Two-Factor Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - newCode
+ *             properties:
+ *               newCode:
+ *                 type: string
+ *                 description: 新しい秘密鍵の 6 桁の TOTP コード
+ *                 example: "123456"
+ *     responses:
+ *       200:
+ *         description: 再登録の完了
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 backupCodes:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: 新しいバックアップコード（最後の表示機会）
+ *       400:
+ *         description: TOTP コードの誤り（INVALID_TOTP_CODE）、または再登録が開始されていない（REENROLLMENT_NOT_STARTED）
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.post(
+  '/2fa/reenroll/confirm',
+  authenticate,
+  validate(reenrollConfirmSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const userId = req.user!.userId;
+      const result = await twoFactorService.confirmReenrollment(userId, req.body.newCode, {
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+      });
+      if (!result.ok) {
+        sendReenrollmentError(res, result.error);
+        return;
+      }
+      logger.info({ userId }, '2FA reenrolled successfully');
+      res.status(200).json(result.value);
     } catch (error) {
       next(error);
     }
@@ -1447,6 +1716,8 @@ router.get(
  *                   example: "If an account exists, a password reset email has been sent"
  *       400:
  *         description: Validation error
+ *       429:
+ *         description: Too many requests from the same client (per-email limit returns the same 200)
  */
 router.post(
   '/password/reset-request',
@@ -1464,9 +1735,8 @@ router.post(
         logger.info({ email }, 'Password reset request processed');
       }
 
-      res.status(200).json({
-        message: 'If an account exists, a password reset email has been sent',
-      });
+      // 登録の有無・制限の有無に関わらず同じ応答（要件35.7）
+      res.status(200).json(PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE);
     } catch (error) {
       next(error);
     }
@@ -1476,18 +1746,23 @@ router.post(
 /**
  * @swagger
  * /api/v1/auth/password/verify-reset:
- *   get:
+ *   post:
  *     summary: Verify password reset token
- *     description: Verify if a password reset token is valid and not expired
+ *     description: Verify if a password reset token is valid and not expired. The token is sent in the request body, not in the URL.
  *     tags:
  *       - Authentication
- *     parameters:
- *       - in: query
- *         name: token
- *         required: true
- *         schema:
- *           type: string
- *         description: Password reset token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Password reset token
  *     responses:
  *       200:
  *         description: Token is valid
@@ -1502,20 +1777,21 @@ router.post(
  *       400:
  *         description: Invalid or expired token
  */
-router.get(
+router.post(
   '/password/verify-reset',
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { token } = req.query;
+      // トークンは URL に載せず本文で受ける（アクセスログに残さない。要件37.3）
+      const token: unknown = req.body?.token;
 
       if (!token || typeof token !== 'string') {
         res.status(400).json({ error: 'Token is required', code: 'MISSING_TOKEN' });
         return;
       }
 
-      // トークンの存在と有効期限をチェック
+      // トークンの存在と有効期限をチェック（提示された原文の SHA-256 で引く。要件37.1）
       const passwordResetToken = await prisma.passwordResetToken.findUnique({
-        where: { token },
+        where: { tokenHash: hashPasswordResetToken(token) },
       });
 
       if (!passwordResetToken) {
@@ -1620,7 +1896,7 @@ router.post(
         return;
       }
 
-      logger.info({ token: token.substring(0, 8) + '...' }, 'Password reset successfully');
+      // 成功の記録は PasswordService が利用者 ID で残す（トークンの値もその一部も記録しない。要件37.3）
 
       res.status(200).json({ message: 'Password reset successfully' });
     } catch (error) {
@@ -1661,7 +1937,9 @@ router.post(
  *                 description: New password confirmation
  *     responses:
  *       200:
- *         description: Password changed successfully
+ *         description: >-
+ *           Password changed successfully. All refresh tokens are revoked and the initial password
+ *           change requirement (mustChangePassword) is cleared.
  *         content:
  *           application/json:
  *             schema:
@@ -1669,6 +1947,9 @@ router.post(
  *               properties:
  *                 message:
  *                   type: string
+ *                 user:
+ *                   $ref: '#/components/schemas/AuthUserView'
+ *                   description: The user and state after the change (omitted when unreadable)
  *       400:
  *         description: Invalid request (weak password, password mismatch, etc.)
  *       401:
@@ -1736,7 +2017,10 @@ router.post(
 
       logger.info({ userId: req.user.userId }, 'Password changed successfully');
 
-      res.status(200).json({ message: 'Password changed successfully' });
+      res.status(200).json({
+        message: 'Password changed successfully',
+        ...(await readAuthUserView(req.user.userId)),
+      });
     } catch (error) {
       next(error);
     }

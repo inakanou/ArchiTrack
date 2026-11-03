@@ -4,17 +4,15 @@
   "language": "Japanese",
   "phase": "implementation-complete",
   "created_at": "2025-11-20T12:00:00Z",
-  "updated_at": "2026-10-06T00:00:00Z",
+  "updated_at": "2026-10-31T03:00:00Z",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": true,
-      "approved_at": "2025-12-03T16:00:00Z"
+      "approved": true
     },
     "design": {
       "generated": true,
-      "approved": true,
-      "approved_at": "2025-12-03T17:00:00Z"
+      "approved": true
     },
     "tasks": {
       "generated": true,
@@ -36,13 +34,15 @@
       "phase_4_gap_remediation": 10,
       "phase_5_e2e_improvements": 1,
       "phase_6_navigation_enhancement": 6,
-      "total_major_tasks": 43,
-      "total_sub_tasks": 122,
+      "total_major_tasks": 68,
+      "total_sub_tasks": 208,
       "pending_sub_tasks": 0,
       "requirements_coverage": "100%",
-      "requirements_count": 37,
-      "counted_at": "2026-10-09",
-      "counting_method": "tasks.md のチェック項目を数える。total_major_tasks は相異なる最上位番号（1〜43）、total_sub_tasks は N.M 形式の項目、pending_sub_tasks は未完了の N.M 形式の項目からタスク41.2 自身（本更新を行うタスク）を除いたもの（41.2 の完了で 0）。以前の値 113 は 248aa674（2026-09-29、タスク37 の起票）で更新した値で実数と一致していたが、counted_at が 2026-09-28 のまま残っていた。requirements_count は requirements.md の「### 要件N」見出し（16A・27A〜27E を含む）。requirements_coverage は tasks.md の各タスクの _Requirements:_ から見た要件の網羅であり、`npm run check:req-coverage` の被覆印の実測（2026-10-05 時点で受入基準 377/388、適用対象 374/374）とは別の指標。phase_1_3_completed〜phase_6_navigation_enhancement は 2025-12-03 の生成時点の内訳で、total_* とは合わない"
+      "requirements_count": 51,
+      "counted_at": "2026-10-31",
+      "counting_method": "tasks.md のチェック項目を数える。total_major_tasks は相異なる最上位番号（1〜62）、total_sub_tasks は N.M 形式の項目、pending_sub_tasks は未完了の N.M 形式の項目からタスク57.2 自身（本更新を行うタスク）を除いたもの（57.2 の完了で 0。2026-10-25 の実測で未完了は 57.2 の 1 件だけ）。requirements_count は requirements.md の「### 要件N」見出し（16A・27A〜27E を含む）。requirements_coverage は tasks.md の各タスクの _Requirements:_ から見た要件の網羅であり、`npm run check:req-coverage` の被覆印の実測とは別の指標。phase_1_3_completed〜phase_6_navigation_enhancement は 2025-12-03 の生成時点の内訳で、total_* とは合わない",
+      "requirements_count_note": "2026-10-16 に要件32〜45を追加して 51（「### 要件N」見出しの数。16A・27A〜27E を含む）。total_* 等のタスクの計数は tasks.md 更新時に測り直す",
+      "tasks_44_57_note": "2026-10-17 に要件7.3・32〜45 の実装としてタスク44〜57（サブタスク67件）を起票し、実装中の起票（44.11・44.12・47.11 など）で 69 件になった（2026-10-25 の実測）。total_sub_tasks は N.M 形式の項目（タスク1〜43 の 122 + タスク44〜57 の 69 = 191）"
     },
     "design_update": {
       "updated_at": "2025-12-03T16:00:00Z",
@@ -66,6 +66,131 @@
       "updated_requirements": ["15.13", "16.6"],
       "sections_added": ["セッション切れモーダル再認証設計"],
       "trigger": "TOKEN_EXPIRED発生時にユーザー入力データが失われる問題の改善"
+    },
+    "requirement_update_2026_10_16": {
+      "updated_at": "2026-10-16T00:00:00Z",
+      "description": "IPA注意喚起（2026-10-09）に基づくセキュリティ是正（docs/security/ipa-alert-20261009-remediation-plan.md §5.1）",
+      "new_requirements_added": [
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45"
+      ],
+      "updated_requirements": [
+        "7.3（有効期限 24時間→1時間）",
+        "27B.4〜27B.6（撤廃、要件34へ置き換え）",
+        "用語集のリセットトークン"
+      ],
+      "decisions": [
+        "2FAは全ユーザー必須、未登録者は次回ログインで即登録",
+        "案件の閲覧範囲は営業担当者・工事担当者・作成者と全案件閲覧権限、範囲外は404",
+        "最終ログインから90日で自動無効化"
+      ],
+      "trigger": "外部公開アプリ・アカウント管理・保有データの3観点の監査で判明した欠陥の是正"
+    },
+    "design_update_2026_10_16": {
+      "updated_at": "2026-10-16T12:00:00Z",
+      "new_requirements_designed": [
+        "32",
+        "33",
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44",
+        "45"
+      ],
+      "updated_requirements_designed": ["7.3"],
+      "sections_added": ["Requirements 32-45: セキュリティ是正（IPA注意喚起 2026-10-09）"],
+      "research_log": "research.md（要件32〜45 に限る）",
+      "gate_policy_changes": [
+        "check:trace-coverage の user-authentication を maxMissing 384 へ（allowNoTraceabilityTable を外した）",
+        "check:design-component-reqs の user-authentication を minPairs 46 / minTableDeclarations 46 / minDetailDeclarations 29 へ（allowNoDeclarations を外した）"
+      ],
+      "boundary_note": "案件そのもの（/api/projects）への閲覧範囲の適用を本 spec が持つ。是正計画 §5.3 を合わせて改める"
+    },
+    "design_review_2026_10_16": {
+      "reviewed_at": "2026-10-16T15:00:00Z",
+      "initial_decision": "NO-GO",
+      "issues": [
+        "34.1〜34.3 と 37.7 の衝突（初期管理者の初回ログイン）",
+        "40.10・40.11 の本番の入口の不在",
+        "試験・CI の配信の構成と Cookie の受け渡し"
+      ],
+      "resolutions": [
+        "要件34.1〜34.3 に初回のパスワード変更の例外を加えた（パスワード変更→2FA の順、利用者の判断）",
+        "40.10・40.11 は pending-implementation の除外と test.fail() のラチェットで先行し site-survey で反転（利用者の判断）",
+        "試験・CI も nginx の中継で同一オリジン化。制限中の /me を許可から外し、応答に利用者の状態を載せる"
+      ],
+      "requirements_revised": ["34.1", "34.2", "34.3"]
+    },
+    "tasks_generation_2026_10_17": {
+      "generated_at": "2026-10-17T12:00:00Z",
+      "mode": "merge",
+      "auto_approved": true,
+      "scope": "要件7.3・32〜45（受入基準111件）",
+      "major_tasks_added": [
+        "44",
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "50",
+        "51",
+        "52",
+        "53",
+        "54",
+        "55",
+        "56",
+        "57"
+      ],
+      "sub_tasks_added": 67,
+      "parallel_tasks_identified": 0,
+      "sanity_review": "independent。最後の枠の1回目で PASS（それ以前の各枠は2回目が NEEDS_FIXES で停止し、利用者の判断で指摘の反映と再実行を繰り返した。PASS 時の軽微11件も書き込み前に反映）",
+      "design_changes_with_tasks": [
+        "招待の毎時の掃除はトークンだけを消して行を残す（利用者の判断 2026-10-16）、Invitation.tokenHash を NULL 許容",
+        "招待の再送信の経路 POST /api/v1/invitations/:id/resend",
+        "E2E の認証基盤の移行（時間ステップを戻す補助、別の Cookie の入れ物によるトークンの取得、状態のキャッシュの無効化、専用の利用者）"
+      ],
+      "push_policy": "check:req-coverage は着手時点で赤のため、本ブランチの push はタスク57.1 の完了の後"
+    },
+    "requirement_update_2026_10_29": {
+      "updated_at": "2026-10-29T12:00:00Z",
+      "description": "経路の案件と対象の実際の案件の食い違いの記録（要件39.8）と、クリップボードへの書き込みの出力の記録の部品（要件40.10・40.11、種別 itemized_statement_clipboard）",
+      "new_criteria_added": ["39.8"],
+      "clarified_requirements": [
+        "39.7（食い違いの要求を範囲外のアクセスの拒否に含めて読む。改訂の記録は requirements.md の要件39）"
+      ],
+      "tasks_added": ["63.1", "63.2", "64.1", "65.1"],
+      "decision": "利用者の判断 2026-10-29「推奨案で進める」。各業務 spec の判定部品の切り替えと内訳書のコピーへの適用は各 spec のタスクで行う"
+    },
+    "requirement_update_2026_10_30": {
+      "updated_at": "2026-10-30T18:00:00Z",
+      "description": "対象のデータの論理削除は記録の要否を変えないことの明記（要件39.8 の改訂。記録しないのは案件そのものの不在・論理削除）と、見積依頼の詳細画面のコピーとメールで開く操作の出力の種別 estimate_request_text_clipboard・estimate_request_items_clipboard・estimate_request_text_mail（要件40.10 の改訂。受け渡しは行う前に記録する）",
+      "revised_criteria": [
+        "39.8（対象のデータの論理削除の扱いを加えた。改訂の記録は requirements.md の要件39）",
+        "40.10（クリップボード・メールクライアントへの受け渡しを行う前に記録することを明記し、見積依頼の 3 種別を加えた。改訂の記録は requirements.md の要件40）"
+      ],
+      "tasks_added": ["66.1", "67.1", "68.1"],
+      "decision": "利用者の判断 2026-10-30「推奨案で進める」。各業務 spec の解決関数とサービスの照合の切り替え（design.md の起票先の一覧）と、見積依頼文のコピーへの適用は各 spec のタスクで行う"
     }
-  }
+  },
+  "ready_for_implementation": true
 }

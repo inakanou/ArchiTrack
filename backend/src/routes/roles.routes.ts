@@ -12,12 +12,19 @@ import { RoleService } from '../services/role.service.js';
 import { RolePermissionService } from '../services/role-permission.service.js';
 import { getSharedRBACService } from '../services/rbac.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
+import {
+  PrivilegeCeilingPolicy,
+  isCeilingError,
+  type CeilingError,
+} from '../services/privilege-ceiling.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { getClientIp } from '../middleware/client-ip.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
 import logger from '../utils/logger.js';
-import { updateRoleSchema } from '../schemas/auth-update.schema.js';
+import { rolePrioritySchema, updateRoleSchema } from '../schemas/auth-update.schema.js';
 import { ConflictError } from '../errors/apiError.js';
 
 const router = Router();
@@ -27,15 +34,52 @@ const prisma = getPrismaClient();
 const rbacService = getSharedRBACService();
 const auditLogService = new AuditLogService({ prisma });
 // ロールの作成・更新・削除は書き込みと監査ログを同じトランザクションで記録する（タスク36.4）
-const roleService = new RoleService(prisma, auditLogService);
-const rolePermissionService = new RolePermissionService(prisma, rbacService, auditLogService);
+// 権限付与の上限（user-authentication タスク51.1・58.1）。システムロールの名前・優先度の変更、
+// システム管理者でない実行者による全権限・保有しない権限の追加、上限を超える優先度のロールの作成と
+// 優先度への変更、上限より上のロールの変更と削除を拒否する
+const privilegeCeiling = new PrivilegeCeilingPolicy(prisma);
+const roleService = new RoleService(prisma, auditLogService, privilegeCeiling);
+const rolePermissionService = new RolePermissionService(
+  prisma,
+  rbacService,
+  auditLogService,
+  privilegeCeiling
+);
 
 // Zodバリデーションスキーマ
 const createRoleSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
   description: z.string().optional(),
-  priority: z.number().int().optional(),
+  // システム管理者ロールの優先度を超える値は 400 の検証エラー（要件38.10）
+  priority: rolePrioritySchema.optional(),
 });
+
+/** 権限付与の上限による拒否の応答の文言（code は CeilingError の種別） */
+const CEILING_MESSAGES: Record<CeilingError['type'], string> = {
+  ROLE_PRIORITY_EXCEEDS_ACTOR: 'The role priority exceeds the privileges of the requesting user',
+  SYSTEM_ADMIN_REQUIRED: 'Only system administrators can grant all permissions',
+  SYSTEM_ROLE_RENAME_FORBIDDEN: 'System roles cannot be renamed',
+  PERMISSION_NOT_HELD_BY_ACTOR: 'The permission is not held by the requesting user',
+  SYSTEM_ROLE_PRIORITY_CHANGE_FORBIDDEN: 'The priority of system roles cannot be changed',
+  TARGET_USER_EXCEEDS_ACTOR: 'The target user exceeds the privileges of the requesting user',
+};
+
+/**
+ * 権限付与の上限による拒否を 403 で返し、権限の拒否として異常の検知へ送る（要件38、43.2。計数を待たない）。
+ * 監査（PERMISSION_CHECK_FAILED）はサービスが記録済み
+ */
+function rejectByCeiling(req: Request, res: Response, error: CeilingError): void {
+  observeSecurityAnomaly({
+    signal: 'permission_denied',
+    sourceIp: getClientIp(req),
+    userId: req.user?.userId ?? null,
+  });
+  res.status(403).json({
+    error: 'FORBIDDEN',
+    message: CEILING_MESSAGES[error.type],
+    code: error.type,
+  });
+}
 
 const addPermissionSchema = z
   .object({
@@ -105,16 +149,17 @@ router.get(
  *                 example: "Manages projects"
  *               priority:
  *                 type: integer
+ *                 maximum: 100
  *                 example: 50
  *     responses:
  *       201:
  *         description: ロール作成成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（優先度がシステム管理者ロールの 100 を超えるときを含む）
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または実行者の上限を超える優先度のロールの作成（code が ROLE_PRIORITY_EXCEEDS_ACTOR）
  *       409:
  *         description: ロール名の重複
  */
@@ -144,6 +189,11 @@ router.post(
             error: `Role with name '${error.name}' already exists`,
             code: 'ROLE_NAME_CONFLICT',
           });
+          return;
+        }
+        // 上限を超える優先度のロールの作成の拒否（要件38.7）
+        if (isCeilingError(error)) {
+          rejectByCeiling(req, res, error);
           return;
         }
         res.status(500).json({ error: 'Failed to create role', details: error });
@@ -192,6 +242,7 @@ router.post(
  *                 type: string
  *               priority:
  *                 type: integer
+ *                 maximum: 100
  *               expectedUpdatedAt:
  *                 type: string
  *                 format: date-time
@@ -204,7 +255,7 @@ router.post(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、またはシステムロールの名前・優先度の変更、上限を超える優先度、上限より上のロールの変更（code が CeilingError の種別）
  *       404:
  *         description: ロールが見つからない
  *       409:
@@ -244,6 +295,12 @@ router.patch(
         const error = result.error;
         if (error.type === 'ROLE_NOT_FOUND') {
           res.status(404).json({ error: 'Role not found', code: 'ROLE_NOT_FOUND' });
+          return;
+        }
+        // システムロールの名前・優先度の変更（38.3、38.12）、上限を超える優先度への変更（38.6）、
+        // 上限より上のロールの優先度の変更（38.11）の拒否。監査はサービスが記録済み
+        if (isCeilingError(error)) {
+          rejectByCeiling(req, res, error);
           return;
         }
         if (error.type === 'ROLE_NAME_CONFLICT') {
@@ -308,7 +365,7 @@ router.patch(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または実行者の上限より上のロールの消去（code が ROLE_PRIORITY_EXCEEDS_ACTOR）
  *       404:
  *         description: ロールが見つからない
  */
@@ -327,6 +384,11 @@ router.delete(
         const error = result.error;
         if (error.type === 'ROLE_NOT_FOUND') {
           res.status(404).json({ error: 'Role not found', code: 'ROLE_NOT_FOUND' });
+          return;
+        }
+        // 上限より上のロールの削除の拒否（要件38.11）。監査はサービスが記録済み
+        if (isCeilingError(error)) {
+          rejectByCeiling(req, res, error);
           return;
         }
         if (error.type === 'SYSTEM_ROLE_PROTECTED') {
@@ -453,7 +515,7 @@ router.get(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または権限付与の上限による拒否（code が SYSTEM_ADMIN_REQUIRED・PERMISSION_NOT_HELD_BY_ACTOR・ROLE_PRIORITY_EXCEEDS_ACTOR）
  *       404:
  *         description: ロールまたは権限が見つからない
  */
@@ -479,6 +541,11 @@ router.post(
         const error = result.error;
         if (error.type === 'ROLE_NOT_FOUND' || error.type === 'PERMISSION_NOT_FOUND') {
           res.status(404).json({ error: 'Role or permission not found', code: error.type });
+          return;
+        }
+        // 権限付与の上限による拒否（38.2、38.8、38.11）。監査はサービスが記録済み
+        if (isCeilingError(error)) {
+          rejectByCeiling(req, res, error);
           return;
         }
         res.status(500).json({ error: 'Failed to add permission to role', details: error });
@@ -528,7 +595,7 @@ router.post(
  *       401:
  *         description: 認証エラー
  *       403:
- *         description: 権限不足
+ *         description: 権限不足、または実行者の上限より上のロールの権限の取り外し（code が ROLE_PRIORITY_EXCEEDS_ACTOR）
  *       404:
  *         description: ロールまたは権限が見つからない
  */
@@ -558,6 +625,11 @@ router.delete(
             error: 'Permission assignment not found',
             code: 'ASSIGNMENT_NOT_FOUND',
           });
+          return;
+        }
+        // 上限より上のロールからの権限の削除の拒否（要件38.11）。監査はサービスが記録済み
+        if (isCeilingError(error)) {
+          rejectByCeiling(req, res, error);
           return;
         }
         if (error.type === 'ADMIN_WILDCARD_PROTECTED') {

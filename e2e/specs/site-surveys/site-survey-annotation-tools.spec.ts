@@ -119,6 +119,7 @@ import {
   waitForAnnotationEditorLoaded,
   waitForAnnotationFetch,
 } from '../../helpers/fabric-canvas';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -205,7 +206,7 @@ test.describe('現場調査注釈ツール', () => {
       expect(fs.existsSync(testImagePath)).toBeTruthy();
 
       // ブラウザのlocalStorageからアクセストークンを取得
-      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      const accessToken = await getAccessToken(page, 'REGULAR_USER');
 
       // APIを使って画像をアップロード（バックエンドに直接アクセス）
       const uploadResponse = await page.request.post(

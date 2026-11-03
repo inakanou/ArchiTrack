@@ -23,6 +23,9 @@ import { PrismaClient } from '../../generated/prisma/client.js';
 import type { PasswordService } from '../../services/password.service.js';
 import type { TwoFactorService } from '../../services/two-factor.service.js';
 import { SwitchableDatabaseRelay } from './switchable-database-relay.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
+import { createStoredPasswordResetToken } from './password-reset-token-fixture.js';
 
 /** 1 回の試行の接続タイムアウト（ミリ秒） */
 const CONNECTION_TIMEOUT_MS = 1000;
@@ -78,7 +81,7 @@ describe('パスワードと二要素認証のトランザクションの開始�
       select: { id: true },
     });
     const ids = users.map((u) => u.id);
-    await directPrisma.auditLog.deleteMany({ where: { actorId: { in: ids } } });
+    await deleteAuditLogsWithArchivePermission(directPrisma, { actorId: { in: ids } });
     await directPrisma.refreshToken.deleteMany({ where: { userId: { in: ids } } });
     await directPrisma.passwordHistory.deleteMany({ where: { userId: { in: ids } } });
     await directPrisma.passwordResetToken.deleteMany({ where: { userId: { in: ids } } });
@@ -146,11 +149,18 @@ describe('パスワードと二要素認証のトランザクションの開始�
     currentPasswordHash = await new PasswordServiceClass(directPrisma).hashPassword(
       CURRENT_PASSWORD
     );
-    const user = await directPrisma.user.create({
-      data: { email, displayName: MARK, passwordHash: currentPasswordHash },
-    });
+    const user = await createTestUser(
+      directPrisma,
+      { email, displayName: MARK, passwordHash: currentPasswordHash },
+      { twoFactor: false }
+    );
     userId = user.id;
-    accessToken = await tokenService.generateAccessToken({ userId, email, roles: [] });
+    accessToken = await tokenService.generateAccessToken({
+      userId,
+      email,
+      roles: [],
+      accessTokenGeneration: 0,
+    });
   }, BEFORE_ALL_TIMEOUT_MS);
 
   beforeEach(async () => {
@@ -188,6 +198,10 @@ describe('パスワードと二要素認証のトランザクションの開始�
    * @requirement user-authentication/REQ-24.1
    */
   it('パスワードの変更（POST /api/v1/auth/password/change）は 503 と Problem Details を返し、パスワードを変えない', async () => {
+    // 2FA 未登録の利用者のパスワード変更は状態の照合で 403 になる（要件34.2、タスク47.6）。
+    // 本検証はトランザクションの開始の 503 を確かめるため、2FA 登録済みの状態で送る
+    // （本ファイルは Redis を初期化しないため、状態は要求ごとに DB から読まれる）
+    await directPrisma.user.update({ where: { id: userId }, data: { twoFactorEnabled: true } });
     cutAfter(PasswordServiceClass.prototype, 'hashPassword');
 
     const response = await request(app)
@@ -215,10 +229,11 @@ describe('パスワードと二要素認証のトランザクションの開始�
    * @requirement user-authentication/REQ-24.1
    */
   it('パスワードのリセットの確定（POST /api/v1/auth/password/reset）は 503 と Problem Details を返し、トークンを使用済みにしない', async () => {
-    const token = `${MARK}-reset-token`;
     await directPrisma.passwordResetToken.deleteMany({ where: { userId } });
-    const resetToken = await directPrisma.passwordResetToken.create({
-      data: { userId, token, expiresAt: new Date(Date.now() + 60 * 60 * 1000) },
+    const { rawToken: token, resetToken } = await createStoredPasswordResetToken(directPrisma, {
+      userId,
+      rawToken: `${MARK}-reset-token`,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     });
     cutAfter(PasswordServiceClass.prototype, 'hashPassword');
 

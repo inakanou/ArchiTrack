@@ -14,6 +14,9 @@
  * - REQ-14.7: 見積書が存在しない場合のメッセージ表示
  * - REQ-15.1-15.3: パンくずナビゲーション
  *
+ * Task 64.1 変更: 見積書の一覧の取得が 404 を受けたときに、プロジェクトが見つからない旨とプロジェクトの
+ *   一覧へのリンクを表示し、取得の失敗の文言と再試行の釦を出さない（estimate-creation の Requirement 58.1）
+ *
  * @module pages/EstimateListPage
  */
 
@@ -21,7 +24,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getEstimates } from '../api/estimates';
 import type { EstimatesResponse } from '../api/estimates';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import { isNotFoundError } from '../utils/estimateNotFound';
 import PaginationUI from '../components/projects/PaginationUI';
 import { EstimateCard } from '../components/estimate';
 
@@ -250,6 +254,8 @@ export default function EstimateListPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 見積書の一覧の取得が 404 を受けた（プロジェクトの範囲外と不在を区別しない。Task 64.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   /**
    * 見積書一覧を取得
@@ -260,11 +266,17 @@ export default function EstimateListPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsProjectNotFound(false);
 
     try {
       const result = await getEstimates(projectId, { page, limit });
       setData(result);
-    } catch {
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsProjectNotFound(true);
+        return;
+      }
       setError('見積書の取得に失敗しました');
     } finally {
       setIsLoading(false);
@@ -309,6 +321,19 @@ export default function EstimateListPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 64.1）
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

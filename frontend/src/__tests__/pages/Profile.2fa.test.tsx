@@ -3,7 +3,7 @@
  *
  * 要件27B: 二要素認証（2FA）管理機能
  * - バックアップコードの表示と再生成
- * - 2FA無効化
+ * - 2FA の自己の無効化の操作を置かないこと（要件34.6）
  * - パスワード複雑性バリデーション
  */
 
@@ -312,47 +312,24 @@ describe('Profile - 2FA機能', () => {
     });
   });
 
-  describe('2FA無効化 (要件27B.4-6)', () => {
-    it('2FA無効化ボタンをクリックするとダイアログを表示する', async () => {
-      const user = userEvent.setup();
+  describe('2FA の自己の無効化の操作を置かない (要件34.6)', () => {
+    /**
+     * @requirement user-authentication/REQ-34.6
+     */
+    it('2FA 登録済みの利用者に無効化の操作を表示せず、認証アプリの変更（再登録）への導線を表示する', () => {
       render(<Profile />);
 
-      // 2FA無効化ボタンをクリック
-      const disableButton = screen.getByRole('button', { name: '無効化' });
-      await user.click(disableButton);
+      // 2FA の管理の区画そのものは表示されている（区画の不在による偽の合格を避ける）
+      expect(screen.getByRole('heading', { name: '二要素認証', level: 2 })).toBeInTheDocument();
+      expect(screen.getByText('2FAが有効です')).toBeInTheDocument();
 
-      // パスワード入力ダイアログが表示される
-      await waitFor(() => {
-        expect(screen.getByText(/パスワードを入力/i)).toBeInTheDocument();
-      });
-    });
+      // 無効化の操作（ボタン・見出し）が無い
+      expect(screen.queryByRole('button', { name: /無効化/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /無効化/ })).not.toBeInTheDocument();
 
-    it('2FA無効化ダイアログでパスワード入力後に確認ダイアログを表示する', async () => {
-      const user = userEvent.setup();
-
-      render(<Profile />);
-
-      // 2FA無効化ボタンをクリック
-      const disableButton = screen.getByRole('button', { name: '無効化' });
-      await user.click(disableButton);
-
-      // パスワードダイアログが表示される
-      await waitFor(() => {
-        expect(screen.getByText(/パスワードを入力/i)).toBeInTheDocument();
-      });
-
-      // パスワード入力
-      const passwordInput = screen.getByLabelText('パスワード');
-      await user.type(passwordInput, 'CurrentPassword123!');
-
-      // 確認ボタンをクリック
-      const confirmButton = screen.getByRole('button', { name: '確認' });
-      await user.click(confirmButton);
-
-      // 確認ダイアログが表示される
-      await waitFor(() => {
-        expect(screen.getByText(/続行しますか/i)).toBeInTheDocument();
-      });
+      // 再登録の手順（2FA 設定画面）への導線
+      const reenrollLink = screen.getByRole('link', { name: '認証アプリを変更する' });
+      expect(reenrollLink).toHaveAttribute('href', '/profile/2fa-setup');
     });
   });
 
@@ -469,75 +446,6 @@ describe('Profile - 2FA機能', () => {
     });
   });
 
-  describe('2FA無効化ダイアログ操作', () => {
-    beforeEach(() => {
-      mockUseAuth.mockReturnValue({
-        user: twoFactorEnabledUser,
-        logout: mockLogout,
-      });
-    });
-
-    it('2FA無効化パスワードダイアログのキャンセルボタンで閉じる', async () => {
-      const user = userEvent.setup();
-      render(<Profile />);
-
-      // 2FA無効化ボタンをクリック
-      const disableButton = screen.getByRole('button', { name: '無効化' });
-      await user.click(disableButton);
-
-      // パスワードダイアログが表示される
-      await waitFor(() => {
-        expect(screen.getByText(/パスワードを入力/i)).toBeInTheDocument();
-      });
-
-      // キャンセルボタンをクリック
-      const cancelButton = screen.getByRole('button', { name: /キャンセル/i });
-      await user.click(cancelButton);
-
-      // ダイアログが閉じる
-      await waitFor(() => {
-        expect(screen.queryByText(/パスワードを入力/i)).not.toBeInTheDocument();
-      });
-    });
-
-    it('2FA無効化確認ダイアログを表示してキャンセルする', async () => {
-      const user = userEvent.setup();
-      render(<Profile />);
-
-      // 2FA無効化ボタンをクリック
-      const disableButton = screen.getByRole('button', { name: '無効化' });
-      await user.click(disableButton);
-
-      // パスワードダイアログが表示される
-      await waitFor(() => {
-        expect(screen.getByText(/パスワードを入力/i)).toBeInTheDocument();
-      });
-
-      // パスワード入力
-      const passwordInput = screen.getByLabelText('パスワード');
-      await user.type(passwordInput, 'CurrentPassword123!');
-
-      // 確認ボタンをクリック
-      const confirmButton = screen.getByRole('button', { name: '確認' });
-      await user.click(confirmButton);
-
-      // 確認ダイアログが表示される
-      await waitFor(() => {
-        expect(screen.getByText(/二要素認証の無効化確認/i)).toBeInTheDocument();
-        expect(screen.getByText(/全デバイスからログアウトされます/i)).toBeInTheDocument();
-      });
-
-      // キャンセルボタンをクリック
-      const cancelConfirmButton = screen.getAllByRole('button', { name: /キャンセル/i })[0];
-      await user.click(cancelConfirmButton!);
-
-      // 確認ダイアログが閉じる
-      await waitFor(() => {
-        expect(screen.queryByText(/二要素認証の無効化確認/i)).not.toBeInTheDocument();
-      });
-    });
-  });
-
   describe('バックアップコード残数警告', () => {
     it('バックアップコード残数が少ない場合に警告を表示する', async () => {
       const user = userEvent.setup();
@@ -589,133 +497,6 @@ describe('Profile - 2FA機能', () => {
 
       // リンクがクリックされてもページ遷移しない（preventDefault）
       expect(regenerateLink).toBeInTheDocument();
-    });
-  });
-
-  describe('2FA無効化エラーハンドリング', () => {
-    it('2FA無効化API失敗時にresponse.detailからエラーメッセージを表示する', async () => {
-      const user = userEvent.setup();
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      render(<Profile />);
-
-      // 2FA無効化ボタンをクリック
-      const disableButton = screen.getByRole('button', { name: '無効化' });
-      await user.click(disableButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/パスワードを入力/i)).toBeInTheDocument();
-      });
-
-      // パスワード入力
-      const passwordInput = screen.getByLabelText('パスワード');
-      await user.type(passwordInput, 'WrongPassword123!');
-
-      // 確認ボタンをクリック
-      const confirmButton = screen.getByRole('button', { name: '確認' });
-      await user.click(confirmButton);
-
-      // 確認ダイアログが表示される
-      await waitFor(() => {
-        expect(screen.getByText(/二要素認証の無効化確認/i)).toBeInTheDocument();
-      });
-
-      // APIエラーをモック（response.detailあり）
-      mockApiPost.mockRejectedValueOnce({
-        response: {
-          detail: 'パスワードが間違っています',
-        },
-      });
-
-      // 無効化ボタンをクリック
-      const disableConfirmButtons = screen.getAllByRole('button', { name: /無効化/i });
-      const disableConfirmButton = disableConfirmButtons[disableConfirmButtons.length - 1]!;
-      await user.click(disableConfirmButton);
-
-      // エラーログが呼ばれた
-      await waitFor(() => {
-        expect(consoleSpy).toHaveBeenCalledWith('2FA disable error:', expect.any(Object));
-      });
-
-      consoleSpy.mockRestore();
-    });
-
-    it('2FA無効化API失敗時にresponse.errorからエラーメッセージを表示する', async () => {
-      const user = userEvent.setup();
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      render(<Profile />);
-
-      const disableButton = screen.getByRole('button', { name: '無効化' });
-      await user.click(disableButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/パスワードを入力/i)).toBeInTheDocument();
-      });
-
-      const passwordInput = screen.getByLabelText('パスワード');
-      await user.type(passwordInput, 'Password123!');
-
-      const confirmButton = screen.getByRole('button', { name: '確認' });
-      await user.click(confirmButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/二要素認証の無効化確認/i)).toBeInTheDocument();
-      });
-
-      // APIエラーをモック（response.errorあり）
-      mockApiPost.mockRejectedValueOnce({
-        response: {
-          error: 'セッションが無効です',
-        },
-      });
-
-      const disableConfirmButtons = screen.getAllByRole('button', { name: /無効化/i });
-      const disableConfirmButton = disableConfirmButtons[disableConfirmButtons.length - 1]!;
-      await user.click(disableConfirmButton);
-
-      await waitFor(() => {
-        expect(consoleSpy).toHaveBeenCalled();
-      });
-
-      consoleSpy.mockRestore();
-    });
-
-    it('2FA無効化API失敗時に汎用エラーメッセージを表示する', async () => {
-      const user = userEvent.setup();
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      render(<Profile />);
-
-      const disableButton = screen.getByRole('button', { name: '無効化' });
-      await user.click(disableButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/パスワードを入力/i)).toBeInTheDocument();
-      });
-
-      const passwordInput = screen.getByLabelText('パスワード');
-      await user.type(passwordInput, 'Password123!');
-
-      const confirmButton = screen.getByRole('button', { name: '確認' });
-      await user.click(confirmButton);
-
-      await waitFor(() => {
-        expect(screen.getByText(/二要素認証の無効化確認/i)).toBeInTheDocument();
-      });
-
-      // APIエラーをモック（responseなし）
-      mockApiPost.mockRejectedValueOnce(new Error('Network error'));
-
-      const disableConfirmButtons = screen.getAllByRole('button', { name: /無効化/i });
-      const disableConfirmButton = disableConfirmButtons[disableConfirmButtons.length - 1]!;
-      await user.click(disableConfirmButton);
-
-      await waitFor(() => {
-        expect(consoleSpy).toHaveBeenCalled();
-      });
-
-      consoleSpy.mockRestore();
     });
   });
 

@@ -33,6 +33,8 @@
  * Task 52.5: 楽観ロックと並び順の再採番および最新状態の返却
  * Task 52.6: 明細更新の一括化とN+1クエリの解消
  * Task 57.6: 一括保存の上限件数とトランザクション制限時間の確定（実測に基づく）
+ * Task 66.1: 本文の属さない既存の見積項目の ID の実際の案件が範囲外なら記録する（Requirement 57.11、
+ *   user-authentication の要件39.7・39.8）。応答は従来の 422 のまま
  *
  * 一括化の方針（design.md「estimate-draft.service」Responsibilities & Constraints
  * 「更新は `updateMany` または VALUES 一括UPDATEで行い、明細件数に比例した個別UPDATEを
@@ -67,6 +69,13 @@ import {
   type SaveEstimateLineInput,
   type SaveEstimateReportFieldsInput,
 } from '../schemas/estimate.schema.js';
+import type { IAuditLogService } from '../types/audit-log.types.js';
+import { AuditLogService } from './audit-log.service.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 
 /**
  * Prismaトランザクションクライアント型
@@ -81,6 +90,17 @@ type PrismaTransactionClient = Omit<
  */
 export interface EstimateDraftServiceDependencies {
   prisma: PrismaClient;
+  /**
+   * 範囲外の拒否（PROJECT_SCOPE_DENIED）の記録に用いる監査ログ（任意。タスク66.1、Requirement 57.11）。
+   * 未指定の場合は `prisma` で組み立てる。
+   */
+  auditLogService?: Pick<IAuditLogService, 'createLog'>;
+  /**
+   * 案件の閲覧範囲の判定（任意。タスク66.1、Requirement 57.11）。
+   * 一括保存の本文の属さない見積項目の ID の実際の案件が範囲外かを判定し、範囲外の拒否を記録するために用いる。
+   * 未指定の場合は user-authentication の共有のインスタンス（{@link getSharedProjectScopeService}）で判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 }
 
 /**
@@ -318,14 +338,27 @@ interface TraversalFrame {
   readonly parentTempId: string | null;
 }
 
+/** 平坦化した本文の見積項目の ID（新規の項目は null） */
+function payloadItemIdsOf(frames: readonly TraversalFrame[]): (string | null)[] {
+  return frames.map((frame) => frame.node.id);
+}
+
 /**
  * 見積明細一括保存サービス
  */
 export class EstimateDraftService {
   private readonly prisma: PrismaClient;
+  private readonly auditLogService: Pick<IAuditLogService, 'createLog'>;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: EstimateDraftServiceDependencies) {
     this.prisma = deps.prisma;
+    this.auditLogService = deps.auditLogService ?? new AuditLogService({ prisma: deps.prisma });
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
   }
 
   /**
@@ -337,24 +370,132 @@ export class EstimateDraftService {
    * 3. トランザクション内で「帳票用入力項目の更新 → 切り離し → 削除 → 追加/更新」を実行
    * 4. 保存後の最新状態を同一トランザクション内で読み直して返す（42.2, 42.7）
    *
+   * 本文の属さない既存の見積項目の ID の実際の案件が実行者の閲覧範囲外なら、処理の後（例外の後を含む。
+   * トランザクションの外）で案件ごとに 1 回 PROJECT_SCOPE_DENIED として記録する（Requirement 57.11、
+   * user-authentication の要件39.7・39.8）。応答は記録の有無に関わらず従来どおり。
+   *
    * @param estimateId - 見積書ID
    * @param input - 一括保存入力（{@link SaveEstimateDraftInput} で検証済みの形）
+   * @param actorId - 実行者ID（属さない ID の案件の閲覧範囲の判定と記録に用いる）
+   * @param scopeDenialContext - 範囲外の拒否の記録に載せる要求の識別（経路が `projectScopeDenialContextOf(req)` で渡す）
    * @returns 適用した差分と保存後の最新状態
    * @throws EstimateNotFoundError 見積書が存在しない、または論理削除済みの場合（404）
-   * @throws EstimateDraftValidationError 検証NGの場合（422・書き込みゼロ）
+   * @throws EstimateDraftValidationError 検証NGの場合（422・書き込みゼロ）。本文に属さない見積項目の ID が
+   *   混じる場合は、他の見積書のもの（範囲外の案件のものを含む）か存在しないものかを区別せず同じ 422 とし、
+   *   範囲外の案件のものなら記録する（Requirement 57.5・57.11）
    * @throws EstimateConflictError 楽観ロック競合の場合（409・データ変更なし）
    * @throws EstimateSaveTimeoutError トランザクションが制限時間を超えた場合
    *   （500・全ロールバックにより保存前の状態が保たれる、42.3）
    */
   async saveDraft(
     estimateId: string,
-    input: SaveEstimateDraftInput
+    input: SaveEstimateDraftInput,
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<SaveEstimateDraftResult> {
+    // 本文の属さない見積項目の ID の判定（Requirement 57.11）で範囲外とした案件は、処理の後
+    // （トランザクションの外）で案件ごとに 1 回 PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7）
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) => this.saveDraftWithin(estimateId, input, actorId, deniedProjectIds)
+    );
+  }
+
+  /**
+   * 明細のツリーの構造の不備の 422 で終わる要求の、本文の属さない見積項目の ID の範囲外の記録
+   * （Requirement 57.11 の括弧書き、タスク66.1）
+   *
+   * 構造の検証（`saveEstimateDraftSchema` の superRefine）は経路にあり、その 422 はサービスの
+   * {@link saveDraft} に届かない。構造の不備を一つ混ぜるだけで記録を避けられないよう、経路は本文の形
+   * （`saveEstimateDraftShapeSchema`）が正しい限りこの処理を呼んでから従来の 422 を返す。
+   *
+   * - 判定は {@link saveDraft} と同じ（{@link noteForeignItemProjects}）。範囲外の案件は処理の後に案件ごとに 1 回記録する
+   * - 見積書が不在・論理削除済みなら何もしない（応答は呼び出し元の従来のまま）
+   * - 例外は投げない（判定の DB の失敗を除く。それは従来どおりエラーハンドラーへ渡る）。書き込みはしない
+   *
+   * @param estimateId - 見積書ID
+   * @param items - 本文の明細ツリー（形だけ検証済み）
+   * @param actorId - 実行者ID
+   * @param scopeDenialContext - 範囲外の拒否の記録に載せる要求の識別
+   */
+  async recordForeignItemScopeDenials(
+    estimateId: string,
+    items: readonly SaveEstimateItemNodeInput[],
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<void> {
+    await this.recordForeignItemIdScopeDenials(
+      estimateId,
+      payloadItemIdsOf(this.flattenPayload(items)).filter((id): id is string => id !== null),
+      actorId,
+      scopeDenialContext
+    );
+  }
+
+  /**
+   * 本文の総数・深さの上限で打ち切った要求の、読んだ見積項目の ID の範囲外の記録
+   * （Requirement 57.11 と 42.10・42.12、タスク67.1）
+   *
+   * 経路は Zod の検証の前に生の本文を数え（`scanSaveEstimateItemTree`）、上限を超えたら打ち切って 422 を返す。
+   * 件数や深さを上限より大きくするだけで記録を避けられないよう、経路は打ち切るまでに読んだ節点の UUID の形の
+   * ID を渡してこの処理を呼ぶ。打ち切った後ろの節点の ID は渡らない。
+   *
+   * - 判定は {@link recordForeignItemScopeDenials} と同じ（{@link noteForeignItemProjects}）
+   * - 見積書が不在・論理削除済みなら何もしない
+   * - 例外は投げない（判定の DB の失敗を除く）。書き込みはしない
+   *
+   * @param estimateId - 見積書ID
+   * @param itemIds - 本文の見積項目の ID（重複を含みうる）
+   * @param actorId - 実行者ID
+   * @param scopeDenialContext - 範囲外の拒否の記録に載せる要求の識別
+   */
+  async recordForeignItemIdScopeDenials(
+    estimateId: string,
+    itemIds: readonly string[],
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<void> {
+    await withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      async (deniedProjectIds) => {
+        const estimate = await this.prisma.estimate.findUnique({
+          where: { id: estimateId },
+          select: { projectId: true, deletedAt: true },
+        });
+        if (!estimate || estimate.deletedAt !== null) {
+          return;
+        }
+        const existingItems: ExistingItemRow[] = await this.prisma.estimateItem.findMany({
+          where: { estimateId },
+          select: { id: true, parentId: true },
+        });
+        await this.noteForeignItemProjects(
+          itemIds,
+          existingItems,
+          estimate.projectId,
+          actorId,
+          deniedProjectIds
+        );
+      }
+    );
+  }
+
+  /** {@link saveDraft} の本体。属さない見積項目の ID の案件を範囲外と判定したら `deniedProjectIds` へ入れる */
+  private async saveDraftWithin(
+    estimateId: string,
+    input: SaveEstimateDraftInput,
+    actorId: string,
+    deniedProjectIds: Set<string>
   ): Promise<SaveEstimateDraftResult> {
     // ===== 1. トランザクション開始前の全件検証（42.4） =====
     // ここでの問い合わせは読み取りのみ。検証NGなら書き込みは一切発生しない。
     const estimate = await this.prisma.estimate.findUnique({
       where: { id: estimateId },
-      select: { id: true, deletedAt: true, updatedAt: true },
+      select: { id: true, projectId: true, deletedAt: true, updatedAt: true },
     });
 
     if (!estimate || estimate.deletedAt !== null) {
@@ -367,6 +508,16 @@ export class EstimateDraftService {
     });
 
     const frames = this.flattenPayload(input.items);
+    // 本文の属さない既存の見積項目の ID の実際の案件の範囲の判定（Requirement 57.11、タスク66.1）。
+    // 範囲外なら処理の後に記録する（応答は下の所属の照合の 422 のまま）。所属の照合と楽観ロックの照合
+    // より前に置き、版を合わせなくても判定に届くようにする
+    await this.noteForeignItemProjects(
+      payloadItemIdsOf(frames),
+      existingItems,
+      estimate.projectId,
+      actorId,
+      deniedProjectIds
+    );
     this.validatePayloadItemOwnership(frames, existingItems);
 
     // ===== 2. 楽観ロックの照合（42.5） =====
@@ -594,10 +745,71 @@ export class EstimateDraftService {
   }
 
   /**
+   * 本文の属さない既存の見積項目の ID の実際の案件の範囲の判定（Requirement 57.11、タスク66.1）
+   *
+   * 本文の既存の見積項目の ID のうち、対象の見積書に属さないもの（属さない ID）の行を引き、その実際の案件
+   * （親の見積書の案件）が対象の見積書の案件と別なら、案件ごとに 1 回だけ閲覧範囲を判定する。範囲外（案件は
+   * 実在する）と判定した案件は `deniedProjectIds` へ入れ、処理の後に呼び出し元が記録する
+   * （user-authentication の要件39.7・39.8）。
+   *
+   * - 属さない ID が無ければ何も引かない（正常な保存の問い合わせは増えない）
+   * - 引くのは ID 群の一括の読み出し 1 回（属さない ID の見積項目を持つ見積書の案件）に限る
+   * - 行の無い ID は判定しない（不在は記録しない）。見積書の論理削除は条件に含めない
+   *   （行が実在する限りその見積書の案件で判定する。見積項目は論理削除を持たない）
+   * - 同じ案件の別の見積書の ID は判定しない（経路の判定が対象の見積書の案件を範囲内と確かめている）。
+   *   範囲内の他の案件（`allowed`）と案件の不在・論理削除（`not_found`）は記録しない
+   * - 例外は投げない。応答はこの後の所属の照合（{@link validatePayloadItemOwnership}）の従来の 422 のまま
+   *
+   * @param payloadItemIds - 本文の見積項目の ID（新規の項目の null を含みうる）
+   * @param existingItems - 対象の見積書に属する既存の見積項目の全件
+   * @param projectId - 対象の見積書が属するプロジェクトID
+   * @param actorId - 実行者ID
+   * @param deniedProjectIds - 範囲外と判定した案件 ID を入れる集合
+   */
+  private async noteForeignItemProjects(
+    payloadItemIds: readonly (string | null)[],
+    existingItems: readonly ExistingItemRow[],
+    projectId: string,
+    actorId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<void> {
+    const existingIds = new Set(existingItems.map((item) => item.id));
+    const foreignItemIds = [
+      ...new Set(payloadItemIds.filter((id): id is string => id !== null && !existingIds.has(id))),
+    ];
+    if (foreignItemIds.length === 0) {
+      return;
+    }
+
+    // 属さない ID の見積項目を持つ見積書（論理削除済みを含む）の案件を一括で引く
+    const owners = await this.prisma.estimate.findMany({
+      where: { items: { some: { id: { in: foreignItemIds } } } },
+      select: { projectId: true },
+    });
+    const foreignProjectIds = [
+      ...new Set(
+        owners
+          .map((owner) => owner.projectId)
+          .filter((ownerProjectId) => ownerProjectId !== projectId)
+      ),
+    ];
+    for (const foreignProjectId of foreignProjectIds) {
+      const decision = await this.projectScope.evaluateProjectAccess(actorId, foreignProjectId);
+      if (decision === 'out_of_scope') {
+        deniedProjectIds.add(foreignProjectId);
+      }
+    }
+  }
+
+  /**
    * ペイロードの既存IDがすべてこの見積書のものかを検証する（42.4, 42.8）
    *
    * 他の見積書の項目IDや削除済みIDが混ざると、差分適用時に他見積書のデータを
    * 書き換える、あるいは親を解決できない項目を生む。書き込み前に弾く。
+   *
+   * 属さない ID は、他の見積書のものか存在しないものか、範囲の内外を問わず同じ 422 で拒む（応答で区別しない、
+   * Requirement 57.5）。属さない ID の実際の案件が範囲外なら記録するが、その判定は本検証より前の
+   * {@link noteForeignItemProjects} が行う（Requirement 57.11、タスク66.1）。
    */
   private validatePayloadItemOwnership(
     frames: readonly TraversalFrame[],

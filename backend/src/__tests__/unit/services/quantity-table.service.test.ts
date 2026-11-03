@@ -50,11 +50,13 @@ type MockPrismaClient = {
     create: Mock;
     update: Mock;
     deleteMany: Mock;
+    findMany: Mock;
   };
   quantityItem: {
     create: Mock;
     update: Mock;
     deleteMany: Mock;
+    findMany: Mock;
   };
   project: {
     findUnique: Mock;
@@ -71,6 +73,7 @@ describe('QuantityTableService', () => {
   let service: QuantityTableService;
   let mockPrisma: MockPrismaClient;
   let mockAuditLogService: { createLog: Mock };
+  let mockProjectScope: { evaluateProjectAccess: Mock };
 
   beforeEach(() => {
     // Mock Prismaクライアント
@@ -82,15 +85,19 @@ describe('QuantityTableService', () => {
         update: vi.fn(),
         count: vi.fn(),
       },
+      // 保存の本文の属さない既存の ID の実際の案件の読み出し（Requirement 50.11、タスク107.1）。
+      // 既定は「行が無い」（属さない ID は実在しない）とし、範囲の判定を確かめる検証だけが上書きする
       quantityGroup: {
         create: vi.fn(),
         update: vi.fn(),
         deleteMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       quantityItem: {
         create: vi.fn(),
         update: vi.fn(),
         deleteMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       project: {
         findUnique: vi.fn(),
@@ -127,9 +134,14 @@ describe('QuantityTableService', () => {
       createLog: vi.fn().mockResolvedValue(undefined),
     };
 
+    // 案件の閲覧範囲の判定（quantity-table-generation タスク104.1）。既定は範囲内とし、
+    // 範囲外の振る舞いは saveDraft の「写真の紐付けの閲覧範囲（Requirement 50.5）」の検証で確かめる
+    mockProjectScope = { evaluateProjectAccess: vi.fn().mockResolvedValue('allowed') };
+
     service = new QuantityTableService({
       prisma: mockPrisma as unknown as PrismaClient,
       auditLogService: mockAuditLogService as unknown as IAuditLogService,
+      projectScope: mockProjectScope,
     });
   });
 
@@ -2435,6 +2447,42 @@ describe('QuantityTableService', () => {
       });
     });
 
+    /**
+     * トランザクションの制限時間（quantity-table-generation タスク108.1、Requirement 42.11）
+     *
+     * 期待値をリテラルで書くのは意図的（定数をそのまま突き合わせると、定数を書き換えても
+     * 緑のままになり、実測で決めた値を固定できない）。値を変えるときは同じ規模で測り直すこと。
+     */
+    describe('トランザクションの制限時間（タスク108.1）', () => {
+      const EXPECTED_TIMEOUT_MS = 15000;
+      const EXPECTED_MAX_WAIT_MS = 2000;
+
+      it('$transaction に実測で決めた timeout と maxWait を明示して渡す', async () => {
+        setupFindUnique(currentState(), reloadedDetail());
+
+        await service.saveDraft(
+          quantityTableId,
+          { expectedUpdatedAt: expectedUpdatedAtIso, name: '数量表', groups: [] } as never,
+          actorId
+        );
+
+        expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.$transaction.mock.calls[0]![1]).toEqual({
+          timeout: EXPECTED_TIMEOUT_MS,
+          maxWait: EXPECTED_MAX_WAIT_MS,
+        });
+      });
+
+      it('公開定数は実測で決めた値そのものである', async () => {
+        const { QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS } =
+          await import('../../../services/quantity-table.service.js');
+        expect(QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS).toEqual({
+          timeout: EXPECTED_TIMEOUT_MS,
+          maxWait: EXPECTED_MAX_WAIT_MS,
+        });
+      });
+    });
+
     it('数量表名・グループ名・写真紐づけ・新規グループ/項目をフル状態で保存できる（REQ-42.5, 11.1）', async () => {
       // Arrange: DBは空の数量表。payloadで1グループ+1項目を新規作成
       setupFindUnique(
@@ -3575,6 +3623,78 @@ describe('QuantityTableService', () => {
       expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
     });
 
+    it('閲覧範囲外の案件の現調画像は存在しない画像と同じ 404 で拒み、所属違反の名指しにも現れない（Requirement 50.5）', async () => {
+      const inScopeForeignImageId = '123e4567-e89b-12d3-a456-426614174025';
+      const outOfScopeImageId = '123e4567-e89b-12d3-a456-426614174026';
+      const imageRows = [
+        {
+          id: inScopeForeignImageId,
+          surveyId: 'survey-in-scope',
+          survey: { projectId: 'in-scope-project-id', deletedAt: null },
+        },
+        {
+          id: outOfScopeImageId,
+          surveyId: 'survey-out-of-scope',
+          survey: { projectId: 'out-of-scope-project-id', deletedAt: null },
+        },
+      ];
+      mockProjectScope.evaluateProjectAccess.mockImplementation(
+        async (_userId: string, surveyProjectId: string) =>
+          surveyProjectId === 'out-of-scope-project-id' ? 'out_of_scope' : 'allowed'
+      );
+      const run = async (groups: Array<string | null>): Promise<unknown> => {
+        // 前の実行で使われずに残った応答の予約を捨ててから積み直す
+        mockPrisma.quantityTable.findUnique.mockReset();
+        setupFindUnique(currentState(), reloadedDetail());
+        mockPrisma.surveyImage.findMany.mockResolvedValue(imageRows);
+        return service
+          .saveDraft(
+            quantityTableId,
+            {
+              expectedUpdatedAt: expectedUpdatedAtIso,
+              name: '数量表',
+              groups: groups.map((surveyImageId, index) => ({
+                id: null,
+                name: `g${index}`,
+                surveyImageId,
+                displayOrder: index,
+                items: [],
+              })),
+            },
+            actorId
+          )
+          .then(() => null)
+          .catch((error: unknown) => error);
+      };
+
+      // 範囲外の画像だけを指すと、存在しない画像と同じ例外（404）になる
+      const onlyOutOfScope = await run([outOfScopeImageId]);
+      expect(onlyOutOfScope).toBeInstanceOf(SurveyImageNotFoundError);
+      expect((onlyOutOfScope as SurveyImageNotFoundError).surveyImageId).toBe(outOfScopeImageId);
+
+      // 範囲内の別のプロジェクトの画像の後に範囲外の画像が続くと、所属違反（400）は範囲内の画像のグループだけを名指す
+      const mixed = await run([inScopeForeignImageId, outOfScopeImageId]);
+      expect(mixed).toBeInstanceOf(QuantityTableValidationError);
+      expect((mixed as QuantityTableValidationError).validationErrors).toEqual({
+        'groups[0].surveyImageId': '異なるプロジェクトの現場調査画像は紐付けできません',
+      });
+      // 案件ごとに範囲を判定する（数量表と同じ案件は判定しない）
+      expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+        actorId,
+        'out-of-scope-project-id'
+      );
+      expect(mockProjectScope.evaluateProjectAccess).not.toHaveBeenCalledWith(actorId, projectId);
+      // 範囲外の案件だけを、実行ごとにトランザクションの外で記録する（user-authentication の要件39.7）
+      const denials = mockAuditLogService.createLog.mock.calls
+        .map(([entry]) => entry as { action: string; targetId: string })
+        .filter((entry) => entry.action === 'PROJECT_SCOPE_DENIED');
+      expect(denials.map((entry) => entry.targetId)).toEqual([
+        'out-of-scope-project-id',
+        'out-of-scope-project-id',
+      ]);
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+    });
+
     it('所属違反と親の論理削除の双方に該当する現調画像は所属違反として拒む（Task 86.1）', async () => {
       const surveyImageId = '123e4567-e89b-12d3-a456-426614174015';
 
@@ -3630,6 +3750,332 @@ describe('QuantityTableService', () => {
       expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
       // 数量表の読み出しも従来どおり2回（現状取得・再読込）のままである
       expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(2);
+    });
+
+    /**
+     * 保存の本文の属さない既存の ID の範囲の判定（Requirement 50.11、タスク107.1）。
+     *
+     * 本文に混じった保存する数量表に属さない既存のグループ・項目の ID は、従来どおり所属の照合の
+     * 400 で拒む（応答は変えない）。その ID の行が実在し、実際の案件（グループは親の数量表、項目は
+     * 親の数量グループの数量表の案件）が保存する数量表と別で閲覧範囲外なら、処理の後に案件ごとに
+     * 1 回 PROJECT_SCOPE_DENIED を記録する（user-authentication の要件39.7・39.8）。
+     */
+    describe('保存の本文の属さない ID の範囲の判定（Requirement 50.11）', () => {
+      const outOfScopeProjectId = 'out-of-scope-project-id';
+      const inScopeOtherProjectId = 'in-scope-other-project-id';
+      const missingProjectId = 'missing-project-id';
+
+      /** 属さないグループ ID の行（親の数量表の案件を持つ） */
+      const groupRow = (id: string, rowProjectId: string, deletedAt: Date | null = null) => ({
+        id,
+        quantityTable: { projectId: rowProjectId, deletedAt },
+      });
+      /** 属さない項目 ID の行（親の数量グループの数量表の案件を持つ） */
+      const itemRow = (id: string, rowProjectId: string) => ({
+        id,
+        quantityGroup: { quantityTable: { projectId: rowProjectId, deletedAt: null } },
+      });
+
+      const denialTargets = (): string[] =>
+        mockAuditLogService.createLog.mock.calls
+          .map(([entry]) => entry as { action: string; targetId: string })
+          .filter((entry) => entry.action === 'PROJECT_SCOPE_DENIED')
+          .map((entry) => entry.targetId);
+
+      const expectNoWrites = (): void => {
+        expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+        expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+        expect(mockPrisma.quantityGroup.deleteMany).not.toHaveBeenCalled();
+        expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+        expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+        expect(mockPrisma.quantityItem.deleteMany).not.toHaveBeenCalled();
+        expect(mockPrisma.quantityTable.update).not.toHaveBeenCalled();
+      };
+
+      const saveCatching = (groups: unknown[]): Promise<unknown> =>
+        service
+          .saveDraft(
+            quantityTableId,
+            { expectedUpdatedAt: expectedUpdatedAtIso, name: '数量表', groups } as never,
+            actorId
+          )
+          .then(() => null)
+          .catch((error: unknown) => error);
+
+      beforeEach(() => {
+        mockProjectScope.evaluateProjectAccess.mockImplementation(
+          async (_userId: string, judgedProjectId: string) => {
+            if (judgedProjectId === outOfScopeProjectId) return 'out_of_scope';
+            if (judgedProjectId === missingProjectId) return 'not_found';
+            return 'allowed';
+          }
+        );
+      });
+
+      it('属さないグループ ID の実際の案件が範囲外なら従来の 400 のまま、判定 1 回・記録 1 回（対象はその案件）', async () => {
+        mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+          currentState({ groups: [{ id: 'group-1', items: [] }] })
+        );
+        mockPrisma.quantityGroup.findMany.mockResolvedValue([
+          groupRow('group-of-other-table', outOfScopeProjectId),
+        ]);
+
+        const caught = await saveCatching([
+          {
+            id: 'group-of-other-table',
+            name: '乗っ取りグループ',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [],
+          },
+        ]);
+
+        expect(caught).toBeInstanceOf(QuantityTableValidationError);
+        expect((caught as QuantityTableValidationError).message).toBe(
+          'この数量表に属さないグループまたは項目が含まれています。最新データを再取得してください。'
+        );
+        expect((caught as QuantityTableValidationError).validationErrors).toEqual({
+          'groups[0].id': 'この数量表に属さない数量グループが指定されています',
+        });
+        // 属さない ID 群を 1 回の一括の読み出しで引き、数量表の論理削除を条件に含めない
+        expect(mockPrisma.quantityGroup.findMany).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.quantityGroup.findMany.mock.calls[0]?.[0]?.where).toEqual({
+          id: { in: ['group-of-other-table'] },
+        });
+        expect(mockPrisma.quantityItem.findMany).not.toHaveBeenCalled();
+        expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+        expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+          actorId,
+          outOfScopeProjectId
+        );
+        expect(denialTargets()).toEqual([outOfScopeProjectId]);
+        expectNoWrites();
+      });
+
+      it('属さない項目 ID の実際の案件（親の数量グループの数量表の案件）が範囲外なら記録する', async () => {
+        mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+          currentState({ groups: [{ id: 'group-1', items: [{ id: 'item-1' }] }] })
+        );
+        mockPrisma.quantityItem.findMany.mockResolvedValue([
+          itemRow('item-of-other-table', outOfScopeProjectId),
+        ]);
+
+        const caught = await saveCatching([
+          {
+            id: 'group-1',
+            name: 'グループ1',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [
+              validItem({ id: 'item-1', displayOrder: 0 }),
+              validItem({ id: 'item-of-other-table', displayOrder: 1 }),
+            ],
+          },
+        ]);
+
+        expect(caught).toBeInstanceOf(QuantityTableValidationError);
+        expect((caught as QuantityTableValidationError).validationErrors).toEqual({
+          'groups[0].items[1].id': 'この数量表に属さない数量項目が指定されています',
+        });
+        expect(mockPrisma.quantityItem.findMany).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.quantityItem.findMany.mock.calls[0]?.[0]?.where).toEqual({
+          id: { in: ['item-of-other-table'] },
+        });
+        // 属さないグループ ID が無いのでグループは引かない
+        expect(mockPrisma.quantityGroup.findMany).not.toHaveBeenCalled();
+        expect(denialTargets()).toEqual([outOfScopeProjectId]);
+        expectNoWrites();
+      });
+
+      it('同じ範囲外の案件の ID が複数あっても判定 1 回・記録 1 回', async () => {
+        mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+          currentState({ groups: [{ id: 'group-1', items: [] }] })
+        );
+        mockPrisma.quantityGroup.findMany.mockResolvedValue([
+          groupRow('foreign-group-a', outOfScopeProjectId),
+          groupRow('foreign-group-b', outOfScopeProjectId),
+        ]);
+        mockPrisma.quantityItem.findMany.mockResolvedValue([
+          itemRow('foreign-item-a', outOfScopeProjectId),
+        ]);
+
+        const caught = await saveCatching([
+          {
+            id: 'foreign-group-a',
+            name: 'a',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [validItem({ id: 'foreign-item-a', displayOrder: 0 })],
+          },
+          { id: 'foreign-group-b', name: 'b', surveyImageId: null, displayOrder: 1, items: [] },
+        ]);
+
+        expect(caught).toBeInstanceOf(QuantityTableValidationError);
+        expect(
+          Object.keys((caught as QuantityTableValidationError).validationErrors ?? {})
+        ).toEqual(['groups[0].id', 'groups[0].items[0].id', 'groups[1].id']);
+        expect(mockPrisma.quantityGroup.findMany).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.quantityItem.findMany).toHaveBeenCalledTimes(1);
+        expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledTimes(1);
+        expect(denialTargets()).toEqual([outOfScopeProjectId]);
+        expectNoWrites();
+      });
+
+      it('範囲内の他の案件・案件の不在は判定するが記録しない', async () => {
+        mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(currentState());
+        mockPrisma.quantityGroup.findMany.mockResolvedValue([
+          groupRow('group-in-scope-other', inScopeOtherProjectId),
+          groupRow('group-of-missing-project', missingProjectId),
+        ]);
+
+        const caught = await saveCatching([
+          {
+            id: 'group-in-scope-other',
+            name: 'a',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [],
+          },
+          {
+            id: 'group-of-missing-project',
+            name: 'b',
+            surveyImageId: null,
+            displayOrder: 1,
+            items: [],
+          },
+        ]);
+
+        expect(caught).toBeInstanceOf(QuantityTableValidationError);
+        expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+          actorId,
+          inScopeOtherProjectId
+        );
+        expect(mockProjectScope.evaluateProjectAccess).toHaveBeenCalledWith(
+          actorId,
+          missingProjectId
+        );
+        expect(denialTargets()).toEqual([]);
+        expectNoWrites();
+      });
+
+      it('同じ案件の別の数量表の ID と行の無い ID は判定も記録もしない', async () => {
+        mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(currentState());
+        // 行の無い 'group-nonexistent' は返らない
+        mockPrisma.quantityGroup.findMany.mockResolvedValue([
+          groupRow('group-same-project-other-table', projectId),
+        ]);
+
+        const caught = await saveCatching([
+          {
+            id: 'group-same-project-other-table',
+            name: 'a',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [],
+          },
+          { id: 'group-nonexistent', name: 'b', surveyImageId: null, displayOrder: 1, items: [] },
+        ]);
+
+        expect(caught).toBeInstanceOf(QuantityTableValidationError);
+        expect(mockPrisma.quantityGroup.findMany).toHaveBeenCalledTimes(1);
+        expect(mockProjectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+        expect(denialTargets()).toEqual([]);
+        expectNoWrites();
+      });
+
+      it('親の数量表が論理削除済みでも、その数量表の案件で判定して記録する', async () => {
+        mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(currentState());
+        mockPrisma.quantityGroup.findMany.mockResolvedValue([
+          groupRow(
+            'group-of-deleted-table',
+            outOfScopeProjectId,
+            new Date('2026-10-01T00:00:00.000Z')
+          ),
+        ]);
+
+        const caught = await saveCatching([
+          {
+            id: 'group-of-deleted-table',
+            name: 'a',
+            surveyImageId: null,
+            displayOrder: 0,
+            items: [],
+          },
+        ]);
+
+        expect(caught).toBeInstanceOf(QuantityTableValidationError);
+        expect(denialTargets()).toEqual([outOfScopeProjectId]);
+        expectNoWrites();
+      });
+
+      it('重複の ID を併せて含む本文でも、応答は重複の 400 のまま範囲外の案件を記録する', async () => {
+        mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+          currentState({ groups: [{ id: 'group-1', items: [] }] })
+        );
+        mockPrisma.quantityGroup.findMany.mockResolvedValue([
+          groupRow('group-of-other-table', outOfScopeProjectId),
+        ]);
+
+        const caught = await saveCatching([
+          { id: 'group-1', name: 'a', surveyImageId: null, displayOrder: 0, items: [] },
+          { id: 'group-1', name: 'a2', surveyImageId: null, displayOrder: 1, items: [] },
+          {
+            id: 'group-of-other-table',
+            name: 'b',
+            surveyImageId: null,
+            displayOrder: 2,
+            items: [],
+          },
+        ]);
+
+        expect(caught).toBeInstanceOf(QuantityTableValidationError);
+        expect((caught as QuantityTableValidationError).validationErrors).toEqual({
+          'groups[1].id': '同一の数量グループが複数回指定されています',
+        });
+        expect(denialTargets()).toEqual([outOfScopeProjectId]);
+        expectNoWrites();
+      });
+
+      it('属さない ID の無い保存では属さない ID を引く問い合わせも判定も無い', async () => {
+        setupFindUnique(
+          currentState({ groups: [{ id: 'group-1', items: [{ id: 'item-1' }] }] }),
+          reloadedDetail()
+        );
+        mockPrisma.quantityGroup.update.mockResolvedValue({ id: 'group-1' });
+        mockPrisma.quantityItem.update.mockResolvedValue({ id: 'item-1' });
+        mockPrisma.quantityItem.create.mockResolvedValue({ id: 'item-db-2' });
+        mockPrisma.quantityTable.update.mockResolvedValue({
+          id: quantityTableId,
+          updatedAt: newUpdatedAt,
+        });
+
+        await service.saveDraft(
+          quantityTableId,
+          {
+            expectedUpdatedAt: expectedUpdatedAtIso,
+            name: '数量表',
+            groups: [
+              {
+                id: 'group-1',
+                name: 'グループ1',
+                surveyImageId: null,
+                displayOrder: 0,
+                items: [
+                  validItem({ id: 'item-1', displayOrder: 0 }),
+                  validItem({ id: null, displayOrder: 1 }),
+                ],
+              },
+            ],
+          },
+          actorId
+        );
+
+        expect(mockPrisma.quantityGroup.update).toHaveBeenCalled();
+        expect(mockPrisma.quantityGroup.findMany).not.toHaveBeenCalled();
+        expect(mockPrisma.quantityItem.findMany).not.toHaveBeenCalled();
+        expect(mockProjectScope.evaluateProjectAccess).not.toHaveBeenCalled();
+        expect(denialTargets()).toEqual([]);
+      });
     });
   });
 });

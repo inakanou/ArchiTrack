@@ -201,7 +201,9 @@ export async function cleanSpecificTables(
   for (const table of tables) {
     switch (table) {
       case 'auditLog':
-        await client.auditLog.deleteMany();
+        // 監査ログのトリガー audit_logs_immutable は行単位の DELETE をアーカイブの許可の設定の取引に限る（要件40.8）。
+        // TRUNCATE は行のトリガーを発火しないため、表の全体の掃除は TRUNCATE で行う
+        await client.$executeRawUnsafe('TRUNCATE TABLE "audit_logs"');
         break;
       case 'refreshToken':
         await client.refreshToken.deleteMany();

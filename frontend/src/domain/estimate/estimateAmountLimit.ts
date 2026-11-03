@@ -92,7 +92,7 @@ export interface AmountLimitItemLike {
  * 明細ツリーのうち、金額が上限を超えている金額行の件数を数える
  *
  * 親項目の集計金額も数える（親の金額も保存時に永続化されるため）。注記行は金額を持たない（55.1）。
- * 階層の深さに上限を設けないため、明示スタックで走査する（2.5）。
+ * 明示スタックで走査し、深さに再帰の上限を作らない（2.5。保存は100段を超える深さを拒むが、既存のデータと編集中の状態はそれを超えうる）。
  */
 export function countOverflowingAmountLines(items: readonly AmountLimitItemLike[]): number {
   let count = 0;

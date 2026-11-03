@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
+import { z, ZodError, type ZodSchema } from 'zod';
 import { validate, validateMultiple } from '../../../middleware/validate.middleware.js';
 import { ValidationError } from '../../../errors/apiError.js';
 
@@ -305,6 +305,81 @@ describe('validate middleware', () => {
       const error = (mockNext as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
       expect(error).toBeInstanceOf(Error);
       expect(error.message).toBe('Unexpected error');
+    });
+  });
+
+  describe('validateMultiple() - body を持たない構成と各ソースの例外', () => {
+    it('query と params だけを指定したとき、body を読まずに両方を検証して次に進むこと', async () => {
+      const middleware = validateMultiple({
+        query: z.object({ token: z.string() }),
+        params: z.object({ id: z.string() }),
+      });
+      mockRequest.body = { anything: 1 };
+      mockRequest.query = { token: 'abc' };
+      mockRequest.params = { id: '1' };
+
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalledWith();
+      expect(mockRequest.validatedBody).toBeUndefined();
+      expect(mockRequest.validatedQuery).toEqual({ token: 'abc' });
+      expect(mockRequest.validatedParams).toEqual({ id: '1' });
+    });
+
+    it('params の ZodError を source: params として集めること', async () => {
+      const middleware = validateMultiple({ params: z.object({ id: z.string().uuid() }) });
+      mockRequest.params = { id: 'not-a-uuid' };
+
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      const error = (mockNext as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(error.details).toEqual([expect.objectContaining({ source: 'params' })]);
+    });
+
+    it('query の ZodError 以外の例外は検証の失敗にせずそのまま次へ渡すこと', async () => {
+      const middleware = validateMultiple({
+        query: z.object({}).transform(() => {
+          throw new Error('query failure');
+        }),
+      });
+
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      const error = (mockNext as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(error).not.toBeInstanceOf(ValidationError);
+      expect(error.message).toBe('query failure');
+    });
+
+    it('params の ZodError 以外の例外は検証の失敗にせずそのまま次へ渡すこと', async () => {
+      const middleware = validateMultiple({
+        params: z.object({}).transform(() => {
+          throw new Error('params failure');
+        }),
+      });
+
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      const error = (mockNext as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(error).not.toBeInstanceOf(ValidationError);
+      expect(error.message).toBe('params failure');
+    });
+  });
+
+  describe('validate() - 問題の一覧が空の ZodError', () => {
+    it('問題の一覧が空なら既定の文言 Validation failed を主の文言にすること', async () => {
+      const schema = {
+        parseAsync: async () => {
+          throw new ZodError([]);
+        },
+      } as unknown as ZodSchema;
+
+      await validate(schema)(mockRequest as Request, mockResponse as Response, mockNext);
+
+      const error = (mockNext as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+      expect(error).toBeInstanceOf(ValidationError);
+      expect(error.message).toBe('Validation failed');
+      expect(error.details).toEqual([]);
     });
   });
 

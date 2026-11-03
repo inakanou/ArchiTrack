@@ -20,6 +20,16 @@ import request from 'supertest';
 import express, { type Express } from 'express';
 
 // Mock dependencies before importing routes
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// quantity-table-project-scope.middleware.test.ts と統合テストが確かめる。quantity-table-generation タスク104.1）
+vi.mock('../../../middleware/quantity-table-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireQuantityTableProjectScope: pass,
+  };
+});
+
 vi.mock('../../../db.js', () => ({
   default: vi.fn(() => ({})),
 }));
@@ -631,7 +641,9 @@ describe('QuantityTablesRoutes', () => {
           name: '編集後の数量表名',
           groups: expect.any(Array),
         }),
-        'test-user-id'
+        'test-user-id',
+        // 範囲外の記録に添える要求の識別（quantity-table-generation タスク104.1、Requirement 50.5）
+        expect.objectContaining({ method: 'PUT', path: `/api/quantity-tables/${tableId}/save` })
       );
     });
 
@@ -1143,7 +1155,9 @@ describe('QuantityTablesRoutes', () => {
               }),
             ],
           }),
-          'test-user-id'
+          'test-user-id',
+          // 範囲外の記録に添える要求の識別（quantity-table-generation タスク104.1、Requirement 50.5）
+          expect.objectContaining({ method: 'PUT', path: `/api/quantity-tables/${tableId}/save` })
         );
       });
 
@@ -1173,7 +1187,9 @@ describe('QuantityTablesRoutes', () => {
                 }),
               ],
             }),
-            'test-user-id'
+            'test-user-id',
+            // 範囲外の記録に添える要求の識別（quantity-table-generation タスク104.1、Requirement 50.5）
+            expect.objectContaining({ method: 'PUT', path: `/api/quantity-tables/${tableId}/save` })
           );
         }
       );
@@ -1258,6 +1274,513 @@ describe('QuantityTablesRoutes', () => {
 
           // 幅・重量のみが残り、ピッチの4キーと箇所数は破棄される
           expect(getSavedItem().calculationParams).toEqual({ width: 3, weight: 1.5 });
+        });
+      });
+    });
+
+    /**
+     * 保存の本文の配列の件数の上限（quantity-table-generation タスク108.1）
+     *
+     * 数量グループの数・一つの数量グループの数量項目の数・数量項目の総数のそれぞれで、
+     * 上限ちょうどは通り、1 件超えると本文の検証の 400（既存の形）で上限を示す日本語の
+     * メッセージと問題箇所を返し、サービスを呼ばない（書き込まない）ことを確かめる。
+     * 本番と同じく JSON の受け口の上限を 5MB にし、errorHandler で応答の形を得る。
+     *
+     * @requirement quantity-table-generation/REQ-42.11
+     */
+    describe('本文の配列の件数の上限', () => {
+      let limitApp: Express;
+      let limits: {
+        SAVE_QUANTITY_TABLE_MAX_GROUPS: number;
+        SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP: number;
+        SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS: number;
+        SAVE_QUANTITY_TABLE_LIMIT_MESSAGES: {
+          GROUPS_TOO_MANY: string;
+          ITEMS_PER_GROUP_TOO_MANY: string;
+          TOTAL_ITEMS_TOO_MANY: string;
+        };
+      };
+
+      const latestDetail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      };
+
+      beforeEach(async () => {
+        // 外側の beforeEach の resetModules の後の同じモジュール群から読む（ApiError の同一性のため）
+        const routesModule = await import('../../../routes/quantity-tables.routes.js');
+        const { errorHandler } = await import('../../../middleware/errorHandler.middleware.js');
+        limits = routesModule;
+        limitApp = express();
+        limitApp.use(express.json({ limit: '5mb' }));
+        limitApp.use('/api/quantity-tables', routesModule.default);
+        limitApp.use(errorHandler);
+      });
+
+      const buildItem = (index: number) => ({
+        id: null,
+        tempId: `tmp-item-${index}`,
+        majorCategory: null,
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '工種',
+        name: `項目${index}`,
+        specification: null,
+        unit: 'm',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: 1,
+        roundingUnit: 1,
+        quantity: 1,
+        remarks: null,
+        displayOrder: index,
+      });
+
+      /** 各数量グループの数量項目の数を指定して保存の本文を作る */
+      const buildBody = (itemCounts: number[]) => ({
+        expectedUpdatedAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+        name: '上限の数量表',
+        groups: itemCounts.map((count, groupIndex) => ({
+          id: null,
+          tempId: `tmp-group-${groupIndex}`,
+          name: `グループ${groupIndex}`,
+          surveyImageId: null,
+          displayOrder: groupIndex,
+          items: Array.from({ length: count }, (_, itemIndex) => buildItem(itemIndex)),
+        })),
+      });
+
+      const save = (body: object) =>
+        request(limitApp).put(`/api/quantity-tables/${tableId}/save`).send(body);
+
+      /** 既存の本文の検証の 400（不正な日時）と同じ形であることと、メッセージ・問題箇所を確かめる */
+      const expectLimitRejection = async (
+        response: request.Response,
+        message: string,
+        path: string
+      ) => {
+        const reference = await save({ ...buildBody([1]), expectedUpdatedAt: 'not-a-date' });
+        expect(reference.status).toBe(400);
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe(reference.body.code);
+        expect(response.body.type).toBe(reference.body.type);
+        expect(response.body.title).toBe(reference.body.title);
+        expect(Object.keys(response.body).sort()).toEqual(Object.keys(reference.body).sort());
+        expect(response.body.message).toBe(message);
+        expect(response.body.details).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path, message })])
+        );
+        expect(mockService.saveDraft).not.toHaveBeenCalled();
+      };
+
+      it('数量グループの数が上限ちょうどなら保存する', async () => {
+        mockService.saveDraft.mockResolvedValue(latestDetail);
+
+        const response = await save(
+          buildBody(Array.from({ length: limits.SAVE_QUANTITY_TABLE_MAX_GROUPS }, () => 0))
+        );
+
+        expect(response.status).toBe(200);
+        expect(mockService.saveDraft).toHaveBeenCalledTimes(1);
+        expect(mockService.saveDraft.mock.calls[0]![1].groups).toHaveLength(1000);
+      });
+
+      it('数量グループの数が上限を1件超えると400で上限を示し、サービスを呼ばない', async () => {
+        const response = await save(
+          buildBody(Array.from({ length: limits.SAVE_QUANTITY_TABLE_MAX_GROUPS + 1 }, () => 0))
+        );
+
+        await expectLimitRejection(
+          response,
+          '数量グループは1000件以内で保存してください',
+          'groups'
+        );
+        expect(limits.SAVE_QUANTITY_TABLE_LIMIT_MESSAGES.GROUPS_TOO_MANY).toBe(
+          '数量グループは1000件以内で保存してください'
+        );
+      });
+
+      it('一つの数量グループの数量項目の数が上限ちょうどなら保存する', async () => {
+        mockService.saveDraft.mockResolvedValue(latestDetail);
+
+        const response = await save(buildBody([1, limits.SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP]));
+
+        expect(response.status).toBe(200);
+        expect(mockService.saveDraft).toHaveBeenCalledTimes(1);
+        expect(mockService.saveDraft.mock.calls[0]![1].groups[1].items).toHaveLength(2000);
+      });
+
+      it('一つの数量グループの数量項目の数が上限を1件超えると400で問題のグループを示し、サービスを呼ばない', async () => {
+        const response = await save(
+          buildBody([1, limits.SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP + 1])
+        );
+
+        await expectLimitRejection(
+          response,
+          '一つの数量グループの数量項目は2000件以内で保存してください',
+          'groups.1.items'
+        );
+      });
+
+      it('数量項目の総数が上限ちょうどなら保存する', async () => {
+        mockService.saveDraft.mockResolvedValue(latestDetail);
+
+        // 各数量グループは上限の内側で、総数がちょうど 5000
+        const response = await save(buildBody([2000, 2000, 1000]));
+
+        expect(limits.SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS).toBe(5000);
+        expect(response.status).toBe(200);
+        expect(mockService.saveDraft).toHaveBeenCalledTimes(1);
+      });
+
+      it('数量項目の総数が上限を1件超えると（各グループは上限の内側）400で上限を示し、サービスを呼ばない', async () => {
+        const response = await save(buildBody([2000, 2000, 1001]));
+
+        await expectLimitRejection(
+          response,
+          '数量項目は合計5000件以内で保存してください',
+          'groups'
+        );
+      });
+    });
+
+    /**
+     * 保存の本文の仮 ID・計算用パラメータのキー・備考の上限（quantity-table-generation タスク110.1）
+     *
+     * 数量グループと数量項目の `tempId`（1〜100 文字）、`calculationParams` のキーの数（10）と
+     * 各キーの長さ（50 文字）、`remarks`（50 文字）のそれぞれで、上限ちょうどは通り、超えると
+     * （`tempId` は空も）本文の検証の 400（既存の形）で上限を示す日本語のメッセージと問題箇所を返し、
+     * サービスを呼ばない（書き込まない）ことを確かめる。`remarks` が 50 文字以内で幅の上限を
+     * 超える値は、従来どおり本文の検証を通ってサービス（幅の検証）に届くことも確かめる。
+     *
+     * @requirement quantity-table-generation/REQ-42.13
+     */
+    describe('本文の仮ID・計算用パラメータのキー・備考の上限', () => {
+      let limitApp: Express;
+      let limits: {
+        SAVE_QUANTITY_TABLE_MAX_TEMP_ID_LENGTH: number;
+        SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEYS: number;
+        SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEY_LENGTH: number;
+        SAVE_QUANTITY_TABLE_MAX_REMARKS_LENGTH: number;
+        SAVE_QUANTITY_TABLE_FIELD_LIMIT_MESSAGES: {
+          TEMP_ID_LENGTH: string;
+          CALCULATION_PARAM_KEYS_TOO_MANY: string;
+          CALCULATION_PARAM_KEY_TOO_LONG: string;
+          REMARKS_TOO_LONG: string;
+        };
+      };
+
+      const latestDetail = {
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      };
+
+      beforeEach(async () => {
+        // 外側の beforeEach の resetModules の後の同じモジュール群から読む（ApiError の同一性のため）
+        const routesModule = await import('../../../routes/quantity-tables.routes.js');
+        const { errorHandler } = await import('../../../middleware/errorHandler.middleware.js');
+        limits = routesModule as unknown as typeof limits;
+        limitApp = express();
+        limitApp.use(express.json({ limit: '5mb' }));
+        limitApp.use('/api/quantity-tables', routesModule.default);
+        limitApp.use(errorHandler);
+      });
+
+      type ItemOverrides = Record<string, unknown>;
+
+      const buildItem = (overrides: ItemOverrides = {}) => ({
+        id: null,
+        tempId: 'tmp-item-0',
+        majorCategory: null,
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '工種',
+        name: '項目',
+        specification: null,
+        unit: 'm',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: 1,
+        roundingUnit: 1,
+        quantity: 1,
+        remarks: null,
+        displayOrder: 0,
+        ...overrides,
+      });
+
+      /** 2 つ目の数量グループの 2 つ目の数量項目を差し替えた保存の本文を作る */
+      const buildBody = (
+        options: { groupTempId?: unknown; itemOverrides?: ItemOverrides } = {}
+      ) => {
+        const group = (index: number, items: object[]) => ({
+          id: null,
+          tempId: `tmp-group-${index}`,
+          name: `グループ${index}`,
+          surveyImageId: null,
+          displayOrder: index,
+          items,
+        });
+        const second = {
+          ...group(1, [buildItem(), buildItem({ ...options.itemOverrides, displayOrder: 1 })]),
+        };
+        if ('groupTempId' in options) {
+          second.tempId = options.groupTempId as string;
+        }
+        return {
+          expectedUpdatedAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+          name: '上限の数量表',
+          groups: [group(0, [buildItem()]), second],
+        };
+      };
+
+      const save = (body: object) =>
+        request(limitApp).put(`/api/quantity-tables/${tableId}/save`).send(body);
+
+      /** 既存の本文の検証の 400（不正な日時）と同じ形であることと、メッセージ・問題箇所を確かめる */
+      const expectLimitRejection = async (
+        response: request.Response,
+        message: string,
+        path: string
+      ) => {
+        const reference = await save({ ...buildBody(), expectedUpdatedAt: 'not-a-date' });
+        expect(reference.status).toBe(400);
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe(reference.body.code);
+        expect(response.body.type).toBe(reference.body.type);
+        expect(response.body.title).toBe(reference.body.title);
+        expect(Object.keys(response.body).sort()).toEqual(Object.keys(reference.body).sort());
+        expect(response.body.message).toBe(message);
+        expect(response.body.details).toEqual([expect.objectContaining({ path, message })]);
+        expect(mockService.saveDraft).not.toHaveBeenCalled();
+      };
+
+      /** 本文の検証を通り、サービスへ渡ったこと */
+      const expectAccepted = (response: request.Response) => {
+        expect(response.status).toBe(200);
+        expect(mockService.saveDraft).toHaveBeenCalledTimes(1);
+        return mockService.saveDraft.mock.calls[0]![1] as {
+          groups: Array<{ tempId?: string; items: Array<Record<string, unknown>> }>;
+        };
+      };
+
+      const TEMP_ID_MESSAGE = '仮IDは1文字以上100文字以内で指定してください';
+      const KEYS_MESSAGE = '計算用パラメータは10項目以内で指定してください';
+      const KEY_LENGTH_MESSAGE = '計算用パラメータの名前は50文字以内で指定してください';
+      const REMARKS_MESSAGE = '備考は全角25文字/半角50文字以内で入力してください';
+
+      /** 面積・体積の計算用パラメータ（使うキーのうち 3 つ）に、使わないキーを足す */
+      const areaVolumeParams = (extraKeys: string[]) => ({
+        width: 1,
+        depth: 2,
+        height: 3,
+        ...Object.fromEntries(extraKeys.map((key, index) => [key, index])),
+      });
+
+      it('上限の値と文言を公開する（備考の文言は幅の検証と同じ）', async () => {
+        const { QuantityFieldValidationService, FIELD_CONSTRAINTS } =
+          await import('../../../services/quantity-field-validation.service.js');
+        expect(limits.SAVE_QUANTITY_TABLE_MAX_TEMP_ID_LENGTH).toBe(100);
+        expect(limits.SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEYS).toBe(10);
+        expect(limits.SAVE_QUANTITY_TABLE_MAX_CALCULATION_PARAM_KEY_LENGTH).toBe(50);
+        expect(limits.SAVE_QUANTITY_TABLE_MAX_REMARKS_LENGTH).toBe(
+          FIELD_CONSTRAINTS.REMARKS.hankaku
+        );
+        expect(limits.SAVE_QUANTITY_TABLE_FIELD_LIMIT_MESSAGES).toEqual({
+          TEMP_ID_LENGTH: TEMP_ID_MESSAGE,
+          CALCULATION_PARAM_KEYS_TOO_MANY: KEYS_MESSAGE,
+          CALCULATION_PARAM_KEY_TOO_LONG: KEY_LENGTH_MESSAGE,
+          REMARKS_TOO_LONG: REMARKS_MESSAGE,
+        });
+        // 幅の検証が同じ文言で拒むこと（文言を二か所で食い違わせない）
+        expect(new QuantityFieldValidationService().validateRemarks('a'.repeat(51)).error).toBe(
+          REMARKS_MESSAGE
+        );
+      });
+
+      describe('仮ID（tempId）', () => {
+        it('数量グループと数量項目の仮IDが100文字ちょうどなら保存する', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+          const tempId = 'g'.repeat(100);
+
+          const input = expectAccepted(
+            await save(buildBody({ groupTempId: tempId, itemOverrides: { tempId } }))
+          );
+
+          expect(input.groups[1]!.tempId).toBe(tempId);
+          expect(input.groups[1]!.items[1]!.tempId).toBe(tempId);
+        });
+
+        it('仮IDが無い（既存の要素）なら従来どおり保存する', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+          const body = buildBody({ itemOverrides: { tempId: undefined } });
+          delete (body.groups[1] as { tempId?: string }).tempId;
+
+          const input = expectAccepted(await save(body));
+
+          expect(input.groups[1]!.tempId).toBeUndefined();
+          expect(input.groups[1]!.items[1]!.tempId).toBeUndefined();
+        });
+
+        it('数量グループの仮IDが101文字なら400で問題箇所を示し、サービスを呼ばない', async () => {
+          const response = await save(buildBody({ groupTempId: 'g'.repeat(101) }));
+
+          await expectLimitRejection(response, TEMP_ID_MESSAGE, 'groups.1.tempId');
+        });
+
+        it('数量グループの仮IDが空なら400で問題箇所を示し、サービスを呼ばない', async () => {
+          const response = await save(buildBody({ groupTempId: '' }));
+
+          await expectLimitRejection(response, TEMP_ID_MESSAGE, 'groups.1.tempId');
+        });
+
+        it('数量項目の仮IDが101文字なら400で問題箇所を示し、サービスを呼ばない', async () => {
+          const response = await save(buildBody({ itemOverrides: { tempId: 'i'.repeat(101) } }));
+
+          await expectLimitRejection(response, TEMP_ID_MESSAGE, 'groups.1.items.1.tempId');
+        });
+
+        it('数量項目の仮IDが空なら400で問題箇所を示し、サービスを呼ばない', async () => {
+          const response = await save(buildBody({ itemOverrides: { tempId: '' } }));
+
+          await expectLimitRejection(response, TEMP_ID_MESSAGE, 'groups.1.items.1.tempId');
+        });
+      });
+
+      describe('計算用パラメータ（calculationParams）のキー', () => {
+        it('キーが10個ちょうどなら保存する（使わないキーは従来どおり捨てる）', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+          const params = areaVolumeParams(['k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7']);
+          expect(Object.keys(params)).toHaveLength(10);
+
+          const input = expectAccepted(
+            await save(
+              buildBody({
+                itemOverrides: { calculationMethod: 'AREA_VOLUME', calculationParams: params },
+              })
+            )
+          );
+
+          expect(input.groups[1]!.items[1]!.calculationParams).toEqual({
+            width: 1,
+            depth: 2,
+            height: 3,
+          });
+        });
+
+        it('キーが11個なら400で問題箇所を示し、計算方法ごとの検証より前に拒み、サービスを呼ばない', async () => {
+          const params = areaVolumeParams(['k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7', 'k8']);
+          expect(Object.keys(params)).toHaveLength(11);
+
+          const response = await save(
+            buildBody({
+              itemOverrides: { calculationMethod: 'AREA_VOLUME', calculationParams: params },
+            })
+          );
+
+          await expectLimitRejection(response, KEYS_MESSAGE, 'groups.1.items.1.calculationParams');
+        });
+
+        it('計算方法ごとの検証に当たる値でも、キーの数の上限を先に返す', async () => {
+          // 箇所数の必須の count が無い（withCalculationParams なら別の問題を返す）11 個のキー
+          const params = Object.fromEntries(
+            Array.from({ length: 11 }, (_, index) => [`k${index}`, index])
+          );
+
+          const response = await save(
+            buildBody({ itemOverrides: { calculationMethod: 'COUNT', calculationParams: params } })
+          );
+
+          await expectLimitRejection(response, KEYS_MESSAGE, 'groups.1.items.1.calculationParams');
+        });
+
+        it('50文字のキーなら保存する', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+
+          expectAccepted(
+            await save(
+              buildBody({
+                itemOverrides: {
+                  calculationMethod: 'AREA_VOLUME',
+                  calculationParams: areaVolumeParams(['k'.repeat(50)]),
+                },
+              })
+            )
+          );
+        });
+
+        it('51文字のキーがあれば400で問題箇所を示し、サービスを呼ばない', async () => {
+          const response = await save(
+            buildBody({
+              itemOverrides: {
+                calculationMethod: 'AREA_VOLUME',
+                calculationParams: areaVolumeParams(['k'.repeat(51)]),
+              },
+            })
+          );
+
+          await expectLimitRejection(
+            response,
+            KEY_LENGTH_MESSAGE,
+            'groups.1.items.1.calculationParams'
+          );
+        });
+      });
+
+      describe('備考（remarks）', () => {
+        it('半角50文字の備考は本文の検証を通り、サービスへ渡る', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+          const remarks = 'r'.repeat(50);
+
+          const input = expectAccepted(await save(buildBody({ itemOverrides: { remarks } })));
+
+          expect(input.groups[1]!.items[1]!.remarks).toBe(remarks);
+        });
+
+        it('51文字の備考は400で幅の検証と同じ文言と問題箇所を示し、サービスを呼ばない', async () => {
+          const response = await save(buildBody({ itemOverrides: { remarks: 'r'.repeat(51) } }));
+
+          await expectLimitRejection(response, REMARKS_MESSAGE, 'groups.1.items.1.remarks');
+        });
+
+        it('50文字以内で幅の上限を超える備考（全角26文字）は、従来どおりサービス（幅の検証）に届く', async () => {
+          mockService.saveDraft.mockResolvedValue(latestDetail);
+          const remarks = 'あ'.repeat(26);
+
+          const input = expectAccepted(await save(buildBody({ itemOverrides: { remarks } })));
+
+          expect(input.groups[1]!.items[1]!.remarks).toBe(remarks);
+          const { QuantityFieldValidationService } =
+            await import('../../../services/quantity-field-validation.service.js');
+          expect(new QuantityFieldValidationService().validateRemarks(remarks).isValid).toBe(false);
+        });
+
+        it('幅の検証を通る備考（全角25文字・サロゲートペア25文字）は拒まない', async () => {
+          const { QuantityFieldValidationService } =
+            await import('../../../services/quantity-field-validation.service.js');
+          const widthService = new QuantityFieldValidationService();
+          for (const remarks of [
+            'あ'.repeat(25),
+            '𠮷'.repeat(25),
+            `${'ｱ'.repeat(25)}${'a'.repeat(25)}`,
+          ]) {
+            mockService.saveDraft.mockReset();
+            mockService.saveDraft.mockResolvedValue(latestDetail);
+            expect(widthService.validateRemarks(remarks).isValid).toBe(true);
+
+            const input = expectAccepted(await save(buildBody({ itemOverrides: { remarks } })));
+
+            expect(input.groups[1]!.items[1]!.remarks).toBe(remarks);
+          }
         });
       });
     });

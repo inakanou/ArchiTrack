@@ -43,7 +43,8 @@
 
 import { expect, type Page } from '@playwright/test';
 import { assertPrepared } from './preconditions';
-import { API_BASE_URL } from '../config';
+import { SAME_ORIGIN_API_BASE_URL } from '../config';
+import { getAccessToken, type AuthUserRef } from './auth-api';
 
 /**
  * 注釈を保存する対象の画像（`GET /api/site-surveys/:surveyId` の応答のうち本補助が用いる項目）
@@ -115,11 +116,12 @@ const DRAWN_ANNOTATION_OBJECTS = [
  * アクセストークンを伴うリクエストヘッダを作る。
  *
  * @param page Playwright のページ（ログイン済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @returns Authorization ヘッダ
  * @throws アクセストークンが取得できない場合
  */
-async function authHeaders(page: Page): Promise<Record<string, string>> {
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+async function authHeaders(page: Page, user: AuthUserRef): Promise<Record<string, string>> {
+  const accessToken = await getAccessToken(page, user);
   assertPrepared(accessToken, 'アクセストークン');
   return { Authorization: `Bearer ${accessToken}` };
 }
@@ -131,17 +133,22 @@ async function authHeaders(page: Page): Promise<Record<string, string>> {
  * 対象が入れ替わらないようにするためである。
  *
  * @param page Playwright のページ（ログイン済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param surveyId 対象の現場調査ID
  * @returns 表示順に並べた画像
  * @throws 現場調査詳細が取得できない場合
  */
 export async function fetchSurveyImagesInDisplayOrder(
   page: Page,
+  user: AuthUserRef,
   surveyId: string
 ): Promise<AnnotatableSurveyImage[]> {
-  const response = await page.request.get(`${API_BASE_URL}/api/site-surveys/${surveyId}`, {
-    headers: await authHeaders(page),
-  });
+  const response = await page.request.get(
+    `${SAME_ORIGIN_API_BASE_URL}/api/site-surveys/${surveyId}`,
+    {
+      headers: await authHeaders(page, user),
+    }
+  );
   expect(
     response.ok(),
     `前提: 現場調査詳細が取得できる (status=${response.status()})`
@@ -164,12 +171,14 @@ export async function fetchSurveyImagesInDisplayOrder(
  * すなわち本補助は画像処理を伴わないDB書き込み1回であり、枚数に対して安価である。
  *
  * @param page Playwright のページ（ログイン済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param image 注釈を保存する対象の画像
  * @param shape 保存する注釈レコードの中身（既定は描画あり）
  * @throws 保存が成功しない場合
  */
 export async function saveSurveyImageAnnotation(
   page: Page,
+  user: AuthUserRef,
   image: AnnotatableSurveyImage,
   shape: AnnotationShape = DEFAULT_ANNOTATION_SHAPE
 ): Promise<void> {
@@ -177,9 +186,9 @@ export async function saveSurveyImageAnnotation(
   expect(image.height, `前提: ${image.fileName} の高さが正の値である`).toBeGreaterThan(0);
 
   const response = await page.request.put(
-    `${API_BASE_URL}/api/site-surveys/images/${image.id}/annotations`,
+    `${SAME_ORIGIN_API_BASE_URL}/api/site-surveys/images/${image.id}/annotations`,
     {
-      headers: await authHeaders(page),
+      headers: await authHeaders(page, user),
       data: {
         data: {
           version: '6.0.0',
@@ -201,6 +210,7 @@ export async function saveSurveyImageAnnotation(
  * 現場調査の画像のうち指定した対象へ注釈を保存し、注釈を付けた画像を返す。
  *
  * @param page Playwright のページ（ログイン済みであること）
+ * @param user ページでログイン済みの利用者（トークンを得る利用者）
  * @param surveyId 対象の現場調査ID
  * @param targets 注釈を付ける対象（`'all'` / `'none'` / 表示順の位置）
  * @param shape 保存する注釈レコードの中身（既定は描画あり）
@@ -209,6 +219,7 @@ export async function saveSurveyImageAnnotation(
  */
 export async function annotateSurveyImages(
   page: Page,
+  user: AuthUserRef,
   surveyId: string,
   targets: AnnotationTargets,
   shape: AnnotationShape = DEFAULT_ANNOTATION_SHAPE
@@ -217,7 +228,7 @@ export async function annotateSurveyImages(
     return [];
   }
 
-  const images = await fetchSurveyImagesInDisplayOrder(page, surveyId);
+  const images = await fetchSurveyImagesInDisplayOrder(page, user, surveyId);
   expect(images.length, '前提: 注釈を付ける対象の写真が存在する').toBeGreaterThan(0);
 
   const selected =
@@ -230,7 +241,7 @@ export async function annotateSurveyImages(
         });
 
   for (const image of selected) {
-    await saveSurveyImageAnnotation(page, image, shape);
+    await saveSurveyImageAnnotation(page, user, image, shape);
   }
 
   return selected;

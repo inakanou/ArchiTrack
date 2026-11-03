@@ -30,6 +30,7 @@ import { useState, useCallback, useId, useMemo, FormEvent, ChangeEvent, FocusEve
 import TradingPartnerSelect from './TradingPartnerSelect';
 import UserSelect from './UserSelect';
 import { isDuplicateProjectNameErrorResponse } from '../../types/project.types';
+import type { UserSummary } from '../../types/project.types';
 import type { TradingPartnerInfo } from '../../types/trading-partner.types';
 
 /**
@@ -76,6 +77,15 @@ export interface ProjectFormProps {
    * Requirements: 1.15, 8.7
    */
   submitError?: unknown | null;
+  /**
+   * 案件に設定済みの担当者（編集モード時、案件の詳細から渡す）
+   *
+   * 無効化された担当者は担当者候補に無いため、担当者選択がこの表示名を使って表示する（要件36.6）
+   */
+  currentAssignees?: {
+    salesPerson?: UserSummary;
+    constructionPerson?: UserSummary;
+  };
 }
 
 /** バリデーション定数 */
@@ -133,6 +143,7 @@ function ProjectForm({
   onCancel,
   isSubmitting,
   submitError,
+  currentAssignees,
 }: ProjectFormProps) {
   // フォームの値
   const [name, setName] = useState(initialData?.name ?? '');
@@ -480,6 +491,7 @@ function ProjectForm({
         disabled={isSubmitting}
         error={errors.salesPersonId}
         defaultToCurrentUser={mode === 'create'}
+        currentAssignee={currentAssignees?.salesPerson}
       />
 
       {/* 工事担当者 */}
@@ -489,6 +501,7 @@ function ProjectForm({
         label="工事担当者"
         disabled={isSubmitting}
         defaultToCurrentUser={mode === 'create'}
+        currentAssignee={currentAssignees?.constructionPerson}
       />
 
       {/* 現場住所 */}

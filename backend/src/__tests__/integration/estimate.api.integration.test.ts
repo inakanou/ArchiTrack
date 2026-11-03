@@ -40,6 +40,11 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
+import { EstimateService } from '../../services/estimate.service.js';
+import { AuditLogService } from '../../services/audit-log.service.js';
+import type { IAuditLogService } from '../../types/audit-log.types.js';
 
 /**
  * 見積書API統合テスト
@@ -92,12 +97,10 @@ describe('Estimate API Integration Tests', () => {
     }
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-estimate-integration@example.com',
-        displayName: 'Estimate Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-estimate-integration@example.com',
+      displayName: 'Estimate Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -153,13 +156,13 @@ describe('Estimate API Integration Tests', () => {
     }
 
     // ログインしてトークンを取得
-    const response = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email: 'test-estimate-integration@example.com',
       password: 'TestPassword123!',
     });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -679,7 +682,8 @@ describe('Estimate API Integration Tests', () => {
         });
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'PROJECT_NOT_FOUND');
+      // プロジェクトの不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
 
     it('同名の見積書が存在する場合は409エラー', async () => {
@@ -731,6 +735,107 @@ describe('Estimate API Integration Tests', () => {
         });
 
       expect(response.status).toBe(400);
+    });
+
+    /**
+     * 内訳書から作る見積項目の数の上限（Requirement 3.6、タスク69.1）。内訳書の項目 1 件につき根の見積項目
+     * 1 件を作るため、項目が一括保存の総数の上限（42.10、2000）を超える内訳書からの作成は、一括保存と同じ
+     * 422 の本文で拒み、見積書・見積項目・監査ログのどれも書かない。上限ちょうど（2000 件）の作成は所要が
+     * 作成のトランザクションの既定の制限時間に迫る（実測で 9738 ms の 500 が 1 回）ため本ファイルに常設せず、
+     * 上限ちょうどで作れることは作成のサービスの単体が主張する。本ファイルは上限の内側（3 件）の対照を置く。
+     * 内訳書は経路を通さず DB へ直接作る（数量表の集計を経る作り方は E2E が担う）。
+     *
+     * @requirement estimate-creation/REQ-3.6
+     */
+    describe('内訳書から作る見積項目の数の上限（Requirement 3.6）', () => {
+      const ITEMS_TOO_MANY = '見積明細は合計2000件以内で保存してください';
+
+      /** 項目を `count` 件持つ内訳書を作成先のプロジェクトに作る */
+      const createStatementWithItems = async (name: string, count: number): Promise<string> => {
+        const statement = await prisma.itemizedStatement.create({
+          data: {
+            projectId: testProjectId,
+            name,
+            sourceQuantityTableId: testQuantityTableId,
+            sourceQuantityTableName: 'テスト数量表',
+          },
+        });
+        await prisma.itemizedStatementItem.createMany({
+          data: Array.from({ length: count }, (_, index) => ({
+            itemizedStatementId: statement.id,
+            customCategory: null,
+            workType: '工種',
+            name: `上限検証項目${index}`,
+            specification: null,
+            unit: 'm',
+            quantity: 1,
+            displayOrder: index,
+          })),
+        });
+        return statement.id;
+      };
+
+      /** 作成先のプロジェクトの見積書・見積項目と、利用者の見積書の作成の監査ログの数 */
+      const snapshotCounts = async () => ({
+        estimates: await prisma.estimate.count({ where: { projectId: testProjectId } }),
+        estimateItems: await prisma.estimateItem.count({
+          where: { estimate: { projectId: testProjectId } },
+        }),
+        createdLogs: await prisma.auditLog.count({
+          where: { actorId: testUserId, action: 'ESTIMATE_CREATED' },
+        }),
+      });
+
+      it('項目が 2001 件の内訳書からの作成は一括保存と同じ 422 になり、見積書も見積項目も監査ログも増えない', async () => {
+        const statementId = await createStatementWithItems('上限超過内訳書', 2001);
+        const before = await snapshotCounts();
+
+        const response = await request(app)
+          .post(`/api/projects/${testProjectId}/estimates`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ name: '上限超過見積書', sourceItemizedStatementId: statementId });
+
+        expect(response.status, JSON.stringify(response.body)).toBe(422);
+        expect(response.body).toMatchObject({
+          status: 422,
+          code: 'ESTIMATE_DRAFT_VALIDATION_ERROR',
+          message: '見積明細の入力内容に不備があるため保存できません',
+          details: { issues: [{ path: 'items', message: ITEMS_TOO_MANY }] },
+        });
+        expect(response.body.details.issues).toHaveLength(1);
+        expect(await snapshotCounts()).toEqual(before);
+        expect(
+          await prisma.estimate.count({
+            where: { projectId: testProjectId, name: '上限超過見積書' },
+          })
+        ).toBe(0);
+      });
+
+      it('項目が上限の内側（3 件）の内訳書からは見積書と見積項目 3 件・行 9 行を作る（対照）', async () => {
+        const statementId = await createStatementWithItems('上限の内側の内訳書', 3);
+        const before = await snapshotCounts();
+
+        const response = await request(app)
+          .post(`/api/projects/${testProjectId}/estimates`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ name: '上限の内側の見積書', sourceItemizedStatementId: statementId });
+
+        expect(response.status, JSON.stringify(response.body)).toBe(201);
+        expect(response.body.itemCount).toBe(3);
+        expect(await prisma.estimateItem.count({ where: { estimateId: response.body.id } })).toBe(
+          3
+        );
+        expect(
+          await prisma.estimateItemLine.count({
+            where: { estimateItem: { estimateId: response.body.id } },
+          })
+        ).toBe(9);
+        expect(await snapshotCounts()).toEqual({
+          estimates: before.estimates + 1,
+          estimateItems: before.estimateItems + 3,
+          createdLogs: before.createdLogs + 1,
+        });
+      });
     });
   });
 
@@ -888,7 +993,8 @@ describe('Estimate API Integration Tests', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+      // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
   });
 
@@ -950,7 +1056,8 @@ describe('Estimate API Integration Tests', () => {
         });
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+      // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
     });
 
     it('名前が空の場合は400エラー', async () => {
@@ -1009,11 +1116,12 @@ describe('Estimate API Integration Tests', () => {
       deleteTargetUpdatedAt = response.body.updatedAt;
     });
 
+    // 楽観的排他制御の基準時刻はクエリで送る（画面の deleteEstimate と同じ形。2026-10-30 の是正）
     it('見積書を削除できる (Req 11.4)', async () => {
       const response = await request(app)
         .delete(`/api/estimates/${deleteTargetId}`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ updatedAt: deleteTargetUpdatedAt });
+        .query({ updatedAt: deleteTargetUpdatedAt });
 
       expect(response.status).toBe(204);
 
@@ -1029,20 +1137,162 @@ describe('Estimate API Integration Tests', () => {
       const response = await request(app)
         .delete(`/api/estimates/${deleteTargetId}`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ updatedAt: '2020-01-01T00:00:00.000Z' });
+        .query({ updatedAt: '2020-01-01T00:00:00.000Z' });
 
       expect(response.status).toBe(409);
       expect(response.body).toHaveProperty('code', 'ESTIMATE_CONFLICT');
+    });
+
+    it('基準時刻を本文だけに載せた削除は 400 を返し、見積書を削除しない (Req 11.6)', async () => {
+      const response = await request(app)
+        .delete(`/api/estimates/${deleteTargetId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ updatedAt: deleteTargetUpdatedAt });
+
+      expect(response.status).toBe(400);
+
+      const getResponse = await request(app)
+        .get(`/api/estimates/${deleteTargetId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(getResponse.status).toBe(200);
     });
 
     it('存在しない見積書の削除は404を返す', async () => {
       const response = await request(app)
         .delete('/api/estimates/12345678-1234-4234-a234-123456789012')
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ updatedAt: new Date().toISOString() });
+        .query({ updatedAt: new Date().toISOString() });
 
       expect(response.status).toBe(404);
-      expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+      // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+      expect(response.body).toHaveProperty('code', 'NOT_FOUND');
+    });
+  });
+
+  // ==========================================
+  // 監査ログをトランザクションの中で書く（タスク70.1）
+  // ==========================================
+
+  /**
+   * 見積書の作成・更新・論理削除の監査ログは、見積書の変更と同じトランザクションの中で書く。
+   * 経路はモジュールの読み込み時にサービスを組み立てて依存を差し替えられないため、
+   * サービスを直接組み立てて、記録の後にトランザクションを巻き戻す状況を作る。
+   * 監査ログの数は、テスト用の DB の既存の記録に引っ張られないよう、このテストが作った対象の
+   * targetId で数える。
+   *
+   * @requirement estimate-creation/REQ-11.8
+   */
+  describe('見積書の監査ログとトランザクション（Requirement 11.8）', () => {
+    const FAILURE_AFTER_LOG = '監査ログの記録の後の失敗（巻き戻しの検証）';
+    let realAuditLogService: AuditLogService;
+    let committingService: EstimateService;
+    let rollingBackService: EstimateService;
+    let loggedTargetIds: string[];
+
+    beforeAll(() => {
+      realAuditLogService = new AuditLogService({ prisma });
+      committingService = new EstimateService({ prisma, auditLogService: realAuditLogService });
+    });
+
+    beforeEach(() => {
+      loggedTargetIds = [];
+      // 本物の createLog(input, tx) で記録してから例外を投げ、トランザクションを巻き戻させる包み
+      const failingAfterLog: IAuditLogService = {
+        createLog: async (input, tx) => {
+          loggedTargetIds.push(input.targetId);
+          await realAuditLogService.createLog(input, tx);
+          throw new Error(FAILURE_AFTER_LOG);
+        },
+        getLogs: (filter) => realAuditLogService.getLogs(filter),
+        exportLogs: (filter) => realAuditLogService.exportLogs(filter),
+      };
+      rollingBackService = new EstimateService({ prisma, auditLogService: failingAfterLog });
+    });
+
+    const uniqueName = (label: string): string =>
+      `監査ログ検証_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const countLogs = (action: string, targetId: string): Promise<number> =>
+      prisma.auditLog.count({ where: { action, targetType: 'Estimate', targetId } });
+
+    it('記録の後に作成が巻き戻ると、見積書も ESTIMATE_CREATED の監査ログも残らない', async () => {
+      const name = uniqueName('作成の巻き戻し');
+
+      await expect(
+        rollingBackService.create({ projectId: testProjectId, name }, testUserId)
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toHaveLength(1);
+      const targetId = String(loggedTargetIds[0]);
+      expect(await prisma.estimate.count({ where: { id: targetId } })).toBe(0);
+      expect(await prisma.estimate.count({ where: { projectId: testProjectId, name } })).toBe(0);
+      expect(await countLogs('ESTIMATE_CREATED', targetId)).toBe(0);
+    });
+
+    it('記録の後に更新が巻き戻ると、名前は変わらず ESTIMATE_UPDATED の監査ログも残らない', async () => {
+      const originalName = uniqueName('更新の対象');
+      const created = await committingService.create(
+        { projectId: testProjectId, name: originalName },
+        testUserId
+      );
+
+      await expect(
+        rollingBackService.update(
+          created.id,
+          { name: uniqueName('更新の巻き戻し') },
+          testUserId,
+          new Date(created.updatedAt)
+        )
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([created.id]);
+      const stored = await prisma.estimate.findUnique({ where: { id: created.id } });
+      expect(stored?.name).toBe(originalName);
+      expect(stored?.updatedAt.getTime()).toBe(new Date(created.updatedAt).getTime());
+      expect(await countLogs('ESTIMATE_UPDATED', created.id)).toBe(0);
+    });
+
+    it('記録の後に論理削除が巻き戻ると、見積書は論理削除されず ESTIMATE_DELETED の監査ログも残らない', async () => {
+      const created = await committingService.create(
+        { projectId: testProjectId, name: uniqueName('論理削除の対象') },
+        testUserId
+      );
+
+      await expect(
+        rollingBackService.delete(created.id, testUserId, new Date(created.updatedAt))
+      ).rejects.toThrow(FAILURE_AFTER_LOG);
+
+      expect(loggedTargetIds).toEqual([created.id]);
+      const stored = await prisma.estimate.findUnique({ where: { id: created.id } });
+      expect(stored).not.toBeNull();
+      expect(stored?.deletedAt).toBeNull();
+      expect(await countLogs('ESTIMATE_DELETED', created.id)).toBe(0);
+    });
+
+    it('確定した作成・更新・論理削除は、それぞれの監査ログを 1 件ずつ記録する（対照）', async () => {
+      const created = await committingService.create(
+        { projectId: testProjectId, name: uniqueName('確定の作成') },
+        testUserId
+      );
+      expect(await prisma.estimate.count({ where: { id: created.id } })).toBe(1);
+      expect(await countLogs('ESTIMATE_CREATED', created.id)).toBe(1);
+
+      const renamed = uniqueName('確定の更新');
+      const updated = await committingService.update(
+        created.id,
+        { name: renamed },
+        testUserId,
+        new Date(created.updatedAt)
+      );
+      expect((await prisma.estimate.findUnique({ where: { id: created.id } }))?.name).toBe(renamed);
+      expect(await countLogs('ESTIMATE_UPDATED', created.id)).toBe(1);
+
+      await committingService.delete(created.id, testUserId, new Date(updated.updatedAt));
+      expect(
+        (await prisma.estimate.findUnique({ where: { id: created.id } }))?.deletedAt
+      ).not.toBeNull();
+      expect(await countLogs('ESTIMATE_DELETED', created.id)).toBe(1);
     });
   });
 
@@ -1196,7 +1446,8 @@ describe('Estimate API Integration Tests', () => {
           });
 
         expect(response.status).toBe(404);
-        expect(response.body).toHaveProperty('code', 'ESTIMATE_NOT_FOUND');
+        // 見積書の不在は閲覧範囲外と区別しない汎用の 404（estimate-creation の Requirement 57.3、タスク62.1）
+        expect(response.body).toHaveProperty('code', 'NOT_FOUND');
       });
     });
 

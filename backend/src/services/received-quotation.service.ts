@@ -27,6 +27,12 @@
  * - 14.5: 論理削除
  * - 14.6: 楽観的排他制御
  *
+ * 案件の閲覧範囲（estimate-request の Requirement 42、タスク103.1）: ファイルのプレビュー用の署名付きURLは、
+ * 閲覧範囲内の案件の受領見積書に限って発行する。
+ *
+ * 監査ログ（estimate-request の Requirement 14.7、タスク111.1）: 作成・更新・論理削除が確定したときに、
+ * その操作の監査ログを変更と同じトランザクションの中で 1 件記録する。金額とファイルの格納先は入れない。
+ *
  * Task 12.1: ReceivedQuotationServiceの実装
  * Task 20.2: contentType/textContent廃止、ファイル+明細行共存モデルへ移行
  * Task 21.1: 明細行管理追加（一括保存・取得・全量置換・金額検証）
@@ -34,7 +40,9 @@
  * @module services/received-quotation
  */
 
-import type { PrismaClient } from '../generated/prisma/client.js';
+import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
+import type { IAuditLogService } from '../types/audit-log.types.js';
+import { RECEIVED_QUOTATION_TARGET_TYPE } from '../types/audit-log.types.js';
 import type { StorageProvider, SignedUrlOptions } from '../storage/storage-provider.interface.js';
 import {
   ReceivedQuotationNotFoundError,
@@ -46,6 +54,7 @@ import {
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 import logger from '../utils/logger.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
 
 /**
  * ファイルサイズ上限（10MB）
@@ -73,6 +82,13 @@ const ALLOWED_MIME_TYPES = [
 export interface ReceivedQuotationServiceDependencies {
   prisma: PrismaClient;
   storageProvider: StorageProvider;
+  /**
+   * 作成・更新・論理削除の監査ログの記録（estimate-request の Requirement 14.7、タスク111.1）。
+   * 省略時に記録しない形にすると組み立ての漏れで記録が黙って止まるため、必須の依存とする
+   */
+  auditLogService: IAuditLogService;
+  /** 署名付きURLの発行の判定（省略時は共有のインスタンス。タスク103.1） */
+  projectScopeService?: Pick<ProjectScopeService, 'canAccessProject'>;
 }
 
 /**
@@ -167,11 +183,11 @@ export interface ReceivedQuotationInfo {
 
 /**
  * Prismaトランザクションクライアント型
+ *
+ * 監査ログを同じトランザクションで書くため（`IAuditLogService.createLog` の第 2 引数。タスク111.1）、
+ * `$transaction` のコールバックが受ける Prisma の型そのものとする
  */
-type PrismaTransactionClient = Omit<
-  PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
+type PrismaTransactionClient = Prisma.TransactionClient;
 
 /**
  * 受領見積書サービス（改訂版: Task 21.1 明細行管理追加）
@@ -182,10 +198,14 @@ type PrismaTransactionClient = Omit<
 export class ReceivedQuotationService {
   private readonly prisma: PrismaClient;
   private readonly storageProvider: StorageProvider;
+  private readonly auditLogService: IAuditLogService;
+  private readonly projectScopeService: Pick<ProjectScopeService, 'canAccessProject'> | undefined;
 
   constructor(deps: ReceivedQuotationServiceDependencies) {
     this.prisma = deps.prisma;
     this.storageProvider = deps.storageProvider;
+    this.auditLogService = deps.auditLogService;
+    this.projectScopeService = deps.projectScopeService;
   }
 
   /**
@@ -324,14 +344,21 @@ export class ReceivedQuotationService {
    *
    * Requirements: 11.1, 11.2, 11.3, 11.4, 11.6, 11.8, 11.9, 11.10, 11.22, 11.24, 14.1, 14.2
    *
+   * 確定したら RECEIVED_QUOTATION_CREATED の監査ログを同じトランザクションの中で 1 件記録する
+   * （estimate-request の Requirement 14.7、タスク111.1）
+   *
    * @param input - 作成入力
+   * @param actorId - 操作した利用者のID（監査ログの実行者）
    * @returns 作成された受領見積書情報（明細行・合計金額を含む）
    * @throws EstimateRequestNotFoundError 見積依頼が存在しない場合
    * @throws InvalidFileTypeError ファイル形式エラー
    * @throws FileSizeLimitExceededError ファイルサイズ超過
    * @throws Error ファイルも明細行もない場合
    */
-  async create(input: CreateReceivedQuotationInput): Promise<ReceivedQuotationInfo> {
+  async create(
+    input: CreateReceivedQuotationInput,
+    actorId: string
+  ): Promise<ReceivedQuotationInfo> {
     // 1. ファイルのバリデーション
     if (input.file) {
       this.validateFileType(input.file);
@@ -395,6 +422,27 @@ export class ReceivedQuotationService {
           })),
         });
       }
+
+      // 6.5 監査ログの記録（Requirement 14.7、タスク111.1）。データベースの変更の後、巻き戻らない
+      // ストレージへの送信（手順 7）の前に置き、記録の失敗ではファイルを送らずに巻き戻す。
+      // 協力業者の金額（netAmount・明細行の中身）とファイルの格納先は社外秘のため入れない
+      await this.auditLogService.createLog(
+        {
+          action: 'RECEIVED_QUOTATION_CREATED',
+          actorId,
+          targetType: RECEIVED_QUOTATION_TARGET_TYPE,
+          targetId: quotation.id,
+          before: null,
+          after: {
+            estimateRequestId: quotation.estimateRequestId,
+            name: quotation.name,
+            submittedAt: quotation.submittedAt.toISOString(),
+            fileName: quotation.fileName,
+            lineItemCount: correctedLineItems?.length ?? 0,
+          },
+        },
+        tx
+      );
 
       // 7. ファイルをアップロードしてパスを更新
       let filePath: string | null = null;
@@ -552,9 +600,13 @@ export class ReceivedQuotationService {
    * Requirements: 11.15, 11.16, 14.2
    * Task 21.1: 受領見積書更新時に明細行の全量置換（DELETE + INSERT）をinteractive transaction内で実装
    *
+   * 確定したら RECEIVED_QUOTATION_UPDATED の監査ログを同じトランザクションの中で 1 件記録する
+   * （estimate-request の Requirement 14.7、タスク111.1）
+   *
    * @param id - 受領見積書ID
    * @param input - 更新入力
    * @param expectedUpdatedAt - 期待される更新日時（楽観的排他制御用）
+   * @param actorId - 操作した利用者のID（監査ログの実行者）
    * @returns 更新された受領見積書情報
    * @throws ReceivedQuotationNotFoundError 受領見積書が存在しない場合
    * @throws ReceivedQuotationConflictError 楽観的排他制御エラー
@@ -562,7 +614,8 @@ export class ReceivedQuotationService {
   async update(
     id: string,
     input: UpdateReceivedQuotationInput,
-    expectedUpdatedAt: Date
+    expectedUpdatedAt: Date,
+    actorId: string
   ): Promise<ReceivedQuotationInfo> {
     // ファイルのバリデーション
     if (input.file) {
@@ -672,6 +725,29 @@ export class ReceivedQuotationService {
         },
       });
 
+      // 6.5 監査ログの記録（Requirement 14.7、タスク111.1）。本体の更新の後、差し替え前のファイルを
+      // ストレージから取り除く（手順 7）前に置き、記録の失敗で差し替え前のファイルを失わない。
+      // 協力業者の金額（netAmount・明細行の中身）とファイルの格納先は社外秘のため入れない
+      await this.auditLogService.createLog(
+        {
+          action: 'RECEIVED_QUOTATION_UPDATED',
+          actorId,
+          targetType: RECEIVED_QUOTATION_TARGET_TYPE,
+          targetId: id,
+          before: {
+            name: quotation.name,
+            submittedAt: quotation.submittedAt.toISOString(),
+            fileName: quotation.fileName,
+          },
+          after: {
+            name: updatedQuotation.name,
+            submittedAt: updatedQuotation.submittedAt.toISOString(),
+            fileName: updatedQuotation.fileName,
+          },
+        },
+        tx
+      );
+
       // 7. 旧ファイルの削除（新しいファイルがアップロードされた場合またはファイル削除要求）
       if (oldFilePath && (newFilePath || input.removeFile)) {
         await this.deleteFile(oldFilePath);
@@ -687,12 +763,16 @@ export class ReceivedQuotationService {
    *
    * Requirements: 11.16, 11.17
    *
+   * 確定したら RECEIVED_QUOTATION_DELETED の監査ログを同じトランザクションの中で 1 件記録する
+   * （estimate-request の Requirement 14.7、タスク111.1）
+   *
    * @param id - 受領見積書ID
    * @param expectedUpdatedAt - 期待される更新日時（楽観的排他制御用）
+   * @param actorId - 操作した利用者のID（監査ログの実行者）
    * @throws ReceivedQuotationNotFoundError 受領見積書が存在しない場合
    * @throws ReceivedQuotationConflictError 楽観的排他制御エラー
    */
-  async delete(id: string, expectedUpdatedAt: Date): Promise<void> {
+  async delete(id: string, expectedUpdatedAt: Date, actorId: string): Promise<void> {
     let filePath: string | null = null;
 
     await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
@@ -721,6 +801,25 @@ export class ReceivedQuotationService {
         where: { id },
         data: { deletedAt: new Date() },
       });
+
+      // 4.5 監査ログの記録（Requirement 14.7、タスク111.1）。論理削除の後、コールバックの最後。
+      // ファイルの取り除きはもとから確定の後（トランザクションの外）である
+      await this.auditLogService.createLog(
+        {
+          action: 'RECEIVED_QUOTATION_DELETED',
+          actorId,
+          targetType: RECEIVED_QUOTATION_TARGET_TYPE,
+          targetId: id,
+          before: {
+            estimateRequestId: quotation.estimateRequestId,
+            name: quotation.name,
+            submittedAt: quotation.submittedAt.toISOString(),
+            fileName: quotation.fileName,
+          },
+          after: null,
+        },
+        tx
+      );
     });
 
     // 5. ファイルの物理削除（トランザクション外）
@@ -734,17 +833,32 @@ export class ReceivedQuotationService {
    *
    * Requirements: 11.14
    *
+   * 受領見積書の親の見積依頼が属する案件が閲覧者の閲覧範囲に含まれる場合に限って発行する（タスク103.1）。
+   * 範囲外は受領見積書の不在と同じ扱いにし、署名付きURLを発行しない（経路の判定部品が先に 404 にするが、
+   * 発行の箇所でも判定する）
+   *
    * @param id - 受領見積書ID
+   * @param viewerId - 閲覧者のユーザーID
    * @returns 署名付きURL
-   * @throws ReceivedQuotationNotFoundError 受領見積書が存在しない場合
+   * @throws ReceivedQuotationNotFoundError 受領見積書が存在しない場合、または閲覧範囲外の場合
    * @throws InvalidContentTypeError ファイルが存在しない場合
    */
-  async getFilePreviewUrl(id: string): Promise<string> {
+  async getFilePreviewUrl(id: string, viewerId: string): Promise<string> {
     const quotation = await this.prisma.receivedQuotation.findUnique({
       where: { id },
+      include: { estimateRequest: { select: { projectId: true } } },
     });
 
     if (!quotation || quotation.deletedAt !== null) {
+      throw new ReceivedQuotationNotFoundError(id);
+    }
+
+    if (
+      !(await (this.projectScopeService ?? getSharedProjectScopeService()).canAccessProject(
+        viewerId,
+        quotation.estimateRequest.projectId
+      ))
+    ) {
       throw new ReceivedQuotationNotFoundError(id);
     }
 

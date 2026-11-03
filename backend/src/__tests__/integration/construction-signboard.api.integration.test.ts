@@ -29,6 +29,8 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 describe('Construction Signboard API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -55,9 +57,7 @@ describe('Construction Signboard API Integration Tests', () => {
       parallelism: 4,
     });
 
-    const user = await prisma.user.create({
-      data: { email, displayName, passwordHash },
-    });
+    const user = await createTestUser(prisma, { email, displayName, passwordHash });
 
     for (const roleName of roles) {
       const role = await prisma.role.findUnique({ where: { name: roleName } });
@@ -66,12 +66,12 @@ describe('Construction Signboard API Integration Tests', () => {
       }
     }
 
-    const loginResponse = await request(app).post('/api/v1/auth/login').send({
+    const accessToken = await loginForAccessToken(app, {
       email,
       password: 'TestPassword123!@#',
     });
 
-    return { userId: user.id, accessToken: loginResponse.body.accessToken };
+    return { userId: user.id, accessToken };
   };
 
   beforeAll(async () => {

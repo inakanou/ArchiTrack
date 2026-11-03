@@ -417,12 +417,11 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   },
   'user-authentication': {
     mode: 'ratchet',
-    maxMissing: 388,
+    maxMissing: 384,
     maxOrphans: 0,
     maxUnparsed: 0,
-    allowNoTraceabilityTable: true,
     reason:
-      '`design.md` は在るが Requirements Traceability 表を一つも持たない。表の新設は本機能の別タスクを要する',
+      '2026-10-16 に要件32〜45 の章が追跡表を新設し、同章の受入基準 110 件と改訂した 7.3 を挙げた。要件1〜31 の受入基準（撤廃した 27B.4〜27B.6 を除く 384 件）は追跡表を持たない前半の書式のままであり、表の書き起こしは本機能の別タスクを要する',
   },
 };
 

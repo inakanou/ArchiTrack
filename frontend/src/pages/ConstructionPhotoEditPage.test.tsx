@@ -183,9 +183,35 @@ describe('ConstructionPhotoEditPage', () => {
 
       renderComponent();
 
-      await waitFor(() => {
-        expect(screen.getByRole('alert')).toBeInTheDocument();
-      });
+      // タスク 31.1: 共通部品 ResourceNotFound で見つからない旨とプロジェクト一覧へのリンクを出す
+      // （Requirement 22.1。経路は案件の ID を持たないため戻り先はプロジェクトの一覧）
+      expect(
+        await screen.findByRole('heading', { name: '工事写真アルバムが見つかりません' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'アルバムを編集' })).not.toBeInTheDocument();
+    });
+
+    it('更新の 404 は工事写真アルバムが見つからない旨をトーストに出し、ID を含む英語の文言を出さない（タスク 31.1、Requirement 22.2）', async () => {
+      vi.mocked(constructionPhotosApi.updateConstructionPhotoAlbum).mockRejectedValue(
+        new ApiError(404, 'Construction photo album not found: album-1', {
+          code: 'CONSTRUCTION_PHOTO_ALBUM_NOT_FOUND',
+        })
+      );
+      renderComponent();
+      expect(await screen.findByRole('heading', { name: 'アルバムを編集' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /保存/ }));
+
+      await waitFor(() => expect(mockToast.error).toHaveBeenCalledTimes(1));
+      expect(mockToast.error).toHaveBeenCalledWith(
+        '工事写真アルバムが見つかりません。存在しないか、削除されています。'
+      );
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
   });
 });

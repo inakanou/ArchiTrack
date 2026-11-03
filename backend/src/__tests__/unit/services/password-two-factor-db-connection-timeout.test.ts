@@ -1,7 +1,7 @@
 /**
  * @fileoverview パスワードと二要素認証の経路が DB 接続のタイムアウトを自前のエラーへ飲み込まず投げ直すことの単体検証（タスク36.3）
  *
- * 対象は PasswordService の catch（3 か所）、TwoFactorService の catch（7 か所）と、
+ * 対象は PasswordService の catch（3 か所）、TwoFactorService の catch（6 か所）と、
  * AuthService の 2FA のログインの検証（TOTP・バックアップコード）で失敗回数を加算する経路。
  * - 接続のタイムアウト（pg-pool の素の Error、P1008）は同じエラーのまま投げ直す
  * - それ以外の DB 例外（一般の Error、P1001）はこれまでどおり各サービスの自前のエラーを返す
@@ -15,6 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { authenticator } from 'otplib';
 import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 import { PasswordService } from '../../../services/password.service.js';
 import { TwoFactorService } from '../../../services/two-factor.service.js';
@@ -22,6 +23,7 @@ import { AuthService } from '../../../services/auth.service.js';
 import type { EmailService } from '../../../services/email.service.js';
 import type { InvitationService } from '../../../services/invitation.service.js';
 import type { SessionService } from '../../../services/session.service.js';
+import type { TwoFactorChallengeService } from '../../../services/two-factor-challenge.service.js';
 import type { TokenService } from '../../../services/token.service.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import { Ok } from '../../../types/result.js';
@@ -135,6 +137,9 @@ function twoFactorService(prisma: PrismaClient): TwoFactorService {
 
 const NEW_PASSWORD = 'Str0ng!Passphrase-2026';
 
+/** 2FA の有効化で使う既知の TOTP の秘密鍵（Base32） */
+const TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
+
 /** DB 例外を自前のエラーへ変える catch へ、最初の問い合わせで到達する呼び出しと、その自前のエラー */
 const firstQueryCases: Array<[string, (prisma: PrismaClient) => Promise<unknown>, string]> = [
   [
@@ -171,11 +176,6 @@ const firstQueryCases: Array<[string, (prisma: PrismaClient) => Promise<unknown>
     'TwoFactorService.enableTwoFactor',
     (p) => twoFactorService(p).enableTwoFactor('user-1', '000000'),
     'INVALID_TOTP_CODE',
-  ],
-  [
-    'TwoFactorService.disableTwoFactor',
-    (p) => twoFactorService(p).disableTwoFactor('user-1', 'password'),
-    'INVALID_PASSWORD',
   ],
   [
     'TwoFactorService.getBackupCodesStatus',
@@ -233,8 +233,12 @@ const transactionCases: Array<
   ],
   [
     'TwoFactorService.enableTwoFactor',
-    // NODE_ENV が production でないとき固定コード 123456 を受け入れ、トランザクションへ進む
-    (p) => twoFactorService(p).enableTwoFactor('user-1', '123456'),
+    // 秘密鍵の復号の結果だけを与え、その秘密鍵から計算した正しいコードでトランザクションへ進む
+    (p) => {
+      const service = twoFactorService(p);
+      vi.spyOn(service, 'decryptSecret').mockResolvedValue(TOTP_SECRET);
+      return service.enableTwoFactor('user-1', authenticator.generate(TOTP_SECRET));
+    },
     { user: { twoFactorEnabled: false, twoFactorSecret: 'encrypted' } },
     'INVALID_TOTP_CODE',
   ],
@@ -291,20 +295,6 @@ describe('パスワードと二要素認証のサービスは DB 接続のタイ
       expect(connectBudgetTransactionOptions().maxWait).toBeGreaterThan(2000);
     });
   });
-
-  describe('TwoFactorService.disableTwoFactor（配列のトランザクション）', () => {
-    it('パスワードの確認の後の接続のタイムアウトを同じエラーのまま投げ直す', async () => {
-      const { hash } = await import('@node-rs/argon2');
-      const passwordHash = await hash('password');
-      const error = poolConnectionTimeout();
-      const prisma = transactionRejectingPrisma(error, {
-        user: { twoFactorEnabled: true, passwordHash },
-      });
-      await expect(twoFactorService(prisma).disableTwoFactor('user-1', 'password')).rejects.toBe(
-        error
-      );
-    });
-  });
 });
 
 /** 2FA のログインの検証で使う、ロックされていないユーザー */
@@ -326,12 +316,22 @@ function authServiceWith(prisma: PrismaClient, twoFactor: TwoFactorService): Aut
     {} as PasswordService,
     {} as TokenService,
     twoFactor,
-    {} as SessionService
+    {} as SessionService,
+    challengeForUser1()
   );
 }
 
+/** 利用者 user-1 に結び付いた 2FA 待ちの資格を照会・消費できる代役 */
+function challengeForUser1(): TwoFactorChallengeService {
+  return {
+    issue: vi.fn(),
+    peek: vi.fn().mockResolvedValue(Ok({ userId: 'user-1' })),
+    consume: vi.fn().mockResolvedValue(Ok(undefined)),
+  } as unknown as TwoFactorChallengeService;
+}
+
 /**
- * verify2FA / verify2FABackupCode の最初のユーザーの取得は成り立ち、
+ * 2FA のログインの検証（TOTP・バックアップコード）の最初のユーザーの取得は成り立ち、
  * TwoFactorService の検証の中のユーザーの取得（2 回目）が失敗する PrismaClient の代役
  */
 function failingOnVerificationPrisma(error: unknown): PrismaClient {
@@ -347,14 +347,14 @@ const loginVerifications: Array<
   [string, (auth: AuthService) => Promise<unknown>, 'verifyTOTP' | 'verifyBackupCode', string]
 > = [
   [
-    'AuthService.verify2FA',
-    (a) => a.verify2FA('user-1', '000000'),
+    'AuthService.completeTwoFactorLogin（TOTP）',
+    (a) => a.completeTwoFactorLogin('challenge', { kind: 'totp', code: '000000' }),
     'verifyTOTP',
     'INVALID_2FA_CODE',
   ],
   [
-    'AuthService.verify2FABackupCode',
-    (a) => a.verify2FABackupCode('user-1', 'ZZZZ9999'),
+    'AuthService.completeTwoFactorLogin（バックアップコード）',
+    (a) => a.completeTwoFactorLogin('challenge', { kind: 'backup', backupCode: 'ZZZZ9999' }),
     'verifyBackupCode',
     'INVALID_BACKUP_CODE',
   ],
@@ -376,9 +376,11 @@ describe('2FA のログインの検証は DB 接続のタイムアウトで失�
       const auth = authServiceWith(prisma, twoFactorService(prisma));
 
       await expect(invoke(auth)).resolves.toEqual({ ok: false, error: { type: invalidCode } });
+      // 失敗回数は DB の上で 1 だけ増やす（要件27A.4）
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { twoFactorFailures: 3 },
+        data: { twoFactorFailures: { increment: 1 } },
+        select: { twoFactorFailures: true },
       });
     });
 

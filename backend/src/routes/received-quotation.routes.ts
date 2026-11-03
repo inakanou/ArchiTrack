@@ -8,6 +8,18 @@
  * - 11.14: ファイルプレビュー
  * - 11.15, 11.16, 11.17: 編集・削除
  *
+ * 案件の閲覧範囲（estimate-request の Requirement 42、user-authentication の要件39。タスク103.1）:
+ * 全経路で requirePermission の後に estimate-request-project-scope.middleware の判定部品を置き、
+ * 受領見積書は親の見積依頼の案件で判定して範囲外は不在と同じ汎用の 404 にする。登録・更新は
+ * ファイルの受け取りより前に判定する。プレビューの署名付きURLは範囲内に限って発行する。
+ *
+ * 経路の引数名（タスク106.1、Requirement 42.12）: 本部品は `/api/estimate-requests/:id/quotations` と
+ * `/api/quotations` に二重にマウントされる。受領見積書の経路の引数名を `quotationId` とし、親の見積依頼の
+ * 経路の引数名 `id` と分ける（名前が重なると mergeParams で子の値が優先され、経路の見積依頼が読めない）。
+ * 見積依頼の配下の経路で受領見積書が経路の見積依頼に属さないときは、判定部品が不在と同じ汎用の 404 にし、
+ * 受領見積書の案件が範囲外のときだけ記録する。URL は変わらない。OpenAPI の注釈の経路の引数名も実装に合わせて
+ * `/api/quotations/{quotationId}` とした（2026-10-31 の機能検証の指摘）。
+ *
  * Task 13.2: 受領見積書エンドポイントの実装
  *
  * @module routes/received-quotation
@@ -16,18 +28,23 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import multer from 'multer';
 import { ReceivedQuotationService } from '../services/received-quotation.service.js';
+import { AuditLogService } from '../services/audit-log.service.js';
 import { getStorageProvider } from '../storage/storage-factory.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireEstimateRequestProjectScope,
+  requireReceivedQuotationProjectScope,
+} from '../middleware/estimate-request-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createReceivedQuotationSchema,
   updateReceivedQuotationSchema,
   receivedQuotationIdParamSchema,
   estimateRequestIdForQuotationSchema,
-  deleteReceivedQuotationBodySchema,
+  deleteReceivedQuotationQuerySchema,
   parseLineItemsFromMultipart,
 } from '../schemas/received-quotation.schema.js';
 import {
@@ -40,7 +57,8 @@ import {
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 
-// mergeParams: true を設定してネストされたルートからestimateRequestIdを取得できるようにする
+// mergeParams: true を設定してネストされたルートから見積依頼の ID（親の経路の引数 `id`）を取得できるようにする。
+// 受領見積書の経路の引数は `quotationId` とし、親の `id` を上書きしない（タスク106.1、42.12）
 const router = Router({ mergeParams: true });
 const prisma = getPrismaClient();
 
@@ -64,6 +82,8 @@ function getReceivedQuotationService(): ReceivedQuotationService {
   receivedQuotationService = new ReceivedQuotationService({
     prisma,
     storageProvider,
+    // 作成・更新・論理削除の監査ログ（estimate-request の Requirement 14.7、タスク111.1）
+    auditLogService: new AuditLogService({ prisma }),
   });
   return receivedQuotationService;
 }
@@ -139,8 +159,9 @@ router.post(
   authenticate,
   // 受領見積書の追加は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:update'),
-  upload.single('file'),
   validate(estimateRequestIdForQuotationSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
+  upload.single('file'),
   validate(createReceivedQuotationSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -182,7 +203,8 @@ router.post(
         netAmount: validatedBody.netAmount,
       };
 
-      const quotation = await getReceivedQuotationService().create(input);
+      // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
+      const quotation = await getReceivedQuotationService().create(input, req.user!.userId);
 
       logger.info(
         {
@@ -283,6 +305,7 @@ router.get(
   // 見積依頼詳細画面で受領見積書一覧を表示するため、estimate_request:read権限でアクセス可能とする
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdForQuotationSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: estimateRequestId } = req.validatedParams as { id: string };
@@ -307,7 +330,7 @@ router.get(
 
 /**
  * @swagger
- * /api/quotations/{id}:
+ * /api/quotations/{quotationId}:
  *   get:
  *     summary: 受領見積書詳細取得
  *     description: 受領見積書の詳細情報を取得
@@ -317,12 +340,12 @@ router.get(
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: quotationId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: 受領見積書ID
+ *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
  *     responses:
  *       200:
  *         description: 受領見積書詳細
@@ -334,14 +357,15 @@ router.get(
  *         description: 受領見積書が見つからない
  */
 router.get(
-  '/:id',
+  '/:quotationId',
   authenticate,
   // 受領見積書の閲覧は見積依頼の閲覧権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:read'),
   validate(receivedQuotationIdParamSchema, 'params'),
+  requireReceivedQuotationProjectScope('quotationId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.validatedParams as { id: string };
+      const { quotationId: id } = req.validatedParams as { quotationId: string };
 
       const quotation = await getReceivedQuotationService().findById(id);
 
@@ -368,7 +392,7 @@ router.get(
 
 /**
  * @swagger
- * /api/quotations/{id}:
+ * /api/quotations/{quotationId}:
  *   put:
  *     summary: 受領見積書更新
  *     description: 受領見積書の情報を更新（楽観的排他制御）
@@ -378,12 +402,12 @@ router.get(
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: quotationId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: 受領見積書ID
+ *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
  *     requestBody:
  *       required: true
  *       content:
@@ -431,16 +455,17 @@ router.get(
  *         description: ファイル形式エラー
  */
 router.put(
-  '/:id',
+  '/:quotationId',
   authenticate,
   // 受領見積書の更新は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:update'),
-  upload.single('file'),
   validate(receivedQuotationIdParamSchema, 'params'),
+  requireReceivedQuotationProjectScope('quotationId'),
+  upload.single('file'),
   validate(updateReceivedQuotationSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.validatedParams as { id: string };
+      const { quotationId: id } = req.validatedParams as { quotationId: string };
       const { expectedUpdatedAt, ...updateData } = req.validatedBody as {
         expectedUpdatedAt: string;
         name?: string;
@@ -477,10 +502,12 @@ router.put(
         lineItems,
       };
 
+      // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
       const quotation = await getReceivedQuotationService().update(
         id,
         input,
-        new Date(expectedUpdatedAt)
+        new Date(expectedUpdatedAt),
+        req.user!.userId
       );
 
       logger.info({ quotationId: id }, 'Received quotation updated successfully');
@@ -544,35 +571,29 @@ router.put(
 
 /**
  * @swagger
- * /api/quotations/{id}:
+ * /api/quotations/{quotationId}:
  *   delete:
  *     summary: 受領見積書削除
- *     description: 受領見積書を論理削除（楽観的排他制御、ファイル物理削除）
+ *     description: 受領見積書を論理削除（楽観的排他制御、ファイル物理削除）。基準時刻はクエリで受け取り、本文は読まない
  *     tags:
  *       - Received Quotations
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: quotationId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: 受領見積書ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - updatedAt
- *             properties:
- *               updatedAt:
- *                 type: string
- *                 format: date-time
- *                 description: 楽観的排他制御用の更新日時
+ *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
+ *       - in: query
+ *         name: updatedAt
+ *         required: true
+ *         description: 楽観的排他制御の基準時刻（取得した受領見積書の updatedAt）
+ *         schema:
+ *           type: string
+ *           format: date-time
  *     responses:
  *       204:
  *         description: 受領見積書削除成功
@@ -588,18 +609,22 @@ router.put(
  *         description: 楽観的排他制御エラー（競合）
  */
 router.delete(
-  '/:id',
+  '/:quotationId',
   authenticate,
   // 受領見積書の削除は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:update'),
   validate(receivedQuotationIdParamSchema, 'params'),
-  validate(deleteReceivedQuotationBodySchema, 'body'),
+  requireReceivedQuotationProjectScope('quotationId'),
+  // 基準時刻はクエリで受け取る（DELETE の本文は中継で落ちうる。2026-10-31 の是正、見積依頼の削除と同じ形）。
+  // 範囲の判定の後に検証し、範囲外は 400 より先に 404 にする（判定の順序: 権限 → ID → 案件の範囲 → クエリ）
+  validate(deleteReceivedQuotationQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.validatedParams as { id: string };
-      const { updatedAt } = req.validatedBody as { updatedAt: string };
+      const { quotationId: id } = req.validatedParams as { quotationId: string };
+      const { updatedAt } = req.validatedQuery as { updatedAt: string };
 
-      await getReceivedQuotationService().delete(id, new Date(updatedAt));
+      // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
+      await getReceivedQuotationService().delete(id, new Date(updatedAt), req.user!.userId);
 
       logger.info({ quotationId: id }, 'Received quotation deleted successfully');
 
@@ -632,7 +657,7 @@ router.delete(
 
 /**
  * @swagger
- * /api/quotations/{id}/preview:
+ * /api/quotations/{quotationId}/preview:
  *   get:
  *     summary: ファイルプレビューURL取得
  *     description: 受領見積書のファイルプレビュー用署名付きURLを取得
@@ -642,12 +667,12 @@ router.delete(
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: quotationId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: 受領見積書ID
+ *         description: 受領見積書ID（形式が誤っていれば 400 で、details[].path は quotationId）
  *     responses:
  *       200:
  *         description: 署名付きURL
@@ -670,16 +695,17 @@ router.delete(
  *         description: テキストコンテンツの場合（ファイルなし）
  */
 router.get(
-  '/:id/preview',
+  '/:quotationId/preview',
   authenticate,
   // 受領見積書の閲覧は見積依頼の閲覧権限を使用（受領見積書は見積依頼の子リソース）
   requirePermission('estimate_request:read'),
   validate(receivedQuotationIdParamSchema, 'params'),
+  requireReceivedQuotationProjectScope('quotationId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { id } = req.validatedParams as { id: string };
+      const { quotationId: id } = req.validatedParams as { quotationId: string };
 
-      const url = await getReceivedQuotationService().getFilePreviewUrl(id);
+      const url = await getReceivedQuotationService().getFilePreviewUrl(id, req.user!.userId);
 
       logger.debug({ quotationId: id }, 'Received quotation preview URL generated');
 

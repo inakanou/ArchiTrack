@@ -27,7 +27,17 @@ import type { IAuditLogService } from '../types/audit-log.types.js';
 import logger from '../utils/logger.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
+import {
+  getSharedAuthenticatedUserStateService,
+  type AuthenticatedUserStateService,
+} from './authenticated-user-state.service.js';
+import {
+  lockUserRefreshTokens,
+  revokeAllRefreshTokensForUser,
+} from '../utils/refresh-token-lock.js';
 import { randomBytes } from 'crypto';
+import { SESSION_CONFIG } from '../config/security.constants.js';
+import { hashPasswordResetToken } from '../utils/password-reset-token.js';
 
 /**
  * パスワード管理サービス
@@ -56,21 +66,38 @@ export class PasswordService {
    */
   private readonly PASSWORD_HISTORY_LIMIT = 3;
 
-  /**
-   * リセットトークン有効期限（24時間）
-   */
-  private readonly RESET_TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24時間（ミリ秒）
-
   private readonly emailService: EmailService;
   private readonly auditLogService: IAuditLogService;
 
+  /**
+   * @param prisma - PrismaClient
+   * @param emailService - メール送信（省略時は既定）
+   * @param auditLogService - 監査ログ（省略時は既定）
+   * @param userStateService - 利用者の状態のキャッシュの無効化（省略時は共有のインスタンスを使う時点で解決する）
+   */
   constructor(
     private readonly prisma: PrismaClient,
     emailService?: EmailService,
-    auditLogService?: IAuditLogService
+    auditLogService?: IAuditLogService,
+    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>
   ) {
     this.emailService = emailService || new EmailService();
     this.auditLogService = auditLogService || new AuditLogService({ prisma });
+  }
+
+  /**
+   * パスワードの更新のコミットの後に、利用者の状態のキャッシュを無効化する（user-authentication タスク47.6）
+   *
+   * パスワードの更新は初回のパスワード変更の要否を解く（状態が変わる）ため、認証ミドルウェアが TTL の間
+   * 古い状態で要求を拒否し続けないようにする。変更はコミット済みなので、無効化の失敗は結果を変えず
+   * 警告ログに留める（残ったエントリは TTL で消える）。
+   */
+  private async invalidateUserStateAfterCommit(userId: string): Promise<void> {
+    try {
+      await (this.userStateService ?? getSharedAuthenticatedUserStateService()).invalidate(userId);
+    } catch (error) {
+      logger.warn({ err: error, userId }, 'Failed to invalidate user state after password update');
+    }
   }
 
   /**
@@ -275,7 +302,7 @@ export class PasswordService {
    * 1. メールアドレスでユーザーを検索
    * 2. ユーザーが存在する場合:
    *    - 暗号学的に安全なリセットトークンを生成（32バイト）
-   *    - PasswordResetTokenテーブルへの保存（24時間有効期限）と監査ログ
+   *    - PasswordResetTokenテーブルへの保存（原文の SHA-256 だけを保存。1時間有効期限。同じ利用者の未使用のトークンは失効させる）と監査ログ
    *      （PASSWORD_RESET_REQUESTED、実行者は本人）の記録を一つのトランザクションで行う
    *    - コミット後に EmailService 経由でパスワードリセットメールをキューへ投入する
    *      （キューは DB のトランザクションに参加できないため。ロールバックされたトークンの
@@ -302,13 +329,16 @@ export class PasswordService {
       // 3. 暗号学的に安全なリセットトークンを生成（32バイト = 256ビット）
       const resetToken = randomBytes(32).toString('hex');
 
-      // 4. リセットトークンの保存（24時間有効期限）と監査ログを同じトランザクションで記録
+      // 4. リセットトークンの保存（1時間有効期限、要件7.3）と監査ログを同じトランザクションで記録
       await this.prisma.$transaction(async (tx) => {
+        // 新しい要求は同じ利用者の未使用のトークンを失効させる
+        await tx.passwordResetToken.deleteMany({ where: { userId: user.id, usedAt: null } });
         await tx.passwordResetToken.create({
           data: {
             userId: user.id,
-            token: resetToken,
-            expiresAt: new Date(Date.now() + this.RESET_TOKEN_EXPIRY),
+            // 原文は保存せず、SHA-256 だけを保存する（要件37.1）。原文はリセットのメールの本文にだけ渡す
+            tokenHash: hashPasswordResetToken(resetToken),
+            expiresAt: new Date(Date.now() + SESSION_CONFIG.PASSWORD_RESET_TOKEN_EXPIRY_MS),
           },
         });
 
@@ -362,10 +392,15 @@ export class PasswordService {
     userId: string,
     passwordHash: string
   ): Promise<void> {
-    // パスワード更新
+    // 利用者単位のリフレッシュトークンの取引ロックを、users の行を更新する前に取る。全ての経路で
+    // 「取引ロック → users の行」の順に揃え、利用者の削除（deleteUser）とのデッドロックを避ける（タスク45.2）
+    await lockUserRefreshTokens(tx, userId);
+
+    // パスワード更新。新しいパスワードの設定で初回のパスワード変更の要否を解く
+    // （要件37.7。初期管理者の環境変数のパスワードはもう使われない。user-authentication タスク47.6）
     await tx.user.update({
       where: { id: userId },
-      data: { passwordHash },
+      data: { passwordHash, mustChangePassword: false },
     });
 
     // パスワード履歴追加
@@ -393,10 +428,8 @@ export class PasswordService {
       });
     }
 
-    // 全リフレッシュトークンを無効化（セキュリティのため）
-    await tx.refreshToken.deleteMany({
-      where: { userId },
-    });
+    // 全リフレッシュトークンを無効化（要件33.5）。並行するローテーションと直列化する取引ロックを通す
+    await revokeAllRefreshTokensForUser(tx, userId);
   }
 
   /**
@@ -422,8 +455,9 @@ export class PasswordService {
   ): Promise<Result<void, PasswordError>> {
     try {
       // 1. リセットトークン検証
+      // 提示された原文の SHA-256 で一意索引を引く（要件37.1）
       const passwordResetToken = await this.prisma.passwordResetToken.findUnique({
-        where: { token: resetToken },
+        where: { tokenHash: hashPasswordResetToken(resetToken) },
       });
 
       // トークンが存在しない
@@ -472,6 +506,12 @@ export class PasswordService {
           },
         });
       }, connectBudgetTransactionOptions());
+
+      // 初回のパスワード変更の要否が変わったので、コミットの後に状態のキャッシュを無効化する
+      await this.invalidateUserStateAfterCommit(passwordResetToken.userId);
+
+      // 記録にはトークンの値もその一部も残さず、利用者 ID で残す（要件37.3）
+      logger.info({ userId: passwordResetToken.userId }, 'Password reset successfully');
 
       return Ok(undefined);
     } catch (error) {
@@ -540,6 +580,9 @@ export class PasswordService {
         // 共通のパスワード更新処理
         await this.updatePasswordInTransaction(tx, userId, passwordHash);
       }, connectBudgetTransactionOptions());
+
+      // 初回のパスワード変更の要否を解いたので、コミットの後に状態のキャッシュを無効化する（要件37.7）
+      await this.invalidateUserStateAfterCommit(userId);
 
       return Ok(undefined);
     } catch (error) {

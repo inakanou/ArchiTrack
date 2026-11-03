@@ -248,8 +248,16 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'construction-photo': {
     mode: 'ratchet',
     maxContradictions: 0,
-    minPairs: 12,
-    minTableDeclarations: 19,
+    // minPairs 12 → 16 / minTableDeclarations 19 → 23（construction-photo のタスク30 の文書の改訂、2026-10-27）。
+    // 利用者の判断で新設した Requirement 21 の章「Requirement 21: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 4 行（いずれも 21.x を名乗る）と追跡表を足し、同章の 4 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    // minPairs 16 → 26 / minTableDeclarations 23 → 33（construction-photo のタスク31 の起票、2026-10-29）。
+    // 利用者の判断で新設した Requirement 22 の章「Requirement 22: 存在しない工事写真アルバム・写真項目・
+    // 工事看板・プロジェクトを受けた画面の表示」が部品表の 10 行（22.1・22.2 を名乗る）と追跡表を足し、
+    // 同章の 10 部品が突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    minPairs: 26,
+    minTableDeclarations: 33,
     minDetailDeclarations: 0,
     reason:
       '追跡表の Requirement 列が要件番号だけを挙げる書式だが、突き合わせは上位番号の粒度なので成立する。現況で矛盾 0 件',
@@ -257,51 +265,107 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'construction-schedule': {
     mode: 'ratchet',
     maxContradictions: 5,
-    minPairs: 12,
-    minTableDeclarations: 14,
+    // minPairs 12 → 17 / minTableDeclarations 14 → 19（construction-schedule のタスク22 の文書の改訂、
+    // 2026-10-27）。利用者の判断で新設した Requirement 13 の章「Requirement 13: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 5 行（いずれも 13.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾の上限 5 は据え置き
+    // minPairs 17 → 22 / minTableDeclarations 19 → 24（construction-schedule のタスク23・24 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 食い違いの記録・不在の表示」が
+    // 部品表の 5 行（13.8・14.1・14.2 を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの
+    // 母集団へ入ったため、締める向きへ動かした。矛盾の上限 5 は据え置き
+    minPairs: 22,
+    minTableDeclarations: 24,
     minDetailDeclarations: 7,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
   'contract-management': {
     mode: 'ratchet',
     maxContradictions: 3,
-    minPairs: 11,
-    minTableDeclarations: 11,
+    // minPairs 11 → 16 / minTableDeclarations 11 → 16（contract-management のタスク19 の文書の改訂、
+    // 2026-10-27）。利用者の判断で新設した Requirement 14 の章「Requirement 14: 案件の閲覧範囲の適用」が
+    // 部品表の 5 行（いずれも 14.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾の上限 3 は据え置き
+    // minPairs 16 → 21 / minTableDeclarations 16 → 21（contract-management のタスク20・21 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 基となる契約書の論理削除・食い違いの記録・
+    // 不在の表示」が部品表の 5 行（14.8・14.9・11.8・11.9 を名乗る）と追跡表を足し、同章の 5 部品が
+    // 突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 3 は据え置き
+    minPairs: 21,
+    minTableDeclarations: 21,
     minDetailDeclarations: 11,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
   'estimate-creation': {
     mode: 'ratchet',
     maxContradictions: 45,
-    minPairs: 34,
+    // minPairs 34 → 39 / minTableDeclarations 40 → 45（estimate-creation のタスク62 の文書の改訂、
+    // 2026-10-27）。利用者の判断で新設した Requirement 57 の章「Requirement 57: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 5 行（いずれも 57.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾の上限 45 は据え置き
+    // minPairs 39 → 44 / minTableDeclarations 45 → 50（estimate-creation のタスク63・64 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 食い違いの記録・不在の表示」が
+    // 部品表の 5 行（57.9・58.1・58.2 を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの
+    // 母集団へ入ったため、締める向きへ動かした。矛盾の上限 45 は据え置き
+    minPairs: 44,
     // 36 → 40（estimate-creation のタスク 61.1、2026-10-10）。同タスクが design.md の末尾の章
     // 「追加設計（REQ-11.7 対応）」に部品表の 4 行（EstimateEditSession / EstimateEditSessionService /
     // useEstimateEditPresence / EstimateEditPresenceNotice、いずれも 11.7）を足したため、締める向きへ動かした
-    minTableDeclarations: 40,
+    minTableDeclarations: 50,
     minDetailDeclarations: 46,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
   'estimate-request': {
     mode: 'ratchet',
     maxContradictions: 19,
-    minPairs: 22,
-    minTableDeclarations: 48,
+    // minPairs 22 → 27 / minTableDeclarations 48 → 53（estimate-request のタスク103 の文書の改訂、2026-10-27）。
+    // 利用者の判断で新設した Requirement 42 の章「Requirement 42: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 5 行（いずれも 42.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾の上限 19 は据え置き
+    // minPairs 27 → 32 / minTableDeclarations 53 → 58（estimate-request のタスク104・105 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 作成の内訳書の所属・食い違いの記録・
+    // 不在の表示」が部品表の 5 行（42.10・42.11・10.5・10.6 を名乗る）と追跡表を足し、同章の 5 部品が
+    // 突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 19 は据え置き
+    // minPairs 32 → 35 / minTableDeclarations 58 → 61（estimate-request のタスク106・107 の起票、
+    // 2026-10-30）。利用者の判断で足した章「2026-10-30 の追加: 受領見積書の経路の食い違いの記録と、
+    // 見積依頼文のコピー・メールで開く操作の出力の記録」が部品表の 3 行（42.12〜42.16 を名乗る）と
+    // 追跡表を足し、同章の 3 部品が突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 19 は据え置き
+    // minPairs 35 → 36 / minTableDeclarations 61 → 62（estimate-request のタスク108 の起票、2026-10-31）。
+    // 利用者の判断で足した章「2026-10-31 の追加: Gmail で開く操作の失敗の表示」が部品表の 1 行
+    // （42.17・42.18 を名乗る）と追跡表を足し、同章の 1 部品が突き合わせの母集団へ入ったため、
+    // 締める向きへ動かした。矛盾の上限 19 は据え置き
+    minPairs: 36,
+    minTableDeclarations: 62,
     minDetailDeclarations: 57,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
   'execution-budget-management': {
     mode: 'ratchet',
     maxContradictions: 0,
-    minPairs: 9,
-    minTableDeclarations: 9,
+    // minPairs 9 → 13 / minTableDeclarations 9 → 13（execution-budget-management のタスク17 の文書の改訂、
+    // 2026-10-27）。利用者の判断で新設した Requirement 20 の章「Requirement 20: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 4 行（いずれも 20.x を名乗る）と追跡表を足し、同章の 4 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    // minPairs 13 → 18 / minTableDeclarations 13 → 18（execution-budget-management のタスク18・19 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 食い違いの記録・不在の表示」が
+    // 部品表の 5 行（20.9・21.1・21.2 を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの
+    // 母集団へ入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    minPairs: 18,
+    minTableDeclarations: 18,
     minDetailDeclarations: 9,
     reason: '現況で矛盾 0 件。ラチェットで 0 を維持する',
   },
   'itemized-statement-generation': {
     mode: 'ratchet',
     maxContradictions: 2,
-    minPairs: 9,
-    minTableDeclarations: 10,
+    // minPairs 9 → 14 / minTableDeclarations 10 → 15（itemized-statement-generation のタスク27 の文書の改訂、
+    // 2026-10-27）。利用者の判断で新設した Requirement 18 の章「Requirement 18: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 5 行（いずれも 18.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾の上限 2 は据え置き
+    // minPairs 14 → 19 / minTableDeclarations 15 → 20（itemized-statement-generation のタスク28・29 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: クリップボードへのコピーの記録・食い違いの
+    // 記録・不在の表示」が部品表の 5 行（18.9・18.10・18.11・19.1・19.2 を名乗る）と追跡表を足し、同章の
+    // 5 部品が突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 2 は据え置き
+    minPairs: 19,
+    minTableDeclarations: 20,
     minDetailDeclarations: 11,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
@@ -316,16 +380,36 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'quantity-table-generation': {
     mode: 'ratchet',
     maxContradictions: 13,
-    minPairs: 24,
-    minTableDeclarations: 31,
+    // minPairs 24 → 29 / minTableDeclarations 31 → 36（quantity-table-generation のタスク104 の文書の改訂、
+    // 2026-10-27）。利用者の判断で新設した Requirement 50 の章「Requirement 50: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 5 行（いずれも 50.x を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾の上限 13 は据え置き
+    // minPairs 29 → 34 / minTableDeclarations 36 → 41（quantity-table-generation のタスク105・106 の起票、
+    // 2026-10-29）。利用者の判断で足した章「2026-10-29 の追加: 食い違いの記録・不在の表示」が
+    // 部品表の 5 行（50.10・51.1・51.2 を名乗る）と追跡表を足し、同章の 5 部品が突き合わせの
+    // 母集団へ入ったため、締める向きへ動かした。矛盾の上限 13 は据え置き
+    // minPairs 34 → 35 / minTableDeclarations 41 → 42（quantity-table-generation のタスク107 の起票、
+    // 2026-10-30）。利用者の判断で足した章「2026-10-30 の追加: 保存の本文の他の数量表の ID の範囲外の記録」が
+    // 部品表の 1 行（50.11 を名乗る）と追跡表を足し、同章の 1 部品が突き合わせの母集団へ入ったため、
+    // 締める向きへ動かした。矛盾の上限 13 は据え置き
+    minPairs: 35,
+    minTableDeclarations: 42,
     minDetailDeclarations: 25,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
   'site-survey': {
     mode: 'exact',
     contradictions: [],
-    minPairs: 45,
-    minTableDeclarations: 61,
+    // minPairs 45 → 52 / minTableDeclarations 61 → 68（site-survey のタスク119 の文書の改訂、2026-10-27）。
+    // 利用者の判断で新設した Requirement 39 の章「Requirement 39: 案件の閲覧範囲と出力の記録の適用」が
+    // 部品表の 7 行（いずれも 39.x を名乗る）と追跡表を足し、同章の 7 部品が突き合わせの母集団へ
+    // 入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    // minPairs 52 → 60 / minTableDeclarations 68 → 76（site-survey のタスク120 の起票、2026-10-29）。
+    // 利用者の判断で新設した Requirement 40 の章「Requirement 40: 存在しない現場調査・画像・
+    // プロジェクトを受けた画面の表示」が部品表の 8 行（40.1・40.2 を名乗る）と追跡表を足し、
+    // 同章の 8 部品が突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾は 0 件のまま
+    minPairs: 60,
+    minTableDeclarations: 76,
     minDetailDeclarations: 37,
     reason:
       'タスク 115.247 の境界。115.246 が決着させた `AnnotationContextMenu` と同型の組を 6 部品・7 組で検出し、いずれも追跡表を正として自己申告へ追随させ、矛盾を 0 件にした。以後の新設も、解消済みの宣言の置き去りも、集合の不一致として赤くなる',
@@ -341,12 +425,11 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'user-authentication': {
     mode: 'ratchet',
     maxContradictions: 0,
-    minPairs: 0,
-    minTableDeclarations: 0,
-    minDetailDeclarations: 0,
-    allowNoDeclarations: true,
+    minPairs: 46,
+    minTableDeclarations: 46,
+    minDetailDeclarations: 29,
     reason:
-      '`design.md` は在るが追跡表も部品表も一つも持たない（`check:trace-coverage` の宣言と同じ事実）。表の新設は本機能の別タスクを要する',
+      '2026-10-16 に要件32〜45 の章が追跡表・部品表・詳細節の Requirements 欄を新設した。矛盾 0 件をラチェットで維持する。要件1〜31 の前半は表を持たない書式のまま',
   },
 };
 

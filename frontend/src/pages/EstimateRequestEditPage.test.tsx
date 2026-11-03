@@ -72,6 +72,9 @@ vi.mock('../api/itemized-statements', () => ({
   }),
 }));
 
+import { getEstimateRequestDetail, updateEstimateRequest } from '../api/estimate-requests';
+import { ApiError } from '../api/client';
+
 describe('EstimateRequestEditPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -219,5 +222,68 @@ describe('EstimateRequestEditPage', () => {
     );
 
     expect(screen.getByText(/読み込み中/i)).toBeInTheDocument();
+  });
+
+  /**
+   * Task 105.1: 見積依頼の読み込み・保存が 404 を受けたときの不在の表示（REQ-10.5, REQ-10.6）
+   */
+  describe('見積依頼が見つからない表示 (Task 105.1)', () => {
+    const renderEditPage = () =>
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123/edit']}>
+          <Routes>
+            <Route path="/estimate-requests/:id/edit" element={<EstimateRequestEditPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+    const notFound = () =>
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND', detail: 'Not found' });
+
+    it('読み込みが 404 を受けると、見積依頼が見つからない旨とプロジェクトの一覧へのリンクを表示し、再試行の釦を出さない（REQ-10.5）', async () => {
+      vi.mocked(getEstimateRequestDetail).mockRejectedValueOnce(notFound());
+
+      renderEditPage();
+
+      expect(
+        await screen.findByRole('heading', { name: '見積依頼が見つかりません' })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'プロジェクト一覧に戻る' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      expect(screen.queryByText('見積依頼の取得に失敗しました')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
+    });
+
+    it('404 以外の読み込みの失敗では、従来どおり取得の失敗の文言と再試行の釦を表示する', async () => {
+      vi.mocked(getEstimateRequestDetail).mockRejectedValueOnce(new ApiError(500, 'Internal'));
+
+      renderEditPage();
+
+      expect(await screen.findByText('見積依頼の取得に失敗しました')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '再試行' })).toBeInTheDocument();
+    });
+
+    it('保存が 404 を受けると、見積依頼が見つからない旨を表示し、更新の失敗の文言を出さない（REQ-10.6）', async () => {
+      vi.mocked(updateEstimateRequest).mockRejectedValueOnce(notFound());
+
+      renderEditPage();
+      fireEvent.click(await screen.findByRole('button', { name: '更新' }));
+
+      expect(
+        await screen.findByText('見積依頼が見つかりません。存在しないか、削除されています。')
+      ).toBeInTheDocument();
+      expect(screen.queryByText('見積依頼の更新に失敗しました')).not.toBeInTheDocument();
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('404 以外の保存の失敗では、従来どおり更新の失敗の文言を表示する', async () => {
+      vi.mocked(updateEstimateRequest).mockRejectedValueOnce(new ApiError(500, 'Internal'));
+
+      renderEditPage();
+      fireEvent.click(await screen.findByRole('button', { name: '更新' }));
+
+      expect(await screen.findByText('見積依頼の更新に失敗しました')).toBeInTheDocument();
+    });
   });
 });

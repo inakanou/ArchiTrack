@@ -63,6 +63,7 @@ test.describe('REQ-40.11: 現場調査からの一括生成の実行中表示と
     const projectId = await createTestProject(page, 'REQ40-11一括生成中');
     const { surveyId, imageIds } = await seedSurveyPhotosWithComments(
       page,
+      'REGULAR_USER',
       projectId,
       'REQ40-11一括生成元',
       Array.from({ length: PHOTO_COUNT }, () => null),

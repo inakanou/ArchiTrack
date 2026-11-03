@@ -25,6 +25,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import request from 'supertest';
 import type { Express } from 'express';
 import type Redis from 'ioredis';
+import { authUserStateCacheKey } from '../../services/authenticated-user-state-cache.js';
 
 /** 接続の確立を待つ時間（ミリ秒） */
 const CONNECTION_TIMEOUT_MS = 200;
@@ -47,6 +48,23 @@ const ACTOR_ID = 'ua3513-actor';
 
 /** RBACService の権限キャッシュのキー */
 const ACTOR_CACHE_KEY = `rbac:permissions:${ACTOR_ID}`;
+
+/**
+ * 利用者の状態のキャッシュのキー（user-authentication タスク47.6）
+ *
+ * 認証ミドルウェアは権限の判定より前に利用者の状態を読む。状態のキャッシュに当たらなければ状態の取得が
+ * 先に DB へ到達するため、本ファイルが確かめる経路（権限の判定・サービス層の DB への到達）を保つよう、
+ * 各検証の前に有効で 2FA 登録済みの状態をキャッシュに置く
+ */
+const ACTOR_STATE_CACHE_KEY = authUserStateCacheKey(ACTOR_ID);
+
+/** 有効で 2FA 登録済み・初回の変更を要しない状態のキャッシュの値 */
+const ACTIVE_USER_STATE_CACHE = JSON.stringify({
+  isActive: true,
+  twoFactorEnabled: true,
+  mustChangePassword: false,
+  accessTokenGeneration: 0,
+});
 
 /** 全権限（*:*）のキャッシュの値 */
 const ALL_PERMISSIONS_CACHE = JSON.stringify([
@@ -102,13 +120,19 @@ describe('権限の確認を通るエンドポイントの DB 接続タイムア
     const tokenService = (await import('../../services/token.service.js')).default;
 
     accessToken = await tokenService.generateAccessToken({
+      accessTokenGeneration: 0,
       userId: ACTOR_ID,
       email: 'ua3513@example.com',
       roles: ['admin'],
     });
   }, BEFORE_ALL_TIMEOUT_MS);
 
+  beforeEach(async () => {
+    await redisClient.set(ACTOR_STATE_CACHE_KEY, ACTIVE_USER_STATE_CACHE, 'EX', 60);
+  });
+
   afterAll(async () => {
+    await redisClient?.del(ACTOR_STATE_CACHE_KEY);
     await redisClient?.del(ACTOR_CACHE_KEY);
     await disconnectRedis?.();
     await disconnectPrisma?.();
@@ -134,6 +158,21 @@ describe('権限の確認を通るエンドポイントの DB 接続タイムア
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ ...SERVICE_UNAVAILABLE, instance: path });
   }
+
+  /**
+   * 利用者の状態のキャッシュに当たらない場合、認証ミドルウェアの状態の取得が最初に DB へ到達する。
+   * その DB 接続のタイムアウトは認証の失敗（401）にせず、エラーハンドラーへ渡して 503 にする
+   * （user-authentication タスク47.6。状態の照合で DB の障害を利用者のログアウトに変えない）
+   */
+  it('利用者の状態のキャッシュに当たらないときは、状態の取得の DB 接続のタイムアウトで 503 を返す', async () => {
+    await redisClient.del(ACTOR_STATE_CACHE_KEY);
+    await redisClient.set(ACTOR_CACHE_KEY, ALL_PERMISSIONS_CACHE, 'EX', 60);
+    try {
+      await expectServiceUnavailable('/api/v1/roles');
+    } finally {
+      await redisClient.del(ACTOR_CACHE_KEY);
+    }
+  }, 30000);
 
   describe('権限のキャッシュに当たらない場合（権限の判定が DB を引く）', () => {
     beforeEach(async () => {

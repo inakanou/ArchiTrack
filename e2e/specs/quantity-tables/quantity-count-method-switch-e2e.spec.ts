@@ -510,11 +510,6 @@ test.describe('REQ-48: 計算方法切替時の計算用パラメータの整合
   // --------------------------------------------------------------------------
   test('作成したプロジェクトを削除する', async ({ page, context }) => {
     await context.clearCookies();
-    await page.goto('/');
-    await page.evaluate(() => {
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('accessToken');
-    });
 
     await loginAsUser(page, 'ADMIN_USER');
 

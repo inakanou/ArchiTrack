@@ -212,7 +212,7 @@ describe('ImageListService', () => {
      *
      * @requirement site-survey/REQ-38.9
      */
-    it('アクセス権限がない場合は原画像URLをnullにすること (site-survey/REQ-38.9)', async () => {
+    it('閲覧範囲外の場合は原画像・サムネイル・注釈付きサムネイルのいずれのURLも発行しないこと (site-survey/REQ-38.9, site-survey/REQ-39.6)', async () => {
       const surveyId = '123e4567-e89b-12d3-a456-426614174000';
       const userId = 'user-123';
       const mockImages = [
@@ -226,7 +226,7 @@ describe('ImageListService', () => {
           displayOrder: 1,
           originalPath: 'surveys/123/original1.jpg',
           thumbnailPath: 'surveys/123/thumb1.jpg',
-          annotatedThumbnailPath: null,
+          annotatedThumbnailPath: 'annotated-thumbnails/img-1.jpg',
           createdAt: new Date('2024-01-01'),
         },
       ];
@@ -240,6 +240,10 @@ describe('ImageListService', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0]?.originalUrl).toBeNull();
+      expect(result[0]?.thumbnailUrl).toBeNull();
+      expect(result[0]?.annotatedThumbnailUrl).toBeNull();
+      // 範囲外では署名そのものを行わない
+      expect(mockStorageProvider.getSignedUrl).not.toHaveBeenCalled();
     });
 
     /**

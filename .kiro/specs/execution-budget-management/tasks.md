@@ -392,5 +392,91 @@
   - _Requirements: 18.1, 18.4_
   - _Boundary: 出来高入力画面の出来高率の算出とその検証_
 
+## タスク17: 案件の閲覧範囲（user-authentication の要件39）と出力の記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（backend/src/services/export-audit.service.ts の `ExportAuditService`）を実装した（同スペックのタスク52.1・53.3）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.7 が本スペックの項目（発注と月別出来高のエクスポートの記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が他の案件の実行予算・発注・出来高・原価を読み書きできる）ことと、出力が記録を経ないこと（`ExportAuditService.record` の呼び出し元は監査ログの経路だけ）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [x] 17.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用し、子リソースの所属を照合する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。いずれも `/api/projects/:projectId/execution-budget` の配下に載る。着手時に測り直すこと）:
+    - backend/src/routes/execution-budget.routes.ts: `POST /`（53）、`GET /`（105）、`DELETE /`（143）、`PATCH /items/:itemId`（189）、`GET /unreflected-amendments`（230）、`GET /amendment-diff/:contractId`（266）、`POST /apply-amendment`（319）
+    - backend/src/routes/order.routes.ts（`…/orders`）: `GET /`（68）、`POST /`（107）、`GET /:orderId`（157）、`PATCH /:orderId`（188）、`PUT /:orderId/items`（229）、`PATCH /:orderId/status`（270）、`DELETE /:orderId`（321）
+    - backend/src/routes/progress.routes.ts（`…/progress`）: `GET /monthly`（56）、`GET /monthly/:yearMonth`（103）、`POST /`（154）、`GET /`（214）、`GET /:date`（253）、`DELETE /:progressRecordId`（303）
+    - backend/src/routes/cost-monthly-close.routes.ts: `PATCH /items/:itemId/cost`（63）、`POST /monthly-close`（104）、`GET /monthly-close`（166）
+    - backend/src/routes/export.routes.ts: `GET /orders/:orderId/export`（66）、`GET /progress/monthly/export`（116）
+  - 経路の `projectId` を `projectIdFromParam` で読み、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）
+  - **子リソースの所属の照合**: 経路の `itemId`・`orderId`・`progressRecordId`・`contractId` が経路の `projectId` の案件に属するかを確かめ、属さない組み合わせは不在と同じ 404 にする（contract-management の是正計画 §5.11 と同じ形。範囲内の案件の ID を経由して範囲外の子を操作できないようにする）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の要求と所属しない子の ID が不在と同じ 404 になり DB が変わらないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が実行予算の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 20（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 20.1〜20.6 が受ける。子リソース（`itemId`・`orderId`・`progressRecordId`・`contractId`）が経路の案件に属さなければ不在と同じ 404 でデータを変えない（20.4）、一括の要求（発注のチェック済み項目の更新、出来高の保存）は属さない項目が一つでも含まれれば要求全体を 404 で書き込みなし（20.5）と条文に定めた。案件の範囲を含意する既存の条文として要件 17.1〜17.6（ロールだけで許可を定めていた）を改訂し、改訂の記録（採らなかった案: 条文を変えず design.md だけで読み替える案）を requirements.md の Requirement 17 の下に残した。design.md は「Requirement 20: 案件の閲覧範囲と出力の記録の適用」章を足し、Security Considerations の当初の記述は記録として残して置き換えを書き添えた。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 17.1, 17.2, 17.3, 17.4, 17.5, 17.6_
+  - _Boundary: 本スペックの API の案件の範囲の判定と子リソースの所属の照合_
+
+- [x] 17.2 発注と月別出来高の出力に記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測）: サーバーで生成する backend/src/routes/export.routes.ts の `GET /orders/:orderId/export`（66。画面は frontend/src/pages/OrderDetailPage.tsx の `handleExport`）と `GET /progress/monthly/export`（116。画面は frontend/src/pages/ProgressInputPage.tsx の `handleExportExcel`・`handleExportPdf`）。種別 `order_export`・`progress_export`
+  - ハンドラーが生成の前に `ExportAuditService.record`（実行者・種別・案件・対象・件数）を呼ぶ（40.9。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。記録が失敗したときの応答（出力を返さない）は同節に照らして決める
+  - 挙動の変更であるため RED → GREEN で進め、統合テストで出力のたびに監査 `DATA_EXPORTED` が種別・案件つきで 1 件記録されること、記録の失敗時の応答を主張し、E2E で画面からの出力が記録を残すことを確かめる
+  - **判断の結果（2026-10-27、利用者の判断。17.1 の判断と同じ）**: 本タスクの適用は Requirement 20 の 20.7・20.8 が受ける。出力はサーバーで生成するため、記録はハンドラーがファイルの生成の前に 1 回行い（20.7）、記録の失敗ではファイルを生成せず返さずにエラーを返し、画面はダウンロードを始めず「出力を記録できなかったため中止しました」を表示する（20.8）と条文に定めた。応答の形（500・`detail`・識別子）は design.md の同章の「記録の失敗の応答」に記した。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 20.7, 20.8_
+  - _Boundary: 発注と月別出来高の出力の経路の記録_
+  - _Depends: 17.1_
+
+## タスク18: 子・契約・一括の項目の食い違いの記録（user-authentication の要件39.8 の適用。利用者の判断で起票、2026-10-29）
+
+**経緯**: user-authentication が要件39.8 を加え、経路の案件（または親のデータ）と対象の実際の案件（または親のデータ）が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（利用者の判断、2026-10-29「推奨案で進める」。同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の execution-budget-management の行）。本スペックの子リソースの所属の照合（backend/src/middleware/execution-budget-project-scope.middleware.ts の `requireChildInProject`〔89〜108 行付近、食い違いの分岐は 99 行付近〕）と一括の照合（同ファイルの `requireBodyExecutionBudgetItemsInProject`〔151〜178 行付近、件数の照合は 166〜172 行付近〕）、契約の所属の照合（backend/src/services/execution-budget.service.ts の `create`〔290〜297 行付近〕・`getAmendmentDiff`〔909〜915 行付近〕・`applyAmendment`〔1043〜1050 行付近〕）は、食い違いを不在として扱い、実際の案件を判定せず記録しない。行は同日の実測で、着手時に測り直すこと。requirements.md に 20.9 を加え（20.4・20.5 の条文は改訂しない。理由は design.md の末尾の章の「受入基準の置き場所の判断」）、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置き、Requirement 20 章の「適用の決定」の記録しないとする項に改訂の注記を置いた
+
+- [x] 18.1 子リソースの所属の照合と一括の照合で、実際の案件が範囲外なら記録する
+  - `requireChildInProject` は、子が実在し経路の `projectId` と異なる案件に属するとき、汎用の 404 を返す前に上流の `recordProjectMismatchIfOutOfScope(req, 子の案件 ID)` を待つ。子が無いときは従来どおり記録しない。3 つの照合の部品（`requireExecutionBudgetItemInProject`・`requireOrderInProject`・`requireProgressRecordInProject`）は上流の `ProjectScopeGuardOptions` を受け取れるようにする
+  - `requireBodyExecutionBudgetItemsInProject` は、件数の照合で欠けたときだけ、属さない項目が実際に属する案件の ID を重複なく引き、案件ごとに一度ずつ `recordProjectMismatchIfOutOfScope` を呼んでから汎用の 404 を返す。存在しない項目は記録しない。通る要求の問い合わせと、対象 0 件を照合せずに通すことは変えない
+  - 子・項目と親の実行予算の論理削除は区別しない（design.md の同章の「決定」）。応答は範囲の内外にかかわらず従来どおり汎用の 404 で、データを変えない。同ファイルの冒頭の注釈（`@fileoverview`）の、所属しない子を記録しないとする記述を改める
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（backend/src/__tests__/unit/middleware/execution-budget-project-scope.middleware.test.ts）の「…他の案件に属するか不在なら同じ汎用の 404 にして記録しない」（142 行付近。実行予算項目・発注・出来高記録の 3 通り）を、他の案件が範囲外なら記録 1 件（対象は子の実際の案件）で 404、範囲内なら記録なしで 404、不在なら記録なしで 404 へ改め、題名も改める。一括の照合のテスト（168・204 行付近）に、範囲外の案件ごとに 1 件の記録と不在の項目で記録の無いことを足す。統合テスト（backend/src/__tests__/integration/execution-budget-project-scope.api.integration.test.ts）の「経路の案件に属さない実行予算項目・発注・出来高記録は、存在しない ID と同じ 404 になり」（717 行付近）は、案件 other を範囲外とする工事担当者と範囲内とする全案件閲覧の権限の利用者の両方で記録 0 件を主張しており（791〜795 行付近）、工事担当者の分は範囲外の食い違いで 20.9 と直接に矛盾する（2026-10-29 に現物で確かめた。fixture は案件 other の営業担当者・作成者を担当外の利用者とし、工事担当者は案件 other の関係者でない）。工事担当者は食い違いの要求の数だけ記録が増え（対象は案件 other）、全案件閲覧の権限の利用者は増えないことの主張へ改める。一括の要求のテスト（878 行付近の describe）に同じ二人の記録の増減の主張を足す。記録の数は利用者ごとの前後の差で数える
+  - E2E（e2e/specs/execution-budget/execution-budget-project-scope.spec.ts の「自分の案件の経路で他の案件の発注・項目を指すと」〔401 行付近〕）に、範囲外の案件の発注・項目・出来高記録と一括の項目を指す要求で監査の記録が増えることの主張を足し、`@requirement execution-budget-management/REQ-20.9` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、子と一括の項目の食い違いが範囲外のときだけ記録され、どの場合も従来どおり汎用の 404 でデータが変わらない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 20.9_
+  - _Boundary: requireChildInProject と requireBodyExecutionBudgetItemsInProject と、それらの記録を主張する本スペックのテスト_
+
+- [x] 18.2 契約の所属の照合で、他の案件の契約の案件が範囲外なら記録する
+  - `ExecutionBudgetService` に注入できる `projectScope`（既定は user-authentication の共有のインスタンスの `evaluateProjectAccess`）と監査の記録の手段を足し、`create`・`getAmendmentDiff`・`applyAmendment` が実行者の ID と要求の識別（経路が `projectScopeDenialContextOf` で切り出す）を受け取るようにする。呼び出し元の経路（backend/src/routes/execution-budget.routes.ts の実行予算の作成・変更契約の項目差分・変更契約の反映）が渡す
+  - 契約が実在し論理削除されておらず、契約の案件が経路の `projectId` と食い違うときだけ契約の案件を判定し、範囲外なら処理の後に `withSurveyScopeDenialRecording` で 1 回記録する（トランザクションの外で書く）。応答は判定の結果に関わらず従来どおりの契約の不在の例外（`ContractNotFoundForBudgetError`・`AmendmentContractNotFoundError`）とし、何も書き込まない。契約の不在・論理削除は記録しない。契約の種別と見積書の有無は記録の条件に含めない（design.md の同章の「決定」）
+  - 既存の単体テスト（backend/src/__tests__/unit/services/execution-budget.service.test.ts）の他の案件の契約の扱いの主張が判定の模擬を要するかを着手時に確かめ、要すれば主張を消さずに模擬を足す。統合テストの「経路・要求本文の契約が経路の案件に属さなければ、存在しない契約と同じ 404 になり」（800 行付近）に、工事担当者で記録が 3 件増え（対象は案件 other）、全案件閲覧の権限の利用者と存在しない契約で増えないことの主張を足し、範囲外の案件の論理削除済みの契約で増えないことを足す。被覆の印 `@requirement execution-budget-management/REQ-20.9` を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 には依存しない（既存の判定と記録の部品を使う）
+  - 単体・統合で、他の案件の契約を指す要求が範囲外のときだけ記録され、応答と DB が従来どおりである状態になる
+  - _Requirements: 20.9_
+  - _Boundary: ExecutionBudgetService の create・getAmendmentDiff・applyAmendment の契約の所属の照合と、その呼び出し元の経路_
+
+## タスク19: 実行予算の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 20.2 により閲覧範囲外のプロジェクトの実行予算・発注への要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `frontend/src/api/execution-budget.ts` の `getExecutionBudget`（237〜251 行付近）が 404 を null に変えるため、`ExecutionBudgetPage.tsx` は閲覧できない案件や存在しない案件でも実行予算が未作成である旨と作成の釦を出す（722〜740 行付近）。同画面のエラーの状態は値を捨てており（580 行付近）、作成・月次締め・契約書の一覧の取得の失敗（641・696・709 行付近）はどこにも表示されず、削除・原価の入力は `ApiError` の `message` をそのまま表示する（655・675 行付近）。`ExecutionBudgetAmendmentPage.tsx` は同じ関数で未作成と扱い未反映の変更契約が無い旨を出し、項目差分の取得と反映の失敗で `message` を表示する（262・290 行付近）。`OrderDetailPage.tsx` は発注の取得の失敗で `message`（汎用の 404 では英語の文言）を既定の発注が見つからない旨より優先して表示し（344・629 行付近）、作成・ステータスの変更・削除は `message` を表示し（545・430・457・472・497 行付近）、取得の後の編集・チェック済み項目の更新・取引先の変更の失敗（384・399・560 行付近）は表示されない状態に入れる。`ProgressInputPage.tsx` は読み込みの失敗のトーストと実行予算が見つからない旨を出し（384・597 行付近）、保存・取り除きの失敗は汎用の文言を出す（480・532 行付近）。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に Requirement 21（21.1・21.2）を加え、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた
+
+- [x] 19.1 実行予算・変更契約の反映・発注詳細・出来高入力の画面と各操作で、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める。汎用の 404 は発注詳細の画面と発注の操作では発注、それ以外ではプロジェクト。本体の 404 の符号はそれぞれの対象。応答の `detail` は表示しない）
+  - **未作成と案件の不在の見分け**: 実行予算の取得が 404（`getExecutionBudget` が null）のときに限り案件を取得し（`getProject`）、案件の取得も 404 なら共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`。対象はプロジェクト、戻り先はプロジェクトの一覧）を表示し、未作成の表示と作成の釦を出さない。案件が取得できれば従来の未作成の表示にする。案件の取得が 404 以外で失敗したら作成の釦を出さず読み込みの失敗を表示する。サーバーの応答と `getExecutionBudget` の振る舞いは変えない。変更契約の反映の画面と出来高入力の画面も同じ見分けを使う（出来高入力の画面は履歴・月別出来高の取得の 404 も見分けに掛け、案件の不在ならトーストを出さない）。見分けの処理は一か所に置く
+  - 発注詳細の画面は発注の取得の 404 で `ResourceNotFound`（対象は発注、戻り先はその案件の実行予算の画面）を表示し、応答の文言を既定の文言より優先する表示をやめる
+  - 操作（実行予算の作成・削除・原価の入力・月次締め、変更契約の項目差分の取得と反映、発注の作成・編集・チェック済み項目の更新・ステータスの変更・取り除き、出来高の保存・出来高記録の取り除き）の 404 で見つからない旨のメッセージを画面に表示する。実行予算の画面に作成・月次締めの失敗の表示欄を、発注詳細の画面に取得の後の編集・チェック済み項目の更新の失敗の表示欄を設ける（404 以外の失敗も従来コードが設定していた文言で表示されるようになることを許容する。design.md の同章の「決定」）。409・422 と 404 以外の失敗の従来の文言、出力の失敗の表示（20.8 と出力の失敗の文言）、出来高入力の画面の施工日指定の取得・月別明細の取得の失敗の表示は保つ。文言の逐語は `ResourceNotFound` の見出しの形を流儀として design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、実行予算の画面が案件の 404 で `ResourceNotFound` を出し未作成の表示と作成の釦を出さないこと、案件が取得できれば従来の未作成の表示を出すこと、変更契約の反映・出来高入力・発注詳細の画面の読み込みの 404 の表示、各操作の 404 のメッセージ。404 以外の失敗の従来の文言は保つ）と E2E（担当外の利用者が実行予算の URL を開くとプロジェクトが見つからない旨とプロジェクトの一覧へのリンクが出て存在しない案件と同じ表示になり作成の釦が出ない、担当外の発注詳細の URL で発注が見つからない旨が出て英語の文言が出ない、開いた後に取り除かれた発注の操作で見つからない旨のメッセージが出る）で主張し、`@requirement execution-budget-management/REQ-21.1`・`REQ-21.2` の印を置く
+  - **既存の E2E の書き換え**: e2e/specs/execution-budget/execution-budget-project-scope.spec.ts の「担当外の利用者が実行予算の URL を直接開くと存在しない案件と同じ表示になり」（259 行付近）は、存在しない案件と範囲外の案件の両方で実行予算が未作成である旨が見えることを主張している（283〜291 行付近）。21.1 で両方ともプロジェクトが見つからない旨の表示になるため、見える文言の主張をプロジェクトが見つからない旨へ改め、作成の釦が出ないことを足す（存在しない案件と同じ表示である比較の主張は消さない）。ほかに、変えた表示（実行予算が未作成である旨、発注が見つからない旨、実行予算が見つからない旨、データの取得の失敗・読み込みの失敗・出来高の保存の失敗・出来高記録の削除の失敗の文言、英語の Not found）を e2e/ 全体で grep して既存の E2E を選び、流す。単体テスト（`ExecutionBudgetPage.test.tsx`・`ExecutionBudgetAmendmentPage.test.tsx` ほか、各画面の失敗の文言の主張）も確かめる。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、閲覧できない案件で実行予算の作成へ誘わず、応答の英語の文言と読み込み・操作の失敗の汎用の文言を出さない状態になる
+  - _Requirements: 21.1, 21.2_
+  - _Boundary: ExecutionBudgetPage, ExecutionBudgetAmendmentPage, OrderDetailPage, ProgressInputPage_
+
+## タスク20: 論理削除済みの契約の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、記録しない「論理削除」を案件そのものの論理削除に限り、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」とその起票先の一覧の execution-budget-management の行）。本機能の契約の所属の照合の `noteContractOfOtherProject`（backend/src/services/execution-budget.service.ts の 289〜307 行付近、論理削除の条件は 298 行付近。呼び出し元は `create`〔389〜394 行付近〕・`getAmendmentDiff`〔1028〜1033 行付近〕・`applyAmendment`〔1182〜1193 行付近〕。行は 2026-10-30 の実測で、着手時に測り直すこと）は、論理削除済みの契約では判定せず記録しない。子と一括の照合の部品は論理削除を区別せず、既に方針どおりであり変えない。requirements.md の 20.9 の条文から契約の論理削除の除外を外し（改訂の記録を Requirement 20 に残した）、design.md の末尾の章「2026-10-30 の追加: 論理削除済みの契約の範囲外の記録」に設計を置いた。応答とデータと画面は変えない
+
+- [x] 20.1 契約の所属の照合で、範囲外の案件の論理削除済みの契約を記録する
+  - `noteContractOfOtherProject` の早期の戻りの条件から契約の論理削除（`deletedAt !== null`）を外し、実行者が分からない・契約が無い・契約の案件が経路の `projectId` と一致するときだけ戻る形に改める（design.md の同章の「決定」の「契約の照合の条件」）。呼び出し元の 3 つの分岐の条件と例外（`ContractNotFoundForBudgetError`・`AmendmentContractNotFoundError`）は変えず、論理削除済みの契約は従来どおり契約の不在の 404 で何も書き込まない。記録は既存の `withSurveyScopeDenialRecording` が処理の後に案件ごとに 1 回書く。`noteContractOfOtherProject` の注釈と、判定部品のファイルの冒頭の注釈の契約の項を改める
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない。上流の起票先の一覧のとおり単体 1 本と統合 1 本）: 単体（`backend/src/__tests__/unit/services/execution-budget.service.test.ts`）の「ExecutionBudgetService - 他の案件の契約の範囲外の記録」の 3 経路の表の「契約が論理削除済みなら、範囲外の案件の契約でも判定せず記録しない」を、論理削除済みの契約の案件が範囲外なら契約の不在と同じ例外で判定 1 回・記録 1 回（対象は契約の案件）、範囲内の他の案件・案件の不在なら判定して記録なし、を主張する形へ改め、題名も改める。経路の案件の論理削除済みの契約では判定も記録もせず同じ例外になることを足す。統合（`backend/src/__tests__/integration/execution-budget-project-scope.api.integration.test.ts`）の「経路・要求本文の契約が経路の案件に属さなければ、存在しない契約と同じ 404 になり」の後半は、範囲外の案件の論理削除済みの契約を範囲内の他の案件の契約と並べて工事担当者の記録 0 件を主張しており、改訂後の 20.9 と直接に矛盾する。論理削除済みの契約を「記録しない」の並びから外し、3 経路のそれぞれで存在しない契約と同じ 404 の本文のまま工事担当者の記録が 1 件ずつ増え（対象は契約の案件）全案件閲覧の権限の利用者では増えないことの主張へ改め、案件そのものを論理削除した場合に記録が増えないことを足す。範囲内の他の案件の契約で増えないこと、実行予算が作られずデータが変わらないことの主張は保つ。単体の「契約書が論理削除済みの場合はContractNotFoundForBudgetErrorを投げる」と「変更契約が論理削除済みの場合はAmendmentContractNotFoundErrorをスローする」は経路の案件の契約で実行者を渡さず、書き換えは要らない（着手時に緑のままであることを確かめる）
+  - E2E（`e2e/specs/execution-budget/execution-budget-project-scope.spec.ts`）で、自分の案件の経路で範囲外の案件の論理削除済みの契約を指す実行予算の作成（または変更契約の項目差分）が存在しない契約と同じ 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え（対象は契約の案件）、実行予算が作られないことを主張し、`@requirement execution-budget-management/REQ-20.9` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（実行予算の作成・変更契約の項目差分と反映の契約の不在の 404、`PROJECT_SCOPE_DENIED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 20.9・21.1・21.2 のテストと、変更契約の反映の E2E を含む）
+  - 挙動の変更であるため RED → GREEN で進め、書き換え・追加したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、範囲外の案件の論理削除済みの契約を指す要求が契約の不在と同じ 404 のまま記録され、経路の案件・範囲内の他の案件の論理削除済みの契約と案件そのものの論理削除では記録されず、どの場合も実行予算を作らず変更契約を反映しない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 20.9_
+  - _Boundary: ExecutionBudgetService の契約の所属の照合（noteContractOfOtherProject）と、その記録を主張する本スペックのテスト_
+
 ## Implementation Notes
 - 16.1（2026-09-29）: 精度の検証の網羅は、design.md の構成要素（Service 6 つ → `execution-budget` / `order` / `progress` / `cost` / `monthly-close` / `order-export` / `progress-export` の 7 ファイル）から対象を決め、固定の grep の全ヒット行を RED / 同値 / 範囲外 / 対象外に理由付きで分類して突き合わせること。機能名の連想で対象を絞った 3 回が、毎回その回の指摘分だけを直す形になり差し戻された。Number の変異が区別できる入力は、2^53 を超える奇数の途中和（999999999999999×10 と 1 の並びの順序に注意）と、真値が二進で表せない比率（例 15/10000）で作る。fixture は案分の結果など実際に到達しうる状態であることを確かめる
+- 機能検証 NO-GO の是正（2026-10-29、出力のダウンロード）: 9.2・10.3 が画面から到達できなかった原因は、`exportOrder`・`exportMonthlyProgress` が共通の API クライアントの `get` で応答を受け、JSON 以外の本文が `response.text()` で文字列になって `URL.createObjectURL` が型の誤りで失敗していたこと（発注詳細画面は無反応、出来高入力画面は成功でも失敗のトースト）。共通の API クライアント（frontend/src/api/client.ts）に成功の本文を Blob で受け取る口 `getBlob` を一か所設け（認証・401 の更新と送り直し・時間切れ・失敗の JSON の解析は既存の経路と共有し、`EXPORT_RECORD_FAILED` は `getApiErrorCode` で引き続き判別できる）、両関数と工程表の `exportSchedule` を切り替えた。発注詳細画面は記録の失敗以外の失敗も出力の失敗の表示欄に出す。単体のモックが Blob を返して素通りし、E2E が応答の状態だけを見ていたため検出できなかったので、E2E（出力の記録の spec）は `waitForEvent('download')` でファイル名と形式の先頭の符号を確かめる
+- 機能検証の指摘の是正（2026-10-30、出来高記録の取り除きの 404 の文言）: 出来高記録は物理削除のため、別のタブで先に消された記録の取り除きは経路の照合の汎用の 404 になり、経路の対象を project としていた画面が「プロジェクトが見つかりません」と出していた。経路の対象を design.md の 19.1 の決定の改訂（2026-10-30）のとおり出来高記録（`progressRecord`）に改め、保存は経路が案件を指すためプロジェクトのままとした。単体の汎用の 404 の取り除きと、開いた後に DB から記録を消して取り除く E2E（21.2 の閲覧範囲の spec）で、トーストの文言を完全一致で確かめる
+- 機能検証の指摘の是正（2026-10-31、操作の成功の後の読み直しの失敗の表示、7363683e）: 出来高入力の画面の保存と出来高記録の取り除きの成功の後の履歴・月別の読み直しを操作の受け口から分けた（`reloadProgressLists`）。読み直しの失敗は、汎用の 404 はプロジェクトの文言、符号の無い 404 は実行予算の文言（分類の部品の既存の決まり）、それ以外は「データの読み込みに失敗しました」とし、操作の失敗の文言は出さない。初回の読み込み（`loadData`）の 404 の見分けは従来どおり。design.md の 19.1 の文言の決定の後の「是正（2026-10-31）」と、2026-10-29 の章の Error Handling の表の行

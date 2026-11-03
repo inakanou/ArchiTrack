@@ -54,6 +54,13 @@ export const SESSION_CONFIG = {
 } as const;
 
 /**
+ * パスワードリセットの要求の応答（登録の有無・制限の有無に関わらず同じ 200 と本文を返す。要件35.7）
+ */
+export const PASSWORD_RESET_REQUEST_ACCEPTED_RESPONSE = {
+  message: 'If an account exists, a password reset email has been sent',
+} as const;
+
+/**
  * Rate limiting settings
  */
 export const RATE_LIMIT = {

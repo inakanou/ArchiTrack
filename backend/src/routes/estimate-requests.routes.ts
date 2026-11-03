@@ -17,6 +17,10 @@
  * - 5.1, 5.2: Excel出力
  * - 6.1: 見積依頼文生成
  *
+ * 案件の閲覧範囲（estimate-request の Requirement 42、user-authentication の要件39。タスク103.1）:
+ * 全経路で requirePermission の後に estimate-request-project-scope.middleware の判定部品を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。作成の要求が指す内訳書の案件も判定する。
+ *
  * Task 3.2: estimate-requests.routesの基本エンドポイント実装
  * Task 3.3: estimate-requests.routesの追加エンドポイント実装
  *
@@ -31,6 +35,11 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireBodyItemizedStatementProjectScope,
+  requireEstimateRequestProjectScope,
+  requireProjectParamScope,
+} from '../middleware/estimate-request-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createEstimateRequestSchema,
@@ -39,7 +48,7 @@ import {
   estimateRequestIdParamSchema,
   projectIdParamSchema,
   estimateRequestListQuerySchema,
-  deleteEstimateRequestBodySchema,
+  deleteEstimateRequestQuerySchema,
 } from '../schemas/estimate-request.schema.js';
 import {
   EstimateRequestNotFoundError,
@@ -131,7 +140,9 @@ router.post(
   authenticate,
   requirePermission('estimate_request:create'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createEstimateRequestSchema, 'body'),
+  requireBodyItemizedStatementProjectScope('itemizedStatementId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { projectId } = req.validatedParams as { projectId: string };
@@ -258,6 +269,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(estimateRequestListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -335,6 +347,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { projectId } = req.validatedParams as { projectId: string };
@@ -392,6 +405,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -483,6 +497,7 @@ router.put(
   authenticate,
   requirePermission('estimate_request:update'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   validate(updateEstimateRequestSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -539,7 +554,7 @@ router.put(
  * /api/estimate-requests/{id}:
  *   delete:
  *     summary: 見積依頼削除
- *     description: 見積依頼を論理削除（楽観的排他制御）
+ *     description: 見積依頼を論理削除（楽観的排他制御）。基準時刻はクエリで受け取り、本文は読まない
  *     tags:
  *       - Estimate Requests
  *     security:
@@ -552,19 +567,13 @@ router.put(
  *           type: string
  *           format: uuid
  *         description: 見積依頼ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - updatedAt
- *             properties:
- *               updatedAt:
- *                 type: string
- *                 format: date-time
- *                 description: 楽観的排他制御用の更新日時
+ *       - in: query
+ *         name: updatedAt
+ *         required: true
+ *         description: 楽観的排他制御の基準時刻（取得した見積依頼の updatedAt）
+ *         schema:
+ *           type: string
+ *           format: date-time
  *     responses:
  *       204:
  *         description: 見積依頼削除成功
@@ -584,12 +593,15 @@ router.delete(
   authenticate,
   requirePermission('estimate_request:delete'),
   validate(estimateRequestIdParamSchema, 'params'),
-  validate(deleteEstimateRequestBodySchema, 'body'),
+  requireEstimateRequestProjectScope('id'),
+  // 基準時刻はクエリで受け取る（DELETE の本文は中継で落ちうる。2026-10-31 の是正、見積書の削除と同じ形）。
+  // 範囲の判定の後に検証し、範囲外は 400 より先に 404 にする（判定の順序: 権限 → ID → 案件の範囲 → クエリ）
+  validate(deleteEstimateRequestQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
       const actorId = req.user!.userId;
-      const { updatedAt } = req.validatedBody as { updatedAt: string };
+      const { updatedAt } = req.validatedQuery as { updatedAt: string };
 
       await estimateRequestService.delete(id, actorId, new Date(updatedAt));
 
@@ -684,6 +696,7 @@ router.patch(
   authenticate,
   requirePermission('estimate_request:update'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   validate(updateItemSelectionSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -750,11 +763,15 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
 
-      const items = await estimateRequestService.findItemsWithOtherRequestStatus(id);
+      const items = await estimateRequestService.findItemsWithOtherRequestStatus(
+        id,
+        req.user!.userId
+      );
 
       logger.debug(
         { userId: req.user?.userId, estimateRequestId: id, itemCount: items.length },
@@ -838,6 +855,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -934,6 +952,7 @@ router.get(
   authenticate,
   requirePermission('estimate_request:read'),
   validate(estimateRequestIdParamSchema, 'params'),
+  requireEstimateRequestProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };

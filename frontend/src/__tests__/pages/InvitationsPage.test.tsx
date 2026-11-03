@@ -5,11 +5,17 @@
  * 要件13: 管理者ユーザー招待画面のUI/UX
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { InvitationsPage } from '../../pages/InvitationsPage';
-import type { Invitation } from '../../types/invitation.types';
+import type {
+  Invitation,
+  IssuedInvitation,
+  CreateInvitationInput,
+  CreateInvitationResult,
+  CancelInvitationResult,
+  ResendInvitationResult,
+} from '../../types/invitation.types';
 
 // API clientをモック
 vi.mock('../../api/client', () => ({
@@ -22,7 +28,13 @@ vi.mock('../../api/client', () => ({
 
 import { apiClient } from '../../api/client';
 
-// InvitationManagerコンポーネントをモック
+// InvitationManagerコンポーネントをモック（画面に渡されたコールバックを試験から直接呼ぶ）
+const captured: {
+  onCreateInvitation?: (input: CreateInvitationInput) => Promise<CreateInvitationResult>;
+  onCancelInvitation?: (id: string) => Promise<CancelInvitationResult>;
+  onResendInvitation?: (id: string) => Promise<ResendInvitationResult>;
+} = {};
+
 vi.mock('../../components/InvitationManager', () => ({
   default: ({
     invitations,
@@ -33,42 +45,28 @@ vi.mock('../../components/InvitationManager', () => ({
     error,
   }: {
     invitations: Invitation[];
-    onCreateInvitation: (input: { email: string }) => Promise<{
-      success: boolean;
-      invitation?: Invitation;
-      invitationUrl?: string;
-      error?: string;
-    }>;
-    onCancelInvitation: (id: string) => Promise<{ success: boolean; error?: string }>;
-    onResendInvitation: (
-      id: string
-    ) => Promise<{ success: boolean; invitationUrl?: string; error?: string }>;
+    onCreateInvitation: (input: CreateInvitationInput) => Promise<CreateInvitationResult>;
+    onCancelInvitation: (id: string) => Promise<CancelInvitationResult>;
+    onResendInvitation: (id: string) => Promise<ResendInvitationResult>;
     loading: boolean;
     error: string;
-  }) => (
-    <div data-testid="invitation-manager">
-      {loading && <div data-testid="loading">読み込み中...</div>}
-      {error && <div data-testid="error">{error}</div>}
-      <div data-testid="invitation-count">{invitations.length}</div>
-      {invitations.map((inv) => (
-        <div key={inv.id} data-testid={`invitation-${inv.id}`}>
-          {inv.email}
-        </div>
-      ))}
-      <button
-        onClick={() => onCreateInvitation({ email: 'new@example.com' })}
-        data-testid="create-button"
-      >
-        招待作成
-      </button>
-      <button onClick={() => onCancelInvitation('inv-1')} data-testid="cancel-button">
-        招待取消
-      </button>
-      <button onClick={() => onResendInvitation('inv-1')} data-testid="resend-button">
-        再送信
-      </button>
-    </div>
-  ),
+  }) => {
+    captured.onCreateInvitation = onCreateInvitation;
+    captured.onCancelInvitation = onCancelInvitation;
+    captured.onResendInvitation = onResendInvitation;
+    return (
+      <div data-testid="invitation-manager">
+        {loading && <div data-testid="loading">読み込み中...</div>}
+        {error && <div data-testid="error">{error}</div>}
+        <div data-testid="invitation-count">{invitations.length}</div>
+        {invitations.map((inv) => (
+          <div key={inv.id} data-testid={`invitation-${inv.id}`}>
+            {inv.email}
+          </div>
+        ))}
+      </div>
+    );
+  },
 }));
 
 // window.location.originをモック
@@ -87,26 +85,34 @@ afterAll(() => {
   });
 });
 
+const ADMIN = { id: 'admin-1', displayName: 'Admin' };
+
 const mockInvitations: Invitation[] = [
   {
     id: 'inv-1',
     email: 'user1@example.com',
-    token: 'token-1',
     status: 'pending',
     expiresAt: new Date(Date.now() + 86400000).toISOString(),
     createdAt: new Date().toISOString(),
-    invitedBy: 'admin-1',
+    inviter: ADMIN,
   },
   {
     id: 'inv-2',
     email: 'user2@example.com',
-    token: 'token-2',
     status: 'accepted',
     expiresAt: new Date(Date.now() + 86400000).toISOString(),
     createdAt: new Date().toISOString(),
-    invitedBy: 'admin-1',
+    inviter: ADMIN,
   },
 ];
+
+/** 画面が描画されコールバックが渡るまで待つ */
+async function renderPage() {
+  render(<InvitationsPage />);
+  await waitFor(() => {
+    expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
+  });
+}
 
 describe('InvitationsPage Component', () => {
   beforeEach(() => {
@@ -148,199 +154,143 @@ describe('InvitationsPage Component', () => {
   });
 
   describe('招待作成', () => {
-    it('招待作成が成功した場合、招待URLを含む結果を返す', async () => {
-      const user = userEvent.setup();
-      const newInvitation: Invitation = {
+    /**
+     * @requirement user-authentication/REQ-37.2
+     */
+    it('招待作成が成功した場合、サーバーが返した招待 URL をそのまま結果に載せ、一覧を取り直す', async () => {
+      const issued: IssuedInvitation = {
         id: 'inv-3',
         email: 'new@example.com',
-        token: 'new-token',
         status: 'pending',
         expiresAt: new Date(Date.now() + 86400000).toISOString(),
         createdAt: new Date().toISOString(),
-        invitedBy: 'admin-1',
+        inviter: ADMIN,
+        invitationUrl: 'https://app.example.com/register?token=server-built-token',
       };
+      vi.mocked(apiClient.post).mockResolvedValueOnce(issued);
 
-      vi.mocked(apiClient.post).mockResolvedValueOnce(newInvitation);
-      vi.mocked(apiClient.get).mockResolvedValueOnce([...mockInvitations, newInvitation]);
-
-      render(<InvitationsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
+      await renderPage();
+      let result: CreateInvitationResult | undefined;
+      await act(async () => {
+        result = await captured.onCreateInvitation!({ email: 'new@example.com' });
       });
 
-      await user.click(screen.getByTestId('create-button'));
-
-      await waitFor(() => {
-        expect(apiClient.post).toHaveBeenCalledWith('/api/v1/invitations', {
-          email: 'new@example.com',
-        });
+      expect(apiClient.post).toHaveBeenCalledWith('/api/v1/invitations', {
+        email: 'new@example.com',
       });
+      // 画面でトークンから URL を組み立てない（window.location.origin を使わない）
+      expect(result).toEqual({
+        success: true,
+        invitation: issued,
+        invitationUrl: 'https://app.example.com/register?token=server-built-token',
+      });
+      expect(apiClient.get).toHaveBeenCalledTimes(2);
     });
 
     it('招待作成が失敗した場合、エラーを返す', async () => {
-      // エラーログを抑制（テストで意図的にエラーを発生させるため）
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      const user = userEvent.setup();
       vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Create failed'));
 
-      render(<InvitationsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
+      await renderPage();
+      let result: CreateInvitationResult | undefined;
+      await act(async () => {
+        result = await captured.onCreateInvitation!({ email: 'new@example.com' });
       });
 
-      await user.click(screen.getByTestId('create-button'));
-
-      await waitFor(() => {
-        expect(apiClient.post).toHaveBeenCalled();
-      });
-
+      expect(result).toEqual({ success: false, error: '招待の作成に失敗しました' });
       consoleErrorSpy.mockRestore();
     });
 
     it('既存メールアドレスの場合、適切なエラーメッセージを返す', async () => {
-      // エラーログを抑制（テストで意図的にエラーを発生させるため）
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      const user = userEvent.setup();
-      const error = {
+      vi.mocked(apiClient.post).mockRejectedValueOnce({
         response: { error: 'Email already registered' },
         message: 'already registered',
-      };
-      vi.mocked(apiClient.post).mockRejectedValueOnce(error);
-
-      render(<InvitationsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
       });
 
-      await user.click(screen.getByTestId('create-button'));
-
-      await waitFor(() => {
-        expect(apiClient.post).toHaveBeenCalled();
+      await renderPage();
+      let result: CreateInvitationResult | undefined;
+      await act(async () => {
+        result = await captured.onCreateInvitation!({ email: 'new@example.com' });
       });
 
+      expect(result).toEqual({
+        success: false,
+        error: 'このメールアドレスは既に登録されています',
+      });
       consoleErrorSpy.mockRestore();
     });
   });
 
   describe('招待取消', () => {
     it('招待取消が成功した場合、一覧を更新する', async () => {
-      const user = userEvent.setup();
       vi.mocked(apiClient.delete).mockResolvedValueOnce({});
-      vi.mocked(apiClient.get).mockResolvedValueOnce([mockInvitations[1]]);
 
-      render(<InvitationsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
+      await renderPage();
+      let result: CancelInvitationResult | undefined;
+      await act(async () => {
+        result = await captured.onCancelInvitation!('inv-1');
       });
 
-      await user.click(screen.getByTestId('cancel-button'));
-
-      await waitFor(() => {
-        expect(apiClient.delete).toHaveBeenCalledWith('/api/v1/invitations/inv-1');
-      });
+      expect(apiClient.delete).toHaveBeenCalledWith('/api/v1/invitations/inv-1');
+      expect(result).toEqual({ success: true });
+      expect(apiClient.get).toHaveBeenCalledTimes(2);
     });
 
     it('招待取消が失敗した場合、エラーを返す', async () => {
-      // エラーログを抑制（テストで意図的にエラーを発生させるため）
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      const user = userEvent.setup();
       vi.mocked(apiClient.delete).mockRejectedValueOnce(new Error('Cancel failed'));
 
-      render(<InvitationsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
+      await renderPage();
+      let result: CancelInvitationResult | undefined;
+      await act(async () => {
+        result = await captured.onCancelInvitation!('inv-1');
       });
 
-      await user.click(screen.getByTestId('cancel-button'));
-
-      await waitFor(() => {
-        expect(apiClient.delete).toHaveBeenCalled();
-      });
-
+      expect(result).toEqual({ success: false, error: '招待の取り消しに失敗しました' });
       consoleErrorSpy.mockRestore();
     });
   });
 
   describe('招待再送信', () => {
-    it('招待再送信が成功した場合、新しい招待URLを返す', async () => {
-      const user = userEvent.setup();
-      const newInvitation: Invitation = {
-        id: 'inv-1',
-        email: 'user1@example.com',
-        token: 'new-token',
-        status: 'pending',
-        expiresAt: new Date(Date.now() + 86400000).toISOString(),
-        createdAt: new Date().toISOString(),
-        invitedBy: 'admin-1',
+    /**
+     * @requirement user-authentication/REQ-37.1
+     */
+    it('再送信の経路を呼び、取り消しと作成を組み合わせず、サーバーが返した新しい招待 URL を返す', async () => {
+      const resent: IssuedInvitation = {
+        ...(mockInvitations[0] as Invitation),
+        invitationUrl: 'https://app.example.com/register?token=resent-token',
       };
+      vi.mocked(apiClient.post).mockResolvedValueOnce(resent);
 
-      vi.mocked(apiClient.delete).mockResolvedValueOnce({});
-      vi.mocked(apiClient.post).mockResolvedValueOnce(newInvitation);
-      vi.mocked(apiClient.get).mockResolvedValueOnce([newInvitation, mockInvitations[1]]);
-
-      render(<InvitationsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
+      await renderPage();
+      let result: ResendInvitationResult | undefined;
+      await act(async () => {
+        result = await captured.onResendInvitation!('inv-1');
       });
 
-      await user.click(screen.getByTestId('resend-button'));
-
-      await waitFor(() => {
-        expect(apiClient.delete).toHaveBeenCalledWith('/api/v1/invitations/inv-1');
-        expect(apiClient.post).toHaveBeenCalledWith('/api/v1/invitations', {
-          email: 'user1@example.com',
-        });
+      expect(apiClient.post).toHaveBeenCalledTimes(1);
+      expect(apiClient.post).toHaveBeenCalledWith('/api/v1/invitations/inv-1/resend');
+      expect(apiClient.delete).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        success: true,
+        invitationUrl: 'https://app.example.com/register?token=resent-token',
       });
-    });
-
-    it('存在しない招待IDの場合、エラーを返す', async () => {
-      const user = userEvent.setup();
-      // 空の招待リストを返す
-      vi.mocked(apiClient.get).mockResolvedValueOnce([]);
-
-      render(<InvitationsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
-      });
-
-      // inv-1は存在しないので再送信はエラー
-      await user.click(screen.getByTestId('resend-button'));
-
-      // 招待が見つからないのでAPIは呼ばれない
-      await waitFor(() => {
-        expect(apiClient.delete).not.toHaveBeenCalled();
-      });
+      expect(apiClient.get).toHaveBeenCalledTimes(2);
     });
 
     it('再送信が失敗した場合、エラーを返す', async () => {
-      // エラーログを抑制（テストで意図的にエラーを発生させるため）
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('Resend failed'));
 
-      const user = userEvent.setup();
-      vi.mocked(apiClient.delete).mockRejectedValueOnce(new Error('Resend failed'));
-
-      render(<InvitationsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('invitation-manager')).toBeInTheDocument();
+      await renderPage();
+      let result: ResendInvitationResult | undefined;
+      await act(async () => {
+        result = await captured.onResendInvitation!('inv-1');
       });
 
-      await user.click(screen.getByTestId('resend-button'));
-
-      await waitFor(() => {
-        expect(apiClient.delete).toHaveBeenCalled();
-      });
-
+      expect(apiClient.post).toHaveBeenCalledWith('/api/v1/invitations/inv-1/resend');
+      expect(result).toEqual({ success: false, error: '招待の再送信に失敗しました' });
       consoleErrorSpy.mockRestore();
     });
   });

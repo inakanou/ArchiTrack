@@ -33,3 +33,16 @@ export const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3100';
  * Note: Playwright設定でも同じ値がbaseURLとして設定されています
  */
 export const FRONTEND_BASE_URL = process.env.BASE_URL || 'http://localhost:5174';
+
+/**
+ * 画面と同じオリジンを通す API のベースURL
+ *
+ * 画面を配信する nginx が `/api/` と `/csrf-token` を backend へ中継する
+ * （user-authentication design.md「画面配信」）。認証の Cookie を伴う API の呼び出し
+ * （ブラウザのコンテキストの Cookie を載せる `page.request` など）はこちらを使う。
+ * `API_BASE_URL`（backend へ直接）は、認証の Cookie を要しない確認に限る。
+ * CI では `API_BASE_URL` が `127.0.0.1` で画面が `localhost` のため、ブラウザは
+ * 画面のオリジンで受け取った Cookie を `API_BASE_URL` へ送らない
+ * （design.md「E2E の認証基盤の移行」）。
+ */
+export const SAME_ORIGIN_API_BASE_URL = FRONTEND_BASE_URL;

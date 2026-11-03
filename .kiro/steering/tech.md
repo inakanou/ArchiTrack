@@ -103,6 +103,7 @@ ArchiTrack/
 - `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像・工事写真の一括エクスポート、型定義同梱）
 - `@holiday-jp/holiday_jp` ^2.5.1 - 日本の祝日データ（工程表ガントチャート祝日表示）
 - `react-pdf` ^10.4.1 - PDFビューア（受領見積書プレビュー）、pdfjs-dist同梱
+- `zod` ^4.6.7 - スキーマバリデーション（自社情報フォーム。CSP の下で eval を試さないよう、画面の入口で jitless に設定する）
 - `pdfjs-dist` (react-pdf依存) - PDFテキスト抽出（ハイブリッドアプローチ: テキストPDFはpdfjs-dist、画像PDFはOCR）
 - `tesseract.js` ^7.0.0 - OCR文字認識（受領見積書構造化データ抽出、再実行/リトライ機能）
 - `typescript` ^6.0.3 - TypeScriptコンパイラ（フロントエンドのみ TypeScript 6 系へ追従）
@@ -155,6 +156,15 @@ ArchiTrack/
 - `frontend/docker-entrypoint.sh` - Docker起動時の依存関係チェックスクリプト
 - `frontend/railway.toml` - Railway デプロイ設定
 
+### 対応ブラウザ
+
+画面が動作を保証するブラウザの全体の定め。新規画面・コンポーネントも同じ定めに従う。
+
+- **対象**: Chrome・Firefox・Safari・Edge の各最新版
+- **出典**: 利用者の判断（2026-11-01、推奨案で進める）。estimate-request の design.md の受領見積書のプレビューの縦幅の変更の節の Compatibility の記述（「サポート対象（Chrome/Firefox/Safari/Edge 最新）」）を、機能ごとの記述から全体の定めへ引き上げた。各機能の文書が Safari を対象として扱っている記述（itemized-statement-generation のクリップボードへのコピーの Safari の制約への対応、site-survey の localStorage のエラーの検出のクロスブラウザ対応）とも揃う
+- **自動テストの範囲**: E2E の自動化は Chromium だけである（`playwright.config.ts` の `projects` は `chromium` の一つ）。Playwright の WebKit は Safari の利用者の操作の制約（ポップアップの遮断など）を再現しない（estimate-request の design.md の Gmail で開く操作の失敗の表示の章の「実施の記録（タスク108.1）」の WebKit の項）。そのため Safari 固有の挙動は実機の Safari で確かめる。WSL の開発環境には Safari が無く、実機の確認は利用者が行う
+- **スマートフォン**: iOS の Safari・Android の Chrome の各最新版も対象に含める（利用者の判断、2026-11-02、推奨案で進める）。現場調査などを実機のスマートフォンで使う前提で、スマートフォン表示の是正を重ねてきたことによる。狭い幅の表示の規約は次の「レスポンシブ・ビューポート方針」による。E2E は Chromium の狭い幅で表示を確かめ、iOS の Safari 固有の挙動は実機で確かめる
+
 ### レスポンシブ・ビューポート方針
 
 モバイル幅（実機スマートフォン）での表示崩れを防ぐための横断ルール。新規画面・コンポーネントも同じ方針に従う。
@@ -200,21 +210,21 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - **言語**: TypeScript 5.9.3
 - **ランタイム**: Node.js 22
 - **開発ランタイム**: tsx 4.21.0（TypeScript実行環境）
-- **フレームワーク**: Express 5.2.1
+- **フレームワーク**: Express 5.3.0
 - **ORM**: Prisma 7.9.1 / @prisma/client 7.9.1（PostgreSQL用の型安全なデータアクセス、Driver Adapter Pattern）
 - **データベースクライアント**: pg (PostgreSQL) 8.22.0、@prisma/client 7.9.1、@prisma/adapter-pg 7.3.0
 - **キャッシュクライアント**: ioredis 5.10.1
 - **セキュリティミドルウェア**: helmet 8.3.0、compression 1.8.2、cookie-parser 1.4.7、express-rate-limit 8.5.2
-- **メール送信**: nodemailer 10.1.0、handlebars 4.7.10
+- **メール送信**: nodemailer 10.2.1、handlebars 4.7.10
 - **JWT署名**: jose 6.1.3（EdDSA署名）
 - **2FA**: otplib 12.0.1（TOTP）、qrcode 1.5.4
 - **セキュリティ**: bloom-filters 3.0.4、CSRF保護（カスタム実装：cookie-based double-submit pattern）
 - **パスワードハッシュ**: @node-rs/argon2 2.0.2（Rustバインディングによる高性能Argon2実装）
 - **PDF生成**: jspdf ^4.1.0（工程表・発注書・出来高のサーバ生成。見積書帳票はフロントエンド生成へ移行済み）
-- **バリデーション**: zod 4.4.3
+- **バリデーション**: zod 4.6.7
 - **ジョブキュー**: bull 4.16.5
 - **パフォーマンス最適化**: dataloader 2.2.3（N+1問題対策）、画像メタデータキャッシング
-- **画像処理**: sharp 0.35.5（圧縮・サムネイル生成）、multer 2.4.0（ファイルアップロード）。スマホ写真追加は二段構えで高速化（フロントが送信前に縮小・再エンコード `utils/image-compression` で通信量・サーバ負荷を削減 → サーバ sharp で確定圧縮・サムネイル生成）。アップロード応答に署名付きURL（originalUrl/thumbnailUrl）を含め、フロントは全件再取得せずローカル状態へ追記して即時反映する
+- **画像処理**: sharp 0.35.5（圧縮・サムネイル生成）、multer 2.5.0（ファイルアップロード）。スマホ写真追加は二段構えで高速化（フロントが送信前に縮小・再エンコード `utils/image-compression` で通信量・サーバ負荷を削減 → サーバ sharp で確定圧縮・サムネイル生成）。アップロード応答に署名付きURL（originalUrl/thumbnailUrl）を含め、フロントは全件再取得せずローカル状態へ追記して即時反映する
 - **工事看板のサーバサイド合成**: 工事写真台帳の工事看板（電子黒板）は構造化テキストから `services/signboard-svg.service`（SVG描画）→ `services/signboard-composite.service`（sharp composite）で写真へオンデマンド重畳する。合成は保存せずリクエスト時に生成し、印刷用画像（/print）と非合成の原本画像（/original）を配信路として分離。現場調査のクライアント fabric 合成とは別系統のサーバ側合成パス
 - **AI/OCR精度向上**: @anthropic-ai/sdk 0.133.0（Claude Vision APIによる見積書OCR構造化データ抽出）
 - **祝日データ**: @holiday-jp/holiday_jp ^2.5.1（日本の祝日判定、工程表エクスポート用）
@@ -225,9 +235,18 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - **パッケージマネージャ**: npm
 - **設定管理**: dotenv (.envファイル)
 
+### 認証・セッション方針
+
+- **トークンの種別**: アクセストークンとリフレッシュトークンは EdDSA の JWT で、クレーム `token_use`（`access`・`refresh`）と発行者・想定利用者（`JWT_ISSUER`・`JWT_AUDIENCE`、既定 `architrack`・`architrack-api`）で区別し、検証は期待する種別を指定して行う（`backend/src/services/token.service.ts`）。アクセストークンは発行時の利用者の世代（`gen`）を持ち、管理者の 2FA の再設定より前のトークンを認証ミドルウェアが拒否する
+- **保持の場所**: アクセストークンは画面の `apiClient` のメモリだけに置き、ブラウザの永続ストレージに書かない。リフレッシュトークンは HttpOnly の Cookie `refreshToken`（SameSite=Strict、Path は /api/v1/auth、本番は Secure 属性付き）だけで受け渡し、応答本文に含めない。再読み込みの復元は Cookie によるリフレッシュで行う
+- **リフレッシュ**: Cookie を読む API（/api/v1/auth/refresh と /api/v1/auth/logout）は CSRF の二重送信（Cookie `csrf-token` とヘッダー `X-CSRF-Token`）と Origin の照合を通す。保存は SHA-256 のハッシュだけで、ローテーションの系列（family）で再利用を検知し、系列ごと失効させる。複数のタブのリフレッシュは Web Locks で直列化し、結果を BroadcastChannel で配る（`frontend/src/services/TokenRefreshManager.ts`）
+- **2FA**: 全利用者で必須。パスワードの検証の成功で 5 分・一回限りの 2FA 待ちの資格（Redis）を発行し、2FA の検証の API（/api/v1/auth/verify-2fa）はその資格を要する。同じ時間ステップの TOTP の再利用を拒否する。2FA 未登録・初回のパスワード変更を要する利用者は、API（`backend/src/middleware/authenticate.middleware.ts` の利用者の状態の照合）と画面（`ProtectedRoute`）の両方で設定・変更の画面だけに制限する
+- **送信元の識別**: 送信元 IP は `getClientIp()`（`backend/src/middleware/client-ip.ts`）だけから得る。Express の `trust proxy` は信頼する中継の段数 `TRUST_PROXY_HOPS` で与え、`X-Forwarded-For` を直接読まない。画面の API は frontend の nginx が /api/ と /csrf-token を backend へ中継し、画面と同じオリジンで届く
+- **招待・リセットのトークン**: メールのリンクはトークンを URL のフラグメント（`#token=…`）に置き、画面が読んで POST の本文で検証する。保存は SHA-256 のハッシュだけである
+
 ### 主要な依存関係
 
-- `express` ^5.2.0 - Webフレームワーク
+- `express` ^5.3.0 - Webフレームワーク
 - `cors` ^2.8.6 - CORS ミドルウェア
 - `helmet` ^8.3.0 - セキュリティヘッダー設定
 - `compression` ^1.8.1 - レスポンス圧縮
@@ -239,7 +258,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - `pg` ^8.22.0 - PostgreSQL クライアント
 - `ioredis` ^5.10.1 - Redis クライアント
 - `bull` ^4.16.5 - ジョブキュー（非同期処理）
-- `nodemailer` ^10.1.0 - メール送信
+- `nodemailer` ^10.2.1 - メール送信
 - `handlebars` ^4.7.8 - テンプレートエンジン
 - `dataloader` ^2.2.3 - データローダー（N+1問題対策）
 - `jose` ^6.1.3 - JWT EdDSA署名・検証
@@ -247,7 +266,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - `qrcode` ^1.5.4 - QRコード生成
 - `bloom-filters` ^3.0.4 - セキュリティ機能強化
 - `express-rate-limit` ^8.5.2 - レート制限
-- `zod` ^4.4.3 - スキーマバリデーション
+- `zod` ^4.6.7 - スキーマバリデーション
 - `dotenv` ^17.4.2 - 環境変数管理
 - `@sentry/node` ^10.51.0 - Sentryエラートラッキング（Backend）
 - `@sentry/profiling-node` ^10.69.0 - Sentryプロファイリング
@@ -314,9 +333,20 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 ### Redis
 
 - **バージョン**: Redis 7 (Alpine)
-- **用途**: キャッシュ・セッション管理
-- **接続方式**: ioredisクライアントライブラリ経由
+- **用途**: 権限と利用者の状態のキャッシュ、2FA 待ちの資格、回数制限のストア、異常の検知の計数・通知の抑止・通知の総数の上限と溢れ分、ジョブキュー（メールの送信と定期処理）
+- **接続方式**: ioredisクライアントライブラリ経由。キャッシュとジョブキューはどちらも `REDIS_URL`（認証情報を含む）で同じ Redis へ接続する
+- **障害時**: 2FA 待ちの資格は Redis に届かなければ発行も照会もせず 503 を返す（2FA を素通りさせない）。回数制限はプロセス内のメモリのストアへ退避し、キャッシュは DB から読み、異常の検知は計数を捨てて警告ログを残す
 - **ヘルスチェック**: `redis-cli ping`コマンド
+
+### ジョブキュー（Bull）
+
+- **メールの送信**: キュー `email-queue`（`backend/src/services/email.service.ts` の `createEmailQueue()`）。完了したジョブは中身ごと消し、再試行を使い切った失敗はトークンを含まない形で記録してから消す
+- **定期処理**: キュー `scheduled-jobs`（`backend/src/jobs/scheduled-job-runner.ts`）に Bull の繰り返しジョブ（cron、Asia/Tokyo）として登録し、同じプロセスで実行する。起動のたびにジョブ名を識別子として登録し直す。試験の実行環境（NODE_ENV=test）では登録しない。定義は次の 5 つ
+  - `expired-token-cleanup`（毎時 15 分）: 使用済み・期限切れの招待・リセット・リフレッシュのトークンの消去
+  - `failed-email-job-cleanup`（毎時 45 分）: メールキューの失敗のジョブの掃除
+  - `inactive-user-deactivation`（毎日 03:00）: 90 日使われていない利用者の自動無効化
+  - `audit-log-archive`（毎月 1 日 04:00）: 13 か月を過ぎた監査ログの暗号化したアーカイブと、8 年を過ぎたアーカイブの消去
+  - `security-anomaly-overflow-summary`（10 分ごと）: 異常の通知の総数の上限で送らなかった通知（溢れ分）が残り、上限の時間窓が明けていれば、要約を全システム管理者へ 1 通送る
 
 ### 接続障害への耐性（backend 全体に効く規約）
 
@@ -378,6 +408,7 @@ coverage: {
 - `unit/config/` - 設定テスト（環境変数バリデーション、ストレージ設定、セキュリティ定数）
 - `unit/docs/` - OpenAPI 仕様生成のテスト
 - `unit/errors/` - カスタムエラークラスのテスト（機能ごとのエラー型を含む）
+- `unit/jobs/` - 定期処理のテスト（実行基盤、期限切れのトークンの消去、失敗したメールのジョブの掃除、利用者の自動無効化、監査ログのアーカイブ、異常の通知の溢れ分の要約）
 - `unit/middleware/` - ミドルウェアのテスト（認証、認可、検証、CSRF、レート制限、ロガー、アップロード）
 - `unit/models/` - Prisma のモデル・マイグレーションのテスト
 - `unit/routes/` - ルートのテスト（supertest で HTTP 経路を通す）
@@ -791,7 +822,7 @@ user: "${UID:-1000}:${GID:-1000}"
 ### 必須ツール
 
 - **Node.js 22以上**: バックエンド実行環境（engines: >=22.0.0）、フロントエンドはNode.js 20.19.0+または22.12.0+
-- **Docker & Docker Compose**: コンテナ化開発環境（コンテナ環境では0.0.0.0でリスンして外部アクセスを許可）
+- **Docker & Docker Compose**: コンテナ化開発環境（コンテナ環境では::（IPv4・IPv6 のデュアルスタック）でリスンして外部アクセスを許可）
 - **Git**: バージョン管理
 - **Claude Code**: AI支援開発環境
 - **Chromium（システム依存関係）**: E2Eテスト（Playwright）の実行に必要
@@ -1191,7 +1222,17 @@ git push origin main
 VITE_API_URL=http://localhost:3000
 ```
 
-本番環境では `https://your-backend.railway.app` のようなRailway URLを指定します。
+テスト・CI・本番では、画面と同じオリジン（frontend の nginx）を指定し、nginx が API を backend へ中継します。frontend のコンテナ（nginx）は次の環境変数を読みます。
+
+```bash
+# API の中継先（scheme://host[:port] だけ。未設定や形の違いは起動前の検査で止まる）
+BACKEND_INTERNAL_URL=http://backend:3000
+# CSP の画像・接続の追加の取得先（R2 の配信元、Sentry の取り込み先など。空白区切り）
+CSP_IMG_SRC_EXTRA=
+CSP_CONNECT_SRC_EXTRA=
+# HSTS（本番だけ設定する。空なら付けない）
+NGINX_HSTS_VALUE=
+```
 
 ### バックエンド環境変数
 
@@ -1210,8 +1251,24 @@ REDIS_URL=redis://localhost:6379
 FRONTEND_URL=http://localhost:5173
 
 # レート制限（開発・テスト環境専用）
-DISABLE_RATE_LIMIT=true  # 本番環境では必ずfalseまたは未設定
+DISABLE_RATE_LIMIT=true  # 本番環境では読まない
+
+# 信頼する中継の段数（本番で必須。true は拒否する）
+TRUST_PROXY_HOPS=0
+# 監査ログのアーカイブの暗号鍵（64 桁の 16 進。本番で必須）
+ARCHIVE_ENCRYPTION_KEY=
+# トークンの発行者・想定利用者（既定値あり）
+JWT_ISSUER=architrack
+JWT_AUDIENCE=architrack-api
+# 異常の検知の閾値・時間窓・抑止（群ごと。既定値あり。データ出力の計数と抑止は利用者ごと）
+# SECURITY_ALERT_<GROUP>_THRESHOLD / _WINDOW_SECONDS / _COOLDOWN_SECONDS
+# GROUP は LOGIN_FAILED / PERMISSION_DENIED / RATE_LIMITED / SERVER_ERROR / DATA_EXPORT
+# 異常の通知の総数の上限（固定の時間窓あたりの通数。超えた分は溢れ分として次の通知に添えるか要約で送る）
+SECURITY_ALERT_NOTIFICATION_LIMIT=10
+SECURITY_ALERT_NOTIFICATION_WINDOW_SECONDS=3600
 ```
+
+本番の実行環境では `ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS`・`REDIS_URL` のいずれかが欠けると backend は起動を止めます（`backend/src/config/runtime-mode.ts`）。
 
 本番環境では各サービスのRailway内部URLまたは公開URLを指定します。
 
@@ -1292,7 +1349,7 @@ CI成功後、CIワークフロー内でデプロイジョブが実行されま�
 2. **デプロイ実行**: staging/production環境へのデプロイ
    - Backend: Prisma Client自動生成（`npm run build`内で実行）
    - Backend: マイグレーション自動適用（Railway環境でデプロイ時に実行）
-   - Backend: 0.0.0.0でリスンしてコンテナ環境の外部アクセスを許可
+   - Backend: ::（IPv4・IPv6 のデュアルスタック）でリスンしてコンテナ環境の外部アクセスを許可（Railway の IPv6 だけのプライベートネットワークからの中継を受けるため）
 3. **ヘルスチェック**: デプロイ後のサービス状態確認
    - 最大10回リトライ（30秒間隔）
    - /healthエンドポイントで確認（HTTPS対応）

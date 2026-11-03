@@ -15,13 +15,16 @@
  * - 4.10-4.12: 他の見積依頼での選択状態を含む項目一覧取得
  * - 9.6: 変更を保存
  *
+ * 案件の閲覧範囲（estimate-request の Requirement 42、タスク103.1）: 他の見積依頼での選択状態は、
+ * 閲覧者の閲覧範囲内の案件の見積依頼だけを載せる。
+ *
  * Task 2.1: EstimateRequestServiceの基本CRUD操作
  * Task 2.2: EstimateRequestServiceの項目選択管理
  *
  * @module services/estimate-request
  */
 
-import type { PrismaClient, EstimateRequestMethod } from '../generated/prisma/client.js';
+import type { PrismaClient, Prisma, EstimateRequestMethod } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import { ESTIMATE_REQUEST_TARGET_TYPE } from '../types/audit-log.types.js';
 import {
@@ -32,6 +35,7 @@ import {
 } from '../errors/estimateRequestError.js';
 import { ItemizedStatementNotFoundError } from '../errors/itemizedStatementError.js';
 import { NotFoundError } from '../errors/apiError.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
 
 /**
  * 見積依頼サービス依存関係
@@ -39,6 +43,8 @@ import { NotFoundError } from '../errors/apiError.js';
 export interface EstimateRequestServiceDependencies {
   prisma: PrismaClient;
   auditLogService: IAuditLogService;
+  /** 案件の閲覧範囲の絞り込み条件（省略時は共有のインスタンス。タスク103.1） */
+  projectScopeService?: Pick<ProjectScopeService, 'buildProjectScopeWhere'>;
 }
 
 /**
@@ -154,11 +160,11 @@ export interface ItemWithSelectionInfo {
 
 /**
  * Prismaトランザクションクライアント型
+ *
+ * 監査ログを同じトランザクションで書くため（`IAuditLogService.createLog` の第 2 引数。タスク109.1）、
+ * `$transaction` のコールバックが受ける Prisma の型そのものとする
  */
-type PrismaTransactionClient = Omit<
-  PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
+type PrismaTransactionClient = Prisma.TransactionClient;
 
 /**
  * 見積依頼サービス
@@ -168,10 +174,13 @@ type PrismaTransactionClient = Omit<
 export class EstimateRequestService {
   private readonly prisma: PrismaClient;
   private readonly auditLogService: IAuditLogService;
+  private readonly projectScopeService:
+    Pick<ProjectScopeService, 'buildProjectScopeWhere'> | undefined;
 
   constructor(deps: EstimateRequestServiceDependencies) {
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
+    this.projectScopeService = deps.projectScopeService;
   }
 
   /**
@@ -289,21 +298,24 @@ export class EstimateRequestService {
       }
 
       // 6. 監査ログの記録（itemizedStatementId / itemCount は nullable / 0 で記録）
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_REQUEST_CREATED',
-        actorId,
-        targetType: ESTIMATE_REQUEST_TARGET_TYPE,
-        targetId: estimateRequest.id,
-        before: null,
-        after: {
-          projectId: estimateRequest.projectId,
-          tradingPartnerId: estimateRequest.tradingPartnerId,
-          itemizedStatementId: estimateRequest.itemizedStatementId,
-          name: estimateRequest.name,
-          method: estimateRequest.method,
-          itemCount,
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_REQUEST_CREATED',
+          actorId,
+          targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+          targetId: estimateRequest.id,
+          before: null,
+          after: {
+            projectId: estimateRequest.projectId,
+            tradingPartnerId: estimateRequest.tradingPartnerId,
+            itemizedStatementId: estimateRequest.itemizedStatementId,
+            name: estimateRequest.name,
+            method: estimateRequest.method,
+            itemCount,
+          },
         },
-      });
+        tx
+      );
 
       return this.toEstimateRequestInfo(estimateRequest);
     });
@@ -500,18 +512,21 @@ export class EstimateRequestService {
       });
 
       // 5. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_REQUEST_UPDATED',
-        actorId,
-        targetType: ESTIMATE_REQUEST_TARGET_TYPE,
-        targetId: id,
-        before,
-        after: {
-          name: updatedRequest.name,
-          method: updatedRequest.method,
-          includeBreakdownInBody: updatedRequest.includeBreakdownInBody,
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_REQUEST_UPDATED',
+          actorId,
+          targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+          targetId: id,
+          before,
+          after: {
+            name: updatedRequest.name,
+            method: updatedRequest.method,
+            includeBreakdownInBody: updatedRequest.includeBreakdownInBody,
+          },
         },
-      });
+        tx
+      );
 
       return this.toEstimateRequestInfo(updatedRequest);
     });
@@ -564,20 +579,23 @@ export class EstimateRequestService {
       });
 
       // 4. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_REQUEST_DELETED',
-        actorId,
-        targetType: ESTIMATE_REQUEST_TARGET_TYPE,
-        targetId: id,
-        before: {
-          projectId: estimateRequest.projectId,
-          tradingPartnerId: estimateRequest.tradingPartnerId,
-          itemizedStatementId: estimateRequest.itemizedStatementId,
-          name: estimateRequest.name,
-          method: estimateRequest.method,
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_REQUEST_DELETED',
+          actorId,
+          targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+          targetId: id,
+          before: {
+            projectId: estimateRequest.projectId,
+            tradingPartnerId: estimateRequest.tradingPartnerId,
+            itemizedStatementId: estimateRequest.itemizedStatementId,
+            name: estimateRequest.name,
+            method: estimateRequest.method,
+          },
+          after: null,
         },
-        after: null,
-      });
+        tx
+      );
     });
   }
 
@@ -619,16 +637,19 @@ export class EstimateRequestService {
       }
 
       // 3. 監査ログの記録
-      await this.auditLogService.createLog({
-        action: 'ESTIMATE_REQUEST_ITEMS_UPDATED',
-        actorId,
-        targetType: ESTIMATE_REQUEST_TARGET_TYPE,
-        targetId: estimateRequestId,
-        before: null,
-        after: {
-          updatedItems: itemSelections.map((s) => ({ itemId: s.itemId, selected: s.selected })),
+      await this.auditLogService.createLog(
+        {
+          action: 'ESTIMATE_REQUEST_ITEMS_UPDATED',
+          actorId,
+          targetType: ESTIMATE_REQUEST_TARGET_TYPE,
+          targetId: estimateRequestId,
+          before: null,
+          after: {
+            updatedItems: itemSelections.map((s) => ({ itemId: s.itemId, selected: s.selected })),
+          },
         },
-      });
+        tx
+      );
     });
   }
 
@@ -637,12 +658,17 @@ export class EstimateRequestService {
    *
    * Requirements: 4.10, 4.11, 4.12
    *
+   * 他の見積依頼は、閲覧者の閲覧範囲内の案件（論理削除されていない案件）に属するものだけを載せる
+   * （別の案件の見積依頼が同じ内訳書を指せるため。範囲外の見積依頼の名前・取引先を返さない。タスク103.1）
+   *
    * @param estimateRequestId - 見積依頼ID
+   * @param viewerId - 閲覧者のユーザーID（閲覧範囲の絞り込みに使う）
    * @returns 選択状態を含む項目情報の配列
    * @throws EstimateRequestNotFoundError 見積依頼が存在しない場合
    */
   async findItemsWithOtherRequestStatus(
-    estimateRequestId: string
+    estimateRequestId: string,
+    viewerId: string
   ): Promise<ItemWithSelectionInfo[]> {
     // 1. 見積依頼の存在確認
     const estimateRequest = await this.prisma.estimateRequest.findUnique({
@@ -677,12 +703,17 @@ export class EstimateRequestService {
     // 3. 同じ内訳書項目を使用している他の見積依頼での選択状態を取得
     const itemizedStatementItemIds = items.map((item) => item.itemizedStatementItemId);
 
+    // 閲覧範囲内の案件の見積依頼だけに限る（タスク103.1。全案件閲覧の権限なら絞り込みは null）
+    const scopeWhere = await (
+      this.projectScopeService ?? getSharedProjectScopeService()
+    ).buildProjectScopeWhere(viewerId);
+
     const otherSelections = await this.prisma.estimateRequestItem.findMany({
       where: {
         itemizedStatementItemId: { in: itemizedStatementItemIds },
         estimateRequestId: { not: estimateRequestId },
         selected: true,
-        estimateRequest: { deletedAt: null },
+        estimateRequest: { deletedAt: null, project: { deletedAt: null, ...(scopeWhere ?? {}) } },
       },
       select: {
         itemizedStatementItemId: true,

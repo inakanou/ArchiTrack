@@ -3,7 +3,8 @@ import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { API_BASE_URL } from '../../config';
+import { API_BASE_URL, SAME_ORIGIN_API_BASE_URL } from '../../config';
+import { loginViaApi, refreshWithCookie } from '../../helpers/auth-api';
 
 /**
  * ユーザーへのロール割り当てのE2Eテスト
@@ -33,13 +34,7 @@ test.describe('ユーザーへのロール割り当て', () => {
     await createTestUser('ADMIN_USER');
 
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const loginData = await loginResponse.json();
+    const loginData = await loginViaApi(request, 'ADMIN_USER');
     accessToken = loginData.accessToken;
   });
 
@@ -354,15 +349,12 @@ test.describe('ユーザーへのロール割り当て', () => {
 
     // テストユーザーを作成してログイン
     const testUser = await createTestUser('REGULAR_USER');
-    const userLoginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'user@example.com',
-        password: 'Password123!',
-      },
+    // リフレッシュトークンの Cookie はこの要求のコンテキストの Cookie の入れ物に入る。
+    // Cookie を伴う呼び出しは画面と同じオリジン（nginx の中継）を通す
+    const userLoginData = await loginViaApi(request, 'REGULAR_USER', {
+      baseUrl: SAME_ORIGIN_API_BASE_URL,
     });
-    const userLoginData = await userLoginResponse.json();
     const userAccessToken = userLoginData.accessToken;
-    const refreshToken = userLoginData.refreshToken;
 
     // 最初は権限がないのでロール一覧にアクセスできない
     const initialRolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
@@ -403,12 +395,8 @@ test.describe('ユーザーへのロール割り当て', () => {
       },
     });
 
-    // トークンをリフレッシュ
-    const refreshResponse = await request.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
-      data: {
-        refreshToken: refreshToken,
-      },
-    });
+    // トークンをリフレッシュ（Cookie と CSRF トークンで送る。要件33.8, 33.12）
+    const refreshResponse = await refreshWithCookie(request);
 
     expect(refreshResponse.ok()).toBeTruthy();
     const newTokenData = await refreshResponse.json();

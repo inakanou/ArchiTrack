@@ -25,6 +25,12 @@ import getPrismaClient from '../db.js';
 import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  imageIdsFromBodyArray,
+  requireImageProjectScope,
+  requireImagesProjectScope,
+  requireSurveyProjectScope,
+} from '../middleware/site-survey-project-scope.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import logger from '../utils/logger.js';
 import { moveToOrphaned } from '../utils/orphaned-object.js';
@@ -278,6 +284,7 @@ router.get(
   authenticate,
   requirePermission('site_survey:read'),
   validate(surveyIdParamSchema, 'params'),
+  requireSurveyProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: surveyId } = req.validatedParams as { id: string };
@@ -359,6 +366,7 @@ router.post(
   authenticate,
   requirePermission('site_survey:update'),
   validate(surveyIdParamSchema, 'params'),
+  requireSurveyProjectScope('id'),
   upload.array('images', 10),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -522,6 +530,7 @@ router.put(
   authenticate,
   requirePermission('site_survey:update'),
   validate(surveyIdParamSchema, 'params'),
+  requireSurveyProjectScope('id'),
   validate(imageOrderBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -639,6 +648,7 @@ router.patch(
   authenticate,
   requirePermission('site_survey:update'),
   validate(batchImageMetadataUpdateBodySchema, 'body'),
+  requireImagesProjectScope(imageIdsFromBodyArray('updates')),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { updates } = req.validatedBody as {
@@ -736,6 +746,7 @@ router.delete(
   authenticate,
   requirePermission('site_survey:delete'),
   validate(imageIdParamSchema, 'params'),
+  requireImageProjectScope('imageId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { imageId } = req.validatedParams as { imageId: string };
@@ -841,6 +852,7 @@ router.patch(
   authenticate,
   requirePermission('site_survey:update'),
   validate(imageIdParamSchema, 'params'),
+  requireImageProjectScope('imageId'),
   validate(imageMetadataUpdateBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -969,6 +981,7 @@ router.patch(
   authenticate,
   requirePermission('site_survey:update'),
   validate(imageIdParamSchema, 'params'),
+  requireImageProjectScope('imageId'),
   validate(thumbnailUpdateBodySchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -1171,6 +1184,7 @@ router.delete(
   // 画像編集画面の保存操作の一部であるため、更新権限で足りる（削除権限は要求しない）
   requirePermission('site_survey:update'),
   validate(imageIdParamSchema, 'params'),
+  requireImageProjectScope('imageId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { imageId } = req.validatedParams as { imageId: string };

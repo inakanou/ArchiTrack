@@ -20,14 +20,16 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ProgressInputPage from '../../pages/ProgressInputPage';
 import * as progressApi from '../../api/progress';
 import * as executionBudgetApi from '../../api/execution-budget';
+import { ApiError } from '../../api/client';
 
 // APIモック
 vi.mock('../../api/progress');
 vi.mock('../../api/execution-budget');
+const toastMocks = vi.hoisted(() => ({ error: vi.fn() }));
 vi.mock('../../hooks/useToast', () => ({
   useToast: () => ({
     success: vi.fn(),
-    error: vi.fn(),
+    error: toastMocks.error,
     warning: vi.fn(),
     info: vi.fn(),
     addToast: vi.fn(),
@@ -810,12 +812,24 @@ describe('ProgressInputPage', () => {
         expect(screen.getByText('月別出来高集計')).toBeInTheDocument();
       });
 
+      toastMocks.error.mockClear();
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
       const excelButton = screen.getByRole('button', { name: /Excel/ });
       await user.click(excelButton);
 
       await waitFor(() => {
         expect(progressApi.exportMonthlyProgress).toHaveBeenCalledWith('project-1', 'xlsx');
       });
+      // 受け取った Blob からダウンロードを始め、成功の応答で失敗のトーストを出さない
+      await waitFor(() => {
+        expect(clickSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(createObjectURLMock).toHaveBeenCalledWith(mockBlob);
+      const anchor = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+      expect(anchor.download).toBe('出来高集計.xlsx');
+      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:test-url');
+      expect(toastMocks.error).not.toHaveBeenCalled();
+      clickSpy.mockRestore();
     });
 
     it('REQ-16.5: PDFエクスポートボタンが表示されクリックでAPIが呼ばれる', async () => {
@@ -834,12 +848,86 @@ describe('ProgressInputPage', () => {
         expect(screen.getByText('月別出来高集計')).toBeInTheDocument();
       });
 
+      toastMocks.error.mockClear();
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
       const pdfButton = screen.getByRole('button', { name: /PDF/ });
       await user.click(pdfButton);
 
       await waitFor(() => {
         expect(progressApi.exportMonthlyProgress).toHaveBeenCalledWith('project-1', 'pdf');
       });
+      // 受け取った Blob からダウンロードを始め、成功の応答で失敗のトーストを出さない
+      await waitFor(() => {
+        expect(clickSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(createObjectURLMock).toHaveBeenCalledWith(mockBlob);
+      const anchor = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+      expect(anchor.download).toBe('出来高集計.pdf');
+      expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:test-url');
+      expect(toastMocks.error).not.toHaveBeenCalled();
+      clickSpy.mockRestore();
     });
+
+    // execution-budget-management の Requirement 20 の受入基準8（タスク17.2）
+    it.each([
+      ['Excel', 'xlsx'],
+      ['PDF', 'pdf'],
+    ] as const)(
+      '出力の記録の失敗の応答（EXPORT_RECORD_FAILED）では%sのダウンロードを始めず、出力を記録できなかった旨を表示する',
+      async (buttonName, format) => {
+        const user = userEvent.setup();
+        toastMocks.error.mockClear();
+        vi.mocked(progressApi.exportMonthlyProgress).mockRejectedValue(
+          new ApiError(500, '出力を記録できなかったため中止しました', {
+            status: 500,
+            code: 'EXPORT_RECORD_FAILED',
+            detail: '出力を記録できなかったため中止しました',
+          })
+        );
+        const createObjectURLMock = vi.fn().mockReturnValue('blob:test-url');
+        globalThis.URL.createObjectURL = createObjectURLMock;
+        globalThis.URL.revokeObjectURL = vi.fn();
+        const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+
+        renderPage();
+        await waitFor(() => {
+          expect(screen.getByText('月別出来高集計')).toBeInTheDocument();
+        });
+        await user.click(screen.getByRole('button', { name: buttonName }));
+
+        await waitFor(() => {
+          expect(toastMocks.error).toHaveBeenCalledWith('出力を記録できなかったため中止しました');
+        });
+        expect(progressApi.exportMonthlyProgress).toHaveBeenCalledWith('project-1', format);
+        expect(toastMocks.error).toHaveBeenCalledTimes(1);
+        expect(createObjectURLMock).not.toHaveBeenCalled();
+        expect(clickSpy).not.toHaveBeenCalled();
+        clickSpy.mockRestore();
+      }
+    );
+
+    it.each([
+      ['Excel', 'Excelエクスポートに失敗しました'],
+      ['PDF', 'PDFエクスポートに失敗しました'],
+    ] as const)(
+      '記録の失敗以外の%sの出力の失敗は従来の文言のまま表示する',
+      async (buttonName, message) => {
+        const user = userEvent.setup();
+        toastMocks.error.mockClear();
+        vi.mocked(progressApi.exportMonthlyProgress).mockRejectedValue(
+          new ApiError(500, 'Internal server error', { status: 500, code: 'INTERNAL_SERVER_ERROR' })
+        );
+
+        renderPage();
+        await waitFor(() => {
+          expect(screen.getByText('月別出来高集計')).toBeInTheDocument();
+        });
+        await user.click(screen.getByRole('button', { name: buttonName }));
+
+        await waitFor(() => {
+          expect(toastMocks.error).toHaveBeenCalledWith(message);
+        });
+      }
+    );
   });
 });

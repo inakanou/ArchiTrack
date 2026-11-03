@@ -12,6 +12,7 @@ import InvitationManager from '../components/InvitationManager';
 import { apiClient } from '../api/client';
 import type {
   Invitation,
+  IssuedInvitation,
   CreateInvitationInput,
   CreateInvitationResult,
   CancelInvitationResult,
@@ -48,18 +49,16 @@ export function InvitationsPage() {
     input: CreateInvitationInput
   ): Promise<CreateInvitationResult> => {
     try {
-      const response = await apiClient.post<Invitation>('/api/v1/invitations', input);
-
-      // 招待URLを生成
-      const invitationUrl = `${window.location.origin}/register?token=${response.token}`;
+      const response = await apiClient.post<IssuedInvitation>('/api/v1/invitations', input);
 
       // 招待リストを更新
       await fetchInvitations();
 
+      // 招待URLはサーバーが組み立てた値をそのまま使う（画面でトークンから組み立てない）
       return {
         success: true,
         invitation: response,
-        invitationUrl,
+        invitationUrl: response.invitationUrl,
       };
     } catch (err: unknown) {
       console.error('Failed to create invitation:', err);
@@ -114,36 +113,18 @@ export function InvitationsPage() {
   };
 
   /**
-   * 招待を再送信（期限切れの招待を新しいトークンで再作成）
+   * 招待を再送信（同じ招待を新しいトークンで送り直す。サーバーが同じ行のトークンと期限を置き換える）
    */
   const handleResendInvitation = async (id: string): Promise<ResendInvitationResult> => {
     try {
-      // 既存の招待を取得してメールアドレスを確認
-      const invitation = invitations.find((inv) => inv.id === id);
-      if (!invitation) {
-        return {
-          success: false,
-          error: '招待が見つかりません',
-        };
-      }
-
-      // 既存の招待を取り消し
-      await apiClient.delete(`/api/v1/invitations/${id}`);
-
-      // 新しい招待を作成
-      const response = await apiClient.post<Invitation>('/api/v1/invitations', {
-        email: invitation.email,
-      });
-
-      // 招待URLを生成
-      const invitationUrl = `${window.location.origin}/register?token=${response.token}`;
+      const response = await apiClient.post<IssuedInvitation>(`/api/v1/invitations/${id}/resend`);
 
       // 招待リストを更新
       await fetchInvitations();
 
       return {
         success: true,
-        invitationUrl,
+        invitationUrl: response.invitationUrl,
       };
     } catch (err) {
       console.error('Failed to resend invitation:', err);

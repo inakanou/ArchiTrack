@@ -317,6 +317,7 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
       // ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
       const { imageIds } = await seedSurveyPhotosWithComments(
         page,
+        'REGULAR_USER',
         testProjectId,
         'グループコピーE2E_現場調査',
         SURVEY_PHOTO_COMMENTS,
@@ -646,11 +647,6 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
   test.describe('クリーンアップ', () => {
     test('作成したプロジェクトを削除する', async ({ page, context }) => {
       await context.clearCookies();
-      await page.goto('/');
-      await page.evaluate(() => {
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('accessToken');
-      });
 
       await loginAsUser(page, 'ADMIN_USER');
 

@@ -1,15 +1,19 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import {
   createTestUser,
   createTwoFactorBackupCodes,
   createAllTestUsers,
+  resetDedicatedUser,
+  type CreatedUser,
 } from '../../fixtures/auth.fixtures';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { TEST_USERS } from '../../helpers/test-users';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
+import { fetchSessionUser } from '../../helpers/auth-api';
+import { fillTotpCode, generateTotpCode, prepareTotpCode } from '../../helpers/two-factor-totp';
 
 /**
  * 2要素認証機能のE2Eテスト
@@ -23,13 +27,41 @@ import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
  */
 
 /**
- * ヘルパー関数: モックTOTPコードを生成
- * Note: 実際の環境では、QRコードから秘密鍵を取得してotplibでTOTPコードを生成する
- * このE2Eテストでは、バックエンドがテスト用の固定TOTPコードを受け入れることを想定
+ * 2FA の設定の画面に表示された秘密鍵（手動入力用）から、現在の TOTP コードを計算する
+ *
+ * backend は固定値のコードを受理しないため、設定の開始で発行された秘密鍵から本物のコードを求める。
  */
-function generateMockTOTPCode(): string {
-  // テスト環境用の固定コード（バックエンドでモック対応が必要）
-  return '123456';
+async function totpCodeFromSetupPage(page: Page): Promise<string> {
+  const secretKey = page.getByTestId('secret-key');
+  await expect(secretKey).toHaveText(/^[A-Z2-7]+=*$/, { timeout: getTimeout(10000) });
+  const secret = await secretKey.textContent();
+  assertPrepared(secret, '2FA の設定の画面の秘密鍵');
+  return generateTotpCode(secret);
+}
+
+/**
+ * 2FA の設定（新規の登録）の検証の利用者
+ *
+ * 共有の役割の利用者は 2FA 登録済みのため、設定の流れは 2FA 未登録の専用の利用者で行い、
+ * 各テストの開始時に初期化の補助で未登録の状態へ戻す（user-authentication タスク47.4）。
+ */
+let setupUser: CreatedUser;
+
+/**
+ * 2FA 未登録の利用者のログインの後、2FA 設定の画面が設定の開始（秘密鍵の発行と監査の記録）を終えるまで待つ
+ *
+ * 2FA 未登録の利用者はログインの後に 2FA 設定の画面へ進み、画面が設定の開始の API を呼ぶ（user-authentication
+ * 要件34.1、タスク47.6）。その取引が残ったまま DB を初期化（TRUNCATE）すると、取引の利用者の更新と監査の記録の
+ * ロックの順が逆になりデッドロックする。秘密鍵の表示（設定の開始の応答の後）を待ってから次へ進む。
+ */
+async function waitForTwoFactorSetupStarted(page: Page): Promise<void> {
+  await expect(page).toHaveURL(/\/profile\/2fa-setup$/, { timeout: getTimeout(15000) });
+  await expect(page.getByTestId('secret-key')).toBeVisible({ timeout: getTimeout(15000) });
+}
+
+/** 2FA 登録済みの試験用の利用者の、最後に使った時間ステップを戻した現在の TOTP コード */
+function twoFactorUserCode(): Promise<string> {
+  return prepareTotpCode(TEST_USERS.TWO_FA_USER.email);
 }
 
 test.describe('2要素認証機能', () => {
@@ -64,10 +96,11 @@ test.describe('2要素認証機能', () => {
 
       // テストデータをクリーンアップして、テストユーザーを作成
       await cleanDatabase();
-      await createTestUser('REGULAR_USER');
+      setupUser = await resetDedicatedUser('TWO_FA_NOT_ENROLLED_USER');
 
       // 認証済みユーザーとしてログイン
-      await loginAsUser(page, 'REGULAR_USER');
+      await loginAsUser(page, setupUser);
+      await waitForTwoFactorSetupStarted(page);
     });
 
     /**
@@ -93,7 +126,7 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           await page.goto('/profile/2fa-setup');
           await page.waitForLoadState('networkidle');
         }
@@ -135,7 +168,7 @@ test.describe('2要素認証機能', () => {
             await page.reload({ waitUntil: 'networkidle' });
             // ログインページにリダイレクトされた場合は再ログイン
             if (page.url().includes('/login')) {
-              await loginAsUser(page, 'REGULAR_USER');
+              await loginAsUser(page, setupUser);
               await page.goto('/profile/2fa-setup');
               await page.waitForLoadState('networkidle');
             }
@@ -189,10 +222,7 @@ test.describe('2要素認証機能', () => {
       await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: getTimeout(10000) });
 
       // TOTPコードを6桁の個別フィールドに入力（getByTestIdに統一）
-      const digits = generateMockTOTPCode().split('');
-      for (let i = 0; i < digits.length; i++) {
-        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
-      }
+      await fillTotpCode(page, await totpCodeFromSetupPage(page));
 
       // 検証ボタンをクリック（API応答を待機）
       const verifyButton = page.getByRole('button', { name: /検証|確認/i });
@@ -257,10 +287,7 @@ test.describe('2要素認証機能', () => {
       await expect(page.getByTestId('totp-digit-0')).toBeVisible({ timeout: getTimeout(10000) });
 
       // TOTPコード検証を完了
-      const digits = generateMockTOTPCode().split('');
-      for (let i = 0; i < digits.length; i++) {
-        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
-      }
+      await fillTotpCode(page, await totpCodeFromSetupPage(page));
       await page.getByRole('button', { name: /検証|確認/i }).click();
 
       // バックアップコード画面が表示されるまで待機
@@ -298,15 +325,18 @@ test.describe('2要素認証機能', () => {
       // 2FAセットアップページをリトライ付きでロード
       let setupReady = false;
       for (let retry = 0; retry < 5; retry++) {
-        await page.goto('/profile/2fa-setup');
+        // 2FA 未登録の利用者がプロフィール画面を開くと 2FA 設定の画面へ置き換わり、元の遷移先
+        // （プロフィール）が保存される（user-authentication 要件34.3・34.4、タスク47.6）
+        await page.goto('/profile');
         await page.waitForLoadState('networkidle');
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
-          await page.goto('/profile/2fa-setup');
+          await loginAsUser(page, setupUser);
+          await page.goto('/profile');
           await page.waitForLoadState('networkidle');
         }
+        await page.waitForURL(/\/profile\/2fa-setup/, { timeout: getTimeout(15000) });
 
         // TOTP入力フィールドが表示されるか確認
         try {
@@ -324,10 +354,7 @@ test.describe('2要素認証機能', () => {
       expect(setupReady).toBe(true);
 
       // TOTPコード検証
-      const digits = generateMockTOTPCode().split('');
-      for (let i = 0; i < digits.length; i++) {
-        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
-      }
+      await fillTotpCode(page, await totpCodeFromSetupPage(page));
       await page.getByRole('button', { name: /検証|確認/i }).click();
 
       // バックアップコード保存確認
@@ -340,8 +367,8 @@ test.describe('2要素認証機能', () => {
       // 要件27D.6: トーストメッセージ表示
       await expect(page.getByText(/二要素認証を有効化しました/i)).toBeVisible();
 
-      // プロフィール画面にリダイレクト
-      await expect(page).toHaveURL(/\/profile/);
+      // 保存された遷移先（プロフィール画面）へ戻る
+      await expect(page).toHaveURL(/\/profile$/);
     });
 
     /**
@@ -359,7 +386,7 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           await page.goto('/profile/2fa-setup');
           await page.waitForLoadState('networkidle');
         }
@@ -470,11 +497,8 @@ test.describe('2要素認証機能', () => {
       // TOTP検証画面
       await expect(page.getByText(/2要素認証|二要素認証/i)).toBeVisible();
 
-      // 正しいTOTPコードを入力
-      const digits = generateMockTOTPCode().split('');
-      for (let i = 0; i < digits.length; i++) {
-        await page.getByTestId(`totp-digit-${i}`).fill(digits[i]!);
-      }
+      // 正しいTOTPコード（既知の秘密鍵から計算）を入力
+      await fillTotpCode(page, await twoFactorUserCode());
 
       // 検証ボタンをクリック
       await page.getByRole('button', { name: /検証|ログイン/i }).click();
@@ -548,6 +572,15 @@ test.describe('2要素認証機能', () => {
      * @requirement user-authentication/REQ-28.17 バックアップコード入力画面でTOTPコードを使用するリンククリック → 2FA検証画面へ戻る
      */
     test('バックアップコードでログインできる', async ({ page }) => {
+      const prisma = getPrismaClient();
+      const twoFactorUser = await prisma.user.findUnique({
+        where: { email: TEST_USERS.TWO_FA_USER.email },
+      });
+      assertPrepared(twoFactorUser, '2FA 登録済みの試験用の利用者');
+      const [created] = await createTwoFactorBackupCodes({ userId: twoFactorUser.id, count: 1 });
+      assertPresent(created, 'テストの中で作ったバックアップコード');
+      const backupCode = created.code;
+
       await page.goto('/login');
 
       // メールアドレス・パスワード入力
@@ -565,8 +598,8 @@ test.describe('2要素認証機能', () => {
       const backupCodeInput = page.getByLabel(/バックアップコード/i);
       await expect(backupCodeInput).toBeVisible();
 
-      // 要件27A.6: バックアップコードを入力（テスト用モックコード: ABCD1234）
-      await backupCodeInput.fill('ABCD1234');
+      // 要件27A.6: テストの中で作ったバックアップコード（ハイフンを除いた 8 文字）を入力
+      await backupCodeInput.fill(backupCode.replace('-', ''));
       await page.getByRole('button', { name: /検証|ログイン/i }).click();
 
       // 要件27A.8: ログイン成功
@@ -606,41 +639,9 @@ test.describe('2要素認証機能', () => {
           data: { usedAt: new Date() },
         });
       }
+      // ログインの補助が、既知の秘密鍵から計算した TOTP コードで 2FA の検証まで行い、
+      // 画面のセッションで認証済みの API が成功するまで待つ
       await loginAsUser(page, 'TWO_FA_USER');
-
-      // 2FA検証フォームが表示されるまで待機（見出し「二要素認証」で確認）
-      const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-      await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(10000) });
-
-      // 6桁のTOTPコードを入力（テストモードでは123456が有効）
-      // 各フィールドに1文字ずつ入力
-      const digits = '123456'.split('');
-      for (let i = 0; i < 6; i++) {
-        const digitInput = page.getByTestId(`totp-digit-${i}`);
-        const digit = digits[i];
-        if (digit) {
-          await digitInput.fill(digit);
-        }
-      }
-
-      // 検証ボタンをクリック
-      await page.getByRole('button', { name: /検証/i }).click();
-
-      // ログイン成功を待機（ダッシュボードへリダイレクト）
-      await page.waitForURL((url) => !url.pathname.includes('/login'), {
-        timeout: getTimeout(10000),
-      });
-
-      // トークンがlocalStorageに保存されるまで待機
-      await page.waitForFunction(
-        () => {
-          return (
-            localStorage.getItem('refreshToken') !== null &&
-            localStorage.getItem('accessToken') !== null
-          );
-        },
-        { timeout: getTimeout(10000), polling: 500 }
-      );
     });
 
     /**
@@ -656,37 +657,8 @@ test.describe('2要素認証機能', () => {
 
       // ログインページにリダイレクトされた場合は、認証が失効しているため再ログイン
       if (page.url().includes('/login')) {
+        // ログインの補助が 2FA の検証まで行う
         await loginAsUser(page, 'TWO_FA_USER');
-
-        // 2FA検証フォームが表示される場合は検証
-        const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-        try {
-          await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
-          const digits = '123456'.split('');
-          for (let i = 0; i < 6; i++) {
-            const digitInput = page.getByTestId(`totp-digit-${i}`);
-            const digit = digits[i];
-            if (digit) {
-              await digitInput.fill(digit);
-            }
-          }
-          await page.getByRole('button', { name: /検証/i }).click();
-          await page.waitForURL((url) => !url.pathname.includes('/login'), {
-            timeout: getTimeout(10000),
-          });
-          // トークンがlocalStorageに保存されるまで待機
-          await page.waitForFunction(
-            () => {
-              return (
-                localStorage.getItem('refreshToken') !== null &&
-                localStorage.getItem('accessToken') !== null
-              );
-            },
-            { timeout: getTimeout(10000), polling: 500 }
-          );
-        } catch {
-          // 2FAフォームが表示されない場合は既にログイン済み
-        }
         await page.goto('/profile');
         await page.waitForLoadState('networkidle');
       }
@@ -721,25 +693,8 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再認証
         if (page.url().includes('/login')) {
+          // ログインの補助が 2FA の検証まで行う
           await loginAsUser(page, 'TWO_FA_USER');
-          const twoFactorHeading = page.getByRole('heading', { name: /二要素認証/ });
-          try {
-            await twoFactorHeading.waitFor({ state: 'visible', timeout: getTimeout(5000) });
-            const digits = '123456'.split('');
-            for (let i = 0; i < 6; i++) {
-              const digitInput = page.getByTestId(`totp-digit-${i}`);
-              const digit = digits[i];
-              if (digit) {
-                await digitInput.fill(digit);
-              }
-            }
-            await page.getByRole('button', { name: /検証/i }).click();
-            await page.waitForURL((url) => !url.pathname.includes('/login'), {
-              timeout: getTimeout(10000),
-            });
-          } catch {
-            // 2FAフォームが表示されない場合は既にログイン済み
-          }
           await page.goto('/profile');
           await page.waitForLoadState('networkidle');
         }
@@ -924,37 +879,71 @@ test.describe('2要素認証機能', () => {
     });
 
     /**
-     * 要件27B.4: 2FA無効化時にパスワード入力確認ダイアログを表示
-     * 要件27B.5: 2FA無効化時にトランザクション内で秘密鍵とバックアップコードを削除
-     * 要件27B.6: 2FA無効化完了後、全デバイスからログアウト
-     * @requirement user-authentication/REQ-27B.4 @requirement user-authentication/REQ-27B.5 @requirement user-authentication/REQ-27B.6
+     * 要件34.6: 利用者自身による 2FA の無効化は拒否する（プロフィール画面に無効化の操作を置かず、
+     * 認証アプリの変更（再登録）への導線に替える。API の直接の要求も 403 で拒否する）
+     * @requirement user-authentication/REQ-34.6
      */
-    test('2FAを無効化できる', async ({ page }) => {
+    test('2FA の自己の無効化は画面に操作が無く、API の要求も 403 で拒否され 2FA が有効のまま残る', async ({
+      page,
+    }) => {
       await page.goto('/profile');
 
-      // 2FA管理セクション（h2要素を指定して重複を回避）
-      await expect(page.getByRole('heading', { name: '二要素認証', level: 2 })).toBeVisible();
-      await expect(page.getByText(/有効|オン/i)).toBeVisible();
+      // 2FA 管理の区画が表示されている（区画の不在による偽の合格を避ける）
+      const twoFactorHeading = page.getByRole('heading', { name: '二要素認証', level: 2 });
+      await expect(twoFactorHeading).toBeVisible();
+      await expect(page.getByText('2FAが有効です')).toBeVisible();
 
-      // 無効化ボタンをクリック（セクション内の最初の「無効化」ボタン）
-      await page.getByRole('button', { name: /^無効化$|オフにする/i }).click();
+      // 無効化の操作の代わりに、認証アプリの変更（再登録）への導線がある
+      const reenrollLink = page.getByRole('link', { name: '認証アプリを変更する' });
+      await expect(reenrollLink).toBeVisible();
+      await expect(reenrollLink).toHaveAttribute('href', '/profile/2fa-setup');
+      await expect(page.getByRole('button', { name: /無効化/ })).toHaveCount(0);
 
-      // 要件27B.4: パスワード入力確認ダイアログ
-      const disableDialog = page.getByRole('dialog').filter({ hasText: /二要素認証の無効化/ });
-      await expect(disableDialog.getByText(/パスワードを入力してください/i)).toBeVisible();
-      await disableDialog.getByLabel('パスワード').fill('Password123!');
-      await disableDialog.getByRole('button', { name: /^確認$/ }).click();
+      // 画面のセッション（メモリのアクセストークン）で自己の無効化の API を直接要求すると 403 で拒否される
+      const rejected = await page.evaluate(async () => {
+        const client = (
+          window as unknown as {
+            __apiClient?: { post: (path: string, body?: unknown) => Promise<unknown> };
+          }
+        ).__apiClient;
+        if (!client) {
+          return { status: -1, code: null };
+        }
+        try {
+          await client.post('/api/v1/auth/2fa/disable', { password: 'Password123!' });
+          return { status: 200, code: null };
+        } catch (error) {
+          const { statusCode, response } = error as {
+            statusCode?: number;
+            response?: { code?: unknown };
+          };
+          return {
+            status: typeof statusCode === 'number' ? statusCode : 0,
+            code: typeof response?.code === 'string' ? response.code : null,
+          };
+        }
+      });
+      expect(rejected).toEqual({ status: 403, code: 'TWO_FACTOR_DISABLE_NOT_ALLOWED' });
 
-      // 要件27B.6: 全デバイスからログアウトの警告
-      const confirmDialog = page.getByRole('dialog').filter({ hasText: /二要素認証の無効化確認/ });
-      await expect(confirmDialog.getByText(/全デバイスからログアウトされます/i)).toBeVisible();
-      await confirmDialog.getByRole('button', { name: /はい.*無効化/ }).click();
+      // 対照: 同じセッションの認証済みの API は成功する（403 が認証の失効によるものでない）
+      expect(await fetchSessionUser(page)).toEqual({
+        status: 200,
+        email: TEST_USERS.TWO_FA_USER.email,
+      });
 
-      // 成功メッセージ
-      await expect(page.getByText(/二要素認証を無効化しました/i)).toBeVisible();
-
-      // 要件27B.6: ログイン画面にリダイレクト
-      await expect(page).toHaveURL(/\/login/);
+      // 2FA の状態（有効・秘密鍵・バックアップコード）は変わっていない
+      const prisma = getPrismaClient();
+      const stored = await prisma.user.findUniqueOrThrow({
+        where: { email: TEST_USERS.TWO_FA_USER.email },
+        select: {
+          twoFactorEnabled: true,
+          twoFactorSecret: true,
+          _count: { select: { twoFactorBackupCodes: true } },
+        },
+      });
+      expect(stored.twoFactorEnabled).toBe(true);
+      expect(stored.twoFactorSecret).not.toBeNull();
+      expect(stored._count.twoFactorBackupCodes).toBe(10);
     });
   });
 
@@ -1006,8 +995,9 @@ test.describe('2要素認証機能', () => {
       });
 
       await cleanDatabase();
-      await createTestUser('REGULAR_USER');
-      await loginAsUser(page, 'REGULAR_USER');
+      setupUser = await resetDedicatedUser('TWO_FA_NOT_ENROLLED_USER');
+      await loginAsUser(page, setupUser);
+      await waitForTwoFactorSetupStarted(page);
     });
 
     /**
@@ -1025,29 +1015,13 @@ test.describe('2要素認証機能', () => {
       let qrVisible = false;
       while (retries > 0 && !qrVisible) {
         retries--;
-        // まずプロフィールページで認証状態を確認してからセットアップページに遷移
-        await page.goto('/profile');
-        await page.waitForLoadState('networkidle');
-
-        // 認証状態が確立されていることを確認（ユーザー情報が表示される）
-        try {
-          await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user@example.com', {
-            timeout: getTimeout(10000),
-          });
-        } catch {
-          // 認証が切れている場合は再ログイン
-          await loginAsUser(page, 'REGULAR_USER');
-          await page.goto('/profile');
-          await page.waitForLoadState('networkidle');
-        }
-
-        // 2FAセットアップページに遷移
+        // 2FAセットアップページに遷移（2FA 未登録の利用者はプロフィール画面を開けない。タスク47.6）
         await page.goto('/profile/2fa-setup');
         await page.waitForLoadState('networkidle');
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           continue;
         }
 
@@ -1083,7 +1057,7 @@ test.describe('2要素認証機能', () => {
 
         // ログインページにリダイレクトされた場合は再ログイン
         if (page.url().includes('/login')) {
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, setupUser);
           await page.goto('/profile/2fa-setup');
           await page.waitForLoadState('networkidle');
         }

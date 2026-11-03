@@ -23,7 +23,7 @@
  */
 
 import type { APIRequestContext } from '@playwright/test';
-import { API_BASE_URL } from '../config';
+import { SAME_ORIGIN_API_BASE_URL } from '../config';
 
 /** 明細行の行タイプ */
 export type SaveLineType = 'ESTIMATE' | 'EXECUTION' | 'VENDOR';
@@ -222,7 +222,7 @@ export async function getEstimateItemTree(
   token: string,
   estimateId: string
 ): Promise<EstimateItemNode[]> {
-  const res = await request.get(`${API_BASE_URL}/api/estimates/${estimateId}/items`, {
+  const res = await request.get(`${SAME_ORIGIN_API_BASE_URL}/api/estimates/${estimateId}/items`, {
     headers: authHeaders(token),
   });
   if (!res.ok()) {
@@ -237,7 +237,7 @@ export async function getEstimateUpdatedAt(
   token: string,
   estimateId: string
 ): Promise<string> {
-  const res = await request.get(`${API_BASE_URL}/api/estimates/${estimateId}`, {
+  const res = await request.get(`${SAME_ORIGIN_API_BASE_URL}/api/estimates/${estimateId}`, {
     headers: authHeaders(token),
   });
   if (!res.ok()) {
@@ -245,6 +245,28 @@ export async function getEstimateUpdatedAt(
   }
   const body = (await res.json()) as { updatedAt: string };
   return body.updatedAt;
+}
+
+/**
+ * 見積書を API で論理削除する（後始末用）
+ *
+ * 楽観的排他制御の基準時刻（現在の updatedAt）を読み直し、画面の deleteEstimate と同じくクエリで送る。
+ * 204 以外は例外にして、後始末の失敗を見逃さない（2026-10-30 の是正まで、後始末は基準時刻を送らずに
+ * 400 を受け、状態コードを見ていなかったため見積書が残っていた）。
+ */
+export async function deleteEstimateViaApi(
+  request: APIRequestContext,
+  token: string,
+  estimateId: string
+): Promise<void> {
+  const updatedAt = await getEstimateUpdatedAt(request, token, estimateId);
+  const res = await request.delete(
+    `${SAME_ORIGIN_API_BASE_URL}/api/estimates/${estimateId}?updatedAt=${encodeURIComponent(updatedAt)}`,
+    { headers: authHeaders(token) }
+  );
+  if (res.status() !== 204) {
+    throw new Error(`estimate delete failed: ${res.status()} ${await res.text()}`);
+  }
 }
 
 /**
@@ -262,7 +284,7 @@ export async function saveEstimateDraft(
   const expectedUpdatedAt =
     options.expectedUpdatedAt ?? (await getEstimateUpdatedAt(request, token, estimateId));
 
-  const res = await request.put(`${API_BASE_URL}/api/estimates/${estimateId}/save`, {
+  const res = await request.put(`${SAME_ORIGIN_API_BASE_URL}/api/estimates/${estimateId}/save`, {
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     data: {
       expectedUpdatedAt,

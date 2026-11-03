@@ -26,6 +26,7 @@ import {
 import { expectPdfPreviewRendered, PDF_PAGE_CANVAS_SELECTOR } from '../../helpers/pdf-preview';
 import { expectImagePreviewRendered } from '../../helpers/image-preview';
 import ExcelJS from 'exceljs';
+import { loginViaApi } from '../../helpers/auth-api';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -304,13 +305,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       // APIトークンを取得
       const baseUrl = API_BASE_URL;
-      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-        data: {
-          email: 'user@example.com',
-          password: 'Password123!',
-        },
-      });
-      const loginBody = await loginResponse.json();
+      const loginBody = await loginViaApi(request, 'REGULAR_USER');
       accessToken = loginBody.accessToken;
 
       // グループを作成

@@ -239,4 +239,26 @@ describe('ConstructionPhotoImageViewerPage', () => {
       );
     });
   });
+
+  it('原本の取得が 404 を受けたときも、読み込みの 404 と同じ写真の不在の表示にし、英語の文言をビューアに渡さない（タスク 31.1、Requirement 22.1）', async () => {
+    vi.mocked(getConstructionPhotoAlbum).mockResolvedValue(makeAlbum());
+    vi.mocked(getConstructionPhotos).mockResolvedValue([makePhoto()]);
+    vi.mocked(getConstructionPhotoOriginalImage).mockRejectedValue(
+      new ApiError(404, 'Construction photo not found: photo-1', {
+        code: 'CONSTRUCTION_PHOTO_NOT_FOUND',
+      })
+    );
+
+    renderPage();
+
+    expect(
+      await screen.findByRole('heading', { name: '写真が見つかりません' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '前の画面に戻る' })).toHaveAttribute(
+      'href',
+      '/construction-photos/album-1'
+    );
+    expect(screen.queryByTestId('mock-viewer')).not.toBeInTheDocument();
+    expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+  });
 });

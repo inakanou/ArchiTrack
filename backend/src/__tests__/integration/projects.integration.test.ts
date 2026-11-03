@@ -29,6 +29,9 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * プロジェクトAPI統合テスト
@@ -53,12 +56,10 @@ describe('Project API Integration Tests', () => {
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-project-integration@example.com',
-        displayName: 'Project Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-project-integration@example.com',
+      displayName: 'Project Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -96,16 +97,13 @@ describe('Project API Integration Tests', () => {
     }
 
     // ログイン
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({
-        email: 'test-project-integration@example.com',
-        password: 'TestPassword123!',
-      })
-      .expect(200);
+    const accessToken = await loginForAccessToken(app, {
+      email: 'test-project-integration@example.com',
+      password: 'TestPassword123!',
+    });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -126,12 +124,10 @@ describe('Project API Integration Tests', () => {
     });
 
     // 営業担当者
-    const salesPerson = await prisma.user.create({
-      data: {
-        email: 'test-sales-person@example.com',
-        displayName: '営業太郎',
-        passwordHash,
-      },
+    const salesPerson = await createTestUser(prisma, {
+      email: 'test-sales-person@example.com',
+      displayName: '営業太郎',
+      passwordHash,
     });
 
     // userロールを割り当て
@@ -149,12 +145,10 @@ describe('Project API Integration Tests', () => {
     }
 
     // 工事担当者
-    const constructionPerson = await prisma.user.create({
-      data: {
-        email: 'test-construction-person@example.com',
-        displayName: '工事次郎',
-        passwordHash,
-      },
+    const constructionPerson = await createTestUser(prisma, {
+      email: 'test-construction-person@example.com',
+      displayName: '工事次郎',
+      passwordHash,
     });
 
     if (userRole) {
@@ -216,11 +210,9 @@ describe('Project API Integration Tests', () => {
     });
 
     // 3. 監査ログを削除
-    await prisma.auditLog.deleteMany({
-      where: {
-        actorId: {
-          in: [testUserId, testSalesPersonId, testConstructionPersonId].filter(Boolean),
-        },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      actorId: {
+        in: [testUserId, testSalesPersonId, testConstructionPersonId].filter(Boolean),
       },
     });
 
@@ -304,17 +296,15 @@ describe('Project API Integration Tests', () => {
       },
     });
 
-    await prisma.auditLog.deleteMany({
-      where: {
-        OR: [
-          { action: 'PROJECT_CREATED' },
-          { action: 'PROJECT_UPDATED' },
-          { action: 'PROJECT_DELETED' },
-          { action: 'PROJECT_STATUS_CHANGED' },
-        ],
-        actorId: {
-          in: [testUserId, testSalesPersonId, testConstructionPersonId].filter(Boolean),
-        },
+    await deleteAuditLogsWithArchivePermission(prisma, {
+      OR: [
+        { action: 'PROJECT_CREATED' },
+        { action: 'PROJECT_UPDATED' },
+        { action: 'PROJECT_DELETED' },
+        { action: 'PROJECT_STATUS_CHANGED' },
+      ],
+      actorId: {
+        in: [testUserId, testSalesPersonId, testConstructionPersonId].filter(Boolean),
       },
     });
 

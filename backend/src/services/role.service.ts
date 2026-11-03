@@ -23,6 +23,11 @@ import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import {
+  isCeilingError,
+  recordCeilingRejection,
+  type PrivilegeCeilingPort,
+} from './privilege-ceiling.js';
 
 /** 監査ログの変更前後の値に残すロールの項目 */
 type RoleAuditSnapshot = {
@@ -37,7 +42,11 @@ type RoleAuditSnapshot = {
  * 業務上のエラー（使用中など）を運ぶ。$transaction の外で Err へ戻す。
  */
 class RoleRollback extends Error {
-  constructor(readonly error: RoleError) {
+  constructor(
+    readonly error: RoleError,
+    /** 上限による拒否のときの、監査の記録の対象と付帯情報（タスク58.1） */
+    readonly rejected?: { targetId: string; detail: Record<string, string> }
+  ) {
     super(`Role change rolled back: ${error.type}`);
     this.name = 'RoleRollback';
   }
@@ -53,8 +62,85 @@ class RoleRollback extends Error {
 export class RoleService implements IRoleService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly auditLogService?: IAuditLogService
+    private readonly auditLogService?: IAuditLogService,
+    /**
+     * 権限付与の上限（user-authentication タスク51.1・58.1）。システムロールの名前・優先度の変更、
+     * 上限を超える優先度のロールの作成と優先度への変更、上限より上のロールの変更と削除を拒否する。
+     * API の経路（roles.routes.ts）は必ず渡す
+     */
+    private readonly privilegeCeiling?: Pick<
+      PrivilegeCeilingPort,
+      | 'assertCanRenameRole'
+      | 'assertCanSetRolePriority'
+      | 'assertCanModifyRole'
+      | 'assertCanChangeRolePriority'
+    >
   ) {}
+
+  /**
+   * 上限による拒否を、ロールバックの後に権限チェックの失敗として記録する（タスク58.1）
+   */
+  private async recordRollbackRejection(rollback: RoleRollback, actorId?: string): Promise<void> {
+    if (actorId && rollback.rejected && isCeilingError(rollback.error)) {
+      await recordCeilingRejection(this.auditLogService, {
+        actorId,
+        targetType: 'role',
+        targetId: rollback.rejected.targetId,
+        error: rollback.error,
+        detail: rollback.rejected.detail,
+      });
+    }
+  }
+
+  /**
+   * 優先度の変更の上限（タスク58.1）。書き込みと同じトランザクションのクライアントで判定し、拒否は
+   * RoleRollback で投げる。優先度が与えられ、かつ現在の値と異なるときだけ判定する（画面は説明だけの
+   * 変更でも現在の優先度を送るため）。順は 38.12（システムロール）→ 38.11（現在の優先度）→ 38.6（変更後の優先度）
+   */
+  private async assertPriorityChange(
+    tx: Prisma.TransactionClient,
+    roleId: string,
+    currentPriority: number,
+    requestedPriority: number | undefined,
+    actorId?: string
+  ): Promise<void> {
+    if (
+      !this.privilegeCeiling ||
+      requestedPriority === undefined ||
+      requestedPriority === currentPriority
+    ) {
+      return;
+    }
+    const rejected = {
+      targetId: roleId,
+      detail: {
+        currentPriority: String(currentPriority),
+        requestedPriority: String(requestedPriority),
+      },
+    };
+    // システムロールの優先度は実行者によらず変えられない（38.12）
+    const system = await this.privilegeCeiling.assertCanChangeRolePriority(roleId, tx);
+    if (!system.ok) {
+      throw new RoleRollback(system.error, rejected);
+    }
+    if (!actorId) {
+      return;
+    }
+    // 上限より上のロールの優先度は、上げる・下げるを問わず変えられない（38.11）
+    const modify = await this.privilegeCeiling.assertCanModifyRole(actorId, roleId, tx);
+    if (!modify.ok) {
+      throw new RoleRollback(modify.error, rejected);
+    }
+    // 上限を超える優先度へは変えられない（38.6）
+    const set = await this.privilegeCeiling.assertCanSetRolePriority(
+      actorId,
+      requestedPriority,
+      tx
+    );
+    if (!set.ok) {
+      throw new RoleRollback(set.error, rejected);
+    }
+  }
 
   private toAuditSnapshot(role: RoleAuditSnapshot): RoleAuditSnapshot {
     return {
@@ -141,6 +227,22 @@ export class RoleService implements IRoleService {
 
       // ロール作成と監査ログを同じトランザクションで記録する
       const role = await this.prisma.$transaction(async (tx) => {
+        // 上限を超える優先度のロールの作成の拒否（38.7。タスク58.1）。省略時は既定の 0 で判定する
+        if (this.privilegeCeiling && actorId) {
+          const requestedPriority = input.priority ?? 0;
+          const verdict = await this.privilegeCeiling.assertCanSetRolePriority(
+            actorId,
+            requestedPriority,
+            tx
+          );
+          if (!verdict.ok) {
+            // ロールは作られないため、監査の対象には要求された名前を置く
+            throw new RoleRollback(verdict.error, {
+              targetId: input.name,
+              detail: { requestedName: input.name, requestedPriority: String(requestedPriority) },
+            });
+          }
+        }
         const created = await tx.role.create({
           data: {
             name: input.name,
@@ -167,6 +269,10 @@ export class RoleService implements IRoleService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
+      if (error instanceof RoleRollback) {
+        await this.recordRollbackRejection(error, actorId);
+        return Err(error.error);
+      }
       logger.error({ err: error, input }, 'Failed to create role');
       return Err({
         type: 'DATABASE_ERROR',
@@ -204,6 +310,24 @@ export class RoleService implements IRoleService {
         return Err({ type: 'ROLE_NOT_FOUND' });
       }
 
+      // システムロールの名前の変更の拒否（タスク51.1）。名前が実際に変わるときだけ判定する
+      // （画面は説明だけの変更でも同じ名前を送るため、同じ名前は拒否しない）
+      if (this.privilegeCeiling && input.name !== undefined && input.name !== existingRole.name) {
+        const verdict = await this.privilegeCeiling.assertCanRenameRole(roleId);
+        if (!verdict.ok) {
+          if (actorId) {
+            await recordCeilingRejection(this.auditLogService, {
+              actorId,
+              targetType: 'role',
+              targetId: roleId,
+              error: verdict.error,
+              detail: { currentName: existingRole.name, requestedName: input.name },
+            });
+          }
+          return Err({ type: 'SYSTEM_ROLE_RENAME_FORBIDDEN' });
+        }
+      }
+
       // Check name duplication when changing name (optimized: only check existence)
       if (input.name && input.name !== existingRole.name) {
         const duplicateRole = await this.prisma.role.findUnique({
@@ -231,6 +355,10 @@ export class RoleService implements IRoleService {
           // この読み出しから変わっていない（並行する更新があれば updatedAt が進み 0 件になる）ため、
           // 読んだ行が更新の直前の値である
           const before = await tx.role.findUnique({ where: { id: roleId } });
+          // 優先度の変更の上限（タスク58.1）。読んだ行が古ければ後の条件付きの更新が 0 件になり競合で返る
+          if (before) {
+            await this.assertPriorityChange(tx, roleId, before.priority, input.priority, actorId);
+          }
           // 条件付きの更新。読んでから比べると、READ COMMITTED では同じ版から並行する2件が
           // どちらも比較を通りうる。条件を UPDATE の WHERE に置けば、後続は先行のコミットを待って
           // 条件を最新の行で評価し直し、0 件になる
@@ -281,6 +409,10 @@ export class RoleService implements IRoleService {
         // 取るものと同じ FOR NO KEY UPDATE とし、外部キーの検査（割り当ての INSERT）を待たせない
         const [before] = await tx.$queryRaw<RoleAuditSnapshot[]>`
           SELECT id, name, description, priority FROM roles WHERE id = ${roleId} FOR NO KEY UPDATE`;
+        // 優先度の変更の上限（タスク58.1）。行をロックした後の現在の値で判定する
+        if (before) {
+          await this.assertPriorityChange(tx, roleId, before.priority, input.priority, actorId);
+        }
         const updated = await tx.role.update({
           where: { id: roleId },
           data,
@@ -303,6 +435,10 @@ export class RoleService implements IRoleService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
+      if (error instanceof RoleRollback) {
+        await this.recordRollbackRejection(error, actorId);
+        return Err(error.error);
+      }
       logger.error({ err: error, roleId, input }, 'Failed to update role');
       return Err({
         type: 'DATABASE_ERROR',
@@ -338,21 +474,34 @@ export class RoleService implements IRoleService {
           throw new RoleRollback({ type: 'ROLE_NOT_FOUND' });
         }
 
-        // Protect system roles（isSystem は作成後に変わらないため、ロックの前に判定してよい）
-        if (existingRole.isSystem) {
-          logger.warn({ roleId, name: existingRole.name }, 'Cannot delete system role');
-          throw new RoleRollback({ type: 'SYSTEM_ROLE_PROTECTED' });
-        }
-
-        // ロールの行を FOR UPDATE でロックしてから数える。割り当て（user_roles への INSERT）は
+        // ロールの行を FOR UPDATE でロックしてから判定し、数える。割り当て（user_roles への INSERT）は
         // ロールの行に FOR KEY SHARE を取るため、ロックの後に新しい割り当ては入らず、
-        // ロックの前から未コミットの割り当てがあればそのコミット（またはロールバック）まで待つ
+        // ロックの前から未コミットの割り当てがあればそのコミット（またはロールバック）まで待つ。
+        // 優先度の変更（UPDATE）もロックの後は待つため、上限の判定から削除までの間に優先度は変わらない
         const locked = await tx.$queryRaw<Array<{ id: string }>>`
           SELECT id FROM roles WHERE id = ${roleId} FOR UPDATE`;
         if (locked.length === 0) {
           // 確認とロックの間に他の要求が削除した
           logger.warn({ roleId }, 'Role not found');
           throw new RoleRollback({ type: 'ROLE_NOT_FOUND' });
+        }
+
+        // 上限より上のロールの削除の拒否（38.11。タスク58.1）。ロックした行の現在の優先度で、
+        // システムロールの保護・使用中より先に判定する
+        if (this.privilegeCeiling && actorId) {
+          const verdict = await this.privilegeCeiling.assertCanModifyRole(actorId, roleId, tx);
+          if (!verdict.ok) {
+            throw new RoleRollback(verdict.error, {
+              targetId: roleId,
+              detail: { roleName: existingRole.name },
+            });
+          }
+        }
+
+        // Protect system roles
+        if (existingRole.isSystem) {
+          logger.warn({ roleId, name: existingRole.name }, 'Cannot delete system role');
+          throw new RoleRollback({ type: 'SYSTEM_ROLE_PROTECTED' });
         }
 
         // 使用中チェック（ユーザーに割り当てられているか）。待ちが明けた後の文は新しいスナップショットで読む
@@ -380,6 +529,7 @@ export class RoleService implements IRoleService {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof RoleRollback) {
+        await this.recordRollbackRejection(error, actorId);
         return Err(error.error);
       }
       logger.error({ err: error, roleId }, 'Failed to delete role');

@@ -16,6 +16,10 @@
  * - 9.5: パンくずナビゲーションを表示する
  * - 9.6: 「{プロジェクト名}」リンクはプロジェクト詳細画面へ遷移する
  * - 9.7: 「内訳書一覧」リンクは内訳書一覧画面へ遷移する
+ *
+ * Task 29.1 変更: プロジェクトの読み込み（プロジェクトと数量表の一覧の取得）が 404 を受けたときに、
+ *   プロジェクトが見つからない旨とプロジェクトの一覧へのリンクを表示し、取得の失敗の文言とフォームを
+ *   出さない（itemized-statement-generation の Requirement 19.1）
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -23,7 +27,8 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { getProject } from '../api/projects';
 import { getQuantityTables } from '../api/quantity-tables';
 import { CreateItemizedStatementForm } from '../components/itemized-statement/CreateItemizedStatementForm';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import { isNotFoundError } from '../utils/itemizedStatementNotFound';
 import type { ProjectDetail } from '../types/project.types';
 import type { QuantityTableInfo } from '../types/quantity-table.types';
 import type { ItemizedStatementInfo } from '../types/itemized-statement.types';
@@ -127,6 +132,8 @@ export default function ItemizedStatementCreatePage() {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   const [projectError, setProjectError] = useState<string | null>(null);
+  // プロジェクトの読み込みが 404 を受けた（範囲外と不在を区別しない。Task 29.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   // 数量表一覧
   const [quantityTables, setQuantityTables] = useState<QuantityTableInfo[]>([]);
@@ -139,6 +146,7 @@ export default function ItemizedStatementCreatePage() {
 
     setIsLoadingProject(true);
     setProjectError(null);
+    setIsProjectNotFound(false);
 
     try {
       const [projectData, quantityTableData] = await Promise.all([
@@ -147,7 +155,12 @@ export default function ItemizedStatementCreatePage() {
       ]);
       setProject(projectData);
       setQuantityTables(quantityTableData.data);
-    } catch {
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる
+        setIsProjectNotFound(true);
+        return;
+      }
       setProjectError('プロジェクトの取得に失敗しました');
     } finally {
       setIsLoadingProject(false);
@@ -203,6 +216,19 @@ export default function ItemizedStatementCreatePage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 29.1）。フォームを出さない
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

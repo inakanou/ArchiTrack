@@ -10,6 +10,10 @@
  * 詳細画面（`/construction-photos/:albumId`）へ戻る（R14.5）。
  *
  * Requirements: 14.1, 14.5, 14.6
+ *
+ * Task 31.1 変更: 原本の取得が 404 を受けたときも、アルバムと写真項目の読み込みの 404 と同じ写真が
+ * 見つからない旨とアルバムの詳細へのリンク（共通部品 ResourceNotFound）を表示し、応答の英語の文言を
+ * ビューアの失敗の表示に出さない（Requirement 22.1。範囲外と不在を区別しない）。
  * @see design.md - 「画像ビューア（閲覧専用）」System Flow
  */
 
@@ -22,6 +26,7 @@ import {
 } from '../api/construction-photo-images';
 import { ApiError } from '../api/client';
 import { ResourceNotFound } from '../components/common';
+import { isConstructionPhotoNotFoundError } from '../utils/constructionPhotoNotFound';
 import ConstructionPhotoImageViewer from '../components/construction-photos/ConstructionPhotoImageViewer';
 import type {
   ConstructionPhotoAlbum,
@@ -111,6 +116,11 @@ export default function ConstructionPhotoImageViewerPage() {
       objectUrlRef.current = url;
       setImageUrl(url);
     } catch (err) {
+      if (isConstructionPhotoNotFoundError(err)) {
+        // 原本の 404 も読み込みの 404 と同じ写真の不在の表示にする（Task 31.1）
+        setIsNotFound(true);
+        return;
+      }
       if (err instanceof ApiError) {
         setImageError(err.message || '原本画像の取得に失敗しました');
       } else {

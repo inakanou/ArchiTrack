@@ -42,6 +42,8 @@
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { hash } from '@node-rs/argon2';
 import logger from './logger.js';
+import type { EmailService } from '../services/email.service.js';
+import { SYSTEM_ADMIN_ROLE_PRIORITY } from '../services/privilege-ceiling.js';
 
 /**
  * 事前定義ロールのシーディング
@@ -58,13 +60,15 @@ export async function seedRoles(prisma: PrismaClient): Promise<void> {
     where: { name: 'admin' },
     update: {
       description: 'システム全体を管理する最高権限ロール',
-      priority: 100,
+      // ロールの作成・変更で指定できる優先度の上限と同じ定数（user-authentication 要件38.10・38.12）
+      priority: SYSTEM_ADMIN_ROLE_PRIORITY,
       isSystem: true,
     },
     create: {
       name: 'admin',
       description: 'システム全体を管理する最高権限ロール',
-      priority: 100,
+      // ロールの作成・変更で指定できる優先度の上限と同じ定数（user-authentication 要件38.10・38.12）
+      priority: SYSTEM_ADMIN_ROLE_PRIORITY,
       isSystem: true,
     },
   });
@@ -94,7 +98,9 @@ export async function seedRoles(prisma: PrismaClient): Promise<void> {
  * @requirement user-authentication/REQ-18: 権限管理
  * - resource:action形式で権限を定義
  * - システム管理者用: *:* (全権限)
- * - 一般ユーザー用: adr:read, adr:create, adr:update, user:read, settings:read
+ * - 一般ユーザー用: adr:read, adr:create, adr:update, settings:read ほか業務の権限
+ *   （user:read は含めない。user-authentication 要件38.4）
+ * - 全案件閲覧 project:read_all・運用設定の管理 ops:manage（要件39.5。システム管理者が *:* で持つ）
  */
 export async function seedPermissions(prisma: PrismaClient): Promise<void> {
   logger.info('Seeding permissions...');
@@ -164,6 +170,19 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       resource: 'user',
       action: 'manage',
       description: 'ユーザーの完全管理',
+    },
+
+    // 全案件閲覧・運用設定の管理（user-authentication 要件39.5・42）
+    // システム管理者は *:* で持つ。一般ユーザーロールへは割り当てない
+    {
+      resource: 'project',
+      action: 'read_all',
+      description: '全案件の閲覧',
+    },
+    {
+      resource: 'ops',
+      action: 'manage',
+      description: '運用設定の管理',
     },
 
     // ロール関連権限
@@ -558,7 +577,9 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
  * ロールと権限の紐付け
  *
  * - システム管理者ロール: *:* 権限
- * - 一般ユーザーロール: adr:read, adr:create, adr:update, user:read, settings:read
+ * - 一般ユーザーロール: adr:read, adr:create, adr:update, settings:read ほか業務の権限
+ *   （ユーザー一覧の閲覧 user:read・全案件閲覧 project:read_all・運用設定の管理 ops:manage は
+ *   割り当てない。user-authentication 要件38.4・39.5）
  */
 export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
   logger.info('Seeding role-permission assignments...');
@@ -604,7 +625,7 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'adr', action: 'read' },
     { resource: 'adr', action: 'create' },
     { resource: 'adr', action: 'update' },
-    { resource: 'user', action: 'read' },
+    // user:read（ユーザー一覧の閲覧）は割り当てない（user-authentication 要件38.4）
     { resource: 'settings', action: 'read' },
     // プロジェクト関連権限（Requirements 12.5）
     // 一般ユーザーはプロジェクトの作成・閲覧・更新が可能（削除は管理者のみ）
@@ -706,12 +727,53 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
 }
 
 /**
+ * 初期管理者のパスワードがパスワードポリシー（要件2.5〜2.8）を満たすことを確かめる
+ *
+ * 判定は PasswordService.validatePasswordStrength に一本化する。PasswordService は既定で
+ * メール送信の部品（Bull のキュー）を作り、seed のプロセスが Redis の接続で終わらなくなるため、
+ * 判定では使わない送信の部品を渡す（触れたら例外で知らせる）
+ *
+ * @throws ポリシーを満たさない場合（違反の種別を含み、パスワードの値は含めない）
+ */
+async function assertInitialAdminPasswordPolicy(
+  prisma: PrismaClient,
+  password: string,
+  userInputs: string[]
+): Promise<void> {
+  const { PasswordService } = await import('../services/password.service.js');
+  const unusedEmailService = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error('The initial admin seed must not send email.');
+      },
+    }
+  ) as unknown as EmailService;
+  const passwordService = new PasswordService(prisma, unusedEmailService);
+  const result = await passwordService.validatePasswordStrength(password, userInputs);
+  if (!result.ok) {
+    const detail =
+      result.error.type === 'WEAK_PASSWORD'
+        ? result.error.violations.join(', ')
+        : result.error.type;
+    throw new Error(
+      `INITIAL_ADMIN_PASSWORD does not satisfy the password policy (${detail}). Admin user creation aborted.`
+    );
+  }
+}
+
+/**
  * 初期管理者アカウントの作成
  *
  * @requirement user-authentication/REQ-3: 初期管理者アカウントのセットアップ
  * - 環境変数から管理者情報を取得
  * - 既に存在する場合はスキップ（冪等性）
  * - システム管理者ロールを割り当て
+ *
+ * user-authentication 要件37.6・37.7（タスク47.7）:
+ * - 作成するときだけパスワードポリシー（要件2.5〜2.8）を検証し、満たさなければ例外で止める
+ *   （既存の管理者がいる再デプロイでは検証しない）
+ * - 作成する初期管理者は初回のパスワード変更を要する状態にする
  */
 export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
   logger.info('Seeding admin user...');
@@ -750,6 +812,8 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
         data: {
           action: 'USER_CREATED',
           actorId: existingAdmin.id,
+          actorEmail: existingAdmin.email,
+          actorDisplayName: existingAdmin.displayName,
           targetType: 'User',
           targetId: existingAdmin.id,
           after: {
@@ -770,6 +834,9 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
     logger.info(`Admin user already exists: ${adminEmail}. Skipping user creation.`);
     return;
   }
+
+  // 要件37.6: 作成するときだけパスワードポリシーを検証し、満たさなければ作成を中止する
+  await assertInitialAdminPasswordPolicy(prisma, adminPassword, [adminEmail, adminDisplayName]);
 
   // パスワードをArgon2idでハッシュ化
   const passwordHash = await hash(adminPassword, {
@@ -793,6 +860,8 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
       email: adminEmail,
       displayName: adminDisplayName,
       passwordHash,
+      // 要件37.7: 初回ログインでパスワードの変更を要する（変更の完了で解く。タスク47.6）
+      mustChangePassword: true,
     },
   });
 
@@ -809,6 +878,8 @@ export async function seedAdminUser(prisma: PrismaClient): Promise<void> {
     data: {
       action: 'USER_CREATED',
       actorId: adminUser.id, // 初期管理者は自身を作成者として記録
+      actorEmail: adminUser.email,
+      actorDisplayName: adminUser.displayName,
       targetType: 'User',
       targetId: adminUser.id,
       after: {

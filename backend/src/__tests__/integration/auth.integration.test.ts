@@ -7,9 +7,17 @@ import type { PrismaClient } from '../../generated/prisma/client.js';
 validateEnv();
 
 import app from '../../app.js';
+import { hashInvitationToken } from '../../services/invitation.service.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import {
+  issuedRefreshToken,
+  logoutWithCookie,
+  refreshWithCookie,
+} from './refresh-cookie-client.js';
+import { loginForTokens } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * 認証APIエンドポイント統合テスト
@@ -113,13 +121,15 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
+      await createTestUser(
+        prisma,
+        {
           email: 'test-auth-integration-login@example.com',
           displayName: 'Test Login User',
           passwordHash,
         },
-      });
+        { twoFactor: false }
+      );
 
       // テスト実行
       const response = await request(app)
@@ -130,15 +140,15 @@ describe('Authentication API Integration Tests', () => {
         })
         .expect(200);
 
-      // 検証
+      // 検証（リフレッシュトークンは応答本文に含めず Set-Cookie だけで渡す。要件33.9）
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
       expect(response.body).toHaveProperty('user');
       expect(response.body.user.email).toBe('test-auth-integration-login@example.com');
 
       // トークンの形式検証 (JWT形式)
       expect(response.body.accessToken).toMatch(/^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/);
-      expect(response.body.refreshToken).toMatch(
+      expect(issuedRefreshToken(response)).toMatch(
         /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/
       );
     });
@@ -175,13 +185,15 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
+      await createTestUser(
+        prisma,
+        {
           email: 'test-auth-integration-wrongpass@example.com',
           displayName: 'Test Wrong Pass User',
           passwordHash,
         },
-      });
+        { twoFactor: false }
+      );
 
       // テスト実行
       const response = await request(app)
@@ -212,8 +224,9 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
+      await createTestUser(
+        prisma,
+        {
           email: 'test-auth-integration-admin@example.com',
           displayName: 'Test Admin User',
           passwordHash,
@@ -230,7 +243,8 @@ describe('Authentication API Integration Tests', () => {
           //   ],
           // },
         },
-      });
+        { twoFactor: false }
+      );
 
       // テスト実行
       const response = await request(app)
@@ -294,13 +308,15 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
+      await createTestUser(
+        prisma,
+        {
           email: 'test-auth-integration-lock@example.com',
           displayName: 'Test Lock User',
           passwordHash,
         },
-      });
+        { twoFactor: false }
+      );
 
       // 5回ログイン失敗
       // Note: レート制限により429エラーが返される場合もあるため、401または429を許容
@@ -344,18 +360,16 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      const admin = await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-admin-invite@example.com',
-          displayName: 'Admin Inviter',
-          passwordHash: adminPasswordHash,
-        },
+      const admin = await createTestUser(prisma, {
+        email: 'test-auth-integration-admin-invite@example.com',
+        displayName: 'Admin Inviter',
+        passwordHash: adminPasswordHash,
       });
 
       const invitation = await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-register@example.com',
-          token: 'test-invitation-token-12345',
+          tokenHash: hashInvitationToken('test-invitation-token-12345'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7日後
           inviterId: admin.id,
         },
@@ -365,7 +379,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: invitation.token,
+          invitationToken: 'test-invitation-token-12345',
           password: 'StrongPass123!@#',
           displayName: 'New Test User',
         })
@@ -373,13 +387,14 @@ describe('Authentication API Integration Tests', () => {
 
       // 検証
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(issuedRefreshToken(response)).not.toBe('');
       expect(response.body).toHaveProperty('user');
       expect(response.body.user.email).toBe('test-auth-integration-register@example.com');
 
       // 要件2.10: 招待トークンが使用済みとしてマークされる
       const updatedInvitation = await prisma.invitation.findUnique({
-        where: { token: invitation.token },
+        where: { id: invitation.id },
       });
       expect(updatedInvitation?.usedAt).not.toBeNull();
 
@@ -390,6 +405,48 @@ describe('Authentication API Integration Tests', () => {
       });
       const roleNames = user?.userRoles.map((ur) => ur.role.name);
       expect(roleNames).toContain('user');
+    });
+
+    /**
+     * 要件36.10の準備: 招待経由の登録で招待の作成者を利用者の招待者として写す
+     * （招待の行の取り消し・削除に左右されない利用者の属性）
+     */
+    it('招待経由の登録で招待の作成者が利用者の招待者として記録されること', async () => {
+      const inviter = await createTestUser(prisma, {
+        email: 'test-auth-integration-inviter-record@example.com',
+        displayName: 'Inviter Record',
+        passwordHash: 'not-used',
+      });
+
+      const invitation = await prisma.invitation.create({
+        data: {
+          email: 'test-auth-integration-invited-record@example.com',
+          tokenHash: hashInvitationToken('test-invitation-token-inviter-record'),
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          inviterId: inviter.id,
+        },
+      });
+
+      await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          invitationToken: 'test-invitation-token-inviter-record',
+          password: 'StrongPass123!@#',
+          displayName: 'Invited Record User',
+        })
+        .expect(201);
+
+      const registered = await prisma.user.findUnique({
+        where: { email: 'test-auth-integration-invited-record@example.com' },
+      });
+      expect(registered?.invitedById).toBe(inviter.id);
+
+      // 招待の行を消しても招待者は利用者の属性として残る
+      await prisma.invitation.delete({ where: { id: invitation.id } });
+      const afterInvitationRemoved = await prisma.user.findUnique({
+        where: { id: registered!.id },
+      });
+      expect(afterInvitationRemoved?.invitedById).toBe(inviter.id);
     });
 
     /**
@@ -415,18 +472,16 @@ describe('Authentication API Integration Tests', () => {
      */
     it('期限切れの招待トークンで登録できないこと', async () => {
       // 前提: 期限切れの招待トークンを作成
-      const admin = await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-admin-expired@example.com',
-          displayName: 'Admin Expired',
-          passwordHash: 'dummy-hash',
-        },
+      const admin = await createTestUser(prisma, {
+        email: 'test-auth-integration-admin-expired@example.com',
+        displayName: 'Admin Expired',
+        passwordHash: 'dummy-hash',
       });
 
-      const expiredInvitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-expired@example.com',
-          token: 'expired-invitation-token',
+          tokenHash: hashInvitationToken('expired-invitation-token'),
           expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1日前（期限切れ）
           inviterId: admin.id,
         },
@@ -436,7 +491,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: expiredInvitation.token,
+          invitationToken: 'expired-invitation-token',
           password: 'StrongPass123!@#',
           displayName: 'New Test User',
         })
@@ -452,18 +507,16 @@ describe('Authentication API Integration Tests', () => {
      */
     it('使用済みの招待トークンで登録できないこと', async () => {
       // 前提: 使用済みの招待トークンを作成
-      const admin = await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-admin-used@example.com',
-          displayName: 'Admin Used',
-          passwordHash: 'dummy-hash',
-        },
+      const admin = await createTestUser(prisma, {
+        email: 'test-auth-integration-admin-used@example.com',
+        displayName: 'Admin Used',
+        passwordHash: 'dummy-hash',
       });
 
-      const usedInvitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-used@example.com',
-          token: 'used-invitation-token',
+          tokenHash: hashInvitationToken('used-invitation-token'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: admin.id,
           status: 'used', // 使用済みステータス
@@ -475,7 +528,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: usedInvitation.token,
+          invitationToken: 'used-invitation-token',
           password: 'StrongPass123!@#',
           displayName: 'New Test User',
         })
@@ -490,18 +543,16 @@ describe('Authentication API Integration Tests', () => {
      * 要件2.5: パスワードが12文字未満で登録を拒否
      */
     it('12文字未満のパスワードで登録できないこと', async () => {
-      const admin = await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-admin-short@example.com',
-          displayName: 'Admin Short',
-          passwordHash: 'dummy-hash',
-        },
+      const admin = await createTestUser(prisma, {
+        email: 'test-auth-integration-admin-short@example.com',
+        displayName: 'Admin Short',
+        passwordHash: 'dummy-hash',
       });
 
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-short@example.com',
-          token: 'short-password-token',
+          tokenHash: hashInvitationToken('short-password-token'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: admin.id,
         },
@@ -510,7 +561,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: invitation.token,
+          invitationToken: 'short-password-token',
           password: 'Short1!', // 7文字
           displayName: 'New Test User',
         })
@@ -526,18 +577,16 @@ describe('Authentication API Integration Tests', () => {
      * （大文字、小文字、数字、特殊文字のうち3種類以上含む）
      */
     it('複雑性要件を満たさないパスワードで登録できないこと', async () => {
-      const admin = await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-admin-complexity@example.com',
-          displayName: 'Admin Complexity',
-          passwordHash: 'dummy-hash',
-        },
+      const admin = await createTestUser(prisma, {
+        email: 'test-auth-integration-admin-complexity@example.com',
+        displayName: 'Admin Complexity',
+        passwordHash: 'dummy-hash',
       });
 
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-complexity@example.com',
-          token: 'complexity-token',
+          tokenHash: hashInvitationToken('complexity-token'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: admin.id,
         },
@@ -546,7 +595,7 @@ describe('Authentication API Integration Tests', () => {
       const response = await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: invitation.token,
+          invitationToken: 'complexity-token',
           password: 'onlylowercase', // 小文字のみ（1種類）
           displayName: 'New Test User',
         })
@@ -561,18 +610,16 @@ describe('Authentication API Integration Tests', () => {
      * 要件2.9: パスワードをArgon2idアルゴリズムでハッシュ化
      */
     it('パスワードがArgon2idでハッシュ化されて保存されること', async () => {
-      const admin = await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-admin-hash@example.com',
-          displayName: 'Admin Hash',
-          passwordHash: 'dummy-hash',
-        },
+      const admin = await createTestUser(prisma, {
+        email: 'test-auth-integration-admin-hash@example.com',
+        displayName: 'Admin Hash',
+        passwordHash: 'dummy-hash',
       });
 
-      const invitation = await prisma.invitation.create({
+      await prisma.invitation.create({
         data: {
           email: 'test-auth-integration-hash@example.com',
-          token: 'hash-test-token',
+          tokenHash: hashInvitationToken('hash-test-token'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           inviterId: admin.id,
         },
@@ -581,7 +628,7 @@ describe('Authentication API Integration Tests', () => {
       await request(app)
         .post('/api/v1/auth/register')
         .send({
-          invitationToken: invitation.token,
+          invitationToken: 'hash-test-token',
           password: 'StrongHash123!@#',
           displayName: 'Hash Test User',
         })
@@ -619,34 +666,28 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-refresh@example.com',
-          displayName: 'Test Refresh User',
-          passwordHash,
-        },
+      await createTestUser(prisma, {
+        email: 'test-auth-integration-refresh@example.com',
+        displayName: 'Test Refresh User',
+        passwordHash,
       });
 
       // ログインしてリフレッシュトークンを取得
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-refresh@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-refresh@example.com',
+        password: 'Password123!',
+      });
 
-      const { refreshToken } = loginResponse.body;
+      const refreshToken = issuedRefreshToken(loginResponse);
 
-      // テスト実行: トークンリフレッシュ
-      const response = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken })
-        .expect(200);
+      // テスト実行: トークンリフレッシュ（Cookie と CSRF の経路）
+      const response = await refreshWithCookie(app, refreshToken);
+      expect(response.status).toBe(200);
 
-      // 検証
+      // 検証（後継のリフレッシュトークンは Set-Cookie だけで渡す）
       expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(issuedRefreshToken(response)).not.toBe(refreshToken);
 
       // 新しいトークンが発行されていることを確認
       expect(response.body.accessToken).not.toBe(loginResponse.body.accessToken);
@@ -656,10 +697,8 @@ describe('Authentication API Integration Tests', () => {
      * 要件5.2: リフレッシュトークンが無効または期限切れの場合に再ログインを要求
      */
     it('無効なリフレッシュトークンでエラーが返されること', async () => {
-      const response = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken: 'invalid.refresh.token' })
-        .expect(401);
+      const response = await refreshWithCookie(app, 'invalid.refresh.token');
+      expect(response.status).toBe(401);
 
       expect(response.body.detail || response.body.title || response.body.error).toMatch(
         /無効なトークン|Invalid.*token/i
@@ -679,31 +718,24 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-tampered@example.com',
-          displayName: 'Test Tampered User',
-          passwordHash,
-        },
+      await createTestUser(prisma, {
+        email: 'test-auth-integration-tampered@example.com',
+        displayName: 'Test Tampered User',
+        passwordHash,
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-tampered@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-tampered@example.com',
+        password: 'Password123!',
+      });
 
       // トークンを改ざん（署名部分を変更）
-      const [header, payload] = loginResponse.body.refreshToken.split('.');
+      const [header, payload] = issuedRefreshToken(loginResponse).split('.');
       const tamperedToken = `${header}.${payload}.tampered-signature`;
 
       // テスト実行
-      const response = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken: tamperedToken })
-        .expect(401);
+      const response = await refreshWithCookie(app, tamperedToken);
+      expect(response.status).toBe(401);
 
       expect(response.body.detail || response.body.title || response.body.error).toMatch(
         /無効なトークン|Invalid.*token/i
@@ -725,36 +757,27 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-logout@example.com',
-          displayName: 'Test Logout User',
-          passwordHash,
-        },
+      await createTestUser(prisma, {
+        email: 'test-auth-integration-logout@example.com',
+        displayName: 'Test Logout User',
+        passwordHash,
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-logout@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-logout@example.com',
+        password: 'Password123!',
+      });
 
-      const { refreshToken, accessToken } = loginResponse.body;
+      const { accessToken } = loginResponse.body;
+      const refreshToken = issuedRefreshToken(loginResponse);
 
-      // テスト実行: ログアウト
-      await request(app)
-        .post('/api/v1/auth/logout')
-        .set('Authorization', `Bearer ${accessToken}`)
-        .send({ refreshToken })
-        .expect(200);
+      // テスト実行: ログアウト（Cookie と CSRF の経路）
+      const logoutResponse = await logoutWithCookie(app, accessToken, refreshToken);
+      expect(logoutResponse.status).toBe(200);
 
       // 検証: ログアウト後にリフレッシュトークンが使用できないことを確認
-      const refreshResponse = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken })
-        .expect(401);
+      const refreshResponse = await refreshWithCookie(app, refreshToken);
+      expect(refreshResponse.status).toBe(401);
 
       expect(refreshResponse.body.detail || refreshResponse.body.title).toMatch(
         /無効なトークン|Invalid token/i
@@ -777,21 +800,16 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-me@example.com',
-          displayName: 'Test Me User',
-          passwordHash,
-        },
+      await createTestUser(prisma, {
+        email: 'test-auth-integration-me@example.com',
+        displayName: 'Test Me User',
+        passwordHash,
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-me@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-me@example.com',
+        password: 'Password123!',
+      });
 
       const { accessToken } = loginResponse.body;
 
@@ -853,21 +871,16 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-eddsa@example.com',
-          displayName: 'Test EdDSA User',
-          passwordHash,
-        },
+      await createTestUser(prisma, {
+        email: 'test-auth-integration-eddsa@example.com',
+        displayName: 'Test EdDSA User',
+        passwordHash,
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-eddsa@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-eddsa@example.com',
+        password: 'Password123!',
+      });
 
       // JWTヘッダーをデコード
       const [headerBase64] = loginResponse.body.accessToken.split('.');
@@ -893,28 +906,23 @@ describe('Authentication API Integration Tests', () => {
         parallelism: 4,
       });
 
-      await prisma.user.create({
-        data: {
-          email: 'test-auth-integration-expiry@example.com',
-          displayName: 'Test Expiry User',
-          passwordHash,
-        },
+      await createTestUser(prisma, {
+        email: 'test-auth-integration-expiry@example.com',
+        displayName: 'Test Expiry User',
+        passwordHash,
       });
 
-      const loginResponse = await request(app)
-        .post('/api/v1/auth/login')
-        .send({
-          email: 'test-auth-integration-expiry@example.com',
-          password: 'Password123!',
-        })
-        .expect(200);
+      const loginResponse = await loginForTokens(app, {
+        email: 'test-auth-integration-expiry@example.com',
+        password: 'Password123!',
+      });
 
       // アクセストークンのペイロードをデコード
       const [, accessPayloadBase64] = loginResponse.body.accessToken.split('.');
       const accessPayload = JSON.parse(Buffer.from(accessPayloadBase64!, 'base64url').toString());
 
       // リフレッシュトークンのペイロードをデコード
-      const [, refreshPayloadBase64] = loginResponse.body.refreshToken.split('.');
+      const [, refreshPayloadBase64] = issuedRefreshToken(loginResponse).split('.');
       const refreshPayload = JSON.parse(Buffer.from(refreshPayloadBase64!, 'base64url').toString());
 
       // 検証: expクレームが存在すること

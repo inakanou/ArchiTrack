@@ -1,9 +1,14 @@
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
-import { createTestUser } from '../../fixtures/auth.fixtures';
+import {
+  createTestUser,
+  createSessionUser,
+  deleteSessionUsers,
+} from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { loginViaApi } from '../../helpers/auth-api';
 
 /**
  * 動的ロール管理のE2Eテスト
@@ -76,13 +81,7 @@ test.describe('動的ロール管理', () => {
    */
   test('重複するロール名では作成できない', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // 既存のロール名（admin）で作成を試みる
     const createResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
@@ -113,13 +112,7 @@ test.describe('動的ロール管理', () => {
    */
   test('管理者はロール情報を更新できる', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // テスト用ロールを作成
     const createResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
@@ -158,13 +151,7 @@ test.describe('動的ロール管理', () => {
    */
   test('管理者はロール一覧を取得できる', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // ロール一覧を取得
     const rolesResponse = await request.get(`${API_BASE_URL}/api/v1/roles`, {
@@ -188,13 +175,7 @@ test.describe('動的ロール管理', () => {
    */
   test('使用中のロールは削除できない', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // userロールを取得（使用中のロール）
     const prisma = getPrismaClient();
@@ -226,13 +207,7 @@ test.describe('動的ロール管理', () => {
    */
   test('システムロールは削除できない', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // adminロールを取得
     const prisma = getPrismaClient();
@@ -258,13 +233,7 @@ test.describe('動的ロール管理', () => {
    */
   test('ロールに優先順位を設定できる', async ({ request }) => {
     // 管理者としてログイン
-    const loginResponse = await request.post(`${API_BASE_URL}/api/v1/auth/login`, {
-      data: {
-        email: 'admin@example.com',
-        password: 'AdminPass123!',
-      },
-    });
-    const { accessToken } = await loginResponse.json();
+    const { accessToken } = await loginViaApi(request, 'ADMIN_USER');
 
     // 優先順位付きでロールを作成
     const createResponse = await request.post(`${API_BASE_URL}/api/v1/roles`, {
@@ -322,6 +291,10 @@ test.describe('ロール編集の楽観的ロック（要件25.8）', () => {
     lockRoleId = role.id;
   });
 
+  test.afterEach(async () => {
+    await deleteSessionUsers();
+  });
+
   /** ユーザー管理画面のロールタブを開き、検証用ロールの行が出るまで待つ */
   async function openRolesTab(page: Page): Promise<void> {
     await page.goto('/admin/users');
@@ -367,11 +340,14 @@ test.describe('ロール編集の楽観的ロック（要件25.8）', () => {
     page,
     browser,
   }) => {
+    // 同じ役割で二つ目のコンテキストを開くため、共有の役割の利用者ではなく
+    // テストの中で作る利用者のセッションで行う（要件33.6）
+    const sessionUser = await createSessionUser('ADMIN_USER');
     const otherContext = await browser.newContext();
     const otherPage = await otherContext.newPage();
     try {
-      await loginAsUser(page, 'ADMIN_USER');
-      await loginAsUser(otherPage, 'ADMIN_USER');
+      await loginAsUser(page, sessionUser);
+      await loginAsUser(otherPage, sessionUser);
       // 両方の画面が、どちらの保存よりも前に一覧（同じ版）を取得する
       await openRolesTab(page);
       await openRolesTab(otherPage);

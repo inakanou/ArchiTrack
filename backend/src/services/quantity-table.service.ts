@@ -38,6 +38,11 @@ import {
 import { QuantityFieldValidationService } from './quantity-field-validation.service.js';
 import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
+import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
+import {
+  withSurveyScopeDenialRecording,
+  type ProjectScopeDenialContext,
+} from './project-scope-denial.service.js';
 import logger from '../utils/logger.js';
 import Decimal from 'decimal.js';
 
@@ -62,11 +67,46 @@ import Decimal from 'decimal.js';
  *   本エラーの識別が失われる。設定値に対する待機の実測は環境の揺らぎで最大 1.56 倍まで
  *   伸びたため、2000 ms なら最悪でも約 3.1 秒で、大きな保存の所要（約 0.3 秒）を足しても
  *   5 秒に届かない。3000 ms では同じ揺らぎで 4.5 秒となり余裕が無い
+ * - その後、件数の上限いっぱいの保存のためにトランザクションの制限時間を 15 秒に明示した
+ *   （タスク108.1、{@link QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS}）。本上限はなお制限時間より
+ *   十分に手前で効く
  *
  * 実測はいずれも 2026-09-12、コミット `21d95ac1` の作業ツリー（本タスクの変更を入れる前の
  * 状態）で、リポジトリルートから統合検証の一時プローブとして行った。
  */
 export const SAVE_DRAFT_LOCK_TIMEOUT_MS = 2000;
+
+/**
+ * `saveDraft` のトランザクションの制限時間（quantity-table-generation タスク108.1、Requirement 42.11）
+ *
+ * Prisma の既定は `timeout` 5000 ms / `maxWait` 2000 ms。保存の本文の件数の上限
+ * （routes/quantity-tables.routes.ts の `SAVE_QUANTITY_TABLE_MAX_GROUPS` = 1000、
+ * `SAVE_QUANTITY_TABLE_MAX_ITEMS_PER_GROUP` = 2000、`SAVE_QUANTITY_TABLE_MAX_TOTAL_ITEMS` = 5000）
+ * いっぱいの保存は、書き込みが 1 行ずつのため既定の 5000 ms に収まらない。
+ *
+ * `timeout`（15000 ms）の根拠（2026-10-31 の実測。統合検証の一時の計測で、トランザクションの
+ * 所要を単調時計で測った。WSL2 / ローカル DB）:
+ * - 1000 グループ・総数 5000 項目（2000・2000・1000）の 3 回で、全件新規 6646 / 3582 / 4661 ms、
+ *   全件更新 7039 / 3958 / 3652 ms。最悪は 7.0 秒で、ロック待ちを足す前から既定を超える
+ * - トランザクションの中で行ロックを待つため、ロック待ちの上限（{@link SAVE_DRAFT_LOCK_TIMEOUT_MS}、
+ *   揺らぎで最大約 3.1 秒）が加わる。最悪 7.0 秒＋3.1 秒の約 10.1 秒に余裕を見て 15000 ms とする
+ *   （利用者の判断、2026-10-31。estimate-creation の `ESTIMATE_SAVE_TRANSACTION_OPTIONS` の
+ *   `timeout` と同じ値。`maxWait` は下のとおり前例と異なる）
+ * - 15000 ms を入れた後に同じ規模を 5 回ずつ 2 実行で測り直した。全件新規 8565 / 5364 / 4946 /
+ *   5175 / 5154 ms と 7544 / 4841 / 4957 / 5150 / 4777 ms、全件更新 6145 / 5304 / 5308 / 5113 /
+ *   5057 ms と 6318 / 5146 / 4787 / 4507 / 4819 ms。最悪は各実行の 1 回目の 8.6 秒で、ロック待ちの
+ *   3.1 秒を足しても約 11.7 秒で 15 秒に収まる
+ *
+ * `maxWait` は既定の 2000 ms を明示するだけで変えない。`maxWait` は接続の取得を待つ上限で、
+ * 行ロックの待ち（{@link SAVE_DRAFT_LOCK_TIMEOUT_MS}）とは別である。前例（見積の保存）は上限規模の
+ * 保存が接続を持つ間に後続が接続を待てるよう 5000 ms としたが、本機能の同じ数量表への後続の保存は
+ * 接続ではなく行ロックで待ち 503 になるため、接続の待ちを延ばす根拠が無い（2026-10-31、レビューの指摘）。
+ * 件数の上限か書き込みの方式を変えるときは、同じ規模で測り直して本値を見直すこと。
+ */
+export const QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS: { timeout: number; maxWait: number } = {
+  timeout: 15000,
+  maxWait: 2000,
+};
 
 /** 生SQLの失敗を表す Prisma のエラーコード */
 const PRISMA_RAW_QUERY_ERROR_CODE = 'P2010';
@@ -111,6 +151,12 @@ export interface QuantityTableServiceDependencies {
   quantityValidationService?: QuantityValidationService;
   /** 文字数・数値範囲（フィールド仕様）検証サービス（REQ-11.2, 11.4） */
   quantityFieldValidationService?: QuantityFieldValidationService;
+  /**
+   * 案件の閲覧範囲の判定（任意。quantity-table-generation タスク104.1、Requirement 50.5）。
+   * 保存の要求が指す現調画像の案件の判定に用いる。未指定の場合は user-authentication の
+   * 共有のインスタンス（{@link getSharedProjectScopeService}）で判定する。
+   */
+  projectScope?: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 }
 
 /**
@@ -426,8 +472,14 @@ export class QuantityTableService {
   private readonly auditLogService: IAuditLogService;
   private readonly quantityValidationService: QuantityValidationService;
   private readonly quantityFieldValidationService: QuantityFieldValidationService;
+  private readonly projectScope: Pick<ProjectScopeService, 'evaluateProjectAccess'>;
 
   constructor(deps: QuantityTableServiceDependencies) {
+    // 共有のインスタンスは判定の時に引く（構築時に読まない）
+    this.projectScope = deps.projectScope ?? {
+      evaluateProjectAccess: (userId, projectId) =>
+        getSharedProjectScopeService().evaluateProjectAccess(userId, projectId),
+    };
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
     // 検証系は副作用のない純粋ロジックのため、未指定時は既定インスタンスを生成する
@@ -1056,7 +1108,26 @@ export class QuantityTableService {
   async saveDraft(
     id: string,
     input: SaveQuantityTableDraftInput,
-    actorId: string
+    actorId: string,
+    scopeDenialContext?: ProjectScopeDenialContext
+  ): Promise<QuantityTableDetailWithItems> {
+    // 写真の紐付けの判定（Requirement 50.5）と、本文の属さない既存の ID の実際の案件の判定
+    // （Requirement 50.11、タスク107.1）で範囲外とした案件は、処理の後（トランザクションの外）で
+    // 案件ごとに 1 回 PROJECT_SCOPE_DENIED として記録する（user-authentication の要件39.7・39.8）
+    return withSurveyScopeDenialRecording(
+      actorId,
+      scopeDenialContext,
+      this.auditLogService,
+      (deniedProjectIds) => this.saveDraftWithin(id, input, actorId, deniedProjectIds)
+    );
+  }
+
+  /** {@link saveDraft} の本体。範囲外と判定した案件を `deniedProjectIds` へ入れる */
+  private async saveDraftWithin(
+    id: string,
+    input: SaveQuantityTableDraftInput,
+    actorId: string,
+    deniedProjectIds: Set<string>
   ): Promise<QuantityTableDetailWithItems> {
     // トランザクション開始前に全フィールドを検証し、不整合があれば保存を中断する
     // （REQ-11.2/11.3/11.4, 42.9）。書き込みは一切行わない。
@@ -1142,6 +1213,19 @@ export class QuantityTableService {
           .filter((iid): iid is string => iid !== null)
       );
 
+      // 2-0-0. 本文の属さない既存の ID の実際の案件の範囲の判定（Requirement 50.11、タスク107.1）。
+      //      属さない ID の実際の案件が範囲外なら、処理の後に記録する（応答は下の所属検証の 400 のまま）。
+      //      重複検証より前に置き、本文に重複を一つ混ぜるだけで記録を避けられないようにする。
+      await this.noteForeignDraftIdProjects(
+        tx,
+        input,
+        dbGroupIds,
+        dbItemIds,
+        current.projectId,
+        actorId,
+        deniedProjectIds
+      );
+
       // 2-0-1. 重複検証: payload 内で同じ既存ID（グループ・項目）が複数回現れないことを確認する。
       //      重複を受け入れると同じ行が複数回更新されるうえ、上の payload*Ids 集合には
       //      1件としてしか入らないため削除判定からも外れ、どちらの指定が反映されたのか
@@ -1160,7 +1244,13 @@ export class QuantityTableService {
       //      突き合わせ先の projectId は 1 で読んだ当該数量表の値をそのまま渡すため、
       //      問い合わせは増えない。他の検証と同じく書き込み前に中断し、未反映のまま
       //      保存を止める。
-      await this.assertDraftSurveyImagesLinkable(tx, input, current.projectId);
+      await this.assertDraftSurveyImagesLinkable(
+        tx,
+        input,
+        current.projectId,
+        actorId,
+        deniedProjectIds
+      );
 
       // 2-1. グループを payload 配列順に処理（displayOrder は配列順を正とする）
       //      削除（グループ・項目）は本ループの後段でまとめて行う。所属変更（グループ間移動）を
@@ -1259,7 +1349,7 @@ export class QuantityTableService {
           itemCount: input.groups.reduce((sum, g) => sum + g.items.length, 0),
         },
       });
-    });
+    }, QUANTITY_TABLE_SAVE_TRANSACTION_OPTIONS);
 
     // 6. 最新の数量表詳細（項目を含む）を返却（REQ-42.8 同期用）
     const detail = await this.findById(id);
@@ -1389,12 +1479,100 @@ export class QuantityTableService {
   }
 
   /**
+   * 保存の本文の属さない既存の ID の実際の案件の範囲の判定（Requirement 50.11、タスク107.1）
+   *
+   * 本文の既存のグループ・項目の ID のうち、保存する数量表に属さないもの（属さない ID）の行を引き、
+   * その実際の案件（グループは親の数量表、項目は親の数量グループの数量表の案件）が保存する数量表の
+   * 案件と別なら、案件ごとに 1 回だけ閲覧範囲を判定する。範囲外（案件は実在する）と判定した案件は
+   * `deniedProjectIds` へ入れ、処理の後に {@link saveDraft} が記録する（user-authentication の要件39.7・39.8）。
+   *
+   * - 属さない ID が無ければ何も引かない（正常な保存の問い合わせは増えない）
+   * - 引くのはグループ・項目それぞれ ID 群の一括の読み出し 1 回に限る
+   * - 行の無い ID は判定しない（不在は記録しない）。数量表の論理削除は条件に含めない
+   *   （行が実在する限りその数量表の案件で判定する）
+   * - 同じ案件の別の数量表の ID は判定しない（経路の判定が保存する数量表の案件を範囲内と確かめている）。
+   *   範囲内の他の案件（`allowed`）と案件の不在・論理削除（`not_found`）は記録しない
+   * - 例外は投げない。応答はこの後の重複検証・所属検証（{@link validateDraftOwnership}）の従来の 400 のまま
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param input - フル状態同期保存入力
+   * @param dbGroupIds - 保存対象の数量表に属する既存グループIDの全集合
+   * @param dbItemIds - 保存対象の数量表に属する既存項目IDの全集合
+   * @param projectId - 保存対象の数量表が属するプロジェクトID
+   * @param actorId - 実行者ID（属さない ID の案件の閲覧範囲の判定に用いる）
+   * @param deniedProjectIds - 範囲外と判定した案件 ID を入れる集合（記録は {@link saveDraft} が行う）
+   */
+  private async noteForeignDraftIdProjects(
+    tx: PrismaTransactionClient,
+    input: SaveQuantityTableDraftInput,
+    dbGroupIds: string[],
+    dbItemIds: string[],
+    projectId: string,
+    actorId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<void> {
+    const groupIdSet = new Set(dbGroupIds);
+    const itemIdSet = new Set(dbItemIds);
+    const foreignGroupIds = [
+      ...new Set(
+        input.groups
+          .map((group) => group.id)
+          .filter((groupId): groupId is string => groupId !== null && !groupIdSet.has(groupId))
+      ),
+    ];
+    const foreignItemIds = [
+      ...new Set(
+        input.groups
+          .flatMap((group) => group.items.map((item) => item.id))
+          .filter((itemId): itemId is string => itemId !== null && !itemIdSet.has(itemId))
+      ),
+    ];
+
+    if (foreignGroupIds.length === 0 && foreignItemIds.length === 0) {
+      return;
+    }
+
+    const ownerProjectIds: string[] = [];
+    if (foreignGroupIds.length > 0) {
+      const groups = await tx.quantityGroup.findMany({
+        where: { id: { in: foreignGroupIds } },
+        select: { id: true, quantityTable: { select: { projectId: true } } },
+      });
+      ownerProjectIds.push(...groups.map((group) => group.quantityTable.projectId));
+    }
+    if (foreignItemIds.length > 0) {
+      const items = await tx.quantityItem.findMany({
+        where: { id: { in: foreignItemIds } },
+        select: {
+          id: true,
+          quantityGroup: { select: { quantityTable: { select: { projectId: true } } } },
+        },
+      });
+      ownerProjectIds.push(...items.map((item) => item.quantityGroup.quantityTable.projectId));
+    }
+
+    const foreignProjectIds = [
+      ...new Set(ownerProjectIds.filter((ownerProjectId) => ownerProjectId !== projectId)),
+    ];
+    for (const foreignProjectId of foreignProjectIds) {
+      const decision = await this.projectScope.evaluateProjectAccess(actorId, foreignProjectId);
+      if (decision === 'out_of_scope') {
+        deniedProjectIds.add(foreignProjectId);
+      }
+    }
+  }
+
+  /**
    * フル状態同期保存（saveDraft）の所属検証
    *
    * payload に含まれる既存ID（グループ・項目）が、保存対象の数量表に属することを検証する。
    * 形式（UUID）が正しくても他の数量表のIDであれば、更新時に quantityGroupId を明示する
    * 実装上、他の数量表の項目が本数量表のグループへ付け替えられる。属さないIDは
    * QuantityTableValidationError で拒否し、書き込み前に保存を中断する。
+   *
+   * 属さない ID は、他の数量表のものか存在しないものか、範囲の内外を問わず同じ 400 で拒む（応答で区別しない）。
+   * 属さない ID の実際の案件が範囲外なら記録するが、その判定は本検証より前（重複検証の前）の
+   * {@link noteForeignDraftIdProjects} が行う（Requirement 50.11、タスク107.1）。
    *
    * Requirements:
    * - 42.9: 整合性エラー時はエラーを返し保存を中断する
@@ -1466,17 +1644,26 @@ export class QuantityTableService {
    * 外部キー制約違反として書き込み時に表面化して 500 になっていた（ROLLBACK される
    * ためデータは壊れないが、クライアントの誤りに対する応答として妥当でない）。
    *
+   * 閲覧範囲外の案件の現調画像は、実在しない画像と同じに扱う（Requirement 50.5、タスク104.1）。
+   * 引いた行から範囲外の画像を除いてから判定するため、範囲外の画像は存在の検査で 404 になり、
+   * 所属の検査（400）の名指しにも現れない。範囲外の画像が所属の検査で 400 になると、実在しない
+   * 画像の 404 との差から範囲外の実在を推測させるためである。
+   *
    * @param tx - Prismaトランザクションクライアント
    * @param input - フル状態同期保存入力
    * @param projectId - 当該数量表が属するプロジェクトID（所属の突き合わせ先）
-   * @throws SurveyImageNotFoundError 実在しない現調画像が含まれる場合（404）
+   * @param actorId - 実行者ID（画像の案件の閲覧範囲の判定に用いる）
+   * @param deniedProjectIds - 範囲外と判定した案件 ID を入れる集合（記録は {@link saveDraft} が行う）
+   * @throws SurveyImageNotFoundError 実在しない、または閲覧範囲外の現調画像が含まれる場合（404）
    * @throws QuantityTableValidationError 他プロジェクトの現調画像が含まれる場合（400）
    * @throws SurveyDeletedError 親の現場調査が論理削除済みの現調画像が含まれる場合（410）
    */
   private async assertDraftSurveyImagesLinkable(
     tx: PrismaTransactionClient,
     input: SaveQuantityTableDraftInput,
-    projectId: string
+    projectId: string,
+    actorId: string,
+    deniedProjectIds: Set<string>
   ): Promise<void> {
     const surveyImageIds = [
       ...new Set(
@@ -1506,7 +1693,13 @@ export class QuantityTableService {
 
     // 判定は「要求した ID の並び」で行う。findMany が返す行の並びは指定していないため、
     // 行の並びで判定すると複数の違反があるときに名指す画像が定まらない。
-    const surveyImageById = new Map(surveyImages.map((image) => [image.id, image]));
+    const visibleSurveyImages = await this.filterVisibleSurveyImages(
+      surveyImages,
+      projectId,
+      actorId,
+      deniedProjectIds
+    );
+    const surveyImageById = new Map(visibleSurveyImages.map((image) => [image.id, image]));
 
     for (const surveyImageId of surveyImageIds) {
       const surveyImage = surveyImageById.get(surveyImageId);
@@ -1535,6 +1728,39 @@ export class QuantityTableService {
         () => this.locateDeletedSurveyImageGroups(input, surveyImageById)
       );
     }
+  }
+
+  /**
+   * 実行者に見える現調画像だけを残す（Requirement 50.5、タスク104.1）
+   *
+   * 当該数量表と同じ案件の画像は、経路の判定（数量表の案件の範囲）を通っているので見える。
+   * 別の案件の画像は、その案件が実行者の閲覧範囲に含まれるときだけ見える。案件ごとに 1 回だけ判定する。
+   * 範囲外（案件は実在する）と判定した案件は `deniedProjectIds` へ入れる（案件の不在・論理削除は入れない）。
+   */
+  private async filterVisibleSurveyImages<T extends { survey: { projectId: string } }>(
+    surveyImages: T[],
+    projectId: string,
+    actorId: string,
+    deniedProjectIds: Set<string>
+  ): Promise<T[]> {
+    const foreignProjectIds = [
+      ...new Set(
+        surveyImages
+          .map((image) => image.survey.projectId)
+          .filter((surveyProjectId) => surveyProjectId !== projectId)
+      ),
+    ];
+    const hidden = new Set<string>();
+    for (const foreignProjectId of foreignProjectIds) {
+      const decision = await this.projectScope.evaluateProjectAccess(actorId, foreignProjectId);
+      if (decision === 'out_of_scope') {
+        deniedProjectIds.add(foreignProjectId);
+      }
+      if (decision !== 'allowed') {
+        hidden.add(foreignProjectId);
+      }
+    }
+    return surveyImages.filter((image) => !hidden.has(image.survey.projectId));
   }
 
   /**

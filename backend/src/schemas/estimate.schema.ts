@@ -110,9 +110,12 @@ export const updateEstimateSchema = z.object({
 });
 
 /**
- * 見積書削除リクエストスキーマ
+ * 見積書削除リクエストのクエリスキーマ
  *
- * Requirements: REQ-11.6
+ * 楽観的排他制御の基準時刻はクエリ（`?updatedAt=`）で受け取る。HTTP（RFC 9110）は DELETE の本文に
+ * 意味を定めておらず中継で落ちうるため、本文では受け取らない（2026-10-30 の是正。画面の deleteEstimate と同じ形）。
+ *
+ * Requirements: REQ-11.4, REQ-11.6
  */
 export const deleteEstimateSchema = z.object({
   updatedAt: isoDateTimeSchema,
@@ -274,6 +277,26 @@ export const getItemsQuerySchema = z.object({
  */
 export const SAVE_ESTIMATE_MAX_ITEMS = 2000;
 
+/**
+ * 一括保存で受け付ける見積項目の階層の深さの上限（Requirement 2.5・42.12。ルートの見積項目を 1 段目と数える）
+ *
+ * 2026-10-31 に利用者が確定した値（タスク67.1）。本文の検証（Zod）は入れ子を再帰で処理するため、
+ * おおむね 700〜1000 段を超える鎖の本文は処理の深さの限界に達して 500 になっていた（同日の計測。境界は
+ * 実行ごとに揺れる）。経路は {@link scanSaveEstimateItemTree} で Zod の検証の前に深さを数え、
+ * 上限を超えたら打ち切って 422 で拒む。
+ */
+export const SAVE_ESTIMATE_MAX_DEPTH = 100;
+
+/**
+ * 一括保存の見積項目行の備考（`remarks`）の最大文字数（Requirement 42.11）
+ *
+ * 2026-10-31 に利用者が確定した値（タスク67.2）。site-survey の現場調査のメモと写真のコメントの上限
+ * （2000 文字）の前例に合わせる。文字数は他の文字列の欄と同じく Zod の `max` で数える（符号位置の数）。
+ * データベースの列（`EstimateItemLine.remarks`、`TEXT`）は長さの制約を持たないが、一件の備考の大きさで
+ * 本文を膨らませる経路を塞ぐため（OWASP API Security の API4）スキーマで上限を設ける。
+ */
+export const SAVE_ESTIMATE_LINE_REMARKS_MAX_LENGTH = 2000;
+
 /** 別途工事の最大件数（54.1） */
 const SEPARATE_WORKS_MAX_COUNT = 5;
 
@@ -304,6 +327,7 @@ const AMOUNT_DECIMAL_PATTERN = /^-?\d{1,13}(\.\d{1,2})?$/;
  */
 export const SAVE_ESTIMATE_VALIDATION_MESSAGES = {
   ITEMS_TOO_MANY: `見積明細は合計${SAVE_ESTIMATE_MAX_ITEMS}件以内で保存してください`,
+  ITEMS_TOO_DEEP: `見積項目の階層は${SAVE_ESTIMATE_MAX_DEPTH}段以内で保存してください`,
   ITEM_IDENTIFIER_REQUIRED: '新規の見積項目には一時IDが必要です',
   ITEM_IDENTIFIER_AMBIGUOUS: '見積項目のIDと一時IDは同時に指定できません',
   ITEM_ID_DUPLICATED: '同じ見積項目が複数の位置に存在します',
@@ -320,6 +344,7 @@ export const SAVE_ESTIMATE_VALIDATION_MESSAGES = {
   UNIT_PRICE_DECIMAL_INVALID: '単価は整数部13桁・小数部2桁以内の数値で入力してください',
   AMOUNT_DECIMAL_INVALID: '金額は整数部13桁・小数部2桁以内の数値で入力してください',
   TEMP_ID_REQUIRED: '一時IDは1文字以上100文字以内で指定してください',
+  REMARKS_TOO_LONG: `備考は${SAVE_ESTIMATE_LINE_REMARKS_MAX_LENGTH}文字以内で入力してください`,
 } as const;
 
 /**
@@ -367,10 +392,13 @@ export const saveEstimateLineSchema = z.object({
     .string()
     .regex(AMOUNT_DECIMAL_PATTERN, SAVE_ESTIMATE_VALIDATION_MESSAGES.AMOUNT_DECIMAL_INVALID)
     .nullable(),
-  // `remarks` は Prisma 上も長さ制約のない TEXT（`EstimateItemLine.remarks`）のため、
-  // 他8フィールドと異なり最大長を設けない。DB 側に制約が無い以上、
-  // スキーマ独自の上限は保存できるはずの値を弾くことになる
-  remarks: z.string().nullable(),
+  // `remarks` は Prisma 上は長さ制約のない TEXT（`EstimateItemLine.remarks`）だが、
+  // 一件の大きさで本文を膨らませないよう 2000 文字の上限を設ける（Requirement 42.11、タスク67.2）。
+  // 超えたら他の文字列の欄と同じ `too_big` の形式の不正（400）になる
+  remarks: z
+    .string()
+    .max(SAVE_ESTIMATE_LINE_REMARKS_MAX_LENGTH, SAVE_ESTIMATE_VALIDATION_MESSAGES.REMARKS_TOO_LONG)
+    .nullable(),
   sourceVendorName: z.string().max(200).nullable(),
 });
 
@@ -568,6 +596,73 @@ function validateSaveEstimateItemTree(
   }
 }
 
+/** {@link scanSaveEstimateItemTree} が打ち切った上限（文言は `SAVE_ESTIMATE_VALIDATION_MESSAGES` の同名のキー） */
+export type SaveEstimateItemTreeLimit = 'ITEMS_TOO_MANY' | 'ITEMS_TOO_DEEP';
+
+/** {@link scanSaveEstimateItemTree} の結果 */
+export interface SaveEstimateItemTreeScan {
+  /** 超えた上限。上限の内側で数え終えたら null */
+  readonly exceeded: SaveEstimateItemTreeLimit | null;
+  /** 読んだ節点の数（打ち切った場合は打ち切った節点を含む） */
+  readonly counted: number;
+  /** 読んだ節点の `id` のうち UUID の形の文字列（Requirement 57.11 の判定に渡す） */
+  readonly itemIds: readonly string[];
+}
+
+/** 生の本文の値がオブジェクト（配列でない）か */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 一括保存の生の本文の見積項目の総数と階層の深さの前倒しの数え上げ（Requirement 42.10・42.12、タスク67.1）
+ *
+ * 経路が本文の検証（{@link saveEstimateDraftSchema} の `safeParse`）の前に呼ぶ。Zod は入れ子を再帰で検証するため、
+ * 上限を大きく超える本文や深い入れ子の本文を検証へ渡す前に打ち切る。
+ *
+ * - `items` と各節点の `children` の要素を明示のスタックで走査する（再帰を使わない）
+ * - 要素は積むときに数え、総数が {@link SAVE_ESTIMATE_MAX_ITEMS} を超えたら `ITEMS_TOO_MANY`、
+ *   深さ（ルートを 1 段目）が {@link SAVE_ESTIMATE_MAX_DEPTH} を超えたら `ITEMS_TOO_DEEP` でその要素で打ち切る
+ *   （走査の途中で先に超えた方。一つの節点の `children` が大きくても積む前に数えて打ち切る）
+ * - 本文がオブジェクトでない場合と、`items`・`children` が配列でない場合は数えずに進む（形の不正は Zod の 400 に委ねる）
+ * - 読んだ要素の `id` のうち UUID の形の文字列を集める。打ち切った後ろの要素は読まない
+ *
+ * @param body - 生の本文（`req.body`）
+ */
+export function scanSaveEstimateItemTree(body: unknown): SaveEstimateItemTreeScan {
+  const itemIds: string[] = [];
+  let counted = 0;
+  const roots = isPlainRecord(body) ? body.items : undefined;
+  if (!Array.isArray(roots)) {
+    return { exceeded: null, counted, itemIds };
+  }
+
+  // 子を読む前の節点と、その深さ
+  const stack: { readonly children: readonly unknown[]; readonly depth: number }[] = [
+    { children: roots, depth: 1 },
+  ];
+  for (let frame = stack.pop(); frame !== undefined; frame = stack.pop()) {
+    for (const element of frame.children) {
+      counted += 1;
+      if (isPlainRecord(element) && typeof element.id === 'string') {
+        if (uuidSchema.safeParse(element.id).success) {
+          itemIds.push(element.id);
+        }
+      }
+      if (counted > SAVE_ESTIMATE_MAX_ITEMS) {
+        return { exceeded: 'ITEMS_TOO_MANY', counted, itemIds };
+      }
+      if (frame.depth > SAVE_ESTIMATE_MAX_DEPTH) {
+        return { exceeded: 'ITEMS_TOO_DEEP', counted, itemIds };
+      }
+      if (isPlainRecord(element) && Array.isArray(element.children)) {
+        stack.push({ children: element.children, depth: frame.depth + 1 });
+      }
+    }
+  }
+  return { exceeded: null, counted, itemIds };
+}
+
 /**
  * 明細の一括保存リクエストスキーマ
  *
@@ -577,19 +672,27 @@ function validateSaveEstimateItemTree(
  * Requirements (estimate-creation): 42.4, 42.8, 54.1
  * Task 52.3: 明細の一括保存リクエストのスキーマとバリデーション
  */
-export const saveEstimateDraftSchema = z
-  .object({
-    expectedUpdatedAt: isoDateTimeSchema,
-    // design.md「estimate-draft.service」の API Contract にある `SaveEstimateDraftRequest` に
-    // 合わせ省略不可とする。
-    // 本APIはフル状態同期のため、省略を許すと保存済みの提出日・有効期限・別途工事
-    // （54.1〜54.3）を null / 空配列で静かに上書き消去する経路が生まれる
-    reportFields: saveEstimateReportFieldsSchema,
-    items: z.array(saveEstimateItemNodeSchema),
-  })
-  .superRefine((value, ctx) => {
-    validateSaveEstimateItemTree(value.items, ctx);
-  });
+export const saveEstimateDraftShapeSchema = z.object({
+  expectedUpdatedAt: isoDateTimeSchema,
+  // design.md「estimate-draft.service」の API Contract にある `SaveEstimateDraftRequest` に
+  // 合わせ省略不可とする。
+  // 本APIはフル状態同期のため、省略を許すと保存済みの提出日・有効期限・別途工事
+  // （54.1〜54.3）を null / 空配列で静かに上書き消去する経路が生まれる
+  reportFields: saveEstimateReportFieldsSchema,
+  items: z.array(saveEstimateItemNodeSchema),
+});
+
+/**
+ * 明細の一括保存リクエストスキーマ（形の検証＋明細ツリーの構造の検証）
+ *
+ * 形だけの {@link saveEstimateDraftShapeSchema} はカスタムの検証（`code: 'custom'`）を持たない。
+ * そのため本スキーマの問題がすべて `code: 'custom'`（構造の不備）なら、形だけのスキーマでは本文を読める。
+ * 経路はそれを使い、構造の不備の 422 で終わる要求でも本文の属さない見積項目の ID の範囲外の記録を行う
+ * （Requirement 57.11、タスク66.1）。
+ */
+export const saveEstimateDraftSchema = saveEstimateDraftShapeSchema.superRefine((value, ctx) => {
+  validateSaveEstimateItemTree(value.items, ctx);
+});
 
 // 型エクスポート
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;

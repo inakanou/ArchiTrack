@@ -3,6 +3,8 @@
  *
  * Requirements:
  * - 17.3, 17.4, 17.5, 17.11, 17.12: 担当者候補取得API
+ *
+ * タスク49.7（user-authentication の要件38.5）: 担当者候補は有効なユーザーの ID と表示名だけを返す
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -18,7 +20,7 @@ const prisma = getPrismaClient();
  * /api/users/assignable:
  *   get:
  *     summary: 担当者候補一覧取得
- *     description: admin以外の有効なユーザー一覧を取得（id, displayName）
+ *     description: admin以外の有効な（無効化・ロックされていない）ユーザー一覧を取得（id, displayName のみ）
  *     tags:
  *       - Users
  *     security:
@@ -65,6 +67,8 @@ router.get(
           },
           // ロックされていないユーザーのみ
           isLocked: false,
+          // 無効化されていないユーザーのみ（要件38.5）
+          isActive: true,
         },
         select: {
           id: true,
@@ -77,7 +81,8 @@ router.get(
 
       logger.debug({ count: users.length }, 'Assignable users retrieved');
 
-      res.json(users);
+      // 応答は ID と表示名だけに限る（メールアドレス・ロールを含めない。要件38.5）
+      res.json(users.map(({ id, displayName }) => ({ id, displayName })));
     } catch (error) {
       next(error);
     }

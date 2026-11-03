@@ -9,6 +9,8 @@
  * - REQ-9.3: 編集キャンセル時に変更を破棄して契約書詳細画面に戻る
  * - REQ-9.4: パンくずナビゲーションを表示する
  * - REQ-9.5: 編集時自動表示項目更新（見積書変更時の金額自動再計算）
+ * - REQ-11.8: 読み込みの 404 で見つからない旨と戻り先のリンクを表示する（Task 21.1）
+ * - REQ-11.9: 保存の 404 で見つからない旨のメッセージを表示する（Task 21.1）
  *
  * @module pages/ContractEditPage
  */
@@ -20,9 +22,10 @@ import type { ContractDetail, CreateContractInput, UpdateContractInput } from '.
 import { getProject } from '../api/projects';
 import ContractForm from '../components/contract/ContractForm';
 import type { ContractFormProjectInfo } from '../components/contract/ContractForm';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 import { useToast } from '../hooks/useToast';
 import { classifyContractError } from '../utils/contractErrorHandler';
+import type { ContractNotFoundTarget } from '../utils/contractErrorHandler';
 
 // ============================================================================
 // スタイル定義
@@ -116,6 +119,8 @@ export default function ContractEditPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadErrorRetryable, setLoadErrorRetryable] = useState(false);
+  // 読み込みが 404 を受けた対象（範囲外と不在を区別しない。REQ-11.8）
+  const [notFoundTarget, setNotFoundTarget] = useState<ContractNotFoundTarget | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
@@ -129,14 +134,46 @@ export default function ContractEditPage() {
     setIsLoading(true);
     setLoadError(null);
     setLoadErrorRetryable(false);
+    setNotFoundTarget(null);
 
     try {
-      // 契約書詳細とプロジェクト情報を並行取得
-      const [contractData, projectData] = await Promise.all([
+      // 契約書詳細とプロジェクト情報を並行取得し、どちらが失敗したかを個別に見る
+      const [contractResult, projectResult] = await Promise.allSettled([
         getContractDetail(contractId),
         getProject(projectId),
       ]);
 
+      // 404 の見分けは ApiError の状態コードで行う（REQ-11.8）。
+      // 契約書の 404 を先に見る（契約書の画面では契約書が見つからない旨を告げる）
+      const contractError =
+        contractResult.status === 'rejected'
+          ? classifyContractError(contractResult.reason, { notFoundTarget: 'contract' })
+          : null;
+      const projectError =
+        projectResult.status === 'rejected'
+          ? classifyContractError(projectResult.reason, { notFoundTarget: 'project' })
+          : null;
+      if (contractError?.type === 'not_found') {
+        setNotFoundTarget('contract');
+        return;
+      }
+      if (projectError?.type === 'not_found') {
+        setNotFoundTarget('project');
+        return;
+      }
+      const failure = contractError ?? projectError;
+      if (failure) {
+        toast.error(failure.message);
+        setLoadError(failure.message);
+        setLoadErrorRetryable(failure.retryable);
+        return;
+      }
+      if (contractResult.status !== 'fulfilled' || projectResult.status !== 'fulfilled') {
+        return;
+      }
+
+      const contractData = contractResult.value;
+      const projectData = projectResult.value;
       setContract(contractData);
       setProjectInfo({
         id: projectData.id,
@@ -146,24 +183,6 @@ export default function ContractEditPage() {
           ? { id: projectData.tradingPartner.id, name: projectData.tradingPartner.name }
           : null,
       });
-    } catch (err) {
-      const classified = classifyContractError(err);
-      toast.error(classified.message);
-
-      // エラーの種類に応じたメッセージ設定
-      if (err instanceof Error && err.message === 'Not Found') {
-        // どちらが失敗したか判別するために個別に再試行
-        try {
-          await getContractDetail(contractId);
-          // 契約書は取得成功 → プロジェクト情報の取得失敗
-          setLoadError('プロジェクト情報の取得に失敗しました');
-        } catch {
-          setLoadError('契約書の取得に失敗しました');
-        }
-      } else {
-        setLoadError(classified.message);
-      }
-      setLoadErrorRetryable(classified.retryable);
     } finally {
       setIsLoading(false);
     }
@@ -247,6 +266,27 @@ export default function ContractEditPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 見つからない表示（REQ-11.8）。再試行で解けないため再試行の釦を出さない
+  if (notFoundTarget) {
+    return (
+      <main role="main" style={styles.container}>
+        {notFoundTarget === 'contract' ? (
+          <ResourceNotFound
+            resourceType="契約書"
+            returnPath={`/projects/${projectId}/contracts`}
+            returnLabel="契約書一覧に戻る"
+          />
+        ) : (
+          <ResourceNotFound
+            resourceType="プロジェクト"
+            returnPath="/projects"
+            returnLabel="プロジェクト一覧に戻る"
+          />
+        )}
       </main>
     );
   }

@@ -65,7 +65,14 @@ test.describe('数量グループ追加時の写真選択 (quantity-table-genera
     }) => {
       const projectId = await createTestProject(page, 'REQ4_2_PJ');
       // seedSurveyPhotosWithComments は `${接頭辞}-${位置+1}.png` の名前でアップロードする
-      await seedSurveyPhotosWithComments(page, projectId, OWN_PHOTO_PREFIX, [null, null], [0]);
+      await seedSurveyPhotosWithComments(
+        page,
+        'REGULAR_USER',
+        projectId,
+        OWN_PHOTO_PREFIX,
+        [null, null],
+        [0]
+      );
       ownAnnotatedFileName = `${OWN_PHOTO_PREFIX}-1.png`;
       ownUnannotatedFileName = `${OWN_PHOTO_PREFIX}-2.png`;
 
@@ -74,7 +81,14 @@ test.describe('数量グループ追加時の写真選択 (quantity-table-genera
 
     test('別プロジェクトに注釈付き写真を用意する', async ({ page }) => {
       const otherProjectId = await createTestProject(page, 'REQ4_2_OTHER_PJ');
-      await seedSurveyPhotosWithComments(page, otherProjectId, OTHER_PHOTO_PREFIX, [null], 'all');
+      await seedSurveyPhotosWithComments(
+        page,
+        'REGULAR_USER',
+        otherProjectId,
+        OTHER_PHOTO_PREFIX,
+        [null],
+        'all'
+      );
       otherProjectAnnotatedFileName = `${OTHER_PHOTO_PREFIX}-1.png`;
     });
   });

@@ -27,6 +27,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 test.describe('値引きプリセット行', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
@@ -84,7 +85,7 @@ test.describe('値引きプリセット行', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      accessToken = await getAccessToken(page, 'REGULAR_USER');
       expect(accessToken).toBeTruthy();
 
       const response = await page.request.post(

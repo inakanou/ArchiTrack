@@ -4,6 +4,7 @@
  * Requirements:
  * - 20.1-20.9: ユーザーへのロール割り当て（マルチロール対応）
  * - 22.9: センシティブな操作（システム管理者ロールの変更）実行時のアラート通知
+ *   （全システム管理者への通知の手段で送る。user-authentication タスク49.1）
  *
  * Design Patterns:
  * - Transaction Management: 一括操作でのデータ整合性保証
@@ -14,19 +15,31 @@ import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IUserRoleService, UserRoleInfo, UserRoleError } from '../types/user-role.types.js';
 import type { IRBACService } from '../types/rbac.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
-import type { EmailService } from './email.service.js';
+import type { IAdminNotificationService } from './admin-notification.service.js';
+import type { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
+import { lockUserRefreshTokens } from '../utils/refresh-token-lock.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
-import { captureMessage } from '../utils/sentry.js';
+import {
+  isCeilingError,
+  recordCeilingRejection,
+  recordManageUserRejection,
+  type PrivilegeCeilingPort,
+  type TargetUserExceedsActorError,
+} from './privilege-ceiling.js';
 
 /**
  * 紐付けの変更を途中で打ち切り、トランザクションをロールバックさせるための合図。
  * 業務上のエラー（ロール不在など）を運ぶ。$transaction の外で Err へ戻す。
  */
 class UserRoleRollback extends Error {
-  constructor(readonly error: UserRoleError) {
+  constructor(
+    readonly error: UserRoleError,
+    /** 上限による拒否のときの、拒否したロール（監査の記録に使う） */
+    readonly roleId?: string
+  ) {
     super(`User role change rolled back: ${error.type}`);
     this.name = 'UserRoleRollback';
   }
@@ -49,8 +62,9 @@ type PerformedBy = { email: string; displayName: string };
  * 文は新しいスナップショットで読むため、待った側の件数の数え直しは先行の削除を反映する。
  * FOR NO KEY UPDATE は外部キーの検査が取る FOR KEY SHARE と衝突しないため、admin ロールの割り当て
  * （user_roles への INSERT）は待たせない。
+ * 利用者の無効化（AccountStatusService、最後の有効なシステム管理者の判定）も同じロックを取る。
  */
-async function lockAdminRoleForLastAdminCheck(
+export async function lockAdminRoleForLastAdminCheck(
   tx: Prisma.TransactionClient,
   adminRoleId: string
 ): Promise<void> {
@@ -72,7 +86,8 @@ async function lockRoleForAssignment(tx: Prisma.TransactionClient, roleId: strin
 }
 
 /** ユーザー削除の業務上の失敗（データベースの例外は Err にせず投げる） */
-export type DeleteUserError = { type: 'USER_NOT_FOUND' } | { type: 'LAST_ADMIN_PROTECTED' };
+export type DeleteUserError =
+  { type: 'USER_NOT_FOUND' } | { type: 'LAST_ADMIN_PROTECTED' } | TargetUserExceedsActorError; // 要件38.13
 
 /**
  * ユーザー・ロール紐付け管理サービスの実装
@@ -86,7 +101,18 @@ export class UserRoleService implements IUserRoleService {
     private readonly prisma: PrismaClient,
     private readonly rbacService?: IRBACService,
     private readonly auditLogService?: IAuditLogService,
-    private readonly emailService?: EmailService
+    /** 全システム管理者への通知（システム管理者ロールの変更の通知に使う。タスク49.1） */
+    private readonly adminNotificationService?: Pick<IAdminNotificationService, 'notifyAllAdmins'>,
+    /** 利用者の状態のキャッシュの無効化（削除の後に呼ぶ。user-authentication タスク47.6） */
+    private readonly userStateService?: Pick<AuthenticatedUserStateService, 'invalidate'>,
+    /**
+     * 権限付与の上限（user-authentication タスク51.1）。実行者のある割り当てに、保有ロールの優先度を
+     * 超えるロールと、admin ロールを持たない実行者による admin ロールの割り当てを拒否する。
+     * 実行者のある解除に、保有ロールの優先度を超えるロールの他の利用者からの解除を拒否する（タスク58.1）。
+     * 利用者の削除に、保有ロールの優先度の最大値が実行者の上限を超える利用者の削除を拒否する（タスク62.1）。
+     * API の経路（user-roles.routes.ts）は必ず渡す
+     */
+    private readonly privilegeCeiling?: PrivilegeCeilingPort
   ) {}
 
   /**
@@ -267,6 +293,16 @@ export class UserRoleService implements IUserRoleService {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof UserRoleRollback) {
+        // 上限による拒否は、ロールバックの後に権限チェックの失敗として記録する
+        if (actorId && isCeilingError(error.error)) {
+          await recordCeilingRejection(this.auditLogService, {
+            actorId,
+            targetType: 'user-role',
+            targetId: userId,
+            error: error.error,
+            detail: { roleId: error.roleId ?? '' },
+          });
+        }
         return Err(error.error);
       }
       logger.error({ err: error, userId, roleIds }, 'Failed to add role to user');
@@ -312,6 +348,16 @@ export class UserRoleService implements IUserRoleService {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof UserRoleRollback) {
+        // 割り当ての解除の上限による拒否（38.9。タスク58.1）は、ロールバックの後に権限チェックの失敗として記録する
+        if (actorId && isCeilingError(error.error)) {
+          await recordCeilingRejection(this.auditLogService, {
+            actorId,
+            targetType: 'user-role',
+            targetId: userId,
+            error: error.error,
+            detail: { roleId: error.roleId ?? '' },
+          });
+        }
         return Err(error.error);
       }
       logger.error({ err: error, userId, roleIds }, 'Failed to remove role from user');
@@ -352,6 +398,14 @@ export class UserRoleService implements IUserRoleService {
     if (!role) {
       logger.warn({ roleId }, 'Role not found');
       throw new UserRoleRollback({ type: 'ROLE_NOT_FOUND' });
+    }
+
+    // 権限付与の上限（タスク51.1）。1件・一括の共通処理で、同じトランザクションのクライアントで判定する
+    if (this.privilegeCeiling && actorId) {
+      const verdict = await this.privilegeCeiling.assertCanAssignRole(actorId, roleId, tx);
+      if (!verdict.ok) {
+        throw new UserRoleRollback(verdict.error, roleId);
+      }
     }
 
     // 重複チェック (optimized: only check existence)
@@ -411,14 +465,15 @@ export class UserRoleService implements IUserRoleService {
     actorId?: string
   ): Promise<UserRoleChange> {
     // ユーザーの存在チェック (optimized: only fetch necessary fields)
-    const user = await tx.user.findUnique({
+    const found = await tx.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, displayName: true },
+      select: { id: true, email: true, displayName: true, isActive: true },
     });
-    if (!user) {
+    if (!found) {
       logger.warn({ userId }, 'User not found');
       throw new UserRoleRollback({ type: 'USER_NOT_FOUND' });
     }
+    const { isActive: targetIsActive, ...user } = found;
 
     // ロールの存在チェック (optimized: only fetch necessary fields)
     const role = await tx.role.findUnique({
@@ -428,6 +483,15 @@ export class UserRoleService implements IUserRoleService {
     if (!role) {
       logger.warn({ roleId }, 'Role not found');
       throw new UserRoleRollback({ type: 'ROLE_NOT_FOUND' });
+    }
+
+    // 割り当ての解除の上限（38.9。タスク58.1）。最後の管理者の判定より前に、同じトランザクションの
+    // クライアントで判定する（自分からの解除は判定しない）
+    if (this.privilegeCeiling && actorId) {
+      const verdict = await this.privilegeCeiling.assertCanRevokeRole(actorId, userId, roleId, tx);
+      if (!verdict.ok) {
+        throw new UserRoleRollback(verdict.error, roleId);
+      }
     }
 
     // 最後の管理者の判定を並行する削除と直列化する（紐付けの確認より前にロックする）
@@ -445,12 +509,13 @@ export class UserRoleService implements IUserRoleService {
       throw new UserRoleRollback({ type: 'ASSIGNMENT_NOT_FOUND' });
     }
 
-    // 最後の管理者保護（adminロールの場合のみ）
-    if (role.name === 'admin') {
-      const adminRoleCount = await tx.userRole.count({
-        where: { roleId },
+    // 最後の管理者保護（adminロールの場合のみ）。対象者以外の有効な管理者の数で判定し（要件36.5）、
+    // 無効化された対象者からの解除は有効な管理者を減らさないため許す
+    if (role.name === 'admin' && targetIsActive) {
+      const otherActiveAdmins = await tx.userRole.count({
+        where: { roleId, userId: { not: userId }, user: { isActive: true } },
       });
-      if (adminRoleCount <= 1) {
+      if (otherActiveAdmins === 0) {
         logger.warn(
           { userId, roleId, userEmail: user.email },
           'Cannot remove admin role from last admin user'
@@ -500,11 +565,23 @@ export class UserRoleService implements IUserRoleService {
    * ロールの削除（removeRoleInTransaction）と同じロックを取るため、並行する削除の間でも
    * 管理者が 0 人になることはない。
    *
+   * 削除の書き込みの前に、同じトランザクションで監査 USER_DELETED（実行者と削除対象のメールアドレス・
+   * 表示名）を記録する。記録が失敗すれば例外がトランザクションごと削除を中止する（user-authentication
+   * 要件40.6）。不在・最後の管理者で削除しないときは記録しない
+   *
+   * 他のユーザーの管理の上限（要件38.13。タスク62.1）: 存在の確認の後、最後の管理者の判定より前に、同じ
+   * トランザクションのクライアントで対象の利用者の行をロックしてから判定する（admin ロールの行のロックの後）。
+   * 拒否では何も書かず、トランザクションの外で権限チェックの失敗（PERMISSION_CHECK_FAILED）を記録する
+   *
    * @param userId - 削除するユーザーID
+   * @param actorId - 削除を実行するユーザーID（監査ログ用）
    * @returns 削除したユーザーのメールアドレス、または業務上のエラー
-   * @throws データベースの例外（Prisma のエラー）はそのまま投げる
+   * @throws データベースの例外（Prisma のエラー）と監査の記録の失敗はそのまま投げる
    */
-  async deleteUser(userId: string): Promise<Result<{ email: string }, DeleteUserError>> {
+  async deleteUser(
+    userId: string,
+    actorId: string
+  ): Promise<Result<{ email: string }, DeleteUserError>> {
     // 業務上の結果（不在・最後の管理者）だけを Err で返す。データベースの例外は捕まえずに投げ、
     // 呼び出し側（ルート）がエラーハンドラーへ渡して Prisma のエラーコードごとに応答を分類させる
     const result = await this.prisma.$transaction(async (tx) => {
@@ -518,35 +595,94 @@ export class UserRoleService implements IUserRoleService {
 
       const user = await tx.user.findUnique({
         where: { id: userId },
-        select: { id: true, email: true, userRoles: { select: { roleId: true } } },
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          isActive: true,
+          userRoles: { select: { roleId: true } },
+        },
       });
       if (!user) {
         return Err<DeleteUserError>({ type: 'USER_NOT_FOUND' });
       }
 
-      // 削除対象が管理者なら、他の管理者がいるか確認
-      if (adminRole && user.userRoles.some((ur) => ur.roleId === adminRole.id)) {
-        const adminCount = await tx.userRole.count({ where: { roleId: adminRole.id } });
-        if (adminCount <= 1) {
+      // 他のユーザーの管理の上限（要件38.13）。最後の管理者の判定より前に判定する
+      if (this.privilegeCeiling) {
+        const verdict = await this.privilegeCeiling.assertCanManageUser(actorId, userId, tx);
+        if (!verdict.ok) {
+          return Err<DeleteUserError>(verdict.error);
+        }
+      }
+
+      // 削除対象が有効な管理者なら、他に有効な管理者がいるか確認する（要件36.5）。
+      // 無効化された管理者の削除は有効な管理者を減らさないため許す
+      if (adminRole && user.isActive && user.userRoles.some((ur) => ur.roleId === adminRole.id)) {
+        const otherActiveAdmins = await tx.userRole.count({
+          where: { roleId: adminRole.id, userId: { not: userId }, user: { isActive: true } },
+        });
+        if (otherActiveAdmins === 0) {
           logger.warn({ userId }, 'Cannot delete the last admin user');
           return Err<DeleteUserError>({ type: 'LAST_ADMIN_PROTECTED' });
         }
+      }
+
+      // 削除の書き込みの前に監査を記録する。記録の失敗は例外としてトランザクションごと削除を中止する
+      // （要件40.6）。対象の利用者は消えるため、識別できるようメールアドレスと表示名を写す（要件40.7）
+      if (this.auditLogService) {
+        await this.auditLogService.createLog(
+          {
+            action: 'USER_DELETED',
+            actorId,
+            targetType: 'User',
+            targetId: userId,
+            before: { id: user.id, email: user.email, displayName: user.displayName },
+            after: null,
+            metadata: null,
+          },
+          tx
+        );
       }
 
       // このユーザーが送った招待を削除
       await tx.invitation.deleteMany({ where: { inviterId: userId } });
       // このユーザーに紐づく招待のuserIdをnullに設定
       await tx.invitation.updateMany({ where: { userId }, data: { userId: null } });
+      // リフレッシュトークンのローテーションと直列化する利用者単位の取引ロックを、users の行を消す前に取る。
+      // 取らないと、ローテーションが後継の INSERT の外部キーの検査で users の行を待ち、削除の連鎖が
+      // ローテーションの更新した行を待って、デッドロックになる（タスク45.2）
+      await lockUserRefreshTokens(tx, userId);
       // ユーザーを削除（カスケード削除で関連データも削除される）
       await tx.user.delete({ where: { id: userId } });
 
       return Ok({ email: user.email });
     }, connectBudgetTransactionOptions());
 
+    // 上限による拒否は、トランザクションの外で権限チェックの失敗として記録する（要件38.13）
+    if (!result.ok && result.error.type === 'TARGET_USER_EXCEEDS_ACTOR') {
+      await recordManageUserRejection(this.auditLogService, {
+        actorId,
+        targetUserId: userId,
+        operation: 'delete',
+        error: result.error,
+      });
+    }
+
     // コミット後に削除したユーザーの権限キャッシュを無効化する。アクセストークンは削除後も
     // 有効期限まで検証を通るため、残ったキャッシュで権限の確認を通さない（タスク36.2）
     if (result.ok && this.rbacService) {
       await this.rbacService.invalidateUserPermissionsCache(userId);
+    }
+
+    // コミット後に削除したユーザーの状態のキャッシュも無効化する。残ったキャッシュ（TTL 60 秒）で
+    // 認証ミドルウェアの状態の照合を通さず、利用者の不在（401）として拒否させる（タスク47.6）。
+    // 削除はコミット済みのため、無効化の失敗は結果を変えず警告ログに留める
+    if (result.ok && this.userStateService) {
+      try {
+        await this.userStateService.invalidate(userId);
+      } catch (error) {
+        logger.warn({ err: error, userId }, 'Failed to invalidate user state after user deletion');
+      }
     }
 
     return result;
@@ -581,7 +717,7 @@ export class UserRoleService implements IUserRoleService {
     // システム管理者ロール変更時のアラート通知。送信の失敗はコミット済みの変更を失敗にしない
     for (const change of changed) {
       try {
-        await this.sendAdminRoleChangedAlert(userId, change, action, performedBy);
+        await this.sendAdminRoleChangedAlert(change, action, performedBy);
       } catch (error) {
         logger.warn(
           { err: error, userId, roleId: change.role.id, action },
@@ -592,16 +728,17 @@ export class UserRoleService implements IUserRoleService {
   }
 
   /**
-   * システム管理者ロールの変更アラート（メールと Sentry）を送る（テスト環境では抑制）
+   * システム管理者ロールの変更を全システム管理者へ通知する（テスト環境では抑制）
+   *
+   * 宛先の選定（有効なシステム管理者）・メール・Sentry は AdminNotificationService が担う。
    */
   private async sendAdminRoleChangedAlert(
-    userId: string,
     { user, role }: UserRoleChange,
     action: 'assigned' | 'revoked',
     performedBy?: PerformedBy
   ): Promise<void> {
     if (
-      !this.emailService ||
+      !this.adminNotificationService ||
       !performedBy ||
       role.name !== 'admin' ||
       process.env.NODE_ENV === 'test'
@@ -609,47 +746,15 @@ export class UserRoleService implements IUserRoleService {
       return;
     }
 
-    // 全システム管理者のメールアドレスを取得
-    const adminUsers = await this.prisma.user.findMany({
-      where: {
-        userRoles: {
-          some: {
-            role: {
-              name: 'admin',
-            },
-          },
-        },
-      },
-      select: {
-        email: true,
-        displayName: true,
-      },
+    await this.adminNotificationService.notifyAllAdmins({
+      kind: 'ADMIN_ROLE_CHANGED',
+      subject: `【重要】システム管理者ロール変更通知: ${user.displayName}`,
+      lines: [
+        `操作: システム管理者ロールの${action === 'assigned' ? '付与' : '剥奪'}`,
+        `対象: ${user.displayName} (${user.email})`,
+        `実行者: ${performedBy.displayName} (${performedBy.email})`,
+      ],
     });
-
-    const adminEmails = adminUsers.map((admin) => admin.email);
-
-    await this.emailService.sendAdminRoleChangedAlert(
-      adminEmails,
-      { email: user.email, displayName: user.displayName },
-      action,
-      'System Administrator',
-      performedBy
-    );
-
-    // Sentryにアラート通知を送信
-    captureMessage(
-      action === 'assigned'
-        ? 'Critical: System Administrator role assigned'
-        : 'Critical: System Administrator role removed',
-      'warning',
-      {
-        userId,
-        userEmail: user.email,
-        roleId: role.id,
-        roleName: role.name,
-        performedBy: performedBy.email,
-      }
-    );
   }
 
   /**

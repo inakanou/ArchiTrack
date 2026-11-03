@@ -19,7 +19,8 @@ const mockUser: UserProfile = {
   displayName: 'テストユーザー',
   roles: ['user'],
   emailVerified: true,
-  twoFactorEnabled: false,
+  // 2FA 未登録の利用者は遷移を制限した画面になる（タスク47.6）。通常のレイアウトの検証は登録済みで行う
+  twoFactorEnabled: true,
   createdAt: '2025-01-01T00:00:00Z',
   updatedAt: '2025-01-01T00:00:00Z',
 };
@@ -181,6 +182,60 @@ describe('ProtectedLayout', () => {
 
       // メールアドレスが自動入力されていること
       expect(screen.getByDisplayValue('test@example.com')).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * 制限中の利用者（初回のパスワード変更・2FA 未登録）はナビゲーションを出さず、ログアウトだけを置く
+   * （design.md「AuthContext・ProtectedRoute（変更）」、user-authentication タスク47.6）
+   * @requirement user-authentication/REQ-34.3
+   * @requirement user-authentication/REQ-37.7
+   */
+  describe('利用者の状態による制限中のレイアウト', () => {
+    it.each([
+      ['2FA 未登録', { twoFactorEnabled: false, mustChangePassword: false }],
+      ['初回のパスワード変更中', { twoFactorEnabled: false, mustChangePassword: true }],
+    ])(
+      '%s の利用者にはナビゲーションを出さず、ログアウトのボタンだけを置く',
+      async (_label, flags) => {
+        const logout = vi.fn().mockResolvedValue(undefined);
+        mockUseAuth.mockReturnValue({
+          user: { ...mockUser, ...flags },
+          isLoading: false,
+          error: null,
+          logout,
+          sessionExpiredDuringOperation: false,
+          handleReauthSuccess: mockHandleReauthSuccess,
+          navigateToLogin: mockNavigateToLogin,
+        });
+
+        renderWithRouter('/profile');
+
+        expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+        expect(screen.queryByRole('link')).not.toBeInTheDocument();
+        expect(screen.getByTestId('profile-content')).toBeInTheDocument();
+        const logoutButton = screen.getByRole('button', { name: 'ログアウト' });
+
+        logoutButton.click();
+
+        expect(logout).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it('制限の無い利用者には共通のナビゲーションを出す', () => {
+      mockUseAuth.mockReturnValue({
+        user: mockUser,
+        isLoading: false,
+        error: null,
+        logout: vi.fn(),
+        sessionExpiredDuringOperation: false,
+        handleReauthSuccess: mockHandleReauthSuccess,
+        navigateToLogin: mockNavigateToLogin,
+      });
+
+      renderWithRouter('/profile');
+
+      expect(screen.getByRole('navigation')).toBeInTheDocument();
     });
   });
 });

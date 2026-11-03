@@ -22,9 +22,24 @@
  * - 11.1, 11.2, 11.12, 11.14: 受領見積書セクション表示
  * - 11.25, 11.28, 11.29, 11.30: 受領見積書ファイル+明細行統合フォーム
  * - 12.1, 12.4, 12.5-12.10: ステータス管理
+ *
+ * Task 105.1 変更: 見積依頼・項目・受領見積書のいずれかの読み込みが 404 を受けたときに、
+ *   見積依頼が見つからない旨とプロジェクトの一覧へのリンクを表示し、取得の失敗の文言と再試行の釦を
+ *   出さない。見積依頼方法と内訳書を本文に含める設定の変更・ステータスの変更・削除・受領見積書の
+ *   登録・更新・削除が 404 を受けたときに、見つからない旨のメッセージを表示する（握りつぶしていた
+ *   操作も表示する）（estimate-request の Requirement 10.5・10.6）
+ *
+ * Task 103.2 変更: 現場調査報告書の PDF の生成（注釈付き画像の描画・PDF の生成・ダウンロード）を、
+ *   出力の記録（`runRecordedExport`、user-authentication の要件40.9〜40.11）の成功の後にだけ始める。
+ *   記録の失敗では生成もダウンロードも始めず「出力を記録できなかったため中止しました」を示す。
+ *   現場調査の未選択（Requirement 35.10）と出力対象の写真が無いときは出力が無いため記録しない。
+ *   記録の要求中は選択 UI を閉じられず、記録の要求中に画面が破棄されたら記録の成功の後も生成しない
+ *   （estimate-request の Requirement 42.8・42.9。内訳書の Excel は ExcelExportButton が持つ）
+ * Task 107.1 変更: 見積依頼文のパネルへ見積依頼と案件の ID を、選択した項目の一覧のコピーへ記録の入力を渡す。
+ *   コピーとメールで開く操作は各部品が出力の記録の成功の後にだけ行う（estimate-request の Requirement 42.13〜42.16）
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -51,6 +66,7 @@ import type {
 import { transitionStatus } from '../api/estimate-request-status';
 import type { EstimateRequestStatus } from '../api/estimate-request-status';
 import { ApiError } from '../api/client';
+import { runRecordedExport } from '../api/export-audit';
 import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
 import type { SiteSurveyInfo } from '../types/site-survey.types';
 import { renderImagesForReport } from '../services/export/AnnotationRendererService';
@@ -66,7 +82,11 @@ import {
   StatusTransitionButton,
 } from '../components/estimate-request';
 import { ReceivedQuotationList, ReceivedQuotationForm } from '../components/estimate-requests';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getEstimateRequestNotFoundMessage,
+  isNotFoundError,
+} from '../utils/estimateRequestNotFound';
 import type {
   EstimateRequestInfo,
   ItemWithSelectionInfo,
@@ -268,6 +288,15 @@ const styles = {
     textAlign: 'center' as const,
   } as React.CSSProperties,
   errorText: {
+    color: '#991b1b',
+    fontSize: '14px',
+    marginBottom: '16px',
+  } as React.CSSProperties,
+  operationError: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    padding: '12px 16px',
     color: '#991b1b',
     fontSize: '14px',
     marginBottom: '16px',
@@ -496,6 +525,11 @@ export default function EstimateRequestDetailPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 読み込みが 404 を受けた（範囲外と不在を区別しない。REQ-10.5）
+  const [isNotFound, setIsNotFound] = useState(false);
+  // 操作が 404 を受けたときの見つからない旨のメッセージ（REQ-10.6）。
+  // ステータスの変更は 404 以外の失敗も StatusTransitionButton の文言でここに出る
+  const [operationError, setOperationError] = useState<string | null>(null);
   const [showTextPanel, setShowTextPanel] = useState(false);
   const [isTextLoading, setIsTextLoading] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -525,6 +559,18 @@ export default function EstimateRequestDetailPage() {
   const [isSurveyLoading, setIsSurveyLoading] = useState(false);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [surveyReportError, setSurveyReportError] = useState<string | null>(null);
+  // 現場調査報告書の出力の記録の要求中（選択 UI を閉じる操作を止める。Requirement 42.8）
+  const [isRecordingReportExport, setIsRecordingReportExport] = useState(false);
+
+  // 画面が描かれているか（出力の記録の要求中に破棄されたら、記録の後に生成を始めない。
+  // StrictMode の effect の再実行でも true に戻す。Requirement 42.8）
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // ステータス関連
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -537,6 +583,7 @@ export default function EstimateRequestDetailPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsNotFound(false);
 
     try {
       const [requestData, itemsData, quotationsData] = await Promise.all([
@@ -559,7 +606,12 @@ export default function EstimateRequestDetailPage() {
           // プロジェクト名取得失敗時はフォールバック表示を維持
         }
       }
-    } catch {
+    } catch (err) {
+      // 見積依頼・項目・受領見積書のいずれかの 404 で見積依頼が見つからない表示にする（REQ-10.5）
+      if (isNotFoundError(err)) {
+        setIsNotFound(true);
+        return;
+      }
       setError('見積依頼の取得に失敗しました');
     } finally {
       setIsLoading(false);
@@ -645,6 +697,7 @@ export default function EstimateRequestDetailPage() {
     async (method: EstimateRequestMethod) => {
       if (!id || !request) return;
 
+      setOperationError(null);
       try {
         const updated = await updateEstimateRequest(id, { method }, request.updatedAt);
         setRequest(updated);
@@ -663,8 +716,13 @@ export default function EstimateRequestDetailPage() {
             setIsTextLoading(false);
           }
         }
-      } catch {
-        // エラー処理（必要に応じて）
+      } catch (err) {
+        // 404 は握りつぶさず、見積依頼が見つからない旨を表示する（REQ-10.6）。
+        // 404 以外の失敗の扱いは Task 105.1 の対象外
+        const notFoundMessage = getEstimateRequestNotFoundMessage(err, 'estimateRequest');
+        if (notFoundMessage) {
+          setOperationError(notFoundMessage);
+        }
       }
     },
     [id, request, showTextPanel]
@@ -677,6 +735,7 @@ export default function EstimateRequestDetailPage() {
     async (includeBreakdownInBody: boolean) => {
       if (!id || !request) return;
 
+      setOperationError(null);
       try {
         const updated = await updateEstimateRequest(
           id,
@@ -699,8 +758,13 @@ export default function EstimateRequestDetailPage() {
             setIsTextLoading(false);
           }
         }
-      } catch {
-        // エラー処理（必要に応じて）
+      } catch (err) {
+        // 404 は握りつぶさず、見積依頼が見つからない旨を表示する（REQ-10.6）。
+        // 404 以外の失敗の扱いは Task 105.1 の対象外
+        const notFoundMessage = getEstimateRequestNotFoundMessage(err, 'estimateRequest');
+        if (notFoundMessage) {
+          setOperationError(notFoundMessage);
+        }
       }
     },
     [id, request, showTextPanel]
@@ -713,13 +777,20 @@ export default function EstimateRequestDetailPage() {
     if (!id || !request) return;
 
     setIsDeleting(true);
+    setOperationError(null);
 
     try {
       await deleteEstimateRequest(id, request.updatedAt);
       navigate(`/projects/${request.projectId}/estimate-requests`);
-    } catch {
-      setError('見積依頼の削除に失敗しました');
+    } catch (err) {
       setIsDeleteDialogOpen(false);
+      // 404 は削除の失敗ではなく、見積依頼が見つからない旨を表示する（REQ-10.6）
+      const notFoundMessage = getEstimateRequestNotFoundMessage(err, 'estimateRequest');
+      if (notFoundMessage) {
+        setOperationError(notFoundMessage);
+        return;
+      }
+      setError('見積依頼の削除に失敗しました');
     } finally {
       setIsDeleting(false);
     }
@@ -732,6 +803,7 @@ export default function EstimateRequestDetailPage() {
     async (newStatus: EstimateRequestStatus) => {
       if (!id) return;
 
+      setOperationError(null);
       const result = await transitionStatus(id, newStatus);
       setRequest((prev) =>
         prev
@@ -752,6 +824,13 @@ export default function EstimateRequestDetailPage() {
   const handleStatusSuccess = useCallback((message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 3000);
+  }, []);
+
+  /**
+   * ステータス変更失敗時のハンドラ（404 では見積依頼が見つからない旨。REQ-10.6）
+   */
+  const handleStatusError = useCallback((message: string) => {
+    setOperationError(message);
   }, []);
 
   /**
@@ -827,6 +906,10 @@ export default function EstimateRequestDetailPage() {
             editingUpdatedAt: editingQuotation ? editingQuotation.updatedAt.toISOString() : null,
           });
         }
+        // 404 は握りつぶさずフォームへ伝え、フォームの保存のエラーの欄に見つからない旨を表示させる（REQ-10.6）
+        if (isNotFoundError(err)) {
+          throw err;
+        }
       } finally {
         setIsQuotationSubmitting(false);
       }
@@ -863,8 +946,16 @@ export default function EstimateRequestDetailPage() {
         setShowQuotationForm(false);
         setEditingQuotation(null);
         setExistingFilePreviewUrl(null);
-      } catch {
-        // 楽観的排他制御競合等のリトライ失敗時は保留状態を解除し、ユーザーの再操作に委ねる（Req 38.10）
+      } catch (err) {
+        // 楽観的排他制御競合等のリトライ失敗時は保留状態を解除し、ユーザーの再操作に委ねる（Req 38.10）。
+        // 404 は握りつぶさず、見つからない旨を表示する（REQ-10.6）
+        const notFoundMessage = getEstimateRequestNotFoundMessage(
+          err,
+          pending.editingId ? 'receivedQuotation' : 'estimateRequest'
+        );
+        if (notFoundMessage) {
+          setOperationError(notFoundMessage);
+        }
       } finally {
         setPendingQuotationSubmission(null);
         setIsQuotationSubmitting(false);
@@ -880,13 +971,19 @@ export default function EstimateRequestDetailPage() {
     async (quotation: ReceivedQuotationInfo) => {
       if (!id) return;
 
+      setOperationError(null);
       try {
         await deleteReceivedQuotation(quotation.id, quotation.updatedAt.toISOString());
         // 受領見積書一覧を再取得
         const updatedQuotations = await getReceivedQuotations(id);
         setQuotations(updatedQuotations);
-      } catch {
-        // エラー処理
+      } catch (err) {
+        // 404 は握りつぶさず、受領見積書が見つからない旨を表示する（REQ-10.6）。
+        // 404 以外の失敗の扱いは Task 105.1 の対象外
+        const notFoundMessage = getEstimateRequestNotFoundMessage(err, 'receivedQuotation');
+        if (notFoundMessage) {
+          setOperationError(notFoundMessage);
+        }
       }
     },
     [id]
@@ -932,7 +1029,14 @@ export default function EstimateRequestDetailPage() {
     }
   }, [request?.projectId]);
 
-  // 報告書生成ハンドラ
+  /**
+   * 報告書生成ハンドラ
+   *
+   * 現場調査の詳細から出力対象の写真を決め、生成を始める前に出力の記録（種別
+   * `site_survey_report_pdf`・案件・出力対象の写真）を1回要求する。記録の失敗では生成せず
+   * エラーメッセージを表示する（Requirement 42.8, 42.9）。現場調査の未選択（Requirement 35.10）と
+   * 出力対象の写真が無いときは、出力が無いため記録を要求しない。
+   */
   const handleGenerateReport = useCallback(async () => {
     if (!selectedSurveyId) {
       setSurveyReportError('現場調査を選択してください');
@@ -943,7 +1047,7 @@ export default function EstimateRequestDetailPage() {
     setSurveyReportError(null);
 
     try {
-      // 現場調査詳細を取得
+      // 現場調査詳細を取得（出力対象の写真と案件を決める）
       const surveyDetail = await getSiteSurvey(selectedSurveyId);
 
       // 報告書出力対象画像をフィルタ
@@ -951,26 +1055,60 @@ export default function EstimateRequestDetailPage() {
 
       if (reportImages.length === 0) {
         setSurveyReportError('報告書出力対象の写真がありません');
-        setIsGeneratingReport(false);
         return;
       }
 
-      // 注釈付き画像をレンダリング
-      const renderedImages = await renderImagesForReport(reportImages);
+      /** 報告書の生成（出力の記録が成功した後にだけ呼ぶ。Requirement 42.8） */
+      const generateReport = async (): Promise<boolean> => {
+        // 記録の要求中に画面が破棄されたら生成もダウンロードもしない（記録は済んでいるが出力は無い）
+        if (!isMountedRef.current) {
+          return false;
+        }
 
-      // RenderedImage → AnnotatedImageWithComment に変換
-      const imagesWithComment = renderedImages.map((rendered) => ({
-        imageInfo: rendered.imageInfo,
-        dataUrl: rendered.dataUrl,
-        comment: rendered.imageInfo.comment ?? null,
-      }));
+        // 注釈付き画像をレンダリング
+        const renderedImages = await renderImagesForReport(reportImages);
 
-      // PDF生成・ダウンロード
-      const { exportAndDownloadPdf } = await loadPdfExportService();
-      await exportAndDownloadPdf(surveyDetail, imagesWithComment);
+        // RenderedImage → AnnotatedImageWithComment に変換
+        const imagesWithComment = renderedImages.map((rendered) => ({
+          imageInfo: rendered.imageInfo,
+          dataUrl: rendered.dataUrl,
+          comment: rendered.imageInfo.comment ?? null,
+        }));
 
-      setShowSurveySelector(false);
-      setSelectedSurveyId('');
+        // PDF生成・ダウンロード
+        const { exportAndDownloadPdf } = await loadPdfExportService();
+        await exportAndDownloadPdf(surveyDetail, imagesWithComment);
+        return true;
+      };
+
+      // 生成を始める前に出力の記録を1回要求し、記録の失敗では生成しない（Requirement 42.8, 42.9）
+      setIsRecordingReportExport(true);
+      const result = await runRecordedExport(
+        {
+          kind: 'site_survey_report_pdf',
+          projectId: surveyDetail.projectId,
+          targetIds: reportImages.map((img) => img.id),
+          itemCount: reportImages.length,
+        },
+        async () => {
+          // 記録が済んだら閉じる操作を戻す（生成中は従来どおり閉じられる）
+          setIsRecordingReportExport(false);
+          return generateReport();
+        }
+      );
+      setIsRecordingReportExport(false);
+      if (!result.ok) {
+        setSurveyReportError(
+          result.error.type === 'RECORD_FAILED'
+            ? result.error.message
+            : '報告書の出力に失敗しました'
+        );
+        return;
+      }
+      if (result.value) {
+        setShowSurveySelector(false);
+        setSelectedSurveyId('');
+      }
     } catch {
       setSurveyReportError('報告書の出力に失敗しました');
     } finally {
@@ -994,6 +1132,20 @@ export default function EstimateRequestDetailPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 見積依頼が見つからない表示（REQ-10.5）。詳細の経路は案件の ID を持たず、見積依頼を読めないと
+  // 案件が分からないため、戻り先はプロジェクトの一覧とする。再試行で解けないため再試行の釦を出さない
+  if (isNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="見積依頼"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }
@@ -1063,6 +1215,17 @@ export default function EstimateRequestDetailPage() {
         </div>
       </div>
 
+      {/* 操作が 404 を受けたときの見つからない旨（REQ-10.6） */}
+      {operationError && (
+        <div
+          role="alert"
+          style={styles.operationError}
+          data-testid="estimate-request-operation-error"
+        >
+          {operationError}
+        </div>
+      )}
+
       {/* コンテンツ（フルワイドレイアウト: Task 59） */}
       <div style={styles.content}>
         {/* ステータス管理 */}
@@ -1075,6 +1238,7 @@ export default function EstimateRequestDetailPage() {
               status={(request.status || 'BEFORE_REQUEST') as EstimateRequestStatus}
               onTransition={handleStatusTransition}
               onSuccess={handleStatusSuccess}
+              onError={handleStatusError}
             />
           </div>
         </div>
@@ -1120,8 +1284,11 @@ export default function EstimateRequestDetailPage() {
               <ExcelExportButton
                 selectedItems={items.filter((item) => item.selected)}
                 estimateRequestName={request.name}
+                projectId={request.projectId}
               />
             )}
+            {/* Task 107.1: 選択した項目の一覧のコピーは出力の記録の成功の後にだけ書き込む
+                （種別 estimate_request_items_clipboard・見積依頼の案件・選択した項目の ID・件数。Requirement 42.13） */}
             <ClipboardCopyButton
               text={items
                 .filter((item) => item.selected)
@@ -1130,6 +1297,14 @@ export default function EstimateRequestDetailPage() {
                     `${item.customCategory ?? ''}\t${item.workType ?? ''}\t${item.name ?? ''}\t${item.specification ?? ''}\t${item.unit ?? ''}\t${item.quantity}`
                 )
                 .join('\n')}
+              exportRecord={{
+                kind: 'estimate_request_items_clipboard',
+                projectId: request.projectId,
+                targetIds: items
+                  .filter((item) => item.selected)
+                  .map((item) => item.estimateRequestItemId),
+                itemCount: items.filter((item) => item.selected).length,
+              }}
             />
             <button
               type="button"
@@ -1195,6 +1370,7 @@ export default function EstimateRequestDetailPage() {
                       setSelectedSurveyId('');
                       setSurveyReportError(null);
                     }}
+                    disabled={isRecordingReportExport}
                     style={styles.actionButton}
                   >
                     閉じる
@@ -1217,6 +1393,8 @@ export default function EstimateRequestDetailPage() {
         {showTextPanel && (
           <EstimateRequestTextPanel
             text={estimateText}
+            estimateRequestId={request.id}
+            projectId={request.projectId}
             loading={isTextLoading}
             errorMessage={textErrorMessage}
             showIncludeBreakdownToggle={hasItemizedStatement}

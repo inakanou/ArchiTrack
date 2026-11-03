@@ -31,6 +31,11 @@ export const SCHEDULE_VALIDATION_MESSAGES = {
   // 数量表ID
   QUANTITY_TABLE_ID_INVALID_UUID: '数量表IDの形式が不正です',
 
+  // 経路の ID（タスク22.1: 案件の閲覧範囲の判定の前に形式を検査する）
+  SCHEDULE_ID_INVALID_UUID: '工程表IDの形式が不正です',
+  PROJECT_ID_REQUIRED: 'プロジェクトIDが必要です',
+  PROJECT_ID_INVALID_UUID: 'プロジェクトIDの形式が不正です',
+
   // version
   VERSION_REQUIRED: 'バージョンは必須です',
   VERSION_MIN: 'バージョンは0以上である必要があります',
@@ -234,6 +239,27 @@ export const exportQuerySchema = z.object({
  * エクスポートクエリの型
  */
 export type ExportQuery = z.infer<typeof exportQuerySchema>;
+
+/**
+ * 工程表IDパラメータ用スキーマ（タスク22.1）
+ *
+ * `/:id` 配下の経路で、案件の閲覧範囲の判定部品より前に工程表 ID の形式を検査する
+ */
+export const scheduleIdParamSchema = z.object({
+  id: z.string().regex(UUID_REGEX, SCHEDULE_VALIDATION_MESSAGES.SCHEDULE_ID_INVALID_UUID),
+});
+
+/**
+ * プロジェクトIDパラメータ用スキーマ（タスク22.1）
+ *
+ * 工程表の一覧・作成の経路で、案件の閲覧範囲の判定部品より前にプロジェクト ID の形式を検査する。
+ * `/api/schedules` のマウントから届く一覧・作成は経路にプロジェクト ID が無く、この検査の 400 で終わる
+ */
+export const projectIdParamSchema = z.object({
+  projectId: z
+    .string(SCHEDULE_VALIDATION_MESSAGES.PROJECT_ID_REQUIRED)
+    .regex(UUID_REGEX, SCHEDULE_VALIDATION_MESSAGES.PROJECT_ID_INVALID_UUID),
+});
 
 /**
  * 一覧クエリスキーマ

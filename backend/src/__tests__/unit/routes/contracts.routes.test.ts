@@ -68,6 +68,16 @@ vi.mock('../../../middleware/authorize.middleware.js', () => ({
     },
 }));
 
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// contract-management-project-scope.middleware.test.ts と統合テストが確かめる。タスク19.1）
+vi.mock('../../../middleware/contract-management-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireContractProjectScope: pass,
+  };
+});
+
 vi.mock('../../../utils/logger.js', () => ({
   default: {
     info: vi.fn(),
@@ -285,6 +295,12 @@ describe('契約書ルート', () => {
         expect.objectContaining({
           contractType: 'NEW',
           estimateId,
+        }),
+        'test-user-id',
+        // 見積書・基となる契約書の所属の照合で範囲外とした拒否の記録に添える要求の識別（タスク19.1、14.5・14.6）
+        expect.objectContaining({
+          method: 'POST',
+          path: expect.stringContaining(`/api/projects/${projectId}/contracts`),
         })
       );
     });
@@ -309,6 +325,37 @@ describe('契約書ルート', () => {
           parentContractId: '550e8400-e29b-41d4-a716-446655440099',
         })
         .expect(422);
+    });
+  });
+
+  // =================================================================
+  // 経路の ID の形式の検査（タスク19.1。案件の閲覧範囲の判定部品より前に置く）
+  // =================================================================
+  describe('経路の ID の形式の検査（タスク19.1）', () => {
+    it.each([
+      ['GET', '/api/contracts/not-a-uuid'],
+      ['PUT', '/api/contracts/not-a-uuid'],
+      ['PATCH', '/api/contracts/not-a-uuid/status'],
+      ['DELETE', '/api/contracts/not-a-uuid'],
+      ['GET', '/api/projects/not-a-uuid/contracts'],
+      ['POST', '/api/projects/not-a-uuid/contracts'],
+      // プロジェクトの配下でないマウントから届く一覧・作成は経路にプロジェクト ID が無い
+      ['GET', '/api/contracts'],
+      ['POST', '/api/contracts'],
+    ] as const)('%s %s は 400 になり、本体を呼ばない', async (method, path) => {
+      const call =
+        request(app)[method.toLowerCase() as 'get' | 'put' | 'patch' | 'delete' | 'post'](path);
+      await call.send({ status: 'CONTRACTED', version: 0 }).expect(400);
+      for (const mock of [
+        mockFindByProject,
+        mockFindById,
+        mockCreate,
+        mockUpdate,
+        mockUpdateStatus,
+        mockDelete,
+      ]) {
+        expect(mock).not.toHaveBeenCalled();
+      }
     });
   });
 
@@ -348,6 +395,16 @@ describe('契約書ルート', () => {
         .expect(200);
 
       expect(res.body.paymentTerms).toBe('更新後の支払条件');
+      expect(mockUpdate).toHaveBeenCalledWith(
+        contractId,
+        expect.objectContaining({ version: 0 }),
+        'test-user-id',
+        // 見積書の所属の照合で範囲外とした拒否の記録に添える要求の識別（タスク19.1、14.5）
+        expect.objectContaining({
+          method: 'PUT',
+          path: expect.stringContaining(`/api/contracts/${contractId}`),
+        })
+      );
     });
 
     it('存在しない契約書の更新で404エラーが返ること', async () => {

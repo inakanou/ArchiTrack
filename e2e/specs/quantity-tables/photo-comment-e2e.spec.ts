@@ -153,6 +153,7 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
       // ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
       await seedSurveyPhotosWithComments(
         page,
+        'REGULAR_USER',
         testProjectId,
         'REQ21_現場調査',
         PHOTO_COMMENTS,

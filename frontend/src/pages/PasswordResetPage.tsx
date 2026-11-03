@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { apiClient, ApiError } from '../api/client';
 import PasswordResetForm from '../components/PasswordResetForm';
 import type { PasswordResetRequestFormData, PasswordResetFormData } from '../types/auth.types';
+import { useUrlToken } from '../hooks/useUrlToken';
 
 /**
  * パスワードリセットページ
@@ -18,10 +19,9 @@ import type { PasswordResetRequestFormData, PasswordResetFormData } from '../typ
  */
 export function PasswordResetPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
 
-  // URLクエリパラメータからリセットトークンを取得
-  const resetToken = searchParams.get('token') || undefined;
+  // リセットのリンクのフラグメント（移行期間はクエリも）からトークンを読み、読んだ直後に URL から取り除く（要件37.3）
+  const resetToken = useUrlToken() || undefined;
 
   // トークン検証状態
   const [tokenError, setTokenError] = useState<string>('');
@@ -30,6 +30,8 @@ export function PasswordResetPage() {
 
   // トークン検証（ページロード時）
   useEffect(() => {
+    // トークンが変わった後に前のトークンの検証の応答が届いても、新しい結果を上書きしない
+    let cancelled = false;
     const validateToken = async () => {
       if (!resetToken) {
         setIsTokenValid(true); // トークンがない場合はリセット要求モード
@@ -38,13 +40,17 @@ export function PasswordResetPage() {
 
       setIsValidating(true);
       try {
-        // トークン検証API呼び出し（GETエンドポイント使用）
-        await apiClient.get(
-          `/api/v1/auth/password/verify-reset?token=${encodeURIComponent(resetToken)}`
-        );
+        // トークン検証API呼び出し（トークンは URL に載せず本文で送る。要件37.3）
+        await apiClient.post('/api/v1/auth/password/verify-reset', { token: resetToken });
+        if (cancelled) {
+          return;
+        }
         setIsTokenValid(true);
         setTokenError('');
       } catch (error) {
+        if (cancelled) {
+          return;
+        }
         setIsTokenValid(false);
         // エラーコードに基づいてメッセージを設定
         if (error instanceof ApiError) {
@@ -65,11 +71,16 @@ export function PasswordResetPage() {
           setTokenError('リセットリンクの検証に失敗しました。再度リセットを要求してください。');
         }
       } finally {
-        setIsValidating(false);
+        if (!cancelled) {
+          setIsValidating(false);
+        }
       }
     };
 
     validateToken();
+    return () => {
+      cancelled = true;
+    };
   }, [resetToken]);
 
   /**

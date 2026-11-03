@@ -19,9 +19,13 @@
  * - 4.14: 見積依頼方法ラジオボタンのクライアントサイド管理
  * - 4.19: 未保存の変更がある場合に保存ボタンを視覚的に強調表示する
  * - 4.20: 未保存の変更がある状態でのページ離脱確認ダイアログ
+ *
+ * Task 105.1 変更: 保存が 404 を受けたときに、見積依頼が見つからない旨のメッセージを表示する
+ *   （estimate-request の Requirement 10.6）
  */
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import { getEstimateRequestNotFoundMessage } from '../../utils/estimateRequestNotFound';
 import type {
   ItemWithSelectionInfo,
   EstimateRequestMethod,
@@ -342,11 +346,17 @@ export function ItemSelectionPanel({
       setServerSelections({ ...localSelections });
 
       setFeedback({ type: 'success', message: '保存しました' });
-    } catch {
+    } catch (err) {
       // エラー時はサーバー状態に復元
       setLocalSelections({ ...serverSelections });
       setLocalMethod(method);
-      setFeedback({ type: 'error', message: '保存に失敗しました。元の状態に戻しました。' });
+      // 404 は保存の失敗ではなく、見積依頼が見つからない旨を告げる（REQ-10.6）
+      setFeedback({
+        type: 'error',
+        message:
+          getEstimateRequestNotFoundMessage(err, 'estimateRequest') ??
+          '保存に失敗しました。元の状態に戻しました。',
+      });
     } finally {
       setIsSaving(false);
     }

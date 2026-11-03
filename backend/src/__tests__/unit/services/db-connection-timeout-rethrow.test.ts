@@ -2,7 +2,7 @@
  * @fileoverview 認証系の 6 サービスが DB 接続のタイムアウトを DATABASE_ERROR へ飲み込まず投げ直すことの単体検証（タスク35.11）
  *
  * 対象は auth / permission / role-permission / role / session / user-role の各サービスで、
- * DB 例外を `Err({ type: 'DATABASE_ERROR' })` へ変える catch のすべて（24 か所）。
+ * DB 例外を `Err({ type: 'DATABASE_ERROR' })` へ変える catch のすべて（22 か所。タスク45.2 で session の 3 か所を 1 か所へ改めた）。
  * - 接続のタイムアウト（pg-pool の素の Error、ETIMEDOUT、P1008）は同じエラーのまま投げ直す
  * - それ以外の DB 例外（一般の Error、P1001 など）はこれまでどおり DATABASE_ERROR を返す
  *
@@ -16,6 +16,7 @@ import { PermissionService } from '../../../services/permission.service.js';
 import { RolePermissionService } from '../../../services/role-permission.service.js';
 import { RoleService } from '../../../services/role.service.js';
 import { SessionService } from '../../../services/session.service.js';
+import type { TwoFactorChallengeService } from '../../../services/two-factor-challenge.service.js';
 import { UserRoleService } from '../../../services/user-role.service.js';
 import type { InvitationService } from '../../../services/invitation.service.js';
 import type { PasswordService } from '../../../services/password.service.js';
@@ -88,21 +89,38 @@ function authService(prisma: PrismaClient): AuthService {
     {} as PasswordService,
     tokenService,
     {} as TwoFactorService,
-    new SessionService(prisma)
+    new SessionService(prisma),
+    challengeForUser1()
   );
 }
 
-/** DB 例外を DATABASE_ERROR へ変える catch へ到達する呼び出し（24 か所） */
+/** 利用者 user-1 に結び付いた 2FA 待ちの資格を照会・消費できる代役 */
+function challengeForUser1(): TwoFactorChallengeService {
+  return {
+    issue: vi.fn(),
+    peek: vi.fn().mockResolvedValue(Ok({ userId: 'user-1' })),
+    consume: vi.fn().mockResolvedValue(Ok(undefined)),
+  } as unknown as TwoFactorChallengeService;
+}
+
+/** DB 例外を DATABASE_ERROR へ変える catch へ到達する呼び出し（22 か所） */
 const cases: Array<[string, (prisma: PrismaClient) => Promise<unknown>]> = [
   [
     'AuthService.register',
     (p) => authService(p).register('invitation-token', { displayName: 'x', password: 'p' }),
   ],
   ['AuthService.login', (p) => authService(p).login('user@example.com', 'password')],
-  ['AuthService.verify2FA', (p) => authService(p).verify2FA('user-1', '123456')],
   [
-    'AuthService.verify2FABackupCode',
-    (p) => authService(p).verify2FABackupCode('user-1', 'ABCD1234'),
+    'AuthService.completeTwoFactorLogin（TOTP）',
+    (p) => authService(p).completeTwoFactorLogin('challenge', { kind: 'totp', code: '123456' }),
+  ],
+  [
+    'AuthService.completeTwoFactorLogin（バックアップコード）',
+    (p) =>
+      authService(p).completeTwoFactorLogin('challenge', {
+        kind: 'backup',
+        backupCode: 'ABCD1234',
+      }),
   ],
   ['AuthService.logout', (p) => authService(p).logout('user-1', 'refresh-token')],
   ['AuthService.logoutAll', (p) => authService(p).logoutAll('user-1')],
@@ -135,9 +153,10 @@ const cases: Array<[string, (prisma: PrismaClient) => Promise<unknown>]> = [
   ['RoleService.updateRole', (p) => new RoleService(p).updateRole('role-1', { name: 'r2' })],
   ['RoleService.deleteRole', (p) => new RoleService(p).deleteRole('role-1')],
   ['RoleService.getRoleById', (p) => new RoleService(p).getRoleById('role-1')],
-  ['SessionService.deleteSession', (p) => new SessionService(p).deleteSession('refresh-token')],
-  ['SessionService.verifySession', (p) => new SessionService(p).verifySession('refresh-token')],
-  ['SessionService.extendSession', (p) => new SessionService(p).extendSession('refresh-token')],
+  [
+    'SessionService.revokeSessionById',
+    (p) => new SessionService(p).revokeSessionById('user-1', 'session-1'),
+  ],
   ['UserRoleService.getUserRoles', (p) => new UserRoleService(p).getUserRoles('user-1')],
   [
     'UserRoleService.addRoleToUser',

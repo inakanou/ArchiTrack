@@ -17,6 +17,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { PrismaClient, Prisma } from '../../generated/prisma/client.js';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
+import { createTestUser } from './test-user-factory.js';
 
 const { Pool } = pg;
 
@@ -36,12 +37,10 @@ describe('ItemizedStatement Schema Integration Tests', () => {
     prisma = new PrismaClient({ adapter });
 
     // テスト用ユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: `itemized-test-${Date.now()}@example.com`,
-        displayName: 'Itemized Test User',
-        passwordHash: 'test-hash',
-      },
+    const user = await createTestUser(prisma, {
+      email: `itemized-test-${Date.now()}@example.com`,
+      displayName: 'Itemized Test User',
+      passwordHash: 'test-hash',
     });
     testUserId = user.id;
 

@@ -14,6 +14,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CopyQuantityTableDialog from './CopyQuantityTableDialog';
 import * as quantityTablesApi from '../../api/quantity-tables';
+import { ApiError } from '../../api/client';
 
 // API モック
 vi.mock('../../api/quantity-tables', () => ({
@@ -273,6 +274,65 @@ describe('CopyQuantityTableDialog', () => {
         expect(screen.getByRole('button', { name: 'コピーを作成' })).not.toBeDisabled();
         expect(screen.getByRole('button', { name: 'キャンセル' })).not.toBeDisabled();
       });
+    });
+
+    // Task 106.1: コピーの 404 は応答の英語の文言に代えて数量表が見つからない旨を表示する
+    // （quantity-table-generation の Requirement 51.2。範囲外と不在を区別しない）
+    it('コピーが 404 を受けると数量表が見つからない旨を表示し、応答の英語の文言を出さないこと', async () => {
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.copyQuantityTable).mockRejectedValueOnce(
+        new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' })
+      );
+
+      render(<CopyQuantityTableDialog {...defaultProps} />);
+
+      await user.click(screen.getByRole('button', { name: 'コピーを作成' }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          '数量表が見つかりません。存在しないか、削除されています。'
+        );
+      });
+      expect(screen.queryByText('Not found')).not.toBeInTheDocument();
+      expect(defaultProps.onCopyComplete).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'コピーを作成' })).not.toBeDisabled();
+    });
+
+    it('論理削除された数量表の 404 も同じ文言にし、ID を含む本文を出さないこと', async () => {
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.copyQuantityTable).mockRejectedValueOnce(
+        new ApiError(404, '数量表が見つかりません: qt-1', {
+          status: 404,
+          code: 'QUANTITY_TABLE_NOT_FOUND',
+        })
+      );
+
+      render(<CopyQuantityTableDialog {...defaultProps} />);
+
+      await user.click(screen.getByRole('button', { name: 'コピーを作成' }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          '数量表が見つかりません。存在しないか、削除されています。'
+        );
+      });
+      expect(screen.getByRole('alert')).not.toHaveTextContent('qt-1');
+    });
+
+    it('404 以外のコピーの失敗は従来どおりの文言を表示すること', async () => {
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.copyQuantityTable).mockRejectedValueOnce(
+        new ApiError(500, 'コピーに失敗しました')
+      );
+
+      render(<CopyQuantityTableDialog {...defaultProps} />);
+
+      await user.click(screen.getByRole('button', { name: 'コピーを作成' }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent('コピーに失敗しました');
+      });
+      expect(screen.queryByText(/見つかりません/)).not.toBeInTheDocument();
     });
 
     it('空の名前ではコピーが実行されないこと', async () => {

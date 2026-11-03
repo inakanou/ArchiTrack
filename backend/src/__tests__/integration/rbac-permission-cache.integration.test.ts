@@ -29,6 +29,8 @@ import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import tokenService from '../../services/token.service.js';
 import logger from '../../utils/logger.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { createTestUser } from './test-user-factory.js';
 
 const MARK = 'test-ua362-rbac-cache';
 
@@ -88,7 +90,7 @@ describe('権限の確認の経路の権限キャッシュ（統合・実 Redis�
     if (userIds.length > 0) {
       await redisClient.del(...userIds.map(cacheKey));
     }
-    await prisma.auditLog.deleteMany({ where: { actorId: { in: userIds } } });
+    await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: userIds } });
     await prisma.userRole.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await prisma.rolePermission.deleteMany({ where: { role: { name: { startsWith: MARK } } } });
@@ -109,11 +111,18 @@ describe('権限の確認の経路の権限キャッシュ（統合・実 Redis�
     roleId: string
   ): Promise<{ id: string; token: string }> {
     const email = `${MARK}-${suffix}@example.com`;
-    const user = await prisma.user.create({
-      data: { email, displayName: `${MARK}-${suffix}`, passwordHash: 'not-used' },
+    const user = await createTestUser(prisma, {
+      email,
+      displayName: `${MARK}-${suffix}`,
+      passwordHash: 'not-used',
     });
     await prisma.userRole.create({ data: { userId: user.id, roleId } });
-    const token = await tokenService.generateAccessToken({ userId: user.id, email, roles: [] });
+    const token = await tokenService.generateAccessToken({
+      userId: user.id,
+      email,
+      roles: [],
+      accessTokenGeneration: 0,
+    });
     return { id: user.id, token };
   }
 
@@ -163,7 +172,7 @@ describe('権限の確認の経路の権限キャッシュ（統合・実 Redis�
     if (readerIds.length > 0) {
       await redisClient.del(...readerIds.map(cacheKey));
     }
-    await prisma.auditLog.deleteMany({ where: { actorId: { in: readerIds } } });
+    await deleteAuditLogsWithArchivePermission(prisma, { actorId: { in: readerIds } });
     await prisma.userRole.deleteMany({ where: { userId: { in: readerIds } } });
     await prisma.user.deleteMany({ where: { id: { in: readerIds } } });
     await prisma.rolePermission.deleteMany({ where: { role: { name: `${MARK}-reader` } } });
@@ -272,7 +281,9 @@ describe('権限の確認の経路の権限キャッシュ（統合・実 Redis�
     expect(remove.status).toBe(204);
 
     expect(await redisClient.get(cacheKey(readerUserId))).toBeNull();
-    expect((await getRolesAsReader()).status).toBe(403);
+    // 認証ミドルウェアの状態の照合が、権限の確認より前に利用者の不在として 401 で拒否する
+    // （削除は状態のキャッシュも無効化する。user-authentication タスク47.6）
+    expect((await getRolesAsReader()).status).toBe(401);
   });
 
   /**

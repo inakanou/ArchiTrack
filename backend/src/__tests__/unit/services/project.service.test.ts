@@ -360,6 +360,38 @@ describe('ProjectService', () => {
   });
 
   describe('getProjects', () => {
+    it('閲覧範囲の絞り込み条件を検索の OR と混ぜず AND で結ぶ（user-authentication タスク52.3）', async () => {
+      const scopeWhere = { OR: [{ salesPersonId: 'user-1' }, { createdById: 'user-1' }] };
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.project.count = vi.fn().mockResolvedValue(0);
+
+      await service.getProjects(
+        { search: 'テスト' },
+        { page: 1, limit: 20 },
+        { sort: 'updatedAt', order: 'desc' },
+        scopeWhere
+      );
+
+      const expectedWhere = expect.objectContaining({
+        deletedAt: null,
+        AND: [scopeWhere],
+        OR: expect.arrayContaining([{ name: { contains: 'テスト', mode: 'insensitive' } }]),
+      });
+      expect(mockPrisma.project.count).toHaveBeenCalledWith({ where: expectedWhere });
+      expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expectedWhere })
+      );
+    });
+
+    it('絞り込み条件を与えないときは AND を付けない', async () => {
+      mockPrisma.project.findMany = vi.fn().mockResolvedValue([]);
+      mockPrisma.project.count = vi.fn().mockResolvedValue(0);
+
+      await service.getProjects({}, { page: 1, limit: 20 }, { sort: 'updatedAt', order: 'desc' });
+
+      expect(mockPrisma.project.count).toHaveBeenCalledWith({ where: { deletedAt: null } });
+    });
+
     /**
      * 検索対象拡張のテスト（Requirements: 4.1a, 4.1b）
      *
@@ -2320,6 +2352,23 @@ describe('ProjectService', () => {
 
       // Assert
       expect(result.total).toBe(18);
+    });
+
+    it('閲覧範囲の絞り込み条件を与えると、論理削除の除外と AND で結んで数える（user-authentication タスク52.3）', async () => {
+      const scopeWhere = { OR: [{ salesPersonId: 'user-1' }, { createdById: 'user-1' }] };
+      (mockPrisma.project as unknown as Record<string, ReturnType<typeof vi.fn>>).groupBy = vi
+        .fn()
+        .mockResolvedValue([]);
+
+      await service.getStatusCounts(scopeWhere);
+
+      expect(
+        (mockPrisma.project as unknown as Record<string, ReturnType<typeof vi.fn>>).groupBy
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { deletedAt: null, AND: [scopeWhere] },
+        })
+      );
     });
 
     it('論理削除されたプロジェクトがカウント対象外であること (23.2)', async () => {

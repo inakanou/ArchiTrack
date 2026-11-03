@@ -11,6 +11,11 @@
  *
  * Design Reference: design.md - ExecutionBudget API Contract セクション
  *
+ * 案件の閲覧範囲（Requirement 20、user-authentication の要件39。タスク17.1）:
+ * 全経路で requirePermission の後に ID の形式の検査と execution-budget-project-scope.middleware の
+ * 判定部品を置き、範囲外は不在と同じ汎用の 404 にする。経路の実行予算項目が経路の案件に属さなければ
+ * 不在と同じ 404 にする。契約（作成・変更契約の項目差分・反映）の所属はサービスで照合する
+ *
  * Task 2.3: 実行予算のルーター実装
  *
  * @module routes/execution-budget
@@ -22,11 +27,19 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import {
+  requireExecutionBudgetItemInProject,
+  requireExecutionBudgetProjectScope,
+} from '../middleware/execution-budget-project-scope.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   createExecutionBudgetSchema,
   updateExecutionBudgetItemSchema,
   applyAmendmentSchema,
+  executionBudgetProjectParamsSchema,
+  executionBudgetItemParamsSchema,
+  amendmentContractParamsSchema,
   type CreateExecutionBudgetInput,
   type UpdateExecutionBudgetItemInput,
   type ApplyAmendmentInput,
@@ -54,6 +67,8 @@ router.post(
   '/',
   authenticate,
   requirePermission('execution_budget:write'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   validate(createExecutionBudgetSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -68,7 +83,13 @@ router.post(
 
       const { contractId } = req.validatedBody as CreateExecutionBudgetInput;
 
-      const budget = await executionBudgetService.create(projectId, contractId);
+      // 他の案件の契約の案件が範囲外なら、サービスが処理の後に記録する（Requirement 20.9、タスク18.2）
+      const budget = await executionBudgetService.create(
+        projectId,
+        contractId,
+        req.user?.userId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         { projectId, budgetId: budget.id, userId: req.user?.userId },
@@ -106,6 +127,8 @@ router.get(
   '/',
   authenticate,
   requirePermission('execution_budget:read'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;
@@ -144,6 +167,8 @@ router.delete(
   '/',
   authenticate,
   requirePermission('execution_budget:write'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;
@@ -190,6 +215,9 @@ router.patch(
   '/items/:itemId',
   authenticate,
   requirePermission('execution_budget:write'),
+  validate(executionBudgetItemParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
+  requireExecutionBudgetItemInProject('itemId'),
   validate(updateExecutionBudgetItemSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -231,6 +259,8 @@ router.get(
   '/unreflected-amendments',
   authenticate,
   requirePermission('execution_budget:read'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;
@@ -267,6 +297,8 @@ router.get(
   '/amendment-diff/:contractId',
   authenticate,
   requirePermission('execution_budget:read'),
+  validate(amendmentContractParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const projectId = req.params.projectId;
@@ -286,7 +318,13 @@ router.get(
         return;
       }
 
-      const result = await executionBudgetService.getAmendmentDiff(projectId, contractId);
+      // 他の案件の契約の案件が範囲外なら、サービスが処理の後に記録する（Requirement 20.9、タスク18.2）
+      const result = await executionBudgetService.getAmendmentDiff(
+        projectId,
+        contractId,
+        req.user?.userId,
+        projectScopeDenialContextOf(req)
+      );
 
       res.json(result);
     } catch (error) {
@@ -320,6 +358,8 @@ router.post(
   '/apply-amendment',
   authenticate,
   requirePermission('execution_budget:write'),
+  validate(executionBudgetProjectParamsSchema, 'params'),
+  requireExecutionBudgetProjectScope(),
   validate(applyAmendmentSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -334,7 +374,13 @@ router.post(
 
       const { contractId } = req.validatedBody as ApplyAmendmentInput;
 
-      const result = await executionBudgetService.applyAmendment(projectId, contractId);
+      // 他の案件の契約の案件が範囲外なら、サービスが処理の後に記録する（Requirement 20.9、タスク18.2）
+      const result = await executionBudgetService.applyAmendment(
+        projectId,
+        contractId,
+        req.user?.userId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         { projectId, contractId, userId: req.user?.userId },

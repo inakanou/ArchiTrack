@@ -18,6 +18,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import EstimateCreatePage from './EstimateCreatePage';
 import * as estimatesApi from '../api/estimates';
 import * as itemizedStatementsApi from '../api/itemized-statements';
+import { ApiError } from '../api/client';
 
 // モック
 vi.mock('../api/estimates');
@@ -372,5 +373,126 @@ describe('EstimateCreatePage', () => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
       expect(screen.getByText(/見積書の作成に失敗しました/i)).toBeInTheDocument();
     });
+  });
+
+  /**
+   * Task 69.2: 内訳書からの作成が件数の上限（3.6）の 422 で拒まれたら、どの上限かを表示し、
+   * 汎用の文言と 422 の要約の文言を出さず、入力中の見積書名と選択中の内訳書を保つ（3.7）。
+   * 応答の本文は作成の経路の実際の形（一括保存の 422 と同じ EstimateDraftValidationError）を写す。
+   */
+  describe('作成の件数の上限の超過の表示 (3.7)', () => {
+    const DRAFT_SUMMARY = '見積明細の入力内容に不備があるため保存できません';
+    const GENERIC_MESSAGE = '見積書の作成に失敗しました';
+    const ITEMS_TOO_MANY = '見積明細は合計2000件以内で保存してください';
+
+    const draftValidationError = (
+      issues: Array<{ path: string; message: string }>,
+      code = 'ESTIMATE_DRAFT_VALIDATION_ERROR'
+    ): ApiError =>
+      new ApiError(422, DRAFT_SUMMARY, {
+        type: 'https://architrack.example.com/problems/validation-error',
+        title: 'Unprocessable Entity',
+        status: 422,
+        detail: DRAFT_SUMMARY,
+        code,
+        details: { issues },
+      });
+
+    const renderCreatePage = () =>
+      render(
+        <MemoryRouter initialEntries={['/projects/proj-001/estimates/new']}>
+          <Routes>
+            <Route path="/projects/:projectId/estimates/new" element={<EstimateCreatePage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+    /** 見積書名を入れ、内訳書 A を選んで作成する */
+    const submitWithStatement = async (user: ReturnType<typeof userEvent.setup>) => {
+      await screen.findByRole('combobox', { name: '内訳書を選択' });
+      const nameInput = screen.getByLabelText(/見積書名/i);
+      await user.clear(nameInput);
+      await user.type(nameInput, '件数超過の見積書');
+      await user.selectOptions(screen.getByRole('combobox', { name: '内訳書を選択' }), 'is-001');
+      await user.click(screen.getByRole('button', { name: '作成' }));
+    };
+
+    /**
+     * @requirement estimate-creation/REQ-3.7 作成が件数の上限で拒まれたらどの上限かを表示し、汎用の文言を出さず入力を保つ
+     */
+    it('件数の上限の 422 は上限のメッセージだけを表示し、汎用・要約の文言を出さず、見積書名と内訳書の選択を保ち画面を移らないこと (3.7)', async () => {
+      vi.mocked(estimatesApi.createEstimate).mockRejectedValue(
+        draftValidationError([{ path: 'items', message: ITEMS_TOO_MANY }])
+      );
+      const user = userEvent.setup();
+      renderCreatePage();
+
+      await submitWithStatement(user);
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(
+        /^見積書を作成できません: 見積明細は合計2000件以内で保存してください$/
+      );
+      expect(screen.queryByText(GENERIC_MESSAGE)).not.toBeInTheDocument();
+      expect(alert).not.toHaveTextContent(DRAFT_SUMMARY);
+      expect(estimatesApi.createEstimate).toHaveBeenCalledWith('proj-001', {
+        name: '件数超過の見積書',
+        sourceItemizedStatementId: 'is-001',
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(screen.getByLabelText(/見積書名/i)).toHaveValue('件数超過の見積書');
+      expect(screen.getByRole('combobox', { name: '内訳書を選択' })).toHaveValue('is-001');
+      expect(screen.getByRole('button', { name: '作成' })).toBeEnabled();
+    });
+
+    const CONVENTIONAL_CASES: Array<{ label: string; error: () => ApiError; expected: string }> = [
+      {
+        label: '上限でない 422（path が items に完全一致しない）',
+        error: () =>
+          draftValidationError([{ path: 'items.0', message: '見積項目の構造が不正です' }]),
+        expected: GENERIC_MESSAGE,
+      },
+      {
+        label: 'コードが違う 422',
+        error: () =>
+          draftValidationError([{ path: 'items', message: ITEMS_TOO_MANY }], 'VALIDATION_ERROR'),
+        expected: GENERIC_MESSAGE,
+      },
+      {
+        label: '同名の見積書の 409',
+        error: () =>
+          new ApiError(409, '同じ名前の見積書が既に存在します', {
+            status: 409,
+            detail: '同じ名前の見積書が既に存在します',
+            code: 'DUPLICATE_ESTIMATE_NAME',
+          }),
+        expected: GENERIC_MESSAGE,
+      },
+      {
+        label: '内訳書の不在の 404',
+        error: () =>
+          new ApiError(404, '内訳書が見つかりません: is-001', {
+            status: 404,
+            detail: '内訳書が見つかりません: is-001',
+            code: 'ITEMIZED_STATEMENT_NOT_FOUND',
+          }),
+        expected: '内訳書が見つかりません。すでに削除された可能性があります。',
+      },
+    ];
+
+    for (const conventional of CONVENTIONAL_CASES) {
+      it(`${conventional.label}は従来どおりの文言を表示し、上限の書き出しを出さないこと`, async () => {
+        vi.mocked(estimatesApi.createEstimate).mockRejectedValue(conventional.error());
+        const user = userEvent.setup();
+        renderCreatePage();
+
+        await submitWithStatement(user);
+
+        const alert = await screen.findByRole('alert');
+        expect(alert.textContent).toBe(conventional.expected);
+        expect(screen.queryByText(/見積書を作成できません/)).not.toBeInTheDocument();
+        expect(mockNavigate).not.toHaveBeenCalled();
+      });
+    }
   });
 });

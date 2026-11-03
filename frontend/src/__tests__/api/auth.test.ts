@@ -120,9 +120,9 @@ describe('認証API', () => {
   });
 
   describe('verify2FA', () => {
-    it('ユーザーIDとTOTPコードで2FA検証できること', async () => {
-      const userId = 'user-1';
-      const totpCode = '123456';
+    it('ログインの応答の 2FA 待ちの資格と TOTP コードで2FA検証できること', async () => {
+      const challengeToken = 'challenge-abc';
+      const code = '123456';
 
       const mockResponse = {
         accessToken: 'mock-access-token',
@@ -135,11 +135,11 @@ describe('認証API', () => {
 
       const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue(mockResponse);
 
-      const result = await verify2FA(userId, totpCode);
+      const result = await verify2FA(challengeToken, code);
 
       expect(postSpy).toHaveBeenCalledWith('/api/v1/auth/verify-2fa', {
-        userId,
-        totpCode,
+        challengeToken,
+        code,
       });
       expect(result).toEqual(mockResponse);
     });
@@ -147,7 +147,7 @@ describe('認証API', () => {
     it('無効なTOTPコードでエラーをスローすること', async () => {
       const postSpy = vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Invalid TOTP code'));
 
-      await expect(verify2FA('user-1', 'invalid')).rejects.toThrow('Invalid TOTP code');
+      await expect(verify2FA('challenge-abc', 'invalid')).rejects.toThrow('Invalid TOTP code');
 
       expect(postSpy).toHaveBeenCalled();
     });
@@ -155,19 +155,21 @@ describe('認証API', () => {
 
   describe('logout', () => {
     it('ログアウトできること', async () => {
-      const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue(undefined);
+      const logoutSpy = vi.spyOn(apiClient, 'logoutSession').mockResolvedValue(undefined);
 
       await logout();
 
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/auth/logout');
+      expect(logoutSpy).toHaveBeenCalledTimes(1);
     });
 
     it('ログアウト時のエラーをスローすること', async () => {
-      const postSpy = vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Logout failed'));
+      const logoutSpy = vi
+        .spyOn(apiClient, 'logoutSession')
+        .mockRejectedValue(new Error('Logout failed'));
 
       await expect(logout()).rejects.toThrow('Logout failed');
 
-      expect(postSpy).toHaveBeenCalled();
+      expect(logoutSpy).toHaveBeenCalled();
     });
   });
 
@@ -200,20 +202,22 @@ describe('認証API', () => {
         },
       };
 
-      const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue(mockResponse);
+      const refreshSpy = vi.spyOn(apiClient, 'refreshSession').mockResolvedValue(mockResponse);
 
       const result = await refreshToken();
 
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/auth/refresh');
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
       expect(result).toEqual(mockResponse);
     });
 
     it('トークンリフレッシュ失敗時にエラーをスローすること', async () => {
-      const postSpy = vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Refresh failed'));
+      const refreshSpy = vi
+        .spyOn(apiClient, 'refreshSession')
+        .mockRejectedValue(new Error('Refresh failed'));
 
       await expect(refreshToken()).rejects.toThrow('Refresh failed');
 
-      expect(postSpy).toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalled();
     });
   });
 

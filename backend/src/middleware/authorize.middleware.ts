@@ -15,10 +15,13 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { RBACService, getSharedRBACService } from '../services/rbac.service.js';
+import { snapshotAuditActor } from '../services/audit-log.service.js';
 import getPrismaClient from '../db.js';
 import redisConnection from '../redis.js';
 import logger from '../utils/logger.js';
 import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import { getClientIp } from './client-ip.js';
+import { observeSecurityAnomaly } from '../services/security-anomaly-monitor.service.js';
 
 /**
  * 権限チェックミドルウェアファクトリー
@@ -78,11 +81,18 @@ export function requirePermission(
           'Permission check failed: insufficient permissions'
         );
 
+        // 権限の拒否を異常の検知へ送る（要件43.2。計数を待たない）
+        observeSecurityAnomaly({
+          signal: 'permission_denied',
+          sourceIp: getClientIp(req),
+          userId,
+        });
+
         // 監査ログに記録
         await recordPermissionCheckFailure(
           userId,
           permission,
-          req.ip || 'unknown',
+          getClientIp(req),
           req.get('user-agent') || 'unknown',
           client
         );
@@ -135,6 +145,8 @@ async function recordPermissionCheckFailure(
       data: {
         action: 'PERMISSION_CHECK_FAILED',
         actorId,
+        // 実行者の写し（要件40.7）
+        ...(await snapshotAuditActor(prismaClient, actorId)),
         targetType: 'Permission',
         targetId: requiredPermission,
         metadata: {

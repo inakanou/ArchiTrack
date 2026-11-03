@@ -26,9 +26,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
-import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
+import {
+  cleanupEstimateRequestFixtures,
+  seedEstimateRequest,
+} from '../../helpers/estimate-request-preconditions';
 import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
 import {
   startOcrProgressIndicatorWatch,
@@ -127,18 +129,9 @@ test.describe('OCR再実行・リトライ機能', () => {
   // テストデータの保存
   let createdProjectId: string | null = null;
   let createdTradingPartnerId: string | null = null;
+  let createdQuantityTableId: string | null = null;
   let createdItemizedStatementId: string | null = null;
   let createdEstimateRequestId: string | null = null;
-  let createdQuotationId: string | null = null;
-  let accessToken: string = '';
-
-  test.beforeEach(async ({ page }) => {
-    // localStorageからトークンを取得
-    const token = await page.evaluate(() => localStorage.getItem('accessToken')).catch(() => null);
-    if (token) {
-      accessToken = token;
-    }
-  });
 
   test('テスト前提データを作成する', async ({ page }) => {
     await loginAsUser(page, 'ADMIN_USER');
@@ -146,7 +139,7 @@ test.describe('OCR再実行・リトライ機能', () => {
     // Task 115.127 段1: プロジェクト〜見積依頼の前提生成は共通の補助へ寄せる。
     // 3ファイルが同じ約110行を複製していたため、複製したまま個別に直すと再発する。
     // いずれかの作成に失敗した時点で補助の内側で失敗する。
-    const seed = await seedEstimateRequest(page, {
+    const seed = await seedEstimateRequest(page, 'ADMIN_USER', {
       label: 'OCRリトライテスト',
       siteAddress: '東京都千代田区',
       partnerEmail: 'test-ocr@example.com',
@@ -160,9 +153,9 @@ test.describe('OCR再実行・リトライ機能', () => {
       },
     });
 
-    accessToken = seed.accessToken;
     createdProjectId = seed.projectId;
     createdTradingPartnerId = seed.tradingPartnerId;
+    createdQuantityTableId = seed.quantityTableId;
     createdItemizedStatementId = seed.itemizedStatementId;
     createdEstimateRequestId = seed.estimateRequestId;
   });
@@ -209,21 +202,8 @@ test.describe('OCR再実行・リトライ機能', () => {
       timeout: getTimeout(10000),
     });
 
-    // 保存された受領見積書のIDを取得（一覧から）
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-
-    const quotationsRes = await page.request.get(
-      `${API_BASE_URL}/api/estimate-requests/${createdEstimateRequestId}/quotations`,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }
-    );
-    if (quotationsRes.ok()) {
-      const quotations = await quotationsRes.json();
-      if (quotations.length > 0) {
-        createdQuotationId = quotations[0].id;
-      }
-    }
+    // 保存された受領見積書は後始末（afterAll の cleanupEstimateRequestFixtures）が見積依頼の配下を
+    // 一覧で拾って消す。ここで ID を控えていた処理は、状態コードを見ず 1 件目しか控えなかったため外した。
 
     // 編集ボタンをクリック（受領見積書一覧内の編集ボタン）
     const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
@@ -723,50 +703,21 @@ test.describe('OCR再実行・リトライ機能', () => {
     await expectPdfPreviewRendered(page);
   });
 
-  test('テストデータをクリーンアップする', async ({ page }) => {
-    await loginAsUser(page, 'ADMIN_USER');
-
-    accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
-
-    // 受領見積書の削除
-    if (createdQuotationId) {
-      await page.request.delete(`${API_BASE_URL}/api/quotations/${createdQuotationId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
-
-    // 見積依頼の削除
-    if (createdEstimateRequestId) {
-      await page.request.delete(
-        `${API_BASE_URL}/api/estimate-requests/${createdEstimateRequestId}`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
-      );
-    }
-
-    // 内訳書の削除
-    if (createdItemizedStatementId) {
-      await page.request.delete(
-        `${API_BASE_URL}/api/itemized-statements/${createdItemizedStatementId}`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }
-      );
-    }
-
-    // 取引先の削除
-    if (createdTradingPartnerId) {
-      await page.request.delete(`${API_BASE_URL}/api/trading-partners/${createdTradingPartnerId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
-
-    // プロジェクトの削除
-    if (createdProjectId) {
-      await page.request.delete(`${API_BASE_URL}/api/projects/${createdProjectId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
+  /**
+   * 作成したデータを片付ける。serial の最後の test ではなく afterAll に置き、途中の検証が
+   * 落ちても後始末が走るようにする（2026-11-01 の是正。前例 claude-vision-e2e）。
+   * 共通の補助 `cleanupEstimateRequestFixtures` が管理者で、受領見積書（見積依頼の配下を一覧で
+   * 拾う）→ 見積依頼 → 内訳書 → 数量表 → プロジェクト → 取引先 の順に消し、いずれも 204 以外は
+   * 例外にする（是正まで、内訳書は基準時刻を送らずに 400 を受け、数量表は消しておらず、
+   * 内訳書・取引先・プロジェクトの削除は状態コードを見ていなかった）。
+   */
+  test.afterAll(async () => {
+    await cleanupEstimateRequestFixtures({
+      estimateRequestId: createdEstimateRequestId,
+      itemizedStatementId: createdItemizedStatementId,
+      quantityTableId: createdQuantityTableId,
+      projectId: createdProjectId,
+      tradingPartnerId: createdTradingPartnerId,
+    });
   });
 });

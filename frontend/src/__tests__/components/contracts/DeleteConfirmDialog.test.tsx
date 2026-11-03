@@ -8,6 +8,7 @@
  * - REQ-8.11: 削除確認時に契約書を論理削除する
  * - REQ-12.1: 子契約が存在する場合に削除を拒否する
  * - REQ-12.2: 契約済ステータスの場合に削除を拒否する
+ * - REQ-11.9: 削除が 404 を受けたときに見つからない旨を表示する（Task 21.1）
  *
  * @module __tests__/components/contracts/DeleteConfirmDialog.test
  */
@@ -18,6 +19,7 @@ import userEvent from '@testing-library/user-event';
 import { DeleteConfirmDialog } from '../../../components/contracts/DeleteConfirmDialog';
 import * as contractsApi from '../../../api/contracts';
 import { ApiError } from '../../../api/client';
+import { CONTRACT_NOT_FOUND_MESSAGE } from '../../../utils/contractErrorHandler';
 
 // モック
 vi.mock('../../../api/contracts');
@@ -223,5 +225,42 @@ describe('DeleteConfirmDialog', () => {
         expect(screen.getByText('削除に失敗しました')).toBeInTheDocument();
       });
     });
+  });
+});
+
+// --------------------------------------------------------------------------
+// REQ-11.9: 削除の操作が 404 を受けたとき（Task 21.1）
+// --------------------------------------------------------------------------
+describe('DeleteConfirmDialog の 404（REQ-11.9）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('削除が 404 を受けると契約書が見つからない旨を表示し、削除の失敗の汎用の文言を出さない', async () => {
+    const user = userEvent.setup();
+    const onDeleteError = vi.fn();
+    const onDeleteSuccess = vi.fn();
+    vi.mocked(contractsApi.deleteContract).mockRejectedValue(
+      new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND' })
+    );
+
+    render(
+      <DeleteConfirmDialog
+        contractId="contract-1"
+        isOpen
+        onClose={vi.fn()}
+        onDeleteSuccess={onDeleteSuccess}
+        onDeleteError={onDeleteError}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /削除する/ }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(CONTRACT_NOT_FOUND_MESSAGE);
+    });
+    expect(screen.queryByText('削除に失敗しました')).not.toBeInTheDocument();
+    expect(onDeleteError).toHaveBeenCalledWith(CONTRACT_NOT_FOUND_MESSAGE);
+    expect(onDeleteSuccess).not.toHaveBeenCalled();
   });
 });

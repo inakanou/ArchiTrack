@@ -48,6 +48,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ESモジュールでの __dirname 代替
 const __filename = fileURLToPath(import.meta.url);
@@ -1219,7 +1220,7 @@ test.describe('工事写真 主要ユーザーフロー', () => {
     });
     const seededPhotoId = await preparedItems.nth(0).getAttribute('data-photo-id');
     expect(seededPhotoId).toBeTruthy();
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(page, 'ADMIN_USER');
     expect(accessToken).toBeTruthy();
     const seedResponse = await page.request.patch(
       `${API_BASE_URL}/api/construction-photos/images/batch`,
@@ -1394,7 +1395,7 @@ test.describe('工事写真 主要ユーザーフロー', () => {
     expect(target!.height).toBeGreaterThan(0);
 
     // 印字画像と原本を取得する（Bearer の認証で API を直接呼ぶ）
-    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(page, 'ADMIN_USER');
     expect(accessToken).toBeTruthy();
     const fetchImage = async (kind: 'print-image' | 'original'): Promise<Buffer> => {
       const response = await page.request.get(

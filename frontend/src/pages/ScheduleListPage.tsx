@@ -9,6 +9,11 @@
  * - REQ-1.4: 工程表詳細表示（選択時の遷移）
  * - REQ-1.5: 工程表削除
  *
+ * Task 24.1 変更: 工程表の一覧の読み込みが 404 を受けたときに、プロジェクトが見つからない旨とプロジェクトの
+ *   一覧へのリンク（共通部品 ResourceNotFound）を表示し、取得の失敗の文言と再試行の釦を出さない。削除が
+ *   404 を受けたときは一覧を保ったまま工程表が見つからない旨のメッセージを表示し、再試行の釦を出さない
+ *   （construction-schedule の Requirement 14.1・14.2。範囲外と不在を区別しない）
+ *
  * @module pages/ScheduleListPage
  */
 
@@ -16,7 +21,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getSchedules, deleteSchedule } from '../api/schedules';
 import type { ScheduleListResponse, ScheduleListItem } from '../api/schedules';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import { getScheduleNotFoundMessage, isNotFoundError } from '../utils/scheduleNotFound';
 
 // ============================================================================
 // 定数定義
@@ -154,6 +160,16 @@ const styles = {
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
     marginBottom: '16px',
+  } as React.CSSProperties,
+  operationError: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    padding: '12px 16px',
+    marginBottom: '16px',
+    color: '#991b1b',
+    fontSize: '14px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   errorContainer: {
     backgroundColor: '#fef2f2',
@@ -336,6 +352,10 @@ export default function ScheduleListPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ScheduleListItem | null>(null);
+  // 工程表の一覧の読み込みが 404 を受けた（プロジェクトの不在。範囲外と不在を区別しない。Task 24.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
+  // 削除が 404 を受けたときの見つからない旨のメッセージ（一覧は保つ。Task 24.1）
+  const [deleteNotFoundMessage, setDeleteNotFoundMessage] = useState<string | null>(null);
 
   /**
    * 工程表一覧を取得
@@ -346,6 +366,8 @@ export default function ScheduleListPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsProjectNotFound(false);
+    setDeleteNotFoundMessage(null);
 
     try {
       const result = await getSchedules(projectId, {
@@ -353,7 +375,12 @@ export default function ScheduleListPage() {
         limit: DEFAULT_LIMIT,
       });
       setData(result);
-    } catch {
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsProjectNotFound(true);
+        return;
+      }
       setError('工程表の取得に失敗しました');
     } finally {
       setIsLoading(false);
@@ -372,11 +399,20 @@ export default function ScheduleListPage() {
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget) return;
 
+    setDeleteNotFoundMessage(null);
     try {
       await deleteSchedule(deleteTarget.id);
       setDeleteTarget(null);
       fetchSchedules();
-    } catch {
+    } catch (err) {
+      const notFoundMessage = getScheduleNotFoundMessage(err, 'schedule');
+      if (notFoundMessage) {
+        // 404 では一覧を保ったまま見つからない旨を表示する。取り直すと、案件が範囲外になった・
+        // 論理削除された場合に一覧全体がプロジェクトの不在の表示へ替わり、メッセージが見えなくなるため
+        setDeleteNotFoundMessage(notFoundMessage);
+        setDeleteTarget(null);
+        return;
+      }
       setError('工程表の削除に失敗しました');
       setDeleteTarget(null);
     }
@@ -402,6 +438,19 @@ export default function ScheduleListPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 24.1）。再試行で解けないため再試行の釦を出さない
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }
@@ -452,6 +501,13 @@ export default function ScheduleListPage() {
           新規作成
         </Link>
       </div>
+
+      {/* 削除の 404 の見つからない旨（Task 24.1） */}
+      {deleteNotFoundMessage && (
+        <div role="alert" style={styles.operationError} data-testid="schedule-list-operation-error">
+          {deleteNotFoundMessage}
+        </div>
+      )}
 
       {/* 一覧 */}
       {totalCount === 0 ? (

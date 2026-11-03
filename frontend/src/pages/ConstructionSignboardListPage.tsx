@@ -22,6 +22,12 @@
  * - 8.9: 当該プロジェクト配下のみ
  * - 8.10: 看板一覧表示（inUseCount）
  *
+ * Task 31.1 変更: プロジェクトの取得と看板の一覧の取得のどちらかが 404 を受けたときに、応答の順序に
+ * よらずプロジェクトが見つからない旨とプロジェクトの一覧へのリンク（共通部品 ResourceNotFound）を表示する
+ * （Requirement 22.1）。看板の登録の 404 はプロジェクト、更新・削除の 404 は工事看板が見つからない旨を
+ * トーストに出し、応答の英語の文言を出さない（Requirement 22.2）。403 の権限が無い旨の文言は保つ。
+ * 範囲外と不在を区別しない
+ *
  * @module pages/ConstructionSignboardListPage
  */
 
@@ -38,7 +44,12 @@ import { ApiError } from '../api/client';
 import { useToast } from '../hooks/useToast';
 import { useConstructionPhotoPermission } from '../hooks/useConstructionPhotoPermission';
 import { SignboardForm } from '../components/construction-photos/SignboardForm';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getConstructionPhotoNotFoundMessage,
+  isConstructionPhotoNotFoundError,
+  type ConstructionPhotoNotFoundTarget,
+} from '../utils/constructionPhotoNotFound';
 import type { BreadcrumbItem } from '../components/common';
 import type { ProjectDetail } from '../types/project.types';
 import type {
@@ -252,6 +263,16 @@ const SIGNBOARD_FORBIDDEN_MESSAGES = {
   delete: '工事看板を削除する権限がありません',
 } as const;
 
+/** 看板の操作の種類ごとの、404 で見つからない対象（Task 31.1） */
+const SIGNBOARD_NOT_FOUND_TARGETS: Record<
+  Exclude<keyof typeof SIGNBOARD_FORBIDDEN_MESSAGES, 'view'>,
+  ConstructionPhotoNotFoundTarget
+> = {
+  create: 'project',
+  edit: 'signboard',
+  delete: 'signboard',
+};
+
 /**
  * 看板の API の失敗を表示する文言にする。
  *
@@ -265,6 +286,17 @@ function toSignboardErrorMessage(
 ): string {
   if (err instanceof ApiError && err.statusCode === 403) {
     return SIGNBOARD_FORBIDDEN_MESSAGES[action];
+  }
+  // 404 は見つからない旨（登録は経路のプロジェクト、更新・削除は工事看板。範囲外と不在を区別しない。
+  // Task 31.1）。読み込み（view）の 404 は呼び出し元が ResourceNotFound で告げる
+  if (action !== 'view') {
+    const notFoundMessage = getConstructionPhotoNotFoundMessage(
+      err,
+      SIGNBOARD_NOT_FOUND_TARGETS[action]
+    );
+    if (notFoundMessage) {
+      return notFoundMessage;
+    }
   }
   return err instanceof ApiError && err.message ? err.message : fallback;
 }
@@ -292,6 +324,9 @@ export default function ConstructionSignboardListPage() {
   const [signboards, setSignboards] = useState<ConstructionSignboard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // プロジェクトの取得か看板の一覧の取得が 404 を受けた（プロジェクトの不在。範囲外と不在を区別しない。
+  // Task 31.1）
+  const [isProjectNotFound, setIsProjectNotFound] = useState(false);
 
   const [formMode, setFormMode] = useState<FormMode>({ type: 'closed' });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -318,14 +353,30 @@ export default function ConstructionSignboardListPage() {
         return;
       }
       try {
-        const [projectData, signboardData] = await Promise.all([
+        // 二つの取得の両方の結果を待つ。先に失敗した側だけを見ると、どちらの失敗を表示するかが応答の
+        // 順序で決まるため（Task 31.1）
+        const [projectResult, signboardResult] = await Promise.allSettled([
           getProject(projectId),
           getConstructionSignboards(projectId),
         ]);
-        setProject(projectData);
-        setSignboards(signboardData);
+        const failures = [projectResult, signboardResult].flatMap((result) =>
+          result.status === 'rejected' ? [result.reason as unknown] : []
+        );
+        if (failures.length > 0) {
+          // どちらかの 404 は経路のプロジェクトの不在〔範囲外を含む〕。それ以外の失敗は先頭の取得のものを表示する
+          throw failures.find(isConstructionPhotoNotFoundError) ?? failures[0];
+        }
+        if (projectResult.status === 'fulfilled' && signboardResult.status === 'fulfilled') {
+          setProject(projectResult.value);
+          setSignboards(signboardResult.value);
+        }
       } catch (err) {
-        setError(toSignboardErrorMessage(err, 'view', '看板一覧の取得に失敗しました'));
+        if (isConstructionPhotoNotFoundError(err)) {
+          // 見つからない旨は ResourceNotFound が告げる
+          setIsProjectNotFound(true);
+        } else {
+          setError(toSignboardErrorMessage(err, 'view', '看板一覧の取得に失敗しました'));
+        }
       } finally {
         setIsLoading(false);
       }
@@ -412,6 +463,20 @@ export default function ConstructionSignboardListPage() {
         <style>
           {`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}
         </style>
+      </main>
+    );
+  }
+
+  // プロジェクトが見つからない表示（Task 31.1）。経路のプロジェクトが見つからない対象そのものであるため、
+  // 戻り先はプロジェクトの一覧とする
+  if (isProjectNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

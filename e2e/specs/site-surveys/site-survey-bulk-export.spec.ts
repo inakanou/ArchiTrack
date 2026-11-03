@@ -59,9 +59,11 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect, type Page, type BrowserContext, type Route } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { createSessionUser, deleteSessionUsers } from '../../fixtures/auth.fixtures';
 import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getAccessToken } from '../../helpers/auth-api';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -243,7 +245,7 @@ test.describe('現場調査画像の一括エクスポート', () => {
     const testImagePath = path.join(__dirname, '../../fixtures/test-image.png');
     expect(fs.existsSync(testImagePath)).toBeTruthy();
     const imageBuffer = fs.readFileSync(testImagePath);
-    const accessToken = await sharedPage.evaluate(() => localStorage.getItem('accessToken'));
+    const accessToken = await getAccessToken(sharedPage, 'REGULAR_USER');
 
     for (let i = 0; i < FIXTURE_IMAGE_COUNT; i++) {
       const uploadResponse = await sharedPage.request.post(
@@ -318,13 +320,17 @@ test.describe('現場調査画像の一括エクスポート', () => {
     secondSurveyImageId = secondUploadBody.successful![0]!.id!;
   });
 
+  test.afterEach(async () => {
+    await deleteSessionUsers();
+  });
+
   test.afterAll(async ({ browser }) => {
     // 後始末: 作成したデータを ADMIN 権限の API 呼び出しで削除する。
     const cleanupContext = await browser.newContext();
     const cleanupPage = await cleanupContext.newPage();
     try {
       await loginAsUser(cleanupPage, 'ADMIN_USER');
-      const adminToken = await cleanupPage.evaluate(() => localStorage.getItem('accessToken'));
+      const adminToken = await getAccessToken(cleanupPage, 'ADMIN_USER');
       const headers = { Authorization: `Bearer ${adminToken}` };
       if (createdSurveyId) {
         await cleanupPage.request.delete(`${API_BASE_URL}/api/site-surveys/${createdSurveyId}`, {
@@ -526,12 +532,17 @@ test.describe('現場調査画像の一括エクスポート', () => {
    * そこで本検証は専用の閲覧文脈（新しい context）で行う。
    */
   test('(f) 一部が失敗したとき失敗した画像と理由が画像ごとに提示される', async ({ browser }) => {
+    // 共有の閲覧文脈（REGULAR_USER）を開いたまま同じ役割で二つ目のコンテキストを開くため、
+    // 共有の役割の利用者ではなくテストの中で作る利用者のセッションで行う（要件33.6）。
+    // 原画像の URL はプロジェクトの関係者か管理者にだけ払い出される（site-survey 要件38.9）。
+    // 作ったばかりの利用者はプロジェクトの関係者ではないため、管理者の役割で作る
+    const sessionUser = await createSessionUser('ADMIN_USER');
     const failureContext = await browser.newContext();
     const failurePage = await failureContext.newPage();
 
     try {
-      await loginAsUser(failurePage, 'REGULAR_USER');
-      const accessToken = await failurePage.evaluate(() => localStorage.getItem('accessToken'));
+      await loginAsUser(failurePage, sessionUser);
+      const accessToken = await getAccessToken(failurePage, sessionUser);
 
       // 画像一覧から「どの画像を失敗させるか」を決める。
       const listResponse = await failurePage.request.get(

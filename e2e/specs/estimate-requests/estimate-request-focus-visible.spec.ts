@@ -432,7 +432,7 @@ test.describe('見積依頼の画面のフォーカス表示', () => {
     await loginAsUser(page, 'REGULAR_USER');
     if (seed === null) {
       const stamp = Date.now();
-      seed = await seedEstimateRequest(page, {
+      seed = await seedEstimateRequest(page, 'REGULAR_USER', {
         label: 'フォーカス表示',
         siteAddress: '東京都千代田区フォーカス1-1-1',
         partnerEmail: `focus-visible-${stamp}@example.com`,

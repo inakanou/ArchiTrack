@@ -791,11 +791,6 @@ test.describe('REQ-47: 計算方法「箇所数」の計算・表示・入力検
   // --------------------------------------------------------------------------
   test('作成したプロジェクトを削除する', async ({ page, context }) => {
     await context.clearCookies();
-    await page.goto('/');
-    await page.evaluate(() => {
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('accessToken');
-    });
 
     await loginAsUser(page, 'ADMIN_USER');
 

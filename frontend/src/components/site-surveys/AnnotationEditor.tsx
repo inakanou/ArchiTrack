@@ -19,6 +19,12 @@
  * - 7.9: 選択中の図形のハンドルをドラッグすると図形のサイズを変更する
  * - 8.1: テキストツールを選択して画像上をクリックするとテキスト入力用のフィールドを表示する
  *
+ * Requirements (site-survey):
+ * - 39.7: 注釈付き画像・原画像・注釈の JSON の出力を始める前に出力の記録を1回要求する（タスク119.2）
+ * - 39.8: 出力の記録の失敗では出力を生成せずエラーメッセージを表示する（タスク119.2）
+ * - 40.2: 注釈の保存と注釈の JSON の出力が 404 を受けたときに、画像が見つからない旨を表示する（タスク120.1。
+ *   注釈が未保存の 404 は従来の文言。範囲外と不在を区別しない）
+ *
  * @requirement site-survey/REQ-27.1
  * @requirement site-survey/REQ-27.2
  * @requirement site-survey/REQ-27.3
@@ -87,7 +93,9 @@ import {
   deleteAnnotatedThumbnail,
   exportAnnotationJson,
 } from '../../api/survey-annotations';
-import { ApiError } from '../../api/client';
+import { ApiError, getApiErrorCode } from '../../api/client';
+import { getSiteSurveyNotFoundMessage } from '../../utils/siteSurveyNotFound';
+import { runRecordedExport, type RecordedExportResult } from '../../api/export-audit';
 import { exportImage, downloadFile, downloadOriginalImage } from '../../services/ExportService';
 import { useToast } from '../../hooks/useToast';
 import ImageExportDialog from './ImageExportDialog';
@@ -314,6 +322,12 @@ export interface AnnotationEditorProps {
   imageId: string;
   /** 調査ID */
   surveyId: string;
+  /**
+   * 現場調査が属するプロジェクトの ID（出力の記録の対象の案件。Requirement 39.7）
+   *
+   * 指定が無いと出力の記録が受け付けられず、出力は記録の失敗として中止される（39.8）。
+   */
+  projectId?: string;
   /** 初期ズーム値（REQ-5.6: ビューアとの状態共有用） */
   initialZoom?: number;
   /** 初期回転角度（REQ-5.6: ビューアとの状態共有用） */
@@ -672,6 +686,7 @@ function AnnotationEditor({
   imageUrl,
   imageId,
   surveyId,
+  projectId,
   initialZoom,
   initialRotation,
   initialPan,
@@ -2944,7 +2959,10 @@ function AnnotationEditor({
         ...prev,
         isSaving: false,
         saveFailed: true,
-        error: err instanceof Error ? err.message : '注釈の保存に失敗しました',
+        // 404 は画像の不在〔範囲外を含む〕（Task 120.1）。9.5 の再試行の導線は保つ
+        error:
+          getSiteSurveyNotFoundMessage(err, 'image') ??
+          (err instanceof Error ? err.message : '注釈の保存に失敗しました'),
       }));
     }
   }, [
@@ -3113,6 +3131,40 @@ function AnnotationEditor({
   }, [autoSaveManager]);
 
   /**
+   * 注釈の編集の個別の出力を、出力の記録が成功した後にだけ生成する（Requirement 39.7）
+   *
+   * 注釈付き画像・原画像・注釈の JSON はいずれも種別 `annotated_image` で、対象の画像 1 件として
+   * 記録する。注釈の JSON はサーバーの出力経路では記録せず、この包みだけで 1 回記録する。
+   */
+  const runAnnotatedImageExport = useCallback(
+    async <T,>(generate: () => Promise<T>): Promise<RecordedExportResult<T>> =>
+      runRecordedExport(
+        {
+          kind: 'annotated_image',
+          projectId: projectId ?? null,
+          targetIds: [imageId],
+          itemCount: 1,
+        },
+        generate
+      ),
+    [projectId, imageId]
+  );
+
+  /**
+   * 出力の記録の失敗を表示する（Requirement 39.8）
+   *
+   * 出力は生成していない。ダイアログを閉じ、エディタのエラー表示へメッセージを出す。
+   */
+  const showExportRecordFailure = useCallback((message: string) => {
+    setIsExportDialogOpen(false);
+    setState((prev) => ({
+      ...prev,
+      saveFailed: false,
+      error: message,
+    }));
+  }, []);
+
+  /**
    * エクスポートダイアログを開く
    *
    * REQ-12.1: 個別画像のエクスポートボタンで注釈をレンダリングした画像を生成
@@ -3120,7 +3172,7 @@ function AnnotationEditor({
    * REQ-12.3: エクスポート画像の解像度（品質）を選択可能
    * REQ-12.4: 注釈なしの元画像もダウンロード可能
    */
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     // imageInfoがある場合はダイアログを開く
     if (imageInfo) {
       setIsExportDialogOpen(true);
@@ -3132,7 +3184,7 @@ function AnnotationEditor({
 
     const canvas = fabricCanvasRef.current;
 
-    try {
+    const result = await runAnnotatedImageExport(async () => {
       // 画像をエクスポート（PNG形式）
       const dataUrl = exportImage(canvas, { format: 'png', quality: 1.0 });
 
@@ -3142,14 +3194,21 @@ function AnnotationEditor({
 
       // ダウンロード
       downloadFile(dataUrl, filename);
-    } catch (err) {
+    });
+
+    if (!result.ok) {
+      if (result.error.type === 'RECORD_FAILED') {
+        showExportRecordFailure(result.error.message);
+        return;
+      }
+      const err = result.error.cause;
       console.error('画像のエクスポートに失敗しました:', err);
       setState((prev) => ({
         ...prev,
         error: err instanceof Error ? err.message : '画像のエクスポートに失敗しました',
       }));
     }
-  }, [imageId, imageInfo]);
+  }, [imageId, imageInfo, runAnnotatedImageExport, showExportRecordFailure]);
 
   /**
    * ImageExportDialogからのエクスポート実行
@@ -3158,7 +3217,7 @@ function AnnotationEditor({
    * REQ-12.3: エクスポート画像の解像度（品質）を選択可能
    */
   const handleExportWithOptions = useCallback(
-    (options: ExportOptions) => {
+    async (options: ExportOptions) => {
       if (!fabricCanvasRef.current) return;
 
       setIsExporting(true);
@@ -3166,42 +3225,52 @@ function AnnotationEditor({
       try {
         const canvas = fabricCanvasRef.current;
 
-        // 品質の数値変換
-        const qualityMap: Record<string, number> = {
-          low: 0.6,
-          medium: 0.8,
-          high: 1.0,
-        };
-        const quality = qualityMap[options.quality] || 0.8;
+        const result = await runAnnotatedImageExport(async () => {
+          // 品質の数値変換
+          const qualityMap: Record<string, number> = {
+            low: 0.6,
+            medium: 0.8,
+            high: 1.0,
+          };
+          const quality = qualityMap[options.quality] || 0.8;
 
-        // 画像をエクスポート
-        const dataUrl = exportImage(canvas, {
-          format: options.format,
-          quality,
-          includeAnnotations: options.includeAnnotations,
+          // 画像をエクスポート
+          const dataUrl = exportImage(canvas, {
+            format: options.format,
+            quality,
+            includeAnnotations: options.includeAnnotations,
+          });
+
+          // ファイル名を生成
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const baseName = imageInfo?.fileName?.replace(/\.[^/.]+$/, '') || 'annotation';
+          const filename = `${baseName}_${timestamp}.${options.format}`;
+
+          // ダウンロード
+          downloadFile(dataUrl, filename);
         });
 
-        // ファイル名を生成
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const baseName = imageInfo?.fileName?.replace(/\.[^/.]+$/, '') || 'annotation';
-        const filename = `${baseName}_${timestamp}.${options.format}`;
-
-        // ダウンロード
-        downloadFile(dataUrl, filename);
+        if (!result.ok) {
+          if (result.error.type === 'RECORD_FAILED') {
+            showExportRecordFailure(result.error.message);
+            return;
+          }
+          const err = result.error.cause;
+          console.error('画像のエクスポートに失敗しました:', err);
+          setState((prev) => ({
+            ...prev,
+            error: err instanceof Error ? err.message : '画像のエクスポートに失敗しました',
+          }));
+          return;
+        }
 
         // ダイアログを閉じる
         setIsExportDialogOpen(false);
-      } catch (err) {
-        console.error('画像のエクスポートに失敗しました:', err);
-        setState((prev) => ({
-          ...prev,
-          error: err instanceof Error ? err.message : '画像のエクスポートに失敗しました',
-        }));
       } finally {
         setIsExporting(false);
       }
     },
-    [imageInfo?.fileName]
+    [imageInfo?.fileName, runAnnotatedImageExport, showExportRecordFailure]
   );
 
   /**
@@ -3210,25 +3279,41 @@ function AnnotationEditor({
    * REQ-12.4: 注釈なしの元画像もダウンロード可能
    */
   const handleDownloadOriginal = useCallback(async () => {
-    if (!imageInfo?.originalUrl) return;
+    const originalUrl = imageInfo?.originalUrl;
+    if (!originalUrl) return;
 
     setIsDownloading(true);
 
     try {
-      await downloadOriginalImage(imageInfo.originalUrl, {
-        filename: imageInfo.fileName,
-      });
+      const result = await runAnnotatedImageExport(() =>
+        downloadOriginalImage(originalUrl, {
+          filename: imageInfo.fileName,
+        })
+      );
+
+      if (!result.ok) {
+        if (result.error.type === 'RECORD_FAILED') {
+          showExportRecordFailure(result.error.message);
+          return;
+        }
+        const err = result.error.cause;
+        console.error('元画像のダウンロードに失敗しました:', err);
+        setState((prev) => ({
+          ...prev,
+          error: err instanceof Error ? err.message : '元画像のダウンロードに失敗しました',
+        }));
+        return;
+      }
       setIsExportDialogOpen(false);
-    } catch (err) {
-      console.error('元画像のダウンロードに失敗しました:', err);
-      setState((prev) => ({
-        ...prev,
-        error: err instanceof Error ? err.message : '元画像のダウンロードに失敗しました',
-      }));
     } finally {
       setIsDownloading(false);
     }
-  }, [imageInfo?.originalUrl, imageInfo?.fileName]);
+  }, [
+    imageInfo?.originalUrl,
+    imageInfo?.fileName,
+    runAnnotatedImageExport,
+    showExportRecordFailure,
+  ]);
 
   /**
    * 注釈データを JSON 形式でエクスポートする（Task 115.102 / Req 9.6）
@@ -3236,32 +3321,47 @@ function AnnotationEditor({
    * 保存済みの注釈データをサーバーから取得し、JSON ファイルとしてダウンロードさせる。
    * 画像の書き出し（Req 12）とは別の導線であり、注釈そのものの受け渡しに用いる。
    * 保存前の編集内容ではなくサーバー上の確定内容を出す（要件9.6 の対象は「注釈データ」）。
+   * 出力の記録はこの包みだけで行い、サーバーの出力経路では記録しない（Requirement 39.7）。
    */
   const handleExportAnnotationJson = useCallback(async () => {
     setIsExportingAnnotationJson(true);
 
     try {
-      const jsonString = await exportAnnotationJson(imageId);
-      const blob = new Blob([jsonString], { type: 'application/json' });
-      const baseName = imageInfo?.fileName?.replace(/\.[^/.]+$/, '') || `annotation_${imageId}`;
-      downloadFile(blob, `${baseName}_annotations.json`);
+      const result = await runAnnotatedImageExport(async () => {
+        const jsonString = await exportAnnotationJson(imageId);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const baseName = imageInfo?.fileName?.replace(/\.[^/.]+$/, '') || `annotation_${imageId}`;
+        downloadFile(blob, `${baseName}_annotations.json`);
+      });
+
+      if (!result.ok) {
+        if (result.error.type === 'RECORD_FAILED') {
+          showExportRecordFailure(result.error.message);
+          return;
+        }
+        const err = result.error.cause;
+        console.error('注釈データのエクスポートに失敗しました:', err);
+        // 注釈が未保存の 404（ANNOTATION_NOT_FOUND）は従来の文言、それ以外の 404 は画像の不在〔範囲外を
+        // 含む〕（Task 120.1）
+        const isAnnotationMissing =
+          err instanceof ApiError &&
+          err.statusCode === 404 &&
+          getApiErrorCode(err) === 'ANNOTATION_NOT_FOUND';
+        setState((prev) => ({
+          ...prev,
+          saveFailed: false,
+          error: isAnnotationMissing
+            ? '保存された注釈データがありません。先に保存してください。'
+            : (getSiteSurveyNotFoundMessage(err, 'image') ??
+              (err instanceof Error ? err.message : '注釈データのエクスポートに失敗しました')),
+        }));
+        return;
+      }
       setIsExportDialogOpen(false);
-    } catch (err) {
-      console.error('注釈データのエクスポートに失敗しました:', err);
-      const isNotFound = err instanceof ApiError && err.statusCode === 404;
-      setState((prev) => ({
-        ...prev,
-        saveFailed: false,
-        error: isNotFound
-          ? '保存された注釈データがありません。先に保存してください。'
-          : err instanceof Error
-            ? err.message
-            : '注釈データのエクスポートに失敗しました',
-      }));
     } finally {
       setIsExportingAnnotationJson(false);
     }
-  }, [imageId, imageInfo?.fileName]);
+  }, [imageId, imageInfo?.fileName, runAnnotatedImageExport, showExportRecordFailure]);
 
   /**
    * エクスポートダイアログを閉じる

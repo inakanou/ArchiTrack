@@ -26,6 +26,7 @@ import { apiClient } from '../../api/client';
 vi.mock('../../api/client', () => ({
   apiClient: {
     get: vi.fn(),
+    getBlob: vi.fn(),
     post: vi.fn(),
     delete: vi.fn(),
   },
@@ -127,24 +128,26 @@ describe('progress API', () => {
   describe('exportMonthlyProgress', () => {
     it('GET /api/projects/:projectId/execution-budget/progress/monthly/export?format=xlsx を呼び出す', async () => {
       const mockBlob = new Blob(['test']);
-      vi.mocked(apiClient.get).mockResolvedValue(mockBlob);
+      vi.mocked(apiClient.getBlob).mockResolvedValue(mockBlob);
 
       const result = await exportMonthlyProgress('project-1', 'xlsx');
 
-      expect(apiClient.get).toHaveBeenCalledWith(
-        '/api/projects/project-1/execution-budget/progress/monthly/export?format=xlsx'
+      expect(apiClient.getBlob).toHaveBeenCalledWith(
+        '/api/projects/project-1/execution-budget/progress/monthly/export?format=xlsx',
+        { disableRetry: true }
       );
       expect(result).toEqual(mockBlob);
     });
 
     it('GET /api/projects/:projectId/execution-budget/progress/monthly/export?format=pdf を呼び出す', async () => {
       const mockBlob = new Blob(['test']);
-      vi.mocked(apiClient.get).mockResolvedValue(mockBlob);
+      vi.mocked(apiClient.getBlob).mockResolvedValue(mockBlob);
 
       const result = await exportMonthlyProgress('project-1', 'pdf');
 
-      expect(apiClient.get).toHaveBeenCalledWith(
-        '/api/projects/project-1/execution-budget/progress/monthly/export?format=pdf'
+      expect(apiClient.getBlob).toHaveBeenCalledWith(
+        '/api/projects/project-1/execution-budget/progress/monthly/export?format=pdf',
+        { disableRetry: true }
       );
       expect(result).toEqual(mockBlob);
     });

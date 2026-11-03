@@ -27,6 +27,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { ItemSelectionPanel } from './ItemSelectionPanel';
+import { ApiError } from '../../api/client';
 import type { ItemWithSelectionInfo } from '../../types/estimate-request.types';
 
 describe('ItemSelectionPanel', () => {
@@ -423,6 +424,32 @@ describe('ItemSelectionPanel', () => {
       );
 
       // サーバー状態に復元されるため、チェックボックスが元の状態に戻る
+      expect(checkboxes[0]).toBeChecked();
+    });
+
+    it('保存が 404 を受けると見積依頼が見つからない旨を表示し、保存の失敗の文言を出さずに選択状態を復元する（Task 105.1, REQ-10.6）', async () => {
+      vi.useRealTimers();
+      const mockOnChange = vi
+        .fn()
+        .mockRejectedValue(
+          new ApiError(404, 'Not found', { status: 404, code: 'NOT_FOUND', detail: 'Not found' })
+        );
+      render(<ItemSelectionPanel {...defaultProps} onItemSelectionChange={mockOnChange} />);
+
+      const checkboxes = screen.getAllByRole('checkbox', { name: /選択/ });
+      fireEvent.click(checkboxes[0]!);
+      fireEvent.click(screen.getByTestId('save-selection-button'));
+
+      await waitFor(
+        () => {
+          expect(screen.getByTestId('save-feedback')).toHaveTextContent(
+            '見積依頼が見つかりません。存在しないか、削除されています。'
+          );
+        },
+        { timeout: 2000 }
+      );
+      expect(screen.queryByText(/保存に失敗しました/)).not.toBeInTheDocument();
+      // Requirement 4.9 の選択状態の復元は保つ
       expect(checkboxes[0]).toBeChecked();
     });
   });

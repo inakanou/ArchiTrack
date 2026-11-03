@@ -3,6 +3,7 @@ import type { CryptoKey } from 'jose';
 import { randomUUID } from 'crypto';
 import { Result, Ok, Err } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { DEFAULT_JWT_AUDIENCE, DEFAULT_JWT_ISSUER } from '../config/jwt-claims.js';
 
 /**
  * JWTトークンのペイロード情報
@@ -12,13 +13,34 @@ export interface TokenPayload {
   email: string;
   roles: string[];
   permissions?: string[];
+  /**
+   * アクセストークンの世代（クレーム `gen`。要件34.7）
+   *
+   * 発行時の利用者の `access_token_generation`。検証の結果では、`gen` を持たないアクセストークン
+   * （世代の導入より前に発行されたもの）とリフレッシュトークンは undefined になり、照合する側が 0 として扱う。
+   */
+  accessTokenGeneration?: number;
 }
+
+/**
+ * アクセストークンの発行に渡す情報（世代は必須。要件34.7）
+ */
+export type AccessTokenIssuePayload = TokenPayload & { accessTokenGeneration: number };
+
+/**
+ * トークンの種別（クレーム token_use の値）
+ */
+export type TokenKind = 'access' | 'refresh';
+
+/**
+ * アクセストークンの JOSE ヘッダーの typ（RFC 9068）
+ */
+const ACCESS_TOKEN_TYP = 'at+jwt';
 
 /**
  * トークン関連のエラー型
  */
-export type TokenError =
-  { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' } | { type: 'TOKEN_MALFORMED' };
+export type TokenError = { type: 'TOKEN_EXPIRED' } | { type: 'TOKEN_INVALID' };
 
 /**
  * TokenService
@@ -59,6 +81,41 @@ export class TokenService {
       );
       throw err;
     });
+  }
+
+  /**
+   * トークンの発行者（iss）。未設定なら既定値（起動時の検証で空・前後の空白は拒否済み）
+   */
+  private get issuer(): string {
+    return process.env.JWT_ISSUER || DEFAULT_JWT_ISSUER;
+  }
+
+  /**
+   * トークンの想定利用者（aud）
+   */
+  private get audience(): string {
+    return process.env.JWT_AUDIENCE || DEFAULT_JWT_AUDIENCE;
+  }
+
+  /**
+   * 種別・発行者・想定利用者のクレームを載せた署名前の JWT を作る（要件33.1〜33.3）
+   */
+  private buildToken(
+    subject: string,
+    claims: jose.JWTPayload,
+    kind: TokenKind,
+    expiry: string
+  ): jose.SignJWT {
+    return new jose.SignJWT({ ...claims, token_use: kind })
+      .setProtectedHeader(
+        kind === 'access' ? { alg: 'EdDSA', typ: ACCESS_TOKEN_TYP } : { alg: 'EdDSA' }
+      )
+      .setSubject(subject)
+      .setIssuer(this.issuer)
+      .setAudience(this.audience)
+      .setJti(randomUUID()) // 一意なトークンIDを設定（重複防止）
+      .setIssuedAt()
+      .setExpirationTime(expiry);
   }
 
   /**
@@ -107,25 +164,28 @@ export class TokenService {
    *   userId: 'user123',
    *   email: 'test@example.com',
    *   roles: ['user'],
+   *   accessTokenGeneration: 0,
    * });
    * ```
    */
-  async generateAccessToken(payload: TokenPayload): Promise<string> {
+  async generateAccessToken(payload: AccessTokenIssuePayload): Promise<string> {
     // キーの初期化を待つ
     await this.keysInitialized;
 
     try {
-      const token = await new jose.SignJWT({
-        userId: payload.userId,
-        email: payload.email,
-        roles: payload.roles,
-        ...(payload.permissions && { permissions: payload.permissions }),
-      })
-        .setProtectedHeader({ alg: 'EdDSA' })
-        .setJti(randomUUID()) // 一意なトークンIDを設定
-        .setIssuedAt()
-        .setExpirationTime(this.accessTokenExpiry)
-        .sign(this.privateKey);
+      const token = await this.buildToken(
+        payload.userId,
+        {
+          userId: payload.userId,
+          email: payload.email,
+          roles: payload.roles,
+          ...(payload.permissions && { permissions: payload.permissions }),
+          // 発行時の利用者の世代（要件34.7。管理者の 2FA の再設定より前のトークンの拒否に使う）
+          gen: payload.accessTokenGeneration,
+        },
+        'access',
+        this.accessTokenExpiry
+      ).sign(this.privateKey);
 
       return token;
     } catch (error) {
@@ -144,34 +204,29 @@ export class TokenService {
   /**
    * リフレッシュトークンを生成
    *
-   * @param payload トークンペイロード
+   * 利用者 ID（sub）と系列 ID（fam）だけを載せ、メールアドレスとロールは載せない。
+   * 系列 ID はログインで作り、ローテーションの後継へ引き継ぐ（SessionService が DB の行と結び付ける）。
+   *
+   * @param userId 利用者 ID
+   * @param familyId 系列 ID
    * @returns EdDSA署名されたJWTリフレッシュトークン
    *
    * @example
    * ```typescript
-   * const refreshToken = await tokenService.generateRefreshToken({
-   *   userId: 'user123',
-   *   email: 'test@example.com',
-   *   roles: ['user'],
-   * });
+   * const refreshToken = await tokenService.generateRefreshToken('user123', familyId);
    * ```
    */
-  async generateRefreshToken(payload: TokenPayload): Promise<string> {
+  async generateRefreshToken(userId: string, familyId: string): Promise<string> {
     // キーの初期化を待つ
     await this.keysInitialized;
 
     try {
-      const token = await new jose.SignJWT({
-        userId: payload.userId,
-        email: payload.email,
-        roles: payload.roles,
-        ...(payload.permissions && { permissions: payload.permissions }),
-      })
-        .setProtectedHeader({ alg: 'EdDSA' })
-        .setJti(randomUUID()) // 一意なトークンIDを設定（重複防止）
-        .setIssuedAt()
-        .setExpirationTime(this.refreshTokenExpiry)
-        .sign(this.privateKey);
+      const token = await this.buildToken(
+        userId,
+        { fam: familyId },
+        'refresh',
+        this.refreshTokenExpiry
+      ).sign(this.privateKey);
 
       return token;
     } catch (error) {
@@ -179,7 +234,7 @@ export class TokenService {
         {
           // c8 ignore next - 防御的コード: jose/Node.js標準ライブラリは常にErrorをthrow
           error: error instanceof Error ? error.message : String(error),
-          userId: payload.userId,
+          userId,
         },
         'Failed to generate refresh token'
       );
@@ -190,10 +245,13 @@ export class TokenService {
   /**
    * トークンを検証
    *
-   * EdDSA署名と有効期限をチェックします。
+   * EdDSA署名と有効期限に加えて、種別（token_use）が期待する種別と一致すること、
+   * 発行者（iss）と想定利用者（aud）が本システムであることを確かめる。
+   * 種別を持たないトークン（種別の導入より前に発行されたもの）も拒否する（再ログインになる）。
+   * 保護 API は 'access'、リフレッシュは 'refresh' で検証する（要件33.1〜33.3）。
    *
    * @param token 検証するJWT
-   * @param type トークンタイプ（access or refresh）
+   * @param type 期待するトークンの種別（access or refresh）
    * @returns 検証結果（成功時はペイロード、失敗時はエラー）
    *
    * @example
@@ -207,27 +265,38 @@ export class TokenService {
    * }
    * ```
    */
-  async verifyToken(
-    token: string,
-    type: 'access' | 'refresh'
-  ): Promise<Result<TokenPayload, TokenError>> {
+  async verifyToken(token: string, type: TokenKind): Promise<Result<TokenPayload, TokenError>> {
     // キーの初期化を待つ
     await this.keysInitialized;
 
     try {
       const { payload } = await jose.jwtVerify(token, this.publicKey, {
         algorithms: ['EdDSA'],
+        issuer: this.issuer,
+        audience: this.audience,
+        ...(type === 'access' && { typ: ACCESS_TOKEN_TYP }),
       });
 
-      // ペイロードを TokenPayload 型に変換
+      // 種別が期待と一致しないトークン（種別を持たないものを含む）は拒否する
+      if (payload.token_use !== type) {
+        logger.warn({ type }, 'Token type mismatch');
+        return Err({ type: 'TOKEN_INVALID' });
+      }
+
+      // ペイロードを TokenPayload 型に変換（利用者 ID は sub。リフレッシュトークンはメールアドレスとロールを持たない）
       const tokenPayload: TokenPayload = {
-        userId: payload.userId as string,
+        userId: payload.sub as string,
         email: payload.email as string,
         roles: payload.roles as string[],
       };
 
       if (payload.permissions) {
         tokenPayload.permissions = payload.permissions as string[];
+      }
+
+      // アクセストークンの世代（要件34.7）。整数でない・持たないものは載せない（照合する側が 0 として扱う）
+      if (typeof payload.gen === 'number' && Number.isSafeInteger(payload.gen)) {
+        tokenPayload.accessTokenGeneration = payload.gen;
       }
 
       return Ok(tokenPayload);
@@ -246,6 +315,12 @@ export class TokenService {
         return Err({ type: 'TOKEN_INVALID' });
       }
 
+      // 発行者・想定利用者・ヘッダーの typ の不一致（期限切れは上で判定済み）
+      if (error instanceof jose.errors.JWTClaimValidationFailed) {
+        logger.warn({ type, claim: error.claim }, 'Token claim validation failed');
+        return Err({ type: 'TOKEN_INVALID' });
+      }
+
       logger.warn(
         {
           type,
@@ -254,7 +329,7 @@ export class TokenService {
         },
         'Token malformed'
       );
-      return Err({ type: 'TOKEN_MALFORMED' });
+      return Err({ type: 'TOKEN_INVALID' });
     }
   }
 
@@ -280,7 +355,7 @@ export class TokenService {
       const decoded = jose.decodeJwt(token);
 
       const tokenPayload: TokenPayload = {
-        userId: decoded.userId as string,
+        userId: (decoded.sub ?? decoded.userId) as string,
         email: decoded.email as string,
         roles: decoded.roles as string[],
       };

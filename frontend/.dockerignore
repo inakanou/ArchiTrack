@@ -7,6 +7,7 @@ README.md
 .env.local
 .env.*.local
 dist
+bundle-stats
 coverage
 .vscode
 .idea

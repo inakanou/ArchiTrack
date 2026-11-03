@@ -34,6 +34,12 @@
  * - REQ-49.3: 転記・案分・利益率・諸経費行追加・値引き行追加はデータベースへ書き込まない
  * - REQ-49.5: これらの操作の実行後の保存で競合エラーを発生させない
  *
+ * 案件の閲覧範囲（estimate-creation の Requirement 57.1〜57.6、user-authentication の要件39。タスク62.1）:
+ * 全経路で requirePermission と ID の形式の検査の後に estimate-creation-project-scope.middleware の判定部品を置き、
+ * 範囲外は不在と同じ汎用の 404 にする。`/:id` 配下は経路の projectId でなく見積書が属する案件で判定し、
+ * 二重マウントで経路の projectId と見積書の案件が食い違えば不在と同じ 404 にする。
+ * 見積書の作成の要求が指す内訳書の所属の照合（57.4）は EstimateService.create が行う。
+ *
  * Task 4.1: 見積書CRUD APIエンドポイントの実装
  * Task 4.2: 見積項目CRUD APIエンドポイントの実装
  * Task 55.7: 転記系エンドポイントの撤去
@@ -61,6 +67,11 @@ import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
+import { projectScopeDenialContextOf } from '../middleware/project-scope.middleware.js';
+import {
+  requireEstimateProjectScope,
+  requireProjectParamScope,
+} from '../middleware/estimate-creation-project-scope.middleware.js';
 import logger from '../utils/logger.js';
 import {
   projectIdParamSchema,
@@ -72,6 +83,9 @@ import {
   calculateOverheadSchema,
   getItemsQuerySchema,
   saveEstimateDraftSchema,
+  saveEstimateDraftShapeSchema,
+  scanSaveEstimateItemTree,
+  SAVE_ESTIMATE_VALIDATION_MESSAGES,
 } from '../schemas/estimate.schema.js';
 import { ValidationError } from '../errors/apiError.js';
 import {
@@ -93,7 +107,7 @@ const estimateService = new EstimateService({
   auditLogService,
 });
 const estimateItemService = new EstimateItemService({ prisma });
-const estimateDraftService = new EstimateDraftService({ prisma });
+const estimateDraftService = new EstimateDraftService({ prisma, auditLogService });
 const overheadCostService = new OverheadCostService();
 const estimateEditSessionService = new EstimateEditSessionService({ prisma });
 
@@ -155,6 +169,7 @@ router.post(
   authenticate,
   requirePermission('estimate:create'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(createEstimateSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -171,7 +186,11 @@ router.post(
         sourceItemizedStatementId: validatedBody.sourceItemizedStatementId,
       };
 
-      const estimate = await estimateService.create(input, actorId);
+      const estimate = await estimateService.create(
+        input,
+        actorId,
+        projectScopeDenialContextOf(req)
+      );
 
       logger.info(
         {
@@ -271,12 +290,15 @@ router.post(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
  */
 router.get(
   '/',
   authenticate,
   requirePermission('estimate:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   validate(estimateListQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -344,12 +366,15 @@ router.get(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない（閲覧範囲外を含む）
  */
 router.get(
   '/latest',
   authenticate,
   requirePermission('estimate:read'),
   validate(projectIdParamSchema, 'params'),
+  requireProjectParamScope('projectId'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { projectId } = req.validatedParams as { projectId: string };
@@ -409,6 +434,7 @@ router.get(
   authenticate,
   requirePermission('estimate:read'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -488,6 +514,7 @@ router.put(
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   validate(updateEstimateSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -549,7 +576,7 @@ router.put(
  * /api/estimates/{id}:
  *   delete:
  *     summary: 見積書削除
- *     description: 見積書を論理削除（楽観的排他制御）
+ *     description: 見積書を論理削除（楽観的排他制御）。基準時刻はクエリで受け取り、本文は読まない
  *     tags:
  *       - Estimates
  *     security:
@@ -561,18 +588,13 @@ router.put(
  *         schema:
  *           type: string
  *           format: uuid
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - updatedAt
- *             properties:
- *               updatedAt:
- *                 type: string
- *                 format: date-time
+ *       - in: query
+ *         name: updatedAt
+ *         required: true
+ *         description: 楽観的排他制御の基準時刻（取得した見積書の updatedAt）
+ *         schema:
+ *           type: string
+ *           format: date-time
  *     responses:
  *       204:
  *         description: 見積書削除成功
@@ -592,12 +614,15 @@ router.delete(
   authenticate,
   requirePermission('estimate:delete'),
   validate(estimateIdParamSchema, 'params'),
-  validate(deleteEstimateSchema, 'body'),
+  requireEstimateProjectScope('id'),
+  // 基準時刻はクエリで受け取る（DELETE の本文は中継で落ちうる。2026-10-30 の是正）。範囲の判定の後に検証し、
+  // 範囲外は 400 より先に 404 にする（タスク62.1 の判定の順序）
+  validate(deleteEstimateSchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
       const actorId = req.user!.userId;
-      const { updatedAt } = req.validatedBody as { updatedAt: string };
+      const { updatedAt } = req.validatedQuery as { updatedAt: string };
 
       await estimateService.delete(id, actorId, new Date(updatedAt));
 
@@ -751,10 +776,28 @@ router.put(
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
       const actorId = req.user!.userId;
+
+      // 本文の検証（Zod は入れ子を再帰で検証する）の前に、生の本文の見積項目の総数と階層の深さを数え、
+      // 上限を超えたら打ち切って 422 で拒む（Requirement 42.10・42.12、タスク67.1）。Zod の検証もサービスの保存も
+      // 呼ばない。件数や深さを上限より大きくするだけで記録を避けられないよう、打ち切るまでに読んだ節点の ID で
+      // 属さない見積項目の ID の範囲外の判定と記録を行ってから拒む（Requirement 57.11）
+      const scan = scanSaveEstimateItemTree(req.body);
+      if (scan.exceeded !== null) {
+        await estimateDraftService.recordForeignItemIdScopeDenials(
+          id,
+          scan.itemIds,
+          actorId,
+          projectScopeDenialContextOf(req)
+        );
+        throw new EstimateDraftValidationError([
+          { path: 'items', message: SAVE_ESTIMATE_VALIDATION_MESSAGES[scan.exceeded] },
+        ]);
+      }
 
       // ボディ検証はミドルウェアに委ねず、ここで 400 と 422 を切り分ける。
       // - 形式不正（キー欠落・型違い・長さ・書式・列挙値）は 400
@@ -769,6 +812,18 @@ router.put(
         }));
 
         if (parsed.error.issues.every((issue) => issue.code === 'custom')) {
+          // 構造の不備だけなら本文の形は正しい。構造の不備を一つ混ぜるだけで記録を避けられないよう、
+          // 本文の属さない見積項目の ID の実際の案件が範囲外なら記録してから従来の 422 を返す
+          // （Requirement 57.11、タスク66.1）。形式の不正（400）では判定しない
+          const shape = saveEstimateDraftShapeSchema.safeParse(req.body);
+          if (shape.success) {
+            await estimateDraftService.recordForeignItemScopeDenials(
+              id,
+              shape.data.items,
+              actorId,
+              projectScopeDenialContextOf(req)
+            );
+          }
           throw new EstimateDraftValidationError(issues);
         }
 
@@ -782,7 +837,12 @@ router.put(
         );
       }
 
-      const result = await estimateDraftService.saveDraft(id, parsed.data);
+      const result = await estimateDraftService.saveDraft(
+        id,
+        parsed.data,
+        actorId,
+        projectScopeDenialContextOf(req)
+      );
 
       // `saveDraft` の戻り値は見積書サマリ（id / updatedAt / 帳票用入力項目）のため、
       // `GET /api/estimates/:id` と同じ詳細レスポンスへ揃えるべく残りを合成する。
@@ -918,6 +978,7 @@ router.get(
   authenticate,
   requirePermission('estimate:read'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   validate(getItemsQuerySchema, 'query'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -992,12 +1053,15 @@ router.get(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: 見積書が見つからない（閲覧範囲外を含む）
  */
 router.post(
   '/:id/calculate-overhead',
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   validate(calculateOverheadSchema, 'body'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -1186,12 +1250,15 @@ router.post(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
+ *       404:
+ *         description: 見積書が見つからない（閲覧範囲外を含む）
  */
 router.put(
   '/:id/edit-session',
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };
@@ -1219,6 +1286,7 @@ router.delete(
   authenticate,
   requirePermission('estimate:update'),
   validate(estimateIdParamSchema, 'params'),
+  requireEstimateProjectScope('id'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.validatedParams as { id: string };

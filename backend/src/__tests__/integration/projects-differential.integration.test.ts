@@ -32,6 +32,9 @@ import app from '../../app.js';
 import getPrismaClient from '../../db.js';
 import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
+import { deleteAuditLogsWithArchivePermission } from '../../utils/audit-log-archive-permission.js';
+import { loginForAccessToken } from './auth-login-client.js';
+import { createTestUser } from './test-user-factory.js';
 
 /**
  * プロジェクト差分実装の統合テスト
@@ -58,12 +61,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     });
 
     // テストユーザーを作成
-    const user = await prisma.user.create({
-      data: {
-        email: 'test-differential-integration@example.com',
-        displayName: 'Differential Test User',
-        passwordHash,
-      },
+    const user = await createTestUser(prisma, {
+      email: 'test-differential-integration@example.com',
+      displayName: 'Differential Test User',
+      passwordHash,
     });
 
     // userロールを取得して割り当て
@@ -101,16 +102,13 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     }
 
     // ログイン
-    const response = await request(app)
-      .post('/api/v1/auth/login')
-      .send({
-        email: 'test-differential-integration@example.com',
-        password: 'TestPassword123!',
-      })
-      .expect(200);
+    const accessToken = await loginForAccessToken(app, {
+      email: 'test-differential-integration@example.com',
+      password: 'TestPassword123!',
+    });
 
     return {
-      token: response.body.accessToken,
+      token: accessToken,
       userId: user.id,
     };
   };
@@ -138,12 +136,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     });
 
     // 営業担当者1
-    const salesPerson1 = await prisma.user.create({
-      data: {
-        email: 'test-diff-sales1@example.com',
-        displayName: '山田太郎', // 検索テスト用
-        passwordHash,
-      },
+    const salesPerson1 = await createTestUser(prisma, {
+      email: 'test-diff-sales1@example.com',
+      displayName: '山田太郎', // 検索テスト用
+      passwordHash,
     });
 
     if (userRole) {
@@ -153,12 +149,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     }
 
     // 営業担当者2
-    const salesPerson2 = await prisma.user.create({
-      data: {
-        email: 'test-diff-sales2@example.com',
-        displayName: '佐藤花子', // 検索テスト用
-        passwordHash,
-      },
+    const salesPerson2 = await createTestUser(prisma, {
+      email: 'test-diff-sales2@example.com',
+      displayName: '佐藤花子', // 検索テスト用
+      passwordHash,
     });
 
     if (userRole) {
@@ -168,12 +162,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     }
 
     // 工事担当者1
-    const constructionPerson1 = await prisma.user.create({
-      data: {
-        email: 'test-diff-constr1@example.com',
-        displayName: '鈴木一郎', // 検索テスト用
-        passwordHash,
-      },
+    const constructionPerson1 = await createTestUser(prisma, {
+      email: 'test-diff-constr1@example.com',
+      displayName: '鈴木一郎', // 検索テスト用
+      passwordHash,
     });
 
     if (userRole) {
@@ -183,12 +175,10 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     }
 
     // 工事担当者2
-    const constructionPerson2 = await prisma.user.create({
-      data: {
-        email: 'test-diff-constr2@example.com',
-        displayName: '田中次郎', // 検索テスト用
-        passwordHash,
-      },
+    const constructionPerson2 = await createTestUser(prisma, {
+      email: 'test-diff-constr2@example.com',
+      displayName: '田中次郎', // 検索テスト用
+      passwordHash,
     });
 
     if (userRole) {
@@ -239,10 +229,8 @@ describe('Project Differential Implementation Integration Tests (Task 26.1)', ()
     ].filter(Boolean);
 
     if (userIds.length > 0) {
-      await prisma.auditLog.deleteMany({
-        where: {
-          actorId: { in: userIds },
-        },
+      await deleteAuditLogsWithArchivePermission(prisma, {
+        actorId: { in: userIds },
       });
     }
 

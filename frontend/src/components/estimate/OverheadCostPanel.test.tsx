@@ -21,7 +21,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { OverheadCostPanel, type OverheadCostResult } from './OverheadCostPanel';
+import {
+  OverheadCostPanel,
+  type CalculateOverheadParams,
+  type OverheadCostResult,
+} from './OverheadCostPanel';
+import { ApiError } from '../../api/client';
 
 // ============================================================================
 // テスト
@@ -419,6 +424,77 @@ describe('OverheadCostPanel', () => {
         await waitFor(() => {
           expect(screen.getByText('正の数値を入力してください')).toBeInTheDocument();
         });
+      });
+    });
+
+    /**
+     * 計算の失敗の表示（estimate-creation タスク64.1）。従来は失敗を捕まえず何も表示しなかった
+     */
+    describe('計算の失敗', () => {
+      type Calculate = (params: CalculateOverheadParams) => Promise<OverheadCostResult>;
+      const fillAndCalculate = async (onCalculate: Calculate) => {
+        render(
+          <OverheadCostPanel
+            estimateId="estimate-1"
+            onItemAdded={vi.fn()}
+            onCalculate={onCalculate}
+          />
+        );
+        await userEvent.type(screen.getByLabelText('直接工事費'), '100000');
+        await userEvent.type(screen.getByLabelText('工期'), '12');
+        await userEvent.click(screen.getByRole('button', { name: '計算' }));
+      };
+
+      /**
+       * @requirement estimate-creation/REQ-58.2
+       */
+      it('計算の 404 で見積書が見つからない旨を表示し、応答の英語の本文を出さない', async () => {
+        const onCalculate = vi
+          .fn<Calculate>()
+          .mockRejectedValue(
+            new ApiError(404, 'Not found', { status: 404, detail: 'Not found', code: 'NOT_FOUND' })
+          );
+        await fillAndCalculate(onCalculate);
+
+        await waitFor(() => {
+          expect(screen.getByRole('alert')).toHaveTextContent(
+            '見積書が見つかりません。すでに削除された可能性があります。'
+          );
+        });
+        expect(screen.queryByText('Not found')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('calculated-amount')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '計算' })).toBeEnabled();
+      });
+
+      it('404 以外の計算の失敗は計算の失敗の文言を表示し、拒否を捨てない', async () => {
+        const onCalculate = vi
+          .fn<Calculate>()
+          .mockRejectedValue(new ApiError(500, 'Internal Server Error', { status: 500 }));
+        await fillAndCalculate(onCalculate);
+
+        await waitFor(() => {
+          expect(screen.getByRole('alert')).toHaveTextContent(
+            '諸経費の計算に失敗しました。再度お試しください。'
+          );
+        });
+        expect(screen.queryByText(/見つかりません/)).not.toBeInTheDocument();
+      });
+
+      it('計算をやり直して成功すると失敗の表示を消す', async () => {
+        const onCalculate = vi
+          .fn<Calculate>()
+          .mockRejectedValueOnce(new ApiError(500, 'Internal Server Error', { status: 500 }))
+          .mockResolvedValueOnce({ rate: '2.50', amount: '2500000', formula: 'f' });
+        await fillAndCalculate(onCalculate);
+        await waitFor(() => {
+          expect(screen.getByRole('alert')).toBeInTheDocument();
+        });
+
+        await userEvent.click(screen.getByRole('button', { name: '計算' }));
+        await waitFor(() => {
+          expect(screen.getByTestId('calculated-amount')).toBeInTheDocument();
+        });
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       });
     });
 

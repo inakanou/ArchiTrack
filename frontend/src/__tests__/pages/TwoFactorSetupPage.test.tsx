@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { TwoFactorSetupPage } from '../../pages/TwoFactorSetupPage';
+import { AuthContext, type AuthContextValue } from '../../contexts/AuthContext';
 
 // API clientをモック
 vi.mock('../../api/client', () => ({
@@ -87,13 +88,45 @@ vi.mock('../../components/TwoFactorSetupForm', () => ({
   ),
 }));
 
+// 2FA 未登録の利用者（新規の設定の手順）。登録済みの利用者には認証アプリの変更の手順を表示するため、
+// その手順は TwoFactorSetupPage.reenroll.test.tsx で確かめる（タスク47.9）。保存された遷移先による
+// 完了後の遷移は TwoFactorSetupPage.userState.test.tsx で確かめる（タスク47.6）
+const authValue = {
+  isAuthenticated: true,
+  user: {
+    id: 'user-1',
+    email: 'user@example.com',
+    displayName: 'User',
+    twoFactorEnabled: false,
+    mustChangePassword: false,
+  },
+  isLoading: false,
+  isInitialized: true,
+  sessionExpired: false,
+  sessionExpiredDuringOperation: false,
+  twoFactorState: null,
+  login: vi.fn(),
+  logout: vi.fn(),
+  refreshToken: vi.fn(),
+  clearSessionExpired: vi.fn(),
+  handleReauthSuccess: vi.fn(),
+  navigateToLogin: vi.fn(),
+  verify2FA: vi.fn(),
+  verifyBackupCode: vi.fn(),
+  cancel2FA: vi.fn(),
+  establishSession: vi.fn(),
+  updateUser: vi.fn(),
+} satisfies AuthContextValue;
+
 const renderTwoFactorSetupPage = () => {
   return render(
-    <MemoryRouter initialEntries={['/2fa-setup']}>
-      <Routes>
-        <Route path="/2fa-setup" element={<TwoFactorSetupPage />} />
-      </Routes>
-    </MemoryRouter>
+    <AuthContext.Provider value={authValue}>
+      <MemoryRouter initialEntries={['/2fa-setup']}>
+        <Routes>
+          <Route path="/2fa-setup" element={<TwoFactorSetupPage />} />
+        </Routes>
+      </MemoryRouter>
+    </AuthContext.Provider>
   );
 };
 
@@ -183,7 +216,7 @@ describe('TwoFactorSetupPage Component', () => {
   });
 
   describe('完了処理', () => {
-    it('完了ボタンをクリックするとプロフィールページへ遷移する', async () => {
+    it('完了ボタンをクリックすると、保存された遷移先が無ければダッシュボードへ遷移する', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const user = userEvent.setup({
         advanceTimers: (ms) => vi.advanceTimersByTime(ms),
@@ -196,7 +229,7 @@ describe('TwoFactorSetupPage Component', () => {
       // setTimeout 後に navigate が呼ばれる
       await vi.advanceTimersByTimeAsync(1500);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/profile', {
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', {
         replace: true,
       });
 

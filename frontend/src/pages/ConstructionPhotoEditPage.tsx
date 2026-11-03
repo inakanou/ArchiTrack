@@ -13,6 +13,11 @@
  * Requirements:
  * - 1.3: アルバム情報を編集して保存する（楽観的排他制御）
  * - 1.5: 競合検出時に競合エラーを表示する
+ *
+ * Task 31.1 変更: 読み込みの 404 では工事写真アルバムが見つからない旨とプロジェクトの一覧へのリンク（共通部品
+ *   ResourceNotFound）を表示する（Requirement 22.1。経路は案件の ID を持たず、アルバムを読めないと案件が
+ *   分からないため戻り先はプロジェクトの一覧）。更新が 404 を受けたときは工事写真アルバムが見つからない旨を
+ *   トーストに出し、応答の英語の文言を出さない（Requirement 22.2）。範囲外と不在を区別しない
  */
 
 import { useState, useEffect, useCallback, type FormEvent } from 'react';
@@ -24,7 +29,11 @@ import {
 import { getProject } from '../api/projects';
 import { ApiError } from '../api/client';
 import { useToast } from '../hooks/useToast';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getConstructionPhotoNotFoundMessage,
+  isConstructionPhotoNotFoundError,
+} from '../utils/constructionPhotoNotFound';
 import type { BreadcrumbItem } from '../components/common';
 import type { ConstructionPhotoAlbum } from '../types/construction-photo.types';
 import type { ProjectDetail } from '../types/project.types';
@@ -255,7 +264,7 @@ export default function ConstructionPhotoEditPage() {
         setProject(null);
       }
     } catch (err) {
-      if (err instanceof ApiError && err.statusCode === 404) {
+      if (isConstructionPhotoNotFoundError(err)) {
         setIsNotFound(true);
         return;
       }
@@ -303,8 +312,10 @@ export default function ConstructionPhotoEditPage() {
         // 更新結果を一覧に反映するため一覧へ遷移する
         navigate(`/projects/${album.projectId}/construction-photos`);
       } catch (err) {
+        // 更新の 404 は工事写真アルバムの不在〔範囲外を含む〕（Task 31.1）
         const message =
-          err instanceof ApiError && err.message ? err.message : '更新中にエラーが発生しました';
+          getConstructionPhotoNotFoundMessage(err, 'album') ??
+          (err instanceof ApiError && err.message ? err.message : '更新中にエラーが発生しました');
         toast.error(message);
       } finally {
         setIsSubmitting(false);
@@ -328,9 +339,11 @@ export default function ConstructionPhotoEditPage() {
   if (isNotFound) {
     return (
       <main role="main" style={styles.container}>
-        <div role="alert" style={styles.errorAlert}>
-          <p style={styles.errorText}>工事写真アルバムが見つかりません</p>
-        </div>
+        <ResourceNotFound
+          resourceType="工事写真アルバム"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }

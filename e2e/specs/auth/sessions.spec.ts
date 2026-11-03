@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import {
+  createSessionUser,
+  deleteSessionUsers,
+  type SessionUser,
+} from '../../fixtures/auth.fixtures';
 import { assertPrepared } from '../../helpers/preconditions';
 import {
   waitForSessionDataLoaded,
@@ -21,6 +26,27 @@ test.describe('セッション管理機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
+  // 個別デバイス・全デバイスのログアウトは共有の役割の利用者の系列を失効させるため、
+  // この区間の全体をテストの中で作る利用者のセッションで行う（要件33.6）
+  let sessionUser: SessionUser;
+
+  test.beforeAll(async ({ browser }) => {
+    sessionUser = await createSessionUser('REGULAR_USER');
+
+    // 「現在のデバイス以外」のセッションを一つ持たせる。共有の役割の利用者は先に走った spec の
+    // ログインでセッションを複数持っていたため、作ったばかりの利用者にも同じ前提を置く
+    const otherDeviceContext = await browser.newContext();
+    try {
+      await loginAsUser(await otherDeviceContext.newPage(), sessionUser);
+    } finally {
+      await otherDeviceContext.close();
+    }
+  });
+
+  test.afterAll(async () => {
+    await deleteSessionUsers();
+  });
+
   test.beforeEach(async ({ page, context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
@@ -32,8 +58,8 @@ test.describe('セッション管理機能', () => {
       sessionStorage.clear();
     });
 
-    // 認証済みユーザーとしてログイン（グローバルセットアップで作成済み）
-    await loginAsUser(page, 'REGULAR_USER');
+    // 認証済みユーザーとしてログイン（beforeAll で作成済み）
+    await loginAsUser(page, sessionUser);
 
     // セッション管理ページに移動（リトライ付き）
     const maxNavigationRetries = 3;
@@ -45,7 +71,7 @@ test.describe('セッション管理機能', () => {
 
       // 認証が失われてログインページにリダイレクトされた場合は再ログイン
       if (page.url().includes('/login')) {
-        await loginAsUser(page, 'REGULAR_USER');
+        await loginAsUser(page, sessionUser);
         await page.goto('/sessions');
         await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
       }
@@ -59,7 +85,7 @@ test.describe('セッション管理機能', () => {
       } catch {
         if (navRetry < maxNavigationRetries - 1) {
           // リトライ前に認証状態を確認して再ログイン
-          await loginAsUser(page, 'REGULAR_USER');
+          await loginAsUser(page, sessionUser);
         }
       }
     }
@@ -81,7 +107,7 @@ test.describe('セッション管理機能', () => {
         (await page.getByText(/セッション情報を取得できませんでした/i).isVisible());
 
       if (isOnLoginPage || hasError) {
-        await loginAsUser(page, 'REGULAR_USER');
+        await loginAsUser(page, sessionUser);
         await page.goto('/sessions');
         await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
         await waitForLoadingComplete(page, { timeout: getTimeout(30000) });

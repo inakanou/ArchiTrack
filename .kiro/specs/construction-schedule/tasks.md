@@ -444,3 +444,78 @@
   - 挙動の変更であるため RED → GREEN で進め、単体（上限超過・検証エラーは detail、Prisma 由来の 400 は汎用の文言）で主張する。Task 19.1 の E2E（`e2e/specs/schedules/construction-schedule-focus-visible.spec.ts`）の作成の失敗の期待値への影響を確かめる
   - _Requirements: 1.6, 12.1_
   - _Boundary: 工程表の作成画面の失敗の表示_
+
+## タスク22: 案件の閲覧範囲（user-authentication の要件39）と出力の記録（同 要件40）を本スペックの API と出力へ適用する（user-authentication の機能検証からの起票。利用者の判断で起票、2026-10-25）
+
+**経緯**: IPA の注意喚起（2026-10-09）の是正で、user-authentication が要件39（案件単位の閲覧範囲）と要件40（認証・アカウント操作とデータ出力の監査記録）を設け、判定の部品（backend/src/services/project-scope.service.ts の `evaluateProjectAccess`・`buildProjectScopeWhere`、backend/src/middleware/project-scope.middleware.ts の `requireProjectScope`）と出力の記録の手段（backend/src/services/export-audit.service.ts の `ExportAuditService`）を実装した（同スペックのタスク52.1・53.3）。同スペックが適用したのは案件そのもの（`/api/projects`、タスク52.3）だけである。同スペックの design.md の Boundary Commitments の Out of Boundary は、各業務機能の API への `requireProjectScope` の適用と子リソースから案件 ID を引く解決関数、出力処理からの記録の呼び出しを各 spec の所管と定め、是正計画（docs/security/ipa-alert-20261009-remediation-plan.md）の §5.10 が本スペックの項目（Excel・PDF 出力の記録、閲覧範囲の適用）を挙げる。同スペックの機能検証（2026-10-25、HEAD `b85b8124`）が、どの所管 spec にも適用のタスクが無く、本スペックの API が案件の範囲を判定しない（担当外の利用者が ID 指定で他の案件の工程表を読み書きできる）ことと、出力が記録を経ないこと（`ExportAuditService.record` の呼び出し元は監査ログの経路だけ）を確かめた。利用者の判断（2026-10-25、案 A）で各所管 spec へ起票する（site-survey の Task 115.347 と同じく、上流の user-authentication からの起票）
+
+- [x] 22.1 本スペックの API に案件の閲覧範囲（user-authentication の要件39）を適用する
+  - 対象（2026-10-25、HEAD `b85b8124` の実測。行は経路の定義の行。着手時に測り直すこと）:
+    - backend/src/routes/schedules.routes.ts（`/api/projects/:projectId/schedules` と `/api/schedules`）: `GET /`（105）、`GET /:id`（165）、`POST /`（231）、`PUT /:id`（312）、`PUT /:id/bulk-save`（390）、`DELETE /:id`（461）、`GET /:id/export`（527）
+  - 工程表の ID から案件 ID を引く解決関数を本スペックが持ち、`requirePermission` の後に `requireProjectScope` を置く（user-authentication の design.md の「ProjectScopeGuard（`requireProjectScope`）」の節。前に置くと権限なしの 403 を主張する既存の統合テストが 404 で落ちる〔同スペックの tasks.md の Implementation Notes の 52.2 の区分 D〕）。範囲外と不在は同じ汎用の 404（`NOT_FOUND`）にし、本文に案件 ID など存在を推測できる情報を含めない（39.2）。案件をまたぐ一覧・検索・件数があれば `buildProjectScopeWhere` の条件で絞る（39.3）
+  - 挙動の変更であるため RED → GREEN で進める。統合テストで、担当外の利用者の ID 指定が不在と同じ 404 になり DB が変わらないこと、一覧に出ないこと、担当者・作成者・全案件閲覧の権限では従来どおりであることを主張する。E2E で担当外の利用者が工程表の URL を直接開くと見つからない扱いになることを確かめる
+  - 本スペックの受入基準として持つか（是正計画 §4 は、各業務 spec が自分の適用箇所を受入基準として持つとする）は requirements.md の改訂と被覆の印を伴うため、着手時に利用者の判断を得る
+    - **判断の結果（2026-10-27、利用者の判断）**: 本スペックの受入基準として持つ。requirements.md に Requirement 13（案件の閲覧範囲と出力の記録の適用）を新設した。本タスクの適用は 13.1〜13.5 が受ける。工程表の作成の要求が指す数量表（`quantityTableId`）は経路の案件との所属を照合しているが、属さない場合と存在しない場合で 422 の本文が分かれ他の案件の数量表の実在を推測させるため、経路のプロジェクトに属さなければ数量表の不在と同じ応答で工程表を作成しない（13.4）と条文に定めた（ステータスは既存の 422 のまま揃える。404 へ改める案を採らない理由は design.md の同章の「作成の数量表」）。一括保存は一つの工程表の工程項目を全件差し替え、要求の工程項目の `id` で既存の行を引かないため（2026-10-27 の実測）、子リソースの所属の照合と全件か無しかの受入基準は置かず、範囲外の工程表への一括保存を 13.2 の 404・書き込みなしで受ける。案件をまたぐ一覧・検索・件数・カレンダーの横断表示の経路は無く（2026-10-27 の実測）、工程表の一覧は経路の `projectId` の判定で範囲内に限られる（13.5）。本スペックはファイルの署名付きURLを発行しない。案件の範囲を含意する既存の条文を requirements.md で検めたが、ロールや権限だけで閲覧・操作を許すと読める条文は無く（該当は Requirement 1 の目的の文と、1.1・1.3・2.1・2.3 の当該プロジェクト・同一プロジェクトの一覧の語だけ）、既存の条文は改訂していない。design.md は「Requirement 13: 案件の閲覧範囲と出力の記録の適用」章を足し、Existing Architecture Analysis の「認証・認可」と Error Categories and Responses・API Contract の当初の記述は記録として残して置き換えを書き添えた。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
+  - _Boundary: 本スペックの API の案件の範囲の判定_
+
+- [x] 22.2 工程表の出力に記録（user-authentication の要件40）を適用する
+  - 対象（2026-10-25 の実測）: サーバーで生成する backend/src/routes/schedules.routes.ts の `GET /:id/export`（527。Excel と PDF。画面は frontend/src/components/schedule/ExportDialog.tsx から呼ぶ）。種別 `schedule_export`
+  - ハンドラーが生成の前に `ExportAuditService.record`（実行者・種別・案件・対象・件数）を呼ぶ（40.9。user-authentication の design.md の「ExportAuditService と ExportAuditClient」の節の、サーバー側で生成する出力は各業務 spec がハンドラーから直接呼ぶ、の定め）。記録が失敗したときの応答（出力を返さない）は同節に照らして決める
+  - 挙動の変更であるため RED → GREEN で進め、統合テストで出力のたびに監査 `DATA_EXPORTED` が種別・案件つきで 1 件記録されること、記録の失敗時の応答を主張し、E2E で画面からの出力が記録を残すことを確かめる
+  - **判断の結果（2026-10-27、利用者の判断。22.1 の判断と同じ）**: 本タスクの適用は Requirement 13 の 13.6・13.7 が受ける。出力はサーバーで生成することを実装で確かめた（2026-10-27。`GET /:id/export` のハンドラーが `ScheduleExportService` の `exportToExcel`・`exportToPdf` で生成して送り、画面の `ExportDialog` は応答を受け取って保存するだけ）。そのため記録はハンドラーがファイルの生成の前に 1 回行い（13.6）、記録の失敗ではファイルを生成せず返さずにエラーを返し、画面はダウンロードを始めず「出力を記録できなかったため中止しました」を表示する（13.7）と条文に定めた。応答の形（500・`detail`・識別子）と、ブラウザ側の包み（`runRecordedExport`）を使わない理由は design.md の同章の「記録の失敗の応答」に記した。被覆の印は本タスクの統合テスト・E2E が名乗る（新設時点では未被覆）
+  - _Requirements: 13.6, 13.7_
+  - _Boundary: 工程表の出力の経路の記録_
+  - _Depends: 22.1_
+
+## タスク23: プロジェクトの配下の経路の食い違いの記録（user-authentication の要件39.8 の適用。利用者の判断で起票、2026-10-29）
+
+**経緯**: user-authentication が要件39.8 を加え、経路の案件と対象の実際の案件が食い違う要求のうち、実際の案件が閲覧範囲外のものを要件39.7 の記録の対象とした（利用者の判断、2026-10-29「推奨案で進める」。同 spec の design.md の ProjectScopeGuard の節の「各業務 spec への起票先」の construction-schedule の行）。本スペックの判定部品（backend/src/middleware/construction-schedule-project-scope.middleware.ts の `requireScheduleProjectScope`、70〜74 行付近。行は同日の実測で、着手時に測り直すこと）は、二重マウント（`/api/projects/:projectId/schedules/:id` とその配下。出力の `GET /:id/export` を含む）の食い違いを不在として null を返し、範囲を判定せず記録しない。工程表そのものの食い違いの条文が無かったため、requirements.md に 13.8 を加え（応答と記録の両方）、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた。作成の要求が指す数量表の所属（13.4）は、`ScheduleService.create` の照合が既に要件39.8 の振る舞いを満たすため変えない（同章の「決定」）
+
+- [x] 23.1 プロジェクトの配下の経路の食い違いで、工程表の実際の案件が範囲外なら記録する
+  - `requireScheduleProjectScope` の解決関数が、経路の `projectId` と工程表の案件が食い違うとき、null ではなく上流の `projectMismatch`（工程表の案件 ID）を返すよう切り替える。応答は範囲の内外にかかわらず不在と同じ汎用の 404 のまま、データを変えずファイルを生成しない。工程表の不在と論理的な取り除きは従来どおり null で記録しない（`findProjectIdOfSchedule` の定めを保つ。design.md の同章の「決定」）。同ファイルの冒頭の注釈の食い違いの記述を改める。作成の要求が指す数量表（13.4）の照合は変えない
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体テスト（`backend/src/__tests__/unit/middleware/construction-schedule-project-scope.middleware.test.ts`）の「二重マウントで経路の案件 ID と工程表の案件が食い違うときは、範囲を判定せずに不在と同じ 404 にする」は、工程表の案件が範囲外なら記録 1 件で 404、範囲内なら記録なしで 404 の二通りへ改め、題名も改める。論理的に取り除かれた工程表の食い違いが範囲を判定せず記録なしの 404 になることを足す。統合テスト（`backend/src/__tests__/integration/construction-schedule-project-scope.api.integration.test.ts`）の「二重マウントの経路で、経路の案件と工程表の案件が食い違うと工程表の不在と同じ 404 にし、データを変えず、記録しない」（範囲内どうしの食い違い）は条文どおりで変えず、記録しない理由の注釈を範囲内どうしの食い違いであるためと改め、範囲外の案件の工程表を範囲内の案件の経路で指すと詳細・更新・一括保存・論理的な取り除き・出力が 404 でデータが変わらずファイルを返さず `PROJECT_SCOPE_DENIED` が増える（対象は工程表の実際の案件。出力の記録は増えない）テストを足す
+  - E2E（`e2e/specs/schedules/construction-schedule-project-scope.spec.ts` に新しいテスト）で、範囲外の案件の工程表を範囲内の案件の経路で指す要求が 404 になり監査の記録が 1 件増えることを主張し、`@requirement construction-schedule/REQ-13.8` と上流の 39.8 の被覆の印（user-authentication のタスク63.2 の申し送り）を置く
+  - 挙動の変更であるため RED → GREEN で進める。上流の 63.1 が入る前に着手しない
+  - 単体・統合・E2E で、食い違いの要求が範囲外のときだけ記録され、どの場合も不在と同じ 404 でデータが変わらずファイルを生成しない状態になる
+  - _Depends: user-authentication の Task 63.1_
+  - _Requirements: 13.8_
+  - _Boundary: requireScheduleProjectScope の解決関数と、食い違いの記録を主張する本スペックのテスト_
+
+## タスク24: 工程表の画面が 404 を受けたときの不在の表示（利用者の判断で起票、2026-10-29）
+
+**経緯**: 利用者の判断（2026-10-29「推奨案で進める」）で起票する。Requirement 13.2 により閲覧範囲外の工程表・プロジェクトへの要求は不在と同じ 404 になるが、画面は 404 を分類しない（2026-10-29 の調査。行は同日の実測で、着手時に測り直すこと）: `ScheduleDetailPage.tsx` は読み込みの失敗で `ApiError` の `message`（汎用の 404 では英語の文言）をそのまま表示する（355 行付近）。`ScheduleListPage.tsx` は読み込みの失敗を一律に取得の失敗の固定の文言と再試行の釦にし（357 行付近、415 行付近）、削除の失敗も一律に削除の失敗の固定の文言で一覧を置き換える（380 行付近）。`ScheduleForm.tsx` は数量表の選択肢の読み込みの失敗を無視し（197 行付近）、`ScheduleCreatePage.tsx` は作成の失敗を 400 の利用者向けの符号を除き一律に作成の失敗の固定の文言にする（116 行付近）。`useScheduleState.ts` の保存は失敗で `ApiError` の `message` をそのまま表示に渡す（285 行付近）。`ExportDialog.tsx` は記録の失敗以外の失敗の応答を一律に出力の失敗の文言と再試行の釦にする（243 行付近）。サーバーの応答は変えない（user-authentication の要件39.2）。requirements.md に Requirement 14（14.1・14.2）を加え、design.md の末尾の章「2026-10-29 の追加: 食い違いの記録・不在の表示」に設計を置いた
+
+- [x] 24.1 工程表の一覧・新規作成・詳細の画面と作成・保存・削除・出力の操作で、404 を見つからない旨の表示にする
+  - 404 を見つからない種別に分類し対象ごとの日本語の文言を返す部品を足す（置き場所は実装時に決める）。読み込みの 404 では共通部品 `ResourceNotFound`（`frontend/src/components/common/ResourceNotFound.tsx`）で見つからない旨と戻り先のリンク（いずれの画面もプロジェクトの一覧）を表示し、応答の英語の文言・取得の失敗の文言と再試行の釦を出さない。新規作成の画面は数量表の選択肢の読み込みの 404 でプロジェクトが見つからない旨を表示し、404 以外の失敗は従来どおり無視する。作成・保存・削除の 404 では見つからない旨のメッセージを表示し（作成の汎用の 404 はプロジェクト、保存・削除は工程表）、出力のダイアログは出力の応答の 404 で出力の失敗の文言と再試行の釦に代えて工程表が見つからない旨を表示する。記録の失敗（13.7）、409 と 404 以外の失敗の従来の文言は保つ。文言の逐語は詳細の画面の工程表が無い場合の既存の表示を流儀として design.md の同章の「決定」へ記す
+  - 挙動の変更であるため RED → GREEN で進め、現状で赤になることを先に示す。単体（404 の分類、各画面の読み込みの 404 の表示、作成・保存・削除と出力のダイアログの 404 のメッセージ。404 以外の失敗の従来の文言と、出力のダイアログの記録の失敗の文言は保つ）と E2E（担当外の利用者が工程表の詳細の URL を開くと見つからない旨とプロジェクトの一覧へのリンクが出て存在しない工程表と同じ表示になる、範囲外のプロジェクトの一覧・新規作成の URL でプロジェクトが見つからない旨が出る、開いた後に論理的に取り除かれた工程表の保存・出力と、一覧を開いた後に論理的に取り除かれた工程表の削除で見つからない旨のメッセージが出る）で主張し、`@requirement construction-schedule/REQ-14.1`・`REQ-14.2` の印を置く
+  - 既存の E2E（`e2e/specs/schedules/construction-schedule-project-scope.spec.ts` の「担当外の利用者が工程表の URL を直接開くと存在しない工程表と同じ表示になり」）は `main` の本文を存在しない工程表と比べており、比較の主張は消さず、見つからない旨の表示どうしの比較として緑であることを確かめる。`construction-schedule-e2e.spec.ts` と `construction-schedule-export-audit.spec.ts` の出力の失敗と再試行のテスト（500 で差し替え）、`construction-schedule-focus-visible.spec.ts` の取得の失敗・作成の失敗・出力の失敗の本文のテスト（400 で差し替え）は、404 以外の従来の表示として緑のままであることを確かめる。ほかに、変えた表示（取得の失敗・削除の失敗・作成の失敗・出力の失敗の文言、再試行の釦、見つからない旨の文言、英語の Not found）を e2e/ 全体で grep して既存の E2E を選び、流す。frontend を変えたらテスト環境の frontend を作り直してから流す
+  - 単体と E2E で、404 を受けた画面が見つからない旨を表示し、応答の英語の文言と取得・操作の失敗の汎用の文言を出さない状態になる
+  - _Requirements: 14.1, 14.2_
+  - _Boundary: ScheduleListPage, ScheduleCreatePage, ScheduleForm, ScheduleDetailPage, useScheduleState, ExportDialog_
+
+## タスク25: 論理的に取り除かれた工程表・論理削除済みの数量表の範囲外の記録（user-authentication の要件39.8 の改訂の適用。利用者の判断で起票、2026-10-30）
+
+**経緯**: 利用者の判断（2026-10-30「推奨案で進める」）で起票する。user-authentication が要件39.8 を改め、記録しない「論理削除」を案件そのものの論理削除に限り、対象のデータが論理削除済みでも実在して実際の案件が範囲外なら記録すると定めた（同 spec の requirements.md の要件39 の改訂の記録、design.md の ProjectScopeGuard の節の「対象のデータの論理削除の扱い」とその起票先の一覧の construction-schedule の行）。本スペックは、解決関数 `findProjectIdOfSchedule` が論理的に取り除かれた工程表で null を返し、`ScheduleService` の `createWithin` が論理削除済みの数量表を所属の照合より先に 422 で弾くため、範囲外の案件のものでも記録しない（2026-10-30 の調査。行は着手時に測り直すこと）。requirements.md の 13.8 を改め（改訂の記録を同要件に残した）、13.9・13.10 を加え、design.md の末尾の章「2026-10-30 の追加: 論理的に取り除かれた工程表・論理削除済みの数量表の範囲外の記録」に設計を置いた。応答とデータと画面は変えない
+
+- [x] 25.1 解決関数が論理的に取り除かれた工程表にも実際の案件を返し、範囲外なら記録されるようにする
+  - backend/src/middleware/construction-schedule-project-scope.middleware.ts の `findProjectIdOfSchedule` を、行が無いときだけ null を返し、行が実在すれば論理的に取り除かれているかどうかを添えて案件 ID を返す形へ改める。`requireScheduleProjectScope` の解決関数は、論理的に取り除かれた工程表では経路の形（`/api/schedules/:id`、同じ案件の配下の経路、食い違いの経路）を問わず `projectMismatch(工程表の案件 ID)` を返す（同じ案件の経路と `/api/schedules` のマウントで取り除かれた工程表を指したときの従来の汎用の 404 を保つための切り分け。design.md の同章の「決定」の表）。取り除かれていない工程表の振る舞い（一致なら案件 ID、食い違いなら `projectMismatch`）は変えない。同ファイルの冒頭の注釈と関数の注釈を改める
+  - backend/src/routes/schedules.routes.ts の出力の経路が記録に添える案件を `findProjectIdOfSchedule` で引く箇所を新しい戻り値に合わせ、行が無いときと論理的に取り除かれているときは従来の競合の扱い（`NotFoundError` の汎用の 404。出力の記録も生成もしない）とする
+  - **既存のテストの書き換え**（条文どおりに。主張を消さない）: 単体（`backend/src/__tests__/unit/middleware/construction-schedule-project-scope.middleware.test.ts`）の「工程表の ID から案件 ID を引き、工程表が無いか論理的に取り除かれていれば null を返す」「論理的に取り除かれた工程表は、案件が範囲外でも範囲を判定せずに不在と同じ 404 にし、記録しない」「二重マウントで論理的に取り除かれた工程表を指すと、工程表の案件が範囲外で経路の案件と食い違っても、範囲を判定せずに不在と同じ 404 にし、記録しない（13.8）」の 3 本。統合（`backend/src/__tests__/integration/construction-schedule-project-scope.api.integration.test.ts`）の「論理的に取り除かれた工程表は、範囲の内外を問わず存在しない工程表と同じ汎用の 404 を返す」（範囲外の利用者で記録の差 0）と「二重マウントの経路で、範囲外の案件の論理的に取り除かれた工程表を範囲内の案件の経路で指すと、不在と同じ 404 になり、記録せず、データを変えずファイルを生成しない」の 2 本。改め方は design.md の同章の「既存のテストの書き換え」のとおり（範囲外なら記録 1 件、範囲内と案件そのものの論理削除では記録なし、どれも存在しない工程表と同じ汎用の 404 で本体へ進まずデータが変わらず、出力の経路でファイルと `DATA_EXPORTED` が増えない）。題名と記録しない理由の注釈も改める
+  - E2E（`e2e/specs/schedules/construction-schedule-project-scope.spec.ts`）で、担当外の利用者が範囲外の案件の論理的に取り除かれた工程表を `/api/schedules/:id` の詳細と範囲内の案件の配下の経路で指すと、存在しない工程表と同じ 404 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件ずつ増えることを主張し、`@requirement construction-schedule/REQ-13.8`・`REQ-13.9` と上流の 39.8 の改訂の被覆の印（user-authentication のタスク66.1 の申し送り）を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 振る舞いを変えるため、変えた応答の経路（工程表の詳細・更新・一括保存・取り除き・出力の 404、`PROJECT_SCOPE_DENIED` と `DATA_EXPORTED` の件数）を e2e/ 全体で grep して既存の E2E を選び、流す（同ファイルの 13.8 の二重マウントのテスト、14.2 の開いた後に論理的に取り除かれた工程表の保存・出力・削除のテスト、`construction-schedule-export-audit.spec.ts` を含む）
+  - 挙動の変更であるため RED → GREEN で進め、書き換えたテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、論理的に取り除かれた工程表の ID 指定が範囲外のときだけ記録され、どの場合も存在しない工程表と同じ汎用の 404 でデータが変わらずファイルを生成しない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 13.8, 13.9_
+  - _Boundary: findProjectIdOfSchedule, requireScheduleProjectScope の解決関数, 出力の経路の記録の案件の引き当てと、論理的に取り除かれた工程表の記録を主張する本スペックのテスト_
+
+- [x] 25.2 工程表の作成で、範囲外の案件の論理削除済みの数量表を記録する
+  - backend/src/services/schedule.service.ts の `createWithin` の数量表の照合の順を、行が無い（422、記録しない）→ 作成先のプロジェクトに属さない（`evaluateProjectAccess` で範囲外なら `deniedProjectIds` へ入れたうえ 422）→ 作成先のプロジェクトに属し論理削除済み（422、記録しない）へ改める（design.md の同章の「決定」の「数量表の照合の順」）。応答は 3 通りとも 13.4 と同じ 422 の `SCHEDULE_VALIDATION_ERROR` と本文「指定された数量表が見つかりません」のまま、数量項目を読まず工程表と工程項目を作成しない。照合の注釈を改める
+  - **既存のテストへの追加**（主張を消さない）: 単体（`backend/src/__tests__/unit/services/schedule.service.test.ts`）の「論理削除された数量表が指定された場合バリデーションエラーになること」は作成先のプロジェクトの論理削除済みの数量表として保ち、判定も記録もしない主張を足す。同ファイルの「作成先のプロジェクトに属さない数量表（Requirement 13.4、タスク22.1）」の表に、論理削除済みの数量表の場合（範囲外は判定して記録 1 回で対象は数量表の案件、範囲内の他のプロジェクト・案件の不在は記録なし。どれも不在と同じ 422 と本文で数量項目を読まず作成しない）を足す。統合（`backend/src/__tests__/integration/construction-schedule-project-scope.api.integration.test.ts` の「作成の要求が指す数量表（13.4）」）に、範囲外の案件の論理削除済みの数量表を指す作成が存在しない数量表と同じ 422 の本文で `PROJECT_SCOPE_DENIED` が 1 件増え、工程表と工程項目が増えないテストを足す。既存の範囲外の数量表の記録のテストに `@requirement construction-schedule/REQ-13.10` の印を足すかは実装時に決める
+  - E2E（`e2e/specs/schedules/construction-schedule-project-scope.spec.ts`）で、範囲外の案件の論理削除済みの数量表を指す工程表の作成が存在しない数量表と同じ 422 になり監査ログの `PROJECT_SCOPE_DENIED` が 1 件増え、工程表が作られないことを主張し、`@requirement construction-schedule/REQ-13.10` の印を置く。被覆の印を足したら `check:design-measurement-freshness` を名指しで流す
+  - 挙動の変更であるため RED → GREEN で進め、足したテストが現状で赤になることを先に示す。上流の 66.1 が入る前に着手しない
+  - 単体・統合・E2E で、範囲外の案件の論理削除済みの数量表を指す作成が不在と同じ 422 で記録され、作成先のプロジェクトの論理削除済みの数量表では記録されない状態になる
+  - _Depends: user-authentication の Task 66.1_
+  - _Requirements: 13.10_
+  - _Boundary: ScheduleService の工程表の作成の数量表の照合と、その記録を主張する本スペックのテスト_

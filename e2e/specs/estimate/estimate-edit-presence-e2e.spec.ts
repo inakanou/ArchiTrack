@@ -24,6 +24,8 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { seedProject } from '../../helpers/project-list-preconditions';
 import { TEST_USERS } from '../../helpers/test-users';
+import { getAccessToken } from '../../helpers/auth-api';
+import { getPrismaClient } from '../../fixtures/database';
 
 /** 在席通知の間隔（`frontend/src/hooks/useEstimateEditPresence.ts` と同じ 20 秒）に余裕を足した上限 */
 const PRESENCE_UPDATE_TIMEOUT_MS = 45000;
@@ -46,6 +48,26 @@ const openEstimate = async (page: Page, estimateId: string): Promise<void> => {
     timeout: getTimeout(15000),
   });
   expect((await heartbeat).status()).toBe(200);
+};
+
+/**
+ * 利用者 B（REGULAR_USER_2）を案件の工事担当者にする
+ *
+ * 案件の閲覧範囲（user-authentication 要件39）は営業担当者・工事担当者・作成者だけに案件を見せるため、
+ * 利用者 A が作った案件を利用者 B も開けるようにする（user-authentication タスク52.2）。
+ */
+const assignUserBAsConstructionPerson = async (projectId: string): Promise<void> => {
+  const prisma = getPrismaClient();
+  const userB = await prisma.user.findUnique({
+    where: { email: TEST_USERS.REGULAR_USER_2.email },
+  });
+  if (!userB) {
+    throw new Error('前提: 利用者 B（REGULAR_USER_2）が存在しない。global-setup を確認すること');
+  }
+  await prisma.project.update({
+    where: { id: projectId },
+    data: { constructionPersonId: userB.id },
+  });
 };
 
 /**
@@ -76,8 +98,9 @@ test.describe('他のユーザーが編集中の警告表示', () => {
 
       // ---- 前提: 利用者 A がプロジェクトと見積書を作る ----
       await loginAsUser(pageA, 'REGULAR_USER');
-      const project = await seedProject(pageA, 'E2E編集中警告');
-      const tokenA = await pageA.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      const project = await seedProject(pageA, 'REGULAR_USER', 'E2E編集中警告');
+      await assignUserBAsConstructionPerson(project.id);
+      const tokenA = await getAccessToken(pageA, 'REGULAR_USER');
       expect(tokenA, '前提: 利用者 A のアクセストークンを取得できる').toBeTruthy();
       const estimateRes = await pageA.request.post(
         `${API_BASE_URL}/api/projects/${project.id}/estimates`,
@@ -167,8 +190,9 @@ test.describe('他のユーザーが編集中の警告表示', () => {
       const pageB = await contextB.newPage();
 
       await loginAsUser(pageA, 'REGULAR_USER');
-      const project = await seedProject(pageA, 'E2E編集中警告375');
-      const tokenA = await pageA.evaluate(() => localStorage.getItem('accessToken') ?? '');
+      const project = await seedProject(pageA, 'REGULAR_USER', 'E2E編集中警告375');
+      await assignUserBAsConstructionPerson(project.id);
+      const tokenA = await getAccessToken(pageA, 'REGULAR_USER');
       expect(tokenA, '前提: 利用者 A のアクセストークンを取得できる').toBeTruthy();
       const estimateRes = await pageA.request.post(
         `${API_BASE_URL}/api/projects/${project.id}/estimates`,

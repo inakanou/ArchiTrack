@@ -8,21 +8,32 @@
  * - 24.3: メール送信失敗時に最大5回リトライ（1分、5分、15分、1時間、6時間）
  *
  * 責任と境界:
- * - 主要責任: メール送信（招待、パスワードリセット、2FA設定完了通知）
+ * - 主要責任: メール送信（招待、パスワードリセット、2FA設定完了通知、システム管理者への通知）
  * - ドメイン境界: メールドメイン
  * - データ所有権: なし
  * - トランザクション境界: なし
  *
  * 依存関係:
- * - インバウンド: InvitationService, PasswordService, TwoFactorService
+ * - インバウンド: InvitationService, PasswordService, TwoFactorService, AdminNotificationService
  * - アウトバウンド: なし
- * - 外部: nodemailer, bull, handlebars
+ * - 外部: nodemailer, bull, handlebars, Sentry
  */
 
 import nodemailer, { type Transporter } from 'nodemailer';
-import Bull, { type Queue, type Job, type JobOptions } from 'bull';
+import Bull, {
+  type Queue,
+  type Job,
+  type JobOptions,
+  type QueueOptions,
+  type AdvancedSettings,
+} from 'bull';
 import Handlebars from 'handlebars';
 import logger from '../utils/logger.js';
+import { captureException } from '../utils/sentry.js';
+import { runtimeMode } from '../config/runtime-mode.js';
+import { SESSION_CONFIG } from '../config/security.constants.js';
+import { buildInvitationUrl } from '../utils/invitation-token.js';
+import { buildPasswordResetUrl } from '../utils/password-reset-token.js';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -30,6 +41,11 @@ import { fileURLToPath } from 'url';
 // __dirnameをESモジュールで取得
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+/**
+ * メールキューの名前（Redis のキーは `bull:email-queue:*`）
+ */
+const EMAIL_QUEUE_NAME = 'email-queue';
 
 /**
  * メール再送の backoff 戦略名（Bull の settings.backoffStrategies に登録する名前）
@@ -71,6 +87,135 @@ function emailRetryBackoff(attemptsMade: number): number {
 }
 
 /**
+ * メールキューを作る（要件45.1、45.2）
+ *
+ * キャッシュ基盤（redis.ts）と同じ REDIS_URL で接続し、認証情報と論理 DB もそこから読む。
+ * 完了したジョブは宛先とトークンを含むため、既定で消す。
+ * 再送間隔（要件24.3）はキュー生成時に登録するカスタム backoff 戦略で与える。
+ *
+ * @param redisUrl - 接続先（既定は REDIS_URL。本番では起動前の検査で必須）
+ * @param settingsOverrides - 検証からだけ渡すキューの設定（ロックの期間や停止の検査の間隔）。本番は渡さない
+ */
+export function createEmailQueue(
+  redisUrl: string | undefined = process.env.REDIS_URL,
+  settingsOverrides: Omit<AdvancedSettings, 'backoffStrategies'> = {}
+): Queue {
+  const options: QueueOptions = {
+    settings: {
+      ...settingsOverrides,
+      backoffStrategies: { [EMAIL_RETRY_BACKOFF_TYPE]: emailRetryBackoff },
+    },
+    defaultJobOptions: { removeOnComplete: true },
+  };
+
+  if (!redisUrl) {
+    logger.warn('REDIS_URL not configured, email queue will connect to the default local Redis');
+    return new Bull(EMAIL_QUEUE_NAME, options);
+  }
+
+  // Bull は URL のスキームを読まないため、TLS の接続先（rediss）は明示する
+  if (redisUrl.startsWith('rediss://')) {
+    options.redis = { tls: {} };
+  }
+  return new Bull(EMAIL_QUEUE_NAME, redisUrl, options);
+}
+
+/**
+ * メールジョブの再送オプション（要件24.3）
+ *
+ * 試行は初回 + リトライ 5 回、間隔はキューに登録した EMAIL_RETRY_BACKOFF_TYPE 戦略が返す。
+ */
+function emailRetryJobOptions(): JobOptions {
+  return {
+    attempts: EMAIL_JOB_ATTEMPTS,
+    backoff: { type: EMAIL_RETRY_BACKOFF_TYPE },
+  };
+}
+
+/**
+ * システム管理者への通知のメールをキューへ入れる（送信の処理は登録しない）
+ *
+ * EmailService の送信と同じジョブ名・再送オプションで投入する。送信の処理を持たない短命のプロセス
+ * （復旧の reactivate-user スクリプト、user-authentication タスク49.4）も通知を出せるように切り出している。
+ *
+ * @param queue - メールキュー（createEmailQueue）
+ * @param to - 送信先（システム管理者 1 名）
+ * @param subject - 件名
+ * @param lines - 本文の各行（トークン・パスワードを含めない）
+ */
+export async function enqueueAdminNotificationEmail(
+  queue: Pick<Queue, 'add'>,
+  to: string,
+  subject: string,
+  lines: string[]
+): Promise<void> {
+  await queue.add(
+    'admin-notification-email',
+    { to, subject, lines } satisfies AdminNotificationEmailData,
+    emailRetryJobOptions()
+  );
+
+  logger.info({ to }, 'Admin notification email queued');
+}
+
+/**
+ * ジョブの内容のうち、失敗の記録から伏せる値（トークンと宛先）
+ */
+const SECRET_JOB_FIELDS = ['invitationToken', 'resetToken'] as const;
+
+/**
+ * ジョブの宛先（招待・パスワードリセット・2FA は to、管理者への通知は adminEmails）
+ */
+function recipientsOf(data: unknown): string[] {
+  if (typeof data !== 'object' || data === null) {
+    return [];
+  }
+  const record = data as { to?: unknown; adminEmails?: unknown };
+  const candidates = [record.to, ...(Array.isArray(record.adminEmails) ? record.adminEmails : [])];
+  return candidates.filter((value): value is string => typeof value === 'string');
+}
+
+/**
+ * 宛先のドメイン（重複を除く）
+ */
+function recipientDomainsOf(recipients: readonly string[]): string[] {
+  const domains = recipients
+    .map((address) => address.slice(address.lastIndexOf('@') + 1).toLowerCase())
+    .filter((domain) => domain !== '');
+  return [...new Set(domains)];
+}
+
+/**
+ * 正規表現の特殊文字をエスケープする
+ */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 失敗の理由から、ジョブのトークン・宛先と、URL のトークンの値を伏せる（要件45.3）
+ */
+function redactFailureReason(reason: string, data: unknown, recipients: readonly string[]): string {
+  const secrets: string[] = [...recipients];
+  if (typeof data === 'object' && data !== null) {
+    for (const field of SECRET_JOB_FIELDS) {
+      const value = (data as Record<string, unknown>)[field];
+      if (typeof value === 'string' && value !== '') {
+        secrets.push(value);
+      }
+    }
+  }
+
+  let redacted = reason;
+  for (const secret of secrets) {
+    // 宛先は大文字・小文字を区別しないため、値を文字どおりに（特殊文字をエスケープして）大小を無視して伏せる
+    redacted = redacted.replace(new RegExp(escapeRegExp(secret), 'gi'), '[REDACTED]');
+  }
+  // クエリの形と、リンクのフラグメントの形（要件37.3）の両方のトークンの値を伏せる
+  return redacted.replace(/([?&#]token=)[^&\s]+/gi, '$1[REDACTED]');
+}
+
+/**
  * メールジョブデータ（招待メール）
  */
 interface InvitationEmailData {
@@ -94,7 +239,16 @@ interface TwoFactorEnabledEmailData {
 }
 
 /**
- * メールジョブデータ（システム管理者ロール変更アラート）
+ * メールジョブデータ（システム管理者への通知。宛先ごとに 1 ジョブ）
+ */
+interface AdminNotificationEmailData {
+  to: string;
+  subject: string;
+  lines: string[];
+}
+
+/**
+ * メールジョブデータ（システム管理者ロール変更アラート。切り替え前に投入済みのジョブの処理だけに使う）
  */
 interface AdminRoleChangedAlertData {
   adminEmails: string[];
@@ -121,18 +275,19 @@ export class EmailService {
   private readonly frontendUrl: string;
 
   constructor(transporter?: Transporter, queue?: Queue) {
-    // テスト時は注入されたモックを使用
-    if (transporter && queue) {
-      this.transporter = transporter;
-      this.emailQueue = queue;
-      this.frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      this.registerProcessors();
-      return;
-    }
-
-    // 本番環境ではnodemailerとbullを初期化
     this.frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // 注入されなかった依存だけを本番の設定で作る（テストは送信やキューを差し替える）
+    this.transporter = transporter ?? EmailService.createSmtpTransporter();
+    this.emailQueue = queue ?? createEmailQueue();
 
+    this.registerProcessors();
+    this.registerQueueEventHandlers();
+  }
+
+  /**
+   * SMTP の transporter を環境変数から作る
+   */
+  private static createSmtpTransporter(): Transporter {
     // SMTP設定
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const smtpConfig: any = {
@@ -155,21 +310,82 @@ export class EmailService {
       { smtpHost: process.env.SMTP_HOST, smtpPort: process.env.SMTP_PORT },
       'Initializing SMTP transporter'
     );
-    this.transporter = nodemailer.createTransport(smtpConfig);
+    return nodemailer.createTransport(smtpConfig);
+  }
 
-    // Bullキュー設定
-    // 再送間隔（要件24.3）はキュー生成時に登録するカスタム backoff 戦略で与える
-    this.emailQueue = new Bull('email-queue', {
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      },
-      settings: {
-        backoffStrategies: { [EMAIL_RETRY_BACKOFF_TYPE]: emailRetryBackoff },
-      },
-    });
+  /**
+   * キューのイベントの受け手を登録（要件45.3、45.4）
+   */
+  private registerQueueEventHandlers(): void {
+    this.emailQueue.on('failed', (job: Job, error: Error) => this.handleFailedJob(job, error));
+    this.emailQueue.on('error', (error: Error) => this.handleQueueError(error));
+  }
 
-    this.registerProcessors();
+  /**
+   * ジョブの失敗の処理（要件45.3）
+   *
+   * 最終の失敗（ジョブが失敗の集合にある）では、種別・宛先のドメイン・トークンを伏せた失敗の
+   * 理由だけをエラーログと Sentry へ送り、宛先とトークンを含むジョブを消す。再試行の待ち
+   * （遅延の集合）にある途中の失敗では何もしない。最終かどうかを試行の回数で決めないのは、
+   * 止まったジョブ（stalled）の上限超過・backoff の -1・discard では回数が上限に届かないまま
+   * 失敗の集合へ移るためである。止まったジョブの通知ではジョブを読めない（null）ことがある。
+   * 受け手の例外は漏らさない（unhandled rejection にしない）。
+   */
+  private async handleFailedJob(job: Job | null, error: Error | undefined): Promise<void> {
+    if (!job) {
+      return;
+    }
+
+    const recipients = recipientsOf(job.data);
+    try {
+      if (!(await job.isFailed())) {
+        return;
+      }
+
+      const record = {
+        jobType: job.name,
+        recipientDomains: recipientDomainsOf(recipients),
+        attemptsMade: job.attemptsMade,
+        reason: redactFailureReason(error?.message ?? 'Unknown reason', job.data, recipients),
+      };
+      logger.error(record, 'Email job failed after the final attempt');
+      captureException(new Error('Email job failed after the final attempt'), record);
+    } catch (handlingError) {
+      logger.error(
+        { jobType: job.name, reason: this.redactedMessageOf(handlingError, job, recipients) },
+        'Failed to handle the failed email job'
+      );
+      return;
+    }
+
+    try {
+      await job.remove();
+    } catch (removeError) {
+      logger.error(
+        { jobType: job.name, reason: this.redactedMessageOf(removeError, job, recipients) },
+        'Failed to remove the failed email job'
+      );
+    }
+  }
+
+  /**
+   * 例外の文言を、ジョブのトークンと宛先を伏せて取り出す
+   */
+  private redactedMessageOf(thrown: unknown, job: Job, recipients: readonly string[]): string {
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    return redactFailureReason(message, job.data, recipients);
+  }
+
+  /**
+   * キューのエラーの処理（要件45.4）
+   *
+   * 本番ではキャッシュ基盤への接続の失敗などをエラー監視へ送る。
+   */
+  private handleQueueError(error: Error): void {
+    logger.error({ queue: EMAIL_QUEUE_NAME, err: error }, 'Email queue error');
+    if (runtimeMode.kind() === 'production') {
+      captureException(error, { queue: EMAIL_QUEUE_NAME });
+    }
   }
 
   /**
@@ -191,7 +407,16 @@ export class EmailService {
       await this.process2FAEnabledEmail(job.data);
     });
 
-    // システム管理者ロール変更アラート処理
+    // システム管理者への通知の処理
+    this.emailQueue.process(
+      'admin-notification-email',
+      async (job: Job<AdminNotificationEmailData>) => {
+        await this.processAdminNotificationEmail(job.data);
+      }
+    );
+
+    // システム管理者ロール変更アラート処理。投入は全システム管理者への通知（admin-notification-email）へ
+    // 置き換えた（タスク49.1）。切り替え前にキューへ積まれ再送を待つジョブを処理するために残す
     this.emailQueue.process(
       'admin-role-changed-alert',
       async (job: Job<AdminRoleChangedAlertData>) => {
@@ -206,10 +431,7 @@ export class EmailService {
    * 試行は初回 + リトライ 5 回、間隔はキューに登録した EMAIL_RETRY_BACKOFF_TYPE 戦略が返す。
    */
   private retryJobOptions(): JobOptions {
-    return {
-      attempts: EMAIL_JOB_ATTEMPTS,
-      backoff: { type: EMAIL_RETRY_BACKOFF_TYPE },
-    };
+    return emailRetryJobOptions();
   }
 
   /**
@@ -252,28 +474,14 @@ export class EmailService {
   }
 
   /**
-   * システム管理者ロール変更アラートメールを送信（非同期キュー）
+   * システム管理者への通知メールを送信（非同期キュー。要件36.4、36.9）
    *
-   * @param adminEmails - 送信先管理者メールアドレスリスト
-   * @param targetUser - 対象ユーザー情報
-   * @param action - アクション種別（assigned | revoked）
-   * @param roleName - ロール名
-   * @param performedBy - 実行者情報
+   * @param to - 送信先（システム管理者 1 名）
+   * @param subject - 件名
+   * @param lines - 本文の各行（トークン・パスワードを含めない）
    */
-  async sendAdminRoleChangedAlert(
-    adminEmails: string[],
-    targetUser: { email: string; displayName: string },
-    action: 'assigned' | 'revoked',
-    roleName: string,
-    performedBy: { email: string; displayName: string }
-  ): Promise<void> {
-    await this.emailQueue.add(
-      'admin-role-changed-alert',
-      { adminEmails, targetUser, action, roleName, performedBy },
-      this.retryJobOptions()
-    );
-
-    logger.info({ adminEmails, targetUser, action }, 'Admin role changed alert queued');
+  async sendAdminNotificationEmail(to: string, subject: string, lines: string[]): Promise<void> {
+    await enqueueAdminNotificationEmail(this.emailQueue, to, subject, lines);
   }
 
   /**
@@ -281,7 +489,8 @@ export class EmailService {
    */
   private async processInvitationEmail(data: InvitationEmailData): Promise<void> {
     const { to, invitationToken } = data;
-    const invitationUrl = `${this.frontendUrl}/register?token=${invitationToken}`;
+    // 作成・再送信の直後の応答の招待 URL と同じ組み立てを使う（要件37.2・13.3）
+    const invitationUrl = buildInvitationUrl(invitationToken, this.frontendUrl);
 
     // Handlebarsテンプレート読み込み
     const templatePath = join(__dirname, '../templates/invitation-email.hbs');
@@ -310,7 +519,8 @@ export class EmailService {
     const { to, resetToken } = data;
     logger.debug({ to }, 'Processing password reset email');
 
-    const resetUrl = `${this.frontendUrl}/password-reset?token=${resetToken}`;
+    // 招待と同じく、トークンを URL のフラグメントに置く（要件37.3）
+    const resetUrl = buildPasswordResetUrl(resetToken, this.frontendUrl);
 
     // Handlebarsテンプレート読み込み
     const templatePath = join(__dirname, '../templates/password-reset-email.hbs');
@@ -320,6 +530,8 @@ export class EmailService {
     const html = template({
       resetUrl,
       frontendUrl: this.frontendUrl,
+      // 有効期限の表記は判定と同じ定義から作る（要件7.3）
+      expiryHours: SESSION_CONFIG.PASSWORD_RESET_TOKEN_EXPIRY_MS / (60 * 60 * 1000),
     });
 
     logger.debug(
@@ -359,6 +571,28 @@ export class EmailService {
     });
 
     logger.info({ to }, '2FA enabled email sent successfully');
+  }
+
+  /**
+   * システム管理者への通知メール処理（実際の送信）
+   */
+  private async processAdminNotificationEmail(data: AdminNotificationEmailData): Promise<void> {
+    const { to, subject, lines } = data;
+
+    const templatePath = join(__dirname, '../templates/admin-notification-email.hbs');
+    const templateSource = readFileSync(templatePath, 'utf-8');
+    const template = Handlebars.compile(templateSource);
+
+    const html = template({ subject, lines, frontendUrl: this.frontendUrl });
+
+    await this.transporter.sendMail({
+      from: process.env.SMTP_FROM || 'noreply@architrack.com',
+      to,
+      subject,
+      html,
+    });
+
+    logger.info({ to }, 'Admin notification email sent successfully');
   }
 
   /**

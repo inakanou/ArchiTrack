@@ -27,6 +27,12 @@
  * - 49.5: これらの操作の実行後の保存で競合エラーを発生させない
  * - 42.9: 保存処理において既存の見積項目とその実行予算項目からの参照関係を維持する
  *
+ * Task 64.1 変更: 見積書の読み込み（見積書の詳細と見積項目の取得）が 404 を受けたときに、見積書が見つからない
+ *   旨とプロジェクトの一覧へのリンクを表示し、取得の失敗の文言と再試行の釦を出さない（estimate-creation の
+ *   Requirement 58.1）。削除の 404 では確認のダイアログを閉じ、見積書を表示したまま見つからない旨のメッセージを
+ *   表示する。保存の 404 の文言は分類の部品の定数にそろえる（同 Requirement 58.2）。諸経費の計算の 404 は
+ *   諸経費のパネルが、受領見積書の転記のダイアログの 404 はダイアログが表示する
+ *
  * @module pages/EstimateDetailPage
  */
 
@@ -46,6 +52,7 @@ import type {
   SavedEstimateItemHierarchy,
 } from '../api/estimates';
 import { ApiError, getApiErrorCode, ESTIMATE_SAVE_TIMEOUT_CODE } from '../api/client';
+import { describeEstimateSaveLimitFailure } from '../utils/estimate-save-limit-feedback';
 import { OverheadCostPanel } from '../components/estimate/OverheadCostPanel';
 import type {
   CalculateOverheadParams,
@@ -57,7 +64,7 @@ import type {
 // 結線漏れが検知されない死角に入るため（53.14 / 54.2 / 54.10 の再発防止）。
 import { EstimateReportFieldsPanel } from '../components/estimate/EstimateReportFieldsPanel';
 import { EstimateEditPresenceNotice } from '../components/estimate/EstimateEditPresenceNotice';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import {
   EstimateHierarchyPanel,
@@ -97,6 +104,11 @@ import { TransferQuotationDialog } from '../components/estimate/TransferQuotatio
 import { NetAllocationDialog } from '../components/estimate/NetAllocationDialog';
 import { ProfitRateDialog } from '../components/estimate/ProfitRateDialog';
 import Decimal from 'decimal.js';
+import {
+  ESTIMATE_NOT_FOUND_MESSAGE,
+  getEstimateNotFoundMessage,
+  isNotFoundError,
+} from '../utils/estimateNotFound';
 
 // ============================================================================
 // スタイル定義
@@ -592,11 +604,19 @@ const SAVE_TIMEOUT_MESSAGE =
  *   （制限時間超過は `code: ESTIMATE_SAVE_TIMEOUT` で識別する。HTTP ステータスだけでは
  *   他の 500 と区別できず、メッセージ文字列での判定は文言変更で壊れる）
  * - 42.5: 競合が発生したことを表示する（409）。編集中の内容は呼び出し元が保持する
+ * - 42.13: 件数・深さの上限の 422 と備考の文字数の上限の 400 は、超えた上限のメッセージを表示する
+ *   （判定は `utils/estimate-save-limit-feedback` の `describeEstimateSaveLimitFailure`）
  *
  * 上記以外（400 / 403 / 404 / 422 / 500）はサーバーの応答内容を提示するのみで、
  * 保存前のクライアント検証は行わない（それを求める 42.4 は本タスクの範囲外）。
  */
 function toSaveErrorMessage(error: unknown): string {
+  // 42.13: 件数・深さの上限の 422 と備考の文字数の上限の 400 は、超えた上限のメッセージを表示する
+  // （要約の文言と再操作を促す汎用の文言を出さない。当たらなければ下の従来の書き分けへ）
+  const saveLimitMessage = describeEstimateSaveLimitFailure(error);
+  if (saveLimitMessage !== null) {
+    return saveLimitMessage;
+  }
   if (error instanceof ApiError) {
     if (getApiErrorCode(error) === ESTIMATE_SAVE_TIMEOUT_CODE) {
       return SAVE_TIMEOUT_MESSAGE;
@@ -611,7 +631,8 @@ function toSaveErrorMessage(error: unknown): string {
       return '見積書を保存する権限がありません。';
     }
     if (error.statusCode === 404) {
-      return '見積書が見つかりません。すでに削除された可能性があります。';
+      // 他の操作の 404 の文言の流儀でもある（Task 64.1。utils/estimateNotFound）
+      return ESTIMATE_NOT_FOUND_MESSAGE;
     }
   }
   return '保存に失敗しました。再度お試しください。';
@@ -744,6 +765,10 @@ export default function EstimateDetailPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 見積書の読み込みが 404 を受けた（範囲外と不在を区別しない。Task 64.1）
+  const [isEstimateNotFound, setIsEstimateNotFound] = useState(false);
+  // 削除の 404 のメッセージ（Task 64.1）。画面を置き換えず、見積書を表示したまま出す
+  const [operationError, setOperationError] = useState<string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
@@ -1230,6 +1255,7 @@ export default function EstimateDetailPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsEstimateNotFound(false);
 
     try {
       const data = await getEstimateDetail(id);
@@ -1239,7 +1265,12 @@ export default function EstimateDetailPage() {
       // ここで渡さないと保存済みの提出日・有効期限・別途工事が編集状態に入らず、
       // 次の保存が空の値でサーバーを上書きする。
       editor.setItems(toEditFormat(items), data.reportFields);
-    } catch {
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsEstimateNotFound(true);
+        return;
+      }
       setError('見積書の取得に失敗しました');
     } finally {
       setIsLoading(false);
@@ -1379,13 +1410,20 @@ export default function EstimateDetailPage() {
     if (!id || !estimate) return;
 
     setIsDeleting(true);
+    setOperationError(null);
 
     try {
       await deleteEstimate(id, estimate.updatedAt);
       // 離脱ガードを解除した描画で遷移させる（削除済み画面への取り残しを防ぐ）
       setPostDeleteRedirectPath(`/projects/${estimate.projectId}/estimates`);
-    } catch {
-      setError('見積書の削除に失敗しました');
+    } catch (err) {
+      const notFoundMessage = getEstimateNotFoundMessage(err, 'estimate');
+      if (notFoundMessage !== null) {
+        // 404 は見つからない旨。再試行で解けないため、画面を削除の失敗と再試行の釦へ置き換えない（Task 64.1）
+        setOperationError(notFoundMessage);
+      } else {
+        setError('見積書の削除に失敗しました');
+      }
       setIsDeleteDialogOpen(false);
     } finally {
       setIsDeleting(false);
@@ -1464,6 +1502,19 @@ export default function EstimateDetailPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 見積書が見つからない表示（Task 64.1）。経路が案件の ID を持たないため戻り先はプロジェクトの一覧
+  if (isEstimateNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="見積書"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }
@@ -1784,6 +1835,20 @@ export default function EstimateDetailPage() {
               </button>
             </div>
           </div>
+          {/* 削除の 404 の提示（Task 64.1）。見積書を表示したまま見つからない旨を出す */}
+          {operationError && (
+            <div role="alert" data-testid="estimate-operation-error" style={styles.saveErrorBanner}>
+              <span>{operationError}</span>
+              <button
+                type="button"
+                aria-label="エラーを閉じる"
+                onClick={() => setOperationError(null)}
+                style={styles.saveErrorCloseButton}
+              >
+                ×
+              </button>
+            </div>
+          )}
           {/* 保存失敗の提示（REQ-42.5: 競合を表示し編集中の内容は保持する） */}
           {saveError && (
             <div role="alert" data-testid="estimate-save-error" style={styles.saveErrorBanner}>
@@ -1930,6 +1995,7 @@ export default function EstimateDetailPage() {
       <EstimateExportDialog
         isOpen={isExportDialogOpen}
         estimateName={estimate.name}
+        estimateId={estimate.id}
         projectId={estimate.projectId}
         items={editor.editState.items}
         reportFields={editor.reportFields}

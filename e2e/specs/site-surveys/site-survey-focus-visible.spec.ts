@@ -68,6 +68,7 @@ import { assertPrepared } from '../../helpers/preconditions';
 import { seedProject, type SeededProject } from '../../helpers/project-list-preconditions';
 import { getPrismaClient, disconnectDatabase } from '../../fixtures/database';
 import { API_BASE_URL } from '../../config';
+import { getAccessToken } from '../../helpers/auth-api';
 
 // ============================================================================
 // フォーカス表示の判定（quantity-table-focus-visible.spec.ts と同じ基準。輪の切り取りも測る）
@@ -611,7 +612,7 @@ let surveyId: string;
 let imageIds: string[] = [];
 
 async function authHeaders(page: Page): Promise<{ Authorization: string }> {
-  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+  const accessToken = await getAccessToken(page, 'ADMIN_USER');
   assertPrepared(accessToken, '認証トークン');
   return { Authorization: `Bearer ${accessToken}` };
 }
@@ -643,8 +644,8 @@ async function setupTestData(browser: Browser): Promise<void> {
   const context = await browser.newContext();
   const page = await context.newPage();
   await loginAsUser(page, 'ADMIN_USER');
-  project = await seedProject(page, '現場調査フォーカス表示');
-  emptyProject = await seedProject(page, '現場調査フォーカス表示空');
+  project = await seedProject(page, 'ADMIN_USER', '現場調査フォーカス表示');
+  emptyProject = await seedProject(page, 'ADMIN_USER', '現場調査フォーカス表示空');
   surveyId = await createSurvey(page, project.id, SURVEY_NAME, SURVEY_DATE);
   await createSurvey(page, project.id, OTHER_SURVEY_NAME, OTHER_SURVEY_DATE);
   imageIds = [];

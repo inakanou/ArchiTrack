@@ -129,14 +129,16 @@ describe('seedPermissions', () => {
       await seedPermissions(mockPrisma as PrismaClient);
 
       // Assert
+      // project の権限は CRUD の 4 つと、全案件閲覧（read_all。user-authentication 要件39.5）の 5 つ
       const projectPermissions = createManyData.filter((perm) => perm.resource === 'project');
 
-      expect(projectPermissions).toHaveLength(4);
+      expect(projectPermissions).toHaveLength(5);
       const actions = projectPermissions.map((perm) => perm.action);
       expect(actions).toContain('create');
       expect(actions).toContain('read');
       expect(actions).toContain('update');
       expect(actions).toContain('delete');
+      expect(actions).toContain('read_all');
     });
   });
 });
@@ -1228,5 +1230,85 @@ describe('seedRolePermissions - 工事写真・工事看板管理権限', () => 
         expect(assignment).toBeUndefined();
       }
     );
+  });
+});
+
+/**
+ * 既定の権限の改め（user-authentication タスク44.4）
+ *
+ * - 要件38.4: 一般ユーザーロールの既定権限にユーザー一覧の閲覧（user:read）を含めない
+ * - 要件39.5: システム管理者ロールの既定権限に全案件閲覧（project:read_all）を含める。
+ *   システム管理者は *:* で全てを持つため、project:read_all と ops:manage は一般ユーザーへ割り当てない
+ */
+describe('既定の権限（user-authentication/38.4・39.5）', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('全案件閲覧（project:read_all）と運用設定の管理（ops:manage）の権限が定義されている', async () => {
+    let createManyData: Array<{ resource: string; action: string; description: string }> = [];
+    const mockPrisma = {
+      permission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          createManyData = data;
+          return { count: data.length };
+        }),
+      },
+    } as unknown as PrismaClient;
+
+    const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+    await seedPermissions(mockPrisma);
+
+    const keys = createManyData.map((p) => `${p.resource}:${p.action}`);
+    expect(keys).toContain('project:read_all');
+    expect(keys).toContain('ops:manage');
+    // ユーザー一覧の閲覧の権限そのものは残す（管理者が使う。外すのは一般ユーザーへの割り当て）
+    expect(keys).toContain('user:read');
+  });
+
+  it('一般ユーザーロールへ割り当てる権限に user:read・project:read_all・ops:manage を含めず、システム管理者ロールへ *:* を割り当てる', async () => {
+    const assignments: Array<{ roleId: string; permissionId: string }> = [];
+    const findMany = vi
+      .fn()
+      .mockResolvedValue([{ id: 'adr-read-perm-id', resource: 'adr', action: 'read' }]);
+    const mockPrisma = {
+      role: {
+        findUnique: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+          if (where.name === 'user') return { id: 'user-role-id', name: 'user' };
+          return null;
+        }),
+      },
+      permission: {
+        findFirst: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.resource === '*' && where.action === '*') {
+            return { id: 'all-perm-id', resource: '*', action: '*' };
+          }
+          return null;
+        }),
+        findMany,
+      },
+      rolePermission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          assignments.push(...data);
+          return { count: data.length };
+        }),
+      },
+    } as unknown as PrismaClient;
+
+    const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+    await seedRolePermissions(mockPrisma);
+
+    // 一般ユーザーロールへ割り当てる権限の問い合わせ（findMany の OR）が要求する集合
+    expect(findMany).toHaveBeenCalledTimes(1);
+    const requested = (
+      findMany.mock.calls[0]![0] as { where: { OR: Array<{ resource: string; action: string }> } }
+    ).where.OR.map((p) => `${p.resource}:${p.action}`);
+    expect(requested).not.toContain('user:read');
+    expect(requested).not.toContain('project:read_all');
+    expect(requested).not.toContain('ops:manage');
+    expect(requested).toContain('project:read');
+
+    expect(assignments).toContainEqual({ roleId: 'admin-role-id', permissionId: 'all-perm-id' });
   });
 });

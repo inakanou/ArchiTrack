@@ -80,6 +80,16 @@ vi.mock('../../../middleware/authorize.middleware.js', () => ({
   },
 }));
 
+// 案件の閲覧範囲の判定部品は素通りさせる（判定と経路への適用は
+// contract-management-project-scope.middleware.test.ts と統合テストが確かめる。タスク19.1）
+vi.mock('../../../middleware/contract-management-project-scope.middleware.js', () => {
+  const pass = () => (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    requireProjectParamScope: pass,
+    requireContractProjectScope: pass,
+  };
+});
+
 vi.mock('../../../utils/logger.js', () => ({
   default: {
     info: vi.fn(),

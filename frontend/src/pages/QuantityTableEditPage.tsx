@@ -7,12 +7,19 @@
  * - 3.1: 数量表編集画面を表示する
  * - 3.2: 数量グループ一覧と各グループ内の数量項目を階層的に表示する
  * - 3.3: 該当写真の注釈付きサムネイルを関連写真表示エリアに表示する
+ *
+ * Task 106.1 変更: 数量表の詳細の読み込みが 404 を受けたときに、数量表が見つからない旨とプロジェクトの
+ *   一覧へのリンク（共通部品 ResourceNotFound）を表示し、読み込みの失敗の文言と再試行の釦を出さない。
+ *   保存が 404 を受けたときは数量表が見つからない旨のメッセージを表示し、ドラフトを保つ。紐付けた写真の
+ *   不在の 404 は従来どおりの書き分けとする（quantity-table-generation の Requirement 51.1・51.2。
+ *   範囲外と不在を区別しない）
  */
 
 import { useState, useEffect, useCallback, useReducer, useMemo, useRef } from 'react';
 import { useParams, Link, useBlocker } from 'react-router-dom';
 import { getQuantityTableDetail, saveQuantityTableDraft } from '../api/quantity-tables';
 import { ApiError } from '../api/client';
+import { runRecordedExport } from '../api/export-audit';
 import { getSiteSurveys, getSiteSurvey, getProjectSurveyImages } from '../api/site-surveys';
 import { getAnnotation } from '../api/survey-annotations';
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
@@ -30,7 +37,11 @@ import {
   type DraftGroup,
   type DraftItem,
 } from './quantityTableEditReducer';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
+import {
+  getQuantityTableNotFoundMessage,
+  isQuantityTableNotFoundError,
+} from '../utils/quantityTableNotFound';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
@@ -55,12 +66,16 @@ import {
   describeDroppedSurveyImageLinks,
   describeSurveyImageLinkSaveFailure,
 } from '../utils/survey-image-link-feedback';
+import { describeQuantityTableSaveLimitFailure } from '../utils/quantity-table-save-limit-feedback';
 import { loadPdfExportService } from '../services/export/loadPdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
 import SurveySelectDialog, {
   type SiteSurveySummary,
 } from '../components/quantity-table/SurveySelectDialog';
+
+/** PDF の生成中のエラーの表示（REQ-26.10） */
+const PDF_GENERATION_ERROR_MESSAGE = 'PDF生成中にエラーが発生しました。再度お試しください。';
 
 // ============================================================================
 // 範囲外の既存値の救済（Task 90.1）
@@ -722,6 +737,8 @@ export default function QuantityTableEditPage() {
   // UI状態
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null); // 読み込みエラー（全画面表示）
+  // 数量表の詳細の読み込みが 404 を受けた（範囲外と不在を区別しない。Task 106.1）
+  const [isNotFound, setIsNotFound] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null); // 操作エラー（インライン表示）
   // 描画されない欄の範囲外の既存値を既定値へ戻す操作（Task 90.1）。
   // 操作は、それを名指した告知（`message`）が表示されている間だけ出す。告知が閉じられたり
@@ -765,6 +782,15 @@ export default function QuantityTableEditPage() {
   const [annotationViewerGroupId, setAnnotationViewerGroupId] = useState<string | null>(null);
   // PDF出力用state（REQ-26.1, 26.9）
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  // 画面が描かれているか（出力の記録の要求中に破棄されたら、記録の後に生成を始めない。Requirement 50.8）
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    // StrictMode の二重の effect（破棄の後の再実行）でも描かれている状態へ戻す
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   // インポートダイアログ用state（REQ-27.1）
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   // 現場調査選択ダイアログ用state（Task 57.3: REQ-40.1, 40.2, 40.11, 40.13）
@@ -791,6 +817,7 @@ export default function QuantityTableEditPage() {
 
     setIsLoading(true);
     setLoadError(null);
+    setIsNotFound(false);
     setOperationError(null); // 操作エラーもクリア
 
     try {
@@ -803,7 +830,12 @@ export default function QuantityTableEditPage() {
       setSnapshot(result);
       setLinkedPhotoSummaries({});
       dispatch({ type: 'load', detail: result });
-    } catch {
+    } catch (err) {
+      if (isQuantityTableNotFoundError(err)) {
+        // 見つからない旨は ResourceNotFound が告げる。再試行で解けないため再試行の釦を出さない
+        setIsNotFound(true);
+        return;
+      }
       setLoadError('読み込みに失敗しました');
     } finally {
       setIsLoading(false);
@@ -1399,15 +1431,22 @@ export default function QuantityTableEditPage() {
    * Requirements: 26.1, 26.9, 26.10
    *
    * 数量表データをQuantityTablePdfInput形式に変換し、PDFを生成・ダウンロードする。
+   *
+   * 生成中の表示（REQ-26.9）を立てた後、画像の読み込みと PDF の生成より前に、出力の記録
+   * （種別 `quantity_table_pdf`・数量表が属する案件・数量表）を 1 回要求する。記録の要求中も
+   * 生成中の表示のまま PDF 出力のボタンを止める。記録の失敗では生成もダウンロードも始めず
+   * 「出力を記録できなかったため中止しました」を表示する（Requirement 50.8, 50.9。
+   * user-authentication の要件40.9〜40.11）。
    */
   const handlePdfExport = useCallback(async () => {
     if (isPdfGenerating || !renderTable) return; // 重複操作防止（REQ-26.9）
+    const table = renderTable;
 
-    setIsPdfGenerating(true);
-    setOperationError(null);
-
-    try {
-      const groups = renderTable.groups ?? [];
+    /** PDF の生成とダウンロード（出力の記録が成功した後にだけ呼ぶ。Requirement 50.8） */
+    const generatePdf = async (): Promise<void> => {
+      // 記録の要求中に画面が破棄されたら、生成もダウンロードもしない（記録は済んでいるが出力は無い）
+      if (!isMountedRef.current) return;
+      const groups = table.groups ?? [];
 
       // 画像を注釈付きでdata URLに変換するヘルパー（REQ-26.5）
       const renderAnnotatedImageToDataUrl = async (
@@ -1568,18 +1607,42 @@ export default function QuantityTableEditPage() {
       const createdDate = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
       const { generateQuantityTablePdf } = await loadQuantityTablePdfExportService();
       const blob = await generateQuantityTablePdf({
-        quantityTableName: renderTable.name,
-        projectName: renderTable.project.name,
+        quantityTableName: table.name,
+        projectName: table.project.name,
         createdDate,
         groups: pdfGroups,
       });
 
       // ダウンロード
       const { downloadPdf } = await loadPdfExportService();
-      downloadPdf(blob, `${renderTable.name}.pdf`);
+      downloadPdf(blob, `${table.name}.pdf`);
+    };
+
+    setIsPdfGenerating(true);
+    setOperationError(null);
+
+    try {
+      // 生成を始める前に出力の記録を1回要求し、記録の失敗では生成しない（Requirement 50.8, 50.9）
+      const result = await runRecordedExport(
+        {
+          kind: 'quantity_table_pdf',
+          projectId: table.projectId,
+          targetIds: [table.id],
+          itemCount: 1,
+        },
+        generatePdf
+      );
+      if (!result.ok) {
+        setOperationError(
+          result.error.type === 'RECORD_FAILED'
+            ? result.error.message
+            : // REQ-26.10: 生成中のエラーの文言は変えない
+              PDF_GENERATION_ERROR_MESSAGE
+        );
+      }
     } catch {
       // REQ-26.10: エラーメッセージ表示
-      setOperationError('PDF生成中にエラーが発生しました。再度お試しください。');
+      setOperationError(PDF_GENERATION_ERROR_MESSAGE);
     } finally {
       setIsPdfGenerating(false);
     }
@@ -1758,6 +1821,8 @@ export default function QuantityTableEditPage() {
    *   saveDraft レスポンスで同期するため保存後の再取得（GET）は行わない。
    * - 失敗時: 409 は競合専用メッセージ、現調画像の紐付けの失敗（400 他プロジェクト / 404 写真の削除 /
    *   410 現場調査の削除）は {@link describeSurveyImageLinkSaveFailure} が書き分けた文言（Task 86.5）、
+   *   件数の上限の超過の 400 は {@link describeQuantityTableSaveLimitFailure} が組み立てた上限の文言
+   *   （Task 109.1、REQ-42.12）、
    *   それ以外（500等）は一般エラーメッセージを表示し、ドラフト（未保存の変更）を保持したまま
    *   再保存可能とする（REQ-42.9）。
    * - 自動保存は持たず、永続化は本保存操作時にのみ実行する（REQ-42.7）。
@@ -1892,8 +1957,14 @@ export default function QuantityTableEditPage() {
         // いずれも恒久的で、再試行しても成功しない。利用者が取るべき行動も違うため、一般の文言へ
         // 畳まずに書き分ける（Task 86.5）。原因のグループは保存要求の構築元であるドラフトの
         // 並びから引き当てる。それ以外の失敗は従来どおり一般の文言とする。
+        // 数量表の 404（範囲外と不在を区別しない）は数量表が見つからない旨とする（Task 106.1）。
+        // 紐付けた写真の不在の 404 は分類の部品が数量表の不在としないため、上の書き分けに残る
+        // 件数の上限（42.11）を超えた 400 は件数を減らさない限り成功しないため、再操作を促す一般の
+        // 文言でなく超えた上限のメッセージを、写真の紐付けの書き分けより先に判定して表示する（Task 109.1、REQ-42.12）
         setOperationError(
-          describeSurveyImageLinkSaveFailure(error, draftToSave.groups) ??
+          describeQuantityTableSaveLimitFailure(error) ??
+            describeSurveyImageLinkSaveFailure(error, draftToSave.groups) ??
+            getQuantityTableNotFoundMessage(error, 'quantityTable') ??
             '保存に失敗しました。再度お試しください。'
         );
       }
@@ -1917,6 +1988,20 @@ export default function QuantityTableEditPage() {
             }
           `}
         </style>
+      </main>
+    );
+  }
+
+  // 数量表が見つからない表示（Task 106.1）。編集の経路は案件の ID を持たず、数量表を読めないと案件が
+  // 分からないため、戻り先はプロジェクトの一覧とする
+  if (isNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="数量表"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
       </main>
     );
   }
