@@ -42,7 +42,7 @@
  * @module hooks/useEstimateUndo
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import { UndoManager } from '../services/UndoManager';
 import { useUndoState } from './useUndoState';
 import type { EstimateEditState } from '../domain/estimate/estimateEditReducer.types';
@@ -124,9 +124,13 @@ export function useEstimateUndo(options: UseEstimateUndoOptions): UseEstimateUnd
    * `getState` は「記録時点の状態」と「取り消し時点の状態」をそれぞれ捉える必要が
    * あり、コマンドを作った描画に閉じた値では足りない。コミット後に更新した参照を
    * 使うことで、返す関数の同一性を保ったまま常に最新の経路を用いる。
+   *
+   * 更新は DOM の反映と同じコミットの中（useLayoutEffect）で行う。useEffect では、画面に
+   * 行が表示されてから参照が更新されるまでの間に編集されると、表示の前の状態（読み込み前の
+   * 空の明細など）を「編集前」として記録し、取り消しで明細が消える。
    */
   const optionsRef = useRef(options);
-  useEffect(() => {
+  useLayoutEffect(() => {
     optionsRef.current = options;
   });
 

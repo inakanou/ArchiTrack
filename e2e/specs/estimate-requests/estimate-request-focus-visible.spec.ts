@@ -660,6 +660,13 @@ test.describe('見積依頼の画面のフォーカス表示', () => {
     });
     const firstField = page.getByRole('textbox', { name: '受領見積書名' });
     await expect(firstField).toHaveValue(RECEIVED_QUOTATION_NAME, { timeout: getTimeout(10000) });
+    // 既存のファイルのプレビューURLを取得している間はフォーム全体が非活性になる。
+    // 非活性の間にフォーカスを置くと外れるため、取得が済んで既存のファイルの部品
+    // （OCR実行）が出揃い、入力欄が活性に戻ってからフォーカスを置く。
+    await expect(page.getByRole('button', { name: 'OCR実行' })).toBeEnabled({
+      timeout: getTimeout(10000),
+    });
+    await expect(firstField).toBeEnabled({ timeout: getTimeout(10000) });
     await firstField.focus();
     await expect(firstField).toBeFocused();
 

@@ -327,6 +327,43 @@ describe('EstimateDetailPage 取り消し・やり直し（実物のコンポー
     expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
   });
 
+  /**
+   * 明細が表示された直後（描画後の useEffect が走る前）の編集でも、取り消しは読み込んだ明細へ戻す。
+   * 取り消しの記録が描画後の useEffect で更新した参照を読むと、読み込み前の空の明細を「編集前」と
+   * して記録し、取り消しで明細が消える（CI の負荷の高いときだけ現れた不具合の回帰テスト）。
+   *
+   * @requirement estimate-creation/REQ-48.1
+   */
+  it('明細の表示の直後に編集しても、取り消しで読み込んだ明細へ戻ること (48.1)', async () => {
+    renderPage();
+    // 行が DOM に現れた瞬間（MutationObserver のマイクロタスク）に編集する
+    await new Promise<void>((resolve) => {
+      let edited = false;
+      const editWhenShown = (): void => {
+        if (edited || !document.querySelector('[data-testid="estimate-item-item-a1"]')) return;
+        edited = true;
+        observer.disconnect();
+        fireEvent.change(within(estimateLineOf('item-a1')).getByLabelText('単価'), {
+          target: { value: '250000' },
+        });
+        resolve();
+      };
+      const observer = new MutationObserver(editWhenShown);
+      observer.observe(document.body, { childList: true, subtree: true });
+      editWhenShown();
+    });
+    await waitFor(() => {
+      expect(amountOf('item-a1')).toBe('250,000');
+    });
+
+    fireEvent.click(undoButton());
+    await waitFor(() => {
+      expect(amountOf('item-a1')).toBe('100,000');
+    });
+    expect(amountOf('item-a')).toBe('100,000');
+    expect(rowKeys()).toEqual(['item-a', 'item-a1', 'item-b']);
+  });
+
   // ==========================================================================
   // 親項目の集計金額の再計算（48.6）
   // ==========================================================================
