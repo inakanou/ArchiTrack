@@ -36,7 +36,7 @@
 
 import Decimal from 'decimal.js';
 import { jsPDF } from 'jspdf';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
   drawCoverPage,
@@ -314,9 +314,32 @@ interface PdfjsModule {
 
 const PDFJS_NODE_ENTRY = 'pdfjs-dist/legacy/build/pdf.mjs';
 
+/**
+ * pdfjs-dist の読み込みの待ち時間の上限
+ *
+ * 大きなモジュールの初回の読み込みは、全件実行で並行するファイルが多い CI では 10 秒
+ * （テスト既定の上限）を超えることがある。読み込みを各テストの上限から切り離し、
+ * テストの上限は抽出と検査そのものだけに掛ける。
+ */
+const PDFJS_LOAD_TIMEOUT_MS = 60_000;
+
+let pdfjsModule: PdfjsModule | null = null;
+
+/** 生成した PDF を読む検査の前に pdfjs-dist を一度だけ読み込む */
+function loadPdfjsBeforeAll(): void {
+  beforeAll(async () => {
+    const loaded: unknown = await import(/* @vite-ignore */ PDFJS_NODE_ENTRY);
+    pdfjsModule = loaded as PdfjsModule;
+  }, PDFJS_LOAD_TIMEOUT_MS);
+}
+
 async function extractFirstPageText(bytes: Uint8Array): Promise<string> {
-  const loaded: unknown = await import(/* @vite-ignore */ PDFJS_NODE_ENTRY);
-  const pdfjs = loaded as PdfjsModule;
+  if (pdfjsModule === null) {
+    throw new Error(
+      'pdfjs-dist が読み込まれていない（loadPdfjsBeforeAll を呼んだ describe の中で使うこと）'
+    );
+  }
+  const pdfjs = pdfjsModule;
   const document = await pdfjs.getDocument({
     data: bytes,
     useWorkerFetch: false,
@@ -356,6 +379,8 @@ describe('埋め込みフォントの cmap 解析（検査そのものの妥当�
 });
 
 describe('別途工事の記載欄（51.11）', () => {
+  loadPdfjsBeforeAll();
+
   it('5行分の番号が 1〜5 の順に描画される', () => {
     const rows = separateWorkRows();
 

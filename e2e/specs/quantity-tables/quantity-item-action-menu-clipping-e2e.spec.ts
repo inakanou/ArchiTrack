@@ -578,6 +578,21 @@ test.describe('REQ-46: 数量項目アクションメニューが表示領域に
       })
       .toBeLessThan(bBefore.x - 50);
 
+    // メニューの追従も待つ。ボタンは scrollLeft の代入と同時に動くが、メニューは次の描画の
+    // フレームで届く scroll イベントを受けて座標を計算し直すため、ボタンより一拍遅れて動く。
+    // ボタンが動いた直後に一度だけ測ると、追従する前のメニューを拾う。追従しなければ時間切れで失敗する。
+    await expect
+      .poll(
+        async () => {
+          const b = await button.boundingBox();
+          const m = await openMenu(page).boundingBox();
+          if (!b || !m) return Number.NaN;
+          return Math.abs(m.x - b.x - (mBefore.x - bBefore.x));
+        },
+        { timeout: getTimeout(10000) }
+      )
+      .toBeLessThanOrEqual(TOLERANCE);
+
     const buttonAfter = await button.boundingBox();
     const menuAfter = await openMenu(page).boundingBox();
     expect(buttonAfter).not.toBeNull();
