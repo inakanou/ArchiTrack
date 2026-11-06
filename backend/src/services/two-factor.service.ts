@@ -36,6 +36,16 @@ import type { PrismaClient } from '../generated/prisma/client.js';
 import type { AuthenticatedUserStateService } from './authenticated-user-state.service.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import { recordManageUserRejection, type PrivilegeCeilingPort } from './privilege-ceiling.js';
+import { OPERATOR_SCRIPT_TRIGGER } from './account-status.service.js';
+
+/**
+ * 現在の暗号化鍵で復号できない 2FA の秘密の種別（暗号化鍵の入れ替えの後始末）
+ *
+ * - `full`: 2FA を未登録へ戻す
+ * - `pending_only`: 再登録中の秘密だけを消す
+ * - `none`: 何もしない
+ */
+export type UndecryptableTwoFactorKind = 'full' | 'pending_only' | 'none';
 
 /** 管理者による 2FA の再設定の上限の判定と、その拒否の記録（要件38.13。タスク62.1） */
 export interface TwoFactorResetCeilingOptions {
@@ -881,6 +891,155 @@ export class TwoFactorService implements ITwoFactorService {
 
     if (result.ok) {
       logger.info({ actorId, targetUserId }, '管理者が2FAを再設定しました');
+    }
+    return result;
+  }
+
+  /**
+   * 現在の暗号化鍵で復号できない 2FA の秘密の判定
+   *
+   * 暗号化鍵（TWO_FACTOR_ENCRYPTION_KEY）を入れ替えた後、入れ替えより前の鍵で暗号化された秘密を見分ける。
+   * - `full`: 登録済みの秘密を復号できない、または登録済みなのに秘密が無い（2FA を未登録へ戻す）
+   * - `pending_only`: 再登録中の秘密だけを復号できない（再登録中の秘密だけを消す）
+   * - `none`: 現在の鍵で復号できる（何もしない）
+   *
+   * @param user - 利用者の 2FA の列
+   */
+  async classifyUndecryptableTwoFactor(user: {
+    twoFactorEnabled: boolean;
+    twoFactorSecret: string | null;
+    twoFactorPendingSecret: string | null;
+  }): Promise<UndecryptableTwoFactorKind> {
+    const canDecrypt = async (value: string): Promise<boolean> => {
+      try {
+        await this.decryptSecret(value);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    if (user.twoFactorSecret !== null) {
+      if (!(await canDecrypt(user.twoFactorSecret))) {
+        return 'full';
+      }
+    } else if (user.twoFactorEnabled) {
+      return 'full';
+    }
+    if (user.twoFactorPendingSecret !== null && !(await canDecrypt(user.twoFactorPendingSecret))) {
+      return 'pending_only';
+    }
+    return 'none';
+  }
+
+  /**
+   * サーバー上のスクリプトによる、復号できない 2FA の秘密の再設定（暗号化鍵の入れ替えの後始末）
+   *
+   * 判定（classifyUndecryptableTwoFactor）が `full` のときは管理者による再設定（resetByAdmin）と同じく、
+   * 1 トランザクションで秘密鍵・再登録中の秘密鍵・バックアップコードを消して未登録にし、全リフレッシュ
+   * トークンを失効させ、アクセストークンの世代を 1 つ進める。`pending_only` のときは再登録中の秘密だけを消す。
+   * どちらも実行者の無い監査 `TWO_FACTOR_RESET_BY_ADMIN`（`metadata.trigger='operator_script'`）を記録し、
+   * コミットの後に状態のキャッシュを無効化する。読み出しの後に秘密が書き換わっていたとき（入れ替え後の鍵での
+   * 再登録）は書き込まず `none` を返す（新しい鍵で登録し直した秘密を消さない）。
+   * @requirement user-authentication/REQ-34.7
+   * @requirement user-authentication/REQ-34.10
+   *
+   * @param targetUserId - 対象者の ID
+   * @param reason - 監査に記録する理由
+   * @returns 行った再設定の種別
+   */
+  async resetUndecryptableByOperatorScript(
+    targetUserId: string,
+    reason: string
+  ): Promise<Result<UndecryptableTwoFactorKind, { type: 'USER_NOT_FOUND' }>> {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const target = await tx.user.findUnique({
+        where: { id: targetUserId },
+        select: {
+          id: true,
+          email: true,
+          twoFactorEnabled: true,
+          twoFactorSecret: true,
+          twoFactorPendingSecret: true,
+        },
+      });
+      if (!target) {
+        return Err({ type: 'USER_NOT_FOUND' as const });
+      }
+
+      const kind = await this.classifyUndecryptableTwoFactor(target);
+      if (kind === 'none') {
+        return Ok<UndecryptableTwoFactorKind>('none');
+      }
+
+      // 読み出した値のままのときだけ書き込む（判定の後の再登録を消さない）
+      const unchanged = {
+        id: targetUserId,
+        twoFactorEnabled: target.twoFactorEnabled,
+        twoFactorSecret: target.twoFactorSecret,
+        twoFactorPendingSecret: target.twoFactorPendingSecret,
+      };
+
+      let revokedRefreshTokens = 0;
+      if (kind === 'full') {
+        const { count } = await tx.user.updateMany({
+          where: unchanged,
+          data: {
+            twoFactorEnabled: false,
+            twoFactorSecret: null,
+            twoFactorPendingSecret: null,
+            accessTokenGeneration: { increment: 1 },
+          },
+        });
+        if (count === 0) {
+          return Ok<UndecryptableTwoFactorKind>('none');
+        }
+        revokedRefreshTokens = await revokeAllRefreshTokensForUser(tx, targetUserId);
+        await tx.twoFactorBackupCode.deleteMany({ where: { userId: targetUserId } });
+      } else {
+        const { count } = await tx.user.updateMany({
+          where: unchanged,
+          data: { twoFactorPendingSecret: null },
+        });
+        if (count === 0) {
+          return Ok<UndecryptableTwoFactorKind>('none');
+        }
+      }
+
+      await tx.auditLog.create({
+        data: {
+          action: 'TWO_FACTOR_RESET_BY_ADMIN',
+          actorId: null,
+          targetType: 'User',
+          targetId: targetUserId,
+          metadata: {
+            targetEmail: target.email,
+            revokedRefreshTokens,
+            trigger: OPERATOR_SCRIPT_TRIGGER,
+            scope: kind,
+            reason,
+          },
+        },
+      });
+      return Ok<UndecryptableTwoFactorKind>(kind);
+    }, connectBudgetTransactionOptions());
+
+    if (result.ok && result.value !== 'none' && this.userStateService) {
+      try {
+        await this.userStateService.invalidate(targetUserId);
+      } catch (error) {
+        logger.warn(
+          { err: error, userId: targetUserId },
+          'Failed to invalidate user state after the operator 2FA reset'
+        );
+      }
+    }
+
+    if (result.ok && result.value !== 'none') {
+      logger.info(
+        { targetUserId, scope: result.value, trigger: OPERATOR_SCRIPT_TRIGGER },
+        'サーバー上のスクリプトが復号できない2FAを再設定しました'
+      );
     }
     return result;
   }
