@@ -2,6 +2,8 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
+_最終更新: 2026-11-07（Steering Sync: `/kiro-steering`。(1) Railway の本番・staging の `TRUST_PROXY_HOPS` を実測の 3 として「送信元の識別」に足した（2026-11-07 に staging で実測。エッジが X-Forwarded-For に 2 段、frontend の nginx が 1 段を足す）。(2) CD の「デプロイ実行」が `railway up --detach` の後に新しいデプロイの `SUCCESS` を待つ形（`scripts/railway-deploy-wait.sh`）へ変わったことと、ヘルスチェックの実際の間隔（10 回・10 秒）を反映した。(3) 運用スクリプトのテストに 2FA の後始末を足した）_
+
 _最終更新: 2026-10-14（Steering Sync: 依存バージョンの表記を実体へ揃えた。フロントエンド・バックエンド・E2E の「技術スタック」（`^` なし）は各 lock の導入版、「主要な依存関係」（`^` 付き）は各 package.json の宣言と照合し、食い違い 62 か所を直した（nodemailer 7→10、lint-staged 16→17、rollup-plugin-visualizer 6→7、sharp 0.34→0.35、@anthropic-ai/sdk 0.74/0.106→0.133、Playwright 1.40→1.62 など。同じ依存に 2 つの版が書かれていた @anthropic-ai/sdk の自己矛盾も解消）。@node-rs/argon2 はバックエンドの lock が 2.0.2 のままで正しく、2.2.2 へ上がったのはルート（E2E）側のみ。あわせて、playwright.config.ts の `failOnFlakyTests: true` と、前提操作の入力の取りこぼしを状態の不変を条件に入力し直す型を「CI環境対応の待機パターン」へ加えた）_
 
 _最終更新: 2026-10-08（Steering Sync: project-management のタスク75.2。「フォーカス表示方針」の「既存の逸脱」が持っていた件数（2026-10-07、HEAD `041a0fc8` の実測で 49 か所）は、trading-partner-management のタスク33.1 の是正と quantity-table-generation の到達しない部品の整理で、2026-10-08（HEAD `c8036acd`）の同じ grep では 44 か所になっていた。値を書き換える形は採らず、「主要ジョブ」「監視対象エコシステム」と同じ規約 (b)（数値を落として数える手段を書く）を当て、件数のコマンドにファイルごとの内訳を読み出すコマンドを添えた）_
@@ -241,7 +243,7 @@ grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx
 - **保持の場所**: アクセストークンは画面の `apiClient` のメモリだけに置き、ブラウザの永続ストレージに書かない。リフレッシュトークンは HttpOnly の Cookie `refreshToken`（SameSite=Strict、Path は /api/v1/auth、本番は Secure 属性付き）だけで受け渡し、応答本文に含めない。再読み込みの復元は Cookie によるリフレッシュで行う
 - **リフレッシュ**: Cookie を読む API（/api/v1/auth/refresh と /api/v1/auth/logout）は CSRF の二重送信（Cookie `csrf-token` とヘッダー `X-CSRF-Token`）と Origin の照合を通す。保存は SHA-256 のハッシュだけで、ローテーションの系列（family）で再利用を検知し、系列ごと失効させる。複数のタブのリフレッシュは Web Locks で直列化し、結果を BroadcastChannel で配る（`frontend/src/services/TokenRefreshManager.ts`）
 - **2FA**: 全利用者で必須。パスワードの検証の成功で 5 分・一回限りの 2FA 待ちの資格（Redis）を発行し、2FA の検証の API（/api/v1/auth/verify-2fa）はその資格を要する。同じ時間ステップの TOTP の再利用を拒否する。2FA 未登録・初回のパスワード変更を要する利用者は、API（`backend/src/middleware/authenticate.middleware.ts` の利用者の状態の照合）と画面（`ProtectedRoute`）の両方で設定・変更の画面だけに制限する
-- **送信元の識別**: 送信元 IP は `getClientIp()`（`backend/src/middleware/client-ip.ts`）だけから得る。Express の `trust proxy` は信頼する中継の段数 `TRUST_PROXY_HOPS` で与え、`X-Forwarded-For` を直接読まない。画面の API は frontend の nginx が /api/ と /csrf-token を backend へ中継し、画面と同じオリジンで届く
+- **送信元の識別**: 送信元 IP は `getClientIp()`（`backend/src/middleware/client-ip.ts`）だけから得る。Express の `trust proxy` は信頼する中継の段数 `TRUST_PROXY_HOPS` で与え、`X-Forwarded-For` を直接読まない。画面の API は frontend の nginx が /api/ と /csrf-token を backend へ中継し、画面と同じオリジンで届く。段数は経路の中継の数に合わせる（試験・CI の compose は 1、Railway の本番・staging は 3＝エッジが利用者とエッジ自身の 2 段、nginx が 1 段。配備の後に監査ログの送信元 IP と自分の公開 IP の一致で確かめる）
 - **招待・リセットのトークン**: メールのリンクはトークンを URL のフラグメント（`#token=…`）に置き、画面が読んで POST の本文で検証する。保存は SHA-256 のハッシュだけである
 
 ### 主要な依存関係
@@ -413,7 +415,7 @@ coverage: {
 - `unit/models/` - Prisma のモデル・マイグレーションのテスト
 - `unit/routes/` - ルートのテスト（supertest で HTTP 経路を通す）
 - `unit/schemas/` - Zod バリデーションスキーマのテスト
-- `unit/scripts/` - 運用スクリプトのテスト（バックフィル、鍵生成）
+- `unit/scripts/` - 運用スクリプトのテスト（バックフィル、鍵生成、利用者の再有効化、2FA の暗号化鍵の入れ替えの後始末）
 - `unit/services/` - サービス層のテスト
 - `unit/types/` - 型定義まわりのテスト
 - `unit/utils/` - ユーティリティのテスト
@@ -1347,11 +1349,12 @@ CI成功後、CIワークフロー内でデプロイジョブが実行されま�
 **主要ステップ:**
 1. **Railway CLI セットアップ**: Railway環境へのデプロイ準備
 2. **デプロイ実行**: staging/production環境へのデプロイ
+   - `railway up --detach` は開始だけで戻るため、`scripts/railway-deploy-wait.sh` が新しいデプロイを ID で追い、Railway のヘルスチェックに合格した `SUCCESS` まで待つ（`FAILED`・`CRASHED`・置き換え・時間切れはジョブの失敗。backend・frontend を並行に待つ）。古い版に当たったヘルスチェックの合格で成功にしないため
    - Backend: Prisma Client自動生成（`npm run build`内で実行）
    - Backend: マイグレーション自動適用（Railway環境でデプロイ時に実行）
    - Backend: ::（IPv4・IPv6 のデュアルスタック）でリスンしてコンテナ環境の外部アクセスを許可（Railway の IPv6 だけのプライベートネットワークからの中継を受けるため）
 3. **ヘルスチェック**: デプロイ後のサービス状態確認
-   - 最大10回リトライ（30秒間隔）
+   - 最大10回リトライ（10秒間隔）。公開ドメインから届くこと（ドメインの向き先のポートなど）を見る
    - /healthエンドポイントで確認（HTTPS対応）
    - Railway環境ではHTTPSリダイレクトが有効化（CORS preflight対応を改善）
 4. **GitHub Environment統合**: デプロイ履歴の記録

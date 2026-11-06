@@ -2,6 +2,8 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
+_最終更新: 2026-11-07（Steering Sync: `/kiro-steering`。backend の `scripts/` のツリーに #870 の 2FA の暗号化鍵の入れ替えの後始末のスクリプトを加え、ルートの `scripts/` の命名の表に CI の手順の部品（`*.sh` と対の `*.selftest.sh`。Railway のデプロイの完了を待つ `railway-deploy-wait.sh`）の行を足した）_
+
 _最終更新: 2026-10-07（Steering Sync: quantity-table-generation のタスク 94.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない二部品（数値入力・テキスト入力）の行を外した。同部品と、消費者が 0 件の再輸出ファイルは同タスクで本番コードから外した——撤去を阻んでいた estimate-creation の設計文書の名指しは同スペックの Task 59.1 が付け替えた）_
 
 _最終更新: 2026-10-02（Steering Sync: cc-sdd を 3.1 の Skills モードへ揃え、v2 系の旧コマンド方式（`.claude/commands/kiro/`・`.claude/agents/kiro/`・`.kiro/settings/rules/`）を撤去したことに伴い、ルートのツリーと「主要ディレクトリの詳細」の `.claude/commands/kiro/` の記載を、現行の `.claude/skills/` の記載へ改めた）_
@@ -1081,7 +1083,8 @@ backend/
 │   │   ├── inactive-user-deactivation.job.ts # 90 日の自動無効化
 │   │   └── audit-log-archive.job.ts # 監査ログの月次のアーカイブ
 │   ├── scripts/           # サーバー上で実行する運用スクリプト
-│   │   └── reactivate-user.ts # 利用者の再有効化（npm run user:reactivate）
+│   │   ├── reactivate-user.ts # 利用者の再有効化（npm run user:reactivate）
+│   │   └── reset-undecryptable-two-factor.ts # 鍵の入れ替えの後に復号できない 2FA を未登録へ戻す（npm run user:reset-undecryptable-2fa。既定は確認だけ、--apply で書き込む）
 │   ├── storage/           # ストレージ抽象化レイヤー
 │   │   ├── index.ts       # エクスポート集約
 │   │   ├── storage-provider.interface.ts # ストレージプロバイダーインターフェース
@@ -1410,6 +1413,7 @@ steering が述べることと実体の一致を機械で見る**関門**であ�
 | `survey-*.ts` / `scan-*.ts` / `list-*.ts` | 調査用。判定せず母数や分布だけを出す。関門を書く前に実体を測る道具 | 走らない |
 | `*-adjudication.{md,json}` | 関門が許した個別の例外と、その裁定の根拠 | 関門が読む |
 | `*-baseline.json` | 既知の指摘を凍らせた基準点。増分だけを赤にする | 関門が読む |
+| `*.sh` と対の `*.selftest.sh` | CI の手順の部品（例: Railway のデプロイを `SUCCESS` まで待つ `railway-deploy-wait.sh`）。外部の CLI は偽物（`RAILWAY_BIN` など）へ差し替えて自己検査する | 走らない（CI のデプロイのジョブが自己検査を先に走らせる） |
 
 **規約:**
 
