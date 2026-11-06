@@ -1469,4 +1469,105 @@ describe('TwoFactorService', () => {
       }
     });
   });
+
+  describe('復号できない 2FA の秘密の判定と再設定（暗号化鍵の入れ替えの後始末）', () => {
+    const OTHER_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+    async function encryptWithOtherKey(secret: string): Promise<string> {
+      const current = process.env.TWO_FACTOR_ENCRYPTION_KEY;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = OTHER_KEY;
+      try {
+        return await twoFactorService.encryptSecret(secret);
+      } finally {
+        process.env.TWO_FACTOR_ENCRYPTION_KEY = current;
+      }
+    }
+
+    it('現在の鍵で復号できる秘密は none、復号できない登録済みの秘密は full と判定する', async () => {
+      const current = await twoFactorService.encryptSecret('JBSWY3DPEHPK3PXP');
+      const old = await encryptWithOtherKey('JBSWY3DPEHPK3PXP');
+
+      await expect(
+        twoFactorService.classifyUndecryptableTwoFactor({
+          twoFactorEnabled: true,
+          twoFactorSecret: current,
+          twoFactorPendingSecret: null,
+        })
+      ).resolves.toBe('none');
+      await expect(
+        twoFactorService.classifyUndecryptableTwoFactor({
+          twoFactorEnabled: true,
+          twoFactorSecret: old,
+          twoFactorPendingSecret: null,
+        })
+      ).resolves.toBe('full');
+    });
+
+    it('登録済みなのに秘密が無ければ full、再登録中の秘密だけが復号できなければ pending_only と判定する', async () => {
+      const current = await twoFactorService.encryptSecret('JBSWY3DPEHPK3PXP');
+      const old = await encryptWithOtherKey('KRSXG5CTMVRXEZLU');
+
+      await expect(
+        twoFactorService.classifyUndecryptableTwoFactor({
+          twoFactorEnabled: true,
+          twoFactorSecret: null,
+          twoFactorPendingSecret: null,
+        })
+      ).resolves.toBe('full');
+      await expect(
+        twoFactorService.classifyUndecryptableTwoFactor({
+          twoFactorEnabled: true,
+          twoFactorSecret: current,
+          twoFactorPendingSecret: old,
+        })
+      ).resolves.toBe('pending_only');
+      await expect(
+        twoFactorService.classifyUndecryptableTwoFactor({
+          twoFactorEnabled: false,
+          twoFactorSecret: null,
+          twoFactorPendingSecret: null,
+        })
+      ).resolves.toBe('none');
+    });
+
+    it.each([
+      ['登録済みの秘密', { twoFactorSecret: 'old', twoFactorPendingSecret: null }],
+      ['再登録中の秘密', { twoFactorSecret: 'current', twoFactorPendingSecret: 'old' }],
+    ])(
+      '読み出しの後に%sが書き換わっていれば（新しい鍵での再登録）、何も消さず監査も記録しない',
+      async (_label, secrets) => {
+        const current = await twoFactorService.encryptSecret('JBSWY3DPEHPK3PXP');
+        const old = await encryptWithOtherKey('KRSXG5CTMVRXEZLU');
+        const pick = (v: string | null) => (v === 'old' ? old : v === 'current' ? current : null);
+        mockPrismaClient.user.findUnique.mockResolvedValue({
+          id: 'user-1',
+          email: 'user@example.com',
+          twoFactorEnabled: true,
+          twoFactorSecret: pick(secrets.twoFactorSecret),
+          twoFactorPendingSecret: pick(secrets.twoFactorPendingSecret),
+        });
+        // 条件付きの更新が 0 行（読み出した値から変わっていた）
+        mockPrismaClient.user.updateMany.mockResolvedValue({ count: 0 });
+        const invalidate = vi.fn().mockResolvedValue(undefined);
+        const service = new TwoFactorService({ invalidate });
+
+        const result = await service.resetUndecryptableByOperatorScript('user-1', '理由');
+
+        expect(result).toEqual({ ok: true, value: 'none' });
+        expect(mockPrismaClient.user.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              id: 'user-1',
+              twoFactorSecret: pick(secrets.twoFactorSecret),
+              twoFactorPendingSecret: pick(secrets.twoFactorPendingSecret),
+            }),
+          })
+        );
+        expect(mockPrismaClient.refreshToken.deleteMany).not.toHaveBeenCalled();
+        expect(mockPrismaClient.twoFactorBackupCode.deleteMany).not.toHaveBeenCalled();
+        expect(mockPrismaClient.auditLog.create).not.toHaveBeenCalled();
+        expect(invalidate).not.toHaveBeenCalled();
+      }
+    );
+  });
 });
