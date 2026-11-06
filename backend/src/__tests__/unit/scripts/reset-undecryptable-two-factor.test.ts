@@ -9,19 +9,36 @@
  * 実データベースでの再設定と監査は統合検証（integration/two-factor-undecryptable-reset.integration.test.ts）で確かめる。
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { pathToFileURL } from 'url';
 
+const { prismaClient, redisMock, initRedis, disconnectPrisma, sharedInvalidate } = vi.hoisted(
+  () => ({
+    prismaClient: { user: { findMany: vi.fn() } },
+    redisMock: {
+      getClient: vi.fn((): { status: string } | null => ({ status: 'ready' })),
+      disconnect: vi.fn().mockResolvedValue(undefined),
+    },
+    initRedis: vi.fn().mockResolvedValue(undefined),
+    disconnectPrisma: vi.fn().mockResolvedValue(undefined),
+    sharedInvalidate: vi.fn().mockResolvedValue(undefined),
+  })
+);
+
 vi.mock('../../../db.js', () => ({
-  default: () => ({}),
-  disconnectPrisma: vi.fn().mockResolvedValue(undefined),
+  default: () => prismaClient,
+  disconnectPrisma: () => disconnectPrisma(),
 }));
 vi.mock('../../../redis.js', () => ({
-  default: { getClient: vi.fn(() => null), disconnect: vi.fn().mockResolvedValue(undefined) },
-  initRedis: vi.fn().mockResolvedValue(undefined),
+  default: redisMock,
+  initRedis: () => initRedis(),
+}));
+vi.mock('../../../services/authenticated-user-state.service.js', () => ({
+  getSharedAuthenticatedUserStateService: () => ({ invalidate: sharedInvalidate }),
 }));
 
 import {
+  createDefaultContext,
   DEFAULT_RESET_REASON,
   EXIT_CODE,
   isDirectExecution,
@@ -31,7 +48,10 @@ import {
   type ResetUndecryptableContext,
   type TwoFactorCandidate,
 } from '../../../scripts/reset-undecryptable-two-factor.js';
-import type { UndecryptableTwoFactorKind } from '../../../services/two-factor.service.js';
+import {
+  TwoFactorService,
+  type UndecryptableTwoFactorKind,
+} from '../../../services/two-factor.service.js';
 
 const VALID_KEY = 'a'.repeat(64);
 
@@ -204,6 +224,142 @@ describe('runResetUndecryptable', () => {
     expect(code).toBe(EXIT_CODE.SUCCESS);
     expect(err.join('\n')).toContain('REDIS_URL');
   });
+
+  it('読み出しの後に削除された利用者（USER_NOT_FOUND）は変えていない人数に数え、成功で終わる', async () => {
+    const { ctx, out } = createContext({});
+    vi.mocked(ctx.listCandidates).mockResolvedValue([candidate('gone@example.com')]);
+    vi.mocked(ctx.service.resetUndecryptableByOperatorScript).mockResolvedValue({
+      ok: false,
+      error: { type: 'USER_NOT_FOUND' },
+    });
+
+    const code = await runResetUndecryptable({ apply: true, reason: 'r' }, ctx);
+
+    expect(code).toBe(EXIT_CODE.SUCCESS);
+    expect(out).toContain(
+      '再設定した: 未登録へ戻す 0 人・再登録中の秘密を消す 0 人（現在の鍵で復号できる 1 人は変えていません）'
+    );
+  });
+
+  it('Error でない失敗も文字列にして報告する', async () => {
+    const { ctx, err } = createContext({});
+    vi.mocked(ctx.listCandidates).mockResolvedValue([candidate('odd@example.com')]);
+    vi.mocked(ctx.service.resetUndecryptableByOperatorScript).mockRejectedValue('timeout');
+
+    const code = await runResetUndecryptable({ apply: true, reason: 'r' }, ctx);
+
+    expect(code).toBe(EXIT_CODE.FAILURE);
+    expect(err).toContain('再設定に失敗しました: odd@example.com（timeout）');
+  });
+});
+
+describe('createDefaultContext', () => {
+  const originalKey = process.env.TWO_FACTOR_ENCRYPTION_KEY;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    redisMock.getClient.mockReturnValue({ status: 'ready' });
+    process.env.TWO_FACTOR_ENCRYPTION_KEY = VALID_KEY;
+  });
+
+  afterEach(() => {
+    process.env.TWO_FACTOR_ENCRYPTION_KEY = originalKey;
+    vi.restoreAllMocks();
+  });
+
+  it('キャッシュ基盤とデータベースで部品を作り、環境変数の鍵を渡し、close で接続を閉じる', async () => {
+    const ctx = await createDefaultContext();
+
+    expect(initRedis).toHaveBeenCalled();
+    expect(ctx.service).toBeInstanceOf(TwoFactorService);
+    expect(ctx.encryptionKey).toBe(VALID_KEY);
+    expect(ctx.stateCacheAvailable).toBe(true);
+
+    await ctx.close();
+    expect(redisMock.disconnect).toHaveBeenCalled();
+    expect(disconnectPrisma).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['接続が無い', null],
+    ['接続が準備できていない', { status: 'reconnecting' }],
+  ])('キャッシュ基盤の%sときは状態のキャッシュを無効化できないと示す', async (_label, client) => {
+    redisMock.getClient.mockReturnValue(client);
+
+    const ctx = await createDefaultContext();
+
+    expect(ctx.stateCacheAvailable).toBe(false);
+  });
+
+  it('2FA を登録済み、または秘密を持つ利用者を、2FA の列だけ読む', async () => {
+    const rows = [candidate('a@example.com')];
+    prismaClient.user.findMany.mockResolvedValue(rows);
+
+    const ctx = await createDefaultContext();
+
+    await expect(ctx.listCandidates()).resolves.toBe(rows);
+    expect(prismaClient.user.findMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { twoFactorEnabled: true },
+          { twoFactorSecret: { not: null } },
+          { twoFactorPendingSecret: { not: null } },
+        ],
+      },
+      select: {
+        id: true,
+        email: true,
+        twoFactorEnabled: true,
+        twoFactorSecret: true,
+        twoFactorPendingSecret: true,
+      },
+      orderBy: { email: 'asc' },
+    });
+  });
+
+  it('作った部品は、再設定の後に共有の状態のキャッシュを無効化する', async () => {
+    const ctx = await createDefaultContext();
+    const service = ctx.service as TwoFactorService;
+    // 再設定の取引を、対象の 2FA が復号できない（full）として進めた後の無効化だけを確かめる
+    vi.spyOn(service, 'classifyUndecryptableTwoFactor').mockResolvedValue('full');
+    const tx = {
+      user: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'user-1',
+          email: 'user@example.com',
+          twoFactorEnabled: true,
+          twoFactorSecret: 'old',
+          twoFactorPendingSecret: null,
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      refreshToken: { deleteMany: vi.fn().mockResolvedValue({ count: 2 }) },
+      twoFactorBackupCode: { deleteMany: vi.fn().mockResolvedValue({ count: 10 }) },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+    (prismaClient as unknown as { $transaction: unknown }).$transaction = vi.fn(
+      async (callback: (t: typeof tx) => Promise<unknown>) => callback(tx)
+    );
+
+    await expect(service.resetUndecryptableByOperatorScript('user-1', 'r')).resolves.toEqual({
+      ok: true,
+      value: 'full',
+    });
+    expect(sharedInvalidate).toHaveBeenCalledWith('user-1');
+  });
+
+  it('出力は標準出力と標準エラーへ送る', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const ctx = await createDefaultContext();
+    ctx.out('出力');
+    ctx.err('エラー');
+
+    expect(log).toHaveBeenCalledWith('出力');
+    expect(error).toHaveBeenCalledWith('エラー');
+  });
 });
 
 describe('main', () => {
@@ -225,6 +381,37 @@ describe('main', () => {
 
     expect(code).toBe(EXIT_CODE.FAILURE);
     expect(ctx.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('main（既定の部品と出力先）', () => {
+  const originalKey = process.env.TWO_FACTOR_ENCRYPTION_KEY;
+
+  afterEach(() => {
+    process.env.TWO_FACTOR_ENCRYPTION_KEY = originalKey;
+    vi.restoreAllMocks();
+  });
+
+  it('引数の誤りは標準エラーへ出す', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const code = await main(['--unknown']);
+
+    expect(code).toBe(EXIT_CODE.USAGE);
+    expect(error).toHaveBeenCalledWith('不明な引数です: --unknown');
+  });
+
+  it('既定の部品で実行し、鍵が無ければ何も読まずに止まり、接続を閉じる', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    delete process.env.TWO_FACTOR_ENCRYPTION_KEY;
+    vi.clearAllMocks();
+
+    const code = await main(['--apply']);
+
+    expect(code).toBe(EXIT_CODE.FAILURE);
+    expect(prismaClient.user.findMany).not.toHaveBeenCalled();
+    expect(redisMock.disconnect).toHaveBeenCalled();
+    expect(disconnectPrisma).toHaveBeenCalled();
   });
 });
 
