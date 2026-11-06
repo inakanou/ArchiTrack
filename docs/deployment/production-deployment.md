@@ -27,16 +27,18 @@ Phase 3: 100%のトラフィックを新バージョンに流す
 
 ### Step 1: 環境変数の設定
 
-Railway環境に以下の環境変数を設定：
+Railway環境に以下の環境変数を設定（一覧と各変数の意味は[環境変数設定](environment-variables.md)、Railway のサービスの作り方は[Railway設定](railway-setup.md)）。
+
+> **Railway の変数名には `STAGING_`・`PRODUCTION_` を付けない。** 接頭辞は GitHub の環境シークレット（`check:env` が読む）だけに付ける。誤って `STAGING_ARCHIVE_ENCRYPTION_KEY` の名前で作ると backend は `ProductionPrerequisiteError` で起動を繰り返す（[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)）。
 
 #### Backend環境変数
 
 ```bash
-# Database
-DATABASE_URL=postgresql://user:password@host:5432/database
+# Database（Railway の参照変数。Postgres・Redis の公開ネットワーク（TCP Proxy）は閉じる）
+DATABASE_URL=${{Postgres.DATABASE_URL}}
 
-# Redis
-REDIS_URL=redis://host:6379
+# Redis（本番で必須。欠けると起動を止める）
+REDIS_URL=${{Redis.REDIS_URL}}
 
 # JWT
 JWT_PRIVATE_KEY=<Base64エンコードされたEdDSA秘密鍵>
@@ -44,13 +46,18 @@ JWT_PUBLIC_KEY=<Base64エンコードされたEdDSA公開鍵>
 ACCESS_TOKEN_EXPIRY=15m
 REFRESH_TOKEN_EXPIRY=7d
 
-# Password Security
-TWO_FACTOR_ENCRYPTION_KEY=<32バイトのランダムキー>
+# 2FA の秘密の暗号化鍵（64文字16進数）
+TWO_FACTOR_ENCRYPTION_KEY=<64文字16進数>
 
-# Initial Admin
+# 本番の前提（欠けると ProductionPrerequisiteError で起動を止める）
+ARCHIVE_ENCRYPTION_KEY=<64文字16進数>  # 監査ログのアーカイブの暗号鍵。staging と別に生成
+TRUST_PROXY_HOPS=3  # Railway のエッジ（2 段）→ frontend の nginx（1 段）
+
+# Initial Admin（初回のシードの後にパスワードを変え、INITIAL_ADMIN_PASSWORD を削除する）
 INITIAL_ADMIN_EMAIL=admin@example.com
 INITIAL_ADMIN_PASSWORD=<強力なパスワード>
 INITIAL_ADMIN_DISPLAY_NAME=System Administrator
+RUN_SEED=true
 
 # SMTP (Nodemailer)
 SMTP_HOST=smtp.example.com
@@ -65,23 +72,51 @@ FRONTEND_URL=https://your-app.example.com
 # Environment
 NODE_ENV=production
 RAILWAY_ENVIRONMENT=production
+PORT=3000  # backend のドメインの向き先のポートと合わせる
+MIGRATE_ON_DEPLOY=true
+
+# ストレージ（Cloudflare R2）: STORAGE_TYPE=r2 と R2_*（環境変数設定を参照）
 ```
 
 #### Frontend環境変数
 
 ```bash
-VITE_API_BASE_URL=https://api.your-app.example.com
-VITE_API_TIMEOUT=10000
+# ビルド時: 画面が API を呼ぶ先 = frontend 自身の公開オリジン（API は nginx が中継する）
+VITE_API_URL=https://<frontend のドメイン>
 VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
+
+# 実行時: API の中継先（必須。未設定・パス付きではコンテナが起動前の検査で止まる）
+BACKEND_INTERNAL_URL=http://<backend のサービス名>.railway.internal:3000
+
+# 実行時: セキュリティヘッダー（R2 を使う環境では CSP の 2 つが必須。HSTS は本番だけ）
+CSP_IMG_SRC_EXTRA=https://<バケット名>.<アカウント ID>.r2.cloudflarestorage.com
+CSP_CONNECT_SRC_EXTRA=https://<バケット名>.<アカウント ID>.r2.cloudflarestorage.com https://o<組織 ID>.ingest.sentry.io
+NGINX_HSTS_VALUE=max-age=31536000; includeSubDomains
 ```
+
+#### GitHub の環境シークレット（`production` 環境）
+
+デプロイのジョブはデプロイの前に `check:env` で本番の前提を検査する。Railway の backend と同じ値を、接頭辞を付けた名前で登録する。
+
+- `RAILWAY_PRODUCTION_TOKEN`（Railway のプロジェクトトークン）
+- `PRODUCTION_DATABASE_URL`・`PRODUCTION_REDIS_URL`・`PRODUCTION_FRONTEND_URL`
+- `PRODUCTION_JWT_PUBLIC_KEY`・`PRODUCTION_JWT_PRIVATE_KEY`・`PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY`
+- `PRODUCTION_ARCHIVE_ENCRYPTION_KEY`・`PRODUCTION_TRUST_PROXY_HOPS`
+
+staging は同じものを `RAILWAY_STAGING_TOKEN`・`STAGING_*` で `staging` 環境に登録する。一覧は[CI/CD設定](cicd-github-actions.md#github-secretsの設定)。
 
 ### Step 2: データベースマイグレーション
 
+`MIGRATE_ON_DEPLOY=true`・`RUN_SEED=true` のとき、backend の起動時にマイグレーションとシードが実行される。手動で行うときは backend のコンテナの中から実行する（Postgres の公開ネットワークを閉じているため、手元からの `railway run`・`railway connect` は届かない）。
+
 ```bash
-# Railwayコンソールで実行
+railway ssh --service <backend のサービス名> --environment production
+# 作業ディレクトリは /app
 npm run prisma:migrate:deploy
-npm run prisma:seed
+node dist/prisma/seed.js
 ```
+
+シードの後は[初回デプロイの後の後片づけ](secrets-management.md#初回デプロイの後の後片づけ必須)を行う。
 
 ### Step 3: デプロイ実行
 
@@ -122,7 +157,7 @@ railway up --environment production
 
 ### Step 4: スモークテスト
 
-デプロイ完了後、以下のスモークテストを実行：
+デプロイ完了後、以下のスモークテストを実行（あわせて[配備の後の確認](railway-setup.md#配備の後の確認)の中継・CSP・送信元 IP の確認を行う）：
 
 #### 1. ヘルスチェック
 
@@ -310,4 +345,4 @@ Railway Logsで以下を監視：
 **関連ドキュメント**:
 - [技術設計書](../../.kiro/specs/user-authentication/design.md)
 - [要件定義書](../../.kiro/specs/user-authentication/requirements.md)
-- [セキュリティレビュー結果](../architecture/security-review.md)
+- [セキュリティ設計](../architecture/security-design.md)

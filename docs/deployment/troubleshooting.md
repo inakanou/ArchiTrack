@@ -51,9 +51,9 @@ npm --prefix backend run db:draft:finalize
 
 2. **手動マイグレーション実行:**
    ```bash
-   # Railway CLI
-   railway link
-   railway run npm --prefix backend run prisma:migrate:deploy
+   # backend のコンテナに入って実行する（作業ディレクトリは /app）
+   railway ssh --service <backend のサービス名> --environment <staging|production>
+   npm run prisma:migrate:deploy
    ```
 
 3. **デプロイログ確認:**
@@ -114,6 +114,19 @@ Error: Invalid JWT key format
    - 改行や空白を追加しない
    - Base64文字列全体をコピー
 
+### JWT 鍵の入れ替えの後に全員がログアウトされる
+
+**症状:**
+- `JWT_PUBLIC_KEY`・`JWT_PRIVATE_KEY` を入れ替えた後、既存のセッションのリフレッシュが失敗し、利用者がログインの画面へ戻される
+
+**原因:**
+- 旧鍵で署名したアクセストークン・リフレッシュトークンを新しい鍵では検証できない（想定どおりの動作）
+
+**解決方法:**
+- 利用者にログインし直してもらう
+- 定期のローテーションで既存のセッションを保ちたいときだけ、猶予期間として `JWT_PUBLIC_KEY_OLD` に旧公開鍵を設定する（[鍵ローテーション手順書](key-rotation-procedure.md)）
+- **漏えいの疑い（インシデント）で入れ替えたときは `JWT_PUBLIC_KEY_OLD` を設定しない**（漏れたかもしれない旧鍵のトークンを受け付けてしまう。[インシデント時の緊急ローテーション](key-rotation-procedure.md#インシデント時の緊急ローテーション)）
+
 ---
 
 ## 2FA関連
@@ -135,21 +148,33 @@ Error: Unable to decrypt 2FA secret
    - バックアップから正しい`TWO_FACTOR_ENCRYPTION_KEY`を取得
    - Railway Dashboard > Variables に設定
 
-2. **全ユーザーの2FA設定をリセット（最終手段）:**
-   ```bash
-   # Railway CLI
-   railway link
-   railway shell
+2. **復号できない 2FA を未登録へ戻す（鍵を戻せないとき）:**
+   - 下の「[2FA の暗号化鍵の入れ替えの後に 6 桁のコードの画面から進めない](#2fa-の暗号化鍵の入れ替えの後に-6-桁のコードの画面から進めない)」を参照（データベースを直接書き換えない）
 
-   # データベース操作（慎重に実行）
-   npx prisma studio
-   # User テーブルで twoFactorEnabled を false に設定
-   ```
+### 2FA の暗号化鍵の入れ替えの後に 6 桁のコードの画面から進めない
 
-3. **新しい暗号化鍵を生成:**
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-   ```
+**症状:**
+- `TWO_FACTOR_ENCRYPTION_KEY` を入れ替えてデプロイした後、2FA を登録済みの利用者（管理者を含む）がログインの 6 桁のコードの画面で正しいコードを入れても進めない
+- backend のログに `TOTP秘密鍵の復号化に失敗しました` が出る
+
+**原因:**
+- 古い鍵で暗号化した TOTP の秘密を新しい鍵で復号できない（鍵の入れ替えでは想定どおりの動作）
+
+**解決方法:**
+
+```bash
+# backend のコンテナに入る（作業ディレクトリは /app）
+railway ssh --service <backend のサービス名> --environment <staging|production>
+
+# 確認だけ（書き込まない）。対象の利用者と人数を表示する
+npm run user:reset-undecryptable-2fa
+
+# 書き込む（理由は監査に残る）
+npm run user:reset-undecryptable-2fa -- --apply --reason "2FA の暗号化鍵の入れ替え"
+```
+
+- 対象の利用者は次のログインで 2FA を登録し直す。詳細は[シークレット管理](secrets-management.md#2fa暗号化鍵のローテーション)
+- Postgres の公開ネットワークを閉じた環境では、手元から DB へつなぐ `railway run`・`railway connect` は届かない。`railway ssh` で backend のコンテナの中から実行する
 
 ---
 
@@ -182,9 +207,9 @@ Error: P1001: Can't reach database server
 
 3. **接続テスト:**
    ```bash
-   # Railway CLI
-   railway link
-   railway run npx prisma db push --preview-feature
+   # backend のコンテナの中から確かめる（Postgres の公開ネットワークは閉じているため手元からは届かない）
+   railway ssh --service <backend のサービス名> --environment <staging|production>
+   npx prisma migrate status
    ```
 
 ---
@@ -216,10 +241,9 @@ Error: Admin role not found. Run seedRoles() first.
 
 3. **Railway環境での手動シーディング:**
    ```bash
-   # Railway CLI
-   railway link
-   railway shell
-   npm run prisma:seed
+   # backend のコンテナに入って実行する（作業ディレクトリは /app）
+   railway ssh --service <backend のサービス名> --environment <staging|production>
+   node dist/prisma/seed.js
    ```
 
 ---
@@ -276,14 +300,47 @@ Error: Admin role not found. Run seedRoles() first.
    - [CI/CD設定](cicd-github-actions.md#github-secretsの設定)
 
 2. **Railway トークンを再生成:**
-   - Railway Dashboard > Account Settings > Tokens
-   - 新しいトークンを生成
-   - GitHub Secrets の `RAILWAY_TOKEN` を更新
+   - 下の「[`Invalid RAILWAY_TOKEN` でデプロイが失敗する](#invalid-railway_token-でデプロイが失敗する)」を参照
 
 3. **サービスIDを確認:**
    ```bash
    railway status --json | jq -r '.services'
    ```
+
+### `Invalid RAILWAY_TOKEN` でデプロイが失敗する
+
+**症状:**
+- デプロイのジョブ（`deploy-staging`・`deploy-production`）の Railway の CLI が `Invalid RAILWAY_TOKEN` で止まる
+
+**原因:**
+- Railway がトークンを取り消した（2026-11 の Railway のセキュリティインシデントでは、既存のトークンが取り消された）、またはトークンが期限切れ・削除済み
+
+**解決方法:**
+1. Railway Dashboard > Project Settings > **Tokens** で、環境（staging・production）ごとにプロジェクトトークンを作り直す
+2. GitHub の環境シークレット `RAILWAY_STAGING_TOKEN`（`staging` 環境）・`RAILWAY_PRODUCTION_TOKEN`（`production` 環境）を新しい値に更新する
+3. 失敗したデプロイのジョブを再実行する（[手動デプロイ](cicd-github-actions.md#手動デプロイ)）
+
+> トークンの取り消しが漏えいの疑いによるときは、Railway の変数（JWT 鍵・2FA 暗号化鍵など）も入れ替える（[インシデント時の緊急ローテーション](key-rotation-procedure.md#インシデント時の緊急ローテーション)）。
+
+### backend が `ProductionPrerequisiteError` で起動を繰り返す
+
+**症状:**
+- backend のデプロイが `CRASHED` になる、またはデプロイのジョブが `Railway deployment did not become active` で失敗する
+- backend のログに次が出る
+  ```
+  ProductionPrerequisiteError: Production prerequisites are missing or invalid: ARCHIVE_ENCRYPTION_KEY (64 hex characters)
+  ```
+
+**原因:**
+- 本番（`NODE_ENV=production`）の前提の変数（`ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS`・`REDIS_URL`）が Railway の backend に無い、または形が違う（`ARCHIVE_ENCRYPTION_KEY` は 64 桁の 16 進）
+- **Railway の変数の名前に GitHub Secrets の接頭辞を付けた**（例: `STAGING_ARCHIVE_ENCRYPTION_KEY`）。backend は `ARCHIVE_ENCRYPTION_KEY` しか読まない。デプロイの前の `check:env` は GitHub Secrets を読むため合格してしまう
+
+**解決方法:**
+1. Railway Dashboard > Backend Service > **Variables** で、メッセージに出た変数をアプリが読む名前（接頭辞なし）で設定する。誤った名前の変数は削除する
+2. 再デプロイし、デプロイが `SUCCESS` になることを確かめる
+3. GitHub の環境シークレット（`STAGING_ARCHIVE_ENCRYPTION_KEY` など）が Railway と同じ値か確かめる
+
+詳細は[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)を参照。
 
 ---
 
@@ -303,7 +360,7 @@ curl: (7) Failed to connect to <backend-url> port 443: Connection refused
 
 1. **デプロイログを確認:**
    - Railway Dashboard > Service > Deployments
-   - "Application started on port 3000" メッセージを確認
+   - `Server started` のログ（`port` の値）を確認
 
 2. **ヘルスチェックエンドポイントをテスト:**
    ```bash
@@ -312,6 +369,21 @@ curl: (7) Failed to connect to <backend-url> port 443: Connection refused
 
 3. **Railwayサービスを再起動:**
    - Railway Dashboard > Service > **Restart**
+
+### 外から 502（`Application failed to respond`）なのにコンテナの中の `/health` は正常
+
+**症状:**
+- 公開ドメインへの `curl https://<backend のドメイン>/health` が 502（`Application failed to respond`）
+- Railway のデプロイは `SUCCESS` で、ログに `Server started`（`port` は `3000`）が出ている
+
+**原因:**
+- 公開ドメインの向き先のポート（Target Port）がアプリの待ち受けのポート（`PORT`。既定 `3000`）と違う。Railway のヘルスチェックはコンテナの待ち受けのポートへ届くため合格する
+
+**解決方法:**
+1. Backend Service > **Settings** > **Networking** で、ドメインの向き先のポートを `PORT` の値に直す
+2. 外から `/health` が 200 になることを確かめる
+
+frontend の公開ドメイン経由の `/csrf-token` だけが 502 になるときは、frontend の `BACKEND_INTERNAL_URL` のホスト・ポートが backend のプライベートネットワークの名前・`PORT` と合っているかを確かめる（[Railway設定](railway-setup.md#4-frontend-service)）。
 
 ---
 
@@ -482,6 +554,49 @@ Setting up fake worker failed: "Failed to fetch dynamically imported module: htt
 **予防策:**
 - テスト・CI環境は本番相当（nginx）で実行し、MIMEタイプ問題を早期検出する
 - 新しいファイル拡張子（`.mjs`, `.wasm`等）を使用するライブラリ追加時はnginx設定を確認する
+
+---
+
+### 写真・PDF が画面に出ない（R2 は正常）
+
+**症状:**
+- 写真のサムネイル・PDF が表示されない。R2 のバケットにはファイルがあり、API も署名 URL を返している
+- ブラウザのコンソールに `Refused to load the image ... because it violates the following Content Security Policy directive: "img-src ..."`（または `connect-src`）が出る
+
+**原因:**
+- frontend の `CSP_IMG_SRC_EXTRA`・`CSP_CONNECT_SRC_EXTRA` が未設定で、CSP が R2 の署名 URL の配信元（`https://<バケット名>.<アカウント ID>.r2.cloudflarestorage.com`）を拒んでいる
+
+**解決方法:**
+1. 配信中の CSP を確かめる
+   ```bash
+   curl -sI https://<frontend のドメイン> | grep -i content-security-policy
+   # img-src・connect-src に R2 の配信元が入っていなければ未設定
+   ```
+2. Railway Dashboard > Frontend Service > **Variables** に、R2 の配信元を `CSP_IMG_SRC_EXTRA`・`CSP_CONNECT_SRC_EXTRA` として設定する（`connect-src` には Sentry の取り込み先も空白区切りで加える）。実行時の変数のため再デプロイ（再起動）で反映される
+3. 画面で写真・PDF を表示し、コンソールに CSP の違反が出ないことを確かめる
+
+詳細は[環境変数設定](environment-variables.md#frontend-service)を参照。
+
+---
+
+## 監査ログ関連
+
+### 監査ログの送信元 IP が Railway のエッジの IP になる
+
+**症状:**
+- 監査ログ・ログイン履歴の送信元 IP が、利用者の IP ではなくデータセンターの範囲の IP（Railway のエッジの IP）に揃う
+- 全利用者が同じ IP として扱われ、回数制限を共有する
+
+**原因:**
+- backend の `TRUST_PROXY_HOPS` が実際の中継の段数より少ない。Railway の構成では「Railway のエッジ（X-Forwarded-For に 2 段を足す）→ frontend の nginx（1 段）→ backend」で `3` が必要（`2` ではエッジの IP になる。2026-11-07 に staging で実測）
+
+**解決方法:**
+1. Railway Dashboard > Backend Service > **Variables** で `TRUST_PROXY_HOPS=3` にする（GitHub の環境シークレット `STAGING_TRUST_PROXY_HOPS`・`PRODUCTION_TRUST_PROXY_HOPS` も同じ値に）
+2. 自分の公開 IP を確かめてからログインし、監査ログの送信元 IP がそれと一致することを確かめる
+   ```bash
+   curl https://ifconfig.me
+   ```
+3. 一致しなければ段数を直す（多すぎると利用者が X-Forwarded-For を偽って送信元を詐称できるため、一致する最小の値にする）
 
 ---
 

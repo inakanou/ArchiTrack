@@ -26,7 +26,18 @@
 
 ### ステップ2: サービスの作成
 
-以下の4つのサービスを作成します：
+以下の4つのサービスを作成します（staging・production は同じプロジェクトの Railway の環境として分け、各環境に同じ4つのサービスを置く）。
+
+```mermaid
+graph LR
+    U[利用者のブラウザ] -->|HTTPS| E[Railway のエッジ]
+    E --> F[frontend<br/>nginx]
+    F -->|"/api/・/csrf-token を中継<br/>BACKEND_INTERNAL_URL"| B[backend]
+    B -->|プライベートネットワーク| P[(PostgreSQL)]
+    B -->|プライベートネットワーク| R[(Redis)]
+```
+
+画面は API を同じオリジン（frontend の公開ドメイン）へ送り、frontend の nginx がプライベートネットワーク（`*.railway.internal`）で backend へ中継する。
 
 #### 1. PostgreSQL Database
 
@@ -34,6 +45,8 @@
   - Railway Dashboard > **+ New** > **Database** > **PostgreSQL**
 - **自動設定:**
   - `DATABASE_URL` 環境変数が自動生成されます
+- **公開ネットワーク（TCP Proxy）は無効にする:**
+  - PostgreSQL Service > **Settings** > **Networking** で Public Networking（TCP Proxy）が無いことを確かめる。backend からはプライベートネットワークで届く
 
 #### 2. Redis Cache
 
@@ -41,6 +54,7 @@
   - Railway Dashboard > **+ New** > **Database** > **Redis**
 - **自動設定:**
   - `REDIS_URL` 環境変数が自動生成されます
+- **公開ネットワーク（TCP Proxy）は無効にする:** PostgreSQL と同じ
 
 #### 3. Backend Service
 
@@ -51,8 +65,8 @@
 **設定:**
 
 - **Root Directory**: `/backend`
-- **Build Command**: Dockerfileから自動検出
-- **Start Command**: `npx prisma migrate deploy && npm start`
+- **Build Command**: Dockerfileから自動検出（`backend/railway.toml` の `builder = "DOCKERFILE"`）
+- **Start Command**: 設定しない（Dockerfile の `docker-entrypoint.sh` が `MIGRATE_ON_DEPLOY=true` でマイグレーションを、`RUN_SEED=true` でシードを実行してから起動する）
 
 **環境変数:**
 ```bash
@@ -75,7 +89,11 @@ NODE_ENV=production
 PORT=3000
 LOG_LEVEL=info
 
-# 初期管理者アカウント
+# 本番の前提（どれかが欠けると ProductionPrerequisiteError で起動を止める。REDIS_URL も同じ）
+ARCHIVE_ENCRYPTION_KEY=<64文字16進数>  # 監査ログのアーカイブの暗号鍵。staging・本番で別々に生成
+TRUST_PROXY_HOPS=3  # Railway のエッジ（2 段）→ frontend の nginx（1 段）
+
+# 初期管理者アカウント（初回のシードの後に INITIAL_ADMIN_PASSWORD を削除する）
 INITIAL_ADMIN_EMAIL=admin@example.com
 INITIAL_ADMIN_PASSWORD=<強力なパスワード>
 INITIAL_ADMIN_DISPLAY_NAME=System Administrator
@@ -85,7 +103,14 @@ SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 
 # デプロイ時マイグレーション自動実行
 MIGRATE_ON_DEPLOY=true
+
+# 起動時のシード（ロール・権限・初期管理者。本番は明示したときだけ実行）
+RUN_SEED=true
+
+# ストレージ（Cloudflare R2）は環境変数設定の「Railway環境」を参照
 ```
+
+> **変数名に `STAGING_`・`PRODUCTION_` を付けない。** GitHub Secrets（`check:env` が読む）の名前には接頭辞が付くが、Railway の変数はアプリが読む名前のまま設定する。`STAGING_ARCHIVE_ENCRYPTION_KEY` の名前で作ると backend は `ARCHIVE_ENCRYPTION_KEY` を見つけられず起動を繰り返し止める（[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)）。
 
 #### 4. Frontend Service
 
@@ -100,17 +125,25 @@ MIGRATE_ON_DEPLOY=true
 
 **環境変数:**
 ```bash
-# Backend API URL
-VITE_API_BASE_URL=https://your-backend.railway.app
+# API の接続先（ビルド時）: frontend 自身の公開オリジン（同一オリジン）
+VITE_API_URL=https://<frontend のドメイン>
 
-# トークンリフレッシュ閾値
-VITE_TOKEN_REFRESH_THRESHOLD=5m
+# API の中継先（実行時。必須）: backend のプライベートネットワークの URL。scheme://host[:port] だけ
+BACKEND_INTERNAL_URL=http://<backend のサービス名>.railway.internal:3000
+
+# CSP の追加の取得先（R2 を使う環境で必須。空白区切り）
+CSP_IMG_SRC_EXTRA=https://<バケット名>.<アカウント ID>.r2.cloudflarestorage.com
+CSP_CONNECT_SRC_EXTRA=https://<バケット名>.<アカウント ID>.r2.cloudflarestorage.com https://o<組織 ID>.ingest.sentry.io
+
+# HSTS（本番だけ。staging は設定しない）
+NGINX_HSTS_VALUE=max-age=31536000; includeSubDomains
 
 # Sentry（推奨）
 VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 ```
 
-> `VITE_` で始まる変数はViteが**ビルド時**にバンドルへ埋め込みます（受け口は `frontend/Dockerfile` の `ARG VITE_SENTRY_DSN`）。値を追加・変更したら**再デプロイ（再ビルド）するまで反映されません**。`VITE_SENTRY_DSN` を設定しない場合、フロントエンドからSentryへの送出は行われません。
+> `VITE_` で始まる変数はViteが**ビルド時**にバンドルへ埋め込みます（受け口は `frontend/Dockerfile` の `ARG VITE_API_URL`・`ARG VITE_SENTRY_DSN`）。値を追加・変更したら**再デプロイ（再ビルド）するまで反映されません**。`VITE_SENTRY_DSN` を設定しない場合、フロントエンドからSentryへの送出は行われません。
+> `BACKEND_INTERNAL_URL` が未設定・形の違い（パス付きなど）だと、コンテナは起動前の検査（`nginx-require-backend-internal-url.sh`）で止まる。ポートは backend の `PORT` に合わせる。各変数の詳細は[環境変数設定](environment-variables.md#frontend-service)を参照。
 
 ### ステップ3: ドメイン設定
 
@@ -129,12 +162,25 @@ VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 2. **Generate Domain** をクリック
 3. 生成されたURL（例: `your-frontend.railway.app`）をメモ
 
-#### CORS設定の更新
+#### CORS設定・API の接続先の更新
 
 1. Backend Service > **Variables**
 2. `FRONTEND_URL` を更新: `https://your-frontend.railway.app`
 3. Frontend Service > **Variables**
-4. `VITE_API_BASE_URL` を更新: `https://your-backend.railway.app`
+4. `VITE_API_URL` を frontend の公開 URL（`https://your-frontend.railway.app`）にし、frontend を再ビルドする
+
+#### 配備の後の確認
+
+```bash
+# 中継の確認: frontend の公開ドメイン経由で 200（JSON）。502 なら中継先へ届いていない
+curl -s -o /dev/null -w "%{http_code}\n" https://<frontend のドメイン>/csrf-token
+
+# セキュリティヘッダーの確認: CSP に R2 の配信元が入っているか（本番は HSTS も）
+curl -sI https://<frontend のドメイン> | grep -i -E "content-security-policy|strict-transport-security"
+```
+
+- 自分の公開 IP（`curl https://ifconfig.me`）でログインし、監査ログの送信元 IP がそれと一致することを確かめる（違えば `TRUST_PROXY_HOPS` を直す）
+- 写真・PDF を表示し、ブラウザのコンソールに CSP の違反が出ないことを確かめる
 
 ### ステップ4: 自動デプロイの無効化
 
@@ -150,14 +196,17 @@ GitHub Actionsから制御するため、Railway UIからの自動デプロイ�
 2. **Watch Paths** を空にする
 3. または `railway.toml` に `watchPatterns = []` を設定
 
-**railway.toml の設定例:**
+**railway.toml の設定例（`backend/railway.toml`）:**
 ```toml
 [build]
-builder = "nixpacks"
+builder = "DOCKERFILE"
+watchPatterns = []  # GitHub Actionsから制御するため自動デプロイを無効化
 
 [deploy]
-startCommand = "npx prisma migrate deploy && npm start"
-watchPatterns = []  # Railway UIからの自動デプロイを無効化
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
 ```
 
 ---
@@ -234,19 +283,17 @@ railway status --json | jq -r '.services[] | select(.name=="frontend") | .id'
 
 Railway環境変数に`MIGRATE_ON_DEPLOY=true`を設定することで、デプロイ時に自動的に`prisma migrate deploy`が実行されます。
 
-**backend/railway.toml:**
-```toml
-[deploy]
-startCommand = "npx prisma migrate deploy && npm start"
-```
+起動時に `backend/docker-entrypoint.sh` が `npm run prisma:migrate:deploy` を実行します（`NODE_ENV=production` かつ `MIGRATE_ON_DEPLOY=true` のとき）。
 
 ### 手動マイグレーション適用
 
 ```bash
-# Railway CLI
-railway link
-railway run npm --prefix backend run prisma:migrate:deploy
+# backend のコンテナに入って実行する（作業ディレクトリは /app）
+railway ssh --service <backend のサービス名> --environment <staging|production>
+npm run prisma:migrate:deploy
 ```
+
+> `railway run`・`railway connect` は手元の端末から DB へ直接つなぐため、Postgres の公開ネットワーク（TCP Proxy）を無効にした環境では届かない。運用のスクリプトは `railway ssh` で backend のコンテナの中から実行する。
 
 ### マイグレーション適用の確認
 
@@ -266,15 +313,14 @@ Migration applied: <migration-name>
 
 ### 自動実行
 
-環境変数 `INITIAL_ADMIN_EMAIL` と `INITIAL_ADMIN_PASSWORD` が設定されている場合、初回デプロイ時にシーディングスクリプトが自動実行されます。
+本番（`NODE_ENV=production`）では `RUN_SEED=true` のときだけ、起動時にシード（`node dist/prisma/seed.js`）が実行されます。初期管理者は `INITIAL_ADMIN_EMAIL` と `INITIAL_ADMIN_PASSWORD` が設定されているときに作られます（既存の管理者は変えない）。作った後は[初回デプロイの後の後片づけ](secrets-management.md#初回デプロイの後の後片づけ必須)を行います。
 
 ### 手動実行
 
 ```bash
-# Railway CLI
-railway link
-railway shell
-npm --prefix backend run prisma:seed
+# backend のコンテナに入って実行する（作業ディレクトリは /app）
+railway ssh --service <backend のサービス名> --environment <staging|production>
+node dist/prisma/seed.js
 ```
 
 ---
