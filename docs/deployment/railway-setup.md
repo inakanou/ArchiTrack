@@ -118,7 +118,10 @@ VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 
 1. Backend Service > **Settings** > **Networking**
 2. **Generate Domain** をクリック
-3. 生成されたURL（例: `your-backend.railway.app`）をメモ
+3. ドメインの向き先のポート（Target Port）を backend の待ち受けのポート（`PORT`。既定 `3000`。起動のログの `Server started port=...`）に合わせる
+4. 生成されたURL（例: `your-backend.railway.app`）をメモ
+
+> 向き先のポートが待ち受けのポートと違うと、コンテナの中のヘルスチェックは通るのに外からは 502（`Application failed to respond`）になる。設定を変えた後は外から `/health` が 200 になることを確かめる。
 
 #### Frontend Service
 

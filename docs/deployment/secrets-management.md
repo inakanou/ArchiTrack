@@ -302,6 +302,16 @@ npm --prefix backend run prisma:seed
 **注意:**
 - 既に管理者が存在する場合はスキップされます（冪等性）
 
+### 初回デプロイの後の後片づけ（必須）
+
+`INITIAL_ADMIN_PASSWORD` は初期管理者を作るためだけの値で、作った後に変数へ残すと、変数が漏れたときに管理者を乗っ取られる。
+
+1. 初期管理者でログインし、2FA を登録する
+2. プロフィールの画面でパスワードを変える（`INITIAL_ADMIN_PASSWORD` と違う値）
+3. Railway Dashboard > Backend Service > Variables から `INITIAL_ADMIN_PASSWORD` を削除する（削除で再デプロイされる。シードは既存の管理者を変えない）
+
+変数の漏えいの疑い（Railway のセキュリティインシデントなど）で変数を入れ替えるときも、`INITIAL_ADMIN_PASSWORD` が残っていれば同じく管理者のパスワードを変えて削除する。
+
 ---
 
 ## セキュリティベストプラクティス

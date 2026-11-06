@@ -182,9 +182,11 @@ jobs:
 
 #### 実行内容
 
-1. Railway CLIでStaging環境のBackendサービスをデプロイ
-2. Railway CLIでStaging環境のFrontendサービスをデプロイ
-3. ヘルスチェック実行
+1. Railway CLIでStaging環境のBackend・Frontendのサービスのデプロイを開始する（`railway up --detach`）
+2. 新しいデプロイが Railway のヘルスチェックに合格する（状態が `SUCCESS`）まで待つ（`scripts/railway-deploy-wait.sh`。`FAILED`・`CRASHED`・置き換え・時間切れはジョブの失敗）
+3. 公開ドメインへのヘルスチェック実行
+
+`railway up --detach` はデプロイの開始だけで戻る。待たずにヘルスチェックをすると、新しい版が起動に失敗していても古い版が応答して合格してしまうため、新しいデプロイの状態を ID で追ってから確かめる。
 
 #### ワークフロー例
 
@@ -206,24 +208,17 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy Backend to Staging
+      - name: Deploy to Staging and wait for Railway
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --service ${{ secrets.RAILWAY_BACKEND_STAGING_SERVICE_ID }}
-          railway up --detach
-
-      - name: Deploy Frontend to Staging
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --service ${{ secrets.RAILWAY_FRONTEND_STAGING_SERVICE_ID }}
-          railway up --detach
+          # デプロイを開始し、新しいデプロイが SUCCESS になるまで待つ（実際の ci.yml は backend・frontend を並行に待つ）
+          bash scripts/railway-deploy-wait.sh "${{ secrets.RAILWAY_BACKEND_STAGING_SERVICE_ID }}" staging
+          bash scripts/railway-deploy-wait.sh "${{ secrets.RAILWAY_FRONTEND_STAGING_SERVICE_ID }}" staging
 
       - name: Health Check
-        run: |
-          sleep 30
-          curl -f ${{ secrets.STAGING_BACKEND_URL }}/health || exit 1
+        run: curl -f ${{ secrets.STAGING_BACKEND_URL }}/health || exit 1
 ```
 
 ### CD - Production
@@ -235,9 +230,11 @@ jobs:
 
 #### 実行内容
 
-1. Railway CLIでProduction環境のBackendサービスをデプロイ
-2. Railway CLIでProduction環境のFrontendサービスをデプロイ
-3. ヘルスチェック実行
+1. Railway CLIでProduction環境のBackend・Frontendのサービスのデプロイを開始する（`railway up --detach`）
+2. 新しいデプロイが Railway のヘルスチェックに合格する（状態が `SUCCESS`）まで待つ（`scripts/railway-deploy-wait.sh`。`FAILED`・`CRASHED`・置き換え・時間切れはジョブの失敗）
+3. 公開ドメインへのヘルスチェック実行
+
+`railway up --detach` はデプロイの開始だけで戻る。待たずにヘルスチェックをすると、新しい版が起動に失敗していても古い版が応答して合格してしまうため、新しいデプロイの状態を ID で追ってから確かめる。
 
 #### ワークフロー例
 
@@ -259,24 +256,17 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy Backend to Production
+      - name: Deploy to Production and wait for Railway
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }}
-          railway up --detach
-
-      - name: Deploy Frontend to Production
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --service ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }}
-          railway up --detach
+          # デプロイを開始し、新しいデプロイが SUCCESS になるまで待つ（実際の ci.yml は backend・frontend を並行に待つ）
+          bash scripts/railway-deploy-wait.sh "${{ secrets.RAILWAY_BACKEND_SERVICE_ID }}" production
+          bash scripts/railway-deploy-wait.sh "${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }}" production
 
       - name: Health Check
-        run: |
-          sleep 30
-          curl -f ${{ secrets.PRODUCTION_BACKEND_URL }}/health || exit 1
+        run: curl -f ${{ secrets.PRODUCTION_BACKEND_URL }}/health || exit 1
 ```
 
 ---

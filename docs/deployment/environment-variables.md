@@ -22,7 +22,7 @@
 | `REFRESH_TOKEN_EXPIRY` | リフレッシュトークン有効期限 | 任意 | `7d` | 手動設定 |
 | `FRONTEND_URL` | フロントエンドURL（CORS設定用） | 任意 | `http://localhost:5173` | 手動設定 |
 | `NODE_ENV` | 実行環境 | 任意 | `development` | `production`。API ドキュメント（`/docs`）とエラー応答のスタックトレースは `development`・`test` と明示したときだけ有効（未設定では無効） |
-| `TRUST_PROXY_HOPS` | 信頼する中継の段数（送信元 IP の識別。回数制限・監査ログに使う） | **本番で必須**（未設定では起動を止める） | `0`（中継を信頼しない） | 0 以上の整数。`true` などは起動時の検証で拒否。本番は「Railway のエッジ → frontend の nginx → backend」で `2` を想定し、配備時に `req.ip` の実測で確かめる |
+| `TRUST_PROXY_HOPS` | 信頼する中継の段数（送信元 IP の識別。回数制限・監査ログに使う） | **本番で必須**（未設定では起動を止める） | `0`（中継を信頼しない） | 0 以上の整数。`true` などは起動時の検証で拒否。本番・staging は `3`（Railway のエッジが X-Forwarded-For に利用者の IP とエッジ自身の IP の 2 段を足し、frontend の nginx が 1 段を足す。2026-11-07 に staging で実測）。配備時に監査ログの送信元 IP と自分の公開 IP（`curl https://ifconfig.me`）の一致を確かめる |
 | `ARCHIVE_ENCRYPTION_KEY` | 監査ログのアーカイブの暗号鍵（AES-256、64 桁の 16 進） | **本番で必須**（未設定・形式違いでは起動を止める） | なし | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`。試験・CI の compose の固定値は本番で使わない |
 | `JWT_ISSUER` | トークンの発行者（JWT の `iss`） | 任意 | `architrack` | 空・前後の空白は起動時の検証で拒否 |
 | `JWT_AUDIENCE` | トークンの想定利用者（JWT の `aud`） | 任意 | `architrack-api` | 空・前後の空白は起動時の検証で拒否 |
@@ -58,8 +58,8 @@
 | `VITE_TOKEN_REFRESH_THRESHOLD` | トークン自動リフレッシュ閾値 | 任意 | `5m` |
 | `VITE_SENTRY_DSN` | Sentryエラートラッキング（Frontend） | 推奨 | なし |
 | `BACKEND_INTERNAL_URL` | API（`/api/`・`/csrf-token`）の中継先。`scheme://host[:port]` だけ（パス・クエリは不可）。未設定・形の違いはコンテナの起動前の検査で止まる | **必須**（実行時） | なし |
-| `CSP_IMG_SRC_EXTRA` | CSP の `img-src` の追加の取得先（R2 の配信元など。空白区切り） | 任意（実行時） | 空 |
-| `CSP_CONNECT_SRC_EXTRA` | CSP の `connect-src` の追加の取得先（R2 の配信元、Sentry の取り込み先など。空白区切り） | 任意（実行時） | 空 |
+| `CSP_IMG_SRC_EXTRA` | CSP の `img-src` の追加の取得先（R2 の配信元など。空白区切り）。R2 を使う本番・staging は `https://<バケット名>.<アカウント ID>.r2.cloudflarestorage.com`（署名 URL のオリジン）。未設定では写真・PDF が画面に出ない | R2 を使う環境で**必須**（実行時） | 空 |
+| `CSP_CONNECT_SRC_EXTRA` | CSP の `connect-src` の追加の取得先（R2 の配信元、Sentry の取り込み先など。空白区切り）。R2 は `CSP_IMG_SRC_EXTRA` と同じオリジン | R2 を使う環境で**必須**（実行時） | 空 |
 | `NGINX_HSTS_VALUE` | `Strict-Transport-Security` の値。本番だけ設定する（空なら付けない） | 本番で推奨（実行時） | 空 |
 
 > `VITE_` で始まる変数はViteが**ビルド時**にバンドルへ埋め込みます。実行中のコンテナに設定しても読まれないため、値を変えたら**フロントエンドの再ビルドが必要**です（`frontend/Dockerfile` の `ARG VITE_SENTRY_DSN` が受け口）。
