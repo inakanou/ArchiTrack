@@ -160,6 +160,10 @@
     "dompurify": "^3.4.17",
     "fast-uri": "^3.1.9",
     "fflate": "^0.8.3",
-    "ip-address": "^10.7.5"
+    "ip-address": "^10.7.5",
+    "uuid": "^11.1.1",
+    "swagger-jsdoc": {
+      "glob": "^14.0.4"
+    }
   }
 }

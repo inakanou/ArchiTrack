@@ -10,9 +10,9 @@
   },
   "policy": {
     "production": {
-      "level": "high",
+      "level": "moderate",
       "action": "block",
-      "description": "本番依存でhigh以上の脆弱性は許容リストにない限りブロック"
+      "description": "本番依存でmoderate以上の脆弱性は許容リストにない限りブロック。許容は有効期限（expires）付きに限り、期限ごとに再評価する"
     },
     "development": {
       "level": "high",
