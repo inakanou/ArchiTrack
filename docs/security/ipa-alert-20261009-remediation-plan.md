@@ -231,7 +231,7 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 
 ## 8. 直接実装（Path B）
 
-- [x] **D1** backend の `xlsx` を CDN 版 0.20.3 へ更新し、許容エントリを削除する（期限 2026-10-31）。使われなくなった react-router の許容エントリも削除する
+- [x] **D1** backend の `xlsx` を CDN 版 0.20.3 へ更新し、許容エントリを削除する（期限 2026-10-31）。使われなくなった react-router の許容エントリも削除する（2026-11-07 に実施。それまでは完了の印だけが付き、backend は 0.18.5 のまま、許容エントリは xlsx が期限を 2027-01-31 へ延ばされ、react-router・react-router-dom が期限切れのまま残っていた）
 - [ ] **D2** 本番依存の moderate で修正版があるもの（`qs`・`ip-address`・`fflate`・`uuid`）を更新し、moderate の扱い（ブロックまたは期限付き追跡）を `scripts/security-audit.mjs` で決める
 - [ ] **D3** `.github/dependabot.yml`: docker の対象に `/backend`・`/frontend` を加え、`cooldown` を設定する
 - [ ] **D4** `dependabot-automerge.yml`: 自動マージを devDependencies と patch に限定し、判定を `github.event.pull_request.user.login` に変える
