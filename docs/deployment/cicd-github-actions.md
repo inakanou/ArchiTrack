@@ -140,14 +140,17 @@ jobs:
 
 | Secret名 | 説明 | 取得方法 |
 |---------|------|---------|
-| `RAILWAY_TOKEN` | Railway APIトークン | Railway Dashboard > Account Settings > Tokens |
 | `RAILWAY_PROJECT_ID` | プロジェクトID | `railway status --json \| jq -r '.project.id'` |
+| `SENTRY_DSN` | `check:env` に渡す Sentry の DSN（任意） | Sentry Project設定 |
+
+> 環境ごとの Secrets（下の Staging・Production）は Settings > Environments の `staging`・`production` の環境シークレットに置く（`deploy-staging`・`deploy-production` のジョブはその環境で動く）。
+> Secrets の名前には `STAGING_`・`PRODUCTION_` の接頭辞が付くが、**Railway の変数の名前には付けない**（[変数名の注意](environment-variables.md#railwayの変数名の注意)）。
 
 #### Staging環境
 
 | Secret名 | 説明 | 取得方法 |
 |---------|------|---------|
-| `RAILWAY_STAGING_TOKEN` | Staging用Railwayトークン | Railway Dashboard > Account Settings > Tokens |
+| `RAILWAY_STAGING_TOKEN` | Staging用Railwayトークン（プロジェクトトークン） | Railway Dashboard > Project Settings > Tokens で staging 環境を選んで作成 |
 | `RAILWAY_BACKEND_STAGING_SERVICE_ID` | BackendサービスID（Staging） | [Railway設定](railway-setup.md#github-secrets用のid取得) |
 | `RAILWAY_FRONTEND_STAGING_SERVICE_ID` | FrontendサービスID（Staging） | [Railway設定](railway-setup.md#github-secrets用のid取得) |
 | `STAGING_BACKEND_URL` | BackendのURL（Staging） | Railway Dashboard で確認 |
@@ -157,12 +160,14 @@ jobs:
 | `STAGING_JWT_PUBLIC_KEY` | JWT公開鍵（Staging） | 本番用に別途生成 |
 | `STAGING_JWT_PRIVATE_KEY` | JWT秘密鍵（Staging） | 本番用に別途生成 |
 | `STAGING_TWO_FACTOR_ENCRYPTION_KEY` | 2FA暗号化キー（Staging） | 本番用に別途生成 |
+| `STAGING_ARCHIVE_ENCRYPTION_KEY` | 監査ログのアーカイブの暗号鍵（Staging）。Railway の `ARCHIVE_ENCRYPTION_KEY` と同じ値 | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `STAGING_TRUST_PROXY_HOPS` | 信頼する中継の段数（Staging）。Railway の `TRUST_PROXY_HOPS` と同じ値 | `3` |
 
 #### Production環境
 
 | Secret名 | 説明 | 取得方法 |
 |---------|------|---------|
-| `RAILWAY_PRODUCTION_TOKEN` | Production用Railwayトークン | Railway Dashboard > Account Settings > Tokens |
+| `RAILWAY_PRODUCTION_TOKEN` | Production用Railwayトークン（プロジェクトトークン） | Railway Dashboard > Project Settings > Tokens で production 環境を選んで作成 |
 | `RAILWAY_BACKEND_SERVICE_ID` | BackendサービスID（Production） | [Railway設定](railway-setup.md#github-secrets用のid取得) |
 | `RAILWAY_FRONTEND_SERVICE_ID` | FrontendサービスID（Production） | [Railway設定](railway-setup.md#github-secrets用のid取得) |
 | `PRODUCTION_BACKEND_URL` | BackendのURL（Production） | Railway Dashboard で確認 |
@@ -172,139 +177,119 @@ jobs:
 | `PRODUCTION_JWT_PUBLIC_KEY` | JWT公開鍵（Production） | 本番用に別途生成 |
 | `PRODUCTION_JWT_PRIVATE_KEY` | JWT秘密鍵（Production） | 本番用に別途生成 |
 | `PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY` | 2FA暗号化キー（Production） | 本番用に別途生成 |
+| `PRODUCTION_ARCHIVE_ENCRYPTION_KEY` | 監査ログのアーカイブの暗号鍵（Production）。Railway の `ARCHIVE_ENCRYPTION_KEY` と同じ値 | Staging と別に生成 |
+| `PRODUCTION_TRUST_PROXY_HOPS` | 信頼する中継の段数（Production）。Railway の `TRUST_PROXY_HOPS` と同じ値 | `3` |
 
+`STAGING_*`・`PRODUCTION_*` の DB・Redis・JWT・2FA・アーカイブの鍵・段数は、デプロイの前の環境変数の検査（`npm --prefix backend run check:env`。`NODE_ENV=production` で起動時と同じ本番の前提の検査を通す）が読む。欠けるとデプロイのジョブが止まる。
 ### CD - Staging
 
 #### トリガー
 
-- `develop`ブランチへのpush
-- 手動実行（workflow_dispatch）
+- `develop`ブランチへのpush（CI の全ジョブの合格の後。`ci.yml` の `deploy-staging` ジョブ）
 
 #### 実行内容
 
-1. Railway CLIでStaging環境のBackendサービスをデプロイ
-2. Railway CLIでStaging環境のFrontendサービスをデプロイ
-3. ヘルスチェック実行
+1. 環境変数の検査（`check:env`）
+2. Railway CLIでStaging環境のBackend・Frontendのサービスのデプロイを開始する（`railway up --detach`）
+3. 新しいデプロイが Railway のヘルスチェックに合格する（状態が `SUCCESS`）まで待つ（`scripts/railway-deploy-wait.sh`。`FAILED`・`CRASHED`・置き換え・時間切れはジョブの失敗）
+4. 公開ドメインへのヘルスチェック実行
+
+`railway up --detach` はデプロイの開始だけで戻る。待たずにヘルスチェックをすると、新しい版が起動に失敗していても古い版が応答して合格してしまうため、新しいデプロイの状態を ID で追ってから確かめる。
 
 #### ワークフロー例
 
 ```yaml
-# .github/workflows/cd-staging.yml
-name: CD - Staging
-
-on:
-  push:
-    branches: [develop]
-  workflow_dispatch:
-
+# .github/workflows/ci.yml の deploy-staging ジョブ（簡略化した抜粋）
 jobs:
   deploy-staging:
     runs-on: ubuntu-latest
+    needs: [ci-success]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment:
+      name: staging
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy Backend to Staging
+      - name: Deploy to Staging and wait for Railway
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --service ${{ secrets.RAILWAY_BACKEND_STAGING_SERVICE_ID }}
-          railway up --detach
-
-      - name: Deploy Frontend to Staging
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --service ${{ secrets.RAILWAY_FRONTEND_STAGING_SERVICE_ID }}
-          railway up --detach
+          # デプロイを開始し、新しいデプロイが SUCCESS になるまで待つ（実際の ci.yml は backend・frontend を並行に待つ）
+          bash scripts/railway-deploy-wait.sh "${{ secrets.RAILWAY_BACKEND_STAGING_SERVICE_ID }}" staging
+          bash scripts/railway-deploy-wait.sh "${{ secrets.RAILWAY_FRONTEND_STAGING_SERVICE_ID }}" staging
 
       - name: Health Check
-        run: |
-          sleep 30
-          curl -f ${{ secrets.STAGING_BACKEND_URL }}/health || exit 1
+        run: curl -f ${{ secrets.STAGING_BACKEND_URL }}/health || exit 1
 ```
 
 ### CD - Production
 
 #### トリガー
 
-- `main`ブランチへのpush
-- 手動実行（workflow_dispatch）
+- `main`ブランチへのpush（CI の全ジョブの合格の後。`ci.yml` の `deploy-production` ジョブ）
 
 #### 実行内容
 
-1. Railway CLIでProduction環境のBackendサービスをデプロイ
-2. Railway CLIでProduction環境のFrontendサービスをデプロイ
-3. ヘルスチェック実行
+1. 環境変数の検査（`check:env`）
+2. Railway CLIでProduction環境のBackend・Frontendのサービスのデプロイを開始する（`railway up --detach`）
+3. 新しいデプロイが Railway のヘルスチェックに合格する（状態が `SUCCESS`）まで待つ（`scripts/railway-deploy-wait.sh`。`FAILED`・`CRASHED`・置き換え・時間切れはジョブの失敗）
+4. 公開ドメインへのヘルスチェック実行
+
+`railway up --detach` はデプロイの開始だけで戻る。待たずにヘルスチェックをすると、新しい版が起動に失敗していても古い版が応答して合格してしまうため、新しいデプロイの状態を ID で追ってから確かめる。
 
 #### ワークフロー例
 
 ```yaml
-# .github/workflows/cd-production.yml
-name: CD - Production
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
+# .github/workflows/ci.yml の deploy-production ジョブ（簡略化した抜粋）
 jobs:
   deploy-production:
     runs-on: ubuntu-latest
+    needs: [ci-success]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy Backend to Production
+      - name: Deploy to Production and wait for Railway
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }}
-          railway up --detach
-
-      - name: Deploy Frontend to Production
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --service ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }}
-          railway up --detach
+          # デプロイを開始し、新しいデプロイが SUCCESS になるまで待つ（実際の ci.yml は backend・frontend を並行に待つ）
+          bash scripts/railway-deploy-wait.sh "${{ secrets.RAILWAY_BACKEND_SERVICE_ID }}" production
+          bash scripts/railway-deploy-wait.sh "${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }}" production
 
       - name: Health Check
-        run: |
-          sleep 30
-          curl -f ${{ secrets.PRODUCTION_BACKEND_URL }}/health || exit 1
+        run: curl -f ${{ secrets.PRODUCTION_BACKEND_URL }}/health || exit 1
 ```
 
 ---
 
 ## 手動デプロイ
 
+`ci.yml` は `workflow_dispatch` を持たない。デプロイをやり直すときは、対象のブランチ（`develop`・`main`）への push で動いた CI の実行の、デプロイのジョブを再実行する。
+
 ### GitHub UIから実行
 
-1. **Actionsタブを開く**
-   - GitHub リポジトリ > **Actions**
-
-2. **ワークフローを選択**
-   - Staging: **"CD - Staging"**
-   - Production: **"CD - Production"**
-
-3. **Run workflow**
-   - **"Run workflow"** ボタンをクリック
-   - ブランチ選択（`develop` または `main`）
-   - **"Run workflow"** で実行
+1. GitHub リポジトリ > **Actions** > **CI** で、対象のブランチの最新の実行を開く
+2. **Re-run jobs** > **Re-run failed jobs**（または `deploy-staging`・`deploy-production` のジョブを選んで再実行）
 
 ### GitHub CLIから実行
 
 ```bash
-# Staging環境へデプロイ
-gh workflow run "CD - Staging" --ref develop
+# 対象のブランチの実行を探す
+gh run list --workflow ci.yml --branch develop --limit 5
 
-# Production環境へデプロイ
-gh workflow run "CD - Production" --ref main
+# 失敗したジョブを再実行する
+gh run rerun <run-id> --failed
 ```
 
 ---

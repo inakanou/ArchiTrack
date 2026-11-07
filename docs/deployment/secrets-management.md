@@ -16,6 +16,7 @@
 
 - **Railway Dashboard > プロジェクト > Variables**
 - 環境変数を個別に設定（コピー&ペースト）
+- 変数名はアプリが読む名前のまま（`STAGING_`・`PRODUCTION_` の接頭辞は GitHub Secrets だけに付ける。[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)）
 - **絶対にGitにコミットしない**
 
 ---
@@ -181,6 +182,7 @@ TWO_FACTOR_ENCRYPTION_KEY=a1b2c3d4e5f6789012345678901234567890abcdef1234567890ab
 ### JWT鍵のローテーション / JWT Key Rotation（推奨: 90日周期）
 
 > 📘 **詳細手順書**: [EdDSA鍵ローテーション運用手順書](key-rotation-procedure.md)にフェーズごとの詳細手順、チェックリスト、トラブルシューティングを記載しています。
+> 鍵の漏えいの疑い（インシデント）では下の猶予期間を設けない（`JWT_PUBLIC_KEY_OLD` を設定しない）。[インシデント時の緊急ローテーション](key-rotation-procedure.md#インシデント時の緊急ローテーション)を参照。
 
 #### 概要
 
@@ -251,7 +253,11 @@ TWO_FACTOR_ENCRYPTION_KEY=<新しい鍵>
 
 #### ステップ4: 復号できない 2FA を未登録へ戻す
 
-新しい鍵の環境変数を持つ backend のサービスの上（`railway ssh` など）で、backend ディレクトリから実行する。
+新しい鍵の環境変数を持つ backend のコンテナの中で、backend の作業ディレクトリ `/app` から実行する。`railway ssh` で backend のサービスに入る（Postgres の公開ネットワークを閉じた環境では、手元から DB へつなぐ `railway run`・`railway connect` は届かない）。
+
+```bash
+railway ssh --service <backend のサービス名> --environment <staging|production>
+```
 
 ```bash
 # 確認だけ（書き込まない）。対象の利用者と人数を表示する
@@ -301,6 +307,16 @@ npm --prefix backend run prisma:seed
 
 **注意:**
 - 既に管理者が存在する場合はスキップされます（冪等性）
+
+### 初回デプロイの後の後片づけ（必須）
+
+`INITIAL_ADMIN_PASSWORD` は初期管理者を作るためだけの値で、作った後に変数へ残すと、変数が漏れたときに管理者を乗っ取られる。
+
+1. 初期管理者でログインし、2FA を登録する
+2. プロフィールの画面でパスワードを変える（`INITIAL_ADMIN_PASSWORD` と違う値）
+3. Railway Dashboard > Backend Service > Variables から `INITIAL_ADMIN_PASSWORD` を削除する（削除で再デプロイされる。シードは既存の管理者を変えない）
+
+変数の漏えいの疑い（Railway のセキュリティインシデントなど）で変数を入れ替えるときも、`INITIAL_ADMIN_PASSWORD` が残っていれば同じく管理者のパスワードを変えて削除する。
 
 ---
 
@@ -353,7 +369,7 @@ Error: Unable to decrypt 2FA secret
 
 **原因と解決方法:**
 - **原因:** `TWO_FACTOR_ENCRYPTION_KEY` が変更された
-  - **解決:** 正しい鍵を復元するか、全ユーザーの2FA設定をリセット
+  - **解決:** 正しい鍵を復元するか、[2FA暗号化鍵のローテーション](#2fa暗号化鍵のローテーション)のステップ4のスクリプトで復号できない 2FA を未登録へ戻す
 
 詳細は[トラブルシューティング](troubleshooting.md)を参照してください。
 

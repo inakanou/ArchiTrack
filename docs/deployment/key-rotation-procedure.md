@@ -15,7 +15,7 @@
 
 - Node.js 20.x 以上がインストールされていること
 - 管理者権限でRailway Dashboardにアクセスできること
-- `scripts/generate-eddsa-keys.ts` が存在すること
+- `backend/scripts/generate-eddsa-keys.ts` が存在すること（`npm --prefix backend run generate:jwt-keys` で実行）
 
 ## ローテーションスケジュール
 
@@ -54,11 +54,8 @@ echo "BASE64_VALUE_HERE" | base64 -d | jq .kid
 ### 2.1 新しい鍵ペアを生成
 
 ```bash
-# プロジェクトルートで実行
-cd /path/to/ArchiTrack
-
-# 鍵生成スクリプトを実行
-npx tsx scripts/generate-eddsa-keys.ts
+# プロジェクトルートで実行（backend/.env.keys に出力される）
+npm --prefix backend run generate:jwt-keys
 
 # 出力例:
 # Generating EdDSA (Ed25519) key pair...
@@ -70,7 +67,7 @@ npx tsx scripts/generate-eddsa-keys.ts
 
 ```bash
 # .env.keysの内容を確認
-cat .env.keys
+cat backend/.env.keys
 
 # 出力例:
 # JWT_PUBLIC_KEY=eyJrdHkiOiJPS1AiLC...
@@ -89,6 +86,8 @@ cat .env.keys
 | `JWT_PUBLIC_KEY` | 上書き | 新しい公開鍵（.env.keysから） |
 | `JWT_PRIVATE_KEY` | 上書き | 新しい秘密鍵（.env.keysから） |
 
+GitHub の環境シークレット `STAGING_JWT_PUBLIC_KEY`・`STAGING_JWT_PRIVATE_KEY`（本番は `PRODUCTION_*`）も同じ値に更新する（デプロイの前の `check:env` が読む）。Railway の変数名には接頭辞を付けない。
+
 ### 2.4 サービスを再デプロイ
 
 1. Railway Dashboardの **Deploy** ボタンをクリック
@@ -98,7 +97,7 @@ cat .env.keys
 
 ```bash
 # セキュリティのため、.env.keysを削除
-rm .env.keys
+rm backend/.env.keys
 ```
 
 ### 2.6 JWKSエンドポイントを確認
@@ -154,6 +153,19 @@ curl https://your-backend.railway.app/.well-known/jwks.json | jq .keys[].kid
 # 期待される出力: 新しいKey IDのみ
 # "eddsa-1730000000000"
 ```
+
+---
+
+## インシデント時の緊急ローテーション
+
+鍵や Railway の変数の漏えいの疑い（Railway のセキュリティインシデントなど）があるときは、上の定期の手順と違い**猶予期間を設けない**。
+
+1. **JWT 鍵**: 新しい鍵ペアを生成し、`JWT_PUBLIC_KEY`・`JWT_PRIVATE_KEY` を上書きする。**`JWT_PUBLIC_KEY_OLD` は設定しない**（既にあれば削除する）。漏れたかもしれない旧鍵で署名されたトークンを受け付けないため
+   - 既存のセッションはリフレッシュに失敗し、利用者はログインし直す（想定どおりの動作）
+   - JWKS（`/.well-known/jwks.json`）に新しい `kid` だけが出ることを確かめる
+2. **2FA 暗号化鍵**（`TWO_FACTOR_ENCRYPTION_KEY`）: 新しい鍵を設定してデプロイした直後に、復号できない 2FA を未登録へ戻すスクリプト（`npm run user:reset-undecryptable-2fa`。確認の後に `--apply`）を `railway ssh` で backend のコンテナの中（`/app`）から実行する。手順は[シークレット管理の 2FA 暗号化鍵のローテーション](secrets-management.md#2fa暗号化鍵のローテーション)
+3. **その他**: `INITIAL_ADMIN_PASSWORD` が残っていれば管理者のパスワードを変えて削除する（[初回デプロイの後の後片づけ](secrets-management.md#初回デプロイの後の後片づけ必須)）。Railway のトークンが取り消されたときは[トラブルシューティング](troubleshooting.md#invalid-railway_token-でデプロイが失敗する)を参照
+4. GitHub の環境シークレット（`STAGING_*`・`PRODUCTION_*`）を Railway と同じ値に更新し、デプロイが通ることを確かめる
 
 ---
 
@@ -217,7 +229,7 @@ curl https://your-backend.railway.app/.well-known/jwks.json | jq .keys[].kid
 ## 関連ドキュメント
 
 - [シークレット管理](secrets-management.md) - JWT鍵・2FA鍵の生成方法
-- [EdDSA鍵生成スクリプト](../../scripts/generate-eddsa-keys.ts)
+- [EdDSA鍵生成スクリプト](../../backend/scripts/generate-eddsa-keys.ts)
 - [JWKSエンドポイント実装](../../backend/src/routes/jwks.routes.ts)
 - [TokenService実装](../../backend/src/services/token.service.ts)
 - [design.md - 鍵ローテーション戦略](../../.kiro/specs/user-authentication/design.md)

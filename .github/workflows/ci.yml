@@ -1143,32 +1143,35 @@ jobs:
       - name: Setup Railway CLI
         run: npm i -g @railway/cli
 
-      - name: Deploy Backend to Staging
+      - name: Deploy to Staging and wait for Railway
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          BACKEND_SERVICE: ${{ secrets.RAILWAY_BACKEND_STAGING_SERVICE_ID }}
+          FRONTEND_SERVICE: ${{ secrets.RAILWAY_FRONTEND_STAGING_SERVICE_ID }}
         run: |
           echo "========================================="
-          echo "Deploying Backend to Railway (Staging)"
+          echo "Deploying to Railway (Staging)"
           echo "========================================="
-          railway up --service ${{ secrets.RAILWAY_BACKEND_STAGING_SERVICE_ID }} --environment staging --detach
-          echo "Backend deployment initiated"
-
-      - name: Deploy Frontend to Staging
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-        run: |
-          echo "========================================="
-          echo "Deploying Frontend to Railway (Staging)"
-          echo "========================================="
-          railway up --service ${{ secrets.RAILWAY_FRONTEND_STAGING_SERVICE_ID }} --environment staging --detach
-          echo "Frontend deployment initiated"
-
-      - name: Wait for deployment
-        run: |
-          echo "Waiting for Railway deployment to complete..."
-          sleep 90
+          # railway up --detach はデプロイの開始だけで戻るため、新しいデプロイが Railway のヘルスチェックに
+          # 合格する（SUCCESS）まで追う。古い版に当たったヘルスチェックの合格で成功にしない
+          bash scripts/railway-deploy-wait.selftest.sh
+          bash scripts/railway-deploy-wait.sh "$BACKEND_SERVICE" staging >"$RUNNER_TEMP/backend-deploy.log" 2>&1 &
+          BACKEND_PID=$!
+          bash scripts/railway-deploy-wait.sh "$FRONTEND_SERVICE" staging >"$RUNNER_TEMP/frontend-deploy.log" 2>&1 &
+          FRONTEND_PID=$!
+          BACKEND_EXIT=0
+          FRONTEND_EXIT=0
+          wait "$BACKEND_PID" || BACKEND_EXIT=$?
+          wait "$FRONTEND_PID" || FRONTEND_EXIT=$?
+          echo "--- Backend ---"
+          cat "$RUNNER_TEMP/backend-deploy.log"
+          echo "--- Frontend ---"
+          cat "$RUNNER_TEMP/frontend-deploy.log"
+          if [ "$BACKEND_EXIT" -ne 0 ] || [ "$FRONTEND_EXIT" -ne 0 ]; then
+            echo "::error::Railway deployment did not become active (backend=$BACKEND_EXIT, frontend=$FRONTEND_EXIT)"
+            exit 1
+          fi
 
       - name: Health check
         id: health-check
@@ -1332,32 +1335,35 @@ jobs:
       - name: Setup Railway CLI
         run: npm i -g @railway/cli
 
-      - name: Deploy Backend to Production
+      - name: Deploy to Production and wait for Railway
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          BACKEND_SERVICE: ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }}
+          FRONTEND_SERVICE: ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }}
         run: |
           echo "========================================="
-          echo "Deploying Backend to Railway (Production)"
+          echo "Deploying to Railway (Production)"
           echo "========================================="
-          railway up --service ${{ secrets.RAILWAY_BACKEND_SERVICE_ID }} --environment production --detach
-          echo "Backend deployment initiated"
-
-      - name: Deploy Frontend to Production
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-        run: |
-          echo "========================================="
-          echo "Deploying Frontend to Railway (Production)"
-          echo "========================================="
-          railway up --service ${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }} --environment production --detach
-          echo "Frontend deployment initiated"
-
-      - name: Wait for deployment
-        run: |
-          echo "Waiting for Railway deployment to complete..."
-          sleep 90
+          # railway up --detach はデプロイの開始だけで戻るため、新しいデプロイが Railway のヘルスチェックに
+          # 合格する（SUCCESS）まで追う。古い版に当たったヘルスチェックの合格で成功にしない
+          bash scripts/railway-deploy-wait.selftest.sh
+          bash scripts/railway-deploy-wait.sh "$BACKEND_SERVICE" production >"$RUNNER_TEMP/backend-deploy.log" 2>&1 &
+          BACKEND_PID=$!
+          bash scripts/railway-deploy-wait.sh "$FRONTEND_SERVICE" production >"$RUNNER_TEMP/frontend-deploy.log" 2>&1 &
+          FRONTEND_PID=$!
+          BACKEND_EXIT=0
+          FRONTEND_EXIT=0
+          wait "$BACKEND_PID" || BACKEND_EXIT=$?
+          wait "$FRONTEND_PID" || FRONTEND_EXIT=$?
+          echo "--- Backend ---"
+          cat "$RUNNER_TEMP/backend-deploy.log"
+          echo "--- Frontend ---"
+          cat "$RUNNER_TEMP/frontend-deploy.log"
+          if [ "$BACKEND_EXIT" -ne 0 ] || [ "$FRONTEND_EXIT" -ne 0 ]; then
+            echo "::error::Railway deployment did not become active (backend=$BACKEND_EXIT, frontend=$FRONTEND_EXIT)"
+            exit 1
+          fi
 
       - name: Health check
         id: health-check
