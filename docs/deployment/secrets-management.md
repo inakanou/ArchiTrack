@@ -156,23 +156,20 @@ TOTP秘密鍵をデータベースに暗号化して保存するためのAES-256
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-**出力例:**
-```
-a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
-```
+**出力の形:** 64 文字の 16 進（0-9・a-f）が 1 行出力されます。本書には実際に使える形の例を載せません（例の値を写して使うことを防ぐため）。
 
 ### ステップ2: 環境変数設定
 
 **Railway:**
 ```bash
 # Railway Dashboard > Variables
-TWO_FACTOR_ENCRYPTION_KEY=a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+TWO_FACTOR_ENCRYPTION_KEY=<ステップ1で生成した64文字の16進>
 ```
 
 **ローカル:**
 ```bash
 # backend/.env
-TWO_FACTOR_ENCRYPTION_KEY=a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+TWO_FACTOR_ENCRYPTION_KEY=<ステップ1で生成した64文字の16進>
 ```
 
 ---
