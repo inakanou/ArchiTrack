@@ -1163,7 +1163,7 @@ jobs:
           echo "========================================="
 
       - name: Setup Railway CLI
-        run: npm i -g @railway/cli
+        run: npm i -g @railway/cli@5.71.0
 
       - name: Deploy to Staging and wait for Railway
         env:
@@ -1369,7 +1369,7 @@ jobs:
           echo ""
 
       - name: Setup Railway CLI
-        run: npm i -g @railway/cli
+        run: npm i -g @railway/cli@5.71.0
 
       - name: Deploy to Production and wait for Railway
         env:

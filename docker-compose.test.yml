@@ -16,7 +16,8 @@
 services:
   # Autoheal - Monitors and restarts unhealthy containers
   autoheal:
-    image: willfarrell/autoheal:latest
+    # 版のタグが更新されていない（1.2.0 は 2021 年）ため、latest を digest で固定する
+    image: willfarrell/autoheal:latest@sha256:b1517815087f04edd0b0c103d6df4ac5c4d6f22db5c62e32949e135a25f1d945
     container_name: architrack-autoheal-test
     # restart ポリシーは WSL2 のメモリ節約のため always を使わない。
     # always / unless-stopped は WSL 起動のたびにテスト用コンテナ群を自動復帰させ、

@@ -1,5 +1,5 @@
 # Build stage
-FROM node:22-alpine AS build
+FROM node:22.23.4-alpine3.24@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS build
 
 WORKDIR /app
 
@@ -29,7 +29,7 @@ ENV DATABASE_URL=${DATABASE_URL}
 RUN npm run build
 
 # Production stage
-FROM node:22-alpine
+FROM node:22.23.4-alpine3.24@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202
 
 # node:22-alpineには既にnodeユーザー(UID/GID 1000)が存在するため、それを使用
 
@@ -65,7 +65,7 @@ RUN DATABASE_URL=${DATABASE_URL} npx prisma generate
 
 # Install tsx for running seed scripts in production
 # Note: Only needed for initial seeding when RUN_SEED=true
-RUN npm install tsx
+RUN npm install tsx@4.21.0
 
 # Copy docker-entrypoint.sh and wait-for-it.sh for initialization
 COPY docker-entrypoint.sh /usr/local/bin/
