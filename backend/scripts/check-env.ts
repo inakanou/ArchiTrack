@@ -53,26 +53,17 @@ async function checkEnvironmentVariables(): Promise<void> {
     console.log('━'.repeat(60));
     console.log('\n📊 Configured Variables:\n');
 
-    // 設定された環境変数を表示（認証情報は隠す）
-    const sensitiveKeys = [
-      'JWT_PUBLIC_KEY',
-      'JWT_PRIVATE_KEY',
-      'JWT_PUBLIC_KEY_OLD',
-      'TWO_FACTOR_ENCRYPTION_KEY',
-      'SENTRY_DSN',
-    ];
+    // 設定された環境変数を表示する。秘密値と接続 URL（資格情報を含みうる）は値を一切出さず、
+    // 設定済みであることだけを示す（CI のログや画面共有に秘密の一部が残らないようにする）
+    const SENSITIVE_KEY_PATTERN = /(KEY|SECRET|TOKEN|PASS|PASSWORD|DSN|URL|CREDENTIAL)/i;
 
     Object.entries(validatedEnv).forEach(([key, value]) => {
       if (value === undefined || value === null || value === '') {
-        return; // 未設定の値はスキップ
+        return; // 未設定の値は表示しない
       }
 
-      if (sensitiveKeys.includes(key)) {
-        const strValue = String(value);
-        const displayValue = `${strValue.substring(0, 10)}...${strValue.substring(
-          strValue.length - 4
-        )} (${strValue.length} chars)`;
-        console.log(`  ✓ ${key}: ${displayValue}`);
+      if (SENSITIVE_KEY_PATTERN.test(key)) {
+        console.log(`  ✓ ${key}: (set, hidden)`);
       } else {
         console.log(`  ✓ ${key}: ${value}`);
       }

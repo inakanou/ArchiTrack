@@ -1,0 +1,175 @@
+name: Scheduled Security Scan
+
+# 毎日の定期の監査（是正計画 D7）。PR・push の CI とは別に、新しく公開された脆弱性や
+# 履歴に紛れ込んだ秘密を毎日確かめる。
+# - dependency-audit: npm の依存の監査（本番依存の moderate 以上で失敗。scripts/security-audit.mjs）
+# - gitleaks: 全履歴の秘密の検出（設定は .gitleaks.toml。見つかれば失敗）
+# - codeql: コードの静的解析（結果は Security タブの Code scanning へ）
+# - trivy: 依存の lockfile の HIGH・CRITICAL で失敗。設定の誤り（Dockerfile 等）と
+#   ビルドしたイメージの脆弱性は Code scanning へ報告する（イメージの検出は npm 本体の
+#   同梱の依存が主で、アプリの依存は lockfile の検査が受け持つため、失敗にはしない）
+
+on:
+  schedule:
+    # 毎日 20:23 UTC（05:23 JST）。毎時 0 分の混雑を避ける
+    - cron: '23 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Run security audit
+        # npm audit は lockfile を読むため node_modules の導入は要らない
+        run: node scripts/security-audit.mjs --verbose
+
+  gitleaks:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        # 個人のアカウントのリポジトリでは GITLEAKS_LICENSE は要らない
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: '/language:${{ matrix.language }}'
+
+  trivy:
+    name: Trivy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Scan dependency lockfiles (HIGH・CRITICAL で失敗)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.1'
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
+
+      - name: Scan misconfigurations (report only)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.1'
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          format: sarif
+          limit-severities-for-sarif: true
+          output: trivy-config.sarif
+          exit-code: '0'
+
+      - name: Upload misconfiguration results
+        if: always()
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+
+      - name: Build production images
+        if: always()
+        run: |
+          docker build -t architrack-backend:scan -f backend/Dockerfile backend
+          docker build -t architrack-frontend:scan -f frontend/Dockerfile frontend
+
+      - name: Scan backend image (report only)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.1'
+          scan-type: image
+          image-ref: architrack-backend:scan
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          limit-severities-for-sarif: true
+          output: trivy-backend-image.sarif
+          exit-code: '0'
+
+      - name: Upload backend image results
+        if: always()
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: trivy-backend-image.sarif
+          category: trivy-backend-image
+
+      - name: Scan frontend image (report only)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.1'
+          scan-type: image
+          image-ref: architrack-frontend:scan
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          limit-severities-for-sarif: true
+          output: trivy-frontend-image.sarif
+          exit-code: '0'
+
+      - name: Upload frontend image results
+        if: always()
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: trivy-frontend-image.sarif
+          category: trivy-frontend-image

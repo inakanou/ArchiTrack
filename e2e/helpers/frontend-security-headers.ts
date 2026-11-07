@@ -48,18 +48,11 @@ export const EXPECTED_HSTS = 'max-age=31536000; includeSubDomains';
  */
 export const EXPECTED_CSP_DIRECTIVES: Record<string, string[]> = {
   'default-src': ["'self'"],
-  'script-src': ["'self'", "'wasm-unsafe-eval'", 'https://cdn.jsdelivr.net'],
+  'script-src': ["'self'", "'wasm-unsafe-eval'"],
   'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
   'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
   'img-src': ["'self'", 'data:', 'blob:', TEST_STORAGE_ORIGIN],
-  'connect-src': [
-    "'self'",
-    'blob:',
-    'data:',
-    'https://cdn.jsdelivr.net',
-    'https://tessdata.projectnaptha.com',
-    TEST_STORAGE_ORIGIN,
-  ],
+  'connect-src': ["'self'", 'blob:', 'data:', TEST_STORAGE_ORIGIN],
   'worker-src': ["'self'", 'blob:'],
   'object-src': ["'none'"],
   'base-uri': ["'self'"],

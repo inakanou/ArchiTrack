@@ -75,7 +75,7 @@ graph LR
 3. CI自動実行（テスト・ビルド確認）
 4. レビュー承認後、`develop`へマージ
 5. `develop`へのpushでStaging環境へ自動デプロイ（`ci.yml` の `deploy-staging` ジョブ）
-   - 環境変数の検査（`check:env`。GitHub の `staging` 環境シークレットを読む）
+   - 環境変数の検査（`check:env`。実行ごとに作るダミー値で、本番の起動時の検査が求める変数の組と形を確かめる。本物の値は Railway での起動時に確かめる）
    - Railway (staging environment) へデプロイを開始し、新しいデプロイが `SUCCESS` になるまで待つ（`scripts/railway-deploy-wait.sh`）
    - 公開ドメインへのヘルスチェック実行
 6. Staging環境でQA検証
@@ -99,7 +99,7 @@ graph LR
 3. CI自動実行（全テスト再実行）
 4. レビュー承認後、`main`へマージ
 5. `main`へのpushでProduction環境へ自動デプロイ（`ci.yml` の `deploy-production` ジョブ）
-   - 環境変数の検査（`check:env`。GitHub の `production` 環境シークレットを読む）
+   - 環境変数の検査（`check:env`。実行ごとに作るダミー値で、本番の起動時の検査が求める変数の組と形を確かめる。本物の値は Railway での起動時に確かめる）
    - Railway (production environment) へデプロイを開始し、新しいデプロイが `SUCCESS` になるまで待つ（`scripts/railway-deploy-wait.sh`）
    - 公開ドメインへのヘルスチェック実行
 
@@ -125,7 +125,7 @@ graph LR
 - [ ] backend に `ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS`（`3`）・`REDIS_URL` が設定されている
 - [ ] frontend に `BACKEND_INTERNAL_URL`・`VITE_API_URL`（frontend の公開オリジン）・`CSP_IMG_SRC_EXTRA`・`CSP_CONNECT_SRC_EXTRA`（本番は `NGINX_HSTS_VALUE` も）が設定されている
 - [ ] Railway の変数名に `STAGING_`・`PRODUCTION_` を付けていない（[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)）
-- [ ] GitHub の環境シークレット（`RAILWAY_*_TOKEN`、`check:env` が読む `STAGING_*`・`PRODUCTION_*`）が設定されている
+- [ ] GitHub の環境シークレット（`RAILWAY_*_TOKEN`、サービス ID、ヘルスチェックの `STAGING_*_URL`・`PRODUCTION_*_URL`）が設定されている（DB・JWT・2FA などの本物の値は GitHub に置かない。[CI/CD](cicd-github-actions.md#デプロイの前の環境変数の検査ダミー値)）
 - [ ] backend のドメインの向き先のポートが `PORT` と一致している
 - [ ] ローカルでテストがすべてパスしている
 - [ ] データベースマイグレーションが確定している

@@ -7,6 +7,7 @@ import {
   isReturnablePath,
   restrictedPathFor,
 } from '../utils/user-restriction';
+import { toSafeInternalPath } from '../utils/safe-redirect';
 
 /**
  * ProtectedRouteコンポーネントのプロパティ
@@ -181,7 +182,8 @@ export function ProtectedRoute({
   if (isAuthenticated) {
     // 認証済みの場合、指定されたパスにリダイレクト
     // stateにfromがあれば、そのパスにリダイレクト（ログイン後に元のページに戻る）
-    const from = (location.state as { from?: string })?.from || redirectTo;
+    // state.from は画面内の安全なパスに限る（別のオリジンへの遷移を防ぐ。是正計画 D13）
+    const from = toSafeInternalPath((location.state as { from?: unknown })?.from) ?? redirectTo;
     return <Navigate to={from} replace />;
   }
 

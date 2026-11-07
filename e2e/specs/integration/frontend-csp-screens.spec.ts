@@ -23,8 +23,9 @@
  *   OCR の各画面が、CSP の違反を起こさずに表示・操作できる
  *
  * 観測の方針:
- * - 応答の差し替え（`page.route`）は用いない。外部の取得先（cdn.jsdelivr.net の Tesseract の資材）も
- *   既存の OCR の spec と同じく実際に取得する（CSP の connect-src・script-src を本物の取得で通すため）。
+ * - 応答の差し替え（`page.route`）は用いない。Tesseract の資材（worker・コア・言語データ）も実際に取得する
+ *   （CSP の connect-src・script-src を本物の取得で通すため）。資材は画面の配信元が配信する
+ *   （是正計画 D14。cdn.jsdelivr.net から取得しないことも確かめる）。
  * - 違反の観測は次の四経路で行う（いずれかに一件でも現れれば違反とする）:
  *   - `event`: 画面の文書の `securitypolicyviolation`（初期化スクリプトで公開した関数へ送る）
  *   - `console`: 画面のコンソールの CSP の違反の表示（文書の中の違反だけが出る）
@@ -134,7 +135,7 @@ type ResponseKind = 'frontend' | 'proxied-api' | 'external' | 'in-browser';
  * 応答の URL を出所で分ける。
  * - `in-browser`: blob: と data: の URL（ブラウザの中で作られたもので、配信元の応答ではない。
  *   blob: の URL の origin は作った文書のオリジンになるため、protocol で分ける）
- * - `external`: 画面の配信元以外（保存先の画像、cdn.jsdelivr.net の資材など）
+ * - `external`: 画面の配信元以外（保存先の画像など）
  * - `proxied-api`: API の中継（backend の応答であり、56.1 の spec が /csrf-token で主張する）
  * - `frontend`: 画面の配信元の nginx が配信した応答（HTML・JS・CSS・画像・worker など）
  */
@@ -693,7 +694,7 @@ test.describe('セキュリティヘッダーと CSP の下での主要画面の
     // PDF のプレビュー（react-pdf が blob の URL を取得し、pdf.js の worker で描く）
     await expectPdfPreviewRendered(page);
 
-    // Tesseract の OCR（cdn.jsdelivr.net の worker・コア・言語データを取得して読む）
+    // Tesseract の OCR（画面の配信元の worker・コア・言語データを取得して読む。是正計画 D14）
     const extractedText = page.getByTestId('ocr-extracted-text');
     await expect(extractedText).toBeVisible({ timeout: getTimeout(180000) });
     await expect(page.getByTestId('ocr-error-message')).toHaveCount(0);
@@ -702,17 +703,26 @@ test.describe('セキュリティヘッダーと CSP の下での主要画面の
       'OCR が画像の中の語を読み取る'
     ).toContain('外壁塗装工事');
 
-    const jsdelivr = observation.responses.filter(
+    const tesseractAssets = observation.responses.filter(
       (response) =>
-        response.kind === 'external' && new URL(response.url).hostname === 'cdn.jsdelivr.net'
+        response.kind === 'frontend' && new URL(response.url).pathname.startsWith('/tesseract/')
     );
     expect(
-      jsdelivr.some((response) => response.url.includes('/@tesseract.js-data/jpn/')),
-      '前提: Tesseract の日本語データを cdn.jsdelivr.net から取得した'
+      tesseractAssets.some((response) => response.url.includes('/@tesseract.js-data/jpn/')),
+      '前提: Tesseract の日本語データを画面の配信元から取得した'
     ).toBe(true);
-    for (const response of jsdelivr) {
+    for (const response of tesseractAssets) {
       expect(response.status, `${response.url} の取得が成功する`).toBeLessThan(400);
     }
+    expect(
+      observation.responses
+        .filter((response) => response.kind === 'external')
+        .map((response) => new URL(response.url).hostname)
+        .filter(
+          (hostname) => hostname === 'cdn.jsdelivr.net' || hostname === 'tessdata.projectnaptha.com'
+        ),
+      'Tesseract の資材を外部の CDN から取得しない'
+    ).toEqual([]);
 
     // worker の経路が空振りしていないこと: pdf.js の worker と Tesseract の worker を受けている
     const workerUrls = observation.workers.map((record) => record.url);

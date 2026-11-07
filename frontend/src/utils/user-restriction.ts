@@ -10,6 +10,8 @@
  * 画面はそのコードを受けたら利用者の状態を更新し、同じ制限へ委ねる。
  */
 
+import { toSafeInternalPath } from './safe-redirect';
+
 /** 初回のパスワード変更の画面 */
 export const PASSWORD_SETUP_PATH = '/setup/password';
 
@@ -95,8 +97,7 @@ export function applyUserRestriction<T extends UserStateFlags>(user: T, code: Us
 export function isReturnablePath(path: unknown): path is string {
   return (
     typeof path === 'string' &&
-    path.startsWith('/') &&
-    !path.startsWith('//') &&
+    toSafeInternalPath(path) !== null &&
     !path.startsWith(PASSWORD_SETUP_PATH) &&
     !path.startsWith(TWO_FACTOR_SETUP_PATH) &&
     !path.startsWith('/login')
