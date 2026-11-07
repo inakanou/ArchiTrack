@@ -86,7 +86,7 @@ cat backend/.env.keys
 | `JWT_PUBLIC_KEY` | 上書き | 新しい公開鍵（.env.keysから） |
 | `JWT_PRIVATE_KEY` | 上書き | 新しい秘密鍵（.env.keysから） |
 
-GitHub の環境シークレット `STAGING_JWT_PUBLIC_KEY`・`STAGING_JWT_PRIVATE_KEY`（本番は `PRODUCTION_*`）も同じ値に更新する（デプロイの前の `check:env` が読む）。Railway の変数名には接頭辞を付けない。
+GitHub 側の更新は要らない（デプロイの前の `check:env` はダミーの鍵で検査し、本物の鍵は Railway の変数だけに置く）。Railway の変数名には接頭辞を付けない。
 
 ### 2.4 サービスを再デプロイ
 

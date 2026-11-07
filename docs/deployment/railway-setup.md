@@ -110,7 +110,7 @@ RUN_SEED=true
 # ストレージ（Cloudflare R2）は環境変数設定の「Railway環境」を参照
 ```
 
-> **変数名に `STAGING_`・`PRODUCTION_` を付けない。** GitHub Secrets（`check:env` が読む）の名前には接頭辞が付くが、Railway の変数はアプリが読む名前のまま設定する。`STAGING_ARCHIVE_ENCRYPTION_KEY` の名前で作ると backend は `ARCHIVE_ENCRYPTION_KEY` を見つけられず起動を繰り返し止める（[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)）。
+> **変数名に `STAGING_`・`PRODUCTION_` を付けない。** GitHub Secrets（`STAGING_BACKEND_URL` など）の名前には接頭辞が付くが、Railway の変数はアプリが読む名前のまま設定する。`STAGING_ARCHIVE_ENCRYPTION_KEY` の名前で作ると backend は `ARCHIVE_ENCRYPTION_KEY` を見つけられず起動を繰り返し止める（[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)）。
 
 #### 4. Frontend Service
 

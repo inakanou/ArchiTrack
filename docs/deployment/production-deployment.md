@@ -29,7 +29,7 @@ Phase 3: 100%のトラフィックを新バージョンに流す
 
 Railway環境に以下の環境変数を設定（一覧と各変数の意味は[環境変数設定](environment-variables.md)、Railway のサービスの作り方は[Railway設定](railway-setup.md)）。
 
-> **Railway の変数名には `STAGING_`・`PRODUCTION_` を付けない。** 接頭辞は GitHub の環境シークレット（`check:env` が読む）だけに付ける。誤って `STAGING_ARCHIVE_ENCRYPTION_KEY` の名前で作ると backend は `ProductionPrerequisiteError` で起動を繰り返す（[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)）。
+> **Railway の変数名には `STAGING_`・`PRODUCTION_` を付けない。** 接頭辞は GitHub の環境シークレット（`PRODUCTION_BACKEND_URL` など）だけに付ける。誤って `STAGING_ARCHIVE_ENCRYPTION_KEY` の名前で作ると backend は `ProductionPrerequisiteError` で起動を繰り返す（[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)）。
 
 #### Backend環境変数
 
@@ -96,14 +96,13 @@ NGINX_HSTS_VALUE=max-age=31536000; includeSubDomains
 
 #### GitHub の環境シークレット（`production` 環境）
 
-デプロイのジョブはデプロイの前に `check:env` で本番の前提を検査する。Railway の backend と同じ値を、接頭辞を付けた名前で登録する。
+デプロイのジョブが使うのは Railway のトークン・サービス ID とヘルスチェックの URL だけである。DB・Redis・JWT・2FA・アーカイブの鍵・段数の本物の値は GitHub に登録しない（デプロイの前の `check:env` はダミーの値で変数の組と形だけを確かめ、Railway の実際の値は backend の起動時の検査が確かめる。是正計画 D9）。
 
 - `RAILWAY_PRODUCTION_TOKEN`（Railway のプロジェクトトークン）
-- `PRODUCTION_DATABASE_URL`・`PRODUCTION_REDIS_URL`・`PRODUCTION_FRONTEND_URL`
-- `PRODUCTION_JWT_PUBLIC_KEY`・`PRODUCTION_JWT_PRIVATE_KEY`・`PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY`
-- `PRODUCTION_ARCHIVE_ENCRYPTION_KEY`・`PRODUCTION_TRUST_PROXY_HOPS`
+- `RAILWAY_BACKEND_SERVICE_ID`・`RAILWAY_FRONTEND_SERVICE_ID`
+- `PRODUCTION_BACKEND_URL`・`PRODUCTION_FRONTEND_URL`（ヘルスチェック）
 
-staging は同じものを `RAILWAY_STAGING_TOKEN`・`STAGING_*` で `staging` 環境に登録する。一覧は[CI/CD設定](cicd-github-actions.md#github-secretsの設定)。
+`RAILWAY_PROJECT_ID` はリポジトリの Secrets に置く。staging は同じものを `RAILWAY_STAGING_TOKEN`・`RAILWAY_BACKEND_STAGING_SERVICE_ID`・`RAILWAY_FRONTEND_STAGING_SERVICE_ID`・`STAGING_BACKEND_URL`・`STAGING_FRONTEND_URL` で `staging` 環境に登録する。以前登録していた `PRODUCTION_DATABASE_URL`・`PRODUCTION_REDIS_URL`・`PRODUCTION_JWT_PUBLIC_KEY`・`PRODUCTION_JWT_PRIVATE_KEY`・`PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY`・`PRODUCTION_ARCHIVE_ENCRYPTION_KEY`・`PRODUCTION_TRUST_PROXY_HOPS`（staging は `STAGING_*`）と `SENTRY_DSN` は使われないため削除する。一覧は[CI/CD設定](cicd-github-actions.md#github-secretsの設定)。
 
 ### Step 2: データベースマイグレーション
 

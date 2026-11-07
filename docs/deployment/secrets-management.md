@@ -240,7 +240,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 #### ステップ3: 新しい鍵を設定
 
 ```bash
-# Railway Dashboard > Variables（GitHub の STAGING_/PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY も同じ値にする）
+# Railway Dashboard > Variables（GitHub 側の更新は要らない）
 TWO_FACTOR_ENCRYPTION_KEY=<新しい鍵>
 ```
 

@@ -873,20 +873,24 @@ jobs:
           timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-postgres"; do sleep 2; done'
           timeout 60 bash -c 'until docker ps | grep -q "healthy.*architrack-redis"; do sleep 2; done'
       - name: Validate environment variables for integration tests
+        env:
+          TEST_JWT_PUBLIC_KEY: ${{ secrets.TEST_JWT_PUBLIC_KEY }}
+          TEST_JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
+          TEST_TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
         run: |
           echo "🔍 Validating required environment variables for integration tests..."
 
           missing_vars=()
 
-          if [ -z "${{ secrets.TEST_JWT_PUBLIC_KEY }}" ]; then
+          if [ -z "${TEST_JWT_PUBLIC_KEY:-}" ]; then
             missing_vars+=("TEST_JWT_PUBLIC_KEY")
           fi
 
-          if [ -z "${{ secrets.TEST_JWT_PRIVATE_KEY }}" ]; then
+          if [ -z "${TEST_JWT_PRIVATE_KEY:-}" ]; then
             missing_vars+=("TEST_JWT_PRIVATE_KEY")
           fi
 
-          if [ -z "${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" ]; then
+          if [ -z "${TEST_TWO_FACTOR_ENCRYPTION_KEY:-}" ]; then
             missing_vars+=("TEST_TWO_FACTOR_ENCRYPTION_KEY")
           fi
 
@@ -939,6 +943,10 @@ jobs:
           SECURITY_ALERT_NOTIFICATION_LIMIT: "1000000"
 
       - name: Create .env file for E2E
+        env:
+          TEST_JWT_PUBLIC_KEY: ${{ secrets.TEST_JWT_PUBLIC_KEY }}
+          TEST_JWT_PRIVATE_KEY: ${{ secrets.TEST_JWT_PRIVATE_KEY }}
+          TEST_TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}
         run: |
           echo "NODE_ENV=test" > .env
           echo "PORT=3000" >> .env
@@ -950,9 +958,9 @@ jobs:
           echo "REFRESH_TOKEN_EXPIRY=7d" >> .env
           # 画面の API の接続先は画面と同じオリジン（frontend の nginx が /api/ を backend へ中継する）
           echo "VITE_API_URL=http://localhost:5173" >> .env
-          echo "JWT_PUBLIC_KEY=${{ secrets.TEST_JWT_PUBLIC_KEY }}" >> .env
-          echo "JWT_PRIVATE_KEY=${{ secrets.TEST_JWT_PRIVATE_KEY }}" >> .env
-          echo "TWO_FACTOR_ENCRYPTION_KEY=${{ secrets.TEST_TWO_FACTOR_ENCRYPTION_KEY }}" >> .env
+          printf 'JWT_PUBLIC_KEY=%s\n' "$TEST_JWT_PUBLIC_KEY" >> .env
+          printf 'JWT_PRIVATE_KEY=%s\n' "$TEST_JWT_PRIVATE_KEY" >> .env
+          printf 'TWO_FACTOR_ENCRYPTION_KEY=%s\n' "$TEST_TWO_FACTOR_ENCRYPTION_KEY" >> .env
           echo "DISABLE_RATE_LIMIT=true" >> .env
           # 異常の検知の閾値（user-authentication 要件43.7）。E2E の全件の実行で超えず、途中で管理者への
           # 通知が流れない値にする（docker-compose.ci.yml の backend へ渡す）
@@ -1114,20 +1122,30 @@ jobs:
       - name: Install backend dependencies
         run: npx -y npm@11.6.2 --prefix backend ci
 
-      - name: Check environment variables
-        run: npm --prefix backend run check:env
+      - name: Check environment variables (format only, dummy values)
+        # 本物の秘密を GitHub に複製しない（是正計画 D9）。ここでは、本番の起動時の検査（validateEnv と
+        # 本番の前提の検査。user-authentication 要件41.3・35.1）が求める変数の組と形を、実行ごとに作る
+        # ダミーの値で確かめる。Railway の実際の値は backend の起動時に同じ検査が確かめ、通らなければ
+        # 新しいデプロイが SUCCESS にならず、次のステップ（scripts/railway-deploy-wait.sh）が失敗する
+        run: |
+          set -euo pipefail
+          dummy_env="$RUNNER_TEMP/dummy.env"
+          npx --prefix backend tsx backend/scripts/generate-eddsa-keys.ts --env-format > "$dummy_env"
+          {
+            echo "TWO_FACTOR_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+            echo "ARCHIVE_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+          } >> "$dummy_env"
+          set -a
+          . "$dummy_env"
+          set +a
+          rm -f "$dummy_env"
+          npm --prefix backend run check:env
         env:
           NODE_ENV: production
-          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          REDIS_URL: ${{ secrets.STAGING_REDIS_URL }}
-          FRONTEND_URL: ${{ secrets.STAGING_FRONTEND_URL }}
-          JWT_PUBLIC_KEY: ${{ secrets.STAGING_JWT_PUBLIC_KEY }}
-          JWT_PRIVATE_KEY: ${{ secrets.STAGING_JWT_PRIVATE_KEY }}
-          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.STAGING_TWO_FACTOR_ENCRYPTION_KEY }}
-          # 本番の前提（起動時の検査と同じ。user-authentication 要件41.3・35.1）
-          ARCHIVE_ENCRYPTION_KEY: ${{ secrets.STAGING_ARCHIVE_ENCRYPTION_KEY }}
-          TRUST_PROXY_HOPS: ${{ secrets.STAGING_TRUST_PROXY_HOPS }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
+          REDIS_URL: redis://localhost:6379
+          FRONTEND_URL: https://example.invalid
+          TRUST_PROXY_HOPS: '3'
 
       - name: Pre-deployment notification
         env:
@@ -1179,13 +1197,14 @@ jobs:
 
       - name: Health check
         id: health-check
+        env:
+          BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+          FRONTEND_URL: ${{ secrets.STAGING_FRONTEND_URL }}
         run: |
           echo "========================================="
           echo "Running Health Checks (Staging)"
           echo "========================================="
 
-          BACKEND_URL="${{ secrets.STAGING_BACKEND_URL }}"
-          FRONTEND_URL="${{ secrets.STAGING_FRONTEND_URL }}"
           MAX_RETRIES=10
           RETRY_INTERVAL=10
 
@@ -1239,13 +1258,16 @@ jobs:
 
       - name: Post-deployment notification
         if: success()
+        env:
+          BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+          FRONTEND_URL: ${{ secrets.STAGING_FRONTEND_URL }}
         run: |
           echo "========================================="
           echo "Staging Deployment Completed Successfully"
           echo "========================================="
           echo "Environment: staging"
-          echo "Backend URL: ${{ secrets.STAGING_BACKEND_URL }}"
-          echo "Frontend URL: ${{ secrets.STAGING_FRONTEND_URL }}"
+          echo "Backend URL: ${BACKEND_URL}"
+          echo "Frontend URL: ${FRONTEND_URL}"
           echo "Commit: ${{ github.sha }}"
           echo "Branch: ${{ github.ref_name }}"
           echo ""
@@ -1302,20 +1324,30 @@ jobs:
       - name: Install backend dependencies
         run: npx -y npm@11.6.2 --prefix backend ci
 
-      - name: Check environment variables
-        run: npm --prefix backend run check:env
+      - name: Check environment variables (format only, dummy values)
+        # 本物の秘密を GitHub に複製しない（是正計画 D9）。ここでは、本番の起動時の検査（validateEnv と
+        # 本番の前提の検査。user-authentication 要件41.3・35.1）が求める変数の組と形を、実行ごとに作る
+        # ダミーの値で確かめる。Railway の実際の値は backend の起動時に同じ検査が確かめ、通らなければ
+        # 新しいデプロイが SUCCESS にならず、次のステップ（scripts/railway-deploy-wait.sh）が失敗する
+        run: |
+          set -euo pipefail
+          dummy_env="$RUNNER_TEMP/dummy.env"
+          npx --prefix backend tsx backend/scripts/generate-eddsa-keys.ts --env-format > "$dummy_env"
+          {
+            echo "TWO_FACTOR_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+            echo "ARCHIVE_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+          } >> "$dummy_env"
+          set -a
+          . "$dummy_env"
+          set +a
+          rm -f "$dummy_env"
+          npm --prefix backend run check:env
         env:
           NODE_ENV: production
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-          REDIS_URL: ${{ secrets.PRODUCTION_REDIS_URL }}
-          FRONTEND_URL: ${{ secrets.PRODUCTION_FRONTEND_URL }}
-          JWT_PUBLIC_KEY: ${{ secrets.PRODUCTION_JWT_PUBLIC_KEY }}
-          JWT_PRIVATE_KEY: ${{ secrets.PRODUCTION_JWT_PRIVATE_KEY }}
-          TWO_FACTOR_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY }}
-          # 本番の前提（起動時の検査と同じ。user-authentication 要件41.3・35.1）
-          ARCHIVE_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_ARCHIVE_ENCRYPTION_KEY }}
-          TRUST_PROXY_HOPS: ${{ secrets.PRODUCTION_TRUST_PROXY_HOPS }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
+          REDIS_URL: redis://localhost:6379
+          FRONTEND_URL: https://example.invalid
+          TRUST_PROXY_HOPS: '3'
 
       - name: Pre-deployment notification
         env:
@@ -1371,13 +1403,14 @@ jobs:
 
       - name: Health check
         id: health-check
+        env:
+          BACKEND_URL: ${{ secrets.PRODUCTION_BACKEND_URL }}
+          FRONTEND_URL: ${{ secrets.PRODUCTION_FRONTEND_URL }}
         run: |
           echo "========================================="
           echo "Running Health Checks (Production)"
           echo "========================================="
 
-          BACKEND_URL="${{ secrets.PRODUCTION_BACKEND_URL }}"
-          FRONTEND_URL="${{ secrets.PRODUCTION_FRONTEND_URL }}"
           MAX_RETRIES=10
           RETRY_INTERVAL=10
 
@@ -1431,13 +1464,16 @@ jobs:
 
       - name: Post-deployment notification
         if: success()
+        env:
+          BACKEND_URL: ${{ secrets.PRODUCTION_BACKEND_URL }}
+          FRONTEND_URL: ${{ secrets.PRODUCTION_FRONTEND_URL }}
         run: |
           echo "========================================="
           echo "Production Deployment Completed Successfully"
           echo "========================================="
           echo "Environment: production"
-          echo "Backend URL: ${{ secrets.PRODUCTION_BACKEND_URL }}"
-          echo "Frontend URL: ${{ secrets.PRODUCTION_FRONTEND_URL }}"
+          echo "Backend URL: ${BACKEND_URL}"
+          echo "Frontend URL: ${FRONTEND_URL}"
           echo "Commit: ${{ github.sha }}"
           echo "Branch: ${{ github.ref_name }}"
           echo ""
