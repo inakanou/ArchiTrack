@@ -787,4 +787,46 @@ describe('ProtectedRoute - requireAuth=false', () => {
     // stateのfromパス（/profile）にリダイレクトされることを確認
     expect(screen.getByTestId('profile-page')).toBeInTheDocument();
   });
+
+  /**
+   * 是正計画 D13: state.from が別のオリジンへ遷移しうる値なら redirectTo へ遷移する
+   */
+  it.each(['https://malicious.example/phishing', '//malicious.example', '/\\malicious.example'])(
+    'should ignore unsafe state.from (%s) and redirect to redirectTo',
+    (unsafeFrom) => {
+      const mockAuthValue = createMockAuthContextValue({
+        isLoading: false,
+        isAuthenticated: true,
+        isInitialized: true,
+        user: {
+          id: '123',
+          email: 'test@example.com',
+          displayName: 'Test User',
+        },
+      });
+
+      render(
+        <AuthContext.Provider value={mockAuthValue}>
+          <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: unsafeFrom } }]}>
+            <Routes>
+              <Route
+                path="/login"
+                element={
+                  <ProtectedRoute requireAuth={false} redirectTo="/dashboard">
+                    <LoginPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard"
+                element={<div data-testid="dashboard-page">Dashboard</div>}
+              />
+            </Routes>
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+
+      expect(screen.getByTestId('dashboard-page')).toBeInTheDocument();
+    }
+  );
 });
