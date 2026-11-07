@@ -2,6 +2,8 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
+_最終更新: 2026-11-07（是正計画の直接実装 D2〜D14。(1)「Dependabot 自動依存関係管理」を実体へ揃えた: 監視対象に backend・frontend の Dockerfile を加えて 7 件、全ての対象に cooldown、自動マージを開発依存のマイナー・パッチとパッチ更新に限り PR の作成者で判定、Actions をフル SHA で固定。(2)「CI/CD」に毎日の定期の監査 `.github/workflows/security-scheduled.yml`（npm audit・gitleaks・CodeQL・trivy）と、デプロイの前の環境変数の検査がダミー値で形だけを確かめることを足した）_
+
 _最終更新: 2026-11-07（Steering Sync: `/kiro-steering`。(1) Railway の本番・staging の `TRUST_PROXY_HOPS` を実測の 3 として「送信元の識別」に足した（2026-11-07 に staging で実測。エッジが X-Forwarded-For に 2 段、frontend の nginx が 1 段を足す）。(2) CD の「デプロイ実行」が `railway up --detach` の後に新しいデプロイの `SUCCESS` を待つ形（`scripts/railway-deploy-wait.sh`）へ変わったことと、ヘルスチェックの実際の間隔（10 回・10 秒）を反映した。(3) 運用スクリプトのテストに 2FA の後始末を足した）_
 
 _最終更新: 2026-10-14（Steering Sync: 依存バージョンの表記を実体へ揃えた。フロントエンド・バックエンド・E2E の「技術スタック」（`^` なし）は各 lock の導入版、「主要な依存関係」（`^` 付き）は各 package.json の宣言と照合し、食い違い 62 か所を直した（nodemailer 7→10、lint-staged 16→17、rollup-plugin-visualizer 6→7、sharp 0.34→0.35、@anthropic-ai/sdk 0.74/0.106→0.133、Playwright 1.40→1.62 など。同じ依存に 2 つの版が書かれていた @anthropic-ai/sdk の自己矛盾も解消）。@node-rs/argon2 はバックエンドの lock が 2.0.2 のままで正しく、2.2.2 へ上がったのはルート（E2E）側のみ。あわせて、playwright.config.ts の `failOnFlakyTests: true` と、前提操作の入力の取りこぼしを状態の不変を条件に入力し直す型を「CI環境対応の待機パターン」へ加えた）_
@@ -1328,7 +1330,9 @@ grep -oE 'check:[a-z0-9-]+' .github/workflows/ci.yml | sort -u
 - **テスト**: 単体（backend/frontend 並列、Codecov 連携）・Storybook・
   統合／E2E（順次実行。Docker Compose でサービスを起動し、失敗時にスクリーンショットと
   ビデオを artifact へ上げる）
-- **セキュリティ**: npm audit（backend/frontend 並列）
+- **セキュリティ**: npm audit（`scripts/security-audit.mjs`。本番依存は moderate 以上で失敗、許容リストのエントリは有効期限が必須）
+- **定期の監査**: `.github/workflows/security-scheduled.yml` が毎日（05:23 JST）と手動で、npm audit・gitleaks（全履歴。設定は `.gitleaks.toml`）・trivy の lockfile の検査を失敗の判定に、CodeQL と trivy の設定・イメージの検査を Security タブへの報告に回す。schedule は既定のブランチ（`main`）のワークフローで動く
+- **権限と固定**: `ci.yml` のトップレベルで `permissions: contents: read`。全ての `uses:` はフル SHA で固定し版をコメントに残す
 - **合流点**: 全ジョブの成功を確認するゲートジョブが、後段のデプロイの前提になる
 
 **押下前の関門と CI の関門は同一ではない。** どちらか一方だけが走らせる検査があるため、
@@ -1347,7 +1351,8 @@ grep -oE 'check:[a-z0-9-]+' .github/workflows/ci.yml | sort -u
 CI成功後、CIワークフロー内でデプロイジョブが実行されます（統合パイプライン構成）。
 
 **主要ステップ:**
-1. **Railway CLI セットアップ**: Railway環境へのデプロイ準備
+1. **環境変数の検査（ダミー値）**: 本物の秘密を GitHub に複製せず、実行ごとに作るダミーの値で本番の起動時の検査が求める変数の組と形を確かめる。Railway の実際の値は backend の起動時の同じ検査が確かめ、通らなければ次のデプロイの待ちが失敗する
+1. **Railway CLI セットアップ**: Railway環境へのデプロイ準備（`@railway/cli` は版を固定）
 2. **デプロイ実行**: staging/production環境へのデプロイ
    - `railway up --detach` は開始だけで戻るため、`scripts/railway-deploy-wait.sh` が新しいデプロイを ID で追い、Railway のヘルスチェックに合格した `SUCCESS` まで待つ（`FAILED`・`CRASHED`・置き換え・時間切れはジョブの失敗。backend・frontend を並行に待つ）。古い版に当たったヘルスチェックの合格で成功にしないため
    - Backend: Prisma Client自動生成（`npm run build`内で実行）
@@ -1378,13 +1383,17 @@ CI成功後、CIワークフロー内でデプロイジョブが実行されま�
 
 `.github/dependabot.yml` と `.github/workflows/dependabot-automerge.yml` で自動依存関係更新を実装しています。
 
-**監視対象エコシステム（5つ）— 依存関係の件数は本書へ書かない（規約 (b)）:**
+**監視対象（7つ）— 依存関係の件数は本書へ書かない（規約 (b)）:**
 
 1. **NPM Root** - E2Eテスト（対象はリポジトリルート）
 2. **NPM Backend** - バックエンドAPI（対象は `backend/`）
 3. **NPM Frontend** - フロントエンドUI（対象は `frontend/`）
-4. **GitHub Actions** - ワークフロー（対象はリポジトリルート）
-5. **Docker** - ベースイメージ（対象はリポジトリルート）
+4. **GitHub Actions** - ワークフロー（対象はリポジトリルート。`uses:` はフル SHA で固定し、更新は SHA と版のコメントを併せて変える）
+5. **Docker** - compose のイメージ（対象はリポジトリルート）
+6. **Docker Backend** - ベースイメージ（対象は `backend/`）
+7. **Docker Frontend** - ベースイメージ（対象は `frontend/`）
+
+イメージは版と digest で固定する（`node:<版>-alpine<版>@sha256:...` の形）。
 
 エコシステムの権威は `.github/dependabot.yml`、監視される件数の権威は各 `package.json` と
 ワークフロー・Dockerfile である。次で読み出す（いずれもリポジトリルートで実行する）。
@@ -1409,10 +1418,12 @@ grep -rhoE '^FROM [^ ]+' */Dockerfile* | sort -u
 - 週次月曜 09:00-10:00 UTC（各エコシステムで時間差）
 - 最大5件のPRまで同時作成
 
+**公開直後の版の取り込みの抑止（cooldown）:** 全ての対象で公開から 7 日、npm のメジャーは 30 日を待つ。セキュリティ更新は cooldown の対象外。
+
 **自動マージ戦略:**
-- **minor/patchアップデート**: CI成功後に自動マージ
-- **majorアップデート**: 手動レビュー必須
-- SemVerベースの判断で安全性を確保
+- **自動マージ**: パッチ更新と、開発依存（`direct:development`）のマイナー更新だけ。CI 成功後にマージされる
+- **手動レビュー必須**: 本番依存のマイナー更新とメジャー更新
+- 判定は PR の作成者（`github.event.pull_request.user.login`）で行う（`github.actor` は PR を最後に動かした利用者になるため）
 
 **セキュリティ統合:**
 - GitHub Advisory Databaseとの連携

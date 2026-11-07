@@ -16,7 +16,7 @@ README.mdは以下のサブドキュメントへのリンクを含む。更新�
 |---|---|
 | **はじめに** | `getting-started/prerequisites.md`, `getting-started/installation.md`, `getting-started/quick-start.md`, `features.md` |
 | **開発** | `development/workflow.md`, `development/database-migration.md`, `development/testing.md`, `development/debugging.md`, `development/coding-standards.md`, `development/git-configuration.md`, `development/mcp-setup.md` |
-| **デプロイ** | `deployment/overview.md`, `deployment/environment-variables.md`, `deployment/secrets-management.md`, `deployment/key-rotation-procedure.md`, `deployment/railway-setup.md`, `deployment/r2-lifecycle-rules.md`, `deployment/cicd-github-actions.md`, `deployment/troubleshooting.md` |
+| **デプロイ** | `deployment/overview.md`, `deployment/environment-variables.md`, `deployment/secrets-management.md`, `deployment/key-rotation-procedure.md`, `deployment/railway-setup.md`, `deployment/r2-lifecycle-rules.md`, `deployment/cicd-github-actions.md`, `deployment/data-protection.md`, `deployment/troubleshooting.md` |
 | **アーキテクチャ** | `architecture/system-overview.md`, `architecture/data-flow.md`, `architecture/security-design.md`, `architecture/storage-configuration.md`, `architecture/tech-stack.md`, `architecture/project-structure.md` |
 | **API** | `api/overview.md`, `api/authentication.md`, `api/authorization.md`, `api/error-handling.md` |
 | **コントリビューション** | `contributing/guide.md`, `contributing/commit-conventions.md`, `contributing/code-of-conduct.md` |

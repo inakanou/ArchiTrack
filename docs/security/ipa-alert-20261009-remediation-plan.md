@@ -232,26 +232,26 @@ IPA「国内で相次ぐ不正アクセスによる情報漏えいを踏まえ�
 ## 8. 直接実装（Path B）
 
 - [x] **D1** backend の `xlsx` を CDN 版 0.20.3 へ更新し、許容エントリを削除する（期限 2026-10-31）。使われなくなった react-router の許容エントリも削除する（2026-11-07 に実施。それまでは完了の印だけが付き、backend は 0.18.5 のまま、許容エントリは xlsx が期限を 2027-01-31 へ延ばされ、react-router・react-router-dom が期限切れのまま残っていた）
-- [ ] **D2** 本番依存の moderate で修正版があるもの（`qs`・`ip-address`・`fflate`・`uuid`）を更新し、moderate の扱い（ブロックまたは期限付き追跡）を `scripts/security-audit.mjs` で決める
-- [ ] **D3** `.github/dependabot.yml`: docker の対象に `/backend`・`/frontend` を加え、`cooldown` を設定する
-- [ ] **D4** `dependabot-automerge.yml`: 自動マージを devDependencies と patch に限定し、判定を `github.event.pull_request.user.login` に変える
-- [ ] **D5** Actions をフル SHA で固定し、`ci.yml` のトップレベルに `permissions: contents: read` を宣言する
-- [ ] **D6** ベースイメージ（`node:22-alpine`・`nginx:alpine`・`willfarrell/autoheal`・`axllent/mailpit`）を版と digest で固定し、`@railway/cli` と本番ステージの `tsx` を版固定する
-- [ ] **D7** 毎日の定期監査ジョブを追加し、gitleaks・CodeQL・trivy を導入する
-- [ ] **D8** `.gitignore` に `.env.keys`・`*.pem`・`*.key`・`.env.production`（`*.example` を除く）を加える
-- [ ] **D9** `ci.yml`: `check:env` のための本物のシークレット複製を廃止する（ダミー値で形式だけを検証する）。シークレットは `env:` 経由で渡し、echo しない
-- [ ] **D10** 開発・テスト用 compose のポートを `127.0.0.1:` にバインドする（Node デバッガ 9229 を含む）
+- [x] **D2** 本番依存の moderate で修正版があるもの（`qs`・`ip-address`・`fflate`・`uuid`）を更新し、moderate の扱い（ブロックまたは期限付き追跡）を `scripts/security-audit.mjs` で決める（2026-11-07。qs・ip-address・fflate は解消済みだった。uuid・glob・minimatch を overrides で上げ、本番依存は moderate 以上でブロック、許容は有効期限付きに限る）
+- [x] **D3** `.github/dependabot.yml`: docker の対象に `/backend`・`/frontend` を加え、`cooldown` を設定する（2026-11-07）
+- [x] **D4** `dependabot-automerge.yml`: 自動マージを devDependencies と patch に限定し、判定を `github.event.pull_request.user.login` に変える（2026-11-07。開発依存のマイナー・パッチとパッチ更新に限る）
+- [x] **D5** Actions をフル SHA で固定し、`ci.yml` のトップレベルに `permissions: contents: read` を宣言する（2026-11-07）
+- [x] **D6** ベースイメージ（`node:22-alpine`・`nginx:alpine`・`willfarrell/autoheal`・`axllent/mailpit`）を版と digest で固定し、`@railway/cli` と本番ステージの `tsx` を版固定する（2026-11-07。autoheal は版のタグが更新されていないため latest を digest で固定）
+- [x] **D7** 毎日の定期監査ジョブを追加し、gitleaks・CodeQL・trivy を導入する（2026-11-07。`.github/workflows/security-scheduled.yml`・`.gitleaks.toml`。schedule は既定のブランチ main へ入ってから動く）
+- [x] **D8** `.gitignore` に `.env.keys`・`*.pem`・`*.key`・`.env.production`（`*.example` を除く）を加える（2026-11-07）
+- [x] **D9** `ci.yml`: `check:env` のための本物のシークレット複製を廃止する（ダミー値で形式だけを検証する）。シークレットは `env:` 経由で渡し、echo しない（2026-11-07。使わなくなった GitHub secrets の削除は利用者の作業）
+- [x] **D10** 開発・テスト用 compose のポートを `127.0.0.1:` にバインドする（Node デバッガ 9229 を含む）（2026-11-07）
 - [x] ~~**D11** `NODE_ENV` の既定値を `production` にする~~ → user-authentication 要件42.9 へ移した（2026-10-16。開発用の機能を実行環境の指定が無いときに無効にする振る舞いとして要件化）
-- [ ] **D12** 未使用の `@aws-sdk/client-sesv2` を削除する。`backend/scripts/check-env.ts` が秘密値の一部と接続 URL を表示しないようにする。文書の 2FA 鍵の例を検証を通らない表記にし、`.env.example` の説明（Base64）を実装（64 桁 hex）に合わせる
-- [ ] **D13** ログイン後の遷移先の検証（`validateRedirectUrl`）が `/\` で始まる値を通す開放リダイレクトの是正と、`ProtectedRoute` の `state.from` の検証（user-authentication の設計の調査で発見。要件32〜45 の範囲外）
-- [ ] **D14** tesseract.js の worker・言語データを自前で配信し、CSP の `cdn.jsdelivr.net`・`tessdata.projectnaptha.com` の許可を外す（user-authentication 要件44 の設計では許可で対応）
+- [x] **D12** 未使用の `@aws-sdk/client-sesv2` を削除する。`backend/scripts/check-env.ts` が秘密値の一部と接続 URL を表示しないようにする。文書の 2FA 鍵の例を検証を通らない表記にし、`.env.example` の説明（Base64）を実装（64 桁 hex）に合わせる（2026-11-07）
+- [x] **D13** ログイン後の遷移先の検証（`validateRedirectUrl`）が `/\` で始まる値を通す開放リダイレクトの是正と、`ProtectedRoute` の `state.from` の検証（user-authentication の設計の調査で発見。要件32〜45 の範囲外）（2026-11-07。`frontend/src/utils/safe-redirect.ts`）
+- [x] **D14** tesseract.js の worker・言語データを自前で配信し、CSP の `cdn.jsdelivr.net`・`tessdata.projectnaptha.com` の許可を外す（user-authentication 要件44 の設計では許可で対応）（2026-11-07。user-authentication の design.md に改訂の記録）
 
 ## 9. 文書化
 
-- [ ] **W1** 本番のデプロイ経路と本番変数の所在（`deploy-production` ジョブが参照するシークレットは未登録）
-- [ ] **W2** DB バックアップの頻度・保持期間・暗号化と、復元訓練の手順
-- [ ] **W3** アプリログの転送先と保持期間（Railway のログ保持に依存しない）
-- [ ] **W4** R2 の保存時暗号化、Railway のプライベートネットワーク経由の DB 接続（または `sslmode=require`）の前提
+- [x] **W1** 本番のデプロイ経路と本番変数の所在（`deploy-production` ジョブが参照するシークレットは未登録）（2026-11-07。[データ保護と運用の前提](../deployment/data-protection.md)。利用者が決める項目は同書の各節）
+- [x] **W2** DB バックアップの頻度・保持期間・暗号化と、復元訓練の手順（同上）
+- [x] **W3** アプリログの転送先と保持期間（Railway のログ保持に依存しない）（同上。現状と判断の材料を記した。セキュリティの記録は Railway に依存しない監査ログを正とする。アプリログの転送の要否は利用者の判断が残る）
+- [x] **W4** R2 の保存時暗号化、Railway のプライベートネットワーク経由の DB 接続（または `sslmode=require`）の前提（同上）
 
 ## 10. 監査の根拠
 
