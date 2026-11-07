@@ -29,6 +29,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createWorker } from 'tesseract.js';
+import { TESSERACT_WORKER_OPTIONS } from '../../utils/tesseract-assets';
 import * as XLSX from 'xlsx';
 import type { LineItemFormData } from './LineItemEditor';
 import { extractPdfHybrid, renderPdfPagesToBase64 } from './pdf-text-extractor';
@@ -951,7 +952,7 @@ export function OcrDataExtractor({
       try {
         // ワーカー初期化（プリフェッチ）
         setProgress(20);
-        const worker = await createWorker('jpn');
+        const worker = await createWorker('jpn', undefined, TESSERACT_WORKER_OPTIONS);
         workerRef.current = worker as unknown as typeof workerRef.current;
 
         if (abortedRef.current) {

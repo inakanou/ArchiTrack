@@ -31,6 +31,7 @@
 import './pdf-worker-config';
 import { getDocument } from 'pdfjs-dist';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
+import { TESSERACT_WORKER_OPTIONS } from '../../utils/tesseract-assets';
 
 // ============================================================================
 // 定数
@@ -407,7 +408,7 @@ export async function extractPdfWithOcrFallback(
   throwIfAborted(signal);
 
   // Tesseract.jsワーカーの初期化
-  const worker = await createWorker('jpn');
+  const worker = await createWorker('jpn', undefined, TESSERACT_WORKER_OPTIONS);
 
   try {
     const pageTexts: string[] = [];

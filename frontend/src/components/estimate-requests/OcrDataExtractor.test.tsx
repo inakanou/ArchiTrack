@@ -93,6 +93,7 @@ vi.mock('../../hooks/useAuth', () => ({
 import { OcrDataExtractor } from './OcrDataExtractor';
 import type { LineItemFormData } from './LineItemEditor';
 import * as XLSX from 'xlsx';
+import { TESSERACT_WORKER_OPTIONS } from '../../utils/tesseract-assets';
 
 // ============================================================================
 // テストヘルパー
@@ -235,7 +236,7 @@ describe('OcrDataExtractor', () => {
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
       await waitFor(() => {
-        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn', undefined, TESSERACT_WORKER_OPTIONS);
       });
 
       await waitFor(() => {
@@ -250,7 +251,7 @@ describe('OcrDataExtractor', () => {
       render(<OcrDataExtractor {...defaultProps({ file })} />);
 
       await waitFor(() => {
-        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn', undefined, TESSERACT_WORKER_OPTIONS);
       });
 
       await waitFor(() => {
@@ -957,7 +958,7 @@ describe('OcrDataExtractor', () => {
 
       // Tesseract.jsが直接呼ばれること
       await waitFor(() => {
-        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn', undefined, TESSERACT_WORKER_OPTIONS);
       });
 
       await waitFor(() => {
