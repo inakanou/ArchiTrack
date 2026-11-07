@@ -1,5 +1,11 @@
 name: Dependabot Auto-merge
 
+# 自動マージは次に限る（どちらもメジャー更新を含まない）。それ以外は人がレビューしてマージする
+# - 開発依存（direct:development）のマイナー・パッチ更新
+# - パッチ更新
+# 判定は PR の作成者（github.event.pull_request.user.login）で行う。github.actor は
+# PR を最後に動かした利用者（再実行・push した人）になり、作成者の判定に使えないため
+
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
@@ -11,7 +17,7 @@ permissions:
 jobs:
   dependabot:
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
@@ -19,8 +25,11 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Auto-merge minor and patch updates
-        if: steps.metadata.outputs.update-type == 'version-update:semver-minor' || steps.metadata.outputs.update-type == 'version-update:semver-patch'
+      - name: Auto-merge development dependency and patch updates
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          (steps.metadata.outputs.dependency-type == 'direct:development' &&
+           steps.metadata.outputs.update-type == 'version-update:semver-minor')
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
