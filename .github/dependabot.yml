@@ -8,6 +8,11 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:00"
+    # 公開直後の版を取り込まない（乗っ取られた版の公開から取り下げまでの期間を避ける）。
+    # セキュリティ更新は cooldown の対象外で、すぐに PR が作られる
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
     open-pull-requests-limit: 5
     reviewers:
       - "inaka"
@@ -34,6 +39,11 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:00"
+    # 公開直後の版を取り込まない（乗っ取られた版の公開から取り下げまでの期間を避ける）。
+    # セキュリティ更新は cooldown の対象外で、すぐに PR が作られる
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
     open-pull-requests-limit: 5
     reviewers:
       - "inaka"
@@ -60,6 +70,11 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:00"
+    # 公開直後の版を取り込まない（乗っ取られた版の公開から取り下げまでの期間を避ける）。
+    # セキュリティ更新は cooldown の対象外で、すぐに PR が作られる
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
     open-pull-requests-limit: 5
     reviewers:
       - "inaka"
@@ -86,6 +101,9 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:30"
+    # 公開直後の版を取り込まない（セキュリティ更新は対象外）
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     reviewers:
       - "inaka"
@@ -101,7 +119,7 @@ updates:
       separator: "/"
     rebase-strategy: "auto"
 
-  # Docker images in docker-compose.yml
+  # Docker images in docker-compose*.yml
   - package-ecosystem: "docker"
     directory: "/"
     target-branch: "develop"
@@ -109,6 +127,9 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "10:00"
+    # 公開直後の版を取り込まない（セキュリティ更新は対象外）
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     reviewers:
       - "inaka"
@@ -117,6 +138,60 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    commit-message:
+      prefix: "chore(docker):"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    rebase-strategy: "auto"
+
+  # Docker base images in backend/Dockerfile*
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+    # 公開直後の版を取り込まない（セキュリティ更新は対象外）
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    reviewers:
+      - "inaka"
+    assignees:
+      - "inaka"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "backend"
+    commit-message:
+      prefix: "chore(docker):"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    rebase-strategy: "auto"
+
+  # Docker base images in frontend/Dockerfile*
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+    # 公開直後の版を取り込まない（セキュリティ更新は対象外）
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    reviewers:
+      - "inaka"
+    assignees:
+      - "inaka"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "frontend"
     commit-message:
       prefix: "chore(docker):"
       include: "scope"

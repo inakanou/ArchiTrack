@@ -141,10 +141,10 @@ jobs:
 | Secret名 | 説明 | 取得方法 |
 |---------|------|---------|
 | `RAILWAY_PROJECT_ID` | プロジェクトID | `railway status --json \| jq -r '.project.id'` |
-| `SENTRY_DSN` | `check:env` に渡す Sentry の DSN（任意） | Sentry Project設定 |
 
 > 環境ごとの Secrets（下の Staging・Production）は Settings > Environments の `staging`・`production` の環境シークレットに置く（`deploy-staging`・`deploy-production` のジョブはその環境で動く）。
 > Secrets の名前には `STAGING_`・`PRODUCTION_` の接頭辞が付くが、**Railway の変数の名前には付けない**（[変数名の注意](environment-variables.md#railwayの変数名の注意)）。
+> DB・Redis・JWT・2FA・アーカイブの鍵・段数の本物の値は GitHub に置かない（Railway の変数だけに置く）。下の「デプロイの前の環境変数の検査」を参照。
 
 #### Staging環境
 
@@ -153,15 +153,8 @@ jobs:
 | `RAILWAY_STAGING_TOKEN` | Staging用Railwayトークン（プロジェクトトークン） | Railway Dashboard > Project Settings > Tokens で staging 環境を選んで作成 |
 | `RAILWAY_BACKEND_STAGING_SERVICE_ID` | BackendサービスID（Staging） | [Railway設定](railway-setup.md#github-secrets用のid取得) |
 | `RAILWAY_FRONTEND_STAGING_SERVICE_ID` | FrontendサービスID（Staging） | [Railway設定](railway-setup.md#github-secrets用のid取得) |
-| `STAGING_BACKEND_URL` | BackendのURL（Staging） | Railway Dashboard で確認 |
-| `STAGING_FRONTEND_URL` | FrontendのURL（Staging） | Railway Dashboard で確認 |
-| `STAGING_DATABASE_URL` | データベースURL（Staging） | Railway Dashboard で確認 |
-| `STAGING_REDIS_URL` | RedisURL（Staging） | Railway Dashboard で確認 |
-| `STAGING_JWT_PUBLIC_KEY` | JWT公開鍵（Staging） | 本番用に別途生成 |
-| `STAGING_JWT_PRIVATE_KEY` | JWT秘密鍵（Staging） | 本番用に別途生成 |
-| `STAGING_TWO_FACTOR_ENCRYPTION_KEY` | 2FA暗号化キー（Staging） | 本番用に別途生成 |
-| `STAGING_ARCHIVE_ENCRYPTION_KEY` | 監査ログのアーカイブの暗号鍵（Staging）。Railway の `ARCHIVE_ENCRYPTION_KEY` と同じ値 | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `STAGING_TRUST_PROXY_HOPS` | 信頼する中継の段数（Staging）。Railway の `TRUST_PROXY_HOPS` と同じ値 | `3` |
+| `STAGING_BACKEND_URL` | BackendのURL（Staging）。ヘルスチェックに使う | Railway Dashboard で確認 |
+| `STAGING_FRONTEND_URL` | FrontendのURL（Staging）。ヘルスチェックに使う | Railway Dashboard で確認 |
 
 #### Production環境
 
@@ -170,17 +163,17 @@ jobs:
 | `RAILWAY_PRODUCTION_TOKEN` | Production用Railwayトークン（プロジェクトトークン） | Railway Dashboard > Project Settings > Tokens で production 環境を選んで作成 |
 | `RAILWAY_BACKEND_SERVICE_ID` | BackendサービスID（Production） | [Railway設定](railway-setup.md#github-secrets用のid取得) |
 | `RAILWAY_FRONTEND_SERVICE_ID` | FrontendサービスID（Production） | [Railway設定](railway-setup.md#github-secrets用のid取得) |
-| `PRODUCTION_BACKEND_URL` | BackendのURL（Production） | Railway Dashboard で確認 |
-| `PRODUCTION_FRONTEND_URL` | FrontendのURL（Production） | Railway Dashboard で確認 |
-| `PRODUCTION_DATABASE_URL` | データベースURL（Production） | Railway Dashboard で確認 |
-| `PRODUCTION_REDIS_URL` | RedisURL（Production） | Railway Dashboard で確認 |
-| `PRODUCTION_JWT_PUBLIC_KEY` | JWT公開鍵（Production） | 本番用に別途生成 |
-| `PRODUCTION_JWT_PRIVATE_KEY` | JWT秘密鍵（Production） | 本番用に別途生成 |
-| `PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY` | 2FA暗号化キー（Production） | 本番用に別途生成 |
-| `PRODUCTION_ARCHIVE_ENCRYPTION_KEY` | 監査ログのアーカイブの暗号鍵（Production）。Railway の `ARCHIVE_ENCRYPTION_KEY` と同じ値 | Staging と別に生成 |
-| `PRODUCTION_TRUST_PROXY_HOPS` | 信頼する中継の段数（Production）。Railway の `TRUST_PROXY_HOPS` と同じ値 | `3` |
+| `PRODUCTION_BACKEND_URL` | BackendのURL（Production）。ヘルスチェックに使う | Railway Dashboard で確認 |
+| `PRODUCTION_FRONTEND_URL` | FrontendのURL（Production）。ヘルスチェックに使う | Railway Dashboard で確認 |
 
-`STAGING_*`・`PRODUCTION_*` の DB・Redis・JWT・2FA・アーカイブの鍵・段数は、デプロイの前の環境変数の検査（`npm --prefix backend run check:env`。`NODE_ENV=production` で起動時と同じ本番の前提の検査を通す）が読む。欠けるとデプロイのジョブが止まる。
+#### デプロイの前の環境変数の検査（ダミー値）
+
+デプロイのジョブの「Check environment variables (format only, dummy values)」は、本物の秘密を GitHub に複製せず、実行ごとに作るダミーの値（EdDSA の鍵は `backend/scripts/generate-eddsa-keys.ts --env-format`、2FA・アーカイブの鍵はランダムな 64 桁の 16 進、`DATABASE_URL`・`REDIS_URL` は固定のダミー、`FRONTEND_URL=https://example.invalid`、`TRUST_PROXY_HOPS=3`）で `npm --prefix backend run check:env`（`NODE_ENV=production`）を通す。確かめるのは、本番の起動時の検査が求める変数の組と形だけである（是正計画 D9、2026-11-07）。
+
+Railway に設定した実際の値は、backend の起動時に同じ検査が確かめる。通らなければ新しいデプロイが `SUCCESS` にならず、`scripts/railway-deploy-wait.sh` がジョブを失敗させる。
+
+> 以前は `check:env` のために `STAGING_`・`PRODUCTION_` の `DATABASE_URL`・`REDIS_URL`・`JWT_PUBLIC_KEY`・`JWT_PRIVATE_KEY`・`TWO_FACTOR_ENCRYPTION_KEY`・`ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS` と `SENTRY_DSN` を GitHub Secrets に登録していた。これらはもう使わないため、GitHub の Settings（リポジトリと `staging`・`production` の環境）から削除する。短い値の Secret（`STAGING_TRUST_PROXY_HOPS="3"`）があると GitHub は CI のログの `3` をすべて `***` に伏せるため、削除でこれも直る。Railway の変数（`TRUST_PROXY_HOPS=3`・`ARCHIVE_ENCRYPTION_KEY` など）は変えない。
+
 ### CD - Staging
 
 #### トリガー
@@ -189,7 +182,7 @@ jobs:
 
 #### 実行内容
 
-1. 環境変数の検査（`check:env`）
+1. 環境変数の検査（`check:env`。ダミー値で変数の組と形だけを確かめる）
 2. Railway CLIでStaging環境のBackend・Frontendのサービスのデプロイを開始する（`railway up --detach`）
 3. 新しいデプロイが Railway のヘルスチェックに合格する（状態が `SUCCESS`）まで待つ（`scripts/railway-deploy-wait.sh`。`FAILED`・`CRASHED`・置き換え・時間切れはジョブの失敗）
 4. 公開ドメインへのヘルスチェック実行
@@ -234,7 +227,7 @@ jobs:
 
 #### 実行内容
 
-1. 環境変数の検査（`check:env`）
+1. 環境変数の検査（`check:env`。ダミー値で変数の組と形だけを確かめる）
 2. Railway CLIでProduction環境のBackend・Frontendのサービスのデプロイを開始する（`railway up --detach`）
 3. 新しいデプロイが Railway のヘルスチェックに合格する（状態が `SUCCESS`）まで待つ（`scripts/railway-deploy-wait.sh`。`FAILED`・`CRASHED`・置き換え・時間切れはジョブの失敗）
 4. 公開ドメインへのヘルスチェック実行

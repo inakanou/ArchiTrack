@@ -627,8 +627,8 @@ test.describe('スキャンPDFのOCRフォールバック経路 (Task 115.157)',
    * ## 可否の判断（タスク 115.157 が求めた検討）
    *
    * 実現できる。ただし配信元を滞留させる方法（起票時に挙げられていた案）は採らない。
-   * `page.route` で `cdn.jsdelivr.net` の取得を滞留させると、本番 `pdf-text-extractor.ts` の
-   * `extractPdfWithOcrFallback` は `createWorker('jpn')` で止まる。前処理（`preprocessImageData`）は
+   * `page.route` で Tesseract の資材（当時は `cdn.jsdelivr.net`、今は画面の配信元の `/tesseract/`）の取得を
+   * 滞留させると、本番 `pdf-text-extractor.ts` の `extractPdfWithOcrFallback` は `createWorker` で止まる。前処理（`preprocessImageData`）は
    * その後のページ毎の繰り返しの中にあるため一度も走らず、打ち切られたものが REQ-19.8 の言う
    * 「画像前処理を含む OCR 処理」だと主張できない。
    *

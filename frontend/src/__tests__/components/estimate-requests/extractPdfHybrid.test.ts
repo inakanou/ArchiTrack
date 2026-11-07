@@ -50,6 +50,7 @@ import {
   extractPdfWithOcrFallback,
   PDF_TEXT_THRESHOLD,
 } from '../../../components/estimate-requests/pdf-text-extractor';
+import { TESSERACT_WORKER_OPTIONS } from '../../../utils/tesseract-assets';
 
 /**
  * File.arrayBuffer()がjsdom環境で未対応のため、モック付きFileを生成する
@@ -320,7 +321,7 @@ describe('extractPdfWithOcrFallback', () => {
     const result = await extractPdfWithOcrFallback(file);
 
     expect(result).toBe('OCRテキスト');
-    expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+    expect(mockCreateWorker).toHaveBeenCalledWith('jpn', undefined, TESSERACT_WORKER_OPTIONS);
     expect(mockRecognize).toHaveBeenCalled();
     expect(mockTerminate).toHaveBeenCalled();
   });

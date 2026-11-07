@@ -36,6 +36,14 @@ storybook-static/
 .env.dev
 .env.test
 .env.ci
+.env.production
+.env.production.*
+.env.keys
+
+# Keys and certificates (secrets must never be committed)
+*.pem
+*.key
+!*.example
 
 # MCP (Model Context Protocol)
 .mcp.local.json

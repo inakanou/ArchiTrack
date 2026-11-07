@@ -403,13 +403,15 @@ const corsOptions = {
 
 ```
 default-src 'self';
-script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net;
+script-src 'self' 'wasm-unsafe-eval';
 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
 font-src 'self' data: https://fonts.gstatic.com;
 img-src 'self' data: blob: ${CSP_IMG_SRC_EXTRA};
-connect-src 'self' blob: data: https://cdn.jsdelivr.net https://tessdata.projectnaptha.com ${CSP_CONNECT_SRC_EXTRA};
+connect-src 'self' blob: data: ${CSP_CONNECT_SRC_EXTRA};
 worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 ```
+
+OCR（Tesseract.js）の worker・コア・日本語の言語データは画面と同じオリジンの `/tesseract/` から配信するため（`frontend/vite.config.ts` の `tesseractAssetsPlugin`）、外部の CDN（`cdn.jsdelivr.net`・`tessdata.projectnaptha.com`）を許可しません。
 
 環境ごとの追加の取得先は frontend の環境変数で渡します（空白区切り）。
 

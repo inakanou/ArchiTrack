@@ -229,6 +229,30 @@ describe('LoginPage Component', () => {
       // プロトコル相対URLではなく、デフォルトの/dashboardにリダイレクトされることを確認
       expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
     });
+
+    /**
+     * 是正計画 D13: `/\` で始まる値は URL の解釈で `//` になり別のオリジンへ遷移しうるため防止する
+     */
+    it('バックスラッシュで始まる値（/\\）へのリダイレクトを防止する', () => {
+      mockIsAuthenticated = true;
+
+      render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/login',
+              search: '?redirectUrl=%2F%5Cmalicious.com%2Fphishing',
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+    });
   });
 
   /**

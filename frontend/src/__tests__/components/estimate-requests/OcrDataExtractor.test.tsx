@@ -89,6 +89,7 @@ vi.mock('../../../hooks/useAuth', () => ({
 
 import { OcrDataExtractor } from '../../../components/estimate-requests/OcrDataExtractor';
 import { ClaudeVisionApiError } from '../../../api/claude-vision';
+import { TESSERACT_WORKER_OPTIONS } from '../../../utils/tesseract-assets';
 
 describe('OcrDataExtractor', () => {
   const mockOnImportLineItems = vi.fn();
@@ -162,7 +163,7 @@ describe('OcrDataExtractor', () => {
 
       // OCR処理が開始される
       await waitFor(() => {
-        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn', undefined, TESSERACT_WORKER_OPTIONS);
       });
     });
 
@@ -699,7 +700,7 @@ describe('OcrDataExtractor', () => {
 
       // OCR処理が自動実行される
       await waitFor(() => {
-        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn', undefined, TESSERACT_WORKER_OPTIONS);
       });
     });
 
@@ -710,7 +711,7 @@ describe('OcrDataExtractor', () => {
 
       // OCR処理が自動実行される（従来の動作と同じ）
       await waitFor(() => {
-        expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+        expect(mockCreateWorker).toHaveBeenCalledWith('jpn', undefined, TESSERACT_WORKER_OPTIONS);
       });
     });
   });
@@ -960,7 +961,7 @@ describe('OcrDataExtractor', () => {
 
         // フォールバック: Tesseract.js workerが呼ばれる
         await waitFor(() => {
-          expect(mockCreateWorker).toHaveBeenCalledWith('jpn');
+          expect(mockCreateWorker).toHaveBeenCalledWith('jpn', undefined, TESSERACT_WORKER_OPTIONS);
         });
       });
 

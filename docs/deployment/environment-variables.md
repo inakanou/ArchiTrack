@@ -224,15 +224,11 @@ VITE_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 
 ### Railwayの変数名の注意
 
-GitHub の Secrets の名前には環境の接頭辞（`STAGING_`・`PRODUCTION_`）が付くが、**Railway の変数の名前には付けない**。Railway の変数は環境ごとに分かれているため、どの環境でも `ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS` のようにアプリが読む名前のまま設定する。
+GitHub の Secrets の名前には環境の接頭辞（`STAGING_`・`PRODUCTION_`。例: `STAGING_BACKEND_URL`）が付くが、**Railway の変数の名前には付けない**。Railway の変数は環境ごとに分かれているため、どの環境でも `ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS` のようにアプリが読む名前のまま設定する。
 
-| GitHub Secrets（`check:env` が読む） | Railway の変数（backend が読む） |
-|------|------|
-| `STAGING_ARCHIVE_ENCRYPTION_KEY` / `PRODUCTION_ARCHIVE_ENCRYPTION_KEY` | `ARCHIVE_ENCRYPTION_KEY` |
-| `STAGING_TRUST_PROXY_HOPS` / `PRODUCTION_TRUST_PROXY_HOPS` | `TRUST_PROXY_HOPS` |
-| `STAGING_TWO_FACTOR_ENCRYPTION_KEY` / `PRODUCTION_TWO_FACTOR_ENCRYPTION_KEY` | `TWO_FACTOR_ENCRYPTION_KEY` |
+DB・Redis・JWT・2FA・アーカイブの鍵・段数の本物の値は Railway の変数だけに置き、GitHub には複製しない（是正計画 D9、2026-11-07）。デプロイの前の `check:env` は実行ごとに作るダミーの値で変数の組と形だけを確かめ、Railway の実際の値は backend の起動時の検査が確かめる（[CI/CD設定](cicd-github-actions.md#デプロイの前の環境変数の検査ダミー値)）。以前 `check:env` のために登録していた `STAGING_`・`PRODUCTION_` の `DATABASE_URL`・`REDIS_URL`・`JWT_PUBLIC_KEY`・`JWT_PRIVATE_KEY`・`TWO_FACTOR_ENCRYPTION_KEY`・`ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS` と `SENTRY_DSN` の GitHub Secrets は使われないため削除する。
 
-> Railway の変数を誤って `STAGING_ARCHIVE_ENCRYPTION_KEY` の名前で作ると、backend は `ARCHIVE_ENCRYPTION_KEY` を見つけられず `ProductionPrerequisiteError` で起動を繰り返し止める（2026-11 の staging で発生）。GitHub 側の検査（`check:env`）は GitHub Secrets を読むため合格してしまい、気づけない。
+> Railway の変数を誤って `STAGING_ARCHIVE_ENCRYPTION_KEY` の名前で作ると、backend は `ARCHIVE_ENCRYPTION_KEY` を見つけられず `ProductionPrerequisiteError` で起動を繰り返し止める（2026-11 の staging で発生）。この場合、新しいデプロイが `SUCCESS` にならず、デプロイのジョブ（`scripts/railway-deploy-wait.sh`）が失敗する。
 
 ---
 
@@ -256,7 +252,7 @@ GitHub の Secrets の名前には環境の接頭辞（`STAGING_`・`PRODUCTION_
 | `RAILWAY_FRONTEND_STAGING_SERVICE_ID` | FrontendサービスID（Staging） | `railway status --json \| jq -r '.services[] \| select(.name=="frontend-staging") \| .id'` |
 | `STAGING_BACKEND_URL` | BackendのURL（Staging） | Railway Dashboard で確認 |
 | `STAGING_FRONTEND_URL` | FrontendのURL（Staging） | Railway Dashboard で確認 |
-| `RAILWAY_STAGING_TOKEN` 等 | Railway のトークン・`check:env` が読む値 | [CI/CD設定](cicd-github-actions.md#github-secretsの設定) |
+| `RAILWAY_STAGING_TOKEN` | Railway のトークン（Staging） | [CI/CD設定](cicd-github-actions.md#github-secretsの設定) |
 
 **Production環境:**
 
@@ -266,7 +262,7 @@ GitHub の Secrets の名前には環境の接頭辞（`STAGING_`・`PRODUCTION_
 | `RAILWAY_FRONTEND_SERVICE_ID` | FrontendサービスID（Production） | `railway status --json \| jq -r '.services[] \| select(.name=="frontend") \| .id'` |
 | `PRODUCTION_BACKEND_URL` | BackendのURL（Production） | Railway Dashboard で確認 |
 | `PRODUCTION_FRONTEND_URL` | FrontendのURL（Production） | Railway Dashboard で確認 |
-| `RAILWAY_PRODUCTION_TOKEN` 等 | Railway のトークン・`check:env` が読む値 | [CI/CD設定](cicd-github-actions.md#github-secretsの設定) |
+| `RAILWAY_PRODUCTION_TOKEN` | Railway のトークン（Production） | [CI/CD設定](cicd-github-actions.md#github-secretsの設定) |
 
 詳細は[CI/CD設定](cicd-github-actions.md)を参照してください。
 

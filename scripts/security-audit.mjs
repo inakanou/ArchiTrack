@@ -3,8 +3,10 @@
  * @fileoverview セキュリティ監査スクリプト
  *
  * ベストプラクティスに基づいたnpm audit実行:
- * - 本番依存: high以上でブロック（許容リスト対応）
+ * - 本番依存: moderate以上でブロック（許容リスト対応）
  * - 開発依存: high以上で警告（許容リスト対応）
+ * - 許容リストのエントリは有効期限（expires）が必須。期限の無いエントリ・期限切れのエントリは許容しない
+ *   （修正版の無い脆弱性を期限付きで追跡し、期限ごとに再評価する）
  * - CIとローカルで同一ルールを適用
  *
  * Usage:
@@ -63,7 +65,11 @@ function loadAllowlist() {
     for (const workspace of ['backend', 'frontend', 'root']) {
       if (allowlist.allowlist[workspace]) {
         for (const entry of allowlist.allowlist[workspace]) {
-          if (entry.expires && entry.expires < today) {
+          if (!entry.expires) {
+            log.warn(
+              `許容リストのエントリに有効期限がありません（許容しません）: ${entry.package} (${workspace})`
+            );
+          } else if (entry.expires < today) {
             log.warn(
               `許容リストの有効期限切れ: ${entry.package} (${workspace}) - 期限: ${entry.expires}`
             );
@@ -116,6 +122,10 @@ function normalizeAdvisoryId(value) {
 
 const SEVERITY_ORDER = ['info', 'low', 'moderate', 'high', 'critical'];
 
+// 本番依存はこの深刻度以上でブロック、開発依存はこの深刻度以上で警告する
+const PROD_BLOCK_LEVEL = 'moderate';
+const DEV_WARN_LEVEL = 'high';
+
 /**
  * 脆弱性 pkg の via チェーンを再帰的に辿り、根本 advisory を返す
  *   Map<GHSA-ID, severity(最大)>
@@ -158,7 +168,7 @@ function resolveRootAdvisories(pkg, vulnerabilities, seen = new Set()) {
 function activeAllowedAdvisories(allowlist, today) {
   const set = new Set();
   for (const entry of allowlist) {
-    if (entry.expires && entry.expires < today) continue;
+    if (!entry.expires || entry.expires < today) continue;
     if (entry.advisory) set.add(normalizeAdvisoryId(entry.advisory));
   }
   return set;
@@ -182,7 +192,7 @@ function isAllowed(pkg, allowlist, vulnerabilities, severityThreshold = 'high') 
   for (const entry of allowlist) {
     if (entry.advisory) continue;
     if (entry.package === pkg) {
-      if (entry.expires && entry.expires < today) continue; // 期限切れは許容しない
+      if (!entry.expires || entry.expires < today) continue; // 期限の無いもの・期限切れは許容しない
       return true;
     }
   }
@@ -242,7 +252,7 @@ function auditWorkspace(workspaceName, workspacePath, allowlistData, mode, verbo
 
   const workspaceAllowlist = allowlistData.allowlist[workspaceName] || [];
 
-  // 本番依存のチェック（high以上でブロック）
+  // 本番依存のチェック（PROD_BLOCK_LEVEL 以上でブロック）
   log.info('本番依存をチェック中...');
   const prodResult = runNpmAudit(workspacePath, true);
 
@@ -251,7 +261,7 @@ function auditWorkspace(workspaceName, workspacePath, allowlistData, mode, verbo
     return { success: false, hasBlocking: true };
   }
 
-  const prodAnalysis = analyzeVulnerabilities(prodResult, workspaceAllowlist, 'high');
+  const prodAnalysis = analyzeVulnerabilities(prodResult, workspaceAllowlist, PROD_BLOCK_LEVEL);
 
   // 開発依存のチェック（警告のみ）
   log.info('全依存をチェック中...');
@@ -262,7 +272,7 @@ function auditWorkspace(workspaceName, workspacePath, allowlistData, mode, verbo
     return { success: false, hasBlocking: true };
   }
 
-  const allAnalysis = analyzeVulnerabilities(allResult, workspaceAllowlist, 'high');
+  const allAnalysis = analyzeVulnerabilities(allResult, workspaceAllowlist, DEV_WARN_LEVEL);
 
   // 開発依存のみの脆弱性を抽出
   const prodPackages = new Set(prodAnalysis.blocked.map((v) => v.package));
@@ -314,7 +324,9 @@ function auditWorkspace(workspaceName, workspacePath, allowlistData, mode, verbo
   const totalAllowed = allAnalysis.allowed.length;
 
   if (totalBlocked === 0 && totalDevOnly === 0) {
-    log.success(`${workspaceName}: 高リスク脆弱性なし`);
+    log.success(
+      `${workspaceName}: 未許容の脆弱性なし（本番依存 ${PROD_BLOCK_LEVEL} 以上・開発依存 ${DEV_WARN_LEVEL} 以上）`
+    );
   } else {
     console.log(
       `   サマリー: ブロック=${totalBlocked}, 開発のみ=${totalDevOnly}, 許容=${totalAllowed}`
@@ -370,7 +382,9 @@ Examples:
   }
 
   log.header('🔒 セキュリティ監査を開始');
-  console.log(`   モード: ${mode === 'strict' ? 'strict（本番依存のhighでブロック）' : 'warn（警告のみ）'}`);
+  console.log(
+    `   モード: ${mode === 'strict' ? `strict（本番依存の${PROD_BLOCK_LEVEL}以上でブロック）` : 'warn（警告のみ）'}`
+  );
   console.log(`   対象: ${workspace}`);
 
   // 許容リストを読み込み
@@ -415,7 +429,7 @@ Examples:
 
   if (hasAnyBlocking) {
     console.log('');
-    log.error('本番依存に未許容の高リスク脆弱性があります。');
+    log.error(`本番依存に未許容の ${PROD_BLOCK_LEVEL} 以上の脆弱性があります。`);
     console.log('   対処方法:');
     console.log('   1. npm audit fix で修正可能な場合は実行してください');
     console.log('   2. 修正版がない場合は .security-audit-allowlist.json に追加してください');

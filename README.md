@@ -84,6 +84,7 @@ npm run dev:docker
 - [CI/CD設定](docs/deployment/cicd-github-actions.md) - GitHub Actions設定
 - [本番環境デプロイ](docs/deployment/production-deployment.md) - 本番環境へのデプロイ手順
 - [ブランチ保護](docs/deployment/branch-protection.md) - GitHubブランチ保護設定
+- [データ保護と運用の前提](docs/deployment/data-protection.md) - 本番のデプロイ経路、DBバックアップと復元訓練、ログの保持、暗号化の前提
 - [トラブルシューティング](docs/deployment/troubleshooting.md) - よくある問題と解決方法
 
 ### 🏗️ アーキテクチャ

@@ -5,37 +5,18 @@ import LoginForm from '../components/LoginForm';
 import TwoFactorVerificationForm from '../components/TwoFactorVerificationForm';
 import type { LoginFormData, LoginResult } from '../types/auth.types';
 import { ApiError } from '../api/client';
+import { toSafeInternalPath } from '../utils/safe-redirect';
 
 /**
  * リダイレクトURLを検証し、安全なURLのみを返す
- * 外部URLやプロトコル相対URLは拒否してデフォルトを返す
+ * 外部URL・プロトコル相対URL・`/\` で始まる値など、別のオリジンへ遷移しうる値は拒否してデフォルトを返す
  *
  * @param url 検証するURL
  * @param defaultUrl デフォルトのリダイレクト先
  * @returns 安全なリダイレクト先URL
  */
 function validateRedirectUrl(url: string | null, defaultUrl: string): string {
-  if (!url) {
-    return defaultUrl;
-  }
-
-  // 外部URL（http://, https://）を拒否
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return defaultUrl;
-  }
-
-  // プロトコル相対URL（//）を拒否
-  if (url.startsWith('//')) {
-    return defaultUrl;
-  }
-
-  // 相対パスは許可（/で始まるパスのみ）
-  if (url.startsWith('/')) {
-    return url;
-  }
-
-  // その他のURLはデフォルトを返す
-  return defaultUrl;
+  return toSafeInternalPath(url) ?? defaultUrl;
 }
 
 /**

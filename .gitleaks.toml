@@ -1,0 +1,26 @@
+# gitleaks の設定（是正計画 D7。毎日の定期の監査 .github/workflows/security-scheduled.yml が使う）
+# 既定の規則に加え、試験専用の値と文書の例だけを除外する。本物の秘密を除外に足さない
+title = "ArchiTrack gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "試験専用の固定値と、文書の省略した例"
+paths = [
+  # 単体・統合・E2E の試験の固定値（試験の鍵・TOTP の秘密・偽のトークン）
+  '''(^|/)__tests__/''',
+  '''\.test\.(ts|tsx)$''',
+  '''^e2e/helpers/two-factor-totp\.ts$''',
+  '''^e2e/specs/.+\.spec\.ts$''',
+]
+regexes = [
+  # 文書の JWT の例（末尾を ... で省略したもの）
+  '''eyJ[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)?\.\.\.''',
+  # 文書の鍵 ID の例
+  '''eddsa-1234567890123''',
+  # 試験・CI の compose と ci.yml の監査ログのアーカイブの暗号鍵（試験専用の固定値。本番・staging では使わない）
+  '''00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff''',
+  # 以前の文書の 2FA の鍵の例（2026-11-07 に置き場の表記へ改めた。履歴に残る）
+  '''a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456''',
+]

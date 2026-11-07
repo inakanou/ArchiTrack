@@ -13,7 +13,7 @@ services:
       POSTGRES_DB: architrack_test
       POSTGRES_PASSWORD: dev
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     # CI環境ではデータ永続化不要
     tmpfs:
       - /var/lib/postgresql/data
@@ -22,7 +22,7 @@ services:
   redis:
     container_name: architrack-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     tmpfs:
       - /data
 
@@ -30,8 +30,8 @@ services:
   mailhog:
     container_name: architrack-mailhog
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 
   # Backend API (CI)
   backend:
@@ -84,7 +84,7 @@ services:
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-AdminTest123!@#}
       INITIAL_ADMIN_DISPLAY_NAME: ${INITIAL_ADMIN_DISPLAY_NAME:-System Administrator}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./backend:/app
       - backend_ci_node_modules:/app/node_modules
@@ -127,7 +127,7 @@ services:
       # 影響せず、E2E でヘッダーの値を観測できる。要件44.2）
       NGINX_HSTS_VALUE: "max-age=31536000; includeSubDomains"
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     # 本番Dockerfileはビルド済み静的ファイルを含むため、ソースコードのマウント不要
 
 volumes:

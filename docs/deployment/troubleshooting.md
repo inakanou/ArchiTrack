@@ -333,12 +333,11 @@ Error: Admin role not found. Run seedRoles() first.
 
 **原因:**
 - 本番（`NODE_ENV=production`）の前提の変数（`ARCHIVE_ENCRYPTION_KEY`・`TRUST_PROXY_HOPS`・`REDIS_URL`）が Railway の backend に無い、または形が違う（`ARCHIVE_ENCRYPTION_KEY` は 64 桁の 16 進）
-- **Railway の変数の名前に GitHub Secrets の接頭辞を付けた**（例: `STAGING_ARCHIVE_ENCRYPTION_KEY`）。backend は `ARCHIVE_ENCRYPTION_KEY` しか読まない。デプロイの前の `check:env` は GitHub Secrets を読むため合格してしまう
+- **Railway の変数の名前に GitHub Secrets の接頭辞を付けた**（例: `STAGING_ARCHIVE_ENCRYPTION_KEY`）。backend は `ARCHIVE_ENCRYPTION_KEY` しか読まない。デプロイの前の `check:env` はダミーの値で形だけを確かめるため、Railway の値の誤りは見つけられない（backend の起動時の検査で初めて止まる）
 
 **解決方法:**
 1. Railway Dashboard > Backend Service > **Variables** で、メッセージに出た変数をアプリが読む名前（接頭辞なし）で設定する。誤った名前の変数は削除する
 2. 再デプロイし、デプロイが `SUCCESS` になることを確かめる
-3. GitHub の環境シークレット（`STAGING_ARCHIVE_ENCRYPTION_KEY` など）が Railway と同じ値か確かめる
 
 詳細は[Railwayの変数名の注意](environment-variables.md#railwayの変数名の注意)を参照。
 
@@ -591,7 +590,7 @@ Setting up fake worker failed: "Failed to fetch dynamically imported module: htt
 - backend の `TRUST_PROXY_HOPS` が実際の中継の段数より少ない。Railway の構成では「Railway のエッジ（X-Forwarded-For に 2 段を足す）→ frontend の nginx（1 段）→ backend」で `3` が必要（`2` ではエッジの IP になる。2026-11-07 に staging で実測）
 
 **解決方法:**
-1. Railway Dashboard > Backend Service > **Variables** で `TRUST_PROXY_HOPS=3` にする（GitHub の環境シークレット `STAGING_TRUST_PROXY_HOPS`・`PRODUCTION_TRUST_PROXY_HOPS` も同じ値に）
+1. Railway Dashboard > Backend Service > **Variables** で `TRUST_PROXY_HOPS=3` にする（GitHub 側の設定は要らない）
 2. 自分の公開 IP を確かめてからログインし、監査ログの送信元 IP がそれと一致することを確かめる
    ```bash
    curl https://ifconfig.me
