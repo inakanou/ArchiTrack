@@ -2,7 +2,7 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-11-07（是正計画の直接実装 D2〜D14。(1)「Dependabot 自動依存関係管理」を実体へ揃えた: 監視対象に backend・frontend の Dockerfile を加えて 7 件、全ての対象に cooldown、自動マージを開発依存のマイナー・パッチとパッチ更新に限り PR の作成者で判定、Actions をフル SHA で固定。(2)「CI/CD」に毎日の定期の監査 `.github/workflows/security-scheduled.yml`（npm audit・gitleaks・CodeQL・trivy）と、デプロイの前の環境変数の検査がダミー値で形だけを確かめることを足した）_
+_最終更新: 2026-11-07（Steering Sync: 是正計画の直接実装 D2〜D14。(1)「Dependabot 自動依存関係管理」を実体へ揃えた: 監視対象に backend・frontend の Dockerfile を加えて 7 件、全ての対象に cooldown、自動マージを開発依存のマイナー・パッチとパッチ更新に限り PR の作成者で判定、Actions をフル SHA で固定。(2)「CI/CD」に毎日の定期の監査 `.github/workflows/security-scheduled.yml`（npm audit・gitleaks・CodeQL・trivy）と、デプロイの前の環境変数の検査がダミー値で形だけを確かめることを足した）_
 
 _最終更新: 2026-11-07（Steering Sync: `/kiro-steering`。(1) Railway の本番・staging の `TRUST_PROXY_HOPS` を実測の 3 として「送信元の識別」に足した（2026-11-07 に staging で実測。エッジが X-Forwarded-For に 2 段、frontend の nginx が 1 段を足す）。(2) CD の「デプロイ実行」が `railway up --detach` の後に新しいデプロイの `SUCCESS` を待つ形（`scripts/railway-deploy-wait.sh`）へ変わったことと、ヘルスチェックの実際の間隔（10 回・10 秒）を反映した。(3) 運用スクリプトのテストに 2FA の後始末を足した）_
 

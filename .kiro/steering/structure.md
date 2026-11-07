@@ -2,7 +2,7 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-11-07（是正計画 D7。ルートの構成の木に毎日の定期の監査のワークフロー `security-scheduled.yml` と `.gitleaks.toml` を加え、欠けていた `claude-vision-contract.yml` も加えた）_
+_最終更新: 2026-11-07（Steering Sync: 是正計画 D7。ルートの構成の木に毎日の定期の監査のワークフロー `security-scheduled.yml` と `.gitleaks.toml` を加え、欠けていた `claude-vision-contract.yml` も加えた）_
 
 _最終更新: 2026-11-07（Steering Sync: `/kiro-steering`。backend の `scripts/` のツリーに #870 の 2FA の暗号化鍵の入れ替えの後始末のスクリプトを加え、ルートの `scripts/` の命名の表に CI の手順の部品（`*.sh` と対の `*.selftest.sh`。Railway のデプロイの完了を待つ `railway-deploy-wait.sh`）の行を足した）_
 
