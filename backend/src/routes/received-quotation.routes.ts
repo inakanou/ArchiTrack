@@ -188,7 +188,6 @@ router.post(
       }
 
       const input = {
-        estimateRequestId,
         name: validatedBody.name,
         submittedAt: new Date(validatedBody.submittedAt),
         file: req.file
@@ -204,7 +203,12 @@ router.post(
       };
 
       // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
-      const quotation = await getReceivedQuotationService().create(input, req.user!.userId);
+      // 見積依頼の配下の登録は見積依頼の文脈で作る（design の Requirements 43-50 の章の Service Interface、タスク113.1）
+      const quotation = await getReceivedQuotationService().create(
+        { kind: 'estimateRequest', estimateRequestId },
+        input,
+        req.user!.userId
+      );
 
       logger.info(
         {

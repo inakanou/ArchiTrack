@@ -70,7 +70,8 @@ router.get(
         return;
       }
 
-      const quotations = await getService().findByProjectId(projectId);
+      // 既定の一覧は見積依頼に紐づくものだけ（estimate-request の design の D2。全件の指定はタスク114.1 で足す）
+      const quotations = await getService().findByProjectId(projectId, { include: 'requested' });
 
       logger.debug(
         { projectId, count: quotations.length },

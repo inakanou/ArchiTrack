@@ -207,7 +207,8 @@ describe('received-quotation.routes', () => {
     });
 
     // 操作した利用者を監査ログの実行者として渡す（estimate-request の Requirement 14.7、タスク111.1）
-    it('認証した利用者の ID を作成の第 2 引数に渡すこと', async () => {
+    // 見積依頼の配下の経路は見積依頼の文脈を第 1 引数に渡す（design の Service Interface の QuotationContext、タスク113.1）
+    it('見積依頼の文脈と、認証した利用者の ID を作成の第 3 引数に渡すこと', async () => {
       mockCreate.mockResolvedValue(mockQuotation);
 
       const response = await request(app)
@@ -217,7 +218,8 @@ describe('received-quotation.routes', () => {
       expect(response.status).toBe(201);
       expect(mockCreate).toHaveBeenCalledTimes(1);
       expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ estimateRequestId, name: 'テスト受領見積書' }),
+        { kind: 'estimateRequest', estimateRequestId },
+        expect.objectContaining({ name: 'テスト受領見積書' }),
         'test-user-id'
       );
     });
@@ -559,6 +561,7 @@ describe('received-quotation.routes', () => {
       expect(response.body.totalAmount).toBe(60000);
       // サービスにlineItemsが渡されていることを検証
       expect(mockCreate).toHaveBeenCalledWith(
+        { kind: 'estimateRequest', estimateRequestId },
         expect.objectContaining({
           lineItems: expect.arrayContaining([
             expect.objectContaining({ name: '工事A', sortOrder: 0 }),

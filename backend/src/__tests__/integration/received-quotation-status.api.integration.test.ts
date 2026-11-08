@@ -1370,8 +1370,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
 
       await expect(
         rollingBackService.create(
+          { kind: 'estimateRequest', estimateRequestId: testEstimateRequestId },
           {
-            estimateRequestId: testEstimateRequestId,
             name,
             submittedAt: new Date('2026-01-23T00:00:00.000Z'),
             lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],

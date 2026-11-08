@@ -33,6 +33,11 @@
  * 監査ログ（estimate-request の Requirement 14.7、タスク111.1）: 作成・更新・論理削除が確定したときに、
  * その操作の監査ログを変更と同じトランザクションの中で 1 件記録する。金額とファイルの格納先は入れない。
  *
+ * 受領見積書の文脈（estimate-request の design の Requirements 43-50 の章の D1〜D3、タスク113.1）:
+ * 作成は文脈（見積依頼・案件）を受ける。見積依頼の文脈では見積依頼の案件と宛先の取引先を写し、案件の文脈では
+ * 見積依頼を持たない受領見積書を作る。更新は文脈を変えない（43.10）。案件の配下の一覧・プレビューの範囲の判定・
+ * ファイルの格納先は受領見積書の案件の列で行い、案件の無い受領見積書は不在として扱う（43.14）。
+ *
  * Task 12.1: ReceivedQuotationServiceの実装
  * Task 20.2: contentType/textContent廃止、ファイル+明細行共存モデルへ移行
  * Task 21.1: 明細行管理追加（一括保存・取得・全量置換・金額検証）
@@ -53,6 +58,9 @@ import {
   FileOrLineItemsRequiredError,
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
+import { ProjectNotFoundError } from '../errors/projectError.js';
+import { ValidationError } from '../errors/apiError.js';
+import { RECEIVED_QUOTATION_VALIDATION_MESSAGES } from '../schemas/received-quotation.schema.js';
 import logger from '../utils/logger.js';
 import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
 
@@ -140,10 +148,26 @@ export interface LineItemInfo {
 }
 
 /**
- * 受領見積書作成入力（改訂版: Task 61.2 netAmount追加）
+ * 受領見積書の文脈（design の Requirements 43-50 の章の Service Interface、タスク113.1）
+ *
+ * - estimateRequest: 見積依頼に紐づく受領見積書。案件と業者名・取引先は見積依頼から写す（D1・D4）
+ * - project: 見積依頼に紐づかずに案件に属する受領見積書（43.7）
+ */
+export type QuotationContext =
+  | { readonly kind: 'estimateRequest'; readonly estimateRequestId: string }
+  | { readonly kind: 'project'; readonly projectId: string };
+
+/** 案件の配下の一覧の対象（D2。既定の requested は見積依頼に紐づくものだけ） */
+export interface FindByProjectIdOptions {
+  readonly include: 'requested' | 'all';
+}
+
+/**
+ * 受領見積書作成入力（改訂版: Task 61.2 netAmount追加。タスク113.1 で文脈を引数へ移した）
  */
 export interface CreateReceivedQuotationInput {
-  estimateRequestId: string;
+  /** 業者名（44.1）。案件の文脈では必須（43.8）、見積依頼の文脈では使わない（44.3） */
+  vendorName?: string;
   name: string;
   submittedAt: Date;
   netAmount?: number | null;
@@ -180,6 +204,15 @@ export interface ReceivedQuotationInfo {
   createdAt: Date;
   updatedAt: Date;
 }
+
+/**
+ * 案件の配下の一覧の 1 件（D2）。`tradingPartnerName` は業者名の値を入れて残す
+ * （estimate-creation の転記の画面が読む）
+ */
+export type ProjectQuotationSummary = ReceivedQuotationInfo & {
+  vendorName: string;
+  tradingPartnerName: string;
+};
 
 /**
  * Prismaトランザクションクライアント型
@@ -232,24 +265,28 @@ export class ReceivedQuotationService {
 
   /**
    * ファイルパスを生成する
+   *
+   * 見積依頼に紐づくものは従来の格納先、見積依頼に紐づかないものは案件の格納先とする（D3。タスク113.1）
    */
   private generateFilePath(
-    estimateRequestId: string,
+    owner: { estimateRequestId: string | null; projectId: string },
     quotationId: string,
     fileName: string
   ): string {
-    return `quotations/${estimateRequestId}/${quotationId}/${fileName}`;
+    return owner.estimateRequestId !== null
+      ? `quotations/${owner.estimateRequestId}/${quotationId}/${fileName}`
+      : `quotations/projects/${owner.projectId}/${quotationId}/${fileName}`;
   }
 
   /**
    * ファイルをアップロードする
    */
   private async uploadFile(
-    estimateRequestId: string,
+    owner: { estimateRequestId: string | null; projectId: string },
     quotationId: string,
     file: FileInfo
   ): Promise<string> {
-    const filePath = this.generateFilePath(estimateRequestId, quotationId, file.originalName);
+    const filePath = this.generateFilePath(owner, quotationId, file.originalName);
     await this.storageProvider.upload(filePath, file.buffer, {
       contentType: file.mimeType,
     });
@@ -340,6 +377,64 @@ export class ReceivedQuotationService {
   }
 
   /**
+   * 作成の文脈から、受領見積書の見積依頼・案件・業者名・取引先を決める（D1・D4。タスク113.1）
+   *
+   * - 見積依頼の文脈: 見積依頼の案件と宛先の取引先の名前・ID を写し、入力の業者名を使わない（44.3）
+   * - 案件の文脈: 見積依頼を持たず、案件（論理削除されていないもの）に属する。業者名は入力の値（前後の空白を除く）
+   */
+  private async resolveContext(
+    tx: PrismaTransactionClient,
+    context: QuotationContext,
+    input: CreateReceivedQuotationInput
+  ): Promise<{
+    estimateRequestId: string | null;
+    projectId: string;
+    vendorName: string;
+    tradingPartnerId: string | null;
+  }> {
+    if (context.kind === 'estimateRequest') {
+      const estimateRequest = await tx.estimateRequest.findUnique({
+        where: { id: context.estimateRequestId },
+        select: {
+          id: true,
+          deletedAt: true,
+          projectId: true,
+          tradingPartnerId: true,
+          tradingPartner: { select: { name: true } },
+        },
+      });
+
+      if (!estimateRequest || estimateRequest.deletedAt !== null) {
+        throw new EstimateRequestNotFoundError(context.estimateRequestId);
+      }
+      return {
+        estimateRequestId: estimateRequest.id,
+        projectId: estimateRequest.projectId,
+        vendorName: estimateRequest.tradingPartner.name,
+        tradingPartnerId: estimateRequest.tradingPartnerId,
+      };
+    }
+
+    const vendorName = input.vendorName?.trim() ?? '';
+    if (vendorName.length === 0) {
+      throw new ValidationError(RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_REQUIRED);
+    }
+    const project = await tx.project.findUnique({
+      where: { id: context.projectId },
+      select: { id: true, deletedAt: true },
+    });
+    if (!project || project.deletedAt !== null) {
+      throw new ProjectNotFoundError(context.projectId);
+    }
+    return {
+      estimateRequestId: null,
+      projectId: project.id,
+      vendorName,
+      tradingPartnerId: null,
+    };
+  }
+
+  /**
    * 受領見積書を作成する（改訂版: Task 21.1 明細行対応追加）
    *
    * Requirements: 11.1, 11.2, 11.3, 11.4, 11.6, 11.8, 11.9, 11.10, 11.22, 11.24, 14.1, 14.2
@@ -347,15 +442,19 @@ export class ReceivedQuotationService {
    * 確定したら RECEIVED_QUOTATION_CREATED の監査ログを同じトランザクションの中で 1 件記録する
    * （estimate-request の Requirement 14.7、タスク111.1）
    *
+   * @param context - 受領見積書の文脈（見積依頼・案件。タスク113.1）
    * @param input - 作成入力
    * @param actorId - 操作した利用者のID（監査ログの実行者）
    * @returns 作成された受領見積書情報（明細行・合計金額を含む）
-   * @throws EstimateRequestNotFoundError 見積依頼が存在しない場合
+   * @throws EstimateRequestNotFoundError 見積依頼の文脈で見積依頼が存在しない場合
+   * @throws ProjectNotFoundError 案件の文脈で案件が存在しないか論理削除済みの場合
+   * @throws ValidationError 案件の文脈で業者名が空の場合（43.8）
    * @throws InvalidFileTypeError ファイル形式エラー
    * @throws FileSizeLimitExceededError ファイルサイズ超過
    * @throws Error ファイルも明細行もない場合
    */
   async create(
+    context: QuotationContext,
     input: CreateReceivedQuotationInput,
     actorId: string
   ): Promise<ReceivedQuotationInfo> {
@@ -374,31 +473,16 @@ export class ReceivedQuotationService {
       : undefined;
 
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
-      // 4. 見積依頼の存在確認
-      const estimateRequest = await tx.estimateRequest.findUnique({
-        where: { id: input.estimateRequestId },
-        select: {
-          id: true,
-          deletedAt: true,
-          projectId: true,
-          tradingPartnerId: true,
-          tradingPartner: { select: { name: true } },
-        },
-      });
-
-      if (!estimateRequest || estimateRequest.deletedAt !== null) {
-        throw new EstimateRequestNotFoundError(input.estimateRequestId);
-      }
+      // 4. 文脈の解決（タスク113.1）: 見積依頼・案件・業者名・取引先を決める
+      const owner = await this.resolveContext(tx, context, input);
 
       // 5. レコードを作成（Task 61.2: netAmountを受領見積書レベルに永続化）
-      // 案件と業者名・取引先は見積依頼から写す（列の必須化に伴う最小の写し。Task 112.1。
-      // 保存の規則としての写しと照合は Task 113.1 が行う）
       const quotation = await tx.receivedQuotation.create({
         data: {
-          estimateRequestId: input.estimateRequestId,
-          projectId: estimateRequest.projectId,
-          vendorName: estimateRequest.tradingPartner.name,
-          tradingPartnerId: estimateRequest.tradingPartnerId,
+          estimateRequestId: owner.estimateRequestId,
+          projectId: owner.projectId,
+          vendorName: owner.vendorName,
+          tradingPartnerId: owner.tradingPartnerId,
           name: input.name.trim(),
           submittedAt: input.submittedAt,
           filePath: null,
@@ -458,7 +542,7 @@ export class ReceivedQuotationService {
       // 7. ファイルをアップロードしてパスを更新
       let filePath: string | null = null;
       if (input.file) {
-        filePath = await this.uploadFile(input.estimateRequestId, quotation.id, input.file);
+        filePath = await this.uploadFile(owner, quotation.id, input.file);
 
         await tx.receivedQuotation.update({
           where: { id: quotation.id },
@@ -558,37 +642,34 @@ export class ReceivedQuotationService {
   /**
    * プロジェクトに紐付く受領見積書一覧を取得する（明細行データ・合計金額を含む）
    *
-   * EstimateRequest経由でプロジェクトに紐付く受領見積書を取得する。
-   * 見積書作成時の転記機能で使用。
+   * 受領見積書の案件の列で絞る（D1。タスク113.1）。既定の requested は見積依頼に紐づくもの（論理削除されて
+   * いない見積依頼のもの）だけを返し、見積書作成時の転記機能の応答を変えない（D2）。all は見積依頼に
+   * 紐づかないものも返す（43.1）。どちらも見積依頼が論理削除された受領見積書は返さない。
+   * 応答に業者名を足し、`tradingPartnerName` には業者名の値を入れる（D2）
    *
    * Requirements: REQ-17.1, REQ-17.2 (estimate-creation)
    * Task 21.1: プロジェクト単位受領見積書取得APIの実装
    *
    * @param projectId - プロジェクトID
+   * @param options - 一覧の対象（requested・all）
    * @returns 受領見積書一覧
    */
   async findByProjectId(
-    projectId: string
-  ): Promise<(ReceivedQuotationInfo & { tradingPartnerName: string | null })[]> {
+    projectId: string,
+    options: FindByProjectIdOptions
+  ): Promise<ProjectQuotationSummary[]> {
+    const liveRequest = { estimateRequest: { is: { deletedAt: null } } };
+    const where: Prisma.ReceivedQuotationWhereInput =
+      options.include === 'all'
+        ? { projectId, deletedAt: null, OR: [{ estimateRequestId: null }, liveRequest] }
+        : { projectId, deletedAt: null, estimateRequestId: { not: null }, ...liveRequest };
+
     const quotations = await this.prisma.receivedQuotation.findMany({
-      where: {
-        deletedAt: null,
-        estimateRequest: {
-          projectId: projectId,
-          deletedAt: null,
-        },
-      },
+      where,
       orderBy: { createdAt: 'desc' },
       include: {
         lineItems: {
           orderBy: { sortOrder: 'asc' },
-        },
-        estimateRequest: {
-          select: {
-            tradingPartner: {
-              select: { name: true },
-            },
-          },
         },
       },
     });
@@ -598,9 +679,8 @@ export class ReceivedQuotationService {
       const info = this.toReceivedQuotationInfoWithLineItems(q, lineItemInfos);
       return {
         ...info,
-        tradingPartnerName:
-          (q as unknown as { estimateRequest?: { tradingPartner?: { name: string } | null } })
-            .estimateRequest?.tradingPartner?.name ?? null,
+        vendorName: q.vendorName,
+        tradingPartnerName: q.vendorName,
       };
     });
   }
@@ -645,9 +725,14 @@ export class ReceivedQuotationService {
         where: { id },
       });
 
-      if (!quotation || quotation.deletedAt !== null) {
+      // 案件の無い受領見積書は不在として扱う（43.14。タスク113.1）
+      if (!quotation || quotation.deletedAt !== null || quotation.projectId === null) {
         throw new ReceivedQuotationNotFoundError(id);
       }
+      const owner = {
+        estimateRequestId: quotation.estimateRequestId,
+        projectId: quotation.projectId,
+      };
 
       // 2. 楽観的排他制御
       if (quotation.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
@@ -657,7 +742,7 @@ export class ReceivedQuotationService {
         });
       }
 
-      // 3. 更新データの準備（Task 61.2: netAmount追加）
+      // 3. 更新データの準備（Task 61.2: netAmount追加）。文脈（見積依頼・案件）は変えない（43.10）
       const updateData: {
         name?: string;
         submittedAt?: Date;
@@ -689,13 +774,8 @@ export class ReceivedQuotationService {
         updateData.fileMimeType = null;
         updateData.fileSize = null;
       } else if (input.file) {
-        // 新しいファイルのアップロード
-        // 格納先が見積依頼を前提とするため、見積依頼の無い受領見積書は不在として扱う
-        // （見積依頼の任意化に伴う最小の扱い。Task 112.1。案件の格納先は Task 113.1 が足す）
-        if (quotation.estimateRequestId === null) {
-          throw new ReceivedQuotationNotFoundError(id);
-        }
-        newFilePath = await this.uploadFile(quotation.estimateRequestId, id, input.file);
+        // 新しいファイルのアップロード（格納先は文脈で決まる。D3）
+        newFilePath = await this.uploadFile(owner, id, input.file);
         updateData.filePath = newFilePath;
         updateData.fileName = input.file.originalName;
         updateData.fileMimeType = input.file.mimeType;
@@ -849,7 +929,8 @@ export class ReceivedQuotationService {
    *
    * Requirements: 11.14
    *
-   * 受領見積書の親の見積依頼が属する案件が閲覧者の閲覧範囲に含まれる場合に限って発行する（タスク103.1）。
+   * 受領見積書の案件（案件の列。タスク113.1）が閲覧者の閲覧範囲に含まれる場合に限って発行する（タスク103.1）。
+   * 案件の無い受領見積書は不在として扱う（43.14）。
    * 範囲外は受領見積書の不在と同じ扱いにし、署名付きURLを発行しない（経路の判定部品が先に 404 にするが、
    * 発行の箇所でも判定する）
    *
@@ -862,19 +943,16 @@ export class ReceivedQuotationService {
   async getFilePreviewUrl(id: string, viewerId: string): Promise<string> {
     const quotation = await this.prisma.receivedQuotation.findUnique({
       where: { id },
-      include: { estimateRequest: { select: { projectId: true } } },
     });
 
-    // 見積依頼の無い受領見積書は不在として扱う（見積依頼の任意化に伴う最小の扱い。Task 112.1。
-    // 案件の列での判定は Task 113.1 が行う）
-    if (!quotation || quotation.deletedAt !== null || quotation.estimateRequest === null) {
+    if (!quotation || quotation.deletedAt !== null || quotation.projectId === null) {
       throw new ReceivedQuotationNotFoundError(id);
     }
 
     if (
       !(await (this.projectScopeService ?? getSharedProjectScopeService()).canAccessProject(
         viewerId,
-        quotation.estimateRequest.projectId
+        quotation.projectId
       ))
     ) {
       throw new ReceivedQuotationNotFoundError(id);

@@ -35,6 +35,8 @@ import {
   FileSizeLimitExceededError,
 } from '../../../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../../../errors/estimateRequestError.js';
+import { ProjectNotFoundError } from '../../../errors/projectError.js';
+import { ValidationError } from '../../../errors/apiError.js';
 
 // PrismaClientモック
 const createMockPrisma = () => {
@@ -82,6 +84,17 @@ const createMockStorageProvider = (): StorageProvider => ({
 
 /** 操作した利用者（監査ログの実行者。estimate-request の Requirement 14.7、タスク111.1） */
 const ACTOR_ID = 'user-actor-001';
+
+/**
+ * 見積依頼の文脈（design の Service Interface の `QuotationContext`。タスク113.1）。
+ * 既存の検証は入力に見積依頼の ID を置いていたため、その値から文脈を作って渡す
+ */
+const requestContextOf = (input: {
+  estimateRequestId: string;
+}): { kind: 'estimateRequest'; estimateRequestId: string } => ({
+  kind: 'estimateRequest',
+  estimateRequestId: input.estimateRequestId,
+});
 
 describe('ReceivedQuotationService', () => {
   let service: ReceivedQuotationService;
@@ -195,7 +208,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(input, ACTOR_ID);
+      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       // Assert
       expect(result.id).toBe('rq-001');
@@ -262,7 +275,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(input, ACTOR_ID);
+      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       // Assert
       expect(result.id).toBe('rq-002');
@@ -290,7 +303,9 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act & Assert
-      await expect(service.create(input, ACTOR_ID)).rejects.toThrow(EstimateRequestNotFoundError);
+      await expect(service.create(requestContextOf(input), input, ACTOR_ID)).rejects.toThrow(
+        EstimateRequestNotFoundError
+      );
     });
 
     it('許可されていないファイル形式の場合、エラーを発生させる（Requirements: 11.8）', async () => {
@@ -308,7 +323,9 @@ describe('ReceivedQuotationService', () => {
       };
 
       // Act & Assert
-      await expect(service.create(input, ACTOR_ID)).rejects.toThrow(InvalidFileTypeError);
+      await expect(service.create(requestContextOf(input), input, ACTOR_ID)).rejects.toThrow(
+        InvalidFileTypeError
+      );
     });
 
     it('ファイルサイズが10MBを超える場合、エラーを発生させる（Requirements: 11.9）', async () => {
@@ -326,7 +343,9 @@ describe('ReceivedQuotationService', () => {
       };
 
       // Act & Assert
-      await expect(service.create(input, ACTOR_ID)).rejects.toThrow(FileSizeLimitExceededError);
+      await expect(service.create(requestContextOf(input), input, ACTOR_ID)).rejects.toThrow(
+        FileSizeLimitExceededError
+      );
     });
 
     it('Excelファイルで受領見積書を作成する', async () => {
@@ -379,7 +398,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(input, ACTOR_ID);
+      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       // Assert
       expect(result.fileMimeType).toBe(
@@ -437,7 +456,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(input, ACTOR_ID);
+      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       // Assert
       expect(result.fileMimeType).toBe('image/jpeg');
@@ -865,7 +884,7 @@ describe('ReceivedQuotationService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
-        estimateRequest: { projectId: 'project-001' },
+        projectId: 'project-001',
       };
 
       vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(mockQuotation as never);
@@ -882,7 +901,7 @@ describe('ReceivedQuotationService', () => {
         'quotations/er-001/rq-001/見積書.pdf',
         expect.any(Object)
       );
-      // 親の見積依頼の案件で、閲覧者の範囲を判定する（タスク103.1）
+      // 受領見積書の案件の列で、閲覧者の範囲を判定する（タスク103.1。タスク113.1 で案件の列へ移した）
       expect(mockProjectScope.canAccessProject).toHaveBeenCalledWith('user-001', 'project-001');
     });
 
@@ -894,7 +913,7 @@ describe('ReceivedQuotationService', () => {
         filePath: 'quotations/er-001/rq-001/見積書.pdf',
         fileName: '見積書.pdf',
         deletedAt: null,
-        estimateRequest: { projectId: 'project-out-of-scope' },
+        projectId: 'project-out-of-scope',
       } as never);
       mockProjectScope.canAccessProject.mockResolvedValue(false);
 
@@ -924,7 +943,7 @@ describe('ReceivedQuotationService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
-        estimateRequest: { projectId: 'project-001' },
+        projectId: 'project-001',
       };
 
       vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(mockQuotation as never);
@@ -943,6 +962,397 @@ describe('ReceivedQuotationService', () => {
       await expect(service.getFilePreviewUrl('rq-nonexistent', 'user-001')).rejects.toThrow(
         ReceivedQuotationNotFoundError
       );
+    });
+  });
+
+  /**
+   * 受領見積書の文脈（見積依頼・案件）と案件の列での一覧・範囲・格納先（タスク113.1）
+   *
+   * design の Requirements 43-50 の章の D1（案件の列を全員に持たせる）・D2（一覧の既定を変えない）・
+   * D3（案件の文脈の格納先）と、Service Interface の `QuotationContext` を観測する
+   */
+  describe('受領見積書の文脈と案件の列（タスク113.1）', () => {
+    const projectRow = { id: 'project-ctx', deletedAt: null };
+
+    const createdRow = (overrides: Record<string, unknown> = {}) => ({
+      id: 'rq-ctx',
+      estimateRequestId: null,
+      projectId: 'project-ctx',
+      vendorName: '自前の協力業者',
+      tradingPartnerId: null,
+      name: '見積依頼の無い受領見積書',
+      submittedAt: new Date('2026-11-01'),
+      filePath: null,
+      fileName: null,
+      fileMimeType: null,
+      fileSize: null,
+      netAmount: null,
+      createdAt: new Date('2026-11-01T00:00:00Z'),
+      updatedAt: new Date('2026-11-01T00:00:00Z'),
+      deletedAt: null,
+      lineItems: [],
+      ...overrides,
+    });
+
+    const setupTx = (options: {
+      project?: unknown;
+      estimateRequest?: unknown;
+      created?: Record<string, unknown>;
+    }) => {
+      const txClient = {
+        project: { findUnique: vi.fn().mockResolvedValue(options.project ?? null) },
+        estimateRequest: {
+          findUnique: vi.fn().mockResolvedValue(options.estimateRequest ?? null),
+        },
+        receivedQuotation: {
+          create: vi.fn().mockResolvedValue(options.created ?? createdRow()),
+          update: vi.fn().mockResolvedValue(options.created ?? createdRow()),
+        },
+        receivedQuotationLineItem: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      };
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+        fn(txClient as unknown as PrismaClient)
+      );
+      return txClient;
+    };
+
+    const baseInput = {
+      name: '  見積依頼の無い受領見積書  ',
+      submittedAt: new Date('2026-11-01'),
+      lineItems: [{ name: '工事A', sortOrder: 0, quantity: 1, unitPrice: 1000, amount: 1000 }],
+    };
+
+    /**
+     * @requirement estimate-request/REQ-43.7
+     * @requirement estimate-request/REQ-14.1
+     */
+    it('案件の文脈では、見積依頼を持たずに案件に属する受領見積書を作り、見積依頼を引かない', async () => {
+      const txClient = setupTx({ project: projectRow });
+
+      const result = await service.create(
+        { kind: 'project', projectId: 'project-ctx' },
+        { ...baseInput, vendorName: '  自前の協力業者  ' },
+        ACTOR_ID
+      );
+
+      expect(txClient.project.findUnique).toHaveBeenCalledWith({
+        where: { id: 'project-ctx' },
+        select: { id: true, deletedAt: true },
+      });
+      expect(txClient.estimateRequest.findUnique).not.toHaveBeenCalled();
+      expect(txClient.receivedQuotation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            estimateRequestId: null,
+            projectId: 'project-ctx',
+            vendorName: '自前の協力業者',
+            tradingPartnerId: null,
+            name: '見積依頼の無い受領見積書',
+          }),
+        })
+      );
+      expect(result.estimateRequestId).toBeNull();
+    });
+
+    /**
+     * @requirement estimate-request/REQ-14.1
+     */
+    it('見積依頼の文脈では、見積依頼の案件と宛先の取引先を写し、入力の業者名を使わない', async () => {
+      const txClient = setupTx({
+        estimateRequest: {
+          id: 'er-ctx',
+          deletedAt: null,
+          projectId: 'project-of-request',
+          tradingPartnerId: 'tp-request',
+          tradingPartner: { name: '宛先の協力業者' },
+        },
+        created: createdRow({ estimateRequestId: 'er-ctx', projectId: 'project-of-request' }),
+      });
+
+      const result = await service.create(
+        { kind: 'estimateRequest', estimateRequestId: 'er-ctx' },
+        { ...baseInput, vendorName: '入力の業者名' },
+        ACTOR_ID
+      );
+
+      expect(txClient.project.findUnique).not.toHaveBeenCalled();
+      expect(txClient.receivedQuotation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            estimateRequestId: 'er-ctx',
+            projectId: 'project-of-request',
+            vendorName: '宛先の協力業者',
+            tradingPartnerId: 'tp-request',
+          }),
+        })
+      );
+      expect(result.estimateRequestId).toBe('er-ctx');
+    });
+
+    it('案件の文脈で案件が無いか論理削除済みなら、作らずに案件の不在のエラーにする', async () => {
+      for (const project of [null, { id: 'project-ctx', deletedAt: new Date() }]) {
+        const txClient = setupTx({ project });
+        await expect(
+          service.create(
+            { kind: 'project', projectId: 'project-ctx' },
+            { ...baseInput, vendorName: '自前の協力業者' },
+            ACTOR_ID
+          )
+        ).rejects.toThrow(ProjectNotFoundError);
+        expect(txClient.receivedQuotation.create).not.toHaveBeenCalled();
+      }
+      expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+    });
+
+    it('案件の文脈で業者名が空なら、43.8 の文言で拒み作らない', async () => {
+      for (const vendorName of [undefined, '   ']) {
+        const txClient = setupTx({ project: projectRow });
+        const promise = service.create(
+          { kind: 'project', projectId: 'project-ctx' },
+          { ...baseInput, vendorName },
+          ACTOR_ID
+        );
+        await expect(promise).rejects.toThrow(ValidationError);
+        await expect(promise).rejects.toThrow('業者名を入力してください');
+        expect(txClient.receivedQuotation.create).not.toHaveBeenCalled();
+      }
+    });
+
+    it('案件の文脈のファイルは quotations/projects/{案件}/{受領見積書}/{ファイル名} に格納する（D3）', async () => {
+      const txClient = setupTx({ project: projectRow });
+
+      await service.create(
+        { kind: 'project', projectId: 'project-ctx' },
+        {
+          ...baseInput,
+          vendorName: '自前の協力業者',
+          file: {
+            buffer: Buffer.from('PDF'),
+            originalName: '見積書.pdf',
+            mimeType: 'application/pdf',
+            size: 3,
+          },
+        },
+        ACTOR_ID
+      );
+
+      expect(mockStorageProvider.upload).toHaveBeenCalledWith(
+        'quotations/projects/project-ctx/rq-ctx/見積書.pdf',
+        expect.any(Buffer),
+        { contentType: 'application/pdf' }
+      );
+      expect(txClient.receivedQuotation.update).toHaveBeenCalledWith({
+        where: { id: 'rq-ctx' },
+        data: { filePath: 'quotations/projects/project-ctx/rq-ctx/見積書.pdf' },
+      });
+    });
+
+    it('見積依頼の文脈のファイルは従来の quotations/{見積依頼}/{受領見積書}/{ファイル名} に格納する（D3）', async () => {
+      setupTx({
+        estimateRequest: {
+          id: 'er-ctx',
+          deletedAt: null,
+          projectId: 'project-of-request',
+          tradingPartnerId: 'tp-request',
+          tradingPartner: { name: '宛先の協力業者' },
+        },
+        created: createdRow({ estimateRequestId: 'er-ctx', projectId: 'project-of-request' }),
+      });
+
+      await service.create(
+        { kind: 'estimateRequest', estimateRequestId: 'er-ctx' },
+        {
+          ...baseInput,
+          file: {
+            buffer: Buffer.from('PDF'),
+            originalName: '見積書.pdf',
+            mimeType: 'application/pdf',
+            size: 3,
+          },
+        },
+        ACTOR_ID
+      );
+
+      expect(mockStorageProvider.upload).toHaveBeenCalledWith(
+        'quotations/er-ctx/rq-ctx/見積書.pdf',
+        expect.any(Buffer),
+        { contentType: 'application/pdf' }
+      );
+    });
+
+    describe('update', () => {
+      const expectedUpdatedAt = new Date('2026-11-01T00:00:00Z');
+      const replacement = {
+        buffer: Buffer.from('New PDF'),
+        originalName: '差し替え.pdf',
+        mimeType: 'application/pdf',
+        size: 7,
+      };
+
+      const setupUpdateTx = (existing: Record<string, unknown>) => {
+        const txClient = {
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue(existing),
+            update: vi.fn().mockResolvedValue({ ...existing, lineItems: [] }),
+          },
+          receivedQuotationLineItem: {
+            deleteMany: vi.fn(),
+            createMany: vi.fn(),
+          },
+        };
+        vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+          fn(txClient as unknown as PrismaClient)
+        );
+        return txClient;
+      };
+
+      /**
+       * @requirement estimate-request/REQ-43.10
+       */
+      it('案件の文脈の受領見積書のファイルの差し替えは案件の格納先へ送り、文脈の列を書き換えない（43.10）', async () => {
+        const txClient = setupUpdateTx(createdRow({ updatedAt: expectedUpdatedAt }));
+
+        await service.update(
+          'rq-ctx',
+          { name: '改名', file: replacement },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        expect(mockStorageProvider.upload).toHaveBeenCalledWith(
+          'quotations/projects/project-ctx/rq-ctx/差し替え.pdf',
+          expect.any(Buffer),
+          { contentType: 'application/pdf' }
+        );
+        const data = txClient.receivedQuotation.update.mock.calls[0]![0].data as Record<
+          string,
+          unknown
+        >;
+        expect(data).not.toHaveProperty('estimateRequestId');
+        expect(data).not.toHaveProperty('projectId');
+      });
+
+      /**
+       * @requirement estimate-request/REQ-43.14
+       */
+      it('案件の無い受領見積書の更新は不在のエラーにし、ファイルを送らず書き換えない', async () => {
+        const txClient = setupUpdateTx(
+          createdRow({ projectId: null, estimateRequestId: null, updatedAt: expectedUpdatedAt })
+        );
+
+        await expect(
+          service.update('rq-ctx', { file: replacement }, expectedUpdatedAt, ACTOR_ID)
+        ).rejects.toThrow(ReceivedQuotationNotFoundError);
+        expect(mockStorageProvider.upload).not.toHaveBeenCalled();
+        expect(txClient.receivedQuotation.update).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('getFilePreviewUrl', () => {
+      /**
+       * @requirement estimate-request/REQ-43.12
+       */
+      it('見積依頼の無い受領見積書は、受領見積書の案件の列で範囲を判定して発行する', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          createdRow({
+            filePath: 'quotations/projects/project-ctx/rq-ctx/見積書.pdf',
+            fileName: '見積書.pdf',
+          }) as never
+        );
+
+        await service.getFilePreviewUrl('rq-ctx', 'user-001');
+
+        expect(mockPrisma.receivedQuotation.findUnique).toHaveBeenCalledWith({
+          where: { id: 'rq-ctx' },
+        });
+        expect(mockProjectScope.canAccessProject).toHaveBeenCalledWith('user-001', 'project-ctx');
+        expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith(
+          'quotations/projects/project-ctx/rq-ctx/見積書.pdf',
+          expect.any(Object)
+        );
+      });
+
+      /**
+       * @requirement estimate-request/REQ-43.14
+       */
+      it('案件の無い受領見積書は不在のエラーにし、範囲を判定せず署名付きURLを発行しない', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          createdRow({
+            projectId: null,
+            filePath: 'cards/rq-ctx/見積書.pdf',
+            fileName: '見積書.pdf',
+          }) as never
+        );
+
+        await expect(service.getFilePreviewUrl('rq-ctx', 'user-001')).rejects.toThrow(
+          ReceivedQuotationNotFoundError
+        );
+        expect(mockProjectScope.canAccessProject).not.toHaveBeenCalled();
+        expect(mockStorageProvider.getSignedUrl).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('findByProjectId', () => {
+      const listedRow = (overrides: Record<string, unknown> = {}) => ({
+        ...createdRow(),
+        lineItems: [],
+        ...overrides,
+      });
+
+      it('既定（requested）は案件の列で絞り、見積依頼に紐づく（論理削除されていない見積依頼の）ものだけを返す（D2）', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findMany).mockResolvedValue([
+          listedRow({ id: 'rq-req', estimateRequestId: 'er-1', vendorName: '宛先の協力業者' }),
+        ] as never);
+
+        const result = await service.findByProjectId('project-ctx', { include: 'requested' });
+
+        expect(mockPrisma.receivedQuotation.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              projectId: 'project-ctx',
+              deletedAt: null,
+              estimateRequestId: { not: null },
+              estimateRequest: { is: { deletedAt: null } },
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        );
+        expect(result).toHaveLength(1);
+        expect(result[0]).toMatchObject({
+          id: 'rq-req',
+          vendorName: '宛先の協力業者',
+          tradingPartnerName: '宛先の協力業者',
+        });
+      });
+
+      /**
+       * @requirement estimate-request/REQ-43.1
+       */
+      it('include: all は、見積依頼に紐づかないものも含めて案件の論理削除されていない受領見積書を返す', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findMany).mockResolvedValue([
+          listedRow({ id: 'rq-own', estimateRequestId: null, vendorName: '自前の協力業者' }),
+          listedRow({ id: 'rq-req', estimateRequestId: 'er-1', vendorName: '宛先の協力業者' }),
+        ] as never);
+
+        const result = await service.findByProjectId('project-ctx', { include: 'all' });
+
+        expect(mockPrisma.receivedQuotation.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              projectId: 'project-ctx',
+              deletedAt: null,
+              OR: [{ estimateRequestId: null }, { estimateRequest: { is: { deletedAt: null } } }],
+            },
+          })
+        );
+        expect(
+          result.map((q) => [q.id, q.estimateRequestId, q.vendorName, q.tradingPartnerName])
+        ).toEqual([
+          ['rq-own', null, '自前の協力業者', '自前の協力業者'],
+          ['rq-req', 'er-1', '宛先の協力業者', '宛先の協力業者'],
+        ]);
+      });
     });
   });
 
@@ -1041,7 +1451,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         // Assert
         expect(result.id).toBe('rq-010');
@@ -1109,7 +1519,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         // Assert
         expect(result.fileName).toBe('見積書.pdf');
@@ -1128,7 +1538,7 @@ describe('ReceivedQuotationService', () => {
         };
 
         // Act & Assert
-        await expect(service.create(input, ACTOR_ID)).rejects.toThrow(
+        await expect(service.create(requestContextOf(input), input, ACTOR_ID)).rejects.toThrow(
           'ファイルのアップロードまたは明細行データの入力が必要です'
         );
       });
@@ -1198,7 +1608,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         // Assert: サーバーサイドで金額を再計算して保存
         expect(result.lineItems[0]!.amount).toBe(10000);
@@ -1539,7 +1949,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         // Assert
         expect(result.id).toBe('rq-new-001');
@@ -1607,7 +2017,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         // Assert: ファイルと明細行の両方が存在
         expect(result.fileName).toBe('設備見積.pdf');
@@ -1667,7 +2077,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         // Assert: ファイルのみで明細行なし
         expect(result.fileName).toBe('見積書.xlsx');
@@ -1731,7 +2141,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         // Assert: 明細行のみでファイルなし
         expect(result.fileName).toBeNull();
@@ -1750,7 +2160,7 @@ describe('ReceivedQuotationService', () => {
         };
 
         // Act & Assert
-        await expect(service.create(input, ACTOR_ID)).rejects.toThrow(
+        await expect(service.create(requestContextOf(input), input, ACTOR_ID)).rejects.toThrow(
           'ファイルのアップロードまたは明細行データの入力が必要です'
         );
       });
@@ -1765,7 +2175,7 @@ describe('ReceivedQuotationService', () => {
         };
 
         // Act & Assert
-        await expect(service.create(input, ACTOR_ID)).rejects.toThrow(
+        await expect(service.create(requestContextOf(input), input, ACTOR_ID)).rejects.toThrow(
           'ファイルのアップロードまたは明細行データの入力が必要です'
         );
       });
@@ -1844,7 +2254,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         // Assert: 金額がサーバーサイドで再計算されている
         expect(result.lineItems[0]!.amount).toBe(100000);
@@ -1921,7 +2331,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         // Assert: 金額はnull
         expect(result.lineItems[0]!.amount).toBeNull();
@@ -2360,7 +2770,7 @@ describe('ReceivedQuotationService', () => {
           return fn(txClient as unknown as PrismaClient);
         });
 
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         expect(result.lineItems).toHaveLength(2);
         expect(result.lineItems[0]?.customCategory).toBe('躯体工事');
@@ -2439,7 +2849,7 @@ describe('ReceivedQuotationService', () => {
           return fn(txClient as unknown as PrismaClient);
         });
 
-        const result = await service.create(input, ACTOR_ID);
+        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
         expect(result.lineItems).toHaveLength(1);
         expect(result.lineItems[0]?.customCategory).toBeNull();
@@ -2574,7 +2984,7 @@ describe('ReceivedQuotationService', () => {
         return fn(txClient as unknown as PrismaClient);
       });
 
-      const result = await service.create(input, ACTOR_ID);
+      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       expect(result.id).toBe('rq-net-001');
       expect(result.netAmount).toBe(9000);
@@ -2726,7 +3136,7 @@ describe('ReceivedQuotationService', () => {
         return fn(txClient as unknown as PrismaClient);
       });
 
-      await service.create(input, ACTOR_ID);
+      await service.create(requestContextOf(input), input, ACTOR_ID);
 
       // createManyに渡された明細行データにnetAmountが含まれていないことを確認
       expect(capturedLineItemData).not.toBeNull();
@@ -2979,8 +3389,8 @@ describe('ReceivedQuotationService', () => {
         });
 
         await service.create(
+          { kind: 'estimateRequest', estimateRequestId: 'er-001' },
           {
-            estimateRequestId: 'er-001',
             name: '監査ログの受領見積書',
             submittedAt: new Date('2026-01-24T00:00:00.000Z'),
             netAmount: NET_AMOUNT,
@@ -3029,8 +3439,8 @@ describe('ReceivedQuotationService', () => {
         });
 
         await service.create(
+          { kind: 'estimateRequest', estimateRequestId: 'er-001' },
           {
-            estimateRequestId: 'er-001',
             name: 'ファイルの受領見積書',
             submittedAt: new Date('2026-01-24T00:00:00.000Z'),
             netAmount: NET_AMOUNT,
@@ -3087,8 +3497,8 @@ describe('ReceivedQuotationService', () => {
 
         await expect(
           service.create(
+            { kind: 'estimateRequest', estimateRequestId: 'er-001' },
             {
-              estimateRequestId: 'er-001',
               name: 'ファイルの受領見積書',
               submittedAt: new Date('2026-01-24T00:00:00.000Z'),
               file: {
@@ -3115,8 +3525,8 @@ describe('ReceivedQuotationService', () => {
 
         await expect(
           service.create(
+            { kind: 'estimateRequest', estimateRequestId: 'er-missing' },
             {
-              estimateRequestId: 'er-missing',
               name: '不在',
               submittedAt: new Date('2026-01-24'),
               lineItems: [{ name: '明細', sortOrder: 0 }],

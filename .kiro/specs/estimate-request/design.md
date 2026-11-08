@@ -7602,6 +7602,7 @@ class DuplicateOriginalError extends Error {
 **D1 案件の列を全員に持たせる**: 見積依頼に紐づく受領見積書にも `projectId`（見積依頼の案件）を入れる。閲覧範囲の判定・一覧・二重登録の判定・ファイルの格納先を、見積依頼の有無で分けずに `projectId` 一つで行える。見積依頼の案件は作成後に変わらないため、写しがずれない。作成の時はサービスが見積依頼から写し、入力から受けない。案件の無い受領見積書（両方 null）は本機能の経路で不在として扱う（`findOwnerOfReceivedQuotation` が null を返して 404。43.14）
 
 **D2 一覧の既定を変えない**: `GET /api/projects/:projectId/quotations` の既定（`include` 無し）は見積依頼に紐づくものだけのまま返す（estimate-creation の 4.5 の転記元を変えない）。一覧の画面は `include=all` を付ける。応答の `tradingPartnerName` は `vendorName` の値を入れて残し、`vendorName` も足す（estimate-creation の画面の読み方を変えない）
+- 実装の記録（タスク113.1、2026-11-08）: 一覧は受領見積書の `projectId` で絞る。`include: 'requested'` は見積依頼の ID を持ち、その見積依頼が論理削除されていないものだけを返す（従来の応答と同じ集合）。`include: 'all'` は見積依頼の無いものと、論理削除されていない見積依頼に紐づくものを返し、見積依頼が論理削除された受領見積書は返さない（見積依頼の論理削除で配下の受領見積書が見えなくなる従来の扱いを保つ）。案件の文脈の作成は案件の不在・論理削除を `ProjectNotFoundError` にし、業者名が空なら 43.8 の文言で拒む（取引先の照合は 113.2）。更新・プレビューは案件の無い受領見積書を不在として扱う
 
 **D3 登録の経路**: 見積依頼の無い登録は `POST /api/projects/:projectId/quotations`（multipart）を project-quotations.routes.ts に足す。順は `authenticate` → `requirePermission('estimate_request:update')` → 案件 ID の検証 → `requireProjectParamScope('projectId')` → `upload.single('file')` → 本文の検証（ファイルの受信の前に範囲を判定する既存の方針）。編集・削除・詳細・プレビューは既存の `/api/quotations/:quotationId` を使う。権限は見積依頼に紐づくもの（Requirement 11）と同じく、閲覧に `estimate_request:read`、登録・編集・削除に `estimate_request:update` を求める（Requirement 10.2 の「作成・編集・削除の権限」を実装が `estimate_request:update` で読んでいる既存の対応に合わせる。43.11）。ファイルの格納先は `quotations/projects/${projectId}/${quotationId}/${fileName}` とし、既存の格納先は変えない
 
