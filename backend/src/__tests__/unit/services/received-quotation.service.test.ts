@@ -1213,6 +1213,35 @@ describe('ReceivedQuotationService', () => {
       });
     });
 
+    // 格納先の書き込みで更新日時が進むため、応答はその後の値を返す（続けて編集すると楽観的排他で競合しないように。タスク114.1）
+    it('ファイルを添えた作成は、格納先を書き込んだ後の更新日時を返す', async () => {
+      const txClient = setupTx({ project: projectRow });
+      const later = new Date('2026-11-01T00:00:01.234Z');
+      txClient.receivedQuotation.update.mockResolvedValue(
+        createdRow({
+          filePath: 'quotations/projects/project-ctx/rq-ctx/見積書.pdf',
+          updatedAt: later,
+        })
+      );
+
+      const { quotation } = await service.create(
+        { kind: 'project', projectId: 'project-ctx' },
+        {
+          ...baseInput,
+          vendorName: '自前の協力業者',
+          file: {
+            buffer: Buffer.from('PDF'),
+            originalName: '見積書.pdf',
+            mimeType: 'application/pdf',
+            size: 3,
+          },
+        },
+        ACTOR_ID
+      );
+
+      expect(quotation.updatedAt).toEqual(later);
+    });
+
     it('見積依頼の文脈のファイルは従来の quotations/{見積依頼}/{受領見積書}/{ファイル名} に格納する（D3）', async () => {
       setupTx({
         estimateRequest: {

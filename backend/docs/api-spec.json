@@ -3689,6 +3689,14 @@
                     "type": "string",
                     "format": "binary",
                     "description": "ファイル（任意）"
+                  },
+                  "lineItems": {
+                    "type": "string",
+                    "description": "明細行（JSON 文字列）"
+                  },
+                  "quoteNumber": {
+                    "type": "string",
+                    "description": "台帳の項目（見積番号。ほかに overallConditions・siteLocation・constructionKind・useType・constructionPrice・workConditions・distanceKm・adoption・confirmedAmount・readingStatus・quoteDiscriminator）"
                   }
                 }
               }
@@ -3697,7 +3705,7 @@
         },
         "responses": {
           "201": {
-            "description": "受領見積書作成成功"
+            "description": "受領見積書作成成功（本文は受領見積書と sharedOriginalCount〔同じ原本で見積の区別が違う他の受領見積書の数〕）"
           },
           "400": {
             "description": "バリデーションエラー"
@@ -3710,6 +3718,9 @@
           },
           "404": {
             "description": "見積依頼が見つからない"
+          },
+          "409": {
+            "description": "同じ案件に同じ原本・同じ見積の区別の受領見積書がある（code は DUPLICATE_ORIGINAL、existing に既存の name・vendorName・submittedAt）"
           },
           "413": {
             "description": "ファイルサイズ上限超過"
@@ -3853,6 +3864,11 @@
                     "type": "string",
                     "format": "date-time",
                     "description": "楽観的排他制御用の更新日時"
+                  },
+                  "vendorName": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "業者名（見積依頼に紐づかない受領見積書だけで使う）。台帳の項目と tradingPartnerId も登録と同じく受ける"
                   }
                 }
               }
@@ -3861,7 +3877,7 @@
         },
         "responses": {
           "200": {
-            "description": "受領見積書更新成功"
+            "description": "受領見積書更新成功（本文は受領見積書と sharedOriginalCount）"
           },
           "400": {
             "description": "バリデーションエラー"
@@ -3876,7 +3892,7 @@
             "description": "受領見積書が見つからない"
           },
           "409": {
-            "description": "楽観的排他制御エラー（競合）"
+            "description": "楽観的排他制御エラー（RECEIVED_QUOTATION_CONFLICT）、または同じ原本・同じ見積の区別（DUPLICATE_ORIGINAL）"
           },
           "413": {
             "description": "ファイルサイズ上限超過"
@@ -5907,24 +5923,24 @@
       "46": "装"
     },
     "Requirements": {
-      "0": "2",
-      "1": "9",
-      "2": ".",
-      "3": "1",
-      "4": ",",
-      "5": " ",
-      "6": "2",
-      "7": "9",
-      "8": ".",
-      "9": "2",
-      "10": ",",
-      "11": " ",
-      "12": "2",
-      "13": "9",
-      "14": ".",
-      "15": "3",
-      "16": ",",
-      "17": " ",
+      "0": "R",
+      "1": "E",
+      "2": "Q",
+      "3": "-",
+      "4": "1",
+      "5": "7",
+      "6": ".",
+      "7": "1",
+      "8": ",",
+      "9": " ",
+      "10": "R",
+      "11": "E",
+      "12": "Q",
+      "13": "-",
+      "14": "1",
+      "15": "7",
+      "16": ".",
+      "17": "2",
       "18": "2",
       "19": "9",
       "20": ".",
@@ -6287,6 +6303,155 @@
           },
           "404": {
             "description": "プロジェクトが見つからない"
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/quotations": {
+      "get": {
+        "summary": "案件の受領見積書の一覧",
+        "description": "既定は見積依頼に紐づく受領見積書だけを返す。include=all で見積依頼の無いものも返す",
+        "tags": [
+          "Received Quotations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            },
+            "description": "all を指定すると見積依頼の無い受領見積書も返す"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "受領見積書の一覧（tradingPartnerName は業者名の値）"
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "案件が見つからない（範囲外を含む）"
+          }
+        }
+      },
+      "post": {
+        "summary": "見積依頼に紐づかない受領見積書の登録",
+        "description": "案件に属し見積依頼に紐づかない受領見積書を登録する（multipart）。範囲外の案件はファイルを受け取る前に 404",
+        "tags": [
+          "Received Quotations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "submittedAt",
+                  "vendorName"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "submittedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "vendorName": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "業者名"
+                  },
+                  "tradingPartnerId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "選んだ協力業者の取引先（任意）"
+                  },
+                  "netAmount": {
+                    "type": "number"
+                  },
+                  "lineItems": {
+                    "type": "string",
+                    "description": "明細行（JSON 文字列）"
+                  },
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "登録成功（本文は受領見積書と sharedOriginalCount）"
+          },
+          "400": {
+            "description": "バリデーションエラー（業者名の未入力を含む）"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "案件が見つからない（範囲外を含む）"
+          },
+          "409": {
+            "description": "同じ案件に同じ原本・同じ見積の区別の受領見積書がある（code は DUPLICATE_ORIGINAL、existing に既存の name・vendorName・submittedAt）"
+          },
+          "413": {
+            "description": "ファイルサイズ上限超過"
+          },
+          "415": {
+            "description": "ファイル形式エラー"
           }
         }
       }

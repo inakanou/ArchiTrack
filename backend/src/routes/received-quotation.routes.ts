@@ -20,6 +20,12 @@
  * 受領見積書の案件が範囲外のときだけ記録する。URL は変わらない。OpenAPI の注釈の経路の引数名も実装に合わせて
  * `/api/quotations/{quotationId}` とした（2026-10-31 の機能検証の指摘）。
  *
+ * 台帳の項目と同じ原本の応答（タスク114.1、design の Requirements 43-50 の章の D3・D6）:
+ * 登録・更新は台帳の項目・業者名・取引先の ID をサービスへ渡し、成功の応答に同じ原本で区別の違う他の
+ * 受領見積書の数（`sharedOriginalCount`）を足す。同じ原本・同じ区別の二重登録は 409 `DUPLICATE_ORIGINAL`
+ * にし、既存の受領見積書の名前・業者名・提出日を本文の `existing` に入れる。ファイルの受信・明細行の読み取り・
+ * 保存の誤りの応答は案件の配下の登録（project-quotations.routes.ts）と共有する
+ *
  * Task 13.2: 受領見積書エンドポイントの実装
  *
  * @module routes/received-quotation
@@ -46,6 +52,9 @@ import {
   estimateRequestIdForQuotationSchema,
   deleteReceivedQuotationQuerySchema,
   parseLineItemsFromMultipart,
+  type CreateReceivedQuotationInput as CreateReceivedQuotationBody,
+  type UpdateReceivedQuotationInput as UpdateReceivedQuotationBody,
+  type LineItemsArrayInput,
 } from '../schemas/received-quotation.schema.js';
 import {
   ReceivedQuotationNotFoundError,
@@ -54,6 +63,7 @@ import {
   InvalidFileTypeError,
   FileSizeLimitExceededError,
   FileOrLineItemsRequiredError,
+  DuplicateOriginalError,
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 
@@ -88,13 +98,145 @@ function getReceivedQuotationService(): ReceivedQuotationService {
   return receivedQuotationService;
 }
 
-// multerの設定（メモリストレージ）
-const upload = multer({
+// multerの設定（メモリストレージ）。案件の配下の登録（project-quotations.routes.ts）も同じ設定で受ける
+export const quotationUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB
   },
 });
+const upload = quotationUpload;
+
+/** 同じ原本の二重登録の応答の種類（design の D6、タスク114.1） */
+export const DUPLICATE_ORIGINAL_PROBLEM_TYPE =
+  'https://architrack.example.com/problems/duplicate-original';
+
+/**
+ * 受け取ったファイルをサービスの入力の形にする（ファイルが無ければ undefined）
+ */
+export function toQuotationFileInfo(file: Express.Multer.File | undefined) {
+  return file
+    ? {
+        buffer: file.buffer,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size,
+      }
+    : undefined;
+}
+
+/**
+ * multipart の `lineItems`（JSON 文字列）を読み取る（Task 21.3）。
+ * 誤りなら 400 を応答して `{ ok: false }` を返す
+ */
+export function readMultipartLineItems(
+  req: Request,
+  res: Response
+): { ok: true; lineItems: LineItemsArrayInput | undefined } | { ok: false } {
+  try {
+    return {
+      ok: true,
+      lineItems: parseLineItemsFromMultipart(req.body?.lineItems as string | undefined),
+    };
+  } catch (error) {
+    res.status(400).json({
+      type: 'https://architrack.example.com/problems/validation-error',
+      title: 'Validation Error',
+      status: 400,
+      detail: error instanceof Error ? error.message : '明細行データのバリデーションエラー',
+      code: 'VALIDATION_ERROR',
+    });
+    return { ok: false };
+  }
+}
+
+/**
+ * 同じ原本の二重登録（48.3）を 409 `DUPLICATE_ORIGINAL` で応答する。
+ * 本文は既存の受領見積書の名前・業者名・提出日（ISO 8601）を `existing` に持つ。他の案件の情報は含めない（48.7）
+ */
+function respondDuplicateOriginal(error: DuplicateOriginalError, res: Response): void {
+  res.status(409).json({
+    type: DUPLICATE_ORIGINAL_PROBLEM_TYPE,
+    title: 'Duplicate Original',
+    status: 409,
+    detail: error.message,
+    code: 'DUPLICATE_ORIGINAL',
+    existing: {
+      name: error.existing.name,
+      vendorName: error.existing.vendorName,
+      submittedAt: error.existing.submittedAt,
+    },
+  });
+}
+
+/**
+ * 登録・更新の保存の誤り（ファイル・明細行・同じ原本）を応答する。応答したら true を返す
+ */
+export function respondQuotationSaveError(error: unknown, res: Response): boolean {
+  if (error instanceof DuplicateOriginalError) {
+    respondDuplicateOriginal(error, res);
+    return true;
+  }
+  if (error instanceof InvalidContentTypeError) {
+    res.status(422).json({
+      type: 'https://architrack.example.com/problems/invalid-content-type',
+      title: 'Invalid Content Type',
+      status: 422,
+      detail: error.message,
+      code: 'INVALID_CONTENT_TYPE',
+    });
+    return true;
+  }
+  if (error instanceof InvalidFileTypeError) {
+    res.status(415).json({
+      type: 'https://architrack.example.com/problems/invalid-file-type',
+      title: 'Invalid File Type',
+      status: 415,
+      detail: error.message,
+      code: 'INVALID_FILE_TYPE',
+    });
+    return true;
+  }
+  if (error instanceof FileSizeLimitExceededError) {
+    res.status(413).json({
+      type: 'https://architrack.example.com/problems/file-size-limit-exceeded',
+      title: 'File Size Limit Exceeded',
+      status: 413,
+      detail: error.message,
+      code: 'FILE_SIZE_LIMIT_EXCEEDED',
+    });
+    return true;
+  }
+  if (error instanceof FileOrLineItemsRequiredError) {
+    res.status(400).json({
+      type: 'https://architrack.example.com/problems/validation-error',
+      title: 'Validation Error',
+      status: 400,
+      detail: error.message,
+      message: error.message,
+      code: 'FILE_OR_LINE_ITEMS_REQUIRED',
+    });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 登録の本文（検証済み）と受け取ったファイル・明細行を、サービスの作成の入力にする。
+ * 台帳の項目・業者名・取引先の ID はそのまま渡す（文脈ごとの扱いはサービスが決める。44.3・44.5）
+ */
+export function toCreateQuotationInput(
+  body: CreateReceivedQuotationBody,
+  file: Express.Multer.File | undefined,
+  lineItems: LineItemsArrayInput | undefined
+) {
+  return {
+    ...body,
+    submittedAt: new Date(body.submittedAt),
+    file: toQuotationFileInfo(file),
+    lineItems,
+  };
+}
 
 /**
  * @swagger
@@ -136,9 +278,15 @@ const upload = multer({
  *                 type: string
  *                 format: binary
  *                 description: ファイル（任意）
+ *               lineItems:
+ *                 type: string
+ *                 description: 明細行（JSON 文字列）
+ *               quoteNumber:
+ *                 type: string
+ *                 description: 台帳の項目（見積番号。ほかに overallConditions・siteLocation・constructionKind・useType・constructionPrice・workConditions・distanceKm・adoption・confirmedAmount・readingStatus・quoteDiscriminator）
  *     responses:
  *       201:
- *         description: 受領見積書作成成功
+ *         description: 受領見積書作成成功（本文は受領見積書と sharedOriginalCount〔同じ原本で見積の区別が違う他の受領見積書の数〕）
  *       400:
  *         description: バリデーションエラー
  *       401:
@@ -147,6 +295,8 @@ const upload = multer({
  *         description: 権限不足
  *       404:
  *         description: 見積依頼が見つからない
+ *       409:
+ *         description: 同じ案件に同じ原本・同じ見積の区別の受領見積書がある（code は DUPLICATE_ORIGINAL、existing に既存の name・vendorName・submittedAt）
  *       413:
  *         description: ファイルサイズ上限超過
  *       415:
@@ -166,46 +316,23 @@ router.post(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: estimateRequestId } = req.validatedParams as { id: string };
-      const validatedBody = req.validatedBody as {
-        name: string;
-        submittedAt: string;
-        netAmount?: number | null;
-      };
 
       // Task 21.3: multipart内のlineItemsフィールド（JSON文字列）をパース・検証
-      let lineItems;
-      try {
-        lineItems = parseLineItemsFromMultipart(req.body?.lineItems as string | undefined);
-      } catch (error) {
-        res.status(400).json({
-          type: 'https://architrack.example.com/problems/validation-error',
-          title: 'Validation Error',
-          status: 400,
-          detail: error instanceof Error ? error.message : '明細行データのバリデーションエラー',
-          code: 'VALIDATION_ERROR',
-        });
+      const parsed = readMultipartLineItems(req, res);
+      if (!parsed.ok) {
         return;
       }
 
-      const input = {
-        name: validatedBody.name,
-        submittedAt: new Date(validatedBody.submittedAt),
-        file: req.file
-          ? {
-              buffer: req.file.buffer,
-              originalName: req.file.originalname,
-              mimeType: req.file.mimetype,
-              size: req.file.size,
-            }
-          : undefined,
-        lineItems,
-        netAmount: validatedBody.netAmount,
-      };
+      // 台帳の項目・業者名・取引先の ID も渡す（見積依頼の文脈では業者名と取引先をサービスが写す。44.3、タスク114.1）
+      const input = toCreateQuotationInput(
+        req.validatedBody as CreateReceivedQuotationBody,
+        req.file,
+        parsed.lineItems
+      );
 
       // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
       // 見積依頼の配下の登録は見積依頼の文脈で作る（design の Requirements 43-50 の章の Service Interface、タスク113.1）
-      // 応答の形はまだ変えない（409 の対応と sharedOriginalCount の応答はタスク114.1）
-      const { quotation } = await getReceivedQuotationService().create(
+      const { quotation, sharedOriginalCount } = await getReceivedQuotationService().create(
         { kind: 'estimateRequest', estimateRequestId },
         input,
         req.user!.userId
@@ -220,7 +347,8 @@ router.post(
         'Received quotation created successfully'
       );
 
-      res.status(201).json(quotation);
+      // 同じ原本で区別の違う他の受領見積書の数を足す（48.4、タスク114.1）
+      res.status(201).json({ ...quotation, sharedOriginalCount });
     } catch (error) {
       if (error instanceof EstimateRequestNotFoundError) {
         res.status(404).json({
@@ -232,45 +360,7 @@ router.post(
         });
         return;
       }
-      if (error instanceof InvalidContentTypeError) {
-        res.status(422).json({
-          type: 'https://architrack.example.com/problems/invalid-content-type',
-          title: 'Invalid Content Type',
-          status: 422,
-          detail: error.message,
-          code: 'INVALID_CONTENT_TYPE',
-        });
-        return;
-      }
-      if (error instanceof InvalidFileTypeError) {
-        res.status(415).json({
-          type: 'https://architrack.example.com/problems/invalid-file-type',
-          title: 'Invalid File Type',
-          status: 415,
-          detail: error.message,
-          code: 'INVALID_FILE_TYPE',
-        });
-        return;
-      }
-      if (error instanceof FileSizeLimitExceededError) {
-        res.status(413).json({
-          type: 'https://architrack.example.com/problems/file-size-limit-exceeded',
-          title: 'File Size Limit Exceeded',
-          status: 413,
-          detail: error.message,
-          code: 'FILE_SIZE_LIMIT_EXCEEDED',
-        });
-        return;
-      }
-      if (error instanceof FileOrLineItemsRequiredError) {
-        res.status(400).json({
-          type: 'https://architrack.example.com/problems/validation-error',
-          title: 'Validation Error',
-          status: 400,
-          detail: error.message,
-          message: error.message,
-          code: 'FILE_OR_LINE_ITEMS_REQUIRED',
-        });
+      if (respondQuotationSaveError(error, res)) {
         return;
       }
       next(error);
@@ -441,9 +531,13 @@ router.get(
  *                 type: string
  *                 format: date-time
  *                 description: 楽観的排他制御用の更新日時
+ *               vendorName:
+ *                 type: string
+ *                 maxLength: 200
+ *                 description: 業者名（見積依頼に紐づかない受領見積書だけで使う）。台帳の項目と tradingPartnerId も登録と同じく受ける
  *     responses:
  *       200:
- *         description: 受領見積書更新成功
+ *         description: 受領見積書更新成功（本文は受領見積書と sharedOriginalCount）
  *       400:
  *         description: バリデーションエラー
  *       401:
@@ -453,7 +547,7 @@ router.get(
  *       404:
  *         description: 受領見積書が見つからない
  *       409:
- *         description: 楽観的排他制御エラー（競合）
+ *         description: 楽観的排他制御エラー（RECEIVED_QUOTATION_CONFLICT）、または同じ原本・同じ見積の区別（DUPLICATE_ORIGINAL）
  *       413:
  *         description: ファイルサイズ上限超過
  *       415:
@@ -471,45 +565,24 @@ router.put(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { quotationId: id } = req.validatedParams as { quotationId: string };
-      const { expectedUpdatedAt, ...updateData } = req.validatedBody as {
-        expectedUpdatedAt: string;
-        name?: string;
-        submittedAt?: string;
-        removeFile?: boolean;
-      };
+      // 台帳の項目・業者名・取引先の ID も本文の検証済みの値のまま渡す（タスク114.1）
+      const { expectedUpdatedAt, ...updateData } = req.validatedBody as UpdateReceivedQuotationBody;
 
       // Task 21.3: multipart内のlineItemsフィールド（JSON文字列）をパース・検証
-      let lineItems;
-      try {
-        lineItems = parseLineItemsFromMultipart(req.body?.lineItems as string | undefined);
-      } catch (error) {
-        res.status(400).json({
-          type: 'https://architrack.example.com/problems/validation-error',
-          title: 'Validation Error',
-          status: 400,
-          detail: error instanceof Error ? error.message : '明細行データのバリデーションエラー',
-          code: 'VALIDATION_ERROR',
-        });
+      const parsed = readMultipartLineItems(req, res);
+      if (!parsed.ok) {
         return;
       }
 
       const input = {
         ...updateData,
         submittedAt: updateData.submittedAt ? new Date(updateData.submittedAt) : undefined,
-        file: req.file
-          ? {
-              buffer: req.file.buffer,
-              originalName: req.file.originalname,
-              mimeType: req.file.mimetype,
-              size: req.file.size,
-            }
-          : undefined,
-        lineItems,
+        file: toQuotationFileInfo(req.file),
+        lineItems: parsed.lineItems,
       };
 
       // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
-      // 応答の形はまだ変えない（409 の対応と sharedOriginalCount の応答はタスク114.1）
-      const { quotation } = await getReceivedQuotationService().update(
+      const { quotation, sharedOriginalCount } = await getReceivedQuotationService().update(
         id,
         input,
         new Date(expectedUpdatedAt),
@@ -518,7 +591,8 @@ router.put(
 
       logger.info({ quotationId: id }, 'Received quotation updated successfully');
 
-      res.json(quotation);
+      // 同じ原本で区別の違う他の受領見積書の数を足す（48.4、タスク114.1）
+      res.json({ ...quotation, sharedOriginalCount });
     } catch (error) {
       if (error instanceof ReceivedQuotationNotFoundError) {
         res.status(404).json({
@@ -540,34 +614,11 @@ router.put(
         });
         return;
       }
-      if (error instanceof InvalidContentTypeError) {
-        res.status(422).json({
-          type: 'https://architrack.example.com/problems/invalid-content-type',
-          title: 'Invalid Content Type',
-          status: 422,
-          detail: error.message,
-          code: 'INVALID_CONTENT_TYPE',
-        });
-        return;
-      }
-      if (error instanceof InvalidFileTypeError) {
-        res.status(415).json({
-          type: 'https://architrack.example.com/problems/invalid-file-type',
-          title: 'Invalid File Type',
-          status: 415,
-          detail: error.message,
-          code: 'INVALID_FILE_TYPE',
-        });
-        return;
-      }
-      if (error instanceof FileSizeLimitExceededError) {
-        res.status(413).json({
-          type: 'https://architrack.example.com/problems/file-size-limit-exceeded',
-          title: 'File Size Limit Exceeded',
-          status: 413,
-          detail: error.message,
-          code: 'FILE_SIZE_LIMIT_EXCEEDED',
-        });
+      // 更新のファイルも明細行も無い誤りは従来どおり既定の誤りの扱いに任せる（応答の形を変えない）
+      if (
+        !(error instanceof FileOrLineItemsRequiredError) &&
+        respondQuotationSaveError(error, res)
+      ) {
         return;
       }
       next(error);

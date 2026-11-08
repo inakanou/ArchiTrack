@@ -1035,14 +1035,18 @@ export class ReceivedQuotationService {
       );
 
       // 7. ファイルをアップロードしてパスを更新
+      // 格納先の書き込みで更新日時が進むため、応答にはその後の値を返す（続けての編集が楽観的排他で
+      // 競合しないように。タスク114.1）
       let filePath: string | null = null;
+      let updatedAt = quotation.updatedAt;
       if (input.file) {
         filePath = await this.uploadFile(owner, quotation.id, input.file);
 
-        await tx.receivedQuotation.update({
+        const withFilePath = await tx.receivedQuotation.update({
           where: { id: quotation.id },
           data: { filePath },
         });
+        updatedAt = withFilePath.updatedAt;
       }
 
       // 8. 明細行を含む完全なレコードを返却
@@ -1065,7 +1069,7 @@ export class ReceivedQuotationService {
 
       return {
         quotation: this.toReceivedQuotationInfoWithLineItems(
-          { ...quotation, filePath: filePath ?? quotation.filePath },
+          { ...quotation, filePath: filePath ?? quotation.filePath, updatedAt },
           resultLineItems
         ),
         sharedOriginalCount,

@@ -125,6 +125,7 @@ import {
   ReceivedQuotationNotFoundError,
   ReceivedQuotationConflictError,
   InvalidContentTypeError,
+  DuplicateOriginalError,
 } from '../../../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../../../errors/estimateRequestError.js';
 import { ValidationError } from '../../../errors/apiError.js';
@@ -1036,6 +1037,125 @@ describe('received-quotation.routes', () => {
         expect(response.body[0]).toHaveProperty('netAmount', 75000);
         expect(response.body[1]).toHaveProperty('netAmount', null);
       });
+    });
+  });
+
+  // 台帳の項目・業者名の受け渡し、同じ原本の応答、同じ原本の他の件数（タスク114.1、design の D6）
+  describe('台帳の項目と同じ原本の応答（タスク114.1）', () => {
+    const partnerId = '550e8400-e29b-41d4-a716-446655440012';
+    const duplicate = () =>
+      new DuplicateOriginalError({
+        name: '先に登録した見積',
+        vendorName: '山田設備',
+        submittedAt: '2026-10-20T00:00:00.000Z',
+      });
+    const duplicateBody = {
+      type: 'https://architrack.example.com/problems/duplicate-original',
+      title: 'Duplicate Original',
+      status: 409,
+      detail: '同じ原本の受領見積書が既に登録されています',
+      code: 'DUPLICATE_ORIGINAL',
+      existing: {
+        name: '先に登録した見積',
+        vendorName: '山田設備',
+        submittedAt: '2026-10-20T00:00:00.000Z',
+      },
+    };
+
+    it('見積依頼の配下の登録は台帳の項目・業者名・取引先の ID をサービスへ渡し、応答に同じ原本の他の件数を足す', async () => {
+      mockCreate.mockResolvedValue({ quotation: mockQuotation, sharedOriginalCount: 1 });
+
+      const response = await request(app)
+        .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+        .field('name', 'テスト受領見積書')
+        .field('submittedAt', '2024-01-15T00:00:00.000Z')
+        .field('vendorName', '山田設備')
+        .field('tradingPartnerId', partnerId)
+        .field('quoteNumber', 'Q-002')
+        .field('overallConditions', '足場は別途')
+        .field('workConditions', '夜間')
+        .field('confirmedAmount', '900000')
+        .field('quoteDiscriminator', 'B案')
+        .attach('file', Buffer.from('%PDF-1.4 quote'), {
+          filename: 'quote.pdf',
+          contentType: 'application/pdf',
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body).toEqual(
+        expect.objectContaining({ id: validUUID, sharedOriginalCount: 1 })
+      );
+      expect(mockCreate).toHaveBeenCalledWith(
+        { kind: 'estimateRequest', estimateRequestId },
+        expect.objectContaining({
+          vendorName: '山田設備',
+          tradingPartnerId: partnerId,
+          quoteNumber: 'Q-002',
+          overallConditions: '足場は別途',
+          workConditions: '夜間',
+          confirmedAmount: 900000,
+          quoteDiscriminator: 'B案',
+        }),
+        'test-user-id'
+      );
+    });
+
+    it('更新は台帳の項目・業者名をサービスへ渡し、応答に同じ原本の他の件数を足す', async () => {
+      mockUpdate.mockResolvedValue({ quotation: mockQuotation, sharedOriginalCount: 3 });
+
+      const response = await request(app)
+        .put(`/api/quotations/${validUUID}`)
+        .field('expectedUpdatedAt', '2024-01-01T00:00:00.000Z')
+        .field('vendorName', '山田設備')
+        .field('tradingPartnerId', partnerId)
+        .field('adoption', 'REJECTED')
+        .field('readingStatus', 'CONFIRMED')
+        .field('quoteDiscriminator', 'C案');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(
+        expect.objectContaining({ id: validUUID, sharedOriginalCount: 3 })
+      );
+      expect(mockUpdate).toHaveBeenCalledWith(
+        validUUID,
+        expect.objectContaining({
+          vendorName: '山田設備',
+          tradingPartnerId: partnerId,
+          adoption: 'REJECTED',
+          readingStatus: 'CONFIRMED',
+          quoteDiscriminator: 'C案',
+        }),
+        new Date('2024-01-01T00:00:00.000Z'),
+        'test-user-id'
+      );
+    });
+
+    it('登録で同じ原本・同じ区別が既にあれば 409 DUPLICATE_ORIGINAL と既存の受領見積書を返す', async () => {
+      mockCreate.mockRejectedValue(duplicate());
+
+      const response = await request(app)
+        .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
+        .field('name', 'テスト受領見積書')
+        .field('submittedAt', '2024-01-15T00:00:00.000Z')
+        .attach('file', Buffer.from('%PDF-1.4 quote'), {
+          filename: 'quote.pdf',
+          contentType: 'application/pdf',
+        });
+
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual(duplicateBody);
+    });
+
+    it('更新で同じ原本・同じ区別ができるなら 409 DUPLICATE_ORIGINAL と既存の受領見積書を返す', async () => {
+      mockUpdate.mockRejectedValue(duplicate());
+
+      const response = await request(app)
+        .put(`/api/quotations/${validUUID}`)
+        .field('expectedUpdatedAt', '2024-01-01T00:00:00.000Z')
+        .field('quoteDiscriminator', '');
+
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual(duplicateBody);
     });
   });
 });
