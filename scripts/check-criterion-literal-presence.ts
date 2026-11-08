@@ -100,7 +100,7 @@ export const LEDGER_PATH = 'scripts/criterion-literal-adjudication.json';
  * **完全一致で課す。** 上限に遊びを持たせると、取り下げで空いた枠へ無言の追加が入る。
  * 取り下げたときは同時にこの定数を下げること。
  */
-export const LEDGER_ENTRY_LIMIT = 25;
+export const LEDGER_ENTRY_LIMIT = 26;
 
 /** 逐語を囲む括弧の対 */
 export const LITERAL_QUOTE_PAIRS: readonly (readonly [string, string])[] = [

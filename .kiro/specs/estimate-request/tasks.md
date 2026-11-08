@@ -2184,6 +2184,7 @@
 - **【2026-11-08・タスク119.2】** 管理者のシステム設定の画面は `/admin/settings`（管理メニュー「システム設定」、`admin-menu-settings`）。状態は `data-testid="external-ai-reading-state"` に「有効」か「停止中」。申し送り（120.3）: design.md の File Structure Plan の新設予定の注記（`AdminSettingsPage.tsx`・`VisionConsentDialog.tsx` など）は実在するようになったため外す
 - **【2026-11-08・タスク120.1】** `e2e/specs/estimate-requests/received-quotation-ledger.spec.ts` が 43〜48 と 11.11・11.13・14.1 の被覆の印を持つ。34.2 は取り込みの行がすべて直接工事になるため画面では別途を除く合計を観測できず、印を付けていない（34.2 は既存の `net-amount-auto-fill-e2e.spec.ts` が被覆する）。鮮度の錨 `t13-anchor-references-after-115303` を帰属つきで貼り直した（2232 → 2302）。117.4 で壊れていた `estimate-request-focus-visible.spec.ts` のフォーカスの順を追随させた。E2E で一部だけ確かめたもの（44.7 の複数一致、43.10 の紐づけを外す、43.11 の編集だけの拒否、45.3 の OCR の経路、46.8 の NET・ファイルの変更）はサーバーの単体・統合が持つ
 - **【2026-11-08・タスク120.2】** `e2e/specs/estimate-requests/claude-vision-consent.spec.ts` が 24.2・49.1〜49.6・49.8・50.2 の被覆の印を持つ。管理者の停止は本物のサーバーの状態で確かめ、afterEach で有効へ戻す（Playwright は workers 1 のため他の spec へ漏れない）。鮮度の錨を 2302 → 2316 へ帰属つきで貼り直した。120.3 への申し送り: `check:req-coverage` の残りは 50.1 の未被覆と、本番から届かない 44.9・45.13。48.8 と 49.7 は統合テストの印で既に被覆と数えられている
+- **【2026-11-08・タスク120.3】** 除外は 44.9・45.13・50.1 の 3 件だけ（48.8・49.7 は統合テストの印で被覆済みのため除外しない。タスクの本文の 5 件から測った結果で変えた）。43.15 のパンくずの書式を逐語の裁定の台帳へ登録した（26 件）。鮮度の錨（除外の総数 134、台帳 26）を帰属つきで貼り直した。後の改善の候補: 50.1 は単体テストが本番のサービスを呼んでいるため、`@requirement` の印を付ければ除外が要らなくなる
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2746,7 +2747,7 @@
   - _Requirements: 24.2, 49.1, 49.2, 49.3, 49.4, 49.5, 49.6, 49.8, 50.2_
   - _Depends: 119.1, 119.2_
 
-- [ ] 120.3 除外の登録と spec の関門を通す
+- [x] 120.3 除外の登録と spec の関門を通す
   - E2E で観測できない 44.9・45.13（migration の埋め戻し。代替はタスク112.1 の単体と統合）、48.8（埋め戻しのスクリプト。代替はタスク115.1 の統合）、49.7（送信の記録。代替はタスク116.2 の統合）、50.1（URL の秒数。代替はタスク113.5 の単体）を `e2e/requirement-exclusions.json` に代替の検証つきで登録し、件数の宣言を実数に合わせる
   - 受入基準の逐語が実装に入っていることを `check:criterion-literals` で確かめ、43.15 のパンくずの書式を 29.1 と同じく書式の記述として `scripts/criterion-literal-adjudication.json` に登録し、件数の宣言を合わせる
   - `check:req-coverage`・`check:req-exclusions`・`check:trace-coverage`・`check:criterion-literals`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness` を名指しで 1 本ずつ流す。鮮度の宣言（除外の件数、機能名を欠く見出しの解決の数）が動けば、帰属つきで貼り直す

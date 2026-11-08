@@ -7342,16 +7342,16 @@ graph TB
 backend/
 ├── prisma/
 │   ├── schema.prisma                                   # 受領見積書・明細行の列、SystemSetting（変更）
-│   └── migrations/20261108000000_received_quotation_ledger_fields/migration.sql  # 新設予定。列・enum・埋め戻し（44.9・45.13）・権限の付与
-├── scripts/backfill-received-quotation-file-hash.ts    # 新設予定。既存のファイルの指紋の埋め戻し（48.8）
+│   └── migrations/20261108000000_received_quotation_ledger_fields/migration.sql  # 列・enum・埋め戻し（44.9・45.13）・権限の付与
+├── scripts/backfill-received-quotation-file-hash.ts    # 既存のファイルの指紋の埋め戻し（48.8）
 ├── src/
 │   ├── schemas/received-quotation.schema.ts            # 明細行・台帳の項目の検証（変更）
 │   ├── services/received-quotation.service.ts          # 保存の規則・一覧・指紋・二重登録（変更）
-│   ├── services/system-setting.service.ts              # 新設予定。外部の AI での読み取りの設定の読み書き
+│   ├── services/system-setting.service.ts              # 外部の AI での読み取りの設定の読み書き
 │   ├── routes/project-quotations.routes.ts             # 案件の配下の登録と全件の一覧（変更）
 │   ├── routes/received-quotation.routes.ts             # 業者名・台帳の項目・重複の応答（変更）
 │   ├── routes/claude-vision.routes.ts                  # 状態の API、停止・権限・回数制限・記録（変更）
-│   ├── routes/admin-settings.routes.ts                 # 新設予定。設定の取得・変更
+│   ├── routes/admin-settings.routes.ts                 # 設定の取得・変更
 │   ├── middleware/estimate-request-project-scope.middleware.ts  # 受領見積書の案件の解決（変更）
 │   ├── middleware/rateLimit.middleware.ts              # claudeVisionLimiter（変更）
 │   ├── types/audit-log.types.ts                        # CLAUDE_VISION_SENT（変更）
@@ -7360,14 +7360,14 @@ frontend/src/
 ├── routes.tsx                                          # /projects/:projectId/quotations、/admin/settings（変更）
 ├── api/received-quotations.ts                          # 型と案件の配下の登録・全件の一覧（変更）
 ├── api/claude-vision.ts                                # 状態の取得、回数制限の判別（変更）
-├── api/system-settings.ts                              # 新設予定
-├── pages/ProjectReceivedQuotationListPage.tsx          # 新設予定。案件の受領見積書の一覧
-├── pages/AdminSettingsPage.tsx                         # 新設予定。外部の AI での読み取りの停止・再開
+├── api/system-settings.ts                              # 外部の AI での読み取りの設定の取得・変更
+├── pages/ProjectReceivedQuotationListPage.tsx          # 案件の受領見積書の一覧
+├── pages/AdminSettingsPage.tsx                         # 外部の AI での読み取りの停止・再開
 ├── components/estimate-requests/ReceivedQuotationForm.tsx   # 登録の文脈・業者名・台帳の情報・重複の表示（変更）
 ├── components/estimate-requests/LineItemEditor.tsx          # 区分・分類キー・参考・行の詳細・小計・金額の直接入力（変更）
-├── components/estimate-requests/LedgerInfoSection.tsx       # 新設予定。台帳の情報の欄
-├── components/estimate-requests/VendorNameInput.tsx         # 新設予定。業者名の入力と取引先の候補
-├── components/estimate-requests/VisionConsentDialog.tsx     # 新設予定。外部の AI へ送る前の確認
+├── components/estimate-requests/LedgerInfoSection.tsx       # 台帳の情報の欄
+├── components/estimate-requests/VendorNameInput.tsx         # 業者名の入力と取引先の候補
+├── components/estimate-requests/VisionConsentDialog.tsx     # 外部の AI へ送る前の確認
 ├── components/estimate-requests/OcrDataExtractor.tsx        # 確認・停止・権限・回数制限の分岐（変更）
 ├── components/estimate-requests/ReceivedQuotationList.tsx   # 参考の印・読取の確認の表示（変更）
 └── components/Navigation/AppHeader.tsx                 # 管理メニューの「システム設定」（変更）
@@ -7375,7 +7375,7 @@ frontend/src/types/audit-log.types.ts、frontend/src/utils/audit-log-actions.ts 
 ```
 
 #### Modified Files
-- backend/src/app.ts — 新設予定の admin-settings.routes.ts を `/api/v1/admin/settings` に mount する
+- backend/src/app.ts — 新設の admin-settings.routes.ts を `/api/v1/admin/settings` に mount する
 - backend/package.json — 指紋の埋め戻しの npm script を足す
 - frontend/src/pages/EstimateRequestDetailPage.tsx — 受領見積書のフォームへ登録の文脈（見積依頼）と業者名（取引先の名前）を渡す
 
@@ -7545,7 +7545,7 @@ class DuplicateOriginalError extends Error {
 
 ### Data Models
 
-#### Physical Data Model（`schema.prisma` の変更。新設の migration `20261108000000_received_quotation_ledger_fields` は新設予定）
+#### Physical Data Model（`schema.prisma` の変更。新設の migration `20261108000000_received_quotation_ledger_fields`）
 
 **ReceivedQuotation**
 
@@ -7683,10 +7683,14 @@ class DuplicateOriginalError extends Error {
   backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts
   backend/src/__tests__/integration/claude-vision.api.integration.test.ts
 - **単体（frontend）**: `LineItemEditor` の区分・小計・金額の直接入力・行の詳細、`ReceivedQuotationForm` の業者名・台帳の情報・409 の分け方、`OcrDataExtractor` の状態ごとの分岐（確認・停止・権限なし・閉じる・上限）、`VisionConsentDialog`、`ProjectReceivedQuotationListPage` の一覧・空・404・パンくずを主張する。既存の LineItemEditor.test.tsx・OcrDataExtractor.test.tsx・ReceivedQuotationForm.test.tsx に足す
-- **E2E**: 案件の受領見積書の一覧の画面で見積依頼の無い受領見積書を登録・編集・削除する流れ（業者名の候補の選択と自由入力）、区分と別途を除く合計、台帳の情報の入力と読取の確認、同じファイルの二度目の登録の拒否と区別を変えた登録、Vision の確認の 3 つの選択（`page.route` で抽出を模擬し、要求の有無を数える）、管理者の停止の画面と停止中の OCR、権限の無い利用者（`createCustomUser`）の OCR、署名付き URL の開き直しを確かめる。被覆の印 `@requirement estimate-request/REQ-43.1` などを置く。新しいファイルは e2e/specs/estimate-requests/received-quotation-ledger.spec.ts（新設予定）と e2e/specs/estimate-requests/claude-vision-consent.spec.ts（新設予定）。既存の Vision の E2E（e2e/specs/estimate-requests/claude-vision-e2e.spec.ts・e2e/specs/estimate-requests/estimate-request-ocr-vision-e2e.spec.ts）は確認の選択を経る形へ追随させ、主張は消さない
+- **E2E**: 案件の受領見積書の一覧の画面で見積依頼の無い受領見積書を登録・編集・削除する流れ（業者名の候補の選択と自由入力）、区分と別途を除く合計、台帳の情報の入力と読取の確認、同じファイルの二度目の登録の拒否と区別を変えた登録、Vision の確認の 3 つの選択（`page.route` で抽出を模擬し、要求の有無を数える）、管理者の停止の画面と停止中の OCR、権限の無い利用者（`createCustomUser`）の OCR、署名付き URL の開き直しを確かめる。被覆の印 `@requirement estimate-request/REQ-43.1` などを置く。新しいファイルは e2e/specs/estimate-requests/received-quotation-ledger.spec.ts と e2e/specs/estimate-requests/claude-vision-consent.spec.ts。既存の Vision の E2E（e2e/specs/estimate-requests/claude-vision-e2e.spec.ts・e2e/specs/estimate-requests/estimate-request-ocr-vision-e2e.spec.ts）は確認の選択を経る形へ追随させ、主張は消さない
 - **E2E で確かめないもの**: 48.8（埋め戻しのスクリプト。統合で確かめる）、49.8 の上限（30 回の要求を画面で重ねない。経路の単体と統合で確かめ、画面の文言は 429 の模擬で確かめる）、50.1 の秒数（URL の期限を画面から測れない。単体で確かめる）。これらは実装のタスクで除外の台帳（e2e/requirement-exclusions.json）へ代替の検証つきで登録する
 - 関門: 受入基準の逐語（「依頼なし」など）は実装に入れて `check:criterion-literals` を通す。43.15 のパンくずの書式は 29.1 と同じく書式の記述として裁定の台帳に載せる。被覆の印と除外を足したら `check:req-coverage`・`check:req-exclusions`・`check:design-measurement-freshness` を名指しで流す
 - 挙動の変更（金額の保持、Vision の確認、権限）は RED → GREEN で進め、改修の前に赤になることを先に示す
+- **実装の記録（タスク120.3、2026-11-08）**: 除外の台帳（e2e/requirement-exclusions.json）へ登録したのは次の 3 件である。44.9（既存の受領見積書の業者名と取引先の埋め戻し）と 45.13（既存の明細行の区分を直接工事にする）は、区分 data-integrity で、代替はタスク112.1 の統合（backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts の「台帳の項目の migration の埋め戻しと権限の付与（Task 112.1）」が migration.sql の文を実際の DB で流す）と単体（backend/src/__tests__/unit/models/received-quotation-ledger.migration.test.ts）。両者の被覆の印は migration の SQL を読む単体だけにあり、本番の経路から到達しないため被覆と数えられなかった。50.1（署名付きURLの 900 秒）は、区分 integration-test で、代替はタスク113.5 のサービスの単体（backend/src/__tests__/unit/services/received-quotation.service.test.ts が `expiresIn: 900` を主張する。E2E の環境のストレージは local で秒数を使わない）
+  - 48.8（指紋の埋め戻しのスクリプト）と 49.7（送信の記録）は、上の「E2E で確かめないもの」とタスク120.3 の本文が除外の候補に挙げていたが、統合テストの被覆の印（backend/src/__tests__/integration/backfill-received-quotation-file-hash.integration.test.ts と backend/src/__tests__/integration/claude-vision-controls.api.integration.test.ts）で本番に到達する被覆と既に数えられているため登録しない。被覆された受入基準を除外すると宣言が実態と食い違うためである。49.8 の上限は claude-vision-consent.spec.ts が 429 の模擬で被覆するため除外しない
+  - 34.2（別途を除く合計）は received-quotation-ledger.spec.ts では観測できないため印を付けず、既存の e2e/specs/estimate-requests/net-amount-auto-fill-e2e.spec.ts が被覆する（タスク120.1）。46.10（一覧の参考の印と読取の確認の表示）は received-quotation-ledger.spec.ts の E2E が被覆するため、タスク117.5 が申し送った ReceivedQuotationList.test.tsx への被覆の印の追加は不要になった
+  - 43.15 のパンくずの書式「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 受領見積書」は、29.1・29.6・29.13 と同じく区分 format-description の書式の記述として裁定の台帳（scripts/criterion-literal-adjudication.json）へ登録し、台帳の件数のラチェットを 25 から 26 へ上げた。除外の件数（131 → 134）と台帳の件数（25 → 26）の鮮度の錨は、site-survey の design.md で帰属つきで貼り直した
 
 ### Security Considerations
 - 原本の指紋はサーバーが求める。送り手の申告値を信じると、別のファイルを同じ見積と偽って二重の判定を外せるためである

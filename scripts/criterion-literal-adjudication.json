@@ -88,6 +88,19 @@
       "unverified": false
     },
     {
+      "id": "estimate-request/REQ-43.15",
+      "literal": "ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 受領見積書",
+      "criterionText": "The システム shall 受領見積書の一覧画面に「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 受領見積書」のパンくずナビゲーションを表示する（Requirement 29 と同じ形）",
+      "category": "format-description",
+      "reason": "この逐語は区切り記号で階層の並びを述べた書式の記述であり、画面へ出る一つの文字列ではない（{プロジェクト名} は表示の時に案件の名前へ置き換わる差し込みである）。実装はパンくずを項目の配列で持つため、条文の綴りがそのまま現れることはない。逐語の抽出が過剰である。",
+      "alternativeBasis": "案件の受領見積書の一覧画面は ProjectReceivedQuotationListPage.tsx が共通の Breadcrumb へ項目の配列を渡して描く。並びの正しさは渡す配列を読めば確かめられる。",
+      "evidence": [
+        "frontend/src/pages/ProjectReceivedQuotationListPage.tsx",
+        "frontend/src/components/common/Breadcrumb.tsx"
+      ],
+      "unverified": false
+    },
+    {
       "id": "project-management/REQ-2.5",
       "literal": "プロジェクトがありません。新規作成してください。",
       "criterionText": "If プロジェクトが0件の場合, then the ArchiTrackシステム shall 「プロジェクトがありません。新規作成してください。」というメッセージを表示する",
