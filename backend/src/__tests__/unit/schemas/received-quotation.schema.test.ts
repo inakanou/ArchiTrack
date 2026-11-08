@@ -21,6 +21,9 @@ import {
   deleteReceivedQuotationQuerySchema,
   statusTransitionSchema,
   RECEIVED_QUOTATION_VALIDATION_MESSAGES,
+  LINE_ITEM_VALIDATION_MESSAGES,
+  lineItemSchema,
+  parseLineItemsFromMultipart,
 } from '../../../schemas/received-quotation.schema.js';
 
 describe('received-quotation.schema', () => {
@@ -812,6 +815,352 @@ describe('received-quotation.schema', () => {
           LINE_ITEM_VALIDATION_MESSAGES.FILE_OR_LINE_ITEMS_REQUIRED
         );
       });
+    });
+  });
+});
+
+/**
+ * 受領見積書の台帳の項目と明細行の新しい欄の検証（タスク112.2）
+ *
+ * 業者名（44.1）、見積の情報（46.1〜46.3）、見積の区別（48.2）、明細行の区分（45.1）・
+ * 条件（45.7）・換算（45.8・45.9）・分類キー（47.1）・数量表の行のキー（47.4）・
+ * 参考の印と理由（46.4・46.5）・値引きの行の金額（45.4）の境界を主張する。
+ * 観測の対象は本番モジュール backend/src/schemas/received-quotation.schema.ts。
+ */
+describe('received-quotation.schema の台帳の項目（タスク112.2）', () => {
+  const baseCreate = {
+    name: '受領見積書A',
+    submittedAt: '2026-11-08T00:00:00.000Z',
+    netAmount: '',
+  };
+  const baseUpdate = {
+    expectedUpdatedAt: '2026-11-08T00:00:00.000Z',
+    netAmount: '',
+  };
+  const baseLine = { name: '項目1', sortOrder: 0, quantity: 1, unitPrice: 100, amount: 100 };
+  const fullConversion = {
+    quantity: 2.5,
+    unit: 'm2',
+    unitPrice: 4000,
+    basis: '一式を面積で割った',
+  };
+
+  const parseLines = (lines: unknown[]) => parseLineItemsFromMultipart(JSON.stringify(lines));
+
+  describe.each([
+    ['createReceivedQuotationSchema', createReceivedQuotationSchema, baseCreate],
+    ['updateReceivedQuotationSchema', updateReceivedQuotationSchema, baseUpdate],
+  ] as const)('%s の台帳の項目', (_label, schema, base) => {
+    const parse = (fields: Record<string, unknown>) => schema.safeParse({ ...base, ...fields });
+    const field = (fields: Record<string, unknown>, key: string): unknown => {
+      const r = parse(fields);
+      return r.success ? (r.data as Record<string, unknown>)[key] : 'PARSE_FAILED';
+    };
+    const firstMessage = (fields: Record<string, unknown>) => {
+      const r = parse(fields);
+      return r.success ? undefined : r.error.issues[0]?.message;
+    };
+
+    it('台帳の項目が無くても従来の入力のまま通ること', () => {
+      const r = parse({});
+      expect(r.success).toBe(true);
+      for (const key of [
+        'vendorName',
+        'tradingPartnerId',
+        'quoteNumber',
+        'constructionPrice',
+        'distanceKm',
+        'adoption',
+        'readingStatus',
+        'quoteDiscriminator',
+      ]) {
+        expect(field({}, key)).toBeUndefined();
+      }
+    });
+
+    it('業者名は1文字と200文字を通し、空と201文字を拒むこと（44.1）', () => {
+      expect(RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_REQUIRED).toBe(
+        '業者名を入力してください'
+      );
+      expect(field({ vendorName: 'あ' }, 'vendorName')).toBe('あ');
+      expect(field({ vendorName: 'あ'.repeat(200) }, 'vendorName')).toBe('あ'.repeat(200));
+      expect(firstMessage({ vendorName: '' })).toBe(
+        RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_REQUIRED
+      );
+      expect(firstMessage({ vendorName: '   ' })).toBe(
+        RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_REQUIRED
+      );
+      expect(firstMessage({ vendorName: 'あ'.repeat(201) })).toBe(
+        RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_TOO_LONG
+      );
+    });
+
+    it('業者名の前後の空白を除いて受けること', () => {
+      expect(field({ vendorName: '  山田設備  ' }, 'vendorName')).toBe('山田設備');
+    });
+
+    it('取引先の ID は UUID か空（null）を受け、それ以外を拒むこと', () => {
+      const id = '550e8400-e29b-41d4-a716-446655440000';
+      expect(field({ tradingPartnerId: id }, 'tradingPartnerId')).toBe(id);
+      expect(field({ tradingPartnerId: '' }, 'tradingPartnerId')).toBeNull();
+      expect(parse({ tradingPartnerId: 'not-a-uuid' }).success).toBe(false);
+    });
+
+    it.each([
+      ['quoteNumber', 100],
+      ['overallConditions', 2000],
+      ['siteLocation', 100],
+      ['useType', 100],
+      ['workConditions', 200],
+    ])('%s は %i 文字を通し、1文字超えを拒み、空を null にすること（46.1・46.2）', (key, max) => {
+      expect(field({ [key]: 'a'.repeat(max) }, key)).toBe('a'.repeat(max));
+      const over = parse({ [key]: 'a'.repeat(max + 1) });
+      expect(over.success).toBe(false);
+      expect(over.success ? undefined : over.error.issues[0]?.path).toEqual([key]);
+      expect(field({ [key]: '' }, key)).toBeNull();
+    });
+
+    it('改修／新営の区分は RENOVATION・NEW_CONSTRUCTION・空（null）だけを受けること（46.2）', () => {
+      expect(field({ constructionKind: 'RENOVATION' }, 'constructionKind')).toBe('RENOVATION');
+      expect(field({ constructionKind: 'NEW_CONSTRUCTION' }, 'constructionKind')).toBe(
+        'NEW_CONSTRUCTION'
+      );
+      expect(field({ constructionKind: '' }, 'constructionKind')).toBeNull();
+      expect(parse({ constructionKind: 'REPAIR' }).success).toBe(false);
+    });
+
+    it.each(['constructionPrice', 'confirmedAmount'])(
+      '%s は 0 以上の整数円を FormData の文字から受け、負・小数・数でない文字を拒むこと（46.2・46.3）',
+      (key) => {
+        expect(field({ [key]: '0' }, key)).toBe(0);
+        expect(field({ [key]: '999999999999999' }, key)).toBe(999999999999999);
+        expect(field({ [key]: 1500 }, key)).toBe(1500);
+        expect(field({ [key]: '' }, key)).toBeNull();
+        expect(parse({ [key]: '-1' }).success).toBe(false);
+        expect(parse({ [key]: '1.5' }).success).toBe(false);
+        expect(parse({ [key]: 'abc' }).success).toBe(false);
+        expect(parse({ [key]: '1000000000000000' }).success).toBe(false);
+      }
+    );
+
+    it('距離は 0 以上の小数第1位までを受け、負と小数第2位を拒むこと（46.2）', () => {
+      expect(field({ distanceKm: '0' }, 'distanceKm')).toBe(0);
+      expect(field({ distanceKm: '12.3' }, 'distanceKm')).toBe(12.3);
+      expect(field({ distanceKm: '99999.9' }, 'distanceKm')).toBe(99999.9);
+      expect(field({ distanceKm: '' }, 'distanceKm')).toBeNull();
+      expect(parse({ distanceKm: '-0.1' }).success).toBe(false);
+      expect(parse({ distanceKm: '1.25' }).success).toBe(false);
+      expect(parse({ distanceKm: '100000' }).success).toBe(false);
+      expect(parse({ distanceKm: 'abc' }).success).toBe(false);
+    });
+
+    it('採否は ADOPTED・REJECTED・UNKNOWN だけを受けること（46.3）', () => {
+      for (const v of ['ADOPTED', 'REJECTED', 'UNKNOWN']) {
+        expect(field({ adoption: v }, 'adoption')).toBe(v);
+      }
+      expect(parse({ adoption: 'MAYBE' }).success).toBe(false);
+    });
+
+    it('読取の確認は UNCONFIRMED・CONFIRMED だけを受けること（46.6）', () => {
+      for (const v of ['UNCONFIRMED', 'CONFIRMED']) {
+        expect(field({ readingStatus: v }, 'readingStatus')).toBe(v);
+      }
+      expect(parse({ readingStatus: 'DONE' }).success).toBe(false);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-48.2: The システム shall 受領見積書ごとに、見積の区別（同じ原本の中の別の範囲・別案の見積を見分ける文字。前後に空白を持たない100文字まで。既定は空）を保持する
+     */
+    it('見積の区別は空と100文字を通し、101文字と前後の空白を拒むこと（48.2）', () => {
+      expect(field({ quoteDiscriminator: '' }, 'quoteDiscriminator')).toBe('');
+      expect(field({ quoteDiscriminator: 'a'.repeat(100) }, 'quoteDiscriminator')).toBe(
+        'a'.repeat(100)
+      );
+      expect(field({ quoteDiscriminator: '別案 B' }, 'quoteDiscriminator')).toBe('別案 B');
+      expect(firstMessage({ quoteDiscriminator: 'a'.repeat(101) })).toBe(
+        RECEIVED_QUOTATION_VALIDATION_MESSAGES.QUOTE_DISCRIMINATOR_TOO_LONG
+      );
+      expect(firstMessage({ quoteDiscriminator: ' 別案' })).toBe(
+        RECEIVED_QUOTATION_VALIDATION_MESSAGES.QUOTE_DISCRIMINATOR_WHITESPACE
+      );
+      expect(firstMessage({ quoteDiscriminator: '別案\n' })).toBe(
+        RECEIVED_QUOTATION_VALIDATION_MESSAGES.QUOTE_DISCRIMINATOR_WHITESPACE
+      );
+    });
+
+    it('既存の欄（NET金額）の検証は変わらないこと', () => {
+      expect(field({ netAmount: '1000' }, 'netAmount')).toBe(1000);
+      expect(field({ netAmount: '' }, 'netAmount')).toBeNull();
+    });
+  });
+
+  describe('明細行の新しい欄', () => {
+    it('新しい欄の無い従来の明細行は、区分を直接工事・参考の印を無・換算を null として通ること（45.1・45.3・46.4）', () => {
+      const result = parseLines([baseLine]);
+      expect(result![0]).toMatchObject({
+        category: 'DIRECT',
+        isReference: false,
+        conversion: null,
+        referenceReason: null,
+      });
+    });
+
+    it('区分は7つの値を受け、それ以外を拒むこと（45.1）', () => {
+      for (const category of [
+        'DIRECT',
+        'OVERHEAD',
+        'TRAVEL',
+        'WASTE',
+        'DISCOUNT',
+        'LEGAL_WELFARE',
+        'EXCLUDED',
+      ]) {
+        const line = { ...baseLine, category, amount: category === 'DISCOUNT' ? -100 : 100 };
+        const r = lineItemSchema.safeParse(line);
+        expect(r.success && r.data.category).toBe(category);
+      }
+      expect(lineItemSchema.safeParse({ ...baseLine, category: 'OTHER' }).success).toBe(false);
+    });
+
+    it.each([
+      ['condition', 500],
+      ['classificationKey', 50],
+      ['quantityRowKey', 1000],
+    ])('%s は %i 文字を通し、1文字超えを拒むこと（45.7・47.1・47.4）', (key, max) => {
+      const ok = lineItemSchema.safeParse({ ...baseLine, [key]: 'a'.repeat(max) });
+      expect(ok.success && (ok.data as Record<string, unknown>)[key]).toBe('a'.repeat(max));
+      expect(lineItemSchema.safeParse({ ...baseLine, [key]: 'a'.repeat(max + 1) }).success).toBe(
+        false
+      );
+      const empty = lineItemSchema.safeParse({ ...baseLine, [key]: null });
+      expect(empty.success && (empty.data as Record<string, unknown>)[key]).toBeNull();
+    });
+
+    it('分類キーを入力された文字のまま保持すること（47.3）', () => {
+      const r = lineItemSchema.safeParse({ ...baseLine, classificationKey: ' A-01.x ' });
+      expect(r.success && r.data.classificationKey).toBe(' A-01.x ');
+    });
+
+    it('参考の印が有の行は200文字の参考の理由を通し、201文字を拒むこと（46.4）', () => {
+      const ok = lineItemSchema.safeParse({
+        ...baseLine,
+        isReference: true,
+        referenceReason: 'a'.repeat(200),
+      });
+      expect(ok.success && ok.data.referenceReason).toBe('a'.repeat(200));
+      expect(
+        lineItemSchema.safeParse({
+          ...baseLine,
+          isReference: true,
+          referenceReason: 'a'.repeat(201),
+        }).success
+      ).toBe(false);
+      expect(lineItemSchema.safeParse({ ...baseLine, isReference: 'yes' }).success).toBe(false);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-46.5: If 参考の印が無の明細行に参考の理由が入力されている場合, then the システム shall 「参考の理由は参考の印を付けた行にだけ入力できます」というバリデーションエラーを表示し、保存しない
+     */
+    it('参考の印が無の行の参考の理由を、逐語の文言と行の番号つきで拒むこと（46.5）', () => {
+      expect(LINE_ITEM_VALIDATION_MESSAGES.REFERENCE_REASON_WITHOUT_REFERENCE).toBe(
+        '参考の理由は参考の印を付けた行にだけ入力できます'
+      );
+      expect(() =>
+        parseLines([baseLine, { ...baseLine, sortOrder: 1, referenceReason: '過去の単価' }])
+      ).toThrow('明細行の2行目: 参考の理由は参考の印を付けた行にだけ入力できます');
+      expect(() =>
+        parseLines([{ ...baseLine, isReference: false, referenceReason: '理由' }])
+      ).toThrow('明細行の1行目: 参考の理由は参考の印を付けた行にだけ入力できます');
+      // 参考の印が無の行で理由が空なら通り、理由は null になる
+      expect(parseLines([{ ...baseLine, referenceReason: '' }])![0]!.referenceReason).toBeNull();
+    });
+
+    /**
+     * @requirement estimate-request/REQ-45.4: If 区分が値引きの明細行の金額が正の値である場合, then the システム shall 「値引きの金額は0以下で入力してください」というバリデーションエラーを表示し、保存しない
+     */
+    it('値引きの行の正の金額を、逐語の文言と行の番号つきで拒み、0以下は通すこと（45.4）', () => {
+      expect(LINE_ITEM_VALIDATION_MESSAGES.DISCOUNT_AMOUNT_POSITIVE).toBe(
+        '値引きの金額は0以下で入力してください'
+      );
+      expect(() =>
+        parseLines([
+          baseLine,
+          baseLine,
+          { ...baseLine, category: 'DISCOUNT', quantity: null, unitPrice: null, amount: 1 },
+        ])
+      ).toThrow('明細行の3行目: 値引きの金額は0以下で入力してください');
+      // 金額が空で数量×単価が正になる値引きの行も拒む（サーバーが金額を求めるため。45.12）
+      expect(() =>
+        parseLines([
+          { ...baseLine, category: 'DISCOUNT', quantity: 1, unitPrice: 500, amount: null },
+        ])
+      ).toThrow('明細行の1行目: 値引きの金額は0以下で入力してください');
+      expect(
+        parseLines([
+          { ...baseLine, category: 'DISCOUNT', quantity: 1, unitPrice: -500, amount: -500 },
+        ])
+      ).toHaveLength(1);
+      expect(parseLines([{ ...baseLine, category: 'DISCOUNT', amount: 0 }])).toHaveLength(1);
+      // 値引き以外の区分は正の金額を通す
+      expect(parseLines([{ ...baseLine, category: 'OVERHEAD', amount: 100 }])).toHaveLength(1);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-45.9: If 換算の数量・単位・単価・根拠の一部だけが入力されている、または換算の数量が0以下である場合, then the システム shall 「換算は数量・単位・単価・根拠をすべて入力してください（数量は0より大きい値）」というバリデーションエラーを表示し、保存しない
+     */
+    it('換算の一部だけと数量0以下を、逐語の文言と行の番号つきで拒むこと（45.9）', () => {
+      const message = '換算は数量・単位・単価・根拠をすべて入力してください（数量は0より大きい値）';
+      expect(LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_INCOMPLETE).toBe(message);
+      for (const missing of ['quantity', 'unit', 'unitPrice', 'basis'] as const) {
+        const blank = missing === 'unit' || missing === 'basis' ? '' : null;
+        const conversion = { ...fullConversion, [missing]: blank };
+        expect(() => parseLines([baseLine, { ...baseLine, conversion }])).toThrow(
+          `明細行の2行目: ${message}`
+        );
+      }
+      // 根拠が空白だけのものは入力が無いとみる
+      expect(() =>
+        parseLines([{ ...baseLine, conversion: { ...fullConversion, basis: '   ' } }])
+      ).toThrow(`明細行の1行目: ${message}`);
+      expect(() =>
+        parseLines([{ ...baseLine, conversion: { ...fullConversion, quantity: 0 } }])
+      ).toThrow(`明細行の1行目: ${message}`);
+      expect(() =>
+        parseLines([{ ...baseLine, conversion: { ...fullConversion, quantity: -1 } }])
+      ).toThrow(`明細行の1行目: ${message}`);
+    });
+
+    it('換算は4つすべてあれば通り、すべて無ければ null になること（45.8）', () => {
+      const [full] = parseLines([{ ...baseLine, conversion: fullConversion }])!;
+      expect(full!.conversion).toEqual(fullConversion);
+      const [none] = parseLines([
+        { ...baseLine, conversion: { quantity: null, unit: '', unitPrice: null, basis: '' } },
+      ])!;
+      expect(none!.conversion).toBeNull();
+      const [absent] = parseLines([{ ...baseLine, conversion: null }])!;
+      expect(absent!.conversion).toBeNull();
+    });
+
+    it('換算の単位は50文字・根拠は500文字までを通し、超えると拒むこと（45.8）', () => {
+      const atMax = { ...fullConversion, unit: 'a'.repeat(50), basis: 'a'.repeat(500) };
+      const ok = lineItemSchema.safeParse({ ...baseLine, conversion: atMax });
+      expect(ok.success && ok.data.conversion).toEqual(atMax);
+      expect(
+        lineItemSchema.safeParse({
+          ...baseLine,
+          conversion: { ...fullConversion, unit: 'a'.repeat(51) },
+        }).success
+      ).toBe(false);
+      expect(
+        lineItemSchema.safeParse({
+          ...baseLine,
+          conversion: { ...fullConversion, basis: 'a'.repeat(501) },
+        }).success
+      ).toBe(false);
+    });
+
+    it('明細行の検証のエラーに行の番号を添えること', () => {
+      expect(() => parseLines([baseLine, { sortOrder: 1 }])).toThrow(/^明細行の2行目: /);
     });
   });
 });
