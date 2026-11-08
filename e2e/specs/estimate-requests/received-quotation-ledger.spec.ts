@@ -256,6 +256,9 @@ async function openLineDetail(page: Page, row: number): Promise<void> {
   await page.getByRole('button', { name: `行${row}の操作メニュー`, exact: true }).click();
   await page.getByRole('menuitem', { name: '詳細', exact: true }).click();
   await expect(page.getByRole('group', { name: `行${row}の詳細`, exact: true })).toBeVisible();
+  // 開くと次の描画で条件の欄へフォーカスが移る。移る前に他の欄へ打つと、
+  // 移った先（条件）へ文字が入るため、移ったことを確かめてから入力へ進む
+  await expect(lineField(page, row, '条件')).toBeFocused();
 }
 
 /** 台帳の情報の欄の見出し（開閉の釦） */
