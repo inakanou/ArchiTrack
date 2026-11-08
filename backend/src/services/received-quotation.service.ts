@@ -168,6 +168,11 @@ export interface FindByProjectIdOptions {
 export interface CreateReceivedQuotationInput {
   /** 業者名（44.1）。案件の文脈では必須（43.8）、見積依頼の文脈では使わない（44.3） */
   vendorName?: string;
+  /**
+   * 選んだ取引先の ID（44.5）。案件の文脈だけで使い、論理削除されていない協力業者でなければ拒む。
+   * 省略・null のときは業者名で照合する（44.6・44.7。タスク113.2）
+   */
+  tradingPartnerId?: string | null;
   name: string;
   submittedAt: Date;
   netAmount?: number | null;
@@ -179,6 +184,10 @@ export interface CreateReceivedQuotationInput {
  * 受領見積書更新入力（改訂版: Task 61.2 netAmount追加）
  */
 export interface UpdateReceivedQuotationInput {
+  /** 業者名（44.1）。案件の文脈だけで使い、見積依頼の文脈では無視する（44.3。タスク113.2） */
+  vendorName?: string;
+  /** 選んだ取引先の ID（44.5）。扱いは作成と同じ（タスク113.2） */
+  tradingPartnerId?: string | null;
   name?: string;
   submittedAt?: Date;
   netAmount?: number | null;
@@ -415,10 +424,6 @@ export class ReceivedQuotationService {
       };
     }
 
-    const vendorName = input.vendorName?.trim() ?? '';
-    if (vendorName.length === 0) {
-      throw new ValidationError(RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_REQUIRED);
-    }
     const project = await tx.project.findUnique({
       where: { id: context.projectId },
       select: { id: true, deletedAt: true },
@@ -426,12 +431,99 @@ export class ReceivedQuotationService {
     if (!project || project.deletedAt !== null) {
       throw new ProjectNotFoundError(context.projectId);
     }
+    const vendor = await this.resolveVendor(tx, input.vendorName, input.tradingPartnerId);
     return {
       estimateRequestId: null,
       projectId: project.id,
-      vendorName,
-      tradingPartnerId: null,
+      ...vendor,
     };
+  }
+
+  /**
+   * 案件の文脈の業者名と取引先の紐づけを決める（D4。タスク113.2）
+   *
+   * - 取引先の ID があれば、その取引先が論理削除されていない協力業者のときに紐づけ、業者名に取引先の名前を
+   *   入れる（44.5）。無い・論理削除済み・協力業者でないときは ValidationError で拒み、名前の照合へ切り替えない
+   *   （利用者が選んだ取引先と違う取引先へ黙って紐づけない）
+   * - 取引先の ID が無ければ、前後の空白を除いた業者名と `name` が完全に一致する論理削除されていない協力業者が
+   *   ちょうど 1 件のときに紐づけ、0 件・複数なら業者名だけを保持する（44.6・44.7）
+   *
+   * 取引先の変更・削除の側から業者名を書き換える処理は持たない（44.8）
+   */
+  private async resolveVendor(
+    tx: PrismaTransactionClient,
+    vendorNameInput: string | undefined,
+    tradingPartnerId: string | null | undefined
+  ): Promise<{ vendorName: string; tradingPartnerId: string | null }> {
+    if (tradingPartnerId !== undefined && tradingPartnerId !== null) {
+      const partner = await tx.tradingPartner.findUnique({
+        where: { id: tradingPartnerId },
+        select: { id: true, name: true, deletedAt: true, types: { select: { type: true } } },
+      });
+      const isLiveSubcontractor =
+        partner !== null &&
+        partner.deletedAt === null &&
+        partner.types.some((t) => t.type === 'SUBCONTRACTOR');
+      if (!isLiveSubcontractor) {
+        throw new ValidationError(
+          RECEIVED_QUOTATION_VALIDATION_MESSAGES.TRADING_PARTNER_NOT_SUBCONTRACTOR
+        );
+      }
+      return { vendorName: partner.name, tradingPartnerId: partner.id };
+    }
+
+    const vendorName = vendorNameInput?.trim() ?? '';
+    if (vendorName.length === 0) {
+      throw new ValidationError(RECEIVED_QUOTATION_VALIDATION_MESSAGES.VENDOR_NAME_REQUIRED);
+    }
+    const matches = await tx.tradingPartner.findMany({
+      where: { name: vendorName, deletedAt: null, types: { some: { type: 'SUBCONTRACTOR' } } },
+      select: { id: true },
+      take: 2,
+    });
+    return {
+      vendorName,
+      tradingPartnerId: matches.length === 1 ? matches[0]!.id : null,
+    };
+  }
+
+  /**
+   * 更新で業者名と取引先の紐づけを決め直すか判定し、決め直す値を返す（D4。タスク113.2）
+   *
+   * 見積依頼に紐づく受領見積書は宛先の写しを保ち、入力を無視する（44.3）。案件の文脈では、業者名も取引先の
+   * ID も送られないとき、または今と同じ取引先・同じ業者名を送り直したときは変えない（送り直しで取引先の今の
+   * 名前へ書き換えない。44.8）。それ以外は作成と同じ規則で決める
+   *
+   * @returns 書き換える値。変えないときは null
+   */
+  private async resolveVendorForUpdate(
+    tx: PrismaTransactionClient,
+    current: {
+      estimateRequestId: string | null;
+      vendorName: string;
+      tradingPartnerId: string | null;
+    },
+    input: UpdateReceivedQuotationInput
+  ): Promise<{ vendorName: string; tradingPartnerId: string | null } | null> {
+    if (current.estimateRequestId !== null) {
+      return null;
+    }
+    if (input.vendorName === undefined && input.tradingPartnerId === undefined) {
+      return null;
+    }
+    const sameName =
+      input.vendorName === undefined || input.vendorName.trim() === current.vendorName;
+    const samePartner =
+      input.tradingPartnerId === undefined ||
+      (input.tradingPartnerId !== null && input.tradingPartnerId === current.tradingPartnerId);
+    if (sameName && samePartner) {
+      return null;
+    }
+    const partnerChoice =
+      input.tradingPartnerId !== undefined && input.tradingPartnerId !== current.tradingPartnerId
+        ? input.tradingPartnerId
+        : null;
+    return this.resolveVendor(tx, input.vendorName ?? current.vendorName, partnerChoice);
   }
 
   /**
@@ -744,6 +836,8 @@ export class ReceivedQuotationService {
 
       // 3. 更新データの準備（Task 61.2: netAmount追加）。文脈（見積依頼・案件）は変えない（43.10）
       const updateData: {
+        vendorName?: string;
+        tradingPartnerId?: string | null;
         name?: string;
         submittedAt?: Date;
         netAmount?: number | null;
@@ -761,6 +855,13 @@ export class ReceivedQuotationService {
       }
       if (input.netAmount !== undefined) {
         updateData.netAmount = input.netAmount;
+      }
+
+      // 業者名と取引先の紐づけ（D4。タスク113.2）。ファイルを送る前に決め、拒むときは何も変えない
+      const vendor = await this.resolveVendorForUpdate(tx, quotation, input);
+      if (vendor !== null) {
+        updateData.vendorName = vendor.vendorName;
+        updateData.tradingPartnerId = vendor.tradingPartnerId;
       }
 
       // 4. ファイル更新処理

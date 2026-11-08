@@ -32,6 +32,7 @@ import { loginForAccessToken } from './auth-login-client.js';
 import { createTestUser } from './test-user-factory.js';
 import { ReceivedQuotationService } from '../../services/received-quotation.service.js';
 import { AuditLogService } from '../../services/audit-log.service.js';
+import { TradingPartnerService } from '../../services/trading-partner.service.js';
 import type { IAuditLogService } from '../../types/audit-log.types.js';
 import type { StorageProvider } from '../../storage/storage-provider.interface.js';
 
@@ -1636,6 +1637,194 @@ describe('Received Quotation & Status API Integration Tests', () => {
           where: { roleId: viewer.id, permission: { resource: 'claude_vision', action: 'use' } },
         });
         expect(viewerGrants).toBe(1);
+      });
+    });
+  });
+
+  /**
+   * 業者名と取引先の照合（タスク113.2）
+   *
+   * design の Requirements 43-50 の章の D4 を実際の DB で確かめる。照合が論理削除と種別（協力業者）で
+   * 絞られること、取引先の名前の変更・論理削除・物理削除で受領見積書の業者名が変わらないことを主張する
+   */
+  describe('業者名と取引先の照合（タスク113.2）', () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const partnerIds: string[] = [];
+    let service: ReceivedQuotationService;
+    let partnerService: TradingPartnerService;
+
+    const unusedStorage = {
+      upload: () => Promise.reject(new Error('ストレージは呼ばれない前提')),
+      delete: () => Promise.reject(new Error('ストレージは呼ばれない前提')),
+      getSignedUrl: () => Promise.reject(new Error('ストレージは呼ばれない前提')),
+    } as unknown as StorageProvider;
+
+    const createPartner = async (
+      name: string,
+      types: Array<'CUSTOMER' | 'SUBCONTRACTOR'>,
+      options: { branchName?: string; deletedAt?: Date } = {}
+    ): Promise<string> => {
+      const partner = await prisma.tradingPartner.create({
+        data: {
+          name,
+          nameKana: 'ショウゴウテスト',
+          address: '東京都千代田区1-1-1',
+          branchName: options.branchName ?? null,
+          deletedAt: options.deletedAt ?? null,
+          types: { create: types.map((type) => ({ type })) },
+        },
+      });
+      partnerIds.push(partner.id);
+      return partner.id;
+    };
+
+    const createInProject = (vendorName: string, tradingPartnerId?: string | null) =>
+      service.create(
+        { kind: 'project', projectId: testProjectId },
+        {
+          vendorName,
+          tradingPartnerId,
+          name: `業者名の照合_${vendorName}`,
+          submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+          lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
+        },
+        testUserId
+      );
+
+    const storedVendor = (id: string) =>
+      prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id },
+        select: { vendorName: true, tradingPartnerId: true },
+      });
+
+    beforeAll(() => {
+      const auditLogService = new AuditLogService({ prisma });
+      service = new ReceivedQuotationService({
+        prisma,
+        storageProvider: unusedStorage,
+        auditLogService,
+      });
+      partnerService = new TradingPartnerService({ prisma, auditLogService });
+    });
+
+    afterAll(async () => {
+      // 案件の外部キーは Restrict のため、案件を消す前に案件の文脈の受領見積書を消す
+      await prisma.receivedQuotation.deleteMany({
+        where: { projectId: testProjectId, estimateRequestId: null },
+      });
+      await prisma.tradingPartner.deleteMany({ where: { id: { in: partnerIds } } });
+    });
+
+    it('名前が完全に一致する協力業者が 1 件だけなら紐づけ、論理削除済みと顧客だけの同名は数えない', async () => {
+      const name = `照合_単独_${suffix}`;
+      const subcontractorId = await createPartner(name, ['SUBCONTRACTOR']);
+      await createPartner(name, ['SUBCONTRACTOR'], {
+        branchName: '削除済みの支店',
+        deletedAt: new Date('2026-10-01T00:00:00.000Z'),
+      });
+      await createPartner(name, ['CUSTOMER'], { branchName: '顧客の支店' });
+
+      const created = await createInProject(`  ${name}  `);
+
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: name,
+        tradingPartnerId: subcontractorId,
+      });
+    });
+
+    it('一致する協力業者が複数あるとき、または協力業者が無く顧客だけのときは、業者名だけを保持する', async () => {
+      const duplicated = `照合_複数_${suffix}`;
+      await createPartner(duplicated, ['SUBCONTRACTOR'], { branchName: '東支店' });
+      await createPartner(duplicated, ['SUBCONTRACTOR'], { branchName: '西支店' });
+      const customerOnly = `照合_顧客のみ_${suffix}`;
+      await createPartner(customerOnly, ['CUSTOMER']);
+
+      for (const vendorName of [duplicated, customerOnly, `照合_未登録_${suffix}`]) {
+        const created = await createInProject(vendorName);
+        expect(await storedVendor(created.id)).toEqual({ vendorName, tradingPartnerId: null });
+      }
+    });
+
+    it('選んだ取引先が顧客だけ・論理削除済みなら拒んで保存せず、協力業者なら名前を写して紐づける', async () => {
+      const customerId = await createPartner(`照合_顧客の選択_${suffix}`, ['CUSTOMER']);
+      const deletedId = await createPartner(`照合_削除の選択_${suffix}`, ['SUBCONTRACTOR'], {
+        deletedAt: new Date('2026-10-01T00:00:00.000Z'),
+      });
+      const pickedName = `照合_選択_${suffix}`;
+      const pickedId = await createPartner(pickedName, ['SUBCONTRACTOR', 'CUSTOMER']);
+      const before = await prisma.receivedQuotation.count({ where: { projectId: testProjectId } });
+
+      for (const rejected of [customerId, deletedId]) {
+        await expect(createInProject('入力の名前', rejected)).rejects.toThrow(
+          '選んだ取引先が見つからないか、協力業者として登録されていません'
+        );
+      }
+      expect(await prisma.receivedQuotation.count({ where: { projectId: testProjectId } })).toBe(
+        before
+      );
+
+      const created = await createInProject('入力の名前', pickedId);
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: pickedName,
+        tradingPartnerId: pickedId,
+      });
+    });
+
+    it('見積依頼の文脈では入力の業者名を使わず、宛先の取引先の名前と ID を写す', async () => {
+      const destination = await prisma.tradingPartner.findUniqueOrThrow({
+        where: { id: testTradingPartnerId },
+        select: { name: true },
+      });
+
+      const created = await service.create(
+        { kind: 'estimateRequest', estimateRequestId: testEstimateRequestId },
+        {
+          vendorName: '入力の業者名',
+          name: `業者名の照合_見積依頼_${suffix}`,
+          submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+          lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
+        },
+        testUserId
+      );
+
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: destination.name,
+        tradingPartnerId: testTradingPartnerId,
+      });
+      await prisma.receivedQuotation.delete({ where: { id: created.id } });
+    });
+
+    it('紐づく取引先の名前を変えても、論理削除しても、物理削除しても、受領見積書の業者名は変わらない', async () => {
+      const originalName = `照合_改名前_${suffix}`;
+      const partnerId = await createPartner(originalName, ['SUBCONTRACTOR']);
+      const created = await createInProject(originalName);
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: originalName,
+        tradingPartnerId: partnerId,
+      });
+
+      const current = await prisma.tradingPartner.findUniqueOrThrow({ where: { id: partnerId } });
+      await partnerService.updatePartner(
+        partnerId,
+        { name: `照合_改名後_${suffix}` },
+        testUserId,
+        current.updatedAt
+      );
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: originalName,
+        tradingPartnerId: partnerId,
+      });
+
+      await partnerService.deletePartner(partnerId, testUserId);
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: originalName,
+        tradingPartnerId: partnerId,
+      });
+
+      await prisma.tradingPartner.delete({ where: { id: partnerId } });
+      expect(await storedVendor(created.id)).toEqual({
+        vendorName: originalName,
+        tradingPartnerId: null,
       });
     });
   });

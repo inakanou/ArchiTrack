@@ -1004,6 +1004,11 @@ describe('ReceivedQuotationService', () => {
         estimateRequest: {
           findUnique: vi.fn().mockResolvedValue(options.estimateRequest ?? null),
         },
+        // 業者名の照合（タスク113.2）。一致する協力業者が無い既定とし、業者名だけを保持する
+        tradingPartner: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
         receivedQuotation: {
           create: vi.fn().mockResolvedValue(options.created ?? createdRow()),
           update: vi.fn().mockResolvedValue(options.created ?? createdRow()),
@@ -1352,6 +1357,407 @@ describe('ReceivedQuotationService', () => {
           ['rq-own', null, '自前の協力業者', '自前の協力業者'],
           ['rq-req', 'er-1', '宛先の協力業者', '宛先の協力業者'],
         ]);
+      });
+    });
+  });
+
+  /**
+   * 業者名の写しと取引先の照合（タスク113.2）
+   *
+   * design の Requirements 43-50 の章の D4 を観測する。見積依頼の文脈は宛先の取引先を写し、案件の文脈は
+   * 選んだ取引先（論理削除されていない協力業者）か、業者名と名前が完全に一致する協力業者がちょうど 1 件の
+   * ときに紐づける。照合の条件（論理削除・種別）は照会の where で主張し、実際の DB での絞り込みは統合で確かめる
+   */
+  describe('業者名と取引先の照合（タスク113.2）', () => {
+    const projectRow = { id: 'project-vn', deletedAt: null };
+    const SUBCONTRACTOR_ONLY = {
+      name: '協力の山田工務店',
+      deletedAt: null,
+      types: [{ type: 'SUBCONTRACTOR' }],
+    };
+
+    const quotationRow = (overrides: Record<string, unknown> = {}) => ({
+      id: 'rq-vn',
+      estimateRequestId: null,
+      projectId: 'project-vn',
+      vendorName: '協力の山田工務店',
+      tradingPartnerId: null,
+      name: '受領見積書',
+      submittedAt: new Date('2026-11-01'),
+      filePath: null,
+      fileName: null,
+      fileMimeType: null,
+      fileSize: null,
+      netAmount: null,
+      createdAt: new Date('2026-11-01T00:00:00Z'),
+      updatedAt: new Date('2026-11-01T00:00:00Z'),
+      deletedAt: null,
+      lineItems: [],
+      ...overrides,
+    });
+
+    const setupTx = (options: {
+      project?: unknown;
+      estimateRequest?: unknown;
+      partnerById?: unknown;
+      partnersByName?: unknown[];
+      existing?: Record<string, unknown>;
+    }) => {
+      const txClient = {
+        project: { findUnique: vi.fn().mockResolvedValue(options.project ?? projectRow) },
+        estimateRequest: {
+          findUnique: vi.fn().mockResolvedValue(options.estimateRequest ?? null),
+        },
+        tradingPartner: {
+          findUnique: vi.fn().mockResolvedValue(options.partnerById ?? null),
+          findMany: vi.fn().mockResolvedValue(options.partnersByName ?? []),
+        },
+        receivedQuotation: {
+          create: vi.fn().mockResolvedValue(quotationRow()),
+          findUnique: vi.fn().mockResolvedValue(options.existing ?? null),
+          update: vi
+            .fn()
+            .mockResolvedValue({ ...(options.existing ?? quotationRow()), lineItems: [] }),
+        },
+        receivedQuotationLineItem: {
+          createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          deleteMany: vi.fn(),
+        },
+      };
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+        fn(txClient as unknown as PrismaClient)
+      );
+      return txClient;
+    };
+
+    const baseInput = {
+      name: '受領見積書',
+      submittedAt: new Date('2026-11-01'),
+      lineItems: [{ name: '工事A', sortOrder: 0, quantity: 1, unitPrice: 1000, amount: 1000 }],
+    };
+    const projectContext = { kind: 'project', projectId: 'project-vn' } as const;
+
+    const createdData = (txClient: ReturnType<typeof setupTx>) =>
+      txClient.receivedQuotation.create.mock.calls[0]![0].data as Record<string, unknown>;
+
+    /** 名前の照合の照会（論理削除されていない協力業者で名前が完全に一致するもの） */
+    const nameMatchQuery = (name: string) => ({
+      where: { name, deletedAt: null, types: { some: { type: 'SUBCONTRACTOR' } } },
+      select: { id: true },
+      take: 2,
+    });
+
+    describe('見積依頼の文脈', () => {
+      /**
+       * @requirement estimate-request/REQ-44.2
+       * @requirement estimate-request/REQ-44.3
+       */
+      it('宛先の取引先の名前と ID を写し、入力の業者名と取引先の ID を使わず、照合もしない', async () => {
+        const txClient = setupTx({
+          estimateRequest: {
+            id: 'er-vn',
+            deletedAt: null,
+            projectId: 'project-of-request',
+            tradingPartnerId: 'tp-destination',
+            tradingPartner: { name: '宛先の協力業者' },
+          },
+        });
+
+        await service.create(
+          { kind: 'estimateRequest', estimateRequestId: 'er-vn' },
+          { ...baseInput, vendorName: '別の業者名', tradingPartnerId: 'tp-other' },
+          ACTOR_ID
+        );
+
+        expect(createdData(txClient)).toEqual(
+          expect.objectContaining({
+            vendorName: '宛先の協力業者',
+            tradingPartnerId: 'tp-destination',
+          })
+        );
+        expect(txClient.tradingPartner.findUnique).not.toHaveBeenCalled();
+        expect(txClient.tradingPartner.findMany).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('案件の文脈で取引先を選んだとき', () => {
+      /**
+       * @requirement estimate-request/REQ-44.5
+       */
+      it('選んだ協力業者の取引先に紐づけ、業者名に取引先の名前を入れる（入力の業者名より優先）', async () => {
+        const txClient = setupTx({ partnerById: { id: 'tp-picked', ...SUBCONTRACTOR_ONLY } });
+
+        await service.create(
+          projectContext,
+          { ...baseInput, vendorName: '山田', tradingPartnerId: 'tp-picked' },
+          ACTOR_ID
+        );
+
+        expect(txClient.tradingPartner.findUnique).toHaveBeenCalledWith({
+          where: { id: 'tp-picked' },
+          select: { id: true, name: true, deletedAt: true, types: { select: { type: true } } },
+        });
+        expect(createdData(txClient)).toEqual(
+          expect.objectContaining({ vendorName: '協力の山田工務店', tradingPartnerId: 'tp-picked' })
+        );
+        expect(txClient.tradingPartner.findMany).not.toHaveBeenCalled();
+      });
+
+      it('顧客と協力業者の両方の種別を持つ取引先も選べる', async () => {
+        const txClient = setupTx({
+          partnerById: {
+            id: 'tp-both',
+            name: '両方の取引先',
+            deletedAt: null,
+            types: [{ type: 'CUSTOMER' }, { type: 'SUBCONTRACTOR' }],
+          },
+        });
+
+        await service.create(
+          projectContext,
+          { ...baseInput, vendorName: '両方の取引先', tradingPartnerId: 'tp-both' },
+          ACTOR_ID
+        );
+
+        expect(createdData(txClient)).toEqual(
+          expect.objectContaining({ vendorName: '両方の取引先', tradingPartnerId: 'tp-both' })
+        );
+      });
+
+      it.each([
+        ['存在しない', null],
+        [
+          '論理削除済みの',
+          { id: 'tp-x', ...SUBCONTRACTOR_ONLY, deletedAt: new Date('2026-10-01') },
+        ],
+        [
+          '顧客だけの',
+          { id: 'tp-x', name: '顧客の会社', deletedAt: null, types: [{ type: 'CUSTOMER' }] },
+        ],
+      ])(
+        '%s取引先の ID は検証の誤りで拒み、名前の照合へ切り替えず保存しない',
+        async (_label, partner) => {
+          const txClient = setupTx({
+            partnerById: partner,
+            partnersByName: [{ id: 'tp-same-name' }],
+          });
+
+          const promise = service.create(
+            projectContext,
+            { ...baseInput, vendorName: '協力の山田工務店', tradingPartnerId: 'tp-x' },
+            ACTOR_ID
+          );
+
+          await expect(promise).rejects.toThrow(ValidationError);
+          await expect(promise).rejects.toThrow(
+            '選んだ取引先が見つからないか、協力業者として登録されていません'
+          );
+          expect(txClient.tradingPartner.findMany).not.toHaveBeenCalled();
+          expect(txClient.receivedQuotation.create).not.toHaveBeenCalled();
+          expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+        }
+      );
+    });
+
+    describe('案件の文脈で取引先を選ばずに業者名だけを入れたとき', () => {
+      /**
+       * @requirement estimate-request/REQ-44.6
+       */
+      it('前後の空白を除いた名前が一致する協力業者がちょうど 1 件なら、その取引先に紐づける', async () => {
+        const txClient = setupTx({ partnersByName: [{ id: 'tp-only' }] });
+
+        await service.create(
+          projectContext,
+          { ...baseInput, vendorName: '  協力の山田工務店  ' },
+          ACTOR_ID
+        );
+
+        expect(txClient.tradingPartner.findMany).toHaveBeenCalledWith(
+          nameMatchQuery('協力の山田工務店')
+        );
+        expect(createdData(txClient)).toEqual(
+          expect.objectContaining({ vendorName: '協力の山田工務店', tradingPartnerId: 'tp-only' })
+        );
+      });
+
+      it('取引先の ID が null のときも名前で照合する', async () => {
+        const txClient = setupTx({ partnersByName: [{ id: 'tp-only' }] });
+
+        await service.create(
+          projectContext,
+          { ...baseInput, vendorName: '協力の山田工務店', tradingPartnerId: null },
+          ACTOR_ID
+        );
+
+        expect(txClient.tradingPartner.findUnique).not.toHaveBeenCalled();
+        expect(createdData(txClient)).toEqual(
+          expect.objectContaining({ tradingPartnerId: 'tp-only' })
+        );
+      });
+
+      /**
+       * @requirement estimate-request/REQ-44.7
+       */
+      it.each([
+        ['一致する協力業者が無い', []],
+        ['一致する協力業者が複数ある', [{ id: 'tp-a' }, { id: 'tp-b' }]],
+      ])('%sときは紐づけずに業者名だけを保持する', async (_label, partners) => {
+        const txClient = setupTx({ partnersByName: partners });
+
+        await service.create(
+          projectContext,
+          { ...baseInput, vendorName: '協力の山田工務店' },
+          ACTOR_ID
+        );
+
+        expect(createdData(txClient)).toEqual(
+          expect.objectContaining({ vendorName: '協力の山田工務店', tradingPartnerId: null })
+        );
+      });
+
+      it('照合は論理削除されていない協力業者だけを対象にする（論理削除済み・顧客だけの取引先は数えない）', async () => {
+        const txClient = setupTx({ partnersByName: [] });
+
+        await service.create(projectContext, { ...baseInput, vendorName: '顧客の会社' }, ACTOR_ID);
+
+        const query = txClient.tradingPartner.findMany.mock.calls[0]![0] as {
+          where: Record<string, unknown>;
+        };
+        expect(query.where.deletedAt).toBeNull();
+        expect(query.where.types).toEqual({ some: { type: 'SUBCONTRACTOR' } });
+        expect(query.where.name).toBe('顧客の会社');
+      });
+    });
+
+    describe('更新', () => {
+      const expectedUpdatedAt = new Date('2026-11-01T00:00:00Z');
+
+      const updatedData = (txClient: ReturnType<typeof setupTx>) =>
+        txClient.receivedQuotation.update.mock.calls[0]![0].data as Record<string, unknown>;
+
+      /**
+       * @requirement estimate-request/REQ-44.3
+       */
+      it('見積依頼に紐づく受領見積書は、入力の業者名と取引先の ID を無視して写しを保つ', async () => {
+        const txClient = setupTx({
+          existing: quotationRow({
+            estimateRequestId: 'er-vn',
+            vendorName: '宛先の協力業者',
+            tradingPartnerId: 'tp-destination',
+            updatedAt: expectedUpdatedAt,
+          }),
+        });
+
+        await service.update(
+          'rq-vn',
+          { name: '改名', vendorName: '書き換え', tradingPartnerId: 'tp-other' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const data = updatedData(txClient);
+        expect(data).not.toHaveProperty('vendorName');
+        expect(data).not.toHaveProperty('tradingPartnerId');
+        expect(txClient.tradingPartner.findUnique).not.toHaveBeenCalled();
+        expect(txClient.tradingPartner.findMany).not.toHaveBeenCalled();
+      });
+
+      /**
+       * @requirement estimate-request/REQ-44.5
+       */
+      it('案件の文脈で別の取引先を選んだら、その取引先に紐づけて名前を入れる', async () => {
+        const txClient = setupTx({
+          existing: quotationRow({ updatedAt: expectedUpdatedAt }),
+          partnerById: { id: 'tp-new', ...SUBCONTRACTOR_ONLY, name: '新しい協力業者' },
+        });
+
+        await service.update(
+          'rq-vn',
+          { vendorName: '新しい', tradingPartnerId: 'tp-new' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        expect(updatedData(txClient)).toEqual(
+          expect.objectContaining({ vendorName: '新しい協力業者', tradingPartnerId: 'tp-new' })
+        );
+      });
+
+      /**
+       * @requirement estimate-request/REQ-44.6
+       * @requirement estimate-request/REQ-44.7
+       */
+      it('案件の文脈で業者名を打ち直したら名前で照合し直す（1 件なら紐づけ、無ければ紐づけを外す）', async () => {
+        const matched = setupTx({
+          existing: quotationRow({ updatedAt: expectedUpdatedAt, tradingPartnerId: 'tp-old' }),
+          partnersByName: [{ id: 'tp-match' }],
+        });
+        await service.update(
+          'rq-vn',
+          { vendorName: ' 別の協力業者 ' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        expect(matched.tradingPartner.findMany).toHaveBeenCalledWith(
+          nameMatchQuery('別の協力業者')
+        );
+        expect(updatedData(matched)).toEqual(
+          expect.objectContaining({ vendorName: '別の協力業者', tradingPartnerId: 'tp-match' })
+        );
+
+        const unmatched = setupTx({
+          existing: quotationRow({ updatedAt: expectedUpdatedAt, tradingPartnerId: 'tp-old' }),
+          partnersByName: [],
+        });
+        await service.update('rq-vn', { vendorName: '未登録の業者' }, expectedUpdatedAt, ACTOR_ID);
+        expect(updatedData(unmatched)).toEqual(
+          expect.objectContaining({ vendorName: '未登録の業者', tradingPartnerId: null })
+        );
+      });
+
+      /**
+       * @requirement estimate-request/REQ-44.8
+       */
+      it('同じ取引先と同じ業者名を送り直しても、取引先の今の名前で業者名を書き換えない', async () => {
+        const txClient = setupTx({
+          existing: quotationRow({
+            updatedAt: expectedUpdatedAt,
+            vendorName: '改名前の名前',
+            tradingPartnerId: 'tp-renamed',
+          }),
+          partnerById: { id: 'tp-renamed', ...SUBCONTRACTOR_ONLY, name: '改名後の名前' },
+        });
+
+        await service.update(
+          'rq-vn',
+          { vendorName: '改名前の名前', tradingPartnerId: 'tp-renamed' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const data = updatedData(txClient);
+        expect(data).not.toHaveProperty('vendorName');
+        expect(data).not.toHaveProperty('tradingPartnerId');
+      });
+
+      it('案件の文脈で業者名を空にしたら 43.8 の文言で拒み書き換えない', async () => {
+        const txClient = setupTx({ existing: quotationRow({ updatedAt: expectedUpdatedAt }) });
+
+        const promise = service.update('rq-vn', { vendorName: '  ' }, expectedUpdatedAt, ACTOR_ID);
+
+        await expect(promise).rejects.toThrow('業者名を入力してください');
+        expect(txClient.receivedQuotation.update).not.toHaveBeenCalled();
+      });
+
+      it('業者名も取引先の ID も送らない更新は、業者名と紐づけに触れない', async () => {
+        const txClient = setupTx({ existing: quotationRow({ updatedAt: expectedUpdatedAt }) });
+
+        await service.update('rq-vn', { name: '改名だけ' }, expectedUpdatedAt, ACTOR_ID);
+
+        const data = updatedData(txClient);
+        expect(data).not.toHaveProperty('vendorName');
+        expect(data).not.toHaveProperty('tradingPartnerId');
+        expect(txClient.tradingPartner.findMany).not.toHaveBeenCalled();
       });
     });
   });

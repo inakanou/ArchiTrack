@@ -59,6 +59,9 @@ export const RECEIVED_QUOTATION_VALIDATION_MESSAGES = {
   VENDOR_NAME_REQUIRED: '業者名を入力してください',
   VENDOR_NAME_TOO_LONG: '業者名は200文字以内で入力してください',
   TRADING_PARTNER_ID_INVALID: '取引先IDの形式が不正です',
+  // 選んだ取引先が無い・論理削除済み・協力業者でない（44.5。タスク113.2 のサービスの照合）
+  TRADING_PARTNER_NOT_SUBCONTRACTOR:
+    '選んだ取引先が見つからないか、協力業者として登録されていません',
 
   // 見積の情報（46.1〜46.3・46.6。タスク112.2）
   QUOTE_NUMBER_TOO_LONG: '見積番号は100文字以内で入力してください',
