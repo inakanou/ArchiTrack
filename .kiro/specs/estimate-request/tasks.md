@@ -2177,6 +2177,7 @@
 - **【2026-11-08・タスク117.1】** 画面への申し送り（117.4・119）: 重複の 409 は `isDuplicateOriginalError`、楽観的排他の 409 は `isReceivedQuotationConflictError` で分ける（`DuplicateOriginalError` も `ApiError(409)` を継ぐため、今の「409 なら楽観的排他」の扱いのままだと重複でも楽観的排他の文言が出る）。見積依頼の文脈では業者名を送らない（サーバーは空の文字を 400 にする）。Vision の誤りは `ClaudeVisionApiError` の `isDisabledByAdmin`・`isUserRateLimited` で分ける。試験の固定値は `frontend/src/test-support/received-quotation-fixtures.ts` の既定値を広げて使う。新設した部品の実装の記録（決めた名前・数値）を design.md の同章へ記す
 - **【2026-11-08・タスク117.2】** 明細行の列が増え、Tab の順は 区分 → 任意分類 … 単価 → 金額（単価が空の行）→ 分類キー → 参考 → 備考 になった。行の操作のメニューの末尾に「詳細」。既存の E2E（列幅の 33.12 の Tab の順、focus-visible の一巡とメニュー）は追随済み。申し送り（117.4）: 保存の入力（`convertToLineItemInput`）がまだ区分と台帳の欄を送らないため、今のフォームで保存すると区分が直接工事に戻る（HEAD から同じ。117.4 で必ず閉じる）。未保存の変更の判定の欄、サーバーの「明細行の{n}行目」の誤りを行の id へ対応づけて `lineItemErrors` で渡すことも 117.4
 - **【2026-11-08・タスク117.3】** 申し送り（117.4、必須）: 46.7 の確認者の名前は、受領見積書の応答に確認者の表示名を足してフォームから `readingConfirmedByName` へ渡すまで満たされない（117.4 の本文と _Boundary_ に足した）。`LedgerInfoSection` は既定で閉じているため、検証の誤りやサーバーの 400 のときは欄を開くか見出しに誤りがあることを示す。値の型と変換は `ledger-info-form.ts`（`createLedgerInfoFormData`・`validateLedgerInfo`・`toLedgerInfoInput`）
+- **【2026-11-08・タスク117.4】** フォームは `context`（`{kind:'estimateRequest', estimateRequestId, tradingPartnerName}` か `{kind:'project', projectId}`）を受ける。保存の失敗は 401 を含めてすべてフォームへ投げ返し、再認証の後の再送はフォームの `usePendingSaveAfterReauth` だけが行う（以前は詳細画面も再送して登録を 2 回送っていた）。48.4 の知らせは、閉じたダイアログの代わりに一覧の上の `role="status"` に出す（`formatSharedOriginalNotice`。118.1 も同じ置き方）。単価が空の行の金額は未保存の変更の判定に入る。申し送り（120）: 既存の E2E `session-expired-protection-extra` の 409 の主張が `.catch(()=>{})` で包まれて落ちない（第3原則に反する。以前から）
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2662,7 +2663,7 @@
   - _Boundary: LedgerInfoSection, VendorNameInput_
   - _Depends: 117.1_
 
-- [ ] 117.4 受領見積書のフォームに登録の文脈・業者名・台帳の情報・重複の表示を組み込む
+- [x] 117.4 受領見積書のフォームに登録の文脈・業者名・台帳の情報・重複の表示を組み込む
   - `ReceivedQuotationForm` が登録の文脈（見積依頼・案件）を受け、案件の文脈では業者名の入力を、見積依頼の文脈では宛先の取引先の名前を編集できない形で出す（43.6・44.3）。台帳の情報の欄と新しい明細行の欄を保存の入力に含める。業者名が空なら 43.8 の文言を出す
   - 409 `DUPLICATE_ORIGINAL` では 48.3 の文言と既存の受領見積書の名前・業者名・提出日を出し、楽観的排他の文言を出さない。保存の応答の `sharedOriginalCount` が 1 以上なら、同じ原本の受領見積書が他にもあることと件数を出す（48.4）。NET 金額の自動入力は別途を除く合計を使う（34.2）
   - 未保存の変更の判定（`useUnsavedChangesGuard`）の対象に台帳の情報と明細行の新しい欄を足す

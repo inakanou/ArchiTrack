@@ -337,6 +337,22 @@ export interface UpdateReceivedQuotationInput extends LedgerFieldsInput {
 }
 
 /**
+ * 読取の確認をした利用者（46.7。タスク117.4）。表示名は利用者の `displayName`
+ */
+export interface ReadingConfirmer {
+  id: string;
+  displayName: string;
+}
+
+/**
+ * 応答の整形のために確認者の利用者から読む欄（46.7。タスク117.4）。ID と表示名だけを読み、
+ * メールアドレスなどは応答に入れない。監査ログの中身には入れない（D10）
+ */
+const READING_CONFIRMED_BY_SELECT = {
+  select: { id: true, displayName: true },
+} as const;
+
+/**
  * 受領見積書情報（改訂版: Task 61.2 netAmount追加）
  */
 export interface ReceivedQuotationInfo {
@@ -365,6 +381,8 @@ export interface ReceivedQuotationInfo {
   readingStatus: ReadingStatus;
   readingConfirmedById: string | null;
   readingConfirmedAt: Date | null;
+  /** 確認者の ID と表示名（46.7。タスク117.4）。確認者がいない・利用者が消えたときは null */
+  readingConfirmedBy: ReadingConfirmer | null;
   quoteDiscriminator: string;
   lineItems: LineItemInfo[];
   /** 区分が別途の行を除いた金額の合計（45.5） */
@@ -1011,6 +1029,7 @@ export class ReceivedQuotationService {
           lineItems: {
             orderBy: { sortOrder: 'asc' },
           },
+          readingConfirmedBy: READING_CONFIRMED_BY_SELECT,
         },
       });
 
@@ -1103,6 +1122,7 @@ export class ReceivedQuotationService {
         lineItems: {
           orderBy: { sortOrder: 'asc' },
         },
+        readingConfirmedBy: READING_CONFIRMED_BY_SELECT,
       },
     });
 
@@ -1135,6 +1155,7 @@ export class ReceivedQuotationService {
         lineItems: {
           orderBy: { sortOrder: 'asc' },
         },
+        readingConfirmedBy: READING_CONFIRMED_BY_SELECT,
       },
     });
 
@@ -1176,6 +1197,7 @@ export class ReceivedQuotationService {
         lineItems: {
           orderBy: { sortOrder: 'asc' },
         },
+        readingConfirmedBy: READING_CONFIRMED_BY_SELECT,
       },
     });
 
@@ -1351,6 +1373,7 @@ export class ReceivedQuotationService {
           lineItems: {
             orderBy: { sortOrder: 'asc' },
           },
+          readingConfirmedBy: READING_CONFIRMED_BY_SELECT,
         },
       });
 
@@ -1614,6 +1637,7 @@ export class ReceivedQuotationService {
       readingStatus: ReadingStatus;
       readingConfirmedById: string | null;
       readingConfirmedAt: Date | null;
+      readingConfirmedBy?: ReadingConfirmer | null;
       quoteDiscriminator: string;
       createdAt: Date;
       updatedAt: Date;
@@ -1644,6 +1668,12 @@ export class ReceivedQuotationService {
       readingStatus: quotation.readingStatus,
       readingConfirmedById: quotation.readingConfirmedById,
       readingConfirmedAt: quotation.readingConfirmedAt,
+      readingConfirmedBy: quotation.readingConfirmedBy
+        ? {
+            id: quotation.readingConfirmedBy.id,
+            displayName: quotation.readingConfirmedBy.displayName,
+          }
+        : null,
       quoteDiscriminator: quotation.quoteDiscriminator,
       lineItems,
       totalAmount: this.calculateTotalAmount(lineItems),

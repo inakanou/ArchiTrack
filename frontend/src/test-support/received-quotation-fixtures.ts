@@ -26,6 +26,7 @@ export const RECEIVED_QUOTATION_LEDGER_DEFAULTS: Pick<
   | 'readingStatus'
   | 'readingConfirmedById'
   | 'readingConfirmedAt'
+  | 'readingConfirmedBy'
   | 'quoteDiscriminator'
 > = {
   vendorName: '',
@@ -43,6 +44,7 @@ export const RECEIVED_QUOTATION_LEDGER_DEFAULTS: Pick<
   readingStatus: 'UNCONFIRMED',
   readingConfirmedById: null,
   readingConfirmedAt: null,
+  readingConfirmedBy: null,
   quoteDiscriminator: '',
 };
 

@@ -23,7 +23,12 @@
  */
 
 import { useCallback, useEffect } from 'react';
-import type { LineItemFormData } from './LineItemEditor';
+import {
+  getLineItemLedgerFields,
+  type LineItemFormData,
+  type LineItemLedgerFormData,
+} from './LineItemEditor';
+import type { LedgerInfoFormData } from './ledger-info-form';
 
 // ============================================================================
 // 型定義
@@ -55,6 +60,16 @@ export interface FormSnapshot {
   selectedFile: File | null;
   /** 明細行 */
   lineItems: LineItemFormData[];
+  /**
+   * 台帳の情報の欄の値（タスク117.4。46.1〜46.3・46.6・48.2）。
+   * 省略は比べない（台帳の情報を持たない呼び出し元・既存の試験のため）
+   */
+  ledgerInfo?: LedgerInfoFormData;
+  /**
+   * 業者名と選んだ取引先の ID（タスク117.4。案件の文脈の業者名の入力。44.4・44.5）。
+   * 省略は比べない（見積依頼の文脈では業者名を編集できないため）
+   */
+  vendor?: { vendorName: string; tradingPartnerId: string | null };
 }
 
 /**
@@ -88,7 +103,7 @@ export const UNSAVED_CHANGES_CONFIRM_MESSAGE = '変更が保存されていま�
 /**
  * `isFormDirty` の lineItems 比較対象フィールド
  *
- * `amount`（数量×単価の自動計算結果）と `id`（クライアントサイド一時 ID）は
+ * `amount`（単価のある行では数量×単価の自動計算結果。単価が空の行は比べる。タスク117.4）と `id`（クライアントサイド一時 ID）は
  * 判定対象から除外する。
  *
  * Requirements: 38.12
@@ -109,6 +124,23 @@ const LINE_ITEM_COMPARE_FIELDS: ReadonlyArray<keyof LineItemFormData> = [
 // ============================================================================
 // 内部ユーティリティ
 // ============================================================================
+
+/**
+ * 明細行の台帳の項目のうち比べる欄（タスク117.4。区分・条件・換算・分類キー・数量表の行のキー・参考の印と理由）。
+ * 省略された欄は `getLineItemLedgerFields` で既定（区分は直接工事・文字は空・参考の印は無）に補ってから比べる
+ */
+const LINE_ITEM_LEDGER_COMPARE_FIELDS: ReadonlyArray<keyof LineItemLedgerFormData> = [
+  'category',
+  'condition',
+  'conversionQuantity',
+  'conversionUnit',
+  'conversionUnitPrice',
+  'conversionBasis',
+  'classificationKey',
+  'quantityRowKey',
+  'isReference',
+  'referenceReason',
+];
 
 /**
  * scalar フィールド値を文字列に正規化する。
@@ -143,7 +175,7 @@ function normalizeLineItemValue(value: unknown): string {
  * 比較規則:
  * - 配列長が異なる場合は不一致
  * - 各行について、`LINE_ITEM_COMPARE_FIELDS` のいずれかが文字列等価で異なる場合に不一致
- * - `amount` と `id` は判定対象から除外
+ * - `amount` は単価のある行では判定対象から除外（単価が空の行は比べる。タスク117.4）、`id` は除外
  *
  * Design: 4908
  */
@@ -154,10 +186,46 @@ function lineItemsAreEqual(a: LineItemFormData[], b: LineItemFormData[]): boolea
     // 長さ一致を上で確認しているため `other` は常に存在するが、TS の noUncheckedIndexedAccess
     // を考慮して明示的にガードする。
     if (!other) return false;
-    return LINE_ITEM_COMPARE_FIELDS.every(
+    const sameBase = LINE_ITEM_COMPARE_FIELDS.every(
       (field) => normalizeLineItemValue(row[field]) === normalizeLineItemValue(other[field])
     );
+    if (!sameBase) return false;
+    // タスク117.4: 単価が空の行の金額は利用者が直接入れた値（45.11）のため比べる。
+    // 単価のある行の金額は数量×単価で求めた値のため比べない（単価が同じことは上で確かめた）
+    if (
+      row.unitPrice.trim() === '' &&
+      normalizeLineItemValue(row.amount) !== normalizeLineItemValue(other.amount)
+    ) {
+      return false;
+    }
+    const rowLedger = getLineItemLedgerFields(row);
+    const otherLedger = getLineItemLedgerFields(other);
+    return LINE_ITEM_LEDGER_COMPARE_FIELDS.every(
+      (field) =>
+        normalizeLineItemValue(rowLedger[field]) === normalizeLineItemValue(otherLedger[field])
+    );
   });
+}
+
+/**
+ * 台帳の情報の欄の値が等しいか（タスク117.4）。どちらかが省略なら比べない
+ */
+function ledgerInfoIsEqual(a?: LedgerInfoFormData, b?: LedgerInfoFormData): boolean {
+  if (!a || !b) return true;
+  return (Object.keys(a) as Array<keyof LedgerInfoFormData>).every(
+    (key) => normalizeScalar(a[key]) === normalizeScalar(b[key])
+  );
+}
+
+/**
+ * 業者名と取引先の ID が等しいか（タスク117.4）。どちらかが省略なら比べない
+ */
+function vendorIsEqual(a?: FormSnapshot['vendor'], b?: FormSnapshot['vendor']): boolean {
+  if (!a || !b) return true;
+  return (
+    a.vendorName === b.vendorName &&
+    normalizeScalar(a.tradingPartnerId) === normalizeScalar(b.tradingPartnerId)
+  );
 }
 
 // ============================================================================
@@ -177,6 +245,9 @@ function lineItemsAreEqual(a: LineItemFormData[], b: LineItemFormData[]): boolea
  *   `customCategory`/`workType`/`name`/`specification`/`unit`/`quantity`/`unitPrice`/`remarks`/`sortOrder`
  *   のいずれかが文字列等価で異なる場合に dirty。
  *   `amount`（自動計算結果）と `id`（クライアントサイド一時 ID）は判定対象から除外。
+ *   タスク117.4: 単価が空の行の `amount` は利用者が直接入れた金額（45.11）のため比べる。
+ *   タスク117.4: 明細行の台帳の項目（区分・条件・換算・分類キー・数量表の行のキー・参考の印と理由）も比べる。
+ * - **`ledgerInfo`・`vendor`**（タスク117.4）: 台帳の情報の各欄と、業者名・取引先の ID を比べる（省略は比べない）。
  *
  * Requirements: 38.12
  * Design: 4905-4911
@@ -191,6 +262,8 @@ export function isFormDirty(current: FormSnapshot, snapshot: FormSnapshot): bool
   if (normalizeScalar(current.netAmount) !== normalizeScalar(snapshot.netAmount)) return true;
   if (current.selectedFile !== snapshot.selectedFile) return true;
   if (!lineItemsAreEqual(current.lineItems, snapshot.lineItems)) return true;
+  if (!ledgerInfoIsEqual(current.ledgerInfo, snapshot.ledgerInfo)) return true;
+  if (!vendorIsEqual(current.vendor, snapshot.vendor)) return true;
   return false;
 }
 

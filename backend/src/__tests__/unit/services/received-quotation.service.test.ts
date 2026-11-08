@@ -4957,6 +4957,110 @@ describe('ReceivedQuotationService', () => {
       });
     });
 
+    /**
+     * 確認者の表示名の応答（46.7。タスク117.4）。応答に確認者の ID と利用者の表示名を足す。
+     * 監査ログの中身は変えない（D10。確認者と日時は入れない）
+     */
+    describe('確認者の表示名の応答（タスク117.4）', () => {
+      const CONFIRMER = { id: OTHER_USER_ID, displayName: '確認 花子' };
+      const confirmedRow = (overrides: Record<string, unknown> = {}) =>
+        storedQuotation({
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: OTHER_USER_ID,
+          readingConfirmedAt: CONFIRMED_AT,
+          readingConfirmedBy: CONFIRMER,
+          lineItems: [],
+          ...overrides,
+        });
+      const confirmerInclude = {
+        readingConfirmedBy: { select: { id: true, displayName: true } },
+      };
+
+      it('詳細の取得は確認者の利用者の ID と表示名を読み、応答に入れる', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          confirmedRow() as never
+        );
+
+        const result = await service.findById('rq-ledger');
+
+        expect(mockPrisma.receivedQuotation.findUnique).toHaveBeenCalledWith(
+          expect.objectContaining({ include: expect.objectContaining(confirmerInclude) })
+        );
+        expect(result!.readingConfirmedBy).toEqual(CONFIRMER);
+      });
+
+      it('確認者のいない受領見積書（未確認・確認者の利用者が消えたもの）は確認者を null で返す', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          storedQuotation({ readingConfirmedBy: null, lineItems: [] }) as never
+        );
+
+        const result = await service.findById('rq-ledger');
+
+        expect(result!.readingConfirmedBy).toBeNull();
+      });
+
+      it('見積依頼の配下と案件の配下の一覧も確認者の表示名を返す', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findMany).mockResolvedValue([
+          confirmedRow(),
+        ] as never);
+
+        const byRequest = await service.findByEstimateRequestId('er-001');
+        const byProject = await service.findByProjectId('project-001', { include: 'all' });
+
+        for (const call of vi.mocked(mockPrisma.receivedQuotation.findMany).mock.calls) {
+          expect(call[0]).toEqual(
+            expect.objectContaining({ include: expect.objectContaining(confirmerInclude) })
+          );
+        }
+        expect(byRequest[0]!.readingConfirmedBy).toEqual(CONFIRMER);
+        expect(byProject[0]!.readingConfirmedBy).toEqual(CONFIRMER);
+      });
+
+      it('作成と更新の応答も確認者の表示名を返し、監査ログの中身に確認者を入れない', async () => {
+        const createTx = setupCreateTx();
+        createTx.receivedQuotation.create.mockImplementation(
+          async ({ data }: { data: Record<string, unknown> }) => ({
+            ...storedQuotation(),
+            ...data,
+            readingConfirmedBy: { id: ACTOR_ID, displayName: '操作 太郎' },
+            lineItems: [],
+          })
+        );
+        const { quotation: created } = await createWithLines(
+          [{ name: '明細', sortOrder: 0, amount: 100 }],
+          { readingStatus: 'CONFIRMED' }
+        );
+        expect(createTx.receivedQuotation.create.mock.calls[0]![0]).toEqual(
+          expect.objectContaining({ include: expect.objectContaining(confirmerInclude) })
+        );
+        expect(created.readingConfirmedBy).toEqual({ id: ACTOR_ID, displayName: '操作 太郎' });
+
+        const updateTx = setupUpdateTx(confirmedRow());
+        updateTx.receivedQuotation.update.mockImplementation(
+          async ({ data }: { data: Record<string, unknown> }) => ({
+            ...confirmedRow(),
+            ...data,
+            lineItems: [],
+          })
+        );
+        const { quotation: updated } = await service.update(
+          'rq-ledger',
+          { quoteNumber: 'Q-1' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        expect(updateTx.receivedQuotation.update.mock.calls[0]![0]).toEqual(
+          expect.objectContaining({ include: expect.objectContaining(confirmerInclude) })
+        );
+        expect(updated.readingConfirmedBy).toEqual(CONFIRMER);
+
+        const logged = JSON.stringify(mockAuditLogService.createLog.mock.calls.map((c) => c[0]));
+        expect(logged).not.toContain('readingConfirmedBy');
+        expect(logged).not.toContain('確認 花子');
+        expect(logged).not.toContain('操作 太郎');
+      });
+    });
+
     describe('監査ログの金額の項目（46.11）', () => {
       it('更新の後に工事価格・確定金額の変更の有無だけを入れ、値を入れない', async () => {
         const current = storedQuotation({ constructionPrice: 30_000_000, confirmedAmount: null });

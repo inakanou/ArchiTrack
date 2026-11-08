@@ -103,7 +103,11 @@ type Story = StoryObj<typeof meta>;
 export const CreateMode: Story = {
   args: {
     mode: 'create',
-    estimateRequestId: 'er-1',
+    context: {
+      kind: 'estimateRequest',
+      estimateRequestId: 'er-1',
+      tradingPartnerName: '株式会社A工業',
+    },
     initialData: undefined,
     isSubmitting: false,
   },
@@ -115,7 +119,11 @@ export const CreateMode: Story = {
 export const EditMode: Story = {
   args: {
     mode: 'edit',
-    estimateRequestId: 'er-1',
+    context: {
+      kind: 'estimateRequest',
+      estimateRequestId: 'er-1',
+      tradingPartnerName: '株式会社A工業',
+    },
     initialData: mockInitialData,
     isSubmitting: false,
   },
@@ -127,7 +135,11 @@ export const EditMode: Story = {
 export const Submitting: Story = {
   args: {
     mode: 'create',
-    estimateRequestId: 'er-1',
+    context: {
+      kind: 'estimateRequest',
+      estimateRequestId: 'er-1',
+      tradingPartnerName: '株式会社A工業',
+    },
     initialData: undefined,
     isSubmitting: true,
   },

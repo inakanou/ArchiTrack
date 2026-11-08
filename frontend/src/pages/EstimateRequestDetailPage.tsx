@@ -41,7 +41,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
 import {
   getEstimateRequestDetail,
   getEstimateRequestItems,
@@ -82,6 +81,10 @@ import {
   StatusTransitionButton,
 } from '../components/estimate-request';
 import { ReceivedQuotationList, ReceivedQuotationForm } from '../components/estimate-requests';
+import {
+  QUOTATION_LIST_REFRESH_FAILED_MESSAGE,
+  formatSharedOriginalNotice,
+} from '../components/estimate-requests/received-quotation-form-messages';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
 import {
   getEstimateRequestNotFoundMessage,
@@ -377,6 +380,16 @@ const styles = {
     fontWeight: 500,
     color: '#6b7280',
   } as React.CSSProperties,
+  // タスク117.4: 同じ原本の他の受領見積書の知らせ（48.4。フォームを閉じた後に受領見積書の欄へ出す）
+  sharedOriginalNotice: {
+    margin: '0 0 12px 0',
+    padding: '8px 12px',
+    borderRadius: '6px',
+    backgroundColor: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    color: '#1e3a8a',
+    fontSize: '14px',
+  } as React.CSSProperties,
   toastMessage: {
     position: 'fixed' as const,
     bottom: '24px',
@@ -542,16 +555,6 @@ export default function EstimateRequestDetailPage() {
   const [existingFilePreviewUrl, setExistingFilePreviewUrl] = useState<string | null>(null);
   const [isLoadingPreviewUrl, setIsLoadingPreviewUrl] = useState(false);
 
-  // 受領見積書 - セッション切れ時の保存リトライ用に保持する送信データ（Req 38.6, 38.7）
-  const [pendingQuotationSubmission, setPendingQuotationSubmission] = useState<{
-    data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput;
-    editingId: string | null;
-    editingUpdatedAt: string | null;
-  } | null>(null);
-
-  // セッション切れ状態（再認証成功で false に戻ったことを検知してリトライを発火）
-  const { sessionExpiredDuringOperation } = useAuth();
-
   // 現場調査報告書出力関連
   const [showSurveySelector, setShowSurveySelector] = useState(false);
   const [siteSurveys, setSiteSurveys] = useState<SiteSurveyInfo[]>([]);
@@ -574,6 +577,9 @@ export default function EstimateRequestDetailPage() {
 
   // ステータス関連
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // タスク117.4: 同じ原本の他の受領見積書の知らせ（48.4）。次にフォームを開くまで出しておく
+  const [sharedOriginalNotice, setSharedOriginalNotice] = useState<string | null>(null);
 
   /**
    * データ取得
@@ -838,6 +844,7 @@ export default function EstimateRequestDetailPage() {
    */
   const handleAddQuotationClick = useCallback(() => {
     setEditingQuotation(null);
+    setSharedOriginalNotice(null);
     setShowQuotationForm(true);
   }, []);
 
@@ -847,6 +854,7 @@ export default function EstimateRequestDetailPage() {
   const handleEditQuotationClick = useCallback(async (quotation: ReceivedQuotationInfo) => {
     setEditingQuotation(quotation);
     setExistingFilePreviewUrl(null);
+    setSharedOriginalNotice(null);
     setShowQuotationForm(true);
 
     // ファイルが存在する場合、プレビューURLを取得
@@ -867,9 +875,12 @@ export default function EstimateRequestDetailPage() {
   /**
    * 受領見積書フォーム送信
    *
-   * Req 38.6, 38.7: 401（セッション切れ）発生時は送信データを pendingQuotationSubmission に
-   * 保持し、SessionExpiredModal での再認証成功後（sessionExpiredDuringOperation が false に
-   * 戻ったタイミング）に自動リトライする。
+   * 保存の失敗はすべてフォームへ投げ返す（タスク117.4）。フォームが 400 の欄・行の誤り、404 の見つからない旨
+   * （REQ-10.6）、409 の同じ原本の重複（48.3）と楽観的排他の競合（38.10）を分けて出す。
+   * Req 38.1, 38.6, 38.7: 401（セッション切れ）もフォームへ投げ返し、フォームの `usePendingSaveAfterReauth` が
+   * 再認証の成功の後に同じ保存を再実行する（design の「ReceivedQuotationForm - 改訂4」の保存リトライフロー）。
+   * ページは再送しない（タスク117.4 で、ページが 401 を握りつぶして自前で再送していた経路を外した。
+   * 再送の失敗の 400・409 が画面に出ず消えていたため）
    */
   const handleQuotationSubmit = useCallback(
     async (data: CreateReceivedQuotationInput | UpdateReceivedQuotationInput) => {
@@ -877,92 +888,40 @@ export default function EstimateRequestDetailPage() {
 
       setIsQuotationSubmitting(true);
 
+      let saved: Awaited<ReturnType<typeof createReceivedQuotation>>;
       try {
-        if (editingQuotation) {
-          // 編集
-          await updateReceivedQuotation(
-            editingQuotation.id,
-            data as UpdateReceivedQuotationInput,
-            editingQuotation.updatedAt.toISOString()
-          );
-        } else {
-          // 新規作成
-          await createReceivedQuotation(id, data as CreateReceivedQuotationInput);
-        }
+        saved = editingQuotation
+          ? // 編集
+            await updateReceivedQuotation(
+              editingQuotation.id,
+              data as UpdateReceivedQuotationInput,
+              editingQuotation.updatedAt.toISOString()
+            )
+          : // 新規作成
+            await createReceivedQuotation(id, data as CreateReceivedQuotationInput);
+      } catch (err) {
+        setIsQuotationSubmitting(false);
+        throw err;
+      }
+
+      // 保存は成功した。ここから先の失敗は保存の失敗としてフォームへ伝えない（登録し直して二重に作らせない）
+      setShowQuotationForm(false);
+      setEditingQuotation(null);
+      setExistingFilePreviewUrl(null);
+      // タスク117.4: 同じ原本の他の受領見積書があれば件数を知らせる（48.4）
+      setSharedOriginalNotice(formatSharedOriginalNotice(saved?.sharedOriginalCount ?? 0));
+      try {
         // 受領見積書一覧を再取得
         const updatedQuotations = await getReceivedQuotations(id);
         setQuotations(updatedQuotations);
-        setShowQuotationForm(false);
-        setEditingQuotation(null);
-        setExistingFilePreviewUrl(null);
-        setPendingQuotationSubmission(null);
-      } catch (err) {
-        // Req 38.6: 401 はセッション切れ → SessionExpiredModal が表示される。
-        // 再認証成功後にリトライするため送信データを保持する。
-        if (err instanceof ApiError && err.statusCode === 401) {
-          setPendingQuotationSubmission({
-            data,
-            editingId: editingQuotation ? editingQuotation.id : null,
-            editingUpdatedAt: editingQuotation ? editingQuotation.updatedAt.toISOString() : null,
-          });
-        }
-        // 404 は握りつぶさずフォームへ伝え、フォームの保存のエラーの欄に見つからない旨を表示させる（REQ-10.6）
-        if (isNotFoundError(err)) {
-          throw err;
-        }
+      } catch {
+        setOperationError(QUOTATION_LIST_REFRESH_FAILED_MESSAGE);
       } finally {
         setIsQuotationSubmitting(false);
       }
     },
     [id, editingQuotation]
   );
-
-  /**
-   * Req 38.6, 38.7: 再認証成功後の保存自動リトライ
-   *
-   * sessionExpiredDuringOperation が true → false に遷移したタイミングで
-   * 保留中の送信データを使って保存処理を再実行する。
-   */
-  useEffect(() => {
-    if (!pendingQuotationSubmission) return;
-    if (sessionExpiredDuringOperation) return;
-    if (!id) return;
-
-    const pending = pendingQuotationSubmission;
-    const retry = async () => {
-      setIsQuotationSubmitting(true);
-      try {
-        if (pending.editingId && pending.editingUpdatedAt) {
-          await updateReceivedQuotation(
-            pending.editingId,
-            pending.data as UpdateReceivedQuotationInput,
-            pending.editingUpdatedAt
-          );
-        } else {
-          await createReceivedQuotation(id, pending.data as CreateReceivedQuotationInput);
-        }
-        const updatedQuotations = await getReceivedQuotations(id);
-        setQuotations(updatedQuotations);
-        setShowQuotationForm(false);
-        setEditingQuotation(null);
-        setExistingFilePreviewUrl(null);
-      } catch (err) {
-        // 楽観的排他制御競合等のリトライ失敗時は保留状態を解除し、ユーザーの再操作に委ねる（Req 38.10）。
-        // 404 は握りつぶさず、見つからない旨を表示する（REQ-10.6）
-        const notFoundMessage = getEstimateRequestNotFoundMessage(
-          err,
-          pending.editingId ? 'receivedQuotation' : 'estimateRequest'
-        );
-        if (notFoundMessage) {
-          setOperationError(notFoundMessage);
-        }
-      } finally {
-        setPendingQuotationSubmission(null);
-        setIsQuotationSubmitting(false);
-      }
-    };
-    void retry();
-  }, [sessionExpiredDuringOperation, pendingQuotationSubmission, id]);
 
   /**
    * 受領見積書削除
@@ -1433,6 +1392,15 @@ export default function EstimateRequestDetailPage() {
 
         {/* 受領見積書セクション（Task 59: サイドバーから選択状況の下に移動） */}
         <div style={styles.card}>
+          {sharedOriginalNotice && (
+            <p
+              role="status"
+              style={styles.sharedOriginalNotice}
+              data-testid="shared-original-notice"
+            >
+              {sharedOriginalNotice}
+            </p>
+          )}
           <ReceivedQuotationList
             estimateRequestId={request.id}
             quotations={quotations}
@@ -1461,7 +1429,11 @@ export default function EstimateRequestDetailPage() {
             </h3>
             <ReceivedQuotationForm
               mode={editingQuotation ? 'edit' : 'create'}
-              estimateRequestId={request.id}
+              context={{
+                kind: 'estimateRequest',
+                estimateRequestId: request.id,
+                tradingPartnerName: request.tradingPartnerName,
+              }}
               initialData={editingQuotation || undefined}
               onSubmit={handleQuotationSubmit}
               onCancel={handleQuotationCancel}

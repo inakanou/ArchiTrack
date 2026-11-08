@@ -2181,6 +2181,36 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(row.readingConfirmedAt).toBeNull();
     });
 
+    it('確認済みの受領見積書の応答は確認者の ID と利用者の表示名を返し、未確認に戻すと null を返す（タスク117.4）', async () => {
+      const created = await createInProject({ readingStatus: 'CONFIRMED' });
+      const confirmer = { id: testUserId, displayName: 'Received Quotation Test User' };
+      expect(created.readingConfirmedBy).toEqual(confirmer);
+
+      const detail = await request(app)
+        .get(`/api/quotations/${created.id}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body.readingConfirmedById).toBe(testUserId);
+      expect(detail.body.readingConfirmedBy).toEqual(confirmer);
+
+      const list = await request(app)
+        .get(`/api/projects/${testProjectId}/quotations?include=all`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(list.status).toBe(200);
+      const listed = (list.body as Array<{ id: string; readingConfirmedBy: unknown }>).find(
+        (q) => q.id === created.id
+      );
+      expect(listed?.readingConfirmedBy).toEqual(confirmer);
+
+      const updated = await request(app)
+        .put(`/api/quotations/${created.id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('expectedUpdatedAt', new Date(detail.body.updatedAt).toISOString())
+        .field('readingStatus', 'UNCONFIRMED');
+      expect(updated.status).toBe(200);
+      expect(updated.body.readingConfirmedBy).toBeNull();
+    });
+
     it('監査ログの行は台帳の項目の前後を持ち、工事価格・確定金額の値を持たず、更新の後に変更の有無だけを持つ', async () => {
       const created = await createInProject(ledgerInput);
       const { quotation: updated } = await service.update(

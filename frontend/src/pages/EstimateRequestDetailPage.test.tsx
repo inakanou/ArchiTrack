@@ -34,13 +34,17 @@ vi.mock('../components/estimate-requests/ReceivedQuotationForm', () => ({
     onSubmit,
     onCancel,
     isSubmitting,
+    context,
   }: {
     mode?: 'create' | 'edit';
     onSubmit: (data: unknown) => unknown;
     onCancel: () => void;
     isSubmitting: boolean;
+    context?: unknown;
   }) => (
     <div data-testid="received-quotation-form">
+      {/* タスク117.4: ページがフォームへ渡した登録の文脈を観測する */}
+      <div data-testid="received-quotation-form-context">{JSON.stringify(context ?? null)}</div>
       <div>受領見積書名</div>
       <div>提出日</div>
       <div>ファイルをドラッグ&ドロップ</div>
@@ -331,8 +335,13 @@ import {
 import {
   getReceivedQuotations,
   createReceivedQuotation,
+  updateReceivedQuotation,
   deleteReceivedQuotation,
 } from '../api/received-quotations';
+import {
+  QUOTATION_LIST_REFRESH_FAILED_MESSAGE,
+  formatSharedOriginalNotice,
+} from '../components/estimate-requests/received-quotation-form-messages';
 import { transitionStatus } from '../api/estimate-request-status';
 
 vi.mock('../api/estimate-request-status', () => ({
@@ -1494,6 +1503,153 @@ describe('EstimateRequestDetailPage', () => {
         expect(quotationFormSubmit.last).not.toBeNull();
       });
       await expect(quotationFormSubmit.last).rejects.toBe(error);
+    });
+  });
+
+  // ==========================================================================
+  // タスク117.4: フォームへの登録の文脈と、保存の結果・誤りの受け渡し
+  // ==========================================================================
+  describe('受領見積書のフォームへの登録の文脈と保存の結果（タスク117.4）', () => {
+    const renderLoadedPage = async () => {
+      render(
+        <MemoryRouter initialEntries={['/estimate-requests/er-123']}>
+          <Routes>
+            <Route path="/estimate-requests/:id" element={<EstimateRequestDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      );
+      expect(await screen.findByRole('heading', { name: 'テスト見積依頼' })).toBeInTheDocument();
+    };
+    const openCreateForm = async () => {
+      fireEvent.click(screen.getByRole('button', { name: '受領見積書登録' }));
+      return screen.findByTestId('received-quotation-form');
+    };
+    const submitForm = async (form: HTMLElement) => {
+      quotationFormSubmit.last = null;
+      fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+      await waitFor(() => expect(quotationFormSubmit.last).not.toBeNull());
+      // 失敗した保存の結果を async 関数から直接返すと呼び出し側の await で投げられるため、包んで返す
+      return { result: quotationFormSubmit.last! };
+    };
+
+    it('見積依頼の文脈（見積依頼の ID と宛先の取引先の名前）をフォームへ渡す', async () => {
+      await renderLoadedPage();
+      await openCreateForm();
+
+      expect(
+        JSON.parse(screen.getByTestId('received-quotation-form-context').textContent ?? 'null')
+      ).toEqual({
+        kind: 'estimateRequest',
+        estimateRequestId: 'er-123',
+        tradingPartnerName: '協力業者A',
+      });
+    });
+
+    it('保存の結果の同じ原本の他の受領見積書の件数が 1 以上なら、閉じた後の画面に件数の知らせを出す', async () => {
+      vi.mocked(createReceivedQuotation).mockResolvedValueOnce({
+        sharedOriginalCount: 2,
+      } as Awaited<ReturnType<typeof createReceivedQuotation>>);
+      await renderLoadedPage();
+
+      await submitForm(await openCreateForm());
+
+      const notice = await screen.findByTestId('shared-original-notice');
+      expect(notice).toHaveTextContent(formatSharedOriginalNotice(2)!);
+      expect(notice).toHaveAttribute('role', 'status');
+      expect(screen.queryByTestId('received-quotation-form')).not.toBeInTheDocument();
+    });
+
+    it('件数が 0 なら知らせを出さない', async () => {
+      vi.mocked(createReceivedQuotation).mockResolvedValueOnce({
+        sharedOriginalCount: 0,
+      } as Awaited<ReturnType<typeof createReceivedQuotation>>);
+      await renderLoadedPage();
+
+      await submitForm(await openCreateForm());
+
+      await waitFor(() =>
+        expect(screen.queryByTestId('received-quotation-form')).not.toBeInTheDocument()
+      );
+      expect(screen.queryByTestId('shared-original-notice')).not.toBeInTheDocument();
+    });
+
+    it('知らせは次にフォームを開くと消える', async () => {
+      vi.mocked(createReceivedQuotation).mockResolvedValueOnce({
+        sharedOriginalCount: 1,
+      } as Awaited<ReturnType<typeof createReceivedQuotation>>);
+      await renderLoadedPage();
+      await submitForm(await openCreateForm());
+      expect(await screen.findByTestId('shared-original-notice')).toBeInTheDocument();
+
+      await openCreateForm();
+
+      expect(screen.queryByTestId('shared-original-notice')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['同じ原本の重複の 409', () => new ApiError(409, '重複', { code: 'DUPLICATE_ORIGINAL' })],
+      [
+        '楽観的排他の 409',
+        () => new ApiError(409, 'Conflict', { code: 'RECEIVED_QUOTATION_CONFLICT' }),
+      ],
+      ['検証の 400', () => new ApiError(400, '明細行の1行目: 誤り', { code: 'VALIDATION_ERROR' })],
+    ])(
+      '登録が %s を受けると、握りつぶさずにフォームへ伝えてフォームを開いたままにする',
+      async (_label, makeError) => {
+        const error = makeError();
+        vi.mocked(createReceivedQuotation).mockRejectedValueOnce(error);
+        await renderLoadedPage();
+
+        const { result } = await submitForm(await openCreateForm());
+
+        await expect(result).rejects.toBe(error);
+        expect(screen.getByTestId('received-quotation-form')).toBeInTheDocument();
+      }
+    );
+
+    it('登録が 401 を受けると、ページ自身では再送せずにフォームへ伝える（再認証の後の再試行はフォームが行い、誤りもフォームが出す）', async () => {
+      const error = new ApiError(401, 'Unauthorized');
+      vi.mocked(createReceivedQuotation).mockRejectedValueOnce(error);
+      await renderLoadedPage();
+
+      const { result } = await submitForm(await openCreateForm());
+
+      await expect(result).rejects.toBe(error);
+      // 再認証の状態の変化を待たずに 2 度目の登録を送らない（重複の登録を作らない）
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(createReceivedQuotation).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('received-quotation-form')).toBeInTheDocument();
+    });
+
+    it('登録が成功した後の一覧の再取得が失敗しても、保存の失敗としてフォームへ伝えず、フォームを閉じて再取得の失敗を知らせる', async () => {
+      await renderLoadedPage();
+      vi.mocked(createReceivedQuotation).mockResolvedValueOnce({
+        sharedOriginalCount: 0,
+      } as Awaited<ReturnType<typeof createReceivedQuotation>>);
+      vi.mocked(getReceivedQuotations).mockRejectedValueOnce(new Error('network'));
+
+      const { result } = await submitForm(await openCreateForm());
+
+      await expect(result).resolves.toBeUndefined();
+      await waitFor(() =>
+        expect(screen.queryByTestId('received-quotation-form')).not.toBeInTheDocument()
+      );
+      expect(await screen.findByTestId('estimate-request-operation-error')).toHaveTextContent(
+        QUOTATION_LIST_REFRESH_FAILED_MESSAGE
+      );
+    });
+
+    it('更新が 409 を受けても、握りつぶさずにフォームへ伝える', async () => {
+      const error = new ApiError(409, 'Conflict', { code: 'RECEIVED_QUOTATION_CONFLICT' });
+      vi.mocked(updateReceivedQuotation).mockRejectedValueOnce(error);
+      await renderLoadedPage();
+
+      const editButtons = screen.getAllByRole('button', { name: '編集' });
+      fireEvent.click(editButtons[editButtons.length - 1]!);
+      const form = await screen.findByTestId('received-quotation-form');
+      const { result } = await submitForm(form);
+
+      await expect(result).rejects.toBe(error);
     });
   });
 });

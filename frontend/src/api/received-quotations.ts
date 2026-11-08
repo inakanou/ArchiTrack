@@ -121,6 +121,12 @@ export type QuotationAdoption = 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
 /** 読取の確認の状態（46.6） */
 export type ReadingStatus = 'UNCONFIRMED' | 'CONFIRMED';
 
+/** 読取の確認をした利用者（46.7。タスク117.4）。表示名は利用者の表示名 */
+export interface ReadingConfirmer {
+  id: string;
+  displayName: string;
+}
+
 /**
  * 受領見積書の台帳の項目と業者名の入力（design の同章の Service Interface の `LedgerFieldsInput`）
  *
@@ -185,6 +191,8 @@ export interface ReceivedQuotationInfo {
   readingStatus: ReadingStatus;
   readingConfirmedById: string | null;
   readingConfirmedAt: Date | null;
+  /** 読取の確認をした利用者の ID と表示名（46.7。タスク117.4）。確認者がいない・消えたときは null */
+  readingConfirmedBy: ReadingConfirmer | null;
   quoteDiscriminator: string;
   /** 協力業者名（プロジェクト単位取得時のみ。サーバーは業者名の値を入れる。D2） */
   tradingPartnerName?: string | null;

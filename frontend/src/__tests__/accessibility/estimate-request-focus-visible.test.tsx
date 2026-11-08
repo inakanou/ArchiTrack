@@ -172,7 +172,11 @@ describe('見積依頼の部品・ページが共通のフォーカス表示を�
     const { container } = render(
       <ReceivedQuotationForm
         mode="create"
-        estimateRequestId="er-123"
+        context={{
+          kind: 'estimateRequest',
+          estimateRequestId: 'er-123',
+          tradingPartnerName: '協力業者A',
+        }}
         onSubmit={vi.fn().mockResolvedValue(undefined)}
         onCancel={vi.fn()}
         selectedItems={[]}

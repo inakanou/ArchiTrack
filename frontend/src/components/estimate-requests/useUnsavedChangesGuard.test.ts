@@ -23,6 +23,7 @@ import {
   type FormSnapshot,
 } from './useUnsavedChangesGuard';
 import type { LineItemFormData } from './LineItemEditor';
+import { createLedgerInfoFormData, type LedgerInfoFormData } from './ledger-info-form';
 
 // ============================================================================
 // テスト用ヘルパー: LineItemFormData の最小生成関数
@@ -230,13 +231,30 @@ describe('isFormDirty (Task 81.3, Requirements: 38.12)', () => {
     });
 
     it('amount のみ異なる場合は dirty=false（自動計算結果のため除外）', () => {
+      // 単価のある行の金額は数量×単価で求めた値のため比べない（タスク117.4 で単価のある行に限定）
       const snap = makeSnapshot({
-        lineItems: [makeLineItem({ amount: 1000 })],
+        lineItems: [makeLineItem({ quantity: '10', unitPrice: '100', amount: 1000 })],
       });
       const cur = makeSnapshot({
-        lineItems: [makeLineItem({ amount: 9999 })],
+        lineItems: [makeLineItem({ quantity: '10', unitPrice: '100', amount: 9999 })],
       });
       expect(isFormDirty(cur, snap)).toBe(false);
+    });
+
+    it('単価が空の行で amount だけが異なる場合は dirty=true（利用者が直接入れた金額。タスク117.4）', () => {
+      const snap = makeSnapshot({
+        lineItems: [makeLineItem({ quantity: '1', unitPrice: '', amount: 1000 })],
+      });
+      const cur = makeSnapshot({
+        lineItems: [makeLineItem({ quantity: '1', unitPrice: '', amount: 2000 })],
+      });
+      expect(isFormDirty(cur, snap)).toBe(true);
+    });
+
+    it('単価が空白だけの行も単価が空の行として amount を比べる（タスク117.4）', () => {
+      const snap = makeSnapshot({ lineItems: [makeLineItem({ unitPrice: ' ', amount: null })] });
+      const cur = makeSnapshot({ lineItems: [makeLineItem({ unitPrice: ' ', amount: 500 })] });
+      expect(isFormDirty(cur, snap)).toBe(true);
     });
 
     it('id のみ異なる場合は dirty=false（クライアントサイド一時IDのため除外）', () => {
@@ -285,6 +303,90 @@ describe('isFormDirty (Task 81.3, Requirements: 38.12)', () => {
         ],
       });
       expect(isFormDirty(cur, snap)).toBe(false);
+    });
+  });
+});
+
+// ============================================================================
+// タスク117.4: 判定の対象に台帳の情報・業者名・明細行の新しい欄を足す
+// ============================================================================
+
+describe('isFormDirty の台帳の項目（タスク117.4）', () => {
+  describe('明細行の新しい欄', () => {
+    const cases: Array<[string, Partial<LineItemFormData>]> = [
+      ['区分', { category: 'OVERHEAD' }],
+      ['条件', { condition: '夜間' }],
+      ['換算の数量', { conversionQuantity: '12' }],
+      ['換算の単位', { conversionUnit: 'm2' }],
+      ['換算の単価', { conversionUnitPrice: '1000' }],
+      ['換算の根拠', { conversionBasis: '外周' }],
+      ['分類キー', { classificationKey: 'K-01' }],
+      ['数量表の行のキー', { quantityRowKey: 'row-1' }],
+      ['参考の印', { isReference: true }],
+      ['参考の理由', { referenceReason: '理由' }],
+    ];
+    it.each(cases)('%s が異なる場合は dirty=true', (_label, change) => {
+      const snap = makeSnapshot({ lineItems: [makeLineItem()] });
+      const cur = makeSnapshot({ lineItems: [makeLineItem(change)] });
+      expect(isFormDirty(cur, snap)).toBe(true);
+    });
+
+    it('省略された欄と既定の値（区分は直接工事・文字は空・参考の印は無）は等価として扱う', () => {
+      const snap = makeSnapshot({ lineItems: [makeLineItem()] });
+      const cur = makeSnapshot({
+        lineItems: [
+          makeLineItem({
+            category: 'DIRECT',
+            condition: '',
+            conversionQuantity: '',
+            conversionUnit: '',
+            conversionUnitPrice: '',
+            conversionBasis: '',
+            classificationKey: '',
+            quantityRowKey: '',
+            isReference: false,
+            referenceReason: '',
+          }),
+        ],
+      });
+      expect(isFormDirty(cur, snap)).toBe(false);
+    });
+  });
+
+  describe('台帳の情報と業者名', () => {
+    const ledger = createLedgerInfoFormData();
+
+    it('台帳の情報が同じなら dirty=false', () => {
+      const snap = makeSnapshot({ ledgerInfo: ledger });
+      expect(isFormDirty(makeSnapshot({ ledgerInfo: { ...ledger } }), snap)).toBe(false);
+    });
+
+    it.each<[string, Partial<LedgerInfoFormData>]>([
+      ['見積番号', { quoteNumber: 'Q-1' }],
+      ['採否', { adoption: 'ADOPTED' }],
+      ['読取の確認', { readingStatus: 'CONFIRMED' }],
+      ['工事価格', { constructionPrice: '100' }],
+      ['見積の区別', { quoteDiscriminator: '第2案' }],
+    ])('台帳の情報の %s が異なる場合は dirty=true', (_label, change) => {
+      const snap = makeSnapshot({ ledgerInfo: ledger });
+      const cur = makeSnapshot({ ledgerInfo: { ...ledger, ...change } });
+      expect(isFormDirty(cur, snap)).toBe(true);
+    });
+
+    it('業者名が異なる場合は dirty=true、取引先の ID だけが異なる場合も dirty=true', () => {
+      const snap = makeSnapshot({ vendor: { vendorName: '業者A', tradingPartnerId: 'tp-1' } });
+      expect(
+        isFormDirty(makeSnapshot({ vendor: { vendorName: '業者B', tradingPartnerId: null } }), snap)
+      ).toBe(true);
+      expect(
+        isFormDirty(makeSnapshot({ vendor: { vendorName: '業者A', tradingPartnerId: null } }), snap)
+      ).toBe(true);
+      expect(
+        isFormDirty(
+          makeSnapshot({ vendor: { vendorName: '業者A', tradingPartnerId: 'tp-1' } }),
+          snap
+        )
+      ).toBe(false);
     });
   });
 });

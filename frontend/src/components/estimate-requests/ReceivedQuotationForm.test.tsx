@@ -41,6 +41,15 @@ vi.mock('../../hooks/useAuth', () => ({
 }));
 
 import { ReceivedQuotationForm } from './ReceivedQuotationForm';
+import {
+  DUPLICATE_ORIGINAL_MESSAGE,
+  LEDGER_INFO_ERROR_SUMMARY,
+  LINE_ITEM_SAVE_VALIDATION_MESSAGES,
+  formatSharedOriginalNotice,
+} from './received-quotation-form-messages';
+import { VENDOR_NAME_REQUIRED_MESSAGE } from './VendorNameInput';
+import { LEDGER_INFO_VALIDATION_MESSAGES } from './ledger-info-form';
+import { DuplicateOriginalError } from '../../api/received-quotations';
 // Task 81.3: 401/409 系のリトライ・楽観的競合フローテストで ApiError をスローするため import
 import { ApiError } from '../../api/client';
 import {
@@ -48,6 +57,11 @@ import {
   RECEIVED_QUOTATION_LEDGER_DEFAULTS,
 } from '../../test-support/received-quotation-fixtures';
 import type { LineItemInfo } from '../../api/received-quotations';
+
+// タスク117.4: 案件の文脈の業者名の入力（VendorNameInput）が呼ぶ取引先の検索
+vi.mock('../../api/trading-partners', () => ({
+  searchTradingPartners: vi.fn().mockResolvedValue([]),
+}));
 
 // FileInlinePreviewとOcrDataExtractorをモック
 vi.mock('./FileInlinePreview', () => ({
@@ -187,6 +201,45 @@ vi.mock('./OcrDataExtractor', () => ({
         >
           OCRインポート
         </button>
+        {/* タスク117.4: 別途の行を含む取り込み（NET 金額の自動入力が別途を除く合計を使うことを確かめる） */}
+        <button
+          type="button"
+          data-testid="mock-import-with-excluded-button"
+          onClick={() =>
+            onImportLineItems([
+              {
+                id: 'mock-direct',
+                sortOrder: 0,
+                customCategory: '',
+                workType: '',
+                name: '直接の行',
+                specification: '',
+                unit: '式',
+                quantity: '1',
+                unitPrice: '30000',
+                amount: 30000,
+                remarks: '',
+                category: 'DIRECT',
+              },
+              {
+                id: 'mock-excluded',
+                sortOrder: 1,
+                customCategory: '',
+                workType: '',
+                name: '別途の行',
+                specification: '',
+                unit: '式',
+                quantity: '1',
+                unitPrice: '70000',
+                amount: 70000,
+                remarks: '',
+                category: 'EXCLUDED',
+              },
+            ])
+          }
+        >
+          別途を含むインポート
+        </button>
       </div>
     );
   },
@@ -196,6 +249,12 @@ describe('ReceivedQuotationForm', () => {
   const mockOnSubmit = vi.fn();
   const mockOnCancel = vi.fn();
   const estimateRequestId = 'er-123';
+  // タスク117.4: フォームは登録の文脈（見積依頼・案件）を受ける。既存の試験は見積依頼の文脈で描く
+  const requestContext = {
+    kind: 'estimateRequest' as const,
+    estimateRequestId,
+    tradingPartnerName: '協力業者テスト',
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -209,7 +268,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -239,7 +298,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -254,7 +313,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -267,7 +326,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -286,7 +345,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -303,7 +362,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -325,7 +384,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -347,7 +406,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -370,7 +429,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -393,7 +452,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -428,7 +487,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -448,7 +507,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -468,7 +527,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -490,7 +549,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -519,7 +578,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -543,7 +602,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -576,7 +635,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -644,7 +703,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialData}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -673,7 +732,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -720,7 +779,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           isSubmitting={true}
@@ -742,7 +801,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -763,7 +822,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={{
             ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
             id: 'rq-123',
@@ -814,7 +873,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -856,7 +915,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           selectedItems={mockSelectedItems}
@@ -870,7 +929,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -883,7 +942,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           selectedItems={[]}
@@ -902,7 +961,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           selectedItems={mockSelectedItems}
@@ -923,7 +982,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           selectedItems={mockSelectedItems}
@@ -946,7 +1005,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           selectedItems={mockSelectedItems}
@@ -999,7 +1058,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithLineItems}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1045,7 +1104,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           selectedItems={selectedItemsWithDecimal}
@@ -1078,7 +1137,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1092,7 +1151,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1107,7 +1166,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1124,7 +1183,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1146,7 +1205,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1178,7 +1237,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1248,7 +1307,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialData}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1295,7 +1354,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialData}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1370,7 +1429,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithDecimals}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1425,7 +1484,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithDecimalAmount}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1480,7 +1539,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithFile}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1495,7 +1554,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithFile}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1511,7 +1570,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithFile}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1527,7 +1586,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1551,7 +1610,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithFile}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1568,7 +1627,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithFile}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1590,7 +1649,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1610,7 +1669,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1625,7 +1684,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithFile}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1657,7 +1716,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1695,7 +1754,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1732,7 +1791,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1780,7 +1839,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           selectedItems={mockSelectedItems}
@@ -1808,7 +1867,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -1933,7 +1992,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithGappedSortOrders}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -1972,7 +2031,7 @@ describe('ReceivedQuotationForm', () => {
       const { rerender } = render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -2000,7 +2059,7 @@ describe('ReceivedQuotationForm', () => {
       rerender(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -2012,7 +2071,7 @@ describe('ReceivedQuotationForm', () => {
       rerender(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -2034,7 +2093,7 @@ describe('ReceivedQuotationForm', () => {
       const { rerender } = render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -2057,7 +2116,7 @@ describe('ReceivedQuotationForm', () => {
       rerender(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -2066,7 +2125,7 @@ describe('ReceivedQuotationForm', () => {
       rerender(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -2086,7 +2145,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           selectedItems={[
@@ -2133,7 +2192,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -2212,7 +2271,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
           selectedItems={selectedItems}
@@ -2258,7 +2317,7 @@ describe('ReceivedQuotationForm', () => {
         render(
           <ReceivedQuotationForm
             mode="create"
-            estimateRequestId={estimateRequestId}
+            context={requestContext}
             onSubmit={mockOnSubmit}
             onCancel={mockOnCancel}
           />
@@ -2299,7 +2358,7 @@ describe('ReceivedQuotationForm', () => {
         render(
           <ReceivedQuotationForm
             mode="create"
-            estimateRequestId={estimateRequestId}
+            context={requestContext}
             onSubmit={mockOnSubmit}
             onCancel={mockOnCancel}
           />
@@ -2345,7 +2404,7 @@ describe('ReceivedQuotationForm', () => {
       const utils = render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -2384,7 +2443,7 @@ describe('ReceivedQuotationForm', () => {
       return render(
         <ReceivedQuotationForm
           mode="edit"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           initialData={initialDataWithFile}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
@@ -2514,7 +2573,7 @@ describe('ReceivedQuotationForm', () => {
       render(
         <ReceivedQuotationForm
           mode="create"
-          estimateRequestId={estimateRequestId}
+          context={requestContext}
           onSubmit={mockOnSubmit}
           onCancel={mockOnCancel}
         />
@@ -2589,7 +2648,7 @@ describe('ReceivedQuotationForm', () => {
         render(
           <ReceivedQuotationForm
             mode="create"
-            estimateRequestId={estimateRequestId}
+            context={requestContext}
             onSubmit={mockOnSubmit}
             onCancel={mockOnCancel}
           />
@@ -2641,6 +2700,787 @@ describe('ReceivedQuotationForm', () => {
       // 明細行エディタ（テーブル）も依然として DOM に存在
       const lineItemsTableAfter = screen.queryByRole('table');
       expect(lineItemsTableAfter).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // タスク117.4: 登録の文脈・業者名・台帳の情報・明細行の新しい欄・行のエラー・重複の表示
+  // （design の Requirements 43-50 の章の D4・D5・D6・D9・D11）
+  // ==========================================================================
+  describe('タスク117.4: 登録の文脈・業者名・台帳の情報・重複の表示', () => {
+    const projectContext = { kind: 'project' as const, projectId: 'project-1' };
+
+    type QuotationFixture = NonNullable<Parameters<typeof ReceivedQuotationForm>[0]['initialData']>;
+    const savedLine = (overrides: Partial<LineItemInfo> = {}): LineItemInfo => ({
+      ...LINE_ITEM_LEDGER_DEFAULTS,
+      id: 'li-1',
+      receivedQuotationId: 'rq-ledger',
+      sortOrder: 0,
+      customCategory: null,
+      workType: null,
+      name: '既存の明細',
+      specification: null,
+      unit: '式',
+      quantity: 1,
+      unitPrice: 50000,
+      amount: 50000,
+      remarks: null,
+      ...overrides,
+    });
+    const savedQuotation = (overrides: Partial<QuotationFixture> = {}): QuotationFixture => ({
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+      id: 'rq-ledger',
+      estimateRequestId,
+      name: '台帳の受領見積書',
+      submittedAt: new Date('2026-11-01'),
+      fileName: null,
+      fileMimeType: null,
+      fileSize: null,
+      lineItems: [savedLine()],
+      totalAmount: 50000,
+      netAmount: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...overrides,
+    });
+    const lastSubmitted = () =>
+      mockOnSubmit.mock.calls[mockOnSubmit.mock.calls.length - 1]![0] as Record<string, unknown>;
+    const typeFirstLineName = async (text = 'テスト品目') => {
+      await userEvent.type(screen.getAllByPlaceholderText(/名称/)[0]!, text);
+    };
+    const openLedgerSection = () => {
+      fireEvent.click(screen.getByTestId('ledger-info-section-header'));
+    };
+
+    describe('業者名（43.6・43.8・44.3）', () => {
+      it('見積依頼の文脈では宛先の取引先の名前を編集できない形で出し、保存の入力に業者名と取引先を入れない', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const vendor = screen.getByLabelText('業者名') as HTMLInputElement;
+        expect(vendor.value).toBe('協力業者テスト');
+        expect(vendor.readOnly).toBe(true);
+        expect(screen.queryByRole('combobox', { name: /業者名/ })).not.toBeInTheDocument();
+
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(lastSubmitted()).not.toHaveProperty('vendorName');
+        expect(lastSubmitted()).not.toHaveProperty('tradingPartnerId');
+      });
+
+      it('見積依頼の文脈の編集では保存済みの業者名を編集できない形で出す', () => {
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({ vendorName: '保存済みの業者名' })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const vendor = screen.getByLabelText('業者名') as HTMLInputElement;
+        expect(vendor.value).toBe('保存済みの業者名');
+        expect(vendor.readOnly).toBe(true);
+      });
+
+      it('案件の文脈では業者名の入力を出し、空のまま保存すると必須の文言を出して保存しない', async () => {
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={projectContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const vendor = screen.getByRole('combobox', { name: /業者名/ });
+        expect(vendor).not.toHaveAttribute('readonly');
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        expect(await screen.findByText(VENDOR_NAME_REQUIRED_MESSAGE)).toBeInTheDocument();
+        expect(mockOnSubmit).not.toHaveBeenCalled();
+      });
+
+      it('案件の文脈では入力した業者名を保存の入力に入れる（取引先を選ばなければ ID は null）', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={projectContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.type(screen.getByRole('combobox', { name: /業者名/ }), '株式会社自由入力');
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(lastSubmitted()).toMatchObject({
+          vendorName: '株式会社自由入力',
+          tradingPartnerId: null,
+        });
+      });
+
+      it('案件の文脈の編集で業者名を変えずに保存すると、今の取引先の ID と業者名をそのまま送る（null にしない）', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={projectContext}
+            initialData={savedQuotation({
+              estimateRequestId: null,
+              vendorName: '紐づいた業者',
+              tradingPartnerId: 'tp-linked',
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        expect((screen.getByRole('combobox', { name: /業者名/ }) as HTMLInputElement).value).toBe(
+          '紐づいた業者'
+        );
+        await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(lastSubmitted()).toMatchObject({
+          vendorName: '紐づいた業者',
+          tradingPartnerId: 'tp-linked',
+        });
+      });
+
+      it('案件の文脈の編集で取引先に紐づかない業者名を変えずに保存すると、業者名も取引先の ID も送らない（名前で照合し直させない）', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={projectContext}
+            initialData={savedQuotation({
+              estimateRequestId: null,
+              vendorName: '紐づかない業者',
+              tradingPartnerId: null,
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(lastSubmitted()).not.toHaveProperty('vendorName');
+        expect(lastSubmitted()).not.toHaveProperty('tradingPartnerId');
+      });
+
+      it('案件の文脈の編集で業者名を打ち直すと、打ち直した名前と取引先の ID の null を送る', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={projectContext}
+            initialData={savedQuotation({
+              estimateRequestId: null,
+              vendorName: '紐づいた業者',
+              tradingPartnerId: 'tp-linked',
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const vendor = screen.getByRole('combobox', { name: /業者名/ });
+        await userEvent.clear(vendor);
+        await userEvent.type(vendor, '別の業者');
+        await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(lastSubmitted()).toMatchObject({ vendorName: '別の業者', tradingPartnerId: null });
+      });
+
+      it('サーバーが業者名の誤りで 400 を返すと、業者名の欄に文言を出す', async () => {
+        mockOnSubmit.mockRejectedValueOnce(
+          new ApiError(400, VENDOR_NAME_REQUIRED_MESSAGE, {
+            status: 400,
+            code: 'VALIDATION_ERROR',
+            detail: VENDOR_NAME_REQUIRED_MESSAGE,
+            details: [{ path: 'vendorName', message: VENDOR_NAME_REQUIRED_MESSAGE }],
+          })
+        );
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={projectContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.type(screen.getByRole('combobox', { name: /業者名/ }), '業者');
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        const vendor = screen.getByRole('combobox', { name: /業者名/ });
+        await waitFor(() => expect(vendor).toHaveAttribute('aria-invalid', 'true'));
+        expect(screen.getByText(VENDOR_NAME_REQUIRED_MESSAGE)).toBeInTheDocument();
+      });
+    });
+
+    describe('台帳の情報（46.7・46.9）', () => {
+      it('台帳の情報の欄を既定で閉じて出し、入力した値を保存の入力に含める（採否・読取の確認に空の文字を送らない）', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const header = screen.getByTestId('ledger-info-section-header');
+        expect(header).toHaveAttribute('aria-expanded', 'false');
+        openLedgerSection();
+        await userEvent.type(screen.getByLabelText('見積番号'), 'Q-117');
+        await userEvent.type(screen.getByLabelText('工事価格（円）'), '1200000');
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(lastSubmitted()).toMatchObject({
+          quoteNumber: 'Q-117',
+          constructionPrice: 1200000,
+          siteLocation: null,
+          adoption: 'UNKNOWN',
+          readingStatus: 'UNCONFIRMED',
+          quoteDiscriminator: '',
+        });
+      });
+
+      it('台帳の情報に誤りがあると保存せず、閉じた欄の見出しのすぐ下に誤りがあることを示す', async () => {
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        openLedgerSection();
+        await userEvent.type(screen.getByLabelText('工事価格（円）'), '12a');
+        openLedgerSection(); // 閉じる
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        expect(await screen.findByTestId('ledger-info-error')).toHaveTextContent(
+          LEDGER_INFO_ERROR_SUMMARY
+        );
+        expect(mockOnSubmit).not.toHaveBeenCalled();
+      });
+
+      it('サーバーが台帳の項目の誤りで 400 を返すと、見出しの下に誤りを示し、その欄に文言を出す', async () => {
+        const message = LEDGER_INFO_VALIDATION_MESSAGES.QUOTE_NUMBER_TOO_LONG;
+        mockOnSubmit.mockRejectedValueOnce(
+          new ApiError(400, message, {
+            status: 400,
+            code: 'VALIDATION_ERROR',
+            detail: message,
+            details: [{ path: 'quoteNumber', message }],
+          })
+        );
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        expect(await screen.findByTestId('ledger-info-error')).toHaveTextContent(
+          LEDGER_INFO_ERROR_SUMMARY
+        );
+        openLedgerSection();
+        expect(screen.getByLabelText('見積番号')).toHaveAttribute('aria-invalid', 'true');
+        expect(screen.getByText(message)).toBeInTheDocument();
+      });
+
+      it('確認済みの受領見積書の確認者の表示名を台帳の情報の欄に出す', () => {
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({
+              readingStatus: 'CONFIRMED',
+              readingConfirmedById: 'user-confirmer',
+              readingConfirmedAt: new Date('2026-11-02T01:00:00.000Z'),
+              readingConfirmedBy: { id: 'user-confirmer', displayName: '確認 太郎' },
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        openLedgerSection();
+        expect(screen.getByTestId('ledger-reading-confirmation')).toHaveTextContent(
+          '確認者: 確認 太郎'
+        );
+      });
+    });
+
+    describe('明細行の新しい欄の保存（45.1・45.7・45.8・46.4・47.1・47.4）', () => {
+      it('編集して保存すると、保存済みの区分・条件・換算・分類キー・数量表の行のキー・参考の印と理由と台帳の項目をそのまま送る', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({
+              quoteNumber: 'Q-RT',
+              siteLocation: '相模原市',
+              constructionKind: 'RENOVATION',
+              distanceKm: 27.3,
+              adoption: 'ADOPTED',
+              quoteDiscriminator: '第2案',
+              lineItems: [
+                savedLine({
+                  category: 'OVERHEAD',
+                  condition: '棟別',
+                  conversion: { quantity: 120.25, unit: 'm2', unitPrice: 1996, basis: '外周' },
+                  classificationKey: 'K-01',
+                  quantityRowKey: 'sheet1/row12',
+                  isReference: true,
+                  referenceReason: '数量の根拠が不明',
+                }),
+                savedLine({ id: 'li-2', sortOrder: 1, name: '別途の明細', category: 'EXCLUDED' }),
+              ],
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        const submitted = lastSubmitted();
+        expect(submitted).toMatchObject({
+          quoteNumber: 'Q-RT',
+          siteLocation: '相模原市',
+          constructionKind: 'RENOVATION',
+          distanceKm: 27.3,
+          adoption: 'ADOPTED',
+          quoteDiscriminator: '第2案',
+        });
+        expect(submitted.lineItems).toEqual([
+          expect.objectContaining({
+            name: '既存の明細',
+            category: 'OVERHEAD',
+            condition: '棟別',
+            conversion: { quantity: 120.25, unit: 'm2', unitPrice: 1996, basis: '外周' },
+            classificationKey: 'K-01',
+            quantityRowKey: 'sheet1/row12',
+            isReference: true,
+            referenceReason: '数量の根拠が不明',
+          }),
+          expect.objectContaining({
+            name: '別途の明細',
+            category: 'EXCLUDED',
+            condition: null,
+            conversion: null,
+            classificationKey: null,
+            quantityRowKey: null,
+            isReference: false,
+            referenceReason: null,
+          }),
+        ]);
+      });
+
+      it('新しい行は区分を直接工事として送る', async () => {
+        mockOnSubmit.mockResolvedValueOnce(undefined);
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+        expect(lastSubmitted().lineItems).toEqual([
+          expect.objectContaining({ category: 'DIRECT', isReference: false, conversion: null }),
+        ]);
+      });
+    });
+
+    describe('明細行の行のエラー（45.4・45.9・46.5）', () => {
+      it('値引きの行の金額が正なら、その行の下に文言を出して保存しない', async () => {
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({
+              lineItems: [
+                savedLine(),
+                savedLine({ id: 'li-2', sortOrder: 1, name: '値引き', category: 'DISCOUNT' }),
+              ],
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+
+        expect(await screen.findByTestId('line-item-errors-1')).toHaveTextContent(
+          LINE_ITEM_SAVE_VALIDATION_MESSAGES.DISCOUNT_AMOUNT_POSITIVE
+        );
+        expect(screen.queryByTestId('line-item-errors-0')).not.toBeInTheDocument();
+        expect(mockOnSubmit).not.toHaveBeenCalled();
+      });
+
+      it('参考の印が無い行に参考の理由があれば、その行の下に文言を出して保存しない', async () => {
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({
+              lineItems: [savedLine({ isReference: false, referenceReason: '理由だけ' })],
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+
+        expect(await screen.findByTestId('line-item-errors-0')).toHaveTextContent(
+          LINE_ITEM_SAVE_VALIDATION_MESSAGES.REFERENCE_REASON_WITHOUT_REFERENCE
+        );
+        expect(mockOnSubmit).not.toHaveBeenCalled();
+      });
+
+      it('換算の一部だけを入れると、その行の下に文言を出して保存しない', async () => {
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: '行1の操作メニュー' }));
+        await userEvent.click(screen.getByRole('menuitem', { name: '詳細' }));
+        await userEvent.type(screen.getByLabelText('行1 換算の数量'), '12');
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        expect(await screen.findByTestId('line-item-errors-0')).toHaveTextContent(
+          LINE_ITEM_SAVE_VALIDATION_MESSAGES.CONVERSION_INCOMPLETE
+        );
+        expect(mockOnSubmit).not.toHaveBeenCalled();
+      });
+
+      it('サーバーの「明細行の{n}行目」の 400 を、送った n 行目の行の下に出す（名称の空の行は数えない）', async () => {
+        const message = `明細行の2行目: ${LINE_ITEM_SAVE_VALIDATION_MESSAGES.DISCOUNT_AMOUNT_POSITIVE}`;
+        mockOnSubmit.mockRejectedValueOnce(
+          new ApiError(400, message, { status: 400, code: 'VALIDATION_ERROR', detail: message })
+        );
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({
+              lineItems: [
+                savedLine({ id: 'li-a', name: 'A' }),
+                savedLine({ id: 'li-blank', sortOrder: 1, name: '' }),
+                savedLine({ id: 'li-c', sortOrder: 2, name: 'C' }),
+              ],
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.click(screen.getByRole('button', { name: /更新/ }));
+
+        // 送ったのは A と C の 2 行。サーバーの 2 行目は画面の 3 行目（index 2）
+        expect(await screen.findByTestId('line-item-errors-2')).toHaveTextContent(
+          LINE_ITEM_SAVE_VALIDATION_MESSAGES.DISCOUNT_AMOUNT_POSITIVE
+        );
+        expect(screen.queryByTestId('line-item-errors-1')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('同じ原本の重複（48.3・48.4）', () => {
+      it('409 の同じ原本の重複では、重複の文言と既存の受領見積書の名前・業者名・提出日を出し、楽観的排他の文言を出さない', async () => {
+        mockOnSubmit.mockRejectedValueOnce(
+          new DuplicateOriginalError(DUPLICATE_ORIGINAL_MESSAGE, {
+            name: '先に登録した見積書',
+            vendorName: '先の業者',
+            submittedAt: new Date('2026-10-15T00:00:00.000Z'),
+          })
+        );
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        const duplicate = await screen.findByTestId('duplicate-original-error');
+        expect(duplicate).toHaveTextContent(DUPLICATE_ORIGINAL_MESSAGE);
+        expect(duplicate).toHaveTextContent('先に登録した見積書');
+        expect(duplicate).toHaveTextContent('先の業者');
+        expect(duplicate).toHaveTextContent('2026-10-15');
+        expect(screen.queryByTestId('optimistic-conflict-error')).not.toBeInTheDocument();
+      });
+
+      it('再認証の後の自動の再試行が 409 の同じ原本の重複を受けても、通常の保存と同じく文言と既存の受領見積書を出す', async () => {
+        mockOnSubmit.mockRejectedValueOnce(new ApiError(401, 'Unauthorized')).mockRejectedValueOnce(
+          new DuplicateOriginalError(DUPLICATE_ORIGINAL_MESSAGE, {
+            name: '再試行で重なった見積書',
+            vendorName: '重なった業者',
+            submittedAt: new Date('2026-10-20T00:00:00.000Z'),
+          })
+        );
+        const renderForm = () => (
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+        const { rerender } = render(renderForm());
+
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+
+        mockAuthState.sessionExpiredDuringOperation = true;
+        rerender(renderForm());
+        mockAuthState.sessionExpiredDuringOperation = false;
+        rerender(renderForm());
+
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(2));
+        const duplicate = await screen.findByTestId('duplicate-original-error');
+        expect(duplicate).toHaveTextContent(DUPLICATE_ORIGINAL_MESSAGE);
+        expect(duplicate).toHaveTextContent('再試行で重なった見積書');
+        expect(screen.queryByTestId('optimistic-conflict-error')).not.toBeInTheDocument();
+      });
+
+      it('再認証の後の自動の再試行が楽観的排他の 409 を受けると、楽観的排他の文言を出す', async () => {
+        mockOnSubmit
+          .mockRejectedValueOnce(new ApiError(401, 'Unauthorized'))
+          .mockRejectedValueOnce(
+            new ApiError(409, 'Conflict', { status: 409, code: 'RECEIVED_QUOTATION_CONFLICT' })
+          );
+        const renderForm = () => (
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+        const { rerender } = render(renderForm());
+
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+        await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+
+        mockAuthState.sessionExpiredDuringOperation = true;
+        rerender(renderForm());
+        mockAuthState.sessionExpiredDuringOperation = false;
+        rerender(renderForm());
+
+        expect(await screen.findByTestId('optimistic-conflict-error')).toBeInTheDocument();
+        expect(screen.queryByTestId('duplicate-original-error')).not.toBeInTheDocument();
+      });
+
+      it('楽観的排他の 409 では楽観的排他の文言を出し、重複の文言を出さない', async () => {
+        mockOnSubmit.mockRejectedValueOnce(
+          new ApiError(409, 'Conflict', { status: 409, code: 'RECEIVED_QUOTATION_CONFLICT' })
+        );
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await typeFirstLineName();
+        await userEvent.click(screen.getByRole('button', { name: /登録/ }));
+
+        expect(await screen.findByTestId('optimistic-conflict-error')).toBeInTheDocument();
+        expect(screen.queryByTestId('duplicate-original-error')).not.toBeInTheDocument();
+      });
+
+      it('同じ原本の他の受領見積書の件数の知らせは、1 件以上のときだけ件数を含めて作る', () => {
+        expect(formatSharedOriginalNotice(0)).toBeNull();
+        expect(formatSharedOriginalNotice(1)).toContain('1件');
+        expect(formatSharedOriginalNotice(3)).toContain('3件');
+        expect(formatSharedOriginalNotice(3)).toContain('同じ原本');
+      });
+    });
+
+    describe('NET 金額の自動入力（34.2）', () => {
+      it('取り込みの NET 金額の自動入力は区分が別途の行を除いた合計を使う', async () => {
+        render(
+          <ReceivedQuotationForm
+            mode="create"
+            context={requestContext}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const validFile = new File(['content'], 'test.pdf', { type: 'application/pdf' });
+        const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
+        Object.defineProperty(fileInput, 'files', { value: [validFile], writable: false });
+        fireEvent.change(fileInput);
+
+        fireEvent.click(await screen.findByTestId('mock-import-with-excluded-button'));
+
+        await waitFor(() => {
+          expect((screen.getByLabelText('NET金額') as HTMLInputElement).value).toBe('30000');
+        });
+      });
+    });
+
+    describe('未保存の変更の判定（38.12 の対象の拡張）', () => {
+      it('台帳の情報を変えてから閉じようとすると確認を出す', async () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation()}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        openLedgerSection();
+        await userEvent.type(screen.getByLabelText('見積番号'), 'Q');
+        await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        expect(mockOnCancel).not.toHaveBeenCalled();
+        confirmSpy.mockRestore();
+      });
+
+      it('明細行の区分を変えてから閉じようとすると確認を出す', async () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation()}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.selectOptions(screen.getByLabelText('行1 区分'), 'OVERHEAD');
+        await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        expect(mockOnCancel).not.toHaveBeenCalled();
+        confirmSpy.mockRestore();
+      });
+
+      it('単価が空の行で金額だけを直接入れ直してから閉じようとすると確認を出す', async () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation({
+              lineItems: [savedLine({ quantity: 1, unitPrice: null, amount: 12000 })],
+            })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        const amountInput = screen.getByLabelText('行1 金額');
+        fireEvent.focus(amountInput);
+        fireEvent.change(amountInput, { target: { value: '15000' } });
+        fireEvent.blur(amountInput);
+        await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        expect(mockOnCancel).not.toHaveBeenCalled();
+        confirmSpy.mockRestore();
+      });
+
+      it('案件の文脈で業者名を変えてから閉じようとすると確認を出す', async () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={projectContext}
+            initialData={savedQuotation({ estimateRequestId: null, vendorName: '業者' })}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.type(screen.getByRole('combobox', { name: /業者名/ }), 'X');
+        await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
+        confirmSpy.mockRestore();
+      });
+
+      it('何も変えずに閉じるときは確認を出さない', async () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        render(
+          <ReceivedQuotationForm
+            mode="edit"
+            context={requestContext}
+            initialData={savedQuotation()}
+            onSubmit={mockOnSubmit}
+            onCancel={mockOnCancel}
+          />
+        );
+
+        await userEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
+
+        expect(confirmSpy).not.toHaveBeenCalled();
+        expect(mockOnCancel).toHaveBeenCalledTimes(1);
+        confirmSpy.mockRestore();
+      });
     });
   });
 });
