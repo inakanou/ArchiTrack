@@ -12076,6 +12076,120 @@
           }
         }
       }
+    },
+    "/api/v1/admin/settings/external-ai-reading": {
+      "get": {
+        "summary": "外部の AI での読み取りの設定の取得",
+        "description": "外部の AI（Claude Vision）での読み取りが全体で有効かどうかと、楽観的排他の版を返す。\n設定が一度も変えられていないときは有効・版 0 を返す。\nシステムの設定の管理の権限（settings:update。システム管理者が持つ）が必要。\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "現在の設定",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "version": {
+                      "type": "integer",
+                      "example": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          }
+        }
+      },
+      "put": {
+        "summary": "外部の AI での読み取りの停止・再開",
+        "description": "外部の AI（Claude Vision）での読み取りを全体で止める・戻す。取得で得た版を送り、版が今の版と違えば\n409 を返す（他の管理者の変更を上書きしない）。変更は監査ログ（OPERATIONAL_SETTING_CHANGED、\n対象 SystemSetting / externalAiReading、変更前後の有効・無効）に同じトランザクションで記録し、\n記録できないときは変更しない。システムの設定の管理の権限（settings:update）が必要。\n",
+        "tags": [
+          "Admin"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "enabled",
+                  "version"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "変更後の有効・無効（false で停止）"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "取得で得た版"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "変更後の設定",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "version": {
+                      "type": "integer",
+                      "example": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "本文の検証エラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "409": {
+            "description": "版の競合（SYSTEM_SETTING_CONFLICT。再読み込みを促す）"
+          }
+        }
+      }
     }
   }
 }

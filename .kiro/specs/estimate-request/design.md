@@ -7625,6 +7625,7 @@ class DuplicateOriginalError extends Error {
 - 画面: `OcrDataExtractor` は自動開始・手動実行・再試行のどれでも、Vision を試す前に状態を読み、`available` のときだけ `VisionConsentDialog` を出す。閉じたら OCR を始めず、手動実行のボタンの状態へ戻す（49.3）
 
 **D8 設定の保存**: `SystemSettingService.getExternalAiReading(): Promise<{ enabled: boolean; version: number }>` と `setExternalAiReading(enabled, expectedVersion, actorId)` を持つ。変更は同じトランザクションで `OPERATIONAL_SETTING_CHANGED`（対象の種類 `SystemSetting`、対象の ID `externalAiReading`、before・after）を記録する（49.5）。経路 `GET/PUT /api/v1/admin/settings/external-ai-reading` は `settings:update`（定義済み・一般のロールに付与されていない）を求める。画面 `AdminSettingsPage`（`/admin/settings`）は管理者のルートのブロックに置き、管理メニューに「システム設定」を足す。キャッシュは持たない（複数のインスタンスで停止がすぐ効くように、送信のたびに 1 行を読む）
+- 実装の記録（タスク116.1、2026-11-08）: 版は、行が無いとき 0、行を作ると 1、変更のたびに 1 ずつ上がる。今と同じ値を送る変更も版を上げ、監査に記録する。版は条件つきの更新（今の版と送られた版が同じ行だけを書く）で比べる。版が違えば 409 を返し、本文は既定の誤りの形に `code: 'SYSTEM_SETTING_CONFLICT'` と `details: { expectedVersion, actualVersion }` を持つ。行の無い状態から同時に作ってぶつかったときは今の版が分からないため、`actualVersion` を入れない。監査の before・after は `{ enabled }` だけで、metadata は `{ setting: 'externalAiReading' }` とする。行があるのに値の `enabled` が真偽でない（文字列・null・欄が無い・配列など）ときは、止めた側に倒して無効として読む。本設定は外部への送信を止める安全側の切り替えであり、壊れた値で送信が再開してはならないためである（行が無いときの有効は変えない）
 
 **D9 読取の確認の遷移**: 保存のたびにサービスが次のとおり決める（46.6〜46.8）。
 - 入力が `CONFIRMED` で、保存前が `UNCONFIRMED` → `CONFIRMED`、確認者は操作した利用者、日時は今

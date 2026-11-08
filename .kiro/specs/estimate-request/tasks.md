@@ -2172,6 +2172,7 @@
 - **【2026-11-08・タスク113.4】** 保存は `SaveResult { quotation, sharedOriginalCount }` を返す。`DuplicateOriginalError` は `ApiError` を継ぐため、既定のエラー処理で既に 409 `DUPLICATE_ORIGINAL` になる。重複の判定は登録とファイルのある受領見積書の更新のたびに行う（要件 48.3。見直しで、組が変わるときだけに狭めた実装を差し戻した）。申し送り（114.1・117）: ファイルを添えた作成の応答の `updatedAt` が古い（作成の後のファイルの格納先の更新で進む。従来からの不具合）——続けて編集すると楽観的排他で競合しうる（114.1 で直した）
 - **【2026-11-08・タスク114.1】** 重複の 409 の本文は Problem Details の形で、`existing: {name, vendorName, submittedAt}` を本文の最上位に置く（`details.existing` ではない）。117.1 の API クライアントはこの形を読む。成功の本文には `sharedOriginalCount` が入る。案件の配下の一覧は `include=all` で全件、無指定は従来のまま。申し送り（117・120）: 見積依頼の無い受領見積書の論理削除の成功を HTTP で主張する統合・E2E はまだ無い
 - **【2026-11-08・タスク115.1】** 統合テストは共有の DB を他の試験・E2E と同時に使うため、DB 全体の件数を主張しない。自分の案件の行に `where` を絞る（例: 埋め戻しの試験の `scopedReceivedQuotation()`）
+- **【2026-11-08・タスク116.1】** 外部の AI での読み取りの設定は、行が無ければ有効、行があって値が壊れていれば停止として読む（止める側に倒す）。版は行なし 0・作成 1・変更ごとに +1。競合は 409 `SYSTEM_SETTING_CONFLICT`（`details: {expectedVersion, actualVersion}`）。119.2 の画面はこの形を読む。設定の行は全体で 1 行を共有するため、試験で変えたら必ず元へ戻す（120.2 の E2E は直列で流して afterEach で戻す）
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2605,7 +2606,7 @@
 
 **経緯**: タスク112 の経緯と同じ。是正計画 §5.5 の Claude Vision の項目。design.md の同章の D7・D8 を実装する
 
-- [ ] 116.1 外部の AI での読み取りの設定を保存し、管理者が取得・変更できる経路を足す
+- [x] 116.1 外部の AI での読み取りの設定を保存し、管理者が取得・変更できる経路を足す
   - `SystemSettingService` を新設し（`backend/src/services/system-setting.service.ts`）、外部の AI での読み取りの設定を読む（行が無いときは有効）・楽観的排他で変える。変更は同じトランザクションで `OPERATIONAL_SETTING_CHANGED`（対象の種類 `SystemSetting`、対象の ID `externalAiReading`）を記録する
   - `backend/src/routes/admin-settings.routes.ts` を新設して `GET/PUT /api/v1/admin/settings/external-ai-reading` を置き、`settings:update` を求め、`backend/src/app.ts` に mount する
   - 単体と統合に、既定の有効、停止と再開、版の競合の 409、権限なしの 403、変更の監査ログの before・after を足す

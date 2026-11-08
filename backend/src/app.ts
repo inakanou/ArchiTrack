@@ -28,6 +28,7 @@ import { httpsRedirect, hsts } from './middleware/httpsRedirect.middleware.js';
 import { generateCsrfToken } from './middleware/csrf.middleware.js';
 import { getStorageType } from './storage/index.js';
 import adminRoutes from './routes/admin.routes.js';
+import adminSettingsRoutes from './routes/admin-settings.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import { createInvitationRoutes } from './routes/invitation.routes.js';
 import rolesRoutes from './routes/roles.routes.js';
@@ -338,6 +339,9 @@ app.use('/api/v1/audit-logs', auditLogRoutes);
 
 // 運用設定（ログレベル）の管理。認証と ops:manage の権限を経路ごとに課す（認証の無い旧経路 /admin は設けない）
 app.use('/api/v1/admin', adminRoutes);
+
+// システムの設定（外部の AI での読み取りの停止・再開）の管理。認証と settings:update の権限を経路ごとに課す
+app.use('/api/v1/admin/settings', adminSettingsRoutes);
 
 // Session management routes
 app.use('/api/v1/auth/sessions', sessionRoutes);
