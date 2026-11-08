@@ -2176,6 +2176,7 @@
 - **【2026-11-08・タスク116.2】** Vision の経路の誤りの判別: 管理者の停止は 503 で `errorType: 'service_unavailable'`（既存の端末の OCR への切り替えを保つ）と `code: 'CLAUDE_VISION_DISABLED_BY_ADMIN'`、利用者の上限は 429 `code: 'CLAUDE_VISION_USER_RATE_LIMITED'`（外部のサービスの 429 は `errorType: 'rate_limit'`）、記録の失敗は 500 `CLAUDE_VISION_AUDIT_FAILED`。117.1・119.1 は `code` で分ける。回数制限は NODE_ENV=test では外れるため、画面の上限の文言は E2E では 429 の模擬で確かめる。既存の試験に `@requirement` の印を足すと、機能名を欠く見出しが解決側へ移り site-survey の錨（解決の数）が動く——帰属つきで貼り直す
 - **【2026-11-08・タスク117.1】** 画面への申し送り（117.4・119）: 重複の 409 は `isDuplicateOriginalError`、楽観的排他の 409 は `isReceivedQuotationConflictError` で分ける（`DuplicateOriginalError` も `ApiError(409)` を継ぐため、今の「409 なら楽観的排他」の扱いのままだと重複でも楽観的排他の文言が出る）。見積依頼の文脈では業者名を送らない（サーバーは空の文字を 400 にする）。Vision の誤りは `ClaudeVisionApiError` の `isDisabledByAdmin`・`isUserRateLimited` で分ける。試験の固定値は `frontend/src/test-support/received-quotation-fixtures.ts` の既定値を広げて使う。新設した部品の実装の記録（決めた名前・数値）を design.md の同章へ記す
 - **【2026-11-08・タスク117.2】** 明細行の列が増え、Tab の順は 区分 → 任意分類 … 単価 → 金額（単価が空の行）→ 分類キー → 参考 → 備考 になった。行の操作のメニューの末尾に「詳細」。既存の E2E（列幅の 33.12 の Tab の順、focus-visible の一巡とメニュー）は追随済み。申し送り（117.4）: 保存の入力（`convertToLineItemInput`）がまだ区分と台帳の欄を送らないため、今のフォームで保存すると区分が直接工事に戻る（HEAD から同じ。117.4 で必ず閉じる）。未保存の変更の判定の欄、サーバーの「明細行の{n}行目」の誤りを行の id へ対応づけて `lineItemErrors` で渡すことも 117.4
+- **【2026-11-08・タスク117.3】** 申し送り（117.4、必須）: 46.7 の確認者の名前は、受領見積書の応答に確認者の表示名を足してフォームから `readingConfirmedByName` へ渡すまで満たされない（117.4 の本文と _Boundary_ に足した）。`LedgerInfoSection` は既定で閉じているため、検証の誤りやサーバーの 400 のときは欄を開くか見出しに誤りがあることを示す。値の型と変換は `ledger-info-form.ts`（`createLedgerInfoFormData`・`validateLedgerInfo`・`toLedgerInfoInput`）
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2652,7 +2653,7 @@
   - _Boundary: LineItemEditor_
   - _Depends: 117.1_
 
-- [ ] 117.3 (P) 台帳の情報の欄と業者名の入力の部品を足す
+- [x] 117.3 (P) 台帳の情報の欄と業者名の入力の部品を足す
   - `LedgerInfoSection`（新設）に見積番号・見積全体の条件・案件の条件・採否・確定金額・読取の確認（確認者と日時の表示）・見積の区別を置き、既定で折りたたむ（OCR の欄の折りたたみと同じ `aria-expanded` の形。46.9）
   - `VendorNameInput`（新設）は自由入力の欄で、入力に応じて協力業者の候補を出し、選んだら取引先の ID と名前を返す（44.4・44.5。D4、`CustomerNameInput` のデバウンスの形）。選ばずに入れた文字はそのまま保持する
   - 単体に、折りたたみの既定と開閉、各欄の入力、確認済みの表示、業者名の候補の選択と自由入力の保持を足す
@@ -2666,11 +2667,12 @@
   - 409 `DUPLICATE_ORIGINAL` では 48.3 の文言と既存の受領見積書の名前・業者名・提出日を出し、楽観的排他の文言を出さない。保存の応答の `sharedOriginalCount` が 1 以上なら、同じ原本の受領見積書が他にもあることと件数を出す（48.4）。NET 金額の自動入力は別途を除く合計を使う（34.2）
   - 未保存の変更の判定（`useUnsavedChangesGuard`）の対象に台帳の情報と明細行の新しい欄を足す
   - `EstimateRequestDetailPage` が見積依頼の文脈と取引先の名前を渡す
+  - 受領見積書の応答に確認者の表示名を足し（`ReceivedQuotationService` の応答の整形。design.md の D9 のタスク117.3 の実装の記録）、フォームが `LedgerInfoSection` の `readingConfirmedByName` へ渡す（46.7。追記 2026-11-08: タスク117.3 の見直しで、確認者の名前を出す経路がどのタスクにも無いことが分かったため本タスクへ足した）
   - **既存のテストの追随**（主張を消さない）: `ReceivedQuotationForm.test.tsx` の props と保存の入力の主張を追随させる
   - 単体に、二つの文脈の業者名の表示、43.8 の拒否、409 の分け方、件数の表示、NET の自動入力が別途を除くことを足す
   - 単体で、見積依頼の詳細と案件の一覧の両方からフォームを開け、重複と同じ原本の他の受領見積書が利用者の言葉で示される状態になる
-  - _Requirements: 34.2, 43.6, 43.8, 44.3, 45.4, 45.9, 46.5, 46.9, 48.3, 48.4_
-  - _Boundary: ReceivedQuotationForm, EstimateRequestDetailPage（フォームへの文脈の受け渡し）_
+  - _Requirements: 34.2, 43.6, 43.8, 44.3, 45.4, 45.9, 46.5, 46.7, 46.9, 48.3, 48.4_
+  - _Boundary: ReceivedQuotationForm, EstimateRequestDetailPage（フォームへの文脈の受け渡し）、ReceivedQuotationService の応答の整形（確認者の表示名だけ）_
   - _Depends: 117.2, 117.3_
 
 - [ ] 117.5 (P) 見積依頼の詳細の受領見積書の一覧に、参考の印と読取の確認の状態を出す
