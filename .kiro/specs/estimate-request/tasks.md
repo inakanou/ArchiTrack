@@ -2175,6 +2175,7 @@
 - **【2026-11-08・タスク116.1】** 外部の AI での読み取りの設定は、行が無ければ有効、行があって値が壊れていれば停止として読む（止める側に倒す）。版は行なし 0・作成 1・変更ごとに +1。競合は 409 `SYSTEM_SETTING_CONFLICT`（`details: {expectedVersion, actualVersion}`）。119.2 の画面はこの形を読む。設定の行は全体で 1 行を共有するため、試験で変えたら必ず元へ戻す（120.2 の E2E は直列で流して afterEach で戻す）
 - **【2026-11-08・タスク116.2】** Vision の経路の誤りの判別: 管理者の停止は 503 で `errorType: 'service_unavailable'`（既存の端末の OCR への切り替えを保つ）と `code: 'CLAUDE_VISION_DISABLED_BY_ADMIN'`、利用者の上限は 429 `code: 'CLAUDE_VISION_USER_RATE_LIMITED'`（外部のサービスの 429 は `errorType: 'rate_limit'`）、記録の失敗は 500 `CLAUDE_VISION_AUDIT_FAILED`。117.1・119.1 は `code` で分ける。回数制限は NODE_ENV=test では外れるため、画面の上限の文言は E2E では 429 の模擬で確かめる。既存の試験に `@requirement` の印を足すと、機能名を欠く見出しが解決側へ移り site-survey の錨（解決の数）が動く——帰属つきで貼り直す
 - **【2026-11-08・タスク117.1】** 画面への申し送り（117.4・119）: 重複の 409 は `isDuplicateOriginalError`、楽観的排他の 409 は `isReceivedQuotationConflictError` で分ける（`DuplicateOriginalError` も `ApiError(409)` を継ぐため、今の「409 なら楽観的排他」の扱いのままだと重複でも楽観的排他の文言が出る）。見積依頼の文脈では業者名を送らない（サーバーは空の文字を 400 にする）。Vision の誤りは `ClaudeVisionApiError` の `isDisabledByAdmin`・`isUserRateLimited` で分ける。試験の固定値は `frontend/src/test-support/received-quotation-fixtures.ts` の既定値を広げて使う。新設した部品の実装の記録（決めた名前・数値）を design.md の同章へ記す
+- **【2026-11-08・タスク117.2】** 明細行の列が増え、Tab の順は 区分 → 任意分類 … 単価 → 金額（単価が空の行）→ 分類キー → 参考 → 備考 になった。行の操作のメニューの末尾に「詳細」。既存の E2E（列幅の 33.12 の Tab の順、focus-visible の一巡とメニュー）は追随済み。申し送り（117.4）: 保存の入力（`convertToLineItemInput`）がまだ区分と台帳の欄を送らないため、今のフォームで保存すると区分が直接工事に戻る（HEAD から同じ。117.4 で必ず閉じる）。未保存の変更の判定の欄、サーバーの「明細行の{n}行目」の誤りを行の id へ対応づけて `lineItemErrors` で渡すことも 117.4
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2641,7 +2642,7 @@
   - _Boundary: received-quotations API, claude-vision API, system-settings API_
   - _Depends: 114.1, 116.2_
 
-- [ ] 117.2 明細行の編集に、区分・分類キー・参考の列、行の詳細、区分ごとの小計、別途を除く合計、金額の直接入力、行のエラーを足す
+- [x] 117.2 明細行の編集に、区分・分類キー・参考の列、行の詳細、区分ごとの小計、別途を除く合計、金額の直接入力、行のエラーを足す
   - D11 の列の並びにし、区分の選択（既定は直接工事）・分類キー・参考の印を列に、条件・換算・参考の理由・数量表の行のキー（読むだけ）を行の操作の「詳細」で開く欄に置く。OCR・転記で作る行は区分を直接工事、分類キーと行のキーを空にする
   - 単価が空の行で金額を直接入力でき（45.11）、単価がある行は従来どおり求める（11.11・11.12）。フッターに区分ごとの小計と別途を除く合計を出す（45.5・45.6・11.13）。換算の単価に Requirement 18 の表示を適用する
   - **既存のテストの追随**（主張を消さない）: `frontend/src/components/estimate-requests/LineItemEditor.test.tsx` の列の並び・Tab の順・合計の主張を新しい列の形へ追随させる。列幅の E2E（`e2e/specs/estimate-requests/lineitem-textbox-size-unification-e2e.spec.ts`）の既存の列の主張は変えない

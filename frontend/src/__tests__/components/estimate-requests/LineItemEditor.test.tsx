@@ -748,9 +748,9 @@ describe('LineItemEditor', () => {
       // Tabキーを押す
       await user.tab();
 
-      // 2行目の任意分類フィールド（最初のフィールド）にフォーカスが移動していることを確認
-      const customCategoryInputs = screen.getAllByPlaceholderText('任意分類');
-      expect(document.activeElement).toBe(customCategoryInputs[1]);
+      // 2行目の最初のフィールドにフォーカスが移動していることを確認
+      // （Task 117.2: 列の先頭に区分の選択を置いたため、最初のフィールドは区分の選択）
+      expect(document.activeElement).toBe(screen.getByLabelText('行2 区分'));
     });
   });
 
@@ -857,7 +857,7 @@ describe('LineItemEditor', () => {
       expect(item.workType).toBe('');
     });
 
-    it('Tabキーフォーカス移動順序が任意分類、工種、名称、規格、単位、数量、単価、備考になっている（Task 62.1: NET金額列削除済み）', async () => {
+    it('Tabキーフォーカス移動順序が任意分類、工種、名称、規格、単位、数量、単価、金額、分類キー、参考、備考になっている（Task 62.1: NET金額列削除済み、Task 117.2: 列を追加）', async () => {
       const user = userEvent.setup();
       const lineItem: LineItemFormData = {
         id: '1',
@@ -904,6 +904,18 @@ describe('LineItemEditor', () => {
       // Tab: 単価
       await user.tab();
       expect(document.activeElement).toBe(screen.getByPlaceholderText('単価'));
+
+      // Tab: 金額（Task 117.2: 単価が空の行は金額を直接入力できる）
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByLabelText('行1 金額'));
+
+      // Tab: 分類キー（Task 117.2）
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByLabelText('行1 分類キー'));
+
+      // Tab: 参考（Task 117.2）
+      await user.tab();
+      expect(document.activeElement).toBe(screen.getByLabelText('行1 参考'));
 
       // Tab: 備考（NET金額は削除済み）
       await user.tab();
@@ -1568,9 +1580,9 @@ describe('LineItemEditor', () => {
 
         await user.tab();
 
-        // 表示順2行目（B行）の任意分類にフォーカスが移る
-        const customCategoryInputs = screen.getAllByPlaceholderText('任意分類');
-        expect(document.activeElement).toBe(customCategoryInputs[1]);
+        // 表示順2行目（B行）の最初のフィールド（Task 117.2: 区分の選択）にフォーカスが移る
+        expect(document.activeElement).toBe(screen.getByLabelText('行2 区分'));
+        expect(screen.getAllByPlaceholderText('名称')[1]).toHaveValue('B行');
       });
     });
 

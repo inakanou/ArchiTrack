@@ -47,6 +47,7 @@ import { getEstimateRequestNotFoundMessage } from '../../utils/estimateRequestNo
 import {
   LineItemEditor,
   createEmptyLineItem,
+  createLineItemLedgerDefaults,
   calculateTotalAmount,
   ensureSortOrders,
   reassignSortOrder,
@@ -539,6 +540,19 @@ function convertToLineItemFormData(
       amount: item.amount,
       remarks: item.remarks ?? '',
       sortOrder: typeof rawSortOrder === 'number' ? rawSortOrder : null,
+      // Task 117.2: 台帳の項目をサーバーの値から読む（無い項目は既定）。換算の単価には 18 の表示を適用する（45.10）
+      category: item.category ?? 'DIRECT',
+      condition: item.condition ?? '',
+      conversionQuantity: item.conversion ? String(item.conversion.quantity) : '',
+      conversionUnit: item.conversion?.unit ?? '',
+      conversionUnitPrice: item.conversion
+        ? formatUnitPrice(String(item.conversion.unitPrice))
+        : '',
+      conversionBasis: item.conversion?.basis ?? '',
+      classificationKey: item.classificationKey ?? '',
+      quantityRowKey: item.quantityRowKey ?? '',
+      isReference: item.isReference ?? false,
+      referenceReason: item.referenceReason ?? '',
     };
   });
   // Req 37.3: NULL/undefined 補完 → 昇順ソート
@@ -1024,6 +1038,8 @@ export function ReceivedQuotationForm({
         amount: null,
         remarks: item.remarks ?? '',
         sortOrder: index,
+        // Task 117.2: 転記の行は区分を直接工事、分類キーと数量表の行のキーを空にする（45.3・47.6）
+        ...createLineItemLedgerDefaults(),
       };
     });
 

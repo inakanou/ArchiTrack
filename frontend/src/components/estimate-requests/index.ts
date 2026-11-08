@@ -22,5 +22,13 @@ export {
   createEmptyLineItem,
   calculateAmount,
   calculateTotalAmount,
+  calculateCategorySubtotals,
+  createLineItemLedgerDefaults,
+  getLineItemLedgerFields,
+  LINE_ITEM_CATEGORY_LABELS,
 } from './LineItemEditor';
-export type { LineItemFormData, LineItemEditorProps } from './LineItemEditor';
+export type {
+  LineItemFormData,
+  LineItemLedgerFormData,
+  LineItemEditorProps,
+} from './LineItemEditor';

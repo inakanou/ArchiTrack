@@ -90,7 +90,7 @@ vi.mock('../../hooks/useAuth', () => ({
   }),
 }));
 
-import { OcrDataExtractor } from './OcrDataExtractor';
+import { OcrDataExtractor, convertOcrTextToLineItems } from './OcrDataExtractor';
 import type { LineItemFormData } from './LineItemEditor';
 import * as XLSX from 'xlsx';
 import { TESSERACT_WORKER_OPTIONS } from '../../utils/tesseract-assets';
@@ -1109,5 +1109,32 @@ describe('OcrDataExtractor', () => {
       const retryButtonEnabled = await screen.findByRole('button', { name: /OCRリトライ/ });
       expect(retryButtonEnabled).not.toBeDisabled();
     });
+  });
+});
+
+describe('取り込みで作る明細行の台帳の項目 (Task 117.2)', () => {
+  it('ヘッダー付きのテキストから作る行は区分が DIRECT で、分類キーと数量表の行のキーが空になる', () => {
+    const items = convertOcrTextToLineItems(
+      '名称\t規格\t単位\t数量\t単価\n塗装\tA種\tm2\t10\t1000'
+    );
+
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      expect(item.category).toBe('DIRECT');
+      expect(item.classificationKey).toBe('');
+      expect(item.quantityRowKey).toBe('');
+      expect(item.isReference).toBe(false);
+    }
+  });
+
+  it('ヘッダーの無いテキストから作る行も区分が DIRECT になる', () => {
+    const items = convertOcrTextToLineItems('塗装工事  10  1000');
+
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      expect(item.category).toBe('DIRECT');
+      expect(item.classificationKey).toBe('');
+      expect(item.quantityRowKey).toBe('');
+    }
   });
 });

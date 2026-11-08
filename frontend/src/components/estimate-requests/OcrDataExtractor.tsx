@@ -31,7 +31,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createWorker } from 'tesseract.js';
 import { TESSERACT_WORKER_OPTIONS } from '../../utils/tesseract-assets';
 import * as XLSX from 'xlsx';
-import type { LineItemFormData } from './LineItemEditor';
+import { createLineItemLedgerDefaults, type LineItemFormData } from './LineItemEditor';
 import { extractPdfHybrid, renderPdfPagesToBase64 } from './pdf-text-extractor';
 import { formatQuantity, formatUnitPrice, calculateFormattedAmount } from './number-format';
 import {
@@ -209,6 +209,8 @@ function convertExcelToLineItems(rows: Array<Array<string | number | null>>): Li
       remarks: '',
       // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
       sortOrder: 0,
+      // Task 117.2: 取り込みの行は区分を直接工事、分類キーと数量表の行のキーを空にする（45.3・47.6）
+      ...createLineItemLedgerDefaults(),
     };
 
     if (columnMapping) {
@@ -414,6 +416,8 @@ export function convertOcrTextToLineItems(text: string): LineItemFormData[] {
         remarks: '',
         // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
         sortOrder: 0,
+        // Task 117.2: 取り込みの行は区分を直接工事、分類キーと数量表の行のキーを空にする（45.3・47.6）
+        ...createLineItemLedgerDefaults(),
       };
 
       // 数値でないトークンを名称として、数値トークンを数量・単価として推定
@@ -756,6 +760,8 @@ export function OcrDataExtractor({
           remarks: item.remarks ?? '',
           // task 78.1 暫定: 後続 task 79.3 で reassignSortOrder 適用に置換予定
           sortOrder: index,
+          // Task 117.2: 取り込みの行は区分を直接工事、分類キーと数量表の行のキーを空にする（45.3・47.6）
+          ...createLineItemLedgerDefaults(),
         };
       });
     },
