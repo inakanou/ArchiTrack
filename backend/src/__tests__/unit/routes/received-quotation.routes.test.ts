@@ -191,7 +191,7 @@ describe('received-quotation.routes', () => {
     };
 
     it('should create received quotation and return 201', async () => {
-      mockCreate.mockResolvedValue(mockQuotation);
+      mockCreate.mockResolvedValue({ quotation: mockQuotation, sharedOriginalCount: 0 });
 
       const response = await request(app)
         .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
@@ -209,7 +209,7 @@ describe('received-quotation.routes', () => {
     // 操作した利用者を監査ログの実行者として渡す（estimate-request の Requirement 14.7、タスク111.1）
     // 見積依頼の配下の経路は見積依頼の文脈を第 1 引数に渡す（design の Service Interface の QuotationContext、タスク113.1）
     it('見積依頼の文脈と、認証した利用者の ID を作成の第 3 引数に渡すこと', async () => {
-      mockCreate.mockResolvedValue(mockQuotation);
+      mockCreate.mockResolvedValue({ quotation: mockQuotation, sharedOriginalCount: 0 });
 
       const response = await request(app)
         .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
@@ -256,7 +256,7 @@ describe('received-quotation.routes', () => {
 
     it('should require estimate_request:update permission', async () => {
       // 受領見積書の追加は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
-      mockCreate.mockResolvedValue(mockQuotation);
+      mockCreate.mockResolvedValue({ quotation: mockQuotation, sharedOriginalCount: 0 });
 
       await request(app)
         .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
@@ -354,7 +354,7 @@ describe('received-quotation.routes', () => {
 
     it('should update quotation and return 200', async () => {
       const updatedQuotation = { ...mockQuotation, name: validUpdateInput.name };
-      mockUpdate.mockResolvedValue(updatedQuotation);
+      mockUpdate.mockResolvedValue({ quotation: updatedQuotation, sharedOriginalCount: 0 });
 
       const response = await request(app)
         .put(`/api/quotations/${validUUID}`)
@@ -366,7 +366,10 @@ describe('received-quotation.routes', () => {
 
     // 操作した利用者を監査ログの実行者として渡す（estimate-request の Requirement 14.7、タスク111.1）
     it('認証した利用者の ID を更新の第 4 引数に渡すこと', async () => {
-      mockUpdate.mockResolvedValue({ ...mockQuotation, name: validUpdateInput.name });
+      mockUpdate.mockResolvedValue({
+        quotation: { ...mockQuotation, name: validUpdateInput.name },
+        sharedOriginalCount: 0,
+      });
 
       const response = await request(app)
         .put(`/api/quotations/${validUUID}`)
@@ -411,7 +414,7 @@ describe('received-quotation.routes', () => {
 
     it('should require estimate_request:update permission', async () => {
       // 受領見積書の更新は見積依頼の更新権限を使用（受領見積書は見積依頼の子リソース）
-      mockUpdate.mockResolvedValue(mockQuotation);
+      mockUpdate.mockResolvedValue({ quotation: mockQuotation, sharedOriginalCount: 0 });
 
       await request(app).put(`/api/quotations/${validUUID}`).send(validUpdateInput);
 
@@ -548,7 +551,7 @@ describe('received-quotation.routes', () => {
         updatedAt: new Date('2024-01-01T00:00:00Z'),
       };
 
-      mockCreate.mockResolvedValue(mockResult);
+      mockCreate.mockResolvedValue({ quotation: mockResult, sharedOriginalCount: 0 });
 
       const response = await request(app)
         .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
@@ -623,7 +626,7 @@ describe('received-quotation.routes', () => {
         updatedAt: new Date('2024-01-02T00:00:00Z'),
       };
 
-      mockUpdate.mockResolvedValue(mockResult);
+      mockUpdate.mockResolvedValue({ quotation: mockResult, sharedOriginalCount: 0 });
 
       const response = await request(app)
         .put(`/api/quotations/${validUUID}`)
@@ -796,7 +799,7 @@ describe('received-quotation.routes', () => {
           updatedAt: new Date('2024-01-01T00:00:00Z'),
         };
 
-        mockCreate.mockResolvedValue(mockResult);
+        mockCreate.mockResolvedValue({ quotation: mockResult, sharedOriginalCount: 0 });
 
         const response = await request(app)
           .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
@@ -826,7 +829,7 @@ describe('received-quotation.routes', () => {
           updatedAt: new Date('2024-01-01T00:00:00Z'),
         };
 
-        mockCreate.mockResolvedValue(mockResult);
+        mockCreate.mockResolvedValue({ quotation: mockResult, sharedOriginalCount: 0 });
 
         const response = await request(app)
           .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
@@ -855,7 +858,7 @@ describe('received-quotation.routes', () => {
           updatedAt: new Date('2024-01-01T00:00:00Z'),
         };
 
-        mockCreate.mockResolvedValue(mockResult);
+        mockCreate.mockResolvedValue({ quotation: mockResult, sharedOriginalCount: 0 });
 
         const response = await request(app)
           .post(`/api/estimate-requests/${estimateRequestId}/quotations`)
@@ -887,7 +890,7 @@ describe('received-quotation.routes', () => {
           updatedAt: new Date('2024-01-02T00:00:00Z'),
         };
 
-        mockUpdate.mockResolvedValue(mockResult);
+        mockUpdate.mockResolvedValue({ quotation: mockResult, sharedOriginalCount: 0 });
 
         const response = await request(app).put(`/api/quotations/${validUUID}`).send({
           expectedUpdatedAt: '2024-01-01T00:00:00.000Z',
@@ -914,7 +917,7 @@ describe('received-quotation.routes', () => {
           updatedAt: new Date('2024-01-02T00:00:00Z'),
         };
 
-        mockUpdate.mockResolvedValue(mockResult);
+        mockUpdate.mockResolvedValue({ quotation: mockResult, sharedOriginalCount: 0 });
 
         const response = await request(app).put(`/api/quotations/${validUUID}`).send({
           expectedUpdatedAt: '2024-01-01T00:00:00.000Z',

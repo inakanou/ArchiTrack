@@ -43,6 +43,11 @@
  * 読取の確認を D9 のとおり遷移させる（46.6〜46.8）。監査ログには台帳の項目の前後を入れ、工事価格・確定金額は
  * 変更の有無だけを入れる（46.11）。
  *
+ * 原本の指紋と二重登録（同章の D6、タスク113.4）: ファイルの内容から sha256 を求めて保持する（48.1）。保存の
+ * トランザクションの中で案件の勧告ロックを取ってから同じ案件の同じ指紋の受領見積書を読み、見積の区別も同じなら
+ * `DuplicateOriginalError` で何も保存せず（ファイルも送らない）、違えばその件数を `sharedOriginalCount` で返す
+ * （48.3〜48.7）。
+ *
  * Task 12.1: ReceivedQuotationServiceの実装
  * Task 20.2: contentType/textContent廃止、ファイル+明細行共存モデルへ移行
  * Task 21.1: 明細行管理追加（一括保存・取得・全量置換・金額検証）
@@ -50,6 +55,7 @@
  * @module services/received-quotation
  */
 
+import { createHash } from 'crypto';
 import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import { RECEIVED_QUOTATION_TARGET_TYPE } from '../types/audit-log.types.js';
@@ -61,6 +67,7 @@ import {
   InvalidFileTypeError,
   FileSizeLimitExceededError,
   FileOrLineItemsRequiredError,
+  DuplicateOriginalError,
 } from '../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
@@ -77,6 +84,12 @@ import { getSharedProjectScopeService, type ProjectScopeService } from './projec
  * ファイルサイズ上限（10MB）
  */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+/**
+ * 同じ案件の二重登録の判定を直列化する取引ロックの名前空間（pg_advisory_xact_lock の第1キー。第2キーは
+ * 案件の ID の hashtext。design の Requirements 43-50 の章の D6、タスク113.4）
+ */
+export const ORIGINAL_FILE_LOCK_NAMESPACE = 113_004;
 
 /**
  * 許可されるMIMEタイプ
@@ -353,6 +366,15 @@ export type ProjectQuotationSummary = ReceivedQuotationInfo & {
 };
 
 /**
+ * 登録・更新の結果（design の同章の Service Interface の `SaveResult`、タスク113.4）
+ */
+export interface SaveResult {
+  readonly quotation: ReceivedQuotationInfo;
+  /** 同じ案件で原本の指紋が同じで見積の区別が違う、他の受領見積書の数（48.4）。ファイルが無ければ 0 */
+  readonly sharedOriginalCount: number;
+}
+
+/**
  * Prismaトランザクションクライアント型
  *
  * 監査ログを同じトランザクションで書くため（`IAuditLogService.createLog` の第 2 引数。タスク111.1）、
@@ -443,6 +465,57 @@ export class ReceivedQuotationService {
       logger.error({ error, filePath }, 'Failed to delete file from storage');
       // ファイル削除の失敗は許容（定期的な手動クリーンアップで対応）
     }
+  }
+
+  /**
+   * ファイルの内容から原本の指紋（sha256 の 16 進の小文字 64 文字）を求める（48.1）。
+   * 送り手が申告した値は使わない
+   */
+  private computeFileSha256(file: FileInfo): string {
+    return createHash('sha256').update(file.buffer).digest('hex');
+  }
+
+  /**
+   * 同じ案件の二重登録を判定する（D6。48.3・48.4・48.7）
+   *
+   * 呼び出し元のトランザクションの中で案件の勧告ロックを取り、同じ案件の論理削除されていない（論理削除された
+   * 見積依頼の配下のものも除く）自分以外の受領見積書で、同じ指紋のものを読む。見積の区別も同じものがあれば
+   * `DuplicateOriginalError` を投げる。他の案件は読まない
+   *
+   * @returns 同じ指紋で見積の区別が違う他の受領見積書の数
+   */
+  private async checkDuplicateOriginal(
+    tx: PrismaTransactionClient,
+    params: {
+      projectId: string;
+      fileSha256: string;
+      quoteDiscriminator: string;
+      excludeId: string | null;
+    }
+  ): Promise<number> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ORIGINAL_FILE_LOCK_NAMESPACE}::int, hashtext(${params.projectId}))`;
+
+    const others = await tx.receivedQuotation.findMany({
+      where: {
+        projectId: params.projectId,
+        fileSha256: params.fileSha256,
+        deletedAt: null,
+        OR: [{ estimateRequestId: null }, { estimateRequest: { is: { deletedAt: null } } }],
+        ...(params.excludeId !== null ? { id: { not: params.excludeId } } : {}),
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { name: true, vendorName: true, submittedAt: true, quoteDiscriminator: true },
+    });
+
+    const same = others.find((other) => other.quoteDiscriminator === params.quoteDiscriminator);
+    if (same) {
+      throw new DuplicateOriginalError({
+        name: same.name,
+        vendorName: same.vendorName,
+        submittedAt: same.submittedAt.toISOString(),
+      });
+    }
+    return others.filter((other) => other.quoteDiscriminator !== params.quoteDiscriminator).length;
   }
 
   /**
@@ -848,7 +921,8 @@ export class ReceivedQuotationService {
    * @param context - 受領見積書の文脈（見積依頼・案件。タスク113.1）
    * @param input - 作成入力
    * @param actorId - 操作した利用者のID（監査ログの実行者）
-   * @returns 作成された受領見積書情報（明細行・合計金額を含む）
+   * @returns 作成された受領見積書情報（明細行・合計金額を含む）と、同じ原本で区別の違う他の受領見積書の数
+   * @throws DuplicateOriginalError 同じ案件に原本の指紋と見積の区別が同じ受領見積書がある場合（48.3）
    * @throws EstimateRequestNotFoundError 見積依頼の文脈で見積依頼が存在しない場合
    * @throws ProjectNotFoundError 案件の文脈で案件が存在しないか論理削除済みの場合
    * @throws ValidationError 案件の文脈で業者名が空の場合（43.8）
@@ -860,7 +934,7 @@ export class ReceivedQuotationService {
     context: QuotationContext,
     input: CreateReceivedQuotationInput,
     actorId: string
-  ): Promise<ReceivedQuotationInfo> {
+  ): Promise<SaveResult> {
     // 1. ファイルのバリデーション
     if (input.file) {
       this.validateFileType(input.file);
@@ -876,9 +950,25 @@ export class ReceivedQuotationService {
       : undefined;
     const lineRows = (correctedLineItems ?? []).map((item) => this.toLineItemRow(item));
 
+    // 原本の指紋（48.1）。ファイルの内容から求め、送り手の申告値は使わない
+    const fileSha256 = input.file ? this.computeFileSha256(input.file) : null;
+    const quoteDiscriminator = input.quoteDiscriminator ?? '';
+
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 4. 文脈の解決（タスク113.1）: 見積依頼・案件・業者名・取引先を決める
       const owner = await this.resolveContext(tx, context, input);
+
+      // 4.5 同じ案件の二重登録の判定（D6。タスク113.4）。レコードの作成とファイルの送信より前に置き、
+      // 拒むときは DB にもストレージにも何も残さない（48.3）。ファイルの無いものは判定しない（48.6）
+      const sharedOriginalCount =
+        fileSha256 !== null
+          ? await this.checkDuplicateOriginal(tx, {
+              projectId: owner.projectId,
+              fileSha256,
+              quoteDiscriminator,
+              excludeId: null,
+            })
+          : 0;
 
       // 5. レコードを作成（Task 61.2: netAmountを受領見積書レベルに永続化）
       const quotation = await tx.receivedQuotation.create({
@@ -893,10 +983,11 @@ export class ReceivedQuotationService {
           fileName: input.file ? input.file.originalName : null,
           fileMimeType: input.file ? input.file.mimeType : null,
           fileSize: input.file ? input.file.size : null,
+          fileSha256,
           netAmount: input.netAmount ?? null,
           // 台帳の項目（タスク113.3）。見積の区別は送られなければ空（48.2）
           ...this.pickLedgerColumns(input),
-          quoteDiscriminator: input.quoteDiscriminator ?? '',
+          quoteDiscriminator,
           // 読取の確認（D9）。作成は保存前を未確認とみる
           ...this.decideReadingConfirmation(null, input.readingStatus, false, actorId),
         },
@@ -966,10 +1057,13 @@ export class ReceivedQuotationService {
             )
           : lineItemInfos;
 
-      return this.toReceivedQuotationInfoWithLineItems(
-        { ...quotation, filePath: filePath ?? quotation.filePath },
-        resultLineItems
-      );
+      return {
+        quotation: this.toReceivedQuotationInfoWithLineItems(
+          { ...quotation, filePath: filePath ?? quotation.filePath },
+          resultLineItems
+        ),
+        sharedOriginalCount,
+      };
     });
   }
 
@@ -1088,16 +1182,17 @@ export class ReceivedQuotationService {
    * @param input - 更新入力
    * @param expectedUpdatedAt - 期待される更新日時（楽観的排他制御用）
    * @param actorId - 操作した利用者のID（監査ログの実行者）
-   * @returns 更新された受領見積書情報
+   * @returns 更新された受領見積書情報と、同じ原本で区別の違う他の受領見積書の数
    * @throws ReceivedQuotationNotFoundError 受領見積書が存在しない場合
    * @throws ReceivedQuotationConflictError 楽観的排他制御エラー
+   * @throws DuplicateOriginalError ファイルの差し替え・見積の区別の変更で同じ案件に同じ組ができる場合（48.5）
    */
   async update(
     id: string,
     input: UpdateReceivedQuotationInput,
     expectedUpdatedAt: Date,
     actorId: string
-  ): Promise<ReceivedQuotationInfo> {
+  ): Promise<SaveResult> {
     // ファイルのバリデーション
     if (input.file) {
       this.validateFileType(input.file);
@@ -1108,6 +1203,10 @@ export class ReceivedQuotationService {
     const correctedLineItems = input.lineItems
       ? this.validateAndCorrectAmounts(input.lineItems)
       : undefined;
+
+    // 差し替えるファイルの原本の指紋（48.1・48.5）。ファイルを外す要求が優先する
+    const newFileSha256 =
+      input.file && !input.removeFile ? this.computeFileSha256(input.file) : null;
 
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 1. 受領見積書の存在確認
@@ -1169,6 +1268,21 @@ export class ReceivedQuotationService {
         )
       );
 
+      // 3.5 同じ案件の二重登録の判定（D6。タスク113.4）。ファイルを送る前に置き、拒むときは何も変えない。
+      // 保存後の指紋と見積の区別で、ファイルを持つ受領見積書の更新のたびに判定する（48.3・48.5）。ファイルの
+      // 無いもの・ファイルを外す更新は判定しない（48.6）
+      const savedFileSha256 = input.removeFile ? null : (newFileSha256 ?? quotation.fileSha256);
+      const savedDiscriminator = input.quoteDiscriminator ?? quotation.quoteDiscriminator;
+      const sharedOriginalCount =
+        savedFileSha256 !== null
+          ? await this.checkDuplicateOriginal(tx, {
+              projectId: quotation.projectId,
+              fileSha256: savedFileSha256,
+              quoteDiscriminator: savedDiscriminator,
+              excludeId: id,
+            })
+          : 0;
+
       // 4. ファイル更新処理
       const oldFilePath = quotation.filePath;
       let newFilePath: string | null = null;
@@ -1179,6 +1293,7 @@ export class ReceivedQuotationService {
         updateData.fileName = null;
         updateData.fileMimeType = null;
         updateData.fileSize = null;
+        updateData.fileSha256 = null;
       } else if (input.file) {
         // 新しいファイルのアップロード（格納先は文脈で決まる。D3）
         newFilePath = await this.uploadFile(owner, id, input.file);
@@ -1186,6 +1301,7 @@ export class ReceivedQuotationService {
         updateData.fileName = input.file.originalName;
         updateData.fileMimeType = input.file.mimeType;
         updateData.fileSize = input.file.size;
+        updateData.fileSha256 = newFileSha256;
       }
 
       // 5. 明細行の全量置換（DELETE + INSERT）(Task 21.1)
@@ -1256,7 +1372,10 @@ export class ReceivedQuotationService {
       }
 
       const lineItemInfos = (updatedQuotation.lineItems || []).map((li) => this.toLineItemInfo(li));
-      return this.toReceivedQuotationInfoWithLineItems(updatedQuotation, lineItemInfos);
+      return {
+        quotation: this.toReceivedQuotationInfoWithLineItems(updatedQuotation, lineItemInfos),
+        sharedOriginalCount,
+      };
     });
   }
 

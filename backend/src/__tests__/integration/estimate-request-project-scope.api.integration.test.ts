@@ -1271,7 +1271,7 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         storageProvider: storageProvider!,
         auditLogService: new AuditLogService({ prisma }),
       });
-      const created = await service.create(
+      const { quotation: created } = await service.create(
         { kind: 'project', projectId: target.projectId },
         {
           name: `${MARK}-project-context`,

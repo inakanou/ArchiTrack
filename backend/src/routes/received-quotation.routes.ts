@@ -204,7 +204,8 @@ router.post(
 
       // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
       // 見積依頼の配下の登録は見積依頼の文脈で作る（design の Requirements 43-50 の章の Service Interface、タスク113.1）
-      const quotation = await getReceivedQuotationService().create(
+      // 応答の形はまだ変えない（409 の対応と sharedOriginalCount の応答はタスク114.1）
+      const { quotation } = await getReceivedQuotationService().create(
         { kind: 'estimateRequest', estimateRequestId },
         input,
         req.user!.userId
@@ -507,7 +508,8 @@ router.put(
       };
 
       // 操作した利用者を監査ログの実行者として渡す（Requirement 14.7、タスク111.1）
-      const quotation = await getReceivedQuotationService().update(
+      // 応答の形はまだ変えない（409 の対応と sharedOriginalCount の応答はタスク114.1）
+      const { quotation } = await getReceivedQuotationService().update(
         id,
         input,
         new Date(expectedUpdatedAt),

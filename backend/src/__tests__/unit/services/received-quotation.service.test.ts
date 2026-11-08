@@ -33,6 +33,8 @@ import {
   InvalidContentTypeError,
   InvalidFileTypeError,
   FileSizeLimitExceededError,
+  DuplicateOriginalError,
+  DUPLICATE_ORIGINAL_MESSAGE,
 } from '../../../errors/receivedQuotationError.js';
 import { EstimateRequestNotFoundError } from '../../../errors/estimateRequestError.js';
 import { ProjectNotFoundError } from '../../../errors/projectError.js';
@@ -194,10 +196,12 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           estimateRequest: {
             findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
           },
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             create: createQuotation,
           },
           receivedQuotationLineItem: {
@@ -208,7 +212,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+      const { quotation: result } = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       // Assert
       expect(result.id).toBe('rq-001');
@@ -263,10 +267,12 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           estimateRequest: {
             findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
           },
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             update: vi.fn().mockResolvedValue(mockCreatedQuotation),
           },
@@ -275,7 +281,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+      const { quotation: result } = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       // Assert
       expect(result.id).toBe('rq-002');
@@ -295,6 +301,7 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           estimateRequest: {
             findUnique: vi.fn().mockResolvedValue(null),
           },
@@ -386,10 +393,12 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           estimateRequest: {
             findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
           },
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             update: vi.fn().mockResolvedValue(mockCreatedQuotation),
           },
@@ -398,7 +407,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+      const { quotation: result } = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       // Assert
       expect(result.fileMimeType).toBe(
@@ -444,10 +453,12 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           estimateRequest: {
             findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
           },
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             update: vi.fn().mockResolvedValue(mockCreatedQuotation),
           },
@@ -456,7 +467,7 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+      const { quotation: result } = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       // Assert
       expect(result.fileMimeType).toBe('image/jpeg');
@@ -625,7 +636,9 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(mockQuotation),
             update: vi.fn().mockResolvedValue(mockUpdatedQuotation),
           },
@@ -634,7 +647,12 @@ describe('ReceivedQuotationService', () => {
       });
 
       // Act
-      const result = await service.update(quotationId, input, expectedUpdatedAt, ACTOR_ID);
+      const { quotation: result } = await service.update(
+        quotationId,
+        input,
+        expectedUpdatedAt,
+        ACTOR_ID
+      );
 
       // Assert
       expect(result.name).toBe('更新後の受領見積書名');
@@ -661,7 +679,9 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(mockQuotation),
           },
         };
@@ -711,7 +731,9 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(mockQuotation),
             update: vi.fn().mockResolvedValue(mockUpdatedQuotation),
           },
@@ -752,7 +774,9 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(mockQuotation),
             update: vi.fn().mockResolvedValue({ ...mockQuotation, deletedAt: new Date() }),
           },
@@ -790,7 +814,9 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(mockQuotation),
             update: vi.fn().mockResolvedValue({ ...mockQuotation, deletedAt: new Date() }),
           },
@@ -830,7 +856,9 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(mockQuotation),
             update: txUpdate,
             delete: txDelete,
@@ -854,7 +882,9 @@ describe('ReceivedQuotationService', () => {
       // Arrange
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(null),
           },
         };
@@ -1000,6 +1030,7 @@ describe('ReceivedQuotationService', () => {
       created?: Record<string, unknown>;
     }) => {
       const txClient = {
+        $executeRaw: vi.fn().mockResolvedValue(1),
         project: { findUnique: vi.fn().mockResolvedValue(options.project ?? null) },
         estimateRequest: {
           findUnique: vi.fn().mockResolvedValue(options.estimateRequest ?? null),
@@ -1010,6 +1041,7 @@ describe('ReceivedQuotationService', () => {
           findMany: vi.fn().mockResolvedValue([]),
         },
         receivedQuotation: {
+          findMany: vi.fn().mockResolvedValue([]),
           create: vi.fn().mockResolvedValue(options.created ?? createdRow()),
           update: vi.fn().mockResolvedValue(options.created ?? createdRow()),
         },
@@ -1034,7 +1066,7 @@ describe('ReceivedQuotationService', () => {
     it('案件の文脈では、見積依頼を持たずに案件に属する受領見積書を作り、見積依頼を引かない', async () => {
       const txClient = setupTx({ project: projectRow });
 
-      const result = await service.create(
+      const { quotation: result } = await service.create(
         { kind: 'project', projectId: 'project-ctx' },
         { ...baseInput, vendorName: '  自前の協力業者  ' },
         ACTOR_ID
@@ -1074,7 +1106,7 @@ describe('ReceivedQuotationService', () => {
         created: createdRow({ estimateRequestId: 'er-ctx', projectId: 'project-of-request' }),
       });
 
-      const result = await service.create(
+      const { quotation: result } = await service.create(
         { kind: 'estimateRequest', estimateRequestId: 'er-ctx' },
         { ...baseInput, vendorName: '入力の業者名' },
         ACTOR_ID
@@ -1196,7 +1228,9 @@ describe('ReceivedQuotationService', () => {
 
       const setupUpdateTx = (existing: Record<string, unknown>) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(existing),
             update: vi.fn().mockResolvedValue({ ...existing, lineItems: [] }),
           },
@@ -1404,6 +1438,7 @@ describe('ReceivedQuotationService', () => {
       existing?: Record<string, unknown>;
     }) => {
       const txClient = {
+        $executeRaw: vi.fn().mockResolvedValue(1),
         project: { findUnique: vi.fn().mockResolvedValue(options.project ?? projectRow) },
         estimateRequest: {
           findUnique: vi.fn().mockResolvedValue(options.estimateRequest ?? null),
@@ -1413,6 +1448,7 @@ describe('ReceivedQuotationService', () => {
           findMany: vi.fn().mockResolvedValue(options.partnersByName ?? []),
         },
         receivedQuotation: {
+          findMany: vi.fn().mockResolvedValue([]),
           create: vi.fn().mockResolvedValue(quotationRow()),
           findUnique: vi.fn().mockResolvedValue(options.existing ?? null),
           update: vi
@@ -1843,10 +1879,12 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
             receivedQuotationLineItem: {
@@ -1857,7 +1895,11 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         // Assert
         expect(result.id).toBe('rq-010');
@@ -1910,10 +1952,12 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
               update: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
@@ -1925,7 +1969,11 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         // Assert
         expect(result.fileName).toBe('見積書.pdf');
@@ -2001,10 +2049,12 @@ describe('ReceivedQuotationService', () => {
         const createMany = vi.fn().mockResolvedValue({ count: 1 });
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
             receivedQuotationLineItem: {
@@ -2015,7 +2065,11 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         // Assert: サーバーサイドで求めた金額を保存して返す
         expect(createMany.mock.calls[0]![0].data[0].amount).toBe(10000);
@@ -2192,7 +2246,9 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               findUnique: vi.fn().mockResolvedValue(mockQuotation),
               update: vi.fn().mockResolvedValue(mockUpdatedQuotation),
             },
@@ -2205,7 +2261,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.update(
+        const { quotation: result } = await service.update(
           quotationId,
           { lineItems: newLineItems },
           expectedUpdatedAt,
@@ -2244,7 +2300,9 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               findUnique: vi.fn().mockResolvedValue(mockQuotation),
               update: vi.fn().mockResolvedValue({ ...mockQuotation, deletedAt: new Date() }),
             },
@@ -2343,10 +2401,12 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
             receivedQuotationLineItem: {
@@ -2357,7 +2417,11 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         // Assert
         expect(result.id).toBe('rq-new-001');
@@ -2410,10 +2474,12 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
               update: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
@@ -2425,7 +2491,11 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         // Assert: ファイルと明細行の両方が存在
         expect(result.fileName).toBe('設備見積.pdf');
@@ -2473,10 +2543,12 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
               update: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
@@ -2485,7 +2557,11 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         // Assert: ファイルのみで明細行なし
         expect(result.fileName).toBe('見積書.xlsx');
@@ -2535,10 +2611,12 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
             receivedQuotationLineItem: {
@@ -2549,7 +2627,11 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         // Assert: 明細行のみでファイルなし
         expect(result.fileName).toBeNull();
@@ -2649,10 +2731,12 @@ describe('ReceivedQuotationService', () => {
         const createMany = vi.fn().mockResolvedValue({ count: 1 });
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
             receivedQuotationLineItem: {
@@ -2663,7 +2747,11 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         // Assert: サーバーサイドの検証は送られた金額を書き換えない
         expect(createMany.mock.calls[0]![0].data[0].amount).toBe(99999);
@@ -2727,10 +2815,12 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
             receivedQuotationLineItem: {
@@ -2741,7 +2831,11 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         // Assert: 金額はnull
         expect(result.lineItems[0]!.amount).toBeNull();
@@ -2810,7 +2904,9 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               findUnique: vi.fn().mockResolvedValue(mockQuotation),
               update: vi.fn().mockResolvedValue(mockUpdatedQuotation),
             },
@@ -2823,7 +2919,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.update(
+        const { quotation: result } = await service.update(
           quotationId,
           { lineItems: newLineItems },
           expectedUpdatedAt,
@@ -2874,7 +2970,9 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               findUnique: vi.fn().mockResolvedValue(mockQuotation),
               update: vi.fn().mockResolvedValue(mockUpdatedQuotation),
             },
@@ -2887,7 +2985,7 @@ describe('ReceivedQuotationService', () => {
         });
 
         // Act
-        const result = await service.update(
+        const { quotation: result } = await service.update(
           quotationId,
           { lineItems: [] },
           expectedUpdatedAt,
@@ -3161,6 +3259,7 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue({
                 id: 'er-001',
@@ -3171,6 +3270,7 @@ describe('ReceivedQuotationService', () => {
               }),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreated),
             },
             receivedQuotationLineItem: {
@@ -3180,7 +3280,11 @@ describe('ReceivedQuotationService', () => {
           return fn(txClient as unknown as PrismaClient);
         });
 
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         expect(result.lineItems).toHaveLength(2);
         expect(result.lineItems[0]?.customCategory).toBe('躯体工事');
@@ -3240,6 +3344,7 @@ describe('ReceivedQuotationService', () => {
 
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: {
               findUnique: vi.fn().mockResolvedValue({
                 id: 'er-001',
@@ -3250,6 +3355,7 @@ describe('ReceivedQuotationService', () => {
               }),
             },
             receivedQuotation: {
+              findMany: vi.fn().mockResolvedValue([]),
               create: vi.fn().mockResolvedValue(mockCreated),
             },
             receivedQuotationLineItem: {
@@ -3259,7 +3365,11 @@ describe('ReceivedQuotationService', () => {
           return fn(txClient as unknown as PrismaClient);
         });
 
-        const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+        const { quotation: result } = await service.create(
+          requestContextOf(input),
+          input,
+          ACTOR_ID
+        );
 
         expect(result.lineItems).toHaveLength(1);
         expect(result.lineItems[0]?.customCategory).toBeNull();
@@ -3378,10 +3488,12 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           estimateRequest: {
             findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
           },
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockImplementation((args) => {
               capturedCreateData = args;
               return mockCreatedQuotation;
@@ -3394,7 +3506,7 @@ describe('ReceivedQuotationService', () => {
         return fn(txClient as unknown as PrismaClient);
       });
 
-      const result = await service.create(requestContextOf(input), input, ACTOR_ID);
+      const { quotation: result } = await service.create(requestContextOf(input), input, ACTOR_ID);
 
       expect(result.id).toBe('rq-net-001');
       expect(result.netAmount).toBe(9000);
@@ -3530,10 +3642,12 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           estimateRequest: {
             findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
           },
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue(mockCreatedQuotation),
           },
           receivedQuotationLineItem: {
@@ -3588,7 +3702,9 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(mockQuotation),
             update: vi.fn().mockImplementation((args) => {
               capturedUpdateData = args;
@@ -3599,7 +3715,12 @@ describe('ReceivedQuotationService', () => {
         return fn(txClient as unknown as PrismaClient);
       });
 
-      const result = await service.update(quotationId, input, expectedUpdatedAt, ACTOR_ID);
+      const { quotation: result } = await service.update(
+        quotationId,
+        input,
+        expectedUpdatedAt,
+        ACTOR_ID
+      );
 
       expect(result.netAmount).toBe(12000);
       // updateに渡されたデータにnetAmountが含まれていることを確認
@@ -3639,7 +3760,9 @@ describe('ReceivedQuotationService', () => {
 
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(mockQuotation),
             update: vi.fn().mockResolvedValue(mockUpdatedQuotation),
           },
@@ -3647,7 +3770,12 @@ describe('ReceivedQuotationService', () => {
         return fn(txClient as unknown as PrismaClient);
       });
 
-      const result = await service.update(quotationId, input, expectedUpdatedAt, ACTOR_ID);
+      const { quotation: result } = await service.update(
+        quotationId,
+        input,
+        expectedUpdatedAt,
+        ACTOR_ID
+      );
 
       expect(result.netAmount).toBeNull();
     });
@@ -3801,6 +3929,7 @@ describe('ReceivedQuotationService', () => {
     describe('create', () => {
       const setupCreateTx = (created: Record<string, unknown>) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           estimateRequest: {
             findUnique: vi.fn().mockResolvedValue({
               id: 'er-001',
@@ -3811,6 +3940,7 @@ describe('ReceivedQuotationService', () => {
             }),
           },
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             create: vi.fn().mockResolvedValue({ ...ledgerColumns, ...created, lineItems: [] }),
             update: vi.fn().mockResolvedValue(created),
           },
@@ -3973,6 +4103,7 @@ describe('ReceivedQuotationService', () => {
       it('見積依頼が無い作成は記録しない', async () => {
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
           fn({
+            $executeRaw: vi.fn().mockResolvedValue(1),
             estimateRequest: { findUnique: vi.fn().mockResolvedValue(null) },
           } as unknown as PrismaClient)
         );
@@ -4006,7 +4137,9 @@ describe('ReceivedQuotationService', () => {
         updated: Record<string, unknown>
       ) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(current),
             update: vi.fn().mockResolvedValue({ ...updated, lineItems: [] }),
           },
@@ -4126,7 +4259,9 @@ describe('ReceivedQuotationService', () => {
 
       const setupDeleteTx = (current: Record<string, unknown>) => {
         const txClient = {
+          $executeRaw: vi.fn().mockResolvedValue(1),
           receivedQuotation: {
+            findMany: vi.fn().mockResolvedValue([]),
             findUnique: vi.fn().mockResolvedValue(current),
             update: vi.fn().mockResolvedValue({ ...current, deletedAt: new Date() }),
           },
@@ -4251,6 +4386,7 @@ describe('ReceivedQuotationService', () => {
     /** 見積依頼の文脈の作成の tx。create は書き込んだ data をそのまま返す（往復の写し） */
     const setupCreateTx = () => {
       const txClient = {
+        $executeRaw: vi.fn().mockResolvedValue(1),
         estimateRequest: {
           findUnique: vi.fn().mockResolvedValue({
             id: 'er-001',
@@ -4261,6 +4397,7 @@ describe('ReceivedQuotationService', () => {
           }),
         },
         receivedQuotation: {
+          findMany: vi.fn().mockResolvedValue([]),
           create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
             ...storedQuotation(),
             ...data,
@@ -4284,7 +4421,9 @@ describe('ReceivedQuotationService', () => {
       currentLines: Array<Record<string, unknown>> = []
     ) => {
       const txClient = {
+        $executeRaw: vi.fn().mockResolvedValue(1),
         receivedQuotation: {
+          findMany: vi.fn().mockResolvedValue([]),
           findUnique: vi.fn().mockResolvedValue(current),
           update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
             ...current,
@@ -4323,7 +4462,7 @@ describe('ReceivedQuotationService', () => {
       it('送られた金額は数量×単価と違っても保持し、金額が無い行だけ数量×単価を小数第1位で四捨五入して求める', async () => {
         const txClient = setupCreateTx();
 
-        const result = await createWithLines([
+        const { quotation: result } = await createWithLines([
           { name: '保持', sortOrder: 0, quantity: 10, unitPrice: 1000, amount: 9800 },
           { name: '算出', sortOrder: 1, quantity: 1.5, unitPrice: 1001, amount: null },
           { name: '算出の切り上げ', sortOrder: 2, quantity: 2, unitPrice: 0.25 },
@@ -4399,7 +4538,7 @@ describe('ReceivedQuotationService', () => {
       it('作成の結果の合計も別途の行を除く', async () => {
         setupCreateTx();
 
-        const result = await createWithLines([
+        const { quotation: result } = await createWithLines([
           { name: '直接', sortOrder: 0, quantity: 1, unitPrice: 1000, amount: 1000 },
           { name: '別途', sortOrder: 1, amount: 50000, category: 'EXCLUDED' },
         ]);
@@ -4410,7 +4549,7 @@ describe('ReceivedQuotationService', () => {
       it('区分の入力が無い明細行は直接工事として保存して返す', async () => {
         const txClient = setupCreateTx();
 
-        const result = await createWithLines([
+        const { quotation: result } = await createWithLines([
           { name: '区分なし', sortOrder: 0, quantity: 1, unitPrice: 1000 },
         ]);
 
@@ -4441,7 +4580,7 @@ describe('ReceivedQuotationService', () => {
       it('作成は台帳の項目（見積の区別を含む）を保存し、結果に返す', async () => {
         const txClient = setupCreateTx();
 
-        const result = await createWithLines(
+        const { quotation: result } = await createWithLines(
           [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
           ledgerInput
         );
@@ -4461,7 +4600,9 @@ describe('ReceivedQuotationService', () => {
       it('見積の区別を送らない作成は、空の区別で保存する', async () => {
         const txClient = setupCreateTx();
 
-        const result = await createWithLines([{ name: '明細', sortOrder: 0, amount: 100 }]);
+        const { quotation: result } = await createWithLines([
+          { name: '明細', sortOrder: 0, amount: 100 },
+        ]);
 
         expect(txClient.receivedQuotation.create.mock.calls[0]![0].data.quoteDiscriminator).toBe(
           ''
@@ -4472,7 +4613,7 @@ describe('ReceivedQuotationService', () => {
       it('明細行の区分・条件・換算（4 列）・分類キー・数量表の行のキー・参考の印と理由を保存し、結果に返す', async () => {
         const txClient = setupCreateTx();
 
-        const result = await createWithLines([
+        const { quotation: result } = await createWithLines([
           {
             name: '仮設足場',
             sortOrder: 0,
@@ -4602,9 +4743,12 @@ describe('ReceivedQuotationService', () => {
         const txClient = setupCreateTx();
         const before = Date.now();
 
-        const result = await createWithLines([{ name: '明細', sortOrder: 0, amount: 100 }], {
-          readingStatus: 'CONFIRMED',
-        });
+        const { quotation: result } = await createWithLines(
+          [{ name: '明細', sortOrder: 0, amount: 100 }],
+          {
+            readingStatus: 'CONFIRMED',
+          }
+        );
 
         const data = txClient.receivedQuotation.create.mock.calls[0]![0].data;
         expect(data.readingStatus).toBe('CONFIRMED');
@@ -4794,6 +4938,381 @@ describe('ReceivedQuotationService', () => {
         expect(serialized).not.toContain('12000000');
         expect(serialized).not.toContain('constructionPrice');
         expect(serialized).not.toContain('confirmedAmount');
+      });
+    });
+  });
+
+  /**
+   * 原本の指紋と同じ案件の二重登録（design の Requirements 43-50 の章の D6、タスク113.4）
+   *
+   * @requirement estimate-request/REQ-48.1
+   * @requirement estimate-request/REQ-48.3
+   * @requirement estimate-request/REQ-48.4
+   * @requirement estimate-request/REQ-48.5
+   * @requirement estimate-request/REQ-48.6
+   * @requirement estimate-request/REQ-48.7
+   */
+  describe('原本の指紋と二重登録の判定（タスク113.4）', () => {
+    /** "abc" の sha256（FIPS 180-2 の試験値） */
+    const ABC_SHA256 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+    const OTHER_SHA256 = 'f'.repeat(64);
+    const expectedUpdatedAt = new Date('2026-11-01T01:00:00.000Z');
+    const abcFile = {
+      buffer: Buffer.from('abc'),
+      originalName: '原本.pdf',
+      mimeType: 'application/pdf',
+      size: 3,
+    };
+
+    /** 保存済みの受領見積書の行 */
+    const storedRow = (overrides: Record<string, unknown> = {}) => ({
+      id: 'rq-self',
+      estimateRequestId: 'er-001',
+      projectId: 'project-001',
+      vendorName: '協力業者A',
+      tradingPartnerId: 'tp-001',
+      name: '自分の受領見積書',
+      submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+      filePath: null,
+      fileName: null,
+      fileMimeType: null,
+      fileSize: null,
+      fileSha256: null,
+      netAmount: null,
+      quoteNumber: null,
+      overallConditions: null,
+      siteLocation: null,
+      constructionKind: null,
+      useType: null,
+      constructionPrice: null,
+      workConditions: null,
+      distanceKm: null,
+      adoption: 'UNKNOWN',
+      confirmedAmount: null,
+      readingStatus: 'UNCONFIRMED',
+      readingConfirmedById: null,
+      readingConfirmedAt: null,
+      quoteDiscriminator: '',
+      createdAt: new Date('2026-11-01T00:00:00.000Z'),
+      updatedAt: expectedUpdatedAt,
+      deletedAt: null,
+      ...overrides,
+    });
+
+    /** 同じ案件・同じ指紋の他の受領見積書（照会の結果） */
+    const sibling = (quoteDiscriminator: string, name = `既存_${quoteDiscriminator}`) => ({
+      name,
+      vendorName: '既存の業者',
+      submittedAt: new Date('2026-10-15T00:00:00.000Z'),
+      quoteDiscriminator,
+    });
+
+    const setupTx = (options: { siblings?: unknown[]; current?: Record<string, unknown> } = {}) => {
+      const current = options.current ?? storedRow();
+      const txClient = {
+        $executeRaw: vi.fn().mockResolvedValue(1),
+        estimateRequest: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'er-001',
+            deletedAt: null,
+            projectId: 'project-001',
+            tradingPartnerId: 'tp-001',
+            tradingPartner: { name: '協力業者A' },
+          }),
+        },
+        receivedQuotation: {
+          create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+            ...storedRow({ id: 'rq-new' }),
+            ...data,
+            lineItems: [],
+          })),
+          findUnique: vi.fn().mockResolvedValue(current),
+          findMany: vi.fn().mockResolvedValue(options.siblings ?? []),
+          update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+            ...current,
+            ...data,
+            lineItems: [],
+          })),
+        },
+        receivedQuotationLineItem: {
+          findMany: vi.fn().mockResolvedValue([]),
+          createMany: vi.fn().mockResolvedValue({ count: 1 }),
+          deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        },
+      };
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+        fn(txClient as unknown as PrismaClient)
+      );
+      return txClient;
+    };
+
+    const createWith = (extra: Record<string, unknown>) =>
+      service.create(
+        { kind: 'estimateRequest', estimateRequestId: 'er-001' },
+        {
+          name: '新しい受領見積書',
+          submittedAt: new Date('2026-11-02T00:00:00.000Z'),
+          ...extra,
+        },
+        ACTOR_ID
+      );
+
+    const lockSql = (txClient: ReturnType<typeof setupTx>) => {
+      const [strings, ...values] = txClient.$executeRaw.mock.calls[0]! as [
+        TemplateStringsArray,
+        ...unknown[],
+      ];
+      return { sql: strings.join('?'), values };
+    };
+
+    describe('指紋の計算', () => {
+      it('送られたファイルの内容から 16 進の小文字 64 文字の sha256 を求めて保存し、送り手の申告値を使わない', async () => {
+        const txClient = setupTx();
+
+        await createWith({ file: abcFile, fileSha256: OTHER_SHA256 });
+
+        const data = txClient.receivedQuotation.create.mock.calls[0]![0].data;
+        expect(data.fileSha256).toBe(ABC_SHA256);
+        expect(data.fileSha256).toMatch(/^[0-9a-f]{64}$/);
+      });
+
+      it('ファイルの無い作成は指紋を null にし、ロックも照会もせず、件数を 0 で返す', async () => {
+        const txClient = setupTx({ siblings: [sibling('')] });
+
+        const result = await createWith({
+          lineItems: [{ name: '明細', sortOrder: 0, amount: 100 }],
+        });
+
+        expect(txClient.receivedQuotation.create.mock.calls[0]![0].data.fileSha256).toBeNull();
+        expect(txClient.$executeRaw).not.toHaveBeenCalled();
+        expect(txClient.receivedQuotation.findMany).not.toHaveBeenCalled();
+        expect(result.sharedOriginalCount).toBe(0);
+        expect(result.quotation.name).toBe('新しい受領見積書');
+      });
+    });
+
+    describe('登録', () => {
+      it('トランザクションの中で案件の勧告ロックを取ってから、同じ案件の論理削除されていない同じ指紋の受領見積書を読む', async () => {
+        const txClient = setupTx();
+
+        await createWith({ file: abcFile });
+
+        expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(txClient.$executeRaw).toHaveBeenCalledTimes(1);
+        const { sql, values } = lockSql(txClient);
+        expect(sql).toContain('pg_advisory_xact_lock');
+        expect(sql).toContain('hashtext');
+        expect(values).toContain('project-001');
+        const lockOrder = txClient.$executeRaw.mock.invocationCallOrder[0]!;
+        const readOrder = txClient.receivedQuotation.findMany.mock.invocationCallOrder[0]!;
+        const createOrder = txClient.receivedQuotation.create.mock.invocationCallOrder[0]!;
+        expect(lockOrder).toBeLessThan(readOrder);
+        expect(readOrder).toBeLessThan(createOrder);
+
+        const query = txClient.receivedQuotation.findMany.mock.calls[0]![0];
+        expect(query.where).toMatchObject({
+          projectId: 'project-001',
+          fileSha256: ABC_SHA256,
+          deletedAt: null,
+        });
+      });
+
+      it('指紋と見積の区別がともに同じものがあれば、既存の名前・業者名・提出日を持つ誤りで拒み、DB にもストレージにも書かない', async () => {
+        const txClient = setupTx({ siblings: [sibling('別案'), sibling('', '先に登録した見積')] });
+
+        const error = await createWith({ file: abcFile }).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(DuplicateOriginalError);
+        const duplicate = error as DuplicateOriginalError;
+        expect(duplicate.message).toBe(DUPLICATE_ORIGINAL_MESSAGE);
+        expect(duplicate.statusCode).toBe(409);
+        expect(duplicate.code).toBe('DUPLICATE_ORIGINAL');
+        expect(duplicate.existing).toEqual({
+          name: '先に登録した見積',
+          vendorName: '既存の業者',
+          submittedAt: '2026-10-15T00:00:00.000Z',
+        });
+        expect(txClient.receivedQuotation.create).not.toHaveBeenCalled();
+        expect(txClient.receivedQuotation.update).not.toHaveBeenCalled();
+        expect(mockStorageProvider.upload).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
+
+      it('指紋だけが同じで見積の区別が違うものは、保存して区別の違う件数を返す', async () => {
+        const txClient = setupTx({ siblings: [sibling('A'), sibling('B')] });
+
+        const result = await createWith({ file: abcFile, quoteDiscriminator: 'C' });
+
+        expect(txClient.receivedQuotation.create).toHaveBeenCalledTimes(1);
+        expect(mockStorageProvider.upload).toHaveBeenCalledTimes(1);
+        expect(result.sharedOriginalCount).toBe(2);
+        expect(result.quotation.quoteDiscriminator).toBe('C');
+      });
+
+      it('照会は保存する受領見積書の案件だけに絞り、論理削除されたもの・論理削除された見積依頼の配下のものを含めない', async () => {
+        const txClient = setupTx();
+
+        const result = await createWith({ file: abcFile });
+
+        const query = txClient.receivedQuotation.findMany.mock.calls[0]![0];
+        expect(query.where.projectId).toBe('project-001');
+        expect(query.where.deletedAt).toBeNull();
+        expect(query.where.OR).toEqual([
+          { estimateRequestId: null },
+          { estimateRequest: { is: { deletedAt: null } } },
+        ]);
+        expect(result.sharedOriginalCount).toBe(0);
+      });
+    });
+
+    describe('更新', () => {
+      it('ファイルの差し替えで指紋を求め直し、自分以外に同じ組があれば拒んで、ファイルも本体も変えない', async () => {
+        const current = storedRow({
+          filePath: 'quotations/er-001/rq-self/旧.pdf',
+          fileName: '旧.pdf',
+          fileSha256: OTHER_SHA256,
+        });
+        const txClient = setupTx({ current, siblings: [sibling('')] });
+
+        const error = await service
+          .update('rq-self', { file: abcFile }, expectedUpdatedAt, ACTOR_ID)
+          .catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(DuplicateOriginalError);
+        const query = txClient.receivedQuotation.findMany.mock.calls[0]![0];
+        expect(query.where).toMatchObject({
+          projectId: 'project-001',
+          fileSha256: ABC_SHA256,
+          deletedAt: null,
+          id: { not: 'rq-self' },
+        });
+        expect(txClient.$executeRaw).toHaveBeenCalledTimes(1);
+        expect(txClient.receivedQuotation.update).not.toHaveBeenCalled();
+        expect(mockStorageProvider.upload).not.toHaveBeenCalled();
+        expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
+
+      it('ファイルの差し替えで区別の違うものだけがあれば、新しい指紋を保存して件数を返す', async () => {
+        const txClient = setupTx({ siblings: [sibling('別案')] });
+
+        const result = await service.update(
+          'rq-self',
+          { file: abcFile },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const data = txClient.receivedQuotation.update.mock.calls[0]![0].data;
+        expect(data.fileSha256).toBe(ABC_SHA256);
+        expect(result.sharedOriginalCount).toBe(1);
+        expect(result.quotation.id).toBe('rq-self');
+      });
+
+      it('ファイルを差し替えずに見積の区別を変えたときも、保存済みの指紋と新しい区別で判定して拒む', async () => {
+        const current = storedRow({
+          filePath: 'quotations/er-001/rq-self/原本.pdf',
+          fileName: '原本.pdf',
+          fileSha256: ABC_SHA256,
+          quoteDiscriminator: '第1案',
+        });
+        const txClient = setupTx({ current, siblings: [sibling('第2案')] });
+
+        await expect(
+          service.update('rq-self', { quoteDiscriminator: '第2案' }, expectedUpdatedAt, ACTOR_ID)
+        ).rejects.toBeInstanceOf(DuplicateOriginalError);
+
+        expect(txClient.receivedQuotation.findMany.mock.calls[0]![0].where).toMatchObject({
+          fileSha256: ABC_SHA256,
+          id: { not: 'rq-self' },
+        });
+        expect(txClient.receivedQuotation.update).not.toHaveBeenCalled();
+      });
+
+      it('指紋も区別も変えない更新でも、自分以外に同じ組があれば拒み、本体もファイルも変えない', async () => {
+        const current = storedRow({
+          filePath: 'quotations/er-001/rq-self/原本.pdf',
+          fileName: '原本.pdf',
+          fileSha256: ABC_SHA256,
+        });
+        const txClient = setupTx({ current, siblings: [sibling(''), sibling('別案')] });
+
+        const error = await service
+          .update('rq-self', { name: '名前だけ変える' }, expectedUpdatedAt, ACTOR_ID)
+          .catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(DuplicateOriginalError);
+        expect(txClient.$executeRaw).toHaveBeenCalledTimes(1);
+        expect(txClient.receivedQuotation.findMany.mock.calls[0]![0].where).toMatchObject({
+          projectId: 'project-001',
+          fileSha256: ABC_SHA256,
+          id: { not: 'rq-self' },
+        });
+        expect(txClient.receivedQuotation.update).not.toHaveBeenCalled();
+        expect(txClient.receivedQuotationLineItem.deleteMany).not.toHaveBeenCalled();
+        expect(mockStorageProvider.upload).not.toHaveBeenCalled();
+        expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
+
+      it('指紋も区別も変えない更新で区別の違うものだけがあれば、保存して件数を返し、区別を変えれば同じ組を解ける', async () => {
+        const current = storedRow({
+          filePath: 'quotations/er-001/rq-self/原本.pdf',
+          fileName: '原本.pdf',
+          fileSha256: ABC_SHA256,
+        });
+        const kept = setupTx({ current, siblings: [sibling('別案')] });
+        const result = await service.update(
+          'rq-self',
+          { name: '名前だけ変える' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        expect(kept.receivedQuotation.update).toHaveBeenCalledTimes(1);
+        expect(result.sharedOriginalCount).toBe(1);
+
+        const resolving = setupTx({ current, siblings: [sibling(''), sibling('別案')] });
+        const resolved = await service.update(
+          'rq-self',
+          { quoteDiscriminator: '第3案' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        expect(resolving.receivedQuotation.update).toHaveBeenCalledTimes(1);
+        expect(resolving.receivedQuotation.update.mock.calls[0]![0].data.quoteDiscriminator).toBe(
+          '第3案'
+        );
+        expect(resolved.sharedOriginalCount).toBe(2);
+      });
+
+      it('ファイルの無い受領見積書とファイルを外す更新は判定せず、指紋を null にする', async () => {
+        const noFile = setupTx({ siblings: [sibling('')] });
+        const plain = await service.update(
+          'rq-self',
+          { quoteDiscriminator: '' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        expect(noFile.$executeRaw).not.toHaveBeenCalled();
+        expect(noFile.receivedQuotation.findMany).not.toHaveBeenCalled();
+        expect(plain.sharedOriginalCount).toBe(0);
+
+        const withFile = storedRow({
+          filePath: 'quotations/er-001/rq-self/原本.pdf',
+          fileName: '原本.pdf',
+          fileSha256: ABC_SHA256,
+        });
+        const removing = setupTx({ current: withFile, siblings: [sibling('')] });
+        const removed = await service.update(
+          'rq-self',
+          { removeFile: true, quoteDiscriminator: '変更' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+        expect(removing.$executeRaw).not.toHaveBeenCalled();
+        expect(removing.receivedQuotation.findMany).not.toHaveBeenCalled();
+        expect(removing.receivedQuotation.update.mock.calls[0]![0].data.fileSha256).toBeNull();
+        expect(removed.sharedOriginalCount).toBe(0);
       });
     });
   });

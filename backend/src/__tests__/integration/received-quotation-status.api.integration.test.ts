@@ -16,7 +16,10 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { mkdtemp, readdir, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { createHash } from 'crypto';
+import { join, resolve } from 'path';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
@@ -30,7 +33,12 @@ import redis, { initRedis } from '../../redis.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { loginForAccessToken } from './auth-login-client.js';
 import { createTestUser } from './test-user-factory.js';
-import { ReceivedQuotationService } from '../../services/received-quotation.service.js';
+import {
+  ReceivedQuotationService,
+  type SaveResult,
+} from '../../services/received-quotation.service.js';
+import { DuplicateOriginalError } from '../../errors/receivedQuotationError.js';
+import { LocalStorageProvider } from '../../storage/local-storage.provider.js';
 import { AuditLogService } from '../../services/audit-log.service.js';
 import { TradingPartnerService } from '../../services/trading-partner.service.js';
 import type { IAuditLogService } from '../../types/audit-log.types.js';
@@ -1703,17 +1711,19 @@ describe('Received Quotation & Status API Integration Tests', () => {
     };
 
     const createInProject = (vendorName: string, tradingPartnerId?: string | null) =>
-      service.create(
-        { kind: 'project', projectId: testProjectId },
-        {
-          vendorName,
-          tradingPartnerId,
-          name: `業者名の照合_${vendorName}`,
-          submittedAt: new Date('2026-11-01T00:00:00.000Z'),
-          lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
-        },
-        testUserId
-      );
+      service
+        .create(
+          { kind: 'project', projectId: testProjectId },
+          {
+            vendorName,
+            tradingPartnerId,
+            name: `業者名の照合_${vendorName}`,
+            submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+            lineItems: [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
+          },
+          testUserId
+        )
+        .then((saved) => saved.quotation);
 
     const storedVendor = (id: string) =>
       prisma.receivedQuotation.findUniqueOrThrow({
@@ -1800,7 +1810,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         select: { name: true },
       });
 
-      const created = await service.create(
+      const { quotation: created } = await service.create(
         { kind: 'estimateRequest', estimateRequestId: testEstimateRequestId },
         {
           vendorName: '入力の業者名',
@@ -1900,18 +1910,20 @@ describe('Received Quotation & Status API Integration Tests', () => {
     ];
 
     const createInProject = (extra: Record<string, unknown> = {}) =>
-      service.create(
-        { kind: 'project', projectId: testProjectId },
-        {
-          vendorName: `台帳の業者_${suffix}`,
-          name: `台帳の保存_${suffix}`,
-          submittedAt: new Date('2026-11-08T00:00:00.000Z'),
-          netAmount: 230000,
-          lineItems: ledgerLines,
-          ...extra,
-        },
-        testUserId
-      );
+      service
+        .create(
+          { kind: 'project', projectId: testProjectId },
+          {
+            vendorName: `台帳の業者_${suffix}`,
+            name: `台帳の保存_${suffix}`,
+            submittedAt: new Date('2026-11-08T00:00:00.000Z'),
+            netAmount: 230000,
+            lineItems: ledgerLines,
+            ...extra,
+          },
+          testUserId
+        )
+        .then((saved) => saved.quotation);
 
     const storedRow = (id: string) =>
       prisma.receivedQuotation.findUniqueOrThrow({
@@ -2070,7 +2082,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         isReference: line.isReference,
         referenceReason: line.referenceReason,
       }));
-      const kept = await service.update(
+      const { quotation: kept } = await service.update(
         created.id,
         {
           name: `台帳の保存_改名_${suffix}`,
@@ -2090,7 +2102,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const edited = resend.map((line, index) =>
         index === 1 ? { ...line, unitPrice: 1100, amount: null } : line
       );
-      const reverted = await service.update(
+      const { quotation: reverted } = await service.update(
         created.id,
         { lineItems: edited, readingStatus: 'CONFIRMED' },
         kept.updatedAt,
@@ -2103,7 +2115,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
 
       // 改めて確認済みにすると、新しい日時で記録する
       const beforeReconfirm = Date.now();
-      const reconfirmed = await service.update(
+      const { quotation: reconfirmed } = await service.update(
         created.id,
         { readingStatus: 'CONFIRMED' },
         reverted.updatedAt,
@@ -2115,7 +2127,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(row.readingConfirmedAt!.getTime()).toBeGreaterThanOrEqual(beforeReconfirm);
 
       // NET 金額の変更で未確認に戻る
-      const afterNet = await service.update(
+      const { quotation: afterNet } = await service.update(
         created.id,
         { netAmount: 229000 },
         reconfirmed.updatedAt,
@@ -2126,7 +2138,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(row.readingConfirmedAt).toBeNull();
 
       // ファイルの差し替えで未確認に戻る
-      const confirmedAgain = await service.update(
+      const { quotation: confirmedAgain } = await service.update(
         created.id,
         { readingStatus: 'CONFIRMED' },
         afterNet.updatedAt,
@@ -2151,7 +2163,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(row.readingConfirmedById).toBeNull();
 
       // 未確認を送ると確認者と日時を消す（確認済みにしてから戻す）
-      const confirmedLast = await service.update(
+      const { quotation: confirmedLast } = await service.update(
         created.id,
         { readingStatus: 'CONFIRMED' },
         row.updatedAt,
@@ -2171,7 +2183,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
 
     it('監査ログの行は台帳の項目の前後を持ち、工事価格・確定金額の値を持たず、更新の後に変更の有無だけを持つ', async () => {
       const created = await createInProject(ledgerInput);
-      const updated = await service.update(
+      const { quotation: updated } = await service.update(
         created.id,
         { confirmedAmount: 21_998_877, adoption: 'REJECTED' },
         created.updatedAt,
@@ -2222,6 +2234,261 @@ describe('Received Quotation & Status API Integration Tests', () => {
         adoption: 'REJECTED',
         quoteDiscriminator: '第2案',
       });
+    });
+  });
+
+  /**
+   * 原本の指紋と同じ案件の二重登録（タスク113.4）
+   *
+   * design の Requirements 43-50 の章の D6 を実際の DB とローカルのストレージで確かめる。同じ案件への同じ原本の
+   * 同時の 2 要求が勧告ロックで直列化されて 1 件だけ保存されること、拒んだ要求のファイルがストレージに残らないこと、
+   * 保存した指紋がファイルの内容の sha256 と一致することを主張する
+   */
+  describe('原本の指紋と二重登録（タスク113.4）', () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let service: ReceivedQuotationService;
+    let racingService: ReceivedQuotationService;
+    let storageRoot: string;
+    let otherProjectId: string;
+
+    /**
+     * 同時の保存の割り込みを確実に起こすための待ち合わせ。同じ指紋の照会を終えたトランザクションを、もう一方も
+     * 照会を終えるか一定の時間が過ぎるまで止める。ロックが無ければ両方が照会を終えてから作成へ進み（両方が通る）、
+     * ロックがあれば後の側はロックで待つため、先の側は時間切れで進んで確定し、後の側は先の側を読む
+     */
+    let barrier: { arrivals: number; release: () => void; released: Promise<void> } | null = null;
+    const arriveAtBarrier = async (): Promise<void> => {
+      if (barrier === null) return;
+      barrier.arrivals += 1;
+      if (barrier.arrivals >= 2) barrier.release();
+      await Promise.race([barrier.released, new Promise<void>((done) => setTimeout(done, 1500))]);
+    };
+    const armBarrier = () => {
+      let release = () => {};
+      const released = new Promise<void>((done) => {
+        release = done;
+      });
+      barrier = { arrivals: 0, release, released };
+    };
+
+    const pdfOf = (content: string) => {
+      const buffer = Buffer.from(`%PDF-1.4 ${content} ${suffix}`);
+      return {
+        buffer,
+        originalName: '原本.pdf',
+        mimeType: 'application/pdf',
+        size: buffer.length,
+      };
+    };
+    const sha256Of = (buffer: Buffer) => createHash('sha256').update(buffer).digest('hex');
+
+    const saveInProject = (
+      projectId: string,
+      file: ReturnType<typeof pdfOf>,
+      extra: Record<string, unknown> = {},
+      via: ReceivedQuotationService = service
+    ) =>
+      via.create(
+        { kind: 'project', projectId },
+        {
+          vendorName: `指紋の業者_${suffix}`,
+          name: `指紋の受領見積書_${suffix}`,
+          submittedAt: new Date('2026-11-08T00:00:00.000Z'),
+          file,
+          ...extra,
+        },
+        testUserId
+      );
+
+    /** 案件の格納先（D3）に置かれた受領見積書のディレクトリ */
+    const storedQuotationDirs = async (projectId: string): Promise<string[]> => {
+      try {
+        return (await readdir(join(storageRoot, 'quotations', 'projects', projectId))).sort();
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+      }
+    };
+
+    const quotationsWithHash = (projectId: string, fileSha256: string) =>
+      prisma.receivedQuotation.findMany({
+        where: { projectId, fileSha256, deletedAt: null },
+        select: { id: true },
+      });
+
+    beforeAll(async () => {
+      storageRoot = await mkdtemp(join(tmpdir(), 'rq-original-'));
+      const storageProvider = new LocalStorageProvider({ basePath: storageRoot });
+      await storageProvider.initialize();
+      service = new ReceivedQuotationService({
+        prisma,
+        storageProvider,
+        auditLogService: new AuditLogService({ prisma }),
+      });
+      const racingPrisma = prisma.$extends({
+        query: {
+          receivedQuotation: {
+            async findMany({ args, query }) {
+              const result = await query(args);
+              if (args.where?.fileSha256 !== undefined) await arriveAtBarrier();
+              return result;
+            },
+          },
+        },
+      });
+      racingService = new ReceivedQuotationService({
+        prisma: racingPrisma as unknown as PrismaClient,
+        storageProvider,
+        auditLogService: new AuditLogService({ prisma }),
+      });
+      const otherProject = await prisma.project.create({
+        data: {
+          name: `指紋の別の案件_${suffix}`,
+          status: 'PREPARING',
+          salesPersonId: testUserId,
+          createdById: testUserId,
+        },
+      });
+      otherProjectId = otherProject.id;
+    });
+
+    afterAll(async () => {
+      // 案件の外部キーは Restrict のため、案件を消す前に案件の文脈の受領見積書を消す
+      await prisma.receivedQuotation.deleteMany({
+        where: { projectId: { in: [testProjectId, otherProjectId] }, estimateRequestId: null },
+      });
+      await prisma.project.deleteMany({ where: { id: otherProjectId } });
+      await rm(storageRoot, { recursive: true, force: true });
+    });
+
+    it('保存した指紋はファイルの内容の sha256 と一致する', async () => {
+      const file = pdfOf('指紋の一致');
+
+      const { quotation, sharedOriginalCount } = await saveInProject(testProjectId, file);
+
+      const row = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: quotation.id },
+        select: { fileSha256: true },
+      });
+      expect(row.fileSha256).toBe(sha256Of(file.buffer));
+      expect(row.fileSha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(sharedOriginalCount).toBe(0);
+    });
+
+    it('同じ案件へ同じ原本・同じ区別を同時に 2 件送ると 1 件だけが保存され、拒んだ側のファイルはストレージに残らない', async () => {
+      const file = pdfOf('同時の保存');
+      const before = await storedQuotationDirs(testProjectId);
+
+      armBarrier();
+      const results = await Promise.allSettled([
+        saveInProject(testProjectId, file, { name: `同時_一_${suffix}` }, racingService),
+        saveInProject(testProjectId, file, { name: `同時_二_${suffix}` }, racingService),
+      ]).finally(() => {
+        barrier = null;
+      });
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      const reason = (rejected[0] as PromiseRejectedResult).reason;
+      expect(reason).toBeInstanceOf(DuplicateOriginalError);
+      const winner = (fulfilled[0] as PromiseFulfilledResult<SaveResult>).value.quotation;
+      expect((reason as DuplicateOriginalError).existing).toEqual({
+        name: winner.name,
+        vendorName: `指紋の業者_${suffix}`,
+        submittedAt: '2026-11-08T00:00:00.000Z',
+      });
+
+      const rows = await quotationsWithHash(testProjectId, sha256Of(file.buffer));
+      expect(rows.map((r) => r.id)).toEqual([winner.id]);
+      expect(await storedQuotationDirs(testProjectId)).toEqual([...before, winner.id].sort());
+    });
+
+    it('区別の違う同じ原本は保存して件数を返し、論理削除したものと別の案件のものは判定に含めない', async () => {
+      const file = pdfOf('区別と範囲');
+      const first = await saveInProject(testProjectId, file);
+
+      const second = await saveInProject(testProjectId, file, { quoteDiscriminator: '別案' });
+      expect(second.sharedOriginalCount).toBe(1);
+
+      const elsewhere = await saveInProject(otherProjectId, file);
+      expect(elsewhere.sharedOriginalCount).toBe(0);
+
+      await prisma.receivedQuotation.update({
+        where: { id: first.quotation.id },
+        data: { deletedAt: new Date() },
+      });
+      const again = await saveInProject(testProjectId, file);
+      expect(again.sharedOriginalCount).toBe(1);
+      expect(await quotationsWithHash(testProjectId, sha256Of(file.buffer))).toHaveLength(2);
+    });
+
+    it('ファイルを差し替えて同じ組になる更新は拒み、DB もストレージも変えない', async () => {
+      const original = pdfOf('差し替えの元');
+      const existing = await saveInProject(testProjectId, original);
+      const target = await saveInProject(testProjectId, pdfOf('差し替える側'));
+      const targetBefore = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: target.quotation.id },
+      });
+      const dirBefore = await readdir(
+        join(storageRoot, 'quotations', 'projects', testProjectId, target.quotation.id)
+      );
+
+      await expect(
+        service.update(
+          target.quotation.id,
+          { file: { ...original, originalName: '差し替え.pdf' } },
+          targetBefore.updatedAt,
+          testUserId
+        )
+      ).rejects.toBeInstanceOf(DuplicateOriginalError);
+
+      expect(
+        await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: target.quotation.id } })
+      ).toEqual(targetBefore);
+      expect(
+        await readdir(
+          join(storageRoot, 'quotations', 'projects', testProjectId, target.quotation.id)
+        )
+      ).toEqual(dirBefore);
+      expect(existing.quotation.id).not.toBe(target.quotation.id);
+    });
+
+    it('以前からある同じ組は、指紋も区別も変えない更新でも拒み、区別を変える更新で解ける', async () => {
+      const file = pdfOf('以前からの同じ組');
+      const first = await saveInProject(testProjectId, file);
+      const second = await saveInProject(testProjectId, file, { quoteDiscriminator: '仮の区別' });
+      // 指紋の埋め戻しなどで以前から同じ組がある状態を作る（サービスを通さずに区別をそろえる）
+      await prisma.receivedQuotation.update({
+        where: { id: second.quotation.id },
+        data: { quoteDiscriminator: '' },
+      });
+      const rowBefore = await prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id: second.quotation.id },
+      });
+
+      await expect(
+        service.update(
+          second.quotation.id,
+          { name: `名前だけ変える_${suffix}` },
+          rowBefore.updatedAt,
+          testUserId
+        )
+      ).rejects.toBeInstanceOf(DuplicateOriginalError);
+      expect(
+        await prisma.receivedQuotation.findUniqueOrThrow({ where: { id: second.quotation.id } })
+      ).toEqual(rowBefore);
+
+      const resolved = await service.update(
+        second.quotation.id,
+        { quoteDiscriminator: '第2案' },
+        rowBefore.updatedAt,
+        testUserId
+      );
+      expect(resolved.quotation.quoteDiscriminator).toBe('第2案');
+      expect(resolved.sharedOriginalCount).toBe(1);
+      expect(first.quotation.id).not.toBe(second.quotation.id);
     });
   });
 });
