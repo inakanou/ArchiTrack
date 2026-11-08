@@ -2181,6 +2181,7 @@
 - **【2026-11-08・タスク117.5】** 参考の印と読取の確認の表示は共有の部品 `ReceivedQuotationLedgerIndicators`（118.1 も使う）。申し送り（120.3）: 46.10 の被覆の印を `ReceivedQuotationList.test.tsx` に付けていない（印を付けると鮮度とラチェットの件数が動くため。120.3 で他の 43〜50 の印とまとめて帰属つきで付ける）
 - **【2026-11-08・タスク118.1】** 案件の受領見積書の一覧の画面は `/projects/:projectId/quotations`。一覧の応答に `estimateRequestName` を足した（D2 の追記）。保存の 403 は画面が日本語の誤りへ直してフォームへ返し、それ以外の失敗はそのまま返す。申し送り（120.1）: 削除の失敗の既定の文言（500 など）と、保存の 401 がフォームへそのまま返ることは、画面の単体ではまだ主張していない——E2E か単体で押さえる。被覆の印（43.x・46.10）は 120.3
 - **【2026-11-08・タスク119.1】** OCR の開始（自動・手動・再試行）は、必ず状態を読んでから確認の画面（`VisionConsentDialog`。初めのフォーカスは「送らずに端末で読み取る」）を出す。状態の読み出しの失敗は送らずに端末で読み取る。E2E は外部の AI の鍵を持たないため、確認の画面を出す試験は `e2e/helpers/claude-vision-consent.ts` の `routeClaudeVisionStatusAvailable` で状態を模擬し `chooseSendToExternalAi` で送るを選ぶ。E2E の試験データ（`e2e/fixtures/seed-helpers.ts`）にも `claude_vision:use` を一般のロールへ付与した
+- **【2026-11-08・タスク119.2】** 管理者のシステム設定の画面は `/admin/settings`（管理メニュー「システム設定」、`admin-menu-settings`）。状態は `data-testid="external-ai-reading-state"` に「有効」か「停止中」。申し送り（120.3）: design.md の File Structure Plan の新設予定の注記（`AdminSettingsPage.tsx`・`VisionConsentDialog.tsx` など）は実在するようになったため外す
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2715,7 +2716,7 @@
   - _Boundary: OcrDataExtractor, VisionConsentDialog_
   - _Depends: 117.1_
 
-- [ ] 119.2 (P) 管理者のシステム設定の画面で、外部の AI での読み取りを停止・再開できるようにする
+- [x] 119.2 (P) 管理者のシステム設定の画面で、外部の AI での読み取りを停止・再開できるようにする
   - `AdminSettingsPage`（新設）を管理者のルートのブロックの `/admin/settings` に置き、管理メニュー（`frontend/src/components/Navigation/AppHeader.tsx`）に「システム設定」を足す。現在の状態と停止・再開の操作、版の競合の表示を置く
   - 単体（`frontend/src/__tests__/pages/AdminSettingsPage.test.tsx` を新設）に、表示・停止・再開・競合・管理者でない利用者の遷移の拒否を足す
   - 単体で、管理者が画面から外部の AI での読み取りを止め、再開できる状態になる

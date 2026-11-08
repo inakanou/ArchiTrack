@@ -15,6 +15,7 @@ import { Dashboard } from './pages/Dashboard';
 import { RoleManagement } from './pages/RoleManagement';
 import { PermissionManagement } from './pages/PermissionManagement';
 import { UserInventoryPage } from './pages/UserInventoryPage';
+import { AdminSettingsPage } from './pages/AdminSettingsPage';
 import ProjectListPage from './pages/ProjectListPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import ProjectCreatePage from './pages/ProjectCreatePage';
@@ -580,6 +581,11 @@ export const routes: RouteObject[] = [
       {
         path: '/admin/user-inventory',
         element: <UserInventoryPage />,
+      },
+      // システム設定（estimate-request の design.md の D8、タスク119.2）
+      {
+        path: '/admin/settings',
+        element: <AdminSettingsPage />,
       },
     ],
   },
