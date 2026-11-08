@@ -98,6 +98,16 @@ export const ORIGINAL_FILE_LOCK_NAMESPACE = 113_004;
 export const RECEIVED_QUOTATION_SIGNED_URL_EXPIRES_IN = 900;
 
 /**
+ * ファイルの内容から原本の指紋（sha256 の 16 進の小文字 64 文字）を求める（48.1）。保存のときと、既存の
+ * ファイルの埋め戻し（backend/scripts/backfill-received-quotation-file-hash.ts、48.8）が同じ関数を使う
+ *
+ * @param buffer - ファイルの内容
+ */
+export function computeOriginalFingerprint(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+/**
  * 許可されるMIMEタイプ
  */
 const ALLOWED_MIME_TYPES = [
@@ -478,7 +488,7 @@ export class ReceivedQuotationService {
    * 送り手が申告した値は使わない
    */
   private computeFileSha256(file: FileInfo): string {
-    return createHash('sha256').update(file.buffer).digest('hex');
+    return computeOriginalFingerprint(file.buffer);
   }
 
   /**
