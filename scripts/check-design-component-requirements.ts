@@ -332,9 +332,13 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     // 利用者の判断で足した章「2026-10-31 の追加: Gmail で開く操作の失敗の表示」が部品表の 1 行
     // （42.17・42.18 を名乗る）と追跡表を足し、同章の 1 部品が突き合わせの母集団へ入ったため、
     // 締める向きへ動かした。矛盾の上限 19 は据え置き
-    minPairs: 36,
-    minTableDeclarations: 62,
-    minDetailDeclarations: 57,
+    // minPairs 36 → 57 / minTableDeclarations 62 → 83 / minDetailDeclarations 57 → 58（estimate-request の
+    // Requirements 43-50 の設計、2026-11-08）。利用者の判断で足した章「Requirements 43-50: 受領見積書の台帳の
+    // 項目と IPA の是正（2026-11-08 の追加）」が部品表の 21 行と詳細節の Requirements 欄 1 つと追跡表を足し、
+    // 同章の 21 部品が突き合わせの母集団へ入ったため、締める向きへ動かした。矛盾の上限 19 は据え置き
+    minPairs: 57,
+    minTableDeclarations: 83,
+    minDetailDeclarations: 58,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },
   'execution-budget-management': {

@@ -746,3 +746,22 @@ Light Discovery（Extension）を適用。design.md「見積依頼文のメー�
 ### Design Review Gate
 - mechanical（全 AC 41.1-41.11 traceability / boundary 4 セクション populated / File Structure Plan 具体パス / boundary↔file 整合 / orphan なし）パス
 - judgment（coverage / architecture readiness / boundary / executability）パス
+
+## 2026-11-08: Requirements 43-50（受領見積書の台帳の項目と IPA の是正 §5.5）の設計の調べもの
+
+- **Discovery の種類**: 拡張（light）。新しい依存は無い（原本の指紋は Node.js 標準の crypto）
+- **参照した資料**: roadmap（`.kiro/steering/roadmap.md` の「2026-11-08 の決定」）、ArchiBench の architrack-exchange・vendor-quote-intake の設計（受領見積の形の写し 0.1、`quoteDiscriminator`・`SHARED_ORIGINAL` の判定）、共通スクリプト daicho の見積カードの形、是正計画 §5.5
+- **既存の実装の調べ（読むだけ。HEAD `d9fad8ac`）**:
+  - 受領見積書は見積依頼が必須で、案件・業者・閲覧範囲・プレビュー・ファイルの格納先がすべて見積依頼を経由する
+  - サーバーは数量と単価が揃うと金額を上書きし、合計は全行の和。明細行の検証は範囲と長さを持たない
+  - システムの設定を保存する仕組みは無い（ログレベルはメモリだけ）。権限 `settings:*` は定義だけある
+  - Claude Vision の経路は `apiLimiter` より前に mount され、回数制限が効いていない。利用者を記録しない
+  - 利用者 ID をキーにする回数制限の先例は招待の制限
+  - 既存のロールへ migration で権限を付与した先例は無い（外した先例は 20261017020000）
+  - 受領見積書の監査ログは金額を入れない方針（14.7）。46.11 を利用者の判断で「金額を除く」に改めた
+  - `TradingPartnerSelect` は自由な文字を保持できない。自由入力と候補の先例は `CustomerNameInput`
+- **Synthesis**:
+  - Generalization: 案件の列を見積依頼の有無にかかわらず持たせ、判定・一覧・二重登録・格納先を一つの規則にした（D1）。設定の保存は `SystemSetting`（キーと値）にし、今の利用者は外部の AI での読み取りだけとした
+  - Build vs Adopt: 指紋は標準の sha256、二重の判定の直列化は PostgreSQL の勧告ロックを使い、部分一意索引は Prisma のスキーマのずれの検出と食い違うため採らなかった。回数制限は既存の `createRateLimiters` を使う
+  - Simplification: 一覧の既定の応答は変えず `include=all` を足すだけにし、estimate-creation の転記を動かさない（D2）。設定のキャッシュは持たない
+- **リスク**: 既存のファイルの指紋は配備の後のスクリプトで埋めるまで判定の対象外。Vision の権限の付与は migration の `INSERT ... SELECT` が初めての形であり、統合テストで付与を確かめる
