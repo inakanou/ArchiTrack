@@ -23,6 +23,10 @@ import {
   waitForOcrProgressIndicator,
   hasOcrProgressIndicatorAppeared,
 } from '../../helpers/ocr-observations';
+import {
+  chooseSendToExternalAi,
+  routeClaudeVisionStatusAvailable,
+} from '../../helpers/claude-vision-consent';
 import { expectPdfPreviewRendered, PDF_PAGE_CANVAS_SELECTOR } from '../../helpers/pdf-preview';
 import { expectImagePreviewRendered } from '../../helpers/image-preview';
 import ExcelJS from 'exceljs';
@@ -115,11 +119,14 @@ const STUBBED_EXTRACTED_LINE_ITEMS = [
 /**
  * 画像アップロード時のOCR抽出結果を {@link STUBBED_EXTRACTED_LINE_ITEMS} に固定する。
  *
- * 画面遷移の前に呼ぶこと。
+ * 画面遷移の前に呼ぶこと。タスク119.1（estimate-request の 24.2 の改訂）で、Claude Vision は状態の API が
+ * `available` を返し、確認で送ると選ばれたときだけ試すため、状態の応答も `available` に差し替える。
+ * ファイルを選んだ後に {@link chooseSendToExternalAi} で送ると選ぶこと。
  *
  * @param page Playwright のページ
  */
 async function stubExtractionResult(page: Page): Promise<void> {
+  await routeClaudeVisionStatusAvailable(page);
   await page.route('**/api/claude-vision/extract', (route) =>
     route.fulfill({
       status: 200,
@@ -1077,6 +1084,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const testFilePath = path.resolve(__dirname, '../../fixtures/test-image.png');
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
+      await chooseSendToExternalAi(page);
 
       // REQ-13.10: 抽出結果から一括取り込みボタンが表示される
       const importButton = page.locator('[data-testid="ocr-import-button"]');
@@ -1127,6 +1135,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const testFilePath = path.resolve(__dirname, '../../fixtures/test-image.png');
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
+      await chooseSendToExternalAi(page);
 
       // 抽出結果を固定しているため、一括取り込みボタンは必ず表示される
       const importButton = page.locator('[data-testid="ocr-import-button"]');

@@ -50,8 +50,11 @@ vi.mock('./pdf-text-extractor', () => ({
 // claude-vision APIのモック（非同期処理リーク防止）
 const mockExtractWithClaudeVision = vi.fn();
 
+// タスク119.1: 状態はテスト環境と同じ未設定（確認を出さず端末で読み取る）。確認と分岐は
+// __tests__/components/estimate-requests/OcrDataExtractor.test.tsx が確かめる
 vi.mock('../../api/claude-vision', () => ({
   extractWithClaudeVision: (...args: unknown[]) => mockExtractWithClaudeVision(...args),
+  getClaudeVisionStatus: () => Promise.resolve({ available: false, reason: 'not_configured' }),
   ClaudeVisionApiError: class ClaudeVisionApiError extends Error {
     shouldFallback: boolean;
     constructor(message: string) {

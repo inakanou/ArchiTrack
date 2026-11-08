@@ -29,6 +29,7 @@ const {
   mockSheetToJson,
   mockExtractPdfHybrid,
   mockExtractWithClaudeVision,
+  mockGetClaudeVisionStatus,
   mockRenderPdfPagesToBase64,
 } = vi.hoisted(() => ({
   mockCreateWorker: vi.fn(),
@@ -36,6 +37,7 @@ const {
   mockSheetToJson: vi.fn(),
   mockExtractPdfHybrid: vi.fn(),
   mockExtractWithClaudeVision: vi.fn(),
+  mockGetClaudeVisionStatus: vi.fn(),
   mockRenderPdfPagesToBase64: vi.fn(),
 }));
 
@@ -58,24 +60,17 @@ vi.mock('../../../components/estimate-requests/pdf-text-extractor', () => ({
   renderPdfPagesToBase64: mockRenderPdfPagesToBase64,
 }));
 
-// claude-vision APIクライアントをモック
-vi.mock('../../../api/claude-vision', () => ({
-  extractWithClaudeVision: mockExtractWithClaudeVision,
-  ClaudeVisionApiError: class ClaudeVisionApiError extends Error {
-    readonly errorType: string;
-    readonly statusCode: number;
-    readonly shouldFallback: boolean = true;
-    constructor(message: string, errorType: string, statusCode: number) {
-      super(message);
-      this.name = 'ClaudeVisionApiError';
-      this.errorType = errorType;
-      this.statusCode = statusCode;
-    }
-  },
-  isClaudeVisionApiError: (error: unknown): boolean => {
-    return error instanceof Error && error.constructor.name === 'ClaudeVisionApiError';
-  },
-}));
+// claude-vision APIクライアントをモック。
+// タスク119.1: 誤りの型（ClaudeVisionApiError と code による判別）は本物を使い、通信する関数
+// （抽出と状態の取得）だけを差し替える
+vi.mock('../../../api/claude-vision', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/claude-vision')>();
+  return {
+    ...actual,
+    extractWithClaudeVision: mockExtractWithClaudeVision,
+    getClaudeVisionStatus: mockGetClaudeVisionStatus,
+  };
+});
 
 // Task 80.1: OcrDataExtractor が useAuth() を直接購読するため、
 // AuthProvider を含まない単体テスト環境向けに最小限のモックを提供する。
@@ -89,6 +84,11 @@ vi.mock('../../../hooks/useAuth', () => ({
 
 import { OcrDataExtractor } from '../../../components/estimate-requests/OcrDataExtractor';
 import { ClaudeVisionApiError } from '../../../api/claude-vision';
+import {
+  VISION_CONSENT_MESSAGES,
+  VISION_FALLBACK_REASONS,
+  VISION_READING_NOTICES,
+} from '../../../components/estimate-requests/vision-consent-messages';
 import { TESSERACT_WORKER_OPTIONS } from '../../../utils/tesseract-assets';
 
 describe('OcrDataExtractor', () => {
@@ -130,6 +130,9 @@ describe('OcrDataExtractor', () => {
     mockExtractWithClaudeVision.mockRejectedValue(
       new ClaudeVisionApiError('Claude Vision機能は無効です', 'service_unavailable', 503)
     );
+
+    // 外部の AI での読み取りの状態: 既定はテスト環境と同じ未設定（確認を出さず端末で読み取る。タスク119.1）
+    mockGetClaudeVisionStatus.mockResolvedValue({ available: false, reason: 'not_configured' });
 
     // renderPdfPagesToBase64: デフォルトモック
     mockRenderPdfPagesToBase64.mockResolvedValue([
@@ -813,12 +816,28 @@ describe('OcrDataExtractor', () => {
       pageCount: 1,
     };
 
+    // タスク119.1（24.2 の改訂）: Vision は状態が available で、確認で「送って読み取る」を
+    // 選んだ後にだけ試す。この describe は送ると選んだ後の経路を確かめる
+    beforeEach(() => {
+      mockGetClaudeVisionStatus.mockResolvedValue({ available: true, reason: null });
+    });
+
+    /** 確認が出るまで抽出を呼ばないことを確かめてから、送ると選ぶ */
+    async function chooseSendToExternalAi() {
+      const user = userEvent.setup();
+      const sendButton = await screen.findByRole('button', { name: VISION_CONSENT_MESSAGES.SEND });
+      expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+      await user.click(sendButton);
+    }
+
     describe('Claude Vision成功フロー（54.2, 56.2）', () => {
       it('PDFファイルに対してClaude Vision抽出を優先的に試行する', async () => {
         mockExtractWithClaudeVision.mockResolvedValueOnce(mockClaudeVisionSuccessResponse);
         const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
 
         render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await chooseSendToExternalAi();
 
         // Claude Vision APIが呼ばれる
         await waitFor(() => {
@@ -835,6 +854,8 @@ describe('OcrDataExtractor', () => {
 
         render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
 
+        await chooseSendToExternalAi();
+
         await waitFor(() => {
           const extractedText = screen.getByTestId('ocr-extracted-text');
           expect(extractedText).toBeInTheDocument();
@@ -849,6 +870,8 @@ describe('OcrDataExtractor', () => {
 
         render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
 
+        await chooseSendToExternalAi();
+
         await waitFor(() => {
           expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
           expect(screen.getByText(/2件のデータが検出されました/)).toBeInTheDocument();
@@ -861,6 +884,8 @@ describe('OcrDataExtractor', () => {
 
         render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
 
+        await chooseSendToExternalAi();
+
         await waitFor(() => {
           expect(screen.getByText(/Claude Vision APIで抽出しました/)).toBeInTheDocument();
         });
@@ -872,6 +897,8 @@ describe('OcrDataExtractor', () => {
         const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
 
         render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await chooseSendToExternalAi();
 
         await waitFor(() => {
           expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
@@ -905,6 +932,8 @@ describe('OcrDataExtractor', () => {
 
         render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
 
+        await chooseSendToExternalAi();
+
         // Claude Vision APIが呼ばれる（画像はrenderPdfPagesToBase64ではなくFileReader経由）
         await waitFor(() => {
           expect(mockExtractWithClaudeVision).toHaveBeenCalled();
@@ -919,6 +948,8 @@ describe('OcrDataExtractor', () => {
         const imageFile = new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
 
         render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await chooseSendToExternalAi();
 
         await waitFor(() => {
           expect(screen.getByTestId('ocr-import-button')).toBeInTheDocument();
@@ -937,6 +968,8 @@ describe('OcrDataExtractor', () => {
         const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
 
         render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await chooseSendToExternalAi();
 
         // フォールバック: extractPdfHybridが呼ばれる
         await waitFor(() => {
@@ -959,6 +992,8 @@ describe('OcrDataExtractor', () => {
 
         render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
 
+        await chooseSendToExternalAi();
+
         // フォールバック: Tesseract.js workerが呼ばれる
         await waitFor(() => {
           expect(mockCreateWorker).toHaveBeenCalledWith('jpn', undefined, TESSERACT_WORKER_OPTIONS);
@@ -974,6 +1009,8 @@ describe('OcrDataExtractor', () => {
         const pdfFile = new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
 
         render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await chooseSendToExternalAi();
 
         // フォールバック結果が表示される
         await waitFor(() => {
@@ -999,6 +1036,8 @@ describe('OcrDataExtractor', () => {
 
         render(<OcrDataExtractor file={pdfFile} onImportLineItems={mockOnImportLineItems} />);
 
+        await chooseSendToExternalAi();
+
         // エラー表示
         await waitFor(() => {
           expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
@@ -1021,6 +1060,8 @@ describe('OcrDataExtractor', () => {
 
         render(<OcrDataExtractor file={imageFile} onImportLineItems={mockOnImportLineItems} />);
 
+        await chooseSendToExternalAi();
+
         // エラー表示
         await waitFor(() => {
           expect(screen.getByTestId('ocr-error-message')).toBeInTheDocument();
@@ -1028,6 +1069,376 @@ describe('OcrDataExtractor', () => {
             screen.getByText(/OCR処理に失敗しました。手動入力してください/)
           ).toBeInTheDocument();
         });
+      });
+    });
+  });
+
+  // ==========================================================================
+  // タスク119.1: 外部の AI での読み取りの確認と分岐
+  //
+  // design の「Requirements 43-50」の章の D7 と「外部の AI での読み取りの分岐」の流れ。
+  // OCR を始めるたび（自動開始・手動実行・再試行）に状態を読み、available のときだけ確認を出す。
+  // 受入基準 24.2・49.1・49.2・49.3・49.4・49.6・49.8 に当たる
+  // ==========================================================================
+
+  describe('外部の AI での読み取りの確認と分岐（タスク119.1）', () => {
+    const pdfFile = () => new File(['%PDF-1.4'], 'quotation.pdf', { type: 'application/pdf' });
+    const imageFile = () => new File(['image-data'], 'quotation.jpg', { type: 'image/jpeg' });
+
+    const visionSuccess = {
+      lineItems: [
+        {
+          customCategory: null,
+          workType: null,
+          name: '外部で読んだ行',
+          specification: null,
+          unit: '式',
+          quantity: 1,
+          unitPrice: 1000,
+          amount: 1000,
+          remarks: null,
+        },
+      ],
+      pageCount: 1,
+    };
+
+    function findConsentDialog() {
+      return screen.findByRole('dialog', { name: VISION_CONSENT_MESSAGES.TITLE });
+    }
+
+    /** 端末の OCR（PDF は extractPdfHybrid、画像は Tesseract のワーカー）を一度も始めていない */
+    function expectNoReadingStarted() {
+      expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+      expect(mockRenderPdfPagesToBase64).not.toHaveBeenCalled();
+      expect(mockExtractPdfHybrid).not.toHaveBeenCalled();
+      expect(mockCreateWorker).not.toHaveBeenCalled();
+    }
+
+    describe('状態が available のとき', () => {
+      beforeEach(() => {
+        mockGetClaudeVisionStatus.mockResolvedValue({ available: true, reason: null });
+      });
+
+      it('自動開始（PDF）で確認を出し、選ぶまで画像を作らず、抽出も端末の OCR も始めない', async () => {
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        const dialog = await findConsentDialog();
+        expect(dialog).toHaveAttribute('aria-modal', 'true');
+        expect(dialog).toHaveTextContent(VISION_CONSENT_MESSAGES.NOTICE);
+        expect(mockGetClaudeVisionStatus).toHaveBeenCalledTimes(1);
+        expectNoReadingStarted();
+      });
+
+      it('自動開始（画像）でも確認を出し、選ぶまで抽出を呼ばない', async () => {
+        render(<OcrDataExtractor file={imageFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        expectNoReadingStarted();
+      });
+
+      it('送ると選ぶと確認を閉じ、外部の AI での抽出を一度だけ呼んで結果を出す', async () => {
+        const user = userEvent.setup();
+        mockExtractWithClaudeVision.mockResolvedValueOnce(visionSuccess);
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.SEND }));
+
+        await waitFor(() => {
+          expect(screen.getByTestId('claude-vision-info-banner')).toBeInTheDocument();
+        });
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mockExtractWithClaudeVision).toHaveBeenCalledTimes(1);
+        expect(mockExtractPdfHybrid).not.toHaveBeenCalled();
+        expect(screen.getByTestId('ocr-extracted-text').textContent).toContain('外部で読んだ行');
+      });
+
+      it('端末で読むと選ぶと抽出を呼ばずに端末の OCR（PDF）で読み、切り替えの知らせを出さない', async () => {
+        const user = userEvent.setup();
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.DEVICE }));
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mockExtractPdfHybrid).toHaveBeenCalledTimes(1);
+        expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+        expect(mockRenderPdfPagesToBase64).not.toHaveBeenCalled();
+        expect(screen.queryByTestId('fallback-warning-banner')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('claude-vision-info-banner')).not.toBeInTheDocument();
+      });
+
+      it('端末で読むと選んだ画像は、抽出を呼ばずに Tesseract で読み、処理中に外部で解析中と表示しない', async () => {
+        const user = userEvent.setup();
+        // 端末の OCR を終わらせず、処理中の表示を観測する
+        mockWorker.recognize.mockImplementation(() => new Promise(() => {}));
+        render(<OcrDataExtractor file={imageFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.DEVICE }));
+
+        await waitFor(() => {
+          expect(mockWorker.recognize).toHaveBeenCalled();
+        });
+        expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+        const indicator = screen.getByTestId('ocr-progress-indicator');
+        expect(indicator).not.toHaveTextContent('Claude Vision APIで解析中');
+      });
+
+      it('閉じると OCR を始めず、手動実行のボタンの状態へ戻る。もう一度実行すると確認を出し直す', async () => {
+        const user = userEvent.setup();
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.CLOSE }));
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        const manualButton = await screen.findByRole('button', { name: 'OCR実行' });
+        expect(screen.queryByTestId('ocr-progress-indicator')).not.toBeInTheDocument();
+        expectNoReadingStarted();
+
+        await user.click(manualButton);
+
+        await findConsentDialog();
+        expect(mockGetClaudeVisionStatus).toHaveBeenCalledTimes(2);
+        expectNoReadingStarted();
+      });
+
+      it('Escape で閉じても OCR を始めず、手動実行のボタンの状態へ戻る', async () => {
+        const user = userEvent.setup();
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.keyboard('{Escape}');
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: 'OCR実行' })).toBeInTheDocument();
+        expectNoReadingStarted();
+      });
+
+      it('手動実行（autoStart=false）でも、実行のたびに状態を読んで確認を出し、選ぶまで抽出を呼ばない', async () => {
+        const user = userEvent.setup();
+        const mockBlob = new Blob(['pdf-content'], { type: 'application/pdf' });
+        global.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          blob: () => Promise.resolve(mockBlob),
+        });
+        render(
+          <OcrDataExtractor
+            file={null}
+            onImportLineItems={mockOnImportLineItems}
+            autoStart={false}
+            fileUrl="https://example.com/file.pdf"
+            fileMimeType="application/pdf"
+          />
+        );
+
+        // 実行の前には状態を読まない
+        expect(mockGetClaudeVisionStatus).not.toHaveBeenCalled();
+        await user.click(screen.getByRole('button', { name: 'OCR実行' }));
+
+        await findConsentDialog();
+        expect(mockGetClaudeVisionStatus).toHaveBeenCalledTimes(1);
+        expectNoReadingStarted();
+
+        mockExtractWithClaudeVision.mockResolvedValueOnce(visionSuccess);
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.SEND }));
+        await waitFor(() => {
+          expect(screen.getByTestId('claude-vision-info-banner')).toBeInTheDocument();
+        });
+        expect(mockExtractWithClaudeVision).toHaveBeenCalledTimes(1);
+      });
+
+      it('再試行でも確認を出し直し、選ぶまで抽出を呼ばない', async () => {
+        const user = userEvent.setup();
+        // 一度目は端末で読み、端末の OCR が失敗する
+        mockExtractPdfHybrid.mockRejectedValueOnce(new Error('OCR処理に失敗しました'));
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.DEVICE }));
+        const retryButton = await screen.findByRole('button', { name: /OCRリトライ/ });
+        expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+
+        await user.click(retryButton);
+
+        await findConsentDialog();
+        expect(mockGetClaudeVisionStatus).toHaveBeenCalledTimes(2);
+        expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+
+        mockExtractWithClaudeVision.mockResolvedValueOnce(visionSuccess);
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.SEND }));
+        await waitFor(() => {
+          expect(screen.getByTestId('claude-vision-info-banner')).toBeInTheDocument();
+        });
+        expect(mockExtractWithClaudeVision).toHaveBeenCalledTimes(1);
+      });
+
+      it('再試行の確認を閉じると、エラーの表示から手動実行のボタンの状態へ戻る', async () => {
+        const user = userEvent.setup();
+        mockExtractPdfHybrid.mockRejectedValueOnce(new Error('OCR処理に失敗しました'));
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.DEVICE }));
+        await user.click(await screen.findByRole('button', { name: /OCRリトライ/ }));
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.CLOSE }));
+
+        expect(await screen.findByRole('button', { name: 'OCR実行' })).toBeInTheDocument();
+        expect(screen.queryByTestId('ocr-error-message')).not.toBeInTheDocument();
+        expect(mockExtractPdfHybrid).toHaveBeenCalledTimes(1);
+        expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+      });
+
+      it('送った抽出が利用者の上限の 429 になると、上限の文言を出して端末で読み取る', async () => {
+        const user = userEvent.setup();
+        mockExtractWithClaudeVision.mockRejectedValueOnce(
+          new ClaudeVisionApiError(
+            'Too many requests',
+            'unknown',
+            429,
+            'CLAUDE_VISION_USER_RATE_LIMITED'
+          )
+        );
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.SEND }));
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+        expect(mockExtractWithClaudeVision).toHaveBeenCalledTimes(1);
+        expect(mockExtractPdfHybrid).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('vision-reading-notice')).toHaveTextContent(
+          VISION_READING_NOTICES.USER_RATE_LIMITED
+        );
+        // 外部のサービスの不調の知らせと取り違えない
+        expect(screen.queryByTestId('fallback-warning-banner')).not.toBeInTheDocument();
+      });
+
+      it('外部のサービスの 429（利用者の上限ではない）は従来の切り替えの知らせのままにする', async () => {
+        const user = userEvent.setup();
+        mockExtractWithClaudeVision.mockRejectedValueOnce(
+          new ClaudeVisionApiError('レート制限', 'rate_limit', 429, 'CLAUDE_VISION_RATE_LIMIT')
+        );
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.SEND }));
+
+        await waitFor(() => {
+          expect(screen.getByTestId('fallback-warning-banner')).toBeInTheDocument();
+        });
+        expect(screen.queryByTestId('vision-reading-notice')).not.toBeInTheDocument();
+      });
+
+      it('送った後に管理者の停止の 503 が返ると、停止の文言を出して端末で読み取る', async () => {
+        const user = userEvent.setup();
+        mockExtractWithClaudeVision.mockRejectedValueOnce(
+          new ClaudeVisionApiError(
+            'disabled',
+            'service_unavailable',
+            503,
+            'CLAUDE_VISION_DISABLED_BY_ADMIN'
+          )
+        );
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await findConsentDialog();
+        await user.click(screen.getByRole('button', { name: VISION_CONSENT_MESSAGES.SEND }));
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+        expect(mockExtractPdfHybrid).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('vision-reading-notice')).toHaveTextContent(
+          VISION_READING_NOTICES.DISABLED_BY_ADMIN
+        );
+      });
+    });
+
+    describe('状態が available でないとき', () => {
+      it('管理者の停止中は確認を出さず、抽出を呼ばずに停止の文言を出して端末で読み取る', async () => {
+        mockGetClaudeVisionStatus.mockResolvedValue({
+          available: false,
+          reason: 'disabled_by_admin',
+        });
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+        expect(mockRenderPdfPagesToBase64).not.toHaveBeenCalled();
+        expect(mockExtractPdfHybrid).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('vision-reading-notice')).toHaveTextContent(
+          VISION_READING_NOTICES.DISABLED_BY_ADMIN
+        );
+      });
+
+      it('権限が無いときは確認を出さず、抽出を呼ばずに端末で読み取り、権限の理由を示す', async () => {
+        mockGetClaudeVisionStatus.mockResolvedValue({ available: false, reason: 'no_permission' });
+        render(<OcrDataExtractor file={imageFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+        expect(mockWorker.recognize).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('fallback-warning-banner')).toHaveTextContent(
+          VISION_FALLBACK_REASONS.NO_PERMISSION
+        );
+      });
+
+      it('未設定のときは確認を出さず、抽出を呼ばずに端末で読み取り、従来の切り替えの知らせを出す', async () => {
+        mockGetClaudeVisionStatus.mockResolvedValue({ available: false, reason: 'not_configured' });
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+        expect(mockExtractPdfHybrid).toHaveBeenCalledTimes(1);
+        const banner = screen.getByTestId('fallback-warning-banner');
+        expect(banner).toHaveTextContent(
+          'Claude Vision APIが利用できないため、従来のOCR処理で実行しています'
+        );
+        expect(banner).toHaveTextContent(VISION_FALLBACK_REASONS.NOT_CONFIGURED);
+      });
+
+      it('状態の取得に失敗したときは送らない側に倒し、確認を出さず抽出を呼ばずに端末で読み取る', async () => {
+        mockGetClaudeVisionStatus.mockRejectedValue(new Error('Network error'));
+        render(<OcrDataExtractor file={pdfFile()} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(mockExtractWithClaudeVision).not.toHaveBeenCalled();
+        expect(mockExtractPdfHybrid).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('fallback-warning-banner')).toHaveTextContent(
+          VISION_FALLBACK_REASONS.STATUS_UNAVAILABLE
+        );
+      });
+
+      it('Excel は外部の AI を使わないため、状態を読まない', async () => {
+        const excelFile = new File(['excel'], 'q.xlsx', {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+        render(<OcrDataExtractor file={excelFile} onImportLineItems={mockOnImportLineItems} />);
+
+        await waitFor(() => {
+          expect(screen.getByTestId('ocr-extracted-text')).toBeInTheDocument();
+        });
+        expect(mockGetClaudeVisionStatus).not.toHaveBeenCalled();
       });
     });
   });

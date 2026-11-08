@@ -69,11 +69,11 @@
  * ## 実行環境の前提
  *
  * 本ファイルの検査はいずれも backend に `ANTHROPIC_API_KEY` が無いこと
- * （`/api/claude-vision` が 503 を返し、Claude Vision の試行が失敗して Tesseract
- * フォールバックへ落ちること）を前提とする。E2E の test 環境（`.env.test`）は
- * このキーを持たない。キーが設定された環境では Claude Vision の抽出が成功して
- * `processClaudeVision` がそこで処理を終えるため、本ファイルの検査は失敗する
- * （前提が崩れたまま黙って通ることはない）。
+ * （`/api/claude-vision/status` が `not_configured` を返し、外部の AI へ送る前の確認を出さずに
+ * Tesseract の経路で読むこと）を前提とする。E2E の test 環境（`.env.test`）は
+ * このキーを持たない。タスク119.1（estimate-request の 24.2 の改訂）より前は、Claude Vision の試行が 503 で
+ * 失敗して Tesseract へ落ちていた。キーが設定された環境では状態が `available` になり、確認が出て
+ * OCR が選ばれるまで始まらないため、本ファイルの検査は失敗する（前提が崩れたまま黙って通ることはない）。
  *
  * @module e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec
  */

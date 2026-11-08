@@ -305,6 +305,12 @@ export async function seedPermissions(prisma: PrismaClientInstance): Promise<voi
       action: 'delete',
       description: '見積依頼の削除',
     },
+    // 外部の AI での読み取りの専用の権限（estimate-request の 49.6、design の D7。backend の seed-helpers.ts と同じ）
+    {
+      resource: 'claude_vision',
+      action: 'use',
+      description: '外部のAIでの読み取りの利用',
+    },
 
     // 受領見積書関連権限
     {
@@ -550,6 +556,9 @@ export async function seedRolePermissions(prisma: PrismaClientInstance): Promise
     { resource: 'estimate_request', action: 'read' },
     { resource: 'estimate_request', action: 'update' },
     { resource: 'estimate_request', action: 'delete' },
+    // 外部の AI での読み取りの専用の権限（estimate-request の 49.6。既定では見積依頼を閲覧できる一般ユーザーに付与する。
+    // backend の seed-helpers.ts と同じ）
+    { resource: 'claude_vision', action: 'use' },
     // 受領見積書関連権限
     { resource: 'received_quotation', action: 'create' },
     { resource: 'received_quotation', action: 'read' },

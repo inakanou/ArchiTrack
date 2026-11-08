@@ -6,7 +6,8 @@
  * `extractPdfWithOcrFallback` の中で作られたワーカーが終了されることを確かめる。
  *
  * `extractPdfHybrid` は本物を使い（呼び出しの観測のため包むだけ）、pdfjs-dist と
- * tesseract.js をモックする。Claude Vision の経路は失敗させてフォールバックへ進める。
+ * tesseract.js をモックする。外部の AI での読み取りの状態は未設定にし、端末の OCR へ進める
+ * （タスク119.1 より前は Claude Vision の経路を失敗させてフォールバックへ進めていた）。
  *
  * Requirements (estimate-request):
  * - 17.8: PDFテキスト抽出のタイムアウトを既存OCRと同じ30秒とする
@@ -63,8 +64,10 @@ vi.mock('../../../components/estimate-requests/pdf-text-extractor', async (impor
   };
 });
 
+// タスク119.1: 状態は未設定（確認を出さず、外部へ送らずに端末で読み取る）にし、PDF 経路の端末の OCR へ進める
 vi.mock('../../../api/claude-vision', () => ({
   extractWithClaudeVision: mockExtractWithClaudeVision,
+  getClaudeVisionStatus: () => Promise.resolve({ available: false, reason: 'not_configured' }),
   ClaudeVisionApiError: class ClaudeVisionApiError extends Error {},
   isClaudeVisionApiError: () => false,
 }));
