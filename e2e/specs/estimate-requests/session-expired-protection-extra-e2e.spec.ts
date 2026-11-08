@@ -328,13 +328,15 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
       // 同一受領見積書を別経路で先に更新して updatedAt を進めることで競合状態を作る
       // updateReceivedQuotationSchema は expectedUpdatedAt 必須（楽観的排他制御）
       // submittedAt は z.string().datetime() なので ISO 8601 形式で送る必要がある
-      await request.put(`${baseUrl}/api/quotations/${createdQuotationId}`, {
+      // 更新の経路は登録と同じく multipart で、明細行を JSON の文字列で受け取る
+      // （以前は JSON の本文で配列を送っていたため 400 で失敗し、競合が起きていなかった）
+      const competingUpdate = await request.put(`${baseUrl}/api/quotations/${createdQuotationId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: {
+        multipart: {
           name: `競合更新_${Date.now()}`,
           submittedAt: '2026-04-27T00:00:00.000Z',
           expectedUpdatedAt: created.updatedAt,
-          lineItems: [
+          lineItems: JSON.stringify([
             {
               customCategory: '',
               workType: '',
@@ -347,9 +349,11 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
               remarks: '',
               sortOrder: 0,
             },
-          ],
+          ]),
         },
       });
+      // 競合の前提: 別経路の更新が成功して updatedAt が進んでいること
+      expect(competingUpdate.status(), await competingUpdate.text()).toBe(200);
 
       // ブラウザ側で何か編集して保存 → 409
       await page.locator('#quotation-name').fill(`競合TEST_${Date.now()}`);
@@ -357,18 +361,12 @@ test.describe('受領見積書 セッション切れ保護（REQ-38 残り）', 
       const submitButton = page.getByRole('button', { name: /^登録$|^保存$|^更新$/ }).last();
       await submitButton.click();
 
-      // REQ-38.10: 楽観的排他制御エラー表示が出る
-      // または save-error が出る（実装の差異に対応）
+      // REQ-38.10: 楽観的排他制御の競合エラーが表示される。
+      // 詳細画面は保存の失敗をすべてフォームへ返す（タスク117.4）ため、409 は
+      // フォームの楽観的排他の文言として必ず表示される。表示されなければ失敗とする
+      // （以前は表示されないことを握りつぶしていた。AI 運用の第3原則に反するため改めた）
       const conflictError = page.locator('[data-testid="optimistic-conflict-error"]');
-      const saveError = page.locator('[data-testid="save-error"]');
-
-      // どちらかのエラーが表示されることを確認
-      await Promise.race([
-        expect(conflictError).toBeVisible({ timeout: getTimeout(15000) }),
-        expect(saveError).toBeVisible({ timeout: getTimeout(15000) }),
-      ]).catch(() => {
-        // 環境差異で API が 409 を返さない場合はスキップ条件
-      });
+      await expect(conflictError).toBeVisible({ timeout: getTimeout(15000) });
 
       // REQ-38.10: SessionExpiredModal は出ていないこと（別系統）
       const sessionDialog = page.getByRole('dialog', { name: /セッション/ });

@@ -7678,7 +7678,7 @@ class DuplicateOriginalError extends Error {
   backend/src/__tests__/unit/services/received-quotation.service.test.ts
   backend/src/__tests__/unit/routes/received-quotation.routes.test.ts
   backend/src/__tests__/unit/routes/claude-vision.routes.test.ts
-  backend/src/__tests__/unit/routes/admin.routes.test.ts
+  backend/src/__tests__/unit/routes/admin-settings.routes.test.ts
 - **統合（backend）**: 実際の DB で、案件の配下の登録と全件の一覧、既定の一覧が見積依頼に紐づくものだけであること、案件の無い受領見積書の 404、二重登録の同時の 2 要求が 1 件だけ通ること（勧告ロック）、migration の埋め戻し（業者名・案件・区分）、権限の付与、設定の変更の監査を主張する。所在は次のファイル
   backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts
   backend/src/__tests__/integration/claude-vision.api.integration.test.ts
