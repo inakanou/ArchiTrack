@@ -386,6 +386,10 @@ export const LINE_ITEM_VALIDATION_MESSAGES = {
   CONVERSION_UNIT_TOO_LONG: '換算の単位は50文字以内で入力してください',
   CONVERSION_UNIT_PRICE_INVALID: '換算の単価は数値で入力してください',
   CONVERSION_BASIS_TOO_LONG: '換算の根拠は500文字以内で入力してください',
+  // 換算の数量・単価の DB の桁（Decimal(15,4)・Decimal(15,2)）の上限（タスク113.3）
+  CONVERSION_QUANTITY_OUT_OF_RANGE: '換算の数量は99,999,999,999.9999以下で入力してください',
+  CONVERSION_UNIT_PRICE_OUT_OF_RANGE:
+    '換算の単価は-9,999,999,999,999.99から9,999,999,999,999.99の範囲で入力してください',
   CLASSIFICATION_KEY_TOO_LONG: '分類キーは50文字以内で入力してください',
   QUANTITY_ROW_KEY_TOO_LONG: '数量表の行のキーは1000文字以内で入力してください',
   IS_REFERENCE_INVALID: '参考の印は有か無で指定してください',
@@ -421,14 +425,32 @@ export interface LineItemConversion {
   basis: string;
 }
 
+/** 換算の数量の上限（`Decimal(15,4)` の整数部 11 桁） */
+const MAX_CONVERSION_QUANTITY = 99_999_999_999.9999;
+/** 換算の単価の絶対値の上限（`Decimal(15,2)` の整数部 13 桁） */
+const MAX_CONVERSION_UNIT_PRICE = 9_999_999_999_999.99;
+
 /**
  * 明細行の換算の入力。送られた形は一部だけのこともあるため各欄を任意で受け、
- * 揃っているかは明細行の検証（45.9）で判定する
+ * 揃っているかは明細行の検証（45.9）で判定する。数量・単価は DB の桁に収まる値に限る（タスク113.3）
  */
 const lineItemConversionInputSchema = z.object({
-  quantity: z.number(LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_QUANTITY_INVALID).nullish(),
+  quantity: z
+    .number(LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_QUANTITY_INVALID)
+    .max(MAX_CONVERSION_QUANTITY, LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_QUANTITY_OUT_OF_RANGE)
+    .nullish(),
   unit: z.string().max(50, LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_TOO_LONG).nullish(),
-  unitPrice: z.number(LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_PRICE_INVALID).nullish(),
+  unitPrice: z
+    .number(LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_PRICE_INVALID)
+    .min(
+      -MAX_CONVERSION_UNIT_PRICE,
+      LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_PRICE_OUT_OF_RANGE
+    )
+    .max(
+      MAX_CONVERSION_UNIT_PRICE,
+      LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_PRICE_OUT_OF_RANGE
+    )
+    .nullish(),
   basis: z.string().max(500, LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_BASIS_TOO_LONG).nullish(),
 });
 type LineItemConversionRaw = z.infer<typeof lineItemConversionInputSchema>;

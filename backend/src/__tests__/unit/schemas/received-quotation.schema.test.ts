@@ -1159,6 +1159,29 @@ describe('received-quotation.schema の台帳の項目（タスク112.2）', () 
       ).toBe(false);
     });
 
+    it('換算の数量・単価は DB の桁（Decimal(15,4)・Decimal(15,2)）に収まる値まで通し、超えると拒むこと（タスク113.3）', () => {
+      const maxQuantity = 99_999_999_999.9999;
+      const maxUnitPrice = 9_999_999_999_999.99;
+      const atMax = { ...fullConversion, quantity: maxQuantity, unitPrice: maxUnitPrice };
+      const ok = lineItemSchema.safeParse({ ...baseLine, conversion: atMax });
+      expect(ok.success && ok.data.conversion).toEqual(atMax);
+      const negativeAtMax = { ...fullConversion, unitPrice: -maxUnitPrice };
+      expect(lineItemSchema.safeParse({ ...baseLine, conversion: negativeAtMax }).success).toBe(
+        true
+      );
+
+      expect(() =>
+        parseLines([{ ...baseLine, conversion: { ...fullConversion, quantity: 100_000_000_000 } }])
+      ).toThrow(`明細行の1行目: ${LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_QUANTITY_OUT_OF_RANGE}`);
+      for (const unitPrice of [10_000_000_000_000, -10_000_000_000_000]) {
+        expect(() =>
+          parseLines([{ ...baseLine, conversion: { ...fullConversion, unitPrice } }])
+        ).toThrow(
+          `明細行の1行目: ${LINE_ITEM_VALIDATION_MESSAGES.CONVERSION_UNIT_PRICE_OUT_OF_RANGE}`
+        );
+      }
+    });
+
     it('明細行の検証のエラーに行の番号を添えること', () => {
       expect(() => parseLines([baseLine, { sortOrder: 1 }])).toThrow(/^明細行の2行目: /);
     });

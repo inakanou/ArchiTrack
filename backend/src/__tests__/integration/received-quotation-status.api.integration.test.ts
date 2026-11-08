@@ -1298,6 +1298,24 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(createResponse.status).toBe(201);
       const quotationId: string = createResponse.body.id;
       expect(await countLogs('RECEIVED_QUOTATION_CREATED', quotationId)).toBe(1);
+      const destination = await prisma.tradingPartner.findUniqueOrThrow({
+        where: { id: testTradingPartnerId },
+        select: { name: true },
+      });
+      // 台帳の項目の前後（D10。タスク113.3）。工事価格・確定金額は入れない
+      const ledgerAudit = {
+        vendorName: destination.name,
+        quoteNumber: null,
+        overallConditions: null,
+        siteLocation: null,
+        constructionKind: null,
+        useType: null,
+        workConditions: null,
+        distanceKm: null,
+        adoption: 'UNKNOWN',
+        readingStatus: 'UNCONFIRMED',
+        quoteDiscriminator: '',
+      };
       const createdLog = await prisma.auditLog.findFirstOrThrow({
         where: {
           action: 'RECEIVED_QUOTATION_CREATED',
@@ -1313,6 +1331,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         submittedAt: '2026-01-23T00:00:00.000Z',
         fileName: null,
         lineItemCount: 1,
+        ...ledgerAudit,
       });
       expect(JSON.stringify(createdLog.after)).not.toContain(String(NET_AMOUNT));
 
@@ -1336,11 +1355,15 @@ describe('Received Quotation & Status API Integration Tests', () => {
         name,
         submittedAt: '2026-01-23T00:00:00.000Z',
         fileName: null,
+        ...ledgerAudit,
       });
       expect(updatedLog.after).toEqual({
         name: renamed,
         submittedAt: '2026-01-23T00:00:00.000Z',
         fileName: null,
+        ...ledgerAudit,
+        constructionPriceChanged: false,
+        confirmedAmountChanged: false,
       });
 
       const deleteResponse = await request(app)
@@ -1363,6 +1386,7 @@ describe('Received Quotation & Status API Integration Tests', () => {
         name: renamed,
         submittedAt: '2026-01-23T00:00:00.000Z',
         fileName: null,
+        ...ledgerAudit,
       });
     });
 
@@ -1825,6 +1849,378 @@ describe('Received Quotation & Status API Integration Tests', () => {
       expect(await storedVendor(created.id)).toEqual({
         vendorName: originalName,
         tradingPartnerId: null,
+      });
+    });
+  });
+
+  describe('台帳の項目・金額・読取の確認・監査の中身の保存（タスク113.3）', () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let service: ReceivedQuotationService;
+
+    /** ファイルの差し替えの判定に使う、何もしないストレージ */
+    const noopStorage = {
+      upload: () => Promise.resolve({ key: 'noop', size: 1, etag: 'noop' }),
+      delete: () => Promise.resolve(undefined),
+      getSignedUrl: () => Promise.reject(new Error('ストレージの URL は呼ばれない前提')),
+    } as unknown as StorageProvider;
+
+    const ledgerInput = {
+      quoteNumber: 'Q-2026-113',
+      overallConditions: '足場・養生は別途。工程は 2 週間',
+      siteLocation: '相模原市',
+      constructionKind: 'RENOVATION' as const,
+      useType: '学校',
+      constructionPrice: 23_456_789,
+      workConditions: '夜間・土日',
+      distanceKm: 27.3,
+      adoption: 'ADOPTED' as const,
+      confirmedAmount: 22_334_455,
+      quoteDiscriminator: '第2案',
+    };
+
+    const ledgerLines = [
+      {
+        name: '仮設足場',
+        sortOrder: 0,
+        unit: '式',
+        quantity: 1,
+        unitPrice: 240000,
+        amount: 238000,
+        category: 'OVERHEAD' as const,
+        condition: '棟別',
+        conversion: { quantity: 120.25, unit: 'm2', unitPrice: 1995.5, basis: '外周 40m × 3m' },
+        classificationKey: 'K-01',
+        quantityRowKey: 'sheet1/row12',
+        isReference: true,
+        referenceReason: '数量の根拠が不明',
+      },
+      { name: '撤去', sortOrder: 1, quantity: 1.5, unitPrice: 1001, amount: null },
+      { name: '別途の行', sortOrder: 2, amount: 500000, category: 'EXCLUDED' as const },
+      { name: '値引き', sortOrder: 3, amount: -8000, category: 'DISCOUNT' as const },
+    ];
+
+    const createInProject = (extra: Record<string, unknown> = {}) =>
+      service.create(
+        { kind: 'project', projectId: testProjectId },
+        {
+          vendorName: `台帳の業者_${suffix}`,
+          name: `台帳の保存_${suffix}`,
+          submittedAt: new Date('2026-11-08T00:00:00.000Z'),
+          netAmount: 230000,
+          lineItems: ledgerLines,
+          ...extra,
+        },
+        testUserId
+      );
+
+    const storedRow = (id: string) =>
+      prisma.receivedQuotation.findUniqueOrThrow({
+        where: { id },
+        include: { lineItems: { orderBy: { sortOrder: 'asc' } } },
+      });
+
+    beforeAll(() => {
+      service = new ReceivedQuotationService({
+        prisma,
+        storageProvider: noopStorage,
+        auditLogService: new AuditLogService({ prisma }),
+      });
+    });
+
+    afterAll(async () => {
+      // 案件の外部キーは Restrict のため、案件を消す前に案件の文脈の受領見積書を消す
+      await prisma.receivedQuotation.deleteMany({
+        where: { projectId: testProjectId, estimateRequestId: null },
+      });
+    });
+
+    it('台帳の項目（見積の区別を含む）と明細行の新しい欄が DB に保存され、取得で同じ値が返る', async () => {
+      const created = await createInProject(ledgerInput);
+
+      const row = await storedRow(created.id);
+      expect({
+        quoteNumber: row.quoteNumber,
+        overallConditions: row.overallConditions,
+        siteLocation: row.siteLocation,
+        constructionKind: row.constructionKind,
+        useType: row.useType,
+        constructionPrice: Number(row.constructionPrice),
+        workConditions: row.workConditions,
+        distanceKm: Number(row.distanceKm),
+        adoption: row.adoption,
+        confirmedAmount: Number(row.confirmedAmount),
+        quoteDiscriminator: row.quoteDiscriminator,
+      }).toEqual(ledgerInput);
+      expect(row.lineItems[0]).toMatchObject({
+        category: 'OVERHEAD',
+        condition: '棟別',
+        conversionUnit: 'm2',
+        conversionBasis: '外周 40m × 3m',
+        classificationKey: 'K-01',
+        quantityRowKey: 'sheet1/row12',
+        isReference: true,
+        referenceReason: '数量の根拠が不明',
+      });
+      expect(Number(row.lineItems[0]!.conversionQuantity)).toBe(120.25);
+      expect(Number(row.lineItems[0]!.conversionUnitPrice)).toBe(1995.5);
+      // 区分の入力が無い行は直接工事
+      expect(row.lineItems[1]!.category).toBe('DIRECT');
+      expect(row.lineItems[1]!.conversionQuantity).toBeNull();
+
+      const found = await service.findById(created.id);
+      expect(found).toMatchObject({
+        ...ledgerInput,
+        vendorName: `台帳の業者_${suffix}`,
+        readingStatus: 'UNCONFIRMED',
+        readingConfirmedById: null,
+        readingConfirmedAt: null,
+      });
+      expect(found!.lineItems[0]!.conversion).toEqual({
+        quantity: 120.25,
+        unit: 'm2',
+        unitPrice: 1995.5,
+        basis: '外周 40m × 3m',
+      });
+      expect(found!.lineItems[0]!.isReference).toBe(true);
+    });
+
+    it('更新は送られた台帳の項目だけを DB で書き換え、送られない項目を保ち、null で消す', async () => {
+      const created = await createInProject(ledgerInput);
+
+      await service.update(
+        created.id,
+        { quoteNumber: 'Q-2026-114', siteLocation: null, quoteDiscriminator: '第3案' },
+        created.updatedAt,
+        testUserId
+      );
+
+      const row = await storedRow(created.id);
+      expect(row.quoteNumber).toBe('Q-2026-114');
+      expect(row.siteLocation).toBeNull();
+      expect(row.quoteDiscriminator).toBe('第3案');
+      expect(row.useType).toBe(ledgerInput.useType);
+      expect(Number(row.confirmedAmount)).toBe(ledgerInput.confirmedAmount);
+      expect(row.adoption).toBe('ADOPTED');
+    });
+
+    it('送られた金額を保持し、金額の無い行だけ数量×単価（小数第1位の四捨五入）で保存し、合計は別途の行を除く', async () => {
+      const created = await createInProject();
+
+      const row = await storedRow(created.id);
+      expect(
+        row.lineItems.map((line) => (line.amount === null ? null : Number(line.amount)))
+      ).toEqual([238000, 1502, 500000, -8000]);
+      const found = await service.findById(created.id);
+      expect(found!.totalAmount).toBe(238000 + 1502 - 8000);
+    });
+
+    it('API で送った金額は数量×単価と違っても保持して返し、DB にも残る', async () => {
+      const response = await request(app)
+        .post(`/api/estimate-requests/${testEstimateRequestId}/quotations`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('name', `金額の保持_${suffix}`)
+        .field('submittedAt', '2026-11-08T00:00:00.000Z')
+        .field(
+          'lineItems',
+          JSON.stringify([
+            { name: '保持', sortOrder: 0, quantity: 10, unitPrice: 1000, amount: 9800 },
+            { name: '算出', sortOrder: 1, quantity: 3, unitPrice: 333.5 },
+          ])
+        );
+      expect(response.status).toBe(201);
+      expect(response.body.lineItems.map((line: { amount: number | null }) => line.amount)).toEqual(
+        [9800, 1001]
+      );
+
+      const row = await storedRow(response.body.id);
+      expect(row.lineItems.map((line) => Number(line.amount))).toEqual([9800, 1001]);
+      await prisma.receivedQuotation.delete({ where: { id: response.body.id } });
+    });
+
+    it('読取の確認は確認者と日時を記録し、同じ内容の送り直しで保ち、明細行・NET 金額・ファイルの変更で未確認に戻る', async () => {
+      const beforeCreate = Date.now();
+      const created = await createInProject({ readingStatus: 'CONFIRMED' });
+      const afterCreate = Date.now();
+
+      let row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('CONFIRMED');
+      expect(row.readingConfirmedById).toBe(testUserId);
+      const confirmedAt = row.readingConfirmedAt!.getTime();
+      expect(confirmedAt).toBeGreaterThanOrEqual(beforeCreate);
+      expect(confirmedAt).toBeLessThanOrEqual(afterCreate);
+
+      // 保存済みの明細行を取得の形のまま送り直す（明細行も NET 金額も変わらない）
+      const found = await service.findById(created.id);
+      const resend = found!.lineItems.map((line) => ({
+        name: line.name,
+        sortOrder: line.sortOrder,
+        customCategory: line.customCategory,
+        workType: line.workType,
+        specification: line.specification,
+        unit: line.unit,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        amount: line.amount,
+        remarks: line.remarks,
+        category: line.category,
+        condition: line.condition,
+        conversion: line.conversion,
+        classificationKey: line.classificationKey,
+        quantityRowKey: line.quantityRowKey,
+        isReference: line.isReference,
+        referenceReason: line.referenceReason,
+      }));
+      const kept = await service.update(
+        created.id,
+        {
+          name: `台帳の保存_改名_${suffix}`,
+          netAmount: 230000,
+          lineItems: resend,
+          readingStatus: 'CONFIRMED',
+        },
+        row.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('CONFIRMED');
+      expect(row.readingConfirmedById).toBe(testUserId);
+      expect(row.readingConfirmedAt!.getTime()).toBe(confirmedAt);
+
+      // 明細行の単価を直すと、確認済みを送っても未確認に戻る
+      const edited = resend.map((line, index) =>
+        index === 1 ? { ...line, unitPrice: 1100, amount: null } : line
+      );
+      const reverted = await service.update(
+        created.id,
+        { lineItems: edited, readingStatus: 'CONFIRMED' },
+        kept.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('UNCONFIRMED');
+      expect(row.readingConfirmedById).toBeNull();
+      expect(row.readingConfirmedAt).toBeNull();
+
+      // 改めて確認済みにすると、新しい日時で記録する
+      const beforeReconfirm = Date.now();
+      const reconfirmed = await service.update(
+        created.id,
+        { readingStatus: 'CONFIRMED' },
+        reverted.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('CONFIRMED');
+      expect(row.readingConfirmedById).toBe(testUserId);
+      expect(row.readingConfirmedAt!.getTime()).toBeGreaterThanOrEqual(beforeReconfirm);
+
+      // NET 金額の変更で未確認に戻る
+      const afterNet = await service.update(
+        created.id,
+        { netAmount: 229000 },
+        reconfirmed.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('UNCONFIRMED');
+      expect(row.readingConfirmedAt).toBeNull();
+
+      // ファイルの差し替えで未確認に戻る
+      const confirmedAgain = await service.update(
+        created.id,
+        { readingStatus: 'CONFIRMED' },
+        afterNet.updatedAt,
+        testUserId
+      );
+      await service.update(
+        created.id,
+        {
+          readingStatus: 'CONFIRMED',
+          file: {
+            buffer: Buffer.from('%PDF-1.4'),
+            originalName: '差し替え.pdf',
+            mimeType: 'application/pdf',
+            size: 8,
+          },
+        },
+        confirmedAgain.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('UNCONFIRMED');
+      expect(row.readingConfirmedById).toBeNull();
+
+      // 未確認を送ると確認者と日時を消す（確認済みにしてから戻す）
+      const confirmedLast = await service.update(
+        created.id,
+        { readingStatus: 'CONFIRMED' },
+        row.updatedAt,
+        testUserId
+      );
+      await service.update(
+        created.id,
+        { readingStatus: 'UNCONFIRMED' },
+        confirmedLast.updatedAt,
+        testUserId
+      );
+      row = await storedRow(created.id);
+      expect(row.readingStatus).toBe('UNCONFIRMED');
+      expect(row.readingConfirmedById).toBeNull();
+      expect(row.readingConfirmedAt).toBeNull();
+    });
+
+    it('監査ログの行は台帳の項目の前後を持ち、工事価格・確定金額の値を持たず、更新の後に変更の有無だけを持つ', async () => {
+      const created = await createInProject(ledgerInput);
+      const updated = await service.update(
+        created.id,
+        { confirmedAmount: 21_998_877, adoption: 'REJECTED' },
+        created.updatedAt,
+        testUserId
+      );
+      await service.delete(created.id, updated.updatedAt, testUserId);
+
+      const logs = await prisma.auditLog.findMany({
+        where: { targetType: 'ReceivedQuotation', targetId: created.id },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(logs.map((log) => log.action)).toEqual([
+        'RECEIVED_QUOTATION_CREATED',
+        'RECEIVED_QUOTATION_UPDATED',
+        'RECEIVED_QUOTATION_DELETED',
+      ]);
+      for (const log of logs) {
+        const serialized = JSON.stringify([log.before, log.after]);
+        for (const amount of [
+          ledgerInput.constructionPrice,
+          ledgerInput.confirmedAmount,
+          21_998_877,
+        ]) {
+          expect(serialized).not.toContain(String(amount));
+        }
+        expect(serialized).not.toContain('"constructionPrice"');
+        expect(serialized).not.toContain('"confirmedAmount"');
+      }
+      const [createdLog, updatedLog, deletedLog] = logs;
+      expect(createdLog!.after).toMatchObject({
+        vendorName: `台帳の業者_${suffix}`,
+        quoteNumber: ledgerInput.quoteNumber,
+        siteLocation: ledgerInput.siteLocation,
+        constructionKind: 'RENOVATION',
+        distanceKm: ledgerInput.distanceKm,
+        adoption: 'ADOPTED',
+        readingStatus: 'UNCONFIRMED',
+        quoteDiscriminator: '第2案',
+      });
+      expect(createdLog!.after).not.toHaveProperty('confirmedAmountChanged');
+      expect(updatedLog!.before).toMatchObject({ adoption: 'ADOPTED' });
+      expect(updatedLog!.after).toMatchObject({
+        adoption: 'REJECTED',
+        constructionPriceChanged: false,
+        confirmedAmountChanged: true,
+      });
+      expect(deletedLog!.before).toMatchObject({
+        adoption: 'REJECTED',
+        quoteDiscriminator: '第2案',
       });
     });
   });

@@ -1949,10 +1949,10 @@ describe('ReceivedQuotationService', () => {
         );
       });
 
-      it('サーバーサイド金額検証を行う（Requirements: 11.12）', async () => {
-        // Arrange: 金額が数量x単価と一致しない
+      it('サーバーサイド金額検証: 金額が null で数量と単価があれば、数量×単価を小数第1位で四捨五入して求める（D5。タスク113.3 で書き換え）（Requirements: 11.12）', async () => {
+        // Arrange: 金額が無い（null）。数量×単価 = 10 × 1000.04 = 10000.4 → 10000
         const lineItems = [
-          { name: '工事A', sortOrder: 0, quantity: 10, unitPrice: 1000, amount: 99999 },
+          { name: '工事A', sortOrder: 0, quantity: 10, unitPrice: 1000.04, amount: null },
         ];
 
         const input = {
@@ -1998,6 +1998,7 @@ describe('ReceivedQuotationService', () => {
           lineItems: correctedLineItems,
         };
 
+        const createMany = vi.fn().mockResolvedValue({ count: 1 });
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
             estimateRequest: {
@@ -2007,7 +2008,7 @@ describe('ReceivedQuotationService', () => {
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
             receivedQuotationLineItem: {
-              createMany: vi.fn().mockResolvedValue({ count: 1 }),
+              createMany,
             },
           };
           return fn(txClient as unknown as PrismaClient);
@@ -2016,7 +2017,8 @@ describe('ReceivedQuotationService', () => {
         // Act
         const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
-        // Assert: サーバーサイドで金額を再計算して保存
+        // Assert: サーバーサイドで求めた金額を保存して返す
+        expect(createMany.mock.calls[0]![0].data[0].amount).toBe(10000);
         expect(result.lineItems[0]!.amount).toBe(10000);
         expect(result.totalAmount).toBe(10000);
       });
@@ -2588,15 +2590,15 @@ describe('ReceivedQuotationService', () => {
     });
 
     describe('create - 明細行データのサーバーサイド金額検証', () => {
-      it('クライアント送信の金額が誤っている場合、サーバーサイドで再計算する（Requirements: 11.10, 11.11）', async () => {
-        // Arrange: クライアントから誤った金額を送信
+      it('送られた金額が数量×単価と一致しなくても、サーバーは再計算せずに送られた金額を保持する（D5。タスク113.3 で書き換え）（Requirements: 11.10, 11.11）', async () => {
+        // Arrange: 画面以外の経路から、数量×単価（100000）と違う金額を送信
         const lineItems = [
           {
             name: '工事A',
             sortOrder: 0,
             quantity: 5,
             unitPrice: 20000,
-            amount: 99999, // 誤った金額（正しくは100000）
+            amount: 99999, // 送られた金額（数量×単価は100000）
           },
         ];
 
@@ -2625,7 +2627,7 @@ describe('ReceivedQuotationService', () => {
           unit: null,
           quantity: 5,
           unitPrice: 20000,
-          amount: 100000, // サーバーサイドで再計算
+          amount: 99999, // 送られた金額を保持
           remarks: null,
         };
 
@@ -2644,6 +2646,7 @@ describe('ReceivedQuotationService', () => {
           lineItems: [correctedLineItem],
         };
 
+        const createMany = vi.fn().mockResolvedValue({ count: 1 });
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
             estimateRequest: {
@@ -2653,7 +2656,7 @@ describe('ReceivedQuotationService', () => {
               create: vi.fn().mockResolvedValue(mockCreatedQuotation),
             },
             receivedQuotationLineItem: {
-              createMany: vi.fn().mockResolvedValue({ count: 1 }),
+              createMany,
             },
           };
           return fn(txClient as unknown as PrismaClient);
@@ -2662,9 +2665,10 @@ describe('ReceivedQuotationService', () => {
         // Act
         const result = await service.create(requestContextOf(input), input, ACTOR_ID);
 
-        // Assert: 金額がサーバーサイドで再計算されている
-        expect(result.lineItems[0]!.amount).toBe(100000);
-        expect(result.totalAmount).toBe(100000);
+        // Assert: サーバーサイドの検証は送られた金額を書き換えない
+        expect(createMany.mock.calls[0]![0].data[0].amount).toBe(99999);
+        expect(result.lineItems[0]!.amount).toBe(99999);
+        expect(result.totalAmount).toBe(99999);
       });
 
       it('数量または単価がnullの場合、金額はnullとなる', async () => {
@@ -3721,9 +3725,46 @@ describe('ReceivedQuotationService', () => {
   describe('監査ログ（Requirement 14.7、タスク111.1）', () => {
     const NET_AMOUNT = 4_567_890;
     const UNIT_PRICE = 123_457;
+    /** 工事価格・確定金額（46.2・46.3）。値を記録に入れない（46.11。タスク113.3） */
+    const CONSTRUCTION_PRICE = 98_765_432;
+    const CONFIRMED_AMOUNT = 87_654_321;
     const STORED_FILE_PATH = 'quotations/er-001/rq-audit/旧見積書.pdf';
 
+    /** 受領見積書の台帳の列（D10 の記録の対象と、値を記録しない金額の 2 項目） */
+    const ledgerColumns = {
+      vendorName: '協力業者A',
+      quoteNumber: 'Q-2026-001',
+      overallConditions: '足場は別途',
+      siteLocation: '横浜市',
+      constructionKind: 'RENOVATION',
+      useType: '事務所',
+      constructionPrice: CONSTRUCTION_PRICE,
+      workConditions: '夜間',
+      distanceKm: 12.5,
+      adoption: 'UNKNOWN',
+      confirmedAmount: CONFIRMED_AMOUNT,
+      readingStatus: 'UNCONFIRMED',
+      readingConfirmedById: null,
+      readingConfirmedAt: null,
+      quoteDiscriminator: '第2案',
+    };
+    /** 記録に前後を入れる台帳の項目（D10）。工事価格・確定金額は入れない */
+    const ledgerAuditOf = (columns: typeof ledgerColumns) => ({
+      vendorName: columns.vendorName,
+      quoteNumber: columns.quoteNumber,
+      overallConditions: columns.overallConditions,
+      siteLocation: columns.siteLocation,
+      constructionKind: columns.constructionKind,
+      useType: columns.useType,
+      workConditions: columns.workConditions,
+      distanceKm: columns.distanceKm,
+      adoption: columns.adoption,
+      readingStatus: columns.readingStatus,
+      quoteDiscriminator: columns.quoteDiscriminator,
+    });
+
     const existingQuotation = (overrides: Record<string, unknown> = {}) => ({
+      ...ledgerColumns,
       id: 'rq-audit',
       estimateRequestId: 'er-001',
       name: '変更前の受領見積書',
@@ -3750,6 +3791,11 @@ describe('ReceivedQuotationService', () => {
       expect(serialized).not.toContain('filePath');
       expect(serialized).not.toContain('quotations/');
       expect(serialized).not.toContain('秘匿の明細');
+      // 工事価格・確定金額は値もキーも入れない（46.11）
+      expect(serialized).not.toContain(String(CONSTRUCTION_PRICE));
+      expect(serialized).not.toContain(String(CONFIRMED_AMOUNT));
+      expect(serialized).not.toContain('"constructionPrice"');
+      expect(serialized).not.toContain('"confirmedAmount"');
     };
 
     describe('create', () => {
@@ -3765,7 +3811,7 @@ describe('ReceivedQuotationService', () => {
             }),
           },
           receivedQuotation: {
-            create: vi.fn().mockResolvedValue({ ...created, lineItems: [] }),
+            create: vi.fn().mockResolvedValue({ ...ledgerColumns, ...created, lineItems: [] }),
             update: vi.fn().mockResolvedValue(created),
           },
           receivedQuotationLineItem: {
@@ -3822,6 +3868,7 @@ describe('ReceivedQuotationService', () => {
             submittedAt: '2026-01-24T00:00:00.000Z',
             fileName: null,
             lineItemCount: 2,
+            ...ledgerAuditOf(ledgerColumns),
           },
         });
         expect(tx).toBe(txClient);
@@ -3874,6 +3921,7 @@ describe('ReceivedQuotationService', () => {
             submittedAt: '2026-01-24T00:00:00.000Z',
             fileName: '見積書.pdf',
             lineItemCount: 0,
+            ...ledgerAuditOf(ledgerColumns),
           },
         });
         expect(tx).toBe(txClient);
@@ -3975,8 +4023,16 @@ describe('ReceivedQuotationService', () => {
 
       it('更新が確定すると RECEIVED_QUOTATION_UPDATED を変更の前後と tx で 1 件記録し、差し替え前のファイルの取り除きより先に呼ぶ', async () => {
         const current = existingQuotation();
+        const changedLedger = {
+          ...ledgerColumns,
+          quoteNumber: 'Q-2026-002',
+          adoption: 'ADOPTED',
+          distanceKm: 3.5,
+          constructionPrice: CONSTRUCTION_PRICE + 1000,
+        };
         const txClient = setupUpdateTx(current, {
           ...current,
+          ...changedLedger,
           name: '変更後の受領見積書',
           submittedAt: new Date('2026-02-01T00:00:00.000Z'),
           filePath: 'quotations/er-001/rq-audit/新見積書.pdf',
@@ -3993,6 +4049,10 @@ describe('ReceivedQuotationService', () => {
             netAmount: NET_AMOUNT + 1,
             file: replacementFile,
             lineItems: [{ name: '秘匿の明細C', sortOrder: 0, quantity: 1, unitPrice: UNIT_PRICE }],
+            quoteNumber: 'Q-2026-002',
+            adoption: 'ADOPTED',
+            distanceKm: 3.5,
+            constructionPrice: CONSTRUCTION_PRICE + 1000,
           },
           expectedUpdatedAt,
           ACTOR_ID
@@ -4009,16 +4069,21 @@ describe('ReceivedQuotationService', () => {
             name: '変更前の受領見積書',
             submittedAt: '2026-01-23T00:00:00.000Z',
             fileName: '旧見積書.pdf',
+            ...ledgerAuditOf(ledgerColumns),
           },
           after: {
             name: '変更後の受領見積書',
             submittedAt: '2026-02-01T00:00:00.000Z',
             fileName: '新見積書.pdf',
+            ...ledgerAuditOf(changedLedger),
+            constructionPriceChanged: true,
+            confirmedAmountChanged: false,
           },
         });
         expect(tx).toBe(txClient);
         expectNoConfidentialValues(input);
         expect(JSON.stringify(input)).not.toContain(String(NET_AMOUNT + 1));
+        expect(JSON.stringify(input)).not.toContain(String(CONSTRUCTION_PRICE + 1000));
         expect(mockStorageProvider.delete).toHaveBeenCalledWith(STORED_FILE_PATH);
         expect(mockAuditLogService.createLog.mock.invocationCallOrder[0]!).toBeLessThan(
           vi.mocked(mockStorageProvider.delete).mock.invocationCallOrder[0]!
@@ -4089,6 +4154,7 @@ describe('ReceivedQuotationService', () => {
             name: '変更前の受領見積書',
             submittedAt: '2026-01-23T00:00:00.000Z',
             fileName: '旧見積書.pdf',
+            ...ledgerAuditOf(ledgerColumns),
           },
           after: null,
         });
@@ -4111,6 +4177,623 @@ describe('ReceivedQuotationService', () => {
         );
 
         expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('金額の保持・別途を除く合計・台帳の項目・読取の確認の保存（タスク113.3）', () => {
+    const OTHER_USER_ID = 'user-other-001';
+    const CONFIRMED_AT = new Date('2026-10-01T09:00:00.000Z');
+    const expectedUpdatedAt = new Date('2026-11-01T01:00:00.000Z');
+
+    /** 保存済みの受領見積書の行（DB の列をすべて持つ） */
+    const storedQuotation = (overrides: Record<string, unknown> = {}) => ({
+      id: 'rq-ledger',
+      estimateRequestId: 'er-001',
+      projectId: 'project-001',
+      vendorName: '協力業者A',
+      tradingPartnerId: 'tp-001',
+      name: '台帳の受領見積書',
+      submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+      filePath: null,
+      fileName: null,
+      fileMimeType: null,
+      fileSize: null,
+      fileSha256: null,
+      netAmount: null,
+      quoteNumber: null,
+      overallConditions: null,
+      siteLocation: null,
+      constructionKind: null,
+      useType: null,
+      constructionPrice: null,
+      workConditions: null,
+      distanceKm: null,
+      adoption: 'UNKNOWN',
+      confirmedAmount: null,
+      readingStatus: 'UNCONFIRMED',
+      readingConfirmedById: null,
+      readingConfirmedAt: null,
+      quoteDiscriminator: '',
+      createdAt: new Date('2026-11-01T00:00:00.000Z'),
+      updatedAt: expectedUpdatedAt,
+      deletedAt: null,
+      ...overrides,
+    });
+
+    /** 保存済みの明細行の行（DB の列をすべて持つ） */
+    const storedLine = (overrides: Record<string, unknown> = {}) => ({
+      id: 'li-stored',
+      receivedQuotationId: 'rq-ledger',
+      sortOrder: 0,
+      customCategory: null,
+      workType: null,
+      name: '既存の明細',
+      specification: null,
+      unit: '式',
+      quantity: 1,
+      unitPrice: 50000,
+      amount: 50000,
+      remarks: null,
+      category: 'DIRECT',
+      condition: null,
+      conversionQuantity: null,
+      conversionUnit: null,
+      conversionUnitPrice: null,
+      conversionBasis: null,
+      classificationKey: null,
+      quantityRowKey: null,
+      isReference: false,
+      referenceReason: null,
+      ...overrides,
+    });
+
+    /** 見積依頼の文脈の作成の tx。create は書き込んだ data をそのまま返す（往復の写し） */
+    const setupCreateTx = () => {
+      const txClient = {
+        estimateRequest: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'er-001',
+            deletedAt: null,
+            projectId: 'project-001',
+            tradingPartnerId: 'tp-001',
+            tradingPartner: { name: '協力業者A' },
+          }),
+        },
+        receivedQuotation: {
+          create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+            ...storedQuotation(),
+            ...data,
+            lineItems: [],
+          })),
+          update: vi.fn(),
+        },
+        receivedQuotationLineItem: {
+          createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+      };
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+        fn(txClient as unknown as PrismaClient)
+      );
+      return txClient;
+    };
+
+    /** 更新の tx。update は保存前の行に書き込んだ data を重ねて返す */
+    const setupUpdateTx = (
+      current: Record<string, unknown>,
+      currentLines: Array<Record<string, unknown>> = []
+    ) => {
+      const txClient = {
+        receivedQuotation: {
+          findUnique: vi.fn().mockResolvedValue(current),
+          update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+            ...current,
+            ...data,
+            lineItems: [],
+          })),
+        },
+        receivedQuotationLineItem: {
+          findMany: vi.fn().mockResolvedValue(currentLines),
+          deleteMany: vi.fn().mockResolvedValue({ count: currentLines.length }),
+          createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+      };
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) =>
+        fn(txClient as unknown as PrismaClient)
+      );
+      return txClient;
+    };
+
+    const createWithLines = (
+      lineItems: Parameters<ReceivedQuotationService['create']>[1]['lineItems'],
+      extra: Record<string, unknown> = {}
+    ) =>
+      service.create(
+        { kind: 'estimateRequest', estimateRequestId: 'er-001' },
+        {
+          name: '台帳の受領見積書',
+          submittedAt: new Date('2026-11-01T00:00:00.000Z'),
+          lineItems,
+          ...extra,
+        },
+        ACTOR_ID
+      );
+
+    describe('金額の保持と算出（D5）', () => {
+      it('送られた金額は数量×単価と違っても保持し、金額が無い行だけ数量×単価を小数第1位で四捨五入して求める', async () => {
+        const txClient = setupCreateTx();
+
+        const result = await createWithLines([
+          { name: '保持', sortOrder: 0, quantity: 10, unitPrice: 1000, amount: 9800 },
+          { name: '算出', sortOrder: 1, quantity: 1.5, unitPrice: 1001, amount: null },
+          { name: '算出の切り上げ', sortOrder: 2, quantity: 2, unitPrice: 0.25 },
+          { name: '数量なし', sortOrder: 3, quantity: null, unitPrice: 100, amount: null },
+          { name: '単価なしの直接入力', sortOrder: 4, quantity: 3, unitPrice: null, amount: 700 },
+          { name: '0 円も保持', sortOrder: 5, quantity: 2, unitPrice: 300, amount: 0 },
+        ]);
+
+        const saved = txClient.receivedQuotationLineItem.createMany.mock.calls[0]![0]
+          .data as Array<{
+          amount: number | null;
+        }>;
+        expect(saved.map((line) => line.amount)).toEqual([9800, 1502, 1, null, 700, 0]);
+        expect(result.lineItems.map((line) => line.amount)).toEqual([9800, 1502, 1, null, 700, 0]);
+      });
+
+      it('更新でも送られた金額を保持し、金額が無い行だけ求める', async () => {
+        const txClient = setupUpdateTx(storedQuotation());
+
+        await service.update(
+          'rq-ledger',
+          {
+            lineItems: [
+              { name: '保持', sortOrder: 0, quantity: 4, unitPrice: 2500, amount: 9999 },
+              { name: '算出', sortOrder: 1, quantity: 3, unitPrice: 333.5, amount: null },
+            ],
+          },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const saved = txClient.receivedQuotationLineItem.createMany.mock.calls[0]![0]
+          .data as Array<{
+          amount: number | null;
+        }>;
+        expect(saved.map((line) => line.amount)).toEqual([9999, 1001]);
+      });
+    });
+
+    describe('合計（45.5）と区分の既定（45.3）', () => {
+      it('合計は区分が別途の行を除き、値引きは負の金額として足し込む', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          storedQuotation({
+            lineItems: [
+              storedLine({ id: 'li-1', sortOrder: 0, amount: 100000, category: 'DIRECT' }),
+              storedLine({ id: 'li-2', sortOrder: 1, amount: 8000, category: 'OVERHEAD' }),
+              storedLine({ id: 'li-3', sortOrder: 2, amount: 300000, category: 'EXCLUDED' }),
+              storedLine({ id: 'li-4', sortOrder: 3, amount: -5000, category: 'DISCOUNT' }),
+            ],
+          }) as never
+        );
+
+        const result = await service.findById('rq-ledger');
+
+        expect(result!.totalAmount).toBe(103000);
+      });
+
+      it('金額を持つ行が別途だけなら、合計は null になる', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          storedQuotation({
+            lineItems: [
+              storedLine({ id: 'li-1', amount: 300000, category: 'EXCLUDED' }),
+              storedLine({ id: 'li-2', sortOrder: 1, amount: null, category: 'DIRECT' }),
+            ],
+          }) as never
+        );
+
+        const result = await service.findById('rq-ledger');
+
+        expect(result!.totalAmount).toBeNull();
+      });
+
+      it('作成の結果の合計も別途の行を除く', async () => {
+        setupCreateTx();
+
+        const result = await createWithLines([
+          { name: '直接', sortOrder: 0, quantity: 1, unitPrice: 1000, amount: 1000 },
+          { name: '別途', sortOrder: 1, amount: 50000, category: 'EXCLUDED' },
+        ]);
+
+        expect(result.totalAmount).toBe(1000);
+      });
+
+      it('区分の入力が無い明細行は直接工事として保存して返す', async () => {
+        const txClient = setupCreateTx();
+
+        const result = await createWithLines([
+          { name: '区分なし', sortOrder: 0, quantity: 1, unitPrice: 1000 },
+        ]);
+
+        const saved = txClient.receivedQuotationLineItem.createMany.mock.calls[0]![0]
+          .data as Array<{
+          category: string;
+        }>;
+        expect(saved[0]!.category).toBe('DIRECT');
+        expect(result.lineItems[0]!.category).toBe('DIRECT');
+      });
+    });
+
+    describe('台帳の項目と明細行の新しい欄の保存', () => {
+      const ledgerInput = {
+        quoteNumber: 'Q-2026-077',
+        overallConditions: '足場・養生は別途',
+        siteLocation: '川崎市',
+        constructionKind: 'NEW_CONSTRUCTION' as const,
+        useType: '共同住宅',
+        constructionPrice: 45_000_000,
+        workConditions: '居ながら',
+        distanceKm: 18.4,
+        adoption: 'ADOPTED' as const,
+        confirmedAmount: 44_500_000,
+        quoteDiscriminator: '別途工事分',
+      };
+
+      it('作成は台帳の項目（見積の区別を含む）を保存し、結果に返す', async () => {
+        const txClient = setupCreateTx();
+
+        const result = await createWithLines(
+          [{ name: '明細', sortOrder: 0, quantity: 1, unitPrice: 1000 }],
+          ledgerInput
+        );
+
+        const data = txClient.receivedQuotation.create.mock.calls[0]![0].data;
+        expect(data).toMatchObject(ledgerInput);
+        expect(result).toMatchObject({
+          ...ledgerInput,
+          vendorName: '協力業者A',
+          tradingPartnerId: 'tp-001',
+          readingStatus: 'UNCONFIRMED',
+          readingConfirmedById: null,
+          readingConfirmedAt: null,
+        });
+      });
+
+      it('見積の区別を送らない作成は、空の区別で保存する', async () => {
+        const txClient = setupCreateTx();
+
+        const result = await createWithLines([{ name: '明細', sortOrder: 0, amount: 100 }]);
+
+        expect(txClient.receivedQuotation.create.mock.calls[0]![0].data.quoteDiscriminator).toBe(
+          ''
+        );
+        expect(result.quoteDiscriminator).toBe('');
+      });
+
+      it('明細行の区分・条件・換算（4 列）・分類キー・数量表の行のキー・参考の印と理由を保存し、結果に返す', async () => {
+        const txClient = setupCreateTx();
+
+        const result = await createWithLines([
+          {
+            name: '仮設足場',
+            sortOrder: 0,
+            unit: '式',
+            quantity: 1,
+            unitPrice: 240000,
+            category: 'OVERHEAD',
+            condition: '夜間',
+            conversion: { quantity: 120, unit: 'm2', unitPrice: 2000, basis: '外周 40m × 高さ 3m' },
+            classificationKey: 'K-01',
+            quantityRowKey: 'sheet1/row12',
+            isReference: true,
+            referenceReason: '数量の根拠が不明',
+          },
+          { name: '換算なし', sortOrder: 1, amount: 500, conversion: null },
+        ]);
+
+        const saved = txClient.receivedQuotationLineItem.createMany.mock.calls[0]![0].data;
+        expect(saved[0]).toMatchObject({
+          category: 'OVERHEAD',
+          condition: '夜間',
+          conversionQuantity: 120,
+          conversionUnit: 'm2',
+          conversionUnitPrice: 2000,
+          conversionBasis: '外周 40m × 高さ 3m',
+          classificationKey: 'K-01',
+          quantityRowKey: 'sheet1/row12',
+          isReference: true,
+          referenceReason: '数量の根拠が不明',
+        });
+        expect(saved[1]).toMatchObject({
+          category: 'DIRECT',
+          condition: null,
+          conversionQuantity: null,
+          conversionUnit: null,
+          conversionUnitPrice: null,
+          conversionBasis: null,
+          classificationKey: null,
+          quantityRowKey: null,
+          isReference: false,
+          referenceReason: null,
+        });
+        expect(result.lineItems[0]).toMatchObject({
+          category: 'OVERHEAD',
+          condition: '夜間',
+          conversion: { quantity: 120, unit: 'm2', unitPrice: 2000, basis: '外周 40m × 高さ 3m' },
+          classificationKey: 'K-01',
+          quantityRowKey: 'sheet1/row12',
+          isReference: true,
+          referenceReason: '数量の根拠が不明',
+        });
+        expect(result.lineItems[1]!.conversion).toBeNull();
+      });
+
+      it('取得は保存された換算の 4 列を換算の形にまとめて返す', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue(
+          storedQuotation({
+            lineItems: [
+              storedLine({
+                conversionQuantity: 12.5,
+                conversionUnit: 'm',
+                conversionUnitPrice: 4000,
+                conversionBasis: '延長',
+              }),
+            ],
+          }) as never
+        );
+
+        const result = await service.findById('rq-ledger');
+
+        expect(result!.lineItems[0]!.conversion).toEqual({
+          quantity: 12.5,
+          unit: 'm',
+          unitPrice: 4000,
+          basis: '延長',
+        });
+      });
+
+      it('更新は送られた台帳の項目だけを書き換え、送られない項目に触れず、null で消す', async () => {
+        const txClient = setupUpdateTx(
+          storedQuotation({ quoteNumber: 'Q-OLD', siteLocation: '横浜市', useType: '店舗' })
+        );
+
+        await service.update(
+          'rq-ledger',
+          { quoteNumber: 'Q-NEW', siteLocation: null, quoteDiscriminator: '第3案' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const data = txClient.receivedQuotation.update.mock.calls[0]![0].data;
+        expect(data).toMatchObject({
+          quoteNumber: 'Q-NEW',
+          siteLocation: null,
+          quoteDiscriminator: '第3案',
+        });
+        expect(data).not.toHaveProperty('useType');
+        expect(data).not.toHaveProperty('constructionPrice');
+        expect(data).not.toHaveProperty('adoption');
+      });
+    });
+
+    describe('読取の確認の遷移（D9）', () => {
+      const confirmedQuotation = (overrides: Record<string, unknown> = {}) =>
+        storedQuotation({
+          readingStatus: 'CONFIRMED',
+          readingConfirmedById: OTHER_USER_ID,
+          readingConfirmedAt: CONFIRMED_AT,
+          netAmount: 50000,
+          filePath: 'quotations/er-001/rq-ledger/見積書.pdf',
+          fileName: '見積書.pdf',
+          fileMimeType: 'application/pdf',
+          fileSize: 1000,
+          ...overrides,
+        });
+      /** 保存済みの明細行と同じ内容の入力 */
+      const sameLineInput = {
+        name: '既存の明細',
+        sortOrder: 0,
+        unit: '式',
+        quantity: 1,
+        unitPrice: 50000,
+        amount: 50000,
+      };
+
+      it('作成で確認済みを送ると、操作した利用者と今の日時を確認者・日時として記録する', async () => {
+        const txClient = setupCreateTx();
+        const before = Date.now();
+
+        const result = await createWithLines([{ name: '明細', sortOrder: 0, amount: 100 }], {
+          readingStatus: 'CONFIRMED',
+        });
+
+        const data = txClient.receivedQuotation.create.mock.calls[0]![0].data;
+        expect(data.readingStatus).toBe('CONFIRMED');
+        expect(data.readingConfirmedById).toBe(ACTOR_ID);
+        const at = (data.readingConfirmedAt as Date).getTime();
+        expect(at).toBeGreaterThanOrEqual(before);
+        expect(at).toBeLessThanOrEqual(Date.now());
+        expect(result.readingConfirmedById).toBe(ACTOR_ID);
+      });
+
+      it('未確認から確認済みにする更新は、操作した利用者と今の日時を記録する', async () => {
+        const txClient = setupUpdateTx(storedQuotation());
+        const before = Date.now();
+
+        await service.update(
+          'rq-ledger',
+          { readingStatus: 'CONFIRMED' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const data = txClient.receivedQuotation.update.mock.calls[0]![0].data;
+        expect(data.readingStatus).toBe('CONFIRMED');
+        expect(data.readingConfirmedById).toBe(ACTOR_ID);
+        const at = (data.readingConfirmedAt as Date).getTime();
+        expect(at).toBeGreaterThanOrEqual(before);
+        expect(at).toBeLessThanOrEqual(Date.now());
+      });
+
+      it('確認済みの受領見積書の明細行・NET 金額・ファイルのどれかが変わると、確認済みを送っても未確認に戻し確認者と日時を消す', async () => {
+        const cases: Array<{ label: string; input: Record<string, unknown> }> = [
+          {
+            label: '明細行の単価',
+            input: { lineItems: [{ ...sameLineInput, unitPrice: 49000, amount: 49000 }] },
+          },
+          {
+            label: '明細行の区分',
+            input: { lineItems: [{ ...sameLineInput, category: 'OVERHEAD' }] },
+          },
+          {
+            label: '明細行の参考の印',
+            input: { lineItems: [{ ...sameLineInput, isReference: true }] },
+          },
+          {
+            label: '明細行の数',
+            input: { lineItems: [sameLineInput, { ...sameLineInput, sortOrder: 1 }] },
+          },
+          { label: 'NET 金額', input: { netAmount: 48000 } },
+          {
+            label: 'ファイルの差し替え',
+            input: {
+              file: {
+                buffer: Buffer.from('PDF'),
+                originalName: '差し替え.pdf',
+                mimeType: 'application/pdf',
+                size: 10,
+              },
+            },
+          },
+          { label: 'ファイルの削除', input: { removeFile: true } },
+        ];
+
+        for (const { label, input } of cases) {
+          const txClient = setupUpdateTx(confirmedQuotation(), [storedLine()]);
+
+          await service.update(
+            'rq-ledger',
+            { ...input, readingStatus: 'CONFIRMED' },
+            expectedUpdatedAt,
+            ACTOR_ID
+          );
+
+          const data = txClient.receivedQuotation.update.mock.calls[0]![0].data;
+          expect({ label, status: data.readingStatus }).toEqual({ label, status: 'UNCONFIRMED' });
+          expect({ label, by: data.readingConfirmedById }).toEqual({ label, by: null });
+          expect({ label, at: data.readingConfirmedAt }).toEqual({ label, at: null });
+        }
+      });
+
+      it('明細行の並び順が入れ替わっただけでも、確認済みを未確認に戻す', async () => {
+        const first = storedLine({ id: 'li-a', sortOrder: 0, name: '明細A' });
+        const second = storedLine({ id: 'li-b', sortOrder: 1, name: '明細B' });
+        const txClient = setupUpdateTx(confirmedQuotation(), [first, second]);
+
+        await service.update(
+          'rq-ledger',
+          {
+            lineItems: [
+              { ...sameLineInput, name: '明細B', sortOrder: 0 },
+              { ...sameLineInput, name: '明細A', sortOrder: 1 },
+            ],
+          },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const data = txClient.receivedQuotation.update.mock.calls[0]![0].data;
+        expect(data.readingStatus).toBe('UNCONFIRMED');
+        expect(data.readingConfirmedById).toBeNull();
+      });
+
+      it('確認済みの受領見積書に同じ明細行・同じ NET 金額を送り直すだけなら、確認済みと確認者・日時を保つ', async () => {
+        const txClient = setupUpdateTx(confirmedQuotation(), [storedLine()]);
+
+        await service.update(
+          'rq-ledger',
+          {
+            name: '名前だけ変える',
+            netAmount: 50000,
+            lineItems: [sameLineInput],
+            readingStatus: 'CONFIRMED',
+          },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const data = txClient.receivedQuotation.update.mock.calls[0]![0].data;
+        expect(data.readingStatus ?? 'CONFIRMED').toBe('CONFIRMED');
+        expect(data).not.toHaveProperty('readingConfirmedById');
+        expect(data).not.toHaveProperty('readingConfirmedAt');
+      });
+
+      it('確認済みの受領見積書の名前だけを変え、読取の確認を送らない更新は、確認に触れない', async () => {
+        const txClient = setupUpdateTx(confirmedQuotation(), [storedLine()]);
+
+        await service.update('rq-ledger', { name: '名前だけ' }, expectedUpdatedAt, ACTOR_ID);
+
+        const data = txClient.receivedQuotation.update.mock.calls[0]![0].data;
+        expect(data).not.toHaveProperty('readingStatus');
+        expect(data).not.toHaveProperty('readingConfirmedById');
+        expect(data).not.toHaveProperty('readingConfirmedAt');
+      });
+
+      it('未確認を送る更新は、確認者と日時を消す', async () => {
+        const txClient = setupUpdateTx(confirmedQuotation(), [storedLine()]);
+
+        await service.update(
+          'rq-ledger',
+          { readingStatus: 'UNCONFIRMED' },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const data = txClient.receivedQuotation.update.mock.calls[0]![0].data;
+        expect(data.readingStatus).toBe('UNCONFIRMED');
+        expect(data.readingConfirmedById).toBeNull();
+        expect(data.readingConfirmedAt).toBeNull();
+      });
+    });
+
+    describe('監査ログの金額の項目（46.11）', () => {
+      it('更新の後に工事価格・確定金額の変更の有無だけを入れ、値を入れない', async () => {
+        const current = storedQuotation({ constructionPrice: 30_000_000, confirmedAmount: null });
+        setupUpdateTx(current);
+
+        await service.update(
+          'rq-ledger',
+          { constructionPrice: 30_000_000, confirmedAmount: 29_800_000 },
+          expectedUpdatedAt,
+          ACTOR_ID
+        );
+
+        const [input] = mockAuditLogService.createLog.mock.calls[0]!;
+        expect(input.after).toMatchObject({
+          constructionPriceChanged: false,
+          confirmedAmountChanged: true,
+        });
+        expect(input.before).not.toHaveProperty('constructionPriceChanged');
+        const serialized = JSON.stringify(input);
+        expect(serialized).not.toContain('30000000');
+        expect(serialized).not.toContain('29800000');
+        expect(serialized).not.toContain('"constructionPrice"');
+        expect(serialized).not.toContain('"confirmedAmount"');
+      });
+
+      it('作成の記録は工事価格・確定金額の値も変更の有無も入れない', async () => {
+        setupCreateTx();
+
+        await createWithLines([{ name: '明細', sortOrder: 0, amount: 100 }], {
+          constructionPrice: 12_340_000,
+          confirmedAmount: 12_000_000,
+        });
+
+        const [input] = mockAuditLogService.createLog.mock.calls[0]!;
+        const serialized = JSON.stringify(input);
+        expect(serialized).not.toContain('12340000');
+        expect(serialized).not.toContain('12000000');
+        expect(serialized).not.toContain('constructionPrice');
+        expect(serialized).not.toContain('confirmedAmount');
       });
     });
   });

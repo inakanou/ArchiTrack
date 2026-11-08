@@ -38,6 +38,11 @@
  * 見積依頼を持たない受領見積書を作る。更新は文脈を変えない（43.10）。案件の配下の一覧・プレビューの範囲の判定・
  * ファイルの格納先は受領見積書の案件の列で行い、案件の無い受領見積書は不在として扱う（43.14）。
  *
+ * 保存の規則（同章の D5・D9・D10、タスク113.3）: 送られた明細行の金額は保持し、金額が無く数量と単価がある行だけ
+ * 数量×単価を求める（45.12）。合計は区分が別途の行を除く（45.5）。台帳の項目と明細行の新しい欄を保存し、
+ * 読取の確認を D9 のとおり遷移させる（46.6〜46.8）。監査ログには台帳の項目の前後を入れ、工事価格・確定金額は
+ * 変更の有無だけを入れる（46.11）。
+ *
  * Task 12.1: ReceivedQuotationServiceの実装
  * Task 20.2: contentType/textContent廃止、ファイル+明細行共存モデルへ移行
  * Task 21.1: 明細行管理追加（一括保存・取得・全量置換・金額検証）
@@ -60,7 +65,11 @@ import {
 import { EstimateRequestNotFoundError } from '../errors/estimateRequestError.js';
 import { ProjectNotFoundError } from '../errors/projectError.js';
 import { ValidationError } from '../errors/apiError.js';
-import { RECEIVED_QUOTATION_VALIDATION_MESSAGES } from '../schemas/received-quotation.schema.js';
+import {
+  RECEIVED_QUOTATION_VALIDATION_MESSAGES,
+  type LineItemCategory,
+  type LineItemConversion,
+} from '../schemas/received-quotation.schema.js';
 import logger from '../utils/logger.js';
 import { getSharedProjectScopeService, type ProjectScopeService } from './project-scope.service.js';
 
@@ -125,6 +134,19 @@ export interface LineItemInput {
   unitPrice?: number | null;
   amount?: number | null;
   remarks?: string | null;
+  /** 区分（45.1）。入力が無いときは直接工事（45.3。タスク113.3） */
+  category?: LineItemCategory;
+  /** 条件（45.7） */
+  condition?: string | null;
+  /** 換算（45.8）。4 列（数量・単位・単価・根拠）に分けて保存する */
+  conversion?: LineItemConversion | null;
+  /** 分類キー（47.1） */
+  classificationKey?: string | null;
+  /** 数量表の行のキー（47.4） */
+  quantityRowKey?: string | null;
+  /** 参考の印と理由（46.4） */
+  isReference?: boolean;
+  referenceReason?: string | null;
 }
 
 /**
@@ -145,7 +167,96 @@ export interface LineItemInfo {
   unitPrice: number | null;
   amount: number | null;
   remarks: string | null;
+  category: LineItemCategory;
+  condition: string | null;
+  conversion: LineItemConversion | null;
+  classificationKey: string | null;
+  quantityRowKey: string | null;
+  isReference: boolean;
+  referenceReason: string | null;
 }
+
+/** 読取の確認の状態（46.6） */
+export type ReadingStatus = 'UNCONFIRMED' | 'CONFIRMED';
+
+/**
+ * 受領見積書の台帳の項目の入力（design の同章の Service Interface の `LedgerFieldsInput` のうち業者名・取引先を除く。
+ * タスク113.3）。欄が無い（undefined）は作成では既定、更新では変えない。null は消す
+ */
+export interface LedgerFieldsInput {
+  quoteNumber?: string | null;
+  overallConditions?: string | null;
+  siteLocation?: string | null;
+  constructionKind?: 'RENOVATION' | 'NEW_CONSTRUCTION' | null;
+  useType?: string | null;
+  constructionPrice?: number | null;
+  workConditions?: string | null;
+  distanceKm?: number | null;
+  adoption?: 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
+  confirmedAmount?: number | null;
+  /** 読取の確認（46.6）。遷移は D9 でサービスが決める */
+  readingStatus?: ReadingStatus;
+  /** 見積の区別（48.2） */
+  quoteDiscriminator?: string;
+}
+
+/** 入力のとおりに保存する台帳の項目（読取の確認は D9 で決めるため含めない） */
+const LEDGER_COLUMN_KEYS = [
+  'quoteNumber',
+  'overallConditions',
+  'siteLocation',
+  'constructionKind',
+  'useType',
+  'constructionPrice',
+  'workConditions',
+  'distanceKm',
+  'adoption',
+  'confirmedAmount',
+  'quoteDiscriminator',
+] as const satisfies ReadonlyArray<keyof LedgerFieldsInput>;
+type LedgerColumnKey = (typeof LEDGER_COLUMN_KEYS)[number];
+type LedgerColumns = { [K in LedgerColumnKey]?: LedgerFieldsInput[K] };
+
+/** 明細行の保存の形（DB の列）。保存と、読取の確認の変化の判定（D9）の比較に使う */
+interface LineItemRow {
+  sortOrder: number;
+  customCategory: string | null;
+  workType: string | null;
+  name: string;
+  specification: string | null;
+  unit: string | null;
+  quantity: number | null;
+  unitPrice: number | null;
+  amount: number | null;
+  remarks: string | null;
+  category: LineItemCategory;
+  condition: string | null;
+  conversionQuantity: number | null;
+  conversionUnit: string | null;
+  conversionUnitPrice: number | null;
+  conversionBasis: string | null;
+  classificationKey: string | null;
+  quantityRowKey: string | null;
+  isReference: boolean;
+  referenceReason: string | null;
+}
+
+/** 金額・数量の列の小数の桁（DB の Decimal の scale）。比較の前に揃える */
+const LINE_DECIMAL_SCALES = {
+  quantity: 4,
+  unitPrice: 2,
+  amount: 2,
+  conversionQuantity: 4,
+  conversionUnitPrice: 2,
+} as const;
+
+/** Decimal・数・null を小数の桁で揃えた数にする（比較用） */
+const toScaled = (value: unknown, scale: number): number | null =>
+  value === null || value === undefined ? null : Number(Number(value).toFixed(scale));
+
+/** Decimal・数・null を数にする（出力・記録用） */
+const toNumberOrNull = (value: unknown): number | null =>
+  value === null || value === undefined ? null : Number(value);
 
 /**
  * 受領見積書の文脈（design の Requirements 43-50 の章の Service Interface、タスク113.1）
@@ -165,7 +276,7 @@ export interface FindByProjectIdOptions {
 /**
  * 受領見積書作成入力（改訂版: Task 61.2 netAmount追加。タスク113.1 で文脈を引数へ移した）
  */
-export interface CreateReceivedQuotationInput {
+export interface CreateReceivedQuotationInput extends LedgerFieldsInput {
   /** 業者名（44.1）。案件の文脈では必須（43.8）、見積依頼の文脈では使わない（44.3） */
   vendorName?: string;
   /**
@@ -183,7 +294,7 @@ export interface CreateReceivedQuotationInput {
 /**
  * 受領見積書更新入力（改訂版: Task 61.2 netAmount追加）
  */
-export interface UpdateReceivedQuotationInput {
+export interface UpdateReceivedQuotationInput extends LedgerFieldsInput {
   /** 業者名（44.1）。案件の文脈だけで使い、見積依頼の文脈では無視する（44.3。タスク113.2） */
   vendorName?: string;
   /** 選んだ取引先の ID（44.5）。扱いは作成と同じ（タスク113.2） */
@@ -208,7 +319,26 @@ export interface ReceivedQuotationInfo {
   fileMimeType: string | null;
   fileSize: number | null;
   netAmount: number | null;
+  /** 業者名と取引先（44.1〜44.7） */
+  vendorName: string;
+  tradingPartnerId: string | null;
+  /** 台帳の項目（46.1〜46.3・46.6・46.7・48.2。タスク113.3） */
+  quoteNumber: string | null;
+  overallConditions: string | null;
+  siteLocation: string | null;
+  constructionKind: 'RENOVATION' | 'NEW_CONSTRUCTION' | null;
+  useType: string | null;
+  constructionPrice: number | null;
+  workConditions: string | null;
+  distanceKm: number | null;
+  adoption: 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
+  confirmedAmount: number | null;
+  readingStatus: ReadingStatus;
+  readingConfirmedById: string | null;
+  readingConfirmedAt: Date | null;
+  quoteDiscriminator: string;
   lineItems: LineItemInfo[];
+  /** 区分が別途の行を除いた金額の合計（45.5） */
   totalAmount: number | null;
   createdAt: Date;
   updatedAt: Date;
@@ -219,7 +349,6 @@ export interface ReceivedQuotationInfo {
  * （estimate-creation の転記の画面が読む）
  */
 export type ProjectQuotationSummary = ReceivedQuotationInfo & {
-  vendorName: string;
   tradingPartnerName: string;
 };
 
@@ -320,37 +449,216 @@ export class ReceivedQuotationService {
    * 明細行データのサーバーサイド金額検証・補正を行う
    *
    * Requirements: 11.12 - 金額は単価と数量の積として自動計算
+   *
+   * 送られた金額は保持する（画面以外の経路で登録された金額を書き換えない。45.12）。金額が無く（null・省略）、
+   * 数量と単価が両方あるときだけ、数量×単価を小数第 1 位で四捨五入して求める（D5。画面の自動計算と同じ
+   * `Math.round`。タスク113.3）
+   *
    * Task 21.1: 明細行データのサーバーサイド金額検証を実装
    *
    * @param lineItems - 明細行入力データ
-   * @returns 金額が検証・補正された明細行データ
+   * @returns 金額を補った明細行データ
    */
   private validateAndCorrectAmounts(lineItems: LineItemInput[]): LineItemInput[] {
     return lineItems.map((item) => {
+      if (item.amount !== undefined && item.amount !== null) {
+        return item;
+      }
       const quantity = item.quantity ?? null;
       const unitPrice = item.unitPrice ?? null;
-
-      // 数量と単価が両方存在する場合、金額をサーバーサイドで再計算
-      let correctedAmount: number | null = item.amount ?? null;
-      if (quantity !== null && unitPrice !== null) {
-        correctedAmount = quantity * unitPrice;
-      }
-
       return {
         ...item,
-        amount: correctedAmount,
+        amount: quantity !== null && unitPrice !== null ? Math.round(quantity * unitPrice) : null,
       };
     });
   }
 
   /**
+   * 明細行の入力を保存の形（DB の列）にする。区分の入力が無い行は直接工事（45.3）、換算は 4 列に分ける（タスク113.3）
+   */
+  private toLineItemRow(item: LineItemInput): LineItemRow {
+    return {
+      sortOrder: item.sortOrder,
+      customCategory: item.customCategory ?? null,
+      workType: item.workType ?? null,
+      name: item.name,
+      specification: item.specification ?? null,
+      unit: item.unit ?? null,
+      quantity: item.quantity ?? null,
+      unitPrice: item.unitPrice ?? null,
+      amount: item.amount ?? null,
+      remarks: item.remarks ?? null,
+      category: item.category ?? 'DIRECT',
+      condition: item.condition ?? null,
+      conversionQuantity: item.conversion?.quantity ?? null,
+      conversionUnit: item.conversion?.unit ?? null,
+      conversionUnitPrice: item.conversion?.unitPrice ?? null,
+      conversionBasis: item.conversion?.basis ?? null,
+      classificationKey: item.classificationKey ?? null,
+      quantityRowKey: item.quantityRowKey ?? null,
+      isReference: item.isReference ?? false,
+      referenceReason: item.referenceReason ?? null,
+    };
+  }
+
+  /**
+   * 明細行の比較の鍵（全列。金額・数量は DB の小数の桁で揃える）。読取の確認の変化の判定に使う（D9）
+   */
+  private lineItemSignature(row: Record<keyof LineItemRow, unknown>): string {
+    return JSON.stringify([
+      row.sortOrder,
+      row.customCategory ?? null,
+      row.workType ?? null,
+      row.name,
+      row.specification ?? null,
+      row.unit ?? null,
+      toScaled(row.quantity, LINE_DECIMAL_SCALES.quantity),
+      toScaled(row.unitPrice, LINE_DECIMAL_SCALES.unitPrice),
+      toScaled(row.amount, LINE_DECIMAL_SCALES.amount),
+      row.remarks ?? null,
+      row.category ?? 'DIRECT',
+      row.condition ?? null,
+      toScaled(row.conversionQuantity, LINE_DECIMAL_SCALES.conversionQuantity),
+      row.conversionUnit ?? null,
+      toScaled(row.conversionUnitPrice, LINE_DECIMAL_SCALES.conversionUnitPrice),
+      row.conversionBasis ?? null,
+      row.classificationKey ?? null,
+      row.quantityRowKey ?? null,
+      row.isReference ?? false,
+      row.referenceReason ?? null,
+    ]);
+  }
+
+  /**
+   * 入力のとおりに保存する台帳の項目を取り出す（送られた欄だけ。null は消す）
+   */
+  private pickLedgerColumns(input: LedgerFieldsInput): LedgerColumns {
+    return Object.fromEntries(
+      LEDGER_COLUMN_KEYS.filter((key) => input[key] !== undefined).map((key) => [key, input[key]])
+    ) as LedgerColumns;
+  }
+
+  /**
+   * 読取の確認の遷移を決める（D9。46.6〜46.8。タスク113.3）
+   *
+   * 1. 保存前が確認済みで、明細行・NET 金額・ファイルのどれかが変わる → 未確認に戻し、確認者と日時を消す
+   *    （同じ保存で確認済みを送っていても戻す）
+   * 2. 確認済みを送り、保存前が未確認（作成を含む） → 確認済み、確認者は操作した利用者、日時は今
+   * 3. それ以外は入力のとおり（未確認を送れば確認者と日時を消す。確認済みを送り直しても確認者と日時は保つ。
+   *    送らなければ変えない）
+   *
+   * @returns 書き込む列（変えないときは空）
+   */
+  private decideReadingConfirmation(
+    previousStatus: ReadingStatus | null,
+    requested: ReadingStatus | undefined,
+    contentChanged: boolean,
+    actorId: string
+  ): {
+    readingStatus?: ReadingStatus;
+    readingConfirmedById?: string | null;
+    readingConfirmedAt?: Date | null;
+  } {
+    const unconfirmed = {
+      readingStatus: 'UNCONFIRMED' as const,
+      readingConfirmedById: null,
+      readingConfirmedAt: null,
+    };
+    if (previousStatus === 'CONFIRMED' && contentChanged) {
+      return unconfirmed;
+    }
+    if (requested === 'CONFIRMED') {
+      return previousStatus === 'CONFIRMED'
+        ? { readingStatus: 'CONFIRMED' }
+        : {
+            readingStatus: 'CONFIRMED',
+            readingConfirmedById: actorId,
+            readingConfirmedAt: new Date(),
+          };
+    }
+    if (requested === 'UNCONFIRMED') {
+      return unconfirmed;
+    }
+    return {};
+  }
+
+  /**
+   * 更新で明細行・NET 金額・ファイルのどれかが変わるかを判定する（D9 の 1。タスク113.3）
+   *
+   * 明細行は保存前（表示順）と保存後（表示順で並べた入力）を並び順と全列で比べる
+   */
+  private async hasReadContentChanged(
+    tx: PrismaTransactionClient,
+    current: { id: string; netAmount: unknown; filePath: string | null },
+    input: UpdateReceivedQuotationInput,
+    correctedLineItems: LineItemInput[] | undefined
+  ): Promise<boolean> {
+    if (input.file !== undefined || (input.removeFile === true && current.filePath !== null)) {
+      return true;
+    }
+    if (
+      input.netAmount !== undefined &&
+      toScaled(input.netAmount, 2) !== toScaled(current.netAmount, 2)
+    ) {
+      return true;
+    }
+    if (correctedLineItems === undefined) {
+      return false;
+    }
+    const beforeLines = await tx.receivedQuotationLineItem.findMany({
+      where: { receivedQuotationId: current.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+    const afterLines = correctedLineItems
+      .map((item) => this.toLineItemRow(item))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    if (beforeLines.length !== afterLines.length) {
+      return true;
+    }
+    return beforeLines.some(
+      (line, index) => this.lineItemSignature(line) !== this.lineItemSignature(afterLines[index]!)
+    );
+  }
+
+  /**
+   * 監査ログに前後を入れる台帳の項目（D10。46.11）。工事価格・確定金額は入れない
+   */
+  private ledgerAuditFields(quotation: {
+    vendorName: string;
+    quoteNumber: string | null;
+    overallConditions: string | null;
+    siteLocation: string | null;
+    constructionKind: string | null;
+    useType: string | null;
+    workConditions: string | null;
+    distanceKm: unknown;
+    adoption: string;
+    readingStatus: string;
+    quoteDiscriminator: string;
+  }): Record<string, string | number | null> {
+    return {
+      vendorName: quotation.vendorName,
+      quoteNumber: quotation.quoteNumber,
+      overallConditions: quotation.overallConditions,
+      siteLocation: quotation.siteLocation,
+      constructionKind: quotation.constructionKind,
+      useType: quotation.useType,
+      workConditions: quotation.workConditions,
+      distanceKm: toNumberOrNull(quotation.distanceKm),
+      adoption: quotation.adoption,
+      readingStatus: quotation.readingStatus,
+      quoteDiscriminator: quotation.quoteDiscriminator,
+    };
+  }
+
+  /**
    * 明細行の合計金額を算出する
    *
-   * Requirements: 11.13 - 全明細行の金額合計を自動計算
+   * Requirements: 11.13 - 全明細行の金額合計を自動計算。区分が別途の行は除く（45.5。タスク113.3）
    * Task 21.1: 合計金額算出
    *
    * @param lineItems - 明細行情報配列
-   * @returns 合計金額（明細行が0件の場合はnull）
+   * @returns 合計金額（明細行が0件、または金額を持つ別途以外の行が無い場合はnull）
    */
   private calculateTotalAmount(lineItems: LineItemInfo[]): number | null {
     if (lineItems.length === 0) {
@@ -360,6 +668,9 @@ export class ReceivedQuotationService {
     let total = 0;
     let hasAmount = false;
     for (const item of lineItems) {
+      if (item.category === 'EXCLUDED') {
+        continue;
+      }
       if (item.amount !== null) {
         total += item.amount;
         hasAmount = true;
@@ -559,10 +870,11 @@ export class ReceivedQuotationService {
     // 2. ファイルまたは明細行の必須チェック (Requirements: 11.22, 11.24)
     this.validateFileOrLineItemsRequired(!!input.file, input.lineItems);
 
-    // 3. 明細行の金額検証・補正 (Requirements: 11.12)
+    // 3. 明細行の金額検証・補正 (Requirements: 11.12)。送られた金額は保持する（45.12）
     const correctedLineItems = input.lineItems
       ? this.validateAndCorrectAmounts(input.lineItems)
       : undefined;
+    const lineRows = (correctedLineItems ?? []).map((item) => this.toLineItemRow(item));
 
     return await this.prisma.$transaction(async (tx: PrismaTransactionClient) => {
       // 4. 文脈の解決（タスク113.1）: 見積依頼・案件・業者名・取引先を決める
@@ -582,6 +894,11 @@ export class ReceivedQuotationService {
           fileMimeType: input.file ? input.file.mimeType : null,
           fileSize: input.file ? input.file.size : null,
           netAmount: input.netAmount ?? null,
+          // 台帳の項目（タスク113.3）。見積の区別は送られなければ空（48.2）
+          ...this.pickLedgerColumns(input),
+          quoteDiscriminator: input.quoteDiscriminator ?? '',
+          // 読取の確認（D9）。作成は保存前を未確認とみる
+          ...this.decideReadingConfirmation(null, input.readingStatus, false, actorId),
         },
         include: {
           lineItems: {
@@ -592,21 +909,9 @@ export class ReceivedQuotationService {
 
       // 6. 明細行データの一括保存 (Requirements: 14.2)
       // Task 61.2: netAmountは受領見積書レベルに移動したため、明細行には含めない
-      if (correctedLineItems && correctedLineItems.length > 0) {
+      if (lineRows.length > 0) {
         await tx.receivedQuotationLineItem.createMany({
-          data: correctedLineItems.map((item) => ({
-            receivedQuotationId: quotation.id,
-            sortOrder: item.sortOrder,
-            customCategory: item.customCategory ?? null,
-            workType: item.workType ?? null,
-            name: item.name,
-            specification: item.specification ?? null,
-            unit: item.unit ?? null,
-            quantity: item.quantity ?? null,
-            unitPrice: item.unitPrice ?? null,
-            amount: item.amount ?? null,
-            remarks: item.remarks ?? null,
-          })),
+          data: lineRows.map((row) => ({ receivedQuotationId: quotation.id, ...row })),
         });
       }
 
@@ -626,6 +931,7 @@ export class ReceivedQuotationService {
             submittedAt: quotation.submittedAt.toISOString(),
             fileName: quotation.fileName,
             lineItemCount: correctedLineItems?.length ?? 0,
+            ...this.ledgerAuditFields(quotation),
           },
         },
         tx
@@ -650,21 +956,14 @@ export class ReceivedQuotationService {
       // createMany後の明細行を取得するために再取得は不要（correctedLineItemsから構築）
       // Task 61.2: netAmountは明細行から除外（受領見積書レベルに移動）
       const resultLineItems: LineItemInfo[] =
-        correctedLineItems && correctedLineItems.length > 0
-          ? correctedLineItems.map((item, index) => ({
-              id: `temp-${index}`, // IDはDB生成値だがcreateManyでは取得不可
-              receivedQuotationId: quotation.id,
-              sortOrder: item.sortOrder,
-              customCategory: item.customCategory ?? null,
-              workType: item.workType ?? null,
-              name: item.name,
-              specification: item.specification ?? null,
-              unit: item.unit ?? null,
-              quantity: item.quantity ?? null,
-              unitPrice: item.unitPrice ?? null,
-              amount: item.amount ?? null,
-              remarks: item.remarks ?? null,
-            }))
+        lineRows.length > 0
+          ? lineRows.map((row, index) =>
+              this.toLineItemInfo({
+                id: `temp-${index}`, // IDはDB生成値だがcreateManyでは取得不可
+                receivedQuotationId: quotation.id,
+                ...row,
+              })
+            )
           : lineItemInfos;
 
       return this.toReceivedQuotationInfoWithLineItems(
@@ -771,7 +1070,6 @@ export class ReceivedQuotationService {
       const info = this.toReceivedQuotationInfoWithLineItems(q, lineItemInfos);
       return {
         ...info,
-        vendorName: q.vendorName,
         tradingPartnerName: q.vendorName,
       };
     });
@@ -835,17 +1133,10 @@ export class ReceivedQuotationService {
       }
 
       // 3. 更新データの準備（Task 61.2: netAmount追加）。文脈（見積依頼・案件）は変えない（43.10）
-      const updateData: {
-        vendorName?: string;
-        tradingPartnerId?: string | null;
-        name?: string;
-        submittedAt?: Date;
-        netAmount?: number | null;
-        filePath?: string | null;
-        fileName?: string | null;
-        fileMimeType?: string | null;
-        fileSize?: number | null;
-      } = {};
+      // 台帳の項目は送られた欄だけを書き換える（タスク113.3）
+      const updateData: Prisma.ReceivedQuotationUncheckedUpdateInput = {
+        ...this.pickLedgerColumns(input),
+      };
 
       if (input.name !== undefined) {
         updateData.name = input.name.trim();
@@ -863,6 +1154,20 @@ export class ReceivedQuotationService {
         updateData.vendorName = vendor.vendorName;
         updateData.tradingPartnerId = vendor.tradingPartnerId;
       }
+
+      // 読取の確認（D9）。保存前が確認済みのときだけ、明細行・NET 金額・ファイルの変化を判定する
+      const contentChanged =
+        quotation.readingStatus === 'CONFIRMED' &&
+        (await this.hasReadContentChanged(tx, quotation, input, correctedLineItems));
+      Object.assign(
+        updateData,
+        this.decideReadingConfirmation(
+          quotation.readingStatus,
+          input.readingStatus,
+          contentChanged,
+          actorId
+        )
+      );
 
       // 4. ファイル更新処理
       const oldFilePath = quotation.filePath;
@@ -896,16 +1201,7 @@ export class ReceivedQuotationService {
           await tx.receivedQuotationLineItem.createMany({
             data: correctedLineItems.map((item) => ({
               receivedQuotationId: id,
-              sortOrder: item.sortOrder,
-              customCategory: item.customCategory ?? null,
-              workType: item.workType ?? null,
-              name: item.name,
-              specification: item.specification ?? null,
-              unit: item.unit ?? null,
-              quantity: item.quantity ?? null,
-              unitPrice: item.unitPrice ?? null,
-              amount: item.amount ?? null,
-              remarks: item.remarks ?? null,
+              ...this.toLineItemRow(item),
             })),
           });
         }
@@ -935,11 +1231,20 @@ export class ReceivedQuotationService {
             name: quotation.name,
             submittedAt: quotation.submittedAt.toISOString(),
             fileName: quotation.fileName,
+            ...this.ledgerAuditFields(quotation),
           },
           after: {
             name: updatedQuotation.name,
             submittedAt: updatedQuotation.submittedAt.toISOString(),
             fileName: updatedQuotation.fileName,
+            ...this.ledgerAuditFields(updatedQuotation),
+            // 工事価格・確定金額は値を入れず変更の有無だけ（46.11）
+            constructionPriceChanged:
+              toScaled(quotation.constructionPrice, 0) !==
+              toScaled(updatedQuotation.constructionPrice, 0),
+            confirmedAmountChanged:
+              toScaled(quotation.confirmedAmount, 0) !==
+              toScaled(updatedQuotation.confirmedAmount, 0),
           },
         },
         tx
@@ -1012,6 +1317,7 @@ export class ReceivedQuotationService {
             name: quotation.name,
             submittedAt: quotation.submittedAt.toISOString(),
             fileName: quotation.fileName,
+            ...this.ledgerAuditFields(quotation),
           },
           after: null,
         },
@@ -1091,7 +1397,19 @@ export class ReceivedQuotationService {
     unitPrice: unknown;
     amount: unknown;
     remarks: string | null;
+    category: LineItemCategory;
+    condition: string | null;
+    conversionQuantity: unknown;
+    conversionUnit: string | null;
+    conversionUnitPrice: unknown;
+    conversionBasis: string | null;
+    classificationKey: string | null;
+    quantityRowKey: string | null;
+    isReference: boolean;
+    referenceReason: string | null;
   }): LineItemInfo {
+    const conversionQuantity = toNumberOrNull(lineItem.conversionQuantity);
+    const conversionUnitPrice = toNumberOrNull(lineItem.conversionUnitPrice);
     return {
       id: lineItem.id,
       receivedQuotationId: lineItem.receivedQuotationId,
@@ -1105,6 +1423,25 @@ export class ReceivedQuotationService {
       unitPrice: lineItem.unitPrice !== null ? Number(lineItem.unitPrice) : null,
       amount: lineItem.amount !== null ? Number(lineItem.amount) : null,
       remarks: lineItem.remarks,
+      category: lineItem.category,
+      condition: lineItem.condition,
+      // 換算の 4 列は全部あるか全部無い（45.9）。全部あるときだけ換算の形にまとめる
+      conversion:
+        conversionQuantity !== null &&
+        lineItem.conversionUnit !== null &&
+        conversionUnitPrice !== null &&
+        lineItem.conversionBasis !== null
+          ? {
+              quantity: conversionQuantity,
+              unit: lineItem.conversionUnit,
+              unitPrice: conversionUnitPrice,
+              basis: lineItem.conversionBasis,
+            }
+          : null,
+      classificationKey: lineItem.classificationKey,
+      quantityRowKey: lineItem.quantityRowKey,
+      isReference: lineItem.isReference,
+      referenceReason: lineItem.referenceReason,
     };
   }
 
@@ -1123,6 +1460,22 @@ export class ReceivedQuotationService {
       fileMimeType: string | null;
       fileSize: number | null;
       netAmount?: unknown;
+      vendorName: string;
+      tradingPartnerId: string | null;
+      quoteNumber: string | null;
+      overallConditions: string | null;
+      siteLocation: string | null;
+      constructionKind: 'RENOVATION' | 'NEW_CONSTRUCTION' | null;
+      useType: string | null;
+      constructionPrice: unknown;
+      workConditions: string | null;
+      distanceKm: unknown;
+      adoption: 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
+      confirmedAmount: unknown;
+      readingStatus: ReadingStatus;
+      readingConfirmedById: string | null;
+      readingConfirmedAt: Date | null;
+      quoteDiscriminator: string;
       createdAt: Date;
       updatedAt: Date;
     },
@@ -1137,6 +1490,22 @@ export class ReceivedQuotationService {
       fileMimeType: quotation.fileMimeType,
       fileSize: quotation.fileSize,
       netAmount: quotation.netAmount != null ? Number(quotation.netAmount) : null,
+      vendorName: quotation.vendorName,
+      tradingPartnerId: quotation.tradingPartnerId,
+      quoteNumber: quotation.quoteNumber,
+      overallConditions: quotation.overallConditions,
+      siteLocation: quotation.siteLocation,
+      constructionKind: quotation.constructionKind,
+      useType: quotation.useType,
+      constructionPrice: toNumberOrNull(quotation.constructionPrice),
+      workConditions: quotation.workConditions,
+      distanceKm: toNumberOrNull(quotation.distanceKm),
+      adoption: quotation.adoption,
+      confirmedAmount: toNumberOrNull(quotation.confirmedAmount),
+      readingStatus: quotation.readingStatus,
+      readingConfirmedById: quotation.readingConfirmedById,
+      readingConfirmedAt: quotation.readingConfirmedAt,
+      quoteDiscriminator: quotation.quoteDiscriminator,
       lineItems,
       totalAmount: this.calculateTotalAmount(lineItems),
       createdAt: quotation.createdAt,
