@@ -3,6 +3,7 @@
  *
  * Task 14.2: ReceivedQuotationListの実装
  * Task 26.2: ReceivedQuotationListの改訂（明細行数・合計金額表示追加）
+ * タスク117.5: 参考の印と読取の確認の状態の表示を追加（共有の部品 ReceivedQuotationLedgerIndicators）
  *
  * Requirements:
  * - 11.1: 受領見積書登録ボタン
@@ -19,6 +20,7 @@
 
 import { useState, useCallback } from 'react';
 import type { ReceivedQuotationInfo } from '../../api/received-quotations';
+import { ReceivedQuotationLedgerIndicators } from './ReceivedQuotationLedgerIndicators';
 
 // ============================================================================
 // 型定義
@@ -573,6 +575,11 @@ export function ReceivedQuotationList({
                       )}
                     </span>
                   )}
+                  {/* タスク117.5: 参考の印と読取の確認の表示 (46.10) */}
+                  <ReceivedQuotationLedgerIndicators
+                    lineItems={quotation.lineItems}
+                    readingStatus={quotation.readingStatus}
+                  />
                 </div>
               </div>
 

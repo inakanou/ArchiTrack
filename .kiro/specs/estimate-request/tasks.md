@@ -2178,6 +2178,7 @@
 - **【2026-11-08・タスク117.2】** 明細行の列が増え、Tab の順は 区分 → 任意分類 … 単価 → 金額（単価が空の行）→ 分類キー → 参考 → 備考 になった。行の操作のメニューの末尾に「詳細」。既存の E2E（列幅の 33.12 の Tab の順、focus-visible の一巡とメニュー）は追随済み。申し送り（117.4）: 保存の入力（`convertToLineItemInput`）がまだ区分と台帳の欄を送らないため、今のフォームで保存すると区分が直接工事に戻る（HEAD から同じ。117.4 で必ず閉じる）。未保存の変更の判定の欄、サーバーの「明細行の{n}行目」の誤りを行の id へ対応づけて `lineItemErrors` で渡すことも 117.4
 - **【2026-11-08・タスク117.3】** 申し送り（117.4、必須）: 46.7 の確認者の名前は、受領見積書の応答に確認者の表示名を足してフォームから `readingConfirmedByName` へ渡すまで満たされない（117.4 の本文と _Boundary_ に足した）。`LedgerInfoSection` は既定で閉じているため、検証の誤りやサーバーの 400 のときは欄を開くか見出しに誤りがあることを示す。値の型と変換は `ledger-info-form.ts`（`createLedgerInfoFormData`・`validateLedgerInfo`・`toLedgerInfoInput`）
 - **【2026-11-08・タスク117.4】** フォームは `context`（`{kind:'estimateRequest', estimateRequestId, tradingPartnerName}` か `{kind:'project', projectId}`）を受ける。保存の失敗は 401 を含めてすべてフォームへ投げ返し、再認証の後の再送はフォームの `usePendingSaveAfterReauth` だけが行う（以前は詳細画面も再送して登録を 2 回送っていた）。48.4 の知らせは、閉じたダイアログの代わりに一覧の上の `role="status"` に出す（`formatSharedOriginalNotice`。118.1 も同じ置き方）。単価が空の行の金額は未保存の変更の判定に入る。申し送り（120）: 既存の E2E `session-expired-protection-extra` の 409 の主張が `.catch(()=>{})` で包まれて落ちない（第3原則に反する。以前から）
+- **【2026-11-08・タスク117.5】** 参考の印と読取の確認の表示は共有の部品 `ReceivedQuotationLedgerIndicators`（118.1 も使う）。申し送り（120.3）: 46.10 の被覆の印を `ReceivedQuotationList.test.tsx` に付けていない（印を付けると鮮度とラチェットの件数が動くため。120.3 で他の 43〜50 の印とまとめて帰属つきで付ける）
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2676,7 +2677,7 @@
   - _Boundary: ReceivedQuotationForm, EstimateRequestDetailPage（フォームへの文脈の受け渡し）、ReceivedQuotationService の応答の整形（確認者の表示名だけ）_
   - _Depends: 117.2, 117.3_
 
-- [ ] 117.5 (P) 見積依頼の詳細の受領見積書の一覧に、参考の印と読取の確認の状態を出す
+- [x] 117.5 (P) 見積依頼の詳細の受領見積書の一覧に、参考の印と読取の確認の状態を出す
   - `ReceivedQuotationList` の各項目に、参考の印の付いた明細行を持つことと読取の確認の状態を出す
   - 単体（`ReceivedQuotationList.test.tsx`）に、参考あり・なし、確認済み・未確認の表示を足す
   - 単体で、一覧から参考の印と読取の確認の状態が分かる状態になる
