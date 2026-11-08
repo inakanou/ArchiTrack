@@ -115,7 +115,7 @@
 
 ## 実施順（本計画と IPA の是正の合わせた順）
 
-1. IPA の是正：user-authentication（完了。2026-10-30・10-31 に `/kiro-validate-impl` が GO）
+1. IPA の是正：user-authentication（完了。2026-10-30・10-31 に機能ごとの実装の総合検証が GO）
 2. estimate-request の拡張と IPA の是正（5.5）。#869 の受領見積の欄（分類キー・数量表の行のキー・原本の指紋・見積の区別）を含む
 3. project-management の拡張（案件の詳細画面の受領見積書の欄）と IPA の是正（5.3）
 4. unit-price-ledger（過去カードの全件移行を含む。分類キーの一致を優先する検索）
