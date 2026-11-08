@@ -855,6 +855,34 @@ describe('received-quotations API client', () => {
       expect(result).toBe(mockUrl);
     });
 
+    it('同じ受領見積書のURLを続けて求めると、毎回サーバーへ問い合わせて新しいURLを返すこと（タスク113.5）', async () => {
+      const firstUrl = 'https://storage.example.com/signed-url?token=first';
+      const secondUrl = 'https://storage.example.com/signed-url?token=second';
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ url: firstUrl }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ url: secondUrl }),
+        });
+
+      const first = await getPreviewUrl('quotation-2');
+      const second = await getPreviewUrl('quotation-2');
+
+      // 取得した URL を手元に残さず、開き直しのたびに GET /api/quotations/:id/preview を呼ぶ
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      for (const call of mockFetch.mock.calls) {
+        expect(call[0]).toMatch(/\/api\/quotations\/quotation-2\/preview$/);
+        expect(call[1]).toEqual(expect.objectContaining({ method: 'GET' }));
+      }
+      expect(first).toBe(firstUrl);
+      expect(second).toBe(secondUrl);
+    });
+
     it('存在しない受領見積書のプレビューURLを取得しようとした場合、404エラーがスローされること', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,

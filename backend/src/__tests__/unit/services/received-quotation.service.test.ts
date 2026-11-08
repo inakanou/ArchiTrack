@@ -23,7 +23,10 @@
 
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import type { ProjectScopeService } from '../../../services/project-scope.service.js';
-import { ReceivedQuotationService } from '../../../services/received-quotation.service.js';
+import {
+  ReceivedQuotationService,
+  RECEIVED_QUOTATION_SIGNED_URL_EXPIRES_IN,
+} from '../../../services/received-quotation.service.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 import type { StorageProvider } from '../../../storage/storage-provider.interface.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
@@ -933,6 +936,32 @@ describe('ReceivedQuotationService', () => {
       );
       // 受領見積書の案件の列で、閲覧者の範囲を判定する（タスク103.1。タスク113.1 で案件の列へ移した）
       expect(mockProjectScope.canAccessProject).toHaveBeenCalledWith('user-001', 'project-001');
+    });
+
+    it('プレビュー用の署名付きURLは15分（900秒）の期限で発行し、インライン表示のファイル名を添える（タスク113.5）', async () => {
+      // Arrange
+      vi.mocked(mockPrisma.receivedQuotation.findUnique).mockResolvedValue({
+        id: 'rq-001',
+        estimateRequestId: null,
+        filePath: 'quotations/project-001/rq-001/見積書.pdf',
+        fileName: '見積書.pdf',
+        deletedAt: null,
+        projectId: 'project-001',
+      } as never);
+      vi.mocked(mockStorageProvider.getSignedUrl).mockResolvedValue('https://example.com/signed');
+
+      // Act
+      await service.getFilePreviewUrl('rq-001', 'user-001');
+
+      // Assert
+      expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledWith(
+        'quotations/project-001/rq-001/見積書.pdf',
+        {
+          expiresIn: 900,
+          responseContentDisposition: 'inline; filename="見積書.pdf"',
+        }
+      );
+      expect(RECEIVED_QUOTATION_SIGNED_URL_EXPIRES_IN).toBe(900);
     });
 
     it('閲覧範囲外の案件の受領見積書は、不在と同じエラーにして署名付きURLを発行しない（タスク103.1）', async () => {

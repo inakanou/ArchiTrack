@@ -2568,7 +2568,7 @@
   - _Requirements: 48.1, 48.3, 48.4, 48.5, 48.6, 48.7_
   - _Boundary: ReceivedQuotationService（指紋・二重登録の判定）_
 
-- [ ] 113.5 受領見積書のプレビューの署名付き URL の有効期限を 900 秒にする
+- [x] 113.5 受領見積書のプレビューの署名付き URL の有効期限を 900 秒にする
   - 定数 `RECEIVED_QUOTATION_SIGNED_URL_EXPIRES_IN = 900` を置いて署名付き URL の発行に渡す（D12）
   - 単体に、発行の `expiresIn` が 900 であることを足す（改修の前は 3600 で赤）。画面はプレビューを開くたびに URL を取り直すことを、ファイルのプレビューの既存の単体（`frontend/src/components/estimate-requests/FileInlinePreview.test.tsx` または受領見積書の API の単体）で主張する
   - 単体で、発行される URL の期限が 900 秒で、開き直しのたびに新しい URL を要求する状態になる

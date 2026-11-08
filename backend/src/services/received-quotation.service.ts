@@ -92,6 +92,12 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 export const ORIGINAL_FILE_LOCK_NAMESPACE = 113_004;
 
 /**
+ * プレビュー用の署名付きURLの有効期限（秒）。現場調査の画像・工事写真と同じ 15 分にそろえる
+ * （design の Requirements 43-50 の章の D12、タスク113.5）。画面はプレビューを開くたびに URL を取り直す
+ */
+export const RECEIVED_QUOTATION_SIGNED_URL_EXPIRES_IN = 900;
+
+/**
  * 許可されるMIMEタイプ
  */
 const ALLOWED_MIME_TYPES = [
@@ -1492,7 +1498,7 @@ export class ReceivedQuotationService {
     }
 
     const options: SignedUrlOptions = {
-      expiresIn: 3600, // 1時間
+      expiresIn: RECEIVED_QUOTATION_SIGNED_URL_EXPIRES_IN,
       responseContentDisposition: `inline; filename="${quotation.fileName}"`,
     };
 
