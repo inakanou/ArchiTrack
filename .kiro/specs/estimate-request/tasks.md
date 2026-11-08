@@ -2179,6 +2179,7 @@
 - **【2026-11-08・タスク117.3】** 申し送り（117.4、必須）: 46.7 の確認者の名前は、受領見積書の応答に確認者の表示名を足してフォームから `readingConfirmedByName` へ渡すまで満たされない（117.4 の本文と _Boundary_ に足した）。`LedgerInfoSection` は既定で閉じているため、検証の誤りやサーバーの 400 のときは欄を開くか見出しに誤りがあることを示す。値の型と変換は `ledger-info-form.ts`（`createLedgerInfoFormData`・`validateLedgerInfo`・`toLedgerInfoInput`）
 - **【2026-11-08・タスク117.4】** フォームは `context`（`{kind:'estimateRequest', estimateRequestId, tradingPartnerName}` か `{kind:'project', projectId}`）を受ける。保存の失敗は 401 を含めてすべてフォームへ投げ返し、再認証の後の再送はフォームの `usePendingSaveAfterReauth` だけが行う（以前は詳細画面も再送して登録を 2 回送っていた）。48.4 の知らせは、閉じたダイアログの代わりに一覧の上の `role="status"` に出す（`formatSharedOriginalNotice`。118.1 も同じ置き方）。単価が空の行の金額は未保存の変更の判定に入る。申し送り（120）: 既存の E2E `session-expired-protection-extra` の 409 の主張が `.catch(()=>{})` で包まれて落ちない（第3原則に反する。以前から）
 - **【2026-11-08・タスク117.5】** 参考の印と読取の確認の表示は共有の部品 `ReceivedQuotationLedgerIndicators`（118.1 も使う）。申し送り（120.3）: 46.10 の被覆の印を `ReceivedQuotationList.test.tsx` に付けていない（印を付けると鮮度とラチェットの件数が動くため。120.3 で他の 43〜50 の印とまとめて帰属つきで付ける）
+- **【2026-11-08・タスク118.1】** 案件の受領見積書の一覧の画面は `/projects/:projectId/quotations`。一覧の応答に `estimateRequestName` を足した（D2 の追記）。保存の 403 は画面が日本語の誤りへ直してフォームへ返し、それ以外の失敗はそのまま返す。申し送り（120.1）: 削除の失敗の既定の文言（500 など）と、保存の 401 がフォームへそのまま返ることは、画面の単体ではまだ主張していない——E2E か単体で押さえる。被覆の印（43.x・46.10）は 120.3
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2689,13 +2690,14 @@
 
 **経緯**: タスク112 の経緯と同じ。design.md の同章の部品 ProjectReceivedQuotationListPage を実装する。案件の詳細画面からの入口は project-management の拡張（roadmap の実施順 3）が持つ
 
-- [ ] 118.1 案件の受領見積書の一覧の画面を足し、見積依頼の無い受領見積書を登録・編集・削除できるようにする
+- [x] 118.1 案件の受領見積書の一覧の画面を足し、見積依頼の無い受領見積書を登録・編集・削除できるようにする
   - `ProjectReceivedQuotationListPage`（新設）を `/projects/:projectId/quotations` に置き（`frontend/src/routes.tsx`）、全件の一覧（43.1・43.2）、空の表示（43.3）、見積依頼名からの遷移（43.4）、「受領見積書登録」ボタンとフォーム（43.5・43.6）、見積依頼の無いものの編集と削除確認（43.9）、参考の印と読取の確認（46.10）、パンくず（43.15）を置く。見積依頼に紐づくものの編集・削除は出さない
   - 権限の無い操作は Requirement 10.3・10.4 と同じ拒否を出し（43.11）、プロジェクトの 404 は 10.5 と同じ表示にする（43.13）
   - 単体（`frontend/src/__tests__/pages/ProjectReceivedQuotationListPage.test.tsx` を新設）に、列、空、遷移、登録・編集・削除、404、パンくずを足す
   - 単体で、案件の受領見積書を見積依頼の有無にかかわらず一覧し、見積依頼の無いものを画面から登録・編集・削除できる状態になる
   - _Requirements: 43.1, 43.2, 43.3, 43.4, 43.5, 43.6, 43.9, 43.11, 43.13, 43.15, 46.10_
-  - _Boundary: ProjectReceivedQuotationListPage_
+  - 案件の配下の一覧の応答に見積依頼の名前（`estimateRequestName: string | null`）を足す（`ReceivedQuotationService` の `findByProjectId` の応答の整形。43.2 の見積依頼名の列のため。追記 2026-11-08: 実装の着手で、応答に見積依頼の名前が無く design.md の D2 も取り方を定めていないことが分かったため本タスクへ足した。既定の応答に欄が 1 つ増えるが、estimate-creation の読み方は変わらない）
+  - _Boundary: ProjectReceivedQuotationListPage、ReceivedQuotationService の応答の整形（見積依頼の名前だけ）_
   - _Depends: 117.4_
 
 ## タスク119: 外部の AI での読み取りの確認と管理者の設定の画面（利用者の判断で起票、2026-11-08）

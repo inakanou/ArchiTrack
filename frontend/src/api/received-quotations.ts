@@ -196,6 +196,11 @@ export interface ReceivedQuotationInfo {
   quoteDiscriminator: string;
   /** 協力業者名（プロジェクト単位取得時のみ。サーバーは業者名の値を入れる。D2） */
   tradingPartnerName?: string | null;
+  /**
+   * 見積依頼の名前（プロジェクト単位取得時のみ。見積依頼の無いものは null。
+   * 案件の受領見積書の一覧の見積依頼名の列。D2 の追記、タスク118.1）
+   */
+  estimateRequestName?: string | null;
 }
 
 /**

@@ -1402,6 +1402,8 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       const listed = list.body.find((q: { id: string }) => q.id === target.quotationId);
       expect(listed.vendorName).toBe(`${MARK}-target-vendor`);
       expect(listed.tradingPartnerName).toBe(`${MARK}-target-vendor`);
+      // 一覧の各行に見積依頼の名前が入る（D2 の追記、タスク118.1）
+      expect(listed.estimateRequestName).toBe(`${MARK}-target-request`);
 
       const all = await service.findByProjectId(target.projectId, { include: 'all' });
       const allIds = all.map((q) => q.id);
@@ -1411,6 +1413,10 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       const own = all.find((q) => q.id === projectQuotationId);
       expect(own?.estimateRequestId).toBeNull();
       expect(own?.tradingPartnerName).toBe(`${MARK}-own-vendor`);
+      expect(own?.estimateRequestName).toBeNull();
+      expect(all.find((q) => q.id === target.quotationId)?.estimateRequestName).toBe(
+        `${MARK}-target-request`
+      );
     });
   });
 

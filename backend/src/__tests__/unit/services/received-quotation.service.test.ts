@@ -1450,6 +1450,44 @@ describe('ReceivedQuotationService', () => {
           ['rq-req', 'er-1', '宛先の協力業者', '宛先の協力業者'],
         ]);
       });
+
+      it('一覧の各行に見積依頼の名前を添え、見積依頼の無いものは null にする（D2 の追記、タスク118.1）', async () => {
+        vi.mocked(mockPrisma.receivedQuotation.findMany).mockResolvedValue([
+          listedRow({ id: 'rq-own', estimateRequestId: null, estimateRequest: null }),
+          listedRow({
+            id: 'rq-req',
+            estimateRequestId: 'er-1',
+            estimateRequest: { name: '内装の見積依頼' },
+          }),
+        ] as never);
+
+        const all = await service.findByProjectId('project-ctx', { include: 'all' });
+
+        expect(mockPrisma.receivedQuotation.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            include: expect.objectContaining({
+              estimateRequest: { select: { name: true } },
+            }),
+          })
+        );
+        expect(all.map((q) => [q.id, q.estimateRequestName])).toEqual([
+          ['rq-own', null],
+          ['rq-req', '内装の見積依頼'],
+        ]);
+        // 応答に関連の生の値を残さない
+        expect(all[1]).not.toHaveProperty('estimateRequest');
+
+        // 既定（requested）の応答にも同じ欄が入る
+        vi.mocked(mockPrisma.receivedQuotation.findMany).mockResolvedValue([
+          listedRow({
+            id: 'rq-req',
+            estimateRequestId: 'er-1',
+            estimateRequest: { name: '内装の見積依頼' },
+          }),
+        ] as never);
+        const requested = await service.findByProjectId('project-ctx', { include: 'requested' });
+        expect(requested[0]?.estimateRequestName).toBe('内装の見積依頼');
+      });
     });
   });
 

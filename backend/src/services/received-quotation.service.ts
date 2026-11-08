@@ -397,6 +397,8 @@ export interface ReceivedQuotationInfo {
  */
 export type ProjectQuotationSummary = ReceivedQuotationInfo & {
   tradingPartnerName: string;
+  /** 見積依頼の名前（案件の受領見積書の一覧の 43.2 の列。D2 の追記、タスク118.1）。見積依頼の無いものは null */
+  estimateRequestName: string | null;
 };
 
 /**
@@ -1171,7 +1173,8 @@ export class ReceivedQuotationService {
    * 受領見積書の案件の列で絞る（D1。タスク113.1）。既定の requested は見積依頼に紐づくもの（論理削除されて
    * いない見積依頼のもの）だけを返し、見積書作成時の転記機能の応答を変えない（D2）。all は見積依頼に
    * 紐づかないものも返す（43.1）。どちらも見積依頼が論理削除された受領見積書は返さない。
-   * 応答に業者名を足し、`tradingPartnerName` には業者名の値を入れる（D2）
+   * 応答に業者名を足し、`tradingPartnerName` には業者名の値を入れる（D2）。見積依頼の名前
+   * `estimateRequestName`（見積依頼の無いものは null）も足す（D2 の追記、タスク118.1）
    *
    * Requirements: REQ-17.1, REQ-17.2 (estimate-creation)
    * Task 21.1: プロジェクト単位受領見積書取得APIの実装
@@ -1198,6 +1201,8 @@ export class ReceivedQuotationService {
           orderBy: { sortOrder: 'asc' },
         },
         readingConfirmedBy: READING_CONFIRMED_BY_SELECT,
+        // 一覧の画面の見積依頼名の列（43.2。D2 の追記、タスク118.1）
+        estimateRequest: { select: { name: true } },
       },
     });
 
@@ -1207,6 +1212,7 @@ export class ReceivedQuotationService {
       return {
         ...info,
         tradingPartnerName: q.vendorName,
+        estimateRequestName: q.estimateRequest?.name ?? null,
       };
     });
   }

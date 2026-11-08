@@ -99,7 +99,7 @@ function getService(): ReceivedQuotationService {
  *         description: all を指定すると見積依頼の無い受領見積書も返す
  *     responses:
  *       200:
- *         description: 受領見積書の一覧（tradingPartnerName は業者名の値）
+ *         description: 受領見積書の一覧（tradingPartnerName は業者名の値。estimateRequestName は見積依頼の名前で、見積依頼の無いものは null）
  *       400:
  *         description: バリデーションエラー
  *       401:
