@@ -2164,6 +2164,7 @@
   - **解消（2026-10-06、HEAD `00147512`）**: docker テスト環境で frontend を再ビルドしたうえで `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`（Requirement 41 の test を含む）が 86/86、`e2e/specs/estimate-requests/` 全体が 330/330 緑であることを、機能検証で確かめた。
 - **【2026-10-31 の是正・見積依頼の削除の基準時刻】** RFC 9110 で意味の定まらない DELETE の本文で基準時刻を受け取っていたため、estimate-creation の見積書の削除（e5fd9877）と同じくクエリ（`?updatedAt=`）の検証へ改めた（本文だけの要求は 400）。E2E の後始末は補助 `deleteEstimateRequestViaApi`（e2e/helpers/estimate-request-preconditions.ts）で基準時刻を読み直してクエリで送り、204 以外を失敗にする。受領見積書の削除はこの是正の時点では本文のまま（design.md の 2026-10-31 の章）で、その後クエリへそろえた（次の行）
 - **【2026-10-31 の是正・受領見積書の削除の基準時刻】** 同じ画面の見積依頼の削除とそろえ、受領見積書の論理的な取り除き（見積依頼の配下の経路を含む）もクエリ（`?updatedAt=`）の検証へ改めた（本文だけの要求は 400、範囲外は 400 より先に 404）。E2E の後始末は補助 `deleteReceivedQuotationViaApi`（e2e/helpers/estimate-request-preconditions.ts）で基準時刻を読み直してクエリで送り、204 以外を失敗にする（design.md の 2026-10-31 の章「受領見積書の論理的な取り除きの基準時刻をクエリで受け取る」）
+- **【2026-11-08・タスク112.1】** テストの注記に `Requirements: 14.1, ...`（機能名なし）や `Requirements (estimate-request): 14.1, ...`（番号をヘッダー行に同居）を書くと、どちらも被覆として読まれず、要件の被覆の自己検査のラチェットと `check:design-measurement-freshness` の件数（site-survey の design.md の錨）を動かして赤くする。番号を書くときは `Requirements` という語を使わない文章にするか、`@requirement estimate-request/REQ-N.M` の印を使う。受領見積書の案件の外部キーは `onDelete: Restrict` のため、案件を物理削除するテストの後始末は先に受領見積書を消す
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2507,7 +2508,7 @@
 
 **経緯**: 利用者の判断（2026-11-08「この案で進めて」「承認します」）で起票する。roadmap（`.kiro/steering/roadmap.md`）の実施順 2 と Issue #869。requirements.md に Requirement 43〜50 を加え、11.11・11.13・14.1・24.2・34.2・46.11 を改訂の記録つきで改めた。design.md に章「Requirements 43-50: 受領見積書の台帳の項目と IPA の是正（2026-11-08 の追加）」を置いた。タスク112〜120 はこの章を実装する。タスク110.1（実機の Safari の確認）は保留のまま残る
 
-- [ ] 112.1 受領見積書・明細行の列と enum、システムの設定、外部の AI での読み取りの専用の権限を、スキーマと migration と seed に加える
+- [x] 112.1 受領見積書・明細行の列と enum、システムの設定、外部の AI での読み取りの専用の権限を、スキーマと migration と seed に加える
   - design.md の同章の「Data Models」のとおり、受領見積書に案件・業者名・取引先・見積の情報・読取の確認・原本の指紋・見積の区別を、明細行に区分・条件・換算・分類キー・数量表の行のキー・参考の印と理由を足し、見積依頼を任意にする。`SystemSetting` を新設する。migration は design.md の同章の名前で新設し、CHECK（見積依頼に紐づくものは案件を持つ）を SQL で置く
   - migration の中で、既存の受領見積書の案件と業者名・取引先を見積依頼から埋めてから業者名を NOT NULL にする（44.9）。既存の明細行の区分は既定の直接工事で入る（45.13）
   - 権限 `claude_vision:use` を migration（`ON CONFLICT DO NOTHING`）と seed（`backend/src/utils/seed-helpers.ts` の定義と一般のロールへの付与）に足し、migration で `estimate_request:read` を持つロールへ `INSERT ... SELECT` で付与する（49.6。design.md の同章の D7）

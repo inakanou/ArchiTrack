@@ -156,6 +156,9 @@ describe('ReceivedQuotationService', () => {
       const mockEstimateRequest = {
         id: 'er-001',
         deletedAt: null,
+        projectId: 'project-001',
+        tradingPartnerId: 'tp-001',
+        tradingPartner: { name: '協力業者A' },
       };
 
       const mockCreatedQuotation = {
@@ -226,6 +229,9 @@ describe('ReceivedQuotationService', () => {
       const mockEstimateRequest = {
         id: 'er-001',
         deletedAt: null,
+        projectId: 'project-001',
+        tradingPartnerId: 'tp-001',
+        tradingPartner: { name: '協力業者A' },
       };
 
       const mockCreatedQuotation = {
@@ -340,6 +346,9 @@ describe('ReceivedQuotationService', () => {
       const mockEstimateRequest = {
         id: 'er-001',
         deletedAt: null,
+        projectId: 'project-001',
+        tradingPartnerId: 'tp-001',
+        tradingPartner: { name: '協力業者A' },
       };
 
       const mockCreatedQuotation = {
@@ -395,6 +404,9 @@ describe('ReceivedQuotationService', () => {
       const mockEstimateRequest = {
         id: 'er-001',
         deletedAt: null,
+        projectId: 'project-001',
+        tradingPartnerId: 'tp-001',
+        tradingPartner: { name: '協力業者A' },
       };
 
       const mockCreatedQuotation = {
@@ -986,7 +998,13 @@ describe('ReceivedQuotationService', () => {
           lineItems,
         };
 
-        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockEstimateRequest = {
+          id: 'er-001',
+          deletedAt: null,
+          projectId: 'project-001',
+          tradingPartnerId: 'tp-001',
+          tradingPartner: { name: '協力業者A' },
+        };
         const mockCreatedQuotation = {
           id: 'rq-010',
           estimateRequestId: 'er-001',
@@ -1052,7 +1070,13 @@ describe('ReceivedQuotationService', () => {
           lineItems,
         };
 
-        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockEstimateRequest = {
+          id: 'er-001',
+          deletedAt: null,
+          projectId: 'project-001',
+          tradingPartnerId: 'tp-001',
+          tradingPartner: { name: '協力業者A' },
+        };
         const mockCreatedQuotation = {
           id: 'rq-011',
           estimateRequestId: 'er-001',
@@ -1122,7 +1146,13 @@ describe('ReceivedQuotationService', () => {
           lineItems,
         };
 
-        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockEstimateRequest = {
+          id: 'er-001',
+          deletedAt: null,
+          projectId: 'project-001',
+          tradingPartnerId: 'tp-001',
+          tradingPartner: { name: '協力業者A' },
+        };
         const correctedLineItems = [
           {
             id: 'li-001',
@@ -1467,7 +1497,13 @@ describe('ReceivedQuotationService', () => {
           lineItems,
         };
 
-        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockEstimateRequest = {
+          id: 'er-001',
+          deletedAt: null,
+          projectId: 'project-001',
+          tradingPartnerId: 'tp-001',
+          tradingPartner: { name: '協力業者A' },
+        };
         const mockCreatedQuotation = {
           id: 'rq-new-001',
           estimateRequestId: 'er-001',
@@ -1532,7 +1568,13 @@ describe('ReceivedQuotationService', () => {
           lineItems,
         };
 
-        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockEstimateRequest = {
+          id: 'er-001',
+          deletedAt: null,
+          projectId: 'project-001',
+          tradingPartnerId: 'tp-001',
+          tradingPartner: { name: '協力業者A' },
+        };
         const mockCreatedQuotation = {
           id: 'rq-new-002',
           estimateRequestId: 'er-001',
@@ -1589,7 +1631,13 @@ describe('ReceivedQuotationService', () => {
           // lineItemsは指定しない
         };
 
-        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockEstimateRequest = {
+          id: 'er-001',
+          deletedAt: null,
+          projectId: 'project-001',
+          tradingPartnerId: 'tp-001',
+          tradingPartner: { name: '協力業者A' },
+        };
         const mockCreatedQuotation = {
           id: 'rq-new-003',
           estimateRequestId: 'er-001',
@@ -1641,7 +1689,13 @@ describe('ReceivedQuotationService', () => {
           lineItems,
         };
 
-        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockEstimateRequest = {
+          id: 'er-001',
+          deletedAt: null,
+          projectId: 'project-001',
+          tradingPartnerId: 'tp-001',
+          tradingPartner: { name: '協力業者A' },
+        };
         const mockCreatedQuotation = {
           id: 'rq-new-004',
           estimateRequestId: 'er-001',
@@ -1737,7 +1791,13 @@ describe('ReceivedQuotationService', () => {
           lineItems,
         };
 
-        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockEstimateRequest = {
+          id: 'er-001',
+          deletedAt: null,
+          projectId: 'project-001',
+          tradingPartnerId: 'tp-001',
+          tradingPartner: { name: '協力業者A' },
+        };
 
         // サーバー側で金額補正後の明細行データ
         const correctedLineItem = {
@@ -1810,7 +1870,13 @@ describe('ReceivedQuotationService', () => {
           lineItems,
         };
 
-        const mockEstimateRequest = { id: 'er-001', deletedAt: null };
+        const mockEstimateRequest = {
+          id: 'er-001',
+          deletedAt: null,
+          projectId: 'project-001',
+          tradingPartnerId: 'tp-001',
+          tradingPartner: { name: '協力業者A' },
+        };
         const mockCreatedQuotation = {
           id: 'rq-null',
           estimateRequestId: 'er-001',
@@ -2276,7 +2342,13 @@ describe('ReceivedQuotationService', () => {
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
             estimateRequest: {
-              findUnique: vi.fn().mockResolvedValue({ id: 'er-001', deletedAt: null }),
+              findUnique: vi.fn().mockResolvedValue({
+                id: 'er-001',
+                deletedAt: null,
+                projectId: 'project-001',
+                tradingPartnerId: 'tp-001',
+                tradingPartner: { name: '協力業者A' },
+              }),
             },
             receivedQuotation: {
               create: vi.fn().mockResolvedValue(mockCreated),
@@ -2349,7 +2421,13 @@ describe('ReceivedQuotationService', () => {
         vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
           const txClient = {
             estimateRequest: {
-              findUnique: vi.fn().mockResolvedValue({ id: 'er-001', deletedAt: null }),
+              findUnique: vi.fn().mockResolvedValue({
+                id: 'er-001',
+                deletedAt: null,
+                projectId: 'project-001',
+                tradingPartnerId: 'tp-001',
+                tradingPartner: { name: '協力業者A' },
+              }),
             },
             receivedQuotation: {
               create: vi.fn().mockResolvedValue(mockCreated),
@@ -2437,7 +2515,13 @@ describe('ReceivedQuotationService', () => {
         lineItems,
       };
 
-      const mockEstimateRequest = { id: 'er-net-001', deletedAt: null };
+      const mockEstimateRequest = {
+        id: 'er-net-001',
+        deletedAt: null,
+        projectId: 'project-001',
+        tradingPartnerId: 'tp-001',
+        tradingPartner: { name: '協力業者A' },
+      };
 
       const mockCreatedQuotation = {
         id: 'rq-net-001',
@@ -2598,7 +2682,13 @@ describe('ReceivedQuotationService', () => {
         lineItems,
       };
 
-      const mockEstimateRequest = { id: 'er-net-004', deletedAt: null };
+      const mockEstimateRequest = {
+        id: 'er-net-004',
+        deletedAt: null,
+        projectId: 'project-001',
+        tradingPartnerId: 'tp-001',
+        tradingPartner: { name: '協力業者A' },
+      };
 
       const mockCreatedQuotation = {
         id: 'rq-net-004',
@@ -2850,7 +2940,13 @@ describe('ReceivedQuotationService', () => {
       const setupCreateTx = (created: Record<string, unknown>) => {
         const txClient = {
           estimateRequest: {
-            findUnique: vi.fn().mockResolvedValue({ id: 'er-001', deletedAt: null }),
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'er-001',
+              deletedAt: null,
+              projectId: 'project-001',
+              tradingPartnerId: 'tp-001',
+              tradingPartner: { name: '協力業者A' },
+            }),
           },
           receivedQuotation: {
             create: vi.fn().mockResolvedValue({ ...created, lineItems: [] }),

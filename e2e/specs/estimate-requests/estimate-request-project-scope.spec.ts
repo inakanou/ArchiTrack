@@ -133,6 +133,8 @@ async function createFixture(
   const quotation = await prisma.receivedQuotation.create({
     data: {
       estimateRequestId,
+      projectId: project.id,
+      vendorName: `閲覧範囲検証の業者 ${label}`,
       name: `閲覧範囲検証の受領見積書 ${label}`,
       submittedAt: new Date('2026-10-01'),
       filePath: `quotations/${estimateRequestId}/${label}.pdf`,
@@ -298,7 +300,11 @@ test.describe('見積依頼・受領見積書・ステータスの案件の閲�
 
   test.afterEach(async () => {
     const prisma = getPrismaClient();
-    // 見積依頼・項目・受領見積書・内訳書は案件の削除に連なって消える
+    // 受領見積書は案件を onDelete: Restrict で指すため先に消す（design の D1）。
+    // 見積依頼・項目・内訳書は案件の削除に連なって消える
+    await prisma.receivedQuotation.deleteMany({
+      where: { project: { name: { startsWith: NAME_PREFIX } } },
+    });
     await prisma.project.deleteMany({ where: { name: { startsWith: NAME_PREFIX } } });
     await prisma.tradingPartner.deleteMany({ where: { name: { startsWith: NAME_PREFIX } } });
     await deleteSessionUsers();
@@ -746,6 +752,8 @@ test.describe('見積依頼・受領見積書・ステータスの案件の閲�
     const siblingQuotation = await prisma.receivedQuotation.create({
       data: {
         estimateRequestId: siblingRequestId,
+        projectId: target.projectId,
+        vendorName: '閲覧範囲検証の業者 quotation-sibling',
         name: '閲覧範囲検証の受領見積書 quotation-sibling',
         submittedAt: new Date('2026-10-01'),
         filePath: `quotations/${siblingRequestId}/quotation-sibling.pdf`,

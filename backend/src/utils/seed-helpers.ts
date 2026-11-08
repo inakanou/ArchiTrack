@@ -387,6 +387,12 @@ export async function seedPermissions(prisma: PrismaClient): Promise<void> {
       action: 'delete',
       description: '見積依頼の削除',
     },
+    // 外部の AI での読み取りの専用の権限（estimate-request の 49.6、design の D7）
+    {
+      resource: 'claude_vision',
+      action: 'use',
+      description: '外部のAIでの読み取りの利用',
+    },
 
     // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
     {
@@ -660,6 +666,9 @@ export async function seedRolePermissions(prisma: PrismaClient): Promise<void> {
     { resource: 'estimate_request', action: 'read' },
     { resource: 'estimate_request', action: 'update' },
     { resource: 'estimate_request', action: 'delete' },
+    // 外部の AI での読み取りの専用の権限（estimate-request の 49.6）
+    // 見積依頼を閲覧できる一般ユーザーは受領見積書の OCR で使える（管理者は *:* で持つ）
+    { resource: 'claude_vision', action: 'use' },
     // 自社情報関連権限（company-info/REQ-6.6, 6.7, 6.8）
     // 一般ユーザーは自社情報の閲覧・更新が可能
     { resource: 'company_info', action: 'read' },

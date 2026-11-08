@@ -251,6 +251,7 @@ describe('ReceivedQuotationLineItem Model Schema', () => {
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-20'),
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
         lineItems: {
           create: [
             {

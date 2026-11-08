@@ -82,12 +82,19 @@ export async function findOwnerOfReceivedQuotation(
     where: { id: quotationId },
     select: { estimateRequestId: true, estimateRequest: { select: { projectId: true } } },
   });
-  return quotation === null
-    ? null
-    : {
-        estimateRequestId: quotation.estimateRequestId,
-        projectId: quotation.estimateRequest.projectId,
-      };
+  // 見積依頼の無い受領見積書は不在として扱う（見積依頼の任意化に伴う最小の扱い。Task 112.1。
+  // 案件の列での解決は Task 113.1 が行う）
+  if (
+    quotation === null ||
+    quotation.estimateRequestId === null ||
+    quotation.estimateRequest === null
+  ) {
+    return null;
+  }
+  return {
+    estimateRequestId: quotation.estimateRequestId,
+    projectId: quotation.estimateRequest.projectId,
+  };
 }
 
 /** 受領見積書の経路の親（`/api/estimate-requests/:id/quotations`）の見積依頼の ID の引数名 */

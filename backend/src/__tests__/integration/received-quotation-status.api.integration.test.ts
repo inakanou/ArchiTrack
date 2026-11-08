@@ -15,6 +15,8 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
 import type { PrismaClient } from '../../generated/prisma/client.js';
@@ -482,6 +484,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '受領見積書1',
             submittedAt: new Date('2026-01-23'),
           },
@@ -489,6 +493,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '受領見積書2',
             submittedAt: new Date('2026-01-24'),
           },
@@ -511,6 +517,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const quotation = await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '詳細取得テスト',
             submittedAt: new Date('2026-01-23'),
           },
@@ -548,6 +556,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const quotation = await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '更新テスト',
             submittedAt: new Date('2026-01-23'),
           },
@@ -586,6 +596,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
         const quotation = await prisma.receivedQuotation.create({
           data: {
             estimateRequestId: testEstimateRequestId,
+            projectId: testProjectId,
+            vendorName: 'テスト協力業者',
             name: '削除テスト',
             submittedAt: new Date('2026-01-23'),
           },
@@ -681,6 +693,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const quotation = await prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
+          projectId: testProjectId,
+          vendorName: 'テスト協力業者',
           name: '楽観的排他制御テスト',
           submittedAt: new Date('2026-01-23'),
         },
@@ -889,6 +903,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const quotation = await prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
+          projectId: testProjectId,
+          vendorName: 'テスト協力業者',
           name: 'ファイルプレビューテスト',
           submittedAt: new Date('2026-01-23'),
           filePath: 'quotations/test/file.pdf',
@@ -914,6 +930,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
       const noFileQuotation = await prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
+          projectId: testProjectId,
+          vendorName: 'テスト協力業者',
           name: 'ファイルなしプレビューテスト',
           submittedAt: new Date('2026-01-23'),
         },
@@ -1256,6 +1274,8 @@ describe('Received Quotation & Status API Integration Tests', () => {
       prisma.receivedQuotation.create({
         data: {
           estimateRequestId: testEstimateRequestId,
+          projectId: testProjectId,
+          vendorName: 'テスト協力業者',
           name: uniqueName(label),
           submittedAt: new Date('2026-01-23T00:00:00.000Z'),
           netAmount: NET_AMOUNT,
@@ -1425,6 +1445,198 @@ describe('Received Quotation & Status API Integration Tests', () => {
 
       expect(await countLogs('RECEIVED_QUOTATION_UPDATED', stored.id)).toBe(0);
       expect(await countLogs('RECEIVED_QUOTATION_DELETED', stored.id)).toBe(0);
+    });
+  });
+
+  /**
+   * 台帳の項目の migration の埋め戻しと権限の付与（Task 112.1）
+   *
+   * 適用済みの DB に対し、トランザクションの中で migration の前の形（案件・業者名・取引先が空、
+   * 明細行に区分の列が無い、claude_vision:use が無い）を作り直し、migration.sql から取り出した
+   * 埋め戻し・NOT NULL・CHECK・区分の列の追加・権限の追加と付与の文を流して結果を主張する。
+   * 最後に例外でトランザクションを巻き戻し、共有のテスト DB を元の形へ戻す。
+   *
+   * 対象の受入基準は estimate-request の 14.1・44.9・45.13・49.6（design: Data Models の埋め戻し、D1、D7）
+   */
+  describe('台帳の項目の migration の埋め戻しと権限の付与（Task 112.1）', () => {
+    const MIGRATION_SQL_PATH = resolve(
+      __dirname,
+      '../../../prisma/migrations/20261108000000_received_quotation_ledger_fields/migration.sql'
+    );
+    const ROLLBACK = '検証の後に巻き戻す';
+
+    /** コメント行を除き、文ごとに分ける */
+    const migrationStatements = (): string[] =>
+      readFileSync(MIGRATION_SQL_PATH, 'utf-8')
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n')
+        .split(';')
+        .map((statement) => statement.trim())
+        .filter((statement) => statement !== '');
+
+    /** 条件に合う文を取り出す（一つも無ければ失敗させる） */
+    const pick = (statements: string[], pattern: RegExp): string[] => {
+      const picked = statements.filter((statement) => pattern.test(statement));
+      expect(picked, `migration.sql に ${pattern} の文が無い`).not.toHaveLength(0);
+      return picked;
+    };
+
+    /** トランザクションの中で検証し、最後に巻き戻す */
+    const inRolledBackTransaction = async (
+      verify: (tx: Parameters<Parameters<PrismaClient['$transaction']>[0]>[0]) => Promise<void>
+    ): Promise<void> => {
+      await expect(
+        prisma.$transaction(
+          async (tx) => {
+            await verify(tx);
+            throw new Error(ROLLBACK);
+          },
+          { timeout: 30_000 }
+        )
+      ).rejects.toThrow(ROLLBACK);
+    };
+
+    it('案件・業者名・取引先が空の既存の受領見積書は、見積依頼の案件と宛先の取引先の名前と ID で埋まり、業者名が NOT NULL になる（44.9、D1）', async () => {
+      const statements = migrationStatements();
+      const backfill = pick(statements, /^UPDATE "received_quotations"/);
+      const notNull = pick(statements, /ALTER COLUMN "vendor_name" SET NOT NULL/);
+      const check = pick(statements, /ADD CONSTRAINT "[^"]+" CHECK/);
+      const tradingPartner = await prisma.tradingPartner.findUniqueOrThrow({
+        where: { id: testTradingPartnerId },
+      });
+
+      await inRolledBackTransaction(async (tx) => {
+        // migration の前の形: 列は足されたが値が無い（NOT NULL と CHECK は埋め戻しの後に置かれる）
+        await tx.$executeRawUnsafe(
+          'ALTER TABLE "received_quotations" DROP CONSTRAINT "received_quotations_estimate_request_project_check"'
+        );
+        await tx.$executeRawUnsafe(
+          'ALTER TABLE "received_quotations" ALTER COLUMN "vendor_name" DROP NOT NULL'
+        );
+        const legacyId = `legacy-${Date.now()}`;
+        await tx.$executeRaw`
+          INSERT INTO "received_quotations" ("id", "estimateRequestId", "name", "submittedAt", "updatedAt")
+          VALUES (${legacyId}, ${testEstimateRequestId}, '移行前の受領見積書', DATE '2026-01-23', CURRENT_TIMESTAMP)`;
+        const before = await tx.$queryRaw<
+          Array<{
+            project_id: string | null;
+            vendor_name: string | null;
+            trading_partner_id: string | null;
+          }>
+        >`SELECT "project_id", "vendor_name", "trading_partner_id" FROM "received_quotations" WHERE "id" = ${legacyId}`;
+        expect(before).toEqual([{ project_id: null, vendor_name: null, trading_partner_id: null }]);
+
+        for (const statement of [...backfill, ...notNull, ...check]) {
+          await tx.$executeRawUnsafe(statement);
+        }
+
+        const after = await tx.$queryRaw<
+          Array<{
+            project_id: string | null;
+            vendor_name: string | null;
+            trading_partner_id: string | null;
+          }>
+        >`SELECT "project_id", "vendor_name", "trading_partner_id" FROM "received_quotations" WHERE "id" = ${legacyId}`;
+        expect(after).toEqual([
+          {
+            project_id: testProjectId,
+            vendor_name: tradingPartner.name,
+            trading_partner_id: testTradingPartnerId,
+          },
+        ]);
+        const nullable = await tx.$queryRaw<Array<{ is_nullable: string }>>`
+          SELECT "is_nullable" FROM information_schema.columns
+          WHERE table_name = 'received_quotations' AND column_name = 'vendor_name'`;
+        expect(nullable).toEqual([{ is_nullable: 'NO' }]);
+      });
+    });
+
+    it('見積依頼に紐づく受領見積書は案件を持たなければ保存できない（CHECK、D1）', async () => {
+      await inRolledBackTransaction(async (tx) => {
+        await expect(
+          tx.$executeRaw`
+            INSERT INTO "received_quotations" ("id", "estimateRequestId", "name", "submittedAt", "updatedAt", "vendor_name")
+            VALUES (${`check-${Date.now()}`}, ${testEstimateRequestId}, '案件の無い受領見積書', DATE '2026-01-23', CURRENT_TIMESTAMP, '業者')`
+        ).rejects.toThrow(/received_quotations_estimate_request_project_check/);
+      });
+    });
+
+    it('既存の明細行は、migration の区分の列の追加で直接工事（DIRECT）になる（45.13）', async () => {
+      const addCategory = pick(migrationStatements(), /ADD COLUMN\s+"category"/);
+
+      await inRolledBackTransaction(async (tx) => {
+        const quotationId = `line-${Date.now()}`;
+        await tx.$executeRaw`
+          INSERT INTO "received_quotations" ("id", "estimateRequestId", "project_id", "vendor_name", "name", "submittedAt", "updatedAt")
+          VALUES (${quotationId}, ${testEstimateRequestId}, ${testProjectId}, '業者', '明細行の区分の検証', DATE '2026-01-23', CURRENT_TIMESTAMP)`;
+        // migration の前の形: 明細行に区分の列が無い
+        await tx.$executeRawUnsafe(
+          'ALTER TABLE "received_quotation_line_items" DROP COLUMN "category"'
+        );
+        await tx.$executeRaw`
+          INSERT INTO "received_quotation_line_items" ("id", "receivedQuotationId", "sortOrder", "name")
+          VALUES (${`${quotationId}-item`}, ${quotationId}, 0, '既存の明細行')`;
+
+        for (const statement of addCategory) {
+          await tx.$executeRawUnsafe(statement);
+        }
+
+        const rows = await tx.$queryRaw<Array<{ category: string }>>`
+          SELECT "category"::text AS "category" FROM "received_quotation_line_items"
+          WHERE "receivedQuotationId" = ${quotationId}`;
+        expect(rows).toEqual([{ category: 'DIRECT' }]);
+      });
+    });
+
+    it('estimate_request:read を持つロールは migration の付与で claude_vision:use を持ち、持たないロールは持たない（49.6、D7）', async () => {
+      const statements = migrationStatements();
+      const definePermission = pick(statements, /^INSERT INTO "permissions"/);
+      const grant = pick(statements, /^INSERT INTO "role_permissions"/);
+
+      await inRolledBackTransaction(async (tx) => {
+        // migration の前の形: 専用の権限が無い（割り当ても連鎖して消える）
+        await tx.permission.deleteMany({ where: { resource: 'claude_vision', action: 'use' } });
+        const estimateRead = await tx.permission.findUniqueOrThrow({
+          where: { resource_action: { resource: 'estimate_request', action: 'read' } },
+        });
+        const suffix = Date.now();
+        const viewer = await tx.role.create({
+          data: { name: `vision-migration-viewer-${suffix}`, description: '見積依頼を閲覧できる' },
+        });
+        const outsider = await tx.role.create({
+          data: {
+            name: `vision-migration-outsider-${suffix}`,
+            description: '見積依頼を閲覧できない',
+          },
+        });
+        await tx.rolePermission.create({
+          data: { roleId: viewer.id, permissionId: estimateRead.id },
+        });
+
+        for (const statement of [...definePermission, ...grant]) {
+          await tx.$executeRawUnsafe(statement);
+        }
+
+        const holders = await tx.rolePermission.findMany({
+          where: { permission: { resource: 'claude_vision', action: 'use' } },
+          select: { roleId: true },
+        });
+        const holderIds = holders.map((holder) => holder.roleId);
+        expect(holderIds).toContain(viewer.id);
+        expect(holderIds).not.toContain(outsider.id);
+        const userRole = await tx.role.findUniqueOrThrow({ where: { name: 'user' } });
+        expect(holderIds).toContain(userRole.id);
+
+        // 付与の文は二度流しても重複しない
+        for (const statement of [...definePermission, ...grant]) {
+          await tx.$executeRawUnsafe(statement);
+        }
+        const viewerGrants = await tx.rolePermission.count({
+          where: { roleId: viewer.id, permission: { resource: 'claude_vision', action: 'use' } },
+        });
+        expect(viewerGrants).toBe(1);
+      });
     });
   });
 });

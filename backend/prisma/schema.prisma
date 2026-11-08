@@ -56,7 +56,9 @@ model User {
   statusChangedHistories     ProjectStatusHistory[] @relation("StatusChangedByUser")
 
   // Estimate Request Management リレーション
-  estimateRequestStatusChanges EstimateRequestStatusHistory[] @relation("EstimateRequestStatusChangedByUser")
+  estimateRequestStatusChanges       EstimateRequestStatusHistory[] @relation("EstimateRequestStatusChangedByUser")
+  readingConfirmedReceivedQuotations ReceivedQuotation[]            @relation("ReceivedQuotationReadingConfirmedBy") // 読取の確認者（46.6）
+  updatedSystemSettings              SystemSetting[]                @relation("SystemSettingUpdatedBy") // システムの設定の更新者（D8）
 
   // Execution Budget Management リレーション
   monthlyCloseHistories MonthlyCloseHistory[]
@@ -308,6 +310,7 @@ model Project {
   quantityTables          QuantityTable[] // 数量表リレーション
   itemizedStatements      ItemizedStatement[] // 内訳書リレーション
   estimateRequests        EstimateRequest[] // 見積依頼リレーション
+  receivedQuotations      ReceivedQuotation[] // 受領見積書リレーション（estimate-request の D1）
   estimates               Estimate[] // 見積書リレーション
   contracts               Contract[] // 契約書リレーション
   constructionSchedules   ConstructionSchedule[] // 工程表リレーション
@@ -420,6 +423,7 @@ model TradingPartner {
   types               TradingPartnerTypeMapping[]
   projects            Project[] // この取引先に紐付くプロジェクト
   estimateRequests    EstimateRequest[] // この取引先宛の見積依頼
+  receivedQuotations  ReceivedQuotation[] // この取引先の受領見積書（estimate-request の 44.2〜44.7）
   supervisorContracts Contract[]                  @relation("SupervisorContracts") // 監理者としての契約書
 
   // Execution Budget Management リレーション
@@ -998,27 +1002,83 @@ model EstimateRequestItem {
  * - 28.10: NET金額のDB永続化
  */
 model ReceivedQuotation {
-  id                String    @id @default(uuid())
-  estimateRequestId String
-  name              String // 受領見積書名（必須、最大200文字）
-  submittedAt       DateTime  @db.Date // 提出日
+  id                   String                             @id @default(uuid())
+  // 見積依頼は任意（14.1）。見積依頼に紐づくものは案件も持つ（CHECK は migration の SQL。design の D1）
+  estimateRequestId    String?
+  projectId            String?                            @map("project_id") // 案件（見積依頼に紐づくものは見積依頼の案件を写す。D1）
+  vendorName           String                             @map("vendor_name") @db.VarChar(200) // 業者名（44.1）
+  tradingPartnerId     String?                            @map("trading_partner_id") // 取引先（44.2〜44.7）
+  name                 String // 受領見積書名（必須、最大200文字）
+  submittedAt          DateTime                           @db.Date // 提出日
   // contentType列を廃止: ファイルと明細行の共存を許可 (Task 20.2)
-  filePath          String? // R2オブジェクトパス（ファイルアップロード時）
-  fileName          String? // 元ファイル名
-  fileMimeType      String? // MIMEタイプ
-  fileSize          Int? // ファイルサイズ（バイト）
-  netAmount         Decimal?  @map("net_amount") @db.Decimal(15, 2) // NET金額（受領見積書1件につき1つ、任意入力） (28.4, 28.10)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  deletedAt         DateTime? // 論理削除
+  filePath             String? // R2オブジェクトパス（ファイルアップロード時）
+  fileName             String? // 元ファイル名
+  fileMimeType         String? // MIMEタイプ
+  fileSize             Int? // ファイルサイズ（バイト）
+  fileSha256           String?                            @map("file_sha256") @db.Char(64) // 原本の指紋（sha256 の 16 進の小文字。48.1、48.6）
+  netAmount            Decimal?                           @map("net_amount") @db.Decimal(15, 2) // NET金額（受領見積書1件につき1つ、任意入力） (28.4, 28.10)
+  // 見積の情報（46.1〜46.3）
+  quoteNumber          String?                            @map("quote_number") @db.VarChar(100)
+  overallConditions    String?                            @map("overall_conditions") @db.VarChar(2000)
+  siteLocation         String?                            @map("site_location") @db.VarChar(100)
+  constructionKind     ReceivedQuotationConstructionKind? @map("construction_kind")
+  useType              String?                            @map("use_type") @db.VarChar(100)
+  constructionPrice    Decimal?                           @map("construction_price") @db.Decimal(15, 0)
+  workConditions       String?                            @map("work_conditions") @db.VarChar(200)
+  distanceKm           Decimal?                           @map("distance_km") @db.Decimal(6, 1)
+  adoption             ReceivedQuotationAdoption          @default(UNKNOWN)
+  confirmedAmount      Decimal?                           @map("confirmed_amount") @db.Decimal(15, 0)
+  // 読取の確認（46.6〜46.8）
+  readingStatus        ReceivedQuotationReadingStatus     @default(UNCONFIRMED) @map("reading_status")
+  readingConfirmedById String?                            @map("reading_confirmed_by_id")
+  readingConfirmedAt   DateTime?                          @map("reading_confirmed_at")
+  quoteDiscriminator   String                             @default("") @map("quote_discriminator") @db.VarChar(100) // 見積の区別（48.2）
+  createdAt            DateTime                           @default(now())
+  updatedAt            DateTime                           @updatedAt
+  deletedAt            DateTime? // 論理削除
 
-  estimateRequest EstimateRequest             @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
-  lineItems       ReceivedQuotationLineItem[] // 明細行リレーション (11.9)
+  estimateRequest    EstimateRequest?            @relation(fields: [estimateRequestId], references: [id], onDelete: Cascade)
+  project            Project?                    @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  tradingPartner     TradingPartner?             @relation(fields: [tradingPartnerId], references: [id], onDelete: SetNull)
+  readingConfirmedBy User?                       @relation("ReceivedQuotationReadingConfirmedBy", fields: [readingConfirmedById], references: [id], onDelete: SetNull)
+  lineItems          ReceivedQuotationLineItem[] // 明細行リレーション (11.9)
 
   @@index([estimateRequestId])
+  @@index([projectId])
+  @@index([projectId, fileSha256])
   @@index([deletedAt])
   @@index([createdAt])
   @@map("received_quotations")
+}
+
+/// 受領見積書の工事の種別（46.2）
+enum ReceivedQuotationConstructionKind {
+  RENOVATION // 改修
+  NEW_CONSTRUCTION // 新築
+}
+
+/// 採否（46.3）
+enum ReceivedQuotationAdoption {
+  ADOPTED // 採用
+  REJECTED // 不採用
+  UNKNOWN // 不明
+}
+
+/// 読取の確認の状態（46.6）
+enum ReceivedQuotationReadingStatus {
+  UNCONFIRMED // 未確認
+  CONFIRMED // 確認済み
+}
+
+/// 明細行の区分（45.1）
+enum ReceivedQuotationLineCategory {
+  DIRECT // 直接工事
+  OVERHEAD // 諸経費
+  TRAVEL // 交通費
+  WASTE // 産廃
+  DISCOUNT // 値引き
+  LEGAL_WELFARE // 法定福利費
+  EXCLUDED // 別途
 }
 
 /**
@@ -1046,25 +1106,54 @@ model ReceivedQuotation {
  * - 14.2: 受領見積書の明細行データをデータベースに永続化
  */
 model ReceivedQuotationLineItem {
-  id                  String   @id @default(uuid())
+  id                  String                        @id @default(uuid())
   receivedQuotationId String
   sortOrder           Int // 表示順序（0始まり）
-  customCategory      String?  @db.VarChar(500) // 任意分類
-  workType            String?  @db.VarChar(500) // 工種
+  customCategory      String?                       @db.VarChar(500) // 任意分類
+  workType            String?                       @db.VarChar(500) // 工種
   name                String // 名称（必須）
   specification       String? // 規格
   unit                String? // 単位
-  quantity            Decimal? @db.Decimal(15, 4) // 数量
-  unitPrice           Decimal? @db.Decimal(15, 2) // 単価
-  amount              Decimal? @db.Decimal(15, 2) // 金額（数量 x 単価、自動計算）
+  quantity            Decimal?                      @db.Decimal(15, 4) // 数量
+  unitPrice           Decimal?                      @db.Decimal(15, 2) // 単価
+  amount              Decimal?                      @db.Decimal(15, 2) // 金額（数量 x 単価、自動計算）
   // netAmountはTask 60でReceivedQuotationモデルに移動（受領見積書1件につき1フィールド）
   remarks             String? // 備考
+  category            ReceivedQuotationLineCategory @default(DIRECT) // 区分（45.1。既存の行は直接工事、45.13）
+  condition           String?                       @db.VarChar(500) // 条件（45.7）
+  // 換算（45.8。4 つは全部あるか全部無い）
+  conversionQuantity  Decimal?                      @map("conversion_quantity") @db.Decimal(15, 4)
+  conversionUnit      String?                       @map("conversion_unit") @db.VarChar(50)
+  conversionUnitPrice Decimal?                      @map("conversion_unit_price") @db.Decimal(15, 2)
+  conversionBasis     String?                       @map("conversion_basis") @db.VarChar(500)
+  classificationKey   String?                       @map("classification_key") @db.VarChar(50) // 分類キー（47.1）
+  quantityRowKey      String?                       @map("quantity_row_key") @db.VarChar(1000) // 数量表の行のキー（47.4）
+  isReference         Boolean                       @default(false) @map("is_reference") // 参考の印（46.4）
+  referenceReason     String?                       @map("reference_reason") @db.VarChar(200) // 参考の理由（46.4）
 
   receivedQuotation ReceivedQuotation @relation(fields: [receivedQuotationId], references: [id], onDelete: Cascade)
 
   @@index([receivedQuotationId])
   @@index([sortOrder])
   @@map("received_quotation_line_items")
+}
+
+/**
+ * システムの設定（estimate-request の design の D8）
+ * 実行中に切り替える設定を 1 キー 1 行で持つ。今の利用者は外部の AI での読み取りの設定
+ * （key = 'externalAiReading'、value = { enabled: boolean }）だけで、行が無いときは有効として読む。
+ * version は楽観的排他の版（変更のたびに 1 進める）。
+ */
+model SystemSetting {
+  key         String   @id
+  value       Json
+  version     Int      @default(0)
+  updatedById String?  @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("SystemSettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("system_settings")
 }
 
 /**

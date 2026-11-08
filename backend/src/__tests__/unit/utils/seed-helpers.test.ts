@@ -1312,3 +1312,61 @@ describe('既定の権限（user-authentication/38.4・39.5）', () => {
     expect(assignments).toContainEqual({ roleId: 'admin-role-id', permissionId: 'all-perm-id' });
   });
 });
+
+/**
+ * 外部の AI での読み取りの専用の権限（estimate-request の 49.6、design の D7。Task 112.1）
+ * claude_vision:use を定義し、一般ユーザーロールへ割り当てる（見積依頼の閲覧と同じ利用者が使える）
+ */
+describe('seed - 外部の AI での読み取りの専用の権限（claude_vision:use）', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('claude_vision:use の権限が定義されている', async () => {
+    let createManyData: Array<{ resource: string; action: string; description: string }> = [];
+    const mockPrisma = {
+      permission: {
+        createMany: vi.fn().mockImplementation(async ({ data }) => {
+          createManyData = data;
+          return { count: data.length };
+        }),
+      },
+    } as unknown as PrismaClient;
+
+    const { seedPermissions } = await import('../../../utils/seed-helpers.js');
+    await seedPermissions(mockPrisma);
+
+    const perm = createManyData.find((p) => p.resource === 'claude_vision' && p.action === 'use');
+    expect(perm).toBeDefined();
+    expect(perm!.description).toBe('外部のAIでの読み取りの利用');
+  });
+
+  it('一般ユーザーロールへ割り当てる権限に claude_vision:use を含める', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const mockPrisma = {
+      role: {
+        findUnique: vi.fn().mockImplementation(async ({ where }) => {
+          if (where.name === 'admin') return { id: 'admin-role-id', name: 'admin' };
+          if (where.name === 'user') return { id: 'user-role-id', name: 'user' };
+          return null;
+        }),
+      },
+      permission: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        findMany,
+      },
+      rolePermission: {
+        createMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+    } as unknown as PrismaClient;
+
+    const { seedRolePermissions } = await import('../../../utils/seed-helpers.js');
+    await seedRolePermissions(mockPrisma);
+
+    const requested = (
+      findMany.mock.calls[0]![0] as { where: { OR: Array<{ resource: string; action: string }> } }
+    ).where.OR.map((p) => `${p.resource}:${p.action}`);
+    expect(requested).toContain('claude_vision:use');
+    expect(requested).toContain('estimate_request:read');
+  });
+});

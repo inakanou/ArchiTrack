@@ -96,7 +96,9 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
         { targetId: { in: requestIds } },
       ],
     });
-    // 見積依頼・項目・受領見積書・ステータス履歴・内訳書は案件の削除に連なって消える
+    // 受領見積書は案件を onDelete: Restrict で指すため先に消す（estimate-request の design の D1）。
+    // 見積依頼・項目・ステータス履歴・内訳書は案件の削除に連なって消える
+    await prisma.receivedQuotation.deleteMany({ where: { projectId: { in: projectIds } } });
     await prisma.projectStatusHistory.deleteMany({ where: { projectId: { in: projectIds } } });
     await prisma.project.deleteMany({ where: { id: { in: projectIds } } });
     await prisma.tradingPartner.deleteMany({ where: { name: { contains: MARK } } });
@@ -227,6 +229,8 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
     const quotation = await prisma.receivedQuotation.create({
       data: {
         estimateRequestId,
+        projectId: project.id,
+        vendorName: `${MARK}-${label}-vendor`,
         name: `${MARK}-${label}-quotation`,
         submittedAt: new Date('2026-10-01'),
         filePath: `quotations/${estimateRequestId}/${label}.pdf`,
@@ -1041,9 +1045,15 @@ describe('見積依頼・受領見積書・ステータスの API の閲覧範�
       label: string,
       deletedAt: Date | null = null
     ): Promise<{ id: string; updatedAt: Date }> {
+      const { projectId } = await prisma.estimateRequest.findUniqueOrThrow({
+        where: { id: estimateRequestId },
+        select: { projectId: true },
+      });
       return prisma.receivedQuotation.create({
         data: {
           estimateRequestId,
+          projectId,
+          vendorName: `${MARK}-${label}-vendor`,
           name: `${MARK}-${label}-quotation`,
           submittedAt: new Date('2026-10-01'),
           filePath: `quotations/${estimateRequestId}/${label}.pdf`,

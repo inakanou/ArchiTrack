@@ -29,6 +29,7 @@ describe('ReceivedQuotation Model Schema', () => {
         name: 'テスト受領見積書',
         submittedAt: new Date('2026-01-20'),
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
       };
 
       expect(validInput.name).toBe('テスト受領見積書');
@@ -45,6 +46,7 @@ describe('ReceivedQuotation Model Schema', () => {
         fileMimeType: 'application/pdf',
         fileSize: 1024000,
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
       };
 
       expect(validInput.name).toBe('テスト受領見積書');
@@ -60,6 +62,7 @@ describe('ReceivedQuotation Model Schema', () => {
         name: 'テスト受領見積書',
         submittedAt: new Date(),
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
       };
 
       expect(input.estimateRequest).toBeDefined();
@@ -71,6 +74,7 @@ describe('ReceivedQuotation Model Schema', () => {
         name: 'テスト受領見積書',
         submittedAt: new Date(),
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
         lineItems: {
           create: [
             {
@@ -182,6 +186,7 @@ describe('ReceivedQuotation Model Schema', () => {
         submittedAt: new Date('2026-01-20'),
         netAmount: 500000,
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
       };
 
       expect(validInput.netAmount).toBe(500000);
@@ -194,6 +199,7 @@ describe('ReceivedQuotation Model Schema', () => {
         submittedAt: new Date('2026-01-20'),
         netAmount: new Prisma.Decimal('1234567.89'),
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
       };
 
       expect(validInput.netAmount).toBeDefined();
@@ -206,6 +212,7 @@ describe('ReceivedQuotation Model Schema', () => {
         submittedAt: new Date('2026-01-20'),
         netAmount: null,
         estimateRequest: { connect: { id: 'estimate-request-id' } },
+        vendorName: '協力業者A',
       };
 
       expect(validInput.netAmount).toBeNull();

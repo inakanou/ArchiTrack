@@ -168,7 +168,7 @@ export interface UpdateReceivedQuotationInput {
  */
 export interface ReceivedQuotationInfo {
   id: string;
-  estimateRequestId: string;
+  estimateRequestId: string | null;
   name: string;
   submittedAt: Date;
   fileName: string | null;
@@ -377,7 +377,13 @@ export class ReceivedQuotationService {
       // 4. 見積依頼の存在確認
       const estimateRequest = await tx.estimateRequest.findUnique({
         where: { id: input.estimateRequestId },
-        select: { id: true, deletedAt: true },
+        select: {
+          id: true,
+          deletedAt: true,
+          projectId: true,
+          tradingPartnerId: true,
+          tradingPartner: { select: { name: true } },
+        },
       });
 
       if (!estimateRequest || estimateRequest.deletedAt !== null) {
@@ -385,9 +391,14 @@ export class ReceivedQuotationService {
       }
 
       // 5. レコードを作成（Task 61.2: netAmountを受領見積書レベルに永続化）
+      // 案件と業者名・取引先は見積依頼から写す（列の必須化に伴う最小の写し。Task 112.1。
+      // 保存の規則としての写しと照合は Task 113.1 が行う）
       const quotation = await tx.receivedQuotation.create({
         data: {
           estimateRequestId: input.estimateRequestId,
+          projectId: estimateRequest.projectId,
+          vendorName: estimateRequest.tradingPartner.name,
+          tradingPartnerId: estimateRequest.tradingPartnerId,
           name: input.name.trim(),
           submittedAt: input.submittedAt,
           filePath: null,
@@ -679,6 +690,11 @@ export class ReceivedQuotationService {
         updateData.fileSize = null;
       } else if (input.file) {
         // 新しいファイルのアップロード
+        // 格納先が見積依頼を前提とするため、見積依頼の無い受領見積書は不在として扱う
+        // （見積依頼の任意化に伴う最小の扱い。Task 112.1。案件の格納先は Task 113.1 が足す）
+        if (quotation.estimateRequestId === null) {
+          throw new ReceivedQuotationNotFoundError(id);
+        }
         newFilePath = await this.uploadFile(quotation.estimateRequestId, id, input.file);
         updateData.filePath = newFilePath;
         updateData.fileName = input.file.originalName;
@@ -849,7 +865,9 @@ export class ReceivedQuotationService {
       include: { estimateRequest: { select: { projectId: true } } },
     });
 
-    if (!quotation || quotation.deletedAt !== null) {
+    // 見積依頼の無い受領見積書は不在として扱う（見積依頼の任意化に伴う最小の扱い。Task 112.1。
+    // 案件の列での判定は Task 113.1 が行う）
+    if (!quotation || quotation.deletedAt !== null || quotation.estimateRequest === null) {
       throw new ReceivedQuotationNotFoundError(id);
     }
 
@@ -918,7 +936,7 @@ export class ReceivedQuotationService {
   private toReceivedQuotationInfoWithLineItems(
     quotation: {
       id: string;
-      estimateRequestId: string;
+      estimateRequestId: string | null;
       name: string;
       submittedAt: Date;
       filePath: string | null;
