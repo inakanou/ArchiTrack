@@ -2183,6 +2183,7 @@
 - **【2026-11-08・タスク119.1】** OCR の開始（自動・手動・再試行）は、必ず状態を読んでから確認の画面（`VisionConsentDialog`。初めのフォーカスは「送らずに端末で読み取る」）を出す。状態の読み出しの失敗は送らずに端末で読み取る。E2E は外部の AI の鍵を持たないため、確認の画面を出す試験は `e2e/helpers/claude-vision-consent.ts` の `routeClaudeVisionStatusAvailable` で状態を模擬し `chooseSendToExternalAi` で送るを選ぶ。E2E の試験データ（`e2e/fixtures/seed-helpers.ts`）にも `claude_vision:use` を一般のロールへ付与した
 - **【2026-11-08・タスク119.2】** 管理者のシステム設定の画面は `/admin/settings`（管理メニュー「システム設定」、`admin-menu-settings`）。状態は `data-testid="external-ai-reading-state"` に「有効」か「停止中」。申し送り（120.3）: design.md の File Structure Plan の新設予定の注記（`AdminSettingsPage.tsx`・`VisionConsentDialog.tsx` など）は実在するようになったため外す
 - **【2026-11-08・タスク120.1】** `e2e/specs/estimate-requests/received-quotation-ledger.spec.ts` が 43〜48 と 11.11・11.13・14.1 の被覆の印を持つ。34.2 は取り込みの行がすべて直接工事になるため画面では別途を除く合計を観測できず、印を付けていない（34.2 は既存の `net-amount-auto-fill-e2e.spec.ts` が被覆する）。鮮度の錨 `t13-anchor-references-after-115303` を帰属つきで貼り直した（2232 → 2302）。117.4 で壊れていた `estimate-request-focus-visible.spec.ts` のフォーカスの順を追随させた。E2E で一部だけ確かめたもの（44.7 の複数一致、43.10 の紐づけを外す、43.11 の編集だけの拒否、45.3 の OCR の経路、46.8 の NET・ファイルの変更）はサーバーの単体・統合が持つ
+- **【2026-11-08・タスク120.2】** `e2e/specs/estimate-requests/claude-vision-consent.spec.ts` が 24.2・49.1〜49.6・49.8・50.2 の被覆の印を持つ。管理者の停止は本物のサーバーの状態で確かめ、afterEach で有効へ戻す（Playwright は workers 1 のため他の spec へ漏れない）。鮮度の錨を 2302 → 2316 へ帰属つきで貼り直した。120.3 への申し送り: `check:req-coverage` の残りは 50.1 の未被覆と、本番から届かない 44.9・45.13。48.8 と 49.7 は統合テストの印で既に被覆と数えられている
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2736,7 +2737,7 @@
   - _Requirements: 43.1, 43.2, 43.3, 43.4, 43.5, 43.6, 43.7, 43.8, 43.9, 43.10, 43.11, 43.12, 43.13, 43.14, 43.15, 44.1, 44.2, 44.3, 44.4, 44.5, 44.6, 44.7, 44.8, 45.1, 45.2, 45.3, 45.4, 45.5, 45.6, 45.7, 45.8, 45.9, 45.10, 45.11, 45.12, 46.1, 46.2, 46.3, 46.4, 46.5, 46.6, 46.7, 46.8, 46.9, 46.10, 46.11, 47.1, 47.2, 47.3, 47.4, 47.5, 47.6, 48.1, 48.2, 48.3, 48.4, 48.5, 48.6, 48.7, 11.11, 11.13, 14.1, 34.2_
   - _Depends: 118.1_
 
-- [ ] 120.2 (P) 外部の AI での読み取りの確認・停止・権限・上限と、署名付き URL の開き直しの E2E を足す
+- [x] 120.2 (P) 外部の AI での読み取りの確認・停止・権限・上限と、署名付き URL の開き直しの E2E を足す
   - `e2e/specs/estimate-requests/claude-vision-consent.spec.ts` を新設する。E2E の環境は外部の AI の鍵（ANTHROPIC_API_KEY）を持たないため、確認の三つの選択（送る・端末・閉じる）と利用者の上限の 429 は、`page.route` で状態の API を `available` に、抽出の API を成功・429 に模擬して確かめ、抽出の要求の数を数える（既存の Vision の E2E と同じく決定論的にする）。管理者のシステム設定の画面での停止と停止中の OCR の文言、権限の無い利用者（`createCustomUser`）の OCR で確認が出ず抽出の要求が出ないことは、状態の API を模擬せず本物のバックエンドで確かめる（理由の判定の順により、鍵が無くても停止と権限なしが返る）。送信の記録（49.7）は抽出をバックエンドへ通せないため E2E で確かめず、タスク116.2 の統合で代替して除外に登録する（120.3）。受領見積書のプレビューを閉じて開き直すと preview の要求が新たに出ることを確かめる
   - **既存の E2E の追随**（主張を消さない）: `e2e/specs/estimate-requests/claude-vision-e2e.spec.ts`・`e2e/specs/estimate-requests/estimate-request-ocr-vision-e2e.spec.ts` と、数量表の取り込みの Vision の E2E のうち権限の前提が変わるものを追随させる（受領見積書の OCR は確認で「送って読み取る」を選ぶ手順を足す）
   - 管理者の停止の試験は全体の設定を書き換えるため、直列（`test.describe.serial`）で流し、`afterEach` で再開へ戻す（同じ時間に動く他の E2E へ停止を漏らさない）
