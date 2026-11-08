@@ -2182,6 +2182,7 @@
 - **【2026-11-08・タスク118.1】** 案件の受領見積書の一覧の画面は `/projects/:projectId/quotations`。一覧の応答に `estimateRequestName` を足した（D2 の追記）。保存の 403 は画面が日本語の誤りへ直してフォームへ返し、それ以外の失敗はそのまま返す。申し送り（120.1）: 削除の失敗の既定の文言（500 など）と、保存の 401 がフォームへそのまま返ることは、画面の単体ではまだ主張していない——E2E か単体で押さえる。被覆の印（43.x・46.10）は 120.3
 - **【2026-11-08・タスク119.1】** OCR の開始（自動・手動・再試行）は、必ず状態を読んでから確認の画面（`VisionConsentDialog`。初めのフォーカスは「送らずに端末で読み取る」）を出す。状態の読み出しの失敗は送らずに端末で読み取る。E2E は外部の AI の鍵を持たないため、確認の画面を出す試験は `e2e/helpers/claude-vision-consent.ts` の `routeClaudeVisionStatusAvailable` で状態を模擬し `chooseSendToExternalAi` で送るを選ぶ。E2E の試験データ（`e2e/fixtures/seed-helpers.ts`）にも `claude_vision:use` を一般のロールへ付与した
 - **【2026-11-08・タスク119.2】** 管理者のシステム設定の画面は `/admin/settings`（管理メニュー「システム設定」、`admin-menu-settings`）。状態は `data-testid="external-ai-reading-state"` に「有効」か「停止中」。申し送り（120.3）: design.md の File Structure Plan の新設予定の注記（`AdminSettingsPage.tsx`・`VisionConsentDialog.tsx` など）は実在するようになったため外す
+- **【2026-11-08・タスク120.1】** `e2e/specs/estimate-requests/received-quotation-ledger.spec.ts` が 43〜48 と 11.11・11.13・14.1 の被覆の印を持つ。34.2 は取り込みの行がすべて直接工事になるため画面では別途を除く合計を観測できず、印を付けていない（34.2 は既存の `net-amount-auto-fill-e2e.spec.ts` が被覆する）。鮮度の錨 `t13-anchor-references-after-115303` を帰属つきで貼り直した（2232 → 2302）。117.4 で壊れていた `estimate-request-focus-visible.spec.ts` のフォーカスの順を追随させた。E2E で一部だけ確かめたもの（44.7 の複数一致、43.10 の紐づけを外す、43.11 の編集だけの拒否、45.3 の OCR の経路、46.8 の NET・ファイルの変更）はサーバーの単体・統合が持つ
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2728,7 +2729,7 @@
 
 **経緯**: タスク112 の経緯と同じ。design.md の同章の Testing Strategy の E2E と関門を行う
 
-- [ ] 120.1 受領見積書の台帳の項目の E2E を足す
+- [x] 120.1 受領見積書の台帳の項目の E2E を足す
   - `e2e/specs/estimate-requests/received-quotation-ledger.spec.ts` を新設し、案件の受領見積書の一覧の画面で、見積依頼の無い受領見積書を業者名の候補の選択と自由入力で登録・編集・削除する流れ、一覧の列と空の表示とパンくず、範囲外の 404 と権限なしの拒否、区分と別途を除く合計と小計、換算・条件・参考の印と理由の入力と拒否の文言、台帳の情報の入力と読取の確認、同じファイルの二度目の登録の拒否と見積の区別を変えた登録、分類キーと数量表の行のキーの保持を確かめる。見積依頼の詳細からの登録では業者名が宛先の取引先の名前で編集できないことを確かめる
   - 各テストに `@requirement estimate-request/REQ-43.1` などの印を置く。既存の受領見積書の E2E（`/quotations` を e2e/ 全体で grep して選ぶ）を流して回帰が無いことを確かめる。frontend を変えたためテスト環境の frontend を作り直してから流す
   - E2E で、Requirement 43〜47 と 48.1〜48.7 の画面で観測できる受入基準が緑になる状態になる

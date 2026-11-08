@@ -527,6 +527,8 @@ test.describe('見積依頼の画面のフォーカス表示', () => {
     ).toEqual([
       'input "受領見積書名"',
       'input "提出日"',
+      // Task 117.4: 見積依頼の文脈は業者名（宛先の取引先の名前。読み取り専用）を出す
+      'input "業者名"',
       expect.stringMatching(/^div "ファイルを選択/),
       'button "項目選択から転記"',
       // Task 117.2: 明細行の列に区分・金額（単価が空の行）・分類キー・参考を足した
@@ -545,6 +547,8 @@ test.describe('見積依頼の画面のフォーカス表示', () => {
       'button "行1の操作メニュー"',
       'button "行を追加"',
       'input "NET金額"',
+      // Task 117.4: 台帳の情報の欄の見出し（開閉の釦。既定で閉じる）
+      expect.stringMatching(/^button ".*台帳の情報"$/),
       'button "キャンセル"',
       'button "登録"',
     ]);
