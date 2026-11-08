@@ -45,7 +45,9 @@ export type AuditLogAction =
   | 'OPERATIONAL_SETTING_CHANGED'
   | 'AUDIT_ARCHIVE_CREATED'
   | 'AUDIT_ARCHIVE_FAILED'
-  | 'AUDIT_ARCHIVE_RESTORED';
+  | 'AUDIT_ARCHIVE_RESTORED'
+  // 外部の AI での読み取り（Claude Vision）の送信（estimate-request の 49.7。表示名は utils/audit-log-actions.ts）
+  | 'CLAUDE_VISION_SENT';
 
 /**
  * 監査ログ情報

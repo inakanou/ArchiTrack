@@ -189,6 +189,8 @@ export type AuditLogAction =
   // 自社情報管理
   | 'COMPANY_INFO_CREATED'
   | 'COMPANY_INFO_UPDATED'
+  // 外部の AI での読み取り（Claude Vision）の送信（estimate-request の design の D7。対象の種類 ClaudeVision）
+  | 'CLAUDE_VISION_SENT'
   // セキュリティ是正（要件40.1。種別の一覧は SECURITY_REMEDIATION_AUDIT_ACTIONS）
   // 認証（ロック・2FA・全デバイスのログアウト・トークンの再利用）
   | 'LOGIN_LOCKED'

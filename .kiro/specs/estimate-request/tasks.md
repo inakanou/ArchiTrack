@@ -2173,6 +2173,7 @@
 - **【2026-11-08・タスク114.1】** 重複の 409 の本文は Problem Details の形で、`existing: {name, vendorName, submittedAt}` を本文の最上位に置く（`details.existing` ではない）。117.1 の API クライアントはこの形を読む。成功の本文には `sharedOriginalCount` が入る。案件の配下の一覧は `include=all` で全件、無指定は従来のまま。申し送り（117・120）: 見積依頼の無い受領見積書の論理削除の成功を HTTP で主張する統合・E2E はまだ無い
 - **【2026-11-08・タスク115.1】** 統合テストは共有の DB を他の試験・E2E と同時に使うため、DB 全体の件数を主張しない。自分の案件の行に `where` を絞る（例: 埋め戻しの試験の `scopedReceivedQuotation()`）
 - **【2026-11-08・タスク116.1】** 外部の AI での読み取りの設定は、行が無ければ有効、行があって値が壊れていれば停止として読む（止める側に倒す）。版は行なし 0・作成 1・変更ごとに +1。競合は 409 `SYSTEM_SETTING_CONFLICT`（`details: {expectedVersion, actualVersion}`）。119.2 の画面はこの形を読む。設定の行は全体で 1 行を共有するため、試験で変えたら必ず元へ戻す（120.2 の E2E は直列で流して afterEach で戻す）
+- **【2026-11-08・タスク116.2】** Vision の経路の誤りの判別: 管理者の停止は 503 で `errorType: 'service_unavailable'`（既存の端末の OCR への切り替えを保つ）と `code: 'CLAUDE_VISION_DISABLED_BY_ADMIN'`、利用者の上限は 429 `code: 'CLAUDE_VISION_USER_RATE_LIMITED'`（外部のサービスの 429 は `errorType: 'rate_limit'`）、記録の失敗は 500 `CLAUDE_VISION_AUDIT_FAILED`。117.1・119.1 は `code` で分ける。回数制限は NODE_ENV=test では外れるため、画面の上限の文言は E2E では 429 の模擬で確かめる。既存の試験に `@requirement` の印を足すと、機能名を欠く見出しが解決側へ移り site-survey の錨（解決の数）が動く——帰属つきで貼り直す
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2615,7 +2616,7 @@
   - _Boundary: SystemSettingService, AdminSettingsRoutes_
   - _Depends: 112.1_
 
-- [ ] 116.2 Claude Vision の経路に、状態の API、管理者の停止、専用の権限、利用者ごとの回数制限、送信の記録を足す
+- [x] 116.2 Claude Vision の経路に、状態の API、管理者の停止、専用の権限、利用者ごとの回数制限、送信の記録を足す
   - `GET /api/claude-vision/status` を足す（D7 の形）。理由は `disabled_by_admin`・`no_permission`・`not_configured` の順に判定する（鍵の無いテスト環境でも停止と権限なしを観測できるように。決めた順を design.md の同章の D7 へ記す）。`POST /api/claude-vision/extract` の順を D7 のとおりにし、権限を `claude_vision:use` に改め、停止中は 503 `CLAUDE_VISION_DISABLED_BY_ADMIN` を返して外部へ送らない
   - `createRateLimiters` に `claudeVisionLimiter`（`user:${userId}` のキー、1 時間に 30 回、超過は 429 `CLAUDE_VISION_USER_RATE_LIMITED`）を足して経路の認証の後に置く
   - 送信の後に監査の種別 `CLAUDE_VISION_SENT` を、機能・枚数・結果・失敗の種別だけで記録し、記録の失敗では結果を返さず 500 とする。種別を backend の監査の型と、frontend の型とラベル（`frontend/src/types/audit-log.types.ts`・`frontend/src/utils/audit-log-actions.ts`）に足す

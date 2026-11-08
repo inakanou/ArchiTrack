@@ -12,12 +12,22 @@
  * - 22.6: ANTHROPIC_API_KEY未設定時のHTTP 503レスポンス
  * - 23.1, 23.2, 23.3, 23.4, 23.7: エラー種別レスポンス形式
  *
+ * タスク116.2 で経路が設定・監査・回数制限を依存として受け取る形（createClaudeVisionRouter）になったため、
+ * 本ファイルは設定を有効・記録を成功に固定した依存で従来の主張を保つ。送信の権限は専用の権限
+ * （claude_vision:use）へ改めた。停止・権限・回数制限・記録を実 DB で確かめる統合は
+ * claude-vision-controls.api.integration.test.ts に置く。
+ *
  * @module __tests__/integration/claude-vision.api.integration.test
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import express, { type NextFunction, type Request, type Response } from 'express';
+import express, {
+  type NextFunction,
+  type Request,
+  type RequestHandler,
+  type Response,
+} from 'express';
 
 // Hoisted mocks
 const { mockIsEnabled, mockExtractLineItems, mockRequirePermission, mockState } = vi.hoisted(
@@ -34,6 +44,7 @@ vi.mock('../../services/claude-vision.service.js', () => ({
   ClaudeVisionService: class {
     isEnabled = mockIsEnabled;
     extractLineItems = mockExtractLineItems;
+    extractQuantityTableData = vi.fn();
   },
 }));
 
@@ -53,9 +64,10 @@ vi.mock('../../middleware/authenticate.middleware.js', () => ({
       (err as unknown as { statusCode: number }).statusCode = 401;
       return next(err);
     }
-    (req as unknown as { user: { id: string; email: string } }).user = {
-      id: 'integration-test-user',
+    req.user = {
+      userId: 'integration-test-user',
       email: 'integration@test.com',
+      roles: ['user'],
     };
     next();
   },
@@ -87,8 +99,15 @@ vi.mock('../../utils/logger.js', () => ({
 }));
 
 // Import after mocks
-import claudeVisionRoutes from '../../routes/claude-vision.routes.js';
+import {
+  createClaudeVisionRouter,
+  CLAUDE_VISION_USE_PERMISSION,
+} from '../../routes/claude-vision.routes.js';
+import { ClaudeVisionService } from '../../services/claude-vision.service.js';
 import { ClaudeVisionError } from '../../errors/claudeVisionError.js';
+
+/** 制限を掛けない（回数制限は claude-vision-controls.api.integration.test.ts で確かめる） */
+const passThrough: RequestHandler = (_req, _res, next) => next();
 
 /**
  * 統合テスト用Expressアプリを構築
@@ -97,7 +116,19 @@ import { ClaudeVisionError } from '../../errors/claudeVisionError.js';
 function createIntegrationApp() {
   const app = express();
   // Claude Vision routes BEFORE global body-parser (本番と同じ順序)
-  app.use('/api/claude-vision', claudeVisionRoutes);
+  // 設定は有効・記録は成功に固定する（停止と記録は claude-vision-controls.api.integration.test.ts）
+  app.use(
+    '/api/claude-vision',
+    createClaudeVisionRouter({
+      claudeVisionService: new ClaudeVisionService(undefined),
+      systemSettingService: {
+        getExternalAiReading: vi.fn().mockResolvedValue({ enabled: true, version: 0 }),
+      },
+      auditLogService: { createLog: vi.fn().mockResolvedValue({ id: 'audit-log-id' }) },
+      hasPermission: vi.fn().mockResolvedValue(true),
+      limiter: passThrough,
+    })
+  );
   // Global body-parser (本番の5MB制限と同じ)
   app.use(express.json({ limit: '5mb' }));
   // エラーハンドラ (本番同等)
@@ -147,13 +178,16 @@ describe('Claude Vision API Integration Tests', () => {
       expect(res.body.error).toContain('認証が必要です');
     });
 
-    it('estimate_request:read権限がないリクエストを403で拒否する', async () => {
+    it('claude_vision:use権限がないリクエストを403で拒否する', async () => {
       mockState.shouldRejectPermission = true;
 
       const res = await request(app).post('/api/claude-vision/extract').send(validRequest);
 
       expect(res.status).toBe(403);
       expect(res.body.error).toContain('権限がありません');
+      expect(mockRequirePermission).toHaveBeenCalledWith(CLAUDE_VISION_USE_PERMISSION);
+      expect(mockRequirePermission).not.toHaveBeenCalledWith('estimate_request:read');
+      expect(mockExtractLineItems).not.toHaveBeenCalled();
     });
 
     it('認証済み・権限ありリクエストが正常に処理される', async () => {

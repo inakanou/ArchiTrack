@@ -3,7 +3,31 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getAuditLogTargetLabel } from '../../utils/audit-log-actions';
+import {
+  CLAUDE_VISION_AUDIT_ACTIONS,
+  CLAUDE_VISION_AUDIT_ACTION_LABELS,
+  getAuditLogTargetLabel,
+} from '../../utils/audit-log-actions';
+
+describe('外部の AI での読み取りの送信の種別', () => {
+  /**
+   * @requirement estimate-request/REQ-49.7 送信の記録を監査ログ画面で種別の名前で表示できる
+   */
+  it('送信の記録の種別と表示名を持つ', () => {
+    expect(CLAUDE_VISION_AUDIT_ACTIONS).toEqual(['CLAUDE_VISION_SENT']);
+    expect(CLAUDE_VISION_AUDIT_ACTION_LABELS.CLAUDE_VISION_SENT).toBe('外部AIでの読み取りの送信');
+  });
+
+  it('送信の記録の対象の欄は機能（対象の ID）を表示する', () => {
+    expect(
+      getAuditLogTargetLabel({
+        targetType: 'ClaudeVision',
+        targetId: 'received_quotation',
+        metadata: { feature: 'received_quotation', imageCount: 2, outcome: 'success' },
+      })
+    ).toBe('received_quotation');
+  });
+});
 
 describe('getAuditLogTargetLabel', () => {
   describe('招待の記録', () => {
