@@ -51,6 +51,10 @@ vi.mock('../../../domain/estimate/estimateCalculations', async (importOriginal) 
 import { apiClient } from '../../../api/client';
 import { getReceivedQuotationsByProject } from '../../../api/received-quotations';
 import { allocateNet } from '../../../domain/estimate/estimateCalculations';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../../test-support/received-quotation-fixtures';
 
 const mockApiPost = vi.mocked(apiClient.post);
 const mockGetQuotations = vi.mocked(getReceivedQuotationsByProject);
@@ -800,6 +804,7 @@ describe('NetAllocationDialog', () => {
       // 受領見積書のモックデータ
       mockGetQuotations.mockResolvedValue([
         {
+          ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
           id: 'rq-1',
           estimateRequestId: 'er-1',
           name: '業者A見積',
@@ -811,6 +816,7 @@ describe('NetAllocationDialog', () => {
           netAmount: 100000,
           lineItems: [
             {
+              ...LINE_ITEM_LEDGER_DEFAULTS,
               id: 'li-1',
               receivedQuotationId: 'rq-1',
               sortOrder: 0,
@@ -825,6 +831,7 @@ describe('NetAllocationDialog', () => {
               remarks: null,
             },
             {
+              ...LINE_ITEM_LEDGER_DEFAULTS,
               id: 'li-2',
               receivedQuotationId: 'rq-1',
               sortOrder: 1,
@@ -875,6 +882,7 @@ describe('NetAllocationDialog', () => {
 
       mockGetQuotations.mockResolvedValue([
         {
+          ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
           id: 'rq-1',
           estimateRequestId: 'er-1',
           name: '業者A見積',
@@ -886,6 +894,7 @@ describe('NetAllocationDialog', () => {
           netAmount: 70000,
           lineItems: [
             {
+              ...LINE_ITEM_LEDGER_DEFAULTS,
               id: 'li-1',
               receivedQuotationId: 'rq-1',
               sortOrder: 0,
@@ -932,6 +941,7 @@ describe('NetAllocationDialog', () => {
 
       mockGetQuotations.mockResolvedValue([
         {
+          ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
           id: 'rq-1',
           estimateRequestId: 'er-1',
           name: '業者A見積',
@@ -943,6 +953,7 @@ describe('NetAllocationDialog', () => {
           netAmount: 70000,
           lineItems: [
             {
+              ...LINE_ITEM_LEDGER_DEFAULTS,
               id: 'li-1',
               receivedQuotationId: 'rq-1',
               sortOrder: 0,
@@ -996,6 +1007,7 @@ describe('NetAllocationDialog', () => {
 
       mockGetQuotations.mockResolvedValue([
         {
+          ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
           id: 'rq-1',
           estimateRequestId: 'er-1',
           name: '業者A見積',
@@ -1027,6 +1039,7 @@ describe('NetAllocationDialog', () => {
 
       mockGetQuotations.mockResolvedValue([
         {
+          ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
           id: 'rq-1',
           estimateRequestId: 'er-1',
           name: '業者A見積',
@@ -1090,6 +1103,7 @@ describe('NetAllocationDialog', () => {
       // 取得が解決する
       resolveQuotations([
         {
+          ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
           id: 'rq-1',
           estimateRequestId: 'er-1',
           name: '業者A見積',
@@ -1136,6 +1150,7 @@ describe('NetAllocationDialog', () => {
 
       resolveQuotations([
         {
+          ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
           id: 'rq-1',
           estimateRequestId: 'er-1',
           name: '業者A見積',
@@ -1171,6 +1186,7 @@ describe('NetAllocationDialog', () => {
 
       mockGetQuotations.mockResolvedValue([
         {
+          ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
           id: 'rq-1',
           estimateRequestId: 'er-1',
           name: '業者A見積',
@@ -1206,6 +1222,7 @@ describe('NetAllocationDialog', () => {
 
       mockGetQuotations.mockResolvedValue([
         {
+          ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
           id: 'rq-1',
           estimateRequestId: 'er-1',
           name: '業者A見積',

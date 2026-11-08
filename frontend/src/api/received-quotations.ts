@@ -13,6 +13,10 @@
  * - 11.16: 受領見積書削除
  * - 11.22: 受領見積書バリデーション（ファイルまたは明細行必須）
  * - 14.2: 明細行データの永続化
+ *
+ * タスク117.1（estimate-request の design.md の章「Requirements 43-50」の D2・D3・D6）:
+ * 台帳の項目・明細行の新しい欄・業者名・`sharedOriginalCount` の型、案件の配下の登録と全件の一覧、
+ * 同じ原本の二重登録の 409（`DUPLICATE_ORIGINAL`）を楽観的排他の 409 と分けて返す誤りを足した。
  */
 
 import { apiClient, ApiError } from './client';
@@ -20,6 +24,30 @@ import { apiClient, ApiError } from './client';
 // ============================================================================
 // 型定義
 // ============================================================================
+
+/**
+ * 明細行の区分（45.1）。表示は直接工事・諸経費・交通費・産廃・値引き・法定福利費・別途の順
+ */
+export const LINE_ITEM_CATEGORIES = [
+  'DIRECT',
+  'OVERHEAD',
+  'TRAVEL',
+  'WASTE',
+  'DISCOUNT',
+  'LEGAL_WELFARE',
+  'EXCLUDED',
+] as const;
+
+/** 明細行の区分（45.1） */
+export type LineItemCategory = (typeof LINE_ITEM_CATEGORIES)[number];
+
+/** 明細行の換算（45.8） */
+export interface LineItemConversion {
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  basis: string;
+}
 
 /**
  * 明細行情報（レスポンス型）
@@ -40,6 +68,19 @@ export interface LineItemInfo {
   unitPrice: number | null;
   amount: number | null;
   remarks: string | null;
+  /** 区分（45.1） */
+  category: LineItemCategory;
+  /** 条件（45.7） */
+  condition: string | null;
+  /** 換算（45.8）。4 つの欄が揃うときだけ値を持つ */
+  conversion: LineItemConversion | null;
+  /** 分類キー（47.1） */
+  classificationKey: string | null;
+  /** 数量表の行のキー（47.4） */
+  quantityRowKey: string | null;
+  /** 参考の印と理由（46.4） */
+  isReference: boolean;
+  referenceReason: string | null;
 }
 
 /**
@@ -59,6 +100,51 @@ export interface LineItemInput {
   amount?: number;
   remarks?: string;
   sortOrder: number;
+  /** 区分（45.1）。省略時はサーバーが直接工事として保存する（45.3） */
+  category?: LineItemCategory;
+  condition?: string | null;
+  /** 換算（45.8）。4 つの欄はすべてあるか、すべて無い（45.9） */
+  conversion?: LineItemConversion | null;
+  classificationKey?: string | null;
+  quantityRowKey?: string | null;
+  isReference?: boolean;
+  /** 参考の理由（46.4）。参考の印が無い行には送らない（46.5） */
+  referenceReason?: string | null;
+}
+
+/** 改修／新営の区分（46.2） */
+export type ConstructionKind = 'RENOVATION' | 'NEW_CONSTRUCTION';
+
+/** 採否（46.3） */
+export type QuotationAdoption = 'ADOPTED' | 'REJECTED' | 'UNKNOWN';
+
+/** 読取の確認の状態（46.6） */
+export type ReadingStatus = 'UNCONFIRMED' | 'CONFIRMED';
+
+/**
+ * 受領見積書の台帳の項目と業者名の入力（design の同章の Service Interface の `LedgerFieldsInput`）
+ *
+ * どれも任意。欄を省くと登録では既定、更新では変えない。null は消す（FormData では空の文字で送る）。
+ * 採否・読取の確認・見積の区別は null を持たない（112.2 の申し送り: 採否と読取の確認に空の文字を送らない）。
+ */
+export interface ReceivedQuotationLedgerInput {
+  /** 業者名（44.1）。案件の配下では必須（43.8）、見積依頼の配下ではサーバーが無視する（44.3） */
+  vendorName?: string;
+  /** 選んだ取引先の ID（44.5）。null・省略は業者名で照合する（44.6・44.7） */
+  tradingPartnerId?: string | null;
+  quoteNumber?: string | null;
+  overallConditions?: string | null;
+  siteLocation?: string | null;
+  constructionKind?: ConstructionKind | null;
+  useType?: string | null;
+  constructionPrice?: number | null;
+  workConditions?: string | null;
+  distanceKm?: number | null;
+  adoption?: QuotationAdoption;
+  confirmedAmount?: number | null;
+  readingStatus?: ReadingStatus;
+  /** 見積の区別（48.2）。空の文字は区別なし */
+  quoteDiscriminator?: string;
 }
 
 /**
@@ -69,19 +155,51 @@ export interface LineItemInput {
  */
 export interface ReceivedQuotationInfo {
   id: string;
-  estimateRequestId: string;
+  /** 見積依頼の ID。見積依頼に紐づかない受領見積書（43.7）は null */
+  estimateRequestId: string | null;
   name: string;
   submittedAt: Date;
   fileName: string | null;
   fileMimeType: string | null;
   fileSize: number | null;
   lineItems: LineItemInfo[];
+  /** 区分が別途の行を除いた金額の合計（45.5） */
   totalAmount: number | null;
   netAmount: number | null;
   createdAt: Date;
   updatedAt: Date;
-  /** 協力業者名（プロジェクト単位取得時のみ） */
+  /** 業者名と取引先（44.1〜44.7） */
+  vendorName: string;
+  tradingPartnerId: string | null;
+  /** 台帳の項目（46.1〜46.3・46.6・46.7・48.2） */
+  quoteNumber: string | null;
+  overallConditions: string | null;
+  siteLocation: string | null;
+  constructionKind: ConstructionKind | null;
+  useType: string | null;
+  constructionPrice: number | null;
+  workConditions: string | null;
+  distanceKm: number | null;
+  adoption: QuotationAdoption;
+  confirmedAmount: number | null;
+  readingStatus: ReadingStatus;
+  readingConfirmedById: string | null;
+  readingConfirmedAt: Date | null;
+  quoteDiscriminator: string;
+  /** 協力業者名（プロジェクト単位取得時のみ。サーバーは業者名の値を入れる。D2） */
   tradingPartnerName?: string | null;
+}
+
+/**
+ * 登録・更新の結果（D6）。受領見積書の各欄に、同じ原本で見積の区別が違う他の受領見積書の数を足した形（48.4）
+ */
+export interface ReceivedQuotationSaveResult extends ReceivedQuotationInfo {
+  sharedOriginalCount: number;
+}
+
+/** 案件の配下の一覧の指定（D2）。`all` で見積依頼に紐づかないものも含めた全件 */
+export interface ProjectQuotationsQuery {
+  include?: 'all';
 }
 
 /**
@@ -90,7 +208,7 @@ export interface ReceivedQuotationInfo {
  * Requirements: 11.9, 11.22
  * Task 61.3: netAmountを受領見積書レベルに追加（Requirements: 28.7, 28.10）
  */
-export interface CreateReceivedQuotationInput {
+export interface CreateReceivedQuotationInput extends ReceivedQuotationLedgerInput {
   name: string;
   submittedAt: Date;
   file?: File;
@@ -104,7 +222,7 @@ export interface CreateReceivedQuotationInput {
  * Requirements: 11.9, 11.22
  * Task 61.3: netAmountを受領見積書レベルに追加（Requirements: 28.7, 28.10）
  */
-export interface UpdateReceivedQuotationInput {
+export interface UpdateReceivedQuotationInput extends ReceivedQuotationLedgerInput {
   name?: string;
   submittedAt?: Date;
   file?: File;
@@ -114,8 +232,142 @@ export interface UpdateReceivedQuotationInput {
 }
 
 // ============================================================================
+// エラー
+// ============================================================================
+
+/** 同じ原本の二重登録の 409 の `code`（D6） */
+export const DUPLICATE_ORIGINAL_CODE = 'DUPLICATE_ORIGINAL';
+
+/** 受領見積書の楽観的排他の 409 の `code` */
+export const RECEIVED_QUOTATION_CONFLICT_CODE = 'RECEIVED_QUOTATION_CONFLICT';
+
+/** 二重登録の 409 が示す既存の受領見積書（48.3。受領見積書名・業者名・提出日） */
+export interface DuplicateOriginalExisting {
+  name: string;
+  vendorName: string;
+  submittedAt: Date;
+}
+
+/**
+ * 同じ案件に、原本の指紋と見積の区別がともに同じ受領見積書が既にある（409 `DUPLICATE_ORIGINAL`。48.3）
+ *
+ * `ApiError`（statusCode 409）を継ぐため、409 を楽観的排他として扱う既存の処理はそのまま動く。
+ * 画面は `isDuplicateOriginalError` で楽観的排他の 409 と分ける。`existing` は本文の最上位の
+ * `existing` を読み、形が壊れていれば null とする。
+ */
+export class DuplicateOriginalError extends ApiError {
+  readonly code = DUPLICATE_ORIGINAL_CODE;
+  readonly existing: DuplicateOriginalExisting | null;
+
+  constructor(message: string, existing: DuplicateOriginalExisting | null, response?: unknown) {
+    super(409, message, response);
+    this.name = 'DuplicateOriginalError';
+    this.existing = existing;
+  }
+}
+
+/** 同じ原本の二重登録の 409 か */
+export function isDuplicateOriginalError(error: unknown): error is DuplicateOriginalError {
+  return error instanceof DuplicateOriginalError;
+}
+
+/** 受領見積書の楽観的排他の 409（他の人の更新との競合）か。二重登録の 409 は含めない */
+export function isReceivedQuotationConflictError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.statusCode === 409 && !isDuplicateOriginalError(error);
+}
+
+// ============================================================================
 // 内部ヘルパー関数
 // ============================================================================
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 二重登録の本文の `existing` を読む（形が違えば null） */
+function parseDuplicateExisting(value: unknown): DuplicateOriginalExisting | null {
+  if (!isRecord(value)) return null;
+  const { name, vendorName, submittedAt } = value;
+  if (typeof name !== 'string' || typeof vendorName !== 'string') return null;
+  if (typeof submittedAt !== 'string') return null;
+  const date = new Date(submittedAt);
+  if (Number.isNaN(date.getTime())) return null;
+  return { name, vendorName, submittedAt: date };
+}
+
+/** 応答の受領見積書の日時の欄を Date にする */
+function toQuotationDates<T extends ReceivedQuotationInfo>(q: T): T {
+  return {
+    ...q,
+    submittedAt: new Date(q.submittedAt),
+    createdAt: new Date(q.createdAt),
+    updatedAt: new Date(q.updatedAt),
+    // 無い・null はそのまま、日時の文字は Date にする
+    readingConfirmedAt:
+      q.readingConfirmedAt == null ? q.readingConfirmedAt : new Date(q.readingConfirmedAt),
+  };
+}
+
+/** FormData の欄の値（null は空の文字。サーバーは空の文字を null として読む） */
+function formValue(value: string | number | null): string {
+  return value === null ? '' : String(value);
+}
+
+/**
+ * 台帳の項目と業者名を FormData に足す（送られた欄だけ。undefined は欄を作らない）
+ *
+ * 採否・読取の確認・見積の区別は型で null を持たず、空の文字を送らない（112.2 の申し送り）
+ */
+function appendLedgerFields(formData: FormData, input: ReceivedQuotationLedgerInput): void {
+  const fields: ReadonlyArray<
+    [keyof ReceivedQuotationLedgerInput, string | number | null | undefined]
+  > = [
+    ['vendorName', input.vendorName],
+    ['tradingPartnerId', input.tradingPartnerId],
+    ['quoteNumber', input.quoteNumber],
+    ['overallConditions', input.overallConditions],
+    ['siteLocation', input.siteLocation],
+    ['constructionKind', input.constructionKind],
+    ['useType', input.useType],
+    ['constructionPrice', input.constructionPrice],
+    ['workConditions', input.workConditions],
+    ['distanceKm', input.distanceKm],
+    ['adoption', input.adoption],
+    ['confirmedAmount', input.confirmedAmount],
+    ['readingStatus', input.readingStatus],
+    ['quoteDiscriminator', input.quoteDiscriminator],
+  ];
+  for (const [key, value] of fields) {
+    if (value !== undefined) {
+      formData.append(key, formValue(value));
+    }
+  }
+}
+
+/** 登録の FormData を作る（見積依頼の配下・案件の配下で共通） */
+function buildCreateFormData(input: CreateReceivedQuotationInput): FormData {
+  const formData = new FormData();
+  formData.append('name', input.name);
+  formData.append('submittedAt', input.submittedAt.toISOString());
+
+  // ファイルアップロード
+  if (input.file) {
+    formData.append('file', input.file);
+  }
+
+  // 明細行データをJSON文字列としてFormDataに追加（Requirements: 11.22）
+  if (input.lineItems && input.lineItems.length > 0) {
+    formData.append('lineItems', JSON.stringify(input.lineItems));
+  }
+
+  // NET金額（Task 61.3: 受領見積書レベルで管理）
+  if (input.netAmount !== undefined && input.netAmount !== null) {
+    formData.append('netAmount', String(input.netAmount));
+  }
+
+  appendLedgerFields(formData, input);
+  return formData;
+}
 
 /**
  * ベースURLを取得
@@ -186,6 +438,10 @@ async function sendFormData<T>(
               ? data.error
               : null
           : null) || response.statusText;
+      // 同じ原本の二重登録の 409 は楽観的排他の 409 と分けて返す（D6・48.3）
+      if (response.status === 409 && isRecord(data) && data.code === DUPLICATE_ORIGINAL_CODE) {
+        throw new DuplicateOriginalError(errorMessage, parseDuplicateExisting(data.existing), data);
+      }
       throw new ApiError(response.status, errorMessage, data);
     }
 
@@ -219,12 +475,7 @@ export async function getReceivedQuotations(
   const response = await apiClient.get<ReceivedQuotationInfo[]>(
     `/api/estimate-requests/${estimateRequestId}/quotations`
   );
-  return response.map((q) => ({
-    ...q,
-    submittedAt: new Date(q.submittedAt),
-    createdAt: new Date(q.createdAt),
-    updatedAt: new Date(q.updatedAt),
-  }));
+  return response.map(toQuotationDates);
 }
 
 /**
@@ -237,12 +488,7 @@ export async function getReceivedQuotations(
  */
 export async function getReceivedQuotation(id: string): Promise<ReceivedQuotationInfo> {
   const response = await apiClient.get<ReceivedQuotationInfo>(`/api/quotations/${id}`);
-  return {
-    ...response,
-    submittedAt: new Date(response.submittedAt),
-    createdAt: new Date(response.createdAt),
-    updatedAt: new Date(response.updatedAt),
-  };
+  return toQuotationDates(response);
 }
 
 /**
@@ -253,47 +499,49 @@ export async function getReceivedQuotation(id: string): Promise<ReceivedQuotatio
  *
  * @param estimateRequestId - 見積依頼ID
  * @param input - 受領見積書作成入力
- * @returns 作成された受領見積書
+ * @returns 作成された受領見積書と、同じ原本で見積の区別が違う他の受領見積書の数（48.4）
  *
+ * @throws DuplicateOriginalError 同じ原本・同じ見積の区別の受領見積書が既にある（409 `DUPLICATE_ORIGINAL`。48.3）
  * @throws ApiError 見積依頼が見つからない（404）、バリデーションエラー（400）、
  *                  ファイルサイズ上限超過（413）、ファイル形式エラー（415）
  */
 export async function createReceivedQuotation(
   estimateRequestId: string,
   input: CreateReceivedQuotationInput
-): Promise<ReceivedQuotationInfo> {
-  const formData = new FormData();
-  formData.append('name', input.name);
-  formData.append('submittedAt', input.submittedAt.toISOString());
-
-  // ファイルアップロード
-  if (input.file) {
-    formData.append('file', input.file);
-  }
-
-  // 明細行データをJSON文字列としてFormDataに追加（Requirements: 11.22）
-  if (input.lineItems && input.lineItems.length > 0) {
-    formData.append('lineItems', JSON.stringify(input.lineItems));
-  }
-
-  // NET金額（Task 61.3: 受領見積書レベルで管理）
-  if (input.netAmount !== undefined && input.netAmount !== null) {
-    formData.append('netAmount', String(input.netAmount));
-  }
-
+): Promise<ReceivedQuotationSaveResult> {
   // 直接fetchを使用してFormDataを送信
-  const response = await sendFormData<ReceivedQuotationInfo>(
+  const response = await sendFormData<ReceivedQuotationSaveResult>(
     `/api/estimate-requests/${estimateRequestId}/quotations`,
     'POST',
-    formData
+    buildCreateFormData(input)
   );
+  return toQuotationDates(response);
+}
 
-  return {
-    ...response,
-    submittedAt: new Date(response.submittedAt),
-    createdAt: new Date(response.createdAt),
-    updatedAt: new Date(response.updatedAt),
-  };
+/**
+ * 見積依頼に紐づかない受領見積書を案件の配下に登録する（43.7。design の D3）
+ *
+ * `POST /api/projects/:projectId/quotations` へ見積依頼の配下の登録と同じ multipart の形で送る。
+ * 業者名（`vendorName`）は案件の配下では必須（43.8。サーバーが 400 で拒む）。
+ *
+ * @param projectId - 案件（プロジェクト）の ID
+ * @param input - 受領見積書作成入力（業者名・取引先の ID・台帳の項目を含む）
+ * @returns 作成された受領見積書と、同じ原本で見積の区別が違う他の受領見積書の数（48.4）
+ *
+ * @throws DuplicateOriginalError 同じ原本・同じ見積の区別の受領見積書が既にある（409 `DUPLICATE_ORIGINAL`。48.3）
+ * @throws ApiError 案件が見つからない・範囲外（404）、バリデーションエラー（400）、権限なし（403）、
+ *                  ファイルサイズ上限超過（413）、ファイル形式エラー（415）
+ */
+export async function createProjectReceivedQuotation(
+  projectId: string,
+  input: CreateReceivedQuotationInput
+): Promise<ReceivedQuotationSaveResult> {
+  const response = await sendFormData<ReceivedQuotationSaveResult>(
+    `/api/projects/${projectId}/quotations`,
+    'POST',
+    buildCreateFormData(input)
+  );
+  return toQuotationDates(response);
 }
 
 /**
@@ -306,16 +554,17 @@ export async function createReceivedQuotation(
  * @param id - 受領見積書ID
  * @param input - 受領見積書更新入力
  * @param updatedAt - 楽観的排他制御用の更新日時（ISO8601形式）
- * @returns 更新された受領見積書
+ * @returns 更新された受領見積書と、同じ原本で見積の区別が違う他の受領見積書の数（48.4）
  *
- * @throws ApiError 受領見積書が見つからない（404）、競合（409）、
+ * @throws DuplicateOriginalError 同じ原本・同じ見積の区別の受領見積書が既にある（409 `DUPLICATE_ORIGINAL`。48.3）
+ * @throws ApiError 受領見積書が見つからない（404）、競合（409 `RECEIVED_QUOTATION_CONFLICT`）、
  *                  ファイルサイズ上限超過（413）、ファイル形式エラー（415）
  */
 export async function updateReceivedQuotation(
   id: string,
   input: UpdateReceivedQuotationInput,
   updatedAt: string
-): Promise<ReceivedQuotationInfo> {
+): Promise<ReceivedQuotationSaveResult> {
   const formData = new FormData();
   // バックエンドはexpectedUpdatedAtを期待する
   formData.append('expectedUpdatedAt', updatedAt);
@@ -347,19 +596,16 @@ export async function updateReceivedQuotation(
     formData.append('netAmount', input.netAmount === null ? 'null' : String(input.netAmount));
   }
 
+  // 台帳の項目・業者名・取引先の ID（送られた欄だけ）
+  appendLedgerFields(formData, input);
+
   // 直接fetchを使用してFormDataを送信
-  const response = await sendFormData<ReceivedQuotationInfo>(
+  const response = await sendFormData<ReceivedQuotationSaveResult>(
     `/api/quotations/${id}`,
     'PUT',
     formData
   );
-
-  return {
-    ...response,
-    submittedAt: new Date(response.submittedAt),
-    createdAt: new Date(response.createdAt),
-    updatedAt: new Date(response.updatedAt),
-  };
+  return toQuotationDates(response);
 }
 
 /**
@@ -397,23 +643,23 @@ export async function getPreviewUrl(id: string): Promise<string> {
  * プロジェクトに紐付く受領見積書一覧を取得する
  *
  * 見積書作成時の転記機能で使用。
- * 見積依頼経由で登録された受領見積書のみを取得。
+ * 既定（`options` 無し）は見積依頼経由で登録された受領見積書のみを取得する（従来のまま）。
+ * `{ include: 'all' }` を渡すと、見積依頼に紐づかない受領見積書も含めた全件を取得する
+ * （案件の受領見積書の一覧。estimate-request の design の D2）。
  *
  * Requirements: REQ-4.5
  *
  * @param projectId - プロジェクトID
+ * @param options - 一覧の対象の指定
  * @returns 受領見積書一覧
  */
 export async function getReceivedQuotationsByProject(
-  projectId: string
+  projectId: string,
+  options: ProjectQuotationsQuery = {}
 ): Promise<ReceivedQuotationInfo[]> {
+  const query = options.include === 'all' ? '?include=all' : '';
   const response = await apiClient.get<ReceivedQuotationInfo[]>(
-    `/api/projects/${projectId}/quotations`
+    `/api/projects/${projectId}/quotations${query}`
   );
-  return response.map((q) => ({
-    ...q,
-    submittedAt: new Date(q.submittedAt),
-    createdAt: new Date(q.createdAt),
-    updatedAt: new Date(q.updatedAt),
-  }));
+  return response.map(toQuotationDates);
 }

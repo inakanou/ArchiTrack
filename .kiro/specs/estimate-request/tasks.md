@@ -2174,6 +2174,7 @@
 - **【2026-11-08・タスク115.1】** 統合テストは共有の DB を他の試験・E2E と同時に使うため、DB 全体の件数を主張しない。自分の案件の行に `where` を絞る（例: 埋め戻しの試験の `scopedReceivedQuotation()`）
 - **【2026-11-08・タスク116.1】** 外部の AI での読み取りの設定は、行が無ければ有効、行があって値が壊れていれば停止として読む（止める側に倒す）。版は行なし 0・作成 1・変更ごとに +1。競合は 409 `SYSTEM_SETTING_CONFLICT`（`details: {expectedVersion, actualVersion}`）。119.2 の画面はこの形を読む。設定の行は全体で 1 行を共有するため、試験で変えたら必ず元へ戻す（120.2 の E2E は直列で流して afterEach で戻す）
 - **【2026-11-08・タスク116.2】** Vision の経路の誤りの判別: 管理者の停止は 503 で `errorType: 'service_unavailable'`（既存の端末の OCR への切り替えを保つ）と `code: 'CLAUDE_VISION_DISABLED_BY_ADMIN'`、利用者の上限は 429 `code: 'CLAUDE_VISION_USER_RATE_LIMITED'`（外部のサービスの 429 は `errorType: 'rate_limit'`）、記録の失敗は 500 `CLAUDE_VISION_AUDIT_FAILED`。117.1・119.1 は `code` で分ける。回数制限は NODE_ENV=test では外れるため、画面の上限の文言は E2E では 429 の模擬で確かめる。既存の試験に `@requirement` の印を足すと、機能名を欠く見出しが解決側へ移り site-survey の錨（解決の数）が動く——帰属つきで貼り直す
+- **【2026-11-08・タスク117.1】** 画面への申し送り（117.4・119）: 重複の 409 は `isDuplicateOriginalError`、楽観的排他の 409 は `isReceivedQuotationConflictError` で分ける（`DuplicateOriginalError` も `ApiError(409)` を継ぐため、今の「409 なら楽観的排他」の扱いのままだと重複でも楽観的排他の文言が出る）。見積依頼の文脈では業者名を送らない（サーバーは空の文字を 400 にする）。Vision の誤りは `ClaudeVisionApiError` の `isDisabledByAdmin`・`isUserRateLimited` で分ける。試験の固定値は `frontend/src/test-support/received-quotation-fixtures.ts` の既定値を広げて使う。新設した部品の実装の記録（決めた名前・数値）を design.md の同章へ記す
 
 ## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
 
@@ -2631,7 +2632,7 @@
 
 **経緯**: タスク112 の経緯と同じ。design.md の同章の D4・D5・D6・D9・D11 の画面を実装する
 
-- [ ] 117.1 受領見積書・外部の AI での読み取り・システムの設定の API クライアントの型と関数を足す
+- [x] 117.1 受領見積書・外部の AI での読み取り・システムの設定の API クライアントの型と関数を足す
   - `frontend/src/api/received-quotations.ts` の型に台帳の項目・明細行の新しい欄・業者名・`sharedOriginalCount` を足し、案件の配下の登録と全件の一覧の関数を足す。409 `DUPLICATE_ORIGINAL` を既存の楽観的排他の 409 と分けて返す
   - `frontend/src/api/claude-vision.ts` に状態の取得を足し、利用者の上限の 429（`CLAUDE_VISION_USER_RATE_LIMITED`）を外部のサービスの 429 と分けて判別できるようにする。`frontend/src/api/system-settings.ts` を新設する
   - API の単体に、送る本文・受ける型・409 と 429 の判別を足す
@@ -2737,7 +2738,7 @@
 - [ ] 120.3 除外の登録と spec の関門を通す
   - E2E で観測できない 44.9・45.13（migration の埋め戻し。代替はタスク112.1 の単体と統合）、48.8（埋め戻しのスクリプト。代替はタスク115.1 の統合）、49.7（送信の記録。代替はタスク116.2 の統合）、50.1（URL の秒数。代替はタスク113.5 の単体）を `e2e/requirement-exclusions.json` に代替の検証つきで登録し、件数の宣言を実数に合わせる
   - 受入基準の逐語が実装に入っていることを `check:criterion-literals` で確かめ、43.15 のパンくずの書式を 29.1 と同じく書式の記述として `scripts/criterion-literal-adjudication.json` に登録し、件数の宣言を合わせる
-  - `check:req-coverage`・`check:req-exclusions`・`check:trace-coverage`・`check:criterion-literals`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness` を名指しで 1 本ずつ流す。鮮度の宣言（除外の件数、機能名を欠く見出しの解決の数）が動けば、帰属つきで貼り直す。新設した部品の実装の記録（決めた名前・数値）を design.md の同章へ記す
+  - `check:req-coverage`・`check:req-exclusions`・`check:trace-coverage`・`check:criterion-literals`・`check:design-component-reqs`・`check:design-path-refs`・`check:design-measurement-freshness` を名指しで 1 本ずつ流す。鮮度の宣言（除外の件数、機能名を欠く見出しの解決の数）が動けば、帰属つきで貼り直す
   - estimate-request の要件 43〜50 が被覆か除外として数えられ、上の関門がすべて緑になる状態になる
   - _Requirements: 44.9, 45.13, 48.8, 49.7, 50.1_
   - _Depends: 120.1, 120.2, 115.1, 113.5_

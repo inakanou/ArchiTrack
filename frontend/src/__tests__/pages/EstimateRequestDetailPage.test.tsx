@@ -24,6 +24,10 @@ import * as estimateRequestApi from '../../api/estimate-requests';
 import * as receivedQuotationApi from '../../api/received-quotations';
 import * as estimateRequestStatusApi from '../../api/estimate-request-status';
 import { ApiError, apiClient } from '../../api/client';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../test-support/received-quotation-fixtures';
 
 // APIモック
 vi.mock('../../api/estimate-requests');
@@ -70,6 +74,7 @@ const mockEstimateRequest = {
 
 const mockReceivedQuotations = [
   {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'rq-1',
     estimateRequestId: 'er-1',
     name: 'テスト受領見積書1',
@@ -79,6 +84,7 @@ const mockReceivedQuotations = [
     fileSize: null,
     lineItems: [
       {
+        ...LINE_ITEM_LEDGER_DEFAULTS,
         id: 'li-1',
         receivedQuotationId: 'rq-1',
         customCategory: null,
@@ -102,6 +108,7 @@ const mockReceivedQuotations = [
     updatedAt: new Date('2025-01-05T10:00:00.000Z'),
   },
   {
+    ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
     id: 'rq-2',
     estimateRequestId: 'er-1',
     name: 'テスト受領見積書2',
@@ -1240,6 +1247,7 @@ describe('EstimateRequestDetailPage', () => {
     it('受領見積書を新規作成できる', async () => {
       const user = userEvent.setup();
       const mockCreate = vi.fn().mockResolvedValue({
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         id: 'rq-new',
         estimateRequestId: 'er-1',
         name: '新規見積書',

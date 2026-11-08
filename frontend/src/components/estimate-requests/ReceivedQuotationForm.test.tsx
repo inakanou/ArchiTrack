@@ -43,6 +43,11 @@ vi.mock('../../hooks/useAuth', () => ({
 import { ReceivedQuotationForm } from './ReceivedQuotationForm';
 // Task 81.3: 401/409 系のリトライ・楽観的競合フローテストで ApiError をスローするため import
 import { ApiError } from '../../api/client';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../test-support/received-quotation-fixtures';
+import type { LineItemInfo } from '../../api/received-quotations';
 
 // FileInlinePreviewとOcrDataExtractorをモック
 vi.mock('./FileInlinePreview', () => ({
@@ -604,6 +609,7 @@ describe('ReceivedQuotationForm', () => {
   describe('編集モード (11.25)', () => {
     it('編集モードで初期データが表示される', () => {
       const initialData = {
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         id: 'rq-123',
         estimateRequestId,
         name: 'テスト見積書',
@@ -613,6 +619,7 @@ describe('ReceivedQuotationForm', () => {
         fileSize: 1024,
         lineItems: [
           {
+            ...LINE_ITEM_LEDGER_DEFAULTS,
             id: 'li-1',
             receivedQuotationId: 'rq-123',
             sortOrder: 0,
@@ -758,6 +765,7 @@ describe('ReceivedQuotationForm', () => {
           mode="edit"
           estimateRequestId={estimateRequestId}
           initialData={{
+            ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
             id: 'rq-123',
             estimateRequestId,
             name: 'テスト見積書',
@@ -767,6 +775,7 @@ describe('ReceivedQuotationForm', () => {
             fileSize: null,
             lineItems: [
               {
+                ...LINE_ITEM_LEDGER_DEFAULTS,
                 id: 'li-1',
                 receivedQuotationId: 'rq-123',
                 sortOrder: 0,
@@ -955,6 +964,7 @@ describe('ReceivedQuotationForm', () => {
     it('既存明細行がある場合、確認ダイアログを表示する (Requirements: 15.5)', async () => {
       /* test code below */
       const initialDataWithLineItems = {
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         id: 'rq-existing',
         estimateRequestId,
         name: '既存見積書',
@@ -964,6 +974,7 @@ describe('ReceivedQuotationForm', () => {
         fileSize: null,
         lineItems: [
           {
+            ...LINE_ITEM_LEDGER_DEFAULTS,
             id: 'li-existing',
             receivedQuotationId: 'rq-existing',
             sortOrder: 0,
@@ -1203,6 +1214,7 @@ describe('ReceivedQuotationForm', () => {
   describe('NET金額編集画面表示 (Task 63.3)', () => {
     it('編集画面で既存netAmountデータがフォーマットされて表示される', () => {
       const initialData = {
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         id: 'rq-net-test',
         estimateRequestId,
         name: 'NETテスト見積書',
@@ -1212,6 +1224,7 @@ describe('ReceivedQuotationForm', () => {
         fileSize: null,
         lineItems: [
           {
+            ...LINE_ITEM_LEDGER_DEFAULTS,
             id: 'li-net-1',
             receivedQuotationId: 'rq-net-test',
             sortOrder: 0,
@@ -1248,6 +1261,7 @@ describe('ReceivedQuotationForm', () => {
 
     it('編集画面で既存netAmountがnullの場合は空欄で表示される', () => {
       const initialData = {
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         id: 'rq-net-null',
         estimateRequestId,
         name: 'NETなし見積書',
@@ -1257,6 +1271,7 @@ describe('ReceivedQuotationForm', () => {
         fileSize: null,
         lineItems: [
           {
+            ...LINE_ITEM_LEDGER_DEFAULTS,
             id: 'li-net-null',
             receivedQuotationId: 'rq-net-null',
             sortOrder: 0,
@@ -1304,6 +1319,7 @@ describe('ReceivedQuotationForm', () => {
   describe('編集画面の既存データ数値フォーマット (Task 42.7 / 43.5)', () => {
     it('編集画面で既存データの数量が小数2桁表示、単価が整数表示であること', () => {
       const initialDataWithDecimals = {
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         id: 'rq-format-test',
         estimateRequestId,
         name: 'フォーマットテスト見積書',
@@ -1313,6 +1329,7 @@ describe('ReceivedQuotationForm', () => {
         fileSize: null,
         lineItems: [
           {
+            ...LINE_ITEM_LEDGER_DEFAULTS,
             id: 'li-fmt-1',
             receivedQuotationId: 'rq-format-test',
             sortOrder: 0,
@@ -1328,6 +1345,7 @@ describe('ReceivedQuotationForm', () => {
             remarks: null,
           },
           {
+            ...LINE_ITEM_LEDGER_DEFAULTS,
             id: 'li-fmt-2',
             receivedQuotationId: 'rq-format-test',
             sortOrder: 1,
@@ -1372,6 +1390,7 @@ describe('ReceivedQuotationForm', () => {
 
     it('編集画面で既存データの金額が整数表示であること', () => {
       const initialDataWithDecimalAmount = {
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         id: 'rq-amount-test',
         estimateRequestId,
         name: '金額フォーマットテスト',
@@ -1381,6 +1400,7 @@ describe('ReceivedQuotationForm', () => {
         fileSize: null,
         lineItems: [
           {
+            ...LINE_ITEM_LEDGER_DEFAULTS,
             id: 'li-amt-1',
             receivedQuotationId: 'rq-amount-test',
             sortOrder: 0,
@@ -1441,6 +1461,7 @@ describe('ReceivedQuotationForm', () => {
 
   describe('編集画面OCR/プレビュー対応 (Task 39.2)', () => {
     const initialDataWithFile = {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-existing',
       estimateRequestId: 'er-123',
       name: 'テスト見積書',
@@ -1448,20 +1469,7 @@ describe('ReceivedQuotationForm', () => {
       fileName: 'existing.pdf',
       fileMimeType: 'application/pdf',
       fileSize: 1024,
-      lineItems: [] as {
-        id: string;
-        receivedQuotationId: string;
-        sortOrder: number;
-        customCategory: string | null;
-        workType: string | null;
-        name: string;
-        specification: string | null;
-        unit: string | null;
-        quantity: number | null;
-        unitPrice: number | null;
-        amount: number | null;
-        remarks: string | null;
-      }[],
+      lineItems: [] as LineItemInfo[],
       totalAmount: 0,
       netAmount: null as number | null,
       createdAt: new Date(),
@@ -1855,6 +1863,7 @@ describe('ReceivedQuotationForm', () => {
      * 編集モード用の初期データ（sortOrder 非連続）
      */
     const initialDataWithGappedSortOrders = {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-sort',
       estimateRequestId,
       name: 'ソート順テスト',
@@ -1864,6 +1873,7 @@ describe('ReceivedQuotationForm', () => {
       fileSize: null as number | null,
       lineItems: [
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-a',
           receivedQuotationId: 'rq-sort',
           sortOrder: 0,
@@ -1878,6 +1888,7 @@ describe('ReceivedQuotationForm', () => {
           remarks: null,
         },
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-b',
           receivedQuotationId: 'rq-sort',
           sortOrder: 5,
@@ -1892,6 +1903,7 @@ describe('ReceivedQuotationForm', () => {
           remarks: null,
         },
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-c',
           receivedQuotationId: 'rq-sort',
           sortOrder: 100,
@@ -2355,6 +2367,7 @@ describe('ReceivedQuotationForm', () => {
     /** 編集モードで既存ファイルがある状態を作るヘルパー */
     const renderEditModeWithExistingFile = () => {
       const initialDataWithFile = {
+        ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
         id: 'rq-existing',
         estimateRequestId: 'er-123',
         name: 'テスト見積書',
@@ -2362,20 +2375,7 @@ describe('ReceivedQuotationForm', () => {
         fileName: 'existing.pdf',
         fileMimeType: 'application/pdf',
         fileSize: 1024,
-        lineItems: [] as {
-          id: string;
-          receivedQuotationId: string;
-          sortOrder: number;
-          customCategory: string | null;
-          workType: string | null;
-          name: string;
-          specification: string | null;
-          unit: string | null;
-          quantity: number | null;
-          unitPrice: number | null;
-          amount: number | null;
-          remarks: string | null;
-        }[],
+        lineItems: [] as LineItemInfo[],
         totalAmount: 0,
         netAmount: null as number | null,
         createdAt: new Date(),

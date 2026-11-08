@@ -22,6 +22,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReceivedQuotationList } from './ReceivedQuotationList';
 import type { ReceivedQuotationInfo } from '../../api/received-quotations';
+import {
+  LINE_ITEM_LEDGER_DEFAULTS,
+  RECEIVED_QUOTATION_LEDGER_DEFAULTS,
+} from '../../test-support/received-quotation-fixtures';
 
 describe('ReceivedQuotationList', () => {
   const mockOnAddClick = vi.fn();
@@ -32,6 +36,7 @@ describe('ReceivedQuotationList', () => {
 
   const sampleQuotations: ReceivedQuotationInfo[] = [
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-1',
       estimateRequestId,
       name: '見積書A',
@@ -46,6 +51,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-16T10:00:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-2',
       estimateRequestId,
       name: '見積書B（PDF）',
@@ -60,6 +66,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-18T11:30:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-3',
       estimateRequestId,
       name: '見積書C（Excel）',
@@ -74,6 +81,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-20T09:00:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-4',
       estimateRequestId,
       name: '見積書D（画像）',
@@ -92,6 +100,7 @@ describe('ReceivedQuotationList', () => {
   // Task 26.2: 明細行データを含む受領見積書サンプル
   const quotationsWithLineItems: ReceivedQuotationInfo[] = [
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-10',
       estimateRequestId,
       name: '見積書（明細行あり）',
@@ -101,6 +110,7 @@ describe('ReceivedQuotationList', () => {
       fileSize: 1024 * 500,
       lineItems: [
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-1',
           receivedQuotationId: 'rq-10',
           sortOrder: 1,
@@ -116,6 +126,7 @@ describe('ReceivedQuotationList', () => {
           remarks: null,
         },
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-2',
           receivedQuotationId: 'rq-10',
           sortOrder: 2,
@@ -131,6 +142,7 @@ describe('ReceivedQuotationList', () => {
           remarks: null,
         },
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-3',
           receivedQuotationId: 'rq-10',
           sortOrder: 3,
@@ -152,6 +164,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-26T10:00:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-11',
       estimateRequestId,
       name: '見積書（明細行のみ）',
@@ -161,6 +174,7 @@ describe('ReceivedQuotationList', () => {
       fileSize: null,
       lineItems: [
         {
+          ...LINE_ITEM_LEDGER_DEFAULTS,
           id: 'li-4',
           receivedQuotationId: 'rq-11',
           sortOrder: 1,
@@ -182,6 +196,7 @@ describe('ReceivedQuotationList', () => {
       updatedAt: new Date('2025-01-28T10:00:00'),
     },
     {
+      ...RECEIVED_QUOTATION_LEDGER_DEFAULTS,
       id: 'rq-12',
       estimateRequestId,
       name: '見積書（ファイルのみ）',
