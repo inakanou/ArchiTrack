@@ -267,6 +267,7 @@ describe('Project Types', () => {
           },
           status: 'PREPARING',
           statusLabel: '準備中',
+          createdById: 'user-1',
           createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-02T00:00:00Z',
           siteAddress: '東京都千代田区丸の内1-1-1',
@@ -292,6 +293,7 @@ describe('Project Types', () => {
           },
           status: 'PREPARING',
           statusLabel: '準備中',
+          createdById: 'user-1',
           createdAt: '2025-01-01T00:00:00Z',
           updatedAt: '2025-01-02T00:00:00Z',
         };

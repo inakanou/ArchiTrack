@@ -43,8 +43,8 @@ export interface ProjectFormData {
   tradingPartnerId?: string;
   /** 営業担当者ID（UUID、必須） */
   salesPersonId: string;
-  /** 工事担当者ID（UUID、任意） */
-  constructionPersonId?: string;
+  /** 工事担当者ID（UUID、任意）。編集で空にしたときは紐づけを外す null */
+  constructionPersonId?: string | null;
   /** 現場住所（最大500文字、任意） */
   siteAddress?: string | null;
   /** 概要（最大5000文字、任意） */
@@ -369,7 +369,8 @@ function ProjectForm({
       name: name.trim(),
       tradingPartnerId: tradingPartnerId.trim() || undefined,
       salesPersonId,
-      constructionPersonId: constructionPersonId || undefined,
+      // 編集で空にしたら紐づけを外す null を送る。作成では送らない
+      constructionPersonId: constructionPersonId || (mode === 'edit' ? null : undefined),
       siteAddress: siteAddress.trim() || null,
       description: description.trim() || null,
     };

@@ -66,6 +66,7 @@ const mockProjectDetail = {
   salesPerson: { id: 'user-001', displayName: '営業太郎' },
   status: 'PREPARING' as const,
   statusLabel: '準備中',
+  createdById: 'user-1',
   createdAt: '2024-01-01T00:00:00.000Z',
   updatedAt: '2024-01-01T00:00:00.000Z',
 };

@@ -206,6 +206,7 @@ describe('projects API client', () => {
       description: 'テストプロジェクトの説明',
       status: 'PREPARING',
       statusLabel: '準備中',
+      createdById: 'user-1',
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-02T00:00:00.000Z',
     };
