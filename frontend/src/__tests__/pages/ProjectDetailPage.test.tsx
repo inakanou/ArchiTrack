@@ -232,16 +232,28 @@ describe('ProjectDetailPage', () => {
   // ==========================================================================
 
   describe('エラーハンドリング', () => {
-    it('404エラー時にエラーページへ遷移する', async () => {
+    // Task 78.1: 404 は汎用の画面へ移らず、編集画面と同じ不在の表示をその場に出す（44.2, 44.4, 21.13）
+    it('404エラー時にその場で不在の表示と一覧への戻るリンクを出し、内容は出さない', async () => {
       vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
         new ApiError(404, 'Not Found')
       );
 
       renderWithRouter();
 
-      await waitFor(() => {
-        expect(mockNavigate).toHaveBeenCalledWith('/404', { replace: true });
-      });
+      expect(
+        await screen.findByRole('heading', { name: 'プロジェクトが見つかりません' })
+      ).toBeInTheDocument();
+      const backLink = screen.getByRole('link', { name: 'プロジェクト一覧に戻る' });
+      expect(backLink).toHaveAttribute('href', '/projects');
+      // 汎用の 404 の画面へは移らない
+      expect(mockNavigate).not.toHaveBeenCalledWith('/404', expect.anything());
+      expect(mockNavigate).not.toHaveBeenCalledWith('/404');
+      // プロジェクトの名称その他の内容は出さない
+      expect(screen.queryByText('テストプロジェクト')).not.toBeInTheDocument();
+      expect(screen.queryByText('テスト顧客')).not.toBeInTheDocument();
+      expect(screen.queryByText('東京都渋谷区1-2-3')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
     });
 
     it('403エラー時に権限エラーページへ遷移する', async () => {

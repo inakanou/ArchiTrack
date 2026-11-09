@@ -71,7 +71,7 @@ import {
   ExecutionBudgetSectionCard,
   type ExecutionBudgetSectionInfo,
 } from '../components/projects/ExecutionBudgetSectionCard';
-import { Breadcrumb } from '../components/common';
+import { Breadcrumb, ResourceNotFound } from '../components/common';
 
 // ============================================================================
 // 定数定義
@@ -442,6 +442,9 @@ export default function ProjectDetailPage() {
   // エラー状態
   const [error, setError] = useState<string | null>(null);
 
+  // Task 78.1: 不在（404）の状態。編集画面と同じ表示をその場に出す（44.2, 44.4）
+  const [isNotFound, setIsNotFound] = useState(false);
+
   /**
    * プロジェクトデータを一括取得
    *
@@ -454,6 +457,7 @@ export default function ProjectDetailPage() {
 
     setIsLoading(true);
     setError(null);
+    setIsNotFound(false);
 
     try {
       const data = await getProjectDetailSummary(id);
@@ -486,7 +490,8 @@ export default function ProjectDetailPage() {
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 404) {
-          navigate('/404', { replace: true });
+          // 汎用の 404 の画面へは移らず、その場で不在を出す
+          setIsNotFound(true);
           return;
         }
         if (err.statusCode === 403) {
@@ -607,6 +612,19 @@ export default function ProjectDetailPage() {
     },
     [id, toast]
   );
+
+  // 存在しないプロジェクトの表示（編集画面と同じ）
+  if (isNotFound) {
+    return (
+      <main role="main" style={styles.container}>
+        <ResourceNotFound
+          resourceType="プロジェクト"
+          returnPath="/projects"
+          returnLabel="プロジェクト一覧に戻る"
+        />
+      </main>
+    );
+  }
 
   // ローディング表示
   if (isLoading) {
