@@ -35,6 +35,10 @@ import type { ProjectEstimateRequestSummary } from '../types/estimate-request.ty
 import type { EstimateSummary } from './estimates';
 import type { ContractType, ContractStatus } from './contracts';
 import type { ExecutionBudgetSectionInfo } from '../components/projects/ExecutionBudgetSectionCard';
+import type { RelatedCounts } from '../components/projects/DeleteConfirmationDialog';
+
+// 関連データの件数の型は削除確認ダイアログと共有する（Task 80.4）
+export type { RelatedCounts };
 
 // ============================================================================
 // 契約書セクションサマリー型（detail-summary API用）
@@ -404,6 +408,21 @@ export async function updateProject(
  */
 export async function deleteProject(id: string): Promise<void> {
   return withProjectNotFoundMessage(apiClient.delete<void>(`/api/projects/${id}`));
+}
+
+/**
+ * プロジェクトの関連データの種類ごとの件数を取得する（Task 80.4, Requirements 9.5）
+ *
+ * 削除の確認の前に呼ぶ。論理削除されていない関連データの件数を種類ごとに返す。
+ *
+ * @param id - プロジェクトID（UUID）
+ * @returns 関連データの種類ごとの件数
+ * @throws ApiError プロジェクトが見つからない・閲覧範囲の外（404）、認証エラー（401）、削除の権限が無い（403）
+ */
+export async function getProjectRelatedCounts(id: string): Promise<RelatedCounts> {
+  return withProjectNotFoundMessage(
+    apiClient.get<RelatedCounts>(`/api/projects/${id}/related-counts`)
+  );
 }
 
 /**

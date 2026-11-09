@@ -28,6 +28,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ToastProvider } from '../../components/ToastProvider';
+import { useToast } from '../../hooks/useToast';
 import ProjectDetailPage from '../../pages/ProjectDetailPage';
 import * as projectsApi from '../../api/projects';
 import type { ProjectDetailSummary } from '../../api/projects';
@@ -107,6 +108,20 @@ const defaultSections: ProjectDetailSummary['sections'] = {
   constructionPhotos: { totalCount: 0, latestAlbums: [] },
 };
 
+// Task 80.4: 関連データの件数（全種類 0 件）
+const zeroRelatedCounts: projectsApi.RelatedCounts = {
+  siteSurveys: 0,
+  quantityTables: 0,
+  itemizedStatements: 0,
+  estimateRequests: 0,
+  receivedQuotations: 0,
+  estimates: 0,
+  contracts: 0,
+  schedules: 0,
+  executionBudgets: 0,
+  constructionPhotos: 0,
+};
+
 /**
  * デフォルトのProjectDetailSummaryモックデータを生成するヘルパー
  * project / statusHistory / sectionsを部分的に上書き可能
@@ -129,12 +144,27 @@ function createMockSummary(
 }
 
 /**
+ * 出ているトーストの文言を表示する（Task 80.4: 通知の主張用）
+ */
+function ToastProbe() {
+  const { toasts } = useToast();
+  return (
+    <ul data-testid="toast-probe">
+      {toasts.map((t) => (
+        <li key={t.id}>{t.message}</li>
+      ))}
+    </ul>
+  );
+}
+
+/**
  * テストコンポーネントのラッパー
  */
-function renderWithRouter(projectId: string = 'project-1') {
+function renderWithRouter(projectId: string = 'project-1', options: { toastProbe?: boolean } = {}) {
   return render(
     <MemoryRouter initialEntries={[`/projects/${projectId}`]}>
       <ToastProvider>
+        {options.toastProbe && <ToastProbe />}
         <Routes>
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
           {/* 現場調査関連のルート（リンク遷移時の警告を防止） */}
@@ -153,6 +183,8 @@ describe('ProjectDetailPage', () => {
     mockAuthState.permissions = [...DEFAULT_PERMISSIONS];
     // Task 49.2: getProjectDetailSummaryの一括取得モック（デフォルト）
     vi.mocked(projectsApi.getProjectDetailSummary).mockResolvedValue(createMockSummary());
+    // Task 80.4: 削除のボタンで取る関連データの件数（既定は全種類 0 件）
+    vi.mocked(projectsApi.getProjectRelatedCounts).mockResolvedValue({ ...zeroRelatedCounts });
   });
 
   afterEach(() => {
@@ -2305,6 +2337,131 @@ describe('ProjectDetailPage', () => {
         ).toBeInTheDocument();
       });
       expect(screen.getByTestId('received-quotation-card-rq-1')).toBeInTheDocument();
+    });
+  });
+
+  // ==========================================================================
+  // Task 80.4: 削除の前に関連データの件数を取る（Requirements 9.5, 9.6）
+  // ==========================================================================
+  describe('削除の前の関連データの件数（Task 80.4, Requirements 9.5, 9.6）', () => {
+    async function waitForPage() {
+      await screen.findByRole('heading', { level: 1, name: 'テストプロジェクト' });
+    }
+
+    it('削除のボタンで件数を取得し、関連データがあれば警告と種類ごとの件数を出す', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockResolvedValue({
+        ...zeroRelatedCounts,
+        siteSurveys: 2,
+        receivedQuotations: 1,
+        constructionPhotos: 12,
+      });
+      renderWithRouter();
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(projectsApi.getProjectRelatedCounts).toHaveBeenCalledWith('project-1');
+      expect(
+        within(dialog).getByText('関連データがあります。本当に削除しますか？')
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText('現場調査: 2件')).toBeInTheDocument();
+      expect(within(dialog).getByText('受領見積書: 1件')).toBeInTheDocument();
+      expect(within(dialog).getByText('工事写真: 12件')).toBeInTheDocument();
+      // 0 件の種類は並べない
+      expect(within(dialog).queryByText(/数量表/)).not.toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: '削除する' })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'キャンセル' })).toBeInTheDocument();
+    });
+
+    it('警告のダイアログで「削除する」を選ぶとプロジェクトを削除する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockResolvedValue({
+        ...zeroRelatedCounts,
+        estimates: 1,
+      });
+      vi.mocked(projectsApi.deleteProject).mockResolvedValue(undefined);
+      renderWithRouter();
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: '削除する' }));
+
+      await waitFor(() => {
+        expect(projectsApi.deleteProject).toHaveBeenCalledWith('project-1');
+        expect(mockNavigate).toHaveBeenCalledWith('/projects');
+      });
+    });
+
+    it('件数がすべて 0 なら警告を出さない', async () => {
+      const user = userEvent.setup();
+      renderWithRouter();
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(projectsApi.getProjectRelatedCounts).toHaveBeenCalledWith('project-1');
+      expect(within(dialog).queryByText(/関連データがあります/)).not.toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: '削除' })).toBeInTheDocument();
+    });
+
+    it('件数の取得が終わるまで削除のボタンを押せない', async () => {
+      const user = userEvent.setup();
+      let resolveCounts: (value: projectsApi.RelatedCounts) => void = () => {};
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockReturnValue(
+        new Promise((resolve) => {
+          resolveCounts = resolve;
+        })
+      );
+      renderWithRouter();
+      await waitForPage();
+
+      const deleteButton = screen.getByRole('button', { name: '削除' });
+      await user.click(deleteButton);
+
+      expect(deleteButton).toBeDisabled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+      resolveCounts({ ...zeroRelatedCounts });
+
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      expect(projectsApi.getProjectRelatedCounts).toHaveBeenCalledTimes(1);
+    });
+
+    it('件数の取得に失敗したら失敗の通知を出し、ダイアログを開かない', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockRejectedValue(
+        new ApiError(500, 'サーバーエラーが発生しました')
+      );
+      renderWithRouter('project-1', { toastProbe: true });
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      const probe = screen.getByTestId('toast-probe');
+      expect(await within(probe).findByText('サーバーエラーが発生しました')).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(projectsApi.deleteProject).not.toHaveBeenCalled();
+      // もう一度押せる
+      expect(screen.getByRole('button', { name: '削除' })).toBeEnabled();
+    });
+
+    it('ApiError でない失敗でも既定の文言で通知し、ダイアログを開かない', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProjectRelatedCounts).mockRejectedValue(new Error('network'));
+      renderWithRouter('project-1', { toastProbe: true });
+      await waitForPage();
+
+      await user.click(screen.getByRole('button', { name: '削除' }));
+
+      const probe = screen.getByTestId('toast-probe');
+      expect(
+        await within(probe).findByText('関連データの件数を取得できませんでした')
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
   });
 });

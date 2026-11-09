@@ -33,7 +33,13 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { deleteProject, transitionStatus, getProjectDetailSummary } from '../api/projects';
+import {
+  deleteProject,
+  transitionStatus,
+  getProjectDetailSummary,
+  getProjectRelatedCounts,
+} from '../api/projects';
+import type { RelatedCounts } from '../api/projects';
 import type {
   ContractSectionSummary,
   ReceivedQuotationSectionSummary,
@@ -438,6 +444,9 @@ export default function ProjectDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  // Task 80.4: 削除の前に取る関連データの件数と、取得中の状態
+  const [relatedCounts, setRelatedCounts] = useState<RelatedCounts | null>(null);
+  const [isLoadingRelatedCounts, setIsLoadingRelatedCounts] = useState(false);
 
   // エラー状態
   const [error, setError] = useState<string | null>(null);
@@ -531,6 +540,30 @@ export default function ProjectDetailPage() {
       navigate(`/projects/${project.id}/edit`);
     }
   }, [project, navigate]);
+
+  /**
+   * 削除のボタン（Task 80.4, Requirements 9.5）
+   *
+   * 関連データの件数を取ってからダイアログを開く。
+   * 取得に失敗したら通知を出し、件数を示さずに消させないためダイアログを開かない。
+   */
+  const handleOpenDeleteDialog = useCallback(async () => {
+    if (!id || isLoadingRelatedCounts) return;
+
+    setIsLoadingRelatedCounts(true);
+    try {
+      const counts = await getProjectRelatedCounts(id);
+      setRelatedCounts(counts);
+      setShowDeleteDialog(true);
+    } catch (err) {
+      const defaultErrorMessage = '関連データの件数を取得できませんでした';
+      const errorMessage =
+        err instanceof ApiError ? err.message || defaultErrorMessage : defaultErrorMessage;
+      toast.operationFailed(errorMessage);
+    } finally {
+      setIsLoadingRelatedCounts(false);
+    }
+  }, [id, isLoadingRelatedCounts, toast]);
 
   /**
    * プロジェクト削除
@@ -696,7 +729,9 @@ export default function ProjectDetailPage() {
           </button>
           <button
             type="button"
-            onClick={() => setShowDeleteDialog(true)}
+            onClick={handleOpenDeleteDialog}
+            disabled={isLoadingRelatedCounts}
+            aria-busy={isLoadingRelatedCounts}
             style={{ ...styles.button, ...styles.deleteButton }}
           >
             削除
@@ -874,7 +909,10 @@ export default function ProjectDetailPage() {
         onClose={() => setShowDeleteDialog(false)}
         onConfirm={handleDelete}
         projectName={project.name}
-        hasRelatedData={false}
+        hasRelatedData={
+          relatedCounts !== null && Object.values(relatedCounts).some((count) => count > 0)
+        }
+        relatedDataCounts={relatedCounts ?? undefined}
         isDeleting={isDeleting}
       />
     </main>
