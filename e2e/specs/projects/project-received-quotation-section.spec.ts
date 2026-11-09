@@ -14,7 +14,7 @@
  * - 登録の権限の無い利用者には「新規登録」が出ないこと、空の表示
  * - detail-summary の応答を遅らせたときの骨組み（間接の検証。下記）
  *
- * Requirements coverage:
+ * Requirements coverage (project-management):
  * - REQ-28.1: 見積書セクションは受領見積書セクションの下。受領見積書セクションを出さない利用者には見積依頼セクションの下
  * - REQ-42.1〜42.14: プロジェクト詳細画面の受領見積書セクション
  * - REQ-43.1〜43.4: detail-summary API の受領見積書セクションデータ

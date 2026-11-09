@@ -106,7 +106,7 @@ export interface ScheduleSectionSummary {
  * 受領見積書セクションの直近の一件
  *
  * Task 77.3: 受領見積書セクション
- * Requirements: 42.5, 42.6, 43.2
+ * Requirements (project-management): 42.5, 42.6, 43.2
  */
 export interface ReceivedQuotationSectionItem {
   id: string;
@@ -124,7 +124,7 @@ export interface ReceivedQuotationSectionItem {
  * 受領見積書セクションサマリー
  *
  * Task 77.3: 受領見積書セクション
- * Requirements: 42.4, 42.5, 43.2
+ * Requirements (project-management): 42.4, 42.5, 43.2
  */
 export interface ReceivedQuotationSectionSummary {
   totalCount: number;

@@ -1,7 +1,7 @@
 /**
  * @fileoverview 自分が外れるときの確認ダイアログのテスト
  *
- * Requirements:
+ * Requirements (project-management):
  * - 45.1: 保存の前に逐語の文言で確かめ、「保存する」「キャンセル」を選ばせる
  * - 45.2: 「キャンセル」で閉じ、保存しない
  */

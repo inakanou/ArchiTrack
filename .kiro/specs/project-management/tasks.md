@@ -2028,7 +2028,7 @@
   - _Requirements: 9.5, 9.6, 46.2, 46.4_
   - _Depends: 80.4_
 
-- [ ] 82.5 除外の登録と spec の関門を緑にする
+- [x] 82.5 除外の登録と spec の関門を緑にする
   - E2E で確かめない受入基準（design.md の同章の Testing Strategy の「E2E で確かめないもの」）を、本番に到達する被覆の印が無いものに限り、除外の台帳（`e2e/requirement-exclusions.json`）へ代替の検証つきで登録する
   - `check:req-coverage`・`check:req-exclusions`・`check:criterion-literals`・`check:trace-coverage`・`check:design-measurement-freshness` などの spec の関門を名指しで 1 本ずつ流し、鮮度の錨が動いたら帰属つきで貼り直す
   - spec の関門がすべて緑の状態になる

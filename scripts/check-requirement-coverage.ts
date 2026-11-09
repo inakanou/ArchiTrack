@@ -1405,8 +1405,19 @@ export function findFeaturelessCoverageHeaders(
  * 戻した作業ツリーと戻さない作業ツリーで測り分けた（2026-10-29 にリポジトリルートから
  * `npm run check:req-coverage:json` を実行し `featurelessCoverageHeaders` を読んで実測。
  * ヘッダー 1983 → 1982 件、938 ファイルのまま。眠る名乗りの内訳は {@link MAX_DORMANT_HEADER_NAMES} の註）。
+ *
+ * project-management のタスク 82.5 が 1 だけ下げた（1982 → 1981）。減った 1 件は、同スペックのタスク 82.4 が
+ * `e2e/specs/projects/project-crud.spec.ts` の冒頭の `Requirements:` ブロックへ機能名を与え、
+ * `Requirements (project-management):` の形へ改めたことによる。同じブランチのタスク 77.2〜82.1 が足した
+ * 機能名を欠くヘッダー 9 件（`backend/src/__tests__/unit/routes/projects.detail-summary.routes.test.ts` の
+ * 4 件・`frontend/src/api/projects.ts` の 2 件・`frontend/src/components/projects/AssigneeSelfRemovalDialog.tsx`・
+ * その単体テスト・`e2e/specs/projects/project-received-quotation-section.spec.ts` の各 1 件）は、
+ * タスク 82.5 が機能名つきの形（detail-summary の 4 件は `@requirement` の印）へ改めたため差し引き 0 件である。
+ * 帰属は origin/develop（`0999f2f7`）の作業ツリーと本ブランチの作業ツリーで
+ * {@link findFeaturelessCoverageHeaders} をファイルごとに数えて測り分けた（2026-11-10 にそれぞれの
+ * リポジトリルートで実測。ヘッダー 1982 → 1990（82.5 の前）→ 1981 件、938 → 940 → 937 ファイル）。
  */
-export const MAX_FEATURELESS_COVERAGE_HEADERS = 1982;
+export const MAX_FEATURELESS_COVERAGE_HEADERS = 1981;
 
 /**
  * 機能名を欠くヘッダーの下で眠っている名乗りの上限（ラチェット）

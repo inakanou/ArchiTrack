@@ -679,7 +679,7 @@ describe('GET /api/projects/:id/detail-summary', () => {
   });
   describe('受領見積書のデータ（タスク77.2）', () => {
     /**
-     * Requirements: 43.1
+     * @requirement project-management/REQ-43.1
      */
     it('見積依頼の閲覧権限があれば sections.receivedQuotations に総数と直近を含める', async () => {
       // Arrange
@@ -703,7 +703,7 @@ describe('GET /api/projects/:id/detail-summary', () => {
     });
 
     /**
-     * Requirements: 43.4
+     * @requirement project-management/REQ-43.4
      */
     it('見積依頼の閲覧権限が無ければ受領見積書の鍵を含めず、取得もしない', async () => {
       // Arrange
@@ -725,7 +725,7 @@ describe('GET /api/projects/:id/detail-summary', () => {
     });
 
     /**
-     * Requirements: 43.4
+     * @requirement project-management/REQ-43.4
      */
     it('権限の判定が失敗したら受領見積書の鍵を含めず、他のセクションは返す', async () => {
       // Arrange
@@ -746,7 +746,7 @@ describe('GET /api/projects/:id/detail-summary', () => {
     });
 
     /**
-     * Requirements: 43.5
+     * @requirement project-management/REQ-43.5
      */
     it('取得が失敗したら 0 件・直近なしにして他のセクションは返す', async () => {
       // Arrange
