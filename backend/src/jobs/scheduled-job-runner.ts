@@ -43,6 +43,11 @@ import {
   SECURITY_ANOMALY_OVERFLOW_SUMMARY_JOB_NAME,
   sendSecurityAnomalyOverflowSummary,
 } from './security-anomaly-overflow-summary.job.js';
+import {
+  SOFT_DELETED_PROJECT_PURGE_CRON,
+  SOFT_DELETED_PROJECT_PURGE_JOB_NAME,
+  createSoftDeletedProjectPurgeRun,
+} from './soft-deleted-project-purge.job.js';
 
 /** 定期処理のキューの名前（Redis のキーは `bull:scheduled-jobs:*`） */
 export const SCHEDULED_JOBS_QUEUE_NAME = 'scheduled-jobs';
@@ -102,6 +107,11 @@ export function createScheduledJobDefinitions(prisma: PrismaClient): ScheduledJo
       name: SECURITY_ANOMALY_OVERFLOW_SUMMARY_JOB_NAME,
       cron: SECURITY_ANOMALY_OVERFLOW_SUMMARY_CRON,
       run: () => sendSecurityAnomalyOverflowSummary(),
+    },
+    {
+      name: SOFT_DELETED_PROJECT_PURGE_JOB_NAME,
+      cron: SOFT_DELETED_PROJECT_PURGE_CRON,
+      run: createSoftDeletedProjectPurgeRun(prisma),
     },
   ];
 }

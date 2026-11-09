@@ -1986,7 +1986,7 @@
   - _Requirements: 9.6, 46.1, 46.6, 46.7, 46.8, 46.9_
   - _Boundary: ProjectPurgeService_
 
-- [ ] 81.4 完全削除を 1 日 1 回の定期処理として登録する
+- [x] 81.4 完全削除を 1 日 1 回の定期処理として登録する
   - design.md の同章の SoftDeletedProjectPurgeJob のとおり、既存の定期処理の形で処理を作り、定期処理の定義に足す
   - 単体（新設の処理の単体と、`backend/src/__tests__/unit/jobs/scheduled-job-runner.test.ts`）で、定義の名前と cron、処理が部品を呼ぶこと、結果の扱いを主張する。改修の前に赤になることを先に示す
   - 単体で、定期処理の定義に完全削除が 1 日 1 回で載る状態になる
