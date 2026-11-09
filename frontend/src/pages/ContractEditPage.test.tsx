@@ -140,6 +140,7 @@ function createMockToastContext(): ToastContextValue {
     info: vi.fn().mockReturnValue('toast-1'),
     projectCreated: vi.fn().mockReturnValue('toast-1'),
     projectUpdated: vi.fn().mockReturnValue('toast-1'),
+    projectUpdatedWithoutAccess: vi.fn().mockReturnValue('toast-1'),
     projectDeleted: vi.fn().mockReturnValue('toast-1'),
     projectStatusChanged: vi.fn().mockReturnValue('toast-1'),
     operationFailed: vi.fn().mockReturnValue('toast-1'),

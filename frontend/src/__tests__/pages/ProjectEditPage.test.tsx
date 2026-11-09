@@ -17,6 +17,7 @@
  * - 8.5: キャンセルボタンで詳細ページに戻る
  * - 8.6: 楽観的排他制御による競合検出
  * - 8.7: 更新時にプロジェクト名が重複している場合、409エラーを受け取りエラーメッセージを表示
+ * - 45.1-45.5: 担当者の変更で自分が閲覧範囲から外れるときの確認と保存の後の遷移
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -25,9 +26,10 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '../../contexts/AuthContext';
 import { ToastProvider } from '../../components/ToastProvider';
+import { useToast } from '../../hooks/useToast';
 import ProjectEditPage from '../../pages/ProjectEditPage';
 import * as projectsApi from '../../api/projects';
-import { ApiError } from '../../api/client';
+import { ApiError, apiClient } from '../../api/client';
 import type { ProjectDetail } from '../../types/project.types';
 
 // モック
@@ -48,6 +50,24 @@ vi.mock('../../contexts/AuthContext', async () => {
     })),
   };
 });
+
+// 画面が使う useAuth（hooks 側）のモック。テストごとに利用者と権限を替える
+const authState = vi.hoisted(() => ({
+  user: { id: 'user-1', displayName: 'Test User', email: 'test@example.com', permissions: [] } as {
+    id: string;
+    displayName: string;
+    email: string;
+    permissions: string[];
+  },
+}));
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: vi.fn(() => ({
+    user: authState.user,
+    isAuthenticated: true,
+    isLoading: false,
+    isInitialized: true,
+  })),
+}));
 
 // useNavigateモック
 const mockNavigate = vi.fn();
@@ -90,9 +110,23 @@ const mockAssignableUsers = [
 // ============================================================================
 
 /**
+ * 出ているトーストの文言を表示する（通知の主張用）
+ */
+function ToastProbe() {
+  const { toasts } = useToast();
+  return (
+    <ul data-testid="toast-probe">
+      {toasts.map((t) => (
+        <li key={t.id}>{t.message}</li>
+      ))}
+    </ul>
+  );
+}
+
+/**
  * ProjectEditPageをレンダリングするヘルパー
  */
-function renderProjectEditPage(projectId: string = 'project-1') {
+function renderProjectEditPage(projectId: string = 'project-1', withToastProbe = false) {
   return render(
     <MemoryRouter initialEntries={[`/projects/${projectId}/edit`]}>
       <AuthProvider>
@@ -100,6 +134,7 @@ function renderProjectEditPage(projectId: string = 'project-1') {
           <Routes>
             <Route path="/projects/:id/edit" element={<ProjectEditPage />} />
           </Routes>
+          {withToastProbe && <ToastProbe />}
         </ToastProvider>
       </AuthProvider>
     </MemoryRouter>
@@ -114,6 +149,14 @@ describe('ProjectEditPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockNavigate.mockClear();
+    authState.user = {
+      id: 'user-1',
+      displayName: 'Test User',
+      email: 'test@example.com',
+      permissions: [],
+    };
+    // 担当者の選択欄が候補を取りに行けるよう、トークンがある状態にする
+    vi.spyOn(apiClient, 'getAccessToken').mockReturnValue('mock-token');
 
     // デフォルトのAPIモック
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
@@ -729,6 +772,217 @@ describe('ProjectEditPage', () => {
       await waitFor(() => {
         expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1');
       });
+    });
+  });
+  // ========================================================================
+  // 自分が外れるときの確認と保存の後の遷移 (REQ-45)
+  // ========================================================================
+
+  describe('自分が外れるときの確認 (REQ-45)', () => {
+    const CONFIRM_MESSAGE =
+      'この変更を保存すると、あなたはこのプロジェクトを閲覧できなくなります。保存しますか？';
+    const WITHOUT_ACCESS_MESSAGE =
+      'プロジェクトを更新しました。担当者から外れたため、このプロジェクトは閲覧できなくなりました';
+
+    // 作成者は別人。営業担当者は自分（user-1）、工事担当者は user-2
+    const othersProject: ProjectDetail = { ...mockProject, createdById: 'creator-x' };
+
+    /**
+     * 担当者を選び直して「保存」を押す
+     */
+    async function changeAssigneesAndSave(
+      user: ReturnType<typeof userEvent.setup>,
+      sales: string,
+      construction: string
+    ) {
+      const salesSelect = (await screen.findByRole('combobox', {
+        name: '営業担当者',
+      })) as HTMLSelectElement;
+      const constructionSelect = screen.getByRole('combobox', {
+        name: '工事担当者',
+      }) as HTMLSelectElement;
+      await waitFor(() => {
+        expect(salesSelect.value).toBe('user-1');
+      });
+      await user.selectOptions(salesSelect, sales);
+      await user.selectOptions(constructionSelect, construction);
+      await user.click(screen.getByRole('button', { name: '保存' }));
+    }
+
+    beforeEach(() => {
+      vi.mocked(projectsApi.getProject).mockResolvedValue(othersProject);
+    });
+
+    it('作成者でも全閲覧権限の保持者でもなく、変更後の担当者のどちらでもないとき、保存の前に確認を出す（45.1）', async () => {
+      const user = userEvent.setup();
+      renderProjectEditPage('project-1', true);
+
+      await changeAssigneesAndSave(user, 'user-3', 'user-2');
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(CONFIRM_MESSAGE)).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: '保存する' })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'キャンセル' })).toBeInTheDocument();
+      expect(projectsApi.updateProject).not.toHaveBeenCalled();
+    });
+
+    it('工事担当者を空にして自分がどちらにも残らないときも確認を出す（45.1）', async () => {
+      const user = userEvent.setup();
+      authState.user = { ...authState.user, id: 'user-2' };
+      renderProjectEditPage('project-1', true);
+
+      const salesSelect = (await screen.findByRole('combobox', {
+        name: '営業担当者',
+      })) as HTMLSelectElement;
+      await waitFor(() => {
+        expect(salesSelect.value).toBe('user-1');
+      });
+      await user.selectOptions(screen.getByRole('combobox', { name: '工事担当者' }), '');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      expect(projectsApi.updateProject).not.toHaveBeenCalled();
+    });
+
+    it('作成者なら確認を出さずに保存し、詳細画面へ移る（45.4）', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProject).mockResolvedValue({
+        ...othersProject,
+        createdById: 'user-1',
+      });
+      renderProjectEditPage('project-1', true);
+
+      await changeAssigneesAndSave(user, 'user-3', 'user-3');
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1');
+      });
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(projectsApi.updateProject).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('プロジェクトを更新しました')).toBeInTheDocument();
+    });
+
+    it('全プロジェクトの閲覧権限（project:read_all）を持つなら確認を出さずに詳細画面へ移る（45.4）', async () => {
+      const user = userEvent.setup();
+      authState.user = { ...authState.user, permissions: ['project:read_all'] };
+      renderProjectEditPage('project-1', true);
+
+      await changeAssigneesAndSave(user, 'user-3', 'user-3');
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1');
+      });
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('管理者（*:*）なら確認を出さずに詳細画面へ移る（45.4）', async () => {
+      const user = userEvent.setup();
+      authState.user = { ...authState.user, permissions: ['*:*'] };
+      renderProjectEditPage('project-1', true);
+
+      await changeAssigneesAndSave(user, 'user-3', 'user-3');
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1');
+      });
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('変更後も営業担当者に残るなら確認を出さずに詳細画面へ移る（45.4）', async () => {
+      const user = userEvent.setup();
+      renderProjectEditPage('project-1', true);
+
+      await changeAssigneesAndSave(user, 'user-1', 'user-3');
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1');
+      });
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('変更後も工事担当者に残るなら確認を出さずに詳細画面へ移る（45.4）', async () => {
+      const user = userEvent.setup();
+      renderProjectEditPage('project-1', true);
+
+      await changeAssigneesAndSave(user, 'user-3', 'user-1');
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/projects/project-1');
+      });
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('「キャンセル」ではダイアログを閉じ、保存せず、入力を保って編集画面に留まる（45.2）', async () => {
+      const user = userEvent.setup();
+      renderProjectEditPage('project-1', true);
+
+      const nameInput = await screen.findByLabelText(/プロジェクト名/);
+      await waitFor(() => {
+        expect(nameInput).toHaveValue('テストプロジェクト');
+      });
+      await user.clear(nameInput);
+      await user.type(nameInput, '変えた名前');
+      await changeAssigneesAndSave(user, 'user-3', 'user-2');
+
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+      expect(projectsApi.updateProject).not.toHaveBeenCalled();
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(screen.getByLabelText(/プロジェクト名/)).toHaveValue('変えた名前');
+      expect(screen.getByRole('combobox', { name: '営業担当者' })).toHaveValue('user-3');
+    });
+
+    it('「保存する」で保存し、成功したら 45.3 の通知を出してプロジェクト一覧へ移る（45.3, 45.5）', async () => {
+      const user = userEvent.setup();
+      renderProjectEditPage('project-1', true);
+
+      await changeAssigneesAndSave(user, 'user-3', 'user-2');
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: '保存する' }));
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/projects');
+      });
+      expect(projectsApi.updateProject).toHaveBeenCalledTimes(1);
+      expect(projectsApi.updateProject).toHaveBeenCalledWith(
+        'project-1',
+        expect.objectContaining({ salesPersonId: 'user-3', constructionPersonId: 'user-2' }),
+        '2025-01-15T00:00:00.000Z'
+      );
+      expect(mockNavigate).not.toHaveBeenCalledWith('/projects/project-1');
+      const probe = screen.getByTestId('toast-probe');
+      expect(within(probe).getByText(WITHOUT_ACCESS_MESSAGE)).toBeInTheDocument();
+      expect(within(probe).queryByText('プロジェクトを更新しました')).not.toBeInTheDocument();
+    });
+
+    it('「保存する」の後で保存に失敗したら、遷移せずにエラーを出して編集画面に留まる', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.updateProject).mockRejectedValue(
+        new ApiError(409, '他のユーザーによって更新されました', {
+          type: 'https://architrack.example.com/problems/conflict',
+          title: 'Conflict',
+          status: 409,
+          detail: '他のユーザーによって更新されました',
+        })
+      );
+      renderProjectEditPage('project-1', true);
+
+      await changeAssigneesAndSave(user, 'user-3', 'user-2');
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: '保存する' }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+      expect(mockNavigate).not.toHaveBeenCalled();
+      const probe = screen.getByTestId('toast-probe');
+      expect(within(probe).getByText('他のユーザーによって更新されました')).toBeInTheDocument();
+      expect(within(probe).queryByText(WITHOUT_ACCESS_MESSAGE)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/プロジェクト名/)).toBeInTheDocument();
     });
   });
 });
